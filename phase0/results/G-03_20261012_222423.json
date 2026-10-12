@@ -1,0 +1,165 @@
+{
+  "item": "G-03",
+  "saved_at": "2026-10-12T22:24:23",
+  "model": "gemini-3.8-live",
+  "script": "お忙しいところ恐れ入ります。株式会社サンプルの担当でございます。本日は、ご予約の日時の確認でお電話いたしました。15日の午後2時でお間違いないでしょうか。聞き取りにくかったので、もう一度、おっしゃっていただいてよろしいでしょうか。念のため確認させてください。ありがとうございました。失礼いたします。",
+  "results": [
+    {
+      "ok": true,
+      "voice": "Sadachbia",
+      "style": "smile",
+      "connected_after_s": 0.296,
+      "wav": "/home/user/salescall-ai/phase0/results/G-03_Sadachbia_smile.wav",
+      "chars_per_second": 6.41,
+      "speed_vs_baseline": 0.91,
+      "matches_script": true,
+      "audio_bytes": 1116000,
+      "audio_mime": "audio/pcm;rate=24000",
+      "audio_rate": 24000,
+      "audio_seconds": 23.25,
+      "input_transcript": "",
+      "output_transcript": "お忙しいところ恐れ入ります。株式会社サンプルの担当でございます。本日は、ご予約の日時の確認でお電話いたしました。15日の午後2時でお間違いないでしょうか。聞き取りにくかったので、もう一度、おっしゃっていただいてよろしいでしょうか。念のため確認させてください。ありがとうございました。失礼いたします。",
+      "usage": [
+        {
+          "prompt_token_count": 701,
+          "response_token_count": 587,
+          "thoughts_token_count": 161,
+          "total_token_count": 1288,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 516
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 160
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 587
+            }
+          ]
+        }
+      ],
+      "tool_calls": [],
+      "go_away_time_left": [],
+      "resumption_handle_received": true,
+      "interrupted": false,
+      "first_audio_after_s": 0.879,
+      "finished_after_s": 24.126,
+      "message_kinds": {
+        "session_resumption_update": 1,
+        "server_content": 67,
+        "usage_metadata": 1
+      },
+      "events": [
+        {
+          "at_s": 1.331,
+          "kind": "ai_said",
+          "text": "お忙しいところ恐れ"
+        },
+        {
+          "at_s": 1.536,
+          "kind": "ai_said",
+          "text": "入ります。株式会社"
+        },
+        {
+          "at_s": 1.853,
+          "kind": "ai_said",
+          "text": "サンプルの"
+        },
+        {
+          "at_s": 2.082,
+          "kind": "ai_said",
+          "text": "担当でございます。"
+        },
+        {
+          "at_s": 2.304,
+          "kind": "ai_said",
+          "text": "本日は、"
+        },
+        {
+          "at_s": 2.555,
+          "kind": "ai_said",
+          "text": "ご予約の日時"
+        },
+        {
+          "at_s": 2.798,
+          "kind": "ai_said",
+          "text": "の確認でお電話"
+        },
+        {
+          "at_s": 3.062,
+          "kind": "ai_said",
+          "text": "いたしました。15日"
+        },
+        {
+          "at_s": 3.207,
+          "kind": "ai_said",
+          "text": "の午後"
+        },
+        {
+          "at_s": 3.523,
+          "kind": "ai_said",
+          "text": "2時でお間違いない"
+        },
+        {
+          "at_s": 3.701,
+          "kind": "ai_said",
+          "text": "でしょうか。聞き取りにくかった"
+        },
+        {
+          "at_s": 3.956,
+          "kind": "ai_said",
+          "text": "ので、"
+        },
+        {
+          "at_s": 4.144,
+          "kind": "ai_said",
+          "text": "もう一度、"
+        },
+        {
+          "at_s": 4.378,
+          "kind": "ai_said",
+          "text": "おっしゃって"
+        },
+        {
+          "at_s": 4.704,
+          "kind": "ai_said",
+          "text": "いただいてよろしいでしょうか。"
+        },
+        {
+          "at_s": 4.859,
+          "kind": "ai_said",
+          "text": "念のため確認"
+        },
+        {
+          "at_s": 5.122,
+          "kind": "ai_said",
+          "text": "させてください。"
+        },
+        {
+          "at_s": 5.38,
+          "kind": "ai_said",
+          "text": "ありがとうございました。"
+        },
+        {
+          "at_s": 5.608,
+          "kind": "ai_said",
+          "text": "失礼"
+        },
+        {
+          "at_s": 5.886,
+          "kind": "ai_said",
+          "text": "いたします。"
+        },
+        {
+          "at_s": 24.126,
+          "kind": "turn_complete"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,2135 @@
+{
+  "item": "G-17",
+  "saved_at": "2026-10-12T22:00:06",
+  "model": "gemini-3.8-live",
+  "scripts": {
+    "A": "お忙しいところ恐れ入ります。株式会社サンプルの担当でございます。本日は、ご予約の日時の確認でお電話いたしました。15日の午後2時でお間違いないでしょうか。聞き取りにくかったので、もう一度、おっしゃっていただいてよろしいでしょうか。念のため確認させてください。ありがとうございました。失礼いたします。",
+    "B": "お忙しいところ恐れ入ります。株式会社アオバ物流の佐藤と申します。本日は、先日お送りした資料の件でお電話いたしました。ご担当の田中様はいらっしゃいますでしょうか。来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。ありがとうございました。失礼いたします。",
+    "B_comma": "お忙しいところ恐れ入ります。株式会社、アオバ物流の佐藤と申します。本日は、先日お送りした資料の件でお電話いたしました。ご担当の田中様はいらっしゃいますでしょうか。来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。ありがとうございました。失礼いたします。",
+    "B_quote": "お忙しいところ恐れ入ります。株式会社「アオバ物流」の佐藤と申します。本日は、先日お送りした資料の件でお電話いたしました。ご担当の田中様はいらっしゃいますでしょうか。来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。ありがとうございました。失礼いたします。"
+  },
+  "conditions": {
+    "none": "",
+    "tone": "話し方：取引先に電話をかける会社員のように、ていねいで、前向きで、感じのよい声で話してください。声は暗くせず、やわらかく話してください。抑揚は、ふだんの日本語の会話と同じ、自然な抑揚にしてください。聞き返すときや確認するときは、相手を問い詰める感じにならないよう、申し訳なさそうに、やさしく言ってください。威圧的な話し方はしないでください。留守番電話の案内のような、ゆっくりした話し方にしないでください。言葉は1文字も変えないでください。",
+    "tone_x2": "話し方：取引先に電話をかける会社員のように、ていねいで、前向きで、感じのよい声で話してください。声は暗くせず、やわらかく話してください。抑揚は、ふだんの日本語の会話と同じ、自然な抑揚にしてください。聞き返すときや確認するときは、相手を問い詰める感じにならないよう、申し訳なさそうに、やさしく言ってください。威圧的な話し方はしないでください。話す速さは2倍速にしてください。留守番電話の案内のような、ゆっくりした話し方にしないでください。言葉は1文字も変えないでください。",
+    "tone_x2_names": "話し方：取引先に電話をかける会社員のように、ていねいで、前向きで、感じのよい声で話してください。声は暗くせず、やわらかく話してください。抑揚は、ふだんの日本語の会話と同じ、自然な抑揚にしてください。聞き返すときや確認するときは、相手を問い詰める感じにならないよう、申し訳なさそうに、やさしく言ってください。威圧的な話し方はしないでください。話す速さは2倍速にしてください。留守番電話の案内のような、ゆっくりした話し方にしないでください。言葉は1文字も変えないでください。会社名と人の名前は、前後の言葉とつなげず、1語ずつはっきり言ってください。",
+    "s2_x0": "話し方：取引先に電話をかける会社員のように、ていねいで、前向きで、感じのよい声で話してください。声は暗くせず、やわらかく話してください。抑揚は、ふだんの日本語の会話と同じ、自然な抑揚にしてください。聞き返すときや確認するときは、相手を問い詰める感じにならないよう、申し訳なさそうに、やさしく言ってください。威圧的な話し方はしないでください。留守番電話の案内のような、ゆっくりした話し方にしないでください。言葉は1文字も変えないでください。",
+    "s2_slight": "話し方：取引先に電話をかける会社員のように、ていねいで、前向きで、感じのよい声で話してください。声は暗くせず、やわらかく話してください。抑揚は、ふだんの日本語の会話と同じ、自然な抑揚にしてください。聞き返すときや確認するときは、相手を問い詰める感じにならないよう、申し訳なさそうに、やさしく言ってください。威圧的な話し方はしないでください。話す速さは、ふつうより少し速めにしてください。留守番電話の案内のような、ゆっくりした話し方にしないでください。言葉は1文字も変えないでください。",
+    "s2_x1_5": "話し方：取引先に電話をかける会社員のように、ていねいで、前向きで、感じのよい声で話してください。声は暗くせず、やわらかく話してください。抑揚は、ふだんの日本語の会話と同じ、自然な抑揚にしてください。聞き返すときや確認するときは、相手を問い詰める感じにならないよう、申し訳なさそうに、やさしく言ってください。威圧的な話し方はしないでください。話す速さは1.5倍速にしてください。留守番電話の案内のような、ゆっくりした話し方にしないでください。言葉は1文字も変えないでください。",
+    "s2_x2": "話し方：取引先に電話をかける会社員のように、ていねいで、前向きで、感じのよい声で話してください。声は暗くせず、やわらかく話してください。抑揚は、ふだんの日本語の会話と同じ、自然な抑揚にしてください。聞き返すときや確認するときは、相手を問い詰める感じにならないよう、申し訳なさそうに、やさしく言ってください。威圧的な話し方はしないでください。話す速さは2倍速にしてください。留守番電話の案内のような、ゆっくりした話し方にしないでください。言葉は1文字も変えないでください。",
+    "l4_x0": "話し方：取引先にお願いをする気持ちで電話をかける、謙虚な会社員のように、ていねいで、やわらかく、前向きな声で話してください。声は暗くせず、語尾はやさしく終えてください。抑揚は、ふだんの日本語の会話と同じ、自然な抑揚にしてください。聞き返すときや確認するときは、申し訳なさそうに、やさしく言ってください。威圧的な話し方はしないでください。留守番電話の案内のような、ゆっくりした話し方にしないでください。言葉は1文字も変えないでください。",
+    "l4_slight": "話し方：取引先にお願いをする気持ちで電話をかける、謙虚な会社員のように、ていねいで、やわらかく、前向きな声で話してください。声は暗くせず、語尾はやさしく終えてください。抑揚は、ふだんの日本語の会話と同じ、自然な抑揚にしてください。聞き返すときや確認するときは、申し訳なさそうに、やさしく言ってください。威圧的な話し方はしないでください。話す速さは、ふつうより少し速めにしてください。留守番電話の案内のような、ゆっくりした話し方にしないでください。言葉は1文字も変えないでください。",
+    "l4_x1_5": "話し方：取引先にお願いをする気持ちで電話をかける、謙虚な会社員のように、ていねいで、やわらかく、前向きな声で話してください。声は暗くせず、語尾はやさしく終えてください。抑揚は、ふだんの日本語の会話と同じ、自然な抑揚にしてください。聞き返すときや確認するときは、申し訳なさそうに、やさしく言ってください。威圧的な話し方はしないでください。話す速さは1.5倍速にしてください。留守番電話の案内のような、ゆっくりした話し方にしないでください。言葉は1文字も変えないでください。",
+    "l4_x2": "話し方：取引先にお願いをする気持ちで電話をかける、謙虚な会社員のように、ていねいで、やわらかく、前向きな声で話してください。声は暗くせず、語尾はやさしく終えてください。抑揚は、ふだんの日本語の会話と同じ、自然な抑揚にしてください。聞き返すときや確認するときは、申し訳なさそうに、やさしく言ってください。威圧的な話し方はしないでください。話す速さは2倍速にしてください。留守番電話の案内のような、ゆっくりした話し方にしないでください。言葉は1文字も変えないでください。"
+  },
+  "max_chars_per_s": 15.0,
+  "summary": {
+    "voice": {
+      "Sadachbia": {
+        "trials": 19,
+        "silent_turns": 0,
+        "cut_off_turns": 0,
+        "turns": 133,
+        "trials_with_ear_diffs": 10,
+        "trials_with_intended_diffs": 3
+      },
+      "Leda": {
+        "trials": 0,
+        "silent_turns": 0,
+        "cut_off_turns": 0,
+        "turns": 0,
+        "trials_with_ear_diffs": 0,
+        "trials_with_intended_diffs": 0
+      }
+    },
+    "condition": {
+      "none": {
+        "trials": 0,
+        "silent_turns": 0,
+        "cut_off_turns": 0,
+        "turns": 0,
+        "trials_with_ear_diffs": 0,
+        "trials_with_intended_diffs": 0
+      },
+      "tone": {
+        "trials": 0,
+        "silent_turns": 0,
+        "cut_off_turns": 0,
+        "turns": 0,
+        "trials_with_ear_diffs": 0,
+        "trials_with_intended_diffs": 0
+      },
+      "tone_x2": {
+        "trials": 0,
+        "silent_turns": 0,
+        "cut_off_turns": 0,
+        "turns": 0,
+        "trials_with_ear_diffs": 0,
+        "trials_with_intended_diffs": 0
+      },
+      "tone_x2_names": {
+        "trials": 0,
+        "silent_turns": 0,
+        "cut_off_turns": 0,
+        "turns": 0,
+        "trials_with_ear_diffs": 0,
+        "trials_with_intended_diffs": 0
+      },
+      "s2_x0": {
+        "trials": 5,
+        "silent_turns": 0,
+        "cut_off_turns": 0,
+        "turns": 35,
+        "trials_with_ear_diffs": 3,
+        "trials_with_intended_diffs": 2
+      },
+      "s2_slight": {
+        "trials": 5,
+        "silent_turns": 0,
+        "cut_off_turns": 0,
+        "turns": 35,
+        "trials_with_ear_diffs": 2,
+        "trials_with_intended_diffs": 0
+      },
+      "s2_x1_5": {
+        "trials": 5,
+        "silent_turns": 0,
+        "cut_off_turns": 0,
+        "turns": 35,
+        "trials_with_ear_diffs": 3,
+        "trials_with_intended_diffs": 0
+      },
+      "s2_x2": {
+        "trials": 4,
+        "silent_turns": 0,
+        "cut_off_turns": 0,
+        "turns": 28,
+        "trials_with_ear_diffs": 2,
+        "trials_with_intended_diffs": 1
+      },
+      "l4_x0": {
+        "trials": 0,
+        "silent_turns": 0,
+        "cut_off_turns": 0,
+        "turns": 0,
+        "trials_with_ear_diffs": 0,
+        "trials_with_intended_diffs": 0
+      },
+      "l4_slight": {
+        "trials": 0,
+        "silent_turns": 0,
+        "cut_off_turns": 0,
+        "turns": 0,
+        "trials_with_ear_diffs": 0,
+        "trials_with_intended_diffs": 0
+      },
+      "l4_x1_5": {
+        "trials": 0,
+        "silent_turns": 0,
+        "cut_off_turns": 0,
+        "turns": 0,
+        "trials_with_ear_diffs": 0,
+        "trials_with_intended_diffs": 0
+      },
+      "l4_x2": {
+        "trials": 0,
+        "silent_turns": 0,
+        "cut_off_turns": 0,
+        "turns": 0,
+        "trials_with_ear_diffs": 0,
+        "trials_with_intended_diffs": 0
+      }
+    },
+    "length": {
+      "long": {
+        "trials": 0,
+        "silent_turns": 0,
+        "cut_off_turns": 0,
+        "turns": 0,
+        "trials_with_ear_diffs": 0,
+        "trials_with_intended_diffs": 0
+      },
+      "short": {
+        "trials": 19,
+        "silent_turns": 0,
+        "cut_off_turns": 0,
+        "turns": 133,
+        "trials_with_ear_diffs": 10,
+        "trials_with_intended_diffs": 3
+      }
+    },
+    "script_id": {
+      "A": {
+        "trials": 0,
+        "silent_turns": 0,
+        "cut_off_turns": 0,
+        "turns": 0,
+        "trials_with_ear_diffs": 0,
+        "trials_with_intended_diffs": 0
+      },
+      "B": {
+        "trials": 0,
+        "silent_turns": 0,
+        "cut_off_turns": 0,
+        "turns": 0,
+        "trials_with_ear_diffs": 0,
+        "trials_with_intended_diffs": 0
+      },
+      "B_comma": {
+        "trials": 0,
+        "silent_turns": 0,
+        "cut_off_turns": 0,
+        "turns": 0,
+        "trials_with_ear_diffs": 0,
+        "trials_with_intended_diffs": 0
+      },
+      "B_quote": {
+        "trials": 19,
+        "silent_turns": 0,
+        "cut_off_turns": 0,
+        "turns": 133,
+        "trials_with_ear_diffs": 10,
+        "trials_with_intended_diffs": 3
+      }
+    },
+    "errors": 1
+  },
+  "rows": [
+    {
+      "id": "20261012_213803_001_Sadachbia_s2_x0_short_B_quote",
+      "voice": "Sadachbia",
+      "condition": "s2_x0",
+      "length": "short",
+      "script_id": "B_quote",
+      "turns": [
+        {
+          "script": "お忙しいところ恐れ入ります。",
+          "intended": "",
+          "audio_s": 1.77,
+          "voiced_s": 1.46,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.552,
+          "audio_tokens": 50,
+          "thoughts_tokens": 67
+        },
+        {
+          "script": "株式会社「アオバ物流」の佐藤と申します。",
+          "intended": "株式会社「アオバ物流」の佐藤と申します。",
+          "audio_s": 2.98,
+          "voiced_s": 2.83,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.643,
+          "audio_tokens": 75,
+          "thoughts_tokens": 84
+        },
+        {
+          "script": "本日は、先日お送りした資料の件でお電話いたしました。",
+          "intended": "本日は、先日お送りした資料の件でお電話いたしました。",
+          "audio_s": 4.16,
+          "voiced_s": 3.88,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.475,
+          "audio_tokens": 111,
+          "thoughts_tokens": 63
+        },
+        {
+          "script": "ご担当の田中様はいらっしゃいますでしょうか。",
+          "intended": "ご担当の田中様はいらっしゃいますか。",
+          "audio_s": 2.81,
+          "voiced_s": 2.41,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.57,
+          "audio_tokens": 75,
+          "thoughts_tokens": 67
+        },
+        {
+          "script": "来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。",
+          "intended": "来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。",
+          "audio_s": 5.82,
+          "voiced_s": 5.52,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.768,
+          "audio_tokens": 146,
+          "thoughts_tokens": 85
+        },
+        {
+          "script": "ありがとうございました。",
+          "intended": "ありがとうございました。",
+          "audio_s": 1.47,
+          "voiced_s": 1.1,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 1.248,
+          "audio_tokens": 43,
+          "thoughts_tokens": 37
+        },
+        {
+          "script": "失礼いたします。",
+          "intended": "失礼いたします。",
+          "audio_s": 1.09,
+          "voiced_s": 0.82,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.557,
+          "audio_tokens": 34,
+          "thoughts_tokens": 59
+        }
+      ],
+      "silent_turns": 0,
+      "cut_off_turns": 0,
+      "chars_per_s": 7.16,
+      "intended_missing": true,
+      "intended_diffs": null,
+      "wav": "20261012_213803_001_Sadachbia_s2_x0_short_B_quote.wav",
+      "ear": "お忙しいところ恐れ入ります。株式会社アオバ物流の佐藤と申します。本日は先日お送りした資料の件でお電話いたしました。ご担当の田中様はいらっしゃいますか？来週の火曜日、10月20日の午後3時に改めてお電話してもよろしいでしょうか？ありがとうございました。失礼いたします。",
+      "ear_diffs": [
+        {
+          "kind": "delete",
+          "script": "ゃいます[でしょう]からいし",
+          "heard": ""
+        }
+      ]
+    },
+    {
+      "id": "20261012_213803_002_Sadachbia_s2_slight_short_B_quote",
+      "voice": "Sadachbia",
+      "condition": "s2_slight",
+      "length": "short",
+      "script_id": "B_quote",
+      "turns": [
+        {
+          "script": "お忙しいところ恐れ入ります。",
+          "intended": "お忙しいところ恐れ入ります。",
+          "audio_s": 2.14,
+          "voiced_s": 1.81,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.717,
+          "audio_tokens": 60,
+          "thoughts_tokens": 109
+        },
+        {
+          "script": "株式会社「アオバ物流」の佐藤と申します。",
+          "intended": "株式会社「アオバ物流」の佐藤と申します。",
+          "audio_s": 3.38,
+          "voiced_s": 3.06,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.704,
+          "audio_tokens": 91,
+          "thoughts_tokens": 74
+        },
+        {
+          "script": "本日は、先日お送りした資料の件でお電話いたしました。",
+          "intended": "本日は、先日お送りした資料の件でお電話いたしました。",
+          "audio_s": 4.28,
+          "voiced_s": 3.97,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.763,
+          "audio_tokens": 112,
+          "thoughts_tokens": 88
+        },
+        {
+          "script": "ご担当の田中様はいらっしゃいますでしょうか。",
+          "intended": "ご担当の田中様はいらっしゃいますでしょうか。",
+          "audio_s": 3.12,
+          "voiced_s": 2.81,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.571,
+          "audio_tokens": 84,
+          "thoughts_tokens": 62
+        },
+        {
+          "script": "来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。",
+          "intended": "来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。",
+          "audio_s": 6.13,
+          "voiced_s": 5.89,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.828,
+          "audio_tokens": 159,
+          "thoughts_tokens": 142
+        },
+        {
+          "script": "ありがとうございました。",
+          "intended": "ありがとうございました。",
+          "audio_s": 1.4,
+          "voiced_s": 1.04,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.73,
+          "audio_tokens": 41,
+          "thoughts_tokens": 40
+        },
+        {
+          "script": "失礼いたします。",
+          "intended": "失礼いたします。",
+          "audio_s": 1.23,
+          "voiced_s": 0.95,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.693,
+          "audio_tokens": 37,
+          "thoughts_tokens": 48
+        }
+      ],
+      "silent_turns": 0,
+      "cut_off_turns": 0,
+      "chars_per_s": 6.61,
+      "intended_missing": false,
+      "intended_diffs": [],
+      "wav": "20261012_213803_002_Sadachbia_s2_slight_short_B_quote.wav",
+      "ear": "お忙しいところ恐れ入ります。株式会社アオバ物流の佐藤と申します。本日は先日お送りした資料の件でお電話いたしました。ご担当の田中様はいらっしゃいますでしょうか。来週の火曜日、10月20日の午後3時に改めてお電話してもよろしいでしょうか。ありがとうございました。失礼いたします。",
+      "ear_diffs": []
+    },
+    {
+      "id": "20261012_213803_003_Sadachbia_s2_x1_5_short_B_quote",
+      "voice": "Sadachbia",
+      "condition": "s2_x1_5",
+      "length": "short",
+      "script_id": "B_quote",
+      "turns": [
+        {
+          "script": "お忙しいところ恐れ入ります。",
+          "intended": "",
+          "audio_s": 1.92,
+          "voiced_s": 1.51,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.801,
+          "audio_tokens": 53,
+          "thoughts_tokens": 128
+        },
+        {
+          "script": "株式会社「アオバ物流」の佐藤と申します。",
+          "intended": "",
+          "audio_s": 3.04,
+          "voiced_s": 2.68,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.756,
+          "audio_tokens": 82,
+          "thoughts_tokens": 135
+        },
+        {
+          "script": "本日は、先日お送りした資料の件でお電話いたしました。",
+          "intended": "",
+          "audio_s": 3.82,
+          "voiced_s": 3.42,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 1.389,
+          "audio_tokens": 101,
+          "thoughts_tokens": 108
+        },
+        {
+          "script": "ご担当の田中様はいらっしゃいますでしょうか。",
+          "intended": "",
+          "audio_s": 2.73,
+          "voiced_s": 2.45,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.787,
+          "audio_tokens": 73,
+          "thoughts_tokens": 137
+        },
+        {
+          "script": "来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。",
+          "intended": "来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。",
+          "audio_s": 5.43,
+          "voiced_s": 5.15,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.9,
+          "audio_tokens": 140,
+          "thoughts_tokens": 137
+        },
+        {
+          "script": "ありがとうございました。",
+          "intended": "ありがとうございました。",
+          "audio_s": 1.43,
+          "voiced_s": 1.06,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.738,
+          "audio_tokens": 42,
+          "thoughts_tokens": 103
+        },
+        {
+          "script": "失礼いたします。",
+          "intended": "失礼いたします。",
+          "audio_s": 1.3,
+          "voiced_s": 0.91,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.594,
+          "audio_tokens": 39,
+          "thoughts_tokens": 59
+        }
+      ],
+      "silent_turns": 0,
+      "cut_off_turns": 0,
+      "chars_per_s": 7.51,
+      "intended_missing": true,
+      "intended_diffs": null,
+      "wav": "20261012_213803_003_Sadachbia_s2_x1_5_short_B_quote.wav",
+      "ear": "お忙しいところ恐れ入ります。株式会社青葉物流の佐藤と申します。本日は先日お送りした資料の件でお電話いたしました。ご担当の田中様はいらっしゃいますでしょうか。来週の火曜日、10月20日の午後3時に改めてお電話してもよろしいでしょうか。ありがとうございました。失礼いたします。",
+      "ear_diffs": []
+    },
+    {
+      "id": "20261012_213803_004_Sadachbia_s2_x2_short_B_quote",
+      "voice": "Sadachbia",
+      "condition": "s2_x2",
+      "length": "short",
+      "script_id": "B_quote",
+      "error": {
+        "type": "TimeoutError",
+        "module": "builtins",
+        "message": ""
+      }
+    },
+    {
+      "id": "20261012_213803_005_Sadachbia_s2_x0_short_B_quote",
+      "voice": "Sadachbia",
+      "condition": "s2_x0",
+      "length": "short",
+      "script_id": "B_quote",
+      "turns": [
+        {
+          "script": "お忙しいところ恐れ入ります。",
+          "intended": "お忙しいところ恐れ入ります。",
+          "audio_s": 2.02,
+          "voiced_s": 1.72,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.639,
+          "audio_tokens": 57,
+          "thoughts_tokens": 66
+        },
+        {
+          "script": "株式会社「アオバ物流」の佐藤と申します。",
+          "intended": "株式会社「アオバ物流」の佐藤と申します。",
+          "audio_s": 3.27,
+          "voiced_s": 2.93,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.577,
+          "audio_tokens": 88,
+          "thoughts_tokens": 52
+        },
+        {
+          "script": "本日は、先日お送りした資料の件でお電話いたしました。",
+          "intended": "本日は、先日お送りした資料の件でお電話いたしました。",
+          "audio_s": 4.09,
+          "voiced_s": 3.77,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.631,
+          "audio_tokens": 107,
+          "thoughts_tokens": 89
+        },
+        {
+          "script": "ご担当の田中様はいらっしゃいますでしょうか。",
+          "intended": "ご担当の田中様はいらっしゃいましたでしょうか。",
+          "audio_s": 3.07,
+          "voiced_s": 2.72,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.651,
+          "audio_tokens": 83,
+          "thoughts_tokens": 76
+        },
+        {
+          "script": "来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。",
+          "intended": "来週の火曜日、10月20日の午後3時に改めてお電話してもよろしいでしょうか。",
+          "audio_s": 5.67,
+          "voiced_s": 5.29,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.679,
+          "audio_tokens": 148,
+          "thoughts_tokens": 79
+        },
+        {
+          "script": "ありがとうございました。",
+          "intended": "ありがとうございました。",
+          "audio_s": 1.4,
+          "voiced_s": 1.04,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.851,
+          "audio_tokens": 41,
+          "thoughts_tokens": 48
+        },
+        {
+          "script": "失礼いたします。",
+          "intended": "失礼いたします。",
+          "audio_s": 1.34,
+          "voiced_s": 0.92,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.72,
+          "audio_tokens": 40,
+          "thoughts_tokens": 79
+        }
+      ],
+      "silent_turns": 0,
+      "cut_off_turns": 0,
+      "chars_per_s": 7.01,
+      "intended_missing": false,
+      "intended_diffs": [
+        {
+          "kind": "replace",
+          "script": "しゃいま[す]でしょう",
+          "heard": "した"
+        }
+      ],
+      "wav": "20261012_213803_005_Sadachbia_s2_x0_short_B_quote.wav",
+      "ear": "お忙しいところ恐れ入ります。株式会社青葉物流の佐藤と申します。本日は先日お送りした資料の件でお電話いたしました。ご担当の田中様はいらっしゃいましたでしょうか。来週の火曜日、10月20日の午後3時に改めてお電話してもよろしいでしょうか。ありがとうございました。失礼いたします。",
+      "ear_diffs": [
+        {
+          "kind": "replace",
+          "script": "しゃいま[す]でしょう",
+          "heard": "した"
+        }
+      ]
+    },
+    {
+      "id": "20261012_213803_006_Sadachbia_s2_slight_short_B_quote",
+      "voice": "Sadachbia",
+      "condition": "s2_slight",
+      "length": "short",
+      "script_id": "B_quote",
+      "turns": [
+        {
+          "script": "お忙しいところ恐れ入ります。",
+          "intended": "お忙しいところ恐れ入ります。",
+          "audio_s": 1.98,
+          "voiced_s": 1.65,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.718,
+          "audio_tokens": 57,
+          "thoughts_tokens": 103
+        },
+        {
+          "script": "株式会社「アオバ物流」の佐藤と申します。",
+          "intended": "株式会社「アオバ物流」の佐藤と申します。",
+          "audio_s": 3.29,
+          "voiced_s": 3.03,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.523,
+          "audio_tokens": 89,
+          "thoughts_tokens": 61
+        },
+        {
+          "script": "本日は、先日お送りした資料の件でお電話いたしました。",
+          "intended": "本日は、先日お送りした資料の件でお電話いたしました。",
+          "audio_s": 4.11,
+          "voiced_s": 3.77,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.536,
+          "audio_tokens": 109,
+          "thoughts_tokens": 82
+        },
+        {
+          "script": "ご担当の田中様はいらっしゃいますでしょうか。",
+          "intended": "ご担当の田中様はいらっしゃいますでしょうか。",
+          "audio_s": 2.97,
+          "voiced_s": 2.65,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.654,
+          "audio_tokens": 81,
+          "thoughts_tokens": 52
+        },
+        {
+          "script": "来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。",
+          "intended": "来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。",
+          "audio_s": 5.91,
+          "voiced_s": 5.52,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.831,
+          "audio_tokens": 153,
+          "thoughts_tokens": 64
+        },
+        {
+          "script": "ありがとうございました。",
+          "intended": "ありがとうございました。",
+          "audio_s": 1.45,
+          "voiced_s": 1.09,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.702,
+          "audio_tokens": 43,
+          "thoughts_tokens": 62
+        },
+        {
+          "script": "失礼いたします。",
+          "intended": "失礼いたします。",
+          "audio_s": 1.29,
+          "voiced_s": 0.93,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.876,
+          "audio_tokens": 40,
+          "thoughts_tokens": 47
+        }
+      ],
+      "silent_turns": 0,
+      "cut_off_turns": 0,
+      "chars_per_s": 6.92,
+      "intended_missing": false,
+      "intended_diffs": [],
+      "wav": "20261012_213803_006_Sadachbia_s2_slight_short_B_quote.wav",
+      "ear": "お忙しいところ恐れ入ります。株式会社大場物産の佐藤と申します。本日は先日お送りした資料の件でお電話いたしました。ご担当の田中様はいらっしゃいますでしょうか。来週の火曜日、10月20日の午後3時に改めてお電話してもよろしいでしょうか。ありがとうございました。いたします。",
+      "ear_diffs": [
+        {
+          "kind": "replace",
+          "script": "がいしゃ[あ]おばぶつ",
+          "heard": "お"
+        },
+        {
+          "kind": "replace",
+          "script": "あおばぶ[つりゅう]のさとう",
+          "heard": "っさん"
+        },
+        {
+          "kind": "delete",
+          "script": "いました[しつれい]いたしま",
+          "heard": ""
+        }
+      ]
+    },
+    {
+      "id": "20261012_213803_007_Sadachbia_s2_x1_5_short_B_quote",
+      "voice": "Sadachbia",
+      "condition": "s2_x1_5",
+      "length": "short",
+      "script_id": "B_quote",
+      "turns": [
+        {
+          "script": "お忙しいところ恐れ入ります。",
+          "intended": "",
+          "audio_s": 1.97,
+          "voiced_s": 1.62,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.784,
+          "audio_tokens": 56,
+          "thoughts_tokens": 128
+        },
+        {
+          "script": "株式会社「アオバ物流」の佐藤と申します。",
+          "intended": "株式会社「アオバ物流」の佐藤と申します。",
+          "audio_s": 3.22,
+          "voiced_s": 2.89,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.913,
+          "audio_tokens": 87,
+          "thoughts_tokens": 171
+        },
+        {
+          "script": "本日は、先日お送りした資料の件でお電話いたしました。",
+          "intended": "本日は、先日お送りした資料の件でお電話いたしました。",
+          "audio_s": 3.95,
+          "voiced_s": 3.58,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.813,
+          "audio_tokens": 104,
+          "thoughts_tokens": 143
+        },
+        {
+          "script": "ご担当の田中様はいらっしゃいますでしょうか。",
+          "intended": "ご担当の田中様はいらっしゃいますでしょうか。",
+          "audio_s": 2.82,
+          "voiced_s": 2.47,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.554,
+          "audio_tokens": 78,
+          "thoughts_tokens": 67
+        },
+        {
+          "script": "来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。",
+          "intended": "来週の火曜日、十月二十日の午後三時に、改めてお電話してもよろしいで",
+          "audio_s": 5.77,
+          "voiced_s": 5.44,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.681,
+          "audio_tokens": 150,
+          "thoughts_tokens": 89
+        },
+        {
+          "script": "ありがとうございました。",
+          "intended": "ありがとうございました。",
+          "audio_s": 1.42,
+          "voiced_s": 1.03,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.73,
+          "audio_tokens": 42,
+          "thoughts_tokens": 52
+        },
+        {
+          "script": "失礼いたします。",
+          "intended": "失礼いたします。",
+          "audio_s": 1.21,
+          "voiced_s": 0.83,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.55,
+          "audio_tokens": 37,
+          "thoughts_tokens": 62
+        }
+      ],
+      "silent_turns": 0,
+      "cut_off_turns": 0,
+      "chars_per_s": 7.22,
+      "intended_missing": true,
+      "intended_diffs": null,
+      "wav": "20261012_213803_007_Sadachbia_s2_x1_5_short_B_quote.wav",
+      "ear": "お忙しいところ恐れ入ります。株式会社青葉物流の佐藤と申します。本日は先日お送りした資料の件でお電話いたしました。ご担当の田中様はいらっしゃいますでしょうか。来週の火曜日、10月20日の午後3時に改めてお電話してもよろしいでしょうか。ありがとうございました。失礼いたします。",
+      "ear_diffs": []
+    },
+    {
+      "id": "20261012_213803_008_Sadachbia_s2_x2_short_B_quote",
+      "voice": "Sadachbia",
+      "condition": "s2_x2",
+      "length": "short",
+      "script_id": "B_quote",
+      "turns": [
+        {
+          "script": "お忙しいところ恐れ入ります。",
+          "intended": " お忙しいところ恐 れ入ります。",
+          "audio_s": 1.87,
+          "voiced_s": 1.41,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.704,
+          "audio_tokens": 52,
+          "thoughts_tokens": 126
+        },
+        {
+          "script": "株式会社「アオバ物流」の佐藤と申します。",
+          "intended": "株式会社「アオバ物流」の佐藤と申します。",
+          "audio_s": 3.17,
+          "voiced_s": 2.81,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.678,
+          "audio_tokens": 85,
+          "thoughts_tokens": 73
+        },
+        {
+          "script": "本日は、先日お送りした資料の件でお電話いたしました。",
+          "intended": "本日は、先日お送りした資料の件でお電話いたしました。",
+          "audio_s": 4.35,
+          "voiced_s": 3.96,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.661,
+          "audio_tokens": 114,
+          "thoughts_tokens": 73
+        },
+        {
+          "script": "ご担当の田中様はいらっしゃいますでしょうか。",
+          "intended": "ご担当の田中様はいらっしゃいますでしょうか。",
+          "audio_s": 3.16,
+          "voiced_s": 2.71,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.683,
+          "audio_tokens": 86,
+          "thoughts_tokens": 124
+        },
+        {
+          "script": "来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。",
+          "intended": "来週の火曜日、十月二十日の午後三時に、改めてお電話してもよろしいでしょうか。",
+          "audio_s": 6.08,
+          "voiced_s": 5.69,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.689,
+          "audio_tokens": 156,
+          "thoughts_tokens": 80
+        },
+        {
+          "script": "ありがとうございました。",
+          "intended": "ありがとうございました。",
+          "audio_s": 1.27,
+          "voiced_s": 0.97,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.56,
+          "audio_tokens": 38,
+          "thoughts_tokens": 47
+        },
+        {
+          "script": "失礼いたします。",
+          "intended": "失礼いたします。",
+          "audio_s": 1.19,
+          "voiced_s": 0.82,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.592,
+          "audio_tokens": 35,
+          "thoughts_tokens": 72
+        }
+      ],
+      "silent_turns": 0,
+      "cut_off_turns": 0,
+      "chars_per_s": 7.02,
+      "intended_missing": false,
+      "intended_diffs": [
+        {
+          "kind": "replace",
+          "script": "かようび[10]がつ20",
+          "heard": "じゅう"
+        },
+        {
+          "kind": "replace",
+          "script": "10がつ[20にち]のごご3",
+          "heard": "はつか"
+        },
+        {
+          "kind": "replace",
+          "script": "ちのごご[3とき]にあらた",
+          "heard": "さんじ"
+        }
+      ],
+      "wav": "20261012_213803_008_Sadachbia_s2_x2_short_B_quote.wav",
+      "ear": "お待たせしたところ恐れ入ります。株式会社青葉物流の佐藤と申します。本日は先日お送りした資料の件でお電話いたしました。ご担当の田中様はいらっしゃいますでしょうか。来週の火曜日、10月20日の午後3時に改めてお電話してもよろしいでしょうか。ありがとうございました。失礼いたします。",
+      "ear_diffs": [
+        {
+          "kind": "replace",
+          "script": "お[いそが]しいとこ",
+          "heard": "またせ"
+        },
+        {
+          "kind": "replace",
+          "script": "いそがし[い]ところお",
+          "heard": "た"
+        }
+      ]
+    },
+    {
+      "id": "20261012_213803_009_Sadachbia_s2_x0_short_B_quote",
+      "voice": "Sadachbia",
+      "condition": "s2_x0",
+      "length": "short",
+      "script_id": "B_quote",
+      "turns": [
+        {
+          "script": "お忙しいところ恐れ入ります。",
+          "intended": "お忙しいところ恐れ入ります。",
+          "audio_s": 1.92,
+          "voiced_s": 1.67,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.659,
+          "audio_tokens": 54,
+          "thoughts_tokens": 71
+        },
+        {
+          "script": "株式会社「アオバ物流」の佐藤と申します。",
+          "intended": "株式会社「アオバ物流」の佐藤と申します。",
+          "audio_s": 3.44,
+          "voiced_s": 3.09,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.799,
+          "audio_tokens": 92,
+          "thoughts_tokens": 72
+        },
+        {
+          "script": "本日は、先日お送りした資料の件でお電話いたしました。",
+          "intended": "本日は、先日お送りした資料の件でお電話いたしました。",
+          "audio_s": 3.85,
+          "voiced_s": 3.51,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.735,
+          "audio_tokens": 102,
+          "thoughts_tokens": 55
+        },
+        {
+          "script": "ご担当の田中様はいらっしゃいますでしょうか。",
+          "intended": "ご担当の田中様はいらっしゃいましたでしょうか。",
+          "audio_s": 3.04,
+          "voiced_s": 2.84,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.946,
+          "audio_tokens": 83,
+          "thoughts_tokens": 72
+        },
+        {
+          "script": "来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。",
+          "intended": "来週の火曜日、十月二十日の午後三時に、改めてお電話してもよろしいでしょうか。",
+          "audio_s": 5.93,
+          "voiced_s": 5.57,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.57,
+          "audio_tokens": 153,
+          "thoughts_tokens": 72
+        },
+        {
+          "script": "ありがとうございました。",
+          "intended": "ありがとうございました。",
+          "audio_s": 1.53,
+          "voiced_s": 1.05,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.543,
+          "audio_tokens": 44,
+          "thoughts_tokens": 46
+        },
+        {
+          "script": "失礼いたします。",
+          "intended": "失礼いたします。",
+          "audio_s": 1.76,
+          "voiced_s": 0.87,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.765,
+          "audio_tokens": 49,
+          "thoughts_tokens": 50
+        }
+      ],
+      "silent_turns": 0,
+      "cut_off_turns": 0,
+      "chars_per_s": 6.94,
+      "intended_missing": false,
+      "intended_diffs": [
+        {
+          "kind": "replace",
+          "script": "しゃいま[す]でしょう",
+          "heard": "した"
+        },
+        {
+          "kind": "replace",
+          "script": "かようび[10]がつ20",
+          "heard": "じゅう"
+        },
+        {
+          "kind": "replace",
+          "script": "10がつ[20にち]のごご3",
+          "heard": "はつか"
+        },
+        {
+          "kind": "replace",
+          "script": "ちのごご[3とき]にあらた",
+          "heard": "さんじ"
+        }
+      ],
+      "wav": "20261012_213803_009_Sadachbia_s2_x0_short_B_quote.wav",
+      "ear": "お忙しいところ恐れ入ります。株式会社青葉物流の佐藤と申します。本日は先日お送りした資料の件でお電話いたしました。ご担当の田中様はいらっしゃいましたでしょうか。来週の火曜日、10月20日の午後3時に改めてお電話してもよろしいでしょうか。ありがとうございました。失礼いたします。",
+      "ear_diffs": [
+        {
+          "kind": "replace",
+          "script": "しゃいま[す]でしょう",
+          "heard": "した"
+        }
+      ]
+    },
+    {
+      "id": "20261012_213803_010_Sadachbia_s2_slight_short_B_quote",
+      "voice": "Sadachbia",
+      "condition": "s2_slight",
+      "length": "short",
+      "script_id": "B_quote",
+      "turns": [
+        {
+          "script": "お忙しいところ恐れ入ります。",
+          "intended": "お忙しいところ恐れ入ります。",
+          "audio_s": 2.06,
+          "voiced_s": 1.8,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.806,
+          "audio_tokens": 52,
+          "thoughts_tokens": 101
+        },
+        {
+          "script": "株式会社「アオバ物流」の佐藤と申します。",
+          "intended": "株式会社「アオバ物流」の佐藤と申します。",
+          "audio_s": 2.82,
+          "voiced_s": 2.67,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.738,
+          "audio_tokens": 71,
+          "thoughts_tokens": 96
+        },
+        {
+          "script": "本日は、先日お送りした資料の件でお電話いたしました。",
+          "intended": "本日は、先日お送りした資料の件でお電話いたしました。",
+          "audio_s": 3.97,
+          "voiced_s": 3.7,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.594,
+          "audio_tokens": 101,
+          "thoughts_tokens": 47
+        },
+        {
+          "script": "ご担当の田中様はいらっしゃいますでしょうか。",
+          "intended": "ご担当の田中様はいらっしゃいますでしょうか。",
+          "audio_s": 2.71,
+          "voiced_s": 2.33,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 1.497,
+          "audio_tokens": 72,
+          "thoughts_tokens": 99
+        },
+        {
+          "script": "来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。",
+          "intended": "来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。",
+          "audio_s": 5.54,
+          "voiced_s": 5.38,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.835,
+          "audio_tokens": 139,
+          "thoughts_tokens": 80
+        },
+        {
+          "script": "ありがとうございました。",
+          "intended": "ありがとうございました。",
+          "audio_s": 1.36,
+          "voiced_s": 1.02,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.838,
+          "audio_tokens": 36,
+          "thoughts_tokens": 34
+        },
+        {
+          "script": "失礼いたします。",
+          "intended": "失礼いたします。",
+          "audio_s": 1.16,
+          "voiced_s": 0.85,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.938,
+          "audio_tokens": 36,
+          "thoughts_tokens": 53
+        }
+      ],
+      "silent_turns": 0,
+      "cut_off_turns": 0,
+      "chars_per_s": 7.27,
+      "intended_missing": false,
+      "intended_diffs": [],
+      "wav": "20261012_213803_010_Sadachbia_s2_slight_short_B_quote.wav",
+      "ear": "お忙しいところ恐れ入ります。株式会社アオバ物流の佐藤と申します。本日は先日お送りした資料の件でお電話いたしました。ご担当の田中様はいらっしゃいますでしょうか。来週の火曜日、10月20日の午後3時に改めてお電話してもよろしいでしょうか。ありがとうございました。失礼いたします。",
+      "ear_diffs": []
+    },
+    {
+      "id": "20261012_213803_011_Sadachbia_s2_x1_5_short_B_quote",
+      "voice": "Sadachbia",
+      "condition": "s2_x1_5",
+      "length": "short",
+      "script_id": "B_quote",
+      "turns": [
+        {
+          "script": "お忙しいところ恐れ入ります。",
+          "intended": " お忙しいところ恐れ入ります。",
+          "audio_s": 2.07,
+          "voiced_s": 1.74,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.677,
+          "audio_tokens": 58,
+          "thoughts_tokens": 90
+        },
+        {
+          "script": "株式会社「アオバ物流」の佐藤と申します。",
+          "intended": "株式会社アオバ物流の佐藤と申します。",
+          "audio_s": 3.32,
+          "voiced_s": 3.0,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.812,
+          "audio_tokens": 89,
+          "thoughts_tokens": 111
+        },
+        {
+          "script": "本日は、先日お送りした資料の件でお電話いたしました。",
+          "intended": "本日は、先日お送りした資料の件でお電話いたしました。",
+          "audio_s": 4.06,
+          "voiced_s": 3.78,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 1.042,
+          "audio_tokens": 106,
+          "thoughts_tokens": 93
+        },
+        {
+          "script": "ご担当の田中様はいらっしゃいますでしょうか。",
+          "intended": "ご担当の田中様はいらっしゃいますでしょうか。",
+          "audio_s": 2.87,
+          "voiced_s": 2.54,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.713,
+          "audio_tokens": 76,
+          "thoughts_tokens": 63
+        },
+        {
+          "script": "来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。",
+          "intended": "来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。",
+          "audio_s": 6.08,
+          "voiced_s": 5.78,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.753,
+          "audio_tokens": 152,
+          "thoughts_tokens": 95
+        },
+        {
+          "script": "ありがとうございました。",
+          "intended": "ありがとうございました。",
+          "audio_s": 1.47,
+          "voiced_s": 1.04,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.709,
+          "audio_tokens": 42,
+          "thoughts_tokens": 63
+        },
+        {
+          "script": "失礼いたします。",
+          "intended": "失礼いたします。",
+          "audio_s": 1.24,
+          "voiced_s": 0.87,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 1.575,
+          "audio_tokens": 36,
+          "thoughts_tokens": 48
+        }
+      ],
+      "silent_turns": 0,
+      "cut_off_turns": 0,
+      "chars_per_s": 6.88,
+      "intended_missing": false,
+      "intended_diffs": [],
+      "wav": "20261012_213803_011_Sadachbia_s2_x1_5_short_B_quote.wav",
+      "ear": "お忙しいところ恐れ入ります。株式会社大場物流の佐藤と申します。本日は先日お送りした資料の件でお電話いたしました。ご担当の田中様はいらっしゃいますでしょうか？来週の火曜日、10月20日の午後3時に改めてお電話してもよろしいでしょうか。ありがとうございました。失礼いたします。",
+      "ear_diffs": [
+        {
+          "kind": "replace",
+          "script": "がいしゃ[あ]おばぶつ",
+          "heard": "お"
+        }
+      ]
+    },
+    {
+      "id": "20261012_213803_012_Sadachbia_s2_x2_short_B_quote",
+      "voice": "Sadachbia",
+      "condition": "s2_x2",
+      "length": "short",
+      "script_id": "B_quote",
+      "turns": [
+        {
+          "script": "お忙しいところ恐れ入ります。",
+          "intended": "お忙しいところ恐れ入ります。",
+          "audio_s": 2.33,
+          "voiced_s": 2.02,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.595,
+          "audio_tokens": 65,
+          "thoughts_tokens": 91
+        },
+        {
+          "script": "株式会社「アオバ物流」の佐藤と申します。",
+          "intended": "株式会社「アオバ物流」の佐藤と申します。",
+          "audio_s": 3.56,
+          "voiced_s": 3.32,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.58,
+          "audio_tokens": 96,
+          "thoughts_tokens": 79
+        },
+        {
+          "script": "本日は、先日お送りした資料の件でお電話いたしました。",
+          "intended": "本日は、先日お送りした資料の件でお電話いたしました。",
+          "audio_s": 4.09,
+          "voiced_s": 3.82,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.698,
+          "audio_tokens": 108,
+          "thoughts_tokens": 87
+        },
+        {
+          "script": "ご担当の田中様はいらっしゃいますでしょうか。",
+          "intended": "ご担当の田中様はいらっしゃいますでしょうか。",
+          "audio_s": 3.14,
+          "voiced_s": 2.79,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.532,
+          "audio_tokens": 85,
+          "thoughts_tokens": 56
+        },
+        {
+          "script": "来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。",
+          "intended": "来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。",
+          "audio_s": 5.97,
+          "voiced_s": 5.62,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.867,
+          "audio_tokens": 155,
+          "thoughts_tokens": 113
+        },
+        {
+          "script": "ありがとうございました。",
+          "intended": "ありがとうございました。",
+          "audio_s": 1.57,
+          "voiced_s": 1.19,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.567,
+          "audio_tokens": 45,
+          "thoughts_tokens": 52
+        },
+        {
+          "script": "失礼いたします。",
+          "intended": "失礼いたします。",
+          "audio_s": 1.37,
+          "voiced_s": 0.87,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.69,
+          "audio_tokens": 40,
+          "thoughts_tokens": 46
+        }
+      ],
+      "silent_turns": 0,
+      "cut_off_turns": 0,
+      "chars_per_s": 6.57,
+      "intended_missing": false,
+      "intended_diffs": [],
+      "wav": "20261012_213803_012_Sadachbia_s2_x2_short_B_quote.wav",
+      "ear": "お忙しいところ恐れ入ります。株式会社青葉物流の佐藤と申します。本日は先日お送りした資料の件でお電話いたしました。ご担当の田中様はいらっしゃいますでしょうか。来週の火曜日、10月20日の午後3時に改めてお電話してもよろしいでしょうか。ありがとうございました。失礼いたします。",
+      "ear_diffs": []
+    },
+    {
+      "id": "20261012_213803_013_Sadachbia_s2_x0_short_B_quote",
+      "voice": "Sadachbia",
+      "condition": "s2_x0",
+      "length": "short",
+      "script_id": "B_quote",
+      "turns": [
+        {
+          "script": "お忙しいところ恐れ入ります。",
+          "intended": "",
+          "audio_s": 2.13,
+          "voiced_s": 1.76,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.797,
+          "audio_tokens": 60,
+          "thoughts_tokens": 119
+        },
+        {
+          "script": "株式会社「アオバ物流」の佐藤と申します。",
+          "intended": " 株式会社アオバ物流の佐藤と申します。",
+          "audio_s": 3.94,
+          "voiced_s": 2.96,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.892,
+          "audio_tokens": 104,
+          "thoughts_tokens": 122
+        },
+        {
+          "script": "本日は、先日お送りした資料の件でお電話いたしました。",
+          "intended": "本日は、先日お送りした資料の件でお電話いたしました。",
+          "audio_s": 4.12,
+          "voiced_s": 3.72,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.59,
+          "audio_tokens": 110,
+          "thoughts_tokens": 77
+        },
+        {
+          "script": "ご担当の田中様はいらっしゃいますでしょうか。",
+          "intended": "ご担当の田中様はいらっしゃいますでしょうか。",
+          "audio_s": 2.92,
+          "voiced_s": 2.58,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.955,
+          "audio_tokens": 79,
+          "thoughts_tokens": 65
+        },
+        {
+          "script": "来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。",
+          "intended": "来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。",
+          "audio_s": 5.77,
+          "voiced_s": 5.38,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.804,
+          "audio_tokens": 149,
+          "thoughts_tokens": 96
+        },
+        {
+          "script": "ありがとうございました。",
+          "intended": "ありがとうございました。",
+          "audio_s": 1.48,
+          "voiced_s": 1.1,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.49,
+          "audio_tokens": 43,
+          "thoughts_tokens": 41
+        },
+        {
+          "script": "失礼いたします。",
+          "intended": "失礼いたします。",
+          "audio_s": 1.26,
+          "voiced_s": 0.89,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.518,
+          "audio_tokens": 37,
+          "thoughts_tokens": 46
+        }
+      ],
+      "silent_turns": 0,
+      "cut_off_turns": 0,
+      "chars_per_s": 7.01,
+      "intended_missing": true,
+      "intended_diffs": null,
+      "wav": "20261012_213803_013_Sadachbia_s2_x0_short_B_quote.wav",
+      "ear": "お忙しいところ恐れ入ります。株式会社青葉物流の佐藤と申します。本日は先日お送りした資料の件でお電話いたしました。ご担当の田中様はいらっしゃいますでしょうか。来週の火曜日、10月20日の午後3時に改めてお電話してもよろしいでしょうか。ありがとうございました。失礼いたします。",
+      "ear_diffs": []
+    },
+    {
+      "id": "20261012_213803_014_Sadachbia_s2_slight_short_B_quote",
+      "voice": "Sadachbia",
+      "condition": "s2_slight",
+      "length": "short",
+      "script_id": "B_quote",
+      "turns": [
+        {
+          "script": "お忙しいところ恐れ入ります。",
+          "intended": "",
+          "audio_s": 2.12,
+          "voiced_s": 1.84,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.74,
+          "audio_tokens": 59,
+          "thoughts_tokens": 110
+        },
+        {
+          "script": "株式会社「アオバ物流」の佐藤と申します。",
+          "intended": "株式会社「アオバ物流」の佐藤と申します。",
+          "audio_s": 3.43,
+          "voiced_s": 3.09,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.626,
+          "audio_tokens": 93,
+          "thoughts_tokens": 68
+        },
+        {
+          "script": "本日は、先日お送りした資料の件でお電話いたしました。",
+          "intended": "本日は、先日お送りした資料の件でお電話いたしました。",
+          "audio_s": 4.12,
+          "voiced_s": 3.8,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.636,
+          "audio_tokens": 109,
+          "thoughts_tokens": 63
+        },
+        {
+          "script": "ご担当の田中様はいらっしゃいますでしょうか。",
+          "intended": "ご担当の田中様はいらっしゃいますでしょうか。",
+          "audio_s": 3.09,
+          "voiced_s": 2.85,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.49,
+          "audio_tokens": 83,
+          "thoughts_tokens": 46
+        },
+        {
+          "script": "来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。",
+          "intended": "来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。",
+          "audio_s": 6.0,
+          "voiced_s": 5.71,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.582,
+          "audio_tokens": 156,
+          "thoughts_tokens": 75
+        },
+        {
+          "script": "ありがとうございました。",
+          "intended": "ありがとうございました。",
+          "audio_s": 1.63,
+          "voiced_s": 1.06,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.473,
+          "audio_tokens": 46,
+          "thoughts_tokens": 42
+        },
+        {
+          "script": "失礼いたします。",
+          "intended": "",
+          "audio_s": 1.24,
+          "voiced_s": 0.9,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.582,
+          "audio_tokens": 31,
+          "thoughts_tokens": 36
+        }
+      ],
+      "silent_turns": 0,
+      "cut_off_turns": 0,
+      "chars_per_s": 6.7,
+      "intended_missing": true,
+      "intended_diffs": null,
+      "wav": "20261012_213803_014_Sadachbia_s2_slight_short_B_quote.wav",
+      "ear": "お忙しいところ恐れ入ります。株式会社青葉物流の佐藤と申します。本日は先日お送りした資料の件でお電話いたしました。ご担当の田中様はいらっしゃいますでしょうか。来週の火曜日、10月20日の午後3時に改めてお電話してもよろしいでしょうか。ありがとうございました。失礼いたします。",
+      "ear_diffs": []
+    },
+    {
+      "id": "20261012_213803_015_Sadachbia_s2_x1_5_short_B_quote",
+      "voice": "Sadachbia",
+      "condition": "s2_x1_5",
+      "length": "short",
+      "script_id": "B_quote",
+      "turns": [
+        {
+          "script": "お忙しいところ恐れ入ります。",
+          "intended": "お忙しいところ恐れ入ります。",
+          "audio_s": 2.18,
+          "voiced_s": 1.89,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.586,
+          "audio_tokens": 61,
+          "thoughts_tokens": 89
+        },
+        {
+          "script": "株式会社「アオバ物流」の佐藤と申します。",
+          "intended": "株式会社アオバ物流の佐藤と申します。",
+          "audio_s": 3.45,
+          "voiced_s": 3.13,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.676,
+          "audio_tokens": 92,
+          "thoughts_tokens": 133
+        },
+        {
+          "script": "本日は、先日お送りした資料の件でお電話いたしました。",
+          "intended": "本日は、先日お送りした資料の件でお電話いたしました。",
+          "audio_s": 4.22,
+          "voiced_s": 3.76,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.797,
+          "audio_tokens": 113,
+          "thoughts_tokens": 118
+        },
+        {
+          "script": "ご担当の田中様はいらっしゃいますでしょうか。",
+          "intended": "ご担当の田中様はいらっしゃいますでしょうか。",
+          "audio_s": 3.16,
+          "voiced_s": 2.67,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.663,
+          "audio_tokens": 85,
+          "thoughts_tokens": 79
+        },
+        {
+          "script": "来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。",
+          "intended": "来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。",
+          "audio_s": 5.61,
+          "voiced_s": 5.22,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.893,
+          "audio_tokens": 146,
+          "thoughts_tokens": 135
+        },
+        {
+          "script": "ありがとうございました。",
+          "intended": "ありがとうございました。",
+          "audio_s": 1.55,
+          "voiced_s": 1.2,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.701,
+          "audio_tokens": 45,
+          "thoughts_tokens": 80
+        },
+        {
+          "script": "失礼いたします。",
+          "intended": "失礼いたします。",
+          "audio_s": 1.56,
+          "voiced_s": 0.86,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.626,
+          "audio_tokens": 46,
+          "thoughts_tokens": 58
+        }
+      ],
+      "silent_turns": 0,
+      "cut_off_turns": 0,
+      "chars_per_s": 6.89,
+      "intended_missing": false,
+      "intended_diffs": [],
+      "wav": "20261012_213803_015_Sadachbia_s2_x1_5_short_B_quote.wav",
+      "ear": "お忙しいところ恐れ入ります。株式会社青葉物流の佐藤と申します。本日は先日お送りした資料の件でお電話いたしました。外務省の田中様はいらっしゃいますでしょうか？来週の火曜日、10月20日の午後3時に改めてお電話してもよろしいでしょうか。ありがとうございました。失礼いたします。",
+      "ear_diffs": [
+        {
+          "kind": "replace",
+          "script": "しました[ごたんと]うのたな",
+          "heard": "がいむしょ"
+        }
+      ]
+    },
+    {
+      "id": "20261012_213803_016_Sadachbia_s2_x2_short_B_quote",
+      "voice": "Sadachbia",
+      "condition": "s2_x2",
+      "length": "short",
+      "script_id": "B_quote",
+      "turns": [
+        {
+          "script": "お忙しいところ恐れ入ります。",
+          "intended": "",
+          "audio_s": 1.73,
+          "voiced_s": 1.45,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.65,
+          "audio_tokens": 49,
+          "thoughts_tokens": 89
+        },
+        {
+          "script": "株式会社「アオバ物流」の佐藤と申します。",
+          "intended": "株式会社アオバ物流の佐藤と申します。",
+          "audio_s": 3.27,
+          "voiced_s": 2.83,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.794,
+          "audio_tokens": 88,
+          "thoughts_tokens": 126
+        },
+        {
+          "script": "本日は、先日お送りした資料の件でお電話いたしました。",
+          "intended": "本日は、先日お送りした資料の件でお電話いたしました。",
+          "audio_s": 4.47,
+          "voiced_s": 4.13,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.665,
+          "audio_tokens": 118,
+          "thoughts_tokens": 57
+        },
+        {
+          "script": "ご担当の田中様はいらっしゃいますでしょうか。",
+          "intended": "ご担当の田中様はいらっしゃいますでしょうか。",
+          "audio_s": 3.17,
+          "voiced_s": 2.74,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.796,
+          "audio_tokens": 85,
+          "thoughts_tokens": 95
+        },
+        {
+          "script": "来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。",
+          "intended": "来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。",
+          "audio_s": 6.72,
+          "voiced_s": 5.7,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.764,
+          "audio_tokens": 174,
+          "thoughts_tokens": 130
+        },
+        {
+          "script": "ありがとうございました。",
+          "intended": "ありがとうございました。",
+          "audio_s": 1.28,
+          "voiced_s": 0.99,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.517,
+          "audio_tokens": 39,
+          "thoughts_tokens": 52
+        },
+        {
+          "script": "失礼いたします。",
+          "intended": "失礼いたします。",
+          "audio_s": 1.17,
+          "voiced_s": 0.79,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.475,
+          "audio_tokens": 35,
+          "thoughts_tokens": 48
+        }
+      ],
+      "silent_turns": 0,
+      "cut_off_turns": 0,
+      "chars_per_s": 6.92,
+      "intended_missing": true,
+      "intended_diffs": null,
+      "wav": "20261012_213803_016_Sadachbia_s2_x2_short_B_quote.wav",
+      "ear": "お忙しいところ恐れ入ります。株式会社アオバ物流の佐藤と申します。本日は先日お送りした資料の件でお電話いたしました。ご担当の田中様はいらっしゃいますでしょうか。来週の火曜日、10月20日の午後3時に改めてお電話してもよろしいでしょうか？ありがとうございました。失礼いたします。",
+      "ear_diffs": []
+    },
+    {
+      "id": "20261012_213803_017_Sadachbia_s2_x0_short_B_quote",
+      "voice": "Sadachbia",
+      "condition": "s2_x0",
+      "length": "short",
+      "script_id": "B_quote",
+      "turns": [
+        {
+          "script": "お忙しいところ恐れ入ります。",
+          "intended": " お忙しいところ恐れ入ります。",
+          "audio_s": 27.37,
+          "voiced_s": 1.66,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.753,
+          "audio_tokens": 690,
+          "thoughts_tokens": 146
+        },
+        {
+          "script": "株式会社「アオバ物流」の佐藤と申します。",
+          "intended": "株式会社「アオバ物流」の佐藤と申します。",
+          "audio_s": 3.56,
+          "voiced_s": 2.89,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.915,
+          "audio_tokens": 95,
+          "thoughts_tokens": 114
+        },
+        {
+          "script": "本日は、先日お送りした資料の件でお電話いたしました。",
+          "intended": "本日は、先日お送りした資料の件でお電話いたしました。",
+          "audio_s": 3.76,
+          "voiced_s": 3.44,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.708,
+          "audio_tokens": 100,
+          "thoughts_tokens": 81
+        },
+        {
+          "script": "ご担当の田中様はいらっしゃいますでしょうか。",
+          "intended": "ご担当の田中様はいらっしゃいますでしょうか。",
+          "audio_s": 2.93,
+          "voiced_s": 2.61,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.977,
+          "audio_tokens": 78,
+          "thoughts_tokens": 83
+        },
+        {
+          "script": "来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。",
+          "intended": "来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。",
+          "audio_s": 5.86,
+          "voiced_s": 5.45,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 1.231,
+          "audio_tokens": 152,
+          "thoughts_tokens": 102
+        },
+        {
+          "script": "ありがとうございました。",
+          "intended": "ありがとうございました。",
+          "audio_s": 1.41,
+          "voiced_s": 1.04,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.583,
+          "audio_tokens": 41,
+          "thoughts_tokens": 43
+        },
+        {
+          "script": "失礼いたします。",
+          "intended": "失礼いたします。",
+          "audio_s": 1.76,
+          "voiced_s": 0.88,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.607,
+          "audio_tokens": 50,
+          "thoughts_tokens": 52
+        }
+      ],
+      "silent_turns": 0,
+      "cut_off_turns": 0,
+      "chars_per_s": 7.18,
+      "intended_missing": false,
+      "intended_diffs": [],
+      "wav": "20261012_213803_017_Sadachbia_s2_x0_short_B_quote.wav",
+      "ear": "お忙しいところ恐れ入ります。株式会社青葉物流の佐藤と申します。本日は先日お送りした資料の件でお電話いたしました。ご担当の田中様はいらっしゃいますでしょうか。来週の火曜日、10月20日の午後3時に改めてお電話してもよろしいでしょうか。ありがとうございました。失礼いたします。",
+      "ear_diffs": []
+    },
+    {
+      "id": "20261012_213803_018_Sadachbia_s2_slight_short_B_quote",
+      "voice": "Sadachbia",
+      "condition": "s2_slight",
+      "length": "short",
+      "script_id": "B_quote",
+      "turns": [
+        {
+          "script": "お忙しいところ恐れ入ります。",
+          "intended": "",
+          "audio_s": 1.83,
+          "voiced_s": 1.46,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.826,
+          "audio_tokens": 51,
+          "thoughts_tokens": 138
+        },
+        {
+          "script": "株式会社「アオバ物流」の佐藤と申します。",
+          "intended": "",
+          "audio_s": 3.88,
+          "voiced_s": 3.61,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.644,
+          "audio_tokens": 103,
+          "thoughts_tokens": 81
+        },
+        {
+          "script": "本日は、先日お送りした資料の件でお電話いたしました。",
+          "intended": "本日は、先日お送りした資料の件でお電話いたしました。",
+          "audio_s": 3.99,
+          "voiced_s": 3.65,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.746,
+          "audio_tokens": 106,
+          "thoughts_tokens": 89
+        },
+        {
+          "script": "ご担当の田中様はいらっしゃいますでしょうか。",
+          "intended": "ご担当の田中様はいらっしゃいますでしょうか。",
+          "audio_s": 2.97,
+          "voiced_s": 2.56,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.569,
+          "audio_tokens": 79,
+          "thoughts_tokens": 66
+        },
+        {
+          "script": "来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。",
+          "intended": "来週の火曜日、 10月20日の午後3時に、改めてお電話してもよろしいでしょうか。",
+          "audio_s": 5.78,
+          "voiced_s": 5.41,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 1.119,
+          "audio_tokens": 152,
+          "thoughts_tokens": 68
+        },
+        {
+          "script": "ありがとうございました。",
+          "intended": "ありがとうございました。",
+          "audio_s": 1.46,
+          "voiced_s": 0.97,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.621,
+          "audio_tokens": 42,
+          "thoughts_tokens": 43
+        },
+        {
+          "script": "失礼いたします。",
+          "intended": "失礼いたします。",
+          "audio_s": 1.71,
+          "voiced_s": 0.78,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.482,
+          "audio_tokens": 49,
+          "thoughts_tokens": 39
+        }
+      ],
+      "silent_turns": 0,
+      "cut_off_turns": 0,
+      "chars_per_s": 7.0,
+      "intended_missing": true,
+      "intended_diffs": null,
+      "wav": "20261012_213803_018_Sadachbia_s2_slight_short_B_quote.wav",
+      "ear": "お忙しいところ恐れ入ります。おもろき株式会社青葉物流の佐藤と申します。本日は先日お送りした資料の件でお電話いたしました。ご担当の田中様はいらっしゃいますでしょうか。来週の火曜日10月20日の午後3時に改めてお電話してもよろしいでしょうか。ありがとうございました。失礼いたします。",
+      "ear_diffs": [
+        {
+          "kind": "insert",
+          "script": "いります[]かぶしき",
+          "heard": "おもろき"
+        }
+      ]
+    },
+    {
+      "id": "20261012_213803_019_Sadachbia_s2_x1_5_short_B_quote",
+      "voice": "Sadachbia",
+      "condition": "s2_x1_5",
+      "length": "short",
+      "script_id": "B_quote",
+      "turns": [
+        {
+          "script": "お忙しいところ恐れ入ります。",
+          "intended": "",
+          "audio_s": 1.31,
+          "voiced_s": 1.05,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.849,
+          "audio_tokens": 38,
+          "thoughts_tokens": 147
+        },
+        {
+          "script": "株式会社「アオバ物流」の佐藤と申します。",
+          "intended": " 株式会社「アオバ物流」の佐藤と申します。",
+          "audio_s": 3.39,
+          "voiced_s": 3.01,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.82,
+          "audio_tokens": 90,
+          "thoughts_tokens": 142
+        },
+        {
+          "script": "本日は、先日お送りした資料の件でお電話いたしました。",
+          "intended": " 本日は、 先日お送りした資料の件でお電話いたしました。",
+          "audio_s": 3.82,
+          "voiced_s": 3.53,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.665,
+          "audio_tokens": 101,
+          "thoughts_tokens": 112
+        },
+        {
+          "script": "ご担当の田中様はいらっしゃいますでしょうか。",
+          "intended": "ご担当の田中様はいらっしゃいますでしょうか。",
+          "audio_s": 2.87,
+          "voiced_s": 2.57,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.559,
+          "audio_tokens": 77,
+          "thoughts_tokens": 66
+        },
+        {
+          "script": "来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。",
+          "intended": "来週の火曜日、 10月20日の午後3時に、 改めてお電話してもよろしいでしょうか。",
+          "audio_s": 6.33,
+          "voiced_s": 6.03,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.787,
+          "audio_tokens": 164,
+          "thoughts_tokens": 92
+        },
+        {
+          "script": "ありがとうございました。",
+          "intended": "",
+          "audio_s": 0.86,
+          "voiced_s": 0.79,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.506,
+          "audio_tokens": 26,
+          "thoughts_tokens": 40
+        },
+        {
+          "script": "失礼いたします。",
+          "intended": "失礼いたします。",
+          "audio_s": 1.24,
+          "voiced_s": 0.89,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.704,
+          "audio_tokens": 36,
+          "thoughts_tokens": 50
+        }
+      ],
+      "silent_turns": 0,
+      "cut_off_turns": 0,
+      "chars_per_s": 6.91,
+      "intended_missing": true,
+      "intended_diffs": null,
+      "wav": "20261012_213803_019_Sadachbia_s2_x1_5_short_B_quote.wav",
+      "ear": "お待たせいたしました。株式会社アオバ物流の佐藤と申します。本日は先日お送りした資料の件でお電話いたしました。ご担当の田中様はいらっしゃいますでしょうか。来週の火曜日、10月20日の午後3時に改めてお電話してもよろしいでしょうか。ありがとうございます。失礼いたします。",
+      "ear_diffs": [
+        {
+          "kind": "insert",
+          "script": "お[]いそがし",
+          "heard": "またせ"
+        },
+        {
+          "kind": "replace",
+          "script": "おい[そが]しいとこ",
+          "heard": "た"
+        },
+        {
+          "kind": "delete",
+          "script": "いそがし[いところおそれいり]ますかぶ",
+          "heard": ""
+        },
+        {
+          "kind": "replace",
+          "script": "れいりま[す]かぶしき",
+          "heard": "した"
+        },
+        {
+          "kind": "replace",
+          "script": "ございま[した]しつれい",
+          "heard": "す"
+        }
+      ]
+    },
+    {
+      "id": "20261012_213803_020_Sadachbia_s2_x2_short_B_quote",
+      "voice": "Sadachbia",
+      "condition": "s2_x2",
+      "length": "short",
+      "script_id": "B_quote",
+      "turns": [
+        {
+          "script": "お忙しいところ恐れ入ります。",
+          "intended": "",
+          "audio_s": 2.62,
+          "voiced_s": 1.63,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.797,
+          "audio_tokens": 71,
+          "thoughts_tokens": 145
+        },
+        {
+          "script": "株式会社「アオバ物流」の佐藤と申します。",
+          "intended": "株式会社アオバ物流の佐藤と申します。",
+          "audio_s": 4.04,
+          "voiced_s": 2.98,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.683,
+          "audio_tokens": 106,
+          "thoughts_tokens": 98
+        },
+        {
+          "script": "本日は、先日お送りした資料の件でお電話いたしました。",
+          "intended": "本日は、先日お送りした資料の件でお電話いたしました。",
+          "audio_s": 4.03,
+          "voiced_s": 3.74,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.697,
+          "audio_tokens": 107,
+          "thoughts_tokens": 104
+        },
+        {
+          "script": "ご担当の田中様はいらっしゃいますでしょうか。",
+          "intended": "ご担当の田中様はいらっしゃいましょうか。",
+          "audio_s": 3.01,
+          "voiced_s": 2.53,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.581,
+          "audio_tokens": 81,
+          "thoughts_tokens": 64
+        },
+        {
+          "script": "来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。",
+          "intended": "来週の火曜日、十月二十日の午後三時に、改めてお電話してもよろしいでしょうか。",
+          "audio_s": 5.73,
+          "voiced_s": 5.29,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.655,
+          "audio_tokens": 149,
+          "thoughts_tokens": 67
+        },
+        {
+          "script": "ありがとうございました。",
+          "intended": "ありがとうございました。",
+          "audio_s": 1.4,
+          "voiced_s": 0.95,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.544,
+          "audio_tokens": 41,
+          "thoughts_tokens": 44
+        },
+        {
+          "script": "失礼いたします。",
+          "intended": "",
+          "audio_s": 0.77,
+          "voiced_s": 0.75,
+          "silent": false,
+          "cut_off": false,
+          "first_audio_after_s": 0.483,
+          "audio_tokens": 25,
+          "thoughts_tokens": 47
+        }
+      ],
+      "silent_turns": 0,
+      "cut_off_turns": 0,
+      "chars_per_s": 7.13,
+      "intended_missing": true,
+      "intended_diffs": null,
+      "wav": "20261012_213803_020_Sadachbia_s2_x2_short_B_quote.wav",
+      "ear": "お忙しいところ恐れ入ります。株式会社青葉物流の佐藤と申します。本日は先日お送りした資料の件でお電話いたしました。ご担当の田中様はいらっしゃいますでしょうか。来週の火曜日、10月20日の午後3時に改めてお電話してもよろしいでしょうか。ありがとうございました。失礼いたし",
+      "ear_diffs": [
+        {
+          "kind": "delete",
+          "script": "いいたし[ます]",
+          "heard": ""
+        }
+      ]
+    }
+  ]
+}

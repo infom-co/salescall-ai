@@ -1,0 +1,170 @@
+{
+  "item": "G-03",
+  "saved_at": "2026-10-12T22:23:58",
+  "model": "gemini-3.8-live",
+  "script": "お忙しいところ恐れ入ります。株式会社サンプルの担当でございます。本日は、ご予約の日時の確認でお電話いたしました。15日の午後2時でお間違いないでしょうか。聞き取りにくかったので、もう一度、おっしゃっていただいてよろしいでしょうか。念のため確認させてください。ありがとうございました。失礼いたします。",
+  "results": [
+    {
+      "ok": true,
+      "voice": "Sadachbia",
+      "style": "warm_business",
+      "connected_after_s": 0.522,
+      "wav": "/home/user/salescall-ai/phase0/results/G-03_Sadachbia_warm_business.wav",
+      "chars_per_second": 6.23,
+      "speed_vs_baseline": 0.89,
+      "matches_script": false,
+      "audio_bytes": 1147680,
+      "audio_mime": "audio/pcm;rate=24000",
+      "audio_rate": 24000,
+      "audio_seconds": 23.91,
+      "input_transcript": "",
+      "output_transcript": "お忙しいところ恐れいります。株式会社サンプルの担当でございます。本日は、ご予約の日時の確認でお電話いたしました。15日の午後2時でお間違いないでしょうか。聞き取りにくかったので、もう一度、おっしゃっていただいてよろしいでしょうか。念のため確認させてください。ありがとうございました。失礼いたします。",
+      "usage": [
+        {
+          "prompt_token_count": 726,
+          "response_token_count": 604,
+          "thoughts_token_count": 196,
+          "total_token_count": 1330,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 541
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 160
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 604
+            }
+          ]
+        }
+      ],
+      "tool_calls": [],
+      "go_away_time_left": [],
+      "resumption_handle_received": true,
+      "interrupted": false,
+      "first_audio_after_s": 0.9,
+      "finished_after_s": 24.837,
+      "message_kinds": {
+        "session_resumption_update": 1,
+        "server_content": 70,
+        "usage_metadata": 1
+      },
+      "events": [
+        {
+          "at_s": 1.461,
+          "kind": "ai_said",
+          "text": "お忙しいところ恐れ"
+        },
+        {
+          "at_s": 3.08,
+          "kind": "ai_said",
+          "text": "いります。株式会社"
+        },
+        {
+          "at_s": 3.099,
+          "kind": "ai_said",
+          "text": "サンプルの"
+        },
+        {
+          "at_s": 3.118,
+          "kind": "ai_said",
+          "text": "担当でござい"
+        },
+        {
+          "at_s": 3.134,
+          "kind": "ai_said",
+          "text": "ます。本日は、"
+        },
+        {
+          "at_s": 3.154,
+          "kind": "ai_said",
+          "text": "ご予約"
+        },
+        {
+          "at_s": 3.156,
+          "kind": "ai_said",
+          "text": "の日時の確認"
+        },
+        {
+          "at_s": 3.176,
+          "kind": "ai_said",
+          "text": "でお電話いたし"
+        },
+        {
+          "at_s": 3.329,
+          "kind": "ai_said",
+          "text": "ました。15日"
+        },
+        {
+          "at_s": 3.557,
+          "kind": "ai_said",
+          "text": "の午後2"
+        },
+        {
+          "at_s": 3.812,
+          "kind": "ai_said",
+          "text": "時でお間違い"
+        },
+        {
+          "at_s": 4.068,
+          "kind": "ai_said",
+          "text": "ないでしょうか。"
+        },
+        {
+          "at_s": 4.25,
+          "kind": "ai_said",
+          "text": "聞き取りにくかった"
+        },
+        {
+          "at_s": 4.524,
+          "kind": "ai_said",
+          "text": "ので、もう一度、"
+        },
+        {
+          "at_s": 4.781,
+          "kind": "ai_said",
+          "text": "おっしゃっていただいて"
+        },
+        {
+          "at_s": 4.984,
+          "kind": "ai_said",
+          "text": "よろしいでしょうか。"
+        },
+        {
+          "at_s": 5.178,
+          "kind": "ai_said",
+          "text": "念のため"
+        },
+        {
+          "at_s": 5.463,
+          "kind": "ai_said",
+          "text": "確認させて"
+        },
+        {
+          "at_s": 5.722,
+          "kind": "ai_said",
+          "text": "ください。ありがとう"
+        },
+        {
+          "at_s": 6.102,
+          "kind": "ai_said",
+          "text": "ございました。失礼"
+        },
+        {
+          "at_s": 6.204,
+          "kind": "ai_said",
+          "text": "いたします。"
+        },
+        {
+          "at_s": 24.837,
+          "kind": "turn_complete"
+        }
+      ]
+    }
+  ]
+}
