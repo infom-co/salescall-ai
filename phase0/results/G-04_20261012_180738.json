@@ -1,0 +1,27 @@
+{
+  "item": "G-04",
+  "saved_at": "2026-10-12T18:07:38",
+  "model": "gemini-3.8-live",
+  "max_minutes": 25.0,
+  "go_away": [],
+  "handle_updates": 0,
+  "closed_by": {
+    "type": "APIError",
+    "module": "google.genai.errors",
+    "message": "1008 None. Your project has been denied access. Please contact support.",
+    "code": "1008",
+    "status": "None",
+    "details": "Your project has been denied access. Please contact support."
+  },
+  "handle_received": false,
+  "reinstruct_without_handle": {
+    "error": {
+      "type": "APIError",
+      "module": "google.genai.errors",
+      "message": "1008 None. Your project has been denied access. Please contact support.",
+      "code": "1008",
+      "status": "None",
+      "details": "Your project has been denied access. Please contact support."
+    }
+  }
+}

@@ -1,0 +1,146 @@
+{
+  "item": "G-08",
+  "saved_at": "2026-10-12T18:08:39",
+  "model": "gemini-3.8-live",
+  "rounds": [
+    {
+      "n": 1,
+      "ok": 1,
+      "results": [
+        {
+          "i": 0,
+          "ok": true,
+          "first_audio_after_s": 1.135
+        }
+      ]
+    },
+    {
+      "n": 2,
+      "ok": 2,
+      "results": [
+        {
+          "i": 0,
+          "ok": true,
+          "first_audio_after_s": 0.738
+        },
+        {
+          "i": 1,
+          "ok": true,
+          "first_audio_after_s": 0.871
+        }
+      ]
+    },
+    {
+      "n": 3,
+      "ok": 3,
+      "results": [
+        {
+          "i": 0,
+          "ok": true,
+          "first_audio_after_s": 1.086
+        },
+        {
+          "i": 1,
+          "ok": true,
+          "first_audio_after_s": 1.543
+        },
+        {
+          "i": 2,
+          "ok": true,
+          "first_audio_after_s": 1.347
+        }
+      ]
+    },
+    {
+      "n": 5,
+      "ok": 5,
+      "results": [
+        {
+          "i": 0,
+          "ok": true,
+          "first_audio_after_s": 0.994
+        },
+        {
+          "i": 1,
+          "ok": true,
+          "first_audio_after_s": 0.916
+        },
+        {
+          "i": 2,
+          "ok": true,
+          "first_audio_after_s": 1.166
+        },
+        {
+          "i": 3,
+          "ok": true,
+          "first_audio_after_s": 0.881
+        },
+        {
+          "i": 4,
+          "ok": true,
+          "first_audio_after_s": 0.669
+        }
+      ]
+    },
+    {
+      "n": 8,
+      "ok": 6,
+      "results": [
+        {
+          "i": 0,
+          "ok": true,
+          "first_audio_after_s": 0.878
+        },
+        {
+          "i": 1,
+          "ok": true,
+          "first_audio_after_s": 0.848
+        },
+        {
+          "i": 2,
+          "ok": true,
+          "first_audio_after_s": 0.568
+        },
+        {
+          "i": 3,
+          "ok": true,
+          "first_audio_after_s": 1.033
+        },
+        {
+          "i": 4,
+          "ok": false,
+          "error": {
+            "type": "APIError",
+            "module": "google.genai.errors",
+            "message": "1011 None. You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: h",
+            "code": "1011",
+            "status": "None",
+            "details": "You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: h"
+          }
+        },
+        {
+          "i": 5,
+          "ok": false,
+          "error": {
+            "type": "APIError",
+            "module": "google.genai.errors",
+            "message": "1011 None. You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: h",
+            "code": "1011",
+            "status": "None",
+            "details": "You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: h"
+          }
+        },
+        {
+          "i": 6,
+          "ok": true,
+          "first_audio_after_s": 1.078
+        },
+        {
+          "i": 7,
+          "ok": true,
+          "first_audio_after_s": 0.863
+        }
+      ]
+    }
+  ]
+}
