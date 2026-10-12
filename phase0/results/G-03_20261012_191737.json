@@ -1,0 +1,227 @@
+{
+  "item": "G-03",
+  "saved_at": "2026-10-12T19:17:37",
+  "model": "gemini-3.8-live",
+  "script": "お忙しいところ恐れ入ります。株式会社サンプルの担当でございます。本日は、ご予約の日時の確認でお電話いたしました。15日の午後2時でお間違いないでしょうか。聞き取りにくかったので、もう一度、おっしゃっていただいてよろしいでしょうか。念のため確認させてください。ありがとうございました。失礼いたします。",
+  "results": [
+    {
+      "ok": true,
+      "voice": "Sadachbia",
+      "style": "humble_x2",
+      "connected_after_s": 0.429,
+      "wav": "/home/user/salescall-ai/phase0/results/G-03_Sadachbia_humble_x2.wav",
+      "chars_per_second": 8.14,
+      "speed_vs_baseline": 1.16,
+      "matches_script": true,
+      "audio_bytes": 878880,
+      "audio_mime": "audio/pcm;rate=24000",
+      "audio_rate": 24000,
+      "audio_seconds": 18.31,
+      "input_transcript": "",
+      "output_transcript": "お忙しいところ恐れ入ります。株式会社サンプルの担当でございます。本日は、ご予約の日時の確認でお電話いたしました。15日の午後2時でお間違いないでしょうか。聞き取りにくかったので、もう一度、おっしゃっていただいてよろしいでしょうか。念のため確認させてください。ありがとうございました。失礼いたします。",
+      "usage": [
+        {
+          "prompt_token_count": 718,
+          "response_token_count": 464,
+          "thoughts_token_count": 221,
+          "total_token_count": 1182,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 533
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 160
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 464
+            }
+          ]
+        }
+      ],
+      "tool_calls": [],
+      "go_away_time_left": [],
+      "resumption_handle_received": true,
+      "interrupted": false,
+      "first_audio_after_s": 0.865,
+      "finished_after_s": 19.207,
+      "message_kinds": {
+        "session_resumption_update": 1,
+        "server_content": 53,
+        "usage_metadata": 1
+      },
+      "events": [
+        {
+          "at_s": 1.438,
+          "kind": "ai_said",
+          "text": "お忙しいところ恐れ入ります。株式会社サンプルの担当でございます。本日は、ご予約の日時の確認でお電話いたしました。15日の午後2時でお間違いないでしょうか。聞き取りにくかったので、もう一度、おっしゃっていただいてよろしいでしょうか。念のため確認させてください。ありがとうございました。失礼いたします。"
+        },
+        {
+          "at_s": 19.207,
+          "kind": "turn_complete"
+        }
+      ]
+    },
+    {
+      "ok": true,
+      "voice": "Leda",
+      "style": "humble_x2",
+      "connected_after_s": 0.339,
+      "wav": "/home/user/salescall-ai/phase0/results/G-03_Leda_humble_x2.wav",
+      "chars_per_second": 6.3,
+      "speed_vs_baseline": 1.11,
+      "matches_script": true,
+      "audio_bytes": 1135200,
+      "audio_mime": "audio/pcm;rate=24000",
+      "audio_rate": 24000,
+      "audio_seconds": 23.65,
+      "input_transcript": "",
+      "output_transcript": "お忙しいところ恐れ入ります。株式会社サンプルの担当でございます。本日は、ご予約の日時の確認でお電話いたしました。15日の午後2時でお間違いないでしょうか。聞き取りにくかったので、もう一度、おっしゃっていただいてよろしいでしょうか。念のため確認させてください。ありがとうございました。失礼いたします。",
+      "usage": [
+        {
+          "prompt_token_count": 786,
+          "response_token_count": 597,
+          "thoughts_token_count": 214,
+          "total_token_count": 1383,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 533
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 228
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 597
+            }
+          ]
+        }
+      ],
+      "tool_calls": [],
+      "go_away_time_left": [],
+      "resumption_handle_received": true,
+      "interrupted": false,
+      "first_audio_after_s": 0.935,
+      "finished_after_s": 25.192,
+      "message_kinds": {
+        "session_resumption_update": 1,
+        "server_content": 72,
+        "usage_metadata": 1
+      },
+      "events": [
+        {
+          "at_s": 3.325,
+          "kind": "ai_said",
+          "text": "お忙しいところ恐れ"
+        },
+        {
+          "at_s": 3.36,
+          "kind": "ai_said",
+          "text": "入ります。株式会社"
+        },
+        {
+          "at_s": 3.38,
+          "kind": "ai_said",
+          "text": "サンプルの"
+        },
+        {
+          "at_s": 3.407,
+          "kind": "ai_said",
+          "text": "担当でございます。"
+        },
+        {
+          "at_s": 3.419,
+          "kind": "ai_said",
+          "text": "本日は、"
+        },
+        {
+          "at_s": 3.44,
+          "kind": "ai_said",
+          "text": "ご予約の日時"
+        },
+        {
+          "at_s": 3.458,
+          "kind": "ai_said",
+          "text": "の確認でお電話"
+        },
+        {
+          "at_s": 3.465,
+          "kind": "ai_said",
+          "text": "いたしました。15日"
+        },
+        {
+          "at_s": 3.475,
+          "kind": "ai_said",
+          "text": "の午後"
+        },
+        {
+          "at_s": 4.281,
+          "kind": "ai_said",
+          "text": "2時でお間違いない"
+        },
+        {
+          "at_s": 4.295,
+          "kind": "ai_said",
+          "text": "でしょうか。聞き取りにくかった"
+        },
+        {
+          "at_s": 4.313,
+          "kind": "ai_said",
+          "text": "ので、"
+        },
+        {
+          "at_s": 4.328,
+          "kind": "ai_said",
+          "text": "もう一度、"
+        },
+        {
+          "at_s": 4.502,
+          "kind": "ai_said",
+          "text": "おっしゃっていただいて"
+        },
+        {
+          "at_s": 4.756,
+          "kind": "ai_said",
+          "text": "よろしいでしょうか。"
+        },
+        {
+          "at_s": 5.043,
+          "kind": "ai_said",
+          "text": "念のため"
+        },
+        {
+          "at_s": 5.3,
+          "kind": "ai_said",
+          "text": "確認させて"
+        },
+        {
+          "at_s": 5.799,
+          "kind": "ai_said",
+          "text": "ください。ありがとうございました。"
+        },
+        {
+          "at_s": 6.11,
+          "kind": "ai_said",
+          "text": "失礼"
+        },
+        {
+          "at_s": 6.167,
+          "kind": "ai_said",
+          "text": "いたします。"
+        },
+        {
+          "at_s": 25.192,
+          "kind": "turn_complete"
+        }
+      ]
+    }
+  ]
+}

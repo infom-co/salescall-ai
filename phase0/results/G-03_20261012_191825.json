@@ -1,0 +1,212 @@
+{
+  "item": "G-03",
+  "saved_at": "2026-10-12T19:18:25",
+  "model": "gemini-3.8-live",
+  "script": "お忙しいところ恐れ入ります。株式会社サンプルの担当でございます。本日は、ご予約の日時の確認でお電話いたしました。15日の午後2時でお間違いないでしょうか。聞き取りにくかったので、もう一度、おっしゃっていただいてよろしいでしょうか。念のため確認させてください。ありがとうございました。失礼いたします。",
+  "results": [
+    {
+      "ok": true,
+      "voice": "Sadachbia",
+      "style": "smile_x2",
+      "connected_after_s": 0.381,
+      "wav": "/home/user/salescall-ai/phase0/results/G-03_Sadachbia_smile_x2.wav",
+      "chars_per_second": 7.37,
+      "speed_vs_baseline": 1.05,
+      "matches_script": true,
+      "audio_bytes": 970560,
+      "audio_mime": "audio/pcm;rate=24000",
+      "audio_rate": 24000,
+      "audio_seconds": 20.22,
+      "input_transcript": "",
+      "output_transcript": "お忙しいところ恐れ入ります。株式会社サンプルの担当でございます。本日は、ご予約の日時の確認でお電話いたしました。15日の午後2時でお間違いないでしょうか。聞き取りにくかったので、もう一度、おっしゃっていただいてよろしいでしょうか。念のため確認させてください。ありがとうございました。失礼いたします。",
+      "usage": [
+        {
+          "prompt_token_count": 710,
+          "response_token_count": 511,
+          "thoughts_token_count": 211,
+          "total_token_count": 1221,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 525
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 160
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 511
+            }
+          ]
+        }
+      ],
+      "tool_calls": [],
+      "go_away_time_left": [],
+      "resumption_handle_received": true,
+      "interrupted": false,
+      "first_audio_after_s": 1.068,
+      "finished_after_s": 21.294,
+      "message_kinds": {
+        "session_resumption_update": 1,
+        "server_content": 60,
+        "usage_metadata": 1
+      },
+      "events": [
+        {
+          "at_s": 1.564,
+          "kind": "ai_said",
+          "text": "お忙しいところ恐れ入ります。"
+        },
+        {
+          "at_s": 1.727,
+          "kind": "ai_said",
+          "text": "株式会社"
+        },
+        {
+          "at_s": 1.997,
+          "kind": "ai_said",
+          "text": "サンプルの担当で"
+        },
+        {
+          "at_s": 2.278,
+          "kind": "ai_said",
+          "text": "ございます。本日は、"
+        },
+        {
+          "at_s": 2.542,
+          "kind": "ai_said",
+          "text": "ご予約"
+        },
+        {
+          "at_s": 2.763,
+          "kind": "ai_said",
+          "text": "の日時の確認でお"
+        },
+        {
+          "at_s": 2.983,
+          "kind": "ai_said",
+          "text": "電話いたしました。"
+        },
+        {
+          "at_s": 3.176,
+          "kind": "ai_said",
+          "text": "15日の"
+        },
+        {
+          "at_s": 3.598,
+          "kind": "ai_said",
+          "text": "午後2時でお間違い"
+        },
+        {
+          "at_s": 3.664,
+          "kind": "ai_said",
+          "text": "ないでしょうか。"
+        },
+        {
+          "at_s": 3.913,
+          "kind": "ai_said",
+          "text": "聞き取りにくかった"
+        },
+        {
+          "at_s": 4.142,
+          "kind": "ai_said",
+          "text": "ので、もう一度、おっしゃって"
+        },
+        {
+          "at_s": 4.342,
+          "kind": "ai_said",
+          "text": "いただいてよろしいで"
+        },
+        {
+          "at_s": 4.562,
+          "kind": "ai_said",
+          "text": "しょうか。念"
+        },
+        {
+          "at_s": 5.231,
+          "kind": "ai_said",
+          "text": "のため確認させて"
+        },
+        {
+          "at_s": 5.249,
+          "kind": "ai_said",
+          "text": "ください。ありがとう"
+        },
+        {
+          "at_s": 5.276,
+          "kind": "ai_said",
+          "text": "ございました。失礼"
+        },
+        {
+          "at_s": 5.768,
+          "kind": "ai_said",
+          "text": "いたします。"
+        },
+        {
+          "at_s": 21.294,
+          "kind": "turn_complete"
+        }
+      ]
+    },
+    {
+      "ok": true,
+      "voice": "Leda",
+      "style": "smile_x2",
+      "connected_after_s": 0.381,
+      "wav": "/home/user/salescall-ai/phase0/results/G-03_Leda_smile_x2.wav",
+      "chars_per_second": 6.32,
+      "speed_vs_baseline": 1.11,
+      "matches_script": null,
+      "audio_bytes": 1132320,
+      "audio_mime": "audio/pcm;rate=24000",
+      "audio_rate": 24000,
+      "audio_seconds": 23.59,
+      "input_transcript": "",
+      "output_transcript": "",
+      "usage": [
+        {
+          "prompt_token_count": 778,
+          "response_token_count": 595,
+          "thoughts_token_count": 220,
+          "total_token_count": 1373,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 525
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 228
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 595
+            }
+          ]
+        }
+      ],
+      "tool_calls": [],
+      "go_away_time_left": [],
+      "resumption_handle_received": true,
+      "interrupted": false,
+      "first_audio_after_s": 0.931,
+      "finished_after_s": 24.537,
+      "message_kinds": {
+        "session_resumption_update": 1,
+        "server_content": 69,
+        "usage_metadata": 1
+      },
+      "events": [
+        {
+          "at_s": 24.537,
+          "kind": "turn_complete"
+        }
+      ]
+    }
+  ]
+}
