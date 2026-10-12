@@ -186,12 +186,25 @@ def base_parser(description: str) -> argparse.ArgumentParser:
     p.add_argument("--key-index", type=int, default=0, help="何番目のキーを使うか（0 から）")
     p.add_argument("--model", default=DEFAULT_MODEL, help="モデルID（G-1 で公式の値を確かめる）")
     p.add_argument("--dry-run", action="store_true", help="接続せず、設定の組み立てだけ確かめる")
+    p.add_argument(
+        "--proxy-key",
+        action="store_true",
+        help="クラウドの作業環境用：キーの値を持たず、通信の中継所が付ける本物のキーを使う（ネットワークのシークレット）",
+    )
     return p
 
 
+# 中継所が本物のキーに置き換えるための、形だけの値（本物のキーではない）
+PROXY_PLACEHOLDER = ApiKey("PROXY_INJECTED", "AIza" + "0" * 35)
+
+
 def pick_key(args) -> ApiKey | None:
+    """使うキーを決める唯一の場所。"""
     if args.dry_run:
         return None
+    if args.proxy_key:
+        say("使うキー：通信の中継所が付けるキー（作業環境の中にキーの値はありません）")
+        return PROXY_PLACEHOLDER
     keys = load_keys(args.env, args.key_name)
     if not 0 <= args.key_index < len(keys):
         raise SystemExit(f"--key-index は 0〜{len(keys) - 1} です")

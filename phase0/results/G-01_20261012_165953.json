@@ -1,0 +1,11 @@
+{
+  "item": "G-01",
+  "saved_at": "2026-10-12T16:59:53",
+  "ok": false,
+  "model": "gemini-3.8-live",
+  "error": {
+    "type": "InvalidStatus",
+    "module": "websockets.exceptions",
+    "message": "server rejected WebSocket connection: HTTP 404"
+  }
+}
