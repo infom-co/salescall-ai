@@ -26,6 +26,11 @@ STYLES = {
         "ふだんの読み上げのおよそ2倍の速さで、営業電話の担当者が実際に話すような、テンポのよい自然な会話の速さで話してください。"
         "語尾を下げて暗く終わらないでください。"
     ),
+    # ユーザーの経験：「2倍速」と指示すると、実際は 1.3倍前後になる（2026-10-12）。目標は実際の速さで 1.3倍前後。
+    "bright_x2": (
+        "話し方：明るく、はきはきと、感じのよい声で話してください。話す速さは2倍速にしてください。"
+        "留守番電話の案内のような、ゆっくりした話し方にしないでください。言葉は1文字も変えないでください。"
+    ),
 }
 # 前回（話し方の指示なし）の実測：読み終えるまで Sadachbia 21.24秒・Leda 26.27秒（G-03_20261012_174309.json）
 BASELINE_SECONDS = {"Sadachbia": 21.24, "Leda": 26.27}
@@ -53,8 +58,10 @@ async def one(client, args, voice: str) -> dict:
     sec = s["audio_seconds"]
     return {"voice": voice, "style": args.style, "connected_after_s": round(t1 - t0, 3), "wav": str(wav) if turn.audio else None,
             "chars_per_second": round(len(SCRIPT) / sec, 2) if sec else None,
-            "speed_vs_baseline": round(BASELINE_SECONDS[voice] / sec, 2) if sec else None,  # 2.0 なら2倍の速さ
-            "matches_script": s["output_transcript"].replace(" ", "") == SCRIPT, **s}
+            # 2.0 なら2倍の速さ。声がほとんど届かなかった回（G-3 で 0.77秒）は、速さとしては数えない
+            "speed_vs_baseline": round(BASELINE_SECONDS[voice] / sec, 2) if sec and sec >= BASELINE_SECONDS[voice] / 3 else None,
+            # 文字起こしが届かない回がある（G-7）。届かなければ「確かめられない」（None）にする
+            "matches_script": (s["output_transcript"].replace(" ", "") == SCRIPT) if s["output_transcript"] else None, **s}
 
 
 async def run(args) -> dict:
