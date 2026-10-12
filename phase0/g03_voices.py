@@ -16,6 +16,19 @@ INSTRUCTION = (
     "あなたは電話で話す担当者です。これから渡す台本を、そのまま、丁寧で自然な日本語の話し方で読み上げてください。"
     "台本にない言葉を足さないでください。"
 )
+# 話し方（DESIGN.md 6-3 の材料3「システム共通の会話の決まり」に入る候補）。
+# 2026-10-12 ユーザーの評価：「声が暗く、話すスピードが遅すぎ、留守番電話のような話し方」⇒「暗くならず、2倍速で自然に」
+STYLES = {
+    "baseline": "",
+    "bright_fast": (
+        "話し方：明るく、はきはきと、感じのよい声で話してください。"
+        "留守番電話の案内やナレーションのような、ゆっくりした読み上げ方にしないでください。"
+        "ふだんの読み上げのおよそ2倍の速さで、営業電話の担当者が実際に話すような、テンポのよい自然な会話の速さで話してください。"
+        "語尾を下げて暗く終わらないでください。"
+    ),
+}
+# 前回（話し方の指示なし）の実測：読み終えるまで Sadachbia 21.24秒・Leda 26.27秒（G-03_20261012_174309.json）
+BASELINE_SECONDS = {"Sadachbia": 21.24, "Leda": 26.27}
 SCRIPT = (
     "お忙しいところ恐れ入ります。株式会社サンプルの担当でございます。"
     "本日は、ご予約の日時の確認でお電話いたしました。"
@@ -26,17 +39,22 @@ SCRIPT = (
 
 
 async def one(client, args, voice: str) -> dict:
-    cfg = build_config(voice=voice, system_instruction=INSTRUCTION)
+    cfg = build_config(voice=voice, system_instruction=INSTRUCTION + STYLES[args.style])
     t0 = time.monotonic()
     async with client.aio.live.connect(model=args.model, config=cfg) as session:
         t1 = time.monotonic()
         await send_text(session, f"台本：{SCRIPT}")
         turn = await collect_turn(session, started_at=t1, timeout_s=120)
-    wav = HERE / "results" / f"G-03_{voice}.wav"
+    suffix = "" if args.style == "baseline" else f"_{args.style}"
+    wav = HERE / "results" / f"G-03_{voice}{suffix}.wav"
     if turn.audio:
         write_wav(wav, bytes(turn.audio), turn.audio_rate or 24000)
-    return {"voice": voice, "connected_after_s": round(t1 - t0, 3), "wav": str(wav) if turn.audio else None,
-            "matches_script": turn.summary()["output_transcript"].replace(" ", "") == SCRIPT, **turn.summary()}
+    s = turn.summary()
+    sec = s["audio_seconds"]
+    return {"voice": voice, "style": args.style, "connected_after_s": round(t1 - t0, 3), "wav": str(wav) if turn.audio else None,
+            "chars_per_second": round(len(SCRIPT) / sec, 2) if sec else None,
+            "speed_vs_baseline": round(BASELINE_SECONDS[voice] / sec, 2) if sec else None,  # 2.0 なら2倍の速さ
+            "matches_script": s["output_transcript"].replace(" ", "") == SCRIPT, **s}
 
 
 async def run(args) -> dict:
@@ -57,7 +75,9 @@ async def run(args) -> dict:
 
 def main() -> None:
     require_python()
-    args = base_parser(__doc__).parse_args()
+    p = base_parser(__doc__)
+    p.add_argument("--style", choices=sorted(STYLES), default="baseline", help="話し方の指示")
+    args = p.parse_args()
     save_result("G-03", asyncio.run(run(args)))
 
 
