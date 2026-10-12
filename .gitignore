@@ -2,4 +2,12 @@
 __pycache__/
 *.pyc
 phase0/results/*.wav
+# キーの値を GitHub に上げないための守り（secrets/ に置いてよいのは錠前と閉じた箱だけ）
 .env
+*.env
+.env.*
+*.key
+secrets/*
+!secrets/README.md
+!secrets/recipient_pubkey.pem
+!secrets/gemini_keys.sealed.json
