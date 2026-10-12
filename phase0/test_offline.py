@@ -55,6 +55,16 @@ class EnvAndRedactionTest(unittest.TestCase):
         path = common.save_result("TEST", {"leak": self.secret, "nested": {"also": f"x{self.secret}x"}})
         self.assertNotIn(self.secret, path.read_text(encoding="utf-8"))
 
+    def test_falls_back_to_environ_when_no_file(self):
+        import os
+        os.environ["GEMINI_API_KEY_TEST"] = "AIza" + "E" * 35
+        try:
+            keys = common.load_keys(self.tmp / "no_such.env", ["GEMINI_API_KEY_TEST"])
+            self.assertEqual(keys[0].name, "GEMINI_API_KEY_TEST")
+            self.assertEqual(common.redact(f"x{keys[0].value}x"), "x***x")
+        finally:
+            del os.environ["GEMINI_API_KEY_TEST"]
+
     def test_explicit_names_missing(self):
         with self.assertRaises(SystemExit):
             common.load_keys(self.env, ["NOT_THERE"])

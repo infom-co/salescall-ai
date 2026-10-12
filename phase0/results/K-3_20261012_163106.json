@@ -1,0 +1,13 @@
+{
+  "item": "K-3",
+  "saved_at": "2026-10-12T16:31:06",
+  "model": "gemini-3.8-live",
+  "error": {
+    "type": "APIError",
+    "module": "google.genai.errors",
+    "message": "1007 None. API key not valid. Please pass a valid API key.",
+    "code": "1007",
+    "status": "None",
+    "details": "API key not valid. Please pass a valid API key."
+  }
+}

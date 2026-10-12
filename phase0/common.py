@@ -83,8 +83,16 @@ def read_env_file(path: str | os.PathLike) -> list[tuple[str, str]]:
 
 
 def load_keys(env_path: str | os.PathLike, key_names: list[str] | None = None) -> list[ApiKey]:
-    """APIキーを読み込む。`key_names` を指定しなければ、名前に GEMINI/GOOGLE と KEY を含む変数を使う。"""
-    pairs = read_env_file(env_path)
+    """APIキーを読み込む唯一の場所。`key_names` を指定しなければ、名前に GEMINI/GOOGLE と KEY を含む変数を使う。
+
+    `.env` のファイルがあればそこから、無ければ環境変数から読む（クラウドの作業環境では環境変数に入れる）。
+    """
+    if Path(env_path).is_file():
+        pairs = read_env_file(env_path)
+        source = str(env_path)
+    else:
+        pairs = sorted(os.environ.items())
+        source = "環境変数"
     if key_names:
         wanted = set(key_names)
         keys = [ApiKey(n, v) for n, v in pairs if n in wanted and v]
@@ -97,8 +105,9 @@ def load_keys(env_path: str | os.PathLike, key_names: list[str] | None = None) -
         _LOADED_SECRETS.append(k.value)
     if not keys:
         raise SystemExit(
-            "APIキーが見つかりません。k01_env_shape.py で .env の形を確かめ、--key-name で変数名を指定してください。"
+            f"APIキーが見つかりません（読んだ場所：{source}）。k01_env_shape.py で形を確かめ、--key-name で変数名を指定してください。"
         )
+    say(f"キーを読んだ場所：{source}（{len(keys)} 個）")
     return keys
 
 
