@@ -90,6 +90,7 @@ class MiniFlowTest(unittest.TestCase):
         r = f.handle(fc("record_answer", question_id="Q2", condition_id="answered", value="15日14時"))
         self.assertEqual(r["result"], "confirm_required")
         self.assertFalse(f.done)  # 確かめる前に終わりへ進まない（I-18）
+        f.on_callee()  # 相手が返事をした
         r = f.handle(fc("confirm_field", question_id="Q2", result="affirmed"))
         self.assertEqual(r["result"], "confirmed")
         self.assertTrue(f.done)
@@ -115,9 +116,23 @@ class MiniFlowTest(unittest.TestCase):
         f = MiniFlow()
         f.handle(fc("record_answer", question_id="Q1", condition_id="yes"))
         f.handle(fc("record_answer", question_id="Q2", condition_id="answered", value="15日14時"))
+        f.on_callee()
         r = f.handle(fc("confirm_field", question_id="Q2", result="corrected", correction="16日14時"))
         self.assertEqual(r["result"], "confirm_required")
         self.assertEqual(f.values["Q2"]["value"], "16日14時")
+        self.assertIn("16日14時", r["message"])  # 言い直すのは、記録した値そのもの
+
+    def test_confirm_before_callee_reply_rejected(self):
+        # 2026-10-12 の G-6：AIが相手の返事を待たずに「肯定された」と報告した ⇒ 差し戻す
+        f = MiniFlow()
+        f.handle(fc("record_answer", question_id="Q1", condition_id="yes"))
+        f.handle(fc("record_answer", question_id="Q2", condition_id="answered", value="15日14時"))
+        r = f.handle(fc("confirm_field", question_id="Q2", result="affirmed"))
+        self.assertEqual(r["result"], "rejected")
+        self.assertNotEqual(f.values["Q2"]["state"], "confirmed")
+        f.on_callee()
+        r = f.handle(fc("confirm_field", question_id="Q2", result="affirmed"))
+        self.assertEqual(r["result"], "confirmed")
 
     def test_confirm_without_request_rejected(self):
         f = MiniFlow()

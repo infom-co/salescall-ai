@@ -1,0 +1,51 @@
+{
+  "item": "G-01",
+  "saved_at": "2026-10-12T17:42:02",
+  "key": "GEMINI_API_KEY_1#872cbac5",
+  "model": "gemini-3.8-live",
+  "voice": "Leda",
+  "connected_after_s": 0.717,
+  "wav": "/home/user/salescall-ai/phase0/results/G-01_Leda.wav",
+  "audio_bytes": 123360,
+  "audio_mime": "audio/pcm;rate=24000",
+  "audio_rate": 24000,
+  "audio_seconds": 2.57,
+  "input_transcript": "",
+  "output_transcript": "はい、接続を確認いたしました。",
+  "usage": [
+    {
+      "prompt_token_count": 589,
+      "response_token_count": 70,
+      "thoughts_token_count": 340,
+      "total_token_count": 659,
+      "prompt_tokens_details": [
+        {
+          "modality": "TEXT",
+          "token_count": 336
+        },
+        {
+          "modality": "AUDIO",
+          "token_count": 228
+        }
+      ],
+      "response_tokens_details": [
+        {
+          "modality": "AUDIO",
+          "token_count": 70
+        }
+      ]
+    }
+  ],
+  "tool_calls": [],
+  "go_away_time_left": [],
+  "resumption_handle_received": true,
+  "interrupted": false,
+  "first_audio_after_s": 1.418,
+  "finished_after_s": 4.007,
+  "message_kinds": {
+    "session_resumption_update": 1,
+    "server_content": 11,
+    "usage_metadata": 1
+  },
+  "ok": true
+}

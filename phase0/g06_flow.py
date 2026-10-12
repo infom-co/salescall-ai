@@ -26,14 +26,17 @@ QUESTIONS = {
 }
 CONFIRM_TYPES = {"datetime"}
 ASK_BACK = "聞き取りにくかったので、もう一度、おっしゃっていただいてよろしいでしょうか。"
-CALLEE = ["はい、もしもし。", "はい、予約しています。", "えっと、じゅう……の……", "15日の2時です。", "はい、そうです。"]
+CALLEE = ["はい、もしもし。", "はい、予約しています。", "えっと、じゅう……の……", "15日の午後2時です。", "はい、そうです。"]
 
 INSTRUCTION = f"""あなたは電話で、予約の確認をする担当者です。日本語で、丁寧に短く話します。
 決まり：
 - 質問は、プログラムから渡されたものだけを、1つずつ聞きます。最初の質問は Q1「{QUESTIONS['Q1']['text']}」です。
 - 相手が答えたら、必ず record_answer を呼びます。返事に次の質問が書いてあるので、それを聞きます。
 - 日付・時刻・数・名前・電話番号・メール・住所は、聞いたその場で言い直して確かめます（例：「15日の午後2時ですね」）。
-  確かめたら、相手の答えを confirm_field で報告します。
+  言い直すのは、record_answer の返事に書いてある値そのものです。言い直したら、相手の返事を待ちます。
+  相手が返事をしてから、その返事を confirm_field で報告します（相手の返事を聞く前に報告してはいけません）。
+- 時刻は、午前か午後かを必ずはっきりさせます。相手が言わなかったら、「午前と午後、どちらでしょうか」と聞きます。自分で決めてはいけません。
+- 予約を承る・約束するなど、プログラムが言わせていないことは言いません。
 - 聞き取れない・曖昧なときは report_unclear を呼びます。返事が「聞き返す」なら「{ASK_BACK}」と聞き返します。
 - 返事に「終わり」とあれば、お礼を言って終えます。
 """
@@ -77,6 +80,22 @@ class MiniFlow:
         self.checks = {"question_id_matched": True, "held_until_confirm": None, "ask_back_requested": False,
                        "rejected_calls": []}
         self.done = False
+        # 相手の発話が届いた回数。言い直しを求めたときの回数より増えていなければ、確かめの報告を受け付けない
+        # （2026-10-12 の G-6：AIが相手の返事を待たずに「肯定された」と報告した）
+        self.callee_turns = 0
+        self.confirm_requested_at: int | None = None
+
+    def on_callee(self) -> None:
+        """相手の発話が届いた（本番では、相手の音声の文字起こし・発話の検出で数える）。"""
+        self.callee_turns += 1
+
+    def _ask_confirm(self, qid: str) -> dict:
+        self.awaiting_confirm = qid
+        self.confirm_requested_at = self.callee_turns
+        value = self.values[qid].get("value")
+        return {"result": "confirm_required",
+                "message": f"「{value}」と、この値のとおりに言い直して、相手の返事を待ってください。"
+                           "相手が返事をしたら、confirm_field で報告してください。"}
 
     def _next(self) -> str:
         order = list(QUESTIONS)
@@ -106,14 +125,17 @@ class MiniFlow:
         if fc.name == "record_answer":
             self.values[qid] = {"state": "heard", "condition": a.get("condition_id"), "value": a.get("value")}
             if qtype in CONFIRM_TYPES or self.ask_back_used.get(qid):
-                self.awaiting_confirm = qid
-                return {"result": "confirm_required", "message": "その場で言い直して確かめてください。結果は confirm_field で報告してください。"}
+                return self._ask_confirm(qid)
             self.values[qid]["state"] = "accepted"
             return {"result": "accepted", "message": self._next()}
         if fc.name == "confirm_field":
             if self.awaiting_confirm != qid:
                 self.checks["rejected_calls"].append({"name": fc.name, "args": a, "why": "復唱を求めていない"})
                 return {"result": "rejected", "message": "いまは復唱を求めていません。"}
+            if self.callee_turns <= (self.confirm_requested_at or 0):
+                self.checks["rejected_calls"].append({"name": fc.name, "args": a, "why": "相手の返事がまだ届いていない"})
+                return {"result": "rejected",
+                        "message": "相手の返事をまだ聞いていません。言い直したら、相手が返事をするまで待ってから報告してください。"}
             self.checks["held_until_confirm"] = True
             self.awaiting_confirm = None
             if a.get("result") == "affirmed":
@@ -121,8 +143,7 @@ class MiniFlow:
                 return {"result": "confirmed", "message": self._next()}
             if a.get("result") == "corrected":
                 self.values[qid].update(state="heard", value=a.get("correction"))
-                self.awaiting_confirm = qid
-                return {"result": "confirm_required", "message": "訂正された値を、もう1回だけ言い直して確かめてください。"}
+                return self._ask_confirm(qid)
             self.values[qid]["state"] = "unresolved"
             return {"result": "unresolved", "message": self._next()}
         return {"result": "rejected", "message": "知らない操作です。"}
@@ -138,11 +159,12 @@ async def run(args) -> dict:
     async with client.aio.live.connect(model=args.model, config=cfg) as session:
         for line in CALLEE:
             t = time.monotonic()
+            flow.on_callee()
             await send_text(session, line)
             turn = await collect_turn(session, started_at=t, on_tool_call=flow.handle, timeout_s=90)
             s = turn.summary()
             turns.append({"callee": line, "ai": s["output_transcript"], "tool_calls": s["tool_calls"],
-                          "first_audio_after_s": s["first_audio_after_s"], "usage": s["usage"]})
+                          "first_audio_after_s": s["first_audio_after_s"], "usage": s["usage"], "events": s["events"]})
             say(f"相手：{line} ／ AI：{s['output_transcript']}")
             if flow.done:
                 break
@@ -150,10 +172,42 @@ async def run(args) -> dict:
     checks = dict(flow.checks)
     checks["ask_back_phrase_count"] = ai_text.count("聞き取りにくかった")
     checks["ask_back_at_most_once"] = checks["ask_back_phrase_count"] <= 1
-    checks["readback_spoken"] = ("15日" in ai_text) and ("2時" in ai_text or "14時" in ai_text)
     checks["transcript_available"] = bool(ai_text)
+    # ⛔ 通しの文字だけで見ると、順番がずれても合格に見える（2026-10-12 に実際に起きた）。
+    #    ⇒ 相手の発話ごとに「そのターンで AI が言うべきこと・呼ぶべき操作」を当てる。
+    checks["per_turn"] = per_turn_checks(turns)
+    checks["all_turns_ok"] = all(c["ok"] for c in checks["per_turn"])
     return {"model": args.model, "voice": args.voice, "values": flow.values, "checks": checks, "turns": turns,
             "finished": flow.done}
+
+
+# 相手の発話ごとに、そのターンの中で起きるべきこと（言葉はどれか1つが出ればよい）
+EXPECT = [
+    {"callee": CALLEE[0], "tool": None, "say_any": ["予約"]},
+    {"callee": CALLEE[1], "tool": "record_answer", "say_any": ["日時", "日にち", "ご希望"]},
+    {"callee": CALLEE[2], "tool": "report_unclear", "say_any": ["聞き取りにくかった"]},
+    {"callee": CALLEE[3], "tool": "record_answer", "say_any": ["15日"], "must_not_tool": "confirm_field"},  # 言い直して、返事を待つ
+    {"callee": CALLEE[4], "tool": "confirm_field", "say_any": ["ありがとう", "失礼"]},
+]
+
+
+def per_turn_checks(turns: list[dict]) -> list[dict]:
+    out = []
+    for i, exp in enumerate(EXPECT):
+        if i >= len(turns):
+            out.append({"callee": exp["callee"], "ok": False, "why": "このターンまで進まなかった"})
+            continue
+        t = turns[i]
+        names = [c["name"] for c in t["tool_calls"]]
+        tool_ok = (not names) if exp["tool"] is None else (exp["tool"] in names)
+        # 相手の返事が届く前の確かめの報告は、差し戻されていれば「起きていない」のと同じ（受け付けたかで見る）
+        accepted = [e["name"] for e in t.get("events", []) if e.get("kind") == "tool_call" and e.get("reply") != "rejected"]
+        if exp.get("must_not_tool") and exp["must_not_tool"] in accepted:
+            tool_ok = False
+        say_ok = any(w in t["ai"] for w in exp["say_any"])
+        out.append({"callee": exp["callee"], "ok": tool_ok and say_ok, "tool_ok": tool_ok, "say_ok": say_ok,
+                    "expected_tool": exp["tool"], "got_tools": names, "expected_words": exp["say_any"], "ai": t["ai"]})
+    return out
 
 
 def main() -> None:

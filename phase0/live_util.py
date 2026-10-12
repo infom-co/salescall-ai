@@ -68,6 +68,7 @@ class TurnResult:
     first_audio_after_s: float | None = None
     finished_after_s: float | None = None
     message_kinds: dict[str, int] = field(default_factory=dict)
+    events: list[dict] = field(default_factory=list)  # 起きた順の記録（話した順番を確かめるため）
 
     def summary(self) -> dict:
         return {
@@ -85,6 +86,7 @@ class TurnResult:
             "first_audio_after_s": self.first_audio_after_s,
             "finished_after_s": self.finished_after_s,
             "message_kinds": self.message_kinds,
+            "events": self.events,
         }
 
 
@@ -94,42 +96,60 @@ async def collect_turn(session, *, started_at: float, on_tool_call=None, timeout
 
     r = TurnResult()
 
+    def at() -> float:
+        return round(time.monotonic() - started_at, 3)
+
     async def _loop():
-        async for msg in session.receive():
-            _count(r, msg)
-            if msg.usage_metadata is not None:
-                r.usage.append(msg.usage_metadata.model_dump(exclude_none=True))
-            if msg.go_away is not None:
-                r.go_away_time_left.append(str(msg.go_away.time_left))
-            if msg.session_resumption_update is not None and msg.session_resumption_update.new_handle:
-                r.resumption_handles.append(msg.session_resumption_update.new_handle)
-            if msg.tool_call is not None:
-                responses = []
-                for fc in msg.tool_call.function_calls or []:
-                    r.tool_calls.append({"name": fc.name, "args": fc.args, "at_s": round(time.monotonic() - started_at, 3)})
-                    reply = on_tool_call(fc) if on_tool_call else {"result": "ok"}
-                    responses.append(types.FunctionResponse(id=fc.id, name=fc.name, response=reply))
-                if responses:
-                    await session.send_tool_response(function_responses=responses)
-            sc = msg.server_content
-            if sc is None:
-                continue
-            if sc.interrupted:
-                r.interrupted = True
-            if sc.input_transcription is not None and sc.input_transcription.text:
-                r.input_transcript.append(sc.input_transcription.text)
-            if sc.output_transcription is not None and sc.output_transcription.text:
-                r.output_transcript.append(sc.output_transcription.text)
-            if sc.model_turn is not None:
-                for part in sc.model_turn.parts or []:
-                    blob = part.inline_data
-                    if blob is not None and blob.data:
-                        if r.first_audio_after_s is None:
-                            r.first_audio_after_s = round(time.monotonic() - started_at, 3)
-                        r.audio_mime = r.audio_mime or blob.mime_type
-                        r.audio_rate = r.audio_rate or parse_rate(blob.mime_type, 24000)
-                        r.audio.extend(blob.data)
-        r.finished_after_s = round(time.monotonic() - started_at, 3)
+        # 操作（関数）への返事を送ったら、AIがそれを受けて話し終えるまで受け取り続ける。
+        # ⛔ 2026-10-12 の不具合：操作の入ったターンの区切りで受け取りをやめていたため、
+        #    返事を受けたAIの声（聞き返し・言い直し）が、次の相手の発話のあとにずれていた。
+        awaiting_reply_speech = False
+        while True:
+            async for msg in session.receive():
+                _count(r, msg)
+                if msg.usage_metadata is not None:
+                    r.usage.append(msg.usage_metadata.model_dump(exclude_none=True))
+                if msg.go_away is not None:
+                    r.go_away_time_left.append(str(msg.go_away.time_left))
+                    r.events.append({"at_s": at(), "kind": "go_away", "time_left": str(msg.go_away.time_left)})
+                if msg.session_resumption_update is not None and msg.session_resumption_update.new_handle:
+                    r.resumption_handles.append(msg.session_resumption_update.new_handle)
+                if msg.tool_call is not None:
+                    responses = []
+                    for fc in msg.tool_call.function_calls or []:
+                        r.tool_calls.append({"name": fc.name, "args": fc.args, "at_s": at()})
+                        reply = on_tool_call(fc) if on_tool_call else {"result": "ok"}
+                        r.events.append({"at_s": at(), "kind": "tool_call", "name": fc.name, "args": fc.args,
+                                         "reply": reply.get("result")})
+                        responses.append(types.FunctionResponse(id=fc.id, name=fc.name, response=reply))
+                    if responses:
+                        await session.send_tool_response(function_responses=responses)
+                        awaiting_reply_speech = True
+                sc = msg.server_content
+                if sc is None:
+                    continue
+                if sc.interrupted:
+                    r.interrupted = True
+                    r.events.append({"at_s": at(), "kind": "interrupted"})
+                if sc.input_transcription is not None and sc.input_transcription.text:
+                    r.input_transcript.append(sc.input_transcription.text)
+                if sc.output_transcription is not None and sc.output_transcription.text:
+                    r.output_transcript.append(sc.output_transcription.text)
+                    r.events.append({"at_s": at(), "kind": "ai_said", "text": sc.output_transcription.text})
+                if sc.model_turn is not None:
+                    for part in sc.model_turn.parts or []:
+                        blob = part.inline_data
+                        if blob is not None and blob.data:
+                            if r.first_audio_after_s is None:
+                                r.first_audio_after_s = at()
+                            r.audio_mime = r.audio_mime or blob.mime_type
+                            r.audio_rate = r.audio_rate or parse_rate(blob.mime_type, 24000)
+                            r.audio.extend(blob.data)
+                            awaiting_reply_speech = False
+            r.events.append({"at_s": at(), "kind": "turn_complete"})
+            if not awaiting_reply_speech:
+                break
+        r.finished_after_s = at()
 
     await asyncio.wait_for(_loop(), timeout=timeout_s)
     return r
