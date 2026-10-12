@@ -61,6 +61,14 @@ STYLES = {
         "聞き返すときは、申し訳なさそうに言ってください。威圧的な話し方はしないでください。話す速さは2倍速にしてください。"
         "留守番電話の案内のような、ゆっくりした話し方にしないでください。言葉は1文字も変えないでください。"
     ),
+    # 2026-10-12 ユーザーの評価：Sadachbia は S2（warm_business）・S4（smile）が5点、S3（humble）も5点に近い ⇒ S2 と S4 で A/B テストしたい。
+    # Leda は L2（humble）が4.5点 ⇒「謙虚な会社員」を聞きたい。L1（warm_business）は「株式会社サンプルの担当」の「サンプル」が抜けた。
+    "humble_business_x2": (
+        "話し方：取引先にお願いをする気持ちで電話をかける、謙虚な会社員のように、ていねいで、やわらかく、前向きな声で話してください。"
+        "声は暗くせず、語尾はやさしく終えてください。抑揚は、ふだんの日本語の会話と同じ、自然な抑揚にしてください。"
+        "聞き返すときや確認するときは、申し訳なさそうに、やさしく言ってください。威圧的な話し方はしないでください。話す速さは2倍速にしてください。"
+        "留守番電話の案内のような、ゆっくりした話し方にしないでください。言葉は1文字も変えないでください。"
+    ),
     "smile_x2": (
         "話し方：感じのよい受付の担当者のように、にこやかで、やわらかく、前向きな声で話してください。"
         "抑揚は、ふだんの日本語の会話と同じ、自然な抑揚にしてください。"
@@ -111,7 +119,7 @@ async def run(args) -> dict:
         return {"dry_run": True, "config_ok": True, "voices": list(VOICES)}
     client = make_client(pick_key(args))
     results = []
-    for v in VOICES:
+    for v in args.voice or VOICES:
         try:
             results.append({"ok": True, **await one(client, args, v)})
         except Exception as exc:
@@ -124,6 +132,7 @@ def main() -> None:
     require_python()
     p = base_parser(__doc__)
     p.add_argument("--style", choices=sorted(STYLES), default="baseline", help="話し方の指示")
+    p.add_argument("--voice", choices=VOICES, action="append", help="この声だけで撮る（省略すると全部の声）")
     args = p.parse_args()
     save_result("G-03", asyncio.run(run(args)))
 

@@ -1,0 +1,65 @@
+{
+  "item": "G-03",
+  "saved_at": "2026-10-12T19:41:16",
+  "model": "gemini-3.8-live",
+  "script": "お忙しいところ恐れ入ります。株式会社サンプルの担当でございます。本日は、ご予約の日時の確認でお電話いたしました。15日の午後2時でお間違いないでしょうか。聞き取りにくかったので、もう一度、おっしゃっていただいてよろしいでしょうか。念のため確認させてください。ありがとうございました。失礼いたします。",
+  "results": [
+    {
+      "ok": true,
+      "voice": "Leda",
+      "style": "humble_business_x2",
+      "connected_after_s": 0.309,
+      "wav": "/home/user/salescall-ai/phase0/results/G-03_Leda_humble_business_x2_2.wav",
+      "chars_per_second": 6.8,
+      "speed_vs_baseline": 1.2,
+      "matches_script": null,
+      "audio_bytes": 1051200,
+      "audio_mime": "audio/pcm;rate=24000",
+      "audio_rate": 24000,
+      "audio_seconds": 21.9,
+      "input_transcript": "",
+      "output_transcript": "",
+      "usage": [
+        {
+          "prompt_token_count": 806,
+          "response_token_count": 554,
+          "thoughts_token_count": 219,
+          "total_token_count": 1360,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 553
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 228
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 554
+            }
+          ]
+        }
+      ],
+      "tool_calls": [],
+      "go_away_time_left": [],
+      "resumption_handle_received": true,
+      "interrupted": false,
+      "first_audio_after_s": 0.936,
+      "finished_after_s": 22.838,
+      "message_kinds": {
+        "session_resumption_update": 1,
+        "server_content": 63,
+        "usage_metadata": 1
+      },
+      "events": [
+        {
+          "at_s": 22.838,
+          "kind": "turn_complete"
+        }
+      ]
+    }
+  ]
+}

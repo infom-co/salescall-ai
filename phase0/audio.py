@@ -51,4 +51,4 @@ def voiced_seconds(pcm16: bytes, rate: int, threshold: float = 0.02) -> float:
     """前後の無音を除いた、声のある区間の長さ（秒）。話す速さを測るときに使う（前後の無音で速さが変わって見えないように）。"""
     x = np.abs(_to_float(pcm16))
     idx = np.flatnonzero(x > threshold)
-    return 0.0 if len(idx) == 0 else (idx[-1] - idx[0] + 1) / rate
+    return 0.0 if len(idx) == 0 else float((idx[-1] - idx[0] + 1) / rate)  # 記録（JSON）に書けるよう、ふつうの数にする

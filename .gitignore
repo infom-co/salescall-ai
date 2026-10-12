@@ -11,3 +11,4 @@ secrets/*
 !secrets/README.md
 !secrets/recipient_pubkey.pem
 !secrets/gemini_keys.sealed.json
+phase0/results/g17_audio/
