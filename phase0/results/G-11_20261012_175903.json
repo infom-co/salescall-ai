@@ -1,0 +1,1026 @@
+{
+  "item": "G-11",
+  "saved_at": "2026-10-12T17:59:03",
+  "model": "gemini-3.8-live",
+  "summary": {
+    "default": {
+      "n": 23,
+      "median_s": 0.876,
+      "p90_s": 1.291,
+      "max_s": 1.334,
+      "no_reply": 1
+    }
+  },
+  "rows": [
+    {
+      "sample": "Puck_yes_reserved.wav",
+      "thinking_level": "default",
+      "latency_s": 0.791,
+      "heard": "はい。予約しています。",
+      "ai": "かしこまりました。",
+      "usage": [
+        {
+          "prompt_token_count": 634,
+          "response_token_count": 37,
+          "thoughts_token_count": 43,
+          "total_token_count": 671,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 334
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 273
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 37
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Puck_datetime_pm.wav",
+      "thinking_level": "default",
+      "latency_s": 0.844,
+      "heard": "15 日の午後 2 時でお願いします。",
+      "ai": "かしこまりました。",
+      "usage": [
+        {
+          "prompt_token_count": 660,
+          "response_token_count": 36,
+          "thoughts_token_count": 81,
+          "total_token_count": 696,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 340
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 293
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 36
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Puck_affirm.wav",
+      "thinking_level": "default",
+      "latency_s": 0.793,
+      "heard": "はい。そうです。",
+      "ai": "承知いたしました。",
+      "usage": [
+        {
+          "prompt_token_count": 620,
+          "response_token_count": 43,
+          "thoughts_token_count": 49,
+          "total_token_count": 663,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 333
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 260
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 43
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Puck_no_not_yet.wav",
+      "thinking_level": "default",
+      "latency_s": 0.876,
+      "heard": "いいえ、まだしていません。",
+      "ai": "かしこまりました。",
+      "usage": [
+        {
+          "prompt_token_count": 635,
+          "response_token_count": 25,
+          "thoughts_token_count": 56,
+          "total_token_count": 660,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 336
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 272
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 25
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Kore_yes_reserved.wav",
+      "thinking_level": "default",
+      "latency_s": 0.822,
+      "heard": "はい。予約しています。",
+      "ai": "かしこまりました。",
+      "usage": [
+        {
+          "prompt_token_count": 636,
+          "response_token_count": 27,
+          "thoughts_token_count": 46,
+          "total_token_count": 663,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 334
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 275
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 27
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Kore_datetime_pm.wav",
+      "thinking_level": "default",
+      "latency_s": 1.255,
+      "heard": "15 日の午後 2 時でお願いします。",
+      "ai": "かしこまりました。",
+      "usage": [
+        {
+          "prompt_token_count": 660,
+          "response_token_count": 37,
+          "thoughts_token_count": 154,
+          "total_token_count": 697,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 340
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 293
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 37
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Kore_affirm.wav",
+      "thinking_level": "default",
+      "latency_s": 0.825,
+      "heard": "はい、そうです。",
+      "ai": "かしこまりました。",
+      "usage": [
+        {
+          "prompt_token_count": 617,
+          "response_token_count": 38,
+          "thoughts_token_count": 83,
+          "total_token_count": 655,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 333
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 257
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 38
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Kore_no_not_yet.wav",
+      "thinking_level": "default",
+      "latency_s": 0.722,
+      "heard": "いいえ、まだしていません。",
+      "ai": "かしこまりました。",
+      "usage": [
+        {
+          "prompt_token_count": 643,
+          "response_token_count": 35,
+          "thoughts_token_count": 85,
+          "total_token_count": 678,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 336
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 280
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 35
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Puck_yes_reserved.wav",
+      "thinking_level": "MINIMAL",
+      "error": {
+        "type": "APIError",
+        "module": "google.genai.errors",
+        "message": "1007 None. Thinking level is not supported for this model.",
+        "code": "1007",
+        "status": "None",
+        "details": "Thinking level is not supported for this model."
+      }
+    },
+    {
+      "sample": "Puck_datetime_pm.wav",
+      "thinking_level": "MINIMAL",
+      "error": {
+        "type": "APIError",
+        "module": "google.genai.errors",
+        "message": "1007 None. Thinking level is not supported for this model.",
+        "code": "1007",
+        "status": "None",
+        "details": "Thinking level is not supported for this model."
+      }
+    },
+    {
+      "sample": "Puck_affirm.wav",
+      "thinking_level": "MINIMAL",
+      "error": {
+        "type": "APIError",
+        "module": "google.genai.errors",
+        "message": "1007 None. Thinking level is not supported for this model.",
+        "code": "1007",
+        "status": "None",
+        "details": "Thinking level is not supported for this model."
+      }
+    },
+    {
+      "sample": "Puck_no_not_yet.wav",
+      "thinking_level": "MINIMAL",
+      "error": {
+        "type": "APIError",
+        "module": "google.genai.errors",
+        "message": "1007 None. Thinking level is not supported for this model.",
+        "code": "1007",
+        "status": "None",
+        "details": "Thinking level is not supported for this model."
+      }
+    },
+    {
+      "sample": "Kore_yes_reserved.wav",
+      "thinking_level": "MINIMAL",
+      "error": {
+        "type": "APIError",
+        "module": "google.genai.errors",
+        "message": "1007 None. Thinking level is not supported for this model.",
+        "code": "1007",
+        "status": "None",
+        "details": "Thinking level is not supported for this model."
+      }
+    },
+    {
+      "sample": "Kore_datetime_pm.wav",
+      "thinking_level": "MINIMAL",
+      "error": {
+        "type": "APIError",
+        "module": "google.genai.errors",
+        "message": "1007 None. Thinking level is not supported for this model.",
+        "code": "1007",
+        "status": "None",
+        "details": "Thinking level is not supported for this model."
+      }
+    },
+    {
+      "sample": "Kore_affirm.wav",
+      "thinking_level": "MINIMAL",
+      "error": {
+        "type": "APIError",
+        "module": "google.genai.errors",
+        "message": "1007 None. Thinking level is not supported for this model.",
+        "code": "1007",
+        "status": "None",
+        "details": "Thinking level is not supported for this model."
+      }
+    },
+    {
+      "sample": "Kore_no_not_yet.wav",
+      "thinking_level": "MINIMAL",
+      "error": {
+        "type": "APIError",
+        "module": "google.genai.errors",
+        "message": "1007 None. Thinking level is not supported for this model.",
+        "code": "1007",
+        "status": "None",
+        "details": "Thinking level is not supported for this model."
+      }
+    },
+    {
+      "sample": "Puck_yes_reserved.wav",
+      "thinking_level": "default",
+      "latency_s": 1.291,
+      "heard": "はい。予約しています。",
+      "ai": "かしこまりました。",
+      "usage": [
+        {
+          "prompt_token_count": 634,
+          "response_token_count": 40,
+          "thoughts_token_count": 109,
+          "total_token_count": 674,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 334
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 273
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 40
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Puck_datetime_pm.wav",
+      "thinking_level": "default",
+      "latency_s": 0.83,
+      "heard": "15 日の午後 2 時でお願いします。",
+      "ai": "15日の午後2時ですね、承知いたしました。",
+      "usage": [
+        {
+          "prompt_token_count": 660,
+          "response_token_count": 81,
+          "thoughts_token_count": 122,
+          "total_token_count": 741,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 340
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 293
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 81
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Puck_affirm.wav",
+      "thinking_level": "default",
+      "latency_s": 0.876,
+      "heard": "はい。そうです。",
+      "ai": "かしこまりました。",
+      "usage": [
+        {
+          "prompt_token_count": 620,
+          "response_token_count": 29,
+          "thoughts_token_count": 35,
+          "total_token_count": 649,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 333
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 260
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 29
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Puck_no_not_yet.wav",
+      "thinking_level": "default",
+      "latency_s": 1.334,
+      "heard": "いいえ、まだしていません。",
+      "ai": "承知いたしました。",
+      "usage": [
+        {
+          "prompt_token_count": 635,
+          "response_token_count": 38,
+          "thoughts_token_count": 72,
+          "total_token_count": 673,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 336
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 272
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 38
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Kore_yes_reserved.wav",
+      "thinking_level": "default",
+      "latency_s": 0.885,
+      "heard": "はい。予約しています。",
+      "ai": "かしこまりました。",
+      "usage": [
+        {
+          "prompt_token_count": 636,
+          "response_token_count": 38,
+          "thoughts_token_count": 103,
+          "total_token_count": 674,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 334
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 275
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 38
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Kore_datetime_pm.wav",
+      "thinking_level": "default",
+      "latency_s": 0.828,
+      "heard": "15 日の午後 2 時でお願いします。",
+      "ai": "かしこまりました。",
+      "usage": [
+        {
+          "prompt_token_count": 660,
+          "response_token_count": 36,
+          "thoughts_token_count": 39,
+          "total_token_count": 696,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 340
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 293
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 36
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Kore_affirm.wav",
+      "thinking_level": "default",
+      "error": {
+        "type": "TimeoutError",
+        "module": "builtins",
+        "message": ""
+      }
+    },
+    {
+      "sample": "Kore_no_not_yet.wav",
+      "thinking_level": "default",
+      "latency_s": 1.307,
+      "heard": "いいえ、まだしていません。",
+      "ai": "かしこまりました。",
+      "usage": [
+        {
+          "prompt_token_count": 643,
+          "response_token_count": 33,
+          "thoughts_token_count": 78,
+          "total_token_count": 676,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 336
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 280
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 33
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Puck_yes_reserved.wav",
+      "thinking_level": "MINIMAL",
+      "error": {
+        "type": "APIError",
+        "module": "google.genai.errors",
+        "message": "1007 None. Thinking level is not supported for this model.",
+        "code": "1007",
+        "status": "None",
+        "details": "Thinking level is not supported for this model."
+      }
+    },
+    {
+      "sample": "Puck_datetime_pm.wav",
+      "thinking_level": "MINIMAL",
+      "error": {
+        "type": "APIError",
+        "module": "google.genai.errors",
+        "message": "1007 None. Thinking level is not supported for this model.",
+        "code": "1007",
+        "status": "None",
+        "details": "Thinking level is not supported for this model."
+      }
+    },
+    {
+      "sample": "Puck_affirm.wav",
+      "thinking_level": "MINIMAL",
+      "error": {
+        "type": "APIError",
+        "module": "google.genai.errors",
+        "message": "1007 None. Thinking level is not supported for this model.",
+        "code": "1007",
+        "status": "None",
+        "details": "Thinking level is not supported for this model."
+      }
+    },
+    {
+      "sample": "Puck_no_not_yet.wav",
+      "thinking_level": "MINIMAL",
+      "error": {
+        "type": "APIError",
+        "module": "google.genai.errors",
+        "message": "1007 None. Thinking level is not supported for this model.",
+        "code": "1007",
+        "status": "None",
+        "details": "Thinking level is not supported for this model."
+      }
+    },
+    {
+      "sample": "Kore_yes_reserved.wav",
+      "thinking_level": "MINIMAL",
+      "error": {
+        "type": "APIError",
+        "module": "google.genai.errors",
+        "message": "1007 None. Thinking level is not supported for this model.",
+        "code": "1007",
+        "status": "None",
+        "details": "Thinking level is not supported for this model."
+      }
+    },
+    {
+      "sample": "Kore_datetime_pm.wav",
+      "thinking_level": "MINIMAL",
+      "error": {
+        "type": "APIError",
+        "module": "google.genai.errors",
+        "message": "1007 None. Thinking level is not supported for this model.",
+        "code": "1007",
+        "status": "None",
+        "details": "Thinking level is not supported for this model."
+      }
+    },
+    {
+      "sample": "Kore_affirm.wav",
+      "thinking_level": "MINIMAL",
+      "error": {
+        "type": "APIError",
+        "module": "google.genai.errors",
+        "message": "1007 None. Thinking level is not supported for this model.",
+        "code": "1007",
+        "status": "None",
+        "details": "Thinking level is not supported for this model."
+      }
+    },
+    {
+      "sample": "Kore_no_not_yet.wav",
+      "thinking_level": "MINIMAL",
+      "error": {
+        "type": "APIError",
+        "module": "google.genai.errors",
+        "message": "1007 None. Thinking level is not supported for this model.",
+        "code": "1007",
+        "status": "None",
+        "details": "Thinking level is not supported for this model."
+      }
+    },
+    {
+      "sample": "Puck_yes_reserved.wav",
+      "thinking_level": "default",
+      "latency_s": 1.193,
+      "heard": "はい。予約しています。",
+      "ai": "かしこまりました。",
+      "usage": [
+        {
+          "prompt_token_count": 634,
+          "response_token_count": 35,
+          "thoughts_token_count": 102,
+          "total_token_count": 669,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 334
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 273
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 35
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Puck_datetime_pm.wav",
+      "thinking_level": "default",
+      "latency_s": 0.953,
+      "heard": "15 日の午後 2 時でお願いします。",
+      "ai": "承知いたしました。",
+      "usage": [
+        {
+          "prompt_token_count": 660,
+          "response_token_count": 41,
+          "thoughts_token_count": 80,
+          "total_token_count": 701,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 340
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 293
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 41
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Puck_affirm.wav",
+      "thinking_level": "default",
+      "latency_s": 0.799,
+      "heard": "はい。そうです。",
+      "ai": "畏まりました。",
+      "usage": [
+        {
+          "prompt_token_count": 620,
+          "response_token_count": 34,
+          "thoughts_token_count": 87,
+          "total_token_count": 654,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 333
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 260
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 34
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Puck_no_not_yet.wav",
+      "thinking_level": "default",
+      "latency_s": 1.278,
+      "heard": "いいえ、まだしていません。",
+      "ai": "承知いたしました。",
+      "usage": [
+        {
+          "prompt_token_count": 635,
+          "response_token_count": 29,
+          "thoughts_token_count": 90,
+          "total_token_count": 664,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 336
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 272
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 29
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Kore_yes_reserved.wav",
+      "thinking_level": "default",
+      "latency_s": 0.807,
+      "heard": "はい。予約しています。",
+      "ai": "承知いたしました。",
+      "usage": [
+        {
+          "prompt_token_count": 636,
+          "response_token_count": 41,
+          "thoughts_token_count": 69,
+          "total_token_count": 677,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 334
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 275
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 41
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Kore_datetime_pm.wav",
+      "thinking_level": "default",
+      "latency_s": 0.942,
+      "heard": "15 日の午後 2 時でお願いします。",
+      "ai": "15日の午後2時ですね、承知いたしました。",
+      "usage": [
+        {
+          "prompt_token_count": 660,
+          "response_token_count": 82,
+          "thoughts_token_count": 98,
+          "total_token_count": 742,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 340
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 293
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 82
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Kore_affirm.wav",
+      "thinking_level": "default",
+      "latency_s": 0.804,
+      "heard": "はい、そうです。",
+      "ai": "かしこまりました。",
+      "usage": [
+        {
+          "prompt_token_count": 617,
+          "response_token_count": 35,
+          "thoughts_token_count": 80,
+          "total_token_count": 652,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 333
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 257
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 35
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Kore_no_not_yet.wav",
+      "thinking_level": "default",
+      "latency_s": 0.961,
+      "heard": "いいえ、まだしていません。",
+      "ai": "かしこまりました。",
+      "usage": [
+        {
+          "prompt_token_count": 643,
+          "response_token_count": 41,
+          "thoughts_token_count": 123,
+          "total_token_count": 684,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 336
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 280
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 41
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Puck_yes_reserved.wav",
+      "thinking_level": "MINIMAL",
+      "error": {
+        "type": "APIError",
+        "module": "google.genai.errors",
+        "message": "1007 None. Thinking level is not supported for this model.",
+        "code": "1007",
+        "status": "None",
+        "details": "Thinking level is not supported for this model."
+      }
+    },
+    {
+      "sample": "Puck_datetime_pm.wav",
+      "thinking_level": "MINIMAL",
+      "error": {
+        "type": "APIError",
+        "module": "google.genai.errors",
+        "message": "1007 None. Thinking level is not supported for this model.",
+        "code": "1007",
+        "status": "None",
+        "details": "Thinking level is not supported for this model."
+      }
+    },
+    {
+      "sample": "Puck_affirm.wav",
+      "thinking_level": "MINIMAL",
+      "error": {
+        "type": "APIError",
+        "module": "google.genai.errors",
+        "message": "1007 None. Thinking level is not supported for this model.",
+        "code": "1007",
+        "status": "None",
+        "details": "Thinking level is not supported for this model."
+      }
+    },
+    {
+      "sample": "Puck_no_not_yet.wav",
+      "thinking_level": "MINIMAL",
+      "error": {
+        "type": "APIError",
+        "module": "google.genai.errors",
+        "message": "1007 None. Thinking level is not supported for this model.",
+        "code": "1007",
+        "status": "None",
+        "details": "Thinking level is not supported for this model."
+      }
+    },
+    {
+      "sample": "Kore_yes_reserved.wav",
+      "thinking_level": "MINIMAL",
+      "error": {
+        "type": "APIError",
+        "module": "google.genai.errors",
+        "message": "1007 None. Thinking level is not supported for this model.",
+        "code": "1007",
+        "status": "None",
+        "details": "Thinking level is not supported for this model."
+      }
+    },
+    {
+      "sample": "Kore_datetime_pm.wav",
+      "thinking_level": "MINIMAL",
+      "error": {
+        "type": "APIError",
+        "module": "google.genai.errors",
+        "message": "1007 None. Thinking level is not supported for this model.",
+        "code": "1007",
+        "status": "None",
+        "details": "Thinking level is not supported for this model."
+      }
+    },
+    {
+      "sample": "Kore_affirm.wav",
+      "thinking_level": "MINIMAL",
+      "error": {
+        "type": "APIError",
+        "module": "google.genai.errors",
+        "message": "1007 None. Thinking level is not supported for this model.",
+        "code": "1007",
+        "status": "None",
+        "details": "Thinking level is not supported for this model."
+      }
+    },
+    {
+      "sample": "Kore_no_not_yet.wav",
+      "thinking_level": "MINIMAL",
+      "error": {
+        "type": "APIError",
+        "module": "google.genai.errors",
+        "message": "1007 None. Thinking level is not supported for this model.",
+        "code": "1007",
+        "status": "None",
+        "details": "Thinking level is not supported for this model."
+      }
+    }
+  ]
+}

@@ -1,0 +1,93 @@
+{
+  "item": "G-07-transcript-gaps",
+  "saved_at": "2026-10-12T17:55:42",
+  "model": "gemini-3.8-live",
+  "rows": [
+    {
+      "voice": "Puck",
+      "kind": "read",
+      "len": "short",
+      "audio_s": 1.89,
+      "transcript": ""
+    },
+    {
+      "voice": "Leda",
+      "kind": "read",
+      "len": "short",
+      "audio_s": 1.88,
+      "transcript": ""
+    },
+    {
+      "voice": "Puck",
+      "kind": "read",
+      "len": "long",
+      "audio_s": 7.44,
+      "transcript": "お忙しいところ恐れ入ります。本日はご予約の日時の確認でお電話いたしました。よろしくお願いいたします。"
+    },
+    {
+      "voice": "Leda",
+      "kind": "read",
+      "len": "long",
+      "audio_s": 8.28,
+      "transcript": ""
+    },
+    {
+      "voice": "Puck",
+      "kind": "conv",
+      "len": "short",
+      "audio_s": 2.61,
+      "transcript": "はい、接続を確認いたしました。"
+    },
+    {
+      "voice": "Leda",
+      "kind": "conv",
+      "len": "short",
+      "audio_s": null,
+      "transcript": "はい。"
+    },
+    {
+      "voice": "Puck",
+      "kind": "read",
+      "len": "short",
+      "audio_s": 1.89,
+      "transcript": ""
+    },
+    {
+      "voice": "Leda",
+      "kind": "read",
+      "len": "short",
+      "audio_s": 1.95,
+      "transcript": ""
+    },
+    {
+      "voice": "Puck",
+      "kind": "read",
+      "len": "long",
+      "audio_s": 7.53,
+      "transcript": "お忙しいところ恐れ入ります。本日はご予約の日時の確認でお電話いたしました。よろしくお願いいたします。"
+    },
+    {
+      "voice": "Leda",
+      "kind": "read",
+      "len": "long",
+      "audio_s": 8.25,
+      "transcript": "お忙しいところ恐れ入ります。本日はご予約の日時の確認でお電話いたしました。よろしくお願いいたします。"
+    },
+    {
+      "voice": "Puck",
+      "kind": "conv",
+      "len": "short",
+      "audio_s": 2.45,
+      "transcript": "はい、接続を確認いたしました。"
+    },
+    {
+      "voice": "Leda",
+      "kind": "conv",
+      "len": "short",
+      "audio_s": 1.73,
+      "transcript": "はい、聞こえております。"
+    }
+  ],
+  "missing": 5,
+  "total": 12
+}

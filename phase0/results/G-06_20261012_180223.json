@@ -1,0 +1,480 @@
+{
+  "item": "G-06",
+  "saved_at": "2026-10-12T18:02:23",
+  "ok": true,
+  "thinking_budget": 0,
+  "model": "gemini-3.8-live",
+  "voice": "Leda",
+  "values": {
+    "Q1": {
+      "state": "accepted",
+      "condition": "yes",
+      "value": "はい"
+    },
+    "Q2": {
+      "state": "confirmed",
+      "condition": "answered",
+      "value": "15日の午後2時"
+    }
+  },
+  "checks": {
+    "question_id_matched": true,
+    "held_until_confirm": true,
+    "ask_back_requested": true,
+    "rejected_calls": [],
+    "ask_back_phrase_count": 1,
+    "ask_back_at_most_once": true,
+    "transcript_available": true,
+    "per_turn": [
+      {
+        "callee": "はい、もしもし。",
+        "ok": true,
+        "tool_ok": true,
+        "say_ok": true,
+        "expected_tool": null,
+        "got_tools": [],
+        "expected_words": [
+          "予約"
+        ],
+        "ai": "ご予約はされていますか。"
+      },
+      {
+        "callee": "はい、予約しています。",
+        "ok": true,
+        "tool_ok": true,
+        "say_ok": true,
+        "expected_tool": "record_answer",
+        "got_tools": [
+          "record_answer"
+        ],
+        "expected_words": [
+          "日時",
+          "日にち",
+          "ご希望"
+        ],
+        "ai": "ご希望の日時をお聞かせください。"
+      },
+      {
+        "callee": "えっと、じゅう……の……",
+        "ok": true,
+        "tool_ok": true,
+        "say_ok": true,
+        "expected_tool": "report_unclear",
+        "got_tools": [
+          "report_unclear"
+        ],
+        "expected_words": [
+          "聞き取りにくかった"
+        ],
+        "ai": "聞き取りにくかったので、もう一度、おっしゃっていただいてよろしいでしょうか。"
+      },
+      {
+        "callee": "15日の午後2時です。",
+        "ok": false,
+        "tool_ok": true,
+        "say_ok": false,
+        "expected_tool": "record_answer",
+        "got_tools": [
+          "record_answer"
+        ],
+        "expected_words": [
+          "15日"
+        ],
+        "ai": "、午後2"
+      },
+      {
+        "callee": "はい、そうです。",
+        "ok": true,
+        "tool_ok": true,
+        "say_ok": true,
+        "expected_tool": "confirm_field",
+        "got_tools": [
+          "confirm_field"
+        ],
+        "expected_words": [
+          "ありがとう",
+          "失礼"
+        ],
+        "ai": "ありがとうございます。"
+      }
+    ],
+    "all_turns_ok": false
+  },
+  "turns": [
+    {
+      "callee": "はい、もしもし。",
+      "ai": "ご予約はされていますか。",
+      "tool_calls": [],
+      "first_audio_after_s": 0.47,
+      "usage": [
+        {
+          "prompt_token_count": 1149,
+          "response_token_count": 57,
+          "total_token_count": 1206,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 754
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 228
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 57
+            }
+          ]
+        }
+      ],
+      "events": [
+        {
+          "at_s": 0.47,
+          "kind": "ai_said",
+          "text": "ご予約はされていますか。"
+        },
+        {
+          "at_s": 2.562,
+          "kind": "turn_complete"
+        }
+      ]
+    },
+    {
+      "callee": "はい、予約しています。",
+      "ai": "ご希望の日時をお聞かせください。",
+      "tool_calls": [
+        {
+          "name": "record_answer",
+          "args": {
+            "value": "はい",
+            "question_id": "Q1",
+            "condition_id": "yes"
+          },
+          "at_s": 0.316
+        }
+      ],
+      "first_audio_after_s": 0.864,
+      "usage": [
+        {
+          "prompt_token_count": 1229,
+          "response_token_count": 29,
+          "total_token_count": 1258,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 765
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 285
+            }
+          ]
+        },
+        {
+          "prompt_token_count": 1300,
+          "response_token_count": 65,
+          "total_token_count": 1365,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 806
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 285
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 65
+            }
+          ]
+        }
+      ],
+      "events": [
+        {
+          "at_s": 0.316,
+          "kind": "tool_call",
+          "name": "record_answer",
+          "args": {
+            "value": "はい",
+            "question_id": "Q1",
+            "condition_id": "yes"
+          },
+          "reply": "accepted"
+        },
+        {
+          "at_s": 0.329,
+          "kind": "turn_complete"
+        },
+        {
+          "at_s": 0.864,
+          "kind": "ai_said",
+          "text": "ご希望の日時をお聞かせくださ"
+        },
+        {
+          "at_s": 1.339,
+          "kind": "ai_said",
+          "text": "い。"
+        },
+        {
+          "at_s": 3.245,
+          "kind": "turn_complete"
+        }
+      ]
+    },
+    {
+      "callee": "えっと、じゅう……の……",
+      "ai": "聞き取りにくかったので、もう一度、おっしゃっていただいてよろしいでしょうか。",
+      "tool_calls": [
+        {
+          "name": "report_unclear",
+          "args": {
+            "question_id": "Q2"
+          },
+          "at_s": 0.283
+        }
+      ],
+      "first_audio_after_s": 1.009,
+      "usage": [
+        {
+          "prompt_token_count": 1399,
+          "response_token_count": 16,
+          "total_token_count": 1415,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 824
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 350
+            }
+          ]
+        },
+        {
+          "prompt_token_count": 1467,
+          "response_token_count": 127,
+          "total_token_count": 1594,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 870
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 350
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 127
+            }
+          ]
+        }
+      ],
+      "events": [
+        {
+          "at_s": 0.283,
+          "kind": "tool_call",
+          "name": "report_unclear",
+          "args": {
+            "question_id": "Q2"
+          },
+          "reply": "ask_back"
+        },
+        {
+          "at_s": 0.298,
+          "kind": "turn_complete"
+        },
+        {
+          "at_s": 1.009,
+          "kind": "ai_said",
+          "text": "聞き取りにくかったので、もう"
+        },
+        {
+          "at_s": 1.164,
+          "kind": "ai_said",
+          "text": "一度、おっしゃって"
+        },
+        {
+          "at_s": 1.563,
+          "kind": "ai_said",
+          "text": "いただいてよろしい"
+        },
+        {
+          "at_s": 1.729,
+          "kind": "ai_said",
+          "text": "でしょうか。"
+        },
+        {
+          "at_s": 5.859,
+          "kind": "turn_complete"
+        }
+      ]
+    },
+    {
+      "callee": "15日の午後2時です。",
+      "ai": "、午後2",
+      "tool_calls": [
+        {
+          "name": "record_answer",
+          "args": {
+            "value": "15日の午後2時",
+            "question_id": "Q2",
+            "condition_id": "answered"
+          },
+          "at_s": 0.385
+        }
+      ],
+      "first_audio_after_s": 0.913,
+      "usage": [
+        {
+          "prompt_token_count": 1641,
+          "response_token_count": 34,
+          "total_token_count": 1675,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 897
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 477
+            }
+          ]
+        },
+        {
+          "prompt_token_count": 1737,
+          "response_token_count": 151,
+          "total_token_count": 1888,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 963
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 477
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 151
+            }
+          ]
+        }
+      ],
+      "events": [
+        {
+          "at_s": 0.385,
+          "kind": "tool_call",
+          "name": "record_answer",
+          "args": {
+            "value": "15日の午後2時",
+            "question_id": "Q2",
+            "condition_id": "answered"
+          },
+          "reply": "confirm_required"
+        },
+        {
+          "at_s": 0.405,
+          "kind": "turn_complete"
+        },
+        {
+          "at_s": 0.913,
+          "kind": "ai_said",
+          "text": "、午後2"
+        },
+        {
+          "at_s": 6.971,
+          "kind": "turn_complete"
+        }
+      ]
+    },
+    {
+      "callee": "はい、そうです。",
+      "ai": "ありがとうございます。",
+      "tool_calls": [
+        {
+          "name": "confirm_field",
+          "args": {
+            "result": "affirmed",
+            "question_id": "Q2"
+          },
+          "at_s": 0.446
+        }
+      ],
+      "first_audio_after_s": 1.067,
+      "usage": [
+        {
+          "prompt_token_count": 1907,
+          "response_token_count": 22,
+          "total_token_count": 1929,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 970
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 628
+            }
+          ]
+        },
+        {
+          "prompt_token_count": 1965,
+          "response_token_count": 39,
+          "total_token_count": 2004,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 1002
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 628
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 39
+            }
+          ]
+        }
+      ],
+      "events": [
+        {
+          "at_s": 0.446,
+          "kind": "tool_call",
+          "name": "confirm_field",
+          "args": {
+            "result": "affirmed",
+            "question_id": "Q2"
+          },
+          "reply": "confirmed"
+        },
+        {
+          "at_s": 0.464,
+          "kind": "turn_complete"
+        },
+        {
+          "at_s": 1.067,
+          "kind": "ai_said",
+          "text": "ありがとうございます。"
+        },
+        {
+          "at_s": 2.394,
+          "kind": "turn_complete"
+        }
+      ]
+    }
+  ],
+  "finished": true
+}

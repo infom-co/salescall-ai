@@ -1,0 +1,60 @@
+{
+  "item": "K-key-status",
+  "saved_at": "2026-10-12T18:06:03",
+  "model": "gemini-3.8-live",
+  "rows": [
+    {
+      "key": "GEMINI_API_KEY_1#872cbac5",
+      "status": "ok",
+      "first_audio_after_s": 1.193
+    },
+    {
+      "key": "GEMINI_API_KEY_10#4bb98145",
+      "status": "error",
+      "code": "1008",
+      "message": "1008 None. Your project has been denied access. Please contact support."
+    },
+    {
+      "key": "GEMINI_API_KEY_2#af174775",
+      "status": "ok",
+      "first_audio_after_s": 0.795
+    },
+    {
+      "key": "GEMINI_API_KEY_3#4d4f2d29",
+      "status": "ok",
+      "first_audio_after_s": 1.884
+    },
+    {
+      "key": "GEMINI_API_KEY_4#d1a775d4",
+      "status": "error",
+      "code": "1008",
+      "message": "1008 None. Your project has been denied access. Please contact support."
+    },
+    {
+      "key": "GEMINI_API_KEY_5#dd38f2f7",
+      "status": "ok",
+      "first_audio_after_s": 0.865
+    },
+    {
+      "key": "GEMINI_API_KEY_6#04b61143",
+      "status": "ok",
+      "first_audio_after_s": 0.824
+    },
+    {
+      "key": "GEMINI_API_KEY_7#a0083781",
+      "status": "ok",
+      "first_audio_after_s": 0.678
+    },
+    {
+      "key": "GEMINI_API_KEY_8#760600f4",
+      "status": "ok",
+      "first_audio_after_s": 0.896
+    },
+    {
+      "key": "GEMINI_API_KEY_9#670db2b9",
+      "status": "error",
+      "code": "1008",
+      "message": "1008 None. Your project has been denied access. Please contact support."
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "item": "G-06",
+  "saved_at": "2026-10-12T18:00:39",
+  "ok": false,
+  "error": {
+    "type": "APIError",
+    "module": "google.genai.errors",
+    "message": "1008 None. Your project has been denied access. Please contact support.",
+    "code": "1008",
+    "status": "None",
+    "details": "Your project has been denied access. Please contact support."
+  }
+}

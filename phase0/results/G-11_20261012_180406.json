@@ -1,0 +1,1487 @@
+{
+  "item": "G-11",
+  "saved_at": "2026-10-12T18:04:06",
+  "model": "gemini-3.8-live",
+  "summary": {
+    "default": {
+      "n": 24,
+      "median_s": 0.989,
+      "p90_s": 1.62,
+      "max_s": 2.073,
+      "no_reply": 0
+    },
+    "budget0": {
+      "n": 24,
+      "median_s": 0.812,
+      "p90_s": 0.848,
+      "max_s": 1.158,
+      "no_reply": 0
+    }
+  },
+  "rows": [
+    {
+      "sample": "Puck_yes_reserved.wav",
+      "thinking_level": "default",
+      "latency_s": 1.147,
+      "heard": "はい。予約しています。",
+      "ai": "かしこまりました。",
+      "usage": [
+        {
+          "prompt_token_count": 634,
+          "response_token_count": 39,
+          "thoughts_token_count": 82,
+          "total_token_count": 673,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 334
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 273
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 39
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Puck_datetime_pm.wav",
+      "thinking_level": "default",
+      "latency_s": 0.949,
+      "heard": "15 日の午後 2 時でお願いします。",
+      "ai": "承知いたしました。",
+      "usage": [
+        {
+          "prompt_token_count": 660,
+          "response_token_count": 42,
+          "thoughts_token_count": 80,
+          "total_token_count": 702,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 340
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 293
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 42
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Puck_affirm.wav",
+      "thinking_level": "default",
+      "latency_s": 1.01,
+      "heard": "はい。そうです。",
+      "ai": "かしこまりました。",
+      "usage": [
+        {
+          "prompt_token_count": 620,
+          "response_token_count": 36,
+          "thoughts_token_count": 71,
+          "total_token_count": 656,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 333
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 260
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 36
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Puck_no_not_yet.wav",
+      "thinking_level": "default",
+      "latency_s": 0.944,
+      "heard": "いいえ、まだしていません。",
+      "ai": "かしこまりました。",
+      "usage": [
+        {
+          "prompt_token_count": 635,
+          "response_token_count": 38,
+          "thoughts_token_count": 67,
+          "total_token_count": 673,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 336
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 272
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 38
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Kore_yes_reserved.wav",
+      "thinking_level": "default",
+      "latency_s": 2.073,
+      "heard": "はい。予約しています。",
+      "ai": "承知いたしました。",
+      "usage": [
+        {
+          "prompt_token_count": 636,
+          "response_token_count": 30,
+          "thoughts_token_count": 92,
+          "total_token_count": 666,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 334
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 275
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 30
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Kore_datetime_pm.wav",
+      "thinking_level": "default",
+      "latency_s": 1.239,
+      "heard": "15 日の午後 2 時でお願いします。",
+      "ai": "15日の午後2時ですね、承知いたしました。",
+      "usage": [
+        {
+          "prompt_token_count": 660,
+          "response_token_count": 99,
+          "thoughts_token_count": 105,
+          "total_token_count": 759,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 340
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 293
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 99
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Kore_affirm.wav",
+      "thinking_level": "default",
+      "latency_s": 0.836,
+      "heard": "はい、そうです。",
+      "ai": "かしこまりました。",
+      "usage": [
+        {
+          "prompt_token_count": 617,
+          "response_token_count": 40,
+          "thoughts_token_count": 95,
+          "total_token_count": 657,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 333
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 257
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 40
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Kore_no_not_yet.wav",
+      "thinking_level": "default",
+      "latency_s": 0.802,
+      "heard": "いいえ、まだしていません。",
+      "ai": "かしこまりました。",
+      "usage": [
+        {
+          "prompt_token_count": 643,
+          "response_token_count": 37,
+          "thoughts_token_count": 112,
+          "total_token_count": 680,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 336
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 280
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 37
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Puck_yes_reserved.wav",
+      "thinking_level": "budget0",
+      "latency_s": 0.926,
+      "heard": "はい。予約しています。",
+      "ai": "かしこまりました。",
+      "usage": [
+        {
+          "prompt_token_count": 634,
+          "response_token_count": 40,
+          "total_token_count": 674,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 334
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 273
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 40
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Puck_datetime_pm.wav",
+      "thinking_level": "budget0",
+      "latency_s": 0.812,
+      "heard": "15 日の午後 2 時でお願いします。",
+      "ai": "承知いたしました。",
+      "usage": [
+        {
+          "prompt_token_count": 660,
+          "response_token_count": 35,
+          "total_token_count": 695,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 340
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 293
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 35
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Puck_affirm.wav",
+      "thinking_level": "budget0",
+      "latency_s": 0.812,
+      "heard": "はい。そうです。",
+      "ai": "かしこまりました。",
+      "usage": [
+        {
+          "prompt_token_count": 620,
+          "response_token_count": 25,
+          "total_token_count": 645,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 333
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 260
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 25
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Puck_no_not_yet.wav",
+      "thinking_level": "budget0",
+      "latency_s": 0.799,
+      "heard": "いいえ、まだしていません。",
+      "ai": "承知いたしました。",
+      "usage": [
+        {
+          "prompt_token_count": 635,
+          "response_token_count": 43,
+          "total_token_count": 678,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 336
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 272
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 43
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Kore_yes_reserved.wav",
+      "thinking_level": "budget0",
+      "latency_s": 0.814,
+      "heard": "はい。予約しています。",
+      "ai": "かしこまりました。",
+      "usage": [
+        {
+          "prompt_token_count": 636,
+          "response_token_count": 25,
+          "total_token_count": 661,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 334
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 275
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 25
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Kore_datetime_pm.wav",
+      "thinking_level": "budget0",
+      "latency_s": 0.809,
+      "heard": "15 日の午後 2 時でお願いします。",
+      "ai": "かしこまりました。",
+      "usage": [
+        {
+          "prompt_token_count": 660,
+          "response_token_count": 25,
+          "total_token_count": 685,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 340
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 293
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 25
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Kore_affirm.wav",
+      "thinking_level": "budget0",
+      "latency_s": 0.796,
+      "heard": "はい、そうです。",
+      "ai": "かしこまりました。",
+      "usage": [
+        {
+          "prompt_token_count": 617,
+          "response_token_count": 34,
+          "total_token_count": 651,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 333
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 257
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 34
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Kore_no_not_yet.wav",
+      "thinking_level": "budget0",
+      "latency_s": 0.713,
+      "heard": "いいえ、まだしていません。",
+      "ai": "承知いたしました。",
+      "usage": [
+        {
+          "prompt_token_count": 643,
+          "response_token_count": 38,
+          "total_token_count": 681,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 336
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 280
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 38
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Puck_yes_reserved.wav",
+      "thinking_level": "default",
+      "latency_s": 0.931,
+      "heard": "はい。予約しています。",
+      "ai": "かしこまりました。",
+      "usage": [
+        {
+          "prompt_token_count": 634,
+          "response_token_count": 37,
+          "thoughts_token_count": 86,
+          "total_token_count": 671,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 334
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 273
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 37
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Puck_datetime_pm.wav",
+      "thinking_level": "default",
+      "latency_s": 0.978,
+      "heard": "15 日の午後 2 時でお願いします。",
+      "ai": "15日の午後2時で承りました。",
+      "usage": [
+        {
+          "prompt_token_count": 660,
+          "response_token_count": 67,
+          "thoughts_token_count": 40,
+          "total_token_count": 727,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 340
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 293
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 67
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Puck_affirm.wav",
+      "thinking_level": "default",
+      "latency_s": 0.95,
+      "heard": "はい。そうです。",
+      "ai": "かしこまりました。",
+      "usage": [
+        {
+          "prompt_token_count": 620,
+          "response_token_count": 35,
+          "thoughts_token_count": 98,
+          "total_token_count": 655,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 333
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 260
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 35
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Puck_no_not_yet.wav",
+      "thinking_level": "default",
+      "latency_s": 1.01,
+      "heard": "いいえ、まだしていません。",
+      "ai": "かしこまりました。",
+      "usage": [
+        {
+          "prompt_token_count": 635,
+          "response_token_count": 35,
+          "thoughts_token_count": 105,
+          "total_token_count": 670,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 336
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 272
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 35
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Kore_yes_reserved.wav",
+      "thinking_level": "default",
+      "latency_s": 1.62,
+      "heard": "はい。予約しています。",
+      "ai": "かしこまりました。",
+      "usage": [
+        {
+          "prompt_token_count": 636,
+          "response_token_count": 38,
+          "thoughts_token_count": 109,
+          "total_token_count": 674,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 334
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 275
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 38
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Kore_datetime_pm.wav",
+      "thinking_level": "default",
+      "latency_s": 0.959,
+      "heard": "15 日の午後 2 時でお願いします。",
+      "ai": "承知いたしました。",
+      "usage": [
+        {
+          "prompt_token_count": 660,
+          "response_token_count": 40,
+          "thoughts_token_count": 39,
+          "total_token_count": 700,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 340
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 293
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 40
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Kore_affirm.wav",
+      "thinking_level": "default",
+      "latency_s": 1.302,
+      "heard": "はい、そうです。",
+      "ai": "かしこまりました。",
+      "usage": [
+        {
+          "prompt_token_count": 617,
+          "response_token_count": 34,
+          "thoughts_token_count": 67,
+          "total_token_count": 651,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 333
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 257
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 34
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Kore_no_not_yet.wav",
+      "thinking_level": "default",
+      "latency_s": 0.739,
+      "heard": "いいえ、まだしていません。",
+      "ai": "そうでしたか。",
+      "usage": [
+        {
+          "prompt_token_count": 643,
+          "response_token_count": 37,
+          "thoughts_token_count": 62,
+          "total_token_count": 680,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 336
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 280
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 37
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Puck_yes_reserved.wav",
+      "thinking_level": "budget0",
+      "latency_s": 0.8,
+      "heard": "はい。予約しています。",
+      "ai": "かしこまりました。",
+      "usage": [
+        {
+          "prompt_token_count": 634,
+          "response_token_count": 36,
+          "total_token_count": 670,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 334
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 273
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 36
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Puck_datetime_pm.wav",
+      "thinking_level": "budget0",
+      "latency_s": 0.848,
+      "heard": "15 日の午後 2 時でお願いします。",
+      "ai": "かしこまりました。",
+      "usage": [
+        {
+          "prompt_token_count": 660,
+          "response_token_count": 25,
+          "total_token_count": 685,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 340
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 293
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 25
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Puck_affirm.wav",
+      "thinking_level": "budget0",
+      "latency_s": 0.811,
+      "heard": "はい。そうです。",
+      "ai": "かしこまりました。",
+      "usage": [
+        {
+          "prompt_token_count": 620,
+          "response_token_count": 25,
+          "total_token_count": 645,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 333
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 260
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 25
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Puck_no_not_yet.wav",
+      "thinking_level": "budget0",
+      "latency_s": 0.827,
+      "heard": "いいえ、まだしていません。",
+      "ai": "かしこまりました。",
+      "usage": [
+        {
+          "prompt_token_count": 635,
+          "response_token_count": 36,
+          "total_token_count": 671,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 336
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 272
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 36
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Kore_yes_reserved.wav",
+      "thinking_level": "budget0",
+      "latency_s": 1.158,
+      "heard": "はい。予約しています。",
+      "ai": "かしこまりました。",
+      "usage": [
+        {
+          "prompt_token_count": 636,
+          "response_token_count": 36,
+          "total_token_count": 672,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 334
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 275
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 36
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Kore_datetime_pm.wav",
+      "thinking_level": "budget0",
+      "latency_s": 0.819,
+      "heard": "15 日の午後 2 時でお願いします。",
+      "ai": "承知いたしました。",
+      "usage": [
+        {
+          "prompt_token_count": 660,
+          "response_token_count": 25,
+          "total_token_count": 685,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 340
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 293
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 25
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Kore_affirm.wav",
+      "thinking_level": "budget0",
+      "latency_s": 0.806,
+      "heard": "はい、そうです。",
+      "ai": "かしこまりました。",
+      "usage": [
+        {
+          "prompt_token_count": 617,
+          "response_token_count": 25,
+          "total_token_count": 642,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 333
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 257
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 25
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Kore_no_not_yet.wav",
+      "thinking_level": "budget0",
+      "latency_s": 0.714,
+      "heard": "いいえ、まだしていません。",
+      "ai": "かしこまりました。",
+      "usage": [
+        {
+          "prompt_token_count": 643,
+          "response_token_count": 37,
+          "total_token_count": 680,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 336
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 280
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 37
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Puck_yes_reserved.wav",
+      "thinking_level": "default",
+      "latency_s": 0.823,
+      "heard": "はい。予約しています。",
+      "ai": "かしこまりました。",
+      "usage": [
+        {
+          "prompt_token_count": 634,
+          "response_token_count": 43,
+          "thoughts_token_count": 42,
+          "total_token_count": 677,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 334
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 273
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 43
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Puck_datetime_pm.wav",
+      "thinking_level": "default",
+      "latency_s": 0.967,
+      "heard": "15 日の午後 2 時でお願いします。",
+      "ai": "かしこまりました。",
+      "usage": [
+        {
+          "prompt_token_count": 660,
+          "response_token_count": 36,
+          "thoughts_token_count": 86,
+          "total_token_count": 696,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 340
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 293
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 36
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Puck_affirm.wav",
+      "thinking_level": "default",
+      "latency_s": 1.0,
+      "heard": "はい。そうです。",
+      "ai": "かしこまりました。",
+      "usage": [
+        {
+          "prompt_token_count": 620,
+          "response_token_count": 41,
+          "thoughts_token_count": 129,
+          "total_token_count": 661,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 333
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 260
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 41
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Puck_no_not_yet.wav",
+      "thinking_level": "default",
+      "latency_s": 1.295,
+      "heard": "いいえ、まだしていません。",
+      "ai": "承知いたしました。",
+      "usage": [
+        {
+          "prompt_token_count": 635,
+          "response_token_count": 40,
+          "thoughts_token_count": 117,
+          "total_token_count": 675,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 336
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 272
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 40
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Kore_yes_reserved.wav",
+      "thinking_level": "default",
+      "latency_s": 1.032,
+      "heard": "はい。予約しています。",
+      "ai": "かしこまりました。",
+      "usage": [
+        {
+          "prompt_token_count": 636,
+          "response_token_count": 30,
+          "thoughts_token_count": 101,
+          "total_token_count": 666,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 334
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 275
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 30
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Kore_datetime_pm.wav",
+      "thinking_level": "default",
+      "latency_s": 1.699,
+      "heard": "15 日の午後 2 時でお願いします。",
+      "ai": "承知いたしました。",
+      "usage": [
+        {
+          "prompt_token_count": 660,
+          "response_token_count": 40,
+          "thoughts_token_count": 182,
+          "total_token_count": 700,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 340
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 293
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 40
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Kore_affirm.wav",
+      "thinking_level": "default",
+      "latency_s": 1.336,
+      "heard": "はい、そうです。",
+      "ai": "かしこまりました。",
+      "usage": [
+        {
+          "prompt_token_count": 617,
+          "response_token_count": 38,
+          "thoughts_token_count": 81,
+          "total_token_count": 655,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 333
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 257
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 38
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Kore_no_not_yet.wav",
+      "thinking_level": "default",
+      "latency_s": 0.769,
+      "heard": "いいえ、まだしていません。",
+      "ai": "かしこまりました。",
+      "usage": [
+        {
+          "prompt_token_count": 643,
+          "response_token_count": 37,
+          "thoughts_token_count": 87,
+          "total_token_count": 680,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 336
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 280
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 37
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Puck_yes_reserved.wav",
+      "thinking_level": "budget0",
+      "latency_s": 0.789,
+      "heard": "はい。予約しています。",
+      "ai": "かしこまりました。",
+      "usage": [
+        {
+          "prompt_token_count": 634,
+          "response_token_count": 37,
+          "total_token_count": 671,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 334
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 273
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 37
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Puck_datetime_pm.wav",
+      "thinking_level": "budget0",
+      "latency_s": 0.831,
+      "heard": "15 日の午後 2 時でお願いします。",
+      "ai": "かしこまりました。",
+      "usage": [
+        {
+          "prompt_token_count": 660,
+          "response_token_count": 36,
+          "total_token_count": 696,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 340
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 293
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 36
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Puck_affirm.wav",
+      "thinking_level": "budget0",
+      "latency_s": 0.823,
+      "heard": "はい。そうです。",
+      "ai": "かしこまりました。",
+      "usage": [
+        {
+          "prompt_token_count": 620,
+          "response_token_count": 37,
+          "total_token_count": 657,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 333
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 260
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 37
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Puck_no_not_yet.wav",
+      "thinking_level": "budget0",
+      "latency_s": 0.803,
+      "heard": "いいえ、まだしていません。",
+      "ai": "かしこまりました。",
+      "usage": [
+        {
+          "prompt_token_count": 635,
+          "response_token_count": 38,
+          "total_token_count": 673,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 336
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 272
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 38
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Kore_yes_reserved.wav",
+      "thinking_level": "budget0",
+      "latency_s": 0.812,
+      "heard": "はい。予約しています。",
+      "ai": "かしこまりました。",
+      "usage": [
+        {
+          "prompt_token_count": 636,
+          "response_token_count": 43,
+          "total_token_count": 679,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 334
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 275
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 43
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Kore_datetime_pm.wav",
+      "thinking_level": "budget0",
+      "latency_s": 0.81,
+      "heard": "15 日の午後 2 時でお願いします。",
+      "ai": "かしこまりました。",
+      "usage": [
+        {
+          "prompt_token_count": 660,
+          "response_token_count": 38,
+          "total_token_count": 698,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 340
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 293
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 38
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Kore_affirm.wav",
+      "thinking_level": "budget0",
+      "latency_s": 0.84,
+      "heard": "はい、そうです。",
+      "ai": "かしこまりました。",
+      "usage": [
+        {
+          "prompt_token_count": 617,
+          "response_token_count": 25,
+          "total_token_count": 642,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 333
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 257
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 25
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sample": "Kore_no_not_yet.wav",
+      "thinking_level": "budget0",
+      "latency_s": 0.703,
+      "heard": "いいえ、まだしていません。",
+      "ai": "承知いたしました。",
+      "usage": [
+        {
+          "prompt_token_count": 643,
+          "response_token_count": 40,
+          "total_token_count": 683,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 336
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 280
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 40
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

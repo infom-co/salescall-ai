@@ -1,0 +1,133 @@
+{
+  "item": "CALLEE-SAMPLES",
+  "saved_at": "2026-10-12T17:53:45",
+  "model": "gemini-3.8-live",
+  "samples": [
+    {
+      "voice": "Puck",
+      "id": "hello",
+      "text": "はい、もしもし。",
+      "said": "",
+      "exact": false,
+      "seconds": 1.61,
+      "wav": "Puck_hello.wav"
+    },
+    {
+      "voice": "Puck",
+      "id": "yes_reserved",
+      "text": "はい、予約しています。",
+      "said": "",
+      "exact": false,
+      "seconds": 2.01,
+      "wav": "Puck_yes_reserved.wav"
+    },
+    {
+      "voice": "Puck",
+      "id": "no_not_yet",
+      "text": "いいえ、まだしていません。",
+      "said": "",
+      "exact": false,
+      "seconds": 1.92,
+      "wav": "Puck_no_not_yet.wav"
+    },
+    {
+      "voice": "Puck",
+      "id": "datetime_pm",
+      "text": "15日の午後2時でお願いします。",
+      "said": "",
+      "exact": false,
+      "seconds": 2.74,
+      "wav": "Puck_datetime_pm.wav"
+    },
+    {
+      "voice": "Puck",
+      "id": "datetime_ambiguous",
+      "text": "15日の2時です。",
+      "said": "",
+      "exact": false,
+      "seconds": 0.76,
+      "wav": "Puck_datetime_ambiguous.wav"
+    },
+    {
+      "voice": "Puck",
+      "id": "affirm",
+      "text": "はい、そうです。",
+      "said": "",
+      "exact": false,
+      "seconds": 1.48,
+      "wav": "Puck_affirm.wav"
+    },
+    {
+      "voice": "Puck",
+      "id": "unclear",
+      "text": "えっと、じゅう、の……",
+      "said": "えっと、じゅう、の……",
+      "exact": true,
+      "seconds": 2.87,
+      "wav": "Puck_unclear.wav"
+    },
+    {
+      "voice": "Kore",
+      "id": "hello",
+      "text": "はい、もしもし。",
+      "said": "",
+      "exact": false,
+      "seconds": 1.65,
+      "wav": "Kore_hello.wav"
+    },
+    {
+      "voice": "Kore",
+      "id": "yes_reserved",
+      "text": "はい、予約しています。",
+      "said": "",
+      "exact": false,
+      "seconds": 2.02,
+      "wav": "Kore_yes_reserved.wav"
+    },
+    {
+      "voice": "Kore",
+      "id": "no_not_yet",
+      "text": "いいえ、まだしていません。",
+      "said": "",
+      "exact": false,
+      "seconds": 2.33,
+      "wav": "Kore_no_not_yet.wav"
+    },
+    {
+      "voice": "Kore",
+      "id": "datetime_pm",
+      "text": "15日の午後2時でお願いします。",
+      "said": "",
+      "exact": false,
+      "seconds": 2.72,
+      "wav": "Kore_datetime_pm.wav"
+    },
+    {
+      "voice": "Kore",
+      "id": "datetime_ambiguous",
+      "text": "15日の2時です。",
+      "said": "",
+      "exact": false,
+      "seconds": 1.92,
+      "wav": "Kore_datetime_ambiguous.wav"
+    },
+    {
+      "voice": "Kore",
+      "id": "affirm",
+      "text": "はい、そうです。",
+      "said": "",
+      "exact": false,
+      "seconds": 1.34,
+      "wav": "Kore_affirm.wav"
+    },
+    {
+      "voice": "Kore",
+      "id": "unclear",
+      "text": "えっと、じゅう、の……",
+      "said": "えっと、じゅう、の……",
+      "exact": true,
+      "seconds": 2.36,
+      "wav": "Kore_unclear.wav"
+    }
+  ]
+}

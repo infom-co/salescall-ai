@@ -150,7 +150,7 @@ class MiniFlow:
 
 
 async def run(args) -> dict:
-    cfg = build_config(voice=args.voice, system_instruction=INSTRUCTION, tools=tools())
+    cfg = build_config(voice=args.voice, system_instruction=INSTRUCTION, tools=tools(), thinking_budget=args.thinking_budget)
     if args.dry_run:
         return {"dry_run": True, "config_ok": True, "tools": [t.model_dump(exclude_none=True) for t in cfg.tools]}
     client = make_client(pick_key(args))
@@ -214,9 +214,10 @@ def main() -> None:
     require_python()
     p = base_parser(__doc__)
     p.add_argument("--voice", default="Leda")
+    p.add_argument("--thinking-budget", type=int, default=None, help="None＝既定（自動）／0＝考えない")
     args = p.parse_args()
     try:
-        result = {"ok": True, **asyncio.run(run(args))}
+        result = {"ok": True, "thinking_budget": args.thinking_budget, **asyncio.run(run(args))}
     except Exception as exc:
         result = {"ok": False, "error": describe_error(exc)}
     save_result("G-06", result)

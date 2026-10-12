@@ -1,0 +1,68 @@
+{
+  "item": "K-1",
+  "saved_at": "2026-10-12T17:52:15",
+  "source": "環境変数",
+  "keys": [
+    {
+      "name": "GEMINI_API_KEY_1",
+      "fingerprint": "872cbac5",
+      "length": 39,
+      "looks_like_google_api_key": true
+    },
+    {
+      "name": "GEMINI_API_KEY_10",
+      "fingerprint": "4bb98145",
+      "length": 39,
+      "looks_like_google_api_key": true
+    },
+    {
+      "name": "GEMINI_API_KEY_2",
+      "fingerprint": "af174775",
+      "length": 39,
+      "looks_like_google_api_key": true
+    },
+    {
+      "name": "GEMINI_API_KEY_3",
+      "fingerprint": "4d4f2d29",
+      "length": 39,
+      "looks_like_google_api_key": true
+    },
+    {
+      "name": "GEMINI_API_KEY_4",
+      "fingerprint": "d1a775d4",
+      "length": 39,
+      "looks_like_google_api_key": true
+    },
+    {
+      "name": "GEMINI_API_KEY_5",
+      "fingerprint": "dd38f2f7",
+      "length": 39,
+      "looks_like_google_api_key": true
+    },
+    {
+      "name": "GEMINI_API_KEY_6",
+      "fingerprint": "04b61143",
+      "length": 39,
+      "looks_like_google_api_key": true
+    },
+    {
+      "name": "GEMINI_API_KEY_7",
+      "fingerprint": "a0083781",
+      "length": 39,
+      "looks_like_google_api_key": true
+    },
+    {
+      "name": "GEMINI_API_KEY_8",
+      "fingerprint": "760600f4",
+      "length": 39,
+      "looks_like_google_api_key": true
+    },
+    {
+      "name": "GEMINI_API_KEY_9",
+      "fingerprint": "670db2b9",
+      "length": 39,
+      "looks_like_google_api_key": true
+    }
+  ],
+  "duplicate_fingerprints": []
+}

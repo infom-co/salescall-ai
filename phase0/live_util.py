@@ -23,8 +23,13 @@ def build_config(
     resumption_handle: str | None = None,
     enable_resumption: bool = False,
     language_code: str | None = "ja-JP",
+    thinking_budget: int | None = None,
 ):
-    """Live のセッション設定を作る唯一の場所。"""
+    """Live のセッション設定を作る唯一の場所。
+
+    thinking_budget：None＝既定（自動）／0＝考えない／正の数＝考える量の上限。
+    ⛔「考えるレベル」（thinking_level）は gemini-3.8-live では受け付けられない（2026-10-12 G-11：1007 で拒否）。
+    """
     from google.genai import types
 
     if not system_instruction.strip():
@@ -49,6 +54,7 @@ def build_config(
         session_resumption=(
             types.SessionResumptionConfig(handle=resumption_handle) if (enable_resumption or resumption_handle) else None
         ),
+        thinking_config=types.ThinkingConfig(thinking_budget=thinking_budget) if thinking_budget is not None else None,
     )
     return cfg
 
