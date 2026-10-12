@@ -1,0 +1,19 @@
+{
+  "item": "G-04",
+  "saved_at": "2026-10-12T18:52:24",
+  "model": "gemini-3.8-live",
+  "max_minutes": 25.0,
+  "go_away": [],
+  "handle_updates": 1,
+  "ended_after_s": 1500.1,
+  "reached_max": true,
+  "handle_received": true,
+  "resume_with_handle": {
+    "answer": "さくら",
+    "remembered": true
+  },
+  "reinstruct_without_handle": {
+    "answer": "さくら",
+    "remembered": true
+  }
+}

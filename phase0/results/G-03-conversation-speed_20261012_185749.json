@@ -1,0 +1,1192 @@
+{
+  "item": "G-03-conversation-speed",
+  "saved_at": "2026-10-12T18:57:49",
+  "model": "gemini-3.8-live",
+  "callee_voice": "Puck",
+  "summary": {
+    "Sadachbia/baseline": {
+      "turns": 8,
+      "measured": 8,
+      "chars_per_s": 7.35,
+      "gap_median_s": 0.82,
+      "no_reply": 0
+    },
+    "Sadachbia/bright_x2": {
+      "turns": 8,
+      "measured": 8,
+      "chars_per_s": 8.23,
+      "gap_median_s": 0.89,
+      "no_reply": 0
+    },
+    "Sadachbia/speed_ratio": 1.12,
+    "Leda/baseline": {
+      "turns": 8,
+      "measured": 8,
+      "chars_per_s": 6.72,
+      "gap_median_s": 0.75,
+      "no_reply": 0
+    },
+    "Leda/bright_x2": {
+      "turns": 8,
+      "measured": 8,
+      "chars_per_s": 7.45,
+      "gap_median_s": 0.92,
+      "no_reply": 0
+    },
+    "Leda/speed_ratio": 1.11
+  },
+  "rows": [
+    {
+      "voice": "Sadachbia",
+      "style": "baseline",
+      "callee": "hello",
+      "heard": "はい。もしもし。",
+      "ai": "もしもし、株式会社サンプルの者です。ご予約はされておりますでしょうか?",
+      "gap_s": 0.734,
+      "audio_s": 4.57,
+      "voiced_s": 4.36,
+      "chars": 32,
+      "chars_per_s": 7.34,
+      "usage": [
+        {
+          "prompt_token_count": 619,
+          "response_token_count": 119,
+          "thoughts_token_count": 63,
+          "total_token_count": 738,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 398
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 194
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 119
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "voice": "Sadachbia",
+      "style": "baseline",
+      "callee": "yes_reserved",
+      "heard": "はい。予約しています。",
+      "ai": "ありがとうございます。恐れ入りますが、ご予約の日時を教えていただけますか?",
+      "gap_s": 1.16,
+      "audio_s": 4.99,
+      "voiced_s": 4.8,
+      "chars": 34,
+      "chars_per_s": 7.08,
+      "usage": [
+        {
+          "prompt_token_count": 830,
+          "response_token_count": 126,
+          "thoughts_token_count": 83,
+          "total_token_count": 956,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 420
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 363
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 126
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "voice": "Sadachbia",
+      "style": "baseline",
+      "callee": "datetime_pm",
+      "heard": "15 日の午後 2 時でお願いします。",
+      "ai": "15日の午後2時でお間違いないでしょうか?",
+      "gap_s": 0.773,
+      "audio_s": 2.91,
+      "voiced_s": 2.59,
+      "chars": 20,
+      "chars_per_s": 7.72,
+      "usage": [
+        {
+          "prompt_token_count": 1075,
+          "response_token_count": 79,
+          "thoughts_token_count": 49,
+          "total_token_count": 1154,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 448
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 558
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 79
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "voice": "Sadachbia",
+      "style": "baseline",
+      "callee": "affirm",
+      "heard": "はい、そうです。",
+      "ai": "ありがとうございます。それでは当日はお気をつけてお越しください。",
+      "gap_s": 0.802,
+      "audio_s": 3.82,
+      "voiced_s": 3.43,
+      "chars": 30,
+      "chars_per_s": 8.75,
+      "usage": [
+        {
+          "prompt_token_count": 1221,
+          "response_token_count": 97,
+          "thoughts_token_count": 38,
+          "total_token_count": 1318,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 463
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 675
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 97
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "voice": "Sadachbia",
+      "style": "bright_x2",
+      "callee": "hello",
+      "heard": "はい。もしもし。",
+      "ai": "株式会社サンプルの担当の者ですが、ご予約をされておりますでしょうか？",
+      "gap_s": 1.061,
+      "audio_s": 4.35,
+      "voiced_s": 4.04,
+      "chars": 32,
+      "chars_per_s": 7.92,
+      "usage": [
+        {
+          "prompt_token_count": 674,
+          "response_token_count": 115,
+          "thoughts_token_count": 195,
+          "total_token_count": 789,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 453
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 194
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 115
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "voice": "Sadachbia",
+      "style": "bright_x2",
+      "callee": "yes_reserved",
+      "heard": "はい。予約しています。",
+      "ai": "ご予約の日時を教えていただけますでしょうか？",
+      "gap_s": 0.725,
+      "audio_s": 2.71,
+      "voiced_s": 2.41,
+      "chars": 21,
+      "chars_per_s": 8.71,
+      "usage": [
+        {
+          "prompt_token_count": 878,
+          "response_token_count": 73,
+          "thoughts_token_count": 92,
+          "total_token_count": 951,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 474
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 359
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 73
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "voice": "Sadachbia",
+      "style": "bright_x2",
+      "callee": "datetime_pm",
+      "heard": "15 日の午後 2 時でお願いします。",
+      "ai": "15日の午後2時で合っておりますでしょうか？",
+      "gap_s": 0.776,
+      "audio_s": 2.84,
+      "voiced_s": 2.53,
+      "chars": 21,
+      "chars_per_s": 8.3,
+      "usage": [
+        {
+          "prompt_token_count": 1054,
+          "response_token_count": 71,
+          "thoughts_token_count": 64,
+          "total_token_count": 1125,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 494
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 501
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 71
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "voice": "Sadachbia",
+      "style": "bright_x2",
+      "callee": "affirm",
+      "heard": "はい、そうです。",
+      "ai": "承知いたしました。ありがとうございました。失礼いたします。",
+      "gap_s": 0.808,
+      "audio_s": 3.48,
+      "voiced_s": 3.11,
+      "chars": 26,
+      "chars_per_s": 8.36,
+      "usage": [
+        {
+          "prompt_token_count": 1196,
+          "response_token_count": 92,
+          "thoughts_token_count": 80,
+          "total_token_count": 1288,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 509
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 610
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 92
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "voice": "Leda",
+      "style": "baseline",
+      "callee": "hello",
+      "heard": "はい。もしもし。",
+      "ai": "もしもし、私、株式会社サンプルの者です。ご予約はお済みでしょうか?",
+      "gap_s": 0.768,
+      "audio_s": 5.55,
+      "voiced_s": 5.28,
+      "chars": 29,
+      "chars_per_s": 5.49,
+      "usage": [
+        {
+          "prompt_token_count": 687,
+          "response_token_count": 145,
+          "thoughts_token_count": 94,
+          "total_token_count": 832,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 398
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 262
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 145
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "voice": "Leda",
+      "style": "baseline",
+      "callee": "yes_reserved",
+      "heard": "はい。予約しています。",
+      "ai": "ありがとうございます。ご予約の日時を教えていただけますか?",
+      "gap_s": 0.74,
+      "audio_s": 4.01,
+      "voiced_s": 3.71,
+      "chars": 27,
+      "chars_per_s": 7.28,
+      "usage": [
+        {
+          "prompt_token_count": 925,
+          "response_token_count": 106,
+          "thoughts_token_count": 42,
+          "total_token_count": 1031,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 421
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 457
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 106
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "voice": "Leda",
+      "style": "baseline",
+      "callee": "datetime_pm",
+      "heard": "15 日の午後 2 時でお願いします。",
+      "ai": "15 日の午後 2 時でお間違いないでしょうか?",
+      "gap_s": 5.308,
+      "audio_s": 3.0,
+      "voiced_s": 2.73,
+      "chars": 20,
+      "chars_per_s": 7.33,
+      "usage": [
+        {
+          "prompt_token_count": 1142,
+          "response_token_count": 75,
+          "thoughts_token_count": 53,
+          "total_token_count": 1217,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 443
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 632
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 75
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "voice": "Leda",
+      "style": "baseline",
+      "callee": "affirm",
+      "heard": "はい、そうです。",
+      "ai": "かしこまりました。ありがとうございました。",
+      "gap_s": 0.814,
+      "audio_s": 2.68,
+      "voiced_s": 2.3,
+      "chars": 19,
+      "chars_per_s": 8.26,
+      "usage": [
+        {
+          "prompt_token_count": 1290,
+          "response_token_count": 73,
+          "thoughts_token_count": 48,
+          "total_token_count": 1363,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 460
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 745
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 73
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "voice": "Leda",
+      "style": "bright_x2",
+      "callee": "hello",
+      "heard": "はい。もしもし。",
+      "ai": "株式会社サンプルの担当の者ですが、ご予約をされていますでしょうか？",
+      "gap_s": 1.027,
+      "audio_s": 4.75,
+      "voiced_s": 4.22,
+      "chars": 31,
+      "chars_per_s": 7.35,
+      "usage": [
+        {
+          "prompt_token_count": 742,
+          "response_token_count": 124,
+          "thoughts_token_count": 160,
+          "total_token_count": 866,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 453
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 262
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 124
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "voice": "Leda",
+      "style": "bright_x2",
+      "callee": "yes_reserved",
+      "heard": "はい、予約しています。",
+      "ai": "ご予約の日時を教えていただけますか？",
+      "gap_s": 0.74,
+      "audio_s": 2.5,
+      "voiced_s": 2.19,
+      "chars": 17,
+      "chars_per_s": 7.76,
+      "usage": [
+        {
+          "prompt_token_count": 953,
+          "response_token_count": 70,
+          "thoughts_token_count": 58,
+          "total_token_count": 1023,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 473
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 435
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 70
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "voice": "Leda",
+      "style": "bright_x2",
+      "callee": "datetime_pm",
+      "heard": "15 日の午後 2 時でお願いします。",
+      "ai": "15日の午後2時でお間違いないでしょうか？",
+      "gap_s": 0.959,
+      "audio_s": 2.97,
+      "voiced_s": 2.59,
+      "chars": 20,
+      "chars_per_s": 7.72,
+      "usage": [
+        {
+          "prompt_token_count": 1134,
+          "response_token_count": 80,
+          "thoughts_token_count": 94,
+          "total_token_count": 1214,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 496
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 575
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 80
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "voice": "Leda",
+      "style": "bright_x2",
+      "callee": "affirm",
+      "heard": "はい、そうです。",
+      "ai": "ありがとうございます。失礼いたします。",
+      "gap_s": 0.875,
+      "audio_s": 2.41,
+      "voiced_s": 2.04,
+      "chars": 17,
+      "chars_per_s": 8.33,
+      "usage": [
+        {
+          "prompt_token_count": 1285,
+          "response_token_count": 66,
+          "thoughts_token_count": 67,
+          "total_token_count": 1351,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 511
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 693
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 66
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "voice": "Sadachbia",
+      "style": "baseline",
+      "callee": "hello",
+      "heard": "はい。もしもし。",
+      "ai": "私、株式会社サンプルの者ですが、ご予約はお済みでしょうか?",
+      "gap_s": 0.906,
+      "audio_s": 4.97,
+      "voiced_s": 4.56,
+      "chars": 26,
+      "chars_per_s": 5.7,
+      "usage": [
+        {
+          "prompt_token_count": 619,
+          "response_token_count": 130,
+          "thoughts_token_count": 60,
+          "total_token_count": 749,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 398
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 194
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 130
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "voice": "Sadachbia",
+      "style": "baseline",
+      "callee": "yes_reserved",
+      "heard": "はい。予約しています。",
+      "ai": "ありがとうございます。ご予約の日時を教えていただけますか?",
+      "gap_s": 0.758,
+      "audio_s": 3.75,
+      "voiced_s": 3.54,
+      "chars": 27,
+      "chars_per_s": 7.63,
+      "usage": [
+        {
+          "prompt_token_count": 839,
+          "response_token_count": 100,
+          "thoughts_token_count": 45,
+          "total_token_count": 939,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 418
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 374
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 100
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "voice": "Sadachbia",
+      "style": "baseline",
+      "callee": "datetime_pm",
+      "heard": "15 日の午後 2 時でお願いします。",
+      "ai": "15日の午後2時ですね。間違いございませんでしょうか?",
+      "gap_s": 0.829,
+      "audio_s": 3.85,
+      "voiced_s": 3.48,
+      "chars": 25,
+      "chars_per_s": 7.18,
+      "usage": [
+        {
+          "prompt_token_count": 1053,
+          "response_token_count": 102,
+          "thoughts_token_count": 59,
+          "total_token_count": 1155,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 443
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 543
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 102
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "voice": "Sadachbia",
+      "style": "baseline",
+      "callee": "affirm",
+      "heard": "はい、そうです。",
+      "ai": "承知いたしました。ありがとうございました。それでは失礼いたします。",
+      "gap_s": 0.98,
+      "audio_s": 4.13,
+      "voiced_s": 3.73,
+      "chars": 30,
+      "chars_per_s": 8.04,
+      "usage": [
+        {
+          "prompt_token_count": 1230,
+          "response_token_count": 110,
+          "thoughts_token_count": 36,
+          "total_token_count": 1340,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 460
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 683
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 110
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "voice": "Sadachbia",
+      "style": "bright_x2",
+      "callee": "hello",
+      "heard": "はい。もしもし。",
+      "ai": "株式会社サンプルの担当ですが、ご予約はされておりますでしょうか？",
+      "gap_s": 1.76,
+      "audio_s": 4.4,
+      "voiced_s": 4.05,
+      "chars": 30,
+      "chars_per_s": 7.41,
+      "usage": [
+        {
+          "prompt_token_count": 674,
+          "response_token_count": 116,
+          "thoughts_token_count": 161,
+          "total_token_count": 790,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 453
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 194
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 116
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "voice": "Sadachbia",
+      "style": "bright_x2",
+      "callee": "yes_reserved",
+      "heard": "はい。予約しています。",
+      "ai": "ご予約の日時を教えていただけますでしょうか？",
+      "gap_s": 0.893,
+      "audio_s": 2.85,
+      "voiced_s": 2.5,
+      "chars": 21,
+      "chars_per_s": 8.4,
+      "usage": [
+        {
+          "prompt_token_count": 877,
+          "response_token_count": 73,
+          "thoughts_token_count": 68,
+          "total_token_count": 950,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 472
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 360
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 73
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "voice": "Sadachbia",
+      "style": "bright_x2",
+      "callee": "datetime_pm",
+      "heard": "15 日の午後 2 時でお願いします。",
+      "ai": "15日の午後2時でお間違いないでしょうか？",
+      "gap_s": 0.944,
+      "audio_s": 2.79,
+      "voiced_s": 2.44,
+      "chars": 20,
+      "chars_per_s": 8.2,
+      "usage": [
+        {
+          "prompt_token_count": 1057,
+          "response_token_count": 73,
+          "thoughts_token_count": 63,
+          "total_token_count": 1130,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 492
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 502
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 73
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "voice": "Sadachbia",
+      "style": "bright_x2",
+      "callee": "affirm",
+      "heard": "はい、そうです。",
+      "ai": "ありがとうございます。お電話をお待ちしております。",
+      "gap_s": 0.89,
+      "audio_s": 2.88,
+      "voiced_s": 2.5,
+      "chars": 23,
+      "chars_per_s": 9.2,
+      "usage": [
+        {
+          "prompt_token_count": 1197,
+          "response_token_count": 75,
+          "thoughts_token_count": 52,
+          "total_token_count": 1272,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 507
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 613
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 75
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "voice": "Leda",
+      "style": "baseline",
+      "callee": "hello",
+      "heard": "はい。もしもし。",
+      "ai": "私、株式会社サンプルの者ですが、ご予約の確認でお電話いたしました。ご予約はされていますでしょうか?",
+      "gap_s": 0.728,
+      "audio_s": 7.68,
+      "voiced_s": 7.37,
+      "chars": 45,
+      "chars_per_s": 6.11,
+      "usage": [
+        {
+          "prompt_token_count": 687,
+          "response_token_count": 198,
+          "thoughts_token_count": 58,
+          "total_token_count": 885,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 398
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 262
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 198
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "voice": "Leda",
+      "style": "baseline",
+      "callee": "yes_reserved",
+      "heard": "はい。予約しています。",
+      "ai": "ありがとうございます。ご予約の日時はいつになっておりますでしょうか?",
+      "gap_s": 0.717,
+      "audio_s": 4.47,
+      "voiced_s": 4.12,
+      "chars": 32,
+      "chars_per_s": 7.77,
+      "usage": [
+        {
+          "prompt_token_count": 990,
+          "response_token_count": 116,
+          "thoughts_token_count": 52,
+          "total_token_count": 1106,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 427
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 510
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 116
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "voice": "Leda",
+      "style": "baseline",
+      "callee": "datetime_pm",
+      "heard": "15 日の午後 2 時でお願いします。",
+      "ai": "15日の午後2時でお間違いありませんか?",
+      "gap_s": 0.699,
+      "audio_s": 3.09,
+      "voiced_s": 2.81,
+      "chars": 19,
+      "chars_per_s": 6.76,
+      "usage": [
+        {
+          "prompt_token_count": 1216,
+          "response_token_count": 83,
+          "thoughts_token_count": 72,
+          "total_token_count": 1299,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 449
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 694
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 83
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "voice": "Leda",
+      "style": "baseline",
+      "callee": "affirm",
+      "heard": "はい、そうです。",
+      "ai": "ご予約の確認が取れました。ありがとうございました。失礼いたします。",
+      "gap_s": 0.785,
+      "audio_s": 4.85,
+      "voiced_s": 4.56,
+      "chars": 30,
+      "chars_per_s": 6.58,
+      "usage": [
+        {
+          "prompt_token_count": 1370,
+          "response_token_count": 128,
+          "thoughts_token_count": 41,
+          "total_token_count": 1498,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 464
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 815
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 128
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "voice": "Leda",
+      "style": "bright_x2",
+      "callee": "hello",
+      "heard": "はい。もしもし。",
+      "ai": "株式会社サンプルの者ですが、ご予約はされておりますでしょうか？",
+      "gap_s": 1.037,
+      "audio_s": 4.22,
+      "voiced_s": 4.04,
+      "chars": 29,
+      "chars_per_s": 7.18,
+      "usage": [
+        {
+          "prompt_token_count": 742,
+          "response_token_count": 107,
+          "thoughts_token_count": 169,
+          "total_token_count": 849,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 453
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 262
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 107
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "voice": "Leda",
+      "style": "bright_x2",
+      "callee": "yes_reserved",
+      "heard": "はい。予約しています。",
+      "ai": "かしこまりました。ご予約の日時はいつでしょうか？",
+      "gap_s": 0.745,
+      "audio_s": 3.38,
+      "voiced_s": 3.21,
+      "chars": 22,
+      "chars_per_s": 6.85,
+      "usage": [
+        {
+          "prompt_token_count": 932,
+          "response_token_count": 85,
+          "thoughts_token_count": 51,
+          "total_token_count": 1017,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 472
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 419
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 85
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "voice": "Leda",
+      "style": "bright_x2",
+      "callee": "datetime_pm",
+      "heard": "15 日の午後 2 時でお願いします。",
+      "ai": "15日の午後2時でお間違いないでしょうか？",
+      "gap_s": 1.013,
+      "audio_s": 3.19,
+      "voiced_s": 2.85,
+      "chars": 20,
+      "chars_per_s": 7.02,
+      "usage": [
+        {
+          "prompt_token_count": 1123,
+          "response_token_count": 81,
+          "thoughts_token_count": 111,
+          "total_token_count": 1204,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 495
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 573
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 81
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "voice": "Leda",
+      "style": "bright_x2",
+      "callee": "affirm",
+      "heard": "はい、そうです。",
+      "ai": "ありがとうございました。失礼いたします。",
+      "gap_s": 0.833,
+      "audio_s": 2.58,
+      "voiced_s": 2.21,
+      "chars": 18,
+      "chars_per_s": 8.14,
+      "usage": [
+        {
+          "prompt_token_count": 1277,
+          "response_token_count": 65,
+          "thoughts_token_count": 61,
+          "total_token_count": 1342,
+          "prompt_tokens_details": [
+            {
+              "modality": "TEXT",
+              "token_count": 512
+            },
+            {
+              "modality": "AUDIO",
+              "token_count": 692
+            }
+          ],
+          "response_tokens_details": [
+            {
+              "modality": "AUDIO",
+              "token_count": 65
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
