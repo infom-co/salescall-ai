@@ -35,11 +35,16 @@ SCRIPTS = {
         "ありがとうございました。失礼いたします。"
     ),
 }
+# 2026-10-12 G-17 の1回目：「株式会社アオバ物流」が、別の耳に「株式会社大場（おおば）物流」と聞こえた（Sadachbia 12回中9回）。
+# 「がいしゃ」の「ゃ（a）」と「アオバ」の「ア（a）」が続いて、1つの音につながると見られる。⇒ 直し方の候補を比べる。
+SCRIPTS["B_comma"] = SCRIPTS["B"].replace("株式会社アオバ物流", "株式会社、アオバ物流")  # 案1：社名の前に区切りを入れる
 _SPEED = "話す速さは2倍速にしてください。"
 CONDITIONS = {
     "none": "",
     "tone": STYLES["warm_business_x2"].replace(_SPEED, ""),  # 調子だけ（2倍速の一文を抜いた同じ指示）
     "tone_x2": STYLES["warm_business_x2"],
+    # 案2：会社名・人の名前を、ほかの言葉とつなげずに言わせる（どの社名・人名にも効く、1つの決まり）
+    "tone_x2_names": STYLES["warm_business_x2"] + "会社名と人の名前は、前後の言葉とつなげず、1語ずつはっきり言ってください。",
 }
 assert _SPEED in STYLES["warm_business_x2"] and _SPEED not in CONDITIONS["tone"]
 MAX_CHARS_PER_S = 15.0  # これより速くは読めない（会話の形の実測は1秒に 6.7〜8.2文字）
@@ -127,10 +132,10 @@ async def run(args) -> dict:
     log = AUDIO_DIR / f"partial_{stamp}.jsonl"  # 途中で止まっても、そこまでの結果が残る
     n = 0
     for rep in range(args.repeat):
-        for sid in SCRIPTS:
-            for length in ("long", "short"):
-                for voice in VOICES:
-                    for cond in CONDITIONS:
+        for sid in args.script or ("A", "B"):
+            for length in args.length or ("long", "short"):
+                for voice in args.voice or VOICES:
+                    for cond in args.condition or ("none", "tone", "tone_x2"):
                         n += 1
                         tid = f"{stamp}_{n:03d}_{voice}_{cond}_{length}_{sid}"
                         try:
@@ -155,6 +160,10 @@ def main() -> None:
     p = base_parser(__doc__)
     p.add_argument("--repeat", type=int, default=2)
     p.add_argument("--pause", type=float, default=3.0, help="1回ごとに空ける秒数（1分あたりの上限を避けるため）")
+    p.add_argument("--script", choices=sorted(SCRIPTS), action="append", help="この台本だけ（省略すると A と B）")
+    p.add_argument("--length", choices=("long", "short"), action="append")
+    p.add_argument("--voice", choices=VOICES, action="append")
+    p.add_argument("--condition", choices=sorted(CONDITIONS), action="append", help="省略すると none・tone・tone_x2")
     args = p.parse_args()
     save_result("G-17", asyncio.run(run(args)))
 
