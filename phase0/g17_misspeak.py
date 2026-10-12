@@ -38,6 +38,7 @@ SCRIPTS = {
 # 2026-10-12 G-17 の1回目：「株式会社アオバ物流」が、別の耳に「株式会社大場（おおば）物流」と聞こえた（Sadachbia 12回中9回）。
 # 「がいしゃ」の「ゃ（a）」と「アオバ」の「ア（a）」が続いて、1つの音につながると見られる。⇒ 直し方の候補を比べる。
 SCRIPTS["B_comma"] = SCRIPTS["B"].replace("株式会社アオバ物流", "株式会社、アオバ物流")  # 案1：社名の前に区切りを入れる
+SCRIPTS["B_quote"] = SCRIPTS["B"].replace("株式会社アオバ物流", "株式会社「アオバ物流」")  # 案3（ユーザー案）：社名をかぎかっこでくくる
 _SPEED = "話す速さは2倍速にしてください。"
 CONDITIONS = {
     "none": "",
@@ -47,6 +48,19 @@ CONDITIONS = {
     "tone_x2_names": STYLES["warm_business_x2"] + "会社名と人の名前は、前後の言葉とつなげず、1語ずつはっきり言ってください。",
 }
 assert _SPEED in STYLES["warm_business_x2"] and _SPEED not in CONDITIONS["tone"]
+# 2026-10-12 G-17 の結果：「2倍速」の指示がある回で、途中で切れる・出だしが崩れる・繰り返す・社名がつながる、が多かった。
+# ⇒ ユーザーが選んだ声の型（Sadachbia＝S2「前向き＋会社員」、Leda＝L4「謙虚な会社員」）で、速さの言い方だけを変えて比べる。
+#    速さの一文は、元の指示と同じ位置で差し替える（x2 は元の指示そのもの）。
+SPEED_WORDS = {
+    "x0": "",
+    "slight": "話す速さは、ふつうより少し速めにしてください。",
+    "x1_5": "話す速さは1.5倍速にしてください。",
+    "x2": _SPEED,
+}
+for _prefix, _style in (("s2", "warm_business_x2"), ("l4", "humble_business_x2")):
+    assert _SPEED in STYLES[_style]
+    for _k, _v in SPEED_WORDS.items():
+        CONDITIONS[f"{_prefix}_{_k}"] = STYLES[_style].replace(_SPEED, _v)
 MAX_CHARS_PER_S = 15.0  # これより速くは読めない（会話の形の実測は1秒に 6.7〜8.2文字）
 AUDIO_DIR = HERE / "results" / "g17_audio"
 GAP = b"\x00\x00" * int(24000 * 0.6)  # 1文ずつのときに、声をつなぐ間の無音
@@ -88,6 +102,8 @@ async def one_trial(client, args, tid: str, voice: str, cond: str, length: str, 
     turns, audio = await speak(client, args.model, voice, cond, parts)
     row = {"id": tid, "voice": voice, "condition": cond, "length": length, "script_id": sid, "turns": turns,
            "silent_turns": sum(t["silent"] for t in turns), "cut_off_turns": sum(t["cut_off"] for t in turns)}
+    ok = [(len(norm(t["script"])), t["voiced_s"]) for t in turns if t["voiced_s"] and not t["cut_off"] and t["audio_tokens"] > 30]
+    row["chars_per_s"] = round(sum(c for c, _ in ok) / sum(v for _, v in ok), 2) if ok else None  # 話す速さ（途中で止まったターンは除く）
     intended = "".join(t["intended"] for t in turns)
     row["intended_missing"] = any(not t["intended"] for t in turns)  # AI自身の文字起こしが届かなかったターンがある
     row["intended_diffs"] = differences(script, intended) if not row["intended_missing"] else None

@@ -1,0 +1,237 @@
+{
+  "item": "G-17-judge-check",
+  "saved_at": "2026-10-12T21:36:46",
+  "model": "gemini-3.8-live",
+  "rows": [
+    {
+      "rep": 0,
+      "case": "問題あり1",
+      "wav": "corpus/misread_omo-isogashii_Sadachbia.wav",
+      "known": "「お忙しいところ」を「おも忙しいところ」",
+      "problems": [
+        {
+          "heard_as": "にじ",
+          "script_part": "日時",
+          "kind": "言い間違い"
+        }
+      ],
+      "no_report": false
+    },
+    {
+      "rep": 0,
+      "case": "問題あり2",
+      "wav": "G-03_Leda_warm_business_x2.wav",
+      "known": "「株式会社サンプルの担当」の「サンプル」が抜けた",
+      "problems": [
+        {
+          "heard_as": "（発音されず）",
+          "script_part": "サンプル",
+          "kind": "抜け"
+        }
+      ],
+      "no_report": false
+    },
+    {
+      "rep": 0,
+      "case": "問題あり3",
+      "wav": "g17_audio/20261012_194722_033_Sadachbia_tone_x2_short_A.wav",
+      "known": "出だしが「おまちばしところ」／「失礼いたし」で途切れた",
+      "problems": [
+        {
+          "kind": "言い間違い",
+          "heard_as": "おみあいしたところ",
+          "script_part": "お忙しいところ"
+        },
+        {
+          "kind": "繰り返し",
+          "heard_as": "恐れ入ります。株式会社サンプルの担当でございます。本日は、ご予約の日時の確認でお電話いたしました。15日の午後2時でお間違いないでしょうか。聞き取りにくかったので、もう一度、おっしゃっていただいてよろしいでしょうか。念のため確認させてください。ありがとうございました。失礼いたします。",
+          "script_part": "恐れ入ります。株式会社サンプルの担当でございます。本日は、ご予約の日時の確認でお電話いたしました。15日の午後2時でお間違いないでしょうか。聞き取りにくかったので、もう一度、おっしゃっていただいてよろしいでしょうか。念のため確認させてください。ありがとうございました。失礼いたします。"
+        }
+      ],
+      "no_report": false
+    },
+    {
+      "rep": 0,
+      "case": "問題あり4",
+      "wav": "g17_audio/20261012_194722_024_Leda_tone_x2_short_B.wav",
+      "known": "同じ文を2回言った／「ありがとうございました」が途中で切れた",
+      "problems": [
+        {
+          "kind": "繰り返し",
+          "script_part": "本日は、先日お送りした資料の件でお電話いたしました。",
+          "heard_as": "ほんじつはせんじつおおくりしたしりょうのけんでおでんわいたしましたほんじつはせんじつおおくりしたしりょうのけんでおでんわいたしました"
+        }
+      ],
+      "no_report": false
+    },
+    {
+      "rep": 0,
+      "case": "問題あり5（軽い）",
+      "wav": "g17_audio/20261012_194722_039_Sadachbia_tone_x2_long_B.wav",
+      "known": "「アオバ」がオとアの間（オに8割がた近い）。少し噛んだくらい",
+      "problems": [
+        {
+          "kind": "言い間違い",
+          "heard_as": "おおば",
+          "script_part": "アオバ"
+        }
+      ],
+      "no_report": false
+    },
+    {
+      "rep": 0,
+      "case": "問題なし1（S2・5点）",
+      "wav": "G-03_Sadachbia_warm_business_x2.wav",
+      "known": "",
+      "problems": [],
+      "no_report": false
+    },
+    {
+      "rep": 0,
+      "case": "問題なし2（S4・5点）",
+      "wav": "G-03_Sadachbia_smile_x2.wav",
+      "known": "",
+      "problems": [],
+      "no_report": false
+    },
+    {
+      "rep": 0,
+      "case": "問題なし3（L2・4.5点）",
+      "wav": "G-03_Leda_humble_x2.wav",
+      "known": "",
+      "problems": [],
+      "no_report": false
+    },
+    {
+      "rep": 0,
+      "case": "問題なし4（L4・5点）",
+      "wav": "G-03_Leda_humble_business_x2.wav",
+      "known": "",
+      "problems": [],
+      "no_report": false
+    },
+    {
+      "rep": 0,
+      "case": "問題なし5（L4・5点）",
+      "wav": "G-03_Leda_humble_business_x2_2.wav",
+      "known": "",
+      "problems": [],
+      "no_report": false
+    },
+    {
+      "rep": 1,
+      "case": "問題あり1",
+      "wav": "corpus/misread_omo-isogashii_Sadachbia.wav",
+      "known": "「お忙しいところ」を「おも忙しいところ」",
+      "problems": [
+        {
+          "heard_as": "にじ",
+          "kind": "言い間違い",
+          "script_part": "日時"
+        }
+      ],
+      "no_report": false
+    },
+    {
+      "rep": 1,
+      "case": "問題あり2",
+      "wav": "G-03_Leda_warm_business_x2.wav",
+      "known": "「株式会社サンプルの担当」の「サンプル」が抜けた",
+      "problems": [
+        {
+          "kind": "抜け",
+          "heard_as": "",
+          "script_part": "サンプルの"
+        }
+      ],
+      "no_report": false
+    },
+    {
+      "rep": 1,
+      "case": "問題あり3",
+      "wav": "g17_audio/20261012_194722_033_Sadachbia_tone_x2_short_A.wav",
+      "known": "出だしが「おまちばしところ」／「失礼いたし」で途切れた",
+      "problems": [
+        {
+          "heard_as": "おみあいしたところ",
+          "script_part": "お忙しいところ",
+          "kind": "言い間違い"
+        },
+        {
+          "script_part": "失礼いたします。",
+          "kind": "途中で切れた",
+          "heard_as": "しつれいたし"
+        }
+      ],
+      "no_report": false
+    },
+    {
+      "rep": 1,
+      "case": "問題あり4",
+      "wav": "g17_audio/20261012_194722_024_Leda_tone_x2_short_B.wav",
+      "known": "同じ文を2回言った／「ありがとうございました」が途中で切れた",
+      "problems": [
+        {
+          "kind": "繰り返し",
+          "heard_as": "ほんじつはせんじつおおくりしたしりょうのけんでおでんわいたしましたごたんとうのたなかさまはいらっしゃいますでしょうからいしゅうのかようびじゅうがつはつかのごごさんじにあらためておでんわしてもよろしいでしょうかしつれいいたします",
+          "script_part": "本日は、先日お送りした資料の件でお電話いたしました。本日は、先日お送りした資料の件でお電話いたしました。ご担当の田中様はいらっしゃいますでしょうか。来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。ありがとうございました。失礼いたします。"
+        }
+      ],
+      "no_report": false
+    },
+    {
+      "rep": 1,
+      "case": "問題あり5（軽い）",
+      "wav": "g17_audio/20261012_194722_039_Sadachbia_tone_x2_long_B.wav",
+      "known": "「アオバ」がオとアの間（オに8割がた近い）。少し噛んだくらい",
+      "problems": [
+        {
+          "kind": "言い間違い",
+          "heard_as": "おおばぶつりゅう",
+          "script_part": "アオバ物流"
+        }
+      ],
+      "no_report": false
+    },
+    {
+      "rep": 1,
+      "case": "問題なし1（S2・5点）",
+      "wav": "G-03_Sadachbia_warm_business_x2.wav",
+      "known": "",
+      "problems": [],
+      "no_report": false
+    },
+    {
+      "rep": 1,
+      "case": "問題なし2（S4・5点）",
+      "wav": "G-03_Sadachbia_smile_x2.wav",
+      "known": "",
+      "problems": [],
+      "no_report": false
+    },
+    {
+      "rep": 1,
+      "case": "問題なし3（L2・4.5点）",
+      "wav": "G-03_Leda_humble_x2.wav",
+      "known": "",
+      "problems": [],
+      "no_report": false
+    },
+    {
+      "rep": 1,
+      "case": "問題なし4（L4・5点）",
+      "wav": "G-03_Leda_humble_business_x2.wav",
+      "known": "",
+      "problems": [],
+      "no_report": false
+    },
+    {
+      "rep": 1,
+      "case": "問題なし5（L4・5点）",
+      "wav": "G-03_Leda_humble_business_x2_2.wav",
+      "known": "",
+      "problems": [],
+      "no_report": false
+    }
+  ]
+}
