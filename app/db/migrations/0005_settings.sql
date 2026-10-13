@@ -157,7 +157,7 @@ GRANT EXECUTE ON FUNCTION salescall.setting_value_ok(salescall.setting_value_typ
 -- ═════════ 定義 ═════════
 -- 先に「超えられない枠」（システムだけ）を作る
 INSERT INTO salescall.setting_definitions (key, merge_kind, value_type, meaning, design_ref) VALUES
-('calling.hours_limit', 'system_only', 'weekly_hours', 'かけてよい時間帯の、超えられない枠（法令・慣行。依頼主の設定もこの内側だけ。Intent.md 5-4・13章）', 'DESIGN.md 8章・Intent.md 13章'),
+('calling.hours_limit', 'system_only', 'weekly_hours', 'かけてよい時間帯の、超えられない歯止め（深夜・早朝。依頼主の入力の誤りを止める。曜日は依頼主が自由に決める。Intent.md 5-4・13章）', 'DESIGN.md 8章・Intent.md 13章'),
 ('calling.max_concurrent_calls_limit', 'system_only', 'integer', '同時に流す通話の本数の、超えられない枠（会話AIのプロジェクトの枠から決まる。全依頼主で共有する設備）', 'DESIGN.md 5-2 の9・Intent.md 5-4'),
 ('gate.unknown_result_min_interval_floor', 'system_only', 'seconds', '結果が分からない試行のあと、同じ連絡先へかけるまでの間隔の、超えられない下限（実は話していた相手へ、すぐかけ直す害を防ぐ）', 'DESIGN.md 4-2');
 INSERT INTO salescall.setting_definitions (key, merge_kind, value_type, meaning, design_ref, bound_key, bound_side) VALUES
@@ -205,7 +205,8 @@ INSERT INTO salescall.setting_definitions (key, merge_kind, value_type, meaning,
 
 -- ═════════ 最初の値（根拠と、いつ見直すかつき。ユーザーが決めたものは「確定」） ═════════
 INSERT INTO salescall.setting_values (key, scope, value, status, rationale, review_when, set_by) VALUES
-('calling.hours_limit', 'system', '{"mon": [["08:00","20:00"]], "tue": [["08:00","20:00"]], "wed": [["08:00","20:00"]], "thu": [["08:00","20:00"]], "fri": [["08:00","20:00"]], "sat": [["08:00","20:00"]], "sun": [], "holiday": []}', 'provisional', '依頼主がどう設定しても超えられない外枠。法人の始業前・遅い夜と、日曜・祝日を避ける（土曜は店舗など営業している相手があるので枠の内）。⚠️ Intent.md 13章の確かめと、18-2 の17（ユーザーが決めること）の仮の値', 'ユーザーが 18-2 の17 を決めたとき・13章の確かめのあと', 'CL-2'),
+('calling.hours_limit', 'system', '{"mon": [["07:00","22:00"]], "tue": [["07:00","22:00"]], "wed": [["07:00","22:00"]], "thu": [["07:00","22:00"]], "fri": [["07:00","22:00"]], "sat": [["07:00","22:00"]], "sun": [["07:00","22:00"]], "holiday": [["07:00","22:00"]]}', 'provisional', '2026-10-13 ユーザー：「店舗が相手の場合があるので、日祝含め、依頼主ごとに自由に設定できる方がいい」⇒ 曜日の制限は外した。残すのは、依頼主の入力の誤り（21:00 を 01:00 と打つ など）で深夜・早朝にかけないための歯止めだけ（毎日 7〜22時）', 'ユーザーが歯止めの要否・時刻を決めたとき・Intent.md 13章の確かめのあと', 'CL-2'),
+
 ('calling.max_concurrent_calls_limit', 'system', '6', 'provisional', '会話AIの1つのプロジェクトの枠から決まる外枠（65,000 × 0.8 ÷ 7,500 ≒ 6）。全依頼主で共有する設備なので、依頼主が超えられない', '有料枠に移ったとき・回線を増やしたとき', 'CL-2'),
 ('gate.unknown_result_min_interval_floor', 'system', '3600', 'provisional', '結果が分からない試行は実は話していた可能性がある。依頼主が間隔を短くしても、1時間より短くはしない（すぐかけ直す害を防ぐ）', '本番の最初の1か月の結果不明の件数を見て', 'CL-2'),
 ('stop.storage.probe_interval', 'system', '30', 'provisional', '保存が戻ったことを早く知りたいが、データベースに負担をかけない間隔', '本番の最初の1か月の停止の記録を見て', 'CL-2'),

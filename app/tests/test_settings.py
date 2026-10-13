@@ -169,15 +169,21 @@ class PerClientSettings(unittest.TestCase):
                          {"value": 3600, "from": "client", "bounded_by": "gate.unknown_result_min_interval_floor"})
 
     def test_calling_hours_follow_the_client_inside_the_frame(self):
+        """2026-10-13 ユーザー：日祝も含め、依頼主ごとに自由に。歯止めは深夜・早朝（毎日 7〜22時）だけ。"""
         put(self.w, self.t, self.c, "calling.hours", {
-            "mon": [["07:00", "12:00"], ["13:00", "22:00"]], "tue": [["10:00", "17:00"]], "wed": [], "thu": [["09:00", "18:00"]],
-            "fri": [["09:00", "18:00"]], "sat": [["09:00", "18:00"]], "sun": [["10:00", "12:00"]], "holiday": []})
+            "mon": [["06:00", "12:00"], ["13:00", "23:00"]], "tue": [["10:00", "17:00"]], "wed": [], "thu": [["09:00", "18:00"]],
+            "fri": [["09:00", "18:00"]], "sat": [["09:00", "18:00"]], "sun": [["10:00", "16:00"]], "holiday": [["10:00", "16:00"]]})
         d = self.detail("calling.hours")
         h = d["value"]
-        self.assertEqual(h["mon"], [["08:00", "12:00"], ["13:00", "20:00"]])   # 枠（8〜20時）の内側に収まる
-        self.assertEqual((h["tue"], h["wed"], h["sat"], h["sun"]),
-                         ([["10:00", "17:00"]], [], [["09:00", "18:00"]], []))  # 土曜は依頼主の値が効く・日曜は枠の外
+        self.assertEqual(h["mon"], [["07:00", "12:00"], ["13:00", "22:00"]])   # 深夜・早朝の歯止めの内側に収まる
+        self.assertEqual((h["tue"], h["wed"], h["sat"], h["sun"], h["holiday"]),
+                         ([["10:00", "17:00"]], [], [["09:00", "18:00"]], [["10:00", "16:00"]], [["10:00", "16:00"]]))
         self.assertEqual((d["from"], d["bounded_by"]), ("client", "calling.hours_limit"))
+
+    def test_calling_hours_inside_the_frame_are_untouched(self):
+        put(self.w, self.t, self.c, "calling.hours", {d: [["08:00", "21:00"]] for d in
+                                                      ("mon", "tue", "wed", "thu", "fri", "sat", "sun", "holiday")})
+        self.assertIsNone(self.detail("calling.hours")["bounded_by"])
 
     def test_concurrent_calls_cannot_exceed_the_shared_frame(self):
         put(self.w, self.t, self.c, "calling.max_concurrent_calls", 10)
