@@ -697,6 +697,64 @@ class EarCutOffTest(unittest.TestCase):
         self.assertEqual(len(attempts), 2)
 
 
+class BargeWatchTest(unittest.TestCase):
+    """録音を流している間の、相手の声の見張り（DESIGN.md 6-13 の案）。相手役の声（作った声）で、決まりどおりに動くか。"""
+    PARTS = [("お忙しいところ恐れ入ります。", 2.0), ("株式会社「アオバ物流」の「佐藤」と申します。", 2.5),
+             ("ご予約の確認でお電話いたしました。", 2.0), ("ご予約はされていますでしょうか。", 2.0)]  # 最初の質問は 6.5秒から
+
+    def clip(self, name):
+        from common import read_wav_pcm16_mono
+        return read_wav_pcm16_mono(common.RESULTS_DIR / "callee" / f"Puck_{name}.wav")
+
+    def test_backchannel_before_question_is_dropped(self):
+        from barge import watch
+        pcm, rate = self.clip("backchannel")                       # 「はい。」0.3秒
+        d = watch(self.PARTS, pcm, rate, onset_s=3.0, short_s=0.6)
+        self.assertFalse(d.stopped)
+        self.assertEqual((len(d.dropped), d.send_from_s, d.rest), (1, None, []))  # 流し続け、声は捨てる
+
+    def test_long_voice_stops_and_marks_cut_sentence_as_not_yet(self):
+        from barge import voice_runs, voiced, watch
+        pcm, rate = self.clip("barge_who")                         # 「あ、はい、どちら様？」約1.9秒
+        lead = voice_runs(voiced(pcm, rate), 0.15)[0][0]
+        d = watch(self.PARTS, pcm, rate, onset_s=2.5, short_s=0.6)  # 社名の文の途中で話し始めた
+        self.assertTrue(d.stopped)
+        self.assertAlmostEqual(d.stop_at_s, 2.5 + lead + 0.6, places=2)
+        self.assertEqual(d.done, ["お忙しいところ恐れ入ります。"])
+        self.assertEqual(d.rest[0], "株式会社「アオバ物流」の「佐藤」と申します。")  # 途中で止めた文は「まだ」
+        self.assertAlmostEqual(d.send_from_s, 2.5 + lead, places=2)  # 話し始めからの声をAIへ
+
+    def test_short_question_keeps_playing(self):
+        from barge import watch
+        pcm, rate = self.clip("hai_q")                             # 「はい？」0.4秒
+        self.assertFalse(watch(self.PARTS, pcm, rate, onset_s=1.0, short_s=0.6).stopped)  # 流し続けると名乗りが届く
+
+    def test_short_voice_during_question_is_sent_as_answer(self):
+        from barge import watch
+        pcm, rate = self.clip("backchannel")
+        d = watch(self.PARTS, pcm, rate, onset_s=7.0, short_s=0.6)  # 最初の質問の録音の途中
+        self.assertFalse(d.stopped)
+        self.assertIsNotNone(d.send_from_s)                        # 答えでありうるので、流し切ったあとAIへ送る
+        self.assertEqual(d.dropped, [])
+
+    def test_recording_finishes_before_long_voice_is_known(self):
+        from barge import watch
+        pcm, rate = self.clip("barge_who")
+        d = watch(self.PARTS, pcm, rate, onset_s=8.3, short_s=0.6)  # 止めるより先に流し終わる
+        self.assertFalse(d.stopped)
+        self.assertEqual(d.rest, [])
+
+    def test_two_backchannels_with_a_pause_stay_separate(self):
+        import numpy as np
+
+        from barge import watch
+        pcm, rate = self.clip("backchannel")
+        gap = np.zeros(int(rate * 0.3), dtype=np.int16).tobytes()
+        d = watch(self.PARTS, pcm + gap + pcm, rate, onset_s=2.0, short_s=0.6)  # 「はい。……はい。」
+        self.assertFalse(d.stopped)
+        self.assertEqual(len(d.dropped), 2)
+
+
 class RetryTest(unittest.TestCase):
     def test_retry_only_when_unavailable(self):
         from common import call_with_retry
