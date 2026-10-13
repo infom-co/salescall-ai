@@ -33,7 +33,7 @@ BUSINESS = Business(
 CALLEE = ["はい、予約しています。", "15日の午後2時です。", "はい、そうです。", "3人です。", "はい、そうです。"]
 VARIANTS = {
     "V0_いまの形": {},
-    "V1_頭にお礼": {"confirm": lambda v: "ありがとうございます。" + confirm(v)},
+    "V1_頭にお礼": {"confirm": lambda v, s="ふつう", n=0: "ありがとうございます。" + confirm(v, s, n)},
     "V2_考える量0": {"thinking_budget": 0},
 }
 HEAD = 4

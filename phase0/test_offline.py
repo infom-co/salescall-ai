@@ -251,6 +251,39 @@ class FlowTest(unittest.TestCase):
         r = self.call(f, "confirm_field", question_id="Q2", result="corrected", correction="16日の午後2時です。")
         self.assertEqual((r["result"], r["value"]), ("confirm_required", "16日の午後2時"))
 
+    def test_confirm_phrases_rotate_by_situation(self):
+        from flowctl import Flow, Question
+        from phrases import CONFIRM
+        f = Flow([Question("Q1", "日時は。", "datetime", conditions=("answered",)), Question("Q2", "人数は。", "number", conditions=("answered",)),
+                  Question("Q3", "電話番号は。", "phone", conditions=("answered",))])
+        r1 = self.call(f, "record_answer", question_id="Q1", condition_id="answered", value="15日")
+        f.on_callee()
+        self.call(f, "confirm_field", question_id="Q1", result="affirmed")
+        r2 = self.call(f, "record_answer", question_id="Q2", condition_id="answered", value="3人")
+        self.assertEqual(r1["say"], CONFIRM["ふつう"][0].format(v="15日"))
+        self.assertEqual(r2["say"], CONFIRM["ふつう"][1].format(v="3人"))       # 同じ言い方を続けない（順番に回す）
+        f.on_callee()
+        self.assertIn(r2["say"], self.call(f, "record_answer", question_id="Q3", condition_id="answered", value="x")["message"])  # 差し戻しも同じ言い方
+        self.call(f, "confirm_field", question_id="Q2", result="affirmed")
+        self.call(f, "report_unclear", question_id="Q3")                       # 聞き返したあとの値
+        r3 = self.call(f, "record_answer", question_id="Q3", condition_id="answered", value="090-1234-5678")
+        self.assertEqual(r3["say"], CONFIRM["聞き取りにくかったあと"][0].format(v="090-1234-5678"))
+        f.on_callee()
+        r4 = self.call(f, "confirm_field", question_id="Q3", result="corrected", correction="090-1234-5679")
+        self.assertEqual(r4["say"], CONFIRM["聞き取りにくかったあと"][1].format(v="090-1234-5679"))  # 訂正のあとも同じ場面で、次の言い方
+
+    def test_busy_ask_once_when_set(self):
+        from flowctl import Flow, Question
+        qs = [Question("Q1", "ご予約はされていますか。", "yes_no", conditions=("yes", "no"))]
+        f = Flow(qs)                                                       # 既定：丁寧に終える
+        self.assertEqual(self.call(f, "request_end", reason="callee_hurry")["result"], "end")
+        f = Flow(qs, busy_ask="少しだけ、お時間をいただけますでしょうか。")      # 業務設定で「引き止める」を選んだ
+        r = self.call(f, "request_end", reason="callee_hurry")
+        self.assertEqual((r["result"], r["say"], f.phase), ("busy_ask", "少しだけ、お時間をいただけますでしょうか。", "asking"))
+        self.assertEqual(self.call(f, "request_end", reason="callee_hurry")["result"], "end")  # 2回目は終える（引き止めは1回だけ）
+        f = Flow(qs, busy_ask="少しだけ、お時間をいただけますでしょうか。")
+        self.assertEqual(self.call(f, "request_end", reason="callee_refused_call")["result"], "end")  # 断られたら必ず終える（原則14）
+
     def test_confirm_phrase_is_the_fixed_one(self):
         from phrases import confirm
         f = self.flow()

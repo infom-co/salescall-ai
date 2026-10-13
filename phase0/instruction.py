@@ -45,6 +45,9 @@ class Business:
     questions: list[Question]
     forbidden: list[str] = field(default_factory=list)   # 言ってはいけないこと
     purpose_line: str = ""      # 名乗りのあとに言う用件の一文（例：「ご予約の確認でお電話いたしました。」）
+    # 相手が「忙しい」と言ったときの一言（Intent.md 9-4）。空なら丁寧に終える（既定＝安全側）。文があれば、1回だけそれで聞く
+    # （2026-10-13 ユーザー：依頼主によっては粘ってほしい。トークスクリプト（業務情報）で選べるように。既定の文は phrases.BUSY_ASK）
+    busy_ask: str | None = None
 
     def opening(self) -> str:
         return f"お忙しいところ恐れ入ります。株式会社{quote(self.company)}の{quote(self.caller)}と申します。"

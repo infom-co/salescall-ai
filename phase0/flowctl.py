@@ -80,9 +80,15 @@ class Item:
 
 
 class Flow:
-    def __init__(self, questions: list[Question], limits: Limits | None = None, confirm=confirm_phrase):
-        """confirm：言い直しの言い方を作る関数（ふだんは phrases.confirm。言い方を比べる試験 G-25 だけが別のものを渡す）。"""
+    def __init__(self, questions: list[Question], limits: Limits | None = None, confirm=confirm_phrase,
+                 busy_ask: str | None = None):
+        """confirm：言い直しの言い方を作る関数 (値, 場面, 何回目) → 文（ふだんは phrases.confirm。言い方を比べる試験 G-25 だけが別のものを渡す）。
+        busy_ask：相手が「忙しい」と言ったときに1回だけ言う一言（業務設定。None なら丁寧に終える＝既定。Intent.md 9-4）。"""
         self.confirm = confirm
+        self.busy_ask = busy_ask
+        self.busy_asked = False
+        self.confirm_counts: dict[str, int] = {}   # 言い直しの場面ごとの回数（同じ言い方が続かないよう、順番に回す）
+        self.awaiting_say: str | None = None       # いま返事を待っている言い直しの、言い方（差し戻しのときも同じ言い方を使う）
         self.questions = {q.id: q for q in questions}
         self.order = [q.id for q in questions]
         self.limits = limits or Limits()
@@ -178,6 +184,12 @@ class Flow:
 
     def _op_request_end(self, a: dict) -> dict:
         reason = a.get("reason")
+        if reason == "callee_hurry" and self.busy_ask and not self.busy_asked:
+            # 業務設定で「引き止める」を選んだとき：1回だけ、決まった一言で聞く。2回目の「急いでいる」は終える
+            self.busy_asked = True
+            return {"result": "busy_ask", "say": self.busy_ask,
+                    "message": f"「{self.busy_ask}」と1回だけ聞いてください。相手が応じたら、いまの質問から続けます。"
+                               "応じなければ、もう一度 request_end を callee_hurry で呼んでください。"}
         if reason in ("callee_hurry", "callee_refused_call"):
             self.hurried = True
             self.current, self.phase = None, "closing"
@@ -195,7 +207,11 @@ class Flow:
         it.set("checking", "言い直して確かめる")
         self.awaiting_confirm = qid
         self.confirm_requested_at = self.callee_turns
-        say = self.confirm(it.value)
+        # 場面：聞き返した・念のための確認・訂正のあとは「聞き取りにくかったあと」、それ以外は「ふつう」（phrases.CONFIRM）
+        situation = "聞き取りにくかったあと" if (it.ask_backs or it.corrections or self.phase == "rechecking") else "ふつう"
+        n = self.confirm_counts.get(situation, 0)
+        self.confirm_counts[situation] = n + 1
+        say = self.awaiting_say = self.confirm(it.value, situation, n)
         return {"result": "confirm_required", "value": it.value, "say": say,
                 "message": f"言い直して確かめます。「{say}」と言って、相手の返事を待ってください。"}
 
@@ -233,7 +249,7 @@ class Flow:
         ⛔ 2026-10-13 G-16 の2回目：Q2 の言い直しの返事を待っている間に Q3 を報告され、「いまの質問は Q2 です」とだけ返したため、
            AIは Q2 を最初から聞き直した（言い直しの返事を待っていることが、伝わっていなかった）。"""
         if self.awaiting_confirm is not None:
-            say = self.confirm(self.items[self.awaiting_confirm].value)
+            say = self.awaiting_say
             return (f"いまは {self.awaiting_confirm} の言い直し「{say}」への、相手の返事を待っています。"
                     "相手が肯定したら confirm_field を affirmed で、違う値を言ったら corrected とその値で報告してください。"
                     f"相手がまだ答えていなければ、「{say}」と、もう一度聞いてください。")
