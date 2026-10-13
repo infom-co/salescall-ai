@@ -12,6 +12,7 @@
   barge_in＝(届いた文, まだの文)：録音の途中で相手が話し始めて止めた形。最初の相手の発話の前に、どこまで届いたかを
   AIへ知らせる（instruction.barge_in_note・live_util.send_note）。
 - 見張り（turn_check）が引っかかったターンは、AIの声を results/convo_audio/ に残す（人が聞いて確かめるため。GitHub には上げない）。
+  save_audio="all" なら、全部のターンを残す（ユーザーが聞いて決める試験。G-22）。
 - stall_at：AIが止まったときの張り替え（DESIGN.md 6-7 の案）を試す。その番号の相手の発話を古いセッションへ送り、
   返事を待たずに閉じ、新しいセッションへ同じ発話を送り直す（相手は1回しか話していないので、相手の発話は1回と数える）。
 """
@@ -33,7 +34,8 @@ AUDIO_DIR = HERE / "results" / "convo_audio"
 async def run_call(client, model: str, business: Business, voice_type: str, callee_lines: list, *,
                    swap_before: int | None = None, stall_at: int | None = None, stall_wait_s: float = 1.0,
                    opening_mode: str = "ai", barge_in: tuple[list[str], list[str]] | None = None,
-                   thinking_budget: int | None = None, use_ear: bool = True) -> dict:
+                   thinking_budget: int | None = None, use_ear: bool = True, save_audio: str = "bad",
+                   audio_label: str = "") -> dict:
     flow = Flow(business.questions)
     turns: list[dict] = []
     sessions = 0
@@ -79,14 +81,16 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                        "audio_seconds": r["audio_seconds"], "timed_out": turn.timed_out,
                        # AI自身の文字が届いた時刻と、その時点で受け取り済みの声の長さ（文字が声より先に届くかを測る）
                        "said_events": [{k: e[k] for k in ("at_s", "audio_s", "text") if k in e} for e in r["events"] if e["kind"] == "ai_said"],
-                       "check": check_ai_turn(audio=audio, rate=rate, voice=voice, timed_out=turn.timed_out,
-                                              intended_text=r["output_transcript"] or None),
                        "phase_after": flow.phase, "current_after": flow.current}
                 if use_ear and audio:
                     row["ear"] = await hear(client, audio, rate, "transcribe35")
-                if audio and row["check"]["kind"] in BAD_KINDS:
+                # 見張りは別の耳の文字のあとで当てる（何語を話したかは、口から出た声で決める。turn_check）
+                row["check"] = check_ai_turn(audio=audio, rate=rate, voice=voice, timed_out=turn.timed_out,
+                                             intended_text=r["output_transcript"] or None, heard_text=row.get("ear"))
+                if audio and (save_audio == "all" or (save_audio == "bad" and row["check"]["kind"] in BAD_KINDS)):
                     AUDIO_DIR.mkdir(parents=True, exist_ok=True)
-                    path = AUDIO_DIR / f"{time.strftime('%Y%m%d_%H%M%S')}_{voice_type}_{i}_{row['check']['kind']}.wav"
+                    label = f"{audio_label}_" if audio_label else ""
+                    path = AUDIO_DIR / f"{time.strftime('%Y%m%d_%H%M%S')}_{label}{voice_type}_{i}_{row['check']['kind']}.wav"
                     write_wav(path, audio, rate)
                     row["audio_file"] = path.name
                 turns.append(row)

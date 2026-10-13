@@ -48,8 +48,10 @@ SCENES = {
                  "need_any": [NAME, ["佐藤"], ["予約"]], "then_q2": True},
     "K4_はい？": {"callee": [W("hai_q"), W("yes_reserved")], "barge": None,
                 "need_any": [["予約"]], "then_q2": True},
-    "K5_忙しい": {"callee": [W("busy")], "barge": None,
-                "need_any": [["申し訳", "失礼", "恐れ入", "すみません"], ["お時間", "手短", "すぐ", "改めて", "かけ直", "少し", "一点", "1点"]]},
+    # 設計（DESIGN.md 6-11・4-2）：相手が急いでいるときは、念のための確認をせずに終える。かけ直すかは next_action が決める
+    # （⛔AIが「改めてお電話します」と約束しない）。⛔ 直す前の合格の条件は「お時間」「改めて」などを求めていた＝設計に無い条件
+    "K5_忙しい": {"callee": [W("busy")], "barge": None, "hurried": True,
+                "need_any": [["申し訳", "失礼", "恐れ入", "すみません", "ありがとう"]]},
     "K6_代わる": {"callee": [W("transfer"), W("taken_over"), W("yes_reserved")], "barge": None,
                 "need_any": [["お願い", "お待ち", "かしこまり", "承知"]], "no_question_first": True,
                 "second_need_any": [NAME, ["佐藤"], ["予約"]], "then_q2_at": 2},
@@ -73,6 +75,8 @@ def judge(scene: dict, call: dict) -> dict:
     c["reintroduced"] = "申します" in first or BUSINESS.caller in first
     if scene.get("no_reintro"):
         c["reintro_ok"] = not c["reintroduced"]
+    if scene.get("hurried"):
+        c["hurried_ok"] = call["hurried"]  # 「急いでいる」として終わりを報告した（request_end の callee_hurry）
     if scene.get("no_question_first"):
         c["no_question_ok"] = not any(w in first for w in ("予約", "日時", "人数"))
     if "second_need_any" in scene and len(turns) > 1:
@@ -91,7 +95,7 @@ def judge(scene: dict, call: dict) -> dict:
     if scene.get("q1_answered_first"):
         c["asked_q2"] = c["need_ok"]
     c["bad_turns"] = bad_kinds(turns)
-    keys = [k for k in ("need_ok", "no_question_ok", "second_ok", "asked_q2") if k in c]
+    keys = [k for k in ("need_ok", "no_question_ok", "second_ok", "asked_q2", "hurried_ok") if k in c]
     if scene.get("then_q2") or "then_q2_at" in scene or scene.get("q1_answered_first"):
         keys.append("q1_yes")
     c["passed"] = all(c[k] for k in keys) and not c.get("head_broken") and not c["bad_turns"]
@@ -113,7 +117,8 @@ async def run(args) -> dict:
             for vt in args.type or VOICE_TYPES:
                 try:
                     call = await run_call(client, args.model, BUSINESS, vt, scene["callee"], opening_mode="recorded",
-                                          barge_in=scene["barge"])
+                                          barge_in=scene["barge"], save_audio="all",
+                                          audio_label=f"G22_{name}_{rep}")  # ユーザーが聞いて決める試験なので、声を全部残す
                     row = {"rep": rep, "scene": name, "type": vt, "checks": judge(scene, call), **call}
                 except Exception as exc:
                     row = {"rep": rep, "scene": name, "type": vt, "error": describe_error(exc)}

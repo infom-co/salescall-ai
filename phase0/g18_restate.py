@@ -48,7 +48,7 @@ async def one(client, args, tid: str, type_id: str, line: str) -> dict:
         r = turn.summary()
         row[name] = {"intended": r["output_transcript"], "first_audio_after_s": r["first_audio_after_s"],
                      "check": check_ai_turn(audio=bytes(turn.audio), rate=turn.audio_rate or 24000, voice=voice,
-                                            timed_out=turn.timed_out, expected_text=exp)}
+                                            timed_out=turn.timed_out, expected_text=exp, intended_text=r["output_transcript"] or None)}
     if again.audio:
         wav = AUDIO_DIR / f"{tid}.wav"
         write_wav(wav, bytes(again.audio), again.audio_rate or 24000)

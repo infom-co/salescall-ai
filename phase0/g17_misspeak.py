@@ -83,7 +83,7 @@ async def speak(client, model: str, voice: str, cond: str, parts: list[str]) -> 
             usage = r["usage"][-1] if r["usage"] else {}
             # AIの1ターンの見分け方は turn_check の1か所だけ（言うべき言葉＝台本の文と比べる）
             check = check_ai_turn(audio=bytes(turn.audio), rate=turn.audio_rate or 24000, voice=voice,
-                                  timed_out=turn.timed_out, expected_text=part)
+                                  timed_out=turn.timed_out, expected_text=part, intended_text=r["output_transcript"] or None)
             turns.append({
                 "script": part, "intended": r["output_transcript"], "audio_s": r["audio_seconds"], "voiced_s": check["voiced_s"],
                 "check": check, "silent": check["kind"] == "silent", "cut_off": check["kind"] == "cut_off",

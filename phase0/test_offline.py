@@ -278,6 +278,26 @@ class TurnCheckTest(unittest.TestCase):
         self.assertEqual(classify(voiced_s=7.8, voice="Sadachbia", expected_text="来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。", intended_text=eng)["kind"], "wrong_language")
         # 社名などの短いローマ字は数えない
         self.assertEqual(classify(voiced_s=1.6, voice="Leda", intended_text="ABC株式会社です。")["kind"], "ok")
+
+    def test_language_is_judged_by_what_was_heard(self):
+        from turn_check import classify, foreign_text
+        en = "念のため確認させてください。15日の午後2時でお間違いございませんか。"
+        # 2026-10-13 G-16 の3回目：英語を声に出した（別の耳にも英語）
+        c = classify(voiced_s=8.7, voice="Leda", intended_text=en + '*Confirming the date and time "15th at 2 PM".*',
+                     heard_text=en + "Confirming the date and time, 15th at 2:00 p.m.")
+        self.assertEqual((c["kind"], c["language_from"]), ("wrong_language", "heard"))
+        # 2026-10-13 G-5：声は日本語なのに、AI自身の文字が韓国語だった ⇒ 誤りではない。長さは別の耳の文字で比べる
+        c = classify(voiced_s=8.48, voice="Sadachbia", intended_text="ご 계약의 확정에 대해서는私からはお答えできかねます。本日はご予約の確認をいただき、誠にありがとうございました。",
+                     heard_text="ご契約の確定については、私からはお答えできません。本日はご予約の確認をいただき、誠にありがとうございました。")
+        self.assertEqual((c["kind"], c["compared_with"]), ("ok", "heard"))
+        # 別の耳が無いとき・何も文字にしなかったときは、AI自身の文字で見る。ハングルなど、日本語の文字・ローマ字以外も見る
+        self.assertEqual(classify(voiced_s=2.0, voice="Leda", intended_text="はい、계약입니다。")["kind"], "wrong_language")
+        self.assertEqual(classify(voiced_s=2.0, voice="Leda", intended_text="はい、계약입니다。", heard_text="")["kind"], "wrong_language")
+        self.assertEqual(classify(voiced_s=2.0, voice="Leda", intended_text="はい。", heard_text="はい、계약입니다。")["kind"], "wrong_language")
+        # 日本語の文の中の名前のローマ字・全角の英字・長音の記号・繰り返しの記号は、日本語として扱う
+        for ok in ("弊社の『スマートリンクPro』です。", "株式会社ＡＢＣホールディングスの佐藤々木です。", "スーパー々", "15日の午後2時、3名様。"):
+            self.assertIsNone(foreign_text(ok), ok)
+        self.assertIsNotNone(foreign_text("To read this script, I'll project a polite tone."))
         # 言うべき言葉が分かっていれば、AI自身の文字起こしより優先する
         self.assertEqual(classify(voiced_s=0.75, voice="Sadachbia", expected_text="失礼いたします。", intended_text="はい")["compared_with"], "expected")
 

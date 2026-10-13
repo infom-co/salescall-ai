@@ -15,6 +15,10 @@ from jtext import reading
 from live_util import silence_while, stream_audio
 
 EARS = ("transcribe35", "live38")
+# 声の前に置く無音（秒）。⛔ 2026-10-13：1ターンの声を、前に無音を置かずに送ると、ターンの頭の音
+#   （「ご来店」の「ご」、「15日」の「じゅう」）を聞き落とし・聞き違えていた疑い（会話の試験の 604ターン中 67ターン）。
+#   ⇒ 効き目は ear_head_check.py で、同じ声を「無音なし」「無音あり」で聞かせ比べて確かめる
+LEAD_S = 1.0
 _MODEL = {"transcribe35": "gemini-3.5-transcribe-live", "live38": "gemini-3.8-live"}
 
 
@@ -28,8 +32,8 @@ def _config(ear: str):
     return build_config(voice=None, system_instruction="相手の話を聞いてください。返事は「はい」だけにしてください。")
 
 
-async def hear(client, pcm16: bytes, rate: int, ear: str, idle_s: float = 3.0) -> str:
-    """声を 16kHz にして 0.1秒ずつ送り、確定した文字起こしをつなげて返す。"""
+async def hear(client, pcm16: bytes, rate: int, ear: str, idle_s: float = 3.0, lead_s: float = LEAD_S) -> str:
+    """声を 16kHz にして、前に lead_s 秒の無音を置いてから 0.1秒ずつ送り、確定した文字起こしをつなげて返す。"""
     pcm = resample(pcm16, rate, 16000)
     finals: list[str] = []
     async with client.aio.live.connect(model=_MODEL[ear], config=_config(ear)) as s:
@@ -41,6 +45,9 @@ async def hear(client, pcm16: bytes, rate: int, ear: str, idle_s: float = 3.0) -
                         finals.append(sc.input_transcription.text)
 
         rx = asyncio.create_task(receiver())
+        if lead_s > 0:
+            async with silence_while(s, 16000):  # 声の前の無音（話し始めの音を聞き落とさないため）
+                await asyncio.sleep(lead_s)
         await stream_audio(s, pcm, 16000)
         async with silence_while(s, 16000):  # 話し終わりに気づかせる無音 1.5秒
             await asyncio.sleep(1.5)

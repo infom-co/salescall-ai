@@ -4,6 +4,9 @@
 - "silent"     … 声が出ていない（声のある長さが MIN_VOICED_S 未満）。または、決めた秒数のうちにターンが終わらなかった
 - "wrong_language" … 業務の言葉（日本語）でない言葉を話した（2026-10-13 G-17：AIが考えていることを英語で口に出した
                    「To read this script, I'll project a polite ...」。長さはたまたま見合っていて、長さの見分けでは拾えなかった）
+                   見分けは foreign_text の1か所：ローマ字の単語が4つ以上続くか、日本語の文字・ローマ字以外の文字（ハングルなど）
+                   ⚠️ 何を話したかは、別の耳の文字（heard_text）があれば、そちらで決める。AI自身の文字は、声と違うことがある
+                   （2026-10-13 G-5：声は日本語なのに、AI自身の文字は「ご 계약의 확정에 대해서는…」と韓国語で書かれていた）
 - "cut_off"    … 言葉の長さに比べて、声が短すぎる（途中で止まった）
 - "too_long"   … 言葉の長さに比べて、声が長すぎる（同じことを2回言った など）
 - "ok"         … 言葉の長さと声の長さが見合っている
@@ -17,12 +20,28 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 
 from audio import voiced_seconds
 from jtext import morae
 
 # ローマ字の単語が続く所（業務の言葉が日本語のとき、これが出たら日本語でない言葉を話したとみなす）
 _LATIN_RUN = re.compile(r"[A-Za-z][A-Za-z'’]*(?:[\s,.]+[A-Za-z][A-Za-z'’]*){3,}")
+
+# 日本語の文の中にあってよい文字の種類（文字の名前の頭）。名前のローマ字（「Pro」「ABC」）は、続く単語の数で見る
+_JA_LETTERS = ("CJK", "HIRAGANA", "KATAKANA", "HALFWIDTH KATAKANA", "IDEOGRAPHIC", "LATIN", "FULLWIDTH LATIN")
+
+
+def foreign_text(text: str) -> str | None:
+    """業務の言葉（日本語）でない部分の、最初の所（無ければ None）。"""
+    m = _LATIN_RUN.search(text)
+    if m:
+        return m.group(0)[:80]
+    for i, ch in enumerate(text):
+        if unicodedata.category(ch).startswith("L") and not unicodedata.name(ch, "").startswith(_JA_LETTERS):
+            return text[i:i + 20]
+    return None
+
 
 MIN_VOICED_S = 0.2
 # 声ごとの、ふつうの話す速さ（1秒あたりの音の数の真ん中の値）。G-17 の1文ずつの形、途中で止まった回を除く
@@ -48,21 +67,27 @@ def bad_kinds(turns: list[dict]) -> list[str]:
 
 
 def check_ai_turn(*, audio: bytes, rate: int, voice: str, timed_out: bool = False,
-                  expected_text: str | None = None, intended_text: str | None = None) -> dict:
+                  expected_text: str | None = None, intended_text: str | None = None, heard_text: str | None = None) -> dict:
     voiced = voiced_seconds(audio, rate) if audio else 0.0
-    return classify(voiced_s=voiced, voice=voice, timed_out=timed_out, expected_text=expected_text, intended_text=intended_text)
+    return classify(voiced_s=voiced, voice=voice, timed_out=timed_out, expected_text=expected_text,
+                    intended_text=intended_text, heard_text=heard_text)
 
 
 def classify(*, voiced_s: float, voice: str, timed_out: bool = False,
-             expected_text: str | None = None, intended_text: str | None = None) -> dict:
-    """声のある長さから分ける（記録の見直しでも、同じこの処理を使う）。"""
+             expected_text: str | None = None, intended_text: str | None = None, heard_text: str | None = None) -> dict:
+    """声のある長さから分ける（記録の見直しでも、同じこの処理を使う）。
+    heard_text：別の耳がAIの声を文字にしたもの（口から出た言葉）。あれば、何語を話したかはこれで決める。"""
     voiced = voiced_s
     text = expected_text or intended_text or ""
-    out = {"voiced_s": round(voiced, 2), "compared_with": "expected" if expected_text else ("intended" if intended_text else None)}
+    if text and heard_text and not expected_text and foreign_text(text) and not foreign_text(heard_text):
+        text = heard_text  # AI自身の文字が日本語の読みにできない（声と違う文字で書かれた）ので、長さは別の耳の文字で比べる
+    out = {"voiced_s": round(voiced, 2), "compared_with": "expected" if expected_text else ("heard" if text and text == heard_text
+                                                                                             else ("intended" if intended_text else None))}
     if timed_out or voiced < MIN_VOICED_S:
         return {**out, "kind": "silent", "timed_out": timed_out}
-    if intended_text and _LATIN_RUN.search(intended_text):
-        return {**out, "kind": "wrong_language", "latin": _LATIN_RUN.search(intended_text).group(0)[:80]}
+    said = heard_text or intended_text  # 別の耳が何も文字にしなかったときは、AI自身の文字で見る
+    if said and foreign_text(said):
+        return {**out, "kind": "wrong_language", "foreign": foreign_text(said), "language_from": "heard" if heard_text else "intended"}
     if not text:
         return {**out, "kind": "unknown"}
     need = morae(text) / NORMAL_MORAE_PER_S[voice]
