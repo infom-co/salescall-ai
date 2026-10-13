@@ -1,0 +1,6373 @@
+{
+  "item": "G-29",
+  "saved_at": "2026-10-13T20:59:54",
+  "model": "gemini-3.8-live",
+  "short_s": 0.6,
+  "morae_per_s": 7.66,
+  "lengths": [
+    [
+      "お忙しいところ恐れ入ります。",
+      2.0887728459530024
+    ],
+    [
+      "株式会社「アオバ物流」の「佐藤」と申します。",
+      3.133159268929504
+    ],
+    [
+      "ご予約の確認でお電話いたしました。",
+      2.6109660574412534
+    ],
+    [
+      "ご予約はされていますでしょうか。",
+      1.95822454308094
+    ]
+  ],
+  "plans": {
+    "C1_名乗りの途中の相づち": {
+      "decision": {
+        "stopped": false,
+        "stop_at_s": null,
+        "done": [
+          "お忙しいところ恐れ入ります。",
+          "株式会社「アオバ物流」の「佐藤」と申します。",
+          "ご予約の確認でお電話いたしました。",
+          "ご予約はされていますでしょうか。"
+        ],
+        "rest": [],
+        "send_from_s": null,
+        "dropped": [
+          [
+            3.675352480417754,
+            3.915352480417754
+          ]
+        ]
+      },
+      "barge": null,
+      "callee": [
+        {
+          "wav": "Puck_yes_reserved.wav"
+        },
+        {
+          "wav": "Puck_datetime_pm.wav"
+        },
+        {
+          "wav": "Puck_affirm.wav"
+        }
+      ]
+    },
+    "C2_社名の途中で話し始めた": {
+      "decision": {
+        "stopped": true,
+        "stop_at_s": 4.275352480417754,
+        "done": [
+          "お忙しいところ恐れ入ります。"
+        ],
+        "rest": [
+          "株式会社「アオバ物流」の「佐藤」と申します。",
+          "ご予約の確認でお電話いたしました。",
+          "ご予約はされていますでしょうか。"
+        ],
+        "send_from_s": 3.675352480417754,
+        "dropped": []
+      },
+      "barge": [
+        [
+          "お忙しいところ恐れ入ります。"
+        ],
+        [
+          "株式会社「アオバ物流」の「佐藤」と申します。",
+          "ご予約の確認でお電話いたしました。",
+          "ご予約はされていますでしょうか。"
+        ]
+      ],
+      "callee": [
+        {
+          "wav": "Puck_barge_who.wav"
+        },
+        {
+          "wav": "Puck_yes_reserved.wav"
+        }
+      ]
+    },
+    "C4_最初の質問の途中で答えた": {
+      "decision": {
+        "stopped": true,
+        "stop_at_s": 9.27289817232376,
+        "done": [
+          "お忙しいところ恐れ入ります。",
+          "株式会社「アオバ物流」の「佐藤」と申します。",
+          "ご予約の確認でお電話いたしました。"
+        ],
+        "rest": [
+          "ご予約はされていますでしょうか。"
+        ],
+        "send_from_s": 8.67289817232376,
+        "dropped": []
+      },
+      "barge": [
+        [
+          "お忙しいところ恐れ入ります。",
+          "株式会社「アオバ物流」の「佐藤」と申します。",
+          "ご予約の確認でお電話いたしました。"
+        ],
+        [
+          "ご予約はされていますでしょうか。"
+        ]
+      ],
+      "callee": [
+        {
+          "wav": "Puck_barge_yes2.wav"
+        },
+        {
+          "wav": "Puck_datetime_pm.wav"
+        },
+        {
+          "wav": "Puck_affirm.wav"
+        }
+      ]
+    },
+    "C5_最初の質問の途中の相づち": {
+      "decision": {
+        "stopped": false,
+        "stop_at_s": null,
+        "done": [
+          "お忙しいところ恐れ入ります。",
+          "株式会社「アオバ物流」の「佐藤」と申します。",
+          "ご予約の確認でお電話いたしました。",
+          "ご予約はされていますでしょうか。"
+        ],
+        "rest": [],
+        "send_from_s": 8.83201044386423,
+        "dropped": []
+      },
+      "barge": null,
+      "callee": [
+        {
+          "wav": "Puck_backchannel.wav"
+        },
+        {
+          "wav": "Puck_datetime_pm.wav"
+        },
+        {
+          "wav": "Puck_affirm.wav"
+        }
+      ]
+    }
+  },
+  "summary": {
+    "runs": 24,
+    "passed": 19,
+    "by_scene": {
+      "C1_名乗りの途中の相づち": [
+        true,
+        false,
+        true,
+        true,
+        true,
+        true
+      ],
+      "C2_社名の途中で話し始めた": [
+        true,
+        true,
+        true,
+        true,
+        false,
+        true
+      ],
+      "C4_最初の質問の途中で答えた": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "C5_最初の質問の途中の相づち": [
+        false,
+        false,
+        false,
+        true,
+        true,
+        true
+      ]
+    }
+  },
+  "rows": [
+    {
+      "rep": 0,
+      "scene": "C1_名乗りの途中の相づち",
+      "type": "S2",
+      "plan": {
+        "stopped": false,
+        "stop_at_s": null,
+        "done": [
+          "お忙しいところ恐れ入ります。",
+          "株式会社「アオバ物流」の「佐藤」と申します。",
+          "ご予約の確認でお電話いたしました。",
+          "ご予約はされていますでしょうか。"
+        ],
+        "rest": [],
+        "send_from_s": null,
+        "dropped": [
+          [
+            3.675352480417754,
+            3.915352480417754
+          ]
+        ]
+      },
+      "checks": {
+        "first_said": "ご希望の虹を教えてください。",
+        "first_heard": {
+          "0.0": "ご希望の虹を教えてください。",
+          "1.0": "ご希望の日時を教えてください。"
+        },
+        "need_ok": true,
+        "reintroduced": false,
+        "reintro_ok": true,
+        "head_broken": false,
+        "q1_yes": true,
+        "asked_q2": true,
+        "bad_turns": [],
+        "passed": true
+      },
+      "voice_type": "S2",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_yes_reserved.wav"
+          },
+          "heard": "はい。予約しています。",
+          "intended": "ご希望の日時をお聞かせください。",
+          "tool_events": [
+            {
+              "at_s": 0.815,
+              "name": "record_answer",
+              "args": {
+                "value": "はい。予約しています。",
+                "condition_id": "はい",
+                "question_id": "Q1"
+              },
+              "reply": "next"
+            }
+          ],
+          "first_audio_after_s": 1.68,
+          "finished_after_s": 3.93,
+          "audio_seconds": 2.23,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.68,
+              "audio_s": 0.0,
+              "text": "ご希望の日時をお聞かせ"
+            },
+            {
+              "at_s": 2.159,
+              "audio_s": 1.95,
+              "text": "ください。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "ear": "ご希望の虹を教えてください。",
+          "check": {
+            "voiced_s": 1.94,
+            "compared_with": "intended",
+            "morae": 17,
+            "expected_s": 1.89,
+            "ratio": 1.03,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_203203_G29_C1_名乗りの途中の相づち_0_S2_0_ok.wav"
+        },
+        {
+          "index": 1,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_datetime_pm.wav"
+          },
+          "heard": "15 日の午後 2 時でお願いします。",
+          "intended": "15日の午後2時で、よろしいでしょうか。",
+          "tool_events": [
+            {
+              "at_s": 0.89,
+              "name": "record_answer",
+              "args": {
+                "question_id": "Q2",
+                "condition_id": "答えた",
+                "value": "15日の午後2時"
+              },
+              "reply": "confirm_required"
+            }
+          ],
+          "first_audio_after_s": 1.518,
+          "finished_after_s": 4.638,
+          "audio_seconds": 3.12,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.518,
+              "audio_s": 0.0,
+              "text": "15日の午後2時で、よろし"
+            },
+            {
+              "at_s": 3.373,
+              "audio_s": 2.0,
+              "text": "いでしょうか。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "ear": "15 日の午後 2 時でよろしいでしょうか。",
+          "check": {
+            "voiced_s": 3.06,
+            "compared_with": "intended",
+            "morae": 22,
+            "expected_s": 2.44,
+            "ratio": 1.25,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_203221_G29_C1_名乗りの途中の相づち_0_S2_1_ok.wav"
+        },
+        {
+          "index": 2,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_affirm.wav"
+          },
+          "heard": "はい。そうです。",
+          "intended": "ご来店の人数をお聞かせください。",
+          "tool_events": [
+            {
+              "at_s": 0.812,
+              "name": "confirm_field",
+              "args": {
+                "correction": "15日の午後2時",
+                "question_id": "Q2",
+                "result": "affirmed"
+              },
+              "reply": "next"
+            }
+          ],
+          "first_audio_after_s": 1.456,
+          "finished_after_s": 3.937,
+          "audio_seconds": 2.48,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.456,
+              "audio_s": 0.0,
+              "text": "ご来店の人数をお聞かせくださ"
+            },
+            {
+              "at_s": 1.929,
+              "audio_s": 2.2,
+              "text": "い。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q3",
+          "ear": "来店の人数をお聞かせください。",
+          "check": {
+            "voiced_s": 2.19,
+            "compared_with": "intended",
+            "morae": 19,
+            "expected_s": 2.11,
+            "ratio": 1.04,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_203234_G29_C1_名乗りの途中の相づち_0_S2_2_ok.wav"
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "value": "はい。予約しています。",
+            "condition_id": "はい",
+            "question_id": "Q1"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q2",
+            "question": "ご希望の日時をお聞かせください。",
+            "message": "受け付けました。次の質問は Q2「ご希望の日時をお聞かせください。」です。"
+          },
+          "callee_turns": 1
+        },
+        {
+          "op": "record_answer",
+          "args": {
+            "question_id": "Q2",
+            "condition_id": "答えた",
+            "value": "15日の午後2時"
+          },
+          "reply": {
+            "result": "confirm_required",
+            "value": "15日の午後2時",
+            "say": "15日の午後2時で、よろしいでしょうか。",
+            "message": "言い直して確かめます。「15日の午後2時で、よろしいでしょうか。」と言って、相手の返事を待ってください。"
+          },
+          "callee_turns": 2
+        },
+        {
+          "op": "confirm_field",
+          "args": {
+            "correction": "15日の午後2時",
+            "question_id": "Q2",
+            "result": "affirmed"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q3",
+            "question": "ご来店の人数をお聞かせください。",
+            "message": "確認できました。次の質問は Q3「ご来店の人数をお聞かせください。」です。"
+          },
+          "callee_turns": 3
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "accepted",
+          "value": "はい。予約しています。",
+          "condition": "はい",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q2": {
+          "state": "confirmed",
+          "value": "15日の午後2時",
+          "condition": "答えた",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q3": {
+          "state": "empty",
+          "value": null,
+          "condition": null,
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        }
+      },
+      "export": {
+        "Q1": "はい",
+        "Q2": "15日の午後2時",
+        "Q3": "-"
+      },
+      "final_phase": "asking",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "first_heard": {
+        "0.0": "ご希望の虹を教えてください。",
+        "1.0": "ご希望の日時を教えてください。"
+      }
+    },
+    {
+      "rep": 0,
+      "scene": "C1_名乗りの途中の相づち",
+      "type": "S4",
+      "plan": {
+        "stopped": false,
+        "stop_at_s": null,
+        "done": [
+          "お忙しいところ恐れ入ります。",
+          "株式会社「アオバ物流」の「佐藤」と申します。",
+          "ご予約の確認でお電話いたしました。",
+          "ご予約はされていますでしょうか。"
+        ],
+        "rest": [],
+        "send_from_s": null,
+        "dropped": [
+          [
+            3.675352480417754,
+            3.915352480417754
+          ]
+        ]
+      },
+      "checks": {
+        "first_said": "ご希望の日時を聞かせてください。",
+        "first_heard": {
+          "0.0": "ご希望の日時を聞かせてください。",
+          "1.0": "ご希望の日時を聞かせてください。"
+        },
+        "need_ok": true,
+        "reintroduced": false,
+        "reintro_ok": true,
+        "head_broken": true,
+        "q1_yes": true,
+        "asked_q2": true,
+        "bad_turns": [],
+        "passed": false
+      },
+      "voice_type": "S4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_yes_reserved.wav"
+          },
+          "heard": "はい。予約しています。",
+          "intended": "ご希望の日時をお聞かせください。",
+          "tool_events": [
+            {
+              "at_s": 0.808,
+              "name": "record_answer",
+              "args": {
+                "question_id": "Q1",
+                "condition_id": "はい",
+                "value": "はい"
+              },
+              "reply": "next"
+            }
+          ],
+          "first_audio_after_s": 1.525,
+          "finished_after_s": 3.999,
+          "audio_seconds": 2.44,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.525,
+              "audio_s": 0.0,
+              "text": "ご希望の日時をお聞かせ"
+            },
+            {
+              "at_s": 2.17,
+              "audio_s": 1.6,
+              "text": "ください。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "ear": "ご希望の日時を聞かせてください。",
+          "check": {
+            "voiced_s": 2.08,
+            "compared_with": "intended",
+            "morae": 17,
+            "expected_s": 1.89,
+            "ratio": 1.1,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_203308_G29_C1_名乗りの途中の相づち_0_S4_0_ok.wav"
+        },
+        {
+          "index": 1,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_datetime_pm.wav"
+          },
+          "heard": "15 日の午後 2 時でお願いします。",
+          "intended": "15日の午後2時で、よろしいでしょうか。",
+          "tool_events": [
+            {
+              "at_s": 0.817,
+              "name": "record_answer",
+              "args": {
+                "value": "15日の午後2時",
+                "condition_id": "答えた",
+                "question_id": "Q2"
+              },
+              "reply": "confirm_required"
+            }
+          ],
+          "first_audio_after_s": 1.554,
+          "finished_after_s": 4.517,
+          "audio_seconds": 2.9,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.554,
+              "audio_s": 0.0,
+              "text": "15日の午後2時で、"
+            },
+            {
+              "at_s": 2.101,
+              "audio_s": 1.58,
+              "text": "よろしいでしょうか。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "ear": "15日の午後2時でよろしいでしょうか？",
+          "check": {
+            "voiced_s": 2.53,
+            "compared_with": "intended",
+            "morae": 22,
+            "expected_s": 2.44,
+            "ratio": 1.03,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_203324_G29_C1_名乗りの途中の相づち_0_S4_1_ok.wav"
+        },
+        {
+          "index": 2,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_affirm.wav"
+          },
+          "heard": "はい、そうです。",
+          "intended": "ご来店の人数をお聞かせください。",
+          "tool_events": [
+            {
+              "at_s": 0.806,
+              "name": "confirm_field",
+              "args": {
+                "question_id": "Q2",
+                "correction": "15日の午後2時",
+                "result": "affirmed"
+              },
+              "reply": "next"
+            }
+          ],
+          "first_audio_after_s": 1.476,
+          "finished_after_s": 3.806,
+          "audio_seconds": 2.31,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.476,
+              "audio_s": 0.0,
+              "text": "ご来店の人数をお聞かせ"
+            },
+            {
+              "at_s": 1.896,
+              "audio_s": 1.67,
+              "text": "ください。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q3",
+          "ear": "来店の人数をお聞かせください。",
+          "check": {
+            "voiced_s": 1.91,
+            "compared_with": "intended",
+            "morae": 19,
+            "expected_s": 2.11,
+            "ratio": 0.91,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_203336_G29_C1_名乗りの途中の相づち_0_S4_2_ok.wav"
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "question_id": "Q1",
+            "condition_id": "はい",
+            "value": "はい"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q2",
+            "question": "ご希望の日時をお聞かせください。",
+            "message": "受け付けました。次の質問は Q2「ご希望の日時をお聞かせください。」です。"
+          },
+          "callee_turns": 1
+        },
+        {
+          "op": "record_answer",
+          "args": {
+            "value": "15日の午後2時",
+            "condition_id": "答えた",
+            "question_id": "Q2"
+          },
+          "reply": {
+            "result": "confirm_required",
+            "value": "15日の午後2時",
+            "say": "15日の午後2時で、よろしいでしょうか。",
+            "message": "言い直して確かめます。「15日の午後2時で、よろしいでしょうか。」と言って、相手の返事を待ってください。"
+          },
+          "callee_turns": 2
+        },
+        {
+          "op": "confirm_field",
+          "args": {
+            "question_id": "Q2",
+            "correction": "15日の午後2時",
+            "result": "affirmed"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q3",
+            "question": "ご来店の人数をお聞かせください。",
+            "message": "確認できました。次の質問は Q3「ご来店の人数をお聞かせください。」です。"
+          },
+          "callee_turns": 3
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "accepted",
+          "value": "はい",
+          "condition": "はい",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q2": {
+          "state": "confirmed",
+          "value": "15日の午後2時",
+          "condition": "答えた",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q3": {
+          "state": "empty",
+          "value": null,
+          "condition": null,
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        }
+      },
+      "export": {
+        "Q1": "はい",
+        "Q2": "15日の午後2時",
+        "Q3": "-"
+      },
+      "final_phase": "asking",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "first_heard": {
+        "0.0": "ご希望の日時を聞かせてください。",
+        "1.0": "ご希望の日時を聞かせてください。"
+      }
+    },
+    {
+      "rep": 0,
+      "scene": "C1_名乗りの途中の相づち",
+      "type": "L4",
+      "plan": {
+        "stopped": false,
+        "stop_at_s": null,
+        "done": [
+          "お忙しいところ恐れ入ります。",
+          "株式会社「アオバ物流」の「佐藤」と申します。",
+          "ご予約の確認でお電話いたしました。",
+          "ご予約はされていますでしょうか。"
+        ],
+        "rest": [],
+        "send_from_s": null,
+        "dropped": [
+          [
+            3.675352480417754,
+            3.915352480417754
+          ]
+        ]
+      },
+      "checks": {
+        "first_said": "ご希望の日時をお聞かせください。",
+        "first_heard": {
+          "0.0": "ご希望の日時をお聞かせください。",
+          "1.0": "ご希望の日時をお聞かせください。"
+        },
+        "need_ok": true,
+        "reintroduced": false,
+        "reintro_ok": true,
+        "head_broken": false,
+        "q1_yes": true,
+        "asked_q2": true,
+        "bad_turns": [],
+        "passed": true
+      },
+      "voice_type": "L4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_yes_reserved.wav"
+          },
+          "heard": "はい。予約しています。",
+          "intended": "ご希望の日時をお聞かせください。",
+          "tool_events": [
+            {
+              "at_s": 0.947,
+              "name": "record_answer",
+              "args": {
+                "value": "はい。予約しています。",
+                "condition_id": "はい",
+                "question_id": "Q1"
+              },
+              "reply": "next"
+            }
+          ],
+          "first_audio_after_s": 1.856,
+          "finished_after_s": 4.09,
+          "audio_seconds": 2.23,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.856,
+              "audio_s": 0.0,
+              "text": "ご希望の日時をお聞かせください。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "ear": "ご希望の日時をお聞かせください。",
+          "check": {
+            "voiced_s": 2.11,
+            "compared_with": "heard",
+            "morae": 17,
+            "expected_s": 2.05,
+            "ratio": 1.03,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_203410_G29_C1_名乗りの途中の相づち_0_L4_0_ok.wav"
+        },
+        {
+          "index": 1,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_datetime_pm.wav"
+          },
+          "heard": "15 日の午後 2 時でお願いします。",
+          "intended": "15日の午後2時で、よろしいでしょうか。",
+          "tool_events": [
+            {
+              "at_s": 0.815,
+              "name": "record_answer",
+              "args": {
+                "question_id": "Q2",
+                "value": "15日の午後2時",
+                "condition_id": "答えた"
+              },
+              "reply": "confirm_required"
+            }
+          ],
+          "first_audio_after_s": 2.327,
+          "finished_after_s": 5.572,
+          "audio_seconds": 3.25,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 2.327,
+              "audio_s": 0.0,
+              "text": "15日の午後2時で、"
+            },
+            {
+              "at_s": 2.376,
+              "audio_s": 1.85,
+              "text": "よろしいでしょうか。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "ear": "7 月の 15 日の午後 2 時でよろしいでしょうか。",
+          "check": {
+            "voiced_s": 3.11,
+            "compared_with": "intended",
+            "morae": 22,
+            "expected_s": 2.65,
+            "ratio": 1.17,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_203430_G29_C1_名乗りの途中の相づち_0_L4_1_ok.wav"
+        },
+        {
+          "index": 2,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_affirm.wav"
+          },
+          "heard": "はい、そうです。",
+          "intended": "ご来店の人数をお聞かせください。",
+          "tool_events": [
+            {
+              "at_s": 0.812,
+              "name": "confirm_field",
+              "args": {
+                "correction": "15日の午後2時",
+                "result": "affirmed",
+                "question_id": "Q2"
+              },
+              "reply": "next"
+            }
+          ],
+          "first_audio_after_s": 1.534,
+          "finished_after_s": 3.983,
+          "audio_seconds": 2.44,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.534,
+              "audio_s": 0.0,
+              "text": "ご来店の人数をお聞かせください。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q3",
+          "ear": "ご来店の人数をお聞かせください。",
+          "check": {
+            "voiced_s": 2.25,
+            "compared_with": "heard",
+            "morae": 19,
+            "expected_s": 2.29,
+            "ratio": 0.98,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_203500_G29_C1_名乗りの途中の相づち_0_L4_2_ok.wav"
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "value": "はい。予約しています。",
+            "condition_id": "はい",
+            "question_id": "Q1"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q2",
+            "question": "ご希望の日時をお聞かせください。",
+            "message": "受け付けました。次の質問は Q2「ご希望の日時をお聞かせください。」です。"
+          },
+          "callee_turns": 1
+        },
+        {
+          "op": "record_answer",
+          "args": {
+            "question_id": "Q2",
+            "value": "15日の午後2時",
+            "condition_id": "答えた"
+          },
+          "reply": {
+            "result": "confirm_required",
+            "value": "15日の午後2時",
+            "say": "15日の午後2時で、よろしいでしょうか。",
+            "message": "言い直して確かめます。「15日の午後2時で、よろしいでしょうか。」と言って、相手の返事を待ってください。"
+          },
+          "callee_turns": 2
+        },
+        {
+          "op": "confirm_field",
+          "args": {
+            "correction": "15日の午後2時",
+            "result": "affirmed",
+            "question_id": "Q2"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q3",
+            "question": "ご来店の人数をお聞かせください。",
+            "message": "確認できました。次の質問は Q3「ご来店の人数をお聞かせください。」です。"
+          },
+          "callee_turns": 3
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "accepted",
+          "value": "はい。予約しています。",
+          "condition": "はい",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q2": {
+          "state": "confirmed",
+          "value": "15日の午後2時",
+          "condition": "答えた",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q3": {
+          "state": "empty",
+          "value": null,
+          "condition": null,
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        }
+      },
+      "export": {
+        "Q1": "はい",
+        "Q2": "15日の午後2時",
+        "Q3": "-"
+      },
+      "final_phase": "asking",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "first_heard": {
+        "0.0": "ご希望の日時をお聞かせください。",
+        "1.0": "ご希望の日時をお聞かせください。"
+      }
+    },
+    {
+      "rep": 0,
+      "scene": "C2_社名の途中で話し始めた",
+      "type": "S2",
+      "plan": {
+        "stopped": true,
+        "stop_at_s": 4.275352480417754,
+        "done": [
+          "お忙しいところ恐れ入ります。"
+        ],
+        "rest": [
+          "株式会社「アオバ物流」の「佐藤」と申します。",
+          "ご予約の確認でお電話いたしました。",
+          "ご予約はされていますでしょうか。"
+        ],
+        "send_from_s": 3.675352480417754,
+        "dropped": []
+      },
+      "checks": {
+        "first_said": "小杉青葉物流の佐藤と申します。ご予約の確認でお電話いたしました。ご予約はされておりますでしょうか？",
+        "first_heard": {
+          "0.0": "小杉青葉物流の佐藤と申します。ご予約の確認でお電話いたしました。ご予約はされておりますでしょうか？",
+          "1.0": "株式会社青葉物流の佐藤と申します。ご予約の確認でお電話いたしました。ご予約はされておりますでしょうか？"
+        },
+        "need_ok": true,
+        "reintroduced": true,
+        "head_broken": false,
+        "q1_yes": true,
+        "asked_q2": true,
+        "bad_turns": [],
+        "passed": true
+      },
+      "voice_type": "S2",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_barge_who.wav"
+          },
+          "heard": "はい、どちら様?",
+          "intended": "株式会社アオバ物流の佐藤と申します。ご予約の確認でお電話いたしました。ご予約はされておりますでしょうか。",
+          "tool_events": [],
+          "first_audio_after_s": 1.573,
+          "finished_after_s": 9.198,
+          "audio_seconds": 7.6,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.573,
+              "audio_s": 0.0,
+              "text": "株式会社アオバ物流の佐藤"
+            },
+            {
+              "at_s": 1.636,
+              "audio_s": 1.88,
+              "text": "と申します。ご"
+            },
+            {
+              "at_s": 1.65,
+              "audio_s": 2.88,
+              "text": "予約の確認でお"
+            },
+            {
+              "at_s": 1.964,
+              "audio_s": 3.88,
+              "text": "電話いたしました。"
+            },
+            {
+              "at_s": 2.087,
+              "audio_s": 4.88,
+              "text": "ご予約はされておりますで"
+            },
+            {
+              "at_s": 2.327,
+              "audio_s": 6.0,
+              "text": "しょうか。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q1",
+          "ear": "小杉青葉物流の佐藤と申します。ご予約の確認でお電話いたしました。ご予約はされておりますでしょうか？",
+          "check": {
+            "voiced_s": 7.09,
+            "compared_with": "intended",
+            "morae": 60,
+            "expected_s": 6.67,
+            "ratio": 1.06,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_203545_G29_C2_社名の途中で話し始めた_0_S2_0_ok.wav"
+        },
+        {
+          "index": 1,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_yes_reserved.wav"
+          },
+          "heard": "はい。予約しています。",
+          "intended": "ご希望の日時をお聞かせください。",
+          "tool_events": [
+            {
+              "at_s": 0.702,
+              "name": "record_answer",
+              "args": {
+                "condition_id": "はい",
+                "question_id": "Q1"
+              },
+              "reply": "next"
+            }
+          ],
+          "first_audio_after_s": 1.679,
+          "finished_after_s": 4.098,
+          "audio_seconds": 2.36,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.679,
+              "audio_s": 0.0,
+              "text": "ご希望の日時をお聞かせくださ"
+            },
+            {
+              "at_s": 2.265,
+              "audio_s": 1.76,
+              "text": "い。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "ear": "ご希望の日時をお聞かせください。",
+          "check": {
+            "voiced_s": 2.12,
+            "compared_with": "heard",
+            "morae": 17,
+            "expected_s": 1.89,
+            "ratio": 1.12,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_203558_G29_C2_社名の途中で話し始めた_0_S2_1_ok.wav"
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "condition_id": "はい",
+            "question_id": "Q1"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q2",
+            "question": "ご希望の日時をお聞かせください。",
+            "message": "受け付けました。次の質問は Q2「ご希望の日時をお聞かせください。」です。"
+          },
+          "callee_turns": 2
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "accepted",
+          "value": null,
+          "condition": "はい",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q2": {
+          "state": "empty",
+          "value": null,
+          "condition": null,
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q3": {
+          "state": "empty",
+          "value": null,
+          "condition": null,
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        }
+      },
+      "export": {
+        "Q1": "はい",
+        "Q2": "-",
+        "Q3": "-"
+      },
+      "final_phase": "asking",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": [
+        [
+          "お忙しいところ恐れ入ります。"
+        ],
+        [
+          "株式会社「アオバ物流」の「佐藤」と申します。",
+          "ご予約の確認でお電話いたしました。",
+          "ご予約はされていますでしょうか。"
+        ]
+      ],
+      "first_heard": {
+        "0.0": "小杉青葉物流の佐藤と申します。ご予約の確認でお電話いたしました。ご予約はされておりますでしょうか？",
+        "1.0": "株式会社青葉物流の佐藤と申します。ご予約の確認でお電話いたしました。ご予約はされておりますでしょうか？"
+      }
+    },
+    {
+      "rep": 0,
+      "scene": "C2_社名の途中で話し始めた",
+      "type": "S4",
+      "plan": {
+        "stopped": true,
+        "stop_at_s": 4.275352480417754,
+        "done": [
+          "お忙しいところ恐れ入ります。"
+        ],
+        "rest": [
+          "株式会社「アオバ物流」の「佐藤」と申します。",
+          "ご予約の確認でお電話いたしました。",
+          "ご予約はされていますでしょうか。"
+        ],
+        "send_from_s": 3.675352480417754,
+        "dropped": []
+      },
+      "checks": {
+        "first_said": "株式会社オーバー物流の佐藤と申します。ご予約の確認でお電話いたしました。ご予約はされていますでしょうか？",
+        "first_heard": {
+          "0.0": "株式会社オーバー物流の佐藤と申します。ご予約の確認でお電話いたしました。ご予約はされていますでしょうか？",
+          "1.0": "株式会社大場物流の佐藤と申します。ご予約の確認でお電話いたしました。ご予約はされていますでしょうか？"
+        },
+        "need_ok": true,
+        "reintroduced": true,
+        "head_broken": false,
+        "q1_yes": true,
+        "asked_q2": true,
+        "bad_turns": [],
+        "passed": true
+      },
+      "voice_type": "S4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_barge_who.wav"
+          },
+          "heard": "はい、どちら様?",
+          "intended": "株式会社「アオバ物流」の佐藤と申します。ご予約の確認でお電話いたしました。ご予約はされていますでしょうか?",
+          "tool_events": [],
+          "first_audio_after_s": 0.989,
+          "finished_after_s": 8.684,
+          "audio_seconds": 7.68,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 0.989,
+              "audio_s": 0.0,
+              "text": "株式会社「アオバ物流」の佐藤"
+            },
+            {
+              "at_s": 1.47,
+              "audio_s": 2.0,
+              "text": "と申します。"
+            },
+            {
+              "at_s": 1.631,
+              "audio_s": 3.0,
+              "text": "ご予約の確認でお"
+            },
+            {
+              "at_s": 3.204,
+              "audio_s": 4.0,
+              "text": "電話いたしました。"
+            },
+            {
+              "at_s": 3.241,
+              "audio_s": 5.0,
+              "text": "ご予約はされて"
+            },
+            {
+              "at_s": 3.35,
+              "audio_s": 5.92,
+              "text": "いますでしょうか?"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q1",
+          "ear": "株式会社オーバー物流の佐藤と申します。ご予約の確認でお電話いたしました。ご予約はされていますでしょうか？",
+          "check": {
+            "voiced_s": 7.44,
+            "compared_with": "intended",
+            "morae": 59,
+            "expected_s": 6.56,
+            "ratio": 1.13,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_203653_G29_C2_社名の途中で話し始めた_0_S4_0_ok.wav"
+        },
+        {
+          "index": 1,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_yes_reserved.wav"
+          },
+          "heard": "はい。予約しています。",
+          "intended": "ご希望の日時をお聞かせください。",
+          "tool_events": [
+            {
+              "at_s": 0.787,
+              "name": "record_answer",
+              "args": {
+                "value": "はい、予約しています。",
+                "question_id": "Q1",
+                "condition_id": "はい"
+              },
+              "reply": "next"
+            }
+          ],
+          "first_audio_after_s": 1.589,
+          "finished_after_s": 3.868,
+          "audio_seconds": 2.28,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.589,
+              "audio_s": 0.0,
+              "text": "ご希望の日時をお聞かせください。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "ear": "ご希望の日時をお聞かせください。",
+          "check": {
+            "voiced_s": 1.95,
+            "compared_with": "heard",
+            "morae": 17,
+            "expected_s": 1.89,
+            "ratio": 1.03,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_203706_G29_C2_社名の途中で話し始めた_0_S4_1_ok.wav"
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "value": "はい、予約しています。",
+            "question_id": "Q1",
+            "condition_id": "はい"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q2",
+            "question": "ご希望の日時をお聞かせください。",
+            "message": "受け付けました。次の質問は Q2「ご希望の日時をお聞かせください。」です。"
+          },
+          "callee_turns": 2
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "accepted",
+          "value": "はい、予約しています。",
+          "condition": "はい",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q2": {
+          "state": "empty",
+          "value": null,
+          "condition": null,
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q3": {
+          "state": "empty",
+          "value": null,
+          "condition": null,
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        }
+      },
+      "export": {
+        "Q1": "はい",
+        "Q2": "-",
+        "Q3": "-"
+      },
+      "final_phase": "asking",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": [
+        [
+          "お忙しいところ恐れ入ります。"
+        ],
+        [
+          "株式会社「アオバ物流」の「佐藤」と申します。",
+          "ご予約の確認でお電話いたしました。",
+          "ご予約はされていますでしょうか。"
+        ]
+      ],
+      "first_heard": {
+        "0.0": "株式会社オーバー物流の佐藤と申します。ご予約の確認でお電話いたしました。ご予約はされていますでしょうか？",
+        "1.0": "株式会社大場物流の佐藤と申します。ご予約の確認でお電話いたしました。ご予約はされていますでしょうか？"
+      }
+    },
+    {
+      "rep": 0,
+      "scene": "C2_社名の途中で話し始めた",
+      "type": "L4",
+      "plan": {
+        "stopped": true,
+        "stop_at_s": 4.275352480417754,
+        "done": [
+          "お忙しいところ恐れ入ります。"
+        ],
+        "rest": [
+          "株式会社「アオバ物流」の「佐藤」と申します。",
+          "ご予約の確認でお電話いたしました。",
+          "ご予約はされていますでしょうか。"
+        ],
+        "send_from_s": 3.675352480417754,
+        "dropped": []
+      },
+      "checks": {
+        "first_said": "株式会社大場物流の佐藤と申します。ご予約の確認でお電話いたしました。ご予約はされていますでしょうか？",
+        "first_heard": {
+          "0.0": "株式会社大場物流の佐藤と申します。ご予約の確認でお電話いたしました。ご予約はされていますでしょうか？",
+          "1.0": "株式会社大場物流の佐藤と申します。ご予約の確認でお電話いたしました。ご予約はされていますでしょうか？"
+        },
+        "need_ok": true,
+        "reintroduced": true,
+        "head_broken": false,
+        "q1_yes": true,
+        "asked_q2": true,
+        "bad_turns": [],
+        "passed": true
+      },
+      "voice_type": "L4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_barge_who.wav"
+          },
+          "heard": "はい、どちら様?",
+          "intended": "株式会社アオバ物流の佐藤と申します。ご予約の確認でお電話いたしました。ご予約はされていますでしょうか。",
+          "tool_events": [],
+          "first_audio_after_s": 0.976,
+          "finished_after_s": 9.06,
+          "audio_seconds": 8.07,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 0.976,
+              "audio_s": 0.0,
+              "text": "株式会社アオバ物流の佐藤"
+            },
+            {
+              "at_s": 1.48,
+              "audio_s": 1.75,
+              "text": "と申します。ご"
+            },
+            {
+              "at_s": 1.718,
+              "audio_s": 2.75,
+              "text": "予約の確認でお"
+            },
+            {
+              "at_s": 2.159,
+              "audio_s": 3.75,
+              "text": "電話いたしました。ご"
+            },
+            {
+              "at_s": 2.208,
+              "audio_s": 4.75,
+              "text": "予約はされています"
+            },
+            {
+              "at_s": 2.582,
+              "audio_s": 5.55,
+              "text": "でしょうか。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q1",
+          "ear": "株式会社大場物流の佐藤と申します。ご予約の確認でお電話いたしました。ご予約はされていますでしょうか？",
+          "check": {
+            "voiced_s": 7.68,
+            "compared_with": "intended",
+            "morae": 59,
+            "expected_s": 7.11,
+            "ratio": 1.08,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_203802_G29_C2_社名の途中で話し始めた_0_L4_0_ok.wav"
+        },
+        {
+          "index": 1,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_yes_reserved.wav"
+          },
+          "heard": "はい。予約しています。",
+          "intended": "ありがとうございます。ご希望の日時をお聞かせください。",
+          "tool_events": [
+            {
+              "at_s": 0.707,
+              "name": "record_answer",
+              "args": {
+                "value": "はい",
+                "question_id": "Q1",
+                "condition_id": "はい"
+              },
+              "reply": "next"
+            }
+          ],
+          "first_audio_after_s": 1.637,
+          "finished_after_s": 5.235,
+          "audio_seconds": 3.6,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.637,
+              "audio_s": 0.0,
+              "text": "ありがとうございます。ご希望"
+            },
+            {
+              "at_s": 1.905,
+              "audio_s": 1.8,
+              "text": "の日時をお聞かせ"
+            },
+            {
+              "at_s": 2.124,
+              "audio_s": 2.8,
+              "text": "ください。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "ear": "ありがとうございます。ご希望の日時をお聞かせください。",
+          "check": {
+            "voiced_s": 3.27,
+            "compared_with": "heard",
+            "morae": 27,
+            "expected_s": 3.25,
+            "ratio": 1.0,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_203818_G29_C2_社名の途中で話し始めた_0_L4_1_ok.wav"
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "value": "はい",
+            "question_id": "Q1",
+            "condition_id": "はい"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q2",
+            "question": "ご希望の日時をお聞かせください。",
+            "message": "受け付けました。次の質問は Q2「ご希望の日時をお聞かせください。」です。"
+          },
+          "callee_turns": 2
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "accepted",
+          "value": "はい",
+          "condition": "はい",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q2": {
+          "state": "empty",
+          "value": null,
+          "condition": null,
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q3": {
+          "state": "empty",
+          "value": null,
+          "condition": null,
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        }
+      },
+      "export": {
+        "Q1": "はい",
+        "Q2": "-",
+        "Q3": "-"
+      },
+      "final_phase": "asking",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": [
+        [
+          "お忙しいところ恐れ入ります。"
+        ],
+        [
+          "株式会社「アオバ物流」の「佐藤」と申します。",
+          "ご予約の確認でお電話いたしました。",
+          "ご予約はされていますでしょうか。"
+        ]
+      ],
+      "first_heard": {
+        "0.0": "株式会社大場物流の佐藤と申します。ご予約の確認でお電話いたしました。ご予約はされていますでしょうか？",
+        "1.0": "株式会社大場物流の佐藤と申します。ご予約の確認でお電話いたしました。ご予約はされていますでしょうか？"
+      }
+    },
+    {
+      "rep": 0,
+      "scene": "C4_最初の質問の途中で答えた",
+      "type": "S2",
+      "plan": {
+        "stopped": true,
+        "stop_at_s": 9.27289817232376,
+        "done": [
+          "お忙しいところ恐れ入ります。",
+          "株式会社「アオバ物流」の「佐藤」と申します。",
+          "ご予約の確認でお電話いたしました。"
+        ],
+        "rest": [
+          "ご予約はされていますでしょうか。"
+        ],
+        "send_from_s": 8.67289817232376,
+        "dropped": []
+      },
+      "checks": {
+        "first_said": "ご希望の日時を聞かせてください。",
+        "first_heard": {
+          "0.0": "ご希望の日時を聞かせてください。",
+          "1.0": "ご希望の日時をお聞かせください。"
+        },
+        "need_ok": true,
+        "reintroduced": false,
+        "reintro_ok": true,
+        "head_broken": false,
+        "q1_yes": true,
+        "asked_q2": true,
+        "bad_turns": [],
+        "passed": true
+      },
+      "voice_type": "S2",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_barge_yes2.wav"
+          },
+          "heard": "予約の件ですね。はい、予約しています。",
+          "intended": "ご希望の日時をお聞かせください。",
+          "tool_events": [
+            {
+              "at_s": 0.825,
+              "name": "record_answer",
+              "args": {
+                "condition_id": "はい",
+                "value": "予約しています",
+                "question_id": "Q1"
+              },
+              "reply": "next"
+            }
+          ],
+          "first_audio_after_s": 2.695,
+          "finished_after_s": 5.211,
+          "audio_seconds": 2.52,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 2.695,
+              "audio_s": 0.0,
+              "text": "ご希望の日時をお聞かせくださ"
+            },
+            {
+              "at_s": 2.76,
+              "audio_s": 1.6,
+              "text": "い。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "ear": "ご希望の日時を聞かせてください。",
+          "check": {
+            "voiced_s": 2.11,
+            "compared_with": "intended",
+            "morae": 17,
+            "expected_s": 1.89,
+            "ratio": 1.12,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_203907_G29_C4_最初の質問の途中で答えた_0_S2_0_ok.wav"
+        },
+        {
+          "index": 1,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_datetime_pm.wav"
+          },
+          "heard": "15 日の午後 2 時でお願いします。",
+          "intended": "15日の午後2時で、よろしいでしょうか。",
+          "tool_events": [
+            {
+              "at_s": 0.788,
+              "name": "record_answer",
+              "args": {
+                "value": "15日の午後2時",
+                "question_id": "Q2",
+                "condition_id": "答えた"
+              },
+              "reply": "confirm_required"
+            }
+          ],
+          "first_audio_after_s": 2.313,
+          "finished_after_s": 5.662,
+          "audio_seconds": 3.32,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 2.313,
+              "audio_s": 0.0,
+              "text": "15日の午後2時で、よろし"
+            },
+            {
+              "at_s": 3.025,
+              "audio_s": 1.68,
+              "text": "いでしょうか。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "ear": "15日の午後2時でよろしいでしょうか？",
+          "check": {
+            "voiced_s": 2.91,
+            "compared_with": "intended",
+            "morae": 22,
+            "expected_s": 2.44,
+            "ratio": 1.19,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_203924_G29_C4_最初の質問の途中で答えた_0_S2_1_ok.wav"
+        },
+        {
+          "index": 2,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_affirm.wav"
+          },
+          "heard": "はい、そうです。",
+          "intended": "ご来店の人数をお聞かせください。",
+          "tool_events": [
+            {
+              "at_s": 2.188,
+              "name": "confirm_field",
+              "args": {
+                "correction": "15日の午後2時",
+                "result": "affirmed",
+                "question_id": "Q2"
+              },
+              "reply": "next"
+            }
+          ],
+          "first_audio_after_s": 2.63,
+          "finished_after_s": 10.376,
+          "audio_seconds": 2.4,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 2.63,
+              "audio_s": 0.0,
+              "text": "ご来店の人数をお聞かせくださ"
+            },
+            {
+              "at_s": 8.937,
+              "audio_s": 1.8,
+              "text": "い。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q3",
+          "ear": "ご来店の人数をお聞かせください。",
+          "check": {
+            "voiced_s": 2.12,
+            "compared_with": "heard",
+            "morae": 19,
+            "expected_s": 2.11,
+            "ratio": 1.0,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_203946_G29_C4_最初の質問の途中で答えた_0_S2_2_ok.wav"
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "condition_id": "はい",
+            "value": "予約しています",
+            "question_id": "Q1"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q2",
+            "question": "ご希望の日時をお聞かせください。",
+            "message": "受け付けました。次の質問は Q2「ご希望の日時をお聞かせください。」です。"
+          },
+          "callee_turns": 1
+        },
+        {
+          "op": "record_answer",
+          "args": {
+            "value": "15日の午後2時",
+            "question_id": "Q2",
+            "condition_id": "答えた"
+          },
+          "reply": {
+            "result": "confirm_required",
+            "value": "15日の午後2時",
+            "say": "15日の午後2時で、よろしいでしょうか。",
+            "message": "言い直して確かめます。「15日の午後2時で、よろしいでしょうか。」と言って、相手の返事を待ってください。"
+          },
+          "callee_turns": 2
+        },
+        {
+          "op": "confirm_field",
+          "args": {
+            "correction": "15日の午後2時",
+            "result": "affirmed",
+            "question_id": "Q2"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q3",
+            "question": "ご来店の人数をお聞かせください。",
+            "message": "確認できました。次の質問は Q3「ご来店の人数をお聞かせください。」です。"
+          },
+          "callee_turns": 3
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "accepted",
+          "value": "予約しています",
+          "condition": "はい",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q2": {
+          "state": "confirmed",
+          "value": "15日の午後2時",
+          "condition": "答えた",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q3": {
+          "state": "empty",
+          "value": null,
+          "condition": null,
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        }
+      },
+      "export": {
+        "Q1": "はい",
+        "Q2": "15日の午後2時",
+        "Q3": "-"
+      },
+      "final_phase": "asking",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": [
+        [
+          "お忙しいところ恐れ入ります。",
+          "株式会社「アオバ物流」の「佐藤」と申します。",
+          "ご予約の確認でお電話いたしました。"
+        ],
+        [
+          "ご予約はされていますでしょうか。"
+        ]
+      ],
+      "first_heard": {
+        "0.0": "ご希望の日時を聞かせてください。",
+        "1.0": "ご希望の日時をお聞かせください。"
+      }
+    },
+    {
+      "rep": 0,
+      "scene": "C4_最初の質問の途中で答えた",
+      "type": "S4",
+      "plan": {
+        "stopped": true,
+        "stop_at_s": 9.27289817232376,
+        "done": [
+          "お忙しいところ恐れ入ります。",
+          "株式会社「アオバ物流」の「佐藤」と申します。",
+          "ご予約の確認でお電話いたしました。"
+        ],
+        "rest": [
+          "ご予約はされていますでしょうか。"
+        ],
+        "send_from_s": 8.67289817232376,
+        "dropped": []
+      },
+      "checks": {
+        "first_said": "ご希望の日時をお聞かせください。",
+        "first_heard": {
+          "0.0": "ご希望の日時をお聞かせください。",
+          "1.0": "ご希望の日時をお聞かせください。"
+        },
+        "need_ok": true,
+        "reintroduced": false,
+        "reintro_ok": true,
+        "head_broken": false,
+        "q1_yes": true,
+        "asked_q2": true,
+        "bad_turns": [],
+        "passed": true
+      },
+      "voice_type": "S4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_barge_yes2.wav"
+          },
+          "heard": "予約の件ですね。はい、予約しています。",
+          "intended": "ご希望の日時をお聞かせください。",
+          "tool_events": [
+            {
+              "at_s": 0.788,
+              "name": "record_answer",
+              "args": {
+                "value": "はい",
+                "question_id": "Q1",
+                "condition_id": "はい"
+              },
+              "reply": "next"
+            }
+          ],
+          "first_audio_after_s": 1.664,
+          "finished_after_s": 4.119,
+          "audio_seconds": 2.42,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.664,
+              "audio_s": 0.0,
+              "text": "ご希望の日時をお聞かせください。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "ear": "ご希望の日時をお聞かせください。",
+          "check": {
+            "voiced_s": 2.12,
+            "compared_with": "heard",
+            "morae": 17,
+            "expected_s": 1.89,
+            "ratio": 1.12,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_204023_G29_C4_最初の質問の途中で答えた_0_S4_0_ok.wav"
+        },
+        {
+          "index": 1,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_datetime_pm.wav"
+          },
+          "heard": "15 日の午後 2 時でお願いします。",
+          "intended": "15日の午後2時で、よろしいでしょうか。",
+          "tool_events": [
+            {
+              "at_s": 0.807,
+              "name": "record_answer",
+              "args": {
+                "condition_id": "答えた",
+                "question_id": "Q2",
+                "value": "15日の午後2時"
+              },
+              "reply": "confirm_required"
+            }
+          ],
+          "first_audio_after_s": 1.27,
+          "finished_after_s": 4.171,
+          "audio_seconds": 2.88,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.27,
+              "audio_s": 0.0,
+              "text": "15日の午後2時で、"
+            },
+            {
+              "at_s": 2.673,
+              "audio_s": 2.0,
+              "text": "よろしいでしょうか。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "ear": "15日の午後2時でよろしいでしょうか？",
+          "check": {
+            "voiced_s": 2.65,
+            "compared_with": "intended",
+            "morae": 22,
+            "expected_s": 2.44,
+            "ratio": 1.09,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_204038_G29_C4_最初の質問の途中で答えた_0_S4_1_ok.wav"
+        },
+        {
+          "index": 2,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_affirm.wav"
+          },
+          "heard": "はい、そうです。",
+          "intended": "ご来店の人数をお聞かせください。",
+          "tool_events": [
+            {
+              "at_s": 1.408,
+              "name": "confirm_field",
+              "args": {
+                "correction": "15日の午後2時",
+                "question_id": "Q2",
+                "result": "affirmed"
+              },
+              "reply": "next"
+            }
+          ],
+          "first_audio_after_s": 2.76,
+          "finished_after_s": 5.341,
+          "audio_seconds": 2.55,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 2.76,
+              "audio_s": 0.0,
+              "text": "ご来店の人数をお聞かせください。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q3",
+          "ear": "来店の人数をお聞かせください。",
+          "check": {
+            "voiced_s": 2.21,
+            "compared_with": "intended",
+            "morae": 19,
+            "expected_s": 2.11,
+            "ratio": 1.05,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_204052_G29_C4_最初の質問の途中で答えた_0_S4_2_ok.wav"
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "value": "はい",
+            "question_id": "Q1",
+            "condition_id": "はい"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q2",
+            "question": "ご希望の日時をお聞かせください。",
+            "message": "受け付けました。次の質問は Q2「ご希望の日時をお聞かせください。」です。"
+          },
+          "callee_turns": 1
+        },
+        {
+          "op": "record_answer",
+          "args": {
+            "condition_id": "答えた",
+            "question_id": "Q2",
+            "value": "15日の午後2時"
+          },
+          "reply": {
+            "result": "confirm_required",
+            "value": "15日の午後2時",
+            "say": "15日の午後2時で、よろしいでしょうか。",
+            "message": "言い直して確かめます。「15日の午後2時で、よろしいでしょうか。」と言って、相手の返事を待ってください。"
+          },
+          "callee_turns": 2
+        },
+        {
+          "op": "confirm_field",
+          "args": {
+            "correction": "15日の午後2時",
+            "question_id": "Q2",
+            "result": "affirmed"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q3",
+            "question": "ご来店の人数をお聞かせください。",
+            "message": "確認できました。次の質問は Q3「ご来店の人数をお聞かせください。」です。"
+          },
+          "callee_turns": 3
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "accepted",
+          "value": "はい",
+          "condition": "はい",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q2": {
+          "state": "confirmed",
+          "value": "15日の午後2時",
+          "condition": "答えた",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q3": {
+          "state": "empty",
+          "value": null,
+          "condition": null,
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        }
+      },
+      "export": {
+        "Q1": "はい",
+        "Q2": "15日の午後2時",
+        "Q3": "-"
+      },
+      "final_phase": "asking",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": [
+        [
+          "お忙しいところ恐れ入ります。",
+          "株式会社「アオバ物流」の「佐藤」と申します。",
+          "ご予約の確認でお電話いたしました。"
+        ],
+        [
+          "ご予約はされていますでしょうか。"
+        ]
+      ],
+      "first_heard": {
+        "0.0": "ご希望の日時をお聞かせください。",
+        "1.0": "ご希望の日時をお聞かせください。"
+      }
+    },
+    {
+      "rep": 0,
+      "scene": "C4_最初の質問の途中で答えた",
+      "type": "L4",
+      "plan": {
+        "stopped": true,
+        "stop_at_s": 9.27289817232376,
+        "done": [
+          "お忙しいところ恐れ入ります。",
+          "株式会社「アオバ物流」の「佐藤」と申します。",
+          "ご予約の確認でお電話いたしました。"
+        ],
+        "rest": [
+          "ご予約はされていますでしょうか。"
+        ],
+        "send_from_s": 8.67289817232376,
+        "dropped": []
+      },
+      "checks": {
+        "first_said": "ありがとうございます。ご希望の日時をお聞かせください。",
+        "first_heard": {
+          "0.0": "ありがとうございます。ご希望の日時をお聞かせください。",
+          "1.0": "ありがとうございます。ご希望の日時をお聞かせください。"
+        },
+        "need_ok": true,
+        "reintroduced": false,
+        "reintro_ok": true,
+        "head_broken": false,
+        "q1_yes": true,
+        "asked_q2": true,
+        "bad_turns": [],
+        "passed": true
+      },
+      "voice_type": "L4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_barge_yes2.wav"
+          },
+          "heard": "予約の件ですね。はい、予約しています。",
+          "intended": "ありがとうございます。ご希望の日時をお聞かせください。",
+          "tool_events": [
+            {
+              "at_s": 0.789,
+              "name": "record_answer",
+              "args": {
+                "value": "はい、予約しています",
+                "condition_id": "はい",
+                "question_id": "Q1"
+              },
+              "reply": "next"
+            }
+          ],
+          "first_audio_after_s": 1.455,
+          "finished_after_s": 5.33,
+          "audio_seconds": 3.85,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.455,
+              "audio_s": 0.0,
+              "text": "ありがとうございます。ご希望の日時"
+            },
+            {
+              "at_s": 2.539,
+              "audio_s": 1.77,
+              "text": "をお聞かせください。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "ear": "ありがとうございます。ご希望の日時をお聞かせください。",
+          "check": {
+            "voiced_s": 3.48,
+            "compared_with": "heard",
+            "morae": 27,
+            "expected_s": 3.25,
+            "ratio": 1.07,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_204132_G29_C4_最初の質問の途中で答えた_0_L4_0_ok.wav"
+        },
+        {
+          "index": 1,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_datetime_pm.wav"
+          },
+          "heard": "15 日の午後 2 時でお願いします。",
+          "intended": "念のため確認させてください。15日の午後2時でよろしいでしょうか。",
+          "tool_events": [
+            {
+              "at_s": 0.788,
+              "name": "record_answer",
+              "args": {
+                "value": "15日の午後2時",
+                "question_id": "Q2",
+                "condition_id": "答えた"
+              },
+              "reply": "confirm_required"
+            }
+          ],
+          "first_audio_after_s": 1.266,
+          "finished_after_s": 6.698,
+          "audio_seconds": 5.4,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.266,
+              "audio_s": 0.0,
+              "text": "念のため確認させてください。"
+            },
+            {
+              "at_s": 1.807,
+              "audio_s": 1.56,
+              "text": "15"
+            },
+            {
+              "at_s": 1.99,
+              "audio_s": 2.56,
+              "text": "日の午後2時でよろしい"
+            },
+            {
+              "at_s": 2.301,
+              "audio_s": 3.4,
+              "text": "でしょうか。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "ear": "念のため確認させてください。15日の午後2時でよろしいでしょうか？",
+          "check": {
+            "voiced_s": 5.08,
+            "compared_with": "intended",
+            "morae": 38,
+            "expected_s": 4.58,
+            "ratio": 1.11,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_204152_G29_C4_最初の質問の途中で答えた_0_L4_1_ok.wav"
+        },
+        {
+          "index": 2,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_affirm.wav"
+          },
+          "heard": "はい、そうです。",
+          "intended": "ありがとうございます。ご来店の人数をお聞かせください。",
+          "tool_events": [
+            {
+              "at_s": 0.793,
+              "name": "confirm_field",
+              "args": {
+                "correction": "15日の午後2時",
+                "question_id": "Q2",
+                "result": "affirmed"
+              },
+              "reply": "next"
+            }
+          ],
+          "first_audio_after_s": 1.347,
+          "finished_after_s": 5.308,
+          "audio_seconds": 3.96,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.347,
+              "audio_s": 0.0,
+              "text": "ありがとうございます。ご来店"
+            },
+            {
+              "at_s": 1.731,
+              "audio_s": 2.0,
+              "text": "の人数"
+            },
+            {
+              "at_s": 2.278,
+              "audio_s": 3.12,
+              "text": "をお聞かせください。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q3",
+          "ear": "ありがとうございます。ご来店の人数をお聞かせください。",
+          "check": {
+            "voiced_s": 3.63,
+            "compared_with": "heard",
+            "morae": 29,
+            "expected_s": 3.49,
+            "ratio": 1.04,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_204207_G29_C4_最初の質問の途中で答えた_0_L4_2_ok.wav"
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "value": "はい、予約しています",
+            "condition_id": "はい",
+            "question_id": "Q1"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q2",
+            "question": "ご希望の日時をお聞かせください。",
+            "message": "受け付けました。次の質問は Q2「ご希望の日時をお聞かせください。」です。"
+          },
+          "callee_turns": 1
+        },
+        {
+          "op": "record_answer",
+          "args": {
+            "value": "15日の午後2時",
+            "question_id": "Q2",
+            "condition_id": "答えた"
+          },
+          "reply": {
+            "result": "confirm_required",
+            "value": "15日の午後2時",
+            "say": "15日の午後2時で、よろしいでしょうか。",
+            "message": "言い直して確かめます。「15日の午後2時で、よろしいでしょうか。」と言って、相手の返事を待ってください。"
+          },
+          "callee_turns": 2
+        },
+        {
+          "op": "confirm_field",
+          "args": {
+            "correction": "15日の午後2時",
+            "question_id": "Q2",
+            "result": "affirmed"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q3",
+            "question": "ご来店の人数をお聞かせください。",
+            "message": "確認できました。次の質問は Q3「ご来店の人数をお聞かせください。」です。"
+          },
+          "callee_turns": 3
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "accepted",
+          "value": "はい、予約しています",
+          "condition": "はい",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q2": {
+          "state": "confirmed",
+          "value": "15日の午後2時",
+          "condition": "答えた",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q3": {
+          "state": "empty",
+          "value": null,
+          "condition": null,
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        }
+      },
+      "export": {
+        "Q1": "はい",
+        "Q2": "15日の午後2時",
+        "Q3": "-"
+      },
+      "final_phase": "asking",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": [
+        [
+          "お忙しいところ恐れ入ります。",
+          "株式会社「アオバ物流」の「佐藤」と申します。",
+          "ご予約の確認でお電話いたしました。"
+        ],
+        [
+          "ご予約はされていますでしょうか。"
+        ]
+      ],
+      "first_heard": {
+        "0.0": "ありがとうございます。ご希望の日時をお聞かせください。",
+        "1.0": "ありがとうございます。ご希望の日時をお聞かせください。"
+      }
+    },
+    {
+      "rep": 0,
+      "scene": "C5_最初の質問の途中の相づち",
+      "type": "S2",
+      "plan": {
+        "stopped": false,
+        "stop_at_s": null,
+        "done": [
+          "お忙しいところ恐れ入ります。",
+          "株式会社「アオバ物流」の「佐藤」と申します。",
+          "ご予約の確認でお電話いたしました。",
+          "ご予約はされていますでしょうか。"
+        ],
+        "rest": [],
+        "send_from_s": 8.83201044386423,
+        "dropped": []
+      },
+      "checks": {
+        "first_said": "ご希望の二次字をお聞かせください。",
+        "first_heard": {
+          "0.0": "ご希望の二次字をお聞かせください。",
+          "1.0": "ご希望の二次字をお聞かせください。"
+        },
+        "need_ok": false,
+        "reintroduced": false,
+        "reintro_ok": true,
+        "head_broken": true,
+        "q1_yes": true,
+        "asked_q2": false,
+        "bad_turns": [],
+        "passed": false
+      },
+      "voice_type": "S2",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_backchannel.wav"
+          },
+          "heard": "はい。",
+          "intended": "ご希望の日時をお聞かせください。",
+          "tool_events": [
+            {
+              "at_s": 0.784,
+              "name": "record_answer",
+              "args": {
+                "condition_id": "はい",
+                "question_id": "Q1",
+                "value": "はい"
+              },
+              "reply": "next"
+            }
+          ],
+          "first_audio_after_s": 1.364,
+          "finished_after_s": 3.559,
+          "audio_seconds": 2.19,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.364,
+              "audio_s": 0.0,
+              "text": "ご希望の日時をお聞かせくださ"
+            },
+            {
+              "at_s": 1.858,
+              "audio_s": 1.87,
+              "text": "い。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "ear": "ご希望の二次字をお聞かせください。",
+          "check": {
+            "voiced_s": 1.87,
+            "compared_with": "intended",
+            "morae": 17,
+            "expected_s": 1.89,
+            "ratio": 0.99,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_204242_G29_C5_最初の質問の途中の相づち_0_S2_0_ok.wav"
+        },
+        {
+          "index": 1,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_datetime_pm.wav"
+          },
+          "heard": "15 日の午後 2 時でお願いします。",
+          "intended": "15日の午後2時で、よろしいでしょうか。",
+          "tool_events": [
+            {
+              "at_s": 0.794,
+              "name": "record_answer",
+              "args": {
+                "value": "15日の午後2時",
+                "condition_id": "答えた",
+                "question_id": "Q2"
+              },
+              "reply": "confirm_required"
+            }
+          ],
+          "first_audio_after_s": 1.245,
+          "finished_after_s": 3.975,
+          "audio_seconds": 2.73,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.245,
+              "audio_s": 0.0,
+              "text": "15日の午後2時で、よろし"
+            },
+            {
+              "at_s": 2.355,
+              "audio_s": 1.93,
+              "text": "いでしょうか。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "ear": "15 日の午後 2 時でよろしいでしょうか。",
+          "check": {
+            "voiced_s": 2.35,
+            "compared_with": "intended",
+            "morae": 22,
+            "expected_s": 2.44,
+            "ratio": 0.96,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_204257_G29_C5_最初の質問の途中の相づち_0_S2_1_ok.wav"
+        },
+        {
+          "index": 2,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_affirm.wav"
+          },
+          "heard": "はい、そうです。",
+          "intended": "ご来店の人数をお聞かせください。",
+          "tool_events": [
+            {
+              "at_s": 0.829,
+              "name": "confirm_field",
+              "args": {
+                "correction": "15日の午後2時",
+                "question_id": "Q2",
+                "result": "affirmed"
+              },
+              "reply": "next"
+            }
+          ],
+          "first_audio_after_s": 1.246,
+          "finished_after_s": 3.345,
+          "audio_seconds": 2.08,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.246,
+              "audio_s": 0.0,
+              "text": "ご来店の人数をお聞かせください。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q3",
+          "ear": "来店の人数をお聞かせください。",
+          "check": {
+            "voiced_s": 1.9,
+            "compared_with": "intended",
+            "morae": 19,
+            "expected_s": 2.11,
+            "ratio": 0.9,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_204308_G29_C5_最初の質問の途中の相づち_0_S2_2_ok.wav"
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "condition_id": "はい",
+            "question_id": "Q1",
+            "value": "はい"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q2",
+            "question": "ご希望の日時をお聞かせください。",
+            "message": "受け付けました。次の質問は Q2「ご希望の日時をお聞かせください。」です。"
+          },
+          "callee_turns": 1
+        },
+        {
+          "op": "record_answer",
+          "args": {
+            "value": "15日の午後2時",
+            "condition_id": "答えた",
+            "question_id": "Q2"
+          },
+          "reply": {
+            "result": "confirm_required",
+            "value": "15日の午後2時",
+            "say": "15日の午後2時で、よろしいでしょうか。",
+            "message": "言い直して確かめます。「15日の午後2時で、よろしいでしょうか。」と言って、相手の返事を待ってください。"
+          },
+          "callee_turns": 2
+        },
+        {
+          "op": "confirm_field",
+          "args": {
+            "correction": "15日の午後2時",
+            "question_id": "Q2",
+            "result": "affirmed"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q3",
+            "question": "ご来店の人数をお聞かせください。",
+            "message": "確認できました。次の質問は Q3「ご来店の人数をお聞かせください。」です。"
+          },
+          "callee_turns": 3
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "accepted",
+          "value": "はい",
+          "condition": "はい",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q2": {
+          "state": "confirmed",
+          "value": "15日の午後2時",
+          "condition": "答えた",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q3": {
+          "state": "empty",
+          "value": null,
+          "condition": null,
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        }
+      },
+      "export": {
+        "Q1": "はい",
+        "Q2": "15日の午後2時",
+        "Q3": "-"
+      },
+      "final_phase": "asking",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "first_heard": {
+        "0.0": "ご希望の二次字をお聞かせください。",
+        "1.0": "ご希望の二次字をお聞かせください。"
+      }
+    },
+    {
+      "rep": 0,
+      "scene": "C5_最初の質問の途中の相づち",
+      "type": "S4",
+      "plan": {
+        "stopped": false,
+        "stop_at_s": null,
+        "done": [
+          "お忙しいところ恐れ入ります。",
+          "株式会社「アオバ物流」の「佐藤」と申します。",
+          "ご予約の確認でお電話いたしました。",
+          "ご予約はされていますでしょうか。"
+        ],
+        "rest": [],
+        "send_from_s": 8.83201044386423,
+        "dropped": []
+      },
+      "checks": {
+        "first_said": "ご希望の二字熟語を教えてください。",
+        "first_heard": {
+          "0.0": "ご希望の二字熟語を教えてください。",
+          "1.0": "ご希望の二字熟語を教えてください。"
+        },
+        "need_ok": false,
+        "reintroduced": false,
+        "reintro_ok": true,
+        "head_broken": true,
+        "q1_yes": true,
+        "asked_q2": false,
+        "bad_turns": [],
+        "passed": false
+      },
+      "voice_type": "S4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_backchannel.wav"
+          },
+          "heard": "はい。",
+          "intended": "ご希望の日時をお聞かせください。",
+          "tool_events": [
+            {
+              "at_s": 2.402,
+              "name": "record_answer",
+              "args": {
+                "value": "はい",
+                "question_id": "Q1",
+                "condition_id": "はい"
+              },
+              "reply": "next"
+            }
+          ],
+          "first_audio_after_s": 3.124,
+          "finished_after_s": 5.207,
+          "audio_seconds": 2.08,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 3.124,
+              "audio_s": 0.0,
+              "text": "ご希望の日時をお聞かせくださ"
+            },
+            {
+              "at_s": 3.411,
+              "audio_s": 2.08,
+              "text": "い。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "ear": "ご希望の二字熟語を教えてください。",
+          "check": {
+            "voiced_s": 2.0,
+            "compared_with": "intended",
+            "morae": 17,
+            "expected_s": 1.89,
+            "ratio": 1.06,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_204341_G29_C5_最初の質問の途中の相づち_0_S4_0_ok.wav"
+        },
+        {
+          "index": 1,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_datetime_pm.wav"
+          },
+          "heard": "15 日の午後 2 時でお願いします。",
+          "intended": "15日の午後2時で、よろしいでしょうか。",
+          "tool_events": [
+            {
+              "at_s": 0.789,
+              "name": "record_answer",
+              "args": {
+                "value": "15日の午後2時",
+                "question_id": "Q2",
+                "condition_id": "答えた"
+              },
+              "reply": "confirm_required"
+            }
+          ],
+          "first_audio_after_s": 1.374,
+          "finished_after_s": 4.278,
+          "audio_seconds": 2.9,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.374,
+              "audio_s": 0.0,
+              "text": "15日の午後2時で、よろし"
+            },
+            {
+              "at_s": 2.095,
+              "audio_s": 1.98,
+              "text": "いでしょうか。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "ear": "15 日の午後 2 時でよろしいでしょうか？",
+          "check": {
+            "voiced_s": 2.6,
+            "compared_with": "intended",
+            "morae": 22,
+            "expected_s": 2.44,
+            "ratio": 1.06,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_204356_G29_C5_最初の質問の途中の相づち_0_S4_1_ok.wav"
+        },
+        {
+          "index": 2,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_affirm.wav"
+          },
+          "heard": "はい、そうです。",
+          "intended": "ご来店の人数をお聞かせください。",
+          "tool_events": [
+            {
+              "at_s": 0.713,
+              "name": "confirm_field",
+              "args": {
+                "question_id": "Q2",
+                "correction": "15日の午後2時",
+                "result": "affirmed"
+              },
+              "reply": "next"
+            }
+          ],
+          "first_audio_after_s": 1.739,
+          "finished_after_s": 3.861,
+          "audio_seconds": 2.12,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.739,
+              "audio_s": 0.0,
+              "text": "ご来店の人数をお聞かせくださ"
+            },
+            {
+              "at_s": 2.372,
+              "audio_s": 2.12,
+              "text": "い。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q3",
+          "ear": "来店の人数を教えてください。",
+          "check": {
+            "voiced_s": 2.04,
+            "compared_with": "intended",
+            "morae": 19,
+            "expected_s": 2.11,
+            "ratio": 0.97,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_204409_G29_C5_最初の質問の途中の相づち_0_S4_2_ok.wav"
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "value": "はい",
+            "question_id": "Q1",
+            "condition_id": "はい"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q2",
+            "question": "ご希望の日時をお聞かせください。",
+            "message": "受け付けました。次の質問は Q2「ご希望の日時をお聞かせください。」です。"
+          },
+          "callee_turns": 1
+        },
+        {
+          "op": "record_answer",
+          "args": {
+            "value": "15日の午後2時",
+            "question_id": "Q2",
+            "condition_id": "答えた"
+          },
+          "reply": {
+            "result": "confirm_required",
+            "value": "15日の午後2時",
+            "say": "15日の午後2時で、よろしいでしょうか。",
+            "message": "言い直して確かめます。「15日の午後2時で、よろしいでしょうか。」と言って、相手の返事を待ってください。"
+          },
+          "callee_turns": 2
+        },
+        {
+          "op": "confirm_field",
+          "args": {
+            "question_id": "Q2",
+            "correction": "15日の午後2時",
+            "result": "affirmed"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q3",
+            "question": "ご来店の人数をお聞かせください。",
+            "message": "確認できました。次の質問は Q3「ご来店の人数をお聞かせください。」です。"
+          },
+          "callee_turns": 3
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "accepted",
+          "value": "はい",
+          "condition": "はい",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q2": {
+          "state": "confirmed",
+          "value": "15日の午後2時",
+          "condition": "答えた",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q3": {
+          "state": "empty",
+          "value": null,
+          "condition": null,
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        }
+      },
+      "export": {
+        "Q1": "はい",
+        "Q2": "15日の午後2時",
+        "Q3": "-"
+      },
+      "final_phase": "asking",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "first_heard": {
+        "0.0": "ご希望の二字熟語を教えてください。",
+        "1.0": "ご希望の二字熟語を教えてください。"
+      }
+    },
+    {
+      "rep": 0,
+      "scene": "C5_最初の質問の途中の相づち",
+      "type": "L4",
+      "plan": {
+        "stopped": false,
+        "stop_at_s": null,
+        "done": [
+          "お忙しいところ恐れ入ります。",
+          "株式会社「アオバ物流」の「佐藤」と申します。",
+          "ご予約の確認でお電話いたしました。",
+          "ご予約はされていますでしょうか。"
+        ],
+        "rest": [],
+        "send_from_s": 8.83201044386423,
+        "dropped": []
+      },
+      "checks": {
+        "first_said": "お忙しいところ恐れ入ります。株式会社青葉物流の佐藤と申します。ご予約の確認でお電話いたしました。ご予約はされていますでしょうか？",
+        "first_heard": {
+          "0.0": "お忙しいところ恐れ入ります。株式会社青葉物流の佐藤と申します。ご予約の確認でお電話いたしました。ご予約はされていますでしょうか？",
+          "1.0": "お忙しいところ恐れ入ります。株式会社アオバ物流の佐藤と申します。ご予約の確認でお電話いたしました。ご予約はされていますでしょうか？"
+        },
+        "need_ok": false,
+        "reintroduced": true,
+        "reintro_ok": false,
+        "q1_yes": true,
+        "asked_q2": false,
+        "bad_turns": [
+          "unknown"
+        ],
+        "passed": false
+      },
+      "voice_type": "L4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_backchannel.wav"
+          },
+          "heard": "はい。",
+          "intended": "",
+          "tool_events": [],
+          "first_audio_after_s": 0.791,
+          "finished_after_s": 11.411,
+          "audio_seconds": 10.6,
+          "timed_out": false,
+          "said_events": [],
+          "phase_after": "asking",
+          "current_after": "Q1",
+          "ear": "お忙しいところ恐れ入ります。株式会社青葉物流の佐藤と申します。ご予約の確認でお電話いたしました。ご予約はされていますでしょうか？",
+          "check": {
+            "voiced_s": 10.38,
+            "compared_with": null,
+            "kind": "unknown"
+          },
+          "audio_file": "20261013_204456_G29_C5_最初の質問の途中の相づち_0_L4_0_unknown.wav"
+        },
+        {
+          "index": 1,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_datetime_pm.wav"
+          },
+          "heard": "15 日の午後 2 時でお願いします。",
+          "intended": "はい、承知いたしました。ご予約されているということでございますね。",
+          "tool_events": [
+            {
+              "at_s": 1.207,
+              "name": "record_answer",
+              "args": {
+                "value": "15日の午後2時",
+                "question_id": "Q1",
+                "condition_id": "答えた"
+              },
+              "reply": "rejected"
+            }
+          ],
+          "first_audio_after_s": 2.349,
+          "finished_after_s": 6.592,
+          "audio_seconds": 4.24,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 2.349,
+              "audio_s": 0.0,
+              "text": "はい、承知いたしました。ご予約されて"
+            },
+            {
+              "at_s": 2.808,
+              "audio_s": 2.0,
+              "text": "いるということでございます"
+            },
+            {
+              "at_s": 3.195,
+              "audio_s": 3.0,
+              "text": "ね。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q1",
+          "ear": "はい、承知いたしました。ご予約されているということでございますね。",
+          "check": {
+            "voiced_s": 3.98,
+            "compared_with": "heard",
+            "morae": 32,
+            "expected_s": 3.86,
+            "ratio": 1.03,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_204515_G29_C5_最初の質問の途中の相づち_0_L4_1_ok.wav"
+        },
+        {
+          "index": 2,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_affirm.wav"
+          },
+          "heard": "はい、そうです。",
+          "intended": "ご希望の日時をお聞かせください。",
+          "tool_events": [
+            {
+              "at_s": 0.708,
+              "name": "record_answer",
+              "args": {
+                "value": "はい",
+                "question_id": "Q1",
+                "condition_id": "はい"
+              },
+              "reply": "next"
+            }
+          ],
+          "first_audio_after_s": 1.485,
+          "finished_after_s": 4.013,
+          "audio_seconds": 2.48,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.485,
+              "audio_s": 0.0,
+              "text": "ご希望の日時をお聞かせください。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "ear": "ご希望の日時をお聞かせください。",
+          "check": {
+            "voiced_s": 2.09,
+            "compared_with": "heard",
+            "morae": 17,
+            "expected_s": 2.05,
+            "ratio": 1.02,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_204528_G29_C5_最初の質問の途中の相づち_0_L4_2_ok.wav"
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "value": "15日の午後2時",
+            "question_id": "Q1",
+            "condition_id": "答えた"
+          },
+          "reply": {
+            "result": "rejected",
+            "message": "答えの種類「答えた」は、この質問の選択肢にありません（選べるのは はい、いいえ、わからない、答えたくない）。いまの質問は Q1「ご予約はされていますでしょうか。」です。相手が答えたら record_answer で報告してください（聞き取れなかったら report_unclear）。"
+          },
+          "callee_turns": 2
+        },
+        {
+          "op": "record_answer",
+          "args": {
+            "value": "はい",
+            "question_id": "Q1",
+            "condition_id": "はい"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q2",
+            "question": "ご希望の日時をお聞かせください。",
+            "message": "受け付けました。次の質問は Q2「ご希望の日時をお聞かせください。」です。"
+          },
+          "callee_turns": 3
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "accepted",
+          "value": "はい",
+          "condition": "はい",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q2": {
+          "state": "empty",
+          "value": null,
+          "condition": null,
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q3": {
+          "state": "empty",
+          "value": null,
+          "condition": null,
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        }
+      },
+      "export": {
+        "Q1": "はい",
+        "Q2": "-",
+        "Q3": "-"
+      },
+      "final_phase": "asking",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "first_heard": {
+        "0.0": "お忙しいところ恐れ入ります。株式会社青葉物流の佐藤と申します。ご予約の確認でお電話いたしました。ご予約はされていますでしょうか？",
+        "1.0": "お忙しいところ恐れ入ります。株式会社アオバ物流の佐藤と申します。ご予約の確認でお電話いたしました。ご予約はされていますでしょうか？"
+      }
+    },
+    {
+      "rep": 1,
+      "scene": "C1_名乗りの途中の相づち",
+      "type": "S2",
+      "plan": {
+        "stopped": false,
+        "stop_at_s": null,
+        "done": [
+          "お忙しいところ恐れ入ります。",
+          "株式会社「アオバ物流」の「佐藤」と申します。",
+          "ご予約の確認でお電話いたしました。",
+          "ご予約はされていますでしょうか。"
+        ],
+        "rest": [],
+        "send_from_s": null,
+        "dropped": [
+          [
+            3.675352480417754,
+            3.915352480417754
+          ]
+        ]
+      },
+      "checks": {
+        "first_said": "承知いたしました。ご希望の日時をお聞かせください。その際、午前か午後かも教えていただけますか。",
+        "first_heard": {
+          "0.0": "承知いたしました。ご希望の日時をお聞かせください。その際、午前か午後かも教えていただけますか。",
+          "1.0": "承知いたしました。ご希望の日時をお聞かせください。その際、午前か午後かも教えていただけますか。"
+        },
+        "need_ok": true,
+        "reintroduced": false,
+        "reintro_ok": true,
+        "head_broken": false,
+        "q1_yes": true,
+        "asked_q2": true,
+        "bad_turns": [],
+        "passed": true
+      },
+      "voice_type": "S2",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_yes_reserved.wav"
+          },
+          "heard": "はい。予約しています。",
+          "intended": "承知いたしました。ご希望の日時をお聞かせください。その際、午前か午後かも教えていただけますか?",
+          "tool_events": [
+            {
+              "at_s": 0.781,
+              "name": "record_answer",
+              "args": {
+                "value": "はい。予約しています。",
+                "question_id": "Q1",
+                "condition_id": "はい"
+              },
+              "reply": "next"
+            }
+          ],
+          "first_audio_after_s": 1.749,
+          "finished_after_s": 9.251,
+          "audio_seconds": 7.48,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.749,
+              "audio_s": 0.0,
+              "text": "承知いたしました。ご希望の日時"
+            },
+            {
+              "at_s": 2.048,
+              "audio_s": 1.96,
+              "text": "をお聞かせ"
+            },
+            {
+              "at_s": 2.279,
+              "audio_s": 2.96,
+              "text": "ください。その"
+            },
+            {
+              "at_s": 2.473,
+              "audio_s": 3.96,
+              "text": "際、午前"
+            },
+            {
+              "at_s": 2.731,
+              "audio_s": 4.96,
+              "text": "か午後かも教え"
+            },
+            {
+              "at_s": 3.333,
+              "audio_s": 5.96,
+              "text": "ていただけますか?"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "ear": "承知いたしました。ご希望の日時をお聞かせください。その際、午前か午後かも教えていただけますか。",
+          "check": {
+            "voiced_s": 7.27,
+            "compared_with": "intended",
+            "morae": 49,
+            "expected_s": 5.44,
+            "ratio": 1.33,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_204629_G29_C1_名乗りの途中の相づち_1_S2_0_ok.wav"
+        },
+        {
+          "index": 1,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_datetime_pm.wav"
+          },
+          "heard": "15 日の午後 2 時でお願いします。",
+          "intended": "念のため確認させていただきます。15日の午後2時で、よろしいでしょうか?",
+          "tool_events": [
+            {
+              "at_s": 0.842,
+              "name": "record_answer",
+              "args": {
+                "value": "15日の午後2時",
+                "question_id": "Q2",
+                "condition_id": "答えた"
+              },
+              "reply": "confirm_required"
+            }
+          ],
+          "first_audio_after_s": 1.305,
+          "finished_after_s": 7.146,
+          "audio_seconds": 5.84,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.305,
+              "audio_s": 0.0,
+              "text": "念のため確認させていただきます。"
+            },
+            {
+              "at_s": 1.884,
+              "audio_s": 2.0,
+              "text": "15日"
+            },
+            {
+              "at_s": 2.047,
+              "audio_s": 3.0,
+              "text": "の午後2時"
+            },
+            {
+              "at_s": 2.279,
+              "audio_s": 4.0,
+              "text": "で、よろしいで"
+            },
+            {
+              "at_s": 2.541,
+              "audio_s": 5.12,
+              "text": "しょうか?"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "ear": "日程を確認させていただきます。15日の午後2時でよろしいでしょうか？",
+          "check": {
+            "voiced_s": 5.62,
+            "compared_with": "intended",
+            "morae": 40,
+            "expected_s": 4.44,
+            "ratio": 1.26,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_204649_G29_C1_名乗りの途中の相づち_1_S2_1_ok.wav"
+        },
+        {
+          "index": 2,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_affirm.wav"
+          },
+          "heard": "はい、そうです。",
+          "intended": "ありがとうございます。最後に、ご来店の人数をお聞かせいただけますか?",
+          "tool_events": [
+            {
+              "at_s": 0.856,
+              "name": "confirm_field",
+              "args": {
+                "correction": "15日の午後2時",
+                "result": "affirmed",
+                "question_id": "Q2"
+              },
+              "reply": "next"
+            }
+          ],
+          "first_audio_after_s": 1.292,
+          "finished_after_s": 6.512,
+          "audio_seconds": 5.2,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.292,
+              "audio_s": 0.0,
+              "text": "ありがとうございます。最後"
+            },
+            {
+              "at_s": 1.8,
+              "audio_s": 2.0,
+              "text": "に、ご来店"
+            },
+            {
+              "at_s": 2.062,
+              "audio_s": 3.0,
+              "text": "の人数をお聞かせ"
+            },
+            {
+              "at_s": 2.285,
+              "audio_s": 3.8,
+              "text": "いただけますか?"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q3",
+          "ear": "最後に、来店の人数をお聞かせいただけますか？",
+          "check": {
+            "voiced_s": 5.01,
+            "compared_with": "intended",
+            "morae": 36,
+            "expected_s": 4.0,
+            "ratio": 1.25,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_204708_G29_C1_名乗りの途中の相づち_1_S2_2_ok.wav"
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "value": "はい。予約しています。",
+            "question_id": "Q1",
+            "condition_id": "はい"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q2",
+            "question": "ご希望の日時をお聞かせください。",
+            "message": "受け付けました。次の質問は Q2「ご希望の日時をお聞かせください。」です。"
+          },
+          "callee_turns": 1
+        },
+        {
+          "op": "record_answer",
+          "args": {
+            "value": "15日の午後2時",
+            "question_id": "Q2",
+            "condition_id": "答えた"
+          },
+          "reply": {
+            "result": "confirm_required",
+            "value": "15日の午後2時",
+            "say": "15日の午後2時で、よろしいでしょうか。",
+            "message": "言い直して確かめます。「15日の午後2時で、よろしいでしょうか。」と言って、相手の返事を待ってください。"
+          },
+          "callee_turns": 2
+        },
+        {
+          "op": "confirm_field",
+          "args": {
+            "correction": "15日の午後2時",
+            "result": "affirmed",
+            "question_id": "Q2"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q3",
+            "question": "ご来店の人数をお聞かせください。",
+            "message": "確認できました。次の質問は Q3「ご来店の人数をお聞かせください。」です。"
+          },
+          "callee_turns": 3
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "accepted",
+          "value": "はい。予約しています。",
+          "condition": "はい",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q2": {
+          "state": "confirmed",
+          "value": "15日の午後2時",
+          "condition": "答えた",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q3": {
+          "state": "empty",
+          "value": null,
+          "condition": null,
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        }
+      },
+      "export": {
+        "Q1": "はい",
+        "Q2": "15日の午後2時",
+        "Q3": "-"
+      },
+      "final_phase": "asking",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "first_heard": {
+        "0.0": "承知いたしました。ご希望の日時をお聞かせください。その際、午前か午後かも教えていただけますか。",
+        "1.0": "承知いたしました。ご希望の日時をお聞かせください。その際、午前か午後かも教えていただけますか。"
+      }
+    },
+    {
+      "rep": 1,
+      "scene": "C1_名乗りの途中の相づち",
+      "type": "S4",
+      "plan": {
+        "stopped": false,
+        "stop_at_s": null,
+        "done": [
+          "お忙しいところ恐れ入ります。",
+          "株式会社「アオバ物流」の「佐藤」と申します。",
+          "ご予約の確認でお電話いたしました。",
+          "ご予約はされていますでしょうか。"
+        ],
+        "rest": [],
+        "send_from_s": null,
+        "dropped": [
+          [
+            3.675352480417754,
+            3.915352480417754
+          ]
+        ]
+      },
+      "checks": {
+        "first_said": "ご希望の日時をお聞かせください。",
+        "first_heard": {
+          "0.0": "ご希望の日時をお聞かせください。",
+          "1.0": "ご希望の日時をお聞かせください。"
+        },
+        "need_ok": true,
+        "reintroduced": false,
+        "reintro_ok": true,
+        "head_broken": false,
+        "q1_yes": true,
+        "asked_q2": true,
+        "bad_turns": [],
+        "passed": true
+      },
+      "voice_type": "S4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_yes_reserved.wav"
+          },
+          "heard": "はい。予約しています。",
+          "intended": "ご希望の日時をお聞かせください。",
+          "tool_events": [
+            {
+              "at_s": 0.794,
+              "name": "record_answer",
+              "args": {
+                "question_id": "Q1",
+                "value": "予約しています",
+                "condition_id": "はい"
+              },
+              "reply": "next"
+            }
+          ],
+          "first_audio_after_s": 1.474,
+          "finished_after_s": 3.996,
+          "audio_seconds": 2.52,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.474,
+              "audio_s": 0.0,
+              "text": "ご希望の日時をお聞かせ"
+            },
+            {
+              "at_s": 2.001,
+              "audio_s": 1.64,
+              "text": "ください。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "ear": "ご希望の日時をお聞かせください。",
+          "check": {
+            "voiced_s": 2.16,
+            "compared_with": "heard",
+            "morae": 17,
+            "expected_s": 1.89,
+            "ratio": 1.14,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_204752_G29_C1_名乗りの途中の相づち_1_S4_0_ok.wav"
+        },
+        {
+          "index": 1,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_datetime_pm.wav"
+          },
+          "heard": "15 日の午後 2 時でお願いします。",
+          "intended": "15日の午後2時で、よろしいでしょうか。",
+          "tool_events": [
+            {
+              "at_s": 0.812,
+              "name": "record_answer",
+              "args": {
+                "question_id": "Q2",
+                "value": "15日の午後2時",
+                "condition_id": "答えた"
+              },
+              "reply": "confirm_required"
+            }
+          ],
+          "first_audio_after_s": 3.083,
+          "finished_after_s": 5.774,
+          "audio_seconds": 2.67,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 3.083,
+              "audio_s": 0.0,
+              "text": "15日の午後2時で、"
+            },
+            {
+              "at_s": 3.219,
+              "audio_s": 1.95,
+              "text": "よろしいでしょうか。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "ear": "5日の午後2時でよろしいでしょうか？",
+          "check": {
+            "voiced_s": 2.37,
+            "compared_with": "intended",
+            "morae": 22,
+            "expected_s": 2.44,
+            "ratio": 0.97,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_204808_G29_C1_名乗りの途中の相づち_1_S4_1_ok.wav"
+        },
+        {
+          "index": 2,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_affirm.wav"
+          },
+          "heard": "はい、そうです。",
+          "intended": "ご来店の人数をお聞かせください。",
+          "tool_events": [
+            {
+              "at_s": 0.748,
+              "name": "confirm_field",
+              "args": {
+                "correction": "15日の午後2時",
+                "result": "affirmed",
+                "question_id": "Q2"
+              },
+              "reply": "next"
+            }
+          ],
+          "first_audio_after_s": 1.388,
+          "finished_after_s": 4.058,
+          "audio_seconds": 2.67,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.388,
+              "audio_s": 0.0,
+              "text": "ご来店の人数を"
+            },
+            {
+              "at_s": 1.831,
+              "audio_s": 1.91,
+              "text": "お聞かせください。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q3",
+          "ear": "ご来店の人数をお聞かせください。",
+          "check": {
+            "voiced_s": 2.24,
+            "compared_with": "heard",
+            "morae": 19,
+            "expected_s": 2.11,
+            "ratio": 1.06,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_204821_G29_C1_名乗りの途中の相づち_1_S4_2_ok.wav"
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "question_id": "Q1",
+            "value": "予約しています",
+            "condition_id": "はい"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q2",
+            "question": "ご希望の日時をお聞かせください。",
+            "message": "受け付けました。次の質問は Q2「ご希望の日時をお聞かせください。」です。"
+          },
+          "callee_turns": 1
+        },
+        {
+          "op": "record_answer",
+          "args": {
+            "question_id": "Q2",
+            "value": "15日の午後2時",
+            "condition_id": "答えた"
+          },
+          "reply": {
+            "result": "confirm_required",
+            "value": "15日の午後2時",
+            "say": "15日の午後2時で、よろしいでしょうか。",
+            "message": "言い直して確かめます。「15日の午後2時で、よろしいでしょうか。」と言って、相手の返事を待ってください。"
+          },
+          "callee_turns": 2
+        },
+        {
+          "op": "confirm_field",
+          "args": {
+            "correction": "15日の午後2時",
+            "result": "affirmed",
+            "question_id": "Q2"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q3",
+            "question": "ご来店の人数をお聞かせください。",
+            "message": "確認できました。次の質問は Q3「ご来店の人数をお聞かせください。」です。"
+          },
+          "callee_turns": 3
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "accepted",
+          "value": "予約しています",
+          "condition": "はい",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q2": {
+          "state": "confirmed",
+          "value": "15日の午後2時",
+          "condition": "答えた",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q3": {
+          "state": "empty",
+          "value": null,
+          "condition": null,
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        }
+      },
+      "export": {
+        "Q1": "はい",
+        "Q2": "15日の午後2時",
+        "Q3": "-"
+      },
+      "final_phase": "asking",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "first_heard": {
+        "0.0": "ご希望の日時をお聞かせください。",
+        "1.0": "ご希望の日時をお聞かせください。"
+      }
+    },
+    {
+      "rep": 1,
+      "scene": "C1_名乗りの途中の相づち",
+      "type": "L4",
+      "plan": {
+        "stopped": false,
+        "stop_at_s": null,
+        "done": [
+          "お忙しいところ恐れ入ります。",
+          "株式会社「アオバ物流」の「佐藤」と申します。",
+          "ご予約の確認でお電話いたしました。",
+          "ご予約はされていますでしょうか。"
+        ],
+        "rest": [],
+        "send_from_s": null,
+        "dropped": [
+          [
+            3.675352480417754,
+            3.915352480417754
+          ]
+        ]
+      },
+      "checks": {
+        "first_said": "ご希望の日時をお聞かせいただけますでしょうか？",
+        "first_heard": {
+          "0.0": "ご希望の日時をお聞かせいただけますでしょうか？",
+          "1.0": "ご希望の日時をお聞かせいただけますでしょうか。"
+        },
+        "need_ok": true,
+        "reintroduced": false,
+        "reintro_ok": true,
+        "head_broken": false,
+        "q1_yes": true,
+        "asked_q2": true,
+        "bad_turns": [],
+        "passed": true
+      },
+      "voice_type": "L4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_yes_reserved.wav"
+          },
+          "heard": "はい。予約しています。",
+          "intended": "ご希望の日時をお聞かせいただけますでしょうか。",
+          "tool_events": [
+            {
+              "at_s": 0.818,
+              "name": "record_answer",
+              "args": {
+                "condition_id": "はい",
+                "question_id": "Q1",
+                "value": "はい"
+              },
+              "reply": "next"
+            }
+          ],
+          "first_audio_after_s": 1.508,
+          "finished_after_s": 4.692,
+          "audio_seconds": 3.16,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.508,
+              "audio_s": 0.0,
+              "text": "ご希望の日時をお聞かせ"
+            },
+            {
+              "at_s": 2.059,
+              "audio_s": 1.68,
+              "text": "いただけますでしょうか。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "ear": "ご希望の日時をお聞かせいただけますでしょうか？",
+          "check": {
+            "voiced_s": 2.89,
+            "compared_with": "intended",
+            "morae": 23,
+            "expected_s": 2.77,
+            "ratio": 1.04,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_204857_G29_C1_名乗りの途中の相づち_1_L4_0_ok.wav"
+        },
+        {
+          "index": 1,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_datetime_pm.wav"
+          },
+          "heard": "15 日の午後 2 時でお願いします。",
+          "intended": "15日の午後2時で、よろしいでしょうか。",
+          "tool_events": [
+            {
+              "at_s": 0.831,
+              "name": "record_answer",
+              "args": {
+                "value": "15日の午後2時",
+                "condition_id": "答えた",
+                "question_id": "Q2"
+              },
+              "reply": "confirm_required"
+            }
+          ],
+          "first_audio_after_s": 1.688,
+          "finished_after_s": 4.957,
+          "audio_seconds": 3.25,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.688,
+              "audio_s": 0.0,
+              "text": "15日の午後2時で、"
+            },
+            {
+              "at_s": 1.941,
+              "audio_s": 1.97,
+              "text": "よろしいでしょうか。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "ear": "15 日の午後 2 時でよろしいでしょうか。",
+          "check": {
+            "voiced_s": 2.9,
+            "compared_with": "intended",
+            "morae": 22,
+            "expected_s": 2.65,
+            "ratio": 1.1,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_204913_G29_C1_名乗りの途中の相づち_1_L4_1_ok.wav"
+        },
+        {
+          "index": 2,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_affirm.wav"
+          },
+          "heard": "はい、そうです。",
+          "intended": "ご来店の人数をお聞かせいただけますでしょうか。",
+          "tool_events": [
+            {
+              "at_s": 0.768,
+              "name": "confirm_field",
+              "args": {
+                "question_id": "Q2",
+                "correction": "15日の午後2時",
+                "result": "affirmed"
+              },
+              "reply": "next"
+            }
+          ],
+          "first_audio_after_s": 1.338,
+          "finished_after_s": 4.681,
+          "audio_seconds": 3.32,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.338,
+              "audio_s": 0.0,
+              "text": "ご来店の人数をお聞かせいただけます"
+            },
+            {
+              "at_s": 2.176,
+              "audio_s": 1.76,
+              "text": "でしょうか。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q3",
+          "ear": "ご来店の人数をお聞かせいただけますでしょうか？",
+          "check": {
+            "voiced_s": 3.03,
+            "compared_with": "intended",
+            "morae": 25,
+            "expected_s": 3.01,
+            "ratio": 1.01,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_204927_G29_C1_名乗りの途中の相づち_1_L4_2_ok.wav"
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "condition_id": "はい",
+            "question_id": "Q1",
+            "value": "はい"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q2",
+            "question": "ご希望の日時をお聞かせください。",
+            "message": "受け付けました。次の質問は Q2「ご希望の日時をお聞かせください。」です。"
+          },
+          "callee_turns": 1
+        },
+        {
+          "op": "record_answer",
+          "args": {
+            "value": "15日の午後2時",
+            "condition_id": "答えた",
+            "question_id": "Q2"
+          },
+          "reply": {
+            "result": "confirm_required",
+            "value": "15日の午後2時",
+            "say": "15日の午後2時で、よろしいでしょうか。",
+            "message": "言い直して確かめます。「15日の午後2時で、よろしいでしょうか。」と言って、相手の返事を待ってください。"
+          },
+          "callee_turns": 2
+        },
+        {
+          "op": "confirm_field",
+          "args": {
+            "question_id": "Q2",
+            "correction": "15日の午後2時",
+            "result": "affirmed"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q3",
+            "question": "ご来店の人数をお聞かせください。",
+            "message": "確認できました。次の質問は Q3「ご来店の人数をお聞かせください。」です。"
+          },
+          "callee_turns": 3
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "accepted",
+          "value": "はい",
+          "condition": "はい",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q2": {
+          "state": "confirmed",
+          "value": "15日の午後2時",
+          "condition": "答えた",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q3": {
+          "state": "empty",
+          "value": null,
+          "condition": null,
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        }
+      },
+      "export": {
+        "Q1": "はい",
+        "Q2": "15日の午後2時",
+        "Q3": "-"
+      },
+      "final_phase": "asking",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "first_heard": {
+        "0.0": "ご希望の日時をお聞かせいただけますでしょうか？",
+        "1.0": "ご希望の日時をお聞かせいただけますでしょうか。"
+      }
+    },
+    {
+      "rep": 1,
+      "scene": "C2_社名の途中で話し始めた",
+      "type": "S2",
+      "plan": {
+        "stopped": true,
+        "stop_at_s": 4.275352480417754,
+        "done": [
+          "お忙しいところ恐れ入ります。"
+        ],
+        "rest": [
+          "株式会社「アオバ物流」の「佐藤」と申します。",
+          "ご予約の確認でお電話いたしました。",
+          "ご予約はされていますでしょうか。"
+        ],
+        "send_from_s": 3.675352480417754,
+        "dropped": []
+      },
+      "checks": {
+        "first_said": "株式会社大場物流の佐藤と申します。ご予約の確認でお電話いたしました。ご予約はされていますでしょうか？",
+        "first_heard": {
+          "0.0": "株式会社大場物流の佐藤と申します。ご予約の確認でお電話いたしました。ご予約はされていますでしょうか？",
+          "1.0": "株式会社大場物流の佐藤と申します。ご予約の確認でお電話いたしました。ご予約はされていますでしょうか？"
+        },
+        "need_ok": true,
+        "reintroduced": true,
+        "head_broken": false,
+        "q1_yes": true,
+        "asked_q2": true,
+        "bad_turns": [],
+        "passed": true
+      },
+      "voice_type": "S2",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_barge_who.wav"
+          },
+          "heard": "はい、どちら様?",
+          "intended": "株式会社アオバ物流の佐藤と申します。ご予約の確認でお電話いたしました。ご予約はされていますでしょうか?",
+          "tool_events": [],
+          "first_audio_after_s": 2.17,
+          "finished_after_s": 9.723,
+          "audio_seconds": 7.53,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 2.17,
+              "audio_s": 0.0,
+              "text": "株式会社アオバ物流の佐藤"
+            },
+            {
+              "at_s": 2.225,
+              "audio_s": 1.77,
+              "text": "と申します。ご予約"
+            },
+            {
+              "at_s": 2.243,
+              "audio_s": 2.77,
+              "text": "の確認でお"
+            },
+            {
+              "at_s": 2.245,
+              "audio_s": 3.77,
+              "text": "電話いたしました。"
+            },
+            {
+              "at_s": 2.247,
+              "audio_s": 4.77,
+              "text": "ご予約はされています"
+            },
+            {
+              "at_s": 2.248,
+              "audio_s": 5.93,
+              "text": "でしょうか?"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q1",
+          "ear": "株式会社大場物流の佐藤と申します。ご予約の確認でお電話いたしました。ご予約はされていますでしょうか？",
+          "check": {
+            "voiced_s": 7.17,
+            "compared_with": "intended",
+            "morae": 59,
+            "expected_s": 6.56,
+            "ratio": 1.09,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_205014_G29_C2_社名の途中で話し始めた_1_S2_0_ok.wav"
+        },
+        {
+          "index": 1,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_yes_reserved.wav"
+          },
+          "heard": "はい。予約しています。",
+          "intended": "ご希望の日時をお聞かせください。",
+          "tool_events": [
+            {
+              "at_s": 1.04,
+              "name": "record_answer",
+              "args": {
+                "question_id": "Q1",
+                "value": "はい、予約しています。",
+                "condition_id": "はい"
+              },
+              "reply": "next"
+            }
+          ],
+          "first_audio_after_s": 1.603,
+          "finished_after_s": 3.796,
+          "audio_seconds": 2.19,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.603,
+              "audio_s": 0.0,
+              "text": "ご希望の日時をお聞かせ"
+            },
+            {
+              "at_s": 2.16,
+              "audio_s": 2.03,
+              "text": "ください。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "ear": "ご希望の日時をお聞かせください。",
+          "check": {
+            "voiced_s": 2.03,
+            "compared_with": "heard",
+            "morae": 17,
+            "expected_s": 1.89,
+            "ratio": 1.07,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_205027_G29_C2_社名の途中で話し始めた_1_S2_1_ok.wav"
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "question_id": "Q1",
+            "value": "はい、予約しています。",
+            "condition_id": "はい"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q2",
+            "question": "ご希望の日時をお聞かせください。",
+            "message": "受け付けました。次の質問は Q2「ご希望の日時をお聞かせください。」です。"
+          },
+          "callee_turns": 2
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "accepted",
+          "value": "はい、予約しています。",
+          "condition": "はい",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q2": {
+          "state": "empty",
+          "value": null,
+          "condition": null,
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q3": {
+          "state": "empty",
+          "value": null,
+          "condition": null,
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        }
+      },
+      "export": {
+        "Q1": "はい",
+        "Q2": "-",
+        "Q3": "-"
+      },
+      "final_phase": "asking",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": [
+        [
+          "お忙しいところ恐れ入ります。"
+        ],
+        [
+          "株式会社「アオバ物流」の「佐藤」と申します。",
+          "ご予約の確認でお電話いたしました。",
+          "ご予約はされていますでしょうか。"
+        ]
+      ],
+      "first_heard": {
+        "0.0": "株式会社大場物流の佐藤と申します。ご予約の確認でお電話いたしました。ご予約はされていますでしょうか？",
+        "1.0": "株式会社大場物流の佐藤と申します。ご予約の確認でお電話いたしました。ご予約はされていますでしょうか？"
+      }
+    },
+    {
+      "rep": 1,
+      "scene": "C2_社名の途中で話し始めた",
+      "type": "S4",
+      "plan": {
+        "stopped": true,
+        "stop_at_s": 4.275352480417754,
+        "done": [
+          "お忙しいところ恐れ入ります。"
+        ],
+        "rest": [
+          "株式会社「アオバ物流」の「佐藤」と申します。",
+          "ご予約の確認でお電話いたしました。",
+          "ご予約はされていますでしょうか。"
+        ],
+        "send_from_s": 3.675352480417754,
+        "dropped": []
+      },
+      "checks": {
+        "first_said": "かぶき会社大場物流の佐藤と申します。ご予約の確認でお電話いたしました。ご予約はされていますでしょうか？",
+        "first_heard": {
+          "0.0": "かぶき会社大場物流の佐藤と申します。ご予約の確認でお電話いたしました。ご予約はされていますでしょうか？",
+          "1.0": "かぶすけがさオーバー物流の佐藤と申します。ご予約の確認でお電話いたしました。ご予約はされていますでしょうか？"
+        },
+        "need_ok": true,
+        "reintroduced": true,
+        "head_broken": true,
+        "q1_yes": true,
+        "asked_q2": true,
+        "bad_turns": [],
+        "passed": false
+      },
+      "voice_type": "S4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_barge_who.wav"
+          },
+          "heard": "はい、どちら様?",
+          "intended": "株式会社アオバ物流の佐藤と申します。ご予約の確認でお電話いたしました。ご予約はされていますでしょうか。",
+          "tool_events": [],
+          "first_audio_after_s": 0.929,
+          "finished_after_s": 8.505,
+          "audio_seconds": 7.55,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 0.929,
+              "audio_s": 0.0,
+              "text": "株式会社アオバ物流の佐藤"
+            },
+            {
+              "at_s": 1.442,
+              "audio_s": 1.75,
+              "text": "と申します。ご予約"
+            },
+            {
+              "at_s": 2.982,
+              "audio_s": 2.75,
+              "text": "の確認"
+            },
+            {
+              "at_s": 3.073,
+              "audio_s": 3.75,
+              "text": "でお電話いた"
+            },
+            {
+              "at_s": 3.113,
+              "audio_s": 4.75,
+              "text": "しました。ご予約"
+            },
+            {
+              "at_s": 3.187,
+              "audio_s": 5.67,
+              "text": "はされていますでしょうか。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q1",
+          "ear": "かぶき会社大場物流の佐藤と申します。ご予約の確認でお電話いたしました。ご予約はされていますでしょうか？",
+          "check": {
+            "voiced_s": 7.24,
+            "compared_with": "intended",
+            "morae": 59,
+            "expected_s": 6.56,
+            "ratio": 1.1,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_205124_G29_C2_社名の途中で話し始めた_1_S4_0_ok.wav"
+        },
+        {
+          "index": 1,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_yes_reserved.wav"
+          },
+          "heard": "はい。予約しています。",
+          "intended": "ご希望の日時をお聞かせください。",
+          "tool_events": [
+            {
+              "at_s": 0.705,
+              "name": "record_answer",
+              "args": {
+                "question_id": "Q1",
+                "condition_id": "はい",
+                "value": "はい"
+              },
+              "reply": "next"
+            }
+          ],
+          "first_audio_after_s": 1.32,
+          "finished_after_s": 3.502,
+          "audio_seconds": 2.16,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.32,
+              "audio_s": 0.0,
+              "text": "ご希望の日時をお聞かせください。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "ear": "ご希望の日時をお聞かせください。",
+          "check": {
+            "voiced_s": 1.87,
+            "compared_with": "heard",
+            "morae": 17,
+            "expected_s": 1.89,
+            "ratio": 0.99,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_205136_G29_C2_社名の途中で話し始めた_1_S4_1_ok.wav"
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "question_id": "Q1",
+            "condition_id": "はい",
+            "value": "はい"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q2",
+            "question": "ご希望の日時をお聞かせください。",
+            "message": "受け付けました。次の質問は Q2「ご希望の日時をお聞かせください。」です。"
+          },
+          "callee_turns": 2
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "accepted",
+          "value": "はい",
+          "condition": "はい",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q2": {
+          "state": "empty",
+          "value": null,
+          "condition": null,
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q3": {
+          "state": "empty",
+          "value": null,
+          "condition": null,
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        }
+      },
+      "export": {
+        "Q1": "はい",
+        "Q2": "-",
+        "Q3": "-"
+      },
+      "final_phase": "asking",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": [
+        [
+          "お忙しいところ恐れ入ります。"
+        ],
+        [
+          "株式会社「アオバ物流」の「佐藤」と申します。",
+          "ご予約の確認でお電話いたしました。",
+          "ご予約はされていますでしょうか。"
+        ]
+      ],
+      "first_heard": {
+        "0.0": "かぶき会社大場物流の佐藤と申します。ご予約の確認でお電話いたしました。ご予約はされていますでしょうか？",
+        "1.0": "かぶすけがさオーバー物流の佐藤と申します。ご予約の確認でお電話いたしました。ご予約はされていますでしょうか？"
+      }
+    },
+    {
+      "rep": 1,
+      "scene": "C2_社名の途中で話し始めた",
+      "type": "L4",
+      "plan": {
+        "stopped": true,
+        "stop_at_s": 4.275352480417754,
+        "done": [
+          "お忙しいところ恐れ入ります。"
+        ],
+        "rest": [
+          "株式会社「アオバ物流」の「佐藤」と申します。",
+          "ご予約の確認でお電話いたしました。",
+          "ご予約はされていますでしょうか。"
+        ],
+        "send_from_s": 3.675352480417754,
+        "dropped": []
+      },
+      "checks": {
+        "first_said": "株式会社大場物流の佐藤と申します。ご予約の確認でお電話いたしました。ご予約はされておりますでしょうか？",
+        "first_heard": {
+          "0.0": "株式会社大場物流の佐藤と申します。ご予約の確認でお電話いたしました。ご予約はされておりますでしょうか？",
+          "1.0": "株式会社大場物流の佐藤と申します。ご予約の確認でお電話いたしました。ご予約はされておりますでしょうか？"
+        },
+        "need_ok": true,
+        "reintroduced": true,
+        "head_broken": false,
+        "q1_yes": true,
+        "asked_q2": true,
+        "bad_turns": [],
+        "passed": true
+      },
+      "voice_type": "L4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_barge_who.wav"
+          },
+          "heard": "はい、どちら様?",
+          "intended": "株式会社アオバ物流の佐藤と申します。ご予約の確認でお電話いたしました。ご予約はされておりますでしょうか。",
+          "tool_events": [],
+          "first_audio_after_s": 5.476,
+          "finished_after_s": 14.072,
+          "audio_seconds": 8.4,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 5.476,
+              "audio_s": 0.0,
+              "text": "株式会社アオバ物流の佐藤"
+            },
+            {
+              "at_s": 7.452,
+              "audio_s": 1.8,
+              "text": "と申します。ご予約"
+            },
+            {
+              "at_s": 7.567,
+              "audio_s": 2.8,
+              "text": "の確認"
+            },
+            {
+              "at_s": 7.589,
+              "audio_s": 3.8,
+              "text": "でお電話いたしました。"
+            },
+            {
+              "at_s": 7.612,
+              "audio_s": 4.8,
+              "text": "ご予約"
+            },
+            {
+              "at_s": 7.659,
+              "audio_s": 5.8,
+              "text": "はされておりますで"
+            },
+            {
+              "at_s": 7.727,
+              "audio_s": 7.0,
+              "text": "しょうか。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q1",
+          "ear": "株式会社大場物流の佐藤と申します。ご予約の確認でお電話いたしました。ご予約はされておりますでしょうか？",
+          "check": {
+            "voiced_s": 8.09,
+            "compared_with": "intended",
+            "morae": 60,
+            "expected_s": 7.23,
+            "ratio": 1.12,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_205237_G29_C2_社名の途中で話し始めた_1_L4_0_ok.wav"
+        },
+        {
+          "index": 1,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_yes_reserved.wav"
+          },
+          "heard": "はい、予約しています。",
+          "intended": "ありがとうございます。ご希望の日時をお聞かせください。",
+          "tool_events": [
+            {
+              "at_s": 0.793,
+              "name": "record_answer",
+              "args": {
+                "value": "はい、予約しています。",
+                "condition_id": "はい",
+                "question_id": "Q1"
+              },
+              "reply": "next"
+            }
+          ],
+          "first_audio_after_s": 1.503,
+          "finished_after_s": 5.443,
+          "audio_seconds": 3.92,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.503,
+              "audio_s": 0.0,
+              "text": "ありがとうございます。ご希望"
+            },
+            {
+              "at_s": 2.191,
+              "audio_s": 1.8,
+              "text": "の日時を"
+            },
+            {
+              "at_s": 2.23,
+              "audio_s": 2.6,
+              "text": "お聞かせください。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "ear": "ありがとうございます。ご希望の日時をお聞かせください。",
+          "check": {
+            "voiced_s": 3.59,
+            "compared_with": "heard",
+            "morae": 27,
+            "expected_s": 3.25,
+            "ratio": 1.1,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_205254_G29_C2_社名の途中で話し始めた_1_L4_1_ok.wav"
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "value": "はい、予約しています。",
+            "condition_id": "はい",
+            "question_id": "Q1"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q2",
+            "question": "ご希望の日時をお聞かせください。",
+            "message": "受け付けました。次の質問は Q2「ご希望の日時をお聞かせください。」です。"
+          },
+          "callee_turns": 2
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "accepted",
+          "value": "はい、予約しています。",
+          "condition": "はい",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q2": {
+          "state": "empty",
+          "value": null,
+          "condition": null,
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q3": {
+          "state": "empty",
+          "value": null,
+          "condition": null,
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        }
+      },
+      "export": {
+        "Q1": "はい",
+        "Q2": "-",
+        "Q3": "-"
+      },
+      "final_phase": "asking",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": [
+        [
+          "お忙しいところ恐れ入ります。"
+        ],
+        [
+          "株式会社「アオバ物流」の「佐藤」と申します。",
+          "ご予約の確認でお電話いたしました。",
+          "ご予約はされていますでしょうか。"
+        ]
+      ],
+      "first_heard": {
+        "0.0": "株式会社大場物流の佐藤と申します。ご予約の確認でお電話いたしました。ご予約はされておりますでしょうか？",
+        "1.0": "株式会社大場物流の佐藤と申します。ご予約の確認でお電話いたしました。ご予約はされておりますでしょうか？"
+      }
+    },
+    {
+      "rep": 1,
+      "scene": "C4_最初の質問の途中で答えた",
+      "type": "S2",
+      "plan": {
+        "stopped": true,
+        "stop_at_s": 9.27289817232376,
+        "done": [
+          "お忙しいところ恐れ入ります。",
+          "株式会社「アオバ物流」の「佐藤」と申します。",
+          "ご予約の確認でお電話いたしました。"
+        ],
+        "rest": [
+          "ご予約はされていますでしょうか。"
+        ],
+        "send_from_s": 8.67289817232376,
+        "dropped": []
+      },
+      "checks": {
+        "first_said": "ご希望の日時をお聞かせください。",
+        "first_heard": {
+          "0.0": "ご希望の日時をお聞かせください。",
+          "1.0": "ご希望の日時をお聞かせください。"
+        },
+        "need_ok": true,
+        "reintroduced": false,
+        "reintro_ok": true,
+        "head_broken": false,
+        "q1_yes": true,
+        "asked_q2": true,
+        "bad_turns": [],
+        "passed": true
+      },
+      "voice_type": "S2",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_barge_yes2.wav"
+          },
+          "heard": "予約の件ですね。はい、予約しています。",
+          "intended": "ご希望の日時をお聞かせください。",
+          "tool_events": [
+            {
+              "at_s": 0.802,
+              "name": "record_answer",
+              "args": {
+                "question_id": "Q1",
+                "condition_id": "はい",
+                "value": "予約しています"
+              },
+              "reply": "next"
+            }
+          ],
+          "first_audio_after_s": 1.566,
+          "finished_after_s": 3.708,
+          "audio_seconds": 2.08,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.566,
+              "audio_s": 0.0,
+              "text": "ご希望の日時をお聞かせください。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "ear": "ご希望の日時をお聞かせください。",
+          "check": {
+            "voiced_s": 1.85,
+            "compared_with": "heard",
+            "morae": 17,
+            "expected_s": 1.89,
+            "ratio": 0.98,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_205342_G29_C4_最初の質問の途中で答えた_1_S2_0_ok.wav"
+        },
+        {
+          "index": 1,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_datetime_pm.wav"
+          },
+          "heard": "15 日の午後 2 時でお願いします。",
+          "intended": "15日の午後2時で、よろしいでしょうか。",
+          "tool_events": [
+            {
+              "at_s": 0.806,
+              "name": "record_answer",
+              "args": {
+                "condition_id": "答えた",
+                "value": "15日の午後2時",
+                "question_id": "Q2"
+              },
+              "reply": "confirm_required"
+            }
+          ],
+          "first_audio_after_s": 1.28,
+          "finished_after_s": 4.238,
+          "audio_seconds": 2.88,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.28,
+              "audio_s": 0.0,
+              "text": "15日の午後2時で、"
+            },
+            {
+              "at_s": 1.754,
+              "audio_s": 1.72,
+              "text": "よろしいでしょうか。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "ear": "15 日の午後 2 時でよろしいでしょうか？",
+          "check": {
+            "voiced_s": 2.52,
+            "compared_with": "intended",
+            "morae": 22,
+            "expected_s": 2.44,
+            "ratio": 1.03,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_205357_G29_C4_最初の質問の途中で答えた_1_S2_1_ok.wav"
+        },
+        {
+          "index": 2,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_affirm.wav"
+          },
+          "heard": "はい、そうです。",
+          "intended": "ご来店の人数をお聞かせください。",
+          "tool_events": [
+            {
+              "at_s": 0.711,
+              "name": "confirm_field",
+              "args": {
+                "correction": "15日の午後2時",
+                "result": "affirmed",
+                "question_id": "Q2"
+              },
+              "reply": "next"
+            }
+          ],
+          "first_audio_after_s": 1.754,
+          "finished_after_s": 3.965,
+          "audio_seconds": 2.12,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.754,
+              "audio_s": 0.0,
+              "text": "ご来店の人数をお聞かせください。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q3",
+          "ear": "ご来店の人数をお聞かせください。",
+          "check": {
+            "voiced_s": 1.85,
+            "compared_with": "heard",
+            "morae": 19,
+            "expected_s": 2.11,
+            "ratio": 0.88,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_205409_G29_C4_最初の質問の途中で答えた_1_S2_2_ok.wav"
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "question_id": "Q1",
+            "condition_id": "はい",
+            "value": "予約しています"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q2",
+            "question": "ご希望の日時をお聞かせください。",
+            "message": "受け付けました。次の質問は Q2「ご希望の日時をお聞かせください。」です。"
+          },
+          "callee_turns": 1
+        },
+        {
+          "op": "record_answer",
+          "args": {
+            "condition_id": "答えた",
+            "value": "15日の午後2時",
+            "question_id": "Q2"
+          },
+          "reply": {
+            "result": "confirm_required",
+            "value": "15日の午後2時",
+            "say": "15日の午後2時で、よろしいでしょうか。",
+            "message": "言い直して確かめます。「15日の午後2時で、よろしいでしょうか。」と言って、相手の返事を待ってください。"
+          },
+          "callee_turns": 2
+        },
+        {
+          "op": "confirm_field",
+          "args": {
+            "correction": "15日の午後2時",
+            "result": "affirmed",
+            "question_id": "Q2"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q3",
+            "question": "ご来店の人数をお聞かせください。",
+            "message": "確認できました。次の質問は Q3「ご来店の人数をお聞かせください。」です。"
+          },
+          "callee_turns": 3
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "accepted",
+          "value": "予約しています",
+          "condition": "はい",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q2": {
+          "state": "confirmed",
+          "value": "15日の午後2時",
+          "condition": "答えた",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q3": {
+          "state": "empty",
+          "value": null,
+          "condition": null,
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        }
+      },
+      "export": {
+        "Q1": "はい",
+        "Q2": "15日の午後2時",
+        "Q3": "-"
+      },
+      "final_phase": "asking",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": [
+        [
+          "お忙しいところ恐れ入ります。",
+          "株式会社「アオバ物流」の「佐藤」と申します。",
+          "ご予約の確認でお電話いたしました。"
+        ],
+        [
+          "ご予約はされていますでしょうか。"
+        ]
+      ],
+      "first_heard": {
+        "0.0": "ご希望の日時をお聞かせください。",
+        "1.0": "ご希望の日時をお聞かせください。"
+      }
+    },
+    {
+      "rep": 1,
+      "scene": "C4_最初の質問の途中で答えた",
+      "type": "S4",
+      "plan": {
+        "stopped": true,
+        "stop_at_s": 9.27289817232376,
+        "done": [
+          "お忙しいところ恐れ入ります。",
+          "株式会社「アオバ物流」の「佐藤」と申します。",
+          "ご予約の確認でお電話いたしました。"
+        ],
+        "rest": [
+          "ご予約はされていますでしょうか。"
+        ],
+        "send_from_s": 8.67289817232376,
+        "dropped": []
+      },
+      "checks": {
+        "first_said": "ご希望の日時をお聞かせください。",
+        "first_heard": {
+          "0.0": "ご希望の日時をお聞かせください。",
+          "1.0": "ご希望の日時をお聞かせください。"
+        },
+        "need_ok": true,
+        "reintroduced": false,
+        "reintro_ok": true,
+        "head_broken": false,
+        "q1_yes": true,
+        "asked_q2": true,
+        "bad_turns": [],
+        "passed": true
+      },
+      "voice_type": "S4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_barge_yes2.wav"
+          },
+          "heard": "予約の件ですね。はい、予約しています。",
+          "intended": "ご希望の日時をお聞かせください。",
+          "tool_events": [
+            {
+              "at_s": 0.79,
+              "name": "record_answer",
+              "args": {
+                "question_id": "Q1",
+                "condition_id": "はい",
+                "value": "はい"
+              },
+              "reply": "next"
+            }
+          ],
+          "first_audio_after_s": 1.388,
+          "finished_after_s": 3.795,
+          "audio_seconds": 2.35,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.388,
+              "audio_s": 0.0,
+              "text": "ご希望の日時をお聞かせください。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "ear": "ご希望の日時をお聞かせください。",
+          "check": {
+            "voiced_s": 1.96,
+            "compared_with": "heard",
+            "morae": 17,
+            "expected_s": 1.89,
+            "ratio": 1.04,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_205445_G29_C4_最初の質問の途中で答えた_1_S4_0_ok.wav"
+        },
+        {
+          "index": 1,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_datetime_pm.wav"
+          },
+          "heard": "15 日の午後 2 時でお願いします。",
+          "intended": "15日の午後2時で、よろろしいでしょうか。",
+          "tool_events": [
+            {
+              "at_s": 0.786,
+              "name": "record_answer",
+              "args": {
+                "value": "15日の午後2時",
+                "condition_id": "答えた",
+                "question_id": "Q2"
+              },
+              "reply": "confirm_required"
+            }
+          ],
+          "first_audio_after_s": 1.733,
+          "finished_after_s": 4.793,
+          "audio_seconds": 3.04,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.733,
+              "audio_s": 0.0,
+              "text": "15日の午後2時で、よろ"
+            },
+            {
+              "at_s": 2.308,
+              "audio_s": 1.92,
+              "text": "ろしいでしょうか。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "ear": "15日の午後2時でよろしいでしょうか？",
+          "check": {
+            "voiced_s": 2.54,
+            "compared_with": "intended",
+            "morae": 23,
+            "expected_s": 2.56,
+            "ratio": 0.99,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_205500_G29_C4_最初の質問の途中で答えた_1_S4_1_ok.wav"
+        },
+        {
+          "index": 2,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_affirm.wav"
+          },
+          "heard": "はい、そうです。",
+          "intended": "ご来店の人数をお聞かせください。",
+          "tool_events": [
+            {
+              "at_s": 0.848,
+              "name": "confirm_field",
+              "args": {
+                "question_id": "Q2",
+                "result": "affirmed",
+                "correction": "15日の午後2時"
+              },
+              "reply": "next"
+            }
+          ],
+          "first_audio_after_s": 1.493,
+          "finished_after_s": 4.075,
+          "audio_seconds": 2.57,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.493,
+              "audio_s": 0.0,
+              "text": "ご来店の人数をお聞かせください。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q3",
+          "ear": "ゴライテルの人数をお聞かせください。",
+          "check": {
+            "voiced_s": 2.17,
+            "compared_with": "intended",
+            "morae": 19,
+            "expected_s": 2.11,
+            "ratio": 1.03,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_205513_G29_C4_最初の質問の途中で答えた_1_S4_2_ok.wav"
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "question_id": "Q1",
+            "condition_id": "はい",
+            "value": "はい"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q2",
+            "question": "ご希望の日時をお聞かせください。",
+            "message": "受け付けました。次の質問は Q2「ご希望の日時をお聞かせください。」です。"
+          },
+          "callee_turns": 1
+        },
+        {
+          "op": "record_answer",
+          "args": {
+            "value": "15日の午後2時",
+            "condition_id": "答えた",
+            "question_id": "Q2"
+          },
+          "reply": {
+            "result": "confirm_required",
+            "value": "15日の午後2時",
+            "say": "15日の午後2時で、よろしいでしょうか。",
+            "message": "言い直して確かめます。「15日の午後2時で、よろしいでしょうか。」と言って、相手の返事を待ってください。"
+          },
+          "callee_turns": 2
+        },
+        {
+          "op": "confirm_field",
+          "args": {
+            "question_id": "Q2",
+            "result": "affirmed",
+            "correction": "15日の午後2時"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q3",
+            "question": "ご来店の人数をお聞かせください。",
+            "message": "確認できました。次の質問は Q3「ご来店の人数をお聞かせください。」です。"
+          },
+          "callee_turns": 3
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "accepted",
+          "value": "はい",
+          "condition": "はい",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q2": {
+          "state": "confirmed",
+          "value": "15日の午後2時",
+          "condition": "答えた",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q3": {
+          "state": "empty",
+          "value": null,
+          "condition": null,
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        }
+      },
+      "export": {
+        "Q1": "はい",
+        "Q2": "15日の午後2時",
+        "Q3": "-"
+      },
+      "final_phase": "asking",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": [
+        [
+          "お忙しいところ恐れ入ります。",
+          "株式会社「アオバ物流」の「佐藤」と申します。",
+          "ご予約の確認でお電話いたしました。"
+        ],
+        [
+          "ご予約はされていますでしょうか。"
+        ]
+      ],
+      "first_heard": {
+        "0.0": "ご希望の日時をお聞かせください。",
+        "1.0": "ご希望の日時をお聞かせください。"
+      }
+    },
+    {
+      "rep": 1,
+      "scene": "C4_最初の質問の途中で答えた",
+      "type": "L4",
+      "plan": {
+        "stopped": true,
+        "stop_at_s": 9.27289817232376,
+        "done": [
+          "お忙しいところ恐れ入ります。",
+          "株式会社「アオバ物流」の「佐藤」と申します。",
+          "ご予約の確認でお電話いたしました。"
+        ],
+        "rest": [
+          "ご予約はされていますでしょうか。"
+        ],
+        "send_from_s": 8.67289817232376,
+        "dropped": []
+      },
+      "checks": {
+        "first_said": "ご希望の日時をお聞かせください。",
+        "first_heard": {
+          "0.0": "ご希望の日時をお聞かせください。",
+          "1.0": "ご希望の日時をお聞かせください。"
+        },
+        "need_ok": true,
+        "reintroduced": false,
+        "reintro_ok": true,
+        "head_broken": false,
+        "q1_yes": true,
+        "asked_q2": true,
+        "bad_turns": [],
+        "passed": true
+      },
+      "voice_type": "L4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_barge_yes2.wav"
+          },
+          "heard": "予約の件ですね。はい、予約しています。",
+          "intended": "ご希望の日時をお聞かせください。",
+          "tool_events": [
+            {
+              "at_s": 0.789,
+              "name": "record_answer",
+              "args": {
+                "value": "予約しています",
+                "condition_id": "はい",
+                "question_id": "Q1"
+              },
+              "reply": "next"
+            }
+          ],
+          "first_audio_after_s": 1.471,
+          "finished_after_s": 3.928,
+          "audio_seconds": 2.46,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.471,
+              "audio_s": 0.0,
+              "text": "ご希望の日時をお聞かせください。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "ear": "ご希望の日時をお聞かせください。",
+          "check": {
+            "voiced_s": 2.06,
+            "compared_with": "heard",
+            "morae": 17,
+            "expected_s": 2.05,
+            "ratio": 1.01,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_205549_G29_C4_最初の質問の途中で答えた_1_L4_0_ok.wav"
+        },
+        {
+          "index": 1,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_datetime_pm.wav"
+          },
+          "heard": "15 日の午後 2 時でお願いします。",
+          "intended": "15 日の午後 2 時で、よろろしいでしょうか。",
+          "tool_events": [
+            {
+              "at_s": 6.178,
+              "name": "record_answer",
+              "args": {
+                "value": "15日の午後2時",
+                "condition_id": "答えた",
+                "question_id": "Q2"
+              },
+              "reply": "confirm_required"
+            }
+          ],
+          "first_audio_after_s": 6.93,
+          "finished_after_s": 10.037,
+          "audio_seconds": 3.08,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 6.93,
+              "audio_s": 0.0,
+              "text": "15 日の午後 "
+            },
+            {
+              "at_s": 7.391,
+              "audio_s": 0.8,
+              "text": "2 時で、よろ"
+            },
+            {
+              "at_s": 7.406,
+              "audio_s": 1.72,
+              "text": "ろしいでしょうか。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "ear": "15日の午後2時でよろしいでしょうか？",
+          "check": {
+            "voiced_s": 2.72,
+            "compared_with": "intended",
+            "morae": 23,
+            "expected_s": 2.77,
+            "ratio": 0.98,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_205610_G29_C4_最初の質問の途中で答えた_1_L4_1_ok.wav"
+        },
+        {
+          "index": 2,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_affirm.wav"
+          },
+          "heard": "はい。そうです。",
+          "intended": "ご来店の人数をお聞かせください。",
+          "tool_events": [
+            {
+              "at_s": 0.788,
+              "name": "confirm_field",
+              "args": {
+                "question_id": "Q2",
+                "correction": "15日の午後2時",
+                "result": "affirmed"
+              },
+              "reply": "next"
+            }
+          ],
+          "first_audio_after_s": 1.438,
+          "finished_after_s": 3.907,
+          "audio_seconds": 2.47,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.438,
+              "audio_s": 0.0,
+              "text": "ご来店の人数をお聞かせください。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q3",
+          "ear": "来店の人数をお聞かせください。",
+          "check": {
+            "voiced_s": 2.28,
+            "compared_with": "intended",
+            "morae": 19,
+            "expected_s": 2.29,
+            "ratio": 0.99,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_205623_G29_C4_最初の質問の途中で答えた_1_L4_2_ok.wav"
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "value": "予約しています",
+            "condition_id": "はい",
+            "question_id": "Q1"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q2",
+            "question": "ご希望の日時をお聞かせください。",
+            "message": "受け付けました。次の質問は Q2「ご希望の日時をお聞かせください。」です。"
+          },
+          "callee_turns": 1
+        },
+        {
+          "op": "record_answer",
+          "args": {
+            "value": "15日の午後2時",
+            "condition_id": "答えた",
+            "question_id": "Q2"
+          },
+          "reply": {
+            "result": "confirm_required",
+            "value": "15日の午後2時",
+            "say": "15日の午後2時で、よろしいでしょうか。",
+            "message": "言い直して確かめます。「15日の午後2時で、よろしいでしょうか。」と言って、相手の返事を待ってください。"
+          },
+          "callee_turns": 2
+        },
+        {
+          "op": "confirm_field",
+          "args": {
+            "question_id": "Q2",
+            "correction": "15日の午後2時",
+            "result": "affirmed"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q3",
+            "question": "ご来店の人数をお聞かせください。",
+            "message": "確認できました。次の質問は Q3「ご来店の人数をお聞かせください。」です。"
+          },
+          "callee_turns": 3
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "accepted",
+          "value": "予約しています",
+          "condition": "はい",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q2": {
+          "state": "confirmed",
+          "value": "15日の午後2時",
+          "condition": "答えた",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q3": {
+          "state": "empty",
+          "value": null,
+          "condition": null,
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        }
+      },
+      "export": {
+        "Q1": "はい",
+        "Q2": "15日の午後2時",
+        "Q3": "-"
+      },
+      "final_phase": "asking",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": [
+        [
+          "お忙しいところ恐れ入ります。",
+          "株式会社「アオバ物流」の「佐藤」と申します。",
+          "ご予約の確認でお電話いたしました。"
+        ],
+        [
+          "ご予約はされていますでしょうか。"
+        ]
+      ],
+      "first_heard": {
+        "0.0": "ご希望の日時をお聞かせください。",
+        "1.0": "ご希望の日時をお聞かせください。"
+      }
+    },
+    {
+      "rep": 1,
+      "scene": "C5_最初の質問の途中の相づち",
+      "type": "S2",
+      "plan": {
+        "stopped": false,
+        "stop_at_s": null,
+        "done": [
+          "お忙しいところ恐れ入ります。",
+          "株式会社「アオバ物流」の「佐藤」と申します。",
+          "ご予約の確認でお電話いたしました。",
+          "ご予約はされていますでしょうか。"
+        ],
+        "rest": [],
+        "send_from_s": 8.83201044386423,
+        "dropped": []
+      },
+      "checks": {
+        "first_said": "ご希望の日時をお聞かせください。",
+        "first_heard": {
+          "0.0": "ご希望の日時をお聞かせください。",
+          "1.0": "ご希望の日時をお聞かせください。"
+        },
+        "need_ok": true,
+        "reintroduced": false,
+        "reintro_ok": true,
+        "head_broken": false,
+        "q1_yes": true,
+        "asked_q2": true,
+        "bad_turns": [],
+        "passed": true
+      },
+      "voice_type": "S2",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_backchannel.wav"
+          },
+          "heard": "はい。",
+          "intended": "ご希望の日時をお聞かせください。",
+          "tool_events": [
+            {
+              "at_s": 0.791,
+              "name": "record_answer",
+              "args": {
+                "question_id": "Q1",
+                "condition_id": "はい",
+                "value": "はい"
+              },
+              "reply": "next"
+            }
+          ],
+          "first_audio_after_s": 3.997,
+          "finished_after_s": 6.238,
+          "audio_seconds": 2.24,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 3.997,
+              "audio_s": 0.0,
+              "text": "ご希望の日時をお聞かせくださ"
+            },
+            {
+              "at_s": 4.149,
+              "audio_s": 1.96,
+              "text": "い。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "ear": "ご希望の日時をお聞かせください。",
+          "check": {
+            "voiced_s": 2.03,
+            "compared_with": "heard",
+            "morae": 17,
+            "expected_s": 1.89,
+            "ratio": 1.07,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_205657_G29_C5_最初の質問の途中の相づち_1_S2_0_ok.wav"
+        },
+        {
+          "index": 1,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_datetime_pm.wav"
+          },
+          "heard": "15 日の午後 2 時でお願いします。",
+          "intended": "15日の午後2時ですね。ありがとうございます。",
+          "tool_events": [],
+          "first_audio_after_s": 1.054,
+          "finished_after_s": 4.695,
+          "audio_seconds": 3.64,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.054,
+              "audio_s": 0.0,
+              "text": "15日の午後2時ですね。"
+            },
+            {
+              "at_s": 1.549,
+              "audio_s": 2.0,
+              "text": "ありがとうございます。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "ear": "15日の午後2時ですね。ありがとうございます。",
+          "check": {
+            "voiced_s": 3.07,
+            "compared_with": "heard",
+            "morae": 26,
+            "expected_s": 2.89,
+            "ratio": 1.06,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_205714_G29_C5_最初の質問の途中の相づち_1_S2_1_ok.wav"
+        },
+        {
+          "index": 2,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_affirm.wav"
+          },
+          "heard": "はい、そうです。",
+          "intended": "15日の午後2時で、よろしいでしょうか。",
+          "tool_events": [
+            {
+              "at_s": 0.743,
+              "name": "confirm_field",
+              "args": {
+                "result": "affirmed",
+                "question_id": "Q2",
+                "correction": "15日の午後2時"
+              },
+              "reply": "rejected"
+            },
+            {
+              "at_s": 1.319,
+              "name": "record_answer",
+              "args": {
+                "condition_id": "答えた",
+                "question_id": "Q2",
+                "value": "15日の午後2時"
+              },
+              "reply": "confirm_required"
+            }
+          ],
+          "first_audio_after_s": 1.929,
+          "finished_after_s": 4.692,
+          "audio_seconds": 2.76,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.929,
+              "audio_s": 0.0,
+              "text": "15日の午後2時で、よろし"
+            },
+            {
+              "at_s": 2.416,
+              "audio_s": 2.04,
+              "text": "いでしょうか。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "ear": "15日の午後2時でよろしいでしょうか？",
+          "check": {
+            "voiced_s": 2.54,
+            "compared_with": "intended",
+            "morae": 22,
+            "expected_s": 2.44,
+            "ratio": 1.04,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_205728_G29_C5_最初の質問の途中の相づち_1_S2_2_ok.wav"
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "question_id": "Q1",
+            "condition_id": "はい",
+            "value": "はい"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q2",
+            "question": "ご希望の日時をお聞かせください。",
+            "message": "受け付けました。次の質問は Q2「ご希望の日時をお聞かせください。」です。"
+          },
+          "callee_turns": 1
+        },
+        {
+          "op": "confirm_field",
+          "args": {
+            "result": "affirmed",
+            "question_id": "Q2",
+            "correction": "15日の午後2時"
+          },
+          "reply": {
+            "result": "rejected",
+            "message": "いまは、Q2 の言い直しを求めていません。いまの質問は Q2「ご希望の日時をお聞かせください。」です。相手が答えたら record_answer で報告してください（聞き取れなかったら report_unclear）。"
+          },
+          "callee_turns": 3
+        },
+        {
+          "op": "record_answer",
+          "args": {
+            "condition_id": "答えた",
+            "question_id": "Q2",
+            "value": "15日の午後2時"
+          },
+          "reply": {
+            "result": "confirm_required",
+            "value": "15日の午後2時",
+            "say": "15日の午後2時で、よろしいでしょうか。",
+            "message": "言い直して確かめます。「15日の午後2時で、よろしいでしょうか。」と言って、相手の返事を待ってください。"
+          },
+          "callee_turns": 3
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "accepted",
+          "value": "はい",
+          "condition": "はい",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q2": {
+          "state": "checking",
+          "value": "15日の午後2時",
+          "condition": "答えた",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q3": {
+          "state": "empty",
+          "value": null,
+          "condition": null,
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        }
+      },
+      "export": {
+        "Q1": "はい",
+        "Q2": "-",
+        "Q3": "-"
+      },
+      "final_phase": "asking",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "first_heard": {
+        "0.0": "ご希望の日時をお聞かせください。",
+        "1.0": "ご希望の日時をお聞かせください。"
+      }
+    },
+    {
+      "rep": 1,
+      "scene": "C5_最初の質問の途中の相づち",
+      "type": "S4",
+      "plan": {
+        "stopped": false,
+        "stop_at_s": null,
+        "done": [
+          "お忙しいところ恐れ入ります。",
+          "株式会社「アオバ物流」の「佐藤」と申します。",
+          "ご予約の確認でお電話いたしました。",
+          "ご予約はされていますでしょうか。"
+        ],
+        "rest": [],
+        "send_from_s": 8.83201044386423,
+        "dropped": []
+      },
+      "checks": {
+        "first_said": "ご希望の日時を教えてください。",
+        "first_heard": {
+          "0.0": "ご希望の日時を教えてください。",
+          "1.0": "ご希望の日時を教えてください。"
+        },
+        "need_ok": true,
+        "reintroduced": false,
+        "reintro_ok": true,
+        "head_broken": false,
+        "q1_yes": true,
+        "asked_q2": true,
+        "bad_turns": [],
+        "passed": true
+      },
+      "voice_type": "S4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_backchannel.wav"
+          },
+          "heard": "はい。",
+          "intended": "ご希望の日時をお聞かせください。",
+          "tool_events": [
+            {
+              "at_s": 1.117,
+              "name": "record_answer",
+              "args": {
+                "condition_id": "はい",
+                "question_id": "Q1",
+                "value": "はい"
+              },
+              "reply": "next"
+            }
+          ],
+          "first_audio_after_s": 2.111,
+          "finished_after_s": 4.844,
+          "audio_seconds": 2.68,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 2.111,
+              "audio_s": 0.0,
+              "text": "ご希望の日時をお聞かせくださ"
+            },
+            {
+              "at_s": 2.7,
+              "audio_s": 2.0,
+              "text": "い。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "ear": "ご希望の日時を教えてください。",
+          "check": {
+            "voiced_s": 2.18,
+            "compared_with": "intended",
+            "morae": 17,
+            "expected_s": 1.89,
+            "ratio": 1.16,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_205801_G29_C5_最初の質問の途中の相づち_1_S4_0_ok.wav"
+        },
+        {
+          "index": 1,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_datetime_pm.wav"
+          },
+          "heard": "15 日の午後 2 時でお願いします。",
+          "intended": "15日の午後2時で、よろしいでしょうか。",
+          "tool_events": [
+            {
+              "at_s": 0.788,
+              "name": "record_answer",
+              "args": {
+                "condition_id": "答えた",
+                "question_id": "Q2",
+                "value": "15日の午後2時"
+              },
+              "reply": "confirm_required"
+            }
+          ],
+          "first_audio_after_s": 1.393,
+          "finished_after_s": 4.308,
+          "audio_seconds": 2.89,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.393,
+              "audio_s": 0.0,
+              "text": "15日の午後2時で、よろし"
+            },
+            {
+              "at_s": 1.753,
+              "audio_s": 1.89,
+              "text": "いでしょうか。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "ear": "15日の午後2時でよろしいでしょうか？",
+          "check": {
+            "voiced_s": 2.57,
+            "compared_with": "intended",
+            "morae": 22,
+            "expected_s": 2.44,
+            "ratio": 1.05,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_205816_G29_C5_最初の質問の途中の相づち_1_S4_1_ok.wav"
+        },
+        {
+          "index": 2,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_affirm.wav"
+          },
+          "heard": "はい、そうです。",
+          "intended": "ご来店の人数をお聞かせください。",
+          "tool_events": [
+            {
+              "at_s": 0.873,
+              "name": "confirm_field",
+              "args": {
+                "question_id": "Q2",
+                "result": "affirmed"
+              },
+              "reply": "next"
+            }
+          ],
+          "first_audio_after_s": 1.334,
+          "finished_after_s": 3.978,
+          "audio_seconds": 2.64,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.334,
+              "audio_s": 0.0,
+              "text": "ご来店の人数をお聞かせくださ"
+            },
+            {
+              "at_s": 1.785,
+              "audio_s": 2.0,
+              "text": "い。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q3",
+          "ear": "来店の人数を教えてください。",
+          "check": {
+            "voiced_s": 2.34,
+            "compared_with": "intended",
+            "morae": 19,
+            "expected_s": 2.11,
+            "ratio": 1.11,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_205829_G29_C5_最初の質問の途中の相づち_1_S4_2_ok.wav"
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "condition_id": "はい",
+            "question_id": "Q1",
+            "value": "はい"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q2",
+            "question": "ご希望の日時をお聞かせください。",
+            "message": "受け付けました。次の質問は Q2「ご希望の日時をお聞かせください。」です。"
+          },
+          "callee_turns": 1
+        },
+        {
+          "op": "record_answer",
+          "args": {
+            "condition_id": "答えた",
+            "question_id": "Q2",
+            "value": "15日の午後2時"
+          },
+          "reply": {
+            "result": "confirm_required",
+            "value": "15日の午後2時",
+            "say": "15日の午後2時で、よろしいでしょうか。",
+            "message": "言い直して確かめます。「15日の午後2時で、よろしいでしょうか。」と言って、相手の返事を待ってください。"
+          },
+          "callee_turns": 2
+        },
+        {
+          "op": "confirm_field",
+          "args": {
+            "question_id": "Q2",
+            "result": "affirmed"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q3",
+            "question": "ご来店の人数をお聞かせください。",
+            "message": "確認できました。次の質問は Q3「ご来店の人数をお聞かせください。」です。"
+          },
+          "callee_turns": 3
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "accepted",
+          "value": "はい",
+          "condition": "はい",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q2": {
+          "state": "confirmed",
+          "value": "15日の午後2時",
+          "condition": "答えた",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q3": {
+          "state": "empty",
+          "value": null,
+          "condition": null,
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        }
+      },
+      "export": {
+        "Q1": "はい",
+        "Q2": "15日の午後2時",
+        "Q3": "-"
+      },
+      "final_phase": "asking",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "first_heard": {
+        "0.0": "ご希望の日時を教えてください。",
+        "1.0": "ご希望の日時を教えてください。"
+      }
+    },
+    {
+      "rep": 1,
+      "scene": "C5_最初の質問の途中の相づち",
+      "type": "L4",
+      "plan": {
+        "stopped": false,
+        "stop_at_s": null,
+        "done": [
+          "お忙しいところ恐れ入ります。",
+          "株式会社「アオバ物流」の「佐藤」と申します。",
+          "ご予約の確認でお電話いたしました。",
+          "ご予約はされていますでしょうか。"
+        ],
+        "rest": [],
+        "send_from_s": 8.83201044386423,
+        "dropped": []
+      },
+      "checks": {
+        "first_said": "ご希望の日時をお聞かせいただけますでしょうか？",
+        "first_heard": {
+          "0.0": "ご希望の日時をお聞かせいただけますでしょうか？",
+          "1.0": "ご希望の日時をお聞かせいただけますでしょうか？"
+        },
+        "need_ok": true,
+        "reintroduced": false,
+        "reintro_ok": true,
+        "head_broken": false,
+        "q1_yes": true,
+        "asked_q2": true,
+        "bad_turns": [],
+        "passed": true
+      },
+      "voice_type": "L4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_backchannel.wav"
+          },
+          "heard": "はい。",
+          "intended": "ご希望の日時をお聞かせいただけますでしょうか。",
+          "tool_events": [
+            {
+              "at_s": 0.783,
+              "name": "record_answer",
+              "args": {
+                "condition_id": "はい",
+                "question_id": "Q1",
+                "value": "はい"
+              },
+              "reply": "next"
+            }
+          ],
+          "first_audio_after_s": 2.567,
+          "finished_after_s": 5.533,
+          "audio_seconds": 2.96,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 2.567,
+              "audio_s": 0.0,
+              "text": "ご希望の日時をお聞かせ"
+            },
+            {
+              "at_s": 3.038,
+              "audio_s": 1.84,
+              "text": "いただけますでしょうか。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "ear": "ご希望の日時をお聞かせいただけますでしょうか？",
+          "check": {
+            "voiced_s": 2.77,
+            "compared_with": "intended",
+            "morae": 23,
+            "expected_s": 2.77,
+            "ratio": 1.0,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_205904_G29_C5_最初の質問の途中の相づち_1_L4_0_ok.wav"
+        },
+        {
+          "index": 1,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_datetime_pm.wav"
+          },
+          "heard": "15 日の午後 2 時でお願いします。",
+          "intended": "十五日の午後二時で、よろしいでしょうか。",
+          "tool_events": [
+            {
+              "at_s": 0.816,
+              "name": "record_answer",
+              "args": {
+                "value": "15日の午後2時",
+                "question_id": "Q2",
+                "condition_id": "答えた"
+              },
+              "reply": "confirm_required"
+            }
+          ],
+          "first_audio_after_s": 1.496,
+          "finished_after_s": 4.336,
+          "audio_seconds": 2.82,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.496,
+              "audio_s": 0.0,
+              "text": "十五日"
+            },
+            {
+              "at_s": 2.067,
+              "audio_s": 1.98,
+              "text": "の午後二時で、"
+            },
+            {
+              "at_s": 2.115,
+              "audio_s": 2.82,
+              "text": "よろしいでしょうか。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "ear": "15 日の午後 2 時でよろしいでしょうか。",
+          "check": {
+            "voiced_s": 2.52,
+            "compared_with": "intended",
+            "morae": 19,
+            "expected_s": 2.29,
+            "ratio": 1.1,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_205919_G29_C5_最初の質問の途中の相づち_1_L4_1_ok.wav"
+        },
+        {
+          "index": 2,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_affirm.wav"
+          },
+          "heard": "はい、そうです。",
+          "intended": "ご来店の人数をお聞かせいただけますでしょうか。",
+          "tool_events": [
+            {
+              "at_s": 0.799,
+              "name": "confirm_field",
+              "args": {
+                "result": "affirmed",
+                "correction": "15日の午後2時",
+                "question_id": "Q2"
+              },
+              "reply": "next"
+            }
+          ],
+          "first_audio_after_s": 1.477,
+          "finished_after_s": 4.6,
+          "audio_seconds": 3.12,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.477,
+              "audio_s": 0.0,
+              "text": "ご来店の人数をお聞かせいただけます"
+            },
+            {
+              "at_s": 1.805,
+              "audio_s": 2.16,
+              "text": "でしょうか。"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q3",
+          "ear": "ご来店の人数をお聞かせいただけますでしょうか？",
+          "check": {
+            "voiced_s": 2.92,
+            "compared_with": "intended",
+            "morae": 25,
+            "expected_s": 3.01,
+            "ratio": 0.97,
+            "kind": "ok"
+          },
+          "audio_file": "20261013_205933_G29_C5_最初の質問の途中の相づち_1_L4_2_ok.wav"
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "condition_id": "はい",
+            "question_id": "Q1",
+            "value": "はい"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q2",
+            "question": "ご希望の日時をお聞かせください。",
+            "message": "受け付けました。次の質問は Q2「ご希望の日時をお聞かせください。」です。"
+          },
+          "callee_turns": 1
+        },
+        {
+          "op": "record_answer",
+          "args": {
+            "value": "15日の午後2時",
+            "question_id": "Q2",
+            "condition_id": "答えた"
+          },
+          "reply": {
+            "result": "confirm_required",
+            "value": "15日の午後2時",
+            "say": "15日の午後2時で、よろしいでしょうか。",
+            "message": "言い直して確かめます。「15日の午後2時で、よろしいでしょうか。」と言って、相手の返事を待ってください。"
+          },
+          "callee_turns": 2
+        },
+        {
+          "op": "confirm_field",
+          "args": {
+            "result": "affirmed",
+            "correction": "15日の午後2時",
+            "question_id": "Q2"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q3",
+            "question": "ご来店の人数をお聞かせください。",
+            "message": "確認できました。次の質問は Q3「ご来店の人数をお聞かせください。」です。"
+          },
+          "callee_turns": 3
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "accepted",
+          "value": "はい",
+          "condition": "はい",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q2": {
+          "state": "confirmed",
+          "value": "15日の午後2時",
+          "condition": "答えた",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q3": {
+          "state": "empty",
+          "value": null,
+          "condition": null,
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        }
+      },
+      "export": {
+        "Q1": "はい",
+        "Q2": "15日の午後2時",
+        "Q3": "-"
+      },
+      "final_phase": "asking",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "first_heard": {
+        "0.0": "ご希望の日時をお聞かせいただけますでしょうか？",
+        "1.0": "ご希望の日時をお聞かせいただけますでしょうか？"
+      }
+    }
+  ]
+}
