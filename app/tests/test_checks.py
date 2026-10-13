@@ -107,6 +107,21 @@ class PhoneFormatting(Planted):
         self.assertEqual([(v.rule, v.path) for v in found], [("Q1", "src/salescall/core/importer.py")])
 
 
+    def test_spoken_digits_then_normalize_is_allowed(self):
+        """CL-1 の分け方（2026-10-13）：会話の側は「話し言葉 → 数字の並び」だけを行い、そのあと normalize を呼ぶ。
+        「+81」の組み立て・種類の判断をしなければ、見張りは落ちない。"""
+        body = (
+            "from salescall.core.phone import normalize\n"
+            "KANJI = str.maketrans('〇一二三四五六七八九', '0123456789')\n"
+            "def spoken_to_digits(said):\n"
+            "    return said.translate(KANJI).replace('の', '')\n"
+            "def phone_value(said):\n"
+            "    return normalize(spoken_to_digits(said))\n"
+        )
+        root = self._app({"src/salescall/core/value_types.py": body, "src/salescall/conversation/flow.py": body})
+        self.assertEqual(rules.run_all(root), [])
+
+
 class CurrentCodePasses(unittest.TestCase):
     def test_all_rules_pass(self):
         self.assertEqual([str(v) for v in rules.run_all(APP)], [])

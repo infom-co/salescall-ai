@@ -69,6 +69,7 @@
 | `app/`（本番のコード。2026-10-13 ユーザー決定。案と条件：`docs/TECH_CHOICE_CL-2.md` 9章） | 下の表のとおり、持ち場ごとに分ける |
 | `app/src/salescall/core/`・`app/db/`・`app/checks/`・`app/src/salescall/supervisor/` | CL-2（データの形・読み書きの層・門・発信の出口・判定・次の動き・取込・控え・機械の見張り・見守り役） |
 | `app/src/salescall/conversation/` | CL-1（会話AI接続・流れの制御・指示文・通話後の検証・キーの選択） |
+| `app/src/salescall/core/value_types.py` | CL-1（型の一覧 Q19 と、型ごとの値の決まり・確かめ。会話の処理と CL-2 の書き込む入口の両方が呼ぶので core に置く。2026-10-13 CL-1 の案・CL-2 賛成。⏳ ユーザーの承認） |
 | `app/src/salescall/web/` | CL-3（ダッシュボード・検証モードの画面） |
 | `app/src/salescall/output/` | CL-3（出力の型・書き出し・送り方の部品・連携の台帳の処理。画面が開いていなくても動く。CL-3 の願いで `web/` と分けた） |
 | `app/src/salescall/telephony/` | まだ振らない（回線ごとの部品。発信は `core` の出口からしか呼べない） |

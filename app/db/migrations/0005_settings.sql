@@ -201,7 +201,8 @@ INSERT INTO salescall.setting_definitions (key, merge_kind, value_type, meaning,
 ('verification.max_retries', 'system_only', 'integer', '通話後の検証を自動でやり直す回数の上限', 'DESIGN.md 5-2-1 の9', NULL, NULL),
 ('verification.retry_wait', 'system_only', 'seconds', '通話後の検証をやり直すまでの待ち', 'DESIGN.md 5-2-1 の9', NULL, NULL),
 ('line.lease', 'system_only', 'seconds', '見守り役が回線を借りる期限', 'DESIGN.md 4-2', NULL, NULL),
-('line.lease_renew', 'system_only', 'seconds', '回線の借用を延ばす間隔', 'DESIGN.md 4-2', NULL, NULL);
+('line.lease_renew', 'system_only', 'seconds', '回線の借用を延ばす間隔', 'DESIGN.md 4-2', NULL, NULL),
+('call.hangup_after_decline_wait', 'override', 'seconds', '断られたときの締めの言葉のあと、相手が切らなければ、こちらから切ってよいまでの秒数', 'DESIGN.md 6-14（持ち主 CL-1）', NULL, NULL);
 
 -- ═════════ 最初の値（根拠と、いつ見直すかつき。ユーザーが決めたものは「確定」） ═════════
 INSERT INTO salescall.setting_values (key, scope, value, status, rationale, review_when, set_by) VALUES
@@ -245,4 +246,5 @@ INSERT INTO salescall.setting_values (key, scope, value, status, rationale, revi
 ('verification.max_retries', 'system', '3', 'provisional', '別の耳の一時的な混雑（503 など）は数回で通ることが多い（CL-1 の G-23）', '検証の失敗の記録を見て', 'CL-2'),
 ('verification.retry_wait', 'system', '600', 'provisional', '混雑が引くのを待つ。10分あけても、次の発信の判断（翌日以降が多い）には間に合う', '同上', 'CL-2'),
 ('line.lease', 'system', '60', 'provisional', 'PCが落ちたと判断するまでの時間。短すぎると、少しの遅れで生きている回線の通話を「結果不明」にしてしまう', '見守り役ができて、実際の延長の間隔を測ったあと', 'CL-2'),
-('line.lease_renew', 'system', '20', 'provisional', '期限の3分の1ごとに延ばす（2回続けて延ばし損ねても、まだ期限内）', '同上', 'CL-2');
+('line.lease_renew', 'system', '20', 'provisional', '期限の3分の1ごとに延ばす（2回続けて延ばし損ねても、まだ期限内）', '同上', 'CL-2'),
+('call.hangup_after_decline_wait', 'system', '7', 'decided', '2026-10-13 ユーザー決定（CL-1 の連絡帳 4-5 から）', '模擬通話と最初の実測で、相手が切るまでの間を見て', 'ユーザー');
