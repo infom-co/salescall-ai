@@ -3,9 +3,11 @@
 会話の位置・項目の状態・聞き返しと確かめの回数は、ここだけが持つ（Q6・Q7）。AIは操作を呼ぶだけで、
 ここが確かめて「受け付けた」と返したものだけが記録になる（6-2）。G-6・G-16・G-13・G-5 の確かめは、すべてここを通す。
 
-項目の状態（4-4 の名前だけを使う）：empty / heard / unclear / checking / confirmed / accepted / unresolved / refused
+項目の状態（4-4 の名前だけを使う）：empty / heard / unclear / checking / confirmed / accepted / dont_know / unresolved / refused
 すべての質問に、システムが2つの選択肢を足す（業務ごとに書き忘れない。I-19）：
-  "unknown"（相手が「わからない」と答えた）⇒ 聞けたので accepted。依頼主へは「-」。念のための確認はしない
+  "unknown"（相手が「わからない」と答えた）⇒ dont_know。「取れた」には入らない。依頼主へは「-」。念のための確認はしない
+    ⛔ 2026-10-13 ユーザー決定（CL-2 から依頼）：必須の質問が「わからない」なら、業務は完了ではない。前は accepted（＝取れた）に
+       していたので、ほかがそろうと完了になっていた。⇒ 専用の状態にした（「取れた」は状態だけで決まる。条件を見なくてよい）
   "refused"（相手が答えを拒んだ）⇒ refused。依頼主へは「✕」。二度と聞かない
   ✅ 2026-10-13 ユーザー確定（DESIGN.md 6-2・4-4・7-1b）。設計の抜け（拒否を報告する操作が無い／「わからない」と
      答えた項目を念のため聞き直すことになっていた）を埋めたもの。
@@ -16,15 +18,19 @@ import re
 from dataclasses import dataclass, field
 
 from phrases import confirm as confirm_phrase
+from phrases import lead_in as lead_in_phrase
 
 # 型の一覧（Q19）：その場で言い直して確かめる型。DESIGN.md 4-4
 CONFIRM_TYPES = {"date", "time", "datetime", "number", "amount", "name", "phone", "email", "address"}
 # 選択肢で答える型：依頼主へは、相手の言葉ではなく、宣言された選択肢を渡す（7-1b）
 CHOICE_TYPES = {"yes_no", "choice"}
+# 型の一覧（Q19）の全部。確かめない型は、選択肢の型と、自由な意見（free_text。2026-10-13 CL-2 の依頼で名前を決めた）
+TYPES = CONFIRM_TYPES | CHOICE_TYPES | {"free_text"}
 SYSTEM_CONDITIONS = ("unknown", "refused")
-STATES = ("empty", "heard", "unclear", "checking", "confirmed", "accepted", "unresolved", "refused")
-# 値の形をそろえる（型の一覧 Q19 の決まり）：言い終わりの「です」「。」などは値に入れない
+STATES = ("empty", "heard", "unclear", "checking", "confirmed", "accepted", "dont_know", "unresolved", "refused")
+# 値の形をそろえる（型の一覧 Q19 の決まり）：確かめる型は、言い直しに使う値なので、言い終わりの「です」「。」などは値に入れない
 # ⛔「ね」「よ」「で」などの1文字は外さない（名前の終わり＝「あかね」などを削るため）
+# 確かめない型（選択肢・自由な意見）は、相手の言葉のまま（自由な意見の「よかったです」を「よかった」に変えない）
 _TAIL = re.compile(r"(?:です|でございます|になります)?[。、．！？!?\s]*$")
 
 
@@ -32,7 +38,7 @@ def normalize_value(qtype: str, value: str | None) -> str | None:
     if value is None:
         return None
     v = value.strip()
-    if qtype not in CHOICE_TYPES:
+    if qtype in CONFIRM_TYPES:
         v = _TAIL.sub("", v).strip()
     return v or None
 GOT = ("confirmed", "accepted")  # 「取れた」（4-4）
@@ -42,7 +48,10 @@ GOT = ("confirmed", "accepted")  # 「取れた」（4-4）
 #    ⇒ AIに見せる名前は、すべて日本語にする。中の名前（英字）との置き換えは、AIの入口（Flow.handle）と操作の宣言（tool_declarations）
 #    で、この表だけを使って行う。⚠️ 操作の名前（record_answer など）だけは、道具の決まりで英字のまま。
 #    依頼主が決める選択肢（「はい」「いいえ」など）は、依頼主が書いたまま（日本語）で、置き換えない。
-ARG_LABEL = {"question_id": "質問", "condition_id": "答えの種類", "value": "値", "result": "相手の返事", "correction": "訂正された値",
+#    ⛔ 2026-10-13 G-26・G-28：項目名「相手の返事」を、AIが「与えの返事」「合い手の返事」と書き違えた（日本語の形の confirm_field 60回中4回。
+#    英字の「result」は 82回中0回。「答えの種類」は 89回中0回）。⇒ 「答えの種類」と同じ形の「返事の種類」にした。
+#    書き違えは名前を変えても0にはならない前提で、宣言に無い項目名・選択肢は、すべて差し戻す（Flow.apply の _check_args）。
+ARG_LABEL = {"question_id": "質問", "condition_id": "答えの種類", "value": "値", "result": "返事の種類", "correction": "訂正された値",
              "reason": "理由"}
 SYSTEM_LABEL = {"unknown": "わからない", "refused": "答えたくない"}
 CONFIRM_LABEL = {"affirmed": "合っている", "corrected": "違う値を言われた", "no_answer": "答えなかった"}
@@ -53,7 +62,15 @@ RESULT_LABEL = {"next": "次の質問", "confirm_required": "言い直して確�
 _FROM_LABEL = {"condition_id": {v: k for k, v in SYSTEM_LABEL.items()}, "result": {v: k for k, v in CONFIRM_LABEL.items()},
                "reason": {v: k for k, v in END_LABEL.items()}}
 _ARG_FROM_LABEL = {v: k for k, v in ARG_LABEL.items()}
-OPS = ("record_answer", "report_unclear", "confirm_field", "request_end")  # AIが呼べる操作（6-2。宣言は tool_declarations）
+# AIが呼べる操作（6-2）と、その項目（中の名前）：(必ず要る項目, 無くてもよい項目)。操作の宣言（tool_declarations）と、
+# 受け取ったときの確かめ（Flow._check_args）は、この表だけを使う（宣言と確かめが食い違わないように）
+OP_ARGS = {"record_answer": (("question_id", "condition_id"), ("value",)),
+           "report_unclear": (("question_id",), ()),
+           "confirm_field": (("question_id", "result"), ("correction",)),
+           "request_end": (("reason",), ())}
+OPS = tuple(OP_ARGS)
+# 選択肢が決まっている項目（中の名前 → その表）。答えの種類（condition_id）は質問ごとに違うので、record_answer の中で確かめる
+_ENUM_ARGS = {"result": CONFIRM_LABEL, "reason": END_LABEL}
 
 
 @dataclass
@@ -73,6 +90,7 @@ class Question:
     conditions: tuple = ()      # 業務が宣言した選択肢（依頼主が書いたまま。システムの2つは足さなくてよい）
 
     def __post_init__(self):
+        assert self.type in TYPES, f"{self.id} の型「{self.type}」は、型の一覧にありません（I-16）"
         clash = set(self.conditions) & (set(SYSTEM_CONDITIONS) | set(SYSTEM_LABEL.values()))
         assert not clash, f"{self.id} の選択肢が、システムの選択肢と同じ名前です：{clash}"
 
@@ -108,7 +126,7 @@ class Item:
 
 class Flow:
     def __init__(self, questions: list[Question], limits: Limits | None = None, confirm=confirm_phrase,
-                 busy_ask: str | None = None):
+                 busy_ask: str | None = None, lead_ins: bool = False):
         """confirm：言い直しの言い方を作る関数 (値, 場面, 何回目) → 文（ふだんは phrases.confirm。言い方を比べる試験 G-25 だけが別のものを渡す）。
         busy_ask：相手が「忙しい」と言ったときに1回だけ言う一言（業務設定。None なら丁寧に終える＝既定。Intent.md 9-4）。"""
         self.confirm = confirm
@@ -116,6 +134,9 @@ class Flow:
         self.busy_asked = False
         self.confirm_counts: dict[str, int] = {}   # 言い直しの場面ごとの回数（同じ言い方が続かないよう、順番に回す）
         self.awaiting_say: str | None = None       # いま返事を待っている言い直しの、言い方（差し戻しのときも同じ言い方を使う）
+        # lead_ins：プログラムの返事のあとに話す文の頭に、受けの言葉を置くか（DESIGN.md 6-11 の案。⏳ 承認前なので既定は置かない。G-27 で測る）
+        self.lead_ins = lead_ins
+        self.lead_counts: dict[str, int] = {}
         self.questions = {q.id: q for q in questions}
         self.order = [q.id for q in questions]
         self.limits = limits or Limits()
@@ -139,10 +160,34 @@ class Flow:
 
     # ── 中の名前での入口（handle と試験は、ここを通す）。記録（log）は中の名前で残す
     def apply(self, name: str, args: dict) -> dict:
-        fn = getattr(self, f"_op_{name}", None)
-        reply = fn(args) if fn else self._reject(f"その操作はありません（使える操作は {'・'.join(OPS)}）。")
+        if name not in OP_ARGS:
+            reply = self._reject(f"その操作はありません（使える操作は {'・'.join(OPS)}）。")
+        else:
+            why = self._check_args(name, args)
+            reply = self._reject(why) if why else getattr(self, f"_op_{name}")(args)
         self.log.append({"op": name, "args": args, "reply": reply, "callee_turns": self.callee_turns})
         return reply
+
+    @staticmethod
+    def _check_args(name: str, args: dict) -> str | None:
+        """宣言（OP_ARGS）に合わない報告は、記録を書き換える前に、どこが違うかを言って差し戻す。合っていれば None。
+        ⛔ 2026-10-13 G-26・G-28：AIが項目名を書き違えた報告（「与えの返事」）を、そのまま受け取っていた。返事の種類が無いので
+           「相手が答えなかった」とされ、相手が「はい」と認めた値が「-」になった（4回。どれも黙って起きた）。
+           ⇒ 宣言に無い項目名・要る項目の抜け・選択肢に無い値・文字でない値は、すべて差し戻す。"""
+        required, optional = OP_ARGS[name]
+        usable = "・".join(ARG_LABEL[k] for k in required + optional)
+        for k, v in args.items():
+            if k not in required + optional:
+                return f"「{k}」という項目は、{name} にはありません（使える項目は {usable}）。"
+            if v is not None and not isinstance(v, str):
+                return f"「{ARG_LABEL[k]}」は、文字で入れてください。"
+        for k in required:
+            if not (args.get(k) or "").strip():
+                return f"{name} には「{ARG_LABEL[k]}」が要ります（使える項目は {usable}）。"
+        for k, table in _ENUM_ARGS.items():
+            if k in args and args[k] not in table:
+                return f"{ARG_LABEL[k]}「{table.get(args[k], args[k])}」は選べません（選べるのは {'、'.join(table.values())}）。"
+        return None
 
     @staticmethod
     def _args_in(args: dict) -> dict:
@@ -180,7 +225,7 @@ class Flow:
             it.set("refused", "相手が答えを拒んだ")
             return self._advance("受け付けました（答えたくない）。この質問は二度としません。")
         if cond == "unknown":
-            it.set("accepted", "相手が「わからない」と答えた")
+            it.set("dont_know", "相手が「わからない」と答えた")
             return self._advance("受け付けました（わからない）。")
         it.set("heard", "聞き取れた")
         if q.confirm or it.ask_backs or self.phase == "rechecking":
@@ -254,7 +299,7 @@ class Flow:
         situation = "聞き取りにくかったあと" if (it.ask_backs or it.corrections or self.phase == "rechecking") else "ふつう"
         n = self.confirm_counts.get(situation, 0)
         self.confirm_counts[situation] = n + 1
-        say = self.awaiting_say = self.confirm(it.value, situation, n)
+        say = self.awaiting_say = self._lead("言い直し") + self.confirm(it.value, situation, n)
         return {"result": "confirm_required", "value": it.value, "say": say,
                 "message": f"言い直して確かめます。「{say}」と言って、相手の返事を待ってください。"}
 
@@ -267,7 +312,7 @@ class Flow:
             self.current = rest[0]
             q = self.questions[self.current]
             return {"result": "next", "question_id": q.id, "question": q.text,
-                    "message": f"{prefix}次の質問は {q.id}「{q.text}」です。"}
+                    "message": f"{prefix}次の質問は {q.id}「{q.text}」です。" + self._lead_note("次の質問")}
         if self.phase == "asking":
             # 締めの前に、「-」の必須項目を1回だけ念のため確かめる（6-11）。急いでいる相手にはしない
             self.recheck_queue = [qid for qid in self.order
@@ -282,6 +327,18 @@ class Flow:
                     "message": f"{prefix}念のための確認です。{q.id}「{q.text}」を、もう1回だけ聞いてください。"}
         self.current, self.phase = None, "closing"
         return {"result": "end", "message": f"{prefix}質問は終わりです。締めの言葉を言って終えてください。"}
+
+    def _lead(self, kind: str) -> str:
+        """受けの言葉（lead_ins が無効なら空）。種類ごとに順番に回す。"""
+        if not self.lead_ins:
+            return ""
+        n = self.lead_counts.get(kind, 0)
+        self.lead_counts[kind] = n + 1
+        return lead_in_phrase(kind, n)
+
+    def _lead_note(self, kind: str) -> str:
+        lead = self._lead(kind)
+        return f"「{lead}」から話し始めてください。" if lead else ""
 
     def _reject(self, why: str) -> dict:
         """差し戻す唯一の場所。理由が何であっても、いま求めていること（_now）を必ず添える。"""
@@ -300,7 +357,10 @@ class Flow:
         if self.current is None:
             return "質問は終わりです。締めの言葉を言って終えてください。"
         q = self.questions[self.current]
-        return f"いまの質問は {q.id}「{q.text}」です。"
+        # ⛔ 2026-10-13 G-28：AIが答えを報告せずに言い直し、差し戻されたあと、「いまの質問は Q2 です」としか伝わらず、
+        #    報告しないまま言い直しを繰り返した。⇒ いますることの操作まで書く
+        return (f"いまの質問は {q.id}「{q.text}」です。相手が答えたら record_answer で報告してください"
+                f"（聞き取れなかったら report_unclear）。")
 
     # ── 依頼主へ渡す書き方（7-1b。Q20 の唯一の場所）
     def export(self, unknown_mark: str = "-", refused_mark: str = "✕") -> dict:
@@ -308,7 +368,7 @@ class Flow:
         for qid, it in self.items.items():
             if it.state == "refused":
                 out[qid] = refused_mark
-            elif it.state in GOT and it.condition != "unknown":
+            elif it.state in GOT:
                 if self.questions[qid].type in CHOICE_TYPES or it.value in (None, ""):
                     out[qid] = it.condition  # 選択肢の型は、宣言された選択肢（相手の言葉そのものではない）
                 else:
@@ -330,6 +390,9 @@ def tool_declarations(questions: list[Question]):
     A = ARG_LABEL
 
     def fd(name, desc, props, required):
+        # 項目と「必ず要る項目」は、受け取ったときの確かめと同じ表（OP_ARGS）から作る
+        req, opt = OP_ARGS[name]
+        assert set(props) == {A[k] for k in req + opt} and required == [A[k] for k in req], name
         return types.FunctionDeclaration(name=name, description=desc,
                                          parameters=types.Schema(type=types.Type.OBJECT, properties=props, required=required))
 

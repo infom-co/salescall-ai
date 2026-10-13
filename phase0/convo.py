@@ -36,9 +36,9 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                    swap_before: int | None = None, stall_at: int | None = None, stall_wait_s: float = 1.0,
                    opening_mode: str = "ai", barge_in: tuple[list[str], list[str]] | None = None,
                    thinking_budget: int | None = None, use_ear: bool = True, save_audio: str = "bad",
-                   audio_label: str = "", confirm=None, gap_s: float = 0.0) -> dict:
-    flow = Flow(business.questions, busy_ask=business.busy_ask,
-                **({"confirm": confirm} if confirm else {}))  # confirm：言い直しの言い方（G-25 の比べだけ）
+                   audio_label: str = "", confirm=None, gap_s: float = 0.0, lead_ins: bool = False) -> dict:
+    flow = Flow(business.questions, busy_ask=business.busy_ask, lead_ins=lead_ins,
+                **({"confirm": confirm} if confirm else {}))  # confirm：言い直しの言い方（G-25 の比べだけ）。lead_ins：G-27
     turns: list[dict] = []
     sessions = 0
     replay: int | None = None  # 送り直す相手の発話の番号（止まったときの張り替え）
