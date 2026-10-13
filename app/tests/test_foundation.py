@@ -184,6 +184,30 @@ class OnlyCorporateForNow(unittest.TestCase):
                 (t, c)))
 
 
+class NamesMatchTheDesign(unittest.TestCase):
+    """データベースが持つ名前の写しが、設計書の正本（DESIGN.md 4-4。持ち主 CL-1）と同じであること。
+    正本が変わったのに写しを直し忘れたら、ここが落ちる。"""
+
+    def test_item_states(self):
+        rows = World().a.in_system(SYSTEM, lambda tx: tx.all(
+            "SELECT unnest(enum_range(NULL::salescall.item_state))::text AS s"))
+        self.assertEqual([r["s"] for r in rows], ["empty", "heard", "unclear", "checking", "confirmed", "accepted",
+                                                  "dont_know", "unresolved", "refused"])
+
+    def test_field_types(self):
+        rows = World().a.in_system(SYSTEM, lambda tx: tx.all(
+            "SELECT type_name, readback FROM salescall.field_types ORDER BY type_name"))
+        self.assertEqual({r["type_name"]: r["readback"] for r in rows}, {
+            "date": True, "time": True, "datetime": True, "number": True, "amount": True, "name": True,
+            "phone": True, "email": True, "address": True, "yes_no": False, "choice": False, "free_text": False})
+
+    def test_dont_know_can_be_stored(self):
+        w = World(); s = w.setup()
+        w.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: tx.execute(
+            "INSERT INTO salescall.item_values (tenant_id, client_id, task_id, version_id, question_id, state, condition)"
+            " VALUES (%s, %s, %s, %s, 'Q1', 'dont_know', 'unknown')", (s["tenant"], s["client"], s["task"], s["version"])))
+
+
 class UnknownFieldTypeIsRejected(unittest.TestCase):
     """I-16：型の一覧に無い型の質問は作れない。"""
 
