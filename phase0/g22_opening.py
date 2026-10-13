@@ -18,7 +18,7 @@ import json
 from common import base_parser, describe_error, make_client, pick_key, require_python, save_result, say
 from common import drop_partial, read_wav_pcm16_mono, save_partial
 from convo import AUDIO_DIR, run_call
-from flowctl import Question, tool_declarations
+from flowctl import GOT, Question, tool_declarations
 from instruction import VOICE_TYPES, Business, build
 from listen import differences, hear_feeds, in_all, in_any
 from make_callee_samples import verified
@@ -95,7 +95,7 @@ def judge(scene: dict, call: dict) -> dict:
                                                        for d in differences(turns[0]["intended"], v)))
     # 最初の質問へ戻れたか：Q1 が「はい」で受け付けられ、次の質問（日時）を聞いた
     q1 = call["items"]["Q1"]
-    c["q1_yes"] = q1["condition"] == "はい" and q1["state"] in ("accepted", "confirmed")
+    c["q1_yes"] = q1["condition"] == "はい" and q1["state"] in GOT
     idx = scene.get("then_q2_at", 1)
     if scene.get("then_q2") or "then_q2_at" in scene:
         c["asked_q2"] = len(turns) > idx and any(w in turns[idx].get("ear", "") for w in ("日時", "日にち", "お日にち"))

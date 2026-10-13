@@ -155,8 +155,30 @@ class FlowTest(unittest.TestCase):
         f = self.flow()
         self.call(f, "record_answer", question_id="Q1", condition_id="yes")
         r = self.call(f, "record_answer", question_id="Q2", condition_id="unknown")
-        self.assertEqual((r["result"], f.items["Q2"].state), ("end", "accepted"))  # 聞けたので、念のため聞き直さない
+        self.assertEqual((r["result"], f.items["Q2"].state), ("end", "dont_know"))  # 答えは聞けたので、念のため聞き直さない
         self.assertEqual(f.export()["Q2"], "-")
+
+    def test_dont_know_is_not_got(self):
+        # 2026-10-13 ユーザー決定（CL-2 から依頼）：必須の質問が「わからない」なら、業務は完了ではない。
+        # 前は accepted（＝取れた）にしていたので、ほかがそろうと「すべて取れた」になっていた
+        from flowctl import GOT
+        f = self.flow()
+        self.call(f, "record_answer", question_id="Q1", condition_id="yes")
+        self.call(f, "record_answer", question_id="Q2", condition_id="unknown")
+        self.assertNotIn(f.items["Q2"].state, GOT)
+        self.assertEqual(sorted(q for q, it in f.items.items() if it.state in GOT), ["Q1"])
+
+    def test_type_list(self):
+        from flowctl import Flow, Question, normalize_value
+        with self.assertRaises(AssertionError):  # 型の一覧に無い型は作れない（I-16）
+            Question("Q1", "ご意見は。", "opinion", conditions=("答えた",))
+        # 自由な意見は確かめない型で、相手の言葉のまま（言い終わりの「です」を外さない）。値は要る
+        self.assertEqual(normalize_value("free_text", "とても良かったです。"), "とても良かったです。")
+        f = Flow([Question("Q1", "ご意見をお聞かせください。", "free_text", conditions=("答えた",))])
+        self.assertEqual(self.call(f, "record_answer", question_id="Q1", condition_id="答えた")["result"], "rejected")  # 値が無い
+        r = self.call(f, "record_answer", question_id="Q1", condition_id="答えた", value="とても良かったです。")
+        self.assertEqual((r["result"], f.items["Q1"].state), ("end", "accepted"))
+        self.assertEqual(f.export(), {"Q1": "とても良かったです。"})
 
     def test_hurry_skips_recheck(self):
         f = self.flow()
@@ -578,6 +600,15 @@ class AIToJapaneseTest(unittest.TestCase):
                            ("record_answer", {"質問": "Q2", "答えの種類": "答えた", "値": "15日"}), ("request_end", {"理由": "質問が終わった"}),
                            ("no_such", {})):
             shown.append(json.dumps(f.handle(fc(name, **args)), ensure_ascii=False))
+        # 張り替えのときに渡す「いまの位置」（「わからない」「答えたくない」の項目があるとき）。⛔ 直す前は英字の unknown が出ていた
+        from instruction import position_text
+        g = Flow(b.questions)
+        g.handle(fc("record_answer", 質問="Q1", 答えの種類="わからない"))
+        shown.append(position_text(b, g))
+        h = Flow(b.questions)
+        h.handle(fc("record_answer", 質問="Q1", 答えの種類="答えたくない"))
+        shown.append(position_text(b, h))
+        self.assertIn("わからないと言われた", shown[-2])
         schema_words = {"name", "description", "parameters", "type", "properties", "enum", "required", "OBJECT", "STRING"}  # 宣言の形の名前
         for s in shown:
             words = set(re.findall(r"[A-Za-z_][A-Za-z_0-9]*", s)) - allowed - schema_words

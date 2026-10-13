@@ -3,9 +3,11 @@
 会話の位置・項目の状態・聞き返しと確かめの回数は、ここだけが持つ（Q6・Q7）。AIは操作を呼ぶだけで、
 ここが確かめて「受け付けた」と返したものだけが記録になる（6-2）。G-6・G-16・G-13・G-5 の確かめは、すべてここを通す。
 
-項目の状態（4-4 の名前だけを使う）：empty / heard / unclear / checking / confirmed / accepted / unresolved / refused
+項目の状態（4-4 の名前だけを使う）：empty / heard / unclear / checking / confirmed / accepted / dont_know / unresolved / refused
 すべての質問に、システムが2つの選択肢を足す（業務ごとに書き忘れない。I-19）：
-  "unknown"（相手が「わからない」と答えた）⇒ 聞けたので accepted。依頼主へは「-」。念のための確認はしない
+  "unknown"（相手が「わからない」と答えた）⇒ dont_know。「取れた」には入らない。依頼主へは「-」。念のための確認はしない
+    ⛔ 2026-10-13 ユーザー決定（CL-2 から依頼）：必須の質問が「わからない」なら、業務は完了ではない。前は accepted（＝取れた）に
+       していたので、ほかがそろうと完了になっていた。⇒ 専用の状態にした（「取れた」は状態だけで決まる。条件を見なくてよい）
   "refused"（相手が答えを拒んだ）⇒ refused。依頼主へは「✕」。二度と聞かない
   ✅ 2026-10-13 ユーザー確定（DESIGN.md 6-2・4-4・7-1b）。設計の抜け（拒否を報告する操作が無い／「わからない」と
      答えた項目を念のため聞き直すことになっていた）を埋めたもの。
@@ -22,10 +24,13 @@ from phrases import lead_in as lead_in_phrase
 CONFIRM_TYPES = {"date", "time", "datetime", "number", "amount", "name", "phone", "email", "address"}
 # 選択肢で答える型：依頼主へは、相手の言葉ではなく、宣言された選択肢を渡す（7-1b）
 CHOICE_TYPES = {"yes_no", "choice"}
+# 型の一覧（Q19）の全部。確かめない型は、選択肢の型と、自由な意見（free_text。2026-10-13 CL-2 の依頼で名前を決めた）
+TYPES = CONFIRM_TYPES | CHOICE_TYPES | {"free_text"}
 SYSTEM_CONDITIONS = ("unknown", "refused")
-STATES = ("empty", "heard", "unclear", "checking", "confirmed", "accepted", "unresolved", "refused")
-# 値の形をそろえる（型の一覧 Q19 の決まり）：言い終わりの「です」「。」などは値に入れない
+STATES = ("empty", "heard", "unclear", "checking", "confirmed", "accepted", "dont_know", "unresolved", "refused")
+# 値の形をそろえる（型の一覧 Q19 の決まり）：確かめる型は、言い直しに使う値なので、言い終わりの「です」「。」などは値に入れない
 # ⛔「ね」「よ」「で」などの1文字は外さない（名前の終わり＝「あかね」などを削るため）
+# 確かめない型（選択肢・自由な意見）は、相手の言葉のまま（自由な意見の「よかったです」を「よかった」に変えない）
 _TAIL = re.compile(r"(?:です|でございます|になります)?[。、．！？!?\s]*$")
 
 
@@ -33,7 +38,7 @@ def normalize_value(qtype: str, value: str | None) -> str | None:
     if value is None:
         return None
     v = value.strip()
-    if qtype not in CHOICE_TYPES:
+    if qtype in CONFIRM_TYPES:
         v = _TAIL.sub("", v).strip()
     return v or None
 GOT = ("confirmed", "accepted")  # 「取れた」（4-4）
@@ -85,6 +90,7 @@ class Question:
     conditions: tuple = ()      # 業務が宣言した選択肢（依頼主が書いたまま。システムの2つは足さなくてよい）
 
     def __post_init__(self):
+        assert self.type in TYPES, f"{self.id} の型「{self.type}」は、型の一覧にありません（I-16）"
         clash = set(self.conditions) & (set(SYSTEM_CONDITIONS) | set(SYSTEM_LABEL.values()))
         assert not clash, f"{self.id} の選択肢が、システムの選択肢と同じ名前です：{clash}"
 
@@ -219,7 +225,7 @@ class Flow:
             it.set("refused", "相手が答えを拒んだ")
             return self._advance("受け付けました（答えたくない）。この質問は二度としません。")
         if cond == "unknown":
-            it.set("accepted", "相手が「わからない」と答えた")
+            it.set("dont_know", "相手が「わからない」と答えた")
             return self._advance("受け付けました（わからない）。")
         it.set("heard", "聞き取れた")
         if q.confirm or it.ask_backs or self.phase == "rechecking":
@@ -362,7 +368,7 @@ class Flow:
         for qid, it in self.items.items():
             if it.state == "refused":
                 out[qid] = refused_mark
-            elif it.state in GOT and it.condition != "unknown":
+            elif it.state in GOT:
                 if self.questions[qid].type in CHOICE_TYPES or it.value in (None, ""):
                     out[qid] = it.condition  # 選択肢の型は、宣言された選択肢（相手の言葉そのものではない）
                 else:
