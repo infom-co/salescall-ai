@@ -16,10 +16,11 @@ import asyncio
 import json
 
 from common import base_parser, describe_error, make_client, pick_key, require_python, save_result, say
-from convo import run_call
+from common import read_wav_pcm16_mono
+from convo import AUDIO_DIR, run_call
 from flowctl import Question, tool_declarations
 from instruction import VOICE_TYPES, Business, build
-from listen import differences
+from listen import differences, hear_feeds, in_all, in_any
 from make_callee_samples import verified
 from live_util import build_config
 from turn_check import bad_kinds
@@ -70,10 +71,15 @@ SCENES = {
 def judge(scene: dict, call: dict) -> dict:
     turns = call["turns"]
     first = turns[0].get("ear", "") if turns else ""
-    c = {"first_said": first}
-    c["need_ok"] = all(any(w in first for w in group) for group in scene["need_any"])
-    # 名乗り直し：「申します」だけでなく、名前を言ったか（⛔ 2026-10-13：「佐藤です」と名乗り直した回を、見逃していた）
-    c["reintroduced"] = "申します" in first or BUSINESS.caller in first
+    # 相手に何が聞こえたかは、2通りの聞かせ方の両方で見る（first_heard。1回だけだと、別の耳は頭を約5%聞き違える。G-24）
+    heard = call.get("first_heard") or {"1回": first}
+    c = {"first_said": first, "first_heard": heard}
+    # 誤りに数えるのは、2通りの両方でそろったときだけ（言うべき言葉は、どちらか一方で聞こえれば、言えたとする）
+    c["need_ok"] = in_any(heard, lambda v: all(any(w in v for w in group) for group in scene["need_any"]))
+    # 名乗り直し：「申します」だけでなく、名前を言ったか（⛔ 2026-10-13：「佐藤です」と名乗り直した回を、見逃していた）。
+    # AIが言ったことなので、言うつもりの言葉（AI自身の文字）と、聞こえた言葉の、どちらかにあれば名乗り直したとする
+    said = (turns[0].get("intended") or "") if turns else ""
+    c["reintroduced"] = any("申します" in s or BUSINESS.caller in s for s in (said, first))
     if scene.get("no_reintro"):
         c["reintro_ok"] = not c["reintroduced"]
     if scene.get("hurried"):
@@ -85,8 +91,8 @@ def judge(scene: dict, call: dict) -> dict:
         c["second_ok"] = all(any(w in second for w in g) for g in scene["second_need_any"])
     # 書き出しの崩れ：最初の返事の声（別の耳）と、言うつもりの言葉（AI自身の文字起こし）の、最初の10音の食い違い
     if turns and turns[0]["intended"]:
-        c["head_broken"] = any(d["at"] < 10 and d["heard"] != "お" and "あおば" not in d["script"]
-                               for d in differences(turns[0]["intended"], first))
+        c["head_broken"] = in_all(heard, lambda v: any(d["at"] < 10 and d["heard"] != "お" and "あおば" not in d["script"]
+                                                       for d in differences(turns[0]["intended"], v)))
     # 最初の質問へ戻れたか：Q1 が「はい」で受け付けられ、次の質問（日時）を聞いた
     q1 = call["items"]["Q1"]
     c["q1_yes"] = q1["condition"] == "yes" and q1["state"] in ("accepted", "confirmed")
@@ -125,6 +131,9 @@ async def run(args) -> dict:
                     call = await run_call(client, args.model, BUSINESS, vt, scene["callee"], opening_mode="recorded",
                                           barge_in=scene["barge"], save_audio="all",
                                           audio_label=f"G22_{name}_{rep}")  # ユーザーが聞いて決める試験なので、声を全部残す
+                    if call["turns"] and call["turns"][0].get("audio_file"):
+                        pcm, prate = read_wav_pcm16_mono(AUDIO_DIR / call["turns"][0]["audio_file"])
+                        call["first_heard"] = await hear_feeds(client, pcm, prate)
                     row = {"rep": rep, "scene": name, "type": vt, "checks": judge(scene, call), **call}
                 except Exception as exc:
                     row = {"rep": rep, "scene": name, "type": vt, "error": describe_error(exc)}

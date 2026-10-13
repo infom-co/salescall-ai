@@ -20,6 +20,8 @@ EARS = ("transcribe35", "live38")
 #   崩れて聞こえた回が4本）⇒ 0（もとの形）に戻した。⚠️ 別の耳は、1回聞いただけだと、1ターンの頭を約5%で聞き違える。
 #   頭の崩れを数えるときは、2通りの聞かせ方で同じに崩れたものだけを数える（EAR-HEAD-convo-mismatch_20261013_150506.json）
 LEAD_S = 0.0
+# 2通りの聞かせ方（声の前の無音の秒数）。1ターンの崩れを数えるときは、両方で同じに崩れたものだけを数える（G-24）
+FEEDS = (0.0, 1.0)
 _MODEL = {"transcribe35": "gemini-3.5-transcribe-live", "live38": "gemini-3.8-live"}
 
 
@@ -70,3 +72,24 @@ def differences(expected: str, heard: str) -> list[dict]:
             out.append({"kind": op, "script": a[max(0, i1 - 4):i1] + "[" + a[i1:i2] + "]" + a[i2:i2 + 4], "heard": b[j1:j2],
                         "at": i1})  # 台本の読み（ひらがな）の何文字目か
     return out
+
+
+async def hear_feeds(client, pcm16: bytes, rate: int, ear: str = "transcribe35") -> dict[str, str | None]:
+    """同じ声を、2通りの聞かせ方（FEEDS）で聞く。聞けなかったほうは None。"""
+    out: dict[str, str | None] = {}
+    for lead in FEEDS:
+        try:
+            out[str(lead)] = await hear(client, pcm16, rate, ear, lead_s=lead)
+        except Exception:
+            out[str(lead)] = None
+    return out
+
+
+def in_all(heard: dict[str, str | None], test) -> bool:
+    """2通りの聞かせ方の、どちらでも test が成り立つか（聞けなかったほうがあれば、成り立たないとする）。"""
+    return all(v is not None and test(v) for v in heard.values())
+
+
+def in_any(heard: dict[str, str | None], test) -> bool:
+    """2通りの聞かせ方の、どちらか一方でも test が成り立つか。⇒ 「言えなかった」と数えるのは、両方で聞こえなかったときだけ。"""
+    return any(v is not None and test(v) for v in heard.values())

@@ -19,7 +19,7 @@ from convo import AUDIO_DIR, run_call
 from flowctl import Question, normalize_value
 from instruction import VOICE_TYPES, Business
 from jtext import compare_reading
-from listen import differences, hear
+from listen import differences, hear_feeds, in_all, in_any
 from phrases import confirm
 
 BUSINESS = Business(
@@ -36,7 +36,6 @@ VARIANTS = {
     "V2_考える量0": {"thinking_budget": 0},
 }
 HEAD = 4
-FEEDS = (0.0, 1.0)  # 声の前の無音（秒）
 
 
 def head_bad(intended: str, heard: str) -> bool:
@@ -50,21 +49,17 @@ async def check_turns(client, call: dict) -> list[dict]:
         if not (t.get("tool_events") and t.get("audio_file") and t.get("intended")):
             continue
         pcm, rate = read_wav_pcm16_mono(AUDIO_DIR / t["audio_file"])
-        heard = {}
-        for lead in FEEDS:
-            try:
-                heard[lead] = await hear(client, pcm, rate, "transcribe35", lead_s=lead)
-            except Exception as exc:
-                heard[lead] = None
-                say("別の耳の誤り：", describe_error(exc))
-        row = {"index": t["index"], "intended": t["intended"], "audio_file": t["audio_file"], "heard": {str(k): v for k, v in heard.items()},
-               "head_bad_both": all(v is not None and head_bad(t["intended"], v) for v in heard.values())}
+        heard = await hear_feeds(client, pcm, rate)
+        row = {"index": t["index"], "intended": t["intended"], "audio_file": t["audio_file"], "heard": heard,
+               "head_bad_both": in_all(heard, lambda v: head_bad(t["intended"], v))}
         asked = [e for e in t["tool_events"] if e.get("reply") == "confirm_required"]
         if asked:
             q = BUSINESS.questions[[x.id for x in BUSINESS.questions].index(asked[-1]["args"].get("question_id"))]
             value = normalize_value(q.type, asked[-1]["args"].get("value") or asked[-1]["args"].get("correction"))
             row["value"] = value
-            row["value_heard_both"] = all(v is not None and compare_reading(value) in compare_reading(v) for v in heard.values())
+            # 値が聞こえなかったと数えるのは、2通りの両方で聞こえなかったときだけ（value_heard_any）。両方で聞こえたか（value_heard_both）も残す
+            row["value_heard_both"] = in_all(heard, lambda v: compare_reading(value) in compare_reading(v))
+            row["value_heard_any"] = in_any(heard, lambda v: compare_reading(value) in compare_reading(v))
             row["value_in_intended"] = compare_reading(value) in compare_reading(t["intended"])
         out.append(row)
     return out
@@ -78,6 +73,7 @@ def summarize(rows: list[dict]) -> dict:
         rb = [t for t in turns if "value" in t]
         s[name] = {"calls": len(rs), "after_tool_turns": len(turns), "head_bad_both": sum(t["head_bad_both"] for t in turns),
                    "readbacks": len(rb), "value_heard_both": sum(t["value_heard_both"] for t in rb),
+                   "value_missed_in_all": sum(1 for t in rb if not t.get("value_heard_any", t["value_heard_both"])),
                    "value_said": sum(t["value_in_intended"] for t in rb),
                    "passed_calls": sum(1 for r in rs if r["checks"]["passed"])}
     return s
@@ -114,7 +110,7 @@ async def run(args) -> dict:
         say("途中のまとめ：", json.dumps(summarize(rows), ensure_ascii=False))
     summary = summarize(rows)
     say("まとめ：", json.dumps(summary, ensure_ascii=False))
-    return {"model": args.model, "variants": list(VARIANTS), "feeds": FEEDS, "summary": summary, "rows": rows}
+    return {"model": args.model, "variants": list(VARIANTS), "summary": summary, "rows": rows}
 
 
 def main() -> None:

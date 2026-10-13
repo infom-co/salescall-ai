@@ -4,10 +4,10 @@
 ターンの頭が食い違った（「ご来店」が「来店」、言い直しの「15日」が「4日」「いつもの」など）。一方、通話の声をつなげて
 聞かせた試験（G-19。途中のターンの前には無音がある）では、言い直しの「15日」は崩れていない。
 確かめ方：G-19 で保存した通話の声（results/g19_audio/）を、ターンの間の無音（ちょうど0の 0.6秒）でターンごとに切り分け、
-同じ1ターンの声を「無音なし（lead_s=0）」と「無音あり（listen.LEAD_S）」で別の耳に聞かせ、言うつもりの言葉
+同じ1ターンの声を「無音なし」と「無音あり」（listen.FEEDS）で別の耳に聞かせ、言うつもりの言葉
 （AI自身の文字）と比べる。どちらを先に聞かせるかは、1つずつ入れ替える。
 見ること：ターンの頭（読みの最初の4音）の食い違いの数。声は同じなので、差が出れば、それは別の耳の聞き方の違い。
---opening：AIが名乗る形の通話の、最初のターン（名乗り）だけを「無音あり」で聞き直す（6-13 の前提＝名乗りの崩れの割合の測り直し）。
+--opening：AIが名乗る形の通話の、最初のターン（名乗り）だけを2通りで聞き直す（6-13 の前提＝名乗りの崩れの割合の測り直し）。
 --convo 結果のファイル：会話の試験（convo）で残したターンの声（results/convo_audio/）を聞き比べる。
   ⇒ 2026-10-13：G-19 の声では、無音なしでも19本中1本しか食い違わなかった。会話の試験との違いは、AIが操作（答えの報告）の
      返事を受けてから話し始めるターンが多いこと。⇒ 声の頭そのものが欠けているのか（AIの誤り）、別の耳の聞き落としなのかを分ける。
@@ -22,7 +22,7 @@ import json
 import numpy as np
 
 from common import HERE, base_parser, describe_error, make_client, pick_key, require_python, save_result, say, read_wav_pcm16_mono
-from listen import LEAD_S, differences, hear
+from listen import FEEDS, differences, hear
 
 AUDIO = HERE / "results" / "g19_audio"
 CONVO_AUDIO = HERE / "results" / "convo_audio"
@@ -109,20 +109,20 @@ async def run(args) -> dict:
     if args.convo and args.only_mismatch:
         # 試験の中で別の耳が頭を聞き違えたターンだけを、もう一度聞かせる（同じ崩れ方をくり返せば、声そのものの崩れ）
         targets = [c for c in convo_clips(args.convo) if c["ear_in_test"] and head_diffs(c["intended"], c["ear_in_test"])]
-        leads = [0.0, LEAD_S]  # ⛔ 2026-10-13：無音ありでだけ崩れて聞こえたターンがあった ⇒ 両方で聞く
+        leads = list(FEEDS)  # ⛔ 2026-10-13：無音ありでだけ崩れて聞こえたターンがあった ⇒ 両方で聞く
     elif args.convo:
         cs = convo_clips(args.convo)  # 操作の返事のあとのターンと、そうでないターンを、交互に選ぶ
         a, b = [c for c in cs if c["after_tool"]], [c for c in cs if not c["after_tool"]]
         targets = [x for pair in zip(a, b) for x in pair][:args.n] or cs[:args.n]
         if len(targets) < args.n:
             targets += [c for c in cs if c not in targets][:args.n - len(targets)]
-        leads = [0.0, LEAD_S]
+        leads = list(FEEDS)
     elif args.opening:
         targets = clips(first_only_ai_opening=True)
-        leads = [LEAD_S]
+        leads = list(FEEDS)  # 名乗りの崩れも、2通りで同じに崩れたものだけを数える
     else:
         targets = pick(clips(first_only_ai_opening=False), args.n)
-        leads = [0.0, LEAD_S]
+        leads = list(FEEDS)
     say(f"聞かせるターン：{len(targets)} 本 × 無音 {leads}")
     if args.dry_run:
         return {"dry_run": True, "targets": [{k: v for k, v in c.items() if k != "pcm"} for c in targets]}
@@ -144,7 +144,8 @@ async def run(args) -> dict:
         say(f"{i + 1}/{len(targets)} {c['intended'][:20]} | " +
             " | ".join(f"無音{lead}：{row[f'lead_{lead}'].get('heard', '')[:20]} 頭={len(row[f'lead_{lead}'].get('head', [])) if 'head' in row[f'lead_{lead}'] else '誤り'}"
                        for lead in leads))
-    summary = {}
+    both = [r for r in rows if all("head" in r.get(f"lead_{lead}", {}) for lead in leads)]
+    summary = {"both_heard": len(both), "head_mismatch_in_all": sum(1 for r in both if all(r[f"lead_{lead}"]["head"] for lead in leads))}
     for lead in leads:
         got = [r[f"lead_{lead}"] for r in rows if "head" in r[f"lead_{lead}"]]
         summary[f"lead_{lead}"] = {"heard": len(got), "head_mismatch": sum(1 for g in got if g["head"]),
