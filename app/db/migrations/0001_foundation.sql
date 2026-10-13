@@ -342,6 +342,19 @@ CREATE TRIGGER attempts_after_write AFTER INSERT OR UPDATE ON salescall.attempts
 CREATE TRIGGER attempts_no_delete BEFORE DELETE ON salescall.attempts
   FOR EACH ROW EXECUTE FUNCTION salescall.forbid_change();
 
+-- ═════════ 追記の順番待ち（結果の版・次の動きの記録に番号を振る前に、ここで順番を取る） ═════════
+-- ⚠️ 直列化の水準でも「いまの最大の番号 + 1」を同時に足すと、やり直しにならず一意の違反として返ることがある
+--    （2026-10-13 に試験で確かめた）。同じタスクのこの行を書き換えてから番号を振れば、ぶつかったほうは
+--    「やり直し」（直列化の失敗）として返り、読み書きの層がやり直す。書くのは core/tasks.py だけ。
+CREATE TABLE salescall.task_append_locks (
+  tenant_id uuid NOT NULL,
+  client_id uuid NOT NULL,
+  task_id   uuid PRIMARY KEY,
+  bumps     bigint NOT NULL CHECK (bumps >= 1),
+  FOREIGN KEY (tenant_id, client_id) REFERENCES salescall.clients (tenant_id, client_id),
+  FOREIGN KEY (client_id, task_id) REFERENCES salescall.tasks (client_id, task_id)
+);
+
 -- ═════════ 項目の値（4-4。状態の移り方を決めるのは CL-1 の流れの制御。ここは保存の形だけ） ═════════
 CREATE TABLE salescall.item_values (
   tenant_id   uuid NOT NULL,
@@ -565,7 +578,7 @@ DECLARE t text;
 BEGIN
   FOREACH t IN ARRAY ARRAY['businesses', 'business_versions', 'questions', 'runs', 'run_versions', 'contacts', 'tasks',
                            'attempts', 'attempt_state_history', 'item_values', 'task_results', 'result_releases',
-                           'task_next_actions', 'destinations', 'deliveries', 'dnc_entries'] LOOP
+                           'task_next_actions', 'destinations', 'deliveries', 'dnc_entries', 'task_append_locks'] LOOP
     EXECUTE format('ALTER TABLE salescall.%I ENABLE ROW LEVEL SECURITY', t);
     EXECUTE format('CREATE POLICY client_scope ON salescall.%I
                       USING (tenant_id = salescall.cur_tenant() AND client_id = salescall.cur_client())
@@ -579,11 +592,12 @@ GRANT INSERT ON salescall.tenants, salescall.clients, salescall.lines, salescall
                 salescall.questions, salescall.runs, salescall.run_versions, salescall.contacts, salescall.tasks,
                 salescall.attempts, salescall.item_values, salescall.task_results, salescall.result_releases,
                 salescall.task_next_actions, salescall.destinations, salescall.deliveries, salescall.dnc_entries,
-                salescall.system_dnc_entries, salescall.stop_events, salescall.number_ledger
+                salescall.system_dnc_entries, salescall.stop_events, salescall.number_ledger,
+                salescall.task_append_locks
              TO salescall_app;
 -- 試行の状態の履歴は仕掛けだけが書く（システムの処理の役が書く仕掛けなので INSERT は要る。書き換えは仕掛けが拒む）
 GRANT INSERT ON salescall.attempt_state_history TO salescall_app;
 GRANT UPDATE ON salescall.lines, salescall.attempts, salescall.item_values, salescall.deliveries,
-                salescall.dnc_entries, salescall.number_ledger
+                salescall.dnc_entries, salescall.number_ledger, salescall.task_append_locks
              TO salescall_app;
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA salescall TO salescall_app;

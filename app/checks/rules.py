@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import ast
+import re
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -51,8 +52,15 @@ def _imported_modules(tree: ast.AST) -> Iterator[tuple[str, int]]:
 
 
 def _string_constants(tree: ast.AST) -> Iterator[tuple[str, int]]:
+    """文字の定数。f文字列は、差し込む部分を「{}」にして1つの文字にする（表の名前を差し込んで見張りを逃れるのを見つける）。"""
+    joined_parts: set[int] = set()
     for node in ast.walk(tree):
-        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        if isinstance(node, ast.JoinedStr):
+            text = "".join(v.value if isinstance(v, ast.Constant) and isinstance(v.value, str) else "{}" for v in node.values)
+            joined_parts.update(id(v) for v in node.values)
+            yield text, node.lineno
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in joined_parts:
             yield node.value, node.lineno
 
 
@@ -123,7 +131,58 @@ def key_values_only_in_key_selection(app_root: Path) -> list[Violation]:
     return out
 
 
+# ── I-7・I-12：書く場所は1か所（DESIGN.md 2章の「唯一の答える場所」）。表ごとに、書いてよい部品を決める。
+#    ここに無い salescall の表は、業務の土台（src/salescall/core/）の中だけが書ける。消す（DELETE）は、どこからもしない。
+#    末尾が「/」のものは、その場所の中ならどこでもよい。
+_CORE = "src/salescall/core/"
+WRITERS: dict[str, dict[str, frozenset[str]]] = {
+    "attempts": {"INSERT": frozenset({_CORE + "gate.py"}),            # 予約を作るのは門だけ（Q2）
+                 "UPDATE": frozenset({_CORE + "attempts.py"})},       # 状態を移すのは、試行の状態の部品だけ（4-2）
+    "number_ledger": {"INSERT": frozenset({_CORE + "gate.py"}), "UPDATE": frozenset({_CORE + "gate.py"})},
+    "task_results": {"INSERT": frozenset({_CORE + "results.py"})},           # 業務の状態（Q5 の記録）
+    "result_releases": {"INSERT": frozenset({_CORE + "approval.py"})},       # 送ってよい印は承認の部分だけ（10章）
+    "task_next_actions": {"INSERT": frozenset({_CORE + "next_action.py"})},  # 次の予定（Q4）
+    "dnc_entries": {"INSERT": frozenset({_CORE + "dnc.py"}), "UPDATE": frozenset({_CORE + "dnc.py"})},  # Q3
+    "system_dnc_entries": {"INSERT": frozenset({_CORE + "dnc.py"})},
+    "stop_events": {"INSERT": frozenset({_CORE + "stops.py"})},              # 運転の状態（Q13）
+    "item_values": {"INSERT": frozenset({_CORE + "conversation_io.py"}),     # 会話の処理が書き込む入口（CL-1 のお願い (a)）
+                    "UPDATE": frozenset({_CORE + "conversation_io.py"})},
+    "task_append_locks": {"INSERT": frozenset({_CORE + "tasks.py"}), "UPDATE": frozenset({_CORE + "tasks.py"})},
+    "deliveries": {"INSERT": frozenset({"src/salescall/output/"}),           # 連携の台帳（Q17。持ち主 CL-3）
+                   "UPDATE": frozenset({"src/salescall/output/"})},
+}
+_WRITE = re.compile(r"\b(INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+salescall\.(\w+|\{\})", re.IGNORECASE)
+
+
+def _allowed(rel: str, places: frozenset[str]) -> bool:
+    return any(rel == p or (p.endswith("/") and rel.startswith(p)) for p in places)
+
+
+def single_writers(app_root: Path) -> list[Violation]:
+    out: list[Violation] = []
+    for path in _python_files(app_root):
+        rel = _rel(app_root, path)
+        if rel.startswith("tests/") or rel == "run_tests.py":
+            continue  # 試験と試験の土台は、約束を試すため・守りをわざと外すために、データを直接書く
+        for text, line in _string_constants(_parse(path)):
+            for m in _WRITE.finditer(text):
+                verb = m.group(1).split()[0].upper()
+                table = m.group(2)
+                if table == "{}":
+                    out.append(Violation("I-12", rel, line, "書く表の名前を差し込みで作っています（書く場所を見張れない）"))
+                    continue
+                if verb == "DELETE":
+                    out.append(Violation("I-12", rel, line, f"salescall.{table} を消しています（消すことはしない）"))
+                    continue
+                places = WRITERS.get(table, {}).get(verb, frozenset({_CORE}))
+                if not _allowed(rel, places):
+                    where = "、".join(sorted(places))
+                    out.append(Violation("I-12", rel, line, f"salescall.{table} を {verb} してよいのは {where} だけです"))
+    return out
+
+
 ALL_RULES: tuple[Callable[[Path], list[Violation]], ...] = (
+    single_writers,
     no_phase0,
     db_driver_only_in_layer,
     scope_settings_only_in_layer,

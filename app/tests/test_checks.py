@@ -55,6 +55,40 @@ class Planted(unittest.TestCase):
         self.assertEqual([(v.rule, v.path) for v in found], [("I-32", "src/salescall/conversation/session.py")])
 
 
+class SingleWriters(Planted):
+    """I-7・I-12：書く場所は1か所。"""
+
+    def test_result_written_outside_results(self):
+        root = self._app({"src/salescall/core/judge.py": 'SQL = "INSERT INTO salescall.task_results (x) VALUES (1)"\n',
+                          "src/salescall/core/results.py": 'SQL = "INSERT INTO salescall.task_results (x) VALUES (1)"\n'})
+        found = rules.single_writers(root)
+        self.assertEqual([(v.rule, v.path) for v in found], [("I-12", "src/salescall/core/judge.py")])
+
+    def test_attempt_state_written_outside_attempts(self):
+        root = self._app({"src/salescall/core/supervisor_x.py": 'SQL = "UPDATE salescall.attempts SET state = %s"\n'})
+        self.assertEqual([v.rule for v in rules.single_writers(root)], ["I-12"])
+
+    def test_schedule_written_outside_next_action(self):
+        root = self._app({"src/salescall/core/errors.py": 'SQL = "insert into salescall.task_next_actions (x) values (1)"\n'})
+        self.assertEqual([v.rule for v in rules.single_writers(root)], ["I-12"])
+
+    def test_screen_writes_core_table(self):
+        root = self._app({"src/salescall/web/x.py": 'SQL = "UPDATE salescall.contacts SET phone_e164 = %s"\n'})
+        self.assertEqual([v.rule for v in rules.single_writers(root)], ["I-12"])
+
+    def test_delete_anywhere(self):
+        root = self._app({"src/salescall/core/x.py": 'SQL = "DELETE FROM salescall.tasks"\n'})
+        self.assertEqual([v.rule for v in rules.single_writers(root)], ["I-12"])
+
+    def test_dynamic_table_name(self):
+        root = self._app({"src/salescall/core/results.py": 't = "task_results"\nSQL = f"INSERT INTO salescall.{t} (x) VALUES (1)"\n'})
+        self.assertEqual([v.rule for v in rules.single_writers(root)], ["I-12"])
+
+    def test_output_may_write_deliveries(self):
+        root = self._app({"src/salescall/output/ledger.py": 'SQL = "UPDATE salescall.deliveries SET state = %s"\n'})
+        self.assertEqual(rules.single_writers(root), [])
+
+
 class CurrentCodePasses(unittest.TestCase):
     def test_all_rules_pass(self):
         self.assertEqual([str(v) for v in rules.run_all(APP)], [])
