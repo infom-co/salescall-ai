@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from flowctl import ARG_LABEL, END_LABEL, SYSTEM_LABEL, Question
+from flowctl import ARG_LABEL, END_LABEL, GOT, SYSTEM_LABEL, Question
 
 from phrases import ASK_BACK, RECHECK  # noqa: F401（決まった言い方は phrases.py の1か所。試験からも、ここ経由で読める）
 # プログラムから会話AIへ送る合図の文面（文字で送る。相手には聞こえない）。合図の文面はここだけに置く（DESIGN.md 6-7）
@@ -180,8 +180,11 @@ def position_text(business: Business, flow) -> str:
     done = []
     for q in business.questions:
         it = flow.items[q.id]
-        if it.state in ("confirmed", "accepted"):
+        if it.state in GOT:
             done.append(f"{q.id}「{q.text}」⇒ {it.value or it.condition}（済み）")
+        elif it.state == "dont_know":
+            # ⛔ 直す前は「取れた」と同じ行で、選択肢の中の名前（英字の unknown）をそのままAIに見せていた
+            done.append(f"{q.id}「{q.text}」⇒ わからないと言われた（聞き直さない）")
         elif it.state == "refused":
             done.append(f"{q.id}「{q.text}」⇒ 答えたくないと言われた（二度と聞かない）")
     lines = ["これは通話の続きです。回線の都合で、つなぎ直しました。名乗りはもう済んでいます。もう一度名乗ってはいけません。"]

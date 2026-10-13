@@ -14,7 +14,7 @@ import json
 from common import base_parser, describe_error, make_client, pick_key, require_python, save_result, say
 from convo import run_call
 from turn_check import bad_kinds
-from flowctl import Question, tool_declarations
+from flowctl import GOT, Question, tool_declarations
 from instruction import ASK_BACK, VOICE_TYPES, Business, build
 from live_util import build_config
 
@@ -74,10 +74,10 @@ def judge_scene(name: str, scene: dict, call: dict) -> dict:
         if e in ("-", "✕"):
             return got.get(qid) == e
         if e == "はい":  # はい／いいえは、分類（条件）で見る
-            return it["condition"] == "はい" and it["state"] in ("accepted", "confirmed")
+            return it["condition"] == "はい" and it["state"] in GOT
         # 値は言い回しが揺れるので、数字と「午前／午後」を含むかで見る
         keys = [k for k in ("15", "16", "2", "3", "午後") if k in e]
-        return it["state"] in ("accepted", "confirmed") and all(k in (it["value"] or "") for k in keys)
+        return it["state"] in GOT and all(k in (it["value"] or "") for k in keys)
     # 聞き返し・念のための確認の回数は、プログラムの記録で数える（言い方は、AIが復唱でも「念のため」と言うので、声では数えない）。
     # 声で確かめるのは、プログラムが求めたそのターンで、決まった言い方をしたか。
     def said_in_turns_with(result, word):
