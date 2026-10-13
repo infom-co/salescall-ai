@@ -13,8 +13,7 @@ from dataclasses import dataclass, field
 
 from flowctl import Question
 
-ASK_BACK = "聞き取りにくかったので、もう一度、おっしゃっていただいてよろしいでしょうか。"
-RECHECK = "念のため確認させてください。"
+from phrases import ASK_BACK, RECHECK  # noqa: F401（決まった言い方は phrases.py の1か所。試験からも、ここ経由で読める）
 # プログラムから会話AIへ送る合図の文面（文字で送る。相手には聞こえない）。合図の文面はここだけに置く（DESIGN.md 6-7）
 CUES = {
     # AIが黙ったとき：1回だけ返事を促す
@@ -64,16 +63,66 @@ def quote(name: str) -> str:
     return f"「{name}」"
 
 
+_OPEN, _CLOSE = "「『", "」』"
+
+
+def quote_in_text(text: str, names: list[str]) -> str:
+    """台本などの文の中の名前を、「」でくくる（名前の位置にだけ付け、ほかの文字は1文字も変えない）。
+    - 長い名前から先に当てる（「川崎市中原区」と「中原区」が重なれば、長いほうを1回だけくくる）
+    - 同じ名前が何回出ても、全部くくる
+    - もともと「」『』の中にある所は、くくらない（二重にしない）
+    - 全角と半角の違いは、そろえて当てる（文の書き方は変えない）
+    - 別の言葉の一部には付けない：名前の頭と終わりが、どちらも単語の切れ目（jtext.word_edges）にあるときだけ当てる
+      （「上野原」は1つの単語なので、中の「上野」には付けない。「株式会社ＡＢＣホールディングス営業部」は
+       「株式／会社／ＡＢＣ／ホールディングス／営業／部」と分かれるので、「ＡＢＣホールディングス」に付けられる）
+    ⚠️ 限界：単語に分ける処理が、1つの名前を2つに分けることがある（「神田川」＝「神田／川」）。名前の一覧に「神田」だけがあると、
+       「「神田」川」になる。名前の一覧に長いほうの名前があれば、長いほうが先に当たる。取込のプレビューで人が確かめる（Intent.md 6-8）。
+    """
+    import unicodedata
+
+    from jtext import word_edges
+
+    normed = "".join(unicodedata.normalize("NFKC", ch) if len(unicodedata.normalize("NFKC", ch)) == 1 else ch for ch in text)
+    edges = word_edges(text)
+    taken = [False] * len(text)
+    depth = 0
+    for i, ch in enumerate(text):  # もともとかっこの中にある文字は、くくらない
+        if ch in _OPEN:
+            depth += 1
+        elif ch in _CLOSE:
+            depth = max(0, depth - 1)
+        if depth or ch in _CLOSE:
+            taken[i] = True
+    spans = []
+    for name in sorted({unicodedata.normalize("NFKC", n) for n in names if n}, key=len, reverse=True):
+        start = 0
+        while (i := normed.find(name, start)) != -1:
+            j = i + len(name)
+            start = i + 1
+            if any(taken[i:j]) or i not in edges or j not in edges:
+                continue
+            spans.append((i, j))
+            for k in range(i, j):
+                taken[k] = True
+    out, pos = [], 0
+    for i, j in sorted(spans):
+        out.append(text[pos:i] + quote(text[i:j]))
+        pos = j
+    out.append(text[pos:])
+    return "".join(out)
+
+
 def system_rules() -> str:
     """システム共通の会話の決まり（6-3 の材料2・3）。業務ごとに書かない。"""
     return (
         "会話の決まり：\n"
-        "- 質問は、プログラムから渡されたものだけを、1つずつ聞きます。言い回しは自然にしてかまいませんが、意味を変えてはいけません。\n"
+        "- 質問は、プログラムから渡されたものだけを、1つずつ聞きます。言い回しは自然にしてかまいませんが、意味を変えてはいけません。"
+        "プログラムの返事に書かれていない質問や話題を、自分から出してはいけません（締めの前に「ほかに何かございますか」と聞くことも含みます）。\n"
         "- 相手が答えたら、必ず record_answer を呼びます。返事に次にすることが書いてあるので、それに従います。\n"
         "- 相手が「わからない」と答えたら condition_id を unknown に、答えたくないと言ったら refused にして record_answer を呼びます。"
         "答えたくないと言われた質問は、二度と聞きません。\n"
-        "- 日付・時刻・数・金額・名前・電話番号・メール・住所は、返事に「言い直して」とあれば、書いてある値のとおりに言い直して、相手の返事を待ちます。"
-        "相手が返事をしてから confirm_field で報告します（相手の返事を聞く前に報告してはいけません）。\n"
+        "- 日付・時刻・数・金額・名前・電話番号・メール・住所は、返事に「言い直して」とあれば、返事に書いてある確認の言い方のとおりに言って、"
+        "相手の返事を待ちます。相手が返事をしてから confirm_field で報告します（相手の返事を聞く前に報告してはいけません）。\n"
         "- 時刻は、午前か午後かを必ずはっきりさせます。相手が言わなかったら「午前と午後、どちらでしょうか」と聞きます。自分で決めてはいけません。\n"
         f"- 相手の答えが聞き取れない・曖昧なときは report_unclear を呼びます。返事が「聞き返す」のときだけ、「{ASK_BACK}」と1回だけ聞き返します。"
         "この言い方だけを使い、言葉を足したり、言い換えたりしません。返事が「-にします」なら、聞き返さずに、返事に書いてある次の質問へ進みます。\n"

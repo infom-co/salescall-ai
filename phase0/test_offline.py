@@ -169,6 +169,21 @@ class FlowTest(unittest.TestCase):
         f = self.flow()
         self.assertEqual(self.call(f, "request_end", reason="done")["result"], "rejected")
 
+    def test_done_rejected_while_awaiting_readback_or_rechecking(self):
+        f = self.flow()
+        self.call(f, "record_answer", question_id="Q1", condition_id="yes")
+        self.call(f, "record_answer", question_id="Q2", condition_id="answered", value="15日の午後2時")  # 最後の質問の言い直し待ち
+        self.assertEqual(self.call(f, "request_end", reason="done")["result"], "rejected")
+        self.assertEqual(f.items["Q2"].state, "checking")
+        f = self.flow()
+        self.call(f, "record_answer", question_id="Q1", condition_id="yes")
+        self.call(f, "report_unclear", question_id="Q2")
+        self.call(f, "report_unclear", question_id="Q2")                  # 聞き返しを使い切り「-」⇒ 念のための確認へ
+        self.assertEqual((f.phase, f.current), ("rechecking", "Q2"))
+        self.assertEqual(self.call(f, "request_end", reason="done")["result"], "rejected")  # 念のための確認を飛ばさない
+        self.assertEqual(self.call(f, "request_end", reason="callee_hurry")["result"], "end")  # 急いでいる相手は終えてよい
+        self.assertEqual(f.export()["Q2"], "-")
+
     def test_optional_item_not_asked_back(self):
         f = self.flow(q1_required=False)
         r = self.call(f, "report_unclear", question_id="Q1")
@@ -190,6 +205,37 @@ class FlowTest(unittest.TestCase):
         self.assertEqual(normalize_value("number", "3人です"), "3人")
         self.assertEqual(normalize_value("name", "あかね"), "あかね")  # 名前の終わりを削らない
         self.assertEqual(normalize_value("yes_no", "はい、そうです。"), "はい、そうです。")  # 選択肢の型はそのまま（渡すのは選択肢）
+
+    def test_every_rejection_says_what_to_do_now(self):
+        # 2026-10-13 G-16 の2回目：Q2 の言い直しの返事を待っている間に、Q3 の答えとして報告された
+        from flowctl import Flow, Question
+        f = Flow([Question("Q1", "ご予約はされていますか。", "yes_no", conditions=("yes", "no")),
+                  Question("Q2", "ご希望の日時をお聞かせください。", "datetime", conditions=("answered",)),
+                  Question("Q3", "ご来店の人数をお聞かせください。", "number", conditions=("answered",))])
+        self.call(f, "record_answer", question_id="Q1", condition_id="yes")
+        f.on_callee()
+        self.call(f, "record_answer", question_id="Q2", condition_id="answered", value="15日の午後2時です。")
+        f.on_callee()
+        for op, kw in (("record_answer", {"question_id": "Q3", "condition_id": "answered", "value": "3人"}),
+                       ("report_unclear", {"question_id": "Q3"}), ("request_end", {"reason": "done"}),
+                       ("confirm_field", {"question_id": "Q3", "result": "affirmed"}), ("no_such_op", {})):
+            r = self.call(f, op, **kw)
+            self.assertEqual(r["result"], "rejected", op)
+            self.assertIn("15日の午後2時で、よろしいでしょうか。", r["message"], op)  # 待っている言い直しと、その言い方
+            self.assertIn("confirm_field", r["message"], op)
+        self.assertEqual(f.items["Q3"].state, "empty")  # 差し戻した報告は、記録に入らない
+        r = self.call(f, "confirm_field", question_id="Q2", result="affirmed")
+        self.assertEqual((r["result"], r["question_id"]), ("next", "Q3"))
+        r = self.call(f, "record_answer", question_id="Q1", condition_id="yes")
+        self.assertIn("いまの質問は Q3「", r["message"])  # 言い直しを待っていないときは、いまの質問とその文
+
+    def test_confirm_phrase_is_the_fixed_one(self):
+        from phrases import confirm
+        f = self.flow()
+        self.call(f, "record_answer", question_id="Q1", condition_id="yes")
+        r = self.call(f, "record_answer", question_id="Q2", condition_id="answered", value="16日の午後2時")
+        self.assertEqual(r["say"], confirm("16日の午後2時"))
+        self.assertIn(f"「{confirm('16日の午後2時')}」", r["message"])
 
     def test_confirm_without_request_rejected(self):
         f = self.flow()
@@ -272,6 +318,68 @@ class PlaybackTest(unittest.TestCase):
         self.assertEqual(split_played(clips, None), (["A。", "B。", "C。"], []))
         self.assertEqual(split_played(clips, 2.0), (["A。"], ["B。", "C。"]))  # 途中で止めた文は「まだ」
         self.assertEqual(split_played(clips, 3.5), (["A。", "B。"], ["C。"]))
+
+
+
+class QuoteInTextTest(unittest.TestCase):
+    """文の中の名前を「」でくくる処理（instruction.quote_in_text）。名前の位置にだけ付け、ほかの文字は変えない。"""
+
+    def q(self, text, names):
+        from instruction import quote_in_text
+        out = quote_in_text(text, names)
+        self.assertEqual(out.replace("「", "").replace("」", ""), text.replace("「", "").replace("」", ""))  # ほかの文字は変えない
+        return out
+
+    def test_company_with_corp_form(self):
+        self.assertEqual(self.q("株式会社アオバ物流の佐藤と申します。", ["アオバ物流", "佐藤"]), "株式会社「アオバ物流」の「佐藤」と申します。")
+        self.assertEqual(self.q("アオバ物流株式会社の者です。", ["アオバ物流"]), "「アオバ物流」株式会社の者です。")
+
+    def test_every_occurrence(self):
+        self.assertEqual(self.q("佐藤と申します。佐藤がご案内します。", ["佐藤"]), "「佐藤」と申します。「佐藤」がご案内します。")
+
+    def test_longest_first_no_overlap(self):
+        self.assertEqual(self.q("川崎市中原区ですね。中原区の方ですね。", ["川崎市中原区", "中原区"]), "「川崎市中原区」ですね。「中原区」の方ですね。")
+
+    def test_already_bracketed_not_doubled(self):
+        self.assertEqual(self.q("弊社の『スマートリンクPro』と、スマートリンクProです。", ["スマートリンクPro"]),
+                         "弊社の『スマートリンクPro』と、「スマートリンクPro」です。")
+
+    def test_full_and_half_width(self):
+        self.assertEqual(self.q("株式会社ＡＢＣホールディングスです。", ["ABCホールディングス"]), "株式会社「ＡＢＣホールディングス」です。")  # 書き方は台本のまま
+
+    def test_not_inside_another_word(self):
+        self.assertEqual(self.q("上野原の事務所の上野様です。", ["上野"]), "上野原の事務所の「上野」様です。")
+        self.assertEqual(self.q("株式会社日本橋商事の上野です。", ["日本"]), "株式会社日本橋商事の上野です。")  # 「日本橋」の中の「日本」
+
+    def test_words_right_after_name(self):
+        self.assertEqual(self.q("株式会社ＡＢＣホールディングス営業部の小鳥遊と申します。", ["ABCホールディングス", "小鳥遊"]),
+                         "株式会社「ＡＢＣホールディングス」営業部の「小鳥遊」と申します。")
+        self.assertEqual(self.q("弊社スマートリンクProのご案内です。", ["スマートリンクPro"]), "弊社「スマートリンクPro」のご案内です。")
+        self.assertEqual(self.q("上野駅の近くです。", ["上野"]), "「上野」駅の近くです。")
+
+    def test_limit_name_split_by_tokenizer(self):
+        # 限界（instruction.quote_in_text の説明）：「神田川」は「神田／川」に分かれる。長いほうの名前が一覧にあれば、長いほうに付く
+        self.assertEqual(self.q("東京の神田と、神田川です。", ["神田", "神田川"]), "東京の「神田」と、「神田川」です。")
+        self.assertEqual(self.q("東京の神田と、神田川です。", ["神田"]), "東京の「神田」と、「神田」川です。")
+
+    def test_honorific_and_shop(self):
+        self.assertEqual(self.q("大阪の日本橋店にお越しいただきました。", ["日本橋"]), "大阪の「日本橋」店にお越しいただきました。")
+
+
+
+class CalleeSampleTest(unittest.TestCase):
+    """相手役の声の確かめ（make_callee_samples.sample_ok）。問いかけは「？」まで聞こえること。"""
+
+    def test_question_must_be_heard_as_question(self):
+        from make_callee_samples import sample_ok
+        self.assertFalse(sample_ok("はい？", "はい。")["ok"])     # 2026-10-13 G-22：聞き返しが答えに聞こえていた
+        self.assertTrue(sample_ok("はい？", "はい？")["ok"])
+        self.assertTrue(sample_ok("はい、どちら様ですか？", "はい、どちら様ですか?")["ok"])  # 半角の「?」も同じ
+
+    def test_reading_must_match(self):
+        from make_callee_samples import sample_ok
+        self.assertFalse(sample_ok("はい、予約しています。", "はい、知ってます。")["ok"])
+        self.assertTrue(sample_ok("はい、予約しています。", "はい、予約しています")["ok"])  # 句点の有無は問わない（問いかけでない文）
 
 
 if __name__ == "__main__":

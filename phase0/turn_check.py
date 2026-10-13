@@ -36,6 +36,15 @@ LONG_RATIO = 1.8
 # 相手が話し終えてから、この秒数のあいだ声が出なければ、1回だけ返事を促す（DESIGN.md 6-7）。
 # ふつうの返事の間は 0.7〜1.5秒、最大でも約2秒（G-11・G-19）。29.6秒黙った回があった（G-19）。
 SILENCE_NUDGE_S = 4.0
+# 試験で「不合格」に数える種類（どの試験もここだけを見る＝一本化）。
+# ⛔ 2026-10-13 の誤り：G-13・G-16 は "silent" と "cut_off" しか数えず、AIが英語を話した回（G-16c）を合格にしていた。
+# "unknown"（見分けられなかった）も、合格とは言えないので数える。
+BAD_KINDS = ("silent", "wrong_language", "cut_off", "too_long", "unknown")
+
+
+def bad_kinds(turns: list[dict]) -> list[str]:
+    """通話の中で、見張りが引っかかったターンの種類（無ければ空）。"""
+    return [t["check"]["kind"] for t in turns if t["check"]["kind"] in BAD_KINDS]
 
 
 def check_ai_turn(*, audio: bytes, rate: int, voice: str, timed_out: bool = False,

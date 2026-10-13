@@ -167,7 +167,10 @@ async def _collect_into(r: "TurnResult", session, *, started_at: float, on_tool_
                     r.input_transcript.append(sc.input_transcription.text)
                 if sc.output_transcription is not None and sc.output_transcription.text:
                     r.output_transcript.append(sc.output_transcription.text)
-                    r.events.append({"at_s": at(), "kind": "ai_said", "text": sc.output_transcription.text})
+                    # audio_s：この文字が届いた時点で、受け取り済みの声の長さ（秒）。声は話す速さで届くので、相手に流れた長さに近い。
+                    # 文字が声より先に届くかを測り、英語などをプログラムが止められるかを判断する（2026-10-13 G-16c）
+                    r.events.append({"at_s": at(), "kind": "ai_said", "text": sc.output_transcription.text,
+                                     "audio_s": round(len(r.audio) / 2 / (r.audio_rate or 24000), 3)})
                 if sc.model_turn is not None:
                     for part in sc.model_turn.parts or []:
                         blob = part.inline_data

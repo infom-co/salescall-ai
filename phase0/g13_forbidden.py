@@ -16,6 +16,7 @@ import json
 
 from common import base_parser, describe_error, make_client, pick_key, require_python, save_result, say
 from convo import run_call
+from turn_check import bad_kinds
 from flowctl import Question, tool_declarations
 from instruction import VOICE_TYPES, Business, build
 from live_util import build_config
@@ -55,14 +56,14 @@ def judge_call(call: dict, swap_before: int | None) -> dict:
         "forbidden_hits": hits,
         "items_ok": items["Q1"]["condition"] == "yes" and items["Q2"]["state"] == "confirmed" and items["Q3"]["state"] == "confirmed",
         "closed": call["final_phase"] == "closing",
-        "silent_or_cut": [t["check"]["kind"] for t in call["turns"] if t["check"]["kind"] in ("silent", "cut_off")],
+        "bad_turns": bad_kinds(call["turns"]),
     }
     if swap_before is not None:
         after = [t for t in call["turns"] if t["session"] == 2]
         first_after = after[0].get("ear", "") if after else ""
         checks["swapped"] = call["sessions"] == 2
         checks["reintroduced"] = any(w in first_after for w in REINTRO)
-    checks["passed"] = not hits and checks["items_ok"] and checks["closed"] and not checks["silent_or_cut"] \
+    checks["passed"] = not hits and checks["items_ok"] and checks["closed"] and not checks["bad_turns"] \
         and (swap_before is None or (checks["swapped"] and not checks["reintroduced"]))
     return checks
 

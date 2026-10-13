@@ -21,6 +21,7 @@ from flowctl import Question, tool_declarations
 from instruction import VOICE_TYPES, Business, build
 from listen import differences
 from live_util import build_config
+from turn_check import bad_kinds
 
 BUSINESS = Business(
     company="アオバ物流", caller="佐藤", purpose="ご予約の確認", purpose_line="ご予約の確認でお電話いたしました。",
@@ -68,7 +69,8 @@ def judge(scene: dict, call: dict) -> dict:
     first = turns[0].get("ear", "") if turns else ""
     c = {"first_said": first}
     c["need_ok"] = all(any(w in first for w in group) for group in scene["need_any"])
-    c["reintroduced"] = "申します" in first
+    # 名乗り直し：「申します」だけでなく、名前を言ったか（⛔ 2026-10-13：「佐藤です」と名乗り直した回を、見逃していた）
+    c["reintroduced"] = "申します" in first or BUSINESS.caller in first
     if scene.get("no_reintro"):
         c["reintro_ok"] = not c["reintroduced"]
     if scene.get("no_question_first"):
@@ -88,11 +90,11 @@ def judge(scene: dict, call: dict) -> dict:
         c["asked_q2"] = len(turns) > idx and any(w in turns[idx].get("ear", "") for w in ("日時", "日にち", "お日にち"))
     if scene.get("q1_answered_first"):
         c["asked_q2"] = c["need_ok"]
-    c["silent_or_cut"] = [t["check"]["kind"] for t in turns if t["check"]["kind"] not in ("ok",)]
+    c["bad_turns"] = bad_kinds(turns)
     keys = [k for k in ("need_ok", "no_question_ok", "second_ok", "asked_q2") if k in c]
     if scene.get("then_q2") or "then_q2_at" in scene or scene.get("q1_answered_first"):
         keys.append("q1_yes")
-    c["passed"] = all(c[k] for k in keys) and not c.get("head_broken") and not c["silent_or_cut"]
+    c["passed"] = all(c[k] for k in keys) and not c.get("head_broken") and not c["bad_turns"]
     return c
 
 
@@ -125,6 +127,15 @@ async def run(args) -> dict:
                "reintroduced_where_not_needed": sum(1 for r in rows if r.get("checks", {}).get("reintro_ok") is False)}
     say("まとめ：", json.dumps(summary, ensure_ascii=False))
     return {"model": args.model, "parts": PARTS, "summary": summary, "rows": rows}
+
+
+def rejudge(path: str) -> dict:
+    """保存した結果に、いまの判定（judge）を当て直す（判定の誤りを直したとき。キーを使わない）。"""
+    d = json.load(open(path, encoding="utf-8"))
+    for r in d["rows"]:
+        if "turns" in r:
+            r["checks"] = judge(SCENES[r["scene"]], r)
+    return d
 
 
 def main() -> None:

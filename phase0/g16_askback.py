@@ -13,6 +13,7 @@ import json
 
 from common import base_parser, describe_error, make_client, pick_key, require_python, save_result, say
 from convo import run_call
+from turn_check import bad_kinds
 from flowctl import Question, tool_declarations
 from instruction import ASK_BACK, VOICE_TYPES, Business, build
 from live_util import build_config
@@ -92,7 +93,7 @@ def judge_scene(name: str, scene: dict, call: dict) -> dict:
         "program_recheck": sum(1 for e in call["flow_log"] if e["reply"].get("result") == "recheck"),
         "ask_back_phrase_in_turn": said_in_turns_with("ask_back", ASK_BACK[:6]),
         "recheck_phrase_in_turn": said_in_turns_with("recheck", "念のため"),
-        "silent_or_cut": [t["check"]["kind"] for t in call["turns"] if t["check"]["kind"] in ("silent", "cut_off")],
+        "bad_turns": bad_kinds(call["turns"]),
         "rejected_ops": [e for e in call["flow_log"] if e["reply"].get("result") == "rejected"],
         "closed": call["final_phase"] == "closing",
     }
@@ -104,7 +105,7 @@ def judge_scene(name: str, scene: dict, call: dict) -> dict:
         later = "".join(said[m["from_index"]:m.get("until_index")])
         checks["not_asked_again"] = not any(w in later for w in m["words"])
     checks["passed"] = all(checks[k] for k in ("export_ok", "ask_back_ok", "recheck_ok", "closed")) \
-        and checks.get("not_asked_again", True) and not checks["silent_or_cut"]
+        and checks.get("not_asked_again", True) and not checks["bad_turns"]
     return checks
 
 

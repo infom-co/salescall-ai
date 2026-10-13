@@ -15,6 +15,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+from phrases import confirm as confirm_phrase
+
 # 型の一覧（Q19）：その場で言い直して確かめる型。DESIGN.md 4-4
 CONFIRM_TYPES = {"date", "time", "datetime", "number", "amount", "name", "phone", "email", "address"}
 # 選択肢で答える型：依頼主へは、相手の言葉ではなく、宣言された選択肢を渡す（7-1b）
@@ -100,23 +102,23 @@ class Flow:
     def handle(self, fc) -> dict:
         args = dict(fc.args or {})
         fn = getattr(self, f"_op_{fc.name}", None)
-        reply = fn(args) if fn else self._reject("知らない操作です。")
+        reply = fn(args) if fn else self._reject(f"{fc.name} という操作はありません。")
         self.log.append({"op": fc.name, "args": args, "reply": reply, "callee_turns": self.callee_turns})
         return reply
 
     # ── 操作
     def _op_record_answer(self, a: dict) -> dict:
         qid = a.get("question_id")
-        if qid != self.current:
-            return self._reject(f"いまの質問は {self.current} です。")
-        if self.awaiting_confirm == qid:
+        if self.awaiting_confirm is not None:
             # 2026-10-13 G-16：言い直した値に相手が「はい」と答えたのに、AIが record_answer を呼び、言い直しが繰り返された
-            return self._reject("いまは、言い直した値への相手の返事を待っています。相手の返事は confirm_field で報告してください"
-                                "（合っていれば affirmed、違う値を言われたら corrected と、その値）。")
+            # 2026-10-13 G-16 の2回目：Q2 の言い直しの返事を待っている間に、Q3 の答えとして報告された（同じ扱いにする）
+            return self._reject("いまは record_answer では受け付けません。")
+        if qid != self.current:
+            return self._reject(f"{qid} は、いまの質問ではありません。")
         q, it = self.questions[qid], self.items[qid]
         cond = a.get("condition_id")
         if cond not in q.all_conditions:
-            return self._reject(f"条件 {cond} は、この質問の選択肢にありません。")
+            return self._reject(f"条件 {cond} は、この質問の選択肢にありません（選べるのは {'、'.join(q.all_conditions)}）。")
         it.condition, it.value = cond, normalize_value(q.type, a.get("value"))
         if cond == "refused":
             it.set("refused", "相手が答えを拒んだ")
@@ -132,8 +134,10 @@ class Flow:
 
     def _op_report_unclear(self, a: dict) -> dict:
         qid = a.get("question_id")
+        if self.awaiting_confirm is not None:
+            return self._reject("いまは report_unclear では受け付けません。")
         if qid != self.current:
-            return self._reject(f"いまの質問は {self.current} です。")
+            return self._reject(f"{qid} は、いまの質問ではありません。")
         q, it = self.questions[qid], self.items[qid]
         if self.phase == "asking" and q.required and it.ask_backs < self.limits.ask_back:
             it.ask_backs += 1
@@ -145,7 +149,7 @@ class Flow:
     def _op_confirm_field(self, a: dict) -> dict:
         qid = a.get("question_id")
         if self.awaiting_confirm != qid:
-            return self._reject("いまは、その項目の言い直しを求めていません。")
+            return self._reject(f"いまは、{qid} の言い直しを求めていません。")
         if self.callee_turns <= (self.confirm_requested_at or 0):  # I-24：相手の返事が届く前の報告は差し戻す
             return self._reject("相手の返事をまだ聞いていません。言い直したら、相手が返事をするまで待ってから報告してください。")
         it = self.items[qid]
@@ -168,8 +172,11 @@ class Flow:
             self.hurried = True
             self.current, self.phase = None, "closing"
             return {"result": "end", "message": "締めの言葉を言って終えてください。念のための確認はしません。"}
-        if self.phase == "asking" and self._remaining():
-            return self._reject(f"まだ質問が残っています。いまの質問は {self.current} です。")
+        if self.current is not None:
+            # いま聞いている質問がある間は、終えられない（まだ聞いていない・言い直しの返事待ち・念のための確認の最中）
+            # ⛔ 2026-10-13 の試験で見つけた漏れ：「まだ聞いていない項目」だけを数えていたため、言い直しの返事待ちや
+            #    念のための確認の最中に「終わり」と報告されると、確認を飛ばして通話を終えていた
+            return self._reject("まだ終えられません。")
         return self._advance("")
 
     # ── 内部
@@ -178,8 +185,8 @@ class Flow:
         it.set("checking", "言い直して確かめる")
         self.awaiting_confirm = qid
         self.confirm_requested_at = self.callee_turns
-        return {"result": "confirm_required", "value": it.value,
-                "message": f"「{it.value}」と、この値のとおりに言い直して、相手の返事を待ってください。"}
+        return {"result": "confirm_required", "value": it.value, "say": confirm_phrase(it.value),
+                "message": f"言い直して確かめます。「{confirm_phrase(it.value)}」と言って、相手の返事を待ってください。"}
 
     def _remaining(self) -> list[str]:
         return [qid for qid in self.order if self.items[qid].state == "empty"]
@@ -207,7 +214,22 @@ class Flow:
         return {"result": "end", "message": f"{prefix}質問は終わりです。締めの言葉を言って終えてください。"}
 
     def _reject(self, why: str) -> dict:
-        return {"result": "rejected", "message": why}
+        """差し戻す唯一の場所。理由が何であっても、いま求めていること（_now）を必ず添える。"""
+        return {"result": "rejected", "message": f"{why}{self._now()}"}
+
+    def _now(self) -> str:
+        """いま求めていること（AIが次にすることを迷わないため）。
+        ⛔ 2026-10-13 G-16 の2回目：Q2 の言い直しの返事を待っている間に Q3 を報告され、「いまの質問は Q2 です」とだけ返したため、
+           AIは Q2 を最初から聞き直した（言い直しの返事を待っていることが、伝わっていなかった）。"""
+        if self.awaiting_confirm is not None:
+            say = confirm_phrase(self.items[self.awaiting_confirm].value)
+            return (f"いまは {self.awaiting_confirm} の言い直し「{say}」への、相手の返事を待っています。"
+                    "相手が肯定したら confirm_field を affirmed で、違う値を言ったら corrected とその値で報告してください。"
+                    f"相手がまだ答えていなければ、「{say}」と、もう一度聞いてください。")
+        if self.current is None:
+            return "質問は終わりです。締めの言葉を言って終えてください。"
+        q = self.questions[self.current]
+        return f"いまの質問は {q.id}「{q.text}」です。"
 
     # ── 依頼主へ渡す書き方（7-1b。Q20 の唯一の場所）
     def export(self, unknown_mark: str = "-", refused_mark: str = "✕") -> dict:

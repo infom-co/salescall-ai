@@ -1,3 +1,5 @@
 google-genai==2.29.0
 numpy==2.4.6
 pykakasi==2.3.0
+fugashi==1.5.2
+unidic-lite==1.0.8

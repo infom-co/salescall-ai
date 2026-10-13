@@ -2,7 +2,13 @@
 
 やること：相手役の短い発話を、会話に使う声（Sadachbia・Leda）とは別の声で gemini-3.8-live に読ませ、
 電話の音質（8kHz）に落としてから 16kHz の WAV にして results/callee/ に保存する。
+作った声は、その場で別の耳（listen.hear）に聞かせて確かめる（sample_ok）。通らなければ、--tries 回まで作り直す：
+- 読みが台本と合うこと（listen.differences が空）
+- 問いかけの文（「？」で終わる文）は、別の耳の文字も「？」で終わること
+  ⛔ 2026-10-13 G-22：「はい？」（聞き返し）の声が、別の耳には「はい。」と聞こえていた。読みだけを比べていたので見逃し、
+     AIが「はい」（答え）と受け取ったのを、AIの誤りと数えるところだった ⇒ 問いかけは「？」まで確かめる。読み方の指示も渡せるようにした
 ⚠️ 限界：作った声であって、人の声ではない。人の声での確かめは、別に録った音声で行う（G-14）。
+   「？」は、別の耳が語尾の上がりを聞き取った印として使う（声の高さそのものは測っていない）。
 """
 from __future__ import annotations
 
@@ -12,6 +18,7 @@ import time
 
 from audio import duration_s, phone_quality
 from common import HERE, base_parser, describe_error, make_client, pick_key, require_python, save_result, say, write_wav
+from listen import differences, hear
 from live_util import build_config, collect_turn, send_text
 
 CALLEE_VOICES = ("Puck", "Kore")  # 会話に使う声とは別の声（公式の音声一覧にある名前）
@@ -27,7 +34,7 @@ UTTERANCES = {
     "whois": "はい、どちら様ですか？",
     "what_for": "はい、何のご用件でしょうか？",
     "again": "すみません、もう一度お願いできますか？",
-    "hai_q": "はい？",
+    "hai_q": ("はい？", "相手の言葉が聞き取れなかったので、語尾をはっきり上げて、聞き返すように"),
     "busy": "すみません、今ちょっと忙しいんですけど。",
     "transfer": "担当の者に代わりますので、少々お待ちください。",
     "taken_over": "お電話代わりました。担当の山田です。",
@@ -41,6 +48,18 @@ INSTRUCTION = "あなたは音声の材料を作る係です。渡された言�
 OUT = HERE / "results" / "callee"
 
 
+def text_and_how(v) -> tuple[str, str | None]:
+    return (v, None) if isinstance(v, str) else v
+
+
+def sample_ok(text: str, heard: str) -> dict:
+    """作った声の確かめ（読みが合う・問いかけは「？」まで聞こえる）。"""
+    diffs = differences(text, heard)
+    q_need = text.rstrip().endswith(("？", "?"))
+    q_ok = (not q_need) or heard.rstrip().endswith(("？", "?"))
+    return {"heard": heard, "diffs": diffs, "question_needed": q_need, "question_ok": q_ok, "ok": not diffs and q_ok}
+
+
 async def run(args) -> dict:
     if args.dry_run:
         for v in CALLEE_VOICES:
@@ -51,30 +70,42 @@ async def run(args) -> dict:
     made = json.loads(index.read_text(encoding="utf-8")) if index.exists() else []
     have = {(m.get("voice"), m.get("id")) for m in made if "error" not in m}
     for voice in CALLEE_VOICES:
-        for uid, text in UTTERANCES.items():
-            if (voice, uid) in have and (OUT / f"{voice}_{uid}.wav").exists():
-                continue  # 作ってある声は作り直さない（ほかの確かめの材料が変わらないように）
-            try:
-                async with client.aio.live.connect(model=args.model, config=build_config(voice=voice, system_instruction=INSTRUCTION)) as s:
-                    t = time.monotonic()
-                    await send_text(s, f"読み上げる言葉：{text}")
-                    turn = await collect_turn(s, started_at=t, timeout_s=60)
-                pcm = phone_quality(bytes(turn.audio), turn.audio_rate or 24000, 16000)
-                path = OUT / f"{voice}_{uid}.wav"
-                write_wav(path, pcm, 16000)
-                said = turn.summary()["output_transcript"]
-                made.append({"voice": voice, "id": uid, "text": text, "said": said, "exact": said.replace(" ", "") == text,
-                             "seconds": round(duration_s(pcm, 16000), 2), "wav": path.name})
-                say(f"{voice} {uid}: {said}")
-            except Exception as exc:
-                made.append({"voice": voice, "id": uid, "text": text, "error": describe_error(exc)})
+        for uid, value in UTTERANCES.items():
+            text, how = text_and_how(value)
+            if uid not in (args.redo or []) and (voice, uid) in have and (OUT / f"{voice}_{uid}.wav").exists():
+                continue  # 作ってある声は作り直さない（ほかの確かめの材料が変わらないように）。作り直すのは --redo で名指ししたものだけ
+            made = [m for m in made if (m.get("voice"), m.get("id")) != (voice, uid)]
+            tries = []
+            for n in range(args.tries):
+                try:
+                    async with client.aio.live.connect(model=args.model, config=build_config(voice=voice, system_instruction=INSTRUCTION)) as s:
+                        t = time.monotonic()
+                        await send_text(s, f"読み上げる言葉：{text}" + (f"\n読み方：{how}" if how else ""))
+                        turn = await collect_turn(s, started_at=t, timeout_s=60)
+                    pcm = phone_quality(bytes(turn.audio), turn.audio_rate or 24000, 16000)
+                    check = sample_ok(text, await hear(client, pcm, 16000, "transcribe35"))
+                    tries.append(check)
+                    say(f"{voice} {uid} {n + 1}回目：聞こえた「{check['heard']}」 合格={check['ok']}")
+                    if check["ok"] or n == args.tries - 1:
+                        path = OUT / f"{voice}_{uid}.wav"
+                        write_wav(path, pcm, 16000)
+                        made.append({"voice": voice, "id": uid, "text": text, "how": how, "said": turn.summary()["output_transcript"],
+                                     **check, "tries": len(tries), "seconds": round(duration_s(pcm, 16000), 2), "wav": path.name})
+                        break
+                except Exception as exc:
+                    tries.append({"error": describe_error(exc)})
+                    if n == args.tries - 1:
+                        made.append({"voice": voice, "id": uid, "text": text, "error": describe_error(exc)})
     index.write_text(json.dumps(made, ensure_ascii=False, indent=2), encoding="utf-8")
     return {"model": args.model, "samples": made}
 
 
 def main() -> None:
     require_python()
-    args = base_parser(__doc__).parse_args()
+    p = base_parser(__doc__)
+    p.add_argument("--tries", type=int, default=3, help="別の耳の確かめに通らないとき、作り直す回数の上限")
+    p.add_argument("--redo", action="append", choices=sorted(UTTERANCES), help="作ってある声でも作り直す（名指ししたものだけ）")
+    args = p.parse_args()
     save_result("CALLEE-SAMPLES", asyncio.run(run(args)))
 
 
