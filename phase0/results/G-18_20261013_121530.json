@@ -1,0 +1,648 @@
+{
+  "item": "G-18",
+  "saved_at": "2026-10-13T12:15:30",
+  "model": "gemini-3.8-live",
+  "cue": "直前のあなたの発言は、途中で途切れて、相手に届いていません。「失礼いたしました。」と言ってから、同じ内容を最初から、もう一度だけ言ってください。",
+  "summary": {
+    "S2": {
+      "trials": 6,
+      "passed": 5
+    },
+    "S4": {
+      "trials": 6,
+      "passed": 5
+    },
+    "L4": {
+      "trials": 6,
+      "passed": 6
+    }
+  },
+  "rows": [
+    {
+      "id": "20261013_120710_001_S2",
+      "type": "S2",
+      "voice": "Sadachbia",
+      "line": "ご担当の「田中」様はいらっしゃいますでしょうか。",
+      "first": {
+        "intended": "ご担当の「田中」様はいらっしゃいますでしょうか。",
+        "first_audio_after_s": 0.827,
+        "check": {
+          "voiced_s": 2.84,
+          "compared_with": "expected",
+          "morae": 23,
+          "expected_s": 2.56,
+          "ratio": 1.11,
+          "kind": "ok"
+        }
+      },
+      "restated": {
+        "intended": "失礼いたしました。ご担当の「田中」様はいらっしゃいますでしょうか。",
+        "first_audio_after_s": 0.69,
+        "check": {
+          "voiced_s": 4.16,
+          "compared_with": "expected",
+          "morae": 33,
+          "expected_s": 3.67,
+          "ratio": 1.14,
+          "kind": "ok"
+        }
+      },
+      "wav": "20261013_120710_001_S2.wav",
+      "ear": "失礼いたしました。ご担当の田中様はいらっしゃいますでしょうか？",
+      "ear_diffs": [],
+      "passed": true
+    },
+    {
+      "id": "20261013_120710_002_S4",
+      "type": "S4",
+      "voice": "Sadachbia",
+      "line": "ご担当の「田中」様はいらっしゃいますでしょうか。",
+      "first": {
+        "intended": "",
+        "first_audio_after_s": 0.705,
+        "check": {
+          "voiced_s": 2.67,
+          "compared_with": "expected",
+          "morae": 23,
+          "expected_s": 2.56,
+          "ratio": 1.04,
+          "kind": "ok"
+        }
+      },
+      "restated": {
+        "intended": "失礼いたしました。ご担当の「田中」様はいらっしゃいますでしょうか。",
+        "first_audio_after_s": 0.64,
+        "check": {
+          "voiced_s": 4.35,
+          "compared_with": "expected",
+          "morae": 33,
+          "expected_s": 3.67,
+          "ratio": 1.19,
+          "kind": "ok"
+        }
+      },
+      "wav": "20261013_120710_002_S4.wav",
+      "ear": "失礼いたしました。ご担当の田中様はいらっしゃいますでしょうか？",
+      "ear_diffs": [],
+      "passed": true
+    },
+    {
+      "id": "20261013_120710_003_L4",
+      "type": "L4",
+      "voice": "Leda",
+      "line": "ご担当の「田中」様はいらっしゃいますでしょうか。",
+      "first": {
+        "intended": "ご担当の田中様はいらっしゃいますでしょうか。",
+        "first_audio_after_s": 0.786,
+        "check": {
+          "voiced_s": 2.76,
+          "compared_with": "expected",
+          "morae": 23,
+          "expected_s": 2.77,
+          "ratio": 0.99,
+          "kind": "ok"
+        }
+      },
+      "restated": {
+        "intended": "失礼いたしました。ご担当の田中様はいらっしゃいますでしょうか。",
+        "first_audio_after_s": 0.64,
+        "check": {
+          "voiced_s": 4.13,
+          "compared_with": "expected",
+          "morae": 33,
+          "expected_s": 3.98,
+          "ratio": 1.04,
+          "kind": "ok"
+        }
+      },
+      "wav": "20261013_120710_003_L4.wav",
+      "ear": "失礼いたしました。ご担当の田中様はいらっしゃいますでしょうか？",
+      "ear_diffs": [],
+      "passed": true
+    },
+    {
+      "id": "20261013_120710_004_S2",
+      "type": "S2",
+      "voice": "Sadachbia",
+      "line": "来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。",
+      "first": {
+        "intended": "",
+        "first_audio_after_s": 3.244,
+        "check": {
+          "voiced_s": 6.23,
+          "compared_with": "expected",
+          "morae": 49,
+          "expected_s": 5.44,
+          "ratio": 1.15,
+          "kind": "ok"
+        }
+      },
+      "restated": {
+        "intended": "失礼いたしました。来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。",
+        "first_audio_after_s": 0.965,
+        "check": {
+          "voiced_s": 7.66,
+          "compared_with": "expected",
+          "morae": 59,
+          "expected_s": 6.56,
+          "ratio": 1.17,
+          "kind": "ok"
+        }
+      },
+      "wav": "20261013_120710_004_S2.wav",
+      "ear": "失礼いたしました。来週の火曜日、10月20日の午後3時に改めてお電話してもよろしいでしょうか？",
+      "ear_diffs": [],
+      "passed": true
+    },
+    {
+      "id": "20261013_120710_005_S4",
+      "type": "S4",
+      "voice": "Sadachbia",
+      "line": "来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。",
+      "first": {
+        "intended": "来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいで",
+        "first_audio_after_s": 0.695,
+        "check": {
+          "voiced_s": 5.59,
+          "compared_with": "expected",
+          "morae": 49,
+          "expected_s": 5.44,
+          "ratio": 1.03,
+          "kind": "ok"
+        }
+      },
+      "restated": {
+        "intended": "失礼いたしました。来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。",
+        "first_audio_after_s": 0.889,
+        "check": {
+          "voiced_s": 6.99,
+          "compared_with": "expected",
+          "morae": 59,
+          "expected_s": 6.56,
+          "ratio": 1.07,
+          "kind": "ok"
+        }
+      },
+      "wav": "20261013_120710_005_S4.wav",
+      "ear": "失礼いたしました。来週の火曜日、10月20日の午後3時に改めてお電話してもよろしいでしょうか？",
+      "ear_diffs": [],
+      "passed": true
+    },
+    {
+      "id": "20261013_120710_006_L4",
+      "type": "L4",
+      "voice": "Leda",
+      "line": "来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。",
+      "first": {
+        "intended": "来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。",
+        "first_audio_after_s": 0.817,
+        "check": {
+          "voiced_s": 6.33,
+          "compared_with": "expected",
+          "morae": 49,
+          "expected_s": 5.9,
+          "ratio": 1.07,
+          "kind": "ok"
+        }
+      },
+      "restated": {
+        "intended": "失礼いたしました。来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。",
+        "first_audio_after_s": 0.699,
+        "check": {
+          "voiced_s": 8.12,
+          "compared_with": "expected",
+          "morae": 59,
+          "expected_s": 7.11,
+          "ratio": 1.14,
+          "kind": "ok"
+        }
+      },
+      "wav": "20261013_120710_006_L4.wav",
+      "ear": "失礼いたしました。来週の火曜日、10月20日の午後3時に改めてお電話してもよろしいでしょうか？",
+      "ear_diffs": [],
+      "passed": true
+    },
+    {
+      "id": "20261013_120710_007_S2",
+      "type": "S2",
+      "voice": "Sadachbia",
+      "line": "株式会社「アオバ物流」の「佐藤」と申します。",
+      "first": {
+        "intended": "株式会社アオバ物流の佐藤と申します。",
+        "first_audio_after_s": 0.594,
+        "check": {
+          "voiced_s": 3.41,
+          "compared_with": "expected",
+          "morae": 24,
+          "expected_s": 2.67,
+          "ratio": 1.28,
+          "kind": "ok"
+        }
+      },
+      "restated": {
+        "intended": "失礼いたしました。株式会社アオバ物流の佐藤と申します。",
+        "first_audio_after_s": 1.087,
+        "check": {
+          "voiced_s": 5.37,
+          "compared_with": "expected",
+          "morae": 34,
+          "expected_s": 3.78,
+          "ratio": 1.42,
+          "kind": "ok"
+        }
+      },
+      "wav": "20261013_120710_007_S2.wav",
+      "ear": "失礼いたしました。株式会社青葉物流の佐藤と申します。",
+      "ear_diffs": [],
+      "passed": true
+    },
+    {
+      "id": "20261013_120710_008_S4",
+      "type": "S4",
+      "voice": "Sadachbia",
+      "line": "株式会社「アオバ物流」の「佐藤」と申します。",
+      "first": {
+        "intended": "株式会社「アオバ物流」の「佐藤」と申します。",
+        "first_audio_after_s": 0.892,
+        "check": {
+          "voiced_s": 3.16,
+          "compared_with": "expected",
+          "morae": 24,
+          "expected_s": 2.67,
+          "ratio": 1.19,
+          "kind": "ok"
+        }
+      },
+      "restated": {
+        "intended": "失礼いたしました。株式会社「アオバ物流」の「佐藤」と申します。",
+        "first_audio_after_s": 1.888,
+        "check": {
+          "voiced_s": 4.64,
+          "compared_with": "expected",
+          "morae": 34,
+          "expected_s": 3.78,
+          "ratio": 1.23,
+          "kind": "ok"
+        }
+      },
+      "wav": "20261013_120710_008_S4.wav",
+      "ear": "失礼いたしました。株式会社大場物流の佐藤と申します。",
+      "ear_diffs": [
+        {
+          "kind": "replace",
+          "script": "がいしゃ[あ]おばぶつ",
+          "heard": "お",
+          "at": 18
+        }
+      ],
+      "passed": false
+    },
+    {
+      "id": "20261013_120710_009_L4",
+      "type": "L4",
+      "voice": "Leda",
+      "line": "株式会社「アオバ物流」の「佐藤」と申します。",
+      "first": {
+        "intended": "",
+        "first_audio_after_s": 0.891,
+        "check": {
+          "voiced_s": 3.18,
+          "compared_with": "expected",
+          "morae": 24,
+          "expected_s": 2.89,
+          "ratio": 1.1,
+          "kind": "ok"
+        }
+      },
+      "restated": {
+        "intended": "失礼いたしました。株式会社アオバ物流の佐藤と申します。",
+        "first_audio_after_s": 0.946,
+        "check": {
+          "voiced_s": 4.44,
+          "compared_with": "expected",
+          "morae": 34,
+          "expected_s": 4.1,
+          "ratio": 1.08,
+          "kind": "ok"
+        }
+      },
+      "wav": "20261013_120710_009_L4.wav",
+      "ear": "失礼いたしました。株式会社アオバ物流の佐藤と申します。",
+      "ear_diffs": [],
+      "passed": true
+    },
+    {
+      "id": "20261013_120710_010_S2",
+      "type": "S2",
+      "voice": "Sadachbia",
+      "line": "ご担当の「田中」様はいらっしゃいますでしょうか。",
+      "first": {
+        "intended": "ご担当の「田中」様はいらっしゃいますでしょうか。",
+        "first_audio_after_s": 0.664,
+        "check": {
+          "voiced_s": 3.25,
+          "compared_with": "expected",
+          "morae": 23,
+          "expected_s": 2.56,
+          "ratio": 1.27,
+          "kind": "ok"
+        }
+      },
+      "restated": {
+        "intended": "失礼いたしました。ご担当の「田中」様はいらっしゃいますでしょうか。",
+        "first_audio_after_s": 0.658,
+        "check": {
+          "voiced_s": 4.68,
+          "compared_with": "expected",
+          "morae": 33,
+          "expected_s": 3.67,
+          "ratio": 1.28,
+          "kind": "ok"
+        }
+      },
+      "wav": "20261013_120710_010_S2.wav",
+      "ear": "失礼いたしました。ご担当の田中様はいらっしゃいますでしょうか？",
+      "ear_diffs": [],
+      "passed": true
+    },
+    {
+      "id": "20261013_120710_011_S4",
+      "type": "S4",
+      "voice": "Sadachbia",
+      "line": "ご担当の「田中」様はいらっしゃいますでしょうか。",
+      "first": {
+        "intended": "ご担当の「田中」様はいらっしゃいますでしょうか。",
+        "first_audio_after_s": 0.597,
+        "check": {
+          "voiced_s": 2.99,
+          "compared_with": "expected",
+          "morae": 23,
+          "expected_s": 2.56,
+          "ratio": 1.17,
+          "kind": "ok"
+        }
+      },
+      "restated": {
+        "intended": "失礼いたしました。ご担当の「田中」様はいらっしゃいますでしょうか。",
+        "first_audio_after_s": 0.662,
+        "check": {
+          "voiced_s": 4.45,
+          "compared_with": "expected",
+          "morae": 33,
+          "expected_s": 3.67,
+          "ratio": 1.21,
+          "kind": "ok"
+        }
+      },
+      "wav": "20261013_120710_011_S4.wav",
+      "ear": "失礼いたしました。ご担当の田中様はいらっしゃいますでしょうか？",
+      "ear_diffs": [],
+      "passed": true
+    },
+    {
+      "id": "20261013_120710_012_L4",
+      "type": "L4",
+      "voice": "Leda",
+      "line": "ご担当の「田中」様はいらっしゃいますでしょうか。",
+      "first": {
+        "intended": "ご担当の「田中」様はいらっしゃいますでしょうか。",
+        "first_audio_after_s": 0.605,
+        "check": {
+          "voiced_s": 2.82,
+          "compared_with": "expected",
+          "morae": 23,
+          "expected_s": 2.77,
+          "ratio": 1.02,
+          "kind": "ok"
+        }
+      },
+      "restated": {
+        "intended": "失礼いたしました。ご担当の「田中」様はいらっしゃいますでしょうか。",
+        "first_audio_after_s": 1.016,
+        "check": {
+          "voiced_s": 4.48,
+          "compared_with": "expected",
+          "morae": 33,
+          "expected_s": 3.98,
+          "ratio": 1.13,
+          "kind": "ok"
+        }
+      },
+      "wav": "20261013_120710_012_L4.wav",
+      "ear": "失礼いたしました。ご担当の田中様はいらっしゃいますでしょうか？",
+      "ear_diffs": [],
+      "passed": true
+    },
+    {
+      "id": "20261013_120710_013_S2",
+      "type": "S2",
+      "voice": "Sadachbia",
+      "line": "来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。",
+      "first": {
+        "intended": "来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。",
+        "first_audio_after_s": 0.662,
+        "check": {
+          "voiced_s": 5.0,
+          "compared_with": "expected",
+          "morae": 49,
+          "expected_s": 5.44,
+          "ratio": 0.92,
+          "kind": "ok"
+        }
+      },
+      "restated": {
+        "intended": "失礼いたしました。来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。",
+        "first_audio_after_s": 0.672,
+        "check": {
+          "voiced_s": 6.99,
+          "compared_with": "expected",
+          "morae": 59,
+          "expected_s": 6.56,
+          "ratio": 1.07,
+          "kind": "ok"
+        }
+      },
+      "wav": "20261013_120710_013_S2.wav",
+      "ear": "失礼いたしました。来週の火曜日、10月20日の午後3時に改めてお電話してもよろしいでしょうか？",
+      "ear_diffs": [],
+      "passed": true
+    },
+    {
+      "id": "20261013_120710_014_S4",
+      "type": "S4",
+      "voice": "Sadachbia",
+      "line": "来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。",
+      "first": {
+        "intended": "来週の火曜日、十月二十日の午後三時に、改めてお電話してもよろしいでしょうか?",
+        "first_audio_after_s": 0.748,
+        "check": {
+          "voiced_s": 6.0,
+          "compared_with": "expected",
+          "morae": 49,
+          "expected_s": 5.44,
+          "ratio": 1.1,
+          "kind": "ok"
+        }
+      },
+      "restated": {
+        "intended": "失礼いたしました。来週の火曜日、十月二十日の午後三時に、改めてお電話してもよろしいでしょうか?",
+        "first_audio_after_s": 0.728,
+        "check": {
+          "voiced_s": 7.29,
+          "compared_with": "expected",
+          "morae": 59,
+          "expected_s": 6.56,
+          "ratio": 1.11,
+          "kind": "ok"
+        }
+      },
+      "wav": "20261013_120710_014_S4.wav",
+      "ear": "失礼いたしました。来週の火曜日、10月20日の午後3時に改めてお電話してもよろしいでしょうか？",
+      "ear_diffs": [],
+      "passed": true
+    },
+    {
+      "id": "20261013_120710_015_L4",
+      "type": "L4",
+      "voice": "Leda",
+      "line": "来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。",
+      "first": {
+        "intended": "来週の火曜日、十月二十日の午後三時に、改めてお電話してもよろしいでしょうか。",
+        "first_audio_after_s": 0.688,
+        "check": {
+          "voiced_s": 6.21,
+          "compared_with": "expected",
+          "morae": 49,
+          "expected_s": 5.9,
+          "ratio": 1.05,
+          "kind": "ok"
+        }
+      },
+      "restated": {
+        "intended": "失礼いたしました。来週の火曜日、十月二十日の午後三時に、改めてお電話してもよろしいでしょうか。",
+        "first_audio_after_s": 1.624,
+        "check": {
+          "voiced_s": 7.93,
+          "compared_with": "expected",
+          "morae": 59,
+          "expected_s": 7.11,
+          "ratio": 1.12,
+          "kind": "ok"
+        }
+      },
+      "wav": "20261013_120710_015_L4.wav",
+      "ear": "失礼いたしました。来週の火曜日、10月20日の午後3時に改めてお電話してもよろしいでしょうか？",
+      "ear_diffs": [],
+      "passed": true
+    },
+    {
+      "id": "20261013_120710_016_S2",
+      "type": "S2",
+      "voice": "Sadachbia",
+      "line": "株式会社「アオバ物流」の「佐藤」と申します。",
+      "first": {
+        "intended": "株式会社アオバ物流の佐藤と申します。",
+        "first_audio_after_s": 1.005,
+        "check": {
+          "voiced_s": 3.18,
+          "compared_with": "expected",
+          "morae": 24,
+          "expected_s": 2.67,
+          "ratio": 1.19,
+          "kind": "ok"
+        }
+      },
+      "restated": {
+        "intended": "失礼いたしました。株式会社アオバ物流の佐藤と申します。",
+        "first_audio_after_s": 0.92,
+        "check": {
+          "voiced_s": 4.53,
+          "compared_with": "expected",
+          "morae": 34,
+          "expected_s": 3.78,
+          "ratio": 1.2,
+          "kind": "ok"
+        }
+      },
+      "wav": "20261013_120710_016_S2.wav",
+      "ear": "失礼いたしました。株式会社大場物流の佐藤と申します。",
+      "ear_diffs": [
+        {
+          "kind": "replace",
+          "script": "がいしゃ[あ]おばぶつ",
+          "heard": "お",
+          "at": 18
+        }
+      ],
+      "passed": false
+    },
+    {
+      "id": "20261013_120710_017_S4",
+      "type": "S4",
+      "voice": "Sadachbia",
+      "line": "株式会社「アオバ物流」の「佐藤」と申します。",
+      "first": {
+        "intended": "",
+        "first_audio_after_s": 0.664,
+        "check": {
+          "voiced_s": 3.34,
+          "compared_with": "expected",
+          "morae": 24,
+          "expected_s": 2.67,
+          "ratio": 1.25,
+          "kind": "ok"
+        }
+      },
+      "restated": {
+        "intended": "失礼いたしました。株式会社「アオバ物流」の「佐藤」と申します。",
+        "first_audio_after_s": 0.697,
+        "check": {
+          "voiced_s": 4.88,
+          "compared_with": "expected",
+          "morae": 34,
+          "expected_s": 3.78,
+          "ratio": 1.29,
+          "kind": "ok"
+        }
+      },
+      "wav": "20261013_120710_017_S4.wav",
+      "ear": "失礼いたしました。株式会社青葉物流の佐藤と申します。",
+      "ear_diffs": [],
+      "passed": true
+    },
+    {
+      "id": "20261013_120710_018_L4",
+      "type": "L4",
+      "voice": "Leda",
+      "line": "株式会社「アオバ物流」の「佐藤」と申します。",
+      "first": {
+        "intended": "",
+        "first_audio_after_s": 0.827,
+        "check": {
+          "voiced_s": 2.95,
+          "compared_with": "expected",
+          "morae": 24,
+          "expected_s": 2.89,
+          "ratio": 1.02,
+          "kind": "ok"
+        }
+      },
+      "restated": {
+        "intended": "失礼いたしました。株式会社「アオバ物流」の「佐藤」と申します。",
+        "first_audio_after_s": 0.874,
+        "check": {
+          "voiced_s": 4.34,
+          "compared_with": "expected",
+          "morae": 34,
+          "expected_s": 4.1,
+          "ratio": 1.06,
+          "kind": "ok"
+        }
+      },
+      "wav": "20261013_120710_018_L4.wav",
+      "ear": "失礼いたしました。株式会社アオバ物流の佐藤と申します。",
+      "ear_diffs": [],
+      "passed": true
+    }
+  ]
+}
