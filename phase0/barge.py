@@ -64,7 +64,10 @@ def watch(parts: list[tuple[str, float]], callee_pcm: bytes, rate: int, onset_s:
         if end - start > short_s:                   # 長い声＝話し始め ⇒ short_s たったところで止める
             stop = start + short_s
             if stop >= total:
-                break                               # 止める前に流し終わった
+                # 止める前に流し終わった ⇒ 録音は流し切ったが、相手は録音の間に話し始めている ⇒ その声をAIへ送る
+                # ⛔ 2026-10-13 G-29 の空打ち：ここで抜けて、最初の質問の終わり近くで答え始めた声を捨てていた
+                send_from = start if send_from is None else send_from
+                break
             done, rest, t = [], [], 0.0
             for text, d in parts:
                 (done if t + d <= stop else rest).append(text)

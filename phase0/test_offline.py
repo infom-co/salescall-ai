@@ -743,6 +743,7 @@ class BargeWatchTest(unittest.TestCase):
         d = watch(self.PARTS, pcm, rate, onset_s=8.3, short_s=0.6)  # 止めるより先に流し終わる
         self.assertFalse(d.stopped)
         self.assertEqual(d.rest, [])
+        self.assertIsNotNone(d.send_from_s)  # ⛔ 直す前は、録音の間に話し始めた声を捨てていた
 
     def test_two_backchannels_with_a_pause_stay_separate(self):
         import numpy as np
