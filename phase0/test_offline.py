@@ -209,6 +209,11 @@ class TurnCheckTest(unittest.TestCase):
         self.assertEqual(classify(voiced_s=3.0, voice="Leda", timed_out=True, expected_text="はい。")["kind"], "silent")
         # 比べる言葉が無い
         self.assertEqual(classify(voiced_s=1.0, voice="Leda")["kind"], "unknown")
+        # 日本語でない言葉を話した（G-17：考えていることを英語で口に出した）。長さが見合っていても拾う
+        eng = "To read this script, I'll project a polite and natural business tone."
+        self.assertEqual(classify(voiced_s=7.8, voice="Sadachbia", expected_text="来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。", intended_text=eng)["kind"], "wrong_language")
+        # 社名などの短いローマ字は数えない
+        self.assertEqual(classify(voiced_s=1.6, voice="Leda", intended_text="ABC株式会社です。")["kind"], "ok")
         # 言うべき言葉が分かっていれば、AI自身の文字起こしより優先する
         self.assertEqual(classify(voiced_s=0.75, voice="Sadachbia", expected_text="失礼いたします。", intended_text="はい")["compared_with"], "expected")
 

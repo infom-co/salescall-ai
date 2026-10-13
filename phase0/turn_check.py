@@ -2,6 +2,8 @@
 
 分け方（どれか1つ）：
 - "silent"     … 声が出ていない（声のある長さが MIN_VOICED_S 未満）。または、決めた秒数のうちにターンが終わらなかった
+- "wrong_language" … 業務の言葉（日本語）でない言葉を話した（2026-10-13 G-17：AIが考えていることを英語で口に出した
+                   「To read this script, I'll project a polite ...」。長さはたまたま見合っていて、長さの見分けでは拾えなかった）
 - "cut_off"    … 言葉の長さに比べて、声が短すぎる（途中で止まった）
 - "too_long"   … 言葉の長さに比べて、声が長すぎる（同じことを2回言った など）
 - "ok"         … 言葉の長さと声の長さが見合っている
@@ -14,8 +16,13 @@
 """
 from __future__ import annotations
 
+import re
+
 from audio import voiced_seconds
 from jtext import morae
+
+# ローマ字の単語が続く所（業務の言葉が日本語のとき、これが出たら日本語でない言葉を話したとみなす）
+_LATIN_RUN = re.compile(r"[A-Za-z][A-Za-z'’]*(?:[\s,.]+[A-Za-z][A-Za-z'’]*){3,}")
 
 MIN_VOICED_S = 0.2
 # 声ごとの、ふつうの話す速さ（1秒あたりの音の数の真ん中の値）。G-17 の1文ずつの形、途中で止まった回を除く
@@ -42,6 +49,8 @@ def classify(*, voiced_s: float, voice: str, timed_out: bool = False,
     out = {"voiced_s": round(voiced, 2), "compared_with": "expected" if expected_text else ("intended" if intended_text else None)}
     if timed_out or voiced < MIN_VOICED_S:
         return {**out, "kind": "silent", "timed_out": timed_out}
+    if intended_text and _LATIN_RUN.search(intended_text):
+        return {**out, "kind": "wrong_language", "latin": _LATIN_RUN.search(intended_text).group(0)[:80]}
     if not text:
         return {**out, "kind": "unknown"}
     need = morae(text) / NORMAL_MORAE_PER_S[voice]

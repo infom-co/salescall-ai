@@ -1,0 +1,3107 @@
+{
+  "item": "G-17",
+  "saved_at": "2026-10-13T07:34:16",
+  "model": "gemini-3.8-live",
+  "scripts": {
+    "A": "お忙しいところ恐れ入ります。株式会社サンプルの担当でございます。本日は、ご予約の日時の確認でお電話いたしました。15日の午後2時でお間違いないでしょうか。聞き取りにくかったので、もう一度、おっしゃっていただいてよろしいでしょうか。念のため確認させてください。ありがとうございました。失礼いたします。",
+    "B": "お忙しいところ恐れ入ります。株式会社アオバ物流の佐藤と申します。本日は、先日お送りした資料の件でお電話いたしました。ご担当の田中様はいらっしゃいますでしょうか。来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。ありがとうございました。失礼いたします。",
+    "B_comma": "お忙しいところ恐れ入ります。株式会社、アオバ物流の佐藤と申します。本日は、先日お送りした資料の件でお電話いたしました。ご担当の田中様はいらっしゃいますでしょうか。来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。ありがとうございました。失礼いたします。",
+    "B_quote": "お忙しいところ恐れ入ります。株式会社「アオバ物流」の佐藤と申します。本日は、先日お送りした資料の件でお電話いたしました。ご担当の田中様はいらっしゃいますでしょうか。来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。ありがとうございました。失礼いたします。"
+  },
+  "conditions": {
+    "none": "",
+    "tone": "話し方：取引先に電話をかける会社員のように、ていねいで、前向きで、感じのよい声で話してください。声は暗くせず、やわらかく話してください。抑揚は、ふだんの日本語の会話と同じ、自然な抑揚にしてください。聞き返すときや確認するときは、相手を問い詰める感じにならないよう、申し訳なさそうに、やさしく言ってください。威圧的な話し方はしないでください。留守番電話の案内のような、ゆっくりした話し方にしないでください。言葉は1文字も変えないでください。",
+    "tone_x2": "話し方：取引先に電話をかける会社員のように、ていねいで、前向きで、感じのよい声で話してください。声は暗くせず、やわらかく話してください。抑揚は、ふだんの日本語の会話と同じ、自然な抑揚にしてください。聞き返すときや確認するときは、相手を問い詰める感じにならないよう、申し訳なさそうに、やさしく言ってください。威圧的な話し方はしないでください。話す速さは2倍速にしてください。留守番電話の案内のような、ゆっくりした話し方にしないでください。言葉は1文字も変えないでください。",
+    "tone_x2_names": "話し方：取引先に電話をかける会社員のように、ていねいで、前向きで、感じのよい声で話してください。声は暗くせず、やわらかく話してください。抑揚は、ふだんの日本語の会話と同じ、自然な抑揚にしてください。聞き返すときや確認するときは、相手を問い詰める感じにならないよう、申し訳なさそうに、やさしく言ってください。威圧的な話し方はしないでください。話す速さは2倍速にしてください。留守番電話の案内のような、ゆっくりした話し方にしないでください。言葉は1文字も変えないでください。会社名と人の名前は、前後の言葉とつなげず、1語ずつはっきり言ってください。",
+    "s2_x0": "話し方：取引先に電話をかける会社員のように、ていねいで、前向きで、感じのよい声で話してください。声は暗くせず、やわらかく話してください。抑揚は、ふだんの日本語の会話と同じ、自然な抑揚にしてください。聞き返すときや確認するときは、相手を問い詰める感じにならないよう、申し訳なさそうに、やさしく言ってください。威圧的な話し方はしないでください。留守番電話の案内のような、ゆっくりした話し方にしないでください。言葉は1文字も変えないでください。",
+    "s2_slight": "話し方：取引先に電話をかける会社員のように、ていねいで、前向きで、感じのよい声で話してください。声は暗くせず、やわらかく話してください。抑揚は、ふだんの日本語の会話と同じ、自然な抑揚にしてください。聞き返すときや確認するときは、相手を問い詰める感じにならないよう、申し訳なさそうに、やさしく言ってください。威圧的な話し方はしないでください。話す速さは、ふつうより少し速めにしてください。留守番電話の案内のような、ゆっくりした話し方にしないでください。言葉は1文字も変えないでください。",
+    "s2_x1_5": "話し方：取引先に電話をかける会社員のように、ていねいで、前向きで、感じのよい声で話してください。声は暗くせず、やわらかく話してください。抑揚は、ふだんの日本語の会話と同じ、自然な抑揚にしてください。聞き返すときや確認するときは、相手を問い詰める感じにならないよう、申し訳なさそうに、やさしく言ってください。威圧的な話し方はしないでください。話す速さは1.5倍速にしてください。留守番電話の案内のような、ゆっくりした話し方にしないでください。言葉は1文字も変えないでください。",
+    "s2_x2": "話し方：取引先に電話をかける会社員のように、ていねいで、前向きで、感じのよい声で話してください。声は暗くせず、やわらかく話してください。抑揚は、ふだんの日本語の会話と同じ、自然な抑揚にしてください。聞き返すときや確認するときは、相手を問い詰める感じにならないよう、申し訳なさそうに、やさしく言ってください。威圧的な話し方はしないでください。話す速さは2倍速にしてください。留守番電話の案内のような、ゆっくりした話し方にしないでください。言葉は1文字も変えないでください。",
+    "l4_x0": "話し方：取引先にお願いをする気持ちで電話をかける、謙虚な会社員のように、ていねいで、やわらかく、前向きな声で話してください。声は暗くせず、語尾はやさしく終えてください。抑揚は、ふだんの日本語の会話と同じ、自然な抑揚にしてください。聞き返すときや確認するときは、申し訳なさそうに、やさしく言ってください。威圧的な話し方はしないでください。留守番電話の案内のような、ゆっくりした話し方にしないでください。言葉は1文字も変えないでください。",
+    "l4_slight": "話し方：取引先にお願いをする気持ちで電話をかける、謙虚な会社員のように、ていねいで、やわらかく、前向きな声で話してください。声は暗くせず、語尾はやさしく終えてください。抑揚は、ふだんの日本語の会話と同じ、自然な抑揚にしてください。聞き返すときや確認するときは、申し訳なさそうに、やさしく言ってください。威圧的な話し方はしないでください。話す速さは、ふつうより少し速めにしてください。留守番電話の案内のような、ゆっくりした話し方にしないでください。言葉は1文字も変えないでください。",
+    "l4_x1_5": "話し方：取引先にお願いをする気持ちで電話をかける、謙虚な会社員のように、ていねいで、やわらかく、前向きな声で話してください。声は暗くせず、語尾はやさしく終えてください。抑揚は、ふだんの日本語の会話と同じ、自然な抑揚にしてください。聞き返すときや確認するときは、申し訳なさそうに、やさしく言ってください。威圧的な話し方はしないでください。話す速さは1.5倍速にしてください。留守番電話の案内のような、ゆっくりした話し方にしないでください。言葉は1文字も変えないでください。",
+    "l4_x2": "話し方：取引先にお願いをする気持ちで電話をかける、謙虚な会社員のように、ていねいで、やわらかく、前向きな声で話してください。声は暗くせず、語尾はやさしく終えてください。抑揚は、ふだんの日本語の会話と同じ、自然な抑揚にしてください。聞き返すときや確認するときは、申し訳なさそうに、やさしく言ってください。威圧的な話し方はしないでください。話す速さは2倍速にしてください。留守番電話の案内のような、ゆっくりした話し方にしないでください。言葉は1文字も変えないでください。",
+    "S2": "話し方：取引先に電話をかける会社員のように、ていねいで、前向きで、感じのよい声で話してください。声は暗くせず、やわらかく話してください。抑揚は、ふだんの日本語の会話と同じ、自然な抑揚にしてください。聞き返すときや確認するときは、相手を問い詰める感じにならないよう、申し訳なさそうに、やさしく言ってください。威圧的な話し方はしないでください。留守番電話の案内のような、ゆっくりした話し方にしないでください。言葉は1文字も変えないでください。",
+    "S4": "話し方：感じのよい受付の担当者のように、にこやかで、やわらかく、前向きな声で話してください。抑揚は、ふだんの日本語の会話と同じ、自然な抑揚にしてください。聞き返すときは、申し訳なさそうに、やさしく言ってください。威圧的な話し方はしないでください。留守番電話の案内のような、ゆっくりした話し方にしないでください。言葉は1文字も変えないでください。",
+    "L4": "話し方：取引先にお願いをする気持ちで電話をかける、謙虚な会社員のように、ていねいで、やわらかく、前向きな声で話してください。声は暗くせず、語尾はやさしく終えてください。抑揚は、ふだんの日本語の会話と同じ、自然な抑揚にしてください。聞き返すときや確認するときは、申し訳なさそうに、やさしく言ってください。威圧的な話し方はしないでください。留守番電話の案内のような、ゆっくりした話し方にしないでください。言葉は1文字も変えないでください。"
+  },
+  "summary": {
+    "voice": {
+      "Sadachbia": {
+        "trials": 0,
+        "silent_turns": 0,
+        "cut_off_turns": 0,
+        "too_long_turns": 0,
+        "turns": 0,
+        "trials_with_ear_diffs": 0,
+        "trials_with_intended_diffs": 0
+      },
+      "Leda": {
+        "trials": 16,
+        "silent_turns": 0,
+        "cut_off_turns": 2,
+        "too_long_turns": 0,
+        "turns": 120,
+        "trials_with_ear_diffs": 4,
+        "trials_with_intended_diffs": 2
+      }
+    },
+    "condition": {
+      "none": {
+        "trials": 0,
+        "silent_turns": 0,
+        "cut_off_turns": 0,
+        "too_long_turns": 0,
+        "turns": 0,
+        "trials_with_ear_diffs": 0,
+        "trials_with_intended_diffs": 0
+      },
+      "tone": {
+        "trials": 0,
+        "silent_turns": 0,
+        "cut_off_turns": 0,
+        "too_long_turns": 0,
+        "turns": 0,
+        "trials_with_ear_diffs": 0,
+        "trials_with_intended_diffs": 0
+      },
+      "tone_x2": {
+        "trials": 0,
+        "silent_turns": 0,
+        "cut_off_turns": 0,
+        "too_long_turns": 0,
+        "turns": 0,
+        "trials_with_ear_diffs": 0,
+        "trials_with_intended_diffs": 0
+      },
+      "tone_x2_names": {
+        "trials": 0,
+        "silent_turns": 0,
+        "cut_off_turns": 0,
+        "too_long_turns": 0,
+        "turns": 0,
+        "trials_with_ear_diffs": 0,
+        "trials_with_intended_diffs": 0
+      },
+      "s2_x0": {
+        "trials": 0,
+        "silent_turns": 0,
+        "cut_off_turns": 0,
+        "too_long_turns": 0,
+        "turns": 0,
+        "trials_with_ear_diffs": 0,
+        "trials_with_intended_diffs": 0
+      },
+      "s2_slight": {
+        "trials": 0,
+        "silent_turns": 0,
+        "cut_off_turns": 0,
+        "too_long_turns": 0,
+        "turns": 0,
+        "trials_with_ear_diffs": 0,
+        "trials_with_intended_diffs": 0
+      },
+      "s2_x1_5": {
+        "trials": 0,
+        "silent_turns": 0,
+        "cut_off_turns": 0,
+        "too_long_turns": 0,
+        "turns": 0,
+        "trials_with_ear_diffs": 0,
+        "trials_with_intended_diffs": 0
+      },
+      "s2_x2": {
+        "trials": 0,
+        "silent_turns": 0,
+        "cut_off_turns": 0,
+        "too_long_turns": 0,
+        "turns": 0,
+        "trials_with_ear_diffs": 0,
+        "trials_with_intended_diffs": 0
+      },
+      "l4_x0": {
+        "trials": 0,
+        "silent_turns": 0,
+        "cut_off_turns": 0,
+        "too_long_turns": 0,
+        "turns": 0,
+        "trials_with_ear_diffs": 0,
+        "trials_with_intended_diffs": 0
+      },
+      "l4_slight": {
+        "trials": 0,
+        "silent_turns": 0,
+        "cut_off_turns": 0,
+        "too_long_turns": 0,
+        "turns": 0,
+        "trials_with_ear_diffs": 0,
+        "trials_with_intended_diffs": 0
+      },
+      "l4_x1_5": {
+        "trials": 0,
+        "silent_turns": 0,
+        "cut_off_turns": 0,
+        "too_long_turns": 0,
+        "turns": 0,
+        "trials_with_ear_diffs": 0,
+        "trials_with_intended_diffs": 0
+      },
+      "l4_x2": {
+        "trials": 0,
+        "silent_turns": 0,
+        "cut_off_turns": 0,
+        "too_long_turns": 0,
+        "turns": 0,
+        "trials_with_ear_diffs": 0,
+        "trials_with_intended_diffs": 0
+      },
+      "S2": {
+        "trials": 0,
+        "silent_turns": 0,
+        "cut_off_turns": 0,
+        "too_long_turns": 0,
+        "turns": 0,
+        "trials_with_ear_diffs": 0,
+        "trials_with_intended_diffs": 0
+      },
+      "S4": {
+        "trials": 0,
+        "silent_turns": 0,
+        "cut_off_turns": 0,
+        "too_long_turns": 0,
+        "turns": 0,
+        "trials_with_ear_diffs": 0,
+        "trials_with_intended_diffs": 0
+      },
+      "L4": {
+        "trials": 16,
+        "silent_turns": 0,
+        "cut_off_turns": 2,
+        "too_long_turns": 0,
+        "turns": 120,
+        "trials_with_ear_diffs": 4,
+        "trials_with_intended_diffs": 2
+      }
+    },
+    "length": {
+      "long": {
+        "trials": 0,
+        "silent_turns": 0,
+        "cut_off_turns": 0,
+        "too_long_turns": 0,
+        "turns": 0,
+        "trials_with_ear_diffs": 0,
+        "trials_with_intended_diffs": 0
+      },
+      "short": {
+        "trials": 16,
+        "silent_turns": 0,
+        "cut_off_turns": 2,
+        "too_long_turns": 0,
+        "turns": 120,
+        "trials_with_ear_diffs": 4,
+        "trials_with_intended_diffs": 2
+      }
+    },
+    "script_id": {
+      "A": {
+        "trials": 8,
+        "silent_turns": 0,
+        "cut_off_turns": 1,
+        "too_long_turns": 0,
+        "turns": 64,
+        "trials_with_ear_diffs": 2,
+        "trials_with_intended_diffs": 1
+      },
+      "B": {
+        "trials": 0,
+        "silent_turns": 0,
+        "cut_off_turns": 0,
+        "too_long_turns": 0,
+        "turns": 0,
+        "trials_with_ear_diffs": 0,
+        "trials_with_intended_diffs": 0
+      },
+      "B_comma": {
+        "trials": 0,
+        "silent_turns": 0,
+        "cut_off_turns": 0,
+        "too_long_turns": 0,
+        "turns": 0,
+        "trials_with_ear_diffs": 0,
+        "trials_with_intended_diffs": 0
+      },
+      "B_quote": {
+        "trials": 8,
+        "silent_turns": 0,
+        "cut_off_turns": 1,
+        "too_long_turns": 0,
+        "turns": 56,
+        "trials_with_ear_diffs": 2,
+        "trials_with_intended_diffs": 1
+      }
+    },
+    "errors": 0
+  },
+  "rows": [
+    {
+      "id": "20261013_071628_001_Leda_L4_short_A",
+      "voice": "Leda",
+      "condition": "L4",
+      "length": "short",
+      "script_id": "A",
+      "turns": [
+        {
+          "script": "お忙しいところ恐れ入ります。",
+          "intended": "",
+          "audio_s": 2.24,
+          "voiced_s": 1.97,
+          "check": {
+            "voiced_s": 1.97,
+            "compared_with": "expected",
+            "morae": 16,
+            "expected_s": 1.93,
+            "ratio": 1.02,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.59,
+          "audio_tokens": 62,
+          "thoughts_tokens": 97
+        },
+        {
+          "script": "株式会社サンプルの担当でございます。",
+          "intended": "株式会社サンプルの担当でございます。",
+          "audio_s": 3.1,
+          "voiced_s": 2.74,
+          "check": {
+            "voiced_s": 2.74,
+            "compared_with": "expected",
+            "morae": 22,
+            "expected_s": 2.65,
+            "ratio": 1.03,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.598,
+          "audio_tokens": 83,
+          "thoughts_tokens": 63
+        },
+        {
+          "script": "本日は、ご予約の日時の確認でお電話いたしました。",
+          "intended": "本日は、ご予約の日時の確認でお電話いたしました。",
+          "audio_s": 4.2,
+          "voiced_s": 3.84,
+          "check": {
+            "voiced_s": 3.84,
+            "compared_with": "expected",
+            "morae": 29,
+            "expected_s": 3.49,
+            "ratio": 1.1,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.55,
+          "audio_tokens": 110,
+          "thoughts_tokens": 70
+        },
+        {
+          "script": "15日の午後2時でお間違いないでしょうか。",
+          "intended": "十五日の午後二時でお間違いないでしょうか。",
+          "audio_s": 3.3,
+          "voiced_s": 2.97,
+          "check": {
+            "voiced_s": 2.97,
+            "compared_with": "expected",
+            "morae": 25,
+            "expected_s": 3.01,
+            "ratio": 0.99,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.858,
+          "audio_tokens": 88,
+          "thoughts_tokens": 82
+        },
+        {
+          "script": "聞き取りにくかったので、もう一度、おっしゃっていただいてよろしいでしょうか。",
+          "intended": "聞き取りにくかったので、もう一度、おっしゃっていただいてよろしいでしょうか。",
+          "audio_s": 4.77,
+          "voiced_s": 4.5,
+          "check": {
+            "voiced_s": 4.5,
+            "compared_with": "expected",
+            "morae": 34,
+            "expected_s": 4.1,
+            "ratio": 1.1,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.847,
+          "audio_tokens": 126,
+          "thoughts_tokens": 95
+        },
+        {
+          "script": "念のため確認させてください。",
+          "intended": "念のため確認させてください。",
+          "audio_s": 2.35,
+          "voiced_s": 1.91,
+          "check": {
+            "voiced_s": 1.91,
+            "compared_with": "expected",
+            "morae": 16,
+            "expected_s": 1.93,
+            "ratio": 0.99,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.588,
+          "audio_tokens": 65,
+          "thoughts_tokens": 54
+        },
+        {
+          "script": "ありがとうございました。",
+          "intended": "ありがとうございました。",
+          "audio_s": 1.44,
+          "voiced_s": 1.12,
+          "check": {
+            "voiced_s": 1.12,
+            "compared_with": "expected",
+            "morae": 11,
+            "expected_s": 1.33,
+            "ratio": 0.84,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.927,
+          "audio_tokens": 42,
+          "thoughts_tokens": 46
+        },
+        {
+          "script": "失礼いたします。",
+          "intended": "失礼いたします。",
+          "audio_s": 1.35,
+          "voiced_s": 1.04,
+          "check": {
+            "voiced_s": 1.04,
+            "compared_with": "expected",
+            "morae": 9,
+            "expected_s": 1.08,
+            "ratio": 0.96,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.484,
+          "audio_tokens": 38,
+          "thoughts_tokens": 46
+        }
+      ],
+      "silent_turns": 0,
+      "cut_off_turns": 0,
+      "too_long_turns": 0,
+      "chars_per_s": 6.87,
+      "intended_missing": true,
+      "intended_diffs": null,
+      "wav": "20261013_071628_001_Leda_L4_short_A.wav",
+      "ear": "お待たせのところ恐れ入ります。株式会社サンプルの担当でございます。本日はご予約の日時の確認でお電話いたしました。15日の午後2時でお間違いないでしょうか？聞き取りにくかったので、もう一度おっしゃっていただいてよろしいでしょうか？念のため確認させてください。ありがとうございました。失礼いたします。",
+      "ear_diffs": [
+        {
+          "kind": "replace",
+          "script": "お[いそがしい]ところお",
+          "heard": "またせの"
+        }
+      ]
+    },
+    {
+      "id": "20261013_071628_002_Leda_L4_short_B_quote",
+      "voice": "Leda",
+      "condition": "L4",
+      "length": "short",
+      "script_id": "B_quote",
+      "turns": [
+        {
+          "script": "お忙しいところ恐れ入ります。",
+          "intended": "",
+          "audio_s": 2.24,
+          "voiced_s": 1.96,
+          "check": {
+            "voiced_s": 1.96,
+            "compared_with": "expected",
+            "morae": 16,
+            "expected_s": 1.93,
+            "ratio": 1.02,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.797,
+          "audio_tokens": 62,
+          "thoughts_tokens": 99
+        },
+        {
+          "script": "株式会社「アオバ物流」の佐藤と申します。",
+          "intended": "株式会社「アオバ物流」の佐藤と申します。",
+          "audio_s": 3.35,
+          "voiced_s": 3.09,
+          "check": {
+            "voiced_s": 3.09,
+            "compared_with": "expected",
+            "morae": 24,
+            "expected_s": 2.89,
+            "ratio": 1.07,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.84,
+          "audio_tokens": 90,
+          "thoughts_tokens": 78
+        },
+        {
+          "script": "本日は、先日お送りした資料の件でお電話いたしました。",
+          "intended": "本日は、先日お送りした資料の件でお電話いたしました。",
+          "audio_s": 4.8,
+          "voiced_s": 4.49,
+          "check": {
+            "voiced_s": 4.49,
+            "compared_with": "expected",
+            "morae": 32,
+            "expected_s": 3.86,
+            "ratio": 1.16,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.637,
+          "audio_tokens": 127,
+          "thoughts_tokens": 90
+        },
+        {
+          "script": "ご担当の田中様はいらっしゃいますでしょうか。",
+          "intended": "ご担当の田中様はいらっしゃいますでしょうか。",
+          "audio_s": 3.15,
+          "voiced_s": 2.87,
+          "check": {
+            "voiced_s": 2.87,
+            "compared_with": "expected",
+            "morae": 23,
+            "expected_s": 2.77,
+            "ratio": 1.04,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.511,
+          "audio_tokens": 85,
+          "thoughts_tokens": 60
+        },
+        {
+          "script": "来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。",
+          "intended": "来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。",
+          "audio_s": 6.78,
+          "voiced_s": 6.38,
+          "check": {
+            "voiced_s": 6.38,
+            "compared_with": "expected",
+            "morae": 49,
+            "expected_s": 5.9,
+            "ratio": 1.08,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.706,
+          "audio_tokens": 176,
+          "thoughts_tokens": 88
+        },
+        {
+          "script": "ありがとうございました。",
+          "intended": "ありがとうございました。",
+          "audio_s": 1.61,
+          "voiced_s": 1.23,
+          "check": {
+            "voiced_s": 1.23,
+            "compared_with": "expected",
+            "morae": 11,
+            "expected_s": 1.33,
+            "ratio": 0.93,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.832,
+          "audio_tokens": 46,
+          "thoughts_tokens": 52
+        },
+        {
+          "script": "失礼いたします。",
+          "intended": "失礼いたします。",
+          "audio_s": 1.31,
+          "voiced_s": 0.95,
+          "check": {
+            "voiced_s": 0.95,
+            "compared_with": "expected",
+            "morae": 9,
+            "expected_s": 1.08,
+            "ratio": 0.88,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.655,
+          "audio_tokens": 38,
+          "thoughts_tokens": 50
+        }
+      ],
+      "silent_turns": 0,
+      "cut_off_turns": 0,
+      "too_long_turns": 0,
+      "chars_per_s": 6.15,
+      "intended_missing": true,
+      "intended_diffs": null,
+      "wav": "20261013_071628_002_Leda_L4_short_B_quote.wav",
+      "ear": "お忙しいところ恐れ入ります。株式会社青葉物流の佐藤と申します。本日は先日お送りした資料の件でお電話いたしました。ご担当の田中様はいらっしゃいますでしょうか。来週の火曜日、10月20日の午後3時に改めてお電話してもよろしいでしょうか。ありがとうございました。失礼いたします。",
+      "ear_diffs": []
+    },
+    {
+      "id": "20261013_071628_003_Leda_L4_short_A",
+      "voice": "Leda",
+      "condition": "L4",
+      "length": "short",
+      "script_id": "A",
+      "turns": [
+        {
+          "script": "お忙しいところ恐れ入ります。",
+          "intended": "",
+          "audio_s": 2.24,
+          "voiced_s": 1.96,
+          "check": {
+            "voiced_s": 1.96,
+            "compared_with": "expected",
+            "morae": 16,
+            "expected_s": 1.93,
+            "ratio": 1.02,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.539,
+          "audio_tokens": 62,
+          "thoughts_tokens": 68
+        },
+        {
+          "script": "株式会社サンプルの担当でございます。",
+          "intended": "株式会社サンプルの担当でございます。",
+          "audio_s": 2.98,
+          "voiced_s": 2.66,
+          "check": {
+            "voiced_s": 2.66,
+            "compared_with": "expected",
+            "morae": 22,
+            "expected_s": 2.65,
+            "ratio": 1.0,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.643,
+          "audio_tokens": 80,
+          "thoughts_tokens": 86
+        },
+        {
+          "script": "本日は、ご予約の日時の確認でお電話いたしました。",
+          "intended": "本日は、ご予約の日時の確認でお電話いたしました。",
+          "audio_s": 4.53,
+          "voiced_s": 4.17,
+          "check": {
+            "voiced_s": 4.17,
+            "compared_with": "expected",
+            "morae": 29,
+            "expected_s": 3.49,
+            "ratio": 1.19,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.639,
+          "audio_tokens": 119,
+          "thoughts_tokens": 88
+        },
+        {
+          "script": "15日の午後2時でお間違いないでしょうか。",
+          "intended": "15日の午後2時でお間違いないでしょうか。",
+          "audio_s": 3.59,
+          "voiced_s": 3.23,
+          "check": {
+            "voiced_s": 3.23,
+            "compared_with": "expected",
+            "morae": 25,
+            "expected_s": 3.01,
+            "ratio": 1.07,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.569,
+          "audio_tokens": 95,
+          "thoughts_tokens": 67
+        },
+        {
+          "script": "聞き取りにくかったので、もう一度、おっしゃっていただいてよろしいでしょうか。",
+          "intended": "聞き取りにくかったので、もう一度、おっしゃっていただいてよろしいでしょうか。",
+          "audio_s": 4.76,
+          "voiced_s": 4.45,
+          "check": {
+            "voiced_s": 4.45,
+            "compared_with": "expected",
+            "morae": 34,
+            "expected_s": 4.1,
+            "ratio": 1.09,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.677,
+          "audio_tokens": 125,
+          "thoughts_tokens": 79
+        },
+        {
+          "script": "念のため確認させてください。",
+          "intended": "念のため確認させてください。",
+          "audio_s": 2.32,
+          "voiced_s": 1.97,
+          "check": {
+            "voiced_s": 1.97,
+            "compared_with": "expected",
+            "morae": 16,
+            "expected_s": 1.93,
+            "ratio": 1.02,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.499,
+          "audio_tokens": 64,
+          "thoughts_tokens": 61
+        },
+        {
+          "script": "ありがとうございました。",
+          "intended": "ありがとうございました。",
+          "audio_s": 1.61,
+          "voiced_s": 1.25,
+          "check": {
+            "voiced_s": 1.25,
+            "compared_with": "expected",
+            "morae": 11,
+            "expected_s": 1.33,
+            "ratio": 0.94,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.578,
+          "audio_tokens": 46,
+          "thoughts_tokens": 45
+        },
+        {
+          "script": "失礼いたします。",
+          "intended": "失礼いたします。",
+          "audio_s": 1.43,
+          "voiced_s": 1.08,
+          "check": {
+            "voiced_s": 1.08,
+            "compared_with": "expected",
+            "morae": 9,
+            "expected_s": 1.08,
+            "ratio": 0.99,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.594,
+          "audio_tokens": 42,
+          "thoughts_tokens": 59
+        }
+      ],
+      "silent_turns": 0,
+      "cut_off_turns": 0,
+      "too_long_turns": 0,
+      "chars_per_s": 6.64,
+      "intended_missing": true,
+      "intended_diffs": null,
+      "wav": "20261013_071628_003_Leda_L4_short_A.wav",
+      "ear": "お忙しいところ恐れ入ります。株式会社サンプルの担当でございます。本日はご予約の日時の確認でお電話いたしました。15日の午後2時でお間違い無いでしょうか？聞き取りにくかったので、もう一度おっしゃっていただいてよろしいでしょうか？念のため確認させてください。ありがとうございました。失礼いたします。",
+      "ear_diffs": []
+    },
+    {
+      "id": "20261013_071628_004_Leda_L4_short_B_quote",
+      "voice": "Leda",
+      "condition": "L4",
+      "length": "short",
+      "script_id": "B_quote",
+      "turns": [
+        {
+          "script": "お忙しいところ恐れ入ります。",
+          "intended": "",
+          "audio_s": 2.19,
+          "voiced_s": 1.86,
+          "check": {
+            "voiced_s": 1.86,
+            "compared_with": "expected",
+            "morae": 16,
+            "expected_s": 1.93,
+            "ratio": 0.96,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.9,
+          "audio_tokens": 61,
+          "thoughts_tokens": 141
+        },
+        {
+          "script": "株式会社「アオバ物流」の佐藤と申します。",
+          "intended": "株式会社「アオバ物流」の佐藤と申します。",
+          "audio_s": 3.42,
+          "voiced_s": 3.06,
+          "check": {
+            "voiced_s": 3.06,
+            "compared_with": "expected",
+            "morae": 24,
+            "expected_s": 2.89,
+            "ratio": 1.06,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.602,
+          "audio_tokens": 91,
+          "thoughts_tokens": 64
+        },
+        {
+          "script": "本日は、先日お送りした資料の件でお電話いたしました。",
+          "intended": "本日は、先日お送りした資料の件でお電話いたしました。",
+          "audio_s": 4.48,
+          "voiced_s": 4.17,
+          "check": {
+            "voiced_s": 4.17,
+            "compared_with": "expected",
+            "morae": 32,
+            "expected_s": 3.86,
+            "ratio": 1.08,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.634,
+          "audio_tokens": 118,
+          "thoughts_tokens": 76
+        },
+        {
+          "script": "ご担当の田中様はいらっしゃいますでしょうか。",
+          "intended": "ご担当の田中様はいらっしゃいますでしょうか。",
+          "audio_s": 3.04,
+          "voiced_s": 2.71,
+          "check": {
+            "voiced_s": 2.71,
+            "compared_with": "expected",
+            "morae": 23,
+            "expected_s": 2.77,
+            "ratio": 0.98,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.519,
+          "audio_tokens": 82,
+          "thoughts_tokens": 69
+        },
+        {
+          "script": "来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。",
+          "intended": "来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。",
+          "audio_s": 6.53,
+          "voiced_s": 6.25,
+          "check": {
+            "voiced_s": 6.25,
+            "compared_with": "expected",
+            "morae": 49,
+            "expected_s": 5.9,
+            "ratio": 1.06,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.588,
+          "audio_tokens": 169,
+          "thoughts_tokens": 76
+        },
+        {
+          "script": "ありがとうございました。",
+          "intended": "ありがとうございました。",
+          "audio_s": 1.55,
+          "voiced_s": 1.18,
+          "check": {
+            "voiced_s": 1.18,
+            "compared_with": "expected",
+            "morae": 11,
+            "expected_s": 1.33,
+            "ratio": 0.89,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.657,
+          "audio_tokens": 44,
+          "thoughts_tokens": 85
+        },
+        {
+          "script": "失礼いたします。",
+          "intended": "失礼いたします。",
+          "audio_s": 1.33,
+          "voiced_s": 1.02,
+          "check": {
+            "voiced_s": 1.02,
+            "compared_with": "expected",
+            "morae": 9,
+            "expected_s": 1.08,
+            "ratio": 0.94,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.633,
+          "audio_tokens": 39,
+          "thoughts_tokens": 38
+        }
+      ],
+      "silent_turns": 0,
+      "cut_off_turns": 0,
+      "too_long_turns": 0,
+      "chars_per_s": 6.37,
+      "intended_missing": true,
+      "intended_diffs": null,
+      "wav": "20261013_071628_004_Leda_L4_short_B_quote.wav",
+      "ear": "お忙しいところ恐れ入ります。株式会社青葉物流の佐藤と申します。本日は先日お送りした資料の件でお電話いたしました。ご担当の田中様はいらっしゃいますでしょうか。来週の火曜日、10月20日の午後3時に改めてお電話してもよろしいでしょうか。ありがとうございました。失礼いたします。",
+      "ear_diffs": []
+    },
+    {
+      "id": "20261013_071628_005_Leda_L4_short_A",
+      "voice": "Leda",
+      "condition": "L4",
+      "length": "short",
+      "script_id": "A",
+      "turns": [
+        {
+          "script": "お忙しいところ恐れ入ります。",
+          "intended": "",
+          "audio_s": 2.56,
+          "voiced_s": 2.23,
+          "check": {
+            "voiced_s": 2.23,
+            "compared_with": "expected",
+            "morae": 16,
+            "expected_s": 1.93,
+            "ratio": 1.16,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.565,
+          "audio_tokens": 70,
+          "thoughts_tokens": 90
+        },
+        {
+          "script": "株式会社サンプルの担当でございます。",
+          "intended": "株式会社サンプルの担当でございます。",
+          "audio_s": 3.33,
+          "voiced_s": 3.04,
+          "check": {
+            "voiced_s": 3.04,
+            "compared_with": "expected",
+            "morae": 22,
+            "expected_s": 2.65,
+            "ratio": 1.15,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.539,
+          "audio_tokens": 89,
+          "thoughts_tokens": 56
+        },
+        {
+          "script": "本日は、ご予約の日時の確認でお電話いたしました。",
+          "intended": "本日は、ご予約の日時の確認でお電話いたしました。",
+          "audio_s": 4.9,
+          "voiced_s": 4.51,
+          "check": {
+            "voiced_s": 4.51,
+            "compared_with": "expected",
+            "morae": 29,
+            "expected_s": 3.49,
+            "ratio": 1.29,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.683,
+          "audio_tokens": 129,
+          "thoughts_tokens": 81
+        },
+        {
+          "script": "15日の午後2時でお間違いないでしょうか。",
+          "intended": "15日の午後2時でお間違いないでしょうか。",
+          "audio_s": 3.49,
+          "voiced_s": 3.24,
+          "check": {
+            "voiced_s": 3.24,
+            "compared_with": "expected",
+            "morae": 25,
+            "expected_s": 3.01,
+            "ratio": 1.08,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.588,
+          "audio_tokens": 93,
+          "thoughts_tokens": 68
+        },
+        {
+          "script": "聞き取りにくかったので、もう一度、おっしゃっていただいてよろしいでしょうか。",
+          "intended": "聞き取りにくかったので、もう一度、おっしゃっていただいてよろしいでしょうか。",
+          "audio_s": 4.99,
+          "voiced_s": 4.67,
+          "check": {
+            "voiced_s": 4.67,
+            "compared_with": "expected",
+            "morae": 34,
+            "expected_s": 4.1,
+            "ratio": 1.14,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.543,
+          "audio_tokens": 131,
+          "thoughts_tokens": 81
+        },
+        {
+          "script": "念のため確認させてください。",
+          "intended": "念のため確認させてください。",
+          "audio_s": 2.43,
+          "voiced_s": 2.01,
+          "check": {
+            "voiced_s": 2.01,
+            "compared_with": "expected",
+            "morae": 16,
+            "expected_s": 1.93,
+            "ratio": 1.04,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.527,
+          "audio_tokens": 67,
+          "thoughts_tokens": 61
+        },
+        {
+          "script": "ありがとうございました。",
+          "intended": "ありがとうございました。",
+          "audio_s": 1.52,
+          "voiced_s": 1.22,
+          "check": {
+            "voiced_s": 1.22,
+            "compared_with": "expected",
+            "morae": 11,
+            "expected_s": 1.33,
+            "ratio": 0.92,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.56,
+          "audio_tokens": 45,
+          "thoughts_tokens": 43
+        },
+        {
+          "script": "失礼いたします。",
+          "intended": "",
+          "audio_s": 0.8,
+          "voiced_s": 0.77,
+          "check": {
+            "voiced_s": 0.77,
+            "compared_with": "expected",
+            "morae": 9,
+            "expected_s": 1.08,
+            "ratio": 0.71,
+            "kind": "cut_off"
+          },
+          "silent": false,
+          "cut_off": true,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.579,
+          "audio_tokens": 25,
+          "thoughts_tokens": 44
+        }
+      ],
+      "silent_turns": 0,
+      "cut_off_turns": 1,
+      "too_long_turns": 0,
+      "chars_per_s": 6.26,
+      "intended_missing": true,
+      "intended_diffs": null,
+      "wav": "20261013_071628_005_Leda_L4_short_A.wav",
+      "ear": "お忙しいところ恐れ入ります。株式会社サンプルの担当でございます。本日はご予約の日時の確認でお電話いたしました。15日の午後2時でお間違い無いでしょうか？聞き取りにくかったので、もう一度おっしゃっていただいてよろしいでしょうか？念のため確認させてください。ありがとうございました。失礼いたし",
+      "ear_diffs": [
+        {
+          "kind": "delete",
+          "script": "いいたし[ます]",
+          "heard": ""
+        }
+      ]
+    },
+    {
+      "id": "20261013_071628_006_Leda_L4_short_B_quote",
+      "voice": "Leda",
+      "condition": "L4",
+      "length": "short",
+      "script_id": "B_quote",
+      "turns": [
+        {
+          "script": "お忙しいところ恐れ入ります。",
+          "intended": "",
+          "audio_s": 2.56,
+          "voiced_s": 2.22,
+          "check": {
+            "voiced_s": 2.22,
+            "compared_with": "expected",
+            "morae": 16,
+            "expected_s": 1.93,
+            "ratio": 1.15,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.682,
+          "audio_tokens": 70,
+          "thoughts_tokens": 91
+        },
+        {
+          "script": "株式会社「アオバ物流」の佐藤と申します。",
+          "intended": "株式会社「アオバ物流」の佐藤と申します。",
+          "audio_s": 3.67,
+          "voiced_s": 3.33,
+          "check": {
+            "voiced_s": 3.33,
+            "compared_with": "expected",
+            "morae": 24,
+            "expected_s": 2.89,
+            "ratio": 1.15,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.581,
+          "audio_tokens": 98,
+          "thoughts_tokens": 65
+        },
+        {
+          "script": "本日は、先日お送りした資料の件でお電話いたしました。",
+          "intended": "本日は、先日お送りした資料の件でお電話いたしました。",
+          "audio_s": 4.43,
+          "voiced_s": 4.06,
+          "check": {
+            "voiced_s": 4.06,
+            "compared_with": "expected",
+            "morae": 32,
+            "expected_s": 3.86,
+            "ratio": 1.05,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.578,
+          "audio_tokens": 116,
+          "thoughts_tokens": 84
+        },
+        {
+          "script": "ご担当の田中様はいらっしゃいますでしょうか。",
+          "intended": "ご担当の田中様はいらっしゃいますでしょうか。",
+          "audio_s": 2.99,
+          "voiced_s": 2.72,
+          "check": {
+            "voiced_s": 2.72,
+            "compared_with": "expected",
+            "morae": 23,
+            "expected_s": 2.77,
+            "ratio": 0.98,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.619,
+          "audio_tokens": 80,
+          "thoughts_tokens": 67
+        },
+        {
+          "script": "来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。",
+          "intended": "来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。",
+          "audio_s": 6.8,
+          "voiced_s": 6.49,
+          "check": {
+            "voiced_s": 6.49,
+            "compared_with": "expected",
+            "morae": 49,
+            "expected_s": 5.9,
+            "ratio": 1.1,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.616,
+          "audio_tokens": 176,
+          "thoughts_tokens": 84
+        },
+        {
+          "script": "ありがとうございました。",
+          "intended": "ありがとうございました。",
+          "audio_s": 1.61,
+          "voiced_s": 1.16,
+          "check": {
+            "voiced_s": 1.16,
+            "compared_with": "expected",
+            "morae": 11,
+            "expected_s": 1.33,
+            "ratio": 0.87,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.525,
+          "audio_tokens": 46,
+          "thoughts_tokens": 50
+        },
+        {
+          "script": "失礼いたします。",
+          "intended": "失礼いたします。",
+          "audio_s": 1.4,
+          "voiced_s": 1.04,
+          "check": {
+            "voiced_s": 1.04,
+            "compared_with": "expected",
+            "morae": 9,
+            "expected_s": 1.08,
+            "ratio": 0.96,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.544,
+          "audio_tokens": 40,
+          "thoughts_tokens": 50
+        }
+      ],
+      "silent_turns": 0,
+      "cut_off_turns": 0,
+      "too_long_turns": 0,
+      "chars_per_s": 6.14,
+      "intended_missing": true,
+      "intended_diffs": null,
+      "wav": "20261013_071628_006_Leda_L4_short_B_quote.wav",
+      "ear": "お忙しいところ恐れ入ります。株式会社アオバ物流の佐藤と申します。本日は先日お送りした資料の件でお電話いたしました。ご担当の田中様はいらっしゃいますでしょうか。来週の火曜日、10月20日の午後3時に改めてお電話してもよろしいでしょうか。ありがとうございました。失礼いたします。",
+      "ear_diffs": []
+    },
+    {
+      "id": "20261013_071628_007_Leda_L4_short_A",
+      "voice": "Leda",
+      "condition": "L4",
+      "length": "short",
+      "script_id": "A",
+      "turns": [
+        {
+          "script": "お忙しいところ恐れ入ります。",
+          "intended": "お忙しいところ恐れ入ります。",
+          "audio_s": 2.24,
+          "voiced_s": 1.94,
+          "check": {
+            "voiced_s": 1.94,
+            "compared_with": "expected",
+            "morae": 16,
+            "expected_s": 1.93,
+            "ratio": 1.01,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.656,
+          "audio_tokens": 62,
+          "thoughts_tokens": 86
+        },
+        {
+          "script": "株式会社サンプルの担当でございます。",
+          "intended": "株式会社サンプルの担当でございます。",
+          "audio_s": 2.89,
+          "voiced_s": 2.65,
+          "check": {
+            "voiced_s": 2.65,
+            "compared_with": "expected",
+            "morae": 22,
+            "expected_s": 2.65,
+            "ratio": 1.0,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 1.02,
+          "audio_tokens": 78,
+          "thoughts_tokens": 68
+        },
+        {
+          "script": "本日は、ご予約の日時の確認でお電話いたしました。",
+          "intended": "本日は、ご予約の日時の確認でお電話いたしました。",
+          "audio_s": 4.3,
+          "voiced_s": 4.03,
+          "check": {
+            "voiced_s": 4.03,
+            "compared_with": "expected",
+            "morae": 29,
+            "expected_s": 3.49,
+            "ratio": 1.15,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.752,
+          "audio_tokens": 114,
+          "thoughts_tokens": 71
+        },
+        {
+          "script": "15日の午後2時でお間違いないでしょうか。",
+          "intended": "十五日の午後二時でお間違いないでしょうか。",
+          "audio_s": 3.58,
+          "voiced_s": 3.26,
+          "check": {
+            "voiced_s": 3.26,
+            "compared_with": "expected",
+            "morae": 25,
+            "expected_s": 3.01,
+            "ratio": 1.08,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.59,
+          "audio_tokens": 95,
+          "thoughts_tokens": 56
+        },
+        {
+          "script": "聞き取りにくかったので、もう一度、おっしゃっていただいてよろしいでしょうか。",
+          "intended": "聞き取りにくかったので、もう一度、おっしゃっていただいてよろしいでしょうか。",
+          "audio_s": 4.92,
+          "voiced_s": 4.63,
+          "check": {
+            "voiced_s": 4.63,
+            "compared_with": "expected",
+            "morae": 34,
+            "expected_s": 4.1,
+            "ratio": 1.13,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.666,
+          "audio_tokens": 129,
+          "thoughts_tokens": 80
+        },
+        {
+          "script": "念のため確認させてください。",
+          "intended": "念のため確認させてください。",
+          "audio_s": 2.4,
+          "voiced_s": 2.07,
+          "check": {
+            "voiced_s": 2.07,
+            "compared_with": "expected",
+            "morae": 16,
+            "expected_s": 1.93,
+            "ratio": 1.07,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.589,
+          "audio_tokens": 66,
+          "thoughts_tokens": 52
+        },
+        {
+          "script": "ありがとうございました。",
+          "intended": "ありがとうございました。",
+          "audio_s": 1.58,
+          "voiced_s": 1.22,
+          "check": {
+            "voiced_s": 1.22,
+            "compared_with": "expected",
+            "morae": 11,
+            "expected_s": 1.33,
+            "ratio": 0.92,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.68,
+          "audio_tokens": 45,
+          "thoughts_tokens": 80
+        },
+        {
+          "script": "失礼いたします。",
+          "intended": "失礼いたします。",
+          "audio_s": 1.2,
+          "voiced_s": 1.03,
+          "check": {
+            "voiced_s": 1.03,
+            "compared_with": "expected",
+            "morae": 9,
+            "expected_s": 1.08,
+            "ratio": 0.95,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.474,
+          "audio_tokens": 36,
+          "thoughts_tokens": 51
+        }
+      ],
+      "silent_turns": 0,
+      "cut_off_turns": 0,
+      "too_long_turns": 0,
+      "chars_per_s": 6.63,
+      "intended_missing": false,
+      "intended_diffs": [
+        {
+          "kind": "replace",
+          "script": "しました[15]にちのご",
+          "heard": "じゅうご"
+        },
+        {
+          "kind": "replace",
+          "script": "ちのごご[2とき]でおまち",
+          "heard": "にじ"
+        }
+      ],
+      "wav": "20261013_071628_007_Leda_L4_short_A.wav",
+      "ear": "お忙しいところ恐れ入ります。株式会社サンプルの担当でございます。本日はご予約の日時の確認でお電話いたしました。15日の午後2時でお間違い無いでしょうか？聞き取りにくかったので、もう一度おっしゃっていただいてよろしいでしょうか？念のため確認させてください。ありがとうございました。失礼いたします。",
+      "ear_diffs": []
+    },
+    {
+      "id": "20261013_071628_008_Leda_L4_short_B_quote",
+      "voice": "Leda",
+      "condition": "L4",
+      "length": "short",
+      "script_id": "B_quote",
+      "turns": [
+        {
+          "script": "お忙しいところ恐れ入ります。",
+          "intended": "お忙しいところ恐れ入ります。",
+          "audio_s": 2.16,
+          "voiced_s": 1.86,
+          "check": {
+            "voiced_s": 1.86,
+            "compared_with": "expected",
+            "morae": 16,
+            "expected_s": 1.93,
+            "ratio": 0.96,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.701,
+          "audio_tokens": 61,
+          "thoughts_tokens": 83
+        },
+        {
+          "script": "株式会社「アオバ物流」の佐藤と申します。",
+          "intended": "株式会社「アオバ物流」の佐藤と申します。",
+          "audio_s": 3.69,
+          "voiced_s": 3.4,
+          "check": {
+            "voiced_s": 3.4,
+            "compared_with": "expected",
+            "morae": 24,
+            "expected_s": 2.89,
+            "ratio": 1.18,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.551,
+          "audio_tokens": 100,
+          "thoughts_tokens": 65
+        },
+        {
+          "script": "本日は、先日お送りした資料の件でお電話いたしました。",
+          "intended": "本日は、先日お送りした資料の件でお電話いたしました。",
+          "audio_s": 4.23,
+          "voiced_s": 3.94,
+          "check": {
+            "voiced_s": 3.94,
+            "compared_with": "expected",
+            "morae": 32,
+            "expected_s": 3.86,
+            "ratio": 1.02,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.571,
+          "audio_tokens": 113,
+          "thoughts_tokens": 58
+        },
+        {
+          "script": "ご担当の田中様はいらっしゃいますでしょうか。",
+          "intended": "ご担当の田中様はいらっしゃいますでしょうか。",
+          "audio_s": 2.92,
+          "voiced_s": 2.56,
+          "check": {
+            "voiced_s": 2.56,
+            "compared_with": "expected",
+            "morae": 23,
+            "expected_s": 2.77,
+            "ratio": 0.92,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.543,
+          "audio_tokens": 79,
+          "thoughts_tokens": 53
+        },
+        {
+          "script": "来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。",
+          "intended": "来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。",
+          "audio_s": 6.75,
+          "voiced_s": 6.39,
+          "check": {
+            "voiced_s": 6.39,
+            "compared_with": "expected",
+            "morae": 49,
+            "expected_s": 5.9,
+            "ratio": 1.08,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.72,
+          "audio_tokens": 174,
+          "thoughts_tokens": 90
+        },
+        {
+          "script": "ありがとうございました。",
+          "intended": "ありがとうございました。",
+          "audio_s": 1.54,
+          "voiced_s": 1.14,
+          "check": {
+            "voiced_s": 1.14,
+            "compared_with": "expected",
+            "morae": 11,
+            "expected_s": 1.33,
+            "ratio": 0.86,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 1.217,
+          "audio_tokens": 44,
+          "thoughts_tokens": 34
+        },
+        {
+          "script": "失礼いたします。",
+          "intended": "失礼いたします。",
+          "audio_s": 1.28,
+          "voiced_s": 0.97,
+          "check": {
+            "voiced_s": 0.97,
+            "compared_with": "expected",
+            "morae": 9,
+            "expected_s": 1.08,
+            "ratio": 0.89,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.861,
+          "audio_tokens": 38,
+          "thoughts_tokens": 46
+        }
+      ],
+      "silent_turns": 0,
+      "cut_off_turns": 0,
+      "too_long_turns": 0,
+      "chars_per_s": 6.37,
+      "intended_missing": false,
+      "intended_diffs": [],
+      "wav": "20261013_071628_008_Leda_L4_short_B_quote.wav",
+      "ear": "お忙しいところ恐れ入ります。株式会社青葉物流の佐藤と申します。本日は先日お送りした資料の件でお電話いたしました。ご担当の田中様はいらっしゃいますでしょうか。来週の火曜日、10月20日の午後3時に改めてお電話してもよろしいでしょうか。ありがとうございました。失礼いたします。",
+      "ear_diffs": []
+    },
+    {
+      "id": "20261013_071628_009_Leda_L4_short_A",
+      "voice": "Leda",
+      "condition": "L4",
+      "length": "short",
+      "script_id": "A",
+      "turns": [
+        {
+          "script": "お忙しいところ恐れ入ります。",
+          "intended": "お忙しいところ恐れ入ります。",
+          "audio_s": 2.31,
+          "voiced_s": 1.98,
+          "check": {
+            "voiced_s": 1.98,
+            "compared_with": "expected",
+            "morae": 16,
+            "expected_s": 1.93,
+            "ratio": 1.03,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.664,
+          "audio_tokens": 62,
+          "thoughts_tokens": 85
+        },
+        {
+          "script": "株式会社サンプルの担当でございます。",
+          "intended": "株式会社サンプルの担当でございます。",
+          "audio_s": 3.04,
+          "voiced_s": 2.68,
+          "check": {
+            "voiced_s": 2.68,
+            "compared_with": "expected",
+            "morae": 22,
+            "expected_s": 2.65,
+            "ratio": 1.01,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.557,
+          "audio_tokens": 82,
+          "thoughts_tokens": 57
+        },
+        {
+          "script": "本日は、ご予約の日時の確認でお電話いたしました。",
+          "intended": "本日は、ご予約の日時の確認でお電話いたしました。",
+          "audio_s": 4.08,
+          "voiced_s": 3.83,
+          "check": {
+            "voiced_s": 3.83,
+            "compared_with": "expected",
+            "morae": 29,
+            "expected_s": 3.49,
+            "ratio": 1.1,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.532,
+          "audio_tokens": 107,
+          "thoughts_tokens": 72
+        },
+        {
+          "script": "15日の午後2時でお間違いないでしょうか。",
+          "intended": "15日の午後2時でお間違いないでしょうか。",
+          "audio_s": 3.56,
+          "voiced_s": 3.2,
+          "check": {
+            "voiced_s": 3.2,
+            "compared_with": "expected",
+            "morae": 25,
+            "expected_s": 3.01,
+            "ratio": 1.06,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.604,
+          "audio_tokens": 94,
+          "thoughts_tokens": 75
+        },
+        {
+          "script": "聞き取りにくかったので、もう一度、おっしゃっていただいてよろしいでしょうか。",
+          "intended": "聞き取りにくかったので、もう一度、おっしゃっていただいてよろしいでしょうか。",
+          "audio_s": 4.51,
+          "voiced_s": 4.19,
+          "check": {
+            "voiced_s": 4.19,
+            "compared_with": "expected",
+            "morae": 34,
+            "expected_s": 4.1,
+            "ratio": 1.02,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.618,
+          "audio_tokens": 119,
+          "thoughts_tokens": 77
+        },
+        {
+          "script": "念のため確認させてください。",
+          "intended": "念のため確認させてください。",
+          "audio_s": 2.35,
+          "voiced_s": 2.0,
+          "check": {
+            "voiced_s": 2.0,
+            "compared_with": "expected",
+            "morae": 16,
+            "expected_s": 1.93,
+            "ratio": 1.04,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.711,
+          "audio_tokens": 64,
+          "thoughts_tokens": 71
+        },
+        {
+          "script": "ありがとうございました。",
+          "intended": "ありがとうございました。",
+          "audio_s": 1.52,
+          "voiced_s": 1.17,
+          "check": {
+            "voiced_s": 1.17,
+            "compared_with": "expected",
+            "morae": 11,
+            "expected_s": 1.33,
+            "ratio": 0.89,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.493,
+          "audio_tokens": 44,
+          "thoughts_tokens": 36
+        },
+        {
+          "script": "失礼いたします。",
+          "intended": "失礼いたします。",
+          "audio_s": 1.33,
+          "voiced_s": 1.01,
+          "check": {
+            "voiced_s": 1.01,
+            "compared_with": "expected",
+            "morae": 9,
+            "expected_s": 1.08,
+            "ratio": 0.93,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.576,
+          "audio_tokens": 39,
+          "thoughts_tokens": 44
+        }
+      ],
+      "silent_turns": 0,
+      "cut_off_turns": 0,
+      "too_long_turns": 0,
+      "chars_per_s": 6.88,
+      "intended_missing": false,
+      "intended_diffs": [],
+      "wav": "20261013_071628_009_Leda_L4_short_A.wav",
+      "ear": "お忙しいところ恐れ入ります。株式会社サンプルの担当でございます。本日はご予約の日時の確認でお電話いたしました。15日の午後2時でお間違いないでしょうか。聞き取りにくかったので、もう一度おっしゃっていただいてよろしいでしょうか。念のため確認させてください。ありがとうございました。失礼いたします。",
+      "ear_diffs": []
+    },
+    {
+      "id": "20261013_071628_010_Leda_L4_short_B_quote",
+      "voice": "Leda",
+      "condition": "L4",
+      "length": "short",
+      "script_id": "B_quote",
+      "turns": [
+        {
+          "script": "お忙しいところ恐れ入ります。",
+          "intended": "お忙しいところ恐れ入ります。",
+          "audio_s": 2.37,
+          "voiced_s": 2.05,
+          "check": {
+            "voiced_s": 2.05,
+            "compared_with": "expected",
+            "morae": 16,
+            "expected_s": 1.93,
+            "ratio": 1.06,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 1.139,
+          "audio_tokens": 65,
+          "thoughts_tokens": 63
+        },
+        {
+          "script": "株式会社「アオバ物流」の佐藤と申します。",
+          "intended": "株式会社「アオバ物流」の佐藤と申します。",
+          "audio_s": 3.77,
+          "voiced_s": 3.46,
+          "check": {
+            "voiced_s": 3.46,
+            "compared_with": "expected",
+            "morae": 24,
+            "expected_s": 2.89,
+            "ratio": 1.2,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.72,
+          "audio_tokens": 100,
+          "thoughts_tokens": 60
+        },
+        {
+          "script": "本日は、先日お送りした資料の件でお電話いたしました。",
+          "intended": "本日は、先日お送りした資料の件でお電話いたしました。",
+          "audio_s": 4.82,
+          "voiced_s": 4.47,
+          "check": {
+            "voiced_s": 4.47,
+            "compared_with": "expected",
+            "morae": 32,
+            "expected_s": 3.86,
+            "ratio": 1.16,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.653,
+          "audio_tokens": 127,
+          "thoughts_tokens": 72
+        },
+        {
+          "script": "ご担当の田中様はいらっしゃいますでしょうか。",
+          "intended": "ご担当の田中様はいらっしゃいますでしょうか。",
+          "audio_s": 3.16,
+          "voiced_s": 2.86,
+          "check": {
+            "voiced_s": 2.86,
+            "compared_with": "expected",
+            "morae": 23,
+            "expected_s": 2.77,
+            "ratio": 1.03,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.57,
+          "audio_tokens": 85,
+          "thoughts_tokens": 60
+        },
+        {
+          "script": "来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。",
+          "intended": "来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。",
+          "audio_s": 6.73,
+          "voiced_s": 6.39,
+          "check": {
+            "voiced_s": 6.39,
+            "compared_with": "expected",
+            "morae": 49,
+            "expected_s": 5.9,
+            "ratio": 1.08,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.785,
+          "audio_tokens": 175,
+          "thoughts_tokens": 110
+        },
+        {
+          "script": "ありがとうございました。",
+          "intended": "ありがとうございました。",
+          "audio_s": 1.6,
+          "voiced_s": 1.21,
+          "check": {
+            "voiced_s": 1.21,
+            "compared_with": "expected",
+            "morae": 11,
+            "expected_s": 1.33,
+            "ratio": 0.91,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.562,
+          "audio_tokens": 46,
+          "thoughts_tokens": 54
+        },
+        {
+          "script": "失礼いたします。",
+          "intended": "失礼いたします。",
+          "audio_s": 1.36,
+          "voiced_s": 1.06,
+          "check": {
+            "voiced_s": 1.06,
+            "compared_with": "expected",
+            "morae": 9,
+            "expected_s": 1.08,
+            "ratio": 0.98,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.486,
+          "audio_tokens": 40,
+          "thoughts_tokens": 54
+        }
+      ],
+      "silent_turns": 0,
+      "cut_off_turns": 0,
+      "too_long_turns": 0,
+      "chars_per_s": 6.0,
+      "intended_missing": false,
+      "intended_diffs": [],
+      "wav": "20261013_071628_010_Leda_L4_short_B_quote.wav",
+      "ear": "お忙しいところ恐れ入ります。株式会社アオバ物流の佐藤と申します。本日は先日お送りした資料の件でお電話いたしました。ご担当の田中様はいらっしゃいますでしょうか。来週の火曜日、10月20日の午後3時に改めてお電話してもよろしいでしょうか。ありがとうございました。失礼いたします。",
+      "ear_diffs": []
+    },
+    {
+      "id": "20261013_071628_011_Leda_L4_short_A",
+      "voice": "Leda",
+      "condition": "L4",
+      "length": "short",
+      "script_id": "A",
+      "turns": [
+        {
+          "script": "お忙しいところ恐れ入ります。",
+          "intended": "お忙しいところ恐れ入ります。",
+          "audio_s": 1.96,
+          "voiced_s": 1.79,
+          "check": {
+            "voiced_s": 1.79,
+            "compared_with": "expected",
+            "morae": 16,
+            "expected_s": 1.93,
+            "ratio": 0.93,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.781,
+          "audio_tokens": 56,
+          "thoughts_tokens": 80
+        },
+        {
+          "script": "株式会社サンプルの担当でございます。",
+          "intended": "株式会社サンプルの担当でございます。",
+          "audio_s": 2.76,
+          "voiced_s": 2.53,
+          "check": {
+            "voiced_s": 2.53,
+            "compared_with": "expected",
+            "morae": 22,
+            "expected_s": 2.65,
+            "ratio": 0.95,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.619,
+          "audio_tokens": 75,
+          "thoughts_tokens": 55
+        },
+        {
+          "script": "本日は、ご予約の日時の確認でお電話いたしました。",
+          "intended": "本日は、ご予約の日時の確認でお電話いたしました。",
+          "audio_s": 4.24,
+          "voiced_s": 3.86,
+          "check": {
+            "voiced_s": 3.86,
+            "compared_with": "expected",
+            "morae": 29,
+            "expected_s": 3.49,
+            "ratio": 1.1,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.675,
+          "audio_tokens": 112,
+          "thoughts_tokens": 77
+        },
+        {
+          "script": "15日の午後2時でお間違いないでしょうか。",
+          "intended": "15日の午後2時でお間違いないでしょうか。",
+          "audio_s": 3.19,
+          "voiced_s": 2.86,
+          "check": {
+            "voiced_s": 2.86,
+            "compared_with": "expected",
+            "morae": 25,
+            "expected_s": 3.01,
+            "ratio": 0.95,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.578,
+          "audio_tokens": 86,
+          "thoughts_tokens": 47
+        },
+        {
+          "script": "聞き取りにくかったので、もう一度、おっしゃっていただいてよろしいでしょうか。",
+          "intended": "聞き取りにくかったので、もう一度、おっしゃっていただいてよろしいでしょうか。",
+          "audio_s": 4.59,
+          "voiced_s": 4.23,
+          "check": {
+            "voiced_s": 4.23,
+            "compared_with": "expected",
+            "morae": 34,
+            "expected_s": 4.1,
+            "ratio": 1.03,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.644,
+          "audio_tokens": 121,
+          "thoughts_tokens": 88
+        },
+        {
+          "script": "念のため確認させてください。",
+          "intended": "念のため確認させてください。",
+          "audio_s": 2.43,
+          "voiced_s": 2.08,
+          "check": {
+            "voiced_s": 2.08,
+            "compared_with": "expected",
+            "morae": 16,
+            "expected_s": 1.93,
+            "ratio": 1.08,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.632,
+          "audio_tokens": 67,
+          "thoughts_tokens": 74
+        },
+        {
+          "script": "ありがとうございました。",
+          "intended": "ありがとうございました。",
+          "audio_s": 1.67,
+          "voiced_s": 1.25,
+          "check": {
+            "voiced_s": 1.25,
+            "compared_with": "expected",
+            "morae": 11,
+            "expected_s": 1.33,
+            "ratio": 0.95,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.585,
+          "audio_tokens": 48,
+          "thoughts_tokens": 55
+        },
+        {
+          "script": "失礼いたします。",
+          "intended": "失礼いたします。",
+          "audio_s": 2.04,
+          "voiced_s": 0.91,
+          "check": {
+            "voiced_s": 0.91,
+            "compared_with": "expected",
+            "morae": 9,
+            "expected_s": 1.08,
+            "ratio": 0.84,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.574,
+          "audio_tokens": 57,
+          "thoughts_tokens": 50
+        }
+      ],
+      "silent_turns": 0,
+      "cut_off_turns": 0,
+      "too_long_turns": 0,
+      "chars_per_s": 7.07,
+      "intended_missing": false,
+      "intended_diffs": [],
+      "wav": "20261013_071628_011_Leda_L4_short_A.wav",
+      "ear": "お忙しいところ恐れ入ります。株式会社サンプルの担当でございます。本日はご予約の日時の確認でお電話いたしました。15日の午後2時でお間違い無いでしょうか？聞き取りにくかったので、もう一度おっしゃっていただいてよろしいでしょうか？念のため確認させてください。ありがとうございました。失礼いたします。",
+      "ear_diffs": []
+    },
+    {
+      "id": "20261013_071628_012_Leda_L4_short_B_quote",
+      "voice": "Leda",
+      "condition": "L4",
+      "length": "short",
+      "script_id": "B_quote",
+      "turns": [
+        {
+          "script": "お忙しいところ恐れ入ります。",
+          "intended": "",
+          "audio_s": 2.13,
+          "voiced_s": 1.86,
+          "check": {
+            "voiced_s": 1.86,
+            "compared_with": "expected",
+            "morae": 16,
+            "expected_s": 1.93,
+            "ratio": 0.97,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.728,
+          "audio_tokens": 58,
+          "thoughts_tokens": 70
+        },
+        {
+          "script": "株式会社「アオバ物流」の佐藤と申します。",
+          "intended": "株式会社アオバ物流の佐藤と申します。",
+          "audio_s": 4.08,
+          "voiced_s": 3.84,
+          "check": {
+            "voiced_s": 3.84,
+            "compared_with": "expected",
+            "morae": 24,
+            "expected_s": 2.89,
+            "ratio": 1.33,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.558,
+          "audio_tokens": 108,
+          "thoughts_tokens": 84
+        },
+        {
+          "script": "本日は、先日お送りした資料の件でお電話いたしました。",
+          "intended": "本日は、先日お送りした資料の件でお電話いたしました。",
+          "audio_s": 4.91,
+          "voiced_s": 4.56,
+          "check": {
+            "voiced_s": 4.56,
+            "compared_with": "expected",
+            "morae": 32,
+            "expected_s": 3.86,
+            "ratio": 1.18,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.505,
+          "audio_tokens": 128,
+          "thoughts_tokens": 76
+        },
+        {
+          "script": "ご担当の田中様はいらっしゃいますでしょうか。",
+          "intended": "ご担当の田中様はいらっしゃいますでしょうか。",
+          "audio_s": 3.29,
+          "voiced_s": 2.94,
+          "check": {
+            "voiced_s": 2.94,
+            "compared_with": "expected",
+            "morae": 23,
+            "expected_s": 2.77,
+            "ratio": 1.06,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.577,
+          "audio_tokens": 88,
+          "thoughts_tokens": 62
+        },
+        {
+          "script": "来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。",
+          "intended": "来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。",
+          "audio_s": 6.58,
+          "voiced_s": 6.24,
+          "check": {
+            "voiced_s": 6.24,
+            "compared_with": "expected",
+            "morae": 49,
+            "expected_s": 5.9,
+            "ratio": 1.06,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.733,
+          "audio_tokens": 171,
+          "thoughts_tokens": 93
+        },
+        {
+          "script": "ありがとうございました。",
+          "intended": "ありがとうございました。",
+          "audio_s": 1.51,
+          "voiced_s": 1.2,
+          "check": {
+            "voiced_s": 1.2,
+            "compared_with": "expected",
+            "morae": 11,
+            "expected_s": 1.33,
+            "ratio": 0.9,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.466,
+          "audio_tokens": 43,
+          "thoughts_tokens": 40
+        },
+        {
+          "script": "失礼いたします。",
+          "intended": "",
+          "audio_s": 0.76,
+          "voiced_s": 0.75,
+          "check": {
+            "voiced_s": 0.75,
+            "compared_with": "expected",
+            "morae": 9,
+            "expected_s": 1.08,
+            "ratio": 0.7,
+            "kind": "cut_off"
+          },
+          "silent": false,
+          "cut_off": true,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.46,
+          "audio_tokens": 25,
+          "thoughts_tokens": 55
+        }
+      ],
+      "silent_turns": 0,
+      "cut_off_turns": 1,
+      "too_long_turns": 0,
+      "chars_per_s": 5.91,
+      "intended_missing": true,
+      "intended_diffs": null,
+      "wav": "20261013_071628_012_Leda_L4_short_B_quote.wav",
+      "ear": "お忙しいところ恐れ入ります。株式会社アオバ物流の佐藤と申します。本日は先日お送りした資料の件でお電話いたしました。ご担当の田中様はいらっしゃいますでしょうか。来週の火曜日、10月20日の午後3時に改めてお電話してもよろしいでしょうか。ありがとうございました。失礼いたし",
+      "ear_diffs": [
+        {
+          "kind": "delete",
+          "script": "いいたし[ます]",
+          "heard": ""
+        }
+      ]
+    },
+    {
+      "id": "20261013_071628_013_Leda_L4_short_A",
+      "voice": "Leda",
+      "condition": "L4",
+      "length": "short",
+      "script_id": "A",
+      "turns": [
+        {
+          "script": "お忙しいところ恐れ入ります。",
+          "intended": "お忙しいところ恐れ入ります。",
+          "audio_s": 2.61,
+          "voiced_s": 2.29,
+          "check": {
+            "voiced_s": 2.29,
+            "compared_with": "expected",
+            "morae": 16,
+            "expected_s": 1.93,
+            "ratio": 1.19,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.764,
+          "audio_tokens": 71,
+          "thoughts_tokens": 100
+        },
+        {
+          "script": "株式会社サンプルの担当でございます。",
+          "intended": "株式会社サンプルの担当でございます。",
+          "audio_s": 2.87,
+          "voiced_s": 2.64,
+          "check": {
+            "voiced_s": 2.64,
+            "compared_with": "expected",
+            "morae": 22,
+            "expected_s": 2.65,
+            "ratio": 1.0,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.588,
+          "audio_tokens": 77,
+          "thoughts_tokens": 58
+        },
+        {
+          "script": "本日は、ご予約の日時の確認でお電話いたしました。",
+          "intended": "本日は、ご予約の日時の確認でお電話いたしました。",
+          "audio_s": 4.59,
+          "voiced_s": 4.32,
+          "check": {
+            "voiced_s": 4.32,
+            "compared_with": "expected",
+            "morae": 29,
+            "expected_s": 3.49,
+            "ratio": 1.24,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 1.187,
+          "audio_tokens": 122,
+          "thoughts_tokens": 52
+        },
+        {
+          "script": "15日の午後2時でお間違いないでしょうか。",
+          "intended": "15日の午後2時でお間違いないでしょうか。",
+          "audio_s": 3.88,
+          "voiced_s": 3.64,
+          "check": {
+            "voiced_s": 3.64,
+            "compared_with": "expected",
+            "morae": 25,
+            "expected_s": 3.01,
+            "ratio": 1.21,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.83,
+          "audio_tokens": 103,
+          "thoughts_tokens": 84
+        },
+        {
+          "script": "聞き取りにくかったので、もう一度、おっしゃっていただいてよろしいでしょうか。",
+          "intended": "聞き取りにくかったので、もう一度、おっしゃっていただいてよろしいでしょうか。",
+          "audio_s": 5.27,
+          "voiced_s": 4.93,
+          "check": {
+            "voiced_s": 4.93,
+            "compared_with": "expected",
+            "morae": 34,
+            "expected_s": 4.1,
+            "ratio": 1.2,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.656,
+          "audio_tokens": 138,
+          "thoughts_tokens": 82
+        },
+        {
+          "script": "念のため確認させてください。",
+          "intended": "念のため確認させてください。",
+          "audio_s": 2.74,
+          "voiced_s": 2.33,
+          "check": {
+            "voiced_s": 2.33,
+            "compared_with": "expected",
+            "morae": 16,
+            "expected_s": 1.93,
+            "ratio": 1.21,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.653,
+          "audio_tokens": 75,
+          "thoughts_tokens": 59
+        },
+        {
+          "script": "ありがとうございました。",
+          "intended": "ありがとうございました。",
+          "audio_s": 1.56,
+          "voiced_s": 1.23,
+          "check": {
+            "voiced_s": 1.23,
+            "compared_with": "expected",
+            "morae": 11,
+            "expected_s": 1.33,
+            "ratio": 0.93,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.513,
+          "audio_tokens": 46,
+          "thoughts_tokens": 57
+        },
+        {
+          "script": "失礼いたします。",
+          "intended": "失礼いたします。",
+          "audio_s": 1.5,
+          "voiced_s": 1.16,
+          "check": {
+            "voiced_s": 1.16,
+            "compared_with": "expected",
+            "morae": 9,
+            "expected_s": 1.08,
+            "ratio": 1.07,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 1.555,
+          "audio_tokens": 43,
+          "thoughts_tokens": 55
+        }
+      ],
+      "silent_turns": 0,
+      "cut_off_turns": 0,
+      "too_long_turns": 0,
+      "chars_per_s": 6.12,
+      "intended_missing": false,
+      "intended_diffs": [],
+      "wav": "20261013_071628_013_Leda_L4_short_A.wav",
+      "ear": "お忙しいところ恐れ入ります。株式会社サンプルの担当でございます。本日はご予約の日時の確認でお電話いたしました。15日の午後2時でお間違い無いでしょうか？聞き取りにくかったので、もう一度おっしゃっていただいてよろしいでしょうか？念のため確認させてください。ありがとうございました。失礼いたします。",
+      "ear_diffs": []
+    },
+    {
+      "id": "20261013_071628_014_Leda_L4_short_B_quote",
+      "voice": "Leda",
+      "condition": "L4",
+      "length": "short",
+      "script_id": "B_quote",
+      "turns": [
+        {
+          "script": "お忙しいところ恐れ入ります。",
+          "intended": "",
+          "audio_s": 2.21,
+          "voiced_s": 1.88,
+          "check": {
+            "voiced_s": 1.88,
+            "compared_with": "expected",
+            "morae": 16,
+            "expected_s": 1.93,
+            "ratio": 0.98,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.77,
+          "audio_tokens": 61,
+          "thoughts_tokens": 53
+        },
+        {
+          "script": "株式会社「アオバ物流」の佐藤と申します。",
+          "intended": "株式会社「アオバ物流」の佐藤と申します。",
+          "audio_s": 3.44,
+          "voiced_s": 3.11,
+          "check": {
+            "voiced_s": 3.11,
+            "compared_with": "expected",
+            "morae": 24,
+            "expected_s": 2.89,
+            "ratio": 1.08,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.862,
+          "audio_tokens": 91,
+          "thoughts_tokens": 124
+        },
+        {
+          "script": "本日は、先日お送りした資料の件でお電話いたしました。",
+          "intended": "本日は、先日お送りした資料の件でお電話いたしました。",
+          "audio_s": 4.77,
+          "voiced_s": 4.39,
+          "check": {
+            "voiced_s": 4.39,
+            "compared_with": "expected",
+            "morae": 32,
+            "expected_s": 3.86,
+            "ratio": 1.14,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.683,
+          "audio_tokens": 125,
+          "thoughts_tokens": 66
+        },
+        {
+          "script": "ご担当の田中様はいらっしゃいますでしょうか。",
+          "intended": "ご担当の田中様はいらっしゃいますでしょうか。",
+          "audio_s": 3.09,
+          "voiced_s": 2.74,
+          "check": {
+            "voiced_s": 2.74,
+            "compared_with": "expected",
+            "morae": 23,
+            "expected_s": 2.77,
+            "ratio": 0.99,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.631,
+          "audio_tokens": 83,
+          "thoughts_tokens": 79
+        },
+        {
+          "script": "来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。",
+          "intended": "来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。",
+          "audio_s": 6.69,
+          "voiced_s": 6.29,
+          "check": {
+            "voiced_s": 6.29,
+            "compared_with": "expected",
+            "morae": 49,
+            "expected_s": 5.9,
+            "ratio": 1.07,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.525,
+          "audio_tokens": 173,
+          "thoughts_tokens": 86
+        },
+        {
+          "script": "ありがとうございました。",
+          "intended": "ありがとうございました。",
+          "audio_s": 1.65,
+          "voiced_s": 1.19,
+          "check": {
+            "voiced_s": 1.19,
+            "compared_with": "expected",
+            "morae": 11,
+            "expected_s": 1.33,
+            "ratio": 0.9,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.947,
+          "audio_tokens": 47,
+          "thoughts_tokens": 63
+        },
+        {
+          "script": "失礼いたします。",
+          "intended": "失礼いたします。",
+          "audio_s": 1.4,
+          "voiced_s": 1.04,
+          "check": {
+            "voiced_s": 1.04,
+            "compared_with": "expected",
+            "morae": 9,
+            "expected_s": 1.08,
+            "ratio": 0.96,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.54,
+          "audio_tokens": 42,
+          "thoughts_tokens": 57
+        }
+      ],
+      "silent_turns": 0,
+      "cut_off_turns": 0,
+      "too_long_turns": 0,
+      "chars_per_s": 6.25,
+      "intended_missing": true,
+      "intended_diffs": null,
+      "wav": "20261013_071628_014_Leda_L4_short_B_quote.wav",
+      "ear": "お忙しいところ恐れ入ります。株式会社青葉物流の佐藤と申します。本日は先日お送りした資料の件でお電話いたしました。ご担当の田中様はいらっしゃいますでしょうか。来週の火曜日、10月20日の午後3時に改めてお電話してもよろしいでしょうか。ありがとうございました。失礼いたします。",
+      "ear_diffs": []
+    },
+    {
+      "id": "20261013_071628_015_Leda_L4_short_A",
+      "voice": "Leda",
+      "condition": "L4",
+      "length": "short",
+      "script_id": "A",
+      "turns": [
+        {
+          "script": "お忙しいところ恐れ入ります。",
+          "intended": "",
+          "audio_s": 2.39,
+          "voiced_s": 2.04,
+          "check": {
+            "voiced_s": 2.04,
+            "compared_with": "expected",
+            "morae": 16,
+            "expected_s": 1.93,
+            "ratio": 1.06,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.844,
+          "audio_tokens": 65,
+          "thoughts_tokens": 130
+        },
+        {
+          "script": "株式会社サンプルの担当でございます。",
+          "intended": "株式会社サンプルの担当でございます。",
+          "audio_s": 2.82,
+          "voiced_s": 2.51,
+          "check": {
+            "voiced_s": 2.51,
+            "compared_with": "expected",
+            "morae": 22,
+            "expected_s": 2.65,
+            "ratio": 0.95,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.653,
+          "audio_tokens": 77,
+          "thoughts_tokens": 60
+        },
+        {
+          "script": "本日は、ご予約の日時の確認でお電話いたしました。",
+          "intended": "本日は、ご予約の日時の確認でお電話いたしました。",
+          "audio_s": 4.25,
+          "voiced_s": 3.95,
+          "check": {
+            "voiced_s": 3.95,
+            "compared_with": "expected",
+            "morae": 29,
+            "expected_s": 3.49,
+            "ratio": 1.13,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.59,
+          "audio_tokens": 113,
+          "thoughts_tokens": 75
+        },
+        {
+          "script": "15日の午後2時でお間違いないでしょうか。",
+          "intended": "15日の午後2時でお間違いないでしょうか。",
+          "audio_s": 3.51,
+          "voiced_s": 3.21,
+          "check": {
+            "voiced_s": 3.21,
+            "compared_with": "expected",
+            "morae": 25,
+            "expected_s": 3.01,
+            "ratio": 1.06,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.682,
+          "audio_tokens": 94,
+          "thoughts_tokens": 90
+        },
+        {
+          "script": "聞き取りにくかったので、もう一度、おっしゃっていただいてよろしいでしょうか。",
+          "intended": "聞き取りにくかったので、もう一度、おっしゃっていただいてよろしいでしょうか。",
+          "audio_s": 4.73,
+          "voiced_s": 4.4,
+          "check": {
+            "voiced_s": 4.4,
+            "compared_with": "expected",
+            "morae": 34,
+            "expected_s": 4.1,
+            "ratio": 1.07,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.949,
+          "audio_tokens": 124,
+          "thoughts_tokens": 93
+        },
+        {
+          "script": "念のため確認させてください。",
+          "intended": "念のため確認させてください。",
+          "audio_s": 2.35,
+          "voiced_s": 2.0,
+          "check": {
+            "voiced_s": 2.0,
+            "compared_with": "expected",
+            "morae": 16,
+            "expected_s": 1.93,
+            "ratio": 1.04,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.528,
+          "audio_tokens": 64,
+          "thoughts_tokens": 63
+        },
+        {
+          "script": "ありがとうございました。",
+          "intended": "ありがとうございました。",
+          "audio_s": 1.59,
+          "voiced_s": 1.2,
+          "check": {
+            "voiced_s": 1.2,
+            "compared_with": "expected",
+            "morae": 11,
+            "expected_s": 1.33,
+            "ratio": 0.91,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.601,
+          "audio_tokens": 45,
+          "thoughts_tokens": 43
+        },
+        {
+          "script": "失礼いたします。",
+          "intended": "失礼いたします。",
+          "audio_s": 1.52,
+          "voiced_s": 1.13,
+          "check": {
+            "voiced_s": 1.13,
+            "compared_with": "expected",
+            "morae": 9,
+            "expected_s": 1.08,
+            "ratio": 1.05,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.531,
+          "audio_tokens": 44,
+          "thoughts_tokens": 51
+        }
+      ],
+      "silent_turns": 0,
+      "cut_off_turns": 0,
+      "too_long_turns": 0,
+      "chars_per_s": 6.75,
+      "intended_missing": true,
+      "intended_diffs": null,
+      "wav": "20261013_071628_015_Leda_L4_short_A.wav",
+      "ear": "お忙しいところ恐れ入ります。株式会社サンプルの担当でございます。本日はご予約の日時の確認でお電話いたしました。15日の午後2時でお間違いないでしょうか？聞き取りにくかったので、もう一度おっしゃっていただいてよろしいでしょうか？念のため確認させてください。ありがとうございました。失礼いたします。",
+      "ear_diffs": []
+    },
+    {
+      "id": "20261013_071628_016_Leda_L4_short_B_quote",
+      "voice": "Leda",
+      "condition": "L4",
+      "length": "short",
+      "script_id": "B_quote",
+      "turns": [
+        {
+          "script": "お忙しいところ恐れ入ります。",
+          "intended": "お忙しいところ恐れ入ります。",
+          "audio_s": 2.07,
+          "voiced_s": 1.79,
+          "check": {
+            "voiced_s": 1.79,
+            "compared_with": "expected",
+            "morae": 16,
+            "expected_s": 1.93,
+            "ratio": 0.93,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.713,
+          "audio_tokens": 58,
+          "thoughts_tokens": 92
+        },
+        {
+          "script": "株式会社「アオバ物流」の佐藤と申します。",
+          "intended": "株式会社「アオバ物流」の佐藤と申します。",
+          "audio_s": 3.85,
+          "voiced_s": 3.63,
+          "check": {
+            "voiced_s": 3.63,
+            "compared_with": "expected",
+            "morae": 24,
+            "expected_s": 2.89,
+            "ratio": 1.26,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.781,
+          "audio_tokens": 102,
+          "thoughts_tokens": 67
+        },
+        {
+          "script": "本日は、先日お送りした資料の件でお電話いたしました。",
+          "intended": "本日は、先日お送りした資料の件でお電話いたしました。",
+          "audio_s": 4.16,
+          "voiced_s": 3.91,
+          "check": {
+            "voiced_s": 3.91,
+            "compared_with": "expected",
+            "morae": 32,
+            "expected_s": 3.86,
+            "ratio": 1.01,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.668,
+          "audio_tokens": 109,
+          "thoughts_tokens": 78
+        },
+        {
+          "script": "ご担当の田中様はいらっしゃいますでしょうか。",
+          "intended": "ご担当の田中様はいらっしゃいますでしょうか。",
+          "audio_s": 3.0,
+          "voiced_s": 2.71,
+          "check": {
+            "voiced_s": 2.71,
+            "compared_with": "expected",
+            "morae": 23,
+            "expected_s": 2.77,
+            "ratio": 0.98,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.739,
+          "audio_tokens": 81,
+          "thoughts_tokens": 101
+        },
+        {
+          "script": "来週の火曜日、10月20日の午後3時に、改めてお電話してもよろしいでしょうか。",
+          "intended": "来週の火曜日、十月二十日の午後三時に、改めてお電話してもよろしいでしょうか。",
+          "audio_s": 6.6,
+          "voiced_s": 6.27,
+          "check": {
+            "voiced_s": 6.27,
+            "compared_with": "expected",
+            "morae": 49,
+            "expected_s": 5.9,
+            "ratio": 1.06,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.564,
+          "audio_tokens": 171,
+          "thoughts_tokens": 84
+        },
+        {
+          "script": "ありがとうございました。",
+          "intended": "ありがとうございました。",
+          "audio_s": 1.52,
+          "voiced_s": 1.12,
+          "check": {
+            "voiced_s": 1.12,
+            "compared_with": "expected",
+            "morae": 11,
+            "expected_s": 1.33,
+            "ratio": 0.85,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.528,
+          "audio_tokens": 43,
+          "thoughts_tokens": 57
+        },
+        {
+          "script": "失礼いたします。",
+          "intended": "失礼いたします。",
+          "audio_s": 1.3,
+          "voiced_s": 0.94,
+          "check": {
+            "voiced_s": 0.94,
+            "compared_with": "expected",
+            "morae": 9,
+            "expected_s": 1.08,
+            "ratio": 0.87,
+            "kind": "ok"
+          },
+          "silent": false,
+          "cut_off": false,
+          "too_long": false,
+          "timed_out": false,
+          "first_audio_after_s": 0.571,
+          "audio_tokens": 37,
+          "thoughts_tokens": 58
+        }
+      ],
+      "silent_turns": 0,
+      "cut_off_turns": 0,
+      "too_long_turns": 0,
+      "chars_per_s": 6.33,
+      "intended_missing": false,
+      "intended_diffs": [
+        {
+          "kind": "replace",
+          "script": "かようび[10]がつ20",
+          "heard": "じゅう"
+        },
+        {
+          "kind": "replace",
+          "script": "10がつ[20にち]のごご3",
+          "heard": "はつか"
+        },
+        {
+          "kind": "replace",
+          "script": "ちのごご[3とき]にあらた",
+          "heard": "さんじ"
+        }
+      ],
+      "wav": "20261013_071628_016_Leda_L4_short_B_quote.wav",
+      "ear": "お忙しいところ恐れ入ります。株式会社アオバ物流の三堂と申します。本日は先日お送りした資料の件でお電話いたしました。ご担当の田中様はいらっしゃいますでしょうか。来週の火曜日、10月20日の午後3時に改めてお電話してもよろしいでしょうか。ありがとうございました。失礼いたします。",
+      "ear_diffs": [
+        {
+          "kind": "replace",
+          "script": "ゅうのさ[と]うともう",
+          "heard": "んど"
+        }
+      ]
+    }
+  ]
+}
