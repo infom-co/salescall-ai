@@ -1,0 +1,142 @@
+"""G-22：名乗りを録音で流す形（DESIGN.md 6-13 の案）で、会話が成り立つか。決める前に確かめる（2026-10-13 ユーザー指示）。
+
+(1) 相手が、録音が終わったあとに聞き返したとき（「はい？」「どちら様ですか」「何のご用件ですか」「もう一度お願いします」
+    「今ちょっと忙しいんですけど」「担当に代わります」）
+(2) 録音を流している最中に、相手が話し始めたとき（録音のどこまで届いたかは playback が決め、
+    instruction.barge_in_note でAIへ知らせる）。短い相づち（「はい」）では止めない決まりは、playback の試験で確かめる。
+相手の発話は、録った声（results/callee/ の電話の音質の声。Puck）を送る。通話の動かし方は convo の1か所。
+確かめること（AIの声は別の耳で文字にしたもので見る）：
+- 聞き返し・話の途中に、ふさわしく答えたか（場面ごとの言葉が出たか）
+- まだ伝えていないこと（社名・名前・用件・最初の質問）を、必要な場面で伝えたか。届いたことを、要らない場面で繰り返していないか
+- 書き出しが崩れていないか。最初の質問へ戻れたか（相手の「はい、予約しています」を Q1 として受け、次の質問へ進む）
+"""
+from __future__ import annotations
+
+import asyncio
+import json
+
+from common import base_parser, describe_error, make_client, pick_key, require_python, save_result, say
+from convo import run_call
+from flowctl import Question, tool_declarations
+from instruction import VOICE_TYPES, Business, build
+from listen import differences
+from live_util import build_config
+
+BUSINESS = Business(
+    company="アオバ物流", caller="佐藤", purpose="ご予約の確認", purpose_line="ご予約の確認でお電話いたしました。",
+    questions=[Question("Q1", "ご予約はされていますでしょうか。", "yes_no", conditions=("yes", "no")),
+               Question("Q2", "ご希望の日時をお聞かせください。", "datetime", conditions=("answered",)),
+               Question("Q3", "ご来店の人数をお聞かせください。", "number", conditions=("answered",))],
+)
+PARTS = BUSINESS.opening_parts()  # [あいさつ, 名乗り, 用件, 最初の質問]
+NAME = ["アオバ", "青葉", "あおば", "大場", "オーバ", "オオバ"]  # 社名（「ア」がオ寄りに聞こえるものも、言えたとみなす）
+
+
+def W(name: str) -> dict:
+    return {"wav": f"Puck_{name}.wav"}
+
+
+# need_any：AIの最初の返事に、どれか1つは出てほしい言葉の組（組ごとに判定）
+# no_reintro：最初の返事で、名乗り直す必要が無い場面（名乗り直したら記録する。会話は成り立つので不合格にはしない）
+SCENES = {
+    "K1_どちら様": {"callee": [W("whois"), W("yes_reserved")], "barge": None,
+                  "need_any": [NAME, ["佐藤"], ["予約"]], "then_q2": True},
+    "K2_ご用件": {"callee": [W("what_for"), W("yes_reserved")], "barge": None,
+                "need_any": [["予約"], ["確認"]], "then_q2": True, "no_reintro": True},
+    "K3_もう一度": {"callee": [W("again"), W("yes_reserved")], "barge": None,
+                 "need_any": [NAME, ["佐藤"], ["予約"]], "then_q2": True},
+    "K4_はい？": {"callee": [W("hai_q"), W("yes_reserved")], "barge": None,
+                "need_any": [["予約"]], "then_q2": True},
+    "K5_忙しい": {"callee": [W("busy")], "barge": None,
+                "need_any": [["申し訳", "失礼", "恐れ入", "すみません"], ["お時間", "手短", "すぐ", "改めて", "かけ直", "少し", "一点", "1点"]]},
+    "K6_代わる": {"callee": [W("transfer"), W("taken_over"), W("yes_reserved")], "barge": None,
+                "need_any": [["お願い", "お待ち", "かしこまり", "承知"]], "no_question_first": True,
+                "second_need_any": [NAME, ["佐藤"], ["予約"]], "then_q2_at": 2},
+    "B0_最初から": {"callee": [W("barge_who"), W("yes_reserved")], "barge": ([], PARTS),
+                  "need_any": [NAME, ["佐藤"], ["予約"]], "then_q2": True},
+    "B1_あいさつのあと": {"callee": [W("barge_who"), W("yes_reserved")], "barge": (PARTS[:1], PARTS[1:]),
+                     "need_any": [NAME, ["佐藤"], ["予約"]], "then_q2": True},
+    "B2_名乗りのあと": {"callee": [W("barge_what"), W("yes_reserved")], "barge": (PARTS[:2], PARTS[2:]),
+                    "need_any": [["予約"], ["確認"]], "then_q2": True, "no_reintro": True},
+    "B3_用件のあと": {"callee": [W("barge_yes"), W("datetime_pm"), W("affirm")], "barge": (PARTS[:3], PARTS[3:]),
+                   "need_any": [["日時", "日にち", "お日にち"]], "q1_answered_first": True, "no_reintro": True},
+}
+
+
+def judge(scene: dict, call: dict) -> dict:
+    turns = call["turns"]
+    first = turns[0].get("ear", "") if turns else ""
+    c = {"first_said": first}
+    c["need_ok"] = all(any(w in first for w in group) for group in scene["need_any"])
+    c["reintroduced"] = "申します" in first
+    if scene.get("no_reintro"):
+        c["reintro_ok"] = not c["reintroduced"]
+    if scene.get("no_question_first"):
+        c["no_question_ok"] = not any(w in first for w in ("予約", "日時", "人数"))
+    if "second_need_any" in scene and len(turns) > 1:
+        second = turns[1].get("ear", "")
+        c["second_ok"] = all(any(w in second for w in g) for g in scene["second_need_any"])
+    # 書き出しの崩れ：最初の返事の声（別の耳）と、言うつもりの言葉（AI自身の文字起こし）の、最初の10音の食い違い
+    if turns and turns[0]["intended"]:
+        c["head_broken"] = any(d["at"] < 10 and d["heard"] != "お" and "あおば" not in d["script"]
+                               for d in differences(turns[0]["intended"], first))
+    # 最初の質問へ戻れたか：Q1 が「はい」で受け付けられ、次の質問（日時）を聞いた
+    q1 = call["items"]["Q1"]
+    c["q1_yes"] = q1["condition"] == "yes" and q1["state"] in ("accepted", "confirmed")
+    idx = scene.get("then_q2_at", 1)
+    if scene.get("then_q2") or "then_q2_at" in scene:
+        c["asked_q2"] = len(turns) > idx and any(w in turns[idx].get("ear", "") for w in ("日時", "日にち", "お日にち"))
+    if scene.get("q1_answered_first"):
+        c["asked_q2"] = c["need_ok"]
+    c["silent_or_cut"] = [t["check"]["kind"] for t in turns if t["check"]["kind"] not in ("ok",)]
+    keys = [k for k in ("need_ok", "no_question_ok", "second_ok", "asked_q2") if k in c]
+    if scene.get("then_q2") or "then_q2_at" in scene or scene.get("q1_answered_first"):
+        keys.append("q1_yes")
+    c["passed"] = all(c[k] for k in keys) and not c.get("head_broken") and not c["silent_or_cut"]
+    return c
+
+
+async def run(args) -> dict:
+    if args.dry_run:
+        for t in VOICE_TYPES:
+            v, text = build(BUSINESS, t, opening_mode="recorded")
+            build_config(voice=v, system_instruction=text, tools=tool_declarations(BUSINESS.questions))
+        return {"dry_run": True, "instruction": build(BUSINESS, "L4", opening_mode="recorded")[1], "parts": PARTS}
+    client = make_client(pick_key(args))
+    rows = []
+    for rep in range(args.repeat):
+        for name, scene in SCENES.items():
+            if args.scene and name not in args.scene:
+                continue
+            for vt in args.type or VOICE_TYPES:
+                try:
+                    call = await run_call(client, args.model, BUSINESS, vt, scene["callee"], opening_mode="recorded",
+                                          barge_in=scene["barge"])
+                    row = {"rep": rep, "scene": name, "type": vt, "checks": judge(scene, call), **call}
+                except Exception as exc:
+                    row = {"rep": rep, "scene": name, "type": vt, "error": describe_error(exc)}
+                rows.append(row)
+                c = row.get("checks", {})
+                say(f"[{rep}] {name} {vt} 合格={c.get('passed')} 名乗り直し={c.get('reintroduced')} 崩れ={c.get('head_broken')} "
+                    f"Q1={c.get('q1_yes')} 次の質問={c.get('asked_q2')} 最初の返事={c.get('first_said', '')[:70]} {row.get('error', '')}")
+                await asyncio.sleep(args.pause)
+    summary = {"runs": len(rows), "passed": sum(1 for r in rows if r.get("checks", {}).get("passed")),
+               "by_scene": {n: [r.get("checks", {}).get("passed") for r in rows if r["scene"] == n] for n in SCENES},
+               "reintroduced_where_not_needed": sum(1 for r in rows if r.get("checks", {}).get("reintro_ok") is False)}
+    say("まとめ：", json.dumps(summary, ensure_ascii=False))
+    return {"model": args.model, "parts": PARTS, "summary": summary, "rows": rows}
+
+
+def main() -> None:
+    require_python()
+    p = base_parser(__doc__)
+    p.add_argument("--repeat", type=int, default=2)
+    p.add_argument("--pause", type=float, default=4.0)
+    p.add_argument("--type", choices=sorted(VOICE_TYPES), action="append")
+    p.add_argument("--scene", choices=sorted(SCENES), action="append")
+    args = p.parse_args()
+    save_result("G-22", asyncio.run(run(args)))
+
+
+if __name__ == "__main__":
+    main()
