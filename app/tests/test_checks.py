@@ -17,6 +17,7 @@ APP = Path(__file__).resolve().parents[1]
 P0 = "phase" + "0"
 SCOPE_KEY = "salescall." + "tenant_id"
 KEY_NAME = "GEMINI_" + "API_KEY"
+SET_CONFIG = "set_" + "config"
 
 
 class Planted(unittest.TestCase):
@@ -45,7 +46,16 @@ class Planted(unittest.TestCase):
         self.assertEqual([(v.rule, v.path) for v in found], [("I-31", "src/salescall/web/x.py")])
 
     def test_scope_settings_outside_layer(self):
-        root = self._app({"src/salescall/output/x.py": f"SQL = \"SELECT set_config('{SCOPE_KEY}', '1', true)\"\n"})
+        root = self._app({"src/salescall/output/x.py": f"SQL = \"SELECT {SET_CONFIG}('{SCOPE_KEY}', '1', true)\"\n"})
+        self.assertEqual([v.rule for v in rules.scope_settings_only_in_layer(root)], ["11章"])
+
+    def test_type_name_is_not_a_scope_setting(self):
+        root = self._app({"src/salescall/core/x.py": 'SQL = "SELECT %s::salescall.actor_kind, salescall.cur_actor()"\n'})
+        self.assertEqual(rules.scope_settings_only_in_layer(root), [])
+
+    def test_current_setting_outside_layer(self):
+        key = "salescall." + "client_id"
+        root = self._app({"src/salescall/web/x.py": f"SQL = \"SELECT current_setting('{key}')\"\n"})
         self.assertEqual([v.rule for v in rules.scope_settings_only_in_layer(root)], ["11章"])
 
     def test_key_value_outside_key_selection(self):

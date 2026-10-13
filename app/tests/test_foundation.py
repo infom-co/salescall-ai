@@ -499,24 +499,5 @@ class DoNotCallLedger(unittest.TestCase):
         self._register(w, s)  # 取り消したあとは、また登録できる
 
 
-class StopEvents(unittest.TestCase):
-    """Intent.md 10-3・Q13：停止を解くのは人だけ。停止の記録は変えられない。範囲の外の停止は書けない。"""
-
-    def test_rules(self):
-        w = World(); t = w.tenant(); c = w.client(t)
-        ins = lambda actor, scope, tid, cid, action: (lambda tx: tx.execute(
-            "INSERT INTO salescall.stop_events (scope, tenant_id, client_id, action, actor, actor_kind, reason)"
-            " VALUES (%s, %s, %s, %s, %s, %s, '試験')", (scope, tid, cid, action, actor.name, actor.kind)))
-        w.a.in_client(SYSTEM, t, c, ins(SYSTEM, "client", t, c, "stop"))           # システムが止めるのはよい
-        with self.assertRaises(Rejected):
-            w.a.in_client(SYSTEM, t, c, ins(SYSTEM, "client", t, c, "resume"))     # システムは解けない
-        w.a.in_client(OPERATOR, t, c, ins(OPERATOR, "client", t, c, "resume"))
-        with self.assertRaises(Rejected):
-            w.a.in_tenant(OPERATOR, t, ins(OPERATOR, "system", None, None, "stop"))  # 契約者の取引から全体は止めない
-        other = w.tenant()
-        with self.assertRaises(Rejected):
-            w.a.in_tenant(OPERATOR, t, ins(OPERATOR, "tenant", other, None, "stop"))  # ほかの契約者は止められない
-
-
 if __name__ == "__main__":
     unittest.main()

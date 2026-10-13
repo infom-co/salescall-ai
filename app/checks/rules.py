@@ -99,7 +99,9 @@ def db_driver_only_in_layer(app_root: Path) -> list[Violation]:
 
 # ── 11章：「いま誰が・どの契約者・どの依頼主か」をデータベースへ渡すのは、読み書きの層の1か所だけ
 SCOPE_SETTING_ALLOWED = {"src/salescall/core/access.py"}
-_SCOPE_KEYS = ("salescall.tenant_id", "salescall.client_id", "salescall.actor")
+# 設定の名前は、引用符でくくった形（'salescall.tenant_id' など）か、set_config で渡す。
+# ⚠️ 型の名前（salescall.actor_kind）を取り違えないよう、引用符でくくった形だけを見る（2026-10-13 に取り違えた）。
+_SCOPE_SETTING = re.compile(r"""['"]salescall\.(tenant_id|client_id|actor|actor_kind)['"]|set_config\s*\(""")
 
 
 def scope_settings_only_in_layer(app_root: Path) -> list[Violation]:
@@ -109,7 +111,7 @@ def scope_settings_only_in_layer(app_root: Path) -> list[Violation]:
         if rel in SCOPE_SETTING_ALLOWED:
             continue
         for text, line in _string_constants(_parse(path)):
-            if any(k in text for k in _SCOPE_KEYS):
+            if _SCOPE_SETTING.search(text):
                 out.append(Violation("11章", rel, line, "契約者・依頼主・誰が、をデータベースへ渡すのは、読み書きの層だけです"))
     return out
 

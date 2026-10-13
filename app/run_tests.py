@@ -107,8 +107,11 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      ("tests.test_foundation.ExpiredClaimCannotDial.test_expired",)),
     ("送ってよい印の参照を外す", "ALTER TABLE salescall.deliveries DROP CONSTRAINT deliveries_client_id_task_id_version_no_fkey",
      ("tests.test_foundation.DeliveriesOnlyForReleasedVersions.test_release_then_deliver_once",)),
-    ("停止を人だけが解く決まりを外す", "ALTER TABLE salescall.stop_events DROP CONSTRAINT stop_events_resume_by_operator",
-     ("tests.test_foundation.StopEvents.test_rules",)),
+    ("人の緊急停止をシステムが解けない決まりを外す", "DROP TRIGGER stop_events_before_insert ON salescall.stop_events",
+     ("tests.test_stops.ManualStops.test_system_cannot_resume_a_manual_stop",
+      "tests.test_stops.ManualStops.test_actor_must_match_the_transaction")),
+    ("停止を1回だけ解ける決まりを外す", "DROP INDEX salescall.stop_events_resolved_once",
+     ("tests.test_stops.SystemStops.test_a_stop_is_resolved_only_once",)),
 )
 
 
