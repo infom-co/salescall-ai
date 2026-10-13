@@ -1,0 +1,134 @@
+"""試験の土台：架空の契約者・依頼主・業務などを作る（試験の中だけで使う）。
+
+⚠️ 電話番号は、架空の番号として決められている範囲（英国 Ofcom がドラマ用に取ってある +44 7700 900000〜900999）
+だけを使う。実在の会社・人・番号は使わない。データベースへは、本番と同じ読み書きの層（Access）だけを通す。
+"""
+
+from __future__ import annotations
+
+import itertools
+import os
+import uuid
+from datetime import timedelta
+from uuid import UUID
+
+from salescall.core.access import Access, Actor
+
+OPERATOR = Actor("試験の運営者", "operator")
+SYSTEM = Actor("試験のシステムの処理", "system")
+
+_numbers = itertools.count(int(uuid.uuid4().int % 500))
+
+
+def fictional_phone() -> str:
+    """架空の番号（+447700900000〜+447700900999）。試験の中で重ならないよう順に配る。"""
+    return f"+447700900{next(_numbers) % 1000:03d}"
+
+
+def app_access() -> Access:
+    return Access(os.environ["SALESCALL_TEST_APP_DSN"])
+
+
+def owner_access() -> Access:
+    """表の持ち主の役（行の制限を受けない）。データベースの仕掛けそのものを試すときだけ使う。"""
+    return Access(os.environ["SALESCALL_TEST_OWNER_DSN"])
+
+
+class World:
+    """架空のデータを、本番と同じ読み書きの層で作る。"""
+
+    def __init__(self, access: Access | None = None) -> None:
+        self.a = access or app_access()
+
+    def tenant(self) -> UUID:
+        tid = uuid.uuid4()
+        self.a.in_tenant(OPERATOR, tid, lambda tx: tx.execute(
+            "INSERT INTO salescall.tenants (tenant_id, name) VALUES (%s, %s)", (tid, "架空の契約者")))
+        return tid
+
+    def client(self, tenant: UUID) -> UUID:
+        cid = uuid.uuid4()
+        self.a.in_tenant(OPERATOR, tenant, lambda tx: tx.execute(
+            "INSERT INTO salescall.clients (tenant_id, client_id, name) VALUES (%s, %s, %s)", (tenant, cid, "架空の依頼主")))
+        return cid
+
+    def line(self, tenant: UUID) -> UUID:
+        lid = uuid.uuid4()
+        self.a.in_tenant(OPERATOR, tenant, lambda tx: tx.execute(
+            "INSERT INTO salescall.lines (tenant_id, line_id, name, method) VALUES (%s, %s, %s, %s)",
+            (tenant, lid, "架空の回線", "mock")))
+        return lid
+
+    def business_with_version(self, tenant: UUID, client: UUID) -> tuple[UUID, UUID]:
+        bid, vid = uuid.uuid4(), uuid.uuid4()
+
+        def work(tx):
+            tx.execute("INSERT INTO salescall.businesses (tenant_id, client_id, business_id, name, target_kind)"
+                       " VALUES (%s, %s, %s, %s, 'corporate')", (tenant, client, bid, "架空の業務"))
+            tx.execute("INSERT INTO salescall.business_versions (tenant_id, client_id, business_id, version_id, version_no, created_by)"
+                       " VALUES (%s, %s, %s, %s, 1, %s)", (tenant, client, bid, vid, OPERATOR.name))
+            tx.execute("INSERT INTO salescall.questions (tenant_id, client_id, version_id, question_id, position, type_name, required)"
+                       " VALUES (%s, %s, %s, 'Q1', 1, 'datetime', true)", (tenant, client, vid))
+        self.a.in_client(OPERATOR, tenant, client, work)
+        return bid, vid
+
+    def add_version(self, tenant: UUID, client: UUID, business: UUID, version_no: int) -> UUID:
+        vid = uuid.uuid4()
+        self.a.in_client(OPERATOR, tenant, client, lambda tx: tx.execute(
+            "INSERT INTO salescall.business_versions (tenant_id, client_id, business_id, version_id, version_no, created_by)"
+            " VALUES (%s, %s, %s, %s, %s, %s)", (tenant, client, business, vid, version_no, OPERATOR.name)))
+        return vid
+
+    def run(self, tenant: UUID, client: UUID, business: UUID, version: UUID) -> UUID:
+        rid = uuid.uuid4()
+
+        def work(tx):
+            tx.execute("INSERT INTO salescall.runs (tenant_id, client_id, business_id, run_id, name, created_by)"
+                       " VALUES (%s, %s, %s, %s, %s, %s)", (tenant, client, business, rid, "架空の実施回", OPERATOR.name))
+            tx.execute("INSERT INTO salescall.run_versions (tenant_id, client_id, run_id, business_id, seq, version_id, assigned_by, reason)"
+                       " VALUES (%s, %s, %s, %s, 1, %s, %s, %s)", (tenant, client, rid, business, version, OPERATOR.name, "最初の版"))
+        self.a.in_client(OPERATOR, tenant, client, work)
+        return rid
+
+    def contact(self, tenant: UUID, client: UUID, phone: str) -> UUID:
+        cid = uuid.uuid4()
+        self.a.in_client(OPERATOR, tenant, client, lambda tx: tx.execute(
+            "INSERT INTO salescall.contacts (tenant_id, client_id, contact_id, phone_e164) VALUES (%s, %s, %s, %s)",
+            (tenant, client, cid, phone)))
+        return cid
+
+    def task(self, tenant: UUID, client: UUID, run: UUID, contact: UUID) -> UUID:
+        tid = uuid.uuid4()
+        self.a.in_client(OPERATOR, tenant, client, lambda tx: tx.execute(
+            "INSERT INTO salescall.tasks (tenant_id, client_id, task_id, run_id, contact_id) VALUES (%s, %s, %s, %s, %s)",
+            (tenant, client, tid, run, contact)))
+        return tid
+
+    def setup(self, phone: str | None = None, tenant: UUID | None = None) -> dict[str, UUID | str]:
+        """契約者〜タスクまで、ひとそろい作る。"""
+        t = tenant or self.tenant()
+        c = self.client(t)
+        b, v = self.business_with_version(t, c)
+        r = self.run(t, c, b, v)
+        p = phone or fictional_phone()
+        k = self.contact(t, c, p)
+        task = self.task(t, c, r, k)
+        line = self.line(t)
+        return dict(tenant=t, client=c, business=b, version=v, run=r, phone=p, contact=k, task=task, line=line)
+
+    def insert_claim(self, s: dict, *, line: UUID | None = None, version: UUID | None = None,
+                     expires_in: timedelta = timedelta(minutes=1)) -> UUID:
+        """試行の行を「予約」として足す（データベースの約束だけを試すため。本番で予約を作るのは門だけ）。"""
+        aid = uuid.uuid4()
+        self.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: tx.execute(
+            "INSERT INTO salescall.attempts (tenant_id, client_id, attempt_id, task_id, contact_id, phone_e164, line_id,"
+            " version_id, state, claimed_at, claim_expires_at)"
+            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'claimed', now(), now() + %s)",
+            (s["tenant"], s["client"], aid, s["task"], s["contact"], s["phone"], line or s["line"],
+             version or s["version"], expires_in)))
+        return aid
+
+    def move(self, s: dict, attempt: UUID, state: str, hangup_side: str | None = None) -> None:
+        self.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: tx.execute(
+            "UPDATE salescall.attempts SET state = %s, hangup_side = %s WHERE attempt_id = %s",
+            (state, hangup_side, attempt)))

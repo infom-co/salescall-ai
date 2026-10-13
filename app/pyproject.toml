@@ -1,0 +1,16 @@
+# 共通のファイル（持ち主 CL-2。docs/TEAM_PLAN.md 1-4）。部品を足したい担当は、連絡帳で CL-2 に頼む（部品の一覧を2つにしない）。
+[project]
+name = "salescall"
+version = "0.1.0"
+description = "SalesCall AI の本番のコード（設計：Intent.md・docs/DESIGN.md）"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "psycopg[binary]==3.2.10",   # PostgreSQL へつなぐ部品（使ってよいのは読み書きの層だけ。DESIGN.md 11章・I-31）
+]
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
