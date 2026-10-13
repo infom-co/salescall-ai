@@ -58,7 +58,7 @@ SCENES = {
                      "need_any": [NAME, ["佐藤"], ["予約"]], "then_q2": True},
     "B2_名乗りのあと": {"callee": [W("barge_what"), W("yes_reserved")], "barge": (PARTS[:2], PARTS[2:]),
                     "need_any": [["予約"], ["確認"]], "then_q2": True, "no_reintro": True},
-    "B3_用件のあと": {"callee": [W("barge_yes"), W("datetime_pm"), W("affirm")], "barge": (PARTS[:3], PARTS[3:]),
+    "B3_用件のあと": {"callee": [W("barge_yes2"), W("datetime_pm"), W("affirm")], "barge": (PARTS[:3], PARTS[3:]),
                    "need_any": [["日時", "日にち", "お日にち"]], "q1_answered_first": True, "no_reintro": True},
 }
 
