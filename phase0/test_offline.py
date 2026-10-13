@@ -180,6 +180,19 @@ class FlowTest(unittest.TestCase):
         self.assertEqual((r["result"], f.items["Q1"].state), ("end", "accepted"))
         self.assertEqual(f.export(), {"Q1": "とても良かったです。"})
 
+    def test_declined_close_is_fixed_phrase(self):
+        # 2026-10-13 ユーザー確定：急いでいる・断られたときの締めは決まった言い方（G-22：AIが6本中5本で「また改めてご連絡いたします」と約束した）
+        from phrases import CLOSE_DECLINED
+        for reason in ("callee_hurry", "callee_refused_call"):
+            f = self.flow()
+            r = self.call(f, "request_end", reason=reason)
+            self.assertEqual((r["result"], r["say"]), ("end", CLOSE_DECLINED), reason)
+            self.assertIn(CLOSE_DECLINED, r["message"])
+        self.assertEqual(CLOSE_DECLINED, "お忙しいところ、申し訳ございませんでした。それでは、失礼いたします。")  # ユーザーの言葉のまま
+        from instruction import Business, build
+        b = Business(company="アオバ物流", caller="佐藤", purpose="ご予約の確認", questions=list(self.flow().questions.values()))
+        self.assertIn("約束してはいけません", build(b, "S2")[1])
+
     def test_hurry_skips_recheck(self):
         f = self.flow()
         self.call(f, "report_unclear", question_id="Q1")
@@ -618,7 +631,7 @@ class AIToJapaneseTest(unittest.TestCase):
 class EarCutOffTest(unittest.TestCase):
     """別の耳の接続が途中で切れたとき（2026-10-13 G-22：1006）、途中までの文字を、聞けた結果として返さない。"""
 
-    def fake_client(self, plan):
+    def fake_client(self, plan, send_fails=False):
         import types as T
 
         class Cut(Exception):
@@ -629,7 +642,8 @@ class EarCutOffTest(unittest.TestCase):
                 self.cut = cut
 
             async def send_realtime_input(self, **kw):
-                pass
+                if self.cut and send_fails and kw.get("audio_stream_end"):
+                    raise ConnectionResetError(104, "Connection reset by peer")  # 送る側でも切れた（G-27 の形）
 
             async def receive(self):
                 yield T.SimpleNamespace(server_content=T.SimpleNamespace(
@@ -657,11 +671,11 @@ class EarCutOffTest(unittest.TestCase):
             return Connect(plan[len(attempts) - 1])
         return T.SimpleNamespace(aio=T.SimpleNamespace(live=T.SimpleNamespace(connect=connect))), attempts
 
-    def run_hear(self, plan):
+    def run_hear(self, plan, send_fails=False):
         import asyncio
 
         from listen import hear
-        client, attempts = self.fake_client(plan)
+        client, attempts = self.fake_client(plan, send_fails)
         pcm = b"\x00\x00" * 1600  # 0.1秒
         try:
             return asyncio.run(hear(client, pcm, 16000, "transcribe35", idle_s=0.05, lead_s=0, retry_wait_s=0)), attempts
@@ -672,10 +686,74 @@ class EarCutOffTest(unittest.TestCase):
         got, attempts = self.run_hear([True, False])
         self.assertEqual((got, len(attempts)), ("株式会社アオバ物流の佐藤です", 2))  # 1回だけ聞き直す
 
+    def test_cut_on_send_side_also_retried(self):
+        # 2026-10-13 G-27：受け取りで切れたあと、送る側の「接続のリセット」が先に上がり、聞き直しに入らなかった
+        got, attempts = self.run_hear([True, False], send_fails=True)
+        self.assertEqual((got, len(attempts)), ("株式会社アオバ物流の佐藤です", 2))
+
     def test_cut_twice_raises(self):
         got, attempts = self.run_hear([True, True])
         self.assertIsInstance(got, Exception)  # ⛔ 直す前は「株式会社アオバ」だけを、聞けた結果として返していた
         self.assertEqual(len(attempts), 2)
+
+
+class BargeWatchTest(unittest.TestCase):
+    """録音を流している間の、相手の声の見張り（DESIGN.md 6-13 の案）。相手役の声（作った声）で、決まりどおりに動くか。"""
+    PARTS = [("お忙しいところ恐れ入ります。", 2.0), ("株式会社「アオバ物流」の「佐藤」と申します。", 2.5),
+             ("ご予約の確認でお電話いたしました。", 2.0), ("ご予約はされていますでしょうか。", 2.0)]  # 最初の質問は 6.5秒から
+
+    def clip(self, name):
+        from common import read_wav_pcm16_mono
+        return read_wav_pcm16_mono(common.RESULTS_DIR / "callee" / f"Puck_{name}.wav")
+
+    def test_backchannel_before_question_is_dropped(self):
+        from barge import watch
+        pcm, rate = self.clip("backchannel")                       # 「はい。」0.3秒
+        d = watch(self.PARTS, pcm, rate, onset_s=3.0, short_s=0.6)
+        self.assertFalse(d.stopped)
+        self.assertEqual((len(d.dropped), d.send_from_s, d.rest), (1, None, []))  # 流し続け、声は捨てる
+
+    def test_long_voice_stops_and_marks_cut_sentence_as_not_yet(self):
+        from barge import voice_runs, voiced, watch
+        pcm, rate = self.clip("barge_who")                         # 「あ、はい、どちら様？」約1.9秒
+        lead = voice_runs(voiced(pcm, rate), 0.15)[0][0]
+        d = watch(self.PARTS, pcm, rate, onset_s=2.5, short_s=0.6)  # 社名の文の途中で話し始めた
+        self.assertTrue(d.stopped)
+        self.assertAlmostEqual(d.stop_at_s, 2.5 + lead + 0.6, places=2)
+        self.assertEqual(d.done, ["お忙しいところ恐れ入ります。"])
+        self.assertEqual(d.rest[0], "株式会社「アオバ物流」の「佐藤」と申します。")  # 途中で止めた文は「まだ」
+        self.assertAlmostEqual(d.send_from_s, 2.5 + lead, places=2)  # 話し始めからの声をAIへ
+
+    def test_short_question_keeps_playing(self):
+        from barge import watch
+        pcm, rate = self.clip("hai_q")                             # 「はい？」0.4秒
+        self.assertFalse(watch(self.PARTS, pcm, rate, onset_s=1.0, short_s=0.6).stopped)  # 流し続けると名乗りが届く
+
+    def test_short_voice_during_question_is_sent_as_answer(self):
+        from barge import watch
+        pcm, rate = self.clip("backchannel")
+        d = watch(self.PARTS, pcm, rate, onset_s=7.0, short_s=0.6)  # 最初の質問の録音の途中
+        self.assertFalse(d.stopped)
+        self.assertIsNotNone(d.send_from_s)                        # 答えでありうるので、流し切ったあとAIへ送る
+        self.assertEqual(d.dropped, [])
+
+    def test_recording_finishes_before_long_voice_is_known(self):
+        from barge import watch
+        pcm, rate = self.clip("barge_who")
+        d = watch(self.PARTS, pcm, rate, onset_s=8.3, short_s=0.6)  # 止めるより先に流し終わる
+        self.assertFalse(d.stopped)
+        self.assertEqual(d.rest, [])
+        self.assertIsNotNone(d.send_from_s)  # ⛔ 直す前は、録音の間に話し始めた声を捨てていた
+
+    def test_two_backchannels_with_a_pause_stay_separate(self):
+        import numpy as np
+
+        from barge import watch
+        pcm, rate = self.clip("backchannel")
+        gap = np.zeros(int(rate * 0.3), dtype=np.int16).tobytes()
+        d = watch(self.PARTS, pcm + gap + pcm, rate, onset_s=2.0, short_s=0.6)  # 「はい。……はい。」
+        self.assertFalse(d.stopped)
+        self.assertEqual(len(d.dropped), 2)
 
 
 class RetryTest(unittest.TestCase):

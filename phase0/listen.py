@@ -35,9 +35,16 @@ def _config(ear: str):
     return build_config(voice=None, system_instruction="相手の話を聞いてください。返事は「はい」だけにしてください。")
 
 
-def _cut_off(exc: BaseException) -> bool:
-    """接続が向こうの都合で切れた（1006 abnormal closure）か。"""
-    return getattr(exc, "code", None) == 1006
+def _cut_off(exc: BaseException | None) -> bool:
+    """接続が向こうの都合で切れたか（1006 abnormal closure・接続のリセット・接続が閉じられた）。誤りの原因のつながりもたどる。
+    ⛔ 2026-10-13 G-27：受け取りで 1006 が出たあと、送る側でも接続のリセットが出て、そちらが先に上がり、聞き直しに入らなかった。"""
+    seen = set()
+    while exc is not None and id(exc) not in seen:
+        seen.add(id(exc))
+        if getattr(exc, "code", None) == 1006 or isinstance(exc, ConnectionResetError) or type(exc).__name__.startswith("ConnectionClosed"):
+            return True
+        exc = exc.__cause__ or exc.__context__
+    return False
 
 
 async def hear(client, pcm16: bytes, rate: int, ear: str, idle_s: float = 3.0, lead_s: float = LEAD_S,
@@ -66,20 +73,28 @@ async def _hear_once(client, pcm16: bytes, rate: int, ear: str, idle_s: float, l
                         finals.append(sc.input_transcription.text)
 
         rx = asyncio.create_task(receiver())
-        if lead_s > 0:
-            async with silence_while(s, 16000):  # 声の前の無音（話し始めの音を聞き落とさないため）
-                await asyncio.sleep(lead_s)
-        await stream_audio(s, pcm, 16000)
-        async with silence_while(s, 16000):  # 話し終わりに気づかせる無音 1.5秒
-            await asyncio.sleep(1.5)
-        await s.send_realtime_input(audio_stream_end=True)
-        last = -1
-        while len(finals) != last and not rx.done():  # 新しい文字起こしが idle_s 秒届かなくなるまで待つ
-            last = len(finals)
-            await asyncio.sleep(idle_s)
-        if rx.done() and not rx.cancelled() and rx.exception() is not None:
-            raise rx.exception()  # 受け取りが途中で止まった（接続が切れたなど）
-        rx.cancel()
+
+        def rx_error():
+            return rx.exception() if rx.done() and not rx.cancelled() else None
+        try:
+            if lead_s > 0:
+                async with silence_while(s, 16000):  # 声の前の無音（話し始めの音を聞き落とさないため）
+                    await asyncio.sleep(lead_s)
+            await stream_audio(s, pcm, 16000)
+            async with silence_while(s, 16000):  # 話し終わりに気づかせる無音 1.5秒
+                await asyncio.sleep(1.5)
+            await s.send_realtime_input(audio_stream_end=True)
+            last = -1
+            while len(finals) != last and not rx.done():  # 新しい文字起こしが idle_s 秒届かなくなるまで待つ
+                last = len(finals)
+                await asyncio.sleep(idle_s)
+        except Exception as exc:
+            raise (rx_error() or exc) from exc  # 受け取りが先に止まっていたら、そちらが本当の原因
+        finally:
+            if not rx.done():
+                rx.cancel()
+        if rx_error() is not None:
+            raise rx_error()  # 受け取りが途中で止まった（接続が切れたなど）
     return "".join(finals)
 
 
