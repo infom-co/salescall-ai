@@ -66,8 +66,15 @@
 | 場所 | 持ち主 |
 |---|---|
 | `phase0/`（フェーズ0の確かめと、会話の試作） | CL-1 |
-| 本番のコードの置き場 | **言語・データベースなどが決まってから、CL-2 が案を出し、ユーザーが決める**（Intent.md 14-2）。決まったら、この表に担当ごとの置き場を書く |
+| `app/`（本番のコード。2026-10-13 ユーザー決定。案と条件：`docs/TECH_CHOICE_CL-2.md` 9章） | 下の表のとおり、持ち場ごとに分ける |
+| `app/src/salescall/core/`・`app/db/`・`app/checks/`・`app/src/salescall/supervisor/` | CL-2（データの形・読み書きの層・門・発信の出口・判定・次の動き・取込・控え・機械の見張り・見守り役） |
+| `app/src/salescall/conversation/` | CL-1（会話AI接続・流れの制御・指示文・通話後の検証・キーの選択） |
+| `app/src/salescall/web/` | CL-3（ダッシュボード・検証モードの画面） |
+| `app/src/salescall/output/` | CL-3（出力の型・書き出し・送り方の部品・連携の台帳の処理。画面が開いていなくても動く。CL-3 の願いで `web/` と分けた） |
+| `app/src/salescall/telephony/` | まだ振らない（回線ごとの部品。発信は `core` の出口からしか呼べない） |
+| `app/` の共通のファイル（使う部品の一覧と版・Python の版・試験の動かし方・機械の見張りの設定） | CL-2。ほかの担当は、足したいものを連絡帳で頼む |
 | `docs/team/CL-n.md`（連絡帳） | それぞれの担当 |
+| `docs/TECH_CHOICE_CL-2.md` | CL-2 |
 | `secrets/` | だれも中身を変えない（キーの値は git に入れない） |
 
 ---
