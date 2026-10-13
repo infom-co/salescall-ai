@@ -9,29 +9,13 @@ from __future__ import annotations
 
 import asyncio
 import difflib
-import re
 
 from audio import resample
-from common import silence
+from jtext import reading
+from live_util import silence_while, stream_audio
 
 EARS = ("transcribe35", "live38")
 _MODEL = {"transcribe35": "gemini-3.5-transcribe-live", "live38": "gemini-3.8-live"}
-_PUNCT = re.compile(r"[\s、。，．,.!?！？「」…・\-‐−－]")
-_KAKASI = None
-
-
-def norm(text: str) -> str:
-    return _PUNCT.sub("", text)
-
-
-def reading(text: str) -> str:
-    """読み（ひらがな）にそろえる。「ない」と「無い」のような書き方の違いを、食い違いとして数えないため。"""
-    global _KAKASI
-    if _KAKASI is None:
-        import pykakasi
-
-        _KAKASI = pykakasi.kakasi()
-    return "".join(x["hira"] for x in _KAKASI.convert(norm(text)))
 
 
 def _config(ear: str):
@@ -46,8 +30,6 @@ def _config(ear: str):
 
 async def hear(client, pcm16: bytes, rate: int, ear: str, idle_s: float = 3.0) -> str:
     """声を 16kHz にして 0.1秒ずつ送り、確定した文字起こしをつなげて返す。"""
-    from google.genai import types
-
     pcm = resample(pcm16, rate, 16000)
     finals: list[str] = []
     async with client.aio.live.connect(model=_MODEL[ear], config=_config(ear)) as s:
@@ -59,13 +41,9 @@ async def hear(client, pcm16: bytes, rate: int, ear: str, idle_s: float = 3.0) -
                         finals.append(sc.input_transcription.text)
 
         rx = asyncio.create_task(receiver())
-        step = 16000 * 2 // 10
-        for i in range(0, len(pcm), step):
-            await s.send_realtime_input(audio=types.Blob(data=pcm[i:i + step], mime_type="audio/pcm;rate=16000"))
-            await asyncio.sleep(0.1)
-        for _ in range(15):  # 話し終わりに気づかせる無音 1.5秒
-            await s.send_realtime_input(audio=types.Blob(data=silence(100), mime_type="audio/pcm;rate=16000"))
-            await asyncio.sleep(0.1)
+        await stream_audio(s, pcm, 16000)
+        async with silence_while(s, 16000):  # 話し終わりに気づかせる無音 1.5秒
+            await asyncio.sleep(1.5)
         await s.send_realtime_input(audio_stream_end=True)
         last = -1
         while len(finals) != last:  # 新しい文字起こしが idle_s 秒届かなくなるまで待つ

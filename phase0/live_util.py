@@ -3,15 +3,18 @@
 - 設定を組み立てる場所は `build_config` の1つだけ（DESIGN.md 6-6 の start_session と同じ考え方）。
   どの確認スクリプトも、ここを通してセッションを開く。
 - 受け取りは `collect_turn` の1つだけ。音声・文字起こし・利用量・関数の呼び出し・切れる前の知らせを、
-  同じ形で記録する。
+  同じ形で記録する。時間切れでも、そこまでの記録を返す（`timed_out`）。
+- 音声を送るのは `stream_audio` の1つだけ。無音を送り続けるのは `silence_while` の1つだけ。
+  相手の発話1回ぶん（送る→話し終わりに気づかせる→AIの返事を受け取る）は `callee_turn` の1つだけ。
 """
 from __future__ import annotations
 
 import asyncio
 import time
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 
-from common import parse_rate, redact
+from common import INPUT_RATE, parse_rate, redact, silence
 
 
 def build_config(
@@ -71,6 +74,7 @@ class TurnResult:
     go_away_time_left: list[str] = field(default_factory=list)
     resumption_handles: list[str] = field(default_factory=list)
     interrupted: bool = False
+    timed_out: bool = False  # 決めた秒数のうちに、AIがターンを終えなかった（黙った・止まった）
     first_audio_after_s: float | None = None
     finished_after_s: float | None = None
     message_kinds: dict[str, int] = field(default_factory=dict)
@@ -89,6 +93,7 @@ class TurnResult:
             "go_away_time_left": self.go_away_time_left,
             "resumption_handle_received": bool(self.resumption_handles),
             "interrupted": self.interrupted,
+            "timed_out": self.timed_out,
             "first_audio_after_s": self.first_audio_after_s,
             "finished_after_s": self.finished_after_s,
             "message_kinds": self.message_kinds,
@@ -157,7 +162,12 @@ async def collect_turn(session, *, started_at: float, on_tool_call=None, timeout
                 break
         r.finished_after_s = at()
 
-    await asyncio.wait_for(_loop(), timeout=timeout_s)
+    try:
+        await asyncio.wait_for(_loop(), timeout=timeout_s)
+    except asyncio.TimeoutError:
+        # ⛔ 2026-10-12 G-17：時間切れで例外を投げていたため、どのターンで、どこまで声が出ていたかが記録に残らなかった
+        r.timed_out = True
+        r.events.append({"at_s": at(), "kind": "timed_out"})
     return r
 
 
@@ -175,8 +185,8 @@ async def send_text(session, text: str) -> None:
     await session.send_client_content(turns=types.Content(role="user", parts=[types.Part(text=text)]), turn_complete=True)
 
 
-async def send_audio(session, pcm16: bytes, rate: int, chunk_ms: int = 100, realtime: bool = True) -> None:
-    """音声を、実際の通話と同じように少しずつ送る。"""
+async def stream_audio(session, pcm16: bytes, rate: int, *, chunk_ms: int = 100, realtime: bool = True) -> None:
+    """音声を、実際の通話と同じように少しずつ送る（音声を送る唯一の場所）。"""
     from google.genai import types
 
     mime = f"audio/pcm;rate={rate}"
@@ -185,7 +195,34 @@ async def send_audio(session, pcm16: bytes, rate: int, chunk_ms: int = 100, real
         await session.send_realtime_input(audio=types.Blob(data=pcm16[i : i + step], mime_type=mime))
         if realtime:
             await asyncio.sleep(chunk_ms / 1000)
-    await session.send_realtime_input(audio_stream_end=True)
+
+
+@asynccontextmanager
+async def silence_while(session, rate: int = INPUT_RATE, chunk_ms: int = 100):
+    """この中にいる間、無音を送り続ける（話し終わりに気づかせる。電話がつながっている間と同じ状態にする）。"""
+    from google.genai import types
+
+    chunk = silence(chunk_ms, rate)
+
+    async def _loop():
+        while True:
+            await session.send_realtime_input(audio=types.Blob(data=chunk, mime_type=f"audio/pcm;rate={rate}"))
+            await asyncio.sleep(chunk_ms / 1000)
+
+    task = asyncio.create_task(_loop())
+    try:
+        yield
+    finally:
+        task.cancel()
+
+
+async def callee_turn(session, pcm16: bytes, rate: int, *, on_tool_call=None, timeout_s: float = 60.0) -> TurnResult:
+    """相手の発話1回ぶん：声を送り、話し終わりのあとは無音を送りながら、AIの返事（1ターン）を受け取る。
+    待ち時間（first_audio_after_s）は、相手が話し終えた時刻から数える。"""
+    await stream_audio(session, pcm16, rate)
+    ended = time.monotonic()
+    async with silence_while(session, rate):
+        return await collect_turn(session, started_at=ended, on_tool_call=on_tool_call, timeout_s=timeout_s)
 
 
 def safe(text: object) -> str:

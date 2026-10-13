@@ -9,14 +9,13 @@
 from __future__ import annotations
 
 import asyncio
-import re
 import statistics
-import time
 
 from audio import voiced_seconds
-from common import HERE, VOICES, base_parser, describe_error, make_client, pick_key, read_wav_pcm16_mono, require_python, save_result, say, silence
+from common import HERE, VOICES, base_parser, describe_error, make_client, pick_key, read_wav_pcm16_mono, require_python, save_result, say
 from g03_voices import STYLES
-from live_util import build_config, collect_turn
+from jtext import norm
+from live_util import build_config, callee_turn
 
 INSTRUCTION = (
     "あなたは「株式会社サンプル」の担当として、ご予約の確認の電話をかけています。"
@@ -29,33 +28,8 @@ INSTRUCTION = (
 CALLEE = ["hello", "yes_reserved", "datetime_pm", "affirm"]
 CALLEE_VOICE = "Puck"
 COMPARE = ["baseline", "bright_x2"]
-PUNCT = re.compile(r"[\s、。，．,.!?！？「」…ー]")
-
-
 def count_chars(text: str) -> int:
-    return len(PUNCT.sub("", text))
-
-
-async def callee_turn(s, pcm: bytes, rate: int):
-    from google.genai import types
-
-    step = rate * 2 // 10  # 0.1秒ぶん
-    for i in range(0, len(pcm), step):
-        await s.send_realtime_input(audio=types.Blob(data=pcm[i:i + step], mime_type=f"audio/pcm;rate={rate}"))
-        await asyncio.sleep(0.1)
-    sent_end = time.monotonic()
-
-    async def keep_silence():  # 話し終わりを AI に気づかせるため、無音を送り続けながら返事を待つ
-        chunk = silence(100, rate)
-        while True:
-            await s.send_realtime_input(audio=types.Blob(data=chunk, mime_type=f"audio/pcm;rate={rate}"))
-            await asyncio.sleep(0.1)
-
-    bg = asyncio.create_task(keep_silence())
-    try:
-        return await collect_turn(s, started_at=sent_end, timeout_s=30)
-    finally:
-        bg.cancel()
+    return len(norm(text))
 
 
 async def one_call(client, model: str, voice: str, style: str) -> list[dict]:

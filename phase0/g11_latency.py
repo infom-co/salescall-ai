@@ -11,10 +11,9 @@ from __future__ import annotations
 import asyncio
 import json
 import statistics
-import time
 
-from common import HERE, base_parser, describe_error, make_client, pick_key, read_wav_pcm16_mono, require_python, save_result, say, silence
-from live_util import build_config, collect_turn
+from common import HERE, base_parser, describe_error, make_client, pick_key, read_wav_pcm16_mono, require_python, save_result, say
+from live_util import build_config, callee_turn
 
 def label(level: int | None) -> str:
     return "default" if level is None else f"budget{level}"
@@ -27,26 +26,9 @@ VOICES = ["Puck", "Kore"]
 
 async def one(client, model: str, level: int | None, wav_name: str) -> dict:
     pcm, rate = read_wav_pcm16_mono(HERE / "results" / "callee" / wav_name)
-    from google.genai import types
-
     cfg = build_config(voice="Leda", system_instruction=INSTRUCTION, thinking_budget=level)
     async with client.aio.live.connect(model=model, config=cfg) as s:
-        step = rate * 2 // 10  # 0.1秒ぶん
-        for i in range(0, len(pcm), step):
-            await s.send_realtime_input(audio=types.Blob(data=pcm[i:i + step], mime_type=f"audio/pcm;rate={rate}"))
-            await asyncio.sleep(0.1)
-        sent_end = time.monotonic()
-        # 話し終わりを AI に気づかせるため、無音を送り続けながら返事を待つ
-        async def keep_silence():
-            chunk = silence(100, rate)
-            while True:
-                await s.send_realtime_input(audio=types.Blob(data=chunk, mime_type=f"audio/pcm;rate={rate}"))
-                await asyncio.sleep(0.1)
-        bg = asyncio.create_task(keep_silence())
-        try:
-            turn = await collect_turn(s, started_at=sent_end, timeout_s=30)
-        finally:
-            bg.cancel()
+        turn = await callee_turn(s, pcm, rate, timeout_s=30)
     r = turn.summary()
     return {"sample": wav_name, "thinking_level": label(level), "latency_s": r["first_audio_after_s"],
             "heard": r["input_transcript"], "ai": r["output_transcript"], "usage": r["usage"]}

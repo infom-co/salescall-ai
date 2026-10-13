@@ -12,8 +12,8 @@ from __future__ import annotations
 import asyncio
 import time
 
-from common import base_parser, describe_error, make_client, pick_key, require_python, save_result, say, silence
-from live_util import build_config, collect_turn, send_text
+from common import base_parser, describe_error, make_client, pick_key, require_python, save_result, say
+from live_util import build_config, collect_turn, send_text, silence_while
 
 WORD = "さくら"
 INSTRUCTION = f"あなたは電話の応対の試験をしています。合言葉は「{WORD}」です。聞かれたら合言葉だけを答えてください。それ以外は黙っていてください。"
@@ -24,12 +24,8 @@ async def stream_until_closed(session, max_s: float, log: dict) -> None:
     start = time.monotonic()
 
     async def sender():
-        from google.genai import types
-
-        chunk = silence(100)
-        while time.monotonic() - start < max_s:
-            await session.send_realtime_input(audio=types.Blob(data=chunk, mime_type="audio/pcm;rate=16000"))
-            await asyncio.sleep(0.1)
+        async with silence_while(session):
+            await asyncio.sleep(max_s)
 
     async def receiver():
         while True:

@@ -1,8 +1,7 @@
 """G-17：どういう時に、AIが言い間違える・言葉を抜かす・声が途切れる・黙るのかを調べる（2026-10-12 ユーザー指示）。
 
 やること：同じ台本を、条件を変えて読ませ、次の4つを数える。
-- 声の途切れ：そのターンの台本の長さに比べて、届いた声が短すぎる（1秒に15文字を超える速さでしか読めない長さ）
-- 黙り：そのターンで声が1つも届かない
+- 声の途切れ・長すぎ・黙り：AIの1ターンの見分け方（turn_check.py。台本の文の音の数と、声のある長さを比べる）
 - 言葉の抜け・入れ替わり：録った声を「別の耳」（listen.py の transcribe35）で聞き直し、台本と読み（ひらがな）で比べる
 - AIが言うつもりだった言葉：AI自身の文字起こしを台本と比べる
   ⇒ 別の耳では食い違うのに、言うつもりの言葉は台本どおり ⇒ 声を作るところで崩れた
@@ -18,11 +17,12 @@ import json
 import re
 import time
 
-from audio import voiced_seconds
 from common import HERE, VOICES, base_parser, describe_error, make_client, pick_key, require_python, save_result, say, write_wav
 from g03_voices import INSTRUCTION, SCRIPT, STYLES
-from listen import differences, hear, norm
+from jtext import norm
+from listen import differences, hear
 from live_util import build_config, collect_turn, send_text
+from turn_check import check_ai_turn
 
 SCRIPTS = {
     "A": SCRIPT,
@@ -61,7 +61,8 @@ for _prefix, _style in (("s2", "warm_business_x2"), ("l4", "humble_business_x2")
     assert _SPEED in STYLES[_style]
     for _k, _v in SPEED_WORDS.items():
         CONDITIONS[f"{_prefix}_{_k}"] = STYLES[_style].replace(_SPEED, _v)
-MAX_CHARS_PER_S = 15.0  # これより速くは読めない（会話の形の実測は1秒に 6.7〜8.2文字）
+# 2026-10-13 ユーザー確定：速さの数字を外した、選ばれた声の型（g03_voices の型をそのまま使う＝定義は1か所）
+CONDITIONS.update({"S2": STYLES["warm_business"], "S4": STYLES["smile"], "L4": STYLES["humble_business"]})
 AUDIO_DIR = HERE / "results" / "g17_audio"
 GAP = b"\x00\x00" * int(24000 * 0.6)  # 1文ずつのときに、声をつなぐ間の無音
 
@@ -79,13 +80,14 @@ async def speak(client, model: str, voice: str, cond: str, parts: list[str]) -> 
             await send_text(s, f"台本：{part}")
             turn = await collect_turn(s, started_at=t, timeout_s=90)
             r = turn.summary()
-            rate = turn.audio_rate or 24000
-            voiced = voiced_seconds(bytes(turn.audio), rate) if turn.audio else 0.0
-            need = len(norm(part)) / MAX_CHARS_PER_S
             usage = r["usage"][-1] if r["usage"] else {}
+            # AIの1ターンの見分け方は turn_check の1か所だけ（言うべき言葉＝台本の文と比べる）
+            check = check_ai_turn(audio=bytes(turn.audio), rate=turn.audio_rate or 24000, voice=voice,
+                                  timed_out=turn.timed_out, expected_text=part)
             turns.append({
-                "script": part, "intended": r["output_transcript"], "audio_s": r["audio_seconds"], "voiced_s": round(voiced, 2),
-                "silent": not turn.audio, "cut_off": bool(turn.audio) and voiced < need,
+                "script": part, "intended": r["output_transcript"], "audio_s": r["audio_seconds"], "voiced_s": check["voiced_s"],
+                "check": check, "silent": check["kind"] == "silent", "cut_off": check["kind"] == "cut_off",
+                "too_long": check["kind"] == "too_long", "timed_out": turn.timed_out,
                 "first_audio_after_s": r["first_audio_after_s"],
                 "audio_tokens": sum(x.get("token_count", 0) for x in usage.get("response_tokens_details", []) if x.get("modality") == "AUDIO"),
                 "thoughts_tokens": usage.get("thoughts_token_count"),
@@ -101,9 +103,10 @@ async def one_trial(client, args, tid: str, voice: str, cond: str, length: str, 
     parts = [script] if length == "long" else sentences(script)
     turns, audio = await speak(client, args.model, voice, cond, parts)
     row = {"id": tid, "voice": voice, "condition": cond, "length": length, "script_id": sid, "turns": turns,
-           "silent_turns": sum(t["silent"] for t in turns), "cut_off_turns": sum(t["cut_off"] for t in turns)}
-    ok = [(len(norm(t["script"])), t["voiced_s"]) for t in turns if t["voiced_s"] and not t["cut_off"] and t["audio_tokens"] > 30]
-    row["chars_per_s"] = round(sum(c for c, _ in ok) / sum(v for _, v in ok), 2) if ok else None  # 話す速さ（途中で止まったターンは除く）
+           "silent_turns": sum(t["silent"] for t in turns), "cut_off_turns": sum(t["cut_off"] for t in turns),
+           "too_long_turns": sum(t["too_long"] for t in turns)}
+    ok = [(len(norm(t["script"])), t["voiced_s"]) for t in turns if t["check"]["kind"] == "ok"]
+    row["chars_per_s"] = round(sum(c for c, _ in ok) / sum(v for _, v in ok), 2) if ok else None  # 話す速さ（「ふつう」と分けたターンだけ）
     intended = "".join(t["intended"] for t in turns)
     row["intended_missing"] = any(not t["intended"] for t in turns)  # AI自身の文字起こしが届かなかったターンがある
     row["intended_diffs"] = differences(script, intended) if not row["intended_missing"] else None
@@ -125,6 +128,7 @@ def summarize(rows: list[dict]) -> dict:
         return {"trials": len(xs),
                 "silent_turns": sum(r["silent_turns"] for r in xs),
                 "cut_off_turns": sum(r["cut_off_turns"] for r in xs),
+                "too_long_turns": sum(r.get("too_long_turns", 0) for r in xs),
                 "turns": sum(len(r["turns"]) for r in xs),
                 "trials_with_ear_diffs": sum(1 for r in xs if r.get("ear_diffs")),
                 "trials_with_intended_diffs": sum(1 for r in xs if r.get("intended_diffs"))}
@@ -161,13 +165,13 @@ async def run(args) -> dict:
                         rows.append(row)
                         with log.open("a", encoding="utf-8") as f:
                             f.write(json.dumps(row, ensure_ascii=False) + "\n")
-                        say(f"[{n}] {voice:<9} {cond:<7} {length:<5} {sid} 黙り={row.get('silent_turns')} 途切れ={row.get('cut_off_turns')} "
+                        say(f"[{n}] {voice:<9} {cond:<7} {length:<5} {sid} 黙り={row.get('silent_turns')} 途切れ={row.get('cut_off_turns')} 長すぎ={row.get('too_long_turns')} "
                             f"耳の食い違い={json.dumps(row.get('ear_diffs'), ensure_ascii=False)[:160]} "
                             f"言うつもりの食い違い={json.dumps(row.get('intended_diffs'), ensure_ascii=False)[:120]} {row.get('error', '')}")
                         await asyncio.sleep(args.pause)
     summary = summarize(rows)
     say("まとめ：", json.dumps(summary, ensure_ascii=False))
-    return {"model": args.model, "scripts": SCRIPTS, "conditions": CONDITIONS, "max_chars_per_s": MAX_CHARS_PER_S,
+    return {"model": args.model, "scripts": SCRIPTS, "conditions": CONDITIONS,
             "summary": summary, "rows": rows}
 
 

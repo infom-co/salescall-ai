@@ -8,10 +8,9 @@
 from __future__ import annotations
 
 import asyncio
-import time
 
 from audio import resample
-from common import silence
+from live_util import build_config, silence_while, stream_audio
 
 MODEL = "gemini-3.8-live"
 INSTRUCTION = (
@@ -45,8 +44,6 @@ async def judge(client, pcm16: bytes, rate: int, script: str, timeout_s: float =
     """録音を審査して {"problems": [...]} を返す。report が呼ばれなければ {"problems": None, "no_report": True}。"""
     from google.genai import types
 
-    from live_util import build_config
-
     cfg = build_config(voice=None, system_instruction=INSTRUCTION, tools=_tools(), thinking_budget=None)
     pcm = resample(pcm16, rate, 16000)
     result: dict = {"problems": None, "no_report": True}
@@ -67,13 +64,11 @@ async def judge(client, pcm16: bytes, rate: int, script: str, timeout_s: float =
                             types.FunctionResponse(id=fc.id, name=fc.name, response={"ok": True}) for fc in m.tool_call.function_calls])
 
         rx = asyncio.create_task(receiver())
-        step = 16000 * 2 // 10
-        for i in range(0, len(pcm), step):
-            await s.send_realtime_input(audio=types.Blob(data=pcm[i:i + step], mime_type="audio/pcm;rate=16000"))
-            await asyncio.sleep(0.1)
-        t0 = time.monotonic()
-        while not got.is_set() and time.monotonic() - t0 < timeout_s:  # 話し終わりに気づかせる無音を送りながら、報告を待つ
-            await s.send_realtime_input(audio=types.Blob(data=silence(100), mime_type="audio/pcm;rate=16000"))
-            await asyncio.sleep(0.1)
+        await stream_audio(s, pcm, 16000)
+        async with silence_while(s, 16000):  # 話し終わりに気づかせる無音を送りながら、報告を待つ
+            try:
+                await asyncio.wait_for(got.wait(), timeout=timeout_s)
+            except asyncio.TimeoutError:
+                pass
         rx.cancel()
     return result

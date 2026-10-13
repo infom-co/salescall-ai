@@ -140,5 +140,31 @@ class MiniFlowTest(unittest.TestCase):
         self.assertEqual(r["result"], "rejected")
 
 
+
+class TurnCheckTest(unittest.TestCase):
+    """AIの1ターンの見分け方（turn_check）。G-17 の実際の例で確かめる。"""
+
+    def test_morae(self):
+        from jtext import morae
+        self.assertEqual(morae("失礼いたします。"), 9)  # しつれいいたします
+        self.assertEqual(morae("株式会社「アオバ物流」"), morae("株式会社アオバ物流"))  # かぎかっこは数えない
+
+    def test_classify_examples(self):
+        from turn_check import classify
+        # ふつう：Sadachbia「失礼いたします」1.0秒
+        self.assertEqual(classify(voiced_s=1.0, voice="Sadachbia", expected_text="失礼いたします。")["kind"], "ok")
+        # 途中で止まった：「失礼いたし」0.75秒（G-17 #33）
+        self.assertEqual(classify(voiced_s=0.75, voice="Sadachbia", expected_text="失礼いたします。")["kind"], "cut_off")
+        # 同じ文を2回言った：Leda 8.39秒（G-17 #24）
+        self.assertEqual(classify(voiced_s=8.39, voice="Leda", expected_text="本日は、先日お送りした資料の件でお電話いたしました。")["kind"], "too_long")
+        # 声が無い・時間切れ
+        self.assertEqual(classify(voiced_s=0.0, voice="Leda", expected_text="はい。")["kind"], "silent")
+        self.assertEqual(classify(voiced_s=3.0, voice="Leda", timed_out=True, expected_text="はい。")["kind"], "silent")
+        # 比べる言葉が無い
+        self.assertEqual(classify(voiced_s=1.0, voice="Leda")["kind"], "unknown")
+        # 言うべき言葉が分かっていれば、AI自身の文字起こしより優先する
+        self.assertEqual(classify(voiced_s=0.75, voice="Sadachbia", expected_text="失礼いたします。", intended_text="はい")["compared_with"], "expected")
+
+
 if __name__ == "__main__":
     unittest.main()
