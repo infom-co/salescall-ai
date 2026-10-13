@@ -13,7 +13,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import common
-from g06_flow import ASK_BACK, MiniFlow
 
 
 def fc(name, **args):
@@ -70,75 +69,123 @@ class EnvAndRedactionTest(unittest.TestCase):
             common.load_keys(self.env, ["NOT_THERE"])
 
 
-class MiniFlowTest(unittest.TestCase):
+class FlowTest(unittest.TestCase):
+    """流れの制御（flowctl.Flow）。DESIGN.md 4-4・6-2・6-11 の決まりどおりに進む・止まるか。"""
+
+    def flow(self, *, q1_required=True):
+        from flowctl import Flow, Question
+        return Flow([Question("Q1", "ご予約はされていますか。", "yes_no", required=q1_required, conditions=("yes", "no")),
+                     Question("Q2", "ご希望の日時をお聞かせください。", "datetime", conditions=("answered",))])
+
+    def call(self, f, name, **args):
+        return f.handle(fc(name, **args))
+
     def test_yes_no_accepted_and_advances(self):
-        f = MiniFlow()
-        r = f.handle(fc("record_answer", question_id="Q1", condition_id="yes"))
-        self.assertEqual(r["result"], "accepted")
-        self.assertEqual(f.current, "Q2")
+        f = self.flow()
+        r = self.call(f, "record_answer", question_id="Q1", condition_id="yes")
+        self.assertEqual((r["result"], f.current, f.items["Q1"].state), ("next", "Q2", "accepted"))
 
-    def test_wrong_question_rejected(self):
-        f = MiniFlow()
-        r = f.handle(fc("record_answer", question_id="Q2", condition_id="answered"))
-        self.assertEqual(r["result"], "rejected")
-        self.assertFalse(f.checks["question_id_matched"])
-        self.assertEqual(f.current, "Q1")
+    def test_wrong_question_and_undeclared_condition_rejected(self):
+        f = self.flow()
+        self.assertEqual(self.call(f, "record_answer", question_id="Q2", condition_id="answered")["result"], "rejected")
+        self.assertEqual(self.call(f, "record_answer", question_id="Q1", condition_id="maybe")["result"], "rejected")
+        self.assertEqual((f.current, f.items["Q1"].state), ("Q1", "empty"))
 
-    def test_confirm_type_held_until_confirm(self):
-        f = MiniFlow()
-        f.handle(fc("record_answer", question_id="Q1", condition_id="yes"))
-        r = f.handle(fc("record_answer", question_id="Q2", condition_id="answered", value="15日14時"))
-        self.assertEqual(r["result"], "confirm_required")
-        self.assertFalse(f.done)  # 確かめる前に終わりへ進まない（I-18）
-        f.on_callee()  # 相手が返事をした
-        r = f.handle(fc("confirm_field", question_id="Q2", result="affirmed"))
-        self.assertEqual(r["result"], "confirmed")
-        self.assertTrue(f.done)
-        self.assertEqual(f.values["Q2"]["state"], "confirmed")
+    def test_confirm_type_held_until_callee_affirms(self):
+        f = self.flow()
+        self.call(f, "record_answer", question_id="Q1", condition_id="yes")
+        r = self.call(f, "record_answer", question_id="Q2", condition_id="answered", value="15日の午後2時")
+        self.assertEqual((r["result"], r["value"]), ("confirm_required", "15日の午後2時"))  # 言い直すのは記録した値そのもの
+        self.assertEqual(f.phase, "asking")  # 確かめる前に終わりへ進まない（I-18）
+        # 相手の返事が届く前の報告は差し戻す（I-24）
+        self.assertEqual(self.call(f, "confirm_field", question_id="Q2", result="affirmed")["result"], "rejected")
+        f.on_callee()
+        r = self.call(f, "confirm_field", question_id="Q2", result="affirmed")
+        self.assertEqual((r["result"], f.items["Q2"].state, f.phase), ("end", "confirmed", "closing"))
 
-    def test_ask_back_only_once(self):
-        f = MiniFlow()
-        f.handle(fc("record_answer", question_id="Q1", condition_id="yes"))
-        r1 = f.handle(fc("report_unclear", question_id="Q2"))
-        self.assertEqual(r1["result"], "ask_back")
-        self.assertIn(ASK_BACK, r1["message"])
-        r2 = f.handle(fc("report_unclear", question_id="Q2"))
-        self.assertEqual(r2["result"], "give_up")  # 2回目は聞き返させない（I-20）
-        self.assertEqual(f.values["Q2"]["state"], "unresolved")
+    def test_ask_back_once_then_unresolved_then_one_recheck_at_end(self):
+        f = self.flow()
+        self.call(f, "record_answer", question_id="Q1", condition_id="yes")
+        self.assertEqual(self.call(f, "report_unclear", question_id="Q2")["result"], "ask_back")
+        r = self.call(f, "report_unclear", question_id="Q2")  # 2回目は聞き返させない（I-20）
+        self.assertEqual((r["result"], r["question_id"]), ("recheck", "Q2"))  # 締めの前に念のための確認を1回
+        self.assertEqual((f.items["Q2"].state, f.items["Q2"].rechecks), ("unresolved", 1))
+        r = self.call(f, "report_unclear", question_id="Q2")  # 念のための確認でも聞けない
+        self.assertEqual((r["result"], f.items["Q2"].state), ("end", "unresolved"))
+        self.assertEqual(f.export()["Q2"], "-")
+
+    def test_recheck_answer_is_read_back(self):
+        f = self.flow()
+        self.call(f, "record_answer", question_id="Q1", condition_id="yes")
+        self.call(f, "report_unclear", question_id="Q2")
+        self.call(f, "report_unclear", question_id="Q2")
+        r = self.call(f, "record_answer", question_id="Q2", condition_id="answered", value="15日の午後2時")
+        self.assertEqual(r["result"], "confirm_required")  # 念のための確認で聞けたら復唱する（6-11）
+        f.on_callee()
+        self.assertEqual(self.call(f, "confirm_field", question_id="Q2", result="affirmed")["result"], "end")
+        self.assertEqual(f.export()["Q2"], "15日の午後2時")
 
     def test_yes_no_after_ask_back_needs_readback(self):
-        f = MiniFlow()
-        f.handle(fc("report_unclear", question_id="Q1"))
-        r = f.handle(fc("record_answer", question_id="Q1", condition_id="yes"))
+        f = self.flow()
+        self.call(f, "report_unclear", question_id="Q1")
+        r = self.call(f, "record_answer", question_id="Q1", condition_id="yes")
         self.assertEqual(r["result"], "confirm_required")  # 聞き返したあとは、確かめない型でも復唱する（6-11）
 
-    def test_correction_then_one_more_readback(self):
-        f = MiniFlow()
-        f.handle(fc("record_answer", question_id="Q1", condition_id="yes"))
-        f.handle(fc("record_answer", question_id="Q2", condition_id="answered", value="15日14時"))
+    def test_correction_read_back_once_more_then_unresolved(self):
+        f = self.flow()
+        self.call(f, "record_answer", question_id="Q1", condition_id="yes")
+        self.call(f, "record_answer", question_id="Q2", condition_id="answered", value="15日の午後2時")
         f.on_callee()
-        r = f.handle(fc("confirm_field", question_id="Q2", result="corrected", correction="16日14時"))
-        self.assertEqual(r["result"], "confirm_required")
-        self.assertEqual(f.values["Q2"]["value"], "16日14時")
-        self.assertIn("16日14時", r["message"])  # 言い直すのは、記録した値そのもの
+        r = self.call(f, "confirm_field", question_id="Q2", result="corrected", correction="16日の午後2時")
+        self.assertEqual((r["result"], r["value"]), ("confirm_required", "16日の午後2時"))
+        f.on_callee()
+        r = self.call(f, "confirm_field", question_id="Q2", result="corrected", correction="17日の午後2時")
+        self.assertEqual(f.items["Q2"].state, "unresolved")  # 訂正のあとの復唱は1回まで
+        self.assertEqual(r["result"], "recheck")  # 「-」の必須項目なので、締めの前に1回だけ念のため
 
-    def test_confirm_before_callee_reply_rejected(self):
-        # 2026-10-12 の G-6：AIが相手の返事を待たずに「肯定された」と報告した ⇒ 差し戻す
-        f = MiniFlow()
-        f.handle(fc("record_answer", question_id="Q1", condition_id="yes"))
-        f.handle(fc("record_answer", question_id="Q2", condition_id="answered", value="15日14時"))
-        r = f.handle(fc("confirm_field", question_id="Q2", result="affirmed"))
-        self.assertEqual(r["result"], "rejected")
-        self.assertNotEqual(f.values["Q2"]["state"], "confirmed")
-        f.on_callee()
-        r = f.handle(fc("confirm_field", question_id="Q2", result="affirmed"))
-        self.assertEqual(r["result"], "confirmed")
+    def test_refused_never_asked_again_and_exported_as_cross(self):
+        f = self.flow()
+        self.call(f, "record_answer", question_id="Q1", condition_id="refused")
+        r = self.call(f, "record_answer", question_id="Q2", condition_id="refused")
+        self.assertEqual(r["result"], "end")  # 念のための確認にも入れない
+        self.assertEqual(f.export(), {"Q1": "✕", "Q2": "✕"})
+
+    def test_unknown_answer_is_dash_without_recheck(self):
+        f = self.flow()
+        self.call(f, "record_answer", question_id="Q1", condition_id="yes")
+        r = self.call(f, "record_answer", question_id="Q2", condition_id="unknown")
+        self.assertEqual((r["result"], f.items["Q2"].state), ("end", "accepted"))  # 聞けたので、念のため聞き直さない
+        self.assertEqual(f.export()["Q2"], "-")
+
+    def test_hurry_skips_recheck(self):
+        f = self.flow()
+        self.call(f, "report_unclear", question_id="Q1")
+        self.call(f, "report_unclear", question_id="Q1")  # Q1 は「-」
+        r = self.call(f, "request_end", reason="callee_hurry")
+        self.assertEqual((r["result"], f.phase, f.items["Q1"].rechecks), ("end", "closing", 0))
+
+    def test_done_rejected_while_questions_remain(self):
+        f = self.flow()
+        self.assertEqual(self.call(f, "request_end", reason="done")["result"], "rejected")
+
+    def test_optional_item_not_asked_back(self):
+        f = self.flow(q1_required=False)
+        r = self.call(f, "report_unclear", question_id="Q1")
+        self.assertEqual((r["result"], f.items["Q1"].state), ("next", "unresolved"))  # 必須でない項目は聞き返さない
 
     def test_confirm_without_request_rejected(self):
-        f = MiniFlow()
-        r = f.handle(fc("confirm_field", question_id="Q1", result="affirmed"))
-        self.assertEqual(r["result"], "rejected")
+        f = self.flow()
+        self.assertEqual(self.call(f, "confirm_field", question_id="Q1", result="affirmed")["result"], "rejected")
 
+    def test_instruction_quotes_names_only_once(self):
+        from flowctl import Question
+        from instruction import Business, build
+        b = Business(company="アオバ物流", caller="佐藤", purpose="確認", questions=[Question("Q1", "質問", "yes_no", conditions=("yes",))])
+        _, text = build(b, "L4")
+        self.assertIn("株式会社「アオバ物流」の「佐藤」と申します", text)
+        self.assertNotIn("「「", text)
+        self.assertNotIn("倍速", text)
+        self.assertNotIn("1文字も変えない", text)
 
 
 class TurnCheckTest(unittest.TestCase):

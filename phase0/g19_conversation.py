@@ -1,0 +1,136 @@
+"""G-19：実際の電話に近い会話の形（相手の声に答える）で、選ばれた声の型の間違いの起きる割合を測る。
+
+やること：
+- 予約の確認の短い会話を、相手役の声（results/callee/ の電話の音質の声）で進める。相手の発話は4回、AIの発話も4回。
+- AIの最初の発話の名乗りは、決まった文（OPENING）を言わせる（言うべき言葉が分かっている）。
+- AIの1ターンごとに、見分け方（turn_check）を当てる（比べる言葉は、AI自身の文字起こし。最初の名乗りは決まった文も）。
+- 通話1本ぶんのAIの声をつないで、別の耳（listen）で聞き直し、AI自身の文字起こし（言うつもりの言葉）と比べる
+  ⇒ 食い違い＝声が言うつもりの言葉どおりに出なかった所（途中で止まった・抜けた・崩れた）。
+- AI自身の文字起こしが届いた割合も数える（会話の中で見分けられるかが、これで決まる）。
+⚠️ 限界：相手役は作った声。わずかな言い間違い（「おも忙しい」）は別の耳では見つけられない。
+"""
+from __future__ import annotations
+
+import asyncio
+import json
+import statistics
+import time
+
+from common import HERE, base_parser, describe_error, make_client, pick_key, read_wav_pcm16_mono, require_python, save_result, say, write_wav
+from instruction import VOICE_TYPES, voice_style
+from jtext import reading
+from listen import differences, hear
+from live_util import build_config, callee_turn
+from turn_check import check_ai_turn
+
+OPENING = "お忙しいところ恐れ入ります。株式会社「アオバ物流」の「佐藤」と申します。"
+INSTRUCTION = (
+    "あなたは株式会社「アオバ物流」の「佐藤」として、ご予約の確認の電話をかけています。"
+    f"相手が電話に出たら、まず「{OPENING}」と名乗ってください。続けて、ご予約をされているかを聞いてください。"
+    "予約しているとわかったら、ご予約の日時を聞いてください。"
+    "日時を聞いたら、その日時を言い直して、合っているかを聞いてください。"
+    "合っていれば、お礼を言って電話を終えてください。"
+    "1回の返事は短くしてください。"
+)
+CALLEE = ["hello", "yes_reserved", "datetime_pm", "affirm"]
+CALLEE_VOICE = "Puck"
+TYPES = VOICE_TYPES  # 声の型は instruction.py の1か所から
+AUDIO_DIR = HERE / "results" / "g19_audio"
+GAP = b"\x00\x00" * int(24000 * 0.6)
+
+
+async def one_call(client, args, cid: str, type_id: str) -> dict:
+    voice, style_text = voice_style(type_id)
+    cfg = build_config(voice=voice, system_instruction=INSTRUCTION + style_text)
+    turns, audio = [], bytearray()
+    async with client.aio.live.connect(model=args.model, config=cfg) as s:
+        for i, callee_id in enumerate(CALLEE):
+            pcm, rate = read_wav_pcm16_mono(HERE / "results" / "callee" / f"{CALLEE_VOICE}_{callee_id}.wav")
+            turn = await callee_turn(s, pcm, rate, timeout_s=45)
+            r = turn.summary()
+            check = check_ai_turn(audio=bytes(turn.audio), rate=turn.audio_rate or 24000, voice=voice,
+                                  timed_out=turn.timed_out, intended_text=r["output_transcript"] or None)
+            turns.append({"callee": callee_id, "heard": r["input_transcript"], "intended": r["output_transcript"],
+                          "first_audio_after_s": r["first_audio_after_s"], "check": check, "timed_out": turn.timed_out})
+            if audio and turn.audio:
+                audio += GAP
+            audio += turn.audio
+    row = {"id": cid, "type": type_id, "voice": voice, "turns": turns}
+    if audio:
+        wav = AUDIO_DIR / f"{cid}.wav"
+        write_wav(wav, bytes(audio), 24000)
+        row["wav"] = wav.name
+        row["ear"] = await hear(client, bytes(audio), 24000, "transcribe35")
+        intended = "".join(t["intended"] for t in turns)
+        row["intended_complete"] = all(t["intended"] for t in turns)
+        # 言うつもりの言葉と、実際に出た声（別の耳）の食い違い。言うつもりの言葉が欠けている回は比べない
+        row["ear_vs_intended"] = differences(intended, row["ear"]) if row["intended_complete"] else None
+        # 名乗り（決まった文）が、声で正しく出たか：別の耳の書き出しの最初の部分と比べる
+        head = reading(row["ear"])[:len(reading(OPENING)) + 4]
+        row["opening_diffs"] = differences(OPENING, head)
+    return row
+
+
+def summarize(rows: list[dict]) -> dict:
+    out = {}
+    for t in TYPES:
+        xs = [r for r in rows if r.get("type") == t and "error" not in r]
+        turns = [u for r in xs for u in r["turns"]]
+        gaps = [u["first_audio_after_s"] for u in turns if u["first_audio_after_s"] is not None]
+        kinds = {}
+        for u in turns:
+            kinds[u["check"]["kind"]] = kinds.get(u["check"]["kind"], 0) + 1
+        out[t] = {"calls": len(xs), "turns": len(turns), "kinds": kinds,
+                  "intended_present": sum(1 for u in turns if u["intended"]),
+                  "calls_with_ear_vs_intended_diffs": sum(1 for r in xs if r.get("ear_vs_intended")),
+                  "calls_with_opening_diffs": sum(1 for r in xs if r.get("opening_diffs")),
+                  "gap_median_s": round(statistics.median(gaps), 2) if gaps else None,
+                  "gap_max_s": max(gaps) if gaps else None}
+    out["errors"] = sum(1 for r in rows if "error" in r)
+    return out
+
+
+async def run(args) -> dict:
+    if args.dry_run:
+        for type_id in TYPES:
+            voice, style_text = voice_style(type_id)
+            build_config(voice=voice, system_instruction=INSTRUCTION + style_text)
+        return {"dry_run": True}
+    AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+    client = make_client(pick_key(args))
+    stamp = time.strftime("%Y%m%d_%H%M%S")
+    log = AUDIO_DIR / f"partial_{stamp}.jsonl"
+    rows, n = [], 0
+    for rep in range(args.repeat):
+        for type_id in args.type or TYPES:
+            n += 1
+            cid = f"{stamp}_{n:03d}_{type_id}"
+            try:
+                row = await one_call(client, args, cid, type_id)
+            except Exception as exc:
+                row = {"id": cid, "type": type_id, "error": describe_error(exc)}
+            rows.append(row)
+            with log.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(row, ensure_ascii=False) + "\n")
+            kinds = [u["check"]["kind"] for u in row.get("turns", [])]
+            say(f"[{n}] {type_id} 判定={kinds} 文字起こし={[bool(u['intended']) for u in row.get('turns', [])]} "
+                f"名乗り={json.dumps(row.get('opening_diffs'), ensure_ascii=False)[:120]} "
+                f"声と言うつもりの食い違い={json.dumps(row.get('ear_vs_intended'), ensure_ascii=False)[:160]} {row.get('error', '')}")
+            await asyncio.sleep(args.pause)
+    summary = summarize(rows)
+    say("まとめ：", json.dumps(summary, ensure_ascii=False))
+    return {"model": args.model, "opening": OPENING, "callee_voice": CALLEE_VOICE, "summary": summary, "rows": rows}
+
+
+def main() -> None:
+    require_python()
+    p = base_parser(__doc__)
+    p.add_argument("--repeat", type=int, default=10)
+    p.add_argument("--pause", type=float, default=4.0)
+    p.add_argument("--type", choices=sorted(TYPES), action="append")
+    args = p.parse_args()
+    save_result("G-19", asyncio.run(run(args)))
+
+
+if __name__ == "__main__":
+    main()
