@@ -106,7 +106,11 @@ def pick(items: list[dict], n: int) -> list[dict]:
 
 
 async def run(args) -> dict:
-    if args.convo:
+    if args.convo and args.only_mismatch:
+        # 試験の中で別の耳が頭を聞き違えたターンだけを、もう一度聞かせる（同じ崩れ方をくり返せば、声そのものの崩れ）
+        targets = [c for c in convo_clips(args.convo) if c["ear_in_test"] and head_diffs(c["intended"], c["ear_in_test"])]
+        leads = [0.0, LEAD_S]  # ⛔ 2026-10-13：無音ありでだけ崩れて聞こえたターンがあった ⇒ 両方で聞く
+    elif args.convo:
         cs = convo_clips(args.convo)  # 操作の返事のあとのターンと、そうでないターンを、交互に選ぶ
         a, b = [c for c in cs if c["after_tool"]], [c for c in cs if not c["after_tool"]]
         targets = [x for pair in zip(a, b) for x in pair][:args.n] or cs[:args.n]
@@ -156,8 +160,10 @@ def main() -> None:
     p.add_argument("--pause", type=float, default=1.0)
     p.add_argument("--opening", action="store_true", help="AIが名乗る形の通話の名乗りだけを、無音ありで聞き直す")
     p.add_argument("--convo", help="会話の試験の結果のファイル（声を残したターンを聞き比べる）")
+    p.add_argument("--only-mismatch", action="store_true", help="--convo のうち、試験の中で頭を聞き違えたターンだけを聞き直す")
     args = p.parse_args()
-    save_result("EAR-HEAD" + ("-convo" if args.convo else "-opening" if args.opening else ""), asyncio.run(run(args)))
+    save_result("EAR-HEAD" + ("-convo-mismatch" if args.only_mismatch else "-convo" if args.convo else "-opening" if args.opening else ""),
+                asyncio.run(run(args)))
 
 
 if __name__ == "__main__":
