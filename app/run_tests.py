@@ -110,6 +110,9 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("人の緊急停止をシステムが解けない決まりを外す", "DROP TRIGGER stop_events_before_insert ON salescall.stop_events",
      ("tests.test_stops.ManualStops.test_system_cannot_resume_a_manual_stop",
       "tests.test_stops.ManualStops.test_actor_must_match_the_transaction")),
+    ("設定の値の形の確かめを外す", "DROP TRIGGER setting_values_before_insert ON salescall.setting_values",
+     ("tests.test_settings.Shapes.test_bad_values_are_rejected",
+      "tests.test_settings.Shapes.test_system_only_cannot_be_set_lower")),
     ("停止を1回だけ解ける決まりを外す", "DROP INDEX salescall.stop_events_resolved_once",
      ("tests.test_stops.SystemStops.test_a_stop_is_resolved_only_once",)),
 )

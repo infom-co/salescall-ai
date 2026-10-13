@@ -150,6 +150,7 @@ WRITERS: dict[str, dict[str, frozenset[str]]] = {
     "item_values": {"INSERT": frozenset({_CORE + "conversation_io.py"}),     # 会話の処理が書き込む入口（CL-1 のお願い (a)）
                     "UPDATE": frozenset({_CORE + "conversation_io.py"})},
     "task_append_locks": {"INSERT": frozenset({_CORE + "tasks.py"}), "UPDATE": frozenset({_CORE + "tasks.py"})},
+    "setting_values": {"INSERT": frozenset({_CORE + "settings.py"})},        # 設定の値（Q10）
     "deliveries": {"INSERT": frozenset({"src/salescall/output/"}),           # 連携の台帳（Q17。持ち主 CL-3）
                    "UPDATE": frozenset({"src/salescall/output/"})},
 }
