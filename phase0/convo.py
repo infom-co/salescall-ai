@@ -11,6 +11,7 @@
 - opening_mode="recorded"：名乗りと最初の質問は録音で流した形（DESIGN.md 6-13 の案）。AIは相手の最初の発話から続ける。
   barge_in＝(届いた文, まだの文)：録音の途中で相手が話し始めて止めた形。最初の相手の発話の前に、どこまで届いたかを
   AIへ知らせる（instruction.barge_in_note・live_util.send_note）。
+- gap_s：相手の発話を送る前に空ける秒数（ふだんは0。別の耳を会話の途中で動かすと、その間だけ間が空く。G-26）。
 - 見張り（turn_check）が引っかかったターンは、AIの声を results/convo_audio/ に残す（人が聞いて確かめるため。GitHub には上げない）。
   save_audio="all" なら、全部のターンを残す（ユーザーが聞いて決める試験。G-22）。
 - stall_at：AIが止まったときの張り替え（DESIGN.md 6-7 の案）を試す。その番号の相手の発話を古いセッションへ送り、
@@ -35,7 +36,7 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                    swap_before: int | None = None, stall_at: int | None = None, stall_wait_s: float = 1.0,
                    opening_mode: str = "ai", barge_in: tuple[list[str], list[str]] | None = None,
                    thinking_budget: int | None = None, use_ear: bool = True, save_audio: str = "bad",
-                   audio_label: str = "", confirm=None) -> dict:
+                   audio_label: str = "", confirm=None, gap_s: float = 0.0) -> dict:
     flow = Flow(business.questions, busy_ask=business.busy_ask,
                 **({"confirm": confirm} if confirm else {}))  # confirm：言い直しの言い方（G-25 の比べだけ）
     turns: list[dict] = []
@@ -68,6 +69,8 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                 if replay != i:  # 送り直しは、相手がもう一度話したのではないので数えない
                     flow.on_callee()
                 log_start = len(flow.log)
+                if gap_s and i > 0:  # 相手が話し始めるまでの間（G-26：間の長さで、AIのふるまいが変わるかを見る）
+                    await asyncio.sleep(gap_s)
                 if isinstance(line, dict):  # 録った相手の声
                     pcm, prate = read_wav_pcm16_mono(HERE / "results" / "callee" / line["wav"])
                     turn = await callee_turn(s, pcm, prate, on_tool_call=flow.handle, timeout_s=90)
