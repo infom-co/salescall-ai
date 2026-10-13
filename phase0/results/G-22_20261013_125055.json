@@ -1,0 +1,161 @@
+{
+  "item": "G-22",
+  "saved_at": "2026-10-13T12:50:55",
+  "model": "gemini-3.8-live",
+  "parts": [
+    "お忙しいところ恐れ入ります。",
+    "株式会社「アオバ物流」の「佐藤」と申します。",
+    "ご予約の確認でお電話いたしました。",
+    "ご予約はされていますでしょうか。"
+  ],
+  "summary": {
+    "runs": 1,
+    "passed": 1,
+    "by_scene": {
+      "K1_どちら様": [
+        true
+      ],
+      "K2_ご用件": [],
+      "K3_もう一度": [],
+      "K4_はい？": [],
+      "K5_忙しい": [],
+      "K6_代わる": [],
+      "B0_最初から": [],
+      "B1_あいさつのあと": [],
+      "B2_名乗りのあと": [],
+      "B3_用件のあと": []
+    },
+    "reintroduced_where_not_needed": 0
+  },
+  "rows": [
+    {
+      "rep": 0,
+      "scene": "K1_どちら様",
+      "type": "L4",
+      "checks": {
+        "first_said": "アオバブツリュウの佐藤と申します。ご予約の確認でお電話いたしましたが、ご予約はされていますでしょうか？",
+        "need_ok": true,
+        "reintroduced": true,
+        "head_broken": false,
+        "q1_yes": true,
+        "asked_q2": true,
+        "silent_or_cut": [],
+        "passed": true
+      },
+      "voice_type": "L4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_whois.wav"
+          },
+          "heard": "はい、どちら様ですか?",
+          "intended": "アオバ物流の佐藤と申します。ご予約の確認でお電話いたしましたが、ご予約はされていますでしょうか?",
+          "tool_events": [],
+          "first_audio_after_s": 1.116,
+          "timed_out": false,
+          "check": {
+            "voiced_s": 6.81,
+            "compared_with": "intended",
+            "morae": 53,
+            "expected_s": 6.39,
+            "ratio": 1.07,
+            "kind": "ok"
+          },
+          "phase_after": "asking",
+          "current_after": "Q1",
+          "ear": "アオバブツリュウの佐藤と申します。ご予約の確認でお電話いたしましたが、ご予約はされていますでしょうか？"
+        },
+        {
+          "index": 1,
+          "session": 1,
+          "callee": {
+            "wav": "Puck_yes_reserved.wav"
+          },
+          "heard": "はい。予約しています。",
+          "intended": "それでは、ご希望の日時をお聞かせいただけますか?",
+          "tool_events": [
+            {
+              "at_s": 0.737,
+              "kind": "tool_call",
+              "name": "record_answer",
+              "args": {
+                "question_id": "Q1",
+                "condition_id": "yes",
+                "value": "はい、予約しています。"
+              },
+              "reply": "next"
+            }
+          ],
+          "first_audio_after_s": 1.951,
+          "timed_out": false,
+          "check": {
+            "voiced_s": 2.83,
+            "compared_with": "intended",
+            "morae": 24,
+            "expected_s": 2.89,
+            "ratio": 0.98,
+            "kind": "ok"
+          },
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "ear": "それではご希望の日時をお聞かせいただけますか？"
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "question_id": "Q1",
+            "condition_id": "yes",
+            "value": "はい、予約しています。"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q2",
+            "question": "ご希望の日時をお聞かせください。",
+            "message": "受け付けました。次の質問は Q2「ご希望の日時をお聞かせください。」です。"
+          },
+          "callee_turns": 2
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "accepted",
+          "value": "はい、予約しています。",
+          "condition": "yes",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q2": {
+          "state": "empty",
+          "value": null,
+          "condition": null,
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q3": {
+          "state": "empty",
+          "value": null,
+          "condition": null,
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        }
+      },
+      "export": {
+        "Q1": "yes",
+        "Q2": "-",
+        "Q3": "-"
+      },
+      "final_phase": "asking",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null
+    }
+  ]
+}

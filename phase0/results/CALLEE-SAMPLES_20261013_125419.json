@@ -1,0 +1,349 @@
+{
+  "item": "CALLEE-SAMPLES",
+  "saved_at": "2026-10-13T12:54:19",
+  "model": "gemini-3.8-live",
+  "samples": [
+    {
+      "voice": "Puck",
+      "id": "hello",
+      "text": "はい、もしもし。",
+      "said": "",
+      "exact": false,
+      "seconds": 1.61,
+      "wav": "Puck_hello.wav"
+    },
+    {
+      "voice": "Puck",
+      "id": "yes_reserved",
+      "text": "はい、予約しています。",
+      "said": "",
+      "exact": false,
+      "seconds": 2.01,
+      "wav": "Puck_yes_reserved.wav"
+    },
+    {
+      "voice": "Puck",
+      "id": "no_not_yet",
+      "text": "いいえ、まだしていません。",
+      "said": "",
+      "exact": false,
+      "seconds": 1.92,
+      "wav": "Puck_no_not_yet.wav"
+    },
+    {
+      "voice": "Puck",
+      "id": "datetime_pm",
+      "text": "15日の午後2時でお願いします。",
+      "said": "",
+      "exact": false,
+      "seconds": 2.74,
+      "wav": "Puck_datetime_pm.wav"
+    },
+    {
+      "voice": "Puck",
+      "id": "datetime_ambiguous",
+      "text": "15日の2時です。",
+      "said": "",
+      "exact": false,
+      "seconds": 0.76,
+      "wav": "Puck_datetime_ambiguous.wav"
+    },
+    {
+      "voice": "Puck",
+      "id": "affirm",
+      "text": "はい、そうです。",
+      "said": "",
+      "exact": false,
+      "seconds": 1.48,
+      "wav": "Puck_affirm.wav"
+    },
+    {
+      "voice": "Puck",
+      "id": "unclear",
+      "text": "えっと、じゅう、の……",
+      "said": "えっと、じゅう、の……",
+      "exact": true,
+      "seconds": 2.87,
+      "wav": "Puck_unclear.wav"
+    },
+    {
+      "voice": "Kore",
+      "id": "hello",
+      "text": "はい、もしもし。",
+      "said": "",
+      "exact": false,
+      "seconds": 1.65,
+      "wav": "Kore_hello.wav"
+    },
+    {
+      "voice": "Kore",
+      "id": "yes_reserved",
+      "text": "はい、予約しています。",
+      "said": "",
+      "exact": false,
+      "seconds": 2.02,
+      "wav": "Kore_yes_reserved.wav"
+    },
+    {
+      "voice": "Kore",
+      "id": "no_not_yet",
+      "text": "いいえ、まだしていません。",
+      "said": "",
+      "exact": false,
+      "seconds": 2.33,
+      "wav": "Kore_no_not_yet.wav"
+    },
+    {
+      "voice": "Kore",
+      "id": "datetime_pm",
+      "text": "15日の午後2時でお願いします。",
+      "said": "",
+      "exact": false,
+      "seconds": 2.72,
+      "wav": "Kore_datetime_pm.wav"
+    },
+    {
+      "voice": "Kore",
+      "id": "datetime_ambiguous",
+      "text": "15日の2時です。",
+      "said": "",
+      "exact": false,
+      "seconds": 1.92,
+      "wav": "Kore_datetime_ambiguous.wav"
+    },
+    {
+      "voice": "Kore",
+      "id": "affirm",
+      "text": "はい、そうです。",
+      "said": "",
+      "exact": false,
+      "seconds": 1.34,
+      "wav": "Kore_affirm.wav"
+    },
+    {
+      "voice": "Kore",
+      "id": "unclear",
+      "text": "えっと、じゅう、の……",
+      "said": "えっと、じゅう、の……",
+      "exact": true,
+      "seconds": 2.36,
+      "wav": "Kore_unclear.wav"
+    },
+    {
+      "voice": "Puck",
+      "id": "whois",
+      "text": "はい、どちら様ですか？",
+      "said": "",
+      "exact": false,
+      "seconds": 2.16,
+      "wav": "Puck_whois.wav"
+    },
+    {
+      "voice": "Puck",
+      "id": "what_for",
+      "text": "はい、何のご用件でしょうか？",
+      "said": "",
+      "exact": false,
+      "seconds": 2.18,
+      "wav": "Puck_what_for.wav"
+    },
+    {
+      "voice": "Puck",
+      "id": "again",
+      "text": "すみません、もう一度お願いできますか？",
+      "said": "",
+      "exact": false,
+      "seconds": 2.95,
+      "wav": "Puck_again.wav"
+    },
+    {
+      "voice": "Puck",
+      "id": "hai_q",
+      "text": "はい？",
+      "said": "",
+      "exact": false,
+      "seconds": 0.78,
+      "wav": "Puck_hai_q.wav"
+    },
+    {
+      "voice": "Puck",
+      "id": "busy",
+      "text": "すみません、今ちょっと忙しいんですけど。",
+      "said": "すみません、今ちょっと忙しいんですけど。",
+      "exact": true,
+      "seconds": 3.12,
+      "wav": "Puck_busy.wav"
+    },
+    {
+      "voice": "Puck",
+      "id": "transfer",
+      "text": "担当の者に代わりますので、少々お待ちください。",
+      "said": "",
+      "exact": false,
+      "seconds": 3.49,
+      "wav": "Puck_transfer.wav"
+    },
+    {
+      "voice": "Puck",
+      "id": "taken_over",
+      "text": "お電話代わりました。担当の山田です。",
+      "said": "お電話代わりました。担当の山田です。",
+      "exact": true,
+      "seconds": 2.96,
+      "wav": "Puck_taken_over.wav"
+    },
+    {
+      "voice": "Puck",
+      "id": "barge_who",
+      "text": "あ、はい、どちら様？",
+      "said": "",
+      "exact": false,
+      "seconds": 2.12,
+      "wav": "Puck_barge_who.wav"
+    },
+    {
+      "voice": "Puck",
+      "id": "barge_what",
+      "text": "はい、何でしょう？",
+      "said": "",
+      "exact": false,
+      "seconds": 1.53,
+      "wav": "Puck_barge_what.wav"
+    },
+    {
+      "voice": "Puck",
+      "id": "barge_yes",
+      "text": "あ、予約の件ですね。はい、してます。",
+      "said": " あ、予約の件ですね。はい、してます。",
+      "exact": true,
+      "seconds": 3.9,
+      "wav": "Puck_barge_yes.wav"
+    },
+    {
+      "voice": "Puck",
+      "id": "backchannel",
+      "text": "はい。",
+      "said": "",
+      "exact": false,
+      "seconds": 0.63,
+      "wav": "Puck_backchannel.wav"
+    },
+    {
+      "voice": "Kore",
+      "id": "whois",
+      "text": "はい、どちら様ですか？",
+      "said": "",
+      "exact": false,
+      "seconds": 1.84,
+      "wav": "Kore_whois.wav"
+    },
+    {
+      "voice": "Kore",
+      "id": "what_for",
+      "text": "はい、何のご用件でしょうか？",
+      "said": "",
+      "exact": false,
+      "seconds": 2.52,
+      "wav": "Kore_what_for.wav"
+    },
+    {
+      "voice": "Kore",
+      "id": "again",
+      "text": "すみません、もう一度お願いできますか？",
+      "said": "",
+      "exact": false,
+      "seconds": 2.76,
+      "wav": "Kore_again.wav"
+    },
+    {
+      "voice": "Kore",
+      "id": "hai_q",
+      "text": "はい？",
+      "said": "",
+      "exact": false,
+      "seconds": 0.57,
+      "wav": "Kore_hai_q.wav"
+    },
+    {
+      "voice": "Kore",
+      "id": "busy",
+      "text": "すみません、今ちょっと忙しいんですけど。",
+      "said": "すみません、今ちょっと忙しいんですけど。",
+      "exact": true,
+      "seconds": 3.29,
+      "wav": "Kore_busy.wav"
+    },
+    {
+      "voice": "Kore",
+      "id": "transfer",
+      "text": "担当の者に代わりますので、少々お待ちください。",
+      "said": "",
+      "exact": false,
+      "seconds": 3.58,
+      "wav": "Kore_transfer.wav"
+    },
+    {
+      "voice": "Kore",
+      "id": "taken_over",
+      "text": "お電話代わりました。担当の山田です。",
+      "said": "",
+      "exact": false,
+      "seconds": 3.24,
+      "wav": "Kore_taken_over.wav"
+    },
+    {
+      "voice": "Kore",
+      "id": "barge_who",
+      "text": "あ、はい、どちら様？",
+      "said": "",
+      "exact": false,
+      "seconds": 2.05,
+      "wav": "Kore_barge_who.wav"
+    },
+    {
+      "voice": "Kore",
+      "id": "barge_what",
+      "text": "はい、何でしょう？",
+      "said": "",
+      "exact": false,
+      "seconds": 1.48,
+      "wav": "Kore_barge_what.wav"
+    },
+    {
+      "voice": "Kore",
+      "id": "barge_yes",
+      "text": "あ、予約の件ですね。はい、してます。",
+      "said": "",
+      "exact": false,
+      "seconds": 0.83,
+      "wav": "Kore_barge_yes.wav"
+    },
+    {
+      "voice": "Kore",
+      "id": "backchannel",
+      "text": "はい。",
+      "said": "",
+      "exact": false,
+      "seconds": 0.6,
+      "wav": "Kore_backchannel.wav"
+    },
+    {
+      "voice": "Puck",
+      "id": "barge_yes2",
+      "text": "あ、予約の件ですね。はい、予約しています。",
+      "said": "",
+      "exact": false,
+      "seconds": 4.31,
+      "wav": "Puck_barge_yes2.wav"
+    },
+    {
+      "voice": "Kore",
+      "id": "barge_yes2",
+      "text": "あ、予約の件ですね。はい、予約しています。",
+      "said": "あ、予約の件ですね。はい、予約しています。",
+      "exact": true,
+      "seconds": 4.48,
+      "wav": "Kore_barge_yes2.wav"
+    }
+  ]
+}
