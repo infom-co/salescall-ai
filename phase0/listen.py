@@ -35,8 +35,26 @@ def _config(ear: str):
     return build_config(voice=None, system_instruction="相手の話を聞いてください。返事は「はい」だけにしてください。")
 
 
-async def hear(client, pcm16: bytes, rate: int, ear: str, idle_s: float = 3.0, lead_s: float = LEAD_S) -> str:
-    """声を 16kHz にして、前に lead_s 秒の無音を置いてから 0.1秒ずつ送り、確定した文字起こしをつなげて返す。"""
+def _cut_off(exc: BaseException) -> bool:
+    """接続が向こうの都合で切れた（1006 abnormal closure）か。"""
+    return getattr(exc, "code", None) == 1006
+
+
+async def hear(client, pcm16: bytes, rate: int, ear: str, idle_s: float = 3.0, lead_s: float = LEAD_S,
+               retry_wait_s: float = 10.0) -> str:
+    """声を 16kHz にして、前に lead_s 秒の無音を置いてから 0.1秒ずつ送り、確定した文字起こしをつなげて返す。
+    接続が途中で切れたら、間を空けて1回だけ聞き直す。それでも切れたら誤りを上げる（聞けた途中までを、聞けた結果として返さない）。
+    ⛔ 2026-10-13 G-22：別の耳の接続が途中で切れ（1006）、受け取りの処理だけが黙って止まり、途中までの文字を全部聞いた結果として返していた。"""
+    try:
+        return await _hear_once(client, pcm16, rate, ear, idle_s, lead_s)
+    except Exception as exc:
+        if not _cut_off(exc):
+            raise
+    await asyncio.sleep(retry_wait_s)
+    return await _hear_once(client, pcm16, rate, ear, idle_s, lead_s)
+
+
+async def _hear_once(client, pcm16: bytes, rate: int, ear: str, idle_s: float, lead_s: float) -> str:
     pcm = resample(pcm16, rate, 16000)
     finals: list[str] = []
     async with client.aio.live.connect(model=_MODEL[ear], config=_config(ear)) as s:
@@ -56,9 +74,11 @@ async def hear(client, pcm16: bytes, rate: int, ear: str, idle_s: float = 3.0, l
             await asyncio.sleep(1.5)
         await s.send_realtime_input(audio_stream_end=True)
         last = -1
-        while len(finals) != last:  # 新しい文字起こしが idle_s 秒届かなくなるまで待つ
+        while len(finals) != last and not rx.done():  # 新しい文字起こしが idle_s 秒届かなくなるまで待つ
             last = len(finals)
             await asyncio.sleep(idle_s)
+        if rx.done() and not rx.cancelled() and rx.exception() is not None:
+            raise rx.exception()  # 受け取りが途中で止まった（接続が切れたなど）
         rx.cancel()
     return "".join(finals)
 

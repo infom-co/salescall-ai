@@ -615,6 +615,69 @@ class AIToJapaneseTest(unittest.TestCase):
             self.assertEqual(words, set(), s[:200])
 
 
+class EarCutOffTest(unittest.TestCase):
+    """別の耳の接続が途中で切れたとき（2026-10-13 G-22：1006）、途中までの文字を、聞けた結果として返さない。"""
+
+    def fake_client(self, plan):
+        import types as T
+
+        class Cut(Exception):
+            code = 1006
+
+        class Session:
+            def __init__(self, cut):
+                self.cut = cut
+
+            async def send_realtime_input(self, **kw):
+                pass
+
+            async def receive(self):
+                yield T.SimpleNamespace(server_content=T.SimpleNamespace(
+                    input_transcription=T.SimpleNamespace(text="株式会社アオバ", finished=True)))
+                if self.cut:
+                    raise Cut()
+                yield T.SimpleNamespace(server_content=T.SimpleNamespace(
+                    input_transcription=T.SimpleNamespace(text="物流の佐藤です", finished=True)))
+                import asyncio
+                await asyncio.sleep(3600)
+
+        class Connect:
+            def __init__(self, cut):
+                self.cut = cut
+
+            async def __aenter__(self):
+                return Session(self.cut)
+
+            async def __aexit__(self, *exc):
+                return False
+        attempts = []
+
+        def connect(**kw):
+            attempts.append(1)
+            return Connect(plan[len(attempts) - 1])
+        return T.SimpleNamespace(aio=T.SimpleNamespace(live=T.SimpleNamespace(connect=connect))), attempts
+
+    def run_hear(self, plan):
+        import asyncio
+
+        from listen import hear
+        client, attempts = self.fake_client(plan)
+        pcm = b"\x00\x00" * 1600  # 0.1秒
+        try:
+            return asyncio.run(hear(client, pcm, 16000, "transcribe35", idle_s=0.05, lead_s=0, retry_wait_s=0)), attempts
+        except Exception as exc:
+            return exc, attempts
+
+    def test_cut_once_then_heard(self):
+        got, attempts = self.run_hear([True, False])
+        self.assertEqual((got, len(attempts)), ("株式会社アオバ物流の佐藤です", 2))  # 1回だけ聞き直す
+
+    def test_cut_twice_raises(self):
+        got, attempts = self.run_hear([True, True])
+        self.assertIsInstance(got, Exception)  # ⛔ 直す前は「株式会社アオバ」だけを、聞けた結果として返していた
+        self.assertEqual(len(attempts), 2)
+
+
 class RetryTest(unittest.TestCase):
     def test_retry_only_when_unavailable(self):
         from common import call_with_retry
