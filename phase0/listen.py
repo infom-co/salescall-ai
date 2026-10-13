@@ -59,5 +59,6 @@ def differences(expected: str, heard: str) -> list[dict]:
     out = []
     for op, i1, i2, j1, j2 in difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes():
         if op != "equal":
-            out.append({"kind": op, "script": a[max(0, i1 - 4):i1] + "[" + a[i1:i2] + "]" + a[i2:i2 + 4], "heard": b[j1:j2]})
+            out.append({"kind": op, "script": a[max(0, i1 - 4):i1] + "[" + a[i1:i2] + "]" + a[i2:i2 + 4], "heard": b[j1:j2],
+                        "at": i1})  # 台本の読み（ひらがな）の何文字目か
     return out

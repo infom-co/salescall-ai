@@ -38,16 +38,24 @@ INSTRUCTION = (
 WARMUP_RULE = "電話がつながる前に「準備」という合図が来ます。そのときは「はい」とだけ言ってください（相手には聞こえません）。"
 WARMUP_CUE = "準備"
 CALLEE = ["hello", "yes_reserved", "datetime_pm", "affirm"]
+# 2026-10-13：慣らしの一言は効かなかった（崩れ 24本中2本 ⇔ 慣らしなし 24本中2本）。
+# ⇒ 名乗り（と最初の質問）を、前もって作って人が聞いて確かめた録音で流す形（--opening recorded）を試す。
+#    AIは名乗りを自分で言わず、相手の答えから会話を続ける。AIの最初の声は、相手の答えへの返事になる。
+RECORDED_OPENING = OPENING + "ご予約の確認でお電話いたしました。ご予約はされていますでしょうか。"
+RECORDED_RULE = (f"相手が電話に出たときの名乗りと最初の質問（「{RECORDED_OPENING}」）は、録音で相手に流してあります。"
+                 "あなたは、相手の答えから会話を続けます。もう一度名乗ったり、同じ質問をしたりしてはいけません。")
 CALLEE_VOICE = "Puck"
 TYPES = VOICE_TYPES  # 声の型は instruction.py の1か所から
 AUDIO_DIR = HERE / "results" / "g19_audio"
 GAP = b"\x00\x00" * int(24000 * 0.6)
 
 
-async def one_call(client, args, cid: str, type_id: str, thinking: int | None, warmup: bool) -> dict:
+async def one_call(client, args, cid: str, type_id: str, thinking: int | None, warmup: bool, recorded: bool = False) -> dict:
     voice, style_text = voice_style(type_id)
-    cfg = build_config(voice=voice, system_instruction=INSTRUCTION + (WARMUP_RULE if warmup else "") + style_text,
-                       thinking_budget=thinking)
+    cfg = build_config(voice=voice, system_instruction=INSTRUCTION + (WARMUP_RULE if warmup else "")
+                       + (RECORDED_RULE if recorded else "") + style_text, thinking_budget=thinking)
+    callee_ids = CALLEE[1:] if recorded else CALLEE  # 録音の名乗りのときは、相手の最初の発話は名乗りへの答え
+    first_audio = b""
     turns, audio = [], bytearray()
     warm = None
     async with client.aio.live.connect(model=args.model, config=cfg) as s:
@@ -57,7 +65,7 @@ async def one_call(client, args, cid: str, type_id: str, thinking: int | None, w
             w = await collect_turn(s, started_at=t0, timeout_s=30)
             warm = {"intended": w.summary()["output_transcript"], "audio_s": w.summary()["audio_seconds"],
                     "first_audio_after_s": w.first_audio_after_s}
-        for i, callee_id in enumerate(CALLEE):
+        for i, callee_id in enumerate(callee_ids):
             pcm, rate = read_wav_pcm16_mono(HERE / "results" / "callee" / f"{CALLEE_VOICE}_{callee_id}.wav")
             turn = await callee_turn(s, pcm, rate, timeout_s=45)
             r = turn.summary()
@@ -65,11 +73,13 @@ async def one_call(client, args, cid: str, type_id: str, thinking: int | None, w
                                   timed_out=turn.timed_out, intended_text=r["output_transcript"] or None)
             turns.append({"callee": callee_id, "heard": r["input_transcript"], "intended": r["output_transcript"],
                           "first_audio_after_s": r["first_audio_after_s"], "check": check, "timed_out": turn.timed_out})
+            if i == 0:
+                first_audio = bytes(turn.audio)
             if audio and turn.audio:
                 audio += GAP
             audio += turn.audio
     row = {"id": cid, "type": type_id, "voice": voice, "thinking": "auto" if thinking is None else thinking,
-           "warmup": warmup, "warmup_turn": warm, "turns": turns}
+           "warmup": warmup, "warmup_turn": warm, "opening_mode": "recorded" if recorded else "ai", "turns": turns}
     if audio:
         wav = AUDIO_DIR / f"{cid}.wav"
         write_wav(wav, bytes(audio), 24000)
@@ -84,25 +94,37 @@ async def one_call(client, args, cid: str, type_id: str, thinking: int | None, w
         # 名乗りの後ろに続く言葉（次の文の書き出し）は、名乗りの誤りとして数えない
         row["opening_diffs"] = [d for d in differences(OPENING, head) if not (d["kind"] == "insert" and d["script"].endswith("[]"))]
         # 書き出し（社名より前）の崩れだけ。社名の「ア」がオ寄りに聞こえるもの（ユーザー評価：少し噛んだくらい）は別に数える
-        row["opening_head_broken"] = any(d["script"].startswith(("お[", "おい[", "[]お", "おいそ[")) or "おそれい" in d["script"][:12]
+        # AIの最初の声の書き出しが崩れたか（名乗りを録音で流すときは、相手の答えへの最初の返事）：最初の声だけを別の耳で聞き、言うつもりの言葉と比べる
+        if first_audio and turns[0]["intended"]:
+            row["first_turn_ear"] = await hear(client, first_audio, 24000, "transcribe35")
+            fd = differences(turns[0]["intended"], row["first_turn_ear"])
+            row["first_turn_diffs"] = fd
+            # 書き出し＝最初の10音以内の食い違い（社名の「ア」がオ寄りなだけのものは数えない）
+            row["first_head_broken"] = any(d["at"] < 10 and "あおば" not in d["script"] and d["heard"] != "お" for d in fd)
+        row["reintroduced"] = recorded and "申します" in (turns[0]["intended"] or "")
+        row["opening_head_broken"] = (not recorded) and any(d["script"].startswith(("お[", "おい[", "[]お", "おいそ[")) or "おそれい" in d["script"][:12]
                                          for d in row["opening_diffs"])
     return row
 
 
 def summarize(rows: list[dict]) -> dict:
     out = {}
-    for key in sorted({(r.get("type"), str(r.get("thinking")), str(r.get("warmup"))) for r in rows}):
-        xs = [r for r in rows if (r.get("type"), str(r.get("thinking")), str(r.get("warmup"))) == key and "error" not in r]
+    def k(r):
+        return (r.get("type"), str(r.get("thinking")), str(r.get("warmup")), str(r.get("opening_mode")))
+    for key in sorted({k(r) for r in rows}):
+        xs = [r for r in rows if k(r) == key and "error" not in r]
         turns = [u for r in xs for u in r["turns"]]
         gaps = [u["first_audio_after_s"] for u in turns if u["first_audio_after_s"] is not None]
         kinds = {}
         for u in turns:
             kinds[u["check"]["kind"]] = kinds.get(u["check"]["kind"], 0) + 1
-        out[f"{key[0]}/考える量={key[1]}/慣らし={key[2]}"] = {"calls": len(xs), "turns": len(turns), "kinds": kinds,
+        out[f"{key[0]}/考える量={key[1]}/慣らし={key[2]}/名乗り={key[3]}"] = {"calls": len(xs), "turns": len(turns), "kinds": kinds,
                   "intended_present": sum(1 for u in turns if u["intended"]),
                   "calls_with_ear_vs_intended_diffs": sum(1 for r in xs if r.get("ear_vs_intended")),
                   "calls_with_opening_diffs": sum(1 for r in xs if r.get("opening_diffs")),
                   "calls_with_opening_head_broken": sum(1 for r in xs if r.get("opening_head_broken")),
+                  "calls_with_first_head_broken": sum(1 for r in xs if r.get("first_head_broken")),
+                  "calls_reintroduced": sum(1 for r in xs if r.get("reintroduced")),
                   "gap_median_s": round(statistics.median(gaps), 2) if gaps else None,
                   "gap_max_s": max(gaps) if gaps else None}
     out["errors"] = sum(1 for r in rows if "error" in r)
@@ -122,20 +144,21 @@ async def run(args) -> dict:
     rows, n = [], 0
     thinkings = [None if x == "auto" else int(x) for x in (args.thinking or ["auto"])]
     warmups = [x == "on" for x in (args.warmup or ["off"])]
+    openings = [x == "recorded" for x in (args.opening or ["ai"])]
     for rep in range(args.repeat):
         for type_id in args.type or TYPES:
-            for thinking, warmup in [(th, w) for th in thinkings for w in warmups]:
+            for thinking, warmup, recorded in [(th, w, o) for th in thinkings for w in warmups for o in openings]:
                 n += 1
-                cid = f"{stamp}_{n:03d}_{type_id}_t{'auto' if thinking is None else thinking}_w{int(warmup)}"
+                cid = f"{stamp}_{n:03d}_{type_id}_t{'auto' if thinking is None else thinking}_w{int(warmup)}_o{'rec' if recorded else 'ai'}"
                 try:
-                    row = await one_call(client, args, cid, type_id, thinking, warmup)
+                    row = await one_call(client, args, cid, type_id, thinking, warmup, recorded)
                 except Exception as exc:
                     row = {"id": cid, "type": type_id, "thinking": "auto" if thinking is None else thinking, "error": describe_error(exc)}
                 rows.append(row)
                 with log.open("a", encoding="utf-8") as f:
                     f.write(json.dumps(row, ensure_ascii=False) + "\n")
                 kinds = [u["check"]["kind"] for u in row.get("turns", [])]
-                say(f"[{n}] {type_id} 考える量={row.get('thinking')} 慣らし={row.get('warmup')} 判定={kinds} 文字起こし={[bool(u['intended']) for u in row.get('turns', [])]} "
+                say(f"[{n}] {type_id} 考える量={row.get('thinking')} 慣らし={row.get('warmup')} 名乗り={row.get('opening_mode')} 最初の声の崩れ={row.get('first_head_broken')} 名乗り直し={row.get('reintroduced')} 判定={kinds} 文字起こし={[bool(u['intended']) for u in row.get('turns', [])]} "
                     f"名乗り={json.dumps(row.get('opening_diffs'), ensure_ascii=False)[:120]} "
                     f"声と言うつもりの食い違い={json.dumps(row.get('ear_vs_intended'), ensure_ascii=False)[:160]} {row.get('error', '')}")
                 await asyncio.sleep(args.pause)
@@ -152,6 +175,7 @@ def main() -> None:
     p.add_argument("--type", choices=sorted(TYPES), action="append")
     p.add_argument("--thinking", choices=["auto", "0"], action="append", help="考える量：auto＝既定（自動）、0＝考えない")
     p.add_argument("--warmup", choices=["off", "on"], action="append", help="電話がつながる前の、相手に聞かせない慣らしの一言")
+    p.add_argument("--opening", choices=["ai", "recorded"], action="append", help="名乗りを AI が言う／前もって作った録音で流す")
     args = p.parse_args()
     save_result("G-19", asyncio.run(run(args)))
 
