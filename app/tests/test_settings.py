@@ -10,7 +10,7 @@ import uuid
 
 from salescall.core import settings
 from salescall.core.access import Rejected
-from tests.support import OPERATOR, SYSTEM, World
+from tests.support import OPERATOR, SYSTEM, World, owner_access
 
 
 def sys_tx(work):
@@ -132,50 +132,73 @@ class UserDecisions(unittest.TestCase):
 
 
 class PerClientSettings(unittest.TestCase):
-    """依頼主タブごとに設定できる。ただし、システムの上限より緩められない（合成のしかたで決まる。8章）。"""
+    """依頼主タブごとに設定できる。2026-10-13 ユーザー：「川下の方が強くないと、依頼主ごとの意味がない」
+    ⇒ 業務 ＞ 依頼主 ＞ 契約者 ＞ システム の順で上書き。超えられない枠を持つ設定だけ、枠の内側に収める。"""
 
     def setUp(self):
         self.w = World(); self.t = self.w.tenant(); self.c = self.w.client(self.t)
 
-    def test_system_value_when_client_has_none(self):
-        self.assertEqual(resolved(self.w, self.t, self.c, "retry.max_attempts_per_task"), 3)
+    def detail(self, key, business=None, client=None):
+        c = client or self.c
+        return self.w.a.in_client(SYSTEM, self.t, c, lambda tx: settings.resolve_detail(
+            tx, key, tenant_id=self.t, client_id=c, business_id=business))
 
-    def test_client_can_tighten_but_not_loosen_the_upper_limit(self):
+    def test_system_value_when_client_has_none(self):
+        self.assertEqual(self.detail("retry.max_attempts_per_task"), {"value": 3, "from": "system", "bounded_by": None})
+
+    def test_client_value_wins_both_ways(self):
         put(self.w, self.t, self.c, "retry.max_attempts_per_task", 2)
-        self.assertEqual(resolved(self.w, self.t, self.c, "retry.max_attempts_per_task"), 2)
+        self.assertEqual(self.detail("retry.max_attempts_per_task")["value"], 2)
         c2 = self.w.client(self.t)
         put(self.w, self.t, c2, "retry.max_attempts_per_task", 5)
-        self.assertEqual(resolved(self.w, self.t, c2, "retry.max_attempts_per_task"), 3)  # 5 は効かない
+        self.assertEqual(self.detail("retry.max_attempts_per_task", client=c2), {"value": 5, "from": "client", "bounded_by": None})
 
-    def test_intervals_and_match_ratios_only_get_stricter(self):
-        put(self.w, self.t, self.c, "gate.unknown_result_min_interval", 3600)       # 短くしようとしても
-        self.assertEqual(resolved(self.w, self.t, self.c, "gate.unknown_result_min_interval"), 86400)
-        put(self.w, self.t, self.c, "quality.mock.min_value_match", 0.99)
-        self.assertEqual(resolved(self.w, self.t, self.c, "quality.mock.min_value_match"), 0.99)
-        put(self.w, self.t, self.c, "quality.mock.calls", 20)
-        self.assertEqual(resolved(self.w, self.t, self.c, "quality.mock.calls"), 20)
+    def test_quality_and_mock_values_follow_the_client(self):
+        for key, value in [("quality.mock.calls", 5), ("quality.mock.min_value_match", 0.9),
+                           ("quality.max_complaint", 0.05), ("quality.stage.sizes", [10, 50])]:
+            with self.subTest(key=key):
+                put(self.w, self.t, self.c, key, value)
+                self.assertEqual(self.detail(key)["value"], value)
 
-    def test_calling_hours_are_the_overlap(self):
+    def test_unknown_result_interval_has_a_floor(self):
+        put(self.w, self.t, self.c, "gate.unknown_result_min_interval", 7200)
+        self.assertEqual(self.detail("gate.unknown_result_min_interval")["value"], 7200)
+        c2 = self.w.client(self.t)
+        put(self.w, self.t, c2, "gate.unknown_result_min_interval", 600)
+        self.assertEqual(self.detail("gate.unknown_result_min_interval", client=c2),
+                         {"value": 3600, "from": "client", "bounded_by": "gate.unknown_result_min_interval_floor"})
+
+    def test_calling_hours_follow_the_client_inside_the_frame(self):
         put(self.w, self.t, self.c, "calling.hours", {
-            "mon": [["08:00", "12:00"], ["13:00", "20:00"]], "tue": [["10:00", "17:00"]], "wed": [], "thu": [["09:00", "18:00"]],
-            "fri": [["09:00", "18:00"]], "sat": [["09:00", "18:00"]], "sun": [], "holiday": []})
-        h = resolved(self.w, self.t, self.c, "calling.hours")
-        self.assertEqual(h["mon"], [["09:00", "12:00"], ["13:00", "18:00"]])  # システムの 9〜18時 の内側だけ
-        self.assertEqual((h["tue"], h["wed"], h["sat"]), ([["10:00", "17:00"]], [], []))  # 土曜はシステムがかけない
+            "mon": [["07:00", "12:00"], ["13:00", "22:00"]], "tue": [["10:00", "17:00"]], "wed": [], "thu": [["09:00", "18:00"]],
+            "fri": [["09:00", "18:00"]], "sat": [["09:00", "18:00"]], "sun": [["10:00", "12:00"]], "holiday": []})
+        d = self.detail("calling.hours")
+        h = d["value"]
+        self.assertEqual(h["mon"], [["08:00", "12:00"], ["13:00", "20:00"]])   # 枠（8〜20時）の内側に収まる
+        self.assertEqual((h["tue"], h["wed"], h["sat"], h["sun"]),
+                         ([["10:00", "17:00"]], [], [["09:00", "18:00"]], []))  # 土曜は依頼主の値が効く・日曜は枠の外
+        self.assertEqual((d["from"], d["bounded_by"]), ("client", "calling.hours_limit"))
 
-    def test_business_layer_and_tenant_layer(self):
+    def test_concurrent_calls_cannot_exceed_the_shared_frame(self):
+        put(self.w, self.t, self.c, "calling.max_concurrent_calls", 10)
+        self.assertEqual(self.detail("calling.max_concurrent_calls")["value"], 6)
+
+    def test_business_over_client_over_tenant(self):
         b, _ = self.w.business_with_version(self.t, self.c)
         self.w.a.in_tenant(OPERATOR, self.t, lambda tx: tx.execute(
             "INSERT INTO salescall.setting_values (key, scope, tenant_id, value, status, rationale, review_when, set_by)"
             " VALUES ('retry.max_attempts_per_task', 'tenant', %s, '2', 'decided', '契約者の決まり', '試験', '試験')", (self.t,)))
-        put(self.w, self.t, self.c, "retry.max_attempts_per_task", 1, scope="business", business=b)
-        self.assertEqual(resolved(self.w, self.t, self.c, "retry.max_attempts_per_task"), 2)
-        self.assertEqual(resolved(self.w, self.t, self.c, "retry.max_attempts_per_task", business=b), 1)
+        self.assertEqual(self.detail("retry.max_attempts_per_task"), {"value": 2, "from": "tenant", "bounded_by": None})
+        put(self.w, self.t, self.c, "retry.max_attempts_per_task", 5, scope="business", business=b)
+        self.assertEqual(self.detail("retry.max_attempts_per_task", business=b)["value"], 5)
 
-    def test_shared_equipment_values_are_system_only(self):
-        for key in ("stop.ai_rate_limit.backoff", "gate.claim_lifetime", "line.lease", "gate.ai_tpm_limit"):
+    def test_shared_equipment_and_harm_guards_are_system_only(self):
+        for key, value in [("stop.ai_rate_limit.backoff", [5]), ("gate.claim_lifetime", 1), ("line.lease", 1),
+                           ("gate.ai_tpm_limit", 1), ("gate.cross_client_interval", 1), ("quality.max_forbidden_speech", 3),
+                           ("quality.max_unknown_judgments", 3), ("calling.hours_limit", {d: [["00:00", "23:59"]] for d in
+                               ("mon", "tue", "wed", "thu", "fri", "sat", "sun", "holiday")})]:
             with self.subTest(key=key), self.assertRaises(Rejected):
-                put(self.w, self.t, self.c, key, 1 if key != "stop.ai_rate_limit.backoff" else [5])
+                put(self.w, self.t, self.c, key, value)
 
     def test_other_client_of_the_same_tenant_cannot_see_the_value(self):
         put(self.w, self.t, self.c, "retry.max_attempts_per_task", 1)
@@ -183,7 +206,15 @@ class PerClientSettings(unittest.TestCase):
         n = self.w.a.in_client(OPERATOR, self.t, c2, lambda tx: tx.one(
             "SELECT count(*) AS n FROM salescall.setting_values WHERE scope = 'client'"))["n"]
         self.assertEqual(n, 0)
-        self.assertEqual(resolved(self.w, self.t, c2, "retry.max_attempts_per_task"), 3)
+        self.assertEqual(self.detail("retry.max_attempts_per_task", client=c2)["value"], 3)
+
+
+class FramesMustBeSystemOnly(unittest.TestCase):
+    def test_a_frame_that_clients_can_move_is_rejected(self):
+        with self.assertRaises(Rejected):
+            owner_access().in_system(SYSTEM, lambda tx: tx.execute(
+                "INSERT INTO salescall.setting_definitions (key, merge_kind, value_type, meaning, design_ref, bound_key, bound_side)"
+                " VALUES ('test.bad_frame', 'override', 'integer', '試験', '試験', 'retry.max_attempts_per_task', 'upper')"))
 
 
 if __name__ == "__main__":

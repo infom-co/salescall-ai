@@ -116,6 +116,9 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("設定の行の見え方を、同じ契約者の中で緩める",
      "ALTER POLICY setting_scope ON salescall.setting_values USING (scope = 'system' OR tenant_id = salescall.cur_tenant())",
      ("tests.test_settings.PerClientSettings.test_other_client_of_the_same_tenant_cannot_see_the_value",)),
+    ("設定の枠は「システムだけ」の決まりを外す",
+     "DROP TRIGGER setting_definitions_before_insert ON salescall.setting_definitions",
+     ("tests.test_settings.FramesMustBeSystemOnly.test_a_frame_that_clients_can_move_is_rejected",)),
     ("停止を1回だけ解ける決まりを外す", "DROP INDEX salescall.stop_events_resolved_once",
      ("tests.test_stops.SystemStops.test_a_stop_is_resolved_only_once",)),
 )

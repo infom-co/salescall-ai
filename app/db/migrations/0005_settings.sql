@@ -4,8 +4,11 @@
 -- - 値は追記だけ（版と変更の記録。最新がいまの値）。値ごとに「仮か確定か」「根拠」「いつ見直すか」を必ず持つ。
 --   ⇒ 黙って入る既定値ではない（原則10）。仮の値は一覧で見え、見直しの合図が書いてある。
 -- - 値の正本はこの表だけ。設計書は、この表を指す（同じ数を2か所に書かない）。
--- - 2026-10-13 ユーザー：「この一覧の項目は、ダッシュボードの設定で、依頼主タブごとに設定できるように」。
---   ⇒ 依頼主ごとに意味のある設定は、契約者・依頼主・業務の範囲でも値を持てる（合成の種類で、システムの上限より緩められない）。
+-- - 2026-10-13 ユーザー：「この一覧の項目は、ダッシュボードの設定で、依頼主タブごとに設定できるように」
+--   「川下の方が強くないと、依頼主ごとの意味がない」。
+--   ⇒ 依頼主ごとに意味のある設定は「上書き」（業務 ＞ 依頼主 ＞ 契約者 ＞ システム）。システムの値は初めの値。
+--   ⇒ ただし Intent.md 5-4 の「緩められないもの」（発信時間帯のシステムの上限・同時通話数の上限）と、取り消せない害を防ぐもの
+--     だけは、「超えられない枠」（システムだけの別の設定）を持ち、上書きの結果をその枠の内側に収める（bound_key）。
 --   全依頼主が共有する設備（データベース・会話AIのプロジェクト・回線・見守り役）の値は、システムだけ（依頼主ごとに変えると、
 --   同じ設備に別々の値が当たって、ぶつかる）。
 
@@ -25,8 +28,31 @@ CREATE TABLE salescall.setting_definitions (
   merge_kind  salescall.merge_kind NOT NULL,
   value_type  salescall.setting_value_type NOT NULL,
   meaning     text NOT NULL CHECK (btrim(meaning) <> ''),   -- 何を決める値か（日本語）
-  design_ref  text NOT NULL CHECK (btrim(design_ref) <> '') -- 設計書のどこで使うか
+  design_ref  text NOT NULL CHECK (btrim(design_ref) <> ''), -- 設計書のどこで使うか
+  -- 超えられない枠（システムだけの別の設定）。upper＝これより大きくしない／lower＝これより小さくしない／within＝この範囲の内側
+  bound_key   text REFERENCES salescall.setting_definitions (key),
+  bound_side  text CHECK (bound_side IN ('upper', 'lower', 'within')),
+  CHECK ((bound_key IS NULL) = (bound_side IS NULL))
 );
+
+-- 枠は「システムだけ」の、同じ値の形の設定でなければならない（枠を依頼主が動かせたら、枠にならない）
+CREATE FUNCTION salescall.setting_definition_before_insert() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE b salescall.setting_definitions;
+BEGIN
+  IF NEW.bound_key IS NOT NULL THEN
+    SELECT * INTO b FROM salescall.setting_definitions WHERE key = NEW.bound_key;
+    IF NOT FOUND OR b.merge_kind <> 'system_only' OR b.value_type <> NEW.value_type THEN
+      RAISE EXCEPTION '設定 % の枠 % は、システムだけの、同じ値の形の設定でなければなりません', NEW.key, NEW.bound_key
+        USING ERRCODE = 'check_violation';
+    END IF;
+    IF (NEW.value_type = 'weekly_hours') <> (NEW.bound_side = 'within') THEN
+      RAISE EXCEPTION '時間帯の枠は within、それ以外は upper か lower です' USING ERRCODE = 'check_violation';
+    END IF;
+  END IF;
+  RETURN NEW;
+END $$;
+CREATE TRIGGER setting_definitions_before_insert BEFORE INSERT ON salescall.setting_definitions
+  FOR EACH ROW EXECUTE FUNCTION salescall.setting_definition_before_insert();
 
 -- 値の形の確かめ（1か所。読み込む処理も、ここと同じ形を前提にする）
 CREATE FUNCTION salescall.setting_whole_number(v jsonb, minimum numeric) RETURNS boolean
@@ -129,51 +155,59 @@ GRANT EXECUTE ON FUNCTION salescall.setting_value_ok(salescall.setting_value_typ
   salescall.setting_whole_number(jsonb, numeric), salescall.setting_hours_ok(jsonb) TO salescall_app;
 
 -- ═════════ 定義 ═════════
+-- 先に「超えられない枠」（システムだけ）を作る
 INSERT INTO salescall.setting_definitions (key, merge_kind, value_type, meaning, design_ref) VALUES
+('calling.hours_limit', 'system_only', 'weekly_hours', 'かけてよい時間帯の、超えられない枠（法令・慣行。依頼主の設定もこの内側だけ。Intent.md 5-4・13章）', 'DESIGN.md 8章・Intent.md 13章'),
+('calling.max_concurrent_calls_limit', 'system_only', 'integer', '同時に流す通話の本数の、超えられない枠（会話AIのプロジェクトの枠から決まる。全依頼主で共有する設備）', 'DESIGN.md 5-2 の9・Intent.md 5-4'),
+('gate.unknown_result_min_interval_floor', 'system_only', 'seconds', '結果が分からない試行のあと、同じ連絡先へかけるまでの間隔の、超えられない下限（実は話していた相手へ、すぐかけ直す害を防ぐ）', 'DESIGN.md 4-2');
+INSERT INTO salescall.setting_definitions (key, merge_kind, value_type, meaning, design_ref, bound_key, bound_side) VALUES
 -- 停止と自動の解除（9-1）
-('stop.storage.probe_interval', 'system_only', 'seconds', '保存の失敗で止めたあと、試しの書き込みをする間隔', 'DESIGN.md 9-1'),
-('stop.storage.resume_after_successes', 'system_only', 'integer', '試しの書き込みが何回続けて成功したら解くか', 'DESIGN.md 9-1'),
-('stop.line.stop_after_failures', 'system_only', 'integer', '回線の失敗が何回続いたら、その回線を止めるか', 'DESIGN.md 9-1'),
-('stop.line.probe_interval', 'system_only', 'seconds', '止めた回線の状態を確かめる間隔', 'DESIGN.md 9-1'),
-('stop.line.resume_after_successes', 'system_only', 'integer', '回線の確かめが何回続けて正常なら解くか', 'DESIGN.md 9-1'),
-('stop.ai.stop_after_failures', 'system_only', 'integer', '会話AIにつながらないことが何回続いたら、全体を止めるか', 'DESIGN.md 9-1'),
-('stop.ai.probe_interval', 'system_only', 'seconds', '止めたあと、試しのセッションを開く間隔', 'DESIGN.md 9-1'),
-('stop.ai.resume_after_successes', 'system_only', 'integer', '試しのセッションが何回続けて開けたら解くか', 'DESIGN.md 9-1'),
-('stop.ai_rate_limit.backoff', 'system_only', 'integer_list', '会話AIの混雑・1分あたりの上限に当たったとき、次に試すまでの待ち（秒）を、当たるたびに順に使う（最後の値のあとは最後の値のまま）', 'DESIGN.md 9-1・9章'),
-('stop.flapping.window', 'system_only', 'seconds', 'ばたつき（止まる・解けるの繰り返し）を数える期間', 'DESIGN.md 9-1'),
-('stop.flapping.wait_multiplier', 'system_only', 'integer', 'ばたつくたびに、解く前の待ちを何倍にするか', 'DESIGN.md 9-1'),
-('stop.flapping.max_wait', 'system_only', 'seconds', 'ばたつきで伸ばす待ちの上限', 'DESIGN.md 9-1'),
+('stop.storage.probe_interval', 'system_only', 'seconds', '保存の失敗で止めたあと、試しの書き込みをする間隔', 'DESIGN.md 9-1', NULL, NULL),
+('stop.storage.resume_after_successes', 'system_only', 'integer', '試しの書き込みが何回続けて成功したら解くか', 'DESIGN.md 9-1', NULL, NULL),
+('stop.line.stop_after_failures', 'system_only', 'integer', '回線の失敗が何回続いたら、その回線を止めるか', 'DESIGN.md 9-1', NULL, NULL),
+('stop.line.probe_interval', 'system_only', 'seconds', '止めた回線の状態を確かめる間隔', 'DESIGN.md 9-1', NULL, NULL),
+('stop.line.resume_after_successes', 'system_only', 'integer', '回線の確かめが何回続けて正常なら解くか', 'DESIGN.md 9-1', NULL, NULL),
+('stop.ai.stop_after_failures', 'system_only', 'integer', '会話AIにつながらないことが何回続いたら、全体を止めるか', 'DESIGN.md 9-1', NULL, NULL),
+('stop.ai.probe_interval', 'system_only', 'seconds', '止めたあと、試しのセッションを開く間隔', 'DESIGN.md 9-1', NULL, NULL),
+('stop.ai.resume_after_successes', 'system_only', 'integer', '試しのセッションが何回続けて開けたら解くか', 'DESIGN.md 9-1', NULL, NULL),
+('stop.ai_rate_limit.backoff', 'system_only', 'integer_list', '会話AIの混雑・1分あたりの上限に当たったとき、次に試すまでの待ち（秒）を、当たるたびに順に使う（最後の値のあとは最後の値のまま）', 'DESIGN.md 9-1・9章', NULL, NULL),
+('stop.flapping.window', 'system_only', 'seconds', 'ばたつき（止まる・解けるの繰り返し）を数える期間', 'DESIGN.md 9-1', NULL, NULL),
+('stop.flapping.wait_multiplier', 'system_only', 'integer', 'ばたつくたびに、解く前の待ちを何倍にするか', 'DESIGN.md 9-1', NULL, NULL),
+('stop.flapping.max_wait', 'system_only', 'seconds', 'ばたつきで伸ばす待ちの上限', 'DESIGN.md 9-1', NULL, NULL),
 -- 自動の品質の門（10-1）
-('quality.mock.calls', 'max', 'integer', '依頼主の最初の業務を本番に上げる前に流す模擬通話の本数（2026-10-13 ユーザー：依頼主ごとに最初のみ）', 'DESIGN.md 10-1'),
-('quality.mock.min_value_match', 'max', 'ratio', '模擬通話で、取れた値が正解と一致した割合の下限', 'DESIGN.md 10-1'),
-('quality.mock.min_judgment_match', 'max', 'ratio', '模擬通話で、業務の判定が正解と一致した割合の下限', 'DESIGN.md 10-1'),
-('quality.stage.sizes', 'system_only', 'integer_list', '段階的な立ち上げの各段の件数（会話に至った通話の数。最後の段のあとは全部）', 'DESIGN.md 10-1'),
-('quality.max_ear_disagreement', 'min', 'ratio', '2つの耳が食い違った項目の割合の上限', 'DESIGN.md 10-1'),
-('quality.max_unknown_judgments', 'min', 'integer', '判定できない（unknown）の件数の上限', 'DESIGN.md 10-1'),
-('quality.max_forbidden_speech', 'min', 'integer', '言ってはいけないことの検出（2つの耳で確かめたもの）の件数の上限', 'DESIGN.md 10-1'),
-('quality.max_complaint', 'min', 'ratio', '苦情があった通話の割合の上限', 'DESIGN.md 10-1'),
-('quality.max_technical_error', 'min', 'ratio', '技術的な失敗の割合の上限', 'DESIGN.md 10-1'),
-('quality.max_verification_failed', 'min', 'ratio', '通話後の検証が確かめられなかった割合の上限', 'DESIGN.md 10-1'),
+('quality.mock.calls', 'override', 'integer', '依頼主の最初の業務を本番に上げる前に流す模擬通話の本数（2026-10-13 ユーザー：依頼主ごとに最初のみ）', 'DESIGN.md 10-1', NULL, NULL),
+('quality.mock.min_value_match', 'override', 'ratio', '模擬通話で、取れた値が正解と一致した割合の下限', 'DESIGN.md 10-1', NULL, NULL),
+('quality.mock.min_judgment_match', 'override', 'ratio', '模擬通話で、業務の判定が正解と一致した割合の下限', 'DESIGN.md 10-1', NULL, NULL),
+('quality.stage.sizes', 'override', 'integer_list', '段階的な立ち上げの各段の件数（会話に至った通話の数。最後の段のあとは全部）', 'DESIGN.md 10-1', NULL, NULL),
+('quality.max_ear_disagreement', 'override', 'ratio', '2つの耳が食い違った項目の割合の上限', 'DESIGN.md 10-1', NULL, NULL),
+('quality.max_unknown_judgments', 'system_only', 'integer', '判定できない（unknown）の件数の上限', 'DESIGN.md 10-1', NULL, NULL),
+('quality.max_forbidden_speech', 'system_only', 'integer', '言ってはいけないことの検出（2つの耳で確かめたもの）の件数の上限', 'DESIGN.md 10-1', NULL, NULL),
+('quality.max_complaint', 'override', 'ratio', '苦情があった通話の割合の上限', 'DESIGN.md 10-1', NULL, NULL),
+('quality.max_technical_error', 'override', 'ratio', '技術的な失敗の割合の上限', 'DESIGN.md 10-1', NULL, NULL),
+('quality.max_verification_failed', 'override', 'ratio', '通話後の検証が確かめられなかった割合の上限', 'DESIGN.md 10-1', NULL, NULL),
 -- 門（5-2・5-2-1）
-('gate.claim_lifetime', 'system_only', 'seconds', '予約証の期限（予約から発信までの間）', 'DESIGN.md 5-2-1'),
-('gate.unknown_result_min_interval', 'max', 'seconds', '結果が分からない試行（technical_error）のあと、同じ連絡先へかけるまでの最小の間隔', 'DESIGN.md 4-2・5-2'),
-('gate.cross_client_interval', 'max', 'seconds', '依頼主をまたいで、同じ番号へかけるまでの最小の間隔', 'DESIGN.md 5-2 の5'),
-('gate.denied_retry_wait', 'system_only', 'seconds', '門が待てば変わる理由で通さなかったあと、次に候補に出すまでの待ち', 'DESIGN.md 7-2'),
-('gate.ai_tpm_limit', 'system_only', 'integer', '会話AIの1つのプロジェクトの、1分あたりの入力トークン数の上限', 'DESIGN.md 5-2 の9'),
-('gate.ai_tpm_per_call', 'system_only', 'integer', '1本の通話の、1分あたりの入力トークン数の見込み', 'DESIGN.md 5-2 の9'),
-('gate.ai_tpm_safety', 'system_only', 'ratio', '上限のうち、実際に使ってよい割合（見込みの外れへの余裕）', 'DESIGN.md 5-2 の9'),
-('gate.ear_tpm_limit', 'system_only', 'integer', '別の耳（通話後の検証）の1分あたりの入力トークン数の上限', 'DESIGN.md 5-2 の9・6-12'),
-('calling.hours', 'intersect', 'weekly_hours', 'かけてよい曜日と時間帯（日本時間。祝日は holiday）', 'DESIGN.md 5-2 の2・Intent.md 13章'),
-('calling.max_concurrent_calls', 'min', 'integer', '同時に流す通話の本数の上限（会話AIの枠から決まる上限。実際の本数は、登録した回線の数でも絞られる：1回線＝同時1本はデータベースの約束）', 'DESIGN.md 5-2・Intent.md 5-4'),
-('retry.max_attempts_per_task', 'min', 'integer', '1つのタスク（行）に発信してよい回数の上限（再発信の方針はこの内側）', 'DESIGN.md 7-2'),
+('gate.claim_lifetime', 'system_only', 'seconds', '予約証の期限（予約から発信までの間）', 'DESIGN.md 5-2-1', NULL, NULL),
+('gate.unknown_result_min_interval', 'override', 'seconds', '結果が分からない試行（technical_error）のあと、同じ連絡先へかけるまでの最小の間隔', 'DESIGN.md 4-2・5-2', 'gate.unknown_result_min_interval_floor', 'lower'),
+('gate.cross_client_interval', 'system_only', 'seconds', '依頼主をまたいで、同じ番号へかけるまでの最小の間隔', 'DESIGN.md 5-2 の5', NULL, NULL),
+('gate.denied_retry_wait', 'system_only', 'seconds', '門が待てば変わる理由で通さなかったあと、次に候補に出すまでの待ち', 'DESIGN.md 7-2', NULL, NULL),
+('gate.ai_tpm_limit', 'system_only', 'integer', '会話AIの1つのプロジェクトの、1分あたりの入力トークン数の上限', 'DESIGN.md 5-2 の9', NULL, NULL),
+('gate.ai_tpm_per_call', 'system_only', 'integer', '1本の通話の、1分あたりの入力トークン数の見込み', 'DESIGN.md 5-2 の9', NULL, NULL),
+('gate.ai_tpm_safety', 'system_only', 'ratio', '上限のうち、実際に使ってよい割合（見込みの外れへの余裕）', 'DESIGN.md 5-2 の9', NULL, NULL),
+('gate.ear_tpm_limit', 'system_only', 'integer', '別の耳（通話後の検証）の1分あたりの入力トークン数の上限', 'DESIGN.md 5-2 の9・6-12', NULL, NULL),
+('calling.hours', 'override', 'weekly_hours', 'かけてよい曜日と時間帯（日本時間。祝日は holiday）', 'DESIGN.md 5-2 の2・Intent.md 13章', 'calling.hours_limit', 'within'),
+('calling.max_concurrent_calls', 'override', 'integer', '同時に流す通話の本数の上限（会話AIの枠から決まる上限。実際の本数は、登録した回線の数でも絞られる：1回線＝同時1本はデータベースの約束）', 'DESIGN.md 5-2・Intent.md 5-4', 'calling.max_concurrent_calls_limit', 'upper'),
+('retry.max_attempts_per_task', 'override', 'integer', '1つのタスク（行）に発信してよい回数の上限（再発信の方針はこの内側）', 'DESIGN.md 7-2', NULL, NULL),
 -- 通話後の検証と回線の借用
-('verification.max_retries', 'system_only', 'integer', '通話後の検証を自動でやり直す回数の上限', 'DESIGN.md 5-2-1 の9'),
-('verification.retry_wait', 'system_only', 'seconds', '通話後の検証をやり直すまでの待ち', 'DESIGN.md 5-2-1 の9'),
-('line.lease', 'system_only', 'seconds', '見守り役が回線を借りる期限', 'DESIGN.md 4-2'),
-('line.lease_renew', 'system_only', 'seconds', '回線の借用を延ばす間隔', 'DESIGN.md 4-2');
+('verification.max_retries', 'system_only', 'integer', '通話後の検証を自動でやり直す回数の上限', 'DESIGN.md 5-2-1 の9', NULL, NULL),
+('verification.retry_wait', 'system_only', 'seconds', '通話後の検証をやり直すまでの待ち', 'DESIGN.md 5-2-1 の9', NULL, NULL),
+('line.lease', 'system_only', 'seconds', '見守り役が回線を借りる期限', 'DESIGN.md 4-2', NULL, NULL),
+('line.lease_renew', 'system_only', 'seconds', '回線の借用を延ばす間隔', 'DESIGN.md 4-2', NULL, NULL);
 
--- ═════════ 最初の値（どれも「仮」。根拠と、いつ見直すかつき） ═════════
+-- ═════════ 最初の値（根拠と、いつ見直すかつき。ユーザーが決めたものは「確定」） ═════════
 INSERT INTO salescall.setting_values (key, scope, value, status, rationale, review_when, set_by) VALUES
+('calling.hours_limit', 'system', '{"mon": [["08:00","20:00"]], "tue": [["08:00","20:00"]], "wed": [["08:00","20:00"]], "thu": [["08:00","20:00"]], "fri": [["08:00","20:00"]], "sat": [["08:00","20:00"]], "sun": [], "holiday": []}', 'provisional', '依頼主がどう設定しても超えられない外枠。法人の始業前・遅い夜と、日曜・祝日を避ける（土曜は店舗など営業している相手があるので枠の内）。⚠️ Intent.md 13章の確かめと、18-2 の17（ユーザーが決めること）の仮の値', 'ユーザーが 18-2 の17 を決めたとき・13章の確かめのあと', 'CL-2'),
+('calling.max_concurrent_calls_limit', 'system', '6', 'provisional', '会話AIの1つのプロジェクトの枠から決まる外枠（65,000 × 0.8 ÷ 7,500 ≒ 6）。全依頼主で共有する設備なので、依頼主が超えられない', '有料枠に移ったとき・回線を増やしたとき', 'CL-2'),
+('gate.unknown_result_min_interval_floor', 'system', '3600', 'provisional', '結果が分からない試行は実は話していた可能性がある。依頼主が間隔を短くしても、1時間より短くはしない（すぐかけ直す害を防ぐ）', '本番の最初の1か月の結果不明の件数を見て', 'CL-2'),
 ('stop.storage.probe_interval', 'system', '30', 'provisional', '保存が戻ったことを早く知りたいが、データベースに負担をかけない間隔', '本番の最初の1か月の停止の記録を見て', 'CL-2'),
 ('stop.storage.resume_after_successes', 'system', '3', 'provisional', '1回の成功は偶然でありうる。3回続けば戻ったとみなせる（30秒間隔で約1分半）', '同上', 'CL-2'),
 ('stop.line.stop_after_failures', 'system', '3', 'provisional', '1〜2回の失敗は相手側の事情でもありうる。3回続けば回線側を疑う', 'Rakuten Link の確かめ（フェーズ0 の R）のあと', 'CL-2'),
@@ -204,7 +238,7 @@ INSERT INTO salescall.setting_values (key, scope, value, status, rationale, revi
 ('gate.ai_tpm_per_call', 'system', '7500', 'provisional', '実測：短い通話で1分あたり約7,500（DESIGN.md 5-2 の9）。長い通話ではもっと増える', '模擬通話と最初の実測で、通話の長さごとに測り直す', 'CL-2'),
 ('gate.ai_tpm_safety', 'system', '0.8', 'provisional', '見込みの外れで利用拒否（1008）にならないよう、上限の8割までにする（65,000 × 0.8 ÷ 7,500 ＝ 同時6本ほど）', '利用拒否が起きないことを確かめながら上げる', 'CL-2'),
 ('gate.ear_tpm_limit', 'system', '20000', 'provisional', 'ユーザーが管理画面で確かめた値（別の耳 gemini-3.5-transcribe-live）', '有料枠に移ったとき', 'CL-2'),
-('calling.hours', 'system', '{"mon": [["09:00","18:00"]], "tue": [["09:00","18:00"]], "wed": [["09:00","18:00"]], "thu": [["09:00","18:00"]], "fri": [["09:00","18:00"]], "sat": [], "sun": [], "holiday": []}', 'provisional', '発信の相手は法人（Intent.md 3-1）。法人の営業時間に合わせ、平日の9時〜18時、土日祝はかけない。⚠️ Intent.md 18-2 の17（ユーザーが決めること）の仮の値', 'ユーザーが 18-2 の17 を決めたとき', 'CL-2'),
+('calling.hours', 'system', '{"mon": [["09:00","18:00"]], "tue": [["09:00","18:00"]], "wed": [["09:00","18:00"]], "thu": [["09:00","18:00"]], "fri": [["09:00","18:00"]], "sat": [], "sun": [], "holiday": []}', 'provisional', '初めの値（依頼主タブで上書きできる。枠 calling.hours_limit の内側だけ）。発信の相手は法人（Intent.md 3-1）なので、平日の9時〜18時、土日祝はかけない', 'ユーザーが 18-2 の17 を決めたとき', 'CL-2'),
 ('calling.max_concurrent_calls', 'system', '6', 'provisional', '会話AIの枠から決まる上限（gate.ai_tpm_safety の計算）。⚠️ 実際の同時の本数は回線の数で決まる：2026-10-13 ユーザー「1PC 1本。Rakuten Link は1つずつしか流せない。増やすときはスマホを足す」⇒ いまは回線1つ＝同時1本', '有料枠に移ったとき・回線を増やしたとき', 'CL-2'),
 ('retry.max_attempts_per_task', 'system', '3', 'decided', '2026-10-13 ユーザー決定：3回（5回は迷惑電話と受け取られやすい）。再発信の方針（業務ごと）はこの内側', '応答率の実測を見て', 'ユーザー'),
 ('verification.max_retries', 'system', '3', 'provisional', '別の耳の一時的な混雑（503 など）は数回で通ることが多い（CL-1 の G-23）', '検証の失敗の記録を見て', 'CL-2'),
