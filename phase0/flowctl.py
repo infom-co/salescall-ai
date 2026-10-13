@@ -16,6 +16,7 @@ import re
 from dataclasses import dataclass, field
 
 from phrases import confirm as confirm_phrase
+from phrases import lead_in as lead_in_phrase
 
 # 型の一覧（Q19）：その場で言い直して確かめる型。DESIGN.md 4-4
 CONFIRM_TYPES = {"date", "time", "datetime", "number", "amount", "name", "phone", "email", "address"}
@@ -108,7 +109,7 @@ class Item:
 
 class Flow:
     def __init__(self, questions: list[Question], limits: Limits | None = None, confirm=confirm_phrase,
-                 busy_ask: str | None = None):
+                 busy_ask: str | None = None, lead_ins: bool = False):
         """confirm：言い直しの言い方を作る関数 (値, 場面, 何回目) → 文（ふだんは phrases.confirm。言い方を比べる試験 G-25 だけが別のものを渡す）。
         busy_ask：相手が「忙しい」と言ったときに1回だけ言う一言（業務設定。None なら丁寧に終える＝既定。Intent.md 9-4）。"""
         self.confirm = confirm
@@ -116,6 +117,9 @@ class Flow:
         self.busy_asked = False
         self.confirm_counts: dict[str, int] = {}   # 言い直しの場面ごとの回数（同じ言い方が続かないよう、順番に回す）
         self.awaiting_say: str | None = None       # いま返事を待っている言い直しの、言い方（差し戻しのときも同じ言い方を使う）
+        # lead_ins：プログラムの返事のあとに話す文の頭に、受けの言葉を置くか（DESIGN.md 6-11 の案。⏳ 承認前なので既定は置かない。G-27 で測る）
+        self.lead_ins = lead_ins
+        self.lead_counts: dict[str, int] = {}
         self.questions = {q.id: q for q in questions}
         self.order = [q.id for q in questions]
         self.limits = limits or Limits()
@@ -254,7 +258,7 @@ class Flow:
         situation = "聞き取りにくかったあと" if (it.ask_backs or it.corrections or self.phase == "rechecking") else "ふつう"
         n = self.confirm_counts.get(situation, 0)
         self.confirm_counts[situation] = n + 1
-        say = self.awaiting_say = self.confirm(it.value, situation, n)
+        say = self.awaiting_say = self._lead("言い直し") + self.confirm(it.value, situation, n)
         return {"result": "confirm_required", "value": it.value, "say": say,
                 "message": f"言い直して確かめます。「{say}」と言って、相手の返事を待ってください。"}
 
@@ -267,7 +271,7 @@ class Flow:
             self.current = rest[0]
             q = self.questions[self.current]
             return {"result": "next", "question_id": q.id, "question": q.text,
-                    "message": f"{prefix}次の質問は {q.id}「{q.text}」です。"}
+                    "message": f"{prefix}次の質問は {q.id}「{q.text}」です。" + self._lead_note("次の質問")}
         if self.phase == "asking":
             # 締めの前に、「-」の必須項目を1回だけ念のため確かめる（6-11）。急いでいる相手にはしない
             self.recheck_queue = [qid for qid in self.order
@@ -282,6 +286,18 @@ class Flow:
                     "message": f"{prefix}念のための確認です。{q.id}「{q.text}」を、もう1回だけ聞いてください。"}
         self.current, self.phase = None, "closing"
         return {"result": "end", "message": f"{prefix}質問は終わりです。締めの言葉を言って終えてください。"}
+
+    def _lead(self, kind: str) -> str:
+        """受けの言葉（lead_ins が無効なら空）。種類ごとに順番に回す。"""
+        if not self.lead_ins:
+            return ""
+        n = self.lead_counts.get(kind, 0)
+        self.lead_counts[kind] = n + 1
+        return lead_in_phrase(kind, n)
+
+    def _lead_note(self, kind: str) -> str:
+        lead = self._lead(kind)
+        return f"「{lead}」から話し始めてください。" if lead else ""
 
     def _reject(self, why: str) -> dict:
         """差し戻す唯一の場所。理由が何であっても、いま求めていること（_now）を必ず添える。"""
