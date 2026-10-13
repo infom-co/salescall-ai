@@ -272,6 +272,23 @@ class FlowTest(unittest.TestCase):
         r4 = self.call(f, "confirm_field", question_id="Q3", result="corrected", correction="090-1234-5679")
         self.assertEqual(r4["say"], CONFIRM["聞き取りにくかったあと"][1].format(v="090-1234-5679"))  # 訂正のあとも同じ場面で、次の言い方
 
+    def test_lead_ins_rotate_and_default_off(self):
+        from flowctl import Flow, Question
+        from phrases import LEAD_IN
+        qs = [Question("Q1", "日時は。", "datetime", conditions=("答えた",)), Question("Q2", "人数は。", "number", conditions=("答えた",))]
+        f = Flow(qs)                                                       # 既定は付けない（承認前）
+        self.assertEqual(self.call(f, "record_answer", question_id="Q1", condition_id="答えた", value="15日")["say"], "15日で、よろしいでしょうか。")
+        f = Flow(qs, lead_ins=True)
+        r1 = self.call(f, "record_answer", question_id="Q1", condition_id="答えた", value="15日")
+        self.assertTrue(r1["say"].startswith(LEAD_IN["言い直し"][0]))
+        f.on_callee()
+        r2 = self.call(f, "confirm_field", question_id="Q1", result="affirmed")
+        self.assertIn(f"「{LEAD_IN['次の質問'][0]}」から話し始めてください。", r2["message"])
+        r3 = self.call(f, "record_answer", question_id="Q2", condition_id="答えた", value="3人")
+        self.assertTrue(r3["say"].startswith(LEAD_IN["言い直し"][1]))   # 同じ受けの言葉を続けない
+        f.on_callee()
+        self.assertIn(r3["say"], self.call(f, "request_end", reason="done")["message"])  # 差し戻しも同じ言い方
+
     def test_busy_ask_once_when_set(self):
         from flowctl import Flow, Question
         qs = [Question("Q1", "ご予約はされていますか。", "yes_no", conditions=("yes", "no"))]
