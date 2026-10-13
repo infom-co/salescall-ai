@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 
 from common import base_parser, describe_error, make_client, pick_key, require_python, save_result, say
 from common import drop_partial, read_wav_pcm16_mono, save_partial
@@ -84,6 +85,9 @@ def judge(scene: dict, call: dict) -> dict:
         c["reintro_ok"] = not c["reintroduced"]
     if scene.get("hurried"):
         c["hurried_ok"] = call["hurried"]  # 「急いでいる」として終わりを報告した（request_end の callee_hurry）
+        # ⛔ 2026-10-13 G-22 の2回目：6本中5本で「また改めてご連絡いたします」と約束していたのに、採点が見ていなかった
+        c["no_promise"] = not any(re.search(r"改めて|またお電話|ご連絡いたします|かけ直", s or "") for s in
+                                  [t.get("intended") for t in turns] + [t.get("ear") for t in turns])
     if scene.get("no_question_first"):
         c["no_question_ok"] = not any(w in first for w in ("予約", "日時", "人数"))
     if "second_need_any" in scene and len(turns) > 1:
@@ -102,7 +106,7 @@ def judge(scene: dict, call: dict) -> dict:
     if scene.get("q1_answered_first"):
         c["asked_q2"] = c["need_ok"]
     c["bad_turns"] = bad_kinds(turns)
-    keys = [k for k in ("need_ok", "no_question_ok", "second_ok", "asked_q2", "hurried_ok") if k in c]
+    keys = [k for k in ("need_ok", "no_question_ok", "second_ok", "asked_q2", "hurried_ok", "no_promise") if k in c]
     if scene.get("then_q2") or "then_q2_at" in scene or scene.get("q1_answered_first"):
         keys.append("q1_yes")
     c["passed"] = all(c[k] for k in keys) and not c.get("head_broken") and not c["bad_turns"]

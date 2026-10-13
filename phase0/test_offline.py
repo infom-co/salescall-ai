@@ -180,6 +180,19 @@ class FlowTest(unittest.TestCase):
         self.assertEqual((r["result"], f.items["Q1"].state), ("end", "accepted"))
         self.assertEqual(f.export(), {"Q1": "とても良かったです。"})
 
+    def test_declined_close_is_fixed_phrase(self):
+        # 2026-10-13 ユーザー確定：急いでいる・断られたときの締めは決まった言い方（G-22：AIが6本中5本で「また改めてご連絡いたします」と約束した）
+        from phrases import CLOSE_DECLINED
+        for reason in ("callee_hurry", "callee_refused_call"):
+            f = self.flow()
+            r = self.call(f, "request_end", reason=reason)
+            self.assertEqual((r["result"], r["say"]), ("end", CLOSE_DECLINED), reason)
+            self.assertIn(CLOSE_DECLINED, r["message"])
+        self.assertEqual(CLOSE_DECLINED, "お忙しいところ、申し訳ございませんでした。それでは、失礼いたします。")  # ユーザーの言葉のまま
+        from instruction import Business, build
+        b = Business(company="アオバ物流", caller="佐藤", purpose="ご予約の確認", questions=list(self.flow().questions.values()))
+        self.assertIn("約束してはいけません", build(b, "S2")[1])
+
     def test_hurry_skips_recheck(self):
         f = self.flow()
         self.call(f, "report_unclear", question_id="Q1")

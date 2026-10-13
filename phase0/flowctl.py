@@ -17,6 +17,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+from phrases import CLOSE_DECLINED
 from phrases import confirm as confirm_phrase
 from phrases import lead_in as lead_in_phrase
 
@@ -281,7 +282,9 @@ class Flow:
         if reason in ("callee_hurry", "callee_refused_call"):
             self.hurried = True
             self.current, self.phase = None, "closing"
-            return {"result": "end", "message": "締めの言葉を言って終えてください。念のための確認はしません。"}
+            return {"result": "end", "say": CLOSE_DECLINED,
+                    "message": f"「{CLOSE_DECLINED}」と言って終えてください。この言い方だけを使い、言葉を足しません"
+                               f"（またお電話します、などの約束をしない）。念のための確認はしません。"}
         if self.current is not None:
             # いま聞いている質問がある間は、終えられない（まだ聞いていない・言い直しの返事待ち・念のための確認の最中）
             # ⛔ 2026-10-13 の試験で見つけた漏れ：「まだ聞いていない項目」だけを数えていたため、言い直しの返事待ちや
