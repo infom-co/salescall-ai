@@ -80,7 +80,9 @@ class Item:
 
 
 class Flow:
-    def __init__(self, questions: list[Question], limits: Limits | None = None):
+    def __init__(self, questions: list[Question], limits: Limits | None = None, confirm=confirm_phrase):
+        """confirm：言い直しの言い方を作る関数（ふだんは phrases.confirm。言い方を比べる試験 G-25 だけが別のものを渡す）。"""
+        self.confirm = confirm
         self.questions = {q.id: q for q in questions}
         self.order = [q.id for q in questions]
         self.limits = limits or Limits()
@@ -185,8 +187,9 @@ class Flow:
         it.set("checking", "言い直して確かめる")
         self.awaiting_confirm = qid
         self.confirm_requested_at = self.callee_turns
-        return {"result": "confirm_required", "value": it.value, "say": confirm_phrase(it.value),
-                "message": f"言い直して確かめます。「{confirm_phrase(it.value)}」と言って、相手の返事を待ってください。"}
+        say = self.confirm(it.value)
+        return {"result": "confirm_required", "value": it.value, "say": say,
+                "message": f"言い直して確かめます。「{say}」と言って、相手の返事を待ってください。"}
 
     def _remaining(self) -> list[str]:
         return [qid for qid in self.order if self.items[qid].state == "empty"]
@@ -222,7 +225,7 @@ class Flow:
         ⛔ 2026-10-13 G-16 の2回目：Q2 の言い直しの返事を待っている間に Q3 を報告され、「いまの質問は Q2 です」とだけ返したため、
            AIは Q2 を最初から聞き直した（言い直しの返事を待っていることが、伝わっていなかった）。"""
         if self.awaiting_confirm is not None:
-            say = confirm_phrase(self.items[self.awaiting_confirm].value)
+            say = self.confirm(self.items[self.awaiting_confirm].value)
             return (f"いまは {self.awaiting_confirm} の言い直し「{say}」への、相手の返事を待っています。"
                     "相手が肯定したら confirm_field を affirmed で、違う値を言ったら corrected とその値で報告してください。"
                     f"相手がまだ答えていなければ、「{say}」と、もう一度聞いてください。")
