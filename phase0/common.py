@@ -143,6 +143,20 @@ def save_result(item: str, data: dict) -> Path:
     return path
 
 
+def save_partial(item: str, data: dict) -> Path:
+    """長い試験の途中の結果を results/<項目>_partial.json に上書きで残す（途中で止まっても、そこまでの結果が残るように）。
+    最後に save_result で本の結果を保存したら、drop_partial で消す。中身は save_result と同じく必ず伏せる。"""
+    RESULTS_DIR.mkdir(exist_ok=True)
+    path = RESULTS_DIR / f"{item}_partial.json"
+    payload = {"item": item, "partial": True, "saved_at": _dt.datetime.now().isoformat(timespec="seconds"), **data}
+    path.write_text(redact(json.dumps(payload, ensure_ascii=False, indent=2, default=str)), encoding="utf-8")
+    return path
+
+
+def drop_partial(item: str) -> None:
+    (RESULTS_DIR / f"{item}_partial.json").unlink(missing_ok=True)
+
+
 def describe_error(exc: BaseException) -> dict:
     """エラーを、種類を見分けられる形で記録する（K-3・DESIGN.md 9章の分類の材料）。"""
     info = {"type": type(exc).__name__, "module": type(exc).__module__, "message": redact(exc)[:2000]}

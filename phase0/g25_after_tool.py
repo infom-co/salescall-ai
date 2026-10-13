@@ -14,7 +14,8 @@ from __future__ import annotations
 import asyncio
 import json
 
-from common import base_parser, describe_error, make_client, pick_key, read_wav_pcm16_mono, require_python, save_result, say
+from common import (base_parser, describe_error, drop_partial, make_client, pick_key, read_wav_pcm16_mono, require_python,
+                    save_partial, save_result, say)
 from convo import AUDIO_DIR, run_call
 from flowctl import Question, normalize_value
 from instruction import VOICE_TYPES, Business
@@ -107,6 +108,7 @@ async def run(args) -> dict:
                     f"値が聞こえた={[t['value_heard_both'] for t in tc if 'value' in t]} 頭の崩れ={sum(t['head_bad_both'] for t in tc)}/{len(tc)} "
                     f"{row.get('error', '')}")
                 await asyncio.sleep(args.pause)
+                save_partial("G-25", {"model": args.model, "summary": summarize(rows), "rows": rows})  # 1本ごとに途中の結果を残す
         say("途中のまとめ：", json.dumps(summarize(rows), ensure_ascii=False))
     summary = summarize(rows)
     say("まとめ：", json.dumps(summary, ensure_ascii=False))
@@ -121,6 +123,7 @@ def main() -> None:
     p.add_argument("--type", choices=sorted(VOICE_TYPES), action="append")
     args = p.parse_args()
     save_result("G-25", asyncio.run(run(args)))
+    drop_partial("G-25")
 
 
 if __name__ == "__main__":

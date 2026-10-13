@@ -16,7 +16,7 @@ import asyncio
 import json
 
 from common import base_parser, describe_error, make_client, pick_key, require_python, save_result, say
-from common import read_wav_pcm16_mono
+from common import drop_partial, read_wav_pcm16_mono, save_partial
 from convo import AUDIO_DIR, run_call
 from flowctl import Question, tool_declarations
 from instruction import VOICE_TYPES, Business, build
@@ -142,6 +142,7 @@ async def run(args) -> dict:
                 say(f"[{rep}] {name} {vt} 合格={c.get('passed')} 名乗り直し={c.get('reintroduced')} 崩れ={c.get('head_broken')} "
                     f"Q1={c.get('q1_yes')} 次の質問={c.get('asked_q2')} 最初の返事={c.get('first_said', '')[:70]} {row.get('error', '')}")
                 await asyncio.sleep(args.pause)
+                save_partial("G-22", {"model": args.model, "parts": PARTS, "rows": rows})  # 1本ごとに途中の結果を残す
     summary = {"runs": sum(1 for r in rows if "skipped" not in r), "passed": sum(1 for r in rows if r.get("checks", {}).get("passed")),
                "by_scene": {n: [r.get("checks", {}).get("passed") for r in rows if r["scene"] == n and "skipped" not in r] for n in SCENES},
                "skipped": sorted({r["scene"] for r in rows if "skipped" in r}),
@@ -168,6 +169,7 @@ def main() -> None:
     p.add_argument("--scene", choices=sorted(SCENES), action="append")
     args = p.parse_args()
     save_result("G-22", asyncio.run(run(args)))
+    drop_partial("G-22")
 
 
 if __name__ == "__main__":
