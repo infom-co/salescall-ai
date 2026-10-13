@@ -23,6 +23,18 @@ UTTERANCES = {
     "datetime_ambiguous": "15日の2時です。",
     "affirm": "はい、そうです。",
     "unclear": "えっと、じゅう、の……",
+    # 2026-10-13：録音の名乗りへの聞き返し・途中で話し始める場面（DESIGN.md 6-13 の案を確かめる）
+    "whois": "はい、どちら様ですか？",
+    "what_for": "はい、何のご用件でしょうか？",
+    "again": "すみません、もう一度お願いできますか？",
+    "hai_q": "はい？",
+    "busy": "すみません、今ちょっと忙しいんですけど。",
+    "transfer": "担当の者に代わりますので、少々お待ちください。",
+    "taken_over": "お電話代わりました。担当の山田です。",
+    "barge_who": "あ、はい、どちら様？",
+    "barge_what": "はい、何でしょう？",
+    "barge_yes": "あ、予約の件ですね。はい、してます。",
+    "backchannel": "はい。",
 }
 INSTRUCTION = "あなたは音声の材料を作る係です。渡された言葉だけを、そのまま、自然な日本語で読み上げます。言葉を足しません。"
 OUT = HERE / "results" / "callee"
@@ -34,9 +46,13 @@ async def run(args) -> dict:
             build_config(voice=v, system_instruction=INSTRUCTION)
         return {"dry_run": True}
     client = make_client(pick_key(args))
-    made = []
+    index = OUT / "index.json"
+    made = json.loads(index.read_text(encoding="utf-8")) if index.exists() else []
+    have = {(m.get("voice"), m.get("id")) for m in made if "error" not in m}
     for voice in CALLEE_VOICES:
         for uid, text in UTTERANCES.items():
+            if (voice, uid) in have and (OUT / f"{voice}_{uid}.wav").exists():
+                continue  # 作ってある声は作り直さない（ほかの確かめの材料が変わらないように）
             try:
                 async with client.aio.live.connect(model=args.model, config=build_config(voice=voice, system_instruction=INSTRUCTION)) as s:
                     t = time.monotonic()
@@ -51,7 +67,7 @@ async def run(args) -> dict:
                 say(f"{voice} {uid}: {said}")
             except Exception as exc:
                 made.append({"voice": voice, "id": uid, "text": text, "error": describe_error(exc)})
-    (OUT / "index.json").write_text(json.dumps(made, ensure_ascii=False, indent=2), encoding="utf-8")
+    index.write_text(json.dumps(made, ensure_ascii=False, indent=2), encoding="utf-8")
     return {"model": args.model, "samples": made}
 
 

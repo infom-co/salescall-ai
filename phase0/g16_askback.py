@@ -31,7 +31,8 @@ SCENES = {
                    "3人です。", "はい、そうです。"],
         "export": {"Q1": "yes", "Q2": "15日の午後2時", "Q3": "3人"}, "ask_back": 1, "recheck": 0},
     "B_2回聞けない→念のため": {
-        "callee": ["はい、もしもし。", "はい、予約しています。", UNCLEAR, "えー、その……", "3人です。", "はい、そうです。",
+        # 2回目も「答えたが聞き取れない」。⛔「えー、その……」（考えている）は聞き取れない答えではない（G-16 の最初の版の誤り）
+        "callee": ["はい、もしもし。", "はい、予約しています。", UNCLEAR, "［雑音で、ほとんど聞き取れない］……にち……じ……", "3人です。", "はい、そうです。",
                    "15日の午後2時です。", "はい、そうです。"],
         "export": {"Q1": "yes", "Q2": "15日の午後2時", "Q3": "3人"}, "ask_back": 1, "recheck": 1},
     "C_拒否": {
@@ -47,6 +48,12 @@ SCENES = {
         "callee": ["はい、もしもし。", "はい、予約しています。", "15日の午後2時です。", "いえ、16日です。午後2時で合っています。",
                    "はい、そうです。", "3人です。", "はい、そうです。"],
         "export": {"Q1": "yes", "Q2": "16日の午後2時", "Q3": "3人"}, "ask_back": 0, "recheck": 0},
+    "G_考えている": {
+        # 相手が考えているときは、何も報告せず待つ。質問を聞き直さない（聞き返しに数えない）
+        "callee": ["はい、もしもし。", "はい、予約しています。", "えー、その……", "15日の午後2時です。", "はい、そうです。",
+                   "3人です。", "はい、そうです。"],
+        "export": {"Q1": "yes", "Q2": "15日の午後2時", "Q3": "3人"}, "ask_back": 0, "recheck": 0,
+        "must_not_say_after": {"from_index": 2, "until_index": 3, "words": ["お聞かせ", "教えて", "日時を"]}},
     "F_わからない": {
         "callee": ["はい、もしもし。", "はい、予約しています。", "15日の午後2時です。", "はい、そうです。",
                    "人数は、まだ決まっていなくて、わからないです。"],
@@ -92,7 +99,7 @@ def judge_scene(name: str, scene: dict, call: dict) -> dict:
     checks["recheck_ok"] = checks["program_recheck"] == scene["recheck"] and all(checks["recheck_phrase_in_turn"])
     if "must_not_say_after" in scene:
         m = scene["must_not_say_after"]
-        later = "".join(said[m["from_index"]:])
+        later = "".join(said[m["from_index"]:m.get("until_index")])
         checks["not_asked_again"] = not any(w in later for w in m["words"])
     checks["passed"] = all(checks[k] for k in ("export_ok", "ask_back_ok", "recheck_ok", "closed")) \
         and checks.get("not_asked_again", True) and not checks["silent_or_cut"]

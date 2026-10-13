@@ -45,9 +45,18 @@ class Business:
     purpose: str
     questions: list[Question]
     forbidden: list[str] = field(default_factory=list)   # 言ってはいけないこと
+    purpose_line: str = ""      # 名乗りのあとに言う用件の一文（例：「ご予約の確認でお電話いたしました。」）
 
     def opening(self) -> str:
         return f"お忙しいところ恐れ入ります。株式会社{quote(self.company)}の{quote(self.caller)}と申します。"
+
+    def opening_parts(self) -> list[str]:
+        """名乗りの録音を、文ごとに分けたもの（DESIGN.md 6-13 の案）。最後は最初の質問。"""
+        parts = ["お忙しいところ恐れ入ります。", f"株式会社{quote(self.company)}の{quote(self.caller)}と申します。"]
+        if self.purpose_line:
+            parts.append(self.purpose_line)
+        parts.append(self.questions[0].text)
+        return parts
 
 
 def quote(name: str) -> str:
@@ -66,17 +75,21 @@ def system_rules() -> str:
         "- 日付・時刻・数・金額・名前・電話番号・メール・住所は、返事に「言い直して」とあれば、書いてある値のとおりに言い直して、相手の返事を待ちます。"
         "相手が返事をしてから confirm_field で報告します（相手の返事を聞く前に報告してはいけません）。\n"
         "- 時刻は、午前か午後かを必ずはっきりさせます。相手が言わなかったら「午前と午後、どちらでしょうか」と聞きます。自分で決めてはいけません。\n"
-        f"- 聞き取れない・曖昧なときは report_unclear を呼びます。返事が「聞き返す」なら「{ASK_BACK}」と聞き返します。\n"
+        f"- 相手の答えが聞き取れない・曖昧なときは report_unclear を呼びます。返事が「聞き返す」のときだけ、「{ASK_BACK}」と1回だけ聞き返します。"
+        "この言い方だけを使い、言葉を足したり、言い換えたりしません。返事が「-にします」なら、聞き返さずに、返事に書いてある次の質問へ進みます。\n"
+        "- 相手が考えている（「えー」「その」など、まだ答えていない）ときは、何も報告せず、「ごゆっくりどうぞ」とだけ言って待ちます。質問を聞き直してはいけません。\n"
+        "- 言い直した値に相手が返事をしたら、record_answer ではなく confirm_field で報告します。\n"
         f"- 返事に「念のための確認」とあれば、「{RECHECK}」と言ってから、その質問をもう1回だけ聞きます。\n"
         "- 相手が急いでいる・切ろうとしているときは、request_end を callee_hurry で呼びます。通話そのものを断られたら callee_refused_call で呼びます。\n"
         "- 返事に「締めの言葉」とあれば、お礼を言って終えます。\n"
     )
 
 
-def build(business: Business, voice_type: str, resume=None) -> tuple[str, str]:
+def build(business: Business, voice_type: str, resume=None, opening_mode: str = "ai") -> tuple[str, str]:
     """(声の名前, 指示文) を返す。
 
     resume：張り替え・つなぎ直しのとき、流れの制御（flowctl.Flow）を渡す。名乗りの代わりに「いまの位置」を書く（DESIGN.md 6-6）。
+    opening_mode："ai"＝AIが名乗る／"recorded"＝名乗りと最初の質問は録音で流す（DESIGN.md 6-13 の案）。
     いまの位置は流れの制御が持っているので、AIが前のセッションを覚えていなくても続きから話せる。
     """
     voice, style_text = voice_style(voice_type)
@@ -85,7 +98,14 @@ def build(business: Business, voice_type: str, resume=None) -> tuple[str, str]:
         f"あなたは株式会社{quote(business.company)}の{quote(business.caller)}として、電話をかけています。日本語で、丁寧に短く話します。",
         f"目的：{business.purpose}",
     ]
-    if resume is None:
+    if resume is None and opening_mode == "recorded":
+        parts.append(
+            f"相手が電話に出たら、名乗りと最初の質問（「{''.join(business.opening_parts())}」）を、録音で相手に流します。あなたは言いません。"
+            "録音が最後まで流れたら、あなたは相手の答えから会話を続けます。もう一度名乗ったり、同じ質問を繰り返したりしてはいけません。"
+            "相手が聞き返したら（「どちら様ですか」「もう一度お願いします」「何のご用件ですか」など）、聞き返されたことに、短く丁寧に答えてから、"
+            f"最初の質問 {first.id} を聞き直します。相手が別の人に代わったら、代わった人に、あらためて短く名乗って用件を伝えます。"
+            "録音の途中で相手が話し始めたときは、プログラムが、録音のどこまでが相手に届いたかを知らせます。")
+    elif resume is None:
         parts.append(f"相手が電話に出たら、まず「{business.opening()}」と名乗り、続けて最初の質問 {first.id}「{first.text}」を聞きます。")
     else:
         parts.append(position_text(business, resume))
@@ -117,3 +137,13 @@ def position_text(business: Business, flow) -> str:
         q = business.questions[[x.id for x in business.questions].index(flow.current)]
         lines.append(f"次に聞くのは {q.id}「{q.text}」です。相手が話したら、それに答えてから、この質問を聞きます。")
     return "\n".join(lines)
+
+
+def barge_in_note(business: Business, done: list[str], rest: list[str]) -> str:
+    """名乗りの録音の途中で相手が話し始めて止めたとき、AIへ知らせる文（DESIGN.md 6-13 の案。文面はここだけ）。"""
+    heard = "".join(done) if done else "（まだ何も届いていません）"
+    return (f"［プログラムからのお知らせ］名乗りの録音は「{heard}」まで相手に届いたところで、相手が話し始めたので止めました。"
+            f"まだ相手に伝えていないこと：「{''.join(rest)}」。"
+            "このあとの相手の話に答えてから、まだ伝えていないことを、会話の流れの中で短く伝えてください。"
+            "相手に届いたことは、繰り返さなくてかまいません。")
+

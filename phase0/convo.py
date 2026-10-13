@@ -6,6 +6,11 @@
   ⛔ AI自身の文字起こしは、口から出た声の確かめに使わない（G-7・G-17：届かない・言い間違いが写らない）。
 - swap_before：その番号の相手の発話の前で、セッションを閉じて開き直す（張り替え。DESIGN.md 6-6・G-5）。
   開き直すときは、instruction.build に流れの制御のいまの位置を渡す。
+- 相手の発話は、文字（str）か、録った声（{"wav": ファイル名}。results/callee/ の電話の音質の声）。声のときは、
+  実際の通話と同じく少しずつ送り、話し終わりのあとは無音を送りながら返事を待つ（live_util.callee_turn）。
+- opening_mode="recorded"：名乗りと最初の質問は録音で流した形（DESIGN.md 6-13 の案）。AIは相手の最初の発話から続ける。
+  barge_in＝(届いた文, まだの文)：録音の途中で相手が話し始めて止めた形。最初の相手の発話の前に、どこまで届いたかを
+  AIへ知らせる（instruction.barge_in_note・live_util.send_note）。
 - stall_at：AIが止まったときの張り替え（DESIGN.md 6-7 の案）を試す。その番号の相手の発話を古いセッションへ送り、
   返事を待たずに閉じ、新しいセッションへ同じ発話を送り直す（相手は1回しか話していないので、相手の発話は1回と数える）。
 """
@@ -14,15 +19,17 @@ from __future__ import annotations
 import asyncio
 import time
 
+from common import HERE, read_wav_pcm16_mono
 from flowctl import Flow, tool_declarations
-from instruction import Business, build
+from instruction import Business, barge_in_note, build
 from listen import hear
-from live_util import build_config, collect_turn, send_text
+from live_util import build_config, callee_turn, collect_turn, send_note, send_text
 from turn_check import check_ai_turn
 
 
-async def run_call(client, model: str, business: Business, voice_type: str, callee_lines: list[str], *,
+async def run_call(client, model: str, business: Business, voice_type: str, callee_lines: list, *,
                    swap_before: int | None = None, stall_at: int | None = None, stall_wait_s: float = 1.0,
+                   opening_mode: str = "ai", barge_in: tuple[list[str], list[str]] | None = None,
                    thinking_budget: int | None = None, use_ear: bool = True) -> dict:
     flow = Flow(business.questions)
     turns: list[dict] = []
@@ -30,7 +37,7 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
     replay: int | None = None  # 送り直す相手の発話の番号（止まったときの張り替え）
 
     def config():
-        voice, text = build(business, voice_type, resume=flow if sessions > 1 else None)
+        voice, text = build(business, voice_type, resume=flow if sessions > 1 else None, opening_mode=opening_mode)
         return voice, build_config(voice=voice, system_instruction=text, tools=tool_declarations(business.questions),
                                    thinking_budget=thinking_budget)
 
@@ -50,14 +57,20 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                     await asyncio.sleep(stall_wait_s)
                     replay = i
                     break
-                t = time.monotonic()
+                if i == 0 and barge_in is not None and sessions == 1:
+                    await send_note(s, barge_in_note(business, *barge_in))  # 録音のどこまでが届いたか
                 if replay != i:  # 送り直しは、相手がもう一度話したのではないので数えない
                     flow.on_callee()
-                await send_text(s, line)
-                turn = await collect_turn(s, started_at=t, on_tool_call=flow.handle, timeout_s=90)
+                if isinstance(line, dict):  # 録った相手の声
+                    pcm, prate = read_wav_pcm16_mono(HERE / "results" / "callee" / line["wav"])
+                    turn = await callee_turn(s, pcm, prate, on_tool_call=flow.handle, timeout_s=90)
+                else:
+                    t = time.monotonic()
+                    await send_text(s, line)
+                    turn = await collect_turn(s, started_at=t, on_tool_call=flow.handle, timeout_s=90)
                 r = turn.summary()
                 audio, rate = bytes(turn.audio), turn.audio_rate or 24000
-                row = {"index": i, "session": sessions, "callee": line, "intended": r["output_transcript"],
+                row = {"index": i, "session": sessions, "callee": line, "heard": r["input_transcript"], "intended": r["output_transcript"],
                        "tool_events": [e for e in r["events"] if e["kind"] == "tool_call"],
                        "first_audio_after_s": r["first_audio_after_s"], "timed_out": turn.timed_out,
                        "check": check_ai_turn(audio=audio, rate=rate, voice=voice, timed_out=turn.timed_out,
@@ -70,4 +83,5 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
     return {"voice_type": voice_type, "sessions": sessions, "turns": turns, "flow_log": flow.log,
             "items": {k: {"state": v.state, "value": v.value, "condition": v.condition, "ask_backs": v.ask_backs,
                           "rechecks": v.rechecks, "corrections": v.corrections} for k, v in flow.items.items()},
-            "export": flow.export(), "final_phase": flow.phase, "hurried": flow.hurried}
+            "export": flow.export(), "final_phase": flow.phase, "hurried": flow.hurried,
+            "opening_mode": opening_mode, "barge_in": barge_in}

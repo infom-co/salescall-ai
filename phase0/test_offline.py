@@ -174,6 +174,23 @@ class FlowTest(unittest.TestCase):
         r = self.call(f, "report_unclear", question_id="Q1")
         self.assertEqual((r["result"], f.items["Q1"].state), ("next", "unresolved"))  # 必須でない項目は聞き返さない
 
+    def test_record_answer_rejected_while_awaiting_readback_reply(self):
+        # G-16：言い直した値に相手が「はい」と答えたのに、AIが record_answer を呼んだ ⇒ 差し戻して confirm_field へ導く
+        f = self.flow()
+        self.call(f, "record_answer", question_id="Q1", condition_id="yes")
+        self.call(f, "record_answer", question_id="Q2", condition_id="answered", value="15日の午後2時")
+        f.on_callee()
+        r = self.call(f, "record_answer", question_id="Q2", condition_id="answered", value="15日の午後2時")
+        self.assertEqual(r["result"], "rejected")
+        self.assertIn("confirm_field", r["message"])
+
+    def test_value_normalized(self):
+        from flowctl import normalize_value
+        self.assertEqual(normalize_value("datetime", "15日の午後2時です。"), "15日の午後2時")
+        self.assertEqual(normalize_value("number", "3人です"), "3人")
+        self.assertEqual(normalize_value("name", "あかね"), "あかね")  # 名前の終わりを削らない
+        self.assertEqual(normalize_value("yes_no", "はい、そうです。"), "はい、そうです。")  # 選択肢の型はそのまま（渡すのは選択肢）
+
     def test_confirm_without_request_rejected(self):
         f = self.flow()
         self.assertEqual(self.call(f, "confirm_field", question_id="Q1", result="affirmed")["result"], "rejected")
@@ -217,6 +234,44 @@ class TurnCheckTest(unittest.TestCase):
         self.assertEqual(classify(voiced_s=1.6, voice="Leda", intended_text="ABC株式会社です。")["kind"], "ok")
         # 言うべき言葉が分かっていれば、AI自身の文字起こしより優先する
         self.assertEqual(classify(voiced_s=0.75, voice="Sadachbia", expected_text="失礼いたします。", intended_text="はい")["compared_with"], "expected")
+
+
+
+class PlaybackTest(unittest.TestCase):
+    """定型の音声を流している最中の、相手の声の見張り（playback）。"""
+
+    def tone(self, seconds, rate=16000, amp=0.2):
+        import numpy as np
+        n = int(seconds * rate)
+        x = amp * np.sin(2 * np.pi * 200 * np.arange(n) / rate)
+        return (x * 32767).astype("<i2").tobytes()
+
+    def silence(self, seconds, rate=16000):
+        return b"\x00\x00" * int(seconds * rate)
+
+    def test_short_backchannel_does_not_stop(self):
+        from playback import barge_in_at
+        pcm = self.silence(1.0) + self.tone(0.4) + self.silence(2.0)  # 「はい」くらいの短い声
+        self.assertIsNone(barge_in_at(pcm, 16000))
+
+    def test_longer_speech_stops_after_min_speech(self):
+        from playback import MIN_SPEECH_S, barge_in_at, speech_start_before
+        pcm = self.silence(1.0) + self.tone(1.5) + self.silence(1.0)
+        stop = barge_in_at(pcm, 16000)
+        self.assertAlmostEqual(stop, 1.0 + MIN_SPEECH_S, delta=0.05)
+        self.assertAlmostEqual(speech_start_before(pcm, 16000, stop), 1.0, delta=0.05)  # 話し始めから送る
+
+    def test_breath_inside_speech_counts_as_one(self):
+        from playback import barge_in_at
+        pcm = self.silence(0.5) + self.tone(0.5) + self.silence(0.15) + self.tone(0.5) + self.silence(1.0)
+        self.assertIsNotNone(barge_in_at(pcm, 16000))  # 息継ぎ（0.15秒）で切れても、続いた声とみなす
+
+    def test_split_played(self):
+        from playback import Clip, split_played
+        clips = [Clip("A。", 1.5), Clip("B。", 2.0), Clip("C。", 1.8)]
+        self.assertEqual(split_played(clips, None), (["A。", "B。", "C。"], []))
+        self.assertEqual(split_played(clips, 2.0), (["A。"], ["B。", "C。"]))  # 途中で止めた文は「まだ」
+        self.assertEqual(split_played(clips, 3.5), (["A。", "B。"], ["C。"]))
 
 
 if __name__ == "__main__":

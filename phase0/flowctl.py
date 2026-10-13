@@ -12,6 +12,7 @@
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 # 型の一覧（Q19）：その場で言い直して確かめる型。DESIGN.md 4-4
@@ -20,6 +21,18 @@ CONFIRM_TYPES = {"date", "time", "datetime", "number", "amount", "name", "phone"
 CHOICE_TYPES = {"yes_no", "choice"}
 SYSTEM_CONDITIONS = ("unknown", "refused")
 STATES = ("empty", "heard", "unclear", "checking", "confirmed", "accepted", "unresolved", "refused")
+# 値の形をそろえる（型の一覧 Q19 の決まり）：言い終わりの「です」「。」などは値に入れない
+# ⛔「ね」「よ」「で」などの1文字は外さない（名前の終わり＝「あかね」などを削るため）
+_TAIL = re.compile(r"(?:です|でございます|になります)?[。、．！？!?\s]*$")
+
+
+def normalize_value(qtype: str, value: str | None) -> str | None:
+    if value is None:
+        return None
+    v = value.strip()
+    if qtype not in CHOICE_TYPES:
+        v = _TAIL.sub("", v).strip()
+    return v or None
 GOT = ("confirmed", "accepted")  # 「取れた」（4-4）
 
 
@@ -96,11 +109,15 @@ class Flow:
         qid = a.get("question_id")
         if qid != self.current:
             return self._reject(f"いまの質問は {self.current} です。")
+        if self.awaiting_confirm == qid:
+            # 2026-10-13 G-16：言い直した値に相手が「はい」と答えたのに、AIが record_answer を呼び、言い直しが繰り返された
+            return self._reject("いまは、言い直した値への相手の返事を待っています。相手の返事は confirm_field で報告してください"
+                                "（合っていれば affirmed、違う値を言われたら corrected と、その値）。")
         q, it = self.questions[qid], self.items[qid]
         cond = a.get("condition_id")
         if cond not in q.all_conditions:
             return self._reject(f"条件 {cond} は、この質問の選択肢にありません。")
-        it.condition, it.value = cond, a.get("value")
+        it.condition, it.value = cond, normalize_value(q.type, a.get("value"))
         if cond == "refused":
             it.set("refused", "相手が答えを拒んだ")
             return self._advance("受け付けました（答えたくない）。この質問は二度としません。")
@@ -139,7 +156,7 @@ class Flow:
             return self._advance("確認できました。")
         if result == "corrected" and it.corrections < self.limits.after_correction:
             it.corrections += 1
-            it.value = a.get("correction")
+            it.value = normalize_value(self.questions[qid].type, a.get("correction"))
             it.set("heard", "相手が訂正した")
             return self._ask_confirm(qid)
         it.set("unresolved", "訂正のあとも合わない" if result == "corrected" else "相手が答えなかった")

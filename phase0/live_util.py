@@ -202,6 +202,13 @@ def _count(r: TurnResult, msg) -> None:
             r.message_kinds[name] = r.message_kinds.get(name, 0) + 1
 
 
+async def send_note(session, text: str) -> None:
+    """AIへのお知らせを、返事をさせずに会話の中へ入れる（このあと届く相手の声に、まとめて返事をさせるため）。"""
+    from google.genai import types
+
+    await session.send_client_content(turns=types.Content(role="user", parts=[types.Part(text=text)]), turn_complete=False)
+
+
 async def send_text(session, text: str) -> None:
     """相手の発話の代わりに、文字で1ターン送る（音声を用意しなくても流れを確かめられる）。"""
     from google.genai import types
