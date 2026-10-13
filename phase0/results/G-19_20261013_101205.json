@@ -1,0 +1,762 @@
+{
+  "item": "G-19",
+  "saved_at": "2026-10-13T10:12:05",
+  "model": "gemini-3.8-live",
+  "opening": "お忙しいところ恐れ入ります。株式会社「アオバ物流」の「佐藤」と申します。",
+  "callee_voice": "Puck",
+  "summary": {
+    "L4/考える量=auto/慣らし=False/名乗り=recorded": {
+      "calls": 2,
+      "turns": 6,
+      "kinds": {
+        "ok": 6
+      },
+      "intended_present": 6,
+      "calls_with_ear_vs_intended_diffs": 0,
+      "calls_with_opening_diffs": 2,
+      "calls_with_opening_head_broken": 0,
+      "calls_with_first_head_broken": 0,
+      "calls_reintroduced": 0,
+      "gap_median_s": 1.08,
+      "gap_max_s": 1.541
+    },
+    "S2/考える量=auto/慣らし=False/名乗り=recorded": {
+      "calls": 2,
+      "turns": 6,
+      "kinds": {
+        "ok": 5,
+        "silent": 1
+      },
+      "intended_present": 5,
+      "calls_with_ear_vs_intended_diffs": 0,
+      "calls_with_opening_diffs": 2,
+      "calls_with_opening_head_broken": 0,
+      "calls_with_first_head_broken": 0,
+      "calls_reintroduced": 0,
+      "gap_median_s": 0.96,
+      "gap_max_s": 1.675
+    },
+    "S4/考える量=auto/慣らし=False/名乗り=recorded": {
+      "calls": 2,
+      "turns": 6,
+      "kinds": {
+        "ok": 5,
+        "too_long": 1
+      },
+      "intended_present": 6,
+      "calls_with_ear_vs_intended_diffs": 2,
+      "calls_with_opening_diffs": 2,
+      "calls_with_opening_head_broken": 0,
+      "calls_with_first_head_broken": 0,
+      "calls_reintroduced": 0,
+      "gap_median_s": 1.69,
+      "gap_max_s": 2.405
+    },
+    "errors": 0
+  },
+  "rows": [
+    {
+      "id": "20261013_100646_001_S2_tauto_w0_orec",
+      "type": "S2",
+      "voice": "Sadachbia",
+      "thinking": "auto",
+      "warmup": false,
+      "warmup_turn": null,
+      "opening_mode": "recorded",
+      "turns": [
+        {
+          "callee": "yes_reserved",
+          "heard": "はい。予約しています。",
+          "intended": "承知いたしました。お客様のお返事をお待ちしております。",
+          "first_audio_after_s": 1.675,
+          "check": {
+            "voiced_s": 3.5,
+            "compared_with": "intended",
+            "morae": 29,
+            "expected_s": 3.22,
+            "ratio": 1.09,
+            "kind": "ok"
+          },
+          "timed_out": false,
+          "nudged": true
+        },
+        {
+          "callee": "datetime_pm",
+          "heard": "",
+          "intended": "ありがとうございます。ご予約",
+          "first_audio_after_s": 0.002,
+          "check": {
+            "voiced_s": 1.75,
+            "compared_with": "intended",
+            "morae": 14,
+            "expected_s": 1.56,
+            "ratio": 1.12,
+            "kind": "ok"
+          },
+          "timed_out": false,
+          "nudged": false
+        },
+        {
+          "callee": "affirm",
+          "heard": "15 日の午後 2 時でお願いします。はい、そうです。",
+          "intended": "ご予約の日時を教えていただけますでしょうか?",
+          "first_audio_after_s": 0.86,
+          "check": {
+            "voiced_s": 2.79,
+            "compared_with": "intended",
+            "morae": 23,
+            "expected_s": 2.56,
+            "ratio": 1.09,
+            "kind": "ok"
+          },
+          "timed_out": false,
+          "nudged": true
+        }
+      ],
+      "wav": "20261013_100646_001_S2_tauto_w0_orec.wav",
+      "ear": "承知いたしました。お客様のお返事をお待ちしております。ありがとうございます。ご予約ご予約の日時を教えていただけますでしょうか。",
+      "intended_complete": true,
+      "ear_vs_intended": [],
+      "opening_diffs": [
+        {
+          "kind": "insert",
+          "script": "[]おいそが",
+          "heard": "しょうちいたしました",
+          "at": 0
+        },
+        {
+          "kind": "replace",
+          "script": "お[いそが]しいとこ",
+          "heard": "きゃくさまのおへんじをおまち",
+          "at": 1
+        },
+        {
+          "kind": "replace",
+          "script": "いそがし[いところ]おそれい",
+          "heard": "て",
+          "at": 5
+        },
+        {
+          "kind": "delete",
+          "script": "ところお[それい]りますか",
+          "heard": "",
+          "at": 10
+        },
+        {
+          "kind": "replace",
+          "script": "いります[かぶしき]がいしゃ",
+          "heard": "あり",
+          "at": 16
+        },
+        {
+          "kind": "delete",
+          "script": "ぶしきが[いしゃあおばぶつりゅうのさ]とうとも",
+          "heard": "",
+          "at": 21
+        },
+        {
+          "kind": "replace",
+          "script": "のさとう[ともうし]ます",
+          "heard": "ござい",
+          "at": 36
+        }
+      ],
+      "first_turn_ear": "承知いたしました。お客様のお返事をお待ちしております。",
+      "first_turn_diffs": [],
+      "first_head_broken": false,
+      "reintroduced": false,
+      "opening_head_broken": false
+    },
+    {
+      "id": "20261013_100646_002_S4_tauto_w0_orec",
+      "type": "S4",
+      "voice": "Sadachbia",
+      "thinking": "auto",
+      "warmup": false,
+      "warmup_turn": null,
+      "opening_mode": "recorded",
+      "turns": [
+        {
+          "callee": "yes_reserved",
+          "heard": "はい。予約しています。",
+          "intended": "はい、ご予約内容の確認をさせていただきますね。よろしくお願いいたします。",
+          "first_audio_after_s": 2.227,
+          "check": {
+            "voiced_s": 4.38,
+            "compared_with": "intended",
+            "morae": 39,
+            "expected_s": 4.33,
+            "ratio": 1.01,
+            "kind": "ok"
+          },
+          "timed_out": false,
+          "nudged": true
+        },
+        {
+          "callee": "datetime_pm",
+          "heard": "15 日の午後 2 時でお願いします。",
+          "intended": "ありがとうございます。それでは、ご予約の日時を教えていただけますでしょうか。",
+          "first_audio_after_s": 0.972,
+          "check": {
+            "voiced_s": 4.2,
+            "compared_with": "intended",
+            "morae": 37,
+            "expected_s": 4.11,
+            "ratio": 1.02,
+            "kind": "ok"
+          },
+          "timed_out": false,
+          "nudged": true
+        },
+        {
+          "callee": "affirm",
+          "heard": "はい、そうです。",
+          "intended": "ありがとうございます。では、十五日の午後二時でお間違いないでしょうか。",
+          "first_audio_after_s": 1.82,
+          "check": {
+            "voiced_s": 4.33,
+            "compared_with": "intended",
+            "morae": 34,
+            "expected_s": 3.78,
+            "ratio": 1.15,
+            "kind": "ok"
+          },
+          "timed_out": false,
+          "nudged": true
+        }
+      ],
+      "wav": "20261013_100646_002_S4_tauto_w0_orec.wav",
+      "ear": "はい、ご予約内容の確認をさせていただきますね。よろしくお願いいたします。ありがとうございます。それでは、ご予約の日時を教えていただけますでしょうか。ありがとうございます。では15日の午後2時でお間違いないでしょうか？",
+      "intended_complete": true,
+      "ear_vs_intended": [
+        {
+          "kind": "replace",
+          "script": "ますでは[じゅうご]にちのご",
+          "heard": "15",
+          "at": 89
+        },
+        {
+          "kind": "replace",
+          "script": "ちのごご[にじ]でおまち",
+          "heard": "2とき",
+          "at": 98
+        }
+      ],
+      "opening_diffs": [
+        {
+          "kind": "replace",
+          "script": "[お]いそがし",
+          "heard": "は",
+          "at": 0
+        },
+        {
+          "kind": "replace",
+          "script": "おい[そがし]いところ",
+          "heard": "ごよやくな",
+          "at": 2
+        },
+        {
+          "kind": "replace",
+          "script": "そがしい[ところおそれ]いります",
+          "heard": "ようのかくにんをさせて",
+          "at": 6
+        },
+        {
+          "kind": "replace",
+          "script": "おそれい[り]ますかぶ",
+          "heard": "ただき",
+          "at": 13
+        },
+        {
+          "kind": "replace",
+          "script": "いります[かぶ]しきがい",
+          "heard": "ねよろ",
+          "at": 16
+        },
+        {
+          "kind": "replace",
+          "script": "すかぶし[き]がいしゃ",
+          "heard": "くおね",
+          "at": 19
+        },
+        {
+          "kind": "replace",
+          "script": "しきがい[しゃあおばぶつりゅうのさとうともう]します",
+          "heard": "いた",
+          "at": 22
+        }
+      ],
+      "first_turn_ear": "はい、ご予約内容の確認をさせていただきますね。よろしくお願いいたします。",
+      "first_turn_diffs": [],
+      "first_head_broken": false,
+      "reintroduced": false,
+      "opening_head_broken": false
+    },
+    {
+      "id": "20261013_100646_003_L4_tauto_w0_orec",
+      "type": "L4",
+      "voice": "Leda",
+      "thinking": "auto",
+      "warmup": false,
+      "warmup_turn": null,
+      "opening_mode": "recorded",
+      "turns": [
+        {
+          "callee": "yes_reserved",
+          "heard": "はい。予約しています。",
+          "intended": "それでは、ご予約の日時を教えていただけますでしょうか?",
+          "first_audio_after_s": 1.541,
+          "check": {
+            "voiced_s": 3.44,
+            "compared_with": "intended",
+            "morae": 27,
+            "expected_s": 3.25,
+            "ratio": 1.06,
+            "kind": "ok"
+          },
+          "timed_out": false,
+          "nudged": true
+        },
+        {
+          "callee": "datetime_pm",
+          "heard": "15 日の午後 2 時でお願いします。",
+          "intended": "かしこまりました。ご予約の日時はいつになっておりますでしょうか?",
+          "first_audio_after_s": 0.981,
+          "check": {
+            "voiced_s": 4.06,
+            "compared_with": "intended",
+            "morae": 31,
+            "expected_s": 3.73,
+            "ratio": 1.09,
+            "kind": "ok"
+          },
+          "timed_out": false,
+          "nudged": true
+        },
+        {
+          "callee": "affirm",
+          "heard": "はい、そうです。",
+          "intended": "15日の午後2時ですね。お間違いございませんでしょうか?",
+          "first_audio_after_s": 1.107,
+          "check": {
+            "voiced_s": 4.19,
+            "compared_with": "intended",
+            "morae": 31,
+            "expected_s": 3.73,
+            "ratio": 1.12,
+            "kind": "ok"
+          },
+          "timed_out": false,
+          "nudged": true
+        }
+      ],
+      "wav": "20261013_100646_003_L4_tauto_w0_orec.wav",
+      "ear": "それではご予約の日時を教えていただけますでしょうか。かしこまりました。ご予約の日時はいつになっておりますでしょうか。15日の午後2時ですね。お間違いございませんでしょうか。",
+      "intended_complete": true,
+      "ear_vs_intended": [],
+      "opening_diffs": [
+        {
+          "kind": "delete",
+          "script": "[おいそがしいところお]それいり",
+          "heard": "",
+          "at": 0
+        },
+        {
+          "kind": "insert",
+          "script": "ろおそれ[]いります",
+          "heard": "ではごよやくのにちじをおしえて",
+          "at": 12
+        },
+        {
+          "kind": "insert",
+          "script": "おそれい[]りますか",
+          "heard": "ただけますでしょうかかしこま",
+          "at": 13
+        },
+        {
+          "kind": "delete",
+          "script": "れいりま[すかぶ]しきがい",
+          "heard": "",
+          "at": 15
+        },
+        {
+          "kind": "replace",
+          "script": "すかぶし[きが]いしゃあ",
+          "heard": "たごよやくのにちじは",
+          "at": 19
+        },
+        {
+          "kind": "delete",
+          "script": "しきがい[しゃあおばぶつりゅうのさとうともうします]",
+          "heard": "",
+          "at": 22
+        }
+      ],
+      "first_turn_ear": "それでは、ご予約の日時を教えていただけますでしょうか。",
+      "first_turn_diffs": [],
+      "first_head_broken": false,
+      "reintroduced": false,
+      "opening_head_broken": false
+    },
+    {
+      "id": "20261013_100646_004_S2_tauto_w0_orec",
+      "type": "S2",
+      "voice": "Sadachbia",
+      "thinking": "auto",
+      "warmup": false,
+      "warmup_turn": null,
+      "opening_mode": "recorded",
+      "turns": [
+        {
+          "callee": "yes_reserved",
+          "heard": "はい。予約しています。",
+          "intended": "ありがとうございます。それでは、ご予約の日時を教えていただけますでしょうか?",
+          "first_audio_after_s": 1.422,
+          "check": {
+            "voiced_s": 4.52,
+            "compared_with": "intended",
+            "morae": 37,
+            "expected_s": 4.11,
+            "ratio": 1.1,
+            "kind": "ok"
+          },
+          "timed_out": false,
+          "nudged": true
+        },
+        {
+          "callee": "datetime_pm",
+          "heard": "",
+          "intended": "",
+          "first_audio_after_s": null,
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          },
+          "timed_out": false,
+          "nudged": false
+        },
+        {
+          "callee": "affirm",
+          "heard": "15 日の午後 2 時でお願いします。はい、そうです。",
+          "intended": "ありがとうございます。それでは、ご予約の日時を教えていただけますでしょうか?",
+          "first_audio_after_s": 0.961,
+          "check": {
+            "voiced_s": 4.39,
+            "compared_with": "intended",
+            "morae": 37,
+            "expected_s": 4.11,
+            "ratio": 1.07,
+            "kind": "ok"
+          },
+          "timed_out": false,
+          "nudged": true
+        }
+      ],
+      "wav": "20261013_100646_004_S2_tauto_w0_orec.wav",
+      "ear": "ありがとうございます。それでは、ご予約の日時を教えていただけますでしょうか。ありがとうございます。それでは、ご予約の日時を教えていただけますでしょうか。",
+      "intended_complete": false,
+      "ear_vs_intended": null,
+      "opening_diffs": [
+        {
+          "kind": "replace",
+          "script": "[お]いそがし",
+          "heard": "ありがとうござ",
+          "at": 0
+        },
+        {
+          "kind": "replace",
+          "script": "おい[そがしいところお]それいり",
+          "heard": "ます",
+          "at": 2
+        },
+        {
+          "kind": "insert",
+          "script": "ろおそれ[]いります",
+          "heard": "ではごよやくのにちじをおしえて",
+          "at": 12
+        },
+        {
+          "kind": "replace",
+          "script": "おそれい[り]ますかぶ",
+          "heard": "ただけ",
+          "at": 13
+        },
+        {
+          "kind": "insert",
+          "script": "いります[]かぶしき",
+          "heard": "でしょう",
+          "at": 16
+        },
+        {
+          "kind": "replace",
+          "script": "りますか[ぶしき]がいしゃ",
+          "heard": "あり",
+          "at": 17
+        },
+        {
+          "kind": "delete",
+          "script": "ぶしきが[いしゃあおばぶつりゅうのさ]とうとも",
+          "heard": "",
+          "at": 21
+        },
+        {
+          "kind": "replace",
+          "script": "のさとう[ともうします]",
+          "heard": "ござい",
+          "at": 36
+        }
+      ],
+      "first_turn_ear": "ありがとうございます。それでは、ご予約の日時を教えていただけますでしょうか。",
+      "first_turn_diffs": [],
+      "first_head_broken": false,
+      "reintroduced": false,
+      "opening_head_broken": false
+    },
+    {
+      "id": "20261013_100646_005_S4_tauto_w0_orec",
+      "type": "S4",
+      "voice": "Sadachbia",
+      "thinking": "auto",
+      "warmup": false,
+      "warmup_turn": null,
+      "opening_mode": "recorded",
+      "turns": [
+        {
+          "callee": "yes_reserved",
+          "heard": "はい。予約しています。",
+          "intended": "はい、かしこまりました。それでは、",
+          "first_audio_after_s": 2.405,
+          "check": {
+            "voiced_s": 4.84,
+            "compared_with": "intended",
+            "morae": 14,
+            "expected_s": 1.56,
+            "ratio": 3.11,
+            "kind": "too_long"
+          },
+          "timed_out": false,
+          "nudged": true
+        },
+        {
+          "callee": "datetime_pm",
+          "heard": "15 日の午後 2 時でお願いします。",
+          "intended": "ありがとうございます。では、ご予約の日時を教えていただけますでしょうか?",
+          "first_audio_after_s": 1.564,
+          "check": {
+            "voiced_s": 4.12,
+            "compared_with": "intended",
+            "morae": 35,
+            "expected_s": 3.89,
+            "ratio": 1.06,
+            "kind": "ok"
+          },
+          "timed_out": false,
+          "nudged": true
+        },
+        {
+          "callee": "affirm",
+          "heard": "はい、そうです。",
+          "intended": "15日の午後2時ですね。お間違いございませんでしょうか?",
+          "first_audio_after_s": 1.105,
+          "check": {
+            "voiced_s": 3.3,
+            "compared_with": "intended",
+            "morae": 31,
+            "expected_s": 3.44,
+            "ratio": 0.96,
+            "kind": "ok"
+          },
+          "timed_out": false,
+          "nudged": true
+        }
+      ],
+      "wav": "20261013_100646_005_S4_tauto_w0_orec.wav",
+      "ear": "はい、かしこまりました。それではご予約の日時を教えていただけますでしょうか。ありがとうございます。ではご予約の日時を教えていただけますでしょうか。15日の午後2時ですね。お間違いございませんでしょうか。",
+      "intended_complete": true,
+      "ear_vs_intended": [
+        {
+          "kind": "insert",
+          "script": "それでは[]ありがと",
+          "heard": "ごよやくのにちじをおしえていただけますでしょうか",
+          "at": 14
+        }
+      ],
+      "opening_diffs": [
+        {
+          "kind": "replace",
+          "script": "[お]いそがし",
+          "heard": "は",
+          "at": 0
+        },
+        {
+          "kind": "replace",
+          "script": "おい[そが]しいとこ",
+          "heard": "か",
+          "at": 2
+        },
+        {
+          "kind": "delete",
+          "script": "いそがし[いと]ころおそ",
+          "heard": "",
+          "at": 5
+        },
+        {
+          "kind": "replace",
+          "script": "しいとこ[ろお]それいり",
+          "heard": "まりました",
+          "at": 8
+        },
+        {
+          "kind": "insert",
+          "script": "ろおそれ[]いります",
+          "heard": "ではごよやくのにちじをおしえて",
+          "at": 12
+        },
+        {
+          "kind": "replace",
+          "script": "おそれい[り]ますかぶ",
+          "heard": "ただけ",
+          "at": 13
+        },
+        {
+          "kind": "insert",
+          "script": "いります[]かぶしき",
+          "heard": "でしょう",
+          "at": 16
+        },
+        {
+          "kind": "replace",
+          "script": "りますか[ぶしき]がいしゃ",
+          "heard": "あり",
+          "at": 17
+        },
+        {
+          "kind": "delete",
+          "script": "ぶしきが[いしゃあおばぶつりゅうのさ]とうとも",
+          "heard": "",
+          "at": 21
+        },
+        {
+          "kind": "replace",
+          "script": "のさとう[ともうします]",
+          "heard": "ござい",
+          "at": 36
+        }
+      ],
+      "first_turn_ear": "はい、かしこまりました。それではご予約の日時を教えていただけますでしょうか。",
+      "first_turn_diffs": [
+        {
+          "kind": "insert",
+          "script": "それでは[]",
+          "heard": "ごよやくのにちじをおしえていただけますでしょうか",
+          "at": 14
+        }
+      ],
+      "first_head_broken": false,
+      "reintroduced": false,
+      "opening_head_broken": false
+    },
+    {
+      "id": "20261013_100646_006_L4_tauto_w0_orec",
+      "type": "L4",
+      "voice": "Leda",
+      "thinking": "auto",
+      "warmup": false,
+      "warmup_turn": null,
+      "opening_mode": "recorded",
+      "turns": [
+        {
+          "callee": "yes_reserved",
+          "heard": "はい。予約しています。",
+          "intended": "恐れ入ります、それでは、ご予約の日時を教えていただけますでしょうか?",
+          "first_audio_after_s": 1.053,
+          "check": {
+            "voiced_s": 4.51,
+            "compared_with": "intended",
+            "morae": 34,
+            "expected_s": 4.1,
+            "ratio": 1.1,
+            "kind": "ok"
+          },
+          "timed_out": false,
+          "nudged": true
+        },
+        {
+          "callee": "datetime_pm",
+          "heard": "15日の午後2時でお願いします。",
+          "intended": "ありがとうございます。それでは、ご予約の日時を教えていただけますでしょうか?",
+          "first_audio_after_s": 0.854,
+          "check": {
+            "voiced_s": 4.69,
+            "compared_with": "intended",
+            "morae": 37,
+            "expected_s": 4.46,
+            "ratio": 1.05,
+            "kind": "ok"
+          },
+          "timed_out": false,
+          "nudged": true
+        },
+        {
+          "callee": "affirm",
+          "heard": "はい、そうです。",
+          "intended": "では、15日の午後2時でお間違いないでしょうか?",
+          "first_audio_after_s": 1.104,
+          "check": {
+            "voiced_s": 3.65,
+            "compared_with": "intended",
+            "morae": 27,
+            "expected_s": 3.25,
+            "ratio": 1.12,
+            "kind": "ok"
+          },
+          "timed_out": false,
+          "nudged": true
+        }
+      ],
+      "wav": "20261013_100646_006_L4_tauto_w0_orec.wav",
+      "ear": "恐れ入ります。それではご予約の日時を教えていただけますでしょうか。ありがとうございます。それではご予約の日時を教えていただけますでしょうか。では、15日の午後2時でお間違いないでしょうか。",
+      "intended_complete": true,
+      "ear_vs_intended": [],
+      "opening_diffs": [
+        {
+          "kind": "delete",
+          "script": "[おいそがしいところ]おそれい",
+          "heard": "",
+          "at": 0
+        },
+        {
+          "kind": "insert",
+          "script": "いります[]かぶしき",
+          "heard": "それではごよやくのにちじをおしえていただけますでしょう",
+          "at": 16
+        },
+        {
+          "kind": "replace",
+          "script": "りますか[ぶしき]がいしゃ",
+          "heard": "あり",
+          "at": 17
+        },
+        {
+          "kind": "delete",
+          "script": "ぶしきが[いしゃあおばぶつりゅうのさ]とうとも",
+          "heard": "",
+          "at": 21
+        },
+        {
+          "kind": "replace",
+          "script": "のさとう[ともうし]ます",
+          "heard": "ござい",
+          "at": 36
+        }
+      ],
+      "first_turn_ear": "恐れ入ります。それではご予約の日時を教えていただけますでしょうか。",
+      "first_turn_diffs": [],
+      "first_head_broken": false,
+      "reintroduced": false,
+      "opening_head_broken": false
+    }
+  ]
+}

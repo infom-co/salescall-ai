@@ -16,14 +16,12 @@ import time
 
 from common import HERE, base_parser, describe_error, make_client, pick_key, require_python, save_result, say, write_wav
 from g03_voices import INSTRUCTION
-from instruction import VOICE_TYPES, voice_style
+from instruction import CUES, VOICE_TYPES, voice_style
 from listen import differences, hear
 from live_util import build_config, collect_turn, send_text
 from turn_check import check_ai_turn
 
-# AIへの合図の文面（プログラムからAIへ文字で送る。相手には聞こえない）。DESIGN.md 6-7 の候補。
-RESTATE_CUE = ("直前のあなたの発言は、途中で途切れて、相手に届いていません。"
-               "「失礼いたしました。」と言ってから、同じ内容を最初から、もう一度だけ言ってください。")
+RESTATE_CUE = CUES["restate"]  # 合図の文面は instruction.py の1か所から
 APOLOGY = "失礼いたしました。"
 TYPES = VOICE_TYPES  # 声の型は instruction.py の1か所から
 LINES = [  # 会話の途中で言う一言（名前は「」でくくる）

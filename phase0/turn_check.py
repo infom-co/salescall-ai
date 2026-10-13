@@ -33,6 +33,9 @@ NORMAL_MORAE_PER_S = {"Sadachbia": 9.0, "Leda": 8.3}
 #   ⇒ 余裕が小さい（0.03〜0.06）。線の引き方は、フェーズ1の通話の記録で、見逃しと誤りの数を数えてから決める。
 CUT_RATIO = 0.77
 LONG_RATIO = 1.8
+# 相手が話し終えてから、この秒数のあいだ声が出なければ、1回だけ返事を促す（DESIGN.md 6-7）。
+# ふつうの返事の間は 0.7〜1.5秒、最大でも約2秒（G-11・G-19）。29.6秒黙った回があった（G-19）。
+SILENCE_NUDGE_S = 4.0
 
 
 def check_ai_turn(*, audio: bytes, rate: int, voice: str, timed_out: bool = False,

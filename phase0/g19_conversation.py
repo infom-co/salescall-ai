@@ -17,7 +17,7 @@ import statistics
 import time
 
 from common import HERE, base_parser, describe_error, make_client, pick_key, read_wav_pcm16_mono, require_python, save_result, say, write_wav
-from instruction import VOICE_TYPES, voice_style
+from instruction import CUES, VOICE_TYPES, voice_style
 from jtext import reading
 from listen import differences, hear
 from live_util import build_config, callee_turn, collect_turn, send_text
@@ -67,12 +67,14 @@ async def one_call(client, args, cid: str, type_id: str, thinking: int | None, w
                     "first_audio_after_s": w.first_audio_after_s}
         for i, callee_id in enumerate(callee_ids):
             pcm, rate = read_wav_pcm16_mono(HERE / "results" / "callee" / f"{CALLEE_VOICE}_{callee_id}.wav")
-            turn = await callee_turn(s, pcm, rate, timeout_s=45)
+            turn = await callee_turn(s, pcm, rate, timeout_s=45, nudge_after_s=args.nudge_after,
+                                     nudge_text=CUES["nudge"] if args.nudge_after is not None else None)
             r = turn.summary()
             check = check_ai_turn(audio=bytes(turn.audio), rate=turn.audio_rate or 24000, voice=voice,
                                   timed_out=turn.timed_out, intended_text=r["output_transcript"] or None)
             turns.append({"callee": callee_id, "heard": r["input_transcript"], "intended": r["output_transcript"],
-                          "first_audio_after_s": r["first_audio_after_s"], "check": check, "timed_out": turn.timed_out})
+                          "first_audio_after_s": r["first_audio_after_s"], "check": check, "timed_out": turn.timed_out,
+                          "nudged": turn.nudged})
             if i == 0:
                 first_audio = bytes(turn.audio)
             if audio and turn.audio:
@@ -176,6 +178,8 @@ def main() -> None:
     p.add_argument("--thinking", choices=["auto", "0"], action="append", help="考える量：auto＝既定（自動）、0＝考えない")
     p.add_argument("--warmup", choices=["off", "on"], action="append", help="電話がつながる前の、相手に聞かせない慣らしの一言")
     p.add_argument("--opening", choices=["ai", "recorded"], action="append", help="名乗りを AI が言う／前もって作った録音で流す")
+    p.add_argument("--nudge-after", type=float, default=None,
+                   help="相手が話し終えてからこの秒数のあいだ声が出なければ、1回だけ返事を促す（ふつうは turn_check.SILENCE_NUDGE_S）")
     args = p.parse_args()
     save_result("G-19", asyncio.run(run(args)))
 
