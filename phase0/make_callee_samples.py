@@ -17,7 +17,8 @@ import json
 import time
 
 from audio import duration_s, phone_quality
-from common import HERE, base_parser, describe_error, make_client, pick_key, require_python, save_result, say, write_wav
+from common import (HERE, base_parser, describe_error, make_client, pick_key, read_wav_pcm16_mono, require_python, save_result,
+                    say, write_wav)
 from listen import differences, hear
 from live_util import build_config, collect_turn, send_text
 
@@ -52,6 +53,13 @@ def text_and_how(v) -> tuple[str, str | None]:
     return (v, None) if isinstance(v, str) else v
 
 
+def verified(wav: str) -> bool:
+    """その声が、確かめ（sample_ok）に通っているか。試験は、通っていない声を使わない。"""
+    index = OUT / "index.json"
+    made = json.loads(index.read_text(encoding="utf-8")) if index.exists() else []
+    return any(m.get("wav") == wav and m.get("ok") is True for m in made)
+
+
 def sample_ok(text: str, heard: str) -> dict:
     """作った声の確かめ（読みが合う・問いかけは「？」まで聞こえる）。"""
     diffs = differences(text, heard)
@@ -68,6 +76,15 @@ async def run(args) -> dict:
     client = make_client(pick_key(args))
     index = OUT / "index.json"
     made = json.loads(index.read_text(encoding="utf-8")) if index.exists() else []
+    if args.verify:  # 作り直さずに、作ってある声を確かめだけする（確かめの決まりを足したとき）
+        for m in made:
+            if "error" in m or "ok" in m or not (OUT / m["wav"]).exists():
+                continue
+            pcm, rate = read_wav_pcm16_mono(OUT / m["wav"])
+            m.update(sample_ok(m["text"], await hear(client, pcm, rate, "transcribe35")))
+            say(f"{m['voice']} {m['id']}：聞こえた「{m['heard']}」 合格={m['ok']}")
+        index.write_text(json.dumps(made, ensure_ascii=False, indent=2), encoding="utf-8")
+        return {"model": args.model, "verified": made}
     have = {(m.get("voice"), m.get("id")) for m in made if "error" not in m}
     for voice in CALLEE_VOICES:
         for uid, value in UTTERANCES.items():
@@ -105,6 +122,7 @@ def main() -> None:
     p = base_parser(__doc__)
     p.add_argument("--tries", type=int, default=3, help="別の耳の確かめに通らないとき、作り直す回数の上限")
     p.add_argument("--redo", action="append", choices=sorted(UTTERANCES), help="作ってある声でも作り直す（名指ししたものだけ）")
+    p.add_argument("--verify", action="store_true", help="作り直さずに、まだ確かめていない声を確かめだけする")
     args = p.parse_args()
     save_result("CALLEE-SAMPLES", asyncio.run(run(args)))
 

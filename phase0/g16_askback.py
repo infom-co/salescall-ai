@@ -123,7 +123,8 @@ async def run(args) -> dict:
                 continue
             for vt in args.type or VOICE_TYPES:
                 try:
-                    call = await run_call(client, args.model, BUSINESS, vt, scene["callee"])
+                    call = await run_call(client, args.model, BUSINESS, vt, scene["callee"], save_audio=args.save_audio,
+                                          audio_label=f"G16_{name}_{rep}")
                     row = {"rep": rep, "scene": name, "type": vt, "checks": judge_scene(name, scene, call), **call}
                 except Exception as exc:
                     row = {"rep": rep, "scene": name, "type": vt, "error": describe_error(exc)}
@@ -145,6 +146,7 @@ def main() -> None:
     p.add_argument("--pause", type=float, default=4.0)
     p.add_argument("--type", choices=sorted(VOICE_TYPES), action="append")
     p.add_argument("--scene", choices=sorted(SCENES), action="append")
+    p.add_argument("--save-audio", choices=("bad", "all", "none"), default="bad", help="AIの声を残すターン（convo.run_call）")
     args = p.parse_args()
     save_result("G-16", asyncio.run(run(args)))
 

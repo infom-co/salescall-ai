@@ -1,7 +1,13 @@
 """日本語の文字をそろえる唯一の場所（別の耳の比べ方・AIの発話の長さの見込みで使う）。
 
 - norm：句読点・空白・かぎかっこを除く
-- reading：読み（ひらがな）にそろえる（「ない」と「無い」のような書き方の違いを、食い違いとして数えないため）
+- reading：読み（ひらがな。pykakasi）。話す長さの見込み（morae）に使う。⚠️ 文脈を見ないので、読み違いがある
+  （「代わりました」＝だいわりました、「2時」＝2とき、「日本橋店」＝にほんばしみせ）。ふつうの話す速さ（turn_check）はこの読みで
+  測ったので、替えるなら速さを測り直す
+- compare_reading：2つの文を比べるための読み（ひらがな。単語に分ける処理＝unidic の、文脈で決めた読み）。
+  「代わりました」と「変わりました」のような、同じ音で漢字だけ違う書き方を、食い違いとして数えないため。
+  ⛔ 2026-10-13：pykakasi の読みで比べていたため、「代わりました」と「変わりました」が食い違いに見えた
+  ⇒ 比べるところ（listen.differences など）は、すべてこれを使う
 - morae：読みの長さ（おおよその音の数）。話す長さの見込みに使う（漢字の多い文と、かなの多い文を同じ物差しで測るため）
 - words／word_edges：日本語を単語に分ける（fugashi＋unidic-lite。AIを使わない）。名前の洗い出しと、「」でくくる位置の判断で使う
 """
@@ -26,6 +32,17 @@ def reading(text: str) -> str:
 
         _KAKASI = pykakasi.kakasi()
     return "".join(x["hira"] for x in _KAKASI.convert(norm(text)))
+
+
+def compare_reading(text: str) -> str:
+    import unicodedata
+
+    out = []
+    for w in words(unicodedata.normalize("NFKC", text)):
+        kana = getattr(w.feature, "kana", None)
+        out.append(kana if kana and kana != "*" else w.surface)
+    s = "".join(chr(ord(c) - 0x60) if "ァ" <= c <= "ヶ" else c for c in "".join(out))  # カタカナをひらがなに
+    return norm(s)
 
 
 def morae(text: str) -> int:

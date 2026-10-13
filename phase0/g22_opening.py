@@ -20,6 +20,7 @@ from convo import run_call
 from flowctl import Question, tool_declarations
 from instruction import VOICE_TYPES, Business, build
 from listen import differences
+from make_callee_samples import verified
 from live_util import build_config
 from turn_check import bad_kinds
 
@@ -114,6 +115,11 @@ async def run(args) -> dict:
         for name, scene in SCENES.items():
             if args.scene and name not in args.scene:
                 continue
+            unverified = [c["wav"] for c in scene["callee"] if not verified(c["wav"])]
+            if unverified:  # 確かめに通っていない相手役の声では動かさない（⛔「はい？」が「はい。」に聞こえていた）
+                rows.append({"rep": rep, "scene": name, "skipped": f"相手役の声が確かめに通っていない：{unverified}"})
+                say(f"[{rep}] {name} 動かさない：相手役の声が確かめに通っていない {unverified}")
+                continue
             for vt in args.type or VOICE_TYPES:
                 try:
                     call = await run_call(client, args.model, BUSINESS, vt, scene["callee"], opening_mode="recorded",
@@ -127,8 +133,9 @@ async def run(args) -> dict:
                 say(f"[{rep}] {name} {vt} 合格={c.get('passed')} 名乗り直し={c.get('reintroduced')} 崩れ={c.get('head_broken')} "
                     f"Q1={c.get('q1_yes')} 次の質問={c.get('asked_q2')} 最初の返事={c.get('first_said', '')[:70]} {row.get('error', '')}")
                 await asyncio.sleep(args.pause)
-    summary = {"runs": len(rows), "passed": sum(1 for r in rows if r.get("checks", {}).get("passed")),
-               "by_scene": {n: [r.get("checks", {}).get("passed") for r in rows if r["scene"] == n] for n in SCENES},
+    summary = {"runs": sum(1 for r in rows if "skipped" not in r), "passed": sum(1 for r in rows if r.get("checks", {}).get("passed")),
+               "by_scene": {n: [r.get("checks", {}).get("passed") for r in rows if r["scene"] == n and "skipped" not in r] for n in SCENES},
+               "skipped": sorted({r["scene"] for r in rows if "skipped" in r}),
                "reintroduced_where_not_needed": sum(1 for r in rows if r.get("checks", {}).get("reintro_ok") is False)}
     say("まとめ：", json.dumps(summary, ensure_ascii=False))
     return {"model": args.model, "parts": PARTS, "summary": summary, "rows": rows}

@@ -18,7 +18,7 @@ import time
 
 from common import HERE, base_parser, describe_error, make_client, pick_key, read_wav_pcm16_mono, require_python, save_result, say, write_wav
 from instruction import CUES, VOICE_TYPES, voice_style
-from jtext import reading
+from jtext import compare_reading
 from listen import differences, hear
 from live_util import build_config, callee_turn, collect_turn, send_text
 from turn_check import check_ai_turn
@@ -92,7 +92,7 @@ async def one_call(client, args, cid: str, type_id: str, thinking: int | None, w
         # 言うつもりの言葉と、実際に出た声（別の耳）の食い違い。言うつもりの言葉が欠けている回は比べない
         row["ear_vs_intended"] = differences(intended, row["ear"]) if row["intended_complete"] else None
         # 名乗り（決まった文）が、声で正しく出たか：別の耳の書き出しの最初の部分と比べる
-        head = reading(row["ear"])[:len(reading(OPENING)) + 4]
+        head = compare_reading(row["ear"])[:len(compare_reading(OPENING)) + 4]
         # 名乗りの後ろに続く言葉（次の文の書き出し）は、名乗りの誤りとして数えない
         row["opening_diffs"] = [d for d in differences(OPENING, head) if not (d["kind"] == "insert" and d["script"].endswith("[]"))]
         # 書き出し（社名より前）の崩れだけ。社名の「ア」がオ寄りに聞こえるもの（ユーザー評価：少し噛んだくらい）は別に数える

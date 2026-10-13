@@ -18,7 +18,7 @@ import re
 import time
 
 from common import base_parser, describe_error, make_client, pick_key, require_python, save_result, say
-from jtext import reading
+from jtext import compare_reading
 from instruction import quote_in_text
 from names import by_model, by_tokenizer, norm_surface, quote_by_model
 
@@ -56,7 +56,7 @@ MODELS = {"3.6 Flash": "Gemini 3.6 Flash", "3.7 Flash": "Gemini 3.7 Flash", "3.8
 
 
 def rd(s: str) -> str:
-    return reading(s or "").replace(" ", "")
+    return compare_reading(s or "").replace(" ", "")
 
 
 def score(gold: list[dict], got: list[dict]) -> dict:

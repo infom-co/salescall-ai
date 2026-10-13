@@ -402,5 +402,21 @@ class CalleeSampleTest(unittest.TestCase):
         self.assertTrue(sample_ok("はい、予約しています。", "はい、予約しています")["ok"])  # 句点の有無は問わない（問いかけでない文）
 
 
+
+class CompareReadingTest(unittest.TestCase):
+    """2つの文を比べるための読み（jtext.compare_reading・listen.differences）。"""
+
+    def test_same_sound_different_kanji_is_not_a_difference(self):
+        from listen import differences
+        self.assertEqual(differences("お電話代わりました。", "お電話変わりました。"), [])  # ⛔ pykakasi では「だいわり」と読んでいた
+        self.assertEqual(differences("株式会社「アオバ物流」の「佐藤」と申します。", "株式会社青葉物流の佐藤と申します。"), [])
+        self.assertEqual(differences("15日の午後2時です。", "15 日の午後 2 時です"), [])  # 空白・句読点は数えない
+
+    def test_real_difference_remains(self):
+        from listen import differences
+        self.assertEqual([d["heard"] for d in differences("ご来店の人数をお聞かせください。", "来店の人数をお聞かせください。")], [""])
+        self.assertTrue(differences("15日の午後2時ですね。", "4日の午後2時ですね。"))
+
+
 if __name__ == "__main__":
     unittest.main()
