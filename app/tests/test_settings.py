@@ -128,7 +128,8 @@ class UserDecisions(unittest.TestCase):
         self.assertEqual((v("retry.max_attempts_per_task"), v("quality.mock.calls"), v("stop.ai_rate_limit.backoff")),
                          (3, 10, [10, 30, 120, 600, 1800]))
         decided = {r["key"] for r in sys_tx(settings.provisional)}
-        self.assertTrue({"retry.max_attempts_per_task", "quality.mock.calls", "stop.ai_rate_limit.backoff"}.isdisjoint(decided))
+        self.assertTrue({"retry.max_attempts_per_task", "quality.mock.calls", "stop.ai_rate_limit.backoff",
+                         "calling.hours_limit"}.isdisjoint(decided))
 
 
 class PerClientSettings(unittest.TestCase):

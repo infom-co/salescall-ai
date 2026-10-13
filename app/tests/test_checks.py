@@ -99,6 +99,14 @@ class SingleWriters(Planted):
         self.assertEqual(rules.single_writers(root), [])
 
 
+class PhoneFormatting(Planted):
+    def test_formatting_outside_q1(self):
+        root = self._app({"src/salescall/core/importer.py": 'def f(x):\n    return "+81" + x[1:]\n',
+                          "src/salescall/core/phone.py": 'P = "+81"\n'})
+        found = rules.phone_formatting_only_in_q1(root)
+        self.assertEqual([(v.rule, v.path) for v in found], [("Q1", "src/salescall/core/importer.py")])
+
+
 class CurrentCodePasses(unittest.TestCase):
     def test_all_rules_pass(self):
         self.assertEqual([str(v) for v in rules.run_all(APP)], [])

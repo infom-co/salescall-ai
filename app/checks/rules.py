@@ -184,7 +184,24 @@ def single_writers(app_root: Path) -> list[Violation]:
     return out
 
 
+# ── Q1：番号を整形してよいのは、番号の正規化（core/phone.py）だけ（取込・門・照合が、それぞれ番号を整形しない）
+PHONE_FORMAT_ALLOWED = {"src/salescall/core/phone.py"}
+
+
+def phone_formatting_only_in_q1(app_root: Path) -> list[Violation]:
+    out: list[Violation] = []
+    for path in _python_files(app_root):
+        rel = _rel(app_root, path)
+        if rel in PHONE_FORMAT_ALLOWED or rel.startswith("tests/") or rel == "run_tests.py":
+            continue
+        for text, line in _string_constants(_parse(path)):
+            if "+81" in text:
+                out.append(Violation("Q1", rel, line, "番号を整形してよいのは、番号の正規化（core/phone.py）だけです"))
+    return out
+
+
 ALL_RULES: tuple[Callable[[Path], list[Violation]], ...] = (
+    phone_formatting_only_in_q1,
     single_writers,
     no_phase0,
     db_driver_only_in_layer,
