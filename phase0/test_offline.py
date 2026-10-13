@@ -615,5 +615,39 @@ class AIToJapaneseTest(unittest.TestCase):
             self.assertEqual(words, set(), s[:200])
 
 
+class RetryTest(unittest.TestCase):
+    def test_retry_only_when_unavailable(self):
+        from common import call_with_retry
+
+        class Err(Exception):
+            def __init__(self, code, status):
+                super().__init__(status)
+                self.code, self.status = code, status
+        calls = []
+
+        def busy_then_ok():
+            calls.append(1)
+            if len(calls) < 3:
+                raise Err(503, "UNAVAILABLE")
+            return "ok"
+        self.assertEqual(call_with_retry(busy_then_ok, waits=(0, 0, 0)), ("ok", 2))  # 混んでいるときは、やり直す
+        calls.clear()
+
+        def quota():
+            calls.append(1)
+            raise Err(429, "RESOURCE_EXHAUSTED")
+        with self.assertRaises(Err):
+            call_with_retry(quota, waits=(0, 0, 0))
+        self.assertEqual(len(calls), 1)  # ⛔ 上限（429）は、やり直さない
+        calls.clear()
+
+        def always_busy():
+            calls.append(1)
+            raise Err(503, "UNAVAILABLE")
+        with self.assertRaises(Err):
+            call_with_retry(always_busy, waits=(0, 0))
+        self.assertEqual(len(calls), 3)  # やり直しを使い切ったら、誤りをそのまま上げる
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -157,6 +157,25 @@ def drop_partial(item: str) -> None:
     (RESULTS_DIR / f"{item}_partial.json").unlink(missing_ok=True)
 
 
+def is_unavailable(exc: BaseException) -> bool:
+    """相手の側が一時的に混んでいる（503 UNAVAILABLE）か。⛔ 1日・1分の上限（429 RESOURCE_EXHAUSTED）は含めない（上限は待っても
+    その日のうちは戻らない。上限をやり直しで回り込まない）。"""
+    return str(getattr(exc, "code", "")) == "503" or getattr(exc, "status", "") == "UNAVAILABLE"
+
+
+def call_with_retry(fn, waits=(10, 30, 90)):
+    """混んでいる（503）ときだけ、間を空けて、やり直す。戻り値＝(結果, やり直した回数)。ほかの誤りと、やり直しを使い切った誤りは、そのまま上げる。
+    ⛔ 2026-10-13 G-23：やり直しが無く、3.6〜3.8 Flash の 42回中38回が 503 で「結果なし」になり、比べが成り立たなかった。"""
+    import time
+    for n, wait in enumerate((*waits, None)):
+        try:
+            return fn(), n
+        except Exception as exc:
+            if wait is None or not is_unavailable(exc):
+                raise
+            time.sleep(wait)
+
+
 def describe_error(exc: BaseException) -> dict:
     """エラーを、種類を見分けられる形で記録する（K-3・DESIGN.md 9章の分類の材料）。"""
     info = {"type": type(exc).__name__, "module": type(exc).__module__, "message": redact(exc)[:2000]}
