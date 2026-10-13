@@ -25,9 +25,9 @@ from phrases import confirm
 
 BUSINESS = Business(
     company="アオバ物流", caller="佐藤", purpose="ご予約の確認", purpose_line="ご予約の確認でお電話いたしました。",
-    questions=[Question("Q1", "ご予約はされていますでしょうか。", "yes_no", conditions=("yes", "no")),
-               Question("Q2", "ご希望の日時をお聞かせください。", "datetime", conditions=("answered",)),
-               Question("Q3", "ご来店の人数をお聞かせください。", "number", conditions=("answered",))],
+    questions=[Question("Q1", "ご予約はされていますでしょうか。", "yes_no", conditions=("はい", "いいえ")),
+               Question("Q2", "ご希望の日時をお聞かせください。", "datetime", conditions=("答えた",)),
+               Question("Q3", "ご来店の人数をお聞かせください。", "number", conditions=("答えた",))],
 )
 # 名乗りと Q1 は録音で流した形（AIは相手の答えから続ける）。AIの発話は、ほとんどが操作の返事のあと
 CALLEE = ["はい、予約しています。", "15日の午後2時です。", "はい、そうです。", "3人です。", "はい、そうです。"]
@@ -88,8 +88,8 @@ async def run(args) -> dict:
     if args.dry_run:
         from flowctl import Flow
         f = Flow(BUSINESS.questions, confirm=VARIANTS["V1_頭にお礼"]["confirm"])
-        f.handle(type("F", (), {"name": "record_answer", "args": {"question_id": "Q1", "condition_id": "yes"}})())
-        r = f.handle(type("F", (), {"name": "record_answer", "args": {"question_id": "Q2", "condition_id": "answered", "value": "15日の午後2時です。"}})())
+        f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい"})
+        r = f.apply("record_answer", {"question_id": "Q2", "condition_id": "答えた", "value": "15日の午後2時です。"})
         return {"dry_run": True, "v1_message": r["message"]}
     client = make_client(pick_key(args))
     rows = []

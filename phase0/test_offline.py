@@ -78,7 +78,7 @@ class FlowTest(unittest.TestCase):
                      Question("Q2", "ご希望の日時をお聞かせください。", "datetime", conditions=("answered",))])
 
     def call(self, f, name, **args):
-        return f.handle(fc(name, **args))
+        return f.apply(name, args)  # 中の名前での入口（AIからの入口 handle の置き換えは、AIToJapaneseTest で確かめる）
 
     def test_yes_no_accepted_and_advances(self):
         f = self.flow()
@@ -480,6 +480,57 @@ class CompareReadingTest(unittest.TestCase):
         from listen import differences
         self.assertEqual([d["heard"] for d in differences("ご来店の人数をお聞かせください。", "来店の人数をお聞かせください。")], [""])
         self.assertTrue(differences("15日の午後2時ですね。", "4日の午後2時ですね。"))
+
+
+
+class AIToJapaneseTest(unittest.TestCase):
+    """AIに見せる言葉は日本語だけ（2026-10-13 ユーザー指摘「こちらが英語を使っていませんか？」）。置き換えは flowctl の表の1か所。"""
+
+    def business(self):
+        from flowctl import Question
+        from instruction import Business
+        return Business(company="アオバ物流", caller="佐藤", purpose="ご予約の確認",
+                        questions=[Question("Q1", "ご予約はされていますか。", "yes_no", conditions=("はい", "いいえ")),
+                                   Question("Q2", "ご希望の日時をお聞かせください。", "datetime", conditions=("答えた",))])
+
+    def test_handle_translates_both_ways(self):
+        from flowctl import Flow
+        f = Flow(self.business().questions)
+        r = f.handle(fc("record_answer", 質問="Q1", 答えの種類="はい"))
+        self.assertEqual((r["結果"], r["質問"]), ("次の質問", "Q2"))
+        r = f.handle(fc("record_answer", 質問="Q2", 答えの種類="答えた", 値="15日の午後2時です。"))
+        self.assertEqual((r["結果"], r["値"], r["言い方"]), ("言い直して確かめる", "15日の午後2時", "15日の午後2時で、よろしいでしょうか。"))
+        f.on_callee()
+        r = f.handle(fc("confirm_field", 質問="Q2", 相手の返事="合っている"))
+        self.assertEqual(r["結果"], "締め")
+        self.assertEqual(f.log[-1]["args"], {"question_id": "Q2", "result": "affirmed"})  # 記録は中の名前
+        g = Flow(self.business().questions)
+        g.handle(fc("record_answer", 質問="Q1", 答えの種類="答えたくない"))
+        self.assertEqual(g.export()["Q1"], "✕")
+        self.assertEqual(g.handle(fc("request_end", 理由="相手が急いでいる"))["結果"], "締め")
+
+    def test_no_english_shown_to_ai(self):
+        import json
+        import re
+
+        from flowctl import Flow, tool_declarations
+        from instruction import build
+        b = self.business()
+        allowed = {"record_answer", "report_unclear", "confirm_field", "request_end", "Q1", "Q2"}  # 操作の名前（道具の決まり）と質問の番号
+        shown = [build(b, t)[1] for t in ("S2", "L4")]
+        shown += [build(b, "S2", opening_mode="recorded")[1]]
+        for d in tool_declarations(b.questions)[0].function_declarations:
+            shown.append(json.dumps(d.model_dump(exclude_none=True), ensure_ascii=False))
+        f = Flow(b.questions)
+        for name, args in (("record_answer", {"質問": "Q2", "答えの種類": "はい"}), ("record_answer", {"質問": "Q1", "答えの種類": "はい"}),
+                           ("record_answer", {"質問": "Q2", "答えの種類": "答えた"}),
+                           ("record_answer", {"質問": "Q2", "答えの種類": "答えた", "値": "15日"}), ("request_end", {"理由": "質問が終わった"}),
+                           ("no_such", {})):
+            shown.append(json.dumps(f.handle(fc(name, **args)), ensure_ascii=False))
+        schema_words = {"name", "description", "parameters", "type", "properties", "enum", "required", "OBJECT", "STRING"}  # 宣言の形の名前
+        for s in shown:
+            words = set(re.findall(r"[A-Za-z_][A-Za-z_0-9]*", s)) - allowed - schema_words
+            self.assertEqual(words, set(), s[:200])
 
 
 if __name__ == "__main__":

@@ -27,9 +27,9 @@ from turn_check import bad_kinds
 
 BUSINESS = Business(
     company="アオバ物流", caller="佐藤", purpose="ご予約の確認", purpose_line="ご予約の確認でお電話いたしました。",
-    questions=[Question("Q1", "ご予約はされていますでしょうか。", "yes_no", conditions=("yes", "no")),
-               Question("Q2", "ご希望の日時をお聞かせください。", "datetime", conditions=("answered",)),
-               Question("Q3", "ご来店の人数をお聞かせください。", "number", conditions=("answered",))],
+    questions=[Question("Q1", "ご予約はされていますでしょうか。", "yes_no", conditions=("はい", "いいえ")),
+               Question("Q2", "ご希望の日時をお聞かせください。", "datetime", conditions=("答えた",)),
+               Question("Q3", "ご来店の人数をお聞かせください。", "number", conditions=("答えた",))],
 )
 PARTS = BUSINESS.opening_parts()  # [あいさつ, 名乗り, 用件, 最初の質問]
 NAME = ["アオバ", "青葉", "あおば", "大場", "オーバ", "オオバ"]  # 社名（「ア」がオ寄りに聞こえるものも、言えたとみなす）
@@ -95,7 +95,7 @@ def judge(scene: dict, call: dict) -> dict:
                                                        for d in differences(turns[0]["intended"], v)))
     # 最初の質問へ戻れたか：Q1 が「はい」で受け付けられ、次の質問（日時）を聞いた
     q1 = call["items"]["Q1"]
-    c["q1_yes"] = q1["condition"] == "yes" and q1["state"] in ("accepted", "confirmed")
+    c["q1_yes"] = q1["condition"] == "はい" and q1["state"] in ("accepted", "confirmed")
     idx = scene.get("then_q2_at", 1)
     if scene.get("then_q2") or "then_q2_at" in scene:
         c["asked_q2"] = len(turns) > idx and any(w in turns[idx].get("ear", "") for w in ("日時", "日にち", "お日にち"))

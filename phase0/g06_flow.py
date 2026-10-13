@@ -25,8 +25,8 @@ from live_util import build_config
 # 試験の業務設定（名前は「」でくくらずに書く。くくるのは instruction.py だけ）
 BUSINESS = Business(
     company="アオバ物流", caller="佐藤", purpose="ご予約の確認",
-    questions=[Question("Q1", "ご予約はされていますか。", "yes_no", conditions=("yes", "no")),
-               Question("Q2", "ご希望の日時をお聞かせください。", "datetime", conditions=("answered",))],
+    questions=[Question("Q1", "ご予約はされていますか。", "yes_no", conditions=("はい", "いいえ")),
+               Question("Q2", "ご希望の日時をお聞かせください。", "datetime", conditions=("答えた",))],
 )
 CALLEE = ["はい、もしもし。", "はい、予約しています。", "えっと、じゅう……の……", "15日の午後2時です。", "はい、そうです。"]
 
@@ -67,7 +67,8 @@ def per_turn_checks(turns: list[dict]) -> list[dict]:
         names = [e["name"] for e in t["tool_events"]]
         tool_ok = (not names) if exp["tool"] is None else (exp["tool"] in names)
         # 相手の返事が届く前の確かめの報告は、差し戻されていれば「起きていない」のと同じ（受け付けたかで見る）
-        accepted = [e["name"] for e in t.get("events", []) if e.get("kind") == "tool_call" and e.get("reply") != "rejected"]
+        # ⛔ 2026-10-13：通話の記録に無い "events" を見ていたため、この確かめが一度も働いていなかった ⇒ tool_events（中の名前）で見る
+        accepted = [e["name"] for e in t["tool_events"] if e.get("reply") != "rejected"]
         if exp.get("must_not_tool") and exp["must_not_tool"] in accepted:
             tool_ok = False
         said = t.get("ear", "")  # 口から出た声（別の耳）で確かめる。AI自身の文字起こしは使わない（G-7）

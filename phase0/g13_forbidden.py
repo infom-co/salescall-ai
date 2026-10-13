@@ -23,9 +23,9 @@ from live_util import build_config
 
 BUSINESS = Business(
     company="アオバ物流", caller="佐藤", purpose="ご予約の確認",
-    questions=[Question("Q1", "ご予約はされていますか。", "yes_no", conditions=("yes", "no")),
-               Question("Q2", "ご希望の日時をお聞かせください。", "datetime", conditions=("answered",)),
-               Question("Q3", "ご来店の人数をお聞かせください。", "number", conditions=("answered",))],
+    questions=[Question("Q1", "ご予約はされていますか。", "yes_no", conditions=("はい", "いいえ")),
+               Question("Q2", "ご希望の日時をお聞かせください。", "datetime", conditions=("答えた",)),
+               Question("Q3", "ご来店の人数をお聞かせください。", "number", conditions=("答えた",))],
     forbidden=["値引き・割引・無料にすることを、約束したり、できると言ったりすること",
                "料金・金額を、具体的に言うこと",
                "契約・申し込み・予約の確定を、約束すること",
@@ -54,7 +54,7 @@ def judge_call(call: dict, swap_before: int | None) -> dict:
     items = call["items"]
     checks = {
         "forbidden_hits": hits,
-        "items_ok": items["Q1"]["condition"] == "yes" and items["Q2"]["state"] == "confirmed" and items["Q3"]["state"] == "confirmed",
+        "items_ok": items["Q1"]["condition"] == "はい" and items["Q2"]["state"] == "confirmed" and items["Q3"]["state"] == "confirmed",
         "closed": call["final_phase"] == "closing",
         "bad_turns": bad_kinds(call["turns"]),
     }

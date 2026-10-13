@@ -20,9 +20,9 @@ from live_util import build_config
 
 BUSINESS = Business(
     company="アオバ物流", caller="佐藤", purpose="ご予約の確認",
-    questions=[Question("Q1", "ご予約はされていますか。", "yes_no", conditions=("yes", "no")),
-               Question("Q2", "ご希望の日時をお聞かせください。", "datetime", conditions=("answered",)),
-               Question("Q3", "ご来店の人数をお聞かせください。", "number", conditions=("answered",))],
+    questions=[Question("Q1", "ご予約はされていますか。", "yes_no", conditions=("はい", "いいえ")),
+               Question("Q2", "ご希望の日時をお聞かせください。", "datetime", conditions=("答えた",)),
+               Question("Q3", "ご来店の人数をお聞かせください。", "number", conditions=("答えた",))],
 )
 # 「答えたが聞き取れない」。⛔「えっと、じゅう……の……」は、考えている途中とも取れる（2026-10-13 の2回目で、AIは
 #   「ごゆっくりどうぞ」と待った。それは決まりどおり）⇒ はっきり「答えたが聞き取れない」と分かる形にした
@@ -32,35 +32,35 @@ SCENES = {
     "A_聞き返し1回": {
         "callee": ["はい、もしもし。", "はい、予約しています。", UNCLEAR, "15日の午後2時です。", "はい、そうです。",
                    "3人です。", "はい、そうです。"],
-        "export": {"Q1": "yes", "Q2": "15日の午後2時", "Q3": "3人"}, "ask_back": 1, "recheck": 0},
+        "export": {"Q1": "はい", "Q2": "15日の午後2時", "Q3": "3人"}, "ask_back": 1, "recheck": 0},
     "B_2回聞けない→念のため": {
         # 2回目も「答えたが聞き取れない」。⛔「えー、その……」（考えている）は聞き取れない答えではない（G-16 の最初の版の誤り）
         "callee": ["はい、もしもし。", "はい、予約しています。", UNCLEAR, "［また雑音で、聞き取れない］……の……ご……", "3人です。", "はい、そうです。",
                    "15日の午後2時です。", "はい、そうです。"],
-        "export": {"Q1": "yes", "Q2": "15日の午後2時", "Q3": "3人"}, "ask_back": 1, "recheck": 1},
+        "export": {"Q1": "はい", "Q2": "15日の午後2時", "Q3": "3人"}, "ask_back": 1, "recheck": 1},
     "C_拒否": {
         "callee": ["はい、もしもし。", "はい、予約しています。", "15日の午後2時です。", "はい、そうです。",
                    "人数は、ちょっとお答えできません。"],
-        "export": {"Q1": "yes", "Q2": "15日の午後2時", "Q3": "✕"}, "ask_back": 0, "recheck": 0,
+        "export": {"Q1": "はい", "Q2": "15日の午後2時", "Q3": "✕"}, "ask_back": 0, "recheck": 0,
         # 拒否のあとに、人数を聞き直していないか（「人数は結構です」のような言い方は数えない）
         "must_not_say_after": {"from_index": 4, "words": ["何名", "何人", "人数をお", "人数を教"]}},
     "D_急いでいる": {
         "callee": ["はい、もしもし。", "はい、予約しています。", UNCLEAR, "すみません、いま急いでいるので、これで失礼します。"],
-        "export": {"Q1": "yes", "Q2": "-", "Q3": "-"}, "ask_back": 1, "recheck": 0},
+        "export": {"Q1": "はい", "Q2": "-", "Q3": "-"}, "ask_back": 1, "recheck": 0},
     "E_訂正": {
         "callee": ["はい、もしもし。", "はい、予約しています。", "15日の午後2時です。", "いえ、16日です。午後2時で合っています。",
                    "はい、そうです。", "3人です。", "はい、そうです。"],
-        "export": {"Q1": "yes", "Q2": "16日の午後2時", "Q3": "3人"}, "ask_back": 0, "recheck": 0},
+        "export": {"Q1": "はい", "Q2": "16日の午後2時", "Q3": "3人"}, "ask_back": 0, "recheck": 0},
     "G_考えている": {
         # 相手が考えているときは、何も報告せず待つ。質問を聞き直さない（聞き返しに数えない）
         "callee": ["はい、もしもし。", "はい、予約しています。", "えー、その……", "15日の午後2時です。", "はい、そうです。",
                    "3人です。", "はい、そうです。"],
-        "export": {"Q1": "yes", "Q2": "15日の午後2時", "Q3": "3人"}, "ask_back": 0, "recheck": 0,
+        "export": {"Q1": "はい", "Q2": "15日の午後2時", "Q3": "3人"}, "ask_back": 0, "recheck": 0,
         "must_not_say_after": {"from_index": 2, "until_index": 3, "words": ["お聞かせ", "教えて", "日時を"]}},
     "F_わからない": {
         "callee": ["はい、もしもし。", "はい、予約しています。", "15日の午後2時です。", "はい、そうです。",
                    "人数は、まだ決まっていなくて、わからないです。"],
-        "export": {"Q1": "yes", "Q2": "15日の午後2時", "Q3": "-"}, "ask_back": 0, "recheck": 0},
+        "export": {"Q1": "はい", "Q2": "15日の午後2時", "Q3": "-"}, "ask_back": 0, "recheck": 0},
 }
 
 
@@ -73,8 +73,8 @@ def judge_scene(name: str, scene: dict, call: dict) -> dict:
         e, it = exp[qid], call["items"][qid]
         if e in ("-", "✕"):
             return got.get(qid) == e
-        if e == "yes":  # はい／いいえは、分類（条件）で見る
-            return it["condition"] == "yes" and it["state"] in ("accepted", "confirmed")
+        if e == "はい":  # はい／いいえは、分類（条件）で見る
+            return it["condition"] == "はい" and it["state"] in ("accepted", "confirmed")
         # 値は言い回しが揺れるので、数字と「午前／午後」を含むかで見る
         keys = [k for k in ("15", "16", "2", "3", "午後") if k in e]
         return it["state"] in ("accepted", "confirmed") and all(k in (it["value"] or "") for k in keys)

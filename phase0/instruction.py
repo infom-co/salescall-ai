@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from flowctl import Question
+from flowctl import ARG_LABEL, END_LABEL, SYSTEM_LABEL, Question
 
 from phrases import ASK_BACK, RECHECK  # noqa: F401（決まった言い方は phrases.py の1か所。試験からも、ここ経由で読める）
 # プログラムから会話AIへ送る合図の文面（文字で送る。相手には聞こえない）。合図の文面はここだけに置く（DESIGN.md 6-7）
@@ -122,7 +122,8 @@ def system_rules() -> str:
         "- 質問は、プログラムから渡されたものだけを、1つずつ聞きます。言い回しは自然にしてかまいませんが、意味を変えてはいけません。"
         "プログラムの返事に書かれていない質問や話題を、自分から出してはいけません（締めの前に「ほかに何かございますか」と聞くことも含みます）。\n"
         "- 相手が答えたら、必ず record_answer を呼びます。返事に次にすることが書いてあるので、それに従います。\n"
-        "- 相手が「わからない」と答えたら condition_id を unknown に、答えたくないと言ったら refused にして record_answer を呼びます。"
+        f"- 相手が「わからない」と答えたら{ARG_LABEL['condition_id']}を「{SYSTEM_LABEL['unknown']}」に、答えたくないと言ったら"
+        f"「{SYSTEM_LABEL['refused']}」にして record_answer を呼びます。"
         "答えたくないと言われた質問は、二度と聞きません。\n"
         "- 日付・時刻・数・金額・名前・電話番号・メール・住所は、返事に「言い直して」とあれば、返事に書いてある確認の言い方のとおりに言って、"
         "相手の返事を待ちます。相手が返事をしてから confirm_field で報告します（相手の返事を聞く前に報告してはいけません）。\n"
@@ -132,7 +133,8 @@ def system_rules() -> str:
         "- 相手が考えている（「えー」「その」など、まだ答えていない）ときは、何も報告せず、「ごゆっくりどうぞ」とだけ言って待ちます。質問を聞き直してはいけません。\n"
         "- 言い直した値に相手が返事をしたら、record_answer ではなく confirm_field で報告します。\n"
         f"- 返事に「念のための確認」とあれば、「{RECHECK}」と言ってから、その質問をもう1回だけ聞きます。\n"
-        "- 相手が急いでいる・切ろうとしているときは、request_end を callee_hurry で呼びます。通話そのものを断られたら callee_refused_call で呼びます。\n"
+        f"- 相手が急いでいる・切ろうとしているときは、request_end を{ARG_LABEL['reason']}「{END_LABEL['callee_hurry']}」で呼びます。"
+        f"通話そのものを断られたら「{END_LABEL['callee_refused_call']}」で呼びます。\n"
         "- 返事に「締めの言葉」とあれば、お礼を言って終えます。\n"
     )
 

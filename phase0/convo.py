@@ -67,6 +67,7 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                     await send_note(s, barge_in_note(business, *barge_in))  # 録音のどこまでが届いたか
                 if replay != i:  # 送り直しは、相手がもう一度話したのではないので数えない
                     flow.on_callee()
+                log_start = len(flow.log)
                 if isinstance(line, dict):  # 録った相手の声
                     pcm, prate = read_wav_pcm16_mono(HERE / "results" / "callee" / line["wav"])
                     turn = await callee_turn(s, pcm, prate, on_tool_call=flow.handle, timeout_s=90)
@@ -77,7 +78,9 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                 r = turn.summary()
                 audio, rate = bytes(turn.audio), turn.audio_rate or 24000
                 row = {"index": i, "session": sessions, "callee": line, "heard": r["input_transcript"], "intended": r["output_transcript"],
-                       "tool_events": [e for e in r["events"] if e["kind"] == "tool_call"],
+                       # 操作の記録は、流れの制御の記録（中の名前）から取る。時刻はAIからの届いた順に合わせる
+                       "tool_events": [{"at_s": live.get("at_s"), "name": log["op"], "args": log["args"], "reply": log["reply"].get("result")}
+                                       for live, log in zip([e for e in r["events"] if e["kind"] == "tool_call"], flow.log[log_start:])],
                        "first_audio_after_s": r["first_audio_after_s"], "finished_after_s": r["finished_after_s"],
                        "audio_seconds": r["audio_seconds"], "timed_out": turn.timed_out,
                        # AI自身の文字が届いた時刻と、その時点で受け取り済みの声の長さ（文字が声より先に届くかを測る）

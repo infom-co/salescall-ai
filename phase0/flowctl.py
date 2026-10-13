@@ -37,6 +37,24 @@ def normalize_value(qtype: str, value: str | None) -> str | None:
     return v or None
 GOT = ("confirmed", "accepted")  # 「取れた」（4-4）
 
+# ── AIに見せる言葉（唯一の場所）。⛔ 2026-10-13 ユーザー指摘「こちらが英語を使っていませんか？」：指示文・操作の宣言・操作への返事に、
+#    英語の名前（condition_id・unknown・callee_hurry・confirm_required など）が入っていた。AIが英語で自分の動きを声に出した回があった。
+#    ⇒ AIに見せる名前は、すべて日本語にする。中の名前（英字）との置き換えは、AIの入口（Flow.handle）と操作の宣言（tool_declarations）
+#    で、この表だけを使って行う。⚠️ 操作の名前（record_answer など）だけは、道具の決まりで英字のまま。
+#    依頼主が決める選択肢（「はい」「いいえ」など）は、依頼主が書いたまま（日本語）で、置き換えない。
+ARG_LABEL = {"question_id": "質問", "condition_id": "答えの種類", "value": "値", "result": "相手の返事", "correction": "訂正された値",
+             "reason": "理由"}
+SYSTEM_LABEL = {"unknown": "わからない", "refused": "答えたくない"}
+CONFIRM_LABEL = {"affirmed": "合っている", "corrected": "違う値を言われた", "no_answer": "答えなかった"}
+END_LABEL = {"done": "質問が終わった", "callee_hurry": "相手が急いでいる", "callee_refused_call": "通話を断られた"}
+REPLY_KEY_LABEL = {"result": "結果", "message": "次にすること", "question_id": "質問", "question": "質問の文", "value": "値", "say": "言い方"}
+RESULT_LABEL = {"next": "次の質問", "confirm_required": "言い直して確かめる", "rejected": "差し戻し", "ask_back": "聞き返す",
+                "recheck": "念のための確認", "end": "締め", "busy_ask": "引き止めの一言"}
+_FROM_LABEL = {"condition_id": {v: k for k, v in SYSTEM_LABEL.items()}, "result": {v: k for k, v in CONFIRM_LABEL.items()},
+               "reason": {v: k for k, v in END_LABEL.items()}}
+_ARG_FROM_LABEL = {v: k for k, v in ARG_LABEL.items()}
+OPS = ("record_answer", "report_unclear", "confirm_field", "request_end")  # AIが呼べる操作（6-2。宣言は tool_declarations）
+
 
 @dataclass
 class Limits:
@@ -52,11 +70,20 @@ class Question:
     text: str
     type: str                   # 型の一覧の名前（"yes_no" "choice" "datetime" など）
     required: bool = True
-    conditions: tuple = ()      # 業務が宣言した選択肢（システムの2つは足さなくてよい）
+    conditions: tuple = ()      # 業務が宣言した選択肢（依頼主が書いたまま。システムの2つは足さなくてよい）
+
+    def __post_init__(self):
+        clash = set(self.conditions) & (set(SYSTEM_CONDITIONS) | set(SYSTEM_LABEL.values()))
+        assert not clash, f"{self.id} の選択肢が、システムの選択肢と同じ名前です：{clash}"
 
     @property
     def all_conditions(self) -> tuple:
         return tuple(self.conditions) + SYSTEM_CONDITIONS
+
+    @property
+    def labels(self) -> tuple:
+        """AIに見せる選択肢の名前（業務の選択肢はそのまま、システムの2つは日本語の名前）。"""
+        return tuple(self.conditions) + tuple(SYSTEM_LABEL[c] for c in SYSTEM_CONDITIONS)
 
     @property
     def confirm(self) -> bool:
@@ -106,13 +133,28 @@ class Flow:
     def on_callee(self) -> None:
         self.callee_turns += 1
 
-    # ── AIの操作を受ける唯一の入口
+    # ── AIの操作を受ける唯一の入口（AIに見せる言葉＝日本語）。ここで1回だけ中の名前に置き換え、返事を日本語に戻す
     def handle(self, fc) -> dict:
-        args = dict(fc.args or {})
-        fn = getattr(self, f"_op_{fc.name}", None)
-        reply = fn(args) if fn else self._reject(f"{fc.name} という操作はありません。")
-        self.log.append({"op": fc.name, "args": args, "reply": reply, "callee_turns": self.callee_turns})
+        return self._reply_out(self.apply(fc.name, self._args_in(dict(fc.args or {}))))
+
+    # ── 中の名前での入口（handle と試験は、ここを通す）。記録（log）は中の名前で残す
+    def apply(self, name: str, args: dict) -> dict:
+        fn = getattr(self, f"_op_{name}", None)
+        reply = fn(args) if fn else self._reject(f"その操作はありません（使える操作は {'・'.join(OPS)}）。")
+        self.log.append({"op": name, "args": args, "reply": reply, "callee_turns": self.callee_turns})
         return reply
+
+    @staticmethod
+    def _args_in(args: dict) -> dict:
+        out = {}
+        for k, v in args.items():
+            key = _ARG_FROM_LABEL.get(k, k)
+            out[key] = _FROM_LABEL.get(key, {}).get(v, v)
+        return out
+
+    @staticmethod
+    def _reply_out(reply: dict) -> dict:
+        return {REPLY_KEY_LABEL.get(k, k): (RESULT_LABEL.get(v, v) if k == "result" else v) for k, v in reply.items()}
 
     # ── 操作
     def _op_record_answer(self, a: dict) -> dict:
@@ -126,12 +168,13 @@ class Flow:
         q, it = self.questions[qid], self.items[qid]
         cond = a.get("condition_id")
         if cond not in q.all_conditions:
-            return self._reject(f"条件 {cond} は、この質問の選択肢にありません（選べるのは {'、'.join(q.all_conditions)}）。")
+            shown = SYSTEM_LABEL.get(cond, cond)
+            return self._reject(f"{ARG_LABEL['condition_id']}「{shown}」は、この質問の選択肢にありません（選べるのは {'、'.join(q.labels)}）。")
         value = normalize_value(q.type, a.get("value"))
         if value is None and q.type not in CHOICE_TYPES and cond not in SYSTEM_CONDITIONS:
             # ⛔ 2026-10-13 G-25 で見つけた漏れ：値の要る質問で値の無い答えを受け付け、言い直しに「Noneで、よろしいでしょうか。」を
             #    入れていた（確かめない型なら、依頼主へ値の代わりに条件の名前が渡っていた）
-            return self._reject("答えの値がありません。相手が答えた値を value に入れて、もう一度報告してください。")
+            return self._reject(f"答えの値がありません。相手が答えた値を「{ARG_LABEL['value']}」に入れて、もう一度報告してください。")
         it.condition, it.value = cond, value
         if cond == "refused":
             it.set("refused", "相手が答えを拒んだ")
@@ -169,7 +212,7 @@ class Flow:
         result = a.get("result")
         correction = normalize_value(self.questions[qid].type, a.get("correction"))
         if result == "corrected" and correction is None:  # 訂正の値の無い報告は、記録を書き換える前に差し戻す（上と同じ漏れ）
-            return self._reject("訂正された値がありません。相手が言い直した値を correction に入れて、もう一度報告してください。")
+            return self._reject(f"訂正された値がありません。相手が言い直した値を「{ARG_LABEL['correction']}」に入れて、もう一度報告してください。")
         self.awaiting_confirm = None
         if result == "affirmed":
             it.set("confirmed", "相手が肯定した")
@@ -189,7 +232,7 @@ class Flow:
             self.busy_asked = True
             return {"result": "busy_ask", "say": self.busy_ask,
                     "message": f"「{self.busy_ask}」と1回だけ聞いてください。相手が応じたら、いまの質問から続けます。"
-                               "応じなければ、もう一度 request_end を callee_hurry で呼んでください。"}
+                               f"応じなければ、もう一度 request_end を{ARG_LABEL['reason']}「{END_LABEL['callee_hurry']}」で呼んでください。"}
         if reason in ("callee_hurry", "callee_refused_call"):
             self.hurried = True
             self.current, self.phase = None, "closing"
@@ -251,7 +294,8 @@ class Flow:
         if self.awaiting_confirm is not None:
             say = self.awaiting_say
             return (f"いまは {self.awaiting_confirm} の言い直し「{say}」への、相手の返事を待っています。"
-                    "相手が肯定したら confirm_field を affirmed で、違う値を言ったら corrected とその値で報告してください。"
+                    f"相手が肯定したら confirm_field を{ARG_LABEL['result']}「{CONFIRM_LABEL['affirmed']}」で、違う値を言ったら"
+                    f"「{CONFIRM_LABEL['corrected']}」と{ARG_LABEL['correction']}で報告してください。"
                     f"相手がまだ答えていなければ、「{say}」と、もう一度聞いてください。")
         if self.current is None:
             return "質問は終わりです。締めの言葉を言って終えてください。"
@@ -282,21 +326,24 @@ def tool_declarations(questions: list[Question]):
         return types.Schema(type=types.Type.STRING, enum=enum, description=desc)
 
     qids = [q.id for q in questions]
-    conds = sorted({c for q in questions for c in q.all_conditions})
+    conds = sorted({c for q in questions for c in q.labels})
+    A = ARG_LABEL
 
     def fd(name, desc, props, required):
         return types.FunctionDeclaration(name=name, description=desc,
                                          parameters=types.Schema(type=types.Type.OBJECT, properties=props, required=required))
 
     return [types.Tool(function_declarations=[
-        fd("record_answer", "相手の答えを、いまの質問の選択肢に分類して報告する。相手が「わからない」と答えたら unknown、答えを拒んだら refused",
-           {"question_id": s(qids), "condition_id": s(conds), "value": s(desc="聞き取った値（相手の言葉のとおり）")},
-           ["question_id", "condition_id"]),
+        fd("record_answer", "相手の答えを、いまの質問の選択肢に分類して報告する。"
+           f"相手が「わからない」と答えたら「{SYSTEM_LABEL['unknown']}」、答えを拒んだら「{SYSTEM_LABEL['refused']}」",
+           {A["question_id"]: s(qids), A["condition_id"]: s(conds), A["value"]: s(desc="聞き取った値（相手の言葉のとおり）")},
+           [A["question_id"], A["condition_id"]]),
         fd("report_unclear", "相手の答えが聞き取れない・曖昧だったことを報告する",
-           {"question_id": s(qids)}, ["question_id"]),
+           {A["question_id"]: s(qids)}, [A["question_id"]]),
         fd("confirm_field", "言い直した値への、相手の返事を報告する（相手が返事をしてから呼ぶ）",
-           {"question_id": s(qids), "result": s(["affirmed", "corrected", "no_answer"]), "correction": s(desc="訂正された値")},
-           ["question_id", "result"]),
-        fd("request_end", "電話を終えたいときに呼ぶ。相手が急いでいる・切ろうとしているなら callee_hurry、通話自体を断られたなら callee_refused_call",
-           {"reason": s(["done", "callee_hurry", "callee_refused_call"])}, ["reason"]),
+           {A["question_id"]: s(qids), A["result"]: s(list(CONFIRM_LABEL.values())), A["correction"]: s(desc="相手が言い直した値")},
+           [A["question_id"], A["result"]]),
+        fd("request_end", f"電話を終えたいときに呼ぶ。相手が急いでいる・切ろうとしているなら「{END_LABEL['callee_hurry']}」、"
+           f"通話自体を断られたなら「{END_LABEL['callee_refused_call']}」、質問が全部終わったなら「{END_LABEL['done']}」",
+           {A["reason"]: s(list(END_LABEL.values()))}, [A["reason"]]),
     ])]

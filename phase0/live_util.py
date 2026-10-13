@@ -151,8 +151,7 @@ async def _collect_into(r: "TurnResult", session, *, started_at: float, on_tool_
                     for fc in msg.tool_call.function_calls or []:
                         r.tool_calls.append({"name": fc.name, "args": fc.args, "at_s": at()})
                         reply = on_tool_call(fc) if on_tool_call else {"result": "ok"}
-                        r.events.append({"at_s": at(), "kind": "tool_call", "name": fc.name, "args": fc.args,
-                                         "reply": reply.get("result")})
+                        r.events.append({"at_s": at(), "kind": "tool_call", "name": fc.name, "args": fc.args, "reply": reply})
                         responses.append(types.FunctionResponse(id=fc.id, name=fc.name, response=reply))
                     if responses:
                         await session.send_tool_response(function_responses=responses)
