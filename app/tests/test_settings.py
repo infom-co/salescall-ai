@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import json
 import unittest
 import uuid
 
@@ -105,6 +106,84 @@ class AppendOnly(unittest.TestCase):
         n = w.a.in_tenant(OPERATOR, other, lambda tx: tx.one(
             "SELECT count(*) AS n FROM salescall.setting_values WHERE scope <> 'system'"))["n"]
         self.assertEqual(n, 0)
+
+
+def put(w, t, c, key, value, *, scope="client", business=None):
+    w.a.in_client(OPERATOR, t, c, lambda tx: tx.execute(
+        "INSERT INTO salescall.setting_values (key, scope, tenant_id, client_id, business_id, value, status, rationale,"
+        " review_when, set_by) VALUES (%s, %s, %s, %s, %s, %s, 'decided', '依頼主の設定（試験）', '試験', '試験')",
+        (key, scope, t, c, business, json.dumps(value))))
+
+
+def resolved(w, t, c, key, business=None):
+    return w.a.in_client(SYSTEM, t, c, lambda tx: settings.resolve(
+        tx, key, tenant_id=t, client_id=c, business_id=business))
+
+
+class UserDecisions(unittest.TestCase):
+    """2026-10-13 ユーザー決定の値が入っていること。"""
+
+    def test_values(self):
+        v = lambda k: sys_tx(lambda tx: settings.system_value(tx, k))
+        self.assertEqual((v("retry.max_attempts_per_task"), v("quality.mock.calls"), v("stop.ai_rate_limit.backoff")),
+                         (3, 10, [10, 30, 120, 600, 1800]))
+        decided = {r["key"] for r in sys_tx(settings.provisional)}
+        self.assertTrue({"retry.max_attempts_per_task", "quality.mock.calls", "stop.ai_rate_limit.backoff"}.isdisjoint(decided))
+
+
+class PerClientSettings(unittest.TestCase):
+    """依頼主タブごとに設定できる。ただし、システムの上限より緩められない（合成のしかたで決まる。8章）。"""
+
+    def setUp(self):
+        self.w = World(); self.t = self.w.tenant(); self.c = self.w.client(self.t)
+
+    def test_system_value_when_client_has_none(self):
+        self.assertEqual(resolved(self.w, self.t, self.c, "retry.max_attempts_per_task"), 3)
+
+    def test_client_can_tighten_but_not_loosen_the_upper_limit(self):
+        put(self.w, self.t, self.c, "retry.max_attempts_per_task", 2)
+        self.assertEqual(resolved(self.w, self.t, self.c, "retry.max_attempts_per_task"), 2)
+        c2 = self.w.client(self.t)
+        put(self.w, self.t, c2, "retry.max_attempts_per_task", 5)
+        self.assertEqual(resolved(self.w, self.t, c2, "retry.max_attempts_per_task"), 3)  # 5 は効かない
+
+    def test_intervals_and_match_ratios_only_get_stricter(self):
+        put(self.w, self.t, self.c, "gate.unknown_result_min_interval", 3600)       # 短くしようとしても
+        self.assertEqual(resolved(self.w, self.t, self.c, "gate.unknown_result_min_interval"), 86400)
+        put(self.w, self.t, self.c, "quality.mock.min_value_match", 0.99)
+        self.assertEqual(resolved(self.w, self.t, self.c, "quality.mock.min_value_match"), 0.99)
+        put(self.w, self.t, self.c, "quality.mock.calls", 20)
+        self.assertEqual(resolved(self.w, self.t, self.c, "quality.mock.calls"), 20)
+
+    def test_calling_hours_are_the_overlap(self):
+        put(self.w, self.t, self.c, "calling.hours", {
+            "mon": [["08:00", "12:00"], ["13:00", "20:00"]], "tue": [["10:00", "17:00"]], "wed": [], "thu": [["09:00", "18:00"]],
+            "fri": [["09:00", "18:00"]], "sat": [["09:00", "18:00"]], "sun": [], "holiday": []})
+        h = resolved(self.w, self.t, self.c, "calling.hours")
+        self.assertEqual(h["mon"], [["09:00", "12:00"], ["13:00", "18:00"]])  # システムの 9〜18時 の内側だけ
+        self.assertEqual((h["tue"], h["wed"], h["sat"]), ([["10:00", "17:00"]], [], []))  # 土曜はシステムがかけない
+
+    def test_business_layer_and_tenant_layer(self):
+        b, _ = self.w.business_with_version(self.t, self.c)
+        self.w.a.in_tenant(OPERATOR, self.t, lambda tx: tx.execute(
+            "INSERT INTO salescall.setting_values (key, scope, tenant_id, value, status, rationale, review_when, set_by)"
+            " VALUES ('retry.max_attempts_per_task', 'tenant', %s, '2', 'decided', '契約者の決まり', '試験', '試験')", (self.t,)))
+        put(self.w, self.t, self.c, "retry.max_attempts_per_task", 1, scope="business", business=b)
+        self.assertEqual(resolved(self.w, self.t, self.c, "retry.max_attempts_per_task"), 2)
+        self.assertEqual(resolved(self.w, self.t, self.c, "retry.max_attempts_per_task", business=b), 1)
+
+    def test_shared_equipment_values_are_system_only(self):
+        for key in ("stop.ai_rate_limit.backoff", "gate.claim_lifetime", "line.lease", "gate.ai_tpm_limit"):
+            with self.subTest(key=key), self.assertRaises(Rejected):
+                put(self.w, self.t, self.c, key, 1 if key != "stop.ai_rate_limit.backoff" else [5])
+
+    def test_other_client_of_the_same_tenant_cannot_see_the_value(self):
+        put(self.w, self.t, self.c, "retry.max_attempts_per_task", 1)
+        c2 = self.w.client(self.t)
+        n = self.w.a.in_client(OPERATOR, self.t, c2, lambda tx: tx.one(
+            "SELECT count(*) AS n FROM salescall.setting_values WHERE scope = 'client'"))["n"]
+        self.assertEqual(n, 0)
+        self.assertEqual(resolved(self.w, self.t, c2, "retry.max_attempts_per_task"), 3)
 
 
 if __name__ == "__main__":

@@ -113,6 +113,9 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("設定の値の形の確かめを外す", "DROP TRIGGER setting_values_before_insert ON salescall.setting_values",
      ("tests.test_settings.Shapes.test_bad_values_are_rejected",
       "tests.test_settings.Shapes.test_system_only_cannot_be_set_lower")),
+    ("設定の行の見え方を、同じ契約者の中で緩める",
+     "ALTER POLICY setting_scope ON salescall.setting_values USING (scope = 'system' OR tenant_id = salescall.cur_tenant())",
+     ("tests.test_settings.PerClientSettings.test_other_client_of_the_same_tenant_cannot_see_the_value",)),
     ("停止を1回だけ解ける決まりを外す", "DROP INDEX salescall.stop_events_resolved_once",
      ("tests.test_stops.SystemStops.test_a_stop_is_resolved_only_once",)),
 )

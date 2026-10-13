@@ -83,7 +83,11 @@ CREATE TRIGGER stop_events_before_insert BEFORE INSERT ON salescall.stop_events
 -- 行ごとの制限：業務の範囲も、依頼主の範囲と同じく、その依頼主の取引でだけ書ける
 DROP POLICY stop_scope ON salescall.stop_events;
 CREATE POLICY stop_scope ON salescall.stop_events
-  USING (scope = 'system' OR tenant_id = salescall.cur_tenant())
+  -- 依頼主・業務の範囲の行は、その依頼主の取引でだけ読める（同じ契約者のほかの依頼主からも見えない。2026-10-13 に締めた）
+  USING (scope = 'system'
+         OR (scope = 'tenant' AND tenant_id = salescall.cur_tenant())
+         OR (scope IN ('client', 'business') AND tenant_id = salescall.cur_tenant()
+             AND client_id = salescall.cur_client()))
   WITH CHECK ((scope = 'system' AND salescall.cur_tenant() IS NULL)
               OR (scope = 'tenant' AND tenant_id = salescall.cur_tenant())
               OR (scope IN ('client', 'business') AND tenant_id = salescall.cur_tenant()

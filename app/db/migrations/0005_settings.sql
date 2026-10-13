@@ -4,10 +4,15 @@
 -- - 値は追記だけ（版と変更の記録。最新がいまの値）。値ごとに「仮か確定か」「根拠」「いつ見直すか」を必ず持つ。
 --   ⇒ 黙って入る既定値ではない（原則10）。仮の値は一覧で見え、見直しの合図が書いてある。
 -- - 値の正本はこの表だけ。設計書は、この表を指す（同じ数を2か所に書かない）。
+-- - 2026-10-13 ユーザー：「この一覧の項目は、ダッシュボードの設定で、依頼主タブごとに設定できるように」。
+--   ⇒ 依頼主ごとに意味のある設定は、契約者・依頼主・業務の範囲でも値を持てる（合成の種類で、システムの上限より緩められない）。
+--   全依頼主が共有する設備（データベース・会話AIのプロジェクト・回線・見守り役）の値は、システムだけ（依頼主ごとに変えると、
+--   同じ設備に別々の値が当たって、ぶつかる）。
 
 CREATE TYPE salescall.merge_kind AS ENUM (
   'override',      -- 上書き：業務 ＞ 依頼主 ＞ 契約者 ＞ システム共通の順で、最初に値があるもの
   'min',           -- 厳しいほう（上限）：すべての階層のうち、いちばん小さい値
+  'max',           -- 厳しいほう（下限）：すべての階層のうち、いちばん大きい値（間隔・本数・一致の割合の下限など）
   'intersect',     -- 厳しいほう（範囲）：すべての階層の範囲の重なり
   'union',         -- 足し合わせ（禁止）：すべての階層の和
   'system_only'    -- システムだけ：契約者・依頼主・業務からは変えられない
@@ -109,7 +114,11 @@ CREATE TRIGGER setting_definitions_frozen BEFORE UPDATE OR DELETE ON salescall.s
 
 ALTER TABLE salescall.setting_values ENABLE ROW LEVEL SECURITY;
 CREATE POLICY setting_scope ON salescall.setting_values
-  USING (scope = 'system' OR tenant_id = salescall.cur_tenant())
+  -- 依頼主・業務の範囲の行は、その依頼主の取引でだけ読める（同じ契約者のほかの依頼主からも見えない。2026-10-13 に締めた）
+  USING (scope = 'system'
+         OR (scope = 'tenant' AND tenant_id = salescall.cur_tenant())
+         OR (scope IN ('client', 'business') AND tenant_id = salescall.cur_tenant()
+             AND client_id = salescall.cur_client()))
   WITH CHECK ((scope = 'system' AND salescall.cur_tenant() IS NULL)
               OR (scope = 'tenant' AND tenant_id = salescall.cur_tenant())
               OR (scope IN ('client', 'business') AND tenant_id = salescall.cur_tenant()
@@ -130,32 +139,32 @@ INSERT INTO salescall.setting_definitions (key, merge_kind, value_type, meaning,
 ('stop.ai.stop_after_failures', 'system_only', 'integer', '会話AIにつながらないことが何回続いたら、全体を止めるか', 'DESIGN.md 9-1'),
 ('stop.ai.probe_interval', 'system_only', 'seconds', '止めたあと、試しのセッションを開く間隔', 'DESIGN.md 9-1'),
 ('stop.ai.resume_after_successes', 'system_only', 'integer', '試しのセッションが何回続けて開けたら解くか', 'DESIGN.md 9-1'),
-('stop.project_denied.first_wait', 'system_only', 'seconds', 'プロジェクトの利用拒否・枠で止めたあと、1回だけ試すまで待つ時間', 'DESIGN.md 9-1・9章'),
+('stop.ai_rate_limit.backoff', 'system_only', 'integer_list', '会話AIの混雑・1分あたりの上限に当たったとき、次に試すまでの待ち（秒）を、当たるたびに順に使う（最後の値のあとは最後の値のまま）', 'DESIGN.md 9-1・9章'),
 ('stop.flapping.window', 'system_only', 'seconds', 'ばたつき（止まる・解けるの繰り返し）を数える期間', 'DESIGN.md 9-1'),
 ('stop.flapping.wait_multiplier', 'system_only', 'integer', 'ばたつくたびに、解く前の待ちを何倍にするか', 'DESIGN.md 9-1'),
 ('stop.flapping.max_wait', 'system_only', 'seconds', 'ばたつきで伸ばす待ちの上限', 'DESIGN.md 9-1'),
 -- 自動の品質の門（10-1）
-('quality.mock.calls', 'system_only', 'integer', '版を本番に上げる前に流す模擬通話の本数', 'DESIGN.md 10-1'),
-('quality.mock.min_value_match', 'system_only', 'ratio', '模擬通話で、取れた値が正解と一致した割合の下限', 'DESIGN.md 10-1'),
-('quality.mock.min_judgment_match', 'system_only', 'ratio', '模擬通話で、業務の判定が正解と一致した割合の下限', 'DESIGN.md 10-1'),
+('quality.mock.calls', 'max', 'integer', '依頼主の最初の業務を本番に上げる前に流す模擬通話の本数（2026-10-13 ユーザー：依頼主ごとに最初のみ）', 'DESIGN.md 10-1'),
+('quality.mock.min_value_match', 'max', 'ratio', '模擬通話で、取れた値が正解と一致した割合の下限', 'DESIGN.md 10-1'),
+('quality.mock.min_judgment_match', 'max', 'ratio', '模擬通話で、業務の判定が正解と一致した割合の下限', 'DESIGN.md 10-1'),
 ('quality.stage.sizes', 'system_only', 'integer_list', '段階的な立ち上げの各段の件数（会話に至った通話の数。最後の段のあとは全部）', 'DESIGN.md 10-1'),
-('quality.max_ear_disagreement', 'system_only', 'ratio', '2つの耳が食い違った項目の割合の上限', 'DESIGN.md 10-1'),
-('quality.max_unknown_judgments', 'system_only', 'integer', '判定できない（unknown）の件数の上限', 'DESIGN.md 10-1'),
-('quality.max_forbidden_speech', 'system_only', 'integer', '言ってはいけないことの検出（2つの耳で確かめたもの）の件数の上限', 'DESIGN.md 10-1'),
-('quality.max_complaint', 'system_only', 'ratio', '苦情があった通話の割合の上限', 'DESIGN.md 10-1'),
-('quality.max_technical_error', 'system_only', 'ratio', '技術的な失敗の割合の上限', 'DESIGN.md 10-1'),
-('quality.max_verification_failed', 'system_only', 'ratio', '通話後の検証が確かめられなかった割合の上限', 'DESIGN.md 10-1'),
+('quality.max_ear_disagreement', 'min', 'ratio', '2つの耳が食い違った項目の割合の上限', 'DESIGN.md 10-1'),
+('quality.max_unknown_judgments', 'min', 'integer', '判定できない（unknown）の件数の上限', 'DESIGN.md 10-1'),
+('quality.max_forbidden_speech', 'min', 'integer', '言ってはいけないことの検出（2つの耳で確かめたもの）の件数の上限', 'DESIGN.md 10-1'),
+('quality.max_complaint', 'min', 'ratio', '苦情があった通話の割合の上限', 'DESIGN.md 10-1'),
+('quality.max_technical_error', 'min', 'ratio', '技術的な失敗の割合の上限', 'DESIGN.md 10-1'),
+('quality.max_verification_failed', 'min', 'ratio', '通話後の検証が確かめられなかった割合の上限', 'DESIGN.md 10-1'),
 -- 門（5-2・5-2-1）
 ('gate.claim_lifetime', 'system_only', 'seconds', '予約証の期限（予約から発信までの間）', 'DESIGN.md 5-2-1'),
-('gate.unknown_result_min_interval', 'system_only', 'seconds', '結果が分からない試行（technical_error）のあと、同じ連絡先へかけるまでの最小の間隔', 'DESIGN.md 4-2・5-2'),
-('gate.cross_client_interval', 'system_only', 'seconds', '依頼主をまたいで、同じ番号へかけるまでの最小の間隔', 'DESIGN.md 5-2 の5'),
+('gate.unknown_result_min_interval', 'max', 'seconds', '結果が分からない試行（technical_error）のあと、同じ連絡先へかけるまでの最小の間隔', 'DESIGN.md 4-2・5-2'),
+('gate.cross_client_interval', 'max', 'seconds', '依頼主をまたいで、同じ番号へかけるまでの最小の間隔', 'DESIGN.md 5-2 の5'),
 ('gate.denied_retry_wait', 'system_only', 'seconds', '門が待てば変わる理由で通さなかったあと、次に候補に出すまでの待ち', 'DESIGN.md 7-2'),
 ('gate.ai_tpm_limit', 'system_only', 'integer', '会話AIの1つのプロジェクトの、1分あたりの入力トークン数の上限', 'DESIGN.md 5-2 の9'),
 ('gate.ai_tpm_per_call', 'system_only', 'integer', '1本の通話の、1分あたりの入力トークン数の見込み', 'DESIGN.md 5-2 の9'),
 ('gate.ai_tpm_safety', 'system_only', 'ratio', '上限のうち、実際に使ってよい割合（見込みの外れへの余裕）', 'DESIGN.md 5-2 の9'),
 ('gate.ear_tpm_limit', 'system_only', 'integer', '別の耳（通話後の検証）の1分あたりの入力トークン数の上限', 'DESIGN.md 5-2 の9・6-12'),
 ('calling.hours', 'intersect', 'weekly_hours', 'かけてよい曜日と時間帯（日本時間。祝日は holiday）', 'DESIGN.md 5-2 の2・Intent.md 13章'),
-('calling.max_concurrent_calls', 'min', 'integer', '同時に流す通話の本数の上限', 'DESIGN.md 5-2・Intent.md 5-4'),
+('calling.max_concurrent_calls', 'min', 'integer', '同時に流す通話の本数の上限（会話AIの枠から決まる上限。実際の本数は、登録した回線の数でも絞られる：1回線＝同時1本はデータベースの約束）', 'DESIGN.md 5-2・Intent.md 5-4'),
 ('retry.max_attempts_per_task', 'min', 'integer', '1つのタスク（行）に発信してよい回数の上限（再発信の方針はこの内側）', 'DESIGN.md 7-2'),
 -- 通話後の検証と回線の借用
 ('verification.max_retries', 'system_only', 'integer', '通話後の検証を自動でやり直す回数の上限', 'DESIGN.md 5-2-1 の9'),
@@ -173,11 +182,11 @@ INSERT INTO salescall.setting_values (key, scope, value, status, rationale, revi
 ('stop.ai.stop_after_failures', 'system', '3', 'provisional', '1回の失敗は通話中のつなぎ直し（6-7）で吸収する。3本続けば会話AI側の障害とみなす', '本番の最初の1か月のエラーの記録を見て', 'CL-2'),
 ('stop.ai.probe_interval', 'system', '120', 'provisional', '試しのセッションも利用量を使うので、2分に1回に抑えた', '同上', 'CL-2'),
 ('stop.ai.resume_after_successes', 'system', '2', 'provisional', '試しのセッションは本物に近い確かめなので、2回で戻す', '同上', 'CL-2'),
-('stop.project_denied.first_wait', 'system', '1800', 'provisional', '上限は1分あたりで数えられるが、利用拒否（1008）はしばらく続いた（2026-10-12）。30分あけて1回だけ試す', '利用拒否がまた起きたら、その戻り方を見て', 'CL-2'),
+('stop.ai_rate_limit.backoff', 'system', '[10, 30, 120, 600, 1800]', 'decided', '2026-10-13 ユーザー決定：10秒→30秒→2分→10分→30分。10/12 の 1008 は長い利用拒否ではなく、1分あたりの上限に当たっただけ（ユーザー）', '混雑の記録を見て', 'ユーザー'),
 ('stop.flapping.window', 'system', '86400', 'provisional', '1日の中で繰り返すものを、ばたつきとみなす', '本番の最初の1か月の停止の記録を見て', 'CL-2'),
 ('stop.flapping.wait_multiplier', 'system', '2', 'provisional', '繰り返すたびに待ちを2倍にする（よく使われる伸ばし方）', '同上', 'CL-2'),
 ('stop.flapping.max_wait', 'system', '14400', 'provisional', '4時間を上限にする（それ以上は、その日の業務が実質止まる）', '同上', 'CL-2'),
-('quality.mock.calls', 'system', '30', 'provisional', '想定問答の一覧（断る・不在・留守電・怒る・範囲外・AIか聞く など）を一通り、それぞれ数回ずつ流せる本数', 'CL-1 の模擬通話の土台ができて、一度流したあと', 'CL-2'),
+('quality.mock.calls', 'system', '10', 'decided', '2026-10-13 ユーザー決定：依頼主ごとに最初のみ、10本', '模擬通話の土台ができて、一度流したあと', 'ユーザー'),
 ('quality.mock.min_value_match', 'system', '0.95', 'provisional', '20本に1本の取り違えまで。取り違えた値は「取れた」にならず「-」に落ちる作り（4-4）なので、害の向きは安全側', '模擬通話の実測を見て（上げられるなら上げる）', 'CL-2'),
 ('quality.mock.min_judgment_match', 'system', '0.95', 'provisional', '値と同じ考え', '同上', 'CL-2'),
 ('quality.stage.sizes', 'system', '[20, 100]', 'provisional', '最初の20件で大きな誤りを見つけ、100件で割合を見てから全部へ（20件では割合のぶれが大きい）', '最初の業務の立ち上げのあと', 'CL-2'),
@@ -196,8 +205,8 @@ INSERT INTO salescall.setting_values (key, scope, value, status, rationale, revi
 ('gate.ai_tpm_safety', 'system', '0.8', 'provisional', '見込みの外れで利用拒否（1008）にならないよう、上限の8割までにする（65,000 × 0.8 ÷ 7,500 ＝ 同時6本ほど）', '利用拒否が起きないことを確かめながら上げる', 'CL-2'),
 ('gate.ear_tpm_limit', 'system', '20000', 'provisional', 'ユーザーが管理画面で確かめた値（別の耳 gemini-3.5-transcribe-live）', '有料枠に移ったとき', 'CL-2'),
 ('calling.hours', 'system', '{"mon": [["09:00","18:00"]], "tue": [["09:00","18:00"]], "wed": [["09:00","18:00"]], "thu": [["09:00","18:00"]], "fri": [["09:00","18:00"]], "sat": [], "sun": [], "holiday": []}', 'provisional', '発信の相手は法人（Intent.md 3-1）。法人の営業時間に合わせ、平日の9時〜18時、土日祝はかけない。⚠️ Intent.md 18-2 の17（ユーザーが決めること）の仮の値', 'ユーザーが 18-2 の17 を決めたとき', 'CL-2'),
-('calling.max_concurrent_calls', 'system', '6', 'provisional', '会話AIの枠から決まる同時の本数（上の gate.ai_tpm_safety の計算）。回線の数でも絞られる（Rakuten Link は1回線1本）', '有料枠に移ったとき・回線を増やしたとき', 'CL-2'),
-('retry.max_attempts_per_task', 'system', '5', 'provisional', '1つの相手に5回を超えてかけると、迷惑電話と受け取られやすい。再発信の方針（業務ごと）はこの内側で決める', '依頼主の求めと、応答率の実測を見て', 'CL-2'),
+('calling.max_concurrent_calls', 'system', '6', 'provisional', '会話AIの枠から決まる上限（gate.ai_tpm_safety の計算）。⚠️ 実際の同時の本数は回線の数で決まる：2026-10-13 ユーザー「1PC 1本。Rakuten Link は1つずつしか流せない。増やすときはスマホを足す」⇒ いまは回線1つ＝同時1本', '有料枠に移ったとき・回線を増やしたとき', 'CL-2'),
+('retry.max_attempts_per_task', 'system', '3', 'decided', '2026-10-13 ユーザー決定：3回（5回は迷惑電話と受け取られやすい）。再発信の方針（業務ごと）はこの内側', '応答率の実測を見て', 'ユーザー'),
 ('verification.max_retries', 'system', '3', 'provisional', '別の耳の一時的な混雑（503 など）は数回で通ることが多い（CL-1 の G-23）', '検証の失敗の記録を見て', 'CL-2'),
 ('verification.retry_wait', 'system', '600', 'provisional', '混雑が引くのを待つ。10分あけても、次の発信の判断（翌日以降が多い）には間に合う', '同上', 'CL-2'),
 ('line.lease', 'system', '60', 'provisional', 'PCが落ちたと判断するまでの時間。短すぎると、少しの遅れで生きている回線の通話を「結果不明」にしてしまう', '見守り役ができて、実際の延長の間隔を測ったあと', 'CL-2'),

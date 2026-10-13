@@ -83,6 +83,17 @@ class SystemStops(unittest.TestCase):
             w.a.in_system(SYSTEM, lambda tx: stops.resume(tx, e["event_id"], reason="試しの書き込みが続けて成功"))
 
 
+class StopsAreNotVisibleToOtherClients(unittest.TestCase):
+    def test_same_tenant_other_client(self):
+        w = World(); s = w.setup(); s2 = w.setup(tenant=s["tenant"])
+        w.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: stops.stop(
+            tx, scope="client", cause="budget", reason="x", tenant_id=s["tenant"], client_id=s["client"]))
+        n = w.a.in_client(SYSTEM, s2["tenant"], s2["client"], lambda tx: tx.one(
+            "SELECT count(*) AS n FROM salescall.stop_events WHERE scope = 'client'"))["n"]
+        self.assertEqual(n, 0)
+        self.assertEqual(open_for(w, s2), [])
+
+
 class ManualStops(unittest.TestCase):
     def setUp(self):
         self.w = World(); self.s = self.w.setup()
