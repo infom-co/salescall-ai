@@ -68,7 +68,7 @@ def summarize(rows: list[dict]) -> dict:
         rs = [r for r in rows if r["lang"] == lang and "checks" in r]
         out[lang] = {"calls": len(rs), "answer_turns": sum(r["checks"]["answer_turns"] for r in rs),
                      "skipped": sum(r["checks"]["skipped"] for r in rs), "added_month": sum(r["checks"]["added_month"] for r in rs),
-                     "items_ok": sum(r["checks"]["items_ok"] for r in rs)}
+                     "items_ok": sum(r["checks"]["items_ok"] for r in rs), "bad_args": sum(r["checks"]["bad_args"] for r in rs)}
     return out
 
 

@@ -518,13 +518,47 @@ class AIToJapaneseTest(unittest.TestCase):
         r = f.handle(fc("record_answer", 質問="Q2", 答えの種類="答えた", 値="15日の午後2時です。"))
         self.assertEqual((r["結果"], r["値"], r["言い方"]), ("言い直して確かめる", "15日の午後2時", "15日の午後2時で、よろしいでしょうか。"))
         f.on_callee()
-        r = f.handle(fc("confirm_field", 質問="Q2", 相手の返事="合っている"))
+        r = f.handle(fc("confirm_field", 質問="Q2", 返事の種類="合っている"))
         self.assertEqual(r["結果"], "締め")
         self.assertEqual(f.log[-1]["args"], {"question_id": "Q2", "result": "affirmed"})  # 記録は中の名前
         g = Flow(self.business().questions)
         g.handle(fc("record_answer", 質問="Q1", 答えの種類="答えたくない"))
         self.assertEqual(g.export()["Q1"], "✕")
         self.assertEqual(g.handle(fc("request_end", 理由="相手が急いでいる"))["結果"], "締め")
+
+    def test_misspelled_or_missing_args_rejected_before_recording(self):
+        # 2026-10-13 G-26・G-28：AIが項目名を「与えの返事」「合い手の返事」と書き違えた。返事の種類が無いまま受け取り、
+        # 「相手が答えなかった」として、相手が認めた値を「-」にしていた（60回中4回。どれも黙って起きた）
+        from flowctl import Flow
+        for bad in ({"質問": "Q2", "与えの返事": "合っている", "訂正された値": "15日の午後2時"},   # G-28 で実際に届いた形
+                    {"質問": "Q2"},                                                      # 返事の種類が無い
+                    {"質問": "Q2", "返事の種類": "合ってる"},                              # 選択肢に無い値
+                    {"質問": "Q2", "返事の種類": 1}):                                     # 文字でない値
+            f = Flow(self.business().questions)
+            f.handle(fc("record_answer", 質問="Q1", 答えの種類="はい"))
+            f.handle(fc("record_answer", 質問="Q2", 答えの種類="答えた", 値="15日の午後2時です。"))
+            f.on_callee()
+            r = f.handle(fc("confirm_field", **bad))
+            self.assertEqual(r["結果"], "差し戻し", bad)
+            self.assertIn("15日の午後2時で、よろしいでしょうか。", r["次にすること"], bad)  # いま求めていること（_now）も添える
+            self.assertEqual((f.awaiting_confirm, f.items["Q2"].state), ("Q2", "checking"), bad)  # 記録は書き換えない
+            if "与えの返事" in bad:
+                self.assertIn("「与えの返事」という項目は", r["次にすること"])
+                self.assertIn("返事の種類", r["次にすること"])  # 使える項目の名前を言う
+            r = f.handle(fc("confirm_field", 質問="Q2", 返事の種類="合っている"))  # 正しく報告し直せば、受け付ける
+            self.assertEqual((r["結果"], f.items["Q2"].state), ("締め", "confirmed"), bad)
+        f = Flow(self.business().questions)
+        self.assertEqual(f.handle(fc("request_end", 理由="もう切りたい"))["結果"], "差し戻し")
+        self.assertEqual(f.handle(fc("record_answer", 答えの種類="はい"))["結果"], "差し戻し")      # 質問が無い
+        self.assertEqual(f.items["Q1"].state, "empty")
+
+    def test_declarations_and_checks_use_one_table(self):
+        from flowctl import ARG_LABEL, OP_ARGS, tool_declarations
+        decls = {d.name: d for d in tool_declarations(self.business().questions)[0].function_declarations}
+        self.assertEqual(set(decls), set(OP_ARGS))
+        for name, (req, opt) in OP_ARGS.items():
+            self.assertEqual(set(decls[name].parameters.properties), {ARG_LABEL[k] for k in req + opt}, name)
+            self.assertEqual(decls[name].parameters.required, [ARG_LABEL[k] for k in req], name)
 
     def test_no_english_shown_to_ai(self):
         import json
