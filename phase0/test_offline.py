@@ -82,8 +82,9 @@ class FlowTest(unittest.TestCase):
 
     def test_yes_no_accepted_and_advances(self):
         f = self.flow()
-        r = self.call(f, "record_answer", question_id="Q1", condition_id="yes")
+        r = self.call(f, "record_answer", question_id="Q1", condition_id="yes", value="はい、予約しています。")
         self.assertEqual((r["result"], f.current, f.items["Q1"].state), ("next", "Q2", "accepted"))
+        self.assertEqual(f.export()["Q1"], "yes")  # 選択肢の型は、相手の言葉ではなく宣言された選択肢を渡す
 
     def test_wrong_question_and_undeclared_condition_rejected(self):
         f = self.flow()

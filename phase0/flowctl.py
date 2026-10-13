@@ -16,6 +16,8 @@ from dataclasses import dataclass, field
 
 # 型の一覧（Q19）：その場で言い直して確かめる型。DESIGN.md 4-4
 CONFIRM_TYPES = {"date", "time", "datetime", "number", "amount", "name", "phone", "email", "address"}
+# 選択肢で答える型：依頼主へは、相手の言葉ではなく、宣言された選択肢を渡す（7-1b）
+CHOICE_TYPES = {"yes_no", "choice"}
 SYSTEM_CONDITIONS = ("unknown", "refused")
 STATES = ("empty", "heard", "unclear", "checking", "confirmed", "accepted", "unresolved", "refused")
 GOT = ("confirmed", "accepted")  # 「取れた」（4-4）
@@ -197,7 +199,10 @@ class Flow:
             if it.state == "refused":
                 out[qid] = refused_mark
             elif it.state in GOT and it.condition != "unknown":
-                out[qid] = it.value if it.value not in (None, "") else it.condition
+                if self.questions[qid].type in CHOICE_TYPES or it.value in (None, ""):
+                    out[qid] = it.condition  # 選択肢の型は、宣言された選択肢（相手の言葉そのものではない）
+                else:
+                    out[qid] = it.value
             else:
                 out[qid] = unknown_mark
         return out

@@ -6,9 +6,12 @@
   ⛔ AI自身の文字起こしは、口から出た声の確かめに使わない（G-7・G-17：届かない・言い間違いが写らない）。
 - swap_before：その番号の相手の発話の前で、セッションを閉じて開き直す（張り替え。DESIGN.md 6-6・G-5）。
   開き直すときは、instruction.build に流れの制御のいまの位置を渡す。
+- stall_at：AIが止まったときの張り替え（DESIGN.md 6-7 の案）を試す。その番号の相手の発話を古いセッションへ送り、
+  返事を待たずに閉じ、新しいセッションへ同じ発話を送り直す（相手は1回しか話していないので、相手の発話は1回と数える）。
 """
 from __future__ import annotations
 
+import asyncio
 import time
 
 from flowctl import Flow, tool_declarations
@@ -19,10 +22,12 @@ from turn_check import check_ai_turn
 
 
 async def run_call(client, model: str, business: Business, voice_type: str, callee_lines: list[str], *,
-                   swap_before: int | None = None, thinking_budget: int | None = None, use_ear: bool = True) -> dict:
+                   swap_before: int | None = None, stall_at: int | None = None, stall_wait_s: float = 1.0,
+                   thinking_budget: int | None = None, use_ear: bool = True) -> dict:
     flow = Flow(business.questions)
     turns: list[dict] = []
     sessions = 0
+    replay: int | None = None  # 送り直す相手の発話の番号（止まったときの張り替え）
 
     def config():
         voice, text = build(business, voice_type, resume=flow if sessions > 1 else None)
@@ -38,8 +43,16 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                 if swap_before is not None and i == swap_before and sessions == 1:
                     break  # 張り替え：このセッションを閉じて、いまの位置を渡して開き直す
                 line = callee_lines[i]
+                if stall_at is not None and i == stall_at and sessions == 1:
+                    # AIが止まった：古いセッションへ相手の発話を送り、返事を受け取らずに閉じる
+                    flow.on_callee()
+                    await send_text(s, line)
+                    await asyncio.sleep(stall_wait_s)
+                    replay = i
+                    break
                 t = time.monotonic()
-                flow.on_callee()
+                if replay != i:  # 送り直しは、相手がもう一度話したのではないので数えない
+                    flow.on_callee()
                 await send_text(s, line)
                 turn = await collect_turn(s, started_at=t, on_tool_call=flow.handle, timeout_s=90)
                 r = turn.summary()
