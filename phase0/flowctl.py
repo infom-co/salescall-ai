@@ -121,7 +121,12 @@ class Flow:
         cond = a.get("condition_id")
         if cond not in q.all_conditions:
             return self._reject(f"条件 {cond} は、この質問の選択肢にありません（選べるのは {'、'.join(q.all_conditions)}）。")
-        it.condition, it.value = cond, normalize_value(q.type, a.get("value"))
+        value = normalize_value(q.type, a.get("value"))
+        if value is None and q.type not in CHOICE_TYPES and cond not in SYSTEM_CONDITIONS:
+            # ⛔ 2026-10-13 G-25 で見つけた漏れ：値の要る質問で値の無い答えを受け付け、言い直しに「Noneで、よろしいでしょうか。」を
+            #    入れていた（確かめない型なら、依頼主へ値の代わりに条件の名前が渡っていた）
+            return self._reject("答えの値がありません。相手が答えた値を value に入れて、もう一度報告してください。")
+        it.condition, it.value = cond, value
         if cond == "refused":
             it.set("refused", "相手が答えを拒んだ")
             return self._advance("受け付けました（答えたくない）。この質問は二度としません。")
@@ -155,14 +160,17 @@ class Flow:
         if self.callee_turns <= (self.confirm_requested_at or 0):  # I-24：相手の返事が届く前の報告は差し戻す
             return self._reject("相手の返事をまだ聞いていません。言い直したら、相手が返事をするまで待ってから報告してください。")
         it = self.items[qid]
-        self.awaiting_confirm = None
         result = a.get("result")
+        correction = normalize_value(self.questions[qid].type, a.get("correction"))
+        if result == "corrected" and correction is None:  # 訂正の値の無い報告は、記録を書き換える前に差し戻す（上と同じ漏れ）
+            return self._reject("訂正された値がありません。相手が言い直した値を correction に入れて、もう一度報告してください。")
+        self.awaiting_confirm = None
         if result == "affirmed":
             it.set("confirmed", "相手が肯定した")
             return self._advance("確認できました。")
         if result == "corrected" and it.corrections < self.limits.after_correction:
             it.corrections += 1
-            it.value = normalize_value(self.questions[qid].type, a.get("correction"))
+            it.value = correction
             it.set("heard", "相手が訂正した")
             return self._ask_confirm(qid)
         it.set("unresolved", "訂正のあとも合わない" if result == "corrected" else "相手が答えなかった")

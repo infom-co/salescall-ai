@@ -229,6 +229,28 @@ class FlowTest(unittest.TestCase):
         r = self.call(f, "record_answer", question_id="Q1", condition_id="yes")
         self.assertIn("いまの質問は Q3「", r["message"])  # 言い直しを待っていないときは、いまの質問とその文
 
+    def test_value_required_for_value_types(self):
+        # 2026-10-13 G-25：値の無い答えを受け付け、言い直しに「Noneで、よろしいでしょうか。」を入れていた
+        f = self.flow()
+        self.call(f, "record_answer", question_id="Q1", condition_id="yes")          # 選択肢の型は、値が無くてよい
+        r = self.call(f, "record_answer", question_id="Q2", condition_id="answered")  # 値の要る型で値が無い
+        self.assertEqual(r["result"], "rejected")
+        self.assertNotIn("None", r["message"])
+        self.assertEqual((f.items["Q2"].state, f.items["Q2"].value), ("empty", None))  # 記録は書き換えない
+        r = self.call(f, "record_answer", question_id="Q2", condition_id="unknown")   # 「わからない」は値が無くてよい
+        self.assertEqual(r["result"], "end")
+
+    def test_correction_value_required(self):
+        f = self.flow()
+        self.call(f, "record_answer", question_id="Q1", condition_id="yes")
+        self.call(f, "record_answer", question_id="Q2", condition_id="answered", value="15日の午後2時")
+        f.on_callee()
+        r = self.call(f, "confirm_field", question_id="Q2", result="corrected")       # 訂正の値が無い
+        self.assertEqual(r["result"], "rejected")
+        self.assertEqual((f.awaiting_confirm, f.items["Q2"].value, f.items["Q2"].corrections), ("Q2", "15日の午後2時", 0))
+        r = self.call(f, "confirm_field", question_id="Q2", result="corrected", correction="16日の午後2時です。")
+        self.assertEqual((r["result"], r["value"]), ("confirm_required", "16日の午後2時"))
+
     def test_confirm_phrase_is_the_fixed_one(self):
         from phrases import confirm
         f = self.flow()

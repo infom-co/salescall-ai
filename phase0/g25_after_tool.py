@@ -57,6 +57,10 @@ async def check_turns(client, call: dict) -> list[dict]:
         if asked:
             q = BUSINESS.questions[[x.id for x in BUSINESS.questions].index(asked[-1]["args"].get("question_id"))]
             value = normalize_value(q.type, asked[-1]["args"].get("value") or asked[-1]["args"].get("correction"))
+            if value is None:  # 値の無い報告（流れの制御が差し戻す形に直した。直す前の記録の読み直しのため）
+                row["value_missing"] = True
+                out.append(row)
+                continue
             row["value"] = value
             # 値が聞こえなかったと数えるのは、2通りの両方で聞こえなかったときだけ（value_heard_any）。両方で聞こえたか（value_heard_both）も残す
             row["value_heard_both"] = in_all(heard, lambda v: compare_reading(value) in compare_reading(v))
@@ -69,7 +73,7 @@ async def check_turns(client, call: dict) -> list[dict]:
 def summarize(rows: list[dict]) -> dict:
     s = {}
     for name in VARIANTS:
-        rs = [r for r in rows if r.get("variant") == name and "turns_checked" in r]
+        rs = [r for r in rows if r.get("variant") == name and "turns_checked" in r and "check_error" not in r]
         turns = [t for r in rs for t in r["turns_checked"]]
         rb = [t for t in turns if "value" in t]
         s[name] = {"calls": len(rs), "after_tool_turns": len(turns), "head_bad_both": sum(t["head_bad_both"] for t in turns),
@@ -95,16 +99,21 @@ async def run(args) -> dict:
                 try:
                     call = await run_call(client, args.model, BUSINESS, vt, CALLEE, opening_mode="recorded", use_ear=False,
                                           save_audio="all", audio_label=f"G25_{name}_{rep}", **kw)
-                    checked = await check_turns(client, call)
+                except Exception as exc:
+                    call = None
+                    row = {"rep": rep, "type": vt, "variant": name, "error": describe_error(exc)}
+                if call is not None:
                     items = call["items"]
                     checks = {"passed": items["Q2"]["value"] == "15日の午後2時" and items["Q3"]["value"] == "3人"
                               and items["Q2"]["state"] == "confirmed" and items["Q3"]["state"] == "confirmed"}
-                    row = {"rep": rep, "type": vt, "variant": name, "checks": checks, "turns_checked": checked, **call}
-                except Exception as exc:
-                    row = {"rep": rep, "type": vt, "variant": name, "error": describe_error(exc)}
+                    row = {"rep": rep, "type": vt, "variant": name, "checks": checks, **call}
+                    try:  # 聞き分けで誤りが出ても、通話の記録は残す
+                        row["turns_checked"] = await check_turns(client, call)
+                    except Exception as exc:
+                        row["turns_checked"], row["check_error"] = [], describe_error(exc)
                 rows.append(row)
                 tc = row.get("turns_checked", [])
-                say(f"[{rep}] {vt} {name} 項目={row.get('checks', {}).get('passed')} "
+                say(f"[{rep}] {vt} {name} 項目={row.get('checks', {}).get('passed')} 値の無い報告={sum(1 for t in tc if t.get('value_missing'))} "
                     f"値が聞こえた={[t['value_heard_both'] for t in tc if 'value' in t]} 頭の崩れ={sum(t['head_bad_both'] for t in tc)}/{len(tc)} "
                     f"{row.get('error', '')}")
                 await asyncio.sleep(args.pause)
