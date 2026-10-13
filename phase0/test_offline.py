@@ -396,6 +396,15 @@ class CalleeSampleTest(unittest.TestCase):
         self.assertTrue(sample_ok("はい？", "はい？")["ok"])
         self.assertTrue(sample_ok("はい、どちら様ですか？", "はい、どちら様ですか?")["ok"])  # 半角の「?」も同じ
 
+    def test_fillers_and_lexical_questions(self):
+        from make_callee_samples import question_by_words, sample_ok
+        self.assertTrue(sample_ok("あ、はい、どちら様？", "はい、どちら様?")["ok"])          # 頭の「あ」を落としても意味は同じ
+        self.assertTrue(sample_ok("はい、何でしょう？", "はい、なんでしょう。")["ok"])      # 「何」で問いかけと分かる
+        self.assertFalse(sample_ok("はい、予約しています。", "いいえ、予約しています。")["ok"])  # 応答の言葉は必ず比べる
+        self.assertFalse(sample_ok("はい。", "Hey.")["ok"])
+        self.assertTrue(question_by_words("もう一度お願いできますか？"))
+        self.assertFalse(question_by_words("はい？"))
+
     def test_reading_must_match(self):
         from make_callee_samples import sample_ok
         self.assertFalse(sample_ok("はい、予約しています。", "はい、知ってます。")["ok"])

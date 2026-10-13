@@ -60,15 +60,47 @@ def verified(wav: str) -> bool:
     return any(m.get("wav") == wav and m.get("ok") is True for m in made)
 
 
+# 日本語の言葉の種類として範囲が決まっている一覧（業務や場面ごとの一覧ではない）
+ANSWER_WORDS = {"はい", "ええ", "うん", "いいえ", "いえ", "いや"}  # 応答の言葉：答えの向きを決めるので、必ず比べる
+QUESTION_WORDS = {"何", "なに", "なん", "誰", "だれ", "どなた", "どちら", "どっち", "どこ", "どれ", "どの", "どう", "いつ", "いくら",
+                  "なぜ", "どうして", "いかが"}  # 問いかけの言葉
+
+
+def _without_fillers(text: str) -> str:
+    """応答の言葉以外の感動詞（「あ」「えっと」「あの」など）を除く。意味を変えないので、別の耳が落としても数えない。
+    ⛔ 2026-10-13：「あ、はい、どちら様？」の頭の「あ」を別の耳が落として、確かめに落ちていた。"""
+    from jtext import words
+
+    return "".join(w.surface for w in words(text) if not (w.feature.pos1 == "感動詞" and w.surface not in ANSWER_WORDS))
+
+
+def question_by_words(text: str) -> bool:
+    """言葉だけで問いかけと分かるか（問いかけの言葉を含む・文が終助詞「か」で終わる）。「はい？」は分からない。"""
+    from jtext import words
+
+    ws = [w for w in words(text) if w.feature.pos1 != "補助記号"]
+    return any(w.surface in QUESTION_WORDS for w in ws) or (bool(ws) and ws[-1].surface == "か" and ws[-1].feature.pos2 == "終助詞")
+
+
 def sample_ok(text: str, heard: str) -> dict:
-    """作った声の確かめ（読みが合う・問いかけは「？」まで聞こえる）。"""
-    diffs = differences(text, heard)
-    q_need = text.rstrip().endswith(("？", "?"))
+    """作った声の確かめ：(1) 読みが合う（応答の言葉以外の感動詞は数えない） (2) 言葉だけでは問いかけと分からない文（「はい？」）は、
+    別の耳の文字も「？」で終わる（語尾の上がりが聞こえた印）。"""
+    diffs = differences(_without_fillers(text), _without_fillers(heard))
+    q_need = text.rstrip().endswith(("？", "?")) and not question_by_words(text)
     q_ok = (not q_need) or heard.rstrip().endswith(("？", "?"))
     return {"heard": heard, "diffs": diffs, "question_needed": q_need, "question_ok": q_ok, "ok": not diffs and q_ok}
 
 
 async def run(args) -> dict:
+    if args.recheck:  # 確かめの決まりを直したとき：保存した別の耳の文字に、いまの決まりを当て直す（キーを使わない）
+        index = OUT / "index.json"
+        made = json.loads(index.read_text(encoding="utf-8"))
+        for m in made:
+            if "heard" in m:
+                m.update(sample_ok(m["text"], m["heard"]))
+                say(f"{m['voice']} {m['id']}：聞こえた「{m['heard']}」 合格={m['ok']}")
+        index.write_text(json.dumps(made, ensure_ascii=False, indent=2), encoding="utf-8")
+        return {"rechecked": made}
     if args.dry_run:
         for v in CALLEE_VOICES:
             build_config(voice=v, system_instruction=INSTRUCTION)
@@ -123,6 +155,7 @@ def main() -> None:
     p.add_argument("--tries", type=int, default=3, help="別の耳の確かめに通らないとき、作り直す回数の上限")
     p.add_argument("--redo", action="append", choices=sorted(UTTERANCES), help="作ってある声でも作り直す（名指ししたものだけ）")
     p.add_argument("--verify", action="store_true", help="作り直さずに、まだ確かめていない声を確かめだけする")
+    p.add_argument("--recheck", action="store_true", help="保存した別の耳の文字に、いまの確かめの決まりを当て直す（キーを使わない）")
     args = p.parse_args()
     save_result("CALLEE-SAMPLES", asyncio.run(run(args)))
 
