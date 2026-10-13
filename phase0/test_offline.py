@@ -631,7 +631,7 @@ class AIToJapaneseTest(unittest.TestCase):
 class EarCutOffTest(unittest.TestCase):
     """別の耳の接続が途中で切れたとき（2026-10-13 G-22：1006）、途中までの文字を、聞けた結果として返さない。"""
 
-    def fake_client(self, plan):
+    def fake_client(self, plan, send_fails=False):
         import types as T
 
         class Cut(Exception):
@@ -642,7 +642,8 @@ class EarCutOffTest(unittest.TestCase):
                 self.cut = cut
 
             async def send_realtime_input(self, **kw):
-                pass
+                if self.cut and send_fails and kw.get("audio_stream_end"):
+                    raise ConnectionResetError(104, "Connection reset by peer")  # 送る側でも切れた（G-27 の形）
 
             async def receive(self):
                 yield T.SimpleNamespace(server_content=T.SimpleNamespace(
@@ -670,11 +671,11 @@ class EarCutOffTest(unittest.TestCase):
             return Connect(plan[len(attempts) - 1])
         return T.SimpleNamespace(aio=T.SimpleNamespace(live=T.SimpleNamespace(connect=connect))), attempts
 
-    def run_hear(self, plan):
+    def run_hear(self, plan, send_fails=False):
         import asyncio
 
         from listen import hear
-        client, attempts = self.fake_client(plan)
+        client, attempts = self.fake_client(plan, send_fails)
         pcm = b"\x00\x00" * 1600  # 0.1秒
         try:
             return asyncio.run(hear(client, pcm, 16000, "transcribe35", idle_s=0.05, lead_s=0, retry_wait_s=0)), attempts
@@ -684,6 +685,11 @@ class EarCutOffTest(unittest.TestCase):
     def test_cut_once_then_heard(self):
         got, attempts = self.run_hear([True, False])
         self.assertEqual((got, len(attempts)), ("株式会社アオバ物流の佐藤です", 2))  # 1回だけ聞き直す
+
+    def test_cut_on_send_side_also_retried(self):
+        # 2026-10-13 G-27：受け取りで切れたあと、送る側の「接続のリセット」が先に上がり、聞き直しに入らなかった
+        got, attempts = self.run_hear([True, False], send_fails=True)
+        self.assertEqual((got, len(attempts)), ("株式会社アオバ物流の佐藤です", 2))
 
     def test_cut_twice_raises(self):
         got, attempts = self.run_hear([True, True])
