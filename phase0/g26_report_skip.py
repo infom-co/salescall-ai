@@ -16,6 +16,7 @@ import json
 
 from common import base_parser, describe_error, drop_partial, make_client, pick_key, require_python, save_partial, save_result, say
 from convo import run_call
+from flowctl import OP_ARGS, Flow
 from g25_after_tool import BUSINESS
 from instruction import VOICE_TYPES
 
@@ -29,7 +30,9 @@ def judge(call: dict) -> dict:
     turns = [t for t in call["turns"] if t["callee"] in ANSWERS]
     reported = [any(e["name"] == "record_answer" for e in t["tool_events"]) for t in turns]
     values = [e["args"].get("value") for t in call["turns"] for e in t["tool_events"] if e["name"] == "record_answer"]
-    return {"answer_turns": len(turns), "reported": sum(reported), "skipped": len(turns) - sum(reported),
+    # AIが宣言に合わない報告をした回数（項目名の書き違えなど）。流れの制御が受け取るときと同じ確かめで数える
+    bad_args = sum(1 for e in call["flow_log"] if e["op"] in OP_ARGS and Flow._check_args(e["op"], e["args"]))
+    return {"answer_turns": len(turns), "reported": sum(reported), "skipped": len(turns) - sum(reported), "bad_args": bad_args,
             "added_month": sum(1 for v in values if v and "月" in v), "values": values,
             "items_ok": call["items"]["Q2"]["value"] == "15日の午後2時" and call["items"]["Q3"]["value"] == "3人"
             and call["items"]["Q2"]["state"] == "confirmed" and call["items"]["Q3"]["state"] == "confirmed"}
@@ -42,7 +45,8 @@ def summarize(rows: list[dict]) -> dict:
         out[f"{mode}_間{gap:g}秒"] = {"calls": len(rs), "answer_turns": sum(r["checks"]["answer_turns"] for r in rs),
                                      "skipped": sum(r["checks"]["skipped"] for r in rs),
                                      "added_month": sum(r["checks"]["added_month"] for r in rs),
-                                     "items_ok": sum(r["checks"]["items_ok"] for r in rs)}
+                                     "items_ok": sum(r["checks"]["items_ok"] for r in rs),
+                                     "bad_args": sum(r["checks"]["bad_args"] for r in rs)}
     return out
 
 

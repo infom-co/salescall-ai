@@ -43,7 +43,10 @@ GOT = ("confirmed", "accepted")  # 「取れた」（4-4）
 #    ⇒ AIに見せる名前は、すべて日本語にする。中の名前（英字）との置き換えは、AIの入口（Flow.handle）と操作の宣言（tool_declarations）
 #    で、この表だけを使って行う。⚠️ 操作の名前（record_answer など）だけは、道具の決まりで英字のまま。
 #    依頼主が決める選択肢（「はい」「いいえ」など）は、依頼主が書いたまま（日本語）で、置き換えない。
-ARG_LABEL = {"question_id": "質問", "condition_id": "答えの種類", "value": "値", "result": "相手の返事", "correction": "訂正された値",
+#    ⛔ 2026-10-13 G-26・G-28：項目名「相手の返事」を、AIが「与えの返事」「合い手の返事」と書き違えた（日本語の形の confirm_field 60回中4回。
+#    英字の「result」は 82回中0回。「答えの種類」は 89回中0回）。⇒ 「答えの種類」と同じ形の「返事の種類」にした。
+#    書き違えは名前を変えても0にはならない前提で、宣言に無い項目名・選択肢は、すべて差し戻す（Flow.apply の _check_args）。
+ARG_LABEL = {"question_id": "質問", "condition_id": "答えの種類", "value": "値", "result": "返事の種類", "correction": "訂正された値",
              "reason": "理由"}
 SYSTEM_LABEL = {"unknown": "わからない", "refused": "答えたくない"}
 CONFIRM_LABEL = {"affirmed": "合っている", "corrected": "違う値を言われた", "no_answer": "答えなかった"}
@@ -54,7 +57,15 @@ RESULT_LABEL = {"next": "次の質問", "confirm_required": "言い直して確�
 _FROM_LABEL = {"condition_id": {v: k for k, v in SYSTEM_LABEL.items()}, "result": {v: k for k, v in CONFIRM_LABEL.items()},
                "reason": {v: k for k, v in END_LABEL.items()}}
 _ARG_FROM_LABEL = {v: k for k, v in ARG_LABEL.items()}
-OPS = ("record_answer", "report_unclear", "confirm_field", "request_end")  # AIが呼べる操作（6-2。宣言は tool_declarations）
+# AIが呼べる操作（6-2）と、その項目（中の名前）：(必ず要る項目, 無くてもよい項目)。操作の宣言（tool_declarations）と、
+# 受け取ったときの確かめ（Flow._check_args）は、この表だけを使う（宣言と確かめが食い違わないように）
+OP_ARGS = {"record_answer": (("question_id", "condition_id"), ("value",)),
+           "report_unclear": (("question_id",), ()),
+           "confirm_field": (("question_id", "result"), ("correction",)),
+           "request_end": (("reason",), ())}
+OPS = tuple(OP_ARGS)
+# 選択肢が決まっている項目（中の名前 → その表）。答えの種類（condition_id）は質問ごとに違うので、record_answer の中で確かめる
+_ENUM_ARGS = {"result": CONFIRM_LABEL, "reason": END_LABEL}
 
 
 @dataclass
@@ -143,10 +154,34 @@ class Flow:
 
     # ── 中の名前での入口（handle と試験は、ここを通す）。記録（log）は中の名前で残す
     def apply(self, name: str, args: dict) -> dict:
-        fn = getattr(self, f"_op_{name}", None)
-        reply = fn(args) if fn else self._reject(f"その操作はありません（使える操作は {'・'.join(OPS)}）。")
+        if name not in OP_ARGS:
+            reply = self._reject(f"その操作はありません（使える操作は {'・'.join(OPS)}）。")
+        else:
+            why = self._check_args(name, args)
+            reply = self._reject(why) if why else getattr(self, f"_op_{name}")(args)
         self.log.append({"op": name, "args": args, "reply": reply, "callee_turns": self.callee_turns})
         return reply
+
+    @staticmethod
+    def _check_args(name: str, args: dict) -> str | None:
+        """宣言（OP_ARGS）に合わない報告は、記録を書き換える前に、どこが違うかを言って差し戻す。合っていれば None。
+        ⛔ 2026-10-13 G-26・G-28：AIが項目名を書き違えた報告（「与えの返事」）を、そのまま受け取っていた。返事の種類が無いので
+           「相手が答えなかった」とされ、相手が「はい」と認めた値が「-」になった（4回。どれも黙って起きた）。
+           ⇒ 宣言に無い項目名・要る項目の抜け・選択肢に無い値・文字でない値は、すべて差し戻す。"""
+        required, optional = OP_ARGS[name]
+        usable = "・".join(ARG_LABEL[k] for k in required + optional)
+        for k, v in args.items():
+            if k not in required + optional:
+                return f"「{k}」という項目は、{name} にはありません（使える項目は {usable}）。"
+            if v is not None and not isinstance(v, str):
+                return f"「{ARG_LABEL[k]}」は、文字で入れてください。"
+        for k in required:
+            if not (args.get(k) or "").strip():
+                return f"{name} には「{ARG_LABEL[k]}」が要ります（使える項目は {usable}）。"
+        for k, table in _ENUM_ARGS.items():
+            if k in args and args[k] not in table:
+                return f"{ARG_LABEL[k]}「{table.get(args[k], args[k])}」は選べません（選べるのは {'、'.join(table.values())}）。"
+        return None
 
     @staticmethod
     def _args_in(args: dict) -> dict:
@@ -316,7 +351,10 @@ class Flow:
         if self.current is None:
             return "質問は終わりです。締めの言葉を言って終えてください。"
         q = self.questions[self.current]
-        return f"いまの質問は {q.id}「{q.text}」です。"
+        # ⛔ 2026-10-13 G-28：AIが答えを報告せずに言い直し、差し戻されたあと、「いまの質問は Q2 です」としか伝わらず、
+        #    報告しないまま言い直しを繰り返した。⇒ いますることの操作まで書く
+        return (f"いまの質問は {q.id}「{q.text}」です。相手が答えたら record_answer で報告してください"
+                f"（聞き取れなかったら report_unclear）。")
 
     # ── 依頼主へ渡す書き方（7-1b。Q20 の唯一の場所）
     def export(self, unknown_mark: str = "-", refused_mark: str = "✕") -> dict:
@@ -346,6 +384,9 @@ def tool_declarations(questions: list[Question]):
     A = ARG_LABEL
 
     def fd(name, desc, props, required):
+        # 項目と「必ず要る項目」は、受け取ったときの確かめと同じ表（OP_ARGS）から作る
+        req, opt = OP_ARGS[name]
+        assert set(props) == {A[k] for k in req + opt} and required == [A[k] for k in req], name
         return types.FunctionDeclaration(name=name, description=desc,
                                          parameters=types.Schema(type=types.Type.OBJECT, properties=props, required=required))
 
