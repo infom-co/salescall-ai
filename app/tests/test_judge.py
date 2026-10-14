@@ -115,7 +115,12 @@ class CutTable(unittest.TestCase):
     def test_only_conversations_with_people(self):
         self.assertIsNone(classify_cut(Facts("dropped", "callee", True), report(("voicemail",), cut=Cut("ai", False, False))))
         self.assertIsNone(classify_cut(Facts("no_answer", None, False), None))
-        self.assertEqual(classify_cut(Facts("dropped", "callee", True), report(cut=None)), "unclear")
+        self.assertEqual(classify_cut(Facts("dropped", "callee", True), report(cut=None)), "missing")
+
+    def test_missing_cut_facts_are_an_input_error_not_a_refusal(self):
+        """切れ方の材料の報告漏れで、ふつうに終えた相手を営業拒否にしない（材料が無い ≠ 決められない）。"""
+        j = run(rep=report(cut=None))
+        self.assertEqual((j.state, j.dnc_reason, j.disconnect), ("unknown", None, None))
 
     def test_unclear_follows_the_setting(self):
         unclear = dict(facts=Facts("dropped", "unknown", True), rep=report(cut=Cut(None, False, False)), items={})

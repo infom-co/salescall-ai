@@ -70,14 +70,15 @@ class Judgement:
 
 def classify_cut(facts: Facts, report: CallReport | None) -> str | None:
     """切れ方の判定（7-1c。2026-10-14 ユーザー承認）。人と話した通話で、ふつうに終えたのでないときだけ決める。
-    返す値：normal / refused / interrupted / unclear（決められない）。対象でなければ None。"""
+    返す値：normal / refused / interrupted / unclear（材料はあるが決められない）／missing（材料が報告されていない＝入力の誤り）。
+    対象でなければ None。⚠️ missing を unclear と同じに扱わない（報告の書き損じで、ふつうに終えた相手を営業拒否にしない）。"""
     if not facts.reached_answer or facts.end_state not in ("ended", "dropped") or report is None:
         return None
     if not any(p in HUMAN_PARTIES for p in report.parties):
         return None                              # 留守電・自動音声・FAX は、相手の意思が無い
     cut = report.cut
     if cut is None:
-        return "unclear"
+        return "missing"
     if cut.in_closing:
         return "normal"                          # 締めの言葉に入っていた・締めのあと
     if cut.callee_refused_last:
@@ -94,7 +95,7 @@ def classify_cut(facts: Facts, report: CallReport | None) -> str | None:
 def judge(inp: JudgeInput) -> Judgement:
     r, rules = inp.report, inp.rules
     raw_cut = classify_cut(inp.facts, r)
-    cut = raw_cut if raw_cut != "unclear" else ("refused" if inp.unclear_is_refusal else "interrupted")
+    cut = {"unclear": "refused" if inp.unclear_is_refusal else "interrupted", "missing": None}.get(raw_cut, raw_cut)
     complaint = bool(r and r.complaint)
     detail: dict[str, Any] = {"cut": raw_cut, "cut_recorded": cut}
 
@@ -105,6 +106,8 @@ def judge(inp: JudgeInput) -> Judgement:
     # それ以外は入力の誤り（報告を書き損ねた）。決めつけない
     if inp.facts.reached_answer and r is None and inp.facts.end_state != "technical_error":
         return done("unknown", error="相手が出た通話なのに、会話の報告がありません")
+    if raw_cut == "missing":
+        return done("unknown", error="人と話した通話なのに、切れ方の材料（切れた瞬間に話していた人など）が報告されていません")
 
     # (1) 発信の拒否（原則14）
     if (r and r.do_not_call) or cut == "refused":
