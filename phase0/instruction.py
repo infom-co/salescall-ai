@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 
 from flowctl import ARG_LABEL, END_LABEL, GOT, SYSTEM_LABEL, Question
 
-from phrases import APOLOGY, ASK_BACK, RECHECK  # noqa: F401（決まった言い方は phrases.py の1か所。試験からも、ここ経由で読める）
+from phrases import ACKNOWLEDGE, APOLOGY, ASK_BACK, RECHECK  # noqa: F401（決まった言い方は phrases.py の1か所。試験からも、ここ経由で読める）
 # プログラムから会話AIへ送る合図の文面（文字で送る。相手には聞こえない）。合図の文面はここだけに置く（DESIGN.md 6-7）
 CUES = {
     # AIが黙ったとき：1回だけ返事を促す
@@ -121,13 +121,23 @@ def quote_in_text(text: str, names: list[str]) -> str:
 THINKING_RULE = "相手が考えている（「えー」「その」など、まだ答えていない）ときは、何も報告せず、「ごゆっくりどうぞ」とだけ言って待ちます。質問を聞き直してはいけません。"
 
 
-def system_rules() -> str:
-    """システム共通の会話の決まり（6-3 の材料2・3）。業務ごとに書かない。"""
+# 受けの言葉が先の形（ack_first。DESIGN.md 6-15 の案。G-33）の決まり。報告の決まりと、考えている相手への決まりを差し替える
+ACK_FIRST_REPORT = (f"相手が答えたら、まず「{'」「'.join(ACKNOWLEDGE)}」などから、相手の話に合う短い受けの言葉を1つ言いながら、"
+                    "record_answer で報告します（返事を待たずに話し始めてかまいません）。同じ受けの言葉を続けて使いません。"
+                    "「はい」ばかりにしません。返事が届いたら、返事に書いてある言い方のとおりに続けます。受けの言葉を重ねません。")
+ACK_FIRST_THINKING = ("相手が考えている（「えー」「えーと」「その」など、まだ答え終わっていない）ときは、「はい」とだけ短く相づちを打って、"
+                      "相手が話し終えるまで待ちます。何も報告しません。相手の言葉を真似しません。質問を聞き直してはいけません。")
+
+
+def system_rules(ack_first: bool = False) -> str:
+    """システム共通の会話の決まり（6-3 の材料2・3）。業務ごとに書かない。ack_first は受けの言葉が先の形（G-33）。"""
+    report = ACK_FIRST_REPORT if ack_first else "相手が答えたら、必ず record_answer を呼びます。返事に次にすることが書いてあるので、それに従います。"
+    thinking = ACK_FIRST_THINKING if ack_first else THINKING_RULE
     return (
         "会話の決まり：\n"
         "- 質問は、プログラムから渡されたものだけを、1つずつ聞きます。言い回しは自然にしてかまいませんが、意味を変えてはいけません。"
         "プログラムの返事に書かれていない質問や話題を、自分から出してはいけません（締めの前に「ほかに何かございますか」と聞くことも含みます）。\n"
-        "- 相手が答えたら、必ず record_answer を呼びます。返事に次にすることが書いてあるので、それに従います。\n"
+        f"- {report}\n"
         f"- 相手が「わからない」と答えたら{ARG_LABEL['condition_id']}を「{SYSTEM_LABEL['unknown']}」に、答えたくないと言ったら"
         f"「{SYSTEM_LABEL['refused']}」にして record_answer を呼びます。"
         "答えたくないと言われた質問は、二度と聞きません。\n"
@@ -136,7 +146,7 @@ def system_rules() -> str:
         "- 時刻は、午前か午後かを必ずはっきりさせます。相手が言わなかったら「午前と午後、どちらでしょうか」と聞きます。自分で決めてはいけません。\n"
         f"- 相手の答えが聞き取れない・曖昧なときは report_unclear を呼びます。返事が「聞き返す」のときだけ、「{ASK_BACK}」と1回だけ聞き返します。"
         "この言い方だけを使い、言葉を足したり、言い換えたりしません。返事が「-にします」なら、聞き返さずに、返事に書いてある次の質問へ進みます。\n"
-        f"- {THINKING_RULE}\n"
+        f"- {thinking}\n"
         "- 言い直した値に相手が返事をしたら、record_answer ではなく confirm_field で報告します。\n"
         f"- 返事に「念のための確認」とあれば、「{RECHECK}」と言ってから、その質問をもう1回だけ聞きます。\n"
         f"- 相手が急いでいる・切ろうとしているときは、request_end を{ARG_LABEL['reason']}「{END_LABEL['callee_hurry']}」で呼びます。"
@@ -148,7 +158,7 @@ def system_rules() -> str:
     )
 
 
-def build(business: Business, voice_type: str, resume=None, opening_mode: str = "ai") -> tuple[str, str]:
+def build(business: Business, voice_type: str, resume=None, opening_mode: str = "ai", ack_first: bool = False) -> tuple[str, str]:
     """(声の名前, 指示文) を返す。
 
     resume：張り替え・つなぎ直しのとき、流れの制御（flowctl.Flow）を渡す。名乗りの代わりに「いまの位置」を書く（DESIGN.md 6-6）。
@@ -175,7 +185,7 @@ def build(business: Business, voice_type: str, resume=None, opening_mode: str = 
         parts.append(f"相手が電話に出たら、まず「{business.opening()}」と名乗り、続けて最初の質問 {first.id}「{first.text}」を聞きます。")
     else:
         parts.append(position_text(business, resume))
-    parts.append(system_rules())
+    parts.append(system_rules(ack_first))
     if business.forbidden:
         parts.append("言ってはいけないこと（どんなに求められても、言いません。約束もしません）：\n"
                      + "".join(f"- {x}\n" for x in business.forbidden)

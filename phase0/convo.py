@@ -40,18 +40,19 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                    opening_mode: str = "ai", barge_in: tuple[list[str], list[str]] | None = None,
                    thinking_budget: int | None = None, speech_end: dict | None = None, use_ear: bool = True, save_audio: str = "bad",
                    audio_label: str = "", confirm=None, gap_s: float = 0.0, lead_ins: bool = True,
-                   followup_wait_s: float | None = None) -> dict:
+                   followup_wait_s: float | None = None, ack_first: bool = False) -> dict:
     """followup_wait_s：相手の言葉の途中でAIが話し出していたら（CUT_IN_S）、相手の続きの言葉への返事を、次の台詞を送る前に
     この秒数まで、もう1回ぶん待つ（来なければ、相手が黙って待たされたことになる。記録の行は callee={"followup_of": 台詞}）。G-31"""
-    flow = Flow(business.questions, busy_ask=business.busy_ask, lead_ins=lead_ins,
+    # ack_first：受けの言葉が先の形（AIはまず受けの言葉を言い、返事を待たずに報告する。DESIGN.md 6-15 の案・G-33）
+    flow = Flow(business.questions, busy_ask=business.busy_ask, lead_ins=lead_ins, ack_first=ack_first,
                 **({"confirm": confirm} if confirm else {}))  # confirm：言い直しの言い方（G-25 の比べだけ）。lead_ins：G-27
     turns: list[dict] = []
     sessions = 0
     replay: int | None = None  # 送り直す相手の発話の番号（止まったときの張り替え）
 
     def config():
-        voice, text = build(business, voice_type, resume=flow if sessions > 1 else None, opening_mode=opening_mode)
-        return voice, build_config(voice=voice, system_instruction=text, tools=tool_declarations(business.questions),
+        voice, text = build(business, voice_type, resume=flow if sessions > 1 else None, opening_mode=opening_mode, ack_first=ack_first)
+        return voice, build_config(voice=voice, system_instruction=text, tools=tool_declarations(business.questions, non_blocking=ack_first),
                                    thinking_budget=thinking_budget, speech_end=speech_end)
 
     async def add_turn(turn, line, log_start: int, i: int, voice: str) -> None:
@@ -66,6 +67,9 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                "audio_seconds": r["audio_seconds"], "timed_out": turn.timed_out,
                # AI自身の文字が届いた時刻と、その時点で受け取り済みの声の長さ（文字が声より先に届くかを測る）
                "said_events": [{k: e[k] for k in ("at_s", "audio_s", "text") if k in e} for e in r["events"] if e["kind"] == "ai_said"],
+               # 声のまとまりの始まり・返事を送った時刻（受けの言葉が先の形で、受けの言葉と続きの間を測る。G-33）
+               "timeline": [{k: e[k] for k in ("at_s", "kind", "chunk") if k in e} for e in r["events"]
+                            if e["kind"] in ("audio_start", "tool_response_sent", "turn_complete", "interrupted")],
                "phase_after": flow.phase, "current_after": flow.current}
         if use_ear and audio:
             row["ear"] = await hear(client, audio, rate, "transcribe35")
@@ -106,11 +110,11 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                     await asyncio.sleep(gap_s)
                 if isinstance(line, dict):  # 録った相手の声
                     pcm, prate = read_wav_pcm16_mono(HERE / "results" / "callee" / line["wav"])
-                    turn = await callee_turn(s, pcm, prate, on_tool_call=flow.handle, timeout_s=90)
+                    turn = await callee_turn(s, pcm, prate, on_tool_call=flow.handle, timeout_s=90, non_blocking=ack_first)
                 else:
                     t = time.monotonic()
                     await send_text(s, line)
-                    turn = await collect_turn(s, started_at=t, on_tool_call=flow.handle, timeout_s=90)
+                    turn = await collect_turn(s, started_at=t, on_tool_call=flow.handle, timeout_s=90, non_blocking=ack_first)
                 await add_turn(turn, line, log_start, i, voice)
                 if followup_wait_s and turn.first_audio_after_s is not None and turn.first_audio_after_s < CUT_IN_S:
                     log_start = len(flow.log)
@@ -118,7 +122,8 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                     # ⛔ 2026-10-14 G-31 の1回目：無音を送らずに待っていたため、相手の続きの言葉の話し終わりが会話AIに伝わらず、
                     #    返事が来なかった（試験の作りの誤り。本物の電話では無音が流れ続ける）
                     async with silence_while(s, prate if isinstance(line, dict) else 16000):
-                        follow = await collect_turn(s, started_at=time.monotonic(), on_tool_call=flow.handle, timeout_s=followup_wait_s)
+                        follow = await collect_turn(s, started_at=time.monotonic(), on_tool_call=flow.handle, timeout_s=followup_wait_s,
+                                                    non_blocking=ack_first)
                     await add_turn(follow, {"followup_of": line}, log_start, i, voice)
                 i += 1
     return {"voice_type": voice_type, "sessions": sessions, "turns": turns, "flow_log": flow.log,

@@ -118,14 +118,19 @@ class TurnResult:
 
 
 async def collect_turn(session, *, started_at: float, on_tool_call=None, timeout_s: float = 60.0,
-                       nudge_after_s: float | None = None, nudge_text: str | None = None) -> TurnResult:
+                       nudge_after_s: float | None = None, nudge_text: str | None = None,
+                       non_blocking: bool = False, grace_s: float = 3.0) -> TurnResult:
     """1ターン分を受け取る。関数の呼び出しが来たら `on_tool_call(function_call) -> dict` で返事を作って返す。
 
     nudge_after_s：この秒数のあいだ声が出なければ、nudge_text を1回だけ送って返事を促す（AIが黙ったとき。DESIGN.md 6-7）。
     見張りはここだけに置く（相手の声で始まるターンも、文字で始まるターンも、同じ見張りを通る）。
+    non_blocking：答えの報告が「返事を待たない」宣言のとき（受けの言葉が先の形。DESIGN.md 6-15 の案・G-33）。AIは報告しながら受けの
+      言葉を言い、返事は AIが話し終えてから届ける（WHEN_IDLE）。返事を受けた続き（言い直し・次の質問）は、たいてい次のまとまりで届くので、
+      返事を送ったあとに声のまとまりが終わるまで受け取る。同じまとまりの中で続きまで届いたときは、grace_s 秒だけ次を待って終える。
     """
     r = TurnResult()
-    task = asyncio.create_task(_collect_into(r, session, started_at=started_at, on_tool_call=on_tool_call, timeout_s=timeout_s))
+    task = asyncio.create_task(_collect_into(r, session, started_at=started_at, on_tool_call=on_tool_call, timeout_s=timeout_s,
+                                             non_blocking=non_blocking, grace_s=grace_s))
     if nudge_after_s is not None and nudge_text:
         done, _ = await asyncio.wait({task}, timeout=nudge_after_s)
         if not done and r.first_audio_after_s is None:
@@ -136,7 +141,8 @@ async def collect_turn(session, *, started_at: float, on_tool_call=None, timeout
     return r
 
 
-async def _collect_into(r: "TurnResult", session, *, started_at: float, on_tool_call, timeout_s: float) -> None:
+async def _collect_into(r: "TurnResult", session, *, started_at: float, on_tool_call, timeout_s: float,
+                        non_blocking: bool = False, grace_s: float = 3.0) -> None:
     from google.genai import types
 
     audio_after_nudge = False
@@ -150,29 +156,31 @@ async def _collect_into(r: "TurnResult", session, *, started_at: float, on_tool_
         # ⛔ 2026-10-12 の不具合：操作の入ったターンの区切りで受け取りをやめていたため、
         #    返事を受けたAIの声（聞き返し・言い直し）が、次の相手の発話のあとにずれていた。
         awaiting_reply_speech = False
-        while True:
-            async for msg in session.receive():
-                _count(r, msg)
-                if msg.usage_metadata is not None:
-                    r.usage.append(msg.usage_metadata.model_dump(exclude_none=True))
-                if msg.go_away is not None:
-                    r.go_away_time_left.append(str(msg.go_away.time_left))
-                    r.events.append({"at_s": at(), "kind": "go_away", "time_left": str(msg.go_away.time_left)})
-                if msg.session_resumption_update is not None and msg.session_resumption_update.new_handle:
-                    r.resumption_handles.append(msg.session_resumption_update.new_handle)
-                if msg.tool_call is not None:
-                    responses = []
-                    for fc in msg.tool_call.function_calls or []:
-                        r.tool_calls.append({"name": fc.name, "args": fc.args, "at_s": at()})
-                        reply = on_tool_call(fc) if on_tool_call else {"result": "ok"}
-                        r.events.append({"at_s": at(), "kind": "tool_call", "name": fc.name, "args": fc.args, "reply": reply})
-                        responses.append(types.FunctionResponse(id=fc.id, name=fc.name, response=reply))
-                    if responses:
-                        await session.send_tool_response(function_responses=responses)
-                        awaiting_reply_speech = True
-                sc = msg.server_content
-                if sc is None:
-                    continue
+        chunk = 0                  # いま受け取っている声のまとまりの番号（まとまりの終わりごとに増える）
+        resp_chunk = None          # 最後に返事を送ったまとまり（返事を待たない形のとき）
+        audio_after_resp = False   # 返事を送ったあとに、声が届いたか
+        audio_in_chunk = False
+
+        def handle(msg):
+            nonlocal awaiting_reply_speech, audio_after_nudge, resp_chunk, audio_after_resp, audio_in_chunk
+            _count(r, msg)
+            if msg.usage_metadata is not None:
+                r.usage.append(msg.usage_metadata.model_dump(exclude_none=True))
+            if msg.go_away is not None:
+                r.go_away_time_left.append(str(msg.go_away.time_left))
+                r.events.append({"at_s": at(), "kind": "go_away", "time_left": str(msg.go_away.time_left)})
+            if msg.session_resumption_update is not None and msg.session_resumption_update.new_handle:
+                r.resumption_handles.append(msg.session_resumption_update.new_handle)
+            responses = []
+            if msg.tool_call is not None:
+                for fc in msg.tool_call.function_calls or []:
+                    r.tool_calls.append({"name": fc.name, "args": fc.args, "at_s": at()})
+                    reply = on_tool_call(fc) if on_tool_call else {"result": "ok"}
+                    r.events.append({"at_s": at(), "kind": "tool_call", "name": fc.name, "args": fc.args, "reply": reply})
+                    extra = {"scheduling": types.FunctionResponseScheduling.WHEN_IDLE} if non_blocking else {}
+                    responses.append(types.FunctionResponse(id=fc.id, name=fc.name, response=reply, **extra))
+            sc = msg.server_content
+            if sc is not None:
                 if sc.interrupted:
                     r.interrupted = True
                     r.events.append({"at_s": at(), "kind": "interrupted"})
@@ -190,13 +198,54 @@ async def _collect_into(r: "TurnResult", session, *, started_at: float, on_tool_
                         if blob is not None and blob.data:
                             if r.first_audio_after_s is None:
                                 r.first_audio_after_s = at()
+                            if not audio_in_chunk:  # 声のまとまりの始まり（受けの言葉と続きが分かれて届く形で、間を測る）
+                                r.events.append({"at_s": at(), "kind": "audio_start", "chunk": chunk})
+                            audio_in_chunk = True
                             r.audio_mime = r.audio_mime or blob.mime_type
                             r.audio_rate = r.audio_rate or parse_rate(blob.mime_type, 24000)
                             r.audio.extend(blob.data)
                             awaiting_reply_speech = False
+                            if resp_chunk is not None:
+                                audio_after_resp = True
                             if r.nudged:
                                 audio_after_nudge = True
+            return responses
+
+        while True:
+            agen = session.receive()
+            grace = non_blocking and resp_chunk == chunk - 1 and audio_after_resp
+            if grace:
+                # 返事を送ったまとまりの中で、続きの声まで届いていた：次のまとまりが来なければ、ここで終える
+                try:
+                    first = await asyncio.wait_for(agen.__anext__(), timeout=grace_s)
+                except (asyncio.TimeoutError, StopAsyncIteration):
+                    break
+                msgs = [first]
+            else:
+                msgs = []
+
+            async def drain():
+                for m in msgs:
+                    yield m
+                async for m in agen:
+                    yield m
+            async for msg in drain():
+                responses = handle(msg)
+                if responses:
+                    await session.send_tool_response(function_responses=responses)
+                    r.events.append({"at_s": at(), "kind": "tool_response_sent", "chunk": chunk})
+                    if non_blocking:
+                        resp_chunk, audio_after_resp = chunk, False
+                    else:
+                        awaiting_reply_speech = True
             r.events.append({"at_s": at(), "kind": "turn_complete"})
+            had_audio, audio_in_chunk = audio_in_chunk, False
+            chunk += 1
+            if non_blocking and resp_chunk is not None:
+                # 返事を待たない形：返事を送ったあと、続きの声のまとまりが終わるまで受け取る
+                if resp_chunk < chunk - 1 and had_audio:
+                    break       # 返事のあとに始まったまとまりで、声が届いて終わった
+                continue        # まだ続きが来ていない（または同じまとまりで届いた＝次で grace を待つ）
             # 返事を促したのに、まだ声が来ていなければ、促しへの返事（次のターン）まで受け取る
             # （受け取らずに終えると、その返事が次の相手の発話のあとにずれて記録される）
             if not awaiting_reply_speech and not (r.nudged and not audio_after_nudge):
@@ -264,14 +313,14 @@ async def silence_while(session, rate: int = INPUT_RATE, chunk_ms: int = 100):
 
 
 async def callee_turn(session, pcm16: bytes, rate: int, *, on_tool_call=None, timeout_s: float = 60.0,
-                      nudge_after_s: float | None = None, nudge_text: str | None = None) -> TurnResult:
+                      nudge_after_s: float | None = None, nudge_text: str | None = None, non_blocking: bool = False) -> TurnResult:
     """相手の発話1回ぶん：声を送り、話し終わりのあとは無音を送りながら、AIの返事（1ターン）を受け取る。
     待ち時間（first_audio_after_s）は、相手が話し終えた時刻から数える。"""
     await stream_audio(session, pcm16, rate)
     ended = time.monotonic()
     async with silence_while(session, rate):
         return await collect_turn(session, started_at=ended, on_tool_call=on_tool_call, timeout_s=timeout_s,
-                                  nudge_after_s=nudge_after_s, nudge_text=nudge_text)
+                                  nudge_after_s=nudge_after_s, nudge_text=nudge_text, non_blocking=non_blocking)
 
 
 def safe(text: object) -> str:

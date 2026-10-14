@@ -615,8 +615,10 @@ class AIToJapaneseTest(unittest.TestCase):
         allowed = {"record_answer", "report_unclear", "confirm_field", "request_end", "Q1", "Q2"}  # 操作の名前（道具の決まり）と質問の番号
         shown = [build(b, t)[1] for t in ("S2", "L4")]
         shown += [build(b, "S2", opening_mode="recorded")[1]]
-        for d in tool_declarations(b.questions)[0].function_declarations:
-            shown.append(json.dumps(d.model_dump(exclude_none=True), ensure_ascii=False))
+        shown += [build(b, "S2", opening_mode="recorded", ack_first=True)[1]]  # 受けの言葉が先の形（G-33）
+        for nb in (False, True):
+            for d in tool_declarations(b.questions, non_blocking=nb)[0].function_declarations:
+                shown.append(json.dumps(d.model_dump(exclude_none=True), ensure_ascii=False))
         f = Flow(b.questions)
         for name, args in (("record_answer", {"質問": "Q2", "答えの種類": "はい"}), ("record_answer", {"質問": "Q1", "答えの種類": "はい"}),
                            ("record_answer", {"質問": "Q2", "答えの種類": "答えた"}),
@@ -632,7 +634,9 @@ class AIToJapaneseTest(unittest.TestCase):
         h.handle(fc("record_answer", 質問="Q1", 答えの種類="答えたくない"))
         shown.append(position_text(b, h))
         self.assertIn("わからないと言われた", shown[-2])
-        schema_words = {"name", "description", "parameters", "type", "properties", "enum", "required", "OBJECT", "STRING"}  # 宣言の形の名前
+        # 宣言の形の名前（behavior・NON_BLOCKING は道具の決まりの設定で、AIに読ませる言葉ではない）
+        schema_words = {"name", "description", "parameters", "type", "properties", "enum", "required", "OBJECT", "STRING",
+                        "behavior", "NON_BLOCKING"}
         for s in shown:
             words = set(re.findall(r"[A-Za-z_][A-Za-z_0-9]*", s)) - allowed - schema_words
             self.assertEqual(words, set(), s[:200])
@@ -795,6 +799,114 @@ class PauseMeasureTest(unittest.TestCase):
         row = keep_call({"variant": "X"}, {"turns": [], "items": {}}, lambda c: 1 / 0)
         self.assertIn("measure_error", row)  # 数える処理で誤りが出ても、通話の記録は残す
         self.assertIn("turns", row)
+
+
+class CollectTurnTest(unittest.TestCase):
+    """1ターンの受け取り（live_util.collect_turn）：待つ報告の形と、返事を待たない形（受けの言葉が先。G-33）の両方。偽の会話の相手で確かめる。"""
+
+    def session(self, turns):
+        import asyncio
+        import types as T
+
+        class S:
+            def __init__(self):
+                self.turns, self.sent = list(turns), []
+
+            def receive(self):
+                turn = self.turns.pop(0) if self.turns else None
+
+                async def gen():
+                    if turn is None:
+                        await asyncio.sleep(3600)
+                        return
+                    for m in turn:
+                        if m == "返事を待つ":
+                            while not self.sent:
+                                await asyncio.sleep(0.01)
+                            continue
+                        yield m
+                return gen()
+
+            async def send_tool_response(self, function_responses):
+                self.sent.append(function_responses)
+        return S()
+
+    @staticmethod
+    def audio(text):
+        import types as T
+        blob = T.SimpleNamespace(data=b"\x00\x01" * 240, mime_type="audio/pcm;rate=24000")
+        sc = T.SimpleNamespace(interrupted=False, input_transcription=None, output_transcription=T.SimpleNamespace(text=text),
+                               model_turn=T.SimpleNamespace(parts=[T.SimpleNamespace(inline_data=blob)]))
+        return T.SimpleNamespace(usage_metadata=None, go_away=None, session_resumption_update=None, tool_call=None, server_content=sc)
+
+    @staticmethod
+    def tool():
+        import types as T
+        fc = T.SimpleNamespace(id="1", name="record_answer", args={"質問": "Q2"})
+        return T.SimpleNamespace(usage_metadata=None, go_away=None, session_resumption_update=None, server_content=None,
+                                 tool_call=T.SimpleNamespace(function_calls=[fc]))
+
+    def collect(self, sess, non_blocking):
+        import asyncio
+        import time
+
+        from live_util import collect_turn
+        return asyncio.run(collect_turn(sess, started_at=time.monotonic(), on_tool_call=lambda fc: {"result": "ok"},
+                                        timeout_s=5, non_blocking=non_blocking, grace_s=0.2))
+
+    def test_blocking_waits_for_speech_after_reply(self):
+        r = self.collect(self.session([[self.tool()], [self.audio("15日の午後2時で、よろしいでしょうか。")]]), False)
+        self.assertEqual(("".join(r.output_transcript), len(r.tool_calls), r.timed_out), ("15日の午後2時で、よろしいでしょうか。", 1, False))
+
+    def test_non_blocking_ack_then_continuation_in_next_chunk(self):
+        sess = self.session([[self.audio("ありがとうございます。"), self.tool()], [self.audio("確認いたします。15日の午後2時で、よろしいでしょうか。")]])
+        r = self.collect(sess, True)
+        self.assertEqual("".join(r.output_transcript), "ありがとうございます。確認いたします。15日の午後2時で、よろしいでしょうか。")
+        self.assertFalse(r.timed_out)
+        starts = [e for e in r.events if e["kind"] == "audio_start"]
+        self.assertEqual([e["chunk"] for e in starts], [0, 1])  # 受けの言葉と続きの、それぞれの声の始まり
+        self.assertEqual(sess.sent[0][0].scheduling.name, "WHEN_IDLE")  # 返事は、AIが話し終えてから届ける
+
+    def test_non_blocking_all_in_one_chunk_ends_after_grace(self):
+        r = self.collect(self.session([[self.tool(), self.audio("ありがとうございます。確認いたします。")]]), True)
+        self.assertEqual(("".join(r.output_transcript), r.timed_out), ("ありがとうございます。確認いたします。", False))
+
+    def test_non_blocking_declaration_only_for_answer_reports(self):
+        from flowctl import NON_BLOCKING_OPS, Question, tool_declarations
+        qs = [Question("Q1", "日時は。", "datetime", conditions=("答えた",))]
+        for non_blocking in (False, True):
+            decls = {d.name: d for d in tool_declarations(qs, non_blocking=non_blocking)[0].function_declarations}
+            for name, d in decls.items():
+                want = "NON_BLOCKING" if non_blocking and name in NON_BLOCKING_OPS else None
+                self.assertEqual(d.behavior.name if d.behavior else None, want, name)
+
+    def test_ack_first_flow_and_instruction(self):
+        from flowctl import Flow, Question
+        from instruction import Business, build
+        from phrases import ACKNOWLEDGE, LEAD_IN
+        qs = [Question("Q1", "日時は。", "datetime", conditions=("答えた",))]
+        f = Flow(qs, ack_first=True)
+        r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "答えた", "value": "15日"})
+        self.assertTrue(r["say"].startswith(LEAD_IN["言い直しのつなぎ"][0]))  # 受けの言葉を重ねない（つなぎの言葉から）
+        b = Business(company="アオバ物流", caller="佐藤", purpose="ご予約の確認", questions=qs)
+        text = build(b, "S2", ack_first=True)[1]
+        self.assertTrue(all(a in text for a in ACKNOWLEDGE))
+        self.assertNotIn("ごゆっくりどうぞ", text)  # 考えている相手には「はい」と相づち（G-32：黙って待つは採らない）
+        self.assertIn("ごゆっくりどうぞ", build(b, "S2")[1])  # いまの形は変わらない
+
+
+class AckFirstMeasureTest(unittest.TestCase):
+    def test_turn_parts_splits_ack_and_continuation(self):
+        from g33_ack_first import turn_parts
+        t = {"first_audio_after_s": 0.5,
+             "timeline": [{"at_s": 0.5, "kind": "audio_start", "chunk": 0}, {"at_s": 0.6, "kind": "tool_response_sent", "chunk": 0},
+                          {"at_s": 1.1, "kind": "turn_complete"}, {"at_s": 1.4, "kind": "audio_start", "chunk": 1}],
+             "said_events": [{"at_s": 0.7, "text": "ありがとうございます。"}, {"at_s": 1.6, "text": "確認いたします。"}]}
+        self.assertEqual(turn_parts(t), {"first_audio_s": 0.5, "cont_audio_s": 1.4, "first_text": "ありがとうございます。"})
+        t2 = {"first_audio_after_s": 1.2, "timeline": [{"at_s": 1.0, "kind": "tool_response_sent", "chunk": 0},
+                                                      {"at_s": 1.2, "kind": "audio_start", "chunk": 0}],
+              "said_events": [{"at_s": 1.3, "text": "15日で、よろしいでしょうか。"}]}  # 待つ報告の形：続きは無い（最初の声が中身）
+        self.assertEqual(turn_parts(t2)["cont_audio_s"], None)
 
 
 class RetryTest(unittest.TestCase):

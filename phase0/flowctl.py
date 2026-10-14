@@ -70,6 +70,7 @@ OP_ARGS = {"record_answer": (("question_id", "condition_id"), ("value",)),
            "confirm_field": (("question_id", "result"), ("correction",)),
            "request_end": (("reason",), ())}
 OPS = tuple(OP_ARGS)
+NON_BLOCKING_OPS = ("record_answer", "confirm_field")  # 返事を待たない形（ack_first）で、待たない宣言にする操作
 # 選択肢が決まっている項目（中の名前 → その表）。答えの種類（condition_id）は質問ごとに違うので、record_answer の中で確かめる
 _ENUM_ARGS = {"result": CONFIRM_LABEL, "reason": END_LABEL}
 
@@ -127,7 +128,7 @@ class Item:
 
 class Flow:
     def __init__(self, questions: list[Question], limits: Limits | None = None, confirm=confirm_phrase,
-                 busy_ask: str | None = None, lead_ins: bool = True):
+                 busy_ask: str | None = None, lead_ins: bool = True, ack_first: bool = False):
         """confirm：言い直しの言い方を作る関数 (値, 場面, 何回目) → 文（ふだんは phrases.confirm。言い方を比べる試験 G-25 だけが別のものを渡す）。
         busy_ask：相手が「忙しい」と言ったときに1回だけ言う一言（業務設定。None なら丁寧に終える＝既定。Intent.md 9-4）。"""
         self.confirm = confirm
@@ -138,6 +139,9 @@ class Flow:
         # lead_ins：プログラムの返事のあとに話す文の頭に、受けの言葉を置くか（DESIGN.md 6-11。✅ 2026-10-13 ユーザー承認＝既定で置く。
         # 置かない形は、過去の比べの試験（G-25・G-27 の W0）を同じ意味で動かすためだけに残す）
         self.lead_ins = lead_ins
+        # ack_first：AIが、相手が話し終えたらまず自分で受けの言葉を言い、返事を待たずに報告する形（DESIGN.md 6-15 の案。G-33）。
+        # このときは、言い直しの頭を受けの言葉ではなく、つなぎの言葉にする（受けの言葉を2つ重ねない）
+        self.ack_first = ack_first
         self.lead_counts: dict[str, int] = {}
         self.questions = {q.id: q for q in questions}
         self.order = [q.id for q in questions]
@@ -303,7 +307,7 @@ class Flow:
         situation = "聞き取りにくかったあと" if (it.ask_backs or it.corrections or self.phase == "rechecking") else "ふつう"
         n = self.confirm_counts.get(situation, 0)
         self.confirm_counts[situation] = n + 1
-        say = self.awaiting_say = self._lead("言い直し") + self.confirm(it.value, situation, n)
+        say = self.awaiting_say = self._lead("言い直しのつなぎ" if self.ack_first else "言い直し") + self.confirm(it.value, situation, n)
         return {"result": "confirm_required", "value": it.value, "say": say,
                 "message": f"言い直して確かめます。「{say}」と言って、相手の返事を待ってください。"}
 
@@ -382,8 +386,10 @@ class Flow:
         return out
 
 
-def tool_declarations(questions: list[Question]):
-    """AIが呼べる操作（6-2）の宣言を作る唯一の場所。条件の選択肢は、質問の宣言＋システムの2つ。"""
+def tool_declarations(questions: list[Question], non_blocking: bool = False):
+    """AIが呼べる操作（6-2）の宣言を作る唯一の場所。条件の選択肢は、質問の宣言＋システムの2つ。
+    non_blocking：答えの報告（record_answer・confirm_field）を「返事を待たない」宣言にする（AIは報告しながら受けの言葉を言える。
+    DESIGN.md 6-15 の案。G-33）。聞き返し・終わりの報告は、返事で言うことが決まるので、待つ宣言のまま。"""
     from google.genai import types
 
     def s(enum=None, desc=None):
@@ -397,7 +403,8 @@ def tool_declarations(questions: list[Question]):
         # 項目と「必ず要る項目」は、受け取ったときの確かめと同じ表（OP_ARGS）から作る
         req, opt = OP_ARGS[name]
         assert set(props) == {A[k] for k in req + opt} and required == [A[k] for k in req], name
-        return types.FunctionDeclaration(name=name, description=desc,
+        behavior = types.Behavior.NON_BLOCKING if non_blocking and name in NON_BLOCKING_OPS else None
+        return types.FunctionDeclaration(name=name, description=desc, behavior=behavior,
                                          parameters=types.Schema(type=types.Type.OBJECT, properties=props, required=required))
 
     return [types.Tool(function_declarations=[
