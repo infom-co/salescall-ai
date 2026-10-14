@@ -70,7 +70,7 @@ class Shapes(unittest.TestCase):
                 "INSERT INTO salescall.setting_values (key, scope, tenant_id, client_id, value, status, rationale,"
                 " review_when, set_by) VALUES ('gate.claim_lifetime', 'client', %s, %s, '60', 'decided', 'x', 'x', 'x')",
                 (t, c)))
-        # 範囲の重なりで合成する設定（時間帯）は、依頼主が狭められる
+        # 範囲の重なりで合成する設定（時間帯）は、依頼主ごとの設定で狭められる
         w.a.in_client(OPERATOR, t, c, lambda tx: tx.execute(
             "INSERT INTO salescall.setting_values (key, scope, tenant_id, client_id, value, status, rationale,"
             " review_when, set_by) VALUES ('calling.hours', 'client', %s, %s, %s, 'decided', '依頼主の営業時間', 'x', 'x')",

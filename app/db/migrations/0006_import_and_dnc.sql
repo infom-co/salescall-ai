@@ -90,9 +90,9 @@ INSERT INTO salescall.setting_values (key, scope, value, status, rationale, revi
 ('calling.allow_toll_free', 'system', 'true', 'provisional', '法人の代表番号がフリーダイヤルのことがある。通話料はかからない', 'ユーザーが決めたとき', 'CL-2'),
 ('calling.allow_navi_dial', 'system', 'false', 'provisional', 'ナビダイヤルは通話料がかかり、Rakuten Link の無料通話の対象外（Intent.md 8-4）。自動でかけ続けると費用が膨らむ', 'ユーザーが決めたとき', 'CL-2');
 
--- ═════════ 発信禁止を「相手」ごとに広げる（2026-10-14 ユーザー決定：(b) を必ず＋(c) を依頼主ごとに選べる。DESIGN.md 3-6） ═════════
+-- ═════════ 発信禁止を「相手」ごとに広げる（2026-10-14 ユーザー決定：(b) を必ず＋(c) を依頼主ごとの設定で選べる。DESIGN.md 3-6） ═════════
 -- (b) 相手が断ったら、その行（タスク）の番号すべてを止める（処理は core/dnc.py の1か所）。
--- (c) 依頼主が「管理番号は相手を表す変わらない番号」と選んだら、管理番号でも止める ⇒ 台帳の1行は「番号」か「管理番号」の
+-- (c) 運営者が依頼主ごとの設定で「管理番号は相手を表す変わらない番号」を「はい」にしたら、管理番号でも止める ⇒ 台帳の1行は「番号」か「管理番号」の
 --     どちらか1つを持つ（台帳は1つのまま。Q3 の答える場所を2つにしない）。
 ALTER TABLE salescall.dnc_entries
   ALTER COLUMN phone_e164 DROP NOT NULL,
@@ -127,5 +127,5 @@ INSERT INTO salescall.setting_definitions (key, merge_kind, value_type, meaning,
  'DESIGN.md 3-6', NULL, NULL);
 INSERT INTO salescall.setting_values (key, scope, value, status, rationale, review_when, set_by) VALUES
 ('dnc.client_ref_is_stable_id', 'system', 'false', 'decided',
- '2026-10-14 ユーザー決定：依頼主ごとに選べる。管理番号が毎回変わるかは依頼主にしか分からないので、初めは「いいえ」（依頼主が選ぶ）',
+ '2026-10-14 ユーザー決定：依頼主ごとの設定で選べる。管理番号が毎回変わるかは依頼主のファイルの作り方によるので、初めは「いいえ」（運営者が確かめて依頼主ごとに「はい」にする）',
  '依頼主ごとに、契約のとき', 'ユーザー');

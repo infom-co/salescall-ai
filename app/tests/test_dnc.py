@@ -158,7 +158,7 @@ def claim_row(w, s, task_id, *, dialing=False):
 
 
 class RefusalScope(unittest.TestCase):
-    """2026-10-14 ユーザー決定：(b) 断った相手の行の番号すべてを止める（必ず）＋(c) 依頼主が選べば管理番号でも止める。"""
+    """2026-10-14 ユーザー決定：(b) 断った相手の行の番号すべてを止める（必ず）＋(c) 依頼主ごとの設定で選べば管理番号でも止める。"""
 
     def setUp(self):
         self.w = World()
@@ -211,7 +211,7 @@ class RefusalScope(unittest.TestCase):
         self.assertEqual(self.outcome(import_rows(self.w, self.s, self.run2, rows)), [("stopped", "dnc_client_ref")])
         ref_entry = in_client(self.w, self.s, lambda tx: tx.one(
             "SELECT entry_id FROM salescall.dnc_entries WHERE client_ref = 'A-1'"))["entry_id"]
-        in_client(self.w, self.s, lambda tx: dnc.revoke(tx, ref_entry, "依頼主が管理番号の付け方を変えた（試験）"),
+        in_client(self.w, self.s, lambda tx: dnc.revoke(tx, ref_entry, "依頼主の管理番号の付け方が変わった（試験）"),
                   actor=OPERATOR)
         self.assertEqual(self.outcome(import_rows(self.w, self.s, self.run2, rows)), [("registered", None)])
 

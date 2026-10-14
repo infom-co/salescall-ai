@@ -8,7 +8,7 @@
   number_unknown（番号が不明）／number_kind_forbidden（システムが決してかけない種類）／
   number_kind_not_allowed（業務の設定でかけない種類：フリーダイヤル・ナビダイヤル）／
   dnc_client（依頼主の発信禁止の番号）／dnc_system（システム共通の発信禁止）／
-  dnc_client_ref（断った相手の管理番号。依頼主が管理番号を「相手を表す変わらない番号」と選んだとき。DESIGN.md 3-6）
+  dnc_client_ref（断った相手の管理番号。依頼主ごとの設定で、管理番号を「相手を表す変わらない番号」としたとき。DESIGN.md 3-6）
 """
 
 from __future__ import annotations

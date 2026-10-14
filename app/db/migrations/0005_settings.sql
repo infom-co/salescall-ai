@@ -35,7 +35,7 @@ CREATE TABLE salescall.setting_definitions (
   CHECK ((bound_key IS NULL) = (bound_side IS NULL))
 );
 
--- 枠は「システムだけ」の、同じ値の形の設定でなければならない（枠を依頼主が動かせたら、枠にならない）
+-- 枠は「システムだけ」の、同じ値の形の設定でなければならない（枠を依頼主ごとの設定で動かせたら、枠にならない）
 CREATE FUNCTION salescall.setting_definition_before_insert() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE b salescall.setting_definitions;
 BEGIN
@@ -158,7 +158,7 @@ GRANT EXECUTE ON FUNCTION salescall.setting_value_ok(salescall.setting_value_typ
 -- ═════════ 定義 ═════════
 -- 先に「超えられない枠」（システムだけ）を作る
 INSERT INTO salescall.setting_definitions (key, merge_kind, value_type, meaning, design_ref) VALUES
-('calling.hours_limit', 'system_only', 'weekly_hours', 'かけてよい時間帯の、超えられない歯止め（深夜・早朝。依頼主の入力の誤りを止める。曜日は依頼主が自由に決める。Intent.md 5-4・13章）', 'DESIGN.md 8章・Intent.md 13章'),
+('calling.hours_limit', 'system_only', 'weekly_hours', 'かけてよい時間帯の、超えられない歯止め（深夜・早朝。依頼主ごとの設定の入力の誤りを止める。曜日は依頼主ごとの設定で自由に決める。Intent.md 5-4・13章）', 'DESIGN.md 8章・Intent.md 13章'),
 ('calling.max_concurrent_calls_limit', 'system_only', 'integer', '同時に流す通話の本数の、超えられない枠（会話AIのプロジェクトの枠から決まる。全依頼主で共有する設備）', 'DESIGN.md 5-2 の9・Intent.md 5-4'),
 ('gate.unknown_result_min_interval_floor', 'system_only', 'seconds', '結果が分からない試行のあと、同じ連絡先へかけるまでの間隔の、超えられない下限（実は話していた相手へ、すぐかけ直す害を防ぐ）', 'DESIGN.md 4-2');
 INSERT INTO salescall.setting_definitions (key, merge_kind, value_type, meaning, design_ref, bound_key, bound_side) VALUES
@@ -209,10 +209,10 @@ INSERT INTO salescall.setting_definitions (key, merge_kind, value_type, meaning,
 
 -- ═════════ 最初の値（根拠と、いつ見直すかつき。ユーザーが決めたものは「確定」） ═════════
 INSERT INTO salescall.setting_values (key, scope, value, status, rationale, review_when, set_by) VALUES
-('calling.hours_limit', 'system', '{"mon": [["07:00","22:00"]], "tue": [["07:00","22:00"]], "wed": [["07:00","22:00"]], "thu": [["07:00","22:00"]], "fri": [["07:00","22:00"]], "sat": [["07:00","22:00"]], "sun": [["07:00","22:00"]], "holiday": [["07:00","22:00"]]}', 'decided', '2026-10-13 ユーザー決定：「店舗が相手の場合があるので、日祝含め、依頼主ごとに自由に設定できる方がいい」⇒ 曜日の制限は外した。残すのは、依頼主の入力の誤り（21:00 を 01:00 と打つ など）で深夜・早朝にかけないための歯止めだけ（毎日 7〜22時。時刻もユーザー決定）', 'Intent.md 13章の確かめのあと', 'ユーザー'),
+('calling.hours_limit', 'system', '{"mon": [["07:00","22:00"]], "tue": [["07:00","22:00"]], "wed": [["07:00","22:00"]], "thu": [["07:00","22:00"]], "fri": [["07:00","22:00"]], "sat": [["07:00","22:00"]], "sun": [["07:00","22:00"]], "holiday": [["07:00","22:00"]]}', 'decided', '2026-10-13 ユーザー決定：「店舗が相手の場合があるので、日祝含め、依頼主ごとに自由に設定できる方がいい」⇒ 曜日の制限は外した。残すのは、依頼主ごとの設定の入力の誤り（21:00 を 01:00 と打つ など）で深夜・早朝にかけないための歯止めだけ（毎日 7〜22時。時刻もユーザー決定）', 'Intent.md 13章の確かめのあと', 'ユーザー'),
 
 ('calling.max_concurrent_calls_limit', 'system', '6', 'provisional', '会話AIの1つのプロジェクトの枠から決まる外枠（65,000 × 0.8 ÷ 7,500 ≒ 6）。全依頼主で共有する設備なので、依頼主が超えられない', '有料枠に移ったとき・回線を増やしたとき', 'CL-2'),
-('gate.unknown_result_min_interval_floor', 'system', '3600', 'provisional', '結果が分からない試行は実は話していた可能性がある。依頼主が間隔を短くしても、1時間より短くはしない（すぐかけ直す害を防ぐ）', '本番の最初の1か月の結果不明の件数を見て', 'CL-2'),
+('gate.unknown_result_min_interval_floor', 'system', '3600', 'provisional', '結果が分からない試行は実は話していた可能性がある。依頼主ごとの設定で間隔を短くしても、1時間より短くはしない（すぐかけ直す害を防ぐ）', '本番の最初の1か月の結果不明の件数を見て', 'CL-2'),
 ('stop.storage.probe_interval', 'system', '30', 'provisional', '保存が戻ったことを早く知りたいが、データベースに負担をかけない間隔', '本番の最初の1か月の停止の記録を見て', 'CL-2'),
 ('stop.storage.resume_after_successes', 'system', '3', 'provisional', '1回の成功は偶然でありうる。3回続けば戻ったとみなせる（30秒間隔で約1分半）', '同上', 'CL-2'),
 ('stop.line.stop_after_failures', 'system', '3', 'provisional', '1〜2回の失敗は相手側の事情でもありうる。3回続けば回線側を疑う', 'Rakuten Link の確かめ（フェーズ0 の R）のあと', 'CL-2'),

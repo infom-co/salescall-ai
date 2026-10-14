@@ -6,7 +6,7 @@
 - **どこまで止めるかを決めるのは `register` の1か所だけ**（2026-10-14 ユーザー決定。DESIGN.md 3-6）：
   相手が断った（`REFUSALS`）ことが、どの通話（試行）で分かったかが渡されたら、
   (b) その行（タスク）の番号すべてを止める（相手が言った別の番号も。番号の一覧は tasks.numbers の1か所）。
-  (c) 依頼主が「管理番号は相手を表す変わらない番号」と選んでいたら（設定 `dnc.client_ref_is_stable_id`）、
+  (c) 運営者が依頼主ごとの設定で「管理番号は相手を表す変わらない番号」を「はい」にしていたら（設定 `dnc.client_ref_is_stable_id`）、
       その行の管理番号も止める（次の一覧で、同じ相手が別の番号で入ってきても止まる）。
   番号違い（wrong_party）は、その番号の持ち主が別の相手だったということなので、その番号だけ（行・管理番号へ広げない）。
 - 同じ番号・同じ管理番号の有効な登録は1つ（2回目の登録は、前の登録をそのまま返す。何度呼んでも同じ結果）。
@@ -100,7 +100,7 @@ def register_system(tx: Tx, phone: PhoneNumber | str, reason: str) -> int:
 def lookup(tx: Tx, e164: str, *, client_ref: str | None = None) -> dict[str, Any] | None:
     """その番号（または、その行の管理番号）が発信禁止なら、どの台帳か（client / system / client_ref）と理由。
 
-    管理番号の登録は、依頼主が設定を「いいえ」に戻しても効く（止める側に倒す。取り消しは人が。DESIGN.md 3-6）。
+    管理番号の登録は、設定を「いいえ」に戻しても効く（止める側に倒す。取り消しは人が。DESIGN.md 3-6）。
     """
     row = tx.one("SELECT reason::text AS reason FROM salescall.dnc_entries WHERE phone_e164 = %s AND revoked_at IS NULL",
                  (e164,))
