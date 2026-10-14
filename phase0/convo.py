@@ -26,17 +26,23 @@ from common import HERE, read_wav_pcm16_mono, write_wav
 from flowctl import Flow, tool_declarations
 from instruction import Business, barge_in_note, build
 from listen import hear
-from live_util import build_config, callee_turn, collect_turn, send_note, send_text
+from live_util import build_config, callee_turn, collect_turn, send_note, send_text, silence_while
 from turn_check import BAD_KINDS, check_ai_turn
 
 AUDIO_DIR = HERE / "results" / "convo_audio"
 
 
+CUT_IN_S = 0.05  # 相手の声を送り終えた直後に、AIの声がもうできていた＝相手の言葉の途中で話し出していた（受け取りの処理は送り終えてから始まる）
+
+
 async def run_call(client, model: str, business: Business, voice_type: str, callee_lines: list, *,
                    swap_before: int | None = None, stall_at: int | None = None, stall_wait_s: float = 1.0,
                    opening_mode: str = "ai", barge_in: tuple[list[str], list[str]] | None = None,
-                   thinking_budget: int | None = None, use_ear: bool = True, save_audio: str = "bad",
-                   audio_label: str = "", confirm=None, gap_s: float = 0.0, lead_ins: bool = False) -> dict:
+                   thinking_budget: int | None = None, speech_end: dict | None = None, use_ear: bool = True, save_audio: str = "bad",
+                   audio_label: str = "", confirm=None, gap_s: float = 0.0, lead_ins: bool = True,
+                   followup_wait_s: float | None = None) -> dict:
+    """followup_wait_s：相手の言葉の途中でAIが話し出していたら（CUT_IN_S）、相手の続きの言葉への返事を、次の台詞を送る前に
+    この秒数まで、もう1回ぶん待つ（来なければ、相手が黙って待たされたことになる。記録の行は callee={"followup_of": 台詞}）。G-31"""
     flow = Flow(business.questions, busy_ask=business.busy_ask, lead_ins=lead_ins,
                 **({"confirm": confirm} if confirm else {}))  # confirm：言い直しの言い方（G-25 の比べだけ）。lead_ins：G-27
     turns: list[dict] = []
@@ -46,7 +52,34 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
     def config():
         voice, text = build(business, voice_type, resume=flow if sessions > 1 else None, opening_mode=opening_mode)
         return voice, build_config(voice=voice, system_instruction=text, tools=tool_declarations(business.questions),
-                                   thinking_budget=thinking_budget)
+                                   thinking_budget=thinking_budget, speech_end=speech_end)
+
+    async def add_turn(turn, line, log_start: int, i: int, voice: str) -> None:
+        """AIの1ターンぶんを記録する唯一の場所。"""
+        r = turn.summary()
+        audio, rate = bytes(turn.audio), turn.audio_rate or 24000
+        row = {"index": i, "session": sessions, "callee": line, "heard": r["input_transcript"], "intended": r["output_transcript"],
+               # 操作の記録は、流れの制御の記録（中の名前）から取る。時刻はAIからの届いた順に合わせる
+               "tool_events": [{"at_s": live.get("at_s"), "name": log["op"], "args": log["args"], "reply": log["reply"].get("result")}
+                               for live, log in zip([e for e in r["events"] if e["kind"] == "tool_call"], flow.log[log_start:])],
+               "first_audio_after_s": r["first_audio_after_s"], "finished_after_s": r["finished_after_s"],
+               "audio_seconds": r["audio_seconds"], "timed_out": turn.timed_out,
+               # AI自身の文字が届いた時刻と、その時点で受け取り済みの声の長さ（文字が声より先に届くかを測る）
+               "said_events": [{k: e[k] for k in ("at_s", "audio_s", "text") if k in e} for e in r["events"] if e["kind"] == "ai_said"],
+               "phase_after": flow.phase, "current_after": flow.current}
+        if use_ear and audio:
+            row["ear"] = await hear(client, audio, rate, "transcribe35")
+        # 見張りは別の耳の文字のあとで当てる（何語を話したかは、口から出た声で決める。turn_check）
+        row["check"] = check_ai_turn(audio=audio, rate=rate, voice=voice, timed_out=turn.timed_out,
+                                     intended_text=r["output_transcript"] or None, heard_text=row.get("ear"))
+        if audio and (save_audio == "all" or (save_audio == "bad" and row["check"]["kind"] in BAD_KINDS)):
+            AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+            label = f"{audio_label}_" if audio_label else ""
+            part = "f" if isinstance(line, dict) and "followup_of" in line else ""
+            path = AUDIO_DIR / f"{time.strftime('%Y%m%d_%H%M%S')}_{label}{voice_type}_{i}{part}_{row['check']['kind']}.wav"
+            write_wav(path, audio, rate)
+            row["audio_file"] = path.name
+        turns.append(row)
 
     i = 0
     while i < len(callee_lines) and flow.phase != "closing":
@@ -78,29 +111,15 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                     t = time.monotonic()
                     await send_text(s, line)
                     turn = await collect_turn(s, started_at=t, on_tool_call=flow.handle, timeout_s=90)
-                r = turn.summary()
-                audio, rate = bytes(turn.audio), turn.audio_rate or 24000
-                row = {"index": i, "session": sessions, "callee": line, "heard": r["input_transcript"], "intended": r["output_transcript"],
-                       # 操作の記録は、流れの制御の記録（中の名前）から取る。時刻はAIからの届いた順に合わせる
-                       "tool_events": [{"at_s": live.get("at_s"), "name": log["op"], "args": log["args"], "reply": log["reply"].get("result")}
-                                       for live, log in zip([e for e in r["events"] if e["kind"] == "tool_call"], flow.log[log_start:])],
-                       "first_audio_after_s": r["first_audio_after_s"], "finished_after_s": r["finished_after_s"],
-                       "audio_seconds": r["audio_seconds"], "timed_out": turn.timed_out,
-                       # AI自身の文字が届いた時刻と、その時点で受け取り済みの声の長さ（文字が声より先に届くかを測る）
-                       "said_events": [{k: e[k] for k in ("at_s", "audio_s", "text") if k in e} for e in r["events"] if e["kind"] == "ai_said"],
-                       "phase_after": flow.phase, "current_after": flow.current}
-                if use_ear and audio:
-                    row["ear"] = await hear(client, audio, rate, "transcribe35")
-                # 見張りは別の耳の文字のあとで当てる（何語を話したかは、口から出た声で決める。turn_check）
-                row["check"] = check_ai_turn(audio=audio, rate=rate, voice=voice, timed_out=turn.timed_out,
-                                             intended_text=r["output_transcript"] or None, heard_text=row.get("ear"))
-                if audio and (save_audio == "all" or (save_audio == "bad" and row["check"]["kind"] in BAD_KINDS)):
-                    AUDIO_DIR.mkdir(parents=True, exist_ok=True)
-                    label = f"{audio_label}_" if audio_label else ""
-                    path = AUDIO_DIR / f"{time.strftime('%Y%m%d_%H%M%S')}_{label}{voice_type}_{i}_{row['check']['kind']}.wav"
-                    write_wav(path, audio, rate)
-                    row["audio_file"] = path.name
-                turns.append(row)
+                await add_turn(turn, line, log_start, i, voice)
+                if followup_wait_s and turn.first_audio_after_s is not None and turn.first_audio_after_s < CUT_IN_S:
+                    log_start = len(flow.log)
+                    # 待つ間も、電話と同じく無音を送り続ける（会話AIは、無音が続くことで相手の話し終わりを知る）
+                    # ⛔ 2026-10-14 G-31 の1回目：無音を送らずに待っていたため、相手の続きの言葉の話し終わりが会話AIに伝わらず、
+                    #    返事が来なかった（試験の作りの誤り。本物の電話では無音が流れ続ける）
+                    async with silence_while(s, prate if isinstance(line, dict) else 16000):
+                        follow = await collect_turn(s, started_at=time.monotonic(), on_tool_call=flow.handle, timeout_s=followup_wait_s)
+                    await add_turn(follow, {"followup_of": line}, log_start, i, voice)
                 i += 1
     return {"voice_type": voice_type, "sessions": sessions, "turns": turns, "flow_log": flow.log,
             "items": {k: {"state": v.state, "value": v.value, "condition": v.condition, "ask_backs": v.ask_backs,

@@ -27,10 +27,13 @@ def build_config(
     enable_resumption: bool = False,
     language_code: str | None = "ja-JP",
     thinking_budget: int | None = None,
+    speech_end: dict | None = None,
 ):
     """Live のセッション設定を作る唯一の場所。
 
     thinking_budget：None＝既定（自動）／0＝考えない／正の数＝考える量の上限。
+    speech_end：相手の話し終わりの判定（None＝既定）。{"sensitivity": "HIGH" か "LOW", "silence_ms": 無音を待つ長さ}。
+      会話の間を縮めるための試験（G-30。DESIGN.md 6-15）。⚠️ 速くすると、相手が言葉の途中で間をあけたときにAIが割り込む。
     ⛔「考えるレベル」（thinking_level）は gemini-3.8-live では受け付けられない（2026-10-12 G-11：1007 で拒否）。
     """
     from google.genai import types
@@ -58,8 +61,19 @@ def build_config(
             types.SessionResumptionConfig(handle=resumption_handle) if (enable_resumption or resumption_handle) else None
         ),
         thinking_config=types.ThinkingConfig(thinking_budget=thinking_budget) if thinking_budget is not None else None,
+        realtime_input_config=_realtime_input(speech_end),
     )
     return cfg
+
+
+def _realtime_input(speech_end: dict | None):
+    from google.genai import types
+
+    if not speech_end:
+        return None
+    sens = {"HIGH": types.EndSensitivity.END_SENSITIVITY_HIGH, "LOW": types.EndSensitivity.END_SENSITIVITY_LOW}
+    return types.RealtimeInputConfig(automatic_activity_detection=types.AutomaticActivityDetection(
+        end_of_speech_sensitivity=sens[speech_end.get("sensitivity", "HIGH")], silence_duration_ms=speech_end.get("silence_ms")))
 
 
 @dataclass
