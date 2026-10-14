@@ -66,6 +66,8 @@ def check(version_id: UUID, required: tuple[str, ...], questions: tuple[str, ...
         raise RulesInvalid("必須の質問が1つもありません（どんな通話でも「すべて取れた」になる。Intent.md 6-4）")
     if not isinstance(raw, dict) or set(raw) != {"decline", "handling", "retry"}:
         raise RulesInvalid("決まりは decline・handling・retry の3つです")
+    if not all(isinstance(raw[k], dict) for k in ("decline", "handling", "retry")):
+        raise RulesInvalid("decline・handling・retry は、どれも表（名前 → 中身）です")
     decline: dict[str, frozenset[str]] = {}
     for q, answers in raw["decline"].items():
         if q not in questions:

@@ -192,6 +192,8 @@ class AfterDenial(unittest.TestCase):
                                               now=NOW, opening=None, retry_wait=300))
         self.assertIsNone(decide_after_denial(self.deny("not_due"), current_promised=False, pacing=P_NONE, now=NOW,
                                               opening=None, retry_wait=300))
+        self.assertIsNone(decide_after_denial(self.deny("no_schedule"), current_promised=False, pacing=P_NONE, now=NOW,
+                                              opening=None, retry_wait=300))   # 予定の無い行に予定を作らない
         d = decide_after_denial(self.deny("dnc_client"), current_promised=True, pacing=P_NONE, now=NOW, opening=None,
                                 retry_wait=300)
         self.assertEqual((d.kind, d.end_reason), ("end", "dnc_client"))
@@ -225,6 +227,9 @@ class Shapes(unittest.TestCase):
                 check(V, ("Q1",), ("Q1", "Q3"), raw)
         with self.assertRaises(RulesInvalid):
             check(V, (), ("Q1",), rules_raw(()))                         # 必須の質問が無い業務
+        for broken in ({"decline": [], "handling": {}, "retry": {}}, {"decline": {}, "handling": "x", "retry": {}}):
+            with self.assertRaises(RulesInvalid):
+                check(V, ("Q1",), ("Q1",), broken)                       # 表でない値も、確かめの中で断る
         self.assertEqual(check(V, ("Q1",), ("Q1",), good).required, ("Q1",))
 
     def test_report_rejects_wrong_shapes(self):

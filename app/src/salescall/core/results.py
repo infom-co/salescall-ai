@@ -2,7 +2,8 @@
 
 - 業務の状態は「結果の版」の最新だけが正本（版が1つも無ければ open）。タスクの行に状態の欄は無い。
 - 結果の版を足すのは、この部品の `append` だけ（I-12。app/checks が見張る）。呼ぶのは：
-  判定（judge_task の結果を記録する側。kind = judged / rejudged）と、検証モードで人が直したとき（kind = human。10章）。
+  締めの処理（core/settle.py。判定 core/judge.py の結果。kind = judged／判定し直し rejudged）と、検証モードで人が直したとき
+  （kind = human。10章）。
 - 結果の版は書き換えない・消さない（データベースが拒む）。番号は 1, 2, 3 … と重ならない。
 """
 

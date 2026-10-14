@@ -31,7 +31,6 @@ from salescall.core.call_report import CallReport
 JUDGE_VERSION = "judge-2026-10-14.1"
 TAKEN = frozenset({"confirmed", "accepted"})                  # 「取れた」の定義（4-4。ここで2つ目を作らない）
 HUMAN_PARTIES = frozenset({"reception", "target", "wrong_party"})
-NOT_ANSWERED = frozenset({"no_answer", "busy", "call_failed", "released"})
 
 
 @dataclass(frozen=True)

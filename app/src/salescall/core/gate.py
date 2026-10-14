@@ -20,7 +20,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from salescall.core import calling_hours, quality_stage, settings, stops, target_policy
+from salescall.core import business_rules, calling_hours, quality_stage, settings, stops, target_policy
 from salescall.core.access import Rejected, Tx
 from salescall.core.calendar import CalendarOutOfRange, holiday_checker
 from salescall.core.phone import normalize
@@ -40,6 +40,7 @@ REASONS: dict[str, tuple[str, str]] = {
     "dnc_client_ref": ("この管理番号の相手は発信禁止です", "permanent"),
     "max_attempts": ("この行に発信してよい回数を使い切りました", "permanent"),
     "no_version": ("実施回に業務設定の版が割り当てられていません", "cannot_judge"),
+    "rules_missing": ("この版の業務の決まり（断りの答え・理由×扱い・再発信の方針）がありません", "cannot_judge"),
     "version_not_ready": ("この版は、まだかけられる段に入っていません（模擬通話・最初の段の前）", "wait"),
     "stage_full": ("いまの段の件数に達しました（次の段へ進むのを待っています）", "wait"),
     "stopped": ("止まっています", "wait"),
@@ -68,6 +69,7 @@ _DIALED = "state NOT IN ('claimed', 'released')"   # 発信まで進んだ試行
 # 同じ相手への最小の間隔・1日の回数に数える発信：相手の意思と関係なく繋がらなかった・切れたものは数えない（2026-10-14 ユーザー決定。
 # 決まりはデータベースの1か所 salescall.not_by_callee）
 _COUNTED = _DIALED + " AND NOT salescall.not_by_callee(state, disconnect, attempt_id)"
+_DIALED_A = "a.state NOT IN ('claimed', 'released')"   # 同じ決まり（表の別名つき）
 
 
 @dataclass(frozen=True)
@@ -204,7 +206,7 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
     # 前の発信の締め（判定の結果の版）が済むまで、次をかけない（予定を誰が書き直しても抜け道にならないよう、
     # 「前の発信に判定の結果があるか」で決める。判定と次の予定は、締めの処理 core/settle.py が1つの取引で書く）
     unsettled = tx.one(
-        f"SELECT 1 FROM salescall.attempts a WHERE a.task_id = %s AND {_DIALED.replace('state', 'a.state')}"
+        f"SELECT 1 FROM salescall.attempts a WHERE a.task_id = %s AND {_DIALED_A}"
         " AND NOT EXISTS (SELECT 1 FROM salescall.task_results r WHERE r.attempt_id = a.attempt_id) LIMIT 1",
         (task["task_id"],))
     if unsettled is not None:
@@ -226,6 +228,10 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
     version = tx.one("SELECT salescall.run_current_version(%s) AS v", (task["run_id"],))["v"]
     if version is None:
         return _deny("no_version")
+    try:   # 判定できない通話をしない：その版の業務の決まりが揃っていなければ通さない（読むのは判定と同じ1か所）
+        business_rules.load(tx, version)
+    except (business_rules.RulesMissing, business_rules.RulesInvalid):
+        return _deny("rules_missing")
     ok, why = quality_stage.allowance(tx, version)
     if not ok:
         return _deny(why)

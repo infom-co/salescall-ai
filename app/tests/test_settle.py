@@ -125,6 +125,17 @@ class Settle(Base):
         got = self.settle(s, aid)
         self.assertEqual((got["state"], got["decision"].end_reason), ("incomplete", "verification_failed"))
 
+    def test_gate_does_not_dial_without_rules(self):
+        """判定できない通話をしない：業務の決まりが無い版では、門が通さない。"""
+        s = self.ready()
+        v2 = self.w.add_version(s["tenant"], s["client"], s["business"], 2)
+        self.tx(s, lambda tx: tx.execute(
+            "INSERT INTO salescall.run_versions (tenant_id, client_id, run_id, business_id, seq, version_id, assigned_by, reason)"
+            " VALUES (%s, %s, %s, %s, 2, %s, '試験', '決まりの無い版')", (s["tenant"], s["client"], s["run"], s["business"], v2)),
+            OPERATOR)
+        self.tx(s, lambda tx: quality_stage.open_stage(tx, v2, 1, None, evidence="試験"), OPERATOR)
+        self.assertEqual(self.reason(s), "rules_missing")
+
     def test_missing_rules_are_not_guessed(self):
         """業務の決まりが無い版でかけた発信は、締めない（既定値で決めない）。何も書かない。"""
         s = self.ready()
@@ -134,7 +145,9 @@ class Settle(Base):
             " VALUES (%s, %s, %s, %s, 2, %s, '試験', '決まりの無い版')", (s["tenant"], s["client"], s["run"], s["business"], v2)),
             OPERATOR)
         self.tx(s, lambda tx: quality_stage.open_stage(tx, v2, 1, None, evidence="試験"), OPERATOR)
-        aid = self.call(s, ["dialing", "no_answer"])
+        aid = self.w.insert_claim(dict(s, version=v2))      # 門を通らずに作った試行（門の守りが外れた場合を試す）
+        for st in ("dialing", "no_answer"):
+            self.w.move(s, aid, st)
         with self.assertRaises(business_rules.RulesMissing):
             self.settle(s, aid)
         self.assertIsNone(self.tx(s, lambda tx: results.latest(tx, s["task"])))

@@ -137,8 +137,8 @@ def decide_after_call(j: Judgement, *, verification: str, normal: gate.Pacing, p
 def decide_after_denial(d: gate.Denied, *, current_promised: bool, pacing: gate.Pacing, now: datetime,
                         opening: datetime | None, retry_wait: int) -> Decision | None:
     """門で止められたあとの次の動き。何も書かないときは None。"""
-    if d.reason in ("awaiting_decision", "not_due"):
-        return None                                  # 締めの処理・いまの予定に任せる（先に書き直さない）
+    if d.reason in ("awaiting_decision", "not_due", "no_schedule"):
+        return None    # 締めの処理・いまの予定に任せる（先に書き直さない）。予定の無い行に、門の答えから予定を作らない
     if d.kind == "permanent":
         return _end(d.reason, f"門：待っても変わらない理由（{d.reason}）")
     if d.reason == "outside_hours":

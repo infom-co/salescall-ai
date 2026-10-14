@@ -214,6 +214,10 @@ class VersionAndStage(Base):
             "INSERT INTO salescall.run_versions (tenant_id, client_id, run_id, business_id, seq, version_id, assigned_by, reason)"
             " VALUES (%s, %s, %s, %s, 2, %s, '試験', '新しい版')", (s["tenant"], s["client"], s["run"], s["business"], v2)),
             OPERATOR)
+        self.tx(s, lambda tx: tx.execute(
+            "INSERT INTO salescall.questions (tenant_id, client_id, version_id, question_id, position, type_name, required)"
+            " VALUES (%s, %s, %s, 'Q1', 1, 'datetime', true)", (s["tenant"], s["client"], v2)), OPERATOR)
+        self.tx(s, lambda tx: business_rules.save(tx, v2, rules_raw()), OPERATOR)   # 決まりは揃っている。段だけが無い
         self.assertEqual(self.reason(s), "version_not_ready")
 
     def test_stage_cap_counts_answered_and_active(self):
