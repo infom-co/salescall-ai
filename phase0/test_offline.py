@@ -1209,6 +1209,7 @@ class AskLadderTest(unittest.TestCase):
         self.assertIn("合うかどうかはプログラムが決めて", text)
         self.assertIn("聞き取れない（何と言ったか分からない）ときだけ report_unclear", text)
         self.assertIn(f"「{CONFIRM_LABEL['restated']}」", text)
+        self.assertIn("直していない部分も足します", text)  # ⛔ G-36 の3回目：「16日」だけが報告され、「午後2時」が落ちた
 
 
 class NeverStuckTest(unittest.TestCase):
