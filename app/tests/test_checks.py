@@ -94,6 +94,15 @@ class SingleWriters(Planted):
         root = self._app({"src/salescall/core/results.py": 't = "task_results"\nSQL = f"INSERT INTO salescall.{t} (x) VALUES (1)"\n'})
         self.assertEqual([v.rule for v in rules.single_writers(root)], ["I-12"])
 
+    def test_tasks_and_contacts_are_created_in_one_place(self):
+        root = self._app({"src/salescall/core/gate.py": 'SQL = "INSERT INTO salescall.tasks (x) VALUES (1)"\n',
+                          "src/salescall/core/conversation_io.py": 'SQL = "INSERT INTO salescall.contacts (x) VALUES (1)"\n',
+                          "src/salescall/core/importer.py": 'SQL = "INSERT INTO salescall.tasks (x) VALUES (1)"\n',
+                          "src/salescall/core/contacts.py": 'SQL = "INSERT INTO salescall.contacts (x) VALUES (1)"\n'})
+        found = rules.single_writers(root)
+        self.assertEqual(sorted(v.path for v in found),
+                         ["src/salescall/core/conversation_io.py", "src/salescall/core/gate.py"])
+
     def test_output_may_write_deliveries(self):
         root = self._app({"src/salescall/output/ledger.py": 'SQL = "UPDATE salescall.deliveries SET state = %s"\n'})
         self.assertEqual(rules.single_writers(root), [])

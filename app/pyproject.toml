@@ -6,6 +6,8 @@ description = "SalesCall AI の本番のコード（設計：Intent.md・docs/DE
 requires-python = ">=3.13,<3.14"
 dependencies = [
     "psycopg[binary]==3.2.10",   # PostgreSQL へつなぐ部品（使ってよいのは読み書きの層だけ。DESIGN.md 11章・I-31）
+    "openpyxl==3.1.5",           # xlsx（Excel）の読み込み（発信対象の取込。core/import_files.py だけが使う）
+    "defusedxml==0.7.1",         # openpyxl が xlsx の中の XML を安全に読むために使う（悪意のある XML で止まらない）
 ]
 
 [build-system]

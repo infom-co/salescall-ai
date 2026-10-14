@@ -54,6 +54,7 @@ class PhoneNumber:
     e164: str | None          # 例 "+81300000001"（日本の番号で、そろえられたときだけ）
     national: str | None      # 例 "0300000001"（同上）
     reason: str | None = None  # 不明・かけない種類のときの理由（日本語）
+    zero_added: bool = False   # 先頭の 0 が消えたとして 0 を足した（leading_zero_lost のときだけ。取込のプレビューで見せる）
 
     @property
     def system_forbidden(self) -> bool:
@@ -101,6 +102,7 @@ def normalize(raw: str | None, *, leading_zero_lost: bool = False) -> PhoneNumbe
         return _unknown("番号がありません")
     if compact.startswith("#"):
         return PhoneNumber("special", None, None, "「#」で始まる番号（短縮の特番）はかけません")
+    zero_added = False
     if compact.startswith("+"):
         digits = compact[1:]
         if not digits.isdigit():
@@ -125,6 +127,7 @@ def normalize(raw: str | None, *, leading_zero_lost: bool = False) -> PhoneNumbe
         if not compact.startswith("0"):
             if leading_zero_lost and len(compact) in (9, 10):
                 compact = "0" + compact
+                zero_added = True
             else:
                 return _unknown("0 で始まりません（先頭の 0 が消えている、または「+」の無い「81」）")
         national = compact
@@ -133,12 +136,12 @@ def normalize(raw: str | None, *, leading_zero_lost: bool = False) -> PhoneNumbe
         if national.startswith(prefix):
             if len(national) != length:
                 return _unknown(f"桁数が合いません（{prefix} で始まる番号は {length} 桁）")
-            return _japanese(kind, national)
+            return _japanese(kind, national, zero_added)
     if len(national) == 10 and national[1] != "0":
-        return _japanese("fixed", national)  # 固定電話（市外局番から10桁）
+        return _japanese("fixed", national, zero_added)  # 固定電話（市外局番から10桁）
     return _unknown("日本の番号の決まりに当てはまりません（桁が合わない、など）")
 
 
-def _japanese(kind: str, national: str) -> PhoneNumber:
+def _japanese(kind: str, national: str, zero_added: bool) -> PhoneNumber:
     reason = {"premium": "有料の情報番号はかけません", "m2m": "機械どうしの番号はかけません"}.get(kind)
-    return PhoneNumber(kind, "+81" + national[1:], national, reason)
+    return PhoneNumber(kind, "+81" + national[1:], national, reason, zero_added)

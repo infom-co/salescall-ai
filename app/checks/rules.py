@@ -151,6 +151,10 @@ WRITERS: dict[str, dict[str, frozenset[str]]] = {
                     "UPDATE": frozenset({_CORE + "conversation_io.py"})},
     "task_append_locks": {"INSERT": frozenset({_CORE + "tasks.py"}), "UPDATE": frozenset({_CORE + "tasks.py"})},
     "setting_values": {"INSERT": frozenset({_CORE + "settings.py"})},        # 設定の値（Q10）
+    "contacts": {"INSERT": frozenset({_CORE + "contacts.py"})},              # 連絡先（番号は Q1 を通したものだけ）
+    "tasks": {"INSERT": frozenset({_CORE + "importer.py"})},                 # タスクを作るのは取込だけ（3-4）
+    "imports": {"INSERT": frozenset({_CORE + "importer.py"})},
+    "import_rows": {"INSERT": frozenset({_CORE + "importer.py"})},
     "deliveries": {"INSERT": frozenset({"src/salescall/output/"}),           # 連携の台帳（Q17。持ち主 CL-3）
                    "UPDATE": frozenset({"src/salescall/output/"})},
 }

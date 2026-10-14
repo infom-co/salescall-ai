@@ -121,6 +121,20 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      ("tests.test_settings.FramesMustBeSystemOnly.test_a_frame_that_clients_can_move_is_rejected",)),
     ("停止を1回だけ解ける決まりを外す", "DROP INDEX salescall.stop_events_resolved_once",
      ("tests.test_stops.SystemStops.test_a_stop_is_resolved_only_once",)),
+    ("1つの実施回で管理番号は1つ、の約束を外す", "DROP INDEX salescall.tasks_one_ref_per_run",
+     ("tests.test_import.DatabaseGuards.test_one_task_per_client_ref_in_a_run",)),
+    ("取込の行ごとの記録の変更の拒みを外す", "DROP TRIGGER import_rows_frozen ON salescall.import_rows",
+     ("tests.test_import.DatabaseGuards.test_import_records_cannot_be_changed_even_by_the_owner",)),
+    ("取込の記録の行の制限を外す", "ALTER TABLE salescall.import_rows DISABLE ROW LEVEL SECURITY",
+     ("tests.test_import.DatabaseGuards.test_other_clients_cannot_see_import_records",)),
+    ("システム共通の発信禁止で、ほかの依頼主の予約を取り消す処理を空にする",
+     "CREATE OR REPLACE FUNCTION salescall.release_claims_for_system_dnc(p_phone text) RETURNS integer"
+     " LANGUAGE sql SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ SELECT 0 $$",
+     ("tests.test_dnc.Register.test_system_ledger_applies_to_every_client_and_releases_their_claims",)),
+    ("発信禁止の取り消しは人だけ、の決まりを外す", "DROP TRIGGER dnc_entries_guard ON salescall.dnc_entries",
+     ("tests.test_dnc.Revoke.test_only_a_person_revokes_once_and_can_register_again",)),
+    ("発信禁止の有効な登録は1つ、の約束を外す", "DROP INDEX salescall.dnc_one_active",
+     ("tests.test_dnc.Register.test_any_spelling_is_the_same_entry",)),
 )
 
 

@@ -25,6 +25,14 @@ def fictional_phone() -> str:
     return f"+447700900{next(_numbers) % 1000:03d}"
 
 
+_jp_numbers = itertools.count(int(uuid.uuid4().int % 5000))
+
+
+def fictional_jp_fixed() -> str:
+    """架空の日本の固定電話の番号（03-0000-0000〜03-0000-9999。局番のあとが 0 で始まる番号は日本に無い）。"""
+    return f"03-0000-{next(_jp_numbers) % 10000:04d}"
+
+
 def app_access() -> Access:
     return Access(os.environ["SALESCALL_TEST_APP_DSN"])
 

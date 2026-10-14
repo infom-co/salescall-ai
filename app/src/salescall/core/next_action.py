@@ -24,17 +24,19 @@ def current(tx: Tx, task_id: UUID) -> dict[str, Any] | None:
     )
 
 
-def _append(tx: Tx, task_id: UUID, *, call_at: datetime | None, end_reason: str | None, cause: str) -> int:
-    if (call_at is None) == (end_reason is None):
+def _append(tx: Tx, task_id: UUID, *, call_at: datetime | None, end_reason: str | None, cause: str,
+            call_now: bool = False) -> int:
+    calls = call_at is not None or call_now
+    if calls == (end_reason is not None) or (call_now and call_at is not None):
         raise ValueError("「かけ直す（日時）」か「終える（理由）」の、どちらか1つだけです")
     lock(tx, task_id)  # 同じタスクへの追記を1つずつ順にする（tasks.py の説明）
     row = tx.one(
         "INSERT INTO salescall.task_next_actions (tenant_id, client_id, task_id, seq, kind, call_at, end_reason, cause)"
         " SELECT t.tenant_id, t.client_id, t.task_id,"
         "        coalesce((SELECT max(n.seq) FROM salescall.task_next_actions n WHERE n.task_id = t.task_id), 0) + 1,"
-        "        %s, %s, %s, %s"
+        "        %s, CASE WHEN %s THEN now() ELSE %s::timestamptz END, %s, %s"
         " FROM salescall.tasks t WHERE t.task_id = %s RETURNING seq",
-        ("call" if call_at is not None else "end", call_at, end_reason, cause, task_id),
+        ("call" if calls else "end", call_now, call_at, end_reason, cause, task_id),
     )
     if row is None:
         raise TaskNotFound(str(task_id))
@@ -44,6 +46,12 @@ def _append(tx: Tx, task_id: UUID, *, call_at: datetime | None, end_reason: str 
 def schedule_call(tx: Tx, task_id: UUID, call_at: datetime, *, cause: str) -> int:
     """かけ直す（日時）を記録する。"""
     return _append(tx, task_id, call_at=call_at, end_reason=None, cause=cause)
+
+
+def schedule_now(tx: Tx, task_id: UUID, *, cause: str) -> int:
+    """いまから、かけてよい（日時はデータベースの時刻。取込で登録したタスクの最初の予定）。
+    実際にかけるか・いつかけるかは門が決める（時間帯・間隔・停止など）。"""
+    return _append(tx, task_id, call_at=None, end_reason=None, cause=cause, call_now=True)
 
 
 def end(tx: Tx, task_id: UUID, reason: str, *, cause: str) -> int:
