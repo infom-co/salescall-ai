@@ -26,7 +26,7 @@ from common import HERE, read_wav_pcm16_mono, write_wav
 from flowctl import Flow, tool_declarations
 from instruction import Business, barge_in_note, build
 from listen import hear
-from live_util import build_config, callee_turn, collect_turn, send_note, send_text
+from live_util import build_config, callee_turn, collect_turn, send_note, send_text, silence_while
 from turn_check import BAD_KINDS, check_ai_turn
 
 AUDIO_DIR = HERE / "results" / "convo_audio"
@@ -114,7 +114,11 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                 await add_turn(turn, line, log_start, i, voice)
                 if followup_wait_s and turn.first_audio_after_s is not None and turn.first_audio_after_s < CUT_IN_S:
                     log_start = len(flow.log)
-                    follow = await collect_turn(s, started_at=time.monotonic(), on_tool_call=flow.handle, timeout_s=followup_wait_s)
+                    # 待つ間も、電話と同じく無音を送り続ける（会話AIは、無音が続くことで相手の話し終わりを知る）
+                    # ⛔ 2026-10-14 G-31 の1回目：無音を送らずに待っていたため、相手の続きの言葉の話し終わりが会話AIに伝わらず、
+                    #    返事が来なかった（試験の作りの誤り。本物の電話では無音が流れ続ける）
+                    async with silence_while(s, prate if isinstance(line, dict) else 16000):
+                        follow = await collect_turn(s, started_at=time.monotonic(), on_tool_call=flow.handle, timeout_s=followup_wait_s)
                     await add_turn(follow, {"followup_of": line}, log_start, i, voice)
                 i += 1
     return {"voice_type": voice_type, "sessions": sessions, "turns": turns, "flow_log": flow.log,
