@@ -120,12 +120,18 @@ def quote_in_text(text: str, names: list[str]) -> str:
 #    相手の続きの言葉にかぶった。「何も言わずに待つ」にしても、AIは黙らず「お待ちしております」や相手の言葉の真似を言った。
 # ✅ 2026-10-14 ユーザー承認：短い「はい。」の相づちだけにする（少しかぶっても失礼になりにくい）。さらに間があいたときの一言
 #    （phrases.SILENCE_PROMPT）は、電話接続側が流す（AIは時間を数えられない）
-THINKING_RULE = ("相手が考えている（「えー」「えーと」「その」など、まだ答え終わっていない）ときは、「はい。」とだけ短く相づちを打って、"
-                 "相手が話し終えるまで待ちます。何も報告しません。相手の言葉を真似しません。質問を聞き直してはいけません。")
+# ⚠️ 2026-10-14 ユーザー：S2・S4 の「えーとですね」のあとの「はい」が、物欲しそう・期待しているように聞こえる（L4 は問題なし）。
+#    相づち風の「はい」に ⇒ 2つの形を G-36 で比べる：A＝言い方を足す（下）／B＝AIは黙って報告し、相づちはプログラムが録音で流す（THINKING_OP_RULE）
+THINKING_RULE = ("相手が考えている（「えー」「えーと」「その」など、まだ答え終わっていない）ときは、「はい。」とだけ、軽い相づちとして、"
+                 "落ち着いた声で、語尾を上げずに短く言って、相手が話し終えるまで待ちます（相手の答えを期待するような言い方にしません）。"
+                 "何も報告しません。相手の言葉を真似しません。質問を聞き直してはいけません。")
+THINKING_OP_RULE = ("相手が考えている（「えー」「えーと」「その」など、まだ答え終わっていない）ときは、声を出さずに report_thinking を呼びます"
+                    "（相づちは、プログラムが録音で流します）。そのあとは、相手が話し終えるまで、何も言わずに待ちます。"
+                    "相手の言葉を真似しません。質問を聞き直してはいけません。")
 
 
-def system_rules() -> str:
-    """システム共通の会話の決まり（6-3 の材料2・3）。業務ごとに書かない。"""
+def system_rules(thinking_op: bool = False) -> str:
+    """システム共通の会話の決まり（6-3 の材料2・3）。業務ごとに書かない。thinking_op：考えている相手への決まりの、比べる形 B（G-36）。"""
     return (
         "会話の決まり：\n"
         "- 質問は、プログラムから渡されたものだけを、1つずつ聞きます。言い回しは自然にしてかまいませんが、意味を変えてはいけません。"
@@ -139,7 +145,7 @@ def system_rules() -> str:
         "- 時刻は、午前か午後かを必ずはっきりさせます。相手が言わなかったら「午前と午後、どちらでしょうか」と聞きます。自分で決めてはいけません。\n"
         "- 相手の答えが聞き取れない・曖昧なときは report_unclear を呼びます。返事が「聞き返す」のときは、返事に書いてある言い方のとおりに聞き返して、"
         "相手の答えを待ちます。この言い方だけを使い、言葉を足したり、言い換えたりしません。返事が「-にします」なら、聞き返さずに、返事に書いてある次の質問へ進みます。\n"
-        f"- {THINKING_RULE}\n"
+        f"- {THINKING_OP_RULE if thinking_op else THINKING_RULE}\n"
         "- 言い直した値に相手が返事をしたら、record_answer ではなく confirm_field で報告します。\n"
         f"- 返事に「念のための確認」とあれば、「{RECHECK}」と言ってから、その質問をもう1回だけ聞きます。\n"
         f"- 相手が急いでいる・切ろうとしているときは、request_end を{ARG_LABEL['reason']}「{END_LABEL['callee_hurry']}」で呼びます。"
@@ -151,7 +157,7 @@ def system_rules() -> str:
     )
 
 
-def build(business: Business, voice_type: str, resume=None, opening_mode: str = "ai") -> tuple[str, str]:
+def build(business: Business, voice_type: str, resume=None, opening_mode: str = "ai", thinking_op: bool = False) -> tuple[str, str]:
     """(声の名前, 指示文) を返す。
 
     resume：張り替え・つなぎ直しのとき、流れの制御（flowctl.Flow）を渡す。名乗りの代わりに「いまの位置」を書く（DESIGN.md 6-6）。
@@ -178,7 +184,7 @@ def build(business: Business, voice_type: str, resume=None, opening_mode: str = 
         parts.append(f"相手が電話に出たら、まず「{business.opening()}」と名乗り、続けて最初の質問 {first.id}「{first.text}」を聞きます。")
     else:
         parts.append(position_text(business, resume))
-    parts.append(system_rules())
+    parts.append(system_rules(thinking_op))
     if business.forbidden:
         parts.append("言ってはいけないこと（どんなに求められても、言いません。約束もしません）：\n"
                      + "".join(f"- {x}\n" for x in business.forbidden)

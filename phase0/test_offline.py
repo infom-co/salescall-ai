@@ -614,9 +614,12 @@ class AIToJapaneseTest(unittest.TestCase):
         self.assertEqual(f.items["Q1"].state, "empty")
 
     def test_declarations_and_checks_use_one_table(self):
-        from flowctl import ARG_LABEL, OP_ARGS, tool_declarations
+        from flowctl import ARG_LABEL, OP_ARGS, SILENT_OPS, tool_declarations
         decls = {d.name: d for d in tool_declarations(self.business().questions)[0].function_declarations}
+        self.assertEqual(set(decls), set(OP_ARGS) - SILENT_OPS)  # 相手が考えていることの報告は、比べる形 B だけ
+        decls = {d.name: d for d in tool_declarations(self.business().questions, thinking_op=True)[0].function_declarations}
         self.assertEqual(set(decls), set(OP_ARGS))
+        self.assertEqual({n for n, d in decls.items() if d.behavior}, set(SILENT_OPS))  # 返事を待たない宣言は、その報告だけ
         for name, (req, opt) in OP_ARGS.items():
             self.assertEqual(set(decls[name].parameters.properties), {ARG_LABEL[k] for k in req + opt}, name)
             self.assertEqual(decls[name].parameters.required, [ARG_LABEL[k] for k in req], name)
@@ -954,8 +957,21 @@ class AckChoiceTest(unittest.TestCase):
         from instruction import Business, build
         b = Business(company="アオバ物流", caller="佐藤", purpose="ご予約の確認", questions=[Question("Q1", "日時は。", "datetime", conditions=("答えた",))])
         text = build(b, "S2")[1]
-        self.assertIn("「はい。」とだけ短く相づちを打って", text)
+        self.assertIn("「はい。」とだけ、軽い相づちとして", text)   # 形 A：言い方を足す（期待するような言い方にしない）
         self.assertNotIn("ごゆっくりどうぞ", text)  # ⛔ G-30〜G-32：相手の続きの言葉にかぶった
+        text_b = build(b, "S2", thinking_op=True)[1]
+        self.assertIn("声を出さずに report_thinking を呼びます", text_b)  # 形 B：相づちはプログラムが録音で流す
+        self.assertNotIn("「はい。」とだけ", text_b)
+
+    def test_thinking_report_plays_aizuchi_and_changes_nothing(self):
+        from flowctl import Flow, Question
+        qs = [Question("Q1", "日時は。", "datetime", conditions=("答えた",))]
+        f = Flow(qs, thinking_op=True)
+        f.on_callee()
+        r = f.apply("report_thinking", {"question_id": "Q1"})
+        self.assertEqual((r["result"], r["ack"], f.items["Q1"].state, f.current), ("wait", "aizuchi", "empty", "Q1"))
+        g = Flow(qs)  # 形 A では、この報告は使えない
+        self.assertEqual(g.apply("report_thinking", {"question_id": "Q1"})["result"], "rejected")
 
 
 class FormCheckTest(unittest.TestCase):

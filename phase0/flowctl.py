@@ -96,7 +96,7 @@ CONFIRM_LABEL = {"affirmed": "合っている", "corrected": "違う値を言わ
 END_LABEL = {"done": "質問が終わった", "callee_hurry": "相手が急いでいる", "callee_refused_call": "通話を断られた"}
 REPLY_KEY_LABEL = {"result": "結果", "message": "次にすること", "question_id": "質問", "question": "質問の文", "value": "値", "say": "言い方"}
 RESULT_LABEL = {"next": "次の質問", "confirm_required": "言い直して確かめる", "rejected": "差し戻し", "ask_back": "聞き返す",
-                "recheck": "念のための確認", "end": "締め", "busy_ask": "引き止めの一言"}
+                "recheck": "念のための確認", "end": "締め", "busy_ask": "引き止めの一言", "wait": "待つ"}
 INTERNAL_KEYS = {"ack", "ask_n", "ask_reason", "apology"}  # 中で使うだけの項目（電話接続側・数え方が読む）。AIへの返事には入れない
 # こちらが使う名前（AIに見せる日本語の名前）。値の欄に入っていたら、相手の答えではない（form_problem）
 _LABELS = set(SYSTEM_LABEL.values()) | set(CONFIRM_LABEL.values()) | set(END_LABEL.values()) | {"答えた"}
@@ -108,8 +108,11 @@ _ARG_FROM_LABEL = {v: k for k, v in ARG_LABEL.items()}
 OP_ARGS = {"record_answer": (("question_id", "condition_id"), ("value",)),
            "report_unclear": (("question_id",), ()),
            "confirm_field": (("question_id", "result"), ("correction",)),
-           "request_end": (("reason",), ())}
+           "request_end": (("reason",), ()),
+           # 相手が考えている（比べる形 B。G-36）：相づちはプログラムが録音で流し、AIは黙って待つ。記録は書き換えない
+           "report_thinking": (("question_id",), ())}
 OPS = tuple(OP_ARGS)
+SILENT_OPS = frozenset({"report_thinking"})  # 返事でAIに話させない操作（live_util の silent_ops）
 # 選択肢が決まっている項目（中の名前 → その表）。答えの種類（condition_id）は質問ごとに違うので、record_answer の中で確かめる
 _ENUM_ARGS = {"result": CONFIRM_LABEL, "reason": END_LABEL}
 
@@ -171,7 +174,7 @@ class Item:
 
 class Flow:
     def __init__(self, questions: list[Question], limits: Limits | None = None, confirm=confirm_phrase,
-                 busy_ask: str | None = None, lead_ins: bool = True):
+                 busy_ask: str | None = None, lead_ins: bool = True, thinking_op: bool = False):
         """confirm：言い直しの言い方を作る関数 (値, 場面, 何回目) → 文（ふだんは phrases.confirm。言い方を比べる試験 G-25 だけが別のものを渡す）。
         busy_ask：相手が「忙しい」と言ったときに1回だけ言う一言（業務設定。None なら丁寧に終える＝既定。Intent.md 9-4）。"""
         self.confirm = confirm
@@ -182,6 +185,9 @@ class Flow:
         # lead_ins：プログラムの返事のあとに話す文の頭に、受けの言葉を置くか（DESIGN.md 6-11。✅ 2026-10-13 ユーザー承認＝既定で置く。
         # 置かない形は、過去の比べの試験（G-25・G-27 の W0）を同じ意味で動かすためだけに残す）
         self.lead_ins = lead_ins
+        # thinking_op：相手が考えているとき、AIは黙って report_thinking を呼び、相づちはプログラムが録音で流す形（比べる形 B。G-36）。
+        # ✅ 2026-10-14 ユーザー：S2・S4 が「えーとですね」のあとに言う「はい」が、物欲しそう・期待しているように聞こえる（L4 は問題なし）
+        self.thinking_op = thinking_op
         self.lead_counts: dict[str, int] = {}
         self.ack_count = 0               # 次の質問の前に流す相づちを、順番に回す（_ack）
         self.unreported_correction: str | None = None  # AIが報告せずに言い直した値を、相手が直した質問（その答えの報告の相づちをお詫びにする）
@@ -209,8 +215,9 @@ class Flow:
 
     # ── 中の名前での入口（handle と試験は、ここを通す）。記録（log）は中の名前で残す
     def apply(self, name: str, args: dict) -> dict:
-        if name not in OP_ARGS:
-            reply = self._reject(f"その操作はありません（使える操作は {'・'.join(OPS)}）。")
+        ops = OPS if self.thinking_op else tuple(o for o in OPS if o not in SILENT_OPS)
+        if name not in ops:
+            reply = self._reject(f"その操作はありません（使える操作は {'・'.join(ops)}）。")
         else:
             why = self._check_args(name, args)
             reply = self._reject(why) if why else getattr(self, f"_op_{name}")(args)
@@ -231,6 +238,8 @@ class Flow:
         result = reply["result"]
         if result == "rejected":
             return None
+        if result == "wait":
+            return "aizuchi"  # 相手が考えている：相づち風に読んだ「はい。」（比べる形 B）
         if result == "ask_back":
             # 1回目の「答えが質問に合わない」は「はい、」（続けてAIが「恐れ入ります。（聞くこと）を、もう一度…」）。
             # 聞き取れなかったとき・2回目からは、申し訳なさそうに読んだ「申し訳ございません、」（✅ 2026-10-14 ユーザー）
@@ -361,6 +370,15 @@ class Flow:
             return self._ask_confirm(qid, apology=True)
         it.set("unresolved", "訂正のあとも合わない" if result == "corrected" else "相手が答えなかった")
         return self._advance("「-」にします。")
+
+    def _op_report_thinking(self, a: dict) -> dict:
+        """相手が考えている（「えーとですね、」で止まった）。記録は書き換えない。相づちの録音（aizuchi）を流し、AIは黙って待つ。
+        電話接続の側は、ここから相手が黙っている秒数を数える（5秒で「いかがなさいましたか？」。DESIGN.md 6-15）。"""
+        qid = a.get("question_id")
+        if qid != self.current and qid != self.awaiting_confirm:
+            return self._reject(f"{qid} は、いまの質問ではありません。")
+        return {"result": "wait", "message": "相づちはプログラムが流しました。何も言わずに、相手が話し終えるまで待ちます。"
+                                               "相手が答えたら、いつものとおり報告します。"}
 
     def _op_request_end(self, a: dict) -> dict:
         reason = a.get("reason")
@@ -498,9 +516,11 @@ class Flow:
         return out
 
 
-def tool_declarations(questions: list[Question]):
+def tool_declarations(questions: list[Question], thinking_op: bool = False):
     """AIが呼べる操作（6-2）の宣言を作る唯一の場所。条件の選択肢は、質問の宣言＋システムの2つ。
-    ⛔ 2026-10-14 G-33：答えの報告を「返事を待たない」宣言にする形は採らない（AIが受けの言葉を先に言わなかった）。"""
+    ⛔ 2026-10-14 G-33：答えの報告を「返事を待たない」宣言にする形は採らない（AIが受けの言葉を先に言わなかった）。
+    thinking_op：相手が考えていることの報告（report_thinking）を足す（比べる形 B。G-36）。返事を待たない宣言にし、返事は話させない形
+    （SILENT）で返す ⇒ AIは黙ったまま、相づちはプログラムが流す。"""
     from google.genai import types
 
     def s(enum=None, desc=None):
@@ -514,7 +534,8 @@ def tool_declarations(questions: list[Question]):
         # 項目と「必ず要る項目」は、受け取ったときの確かめと同じ表（OP_ARGS）から作る
         req, opt = OP_ARGS[name]
         assert set(props) == {A[k] for k in req + opt} and required == [A[k] for k in req], name
-        return types.FunctionDeclaration(name=name, description=desc,
+        behavior = types.Behavior.NON_BLOCKING if name in SILENT_OPS else None
+        return types.FunctionDeclaration(name=name, description=desc, behavior=behavior,
                                          parameters=types.Schema(type=types.Type.OBJECT, properties=props, required=required))
 
     return [types.Tool(function_declarations=[
@@ -530,4 +551,5 @@ def tool_declarations(questions: list[Question]):
         fd("request_end", f"電話を終えたいときに呼ぶ。相手が急いでいる・切ろうとしているなら「{END_LABEL['callee_hurry']}」、"
            f"通話自体を断られたなら「{END_LABEL['callee_refused_call']}」、質問が全部終わったなら「{END_LABEL['done']}」",
            {A["reason"]: s(list(END_LABEL.values()))}, [A["reason"]]),
-    ])]
+    ] + ([fd("report_thinking", "相手が考えている（「えーと」「その」など、まだ答え終わっていない）ことを報告する。声は出さずに呼ぶ",
+             {A["question_id"]: s(qids)}, [A["question_id"]])] if thinking_op else []))]
