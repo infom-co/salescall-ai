@@ -197,7 +197,7 @@ INSERT INTO salescall.setting_definitions (key, merge_kind, value_type, meaning,
 ('gate.ear_tpm_limit', 'system_only', 'integer', '別の耳（通話後の検証）の1分あたりの入力トークン数の上限', 'DESIGN.md 5-2 の9・6-12', NULL, NULL),
 ('calling.hours', 'override', 'weekly_hours', 'かけてよい曜日と時間帯（日本時間。祝日は holiday）', 'DESIGN.md 5-2 の2・Intent.md 13章', 'calling.hours_limit', 'within'),
 ('calling.max_concurrent_calls', 'override', 'integer', 'その依頼主で同時に流す通話の本数の上限（依頼主ごとの設定。全体の本数は、門が会話AIの枠と回線の数で絞る：1回線＝同時1本はデータベースの約束）', 'DESIGN.md 5-2・Intent.md 5-4', NULL, NULL),
-('retry.max_attempts_per_task', 'override', 'integer', '1つのタスク（行）に発信してよい回数の上限（再発信の方針はこの内側）', 'DESIGN.md 7-2', NULL, NULL),
+('retry.max_attempts_per_task', 'override', 'integer', '1つのタスク（行）に発信してよい回数の上限（再発信の方針はこの内側）。数え方は1日の回数と同じ：相手の意思と関係なく繋がらなかった・切れた発信は数えない。相手と約束したかけ直しは止めない', 'DESIGN.md 7-2・5-2-2', NULL, NULL),
 -- 通話後の検証と回線の借用
 ('verification.max_retries', 'system_only', 'integer', '通話後の検証を自動でやり直す回数の上限', 'DESIGN.md 5-2-1 の9', NULL, NULL),
 ('verification.retry_wait', 'system_only', 'seconds', '通話後の検証をやり直すまでの待ち', 'DESIGN.md 5-2-1 の9', NULL, NULL),

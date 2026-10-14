@@ -172,7 +172,7 @@ $$ SELECT salescall.is_active(s) AND NOT (s = 'claimed' AND expires <= now()) $$
 GRANT EXECUTE ON FUNCTION salescall.is_live(salescall.attempt_state, timestamptz) TO salescall_app;
 
 -- ═════════ 相手の意思と関係なく、繋がらなかった・切れた発信（2026-10-14 ユーザー決定） ═════════
--- 同じ相手への最小の間隔・1日の回数に数えない：通信の問題などで繋がらなかった（発信に失敗・相手が出る前の結果不明）／
+-- 「かけた回数」に数えない（行の回数の上限・同じ相手への最小の間隔・1日の回数のどれも。数え方は1つ）：通信の問題などで繋がらなかった（発信に失敗・相手が出る前の結果不明）／
 -- 相手の意思と関係なく切れた（回線の側で切れた）。「切れ方が不明」は数える（相手が切ったかもしれない＝止める側）。
 CREATE FUNCTION salescall.not_by_callee(s salescall.attempt_state, side salescall.hangup_side, p_attempt uuid)
 RETURNS boolean LANGUAGE sql STABLE AS $$
@@ -184,7 +184,7 @@ GRANT EXECUTE ON FUNCTION salescall.not_by_callee(salescall.attempt_state, sales
   salescall.reached_answer(uuid) TO salescall_app;
 
 -- ═════════ 次の予定が「相手と約束したかけ直し」か（相手に頼まれた・こちらが約束した。2026-10-14 ユーザー決定） ═════════
--- 約束したかけ直しは、同じ相手への最小の間隔・1日の回数の対象外（門が読む）。決めるのは次の動きだけ（Q4）。
+-- 約束したかけ直しは、行の回数の上限・同じ相手への最小の間隔・1日の回数の対象外（門が読む）。決めるのは次の動きだけ（Q4）。
 ALTER TABLE salescall.task_next_actions
   ADD COLUMN promised boolean,
   ADD CONSTRAINT task_next_actions_promised CHECK ((kind = 'call') = (promised IS NOT NULL));

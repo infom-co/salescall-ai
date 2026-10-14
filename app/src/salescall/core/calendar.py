@@ -1,10 +1,13 @@
 """祝日の暦（Q12 の材料）。持ち主 CL-2。DESIGN.md 5-2-1 の5。
 
 - 正本は内閣府の「国民の祝日」の公式の一覧（CSV。`OFFICIAL_URL`）。**システムが自分で取りに行って取り込む**（`sync_official`。
-  見守り役が毎日呼ぶ。人は介在しない＝2026-10-14 ユーザー）。記憶や手入力では入れない（誤った祝日にかける・かけない、を防ぐ）。
+  人は介在しない＝2026-10-14 ユーザー）。記憶や手入力では入れない（誤った祝日にかける・かけない、を防ぐ）。
+  - **取りに行くのは、要るときだけ**（`needs_fetch`。2026-10-14 ユーザー：「1年で1回、確実に取れたらいい」）：
+    翌年の分が手元に無いとき、または最後に取り込んでから1年たったとき（法改正などの直しを拾う）。それ以外は、通信もしない。
+    公式の一覧に載るのは翌年の分まで（春分の日・秋分の日は、国が毎年2月に翌年の分を決める）⇒ 実際には年1回（2月ごろ）取れる。
+    見守り役は毎日 `sync_official` を呼ぶだけ（要らなければ何もしない。取れなかった日は、次の日にまた試す＝確実に取れるまで）。
   - 中身が前の取り込みと同じなら、何もしない。取りに行けない・形が違う・今年が入っていない（古い・誤った一覧）なら、何も入れず
     `CalendarSyncFailed` を返す（前の暦のまま動く。範囲が切れたら門が止める＝判断できなければ通さない）。知らせは知らせの台帳（Q23）へ。
-  - 公式の一覧は、毎年2月ごろに翌年の分が足される。毎日取りに行くので、年が替わる前に翌年の暦が入る。
 - 取り込みはシステム共通の取引で行い、同じ取引で、まだ発信していない予約をすべて取り消す（暦は門の判定に効く）。
 - 取り込みは追記だけ。年ごとに「その年を含む、いちばん新しい取り込み」が効く（法改正などの直しは、取り込み直し）。
 - 取り込んだ範囲の外の日は `CalendarOutOfRange`（判断できない ⇒ 門は通さない）。
@@ -19,7 +22,7 @@ import io
 import re
 import urllib.request
 from collections.abc import Callable
-from datetime import date
+from datetime import date, datetime, timedelta
 
 from salescall.core.access import Access, Actor, Tx
 
@@ -59,8 +62,24 @@ def fetch_official(timeout: float = 30.0) -> bytes:
     return data
 
 
+REFRESH_AFTER = timedelta(days=365)   # 翌年の分があっても、これだけたったら1回取り直す（法改正などの直しを拾う）
+
+
+def needs_fetch(covered_until: int | None, last_loaded_at: datetime | None, today: date, now: datetime) -> bool:
+    """取りに行く必要があるか（決まりはここ1か所）。翌年の分が無い・最後の取り込みから1年たった、のどちらか。"""
+    if covered_until is None or last_loaded_at is None:
+        return True
+    return covered_until < today.year + 1 or now - last_loaded_at >= REFRESH_AFTER
+
+
 def sync_official(access: Access, actor: Actor, *, fetch: Callable[[], bytes] = fetch_official) -> dict:
-    """公式の一覧を取りに行き、前の取り込みと違えば取り込む（見守り役が毎日呼ぶ）。結果を返す。"""
+    """要るときだけ公式の一覧を取りに行き、前の取り込みと違えば取り込む（見守り役が毎日呼ぶ）。結果を返す。"""
+    state = access.in_system(actor, lambda tx: tx.one(
+        "SELECT (SELECT max(last_year) FROM salescall.calendar_loads) AS covered_until,"
+        "       (SELECT max(loaded_at) FROM salescall.calendar_loads) AS last_loaded_at,"
+        "       salescall.jst(now())::date AS today, now() AS now"))
+    if not needs_fetch(state["covered_until"], state["last_loaded_at"], state["today"], state["now"]):
+        return {"loaded": False, "reason": "翌年の分まで入っていて、最後の取り込みから1年たっていない（取りに行かない）"}
     data = fetch()
 
     def work(tx: Tx) -> dict:

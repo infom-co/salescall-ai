@@ -94,6 +94,7 @@ class Pacing:
     remaining: int
     earliest: datetime | None
     binding: str | None    # earliest を決めた理由の名前（今すぐかけられるなら None）
+    promised: bool         # いまの予定が、相手と約束したかけ直しか（回数の上限・最小の間隔・1日の回数の対象外）
 
 
 def _deny(reason: str) -> Denied:
@@ -119,17 +120,18 @@ def _setting(tx: Tx, key: str, task: dict[str, Any]) -> Any:
 
 
 def _pacing(tx: Tx, task: dict[str, Any], now: datetime) -> Pacing:
-    dialed = tx.one(f"SELECT count(*) AS n FROM salescall.attempts WHERE task_id = %s AND {_DIALED}",
-                    (task["task_id"],))["n"]
-    remaining = max(0, int(_setting(tx, "retry.max_attempts_per_task", task)) - dialed)
-    if tx.one("SELECT 1 FROM salescall.attempts WHERE contact_id = %s AND verification = 'pending' LIMIT 1",
-              (task["contact_id"],)) is not None:
-        return Pacing(remaining, None, "verification_pending")
-    limits: list[tuple[datetime, str]] = []
-    # 相手と約束したかけ直し（次の予定の印。決めるのは次の動きだけ）は、最小の間隔・1日の回数の対象外（2026-10-14 ユーザー決定）
+    # 「かけた回数」の数え方は1つ（行の回数の上限・1日の回数・最小の間隔のどれも）：相手の意思と関係なく繋がらなかった・
+    # 切れた発信は数えない。相手と約束したかけ直しは、どの上限でも止めない（2026-10-14 ユーザー：「ほぼ同じことでしょ。統一」）
+    counted = tx.one(f"SELECT count(*) AS n FROM salescall.attempts WHERE task_id = %s AND {_COUNTED}",
+                     (task["task_id"],))["n"]
+    remaining = max(0, int(_setting(tx, "retry.max_attempts_per_task", task)) - counted)
     nxt = tx.one("SELECT promised FROM salescall.task_next_actions WHERE task_id = %s ORDER BY seq DESC LIMIT 1",
                  (task["task_id"],))
     promised = bool(nxt and nxt["promised"])
+    if tx.one("SELECT 1 FROM salescall.attempts WHERE contact_id = %s AND verification = 'pending' LIMIT 1",
+              (task["contact_id"],)) is not None:
+        return Pacing(remaining, None, "verification_pending", promised)
+    limits: list[tuple[datetime, str]] = []
     if not promised:
         last = tx.one(f"SELECT max(ended_at) AS at FROM salescall.attempts WHERE contact_id = %s AND {_COUNTED}",
                       (task["contact_id"],))["at"]
@@ -154,9 +156,9 @@ def _pacing(tx: Tx, task: dict[str, Any], now: datetime) -> Pacing:
         limits.append((r["last_at"] + timedelta(seconds=cross), "cross_client_interval_" + r["relation"]))
     binding = [x for x in limits if x[0] > now]
     if not binding:
-        return Pacing(remaining, now, None)
+        return Pacing(remaining, now, None, promised)
     at, reason = max(binding, key=lambda x: x[0])
-    return Pacing(remaining, at, reason)
+    return Pacing(remaining, at, reason, promised)
 
 
 def pacing(tx: Tx, task_id: UUID) -> Pacing:
@@ -211,7 +213,7 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
 
     # (3) 回数と間隔（pacing の1か所）
     pace = _pacing(tx, task, now)
-    if pace.remaining <= 0:
+    if pace.remaining <= 0 and not pace.promised:
         return _deny("max_attempts")
 
     # (4) 業務設定の版と段

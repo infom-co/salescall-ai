@@ -363,6 +363,21 @@ class NotByCallee(Base):
                                                         cause="相手に頼まれた折り返し", promised=True))
         self.assertIsInstance(self.claim(s), gate.Claim)
 
+    def test_one_way_of_counting_for_every_limit(self):
+        """行の回数の上限（3回）も、1日の回数と同じ数え方（2026-10-14 ユーザー：統一）。"""
+        s = self.ready()
+        self.override("gate.same_contact_min_interval", 1)
+        self.put_client(s, "retry.max_attempts_per_task", 1)
+        self.past_attempt(s, ["dialing", "call_failed"])            # 繋がらなかった：数えない
+        self.assertIsInstance(self.claim(s), gate.Claim)
+        s2 = self.ready()
+        self.put_client(s2, "retry.max_attempts_per_task", 1)
+        self.past_attempt(s2, ["dialing", "no_answer"])             # 出なかった：数える
+        self.assertEqual(self.reason(s2), "max_attempts")
+        self.tx(s2, lambda tx: next_action.schedule_call(tx, s2["task"], tx.one("SELECT now() AS t")["t"],
+                                                         cause="相手に頼まれた折り返し", promised=True))
+        self.assertIsInstance(self.claim(s2), gate.Claim)           # 約束したかけ直しは、回数の上限でも止めない
+
     def test_promised_callback_still_respects_other_rules(self):
         s = self.ready()
         self.tx(s, lambda tx: dnc.register(tx, s["phone"], "manual"))
@@ -584,16 +599,32 @@ class Calendar(Base):
             tx, calendar_csv([2091, 2092], holidays=[date(2091, 1, 2)])))
         self.assertTrue(check(date(2091, 1, 2)))
 
+    def test_needs_fetch_only_when_next_year_is_missing_or_a_year_has_passed(self):
+        from datetime import date, datetime
+        today, now = date(2030, 6, 1), datetime(2030, 6, 1, 12)
+        self.assertTrue(calendar.needs_fetch(None, None, today, now))                        # まだ何も無い
+        self.assertTrue(calendar.needs_fetch(2030, datetime(2030, 2, 1), today, now))        # 翌年の分が無い
+        self.assertFalse(calendar.needs_fetch(2031, datetime(2030, 2, 1), today, now))       # 翌年まである
+        self.assertTrue(calendar.needs_fetch(2031, datetime(2029, 6, 1, 12), today, now))    # 1年たった（直しを拾う）
+
+    def test_sync_does_not_fetch_when_not_needed(self):
+        def must_not_fetch():
+            raise AssertionError("要らないのに取りに行った")
+        got = calendar.sync_official(owner_access(), SYSTEM, fetch=must_not_fetch)   # 翌年の分まである（setUp）
+        self.assertFalse(got["loaded"])
+
     def test_sync_fetches_by_itself_and_skips_the_same_file(self):
         from datetime import date
         y = local_today().year
         data = calendar_csv(range(y - 1, y + 2), holidays=[date(y - 1, 12, 30)])   # 前に取り込んだものと違う中身
         self.addCleanup(load_calendar)
-        first = calendar.sync_official(owner_access(), SYSTEM, fetch=lambda: data)
-        again = calendar.sync_official(owner_access(), SYSTEM, fetch=lambda: data)
+        with mock.patch.object(calendar, "needs_fetch", return_value=True):
+            first = calendar.sync_official(owner_access(), SYSTEM, fetch=lambda: data)
+            again = calendar.sync_official(owner_access(), SYSTEM, fetch=lambda: data)
         self.assertEqual((first["loaded"], again["loaded"]), (True, False))
 
-    def test_sync_rejects_stale_or_broken_files_and_keeps_the_old_calendar(self):
+    @mock.patch.object(calendar, "needs_fetch", return_value=True)
+    def test_sync_rejects_stale_or_broken_files_and_keeps_the_old_calendar(self, _):
         before = owner_access().in_system(SYSTEM, lambda tx: tx.one("SELECT count(*) AS n FROM salescall.calendar_loads"))["n"]
         for fetch in (lambda: calendar_csv([2001, 2002]),                       # 今年が入っていない
                       lambda: b"<html>error</html>"):                           # 形が違う
