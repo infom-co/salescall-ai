@@ -252,4 +252,4 @@ INSERT INTO salescall.setting_values (key, scope, value, status, rationale, revi
 ('line.lease_renew', 'system', '20', 'provisional', '期限の3分の1ごとに延ばす（2回続けて延ばし損ねても、まだ期限内）', '同上', 'CL-2'),
 ('call.hangup_after_decline_wait', 'system', '7', 'decided', '2026-10-13 ユーザー決定（CL-1 の連絡帳 4-5 から）', '模擬通話と最初の実測で、相手が切るまでの間を見て', 'ユーザー'),
 ('call.hangup_after_close_wait', 'system', '20', 'decided', '2026-10-14 ユーザー決定（CL-1 の連絡帳 4-7 から）', '模擬通話と最初の実測で、相手が切るまでの間を見て', 'ユーザー'),
-('callback.call_alternate_number', 'system', 'true', 'decided', '2026-10-14 ユーザー決定：基本は、相手が言った別の番号へかける。業務設定（依頼主タブ）で「かけない」も選べる', '依頼主の求めを見て', 'ユーザー');
+('callback.call_alternate_number', 'system', 'true', 'decided', '2026-10-14 ユーザー決定：基本は、相手が言った別の番号へかける。業務設定（依頼主タブ）で「かけない」も選べる', '業務設定を作るとき（運営者が業務ごとに決める）', 'ユーザー');

@@ -87,8 +87,8 @@ INSERT INTO salescall.setting_definitions (key, merge_kind, value_type, meaning,
 ('calling.allow_toll_free', 'override', 'boolean', 'フリーダイヤル（0120・0800）へかけてよいか', 'DESIGN.md 3-4・5-2 の4', NULL, NULL),
 ('calling.allow_navi_dial', 'override', 'boolean', 'ナビダイヤル（0570）へかけてよいか（通話料がかかる。Rakuten Link の無料通話の対象外）', 'DESIGN.md 3-4・5-2 の4', NULL, NULL);
 INSERT INTO salescall.setting_values (key, scope, value, status, rationale, review_when, set_by) VALUES
-('calling.allow_toll_free', 'system', 'true', 'provisional', '法人の代表番号がフリーダイヤルのことがある。通話料はかからない', 'ユーザーが決めたとき', 'CL-2'),
-('calling.allow_navi_dial', 'system', 'false', 'provisional', 'ナビダイヤルは通話料がかかり、Rakuten Link の無料通話の対象外（Intent.md 8-4）。自動でかけ続けると費用が膨らむ', 'ユーザーが決めたとき', 'CL-2');
+('calling.allow_toll_free', 'system', 'true', 'decided', '2026-10-14 ユーザー決定：初めは「かける」。法人の代表番号がフリーダイヤルのことがある。通話料はかからない', '依頼主ごとの設定で変えるとき', 'ユーザー'),
+('calling.allow_navi_dial', 'system', 'false', 'decided', '2026-10-14 ユーザー決定：初めは「かけない」。ナビダイヤルは通話料がかかり、Rakuten Link の無料通話の対象外（Intent.md 8-4）。自動でかけ続けると費用が膨らむ', '依頼主ごとの設定で変えるとき', 'ユーザー');
 
 -- ═════════ 発信禁止を「相手」ごとに広げる（2026-10-14 ユーザー決定：(b) を必ず＋(c) を依頼主ごとの設定で選べる。DESIGN.md 3-6） ═════════
 -- (b) 相手が断ったら、その行（タスク）の番号すべてを止める（処理は core/dnc.py の1か所）。

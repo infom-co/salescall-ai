@@ -131,7 +131,10 @@ class UserDecisions(unittest.TestCase):
         decided = {r["key"] for r in sys_tx(settings.provisional)}
         self.assertTrue({"retry.max_attempts_per_task", "quality.mock.calls", "stop.ai_rate_limit.backoff",
                          "calling.hours_limit", "call.hangup_after_decline_wait", "call.hangup_after_close_wait",
-                         "callback.call_alternate_number"}.isdisjoint(decided))
+                         "callback.call_alternate_number", "calling.allow_toll_free", "calling.allow_navi_dial",
+                         "dnc.client_ref_is_stable_id"}.isdisjoint(decided))
+        self.assertEqual((v("calling.allow_toll_free"), v("calling.allow_navi_dial"), v("dnc.client_ref_is_stable_id")),
+                         (True, False, False))
         self.assertEqual((v("call.hangup_after_decline_wait"), v("call.hangup_after_close_wait"),
                           v("callback.call_alternate_number")), (7, 20, True))
 
