@@ -39,6 +39,36 @@ _TAIL = re.compile(r"(?:です|でございます|になります)?[。、．！
 #    値が「15 日の午後 2 時」になった（依頼主へ渡す値に空白が入る）。名前・住所・メールは、空白に意味がありうるので外さない
 NO_SPACE_TYPES = {"date", "time", "datetime", "number", "amount"}
 _SPACE = re.compile(r"[\s\u3000]+")
+# 同じ型の値の漢数字は、数を数える言葉の前にあるものだけ、数字に直す（「十五日の午後二時」⇒「15日の午後2時」・「三人」⇒「3人」）。
+# ✅ 2026-10-14 ユーザー承認：「日時と数の答えに限り、『日・時・分・人・名』などの前の漢数字を数字に直す」。⛔ G-36：AIが値を漢数字で
+#    報告した（1回目・2回目に1本ずつ）＝意味は正しいが、依頼主へ渡す値の書き方がそろわない。数える言葉の前にない漢数字（「一緒」「一度」）は
+#    直さない（「番」も数える言葉に入れない：「一番早い日」）。「十分」は「時」のすぐあとのときだけ直す（「2時十分」は時刻。「十分です」は「足りる」の意味）
+_KANJI_DIGIT = {"〇": 0, "零": 0, "一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
+_KANJI_UNIT = {"十": 10, "百": 100, "千": 1000}
+_KANJI_NUMBER = re.compile(r"[〇零一二三四五六七八九十百千万]+(?=[日時分秒月年週人名歳才個枚台件回円階泊杯本部号かヶケ])")
+
+
+def _kanji_int(s: str) -> int:
+    """漢数字の並びを数にする（「十五」15・「二十」20・「三万五千」35000・「二〇二六」2026）。"""
+    total = section = num = 0
+    for ch in s:
+        if ch in _KANJI_DIGIT:
+            num = num * 10 + _KANJI_DIGIT[ch]
+        elif ch in _KANJI_UNIT:
+            section += (num or 1) * _KANJI_UNIT[ch]
+            num = 0
+        else:  # 万
+            total += ((section + num) or 1) * 10000
+            section = num = 0
+    return total + section + num
+
+
+def _kanji_to_digits(v: str) -> str:
+    def repl(m: re.Match) -> str:
+        if m.group() == "十" and v[m.end()] == "分" and (m.start() == 0 or v[m.start() - 1] != "時"):
+            return m.group()
+        return str(_kanji_int(m.group()))
+    return _KANJI_NUMBER.sub(repl, v)
 
 
 def normalize_value(qtype: str, value: str | None) -> str | None:
@@ -48,7 +78,7 @@ def normalize_value(qtype: str, value: str | None) -> str | None:
     if qtype in CONFIRM_TYPES:
         v = _TAIL.sub("", v).strip()
     if qtype in NO_SPACE_TYPES:
-        v = _SPACE.sub("", v)
+        v = _kanji_to_digits(_SPACE.sub("", v))
     return v or None
 GOT = ("confirmed", "accepted")  # 「取れた」（4-4）
 
@@ -121,7 +151,7 @@ def other_value(qtype: str, pending: str | None, given: str | None) -> str | Non
 ARG_LABEL = {"question_id": "質問", "condition_id": "答えの種類", "value": "値", "result": "返事の種類", "correction": "訂正された値",
              "reason": "理由"}
 SYSTEM_LABEL = {"unknown": "わからない", "refused": "答えたくない"}
-CONFIRM_LABEL = {"affirmed": "合っている", "corrected": "違う値を言われた", "restated": "相手が言い直した", "no_answer": "答えなかった"}
+CONFIRM_LABEL = {"affirmed": "合っている", "corrected": "違う値を言われた", "no_answer": "答えなかった"}
 # 値を直されたあとの言い直し（✅ 2026-10-14 ユーザー）：(場面＝phrases.CONFIRM の鍵, 頭の言葉＝phrases.LEAD_IN の鍵, 流す相づち)
 # - こちらの聞き違い（相手に「違う」と言われた）：「失礼いたしました。改めまして、16日の午後2時で、大丈夫でしょうか？」
 # - 相手の言い間違い（相手が自分で言い直した・答えを変えた）：「承知しました。それでは、16日の午後2時で、よろしいでしょうか？」
@@ -129,11 +159,22 @@ CONFIRM_LABEL = {"affirmed": "合っている", "corrected": "違う値を言わ
 AFTER = {"misheard": ("聞き違いのあと", "お詫びのあとの言い直し", "shitsurei"),
          "restated": ("言い直しのあと", "言い直しを受けて", "shouchi"),
          "unreported": ("聞き取りにくかったあと", "念のための言い直し", "hai")}
-CORRECTED_AFTER = {"corrected": "misheard", "restated": "restated"}  # 値を直された返事の種類 → 直され方
+# 値を直されたとき、こちらの聞き違いか相手の言い間違いかは、プログラムが相手の言葉（会話AIの聞き取りの文字）から決める。
+# ✅ 2026-10-14 ユーザー決定（3つの案のうち「(a) プログラムが相手の言葉で見分ける」）。⛔ G-36 の2回目・3回目：AIに選ばせると、
+#    12本中12本「相手が言い直した」を選んだ（相手が「いや、16日って言ったんですけど。」と言っても）。
+# 相手が自分の言い間違い・答えの変更を言う言葉があれば相手の言い間違い、無ければ（文字がまだ届いていないときも）こちらの聞き違い＝お詫び。
+# G-34〜G-36 の 30回に当てて、決めたとおりに分かれる（「あ、すみません、間違えました。」6回／「いや、16日って言ったんですけど。」6回・
+# 「いえ、16日の午後2時です。」18回）
+SELF_CORRECTION = re.compile(r"間違|まちが|やっぱ|変更|変え")
+
+
+def correction_kind(callee_said: str) -> str:
+    """値を直されたときの直され方（AFTER の鍵）。"""
+    return "restated" if SELF_CORRECTION.search(callee_said or "") else "misheard"
 END_LABEL = {"done": "質問が終わった", "callee_hurry": "相手が急いでいる", "callee_refused_call": "通話を断られた"}
 REPLY_KEY_LABEL = {"result": "結果", "message": "次にすること", "question_id": "質問", "question": "質問の文", "value": "値", "say": "言い方"}
 RESULT_LABEL = {"next": "次の質問", "confirm_required": "言い直して確かめる", "rejected": "差し戻し", "ask_back": "聞き返す",
-                "recheck": "念のための確認", "end": "締め", "busy_ask": "引き止めの一言", "wait": "待つ"}
+                "recheck": "念のための確認", "end": "締め", "busy_ask": "引き止めの一言"}
 INTERNAL_KEYS = {"ack", "ask_n", "ask_reason", "ask_last", "after"}  # 中で使うだけの項目（電話接続側・数え方が読む）。AIへの返事には入れない
 # こちらが使う名前（AIに見せる日本語の名前）。値の欄に入っていたら、相手の答えではない（form_problem）
 _LABELS = set(SYSTEM_LABEL.values()) | set(CONFIRM_LABEL.values()) | set(END_LABEL.values()) | {"答えた"}
@@ -145,11 +186,10 @@ _ARG_FROM_LABEL = {v: k for k, v in ARG_LABEL.items()}
 OP_ARGS = {"record_answer": (("question_id", "condition_id"), ("value",)),
            "report_unclear": (("question_id",), ()),
            "confirm_field": (("question_id", "result"), ("correction",)),
-           "request_end": (("reason",), ()),
-           # 相手が考えている（比べる形 B。G-36）：相づちはプログラムが録音で流し、AIは黙って待つ。記録は書き換えない
-           "report_thinking": (("question_id",), ())}
+           "request_end": (("reason",), ())}
+# ✅ 2026-10-14 ユーザー：考えている相手への「はい」は形 A（AIが自分で言う）。⇒ 比べた形 B（AIは黙って「相手が考えている」と報告し、
+#    相づちはプログラムが録音で流す。G-36）の操作は外した（B は、答えを考えている途中と読み違えて黙った回があった）
 OPS = tuple(OP_ARGS)
-SILENT_OPS = frozenset({"report_thinking"})  # 返事でAIに話させない操作（live_util の silent_ops）
 # 選択肢が決まっている項目（中の名前 → その表）。答えの種類（condition_id）は質問ごとに違うので、record_answer の中で確かめる
 _ENUM_ARGS = {"result": CONFIRM_LABEL, "reason": END_LABEL}
 
@@ -213,7 +253,7 @@ class Item:
 
 class Flow:
     def __init__(self, questions: list[Question], limits: Limits | None = None, confirm=confirm_phrase,
-                 busy_ask: str | None = None, lead_ins: bool = True, thinking_op: bool = False):
+                 busy_ask: str | None = None, lead_ins: bool = True):
         """confirm：言い直しの言い方を作る関数 (値, 場面, 何回目) → 文（ふだんは phrases.confirm。言い方を比べる試験 G-25 だけが別のものを渡す）。
         busy_ask：相手が「忙しい」と言ったときに1回だけ言う一言（業務設定。None なら丁寧に終える＝既定。Intent.md 9-4）。"""
         self.confirm = confirm
@@ -224,13 +264,11 @@ class Flow:
         # lead_ins：プログラムの返事のあとに話す文の頭に、受けの言葉を置くか（DESIGN.md 6-11。✅ 2026-10-13 ユーザー承認＝既定で置く。
         # 置かない形は、過去の比べの試験（G-25・G-27 の W0）を同じ意味で動かすためだけに残す）
         self.lead_ins = lead_ins
-        # thinking_op：相手が考えているとき、AIは黙って report_thinking を呼び、相づちはプログラムが録音で流す形（比べる形 B。G-36）。
-        # ✅ 2026-10-14 ユーザー：S2・S4 が「えーとですね」のあとに言う「はい」が、物欲しそう・期待しているように聞こえる（L4 は問題なし）
-        self.thinking_op = thinking_op
         self.lead_counts: dict[str, int] = {}
         self.ack_count = 0               # 次の質問の前に流す相づちを、順番に回す（_ack）
         # AIが答えを報告せずに言い直し、相手に値を直された：(質問, 直され方＝AFTER の鍵)。その答えの報告で、直され方に合う言い直しにする
         self.unreported_correction: tuple[str, str] | None = None
+        self.callee_said = ""            # いまの相手の発話の文字（会話AIの聞き取り。届いた分だけ。on_heard）
         self.questions = {q.id: q for q in questions}
         self.order = [q.id for q in questions]
         self.limits = limits or Limits()
@@ -247,6 +285,11 @@ class Flow:
     # ── 相手の発話が届いた（本番では、相手の音声の発話の検出で数える）
     def on_callee(self) -> None:
         self.callee_turns += 1
+        self.callee_said = ""
+
+    # ── 相手の言葉の文字が届いた（会話AIの聞き取り。値を直されたときの直され方を、プログラムが決めるのに使う）
+    def on_heard(self, text: str) -> None:
+        self.callee_said += text
 
     # ── AIの操作を受ける唯一の入口（AIに見せる言葉＝日本語）。ここで1回だけ中の名前に置き換え、返事を日本語に戻す。
     #    相づち（ack）は電話接続側が流すもので、AIには見せない（AIの返事から外す）
@@ -255,9 +298,8 @@ class Flow:
 
     # ── 中の名前での入口（handle と試験は、ここを通す）。記録（log）は中の名前で残す
     def apply(self, name: str, args: dict) -> dict:
-        ops = OPS if self.thinking_op else tuple(o for o in OPS if o not in SILENT_OPS)
-        if name not in ops:
-            reply = self._reject(f"その操作はありません（使える操作は {'・'.join(ops)}）。")
+        if name not in OPS:
+            reply = self._reject(f"その操作はありません（使える操作は {'・'.join(OPS)}）。")
         else:
             why = self._check_args(name, args)
             reply = self._reject(why) if why else getattr(self, f"_op_{name}")(args)
@@ -278,8 +320,6 @@ class Flow:
         result = reply["result"]
         if result == "rejected":
             return None
-        if result == "wait":
-            return "aizuchi"  # 相手が考えている：相づち風に読んだ「はい。」（比べる形 B）
         if result == "ask_back":
             # 1回目の「答えが質問に合わない」は「はい、」（続けてAIが「恐れ入ります。（聞くこと）を、もう一度…」）。
             # 聞き取れなかったとき・2回目からは、申し訳なさそうに読んだ「申し訳ございません、」（✅ 2026-10-14 ユーザー）
@@ -387,7 +427,7 @@ class Flow:
             #    「相手が答えたら record_answer で」としか言わず、相手がもう答えているのに AIが待つと読めた。1回は報告し直さず、次の質問の
             #    答え「3人」が日時の答えとして記録され、確かめまで済んだ。⇒ 答えがまだ報告されていないことと、報告する値を、はっきり言う
             v = normalize_value(self.questions[qid].type, a.get("correction"))
-            self.unreported_correction = (qid, CORRECTED_AFTER[a["result"]]) if a.get("result") in CORRECTED_AFTER else None
+            self.unreported_correction = (qid, correction_kind(self.callee_said)) if a.get("result") == "corrected" else None
             shown = f"（「{v}」）" if v else ""
             return self._reject(f"{qid} の答えは、まだ record_answer で報告されていません。相手が答えた値{shown}を、いま record_answer で"
                                 "報告してください。言い直しの言い方は、プログラムの返事のとおりにします。")
@@ -398,9 +438,9 @@ class Flow:
         it = self.items[qid]
         result = a.get("result")
         correction = normalize_value(self.questions[qid].type, a.get("correction"))
-        if result in CORRECTED_AFTER and correction is None:  # 訂正の値の無い報告は、記録を書き換える前に差し戻す（上と同じ漏れ）
+        if result == "corrected" and correction is None:  # 訂正の値の無い報告は、記録を書き換える前に差し戻す（上と同じ漏れ）
             return self._reject(f"訂正された値がありません。相手が言い直した値を「{ARG_LABEL['correction']}」に入れて、もう一度報告してください。")
-        if result in CORRECTED_AFTER and (why := form_problem(self.questions[qid].type, correction)):
+        if result == "corrected" and (why := form_problem(self.questions[qid].type, correction)):
             self.awaiting_confirm = None  # 言い直しの返事待ちをやめて、質問から聞き直す（6-2）
             return self._bad_form(qid, correction, why)
         self.awaiting_confirm = None
@@ -419,22 +459,14 @@ class Flow:
         if result == "affirmed":
             it.set("confirmed", "相手が肯定した")
             return self._advance("確認できました。")
-        if result in CORRECTED_AFTER and it.corrections < self.limits.after_correction:
+        if result == "corrected" and it.corrections < self.limits.after_correction:
             it.corrections += 1
             it.value = correction
-            it.set("heard", "相手が訂正した" if result == "corrected" else "相手が言い直した")
-            return self._ask_confirm(qid, after=CORRECTED_AFTER[result])
-        it.set("unresolved", "訂正のあとも合わない" if result in CORRECTED_AFTER else "相手が答えなかった")
+            kind = correction_kind(self.callee_said)
+            it.set("heard", "相手が訂正した（こちらの聞き違い）" if kind == "misheard" else "相手が訂正した（相手の言い間違い）")
+            return self._ask_confirm(qid, after=kind)
+        it.set("unresolved", "訂正のあとも合わない" if result == "corrected" else "相手が答えなかった")
         return self._advance("「-」にします。")
-
-    def _op_report_thinking(self, a: dict) -> dict:
-        """相手が考えている（「えーとですね、」で止まった）。記録は書き換えない。相づちの録音（aizuchi）を流し、AIは黙って待つ。
-        電話接続の側は、ここから相手が黙っている秒数を数える（5秒で「いかがなさいましたか？」。DESIGN.md 6-15）。"""
-        qid = a.get("question_id")
-        if qid != self.current and qid != self.awaiting_confirm:
-            return self._reject(f"{qid} は、いまの質問ではありません。")
-        return {"result": "wait", "message": "相づちはプログラムが流しました。何も言わずに、相手が話し終えるまで待ちます。"
-                                               "相手が答えたら、いつものとおり報告します。"}
 
     def _op_request_end(self, a: dict) -> dict:
         reason = a.get("reason")
@@ -554,8 +586,7 @@ class Flow:
             say = self.awaiting_say
             return (f"いまは {self.awaiting_confirm} の言い直し「{say}」への、相手の返事を待っています。"
                     f"相手が肯定したら confirm_field を{ARG_LABEL['result']}「{CONFIRM_LABEL['affirmed']}」で、違う値を言ったら"
-                    f"「{CONFIRM_LABEL['corrected']}」（相手が自分の言い間違いを直したときは「{CONFIRM_LABEL['restated']}」）と"
-                    f"{ARG_LABEL['correction']}で報告してください。"
+                    f"「{CONFIRM_LABEL['corrected']}」と{ARG_LABEL['correction']}で報告してください。"
                     f"相手がまだ答えていなければ、「{say}」と、もう一度聞いてください。")
         if self.current is None:
             return "質問は終わりです。締めの言葉を言って終えてください。"
@@ -581,11 +612,9 @@ class Flow:
         return out
 
 
-def tool_declarations(questions: list[Question], thinking_op: bool = False):
+def tool_declarations(questions: list[Question]):
     """AIが呼べる操作（6-2）の宣言を作る唯一の場所。条件の選択肢は、質問の宣言＋システムの2つ。
-    ⛔ 2026-10-14 G-33：答えの報告を「返事を待たない」宣言にする形は採らない（AIが受けの言葉を先に言わなかった）。
-    thinking_op：相手が考えていることの報告（report_thinking）を足す（比べる形 B。G-36）。返事を待たない宣言にし、返事は話させない形
-    （SILENT）で返す ⇒ AIは黙ったまま、相づちはプログラムが流す。"""
+    ⛔ 2026-10-14 G-33：答えの報告を「返事を待たない」宣言にする形は採らない（AIが受けの言葉を先に言わなかった）。"""
     from google.genai import types
 
     def s(enum=None, desc=None):
@@ -599,8 +628,7 @@ def tool_declarations(questions: list[Question], thinking_op: bool = False):
         # 項目と「必ず要る項目」は、受け取ったときの確かめと同じ表（OP_ARGS）から作る
         req, opt = OP_ARGS[name]
         assert set(props) == {A[k] for k in req + opt} and required == [A[k] for k in req], name
-        behavior = types.Behavior.NON_BLOCKING if name in SILENT_OPS else None
-        return types.FunctionDeclaration(name=name, description=desc, behavior=behavior,
+        return types.FunctionDeclaration(name=name, description=desc,
                                          parameters=types.Schema(type=types.Type.OBJECT, properties=props, required=required))
 
     return [types.Tool(function_declarations=[
@@ -611,10 +639,9 @@ def tool_declarations(questions: list[Question], thinking_op: bool = False):
         fd("report_unclear", "相手の答えが聞き取れない・曖昧だったことを報告する",
            {A["question_id"]: s(qids)}, [A["question_id"]]),
         fd("confirm_field", "言い直した値への、相手の返事を報告する（相手が返事をしてから呼ぶ）",
-           {A["question_id"]: s(qids), A["result"]: s(list(CONFIRM_LABEL.values())), A["correction"]: s(desc="相手が言い直した値")},
+           {A["question_id"]: s(qids), A["result"]: s(list(CONFIRM_LABEL.values())), A["correction"]: s(desc="直したあとの値（全部）")},
            [A["question_id"], A["result"]]),
         fd("request_end", f"電話を終えたいときに呼ぶ。相手が急いでいる・切ろうとしているなら「{END_LABEL['callee_hurry']}」、"
            f"通話自体を断られたなら「{END_LABEL['callee_refused_call']}」、質問が全部終わったなら「{END_LABEL['done']}」",
            {A["reason"]: s(list(END_LABEL.values()))}, [A["reason"]]),
-    ] + ([fd("report_thinking", "相手が考えている（「えーと」「その」など、まだ答え終わっていない）ことを報告する。声は出さずに呼ぶ",
-             {A["question_id"]: s(qids)}, [A["question_id"]])] if thinking_op else []))]
+    ])]

@@ -614,12 +614,10 @@ class AIToJapaneseTest(unittest.TestCase):
         self.assertEqual(f.items["Q1"].state, "empty")
 
     def test_declarations_and_checks_use_one_table(self):
-        from flowctl import ARG_LABEL, OP_ARGS, SILENT_OPS, tool_declarations
+        from flowctl import ARG_LABEL, OP_ARGS, tool_declarations
         decls = {d.name: d for d in tool_declarations(self.business().questions)[0].function_declarations}
-        self.assertEqual(set(decls), set(OP_ARGS) - SILENT_OPS)  # 相手が考えていることの報告は、比べる形 B だけ
-        decls = {d.name: d for d in tool_declarations(self.business().questions, thinking_op=True)[0].function_declarations}
         self.assertEqual(set(decls), set(OP_ARGS))
-        self.assertEqual({n for n, d in decls.items() if d.behavior}, set(SILENT_OPS))  # 返事を待たない宣言は、その報告だけ
+        self.assertFalse({n for n, d in decls.items() if d.behavior})  # 返事を待たない宣言は使わない（G-33・G-36 の形 B は外した）
         for name, (req, opt) in OP_ARGS.items():
             self.assertEqual(set(decls[name].parameters.properties), {ARG_LABEL[k] for k in req + opt}, name)
             self.assertEqual(decls[name].parameters.required, [ARG_LABEL[k] for k in req], name)
@@ -959,19 +957,15 @@ class AckChoiceTest(unittest.TestCase):
         text = build(b, "S2")[1]
         self.assertIn("「はい。」とだけ、軽い相づちとして", text)   # 形 A：言い方を足す（期待するような言い方にしない）
         self.assertNotIn("ごゆっくりどうぞ", text)  # ⛔ G-30〜G-32：相手の続きの言葉にかぶった
-        text_b = build(b, "S2", thinking_op=True)[1]
-        self.assertIn("声を出さずに report_thinking を呼びます", text_b)  # 形 B：相づちはプログラムが録音で流す
-        self.assertNotIn("「はい。」とだけ", text_b)
+        self.assertNotIn("report_thinking", text)    # ✅ 2026-10-14 ユーザー：形 A（形 B の決まりは外した）
 
-    def test_thinking_report_plays_aizuchi_and_changes_nothing(self):
+    def test_thinking_report_is_gone(self):
+        """形 B の操作（相手が考えていることの報告）は外した：届いても差し戻すだけ（流れは止まらない）。"""
         from flowctl import Flow, Question
-        qs = [Question("Q1", "日時は。", "datetime", conditions=("答えた",))]
-        f = Flow(qs, thinking_op=True)
-        f.on_callee()
+        f = Flow([Question("Q1", "日時は。", "datetime", conditions=("答えた",))])
         r = f.apply("report_thinking", {"question_id": "Q1"})
-        self.assertEqual((r["result"], r["ack"], f.items["Q1"].state, f.current), ("wait", "aizuchi", "empty", "Q1"))
-        g = Flow(qs)  # 形 A では、この報告は使えない
-        self.assertEqual(g.apply("report_thinking", {"question_id": "Q1"})["result"], "rejected")
+        self.assertEqual((r["result"], f.items["Q1"].state, f.current), ("rejected", "empty", "Q1"))
+        self.assertIn("record_answer", r["message"])
 
 
 class FormCheckTest(unittest.TestCase):
@@ -1095,6 +1089,17 @@ class FormCheckTest(unittest.TestCase):
         self.do(f, "confirm_field", question_id="Q2", result="affirmed", correction="はい")
         self.assertEqual((f.items["Q2"].state, f.items["Q2"].value), ("confirmed", "15日の午後2時"))
 
+    def test_kanji_numerals_become_digits(self):
+        """日時と数の答えの漢数字は、数を数える言葉の前にあるものだけ数字に直す（✅ 2026-10-14 ユーザー承認。⛔ G-36：「十五日の午後二時」「三人」）。"""
+        from flowctl import normalize_value as n
+        for qtype, v, want in [("datetime", "十五日の午後二時", "15日の午後2時"), ("number", "三人です", "3人"), ("number", "三名様", "3名様"),
+                               ("datetime", "二十日の十時半", "20日の10時半"), ("datetime", "2時十分", "2時10分"), ("time", "十時十五分", "10時15分"),
+                               ("datetime", "二〇二六年十月十五日", "2026年10月15日"), ("amount", "三万五千円", "35000円"),
+                               ("datetime", "三か月後", "3か月後"), ("number", "十分です", "十分"),        # 「足りる」の意味は直さない
+                               ("datetime", "一緒に伺います", "一緒に伺います"), ("datetime", "一番早い日", "一番早い日"),
+                               ("name", "三人", "三人"), ("datetime", "15日の午後2時", "15日の午後2時")]:
+            self.assertEqual(n(qtype, v), want, v)
+
     def test_number_without_count_is_asked_again(self):
         """人数の質問に数になっていない答え（「家族で行こうと思ってます」）：記録せず、聞くことの名前を入れて聞き直す。"""
         from flowctl import Flow, Question
@@ -1180,23 +1185,43 @@ class AskLadderTest(unittest.TestCase):
         r = self.do(h, "record_answer", question_id="Q1", condition_id="答えた", value="3人")
         self.assertEqual((r["say"], r["ack"]), (self.LAST, "moushiwake"))
 
+    def heard(self, f, said):
+        """相手が話した（会話AIの聞き取りの文字が届いた）。"""
+        f.on_callee()
+        if said:
+            f.on_heard(said)
+
     def test_misheard_and_restated_read_back_differently(self):
         """値を直されたあと（✅ 2026-10-14 ユーザー）：こちらの聞き違い＝「失礼いたしました。」＋「改めまして、…大丈夫でしょうか？」、
-        相手の言い間違い＝「承知しました。」＋「それでは、…よろしいでしょうか？」。「失礼いたしました。」のあとに「かしこまりました」を続けない。"""
-        out = {}
-        for result in ("corrected", "restated"):
+        相手の言い間違い＝「承知しました。」＋「それでは、…よろしいでしょうか？」。どちらかは、プログラムが相手の言葉から決める
+        （✅ 2026-10-14 ユーザー決定。⛔ G-36：AIに選ばせると12本中12本「相手が言い直した」）。言葉の文字がまだ届いていなければお詫び。"""
+        cases = {"あ、すみません、間違えました。16日の午後2時でお願いします。": "shouchi", "やっぱり16日にしてください。": "shouchi",
+                 "16日に変更できますか。": "shouchi", "いや、16日って言ったんですけど。": "shitsurei", "いえ、16日の午後2時です。": "shitsurei",
+                 "": "shitsurei"}
+        says = {"shitsurei": "改めまして、16日の午後2時で、大丈夫でしょうか？", "shouchi": "それでは、16日の午後2時で、よろしいでしょうか？"}
+        for said, ack in cases.items():
             f = self.flow()
             self.do(f, "record_answer", question_id="Q1", condition_id="答えた", value="15日の午後2時")
-            r = self.do(f, "confirm_field", question_id="Q1", result=result, correction="16日の午後2時")
-            out[result] = (r["ack"], r["say"])
+            self.heard(f, said)
+            r = f.apply("confirm_field", {"question_id": "Q1", "result": "corrected", "correction": "16日の午後2時"})
+            self.assertEqual((r["ack"], r["say"]), (ack, says[ack]), said)
             self.assertEqual((f.items["Q1"].value, f.awaiting_confirm), ("16日の午後2時", "Q1"))
-        self.assertEqual(out, {"corrected": ("shitsurei", "改めまして、16日の午後2時で、大丈夫でしょうか？"),
-                               "restated": ("shouchi", "それでは、16日の午後2時で、よろしいでしょうか？")})
+
+    def test_heard_words_belong_to_the_latest_callee_turn(self):
+        """前の相手の言葉に「間違え」があっても、いまの相手の言葉で決める（相手が話すたびに、文字を新しくする）。"""
+        f = self.flow()
+        self.heard(f, "あ、間違えました、15日です。")
+        f.apply("record_answer", {"question_id": "Q1", "condition_id": "答えた", "value": "15日の午後2時"})
+        self.heard(f, "いや、16日って言ったんですけど。")
+        self.assertEqual(f.apply("confirm_field", {"question_id": "Q1", "result": "corrected", "correction": "16日の午後2時"})["ack"],
+                         "shitsurei")
 
     def test_unreported_restatement_keeps_its_kind(self):
         """AIが答えを報告せずに言い直し、相手が自分の言い間違いを直した：差し戻したあとの答えの報告でも、言い直しを受けた言い方にする。"""
         f = self.flow()
-        self.assertEqual(self.do(f, "confirm_field", question_id="Q1", result="restated", correction="16日の午後2時")["result"], "rejected")
+        self.heard(f, "あ、すみません、間違えました。16日です。")
+        self.assertEqual(f.apply("confirm_field", {"question_id": "Q1", "result": "corrected", "correction": "16日の午後2時"})["result"],
+                         "rejected")
         r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "答えた", "value": "16日の午後2時"})
         self.assertEqual((r["ack"], r["say"]), ("shouchi", "それでは、16日の午後2時で、よろしいでしょうか？"))
 
@@ -1208,8 +1233,9 @@ class AskLadderTest(unittest.TestCase):
         text = build(b, "S2")[1]
         self.assertIn("合うかどうかはプログラムが決めて", text)
         self.assertIn("聞き取れない（何と言ったか分からない）ときだけ report_unclear", text)
-        self.assertIn(f"「{CONFIRM_LABEL['restated']}」", text)
+        self.assertIn(f"こちらの聞き違いでも、相手の言い間違いでも）「{CONFIRM_LABEL['corrected']}」", text)  # 見分けはプログラム
         self.assertIn("直していない部分も足します", text)  # ⛔ G-36 の3回目：「16日」だけが報告され、「午後2時」が落ちた
+        self.assertIn("その言い方から話し始めます", text)    # ⛔ G-36 の3回目：AIが自分で「失礼いたしました。」を足した
 
 
 class NeverStuckTest(unittest.TestCase):

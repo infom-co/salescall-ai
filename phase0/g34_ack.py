@@ -42,12 +42,12 @@ from flowctl import normalize_value
 from instruction import VOICE_TYPES
 from jtext import compare_reading
 from listen import hear_feeds, in_any
-from stitch_gap import _speech_only, ack_wav, callee_speech, join_with_pause, played_ack, stitch_call
+from stitch_gap import ACK_TO_AI_S, _speech_only, ack_wav, callee_speech, join_with_pause, played_ack, stitch_call
 
 FAST = G30_VARIANTS["C_考える量0＋判定0.4秒"]
 FOLLOWUP_WAIT_S = 10.0
 LONG_SILENCE_S = 6.0
-JOIN_S = 0.05  # 相づちが終わってからAIの声を流すまでの最小の間（電話接続側が守る順）
+JOIN_S = ACK_TO_AI_S  # 相づちが終わってからAIの声を流すまでの最小の間（電話接続側が守る順。決まりは stitch_gap の1か所）
 
 
 def scenes() -> dict[str, list]:

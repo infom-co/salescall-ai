@@ -10,6 +10,8 @@
   （訂正＝こちらの聞き違い ⇒「失礼いたしました。」＋「改めまして、…大丈夫でしょうか？」）
 - 先に答えた：日時の質問に「3人です。」⇒ プログラムが聞き直し、相手は「15日の午後2時でお願いします。」と答え直す
 - 人数に別の答え：人数の質問に「家族で行こうと思ってます。」⇒ 数の型の形の確かめで聞き直し、相手は「3人です。」と答え直す
+4回目（ユーザーの決定のあと）：形は A だけ。値を直されたときの直され方は、プログラムが相手の言葉から決める（場面「訂正」「言い直し」
+「聞き違い」）。報告の時点で、相手の言葉の文字が届いていたかも数える。
 相手役は、聞き返されたら次の台詞へ進まず、答え直す（台詞の again。⛔ 1回目：台本の相手が聞き返しのあとも次の台詞へ進み、
 「はい、そうです」「3人です」が日時の答えとして報告された＝試験の作りの誤り）。
 比べる形（考えている相手への「はい」）：
@@ -39,16 +41,19 @@ from g34_ack import FAST, FOLLOWUP_WAIT_S, LONG_SILENCE_S
 from instruction import VOICE_TYPES
 from stitch_gap import callee_speech, join_with_pause, played_ack, stitch_call
 
-VARIANTS = {"A_言い方を足す": {"thinking_op": False}, "B_録音の相づち": {"thinking_op": True}}
+# ✅ 2026-10-14 ユーザー（1回目を聞いて）：「形 A が良い」⇒ B（録音の相づち）は外した（流れの制御・指示文からも外した）。
+#    B の結果は G-36 の1回目〜3回目の記録に残る
+VARIANTS = {"A_言い方を足す": {}}
+CORRECTIONS = ("correct_16", "restate_16", "said_16")  # 値を直す台詞（直され方を、プログラムが相手の言葉から決める）
 THINKING = ("pause700_datetime", "pause1500_three", "filler_eto", "unclear")  # 考えている相手の台詞
 ANSWERS = ("datetime_pm", "three_people", "correct_16", "itsudemo", "restate_16", "kazoku", "said_16")
 WANT = {"考える間": ("15日の午後2時", "3人"), "長い間": ("15日の午後2時", "3人"), "訂正": ("16日の午後2時", "3人"),
         "いつでも": ("いつでも大丈夫", "3人"), "聞き取りにくい": ("15日の午後2時", "3人"), "言い直し": ("16日の午後2時", "3人"),
         "先に答えた": ("15日の午後2時", "3人"), "人数に別の答え": ("15日の午後2時", "3人"), "聞き違い": ("16日の午後2時", "3人")}
-# 値を直されたあとに、プログラムが流すはずの相づち（言い直しの場面の見どころ）。
-# ⚠️ 訂正（相手は最初に「15日」と言い、そのあと「いえ、16日です」）は、どちらの読みも誤りではない：AIは「15日」を正しく聞いていた
-#    ので「相手が言い直した」が台本どおりの読み。迷ったときの「違う値を言われた」も決まりどおり（G-36 の2回目で4本とも前者）
-WANT_AFTER = {"訂正": ("shitsurei", "shouchi"), "言い直し": ("shouchi",), "聞き違い": ("shitsurei",)}
+# 値を直されたあとに、プログラムが流すはずの相づち（言い直しの場面の見どころ）。✅ 2026-10-14 ユーザー決定：直され方は、プログラムが
+# 相手の言葉から決める（自分の言い間違い・答えの変更を言う言葉があれば「承知しました、」、無ければお詫びの「失礼いたしました。」）
+# ⇒ 訂正（「いえ、16日の午後2時です。」）は、その言葉が無いのでお詫び（どちらとも決まらないときはお詫びする）
+WANT_AFTER = {"訂正": ("shitsurei",), "言い直し": ("shouchi",), "聞き違い": ("shitsurei",)}
 
 
 def A(name: str, again: str | None = None) -> dict:
@@ -87,7 +92,11 @@ def turn_measures(call: dict) -> list[dict]:
         names = [e["name"] for e in t.get("tool_events") or []]
         row = {"callee": utt(c.get("wav")) or ("followup" if "followup_of" in c else f"silence{c.get('silence_s')}"),
                "said": said[:60], "reports": names, "replies": [e.get("reply") for e in t.get("tool_events") or []],
-               "spoke": bool(t.get("audio_file") or said), "thinking_report": "report_thinking" in names}
+               "spoke": bool(t.get("audio_file") or said)}
+        # 報告の時点で、相手の言葉の文字が届いていたか（直され方をプログラムが決めるための材料。届いていなければお詫びになる）
+        first_report = min((e["at_s"] for e in t.get("tool_events") or [] if e.get("at_s") is not None), default=None)
+        if first_report is not None and "heard_events" in t:
+            row["heard_at_report"] = "".join(h["text"] for h in t["heard_events"] if h["at_s"] <= first_report)
         if "followup_of" in c:
             row["followup_of"] = utt(c["followup_of"].get("wav")) if isinstance(c["followup_of"], dict) else None
             row["followup_reason"] = c.get("reason")
@@ -143,10 +152,9 @@ def summarize(rows: list[dict]) -> dict:
             "after_ack_ok": {sc: f'{sum(r["checks"].get("after_ack") in a for r in rs if r["scene"] == sc)}/'
                                  f'{sum(1 for r in rs if r["scene"] == sc)}' for sc, a in WANT_AFTER.items() if any(r["scene"] == sc for r in rs)},
             "rejected": sum(r["checks"]["rejected"] for r in rs), "ask_backs": sum(r["checks"]["ask_backs"] for r in rs),
-            "thinking_turns": len(thinking), "thinking_reported": sum(t["thinking_report"] for t in thinking),
-            "thinking_spoke": sum(t["spoke"] for t in thinking),
+            "thinking_turns": len(thinking), "thinking_spoke": sum(t["spoke"] for t in thinking),
             "thinking_said": sorted({t["said"][:16] for t in thinking if t["said"]}),
-            "thinking_report_on_answer": sum(1 for t in ts if t["thinking_report"] and t["callee"] in ANSWERS),
+            "correction_heard_at_report": [t.get("heard_at_report") for t in ts if t["callee"] in CORRECTIONS],
             "spoke_in_silence": sum(1 for t in ts if t["callee"].startswith("silence") and t["spoke"]),
             "first_heard": q(t.get("first_heard_s") for t in ts if t["callee"] in ANSWERS + ("affirm", "yes_reserved") and not t.get("cut_in")),
         }
@@ -203,7 +211,8 @@ async def run(args) -> dict:
                     rows.append(row)
                     tm = row.get("turns_measured", [])
                     say(f"[{rep}] {vt} {scene} {name} 値={row.get('checks')} 相づち={row.get('acks')} "
-                        f"考える相手に={[(t['said'][:10], t['thinking_report']) for t in tm if t['callee'] in THINKING]} {row.get('error', '')}")
+                        f"考える相手に={[t['said'][:10] for t in tm if t['callee'] in THINKING]} "
+                        f"直す言葉の届き={[t.get('heard_at_report') for t in tm if t['callee'] in CORRECTIONS]} {row.get('error', '')}")
                     save_partial("G-36", {"model": args.model, "summary": summarize(rows), "rows": rows})
                     await asyncio.sleep(args.pause)
     summary = summarize(rows)
