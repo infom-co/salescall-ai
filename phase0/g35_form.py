@@ -1,11 +1,12 @@
 """G-35：値の形の確かめと、そのあとの流れ（DESIGN.md 6-2。✅ 2026-10-14 ユーザー承認「差し戻した後の仕組みの設計をしっかりと」）を、
 通話の形で確かめる。
 
-決まり：日付・時刻・日時の型の値に、日付か時刻の言葉が無ければ、値は記録せずに、その場で1回だけ質問を聞き直す（「恐れ入ります。（質問）」）。
-使い切っていたら「-」にして次へ。必須なら、締めの前の念のための確認でもう1回だけ聞く。AIに選ばせず、流れの制御が決める。
+決まり：日付・時刻・日時の型の値が、別の型の値（「3人」「はい」）になっていたら、値は記録せずに聞き返す（必須は3回まで。言い方は段ごと。
+DESIGN.md 6-11）。使い切っていたら「-」にして次へ。必須なら、締めの前の念のための確認でもう1回だけ聞く。AIに選ばせず、流れの制御が決める。
+✅ 2026-10-14 ユーザー：「いつでも」「なるべく早く」は「即」＝よい答え（「-」はありえない）⇒ 日時の答えとして受け付ける。
 場面（相手の台詞。台詞の順は、決まりどおりに進んだときの順）：
 - 先に答えた：日時を聞いたのに「3人です。」⇒ 聞き直し ⇒「15日の午後2時でお願いします。」⇒ 確かめ ⇒ 人数「3人です。」
-- 日時にならない：「いつでも大丈夫です。」⇒ 聞き直し ⇒ また「いつでも大丈夫です。」⇒「-」⇒ 人数 ⇒ 念のための確認でも「いつでも」⇒「-」
+- 日時を決めない答え：「いつでも大丈夫です。」⇒ 答えとして言い直して確かめる ⇒「はい、そうです。」⇒ 人数「3人です。」
 見ること：
 - 日時の項目に、日時でない値が「取れた」として入った回（0 でなければならない）
 - 聞き直しが起きたか・AIが聞き直しの言い方のとおりに言ったか・同じ項目で聞き直しが2回以上起きなかったか
@@ -24,20 +25,19 @@ from g22_opening import BUSINESS, W
 from g30_latency import keep_call
 from g34_ack import FAST, FOLLOWUP_WAIT_S
 from instruction import VOICE_TYPES
-from phrases import REASK_LEAD
 
 SCENES = {
     "先に答えた": [W("yes_reserved"), W("three_people"), W("datetime_pm"), W("affirm"), W("three_people"), W("affirm")],
-    "日時にならない": [W("yes_reserved"), W("itsudemo"), W("itsudemo"), W("three_people"), W("affirm"), W("itsudemo")],
+    "日時を決めない答え": [W("yes_reserved"), W("itsudemo"), W("affirm"), W("three_people"), W("affirm")],
 }
 WANT = {"先に答えた": {"Q2": ("confirmed", "15日の午後2時"), "Q3": ("confirmed", "3人")},
-        "日時にならない": {"Q2": ("unresolved", None), "Q3": ("confirmed", "3人")}}
+        "日時を決めない答え": {"Q2": ("confirmed", "いつでも大丈夫"), "Q3": ("confirmed", "3人")}}
 
 
 def measures(call: dict, scene: str) -> dict:
     it = call["items"]
-    reasks = [e for e in call["flow_log"] if e["reply"]["result"] == "reask"]
-    reask_turns = [t for t in call["turns"] if any(e.get("reply") == "reask" for e in t.get("tool_events") or [])]
+    reasks = [e for e in call["flow_log"] if e["reply"]["result"] == "ask_back" and e["reply"].get("ask_reason") == "form"]
+    reask_turns = [t for t in call["turns"] if any(e.get("reply") == "ask_back" and e.get("say") for e in t.get("tool_events") or [])]
     want = WANT[scene]
     return {
         "checks": {
@@ -45,7 +45,8 @@ def measures(call: dict, scene: str) -> dict:
             "q2_ok": (it["Q2"]["state"], it["Q2"]["value"]) == want["Q2"],
             "q3_ok": (it["Q3"]["state"], it["Q3"]["value"]) == want["Q3"],
             "reasks": len(reasks),
-            "reask_said_as_told": [REASK_LEAD.rstrip("。") in (t.get("intended") or "") for t in reask_turns],
+            "reask_said_as_told": [next(e["say"] for e in t["tool_events"] if e.get("say"))[:8] in (t.get("intended") or "")
+                                   for t in reask_turns],
             "rejected": sum(1 for e in call["flow_log"] if e["reply"]["result"] == "rejected"),
             "final_phase": call["final_phase"],
         },

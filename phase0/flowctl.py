@@ -17,7 +17,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from phrases import CLOSE_DECLINED, REASK_LEAD
+from phrases import CLOSE_DECLINED
+from phrases import ask_again as ask_again_phrase
 from phrases import confirm as confirm_phrase
 from phrases import lead_in as lead_in_phrase
 
@@ -51,20 +52,34 @@ def normalize_value(qtype: str, value: str | None) -> str | None:
     return v or None
 GOT = ("confirmed", "accepted")  # 「取れた」（4-4）
 
-# 値の形の確かめ（型の一覧の決まり。DESIGN.md 6-2。✅ 2026-10-14 ユーザー承認）：日付・時刻・日時の型の値には、日付か時刻の言葉が
-# 1つは入っている。⛔ G-34：AIが答えを報告せずに言い直したあと、次の質問の答え「3人」が日時の答えとして確かめまで済んだ。
+# 値の形の確かめ（型の一覧の決まり。DESIGN.md 6-2。✅ 2026-10-14 ユーザー承認）：日付・時刻・日時の型の値に、日付・時刻の言葉が無く、
+# 別の型の値（数「3人」・返事の言葉「はい」・こちらの名前「答えなかった」）になっているときだけ止める。
+# ⛔ G-34：AIが答えを報告せずに言い直したあと、次の質問の答え「3人」が日時の答えとして確かめまで済んだ。
+# ✅ 2026-10-14 ユーザー：「『いつでも』『なるべく早く』は『即』ということなので、営業としては良いこと。日時よりも良い。こちら次第と
+#    いうこと。『-』はありえない」⇒ 日時を決めない答えは、日時の質問の答えとして受け付ける（止めるのは、別の型の値だけ）。
 # これまでの試験の値に当てて、取り違え 20回中20回を止め、正しい答え 570回中0回を止める（form_rule_eval.py）。
-# 数・金額・名前などは、型だけでは見分けられないので当てない（数の型は単位を持たない）
+# 数・金額・名前などの型には当てない（数の型は単位を持たない。⏳ 数の型の案は DESIGN.md 6-2）
 DATE_TIME_TYPES = {"date", "time", "datetime"}
 DATE_TIME_WORDS = ("日", "時", "分", "月", "曜", "午前", "午後", "今日", "明日", "あした", "あす", "明後日", "あさって", "来週", "今週",
                    "再来週", "週", "朝", "昼", "夕方", "夕刻", "晩", "夜", "半", "正午", "年", "明け", "頃", "ごろ", "以降", "旬", "末", "初め", "中")
 
 
+_NUMERAL = re.compile(r"[0-9０-９〇一二三四五六七八九十百千万]")
+_REPLY_ONLY = re.compile(r"(?:はい|ええ|うん|いいえ|いえ|いや|そう|です|違います|ちがいます|大丈夫|結構|ございます|わかりません|わからない|"
+                         r"分かりません|分からない|[、。，．！？!?\s])+")
+
+
 def form_problem(qtype: str, value: str | None) -> str | None:
     """値の形が型に合わない理由（合っていれば None）。値の形をそろえた（normalize_value）あとの値に当てる。"""
-    if value and qtype in DATE_TIME_TYPES and not any(w in value for w in DATE_TIME_WORDS):
-        return "日付も時刻もありません"
-    return None
+    if not value or qtype not in DATE_TIME_TYPES or any(w in value for w in DATE_TIME_WORDS):
+        return None
+    if _NUMERAL.search(value):
+        return "日付も時刻も無く、数だけがあります"
+    if _REPLY_ONLY.fullmatch(value):
+        return "日時ではなく、返事の言葉です"
+    if value in _LABELS:
+        return "相手の答えではなく、こちらの名前です"
+    return None  # 「いつでも」「なるべく早く」「そちらのご都合で」など：日時を決めない答え（こちら次第＝営業にはよい答え）
 
 # ── AIに見せる言葉（唯一の場所）。⛔ 2026-10-13 ユーザー指摘「こちらが英語を使っていませんか？」：指示文・操作の宣言・操作への返事に、
 #    英語の名前（condition_id・unknown・callee_hurry・confirm_required など）が入っていた。AIが英語で自分の動きを声に出した回があった。
@@ -81,7 +96,10 @@ CONFIRM_LABEL = {"affirmed": "合っている", "corrected": "違う値を言わ
 END_LABEL = {"done": "質問が終わった", "callee_hurry": "相手が急いでいる", "callee_refused_call": "通話を断られた"}
 REPLY_KEY_LABEL = {"result": "結果", "message": "次にすること", "question_id": "質問", "question": "質問の文", "value": "値", "say": "言い方"}
 RESULT_LABEL = {"next": "次の質問", "confirm_required": "言い直して確かめる", "rejected": "差し戻し", "ask_back": "聞き返す",
-                "reask": "質問を聞き直す", "recheck": "念のための確認", "end": "締め", "busy_ask": "引き止めの一言"}
+                "recheck": "念のための確認", "end": "締め", "busy_ask": "引き止めの一言"}
+INTERNAL_KEYS = {"ack", "ask_n", "ask_reason", "apology"}  # 中で使うだけの項目（電話接続側・数え方が読む）。AIへの返事には入れない
+# こちらが使う名前（AIに見せる日本語の名前）。値の欄に入っていたら、相手の答えではない（form_problem）
+_LABELS = set(SYSTEM_LABEL.values()) | set(CONFIRM_LABEL.values()) | set(END_LABEL.values()) | {"答えた"}
 _FROM_LABEL = {"condition_id": {v: k for k, v in SYSTEM_LABEL.items()}, "result": {v: k for k, v in CONFIRM_LABEL.items()},
                "reason": {v: k for k, v in END_LABEL.items()}}
 _ARG_FROM_LABEL = {v: k for k, v in ARG_LABEL.items()}
@@ -99,7 +117,10 @@ _ENUM_ARGS = {"result": CONFIRM_LABEL, "reason": END_LABEL}
 @dataclass
 class Limits:
     """回数の上限（システム共通の設定の値。8章の「厳しいほう」）。DESIGN.md 6-11"""
-    ask_back: int = 1          # その場の聞き返し：1項目1回まで
+    # その場の聞き返し（聞き取れない・答えが質問に合わない）：必須の項目は3回まで。
+    # ✅ 2026-10-14 ユーザー：「『聞き返しは1項目1回まで』は大事なポイントは3回までOK」「必須の大事な部分の『分からない』は、極力なくすべき。
+    #    安易に『-』にしたらダメ」「いたるところで聞き返すのは相手に不快感を与える」⇒ 必須でない項目は、その場では聞き返さない（これまでどおり）
+    ask_back: int = 3
     recheck: int = 1           # 念のための確認：1項目1回まで
     after_correction: int = 1  # 訂正のあとの復唱：1回まで
 
@@ -111,6 +132,7 @@ class Question:
     type: str                   # 型の一覧の名前（"yes_no" "choice" "datetime" など）
     required: bool = True
     conditions: tuple = ()      # 業務が宣言した選択肢（依頼主が書いたまま。システムの2つは足さなくてよい）
+    topic: str = ""             # 聞くこと（「ご希望の日時」など。聞き返しの言い方に使う。業務設定。無ければ言わずに聞き返す）
 
     def __post_init__(self):
         assert self.type in TYPES, f"{self.id} の型「{self.type}」は、型の一覧にありません（I-16）"
@@ -210,14 +232,11 @@ class Flow:
         if result == "rejected":
             return None
         if result == "ask_back":
-            return "moushiwake"
-        if result == "reask":
-            return "hai"  # 続けてAIが「恐れ入ります。（質問）」と言う（お詫びを2つ重ねない）
+            # 1回目の「答えが質問に合わない」は「はい、」（続けてAIが「恐れ入ります。（聞くこと）を、もう一度…」）。
+            # 聞き取れなかったとき・2回目からは、申し訳なさそうに読んだ「申し訳ございません、」（✅ 2026-10-14 ユーザー）
+            return "hai" if (reply.get("ask_reason") == "form" and reply.get("ask_n") == 1) else "moushiwake"
         if result == "confirm_required":
-            # 言い直しの返事から言い直しへ戻るのは、訂正されたときだけ
-            apologize = name == "confirm_field" or self.unreported_correction == args.get("question_id")
-            self.unreported_correction = None
-            return "shitsurei" if apologize else "hai"
+            return "shitsurei" if reply.get("apology") else "hai"  # お詫びかは、言い直しを作る所（_ask_confirm）が決めたもの
         if name == "record_answer" and args.get("condition_id") in SYSTEM_CONDITIONS:
             return "shouchi"
         if name == "report_unclear":
@@ -260,7 +279,8 @@ class Flow:
 
     @staticmethod
     def _reply_out(reply: dict) -> dict:
-        return {REPLY_KEY_LABEL.get(k, k): (RESULT_LABEL.get(v, v) if k == "result" else v) for k, v in reply.items() if k != "ack"}
+        return {REPLY_KEY_LABEL.get(k, k): (RESULT_LABEL.get(v, v) if k == "result" else v) for k, v in reply.items()
+                if k not in INTERNAL_KEYS}
 
     # ── 操作
     def _op_record_answer(self, a: dict) -> dict:
@@ -291,8 +311,10 @@ class Flow:
             it.set("dont_know", "相手が「わからない」と答えた")
             return self._advance("受け付けました（わからない）。")
         it.set("heard", "聞き取れた")
-        if q.confirm or it.ask_backs or self.phase == "rechecking":
-            return self._ask_confirm(qid)
+        apology = self.unreported_correction == qid  # AIが報告せずに言い直した値を、相手が直していた
+        self.unreported_correction = None
+        if q.confirm or it.ask_backs or self.phase == "rechecking" or apology:
+            return self._ask_confirm(qid, apology=apology)
         it.set("accepted", "確かめない型で、はっきり聞き取れた")
         return self._advance("受け付けました。")
 
@@ -303,12 +325,7 @@ class Flow:
         if qid != self.current:
             return self._reject(f"{qid} は、いまの質問ではありません。")
         q, it = self.questions[qid], self.items[qid]
-        if self.phase == "asking" and q.required and it.ask_backs < self.limits.ask_back:
-            it.ask_backs += 1
-            it.set("unclear", "聞き取れない・曖昧（聞き返す）")
-            return {"result": "ask_back", "message": "決まった言い方で1回だけ聞き返してください。"}
-        it.set("unresolved", "聞き返しを使い切った" if self.phase == "asking" else "念のための確認でも聞けなかった")
-        return self._advance("「-」にします。")
+        return self._ask_again(qid, "unclear", "聞き取れない・曖昧")
 
     def _op_confirm_field(self, a: dict) -> dict:
         qid = a.get("question_id")
@@ -341,7 +358,7 @@ class Flow:
             it.corrections += 1
             it.value = correction
             it.set("heard", "相手が訂正した")
-            return self._ask_confirm(qid)
+            return self._ask_confirm(qid, apology=True)
         it.set("unresolved", "訂正のあとも合わない" if result == "corrected" else "相手が答えなかった")
         return self._advance("「-」にします。")
 
@@ -368,20 +385,29 @@ class Flow:
 
     # ── 内部
     def _bad_form(self, qid: str, value: str, why: str) -> dict:
-        """答えの値の形が質問の型に合わない（DESIGN.md 6-2）。AIに選ばせず、ここで決める：値は記録しない。その場で1回だけ質問を
-        聞き直す（回数は、その場の聞き返しと同じ1項目1回）。使い切っていたら「-」にして次へ（必須なら締めの前に念のための確認）。"""
+        """答えの値の形が質問の型に合わない（DESIGN.md 6-2）。値は記録せず、聞き返し（_ask_again）へ。"""
+        q = self.questions[qid]
+        return self._ask_again(qid, "form", f"値の形が合わない（{value}：{why}）",
+                               f"{q.id}「{q.text}」の答えとして「{value}」が報告されましたが、{why}。")
+
+    def _ask_again(self, qid: str, reason: str, why: str, shown: str = "") -> dict:
+        """聞き返しの唯一の場所（DESIGN.md 6-11。聞き取れない・曖昧＝"unclear"／答えが質問に合わない＝"form"）。AIに選ばせず、ここで
+        決める：必須の項目は、その場で3回まで聞き返す（言い方は段ごとに phrases.ask_again）。使い切っていたら・必須でない・念のための確認の
+        最中なら、「-」にして次へ（必須なら、締めの前の念のための確認で1回）。⇒ どの場合も、AIへの返事に次にすることが必ず入る。"""
         q, it = self.questions[qid], self.items[qid]
-        shown = f"{q.id}「{q.text}」の答えとして「{value}」が報告されましたが、{why}。"
         if self.phase == "asking" and q.required and it.ask_backs < self.limits.ask_back:
             it.ask_backs += 1
-            it.set("unclear", f"値の形が合わない（{value}：{why}）・質問を聞き直す")
-            say = REASK_LEAD + q.text
-            return {"result": "reask", "question_id": q.id, "say": say,
-                    "message": f"{shown}「{say}」と1回だけ聞き直して、相手の答えを待ってください。相手が答えたら record_answer で報告します。"}
-        it.set("unresolved", f"値の形が合わない（{value}：{why}）・聞き直しを使い切った")
+            it.set("unclear", f"{why}・聞き返す（{it.ask_backs}回目）")
+            say = ask_again_phrase(it.ask_backs, reason, q.topic)
+            return {"result": "ask_back", "question_id": q.id, "say": say, "ask_n": it.ask_backs, "ask_reason": reason,
+                    "message": f"{shown}「{say}」と聞き返して、相手の答えを待ってください。相手が答えたら record_answer で報告します。"}
+        it.set("unresolved", f"{why}・聞き返しを使い切った" if self.phase == "asking" else f"{why}・念のための確認でも聞けなかった")
         return self._advance(f"{shown}「-」にします。")
 
-    def _ask_confirm(self, qid: str) -> dict:
+    def _ask_confirm(self, qid: str, apology: bool = False) -> dict:
+        """言い直して確かめる。apology＝相手に値を直させた（こちらが違っていた）ので、お詫びの相づち「失礼いたしました。」を流し、
+        言い直しの頭は、お礼・承りの言葉ではなく、言い直す合図の言葉にする（⛔ 2026-10-14 ユーザー：「失礼いたしました。」のあとの
+        「かしこまりました」はおかしい）。"""
         it = self.items[qid]
         it.set("checking", "言い直して確かめる")
         self.awaiting_confirm = qid
@@ -390,8 +416,11 @@ class Flow:
         situation = "聞き取りにくかったあと" if (it.ask_backs or it.corrections or self.phase == "rechecking") else "ふつう"
         n = self.confirm_counts.get(situation, 0)
         self.confirm_counts[situation] = n + 1
-        say = self.awaiting_say = self._lead("言い直し") + self.confirm(it.value, situation, n)
-        return {"result": "confirm_required", "value": it.value, "say": say,
+        # 言い直す値：値の無い選択肢の型（はい／いいえなど。聞き返したあとは復唱する＝6-11）は、選んだ選択肢で言い直す。
+        # ⛔ 2026-10-14 に見つけた穴：値だけを渡していたため、「Noneで、よろしいでしょうか。」という文を作っていた
+        shown = it.value or SYSTEM_LABEL.get(it.condition, it.condition)
+        say = self.awaiting_say = self._lead("お詫びのあとの言い直し" if apology else "言い直し") + self.confirm(shown, situation, n)
+        return {"result": "confirm_required", "value": shown, "say": say, "apology": apology,
                 "message": f"言い直して確かめます。「{say}」と言って、相手の返事を待ってください。"}
 
     def _remaining(self) -> list[str]:
