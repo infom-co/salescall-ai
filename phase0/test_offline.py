@@ -1216,6 +1216,46 @@ class AskLadderTest(unittest.TestCase):
         self.assertEqual(f.apply("confirm_field", {"question_id": "Q1", "result": "corrected", "correction": "16日の午後2時"})["ack"],
                          "shitsurei")
 
+    def test_correction_right_after_affirmed_in_same_turn_wins(self):
+        """⛔ G-36 の4回目：相手の「あ、すみません、間違えました。16日の…」の「あ」で、AIが「合っている」と報告し、すぐに
+        「違う値を言われた」と報告し直した。同じ相手の発話への報告なら、あとの報告を採る（先の確かめを取り消して、流れの位置も戻す）。"""
+        f = self.flow()
+        self.do(f, "record_answer", question_id="Q1", condition_id="答えた", value="15日の午後2時")
+        self.heard(f, "あ")
+        self.assertEqual(f.apply("confirm_field", {"question_id": "Q1", "result": "affirmed"})["result"], "next")
+        f.on_heard("、すみません、間違えました。16日の午後2時でお願いします。")
+        r = f.apply("confirm_field", {"question_id": "Q1", "result": "corrected", "correction": "16日の午後2時"})
+        self.assertEqual((r["result"], r["ack"], r["say"]), ("confirm_required", "shouchi", "それでは、16日の午後2時で、よろしいでしょうか？"))
+        self.assertEqual((f.items["Q1"].state, f.items["Q1"].value, f.awaiting_confirm), ("checking", "16日の午後2時", "Q1"))
+        self.heard(f, "はい、そうです。")
+        r = f.apply("confirm_field", {"question_id": "Q1", "result": "affirmed"})
+        self.assertEqual((r["result"], r["question_id"]), ("next", "Q2"))
+        self.assertEqual(f.export()["Q1"], "16日の午後2時")
+
+    def test_correction_after_callee_spoke_again_is_not_reopened(self):
+        """相手がもう次の言葉を話したあとの「違う値を言われた」は、済んだ確かめを取り消さない（差し戻す）。"""
+        f = self.flow()
+        self.do(f, "record_answer", question_id="Q1", condition_id="答えた", value="15日の午後2時")
+        self.do(f, "confirm_field", question_id="Q1", result="affirmed")
+        self.heard(f, "3人です。")
+        r = f.apply("confirm_field", {"question_id": "Q1", "result": "corrected", "correction": "16日の午後2時"})
+        self.assertEqual((r["result"], f.items["Q1"].state, f.items["Q1"].value), ("rejected", "confirmed", "15日の午後2時"))
+
+    def test_reopen_after_last_question_goes_back_from_closing(self):
+        """最後の質問の確かめが済んで締めに進んだあとでも、同じ相手の発話への訂正なら、締めから戻して言い直す。"""
+        from flowctl import Flow, Question
+        f = Flow([Question("Q1", "日時は。", "datetime", conditions=("答えた",), topic="ご希望の日時")])
+        f.on_callee()
+        f.apply("record_answer", {"question_id": "Q1", "condition_id": "答えた", "value": "15日の午後2時"})
+        self.heard(f, "あ")
+        self.assertEqual(f.apply("confirm_field", {"question_id": "Q1", "result": "affirmed"})["result"], "end")
+        f.on_heard("、いや、16日って言ったんですけど。")
+        r = f.apply("confirm_field", {"question_id": "Q1", "result": "corrected", "correction": "16日の午後2時"})
+        self.assertEqual((r["result"], r["ack"], f.phase), ("confirm_required", "shitsurei", "asking"))
+        self.heard(f, "はい。")
+        self.assertEqual(f.apply("confirm_field", {"question_id": "Q1", "result": "affirmed"})["result"], "end")
+        self.assertEqual(f.export()["Q1"], "16日の午後2時")
+
     def test_unreported_restatement_keeps_its_kind(self):
         """AIが答えを報告せずに言い直し、相手が自分の言い間違いを直した：差し戻したあとの答えの報告でも、言い直しを受けた言い方にする。"""
         f = self.flow()

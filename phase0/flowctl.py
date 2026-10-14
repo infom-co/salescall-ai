@@ -269,6 +269,9 @@ class Flow:
         # AIが答えを報告せずに言い直し、相手に値を直された：(質問, 直され方＝AFTER の鍵)。その答えの報告で、直され方に合う言い直しにする
         self.unreported_correction: tuple[str, str] | None = None
         self.callee_said = ""            # いまの相手の発話の文字（会話AIの聞き取り。届いた分だけ。on_heard）
+        # いちばん最近「合っている」で確かめが済んだ項目と、そのときの流れの位置（同じ相手の発話への報告を、AIが「違う値を言われた」に
+        # 直したとき、その確かめを取り消して戻すため。_reopen）
+        self.last_affirmed: dict | None = None
         self.questions = {q.id: q for q in questions}
         self.order = [q.id for q in questions]
         self.limits = limits or Limits()
@@ -431,6 +434,12 @@ class Flow:
             shown = f"（「{v}」）" if v else ""
             return self._reject(f"{qid} の答えは、まだ record_answer で報告されていません。相手が答えた値{shown}を、いま record_answer で"
                                 "報告してください。言い直しの言い方は、プログラムの返事のとおりにします。")
+        if self.awaiting_confirm != qid and a.get("result") == "corrected" and self._affirmed_in_this_turn(qid):
+            # ⛔ 2026-10-14 G-36 の4回目：相手が「あ、すみません、間違えました。16日の…」と言い始めた「あ」の時点で、AIが「合っている」と
+            #    報告し、0.7秒後に「違う値を言われた（16日）」と報告し直した。制御は先の報告で次の質問へ進んでいたので、あとの報告を
+            #    差し戻し、古い値（15日）で確かめが済んだ。⇒ 同じ相手の発話への報告を、AIが「違う値を言われた」に直したら、あとの報告を採る
+            #    （先の確かめを取り消し、流れの位置も戻してから、ふつうの訂正として扱う）
+            self._reopen()
         if self.awaiting_confirm != qid:
             return self._reject(f"いまは、{qid} の言い直しを求めていません。")
         if self.callee_turns <= (self.confirm_requested_at or 0):  # I-24：相手の返事が届く前の報告は差し戻す
@@ -458,6 +467,9 @@ class Flow:
             return self._advance("「-」にします。")
         if result == "affirmed":
             it.set("confirmed", "相手が肯定した")
+            self.last_affirmed = {"qid": qid, "callee_turns": self.callee_turns, "phase": self.phase, "current": self.current,
+                                  "recheck_queue": list(self.recheck_queue), "confirm_requested_at": self.confirm_requested_at,
+                                  "awaiting_say": self.awaiting_say}
             return self._advance("確認できました。")
         if result == "corrected" and it.corrections < self.limits.after_correction:
             it.corrections += 1
@@ -467,6 +479,18 @@ class Flow:
             return self._ask_confirm(qid, after=kind)
         it.set("unresolved", "訂正のあとも合わない" if result == "corrected" else "相手が答えなかった")
         return self._advance("「-」にします。")
+
+    def _affirmed_in_this_turn(self, qid: str) -> bool:
+        """qid の確かめが、いまの相手の発話への報告で済んだばかりか（そのあと相手がまだ話していない）。"""
+        la = self.last_affirmed
+        return bool(la) and la["qid"] == qid and la["callee_turns"] == self.callee_turns and self.items[qid].state == "confirmed"
+
+    def _reopen(self) -> None:
+        """「合っている」で済んだ確かめを取り消し、言い直しの返事を待つ位置に戻す（_affirmed_in_this_turn のときだけ）。"""
+        la, self.last_affirmed = self.last_affirmed, None
+        self.items[la["qid"]].set("checking", "同じ相手の発話への報告を、AIが「違う値を言われた」に直した（先の確かめを取り消す）")
+        self.phase, self.current, self.recheck_queue = la["phase"], la["current"], la["recheck_queue"]
+        self.awaiting_confirm, self.confirm_requested_at, self.awaiting_say = la["qid"], la["confirm_requested_at"], la["awaiting_say"]
 
     def _op_request_end(self, a: dict) -> dict:
         reason = a.get("reason")
