@@ -53,6 +53,7 @@ class Shapes(unittest.TestCase):
         for key, value in [("gate.claim_lifetime", 2.5), ("gate.claim_lifetime", 0), ("gate.claim_lifetime", "abc"),
                            ("quality.max_complaint", 1.5), ("quality.max_complaint", "0.1"),
                            ("quality.stage.sizes", []), ("quality.stage.sizes", [20, "x"]),
+                           ("callback.call_alternate_number", 1), ("callback.call_alternate_number", "true"),
                            ("calling.hours", {"mon": [["09:00", "18:00"]]}),
                            ("calling.hours", {d: [["18:00", "09:00"]] for d in
                                               ("mon", "tue", "wed", "thu", "fri", "sat", "sun", "holiday")}),
@@ -129,7 +130,9 @@ class UserDecisions(unittest.TestCase):
                          (3, 10, [10, 30, 120, 600, 1800]))
         decided = {r["key"] for r in sys_tx(settings.provisional)}
         self.assertTrue({"retry.max_attempts_per_task", "quality.mock.calls", "stop.ai_rate_limit.backoff",
-                         "calling.hours_limit"}.isdisjoint(decided))
+                         "calling.hours_limit", "call.hangup_after_decline_wait",
+                         "callback.call_alternate_number"}.isdisjoint(decided))
+        self.assertEqual((v("call.hangup_after_decline_wait"), v("callback.call_alternate_number")), (7, True))
 
 
 class PerClientSettings(unittest.TestCase):
