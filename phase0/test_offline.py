@@ -766,6 +766,37 @@ class BargeWatchTest(unittest.TestCase):
         self.assertEqual(len(d.dropped), 2)
 
 
+class PauseMeasureTest(unittest.TestCase):
+    """割り込みのあとに「続き」の行がある通話を、間の数え方（G-30）と割り込みの数え方（G-31・G-32）が扱えるか。
+    ⛔ 2026-10-14 G-32 の1回目：続きの行（相手の声が無い）で間の数え方が止まり、割り込みのあった通話の記録が27本中21本失われた。"""
+
+    def call(self):
+        pause = {"wav": "Puck_pause700_three.wav"}
+        turn = lambda line, fa, tools=(), said="": {"index": 0, "callee": line, "first_audio_after_s": fa, "intended": said,
+                                                    "tool_events": [{"at_s": 0.5, "name": n} for n in tools], "timed_out": False}
+        return {"turns": [turn({"wav": "Puck_yes_reserved.wav"}, 1.2, ["record_answer"]),
+                          turn(pause, 0.001, said="ごゆっくりどうぞ。"),
+                          turn({"followup_of": pause}, 1.0, ["record_answer"], "3人で、よろしいでしょうか。")],
+                "items": {"Q2": {"value": "15日の午後2時", "state": "confirmed"}, "Q3": {"value": "3人", "state": "checking"}}}
+
+    def test_followup_rows_are_skipped_and_measured(self):
+        from g30_latency import keep_call, turn_measures
+        from g31_pause import judge, measure
+        c = self.call()
+        tm = turn_measures(c)
+        self.assertEqual([t["callee"] for t in tm], ["Puck_yes_reserved.wav", "Puck_pause700_three.wav"])  # 続きの行は数えない
+        self.assertTrue(tm[1]["cut_in"])
+        pt = measure(c, ("Puck_pause700_datetime.wav", "Puck_pause700_three.wav"))
+        self.assertEqual((pt[0]["cut_in"], pt[0]["followup_replied"], pt[0]["said_in_pause"]), (True, True, "ごゆっくりどうぞ。"))
+        self.assertFalse(judge(c)["q3_ok"])
+
+    def test_measure_error_keeps_call(self):
+        from g30_latency import keep_call
+        row = keep_call({"variant": "X"}, {"turns": [], "items": {}}, lambda c: 1 / 0)
+        self.assertIn("measure_error", row)  # 数える処理で誤りが出ても、通話の記録は残す
+        self.assertIn("turns", row)
+
+
 class RetryTest(unittest.TestCase):
     def test_retry_only_when_unavailable(self):
         from common import call_with_retry
