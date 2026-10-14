@@ -81,6 +81,21 @@ def form_problem(qtype: str, value: str | None) -> str | None:
         return "相手の答えではなく、こちらの名前です"
     return None  # 「いつでも」「なるべく早く」「そちらのご都合で」など：日時を決めない答え（こちら次第＝営業にはよい答え）
 
+
+NUMBER_TYPES = {"number", "amount"}
+
+
+def other_value(qtype: str, pending: str | None, given: str | None) -> str | None:
+    """「合っている」の報告に添えられた値が、待っている値と違う意味の値なら、その値（同じ・意味の無い値なら None）。
+    返事の言葉だけ（「はい」「はいそう」）・形の合わない値（日時に「3人」）は、意味の無い値として無視する。数の型は、数字が同じなら同じ値
+    （「3人」と「3名」）。これまでの試験の「合っている」588回のうち、違う意味の値は2回だけ（どちらも、AIが訂正を報告しなかった回）。"""
+    if not given or _REPLY_ONLY.fullmatch(given) or form_problem(qtype, given):
+        return None
+    if qtype in NUMBER_TYPES:
+        a, b = re.sub(r"\D", "", pending or ""), re.sub(r"\D", "", given)
+        return given if b and a != b else None
+    return given if given != pending else None
+
 # ── AIに見せる言葉（唯一の場所）。⛔ 2026-10-13 ユーザー指摘「こちらが英語を使っていませんか？」：指示文・操作の宣言・操作への返事に、
 #    英語の名前（condition_id・unknown・callee_hurry・confirm_required など）が入っていた。AIが英語で自分の動きを声に出した回があった。
 #    ⇒ AIに見せる名前は、すべて日本語にする。中の名前（英字）との置き換えは、AIの入口（Flow.handle）と操作の宣言（tool_declarations）
@@ -360,6 +375,18 @@ class Flow:
             self.awaiting_confirm = None  # 言い直しの返事待ちをやめて、質問から聞き直す（6-2）
             return self._bad_form(qid, correction, why)
         self.awaiting_confirm = None
+        if result == "affirmed" and (other := other_value(self.questions[qid].type, it.value, correction)):
+            # ⛔ 2026-10-14 G-36：相手が値を直したのに、AIが訂正を報告せずに自分で新しい値を言い直し、相手の「はい」を「合っている」と
+            #    報告した（訂正された値の欄には新しい値）。制御は、待っていた古い値への返事として受け取り、古い値で確かめを済ませた
+            #    （日時＝15日のまま。相手は16日と言っていた）。⇒ 古い値で済ませず、添えられた値を、プログラムの言い方で念のため言い直して
+            #    確かめる（相手にもう一度「はい」をもらう。違う値が確かめ済みになるよりよい）
+            if it.corrections < self.limits.after_correction:
+                it.corrections += 1
+                it.value = other
+                it.set("heard", "AIが報告せずに言い直した値に、相手が肯定した（念のため言い直す）")
+                return self._ask_confirm(qid, lead_kind="念のための言い直し")
+            it.set("unresolved", "訂正のあとも合わない")
+            return self._advance("「-」にします。")
         if result == "affirmed":
             it.set("confirmed", "相手が肯定した")
             return self._advance("確認できました。")
@@ -422,7 +449,7 @@ class Flow:
         it.set("unresolved", f"{why}・聞き返しを使い切った" if self.phase == "asking" else f"{why}・念のための確認でも聞けなかった")
         return self._advance(f"{shown}「-」にします。")
 
-    def _ask_confirm(self, qid: str, apology: bool = False) -> dict:
+    def _ask_confirm(self, qid: str, apology: bool = False, lead_kind: str | None = None) -> dict:
         """言い直して確かめる。apology＝相手に値を直させた（こちらが違っていた）ので、お詫びの相づち「失礼いたしました。」を流し、
         言い直しの頭は、お礼・承りの言葉ではなく、言い直す合図の言葉にする（⛔ 2026-10-14 ユーザー：「失礼いたしました。」のあとの
         「かしこまりました」はおかしい）。"""
@@ -437,7 +464,8 @@ class Flow:
         # 言い直す値：値の無い選択肢の型（はい／いいえなど。聞き返したあとは復唱する＝6-11）は、選んだ選択肢で言い直す。
         # ⛔ 2026-10-14 に見つけた穴：値だけを渡していたため、「Noneで、よろしいでしょうか。」という文を作っていた
         shown = it.value or SYSTEM_LABEL.get(it.condition, it.condition)
-        say = self.awaiting_say = self._lead("お詫びのあとの言い直し" if apology else "言い直し") + self.confirm(shown, situation, n)
+        lead = lead_kind or ("お詫びのあとの言い直し" if apology else "言い直し")
+        say = self.awaiting_say = self._lead(lead) + self.confirm(shown, situation, n)
         return {"result": "confirm_required", "value": shown, "say": say, "apology": apology,
                 "message": f"言い直して確かめます。「{say}」と言って、相手の返事を待ってください。"}
 

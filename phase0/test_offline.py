@@ -1060,6 +1060,36 @@ class FormCheckTest(unittest.TestCase):
         self.assertTrue(r["say"].startswith(LEAD_IN["お詫びのあとの言い直し"]))
         self.assertFalse(any(w in r["say"] for w in ("かしこまりました", "ありがとうございます", "承知いたしました")))
 
+    def test_affirmed_with_other_value_is_read_back_again(self):
+        """G-36：AIが訂正を報告せずに新しい値を自分で言い直し、相手の「はい」を「合っている」（訂正された値＝新しい値）と報告した。
+        古い値で確かめを済ませず、新しい値を念のため言い直して確かめる。"""
+        f = self.flow()
+        self.do(f, "record_answer", question_id="Q1", condition_id="はい")
+        self.do(f, "record_answer", question_id="Q2", condition_id="答えた", value="15日の午後2時")
+        r = self.do(f, "confirm_field", question_id="Q2", result="affirmed", correction="16日の午後2時")
+        self.assertEqual((r["result"], r["value"], r["ack"]), ("confirm_required", "16日の午後2時", "hai"))
+        self.assertTrue(r["say"].startswith("念のため、16日の午後2時"))
+        self.assertNotEqual(f.items["Q2"].state, "confirmed")             # 古い値（15日）で済ませない
+        self.do(f, "confirm_field", question_id="Q2", result="affirmed", correction="16日の午後2時")
+        self.assertEqual((f.items["Q2"].state, f.items["Q2"].value), ("confirmed", "16日の午後2時"))
+
+    def test_affirmed_with_same_or_meaningless_value_confirms(self):
+        """「合っている」に添えられた値が、同じ値・返事の言葉・形の合わない値・同じ数の書き方の違いなら、ふつうに確かめを済ませる
+        （これまでの588回のうち9回がこれ。よけいな言い直しをしない）。"""
+        from flowctl import other_value
+        self.assertIsNone(other_value("datetime", "15日の午後2時", "15日の午後2時"))
+        self.assertIsNone(other_value("datetime", "15日の午後2時", "はい"))
+        self.assertIsNone(other_value("datetime", "15日の午後2時", "3人"))
+        self.assertIsNone(other_value("number", "3人", "3名様"))
+        self.assertIsNone(other_value("number", "3人", "はいそう"))
+        self.assertEqual(other_value("number", "3人", "4人"), "4人")
+        self.assertEqual(other_value("datetime", "15日の午後2時", "16日の午後2時"), "16日の午後2時")
+        f = self.flow()
+        self.do(f, "record_answer", question_id="Q1", condition_id="はい")
+        self.do(f, "record_answer", question_id="Q2", condition_id="答えた", value="15日の午後2時")
+        self.do(f, "confirm_field", question_id="Q2", result="affirmed", correction="はい")
+        self.assertEqual((f.items["Q2"].state, f.items["Q2"].value), ("confirmed", "15日の午後2時"))
+
     def test_unknown_and_refused_are_not_checked(self):
         f = self.flow()
         self.do(f, "record_answer", question_id="Q1", condition_id="はい")
