@@ -114,25 +114,31 @@ def ack_wav(voice_type: str, ack: str) -> Path:
 def stitch_call(call: dict, voice_type: str, out: Path, reply_gap_s: float = 0.6, join_s: float = 0.05) -> list[dict] | None:
     """通話1本を、相手の声 → (相づち) → AIの声 の順に、試験で測った時刻でつなぐ（会話全体を聞いて、「はい」が多すぎないか・
     相づちの選び方が場面に合うかを、ユーザーが確かめるため）。相手が次に話し始めるまでの間は reply_gap_s（作った値）。
-    相手の言葉の途中でAIが話し出したターン（割り込み）は、本当の時刻が分からないので、その通話は作らない（None）。
+    相手の言葉の途中でAIが話し出したターン（割り込み）や、待っている間にAIが話したターンは、本当の時刻が分からないので、
+    その通話は作らない（None）。AIが黙って待ったターン（声も報告も無い）は、相手の声だけを置く。
     返り値＝ターンごとの、相手に聞こえた最初の言葉と時刻。"""
     rate = 24000
     parts, plan = [np.zeros(int(0.3 * rate), dtype=np.float32)], []
     for t in call["turns"]:
         c = t.get("callee")
         if isinstance(c, dict) and "followup_of" in c:
-            return None
+            if t.get("audio_file"):
+                return None
+            continue  # 続きを待ったが、AIは話さなかった
         if isinstance(c, dict) and "silence_s" in c:
             if t.get("audio_file"):
                 return None  # 黙っている間にAIが話した：時刻が分からない
             parts.append(np.zeros(int(c["silence_s"] * rate), dtype=np.float32))
             continue
-        if not (isinstance(c, dict) and "wav" in c) or not t.get("audio_file") or t.get("first_audio_after_s") is None:
-            return None
-        if t["first_audio_after_s"] < CUT_IN_S:
+        if not (isinstance(c, dict) and "wav" in c):
             return None
         pcm, prate, tail = callee_speech(c["wav"])
         a = _to_rate(pcm, prate, rate)
+        if t.get("first_audio_after_s") is None and not t.get("tool_events") and not t.get("audio_file"):
+            parts.append(a[: max(0, len(a) - int(tail * rate))])  # AIは黙って待った
+            continue
+        if not t.get("audio_file") or t.get("first_audio_after_s") is None or t["first_audio_after_s"] < CUT_IN_S:
+            return None
         parts.append(a[: max(0, len(a) - int(tail * rate))])
         ai_pcm, ai_rate = read_wav_pcm16_mono(AUDIO_DIR / t["audio_file"])
         assert ai_rate == rate

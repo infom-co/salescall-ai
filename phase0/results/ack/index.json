@@ -97,19 +97,6 @@
   {
     "type": "S4",
     "voice": "Sadachbia",
-    "id": "shouchi",
-    "text": "承知しました、",
-    "heard": {
-      "0.0": "承知しました。",
-      "1.0": "承知しました。"
-    },
-    "ok": false,
-    "seconds": 1.58,
-    "tries": 3
-  },
-  {
-    "type": "S4",
-    "voice": "Sadachbia",
     "id": "arigatou",
     "text": "ありがとうございます、",
     "heard": {
@@ -192,6 +179,20 @@
     "wav": "L4_shitsurei.wav"
   },
   {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "shouchi",
+    "text": "承知しました、",
+    "heard": {
+      "0.0": "承知しました。",
+      "1.0": "承知しました。"
+    },
+    "ok": true,
+    "seconds": 1.08,
+    "tries": 2,
+    "wav": "S4_shouchi.wav"
+  },
+  {
     "type": "L4",
     "voice": "Leda",
     "id": "moushiwake",
@@ -200,8 +201,9 @@
       "0.0": "申し訳ございません。",
       "1.0": "申し訳ございません。"
     },
-    "ok": false,
-    "seconds": 1.79,
-    "tries": 3
+    "ok": true,
+    "seconds": 1.28,
+    "tries": 1,
+    "wav": "L4_moushiwake.wav"
   }
 ]

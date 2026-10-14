@@ -30,6 +30,7 @@ from __future__ import annotations
 import asyncio
 import json
 import statistics as st
+from pathlib import Path
 
 from common import (base_parser, describe_error, drop_partial, make_client, pick_key, read_wav_pcm16_mono, require_python,
                     save_partial, save_result, say)
@@ -85,8 +86,17 @@ def turn_measures(call: dict, voice_type: str) -> list[dict]:
         row = {"callee": c.get("wav") or ("followup" if "followup_of" in c else f"silence{c.get('silence_s')}"),
                "said": said[:60], "reports": [e["name"] for e in t.get("tool_events") or []],
                "replies": [e["reply"] for e in t.get("tool_events") or []]}
+        spoke = bool(t.get("audio_file") or said)
         if "silence_s" in c:
-            row["spoke_in_silence"] = bool(t.get("audio_file") or said)
+            row["spoke_in_silence"] = spoke
+            out.append(row)
+            continue
+        if "followup_of" in c:
+            # 続きを待った行：相手の台詞に続きが無い（「えーとですね、」だけ）なら、ここで話したのは、相手が黙っている間に話したこと
+            of = c["followup_of"].get("wav") if isinstance(c["followup_of"], dict) else None
+            row.update({"followup_reason": c.get("reason"), "followup_of": of, "spoke": spoke})
+            if of == "Puck_filler_eto.wav":
+                row["spoke_in_silence"] = spoke
             out.append(row)
             continue
         if "wav" not in c or t.get("first_audio_after_s") is None:
@@ -144,7 +154,8 @@ def summarize(rows: list[dict]) -> dict:
             "no_ack_turns": sum(1 for t in normal if "ack" not in t),
             "spoke_before_report": sum(1 for t in normal if t.get("spoke_before_report")),
             "ai_starts_with_hai": sum(1 for t in normal if t.get("ai_starts_with_hai")),
-            "thinking_said": sorted({t["said"][:20] for t in ts if t["callee"] in THINKING_WAVS and t.get("said")}),
+            "thinking_said": sorted({t["said"][:20] or "（黙って待った）" for t in ts if t["callee"] in THINKING_WAVS}),
+            "thinking_waited": sum(1 for t in ts if t.get("followup_reason") == "waited"),
             "thinking_cut_in": sum(1 for t in ts if t["callee"] in THINKING_WAVS and t.get("cut_in")),
             "spoke_in_silence": sum(1 for t in ts if t.get("spoke_in_silence")),
             "acks": [r["acks"] for r in rs][:6],
@@ -212,14 +223,46 @@ async def run(args) -> dict:
     return {"model": args.model, "variant": FAST, "long_silence_s": LONG_SILENCE_S, "summary": summary, "rows": rows}
 
 
+LISTEN_SCENES = ("ふつう", "訂正", "長い間", "聞き取りにくい")
+
+
+def make_listening(result: Path, out: Path) -> list[dict]:
+    """結果から、会話全体をつないだ聞き比べの声を作る（声の型ごとに、場面ごとに1本。つなげる通話の最初のもの）。
+    相手が次に話し始めるまでの間は 0.6秒（作った値）。割り込みのあった通話は、本当の時刻が分からないので使わない（stitch_call）。"""
+    d = json.loads(result.read_text(encoding="utf-8"))
+    out.mkdir(parents=True, exist_ok=True)
+    made, n = [], 0
+    for vt in VOICE_TYPES:
+        for scene in LISTEN_SCENES:
+            for r in d["rows"]:
+                if r.get("type") != vt or r.get("scene") != scene or "turns" not in r:
+                    continue
+                n += 1
+                path = out / f"{n:02d}_{vt}_{scene}.wav"
+                plan = stitch_call(r, vt, path)
+                if plan is None:
+                    n -= 1
+                    continue
+                made.append({"file": path.name, "acks": [p["heard_first"] for p in plan], "first_s": [p["first_s"] for p in plan],
+                             "ai_held_s": [p["ai_held_s"] for p in plan], "said": [(t.get("intended") or "")[:30] for t in r["turns"]]})
+                break
+    return made
+
+
 def main() -> None:
     require_python()
     p = base_parser(__doc__)
+    p.add_argument("--listen", type=Path, help="この結果から、会話全体の聞き比べの声を作る（キーを使わない）")
+    p.add_argument("--out", type=Path, help="--listen の置き場")
     p.add_argument("--repeat", type=int, default=2)
     p.add_argument("--pause", type=float, default=3.0)
     p.add_argument("--type", choices=sorted(VOICE_TYPES), action="append")
     p.add_argument("--scene", choices=scenes_names(), action="append")
     args = p.parse_args()
+    if args.listen:
+        for m in make_listening(args.listen, args.out):
+            print(json.dumps(m, ensure_ascii=False))
+        return
     save_result("G-34", asyncio.run(run(args)))
     drop_partial("G-34")
 

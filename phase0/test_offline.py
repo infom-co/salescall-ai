@@ -950,6 +950,41 @@ class AckTimingTest(unittest.TestCase):
         self.assertFalse(silent["spoke_in_silence"])
         self.assertTrue(b["ai_starts_with_hai"])  # AIが自分でも「はい」から話した（相づちと重なる）
 
+    def test_followup_when_ai_waited_or_cut_in(self):
+        from convo import followup_reason
+        from live_util import TurnResult
+        waited = TurnResult()                                   # 声も報告も無いターン＝相手の「えーとですね、」のあと黙って待った
+        self.assertEqual(followup_reason(waited), "waited")
+        cut = TurnResult(first_audio_after_s=0.01)              # 相手の言葉の途中で話し出していた
+        self.assertEqual(followup_reason(cut), "cut_in")
+        reported = TurnResult(tool_calls=[{"name": "record_answer"}])  # 報告だけ（声はまだ）：待たない（報告の返事のあとの声まで受け取る）
+        self.assertIsNone(followup_reason(reported))
+        self.assertIsNone(followup_reason(TurnResult(first_audio_after_s=1.0)))  # ふつうの返事
+        self.assertIsNone(followup_reason(TurnResult(timed_out=True)))          # 時間切れ（黙っている間の確かめなど）
+
+    def test_stitch_call_keeps_waited_turn(self):
+        import numpy as np
+
+        from common import write_wav
+        from convo import AUDIO_DIR
+        from stitch_gap import stitch_call
+        AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+        ai = AUDIO_DIR / "_test_stitch_ai2.wav"
+        write_wav(ai, (np.ones(24000, dtype=np.int16) * 1000).tobytes(), 24000)
+        try:
+            waited = {"callee": {"wav": "Puck_filler_eto.wav"}, "first_audio_after_s": None, "tool_events": [], "intended": ""}
+            silent_follow = {"callee": {"followup_of": {"wav": "Puck_filler_eto.wav"}, "reason": "waited"}, "first_audio_after_s": None,
+                             "tool_events": [], "intended": ""}
+            answer = {**self.turn(1.0, 0.5), "audio_file": ai.name}
+            with tempfile.TemporaryDirectory() as d:
+                plan = stitch_call({"turns": [waited, silent_follow, {"callee": {"silence_s": 1.0}, "tool_events": []}, answer]}, "S2",
+                                   Path(d) / "call.wav")
+                self.assertEqual([p["heard_first"] for p in plan], ["hai"])  # 黙って待ったターンには、AIの声も相づちも置かない
+                spoke = {**silent_follow, "audio_file": ai.name}
+                self.assertIsNone(stitch_call({"turns": [waited, spoke]}, "S2", Path(d) / "x.wav"))  # 待つ間に話した：時刻が分からない
+        finally:
+            ai.unlink()
+
     def test_stitch_call_orders_callee_ack_ai(self):
         import numpy as np
 
