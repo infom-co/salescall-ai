@@ -15,11 +15,13 @@ import uuid
 from datetime import timedelta
 from unittest import mock
 
-from salescall.core import attempts, calendar, dial_exit, dnc, gate, next_action, quality_stage, settings, stops
+from salescall.core import (attempts, business_rules, calendar, call_report, dial_exit, dnc, gate, next_action,
+                            quality_stage, settings, settle, stops)
+from salescall.core.call_report import CallReport, Cut
 from salescall.core.access import Rejected
 from salescall.core.calendar import CalendarOutOfRange, CalendarRejected
 from salescall.core.phone import normalize
-from tests.support import OPERATOR, SYSTEM, World, fictional_jp_fixed, owner_access
+from tests.support import OPERATOR, SYSTEM, World, fictional_jp_fixed, owner_access, rules_raw
 
 KEYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun", "holiday")
 ALL_DAY = {k: [["00:00", "24:00"]] for k in KEYS}
@@ -86,6 +88,7 @@ class Base(unittest.TestCase):
         self.put_client(s, "calling.hours", ALL_DAY)
         self.tx(s, lambda tx: next_action.schedule_now(tx, s["task"], cause="試験"))
         self.tx(s, lambda tx: quality_stage.open_stage(tx, s["version"], 1, None, evidence="試験"), OPERATOR)
+        self.tx(s, lambda tx: business_rules.save(tx, s["version"], rules_raw()), OPERATOR)
         self.lease(s)
         return s
 
@@ -102,14 +105,20 @@ class Base(unittest.TestCase):
         self.assertIsInstance(got, gate.Denied, got)
         return got.reason
 
-    def past_attempt(self, s, path, *, verify=None, line=None):
-        """前の試行を1つ作って、path の状態まで進め、次の動きが予定を決め直したことにする（予定は1回の発信で使い切るため）。"""
+    def past_attempt(self, s, path, *, verify=None, line=None, side=None, report=None, settled=True):
+        """前の試行を1つ作って、path の状態まで進め、本物の締めの処理で締める（相手が出た通話には会話の報告を置く）。
+        そのあと、門の守りそのものを試すため、次の予定を「いま」に書き直す（次の動きが誤った場合と同じ）。"""
         aid = self.w.insert_claim(s, line=line)
         for state in path:
-            self.w.move(s, aid, state)
+            self.w.move(s, aid, state, side if state == "dropped" else None)
         if verify:
             self.tx(s, lambda tx: attempts.record_verification(tx, aid, verify))
-        self.tx(s, lambda tx: next_action.schedule_now(tx, s["task"], cause="試験：前の発信のあとに決め直した"))
+        if "answered" in path:
+            rep = report or CallReport(("target",), False, False, False, False, None, None, Cut("ai", True, False))
+            self.tx(s, lambda tx: call_report.save(tx, aid, rep))
+        if settled and "dialing" in path:     # 予約だけで取り消した試行は、締める対象ではない
+            self.tx(s, lambda tx: settle.settle(tx, aid))
+            self.tx(s, lambda tx: next_action.schedule_now(tx, s["task"], cause="試験：次の予定を、いまに書き直した"))
         return aid
 
     def state(self, s, aid):
@@ -276,9 +285,16 @@ class Hours(Base):
 
 
 class Pacing(Base):
-    def test_verification_pending_blocks_the_contact(self):
+    def test_unsettled_attempt_blocks_the_row(self):
         s = self.ready()
-        self.past_attempt(s, ["dialing", "answered", "ending", "ended"])
+        self.past_attempt(s, ["dialing", "answered", "ending", "ended"], settled=False)   # 検証待ち＝まだ締められない
+        self.assertEqual(self.reason(s), "awaiting_decision")
+
+    def test_verification_pending_blocks_the_contact_in_other_rows(self):
+        s = self.ready()
+        other_run = self.w.run(s["tenant"], s["client"], s["business"], s["version"])
+        other = dict(s, task=self.w.task(s["tenant"], s["client"], other_run, s["contact"]), run=other_run)
+        self.past_attempt(other, ["dialing", "answered", "ending", "ended"], settled=False)
         self.assertEqual(self.reason(s), "verification_pending")
         self.assertIsNone(self.tx(s, lambda tx: gate.pacing(tx, s["task"])).earliest)
 
@@ -328,31 +344,22 @@ class NotByCallee(Base):
     """2026-10-14 ユーザー決定：最小の間隔（5分）・1日の回数（2回）の対象外。
     相手と約束したかけ直し／通信の問題などで繋がらなかった／相手の意思と関係なく切れた発信。"""
 
-    def test_failed_or_line_dropped_calls_do_not_count(self):
-        for path, side in ((["dialing", "call_failed"], None), (["dialing", "technical_error"], None),
-                           (["dialing", "answered", "dropped"], "line")):
-            with self.subTest(path=path):
+    def test_failed_or_interrupted_calls_do_not_count(self):
+        interrupted = CallReport(("target",), False, False, False, False, None, None, Cut("callee", False, False))
+        line_cut = CallReport(("target",), False, False, False, False, None, None, Cut(None, False, False))
+        for path, side, rep in ((["dialing", "call_failed"], None, None), (["dialing", "technical_error"], None, None),
+                                (["dialing", "answered", "dropped"], "unknown", interrupted),   # 相手の言葉が途中で途切れた
+                                (["dialing", "answered", "dropped"], "line", line_cut)):        # 回線の側で切れた
+            with self.subTest(path=path, side=side):
                 s = self.ready()
                 self.put_client(s, "gate.max_dials_per_contact_per_day", 1)
-                aid = self.w.insert_claim(s)
-                for st in path:
-                    self.w.move(s, aid, st, side if st == "dropped" else None)
-                if path[-1] == "dropped":
-                    self.tx(s, lambda tx: attempts.record_verification(tx, aid, "done"))
-                self.tx(s, lambda tx: next_action.schedule_now(tx, s["task"], cause="試験"))
+                self.past_attempt(s, path, side=side, report=rep, verify="done" if rep else None)
                 self.assertIsInstance(self.claim(s), gate.Claim)
 
-    def test_callee_or_unknown_side_drops_still_count(self):
-        for side in ("callee", "unknown"):
-            with self.subTest(side=side):
-                s = self.ready()
-                aid = self.w.insert_claim(s)
-                for st in ("dialing", "answered"):
-                    self.w.move(s, aid, st)
-                self.w.move(s, aid, "dropped", side)
-                self.tx(s, lambda tx: attempts.record_verification(tx, aid, "done"))
-                self.tx(s, lambda tx: next_action.schedule_now(tx, s["task"], cause="試験"))
-                self.assertEqual(self.reason(s), "same_contact_interval")
+    def test_normal_ends_still_count(self):
+        s = self.ready()
+        self.past_attempt(s, ["dialing", "answered", "dropped"], side="callee", verify="done")   # 締めのあとに相手が切った
+        self.assertEqual(self.reason(s), "same_contact_interval")
 
     def test_promised_callback_skips_interval_and_daily_limit(self):
         s = self.ready()
@@ -482,16 +489,18 @@ class Exit(Base):
 
 
 class UsedSchedule(Base):
-    def test_a_schedule_is_used_up_by_one_dial(self):
-        """判定・次の動きが予定を決め直す前に、使った予定でもう一度かけない。"""
+    def test_no_dial_before_the_previous_one_is_settled(self):
+        """前の発信の締め（判定）が済むまで、次をかけない。予定を誰が書き直しても抜け道にならない。"""
         s = self.ready()
         self.override("gate.same_contact_min_interval", 1)
         c = self.claim(s)
         self.assertTrue(dial_exit.dial(self.w.a, SYSTEM, s["tenant"], s["client"], c.attempt_id, FakeDriver()))
         self.tx(s, lambda tx: attempts.move(tx, c.attempt_id, "no_answer"))
         time.sleep(1.1)
+        self.tx(s, lambda tx: next_action.schedule_now(tx, s["task"], cause="締めより先に、予定を書き直した"))
         self.assertEqual(self.reason(s), "awaiting_decision")
-        self.tx(s, lambda tx: next_action.schedule_now(tx, s["task"], cause="次の動き"))
+        self.tx(s, lambda tx: settle.settle(tx, c.attempt_id))
+        self.tx(s, lambda tx: next_action.schedule_now(tx, s["task"], cause="試験：いまに書き直した"))
         self.assertIsInstance(self.claim(s), gate.Claim)
 
     def test_a_released_claim_does_not_use_the_schedule(self):

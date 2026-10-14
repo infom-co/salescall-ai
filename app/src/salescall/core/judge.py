@@ -1,0 +1,155 @@
+"""業務の判定（Q5「この業務は完了か」）。持ち主 CL-2。DESIGN.md 7-1・7-1c。
+
+- **入力から結果が1つに決まる処理**（データベースを読まない・書かない。時計も読まない）。同じ入力からは、いつも同じ結果。
+  版（`JUDGE_VERSION`）を結果と一緒に記録する（判定の決まりを変えたら版を上げる）。
+- 入力を集めて結果を書くのは、締めの処理（core/settle.py）の1か所だけ。
+- 「わからない」を値で埋めない（原則10）：入力に抜けがあれば `unknown`（判定の処理か入力の誤り。次の動きが終え、監視へ知らせる）。
+- 切れ方の判定（7-1c）も、ここの1か所（`classify_cut`）。門の「数えない発信」は、その結果（試行に記録）を読む。
+
+上から順に、最初に当たったものが答え：
+  (1) 発信の拒否（通話中の申告・通話後の検証で見つかった・切れ方の判定が「断った」）  ⇒ do_not_call
+  (2) 番号違い（相手の種別に wrong_party）                                          ⇒ out_of_scope（番号違い）
+  (3) 範囲外の求めで終えた                                                          ⇒ out_of_scope
+  (4) 用件を断られた（業務の決まりの「断りの答え」が取れた）                          ⇒ declined
+  (5) 必須の質問がすべて取れた（confirmed・accepted。4-4 の定義）                     ⇒ completed
+  (6) 取れていない必須の質問の扱いが「結論として終える」                              ⇒ concluded（結論の名前）
+  (7) かけ直しの約束（相手に頼まれた・分かる人／時を聞いた・こちらが約束した）          ⇒ callback_scheduled
+  (8) 人と話したが、目的の人に繋がらなかった                                          ⇒ not_reached（不在／取り次いでもらえなかった）
+  (9) 会話に至らなかった（相手が出なかった・人でなかった）                              ⇒ open
+  (10) 必須の質問が1つでも取れていない                                               ⇒ incomplete
+  (11) どれでもない（入力の誤り）                                                      ⇒ unknown
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any
+
+from salescall.core.business_rules import Rules
+from salescall.core.call_report import CallReport
+
+JUDGE_VERSION = "judge-2026-10-14.1"
+TAKEN = frozenset({"confirmed", "accepted"})                  # 「取れた」の定義（4-4。ここで2つ目を作らない）
+HUMAN_PARTIES = frozenset({"reception", "target", "wrong_party"})
+NOT_ANSWERED = frozenset({"no_answer", "busy", "call_failed", "released"})
+
+
+@dataclass(frozen=True)
+class Item:
+    state: str
+    condition: str | None        # 選んだ選択肢
+    reason: str | None           # 「わからない」「答えない」の理由（15-2-3）
+
+
+@dataclass(frozen=True)
+class Facts:
+    """試行の事実（データベースの試行の記録から）。"""
+    end_state: str
+    hangup_side: str | None      # 回線の信号（dropped のときだけ。callee / line / unknown）
+    reached_answer: bool         # 相手が出た（応答まで進んだ）ことがあるか
+
+
+@dataclass(frozen=True)
+class JudgeInput:
+    facts: Facts
+    report: CallReport | None    # 会話から返る報告（会話が無かった試行は None）
+    items: dict[str, Item]       # 行の項目（試行をまたいでたまったもの）
+    rules: Rules
+    refused_after: bool          # 通話後の検証で、拒否の聞き逃しが見つかった（Q21 が発信禁止に登録した）
+    unclear_is_refusal: bool     # 切れ方を決められないとき、営業拒否として扱うか（設定 judge.unclear_disconnect_is_refusal）
+
+
+@dataclass(frozen=True)
+class Judgement:
+    state: str                   # 業務の状態（4-1）
+    complaint: bool
+    disconnect: str | None       # 試行に記録する切れ方（normal / refused / interrupted。決められないものは設定で決めたほう）
+    dnc_reason: str | None       # 発信禁止に登録する理由（refused_in_call / refused_found_after / wrong_party）
+    detail: dict[str, Any]       # 判定の中身（依頼主への報告・次の動きが読む。policy_key＝再発信の方針の鍵）
+
+
+def classify_cut(facts: Facts, report: CallReport | None) -> str | None:
+    """切れ方の判定（7-1c。2026-10-14 ユーザー承認）。人と話した通話で、ふつうに終えたのでないときだけ決める。
+    返す値：normal / refused / interrupted / unclear（決められない）。対象でなければ None。"""
+    if not facts.reached_answer or facts.end_state not in ("ended", "dropped") or report is None:
+        return None
+    if not any(p in HUMAN_PARTIES for p in report.parties):
+        return None                              # 留守電・自動音声・FAX は、相手の意思が無い
+    cut = report.cut
+    if cut is None:
+        return "unclear"
+    if cut.in_closing:
+        return "normal"                          # 締めの言葉に入っていた・締めのあと
+    if cut.callee_refused_last:
+        return "refused"                         # 断りの言葉のあとに切れた
+    if cut.speaker == "callee":
+        return "interrupted"                     # 相手の言葉が途中で途切れた
+    if facts.hangup_side == "line":
+        return "interrupted"                     # 回線の信号で、回線の側で切れたと分かる
+    if cut.speaker in ("ai", "none"):
+        return "refused"                         # AIが話している途中・話し終えたあとの間に、相手が何も言わずに切った
+    return "unclear"
+
+
+def judge(inp: JudgeInput) -> Judgement:
+    r, rules = inp.report, inp.rules
+    raw_cut = classify_cut(inp.facts, r)
+    cut = raw_cut if raw_cut != "unclear" else ("refused" if inp.unclear_is_refusal else "interrupted")
+    complaint = bool(r and r.complaint)
+    detail: dict[str, Any] = {"cut": raw_cut, "cut_recorded": cut}
+
+    def done(state: str, *, dnc: str | None = None, **more: Any) -> Judgement:
+        return Judgement(state, complaint, cut, dnc, {**detail, **more})
+
+    # 相手が出たのに会話の報告が無い：結果不明（処理が落ちた）なら、何も分からないまま扱う（長い間隔のあとかけ直す。4-2）。
+    # それ以外は入力の誤り（報告を書き損ねた）。決めつけない
+    if inp.facts.reached_answer and r is None and inp.facts.end_state != "technical_error":
+        return done("unknown", error="相手が出た通話なのに、会話の報告がありません")
+
+    # (1) 発信の拒否（原則14）
+    if (r and r.do_not_call) or cut == "refused":
+        return done("do_not_call", dnc="refused_in_call", refusal="in_call" if r and r.do_not_call else "cut")
+    if inp.refused_after:
+        return done("do_not_call", dnc="refused_found_after", refusal="found_after")
+    # (2)(3) 番号違い・範囲外
+    if r and "wrong_party" in r.parties:
+        return done("out_of_scope", dnc="wrong_party", out_of_scope="wrong_party")
+    if r and r.out_of_scope:
+        return done("out_of_scope", out_of_scope="request")
+    # (4) 用件を断られた（断りの答えが「取れた」）
+    for q, answers in rules.decline.items():
+        it = inp.items.get(q)
+        if it is not None and it.state in TAKEN and it.condition in answers:
+            return done("declined", declined_by=q)
+    # (5) 必須の質問がすべて取れた
+    missing = [q for q in rules.required if q not in inp.items or inp.items[q].state not in TAKEN]
+    if not missing:
+        return done("completed")
+    # (6) 取れていない必須の質問の扱い（「わからない」「答えない」は理由×扱いの宣言どおり。宣言が無ければ入力の誤り）
+    for q in missing:
+        it = inp.items.get(q)
+        if it is None or it.state not in ("dont_know", "refused"):
+            continue
+        h = rules.handling.get((q, it.state, it.reason)) if it.reason is not None else None
+        if h is None:
+            return done("unknown", error=f"質問 {q} の {it.state} に、理由×扱いが決まらない（理由 {it.reason!r}）")
+        if h.kind == "conclude":
+            return done("concluded", conclusion=h.conclusion, concluded_by=q)
+    # (7) かけ直しの約束
+    if r and r.callback is not None:
+        cb = r.callback
+        return done("callback_scheduled", callback={"reason": cb.reason, "at": cb.at.isoformat() if cb.at else None,
+                                                     "number_e164": cb.number_e164, "person": cb.person},
+                    policy_key=None if cb.at else "callback_unspecified_time")
+    human = bool(r and any(p in HUMAN_PARTIES for p in r.parties))
+    conversation = inp.facts.reached_answer and human
+    # (8) 人と話したが、目的の人に繋がらなかった
+    if conversation and "target" not in r.parties:
+        if r.not_reached is None:
+            return done("unknown", error="目的の人に繋がらなかった理由がありません")
+        return done("not_reached", not_reached=r.not_reached, policy_key="not_reached_" + r.not_reached)
+    # (9) 会話に至らなかった
+    if not conversation:
+        return done("open", policy_key="open")
+    # (10) 必須の質問が1つでも取れていない
+    return done("incomplete", missing=missing, policy_key="incomplete")

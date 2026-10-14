@@ -31,7 +31,7 @@ REASONS: dict[str, tuple[str, str]] = {
     "no_schedule": ("次の予定がありません", "cannot_judge"),
     "task_ended": ("この行は処理済みです", "permanent"),
     "not_due": ("次の予定の時刻より前です", "wait"),
-    "awaiting_decision": ("前の発信のあとの、次の予定がまだ決まっていません", "wait"),
+    "awaiting_decision": ("前の発信の判定と次の予定が、まだ済んでいません", "wait"),
     "number_unknown": ("番号が不明です", "permanent"),
     "number_kind_forbidden": ("かけない種類の番号です", "permanent"),
     "number_kind_not_allowed": ("この業務の設定でかけない種類の番号です", "permanent"),
@@ -67,7 +67,7 @@ REASONS: dict[str, tuple[str, str]] = {
 _DIALED = "state NOT IN ('claimed', 'released')"   # 発信まで進んだ試行（回数・間隔に数えるのは、これだけ。5-2-1 の8）
 # 同じ相手への最小の間隔・1日の回数に数える発信：相手の意思と関係なく繋がらなかった・切れたものは数えない（2026-10-14 ユーザー決定。
 # 決まりはデータベースの1か所 salescall.not_by_callee）
-_COUNTED = _DIALED + " AND NOT salescall.not_by_callee(state, hangup_side, attempt_id)"
+_COUNTED = _DIALED + " AND NOT salescall.not_by_callee(state, disconnect, attempt_id)"
 
 
 @dataclass(frozen=True)
@@ -119,15 +119,18 @@ def _setting(tx: Tx, key: str, task: dict[str, Any]) -> Any:
                             business_id=task["business_id"])
 
 
-def _pacing(tx: Tx, task: dict[str, Any], now: datetime) -> Pacing:
+def _pacing(tx: Tx, task: dict[str, Any], now: datetime, assume_promised: bool | None = None) -> Pacing:
     # 「かけた回数」の数え方は1つ（行の回数の上限・1日の回数・最小の間隔のどれも）：相手の意思と関係なく繋がらなかった・
     # 切れた発信は数えない。相手と約束したかけ直しは、どの上限でも止めない（2026-10-14 ユーザー：「ほぼ同じことでしょ。統一」）
     counted = tx.one(f"SELECT count(*) AS n FROM salescall.attempts WHERE task_id = %s AND {_COUNTED}",
                      (task["task_id"],))["n"]
     remaining = max(0, int(_setting(tx, "retry.max_attempts_per_task", task)) - counted)
-    nxt = tx.one("SELECT promised FROM salescall.task_next_actions WHERE task_id = %s ORDER BY seq DESC LIMIT 1",
-                 (task["task_id"],))
-    promised = bool(nxt and nxt["promised"])
+    if assume_promised is None:
+        nxt = tx.one("SELECT promised FROM salescall.task_next_actions WHERE task_id = %s ORDER BY seq DESC LIMIT 1",
+                     (task["task_id"],))
+        promised = bool(nxt and nxt["promised"])
+    else:
+        promised = assume_promised
     if tx.one("SELECT 1 FROM salescall.attempts WHERE contact_id = %s AND verification = 'pending' LIMIT 1",
               (task["contact_id"],)) is not None:
         return Pacing(remaining, None, "verification_pending", promised)
@@ -161,10 +164,11 @@ def _pacing(tx: Tx, task: dict[str, Any], now: datetime) -> Pacing:
     return Pacing(remaining, at, reason, promised)
 
 
-def pacing(tx: Tx, task_id: UUID) -> Pacing:
-    """その行（タスク）の、残りの回数と、次にかけてよい最も早い時刻（門・次の動き・画面が読む1か所）。"""
+def pacing(tx: Tx, task_id: UUID, *, promised: bool | None = None) -> Pacing:
+    """その行（タスク）の、残りの回数と、次にかけてよい最も早い時刻（門・次の動き・画面が読む1か所）。
+    promised：次の予定を「相手と約束したかけ直し」にした場合で数える（次の動きが、決める前に使う）。None ならいまの予定のまま。"""
     task = _task(tx, task_id)
-    return _pacing(tx, task, tx.one("SELECT now() AS now")["now"])
+    return _pacing(tx, task, tx.one("SELECT now() AS now")["now"], promised)
 
 
 def claim(tx: Tx, *, task_id: UUID, line_id: UUID, lease_holder: str) -> Claim | Denied:
@@ -197,11 +201,13 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
         return _deny("task_ended")
     if nxt["call_at"] > now:
         return _deny("not_due")
-    # 予定は1回の発信で使い切る：前の発信のあとに決め直された予定でなければ通さない（判定・次の動きが済む前に、
-    # 使った予定でもう一度かけない）
-    last_dial = tx.one(f"SELECT max(claimed_at) AS at FROM salescall.attempts WHERE task_id = %s AND {_DIALED}",
-                       (task["task_id"],))["at"]
-    if last_dial is not None and nxt["decided_at"] <= last_dial:
+    # 前の発信の締め（判定の結果の版）が済むまで、次をかけない（予定を誰が書き直しても抜け道にならないよう、
+    # 「前の発信に判定の結果があるか」で決める。判定と次の予定は、締めの処理 core/settle.py が1つの取引で書く）
+    unsettled = tx.one(
+        f"SELECT 1 FROM salescall.attempts a WHERE a.task_id = %s AND {_DIALED.replace('state', 'a.state')}"
+        " AND NOT EXISTS (SELECT 1 FROM salescall.task_results r WHERE r.attempt_id = a.attempt_id) LIMIT 1",
+        (task["task_id"],))
+    if unsettled is not None:
         return _deny("awaiting_decision")
 
     # (2) データで決まる「かけない理由」（番号の種類・発信禁止の番号と管理番号。取込と同じ1か所）

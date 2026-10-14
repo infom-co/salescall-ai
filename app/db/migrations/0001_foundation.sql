@@ -37,7 +37,9 @@ CREATE TYPE salescall.verification_state AS ENUM ('not_needed', 'pending', 'done
 CREATE TYPE salescall.hangup_side AS ENUM ('callee', 'line', 'unknown');  -- dropped の切れ方（4-2）
 CREATE TYPE salescall.business_state AS ENUM (                             -- 業務の状態（4-1）
   'open', 'completed', 'callback_scheduled', 'incomplete', 'declined',
-  'do_not_call', 'out_of_scope', 'needs_human', 'unknown'
+  'do_not_call', 'out_of_scope', 'not_reached', 'concluded', 'unknown'
+  -- not_reached＝目的の人に繋がらなかった／concluded＝業務設定で決めた結論で終えた（7-1。2026-10-14）。
+  -- needs_human（人の対応が要る）は持たない（2026-10-13 ユーザー決定：人は仲介しない）
 );
 CREATE TYPE salescall.result_kind AS ENUM ('judged', 'human', 'rejudged');  -- 結果の版の出どころ（4-1）
 CREATE TYPE salescall.next_kind AS ENUM ('call', 'end');                     -- 次の動き（7-2）
@@ -228,12 +230,16 @@ CREATE TABLE salescall.attempts (
   claimed_at       timestamptz NOT NULL,   -- データベースの時刻（5-2-1 の1。仕掛けが入れる）
   claim_expires_at timestamptz NOT NULL,
   ended_at         timestamptz,             -- 終わりの状態に入った時刻（仕掛けが入れる）
-  hangup_side      salescall.hangup_side,   -- dropped のときだけ。「不明」も値として持つ（既定値で埋めない）
+  hangup_side      salescall.hangup_side,   -- dropped のときだけ。「不明」も値として持つ（既定値で埋めない）。回線の信号のまま
+  -- 切れ方の判定（7-1c）：判定（Q5）が1回だけ書く。normal＝ふつうに終えた／refused＝相手が断った・自分の意思で切った／
+  -- interrupted＝不自然な中断（相手の意思と関係なく切れた）。相手が出なかった通話・相手が人でなかった通話は NULL のまま
+  disconnect       text CHECK (disconnect IS NULL OR disconnect IN ('normal', 'refused', 'interrupted')),
   verification     salescall.verification_state,  -- 終わりの状態に入ったときに仕掛けが決める（4-2）
   CHECK (claim_expires_at > claimed_at),
   CHECK (salescall.is_active(state) = (ended_at IS NULL)),
   CHECK (salescall.is_active(state) = (verification IS NULL)),
   CHECK ((state = 'dropped') = (hangup_side IS NOT NULL)),
+  CHECK (disconnect IS NULL OR NOT salescall.is_active(state)),
   FOREIGN KEY (tenant_id, client_id) REFERENCES salescall.clients (tenant_id, client_id),
   FOREIGN KEY (client_id, task_id, contact_id) REFERENCES salescall.tasks (client_id, task_id, contact_id),
   FOREIGN KEY (client_id, contact_id, phone_e164) REFERENCES salescall.contacts (client_id, contact_id, phone_e164),
@@ -318,9 +324,16 @@ BEGIN
     IF NEW.state <> 'dropped' AND NEW.hangup_side IS NOT NULL THEN
       RAISE EXCEPTION '切れ方を持てるのは dropped だけです' USING ERRCODE = 'check_violation';
     END IF;
+    IF NEW.disconnect IS NOT NULL THEN
+      RAISE EXCEPTION '切れ方の判定は、終わったあとに判定が書きます' USING ERRCODE = 'check_violation';
+    END IF;
   ELSE
     IF NEW.ended_at IS DISTINCT FROM OLD.ended_at OR NEW.hangup_side IS DISTINCT FROM OLD.hangup_side THEN
       RAISE EXCEPTION '終わった時刻・切れ方は、状態が移るときにしか決まりません' USING ERRCODE = 'check_violation';
+    END IF;
+    -- 切れ方の判定は、終わった試行に1回だけ（書くのは判定の結果を記録する側＝core/settle.py から attempts.record_disconnect）
+    IF NEW.disconnect IS DISTINCT FROM OLD.disconnect AND OLD.disconnect IS NOT NULL THEN
+      RAISE EXCEPTION '切れ方の判定は1回だけ決まります' USING ERRCODE = 'check_violation';
     END IF;
     -- 検証の状態は「待ち」から「済み」か「確かめられなかった」へだけ（書くのは通話後の検証 Q21 だけ）
     IF NEW.verification IS DISTINCT FROM OLD.verification
@@ -390,7 +403,8 @@ CREATE TABLE salescall.task_results (
   business_state salescall.business_state NOT NULL,
   attempt_id     uuid,            -- 判定のもとにした試行（そのタスクの試行に限る）
   judge_version  text,            -- 判定の処理の版（判定した版だけが持つ。人の版は持たない）
-  notify_human   boolean NOT NULL,  -- 苦情・怒りの申告など「人へ知らせる」印（7-1）。既定値は持たない
+  complaint      boolean NOT NULL,  -- 苦情・怒りがあった印（7-1。依頼主への報告と、次の動きの「終える」に使う）。既定値は持たない
+  detail         jsonb NOT NULL,    -- 判定の中身（切れ方・目的の人に繋がらなかった理由・折り返し・結論の名前・再発信の方針の鍵）
   snapshot       jsonb NOT NULL,  -- そのときの項目の値と状態の写し
   decided_at     timestamptz NOT NULL DEFAULT now(),
   decided_by     text NOT NULL CHECK (btrim(decided_by) <> ''),

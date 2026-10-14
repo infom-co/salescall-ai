@@ -5,6 +5,7 @@
 - 発信の出口（予約 → 発信）                                              ⇒ `start_dialing`
 - 門（期限切れの予約を戻す・門の前提が変わった予約を取り消す）           ⇒ `release`
 - 通話後の検証（Q21。待ち → 済み／確かめられなかった）                    ⇒ `record_verification`
+- 締めの処理（core/settle.py。判定が決めた切れ方を1回だけ）                ⇒ `record_disconnect`
 移ってよい組・期限・時刻・検証の状態の決まりは、データベースが持つ（ここで2つ目の決まりを作らない）。
 """
 
@@ -70,5 +71,13 @@ def record_verification(tx: Tx, attempt_id: UUID, result: Literal["done", "faile
         "UPDATE salescall.attempts SET verification = %s WHERE attempt_id = %s RETURNING attempt_id",
         (result, attempt_id),
     )
+    if row is None:
+        raise AttemptNotFound(str(attempt_id))
+
+
+def record_disconnect(tx: Tx, attempt_id: UUID, disconnect: Literal["normal", "refused", "interrupted"]) -> None:
+    """締めの処理（core/settle.py）だけが呼ぶ。判定が決めた切れ方（DESIGN.md 7-1c）を、終わった試行に1回だけ記録する。"""
+    row = tx.one("UPDATE salescall.attempts SET disconnect = %s WHERE attempt_id = %s RETURNING attempt_id",
+                 (disconnect, attempt_id))
     if row is None:
         raise AttemptNotFound(str(attempt_id))

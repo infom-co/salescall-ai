@@ -67,7 +67,7 @@ class ResultVersions(unittest.TestCase):
         w = World(); s = w.setup()
         run = lambda work: w.a.in_client(SYSTEM, s["tenant"], s["client"], work)
         self.assertEqual(run(lambda tx: results.current_state(tx, s["task"])), "open")
-        kw = dict(attempt_id=None, notify_human=False, snapshot={"Q1": "empty"}, decided_by="judge")
+        kw = dict(attempt_id=None, complaint=False, snapshot={"Q1": "empty"}, decided_by="judge")
         n1 = run(lambda tx: results.append(tx, s["task"], kind="judged", business_state="incomplete", judge_version="j1", **kw))
         n2 = run(lambda tx: results.append(tx, s["task"], kind="human", business_state="completed", judge_version=None, **kw))
         self.assertEqual((n1, n2), (1, 2))
@@ -82,7 +82,7 @@ class ResultVersions(unittest.TestCase):
             try:
                 w.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: results.append(
                     tx, s["task"], kind="judged", business_state="open", attempt_id=None, judge_version="j1",
-                    notify_human=False, snapshot={}, decided_by="judge"))
+                    complaint=False, snapshot={}, decided_by="judge"))
             except Exception as e:
                 errors.append(e)
         ths = [threading.Thread(target=add) for _ in range(6)]
@@ -100,7 +100,7 @@ class ResultVersions(unittest.TestCase):
         with self.assertRaises(TaskNotFound):
             w.a.in_client(SYSTEM, other["tenant"], other["client"], lambda tx: results.append(
                 tx, s["task"], kind="judged", business_state="open", attempt_id=None, judge_version="j1",
-                notify_human=False, snapshot={}, decided_by="judge"))
+                complaint=False, snapshot={}, decided_by="judge"))
 
     def test_result_attempt_must_belong_to_the_task(self):
         w = World(); s = w.setup(); s2 = w.setup(tenant=s["tenant"])
@@ -111,7 +111,7 @@ class ResultVersions(unittest.TestCase):
         with self.assertRaises(Rejected):
             w.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: results.append(
                 tx, s["task"], kind="judged", business_state="open", attempt_id=aid, judge_version="j1",
-                notify_human=False, snapshot={}, decided_by="judge"))
+                complaint=False, snapshot={}, decided_by="judge"))
 
 
 class NextActions(unittest.TestCase):

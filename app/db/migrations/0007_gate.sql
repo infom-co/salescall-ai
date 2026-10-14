@@ -159,10 +159,14 @@ GRANT SELECT, INSERT ON salescall.version_stages, salescall.gate_denials TO sale
 -- ═════════ 日本時間（時間帯・日ごとの上限は、すべて日本時間の日で数える。直し方はここ1か所） ═════════
 CREATE FUNCTION salescall.jst(t timestamptz) RETURNS timestamp LANGUAGE sql IMMUTABLE AS
 $$ SELECT t AT TIME ZONE 'Asia/Tokyo' $$;
+-- 日本時間の日時（時差なし）を、時刻に戻す
+CREATE FUNCTION salescall.from_jst(t timestamp) RETURNS timestamptz LANGUAGE sql IMMUTABLE AS
+$$ SELECT t AT TIME ZONE 'Asia/Tokyo' $$;
 -- 日本時間のその日の始まり（0:00）の時刻
 CREATE FUNCTION salescall.jst_day_start(d date) RETURNS timestamptz LANGUAGE sql IMMUTABLE AS
 $$ SELECT d::timestamp AT TIME ZONE 'Asia/Tokyo' $$;
-GRANT EXECUTE ON FUNCTION salescall.jst(timestamptz), salescall.jst_day_start(date) TO salescall_app;
+GRANT EXECUTE ON FUNCTION salescall.jst(timestamptz), salescall.from_jst(timestamp), salescall.jst_day_start(date)
+  TO salescall_app;
 
 -- ═════════ 「いま生きている」進行中の試行（同時の本数・段の件数に数えるもの） ═════════
 -- 期限の切れた予約は、出口で発信へ進めない（5-3）ので、取り消される前でも数えない（数えると、ほかの相手への発信まで止める）。
@@ -173,14 +177,14 @@ GRANT EXECUTE ON FUNCTION salescall.is_live(salescall.attempt_state, timestamptz
 
 -- ═════════ 相手の意思と関係なく、繋がらなかった・切れた発信（2026-10-14 ユーザー決定） ═════════
 -- 「かけた回数」に数えない（行の回数の上限・同じ相手への最小の間隔・1日の回数のどれも。数え方は1つ）：通信の問題などで繋がらなかった（発信に失敗・相手が出る前の結果不明）／
--- 相手の意思と関係なく切れた（回線の側で切れた）。「切れ方が不明」は数える（相手が切ったかもしれない＝止める側）。
-CREATE FUNCTION salescall.not_by_callee(s salescall.attempt_state, side salescall.hangup_side, p_attempt uuid)
+-- 相手の意思と関係なく切れた（切れ方の判定＝不自然な中断。判定 Q5 が回線の信号と会話の記録から決める。DESIGN.md 7-1c）。
+CREATE FUNCTION salescall.not_by_callee(s salescall.attempt_state, disconnect text, p_attempt uuid)
 RETURNS boolean LANGUAGE sql STABLE AS $$
   SELECT s = 'call_failed'
       OR (s = 'technical_error' AND NOT salescall.reached_answer(p_attempt))
-      OR (s = 'dropped' AND side = 'line')
+      OR disconnect IS NOT DISTINCT FROM 'interrupted'
 $$;
-GRANT EXECUTE ON FUNCTION salescall.not_by_callee(salescall.attempt_state, salescall.hangup_side, uuid),
+GRANT EXECUTE ON FUNCTION salescall.not_by_callee(salescall.attempt_state, text, uuid),
   salescall.reached_answer(uuid) TO salescall_app;
 
 -- ═════════ 次の予定が「相手と約束したかけ直し」か（相手に頼まれた・こちらが約束した。2026-10-14 ユーザー決定） ═════════

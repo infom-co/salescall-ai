@@ -16,14 +16,14 @@ from salescall.core.access import Tx
 from salescall.core.tasks import TaskNotFound, lock
 
 BusinessState = Literal["open", "completed", "callback_scheduled", "incomplete", "declined",
-                        "do_not_call", "out_of_scope", "needs_human", "unknown"]
+                        "do_not_call", "out_of_scope", "not_reached", "concluded", "unknown"]
 ResultKind = Literal["judged", "human", "rejudged"]
 
 
 def latest(tx: Tx, task_id: UUID) -> dict[str, Any] | None:
     """いちばん新しい結果の版（無ければ None）。"""
     return tx.one(
-        "SELECT task_id, version_no, kind, business_state, attempt_id, judge_version, notify_human, snapshot,"
+        "SELECT task_id, version_no, kind, business_state, attempt_id, judge_version, complaint, detail, snapshot,"
         " decided_at, decided_by FROM salescall.task_results WHERE task_id = %s ORDER BY version_no DESC LIMIT 1",
         (task_id,),
     )
@@ -38,17 +38,19 @@ def current_state(tx: Tx, task_id: UUID) -> str:
 
 
 def append(tx: Tx, task_id: UUID, *, kind: ResultKind, business_state: BusinessState, attempt_id: UUID | None,
-           judge_version: str | None, notify_human: bool, snapshot: dict[str, Any], decided_by: str) -> int:
+           judge_version: str | None, complaint: bool, snapshot: dict[str, Any], decided_by: str,
+           detail: dict[str, Any] | None = None) -> int:
     """結果の版を1つ足し、その版の番号を返す。"""
     lock(tx, task_id)  # 同じタスクへの追記を1つずつ順にする（tasks.py の説明）
     row = tx.one(
         "INSERT INTO salescall.task_results (tenant_id, client_id, task_id, version_no, kind, business_state, attempt_id,"
-        " judge_version, notify_human, snapshot, decided_by)"
+        " judge_version, complaint, detail, snapshot, decided_by)"
         " SELECT t.tenant_id, t.client_id, t.task_id,"
         "        coalesce((SELECT max(r.version_no) FROM salescall.task_results r WHERE r.task_id = t.task_id), 0) + 1,"
-        "        %s, %s, %s, %s, %s, %s, %s"
+        "        %s, %s, %s, %s, %s, %s, %s, %s"
         " FROM salescall.tasks t WHERE t.task_id = %s RETURNING version_no",
-        (kind, business_state, attempt_id, judge_version, notify_human, json.dumps(snapshot, ensure_ascii=False),
+        (kind, business_state, attempt_id, judge_version, complaint, json.dumps(detail or {}, ensure_ascii=False),
+         json.dumps(snapshot, ensure_ascii=False),
          decided_by, task_id),
     )
     if row is None:

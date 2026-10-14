@@ -169,12 +169,17 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      " RETURNS integer LANGUAGE sql SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ SELECT 0 $$",
      ("tests.test_gate.ChangesReleaseClaims.test_setting_change", "tests.test_gate.ChangesReleaseClaims.test_calendar_load")),
     ("相手の意思と関係ない発信も、間隔・1日の回数に数える",
-     "CREATE OR REPLACE FUNCTION salescall.not_by_callee(s salescall.attempt_state, side salescall.hangup_side, p_attempt uuid)"
+     "CREATE OR REPLACE FUNCTION salescall.not_by_callee(s salescall.attempt_state, disconnect text, p_attempt uuid)"
      " RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT false $$",
      ("tests.test_gate.NotByCallee.test_failed_or_line_dropped_calls_do_not_count",)),
     ("相手が出る前の結果不明も、検証待ちにする",
      "CREATE OR REPLACE FUNCTION salescall.reached_answer(p_attempt uuid) RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT true $$",
      ("tests.test_gate.Pacing.test_unknown_result_before_answer_needs_no_long_wait",)),
+    ("1つの試行に判定の版は1つ、の約束を外す", "DROP INDEX salescall.task_results_one_judgement_per_attempt",
+     ("tests.test_settle.DatabaseGuards.test_one_judgement_per_attempt",)),
+    ("「わからない」「答えない」の理由は、その状態だけ、の決まりを外す",
+     "ALTER TABLE salescall.item_values DROP CONSTRAINT item_values_reason_only_when_not_answered",
+     ("tests.test_settle.DatabaseGuards.test_item_reason_only_when_not_answered",)),
     ("番号違いで管理番号を止めない決まりを外す",
      "ALTER TABLE salescall.dnc_entries DROP CONSTRAINT dnc_entries_ref_not_wrong_party",
      ("tests.test_dnc.RefusalScope.test_database_refuses_bad_entries",)),

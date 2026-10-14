@@ -141,8 +141,8 @@ class FrozenRecords(unittest.TestCase):
 
         def add(tx):
             tx.execute("INSERT INTO salescall.task_results (tenant_id, client_id, task_id, version_no, kind, business_state,"
-                       " judge_version, notify_human, snapshot, decided_by)"
-                       " VALUES (%s, %s, %s, 1, 'judged', 'incomplete', 'judge-1', false, '{}', 'judge')",
+                       " judge_version, complaint, detail, snapshot, decided_by)"
+                       " VALUES (%s, %s, %s, 1, 'judged', 'incomplete', 'judge-1', false, '{}', '{}', 'judge')",
                        (s["tenant"], s["client"], s["task"]))
             tx.execute("INSERT INTO salescall.task_next_actions (tenant_id, client_id, task_id, seq, kind, call_at, cause,"
                        " promised) VALUES (%s, %s, %s, 1, 'call', now(), '取り込み', false)", (s["tenant"], s["client"], s["task"]))
@@ -157,8 +157,8 @@ class FrozenRecords(unittest.TestCase):
     def test_result_version_numbers_do_not_overlap(self):
         w = World(); s = w.setup()
         sql = ("INSERT INTO salescall.task_results (tenant_id, client_id, task_id, version_no, kind, business_state,"
-               " judge_version, notify_human, snapshot, decided_by)"
-               " VALUES (%s, %s, %s, 1, 'judged', 'open', 'judge-1', false, '{}', 'judge')")
+               " judge_version, complaint, detail, snapshot, decided_by)"
+               " VALUES (%s, %s, %s, 1, 'judged', 'open', 'judge-1', false, '{}', '{}', 'judge')")
         w.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: tx.execute(sql, (s["tenant"], s["client"], s["task"])))
         with self.assertRaises(Rejected):
             w.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: tx.execute(sql, (s["tenant"], s["client"], s["task"])))
@@ -166,7 +166,7 @@ class FrozenRecords(unittest.TestCase):
     def test_human_version_has_no_judge_version_and_judged_must_have_one(self):
         w = World(); s = w.setup()
         base = ("INSERT INTO salescall.task_results (tenant_id, client_id, task_id, version_no, kind, business_state,"
-                " judge_version, notify_human, snapshot, decided_by) VALUES (%s, %s, %s, %s, %s, 'open', %s, false, '{}', 'x')")
+                " judge_version, complaint, detail, snapshot, decided_by) VALUES (%s, %s, %s, %s, %s, 'open', %s, false, '{}', '{}', 'x')")
         for no, kind, jv in [(1, "judged", None), (2, "human", "judge-1")]:
             with self.subTest(kind=kind), self.assertRaises(Rejected):
                 w.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: tx.execute(
@@ -449,8 +449,8 @@ class DeliveriesOnlyForReleasedVersions(unittest.TestCase):
 
         def prepare(tx):
             tx.execute("INSERT INTO salescall.task_results (tenant_id, client_id, task_id, version_no, kind, business_state,"
-                       " judge_version, notify_human, snapshot, decided_by)"
-                       " VALUES (%s, %s, %s, 1, 'judged', 'completed', 'judge-1', false, '{}', 'judge')",
+                       " judge_version, complaint, detail, snapshot, decided_by)"
+                       " VALUES (%s, %s, %s, 1, 'judged', 'completed', 'judge-1', false, '{}', '{}', 'judge')",
                        (s["tenant"], s["client"], s["task"]))
             tx.execute("INSERT INTO salescall.destinations (tenant_id, client_id, destination_id, name, method, upsert_capable)"
                        " VALUES (%s, %s, %s, '架空の送り先', 'mock', true)", (s["tenant"], s["client"], dest))
