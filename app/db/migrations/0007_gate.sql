@@ -279,8 +279,10 @@ GRANT EXECUTE ON FUNCTION salescall.release_expired_claims(uuid, text, uuid), sa
 INSERT INTO salescall.setting_definitions (key, merge_kind, value_type, meaning, design_ref, bound_key, bound_side) VALUES
 ('gate.same_contact_min_interval', 'system_only', 'seconds', '同じ連絡先への前の発信が終わってから、次に予約できるまでの最小の間隔（次の動きの誤りでかけ続けないための歯止め。ふつうの間隔は再発信の方針で決める）。相手と約束したかけ直し・相手の意思と関係なく繋がらなかった／切れた発信は対象外', 'DESIGN.md 5-2 の5', NULL, NULL),
 ('gate.max_dials_per_contact_per_day', 'override', 'integer', '同じ連絡先へ、日本時間の1日に発信してよい回数の上限（実施回をまたいでも数える）。相手と約束したかけ直しは対象外。相手の意思と関係なく繋がらなかった／切れた発信は数えない', 'DESIGN.md 5-2 の5', NULL, NULL),
+('judge.unclear_disconnect_is_refusal', 'override', 'boolean', '切れ方を決められない通話（DESIGN.md 7-1c の表のどれにも当てはまらない）を、営業拒否として扱うか（いいえ＝かけ直す）。契約者・依頼主・業務ごとに決められる', 'DESIGN.md 7-1c', NULL, NULL),
 ('line.max_dials_per_day', 'system_only', 'integer', '1つの回線（番号）から、日本時間の1日に発信してよい回数の上限（番号の評判を守る。Intent.md 8-6）', 'DESIGN.md 5-2 の7', NULL, NULL);
 INSERT INTO salescall.setting_values (key, scope, value, status, rationale, review_when, set_by) VALUES
 ('gate.same_contact_min_interval', 'system', '300', 'decided', '2026-10-14 ユーザー決定：5分。ただし、相手と約束したかけ直し・通信の問題などで繋がらなかった・話の途中で相手の意思と関係なく切れた発信は対象外', '苦情と応答率の実測を見て', 'ユーザー'),
 ('gate.max_dials_per_contact_per_day', 'system', '2', 'decided', '2026-10-14 ユーザー決定：2回。ただし、相手と約束したかけ直しは対象外。通信の問題などで繋がらなかった・相手の意思と関係なく切れた発信は数えない', '応答率と苦情の実測を見て', 'ユーザー'),
+('judge.unclear_disconnect_is_refusal', 'system', 'true', 'provisional', '2026-10-14 ユーザー決定：決められないときに、かけ直すか営業拒否扱いにするかは、設定で決められるようにする。初めの値は営業拒否扱い（取り違えたときの害：わざと切った相手にまたかける＝取り消せない害 ＞ 見込みの相手を1件失う）', '運営者が業務ごとに決めるとき・切れ方の判定の実績を見て', 'CL-2'),
 ('line.max_dials_per_day', 'system', '300', 'decided', '2026-10-14 ユーザー決定：300本（番号の評判。Intent.md 8-6）', '回線ごとの応答率の推移を見て', 'ユーザー');
