@@ -20,7 +20,7 @@ from common import base_parser, describe_error, drop_partial, make_client, pick_
 from convo import CUT_IN_S, run_call
 from g22_opening import BUSINESS, W
 from g30_latency import VARIANTS as G30_VARIANTS
-from g30_latency import keep_call
+from g30_latency import OLD_THINKING_RULE, keep_call, thinking_rule
 from instruction import VOICE_TYPES
 from stitch_gap import join_with_pause
 
@@ -85,8 +85,10 @@ async def run(args) -> dict:
                 callee = [W("yes_reserved"), {"wav": q2}, W("affirm"), {"wav": q3}, W("affirm")]
                 for name, kw in VARIANTS.items():
                     try:
-                        call = await run_call(client, args.model, BUSINESS, vt, callee, opening_mode="recorded", use_ear=False,
-                                              save_audio="all", audio_label=f"G31_{name}_{p}_{rep}", followup_wait_s=FOLLOWUP_WAIT_S, **kw)
+                        with thinking_rule(OLD_THINKING_RULE):  # G-31 は前の決まりで測った（g30_latency）
+                            call = await run_call(client, args.model, BUSINESS, vt, callee, opening_mode="recorded", use_ear=False,
+                                                  save_audio="all", audio_label=f"G31_{name}_{p}_{rep}", followup_wait_s=FOLLOWUP_WAIT_S,
+                                                  **kw)
                     except Exception as exc:
                         call, row = None, {"rep": rep, "type": vt, "variant": name, "pause": p, "error": describe_error(exc)}
                     if call is not None:

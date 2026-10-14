@@ -14,37 +14,24 @@ from __future__ import annotations
 
 import asyncio
 import json
-from contextlib import contextmanager
 
 import instruction
 from common import base_parser, describe_error, drop_partial, make_client, pick_key, require_python, save_partial, save_result, say
 from convo import run_call
 from g22_opening import BUSINESS, W
 from g30_latency import VARIANTS as G30_VARIANTS
-from g30_latency import keep_call, turn_measures
+from g30_latency import OLD_THINKING_RULE, keep_call, thinking_rule, turn_measures
 from g31_pause import FOLLOWUP_WAIT_S, clips, judge, measure
 from instruction import VOICE_TYPES
 
 PAUSES = (0.7, 1.0, 1.5)
 WAIT_SILENTLY = ("相手が考えている（「えー」「えーと」「その」など、まだ答え終わっていない）ときは、何も言わずに、相手が話し終えるまで"
                  "待ちます。何も報告しません。質問を聞き直してはいけません。")
-VARIANTS = {
-    "A_ごゆっくり": {"kw": G30_VARIANTS["A_いまの形"], "rule": None},
-    "C_ごゆっくり": {"kw": G30_VARIANTS["C_考える量0＋判定0.4秒"], "rule": None},
+VARIANTS = {  # 「ごゆっくり」は、測ったときの決まり（2026-10-14 に「はい。」へ替えたので、前の決まりを指定する）
+    "A_ごゆっくり": {"kw": G30_VARIANTS["A_いまの形"], "rule": OLD_THINKING_RULE},
+    "C_ごゆっくり": {"kw": G30_VARIANTS["C_考える量0＋判定0.4秒"], "rule": OLD_THINKING_RULE},
     "C_黙って待つ": {"kw": G30_VARIANTS["C_考える量0＋判定0.4秒"], "rule": WAIT_SILENTLY},
 }
-
-
-@contextmanager
-def thinking_rule(rule: str | None):
-    """考えている相手への決まり（instruction.THINKING_RULE）を、この試験の中だけ差し替える。抜けるときに必ず元へ戻す。"""
-    saved = instruction.THINKING_RULE
-    if rule is not None:
-        instruction.THINKING_RULE = rule
-    try:
-        yield
-    finally:
-        instruction.THINKING_RULE = saved
 
 
 def summarize(rows: list[dict]) -> dict:

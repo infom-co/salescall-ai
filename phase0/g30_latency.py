@@ -18,6 +18,9 @@ from __future__ import annotations
 import asyncio
 import json
 import statistics as st
+from contextlib import contextmanager
+
+import instruction
 
 from common import base_parser, describe_error, drop_partial, make_client, pick_key, read_wav_pcm16_mono, require_python, save_partial
 from common import save_result, say
@@ -28,6 +31,23 @@ from stitch_gap import callee_speech, join_with_pause
 
 CALLEE_DIR = AUDIO_DIR.parent / "callee"
 PAUSE_S = 0.9
+# G-30〜G-32 は、考えている相手への前の決まり（「ごゆっくりどうぞ」とだけ言って待つ）で測った。2026-10-14 に「はい。」の相づちへ
+# 替えた（ユーザー承認・instruction.THINKING_RULE）ので、流し直すときに同じ条件になるよう、前の決まりをここに残して指定する
+OLD_THINKING_RULE = "相手が考えている（「えー」「その」など、まだ答えていない）ときは、何も報告せず、「ごゆっくりどうぞ」とだけ言って待ちます。質問を聞き直してはいけません。"
+
+
+@contextmanager
+def thinking_rule(rule: str | None):
+    """考えている相手への決まり（instruction.THINKING_RULE）を、この試験の中だけ差し替える。抜けるときに必ず元へ戻す。"""
+    saved = instruction.THINKING_RULE
+    if rule is not None:
+        instruction.THINKING_RULE = rule
+    try:
+        yield
+    finally:
+        instruction.THINKING_RULE = saved
+
+
 VARIANTS = {
     "A_いまの形": {},
     "B_考える量0": {"thinking_budget": 0},
@@ -126,8 +146,9 @@ async def run(args) -> dict:
         for vt in args.type or VOICE_TYPES:
             for name, kw in VARIANTS.items():
                 try:
-                    call = await run_call(client, args.model, BUSINESS, vt, CALLEE, opening_mode="recorded", use_ear=False,
-                                          save_audio="all", audio_label=f"G30_{name}_{rep}", **kw)
+                    with thinking_rule(OLD_THINKING_RULE):
+                        call = await run_call(client, args.model, BUSINESS, vt, CALLEE, opening_mode="recorded", use_ear=False,
+                                              save_audio="all", audio_label=f"G30_{name}_{rep}", **kw)
                 except Exception as exc:
                     call, row = None, {"rep": rep, "type": vt, "variant": name, "error": describe_error(exc)}
                 if call is not None:
