@@ -321,7 +321,7 @@ class FlowTest(unittest.TestCase):
         self.assertEqual(r3["say"], confirm("090-1234-5678", "聞き取りにくかったあと", 0))
         f.on_callee()
         r4 = self.call(f, "confirm_field", question_id="Q3", result="corrected", correction="090-1234-5679")
-        self.assertEqual(r4["say"], confirm("090-1234-5679", "聞き取りにくかったあと", 1))  # 訂正のあとも同じ場面で、次の言い方
+        self.assertEqual(r4["say"], confirm("090-1234-5679", "聞き違いのあと", 0))  # こちらの聞き違いのあとは、その場面の言い方
 
     def test_lead_ins_rotate_and_default_on(self):
         from flowctl import Flow, Question
@@ -997,7 +997,12 @@ class FormCheckTest(unittest.TestCase):
             self.assertIsNone(form_problem("datetime", v), v)
         for v in ("3人", "4名", "3", "はい", "はいそう", "そうです", "違います", "答えなかった", "わかりません"):
             self.assertTrue(form_problem("datetime", v), v)
-        self.assertIsNone(form_problem("number", "15日の午後2時"))  # 数の型には当てない（⏳ 案）
+        # 数の型（✅ 2026-10-14 ユーザー承認）：数字か数の言葉が1つは入っている
+        for v in ("3人", "3名様", "1人", "3", "ふたり", "ひとりです", "大人2人と子ども1人", "十人", "さんにん", "数名"):
+            self.assertIsNone(form_problem("number", v), v)
+        for v in ("家族で行こうと思ってます", "はい", "いつでも大丈夫", "本人です。はい、そう", "ひとまずお願いします", "やっぱりいいです", "そのとおりです"):
+            self.assertEqual(form_problem("number", v), "数がありません", v)
+        self.assertIsNone(form_problem("number", "15日の午後2時"))  # ⚠️ 止められない（数の型は単位を持たない）
         self.assertIsNone(form_problem("name", "佐藤"))
 
     def test_wrong_answer_is_not_recorded_and_asked_again(self):
@@ -1090,6 +1095,16 @@ class FormCheckTest(unittest.TestCase):
         self.do(f, "confirm_field", question_id="Q2", result="affirmed", correction="はい")
         self.assertEqual((f.items["Q2"].state, f.items["Q2"].value), ("confirmed", "15日の午後2時"))
 
+    def test_number_without_count_is_asked_again(self):
+        """人数の質問に数になっていない答え（「家族で行こうと思ってます」）：記録せず、聞くことの名前を入れて聞き直す。"""
+        from flowctl import Flow, Question
+        f = Flow([Question("Q1", "ご来店の人数をお聞かせください。", "number", conditions=("答えた",), topic="ご来店の人数")])
+        r = self.do(f, "record_answer", question_id="Q1", condition_id="答えた", value="家族で行こうと思ってます")
+        self.assertEqual((r["result"], r["ack"], f.items["Q1"].value), ("ask_back", "hai", None))
+        self.assertEqual(r["say"], "恐れ入ります。ご来店の人数を、もう一度、お聞かせいただいてもよろしいでしょうか？")
+        self.assertIn("数がありません", r["message"])
+        self.assertEqual(self.do(f, "record_answer", question_id="Q1", condition_id="答えた", value="3人です")["result"], "confirm_required")
+
     def test_unknown_and_refused_are_not_checked(self):
         f = self.flow()
         self.do(f, "record_answer", question_id="Q1", condition_id="はい")
@@ -1106,6 +1121,94 @@ class FormCheckTest(unittest.TestCase):
         self.assertEqual(out["結果"], "聞き返す")
         text = " ".join(str(v) for v in out.values())
         self.assertEqual(set(re.findall(r"[A-Za-z_][A-Za-z_0-9]*", text)) - {"Q2", "record_answer"}, set())  # 中の名前を見せない
+
+
+class AskLadderTest(unittest.TestCase):
+    """聞き返しの回数と言い方（DESIGN.md 6-11）。✅ 2026-10-14 ユーザー：必須の項目を聞く回数は、最初の質問のほかに最大3回
+    （その場2回＋締めの前の念のための確認1回）。依頼主ごとに変えられる。最後の1回は「申し訳ございません、」（相づちの録音）＋
+    「お声が聞き取れませんでしたので、（聞くこと）を、もう一度だけ、お聞かせいただいてもよろしいでしょうか？」。"""
+
+    LAST = "お声が聞き取れませんでしたので、ご希望の日時を、もう一度だけ、お聞かせいただいてもよろしいでしょうか？"
+
+    def flow(self, **limits):
+        from flowctl import Flow, Limits, Question
+        return Flow([Question("Q1", "ご希望の日時をお聞かせください。", "datetime", conditions=("答えた",), topic="ご希望の日時"),
+                     Question("Q2", "ご来店の人数をお聞かせください。", "number", conditions=("答えた",), topic="ご来店の人数")],
+                    limits=Limits(**limits))
+
+    @staticmethod
+    def do(f, name, **args):
+        f.on_callee()
+        return f.apply(name, args)
+
+    def test_default_two_in_place_then_last_ask_at_recheck(self):
+        from phrases import ASK_BACK
+        f = self.flow()
+        said = [self.do(f, "report_unclear", question_id="Q1") for _ in range(2)]
+        self.assertEqual([(r["say"], r["ack"]) for r in said], [(ASK_BACK, "moushiwake"), ("もう一回、よろしいでしょうか？", "moushiwake")])
+        r = self.do(f, "report_unclear", question_id="Q1")
+        self.assertEqual((r["result"], r["question_id"], f.items["Q1"].state), ("next", "Q2", "unresolved"))  # その場は2回まで
+        self.do(f, "record_answer", question_id="Q2", condition_id="答えた", value="3人")
+        r = self.do(f, "confirm_field", question_id="Q2", result="affirmed")
+        self.assertEqual((r["result"], r["question_id"], r["say"], r["ack"]), ("recheck", "Q1", self.LAST, "moushiwake"))  # 最後の1回
+        self.assertIn(self.LAST, r["message"])
+        self.assertEqual(self.do(f, "record_answer", question_id="Q1", condition_id="答えた", value="15日の午後2時")["result"], "confirm_required")
+        self.assertEqual(self.do(f, "confirm_field", question_id="Q1", result="affirmed")["result"], "end")
+        self.assertEqual(f.export()["Q1"], "15日の午後2時")
+
+    def test_last_ask_is_said_once_and_then_dash(self):
+        """念のための確認でも聞き取れなければ「-」で締めへ（聞く回数は、最初の質問のほかに3回まで）。"""
+        f = self.flow()
+        for _ in range(3):
+            self.do(f, "report_unclear", question_id="Q1")
+        self.do(f, "record_answer", question_id="Q2", condition_id="答えた", value="3人")
+        self.do(f, "confirm_field", question_id="Q2", result="affirmed")
+        r = self.do(f, "report_unclear", question_id="Q1")
+        self.assertEqual((r["result"], f.export()["Q1"]), ("end", "-"))
+        self.assertEqual(sum(1 for e in f.log if e["reply"]["result"] in ("ask_back", "recheck")), 3)
+
+    def test_client_settings(self):
+        """依頼主ごとの設定：念のための確認を0回にしたら、その場の最後の聞き返しが最後の1回の言い方になる。
+        その場を3回にしても、「もう一度だけ」は最後の1回（念のための確認）にしか使わない。"""
+        f = self.flow(recheck=0)
+        self.do(f, "report_unclear", question_id="Q1")
+        self.assertEqual(self.do(f, "report_unclear", question_id="Q1")["say"], self.LAST)
+        g = self.flow(ask_back=3)
+        says = [self.do(g, "report_unclear", question_id="Q1")["say"] for _ in range(3)]
+        self.assertFalse(any("もう一度だけ" in s for s in says), says)
+        h = self.flow(ask_back=1, recheck=0)  # 1回きりの聞き直しが、答えが質問に合わないとき：言い方も相づちも、最後の1回のもの
+        r = self.do(h, "record_answer", question_id="Q1", condition_id="答えた", value="3人")
+        self.assertEqual((r["say"], r["ack"]), (self.LAST, "moushiwake"))
+
+    def test_misheard_and_restated_read_back_differently(self):
+        """値を直されたあと（✅ 2026-10-14 ユーザー）：こちらの聞き違い＝「失礼いたしました。」＋「改めまして、…大丈夫でしょうか？」、
+        相手の言い間違い＝「承知しました。」＋「それでは、…よろしいでしょうか？」。「失礼いたしました。」のあとに「かしこまりました」を続けない。"""
+        out = {}
+        for result in ("corrected", "restated"):
+            f = self.flow()
+            self.do(f, "record_answer", question_id="Q1", condition_id="答えた", value="15日の午後2時")
+            r = self.do(f, "confirm_field", question_id="Q1", result=result, correction="16日の午後2時")
+            out[result] = (r["ack"], r["say"])
+            self.assertEqual((f.items["Q1"].value, f.awaiting_confirm), ("16日の午後2時", "Q1"))
+        self.assertEqual(out, {"corrected": ("shitsurei", "改めまして、16日の午後2時で、大丈夫でしょうか？"),
+                               "restated": ("shouchi", "それでは、16日の午後2時で、よろしいでしょうか？")})
+
+    def test_unreported_restatement_keeps_its_kind(self):
+        """AIが答えを報告せずに言い直し、相手が自分の言い間違いを直した：差し戻したあとの答えの報告でも、言い直しを受けた言い方にする。"""
+        f = self.flow()
+        self.assertEqual(self.do(f, "confirm_field", question_id="Q1", result="restated", correction="16日の午後2時")["result"], "rejected")
+        r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "答えた", "value": "16日の午後2時"})
+        self.assertEqual((r["ack"], r["say"]), ("shouchi", "それでは、16日の午後2時で、よろしいでしょうか？"))
+
+    def test_instruction_leaves_the_fit_to_the_program(self):
+        """答えが質問に合うかは、プログラムの1か所で決める（✅ 2026-10-14 ユーザー承認）。AIには、聞いたとおりの値で報告させる。"""
+        from flowctl import CONFIRM_LABEL, Question
+        from instruction import Business, build
+        b = Business(company="アオバ物流", caller="佐藤", purpose="ご予約の確認", questions=[Question("Q1", "日時は。", "datetime", conditions=("答えた",))])
+        text = build(b, "S2")[1]
+        self.assertIn("合うかどうかはプログラムが決めて", text)
+        self.assertIn("聞き取れない（何と言ったか分からない）ときだけ report_unclear", text)
+        self.assertIn(f"「{CONFIRM_LABEL['restated']}」", text)
 
 
 class NeverStuckTest(unittest.TestCase):
@@ -1162,7 +1265,7 @@ class NeverStuckTest(unittest.TestCase):
                 self.assertIn(r["result"], RESULT_LABEL, r)
                 if f.phase != "closing":
                     self.assertTrue(r.get("message"), r)  # (2) 次にすることが書いてある
-                if r["result"] in ("ask_back", "confirm_required", "busy_ask"):
+                if r["result"] in ("ask_back", "confirm_required", "busy_ask", "recheck"):
                     self.assertTrue(r.get("say"), r)       # 言い方が決まっている
                 if f.phase == "closing":
                     break

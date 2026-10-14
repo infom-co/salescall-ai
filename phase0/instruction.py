@@ -11,9 +11,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from flowctl import ARG_LABEL, END_LABEL, GOT, SYSTEM_LABEL, Question
+from flowctl import ARG_LABEL, CONFIRM_LABEL, END_LABEL, GOT, SYSTEM_LABEL, Question
 
-from phrases import APOLOGY, ASK_BACK, RECHECK  # noqa: F401（決まった言い方は phrases.py の1か所。試験からも、ここ経由で読める）
+from phrases import APOLOGY, ASK_BACK  # noqa: F401（決まった言い方は phrases.py の1か所。試験からも、ここ経由で読める）
 # プログラムから会話AIへ送る合図の文面（文字で送る。相手には聞こえない）。合図の文面はここだけに置く（DESIGN.md 6-7）
 CUES = {
     # AIが黙ったとき：1回だけ返事を促す
@@ -136,18 +136,25 @@ def system_rules(thinking_op: bool = False) -> str:
         "会話の決まり：\n"
         "- 質問は、プログラムから渡されたものだけを、1つずつ聞きます。言い回しは自然にしてかまいませんが、意味を変えてはいけません。"
         "プログラムの返事に書かれていない質問や話題を、自分から出してはいけません（締めの前に「ほかに何かございますか」と聞くことも含みます）。\n"
-        "- 相手が答えたら、必ず record_answer を呼びます。返事に次にすることが書いてあるので、それに従います。\n"
+        # ✅ 2026-10-14 ユーザー承認：答えが質問に合うかの判断は、プログラムの1か所（flowctl.form_problem）にまとめる。⛔ G-35：AIが「いつでも」を
+        #    曖昧として報告し、「聞き取りにくかったので…」と聞き返した（相手ははっきり話している）
+        "- 相手が答えたら、必ず record_answer を呼びます。聞き取れた答えは、いまの質問に合わないように思えても（ほかの質問の答え・"
+        "「いつでも」など）、聞いたとおりの値で報告します。合うかどうかはプログラムが決めて、返事で知らせます（自分で聞き直してはいけません）。"
+        "返事に次にすることが書いてあるので、それに従います。\n"
         f"- 相手が「わからない」と答えたら{ARG_LABEL['condition_id']}を「{SYSTEM_LABEL['unknown']}」に、答えたくないと言ったら"
         f"「{SYSTEM_LABEL['refused']}」にして record_answer を呼びます。"
         "答えたくないと言われた質問は、二度と聞きません。\n"
         "- 日付・時刻・数・金額・名前・電話番号・メール・住所は、返事に「言い直して」とあれば、返事に書いてある確認の言い方のとおりに言って、"
         "相手の返事を待ちます。相手が返事をしてから confirm_field で報告します（相手の返事を聞く前に報告してはいけません）。\n"
         "- 時刻は、午前か午後かを必ずはっきりさせます。相手が言わなかったら「午前と午後、どちらでしょうか」と聞きます。自分で決めてはいけません。\n"
-        "- 相手の答えが聞き取れない・曖昧なときは report_unclear を呼びます。返事が「聞き返す」のときは、返事に書いてある言い方のとおりに聞き返して、"
+        "- 相手の答えが聞き取れない（何と言ったか分からない）ときだけ report_unclear を呼びます。返事が「聞き返す」のときは、返事に書いてある言い方のとおりに聞き返して、"
         "相手の答えを待ちます。この言い方だけを使い、言葉を足したり、言い換えたりしません。返事が「-にします」なら、聞き返さずに、返事に書いてある次の質問へ進みます。\n"
         f"- {THINKING_OP_RULE if thinking_op else THINKING_RULE}\n"
-        "- 言い直した値に相手が返事をしたら、record_answer ではなく confirm_field で報告します。\n"
-        f"- 返事に「念のための確認」とあれば、「{RECHECK}」と言ってから、その質問をもう1回だけ聞きます。\n"
+        "- 言い直した値に相手が返事をしたら、record_answer ではなく confirm_field で報告します。合っていれば返事の種類「合っている」。"
+        f"こちらの言い直しが違っていたと言われたら「{CONFIRM_LABEL['corrected']}」（こちらの聞き違い）、相手が自分の言い間違いを直した・答えを変えたときは"
+        f"「{CONFIRM_LABEL['restated']}」にして、相手が言った値を「{ARG_LABEL['correction']}」に入れます。どちらか分からないときは"
+        f"「{CONFIRM_LABEL['corrected']}」にします。値を直されたら、自分で言い直さずに、すぐ報告します（言い直しの言い方は、プログラムの返事のとおりにします）。\n"
+        "- 返事に「念のための確認」とあれば、返事に書いてある言い方のとおりに、その質問をもう1回だけ聞きます（言い方を足したり変えたりしません）。\n"
         f"- 相手が急いでいる・切ろうとしているときは、request_end を{ARG_LABEL['reason']}「{END_LABEL['callee_hurry']}」で呼びます。"
         f"通話そのものを断られたら「{END_LABEL['callee_refused_call']}」で呼びます。\n"
         "- 返事に「締めの言葉」とあれば、お礼を言って終えます。返事に締めの言い方が書いてあれば、そのとおりに言います。\n"

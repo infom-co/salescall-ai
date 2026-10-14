@@ -52,6 +52,15 @@ def callee_wav(name: str, callee_voice: str | None) -> str:
     return name
 
 
+MAX_AGAIN = 5  # 試験の歯止め（聞き返しの回数は、流れの制御が決める。これはその決まりが壊れたときに、通話を終わらせるためだけ）
+
+
+def asked_back(entries: list[dict]) -> bool:
+    """そのターンで受け付けた最後の報告への返事が、聞き返しか（流れの制御の記録から読む）。"""
+    accepted = [e for e in entries if (e.get("reply") or {}).get("result") != "rejected"]
+    return bool(accepted) and accepted[-1]["reply"].get("result") == "ask_back"
+
+
 def followup_reason(turn) -> str | None:
     """相手の続きの言葉への返事を、次の台詞を送る前に、もう1回ぶん待つ理由（待たなくてよいなら None）。
     - "cut_in"：相手の言葉の途中で、AIが話し出していた（G-31）
@@ -80,13 +89,16 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
     callee_voice：お客役の声（"swap"＝会話のAIの声と入れ替え。callee_voice_for）。台詞の声を、その声のファイルに読み替える（G-36〜）"""
     if callee_voice == "swap":
         callee_voice = callee_voice_for(voice_type)
-    callee_lines = [{**x, "wav": callee_wav(x["wav"], callee_voice)} if isinstance(x, dict) and "wav" in x else x for x in callee_lines]
+    callee_lines = [{**x, "wav": callee_wav(x["wav"], callee_voice), **({"again": callee_wav(x["again"], callee_voice)} if "again" in x else {})}
+                    if isinstance(x, dict) and "wav" in x else x for x in callee_lines]
     flow = Flow(business.questions, busy_ask=business.busy_ask, lead_ins=lead_ins, thinking_op=thinking_op,
                 **({"confirm": confirm} if confirm else {}))  # confirm：言い直しの言い方（G-25 の比べだけ）。lead_ins：G-27
     silent = SILENT_OPS if thinking_op else frozenset()
     turns: list[dict] = []
     sessions = 0
     replay: int | None = None  # 送り直す相手の発話の番号（止まったときの張り替え）
+    again: dict | None = None  # 聞き返されたので、相手が次に言い直す台詞（台詞の "again"。i は進めない）
+    again_n = 0
 
     def config():
         voice, text = build(business, voice_type, resume=flow if sessions > 1 else None, opening_mode=opening_mode, thinking_op=thinking_op)
@@ -133,7 +145,7 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
             while i < len(callee_lines) and flow.phase != "closing":
                 if swap_before is not None and i == swap_before and sessions == 1:
                     break  # 張り替え：このセッションを閉じて、いまの位置を渡して開き直す
-                line = callee_lines[i]
+                line = again or callee_lines[i]
                 if isinstance(line, dict) and "silence_s" in line:
                     log_start = len(flow.log)
                     async with silence_while(s):
@@ -164,6 +176,7 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                     await send_text(s, line)
                     turn = await collect_turn(s, started_at=t, on_tool_call=flow.handle, timeout_s=90, silent_ops=silent)
                 await add_turn(turn, line, log_start, i, voice)
+                turn_log_start = log_start
                 reason = followup_reason(turn) if followup_wait_s else None
                 if reason:
                     log_start = len(flow.log)
@@ -174,6 +187,12 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                         follow = await collect_turn(s, started_at=time.monotonic(), on_tool_call=flow.handle, timeout_s=followup_wait_s,
                                                     silent_ops=silent)
                     await add_turn(follow, {"followup_of": line, "reason": reason}, log_start, i, voice)
+                if isinstance(line, dict) and "again" in line and asked_back(flow.log[turn_log_start:]) and again_n < MAX_AGAIN:
+                    # 聞き返された：本物の相手は、次の台詞へは進まず、聞かれたことに答え直す（⛔ 2026-10-14 G-36：台本の相手が聞き返しの
+                    # あとも次の台詞「はい、そうです」「3人です」へ進み、それが日時の答えとして報告された＝試験の作りの誤り）
+                    again, again_n = {"wav": line["again"], "again": line["again"]}, again_n + 1
+                    continue
+                again, again_n = None, 0
                 i += 1
     return {"voice_type": voice_type, "sessions": sessions, "turns": turns, "flow_log": flow.log,
             "items": {k: {"state": v.state, "value": v.value, "condition": v.condition, "ask_backs": v.ask_backs,
