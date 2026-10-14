@@ -200,7 +200,29 @@ def phone_formatting_only_in_q1(app_root: Path) -> list[Violation]:
     return out
 
 
+# ── CL-2 の場所（core）に置く CL-1 の持ち物（2026-10-14 ユーザー承認）は、答えの形の確かめだけをする。
+#    データベースの読み書き（読み書きの層を読む・表の名前を書く）はしない（持ち場の境目を、機械が守る）。
+PURE_CHECK_FILES = {"src/salescall/core/value_types.py"}
+
+
+def value_types_stays_pure(app_root: Path) -> list[Violation]:
+    out: list[Violation] = []
+    for rel in sorted(PURE_CHECK_FILES):
+        path = app_root / rel
+        if not path.exists():
+            continue
+        tree = _parse(path)
+        for module, line in _imported_modules(tree):
+            if module.startswith("salescall.core.access") or module.split(".")[0] in ("psycopg", "psycopg2"):
+                out.append(Violation("持ち場", rel, line, "答えの形の確かめの部品は、データベースの読み書きをしません"))
+        for text, line in _string_constants(tree):
+            if "salescall." in text and re.search(r"\b(SELECT|INSERT|UPDATE|DELETE)\b", text, re.IGNORECASE):
+                out.append(Violation("持ち場", rel, line, "答えの形の確かめの部品は、データベースの読み書きをしません"))
+    return out
+
+
 ALL_RULES: tuple[Callable[[Path], list[Violation]], ...] = (
+    value_types_stays_pure,
     phone_formatting_only_in_q1,
     single_writers,
     no_phase0,

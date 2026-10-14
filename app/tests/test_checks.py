@@ -122,6 +122,19 @@ class PhoneFormatting(Planted):
         self.assertEqual(rules.run_all(root), [])
 
 
+class ValueTypesStaysPure(Planted):
+    def test_db_access_in_value_types(self):
+        for body in ("from salescall.core.access import Tx\n",
+                     'SQL = "SELECT readback FROM salescall.field_types"\n'):
+            with self.subTest(body=body):
+                root = self._app({"src/salescall/core/value_types.py": body})
+                self.assertEqual([v.rule for v in rules.value_types_stays_pure(root)], ["持ち場"])
+
+    def test_pure_checks_are_fine(self):
+        root = self._app({"src/salescall/core/value_types.py": "import datetime\nfrom salescall.core.phone import normalize\n"})
+        self.assertEqual(rules.value_types_stays_pure(root), [])
+
+
 class CurrentCodePasses(unittest.TestCase):
     def test_all_rules_pass(self):
         self.assertEqual([str(v) for v in rules.run_all(APP)], [])
