@@ -1,0 +1,41 @@
+[
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "hai",
+    "text": "はい、",
+    "heard": {
+      "0.0": "はい。",
+      "1.0": "はい。"
+    },
+    "ok": true,
+    "seconds": 0.82,
+    "wav": "S2_hai.wav"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "hai",
+    "text": "はい、",
+    "heard": {
+      "0.0": "はい。",
+      "1.0": "はい。"
+    },
+    "ok": true,
+    "seconds": 0.48,
+    "wav": "S4_hai.wav"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "hai",
+    "text": "はい、",
+    "heard": {
+      "0.0": "はい。",
+      "1.0": "はい。"
+    },
+    "ok": true,
+    "seconds": 0.6,
+    "wav": "L4_hai.wav"
+  }
+]
