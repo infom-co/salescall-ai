@@ -1,12 +1,14 @@
-"""日時の型の「値の形」の決まりの案を、これまでの報告の値と、自然な言い方の例に当てる（まだ流れの制御にはつながない）。"""
+"""日時の型の「値の形」の決まり（flowctl.form_problem）を、これまでの報告の値と、自然な言い方の例に当てる（DESIGN.md 6-2）。"""
 import collections, glob, json, re, sys
 sys.path.insert(0, str(__import__('pathlib').Path(__file__).parent))
 from flowctl import normalize_value
 
-WORDS = ("日", "時", "分", "月", "曜", "午前", "午後", "今日", "明日", "あした", "あす", "明後日", "あさって", "来週", "今週", "再来週",
-         "週", "朝", "昼", "夕方", "夕刻", "晩", "夜", "半", "正午", "年", "明け", "頃", "ごろ", "以降", "旬", "末", "初め", "中")
+from flowctl import form_problem  # 決まりは流れの制御の1か所から読む（ここに書き写さない）
+
+
 def ok(v):
-    return any(w in v for w in WORDS)
+    return form_problem("datetime", v) is None
+
 
 vals = collections.Counter()
 def walk(x):
@@ -30,7 +32,7 @@ for f in glob.glob(str(__import__('pathlib').Path(__file__).parent / 'results' /
         walk(json.load(open(f)))
     except Exception:
         pass
-WRONG = {"3人", "はい", "答えなかった"}
+WRONG = {"3人", "はい", "答えなかった", "はいそう"}
 stopped_wrong = sum(n for v, n in vals.items() if v in WRONG and not ok(v))
 stopped_right = [(v, n) for v, n in vals.items() if v not in WRONG and not ok(v)]
 print("これまでの値：取り違え", sum(n for v, n in vals.items() if v in WRONG), "回のうち止めた", stopped_wrong,
