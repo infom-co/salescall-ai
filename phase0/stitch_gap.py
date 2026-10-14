@@ -34,6 +34,21 @@ def callee_speech(wav: str) -> tuple[bytes, int, float]:
     return pcm, rate, len(pcm) / 2 / rate - end
 
 
+def join_with_pause(first_wav: str, pause_s: float, second_wav: str, out_wav: str) -> None:
+    """相手役の声を2つ、間をあけてつなぐ（言葉の途中で間をあける相手。G-30・G-31）。1つ目の声のあとの無音は切ってから、pause_s をあける。
+    どちらも、別の耳の確かめに通った声だけを使う。"""
+    from make_callee_samples import verified
+    for w in (first_wav, second_wav):
+        assert verified(w), f"{w} は確かめに通っていない"
+    a, ra, ta = callee_speech(first_wav)
+    b, rb, _ = callee_speech(second_wav)
+    assert ra == rb, "2つの声の速さ（標本の数）が違う"
+    xa = np.frombuffer(a, dtype=np.int16)
+    xa = xa[: len(xa) - int(ta * ra)]
+    gap = np.zeros(int(pause_s * ra), dtype=np.int16)
+    write_wav(CALLEE_DIR / out_wav, np.concatenate([xa, gap, np.frombuffer(b, dtype=np.int16)]).tobytes(), ra)
+
+
 def stitch(callee_wav: str, ai_file: str, gap_s: float, out: Path) -> None:
     pcm, rate, tail = callee_speech(callee_wav)
     ai_pcm, ai_rate = read_wav_pcm16_mono(AUDIO_DIR / ai_file)

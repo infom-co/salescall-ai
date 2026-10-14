@@ -19,15 +19,12 @@ import asyncio
 import json
 import statistics as st
 
-import numpy as np
-
 from common import base_parser, describe_error, drop_partial, make_client, pick_key, read_wav_pcm16_mono, require_python, save_partial
-from common import save_result, say, write_wav
+from common import save_result, say
 from convo import AUDIO_DIR, run_call
 from g22_opening import BUSINESS, W
 from instruction import VOICE_TYPES
-from make_callee_samples import verified
-from stitch_gap import callee_speech
+from stitch_gap import callee_speech, join_with_pause
 
 CALLEE_DIR = AUDIO_DIR.parent / "callee"
 PAUSE_S = 0.9
@@ -43,15 +40,8 @@ ANSWERS = ("Puck_datetime_pm.wav", PAUSE_WAV)  # 値を答える発話（報告�
 
 
 def make_pause_clip() -> None:
-    """「えーとですね、」＋ PAUSE_S 秒の無音＋「3人です。」。どちらも別の耳の確かめに通った声だけを使う。"""
-    for w in ("Puck_filler_eto.wav", "Puck_three_people.wav"):
-        assert verified(w), f"{w} は確かめに通っていない"
-    a, ra, ta = callee_speech("Puck_filler_eto.wav")
-    b, rb, _ = callee_speech("Puck_three_people.wav")
-    assert ra == rb, "2つの声の速さ（標本の数）が違う"
-    xa = np.frombuffer(a, dtype=np.int16)[: -int(ta * ra) or None]  # 「えーとですね、」の声のあとの無音を切る
-    gap = np.zeros(int(PAUSE_S * ra), dtype=np.int16)
-    write_wav(CALLEE_DIR / PAUSE_WAV, np.concatenate([xa, gap, np.frombuffer(b, dtype=np.int16)]).tobytes(), ra)
+    """「えーとですね、」＋ PAUSE_S 秒の無音＋「3人です。」。"""
+    join_with_pause("Puck_filler_eto.wav", PAUSE_S, "Puck_three_people.wav", PAUSE_WAV)
 
 
 def turn_measures(call: dict) -> list[dict]:
