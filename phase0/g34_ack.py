@@ -239,9 +239,15 @@ def rejudge(result: Path) -> dict:
 
 
 def make_listening(result: Path, out: Path) -> list[dict]:
-    """結果から、会話全体をつないだ聞き比べの声を作る（声の型ごとに、場面ごとに1本。つなげる通話の最初のもの）。
-    相手が次に話し始めるまでの間は 0.6秒（作った値）。割り込みのあった通話は、本当の時刻が分からないので使わない（stitch_call）。"""
+    """結果から、会話全体をつないだ聞き比べの声を作る（声の型ごとに、場面ごとに1本。決まりどおりに進んだ通話＝値が取れて差し戻しの
+    無い通話を先に選ぶ。AIの誤りは数で報告する）。相手が次に話し始めるまでの間は 0.6秒（作った値）。割り込みのあった通話は、
+    本当の時刻が分からないので使わない（stitch_call）。"""
     d = json.loads(result.read_text(encoding="utf-8"))
+    for r in d["rows"]:
+        if "turns" in r:
+            r["checks"] = judge(r, r["scene"])
+    d["rows"].sort(key=lambda r: not (r.get("checks", {}).get("q2_ok") and r.get("checks", {}).get("q3_ok")
+                                      and r.get("checks", {}).get("rejected") == 0))
     out.mkdir(parents=True, exist_ok=True)
     made, n = [], 0
     for vt in VOICE_TYPES:
