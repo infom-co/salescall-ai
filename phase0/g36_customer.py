@@ -41,12 +41,14 @@ from stitch_gap import callee_speech, join_with_pause, played_ack, stitch_call
 
 VARIANTS = {"A_言い方を足す": {"thinking_op": False}, "B_録音の相づち": {"thinking_op": True}}
 THINKING = ("pause700_datetime", "pause1500_three", "filler_eto", "unclear")  # 考えている相手の台詞
-ANSWERS = ("datetime_pm", "three_people", "correct_16", "itsudemo", "restate_16", "kazoku")
+ANSWERS = ("datetime_pm", "three_people", "correct_16", "itsudemo", "restate_16", "kazoku", "said_16")
 WANT = {"考える間": ("15日の午後2時", "3人"), "長い間": ("15日の午後2時", "3人"), "訂正": ("16日の午後2時", "3人"),
         "いつでも": ("いつでも大丈夫", "3人"), "聞き取りにくい": ("15日の午後2時", "3人"), "言い直し": ("16日の午後2時", "3人"),
-        "先に答えた": ("15日の午後2時", "3人"), "人数に別の答え": ("15日の午後2時", "3人")}
-# 値を直されたあとに、プログラムが流すはずの相づち（言い直しの場面の見どころ）
-WANT_AFTER = {"訂正": "shitsurei", "言い直し": "shouchi"}
+        "先に答えた": ("15日の午後2時", "3人"), "人数に別の答え": ("15日の午後2時", "3人"), "聞き違い": ("16日の午後2時", "3人")}
+# 値を直されたあとに、プログラムが流すはずの相づち（言い直しの場面の見どころ）。
+# ⚠️ 訂正（相手は最初に「15日」と言い、そのあと「いえ、16日です」）は、どちらの読みも誤りではない：AIは「15日」を正しく聞いていた
+#    ので「相手が言い直した」が台本どおりの読み。迷ったときの「違う値を言われた」も決まりどおり（G-36 の2回目で4本とも前者）
+WANT_AFTER = {"訂正": ("shitsurei", "shouchi"), "言い直し": ("shouchi",), "聞き違い": ("shitsurei",)}
 
 
 def A(name: str, again: str | None = None) -> dict:
@@ -68,6 +70,7 @@ def scenes() -> dict[str, list]:
         "言い直し": [W("yes_reserved"), A("datetime_pm"), A("restate_16"), W("affirm"), A("three_people"), W("affirm")],
         "先に答えた": [W("yes_reserved"), A("three_people", "datetime_pm"), W("affirm"), A("three_people"), W("affirm")],
         "人数に別の答え": [W("yes_reserved"), A("datetime_pm"), W("affirm"), A("kazoku", "three_people"), W("affirm")],
+        "聞き違い": [W("yes_reserved"), A("datetime_pm"), A("said_16"), W("affirm"), A("three_people"), W("affirm")],
     }
 
 
@@ -137,7 +140,7 @@ def summarize(rows: list[dict]) -> dict:
             "values_ok": sum(r["checks"]["q2_ok"] + r["checks"]["q3_ok"] for r in rs), "values": 2 * len(rs),
             "by_scene": {sc: f'{sum(r["checks"]["q2_ok"] and r["checks"]["q3_ok"] for r in rs if r["scene"] == sc)}/'
                              f'{sum(1 for r in rs if r["scene"] == sc)}' for sc in WANT if any(r["scene"] == sc for r in rs)},
-            "after_ack_ok": {sc: f'{sum(r["checks"].get("after_ack") == a for r in rs if r["scene"] == sc)}/'
+            "after_ack_ok": {sc: f'{sum(r["checks"].get("after_ack") in a for r in rs if r["scene"] == sc)}/'
                                  f'{sum(1 for r in rs if r["scene"] == sc)}' for sc, a in WANT_AFTER.items() if any(r["scene"] == sc for r in rs)},
             "rejected": sum(r["checks"]["rejected"] for r in rs), "ask_backs": sum(r["checks"]["ask_backs"] for r in rs),
             "thinking_turns": len(thinking), "thinking_reported": sum(t["thinking_report"] for t in thinking),
@@ -158,7 +161,7 @@ def make_listening(result: Path, out: Path) -> list[dict]:
     rows = sorted((r for r in d["rows"] if "turns" in r), key=lambda r: not (r["checks"]["q2_ok"] and r["checks"]["q3_ok"]))
     made, n = [], 0
     present = [v for v in VARIANTS if any(r["variant"] == v for r in rows)]
-    for scene in ("長い間", "訂正", "言い直し", "いつでも", "先に答えた", "人数に別の答え"):
+    for scene in ("長い間", "訂正", "言い直し", "聞き違い", "いつでも", "先に答えた", "人数に別の答え"):
         for name in present if scene == "長い間" else present[-1:]:
             for vt in VOICE_TYPES:
                 for r in rows:
