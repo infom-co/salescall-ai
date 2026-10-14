@@ -290,7 +290,7 @@ class FlowTest(unittest.TestCase):
         from flowctl import Flow, Question
         from phrases import CONFIRM
         f = Flow([Question("Q1", "日時は。", "datetime", conditions=("answered",)), Question("Q2", "人数は。", "number", conditions=("answered",)),
-                  Question("Q3", "電話番号は。", "phone", conditions=("answered",))])
+                  Question("Q3", "電話番号は。", "phone", conditions=("answered",))], lead_ins=False)  # 言い直しの言い方だけを見る
         r1 = self.call(f, "record_answer", question_id="Q1", condition_id="answered", value="15日")
         f.on_callee()
         self.call(f, "confirm_field", question_id="Q1", result="affirmed")
@@ -307,13 +307,13 @@ class FlowTest(unittest.TestCase):
         r4 = self.call(f, "confirm_field", question_id="Q3", result="corrected", correction="090-1234-5679")
         self.assertEqual(r4["say"], CONFIRM["聞き取りにくかったあと"][1].format(v="090-1234-5679"))  # 訂正のあとも同じ場面で、次の言い方
 
-    def test_lead_ins_rotate_and_default_off(self):
+    def test_lead_ins_rotate_and_default_on(self):
         from flowctl import Flow, Question
         from phrases import LEAD_IN
         qs = [Question("Q1", "日時は。", "datetime", conditions=("答えた",)), Question("Q2", "人数は。", "number", conditions=("答えた",))]
-        f = Flow(qs)                                                       # 既定は付けない（承認前）
+        f = Flow(qs, lead_ins=False)                                       # 付けない形（過去の比べの試験のためだけ）
         self.assertEqual(self.call(f, "record_answer", question_id="Q1", condition_id="答えた", value="15日")["say"], "15日で、よろしいでしょうか。")
-        f = Flow(qs, lead_ins=True)
+        f = Flow(qs)                                                       # ✅ 2026-10-13 ユーザー承認：既定で付ける（G-27 の W1）
         r1 = self.call(f, "record_answer", question_id="Q1", condition_id="答えた", value="15日")
         self.assertTrue(r1["say"].startswith(LEAD_IN["言い直し"][0]))
         f.on_callee()
@@ -323,6 +323,15 @@ class FlowTest(unittest.TestCase):
         self.assertTrue(r3["say"].startswith(LEAD_IN["言い直し"][1]))   # 同じ受けの言葉を続けない
         f.on_callee()
         self.assertIn(r3["say"], self.call(f, "request_end", reason="done")["message"])  # 差し戻しも同じ言い方
+
+    def test_apology_rule_in_instruction(self):
+        # 2026-10-13 ユーザー：相手が聞き取れなかったとき・不快な思いをさせたときは、話し始めにお詫びの言葉を付ける
+        from instruction import Business, barge_in_note, build
+        from phrases import APOLOGY
+        b = Business(company="アオバ物流", caller="佐藤", purpose="ご予約の確認", questions=list(self.flow().questions.values()))
+        text = build(b, "S2")[1]
+        self.assertTrue(all(a in text for a in APOLOGY))
+        self.assertIn(APOLOGY[0], barge_in_note(b, ["お忙しいところ恐れ入ります。"], ["株式会社「アオバ物流」の「佐藤」と申します。"]))
 
     def test_busy_ask_once_when_set(self):
         from flowctl import Flow, Question
@@ -337,8 +346,9 @@ class FlowTest(unittest.TestCase):
         self.assertEqual(self.call(f, "request_end", reason="callee_refused_call")["result"], "end")  # 断られたら必ず終える（原則14）
 
     def test_confirm_phrase_is_the_fixed_one(self):
+        from flowctl import Flow
         from phrases import confirm
-        f = self.flow()
+        f = Flow(list(self.flow().questions.values()), lead_ins=False)  # 言い直しの言い方だけを見る
         self.call(f, "record_answer", question_id="Q1", condition_id="yes")
         r = self.call(f, "record_answer", question_id="Q2", condition_id="answered", value="16日の午後2時")
         self.assertEqual(r["say"], confirm("16日の午後2時"))
@@ -551,7 +561,7 @@ class AIToJapaneseTest(unittest.TestCase):
         r = f.handle(fc("record_answer", 質問="Q1", 答えの種類="はい"))
         self.assertEqual((r["結果"], r["質問"]), ("次の質問", "Q2"))
         r = f.handle(fc("record_answer", 質問="Q2", 答えの種類="答えた", 値="15日の午後2時です。"))
-        self.assertEqual((r["結果"], r["値"], r["言い方"]), ("言い直して確かめる", "15日の午後2時", "15日の午後2時で、よろしいでしょうか。"))
+        self.assertEqual((r["結果"], r["値"], r["言い方"]), ("言い直して確かめる", "15日の午後2時", "ありがとうございます。15日の午後2時で、よろしいでしょうか。"))
         f.on_callee()
         r = f.handle(fc("confirm_field", 質問="Q2", 返事の種類="合っている"))
         self.assertEqual(r["結果"], "締め")

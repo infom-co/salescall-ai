@@ -127,7 +127,7 @@ class Item:
 
 class Flow:
     def __init__(self, questions: list[Question], limits: Limits | None = None, confirm=confirm_phrase,
-                 busy_ask: str | None = None, lead_ins: bool = False):
+                 busy_ask: str | None = None, lead_ins: bool = True):
         """confirm：言い直しの言い方を作る関数 (値, 場面, 何回目) → 文（ふだんは phrases.confirm。言い方を比べる試験 G-25 だけが別のものを渡す）。
         busy_ask：相手が「忙しい」と言ったときに1回だけ言う一言（業務設定。None なら丁寧に終える＝既定。Intent.md 9-4）。"""
         self.confirm = confirm
@@ -135,7 +135,8 @@ class Flow:
         self.busy_asked = False
         self.confirm_counts: dict[str, int] = {}   # 言い直しの場面ごとの回数（同じ言い方が続かないよう、順番に回す）
         self.awaiting_say: str | None = None       # いま返事を待っている言い直しの、言い方（差し戻しのときも同じ言い方を使う）
-        # lead_ins：プログラムの返事のあとに話す文の頭に、受けの言葉を置くか（DESIGN.md 6-11 の案。⏳ 承認前なので既定は置かない。G-27 で測る）
+        # lead_ins：プログラムの返事のあとに話す文の頭に、受けの言葉を置くか（DESIGN.md 6-11。✅ 2026-10-13 ユーザー承認＝既定で置く。
+        # 置かない形は、過去の比べの試験（G-25・G-27 の W0）を同じ意味で動かすためだけに残す）
         self.lead_ins = lead_ins
         self.lead_counts: dict[str, int] = {}
         self.questions = {q.id: q for q in questions}

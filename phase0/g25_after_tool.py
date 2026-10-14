@@ -32,9 +32,10 @@ BUSINESS = Business(
 # 名乗りと Q1 は録音で流した形（AIは相手の答えから続ける）。AIの発話は、ほとんどが操作の返事のあと
 CALLEE = ["はい、予約しています。", "15日の午後2時です。", "はい、そうです。", "3人です。", "はい、そうです。"]
 VARIANTS = {
-    "V0_いまの形": {},
-    "V1_頭にお礼": {"confirm": lambda v, s="ふつう", n=0: "ありがとうございます。" + confirm(v, s, n)},
-    "V2_考える量0": {"thinking_budget": 0},
+    # lead_ins=False：この比べをした時点（受けの言葉の仕組みの前）の形のまま動かす
+    "V0_いまの形": {"lead_ins": False},
+    "V1_頭にお礼": {"confirm": lambda v, s="ふつう", n=0: "ありがとうございます。" + confirm(v, s, n), "lead_ins": False},
+    "V2_考える量0": {"thinking_budget": 0, "lead_ins": False},
 }
 HEAD = 4
 

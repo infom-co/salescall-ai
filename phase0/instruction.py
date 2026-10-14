@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 
 from flowctl import ARG_LABEL, END_LABEL, GOT, SYSTEM_LABEL, Question
 
-from phrases import ASK_BACK, RECHECK  # noqa: F401（決まった言い方は phrases.py の1か所。試験からも、ここ経由で読める）
+from phrases import APOLOGY, ASK_BACK, RECHECK  # noqa: F401（決まった言い方は phrases.py の1か所。試験からも、ここ経由で読める）
 # プログラムから会話AIへ送る合図の文面（文字で送る。相手には聞こえない）。合図の文面はここだけに置く（DESIGN.md 6-7）
 CUES = {
     # AIが黙ったとき：1回だけ返事を促す
@@ -137,6 +137,8 @@ def system_rules() -> str:
         f"通話そのものを断られたら「{END_LABEL['callee_refused_call']}」で呼びます。\n"
         "- 返事に「締めの言葉」とあれば、お礼を言って終えます。返事に締めの言い方が書いてあれば、そのとおりに言います。\n"
         "- 「またお電話します」「改めてご連絡します」など、かけ直すことや連絡することを約束してはいけません（かけ直すかは、プログラムが決めます）。\n"
+        f"- 相手が聞き取れなかったとき（「もう一度」「え？」「はい？」など）や、相手に不快な思いをさせたかもしれないとき（話がかぶった・待たせた・相手が困っている）は、"
+        f"話し始めに「{APOLOGY[0]}」か「{APOLOGY[1]}」を付けてから話します。\n"
     )
 
 
@@ -205,6 +207,6 @@ def barge_in_note(business: Business, done: list[str], rest: list[str]) -> str:
     heard = "".join(done) if done else "（まだ何も届いていません）"
     return (f"［プログラムからのお知らせ］名乗りの録音は「{heard}」まで相手に届いたところで、相手が話し始めたので止めました。"
             f"まだ相手に伝えていないこと：「{''.join(rest)}」。"
-            "このあとの相手の話に答えてから、まだ伝えていないことを、会話の流れの中で短く伝えてください。"
+            f"相手の話にかぶせてしまったので、「{APOLOGY[0]}」と添えてから、相手の話に答えてください。そのあと、まだ伝えていないことを、会話の流れの中で短く伝えてください。"
             "相手に届いたことは、繰り返さなくてかまいません。")
 
