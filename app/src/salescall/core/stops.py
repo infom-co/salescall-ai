@@ -14,20 +14,21 @@ from uuid import UUID
 
 from salescall.core.access import Tx
 
-Scope = Literal["system", "tenant", "client", "business"]
+Scope = Literal["system", "tenant", "client", "business", "line"]   # line＝その回線だけ（回線の異常。9-1）
 Cause = Literal["manual", "storage_failure", "line_failure", "ai_connection", "project_denied",
                 "forbidden_speech", "quality_gate", "budget"]
 
 
 def stop(tx: Tx, *, scope: Scope, cause: Cause, reason: str, evidence: str | None = None,
-         tenant_id: UUID | None = None, client_id: UUID | None = None, business_id: UUID | None = None) -> dict[str, Any]:
+         tenant_id: UUID | None = None, client_id: UUID | None = None, business_id: UUID | None = None,
+         line_id: UUID | None = None) -> dict[str, Any]:
     """止める。止めた記録と、取り消した予約の数を返す。"""
     row = tx.one(
-        "INSERT INTO salescall.stop_events (scope, tenant_id, client_id, business_id, action, cause, actor, actor_kind,"
-        " reason, evidence)"
-        " VALUES (%s, %s, %s, %s, 'stop', %s, salescall.cur_actor(), salescall.cur_actor_kind()::salescall.actor_kind,"
+        "INSERT INTO salescall.stop_events (scope, tenant_id, client_id, business_id, line_id, action, cause, actor,"
+        " actor_kind, reason, evidence)"
+        " VALUES (%s, %s, %s, %s, %s, 'stop', %s, salescall.cur_actor(), salescall.cur_actor_kind()::salescall.actor_kind,"
         " %s, %s) RETURNING event_id",
-        (scope, tenant_id, client_id, business_id, cause, reason, evidence),
+        (scope, tenant_id, client_id, business_id, line_id, cause, reason, evidence),
     )
     released = tx.one("SELECT salescall.release_claims_for_stop(%s) AS n", (row["event_id"],))["n"]
     return {"event_id": row["event_id"], "released_claims": released}
@@ -36,9 +37,9 @@ def stop(tx: Tx, *, scope: Scope, cause: Cause, reason: str, evidence: str | Non
 def resume(tx: Tx, stop_event_id: int, *, reason: str, evidence: str | None = None) -> int:
     """その停止を解く（範囲は停止と同じ）。解いた記録の番号を返す。"""
     row = tx.one(
-        "INSERT INTO salescall.stop_events (scope, tenant_id, client_id, business_id, action, resolves_event_id, actor,"
-        " actor_kind, reason, evidence)"
-        " SELECT scope, tenant_id, client_id, business_id, 'resume', event_id, salescall.cur_actor(),"
+        "INSERT INTO salescall.stop_events (scope, tenant_id, client_id, business_id, line_id, action, resolves_event_id,"
+        " actor, actor_kind, reason, evidence)"
+        " SELECT scope, tenant_id, client_id, business_id, line_id, 'resume', event_id, salescall.cur_actor(),"
         "        salescall.cur_actor_kind()::salescall.actor_kind, %s, %s"
         " FROM salescall.stop_events WHERE event_id = %s AND action = 'stop' RETURNING event_id",
         (reason, evidence, stop_event_id),
@@ -49,9 +50,9 @@ def resume(tx: Tx, stop_event_id: int, *, reason: str, evidence: str | None = No
 
 
 def open_stops(tx: Tx, *, tenant_id: UUID | None, client_id: UUID | None,
-               business_id: UUID | None) -> list[dict[str, Any]]:
-    """まだ解かれていない停止のうち、この範囲にかかるもの（空なら止まっていない）。門だけが読む。"""
+               business_id: UUID | None, line_id: UUID | None = None) -> list[dict[str, Any]]:
+    """まだ解かれていない停止のうち、この範囲にかかるもの（空なら止まっていない）。line_id を渡すと、その回線の停止も含める。"""
     return tx.all(
-        "SELECT event_id, scope, cause, reason, at FROM salescall.open_stops(%s, %s, %s) ORDER BY event_id",
-        (tenant_id, client_id, business_id),
+        "SELECT event_id, scope, cause, reason, at FROM salescall.open_stops(%s, %s, %s, %s) ORDER BY event_id",
+        (tenant_id, client_id, business_id, line_id),
     )

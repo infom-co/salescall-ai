@@ -4,7 +4,7 @@
 - 値が無ければ `SettingMissing`（既定値で埋めない。原則10）。門なら「判断できない」で通さない。
 - 値は追記だけ。値ごとに「仮か確定か」「根拠」「いつ見直すか」を持つ。仮の値は `provisional` で一覧にできる
   （ダッシュボードに出して、見直しを忘れない）。
-- 設定の値を足すのは、この部品だけ（I-12。app/checks が見張る）。
+- 設定の値を足すのは、この部品だけ（I-12。app/checks が見張る）。足した取引の中で、その範囲の予約を取り消す（5-2-1 の2）。
 - 階層（システム共通 → 契約者 → 依頼主 → 業務）を合成するのは `resolve` の1か所だけ（Q10）。合成の種類は、設定の定義が持つ。
   2026-10-13 ユーザー：「川下の方が強くないと、依頼主ごとの意味がない」⇒ 依頼主ごとの設定は「上書き」（業務 ＞ 依頼主 ＞
   契約者 ＞ システム）。システムの値は初めの値。
@@ -53,11 +53,24 @@ def provisional(tx: Tx) -> list[dict[str, Any]]:
 def set_system_value(tx: Tx, key: str, value: Any, *, status: Literal["provisional", "decided"], rationale: str,
                      review_when: str) -> int:
     """システム共通の値を足す（前の値は記録に残る）。形が違えば、データベースが拒む。"""
+    return set_value(tx, key, value, scope="system", status=status, rationale=rationale, review_when=review_when)
+
+
+def set_value(tx: Tx, key: str, value: Any, *, scope: Literal["system", "tenant", "client", "business"],
+              status: Literal["provisional", "decided"], rationale: str, review_when: str,
+              tenant_id: UUID | None = None, client_id: UUID | None = None, business_id: UUID | None = None) -> int:
+    """その範囲の値を足す（運営者が依頼主タブで決めた値など）。前の値は記録に残る。形が違えば、データベースが拒む。
+
+    **同じ取引の中で、その範囲のまだ発信していない予約を取り消す**（門の判定に効く変更。DESIGN.md 5-2-1 の2）。
+    どの設定が門に効くかを一覧にすると漏れるので、設定を変えたら必ず取り消す（予約は次の回にまた取れる）。
+    """
     row = tx.one(
-        "INSERT INTO salescall.setting_values (key, scope, value, status, rationale, review_when, set_by)"
-        " VALUES (%s, 'system', %s, %s, %s, %s, salescall.cur_actor()) RETURNING value_id",
-        (key, json.dumps(value), status, rationale, review_when),
+        "INSERT INTO salescall.setting_values (key, scope, tenant_id, client_id, business_id, value, status, rationale,"
+        "                                      review_when, set_by)"
+        " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, salescall.cur_actor()) RETURNING value_id",
+        (key, scope, tenant_id, client_id, business_id, json.dumps(value), status, rationale, review_when),
     )
+    tx.one("SELECT salescall.release_claims_in_scope(%s, %s, %s, %s)", (scope, tenant_id, client_id, business_id))
     return row["value_id"]
 
 

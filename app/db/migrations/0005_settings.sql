@@ -22,6 +22,7 @@ CREATE TYPE salescall.merge_kind AS ENUM (
 );
 CREATE TYPE salescall.setting_value_type AS ENUM ('integer', 'ratio', 'seconds', 'integer_list', 'weekly_hours', 'boolean');
 CREATE TYPE salescall.setting_status AS ENUM ('provisional', 'decided');  -- 仮／確定
+CREATE TYPE salescall.setting_scope AS ENUM ('system', 'tenant', 'client', 'business');  -- 設定の範囲（階層。8章）
 
 CREATE TABLE salescall.setting_definitions (
   key         text PRIMARY KEY CHECK (key ~ '^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$'),
@@ -71,7 +72,7 @@ LANGUAGE sql IMMUTABLE AS $$
                            WHEN jsonb_array_length(r) <> 2 THEN true
                            WHEN jsonb_typeof(r -> 0) <> 'string' OR jsonb_typeof(r -> 1) <> 'string' THEN true
                            WHEN NOT ((r ->> 0) ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$') THEN true
-                           WHEN NOT ((r ->> 1) ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$') THEN true
+                           WHEN NOT ((r ->> 1) ~ '^(([01][0-9]|2[0-3]):[0-5][0-9]|24:00)$') THEN true  -- 終わりは 24:00（その日の終わり）まで書ける
                            ELSE (r ->> 0) >= (r ->> 1) END) END
 $$;
 
@@ -99,7 +100,7 @@ $$;
 CREATE TABLE salescall.setting_values (     -- 値（追記だけ。範囲ごと・鍵ごとの最新が、いまの値）
   value_id    bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   key         text NOT NULL REFERENCES salescall.setting_definitions,
-  scope       salescall.stop_scope NOT NULL,     -- system / tenant / client / business（停止と同じ範囲の名前）
+  scope       salescall.setting_scope NOT NULL,  -- system / tenant / client / business（停止の範囲とは別の一覧。停止には回線の範囲もある）
   tenant_id   uuid REFERENCES salescall.tenants,
   client_id   uuid,
   business_id uuid,
@@ -159,7 +160,6 @@ GRANT EXECUTE ON FUNCTION salescall.setting_value_ok(salescall.setting_value_typ
 -- 先に「超えられない枠」（システムだけ）を作る
 INSERT INTO salescall.setting_definitions (key, merge_kind, value_type, meaning, design_ref) VALUES
 ('calling.hours_limit', 'system_only', 'weekly_hours', 'かけてよい時間帯の、超えられない歯止め（深夜・早朝。依頼主ごとの設定の入力の誤りを止める。曜日は依頼主ごとの設定で自由に決める。Intent.md 5-4・13章）', 'DESIGN.md 8章・Intent.md 13章'),
-('calling.max_concurrent_calls_limit', 'system_only', 'integer', '同時に流す通話の本数の、超えられない枠（会話AIのプロジェクトの枠から決まる。全依頼主で共有する設備）', 'DESIGN.md 5-2 の9・Intent.md 5-4'),
 ('gate.unknown_result_min_interval_floor', 'system_only', 'seconds', '結果が分からない試行のあと、同じ連絡先へかけるまでの間隔の、超えられない下限（実は話していた相手へ、すぐかけ直す害を防ぐ）', 'DESIGN.md 4-2');
 INSERT INTO salescall.setting_definitions (key, merge_kind, value_type, meaning, design_ref, bound_key, bound_side) VALUES
 -- 停止と自動の解除（9-1）
@@ -196,7 +196,7 @@ INSERT INTO salescall.setting_definitions (key, merge_kind, value_type, meaning,
 ('gate.ai_tpm_safety', 'system_only', 'ratio', '上限のうち、実際に使ってよい割合（見込みの外れへの余裕）', 'DESIGN.md 5-2 の9', NULL, NULL),
 ('gate.ear_tpm_limit', 'system_only', 'integer', '別の耳（通話後の検証）の1分あたりの入力トークン数の上限', 'DESIGN.md 5-2 の9・6-12', NULL, NULL),
 ('calling.hours', 'override', 'weekly_hours', 'かけてよい曜日と時間帯（日本時間。祝日は holiday）', 'DESIGN.md 5-2 の2・Intent.md 13章', 'calling.hours_limit', 'within'),
-('calling.max_concurrent_calls', 'override', 'integer', '同時に流す通話の本数の上限（会話AIの枠から決まる上限。実際の本数は、登録した回線の数でも絞られる：1回線＝同時1本はデータベースの約束）', 'DESIGN.md 5-2・Intent.md 5-4', 'calling.max_concurrent_calls_limit', 'upper'),
+('calling.max_concurrent_calls', 'override', 'integer', 'その依頼主で同時に流す通話の本数の上限（依頼主ごとの設定。全体の本数は、門が会話AIの枠と回線の数で絞る：1回線＝同時1本はデータベースの約束）', 'DESIGN.md 5-2・Intent.md 5-4', NULL, NULL),
 ('retry.max_attempts_per_task', 'override', 'integer', '1つのタスク（行）に発信してよい回数の上限（再発信の方針はこの内側）', 'DESIGN.md 7-2', NULL, NULL),
 -- 通話後の検証と回線の借用
 ('verification.max_retries', 'system_only', 'integer', '通話後の検証を自動でやり直す回数の上限', 'DESIGN.md 5-2-1 の9', NULL, NULL),
@@ -211,7 +211,6 @@ INSERT INTO salescall.setting_definitions (key, merge_kind, value_type, meaning,
 INSERT INTO salescall.setting_values (key, scope, value, status, rationale, review_when, set_by) VALUES
 ('calling.hours_limit', 'system', '{"mon": [["07:00","22:00"]], "tue": [["07:00","22:00"]], "wed": [["07:00","22:00"]], "thu": [["07:00","22:00"]], "fri": [["07:00","22:00"]], "sat": [["07:00","22:00"]], "sun": [["07:00","22:00"]], "holiday": [["07:00","22:00"]]}', 'decided', '2026-10-13 ユーザー決定：「店舗が相手の場合があるので、日祝含め、依頼主ごとに自由に設定できる方がいい」⇒ 曜日の制限は外した。残すのは、依頼主ごとの設定の入力の誤り（21:00 を 01:00 と打つ など）で深夜・早朝にかけないための歯止めだけ（毎日 7〜22時。時刻もユーザー決定）', 'Intent.md 13章の確かめのあと', 'ユーザー'),
 
-('calling.max_concurrent_calls_limit', 'system', '6', 'provisional', '会話AIの1つのプロジェクトの枠から決まる外枠（65,000 × 0.8 ÷ 7,500 ≒ 6）。全依頼主で共有する設備なので、依頼主が超えられない', '有料枠に移ったとき・回線を増やしたとき', 'CL-2'),
 ('gate.unknown_result_min_interval_floor', 'system', '3600', 'provisional', '結果が分からない試行は実は話していた可能性がある。依頼主ごとの設定で間隔を短くしても、1時間より短くはしない（すぐかけ直す害を防ぐ）', '本番の最初の1か月の結果不明の件数を見て', 'CL-2'),
 ('stop.storage.probe_interval', 'system', '30', 'provisional', '保存が戻ったことを早く知りたいが、データベースに負担をかけない間隔', '本番の最初の1か月の停止の記録を見て', 'CL-2'),
 ('stop.storage.resume_after_successes', 'system', '3', 'provisional', '1回の成功は偶然でありうる。3回続けば戻ったとみなせる（30秒間隔で約1分半）', '同上', 'CL-2'),
@@ -244,7 +243,7 @@ INSERT INTO salescall.setting_values (key, scope, value, status, rationale, revi
 ('gate.ai_tpm_safety', 'system', '0.8', 'provisional', '見込みの外れで利用拒否（1008）にならないよう、上限の8割までにする（65,000 × 0.8 ÷ 7,500 ＝ 同時6本ほど）', '利用拒否が起きないことを確かめながら上げる', 'CL-2'),
 ('gate.ear_tpm_limit', 'system', '20000', 'provisional', 'ユーザーが管理画面で確かめた値（別の耳 gemini-3.5-transcribe-live）', '有料枠に移ったとき', 'CL-2'),
 ('calling.hours', 'system', '{"mon": [["09:00","18:00"]], "tue": [["09:00","18:00"]], "wed": [["09:00","18:00"]], "thu": [["09:00","18:00"]], "fri": [["09:00","18:00"]], "sat": [], "sun": [], "holiday": []}', 'provisional', '初めの値（依頼主タブで上書きできる。枠 calling.hours_limit の内側だけ）。発信の相手は法人（Intent.md 3-1）なので、平日の9時〜18時、土日祝はかけない', 'ユーザーが 18-2 の17 を決めたとき', 'CL-2'),
-('calling.max_concurrent_calls', 'system', '6', 'provisional', '会話AIの枠から決まる上限（gate.ai_tpm_safety の計算）。⚠️ 実際の同時の本数は回線の数で決まる：2026-10-13 ユーザー「1PC 1本。Rakuten Link は1つずつしか流せない。増やすときはスマホを足す」⇒ いまは回線1つ＝同時1本', '有料枠に移ったとき・回線を増やしたとき', 'CL-2'),
+('calling.max_concurrent_calls', 'system', '6', 'provisional', '依頼主ごとの上限の初めの値（全体の本数は門が会話AIの枠 gate.ai_tpm_* から数えるので、ここで全体を絞らない）。⚠️ 実際の同時の本数は回線の数で決まる：2026-10-13 ユーザー「1PC 1本。Rakuten Link は1つずつしか流せない。増やすときはスマホを足す」⇒ いまは回線1つ＝同時1本', '回線を増やしたとき', 'CL-2'),
 ('retry.max_attempts_per_task', 'system', '3', 'decided', '2026-10-13 ユーザー決定：3回（5回は迷惑電話と受け取られやすい）。再発信の方針（業務ごと）はこの内側', '応答率の実測を見て', 'ユーザー'),
 ('verification.max_retries', 'system', '3', 'provisional', '別の耳の一時的な混雑（503 など）は数回で通ることが多い（CL-1 の G-23）', '検証の失敗の記録を見て', 'CL-2'),
 ('verification.retry_wait', 'system', '600', 'provisional', '混雑が引くのを待つ。10分あけても、次の発信の判断（翌日以降が多い）には間に合う', '同上', 'CL-2'),

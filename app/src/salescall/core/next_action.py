@@ -11,6 +11,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
+from salescall.core import attempts
 from salescall.core.access import Tx
 from salescall.core.tasks import TaskNotFound, lock
 
@@ -55,5 +56,8 @@ def schedule_now(tx: Tx, task_id: UUID, *, cause: str) -> int:
 
 
 def end(tx: Tx, task_id: UUID, reason: str, *, cause: str) -> int:
-    """終える（理由）を記録する。"""
-    return _append(tx, task_id, call_at=None, end_reason=reason, cause=cause)
+    """終える（理由）を記録する。同じ取引で、その行のまだ発信していない予約を取り消す（門の判定に効く変更。5-2-1 の2）。"""
+    seq = _append(tx, task_id, call_at=None, end_reason=reason, cause=cause)
+    attempts.release(tx, [r["attempt_id"] for r in tx.all(
+        "SELECT attempt_id FROM salescall.attempts WHERE task_id = %s AND state = 'claimed'", (task_id,))])
+    return seq

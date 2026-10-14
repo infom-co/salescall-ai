@@ -137,6 +137,37 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      ("tests.test_dnc.Register.test_any_spelling_is_the_same_entry",)),
     ("管理番号の発信禁止の有効な登録は1つ、の約束を外す", "DROP INDEX salescall.dnc_one_active_ref",
      ("tests.test_dnc.RefusalScope.test_refusing_twice_keeps_one_entry_each",)),
+    ("期限の切れた予約を取り消す処理を空にする",
+     "CREATE OR REPLACE FUNCTION salescall.release_expired_claims(p_contact uuid, p_phone text, p_line uuid) RETURNS integer"
+     " LANGUAGE sql SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ SELECT 0 $$",
+     ("tests.test_gate.ExpiredClaims.test_expired_claim_is_released_and_cannot_dial",)),
+    ("期限の切れた予約も、生きている進行中として数える",
+     "CREATE OR REPLACE FUNCTION salescall.is_live(s salescall.attempt_state, expires timestamptz) RETURNS boolean"
+     " LANGUAGE sql STABLE AS $$ SELECT salescall.is_active(s) $$",
+     ("tests.test_gate.ExpiredClaimsDoNotUseCapacity.test_expired_claims_elsewhere_do_not_block",)),
+    ("ほかの依頼主の発信の時刻を見ない",
+     "CREATE OR REPLACE FUNCTION salescall.number_last_dial_elsewhere(p_phone text) RETURNS TABLE (relation text, last_at timestamptz)"
+     " LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ SELECT NULL::text, NULL::timestamptz WHERE false $$",
+     ("tests.test_gate.Pacing.test_cross_client_interval_tells_same_or_other_tenant_only",)),
+    ("回線の停止を、止まっているかの判断から外す",
+     "CREATE OR REPLACE FUNCTION salescall.open_stops(p_tenant uuid, p_client uuid, p_business uuid, p_line uuid DEFAULT NULL)"
+     " RETURNS SETOF salescall.stop_events LANGUAGE sql STABLE AS $$ SELECT s.* FROM salescall.stop_events s"
+     " WHERE s.action = 'stop' AND NOT EXISTS (SELECT 1 FROM salescall.stop_events r WHERE r.resolves_event_id = s.event_id)"
+     " AND (s.scope = 'system' OR (s.scope = 'tenant' AND s.tenant_id = p_tenant)"
+     " OR (s.scope = 'client' AND s.tenant_id = p_tenant AND s.client_id = p_client)"
+     " OR (s.scope = 'business' AND s.tenant_id = p_tenant AND s.client_id = p_client AND s.business_id = p_business)) $$",
+     ("tests.test_gate.Stops.test_each_scope_stops_and_the_line_scope_only_its_line",)),
+    ("番号ごとの進行中の制約を外す（門から見て）", "DROP INDEX salescall.attempts_one_active_per_number",
+     ("tests.test_gate.Concurrency.test_one_number_from_many_clients_only_one_wins",
+      "tests.test_gate.ActiveConflicts.test_same_number_elsewhere_tells_only_the_relation")),
+    ("回線の停止で、その回線の予約を取り消さない",
+     "CREATE OR REPLACE FUNCTION salescall.release_claims_for_stop(p_event_id bigint) RETURNS integer"
+     " LANGUAGE sql SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ SELECT 0 $$",
+     ("tests.test_gate.Stops.test_line_stop_releases_claims_on_that_line",)),
+    ("設定・暦の変更で予約を取り消す処理を空にする",
+     "CREATE OR REPLACE FUNCTION salescall.release_claims_in_scope(p_scope text, p_tenant uuid, p_client uuid, p_business uuid)"
+     " RETURNS integer LANGUAGE sql SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ SELECT 0 $$",
+     ("tests.test_gate.ChangesReleaseClaims.test_setting_change", "tests.test_gate.ChangesReleaseClaims.test_calendar_load")),
     ("番号違いで管理番号を止めない決まりを外す",
      "ALTER TABLE salescall.dnc_entries DROP CONSTRAINT dnc_entries_ref_not_wrong_party",
      ("tests.test_dnc.RefusalScope.test_database_refuses_bad_entries",)),

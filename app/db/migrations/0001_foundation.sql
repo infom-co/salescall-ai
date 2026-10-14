@@ -247,6 +247,8 @@ CREATE UNIQUE INDEX attempts_one_active_per_contact ON salescall.attempts (conta
 CREATE UNIQUE INDEX attempts_one_active_per_number  ON salescall.attempts (phone_e164) WHERE salescall.is_active(state);
 CREATE UNIQUE INDEX attempts_one_active_per_line    ON salescall.attempts (line_id)    WHERE salescall.is_active(state);
 CREATE INDEX attempts_by_contact ON salescall.attempts (contact_id, claimed_at);
+CREATE INDEX attempts_by_number ON salescall.attempts (phone_e164, claimed_at);  -- 依頼主をまたいだ間隔（門）
+CREATE INDEX attempts_by_line ON salescall.attempts (line_id, claimed_at);       -- 回線ごとの1日の上限（門）
 
 CREATE TABLE salescall.attempt_state_history (  -- 試行の状態の履歴（仕掛けが自動で残す。変更不可）
   tenant_id  uuid NOT NULL,
@@ -520,11 +522,8 @@ CREATE TABLE salescall.stop_events (        -- 停止の記録（追記だけ。
   FOREIGN KEY (tenant_id, client_id) REFERENCES salescall.clients (tenant_id, client_id)
 );
 
-CREATE TABLE salescall.number_ledger (      -- 番号の台帳（システム共通。どの依頼主かは持たない。5-2-1 の6・7）
-  phone_e164      text PRIMARY KEY CHECK (phone_e164 ~ '^\+[1-9][0-9]{6,14}$'),
-  last_claimed_at timestamptz NOT NULL,
-  last_tenant_id  uuid NOT NULL REFERENCES salescall.tenants  -- 「同じ契約者か」を門だけが見分けるため（5-2-1 の11）
-);
+-- 番号の台帳は持たない（2026-10-14 見直し。DESIGN.md 15-2 の33）：「その番号へ最後にかけた時刻」は試行の記録から数える
+-- （同じことを2か所に持つと食い違う。台帳はどの依頼主がかけたかを持たないので、同じ依頼主の再発信まで止めていた）。
 
 -- 変えてはいけない記録（3-0 の3）
 CREATE TRIGGER business_versions_frozen BEFORE UPDATE OR DELETE ON salescall.business_versions
@@ -592,12 +591,12 @@ GRANT INSERT ON salescall.tenants, salescall.clients, salescall.lines, salescall
                 salescall.questions, salescall.runs, salescall.run_versions, salescall.contacts, salescall.tasks,
                 salescall.attempts, salescall.item_values, salescall.task_results, salescall.result_releases,
                 salescall.task_next_actions, salescall.destinations, salescall.deliveries, salescall.dnc_entries,
-                salescall.system_dnc_entries, salescall.stop_events, salescall.number_ledger,
+                salescall.system_dnc_entries, salescall.stop_events,
                 salescall.task_append_locks
              TO salescall_app;
 -- 試行の状態の履歴は仕掛けだけが書く（システムの処理の役が書く仕掛けなので INSERT は要る。書き換えは仕掛けが拒む）
 GRANT INSERT ON salescall.attempt_state_history TO salescall_app;
 GRANT UPDATE ON salescall.lines, salescall.attempts, salescall.item_values, salescall.deliveries,
-                salescall.dnc_entries, salescall.number_ledger, salescall.task_append_locks
+                salescall.dnc_entries, salescall.task_append_locks
              TO salescall_app;
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA salescall TO salescall_app;

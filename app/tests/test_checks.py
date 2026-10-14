@@ -131,6 +131,17 @@ class PhoneFormatting(Planted):
         self.assertEqual(rules.run_all(root), [])
 
 
+class DialOnlyThroughExit(Planted):
+    """I-1：電話をかけてよいのは、発信の出口だけ（門を通らない発信の道を作らない）。"""
+
+    def test_start_call_outside_exit(self):
+        root = self._app({"src/salescall/telephony/x.py": "def go(d, p):\n    d.start_call(p)\n",
+                          "src/salescall/supervisor/y.py": "def go(d, p):\n    getattr(d, 'start_call')(p)\n",
+                          "src/salescall/core/dial_exit.py": "def dial(d, p):\n    d.start_call(p)\n"})
+        found = rules.dial_only_through_exit(root)
+        self.assertEqual(sorted(v.path for v in found), ["src/salescall/supervisor/y.py", "src/salescall/telephony/x.py"])
+
+
 class ValueTypesStaysPure(Planted):
     def test_db_access_in_value_types(self):
         for body in ("from salescall.core.access import Tx\n",

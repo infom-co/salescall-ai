@@ -140,7 +140,10 @@ _CORE = "src/salescall/core/"
 WRITERS: dict[str, dict[str, frozenset[str]]] = {
     "attempts": {"INSERT": frozenset({_CORE + "gate.py"}),            # 予約を作るのは門だけ（Q2）
                  "UPDATE": frozenset({_CORE + "attempts.py"})},       # 状態を移すのは、試行の状態の部品だけ（4-2）
-    "number_ledger": {"INSERT": frozenset({_CORE + "gate.py"}), "UPDATE": frozenset({_CORE + "gate.py"})},
+    "gate_denials": {"INSERT": frozenset({_CORE + "gate.py"})},              # 門の不許可の記録（Q2）
+    "version_stages": {"INSERT": frozenset({_CORE + "quality_stage.py"})},   # 品質の段（Q22）
+    "calendar_loads": {"INSERT": frozenset({_CORE + "calendar.py"})},        # 祝日の暦（Q12 の材料）
+    "calendar_holidays": {"INSERT": frozenset({_CORE + "calendar.py"})},
     "task_results": {"INSERT": frozenset({_CORE + "results.py"})},           # 業務の状態（Q5 の記録）
     "result_releases": {"INSERT": frozenset({_CORE + "approval.py"})},       # 送ってよい印は承認の部分だけ（10章）
     "task_next_actions": {"INSERT": frozenset({_CORE + "next_action.py"})},  # 次の予定（Q4）
@@ -225,6 +228,25 @@ def value_types_stays_pure(app_root: Path) -> list[Violation]:
     return out
 
 
+# ── I-1：回線の部品の「電話をかける」（start_call）を呼んでよいのは、発信の出口（core/dial_exit.py）だけ（DESIGN.md 5-3）
+DIAL_EXIT = "src/salescall/core/dial_exit.py"
+
+
+def dial_only_through_exit(app_root: Path) -> list[Violation]:
+    out: list[Violation] = []
+    for path in _python_files(app_root):
+        rel = _rel(app_root, path)
+        if rel == DIAL_EXIT or rel.startswith("tests/") or rel == "run_tests.py":
+            continue
+        tree = _parse(path)
+        for node in ast.walk(tree):
+            called = (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "start_call")
+            named = isinstance(node, ast.Constant) and node.value == "start_call"   # getattr(x, "start_call") の抜け道
+            if called or named:
+                out.append(Violation("I-1", rel, node.lineno, "電話をかけてよいのは、発信の出口（core/dial_exit.py）だけです"))
+    return out
+
+
 ALL_RULES: tuple[Callable[[Path], list[Violation]], ...] = (
     value_types_stays_pure,
     phone_formatting_only_in_q1,
@@ -233,6 +255,7 @@ ALL_RULES: tuple[Callable[[Path], list[Violation]], ...] = (
     db_driver_only_in_layer,
     scope_settings_only_in_layer,
     key_values_only_in_key_selection,
+    dial_only_through_exit,
 )
 
 

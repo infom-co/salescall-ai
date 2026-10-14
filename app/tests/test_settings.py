@@ -193,9 +193,10 @@ class PerClientSettings(unittest.TestCase):
                                                       ("mon", "tue", "wed", "thu", "fri", "sat", "sun", "holiday")})
         self.assertIsNone(self.detail("calling.hours")["bounded_by"])
 
-    def test_concurrent_calls_cannot_exceed_the_shared_frame(self):
+    def test_concurrent_calls_follow_the_client(self):
+        """依頼主ごとの本数は上書き（全体の本数は、門が会話AIの枠と回線の数で絞る。写しの外枠は持たない＝15-2 の34）。"""
         put(self.w, self.t, self.c, "calling.max_concurrent_calls", 10)
-        self.assertEqual(self.detail("calling.max_concurrent_calls")["value"], 6)
+        self.assertEqual(self.detail("calling.max_concurrent_calls"), {"value": 10, "from": "client", "bounded_by": None})
 
     def test_business_over_client_over_tenant(self):
         b, _ = self.w.business_with_version(self.t, self.c)
