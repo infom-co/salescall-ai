@@ -6,12 +6,12 @@
   指紋が同じときだけ**書く（プレビューのあとで発信禁止・設定・ほかの取込が変わっていたら、何も書かずに
   `PlanChanged`。人はもう一度プレビューを見る）。⇒ 登録されるのは、人が見たプレビューとまったく同じもの。
 - 登録は1つの取引で、合格の行を全部（1行でも書けなければ何も登録しない）。止めた行は、行番号と理由だけを記録に残す。
-- 番号の判断は番号の正規化（Q1）、「その番号へかけてよいか」は `number_policy`（門と同じ1か所）。ここで2つ目を作らない。
+- 番号の判断は番号の正規化（Q1）、「その相手・番号へかけてよいか」は `target_policy`（門と同じ1か所）。ここで2つ目を作らない。
 - タスク・取込の記録を書くのは、この部品だけ（連絡先は contacts、最初の予定は next_action を通す。I-12）。
 
 行の合否（上から順に。最初に当たった理由で止める）：
   (1) 空の行 ⇒ 空 (2) 列の数が見出しと合わない（CSV） (3) 対応付けた欄の問題（エラーの値など） (4) 番号が無い
-  (5) 管理番号の列を対応付けたのに管理番号が無い・桁が失われている (6) 番号が「不明」・かけない種類・発信禁止（number_policy）
+  (5) 管理番号の列を対応付けたのに管理番号が無い・桁が失われている (6) 番号が「不明」・かけない種類・発信禁止（番号・管理番号。target_policy）
   (7) ファイルの上の行（合格・登録済みの行）と同じ番号 (8) 上の行と同じ管理番号
   (9) その実施回に同じ番号のタスクがある：管理番号も同じなら「もう登録済み」、違えば止める
   (10) その実施回に、同じ管理番号で別の番号のタスクがある ⇒ 止める
@@ -30,7 +30,7 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
-from salescall.core import contacts, next_action, number_policy
+from salescall.core import contacts, next_action, target_policy
 from salescall.core.access import Tx
 from salescall.core.import_files import Cell, Sheet
 from salescall.core.phone import PhoneNumber, normalize
@@ -200,8 +200,8 @@ def _plan(tx: Tx, run_id: UUID, sheet: Sheet, mapping: dict[str, str]) -> Plan:
         name = cells["name"].text.strip() if "name" in cells and cells["name"].text else None
         number = normalize(raw_phone, leading_zero_lost=lost)
         found = dict(number=number, client_ref=ref, name=name, source_phone=raw_phone.strip())
-        blocked = number_policy.block_reason(tx, number, tenant_id=run["tenant_id"], client_id=run["client_id"],
-                                             business_id=run["business_id"])
+        blocked = target_policy.block_reason(tx, number, client_ref=ref, tenant_id=run["tenant_id"],
+                                             client_id=run["client_id"], business_id=run["business_id"])
         if blocked is not None:
             rows.append(stop(blocked[0], blocked[1], **found))
             continue

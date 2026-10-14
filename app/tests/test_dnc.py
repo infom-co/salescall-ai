@@ -1,4 +1,4 @@
-"""発信禁止台帳（Q3）と「その番号へかけてよいか」（number_policy）の試験。
+"""発信禁止台帳（Q3）と「その相手・番号へかけてよいか」（target_policy）の試験。
 
 ⚠️ 番号は架空のもの（局番のあとが 0000 の、実在しない番号）。
 """
@@ -8,10 +8,12 @@ from __future__ import annotations
 import json
 import unittest
 
-from salescall.core import dnc, number_policy
+from salescall.core import attempts, dnc, importer, target_policy
 from salescall.core.access import Rejected
+from salescall.core.import_files import read
 from salescall.core.phone import normalize
 from tests.support import OPERATOR, SYSTEM, World, fictional_jp_fixed
+from tests.test_import import MAP, csv_file
 
 
 def jp_setup(w, tenant=None, phone=None):
@@ -30,8 +32,8 @@ def state_of(w, s, aid):
 
 
 def blocked(w, s, raw):
-    return in_client(w, s, lambda tx: number_policy.block_reason(
-        tx, normalize(raw), tenant_id=s["tenant"], client_id=s["client"], business_id=s["business"]))
+    return in_client(w, s, lambda tx: target_policy.block_reason(
+        tx, normalize(raw), client_ref=None, tenant_id=s["tenant"], client_id=s["client"], business_id=s["business"]))
 
 
 class Register(unittest.TestCase):
@@ -125,6 +127,124 @@ class Policy(unittest.TestCase):
         self.assertEqual(blocked(w, s, "0120-000-001")[0], "number_kind_not_allowed")
         other = jp_setup(w, tenant=s["tenant"])
         self.assertEqual(blocked(w, other, "0570-000-001")[0], "number_kind_not_allowed")   # ほかの依頼主は初めの値のまま
+
+
+def set_client(w, s, key, value):
+    in_client(w, s, lambda tx: tx.execute(
+        "INSERT INTO salescall.setting_values (key, scope, tenant_id, client_id, value, status, rationale,"
+        " review_when, set_by) VALUES (%s, 'client', %s, %s, %s, 'decided', '試験', '試験', '試験')",
+        (key, s["tenant"], s["client"], json.dumps(value))), actor=OPERATOR)
+
+
+def import_rows(w, s, run, rows):
+    sheet = read("一覧.csv", csv_file(rows))
+
+    def work(tx):
+        plan = importer.preview(tx, run, sheet, MAP)
+        return importer.register(tx, run, sheet, MAP, expected_digest=plan.digest)
+    return in_client(w, s, work, actor=OPERATOR)
+
+
+def claim_row(w, s, task_id, *, dialing=False):
+    """取込で作った行に、予約（試行）を1つ作る。"""
+    row = in_client(w, s, lambda tx: tx.one(
+        "SELECT t.contact_id, c.phone_e164 FROM salescall.tasks t JOIN salescall.contacts c USING (contact_id)"
+        " WHERE t.task_id = %s", (task_id,)))
+    aid = w.insert_claim(dict(s, task=task_id, contact=row["contact_id"], phone=row["phone_e164"]),
+                         line=w.line(s["tenant"]))
+    if dialing:
+        in_client(w, s, lambda tx: attempts.start_dialing(tx, aid))
+    return aid, row["phone_e164"]
+
+
+class RefusalScope(unittest.TestCase):
+    """2026-10-14 ユーザー決定：(b) 断った相手の行の番号すべてを止める（必ず）＋(c) 依頼主が選べば管理番号でも止める。"""
+
+    def setUp(self):
+        self.w = World()
+        self.s = self.w.setup()
+        self.run2 = self.w.run(self.s["tenant"], self.s["client"], self.s["business"], self.s["version"])
+        self.run3 = self.w.run(self.s["tenant"], self.s["client"], self.s["business"], self.s["version"])
+
+    def refuse_on(self, task_id, reason="refused_in_call"):
+        aid, phone = claim_row(self.w, self.s, task_id, dialing=True)
+        return in_client(self.w, self.s, lambda tx: dnc.register(tx, phone, reason, source_attempt_id=aid))
+
+    def outcome(self, result):
+        return [(r["outcome"], r["reason_code"]) for r in result["rows"]]
+
+    def test_by_default_the_rows_numbers_are_stopped_but_not_the_ref(self):
+        r = import_rows(self.w, self.s, self.s["run"], [("A-1", "架空商事", fictional_jp_fixed())])
+        got = self.refuse_on(r["rows"][0]["task_id"])
+        self.assertEqual((len(got["numbers"]), got["client_refs"]), (1, []))
+        again = import_rows(self.w, self.s, self.run2, [("A-1", "架空商事", fictional_jp_fixed())])
+        self.assertEqual(self.outcome(again), [("registered", None)])   # 管理番号が相手を表すかは分からない
+
+    def test_stable_ref_stops_the_same_party_with_another_number(self):
+        set_client(self.w, self.s, "dnc.client_ref_is_stable_id", True)
+        r1 = import_rows(self.w, self.s, self.s["run"], [("A-1", "架空商事", fictional_jp_fixed())])
+        r2 = import_rows(self.w, self.s, self.run2, [("A-1", "架空商事 支店", fictional_jp_fixed()),
+                                                     ("B-1", "架空工業", fictional_jp_fixed())])
+        other_claim, _ = claim_row(self.w, self.s, r2["rows"][0]["task_id"])        # 別の実施回の同じ相手の予約
+        unrelated_claim, _ = claim_row(self.w, self.s, r2["rows"][1]["task_id"])
+        got = self.refuse_on(r1["rows"][0]["task_id"])
+        self.assertEqual((got["client_refs"], got["released_claims"]), (["A-1"], 1))
+        state = lambda aid: in_client(self.w, self.s, lambda tx: tx.one(
+            "SELECT state FROM salescall.attempts WHERE attempt_id = %s", (aid,)))["state"]
+        self.assertEqual((state(other_claim), state(unrelated_claim)), ("released", "claimed"))
+        later = import_rows(self.w, self.s, self.run3, [("A-1", "架空商事", fictional_jp_fixed()),
+                                                        ("B-2", "架空物産", fictional_jp_fixed())])
+        self.assertEqual(self.outcome(later), [("stopped", "dnc_client_ref"), ("registered", None)])
+        # 門も同じ判断を呼ぶ（別の実施回にもう入っていた同じ相手の行は、かけない）
+        number = normalize(fictional_jp_fixed())
+        hit = in_client(self.w, self.s, lambda tx: target_policy.block_reason(
+            tx, number, client_ref="A-1", tenant_id=self.s["tenant"], client_id=self.s["client"],
+            business_id=self.s["business"]))
+        self.assertEqual(hit[0], "dnc_client_ref")
+
+    def test_turning_the_setting_off_keeps_existing_ref_entries_until_a_person_revokes(self):
+        set_client(self.w, self.s, "dnc.client_ref_is_stable_id", True)
+        r = import_rows(self.w, self.s, self.s["run"], [("A-1", "架空商事", fictional_jp_fixed())])
+        self.refuse_on(r["rows"][0]["task_id"])
+        set_client(self.w, self.s, "dnc.client_ref_is_stable_id", False)
+        rows = [("A-1", "架空商事", fictional_jp_fixed())]
+        self.assertEqual(self.outcome(import_rows(self.w, self.s, self.run2, rows)), [("stopped", "dnc_client_ref")])
+        ref_entry = in_client(self.w, self.s, lambda tx: tx.one(
+            "SELECT entry_id FROM salescall.dnc_entries WHERE client_ref = 'A-1'"))["entry_id"]
+        in_client(self.w, self.s, lambda tx: dnc.revoke(tx, ref_entry, "依頼主が管理番号の付け方を変えた（試験）"),
+                  actor=OPERATOR)
+        self.assertEqual(self.outcome(import_rows(self.w, self.s, self.run2, rows)), [("registered", None)])
+
+    def test_wrong_party_stays_on_that_number(self):
+        set_client(self.w, self.s, "dnc.client_ref_is_stable_id", True)
+        r = import_rows(self.w, self.s, self.s["run"], [("A-1", "架空商事", fictional_jp_fixed())])
+        got = self.refuse_on(r["rows"][0]["task_id"], reason="wrong_party")
+        self.assertEqual((len(got["numbers"]), got["client_refs"]), (1, []))
+        again = import_rows(self.w, self.s, self.run2, [("A-1", "架空商事", fictional_jp_fixed())])
+        self.assertEqual(self.outcome(again), [("registered", None)])   # 相手は断っていない
+
+    def test_refusing_twice_keeps_one_entry_each(self):
+        set_client(self.w, self.s, "dnc.client_ref_is_stable_id", True)
+        r = import_rows(self.w, self.s, self.s["run"], [("A-1", "架空商事", fictional_jp_fixed())])
+        self.refuse_on(r["rows"][0]["task_id"])
+        in_client(self.w, self.s, lambda tx: tx.execute(
+            "UPDATE salescall.attempts SET state = 'no_answer' WHERE task_id = %s AND state = 'dialing'",
+            (r["rows"][0]["task_id"],)))
+        self.refuse_on(r["rows"][0]["task_id"], reason="refused_found_after")
+        n = in_client(self.w, self.s, lambda tx: tx.one(
+            "SELECT count(*) FILTER (WHERE phone_e164 IS NOT NULL) AS numbers,"
+            "       count(*) FILTER (WHERE client_ref IS NOT NULL) AS refs FROM salescall.dnc_entries"))
+        self.assertEqual((n["numbers"], n["refs"]), (1, 1))
+
+    def test_database_refuses_bad_entries(self):
+        for cols, vals in ((("client_ref", "reason"), ("A-1", "wrong_party")),   # 番号違いで相手を止めない
+                           (("reason",), ("manual",)),                           # 番号も管理番号も無い
+                           (("phone_e164", "client_ref", "reason"), ("+81300000001", "A-1", "manual"))):  # 両方
+            with self.subTest(cols=cols), self.assertRaises(Rejected):
+                in_client(self.w, self.s, lambda tx: tx.execute(
+                    f"INSERT INTO salescall.dnc_entries (tenant_id, client_id, registered_by, {', '.join(cols)})"
+                    f" VALUES (%s, %s, '試験', {', '.join(['%s'] * len(vals))})",
+                    (self.s["tenant"], self.s["client"], *vals)))
 
 
 if __name__ == "__main__":

@@ -32,3 +32,19 @@ def lock(tx: Tx, task_id: UUID) -> dict[str, Any]:
     if row is None:
         raise TaskNotFound(str(task_id))
     return row
+
+
+def numbers(tx: Tx, task_id: UUID) -> list[str]:
+    """そのタスク（依頼主の一覧の1行）の番号すべて（そろえた番号）。行ごとに番号を数える処理は、必ずこれを呼ぶ。
+
+    いまは取込の番号だけ。⏳ 相手が言った別の番号（DESIGN.md 3-5）の表を足すときは、ここに足す
+    （発信禁止を行ごとに広げる処理（dnc）が、この1か所で別の番号も止めるため）。
+    """
+    row = tx.one(
+        "SELECT c.phone_e164 FROM salescall.tasks t"
+        " JOIN salescall.contacts c ON c.client_id = t.client_id AND c.contact_id = t.contact_id WHERE t.task_id = %s",
+        (task_id,),
+    )
+    if row is None:
+        raise TaskNotFound(str(task_id))
+    return [row["phone_e164"]]

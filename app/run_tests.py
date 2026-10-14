@@ -135,6 +135,11 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      ("tests.test_dnc.Revoke.test_only_a_person_revokes_once_and_can_register_again",)),
     ("発信禁止の有効な登録は1つ、の約束を外す", "DROP INDEX salescall.dnc_one_active",
      ("tests.test_dnc.Register.test_any_spelling_is_the_same_entry",)),
+    ("管理番号の発信禁止の有効な登録は1つ、の約束を外す", "DROP INDEX salescall.dnc_one_active_ref",
+     ("tests.test_dnc.RefusalScope.test_refusing_twice_keeps_one_entry_each",)),
+    ("番号違いで管理番号を止めない決まりを外す",
+     "ALTER TABLE salescall.dnc_entries DROP CONSTRAINT dnc_entries_ref_not_wrong_party",
+     ("tests.test_dnc.RefusalScope.test_database_refuses_bad_entries",)),
 )
 
 

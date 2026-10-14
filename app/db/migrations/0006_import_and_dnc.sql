@@ -89,3 +89,43 @@ INSERT INTO salescall.setting_definitions (key, merge_kind, value_type, meaning,
 INSERT INTO salescall.setting_values (key, scope, value, status, rationale, review_when, set_by) VALUES
 ('calling.allow_toll_free', 'system', 'true', 'provisional', '法人の代表番号がフリーダイヤルのことがある。通話料はかからない', 'ユーザーが決めたとき', 'CL-2'),
 ('calling.allow_navi_dial', 'system', 'false', 'provisional', 'ナビダイヤルは通話料がかかり、Rakuten Link の無料通話の対象外（Intent.md 8-4）。自動でかけ続けると費用が膨らむ', 'ユーザーが決めたとき', 'CL-2');
+
+-- ═════════ 発信禁止を「相手」ごとに広げる（2026-10-14 ユーザー決定：(b) を必ず＋(c) を依頼主ごとに選べる。DESIGN.md 3-6） ═════════
+-- (b) 相手が断ったら、その行（タスク）の番号すべてを止める（処理は core/dnc.py の1か所）。
+-- (c) 依頼主が「管理番号は相手を表す変わらない番号」と選んだら、管理番号でも止める ⇒ 台帳の1行は「番号」か「管理番号」の
+--     どちらか1つを持つ（台帳は1つのまま。Q3 の答える場所を2つにしない）。
+ALTER TABLE salescall.dnc_entries
+  ALTER COLUMN phone_e164 DROP NOT NULL,
+  ADD COLUMN client_ref text CHECK (client_ref IS NULL OR btrim(client_ref) <> ''),
+  ADD CONSTRAINT dnc_entries_one_key CHECK ((phone_e164 IS NULL) <> (client_ref IS NULL)),
+  -- 番号違いは、その番号の持ち主が別の相手だったということ。相手（管理番号）を止める理由にならない
+  ADD CONSTRAINT dnc_entries_ref_not_wrong_party CHECK (client_ref IS NULL OR reason <> 'wrong_party');
+CREATE UNIQUE INDEX dnc_one_active_ref ON salescall.dnc_entries (client_id, client_ref) WHERE revoked_at IS NULL;
+
+CREATE OR REPLACE FUNCTION salescall.dnc_before_change() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    RAISE EXCEPTION '発信禁止の登録は消せません（取り消しは記録つきで）' USING ERRCODE = 'integrity_constraint_violation';
+  END IF;
+  IF OLD.revoked_at IS NOT NULL
+     OR (NEW.tenant_id, NEW.client_id, NEW.entry_id, NEW.phone_e164, NEW.client_ref, NEW.reason, NEW.source_attempt_id,
+         NEW.registered_at, NEW.registered_by)
+        IS DISTINCT FROM
+        (OLD.tenant_id, OLD.client_id, OLD.entry_id, OLD.phone_e164, OLD.client_ref, OLD.reason, OLD.source_attempt_id,
+         OLD.registered_at, OLD.registered_by) THEN
+    RAISE EXCEPTION '発信禁止の登録は、取り消すこと（1回）しかできません' USING ERRCODE = 'integrity_constraint_violation';
+  END IF;
+  IF NEW.revoked_at IS NOT NULL AND salescall.cur_actor_kind() IS DISTINCT FROM 'operator' THEN
+    RAISE EXCEPTION '発信禁止の取り消しは、人だけができます' USING ERRCODE = 'insufficient_privilege';
+  END IF;
+  RETURN NEW;
+END $$;
+
+INSERT INTO salescall.setting_definitions (key, merge_kind, value_type, meaning, design_ref, bound_key, bound_side) VALUES
+('dnc.client_ref_is_stable_id', 'override', 'boolean',
+ '依頼主の管理番号は「相手を表す変わらない番号」か（はいなら、断った相手を管理番号でも止める。いいえに戻しても、登録済みの管理番号の発信禁止は効く）',
+ 'DESIGN.md 3-6', NULL, NULL);
+INSERT INTO salescall.setting_values (key, scope, value, status, rationale, review_when, set_by) VALUES
+('dnc.client_ref_is_stable_id', 'system', 'false', 'decided',
+ '2026-10-14 ユーザー決定：依頼主ごとに選べる。管理番号が毎回変わるかは依頼主にしか分からないので、初めは「いいえ」（依頼主が選ぶ）',
+ '依頼主ごとに、契約のとき', 'ユーザー');
