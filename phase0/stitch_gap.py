@@ -61,6 +61,37 @@ def stitch(callee_wav: str, ai_file: str, gap_s: float, out: Path) -> None:
     write_wav(out, y.tobytes(), ai_rate)
 
 
+def _speech_only(wav_path: Path) -> tuple[np.ndarray, int]:
+    """声の前後の無音を切った声。"""
+    pcm, rate = read_wav_pcm16_mono(wav_path)
+    runs = voice_runs(voiced(pcm, rate), 0.15)
+    x = np.frombuffer(pcm, dtype=np.int16).astype(np.float32)
+    if runs:
+        x = x[int(runs[0][0] * rate): int(runs[-1][1] * rate)]
+    return x, rate
+
+
+def stitch_with_ack(callee_wav: str, ai_file: str, ack_wav: Path, ack_at_s: float, ai_at_s: float, out: Path) -> float:
+    """相手の声 → ack_at_s 秒（声の終わりから）で短い相づちの録音 → AIの声、をつなぐ（DESIGN.md 6-15 の案）。
+    AIの声は ai_at_s 秒（声の終わりから。試験で測った値）で始まる。相づちと重なるときは、相づちが終わるまで待たせる（プログラムが流す順を
+    決める形）。返り値＝AIの声が実際に始まった時刻（声の終わりから）。"""
+    pcm, rate, tail = callee_speech(callee_wav)
+    ai_pcm, ai_rate = read_wav_pcm16_mono(AUDIO_DIR / ai_file)
+    a = _to_rate(pcm, rate, ai_rate)
+    a = a[: max(0, len(a) - int(tail * ai_rate))]
+    ack, ack_rate = _speech_only(ack_wav)
+    ack = _to_rate(ack.astype(np.int16).tobytes(), ack_rate, ai_rate)
+    ack_len = len(ack) / ai_rate
+    ai_start = max(ai_at_s, ack_at_s + ack_len + 0.05)
+    lead = np.zeros(int(0.3 * ai_rate), dtype=np.float32)
+    gap1 = np.zeros(int(ack_at_s * ai_rate), dtype=np.float32)
+    gap2 = np.zeros(int((ai_start - ack_at_s - ack_len) * ai_rate), dtype=np.float32)
+    b = np.frombuffer(ai_pcm, dtype=np.int16).astype(np.float32)
+    y = np.concatenate([lead, a, gap1, ack, gap2, b]).clip(-32768, 32767).astype(np.int16)
+    write_wav(out, y.tobytes(), ai_rate)
+    return ai_start
+
+
 def measured_gap(turn: dict) -> float | None:
     """試験で測った間（声の終わりから AIの声の始まりまで）。"""
     c = turn.get("callee")
