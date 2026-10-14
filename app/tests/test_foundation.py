@@ -144,8 +144,8 @@ class FrozenRecords(unittest.TestCase):
                        " judge_version, notify_human, snapshot, decided_by)"
                        " VALUES (%s, %s, %s, 1, 'judged', 'incomplete', 'judge-1', false, '{}', 'judge')",
                        (s["tenant"], s["client"], s["task"]))
-            tx.execute("INSERT INTO salescall.task_next_actions (tenant_id, client_id, task_id, seq, kind, call_at, cause)"
-                       " VALUES (%s, %s, %s, 1, 'call', now(), '取り込み')", (s["tenant"], s["client"], s["task"]))
+            tx.execute("INSERT INTO salescall.task_next_actions (tenant_id, client_id, task_id, seq, kind, call_at, cause,"
+                       " promised) VALUES (%s, %s, %s, 1, 'call', now(), '取り込み', false)", (s["tenant"], s["client"], s["task"]))
         w.a.in_client(SYSTEM, s["tenant"], s["client"], add)
         own = owner_access()
         for sql in ("UPDATE salescall.task_results SET business_state = 'completed' WHERE task_id = %s",
@@ -262,7 +262,8 @@ class AttemptTransitions(unittest.TestCase):
         for end, path, expected in [
             ("released", [], "not_needed"), ("no_answer", ["dialing"], "not_needed"),
             ("busy", ["dialing"], "not_needed"), ("call_failed", ["dialing"], "not_needed"),
-            ("technical_error", ["dialing"], "pending"), ("dropped", ["dialing", "answered"], "pending"),
+            ("technical_error", ["dialing", "answered"], "pending"), ("dropped", ["dialing", "answered"], "pending"),
+            ("technical_error", ["dialing"], "not_needed"),   # 相手が出る前の結果不明は、誰とも話していない（2026-10-14）
         ]:
             with self.subTest(end=end):
                 s = w.setup()
@@ -293,7 +294,7 @@ class AttemptTransitions(unittest.TestCase):
         with self.assertRaises(Rejected):
             set_v("done")
         s2 = w.setup(); a2 = w.insert_claim(s2)
-        w.move(s2, a2, "dialing"); w.move(s2, a2, "technical_error")  # pending
+        w.move(s2, a2, "dialing"); w.move(s2, a2, "answered"); w.move(s2, a2, "technical_error")  # pending
         w.a.in_client(SYSTEM, s2["tenant"], s2["client"], lambda tx: tx.execute(
             "UPDATE salescall.attempts SET verification = 'failed' WHERE attempt_id = %s", (a2,)))
         with self.assertRaises(Rejected):

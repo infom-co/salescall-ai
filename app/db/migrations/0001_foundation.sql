@@ -261,6 +261,10 @@ CREATE TABLE salescall.attempt_state_history (  -- 試行の状態の履歴（�
   FOREIGN KEY (client_id, attempt_id) REFERENCES salescall.attempts (client_id, attempt_id)
 );
 
+-- その試行は、相手が出た（応答まで進んだ）ことがあるか（状態の履歴から。話したかもしれないかの1か所の決まり）
+CREATE FUNCTION salescall.reached_answer(p_attempt uuid) RETURNS boolean LANGUAGE sql STABLE AS
+$$ SELECT EXISTS (SELECT 1 FROM salescall.attempt_state_history h WHERE h.attempt_id = p_attempt AND h.to_state = 'answered') $$;
+
 -- その実施回の、いま使う版（版の割り当ての記録の最新。3-2）
 CREATE FUNCTION salescall.run_current_version(p_run uuid) RETURNS uuid LANGUAGE sql STABLE AS
 $$ SELECT version_id FROM salescall.run_versions WHERE run_id = p_run ORDER BY seq DESC LIMIT 1 $$;
@@ -302,8 +306,10 @@ BEGIN
     END IF;
     IF NOT salescall.is_active(NEW.state) THEN
       NEW.ended_at := now();
-      -- 声が届いていない終わり方は検証が要らない。話していた可能性があるものは「待ち」（4-2）
+      -- 声が届いていない終わり方は検証が要らない。話していた可能性があるものは「待ち」（4-2）。
+      -- 結果不明でも、相手が出る前（応答まで進んでいない）なら、誰とも話していない（2026-10-14）
       NEW.verification := CASE WHEN NEW.state IN ('released', 'call_failed', 'no_answer', 'busy')
+                                    OR (NEW.state = 'technical_error' AND NOT salescall.reached_answer(NEW.attempt_id))
                                THEN 'not_needed'::salescall.verification_state
                                ELSE 'pending'::salescall.verification_state END;
     ELSE

@@ -1,7 +1,10 @@
 """祝日の暦（Q12 の材料）。持ち主 CL-2。DESIGN.md 5-2-1 の5。
 
-- 正本は内閣府の「国民の祝日」の公式の一覧（CSV：https://www8.cao.go.jp/chosei/shukujitsu/syukujitsu.csv）。
-  運営者がそのファイルを取り込む（`load_official_csv`）。記憶や手入力では入れない（誤った祝日にかける・かけない、を防ぐ）。
+- 正本は内閣府の「国民の祝日」の公式の一覧（CSV。`OFFICIAL_URL`）。**システムが自分で取りに行って取り込む**（`sync_official`。
+  見守り役が毎日呼ぶ。人は介在しない＝2026-10-14 ユーザー）。記憶や手入力では入れない（誤った祝日にかける・かけない、を防ぐ）。
+  - 中身が前の取り込みと同じなら、何もしない。取りに行けない・形が違う・今年が入っていない（古い・誤った一覧）なら、何も入れず
+    `CalendarSyncFailed` を返す（前の暦のまま動く。範囲が切れたら門が止める＝判断できなければ通さない）。知らせは知らせの台帳（Q23）へ。
+  - 公式の一覧は、毎年2月ごろに翌年の分が足される。毎日取りに行くので、年が替わる前に翌年の暦が入る。
 - 取り込みはシステム共通の取引で行い、同じ取引で、まだ発信していない予約をすべて取り消す（暦は門の判定に効く）。
 - 取り込みは追記だけ。年ごとに「その年を含む、いちばん新しい取り込み」が効く（法改正などの直しは、取り込み直し）。
 - 取り込んだ範囲の外の日は `CalendarOutOfRange`（判断できない ⇒ 門は通さない）。
@@ -14,10 +17,14 @@ import csv
 import hashlib
 import io
 import re
+import urllib.request
 from collections.abc import Callable
 from datetime import date
 
-from salescall.core.access import Tx
+from salescall.core.access import Access, Actor, Tx
+
+OFFICIAL_URL = "https://www8.cao.go.jp/chosei/shukujitsu/syukujitsu.csv"   # 内閣府「国民の祝日について」の公式の一覧
+_MAX_BYTES = 2_000_000          # 公式の一覧は数十KB。これを超えるものは公式の一覧ではない
 
 _HEADER = ("国民の祝日・休日月日", "国民の祝日・休日名称")
 _DAY = re.compile(r"^(\d{4})/(\d{1,2})/(\d{1,2})$")
@@ -31,8 +38,47 @@ class CalendarRejected(Exception):
     """公式の一覧の形ではない（何も取り込まない）。理由は日本語。"""
 
 
-def load_official_csv(tx: Tx, data: bytes) -> dict:
-    """公式の一覧（Shift_JIS の CSV）を取り込む。取り込んだ年の範囲と祝日の数を返す。"""
+class CalendarSyncFailed(Exception):
+    """公式の一覧を取りに行けなかった・取り込めなかった（何も入れていない。前の暦のまま）。理由は日本語。"""
+
+
+def fetch_official(timeout: float = 30.0) -> bytes:
+    """公式の一覧を取りに行く（HTTPS。証明書を確かめる）。取れなければ CalendarSyncFailed。"""
+    try:
+        req = urllib.request.Request(OFFICIAL_URL, headers={"User-Agent": "salescall-calendar-sync"})
+        with urllib.request.urlopen(req, timeout=timeout) as res:
+            if res.status != 200:
+                raise CalendarSyncFailed(f"公式の一覧を取れませんでした（応答 {res.status}）")
+            data = res.read(_MAX_BYTES + 1)
+    except CalendarSyncFailed:
+        raise
+    except OSError as e:   # 通信の失敗（つながらない・時間切れ・証明書の誤りを含む）
+        raise CalendarSyncFailed(f"公式の一覧を取りに行けませんでした（{type(e).__name__}）") from None
+    if len(data) > _MAX_BYTES:
+        raise CalendarSyncFailed("公式の一覧として大きすぎます")
+    return data
+
+
+def sync_official(access: Access, actor: Actor, *, fetch: Callable[[], bytes] = fetch_official) -> dict:
+    """公式の一覧を取りに行き、前の取り込みと違えば取り込む（見守り役が毎日呼ぶ）。結果を返す。"""
+    data = fetch()
+
+    def work(tx: Tx) -> dict:
+        latest = tx.one("SELECT file_sha256 FROM salescall.calendar_loads ORDER BY load_id DESC LIMIT 1")
+        if latest is not None and latest["file_sha256"] == hashlib.sha256(data).hexdigest():
+            return {"loaded": False, "reason": "前の取り込みと同じ"}
+        this_year = tx.one("SELECT salescall.jst(now())::date AS d")["d"].year
+        try:
+            result = load_official_csv(tx, data, must_cover=this_year)
+        except CalendarRejected as e:
+            raise CalendarSyncFailed(f"公式の一覧として取り込めませんでした：{e}") from None
+        return {"loaded": True, **result}
+    return access.in_system(actor, work)
+
+
+def load_official_csv(tx: Tx, data: bytes, *, must_cover: int | None = None) -> dict:
+    """公式の一覧（Shift_JIS の CSV）を取り込む。取り込んだ年の範囲と祝日の数を返す。
+    must_cover：その年が入っていなければ断る（取りに行った一覧が古い・誤ったものでないかの確かめ）。"""
     try:
         text = data.decode("cp932")
     except UnicodeDecodeError:
@@ -63,6 +109,8 @@ def load_official_csv(tx: Tx, data: bytes) -> dict:
     missing = sorted(set(range(years[0], years[-1] + 1)) - set(years))
     if missing:
         raise CalendarRejected(f"祝日が1つも無い年があります（{missing}）。一覧が途中で切れていないか確かめてください")
+    if must_cover is not None and not years[0] <= must_cover <= years[-1]:
+        raise CalendarRejected(f"{must_cover} 年が入っていません（古い一覧か、誤った一覧です）")
     load_id = tx.one(
         "INSERT INTO salescall.calendar_loads (file_sha256, first_year, last_year, loaded_by)"
         " VALUES (%s, %s, %s, salescall.cur_actor()) RETURNING load_id",

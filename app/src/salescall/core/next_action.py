@@ -19,40 +19,44 @@ from salescall.core.tasks import TaskNotFound, lock
 def current(tx: Tx, task_id: UUID) -> dict[str, Any] | None:
     """いまの予定（いちばん新しい記録）。無ければ None（まだ何も決めていない）。"""
     return tx.one(
-        "SELECT task_id, seq, kind, call_at, end_reason, cause, decided_at FROM salescall.task_next_actions"
+        "SELECT task_id, seq, kind, call_at, end_reason, cause, promised, decided_at FROM salescall.task_next_actions"
         " WHERE task_id = %s ORDER BY seq DESC LIMIT 1",
         (task_id,),
     )
 
 
 def _append(tx: Tx, task_id: UUID, *, call_at: datetime | None, end_reason: str | None, cause: str,
-            call_now: bool = False) -> int:
+            call_now: bool = False, promised: bool | None = None) -> int:
     calls = call_at is not None or call_now
     if calls == (end_reason is not None) or (call_now and call_at is not None):
         raise ValueError("「かけ直す（日時）」か「終える（理由）」の、どちらか1つだけです")
+    if calls != (promised is not None):
+        raise ValueError("かけ直すときは、相手と約束したかけ直しか（promised）を必ず決めます（終えるときは持たない）")
     lock(tx, task_id)  # 同じタスクへの追記を1つずつ順にする（tasks.py の説明）
     row = tx.one(
-        "INSERT INTO salescall.task_next_actions (tenant_id, client_id, task_id, seq, kind, call_at, end_reason, cause)"
+        "INSERT INTO salescall.task_next_actions (tenant_id, client_id, task_id, seq, kind, call_at, end_reason, cause,"
+        "                                         promised)"
         " SELECT t.tenant_id, t.client_id, t.task_id,"
         "        coalesce((SELECT max(n.seq) FROM salescall.task_next_actions n WHERE n.task_id = t.task_id), 0) + 1,"
-        "        %s, CASE WHEN %s THEN now() ELSE %s::timestamptz END, %s, %s"
+        "        %s, CASE WHEN %s THEN now() ELSE %s::timestamptz END, %s, %s, %s"
         " FROM salescall.tasks t WHERE t.task_id = %s RETURNING seq",
-        ("call" if calls else "end", call_now, call_at, end_reason, cause, task_id),
+        ("call" if calls else "end", call_now, call_at, end_reason, cause, promised, task_id),
     )
     if row is None:
         raise TaskNotFound(str(task_id))
     return row["seq"]
 
 
-def schedule_call(tx: Tx, task_id: UUID, call_at: datetime, *, cause: str) -> int:
-    """かけ直す（日時）を記録する。"""
-    return _append(tx, task_id, call_at=call_at, end_reason=None, cause=cause)
+def schedule_call(tx: Tx, task_id: UUID, call_at: datetime, *, cause: str, promised: bool) -> int:
+    """かけ直す（日時）を記録する。promised＝相手と約束したかけ直し（相手に頼まれた・こちらが約束した）か。
+    約束したかけ直しは、門の「同じ相手への最小の間隔・1日の回数」の対象外（2026-10-14 ユーザー決定）。"""
+    return _append(tx, task_id, call_at=call_at, end_reason=None, cause=cause, promised=promised)
 
 
 def schedule_now(tx: Tx, task_id: UUID, *, cause: str) -> int:
     """いまから、かけてよい（日時はデータベースの時刻。取込で登録したタスクの最初の予定）。
     実際にかけるか・いつかけるかは門が決める（時間帯・間隔・停止など）。"""
-    return _append(tx, task_id, call_at=None, end_reason=None, cause=cause, call_now=True)
+    return _append(tx, task_id, call_at=None, end_reason=None, cause=cause, call_now=True, promised=False)
 
 
 def end(tx: Tx, task_id: UUID, reason: str, *, cause: str) -> int:

@@ -171,6 +171,24 @@ CREATE FUNCTION salescall.is_live(s salescall.attempt_state, expires timestamptz
 $$ SELECT salescall.is_active(s) AND NOT (s = 'claimed' AND expires <= now()) $$;
 GRANT EXECUTE ON FUNCTION salescall.is_live(salescall.attempt_state, timestamptz) TO salescall_app;
 
+-- ═════════ 相手の意思と関係なく、繋がらなかった・切れた発信（2026-10-14 ユーザー決定） ═════════
+-- 同じ相手への最小の間隔・1日の回数に数えない：通信の問題などで繋がらなかった（発信に失敗・相手が出る前の結果不明）／
+-- 相手の意思と関係なく切れた（回線の側で切れた）。「切れ方が不明」は数える（相手が切ったかもしれない＝止める側）。
+CREATE FUNCTION salescall.not_by_callee(s salescall.attempt_state, side salescall.hangup_side, p_attempt uuid)
+RETURNS boolean LANGUAGE sql STABLE AS $$
+  SELECT s = 'call_failed'
+      OR (s = 'technical_error' AND NOT salescall.reached_answer(p_attempt))
+      OR (s = 'dropped' AND side = 'line')
+$$;
+GRANT EXECUTE ON FUNCTION salescall.not_by_callee(salescall.attempt_state, salescall.hangup_side, uuid),
+  salescall.reached_answer(uuid) TO salescall_app;
+
+-- ═════════ 次の予定が「相手と約束したかけ直し」か（相手に頼まれた・こちらが約束した。2026-10-14 ユーザー決定） ═════════
+-- 約束したかけ直しは、同じ相手への最小の間隔・1日の回数の対象外（門が読む）。決めるのは次の動きだけ（Q4）。
+ALTER TABLE salescall.task_next_actions
+  ADD COLUMN promised boolean,
+  ADD CONSTRAINT task_next_actions_promised CHECK ((kind = 'call') = (promised IS NOT NULL));
+
 -- ═════════ 門だけが使う、依頼主の範囲の外を見る確かめ（中身は返さない。表の持ち主の権限で動く） ═════════
 -- どれも、取引の契約者・依頼主（cur_tenant・cur_client）と比べた「関係」だけを返す。ほかの依頼主の行の中身・IDは返さない。
 
@@ -259,10 +277,10 @@ GRANT EXECUTE ON FUNCTION salescall.release_expired_claims(uuid, text, uuid), sa
 
 -- ═════════ 門の設定（5-2・5-2-1） ═════════
 INSERT INTO salescall.setting_definitions (key, merge_kind, value_type, meaning, design_ref, bound_key, bound_side) VALUES
-('gate.same_contact_min_interval', 'system_only', 'seconds', '同じ連絡先への前の発信が終わってから、次に予約できるまでの最小の間隔（次の動きの誤りでかけ続けないための歯止め。ふつうの間隔は再発信の方針で決める）', 'DESIGN.md 5-2 の5', NULL, NULL),
-('gate.max_dials_per_contact_per_day', 'override', 'integer', '同じ連絡先へ、日本時間の1日に発信してよい回数の上限（実施回をまたいでも数える）', 'DESIGN.md 5-2 の5', NULL, NULL),
+('gate.same_contact_min_interval', 'system_only', 'seconds', '同じ連絡先への前の発信が終わってから、次に予約できるまでの最小の間隔（次の動きの誤りでかけ続けないための歯止め。ふつうの間隔は再発信の方針で決める）。相手と約束したかけ直し・相手の意思と関係なく繋がらなかった／切れた発信は対象外', 'DESIGN.md 5-2 の5', NULL, NULL),
+('gate.max_dials_per_contact_per_day', 'override', 'integer', '同じ連絡先へ、日本時間の1日に発信してよい回数の上限（実施回をまたいでも数える）。相手と約束したかけ直しは対象外。相手の意思と関係なく繋がらなかった／切れた発信は数えない', 'DESIGN.md 5-2 の5', NULL, NULL),
 ('line.max_dials_per_day', 'system_only', 'integer', '1つの回線（番号）から、日本時間の1日に発信してよい回数の上限（番号の評判を守る。Intent.md 8-6）', 'DESIGN.md 5-2 の7', NULL, NULL);
 INSERT INTO salescall.setting_values (key, scope, value, status, rationale, review_when, set_by) VALUES
-('gate.same_contact_min_interval', 'system', '600', 'provisional', '次の動きに誤りがあっても、同じ相手へ続けてかけ続けないための歯止め（10分）。相手が「5分後に」と言ったときも10分あとになるが、害の無い向き', '折り返しの実際の希望の時刻を見て', 'CL-2'),
-('gate.max_dials_per_contact_per_day', 'system', '2', 'provisional', '同じ日に3回以上かかってくると迷惑電話と受け取られやすい。相手が言った折り返し（同じ日のうち）の1回は通す', '応答率と苦情の実測を見て', 'CL-2'),
-('line.max_dials_per_day', 'system', '100', 'provisional', '人が1日にかける本数の目安（100本前後）を超えない。超えると相手の端末の迷惑電話の判定に載りやすい（Intent.md 8-6）', '回線ごとの応答率の推移を見て', 'CL-2');
+('gate.same_contact_min_interval', 'system', '300', 'decided', '2026-10-14 ユーザー決定：5分。ただし、相手と約束したかけ直し・通信の問題などで繋がらなかった・話の途中で相手の意思と関係なく切れた発信は対象外', '苦情と応答率の実測を見て', 'ユーザー'),
+('gate.max_dials_per_contact_per_day', 'system', '2', 'decided', '2026-10-14 ユーザー決定：2回。ただし、相手と約束したかけ直しは対象外。通信の問題などで繋がらなかった・相手の意思と関係なく切れた発信は数えない', '応答率と苦情の実測を見て', 'ユーザー'),
+('line.max_dials_per_day', 'system', '300', 'decided', '2026-10-14 ユーザー決定：300本（番号の評判。Intent.md 8-6）', '回線ごとの応答率の推移を見て', 'ユーザー');

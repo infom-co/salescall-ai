@@ -65,6 +65,9 @@ REASONS: dict[str, tuple[str, str]] = {
 }
 
 _DIALED = "state NOT IN ('claimed', 'released')"   # 発信まで進んだ試行（回数・間隔に数えるのは、これだけ。5-2-1 の8）
+# 同じ相手への最小の間隔・1日の回数に数える発信：相手の意思と関係なく繋がらなかった・切れたものは数えない（2026-10-14 ユーザー決定。
+# 決まりはデータベースの1か所 salescall.not_by_callee）
+_COUNTED = _DIALED + " AND NOT salescall.not_by_callee(state, hangup_side, attempt_id)"
 
 
 @dataclass(frozen=True)
@@ -123,23 +126,29 @@ def _pacing(tx: Tx, task: dict[str, Any], now: datetime) -> Pacing:
               (task["contact_id"],)) is not None:
         return Pacing(remaining, None, "verification_pending")
     limits: list[tuple[datetime, str]] = []
-    last = tx.one(f"SELECT max(ended_at) AS at FROM salescall.attempts WHERE contact_id = %s AND {_DIALED}",
-                  (task["contact_id"],))["at"]
-    if last is not None:
-        limits.append((last + timedelta(seconds=int(_setting(tx, "gate.same_contact_min_interval", task))),
-                       "same_contact_interval"))
-    unknown = tx.one("SELECT max(ended_at) AS at FROM salescall.attempts WHERE contact_id = %s AND state = 'technical_error'",
-                     (task["contact_id"],))["at"]
+    # 相手と約束したかけ直し（次の予定の印。決めるのは次の動きだけ）は、最小の間隔・1日の回数の対象外（2026-10-14 ユーザー決定）
+    nxt = tx.one("SELECT promised FROM salescall.task_next_actions WHERE task_id = %s ORDER BY seq DESC LIMIT 1",
+                 (task["task_id"],))
+    promised = bool(nxt and nxt["promised"])
+    if not promised:
+        last = tx.one(f"SELECT max(ended_at) AS at FROM salescall.attempts WHERE contact_id = %s AND {_COUNTED}",
+                      (task["contact_id"],))["at"]
+        if last is not None:
+            limits.append((last + timedelta(seconds=int(_setting(tx, "gate.same_contact_min_interval", task))),
+                           "same_contact_interval"))
+        today = tx.one(
+            f"SELECT count(*) AS n, salescall.jst_day_start(salescall.jst(now())::date + 1) AS tomorrow"
+            f" FROM salescall.attempts WHERE contact_id = %s AND {_COUNTED}"
+            f"  AND salescall.jst(claimed_at)::date = salescall.jst(now())::date",
+            (task["contact_id"],))
+        if today["n"] >= int(_setting(tx, "gate.max_dials_per_contact_per_day", task)):
+            limits.append((today["tomorrow"], "daily_attempts"))
+    # 結果不明のあとの長い間隔は、相手が出たあと（話していたかもしれない）の結果不明だけ（相手が出る前なら、誰とも話していない）
+    unknown = tx.one("SELECT max(ended_at) AS at FROM salescall.attempts WHERE contact_id = %s AND state = 'technical_error'"
+                     " AND salescall.reached_answer(attempt_id)", (task["contact_id"],))["at"]
     if unknown is not None:
         limits.append((unknown + timedelta(seconds=int(_setting(tx, "gate.unknown_result_min_interval", task))),
                        "unknown_result_interval"))
-    today = tx.one(
-        f"SELECT count(*) AS n, salescall.jst_day_start(salescall.jst(now())::date + 1) AS tomorrow"
-        f" FROM salescall.attempts WHERE contact_id = %s AND {_DIALED}"
-        f"  AND salescall.jst(claimed_at)::date = salescall.jst(now())::date",
-        (task["contact_id"],))
-    if today["n"] >= int(_setting(tx, "gate.max_dials_per_contact_per_day", task)):
-        limits.append((today["tomorrow"], "daily_attempts"))
     cross = int(_setting(tx, "gate.cross_client_interval", task))
     for r in tx.all("SELECT relation, last_at FROM salescall.number_last_dial_elsewhere(%s)", (task["phone_e164"],)):
         limits.append((r["last_at"] + timedelta(seconds=cross), "cross_client_interval_" + r["relation"]))

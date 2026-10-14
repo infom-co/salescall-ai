@@ -164,7 +164,7 @@ class Schedule(Base):
                          s["contact"])
         self.assertEqual(self.reason(s, task=t2), "no_schedule")
         self.tx(s, lambda tx: next_action.schedule_call(tx, s["task"], tx.one("SELECT now() + interval '1 hour' AS t")["t"],
-                                                        cause="試験"))
+                                                        cause="試験", promised=False))
         self.assertEqual(self.reason(s), "not_due")
 
 
@@ -291,8 +291,14 @@ class Pacing(Base):
 
     def test_unknown_result_waits_longer(self):
         s = self.ready()
-        self.past_attempt(s, ["dialing", "technical_error"], verify="done")
+        self.past_attempt(s, ["dialing", "answered", "technical_error"], verify="done")
         self.assertEqual(self.reason(s), "unknown_result_interval")
+
+    def test_unknown_result_before_answer_needs_no_long_wait(self):
+        """相手が出る前の結果不明は、誰とも話していない：検証も長い間隔も要らない（通信の問題で繋がらなかった扱い）。"""
+        s = self.ready()
+        self.past_attempt(s, ["dialing", "technical_error"])
+        self.assertIsInstance(self.claim(s), gate.Claim)
 
     def test_daily_attempts_count_across_runs(self):
         s = self.ready()
@@ -316,6 +322,53 @@ class Pacing(Base):
         self.past_attempt(s, ["dialing", "no_answer"])
         time.sleep(1.1)
         self.assertIsInstance(self.claim(s), gate.Claim)   # 同じ依頼主の再発信に、依頼主をまたいだ間隔はかからない
+
+
+class NotByCallee(Base):
+    """2026-10-14 ユーザー決定：最小の間隔（5分）・1日の回数（2回）の対象外。
+    相手と約束したかけ直し／通信の問題などで繋がらなかった／相手の意思と関係なく切れた発信。"""
+
+    def test_failed_or_line_dropped_calls_do_not_count(self):
+        for path, side in ((["dialing", "call_failed"], None), (["dialing", "technical_error"], None),
+                           (["dialing", "answered", "dropped"], "line")):
+            with self.subTest(path=path):
+                s = self.ready()
+                self.put_client(s, "gate.max_dials_per_contact_per_day", 1)
+                aid = self.w.insert_claim(s)
+                for st in path:
+                    self.w.move(s, aid, st, side if st == "dropped" else None)
+                if path[-1] == "dropped":
+                    self.tx(s, lambda tx: attempts.record_verification(tx, aid, "done"))
+                self.tx(s, lambda tx: next_action.schedule_now(tx, s["task"], cause="試験"))
+                self.assertIsInstance(self.claim(s), gate.Claim)
+
+    def test_callee_or_unknown_side_drops_still_count(self):
+        for side in ("callee", "unknown"):
+            with self.subTest(side=side):
+                s = self.ready()
+                aid = self.w.insert_claim(s)
+                for st in ("dialing", "answered"):
+                    self.w.move(s, aid, st)
+                self.w.move(s, aid, "dropped", side)
+                self.tx(s, lambda tx: attempts.record_verification(tx, aid, "done"))
+                self.tx(s, lambda tx: next_action.schedule_now(tx, s["task"], cause="試験"))
+                self.assertEqual(self.reason(s), "same_contact_interval")
+
+    def test_promised_callback_skips_interval_and_daily_limit(self):
+        s = self.ready()
+        self.put_client(s, "gate.max_dials_per_contact_per_day", 1)
+        self.past_attempt(s, ["dialing", "no_answer"])
+        self.assertIn(self.reason(s), ("same_contact_interval", "daily_attempts"))   # ふつうの予定なら、どちらも止める
+        self.tx(s, lambda tx: next_action.schedule_call(tx, s["task"], tx.one("SELECT now() AS t")["t"],
+                                                        cause="相手に頼まれた折り返し", promised=True))
+        self.assertIsInstance(self.claim(s), gate.Claim)
+
+    def test_promised_callback_still_respects_other_rules(self):
+        s = self.ready()
+        self.tx(s, lambda tx: dnc.register(tx, s["phone"], "manual"))
+        self.tx(s, lambda tx: next_action.schedule_call(tx, s["task"], tx.one("SELECT now() AS t")["t"],
+                                                        cause="約束", promised=True))
+        self.assertEqual(self.reason(s), "dnc_client")
 
 
 class Lines(Base):
@@ -530,6 +583,34 @@ class Calendar(Base):
         owner_access().in_system(OPERATOR, lambda tx: calendar.load_official_csv(
             tx, calendar_csv([2091, 2092], holidays=[date(2091, 1, 2)])))
         self.assertTrue(check(date(2091, 1, 2)))
+
+    def test_sync_fetches_by_itself_and_skips_the_same_file(self):
+        from datetime import date
+        y = local_today().year
+        data = calendar_csv(range(y - 1, y + 2), holidays=[date(y - 1, 12, 30)])   # 前に取り込んだものと違う中身
+        self.addCleanup(load_calendar)
+        first = calendar.sync_official(owner_access(), SYSTEM, fetch=lambda: data)
+        again = calendar.sync_official(owner_access(), SYSTEM, fetch=lambda: data)
+        self.assertEqual((first["loaded"], again["loaded"]), (True, False))
+
+    def test_sync_rejects_stale_or_broken_files_and_keeps_the_old_calendar(self):
+        before = owner_access().in_system(SYSTEM, lambda tx: tx.one("SELECT count(*) AS n FROM salescall.calendar_loads"))["n"]
+        for fetch in (lambda: calendar_csv([2001, 2002]),                       # 今年が入っていない
+                      lambda: b"<html>error</html>"):                           # 形が違う
+            with self.assertRaises(calendar.CalendarSyncFailed):
+                calendar.sync_official(owner_access(), SYSTEM, fetch=fetch)
+
+        def unreachable():
+            raise calendar.CalendarSyncFailed("試験：つながらない")
+        with self.assertRaises(calendar.CalendarSyncFailed):
+            calendar.sync_official(owner_access(), SYSTEM, fetch=unreachable)
+        after = owner_access().in_system(SYSTEM, lambda tx: tx.one("SELECT count(*) AS n FROM salescall.calendar_loads"))["n"]
+        self.assertEqual(before, after)
+
+    def test_fetch_reports_network_failure_as_sync_failure(self):
+        with mock.patch.object(calendar.urllib.request, "urlopen", side_effect=OSError("つながらない")):
+            with self.assertRaises(calendar.CalendarSyncFailed):
+                calendar.fetch_official()
 
     def test_calendar_cannot_be_changed(self):
         with self.assertRaises(Rejected):
