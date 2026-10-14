@@ -185,6 +185,9 @@ async def _collect_into(r: "TurnResult", session, *, started_at: float, on_tool_
                     r.events.append({"at_s": at(), "kind": "interrupted"})
                 if sc.input_transcription is not None and sc.input_transcription.text:
                     r.input_transcript.append(sc.input_transcription.text)
+                    # 相手の言葉の文字が、AIの報告より先に届くか（報告の時点で、プログラムが相手の言葉を見て決められるか。2026-10-14 G-36：
+                    # AIは、こちらの聞き違いと相手の言い間違いを見分けられなかった＝12本中12本「相手が言い直した」）
+                    r.events.append({"at_s": at(), "kind": "heard", "text": sc.input_transcription.text})
                 if sc.output_transcription is not None and sc.output_transcription.text:
                     r.output_transcript.append(sc.output_transcription.text)
                     # audio_s：この文字が届いた時点で、受け取り済みの声の長さ（秒）。声は話す速さで届くので、相手に流れた長さに近い。

@@ -1464,5 +1464,35 @@
     "tries": 1,
     "seconds": 1.66,
     "wav": "Sadachbia_kazoku.wav"
+  },
+  {
+    "voice": "Leda",
+    "id": "said_16",
+    "text": "いや、16日って言ったんですけど。",
+    "how": null,
+    "said": "",
+    "heard": "いや、16日って言ったんですけど。",
+    "diffs": [],
+    "question_needed": false,
+    "question_ok": true,
+    "ok": true,
+    "tries": 1,
+    "seconds": 3.24,
+    "wav": "Leda_said_16.wav"
+  },
+  {
+    "voice": "Sadachbia",
+    "id": "said_16",
+    "text": "いや、16日って言ったんですけど。",
+    "how": null,
+    "said": "いや、16日って言ったんですけど。",
+    "heard": "いや、16日って言ったんですけど。",
+    "diffs": [],
+    "question_needed": false,
+    "question_ok": true,
+    "ok": true,
+    "tries": 1,
+    "seconds": 2.69,
+    "wav": "Sadachbia_said_16.wav"
   }
 ]

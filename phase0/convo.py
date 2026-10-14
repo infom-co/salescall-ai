@@ -119,6 +119,8 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                "audio_seconds": r["audio_seconds"], "timed_out": turn.timed_out,
                # AI自身の文字が届いた時刻と、その時点で受け取り済みの声の長さ（文字が声より先に届くかを測る）
                "said_events": [{k: e[k] for k in ("at_s", "audio_s", "text") if k in e} for e in r["events"] if e["kind"] == "ai_said"],
+               # 相手の言葉の文字が届いた時刻（報告より先に届くか＝報告の時点でプログラムが相手の言葉を見て決められるか。G-36 の3回目）
+               "heard_events": [{k: e[k] for k in ("at_s", "text")} for e in r["events"] if e["kind"] == "heard"],
                # 声のまとまりの始まり・返事を送った時刻（報告の返事の前と後の声を分けて、間を測る）
                "timeline": [{k: e[k] for k in ("at_s", "kind", "chunk") if k in e} for e in r["events"]
                             if e["kind"] in ("audio_start", "tool_response_sent", "turn_complete", "interrupted")],
