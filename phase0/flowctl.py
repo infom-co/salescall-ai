@@ -17,7 +17,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from phrases import CLOSE_DECLINED
+from phrases import CLOSE_DECLINED, REASK_LEAD
 from phrases import confirm as confirm_phrase
 from phrases import lead_in as lead_in_phrase
 
@@ -51,6 +51,21 @@ def normalize_value(qtype: str, value: str | None) -> str | None:
     return v or None
 GOT = ("confirmed", "accepted")  # 「取れた」（4-4）
 
+# 値の形の確かめ（型の一覧の決まり。DESIGN.md 6-2。✅ 2026-10-14 ユーザー承認）：日付・時刻・日時の型の値には、日付か時刻の言葉が
+# 1つは入っている。⛔ G-34：AIが答えを報告せずに言い直したあと、次の質問の答え「3人」が日時の答えとして確かめまで済んだ。
+# これまでの試験の値に当てて、取り違え 20回中20回を止め、正しい答え 570回中0回を止める（form_rule_eval.py）。
+# 数・金額・名前などは、型だけでは見分けられないので当てない（数の型は単位を持たない）
+DATE_TIME_TYPES = {"date", "time", "datetime"}
+DATE_TIME_WORDS = ("日", "時", "分", "月", "曜", "午前", "午後", "今日", "明日", "あした", "あす", "明後日", "あさって", "来週", "今週",
+                   "再来週", "週", "朝", "昼", "夕方", "夕刻", "晩", "夜", "半", "正午", "年", "明け", "頃", "ごろ", "以降", "旬", "末", "初め", "中")
+
+
+def form_problem(qtype: str, value: str | None) -> str | None:
+    """値の形が型に合わない理由（合っていれば None）。値の形をそろえた（normalize_value）あとの値に当てる。"""
+    if value and qtype in DATE_TIME_TYPES and not any(w in value for w in DATE_TIME_WORDS):
+        return "日付も時刻もありません"
+    return None
+
 # ── AIに見せる言葉（唯一の場所）。⛔ 2026-10-13 ユーザー指摘「こちらが英語を使っていませんか？」：指示文・操作の宣言・操作への返事に、
 #    英語の名前（condition_id・unknown・callee_hurry・confirm_required など）が入っていた。AIが英語で自分の動きを声に出した回があった。
 #    ⇒ AIに見せる名前は、すべて日本語にする。中の名前（英字）との置き換えは、AIの入口（Flow.handle）と操作の宣言（tool_declarations）
@@ -66,7 +81,7 @@ CONFIRM_LABEL = {"affirmed": "合っている", "corrected": "違う値を言わ
 END_LABEL = {"done": "質問が終わった", "callee_hurry": "相手が急いでいる", "callee_refused_call": "通話を断られた"}
 REPLY_KEY_LABEL = {"result": "結果", "message": "次にすること", "question_id": "質問", "question": "質問の文", "value": "値", "say": "言い方"}
 RESULT_LABEL = {"next": "次の質問", "confirm_required": "言い直して確かめる", "rejected": "差し戻し", "ask_back": "聞き返す",
-                "recheck": "念のための確認", "end": "締め", "busy_ask": "引き止めの一言"}
+                "reask": "質問を聞き直す", "recheck": "念のための確認", "end": "締め", "busy_ask": "引き止めの一言"}
 _FROM_LABEL = {"condition_id": {v: k for k, v in SYSTEM_LABEL.items()}, "result": {v: k for k, v in CONFIRM_LABEL.items()},
                "reason": {v: k for k, v in END_LABEL.items()}}
 _ARG_FROM_LABEL = {v: k for k, v in ARG_LABEL.items()}
@@ -196,6 +211,8 @@ class Flow:
             return None
         if result == "ask_back":
             return "moushiwake"
+        if result == "reask":
+            return "hai"  # 続けてAIが「恐れ入ります。（質問）」と言う（お詫びを2つ重ねない）
         if result == "confirm_required":
             # 言い直しの返事から言い直しへ戻るのは、訂正されたときだけ
             apologize = name == "confirm_field" or self.unreported_correction == args.get("question_id")
@@ -260,6 +277,8 @@ class Flow:
             shown = SYSTEM_LABEL.get(cond, cond)
             return self._reject(f"{ARG_LABEL['condition_id']}「{shown}」は、この質問の選択肢にありません（選べるのは {'、'.join(q.labels)}）。")
         value = normalize_value(q.type, a.get("value"))
+        if cond not in SYSTEM_CONDITIONS and (why := form_problem(q.type, value)):
+            return self._bad_form(qid, value, why)
         if value is None and q.type not in CHOICE_TYPES and cond not in SYSTEM_CONDITIONS:
             # ⛔ 2026-10-13 G-25 で見つけた漏れ：値の要る質問で値の無い答えを受け付け、言い直しに「Noneで、よろしいでしょうか。」を
             #    入れていた（確かめない型なら、依頼主へ値の代わりに条件の名前が渡っていた）
@@ -311,6 +330,9 @@ class Flow:
         correction = normalize_value(self.questions[qid].type, a.get("correction"))
         if result == "corrected" and correction is None:  # 訂正の値の無い報告は、記録を書き換える前に差し戻す（上と同じ漏れ）
             return self._reject(f"訂正された値がありません。相手が言い直した値を「{ARG_LABEL['correction']}」に入れて、もう一度報告してください。")
+        if result == "corrected" and (why := form_problem(self.questions[qid].type, correction)):
+            self.awaiting_confirm = None  # 言い直しの返事待ちをやめて、質問から聞き直す（6-2）
+            return self._bad_form(qid, correction, why)
         self.awaiting_confirm = None
         if result == "affirmed":
             it.set("confirmed", "相手が肯定した")
@@ -345,6 +367,20 @@ class Flow:
         return self._advance("")
 
     # ── 内部
+    def _bad_form(self, qid: str, value: str, why: str) -> dict:
+        """答えの値の形が質問の型に合わない（DESIGN.md 6-2）。AIに選ばせず、ここで決める：値は記録しない。その場で1回だけ質問を
+        聞き直す（回数は、その場の聞き返しと同じ1項目1回）。使い切っていたら「-」にして次へ（必須なら締めの前に念のための確認）。"""
+        q, it = self.questions[qid], self.items[qid]
+        shown = f"{q.id}「{q.text}」の答えとして「{value}」が報告されましたが、{why}。"
+        if self.phase == "asking" and q.required and it.ask_backs < self.limits.ask_back:
+            it.ask_backs += 1
+            it.set("unclear", f"値の形が合わない（{value}：{why}）・質問を聞き直す")
+            say = REASK_LEAD + q.text
+            return {"result": "reask", "question_id": q.id, "say": say,
+                    "message": f"{shown}「{say}」と1回だけ聞き直して、相手の答えを待ってください。相手が答えたら record_answer で報告します。"}
+        it.set("unresolved", f"値の形が合わない（{value}：{why}）・聞き直しを使い切った")
+        return self._advance(f"{shown}「-」にします。")
+
     def _ask_confirm(self, qid: str) -> dict:
         it = self.items[qid]
         it.set("checking", "言い直して確かめる")

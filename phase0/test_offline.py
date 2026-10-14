@@ -944,6 +944,83 @@ class AckChoiceTest(unittest.TestCase):
         self.assertNotIn("ごゆっくりどうぞ", text)  # ⛔ G-30〜G-32：相手の続きの言葉にかぶった
 
 
+class FormCheckTest(unittest.TestCase):
+    """値の形の確かめと、そのあとの流れ（DESIGN.md 6-2。✅ 2026-10-14 ユーザー承認）。日時の質問に「3人」が入ったら、記録せずに
+    1回だけ聞き直し、使い切っていたら「-」。AIに選ばせない。"""
+
+    def flow(self):
+        from flowctl import Flow, Question
+        return Flow([Question("Q1", "ご予約はされていますか。", "yes_no", conditions=("はい", "いいえ")),
+                     Question("Q2", "ご希望の日時をお聞かせください。", "datetime", conditions=("答えた",)),
+                     Question("Q3", "ご来店の人数をお聞かせください。", "number", conditions=("答えた",))])
+
+    @staticmethod
+    def do(f, name, **args):
+        f.on_callee()
+        return f.apply(name, args)
+
+    def test_rule(self):
+        from flowctl import form_problem
+        for v in ("15日の午後2時", "来週の火曜日の午後", "週明け", "二時", "夜7時ごろ", "10月15日"):
+            self.assertIsNone(form_problem("datetime", v), v)
+        for v in ("3人", "はい", "答えなかった", "4名"):
+            self.assertTrue(form_problem("datetime", v), v)
+        self.assertIsNone(form_problem("number", "15日の午後2時"))  # 数の型は見分けられないので当てない
+        self.assertIsNone(form_problem("name", "佐藤"))
+
+    def test_wrong_answer_is_not_recorded_and_asked_again_once(self):
+        from phrases import REASK_LEAD
+        f = self.flow()
+        self.do(f, "record_answer", question_id="Q1", condition_id="はい")
+        r = self.do(f, "record_answer", question_id="Q2", condition_id="答えた", value="3人です")
+        self.assertEqual((r["result"], r["ack"], r["say"]), ("reask", "hai", REASK_LEAD + "ご希望の日時をお聞かせください。"))
+        self.assertEqual((f.items["Q2"].state, f.items["Q2"].value), ("unclear", None))  # 記録しない
+        self.assertIn("3人", f.items["Q2"].history[-1][2])                             # どの値で止めたかは残す
+        r = self.do(f, "record_answer", question_id="Q2", condition_id="答えた", value="15日の午後2時")
+        self.assertEqual(r["result"], "confirm_required")
+        self.assertIn("おっしゃいましたでしょうか", r["say"])  # 聞き直したあとの言い直しの形
+        self.do(f, "confirm_field", question_id="Q2", result="affirmed")
+        self.assertEqual((f.items["Q2"].state, f.items["Q2"].value), ("confirmed", "15日の午後2時"))
+
+    def test_second_wrong_answer_becomes_dash_then_recheck_once(self):
+        f = self.flow()
+        self.do(f, "record_answer", question_id="Q1", condition_id="はい")
+        self.do(f, "record_answer", question_id="Q2", condition_id="答えた", value="いつでも")
+        r = self.do(f, "record_answer", question_id="Q2", condition_id="答えた", value="いつでも")
+        self.assertEqual((r["result"], r["question_id"], f.items["Q2"].state), ("next", "Q3", "unresolved"))  # 聞き直しは1回まで
+        self.do(f, "record_answer", question_id="Q3", condition_id="答えた", value="3人")
+        r = self.do(f, "confirm_field", question_id="Q3", result="affirmed")
+        self.assertEqual((r["result"], r["question_id"]), ("recheck", "Q2"))  # 締めの前に念のための確認（1回）
+        r = self.do(f, "record_answer", question_id="Q2", condition_id="答えた", value="なるべく早く")
+        self.assertEqual((r["result"], f.items["Q2"].state, f.export()["Q2"]), ("end", "unresolved", "-"))  # 回数は増えない
+
+    def test_wrong_correction_stops_waiting_and_asks_again(self):
+        f = self.flow()
+        self.do(f, "record_answer", question_id="Q1", condition_id="はい")
+        self.do(f, "record_answer", question_id="Q2", condition_id="答えた", value="15日の午後2時")
+        r = self.do(f, "confirm_field", question_id="Q2", result="corrected", correction="違います")
+        self.assertEqual((r["result"], f.awaiting_confirm, f.items["Q2"].state), ("reask", None, "unclear"))
+        self.assertEqual(self.do(f, "record_answer", question_id="Q2", condition_id="答えた", value="16日の午後2時")["result"],
+                         "confirm_required")
+
+    def test_unknown_and_refused_are_not_checked(self):
+        f = self.flow()
+        self.do(f, "record_answer", question_id="Q1", condition_id="はい")
+        self.assertEqual(self.do(f, "record_answer", question_id="Q2", condition_id="unknown")["result"], "next")
+        self.assertEqual(f.items["Q2"].state, "dont_know")
+
+    def test_reask_shown_to_ai_in_japanese(self):
+        import re
+        f = self.flow()
+        f.on_callee()
+        f.handle(fc("record_answer", 質問="Q1", 答えの種類="はい"))
+        f.on_callee()
+        out = f.handle(fc("record_answer", 質問="Q2", 答えの種類="答えた", 値="3人"))
+        self.assertEqual(out["結果"], "質問を聞き直す")
+        text = " ".join(str(v) for v in out.values())
+        self.assertEqual(set(re.findall(r"[A-Za-z_][A-Za-z_0-9]*", text)) - {"Q2", "record_answer"}, set())
+
+
 class AckTimingTest(unittest.TestCase):
     """G-34 の数え方（報告の時刻に流す相づち）と、通話をつないで聞く声（stitch_gap.stitch_call）。作った記録で確かめる。"""
 
