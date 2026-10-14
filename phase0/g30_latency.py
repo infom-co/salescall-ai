@@ -48,7 +48,9 @@ def turn_measures(call: dict) -> list[dict]:
     out = []
     for t in call["turns"]:
         c = t.get("callee")
-        if not isinstance(c, dict) or t.get("first_audio_after_s") is None:
+        # 相手の声のターンだけを数える（割り込みのあとに返事を待った「続き」の行＝{"followup_of": …} は、相手の声が無いので数えない）
+        # ⛔ 2026-10-14 G-32 の1回目：続きの行で止まり、割り込みのあった通話の記録が27本中21本失われた
+        if not isinstance(c, dict) or "wav" not in c or t.get("first_audio_after_s") is None:
             continue
         tail = callee_speech(c["wav"])[2]
         tools = [e["at_s"] for e in (t.get("tool_events") or []) if e.get("at_s") is not None]
@@ -62,6 +64,21 @@ def turn_measures(call: dict) -> list[dict]:
                     "reported": any(e.get("name") == "record_answer" for e in (t.get("tool_events") or [])),
                     "said": (t.get("intended") or "")[:60]})
     return out
+
+
+def keep_call(head: dict, call: dict, measures) -> dict:
+    """通話の記録を必ず残してから、数える。数える処理で誤りが出ても、通話（キーを使った分）は失わない（G-30・G-31・G-32 共通）。"""
+    row = {**head, **call}
+    try:
+        row.update(measures(call))
+    except Exception as exc:
+        row["measure_error"] = describe_error(exc)
+    return row
+
+
+def measures(call: dict) -> dict:
+    tm = turn_measures(call)
+    return {"turns_measured": tm, "checks": judge(call, tm)}
 
 
 def judge(call: dict, turns: list[dict]) -> dict:
@@ -111,10 +128,10 @@ async def run(args) -> dict:
                 try:
                     call = await run_call(client, args.model, BUSINESS, vt, CALLEE, opening_mode="recorded", use_ear=False,
                                           save_audio="all", audio_label=f"G30_{name}_{rep}", **kw)
-                    tm = turn_measures(call)
-                    row = {"rep": rep, "type": vt, "variant": name, "turns_measured": tm, "checks": judge(call, tm), **call}
                 except Exception as exc:
-                    row = {"rep": rep, "type": vt, "variant": name, "error": describe_error(exc)}
+                    call, row = None, {"rep": rep, "type": vt, "variant": name, "error": describe_error(exc)}
+                if call is not None:
+                    row = keep_call({"rep": rep, "type": vt, "variant": name}, call, measures)
                 rows.append(row)
                 c, tm = row.get("checks", {}), row.get("turns_measured", [])
                 say(f"[{rep}] {vt} {name} 項目={c.get('items_ok')} 飛ばし={c.get('skipped')} 割り込み={c.get('pause_cut_in')} "

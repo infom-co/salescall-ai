@@ -21,7 +21,7 @@ from common import base_parser, describe_error, drop_partial, make_client, pick_
 from convo import run_call
 from g22_opening import BUSINESS, W
 from g30_latency import VARIANTS as G30_VARIANTS
-from g30_latency import turn_measures
+from g30_latency import keep_call, turn_measures
 from g31_pause import FOLLOWUP_WAIT_S, clips, judge, measure
 from instruction import VOICE_TYPES
 
@@ -85,10 +85,12 @@ async def run(args) -> dict:
                             call = await run_call(client, args.model, BUSINESS, vt, callee, opening_mode="recorded", use_ear=False,
                                                   save_audio="all", audio_label=f"G32_{name}_{p}_{rep}",
                                                   followup_wait_s=FOLLOWUP_WAIT_S, **v["kw"])
-                        row = {"rep": rep, "type": vt, "variant": name, "pause": p, "pause_turns": measure(call, (q2, q3)),
-                               "turns_measured": turn_measures(call), "checks": judge(call), **call}
                     except Exception as exc:
-                        row = {"rep": rep, "type": vt, "variant": name, "pause": p, "error": describe_error(exc)}
+                        call, row = None, {"rep": rep, "type": vt, "variant": name, "pause": p, "error": describe_error(exc)}
+                    if call is not None:
+                        row = keep_call({"rep": rep, "type": vt, "variant": name, "pause": p}, call,
+                                        lambda c: {"pause_turns": measure(c, (q2, q3)), "turns_measured": turn_measures(c),
+                                                   "checks": judge(c)})
                     rows.append(row)
                     pt = row.get("pause_turns", [])
                     say(f"[{rep}] {vt} {name} 間{p}秒 割り込み={[t['cut_in'] for t in pt]} 返事={[t['followup_replied'] for t in pt]} "
