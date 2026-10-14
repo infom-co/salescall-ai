@@ -134,8 +134,16 @@ def stitch_call(call: dict, voice_type: str, out: Path, reply_gap_s: float = 0.6
             return None
         pcm, prate, tail = callee_speech(c["wav"])
         a = _to_rate(pcm, prate, rate)
-        if t.get("first_audio_after_s") is None and not t.get("tool_events") and not t.get("audio_file"):
-            parts.append(a[: max(0, len(a) - int(tail * rate))])  # AIは黙って待った
+        from flowctl import SILENT_OPS
+        if t.get("first_audio_after_s") is None and not t.get("audio_file") \
+                and all(e.get("name") in SILENT_OPS for e in t.get("tool_events") or []):
+            parts.append(a[: max(0, len(a) - int(tail * rate))])  # AIは黙って待った（相手が考えていることの報告だけ＝形 B）
+            ack = played_ack(t)
+            if ack is not None:  # 相づちの録音（形 B）を、報告が届いた時刻に置く
+                x, r = _speech_only(ack_wav(voice_type, ack["ack"]))
+                x = _to_rate(x.astype(np.int16).tobytes(), r, rate)
+                parts += [np.zeros(int(ack["at_s"] * rate), dtype=np.float32), x]
+                plan.append({"heard_first": ack["ack"], "first_s": round(ack["at_s"], 2), "ai_s": None, "ai_held_s": 0.0})
             continue
         if not t.get("audio_file") or t.get("first_audio_after_s") is None or t["first_audio_after_s"] < CUT_IN_S:
             return None

@@ -205,5 +205,47 @@
     "seconds": 1.28,
     "tries": 1,
     "wav": "L4_moushiwake.wav"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "aizuchi",
+    "text": "はい。",
+    "heard": {
+      "0.0": "はい。",
+      "1.0": "はい。"
+    },
+    "ok": true,
+    "seconds": 0.22,
+    "tries": 2,
+    "wav": "S2_aizuchi.wav"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "aizuchi",
+    "text": "はい。",
+    "heard": {
+      "0.0": "はい。",
+      "1.0": "はい。"
+    },
+    "ok": true,
+    "seconds": 0.2,
+    "tries": 1,
+    "wav": "S4_aizuchi.wav"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "aizuchi",
+    "text": "はい。",
+    "heard": {
+      "0.0": "はい。",
+      "1.0": "はい。"
+    },
+    "ok": true,
+    "seconds": 0.22,
+    "tries": 2,
+    "wav": "L4_aizuchi.wav"
   }
 ]

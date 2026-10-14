@@ -22,7 +22,11 @@ from common import (HERE, base_parser, describe_error, make_client, pick_key, re
 from listen import differences, hear
 from live_util import build_config, collect_turn, send_text
 
-CALLEE_VOICES = ("Puck", "Kore")  # 会話に使う声とは別の声（公式の音声一覧にある名前）
+# 相手役の声。Puck・Kore は、会話に使う声とは別の声（これまでの試験の材料。作り直さない）。
+# ✅ 2026-10-14 ユーザー：「相手役があまりにも機械っぽい声で臨場感がないので、Leda と Sadachbia に、入れ替わりでお客役をやらせたら
+#    いいんじゃないですか？話し方もお客っぽいものに変更して！」⇒ Leda・Sadachbia をお客の話し方で作る。会話のAIが Sadachbia（S2・S4）の
+#    ときは Leda が、Leda（L4）のときは Sadachbia がお客役になる（convo.callee_voice_for）。同じ声どうしで話させない
+CALLEE_VOICES = ("Puck", "Kore", "Leda", "Sadachbia")
 UTTERANCES = {
     "hello": "はい、もしもし。",
     "yes_reserved": "はい、予約しています。",
@@ -51,6 +55,11 @@ UTTERANCES = {
     "itsudemo": "いつでも大丈夫です。",  # 日時の質問への、日時になっていない答え（G-35：値の形の確かめのあと、1回だけ聞き直して「-」）  # 言い直した値が違っていたとき（AIが「15日」と言い直した。G-34：相づち「失礼いたしました。」）
 }
 INSTRUCTION = "あなたは音声の材料を作る係です。渡された言葉だけを、そのまま、自然な日本語で読み上げます。言葉を足しません。"
+# お客役の話し方（Leda・Sadachbia）：お店や会社から電話を受けた、ふつうのお客さん。営業や受付のような話し方にしない
+CUSTOMER_INSTRUCTION = ("あなたは、お店から電話を受けた、ふつうのお客さんです。渡された言葉だけを、そのまま、電話の相手に答えるように話します。"
+                        "普段どおりの、自然でくだけた話し方で、ふつうの速さで話します。明るすぎたり、丁寧すぎたり、読み上げるような話し方にはしません。"
+                        "言葉を足しません。")
+INSTRUCTIONS = {"Leda": CUSTOMER_INSTRUCTION, "Sadachbia": CUSTOMER_INSTRUCTION}
 OUT = HERE / "results" / "callee"
 
 
@@ -123,7 +132,7 @@ async def run(args) -> dict:
         index.write_text(json.dumps(made, ensure_ascii=False, indent=2), encoding="utf-8")
         return {"model": args.model, "verified": made}
     have = {(m.get("voice"), m.get("id")) for m in made if "error" not in m}
-    for voice in CALLEE_VOICES:
+    for voice in args.voice or CALLEE_VOICES:
         for uid, value in UTTERANCES.items():
             text, how = text_and_how(value)
             if uid not in (args.redo or []) and (voice, uid) in have and (OUT / f"{voice}_{uid}.wav").exists():
@@ -132,7 +141,8 @@ async def run(args) -> dict:
             tries = []
             for n in range(args.tries):
                 try:
-                    async with client.aio.live.connect(model=args.model, config=build_config(voice=voice, system_instruction=INSTRUCTION)) as s:
+                    inst = INSTRUCTIONS.get(voice, INSTRUCTION)
+                    async with client.aio.live.connect(model=args.model, config=build_config(voice=voice, system_instruction=inst)) as s:
                         t = time.monotonic()
                         await send_text(s, f"読み上げる言葉：{text}" + (f"\n読み方：{how}" if how else ""))
                         turn = await collect_turn(s, started_at=t, timeout_s=60)
@@ -161,6 +171,7 @@ def main() -> None:
     p.add_argument("--redo", action="append", choices=sorted(UTTERANCES), help="作ってある声でも作り直す（名指ししたものだけ）")
     p.add_argument("--verify", action="store_true", help="作り直さずに、まだ確かめていない声を確かめだけする")
     p.add_argument("--recheck", action="store_true", help="保存した別の耳の文字に、いまの確かめの決まりを当て直す（キーを使わない）")
+    p.add_argument("--voice", action="append", choices=CALLEE_VOICES, help="作る声（無ければ全部）")
     args = p.parse_args()
     save_result("CALLEE-SAMPLES", asyncio.run(run(args)))
 
