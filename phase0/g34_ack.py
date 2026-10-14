@@ -5,7 +5,7 @@
 - 報告の時刻に「はい、」を流す形は「明らかにこちらの方が自然な間。話の流れもいい感じ」⇒ 採る。
 - 「基本は『はい、』で大丈夫。違和感のある会話や、『はい』が続くようなら、別の相づちもあった方がいい」⇒ どの場面でどれを流すかは
   流れの制御（flowctl.Flow._ack）の1か所が決める。
-- 考えている相手（「えーとですね、」で止まる人）には短い「はい。」。「さらに間が空くようなら、『いかがされましたか？』
+- 考えている相手（「えーとですね、」で止まる人）には短い「はい。」。「さらに間が空くようなら、『いかがなさいましたか？』
   『どうなされましたか？』などを入れるといい」⇒ その一言は電話接続側が流す（AIは時間を数えられない）。⏳ 秒数はユーザーに確かめる。
 話し終わりの判定は 0.4秒・考える量0（G-30 の C の形。ユーザー：判定を無理に早めすぎない）。
 場面（相手の台詞。どれも別の耳の確かめに通った声）：
@@ -38,6 +38,7 @@ from convo import AUDIO_DIR, CUT_IN_S, run_call
 from g22_opening import BUSINESS, W
 from g30_latency import VARIANTS as G30_VARIANTS
 from g30_latency import keep_call
+from flowctl import normalize_value
 from instruction import VOICE_TYPES
 from jtext import compare_reading
 from listen import hear_feeds, in_any
@@ -121,11 +122,13 @@ def turn_measures(call: dict, voice_type: str) -> list[dict]:
 
 
 def judge(call: dict, scene: str) -> dict:
+    """値は、いまの値の形の決まり（flowctl.normalize_value）でそろえてから比べる（記録をあとで数え直しても、同じ決まりで比べるため。
+    2026-10-14：G-34 の2回目の途中で「15 日の午後 2 時」の空白を外す決まりを足した）。"""
     it = call["items"]
     q2, q3 = WANT[scene]
     return {"q1_ok": it["Q1"]["condition"] == "はい" and it["Q1"]["state"] == "accepted",
-            "q2_ok": it["Q2"]["value"] == q2 and it["Q2"]["state"] == "confirmed",
-            "q3_ok": it["Q3"]["value"] == q3 and it["Q3"]["state"] == "confirmed",
+            "q2_ok": normalize_value("datetime", it["Q2"]["value"]) == q2 and it["Q2"]["state"] == "confirmed",
+            "q3_ok": normalize_value("number", it["Q3"]["value"]) == q3 and it["Q3"]["state"] == "confirmed",
             "rejected": sum(1 for e in call["flow_log"] if e["reply"]["result"] == "rejected"),
             "final_phase": call["final_phase"]}
 
@@ -226,6 +229,15 @@ async def run(args) -> dict:
 LISTEN_SCENES = ("ふつう", "訂正", "長い間", "聞き取りにくい")
 
 
+def rejudge(result: Path) -> dict:
+    """保存した結果を、いまの数え方で数え直す（キーを使わない）。"""
+    d = json.loads(result.read_text(encoding="utf-8"))
+    for r in d["rows"]:
+        if "turns" in r:
+            r.update(measures(r, r["type"], r["scene"]))
+    return summarize(d["rows"])
+
+
 def make_listening(result: Path, out: Path) -> list[dict]:
     """結果から、会話全体をつないだ聞き比べの声を作る（声の型ごとに、場面ごとに1本。つなげる通話の最初のもの）。
     相手が次に話し始めるまでの間は 0.6秒（作った値）。割り込みのあった通話は、本当の時刻が分からないので使わない（stitch_call）。"""
@@ -254,11 +266,15 @@ def main() -> None:
     p = base_parser(__doc__)
     p.add_argument("--listen", type=Path, help="この結果から、会話全体の聞き比べの声を作る（キーを使わない）")
     p.add_argument("--out", type=Path, help="--listen の置き場")
+    p.add_argument("--rejudge", type=Path, help="この結果を、いまの数え方で数え直す（キーを使わない）")
     p.add_argument("--repeat", type=int, default=2)
     p.add_argument("--pause", type=float, default=3.0)
     p.add_argument("--type", choices=sorted(VOICE_TYPES), action="append")
     p.add_argument("--scene", choices=scenes_names(), action="append")
     args = p.parse_args()
+    if args.rejudge:
+        print(json.dumps(rejudge(args.rejudge), ensure_ascii=False, indent=1))
+        return
     if args.listen:
         for m in make_listening(args.listen, args.out):
             print(json.dumps(m, ensure_ascii=False))

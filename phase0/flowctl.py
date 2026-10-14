@@ -33,6 +33,11 @@ STATES = ("empty", "heard", "unclear", "checking", "confirmed", "accepted", "don
 # ⛔「ね」「よ」「で」などの1文字は外さない（名前の終わり＝「あかね」などを削るため）
 # 確かめない型（選択肢・自由な意見）は、相手の言葉のまま（自由な意見の「よかったです」を「よかった」に変えない）
 _TAIL = re.compile(r"(?:です|でございます|になります)?[。、．！？!?\s]*$")
+# 空白に意味の無い型（日付・時刻・日時・数・金額）は、値の中の空白も外す。
+# ⛔ 2026-10-14 G-34：相手の声を文字にしたもの（「15 日の午後 2 時でお願いします。」）を、AIがそのまま写して報告し、
+#    値が「15 日の午後 2 時」になった（依頼主へ渡す値に空白が入る）。名前・住所・メールは、空白に意味がありうるので外さない
+NO_SPACE_TYPES = {"date", "time", "datetime", "number", "amount"}
+_SPACE = re.compile(r"[\s\u3000]+")
 
 
 def normalize_value(qtype: str, value: str | None) -> str | None:
@@ -41,6 +46,8 @@ def normalize_value(qtype: str, value: str | None) -> str | None:
     v = value.strip()
     if qtype in CONFIRM_TYPES:
         v = _TAIL.sub("", v).strip()
+    if qtype in NO_SPACE_TYPES:
+        v = _SPACE.sub("", v)
     return v or None
 GOT = ("confirmed", "accepted")  # 「取れた」（4-4）
 
@@ -140,6 +147,7 @@ class Flow:
         self.lead_ins = lead_ins
         self.lead_counts: dict[str, int] = {}
         self.ack_count = 0               # 次の質問の前に流す相づちを、順番に回す（_ack）
+        self.unreported_correction: str | None = None  # AIが報告せずに言い直した値を、相手が直した質問（その答えの報告の相づちをお詫びにする）
         self.questions = {q.id: q for q in questions}
         self.order = [q.id for q in questions]
         self.limits = limits or Limits()
@@ -189,7 +197,10 @@ class Flow:
         if result == "ask_back":
             return "moushiwake"
         if result == "confirm_required":
-            return "shitsurei" if name == "confirm_field" else "hai"  # 言い直しの返事から言い直しへ戻るのは、訂正されたときだけ
+            # 言い直しの返事から言い直しへ戻るのは、訂正されたときだけ
+            apologize = name == "confirm_field" or self.unreported_correction == args.get("question_id")
+            self.unreported_correction = None
+            return "shitsurei" if apologize else "hai"
         if name == "record_answer" and args.get("condition_id") in SYSTEM_CONDITIONS:
             return "shouchi"
         if name == "report_unclear":
@@ -282,6 +293,15 @@ class Flow:
 
     def _op_confirm_field(self, a: dict) -> dict:
         qid = a.get("question_id")
+        if self.awaiting_confirm is None and qid == self.current:
+            # ⛔ 2026-10-14 G-34（2回）：AIが答えを報告せずに自分で言い直し、相手の返事を confirm_field で報告してきた。前の差し戻しは
+            #    「相手が答えたら record_answer で」としか言わず、相手がもう答えているのに AIが待つと読めた。1回は報告し直さず、次の質問の
+            #    答え「3人」が日時の答えとして記録され、確かめまで済んだ。⇒ 答えがまだ報告されていないことと、報告する値を、はっきり言う
+            v = normalize_value(self.questions[qid].type, a.get("correction"))
+            self.unreported_correction = qid if a.get("result") == "corrected" else None
+            shown = f"（「{v}」）" if v else ""
+            return self._reject(f"{qid} の答えは、まだ record_answer で報告されていません。相手が答えた値{shown}を、いま record_answer で"
+                                "報告してください。言い直しの言い方は、プログラムの返事のとおりにします。")
         if self.awaiting_confirm != qid:
             return self._reject(f"いまは、{qid} の言い直しを求めていません。")
         if self.callee_turns <= (self.confirm_requested_at or 0):  # I-24：相手の返事が届く前の報告は差し戻す

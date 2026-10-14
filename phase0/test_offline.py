@@ -239,6 +239,10 @@ class FlowTest(unittest.TestCase):
         self.assertEqual(normalize_value("datetime", "15日の午後2時です。"), "15日の午後2時")
         self.assertEqual(normalize_value("number", "3人です"), "3人")
         self.assertEqual(normalize_value("name", "あかね"), "あかね")  # 名前の終わりを削らない
+        # 空白に意味の無い型は、値の中の空白も外す（G-34：AIが「15 日の午後 2 時」と、相手の声の文字のまま写した）
+        self.assertEqual(normalize_value("datetime", "15 日の午後 2 時"), "15日の午後2時")
+        self.assertEqual(normalize_value("number", "3　人"), "3人")
+        self.assertEqual(normalize_value("name", "佐藤 太郎"), "佐藤 太郎")  # 名前・住所・メールは外さない
         self.assertEqual(normalize_value("yes_no", "はい、そうです。"), "はい、そうです。")  # 選択肢の型はそのまま（渡すのは選択肢）
 
     def test_every_rejection_says_what_to_do_now(self):
@@ -899,6 +903,26 @@ class AckChoiceTest(unittest.TestCase):
         self.assertEqual(self.report(g, "request_end", reason="callee_refused_call"), "shouchi")
         h = self.flow()
         self.assertEqual(self.report(h, "request_end", reason="callee_hurry"), "hai")
+
+    def test_unreported_readback_is_sent_back_with_value(self):
+        """AIが答えを報告せずに自分で言い直し、相手の返事を報告してきた（G-34）：答えの報告を、値つきではっきり求める。"""
+        f = self.flow()
+        self.report(f, "record_answer", question_id="Q1", condition_id="はい")
+        f.on_callee()
+        r = f.apply("confirm_field", {"question_id": "Q2", "result": "corrected", "correction": "16 日の午後 2 時"})
+        self.assertEqual(r["result"], "rejected")
+        self.assertIn("まだ record_answer で報告されていません", r["message"])
+        self.assertIn("「16日の午後2時」", r["message"])
+        self.assertEqual(f.items["Q2"].state, "empty")  # 記録は書き換えない
+        # 報告し直したら、ふつうに言い直しへ進む。相手は値を直していたので、相づちはお詫び
+        self.assertEqual(f.apply("record_answer", {"question_id": "Q2", "condition_id": "答えた", "value": "16日の午後2時"})["ack"], "shitsurei")
+        self.assertEqual(self.report(f, "confirm_field", question_id="Q2", result="affirmed"), "arigatou")
+        g = self.flow()
+        self.report(g, "record_answer", question_id="Q1", condition_id="はい")
+        g.on_callee()
+        self.assertIn("まだ record_answer で報告されていません", g.apply("confirm_field", {"question_id": "Q2", "result": "affirmed"})["message"])
+        self.assertEqual(g.apply("record_answer", {"question_id": "Q2", "condition_id": "答えた", "value": "15日の午後2時"})["ack"], "hai")
+        self.assertIn("いまは、Q3 の言い直しを求めていません", g.apply("confirm_field", {"question_id": "Q3", "result": "affirmed"})["message"])
 
     def test_every_ack_has_words_and_is_hidden_from_ai(self):
         from phrases import ACK
