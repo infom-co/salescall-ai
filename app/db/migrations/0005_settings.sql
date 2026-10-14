@@ -204,6 +204,7 @@ INSERT INTO salescall.setting_definitions (key, merge_kind, value_type, meaning,
 ('line.lease', 'system_only', 'seconds', '見守り役が回線を借りる期限', 'DESIGN.md 4-2', NULL, NULL),
 ('line.lease_renew', 'system_only', 'seconds', '回線の借用を延ばす間隔', 'DESIGN.md 4-2', NULL, NULL),
 ('call.hangup_after_decline_wait', 'override', 'seconds', '断られたときの締めの言葉のあと、相手が切らなければ、こちらから切ってよいまでの秒数', 'DESIGN.md 6-14（持ち主 CL-1）', NULL, NULL),
+('call.hangup_after_close_wait', 'override', 'seconds', 'ふつうに終えたとき（質問が全部済んだ締めのあと）、相手が切らなければ、こちらから切ってよいまでの秒数', 'DESIGN.md 6-14（持ち主 CL-1）', NULL, NULL),
 ('callback.call_alternate_number', 'override', 'boolean', '相手が「こちらの番号にかけ直して」と別の番号を言ったとき、その番号へかけ直すか（かけるときも、発信禁止台帳と門を必ず通す）', 'DESIGN.md 3-5', NULL, NULL);
 
 -- ═════════ 最初の値（根拠と、いつ見直すかつき。ユーザーが決めたものは「確定」） ═════════
@@ -250,4 +251,5 @@ INSERT INTO salescall.setting_values (key, scope, value, status, rationale, revi
 ('line.lease', 'system', '60', 'provisional', 'PCが落ちたと判断するまでの時間。短すぎると、少しの遅れで生きている回線の通話を「結果不明」にしてしまう', '見守り役ができて、実際の延長の間隔を測ったあと', 'CL-2'),
 ('line.lease_renew', 'system', '20', 'provisional', '期限の3分の1ごとに延ばす（2回続けて延ばし損ねても、まだ期限内）', '同上', 'CL-2'),
 ('call.hangup_after_decline_wait', 'system', '7', 'decided', '2026-10-13 ユーザー決定（CL-1 の連絡帳 4-5 から）', '模擬通話と最初の実測で、相手が切るまでの間を見て', 'ユーザー'),
+('call.hangup_after_close_wait', 'system', '20', 'decided', '2026-10-14 ユーザー決定（CL-1 の連絡帳 4-7 から）', '模擬通話と最初の実測で、相手が切るまでの間を見て', 'ユーザー'),
 ('callback.call_alternate_number', 'system', 'true', 'decided', '2026-10-14 ユーザー決定：基本は、相手が言った別の番号へかける。業務設定（依頼主タブ）で「かけない」も選べる', '依頼主の求めを見て', 'ユーザー');
