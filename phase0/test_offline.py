@@ -615,10 +615,8 @@ class AIToJapaneseTest(unittest.TestCase):
         allowed = {"record_answer", "report_unclear", "confirm_field", "request_end", "Q1", "Q2"}  # 操作の名前（道具の決まり）と質問の番号
         shown = [build(b, t)[1] for t in ("S2", "L4")]
         shown += [build(b, "S2", opening_mode="recorded")[1]]
-        shown += [build(b, "S2", opening_mode="recorded", ack_first=True)[1]]  # 受けの言葉が先の形（G-33）
-        for nb in (False, True):
-            for d in tool_declarations(b.questions, non_blocking=nb)[0].function_declarations:
-                shown.append(json.dumps(d.model_dump(exclude_none=True), ensure_ascii=False))
+        for d in tool_declarations(b.questions)[0].function_declarations:
+            shown.append(json.dumps(d.model_dump(exclude_none=True), ensure_ascii=False))
         f = Flow(b.questions)
         for name, args in (("record_answer", {"質問": "Q2", "答えの種類": "はい"}), ("record_answer", {"質問": "Q1", "答えの種類": "はい"}),
                            ("record_answer", {"質問": "Q2", "答えの種類": "答えた"}),
@@ -634,9 +632,9 @@ class AIToJapaneseTest(unittest.TestCase):
         h.handle(fc("record_answer", 質問="Q1", 答えの種類="答えたくない"))
         shown.append(position_text(b, h))
         self.assertIn("わからないと言われた", shown[-2])
-        # 宣言の形の名前（behavior・NON_BLOCKING は道具の決まりの設定で、AIに読ませる言葉ではない）
-        schema_words = {"name", "description", "parameters", "type", "properties", "enum", "required", "OBJECT", "STRING",
-                        "behavior", "NON_BLOCKING"}
+        # 宣言の形の名前（道具の決まりの書き方で、AIに読ませる言葉ではない）。⚠️ 相づちの中の名前（hai など）は、ここに入れない
+        # （AIへの返事に出たら、この試験で落ちる＝相づちは電話接続側が流すもので、AIには見せない）
+        schema_words = {"name", "description", "parameters", "type", "properties", "enum", "required", "OBJECT", "STRING"}
         for s in shown:
             words = set(re.findall(r"[A-Za-z_][A-Za-z_0-9]*", s)) - allowed - schema_words
             self.assertEqual(words, set(), s[:200])
@@ -802,7 +800,7 @@ class PauseMeasureTest(unittest.TestCase):
 
 
 class CollectTurnTest(unittest.TestCase):
-    """1ターンの受け取り（live_util.collect_turn）：待つ報告の形と、返事を待たない形（受けの言葉が先。G-33）の両方。偽の会話の相手で確かめる。"""
+    """1ターンの受け取り（live_util.collect_turn）：報告の返事のあとのAIの声まで、1ターンとして受け取る。偽の会話の相手で確かめる。"""
 
     def session(self, turns):
         import asyncio
@@ -846,67 +844,131 @@ class CollectTurnTest(unittest.TestCase):
         return T.SimpleNamespace(usage_metadata=None, go_away=None, session_resumption_update=None, server_content=None,
                                  tool_call=T.SimpleNamespace(function_calls=[fc]))
 
-    def collect(self, sess, non_blocking):
+    def collect(self, sess):
         import asyncio
         import time
 
         from live_util import collect_turn
-        return asyncio.run(collect_turn(sess, started_at=time.monotonic(), on_tool_call=lambda fc: {"result": "ok"},
-                                        timeout_s=5, non_blocking=non_blocking, grace_s=0.2))
+        return asyncio.run(collect_turn(sess, started_at=time.monotonic(), on_tool_call=lambda fc: {"result": "ok"}, timeout_s=5))
 
     def test_blocking_waits_for_speech_after_reply(self):
-        r = self.collect(self.session([[self.tool()], [self.audio("15日の午後2時で、よろしいでしょうか。")]]), False)
+        sess = self.session([[self.tool()], [self.audio("15日の午後2時で、よろしいでしょうか。")]])
+        r = self.collect(sess)
         self.assertEqual(("".join(r.output_transcript), len(r.tool_calls), r.timed_out), ("15日の午後2時で、よろしいでしょうか。", 1, False))
+        kinds = [e["kind"] for e in r.events]
+        self.assertLess(kinds.index("tool_response_sent"), kinds.index("audio_start"))  # 間を測る時刻：返事を送ったあとに声が始まった
+        self.assertIsNone(getattr(sess.sent[0][0], "scheduling", None))  # 返事はいつもの形（待たせない宣言の名残が無い）
 
-    def test_non_blocking_ack_then_continuation_in_next_chunk(self):
-        sess = self.session([[self.audio("ありがとうございます。"), self.tool()], [self.audio("確認いたします。15日の午後2時で、よろしいでしょうか。")]])
-        r = self.collect(sess, True)
-        self.assertEqual("".join(r.output_transcript), "ありがとうございます。確認いたします。15日の午後2時で、よろしいでしょうか。")
-        self.assertFalse(r.timed_out)
-        starts = [e for e in r.events if e["kind"] == "audio_start"]
-        self.assertEqual([e["chunk"] for e in starts], [0, 1])  # 受けの言葉と続きの、それぞれの声の始まり
-        self.assertEqual(sess.sent[0][0].scheduling.name, "WHEN_IDLE")  # 返事は、AIが話し終えてから届ける
 
-    def test_non_blocking_all_in_one_chunk_ends_after_grace(self):
-        r = self.collect(self.session([[self.tool(), self.audio("ありがとうございます。確認いたします。")]]), True)
-        self.assertEqual(("".join(r.output_transcript), r.timed_out), ("ありがとうございます。確認いたします。", False))
 
-    def test_non_blocking_declaration_only_for_answer_reports(self):
-        from flowctl import NON_BLOCKING_OPS, Question, tool_declarations
-        qs = [Question("Q1", "日時は。", "datetime", conditions=("答えた",))]
-        for non_blocking in (False, True):
-            decls = {d.name: d for d in tool_declarations(qs, non_blocking=non_blocking)[0].function_declarations}
-            for name, d in decls.items():
-                want = "NON_BLOCKING" if non_blocking and name in NON_BLOCKING_OPS else None
-                self.assertEqual(d.behavior.name if d.behavior else None, want, name)
 
-    def test_ack_first_flow_and_instruction(self):
+class AckChoiceTest(unittest.TestCase):
+    """報告が届いた瞬間に、電話接続側が流す相づち（flowctl.Flow._ack。DESIGN.md 6-15。✅ 2026-10-14 ユーザー：基本は「はい、」、
+    違和感のある場面や「はい」が続くときは別の相づち）。AIには見せない。"""
+
+    def flow(self):
         from flowctl import Flow, Question
+        return Flow([Question("Q1", "ご予約はされていますか。", "yes_no", conditions=("はい", "いいえ")),
+                     Question("Q2", "ご希望の日時をお聞かせください。", "datetime", conditions=("答えた",)),
+                     Question("Q3", "ご来店の人数をお聞かせください。", "number", conditions=("答えた",))])
+
+    @staticmethod
+    def report(f, name, **args):
+        f.on_callee()
+        return f.apply(name, args)["ack"]
+
+    def test_one_call_does_not_repeat_hai(self):
+        f = self.flow()
+        acks = [self.report(f, "record_answer", question_id="Q1", condition_id="はい"),                     # 次の質問
+                self.report(f, "record_answer", question_id="Q2", condition_id="答えた", value="15日の午後2時"),  # 言い直し
+                self.report(f, "confirm_field", question_id="Q2", result="affirmed"),                       # 次の質問
+                self.report(f, "record_answer", question_id="Q3", condition_id="答えた", value="3人"),         # 言い直し
+                self.report(f, "confirm_field", question_id="Q3", result="affirmed")]                       # 締め
+        self.assertEqual(acks, ["shouchi", "hai", "arigatou", "hai", "hai"])
+
+    def test_scenes_that_do_not_fit_hai(self):
+        f = self.flow()
+        self.assertIsNone(self.report(f, "record_answer", question_id="Q2", condition_id="はい"))  # 差し戻し：流さない
+        self.assertEqual(self.report(f, "record_answer", question_id="Q1", condition_id="refused"), "shouchi")
+        self.assertEqual(self.report(f, "report_unclear", question_id="Q2"), "moushiwake")       # 聞き返す
+        self.assertEqual(self.report(f, "report_unclear", question_id="Q2"), "hai")              # 聞き返しを使い切って先へ
+        self.assertEqual(self.report(f, "record_answer", question_id="Q3", condition_id="答えた", value="3人"), "hai")
+        self.assertEqual(self.report(f, "confirm_field", question_id="Q3", result="corrected", correction="4人"), "shitsurei")
+        g = self.flow()
+        self.assertEqual(self.report(g, "record_answer", question_id="Q1", condition_id="unknown"), "shouchi")
+        self.assertEqual(self.report(g, "request_end", reason="callee_refused_call"), "shouchi")
+        h = self.flow()
+        self.assertEqual(self.report(h, "request_end", reason="callee_hurry"), "hai")
+
+    def test_every_ack_has_words_and_is_hidden_from_ai(self):
+        from phrases import ACK
+        f = self.flow()
+        f.on_callee()
+        out = f.handle(fc("record_answer", 質問="Q1", 答えの種類="はい"))
+        self.assertEqual(f.log[-1]["reply"]["ack"], "shouchi")
+        self.assertNotIn("ack", out)
+        self.assertFalse(set(out.values()) & set(ACK))
+        for ack in ("hai", "shouchi", "arigatou", "shitsurei", "moushiwake"):
+            self.assertIn(ack, ACK)
+
+    def test_thinking_callee_gets_short_hai(self):
+        from flowctl import Question
         from instruction import Business, build
-        from phrases import ACKNOWLEDGE, LEAD_IN
-        qs = [Question("Q1", "日時は。", "datetime", conditions=("答えた",))]
-        f = Flow(qs, ack_first=True)
-        r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "答えた", "value": "15日"})
-        self.assertTrue(r["say"].startswith(LEAD_IN["言い直しのつなぎ"][0]))  # 受けの言葉を重ねない（つなぎの言葉から）
-        b = Business(company="アオバ物流", caller="佐藤", purpose="ご予約の確認", questions=qs)
-        text = build(b, "S2", ack_first=True)[1]
-        self.assertTrue(all(a in text for a in ACKNOWLEDGE))
-        self.assertNotIn("ごゆっくりどうぞ", text)  # 考えている相手には「はい」と相づち（G-32：黙って待つは採らない）
-        self.assertIn("ごゆっくりどうぞ", build(b, "S2")[1])  # いまの形は変わらない
+        b = Business(company="アオバ物流", caller="佐藤", purpose="ご予約の確認", questions=[Question("Q1", "日時は。", "datetime", conditions=("答えた",))])
+        text = build(b, "S2")[1]
+        self.assertIn("「はい。」とだけ短く相づちを打って", text)
+        self.assertNotIn("ごゆっくりどうぞ", text)  # ⛔ G-30〜G-32：相手の続きの言葉にかぶった
 
 
-class AckFirstMeasureTest(unittest.TestCase):
-    def test_turn_parts_splits_ack_and_continuation(self):
-        from g33_ack_first import turn_parts
-        t = {"first_audio_after_s": 0.5,
-             "timeline": [{"at_s": 0.5, "kind": "audio_start", "chunk": 0}, {"at_s": 0.6, "kind": "tool_response_sent", "chunk": 0},
-                          {"at_s": 1.1, "kind": "turn_complete"}, {"at_s": 1.4, "kind": "audio_start", "chunk": 1}],
-             "said_events": [{"at_s": 0.7, "text": "ありがとうございます。"}, {"at_s": 1.6, "text": "確認いたします。"}]}
-        self.assertEqual(turn_parts(t), {"first_audio_s": 0.5, "cont_audio_s": 1.4, "first_text": "ありがとうございます。"})
-        t2 = {"first_audio_after_s": 1.2, "timeline": [{"at_s": 1.0, "kind": "tool_response_sent", "chunk": 0},
-                                                      {"at_s": 1.2, "kind": "audio_start", "chunk": 0}],
-              "said_events": [{"at_s": 1.3, "text": "15日で、よろしいでしょうか。"}]}  # 待つ報告の形：続きは無い（最初の声が中身）
-        self.assertEqual(turn_parts(t2)["cont_audio_s"], None)
+class AckTimingTest(unittest.TestCase):
+    """G-34 の数え方（報告の時刻に流す相づち）と、通話をつないで聞く声（stitch_gap.stitch_call）。作った記録で確かめる。"""
+
+    @staticmethod
+    def turn(first_audio, tool_at, ack="hai", said="ありがとうございます。15日の午後2時で、よろしいでしょうか。"):
+        return {"callee": {"wav": "Puck_datetime_pm.wav"}, "first_audio_after_s": first_audio, "intended": said,
+                "tool_events": [{"at_s": tool_at, "name": "record_answer", "reply": "confirm_required", "ack": ack}]}
+
+    def test_ack_played_only_before_ai_voice(self):
+        from stitch_gap import callee_speech, played_ack
+        tail = callee_speech("Puck_datetime_pm.wav")[2]
+        a = played_ack(self.turn(1.0, 0.5))
+        self.assertEqual(a["ack"], "hai")
+        self.assertAlmostEqual(a["at_s"], 0.5 + tail, places=3)  # 声の終わりから数える
+        self.assertIsNone(played_ack(self.turn(0.4, 0.5)))       # AIがもう話し始めていた：重ねない
+        self.assertIsNone(played_ack(self.turn(1.0, 0.5, ack=None)))  # 差し戻し：流さない
+
+    def test_measures_hold_ai_until_ack_ends(self):
+        from g34_ack import JOIN_S, ack_seconds, turn_measures
+        secs = ack_seconds("S2", "hai")
+        self.assertIsNotNone(secs)
+        call = {"turns": [self.turn(0.6, 0.3), {"callee": {"silence_s": 6.0}, "intended": "", "tool_events": []},
+                          self.turn(1.2, 0.5, said="はい、ありがとうございます。")]}
+        a, silent, b = turn_measures(call, "S2")
+        self.assertEqual(a["first_heard_s"], a["ack_at_s"])
+        self.assertAlmostEqual(a["ai_held_s"], max(0.0, a["ack_at_s"] + secs + JOIN_S - a["ai_at_s"]), places=2)
+        self.assertGreaterEqual(a["ack_to_ai_s"], JOIN_S - 0.001)
+        self.assertFalse(silent["spoke_in_silence"])
+        self.assertTrue(b["ai_starts_with_hai"])  # AIが自分でも「はい」から話した（相づちと重なる）
+
+    def test_stitch_call_orders_callee_ack_ai(self):
+        import numpy as np
+
+        from common import write_wav
+        from convo import AUDIO_DIR
+        from stitch_gap import stitch_call
+        AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+        ai = AUDIO_DIR / "_test_stitch_ai.wav"
+        write_wav(ai, (np.ones(24000, dtype=np.int16) * 1000).tobytes(), 24000)
+        try:
+            t = {**self.turn(1.0, 0.5), "audio_file": ai.name}
+            with tempfile.TemporaryDirectory() as d:
+                plan = stitch_call({"turns": [t]}, "S2", Path(d) / "call.wav")
+                self.assertEqual(plan[0]["heard_first"], "hai")
+                self.assertTrue((Path(d) / "call.wav").exists())
+                cut = {**self.turn(0.01, 0.5), "audio_file": ai.name}  # 割り込み：本当の時刻が分からないので作らない
+                self.assertIsNone(stitch_call({"turns": [cut]}, "S2", Path(d) / "cut.wav"))
+        finally:
+            ai.unlink()
 
 
 class RetryTest(unittest.TestCase):

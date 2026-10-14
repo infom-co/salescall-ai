@@ -13,7 +13,7 @@ import numpy as np
 
 from barge import voice_runs, voiced
 from common import read_wav_pcm16_mono, write_wav
-from convo import AUDIO_DIR
+from convo import AUDIO_DIR, CUT_IN_S
 
 CALLEE_DIR = AUDIO_DIR.parent / "callee"
 
@@ -90,6 +90,69 @@ def stitch_with_ack(callee_wav: str, ai_file: str, ack_wav: Path, ack_at_s: floa
     y = np.concatenate([lead, a, gap1, ack, gap2, b]).clip(-32768, 32767).astype(np.int16)
     write_wav(out, y.tobytes(), ai_rate)
     return ai_start
+
+
+def played_ack(turn: dict) -> dict | None:
+    """そのターンで、電話接続側が相づちを流したか（流したなら、どの相づちを、報告が届いた時刻＝声の終わりから何秒で）。
+    流すのは、受け付けた最初の報告のときだけで、AIの声がまだ始まっていないときだけ（話している最中に重ねない）。"""
+    c = turn.get("callee")
+    if not isinstance(c, dict) or "wav" not in c:
+        return None
+    first = next((e for e in turn.get("tool_events") or [] if e.get("ack")), None)
+    if first is None or first.get("at_s") is None:
+        return None
+    ai_at = turn.get("first_audio_after_s")
+    if ai_at is not None and ai_at <= first["at_s"]:
+        return None
+    return {"ack": first["ack"], "at_s": first["at_s"] + callee_speech(c["wav"])[2]}
+
+
+def ack_wav(voice_type: str, ack: str) -> Path:
+    return AUDIO_DIR.parent / "ack" / f"{voice_type}_{ack}.wav"
+
+
+def stitch_call(call: dict, voice_type: str, out: Path, reply_gap_s: float = 0.6, join_s: float = 0.05) -> list[dict] | None:
+    """通話1本を、相手の声 → (相づち) → AIの声 の順に、試験で測った時刻でつなぐ（会話全体を聞いて、「はい」が多すぎないか・
+    相づちの選び方が場面に合うかを、ユーザーが確かめるため）。相手が次に話し始めるまでの間は reply_gap_s（作った値）。
+    相手の言葉の途中でAIが話し出したターン（割り込み）は、本当の時刻が分からないので、その通話は作らない（None）。
+    返り値＝ターンごとの、相手に聞こえた最初の言葉と時刻。"""
+    rate = 24000
+    parts, plan = [np.zeros(int(0.3 * rate), dtype=np.float32)], []
+    for t in call["turns"]:
+        c = t.get("callee")
+        if isinstance(c, dict) and "followup_of" in c:
+            return None
+        if isinstance(c, dict) and "silence_s" in c:
+            if t.get("audio_file"):
+                return None  # 黙っている間にAIが話した：時刻が分からない
+            parts.append(np.zeros(int(c["silence_s"] * rate), dtype=np.float32))
+            continue
+        if not (isinstance(c, dict) and "wav" in c) or not t.get("audio_file") or t.get("first_audio_after_s") is None:
+            return None
+        if t["first_audio_after_s"] < CUT_IN_S:
+            return None
+        pcm, prate, tail = callee_speech(c["wav"])
+        a = _to_rate(pcm, prate, rate)
+        parts.append(a[: max(0, len(a) - int(tail * rate))])
+        ai_pcm, ai_rate = read_wav_pcm16_mono(AUDIO_DIR / t["audio_file"])
+        assert ai_rate == rate
+        ai_at = t["first_audio_after_s"] + tail
+        ack = played_ack(t)
+        if ack is not None:
+            x, r = _speech_only(ack_wav(voice_type, ack["ack"]))
+            x = _to_rate(x.astype(np.int16).tobytes(), r, rate)
+            start = max(ai_at, ack["at_s"] + len(x) / rate + join_s)
+            parts += [np.zeros(int(ack["at_s"] * rate), dtype=np.float32), x,
+                      np.zeros(int((start - ack["at_s"] - len(x) / rate) * rate), dtype=np.float32)]
+            plan.append({"heard_first": ack["ack"], "first_s": round(ack["at_s"], 2), "ai_s": round(start, 2),
+                         "ai_held_s": round(start - ai_at, 2)})
+        else:
+            parts.append(np.zeros(int(ai_at * rate), dtype=np.float32))
+            plan.append({"heard_first": (t.get("intended") or "")[:8], "first_s": round(ai_at, 2), "ai_s": round(ai_at, 2),
+                         "ai_held_s": 0.0})
+        parts += [np.frombuffer(ai_pcm, dtype=np.int16).astype(np.float32), np.zeros(int(reply_gap_s * rate), dtype=np.float32)]
+    write_wav(out, np.concatenate(parts).clip(-32768, 32767).astype(np.int16).tobytes(), rate)
+    return plan
 
 
 def measured_gap(turn: dict) -> float | None:
