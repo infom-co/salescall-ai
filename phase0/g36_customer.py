@@ -5,6 +5,13 @@
 - 「相手役があまりにも機械っぽい声で臨場感がないので、Leda と Sadachbia に入れ替わりでお客役をやらせたら？話し方もお客っぽいものに」
 - 「『失礼いたしました。』の後、『かしこまりました』はおかしい」⇒ お詫びのあとの言い直しの頭を「改めまして、」にした（案）
 - 「『いつでも』『なるべく早く』は『即』＝よい答え。『-』はありえない」⇒ 日時の答えとして受け付ける
+2回目（同じ日・ユーザーの続きの決定を入れたあと）に足した場面：
+- 言い直し：相手が自分の言い間違いを直す ⇒「承知しました。」＋「それでは、16日の午後2時で、よろしいでしょうか？」
+  （訂正＝こちらの聞き違い ⇒「失礼いたしました。」＋「改めまして、…大丈夫でしょうか？」）
+- 先に答えた：日時の質問に「3人です。」⇒ プログラムが聞き直し、相手は「15日の午後2時でお願いします。」と答え直す
+- 人数に別の答え：人数の質問に「家族で行こうと思ってます。」⇒ 数の型の形の確かめで聞き直し、相手は「3人です。」と答え直す
+相手役は、聞き返されたら次の台詞へ進まず、答え直す（台詞の again。⛔ 1回目：台本の相手が聞き返しのあとも次の台詞へ進み、
+「はい、そうです」「3人です」が日時の答えとして報告された＝試験の作りの誤り）。
 比べる形（考えている相手への「はい」）：
 - A_言い方を足す：AIが自分で「はい。」と言う。指示に「軽い相づちとして、落ち着いた声で、語尾を上げずに（期待するような言い方にしない）」を足した
 - B_録音の相づち：AIは声を出さずに「相手が考えている」と報告し（返事を待たない宣言・話させない返事）、プログラムが相づち風に読んだ「はい。」の
@@ -34,9 +41,17 @@ from stitch_gap import callee_speech, join_with_pause, played_ack, stitch_call
 
 VARIANTS = {"A_言い方を足す": {"thinking_op": False}, "B_録音の相づち": {"thinking_op": True}}
 THINKING = ("pause700_datetime", "pause1500_three", "filler_eto", "unclear")  # 考えている相手の台詞
-ANSWERS = ("datetime_pm", "three_people", "correct_16", "itsudemo")
+ANSWERS = ("datetime_pm", "three_people", "correct_16", "itsudemo", "restate_16", "kazoku")
 WANT = {"考える間": ("15日の午後2時", "3人"), "長い間": ("15日の午後2時", "3人"), "訂正": ("16日の午後2時", "3人"),
-        "いつでも": ("いつでも大丈夫", "3人"), "聞き取りにくい": ("15日の午後2時", "3人")}
+        "いつでも": ("いつでも大丈夫", "3人"), "聞き取りにくい": ("15日の午後2時", "3人"), "言い直し": ("16日の午後2時", "3人"),
+        "先に答えた": ("15日の午後2時", "3人"), "人数に別の答え": ("15日の午後2時", "3人")}
+# 値を直されたあとに、プログラムが流すはずの相づち（言い直しの場面の見どころ）
+WANT_AFTER = {"訂正": "shitsurei", "言い直し": "shouchi"}
+
+
+def A(name: str, again: str | None = None) -> dict:
+    """答えの台詞。聞き返されたら、again（無ければ同じ台詞）で答え直す。"""
+    return {**W(name), "again": W(again or name)["wav"]}
 
 
 def scenes() -> dict[str, list]:
@@ -47,9 +62,12 @@ def scenes() -> dict[str, list]:
         "考える間": [W("yes_reserved"), W("pause700_datetime"), W("affirm"), W("pause1500_three"), W("affirm")],
         "長い間": [W("yes_reserved"), W("datetime_pm"), W("affirm"), W("filler_eto"), {"silence_s": LONG_SILENCE_S},
                   W("three_people"), W("affirm")],
-        "訂正": [W("yes_reserved"), W("datetime_pm"), W("correct_16"), W("affirm"), W("three_people"), W("affirm")],
-        "いつでも": [W("yes_reserved"), W("itsudemo"), W("affirm"), W("three_people"), W("affirm")],
+        "訂正": [W("yes_reserved"), A("datetime_pm"), A("correct_16"), W("affirm"), A("three_people"), W("affirm")],
+        "いつでも": [W("yes_reserved"), A("itsudemo"), W("affirm"), A("three_people"), W("affirm")],
         "聞き取りにくい": [W("yes_reserved"), W("unclear"), W("datetime_pm"), W("affirm"), W("three_people"), W("affirm")],
+        "言い直し": [W("yes_reserved"), A("datetime_pm"), A("restate_16"), W("affirm"), A("three_people"), W("affirm")],
+        "先に答えた": [W("yes_reserved"), A("three_people", "datetime_pm"), W("affirm"), A("three_people"), W("affirm")],
+        "人数に別の答え": [W("yes_reserved"), A("datetime_pm"), W("affirm"), A("kazoku", "three_people"), W("affirm")],
     }
 
 
@@ -93,8 +111,14 @@ def judge(call: dict, scene: str) -> dict:
             "final_phase": call["final_phase"]}
 
 
+def after_ack(call: dict) -> str | None:
+    """値を直された報告（違う値を言われた・相手が言い直した）のあとに流した相づち。"""
+    return next((e["reply"].get("ack") for e in call["flow_log"]
+                 if e["op"] == "confirm_field" and e["reply"]["result"] == "confirm_required" and e["reply"].get("after")), None)
+
+
 def measures(call: dict, scene: str) -> dict:
-    return {"turns_measured": turn_measures(call), "checks": judge(call, scene),
+    return {"turns_measured": turn_measures(call), "checks": {**judge(call, scene), "after_ack": after_ack(call)},
             "acks": [e["reply"].get("ack") for e in call["flow_log"] if e["reply"].get("ack")],
             "says": [e["reply"].get("say") for e in call["flow_log"] if e["reply"].get("say")]}
 
@@ -111,7 +135,10 @@ def summarize(rows: list[dict]) -> dict:
         s[name] = {
             "calls": len(rs), "errors": sum(1 for r in rows if r.get("variant") == name and "error" in r),
             "values_ok": sum(r["checks"]["q2_ok"] + r["checks"]["q3_ok"] for r in rs), "values": 2 * len(rs),
-            "by_scene": {sc: sum(r["checks"]["q2_ok"] and r["checks"]["q3_ok"] for r in rs if r["scene"] == sc) for sc in WANT},
+            "by_scene": {sc: f'{sum(r["checks"]["q2_ok"] and r["checks"]["q3_ok"] for r in rs if r["scene"] == sc)}/'
+                             f'{sum(1 for r in rs if r["scene"] == sc)}' for sc in WANT if any(r["scene"] == sc for r in rs)},
+            "after_ack_ok": {sc: f'{sum(r["checks"].get("after_ack") == a for r in rs if r["scene"] == sc)}/'
+                                 f'{sum(1 for r in rs if r["scene"] == sc)}' for sc, a in WANT_AFTER.items() if any(r["scene"] == sc for r in rs)},
             "rejected": sum(r["checks"]["rejected"] for r in rs), "ask_backs": sum(r["checks"]["ask_backs"] for r in rs),
             "thinking_turns": len(thinking), "thinking_reported": sum(t["thinking_report"] for t in thinking),
             "thinking_spoke": sum(t["spoke"] for t in thinking),
@@ -124,13 +151,15 @@ def summarize(rows: list[dict]) -> dict:
 
 
 def make_listening(result: Path, out: Path) -> list[dict]:
-    """長い間・訂正・いつでも の通話をつないだ聞き比べの声（形ごと・声の型ごとに1本。決まりどおりに進んだ通話を先に選ぶ）。"""
+    """長い間と、聞き返し・言い直しの場面の通話をつないだ聞き比べの声（声の型ごとに1本。決まりどおりに進んだ通話を先に選ぶ）。
+    長い間は形ごと（考えている相手への「はい」を聞き比べる）、ほかの場面は、結果にある最初の形だけ。"""
     d = json.loads(result.read_text(encoding="utf-8"))
     out.mkdir(parents=True, exist_ok=True)
     rows = sorted((r for r in d["rows"] if "turns" in r), key=lambda r: not (r["checks"]["q2_ok"] and r["checks"]["q3_ok"]))
     made, n = [], 0
-    for scene in ("長い間", "訂正", "いつでも"):
-        for name in VARIANTS if scene == "長い間" else ("B_録音の相づち",):
+    present = [v for v in VARIANTS if any(r["variant"] == v for r in rows)]
+    for scene in ("長い間", "訂正", "言い直し", "いつでも", "先に答えた", "人数に別の答え"):
+        for name in present if scene == "長い間" else present[-1:]:
             for vt in VOICE_TYPES:
                 for r in rows:
                     if (r["variant"], r["type"], r["scene"]) != (name, vt, scene):
@@ -150,7 +179,7 @@ async def run(args) -> dict:
     plan = scenes()
     if args.dry_run:
         from make_callee_samples import verified
-        need = {f"{v}_{utt(x['wav'])}.wav" for v in CALLEE_FOR.values() for xs in plan.values() for x in xs if "wav" in x}
+        need = {f"{v}_{utt(x[k])}.wav" for v in CALLEE_FOR.values() for xs in plan.values() for x in xs for k in ("wav", "again") if k in x}
         return {"dry_run": True, "missing": sorted(w for w in need if not verified(w) and "pause" not in w and "unclear" not in w)}
     client = make_client(pick_key(args))
     rows = []
@@ -158,6 +187,8 @@ async def run(args) -> dict:
         for vt in args.type or VOICE_TYPES:
             for scene in args.scene or tuple(plan):
                 for name, kw in VARIANTS.items():
+                    if args.variant and name not in args.variant:
+                        continue
                     try:
                         call = await run_call(client, args.model, BUSINESS, vt, plan[scene], opening_mode="recorded", use_ear=False,
                                               save_audio="all", audio_label=f"G36_{name}_{scene}_{rep}", followup_wait_s=FOLLOWUP_WAIT_S,
@@ -184,12 +215,16 @@ def main() -> None:
     p.add_argument("--pause", type=float, default=3.0)
     p.add_argument("--type", choices=sorted(VOICE_TYPES), action="append")
     p.add_argument("--scene", choices=tuple(WANT), action="append")
+    p.add_argument("--variant", choices=tuple(VARIANTS), action="append", help="流す形（無ければ両方）")
     p.add_argument("--listen", type=Path, help="この結果から、聞き比べの声を作る（キーを使わない）")
     p.add_argument("--out", type=Path)
     args = p.parse_args()
     if args.listen:
         for m in make_listening(args.listen, args.out):
             print(json.dumps(m, ensure_ascii=False))
+        return
+    if args.dry_run:  # ⛔ 2026-10-14：下見の結果を保存し、途中の結果のファイルまで消していた（流れている G-36 の途中の結果）
+        print(json.dumps(asyncio.run(run(args)), ensure_ascii=False))
         return
     save_result("G-36", asyncio.run(run(args)))
     drop_partial("G-36")
