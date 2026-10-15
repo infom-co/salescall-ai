@@ -175,6 +175,14 @@ def _pacing(tx: Tx, task: dict[str, Any], now: datetime, assume_promised: bool |
     return Pacing(remaining, at, reason, promised)
 
 
+def counted_dial_times(tx: Tx, task_id: UUID, *, purpose: str) -> list[datetime]:
+    """その行で、その目的でかけた発信のうち、かけた回数に数えるもの（数え方は上の1つ）の、かけた時刻（日本時間）。
+    番号の聞き直しの回数と、試した時間帯を数えるのに使う（DESIGN.md 3-5）。"""
+    return [r["t"] for r in tx.all(
+        f"SELECT salescall.jst(claimed_at) AS t FROM salescall.attempts WHERE task_id = %s AND purpose = %s AND {_COUNTED}"
+        " ORDER BY claimed_at", (task_id, purpose))]
+
+
 def pacing(tx: Tx, task_id: UUID, *, contact_id: UUID | None = None, promised: bool | None = None) -> Pacing:
     """その行（タスク）の、残りの回数と、次にかけてよい最も早い時刻（門・次の動き・画面が読む1か所）。
     contact_id：その番号へかける場合で数える（次の動きが、決める前に使う）。None ならいまの予定の番号。

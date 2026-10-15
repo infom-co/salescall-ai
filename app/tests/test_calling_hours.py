@@ -6,7 +6,7 @@ import unittest
 from datetime import date, datetime, timedelta
 
 from salescall.core.calendar import CalendarOutOfRange
-from salescall.core.calling_hours import covers, day_key, next_opening
+from salescall.core.calling_hours import band_of, covers, day_key, next_opening, next_opening_in_new_band
 
 KEYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun", "holiday")
 WEEKDAY_9_18 = {k: ([["09:00", "18:00"]] if k in ("mon", "tue", "wed", "thu", "fri") else []) for k in KEYS}
@@ -67,6 +67,32 @@ class NextOpening(unittest.TestCase):
         self.assertEqual(next_opening(WEEKDAY_9_18, no_holiday, at(fri, 17, 59, 45), length), at(MON + timedelta(days=7), 9))
         never = {k: [] for k in KEYS}
         self.assertIsNone(next_opening(never, no_holiday, at(MON, 10), length))
+
+
+
+class OtherBand(unittest.TestCase):
+    """出なかった相手へ、前と別の時間帯にかけ直す（2026-10-15 ユーザー）。区切り [12, 15]＝午前・昼過ぎ・夕方。"""
+    B = [12, 15]
+    L = timedelta(seconds=30)
+
+    def find(self, hours, after, tried):
+        return next_opening_in_new_band(hours, no_holiday, after, self.L, self.B, tried)
+
+    def test_band_of(self):
+        self.assertEqual([band_of(at(MON, h, m), self.B) for h, m in ((9, 0), (11, 59), (12, 0), (14, 59), (15, 0), (23, 0))],
+                         [0, 0, 1, 1, 2, 2])
+
+    def test_moves_to_a_band_not_tried_yet(self):
+        self.assertEqual(self.find(WEEKDAY_9_18, at(MON, 10, 30), {0}), at(MON, 12))           # 午前に出なかった ⇒ 昼過ぎ
+        self.assertEqual(self.find(WEEKDAY_9_18, at(MON, 12, 30), {0, 1}), at(MON, 15))        # ⇒ 夕方
+        self.assertEqual(self.find(WEEKDAY_9_18, at(MON, 16), {1, 2}), at(MON + timedelta(days=1), 9))   # 翌日の午前
+        self.assertEqual(self.find(WEEKDAY_9_18, at(MON, 13), {0}), at(MON, 13))               # いまが試していない時間帯
+
+    def test_no_other_band_means_another_day(self):
+        night = {k: [["18:00", "22:00"]] for k in KEYS}                                         # 夜だけ開くお店
+        self.assertEqual(self.find(night, at(MON, 19), {2}), at(MON + timedelta(days=1), 19))  # 直後でなく、翌日の同じ頃
+        friday_evening = at(MON + timedelta(days=4), 16)
+        self.assertEqual(self.find(WEEKDAY_9_18, friday_evening, {0, 1, 2}), at(MON + timedelta(days=7), 9))   # 土日を飛ばす
 
 
 if __name__ == "__main__":

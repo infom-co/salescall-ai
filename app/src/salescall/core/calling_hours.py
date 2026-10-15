@@ -70,3 +70,29 @@ def next_opening(hours: dict, is_holiday: Callable[[date], bool], after: datetim
             if candidate >= after and covers(hours, is_holiday, candidate, candidate + length):
                 return candidate
     return None
+
+
+# ── 時間帯の区切り（「別の時間帯にかけ直す」。DESIGN.md 3-5・7-2-1。2026-10-15 ユーザー） ──
+def band_of(t: datetime, boundaries: list[int]) -> int:
+    """その時刻が、1日のうちのどの時間帯か（0 から。boundaries＝区切りの時、例 [12, 15] ⇒ 午前・昼過ぎ・夕方の3つ）。"""
+    h = t.hour + t.minute / 60 + t.second / 3600
+    return sum(1 for b in boundaries if h >= b)
+
+
+def next_opening_in_new_band(hours: dict, is_holiday: Callable[[date], bool], after: datetime, length: timedelta,
+                             boundaries: list[int], tried: set[int], *, horizon_days: int = 31) -> datetime | None:
+    """after 以降で、まだ試していない時間帯（tried に無いもの）の中の、かけてよい最も早い始まり（日本時間）。
+    その業務の時間帯に、試していない時間帯がもう無ければ（例：夜だけ開くお店）、翌日以降の同じ頃からの次の始まり（日を変える）。"""
+    for offset in range(horizon_days + 1):
+        d = after.date() + timedelta(days=offset)
+        starts = {r0 for r0, _ in _ranges(hours, day_key(d, is_holiday))} | {b * 3600 for b in boundaries}
+        if offset == 0:
+            starts.add(int(_of_day(after)))
+        for s in sorted(starts):
+            candidate = datetime.combine(d, time()) + timedelta(seconds=s)
+            if offset == 0 and candidate < after:
+                continue
+            if band_of(candidate, boundaries) not in tried and covers(hours, is_holiday, candidate, candidate + length):
+                return max(candidate, after)
+    # 試していない時間帯が無い：出なかった直後にかけ直さず、翌日以降の同じ頃から（日を変える）
+    return next_opening(hours, is_holiday, after + timedelta(days=1), length, horizon_days=horizon_days)

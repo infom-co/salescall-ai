@@ -13,7 +13,7 @@ from salescall.core import gate
 from salescall.core.business_rules import RulesInvalid, check
 from salescall.core.call_report import CallReport, Callback, Cut, ReportInvalid, from_json
 from salescall.core.judge import Facts, Item, JudgeInput, classify_cut, judge
-from salescall.core.next_action import Alternate, Recheck, Target, choose_number, decide_after_call, decide_after_denial
+from salescall.core.next_action import Alternate, AskAgain, Recheck, Target, choose_number, decide_after_call, decide_after_denial
 from tests.support import rules_raw
 
 V = uuid.uuid4()
@@ -265,15 +265,22 @@ class WrongNumberTheCalleeGave(unittest.TestCase):
         self.assertEqual((d.kind, d.end_reason), ("end", "alternate_wrong_again"))
 
     def test_ask_again_keeps_its_purpose_while_nobody_answers(self):
+        """2026-10-15 ユーザー：「時間帯により出られないことはよくある。3回までなどの制限をかけ、別の時間帯にかけ直す」。"""
         asking = Target(MAIN, None, "ask_number_again", ALT)
         no_answer = run(facts=Facts("no_answer", None, False, False), rep=None, items={})
         self.assertEqual(choose_number(no_answer, dialed=asking, alternate=None, recheck=None), asking)
-        d = decide_after_call(no_answer, verification="not_needed", normal=P_NONE, promised=P_NONE, rules=RULES,
-                              times_with_key=1, now=NOW, target=asking)
-        self.assertEqual((d.kind, d.target, d.promised), ("call", asking, False))   # ふつうの方針・回数の上限に従う
-        d = decide_after_call(no_answer, verification="not_needed", normal=gate.Pacing(0, NOW, None, False),
-                              promised=P_NONE, rules=RULES, times_with_key=1, now=NOW, target=asking)
-        self.assertEqual((d.kind, d.end_reason), ("end", "max_attempts"))
+        later = NOW + timedelta(hours=3)
+        decide = lambda ask: decide_after_call(no_answer, verification="not_needed", normal=gate.Pacing(0, NOW, None, False),
+                                               promised=P_NONE, rules=RULES, times_with_key=9, now=NOW, target=asking,
+                                               ask=ask)
+        d = decide(AskAgain(1, 3, later))
+        self.assertEqual((d.kind, d.target, d.promised, d.at), ("call", asking, True, later))   # 行の上限・方針では止めない
+        d = decide(AskAgain(3, 3, later))
+        self.assertEqual((d.kind, d.end_reason), ("end", "ask_number_again_unanswered"))
+        d = decide(AskAgain(1, 3, None))
+        self.assertEqual((d.kind, d.end_reason), ("end", "no_calling_hours"))
+        with self.assertRaises(ValueError):
+            decide(None)
         talked = run(items={"Q1": TAKEN["Q1"]})                                    # 会話したら、目的は果たした扱い
         self.assertEqual(choose_number(talked, dialed=asking, alternate=None, recheck=None), Target(MAIN))
 

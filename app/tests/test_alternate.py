@@ -12,7 +12,7 @@ import unittest
 import uuid
 from datetime import timedelta
 
-from salescall.core import attempts, dnc, gate, next_action, number_recheck, results, tasks
+from salescall.core import attempts, calling_hours, dnc, gate, next_action, number_recheck, results, tasks
 from salescall.core.access import Rejected
 from salescall.core.call_report import Callback
 from salescall.core.phone import normalize
@@ -307,6 +307,28 @@ class WrongNumber(Base):
         with self.assertRaises(Rejected):                                    # 1つの通話に1回だけ
             self.tx(s2, lambda tx: number_recheck.record(tx, aid, "as_said", corrected=None, evidence="x", checked_by="x"))
 
+
+    def test_unanswered_ask_again_moves_to_other_bands_up_to_the_limit(self):
+        """聞き直しの電話に出なかった ⇒ 3回まで、毎回、前と別の時間帯に（2026-10-15 ユーザー）。"""
+        s = self.ready_jp()
+        self.redirect(s)
+        self.wrong_call(s, "as_said")
+        boundaries = [12, 15]
+        for n in (1, 2, 3):
+            aid = self.call(s, NO_ANSWER)
+            got = self.settle(s, aid)
+            if n < 3:
+                nxt = self.current(s)
+                self.assertEqual((nxt["kind"], nxt["purpose"], nxt["promised"]), ("call", "ask_number_again", True))
+                bands = self.tx(s, lambda tx: tx.one(
+                    "SELECT salescall.jst(%s) AS next, salescall.jst(claimed_at) AS tried FROM salescall.attempts"
+                    " WHERE attempt_id = %s", (nxt["call_at"], aid)))
+                self.assertNotEqual(calling_hours.band_of(bands["next"], boundaries),
+                                    calling_hours.band_of(bands["tried"], boundaries))   # 前と別の時間帯
+                self.tx(s, lambda tx: next_action.schedule_call(          # 試験：その時刻が来たことにする
+                    tx, s["task"], self.now(s), contact_id=nxt["contact_id"], cause="試験", promised=True,
+                    purpose="ask_number_again", wrong_contact_id=nxt["wrong_contact_id"]))
+        self.assertEqual((got["decision"].kind, got["decision"].end_reason), ("end", "ask_number_again_unanswered"))
 
     def test_database_promises(self):
         s = self.ready_jp()

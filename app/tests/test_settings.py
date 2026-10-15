@@ -61,7 +61,10 @@ class Shapes(unittest.TestCase):
                                               ("mon", "tue", "wed", "thu", "fri", "sat", "sun", "holiday")}),
                            ("callee.business_hours", ["09:00"]), ("callee.business_hours", ["09:00", "09:00"]),
                            ("callee.business_hours", ["9:00", "19:00"]), ("callee.business_hours", ["09:00", "24:00"]),
-                           ("callee.business_hours", "09:00-19:00"), ("callee.business_hours", [9, 19])]:
+                           ("callee.business_hours", "09:00-19:00"), ("callee.business_hours", [9, 19]),
+                           ("retry.time_band_boundaries", []), ("retry.time_band_boundaries", [15, 12]),
+                           ("retry.time_band_boundaries", [12, 12]), ("retry.time_band_boundaries", [0, 12]),
+                           ("retry.time_band_boundaries", [12, 24]), ("retry.time_band_boundaries", [11.5])]:
             with self.subTest(key=key, value=value), self.assertRaises(Rejected):
                 sys_tx(lambda tx: settings.set_system_value(tx, key, value, status="provisional",
                                                             rationale="試験", review_when="試験"))
@@ -147,7 +150,9 @@ class UserDecisions(unittest.TestCase):
                          "calling.hours_limit", "call.hangup_after_decline_wait", "call.hangup_after_close_wait",
                          "callback.call_alternate_number", "calling.allow_toll_free", "calling.allow_navi_dial",
                          "dnc.client_ref_is_stable_id", "call.silence_prompt_after", "conversation.ask_back_required",
-                         "conversation.recheck_required", "callee.business_hours"}.isdisjoint(decided))
+                         "conversation.recheck_required", "callee.business_hours",
+                         "retry.ask_number_again_max"}.isdisjoint(decided))
+        self.assertEqual((v("retry.ask_number_again_max"), v("retry.time_band_boundaries")), (3, [12, 15]))
         self.assertEqual(v("callee.business_hours"), ["09:00", "19:00"])
         self.assertEqual((v("call.silence_prompt_after"), v("conversation.ask_back_required"),
                           v("conversation.recheck_required")), (5, 2, 1))

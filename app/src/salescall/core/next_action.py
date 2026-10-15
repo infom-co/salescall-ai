@@ -159,8 +159,8 @@ def choose_number(j: Judgement, *, dialed: Target, alternate: Alternate | None, 
     - 相手が「別の番号にかけ直して」と言った ⇒ その番号（設定でかけない・かけない理由があれば、かけない）。
     - 相手が言った番号が番号違いだった ⇒ 番号の確かめのとおり：聞き違い ⇒ 正しい番号／言われたとおり・確かめられない ⇒
       番号を聞いた通話の番号へ「番号の聞き直し」（同じ行で2度目なら、聞き直さずに終える）。
-    - 聞き直しの通話で、会話に至らなかった ⇒ 目的を引き継ぐ（かけるかは、ふつうの再発信の方針と回数の上限のとおり。
-      出ない相手へ上限なしにかけ続けない）。
+    - 聞き直しの通話で、会話に至らなかった ⇒ 目的を引き継ぐ（いつかけるか・何回までかは decide_after_call：
+      聞き直しの回数の上限まで、毎回、前と別の時間帯に。2026-10-15 ユーザー）。
     - それ以外 ⇒ いまかけた番号のまま（ふつうの目的）。"""
     cb = j.detail.get("callback") if j.state == "callback_scheduled" else None
     if cb is not None and cb["reason"] == "other_number":
@@ -180,11 +180,19 @@ def choose_number(j: Judgement, *, dialed: Target, alternate: Alternate | None, 
     return Target(dialed.contact_id)
 
 
+@dataclass(frozen=True)
+class AskAgain:
+    """番号の聞き直しの電話に出なかったときの材料（2026-10-15 ユーザー：「3回までなどの制限をかけ、別の時間帯にかけ直す」）。"""
+    tries: int                   # この行で、聞き直しとしてかけた回数（門の数え方。今回を含む）
+    limit: int                   # 設定 retry.ask_number_again_max
+    at: datetime | None          # まだ試していない時間帯の、次にかけられる時刻（無ければ None）
+
+
 def decide_after_call(j: Judgement, *, verification: str, normal: gate.Pacing, promised: gate.Pacing, rules: Rules,
-                      times_with_key: int, now: datetime, target: Target) -> Decision:
+                      times_with_key: int, now: datetime, target: Target, ask: AskAgain | None = None) -> Decision:
     """通話のあとの次の動き。normal / promised＝次にかける先へ、ふつうの予定・約束したかけ直しにした場合の門の数え方。
     times_with_key＝この行で、今回の結果と同じ再発信の方針の鍵の結果が出た回数（今回を含む）。
-    target＝`choose_number` の答え（次にかける先、または終える理由）。"""
+    target＝`choose_number` の答え（次にかける先、または終える理由）。ask＝聞き直しで出なかったときの材料（そのときだけ）。"""
     if j.state in END_STATES:
         return _end(j.state, "目的を果たした・終わった結果")
     if verification == "failed":
@@ -209,6 +217,15 @@ def decide_after_call(j: Judgement, *, verification: str, normal: gate.Pacing, p
                 return _end(key, "かけ直しの時刻が決まっていない約束：再発信の方針で終える")
             at = now + timedelta(seconds=p.interval_seconds)
         return _call(max(at, promised.earliest or now), True, "相手と約束したかけ直し", target)
+    if target.purpose == "ask_number_again":   # 聞き直しの電話に出なかった（会話に至らなかった）
+        if ask is None:
+            raise ValueError("番号の聞き直しで出なかったのに、その材料がありません")
+        if ask.tries >= ask.limit:
+            return _end("ask_number_again_unanswered", f"番号の聞き直し：{ask.limit} 回かけても出なかった（番号は依頼主へ渡す）")
+        if ask.at is None:
+            return _end("no_calling_hours", "これから先、かけてよい時間帯が無い")
+        return _call(max(ask.at, promised.earliest or ask.at), True,
+                     f"番号の聞き直し：出なかった ⇒ 別の時間帯に（{ask.tries + 1} 回目）", target)
     if normal.remaining <= 0:
         return _end("max_attempts", "この行にかけてよい回数を使い切った")
     if key is None:
@@ -258,12 +275,34 @@ def after_call(tx: Tx, task_id: UUID, j: Judgement, *, verification: str, rules:
         " AND detail ->> 'policy_key' = %s", (task_id, key))["n"]
     target = choose_number(j, dialed=dialed, alternate=alternate, recheck=recheck)
     count_at = target.contact_id or dialed.contact_id     # 終えるときは数え方を使わない（いまの番号で数えておく）
+    promised = gate.pacing(tx, task_id, contact_id=count_at, promised=True)
+    ask = None
+    if target.purpose == "ask_number_again" and j.state == "open":
+        ask = _ask_again(tx, task_id, max(now, promised.earliest or now))
     d = decide_after_call(j, verification=verification,
                           normal=gate.pacing(tx, task_id, contact_id=count_at, promised=False),
-                          promised=gate.pacing(tx, task_id, contact_id=count_at, promised=True), rules=rules,
-                          times_with_key=times, now=now, target=target)
+                          promised=promised, rules=rules, times_with_key=times, now=now, target=target, ask=ask)
     _write(tx, task_id, d)
     return d
+
+
+def _ask_again(tx: Tx, task_id: UUID, after: datetime) -> AskAgain:
+    """聞き直しで出なかったときの材料：かけた回数と試した時間帯（門の数え方）・まだ試していない時間帯の次にかけられる時刻。"""
+    scope = tx.one("SELECT t.tenant_id, t.client_id, r.business_id FROM salescall.tasks t"
+                   " JOIN salescall.runs r ON r.client_id = t.client_id AND r.run_id = t.run_id WHERE t.task_id = %s",
+                   (task_id,))
+    get = lambda key: settings.resolve(tx, key, **scope)   # noqa: E731
+    boundaries = list(get("retry.time_band_boundaries"))
+    tried_at = gate.counted_dial_times(tx, task_id, purpose="ask_number_again")
+    local = tx.one("SELECT salescall.jst(%s) AS t", (after,))["t"]
+    try:
+        found = calling_hours.next_opening_in_new_band(
+            get("calling.hours"), holiday_checker(tx), local, timedelta(seconds=int(get("gate.claim_lifetime"))),
+            boundaries, {calling_hours.band_of(t, boundaries) for t in tried_at})
+        at = None if found is None else tx.one("SELECT salescall.from_jst(%s) AS t", (found,))["t"]
+    except CalendarOutOfRange:   # 暦の無い日に当たる：決めつけず、待ってから門にもう一度確かめさせる
+        at = after + timedelta(seconds=int(get("gate.denied_retry_wait")))
+    return AskAgain(len(tried_at), int(get("retry.ask_number_again_max")), at)
 
 
 def after_denial(tx: Tx, task_id: UUID, denied: gate.Denied, *, tenant_id: UUID, client_id: UUID,
