@@ -208,6 +208,9 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      " WITH r AS (UPDATE salescall.attempts SET state = 'released' WHERE state = 'claimed' AND claim_expires_at <= now()"
      " AND (contact_id = p_contact OR phone_e164 = p_phone OR line_id = p_line) RETURNING 1) SELECT count(*)::integer FROM r $$",
      ("tests.test_alternate.DatabasePromises.test_expired_claim_on_another_number_of_the_row_is_released",)),
+    # システムの管理者（CL-3 の 4-1f の3）
+    ("システムの値を管理者だけにする仕掛けを外す", "DROP TRIGGER setting_values_system_by_admin ON salescall.setting_values",
+     ("tests.test_settings.SystemValuesByAdmin.test_only_admin",)),
     # 承認の部分（10-2）
     ("行を承認できるのは運営者だけ、の仕掛けを外す", "DROP TRIGGER task_approval_by_operator ON salescall.task_approvals",
      ("tests.test_approval.HumanApproval.test_dials_only_approved_rows",)),

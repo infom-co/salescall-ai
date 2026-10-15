@@ -10,11 +10,12 @@ import uuid
 
 from salescall.core import settings
 from salescall.core.access import Rejected
-from tests.support import OPERATOR, SYSTEM, World, owner_access
+from tests.support import ADMIN, OPERATOR, SYSTEM, World, owner_access
 
 
 def sys_tx(work):
-    return World().a.in_system(SYSTEM, work)
+    """全体の取引（システムの値を変えられるのはシステムの管理者だけ。0017）。"""
+    return World().a.in_system(ADMIN, work)
 
 
 class EveryDefinitionHasAValue(unittest.TestCase):
@@ -97,6 +98,29 @@ class Shapes(unittest.TestCase):
         with self.assertRaises(Rejected):
             sys_tx(lambda tx: settings.set_system_value(tx, "undefined.key", 1, status="provisional",
                                                         rationale="x", review_when="x"))
+
+
+class SystemValuesByAdmin(unittest.TestCase):
+    """システムの値（すべての契約者に効く）を変えられるのは、システムの管理者だけ（CL-3 の 4-1f の3）。"""
+
+    def test_only_admin(self):
+        a = World().a
+        for actor in (OPERATOR, SYSTEM):
+            with self.subTest(actor=actor.kind), self.assertRaises(Rejected) as e:
+                a.in_system(actor, lambda tx: settings.set_system_value(tx, "gate.denied_retry_wait", 300,
+                                                                      status="provisional", rationale="試験",
+                                                                      review_when="試験"))
+            self.assertEqual(e.exception.constraint, "system_values_by_admin")
+        from decimal import Decimal
+        from salescall.core import usage
+        with self.assertRaises(Rejected):
+            a.in_system(OPERATOR, lambda tx: usage.set_price(tx, source="line", unit="seconds", yen_per_unit=Decimal(0),
+                                                             valid_from="2026-01-02", note="試験"))
+        w = World(); t = w.tenant(); c = w.client(t)                   # 依頼主ごとの値は、運営者が入れられる
+        w.a.in_client(OPERATOR, t, c, lambda tx: tx.execute(
+            "INSERT INTO salescall.setting_values (key, scope, tenant_id, client_id, value, status, rationale, review_when,"
+            " set_by) VALUES ('retry.max_attempts_per_task', 'client', %s, %s, '2', 'decided', '試験', '試験', '試験')",
+            (t, c)))
 
 
 class AppendOnly(unittest.TestCase):

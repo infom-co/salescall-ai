@@ -18,6 +18,7 @@ from salescall.core.attempts import VerificationSummary
 OPERATOR = Actor("試験の運営者", "operator")
 CLEAN = VerificationSummary(items_checked=1, items_disagreed=0, forbidden_speech=0)   # 検証で何も見つからなかった
 SYSTEM = Actor("試験のシステムの処理", "system")
+ADMIN = Actor("試験のシステムの管理者", "admin")
 
 _numbers = itertools.count(int(uuid.uuid4().int % 500))
 

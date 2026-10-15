@@ -29,7 +29,7 @@ from psycopg.rows import dict_row
 
 T = TypeVar("T")
 
-ACTOR_KINDS = ("operator", "system")  # 人（運営者）か、システムの処理か。データベースの actor_kind と同じ
+ACTOR_KINDS = ("operator", "system", "admin")  # 人（運営者）か、システムの処理か、システムの管理者か。データベースの actor_kind と同じ
 
 
 @dataclass(frozen=True)

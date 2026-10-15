@@ -51,7 +51,7 @@ CREATE TYPE salescall.dnc_reason AS ENUM (                                 -- �
 );
 CREATE TYPE salescall.stop_scope AS ENUM ('system', 'tenant', 'client');    -- 停止の範囲（Q13）
 CREATE TYPE salescall.stop_action AS ENUM ('stop', 'resume');
-CREATE TYPE salescall.actor_kind AS ENUM ('operator', 'system');            -- 誰が（人か、システムの処理か）
+CREATE TYPE salescall.actor_kind AS ENUM ('operator', 'system', 'admin');   -- 誰が（人か、システムの処理か。admin＝システムの管理者。0017）
 CREATE TYPE salescall.delivery_state AS ENUM ('pending', 'sending', 'sent', 'failed', 'retrying', 'dead');  -- 連携（4-5）
 
 -- ═════════ 契約者・依頼主・回線 ═════════
