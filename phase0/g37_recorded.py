@@ -62,6 +62,19 @@ def measures(call: dict, scene: str) -> dict:
             "play_turns": play_turns, "after_play": after_play}
 
 
+def speech_rate(rows: list[dict]) -> dict:
+    """AIが自分で話した言い直しの速さ（声だけの長さ1秒あたりの拍の数）。声の型ごとの中央と最も速い値。
+    ⚠️ 2026-10-15 ユーザー：「『かしこまりました。3人で大丈夫でしょうか』が早回しのように聞こえる」（G-37 の2回目の S2。1秒あたり 10.3拍）。
+    「はい。」だけのターンは除く（拍が少なく、速さにならない）。声の確かめが通ったターンだけ（崩れた声の長さは比べない）。"""
+    by = {}
+    for r in rows:
+        for t in r.get("turns") or []:
+            c = t.get("check") or {}
+            if t.get("audio_file") and c.get("kind") == "ok" and c.get("voiced_s") and (c.get("morae") or 0) >= 10:
+                by.setdefault(r["type"], []).append(c["morae"] / c["voiced_s"])
+    return {vt: {"n": len(v), "median": round(st.median(v), 2), "max": round(max(v), 2)} for vt, v in sorted(by.items())}
+
+
 def summarize(rows: list[dict]) -> dict:
     rs = [r for r in rows if "checks" in r]
     pt = [p for r in rs for p in r["play_turns"]]
@@ -75,7 +88,7 @@ def summarize(rows: list[dict]) -> dict:
             "play_turns": len(pt), "ai_spoke_on_play": sum(p["ai_spoke"] for p in pt),
             "ai_said_on_play": sorted({p["ai_said"] for p in pt if p["ai_said"]}),
             "repeated_question_after_play": sum(a["repeated_question"] for a in ap),
-            "rejected": sum(r["checks"]["rejected"] for r in rs),
+            "rejected": sum(r["checks"]["rejected"] for r in rs), "speech_rate": speech_rate(rs),
             "first_heard": {"n": len(first), "median": round(st.median(first), 2),
                             "p90": round(first[min(len(first) - 1, int(len(first) * 0.9))], 2)} if first else None}
 
