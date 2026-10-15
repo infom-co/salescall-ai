@@ -17,7 +17,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from phrases import CLOSE_DECLINED, CLOSING
+from phrases import AMPM_ASK, CLOSE_DECLINED, CLOSING
 from phrases import ask_again as ask_again_phrase
 from phrases import confirm as confirm_phrase
 from phrases import lead_in as lead_in_phrase
@@ -127,6 +127,47 @@ def form_problem(qtype: str, value: str | None) -> str | None:
     if value in _LABELS:
         return "相手の答えではなく、こちらの名前です"
     return None  # 「いつでも」「なるべく早く」「そちらのご都合で」など：日時を決めない答え（こちら次第＝営業にはよい答え）
+
+
+# 午前・午後（✅ 2026-10-15 ユーザー：AIからプログラムへ移す。「例えば、1時と言われた場合に、『午前と午後、どちらになりますでしょうか？』は、
+# 深夜営業でもしていない限りおかしい。依頼者ごとに『営業時間』を入れる形にして、その時間外の時間だと、午前と午後の確認はしない。会社の場合は
+# 9:00〜19:00 がデフォルト、店舗や深夜営業店などは営業時間を入れる形式」）。⛔ G-37：AIが「32 です」を時刻と思い込み、報告せずに自分で
+# 午前・午後を聞き、相手の言っていない「3時の午後」を報告した。
+# ⇒ 時刻（1〜12時）に午前・午後を表す言葉が無いとき：午前と午後のどちらか一方だけが営業時間に入れば、その側を値に補う（言い直しで相手が
+#    確かめられる）。両方とも入る・どちらも入らないときだけ、プログラムが1回だけ聞く（AMPM_ASK）。答え（「午後です」）は、前の値に入れる
+AMPM_TYPES = {"time", "datetime"}
+DEFAULT_BUSINESS_HOURS = (9, 19)  # 会社の初めの値（9:00〜19:00）。依頼主ごとの設定（店舗・深夜営業は (18, 3) のように日をまたいでよい）
+AMPM_WORDS = re.compile(r"午前|午後|朝|昼|夕方|夕刻|夜|晩|深夜|夜中|明け方|正午")
+_HOUR = re.compile(r"(?<!\d)(\d{1,2})時")
+
+
+def _in_hours(hour: int, hours: tuple[int, int]) -> bool:
+    open_, close = hours
+    return open_ <= hour <= close if open_ <= close else (hour >= open_ or hour <= close)
+
+
+def fill_ampm(value: str | None, hours: tuple[int, int] = DEFAULT_BUSINESS_HOURS) -> tuple[str | None, bool]:
+    """時刻の値に午前・午後が無いとき、営業時間から補う。返り値＝(値, 聞く必要があるか)。"""
+    if not value or AMPM_WORDS.search(value) or not (m := _HOUR.search(value)):
+        return value, False
+    h = int(m.group(1))
+    if h == 0 or h > 12:
+        return value, False
+    am, pm = (0, 12) if h == 12 else (h, h + 12)
+    am_in, pm_in = _in_hours(am, hours), _in_hours(pm, hours)
+    if am_in == pm_in:
+        return value, True
+    if h == 12 and pm_in:
+        return value, False  # 「12時」は昼の12時（「午後12時」とは言わない）
+    return value[:m.start()] + ("午前" if am_in else "午後") + value[m.start():], False
+
+
+def merge_ampm(pending: str | None, answer: str | None) -> str | None:
+    """午前・午後を聞いたあとの答え（「午後です」⇒「午後」）を、前の値（「15日の10時」）に入れる。答えに時刻があれば、答えのほうを使う。"""
+    if not pending or not answer or _HOUR.search(answer) or not (w := AMPM_WORDS.search(answer)):
+        return answer
+    m = _HOUR.search(pending)
+    return pending[:m.start()] + w.group() + pending[m.start():] if m else answer
 
 
 def other_value(qtype: str, pending: str | None, given: str | None) -> str | None:
@@ -244,6 +285,8 @@ class Item:
     rechecks: int = 0
     corrections: int = 0
     history: list = field(default_factory=list)
+    pending_value: str | None = None  # 午前・午後を聞いている値（答えが届いたら、そこへ入れる）
+    ampm_asked: bool = False          # 午前・午後を聞いたか（1項目1回まで）
 
     def set(self, state: str, why: str) -> None:
         assert state in STATES, state
@@ -253,7 +296,8 @@ class Item:
 
 class Flow:
     def __init__(self, questions: list[Question], limits: Limits | None = None, confirm=confirm_phrase,
-                 busy_ask: str | None = None, lead_ins: bool = True, play_recordings: bool = False):
+                 busy_ask: str | None = None, lead_ins: bool = True, play_recordings: bool = False,
+                 business_hours: tuple[int, int] = DEFAULT_BUSINESS_HOURS):
         """confirm：言い直しの言い方を作る関数 (値, 場面, 何回目) → 文（ふだんは phrases.confirm。言い方を比べる試験 G-25 だけが別のものを渡す）。
         busy_ask：相手が「忙しい」と言ったときに1回だけ言う一言（業務設定。None なら丁寧に終える＝既定。Intent.md 9-4）。"""
         self.confirm = confirm
@@ -267,6 +311,7 @@ class Flow:
         # play_recordings：次の質問（つなぎの言葉＋質問の文）と締めの言葉を、電話接続側が録音で流し、AIには話させない（DESIGN.md 6-13。
         # ✅ 2026-10-15 ユーザー：よく使う言葉は契約者の単位で、トークスクリプト（質問の文）は依頼主の単位で録音する。G-37 で確かめる）
         self.play_recordings = play_recordings
+        self.business_hours = business_hours  # 営業時間（午前・午後を補う・聞くかを決める。依頼主ごとの設定）
         self.lead_counts: dict[str, int] = {}
         self.ack_count = 0               # 次の質問の前に流す相づちを、順番に回す（_ack）
         # AIが答えを報告せずに言い直し、相手に値を直された：(質問, 直され方＝AFTER の鍵)。その答えの報告で、直され方に合う言い直しにする
@@ -336,7 +381,8 @@ class Flow:
             # 聞き取れなかったとき・2回目からは、申し訳なさそうに読んだ「申し訳ございません、」（✅ 2026-10-14 ユーザー）
             # 最後の1回（「お声が聞き取れませんでしたので、…もう一度だけ…」）は、何回目でも「申し訳ございません、」
             first_form = reply.get("ask_reason") == "form" and reply.get("ask_n") == 1 and not reply.get("ask_last")
-            return "hai" if first_form else "moushiwake"
+            # 午前・午後を聞く：お詫びではなく「はい、」（続けてAIが「恐れ入ります、午前と午後、どちらになりますでしょうか？」）
+            return "hai" if first_form or reply.get("ask_reason") == "ampm" else "moushiwake"
         if result == "confirm_required":
             return AFTER[reply["after"]][2] if reply.get("after") else "hai"  # 何のあとの言い直しかは、言い直しを作る所（_ask_confirm）が決めたもの
         if name == "record_answer" and args.get("condition_id") in SYSTEM_CONDITIONS:
@@ -407,6 +453,11 @@ class Flow:
             # ⛔ 2026-10-13 G-25 で見つけた漏れ：値の要る質問で値の無い答えを受け付け、言い直しに「Noneで、よろしいでしょうか。」を
             #    入れていた（確かめない型なら、依頼主へ値の代わりに条件の名前が渡っていた）
             return self._reject(f"答えの値がありません。相手が答えた値を「{ARG_LABEL['value']}」に入れて、もう一度報告してください。")
+        if cond not in SYSTEM_CONDITIONS and q.type in AMPM_TYPES:
+            value, it.pending_value = merge_ampm(it.pending_value, value), None
+            value, ask = fill_ampm(value, self.business_hours)
+            if ask and not it.ampm_asked:
+                return self._ask_ampm(qid, value)
         it.condition, it.value = cond, value
         if cond == "refused":
             it.set("refused", "相手が答えを拒んだ")
@@ -460,6 +511,11 @@ class Flow:
         if result == "corrected" and (why := form_problem(self.questions[qid].type, correction)):
             self.awaiting_confirm = None  # 言い直しの返事待ちをやめて、質問から聞き直す（6-2）
             return self._bad_form(qid, correction, why)
+        if result in ("corrected", "affirmed") and correction and self.questions[qid].type in AMPM_TYPES:
+            correction, ask = fill_ampm(correction, self.business_hours)
+            if ask and result == "corrected" and not it.ampm_asked:
+                self.awaiting_confirm = None
+                return self._ask_ampm(qid, correction)
         self.awaiting_confirm = None
         if result == "affirmed" and (other := other_value(self.questions[qid].type, it.value, correction)):
             # ⛔ 2026-10-14 G-36：相手が値を直したのに、AIが訂正を報告せずに自分で新しい値を言い直し、相手の「はい」を「合っている」と
@@ -527,6 +583,15 @@ class Flow:
         q = self.questions[qid]
         return self._ask_again(qid, "form", f"値の形が合わない（{value}：{why}）",
                                f"{q.id}「{q.text}」の答えとして「{value}」が報告されましたが、{why}。")
+
+    def _ask_ampm(self, qid: str, value: str) -> dict:
+        """時刻の午前・午後を、1回だけ聞く（fill_ampm で決められなかったとき）。答えは、次の答えの報告で前の値に入れる（merge_ampm）。"""
+        it = self.items[qid]
+        it.ampm_asked, it.pending_value = True, value
+        it.set("unclear", f"午前か午後かが分からない（{value}。営業時間 {self.business_hours[0]}〜{self.business_hours[1]}時）")
+        return {"result": "ask_back", "question_id": qid, "say": AMPM_ASK, "ask_n": 0, "ask_reason": "ampm",
+                "message": f"「{value}」の午前・午後が分かりません。「{AMPM_ASK}」と聞いて、相手の答えを待ってください。"
+                           "相手が答えたら、聞いたとおりの値で record_answer で報告します。"}
 
     def _ask_again(self, qid: str, reason: str, why: str, shown: str = "") -> dict:
         """聞き返しの唯一の場所（DESIGN.md 6-11。聞き取れない・曖昧＝"unclear"／答えが質問に合わない＝"form"）。AIに選ばせず、ここで

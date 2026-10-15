@@ -49,8 +49,13 @@ def measures(call: dict, scene: str) -> dict:
         play_turns.append({"played": [x["text"] for x in play["play"]], "ai_spoke": bool(t.get("audio_file")),
                            "ai_said": (t.get("intended") or "")[:60]})
         if i + 1 < len(call["turns"]):  # 録音のあとのAIの言葉に、質問の文が入っていないか（言い直し・名乗り直し）
-            said = call["turns"][i + 1].get("intended") or ""
-            after_play.append({"said": said[:60], "repeated_question": any(q[:6] in said for q in q_texts)})
+            nxt = call["turns"][i + 1]
+            said = nxt.get("intended") or ""
+            # プログラムが渡した言い方（聞き直し「恐れ入ります。ご希望の日時を、もう一度、…」）は、繰り返しに数えない
+            # （⛔ G-37 の1回目：数え方がこれを繰り返しに数えていた＝3回とも聞き直し）
+            program = [e["say"] for e in nxt.get("tool_events") or [] if e.get("say")]
+            after_play.append({"said": said[:60], "repeated_question": any(q[:6] in said for q in q_texts)
+                               and not any(x[:12] in said for x in program)})
     return {"turns_measured": tm, "checks": judge(call, scene if scene in WANT else "考える間"),
             "acks": [e["reply"].get("ack") for e in call["flow_log"] if e["reply"].get("ack")],
             "says": [e["reply"].get("say") for e in call["flow_log"] if e["reply"].get("say")],

@@ -1278,6 +1278,70 @@ class AskLadderTest(unittest.TestCase):
         self.assertIn("その言い方から話し始めます", text)    # ⛔ G-36 の3回目：AIが自分で「失礼いたしました。」を足した
 
 
+class AmPmTest(unittest.TestCase):
+    """時刻の午前・午後（✅ 2026-10-15 ユーザー：AIからプログラムへ移す。依頼主ごとの営業時間で決め、営業時間の外になる側は聞かない。
+    会社は 9:00〜19:00 が初めの値）。"""
+
+    def test_fill_from_business_hours(self):
+        from flowctl import fill_ampm
+        for v, hours, want in [("15日の1時", (9, 19), ("15日の午後1時", False)), ("15日の10時", (9, 19), ("15日の午前10時", False)),
+                               ("15日の10時", (9, 23), ("15日の10時", True)),       # 午前も午後も営業時間 ⇒ 聞く
+                               ("15日の8時", (9, 19), ("15日の8時", True)),         # どちらも営業時間の外 ⇒ 聞く
+                               ("1時", (18, 3), ("午前1時", False)), ("8時", (18, 3), ("午後8時", False)),  # 日をまたぐ深夜営業
+                               ("15日の12時", (9, 19), ("15日の12時", False)),      # 昼の12時（「午後12時」とは言わない）
+                               ("2時から4時", (9, 19), ("午後2時から4時", False)),
+                               ("15日の14時", (9, 19), ("15日の14時", False)), ("夕方5時", (9, 19), ("夕方5時", False)),
+                               ("15日の午前11時", (9, 19), ("15日の午前11時", False)), ("いつでも大丈夫", (9, 19), ("いつでも大丈夫", False))]:
+            self.assertEqual(fill_ampm(v, hours), want, (v, hours))
+
+    def flow(self, hours=(9, 19)):
+        from flowctl import Flow, Question
+        return Flow([Question("Q1", "ご希望の日時を、お聞かせいただけますでしょうか。", "datetime", conditions=("答えた",), topic="ご希望の日時")],
+                    business_hours=hours)
+
+    @staticmethod
+    def do(f, name, **args):
+        f.on_callee()
+        return f.apply(name, args)
+
+    def test_filled_value_is_read_back_without_asking(self):
+        f = self.flow()
+        r = self.do(f, "record_answer", question_id="Q1", condition_id="答えた", value="15日の1時")
+        self.assertEqual((r["result"], f.items["Q1"].value), ("confirm_required", "15日の午後1時"))
+        self.assertIn("15日の午後1時", r["say"])
+
+    def test_ask_once_then_merge_answer(self):
+        from phrases import AMPM_ASK
+        f = self.flow((9, 23))
+        r = self.do(f, "record_answer", question_id="Q1", condition_id="答えた", value="15日の10時")
+        self.assertEqual((r["result"], r["say"], r["ack"]), ("ask_back", AMPM_ASK, "hai"))
+        self.assertEqual((f.items["Q1"].value, f.items["Q1"].ask_backs), (None, 0))   # 聞き返しの回数には数えない
+        r = self.do(f, "record_answer", question_id="Q1", condition_id="答えた", value="午後です")
+        self.assertEqual((r["result"], f.items["Q1"].value), ("confirm_required", "15日の午後10時"))
+        self.do(f, "confirm_field", question_id="Q1", result="affirmed")
+        self.assertEqual(f.export()["Q1"], "15日の午後10時")
+
+    def test_asked_only_once(self):
+        f = self.flow((9, 23))
+        self.do(f, "record_answer", question_id="Q1", condition_id="答えた", value="15日の10時")
+        r = self.do(f, "record_answer", question_id="Q1", condition_id="答えた", value="16日の10時")  # 答えがまた決まらない
+        self.assertEqual((r["result"], f.items["Q1"].value), ("confirm_required", "16日の10時"))   # 二度は聞かない
+
+    def test_correction_is_filled_too(self):
+        f = self.flow()
+        self.do(f, "record_answer", question_id="Q1", condition_id="答えた", value="15日の午後2時")
+        r = self.do(f, "confirm_field", question_id="Q1", result="corrected", correction="16日の3時")
+        self.assertEqual(f.items["Q1"].value, "16日の午後3時")
+        self.assertIn("16日の午後3時", r["say"])
+
+    def test_ai_does_not_ask_by_itself(self):
+        from g22_opening import BUSINESS
+        from instruction import build
+        text = build(BUSINESS, "S2")[1]
+        self.assertIn("自分で聞いたり、自分で決めたりしてはいけません", text)
+        self.assertNotIn("と聞きます。自分で決めてはいけません", text)
+
+
 class PlayRecordingsTest(unittest.TestCase):
     """次の質問と締めを、電話接続側が録音で流し、AIには話させない形（DESIGN.md 6-13。✅ 2026-10-15 ユーザー：よく使う言葉は契約者の単位、
     トークスクリプトは依頼主の単位で録音する。G-37）。言い直し（値が変わる）は、これまでどおりAIが話す。"""
