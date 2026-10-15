@@ -211,8 +211,9 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     # システムの管理者（CL-3 の 4-1f の3）
     ("システムの値を管理者だけにする仕掛けを外す", "DROP TRIGGER setting_values_system_by_admin ON salescall.setting_values",
      ("tests.test_settings.SystemValuesByAdmin.test_only_admin",)),
-    ("全体の緊急停止を管理者だけにする仕掛けを外す", "DROP TRIGGER system_manual_stop_by_admin ON salescall.stop_events",
-     ("tests.test_watch.SystemStopsAndChecks.test_manual_stop_is_not_resumed_by_checks",)),
+    ("全体の範囲の停止を、人では管理者だけにする仕掛けを外す", "DROP TRIGGER system_scope_by_admin ON salescall.stop_events",
+     ("tests.test_watch.SystemStopsAndChecks.test_manual_stop_is_not_resumed_by_checks",
+      "tests.test_watch.SystemStopsAndChecks.test_only_admin_resumes_system_stops_by_hand")),
     ("システム共通の発信禁止を管理者だけにする仕掛けを外す", "DROP TRIGGER system_dnc_by_admin ON salescall.system_dnc_entries",
      ("tests.test_dnc.Register.test_system_ledger_applies_to_every_client_and_releases_their_claims",)),
     # 承認の部分（10-2）
@@ -231,15 +232,22 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      ("tests.test_quality.Stages.test_done_needs_the_numbers",)),
     # 見守り（Q9・9-1）
     ("何回続いたかを数えない（いつも0）",
-     "CREATE OR REPLACE FUNCTION salescall.consecutive_errors(p_kinds text[], p_line uuid DEFAULT NULL) RETURNS integer"
-     " LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ SELECT 0 $$",
+     "CREATE OR REPLACE FUNCTION salescall.consecutive_errors(p_kinds text[], p_cause text, p_line uuid DEFAULT NULL)"
+     " RETURNS integer LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ SELECT 0 $$",
      ("tests.test_watch.LineStops.test_consecutive_line_errors_stop_only_that_line",)),
     ("呼び出せた発信で数え直さない",
-     "CREATE OR REPLACE FUNCTION salescall.consecutive_errors(p_kinds text[], p_line uuid DEFAULT NULL) RETURNS integer"
-     " LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$"
+     "CREATE OR REPLACE FUNCTION salescall.consecutive_errors(p_kinds text[], p_cause text, p_line uuid DEFAULT NULL)"
+     " RETURNS integer LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$"
      " SELECT count(*)::integer FROM salescall.error_events e WHERE e.kind = ANY(p_kinds)"
      " AND (p_line IS NULL OR e.line_id = p_line) $$",
-     ("tests.test_watch.LineStops.test_a_call_that_rang_resets_the_count",)),
+     ("tests.test_watch.LineStops.test_a_call_that_rang_resets_the_count",
+      "tests.test_watch.LineStops.test_a_person_resume_restarts_the_count_and_explain_shows_why")),
+    ("止めた理由の説明に、数えたエラーを出さない",
+     "CREATE OR REPLACE FUNCTION salescall.errors_for_stop(p_stop bigint, p_kinds text[], p_limit integer)"
+     " RETURNS TABLE (error_id bigint, source text, kind text, code integer, message text, occurred_at timestamptz)"
+     " LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$"
+     " SELECT NULL::bigint, NULL::text, NULL::text, NULL::integer, NULL::text, NULL::timestamptz WHERE false $$",
+     ("tests.test_watch.SystemStopsAndChecks.test_only_admin_resumes_system_stops_by_hand",)),
     ("停止を解く確かめの記録の変更の拒みを外す", "DROP TRIGGER stop_checks_frozen ON salescall.stop_checks",
      ("tests.test_watch.SystemStopsAndChecks.test_checks_are_frozen",)),
     # 知らせの台帳（Q23）

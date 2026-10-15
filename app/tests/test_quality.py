@@ -7,8 +7,9 @@ import unittest
 from salescall.core import attempts, business_rules, next_action, quality_stage, stops
 from salescall.core.access import Rejected
 from salescall.core.attempts import VerificationSummary
+from salescall.core.phone import normalize
 from salescall.core.quality_stage import MockResult
-from tests.support import OPERATOR, SYSTEM, rules_raw
+from tests.support import OPERATOR, SYSTEM, fictional_jp_fixed, rules_raw
 from tests.test_settle import TALK, SettleBase, rep
 
 GOOD = MockResult(calls=10, value_hits=40, value_total=40, judgment_hits=10, judgment_total=10, forbidden_speech=0,
@@ -49,6 +50,13 @@ class Base(SettleBase):
         aid = self.call(s, verify=None, **kw)
         self.tx(s, lambda tx: attempts.record_verification(tx, aid, "done", summary=summary))
         return self.settle(s, aid)
+
+    def second_row(self, s):
+        phone = normalize(fictional_jp_fixed()).e164
+        k = self.w.contact(s["tenant"], s["client"], phone)
+        t = self.w.task(s["tenant"], s["client"], s["run"], k)
+        self.tx(s, lambda tx: next_action.schedule_now(tx, t, cause="試験"))
+        return dict(s, task=t, contact=k, phone=phone)
 
     def business_stops(self, s):
         return self.tx(s, lambda tx: stops.open_stops(tx, tenant_id=s["tenant"], client_id=s["client"],
@@ -91,6 +99,21 @@ class Stages(Base):
         self.assertEqual(fixed["outcome"], "opened")
         self.assertEqual(self.business_stops(s), [])                   # 新しい版の合格で、自動で再開
         self.assertIsNotNone(got)
+
+    def test_a_person_resume_measures_the_version_again(self):
+        s = self.fresh(stage_cap=2)
+        self.verified_call(s, VerificationSummary(3, 0, 1), items=[("Q1", "confirmed", None)])
+        sid = self.business_stops(s)[0]["event_id"]
+        why = self.tx(s, lambda tx: stops.explain(tx, sid))
+        self.assertEqual(why["stop"]["cause"], "forbidden_speech")
+        self.assertEqual(why["quality"]["metrics"]["forbidden_speech"]["hits"], 1)   # どの指標が外れたか
+        self.assertEqual(len(why["held_results"]), 1)                 # 送らずに待っている結果（人が確かめて送れる）
+        self.tx(s, lambda tx: stops.resume(tx, sid, reason="試験：場面を聞いて、言い方の問題ではないと判断"), OPERATOR)
+        self.assertEqual(self.tx(s, lambda tx: quality_stage.used(tx, s["version"])), 0)   # 測り直し
+        self.verified_call(self.second_row(s), VerificationSummary(2, 0, 0), items=[("Q1", "confirmed", None)])
+        self.assertEqual(self.business_stops(s), [])                   # 前の1件で、また止まらない
+        self.verified_call(self.second_row(s), VerificationSummary(2, 0, 1), items=[("Q1", "confirmed", None)])
+        self.assertEqual([r["cause"] for r in self.business_stops(s)], ["forbidden_speech"])   # 解いたあとの分は数える
 
     def test_stage_end_advances_when_inside(self):
         s = self.fresh(stage_cap=1)

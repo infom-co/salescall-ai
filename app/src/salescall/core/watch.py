@@ -2,7 +2,8 @@
 
 - エラーの種類と処置は core/errors.py の表だけを読む（ここで2つ目の判断を作らない）。止める・解くの記録は core/stops.py。
 - **止めるか**（`decide_stop`）：処置の表の「止める原因・範囲・何回続いたら」と、「何回続いたか」（データベースの1か所
-  `salescall.consecutive_errors`。回線＝その回線で相手を呼び出せた発信より後／会話AI・別の耳＝どこかの通話が会話に入った時刻より後）。
+  `salescall.consecutive_errors`。回線＝その回線で相手を呼び出せた発信より後／会話AI・別の耳＝どこかの通話が会話に入った時刻より後。
+  どちらも、同じ原因・同じ範囲の停止が解かれた時刻より後＝人が再開したら・確かめで解けたら数え直す）。
   同じ原因・同じ範囲で、まだ解かれていない停止があれば、重ねて止めない。
 - **解くか**（`record_check`）：システムが止めた停止のうち、確かめで解ける原因（保存・回線・会話AI）だけ。確かめの結果を記録し、
   決めた回数続けて成功したら、同じ取引で解く。**次に確かめてよい時刻より前の確かめは受け付けない**（ばたつきで伸びた待ちを、
@@ -70,8 +71,9 @@ def decide_stop(tx: Tx, kind: str, *, line_id: UUID | None = None) -> dict[str, 
         (action.stop_cause, action.stop_scope, line_id if action.stop_scope == "line" else None))
     if open_same is not None:
         return None                                  # もう止まっている（重ねて止めない）
-    n = tx.one("SELECT salescall.consecutive_errors(%s, %s) AS n",
-               (list(errors.COUNTED_FOR[action.stop_cause]), line_id if action.stop_scope == "line" else None))["n"]
+    n = tx.one("SELECT salescall.consecutive_errors(%s, %s, %s) AS n",
+               (list(errors.COUNTED_FOR[action.stop_cause]), action.stop_cause,
+                line_id if action.stop_scope == "line" else None))["n"]
     need = 1 if action.stop_after is None else int(settings.system_value(tx, action.stop_after))
     if n < need:
         return None

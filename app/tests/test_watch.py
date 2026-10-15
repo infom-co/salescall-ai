@@ -118,6 +118,25 @@ class LineStops(unittest.TestCase):
             self.line_error()
         self.assertEqual(self.line_stops(), [])
 
+    def test_a_person_resume_restarts_the_count_and_explain_shows_why(self):
+        need = owner_access().in_system(SYSTEM, lambda tx: settings.system_value(tx, "stop.line.stop_after_failures"))
+        for _ in range(need):
+            self.line_error()
+        sid = self.line_stops()[0]["event_id"]
+        why = self.a.in_tenant(OPERATOR, self.s["tenant"], lambda tx: stops.explain(tx, sid))
+        self.assertEqual(why["cause"]["meaning"], stops.CAUSES["line_failure"].meaning)
+        self.assertEqual(len(why["errors"]), need)                    # 数えたエラーと、その意味
+        self.assertEqual(why["errors"][0]["meaning"], errors.ACTIONS["line"].meaning)
+        self.assertIsNone(why["resolved"])
+        self.a.in_tenant(OPERATOR, self.s["tenant"], lambda tx: stops.resume(tx, sid, reason="試験：端末を入れ直した"))
+        self.line_error()
+        self.assertEqual(self.line_stops(), [])                       # 人が解いたら数え直す（前の数でまた止めない）
+        for _ in range(need - 1):
+            self.line_error()
+        self.assertEqual(len(self.line_stops()), 1)                   # 解いたあと、また続いたら止める
+        why = self.a.in_tenant(OPERATOR, self.s["tenant"], lambda tx: stops.explain(tx, sid))
+        self.assertEqual((why["resolved"]["actor_kind"], why["resolved"]["reason"]), ("operator", "試験：端末を入れ直した"))
+
 
 class SystemStopsAndChecks(unittest.TestCase):
     def setUp(self):
@@ -180,6 +199,35 @@ class SystemStopsAndChecks(unittest.TestCase):
         with self.assertRaises(Rejected):
             self.a.in_system(OPERATOR, lambda tx: stops.resume(tx, sid, reason="試験"))
         self.a.in_system(ADMIN, lambda tx: stops.resume(tx, sid, reason="試験"))
+
+    def test_only_admin_resumes_system_stops_by_hand(self):
+        sid = self.storage_stop()                                       # システムが止めた全体の停止
+        with self.assertRaises(Rejected):
+            self.a.in_system(OPERATOR, lambda tx: stops.resume(tx, sid, reason="試験"))
+        why = self.a.in_system(ADMIN, lambda tx: stops.explain(tx, sid))
+        self.assertEqual(why["who_can_resume"], "システムの管理者")
+        self.assertEqual(why["errors"][0]["meaning"], errors.ACTIONS["storage"].meaning)
+        self.a.in_system(ADMIN, lambda tx: stops.resume(tx, sid, reason="試験：保存先を直した"))
+        why = self.a.in_system(ADMIN, lambda tx: stops.explain(tx, sid))
+        self.assertEqual(why["resolved"]["actor_kind"], "admin")
+
+    def test_explain_gives_the_meaning_from_the_catalog(self):
+        override(self, "stop.ai.stop_after_failures", 2)
+        for _ in range(2):
+            watch.after_error(self.a, SYSTEM, ErrorReport("ai", 503, "UNAVAILABLE: The model is overloaded."))
+        sid = [r for r in self.a.in_system(SYSTEM, lambda tx: stops.open_stops(tx, tenant_id=None, client_id=None,
+                                                                                    business_id=None))
+               if r["cause"] == "ai_connection"][0]["event_id"]
+        why = self.a.in_system(ADMIN, lambda tx: stops.explain(tx, sid))
+        self.assertEqual([(e["kind"], e["origin"]) for e in why["errors"]][:2],
+                         [("ai_server_error", "official")] * 2)
+        self.assertIn("503", why["errors"][0]["meaning"])
+
+    def test_every_cause_has_an_explanation(self):
+        own = owner_access()
+        causes = own.in_system(SYSTEM, lambda tx: [r["c"] for r in tx.all(
+            "SELECT unnest(enum_range(NULL::salescall.stop_cause))::text AS c")])
+        self.assertEqual(sorted(causes), sorted(stops.CAUSES))
 
     def test_checks_are_frozen(self):
         sid = self.storage_stop()

@@ -13,6 +13,9 @@
     （小さな数の割合はぶれるため）。内側なら次の段へ（最後の段のあとは全部）、外れたら業務を止める（原因 quality_gate）。
   - 評価のたびに、指標ごとの値・基準・内側か外か・結果を記録する（CL-3 の 4-1e の2）。
 - 記録が無い版は、まだかけられない（模擬通話の合格・最初の段を開く前。判断できなければ通さない）。
+- **人が品質の停止を解いたら、その版を測り直す**（2026-10-15 ユーザー：「人の判断で再開できる仕組みは？」）。段の件数と指標は、
+  その版の通話のうち「人が解いた時刻に、まだ締めていなかった通話」から数える（数える通話の範囲は `_WINDOW` の1か所）。
+  ⚠️ いままでは版の通話をすべて数えたので、人が解いても、前の数（言ってはいけないこと 1件など）で、次の通話の締めでまた止まった。
 """
 
 from __future__ import annotations
@@ -37,6 +40,16 @@ METRICS: dict[str, tuple[str, str]] = {
 }
 
 
+# 段と指標に数える通話（1か所）：その版の通話のうち、その版の品質の停止を人が最後に解いた時刻に、まだ締めていなかったもの。
+# 引数は (版, 版)。解いたことが無ければ、その版の通話すべて。
+_WINDOW = (
+    "SELECT a.* FROM salescall.attempts a WHERE a.version_id = %s AND NOT EXISTS ("
+    " SELECT 1 FROM salescall.task_results r WHERE r.attempt_id = a.attempt_id AND r.kind = 'judged'"
+    " AND r.decided_at <= (SELECT coalesce(max(z.at), '-infinity') FROM salescall.stop_events z"
+    "                      JOIN salescall.quality_evaluations q ON q.stop_event_id = z.resolves_event_id"
+    "                      WHERE q.version_id = %s))")
+
+
 def current(tx: Tx, version_id: UUID) -> dict[str, Any] | None:
     """いまの段（いちばん新しい記録）。無ければ None。"""
     return tx.one("SELECT stage_id, stage_no, cap, evidence, opened_at FROM salescall.version_stages"
@@ -46,9 +59,9 @@ def current(tx: Tx, version_id: UUID) -> dict[str, Any] | None:
 def used(tx: Tx, version_id: UUID) -> int:
     """いまの段の件数に数える通話：その版で、相手が出た（応答まで進んだ）試行と、生きている進行中の試行（出るかもしれない）。"""
     return tx.one(
-        "SELECT count(*) AS n FROM salescall.attempts a WHERE a.version_id = %s"
-        " AND (salescall.is_live(a.state, a.claim_expires_at) OR EXISTS (SELECT 1 FROM salescall.attempt_state_history h"
-        "      WHERE h.attempt_id = a.attempt_id AND h.to_state = 'answered'))", (version_id,))["n"]
+        f"SELECT count(*) AS n FROM ({_WINDOW}) a"
+        " WHERE salescall.is_live(a.state, a.claim_expires_at) OR EXISTS (SELECT 1 FROM salescall.attempt_state_history h"
+        "      WHERE h.attempt_id = a.attempt_id AND h.to_state = 'answered')", (version_id, version_id))["n"]
 
 
 def allowance(tx: Tx, version_id: UUID) -> tuple[bool, str | None]:
@@ -156,7 +169,7 @@ def metrics(tx: Tx, version_id: UUID) -> dict[str, dict[str, Any]]:
     """その版の指標（どれも記録から数える。数え方はここだけ）。値：hits・total・value・limit・inside。"""
     v = _version(tx, version_id)
     row = tx.one(
-        "WITH a AS (SELECT * FROM salescall.attempts WHERE version_id = %s),"
+        f"WITH a AS ({_WINDOW}),"
         " judged AS (SELECT r.* FROM salescall.task_results r JOIN a ON a.attempt_id = r.attempt_id WHERE r.kind = 'judged'),"
         " talked AS (SELECT a.attempt_id FROM a WHERE salescall.reached_answer(a.attempt_id)"
         "            AND EXISTS (SELECT 1 FROM judged j WHERE j.attempt_id = a.attempt_id))"
@@ -173,7 +186,7 @@ def metrics(tx: Tx, version_id: UUID) -> dict[str, dict[str, Any]]:
         "        (SELECT count(*) FROM a WHERE state NOT IN ('claimed', 'released') AND NOT salescall.is_active(state))"
         "          AS dialed,"
         "        (SELECT count(*) FROM a WHERE verification = 'failed') AS vfailed,"
-        "        (SELECT count(*) FROM a WHERE verification IN ('done', 'failed')) AS verified", (version_id,))
+        "        (SELECT count(*) FROM a WHERE verification IN ('done', 'failed')) AS verified", (version_id, version_id))
     raw = {"unknown_judgments": (row["unknown"], None), "forbidden_speech": (row["forbidden"], None),
            "ear_disagreement": (row["ear_hits"], row["ear_total"]), "complaint": (row["complaint"], row["talked"]),
            "technical_error": (row["technical"], row["dialed"]), "verification_failed": (row["vfailed"], row["verified"])}
@@ -206,9 +219,9 @@ def evaluate(tx: Tx, version_id: UUID) -> dict[str, Any] | None:
         cause = "quality_gate"
     else:
         unsettled = tx.one(
-            "SELECT 1 FROM salescall.attempts a WHERE a.version_id = %s AND a.state NOT IN ('claimed', 'released')"
+            f"SELECT 1 FROM ({_WINDOW}) a WHERE a.state NOT IN ('claimed', 'released')"
             " AND NOT EXISTS (SELECT 1 FROM salescall.task_results r WHERE r.attempt_id = a.attempt_id"
-            "                 AND r.kind = 'judged') LIMIT 1", (version_id,)) is not None
+            "                 AND r.kind = 'judged') LIMIT 1", (version_id, version_id)) is not None
         if stage["cap"] is not None and n_used >= stage["cap"] and not unsettled:
             if all(x["inside"] for x in m.values()):
                 sizes = list(_get(tx, v, "quality.stage.sizes"))

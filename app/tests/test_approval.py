@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import unittest
 
-from salescall.core import approval, gate, next_action, quality_stage
+from salescall.core import approval, gate, quality_stage
 from salescall.core.access import Rejected
 from salescall.core.attempts import VerificationSummary
-from salescall.core.phone import normalize
-from tests.support import OPERATOR, SYSTEM, fictional_jp_fixed
+from tests.support import OPERATOR, SYSTEM
 from tests.test_quality import Base
 
 TAKEN = [("Q1", "confirmed", None)]
@@ -20,12 +19,6 @@ class Helpers(Base):
         return self.tx(s, lambda tx: tx.all("SELECT version_no, released_by FROM salescall.result_releases"
                                             " WHERE task_id = %s ORDER BY version_no", (task or s["task"],)))
 
-    def second_row(self, s):
-        phone = normalize(fictional_jp_fixed()).e164
-        k = self.w.contact(s["tenant"], s["client"], phone)
-        t = self.w.task(s["tenant"], s["client"], s["run"], k)
-        self.tx(s, lambda tx: next_action.schedule_now(tx, t, cause="試験"))
-        return dict(s, task=t, contact=k, phone=phone)
 
 
 class Released(Helpers):
