@@ -6,7 +6,7 @@ import unittest
 from datetime import date, datetime, timedelta
 
 from salescall.core.calendar import CalendarOutOfRange
-from salescall.core.calling_hours import band_of, covers, day_key, next_opening, next_opening_in_new_band, subtract
+from salescall.core.calling_hours import allowed, band_of, covers, day_key, next_opening, next_opening_in_new_band, subtract
 
 KEYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun", "holiday")
 WEEKDAY_9_18 = {k: ([["09:00", "18:00"]] if k in ("mon", "tue", "wed", "thu", "fri") else []) for k in KEYS}
@@ -98,6 +98,25 @@ class OtherBand(unittest.TestCase):
         hours = subtract(WEEKDAY_9_18, {k: [["12:00", "13:00"]] for k in KEYS})
         self.assertEqual(self.find(hours, at(MON, 10, 30), {0}), at(MON, 13))
         self.assertFalse(covers(hours, no_holiday, at(MON, 12, 30), at(MON, 12, 30)))
+
+
+class CalleeTime(unittest.TestCase):
+    """NG時間は通常は控えるが、相手が自分で指定した時刻なら、かけてよい（2026-10-15 ユーザー）。"""
+    NG = {k: [["12:00", "13:00"]] for k in KEYS}
+    L = timedelta(seconds=30)
+
+    def ok(self, start, callee_at=None):
+        return allowed(WEEKDAY_9_18, self.NG, no_holiday, start, start + self.L, callee_at=callee_at)
+
+    def test_ng_is_avoided_unless_the_callee_named_the_time(self):
+        self.assertTrue(self.ok(at(MON, 10)))
+        self.assertFalse(self.ok(at(MON, 12, 30)))                                     # こちらからは控える
+        self.assertTrue(self.ok(at(MON, 12, 30), at(MON, 12, 30)))                     # 相手が指定した
+        self.assertTrue(self.ok(at(MON, 12, 45), at(MON, 12, 30)))                     # 同じ日の同じ枠の中（少し遅れた）
+        self.assertTrue(self.ok(at(MON, 11, 59, 50), at(MON, 12, 30)))                 # 枠の手前から枠へ入る
+        self.assertFalse(self.ok(at(MON + timedelta(days=1), 12, 30), at(MON, 12, 30)))   # 日がずれたら控える
+        self.assertFalse(self.ok(at(MON, 19), at(MON, 19)))                            # かけてよい時間帯はいつも守る
+        self.assertFalse(self.ok(at(MON, 12, 30), at(MON, 10)))                        # 指定がNG時間の外：例外にならない
 
 
 class Subtract(unittest.TestCase):

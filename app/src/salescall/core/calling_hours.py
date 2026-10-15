@@ -116,3 +116,26 @@ def subtract(hours: dict, ng: dict) -> dict:
 
 def _hhmm(sec: int) -> str:
     return f"{sec // 3600:02d}:{sec % 3600 // 60:02d}"
+
+
+def allowed(hours: dict, ng: dict, is_holiday: Callable[[date], bool], start: datetime, end: datetime, *,
+            callee_at: datetime | None = None) -> bool:
+    """start から end まで（日本時間）かけてよいか（門が使う1か所）：かけてよい時間帯から NG時間を引いた残りの内側。
+    ただし相手が自分で指定した時刻（callee_at）があれば、その時刻を含む「その日のNG時間の枠」の中は、NG時間でもかけてよい
+    （2026-10-15 ユーザー：「通常は控えるが、相手が自分で指定した時刻なら、かけてよい」）。かけてよい時間帯はいつも守る。"""
+    if covers(subtract(hours, ng), is_holiday, start, end):
+        return True
+    if callee_at is None or not covers(hours, is_holiday, start, end):
+        return False
+    a = _of_day(callee_at)
+    blocks = [(r0, r1) for r0, r1 in _ranges(ng, day_key(callee_at.date(), is_holiday)) if r0 <= a < r1]
+    if not blocks:
+        return False
+    day = datetime.combine(callee_at.date(), time())
+    b0, b1 = day + timedelta(seconds=blocks[0][0]), day + timedelta(seconds=blocks[0][1])
+    # 区間を、その枠の中と外に分けて確かめる（枠の外は、NG時間を引いた残りの内側であること）
+    inside = (max(start, b0), min(end, b1))
+    pieces = [(start, min(end, b0)), (max(start, b1), end)]
+    if inside[0] >= inside[1]:
+        return False                          # その枠に入っていない（日がずれた・枠の外）
+    return all(p0 >= p1 or covers(subtract(hours, ng), is_holiday, p0, p1) for p0, p1 in pieces)

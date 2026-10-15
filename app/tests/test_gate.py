@@ -276,6 +276,31 @@ class Hours(Base):
                                                               business_id=s2["business"]))
         self.assertEqual(hours["mon"], [["00:00", "24:00"]])
 
+    def test_callee_named_time_may_fall_in_ng_hours(self):
+        """相手が自分で指定した時刻なら、NG時間でもかける。その日のその枠の中だけ（2026-10-15 ユーザー）。"""
+        s = self.ready()
+        self.put_client(s, "calling.ng_hours", ALL_DAY)                     # いまはNG時間
+        now = self.tx(s, lambda tx: tx.one("SELECT now() AS t, salescall.jst(now()) AS local"))
+        if now["local"].hour == 23 and now["local"].minute == 59:
+            self.skipTest("日付の変わり目（予約の期限が翌日の枠にかかる）")
+        sched = lambda callee_at: self.tx(s, lambda tx: next_action.schedule_call(
+            tx, s["task"], now["t"], contact_id=s["contact"], cause="試験", promised=True, callee_at=callee_at))
+        sched(None)
+        self.assertEqual(self.reason(s), "outside_hours")                    # こちらからは控える
+        sched(now["t"] - timedelta(days=1))
+        self.assertEqual(self.reason(s), "outside_hours")                    # 前の日に言われた時刻：日がずれたら控える
+        sched(now["t"])
+        self.assertIsInstance(self.claim(s), gate.Claim)                    # 相手が指定した時刻
+
+    def test_callee_time_only_on_promised_calls(self):
+        s = self.ready()
+        with self.assertRaises(Rejected) as e:
+            self.tx(s, lambda tx: tx.execute(
+                "INSERT INTO salescall.task_next_actions (tenant_id, client_id, task_id, seq, kind, call_at, cause, promised,"
+                " contact_id, purpose, callee_at) VALUES (%s, %s, %s, 99, 'call', now(), '試験', false, %s, 'normal', now())",
+                (s["tenant"], s["client"], s["task"], s["contact"])))
+        self.assertEqual(e.exception.constraint, "task_next_actions_callee_at")
+
     def test_default_ng_hours_is_lunch_time(self):
         own = owner_access()
         v = own.in_system(SYSTEM, lambda tx: tx.one(

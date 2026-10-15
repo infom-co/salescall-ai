@@ -170,6 +170,19 @@ class AfterCall(unittest.TestCase):
         d = after_call(dict(items={}, rep=report(callback=Callback("ask_who", None, None, None, "岡田"))))
         self.assertEqual((d.kind, d.at, d.promised), ("call", NOW + HOUR, True))
 
+    def test_callee_named_time_is_kept_on_the_schedule(self):
+        """相手が言った時刻は予定に残る（NG時間でもかけてよい根拠）。門で止められても引き継ぐ。"""
+        at = NOW + timedelta(hours=3)
+        d = after_call(dict(items={}, rep=report(callback=Callback("later", at, None, None, None))))
+        self.assertEqual((d.at, d.callee_at), (at, at))
+        d = after_call(dict(items={}, rep=report(callback=Callback("ask_who", None, None, None, "岡田"))))
+        self.assertIsNone(d.callee_at)                                         # 時刻を言われていない
+        self.assertIsNone(after_call(dict(items={"Q1": TAKEN["Q1"]})).callee_at)
+        d = decide_after_denial(gate.Denied("line_busy", *gate.REASONS["line_busy"]), current_promised=True,
+                                current=Target(MAIN), pacing=P_NONE, now=NOW, opening=None, retry_wait=300,
+                                current_callee_at=at)
+        self.assertEqual(d.callee_at, at)
+
     def test_policy(self):
         d = after_call(dict(items={"Q1": TAKEN["Q1"]}))
         self.assertEqual((d.kind, d.at, d.promised), ("call", NOW + HOUR, False))

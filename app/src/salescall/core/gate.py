@@ -126,11 +126,19 @@ def _task(tx: Tx, task_id: UUID, contact_id: UUID | None = None) -> dict[str, An
     return row
 
 
-def calling_hours_for(tx: Tx, *, tenant_id: UUID, client_id: UUID, business_id: UUID | None) -> dict:
-    """実際にかけてよい時間帯（曜日・祝日ごと）＝かけてよい時間帯（calling.hours。枠の内側）から、かけない時間（NG時間
-    calling.ng_hours）を引いた残り。門・次の動きは、時間帯をこの1か所から読む（直接 calling.hours を読まない。機械が見張る）。"""
-    scope = dict(tenant_id=tenant_id, client_id=client_id, business_id=business_id)
-    return calling_hours.subtract(settings.resolve(tx, "calling.hours", **scope), settings.resolve(tx, "calling.ng_hours", **scope))
+def _hours_settings(tx: Tx, scope: dict[str, Any]) -> tuple[dict, dict]:
+    """時間帯の設定を読む1か所（かけてよい時間帯 calling.hours〔枠の内側〕と、かけない時間＝NG時間 calling.ng_hours）。
+    ほかで直接読まない（NG時間の引き忘れが起きる。機械が見張る）。"""
+    return settings.resolve(tx, "calling.hours", **scope), settings.resolve(tx, "calling.ng_hours", **scope)
+
+
+def calling_hours_for(tx: Tx, *, tenant_id: UUID, client_id: UUID, business_id: UUID | None,
+                      callee_time: bool = False) -> dict:
+    """かけてよい時間帯（曜日・祝日ごと）。ふつうは、かけてよい時間帯から NG時間を引いた残り（次の始まりを探すのに使う）。
+    callee_time＝相手が自分で指定した時刻を確かめるとき（会話の側の確かめなど）：NG時間を引かない
+    （2026-10-15 ユーザー：「NG時間は通常は控えるが、相手が自分で指定した時刻なら、かけてよい」）。"""
+    hours, ng = _hours_settings(tx, dict(tenant_id=tenant_id, client_id=client_id, business_id=business_id))
+    return hours if callee_time else calling_hours.subtract(hours, ng)
 
 
 def _setting(tx: Tx, key: str, task: dict[str, Any]) -> Any:
@@ -221,8 +229,8 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
     now, local = clock["now"], clock["local"]
 
     # (1) 次の予定（Q4 の記録を読むだけ）
-    nxt = tx.one("SELECT kind, call_at, decided_at, purpose, wrong_contact_id FROM salescall.task_next_actions"
-                 " WHERE task_id = %s ORDER BY seq DESC LIMIT 1", (task["task_id"],))
+    nxt = tx.one("SELECT kind, call_at, decided_at, purpose, wrong_contact_id, salescall.jst(callee_at) AS callee_at"
+                 " FROM salescall.task_next_actions WHERE task_id = %s ORDER BY seq DESC LIMIT 1", (task["task_id"],))
     if nxt is None:
         return _deny("no_schedule")
     if nxt["kind"] == "end":
@@ -269,8 +277,9 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
 
     # (6) 時間帯：予約から予約証の期限まで、まるごと内側（5-2-1 の4）。祝日の暦の外は判断できない（5-2-1 の5）
     lifetime = timedelta(seconds=int(_setting(tx, "gate.claim_lifetime", task)))
-    hours = calling_hours_for(tx, tenant_id=task["tenant_id"], client_id=task["client_id"], business_id=task["business_id"])
-    if not calling_hours.covers(hours, holiday_checker(tx), local, local + lifetime):
+    hours, ng = _hours_settings(tx, dict(tenant_id=task["tenant_id"], client_id=task["client_id"],
+                                         business_id=task["business_id"]))
+    if not calling_hours.allowed(hours, ng, holiday_checker(tx), local, local + lifetime, callee_at=nxt["callee_at"]):
         return _deny("outside_hours")
 
     # (7) 間隔の待ち

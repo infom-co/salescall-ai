@@ -33,7 +33,8 @@ from salescall.core.tasks import TaskNotFound, lock
 def current(tx: Tx, task_id: UUID) -> dict[str, Any] | None:
     """いまの予定（いちばん新しい記録）。無ければ None（まだ何も決めていない）。"""
     return tx.one(
-        "SELECT task_id, seq, kind, call_at, end_reason, cause, promised, contact_id, purpose, wrong_contact_id, decided_at"
+        "SELECT task_id, seq, kind, call_at, end_reason, cause, promised, contact_id, purpose, wrong_contact_id, callee_at,"
+        "       decided_at"
         " FROM salescall.task_next_actions"
         " WHERE task_id = %s ORDER BY seq DESC LIMIT 1",
         (task_id,),
@@ -53,7 +54,8 @@ class Target:
 
 
 def _append(tx: Tx, task_id: UUID, *, call_at: datetime | None, end_reason: str | None, cause: str,
-            call_now: bool = False, promised: bool | None = None, target: Target | None = None) -> int:
+            call_now: bool = False, promised: bool | None = None, target: Target | None = None,
+            callee_at: datetime | None = None) -> int:
     calls = call_at is not None or call_now
     if calls == (end_reason is not None) or (call_now and call_at is not None):
         raise ValueError("「かけ直す（日時）」か「終える（理由）」の、どちらか1つだけです")
@@ -63,16 +65,18 @@ def _append(tx: Tx, task_id: UUID, *, call_at: datetime | None, end_reason: str 
     if target is not None and (target.purpose not in PURPOSES
                                or (target.purpose == "ask_number_again") != (target.wrong_contact_id is not None)):
         raise ValueError("発信の目的は normal か ask_number_again（聞き直しは、番号違いだった番号を必ず持つ）")
+    if callee_at is not None and not (calls and promised):
+        raise ValueError("相手が指定した時刻を持てるのは、約束したかけ直しだけです")
     lock(tx, task_id)  # 同じタスクへの追記を1つずつ順にする（tasks.py の説明）
     row = tx.one(
         "INSERT INTO salescall.task_next_actions (tenant_id, client_id, task_id, seq, kind, call_at, end_reason, cause,"
-        "                                         promised, contact_id, purpose, wrong_contact_id)"
+        "                                         promised, contact_id, purpose, wrong_contact_id, callee_at)"
         " SELECT t.tenant_id, t.client_id, t.task_id,"
         "        coalesce((SELECT max(n.seq) FROM salescall.task_next_actions n WHERE n.task_id = t.task_id), 0) + 1,"
-        "        %s, CASE WHEN %s THEN now() ELSE %s::timestamptz END, %s, %s, %s, %s, %s, %s"
+        "        %s, CASE WHEN %s THEN now() ELSE %s::timestamptz END, %s, %s, %s, %s, %s, %s, %s"
         " FROM salescall.tasks t WHERE t.task_id = %s RETURNING seq",
         ("call" if calls else "end", call_now, call_at, end_reason, cause, promised,
-         target and target.contact_id, target and target.purpose, target and target.wrong_contact_id, task_id),
+         target and target.contact_id, target and target.purpose, target and target.wrong_contact_id, callee_at, task_id),
     )
     if row is None:
         raise TaskNotFound(str(task_id))
@@ -80,12 +84,13 @@ def _append(tx: Tx, task_id: UUID, *, call_at: datetime | None, end_reason: str 
 
 
 def schedule_call(tx: Tx, task_id: UUID, call_at: datetime, *, contact_id: UUID, cause: str, promised: bool,
-                  purpose: str = "normal", wrong_contact_id: UUID | None = None) -> int:
+                  purpose: str = "normal", wrong_contact_id: UUID | None = None, callee_at: datetime | None = None) -> int:
     """かけ直す（日時・かける先）を記録する。promised＝相手と約束したかけ直し（相手に頼まれた・こちらが約束した）か。
     約束したかけ直しは、門の「同じ相手への最小の間隔・1日の回数」の対象外（2026-10-14 ユーザー決定）。
-    contact_id：かける番号（その行の番号の表にある番号だけ。データベースも守る）。purpose：発信の目的（PURPOSES）。"""
+    contact_id：かける番号（その行の番号の表にある番号だけ。データベースも守る）。purpose：発信の目的（PURPOSES）。
+    callee_at：相手が自分で指定した時刻（その時刻を含むその日のNG時間の枠の中は、NG時間でもかけてよい）。"""
     return _append(tx, task_id, call_at=call_at, end_reason=None, cause=cause, promised=promised,
-                   target=Target(contact_id, None, purpose, wrong_contact_id))
+                   target=Target(contact_id, None, purpose, wrong_contact_id), callee_at=callee_at)
 
 
 def schedule_now(tx: Tx, task_id: UUID, *, cause: str) -> int:
@@ -115,14 +120,15 @@ class Decision:
     end_reason: str | None       # end のとき
     rule: str                    # どの決まりで決めたか（記録の cause に残す）
     target: Target | None = None     # call のとき：かける先（番号・目的）
+    callee_at: datetime | None = None    # call のとき：相手が自分で指定した時刻（NG時間でもかけてよい根拠）
 
     @property
     def contact_id(self) -> UUID | None:
         return None if self.target is None else self.target.contact_id
 
 
-def _call(at: datetime, promised: bool, rule: str, target: Target) -> Decision:
-    return Decision("call", at, promised, None, rule, target)
+def _call(at: datetime, promised: bool, rule: str, target: Target, callee_at: datetime | None = None) -> Decision:
+    return Decision("call", at, promised, None, rule, target, callee_at)
 
 
 def _end(reason: str, rule: str) -> Decision:
@@ -212,8 +218,9 @@ def decide_after_call(j: Judgement, *, verification: str, normal: gate.Pacing, p
         return _call(promised.earliest or now, True, "言われた番号が番号違い：番号の確かめのとおり", target)
     if j.state == "callback_scheduled":
         cb = j.detail["callback"]
+        callee_at = None
         if cb["at"] is not None:
-            at = datetime.fromisoformat(cb["at"])
+            at = callee_at = datetime.fromisoformat(cb["at"])   # 相手が言った時刻（NG時間でもかけてよい）
         else:
             p = rules.retry[key]
             if p.action == "end" or times_with_key > p.max_times:
@@ -221,7 +228,7 @@ def decide_after_call(j: Judgement, *, verification: str, normal: gate.Pacing, p
             if retry_at is None:
                 return _end("no_calling_hours", "これから先、かけてよい時間帯が無い")
             at = retry_at
-        return _call(max(at, promised.earliest or now), True, "相手と約束したかけ直し", target)
+        return _call(max(at, promised.earliest or now), True, "相手と約束したかけ直し", target, callee_at)
     if target.purpose == "ask_number_again":   # 聞き直しの電話に出なかった（会話に至らなかった）
         if ask is None:
             raise ValueError("番号の聞き直しで出なかったのに、その材料がありません")
@@ -246,8 +253,9 @@ def decide_after_call(j: Judgement, *, verification: str, normal: gate.Pacing, p
 
 
 def decide_after_denial(d: gate.Denied, *, current_promised: bool, current: Target | None, pacing: gate.Pacing,
-                        now: datetime, opening: datetime | None, retry_wait: int) -> Decision | None:
-    """門で止められたあとの次の動き。何も書かないときは None。かける先（番号・目的）は、いまの予定のまま。"""
+                        now: datetime, opening: datetime | None, retry_wait: int,
+                        current_callee_at: datetime | None = None) -> Decision | None:
+    """門で止められたあとの次の動き。何も書かないときは None。かける先（番号・目的）と、相手が指定した時刻は、いまの予定のまま。"""
     if d.reason in ("awaiting_decision", "not_due", "no_schedule", "task_ended"):
         return None    # 締めの処理・いまの予定に任せる（先に書き直さない）。予定の無い行・終えた行に、門の答えから書かない
     if current is None or current.contact_id is None:
@@ -258,15 +266,16 @@ def decide_after_denial(d: gate.Denied, *, current_promised: bool, current: Targ
         if opening is None:
             return _end("no_calling_hours", "これから先、かけてよい時間帯が無い")
         return _call(max(opening, pacing.earliest or opening), current_promised, "門：時間帯の外 ⇒ 次の時間帯の始まり",
-                     current)
+                     current, current_callee_at)
     return _call(max(now + timedelta(seconds=retry_wait), pacing.earliest or now), current_promised,
-                 f"門：待てば変わる理由（{d.reason}）", current)
+                 f"門：待てば変わる理由（{d.reason}）", current, current_callee_at)
 
 
 def _write(tx: Tx, task_id: UUID, d: Decision) -> int:
     if d.kind == "end":
         return end(tx, task_id, d.end_reason, cause=d.rule)
-    return _append(tx, task_id, call_at=d.at, end_reason=None, cause=d.rule, promised=d.promised, target=d.target)
+    return _append(tx, task_id, call_at=d.at, end_reason=None, cause=d.rule, promised=d.promised, target=d.target,
+                   callee_at=d.callee_at)
 
 
 def after_call(tx: Tx, task_id: UUID, j: Judgement, *, verification: str, rules: Rules, dialed: Target,
@@ -366,7 +375,8 @@ def after_denial(tx: Tx, task_id: UUID, denied: gate.Denied, *, tenant_id: UUID,
     now_target = None if cur is None or cur["kind"] != "call" else Target(cur["contact_id"], None, cur["purpose"],
                                                                             cur["wrong_contact_id"])
     d = decide_after_denial(denied, current_promised=bool(cur and cur["promised"]), current=now_target,
-                            pacing=gate.pacing(tx, task_id), now=now, opening=opening, retry_wait=retry_wait)
+                            pacing=gate.pacing(tx, task_id), now=now, opening=opening, retry_wait=retry_wait,
+                            current_callee_at=cur["callee_at"] if cur else None)
     if d is not None:
         _write(tx, task_id, d)
     return d

@@ -119,6 +119,7 @@ class Settle(SettleBase):
         nxt = self.tx(s, lambda tx: next_action.current(tx, s["task"]))
         self.assertEqual((got["state"], nxt["kind"], nxt["promised"]), ("callback_scheduled", "call", True))
         self.assertGreaterEqual(nxt["call_at"], at)
+        self.assertEqual(nxt["callee_at"], at)                          # 相手が言った時刻（NG時間でもかけてよい根拠）
 
     def test_not_ready_and_once_only(self):
         s = self.ready()
