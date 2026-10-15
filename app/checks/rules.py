@@ -162,7 +162,10 @@ WRITERS: dict[str, dict[str, frozenset[str]]] = {
     "number_rechecks": {"INSERT": frozenset({_CORE + "number_recheck.py"})},
     "notification_events": {"INSERT": frozenset({_CORE + "notify.py"})},
     "error_events": {"INSERT": frozenset({_CORE + "watch.py"})},              # エラーの記録（Q9。分類は errors.py）
-    "stop_checks": {"INSERT": frozenset({_CORE + "watch.py"})},               # 停止を解く確かめの記録（9-1）     # 知らせの台帳（Q23。入れるのはここだけ）  # 番号の確かめ（3-5。検証 Q21 が入口を呼ぶ）
+    "stop_checks": {"INSERT": frozenset({_CORE + "watch.py"})},
+    "verification_summaries": {"INSERT": frozenset({_CORE + "attempts.py"})},   # 検証の結果の数（検証を済ませる1か所）
+    "mock_runs": {"INSERT": frozenset({_CORE + "quality_stage.py"})},         # 模擬通話の合否（10-1）
+    "quality_evaluations": {"INSERT": frozenset({_CORE + "quality_stage.py"})},   # 品質の段の評価（Q22）               # 停止を解く確かめの記録（9-1）     # 知らせの台帳（Q23。入れるのはここだけ）  # 番号の確かめ（3-5。検証 Q21 が入口を呼ぶ）
     "imports": {"INSERT": frozenset({_CORE + "importer.py"})},
     "import_rows": {"INSERT": frozenset({_CORE + "importer.py"})},
     "deliveries": {"INSERT": frozenset({"src/salescall/output/"}),           # 連携の台帳（Q17。持ち主 CL-3）

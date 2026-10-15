@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 from salescall.core import attempts, next_action, results
 from salescall.core.tasks import TaskNotFound
 from salescall.core.access import Rejected
-from tests.support import SYSTEM, World
+from tests.support import CLEAN, SYSTEM, World
 
 
 class AttemptParts(unittest.TestCase):
@@ -45,9 +45,9 @@ class AttemptParts(unittest.TestCase):
         for st in ("ringing", "answered", "in_conversation", "ending", "ended"):
             row = self.run_tx(lambda tx: attempts.move(tx, aid, st))
         self.assertEqual((row["state"], row["verification"]), ("ended", "pending"))
-        self.run_tx(lambda tx: attempts.record_verification(tx, aid, "done"))
+        self.run_tx(lambda tx: attempts.record_verification(tx, aid, "done", summary=CLEAN))
         with self.assertRaises(Rejected):
-            self.run_tx(lambda tx: attempts.record_verification(tx, aid, "failed"))
+            self.run_tx(lambda tx: attempts.record_verification(tx, aid, "failed", summary=None))
 
     def test_move_refuses_gate_and_exit_states(self):
         aid = self.w.insert_claim(self.s)

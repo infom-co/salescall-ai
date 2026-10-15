@@ -9,7 +9,7 @@ from datetime import timedelta
 from salescall.core import attempts, business_rules, calling_hours, call_report, dnc, gate, next_action, quality_stage, results, settle
 from salescall.core.access import Rejected
 from salescall.core.call_report import CallReport, Callback, Cut
-from tests.support import OPERATOR, SYSTEM, owner_access, rules_raw
+from tests.support import CLEAN, OPERATOR, SYSTEM, owner_access, rules_raw
 from tests.test_gate import KEYS, Base, FakeDriver, dial_exit
 
 TALK = ["dialing", "answered", "in_conversation", "ending", "ended"]
@@ -34,7 +34,8 @@ class SettleBase(Base):
         if "answered" in path:
             self.tx(s, lambda tx: call_report.save(tx, c.attempt_id, report or rep()))
             if verify:
-                self.tx(s, lambda tx: attempts.record_verification(tx, c.attempt_id, verify))
+                self.tx(s, lambda tx: attempts.record_verification(tx, c.attempt_id, verify, 
+                                                             summary=CLEAN if verify == "done" else None))
         return c.attempt_id
 
     def settle(self, s, aid):
@@ -138,7 +139,7 @@ class Settle(SettleBase):
             self.settle(s, aid)
         self.assertEqual([r["attempt_id"] for r in self.tx(s, lambda tx: settle.unsettled(tx))
                           if r["task_id"] == s["task"]], [])
-        self.tx(s, lambda tx: attempts.record_verification(tx, aid, "done"))
+        self.tx(s, lambda tx: attempts.record_verification(tx, aid, "done", summary=CLEAN))
         self.assertIn(aid, [r["attempt_id"] for r in self.tx(s, lambda tx: settle.unsettled(tx))])
         first = self.settle(s, aid)
         again = self.settle(s, aid)

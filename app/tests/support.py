@@ -13,8 +13,10 @@ from datetime import timedelta
 from uuid import UUID
 
 from salescall.core.access import Access, Actor
+from salescall.core.attempts import VerificationSummary
 
 OPERATOR = Actor("試験の運営者", "operator")
+CLEAN = VerificationSummary(items_checked=1, items_disagreed=0, forbidden_speech=0)   # 検証で何も見つからなかった
 SYSTEM = Actor("試験のシステムの処理", "system")
 
 _numbers = itertools.count(int(uuid.uuid4().int % 500))

@@ -16,7 +16,7 @@ from salescall.core import attempts, calling_hours, dnc, gate, next_action, numb
 from salescall.core.access import Rejected
 from salescall.core.call_report import Callback
 from salescall.core.phone import normalize
-from tests.support import OPERATOR, SYSTEM, fictional_jp_fixed, owner_access
+from tests.support import CLEAN, OPERATOR, SYSTEM, fictional_jp_fixed, owner_access
 from tests.test_settle import SettleBase, rep
 
 NO_ANSWER = ["dialing", "no_answer"]
@@ -237,7 +237,7 @@ class WrongNumber(Base):
         if outcome is not None:
             self.tx(s, lambda tx: number_recheck.record(tx, aid, outcome, corrected=corrected,
                                                         evidence="試験：別の耳の文字と付け合わせた", checked_by="試験"))
-        self.tx(s, lambda tx: attempts.record_verification(tx, aid, "done"))
+        self.tx(s, lambda tx: attempts.record_verification(tx, aid, "done", summary=CLEAN))
         return aid, self.settle(s, aid)
 
     def test_verification_needs_the_recheck_first(self):
@@ -245,9 +245,9 @@ class WrongNumber(Base):
         self.redirect(s)
         aid = self.call(s, report=rep(("wrong_party",)), verify=None)
         with self.assertRaises(attempts.RecheckMissing):
-            self.tx(s, lambda tx: attempts.record_verification(tx, aid, "done"))
+            self.tx(s, lambda tx: attempts.record_verification(tx, aid, "done", summary=CLEAN))
         with self.assertRaises(attempts.RecheckMissing):
-            self.tx(s, lambda tx: attempts.record_verification(tx, aid, "failed"))
+            self.tx(s, lambda tx: attempts.record_verification(tx, aid, "failed", summary=None))
 
     def test_as_said_calls_the_first_party_to_ask_again(self):
         s = self.ready_jp()

@@ -21,7 +21,7 @@ from salescall.core.call_report import CallReport, Cut
 from salescall.core.access import Rejected
 from salescall.core.calendar import CalendarOutOfRange, CalendarRejected
 from salescall.core.phone import normalize
-from tests.support import OPERATOR, SYSTEM, World, fictional_jp_fixed, owner_access, rules_raw
+from tests.support import CLEAN, OPERATOR, SYSTEM, World, fictional_jp_fixed, owner_access, rules_raw
 
 KEYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun", "holiday")
 ALL_DAY = {k: [["00:00", "24:00"]] for k in KEYS}
@@ -114,7 +114,8 @@ class Base(unittest.TestCase):
         for state in path:
             self.w.move(s, aid, state, side if state == "dropped" else None)
         if verify:
-            self.tx(s, lambda tx: attempts.record_verification(tx, aid, verify))
+            self.tx(s, lambda tx: attempts.record_verification(tx, aid, verify, 
+                                                             summary=CLEAN if verify == "done" else None))
         if "answered" in path:
             rep = report or CallReport(("target",), False, False, False, False, None, None, Cut("ai", True, False))
             self.tx(s, lambda tx: call_report.save(tx, aid, rep))
@@ -225,9 +226,10 @@ class VersionAndStage(Base):
     def test_stage_cap_counts_answered_and_active(self):
         s = self.ready()
         self.tx(s, lambda tx: quality_stage.open_stage(tx, s["version"], 1, 1, evidence="試験：最初の段は1件"), OPERATOR)
-        self.past_attempt(s, ["dialing", "answered", "ending", "ended"], verify="done")
-        self.override("gate.same_contact_min_interval", 1)
-        time.sleep(1.1)
+        phone2 = normalize(fictional_jp_fixed()).e164
+        k2 = self.w.contact(s["tenant"], s["client"], phone2)
+        other = dict(s, task=self.w.task(s["tenant"], s["client"], s["run"], k2), contact=k2, phone=phone2)
+        self.past_attempt(other, ["dialing", "answered", "ending", "ended"], settled=False)   # 別の行が会話に至った（締めはまだ）
         self.assertEqual(self.reason(s), "stage_full")
 
 

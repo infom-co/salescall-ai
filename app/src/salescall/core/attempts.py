@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Literal
 from uuid import UUID
 
@@ -70,12 +71,30 @@ class RecheckMissing(Exception):
     """番号の確かめ（DESIGN.md 3-5）が要る通話なのに、記録が無い。"""
 
 
-def record_verification(tx: Tx, attempt_id: UUID, result: Literal["done", "failed"]) -> None:
+@dataclass(frozen=True)
+class VerificationSummary:
+    """通話後の検証の結果の数（品質の段の指標になる。DESIGN.md 10-1）。"""
+    items_checked: int        # 2つの耳で確かめた項目の数
+    items_disagreed: int      # そのうち、2つの耳が食い違った項目の数
+    forbidden_speech: int     # 言ってはいけないこと（2つの耳で確かめたもの）の数
+
+
+def record_verification(tx: Tx, attempt_id: UUID, result: Literal["done", "failed"], *,
+                        summary: VerificationSummary | None) -> None:
     """通話後の検証（Q21）だけが呼ぶ。「待ち」から「済み」か「確かめられなかった」へ。
-    相手が言った番号へかけて番号違いだった通話は、番号の確かめ（core/number_recheck.py）を記録してからでないと済ませられない
-    （付け合わせられなかったときも cannot_check として記録する）。"""
+    - 済み（done）は、検証の結果の数（summary）を必ず一緒に残す（データベースも守る）。確かめられなかった（failed）は持たない。
+    - 相手が言った番号へかけて番号違いだった通話は、番号の確かめ（core/number_recheck.py）を記録してからでないと済ませられない
+      （付け合わせられなかったときも cannot_check として記録する）。"""
+    if (result == "done") != (summary is not None):
+        raise ValueError("検証の結果の数は、済み（done）のときだけ、必ず渡します")
     if number_recheck.needed(tx, attempt_id) and number_recheck.load(tx, attempt_id) is None:
         raise RecheckMissing("番号違いだった番号の確かめ（証拠との付け合わせ）を、先に記録してください")
+    if summary is not None:
+        tx.execute(
+            "INSERT INTO salescall.verification_summaries (tenant_id, client_id, attempt_id, items_checked, items_disagreed,"
+            " forbidden_speech) SELECT tenant_id, client_id, attempt_id, %s, %s, %s FROM salescall.attempts"
+            " WHERE attempt_id = %s",
+            (summary.items_checked, summary.items_disagreed, summary.forbidden_speech, attempt_id))
     row = tx.one(
         "UPDATE salescall.attempts SET verification = %s WHERE attempt_id = %s RETURNING attempt_id",
         (result, attempt_id),

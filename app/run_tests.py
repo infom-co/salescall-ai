@@ -208,6 +208,10 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      " WITH r AS (UPDATE salescall.attempts SET state = 'released' WHERE state = 'claimed' AND claim_expires_at <= now()"
      " AND (contact_id = p_contact OR phone_e164 = p_phone OR line_id = p_line) RETURNING 1) SELECT count(*)::integer FROM r $$",
      ("tests.test_alternate.DatabasePromises.test_expired_claim_on_another_number_of_the_row_is_released",)),
+    # 品質の段（Q22）
+    ("検証を済ませる前に結果の数を残す、の仕掛けを外す",
+     "DROP TRIGGER attempt_verification_needs_summary ON salescall.attempts",
+     ("tests.test_quality.Stages.test_done_needs_the_numbers",)),
     # 見守り（Q9・9-1）
     ("何回続いたかを数えない（いつも0）",
      "CREATE OR REPLACE FUNCTION salescall.consecutive_errors(p_kinds text[], p_line uuid DEFAULT NULL) RETURNS integer"
