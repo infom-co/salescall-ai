@@ -1,0 +1,82 @@
+[
+  {
+    "word": "hai",
+    "file": "はい/はい_01.wav",
+    "candidate": "S4_hai_1"
+  },
+  {
+    "word": "hai",
+    "file": "はい/はい_02.wav",
+    "candidate": "S2_hai_1"
+  },
+  {
+    "word": "hai",
+    "file": "はい/はい_03.wav",
+    "candidate": "S4_hai_2"
+  },
+  {
+    "word": "hai",
+    "file": "はい/はい_04.wav",
+    "candidate": "S2_hai_2"
+  },
+  {
+    "word": "arigatou",
+    "file": "ありがとうございます/ありがとうございます_01.wav",
+    "candidate": "S4_arigatou_1"
+  },
+  {
+    "word": "arigatou",
+    "file": "ありがとうございます/ありがとうございます_02.wav",
+    "candidate": "S2_arigatou_1"
+  },
+  {
+    "word": "arigatou",
+    "file": "ありがとうございます/ありがとうございます_03.wav",
+    "candidate": "S4_arigatou_2"
+  },
+  {
+    "word": "arigatou",
+    "file": "ありがとうございます/ありがとうございます_04.wav",
+    "candidate": "S2_arigatou_2"
+  },
+  {
+    "word": "shitsurei",
+    "file": "失礼いたしました/失礼いたしました_01.wav",
+    "candidate": "S2_shitsurei_1"
+  },
+  {
+    "word": "shitsurei",
+    "file": "失礼いたしました/失礼いたしました_02.wav",
+    "candidate": "S4_shitsurei_1"
+  },
+  {
+    "word": "shitsurei",
+    "file": "失礼いたしました/失礼いたしました_03.wav",
+    "candidate": "S2_shitsurei_2"
+  },
+  {
+    "word": "shitsurei",
+    "file": "失礼いたしました/失礼いたしました_04.wav",
+    "candidate": "S4_shitsurei_2"
+  },
+  {
+    "word": "closing",
+    "file": "締め/締め_01.wav",
+    "candidate": "S2_closing_1"
+  },
+  {
+    "word": "closing",
+    "file": "締め/締め_02.wav",
+    "candidate": "S2_closing_2"
+  },
+  {
+    "word": "closing",
+    "file": "締め/締め_03.wav",
+    "candidate": "S4_closing_2"
+  },
+  {
+    "word": "closing",
+    "file": "締め/締め_04.wav",
+    "candidate": "S4_closing_1"
+  }
+]
