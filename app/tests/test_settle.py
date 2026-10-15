@@ -6,11 +6,11 @@ import time
 import unittest
 from datetime import timedelta
 
-from salescall.core import attempts, business_rules, call_report, dnc, gate, next_action, quality_stage, results, settle
+from salescall.core import attempts, business_rules, calling_hours, call_report, dnc, gate, next_action, quality_stage, results, settle
 from salescall.core.access import Rejected
 from salescall.core.call_report import CallReport, Callback, Cut
-from tests.support import OPERATOR, SYSTEM, owner_access
-from tests.test_gate import Base, FakeDriver, dial_exit
+from tests.support import OPERATOR, SYSTEM, owner_access, rules_raw
+from tests.test_gate import KEYS, Base, FakeDriver, dial_exit
 
 TALK = ["dialing", "answered", "in_conversation", "ending", "ended"]
 
@@ -83,6 +83,25 @@ class Settle(SettleBase):
                                                        (aid2,)))["disconnect"], "interrupted")
         p = self.tx(s2, lambda tx: gate.pacing(tx, s2["task"], promised=False))
         self.assertEqual(p.remaining, 3)                              # 不自然な中断は、かけた回数に数えない
+
+    def test_retry_interval_in_hours_or_days(self):
+        """かけ直しの間隔は業務ごとに「n 時間おき」「n 日後」（2026-10-15 ユーザー）。n 日後は、前回と別の時間帯で、
+        NG時間を避けた最も早い時刻。"""
+        hours = self.ready()
+        got = self.settle(hours, self.call(hours, ["dialing", "no_answer"]))
+        span = self.tx(hours, lambda tx: tx.one("SELECT %s - claimed_at AS d FROM salescall.attempts"
+                                                " WHERE task_id = %s", (got["decision"].at, hours["task"])))["d"]
+        self.assertGreaterEqual(span, timedelta(hours=1))                         # 1時間おき（試験の決まり）
+        days = self.ready(rules=rules_raw(retry={k: {"action": "call", "max_times": 3, "interval": {"days": 2}}
+                                                 for k in business_rules.POLICY_KEYS}))
+        self.put_client(days, "calling.ng_hours", {k: [["12:00", "13:00"]] for k in KEYS})
+        got = self.settle(days, self.call(days, ["dialing", "no_answer"]))
+        row = self.tx(days, lambda tx: tx.one(
+            "SELECT salescall.jst(%s) AS next, salescall.jst(claimed_at) AS tried, salescall.jst(now())::date AS today"
+            " FROM salescall.attempts WHERE task_id = %s", (got["decision"].at, days["task"])))
+        self.assertEqual(row["next"].date(), row["today"] + timedelta(days=2))
+        self.assertNotEqual(calling_hours.band_of(row["next"], [12, 15]), calling_hours.band_of(row["tried"], [12, 15]))
+        self.assertFalse(12 <= row["next"].hour < 13)                              # NG時間（昼休み）は避ける
 
     def test_wrong_party_registers_only_that_number(self):
         s = self.ready()

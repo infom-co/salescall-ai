@@ -35,13 +35,13 @@ def fictional_jp_fixed() -> str:
 
 def rules_raw(required=("Q1",), *, decline=None, retry=None, handling=None) -> dict:
     """試験の業務の決まり（すべての組に宣言がある形）。既定：わからない＝日を改める、答えない＝結論「回答不可」、
-    再発信は どれも「かけ直す（3回まで・60秒あと）」。"""
+    再発信は どれも「かけ直す（3回まで・1時間おき）」。"""
     def per_q():
         return {"dont_know": {r: {"kind": "retry"} for r in ("not_in_charge", "undecided", "unknown_now", "unspecified")},
                 "refused": {r: {"kind": "conclude", "conclusion": "回答不可"} for r in ("policy", "unwilling")}}
     return {"decline": decline or {},
             "handling": handling or {q: per_q() for q in required},
-            "retry": retry or {k: {"action": "call", "max_times": 3, "interval_seconds": 60}
+            "retry": retry or {k: {"action": "call", "max_times": 3, "interval": {"hours": 1}}
                                for k in ("open", "incomplete", "not_reached_absent", "not_reached_not_transferred",
                                          "callback_unspecified_time")}}
 

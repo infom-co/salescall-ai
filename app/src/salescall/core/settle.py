@@ -43,7 +43,7 @@ def settle(tx: Tx, attempt_id: UUID) -> dict[str, Any]:
     """その試行を締める（判定 → 書く → 次の動き）。結果の版の番号・業務の状態・次の動きを返す。"""
     a = tx.one(
         "SELECT a.attempt_id, a.task_id, a.tenant_id, a.client_id, a.state, a.hangup_side, a.verification,"
-        "       a.version_id, a.contact_id, a.phone_e164, a.purpose, a.wrong_contact_id,"
+        "       a.version_id, a.contact_id, a.phone_e164, a.purpose, a.wrong_contact_id, a.claimed_at,"
         "       salescall.reached_answer(a.attempt_id) AS reached_answer,"
         "       t.client_ref, r.business_id"
         " FROM salescall.attempts a"
@@ -95,7 +95,7 @@ def settle(tx: Tx, attempt_id: UUID) -> dict[str, Any]:
         dnc.register(tx, a["phone_e164"], j.dnc_reason, source_attempt_id=attempt_id)
     decision = next_action.after_call(
         tx, a["task_id"], j, verification=a["verification"], rules=rules,
-        dialed=next_action.Target(a["contact_id"], None, a["purpose"], a["wrong_contact_id"]),
+        dialed=next_action.Target(a["contact_id"], None, a["purpose"], a["wrong_contact_id"]), dialed_at=a["claimed_at"],
         alternate=alternate, recheck=recheck)
     return {"version_no": version_no, "state": j.state, "decision": decision, "already": False}
 

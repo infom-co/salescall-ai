@@ -189,10 +189,13 @@ class AskAgain:
 
 
 def decide_after_call(j: Judgement, *, verification: str, normal: gate.Pacing, promised: gate.Pacing, rules: Rules,
-                      times_with_key: int, now: datetime, target: Target, ask: AskAgain | None = None) -> Decision:
+                      times_with_key: int, now: datetime, target: Target, retry_at: datetime | None,
+                      ask: AskAgain | None = None) -> Decision:
     """通話のあとの次の動き。normal / promised＝次にかける先へ、ふつうの予定・約束したかけ直しにした場合の門の数え方。
     times_with_key＝この行で、今回の結果と同じ再発信の方針の鍵の結果が出た回数（今回を含む）。
-    target＝`choose_number` の答え（次にかける先、または終える理由）。ask＝聞き直しで出なかったときの材料（そのときだけ）。"""
+    target＝`choose_number` の答え（次にかける先、または終える理由）。ask＝聞き直しで出なかったときの材料（そのときだけ）。
+    retry_at＝この結果の再発信の方針の間隔（n 時間おき／n 日後）が指す時刻（`_retry_at` の1か所で出す。かけてよい時間帯が
+    これから先に無ければ None）。"""
     if j.state in END_STATES:
         return _end(j.state, "目的を果たした・終わった結果")
     if verification == "failed":
@@ -215,7 +218,9 @@ def decide_after_call(j: Judgement, *, verification: str, normal: gate.Pacing, p
             p = rules.retry[key]
             if p.action == "end" or times_with_key > p.max_times:
                 return _end(key, "かけ直しの時刻が決まっていない約束：再発信の方針で終える")
-            at = now + timedelta(seconds=p.interval_seconds)
+            if retry_at is None:
+                return _end("no_calling_hours", "これから先、かけてよい時間帯が無い")
+            at = retry_at
         return _call(max(at, promised.earliest or now), True, "相手と約束したかけ直し", target)
     if target.purpose == "ask_number_again":   # 聞き直しの電話に出なかった（会話に至らなかった）
         if ask is None:
@@ -235,8 +240,9 @@ def decide_after_call(j: Judgement, *, verification: str, normal: gate.Pacing, p
         return _end(key, f"再発信の方針：{key} は終える")
     if times_with_key > p.max_times:
         return _end(f"policy_max:{key}", f"再発信の方針：{key} は {p.max_times} 回まで")
-    return _call(max(now + timedelta(seconds=p.interval_seconds), normal.earliest or now), False,
-                 f"再発信の方針：{key}", target)
+    if retry_at is None:
+        return _end("no_calling_hours", "これから先、かけてよい時間帯が無い")
+    return _call(max(retry_at, normal.earliest or now), False, f"再発信の方針：{key}", target)
 
 
 def decide_after_denial(d: gate.Denied, *, current_promised: bool, current: Target | None, pacing: gate.Pacing,
@@ -264,9 +270,9 @@ def _write(tx: Tx, task_id: UUID, d: Decision) -> int:
 
 
 def after_call(tx: Tx, task_id: UUID, j: Judgement, *, verification: str, rules: Rules, dialed: Target,
-               alternate: Alternate | None, recheck: Recheck | None) -> Decision:
+               dialed_at: datetime, alternate: Alternate | None, recheck: Recheck | None) -> Decision:
     """締めの処理（core/settle.py）だけが呼ぶ。判定の結果から次の動きを決めて記録する（同じ取引）。
-    dialed＝この通話でかけた先（番号・目的）。alternate＝相手が言った別の番号の材料（言われたときだけ）。
+    dialed＝この通話でかけた先（番号・目的）、dialed_at＝かけた時刻。alternate＝相手が言った別の番号の材料（言われたときだけ）。
     recheck＝言われた番号が番号違いだったときの番号の確かめ（そのときだけ）。"""
     now = tx.one("SELECT now() AS now")["now"]
     key = j.detail.get("policy_key")
@@ -279,26 +285,58 @@ def after_call(tx: Tx, task_id: UUID, j: Judgement, *, verification: str, rules:
     ask = None
     if target.purpose == "ask_number_again" and j.state == "open":
         ask = _ask_again(tx, task_id, max(now, promised.earliest or now))
+    policy = rules.retry.get(key) if key is not None else None
+    retry_at = _retry_at(tx, task_id, policy.interval, now, dialed_at) if policy and policy.action == "call" else None
     d = decide_after_call(j, verification=verification,
                           normal=gate.pacing(tx, task_id, contact_id=count_at, promised=False),
-                          promised=promised, rules=rules, times_with_key=times, now=now, target=target, ask=ask)
+                          promised=promised, rules=rules, times_with_key=times, now=now, target=target,
+                          retry_at=retry_at, ask=ask)
     _write(tx, task_id, d)
     return d
 
 
+def _scope(tx: Tx, task_id: UUID) -> dict[str, Any]:
+    return tx.one("SELECT t.tenant_id, t.client_id, r.business_id FROM salescall.tasks t"
+                  " JOIN salescall.runs r ON r.client_id = t.client_id AND r.run_id = t.run_id WHERE t.task_id = %s",
+                  (task_id,))
+
+
+def _retry_at(tx: Tx, task_id: UUID, interval: tuple[str, int], now: datetime, dialed_at: datetime) -> datetime | None:
+    """再発信の方針の間隔が指す時刻（1か所。2026-10-15 ユーザー：「2時間おき・3時間おき・○時間おき・○日後」を業務ごとに）。
+    - n 時間おき ⇒ いまから n 時間後（時間帯の外・NG時間に当たれば、門が止め、次の動きが次の始まりへ回す）。
+    - n 日後 ⇒ n 日後の日の、前回と別の時間帯で、かけてよい最も早い時刻（「時間帯により出られないことはよくある」）。
+      その日に別の時間帯が無ければ、その日以降で、かけてよい最も早い時刻。これから先に無ければ None。"""
+    unit, n = interval
+    if unit == "hours":
+        return now + timedelta(hours=n)
+    scope = _scope(tx, task_id)
+    get = lambda key: settings.resolve(tx, key, **scope)   # noqa: E731
+    boundaries = list(get("retry.time_band_boundaries"))
+    hours, length = gate.calling_hours_for(tx, **scope), timedelta(seconds=int(get("gate.claim_lifetime")))
+    clock = tx.one("SELECT salescall.jst(%s) AS now, salescall.jst(%s) AS tried", (now, dialed_at))
+    day = datetime.combine(clock["now"].date() + timedelta(days=n), datetime.min.time())
+    try:
+        found = (calling_hours.next_opening_in_new_band(hours, holiday_checker(tx), day, length, boundaries,
+                                                        {calling_hours.band_of(clock["tried"], boundaries)}, horizon_days=0)
+                 or calling_hours.next_opening(hours, holiday_checker(tx), day, length))
+    except CalendarOutOfRange:   # 暦の無い日に当たる：決めつけず、その日の始まりにして、門にもう一度確かめさせる
+        found = day
+    return None if found is None else tx.one("SELECT salescall.from_jst(%s) AS t", (found,))["t"]
+
+
 def _ask_again(tx: Tx, task_id: UUID, after: datetime) -> AskAgain:
     """聞き直しで出なかったときの材料：かけた回数と試した時間帯（門の数え方）・まだ試していない時間帯の次にかけられる時刻。"""
-    scope = tx.one("SELECT t.tenant_id, t.client_id, r.business_id FROM salescall.tasks t"
-                   " JOIN salescall.runs r ON r.client_id = t.client_id AND r.run_id = t.run_id WHERE t.task_id = %s",
-                   (task_id,))
+    scope = _scope(tx, task_id)
     get = lambda key: settings.resolve(tx, key, **scope)   # noqa: E731
     boundaries = list(get("retry.time_band_boundaries"))
     tried_at = gate.counted_dial_times(tx, task_id, purpose="ask_number_again")
     local = tx.one("SELECT salescall.jst(%s) AS t", (after,))["t"]
+    hours, length = gate.calling_hours_for(tx, **scope), timedelta(seconds=int(get("gate.claim_lifetime")))
     try:
-        found = calling_hours.next_opening_in_new_band(
-            get("calling.hours"), holiday_checker(tx), local, timedelta(seconds=int(get("gate.claim_lifetime"))),
-            boundaries, {calling_hours.band_of(t, boundaries) for t in tried_at})
+        found = calling_hours.next_opening_in_new_band(hours, holiday_checker(tx), local, length, boundaries,
+                                                       {calling_hours.band_of(t, boundaries) for t in tried_at})
+        if found is None:   # 試していない時間帯が無い（夜だけ開くお店など）：直後にかけ直さず、翌日以降の同じ頃から
+            found = calling_hours.next_opening(hours, holiday_checker(tx), local + timedelta(days=1), length)
         at = None if found is None else tx.one("SELECT salescall.from_jst(%s) AS t", (found,))["t"]
     except CalendarOutOfRange:   # 暦の無い日に当たる：決めつけず、待ってから門にもう一度確かめさせる
         at = after + timedelta(seconds=int(get("gate.denied_retry_wait")))
@@ -314,7 +352,7 @@ def after_denial(tx: Tx, task_id: UUID, denied: gate.Denied, *, tenant_id: UUID,
     if denied.reason == "outside_hours":
         lifetime = timedelta(seconds=int(settings.resolve(tx, "gate.claim_lifetime", tenant_id=tenant_id,
                                                           client_id=client_id, business_id=business_id)))
-        hours = settings.resolve(tx, "calling.hours", tenant_id=tenant_id, client_id=client_id, business_id=business_id)
+        hours = gate.calling_hours_for(tx, tenant_id=tenant_id, client_id=client_id, business_id=business_id)
     retry_wait = int(settings.resolve(tx, "gate.denied_retry_wait", tenant_id=tenant_id, client_id=client_id,
                                       business_id=business_id))
     if denied.reason == "outside_hours":

@@ -142,6 +142,17 @@ class DialOnlyThroughExit(Planted):
         self.assertEqual(sorted(v.path for v in found), ["src/salescall/supervisor/y.py", "src/salescall/telephony/x.py"])
 
 
+class CallingHoursReadOnce(Planted):
+    """5-2-2：時間帯の設定は、NG時間を引く1か所（gate.calling_hours_for）からしか読まない。"""
+
+    def test_reading_hours_elsewhere(self):
+        root = self._app({"src/salescall/core/next_action.py": "def f(tx, r):\n    return r(tx, 'calling.hours')\n",
+                          "src/salescall/web/x.py": "K = 'calling.ng_hours'\n",
+                          "src/salescall/core/gate.py": "def g(r):\n    return r('calling.hours'), r('calling.ng_hours')\n"})
+        found = rules.calling_hours_read_once(root)
+        self.assertEqual(sorted(v.path for v in found), ["src/salescall/core/next_action.py", "src/salescall/web/x.py"])
+
+
 class ValueTypesStaysPure(Planted):
     def test_db_access_in_value_types(self):
         for body in ("from salescall.core.access import Tx\n",

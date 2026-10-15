@@ -38,11 +38,14 @@ class Handling:
     conclusion: str | None       # conclude のときの結論の名前（依頼主へ渡す名前）
 
 
+INTERVAL_UNITS = ("hours", "days")   # かけ直しの間隔：n 時間おき／n 日後（2026-10-15 ユーザー：業務ごとに選べるように）
+
+
 @dataclass(frozen=True)
 class Policy:
     action: str                  # call / end
     max_times: int | None        # その結果のあと、かけ直してよい回数（call のとき）
-    interval_seconds: int | None  # かけ直すまでの間隔（call のとき）
+    interval: tuple[str, int] | None   # かけ直すまでの間隔（call のとき）：("hours", n)＝n 時間おき／("days", n)＝n 日後
 
 
 @dataclass(frozen=True)
@@ -104,10 +107,13 @@ def check(version_id: UUID, required: tuple[str, ...], questions: tuple[str, ...
                 raise RulesInvalid(f"再発信の方針 {key}：終えるときは、回数・間隔を持ちません")
             retry[key] = Policy("end", None, None)
         else:
-            if set(p) != {"action", "max_times", "interval_seconds"}:
+            if set(p) != {"action", "max_times", "interval"}:
                 raise RulesInvalid(f"再発信の方針 {key}：かけ直すときは、回数と間隔が要ります")
-            retry[key] = Policy("call", _int(p["max_times"], f"{key}.max_times"),
-                                _int(p["interval_seconds"], f"{key}.interval_seconds"))
+            iv = p["interval"]
+            if not isinstance(iv, dict) or len(iv) != 1 or next(iter(iv)) not in INTERVAL_UNITS:
+                raise RulesInvalid(f"再発信の方針 {key} の間隔は {{\"hours\": n}}（n 時間おき）か {{\"days\": n}}（n 日後）の1つです")
+            unit = next(iter(iv))
+            retry[key] = Policy("call", _int(p["max_times"], f"{key}.max_times"), (unit, _int(iv[unit], f"{key}.interval.{unit}")))
     return Rules(version_id, required, decline, handling, retry)
 
 

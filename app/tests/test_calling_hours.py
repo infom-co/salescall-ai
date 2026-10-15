@@ -6,7 +6,7 @@ import unittest
 from datetime import date, datetime, timedelta
 
 from salescall.core.calendar import CalendarOutOfRange
-from salescall.core.calling_hours import band_of, covers, day_key, next_opening, next_opening_in_new_band
+from salescall.core.calling_hours import band_of, covers, day_key, next_opening, next_opening_in_new_band, subtract
 
 KEYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun", "holiday")
 WEEKDAY_9_18 = {k: ([["09:00", "18:00"]] if k in ("mon", "tue", "wed", "thu", "fri") else []) for k in KEYS}
@@ -90,9 +90,25 @@ class OtherBand(unittest.TestCase):
 
     def test_no_other_band_means_another_day(self):
         night = {k: [["18:00", "22:00"]] for k in KEYS}                                         # 夜だけ開くお店
-        self.assertEqual(self.find(night, at(MON, 19), {2}), at(MON + timedelta(days=1), 19))  # 直後でなく、翌日の同じ頃
-        friday_evening = at(MON + timedelta(days=4), 16)
-        self.assertEqual(self.find(WEEKDAY_9_18, friday_evening, {0, 1, 2}), at(MON + timedelta(days=7), 9))   # 土日を飛ばす
+        self.assertIsNone(self.find(night, at(MON, 19), {2}))       # 試していない時間帯が無い（どうするかは呼ぶ側：翌日の同じ頃）
+        self.assertIsNone(self.find(WEEKDAY_9_18, at(MON, 16), {0, 1, 2}))
+
+    def test_ng_hours_are_skipped(self):
+        """NG時間（昼休み 12〜13時）を引いた時間帯では、昼過ぎの時間帯は 13時から。"""
+        hours = subtract(WEEKDAY_9_18, {k: [["12:00", "13:00"]] for k in KEYS})
+        self.assertEqual(self.find(hours, at(MON, 10, 30), {0}), at(MON, 13))
+        self.assertFalse(covers(hours, no_holiday, at(MON, 12, 30), at(MON, 12, 30)))
+
+
+class Subtract(unittest.TestCase):
+    def test_cuts(self):
+        restaurant = {k: [["11:00", "14:00"], ["17:00", "21:00"]] for k in KEYS}     # ご飯時
+        got = subtract({k: [["10:00", "22:00"]] for k in KEYS}, restaurant)
+        self.assertEqual(got["mon"], [["10:00", "11:00"], ["14:00", "17:00"], ["21:00", "22:00"]])
+        self.assertEqual(subtract(WEEKDAY_9_18, {k: [] for k in KEYS}), WEEKDAY_9_18)
+        self.assertEqual(subtract(WEEKDAY_9_18, {k: [["00:00", "24:00"]] for k in KEYS})["mon"], [])
+        self.assertEqual(subtract({k: [["00:00", "24:00"]] for k in KEYS}, {k: [["12:00", "13:00"]] for k in KEYS})["sun"],
+                         [["00:00", "12:00"], ["13:00", "24:00"]])
 
 
 if __name__ == "__main__":

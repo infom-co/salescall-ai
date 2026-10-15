@@ -126,6 +126,13 @@ def _task(tx: Tx, task_id: UUID, contact_id: UUID | None = None) -> dict[str, An
     return row
 
 
+def calling_hours_for(tx: Tx, *, tenant_id: UUID, client_id: UUID, business_id: UUID | None) -> dict:
+    """実際にかけてよい時間帯（曜日・祝日ごと）＝かけてよい時間帯（calling.hours。枠の内側）から、かけない時間（NG時間
+    calling.ng_hours）を引いた残り。門・次の動きは、時間帯をこの1か所から読む（直接 calling.hours を読まない。機械が見張る）。"""
+    scope = dict(tenant_id=tenant_id, client_id=client_id, business_id=business_id)
+    return calling_hours.subtract(settings.resolve(tx, "calling.hours", **scope), settings.resolve(tx, "calling.ng_hours", **scope))
+
+
 def _setting(tx: Tx, key: str, task: dict[str, Any]) -> Any:
     return settings.resolve(tx, key, tenant_id=task["tenant_id"], client_id=task["client_id"],
                             business_id=task["business_id"])
@@ -262,7 +269,8 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
 
     # (6) 時間帯：予約から予約証の期限まで、まるごと内側（5-2-1 の4）。祝日の暦の外は判断できない（5-2-1 の5）
     lifetime = timedelta(seconds=int(_setting(tx, "gate.claim_lifetime", task)))
-    if not calling_hours.covers(_setting(tx, "calling.hours", task), holiday_checker(tx), local, local + lifetime):
+    hours = calling_hours_for(tx, tenant_id=task["tenant_id"], client_id=task["client_id"], business_id=task["business_id"])
+    if not calling_hours.covers(hours, holiday_checker(tx), local, local + lifetime):
         return _deny("outside_hours")
 
     # (7) 間隔の待ち

@@ -135,6 +135,7 @@ class CutTable(unittest.TestCase):
 
 
 P_NONE = gate.Pacing(3, NOW, None, False)
+HOUR = timedelta(hours=1)        # 試験の業務の決まりの間隔（1時間おき）が指す時刻は NOW + HOUR（_retry_at の答えとして渡す）
 MAIN, ALT = uuid.UUID(int=1), uuid.UUID(int=2)     # 一覧の番号・相手が言った別の番号（連絡先）
 
 
@@ -142,7 +143,7 @@ def after_call(j_kw, *, verification="done", normal=P_NONE, promised=gate.Pacing
                alternate=None):
     j = run(**j_kw)
     return decide_after_call(j, verification=verification, normal=normal, promised=promised, rules=RULES,
-                             times_with_key=times, now=NOW,
+                             times_with_key=times, now=NOW, retry_at=NOW + HOUR,
                              target=choose_number(j, dialed=Target(MAIN), alternate=alternate, recheck=None))
 
 
@@ -167,15 +168,23 @@ class AfterCall(unittest.TestCase):
                        promised=gate.Pacing(3, later, "cross_client_interval_other_tenant", True))
         self.assertEqual(d.at, later)                                          # 門の最も早い時刻より前にしない
         d = after_call(dict(items={}, rep=report(callback=Callback("ask_who", None, None, None, "岡田"))))
-        self.assertEqual((d.kind, d.at, d.promised), ("call", NOW + timedelta(seconds=60), True))
+        self.assertEqual((d.kind, d.at, d.promised), ("call", NOW + HOUR, True))
 
     def test_policy(self):
         d = after_call(dict(items={"Q1": TAKEN["Q1"]}))
-        self.assertEqual((d.kind, d.at, d.promised), ("call", NOW + timedelta(seconds=60), False))
+        self.assertEqual((d.kind, d.at, d.promised), ("call", NOW + HOUR, False))
         d = after_call(dict(items={"Q1": TAKEN["Q1"]}), times=4)
         self.assertEqual((d.kind, d.end_reason), ("end", "policy_max:incomplete"))
         d = after_call(dict(items={"Q1": TAKEN["Q1"]}), normal=gate.Pacing(0, NOW, None, False))
         self.assertEqual((d.kind, d.end_reason), ("end", "max_attempts"))
+        j = run(items={"Q1": TAKEN["Q1"]})
+        d = decide_after_call(j, verification="done", normal=P_NONE, promised=P_NONE, rules=RULES, times_with_key=1,
+                              now=NOW, retry_at=None, target=Target(MAIN))
+        self.assertEqual((d.kind, d.end_reason), ("end", "no_calling_hours"))     # これから先、かけてよい時間帯が無い
+        two_days = NOW + timedelta(days=2)
+        d = decide_after_call(j, verification="done", normal=P_NONE, promised=P_NONE, rules=RULES, times_with_key=1,
+                              now=NOW, retry_at=two_days, target=Target(MAIN))
+        self.assertEqual(d.at, two_days)                                           # 方針の間隔が指す時刻（n 日後）
         late = NOW + timedelta(days=1)
         d = after_call(dict(items={"Q1": TAKEN["Q1"]}), normal=gate.Pacing(2, late, "daily_attempts", False))
         self.assertEqual(d.at, late)
@@ -183,7 +192,7 @@ class AfterCall(unittest.TestCase):
             k: {"action": "end"} for k in ("open", "incomplete", "not_reached_absent", "not_reached_not_transferred",
                                              "callback_unspecified_time")}))
         d = decide_after_call(run(items={"Q1": TAKEN["Q1"]}), verification="done", normal=P_NONE, promised=P_NONE,
-                              rules=ending, times_with_key=1, now=NOW, target=Target(MAIN))
+                              rules=ending, times_with_key=1, now=NOW, retry_at=NOW + HOUR, target=Target(MAIN))
         self.assertEqual((d.kind, d.end_reason), ("end", "incomplete"))
 
 
@@ -208,7 +217,7 @@ class AlternateNumber(unittest.TestCase):
         j = run(items={"Q1": TAKEN["Q1"]})
         self.assertEqual(choose_number(j, dialed=Target(ALT), alternate=None, recheck=None), Target(ALT))
         d = decide_after_call(j, verification="done", normal=P_NONE, promised=P_NONE, rules=RULES, times_with_key=1,
-                              now=NOW, target=choose_number(j, dialed=Target(ALT), alternate=None, recheck=None))
+                              now=NOW, retry_at=NOW + HOUR, target=choose_number(j, dialed=Target(ALT), alternate=None, recheck=None))
         self.assertEqual((d.kind, d.contact_id), ("call", ALT))
         later = run(items={}, rep=report(callback=Callback("later", NOW, None, None, None)))
         self.assertEqual(choose_number(later, dialed=Target(ALT), alternate=None, recheck=None), Target(ALT))
@@ -222,7 +231,7 @@ class AlternateNumber(unittest.TestCase):
     def test_refusal_wins_over_the_other_number(self):
         j = run(items={}, rep=report(dnc=True, callback=self.OTHER.callback))
         d = decide_after_call(j, verification="done", normal=P_NONE, promised=P_NONE, rules=RULES, times_with_key=1,
-                              now=NOW, target=choose_number(j, dialed=Target(MAIN), alternate=Alternate(ALT, True, None),
+                              now=NOW, retry_at=NOW + HOUR, target=choose_number(j, dialed=Target(MAIN), alternate=Alternate(ALT, True, None),
                                                             recheck=None))
         self.assertEqual((d.kind, d.end_reason), ("end", "do_not_call"))
 
@@ -240,7 +249,7 @@ class WrongNumberTheCalleeGave(unittest.TestCase):
         j = self.wrong()
         t = choose_number(j, dialed=dialed, alternate=None, recheck=recheck)
         return decide_after_call(j, verification="done", normal=gate.Pacing(0, NOW, None, False), promised=P_NONE,
-                                 rules=RULES, times_with_key=1, now=NOW, target=t)
+                                 rules=RULES, times_with_key=1, now=NOW, retry_at=NOW + HOUR, target=t)
 
     def test_judged_as_not_reached_and_only_that_number_is_stopped(self):
         j = self.wrong()
@@ -271,7 +280,7 @@ class WrongNumberTheCalleeGave(unittest.TestCase):
         self.assertEqual(choose_number(no_answer, dialed=asking, alternate=None, recheck=None), asking)
         later = NOW + timedelta(hours=3)
         decide = lambda ask: decide_after_call(no_answer, verification="not_needed", normal=gate.Pacing(0, NOW, None, False),
-                                               promised=P_NONE, rules=RULES, times_with_key=9, now=NOW, target=asking,
+                                               promised=P_NONE, rules=RULES, times_with_key=9, now=NOW, retry_at=NOW + HOUR, target=asking,
                                                ask=ask)
         d = decide(AskAgain(1, 3, later))
         self.assertEqual((d.kind, d.target, d.promised, d.at), ("call", asking, True, later))   # 行の上限・方針では止めない
@@ -324,7 +333,13 @@ class Shapes(unittest.TestCase):
         x = rules_raw(("Q1",)); x["handling"]["Q1"]["refused"]["unwilling"] = {"kind": "retry"}; bad.append(("答えないに日を改める", x))
         x = rules_raw(("Q1",)); x["handling"]["Q1"]["refused"]["policy"] = {"kind": "conclude"}; bad.append(("結論の名前が無い", x))
         x = rules_raw(("Q1",)); del x["retry"]["open"]; bad.append(("再発信の方針の抜け", x))
-        x = rules_raw(("Q1",)); x["retry"]["open"] = {"action": "call", "max_times": 0, "interval_seconds": 60}; bad.append(("回数0", x))
+        x = rules_raw(("Q1",)); x["retry"]["open"] = {"action": "call", "max_times": 0, "interval": {"hours": 1}}; bad.append(("回数0", x))
+        for name, iv in [("間隔の単位が違う", {"minutes": 30}), ("間隔が2つ", {"hours": 1, "days": 1}), ("間隔が0", {"days": 0}),
+                         ("間隔が数でない", {"hours": "2"}), ("前の形（秒）", None)]:
+            x = rules_raw(("Q1",))
+            x["retry"]["open"] = ({"action": "call", "max_times": 3, "interval_seconds": 60} if iv is None
+                                  else {"action": "call", "max_times": 3, "interval": iv})
+            bad.append((name, x))
         x = rules_raw(("Q1",)); x["decline"] = {"Q9": ["いりません"]}; bad.append(("無い質問", x))
         for name, raw in bad:
             with self.subTest(name), self.assertRaises(RulesInvalid):

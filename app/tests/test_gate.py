@@ -25,6 +25,7 @@ from tests.support import OPERATOR, SYSTEM, World, fictional_jp_fixed, owner_acc
 
 KEYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun", "holiday")
 ALL_DAY = {k: [["00:00", "24:00"]] for k in KEYS}
+NO_NG = {k: [] for k in KEYS}
 HOLDER = "試験の見守り役"
 
 
@@ -49,6 +50,7 @@ class Base(unittest.TestCase):
     def setUp(self):
         self.w = World()
         self.override("calling.hours_limit", ALL_DAY)
+        self.override("calling.ng_hours", NO_NG)        # 試験の時刻（昼休みなど）に左右されない。NG時間は専用の試験で確かめる
         self.override("gate.ai_tpm_limit", 10 ** 9)   # 会話AIの枠は全体で共有：ほかの試験の進行中の試行に左右されない
         load_calendar()
 
@@ -81,14 +83,14 @@ class Base(unittest.TestCase):
     def tx(self, s, work, actor=SYSTEM):
         return self.w.a.in_client(actor, s["tenant"], s["client"], work)
 
-    def ready(self, *, tenant=None, phone=None):
+    def ready(self, *, tenant=None, phone=None, rules=None):
         """かけてよい状態の行を1つ作る（時間帯は終日・予定はいま・最初の段は全部・回線は借りている）。"""
         raw = phone or fictional_jp_fixed()
         s = self.w.setup(phone=normalize(raw).e164, tenant=tenant)
         self.put_client(s, "calling.hours", ALL_DAY)
         self.tx(s, lambda tx: next_action.schedule_now(tx, s["task"], cause="試験"))
         self.tx(s, lambda tx: quality_stage.open_stage(tx, s["version"], 1, None, evidence="試験"), OPERATOR)
-        self.tx(s, lambda tx: business_rules.save(tx, s["version"], rules_raw()), OPERATOR)
+        self.tx(s, lambda tx: business_rules.save(tx, s["version"], rules or rules_raw()), OPERATOR)
         self.lease(s)
         return s
 
@@ -261,6 +263,25 @@ class Hours(Base):
         s = self.ready()
         self.put_client(s, "calling.hours", {k: [] for k in KEYS})
         self.assertEqual(self.reason(s), "outside_hours")
+
+    def test_ng_hours_are_not_called(self):
+        """NG時間（2026-10-15 ユーザー）：かけてよい時間帯の内でも、依頼主・業務ごとのNG時間にはかけない。"""
+        s = self.ready()
+        self.put_client(s, "calling.ng_hours", ALL_DAY)                 # 1日じゅうNG
+        self.assertEqual(self.reason(s), "outside_hours")
+        s2 = self.ready()
+        self.put_client(s2, "calling.ng_hours", NO_NG)
+        self.assertIsInstance(self.claim(s2), gate.Claim)
+        hours = self.tx(s2, lambda tx: gate.calling_hours_for(tx, tenant_id=s2["tenant"], client_id=s2["client"],
+                                                              business_id=s2["business"]))
+        self.assertEqual(hours["mon"], [["00:00", "24:00"]])
+
+    def test_default_ng_hours_is_lunch_time(self):
+        own = owner_access()
+        v = own.in_system(SYSTEM, lambda tx: tx.one(
+            "SELECT value FROM salescall.setting_values WHERE key = 'calling.ng_hours' AND scope = 'system'"
+            " AND status = 'decided' ORDER BY value_id LIMIT 1"))["value"]
+        self.assertEqual({k: v[k] for k in KEYS}, {k: [["12:00", "13:00"]] for k in KEYS})
 
     def test_holiday_uses_the_holiday_hours(self):
         s = self.ready()

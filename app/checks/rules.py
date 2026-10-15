@@ -251,6 +251,24 @@ def dial_only_through_exit(app_root: Path) -> list[Violation]:
     return out
 
 
+# ── 5-2-2：時間帯の設定（かけてよい時間帯・かけない時間）を読むのは、実際に使う時間帯を出す1か所（gate.calling_hours_for）だけ。
+#    ほかで calling.hours を直接読むと、かけない時間（NG時間）を引き忘れる（2026-10-15 ユーザー：NG時間）
+HOURS_READ_ALLOWED = "src/salescall/core/gate.py"
+_HOURS_KEYS = ("calling.hours", "calling.ng_hours")
+
+
+def calling_hours_read_once(app_root: Path) -> list[Violation]:
+    out: list[Violation] = []
+    for path in _python_files(app_root):
+        rel = _rel(app_root, path)
+        if rel == HOURS_READ_ALLOWED or rel.startswith("tests/") or rel == "run_tests.py":
+            continue
+        for text, line in _string_constants(_parse(path)):
+            if text in _HOURS_KEYS:
+                out.append(Violation("5-2-2", rel, line, "時間帯の設定は gate.calling_hours_for から読みます（NG時間を引き忘れない）"))
+    return out
+
+
 ALL_RULES: tuple[Callable[[Path], list[Violation]], ...] = (
     value_types_stays_pure,
     phone_formatting_only_in_q1,
@@ -260,6 +278,7 @@ ALL_RULES: tuple[Callable[[Path], list[Violation]], ...] = (
     scope_settings_only_in_layer,
     key_values_only_in_key_selection,
     dial_only_through_exit,
+    calling_hours_read_once,
 )
 
 

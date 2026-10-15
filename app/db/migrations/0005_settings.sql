@@ -225,6 +225,7 @@ INSERT INTO salescall.setting_definitions (key, merge_kind, value_type, meaning,
 -- 会話の決まり（持ち主 CL-1。値を持つのは設定の表の1か所）
 ('call.silence_prompt_after', 'override', 'seconds', '考えている相手に AI が「はい。」と相づちを打ったあと、相手が黙っていたら「いかがなさいましたか？」を流すまでの秒数（AIの「はい。」が終わってから数える）', 'DESIGN.md 6-15（持ち主 CL-1）', NULL, NULL),
 ('conversation.ask_back_required', 'override', 'integer', '必須の項目を、その場で聞き返す回数の上限（最初の質問は数えない）', 'DESIGN.md 6-11（持ち主 CL-1）', NULL, NULL),
+('calling.ng_hours', 'override', 'weekly_hours', 'かけない時間（NG時間。曜日・祝日ごと。昼休み・飲食店のご飯時など繁忙時）。かけてよい時間帯から引いた残りだけにかける（引くのは gate.calling_hours_for の1か所）', 'DESIGN.md 5-2-2', NULL, NULL),
 ('retry.time_band_boundaries', 'override', 'hour_list', '1日を時間帯に分ける区切りの時（出なかった相手へ、前と別の時間帯にかけ直すときに使う。例：[12, 15]＝午前・昼過ぎ・夕方）', 'DESIGN.md 3-5・7-2-1', NULL, NULL),
 ('retry.ask_number_again_max', 'override', 'integer', '番号の聞き直しの電話に出なかったとき、かけてよい回数の上限（行の回数の上限とは別に数える。毎回、前と別の時間帯にかける）', 'DESIGN.md 3-5', NULL, NULL),
 ('callee.business_hours', 'override', 'daily_range', '相手（発信先）の営業時間。相手が言った時刻に午前・午後が無いとき、営業時間に入るほうを補う（両方入る・どちらも入らないときだけ聞く）。日をまたいでよい', 'DESIGN.md 6-2（持ち主 CL-1）', NULL, NULL),
@@ -278,6 +279,7 @@ INSERT INTO salescall.setting_values (key, scope, value, status, rationale, revi
 ('call.silence_prompt_after', 'system', '5', 'decided', '2026-10-14 ユーザー決定（CL-1 の連絡帳 4-9 から）。運営者が依頼主タブごとに変えられる', '模擬通話と最初の実測で、考えている相手の間を見て', 'ユーザー'),
 ('conversation.ask_back_required', 'system', '2', 'decided', '2026-10-14 ユーザー決定（CL-1 の連絡帳 4-10 から）：最初の質問のほかに最大3回＝その場の聞き返し2回＋締めの前の念のための確認1回。「依頼者ごとに変更できる設定にしておいた方がいいね」⇒ 下流が強い（override）', '模擬通話と最初の実測で', 'ユーザー'),
 ('conversation.recheck_required', 'system', '1', 'decided', '同上', '模擬通話と最初の実測で', 'ユーザー'),
+('calling.ng_hours', 'system', '{"mon": [["12:00","13:00"]], "tue": [["12:00","13:00"]], "wed": [["12:00","13:00"]], "thu": [["12:00","13:00"]], "fri": [["12:00","13:00"]], "sat": [["12:00","13:00"]], "sun": [["12:00","13:00"]], "holiday": [["12:00","13:00"]]}', 'decided', '2026-10-15 ユーザー決定：「12時から13時に会社の電話に電話をかけるのは失礼とされている。飲食店もご飯時はNG。事業者ごとに、NG時間（繁忙時など）を設定できるように」⇒ 初めの値は会社の昼休み。飲食店などは運営者が依頼主タブ・業務ごとに入れる', '依頼主ごとに、相手の種類（会社・店舗）を見て', 'ユーザー'),
 ('retry.ask_number_again_max', 'system', '3', 'decided', '2026-10-15 ユーザー：「時間帯により出られないことはよくある。上限なしにかけ続けてしまうためなら、3回までなどの制限をかけ、別の時間帯にかけ直す」', '聞き直しの結果（3回で繋がった割合）を見て', 'ユーザー'),
 ('retry.time_band_boundaries', 'system', '[12, 15]', 'provisional', '午前（〜12時）・昼過ぎ（12〜15時）・夕方（15時〜）の3つ。会社は昼休み・夕方の会議などで出られない時間が偏るため、3つに分ければ、3回で違う頃に1回ずつかけられる', '聞き直し・再発信の、時間帯ごとの繋がった割合を見て', 'CL-2'),
 ('callee.business_hours', 'system', '["09:00", "19:00"]', 'decided', '2026-10-15 ユーザー決定（CL-1 の連絡帳 4-11 から）：会社は 9:00〜19:00 が初めの値。店舗・深夜営業のお店は運営者が依頼主タブで入れる（日をまたいでよい）', '依頼主ごとに、相手の種類（会社・店舗）を見て', 'ユーザー');

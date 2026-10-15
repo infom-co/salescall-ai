@@ -82,7 +82,7 @@ def band_of(t: datetime, boundaries: list[int]) -> int:
 def next_opening_in_new_band(hours: dict, is_holiday: Callable[[date], bool], after: datetime, length: timedelta,
                              boundaries: list[int], tried: set[int], *, horizon_days: int = 31) -> datetime | None:
     """after 以降で、まだ試していない時間帯（tried に無いもの）の中の、かけてよい最も早い始まり（日本時間）。
-    その業務の時間帯に、試していない時間帯がもう無ければ（例：夜だけ開くお店）、翌日以降の同じ頃からの次の始まり（日を変える）。"""
+    horizon_days 日のうちに無ければ None（夜だけ開くお店など。どうするかは呼ぶ側が決める）。"""
     for offset in range(horizon_days + 1):
         d = after.date() + timedelta(days=offset)
         starts = {r0 for r0, _ in _ranges(hours, day_key(d, is_holiday))} | {b * 3600 for b in boundaries}
@@ -94,5 +94,25 @@ def next_opening_in_new_band(hours: dict, is_holiday: Callable[[date], bool], af
                 continue
             if band_of(candidate, boundaries) not in tried and covers(hours, is_holiday, candidate, candidate + length):
                 return max(candidate, after)
-    # 試していない時間帯が無い：出なかった直後にかけ直さず、翌日以降の同じ頃から（日を変える）
-    return next_opening(hours, is_holiday, after + timedelta(days=1), length, horizon_days=horizon_days)
+    return None
+
+
+# ── かけない時間（NG時間。2026-10-15 ユーザー：「12時から13時に会社の電話にかけるのは失礼。飲食店もご飯時はNG。
+#    事業者ごとに、NG時間（繁忙時など）を設定できるように」） ──
+def subtract(hours: dict, ng: dict) -> dict:
+    """かけてよい時間帯から、かけない時間を引いた残り（曜日・祝日ごと。同じ形）。"""
+    out = {}
+    for key, ranges in hours.items():
+        cuts = sorted(_ranges(ng, key))
+        kept: list[tuple[int, int]] = []
+        for r0, r1 in sorted(_ranges(hours, key)):
+            pieces = [(r0, r1)]
+            for c0, c1 in cuts:
+                pieces = [q for a, b in pieces for q in ((a, min(b, c0)), (max(a, c1), b)) if q[0] < q[1]]
+            kept += pieces
+        out[key] = [[_hhmm(a), _hhmm(b)] for a, b in kept]
+    return out
+
+
+def _hhmm(sec: int) -> str:
+    return f"{sec // 3600:02d}:{sec % 3600 // 60:02d}"
