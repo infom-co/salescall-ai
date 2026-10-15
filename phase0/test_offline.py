@@ -1620,5 +1620,34 @@ class RetryTest(unittest.TestCase):
         self.assertEqual(len(calls), 3)  # やり直しを使い切ったら、誤りをそのまま上げる
 
 
+class RecordingCheckTest(unittest.TestCase):
+    """録音の確かめ（make_ack_clips）：声の途中で切れた録音・文の途中の長い無音を落とす。"""
+
+    RATE = 24000
+
+    def tone(self, *parts):
+        """(秒, 声か) の並びから、作った音を作る。"""
+        import numpy as np
+        out = []
+        for sec, on in parts:
+            t = np.arange(int(self.RATE * sec)) / self.RATE
+            out.append(np.sin(2 * np.pi * 160 * t) * (0.3 if on else 0.0))
+        return (np.concatenate(out) * 32767).astype("<i2").tobytes()
+
+    def test_cut_in_the_middle_of_the_voice_is_rejected(self):
+        """⛔ 2026-10-15：S4 の「承知しました、」の候補3は声の途中で終わっていたのに、耳の確かめは通した（ユーザーが聞いて気づいた）。"""
+        from make_ack_clips import ends_in_silence
+        self.assertFalse(ends_in_silence(self.tone((0.2, False), (0.6, True)), self.RATE))
+        self.assertFalse(ends_in_silence(self.tone((0.2, False), (0.6, True), (0.05, False)), self.RATE))
+        self.assertTrue(ends_in_silence(self.tone((0.2, False), (0.6, True), (0.25, False)), self.RATE))
+
+    def test_long_pause_only_at_sentence_end(self):
+        from make_ack_clips import long_pauses_ok
+        one_sentence = self.tone((0.1, False), (0.8, True), (0.35, False), (0.8, True), (0.2, False))
+        self.assertFalse(long_pauses_ok("お忙しいところお時間をいただきましてありがとうございました。", one_sentence, self.RATE))
+        self.assertTrue(long_pauses_ok("ありがとうございました。それでは失礼いたします。", one_sentence, self.RATE))
+        self.assertTrue(long_pauses_ok("それではご希望の日時をお聞かせいただけますでしょうか？", one_sentence, self.RATE))  # 頭のつなぎの言葉のあと
+
+
 if __name__ == "__main__":
     unittest.main()

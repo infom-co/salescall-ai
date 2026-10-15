@@ -137,20 +137,6 @@
     "wav": "L4_shitsurei.wav"
   },
   {
-    "type": "S4",
-    "voice": "Sadachbia",
-    "id": "shouchi",
-    "text": "承知しました、",
-    "heard": {
-      "0.0": "承知しました。",
-      "1.0": "承知しました。"
-    },
-    "ok": true,
-    "seconds": 1.08,
-    "tries": 2,
-    "wav": "S4_shouchi.wav"
-  },
-  {
     "type": "L4",
     "voice": "Leda",
     "id": "moushiwake",
@@ -457,5 +443,21 @@
     "seconds": 5.92,
     "tries": 1,
     "wav": "L4_closing.wav"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "shouchi",
+    "text": "承知しました、",
+    "heard": {
+      "0.0": "承知しました。",
+      "1.0": "承知しました。"
+    },
+    "ok": true,
+    "seconds": 0.9,
+    "try": 6,
+    "wav": "S4_shouchi.wav",
+    "chosen_from": "S4_shouchi_2",
+    "chosen_by": "人"
   }
 ]

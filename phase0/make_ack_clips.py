@@ -11,6 +11,8 @@
 （⛔ 2026-10-14 の1回目：無音まで含めた長さで比べ、読みの合った S4 の「承知しました、」を長すぎとして落とした）。
 作ってある録音は作り直さない（--redo で名指ししたものだけ作り直す）。
 --candidates N：確かめに通った録り方を N 本、候補として candidates/ に残す（使っている録音は置き換えない）。人が聞いて選ぶ。
+--adopt：人が選んだ候補（例 S4_shouchi_2）を、使う録音にする。
+  ✅ 2026-10-15 ユーザー：「S4 の『承知しました、』02＞01＞04＞03（03のみ最後が途切れている）」
   ⚠️ 2026-10-15 ユーザー：「S4 の最初の『承知しました。』が外国人が話すようなイントネーション」＝読みは合っていて、耳の確かめでは落とせない
 ⚠️ 本番で使うなら、決まった発話の録音（6-13）と同じく、人（運営者）が聞いて承認する。
 """
@@ -29,6 +31,7 @@ from jtext import compare_reading
 from listen import hear_feeds
 from live_util import build_config, collect_turn, send_text
 from phrases import RECORDED
+from voice_features import read_wav
 
 OUT = HERE / "results" / "ack"
 SCRIPT_OUT = HERE / "results" / "script"
@@ -55,6 +58,17 @@ HOW = {"moushiwake": "電話で、相手に聞き取れなかったことを申�
 DEFAULT_HOW = "電話で、相手の話に相づちを打つように、短く"
 MAX_S = {"hai": 1.0, "shouchi": 1.4, "arigatou": 1.6, "shitsurei": 1.6, "moushiwake": 1.6, "lead_soredeha": 1.0,
          "lead_tsuzukimashite": 1.2, "lead_deha": 0.8, "closing": 8.0, "wait": 3.5, "question": 5.0}
+
+
+END_SILENCE_S = 0.1  # 声のあとに、これだけの無音が無ければ、声の途中で切れた録音として落とす
+# ⛔ 2026-10-15：S4 の「承知しました、」の候補3は、声が鳴っている途中で終わっていた（声のあとの無音 0秒・最後の20ミリ秒が -18dB）。
+#    耳の確かめは「承知しました。」と聞いて通した。ほかの録音は、どれも声のあとに 0.2秒以上の無音がある。
+
+
+def ends_in_silence(pcm: bytes, rate: int) -> bool:
+    """声のあとに無音があるか（声の途中で切れていないか）。"""
+    runs = voice_runs(voiced(pcm, rate), 0.05)
+    return bool(runs) and len(pcm) / 2 / rate - runs[-1][1] >= END_SILENCE_S
 
 
 LONG_PAUSE_S = 0.25  # 文の途中に入れてよい無音の長さの上限（これより長い無音は、文の切れ目「。」「？」・頭のつなぎの言葉のあとだけ）
@@ -90,6 +104,27 @@ def words(script: bool) -> tuple[dict, Path]:
     return {aid: (text, aid) for aid, text in RECORDED.items()}, OUT
 
 
+def adopt(names: list[str], script: bool) -> dict:
+    """人が選んだ候補を、使う録音にする（候補の確かめの結果も、そのまま台帳に移す）。"""
+    table, out = words(script)
+    index_path = out / "index.json"
+    made = json.loads(index_path.read_text(encoding="utf-8")) if index_path.exists() else []
+    cands = {r["wav"][:-4]: r for r in json.loads((out / "candidates" / "index.json").read_text(encoding="utf-8")) if r.get("wav")}
+    done = []
+    for name in names:
+        row = dict(cands[name])
+        assert row["text"] == table[row["id"]][0], (name, row["text"])  # 文が変わったあとの古い候補は使わない
+        pcm, rate = read_wav(out / "candidates" / row["wav"])
+        assert ends_in_silence(pcm, rate), name  # 終わりの切れた候補は使わない（候補3）
+        path = out / f"{row['type']}_{row['id']}.wav"
+        write_wav(path, pcm, rate)
+        row.update({"wav": path.name, "chosen_from": name, "chosen_by": "人"})
+        made = [m for m in made if (m["type"], m["id"]) != (row["type"], row["id"])] + [row]
+        done.append(row)
+    index_path.write_text(json.dumps(made, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {"adopted": done}
+
+
 async def run(args) -> dict:
     table, out = words(args.script)
     ids = args.id or list(table)
@@ -123,11 +158,12 @@ async def run(args) -> dict:
     return {"model": args.model, "made": made, "missing": [(m["type"], m["id"]) for m in made if not m.get("ok")]}
 
 
-async def take(client, args, vt: str, aid: str, text: str, how: str) -> tuple[dict, bytes, int]:
-    """1回読ませて、確かめる（両方の耳で読みが合う・声だけの長さが上限以内・文の途中に長い無音が無い）。"""
+async def take(client, args, vt: str, aid: str, text: str, how: str, voice_note: str = "") -> tuple[dict, bytes, int]:
+    """1回読ませて、確かめる（両方の耳で読みが合う・声だけの長さが上限以内・文の途中に長い無音が無い・声の途中で切れていない）。
+    voice_note＝声そのものの指示（G-38 で比べる。空なら足さない）。"""
     voice, style = voice_style(vt)
     try:
-        inst = (f"{style}\nあなたは音声の材料を作る係です。渡された言葉だけを、{HOW.get(how, DEFAULT_HOW)}、そのまま読み上げます。"
+        inst = (f"{style}{voice_note}\nあなたは音声の材料を作る係です。渡された言葉だけを、{HOW.get(how, DEFAULT_HOW)}、そのまま読み上げます。"
                 "言葉を足しません。")
         async with client.aio.live.connect(model=args.model, config=build_config(voice=voice, system_instruction=inst)) as s:
             t = time.monotonic()
@@ -136,7 +172,8 @@ async def take(client, args, vt: str, aid: str, text: str, how: str) -> tuple[di
         pcm, rate = bytes(turn.audio), turn.audio_rate or 24000
         seconds = speech_seconds(pcm, rate) if pcm else 0.0
         heard = await hear_feeds(client, pcm, rate) if pcm else {}
-        ok = bool(pcm) and heard_ok(text, heard) and seconds <= MAX_S[how] and long_pauses_ok(text, pcm, rate)
+        ok = (bool(pcm) and heard_ok(text, heard) and seconds <= MAX_S[how] and long_pauses_ok(text, pcm, rate)
+              and ends_in_silence(pcm, rate))
         say(f"{vt} {text}：聞こえた {heard} 長さ {seconds:.2f}秒 合格={ok}")
         return {"type": vt, "voice": voice, "id": aid, "text": text, "heard": heard, "ok": ok, "seconds": round(seconds, 2)}, pcm, rate
     except Exception as exc:
@@ -177,7 +214,11 @@ def main() -> None:
     p.add_argument("--id", action="append", help="作る録音（中の名前。質問なら Q2 など）。無ければ全部")
     p.add_argument("--redo", action="append", help="作ってある録音でも作り直す（名指ししたものだけ）")
     p.add_argument("--candidates", type=int, default=0, help="確かめに通った録り方を、この本数だけ候補として残す（人が聞いて選ぶ）")
+    p.add_argument("--adopt", action="append", help="人が選んだ候補（例 S4_shouchi_2）を使う録音にする（キーを使わない）")
     args = p.parse_args()
+    if args.adopt:
+        print(json.dumps(adopt(args.adopt, args.script), ensure_ascii=False))
+        return
     if args.dry_run:  # 下見は保存しない（G-36 と同じ）
         print(json.dumps(asyncio.run(run(args)), ensure_ascii=False))
         return
