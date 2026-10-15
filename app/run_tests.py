@@ -208,6 +208,19 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      " WITH r AS (UPDATE salescall.attempts SET state = 'released' WHERE state = 'claimed' AND claim_expires_at <= now()"
      " AND (contact_id = p_contact OR phone_e164 = p_phone OR line_id = p_line) RETURNING 1) SELECT count(*)::integer FROM r $$",
      ("tests.test_alternate.DatabasePromises.test_expired_claim_on_another_number_of_the_row_is_released",)),
+    # 見守り（Q9・9-1）
+    ("何回続いたかを数えない（いつも0）",
+     "CREATE OR REPLACE FUNCTION salescall.consecutive_errors(p_kinds text[], p_line uuid DEFAULT NULL) RETURNS integer"
+     " LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ SELECT 0 $$",
+     ("tests.test_watch.LineStops.test_consecutive_line_errors_stop_only_that_line",)),
+    ("呼び出せた発信で数え直さない",
+     "CREATE OR REPLACE FUNCTION salescall.consecutive_errors(p_kinds text[], p_line uuid DEFAULT NULL) RETURNS integer"
+     " LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$"
+     " SELECT count(*)::integer FROM salescall.error_events e WHERE e.kind = ANY(p_kinds)"
+     " AND (p_line IS NULL OR e.line_id = p_line) $$",
+     ("tests.test_watch.LineStops.test_a_call_that_rang_resets_the_count",)),
+    ("停止を解く確かめの記録の変更の拒みを外す", "DROP TRIGGER stop_checks_frozen ON salescall.stop_checks",
+     ("tests.test_watch.SystemStopsAndChecks.test_checks_are_frozen",)),
     # 知らせの台帳（Q23）
     ("同じ出来事は1回だけ、の約束を外す",
      "ALTER TABLE salescall.notification_events DROP CONSTRAINT notification_events_event_key_key",
