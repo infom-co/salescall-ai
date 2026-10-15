@@ -24,7 +24,7 @@ from salescall.core.access import Tx
 
 Scope = Literal["system", "tenant", "client", "business", "line"]   # line＝その回線だけ（回線の異常。9-1）
 Cause = Literal["manual", "storage_failure", "line_failure", "ai_connection", "project_denied",
-                "forbidden_speech", "quality_gate", "budget"]
+                "forbidden_speech", "quality_gate", "budget", "deficit"]
 
 SCOPE_NAMES: dict[str, str] = {"system": "全体", "tenant": "契約者", "client": "依頼主", "business": "業務", "line": "回線"}
 
@@ -56,8 +56,11 @@ CAUSES: dict[str, CauseInfo] = {
     "quality_gate": CauseInfo("品質の基準を外れた（判定できない・2つの耳の食い違い・苦情・技術的な失敗 など）",
                               "直した新しい版が模擬通話に合格したら解く",
                               "外れた指標。人が解くと、その版をもう一度測り直す（段の件数を最初から数える）"),
-    "budget": CauseInfo("費用の上限を超えた", "日が替わったら解く",
+    "budget": CauseInfo("費用の1日の上限を超えた", "日が替わったら解く",
                         "上限の設定。上限を上げずに解くと、次の利用の記録でまた止まる"),
+    "deficit": CauseInfo("赤字（今月の費用が、今月の報酬を超えた）",
+                         "報酬の決まりを直した・月が替わった・月額の日割りが積み上がって、赤字でなくなったら解く（見守りが確かめる）",
+                         "その依頼主の報酬の決まりと、今月の費用の内訳。決まりを直さずに解くと、次の利用の記録でまた止まる"),
 }
 
 

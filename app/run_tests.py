@@ -222,6 +222,15 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     # 利用量の台帳と予算（Q16）
     ("利用量の台帳の変更の拒みを外す", "DROP TRIGGER usage_entries_frozen ON salescall.usage_entries",
      ("tests.test_usage.Ledger.test_frozen",)),
+    ("報酬の決まりの変更の拒みを外す", "DROP TRIGGER reward_terms_frozen ON salescall.reward_terms",
+     ("tests.test_usage.CostRatio.test_terms_are_frozen",)),
+    ("システムが止めた停止を、見守りに見せない",
+     "CREATE OR REPLACE FUNCTION salescall.open_system_stops(p_cause text) RETURNS TABLE (event_id bigint, scope text,"
+     " tenant_id uuid, client_id uuid, stopped_on date) LANGUAGE sql STABLE SECURITY DEFINER"
+     " SET search_path = salescall, pg_temp AS $$ SELECT NULL::bigint, NULL::text, NULL::uuid, NULL::uuid, NULL::date"
+     " WHERE false $$",
+     ("tests.test_usage.CostRatio.test_deficit_stops_and_resumes_when_terms_are_fixed",
+      "tests.test_usage.Budget.test_system_limit_and_new_day")),
     ("全体の今日の金額を数えない（いつも0）",
      "CREATE OR REPLACE FUNCTION salescall.spent_today_all() RETURNS numeric"
      " LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ SELECT 0::numeric $$",

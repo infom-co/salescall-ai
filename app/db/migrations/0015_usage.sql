@@ -50,16 +50,17 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$
   SELECT coalesce(sum(amount_yen), 0) FROM salescall.usage_entries
   WHERE salescall.jst(occurred_at)::date = salescall.jst(now())::date
 $$;
--- まだ解かれていない費用の停止（範囲・契約者・依頼主・止めた日）。日が替わったかを、全体の取引の見守りが確かめるため
-CREATE FUNCTION salescall.open_budget_stops() RETURNS TABLE (event_id bigint, scope text, tenant_id uuid, client_id uuid,
-                                                            stopped_on date)
+-- システムが止めた、まだ解かれていない停止のうち、その原因のもの（範囲・契約者・依頼主・止めた日）。費用の停止（日が替わったか）・
+-- 赤字の停止（0020）を、全体の取引の見守りが確かめて解くため（依頼主の範囲の停止は、全体の取引からは見えないので、持ち主の権限で）
+CREATE FUNCTION salescall.open_system_stops(p_cause text) RETURNS TABLE (event_id bigint, scope text, tenant_id uuid,
+                                                                        client_id uuid, stopped_on date)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$
   SELECT s.event_id, s.scope::text, s.tenant_id, s.client_id, salescall.jst(s.at)::date FROM salescall.stop_events s
-  WHERE s.action = 'stop' AND s.cause = 'budget' AND s.actor_kind = 'system'
+  WHERE s.action = 'stop' AND s.cause::text = p_cause AND s.actor_kind = 'system'
     AND NOT EXISTS (SELECT 1 FROM salescall.stop_events r WHERE r.resolves_event_id = s.event_id)
 $$;
-REVOKE ALL ON FUNCTION salescall.spent_today_all(), salescall.open_budget_stops() FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION salescall.spent_today_all(), salescall.open_budget_stops() TO salescall_app;
+REVOKE ALL ON FUNCTION salescall.spent_today_all(), salescall.open_system_stops(text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION salescall.spent_today_all(), salescall.open_system_stops(text) TO salescall_app;
 
 -- 最初の単価（2026-10-15）：会話AI・別の耳は無料枠、Rakuten Link の国内通話は無料（ナビダイヤルなど有料の番号へは、初めはかけない）
 INSERT INTO salescall.price_versions (source, unit, yen_per_unit, valid_from, note, set_by) VALUES

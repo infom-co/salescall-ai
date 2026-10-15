@@ -7,6 +7,13 @@
   会話AI・別の耳：返ってきた量を実測として、返らなければ推定として、会話の処理・検証（CL-1）が `record` を呼ぶ。
 - 予算（1日の上限。日本時間の日）：依頼主の上限を超えたら、記録した取引の中で、その依頼主を止める（原因 budget）。
   全体の上限と、日が替わったときの解除は、見守りが呼ぶ `tick`（全体の取引から）。門は停止を見るだけ（判断を増やさない）。
+- **報酬に対する費用の割合**（2026-10-15 ユーザー決定。今月の数は core/reward.py の `month`）：記録のたびに、その依頼主の今月を見る。
+  - 今月かけた本数が budget.deficit_min_dials に満たないうちは判断しない（月の初めの数本でぶれる）。
+  - 赤字（今月の費用 ＞ 今月の報酬）⇒ その依頼主を止める（原因 deficit）。報酬の決まりが無い依頼主は、報酬 0 円なので、
+    費用がかかれば赤字として止まる（決まりを入れ忘れたまま、費用だけかけ続けない）。
+  - 赤字でなく、割合（費用 ÷ 報酬）が上限（budget.max_cost_ratio。既定 30％。依頼主ごとに選べる）を超えた ⇒ 知らせるだけ（1日1回）。
+  - 赤字の停止は、見守りの `tick` が今月の数を見直し、赤字でなくなったら解く（報酬の決まりを直した・月が替わった・月額の日割りが
+    積み上がった）。
 - 画面は台帳を読み、実測と推定を分けて出す（通話時間から料金を計算し直さない）。
 """
 
@@ -16,7 +23,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from salescall.core import settings, stops
+from salescall.core import notify, reward, settings, stops
 from salescall.core.access import Access, Actor, Tx
 
 
@@ -45,7 +52,8 @@ def record(tx: Tx, *, source: str, kind: str, quantity: Decimal | int, unit: str
         " RETURNING entry_id, tenant_id, client_id",
         (attempt_id, source, kind, quantity, unit, price["price_id"], amount))
     stopped = _check_client_budget(tx, row["tenant_id"], row["client_id"])
-    return {"entry_id": row["entry_id"], "amount_yen": amount, "stopped": stopped}
+    by_ratio = _check_cost_ratio(tx, row["tenant_id"], row["client_id"])
+    return {"entry_id": row["entry_id"], "amount_yen": amount, "stopped": stopped or by_ratio}
 
 
 def spent_today(tx: Tx) -> Decimal:
@@ -54,20 +62,48 @@ def spent_today(tx: Tx) -> Decimal:
                   " WHERE salescall.jst(occurred_at)::date = salescall.jst(now())::date")["y"]
 
 
-def _open_budget_stop(tx: Tx, scope: str) -> bool:
-    return tx.one("SELECT 1 FROM salescall.stop_events s WHERE s.action = 'stop' AND s.cause = 'budget' AND s.scope = %s"
+def _open_stop(tx: Tx, scope: str, cause: str) -> bool:
+    return tx.one("SELECT 1 FROM salescall.stop_events s WHERE s.action = 'stop' AND s.cause::text = %s AND s.scope = %s"
                   " AND NOT EXISTS (SELECT 1 FROM salescall.stop_events r WHERE r.resolves_event_id = s.event_id)"
-                  " LIMIT 1", (scope,)) is not None
+                  " LIMIT 1", (cause, scope)) is not None
 
 
 def _check_client_budget(tx: Tx, tenant_id: UUID, client_id: UUID) -> int | None:
     limit = Decimal(settings.resolve(tx, "budget.client_daily_yen", tenant_id=tenant_id, client_id=client_id,
                                      business_id=None))
     spent = spent_today(tx)
-    if spent <= limit or _open_budget_stop(tx, "client"):
+    if spent <= limit or _open_stop(tx, "client", "budget"):
         return None
     return stops.stop(tx, scope="client", cause="budget", reason=f"今日の費用が上限を超えた（{spent}円 ＞ {limit}円）",
                       evidence="利用量の台帳", tenant_id=tenant_id, client_id=client_id)["event_id"]
+
+
+def _deficit(tx: Tx, tenant_id: UUID, client_id: UUID) -> tuple[bool, dict[str, Any]]:
+    """取引の依頼主が、いま赤字として止めるべきか（判断は1か所）と、今月の数（judgeable＝判断してよい本数に達したか）。
+    本数が足りないうちは止めない。"""
+    m = reward.month(tx)
+    need = int(settings.resolve(tx, "budget.deficit_min_dials", tenant_id=tenant_id, client_id=client_id, business_id=None))
+    m["judgeable"] = m["dials"] >= need
+    return m["judgeable"] and m["deficit"], m
+
+
+def _check_cost_ratio(tx: Tx, tenant_id: UUID, client_id: UUID) -> int | None:
+    deficit, m = _deficit(tx, tenant_id, client_id)
+    figures = f"今月の費用 {m['cost']:.2f}円・報酬 {m['revenue']:.2f}円"
+    if deficit:
+        if _open_stop(tx, "client", "deficit"):
+            return None
+        why = "" if m["has_terms"] else "（報酬の決まりがありません）"
+        return stops.stop(tx, scope="client", cause="deficit", reason=f"赤字：{figures}{why}",
+                          evidence="利用量の台帳・報酬の決まり", tenant_id=tenant_id, client_id=client_id)["event_id"]
+    limit = Decimal(settings.resolve(tx, "budget.max_cost_ratio", tenant_id=tenant_id, client_id=client_id,
+                                     business_id=None))
+    if m["judgeable"] and m["ratio"] is not None and m["ratio"] > limit:
+        day = tx.one("SELECT salescall.jst(now())::date AS d")["d"]
+        notify.emit(tx, "budget", key=f"cost_ratio:{client_id}:{day}",
+                    summary=f"報酬に対する費用の割合が上限を超えました（{m['ratio']:.0%} ＞ {limit:.0%}。{figures}）",
+                    refs={"client_id": client_id, "ratio": str(m["ratio"]), "limit": str(limit)})
+    return None
 
 
 def record_line_estimate(tx: Tx, attempt_id: UUID) -> dict[str, Any] | None:
@@ -84,18 +120,19 @@ def record_line_estimate(tx: Tx, attempt_id: UUID) -> dict[str, Any] | None:
 
 
 def tick(access: Access, actor: Actor) -> dict[str, Any]:
-    """見守りが決まった間隔で呼ぶ：全体の1日の上限を超えたら全体を止める。日が替わった費用の停止を解く。"""
+    """見守りが決まった間隔で呼ぶ：全体の1日の上限を超えたら全体を止める。日が替わった費用の停止を解く。
+    赤字の停止は、今月の数を見直して、赤字でなくなっていたら解く。"""
     def system(tx: Tx) -> int | None:
         limit = Decimal(settings.system_value(tx, "budget.system_daily_yen"))
         spent = tx.one("SELECT salescall.spent_today_all() AS y")["y"]
-        if spent <= limit or _open_budget_stop(tx, "system"):
+        if spent <= limit or _open_stop(tx, "system", "budget"):
             return None
         return stops.stop(tx, scope="system", cause="budget", reason=f"全体の今日の費用が上限を超えた（{spent}円 ＞ {limit}円）",
                           evidence="利用量の台帳")["event_id"]
     stopped = access.in_system(actor, system)
     resumed = []
     for s in access.in_system(actor, lambda tx: tx.all(
-            "SELECT b.*, salescall.jst(now())::date AS today FROM salescall.open_budget_stops() b")):
+            "SELECT b.*, salescall.jst(now())::date AS today FROM salescall.open_system_stops('budget') b")):
         if s["stopped_on"] >= s["today"]:
             continue
         work = lambda tx: stops.resume(tx, s["event_id"], reason="日が替わった（費用の上限の期間）")  # noqa: E731
@@ -103,4 +140,14 @@ def tick(access: Access, actor: Actor) -> dict[str, Any]:
             resumed.append(access.in_system(actor, work))
         else:
             resumed.append(access.in_client(actor, s["tenant_id"], s["client_id"], work))
+    for s in access.in_system(actor, lambda tx: tx.all("SELECT * FROM salescall.open_system_stops('deficit')")):
+        def check(tx: Tx, s=s) -> int | None:
+            deficit, m = _deficit(tx, s["tenant_id"], s["client_id"])
+            if deficit:
+                return None
+            return stops.resume(tx, s["event_id"], reason=f"赤字でなくなった（今月の費用 {m['cost']:.2f}円・報酬 {m['revenue']:.2f}円）",
+                                evidence="利用量の台帳・報酬の決まり")
+        got = access.in_client(actor, s["tenant_id"], s["client_id"], check)
+        if got is not None:
+            resumed.append(got)
     return {"stopped": stopped, "resumed": resumed}
