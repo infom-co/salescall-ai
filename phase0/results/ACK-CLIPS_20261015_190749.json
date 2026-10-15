@@ -1,0 +1,131 @@
+{
+  "item": "ACK-CLIPS",
+  "saved_at": "2026-10-15T19:07:49",
+  "model": "gemini-3.8-live",
+  "candidates": [
+    {
+      "type": "S4",
+      "voice": "Sadachbia",
+      "id": "shouchi",
+      "text": "承知しました、",
+      "heard": {
+        "0.0": "着きました。",
+        "1.0": "着きました。"
+      },
+      "ok": false,
+      "seconds": 0.78,
+      "try": 1
+    },
+    {
+      "type": "S4",
+      "voice": "Sadachbia",
+      "id": "shouchi",
+      "text": "承知しました、",
+      "heard": {
+        "0.0": "照会しました。",
+        "1.0": "承知しました。"
+      },
+      "ok": false,
+      "seconds": 1.04,
+      "try": 2
+    },
+    {
+      "type": "S4",
+      "voice": "Sadachbia",
+      "id": "shouchi",
+      "text": "承知しました、",
+      "heard": {
+        "0.0": "承知しました。",
+        "1.0": "承知しました。"
+      },
+      "ok": false,
+      "seconds": 0.76,
+      "try": 3
+    },
+    {
+      "type": "S4",
+      "voice": "Sadachbia",
+      "id": "shouchi",
+      "text": "承知しました、",
+      "heard": {
+        "0.0": "掃除しました。",
+        "1.0": "承知しました。"
+      },
+      "ok": false,
+      "seconds": 0.96,
+      "try": 4
+    },
+    {
+      "type": "S4",
+      "voice": "Sadachbia",
+      "id": "shouchi",
+      "text": "承知しました、",
+      "heard": {
+        "0.0": "承知しました。",
+        "1.0": "承知しました。"
+      },
+      "ok": true,
+      "seconds": 1.06,
+      "try": 5,
+      "wav": "S4_shouchi_1.wav"
+    },
+    {
+      "type": "S4",
+      "voice": "Sadachbia",
+      "id": "shouchi",
+      "text": "承知しました、",
+      "heard": {
+        "0.0": "承知しました。",
+        "1.0": "承知しました。"
+      },
+      "ok": true,
+      "seconds": 1.02,
+      "try": 6,
+      "wav": "S4_shouchi_2.wav"
+    },
+    {
+      "type": "S4",
+      "voice": "Sadachbia",
+      "id": "shouchi",
+      "text": "承知しました、",
+      "heard": {
+        "0.0": "そう致しました。",
+        "1.0": "そうとしました。"
+      },
+      "ok": false,
+      "seconds": 0.86,
+      "try": 7
+    },
+    {
+      "type": "S4",
+      "voice": "Sadachbia",
+      "id": "shouchi",
+      "text": "承知しました、",
+      "heard": {
+        "0.0": "承知しました。",
+        "1.0": "承知しました。"
+      },
+      "ok": true,
+      "seconds": 0.8,
+      "try": 8,
+      "wav": "S4_shouchi_3.wav"
+    },
+    {
+      "type": "S4",
+      "voice": "Sadachbia",
+      "id": "shouchi",
+      "text": "承知しました、",
+      "heard": {
+        "0.0": "承知しました。",
+        "1.0": "承知しました。"
+      },
+      "ok": true,
+      "seconds": 0.96,
+      "try": 9,
+      "wav": "S4_shouchi_4.wav"
+    }
+  ],
+  "kept": {
+    "S4_shouchi": 4
+  }
+}

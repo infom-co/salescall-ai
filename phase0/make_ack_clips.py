@@ -104,8 +104,10 @@ def words(script: bool) -> tuple[dict, Path]:
     return {aid: (text, aid) for aid, text in RECORDED.items()}, OUT
 
 
-def adopt(names: list[str], script: bool) -> dict:
-    """人が選んだ候補を、使う録音にする（候補の確かめの結果も、そのまま台帳に移す）。"""
+def adopt(names: list[str], script: bool, as_type: str | None = None) -> dict:
+    """人が選んだ候補を、使う録音にする（候補の確かめの結果も、そのまま台帳に移す）。
+    as_type：別の声の型の録り方で作った候補を、この声の型の録音として使う（同じ声の名前のときだけ）。
+    ✅ 2026-10-15 ユーザー：「録音は私がチェックする場合、S4とS2を分ける必要はありません。私が最高に良いと思えるものを選んでいるからです」"""
     table, out = words(script)
     index_path = out / "index.json"
     made = json.loads(index_path.read_text(encoding="utf-8")) if index_path.exists() else []
@@ -120,6 +122,9 @@ def adopt(names: list[str], script: bool) -> dict:
         where, row = cands[name]
         row = {k: v for k, v in row.items() if k not in ("features", "st_from_ref", "cond", "take")}
         assert row["text"] == table[row["id"]][0], (name, row["text"])  # 文が変わったあとの古い候補は使わない
+        if as_type and as_type != row["type"]:
+            assert voice_style(as_type)[0] == voice_style(row["type"])[0], (name, as_type)  # 声の名前が違う録音は使わない
+            row.update({"made_as": row["type"], "type": as_type})
         pcm, rate = read_wav(where / row["wav"])
         assert ends_in_silence(pcm, rate), name  # 終わりの切れた候補は使わない（候補3）
         path = out / f"{row['type']}_{row['id']}.wav"
@@ -189,6 +194,11 @@ async def take(client, args, vt: str, aid: str, text: str, how: str, voice_note:
 async def make_candidates(client, args, table: dict, todo: list, out: Path) -> dict:
     """確かめに通った録り方を args.candidates 本ずつ残す（{声の型}_{中の名前}_{番号}.wav）。録る回数は 本数×tries まで。"""
     out.mkdir(parents=True, exist_ok=True)
+    index_path = out / "index.json"
+    # 台帳は、ほかの声の型・ほかの言葉の候補を残したまま、作り直す分だけ入れ替える
+    # （⛔ 2026-10-15：作るたびに台帳を丸ごと書き直していた＝S2 の候補を作ったあと S4 の候補を作ると、S2 の記録が消えた）
+    kept_rows = json.loads(index_path.read_text(encoding="utf-8")) if index_path.exists() else []
+    kept_rows = [r for r in kept_rows if (r["type"], r["id"]) not in set(todo)]
     rows = []
     for vt, aid in todo:
         for old in out.glob(f"{vt}_{aid}_*.wav"):  # 前の候補は残さない（どれを聞いて選んだか、取り違えないため）
@@ -204,7 +214,7 @@ async def make_candidates(client, args, table: dict, todo: list, out: Path) -> d
                 write_wav(path, pcm, rate)
                 row["wav"] = path.name
             rows.append(row)
-            (out / "index.json").write_text(json.dumps(rows, ensure_ascii=False, indent=2), encoding="utf-8")
+            index_path.write_text(json.dumps(kept_rows + rows, ensure_ascii=False, indent=2), encoding="utf-8")
             await asyncio.sleep(args.pause)
     return {"model": args.model, "candidates": rows,
             "kept": {f"{vt}_{aid}": sum(1 for r in rows if r.get("wav") and (r["type"], r["id"]) == (vt, aid)) for vt, aid in todo}}
@@ -221,9 +231,10 @@ def main() -> None:
     p.add_argument("--redo", action="append", help="作ってある録音でも作り直す（名指ししたものだけ）")
     p.add_argument("--candidates", type=int, default=0, help="確かめに通った録り方を、この本数だけ候補として残す（人が聞いて選ぶ）")
     p.add_argument("--adopt", action="append", help="人が選んだ候補（例 S4_shouchi_2）を使う録音にする（キーを使わない）")
+    p.add_argument("--as", dest="as_type", choices=sorted(VOICE_TYPES), help="--adopt：この声の型の録音として使う（同じ声の名前のときだけ）")
     args = p.parse_args()
     if args.adopt:
-        print(json.dumps(adopt(args.adopt, args.script), ensure_ascii=False))
+        print(json.dumps(adopt(args.adopt, args.script, args.as_type), ensure_ascii=False))
         return
     if args.dry_run:  # 下見は保存しない（G-36 と同じ）
         print(json.dumps(asyncio.run(run(args)), ensure_ascii=False))

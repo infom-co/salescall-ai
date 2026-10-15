@@ -205,9 +205,9 @@
       "1.0": "続きまして、ご来店の人数をお伺いしてもよろしいでしょうか？"
     },
     "ok": true,
-    "seconds": 4.44,
+    "seconds": 4.22,
     "wav": "S4_Q3_lead_tsuzukimashite.wav",
-    "chosen_from": "S4_Q3_lead_tsuzukimashite_A5",
+    "chosen_from": "S4_Q3_lead_tsuzukimashite_B5",
     "chosen_by": "人"
   }
 ]
