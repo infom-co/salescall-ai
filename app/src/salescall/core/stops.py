@@ -3,6 +3,7 @@
 - 止めるのも解くのも、原因ごとに決めた条件で、システムが行う。人が解くのは、人が押した緊急停止（manual）だけ。
 - 止まっているか＝「まだ解かれていない停止が1つでもあるか」（原因が重なれば、片方を解いても止まったまま）。
 - 止めるときは、同じ取引で、まだ発信していない予約を取り消す（DESIGN.md 5-2-1 の2）。
+- 止めた・解いたは、知らせの台帳に入れる（同じ取引。core/notify.py。送るのは CL-3）。
 - 停止の記録を足すのは、この部品だけ（I-12。app/checks が見張る）。「誰が」は取引の「誰が」をそのまま使う
   （データベースが、違えば拒む）。システムが人の緊急停止を解こうとすると、データベースが拒む。
 """
@@ -12,6 +13,7 @@ from __future__ import annotations
 from typing import Any, Literal
 from uuid import UUID
 
+from salescall.core import notify
 from salescall.core.access import Tx
 
 Scope = Literal["system", "tenant", "client", "business", "line"]   # line＝その回線だけ（回線の異常。9-1）
@@ -31,6 +33,9 @@ def stop(tx: Tx, *, scope: Scope, cause: Cause, reason: str, evidence: str | Non
         (scope, tenant_id, client_id, business_id, line_id, cause, reason, evidence),
     )
     released = tx.one("SELECT salescall.release_claims_for_stop(%s) AS n", (row["event_id"],))["n"]
+    notify.emit(tx, "stopped", key=f"stop:{row['event_id']}", summary=f"発信を止めました（範囲：{scope}・原因：{cause}）。{reason}",
+                refs={"stop_event_id": row["event_id"], "scope": scope, "cause": cause, "client_id": client_id,
+                      "business_id": business_id, "line_id": line_id})
     return {"event_id": row["event_id"], "released_claims": released}
 
 
@@ -46,6 +51,8 @@ def resume(tx: Tx, stop_event_id: int, *, reason: str, evidence: str | None = No
     )
     if row is None:
         raise LookupError(f"その停止は無い（または、取引の範囲の外）：{stop_event_id}")
+    notify.emit(tx, "resumed", key=f"resume:{row['event_id']}", summary=f"止めていた発信を解きました（停止 {stop_event_id}）。{reason}",
+                refs={"stop_event_id": stop_event_id, "resume_event_id": row["event_id"]})
     return row["event_id"]
 
 

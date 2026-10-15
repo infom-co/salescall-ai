@@ -24,6 +24,7 @@ import urllib.request
 from collections.abc import Callable
 from datetime import date, datetime, timedelta
 
+from salescall.core import notify
 from salescall.core.access import Access, Actor, Tx
 
 OFFICIAL_URL = "https://www8.cao.go.jp/chosei/shukujitsu/syukujitsu.csv"   # 内閣府「国民の祝日について」の公式の一覧
@@ -73,7 +74,20 @@ def needs_fetch(covered_until: int | None, last_loaded_at: datetime | None, toda
 
 
 def sync_official(access: Access, actor: Actor, *, fetch: Callable[[], bytes] = fetch_official) -> dict:
-    """要るときだけ公式の一覧を取りに行き、前の取り込みと違えば取り込む（見守り役が毎日呼ぶ）。結果を返す。"""
+    """要るときだけ公式の一覧を取りに行き、前の取り込みと違えば取り込む（見守り役が毎日呼ぶ）。結果を返す。
+    取りに行けなかった・取り込めなかったときは、知らせの台帳に入れて（1日1回）、例外をそのまま返す（前の暦のまま動く）。"""
+    try:
+        return _sync(access, actor, fetch)
+    except Exception as e:
+        def record(tx: Tx) -> None:
+            today = tx.one("SELECT salescall.jst(now())::date AS d")["d"]
+            notify.emit(tx, "calendar_sync_failed", key=f"calendar_sync_failed:{today}",
+                        summary=f"祝日の暦を取りに行けませんでした（{type(e).__name__}）。前の暦のまま動き、明日また試します。")
+        access.in_system(actor, record)
+        raise
+
+
+def _sync(access: Access, actor: Actor, fetch: Callable[[], bytes]) -> dict:
     state = access.in_system(actor, lambda tx: tx.one(
         "SELECT (SELECT max(last_year) FROM salescall.calendar_loads) AS covered_until,"
         "       (SELECT max(loaded_at) FROM salescall.calendar_loads) AS last_loaded_at,"

@@ -208,6 +208,14 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      " WITH r AS (UPDATE salescall.attempts SET state = 'released' WHERE state = 'claimed' AND claim_expires_at <= now()"
      " AND (contact_id = p_contact OR phone_e164 = p_phone OR line_id = p_line) RETURNING 1) SELECT count(*)::integer FROM r $$",
      ("tests.test_alternate.DatabasePromises.test_expired_claim_on_another_number_of_the_row_is_released",)),
+    # 知らせの台帳（Q23）
+    ("同じ出来事は1回だけ、の約束を外す",
+     "ALTER TABLE salescall.notification_events DROP CONSTRAINT notification_events_event_key_key",
+     ("tests.test_notify.Ledger.test_same_event_only_once_and_unknown_kind_is_refused",)),
+    ("知らせの台帳の見える範囲を外す", "ALTER TABLE salescall.notification_events DISABLE ROW LEVEL SECURITY",
+     ("tests.test_notify.Ledger.test_who_can_see",)),
+    ("知らせの台帳の変更の拒みを外す", "DROP TRIGGER notification_events_frozen ON salescall.notification_events",
+     ("tests.test_notify.Ledger.test_frozen",)),
     ("相手が指定した時刻は約束したかけ直しだけ、の決まりを外す",
      "ALTER TABLE salescall.task_next_actions DROP CONSTRAINT task_next_actions_callee_at",
      ("tests.test_gate.Hours.test_callee_time_only_on_promised_calls",)),

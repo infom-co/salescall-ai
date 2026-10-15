@@ -18,8 +18,8 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from salescall.core import (attempts, business_rules, call_report, dnc, next_action, number_recheck, results, settings,
-                            target_policy, tasks)
+from salescall.core import (attempts, business_rules, call_report, dnc, next_action, notify, number_recheck, results,
+                            settings, target_policy, tasks)
 from salescall.core.access import Tx
 from salescall.core.judge import JUDGE_VERSION, Facts, Item, JudgeInput, Judgement, judge
 from salescall.core.phone import normalize
@@ -91,6 +91,10 @@ def settle(tx: Tx, attempt_id: UUID) -> dict[str, Any]:
     version_no = results.append(tx, a["task_id"], kind="judged", business_state=j.state, attempt_id=attempt_id,
                                 judge_version=JUDGE_VERSION, complaint=j.complaint, snapshot=snapshot, detail=j.detail,
                                 decided_by="判定")
+    if j.state == "unknown":   # 判定できない：判定の処理か入力の誤り。次の動きは終える。運営者へ知らせる（監視）
+        notify.emit(tx, "judge_unknown", key=f"judge_unknown:{attempt_id}",
+                    summary=f"判定できない通話がありました（判定の処理か入力の誤り。その行は終えました）。{j.detail.get('error', '')}",
+                    refs={"attempt_id": attempt_id, "task_id": a["task_id"], "judge_version": JUDGE_VERSION})
     if j.dnc_reason is not None:
         dnc.register(tx, a["phone_e164"], j.dnc_reason, source_attempt_id=attempt_id)
     decision = next_action.after_call(

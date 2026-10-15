@@ -103,6 +103,16 @@ class Settle(SettleBase):
         self.assertNotEqual(calling_hours.band_of(row["next"], [12, 15]), calling_hours.band_of(row["tried"], [12, 15]))
         self.assertFalse(12 <= row["next"].hour < 13)                              # NG時間（昼休み）は避ける
 
+    def test_unknown_ends_the_row_and_is_noticed(self):
+        """判定できない（切れ方の材料が報告されていない）：行を終え、知らせの台帳に入れる（監視）。"""
+        s = self.ready()
+        aid = self.call(s, report=rep(cut=None))
+        got = self.settle(s, aid)
+        self.assertEqual((got["state"], got["decision"].end_reason), ("unknown", "judge_unknown"))
+        rows = self.tx(s, lambda tx: tx.all("SELECT kind FROM salescall.notification_events WHERE event_key = %s",
+                                            (f"judge_unknown:{aid}",)))
+        self.assertEqual(rows, [{"kind": "judge_unknown"}])
+
     def test_wrong_party_registers_only_that_number(self):
         s = self.ready()
         aid = self.call(s, report=rep(("wrong_party",), cut=Cut("ai", True, False)))
