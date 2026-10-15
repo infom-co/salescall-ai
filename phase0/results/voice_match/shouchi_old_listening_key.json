@@ -1,0 +1,38 @@
+[
+  {
+    "file": "01_予約の質問→お客様→承知しました→次の質問.wav",
+    "candidate": "S2_shouchi（いまS2で使っている録音）"
+  },
+  {
+    "file": "02_予約の質問→お客様→承知しました→次の質問.wav",
+    "candidate": "S4_shouchi_1"
+  },
+  {
+    "file": "03_予約の質問→お客様→承知しました→次の質問.wav",
+    "candidate": "S4_shouchi_4"
+  },
+  {
+    "file": "04_予約の質問→お客様→承知しました→次の質問.wav",
+    "candidate": "S2_shouchi_2"
+  },
+  {
+    "file": "05_予約の質問→お客様→承知しました→次の質問.wav",
+    "candidate": "S4_shouchi_2"
+  },
+  {
+    "file": "06_予約の質問→お客様→承知しました→次の質問.wav",
+    "candidate": "S4_shouchi_3"
+  },
+  {
+    "file": "07_予約の質問→お客様→承知しました→次の質問.wav",
+    "candidate": "S2_shouchi_3"
+  },
+  {
+    "file": "08_予約の質問→お客様→承知しました→次の質問.wav",
+    "candidate": "S2_shouchi_4"
+  },
+  {
+    "file": "09_予約の質問→お客様→承知しました→次の質問.wav",
+    "candidate": "S2_shouchi_1"
+  }
+]
