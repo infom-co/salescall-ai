@@ -1365,19 +1365,19 @@ class PlayRecordingsTest(unittest.TestCase):
     def flow(self):
         from flowctl import Flow, Question
         return Flow([Question("Q1", "ご予約はされていますでしょうか。", "yes_no", conditions=("はい", "いいえ")),
-                     Question("Q2", "ご希望の日時を、お聞かせいただけますでしょうか。", "datetime", conditions=("答えた",), topic="ご希望の日時")],
+                     Question("Q2", "ご希望の日時をお聞かせいただけますでしょうか？", "datetime", conditions=("答えた",), topic="ご希望の日時")],
                     play_recordings=True)
 
     def test_next_question_and_closing_are_played_silently(self):
-        from phrases import CLOSING, LEAD_RECORDED
+        from phrases import CLOSING
         f = self.flow()
         f.on_callee()
         out, silent = f.handle_call(fc("record_answer", 質問="Q1", 答えの種類="はい"))
         r = f.log[-1]["reply"]
         self.assertTrue(silent)
-        self.assertEqual([p["kind"] for p in r["play"]], ["lead", "question"])
-        self.assertIn(r["play"][0]["text"], LEAD_RECORDED)                  # つなぎの言葉は契約者の単位の録音
-        self.assertEqual(r["play"][1], {"kind": "question", "id": "Q2", "text": "ご希望の日時を、お聞かせいただけますでしょうか。"})
+        # つなぎの言葉と質問を1本の録音で流す（✅ 2026-10-15 ユーザー：1本のほうが、しいて言えば自然）
+        self.assertEqual(r["play"], [{"kind": "question", "id": "Q2", "text": "それではご希望の日時をお聞かせいただけますでしょうか？",
+                                      "lead": "それでは"}])
         self.assertEqual(r["ack"], "shouchi")
         self.assertIn("録音で流しました", out["次にすること"])
         self.assertNotIn("play", out)                                          # 中の項目はAIに見せない
@@ -1388,6 +1388,13 @@ class PlayRecordingsTest(unittest.TestCase):
         out, silent = f.handle_call(fc("confirm_field", 質問="Q2", 返事の種類="合っている"))
         self.assertTrue(silent)
         self.assertEqual((f.log[-1]["reply"]["result"], f.log[-1]["reply"]["play"]), ("end", [{"kind": "closing", "text": CLOSING}]))
+
+    def test_lead_is_fixed_by_question_order(self):
+        """つなぎの言葉は質問の順番で決まる（依頼主ごとの録音は、質問1つにつき1本のまま）。最初の質問は名乗りと一緒なので付けない。"""
+        from flowctl import Question, spoken_question
+        qs = [Question(f"Q{i}", f"質問{i}ですか？", "free_text") for i in range(1, 6)]
+        self.assertEqual([spoken_question(qs, q.id)[1] for q in qs], ["", "それでは", "続きまして", "では", "それでは"])
+        self.assertEqual(spoken_question(qs, "Q3")[0], "続きまして質問3ですか？")
 
     def test_declined_call_is_not_played(self):
         """通話を断られたときの締めは、これまでどおり（録音の締めは、質問が全部終わったときだけ）。"""

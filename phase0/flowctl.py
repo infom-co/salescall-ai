@@ -17,7 +17,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from phrases import AMPM_ASK, CLOSE_DECLINED, CLOSING
+from phrases import AMPM_ASK, CLOSE_DECLINED, CLOSING, LEAD_IN
 from phrases import ask_again as ask_again_phrase
 from phrases import confirm as confirm_phrase
 from phrases import lead_in as lead_in_phrase
@@ -168,6 +168,19 @@ def merge_ampm(pending: str | None, answer: str | None) -> str | None:
         return answer
     m = _HOUR.search(pending)
     return pending[:m.start()] + w.group() + pending[m.start():] if m else answer
+
+
+def spoken_question(questions: list["Question"], qid: str) -> tuple[str, str]:
+    """録音で流す質問の文（つなぎの言葉＋質問の文）と、そのつなぎの言葉。つなぎの言葉は質問の順番で決める（2問目「それでは」・3問目
+    「続きまして」・4問目「では」…）。最初の質問は名乗りと一緒に流すので、つなぎの言葉は付けない。
+    ✅ 2026-10-15 ユーザー（聞き比べ）：つなぎの言葉と質問を1本で録音したほうが「しいて言えば自然」⇒ 1本の録音にする。順番で決めておけば、
+    依頼主ごとの録音は質問1つにつき1本のまま（流れの制御・録音を作る道具の両方が、ここを使う）"""
+    i = [q.id for q in questions].index(qid)
+    q = questions[i]
+    if i == 0:
+        return q.text, ""
+    lead = LEAD_IN["次の質問"][(i - 1) % len(LEAD_IN["次の質問"])]
+    return lead + q.text, lead
 
 
 def other_value(qtype: str, pending: str | None, given: str | None) -> str | None:
@@ -639,10 +652,10 @@ class Flow:
             self.current = rest[0]
             q = self.questions[self.current]
             if self.play_recordings:
-                lead = self._lead("次の質問")
+                text, lead = spoken_question(list(self.questions.values()), q.id)
                 return {"result": "next", "question_id": q.id, "question": q.text,
-                        "play": [{"kind": "lead", "text": lead}, {"kind": "question", "id": q.id, "text": q.text}],
-                        "message": f"{prefix}次の質問 {q.id}「{lead}{q.text}」は、プログラムが録音で流しました（相手にもう聞こえています）。"
+                        "play": [{"kind": "question", "id": q.id, "text": text, "lead": lead}],
+                        "message": f"{prefix}次の質問 {q.id}「{text}」は、プログラムが録音で流しました（相手にもう聞こえています）。"
                                    "何も言わずに、相手の答えを待ってください。相手が答えたら record_answer で報告します。"}
             return {"result": "next", "question_id": q.id, "question": q.text,
                     "message": f"{prefix}次の質問は {q.id}「{q.text}」です。" + self._lead_note("次の質問")}

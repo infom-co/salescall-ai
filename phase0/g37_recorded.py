@@ -83,12 +83,12 @@ def summarize(rows: list[dict]) -> dict:
 def needed(p: dict) -> list[str]:
     """試験に要る録音（お客役の声・契約者の単位の録音・依頼主の単位の録音）で、まだ無いもの。"""
     from make_callee_samples import verified
-    from phrases import LEAD_RECORDED
+    from flowctl import spoken_question
     miss = sorted({f"{v}_{utt(x[k])}.wav" for v in CALLEE_FOR.values() for xs in p.values() for x in xs for k in ("wav", "again")
                    if k in x and "pause" not in x[k] and not verified(f"{v}_{utt(x[k])}.wav")})
     for vt in VOICE_TYPES:
-        items = [{"kind": "lead", "text": t} for t in LEAD_RECORDED] + [{"kind": "closing", "text": ""}] + \
-                [{"kind": "question", "id": q.id, "text": q.text} for q in BUSINESS.questions[1:]]
+        items = [{"kind": "closing", "text": ""}] + [{"kind": "question", "id": q.id, "text": t, "lead": lead}
+                                                      for q in BUSINESS.questions[1:] for t, lead in [spoken_question(BUSINESS.questions, q.id)]]
         miss += [str(played_wav(vt, i).name) for i in items if not played_wav(vt, i).exists()]
     return miss
 

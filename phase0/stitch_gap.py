@@ -124,24 +124,16 @@ def ack_wav(voice_type: str, ack: str) -> Path:
     return AUDIO_DIR.parent / "ack" / f"{voice_type}_{ack}.wav"
 
 
-def joint_wav(voice_type: str, play: list[dict]) -> Path | None:
-    """つなぎの言葉と質問を1本にした録音（聞き比べ用。make_ack_clips の --script）があれば、そのファイル。"""
-    from phrases import LEAD_RECORDED
-    if [i["kind"] for i in play] != ["lead", "question"]:
-        return None
-    p = AUDIO_DIR.parent / "script" / f"{voice_type}_{play[1]['id']}_{LEAD_RECORDED[play[0]['text']]}.wav"
-    return p if p.exists() else None
-
-
 def played_wav(voice_type: str, item: dict) -> Path:
-    """電話接続側が流す録音のファイル（流れの制御の返事の play の1つ）。つなぎの言葉と締めは契約者の単位（results/ack）、
-    質問の文は依頼主の単位（results/script）。DESIGN.md 6-13"""
+    """電話接続側が流す録音のファイル（流れの制御の返事の play の1つ）。締めは契約者の単位（results/ack）、質問（つなぎの言葉と1本）は
+    依頼主の単位（results/script）。DESIGN.md 6-13。kind "lead"（つなぎの言葉だけの録音）は、G-37 の1回目・2回目の記録を聞き直すときだけ"""
     from phrases import LEAD_RECORDED
     if item["kind"] == "lead":
         return ack_wav(voice_type, LEAD_RECORDED[item["text"]])
     if item["kind"] == "closing":
         return ack_wav(voice_type, "closing")
-    return AUDIO_DIR.parent / "script" / f"{voice_type}_{item['id']}.wav"
+    name = f"{item['id']}_{LEAD_RECORDED[item['lead']]}" if item.get("lead") else item["id"]
+    return AUDIO_DIR.parent / "script" / f"{voice_type}_{name}.wav"
 
 
 def _rec(path: Path, rate: int) -> np.ndarray:
@@ -187,7 +179,7 @@ def _place(parts: list, rate: int, keep: float, sounds: list) -> float:
 
 
 def stitch_call(call: dict, voice_type: str, out: Path, reply_gap_s: float = 0.6, join_s: float = ACK_TO_AI_S,
-                filler_s: float | None = None, joint: bool = False) -> list[dict] | None:
+                filler_s: float | None = None) -> list[dict] | None:
     """通話1本を、相手の声 → (相づち) → AIの声 の順に、試験で測った時刻でつなぐ（会話全体を聞いて、「はい」が多すぎないか・
     相づちの選び方が場面に合うかを、ユーザーが確かめるため）。相手が次に話し始めるまでの間は reply_gap_s（作った値）。
     相手の言葉の途中でAIが話し出したターン（割り込み）や、待っている間にAIが話したターンは、本当の時刻が分からないので、
@@ -223,9 +215,8 @@ def stitch_call(call: dict, voice_type: str, out: Path, reply_gap_s: float = 0.6
             sounds, start = _lead_sounds(voice_type, callee_voice, rate, ack, max(play["at_s"] + tail, keep), keep, join_s, filler_s)
             now = _place(parts, rate, keep, sounds)
             first_s = sounds[0][0] if sounds else start
-            jw = joint_wav(voice_type, play["play"]) if joint else None
-            for item in ([{"wav": jw}] if jw else play["play"]):
-                x = _rec(item["wav"] if "wav" in item else played_wav(voice_type, item), rate)
+            for item in play["play"]:
+                x = _rec(played_wav(voice_type, item), rate)
                 parts += [np.zeros(int(max(0.0, start - now) * rate), dtype=np.float32), x]
                 now = max(start, now) + len(x) / rate
                 start = now + RECORDING_JOIN_S
