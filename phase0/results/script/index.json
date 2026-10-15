@@ -126,20 +126,6 @@
     "wav": "S4_Q2_lead_soredeha.wav"
   },
   {
-    "type": "S4",
-    "voice": "Sadachbia",
-    "id": "Q3_lead_tsuzukimashite",
-    "text": "続きましてご来店の人数をお伺いしてもよろしいでしょうか？",
-    "heard": {
-      "0.0": "続きまして、ご来店の人数をお伺いしてもよろしいでしょうか？",
-      "1.0": "続きまして、ご来店の人数をお伺いしてもよろしいでしょうか？"
-    },
-    "ok": true,
-    "seconds": 4.22,
-    "tries": 1,
-    "wav": "S4_Q3_lead_tsuzukimashite.wav"
-  },
-  {
     "type": "L4",
     "voice": "Leda",
     "id": "Q1",
@@ -208,5 +194,20 @@
     "seconds": 4.78,
     "tries": 1,
     "wav": "L4_Q3_lead_tsuzukimashite.wav"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "Q3_lead_tsuzukimashite",
+    "text": "続きましてご来店の人数をお伺いしてもよろしいでしょうか？",
+    "heard": {
+      "0.0": "続きまして、ご来店の人数をお伺いしてもよろしいでしょうか？",
+      "1.0": "続きまして、ご来店の人数をお伺いしてもよろしいでしょうか？"
+    },
+    "ok": true,
+    "seconds": 4.44,
+    "wav": "S4_Q3_lead_tsuzukimashite.wav",
+    "chosen_from": "S4_Q3_lead_tsuzukimashite_A5",
+    "chosen_by": "人"
   }
 ]

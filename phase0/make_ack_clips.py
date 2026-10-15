@@ -109,12 +109,18 @@ def adopt(names: list[str], script: bool) -> dict:
     table, out = words(script)
     index_path = out / "index.json"
     made = json.loads(index_path.read_text(encoding="utf-8")) if index_path.exists() else []
-    cands = {r["wav"][:-4]: r for r in json.loads((out / "candidates" / "index.json").read_text(encoding="utf-8")) if r.get("wav")}
+    # 候補の置き場所：この単位の candidates/ と、G-38 の録音（results/voice_match/。✅ 2026-10-15 ユーザーが 06＝A5 を選んだ）
+    cands = {r["wav"][:-4]: (out / "candidates", r) for r in json.loads((out / "candidates" / "index.json").read_text(encoding="utf-8"))
+             if r.get("wav")} if (out / "candidates" / "index.json").exists() else {}
+    for g in sorted(HERE.glob("results/G-38_*.json")):
+        cands.update({r["wav"][:-4]: (HERE / "results" / "voice_match", r) for r in json.loads(g.read_text(encoding="utf-8"))["rows"]
+                      if r.get("wav") and r.get("ok") and r["id"] in table})
     done = []
     for name in names:
-        row = dict(cands[name])
+        where, row = cands[name]
+        row = {k: v for k, v in row.items() if k not in ("features", "st_from_ref", "cond", "take")}
         assert row["text"] == table[row["id"]][0], (name, row["text"])  # 文が変わったあとの古い候補は使わない
-        pcm, rate = read_wav(out / "candidates" / row["wav"])
+        pcm, rate = read_wav(where / row["wav"])
         assert ends_in_silence(pcm, rate), name  # 終わりの切れた候補は使わない（候補3）
         path = out / f"{row['type']}_{row['id']}.wav"
         write_wav(path, pcm, rate)
