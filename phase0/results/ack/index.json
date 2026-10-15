@@ -55,20 +55,6 @@
   {
     "type": "S2",
     "voice": "Sadachbia",
-    "id": "arigatou",
-    "text": "ありがとうございます、",
-    "heard": {
-      "0.0": "ありがとうございます。",
-      "1.0": "ありがとうございます。"
-    },
-    "ok": true,
-    "seconds": 1.27,
-    "tries": 1,
-    "wav": "S2_arigatou.wav"
-  },
-  {
-    "type": "S2",
-    "voice": "Sadachbia",
     "id": "shitsurei",
     "text": "失礼いたしました。",
     "heard": {
@@ -93,20 +79,6 @@
     "seconds": 1.55,
     "tries": 1,
     "wav": "S2_moushiwake.wav"
-  },
-  {
-    "type": "S4",
-    "voice": "Sadachbia",
-    "id": "arigatou",
-    "text": "ありがとうございます、",
-    "heard": {
-      "0.0": "ありがとうございます。",
-      "1.0": "ありがとうございます。"
-    },
-    "ok": true,
-    "seconds": 1.28,
-    "tries": 1,
-    "wav": "S4_arigatou.wav"
   },
   {
     "type": "S4",
@@ -149,20 +121,6 @@
     "seconds": 1.33,
     "tries": 2,
     "wav": "L4_shouchi.wav"
-  },
-  {
-    "type": "L4",
-    "voice": "Leda",
-    "id": "arigatou",
-    "text": "ありがとうございます、",
-    "heard": {
-      "0.0": "ありがとうございます。",
-      "1.0": "ありがとうございます。"
-    },
-    "ok": true,
-    "seconds": 1.44,
-    "tries": 1,
-    "wav": "L4_arigatou.wav"
   },
   {
     "type": "L4",
@@ -247,5 +205,47 @@
     "seconds": 0.22,
     "tries": 2,
     "wav": "L4_aizuchi.wav"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "arigatou",
+    "text": "ありがとうございます、",
+    "heard": {
+      "0.0": "ありがとうございます。",
+      "1.0": "ありがとうございます。"
+    },
+    "ok": true,
+    "seconds": 1.06,
+    "tries": 1,
+    "wav": "S2_arigatou.wav"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "arigatou",
+    "text": "ありがとうございます、",
+    "heard": {
+      "0.0": "ありがとうございます。",
+      "1.0": "ありがとうございます。"
+    },
+    "ok": true,
+    "seconds": 1.1,
+    "tries": 1,
+    "wav": "S4_arigatou.wav"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "arigatou",
+    "text": "ありがとうございます、",
+    "heard": {
+      "0.0": "ありがとうございます。",
+      "1.0": "ありがとうございます。"
+    },
+    "ok": true,
+    "seconds": 1.12,
+    "tries": 1,
+    "wav": "L4_arigatou.wav"
   }
 ]

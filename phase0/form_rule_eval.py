@@ -54,7 +54,7 @@ print("取り違えの形：止めないもの", [v for v in WRONG_FORMS if ok(v
 # ── 数の型（Q3＝ご来店の人数）
 print("■ 数（Q3）")
 nvals = reported('Q3', 'number')
-N_WRONG = {"はい", "いつでも大丈夫", "はいそう", "本人です。はい、そう"}  # 形をそろえたあとの値
+N_WRONG = {"はい", "いつでも大丈夫", "はいそう", "本人です。はい、そう", "家族"}  # 形をそろえたあとの値（「家族」は G-36 の場面「人数に別の答え」）
 DATE_IN_NUMBER = {"15日の午後2時"}  # 日時の答え：数字があるので、この決まりでは止められない（数の型は単位を持たない）
 def n_ok(v):
     return form_problem("number", v) is None

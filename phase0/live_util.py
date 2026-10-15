@@ -118,20 +118,21 @@ class TurnResult:
 
 
 async def collect_turn(session, *, started_at: float, on_tool_call=None, timeout_s: float = 60.0,
-                       nudge_after_s: float | None = None, nudge_text: str | None = None,
-                       silent_ops: frozenset = frozenset()) -> TurnResult:
+                       nudge_after_s: float | None = None, nudge_text: str | None = None, on_heard=None) -> TurnResult:
     """1ターン分を受け取る。関数の呼び出しが来たら `on_tool_call(function_call) -> dict` で返事を作って返す。
 
     nudge_after_s：この秒数のあいだ声が出なければ、nudge_text を1回だけ送って返事を促す（AIが黙ったとき。DESIGN.md 6-7）。
     見張りはここだけに置く（相手の声で始まるターンも、文字で始まるターンも、同じ見張りを通る）。
     ⛔ 2026-10-14 G-33：答えの報告を「返事を待たない」宣言にする形（受けの言葉が先）は、AIが受けの言葉を先に言わなかったので採らず、
        受け取りの処理も外した（記録は DESIGN.md 6-15・PHASE0_VERIFICATION.md の G-33）。
-    silent_ops：返事を「話させない」形（SILENT。会話の中に入れるだけで、AIに話させない）で返す操作の名前。その返事のあとは、AIの声を
-      待たない（G-36：相手が考えていることの報告＝相づちはプログラムが録音で流し、AIは黙って待つ形）。
+    on_heard：相手の言葉の文字（会話AIの聞き取り）が届くたびに `on_heard(text)` を呼ぶ（値を直されたときの直され方を、プログラムが
+      相手の言葉から決める。flowctl.Flow.on_heard）。
+    on_tool_call が (返事, True) を返したら、その返事は「話させない」形（SILENT）で返し、AIの声を待たない（電話接続側が録音を流すとき。
+      G-37。⛔ 2026-10-14 に外した形 B の受け取りと同じ仕組み）。
     """
     r = TurnResult()
     task = asyncio.create_task(_collect_into(r, session, started_at=started_at, on_tool_call=on_tool_call, timeout_s=timeout_s,
-                                             silent_ops=silent_ops))
+                                             on_heard=on_heard))
     if nudge_after_s is not None and nudge_text:
         done, _ = await asyncio.wait({task}, timeout=nudge_after_s)
         if not done and r.first_audio_after_s is None:
@@ -142,8 +143,7 @@ async def collect_turn(session, *, started_at: float, on_tool_call=None, timeout
     return r
 
 
-async def _collect_into(r: "TurnResult", session, *, started_at: float, on_tool_call, timeout_s: float,
-                        silent_ops: frozenset = frozenset()) -> None:
+async def _collect_into(r: "TurnResult", session, *, started_at: float, on_tool_call, timeout_s: float, on_heard=None) -> None:
     from google.genai import types
 
     audio_after_nudge = False
@@ -170,14 +170,16 @@ async def _collect_into(r: "TurnResult", session, *, started_at: float, on_tool_
                 r.events.append({"at_s": at(), "kind": "go_away", "time_left": str(msg.go_away.time_left)})
             if msg.session_resumption_update is not None and msg.session_resumption_update.new_handle:
                 r.resumption_handles.append(msg.session_resumption_update.new_handle)
-            responses = []
+            responses = []  # (返事, 話させない形か)
             if msg.tool_call is not None:
                 for fc in msg.tool_call.function_calls or []:
                     r.tool_calls.append({"name": fc.name, "args": fc.args, "at_s": at()})
-                    reply = on_tool_call(fc) if on_tool_call else {"result": "ok"}
+                    out = on_tool_call(fc) if on_tool_call else {"result": "ok"}
+                    # on_tool_call は (返事, 話させない形か) も返せる（電話接続側が録音を流すときは、AIに話させない。G-37）
+                    reply, silent = out if isinstance(out, tuple) else (out, False)
                     r.events.append({"at_s": at(), "kind": "tool_call", "name": fc.name, "args": fc.args, "reply": reply})
-                    extra = {"scheduling": types.FunctionResponseScheduling.SILENT} if fc.name in silent_ops else {}
-                    responses.append(types.FunctionResponse(id=fc.id, name=fc.name, response=reply, **extra))
+                    extra = {"scheduling": types.FunctionResponseScheduling.SILENT} if silent else {}
+                    responses.append((types.FunctionResponse(id=fc.id, name=fc.name, response=reply, **extra), silent))
             sc = msg.server_content
             if sc is not None:
                 if sc.interrupted:
@@ -185,6 +187,11 @@ async def _collect_into(r: "TurnResult", session, *, started_at: float, on_tool_
                     r.events.append({"at_s": at(), "kind": "interrupted"})
                 if sc.input_transcription is not None and sc.input_transcription.text:
                     r.input_transcript.append(sc.input_transcription.text)
+                    # 相手の言葉の文字が、AIの報告より先に届くか（報告の時点で、プログラムが相手の言葉を見て決められるか。2026-10-14 G-36：
+                    # AIは、こちらの聞き違いと相手の言い間違いを見分けられなかった＝12本中12本「相手が言い直した」）
+                    r.events.append({"at_s": at(), "kind": "heard", "text": sc.input_transcription.text})
+                    if on_heard:
+                        on_heard(sc.input_transcription.text)
                 if sc.output_transcription is not None and sc.output_transcription.text:
                     r.output_transcript.append(sc.output_transcription.text)
                     # audio_s：この文字が届いた時点で、受け取り済みの声の長さ（秒）。声は話す速さで届くので、相手に流れた長さに近い。
@@ -212,9 +219,9 @@ async def _collect_into(r: "TurnResult", session, *, started_at: float, on_tool_
             async for msg in session.receive():
                 responses = handle(msg)
                 if responses:
-                    await session.send_tool_response(function_responses=responses)
+                    await session.send_tool_response(function_responses=[x for x, _ in responses])
                     r.events.append({"at_s": at(), "kind": "tool_response_sent", "chunk": chunk})
-                    if any(x.name not in silent_ops for x in responses):
+                    if not all(silent for _, silent in responses):
                         awaiting_reply_speech = True  # 話させない返事だけなら、AIの声を待たない
             r.events.append({"at_s": at(), "kind": "turn_complete"})
             audio_in_chunk = False
@@ -286,15 +293,14 @@ async def silence_while(session, rate: int = INPUT_RATE, chunk_ms: int = 100):
 
 
 async def callee_turn(session, pcm16: bytes, rate: int, *, on_tool_call=None, timeout_s: float = 60.0,
-                      nudge_after_s: float | None = None, nudge_text: str | None = None,
-                      silent_ops: frozenset = frozenset()) -> TurnResult:
+                      nudge_after_s: float | None = None, nudge_text: str | None = None, on_heard=None) -> TurnResult:
     """相手の発話1回ぶん：声を送り、話し終わりのあとは無音を送りながら、AIの返事（1ターン）を受け取る。
     待ち時間（first_audio_after_s）は、相手が話し終えた時刻から数える。"""
     await stream_audio(session, pcm16, rate)
     ended = time.monotonic()
     async with silence_while(session, rate):
         return await collect_turn(session, started_at=ended, on_tool_call=on_tool_call, timeout_s=timeout_s,
-                                  nudge_after_s=nudge_after_s, nudge_text=nudge_text, silent_ops=silent_ops)
+                                  nudge_after_s=nudge_after_s, nudge_text=nudge_text, on_heard=on_heard)
 
 
 def safe(text: object) -> str:

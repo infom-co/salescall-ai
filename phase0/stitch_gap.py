@@ -16,6 +16,18 @@ from common import read_wav_pcm16_mono, write_wav
 from convo import AUDIO_DIR, CUT_IN_S
 
 CALLEE_DIR = AUDIO_DIR.parent / "callee"
+# 相づちの録音が終わってから、AIの声を流すまでの間（電話接続側が守る順。DESIGN.md 6-15）。
+# ✅ 2026-10-14 ユーザー（G-36 を聞いて）：「『ありがとうございます。』と『続きまして』の間が短すぎる。0.6秒くらいは欲しい。『承知致しました。』と
+#    『それでは』の間も同様」⇒ 0.05秒から 0.6秒にした
+ACK_TO_AI_S = 0.6
+# 声の終わりのあとに残す、弱い語尾の長さの上限と、その音量の下限（20·log10(実効値)）。
+# ⛔ 2026-10-14 ユーザー（G-36 を聞いて）：「お客役の Sadachbia は会話の途中が何か所か途切れている」⇒ 声の終わりを見つける決まり（voice_runs）が、
+#    そのあと 0.1〜0.2秒続く弱い語尾（「です」の「す」など。40〜49）を声に数えず、つなぐときに切っていた。聞き比べの声と、間をあけた相手の声
+#    （join_with_pause）の作りだけの誤り（試験で測った間は、どれも声の終わりから数えているので変わらない）
+TAIL_KEEP_MAX_S = 0.5
+# 録音どうしをつなぐ間（つなぎの言葉の録音 → 質問の文の録音。G-37）。⏳ ユーザーに聞いていただいて決める
+RECORDING_JOIN_S = 0.2
+TAIL_KEEP_DB = 25.0
 
 
 def _to_rate(pcm16: bytes, rate: int, target: int) -> np.ndarray:
@@ -34,6 +46,28 @@ def callee_speech(wav: str) -> tuple[bytes, int, float]:
     return pcm, rate, len(pcm) / 2 / rate - end
 
 
+def kept_tail(pcm: bytes, rate: int, tail: float) -> float:
+    """声の終わりのあとに残す長さ（秒）：弱い語尾が続く間（50ミリ秒ごとの音量が TAIL_KEEP_DB 以上の間。TAIL_KEEP_MAX_S まで）。"""
+    x = np.frombuffer(pcm, dtype=np.int16).astype(np.float32)
+    start, frame = len(x) - int(tail * rate), int(0.05 * rate)
+    kept = 0
+    while kept < int(TAIL_KEEP_MAX_S * rate) and start + kept + frame <= len(x):
+        seg = x[start + kept: start + kept + frame]
+        if 20 * np.log10(np.sqrt(np.mean(seg ** 2)) + 1e-9) < TAIL_KEEP_DB:
+            break
+        kept += frame
+    return kept / rate
+
+
+def callee_audio(wav: str, rate_out: int) -> tuple[np.ndarray, float]:
+    """つなぐための相手役の声（rate_out の速さ。声のあとの無音は切り、弱い語尾は残す）と、声の終わりのあとに残した長さ（秒）。
+    あとに続ける間は、声の終わりから数えた時刻から、この長さを引く。"""
+    pcm, rate, tail = callee_speech(wav)
+    keep = kept_tail(pcm, rate, tail)
+    a = _to_rate(pcm, rate, rate_out)
+    return a[: max(0, len(a) - int((tail - keep) * rate_out))], keep
+
+
 def join_with_pause(first_wav: str, pause_s: float, second_wav: str, out_wav: str) -> None:
     """相手役の声を2つ、間をあけてつなぐ（言葉の途中で間をあける相手。G-30・G-31）。1つ目の声のあとの無音は切ってから、pause_s をあける。
     どちらも、別の耳の確かめに通った声だけを使う。"""
@@ -43,18 +77,17 @@ def join_with_pause(first_wav: str, pause_s: float, second_wav: str, out_wav: st
     a, ra, ta = callee_speech(first_wav)
     b, rb, _ = callee_speech(second_wav)
     assert ra == rb, "2つの声の速さ（標本の数）が違う"
+    keep = kept_tail(a, ra, ta)
     xa = np.frombuffer(a, dtype=np.int16)
-    xa = xa[: len(xa) - int(ta * ra)]
-    gap = np.zeros(int(pause_s * ra), dtype=np.int16)
+    xa = xa[: len(xa) - int((ta - keep) * ra)]
+    gap = np.zeros(int(max(0.0, pause_s - keep) * ra), dtype=np.int16)  # 間は声の終わりから数える
     write_wav(CALLEE_DIR / out_wav, np.concatenate([xa, gap, np.frombuffer(b, dtype=np.int16)]).tobytes(), ra)
 
 
 def stitch(callee_wav: str, ai_file: str, gap_s: float, out: Path) -> None:
-    pcm, rate, tail = callee_speech(callee_wav)
     ai_pcm, ai_rate = read_wav_pcm16_mono(AUDIO_DIR / ai_file)
-    a = _to_rate(pcm, rate, ai_rate)
-    a = a[: max(0, len(a) - int(tail * ai_rate))]          # 声のあとの無音を切る
-    gap = np.zeros(int(max(0.0, gap_s) * ai_rate), dtype=np.float32)
+    a, keep = callee_audio(callee_wav, ai_rate)            # 声のあとの無音を切る（弱い語尾は残す）
+    gap = np.zeros(int(max(0.0, gap_s - keep) * ai_rate), dtype=np.float32)
     lead = np.zeros(int(0.3 * ai_rate), dtype=np.float32)
     b = np.frombuffer(ai_pcm, dtype=np.int16).astype(np.float32)
     y = np.concatenate([lead, a, gap, b]).clip(-32768, 32767).astype(np.int16)
@@ -62,34 +95,14 @@ def stitch(callee_wav: str, ai_file: str, gap_s: float, out: Path) -> None:
 
 
 def _speech_only(wav_path: Path) -> tuple[np.ndarray, int]:
-    """声の前後の無音を切った声。"""
+    """声の前後の無音を切った声（終わりの弱い語尾は残す＝kept_tail）。"""
     pcm, rate = read_wav_pcm16_mono(wav_path)
     runs = voice_runs(voiced(pcm, rate), 0.15)
     x = np.frombuffer(pcm, dtype=np.int16).astype(np.float32)
     if runs:
-        x = x[int(runs[0][0] * rate): int(runs[-1][1] * rate)]
+        tail = len(x) / rate - runs[-1][1]
+        x = x[int(runs[0][0] * rate): int((runs[-1][1] + kept_tail(pcm, rate, tail)) * rate)]
     return x, rate
-
-
-def stitch_with_ack(callee_wav: str, ai_file: str, ack_wav: Path, ack_at_s: float, ai_at_s: float, out: Path) -> float:
-    """相手の声 → ack_at_s 秒（声の終わりから）で短い相づちの録音 → AIの声、をつなぐ（DESIGN.md 6-15 の案）。
-    AIの声は ai_at_s 秒（声の終わりから。試験で測った値）で始まる。相づちと重なるときは、相づちが終わるまで待たせる（プログラムが流す順を
-    決める形）。返り値＝AIの声が実際に始まった時刻（声の終わりから）。"""
-    pcm, rate, tail = callee_speech(callee_wav)
-    ai_pcm, ai_rate = read_wav_pcm16_mono(AUDIO_DIR / ai_file)
-    a = _to_rate(pcm, rate, ai_rate)
-    a = a[: max(0, len(a) - int(tail * ai_rate))]
-    ack, ack_rate = _speech_only(ack_wav)
-    ack = _to_rate(ack.astype(np.int16).tobytes(), ack_rate, ai_rate)
-    ack_len = len(ack) / ai_rate
-    ai_start = max(ai_at_s, ack_at_s + ack_len + 0.05)
-    lead = np.zeros(int(0.3 * ai_rate), dtype=np.float32)
-    gap1 = np.zeros(int(ack_at_s * ai_rate), dtype=np.float32)
-    gap2 = np.zeros(int((ai_start - ack_at_s - ack_len) * ai_rate), dtype=np.float32)
-    b = np.frombuffer(ai_pcm, dtype=np.int16).astype(np.float32)
-    y = np.concatenate([lead, a, gap1, ack, gap2, b]).clip(-32768, 32767).astype(np.int16)
-    write_wav(out, y.tobytes(), ai_rate)
-    return ai_start
 
 
 def played_ack(turn: dict) -> dict | None:
@@ -111,7 +124,23 @@ def ack_wav(voice_type: str, ack: str) -> Path:
     return AUDIO_DIR.parent / "ack" / f"{voice_type}_{ack}.wav"
 
 
-def stitch_call(call: dict, voice_type: str, out: Path, reply_gap_s: float = 0.6, join_s: float = 0.05) -> list[dict] | None:
+def played_wav(voice_type: str, item: dict) -> Path:
+    """電話接続側が流す録音のファイル（流れの制御の返事の play の1つ）。つなぎの言葉と締めは契約者の単位（results/ack）、
+    質問の文は依頼主の単位（results/script）。DESIGN.md 6-13"""
+    from phrases import LEAD_RECORDED
+    if item["kind"] == "lead":
+        return ack_wav(voice_type, LEAD_RECORDED[item["text"]])
+    if item["kind"] == "closing":
+        return ack_wav(voice_type, "closing")
+    return AUDIO_DIR.parent / "script" / f"{voice_type}_{item['id']}.wav"
+
+
+def _rec(path: Path, rate: int) -> np.ndarray:
+    x, r = _speech_only(path)
+    return _to_rate(x.astype(np.int16).tobytes(), r, rate)
+
+
+def stitch_call(call: dict, voice_type: str, out: Path, reply_gap_s: float = 0.6, join_s: float = ACK_TO_AI_S) -> list[dict] | None:
     """通話1本を、相手の声 → (相づち) → AIの声 の順に、試験で測った時刻でつなぐ（会話全体を聞いて、「はい」が多すぎないか・
     相づちの選び方が場面に合うかを、ユーザーが確かめるため）。相手が次に話し始めるまでの間は reply_gap_s（作った値）。
     相手の言葉の途中でAIが話し出したターン（割り込み）や、待っている間にAIが話したターンは、本当の時刻が分からないので、
@@ -132,22 +161,37 @@ def stitch_call(call: dict, voice_type: str, out: Path, reply_gap_s: float = 0.6
             continue
         if not (isinstance(c, dict) and "wav" in c):
             return None
-        pcm, prate, tail = callee_speech(c["wav"])
-        a = _to_rate(pcm, prate, rate)
-        from flowctl import SILENT_OPS
-        if t.get("first_audio_after_s") is None and not t.get("audio_file") \
-                and all(e.get("name") in SILENT_OPS for e in t.get("tool_events") or []):
-            parts.append(a[: max(0, len(a) - int(tail * rate))])  # AIは黙って待った（相手が考えていることの報告だけ＝形 B）
-            ack = played_ack(t)
-            if ack is not None:  # 相づちの録音（形 B）を、報告が届いた時刻に置く
-                x, r = _speech_only(ack_wav(voice_type, ack["ack"]))
-                x = _to_rate(x.astype(np.int16).tobytes(), r, rate)
-                parts += [np.zeros(int(ack["at_s"] * rate), dtype=np.float32), x]
-                plan.append({"heard_first": ack["ack"], "first_s": round(ack["at_s"], 2), "ai_s": None, "ai_held_s": 0.0})
+        tail = callee_speech(c["wav"])[2]
+        a, keep = callee_audio(c["wav"], rate)  # 時刻はどれも声の終わりから数える。残した語尾の長さ（keep）だけ、あとの間を縮める
+        if not t.get("audio_file") and t.get("first_audio_after_s") is None and not t.get("tool_events"):
+            parts.append(a)  # AIは黙って待った（声も報告も無い）：相手の声だけ
+            continue
+        play = next((e for e in t.get("tool_events") or [] if e.get("play")), None)
+        if play is not None:
+            # 電話接続側が録音を流したターン（次の質問・締め。G-37）：相づち → 0.6秒 → 録音（つなぎの言葉 → 質問の文）。
+            # AIは話さない決まり。話していても、電話接続側はその声を流さない（plan に印を残す）
+            parts.append(a)
+            now, ack = keep, played_ack(t)
+            if ack is not None:
+                x = _rec(ack_wav(voice_type, ack["ack"]), rate)
+                at = max(ack["at_s"], keep)
+                parts += [np.zeros(int((at - now) * rate), dtype=np.float32), x]
+                now, start = at + len(x) / rate, at + len(x) / rate + join_s
+            else:
+                start = max(play["at_s"] + tail, keep)
+            first_s = ack["at_s"] if ack is not None else start
+            for item in play["play"]:
+                x = _rec(played_wav(voice_type, item), rate)
+                parts += [np.zeros(int(max(0.0, start - now) * rate), dtype=np.float32), x]
+                now = max(start, now) + len(x) / rate
+                start = now + RECORDING_JOIN_S
+            parts.append(np.zeros(int(reply_gap_s * rate), dtype=np.float32))
+            plan.append({"heard_first": ack["ack"] if ack else play["play"][0]["text"], "first_s": round(first_s, 2), "ai_s": None,
+                         "ai_held_s": 0.0, "played": [i["text"] for i in play["play"]], "ai_spoke_on_play": bool(t.get("audio_file"))})
             continue
         if not t.get("audio_file") or t.get("first_audio_after_s") is None or t["first_audio_after_s"] < CUT_IN_S:
             return None
-        parts.append(a[: max(0, len(a) - int(tail * rate))])
+        parts.append(a)
         ai_pcm, ai_rate = read_wav_pcm16_mono(AUDIO_DIR / t["audio_file"])
         assert ai_rate == rate
         ai_at = t["first_audio_after_s"] + tail
@@ -155,13 +199,14 @@ def stitch_call(call: dict, voice_type: str, out: Path, reply_gap_s: float = 0.6
         if ack is not None:
             x, r = _speech_only(ack_wav(voice_type, ack["ack"]))
             x = _to_rate(x.astype(np.int16).tobytes(), r, rate)
-            start = max(ai_at, ack["at_s"] + len(x) / rate + join_s)
-            parts += [np.zeros(int(ack["at_s"] * rate), dtype=np.float32), x,
-                      np.zeros(int((start - ack["at_s"] - len(x) / rate) * rate), dtype=np.float32)]
+            at = max(ack["at_s"], keep)
+            start = max(ai_at, at + len(x) / rate + join_s)
+            parts += [np.zeros(int((at - keep) * rate), dtype=np.float32), x,
+                      np.zeros(int((start - at - len(x) / rate) * rate), dtype=np.float32)]
             plan.append({"heard_first": ack["ack"], "first_s": round(ack["at_s"], 2), "ai_s": round(start, 2),
                          "ai_held_s": round(start - ai_at, 2)})
         else:
-            parts.append(np.zeros(int(ai_at * rate), dtype=np.float32))
+            parts.append(np.zeros(int(max(0.0, ai_at - keep) * rate), dtype=np.float32))
             plan.append({"heard_first": (t.get("intended") or "")[:8], "first_s": round(ai_at, 2), "ai_s": round(ai_at, 2),
                          "ai_held_s": 0.0})
         parts += [np.frombuffer(ai_pcm, dtype=np.int16).astype(np.float32), np.zeros(int(reply_gap_s * rate), dtype=np.float32)]
