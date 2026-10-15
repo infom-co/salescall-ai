@@ -41,20 +41,6 @@
   {
     "type": "S2",
     "voice": "Sadachbia",
-    "id": "shouchi",
-    "text": "承知しました、",
-    "heard": {
-      "0.0": "承知しました。",
-      "1.0": "承知しました。"
-    },
-    "ok": true,
-    "seconds": 1.4,
-    "tries": 1,
-    "wav": "S2_shouchi.wav"
-  },
-  {
-    "type": "S2",
-    "voice": "Sadachbia",
     "id": "shitsurei",
     "text": "失礼いたしました。",
     "heard": {
@@ -445,6 +431,22 @@
     "wav": "L4_closing.wav"
   },
   {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "shouchi",
+    "text": "承知しました、",
+    "heard": {
+      "0.0": "承知しました。",
+      "1.0": "承知しました。"
+    },
+    "ok": true,
+    "seconds": 0.88,
+    "try": 4,
+    "wav": "S2_shouchi.wav",
+    "chosen_from": "S2_shouchi_3",
+    "chosen_by": "人"
+  },
+  {
     "type": "S4",
     "voice": "Sadachbia",
     "id": "shouchi",
@@ -454,10 +456,11 @@
       "1.0": "承知しました。"
     },
     "ok": true,
-    "seconds": 0.9,
-    "try": 6,
+    "seconds": 0.88,
+    "try": 4,
     "wav": "S4_shouchi.wav",
-    "chosen_from": "S4_shouchi_2",
+    "made_as": "S2",
+    "chosen_from": "S2_shouchi_3",
     "chosen_by": "人"
   }
 ]
