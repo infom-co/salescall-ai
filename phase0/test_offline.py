@@ -1278,6 +1278,52 @@ class AskLadderTest(unittest.TestCase):
         self.assertIn("その言い方から話し始めます", text)    # ⛔ G-36 の3回目：AIが自分で「失礼いたしました。」を足した
 
 
+class PlayRecordingsTest(unittest.TestCase):
+    """次の質問と締めを、電話接続側が録音で流し、AIには話させない形（DESIGN.md 6-13。✅ 2026-10-15 ユーザー：よく使う言葉は契約者の単位、
+    トークスクリプトは依頼主の単位で録音する。G-37）。言い直し（値が変わる）は、これまでどおりAIが話す。"""
+
+    def flow(self):
+        from flowctl import Flow, Question
+        return Flow([Question("Q1", "ご予約はされていますでしょうか。", "yes_no", conditions=("はい", "いいえ")),
+                     Question("Q2", "ご希望の日時を、お聞かせいただけますでしょうか。", "datetime", conditions=("答えた",), topic="ご希望の日時")],
+                    play_recordings=True)
+
+    def test_next_question_and_closing_are_played_silently(self):
+        from phrases import CLOSING, LEAD_RECORDED
+        f = self.flow()
+        f.on_callee()
+        out, silent = f.handle_call(fc("record_answer", 質問="Q1", 答えの種類="はい"))
+        r = f.log[-1]["reply"]
+        self.assertTrue(silent)
+        self.assertEqual([p["kind"] for p in r["play"]], ["lead", "question"])
+        self.assertIn(r["play"][0]["text"], LEAD_RECORDED)                  # つなぎの言葉は契約者の単位の録音
+        self.assertEqual(r["play"][1], {"kind": "question", "id": "Q2", "text": "ご希望の日時を、お聞かせいただけますでしょうか。"})
+        self.assertEqual(r["ack"], "shouchi")
+        self.assertIn("録音で流しました", out["次にすること"])
+        self.assertNotIn("play", out)                                          # 中の項目はAIに見せない
+        f.on_callee()
+        out, silent = f.handle_call(fc("record_answer", 質問="Q2", 答えの種類="答えた", 値="15日の午後2時"))
+        self.assertFalse(silent)                                               # 言い直しは、AIが話す
+        f.on_callee()
+        out, silent = f.handle_call(fc("confirm_field", 質問="Q2", 返事の種類="合っている"))
+        self.assertTrue(silent)
+        self.assertEqual((f.log[-1]["reply"]["result"], f.log[-1]["reply"]["play"]), ("end", [{"kind": "closing", "text": CLOSING}]))
+
+    def test_declined_call_is_not_played(self):
+        """通話を断られたときの締めは、これまでどおり（録音の締めは、質問が全部終わったときだけ）。"""
+        f = self.flow()
+        f.on_callee()
+        out, silent = f.handle_call(fc("request_end", 理由="通話を断られた"))
+        self.assertFalse(silent)
+        self.assertIsNone(f.log[-1]["reply"].get("play"))
+
+    def test_rule_in_instruction_only_when_playing(self):
+        from g22_opening import BUSINESS
+        from instruction import build
+        self.assertIn("録音で流しました", build(BUSINESS, "S2", opening_mode="recorded", play_recordings=True)[1])
+        self.assertNotIn("録音で流しました", build(BUSINESS, "S2", opening_mode="recorded")[1])
+
+
 class NeverStuckTest(unittest.TestCase):
     """どんな報告がどんな順で届いても、流れの制御が止まらないこと（✅ 2026-10-14 ユーザー：「プログラムで判断できずに止まることがない
     ようにしてください」）：(1) 誤りで止まらない (2) 締めでない限り、どの返事にも次にすることが書いてある (3) 聞き返し・念のための確認は

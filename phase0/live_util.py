@@ -127,7 +127,8 @@ async def collect_turn(session, *, started_at: float, on_tool_call=None, timeout
        受け取りの処理も外した（記録は DESIGN.md 6-15・PHASE0_VERIFICATION.md の G-33）。
     on_heard：相手の言葉の文字（会話AIの聞き取り）が届くたびに `on_heard(text)` を呼ぶ（値を直されたときの直され方を、プログラムが
       相手の言葉から決める。flowctl.Flow.on_heard）。
-    ⛔ 2026-10-14：返事を「話させない」形（SILENT）で返す操作の受け取りは外した（形 B。ユーザーが形 A に決めた）。
+    on_tool_call が (返事, True) を返したら、その返事は「話させない」形（SILENT）で返し、AIの声を待たない（電話接続側が録音を流すとき。
+      G-37。⛔ 2026-10-14 に外した形 B の受け取りと同じ仕組み）。
     """
     r = TurnResult()
     task = asyncio.create_task(_collect_into(r, session, started_at=started_at, on_tool_call=on_tool_call, timeout_s=timeout_s,
@@ -169,13 +170,16 @@ async def _collect_into(r: "TurnResult", session, *, started_at: float, on_tool_
                 r.events.append({"at_s": at(), "kind": "go_away", "time_left": str(msg.go_away.time_left)})
             if msg.session_resumption_update is not None and msg.session_resumption_update.new_handle:
                 r.resumption_handles.append(msg.session_resumption_update.new_handle)
-            responses = []
+            responses = []  # (返事, 話させない形か)
             if msg.tool_call is not None:
                 for fc in msg.tool_call.function_calls or []:
                     r.tool_calls.append({"name": fc.name, "args": fc.args, "at_s": at()})
-                    reply = on_tool_call(fc) if on_tool_call else {"result": "ok"}
+                    out = on_tool_call(fc) if on_tool_call else {"result": "ok"}
+                    # on_tool_call は (返事, 話させない形か) も返せる（電話接続側が録音を流すときは、AIに話させない。G-37）
+                    reply, silent = out if isinstance(out, tuple) else (out, False)
                     r.events.append({"at_s": at(), "kind": "tool_call", "name": fc.name, "args": fc.args, "reply": reply})
-                    responses.append(types.FunctionResponse(id=fc.id, name=fc.name, response=reply))
+                    extra = {"scheduling": types.FunctionResponseScheduling.SILENT} if silent else {}
+                    responses.append((types.FunctionResponse(id=fc.id, name=fc.name, response=reply, **extra), silent))
             sc = msg.server_content
             if sc is not None:
                 if sc.interrupted:
@@ -215,9 +219,10 @@ async def _collect_into(r: "TurnResult", session, *, started_at: float, on_tool_
             async for msg in session.receive():
                 responses = handle(msg)
                 if responses:
-                    await session.send_tool_response(function_responses=responses)
+                    await session.send_tool_response(function_responses=[x for x, _ in responses])
                     r.events.append({"at_s": at(), "kind": "tool_response_sent", "chunk": chunk})
-                    awaiting_reply_speech = True
+                    if not all(silent for _, silent in responses):
+                        awaiting_reply_speech = True  # 話させない返事だけなら、AIの声を待たない
             r.events.append({"at_s": at(), "kind": "turn_complete"})
             audio_in_chunk = False
             chunk += 1

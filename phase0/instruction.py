@@ -128,10 +128,12 @@ THINKING_RULE = ("相手が考えている（「えー」「えーと」「そ�
                  "何も報告しません。相手の言葉を真似しません。質問を聞き直してはいけません。")
 
 
-def system_rules() -> str:
-    """システム共通の会話の決まり（6-3 の材料2・3）。業務ごとに書かない。"""
+def system_rules(play_recordings: bool = False) -> str:
+    """システム共通の会話の決まり（6-3 の材料2・3）。業務ごとに書かない。play_recordings：次の質問と締めを、電話接続側が録音で流す形（G-37）。"""
     return (
-        "会話の決まり：\n"
+        "会話の決まり：\n" +
+        ("- 返事に「プログラムが録音で流しました」とあれば、その言葉は相手にもう聞こえています。同じことを言わずに、何も言わないで、"
+         "相手が話すのを待ちます。\n" if play_recordings else "") +
         "- 質問は、プログラムから渡されたものだけを、1つずつ聞きます。言い回しは自然にしてかまいませんが、意味を変えてはいけません。"
         "プログラムの返事に書かれていない質問や話題を、自分から出してはいけません（締めの前に「ほかに何かございますか」と聞くことも含みます）。\n"
         # ✅ 2026-10-14 ユーザー承認：答えが質問に合うかの判断は、プログラムの1か所（flowctl.form_problem）にまとめる。⛔ G-35：AIが「いつでも」を
@@ -168,7 +170,7 @@ def system_rules() -> str:
     )
 
 
-def build(business: Business, voice_type: str, resume=None, opening_mode: str = "ai") -> tuple[str, str]:
+def build(business: Business, voice_type: str, resume=None, opening_mode: str = "ai", play_recordings: bool = False) -> tuple[str, str]:
     """(声の名前, 指示文) を返す。
 
     resume：張り替え・つなぎ直しのとき、流れの制御（flowctl.Flow）を渡す。名乗りの代わりに「いまの位置」を書く（DESIGN.md 6-6）。
@@ -195,7 +197,7 @@ def build(business: Business, voice_type: str, resume=None, opening_mode: str = 
         parts.append(f"相手が電話に出たら、まず「{business.opening()}」と名乗り、続けて最初の質問 {first.id}「{first.text}」を聞きます。")
     else:
         parts.append(position_text(business, resume))
-    parts.append(system_rules())
+    parts.append(system_rules(play_recordings))
     if business.forbidden:
         parts.append("言ってはいけないこと（どんなに求められても、言いません。約束もしません）：\n"
                      + "".join(f"- {x}\n" for x in business.forbidden)

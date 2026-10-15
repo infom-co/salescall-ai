@@ -1,4 +1,7 @@
-"""AIと同じ声で、短い相づちの録音を作る（DESIGN.md 6-15：AIの報告が届いた瞬間に、プログラムが流す）。
+"""AIと同じ声で、プログラムが流す録音を作る（DESIGN.md 6-13・6-15）。
+- 契約者の単位（声の型ごとに1回。どの依頼主にも同じもの）：相づち・つなぎの言葉・締め・待ってもらう一言（phrases.RECORDED）⇒ results/ack/
+- 依頼主の単位（--script。トークスクリプトだけ）：質問の文（業務設定の質問。つなぎの言葉は含めない）⇒ results/script/
+  ✅ 2026-10-15 ユーザー：「頻繁に使うワードは、契約者単位でシステム的に録音しておいたらいい。依頼者ごとに録音するのは、トークスクリプトのみ」
 
 ✅ 2026-10-14 ユーザー：聞き比べで「明らかにこちらの方が自然な間。話の流れもいい感じ」。基本は「はい、」。違和感のある場面や
    「はい」が続くときは、別の相づち。⇒ 言葉は決まった言い方の表（phrases.ACK）の1か所から読み、どの場面でどれを流すかは
@@ -13,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from pathlib import Path
 import time
 
 from barge import voice_runs, voiced
@@ -21,9 +25,10 @@ from instruction import VOICE_TYPES, voice_style
 from jtext import compare_reading
 from listen import hear_feeds
 from live_util import build_config, collect_turn, send_text
-from phrases import ACK
+from phrases import RECORDED
 
 OUT = HERE / "results" / "ack"
+SCRIPT_OUT = HERE / "results" / "script"
 def speech_seconds(pcm: bytes, rate: int) -> float:
     """声の前後の無音を除いた、声だけの長さ（秒）。"""
     runs = voice_runs(voiced(pcm, rate), 0.15)
@@ -35,9 +40,16 @@ HOW = {"moushiwake": "電話で、相手に聞き取れなかったことを申�
        "shitsurei": "電話で、こちらの聞き違いを丁寧にお詫びするように",
        # ✅ 2026-10-14 ユーザー：「Sadachbia の『ありがとうございます。』の1つが、明るいのは良いが、ハイテンション過ぎて、ちょっとお客が
        #    引きそう。『前向き』なくらいでいい」「Leda の『ありがとうございます。』は逆に少し、感謝が足りない暗い感じが多い」
-       "arigatou": "電話で、相手に感謝を伝えるように、前向きで明るく、心を込めて。ただし、はしゃがず、声を張り上げず、落ち着いた調子で、短く"}
+       "arigatou": "電話で、相手に感謝を伝えるように、前向きで明るく、心を込めて。ただし、はしゃがず、声を張り上げず、落ち着いた調子で、短く",
+       "lead_soredeha": "電話で、次のお話に移るつなぎの言葉として、自然に、柔らかく、短く",
+       "lead_tsuzukimashite": "電話で、次のお話に移るつなぎの言葉として、自然に、柔らかく、短く",
+       "lead_deha": "電話で、次のお話に移るつなぎの言葉として、自然に、柔らかく、短く",
+       "closing": "電話の最後に、お客様に感謝を伝えるように、前向きで明るく、心を込めて、落ち着いた調子で",
+       "wait": "電話で、お客様に少し待っていただくことを、申し訳なく思いながら、柔らかく丁寧にお願いするように",
+       "question": "電話で、お客様に丁寧に、柔らかくお聞きするように"}
 DEFAULT_HOW = "電話で、相手の話に相づちを打つように、短く"
-MAX_S = {"hai": 1.0, "shouchi": 1.4, "arigatou": 1.6, "shitsurei": 1.6, "moushiwake": 1.6}
+MAX_S = {"hai": 1.0, "shouchi": 1.4, "arigatou": 1.6, "shitsurei": 1.6, "moushiwake": 1.6, "lead_soredeha": 1.0,
+         "lead_tsuzukimashite": 1.2, "lead_deha": 0.8, "closing": 7.0, "wait": 3.5, "question": 4.0}
 
 
 def heard_ok(text: str, heard: dict) -> bool:
@@ -46,23 +58,33 @@ def heard_ok(text: str, heard: dict) -> bool:
     return bool(heard) and all(v is not None and compare_reading(v) == want for v in heard.values())
 
 
+def words(script: bool) -> tuple[dict, Path]:
+    """作る録音の表 {中の名前: (言葉, 読み方と長さの上限の鍵)} と、置き場所。script＝依頼主の単位（試験の業務設定の質問の文）。"""
+    if script:
+        from g22_opening import BUSINESS
+        return {q.id: (q.text, "question") for q in BUSINESS.questions}, SCRIPT_OUT
+    return {aid: (text, aid) for aid, text in RECORDED.items()}, OUT
+
+
 async def run(args) -> dict:
-    ids = args.id or list(ACK)
-    index_path = OUT / "index.json"
+    table, out = words(args.script)
+    ids = args.id or list(table)
+    assert set(ids) <= set(table), set(ids) - set(table)
+    index_path = out / "index.json"
     made = json.loads(index_path.read_text(encoding="utf-8")) if index_path.exists() else []
     have = {(m["type"], m["id"]) for m in made if m.get("ok")}
     todo = [(vt, aid) for vt in (args.type or VOICE_TYPES) for aid in ids if (vt, aid) not in have or aid in (args.redo or [])]
     if args.dry_run:
-        return {"dry_run": True, "todo": todo, "words": {a: ACK[a] for a in ids}}
+        return {"dry_run": True, "todo": todo, "words": {a: table[a][0] for a in ids}}
     client = make_client(pick_key(args))
-    OUT.mkdir(parents=True, exist_ok=True)
+    out.mkdir(parents=True, exist_ok=True)
     for vt, aid in todo:
         voice, style = voice_style(vt)
-        text = ACK[aid]
+        text, how = table[aid]
         row = None
         for n in range(args.tries):
             try:
-                inst = (f"{style}\nあなたは音声の材料を作る係です。渡された言葉だけを、{HOW.get(aid, DEFAULT_HOW)}、そのまま読み上げます。"
+                inst = (f"{style}\nあなたは音声の材料を作る係です。渡された言葉だけを、{HOW.get(how, DEFAULT_HOW)}、そのまま読み上げます。"
                         "言葉を足しません。")
                 async with client.aio.live.connect(model=args.model, config=build_config(voice=voice, system_instruction=inst)) as s:
                     t = time.monotonic()
@@ -71,12 +93,12 @@ async def run(args) -> dict:
                 pcm, rate = bytes(turn.audio), turn.audio_rate or 24000
                 seconds = speech_seconds(pcm, rate) if pcm else 0.0
                 heard = await hear_feeds(client, pcm, rate) if pcm else {}
-                ok = bool(pcm) and heard_ok(text, heard) and seconds <= MAX_S[aid]
+                ok = bool(pcm) and heard_ok(text, heard) and seconds <= MAX_S[how]
                 say(f"{vt} {text} {n + 1}回目：聞こえた {heard} 長さ {seconds:.2f}秒 合格={ok}")
                 row = {"type": vt, "voice": voice, "id": aid, "text": text, "heard": heard, "ok": ok, "seconds": round(seconds, 2),
                        "tries": n + 1}
                 if ok:
-                    path = OUT / f"{vt}_{aid}.wav"
+                    path = out / f"{vt}_{aid}.wav"
                     write_wav(path, pcm, rate)
                     row["wav"] = path.name
                     break
@@ -94,9 +116,13 @@ def main() -> None:
     p.add_argument("--tries", type=int, default=3)
     p.add_argument("--pause", type=float, default=2.0)
     p.add_argument("--type", choices=sorted(VOICE_TYPES), action="append")
-    p.add_argument("--id", choices=sorted(ACK), action="append", help="作る相づち（中の名前）。無ければ全部")
-    p.add_argument("--redo", choices=sorted(ACK), action="append", help="作ってある録音でも作り直す（名指ししたものだけ）")
+    p.add_argument("--script", action="store_true", help="依頼主の単位の録音（試験の業務設定の質問の文）を作る")
+    p.add_argument("--id", action="append", help="作る録音（中の名前。質問なら Q2 など）。無ければ全部")
+    p.add_argument("--redo", action="append", help="作ってある録音でも作り直す（名指ししたものだけ）")
     args = p.parse_args()
+    if args.dry_run:  # 下見は保存しない（G-36 と同じ）
+        print(json.dumps(asyncio.run(run(args)), ensure_ascii=False))
+        return
     save_result("ACK-CLIPS", asyncio.run(run(args)))
 
 

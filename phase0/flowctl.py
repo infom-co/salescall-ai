@@ -17,7 +17,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from phrases import CLOSE_DECLINED
+from phrases import CLOSE_DECLINED, CLOSING
 from phrases import ask_again as ask_again_phrase
 from phrases import confirm as confirm_phrase
 from phrases import lead_in as lead_in_phrase
@@ -175,7 +175,7 @@ END_LABEL = {"done": "質問が終わった", "callee_hurry": "相手が急い�
 REPLY_KEY_LABEL = {"result": "結果", "message": "次にすること", "question_id": "質問", "question": "質問の文", "value": "値", "say": "言い方"}
 RESULT_LABEL = {"next": "次の質問", "confirm_required": "言い直して確かめる", "rejected": "差し戻し", "ask_back": "聞き返す",
                 "recheck": "念のための確認", "end": "締め", "busy_ask": "引き止めの一言"}
-INTERNAL_KEYS = {"ack", "ask_n", "ask_reason", "ask_last", "after"}  # 中で使うだけの項目（電話接続側・数え方が読む）。AIへの返事には入れない
+INTERNAL_KEYS = {"ack", "ask_n", "ask_reason", "ask_last", "after", "play"}  # 中で使うだけの項目（電話接続側・数え方が読む）。AIへの返事には入れない
 # こちらが使う名前（AIに見せる日本語の名前）。値の欄に入っていたら、相手の答えではない（form_problem）
 _LABELS = set(SYSTEM_LABEL.values()) | set(CONFIRM_LABEL.values()) | set(END_LABEL.values()) | {"答えた"}
 _FROM_LABEL = {"condition_id": {v: k for k, v in SYSTEM_LABEL.items()}, "result": {v: k for k, v in CONFIRM_LABEL.items()},
@@ -253,7 +253,7 @@ class Item:
 
 class Flow:
     def __init__(self, questions: list[Question], limits: Limits | None = None, confirm=confirm_phrase,
-                 busy_ask: str | None = None, lead_ins: bool = True):
+                 busy_ask: str | None = None, lead_ins: bool = True, play_recordings: bool = False):
         """confirm：言い直しの言い方を作る関数 (値, 場面, 何回目) → 文（ふだんは phrases.confirm。言い方を比べる試験 G-25 だけが別のものを渡す）。
         busy_ask：相手が「忙しい」と言ったときに1回だけ言う一言（業務設定。None なら丁寧に終える＝既定。Intent.md 9-4）。"""
         self.confirm = confirm
@@ -264,6 +264,9 @@ class Flow:
         # lead_ins：プログラムの返事のあとに話す文の頭に、受けの言葉を置くか（DESIGN.md 6-11。✅ 2026-10-13 ユーザー承認＝既定で置く。
         # 置かない形は、過去の比べの試験（G-25・G-27 の W0）を同じ意味で動かすためだけに残す）
         self.lead_ins = lead_ins
+        # play_recordings：次の質問（つなぎの言葉＋質問の文）と締めの言葉を、電話接続側が録音で流し、AIには話させない（DESIGN.md 6-13。
+        # ✅ 2026-10-15 ユーザー：よく使う言葉は契約者の単位で、トークスクリプト（質問の文）は依頼主の単位で録音する。G-37 で確かめる）
+        self.play_recordings = play_recordings
         self.lead_counts: dict[str, int] = {}
         self.ack_count = 0               # 次の質問の前に流す相づちを、順番に回す（_ack）
         # AIが答えを報告せずに言い直し、相手に値を直された：(質問, 直され方＝AFTER の鍵)。その答えの報告で、直され方に合う言い直しにする
@@ -298,6 +301,11 @@ class Flow:
     #    相づち（ack）は電話接続側が流すもので、AIには見せない（AIの返事から外す）
     def handle(self, fc) -> dict:
         return self._reply_out(self.apply(fc.name, self._args_in(dict(fc.args or {}))))
+
+    # ── handle と同じ。返事を「話させない」形（SILENT）で返すかも返す（電話接続側が録音を流すときは、AIに話させない）
+    def handle_call(self, fc) -> tuple[dict, bool]:
+        reply = self.handle(fc)
+        return reply, bool(self.log[-1]["reply"].get("play"))
 
     # ── 中の名前での入口（handle と試験は、ここを通す）。記録（log）は中の名前で残す
     def apply(self, name: str, args: dict) -> dict:
@@ -565,6 +573,12 @@ class Flow:
         if self.phase == "asking" and rest:
             self.current = rest[0]
             q = self.questions[self.current]
+            if self.play_recordings:
+                lead = self._lead("次の質問")
+                return {"result": "next", "question_id": q.id, "question": q.text,
+                        "play": [{"kind": "lead", "text": lead}, {"kind": "question", "id": q.id, "text": q.text}],
+                        "message": f"{prefix}次の質問 {q.id}「{lead}{q.text}」は、プログラムが録音で流しました（相手にもう聞こえています）。"
+                                   "何も言わずに、相手の答えを待ってください。相手が答えたら record_answer で報告します。"}
             return {"result": "next", "question_id": q.id, "question": q.text,
                     "message": f"{prefix}次の質問は {q.id}「{q.text}」です。" + self._lead_note("次の質問")}
         if self.phase == "asking":
@@ -584,6 +598,9 @@ class Flow:
                     "message": f"{prefix}念のための確認です。{q.id} を、もう1回だけ「{say}」と聞いて、相手の答えを待ってください。"
                                "相手が答えたら record_answer で報告します。"}
         self.current, self.phase = None, "closing"
+        if self.play_recordings and not self.hurried:
+            return {"result": "end", "play": [{"kind": "closing", "text": CLOSING}],
+                    "message": f"{prefix}質問は終わりです。締めの言葉「{CLOSING}」は、プログラムが録音で流しました。何も言わずに終えます。"}
         return {"result": "end", "message": f"{prefix}質問は終わりです。締めの言葉を言って終えてください。"}
 
     def _lead(self, kind: str) -> str:
