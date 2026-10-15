@@ -4,8 +4,11 @@
 呼び出し元（会話の処理・キーの選択 Q15・回線の部品・通話後の検証・連携）は、表の処置を実行するだけにする
 （その場で再試行やキーの切り替えを書かない）。止める・解くの判断は core/watch.py（この表を読む）。
 
-- 種類は、閉じる番号ではなく「番号と文面の組」で見分ける（同じ 1007 が「キーの誤り」と「設定の誤り」の両方で返った。
-  2026-10-12 の実測）。**入れるのは実測した組だけ。見たことのない組は「不明」**（推測で種類を決めない）。
+- 種類は、**会話AI（Google）のエラーの一覧 `CATALOG`** で見分ける（2026-10-15 ユーザー：「エラーコード一覧を作っておいたら」）。
+  一覧の1行ごとに出どころを持つ：公式（Google の公式の一覧）／実測（私たちが実際に受けた）／報告（ほかの利用者の報告。公式ではない）。
+  **自動で種類を決めるのは、公式と実測の行だけ**。報告の行は参考として載せるだけ（種類は決めない＝不明のまま）。
+  閉じる番号だけでは決めず、番号と文面（またはステータスの名前）の組で見る（同じ 1007 が「キーの誤り」と「設定の誤り」の両方で
+  返った。2026-10-12 の実測）。一覧に無いものは「不明」（推測で種類を決めない）。
 - 不明のときは、キーを切り替えない（原因が分からないまま回すと、無料枠の回避と同じ形になる）。続いたら止める。
 - 表の「知らせる」は、知らせの台帳に入れるだけ（人の返事を待たない。2026-10-13 ユーザー：人のいない仕組み）。
 """
@@ -16,12 +19,52 @@ from dataclasses import dataclass
 
 SOURCES = ("ai", "ear", "line", "storage", "delivery")   # 会話AI／別の耳（通話後の検証）／回線／保存／連携
 
-# 実測した「番号と文面の組」（会話AI・別の耳の閉じる番号）。足すのは実測したときだけ（日付と記録を添える）。
-_OBSERVED: tuple[tuple[int, str, str], ...] = (
-    (1007, "API key not valid", "key_specific"),            # キーの無効化（実測）
-    (1008, "has been denied access", "project_denied"),      # 1分あたりの入力トークン数の上限（2026-10-12 実測。9-1）
-    (1007, "is not supported for this model", "config_error"),   # 設定の誤り（考えるレベルの設定。実測）
-    (1011, "exceeded your current quota", "project_quota"),  # プロジェクトの枠の超過（実測）
+@dataclass(frozen=True)
+class CatalogEntry:
+    """会話AI（Google）のエラーの一覧の1行。"""
+    code: int | None       # 閉じる番号（1007 など）か HTTP の番号（429 など）。None＝番号を問わない
+    text: str | None       # 文面に含まれる言葉（ステータスの名前を含む）。None＝文面を問わない
+    kind: str | None       # 種類（ACTIONS の鍵）。None＝参考だけ（自動では決めない）
+    origin: str            # official（Google の公式の一覧）／observed（実測）／reported（ほかの利用者の報告。公式ではない）
+    meaning: str           # 日本語の意味と、受けたときの原因
+    ref: str               # 出どころ（公式の文書の場所・実測の日付と記録）
+
+
+_OFFICIAL = "https://ai.google.dev/gemini-api/docs/troubleshooting（2026-10-15 に確かめた公式の表）"
+# 上から順に見て、最初に当たった行の種類（番号と文面の組の行を、番号だけ・ステータスだけの行より上に置く）
+CATALOG: tuple[CatalogEntry, ...] = (
+    # ── 実測した組（番号と文面）
+    CatalogEntry(1007, "API key not valid", "key_specific", "observed", "キーが無効（認証の失敗）", "2026-10-12 実測（フェーズ0）"),
+    CatalogEntry(1007, "is not supported for this model", "config_error", "observed",
+                 "設定の誤り（そのモデルが受け付けない設定。例：考えるレベル）", "2026-10-12 実測（フェーズ0）"),
+    CatalogEntry(1008, "has been denied access", "project_denied", "observed",
+                 "プロジェクトの利用拒否（ユーザーが管理画面で確かめた理由：1分あたりの入力トークン数の上限）", "2026-10-12 実測（10個中4個のキー）"),
+    CatalogEntry(1011, "exceeded your current quota", "project_quota", "observed", "プロジェクトの枠の超過", "2026-10-12 実測（フェーズ0）"),
+    # ── 公式の一覧（ステータスの名前。閉じる理由の文面や HTTP の応答に入る）
+    CatalogEntry(None, "API key not valid", "key_specific", "official", "キーが無効（400 INVALID_ARGUMENT の1つ）", _OFFICIAL),
+    CatalogEntry(None, "PERMISSION_DENIED", "key_specific", "official", "キーに権限が無い・違うキー（403）", _OFFICIAL),
+    CatalogEntry(None, "RESOURCE_EXHAUSTED", "project_denied", "official",
+                 "利用の上限に当たった（1分あたりの回数・トークン数・1日の回数など。429）。待ってから試す", _OFFICIAL),
+    CatalogEntry(None, "INVALID_ARGUMENT", "config_error", "official", "要求の形が違う（設定の誤り。400）", _OFFICIAL),
+    CatalogEntry(None, "FAILED_PRECONDITION", "config_error", "official",
+                 "無料枠が使えない地域で、支払いを設定していない など（400）", _OFFICIAL),
+    CatalogEntry(None, "NOT_FOUND", "config_error", "official", "指定したもの（モデルなど）が無い（404）", _OFFICIAL),
+    CatalogEntry(None, "INTERNAL", "ai_server_error", "official", "Google の側の思いがけない誤り（500）。少し待って試す", _OFFICIAL),
+    CatalogEntry(None, "UNAVAILABLE", "ai_server_error", "official", "一時的に使えない・混んでいる（503）。間隔を伸ばして試す", _OFFICIAL),
+    CatalogEntry(None, "DEADLINE_EXCEEDED", "ai_server_error", "official", "時間内に処理を終えられなかった（504）", _OFFICIAL),
+    CatalogEntry(429, None, "project_denied", "official", "利用の上限（429 RESOURCE_EXHAUSTED）", _OFFICIAL),
+    CatalogEntry(403, None, "key_specific", "official", "キーに権限が無い（403 PERMISSION_DENIED）", _OFFICIAL),
+    CatalogEntry(404, None, "config_error", "official", "指定したものが無い（404 NOT_FOUND）", _OFFICIAL),
+    CatalogEntry(500, None, "ai_server_error", "official", "Google の側の誤り（500 INTERNAL）", _OFFICIAL),
+    CatalogEntry(503, None, "ai_server_error", "official", "一時的に使えない（503 UNAVAILABLE）", _OFFICIAL),
+    CatalogEntry(504, None, "ai_server_error", "official", "時間切れ（504 DEADLINE_EXCEEDED）", _OFFICIAL),
+    # ── ほかの利用者の報告（公式ではない。参考だけ：自動では種類を決めない＝不明として扱い、続いたら止める）
+    CatalogEntry(1011, "Internal error", None, "reported",
+                 "Google が切った内部の誤り（試し版のモデルで多いという報告）", "https://discuss.ai.google.dev/t/171560"),
+    CatalogEntry(1008, "Operation is not implemented, or supported, or enabled", None, "reported",
+                 "道具の返事を待つ間に音声を送り続けると切られる、という報告", "https://discuss.ai.google.dev/t/114644"),
+    CatalogEntry(1007, None, None, "reported", "送った内容の形が違う（接続の始めの設定の誤り）という報告",
+                 "https://discuss.ai.google.dev/t/96680"),
 )
 
 
@@ -62,6 +105,8 @@ ACTIONS: dict[str, Action] = {
     "ear_unreachable": Action("keep", "backoff", "ai_connection", "system", "stop.ai.stop_after_failures", False,
                               "別の耳（通話後の検証）につながらない：続いたら全体を止める（検証できないまま、かけた行が"
                               "「検証できなかった」で終わり続けるのを防ぐ）"),
+    "ai_server_error": Action("keep", "backoff", "ai_connection", "system", "stop.ai.stop_after_failures", False,
+                              "Google の側の誤り・混雑・時間切れ（公式の一覧の 500・503・504）：間隔を伸ばしてやり直す。続いたら全体を止める"),
     "session_drop": Action("keep", "reconnect_once", None, None, None, False,
                            "通話中のセッションの切断：1回だけつなぎ直し、駄目ならおわびして終える（6-7）"),
     "line": Action("keep", "none", "line_failure", "line", "stop.line.stop_after_failures", False,
@@ -84,14 +129,25 @@ COUNTED_FOR: dict[str, tuple[str, ...]] = {
 }
 
 
+def lookup(e: ErrorReport) -> CatalogEntry | None:
+    """一覧で、そのエラーに当たる最初の行（無ければ None）。報告の行にも当たる（意味を画面に出すため）。"""
+    for entry in CATALOG:
+        if entry.code is not None and e.code != entry.code:
+            continue
+        if entry.text is not None and (e.message is None or entry.text not in e.message):
+            continue
+        return entry
+    return None
+
+
 def classify(e: ErrorReport) -> str:
-    """エラーの種類（ACTIONS の鍵）。実測した組と、出どころで決まるものだけ。ほかは不明。"""
+    """エラーの種類（ACTIONS の鍵）。会話AI・別の耳は一覧の公式と実測の行だけで決める。ほかの出どころは出どころで決まる。"""
     if e.source not in SOURCES:
         raise ValueError(f"出どころは {SOURCES} のどれかです（{e.source!r}）")
     if e.source in ("ai", "ear"):
-        for code, text, kind in _OBSERVED:
-            if e.code == code and e.message is not None and text in e.message:
-                return kind
+        entry = lookup(e)
+        if entry is not None and entry.kind is not None:
+            return entry.kind
         if e.unreachable:
             return "ai_unreachable" if e.source == "ai" else "ear_unreachable"
         return "unknown_ai" if e.source == "ai" else "unknown_other"

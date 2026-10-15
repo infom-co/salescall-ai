@@ -28,6 +28,26 @@ class Classify(unittest.TestCase):
         with self.assertRaises(ValueError):
             c("phone", None, None)
 
+    def test_catalog_official_and_observed_decide_reported_only_explains(self):
+        c = lambda *a, **k: errors.classify(ErrorReport(*a, **k))
+        self.assertEqual(c("ai", 503, "UNAVAILABLE: The model is overloaded."), "ai_server_error")
+        self.assertEqual(c("ai", None, "status: DEADLINE_EXCEEDED"), "ai_server_error")
+        self.assertEqual(c("ai", 429, "Resource has been exhausted"), "project_denied")
+        self.assertEqual(c("ai", 400, "FAILED_PRECONDITION: free tier is not available"), "config_error")
+        self.assertEqual(c("ai", 1011, "You exceeded your current quota"), "project_quota")   # 実測の組が先に当たる
+        # 報告の行（公式ではない）：意味は引けるが、種類は決めない（不明として数え、続いたら止める）
+        self.assertEqual(c("ai", 1011, "Internal error encountered."), "unknown_ai")
+        got = errors.lookup(ErrorReport("ai", 1011, "Internal error encountered."))
+        self.assertEqual((got.origin, got.kind), ("reported", None))
+        for e in errors.CATALOG:
+            with self.subTest(e.meaning):
+                self.assertIn(e.origin, ("official", "observed", "reported"))
+                self.assertEqual(e.kind is None, e.origin == "reported")
+                self.assertTrue(e.kind is None or e.kind in errors.ACTIONS)
+                self.assertTrue(e.code is not None or e.text is not None)
+                self.assertTrue(e.meaning and e.ref)
+        self.assertIn("ai_server_error", errors.COUNTED_FOR["ai_connection"])
+
     def test_the_table_is_complete_and_never_switches_keys_on_unknown(self):
         for kind, a in errors.ACTIONS.items():
             with self.subTest(kind):
