@@ -28,11 +28,12 @@ from turn_check import bad_kinds
 
 BUSINESS = Business(
     company="アオバ物流", caller="佐藤", purpose="ご予約の確認", purpose_line="ご予約の確認でお電話いたしました。",
-    questions=[Question("Q1", "ご予約はされていますでしょうか。", "yes_no", conditions=("はい", "いいえ"), topic="ご予約の有無"),
+    questions=[Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"), topic="ご予約の有無"),
                # ✅ 2026-10-15 ユーザー：お客様に向ける言い方は、命令の形（「〜ください」）や冷たい言い回しを避け、柔らかく同意をいただく
                #    接客の話し方に ⇒ 試験の業務設定（トークスクリプト）の質問も直した（前は「ご希望の日時をお聞かせください。」など。G-36 まで）
-               Question("Q2", "ご希望の日時を、お聞かせいただけますでしょうか。", "datetime", conditions=("答えた",), topic="ご希望の日時"),
-               Question("Q3", "ご来店の人数を、お伺いしてもよろしいでしょうか。", "number", conditions=("答えた",), topic="ご来店の人数")],
+               # ✅ 2026-10-15 ユーザー（G-37 を聞いて）：言葉の途中の読点で不自然な間が入る ⇒ 読点を外した
+               Question("Q2", "ご希望の日時をお聞かせいただけますでしょうか？", "datetime", conditions=("答えた",), topic="ご希望の日時"),
+               Question("Q3", "ご来店の人数をお伺いしてもよろしいでしょうか？", "number", conditions=("答えた",), topic="ご来店の人数")],
 )
 PARTS = BUSINESS.opening_parts()  # [あいさつ, 名乗り, 用件, 最初の質問]
 NAME = ["アオバ", "青葉", "あおば", "大場", "オーバ", "オオバ"]  # 社名（「ア」がオ寄りに聞こえるものも、言えたとみなす）

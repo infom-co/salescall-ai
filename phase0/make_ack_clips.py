@@ -49,7 +49,7 @@ HOW = {"moushiwake": "電話で、相手に聞き取れなかったことを申�
        "question": "電話で、お客様に丁寧に、柔らかくお聞きするように"}
 DEFAULT_HOW = "電話で、相手の話に相づちを打つように、短く"
 MAX_S = {"hai": 1.0, "shouchi": 1.4, "arigatou": 1.6, "shitsurei": 1.6, "moushiwake": 1.6, "lead_soredeha": 1.0,
-         "lead_tsuzukimashite": 1.2, "lead_deha": 0.8, "closing": 8.0, "wait": 3.5, "question": 4.0}
+         "lead_tsuzukimashite": 1.2, "lead_deha": 0.8, "closing": 8.0, "wait": 3.5, "question": 5.0}
 
 
 def heard_ok(text: str, heard: dict) -> bool:
@@ -62,7 +62,14 @@ def words(script: bool) -> tuple[dict, Path]:
     """作る録音の表 {中の名前: (言葉, 読み方と長さの上限の鍵)} と、置き場所。script＝依頼主の単位（試験の業務設定の質問の文）。"""
     if script:
         from g22_opening import BUSINESS
-        return {q.id: (q.text, "question") for q in BUSINESS.questions}, SCRIPT_OUT
+        from phrases import LEAD_RECORDED
+        table = {q.id: (q.text, "question") for q in BUSINESS.questions}
+        # 聞き比べ用：つなぎの言葉と質問を1本にした録音（ふつうの流れで付くつなぎの言葉＝2問目「それでは」・3問目「続きまして」）。
+        # ⚠️ 2026-10-15 ユーザー：「『承知しました。それでは、ご希望の日時を、お聞かせいただけますでしょうか？』が特に酷い」⇒ 別々の録音を
+        #    つなぐ形と、1本の録音の形を聞き比べていただく
+        for q, lead in zip(BUSINESS.questions[1:], ("それでは", "続きまして")):
+            table[f"{q.id}_{LEAD_RECORDED[lead]}"] = (lead + q.text, "question")
+        return table, SCRIPT_OUT
     return {aid: (text, aid) for aid, text in RECORDED.items()}, OUT
 
 
@@ -72,7 +79,8 @@ async def run(args) -> dict:
     assert set(ids) <= set(table), set(ids) - set(table)
     index_path = out / "index.json"
     made = json.loads(index_path.read_text(encoding="utf-8")) if index_path.exists() else []
-    have = {(m["type"], m["id"]) for m in made if m.get("ok")}
+    # 作り済みでも、文が変わった録音は作り直す（⛔ 2026-10-15：読点を外した質問の文が、作り済みとして飛ばされていた）
+    have = {(m["type"], m["id"]) for m in made if m.get("ok") and m.get("text") == table.get(m["id"], (None,))[0]}
     todo = [(vt, aid) for vt in (args.type or VOICE_TYPES) for aid in ids if (vt, aid) not in have or aid in (args.redo or [])]
     if args.dry_run:
         return {"dry_run": True, "todo": todo, "words": {a: table[a][0] for a in ids}}
