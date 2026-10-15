@@ -208,6 +208,13 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      " WITH r AS (UPDATE salescall.attempts SET state = 'released' WHERE state = 'claimed' AND claim_expires_at <= now()"
      " AND (contact_id = p_contact OR phone_e164 = p_phone OR line_id = p_line) RETURNING 1) SELECT count(*)::integer FROM r $$",
      ("tests.test_alternate.DatabasePromises.test_expired_claim_on_another_number_of_the_row_is_released",)),
+    # 利用量の台帳と予算（Q16）
+    ("利用量の台帳の変更の拒みを外す", "DROP TRIGGER usage_entries_frozen ON salescall.usage_entries",
+     ("tests.test_usage.Ledger.test_frozen",)),
+    ("全体の今日の金額を数えない（いつも0）",
+     "CREATE OR REPLACE FUNCTION salescall.spent_today_all() RETURNS numeric"
+     " LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ SELECT 0::numeric $$",
+     ("tests.test_usage.Budget.test_system_limit_and_new_day",)),
     # 品質の段（Q22）
     ("検証を済ませる前に結果の数を残す、の仕掛けを外す",
      "DROP TRIGGER attempt_verification_needs_summary ON salescall.attempts",

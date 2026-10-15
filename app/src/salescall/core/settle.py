@@ -19,7 +19,7 @@ from typing import Any
 from uuid import UUID
 
 from salescall.core import (attempts, business_rules, call_report, dnc, next_action, notify, number_recheck,
-                            quality_stage, results, settings, target_policy, tasks)
+                            quality_stage, results, settings, target_policy, tasks, usage)
 from salescall.core.access import Tx
 from salescall.core.judge import JUDGE_VERSION, Facts, Item, JudgeInput, Judgement, judge
 from salescall.core.phone import normalize
@@ -101,6 +101,7 @@ def settle(tx: Tx, attempt_id: UUID) -> dict[str, Any]:
         tx, a["task_id"], j, verification=a["verification"], rules=rules,
         dialed=next_action.Target(a["contact_id"], None, a["purpose"], a["wrong_contact_id"]), dialed_at=a["claimed_at"],
         alternate=alternate, recheck=recheck)
+    usage.record_line_estimate(tx, attempt_id)   # 利用量の台帳（Q16）：回線の料金の推定（相手が出た通話だけ）
     quality_stage.evaluate(tx, a["version_id"])   # 品質の段（Q22）：通話ごとに評価（止める・次の段へ）
     return {"version_no": version_no, "state": j.state, "decision": decision, "already": False}
 
