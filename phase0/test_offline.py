@@ -1365,19 +1365,19 @@ class PlayRecordingsTest(unittest.TestCase):
     def flow(self):
         from flowctl import Flow, Question
         return Flow([Question("Q1", "ご予約はされていますでしょうか。", "yes_no", conditions=("はい", "いいえ")),
-                     Question("Q2", "ご希望の日時を、お聞かせいただけますでしょうか。", "datetime", conditions=("答えた",), topic="ご希望の日時")],
+                     Question("Q2", "ご希望の日時をお聞かせいただけますでしょうか？", "datetime", conditions=("答えた",), topic="ご希望の日時")],
                     play_recordings=True)
 
     def test_next_question_and_closing_are_played_silently(self):
-        from phrases import CLOSING, LEAD_RECORDED
+        from phrases import CLOSING
         f = self.flow()
         f.on_callee()
         out, silent = f.handle_call(fc("record_answer", 質問="Q1", 答えの種類="はい"))
         r = f.log[-1]["reply"]
         self.assertTrue(silent)
-        self.assertEqual([p["kind"] for p in r["play"]], ["lead", "question"])
-        self.assertIn(r["play"][0]["text"], LEAD_RECORDED)                  # つなぎの言葉は契約者の単位の録音
-        self.assertEqual(r["play"][1], {"kind": "question", "id": "Q2", "text": "ご希望の日時を、お聞かせいただけますでしょうか。"})
+        # つなぎの言葉と質問を1本の録音で流す（✅ 2026-10-15 ユーザー：1本のほうが、しいて言えば自然）
+        self.assertEqual(r["play"], [{"kind": "question", "id": "Q2", "text": "それではご希望の日時をお聞かせいただけますでしょうか？",
+                                      "lead": "それでは"}])
         self.assertEqual(r["ack"], "shouchi")
         self.assertIn("録音で流しました", out["次にすること"])
         self.assertNotIn("play", out)                                          # 中の項目はAIに見せない
@@ -1388,6 +1388,13 @@ class PlayRecordingsTest(unittest.TestCase):
         out, silent = f.handle_call(fc("confirm_field", 質問="Q2", 返事の種類="合っている"))
         self.assertTrue(silent)
         self.assertEqual((f.log[-1]["reply"]["result"], f.log[-1]["reply"]["play"]), ("end", [{"kind": "closing", "text": CLOSING}]))
+
+    def test_lead_is_fixed_by_question_order(self):
+        """つなぎの言葉は質問の順番で決まる（依頼主ごとの録音は、質問1つにつき1本のまま）。最初の質問は名乗りと一緒なので付けない。"""
+        from flowctl import Question, spoken_question
+        qs = [Question(f"Q{i}", f"質問{i}ですか？", "free_text") for i in range(1, 6)]
+        self.assertEqual([spoken_question(qs, q.id)[1] for q in qs], ["", "それでは", "続きまして", "では", "それでは"])
+        self.assertEqual(spoken_question(qs, "Q3")[0], "続きまして質問3ですか？")
 
     def test_declined_call_is_not_played(self):
         """通話を断られたときの締めは、これまでどおり（録音の締めは、質問が全部終わったときだけ）。"""
@@ -1611,6 +1618,35 @@ class RetryTest(unittest.TestCase):
         with self.assertRaises(Err):
             call_with_retry(always_busy, waits=(0, 0))
         self.assertEqual(len(calls), 3)  # やり直しを使い切ったら、誤りをそのまま上げる
+
+
+class RecordingCheckTest(unittest.TestCase):
+    """録音の確かめ（make_ack_clips）：声の途中で切れた録音・文の途中の長い無音を落とす。"""
+
+    RATE = 24000
+
+    def tone(self, *parts):
+        """(秒, 声か) の並びから、作った音を作る。"""
+        import numpy as np
+        out = []
+        for sec, on in parts:
+            t = np.arange(int(self.RATE * sec)) / self.RATE
+            out.append(np.sin(2 * np.pi * 160 * t) * (0.3 if on else 0.0))
+        return (np.concatenate(out) * 32767).astype("<i2").tobytes()
+
+    def test_cut_in_the_middle_of_the_voice_is_rejected(self):
+        """⛔ 2026-10-15：S4 の「承知しました、」の候補3は声の途中で終わっていたのに、耳の確かめは通した（ユーザーが聞いて気づいた）。"""
+        from make_ack_clips import ends_in_silence
+        self.assertFalse(ends_in_silence(self.tone((0.2, False), (0.6, True)), self.RATE))
+        self.assertFalse(ends_in_silence(self.tone((0.2, False), (0.6, True), (0.05, False)), self.RATE))
+        self.assertTrue(ends_in_silence(self.tone((0.2, False), (0.6, True), (0.25, False)), self.RATE))
+
+    def test_long_pause_only_at_sentence_end(self):
+        from make_ack_clips import long_pauses_ok
+        one_sentence = self.tone((0.1, False), (0.8, True), (0.35, False), (0.8, True), (0.2, False))
+        self.assertFalse(long_pauses_ok("お忙しいところお時間をいただきましてありがとうございました。", one_sentence, self.RATE))
+        self.assertTrue(long_pauses_ok("ありがとうございました。それでは失礼いたします。", one_sentence, self.RATE))
+        self.assertTrue(long_pauses_ok("それではご希望の日時をお聞かせいただけますでしょうか？", one_sentence, self.RATE))  # 頭のつなぎの言葉のあと
 
 
 if __name__ == "__main__":

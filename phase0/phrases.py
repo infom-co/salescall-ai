@@ -118,7 +118,9 @@ LEAD_RECORDED = {"それでは": "lead_soredeha", "続きまして": "lead_tsuzu
 assert set(LEAD_RECORDED) == set(LEAD_IN["次の質問"])
 # 契約者の単位で録音して流すもの（中の名前 → 言葉）。声の型ごとに1回だけ作って承認し、どの依頼主にも同じものを使う（DESIGN.md 6-13）。
 # 依頼主の単位で録音するのは、トークスクリプト（名乗り・質問の文）だけ
-RECORDED = {**ACK, **{name: text + "、" for text, name in LEAD_RECORDED.items()}, "closing": CLOSING, "wait": WAIT}
+# ⚠️ 2026-10-15：つなぎの言葉だけの録音は使わなくなった（質問と1本で録音する＝flowctl.spoken_question）。LEAD_RECORDED は、録音の
+#    ファイル名（質問の録音の名前の後ろ）と、G-37 の1回目・2回目の記録を聞き直すときだけに使う
+RECORDED = {**ACK, "closing": CLOSING, "wait": WAIT}
 
 
 def lead_in(kind: str, n: int) -> str:
