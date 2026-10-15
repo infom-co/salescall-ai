@@ -49,7 +49,7 @@ HOW = {"moushiwake": "電話で、相手に聞き取れなかったことを申�
        "question": "電話で、お客様に丁寧に、柔らかくお聞きするように"}
 DEFAULT_HOW = "電話で、相手の話に相づちを打つように、短く"
 MAX_S = {"hai": 1.0, "shouchi": 1.4, "arigatou": 1.6, "shitsurei": 1.6, "moushiwake": 1.6, "lead_soredeha": 1.0,
-         "lead_tsuzukimashite": 1.2, "lead_deha": 0.8, "closing": 7.0, "wait": 3.5, "question": 4.0}
+         "lead_tsuzukimashite": 1.2, "lead_deha": 0.8, "closing": 8.0, "wait": 3.5, "question": 4.0}
 
 
 def heard_ok(text: str, heard: dict) -> bool:
