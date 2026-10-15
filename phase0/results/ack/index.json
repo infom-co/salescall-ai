@@ -1,31 +1,5 @@
 [
   {
-    "type": "S2",
-    "voice": "Sadachbia",
-    "id": "hai",
-    "text": "はい、",
-    "heard": {
-      "0.0": "はい。",
-      "1.0": "はい。"
-    },
-    "ok": true,
-    "seconds": 0.82,
-    "wav": "S2_hai.wav"
-  },
-  {
-    "type": "S4",
-    "voice": "Sadachbia",
-    "id": "hai",
-    "text": "はい、",
-    "heard": {
-      "0.0": "はい。",
-      "1.0": "はい。"
-    },
-    "ok": true,
-    "seconds": 0.48,
-    "wav": "S4_hai.wav"
-  },
-  {
     "type": "L4",
     "voice": "Leda",
     "id": "hai",
@@ -41,20 +15,6 @@
   {
     "type": "S2",
     "voice": "Sadachbia",
-    "id": "shitsurei",
-    "text": "失礼いたしました。",
-    "heard": {
-      "0.0": "失礼いたしました。",
-      "1.0": "失礼いたしました。"
-    },
-    "ok": true,
-    "seconds": 1.4,
-    "tries": 1,
-    "wav": "S2_shitsurei.wav"
-  },
-  {
-    "type": "S2",
-    "voice": "Sadachbia",
     "id": "moushiwake",
     "text": "申し訳ございません、",
     "heard": {
@@ -65,20 +25,6 @@
     "seconds": 1.55,
     "tries": 1,
     "wav": "S2_moushiwake.wav"
-  },
-  {
-    "type": "S4",
-    "voice": "Sadachbia",
-    "id": "shitsurei",
-    "text": "失礼いたしました。",
-    "heard": {
-      "0.0": "失礼いたしました。",
-      "1.0": "失礼いたしました。"
-    },
-    "ok": true,
-    "seconds": 1.18,
-    "tries": 1,
-    "wav": "S4_shitsurei.wav"
   },
   {
     "type": "S4",
@@ -177,34 +123,6 @@
     "seconds": 0.22,
     "tries": 2,
     "wav": "L4_aizuchi.wav"
-  },
-  {
-    "type": "S2",
-    "voice": "Sadachbia",
-    "id": "arigatou",
-    "text": "ありがとうございます、",
-    "heard": {
-      "0.0": "ありがとうございます。",
-      "1.0": "ありがとうございます。"
-    },
-    "ok": true,
-    "seconds": 1.06,
-    "tries": 1,
-    "wav": "S2_arigatou.wav"
-  },
-  {
-    "type": "S4",
-    "voice": "Sadachbia",
-    "id": "arigatou",
-    "text": "ありがとうございます、",
-    "heard": {
-      "0.0": "ありがとうございます。",
-      "1.0": "ありがとうございます。"
-    },
-    "ok": true,
-    "seconds": 1.1,
-    "tries": 1,
-    "wav": "S4_arigatou.wav"
   },
   {
     "type": "L4",
@@ -461,6 +379,105 @@
     "wav": "S4_shouchi.wav",
     "made_as": "S2",
     "chosen_from": "S2_shouchi_3",
+    "chosen_by": "人"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "hai",
+    "text": "はい、",
+    "heard": {
+      "0.0": "はい。",
+      "1.0": "はい。"
+    },
+    "ok": true,
+    "seconds": 0.3,
+    "try": 1,
+    "wav": "S2_hai.wav",
+    "chosen_from": "S2_hai_1",
+    "chosen_by": "人"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "hai",
+    "text": "はい、",
+    "heard": {
+      "0.0": "はい。",
+      "1.0": "はい。"
+    },
+    "ok": true,
+    "seconds": 0.3,
+    "try": 1,
+    "wav": "S4_hai.wav",
+    "made_as": "S2",
+    "chosen_from": "S2_hai_1",
+    "chosen_by": "人"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "arigatou",
+    "text": "ありがとうございます、",
+    "heard": {
+      "0.0": "ありがとうございます。",
+      "1.0": "ありがとうございます。"
+    },
+    "ok": true,
+    "seconds": 0.98,
+    "try": 2,
+    "wav": "S2_arigatou.wav",
+    "made_as": "S4",
+    "chosen_from": "S4_arigatou_2",
+    "chosen_by": "人"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "arigatou",
+    "text": "ありがとうございます、",
+    "heard": {
+      "0.0": "ありがとうございます。",
+      "1.0": "ありがとうございます。"
+    },
+    "ok": true,
+    "seconds": 0.98,
+    "try": 2,
+    "wav": "S4_arigatou.wav",
+    "chosen_from": "S4_arigatou_2",
+    "chosen_by": "人"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "shitsurei",
+    "text": "失礼いたしました。",
+    "heard": {
+      "0.0": "失礼いたしました。",
+      "1.0": "失礼いたしました。"
+    },
+    "ok": true,
+    "seconds": 1.0,
+    "try": 1,
+    "wav": "S2_shitsurei.wav",
+    "chosen_from": "S2_shitsurei_1",
+    "chosen_by": "人"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "shitsurei",
+    "text": "失礼いたしました。",
+    "heard": {
+      "0.0": "失礼いたしました。",
+      "1.0": "失礼いたしました。"
+    },
+    "ok": true,
+    "seconds": 1.0,
+    "try": 1,
+    "wav": "S4_shitsurei.wav",
+    "made_as": "S2",
+    "chosen_from": "S2_shitsurei_1",
     "chosen_by": "人"
   }
 ]

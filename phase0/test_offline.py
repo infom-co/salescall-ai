@@ -1620,6 +1620,21 @@ class RetryTest(unittest.TestCase):
         self.assertEqual(len(calls), 3)  # やり直しを使い切ったら、誤りをそのまま上げる
 
 
+class WordingTest(unittest.TestCase):
+    """AIへの指示と録音の読み方に、ユーザーが外すよう言った言葉を入れない。"""
+
+    BANNED = ("明るく", "はきはき", "ハキハキ")  # ✅ 2026-10-12 ユーザー：「営業には不向きな強引そうな詐欺師のような怪しいニュアンス」
+
+    def test_instruction_and_reading_manner_have_no_banned_words(self):
+        from instruction import system_rules
+        from make_ack_clips import HOW, DEFAULT_HOW
+        texts = {"AIへの指示": system_rules(False) + system_rules(True), "録音の既定の読み方": DEFAULT_HOW,
+                 **{f"録音の読み方 {k}": v for k, v in HOW.items()}}
+        for name, text in texts.items():
+            for w in self.BANNED:
+                self.assertNotIn(w, text, name)
+
+
 class RecordingCheckTest(unittest.TestCase):
     """録音の確かめ（make_ack_clips）：声の途中で切れた録音・文の途中の長い無音を落とす。"""
 
@@ -1647,6 +1662,15 @@ class RecordingCheckTest(unittest.TestCase):
         self.assertFalse(long_pauses_ok("お忙しいところお時間をいただきましてありがとうございました。", one_sentence, self.RATE))
         self.assertTrue(long_pauses_ok("ありがとうございました。それでは失礼いたします。", one_sentence, self.RATE))
         self.assertTrue(long_pauses_ok("それではご希望の日時をお聞かせいただけますでしょうか？", one_sentence, self.RATE))  # 頭のつなぎの言葉のあと
+
+    def test_short_comma_like_pause_is_rejected(self):
+        """⛔ 2026-10-15：締めの候補は、文の途中の 0.12〜0.24秒の無音で「、」が入った言い方に聞こえた（ユーザー）。0.08秒は聞こえなかった。"""
+        from make_ack_clips import long_pauses_ok
+        text = "お忙しいところお時間をいただきましてありがとうございました。"
+        with_comma = self.tone((0.1, False), (0.8, True), (0.16, False), (0.8, True), (0.2, False))
+        smooth = self.tone((0.1, False), (0.8, True), (0.08, False), (0.8, True), (0.2, False))
+        self.assertFalse(long_pauses_ok(text, with_comma, self.RATE))
+        self.assertTrue(long_pauses_ok(text, smooth, self.RATE))
 
 
 if __name__ == "__main__":
