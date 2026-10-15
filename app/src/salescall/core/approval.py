@@ -4,8 +4,7 @@
   ここに問い合わせるだけ（判定の処理はモードを読まない＝両モードで1文字も変わらない）。
 - 発信の前（`task_cleared`。門が呼ぶ）：人の承認を使う業務では、運営者が承認した行だけを通す（承認の記録は `approve_task`）。
 - 「送ってよい」の印（result_releases）を付けるのも、ここだけ：
-  - フルオート（`after_judged`。締めの処理が判定のあとに呼ぶ）：判定した版に自動で付ける。**言ってはいけないことを言った通話の
-    結果には、自動では付けない**（2026-10-15 ユーザー：「依頼主でなく、管理者へ報告」。管理者が確かめて付けるか直す）。**ただし最初の段の版の結果は、その段の
+  - フルオート（`after_judged`。締めの処理が判定のあとに呼ぶ）：判定した版に自動で付ける。**ただし最初の段の版の結果は、その段の
     指標が基準を満たして次の段へ進んでから、まとめて付ける**（基準を外れた版の結果を、確かめないまま依頼主へ送らない。10-1 の3）。
   - 人の承認を使う業務：運営者が承認した版（`approve_result`）か、直した版（`correct_result`。人の版を足す。システムの版は残す）
     にだけ付ける。
@@ -55,10 +54,9 @@ def after_judged(tx: Tx, task_id: UUID, version_no: int, version_id: UUID) -> li
     stage = quality_stage.current(tx, version_id)
     if stage is None or stage["stage_no"] == 1:
         return []                                  # 最初の段の指標が基準を満たすまで待つ
-    held = tx.all(   # 言ってはいけないことを言った通話の結果は、自動では送らない（管理者が確かめて approve_result / correct_result）
+    held = tx.all(
         "SELECT r.task_id, r.version_no FROM salescall.task_results r JOIN salescall.attempts a ON a.attempt_id = r.attempt_id"
         " WHERE a.version_id = %s AND r.kind = 'judged'"
-        " AND NOT salescall.said_forbidden(r.attempt_id)"
         " AND NOT EXISTS (SELECT 1 FROM salescall.result_releases x WHERE x.task_id = r.task_id"
         "                 AND x.version_no = r.version_no) ORDER BY r.task_id, r.version_no", (version_id,))
     for h in held:

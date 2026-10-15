@@ -45,18 +45,16 @@ class Released(Helpers):
 
 
 class ForbiddenSpeech(Helpers):
-    def test_the_row_ends_and_the_result_waits_for_the_admin(self):
+    def test_the_row_ends_and_the_admin_is_told(self):
         s = self.fresh(stage_cap=1)
         self.tx(s, lambda tx: quality_stage.open_stage(tx, s["version"], 2, 100, evidence="試験"), OPERATOR)
         got = self.verified_call(s, VerificationSummary(2, 0, 1), items=TAKEN)
         self.assertEqual((got["decision"].kind, got["decision"].end_reason), ("end", "forbidden_speech"))   # 判定に関係なく終える
-        self.assertEqual(self.releases(s), [])                       # 依頼主へは送らずに待つ
         notices = self.tx(s, lambda tx: tx.all("SELECT client_id FROM salescall.notification_events"
                                                " WHERE kind = 'forbidden_speech' AND refs ->> 'task_id' = %s",
                                                (str(s["task"]),)))
-        self.assertEqual([n["client_id"] for n in notices], [s["client"]])   # 運営者（契約者）の知らせ
-        self.tx(s, lambda tx: approval.approve_result(tx, s["task"], got["version_no"]), OPERATOR)   # 管理者が確かめて送る
-        self.assertEqual(len(self.releases(s)), 1)
+        self.assertEqual([n["client_id"] for n in notices], [s["client"]])   # 運営者（＝管理者）の知らせ
+        self.assertEqual(len(self.releases(s)), 1)                   # 取れた結果は、ふつうどおり（人を待たない）
 
 
 class HumanApproval(Helpers):

@@ -35,9 +35,14 @@ class Classify(unittest.TestCase):
         self.assertEqual(c("ai", 429, "Resource has been exhausted"), "project_denied")
         self.assertEqual(c("ai", 400, "FAILED_PRECONDITION: free tier is not available"), "config_error")
         self.assertEqual(c("ai", 1011, "You exceeded your current quota"), "project_quota")   # 実測の組が先に当たる
+        # フェーズ0で実測した、通話の途中の切断（1011 の内部の誤り・1006）：1回だけつなぎ直す
+        self.assertEqual(c("ai", 1011, "Internal error encountered."), "session_drop")
+        self.assertEqual(c("ear", 1006, None), "session_drop")
+        self.assertEqual(c("ai", 1006, None, unreachable=True), "ai_unreachable")   # 開けなかった＝つながらない
         # 報告の行（公式ではない）：意味は引けるが、種類は決めない（不明として数え、続いたら止める）
-        self.assertEqual(c("ai", 1011, "Internal error encountered."), "unknown_ai")
-        got = errors.lookup(ErrorReport("ai", 1011, "Internal error encountered."))
+        msg = "Operation is not implemented, or supported, or enabled."
+        self.assertEqual(c("ai", 1008, msg), "unknown_ai")
+        got = errors.lookup(ErrorReport("ai", 1008, msg))
         self.assertEqual((got.origin, got.kind), ("reported", None))
         for e in errors.CATALOG:
             with self.subTest(e.meaning):

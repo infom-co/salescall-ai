@@ -40,6 +40,12 @@ CATALOG: tuple[CatalogEntry, ...] = (
     CatalogEntry(1008, "has been denied access", "project_denied", "observed",
                  "プロジェクトの利用拒否（ユーザーが管理画面で確かめた理由：1分あたりの入力トークン数の上限）", "2026-10-12 実測（10個中4個のキー）"),
     CatalogEntry(1011, "exceeded your current quota", "project_quota", "observed", "プロジェクトの枠の超過", "2026-10-12 実測（フェーズ0）"),
+    CatalogEntry(1011, "Internal error", "session_drop", "observed",
+                 "Google の側の内部の誤りで、会話の途中で切られた",
+                 "実測（フェーズ0 G-25 2026-10-13・G-36 2026-10-14。PHASE0_VERIFICATION.md）"),
+    CatalogEntry(1006, None, "session_drop", "observed",
+                 "接続が途中で切れた（閉じる合図の無い切れ方。会話AIでも別の耳でも起きた）",
+                 "実測（フェーズ0 G-25・G-38 の会話AI、別の耳。PHASE0_VERIFICATION.md）"),
     # ── 公式の一覧（ステータスの名前。閉じる理由の文面や HTTP の応答に入る）
     CatalogEntry(None, "API key not valid", "key_specific", "official", "キーが無効（400 INVALID_ARGUMENT の1つ）", _OFFICIAL),
     CatalogEntry(None, "PERMISSION_DENIED", "key_specific", "official", "キーに権限が無い・違うキー（403）", _OFFICIAL),
@@ -59,8 +65,6 @@ CATALOG: tuple[CatalogEntry, ...] = (
     CatalogEntry(503, None, "ai_server_error", "official", "一時的に使えない（503 UNAVAILABLE）", _OFFICIAL),
     CatalogEntry(504, None, "ai_server_error", "official", "時間切れ（504 DEADLINE_EXCEEDED）", _OFFICIAL),
     # ── ほかの利用者の報告（公式ではない。参考だけ：自動では種類を決めない＝不明として扱い、続いたら止める）
-    CatalogEntry(1011, "Internal error", None, "reported",
-                 "Google が切った内部の誤り（試し版のモデルで多いという報告）", "https://discuss.ai.google.dev/t/171560"),
     CatalogEntry(1008, "Operation is not implemented, or supported, or enabled", None, "reported",
                  "道具の返事を待つ間に音声を送り続けると切られる、という報告", "https://discuss.ai.google.dev/t/114644"),
     CatalogEntry(1007, None, None, "reported", "送った内容の形が違う（接続の始めの設定の誤り）という報告",
@@ -108,7 +112,9 @@ ACTIONS: dict[str, Action] = {
     "ai_server_error": Action("keep", "backoff", "ai_connection", "system", "stop.ai.stop_after_failures", False,
                               "Google の側の誤り・混雑・時間切れ（公式の一覧の 500・503・504）：間隔を伸ばしてやり直す。続いたら全体を止める"),
     "session_drop": Action("keep", "reconnect_once", None, None, None, False,
-                           "通話中のセッションの切断：1回だけつなぎ直し、駄目ならおわびして終える（6-7）"),
+                           "通話中のセッションの切断：会話AIは1回だけつなぎ直し、駄目ならおわびして終える（6-7。その行は、"
+                           "あとでかけ直す）。別の耳は1回だけ聞き直し、駄目なら「聞けなかった」。止める判断は、品質の段の"
+                           "「技術的な失敗の割合」で見る（切断は会話に入ったあとに起きるので、続けた回数では数えられない）"),
     "line": Action("keep", "none", "line_failure", "line", "stop.line.stop_after_failures", False,
                    "回線（発信失敗・回線の上限・端末やアプリの異常）：続いたら、その回線を止める"),
     "storage": Action("keep", "none", "storage_failure", "system", None, True,
@@ -146,7 +152,8 @@ def classify(e: ErrorReport) -> str:
         raise ValueError(f"出どころは {SOURCES} のどれかです（{e.source!r}）")
     if e.source in ("ai", "ear"):
         entry = lookup(e)
-        if entry is not None and entry.kind is not None:
+        # 切断は、開いたセッションが途中で切れたこと。開けなかった（つながらなかった）なら、つながらないの種類にする
+        if entry is not None and entry.kind is not None and not (entry.kind == "session_drop" and e.unreachable):
             return entry.kind
         if e.unreachable:
             return "ai_unreachable" if e.source == "ai" else "ear_unreachable"

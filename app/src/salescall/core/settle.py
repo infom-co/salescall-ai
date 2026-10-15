@@ -96,10 +96,9 @@ def settle(tx: Tx, attempt_id: UUID) -> dict[str, Any]:
                     summary=f"判定できない通話がありました（判定の処理か入力の誤り。その行は終えました）。{j.detail.get('error', '')}",
                     refs={"attempt_id": attempt_id, "task_id": a["task_id"], "judge_version": JUDGE_VERSION})
     forbidden = attempts.forbidden_speech(tx, attempt_id)
-    if forbidden:   # 言ってはいけないことを言った：その行は終え、結果は送らずに待ち、管理者（運営者）へ知らせる。依頼主へは知らせない
+    if forbidden:   # 言ってはいけないことを言った：その行はひとまず終え、管理者（運営者）へ知らせる。依頼主へは知らせない
         notify.emit(tx, "forbidden_speech", key=f"forbidden_speech:{attempt_id}",
-                    summary="言ってはいけないことを言った通話がありました。その行はひとまず終え、結果は依頼主へ送らずに待っています"
-                            "（お詫びが要るかを決めてください）。",
+                    summary="言ってはいけないことを言った通話がありました。その行はひとまず終えました。",
                     refs={"attempt_id": attempt_id, "task_id": a["task_id"], "version_id": a["version_id"]})
     if j.dnc_reason is not None:
         dnc.register(tx, a["phone_e164"], j.dnc_reason, source_attempt_id=attempt_id)
