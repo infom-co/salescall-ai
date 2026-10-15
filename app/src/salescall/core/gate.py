@@ -22,7 +22,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from salescall.core import business_rules, calling_hours, dnc, quality_stage, settings, stops, target_policy
+from salescall.core import approval, business_rules, calling_hours, dnc, quality_stage, settings, stops, target_policy
 from salescall.core.access import Rejected, Tx
 from salescall.core.calendar import CalendarOutOfRange, holiday_checker
 from salescall.core.phone import normalize
@@ -34,6 +34,7 @@ REASONS: dict[str, tuple[str, str]] = {
     "task_ended": ("この行は処理済みです", "permanent"),
     "not_due": ("次の予定の時刻より前です", "wait"),
     "awaiting_decision": ("前の発信の判定と次の予定が、まだ済んでいません", "wait"),
+    "awaiting_approval": ("人の承認を使う業務で、この行がまだ承認されていません", "wait"),
     "number_unknown": ("番号が不明です", "permanent"),
     "number_kind_forbidden": ("かけない種類の番号です", "permanent"),
     "number_kind_not_allowed": ("この業務の設定でかけない種類の番号です", "permanent"),
@@ -237,6 +238,8 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
         return _deny("task_ended")
     if nxt["call_at"] > now:
         return _deny("not_due")
+    if not approval.task_cleared(tx, task["task_id"]):   # 人の承認を使う業務：運営者が承認した行だけ（モードは承認の部分が読む）
+        return _deny("awaiting_approval")
     # 前の発信の締め（判定の結果の版）が済むまで、次をかけない（予定を誰が書き直しても抜け道にならないよう、
     # 「前の発信に判定の結果があるか」で決める。判定と次の予定は、締めの処理 core/settle.py が1つの取引で書く）
     unsettled = tx.one(

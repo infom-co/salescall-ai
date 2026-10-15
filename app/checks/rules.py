@@ -147,7 +147,8 @@ WRITERS: dict[str, dict[str, frozenset[str]]] = {
     "calendar_loads": {"INSERT": frozenset({_CORE + "calendar.py"})},        # 祝日の暦（Q12 の材料）
     "calendar_holidays": {"INSERT": frozenset({_CORE + "calendar.py"})},
     "task_results": {"INSERT": frozenset({_CORE + "results.py"})},           # 業務の状態（Q5 の記録）
-    "result_releases": {"INSERT": frozenset({_CORE + "approval.py"})},       # 送ってよい印は承認の部分だけ（10章）
+    "result_releases": {"INSERT": frozenset({_CORE + "approval.py"})},
+    "task_approvals": {"INSERT": frozenset({_CORE + "approval.py"})},       # 発信の前の人の承認（10-2）       # 送ってよい印は承認の部分だけ（10章）
     "task_next_actions": {"INSERT": frozenset({_CORE + "next_action.py"})},  # 次の予定（Q4）
     "dnc_entries": {"INSERT": frozenset({_CORE + "dnc.py"}), "UPDATE": frozenset({_CORE + "dnc.py"})},  # Q3
     "system_dnc_entries": {"INSERT": frozenset({_CORE + "dnc.py"})},
@@ -260,21 +261,26 @@ def dial_only_through_exit(app_root: Path) -> list[Violation]:
     return out
 
 
-# ── 5-2-2：時間帯の設定（かけてよい時間帯・かけない時間）を読むのは、実際に使う時間帯を出す1か所（gate.calling_hours_for）だけ。
-#    ほかで calling.hours を直接読むと、かけない時間（NG時間）を引き忘れる（2026-10-15 ユーザー：NG時間）
-HOURS_READ_ALLOWED = "src/salescall/core/gate.py"
-_HOURS_KEYS = ("calling.hours", "calling.ng_hours")
+# ── 決まった設定を読んでよいのは1か所だけ（設定の名前 → 読んでよいファイル・決まりの番号・理由）
+#    - 時間帯（かけてよい時間帯・かけない時間）：実際に使う時間帯を出す gate の1か所（NG時間を引き忘れない。5-2-2）
+#    - 人の承認のモード：承認の部分だけ（I-13。判定などがモードを読むと、両モードで動きが変わる）
+SETTING_READERS: dict[str, tuple[str, str, str]] = {
+    "calling.hours": ("src/salescall/core/gate.py", "5-2-2", "時間帯の設定は gate.calling_hours_for から読みます（NG時間を引き忘れない）"),
+    "calling.ng_hours": ("src/salescall/core/gate.py", "5-2-2", "時間帯の設定は gate.calling_hours_for から読みます（NG時間を引き忘れない）"),
+    "approval.human": ("src/salescall/core/approval.py", "I-13", "人の承認のモードを読むのは、承認の部分（core/approval.py）だけです"),
+}
 
 
-def calling_hours_read_once(app_root: Path) -> list[Violation]:
+def settings_read_in_one_place(app_root: Path) -> list[Violation]:
     out: list[Violation] = []
     for path in _python_files(app_root):
         rel = _rel(app_root, path)
-        if rel == HOURS_READ_ALLOWED or rel.startswith("tests/") or rel == "run_tests.py":
+        if rel.startswith("tests/") or rel == "run_tests.py":
             continue
         for text, line in _string_constants(_parse(path)):
-            if text in _HOURS_KEYS:
-                out.append(Violation("5-2-2", rel, line, "時間帯の設定は gate.calling_hours_for から読みます（NG時間を引き忘れない）"))
+            reader = SETTING_READERS.get(text)
+            if reader is not None and rel != reader[0]:
+                out.append(Violation(reader[1], rel, line, reader[2]))
     return out
 
 
@@ -287,7 +293,7 @@ ALL_RULES: tuple[Callable[[Path], list[Violation]], ...] = (
     scope_settings_only_in_layer,
     key_values_only_in_key_selection,
     dial_only_through_exit,
-    calling_hours_read_once,
+    settings_read_in_one_place,
 )
 
 

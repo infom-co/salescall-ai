@@ -18,7 +18,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from salescall.core import (attempts, business_rules, call_report, dnc, next_action, notify, number_recheck,
+from salescall.core import (approval, attempts, business_rules, call_report, dnc, next_action, notify, number_recheck,
                             quality_stage, results, settings, target_policy, tasks, usage)
 from salescall.core.access import Tx
 from salescall.core.judge import JUDGE_VERSION, Facts, Item, JudgeInput, Judgement, judge
@@ -103,6 +103,7 @@ def settle(tx: Tx, attempt_id: UUID) -> dict[str, Any]:
         alternate=alternate, recheck=recheck)
     usage.record_line_estimate(tx, attempt_id)   # 利用量の台帳（Q16）：回線の料金の推定（相手が出た通話だけ）
     quality_stage.evaluate(tx, a["version_id"])   # 品質の段（Q22）：通話ごとに評価（止める・次の段へ）
+    approval.after_judged(tx, a["task_id"], version_no, a["version_id"])   # 送ってよい印（モードを読むのは承認の部分だけ）
     return {"version_no": version_no, "state": j.state, "decision": decision, "already": False}
 
 

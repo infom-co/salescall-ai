@@ -142,15 +142,21 @@ class DialOnlyThroughExit(Planted):
         self.assertEqual(sorted(v.path for v in found), ["src/salescall/supervisor/y.py", "src/salescall/telephony/x.py"])
 
 
-class CallingHoursReadOnce(Planted):
-    """5-2-2：時間帯の設定は、NG時間を引く1か所（gate.calling_hours_for）からしか読まない。"""
+class SettingsReadInOnePlace(Planted):
+    """決まった設定は1か所からしか読まない：時間帯は gate（NG時間を引く。5-2-2）、人の承認のモードは承認の部分（I-13）。"""
 
     def test_reading_hours_elsewhere(self):
         root = self._app({"src/salescall/core/next_action.py": "def f(tx, r):\n    return r(tx, 'calling.hours')\n",
                           "src/salescall/web/x.py": "K = 'calling.ng_hours'\n",
                           "src/salescall/core/gate.py": "def g(r):\n    return r('calling.hours'), r('calling.ng_hours')\n"})
-        found = rules.calling_hours_read_once(root)
+        found = rules.settings_read_in_one_place(root)
         self.assertEqual(sorted(v.path for v in found), ["src/salescall/core/next_action.py", "src/salescall/web/x.py"])
+
+    def test_reading_the_approval_mode_elsewhere(self):
+        root = self._app({"src/salescall/core/judge.py": "MODE = 'approval.human'\n",
+                          "src/salescall/core/approval.py": "MODE = 'approval.human'\n"})
+        found = rules.settings_read_in_one_place(root)
+        self.assertEqual([(v.rule, v.path) for v in found], [("I-13", "src/salescall/core/judge.py")])
 
 
 class ValueTypesStaysPure(Planted):
