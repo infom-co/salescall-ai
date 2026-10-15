@@ -145,7 +145,7 @@ class FrozenRecords(unittest.TestCase):
                        " VALUES (%s, %s, %s, 1, 'judged', 'incomplete', 'judge-1', false, '{}', '{}', 'judge')",
                        (s["tenant"], s["client"], s["task"]))
             tx.execute("INSERT INTO salescall.task_next_actions (tenant_id, client_id, task_id, seq, kind, call_at, cause,"
-                       " promised, contact_id) VALUES (%s, %s, %s, 1, 'call', now(), '取り込み', false, %s)",
+                       " promised, contact_id, purpose) VALUES (%s, %s, %s, 1, 'call', now(), '取り込み', false, %s, 'normal')",
                        (s["tenant"], s["client"], s["task"], s["contact"]))
         w.a.in_client(SYSTEM, s["tenant"], s["client"], add)
         own = owner_access()
@@ -255,7 +255,8 @@ class AttemptTransitions(unittest.TestCase):
         with self.assertRaises(Rejected):
             w.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: tx.execute(
                 "INSERT INTO salescall.attempts (tenant_id, client_id, task_id, contact_id, phone_e164, line_id, version_id,"
-                " state, claimed_at, claim_expires_at) VALUES (%s, %s, %s, %s, %s, %s, %s, 'dialing', now(), now() + interval '1 minute')",
+                " state, claimed_at, claim_expires_at, purpose)"
+                " VALUES (%s, %s, %s, %s, %s, %s, %s, 'dialing', now(), now() + interval '1 minute', 'normal')",
                 (s["tenant"], s["client"], s["task"], s["contact"], s["phone"], s["line"], s["version"])))
 
     def test_verification_rule_by_how_it_ended(self):

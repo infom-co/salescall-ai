@@ -85,6 +85,8 @@ class Claim:
     phone_e164: str
     version_id: UUID
     expires_at: datetime
+    purpose: str                 # 発信の目的（normal / ask_number_again。会話の処理が読んで話す。DESIGN.md 3-5）
+    wrong_phone_e164: str | None   # 番号の聞き直しのとき：番号違いだった番号（「お聞きした番号が…」と告げる）
 
 
 @dataclass(frozen=True)
@@ -204,8 +206,8 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
     now, local = clock["now"], clock["local"]
 
     # (1) 次の予定（Q4 の記録を読むだけ）
-    nxt = tx.one("SELECT kind, call_at, decided_at FROM salescall.task_next_actions WHERE task_id = %s"
-                 " ORDER BY seq DESC LIMIT 1", (task["task_id"],))
+    nxt = tx.one("SELECT kind, call_at, decided_at, purpose, wrong_contact_id FROM salescall.task_next_actions"
+                 " WHERE task_id = %s ORDER BY seq DESC LIMIT 1", (task["task_id"],))
     if nxt is None:
         return _deny("no_schedule")
     if nxt["kind"] == "end":
@@ -285,10 +287,13 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
         with tx.savepoint():
             row = tx.one(
                 "INSERT INTO salescall.attempts (tenant_id, client_id, task_id, contact_id, phone_e164, line_id, version_id,"
-                "                                state, claimed_at, claim_expires_at)"
-                " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s, %s, 'claimed', now(), now() + %s)"
-                " RETURNING attempt_id, claim_expires_at",
-                (task["task_id"], task["contact_id"], task["phone_e164"], line_id, version, lifetime))
+                "                                state, claimed_at, claim_expires_at, purpose, wrong_contact_id)"
+                " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s, %s, 'claimed', now(), now() + %s,"
+                "         %s, %s)"
+                " RETURNING attempt_id, claim_expires_at,"
+                "   (SELECT phone_e164 FROM salescall.task_numbers WHERE task_id = %s AND contact_id = %s) AS wrong_phone",
+                (task["task_id"], task["contact_id"], task["phone_e164"], line_id, version, lifetime,
+                 nxt["purpose"], nxt["wrong_contact_id"], task["task_id"], nxt["wrong_contact_id"]))
     except Rejected as e:
         if e.constraint == "attempts_one_active_per_contact":
             return _deny("contact_active")
@@ -300,4 +305,5 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
             relation = tx.one("SELECT salescall.number_active_relation(%s) AS r", (task["phone_e164"],))["r"]
             return _deny("number_active_" + (relation or "other_tenant"))
         raise
-    return Claim(row["attempt_id"], task["task_id"], line_id, task["phone_e164"], version, row["claim_expires_at"])
+    return Claim(row["attempt_id"], task["task_id"], line_id, task["phone_e164"], version, row["claim_expires_at"],
+                 nxt["purpose"], row["wrong_phone"])

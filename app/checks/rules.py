@@ -159,6 +159,7 @@ WRITERS: dict[str, dict[str, frozenset[str]]] = {
     "contacts": {"INSERT": frozenset({_CORE + "contacts.py"})},              # 連絡先（番号は Q1 を通したものだけ）
     "tasks": {"INSERT": frozenset({_CORE + "importer.py"})},                 # タスクを作るのは取込だけ（3-4）
     "task_numbers": {"INSERT": frozenset({_CORE + "tasks.py"})},            # 行の番号（3-5。一覧の番号はデータベースが足す）
+    "number_rechecks": {"INSERT": frozenset({_CORE + "number_recheck.py"})},  # 番号の確かめ（3-5。検証 Q21 が入口を呼ぶ）
     "imports": {"INSERT": frozenset({_CORE + "importer.py"})},
     "import_rows": {"INSERT": frozenset({_CORE + "importer.py"})},
     "deliveries": {"INSERT": frozenset({"src/salescall/output/"}),           # 連携の台帳（Q17。持ち主 CL-3）

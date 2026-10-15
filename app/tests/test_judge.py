@@ -13,13 +13,13 @@ from salescall.core import gate
 from salescall.core.business_rules import RulesInvalid, check
 from salescall.core.call_report import CallReport, Callback, Cut, ReportInvalid, from_json
 from salescall.core.judge import Facts, Item, JudgeInput, classify_cut, judge
-from salescall.core.next_action import Alternate, choose_number, decide_after_call, decide_after_denial
+from salescall.core.next_action import Alternate, Recheck, Target, choose_number, decide_after_call, decide_after_denial
 from tests.support import rules_raw
 
 V = uuid.uuid4()
 RULES = check(V, ("Q1", "Q2"), ("Q1", "Q2", "Q3"), rules_raw(("Q1", "Q2"), decline={"Q3": ["いりません"]}))
 NOW = datetime(2030, 1, 7, 10, 0, tzinfo=timezone.utc)
-TALKED = Facts("ended", None, True)
+TALKED = Facts("ended", None, True, False)
 TAKEN = {"Q1": Item("confirmed", None, None), "Q2": Item("accepted", "はい", None)}
 
 
@@ -44,9 +44,9 @@ class Order(unittest.TestCase):
             ("答えない＝結論", dict(items={"Q1": Item("refused", None, "policy"), "Q2": TAKEN["Q2"]}), "concluded"),
             ("かけ直しの約束", dict(items={}, rep=report(callback=Callback("later", NOW, None, None, None))), "callback_scheduled"),
             ("目的の人に繋がらなかった", dict(items={}, rep=report(("reception",), not_reached="absent")), "not_reached"),
-            ("出なかった", dict(facts=Facts("no_answer", None, False), rep=None, items={}), "open"),
-            ("留守電だけ", dict(facts=Facts("ended", None, True), rep=report(("voicemail",), cut=None), items={}), "open"),
-            ("相手が出る前の結果不明", dict(facts=Facts("technical_error", None, False), rep=None, items={}), "open"),
+            ("出なかった", dict(facts=Facts("no_answer", None, False, False), rep=None, items={}), "open"),
+            ("留守電だけ", dict(facts=Facts("ended", None, True, False), rep=report(("voicemail",), cut=None), items={}), "open"),
+            ("相手が出る前の結果不明", dict(facts=Facts("technical_error", None, False, False), rep=None, items={}), "open"),
             ("一部だけ取れた", dict(items={"Q1": TAKEN["Q1"]}), "incomplete"),
             ("わからない＝日を改める", dict(items={"Q1": Item("dont_know", None, "undecided"), "Q2": TAKEN["Q2"]}), "incomplete"),
         ]
@@ -72,7 +72,7 @@ class Order(unittest.TestCase):
         ]:
             with self.subTest(name):
                 self.assertEqual(run(**kw).state, "unknown")
-        self.assertEqual(run(facts=Facts("technical_error", None, True), rep=None, items={}).state, "open")   # 落ちた通話
+        self.assertEqual(run(facts=Facts("technical_error", None, True, False), rep=None, items={}).state, "open")   # 落ちた通話
 
     def test_dnc_reasons_and_flags(self):
         self.assertEqual(run(rep=report(dnc=True)).dnc_reason, "refused_in_call")
@@ -98,7 +98,7 @@ class CutTable(unittest.TestCase):
     """7-1c（2026-10-14 ユーザー承認）。"""
 
     def test_each_row(self):
-        dropped = lambda side: Facts("dropped", side, True)
+        dropped = lambda side: Facts("dropped", side, True, False)
         rows = [
             ("締めのあと", dropped("callee"), Cut("ai", True, False), "normal"),
             ("断りの言葉のあと", dropped("callee"), Cut("none", False, True), "refused"),
@@ -113,9 +113,9 @@ class CutTable(unittest.TestCase):
                 self.assertEqual(classify_cut(facts, report(cut=cut)), expected)
 
     def test_only_conversations_with_people(self):
-        self.assertIsNone(classify_cut(Facts("dropped", "callee", True), report(("voicemail",), cut=Cut("ai", False, False))))
-        self.assertIsNone(classify_cut(Facts("no_answer", None, False), None))
-        self.assertEqual(classify_cut(Facts("dropped", "callee", True), report(cut=None)), "missing")
+        self.assertIsNone(classify_cut(Facts("dropped", "callee", True, False), report(("voicemail",), cut=Cut("ai", False, False))))
+        self.assertIsNone(classify_cut(Facts("no_answer", None, False, False), None))
+        self.assertEqual(classify_cut(Facts("dropped", "callee", True, False), report(cut=None)), "missing")
 
     def test_missing_cut_facts_are_an_input_error_not_a_refusal(self):
         """切れ方の材料の報告漏れで、ふつうに終えた相手を営業拒否にしない（材料が無い ≠ 決められない）。"""
@@ -123,14 +123,14 @@ class CutTable(unittest.TestCase):
         self.assertEqual((j.state, j.dnc_reason, j.disconnect), ("unknown", None, None))
 
     def test_unclear_follows_the_setting(self):
-        unclear = dict(facts=Facts("dropped", "unknown", True), rep=report(cut=Cut(None, False, False)), items={})
+        unclear = dict(facts=Facts("dropped", "unknown", True, False), rep=report(cut=Cut(None, False, False)), items={})
         as_refusal = run(**unclear, unclear_is_refusal=True)
         as_recall = run(**unclear, unclear_is_refusal=False)
         self.assertEqual((as_refusal.state, as_refusal.disconnect), ("do_not_call", "refused"))
         self.assertEqual((as_recall.state, as_recall.disconnect), ("incomplete", "interrupted"))
 
     def test_refusing_cut_is_do_not_call(self):
-        j = run(facts=Facts("dropped", "callee", True), rep=report(cut=Cut("ai", False, False)), items={})
+        j = run(facts=Facts("dropped", "callee", True, False), rep=report(cut=Cut("ai", False, False)), items={})
         self.assertEqual((j.state, j.dnc_reason, j.disconnect), ("do_not_call", "refused_in_call", "refused"))
 
 
@@ -142,7 +142,8 @@ def after_call(j_kw, *, verification="done", normal=P_NONE, promised=gate.Pacing
                alternate=None):
     j = run(**j_kw)
     return decide_after_call(j, verification=verification, normal=normal, promised=promised, rules=RULES,
-                             times_with_key=times, now=NOW, number=choose_number(j, dialed=MAIN, alternate=alternate))
+                             times_with_key=times, now=NOW,
+                             target=choose_number(j, dialed=Target(MAIN), alternate=alternate, recheck=None))
 
 
 class AfterCall(unittest.TestCase):
@@ -182,7 +183,7 @@ class AfterCall(unittest.TestCase):
             k: {"action": "end"} for k in ("open", "incomplete", "not_reached_absent", "not_reached_not_transferred",
                                              "callback_unspecified_time")}))
         d = decide_after_call(run(items={"Q1": TAKEN["Q1"]}), verification="done", normal=P_NONE, promised=P_NONE,
-                              rules=ending, times_with_key=1, now=NOW, number=(MAIN, None))
+                              rules=ending, times_with_key=1, now=NOW, target=Target(MAIN))
         self.assertEqual((d.kind, d.end_reason), ("end", "incomplete"))
 
 
@@ -205,22 +206,76 @@ class AlternateNumber(unittest.TestCase):
 
     def test_other_results_keep_the_number_just_called(self):
         j = run(items={"Q1": TAKEN["Q1"]})
-        self.assertEqual(choose_number(j, dialed=ALT, alternate=None), (ALT, None))
+        self.assertEqual(choose_number(j, dialed=Target(ALT), alternate=None, recheck=None), Target(ALT))
         d = decide_after_call(j, verification="done", normal=P_NONE, promised=P_NONE, rules=RULES, times_with_key=1,
-                              now=NOW, number=choose_number(j, dialed=ALT, alternate=None))
+                              now=NOW, target=choose_number(j, dialed=Target(ALT), alternate=None, recheck=None))
         self.assertEqual((d.kind, d.contact_id), ("call", ALT))
         later = run(items={}, rep=report(callback=Callback("later", NOW, None, None, None)))
-        self.assertEqual(choose_number(later, dialed=ALT, alternate=None), (ALT, None))
+        self.assertEqual(choose_number(later, dialed=Target(ALT), alternate=None, recheck=None), Target(ALT))
 
     def test_missing_material_is_an_error(self):
         with self.assertRaises(ValueError):
-            choose_number(run(items={}, rep=self.OTHER), dialed=MAIN, alternate=None)
+            choose_number(run(items={}, rep=self.OTHER), dialed=Target(MAIN), alternate=None, recheck=None)
+        with self.assertRaises(ValueError):
+            choose_number(WrongNumberTheCalleeGave.wrong(), dialed=Target(ALT), alternate=None, recheck=None)
 
     def test_refusal_wins_over_the_other_number(self):
         j = run(items={}, rep=report(dnc=True, callback=self.OTHER.callback))
         d = decide_after_call(j, verification="done", normal=P_NONE, promised=P_NONE, rules=RULES, times_with_key=1,
-                              now=NOW, number=choose_number(j, dialed=MAIN, alternate=Alternate(ALT, True, None)))
+                              now=NOW, target=choose_number(j, dialed=Target(MAIN), alternate=Alternate(ALT, True, None),
+                                                            recheck=None))
         self.assertEqual((d.kind, d.end_reason), ("end", "do_not_call"))
+
+
+class WrongNumberTheCalleeGave(unittest.TestCase):
+    """相手が言った番号が番号違いだったとき（2026-10-15 ユーザー決定。DESIGN.md 3-5）：証拠と付け合わせ、聞き違いなら正しい番号へ、
+    言われたとおりなら、番号を聞いた通話の番号へかけ、番号違いだったことを告げて番号を聞き直す。"""
+    FIXED = uuid.UUID(int=3)   # 聞き違いだったときの正しい番号
+
+    @staticmethod
+    def wrong(dialed_callee=True):
+        return run(facts=Facts("ended", None, True, dialed_callee), rep=report(("wrong_party",)), items={})
+
+    def decide(self, recheck, *, dialed=Target(ALT)):
+        j = self.wrong()
+        t = choose_number(j, dialed=dialed, alternate=None, recheck=recheck)
+        return decide_after_call(j, verification="done", normal=gate.Pacing(0, NOW, None, False), promised=P_NONE,
+                                 rules=RULES, times_with_key=1, now=NOW, target=t)
+
+    def test_judged_as_not_reached_and_only_that_number_is_stopped(self):
+        j = self.wrong()
+        self.assertEqual((j.state, j.detail["not_reached"], j.dnc_reason), ("not_reached", "wrong_alternate", "wrong_party"))
+        self.assertEqual(self.wrong(dialed_callee=False).state, "out_of_scope")     # 一覧の番号の番号違いは、いままでどおり
+
+    def test_misheard_goes_to_the_corrected_number(self):
+        d = self.decide(Recheck("misheard", Alternate(self.FIXED, True, None), MAIN, False))
+        self.assertEqual((d.kind, d.contact_id, d.target.purpose, d.promised), ("call", self.FIXED, "normal", True))
+        d = self.decide(Recheck("misheard", Alternate(self.FIXED, True, "dnc_client"), MAIN, False))
+        self.assertEqual((d.kind, d.end_reason), ("end", "alternate_blocked:dnc_client"))
+
+    def test_as_said_asks_the_first_party_again(self):
+        for outcome in ("as_said", "cannot_check"):
+            with self.subTest(outcome):
+                d = self.decide(Recheck(outcome, None, MAIN, False))
+                self.assertEqual((d.kind, d.contact_id, d.target.purpose, d.target.wrong_contact_id, d.promised),
+                                 ("call", MAIN, "ask_number_again", ALT, True))   # 回数の上限でも止めない（約束のかけ直し）
+
+    def test_asks_again_only_once(self):
+        d = self.decide(Recheck("as_said", None, MAIN, True))
+        self.assertEqual((d.kind, d.end_reason), ("end", "alternate_wrong_again"))
+
+    def test_ask_again_keeps_its_purpose_while_nobody_answers(self):
+        asking = Target(MAIN, None, "ask_number_again", ALT)
+        no_answer = run(facts=Facts("no_answer", None, False, False), rep=None, items={})
+        self.assertEqual(choose_number(no_answer, dialed=asking, alternate=None, recheck=None), asking)
+        d = decide_after_call(no_answer, verification="not_needed", normal=P_NONE, promised=P_NONE, rules=RULES,
+                              times_with_key=1, now=NOW, target=asking)
+        self.assertEqual((d.kind, d.target, d.promised), ("call", asking, False))   # ふつうの方針・回数の上限に従う
+        d = decide_after_call(no_answer, verification="not_needed", normal=gate.Pacing(0, NOW, None, False),
+                              promised=P_NONE, rules=RULES, times_with_key=1, now=NOW, target=asking)
+        self.assertEqual((d.kind, d.end_reason), ("end", "max_attempts"))
+        talked = run(items={"Q1": TAKEN["Q1"]})                                    # 会話したら、目的は果たした扱い
+        self.assertEqual(choose_number(talked, dialed=asking, alternate=None, recheck=None), Target(MAIN))
 
 
 class AfterDenial(unittest.TestCase):
@@ -228,27 +283,27 @@ class AfterDenial(unittest.TestCase):
         return gate.Denied(reason, *gate.REASONS[reason])
 
     def test_each_kind(self):
-        self.assertIsNone(decide_after_denial(self.deny("awaiting_decision"), current_promised=False, current_number=MAIN, pacing=P_NONE,
+        self.assertIsNone(decide_after_denial(self.deny("awaiting_decision"), current_promised=False, current=Target(MAIN), pacing=P_NONE,
                                               now=NOW, opening=None, retry_wait=300))
-        self.assertIsNone(decide_after_denial(self.deny("not_due"), current_promised=False, current_number=MAIN, pacing=P_NONE, now=NOW,
+        self.assertIsNone(decide_after_denial(self.deny("not_due"), current_promised=False, current=Target(MAIN), pacing=P_NONE, now=NOW,
                                               opening=None, retry_wait=300))
-        self.assertIsNone(decide_after_denial(self.deny("no_schedule"), current_promised=False, current_number=MAIN, pacing=P_NONE, now=NOW,
+        self.assertIsNone(decide_after_denial(self.deny("no_schedule"), current_promised=False, current=Target(MAIN), pacing=P_NONE, now=NOW,
                                               opening=None, retry_wait=300))   # 予定の無い行に予定を作らない
-        d = decide_after_denial(self.deny("dnc_client"), current_promised=True, current_number=MAIN, pacing=P_NONE, now=NOW, opening=None,
+        d = decide_after_denial(self.deny("dnc_client"), current_promised=True, current=Target(MAIN), pacing=P_NONE, now=NOW, opening=None,
                                 retry_wait=300)
         self.assertEqual((d.kind, d.end_reason), ("end", "dnc_client"))
         opening = NOW + timedelta(hours=14)
-        d = decide_after_denial(self.deny("outside_hours"), current_promised=True, current_number=MAIN, pacing=P_NONE, now=NOW,
+        d = decide_after_denial(self.deny("outside_hours"), current_promised=True, current=Target(MAIN), pacing=P_NONE, now=NOW,
                                 opening=opening, retry_wait=300)
         self.assertEqual((d.kind, d.at, d.promised), ("call", opening, True))   # 約束したかけ直しの印は残す
-        d = decide_after_denial(self.deny("outside_hours"), current_promised=False, current_number=MAIN, pacing=P_NONE, now=NOW,
+        d = decide_after_denial(self.deny("outside_hours"), current_promised=False, current=Target(MAIN), pacing=P_NONE, now=NOW,
                                 opening=None, retry_wait=300)
         self.assertEqual((d.kind, d.end_reason), ("end", "no_calling_hours"))
         for reason in ("line_busy", "setting_missing"):
-            d = decide_after_denial(self.deny(reason), current_promised=False, current_number=ALT, pacing=P_NONE, now=NOW,
+            d = decide_after_denial(self.deny(reason), current_promised=False, current=Target(ALT), pacing=P_NONE, now=NOW,
                                     opening=None, retry_wait=300)
             self.assertEqual((d.kind, d.at, d.contact_id), ("call", NOW + timedelta(seconds=300), ALT))   # 番号はいまの予定のまま
-        self.assertIsNone(decide_after_denial(self.deny("task_ended"), current_promised=False, current_number=None,
+        self.assertIsNone(decide_after_denial(self.deny("task_ended"), current_promised=False, current=None,
                                               pacing=P_NONE, now=NOW, opening=None, retry_wait=300))   # 終えた行に書かない
 
 

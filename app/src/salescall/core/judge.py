@@ -9,6 +9,8 @@
 上から順に、最初に当たったものが答え：
   (1) 発信の拒否（通話中の申告・通話後の検証で見つかった・切れ方の判定が「断った」）  ⇒ do_not_call
   (2) 番号違い（相手の種別に wrong_party）                                          ⇒ out_of_scope（番号違い）
+      ただし、相手が言った番号へかけた通話なら、行は終えない（2026-10-15 ユーザー。DESIGN.md 3-5）
+                                                                                  ⇒ not_reached（言われた番号が番号違い）
   (3) 範囲外の求めで終えた                                                          ⇒ out_of_scope
   (4) 用件を断られた（業務の決まりの「断りの答え」が取れた）                          ⇒ declined
   (5) 必須の質問がすべて取れた（confirmed・accepted。4-4 の定義）                     ⇒ completed
@@ -28,7 +30,7 @@ from typing import Any
 from salescall.core.business_rules import Rules
 from salescall.core.call_report import CallReport
 
-JUDGE_VERSION = "judge-2026-10-14.1"
+JUDGE_VERSION = "judge-2026-10-15.1"
 TAKEN = frozenset({"confirmed", "accepted"})                  # 「取れた」の定義（4-4。ここで2つ目を作らない）
 HUMAN_PARTIES = frozenset({"reception", "target", "wrong_party"})
 
@@ -46,6 +48,7 @@ class Facts:
     end_state: str
     hangup_side: str | None      # 回線の信号（dropped のときだけ。callee / line / unknown）
     reached_answer: bool         # 相手が出た（応答まで進んだ）ことがあるか
+    dialed_callee_number: bool   # かけた番号が、相手が言った別の番号か（行の番号の表で callee。3-5）
 
 
 @dataclass(frozen=True)
@@ -115,6 +118,8 @@ def judge(inp: JudgeInput) -> Judgement:
         return done("do_not_call", dnc="refused_found_after", refusal="found_after")
     # (2)(3) 番号違い・範囲外
     if r and "wrong_party" in r.parties:
+        if inp.facts.dialed_callee_number:   # 言われた番号が違った：その番号だけ止め、番号を確かめて聞き直す（次の動き）
+            return done("not_reached", dnc="wrong_party", not_reached="wrong_alternate")
         return done("out_of_scope", dnc="wrong_party", out_of_scope="wrong_party")
     if r and r.out_of_scope:
         return done("out_of_scope", out_of_scope="request")

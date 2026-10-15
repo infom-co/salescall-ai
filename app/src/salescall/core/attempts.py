@@ -14,6 +14,7 @@ from __future__ import annotations
 from typing import Any, Literal
 from uuid import UUID
 
+from salescall.core import number_recheck
 from salescall.core.access import Tx
 
 ACTIVE_STATES = ("claimed", "dialing", "ringing", "answered", "in_conversation", "ending")
@@ -65,8 +66,16 @@ def release(tx: Tx, attempt_ids: list[UUID]) -> int:
     ).rowcount
 
 
+class RecheckMissing(Exception):
+    """番号の確かめ（DESIGN.md 3-5）が要る通話なのに、記録が無い。"""
+
+
 def record_verification(tx: Tx, attempt_id: UUID, result: Literal["done", "failed"]) -> None:
-    """通話後の検証（Q21）だけが呼ぶ。「待ち」から「済み」か「確かめられなかった」へ。"""
+    """通話後の検証（Q21）だけが呼ぶ。「待ち」から「済み」か「確かめられなかった」へ。
+    相手が言った番号へかけて番号違いだった通話は、番号の確かめ（core/number_recheck.py）を記録してからでないと済ませられない
+    （付け合わせられなかったときも cannot_check として記録する）。"""
+    if number_recheck.needed(tx, attempt_id) and number_recheck.load(tx, attempt_id) is None:
+        raise RecheckMissing("番号違いだった番号の確かめ（証拠との付け合わせ）を、先に記録してください")
     row = tx.one(
         "UPDATE salescall.attempts SET verification = %s WHERE attempt_id = %s RETURNING attempt_id",
         (result, attempt_id),

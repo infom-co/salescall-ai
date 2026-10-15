@@ -143,8 +143,8 @@ class World:
         aid = uuid.uuid4()
         self.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: tx.execute(
             "INSERT INTO salescall.attempts (tenant_id, client_id, attempt_id, task_id, contact_id, phone_e164, line_id,"
-            " version_id, state, claimed_at, claim_expires_at)"
-            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'claimed', now(), now() + %s)",
+            " version_id, state, claimed_at, claim_expires_at, purpose)"
+            " VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'claimed', now(), now() + %s, 'normal')",
             (s["tenant"], s["client"], aid, s["task"], s["contact"], s["phone"], line or s["line"],
              version or s["version"], expires_in)))
         return aid

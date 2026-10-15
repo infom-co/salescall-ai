@@ -12,7 +12,7 @@ import unittest
 import uuid
 from datetime import timedelta
 
-from salescall.core import dnc, gate, next_action, results, tasks
+from salescall.core import attempts, dnc, gate, next_action, number_recheck, results, tasks
 from salescall.core.access import Rejected
 from salescall.core.call_report import Callback
 from salescall.core.phone import normalize
@@ -225,6 +225,112 @@ class SameParty(Base):
         self.call(s, NO_ANSWER[:1])                                         # 行 A が X にかけている（締めはまだ）
         self.assertEqual(self.reason(b), "related_unsettled")              # A が断られたら Y も止まる ⇒ 締めまで待つ
         self.assertIsNone(self.tx(b, lambda tx: gate.pacing(tx, b["task"])).earliest)
+
+
+class WrongNumber(Base):
+    """相手が言った番号が番号違いだったとき（2026-10-15 ユーザー決定）：証拠と付け合わせ（番号の確かめ）、聞き違いなら正しい番号へ、
+    言われたとおりなら、番号を聞いた通話の番号へかけ、番号違いだったことを告げて、もう一度番号を伺う。"""
+
+    def wrong_call(self, s, outcome=None, corrected=None):
+        """いまの予定の番号へかけ、番号違いだった（検証は、番号の確かめを記録してから済ませる）。締めた結果を返す。"""
+        aid = self.call(s, report=rep(("wrong_party",)), verify=None)
+        if outcome is not None:
+            self.tx(s, lambda tx: number_recheck.record(tx, aid, outcome, corrected=corrected,
+                                                        evidence="試験：別の耳の文字と付け合わせた", checked_by="試験"))
+        self.tx(s, lambda tx: attempts.record_verification(tx, aid, "done"))
+        return aid, self.settle(s, aid)
+
+    def test_verification_needs_the_recheck_first(self):
+        s = self.ready_jp()
+        self.redirect(s)
+        aid = self.call(s, report=rep(("wrong_party",)), verify=None)
+        with self.assertRaises(attempts.RecheckMissing):
+            self.tx(s, lambda tx: attempts.record_verification(tx, aid, "done"))
+        with self.assertRaises(attempts.RecheckMissing):
+            self.tx(s, lambda tx: attempts.record_verification(tx, aid, "failed"))
+
+    def test_as_said_calls_the_first_party_to_ask_again(self):
+        s = self.ready_jp()
+        said, first, _ = self.redirect(s)
+        alt = normalize(said).e164
+        _, got = self.wrong_call(s, "as_said")
+        self.assertEqual(got["state"], "not_reached")
+        self.assertEqual(self.tx(s, lambda tx: dnc.lookup(tx, alt))["reason"], "wrong_party")   # 違った番号だけ止める
+        self.assertIsNone(self.tx(s, lambda tx: dnc.lookup(tx, s["phone"])))
+        nxt = self.current(s)
+        self.assertEqual((nxt["contact_id"], nxt["purpose"], nxt["promised"]), (s["contact"], "ask_number_again", True))
+        c = self.claim(s)
+        self.assertIsInstance(c, gate.Claim, c)
+        self.assertEqual((c.phone_e164, c.purpose, c.wrong_phone_e164), (s["phone"], "ask_number_again", alt))
+        row = self.tx(s, lambda tx: tx.one("SELECT purpose, wrong_contact_id FROM salescall.attempts WHERE attempt_id = %s",
+                                           (c.attempt_id,)))
+        self.assertEqual(row["purpose"], "ask_number_again")
+        with self.assertRaises(Rejected) as e:   # 発信の目的は、あとから変えられない
+            self.tx(s, lambda tx: tx.execute("UPDATE salescall.attempts SET purpose = 'normal', wrong_contact_id = NULL"
+                                             " WHERE attempt_id = %s", (c.attempt_id,)))
+        self.assertEqual(e.exception.constraint, "attempts_purpose_fixed")
+
+    def test_misheard_calls_the_corrected_number(self):
+        s = self.ready_jp()
+        said, first, _ = self.redirect(s)
+        right = fictional_jp_fixed()
+        self.wrong_call(s, "misheard", right)
+        nums = {n["phone_e164"]: n for n in self.numbers(s)}
+        self.assertEqual(nums[normalize(right).e164]["source_attempt_id"], first)   # 正しい番号も、聞いた通話の番号として残す
+        nxt = self.current(s)
+        self.assertEqual((nxt["contact_id"], nxt["purpose"]), (nums[normalize(right).e164]["contact_id"], "normal"))
+        self.assertEqual(self.claim(s).phone_e164, normalize(right).e164)
+
+    def test_second_wrong_number_after_asking_again_ends_the_row(self):
+        s = self.ready_jp()
+        self.redirect(s)
+        self.wrong_call(s, "as_said")                                       # 1回目：聞き直しへ
+        said2, _, _ = self.redirect(s)                                      # 聞き直しで、別の番号を言われた
+        _, got = self.wrong_call(s, "as_said")                              # それも番号違い
+        self.assertEqual((got["decision"].kind, got["decision"].end_reason), ("end", "alternate_wrong_again"))
+
+    def test_recheck_is_recorded_only_for_a_wrong_number_the_callee_gave(self):
+        s = self.ready_jp()
+        listed = self.call(s, report=rep(("wrong_party",)), verify=None)    # 一覧の番号の番号違い：確かめは要らない
+        with self.assertRaises(number_recheck.RecheckInvalid):
+            self.tx(s, lambda tx: number_recheck.record(tx, listed, "as_said", corrected=None, evidence="x", checked_by="x"))
+        s2 = self.ready_jp()
+        said, _, _ = self.redirect(s2)
+        aid = self.call(s2, report=rep(("wrong_party",)), verify=None)
+        for outcome, corrected, evidence in [("misheard", None, "x"), ("misheard", said, "x"), ("as_said", said, "x"),
+                                             ("as_said", None, " "), ("guess", None, "x")]:
+            with self.subTest(outcome=outcome, corrected=corrected), self.assertRaises(number_recheck.RecheckInvalid):
+                self.tx(s2, lambda tx: number_recheck.record(tx, aid, outcome, corrected=corrected, evidence=evidence,
+                                                             checked_by="試験"))
+        self.tx(s2, lambda tx: number_recheck.record(tx, aid, "cannot_check", corrected=None, evidence="録音が無い",
+                                                     checked_by="試験"))
+        with self.assertRaises(Rejected):                                    # 1つの通話に1回だけ
+            self.tx(s2, lambda tx: number_recheck.record(tx, aid, "as_said", corrected=None, evidence="x", checked_by="x"))
+
+
+    def test_database_promises(self):
+        s = self.ready_jp()
+        said, _, _ = self.redirect(s)
+        alt = self.numbers(s)[1]["contact_id"]
+        with self.assertRaises(Rejected) as e:          # 聞き直しの予定は、違った番号を必ず持つ
+            self.tx(s, lambda tx: tx.execute(
+                "INSERT INTO salescall.task_next_actions (tenant_id, client_id, task_id, seq, kind, call_at, cause, promised,"
+                " contact_id, purpose) VALUES (%s, %s, %s, 99, 'call', now(), '試験', true, %s, 'ask_number_again')",
+                (s["tenant"], s["client"], s["task"], s["contact"])))
+        self.assertEqual(e.exception.constraint, "task_next_actions_wrong_number")
+        with self.assertRaises(Rejected) as e:          # 聞き直しの発信も、違った番号を必ず持つ
+            self.tx(s, lambda tx: tx.execute(
+                "INSERT INTO salescall.attempts (tenant_id, client_id, task_id, contact_id, phone_e164, line_id, version_id,"
+                " state, claimed_at, claim_expires_at, purpose) VALUES (%s, %s, %s, %s, %s, %s, %s, 'claimed', now(),"
+                " now() + interval '1 minute', 'ask_number_again')",
+                (s["tenant"], s["client"], s["task"], s["contact"], s["phone"], s["line"], s["version"])))
+        self.assertEqual(e.exception.constraint, "attempts_wrong_number")
+        aid, _ = self.wrong_call(s, "as_said")
+        own = owner_access()
+        for sql in ("UPDATE salescall.number_rechecks SET outcome = 'cannot_check' WHERE attempt_id = %s",
+                    "DELETE FROM salescall.number_rechecks WHERE attempt_id = %s"):
+            with self.subTest(sql=sql), self.assertRaises(Rejected):     # 番号の確かめは変えられない
+                own.in_client(OPERATOR, s["tenant"], s["client"], lambda tx: tx.execute(sql, (aid,)))
 
 
 if __name__ == "__main__":
