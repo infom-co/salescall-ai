@@ -57,3 +57,11 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$
 $$;
 REVOKE ALL ON FUNCTION salescall.errors_for_stop(bigint, text[], integer) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION salescall.errors_for_stop(bigint, text[], integer) TO salescall_app;
+
+-- その通話で、言ってはいけないことを言ったか（通話後の検証で、2つの耳で確かめた数が1以上。判断は1か所）。
+-- 2026-10-15 ユーザー：「その行はひとまず終える。依頼主でなく、管理者へ報告」⇒ 次の動き（終える）と、結果を自動で送らない、が読む。
+CREATE FUNCTION salescall.said_forbidden(p_attempt uuid) RETURNS boolean
+LANGUAGE sql STABLE SET search_path = salescall, pg_temp AS $$
+  SELECT EXISTS (SELECT 1 FROM salescall.verification_summaries v WHERE v.attempt_id = p_attempt AND v.forbidden_speech > 0)
+$$;
+GRANT EXECUTE ON FUNCTION salescall.said_forbidden(uuid) TO salescall_app;

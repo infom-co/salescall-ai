@@ -103,6 +103,11 @@ def record_verification(tx: Tx, attempt_id: UUID, result: Literal["done", "faile
         raise AttemptNotFound(str(attempt_id))
 
 
+def forbidden_speech(tx: Tx, attempt_id: UUID) -> bool:
+    """その通話で、言ってはいけないことを言ったか（通話後の検証の数。判断はデータベースの1か所 salescall.said_forbidden）。"""
+    return tx.one("SELECT salescall.said_forbidden(%s) AS f", (attempt_id,))["f"]
+
+
 def record_disconnect(tx: Tx, attempt_id: UUID, disconnect: Literal["normal", "refused", "interrupted"]) -> None:
     """締めの処理（core/settle.py）だけが呼ぶ。判定が決めた切れ方（DESIGN.md 7-1c）を、終わった試行に1回だけ記録する。"""
     row = tx.one("UPDATE salescall.attempts SET disconnect = %s WHERE attempt_id = %s RETURNING attempt_id",

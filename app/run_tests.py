@@ -227,6 +227,10 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      " LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ SELECT 0::numeric $$",
      ("tests.test_usage.Budget.test_system_limit_and_new_day",)),
     # 品質の段（Q22）
+    ("言ってはいけないことを言ったかを、いつも「言っていない」にする",
+     "CREATE OR REPLACE FUNCTION salescall.said_forbidden(p_attempt uuid) RETURNS boolean"
+     " LANGUAGE sql STABLE SET search_path = salescall, pg_temp AS $$ SELECT false $$",
+     ("tests.test_approval.ForbiddenSpeech.test_the_row_ends_and_the_result_waits_for_the_admin",)),
     ("検証を済ませる前に結果の数を残す、の仕掛けを外す",
      "DROP TRIGGER attempt_verification_needs_summary ON salescall.attempts",
      ("tests.test_quality.Stages.test_done_needs_the_numbers",)),

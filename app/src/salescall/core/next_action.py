@@ -196,12 +196,14 @@ class AskAgain:
 
 def decide_after_call(j: Judgement, *, verification: str, normal: gate.Pacing, promised: gate.Pacing, rules: Rules,
                       times_with_key: int, now: datetime, target: Target, retry_at: datetime | None,
-                      ask: AskAgain | None = None) -> Decision:
+                      ask: AskAgain | None = None, forbidden: bool = False) -> Decision:
     """通話のあとの次の動き。normal / promised＝次にかける先へ、ふつうの予定・約束したかけ直しにした場合の門の数え方。
     times_with_key＝この行で、今回の結果と同じ再発信の方針の鍵の結果が出た回数（今回を含む）。
     target＝`choose_number` の答え（次にかける先、または終える理由）。ask＝聞き直しで出なかったときの材料（そのときだけ）。
     retry_at＝この結果の再発信の方針の間隔（n 時間おき／n 日後）が指す時刻（`_retry_at` の1か所で出す。かけてよい時間帯が
-    これから先に無ければ None）。"""
+    これから先に無ければ None）。forbidden＝この通話で、言ってはいけないことを言った（通話後の検証で、2つの耳で確かめた）。"""
+    if forbidden:   # 2026-10-15 ユーザー：「その行はひとまず終える。依頼主でなく、管理者へ報告。場合によっては、お詫びを入れる」
+        return _end("forbidden_speech", "言ってはいけないことを言った：その行はひとまず終える（管理者へ知らせた）")
     if j.state in END_STATES:
         return _end(j.state, "目的を果たした・終わった結果")
     if verification == "failed":
@@ -279,7 +281,7 @@ def _write(tx: Tx, task_id: UUID, d: Decision) -> int:
 
 
 def after_call(tx: Tx, task_id: UUID, j: Judgement, *, verification: str, rules: Rules, dialed: Target,
-               dialed_at: datetime, alternate: Alternate | None, recheck: Recheck | None) -> Decision:
+               dialed_at: datetime, alternate: Alternate | None, recheck: Recheck | None, forbidden: bool) -> Decision:
     """締めの処理（core/settle.py）だけが呼ぶ。判定の結果から次の動きを決めて記録する（同じ取引）。
     dialed＝この通話でかけた先（番号・目的）、dialed_at＝かけた時刻。alternate＝相手が言った別の番号の材料（言われたときだけ）。
     recheck＝言われた番号が番号違いだったときの番号の確かめ（そのときだけ）。"""
@@ -299,7 +301,7 @@ def after_call(tx: Tx, task_id: UUID, j: Judgement, *, verification: str, rules:
     d = decide_after_call(j, verification=verification,
                           normal=gate.pacing(tx, task_id, contact_id=count_at, promised=False),
                           promised=promised, rules=rules, times_with_key=times, now=now, target=target,
-                          retry_at=retry_at, ask=ask)
+                          retry_at=retry_at, ask=ask, forbidden=forbidden)
     _write(tx, task_id, d)
     return d
 

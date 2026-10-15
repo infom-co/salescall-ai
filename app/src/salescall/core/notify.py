@@ -18,12 +18,13 @@ from salescall.core.access import Tx
 # 出来事の種類（名前 → 日本語）。一覧の正本はここだけ（画面・送る処理は、これを読む）。
 KINDS: dict[str, str] = {
     "stopped": "発信を止めた",
-    "resumed": "止めていた発信を、自動で解いた",
+    "resumed": "止めていた発信を解いた（自動で・人の判断で）",
     "quality_stage": "品質の段が進んだ",
     "judge_unknown": "判定できない通話があった（判定の処理か入力の誤り）",
     "error_notice": "知らせるべきエラーがあった（9章の表）",
     "calendar_sync_failed": "祝日の暦を取りに行けなかった",
     "budget": "費用の上限に近づいた・達した",
+    "forbidden_speech": "言ってはいけないことを言った通話があった（その行は終え、結果は送らずに待つ。依頼主へは知らせない）",
 }
 
 

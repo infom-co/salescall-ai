@@ -95,12 +95,18 @@ def settle(tx: Tx, attempt_id: UUID) -> dict[str, Any]:
         notify.emit(tx, "judge_unknown", key=f"judge_unknown:{attempt_id}",
                     summary=f"判定できない通話がありました（判定の処理か入力の誤り。その行は終えました）。{j.detail.get('error', '')}",
                     refs={"attempt_id": attempt_id, "task_id": a["task_id"], "judge_version": JUDGE_VERSION})
+    forbidden = attempts.forbidden_speech(tx, attempt_id)
+    if forbidden:   # 言ってはいけないことを言った：その行は終え、結果は送らずに待ち、管理者（運営者）へ知らせる。依頼主へは知らせない
+        notify.emit(tx, "forbidden_speech", key=f"forbidden_speech:{attempt_id}",
+                    summary="言ってはいけないことを言った通話がありました。その行はひとまず終え、結果は依頼主へ送らずに待っています"
+                            "（お詫びが要るかを決めてください）。",
+                    refs={"attempt_id": attempt_id, "task_id": a["task_id"], "version_id": a["version_id"]})
     if j.dnc_reason is not None:
         dnc.register(tx, a["phone_e164"], j.dnc_reason, source_attempt_id=attempt_id)
     decision = next_action.after_call(
         tx, a["task_id"], j, verification=a["verification"], rules=rules,
         dialed=next_action.Target(a["contact_id"], None, a["purpose"], a["wrong_contact_id"]), dialed_at=a["claimed_at"],
-        alternate=alternate, recheck=recheck)
+        alternate=alternate, recheck=recheck, forbidden=forbidden)
     usage.record_line_estimate(tx, attempt_id)   # 利用量の台帳（Q16）：回線の料金の推定（相手が出た通話だけ）
     quality_stage.evaluate(tx, a["version_id"])   # 品質の段（Q22）：通話ごとに評価（止める・次の段へ）
     approval.after_judged(tx, a["task_id"], version_no, a["version_id"])   # 送ってよい印（モードを読むのは承認の部分だけ）
