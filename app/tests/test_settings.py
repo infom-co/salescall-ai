@@ -132,7 +132,10 @@ class UserDecisions(unittest.TestCase):
         self.assertTrue({"retry.max_attempts_per_task", "quality.mock.calls", "stop.ai_rate_limit.backoff",
                          "calling.hours_limit", "call.hangup_after_decline_wait", "call.hangup_after_close_wait",
                          "callback.call_alternate_number", "calling.allow_toll_free", "calling.allow_navi_dial",
-                         "dnc.client_ref_is_stable_id"}.isdisjoint(decided))
+                         "dnc.client_ref_is_stable_id", "call.silence_prompt_after", "conversation.ask_back_required",
+                         "conversation.recheck_required"}.isdisjoint(decided))
+        self.assertEqual((v("call.silence_prompt_after"), v("conversation.ask_back_required"),
+                          v("conversation.recheck_required")), (5, 2, 1))
         self.assertEqual((v("calling.allow_toll_free"), v("calling.allow_navi_dial"), v("dnc.client_ref_is_stable_id")),
                          (True, False, False))
         self.assertEqual((v("call.hangup_after_decline_wait"), v("call.hangup_after_close_wait"),

@@ -205,7 +205,11 @@ INSERT INTO salescall.setting_definitions (key, merge_kind, value_type, meaning,
 ('line.lease_renew', 'system_only', 'seconds', '回線の借用を延ばす間隔', 'DESIGN.md 4-2', NULL, NULL),
 ('call.hangup_after_decline_wait', 'override', 'seconds', '断られたときの締めの言葉のあと、相手が切らなければ、こちらから切ってよいまでの秒数', 'DESIGN.md 6-14（持ち主 CL-1）', NULL, NULL),
 ('call.hangup_after_close_wait', 'override', 'seconds', 'ふつうに終えたとき（質問が全部済んだ締めのあと）、相手が切らなければ、こちらから切ってよいまでの秒数', 'DESIGN.md 6-14（持ち主 CL-1）', NULL, NULL),
-('callback.call_alternate_number', 'override', 'boolean', '相手が「こちらの番号にかけ直して」と別の番号を言ったとき、その番号へかけ直すか（かけるときも、発信禁止台帳と門を必ず通す）', 'DESIGN.md 3-5', NULL, NULL);
+('callback.call_alternate_number', 'override', 'boolean', '相手が「こちらの番号にかけ直して」と別の番号を言ったとき、その番号へかけ直すか（かけるときも、発信禁止台帳と門を必ず通す）', 'DESIGN.md 3-5', NULL, NULL),
+-- 会話の決まり（持ち主 CL-1。値を持つのは設定の表の1か所）
+('call.silence_prompt_after', 'override', 'seconds', '考えている相手に AI が「はい。」と相づちを打ったあと、相手が黙っていたら「いかがなさいましたか？」を流すまでの秒数（AIの「はい。」が終わってから数える）', 'DESIGN.md 6-15（持ち主 CL-1）', NULL, NULL),
+('conversation.ask_back_required', 'override', 'integer', '必須の項目を、その場で聞き返す回数の上限（最初の質問は数えない）', 'DESIGN.md 6-11（持ち主 CL-1）', NULL, NULL),
+('conversation.recheck_required', 'override', 'integer', '必須の項目を、締めの前に念のため確かめる回数（0なら、その場の最後の聞き返しが「最後の1回」の言い方になる＝会話の側で決める）', 'DESIGN.md 6-11（持ち主 CL-1）', NULL, NULL);
 
 -- ═════════ 最初の値（根拠と、いつ見直すかつき。ユーザーが決めたものは「確定」） ═════════
 INSERT INTO salescall.setting_values (key, scope, value, status, rationale, review_when, set_by) VALUES
@@ -251,4 +255,7 @@ INSERT INTO salescall.setting_values (key, scope, value, status, rationale, revi
 ('line.lease_renew', 'system', '20', 'provisional', '期限の3分の1ごとに延ばす（2回続けて延ばし損ねても、まだ期限内）', '同上', 'CL-2'),
 ('call.hangup_after_decline_wait', 'system', '7', 'decided', '2026-10-13 ユーザー決定（CL-1 の連絡帳 4-5 から）', '模擬通話と最初の実測で、相手が切るまでの間を見て', 'ユーザー'),
 ('call.hangup_after_close_wait', 'system', '20', 'decided', '2026-10-14 ユーザー決定（CL-1 の連絡帳 4-7 から）', '模擬通話と最初の実測で、相手が切るまでの間を見て', 'ユーザー'),
-('callback.call_alternate_number', 'system', 'true', 'decided', '2026-10-14 ユーザー決定：基本は、相手が言った別の番号へかける。業務設定（依頼主タブ）で「かけない」も選べる', '業務設定を作るとき（運営者が業務ごとに決める）', 'ユーザー');
+('callback.call_alternate_number', 'system', 'true', 'decided', '2026-10-14 ユーザー決定：基本は、相手が言った別の番号へかける。業務設定（依頼主タブ）で「かけない」も選べる', '業務設定を作るとき（運営者が業務ごとに決める）', 'ユーザー'),
+('call.silence_prompt_after', 'system', '5', 'decided', '2026-10-14 ユーザー決定（CL-1 の連絡帳 4-9 から）。運営者が依頼主タブごとに変えられる', '模擬通話と最初の実測で、考えている相手の間を見て', 'ユーザー'),
+('conversation.ask_back_required', 'system', '2', 'decided', '2026-10-14 ユーザー決定（CL-1 の連絡帳 4-10 から）：最初の質問のほかに最大3回＝その場の聞き返し2回＋締めの前の念のための確認1回。「依頼者ごとに変更できる設定にしておいた方がいいね」⇒ 下流が強い（override）', '模擬通話と最初の実測で', 'ユーザー'),
+('conversation.recheck_required', 'system', '1', 'decided', '同上', '模擬通話と最初の実測で', 'ユーザー');
