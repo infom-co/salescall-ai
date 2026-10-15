@@ -231,6 +231,11 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      " WHERE false $$",
      ("tests.test_usage.CostRatio.test_deficit_stops_and_resumes_when_terms_are_fixed",
       "tests.test_usage.Budget.test_system_limit_and_new_day")),
+    ("時給の時間を数えない",
+     "CREATE OR REPLACE FUNCTION salescall.work_seconds(p_from timestamptz, p_to timestamptz, p_gap_max integer)"
+     " RETURNS TABLE (at timestamptz, seconds numeric) LANGUAGE sql STABLE SECURITY DEFINER"
+     " SET search_path = salescall, pg_temp AS $$ SELECT NULL::timestamptz, NULL::numeric WHERE false $$",
+     ("tests.test_usage.CostRatio.test_hourly_counts_the_calling_work_time",)),
     ("全体の今日の金額を数えない（いつも0）",
      "CREATE OR REPLACE FUNCTION salescall.spent_today_all() RETURNS numeric"
      " LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ SELECT 0::numeric $$",

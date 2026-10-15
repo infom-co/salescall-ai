@@ -57,8 +57,15 @@ class Priced(SettleBase):
 
 
 class Budget(Priced):
+    def ample(self, s):
+        """赤字で止まらないよう、十分な月額の報酬を入れる（1日の上限だけを確かめる）。"""
+        self.tx(s, lambda tx: reward.set_terms(tx, reward.Terms(monthly_yen=Decimal(10 ** 12)),
+                                               valid_from=tx.one("SELECT now() - interval '40 days' AS t")["t"],
+                                               note="試験"), OPERATOR)
+
     def test_client_over_its_daily_limit_is_stopped(self):
         s = self.ready()
+        self.ample(s)
         self.put_client(s, "budget.client_daily_yen", 5)
         self.priced("0.01")
         got = self.tx(s, lambda tx: usage.record(tx, source="ai", kind="measured", quantity=100, unit="input_tokens"))
@@ -71,6 +78,7 @@ class Budget(Priced):
 
     def test_system_limit_and_new_day(self):
         s = self.ready()
+        self.ample(s)
         override(self, "budget.system_daily_yen", 0)
         self.priced("0.01")
         self.tx(s, lambda tx: usage.record(tx, source="ai", kind="measured", quantity=100, unit="input_tokens"))
@@ -97,11 +105,16 @@ class CostRatio(Priced):
             valid_from=tx.one("SELECT now() - %s * interval '1 day' AS t", (days_ago,))["t"], note="試験"), OPERATOR)
 
     def talked(self, s):
-        self.settle(s, self.call(s, items=[("Q1", "confirmed", None)]))     # 1本かけて、話せて、完了
+        aid = self.call(s, items=[("Q1", "confirmed", None)])
+        self.settle(s, aid)                                            # 1本かけて、話せて、完了
+        return aid
 
     def spend(self, s, yen):
         return self.tx(s, lambda tx: usage.record(tx, source="ai", kind="measured", quantity=int(yen * 100),
                                                   unit="input_tokens"))      # 単価 0.01円
+
+    def month(self, s, confidence=0.95, gap_max=300):
+        return self.tx(s, lambda tx: reward.month(tx, confidence=confidence, gap_max=gap_max))
 
     def notices(self, s):
         return self.tx(s, lambda tx: tx.all("SELECT summary FROM salescall.notification_events WHERE kind = 'budget'"
@@ -111,28 +124,43 @@ class CostRatio(Priced):
         return [r["cause"] for r in self.tx(s, lambda tx: stops.open_stops(tx, tenant_id=s["tenant"], client_id=s["client"],
                                                                           business_id=None))]
 
+    def test_upper_limit_of_a_count(self):
+        self.assertAlmostEqual(reward.poisson_upper(0, 0.95), 2.9957, places=3)    # 0件を見たとき（3の決まり）
+        self.assertAlmostEqual(reward.poisson_upper(10, 0.95), 16.962, places=2)
+        self.assertGreater(reward.poisson_upper(1000, 0.95), 1000)
+
     def test_each_form_is_counted_at_the_price_of_its_time(self):
         s = self.ready()
         self.terms(s, per_completed_yen=100, per_dial_yen=1, per_talk_yen=10)
         self.talked(s)
         self.terms(s, days_ago=0, per_completed_yen=1000, per_dial_yen=1000, per_talk_yen=1000)   # あとから変えた
-        m = self.tx(s, reward.month)
-        self.assertEqual({k: (v["count"], v["yen"]) for k, v in m["breakdown"].items() if k != "monthly"},
+        m = self.month(s)
+        self.assertEqual({k: (v["count"], v["yen"]) for k, v in m["breakdown"].items() if k in ("completed", "dial", "talk")},
                          {"completed": (1, 100), "dial": (1, 1), "talk": (1, 10)})    # 過去の分は、そのときの単価
-        self.assertEqual((m["revenue"], m["cost"], m["deficit"]), (111, 0, False))
+        self.assertEqual((m["revenue"], m["cost"]), (111, 0))
+        self.assertGreater(m["upper"], m["revenue"])                   # 成果・話せた本数のぶれを多めに見込む
         with self.assertRaises(ValueError):
             self.terms(s, days_ago=0)                                  # どれも 0 円の決まりは足せない
 
     def test_monthly_is_prorated(self):
         s = self.ready()
         self.terms(s, days_ago=40, monthly_yen=3000)
-        got = self.tx(s, reward.month)["breakdown"]["monthly"]["yen"]
+        got = self.month(s)["breakdown"]["monthly"]["yen"]
         self.assertTrue(0 < got <= 3000)
+
+    def test_hourly_counts_the_calling_work_time(self):
+        s = self.ready()
+        self.terms(s, hourly_yen=3600)                                 # 1秒 1円
+        aid = self.talked(s)
+        took = self.tx(s, lambda tx: tx.one("SELECT extract(epoch FROM ended_at - claimed_at) AS t FROM salescall.attempts"
+                                            " WHERE attempt_id = %s", (aid,)))["t"]
+        got = self.month(s)["breakdown"]["hourly"]
+        self.assertAlmostEqual(float(got["seconds"]), float(took), places=3)   # 予約から終わりまで（次の発信が無い）
+        self.assertAlmostEqual(float(got["yen"]), float(took), places=3)
 
     def test_over_the_ratio_only_notifies_and_each_client_can_choose(self):
         s = self.ready()
-        self.put_client(s, "budget.deficit_min_dials", 1)
-        self.terms(s, per_talk_yen=10)
+        self.terms(s, per_dial_yen=10)                                 # かけた本数はぶれない：報酬は 10円ちょうど
         self.talked(s)
         self.priced("0.01")
         self.put_client(s, "budget.max_cost_ratio", 0.6)
@@ -148,8 +176,8 @@ class CostRatio(Priced):
 
     def test_deficit_stops_and_resumes_when_terms_are_fixed(self):
         s = self.ready()
-        self.put_client(s, "budget.deficit_min_dials", 1)
-        self.terms(s, per_talk_yen=10)
+        override(self, "budget.system_daily_yen", 10 ** 9)            # ほかの試験の費用で全体が止まらないように
+        self.terms(s, per_dial_yen=10)
         self.talked(s)
         self.priced("0.01")
         self.assertIsNotNone(self.spend(s, 15)["stopped"])             # 費用 15円 ＞ 報酬 10円
@@ -159,19 +187,25 @@ class CostRatio(Priced):
         self.assertEqual(self.tx(s, lambda tx: stops.explain(tx, sid))["cause"]["meaning"], stops.CAUSES["deficit"].meaning)
         usage.tick(self.w.a, SYSTEM)
         self.assertEqual(self.client_stops(s), ["deficit"])            # 見守りが見直しても、赤字のまま
-        self.terms(s, per_talk_yen=10, monthly_yen=10 ** 9)            # 報酬の決まりを直した
+        self.terms(s, per_dial_yen=10, monthly_yen=10 ** 9)            # 報酬の決まりを直した
         usage.tick(self.w.a, SYSTEM)
         self.assertEqual(self.client_stops(s), [])                     # 赤字でなくなったので、自動で解く
 
-    def test_no_terms_is_a_deficit_once_enough_dials(self):
+    def test_a_count_that_can_vary_is_judged_only_when_sure(self):
+        s = self.ready()
+        self.put_client(s, "budget.client_daily_yen", 100000)
+        self.terms(s, per_completed_yen=1000)                          # 成果1件 1,000円。まだ成果0件
+        self.priced("0.01")
+        self.spend(s, 2900)
+        self.assertEqual(self.client_stops(s), [])                     # 0件でも、多めに見込めば約2,996円：まだ判断しない
+        self.spend(s, 100)
+        self.assertEqual(self.client_stops(s), ["deficit"])            # 3,000円 ＞ 約2,996円：赤字と判断
+
+    def test_no_terms_is_a_deficit(self):
         s = self.ready()
         self.priced("0.01")
-        self.talked(s)
         self.spend(s, 1)
-        self.assertEqual(self.client_stops(s), [])                     # 本数が足りないうちは判断しない（既定 30本）
-        self.put_client(s, "budget.deficit_min_dials", 1)
-        self.spend(s, 1)
-        self.assertEqual(self.client_stops(s), ["deficit"])
+        self.assertEqual(self.client_stops(s), ["deficit"])            # 報酬の決まりが無い＝報酬 0円
         reason = self.tx(s, lambda tx: tx.one("SELECT reason FROM salescall.stop_events WHERE cause = 'deficit'"
                                               " ORDER BY event_id DESC LIMIT 1"))["reason"]
         self.assertIn("報酬の決まりがありません", reason)

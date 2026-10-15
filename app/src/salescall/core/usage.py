@@ -8,10 +8,12 @@
 - 予算（1日の上限。日本時間の日）：依頼主の上限を超えたら、記録した取引の中で、その依頼主を止める（原因 budget）。
   全体の上限と、日が替わったときの解除は、見守りが呼ぶ `tick`（全体の取引から）。門は停止を見るだけ（判断を増やさない）。
 - **報酬に対する費用の割合**（2026-10-15 ユーザー決定。今月の数は core/reward.py の `month`）：記録のたびに、その依頼主の今月を見る。
-  - 今月かけた本数が budget.deficit_min_dials に満たないうちは判断しない（月の初めの数本でぶれる）。
-  - 赤字（今月の費用 ＞ 今月の報酬）⇒ その依頼主を止める（原因 deficit）。報酬の決まりが無い依頼主は、報酬 0 円なので、
+  どちらの判断も、成果・話せた本数のぶれを多めに見込んだ報酬（`upper`。確かさは設定 budget.judge_confidence）で行う
+  ＝判断し始める本数を決め打ちにせず、報酬と費用から逆算される。
+  - 赤字（今月の費用 ＞ 多めに見込んだ報酬）⇒ その依頼主を止める（原因 deficit）。報酬の決まりが無い依頼主は、報酬 0 円なので、
     費用がかかれば赤字として止まる（決まりを入れ忘れたまま、費用だけかけ続けない）。
-  - 赤字でなく、割合（費用 ÷ 報酬）が上限（budget.max_cost_ratio。既定 30％。依頼主ごとに選べる）を超えた ⇒ 知らせるだけ（1日1回）。
+  - 赤字でなく、割合（費用 ÷ 多めに見込んだ報酬）が上限（budget.max_cost_ratio。既定 30％。依頼主ごとに選べる）を超えた
+    ⇒ 知らせるだけ（1日1回）。
   - 赤字の停止は、見守りの `tick` が今月の数を見直し、赤字でなくなったら解く（報酬の決まりを直した・月が替わった・月額の日割りが
     積み上がった）。
 - 画面は台帳を読み、実測と推定を分けて出す（通話時間から料金を計算し直さない）。
@@ -79,12 +81,10 @@ def _check_client_budget(tx: Tx, tenant_id: UUID, client_id: UUID) -> int | None
 
 
 def _deficit(tx: Tx, tenant_id: UUID, client_id: UUID) -> tuple[bool, dict[str, Any]]:
-    """取引の依頼主が、いま赤字として止めるべきか（判断は1か所）と、今月の数（judgeable＝判断してよい本数に達したか）。
-    本数が足りないうちは止めない。"""
-    m = reward.month(tx)
-    need = int(settings.resolve(tx, "budget.deficit_min_dials", tenant_id=tenant_id, client_id=client_id, business_id=None))
-    m["judgeable"] = m["dials"] >= need
-    return m["judgeable"] and m["deficit"], m
+    """取引の依頼主が、いま赤字として止めるべきか（判断は1か所：費用 ＞ 多めに見込んだ報酬）と、今月の数。"""
+    m = reward.month(tx, confidence=float(settings.system_value(tx, "budget.judge_confidence")),
+                     gap_max=int(settings.system_value(tx, "budget.hourly_gap_max")))
+    return m["cost"] > m["upper"], m
 
 
 def _check_cost_ratio(tx: Tx, tenant_id: UUID, client_id: UUID) -> int | None:
@@ -98,11 +98,12 @@ def _check_cost_ratio(tx: Tx, tenant_id: UUID, client_id: UUID) -> int | None:
                           evidence="利用量の台帳・報酬の決まり", tenant_id=tenant_id, client_id=client_id)["event_id"]
     limit = Decimal(settings.resolve(tx, "budget.max_cost_ratio", tenant_id=tenant_id, client_id=client_id,
                                      business_id=None))
-    if m["judgeable"] and m["ratio"] is not None and m["ratio"] > limit:
+    if m["upper"] > 0 and m["cost"] / m["upper"] > limit:
+        ratio = m["cost"] / m["upper"]
         day = tx.one("SELECT salescall.jst(now())::date AS d")["d"]
         notify.emit(tx, "budget", key=f"cost_ratio:{client_id}:{day}",
-                    summary=f"報酬に対する費用の割合が上限を超えました（{m['ratio']:.0%} ＞ {limit:.0%}。{figures}）",
-                    refs={"client_id": client_id, "ratio": str(m["ratio"]), "limit": str(limit)})
+                    summary=f"報酬に対する費用の割合が上限を超えました（多めに見込んでも {ratio:.0%} ＞ {limit:.0%}。{figures}）",
+                    refs={"client_id": client_id, "ratio": str(ratio), "limit": str(limit)})
     return None
 
 
