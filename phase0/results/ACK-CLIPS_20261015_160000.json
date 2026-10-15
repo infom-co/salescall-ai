@@ -1,0 +1,144 @@
+{
+  "item": "ACK-CLIPS",
+  "saved_at": "2026-10-15T16:00:00",
+  "model": "gemini-3.8-live",
+  "candidates": [
+    {
+      "type": "S4",
+      "voice": "Sadachbia",
+      "id": "shouchi",
+      "text": "承知しました、",
+      "heard": {
+        "0.0": "掃除しました。",
+        "1.0": "掃除しました。"
+      },
+      "ok": false,
+      "seconds": 0.9,
+      "try": 1
+    },
+    {
+      "type": "S4",
+      "voice": "Sadachbia",
+      "id": "shouchi",
+      "text": "承知しました、",
+      "heard": {
+        "0.0": "掃除しました。",
+        "1.0": "そうじしました。"
+      },
+      "ok": false,
+      "seconds": 0.86,
+      "try": 2
+    },
+    {
+      "type": "S4",
+      "voice": "Sadachbia",
+      "id": "shouchi",
+      "text": "承知しました、",
+      "heard": {
+        "0.0": "So it's messed up.",
+        "1.0": "सोच समझता"
+      },
+      "ok": false,
+      "seconds": 0.74,
+      "try": 3
+    },
+    {
+      "type": "S4",
+      "voice": "Sadachbia",
+      "id": "shouchi",
+      "text": "承知しました、",
+      "heard": {
+        "0.0": "承知しました。",
+        "1.0": "承知しました。"
+      },
+      "ok": true,
+      "seconds": 0.88,
+      "try": 4,
+      "wav": "S4_shouchi_1.wav"
+    },
+    {
+      "type": "S4",
+      "voice": "Sadachbia",
+      "id": "shouchi",
+      "text": "承知しました、",
+      "heard": {
+        "0.0": "So, smuśta.",
+        "1.0": "承知しました。"
+      },
+      "ok": false,
+      "seconds": 0.76,
+      "try": 5
+    },
+    {
+      "type": "S4",
+      "voice": "Sadachbia",
+      "id": "shouchi",
+      "text": "承知しました、",
+      "heard": {
+        "0.0": "承知しました。",
+        "1.0": "承知しました。"
+      },
+      "ok": true,
+      "seconds": 0.9,
+      "try": 6,
+      "wav": "S4_shouchi_2.wav"
+    },
+    {
+      "type": "S4",
+      "voice": "Sadachbia",
+      "id": "shouchi",
+      "text": "承知しました、",
+      "heard": {
+        "0.0": "掃除しました。",
+        "1.0": "承知しました。"
+      },
+      "ok": false,
+      "seconds": 0.84,
+      "try": 7
+    },
+    {
+      "type": "S4",
+      "voice": "Sadachbia",
+      "id": "shouchi",
+      "text": "承知しました、",
+      "heard": {
+        "0.0": "承知しました。",
+        "1.0": "承知しました。"
+      },
+      "ok": true,
+      "seconds": 0.76,
+      "try": 8,
+      "wav": "S4_shouchi_3.wav"
+    },
+    {
+      "type": "S4",
+      "voice": "Sadachbia",
+      "id": "shouchi",
+      "text": "承知しました、",
+      "heard": {
+        "0.0": "そうしました。",
+        "1.0": "承知しました。"
+      },
+      "ok": false,
+      "seconds": 0.92,
+      "try": 9
+    },
+    {
+      "type": "S4",
+      "voice": "Sadachbia",
+      "id": "shouchi",
+      "text": "承知しました、",
+      "heard": {
+        "0.0": "承知しました。",
+        "1.0": "承知しました。"
+      },
+      "ok": true,
+      "seconds": 0.86,
+      "try": 10,
+      "wav": "S4_shouchi_4.wav"
+    }
+  ],
+  "kept": {
+    "S4_shouchi": 4
+  }
+}
