@@ -145,7 +145,8 @@ class FrozenRecords(unittest.TestCase):
                        " VALUES (%s, %s, %s, 1, 'judged', 'incomplete', 'judge-1', false, '{}', '{}', 'judge')",
                        (s["tenant"], s["client"], s["task"]))
             tx.execute("INSERT INTO salescall.task_next_actions (tenant_id, client_id, task_id, seq, kind, call_at, cause,"
-                       " promised) VALUES (%s, %s, %s, 1, 'call', now(), '取り込み', false)", (s["tenant"], s["client"], s["task"]))
+                       " promised, contact_id) VALUES (%s, %s, %s, 1, 'call', now(), '取り込み', false, %s)",
+                       (s["tenant"], s["client"], s["task"], s["contact"]))
         w.a.in_client(SYSTEM, s["tenant"], s["client"], add)
         own = owner_access()
         for sql in ("UPDATE salescall.task_results SET business_state = 'completed' WHERE task_id = %s",

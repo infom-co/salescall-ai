@@ -7,8 +7,8 @@
       次の動き（next_action。決め方は next_action の1か所）
 - 同じ試行は1回だけ締める（2回目は前の結果を返す。データベースも、1つの試行に判定の版は1つと守る）。
 - 締めが済むまで、門はその行に次をかけない（`awaiting_decision`）。
-- ⏳ 相手が言った別の番号へのかけ直し（DESIGN.md 3-5）は、行の番号の表を作るまで締めない（`AlternateNumberNotReady`）。
-  元の番号へ誤ってかけないため（作る前に通話が流れることは無い：会話の処理はまだ app/ に無い）。
+- 相手が言った別の番号（DESIGN.md 3-5）：そろえられた番号は、かけるかどうかに関係なく、その行の番号に足す（tasks の1か所。
+  相手が断ったら、この番号も止めるため＝3-6）。かけるか・どの番号へかけるかは次の動き（next_action.choose_number）が決める。
 """
 
 from __future__ import annotations
@@ -16,17 +16,14 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from salescall.core import attempts, business_rules, call_report, dnc, next_action, results, settings
+from salescall.core import attempts, business_rules, call_report, dnc, next_action, results, settings, target_policy, tasks
 from salescall.core.access import Tx
 from salescall.core.judge import JUDGE_VERSION, Facts, Item, JudgeInput, judge
+from salescall.core.phone import normalize
 
 
 class NotReady(Exception):
     """まだ締められない（進行中・通話後の検証が済んでいない）。"""
-
-
-class AlternateNumberNotReady(Exception):
-    """相手が言った別の番号へのかけ直しは、行の番号の表（DESIGN.md 3-5）を作るまで扱えない。"""
 
 
 def unsettled(tx: Tx) -> list[dict[str, Any]]:
@@ -43,7 +40,8 @@ def settle(tx: Tx, attempt_id: UUID) -> dict[str, Any]:
     """その試行を締める（判定 → 書く → 次の動き）。結果の版の番号・業務の状態・次の動きを返す。"""
     a = tx.one(
         "SELECT a.attempt_id, a.task_id, a.tenant_id, a.client_id, a.state, a.hangup_side, a.verification,"
-        "       a.version_id, a.phone_e164, salescall.reached_answer(a.attempt_id) AS reached_answer, r.business_id"
+        "       a.version_id, a.contact_id, a.phone_e164, salescall.reached_answer(a.attempt_id) AS reached_answer,"
+        "       t.client_ref, r.business_id"
         " FROM salescall.attempts a"
         " JOIN salescall.tasks t ON t.client_id = a.client_id AND t.task_id = a.task_id"
         " JOIN salescall.runs r ON r.client_id = t.client_id AND r.run_id = t.run_id"
@@ -71,8 +69,7 @@ def settle(tx: Tx, attempt_id: UUID) -> dict[str, Any]:
     inp = JudgeInput(Facts(a["state"], a["hangup_side"], a["reached_answer"]), report, items, rules, refused_after,
                      unclear_is_refusal)
     j = judge(inp)
-    if j.state == "callback_scheduled" and j.detail["callback"]["reason"] == "other_number":
-        raise AlternateNumberNotReady("別の番号へのかけ直しは、行の番号の表（DESIGN.md 3-5）を作ってから扱います")
+    alternate = _alternate(tx, a, report)
 
     if j.disconnect is not None:
         attempts.record_disconnect(tx, attempt_id, j.disconnect)
@@ -88,5 +85,22 @@ def settle(tx: Tx, attempt_id: UUID) -> dict[str, Any]:
                                 decided_by="判定")
     if j.dnc_reason is not None:
         dnc.register(tx, a["phone_e164"], j.dnc_reason, source_attempt_id=attempt_id)
-    decision = next_action.after_call(tx, a["task_id"], j, verification=a["verification"], rules=rules)
+    decision = next_action.after_call(tx, a["task_id"], j, verification=a["verification"], rules=rules,
+                                      dialed=a["contact_id"], alternate=alternate)
     return {"version_no": version_no, "state": j.state, "decision": decision, "already": False}
+
+
+def _alternate(tx: Tx, a: dict[str, Any], report: call_report.CallReport | None) -> next_action.Alternate | None:
+    """相手が言った別の番号：行の番号に足し、かけてよいかの材料を集める（言われていなければ None）。
+    判定の結果に関係なく足す（同じ通話で断られたら、この番号も止める。足すのは発信禁止の登録より前）。"""
+    cb = None if report is None else report.callback
+    if cb is None or cb.reason != "other_number":
+        return None
+    scope = dict(tenant_id=a["tenant_id"], client_id=a["client_id"], business_id=a["business_id"])
+    allowed = bool(settings.resolve(tx, "callback.call_alternate_number", **scope))
+    if cb.number_e164 is None:      # そろえられない番号（言ったままの番号は判定の中身に残り、依頼主へ渡る）
+        return next_action.Alternate(None, allowed, "number_unknown")
+    number = normalize(cb.number_e164)
+    contact_id = tasks.add_callee_number(tx, a["task_id"], number, source_attempt_id=a["attempt_id"])
+    blocked = target_policy.block_reason(tx, number, client_ref=a["client_ref"], **scope)
+    return next_action.Alternate(contact_id, allowed, None if blocked is None else blocked[0])

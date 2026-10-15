@@ -141,7 +141,8 @@ def judge(inp: JudgeInput) -> Judgement:
     if r and r.callback is not None:
         cb = r.callback
         return done("callback_scheduled", callback={"reason": cb.reason, "at": cb.at.isoformat() if cb.at else None,
-                                                     "number_e164": cb.number_e164, "person": cb.person},
+                                                     "number_said": cb.number_said, "number_e164": cb.number_e164,
+                                                     "person": cb.person},
                     policy_key=None if cb.at else "callback_unspecified_time")
     human = bool(r and any(p in HUMAN_PARTIES for p in r.parties))
     conversation = inp.facts.reached_answer and human

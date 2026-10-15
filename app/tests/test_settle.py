@@ -19,7 +19,8 @@ def rep(parties=("target",), *, dnc_=False, callback=None, cut=Cut("ai", True, F
     return CallReport(tuple(parties), dnc_, False, False, False, not_reached, callback, cut)
 
 
-class Settle(Base):
+class SettleBase(Base):
+    """締めの試験の土台（試験は持たない）。"""
     def call(self, s, path=TALK, *, report=None, items=(), verify="done", side=None):
         """本物の門・出口を通して1回かけ、path まで進め、項目と報告を置く（締めはまだ）。"""
         c = self.claim(s)
@@ -39,6 +40,8 @@ class Settle(Base):
     def settle(self, s, aid):
         return self.tx(s, lambda tx: settle.settle(tx, aid))
 
+
+class Settle(SettleBase):
     def test_completed_ends_the_row(self):
         s = self.ready()
         aid = self.call(s, items=[("Q1", "confirmed", None)])
@@ -92,18 +95,11 @@ class Settle(Base):
     def test_callback_is_a_promised_schedule(self):
         s = self.ready()
         at = self.tx(s, lambda tx: tx.one("SELECT now() + interval '2 hours' AS t")["t"])
-        aid = self.call(s, report=rep(callback=Callback("later", at, None, None)))
+        aid = self.call(s, report=rep(callback=Callback("later", at, None, None, None)))
         got = self.settle(s, aid)
         nxt = self.tx(s, lambda tx: next_action.current(tx, s["task"]))
         self.assertEqual((got["state"], nxt["kind"], nxt["promised"]), ("callback_scheduled", "call", True))
         self.assertGreaterEqual(nxt["call_at"], at)
-
-    def test_other_number_waits_for_the_number_table(self):
-        s = self.ready()
-        aid = self.call(s, report=rep(callback=Callback("other_number", None, "+81300009876", None)))
-        with self.assertRaises(settle.AlternateNumberNotReady):
-            self.settle(s, aid)
-        self.assertIsNone(self.tx(s, lambda tx: results.latest(tx, s["task"])))   # 何も書いていない（取引ごと取り消し）
 
     def test_not_ready_and_once_only(self):
         s = self.ready()

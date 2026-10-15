@@ -58,7 +58,10 @@ class Shapes(unittest.TestCase):
                            ("calling.hours", {d: [["18:00", "09:00"]] for d in
                                               ("mon", "tue", "wed", "thu", "fri", "sat", "sun", "holiday")}),
                            ("calling.hours", {d: "09:00" for d in
-                                              ("mon", "tue", "wed", "thu", "fri", "sat", "sun", "holiday")})]:
+                                              ("mon", "tue", "wed", "thu", "fri", "sat", "sun", "holiday")}),
+                           ("callee.business_hours", ["09:00"]), ("callee.business_hours", ["09:00", "09:00"]),
+                           ("callee.business_hours", ["9:00", "19:00"]), ("callee.business_hours", ["09:00", "24:00"]),
+                           ("callee.business_hours", "09:00-19:00"), ("callee.business_hours", [9, 19])]:
             with self.subTest(key=key, value=value), self.assertRaises(Rejected):
                 sys_tx(lambda tx: settings.set_system_value(tx, key, value, status="provisional",
                                                             rationale="試験", review_when="試験"))
@@ -75,6 +78,17 @@ class Shapes(unittest.TestCase):
             "INSERT INTO salescall.setting_values (key, scope, tenant_id, client_id, value, status, rationale,"
             " review_when, set_by) VALUES ('calling.hours', 'client', %s, %s, %s, 'decided', '依頼主の営業時間', 'x', 'x')",
             (t, c, '{"mon": [["10:00","17:00"]], "tue": [], "wed": [], "thu": [], "fri": [], "sat": [], "sun": [], "holiday": []}')))
+
+    def test_business_hours_may_cross_midnight(self):
+        """営業時間は日をまたいでよい（深夜営業 18:00〜翌03:00。2026-10-15 ユーザー）。依頼主ごとに入れられる。"""
+        w = World(); t = w.tenant(); c = w.client(t)
+        w.a.in_client(OPERATOR, t, c, lambda tx: tx.execute(
+            "INSERT INTO salescall.setting_values (key, scope, tenant_id, client_id, value, status, rationale,"
+            " review_when, set_by) VALUES ('callee.business_hours', 'client', %s, %s, '[\"18:00\", \"03:00\"]',"
+            " 'decided', '深夜営業のお店', 'x', 'x')", (t, c)))
+        got = w.a.in_client(OPERATOR, t, c, lambda tx: settings.resolve(tx, "callee.business_hours", tenant_id=t,
+                                                                         client_id=c, business_id=None))
+        self.assertEqual(got, ["18:00", "03:00"])
 
     def test_value_needs_a_definition(self):
         with self.assertRaises(Rejected):
@@ -133,7 +147,8 @@ class UserDecisions(unittest.TestCase):
                          "calling.hours_limit", "call.hangup_after_decline_wait", "call.hangup_after_close_wait",
                          "callback.call_alternate_number", "calling.allow_toll_free", "calling.allow_navi_dial",
                          "dnc.client_ref_is_stable_id", "call.silence_prompt_after", "conversation.ask_back_required",
-                         "conversation.recheck_required"}.isdisjoint(decided))
+                         "conversation.recheck_required", "callee.business_hours"}.isdisjoint(decided))
+        self.assertEqual(v("callee.business_hours"), ["09:00", "19:00"])
         self.assertEqual((v("call.silence_prompt_after"), v("conversation.ask_back_required"),
                           v("conversation.recheck_required")), (5, 2, 1))
         self.assertEqual((v("calling.allow_toll_free"), v("calling.allow_navi_dial"), v("dnc.client_ref_is_stable_id")),

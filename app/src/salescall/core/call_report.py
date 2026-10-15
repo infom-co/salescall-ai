@@ -4,6 +4,8 @@
   読む（`load`。締めの処理 core/settle.py が読む）ときも、同じ確かめを通す。合わない報告は受け取らない（ReportInvalid）。
 - 「わからない」を既定値で埋めない（原則10）：分からないものは None のまま。判定が「決められない」として扱う。
 - 名前（相手の種別など）は DESIGN.md 4-3・6-2・7-1c のもの。⚠️ 仮の形：CL-1 の会話の処理を app/ へ移すときに合わせて版を上げる。
+- 版 2（2026-10-15）：別の番号のかけ直しに、相手が言ったままの番号（number_said）を必ず持つ。そろえた番号（number_e164）は
+  そろえられたときだけ（内線つき・桁が足りないなど、そろえられない番号も、言われたことは記録して依頼主へ渡す。DESIGN.md 3-5）。
 """
 
 from __future__ import annotations
@@ -17,7 +19,7 @@ from uuid import UUID
 from salescall.core.access import Tx
 from salescall.core.phone import normalize
 
-VERSION = 1
+VERSION = 2
 PARTY_KINDS = ("unknown", "reception", "target", "voicemail", "ivr", "fax", "wrong_party")   # 4-3（区間ごと）
 CALLBACK_REASONS = ("absent", "other_number", "later", "ask_who", "ask_when", "our_promise")
 # 不在・別の番号・あとで（相手に頼まれた。6-2）／分かる人・分かる時を聞いた（15-2-3 の a1・a2）／こちらが約束した
@@ -33,7 +35,8 @@ class ReportInvalid(Exception):
 class Callback:
     reason: str
     at: datetime | None          # かけ直す時刻（取れたときだけ。時差つき）
-    number_e164: str | None      # 別の番号（reason = other_number のときは必ず要る）
+    number_said: str | None      # 別の番号：相手が言ったまま（reason = other_number のときは必ず要る。それ以外は持たない）
+    number_e164: str | None      # 別の番号：番号の正規化（Q1）でそろえた番号（そろえられたときだけ）
     person: str | None           # 分かる人（a1）
 
 
@@ -103,7 +106,7 @@ def from_json(raw: Any) -> CallReport:
         raise ReportInvalid("目的の人に繋がったのに、繋がらなかった理由があります")
     cb = None
     if d.get("callback") is not None:
-        c = _keys(d["callback"], {"reason", "at", "number_e164", "person"}, "callback")
+        c = _keys(d["callback"], {"reason", "at", "number_said", "number_e164", "person"}, "callback")
         at = c.get("at")
         if at is not None:
             try:
@@ -112,16 +115,20 @@ def from_json(raw: Any) -> CallReport:
                 raise ReportInvalid("callback.at は時刻（ISO 8601）です") from None
             if at.tzinfo is None:
                 raise ReportInvalid("callback.at は時差つきの時刻です")
-        number = c.get("number_e164")
-        if number is not None and normalize(number).e164 != number:
+        said, number = c.get("number_said"), c.get("number_e164")
+        if said is not None and (not isinstance(said, str) or not said.strip()):
+            raise ReportInvalid("callback.number_said は、相手が言ったままの番号（文字）です")
+        if number is not None and (not isinstance(number, str) or normalize(number).e164 != number):
             raise ReportInvalid("callback.number_e164 は、番号の正規化（Q1）を通した番号です")
         reason = _choice(c.get("reason"), CALLBACK_REASONS, "callback.reason")
-        if (reason == "other_number") != (number is not None):
-            raise ReportInvalid("別の番号のかけ直しには番号が要り、それ以外には番号を持ちません")
+        if (reason == "other_number") != (said is not None):
+            raise ReportInvalid("別の番号のかけ直しには、相手が言ったままの番号が要り、それ以外には番号を持ちません")
+        if number is not None and said is None:
+            raise ReportInvalid("そろえた番号だけがあって、相手が言ったままの番号がありません")
         person = c.get("person")
         if person is not None and (not isinstance(person, str) or not person.strip()):
             raise ReportInvalid("callback.person は名前です")
-        cb = Callback(reason, at, number, person)
+        cb = Callback(reason, at, said, number, person)
     cut = None
     if d.get("cut") is not None:
         c = _keys(d["cut"], {"speaker", "in_closing", "callee_refused_last"}, "cut")

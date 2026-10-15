@@ -13,6 +13,8 @@
 - **登録した取引の中で、止めた番号・管理番号のまだ発信していない予約を取り消す**（DESIGN.md 5-2-1 の2）。
 - 取り消し（revoke）は人だけ・記録つき・1回だけ（データベースが守る）。自動では取り消さない（Intent.md 10-3）。
 - 引くのは `lookup`。門と取込は、`target_policy` を通して引く。
+- **断られたら止める範囲**（`reach`）も、ここの1か所。門は、締めがまだの発信（断られたかがまだ決まっていない）の範囲に入る
+  番号・管理番号へかけない（`unsettled_reach_covers`。止める前にかけてしまう隙を作らない。DESIGN.md 5-2-2）。
 """
 
 from __future__ import annotations
@@ -47,20 +49,13 @@ def register(tx: Tx, phone: PhoneNumber | str, reason: Reason, *, source_attempt
     n = _number(phone)
     numbers, refs = [n.e164], []
     if source_attempt_id is not None:
-        a = tx.one(
-            "SELECT a.tenant_id, a.client_id, a.task_id, a.phone_e164, t.client_ref, r.business_id"
-            " FROM salescall.attempts a"
-            " JOIN salescall.tasks t ON t.client_id = a.client_id AND t.task_id = a.task_id"
-            " JOIN salescall.runs r ON r.client_id = t.client_id AND r.run_id = t.run_id"
-            " WHERE a.attempt_id = %s", (source_attempt_id,))
+        a = tx.one("SELECT task_id, phone_e164 FROM salescall.attempts WHERE attempt_id = %s", (source_attempt_id,))
         if a is None:
             raise attempts.AttemptNotFound(str(source_attempt_id))
         if reason in REFUSALS:
-            numbers += [a["phone_e164"], *tasks.numbers(tx, a["task_id"])]
-            if a["client_ref"] is not None and settings.resolve(
-                    tx, "dnc.client_ref_is_stable_id", tenant_id=a["tenant_id"], client_id=a["client_id"],
-                    business_id=a["business_id"]):
-                refs.append(a["client_ref"])
+            row_numbers, ref = reach(tx, a["task_id"])
+            numbers += [a["phone_e164"], *row_numbers]
+            refs += [] if ref is None else [ref]
     numbers = list(dict.fromkeys(numbers))
     for e164 in numbers:
         tx.execute(
@@ -84,6 +79,36 @@ def register(tx: Tx, phone: PhoneNumber | str, reason: Reason, *, source_attempt
         " WHERE a.state = 'claimed' AND (a.phone_e164 = ANY(%s) OR t.client_ref = ANY(%s))", (numbers, refs))]
     return {"entry_id": entry["entry_id"], "reason": entry["reason"], "numbers": numbers, "client_refs": refs,
             "released_claims": attempts.release(tx, claimed)}
+
+
+def reach(tx: Tx, task_id: UUID) -> tuple[list[str], str | None]:
+    """その行の相手が断ったときに止める範囲（広げ方の正本。DESIGN.md 3-6）：(b) その行の番号すべて（相手が言った別の番号も。
+    tasks.numbers の1か所）と、(c) 運営者が依頼主ごとの設定で選んでいれば、その行の管理番号（無ければ None）。"""
+    t = tx.one("SELECT t.tenant_id, t.client_id, t.client_ref, r.business_id FROM salescall.tasks t"
+               " JOIN salescall.runs r ON r.client_id = t.client_id AND r.run_id = t.run_id WHERE t.task_id = %s",
+               (task_id,))
+    if t is None:
+        raise tasks.TaskNotFound(str(task_id))
+    ref = None
+    if t["client_ref"] is not None and settings.resolve(tx, "dnc.client_ref_is_stable_id", tenant_id=t["tenant_id"],
+                                                        client_id=t["client_id"], business_id=t["business_id"]):
+        ref = t["client_ref"]
+    return tasks.numbers(tx, task_id), ref
+
+
+def unsettled_reach_covers(tx: Tx, e164: str, *, client_ref: str | None) -> bool:
+    """締めがまだの発信（発信まで進み、判定の結果がまだ無い試行。通話中も含む）のどれかが、もし断られていたら、
+    この番号（またはこの管理番号）を止めることになるか。取引の依頼主の分（発信禁止は依頼主ごと）。
+
+    止めるのは締めの処理（判定のあと）なので、締めの前にこの範囲へかけると、断った相手にまたかけうる
+    （例：一覧の番号で断られた行の、相手が言った別の番号を、別の実施回の行がかける）。"""
+    for p in tx.all("SELECT DISTINCT a.task_id FROM salescall.attempts a"
+                    " WHERE a.state NOT IN ('claimed', 'released')"
+                    "   AND NOT EXISTS (SELECT 1 FROM salescall.task_results r WHERE r.attempt_id = a.attempt_id)"):
+        row_numbers, ref = reach(tx, p["task_id"])
+        if e164 in row_numbers or (client_ref is not None and ref == client_ref):
+            return True
+    return False
 
 
 def register_system(tx: Tx, phone: PhoneNumber | str, reason: str) -> int:

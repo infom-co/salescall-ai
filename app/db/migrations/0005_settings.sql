@@ -20,7 +20,8 @@ CREATE TYPE salescall.merge_kind AS ENUM (
   'union',         -- 足し合わせ（禁止）：すべての階層の和
   'system_only'    -- システムだけ：契約者・依頼主・業務からは変えられない
 );
-CREATE TYPE salescall.setting_value_type AS ENUM ('integer', 'ratio', 'seconds', 'integer_list', 'weekly_hours', 'boolean');
+CREATE TYPE salescall.setting_value_type AS ENUM ('integer', 'ratio', 'seconds', 'integer_list', 'weekly_hours', 'boolean',
+                                                  'daily_range');
 CREATE TYPE salescall.setting_status AS ENUM ('provisional', 'decided');  -- 仮／確定
 CREATE TYPE salescall.setting_scope AS ENUM ('system', 'tenant', 'client', 'business');  -- 設定の範囲（階層。8章）
 
@@ -94,6 +95,13 @@ LANGUAGE sql IMMUTABLE AS $$
                                   WHEN (SELECT count(*) FROM jsonb_object_keys(v)) <> 8 THEN false
                                   WHEN NOT (v ?& ARRAY['mon','tue','wed','thu','fri','sat','sun','holiday']) THEN false
                                   ELSE NOT EXISTS (SELECT 1 FROM jsonb_each(v) d WHERE NOT salescall.setting_hours_ok(d.value)) END
+    -- 1日の中の時刻の範囲（日本時間）。例：["09:00","19:00"]。終わりが始まりより前なら日をまたぐ（["18:00","03:00"]＝翌3時まで）
+    WHEN 'daily_range' THEN CASE WHEN jsonb_typeof(v) <> 'array' THEN false
+                                 WHEN jsonb_array_length(v) <> 2 THEN false
+                                 WHEN jsonb_typeof(v -> 0) <> 'string' OR jsonb_typeof(v -> 1) <> 'string' THEN false
+                                 WHEN NOT ((v ->> 0) ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$') THEN false
+                                 WHEN NOT ((v ->> 1) ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$') THEN false
+                                 ELSE (v ->> 0) <> (v ->> 1) END
   END
 $$;
 
@@ -209,6 +217,7 @@ INSERT INTO salescall.setting_definitions (key, merge_kind, value_type, meaning,
 -- 会話の決まり（持ち主 CL-1。値を持つのは設定の表の1か所）
 ('call.silence_prompt_after', 'override', 'seconds', '考えている相手に AI が「はい。」と相づちを打ったあと、相手が黙っていたら「いかがなさいましたか？」を流すまでの秒数（AIの「はい。」が終わってから数える）', 'DESIGN.md 6-15（持ち主 CL-1）', NULL, NULL),
 ('conversation.ask_back_required', 'override', 'integer', '必須の項目を、その場で聞き返す回数の上限（最初の質問は数えない）', 'DESIGN.md 6-11（持ち主 CL-1）', NULL, NULL),
+('callee.business_hours', 'override', 'daily_range', '相手（発信先）の営業時間。相手が言った時刻に午前・午後が無いとき、営業時間に入るほうを補う（両方入る・どちらも入らないときだけ聞く）。日をまたいでよい', 'DESIGN.md 6-2（持ち主 CL-1）', NULL, NULL),
 ('conversation.recheck_required', 'override', 'integer', '必須の項目を、締めの前に念のため確かめる回数（0なら、その場の最後の聞き返しが「最後の1回」の言い方になる＝会話の側で決める）', 'DESIGN.md 6-11（持ち主 CL-1）', NULL, NULL);
 
 -- ═════════ 最初の値（根拠と、いつ見直すかつき。ユーザーが決めたものは「確定」） ═════════
@@ -258,4 +267,5 @@ INSERT INTO salescall.setting_values (key, scope, value, status, rationale, revi
 ('callback.call_alternate_number', 'system', 'true', 'decided', '2026-10-14 ユーザー決定：基本は、相手が言った別の番号へかける。業務設定（依頼主タブ）で「かけない」も選べる', '業務設定を作るとき（運営者が業務ごとに決める）', 'ユーザー'),
 ('call.silence_prompt_after', 'system', '5', 'decided', '2026-10-14 ユーザー決定（CL-1 の連絡帳 4-9 から）。運営者が依頼主タブごとに変えられる', '模擬通話と最初の実測で、考えている相手の間を見て', 'ユーザー'),
 ('conversation.ask_back_required', 'system', '2', 'decided', '2026-10-14 ユーザー決定（CL-1 の連絡帳 4-10 から）：最初の質問のほかに最大3回＝その場の聞き返し2回＋締めの前の念のための確認1回。「依頼者ごとに変更できる設定にしておいた方がいいね」⇒ 下流が強い（override）', '模擬通話と最初の実測で', 'ユーザー'),
-('conversation.recheck_required', 'system', '1', 'decided', '同上', '模擬通話と最初の実測で', 'ユーザー');
+('conversation.recheck_required', 'system', '1', 'decided', '同上', '模擬通話と最初の実測で', 'ユーザー'),
+('callee.business_hours', 'system', '["09:00", "19:00"]', 'decided', '2026-10-15 ユーザー決定（CL-1 の連絡帳 4-11 から）：会社は 9:00〜19:00 が初めの値。店舗・深夜営業のお店は運営者が依頼主タブで入れる（日をまたいでよい）', '依頼主ごとに、相手の種類（会社・店舗）を見て', 'ユーザー');

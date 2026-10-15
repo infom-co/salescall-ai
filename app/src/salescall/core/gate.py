@@ -10,6 +10,8 @@
   permanent＝待っても変わらない（次の動きは終える）／wait＝待てば変わる（次の動きは待ってかけ直す）／
   cannot_judge＝判断の材料が無い（通さない。運営者が直す。暦の取り込み・設定の値・業務の版）。
 - 依頼主の範囲の外（ほかの依頼主・契約者の試行）は、中身を返さない確かめの関数だけで見る（「同じ契約者か、外か」だけ）。
+- **どの番号へかけるか**は、いまの予定（次の動きの記録の最新）が持つ番号（行の番号の表にある番号だけ。DESIGN.md 3-5）。
+  門は決め直さない。「同じ相手」は、かける番号が同じ発信と、同じ行（一覧の1行）の発信の両方（番号を変えて回数を増やさない）。
 """
 
 from __future__ import annotations
@@ -20,7 +22,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from salescall.core import business_rules, calling_hours, quality_stage, settings, stops, target_policy
+from salescall.core import business_rules, calling_hours, dnc, quality_stage, settings, stops, target_policy
 from salescall.core.access import Rejected, Tx
 from salescall.core.calendar import CalendarOutOfRange, holiday_checker
 from salescall.core.phone import normalize
@@ -46,7 +48,7 @@ REASONS: dict[str, tuple[str, str]] = {
     "stopped": ("止まっています", "wait"),
     "outside_hours": ("かけてよい時間帯の外です", "wait"),
     "calendar_out_of_range": ("祝日の暦が無い日です", "cannot_judge"),
-    "verification_pending": ("前の通話の、通話後の検証が済んでいません", "wait"),
+    "related_unsettled": ("この相手にかかわる前の発信の締め（断られたかの確かめ）が、まだ済んでいません", "wait"),
     "same_contact_interval": ("同じ相手への前の発信から、間隔が空いていません", "wait"),
     "unknown_result_interval": ("結果が分からない前の発信から、間隔が空いていません", "wait"),
     "daily_attempts": ("同じ相手へ、今日かけてよい回数を使い切りました", "wait"),
@@ -58,7 +60,8 @@ REASONS: dict[str, tuple[str, str]] = {
     "line_busy": ("回線が使用中です", "wait"),
     "client_concurrency": ("この依頼主の同時の本数の上限です", "wait"),
     "ai_capacity": ("会話AIの枠がいっぱいです", "wait"),
-    "contact_active": ("同じ相手に、進行中の発信があります", "wait"),
+    "contact_active": ("同じ番号の相手（この依頼主の別の行を含む）に、進行中の発信があります", "wait"),
+    "task_active": ("この行（ほかの番号を含む）に、進行中の発信があります", "wait"),
     "number_active_same_client": ("同じ番号に、進行中の発信があります", "wait"),
     "number_active_same_tenant": ("同じ番号に、ほかの依頼主の進行中の発信があります", "wait"),
     "number_active_other_tenant": ("同じ番号に、進行中の発信があります", "wait"),   # 契約者の外は、中身を出さない
@@ -70,6 +73,7 @@ _DIALED = "state NOT IN ('claimed', 'released')"   # 発信まで進んだ試行
 # 決まりはデータベースの1か所 salescall.not_by_callee）
 _COUNTED = _DIALED + " AND NOT salescall.not_by_callee(state, disconnect, attempt_id)"
 _DIALED_A = "a.state NOT IN ('claimed', 'released')"   # 同じ決まり（表の別名つき）
+_SAME = "(contact_id = %s OR task_id = %s)"             # 同じ相手：かける番号が同じ発信、または同じ行の発信
 
 
 @dataclass(frozen=True)
@@ -92,7 +96,7 @@ class Denied:
 
 @dataclass(frozen=True)
 class Pacing:
-    """回数と間隔（5-2-1 の8）。earliest が None ＝ 前の通話の検証待ち（いつかけられるか、まだ決まらない）。"""
+    """回数と間隔（5-2-1 の8）。earliest が None ＝ この相手にかかわる前の発信の締め待ち（いつかけられるか、まだ決まらない）。"""
     remaining: int
     earliest: datetime | None
     binding: str | None    # earliest を決めた理由の名前（今すぐかけられるなら None）
@@ -104,13 +108,17 @@ def _deny(reason: str) -> Denied:
     return Denied(reason, message, kind)
 
 
-def _task(tx: Tx, task_id: UUID) -> dict[str, Any]:
+def _task(tx: Tx, task_id: UUID, contact_id: UUID | None = None) -> dict[str, Any]:
+    """行と、かける番号（contact_id・phone_e164）。番号は、渡されればそれ、無ければいまの予定の番号
+    （予定が無い・終えた行は一覧の番号。どちらにしても門は通さない）。行の番号の表にある番号だけ。"""
     row = tx.one(
-        "SELECT t.task_id, t.tenant_id, t.client_id, t.run_id, t.contact_id, t.client_ref, c.phone_e164, r.business_id"
+        "SELECT t.task_id, t.tenant_id, t.client_id, t.run_id, t.client_ref, r.business_id, n.contact_id, n.phone_e164"
         " FROM salescall.tasks t"
-        " JOIN salescall.contacts c ON c.client_id = t.client_id AND c.contact_id = t.contact_id"
         " JOIN salescall.runs r ON r.client_id = t.client_id AND r.run_id = t.run_id"
-        " WHERE t.task_id = %s", (task_id,))
+        " JOIN salescall.task_numbers n ON n.task_id = t.task_id AND n.contact_id = coalesce(%s,"
+        "   (SELECT x.contact_id FROM salescall.task_next_actions x WHERE x.task_id = t.task_id ORDER BY x.seq DESC LIMIT 1),"
+        "   t.contact_id)"
+        " WHERE t.task_id = %s", (contact_id, task_id))
     if row is None:
         raise TaskNotFound(str(task_id))
     return row
@@ -133,26 +141,25 @@ def _pacing(tx: Tx, task: dict[str, Any], now: datetime, assume_promised: bool |
         promised = bool(nxt and nxt["promised"])
     else:
         promised = assume_promised
-    if tx.one("SELECT 1 FROM salescall.attempts WHERE contact_id = %s AND verification = 'pending' LIMIT 1",
-              (task["contact_id"],)) is not None:
-        return Pacing(remaining, None, "verification_pending", promised)
+    # 締めがまだの発信が、もし断られていたら、この番号（管理番号）も止める ⇒ 締めが済むまで待つ（発信禁止の広げ方の1か所を読む）
+    if dnc.unsettled_reach_covers(tx, task["phone_e164"], client_ref=task["client_ref"]):
+        return Pacing(remaining, None, "related_unsettled", promised)
+    same = (task["contact_id"], task["task_id"])   # 同じ相手＝かける番号が同じ発信、または同じ行の発信
     limits: list[tuple[datetime, str]] = []
     if not promised:
-        last = tx.one(f"SELECT max(ended_at) AS at FROM salescall.attempts WHERE contact_id = %s AND {_COUNTED}",
-                      (task["contact_id"],))["at"]
+        last = tx.one(f"SELECT max(ended_at) AS at FROM salescall.attempts WHERE {_SAME} AND {_COUNTED}", same)["at"]
         if last is not None:
             limits.append((last + timedelta(seconds=int(_setting(tx, "gate.same_contact_min_interval", task))),
                            "same_contact_interval"))
         today = tx.one(
             f"SELECT count(*) AS n, salescall.jst_day_start(salescall.jst(now())::date + 1) AS tomorrow"
-            f" FROM salescall.attempts WHERE contact_id = %s AND {_COUNTED}"
-            f"  AND salescall.jst(claimed_at)::date = salescall.jst(now())::date",
-            (task["contact_id"],))
+            f" FROM salescall.attempts WHERE {_SAME} AND {_COUNTED}"
+            f"  AND salescall.jst(claimed_at)::date = salescall.jst(now())::date", same)
         if today["n"] >= int(_setting(tx, "gate.max_dials_per_contact_per_day", task)):
             limits.append((today["tomorrow"], "daily_attempts"))
     # 結果不明のあとの長い間隔は、相手が出たあと（話していたかもしれない）の結果不明だけ（相手が出る前なら、誰とも話していない）
-    unknown = tx.one("SELECT max(ended_at) AS at FROM salescall.attempts WHERE contact_id = %s AND state = 'technical_error'"
-                     " AND salescall.reached_answer(attempt_id)", (task["contact_id"],))["at"]
+    unknown = tx.one(f"SELECT max(ended_at) AS at FROM salescall.attempts WHERE {_SAME} AND state = 'technical_error'"
+                     " AND salescall.reached_answer(attempt_id)", same)["at"]
     if unknown is not None:
         limits.append((unknown + timedelta(seconds=int(_setting(tx, "gate.unknown_result_min_interval", task))),
                        "unknown_result_interval"))
@@ -166,17 +173,19 @@ def _pacing(tx: Tx, task: dict[str, Any], now: datetime, assume_promised: bool |
     return Pacing(remaining, at, reason, promised)
 
 
-def pacing(tx: Tx, task_id: UUID, *, promised: bool | None = None) -> Pacing:
+def pacing(tx: Tx, task_id: UUID, *, contact_id: UUID | None = None, promised: bool | None = None) -> Pacing:
     """その行（タスク）の、残りの回数と、次にかけてよい最も早い時刻（門・次の動き・画面が読む1か所）。
-    promised：次の予定を「相手と約束したかけ直し」にした場合で数える（次の動きが、決める前に使う）。None ならいまの予定のまま。"""
-    task = _task(tx, task_id)
+    contact_id：その番号へかける場合で数える（次の動きが、決める前に使う）。None ならいまの予定の番号。
+    promised：次の予定を「相手と約束したかけ直し」にした場合で数える（同上）。None ならいまの予定のまま。"""
+    task = _task(tx, task_id, contact_id)
     return _pacing(tx, task, tx.one("SELECT now() AS now")["now"], promised)
 
 
 def claim(tx: Tx, *, task_id: UUID, line_id: UUID, lease_holder: str) -> Claim | Denied:
     """その行に、その回線で発信してよいかを判定し、よければ予約する（1つの取引）。不許可は記録して返す。"""
     task = _task(tx, task_id)
-    tx.one("SELECT salescall.release_expired_claims(%s, %s, %s)", (task["contact_id"], task["phone_e164"], line_id))
+    tx.one("SELECT salescall.release_expired_claims(%s, %s, %s, %s)",
+           (task["task_id"], task["contact_id"], task["phone_e164"], line_id))
     try:
         outcome = _judge_and_claim(tx, task, line_id, lease_holder)
     except settings.SettingMissing:
@@ -248,7 +257,7 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
 
     # (7) 間隔の待ち
     if pace.earliest is None:
-        return _deny("verification_pending")
+        return _deny(pace.binding)
     if pace.binding is not None:
         return _deny(pace.binding)
 
@@ -283,6 +292,8 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
     except Rejected as e:
         if e.constraint == "attempts_one_active_per_contact":
             return _deny("contact_active")
+        if e.constraint == "attempts_one_active_per_task":
+            return _deny("task_active")
         if e.constraint == "attempts_one_active_per_line":
             return _deny("line_busy")
         if e.constraint == "attempts_one_active_per_number":

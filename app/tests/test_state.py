@@ -124,7 +124,7 @@ class NextActions(unittest.TestCase):
             start.wait()
             try:
                 w.a.in_client(SYSTEM, s["tenant"], s["client"],
-                              lambda tx: next_action.schedule_call(tx, s["task"], at, cause="試験", promised=False))
+                              lambda tx: next_action.schedule_call(tx, s["task"], at, contact_id=s["contact"], cause="試験", promised=False))
             except Exception as e:
                 errors.append(e)
         ths = [threading.Thread(target=add) for _ in range(6)]
@@ -139,7 +139,7 @@ class NextActions(unittest.TestCase):
         run = lambda work: w.a.in_client(SYSTEM, s["tenant"], s["client"], work)
         self.assertIsNone(run(lambda tx: next_action.current(tx, s["task"])))
         at = datetime(2030, 1, 7, 1, 0, tzinfo=timezone.utc)
-        run(lambda tx: next_action.schedule_call(tx, s["task"], at, cause="取り込み", promised=False))
+        run(lambda tx: next_action.schedule_call(tx, s["task"], at, contact_id=s["contact"], cause="取り込み", promised=False))
         run(lambda tx: next_action.end(tx, s["task"], "回数の上限", cause="判定のあと"))
         cur = run(lambda tx: next_action.current(tx, s["task"]))
         self.assertEqual((cur["seq"], cur["kind"], cur["end_reason"]), (2, "end", "回数の上限"))

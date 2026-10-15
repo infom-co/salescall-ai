@@ -173,7 +173,7 @@ class Schedule(Base):
                          s["contact"])
         self.assertEqual(self.reason(s, task=t2), "no_schedule")
         self.tx(s, lambda tx: next_action.schedule_call(tx, s["task"], tx.one("SELECT now() + interval '1 hour' AS t")["t"],
-                                                        cause="試験", promised=False))
+                                                        contact_id=s["contact"], cause="試験", promised=False))
         self.assertEqual(self.reason(s), "not_due")
 
 
@@ -294,12 +294,12 @@ class Pacing(Base):
         self.past_attempt(s, ["dialing", "answered", "ending", "ended"], settled=False)   # 検証待ち＝まだ締められない
         self.assertEqual(self.reason(s), "awaiting_decision")
 
-    def test_verification_pending_blocks_the_contact_in_other_rows(self):
+    def test_unsettled_call_blocks_the_contact_in_other_rows(self):
         s = self.ready()
         other_run = self.w.run(s["tenant"], s["client"], s["business"], s["version"])
         other = dict(s, task=self.w.task(s["tenant"], s["client"], other_run, s["contact"]), run=other_run)
         self.past_attempt(other, ["dialing", "answered", "ending", "ended"], settled=False)
-        self.assertEqual(self.reason(s), "verification_pending")
+        self.assertEqual(self.reason(s), "related_unsettled")
         self.assertIsNone(self.tx(s, lambda tx: gate.pacing(tx, s["task"])).earliest)
 
     def test_same_contact_interval(self):
@@ -371,7 +371,7 @@ class NotByCallee(Base):
         self.past_attempt(s, ["dialing", "no_answer"])
         self.assertIn(self.reason(s), ("same_contact_interval", "daily_attempts"))   # ふつうの予定なら、どちらも止める
         self.tx(s, lambda tx: next_action.schedule_call(tx, s["task"], tx.one("SELECT now() AS t")["t"],
-                                                        cause="相手に頼まれた折り返し", promised=True))
+                                                        contact_id=s["contact"], cause="相手に頼まれた折り返し", promised=True))
         self.assertIsInstance(self.claim(s), gate.Claim)
 
     def test_one_way_of_counting_for_every_limit(self):
@@ -386,14 +386,14 @@ class NotByCallee(Base):
         self.past_attempt(s2, ["dialing", "no_answer"])             # 出なかった：数える
         self.assertEqual(self.reason(s2), "max_attempts")
         self.tx(s2, lambda tx: next_action.schedule_call(tx, s2["task"], tx.one("SELECT now() AS t")["t"],
-                                                         cause="相手に頼まれた折り返し", promised=True))
+                                                         contact_id=s2["contact"], cause="相手に頼まれた折り返し", promised=True))
         self.assertIsInstance(self.claim(s2), gate.Claim)           # 約束したかけ直しは、回数の上限でも止めない
 
     def test_promised_callback_still_respects_other_rules(self):
         s = self.ready()
         self.tx(s, lambda tx: dnc.register(tx, s["phone"], "manual"))
         self.tx(s, lambda tx: next_action.schedule_call(tx, s["task"], tx.one("SELECT now() AS t")["t"],
-                                                        cause="約束", promised=True))
+                                                        contact_id=s["contact"], cause="約束", promised=True))
         self.assertEqual(self.reason(s), "dnc_client")
 
 

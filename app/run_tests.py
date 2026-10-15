@@ -138,7 +138,8 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("管理番号の発信禁止の有効な登録は1つ、の約束を外す", "DROP INDEX salescall.dnc_one_active_ref",
      ("tests.test_dnc.RefusalScope.test_refusing_twice_keeps_one_entry_each",)),
     ("期限の切れた予約を取り消す処理を空にする",
-     "CREATE OR REPLACE FUNCTION salescall.release_expired_claims(p_contact uuid, p_phone text, p_line uuid) RETURNS integer"
+     "CREATE OR REPLACE FUNCTION salescall.release_expired_claims(p_task uuid, p_contact uuid, p_phone text, p_line uuid)"
+     " RETURNS integer"
      " LANGUAGE sql SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ SELECT 0 $$",
      ("tests.test_gate.ExpiredClaims.test_expired_claim_is_released_and_cannot_dial",)),
     ("期限の切れた予約も、生きている進行中として数える",
@@ -183,6 +184,33 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("番号違いで管理番号を止めない決まりを外す",
      "ALTER TABLE salescall.dnc_entries DROP CONSTRAINT dnc_entries_ref_not_wrong_party",
      ("tests.test_dnc.RefusalScope.test_database_refuses_bad_entries",)),
+    # 行の番号（DESIGN.md 3-5）
+    ("試行は行の番号にだけかけられる、の参照を外す",
+     "ALTER TABLE salescall.attempts DROP CONSTRAINT attempts_number_of_task",
+     ("tests.test_alternate.DatabasePromises.test_calls_and_schedules_only_to_numbers_of_the_row",)),
+    ("予定は行の番号にだけ、の参照を外す",
+     "ALTER TABLE salescall.task_next_actions DROP CONSTRAINT task_next_actions_number_of_task",
+     ("tests.test_alternate.DatabasePromises.test_calls_and_schedules_only_to_numbers_of_the_row",)),
+    ("かけ直す予定は番号を持つ、の決まりを外す",
+     "ALTER TABLE salescall.task_next_actions DROP CONSTRAINT task_next_actions_number",
+     ("tests.test_alternate.DatabasePromises.test_calls_and_schedules_only_to_numbers_of_the_row",)),
+    ("1つの行に進行中の発信は1つ、の制約を外す", "DROP INDEX salescall.attempts_one_active_per_task",
+     ("tests.test_alternate.DatabasePromises.test_one_active_call_per_row",)),
+    ("タスクを作ったら一覧の番号を足す仕掛けを外す", "DROP TRIGGER task_after_insert ON salescall.tasks",
+     ("tests.test_alternate.DatabasePromises.test_list_number_is_added_with_the_task",)),
+    ("一覧の番号は1行に1つ、の制約を外す", "DROP INDEX salescall.task_numbers_one_list_number",
+     ("tests.test_alternate.DatabasePromises.test_numbers_are_frozen_and_list_number_is_the_task_contact",)),
+    ("行の番号の変更の拒みを外す", "DROP TRIGGER task_numbers_frozen ON salescall.task_numbers",
+     ("tests.test_alternate.DatabasePromises.test_numbers_are_frozen_and_list_number_is_the_task_contact",)),
+    ("期限の切れた予約を戻す範囲から、同じ行を外す",
+     "CREATE OR REPLACE FUNCTION salescall.release_expired_claims(p_task uuid, p_contact uuid, p_phone text, p_line uuid)"
+     " RETURNS integer LANGUAGE sql SECURITY DEFINER SET search_path = salescall, pg_temp AS $$"
+     " WITH r AS (UPDATE salescall.attempts SET state = 'released' WHERE state = 'claimed' AND claim_expires_at <= now()"
+     " AND (contact_id = p_contact OR phone_e164 = p_phone OR line_id = p_line) RETURNING 1) SELECT count(*)::integer FROM r $$",
+     ("tests.test_alternate.DatabasePromises.test_expired_claim_on_another_number_of_the_row_is_released",)),
+    ("別の番号を言われた通話は同じ行の通話、の参照を外す",
+     "ALTER TABLE salescall.task_numbers DROP CONSTRAINT task_numbers_client_id_source_attempt_id_task_id_fkey",
+     ("tests.test_alternate.DatabasePromises.test_callee_number_needs_a_call_of_the_same_row",)),
 )
 
 
