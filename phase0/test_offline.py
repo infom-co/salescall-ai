@@ -115,7 +115,7 @@ class FlowTest(unittest.TestCase):
             self.assertEqual((r["result"], r["ask_n"]), ("ask_back", k + 1))
             says.append(r["say"])
         self.assertEqual(says[0], ASK_BACK)
-        self.assertEqual(says[1], "もう一回、よろしいでしょうか？")  # 録音「申し訳ございません、」のあと（申し訳なさそうに）
+        self.assertEqual(says[1], "もう一回よろしいでしょうか？")  # 録音「申し訳ございません、」のあと（申し訳なさそうに）
         self.assertEqual(len(set(says)), len(says))                 # 同じ言い方をくり返さない
         r = self.call(f, "report_unclear", question_id="Q2")  # 使い切ったら、もう聞き返させない（I-20）
         self.assertEqual((r["result"], r["question_id"]), ("recheck", "Q2"))  # 締めの前に念のための確認を1回
@@ -199,7 +199,7 @@ class FlowTest(unittest.TestCase):
             r = self.call(f, "request_end", reason=reason)
             self.assertEqual((r["result"], r["say"]), ("end", CLOSE_DECLINED), reason)
             self.assertIn(CLOSE_DECLINED, r["message"])
-        self.assertEqual(CLOSE_DECLINED, "お忙しいところ、申し訳ございませんでした。それでは、失礼いたします。")  # ユーザーの言葉のまま
+        self.assertEqual(CLOSE_DECLINED, "お忙しいところ申し訳ございませんでした。それでは失礼いたします。")  # ユーザーの言葉のまま
         from instruction import Business, build
         b = Business(company="アオバ物流", caller="佐藤", purpose="ご予約の確認", questions=list(self.flow().questions.values()))
         self.assertIn("約束してはいけません", build(b, "S2")[1])
@@ -272,7 +272,7 @@ class FlowTest(unittest.TestCase):
                        ("confirm_field", {"question_id": "Q3", "result": "affirmed"}), ("no_such_op", {})):
             r = self.call(f, op, **kw)
             self.assertEqual(r["result"], "rejected", op)
-            self.assertIn("15日の午後2時で、よろしいでしょうか。", r["message"], op)  # 待っている言い直しと、その言い方
+            self.assertIn("15日の午後2時でよろしいでしょうか？", r["message"], op)  # 待っている言い直しと、その言い方
             self.assertIn("confirm_field", r["message"], op)
         self.assertEqual(f.items["Q3"].state, "empty")  # 差し戻した報告は、記録に入らない
         r = self.call(f, "confirm_field", question_id="Q2", result="affirmed")
@@ -328,7 +328,7 @@ class FlowTest(unittest.TestCase):
         from phrases import LEAD_IN
         qs = [Question("Q1", "日時は。", "datetime", conditions=("答えた",)), Question("Q2", "人数は。", "number", conditions=("答えた",))]
         f = Flow(qs, lead_ins=False)                                       # 付けない形（過去の比べの試験のためだけ）
-        self.assertEqual(self.call(f, "record_answer", question_id="Q1", condition_id="答えた", value="15日")["say"], "15日で、よろしいでしょうか。")
+        self.assertEqual(self.call(f, "record_answer", question_id="Q1", condition_id="答えた", value="15日")["say"], "15日でよろしいでしょうか？")
         f = Flow(qs)                                                       # ✅ 2026-10-13 ユーザー承認：既定で付ける（G-27 の W1）
         r1 = self.call(f, "record_answer", question_id="Q1", condition_id="答えた", value="15日")
         self.assertTrue(r1["say"].startswith(LEAD_IN["言い直し"][0]))
@@ -577,7 +577,7 @@ class AIToJapaneseTest(unittest.TestCase):
         r = f.handle(fc("record_answer", 質問="Q1", 答えの種類="はい"))
         self.assertEqual((r["結果"], r["質問"]), ("次の質問", "Q2"))
         r = f.handle(fc("record_answer", 質問="Q2", 答えの種類="答えた", 値="15日の午後2時です。"))
-        self.assertEqual((r["結果"], r["値"], r["言い方"]), ("言い直して確かめる", "15日の午後2時", "ありがとうございます。15日の午後2時で、よろしいでしょうか。"))
+        self.assertEqual((r["結果"], r["値"], r["言い方"]), ("言い直して確かめる", "15日の午後2時", "ありがとうございます。15日の午後2時でよろしいでしょうか？"))
         f.on_callee()
         r = f.handle(fc("confirm_field", 質問="Q2", 返事の種類="合っている"))
         self.assertEqual(r["結果"], "締め")
@@ -601,7 +601,7 @@ class AIToJapaneseTest(unittest.TestCase):
             f.on_callee()
             r = f.handle(fc("confirm_field", **bad))
             self.assertEqual(r["結果"], "差し戻し", bad)
-            self.assertIn("15日の午後2時で、よろしいでしょうか。", r["次にすること"], bad)  # いま求めていること（_now）も添える
+            self.assertIn("15日の午後2時でよろしいでしょうか？", r["次にすること"], bad)  # いま求めていること（_now）も添える
             self.assertEqual((f.awaiting_confirm, f.items["Q2"].state), ("Q2", "checking"), bad)  # 記録は書き換えない
             if "与えの返事" in bad:
                 self.assertIn("「与えの返事」という項目は", r["次にすること"])
@@ -869,9 +869,9 @@ class CollectTurnTest(unittest.TestCase):
         return asyncio.run(collect_turn(sess, started_at=time.monotonic(), on_tool_call=lambda fc: {"result": "ok"}, timeout_s=5))
 
     def test_blocking_waits_for_speech_after_reply(self):
-        sess = self.session([[self.tool()], [self.audio("15日の午後2時で、よろしいでしょうか。")]])
+        sess = self.session([[self.tool()], [self.audio("15日の午後2時でよろしいでしょうか？")]])
         r = self.collect(sess)
-        self.assertEqual(("".join(r.output_transcript), len(r.tool_calls), r.timed_out), ("15日の午後2時で、よろしいでしょうか。", 1, False))
+        self.assertEqual(("".join(r.output_transcript), len(r.tool_calls), r.timed_out), ("15日の午後2時でよろしいでしょうか？", 1, False))
         kinds = [e["kind"] for e in r.events]
         self.assertLess(kinds.index("tool_response_sent"), kinds.index("audio_start"))  # 間を測る時刻：返事を送ったあとに声が始まった
         self.assertIsNone(getattr(sess.sent[0][0], "scheduling", None))  # 返事はいつもの形（待たせない宣言の名残が無い）
@@ -1004,11 +1004,11 @@ class FormCheckTest(unittest.TestCase):
         self.do(f, "record_answer", question_id="Q1", condition_id="はい")
         r = self.do(f, "record_answer", question_id="Q2", condition_id="答えた", value="3人です")
         self.assertEqual((r["result"], r["ack"]), ("ask_back", "hai"))
-        self.assertEqual(r["say"], "恐れ入ります。ご希望の日時を、もう一度、お聞かせいただいてもよろしいでしょうか？")  # ユーザーの言い方
+        self.assertEqual(r["say"], "恐れ入ります。ご希望の日時をもう一度お聞かせいただいてもよろしいでしょうか？")  # ユーザーの言い方
         self.assertEqual((f.items["Q2"].state, f.items["Q2"].value), ("unclear", None))  # 記録しない
         self.assertIn("3人", f.items["Q2"].history[-1][2])                             # どの値で止めたかは残す
         r = self.do(f, "record_answer", question_id="Q2", condition_id="答えた", value="はい")
-        self.assertEqual((r["result"], r["ack"], r["say"]), ("ask_back", "moushiwake", "もう一回、よろしいでしょうか？"))  # 2回目
+        self.assertEqual((r["result"], r["ack"], r["say"]), ("ask_back", "moushiwake", "もう一回よろしいでしょうか？"))  # 2回目
         r = self.do(f, "record_answer", question_id="Q2", condition_id="答えた", value="15日の午後2時")
         self.assertEqual(r["result"], "confirm_required")
         self.assertIn("おっしゃいましたでしょうか", r["say"])  # 聞き返したあとの言い直しの形
@@ -1021,7 +1021,7 @@ class FormCheckTest(unittest.TestCase):
         self.do(f, "record_answer", question_id="Q1", condition_id="はい")
         r = self.do(f, "record_answer", question_id="Q2", condition_id="答えた", value="いつでも大丈夫です")
         self.assertEqual(r["result"], "confirm_required")
-        self.assertIn("いつでも大丈夫ということで、", r["say"])  # 「いつでも大丈夫で、」は不自然
+        self.assertIn("いつでも大丈夫ということでよろしいでしょうか？", r["say"])  # 「いつでも大丈夫で、」は不自然
         self.do(f, "confirm_field", question_id="Q2", result="affirmed")
         self.assertEqual(f.export()["Q2"], "いつでも大丈夫")
 
@@ -1067,7 +1067,7 @@ class FormCheckTest(unittest.TestCase):
         self.do(f, "record_answer", question_id="Q2", condition_id="答えた", value="15日の午後2時")
         r = self.do(f, "confirm_field", question_id="Q2", result="affirmed", correction="16日の午後2時")
         self.assertEqual((r["result"], r["value"], r["ack"]), ("confirm_required", "16日の午後2時", "hai"))
-        self.assertTrue(r["say"].startswith("念のため、16日の午後2時"))
+        self.assertTrue(r["say"].startswith("念のため16日の午後2時"))
         self.assertNotEqual(f.items["Q2"].state, "confirmed")             # 古い値（15日）で済ませない
         self.do(f, "confirm_field", question_id="Q2", result="affirmed", correction="16日の午後2時")
         self.assertEqual((f.items["Q2"].state, f.items["Q2"].value), ("confirmed", "16日の午後2時"))
@@ -1106,7 +1106,7 @@ class FormCheckTest(unittest.TestCase):
         f = Flow([Question("Q1", "ご来店の人数をお聞かせください。", "number", conditions=("答えた",), topic="ご来店の人数")])
         r = self.do(f, "record_answer", question_id="Q1", condition_id="答えた", value="家族で行こうと思ってます")
         self.assertEqual((r["result"], r["ack"], f.items["Q1"].value), ("ask_back", "hai", None))
-        self.assertEqual(r["say"], "恐れ入ります。ご来店の人数を、もう一度、お聞かせいただいてもよろしいでしょうか？")
+        self.assertEqual(r["say"], "恐れ入ります。ご来店の人数をもう一度お聞かせいただいてもよろしいでしょうか？")
         self.assertIn("数がありません", r["message"])
         self.assertEqual(self.do(f, "record_answer", question_id="Q1", condition_id="答えた", value="3人です")["result"], "confirm_required")
 
@@ -1133,7 +1133,7 @@ class AskLadderTest(unittest.TestCase):
     （その場2回＋締めの前の念のための確認1回）。依頼主ごとに変えられる。最後の1回は「申し訳ございません、」（相づちの録音）＋
     「お声が聞き取れませんでしたので、（聞くこと）を、もう一度だけ、お聞かせいただいてもよろしいでしょうか？」。"""
 
-    LAST = "お声が聞き取れませんでしたので、ご希望の日時を、もう一度だけ、お聞かせいただいてもよろしいでしょうか？"
+    LAST = "お声が聞き取れませんでしたのでご希望の日時をもう一度だけお聞かせいただいてもよろしいでしょうか？"
 
     def flow(self, **limits):
         from flowctl import Flow, Limits, Question
@@ -1150,7 +1150,7 @@ class AskLadderTest(unittest.TestCase):
         from phrases import ASK_BACK
         f = self.flow()
         said = [self.do(f, "report_unclear", question_id="Q1") for _ in range(2)]
-        self.assertEqual([(r["say"], r["ack"]) for r in said], [(ASK_BACK, "moushiwake"), ("もう一回、よろしいでしょうか？", "moushiwake")])
+        self.assertEqual([(r["say"], r["ack"]) for r in said], [(ASK_BACK, "moushiwake"), ("もう一回よろしいでしょうか？", "moushiwake")])
         r = self.do(f, "report_unclear", question_id="Q1")
         self.assertEqual((r["result"], r["question_id"], f.items["Q1"].state), ("next", "Q2", "unresolved"))  # その場は2回まで
         self.do(f, "record_answer", question_id="Q2", condition_id="答えた", value="3人")
@@ -1198,7 +1198,7 @@ class AskLadderTest(unittest.TestCase):
         cases = {"あ、すみません、間違えました。16日の午後2時でお願いします。": "shouchi", "やっぱり16日にしてください。": "shouchi",
                  "16日に変更できますか。": "shouchi", "いや、16日って言ったんですけど。": "shitsurei", "いえ、16日の午後2時です。": "shitsurei",
                  "": "shitsurei"}
-        says = {"shitsurei": "改めまして、16日の午後2時で、大丈夫でしょうか？", "shouchi": "それでは、16日の午後2時で、よろしいでしょうか？"}
+        says = {"shitsurei": "改めまして16日の午後2時で大丈夫でしょうか？", "shouchi": "それでは16日の午後2時でよろしいでしょうか？"}
         for said, ack in cases.items():
             f = self.flow()
             self.do(f, "record_answer", question_id="Q1", condition_id="答えた", value="15日の午後2時")
@@ -1225,7 +1225,7 @@ class AskLadderTest(unittest.TestCase):
         self.assertEqual(f.apply("confirm_field", {"question_id": "Q1", "result": "affirmed"})["result"], "next")
         f.on_heard("、すみません、間違えました。16日の午後2時でお願いします。")
         r = f.apply("confirm_field", {"question_id": "Q1", "result": "corrected", "correction": "16日の午後2時"})
-        self.assertEqual((r["result"], r["ack"], r["say"]), ("confirm_required", "shouchi", "それでは、16日の午後2時で、よろしいでしょうか？"))
+        self.assertEqual((r["result"], r["ack"], r["say"]), ("confirm_required", "shouchi", "それでは16日の午後2時でよろしいでしょうか？"))
         self.assertEqual((f.items["Q1"].state, f.items["Q1"].value, f.awaiting_confirm), ("checking", "16日の午後2時", "Q1"))
         self.heard(f, "はい、そうです。")
         r = f.apply("confirm_field", {"question_id": "Q1", "result": "affirmed"})
@@ -1263,7 +1263,7 @@ class AskLadderTest(unittest.TestCase):
         self.assertEqual(f.apply("confirm_field", {"question_id": "Q1", "result": "corrected", "correction": "16日の午後2時"})["result"],
                          "rejected")
         r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "答えた", "value": "16日の午後2時"})
-        self.assertEqual((r["ack"], r["say"]), ("shouchi", "それでは、16日の午後2時で、よろしいでしょうか？"))
+        self.assertEqual((r["ack"], r["say"]), ("shouchi", "それでは16日の午後2時でよろしいでしょうか？"))
 
     def test_instruction_leaves_the_fit_to_the_program(self):
         """答えが質問に合うかは、プログラムの1か所で決める（✅ 2026-10-14 ユーザー承認）。AIには、聞いたとおりの値で報告させる。"""
@@ -1276,6 +1276,22 @@ class AskLadderTest(unittest.TestCase):
         self.assertIn(f"こちらの聞き違いでも、相手の言い間違いでも）「{CONFIRM_LABEL['corrected']}」", text)  # 見分けはプログラム
         self.assertIn("直していない部分も足します", text)  # ⛔ G-36 の3回目：「16日」だけが報告され、「午後2時」が落ちた
         self.assertIn("その言い方から話し始めます", text)    # ⛔ G-36 の3回目：AIが自分で「失礼いたしました。」を足した
+
+
+class SpokenTextTest(unittest.TestCase):
+    """お客様に聞こえる決まった言い方・録音の文には、言葉の途中に読点を入れない（✅ 2026-10-15 ユーザー：「句読点のような間が入ると、
+    少し違和感がある。すらっと読めると自然（人っぽい）」）。録音の相づち・つなぎの言葉の終わりの読点（続きがある調子）だけは許す。"""
+
+    def test_no_comma_inside(self):
+        import phrases
+        from g22_opening import BUSINESS
+        texts = [phrases.ASK_BACK, phrases.BUSY_ASK, phrases.CLOSE_DECLINED, phrases.AMPM_ASK, phrases.WAIT, phrases.CLOSING,
+                 *phrases.SILENCE_PROMPT, *[q.text for q in BUSINESS.questions], *BUSINESS.opening_parts()]
+        texts += [phrases.ask_again(n, r, "ご希望の日時", last) for n in (1, 2, 3) for r in ("unclear", "form") for last in (False, True)]
+        texts += [phrases.confirm(v, sit, n) for v in ("15日の午後2時", "いつでも大丈夫") for sit in phrases.CONFIRM for n in range(2)]
+        texts += [t for forms in phrases.LEAD_IN.values() for t in forms] + list(phrases.RECORDED.values())
+        for t in texts:
+            self.assertNotIn("、", t.rstrip("、"), t)
 
 
 class AmPmTest(unittest.TestCase):
@@ -1481,7 +1497,7 @@ class AckTimingTest(unittest.TestCase):
     """G-34 の数え方（報告の時刻に流す相づち）と、通話をつないで聞く声（stitch_gap.stitch_call）。作った記録で確かめる。"""
 
     @staticmethod
-    def turn(first_audio, tool_at, ack="hai", said="ありがとうございます。15日の午後2時で、よろしいでしょうか。"):
+    def turn(first_audio, tool_at, ack="hai", said="ありがとうございます。15日の午後2時でよろしいでしょうか？"):
         return {"callee": {"wav": "Puck_datetime_pm.wav"}, "first_audio_after_s": first_audio, "intended": said,
                 "tool_events": [{"at_s": tool_at, "name": "record_answer", "reply": "confirm_required", "ack": ack}]}
 
