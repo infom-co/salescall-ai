@@ -12,7 +12,7 @@ from salescall.core import attempts, dnc, importer, target_policy
 from salescall.core.access import Rejected
 from salescall.core.import_files import read
 from salescall.core.phone import normalize
-from tests.support import OPERATOR, SYSTEM, World, fictional_jp_fixed
+from tests.support import ADMIN, OPERATOR, SYSTEM, World, fictional_jp_fixed
 from tests.test_import import MAP, csv_file
 
 
@@ -69,7 +69,9 @@ class Register(unittest.TestCase):
     def test_system_ledger_applies_to_every_client_and_releases_their_claims(self):
         w = World(); s1 = jp_setup(w)
         a = w.insert_claim(s1)
-        n = w.a.in_system(OPERATOR, lambda tx: dnc.register_system(tx, s1["raw"], "総務省の注意喚起（試験）"))
+        with self.assertRaises(Rejected):                    # 運営者（契約者の利用者）は、全体に効く登録はできない
+            w.a.in_system(OPERATOR, lambda tx: dnc.register_system(tx, s1["raw"], "試験"))
+        n = w.a.in_system(ADMIN, lambda tx: dnc.register_system(tx, s1["raw"], "総務省の注意喚起（試験）"))
         self.assertEqual(n, 1)
         self.assertEqual(state_of(w, s1, a), "released")
         s2 = World().setup()   # ほかの契約者の依頼主

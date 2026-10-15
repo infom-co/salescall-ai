@@ -211,6 +211,10 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     # システムの管理者（CL-3 の 4-1f の3）
     ("システムの値を管理者だけにする仕掛けを外す", "DROP TRIGGER setting_values_system_by_admin ON salescall.setting_values",
      ("tests.test_settings.SystemValuesByAdmin.test_only_admin",)),
+    ("全体の緊急停止を管理者だけにする仕掛けを外す", "DROP TRIGGER system_manual_stop_by_admin ON salescall.stop_events",
+     ("tests.test_watch.SystemStopsAndChecks.test_manual_stop_is_not_resumed_by_checks",)),
+    ("システム共通の発信禁止を管理者だけにする仕掛けを外す", "DROP TRIGGER system_dnc_by_admin ON salescall.system_dnc_entries",
+     ("tests.test_dnc.Register.test_system_ledger_applies_to_every_client_and_releases_their_claims",)),
     # 承認の部分（10-2）
     ("行を承認できるのは運営者だけ、の仕掛けを外す", "DROP TRIGGER task_approval_by_operator ON salescall.task_approvals",
      ("tests.test_approval.HumanApproval.test_dials_only_approved_rows",)),

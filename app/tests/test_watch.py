@@ -9,7 +9,7 @@ import unittest
 from salescall.core import errors, settings, stops, watch
 from salescall.core.access import Rejected
 from salescall.core.errors import ErrorReport
-from tests.support import OPERATOR, SYSTEM, World, app_access, owner_access
+from tests.support import ADMIN, OPERATOR, SYSTEM, World, app_access, owner_access
 
 
 class Classify(unittest.TestCase):
@@ -152,10 +152,14 @@ class SystemStopsAndChecks(unittest.TestCase):
         self.assertGreater(w2, w1)
 
     def test_manual_stop_is_not_resumed_by_checks(self):
-        sid = self.a.in_system(OPERATOR, lambda tx: stops.stop(tx, scope="system", cause="manual", reason="試験"))["event_id"]
+        with self.assertRaises(Rejected):                    # 全体の緊急停止は、システムの管理者だけ（運営者は押せない）
+            self.a.in_system(OPERATOR, lambda tx: stops.stop(tx, scope="system", cause="manual", reason="試験"))
+        sid = self.a.in_system(ADMIN, lambda tx: stops.stop(tx, scope="system", cause="manual", reason="試験"))["event_id"]
         with self.assertRaises(watch.NotProbeable):
             self.check(sid, True)
-        self.a.in_system(OPERATOR, lambda tx: stops.resume(tx, sid, reason="試験"))
+        with self.assertRaises(Rejected):
+            self.a.in_system(OPERATOR, lambda tx: stops.resume(tx, sid, reason="試験"))
+        self.a.in_system(ADMIN, lambda tx: stops.resume(tx, sid, reason="試験"))
 
     def test_checks_are_frozen(self):
         sid = self.storage_stop()
