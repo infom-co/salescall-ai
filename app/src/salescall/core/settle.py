@@ -9,6 +9,9 @@
 - 締めが済むまで、門はその行に次をかけない（`awaiting_decision`）。
 - 相手が言った別の番号（DESIGN.md 3-5）：そろえられた番号は、かけるかどうかに関係なく、その行の番号に足す（tasks の1か所。
   相手が断ったら、この番号も止めるため＝3-6）。かけるか・どの番号へかけるかは次の動き（next_action.choose_number）が決める。
+- **判定できなかった行は、判定待ちで残す**（2026-10-16 ユーザー決定）：判定できない＝こちらの誤りなので、何も決めない
+  （切れ方・発信禁止・別の番号を書かず、結果 unknown と判定待ちだけ）。原因が直ったら（判定の処理の版・業務設定の版・
+  録音から作り直した会話の報告のどれかが変わったら）`rejudge` が判定し直す。最初の締めと判定し直しは、同じ1つの道を通る。
 - 相手が言った番号が番号違いだった（2026-10-15 ユーザー決定）：番号の確かめ（core/number_recheck.py。通話後の検証の中で記録済み）を
   読み、聞き違いなら正しい番号を行に足す。次にどこへかけるか（正しい番号／番号を聞いた通話の番号へ聞き直し）は次の動きが決める。
 """
@@ -39,19 +42,27 @@ def unsettled(tx: Tx) -> list[dict[str, Any]]:
         " ORDER BY a.ended_at")
 
 
-def settle(tx: Tx, attempt_id: UUID) -> dict[str, Any]:
-    """その試行を締める（判定 → 書く → 次の動き）。結果の版の番号・業務の状態・次の動きを返す。"""
-    a = tx.one(
-        "SELECT a.attempt_id, a.task_id, a.tenant_id, a.client_id, a.state, a.hangup_side, a.verification,"
-        "       a.version_id, a.contact_id, a.phone_e164, a.purpose, a.wrong_contact_id, a.claimed_at,"
-        "       salescall.reached_answer(a.attempt_id) AS reached_answer,"
-        "       t.client_ref, r.business_id"
-        " FROM salescall.attempts a"
-        " JOIN salescall.tasks t ON t.client_id = a.client_id AND t.task_id = a.task_id"
-        " JOIN salescall.runs r ON r.client_id = t.client_id AND r.run_id = t.run_id"
-        " WHERE a.attempt_id = %s", (attempt_id,))
+_ATTEMPT = (
+    "SELECT a.attempt_id, a.task_id, a.tenant_id, a.client_id, a.state, a.hangup_side, a.verification, a.disconnect,"
+    "       a.version_id, a.contact_id, a.phone_e164, a.purpose, a.wrong_contact_id, a.claimed_at,"
+    "       salescall.reached_answer(a.attempt_id) AS reached_answer,"
+    "       t.client_ref, t.run_id, r.business_id"
+    " FROM salescall.attempts a"
+    " JOIN salescall.tasks t ON t.client_id = a.client_id AND t.task_id = a.task_id"
+    " JOIN salescall.runs r ON r.client_id = t.client_id AND r.run_id = t.run_id"
+    " WHERE a.attempt_id = %s")
+
+
+def _attempt(tx: Tx, attempt_id: UUID) -> dict[str, Any]:
+    a = tx.one(_ATTEMPT, (attempt_id,))
     if a is None:
         raise attempts.AttemptNotFound(str(attempt_id))
+    return a
+
+
+def settle(tx: Tx, attempt_id: UUID) -> dict[str, Any]:
+    """その試行を締める（判定 → 書く → 次の動き）。結果の版の番号・業務の状態・次の動きを返す。"""
+    a = _attempt(tx, attempt_id)
     done = tx.one("SELECT version_no, business_state FROM salescall.task_results WHERE attempt_id = %s AND kind = 'judged'",
                   (attempt_id,))
     if done is not None:
@@ -60,9 +71,67 @@ def settle(tx: Tx, attempt_id: UUID) -> dict[str, Any]:
         raise NotReady("発信していない・まだ終わっていない試行です")
     if a["verification"] == "pending":
         raise NotReady("通話後の検証が済んでいません")
+    out = _judge_and_write(tx, a, kind="judged", rules_version=a["version_id"])
+    usage.record_line_estimate(tx, attempt_id)   # 利用量の台帳（Q16）：回線の料金の推定（相手が出た通話だけ。試行ごとに1回）
+    return _after(tx, a, out)
 
-    report = call_report.load(tx, attempt_id)
-    rules = business_rules.load(tx, a["version_id"])
+
+def _after(tx: Tx, a: dict[str, Any], out: dict[str, Any]) -> dict[str, Any]:
+    quality_stage.evaluate(tx, a["version_id"])   # 品質の段（Q22）：通話ごとに評価（止める・次の段へ）
+    approval.after_judged(tx, a["task_id"], out["version_no"], a["version_id"])   # 送ってよい印（モードを読むのは承認の部分だけ）
+    return out
+
+
+def _inputs_now(tx: Tx, a: dict[str, Any]) -> dict[str, Any]:
+    """いま判定し直すなら使う入力の版：判定の処理の版・業務設定の版（実施回のいまの版）・会話の報告の出どころ。"""
+    version = tx.one("SELECT salescall.run_current_version(%s) AS v", (a["run_id"],))["v"]
+    return {"judge_version": JUDGE_VERSION, "rules_version": str(version),
+            "report_source": call_report.load_with_source(tx, a["attempt_id"])[1]}
+
+
+def rejudge(tx: Tx, attempt_id: UUID) -> dict[str, Any] | None:
+    """判定待ちの行の、その試行を判定し直す（2026-10-16 ユーザー決定）。原因が直ったとき（判定の処理の版・業務設定の版・
+    作り直した会話の報告のどれかが、前の判定と違う）だけ判定する。何も変わっていなければ何もしない（None）。
+    判定し直した結果は、結果の版 rejudged として足し、ふつうの締めと同じ道で次の動きを書く。"""
+    a = _attempt(tx, attempt_id)
+    held = tx.one("SELECT 1 FROM salescall.task_next_actions n WHERE n.task_id = %s AND n.kind = 'hold'"
+                  " AND n.seq = (SELECT max(m.seq) FROM salescall.task_next_actions m WHERE m.task_id = n.task_id)",
+                  (a["task_id"],)) is not None
+    last = tx.one("SELECT judge_version, snapshot FROM salescall.task_results WHERE attempt_id = %s"
+                  " AND kind IN ('judged', 'rejudged') ORDER BY version_no DESC LIMIT 1", (attempt_id,))
+    latest_attempt = tx.one("SELECT attempt_id FROM salescall.attempts WHERE task_id = %s AND state NOT IN ('claimed', 'released')"
+                            " ORDER BY claimed_at DESC LIMIT 1", (a["task_id"],))["attempt_id"]
+    if not held or last is None or latest_attempt != attempt_id:
+        return None
+    now = _inputs_now(tx, a)
+    before = {"judge_version": last["judge_version"], "rules_version": last["snapshot"].get("rules_version"),
+              "report_source": last["snapshot"].get("report_source")}
+    if now == before:
+        return None                                # 何も直っていない：同じ入力で判定し直しても同じ結果
+    out = _judge_and_write(tx, a, kind="rejudged", rules_version=now["rules_version"])
+    return _after(tx, a, out)
+
+
+def rejudge_held(tx: Tx) -> list[dict[str, Any]]:
+    """取引の依頼主の、判定待ちの行をすべて見て、原因が直ったものを判定し直す（見守り役が決まった間隔で呼ぶ）。"""
+    done = []
+    for row in tx.all(
+            "SELECT (SELECT a.attempt_id FROM salescall.attempts a WHERE a.task_id = n.task_id"
+            "        AND a.state NOT IN ('claimed', 'released') ORDER BY a.claimed_at DESC LIMIT 1) AS attempt_id"
+            " FROM salescall.task_next_actions n WHERE n.kind = 'hold'"
+            " AND n.seq = (SELECT max(m.seq) FROM salescall.task_next_actions m WHERE m.task_id = n.task_id)"):
+        got = rejudge(tx, row["attempt_id"])
+        if got is not None:
+            done.append(got)
+    return done
+
+
+def _judge_and_write(tx: Tx, a: dict[str, Any], *, kind: str, rules_version: Any) -> dict[str, Any]:
+    """判定して書く（最初の締めと、判定し直しの、同じ1つの道）。判定できなかったときは何も決めない（切れ方・発信禁止・
+    別の番号を書かず、結果 unknown と判定待ちだけ）。"""
+    attempt_id = a["attempt_id"]
+    report, report_source = call_report.load_with_source(tx, attempt_id)
+    rules = business_rules.load(tx, rules_version)
     items = {r["question_id"]: Item(r["state"], r["condition"], r["reason"]) for r in tx.all(
         "SELECT question_id, state::text AS state, condition, reason FROM salescall.item_values WHERE task_id = %s",
         (a["task_id"],))}
@@ -75,26 +144,30 @@ def settle(tx: Tx, attempt_id: UUID) -> dict[str, Any]:
                      rules, refused_after,
                      unclear_is_refusal)
     j = judge(inp)
-    alternate = None if report is None or report.callback is None or report.callback.reason != "other_number" else \
+    decided = j.state != "unknown"
+    alternate = None if not decided or report is None or report.callback is None \
+        or report.callback.reason != "other_number" else \
         _number_material(tx, a, report.callback.number_e164, source_attempt_id=attempt_id)
-    recheck = _recheck(tx, a, j, dialed)
+    recheck = _recheck(tx, a, j, dialed) if decided else None
 
-    if j.disconnect is not None:
+    if j.disconnect is not None and a["disconnect"] is None:
         attempts.record_disconnect(tx, attempt_id, j.disconnect)
     snapshot = {
         "facts": {"end_state": a["state"], "hangup_side": a["hangup_side"], "reached_answer": a["reached_answer"],
                   "verification": a["verification"]},
-        "report": None if report is None else report.to_json(),
+        "report": None if report is None else report.to_json(), "report_source": report_source,
         "items": {q: {"state": i.state, "condition": i.condition, "reason": i.reason} for q, i in sorted(items.items())},
         "rules_version": str(rules.version_id), "refused_after": refused_after, "unclear_is_refusal": unclear_is_refusal,
     }
-    version_no = results.append(tx, a["task_id"], kind="judged", business_state=j.state, attempt_id=attempt_id,
+    version_no = results.append(tx, a["task_id"], kind=kind, business_state=j.state, attempt_id=attempt_id,
                                 judge_version=JUDGE_VERSION, complaint=j.complaint, snapshot=snapshot, detail=j.detail,
                                 decided_by="判定")
-    if j.state == "unknown":   # 判定できない：判定の処理か入力の誤り。次の動きは終える。運営者へ知らせる（監視）
+    if not decided:   # 判定できない：こちらの誤り。行は判定待ちで残す（次の動き）。運営者へ知らせる（その試行で1回）
         notify.emit(tx, "judge_unknown", key=f"judge_unknown:{attempt_id}",
-                    summary=f"判定できない通話がありました（判定の処理か入力の誤り。その行は終えました）。{j.detail.get('error', '')}",
-                    refs={"attempt_id": attempt_id, "task_id": a["task_id"], "judge_version": JUDGE_VERSION})
+                    summary=f"判定できない通話がありました（その行は判定待ちで残し、原因が直ったら判定し直します）。"
+                            f"{j.detail.get('error', '')}",
+                    refs={"attempt_id": attempt_id, "task_id": a["task_id"], "judge_version": JUDGE_VERSION,
+                          "unknown_cause": j.detail.get("unknown_cause")})
     forbidden = attempts.forbidden_speech(tx, attempt_id)
     if forbidden:   # 言ってはいけないことを言った：その行はひとまず終え、管理者（運営者）へ知らせる
         notify.emit(tx, "forbidden_speech", key=f"forbidden_speech:{attempt_id}",
@@ -106,9 +179,6 @@ def settle(tx: Tx, attempt_id: UUID) -> dict[str, Any]:
         tx, a["task_id"], j, verification=a["verification"], rules=rules,
         dialed=next_action.Target(a["contact_id"], None, a["purpose"], a["wrong_contact_id"]), dialed_at=a["claimed_at"],
         alternate=alternate, recheck=recheck, forbidden=forbidden)
-    usage.record_line_estimate(tx, attempt_id)   # 利用量の台帳（Q16）：回線の料金の推定（相手が出た通話だけ）
-    quality_stage.evaluate(tx, a["version_id"])   # 品質の段（Q22）：通話ごとに評価（止める・次の段へ）
-    approval.after_judged(tx, a["task_id"], version_no, a["version_id"])   # 送ってよい印（モードを読むのは承認の部分だけ）
     return {"version_no": version_no, "state": j.state, "decision": decision, "already": False}
 
 

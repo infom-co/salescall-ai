@@ -95,8 +95,10 @@ class Settle(SettleBase):
         self.assertGreaterEqual(span, timedelta(hours=1))                         # 1時間おき（試験の決まり）
         days = self.ready(rules=rules_raw(retry={k: {"action": "call", "max_times": 3, "interval": {"days": 2}}
                                                  for k in business_rules.POLICY_KEYS}))
+        aid = self.call(days, ["dialing", "no_answer"])
+        # NG時間は発信のあとに入れる（いまが昼休みでも、この試験の発信は通す。効かせたいのは次の予定の決め方）
         self.put_client(days, "calling.ng_hours", {k: [["12:00", "13:00"]] for k in KEYS})
-        got = self.settle(days, self.call(days, ["dialing", "no_answer"]))
+        got = self.settle(days, aid)
         row = self.tx(days, lambda tx: tx.one(
             "SELECT salescall.jst(%s) AS next, salescall.jst(claimed_at) AS tried, salescall.jst(now())::date AS today"
             " FROM salescall.attempts WHERE task_id = %s", (got["decision"].at, days["task"])))
@@ -104,15 +106,37 @@ class Settle(SettleBase):
         self.assertNotEqual(calling_hours.band_of(row["next"], [12, 15]), calling_hours.band_of(row["tried"], [12, 15]))
         self.assertFalse(12 <= row["next"].hour < 13)                              # NG時間（昼休み）は避ける
 
-    def test_unknown_ends_the_row_and_is_noticed(self):
-        """判定できない（切れ方の材料が報告されていない）：行を終え、知らせの台帳に入れる（監視）。"""
+    def test_unknown_holds_the_row_and_is_rejudged_when_fixed(self):
+        """判定できない（切れ方の材料が報告されていない）：行は終えずに判定待ちで残し、知らせの台帳に入れる。
+        原因が直ったら（録音から作り直した報告）、判定し直して、ふつうの次の動きへ（2026-10-16 ユーザー決定）。"""
         s = self.ready()
-        aid = self.call(s, report=rep(cut=None))
+        aid = self.call(s, report=rep(cut=None), items=[("Q1", "confirmed", None)])
         got = self.settle(s, aid)
-        self.assertEqual((got["state"], got["decision"].end_reason), ("unknown", "judge_unknown"))
+        self.assertEqual((got["state"], got["decision"].kind), ("unknown", "hold"))
         rows = self.tx(s, lambda tx: tx.all("SELECT kind FROM salescall.notification_events WHERE event_key = %s",
                                             (f"judge_unknown:{aid}",)))
         self.assertEqual(rows, [{"kind": "judge_unknown"}])
+        self.assertEqual(self.tx(s, lambda tx: tx.one("SELECT disconnect FROM salescall.attempts WHERE attempt_id = %s",
+                                                      (aid,)))["disconnect"], None)      # 判定できないときは何も決めない
+        self.assertEqual(self.reason(s), "judge_pending")                 # 門は、判定待ちの行にかけない
+        self.assertEqual(self.tx(s, settle.rejudge_held), [])            # 何も直っていなければ、判定し直さない
+        self.tx(s, lambda tx: call_report.save_rebuilt(tx, aid, rep(), evidence="試験：録音から作り直した"))
+        again = self.tx(s, settle.rejudge_held)
+        self.assertEqual([(g["state"], g["decision"].kind, g["decision"].end_reason) for g in again],
+                         [("completed", "end", "completed")])
+        kinds = self.tx(s, lambda tx: [r["kind"] for r in tx.all(
+            "SELECT kind::text AS kind FROM salescall.task_results WHERE task_id = %s ORDER BY version_no", (s["task"],))])
+        self.assertEqual(kinds, ["judged", "rejudged"])                   # 判定できなかった記録も残す
+        self.assertEqual(self.tx(s, settle.rejudge_held), [])            # もう判定待ちではない
+
+    def test_rebuilt_reports_cannot_be_changed(self):
+        s = self.ready()
+        aid = self.call(s, report=rep(cut=None))
+        self.tx(s, lambda tx: call_report.save_rebuilt(tx, aid, rep(), evidence="試験"))
+        own = owner_access()
+        for sql in ("UPDATE salescall.call_report_rebuilds SET evidence = 'x'", "DELETE FROM salescall.call_report_rebuilds"):
+            with self.subTest(sql=sql), self.assertRaises(Rejected):
+                own.in_client(OPERATOR, s["tenant"], s["client"], lambda tx: tx.execute(sql))
 
     def test_wrong_party_registers_only_that_number(self):
         s = self.ready()

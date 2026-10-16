@@ -8,11 +8,15 @@
 - 模擬通話（`record_mock`）：流すのは CL-1。本数・正解と一致した値と判定の割合・言ってはいけないことの数を、設定の基準と比べて
   合否を決めて記録する。合格なら、その業務の品質の停止を解き（止まった版とは違う版のときだけ）、最初の段を開く。
 - 段の評価（`evaluate`。締めの処理が通話ごとに呼ぶ）：
-  - 数の基準（判定できない・言ってはいけないこと。どちらも 0件）は、毎回見る。超えたら、その場で業務を止める。
+  - 数の基準は、毎回見る。超えたら、その場で業務を止める：言ってはいけないこと（0件まで。原因 forbidden_speech）・
+    判定できない（**同じ原因が2件になったら**。原因 judge_unknown。2026-10-16 ユーザー決定。1件だけなら偶然の誤りかもしれない）。
   - 割合の基準（2つの耳の食い違い・苦情・技術的な失敗・検証できなかった）は、段の件数に達し、その分がすべて締め終わったときに見る
     （小さな数の割合はぶれるため）。内側なら次の段へ（最後の段のあとは全部）、外れたら業務を止める（原因 quality_gate）。
   - 評価のたびに、指標ごとの値・基準・内側か外か・結果を記録する（CL-3 の 4-1e の2）。
 - 記録が無い版は、まだかけられない（模擬通話の合格・最初の段を開く前。判断できなければ通さない）。
+- **判定できないで止めた業務の再開**（2026-10-16 ユーザー決定）：原因を直して、**その場面（止めた原因の通話）を入れた模擬通話**に
+  合格したら、自動で再開する。原因は業務設定とは限らない（会話の処理・判定の処理）ので、同じ版でも再開する。どの場面を入れたかは
+  模擬通話の記録（scenes）で確かめる（入れていなければ再開しない）。
 - **人が品質の停止を解いたら、その版を測り直す**（2026-10-15 ユーザー：「人の判断で再開できる仕組みは？」）。段の件数と指標は、
   その版の通話のうち「人が解いた時刻に、まだ締めていなかった通話」から数える（数える通話の範囲は `_WINDOW` の1か所）。
   ⚠️ いままでは版の通話をすべて数えたので、人が解いても、前の数（言ってはいけないこと 1件など）で、次の通話の締めでまた止まった。
@@ -28,7 +32,7 @@ from uuid import UUID
 from salescall.core import notify, settings, stops
 from salescall.core.access import Tx
 
-STOP_CAUSES = ("quality_gate", "forbidden_speech")    # 品質で止める原因（新しい版の模擬通話の合格で解く）
+STOP_CAUSES = ("quality_gate", "forbidden_speech", "judge_unknown")    # 品質で止める原因（模擬通話の合格で解く）
 # 指標：名前 → （数え方, 基準の設定）。数え方 count＝件数の上限／ratio＝割合の上限
 METRICS: dict[str, tuple[str, str]] = {
     "unknown_judgments": ("count", "quality.max_unknown_judgments"),
@@ -92,6 +96,7 @@ class MockResult:
     judgment_total: int
     forbidden_speech: int       # 言ってはいけないことの数（2つの耳で確かめたもの）
     evidence: str               # 台本の版・流した記録の場所など（相手の個人情報は無い：模擬通話）
+    scenes: tuple[UUID, ...] = ()   # 台本に入れた、実際の通話の場面（試行）。判定できないで止めた業務の再開に要る
 
 
 def _version(tx: Tx, version_id: UUID) -> dict[str, Any]:
@@ -123,7 +128,7 @@ def prepare(tx: Tx, version_id: UUID) -> str:
         return "already"
     v = _version(tx, version_id)
     stop = _quality_stop(tx, v["business_id"])
-    if stop is not None and stop["version_id"] == version_id:
+    if stop is not None and stop["cause"] != "judge_unknown" and stop["version_id"] == version_id:
         return "stopped_version"
     passed_before = tx.one("SELECT 1 FROM salescall.mock_runs WHERE passed LIMIT 1") is not None   # この依頼主（取引の範囲）
     if stop is not None or not passed_before:
@@ -144,15 +149,18 @@ def record_mock(tx: Tx, version_id: UUID, r: MockResult) -> dict[str, Any]:
               and r.judgment_hits / r.judgment_total >= min_judgment and r.forbidden_speech == 0)
     mock_id = tx.one(
         "INSERT INTO salescall.mock_runs (tenant_id, client_id, version_id, calls, value_hits, value_total, judgment_hits,"
-        " judgment_total, forbidden_speech, passed, thresholds, evidence, recorded_by)"
+        " judgment_total, forbidden_speech, passed, thresholds, evidence, recorded_by, scenes)"
         " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,"
-        " salescall.cur_actor()) RETURNING mock_id",
+        " salescall.cur_actor(), %s) RETURNING mock_id",
         (version_id, r.calls, r.value_hits, r.value_total, r.judgment_hits, r.judgment_total, r.forbidden_speech, passed,
-         json.dumps({"calls": need, "min_value_match": min_value, "min_judgment_match": min_judgment}), r.evidence))["mock_id"]
+         json.dumps({"calls": need, "min_value_match": min_value, "min_judgment_match": min_judgment}), r.evidence,
+         [UUID(str(x)) for x in r.scenes]))["mock_id"]
     outcome = "failed"
     if passed:
         stop = _quality_stop(tx, v["business_id"])
-        if stop is not None and stop["version_id"] == version_id:
+        if stop is not None and stop["cause"] == "judge_unknown" and not set(_incidents(tx, stop["event_id"])) <= {str(x) for x in r.scenes}:
+            outcome = "scenes_missing"           # 止めた原因の場面を入れていない模擬通話では、直ったと言えない
+        elif stop is not None and stop["cause"] != "judge_unknown" and stop["version_id"] == version_id:
             outcome = "stopped_version"          # 止まった版そのもの：合格でも再開しない（新しい版で）
         else:
             if stop is not None:
@@ -165,6 +173,13 @@ def record_mock(tx: Tx, version_id: UUID, r: MockResult) -> dict[str, Any]:
     return {"mock_id": mock_id, "passed": passed, "outcome": outcome}
 
 
+def _incidents(tx: Tx, stop_event_id: int) -> list[str]:
+    """判定できないで止めた停止の、原因の通話（試行）。止めたときの評価の記録から読む。"""
+    row = tx.one("SELECT metrics -> 'unknown_judgments' -> 'attempts' AS a FROM salescall.quality_evaluations"
+                 " WHERE stop_event_id = %s", (stop_event_id,))
+    return [] if row is None or row["a"] is None else [str(x) for x in row["a"]]
+
+
 def metrics(tx: Tx, version_id: UUID) -> dict[str, dict[str, Any]]:
     """その版の指標（どれも記録から数える。数え方はここだけ）。値：hits・total・value・limit・inside。"""
     v = _version(tx, version_id)
@@ -173,8 +188,7 @@ def metrics(tx: Tx, version_id: UUID) -> dict[str, dict[str, Any]]:
         " judged AS (SELECT r.* FROM salescall.task_results r JOIN a ON a.attempt_id = r.attempt_id WHERE r.kind = 'judged'),"
         " talked AS (SELECT a.attempt_id FROM a WHERE salescall.reached_answer(a.attempt_id)"
         "            AND EXISTS (SELECT 1 FROM judged j WHERE j.attempt_id = a.attempt_id))"
-        " SELECT (SELECT count(*) FROM judged WHERE business_state = 'unknown') AS unknown,"
-        "        (SELECT coalesce(sum(v.forbidden_speech), 0) FROM salescall.verification_summaries v JOIN a USING (attempt_id))"
+        " SELECT (SELECT coalesce(sum(v.forbidden_speech), 0) FROM salescall.verification_summaries v JOIN a USING (attempt_id))"
         "          AS forbidden,"
         "        (SELECT coalesce(sum(v.items_disagreed), 0) FROM salescall.verification_summaries v JOIN a USING (attempt_id))"
         "          AS ear_hits,"
@@ -187,7 +201,12 @@ def metrics(tx: Tx, version_id: UUID) -> dict[str, dict[str, Any]]:
         "          AS dialed,"
         "        (SELECT count(*) FROM a WHERE verification = 'failed') AS vfailed,"
         "        (SELECT count(*) FROM a WHERE verification IN ('done', 'failed')) AS verified", (version_id, version_id))
-    raw = {"unknown_judgments": (row["unknown"], None), "forbidden_speech": (row["forbidden"], None),
+    by_cause = {r["c"]: [str(x) for x in r["a"]] for r in tx.all(
+        f"SELECT r.detail ->> 'unknown_cause' AS c, array_agg(r.attempt_id ORDER BY r.attempt_id) AS a"
+        f" FROM salescall.task_results r JOIN ({_WINDOW}) a ON a.attempt_id = r.attempt_id"
+        " WHERE r.kind = 'judged' AND r.business_state = 'unknown' GROUP BY 1", (version_id, version_id))}
+    worst = max(by_cause, key=lambda c: (len(by_cause[c]), c or ""), default=None)
+    raw = {"unknown_judgments": (0 if worst is None else len(by_cause[worst]), None), "forbidden_speech": (row["forbidden"], None),
            "ear_disagreement": (row["ear_hits"], row["ear_total"]), "complaint": (row["complaint"], row["talked"]),
            "technical_error": (row["technical"], row["dialed"]), "verification_failed": (row["vfailed"], row["verified"])}
     out = {}
@@ -198,6 +217,9 @@ def metrics(tx: Tx, version_id: UUID) -> dict[str, dict[str, Any]]:
         inside = value is None or value <= float(limit)
         out[name] = {"kind": how, "hits": int(hits), "total": None if total is None else int(total), "value": value,
                      "limit": limit, "inside": inside}
+    # 判定できない：同じ原因の件数（いちばん多い原因で比べる）。原因ごとの件数と、いちばん多い原因の通話を残す（再開の確かめに使う）
+    out["unknown_judgments"].update(causes={c or "": len(a) for c, a in by_cause.items()}, cause=worst,
+                                    attempts=[] if worst is None else by_cause[worst])
     return out
 
 
@@ -216,7 +238,7 @@ def evaluate(tx: Tx, version_id: UUID) -> dict[str, Any] | None:
     if not m["forbidden_speech"]["inside"]:
         cause = "forbidden_speech"
     elif not m["unknown_judgments"]["inside"]:
-        cause = "quality_gate"
+        cause = "judge_unknown"
     else:
         unsettled = tx.one(
             f"SELECT 1 FROM ({_WINDOW}) a WHERE a.state NOT IN ('claimed', 'released')"

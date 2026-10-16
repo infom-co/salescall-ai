@@ -222,6 +222,8 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     # 利用量の台帳と予算（Q16）
     ("利用量の台帳の変更の拒みを外す", "DROP TRIGGER usage_entries_frozen ON salescall.usage_entries",
      ("tests.test_usage.Ledger.test_frozen",)),
+    ("作り直した会話の報告の変更の拒みを外す", "DROP TRIGGER call_report_rebuilds_frozen ON salescall.call_report_rebuilds",
+     ("tests.test_settle.Settle.test_rebuilt_reports_cannot_be_changed",)),
     ("報酬の決まりの変更の拒みを外す", "DROP TRIGGER reward_terms_frozen ON salescall.reward_terms",
      ("tests.test_usage.CostRatio.test_terms_are_frozen",)),
     ("システムが止めた停止を、見守りに見せない",

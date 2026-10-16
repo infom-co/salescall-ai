@@ -32,6 +32,7 @@ from salescall.core.tasks import TaskNotFound
 REASONS: dict[str, tuple[str, str]] = {
     "no_schedule": ("次の予定がありません", "cannot_judge"),
     "task_ended": ("この行は処理済みです", "permanent"),
+    "judge_pending": ("前の通話が判定できず、判定し直しを待っています", "wait"),
     "not_due": ("次の予定の時刻より前です", "wait"),
     "awaiting_decision": ("前の発信の判定と次の予定が、まだ済んでいません", "wait"),
     "awaiting_approval": ("人の承認を使う業務で、この行がまだ承認されていません", "wait"),
@@ -236,6 +237,8 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
         return _deny("no_schedule")
     if nxt["kind"] == "end":
         return _deny("task_ended")
+    if nxt["kind"] == "hold":
+        return _deny("judge_pending")
     if nxt["call_at"] > now:
         return _deny("not_due")
     if not approval.task_cleared(tx, task["task_id"]):   # 人の承認を使う業務：運営者が承認した行だけ（モードは承認の部分が読む）

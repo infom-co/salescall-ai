@@ -150,13 +150,17 @@ def after_call(j_kw, *, verification="done", normal=P_NONE, promised=gate.Pacing
 class AfterCall(unittest.TestCase):
     def test_ends(self):
         for kw, reason in [(dict(), "completed"), (dict(rep=report(dnc=True)), "do_not_call"),
-                           (dict(rep=report(complaint=True), items={}), "complaint"),
-                           (dict(rep=None, items={}), "judge_unknown")]:
+                           (dict(rep=report(complaint=True), items={}), "complaint")]:
             with self.subTest(reason=reason):
                 d = after_call(kw)
                 self.assertEqual((d.kind, d.end_reason), ("end", reason))
         d = after_call(dict(items={}), verification="failed")
         self.assertEqual((d.kind, d.end_reason), ("end", "verification_failed"))
+
+    def test_unknown_holds_the_row(self):
+        """判定できない：終えずに判定待ちで残す（2026-10-16 ユーザー決定）。"""
+        d = after_call(dict(rep=None, items={}))
+        self.assertEqual((d.kind, d.end_reason, d.at), ("hold", None, None))
 
     def test_callback(self):
         at = NOW + timedelta(hours=3)

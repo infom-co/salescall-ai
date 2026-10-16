@@ -51,12 +51,15 @@ def after_judged(tx: Tx, task_id: UUID, version_no: int, version_id: UUID) -> li
     進んだら、その版の待っていた結果にまとめて付ける）。付けた（行, 版の番号）を返す。"""
     if _human(tx, task_id):
         return []
+    if tx.one("SELECT business_state::text AS s FROM salescall.task_results WHERE task_id = %s AND version_no = %s",
+              (task_id, version_no))["s"] == "unknown":
+        return []                                  # 判定できなかった結果は送らない（判定し直した版を送る）
     stage = quality_stage.current(tx, version_id)
     if stage is None or stage["stage_no"] == 1:
         return []                                  # 最初の段の指標が基準を満たすまで待つ
     held = tx.all(
         "SELECT r.task_id, r.version_no FROM salescall.task_results r JOIN salescall.attempts a ON a.attempt_id = r.attempt_id"
-        " WHERE a.version_id = %s AND r.kind = 'judged'"
+        " WHERE a.version_id = %s AND r.kind IN ('judged', 'rejudged') AND r.business_state <> 'unknown'"
         " AND NOT EXISTS (SELECT 1 FROM salescall.result_releases x WHERE x.task_id = r.task_id"
         "                 AND x.version_no = r.version_no) ORDER BY r.task_id, r.version_no", (version_id,))
     for h in held:

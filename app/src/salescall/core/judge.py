@@ -3,7 +3,9 @@
 - **入力から結果が1つに決まる処理**（データベースを読まない・書かない。時計も読まない）。同じ入力からは、いつも同じ結果。
   版（`JUDGE_VERSION`）を結果と一緒に記録する（判定の決まりを変えたら版を上げる）。
 - 入力を集めて結果を書くのは、締めの処理（core/settle.py）の1か所だけ。
-- 「わからない」を値で埋めない（原則10）：入力に抜けがあれば `unknown`（判定の処理か入力の誤り。次の動きが終え、監視へ知らせる）。
+- 「わからない」を値で埋めない（原則10）：入力に抜けがあれば `unknown`（判定の処理か入力の誤り）。原因には決まった名前
+  （`UNKNOWN_CAUSES`。中身の `unknown_cause`）を付ける：同じ原因が何件かを数えるため（品質の段。2026-10-16 ユーザー決定）。
+  その行は終えずに「判定待ち」で残し、原因が直ったら判定し直す（次の動き・締めの処理）。
 - 切れ方の判定（7-1c）も、ここの1か所（`classify_cut`）。門の「数えない発信」は、その結果（試行に記録）を読む。
 
 上から順に、最初に当たったものが答え：
@@ -30,7 +32,14 @@ from typing import Any
 from salescall.core.business_rules import Rules
 from salescall.core.call_report import CallReport
 
-JUDGE_VERSION = "judge-2026-10-15.1"
+JUDGE_VERSION = "judge-2026-10-16.1"
+# 「判定できない」の原因の名前（同じ原因かを数える単位。直す担当も決まる）
+UNKNOWN_CAUSES: dict[str, str] = {
+    "report_missing": "相手が出た通話なのに、会話の報告が無い（会話の処理の誤り。CL-1）",
+    "cut_missing": "人と話した通話なのに、切れ方の材料が報告に無い（会話の処理の誤り。CL-1）",
+    "handling_missing": "取れていない必須の質問の理由に、扱いが業務設定で決まっていない（業務設定の抜け。運営者）",
+    "not_reached_reason_missing": "目的の人に繋がらなかった理由が報告に無い（会話の処理の誤り。CL-1）",
+}
 TAKEN = frozenset({"confirmed", "accepted"})                  # 「取れた」の定義（4-4。ここで2つ目を作らない）
 HUMAN_PARTIES = frozenset({"reception", "target", "wrong_party"})
 
@@ -104,12 +113,15 @@ def judge(inp: JudgeInput) -> Judgement:
     def done(state: str, *, dnc: str | None = None, **more: Any) -> Judgement:
         return Judgement(state, complaint, cut, dnc, {**detail, **more})
 
+    def unknown(cause: str, error: str) -> Judgement:
+        return Judgement("unknown", complaint, None, None, {**detail, "unknown_cause": cause, "error": error})
+
     # 相手が出たのに会話の報告が無い：結果不明（処理が落ちた）なら、何も分からないまま扱う（長い間隔のあとかけ直す。4-2）。
     # それ以外は入力の誤り（報告を書き損ねた）。決めつけない
     if inp.facts.reached_answer and r is None and inp.facts.end_state != "technical_error":
-        return done("unknown", error="相手が出た通話なのに、会話の報告がありません")
+        return unknown("report_missing", "相手が出た通話なのに、会話の報告がありません")
     if raw_cut == "missing":
-        return done("unknown", error="人と話した通話なのに、切れ方の材料（切れた瞬間に話していた人など）が報告されていません")
+        return unknown("cut_missing", "人と話した通話なのに、切れ方の材料（切れた瞬間に話していた人など）が報告されていません")
 
     # (1) 発信の拒否（原則14）
     if (r and r.do_not_call) or cut == "refused":
@@ -139,7 +151,7 @@ def judge(inp: JudgeInput) -> Judgement:
             continue
         h = rules.handling.get((q, it.state, it.reason)) if it.reason is not None else None
         if h is None:
-            return done("unknown", error=f"質問 {q} の {it.state} に、理由×扱いが決まらない（理由 {it.reason!r}）")
+            return unknown("handling_missing", f"質問 {q} の {it.state} に、理由×扱いが決まらない（理由 {it.reason!r}）")
         if h.kind == "conclude":
             return done("concluded", conclusion=h.conclusion, concluded_by=q)
     # (7) かけ直しの約束
@@ -154,7 +166,7 @@ def judge(inp: JudgeInput) -> Judgement:
     # (8) 人と話したが、目的の人に繋がらなかった
     if conversation and "target" not in r.parties:
         if r.not_reached is None:
-            return done("unknown", error="目的の人に繋がらなかった理由がありません")
+            return unknown("not_reached_reason_missing", "目的の人に繋がらなかった理由がありません")
         return done("not_reached", not_reached=r.not_reached, policy_key="not_reached_" + r.not_reached)
     # (9) 会話に至らなかった
     if not conversation:

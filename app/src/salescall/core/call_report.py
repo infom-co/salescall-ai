@@ -146,6 +146,24 @@ def save(tx: Tx, attempt_id: UUID, report: CallReport) -> None:
                (attempt_id, json.dumps(data, ensure_ascii=False)))
 
 
-def load(tx: Tx, attempt_id: UUID) -> CallReport | None:
+def save_rebuilt(tx: Tx, attempt_id: UUID, report: CallReport, *, evidence: str) -> int:
+    """通話の録音から作り直した報告を置く（会話の担当が呼ぶ。「判定できない」の行を判定し直すため。0021）。元の報告は変えない。
+    形の確かめは、ふつうの報告と同じ1つ。"""
+    data = from_json(report.to_json()).to_json()
+    return tx.one("INSERT INTO salescall.call_report_rebuilds (tenant_id, client_id, attempt_id, report, evidence, rebuilt_by)"
+                  " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, salescall.cur_actor())"
+                  " RETURNING rebuild_id", (attempt_id, json.dumps(data, ensure_ascii=False), evidence))["rebuild_id"]
+
+
+def load_with_source(tx: Tx, attempt_id: UUID) -> tuple[CallReport | None, str | None]:
+    """報告と、その出どころ（original＝元の報告／rebuild:番号＝作り直し）。作り直しがあれば、いちばん新しいものを使う。"""
+    row = tx.one("SELECT report, rebuild_id FROM salescall.call_report_rebuilds WHERE attempt_id = %s"
+                 " ORDER BY rebuild_id DESC LIMIT 1", (attempt_id,))
+    if row is not None:
+        return from_json(row["report"]), f"rebuild:{row['rebuild_id']}"
     row = tx.one("SELECT report FROM salescall.call_reports WHERE attempt_id = %s", (attempt_id,))
-    return None if row is None else from_json(row["report"])
+    return (None, None) if row is None else (from_json(row["report"]), "original")
+
+
+def load(tx: Tx, attempt_id: UUID) -> CallReport | None:
+    return load_with_source(tx, attempt_id)[0]
