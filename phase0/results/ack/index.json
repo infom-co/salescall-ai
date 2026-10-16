@@ -13,34 +13,6 @@
     "wav": "L4_hai.wav"
   },
   {
-    "type": "S2",
-    "voice": "Sadachbia",
-    "id": "moushiwake",
-    "text": "申し訳ございません、",
-    "heard": {
-      "0.0": "申し訳ございません。",
-      "1.0": "申し訳ございません。"
-    },
-    "ok": true,
-    "seconds": 1.55,
-    "tries": 1,
-    "wav": "S2_moushiwake.wav"
-  },
-  {
-    "type": "S4",
-    "voice": "Sadachbia",
-    "id": "moushiwake",
-    "text": "申し訳ございません、",
-    "heard": {
-      "0.0": "申し訳ございません。",
-      "1.0": "申し訳ございません。"
-    },
-    "ok": true,
-    "seconds": 1.47,
-    "tries": 1,
-    "wav": "S4_moushiwake.wav"
-  },
-  {
     "type": "L4",
     "voice": "Leda",
     "id": "shouchi",
@@ -483,6 +455,39 @@
     "wav": "S4_closing.wav",
     "made_as": "S2",
     "chosen_from": "S2_closing_1",
+    "chosen_by": "人"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "moushiwake",
+    "text": "申し訳ございません、",
+    "heard": {
+      "0.0": "申し訳ございません。",
+      "1.0": "申し訳ございません。"
+    },
+    "ok": true,
+    "seconds": 1.08,
+    "try": 2,
+    "wav": "S2_moushiwake.wav",
+    "made_as": "S4",
+    "chosen_from": "S4_moushiwake_2",
+    "chosen_by": "人"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "moushiwake",
+    "text": "申し訳ございません、",
+    "heard": {
+      "0.0": "申し訳ございません。",
+      "1.0": "申し訳ございません。"
+    },
+    "ok": true,
+    "seconds": 1.08,
+    "try": 2,
+    "wav": "S4_moushiwake.wav",
+    "chosen_from": "S4_moushiwake_2",
     "chosen_by": "人"
   }
 ]

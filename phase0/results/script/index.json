@@ -44,20 +44,6 @@
   {
     "type": "S2",
     "voice": "Sadachbia",
-    "id": "Q2_lead_soredeha",
-    "text": "それではご希望の日時をお聞かせいただけますでしょうか？",
-    "heard": {
-      "0.0": "それでは、ご希望の日時をお聞かせいただけますでしょうか。",
-      "1.0": "それでは、ご希望の日時をお聞かせいただけますでしょうか。"
-    },
-    "ok": true,
-    "seconds": 3.58,
-    "tries": 1,
-    "wav": "S2_Q2_lead_soredeha.wav"
-  },
-  {
-    "type": "S2",
-    "voice": "Sadachbia",
     "id": "Q3_lead_tsuzukimashite",
     "text": "続きましてご来店の人数をお伺いしてもよろしいでしょうか？",
     "heard": {
@@ -110,20 +96,6 @@
     "seconds": 2.92,
     "tries": 2,
     "wav": "S4_Q3.wav"
-  },
-  {
-    "type": "S4",
-    "voice": "Sadachbia",
-    "id": "Q2_lead_soredeha",
-    "text": "それではご希望の日時をお聞かせいただけますでしょうか？",
-    "heard": {
-      "0.0": "それでは、ご希望の日時をお聞かせいただけますでしょうか。",
-      "1.0": "それでは、ご希望の日時をお聞かせいただけますでしょうか。"
-    },
-    "ok": true,
-    "seconds": 3.88,
-    "tries": 1,
-    "wav": "S4_Q2_lead_soredeha.wav"
   },
   {
     "type": "L4",
@@ -208,6 +180,39 @@
     "seconds": 4.22,
     "wav": "S4_Q3_lead_tsuzukimashite.wav",
     "chosen_from": "S4_Q3_lead_tsuzukimashite_B5",
+    "chosen_by": "人"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "Q2_lead_soredeha",
+    "text": "それではご希望の日時をお聞かせいただけますでしょうか？",
+    "heard": {
+      "0.0": "それでは、ご希望の日時をお聞かせいただけますでしょうか。",
+      "1.0": "それでは、ご希望の日時をお聞かせいただけますでしょうか。"
+    },
+    "ok": true,
+    "seconds": 3.28,
+    "try": 2,
+    "wav": "S2_Q2_lead_soredeha.wav",
+    "made_as": "S4",
+    "chosen_from": "S4_Q2_lead_soredeha_2",
+    "chosen_by": "人"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "Q2_lead_soredeha",
+    "text": "それではご希望の日時をお聞かせいただけますでしょうか？",
+    "heard": {
+      "0.0": "それでは、ご希望の日時をお聞かせいただけますでしょうか。",
+      "1.0": "それでは、ご希望の日時をお聞かせいただけますでしょうか。"
+    },
+    "ok": true,
+    "seconds": 3.28,
+    "try": 2,
+    "wav": "S4_Q2_lead_soredeha.wav",
+    "chosen_from": "S4_Q2_lead_soredeha_2",
     "chosen_by": "人"
   }
 ]
