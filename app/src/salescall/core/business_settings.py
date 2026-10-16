@@ -28,7 +28,7 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
-from salescall.core import approval, business_rules, quality_stage
+from salescall.core import approval, business_rules, quality_stage, readings
 from salescall.core.access import Tx
 
 END = "END"                                       # 分岐の行き先「終わり」
@@ -43,7 +43,7 @@ TARGET_CLASSES_OPEN = ("corporate",)              # いま選べる区分：法�
 TARGET_PERSON_KINDS = ("role", "role_and_name", "name", "anyone")
 # 役職のみ（決裁権者を含む）／役職（部署）＋名前／名前のみ／その店・会社のお客様なら誰でも（Intent.md 6-2。2026-10-13 ユーザー）
 NAME_SOURCES = ("caller", "script")               # 名乗り（自社名・担当者名）／トークスクリプトの文章（商品名・地名など）
-READING_BY = ("given", "ai", "person")            # 読みを決めたもの：入口が持ってきた／AI の読みの案／契約者が確かめた（直した）
+READING_BY = readings.BY                          # 読みを決めたもの（正本は core/readings.py）
 UNIT_TYPE = "number"                              # 単位を持てる型（金額には補わない。DESIGN.md 6-2 の ⚠️）
 QUESTION_KEYS = {"id", "text", "ask_about", "type", "required", "choices", "next", "unit"}
 
@@ -77,6 +77,20 @@ class Question:
 
 
 @dataclass(frozen=True)
+class TargetNeeds:
+    name: bool                                    # 一覧に、目的のお客様の名前（と読み）が要る
+    role: bool                                    # 一覧に、目的のお客様の役職が要る
+
+    def missing(self, *, name: str | None, role: str | None) -> tuple[str, str] | None:
+        """その行に足りないもの（理由の名前と日本語）。足りていれば None（判断はここだけ）。"""
+        if self.name and not name:
+            return ("target_name_missing", "目的のお客様の名前がありません（この業務は、目的のお客様を名前で呼びます）")
+        if self.role and not role:
+            return ("target_role_missing", "目的のお客様の役職がありません（この業務は、目的のお客様を役職で呼びます）")
+        return None
+
+
+@dataclass(frozen=True)
 class Settings:
     purpose: str                                  # 業務の目的・達成目標
     target_class: str                             # お客様の区分（corporate＝法人／individual＝個人）
@@ -90,6 +104,14 @@ class Settings:
     names: tuple[Name, ...]
     rules: business_rules.Rules | None            # 業務の決まり（版を作るまでは None。版の番号が要るため）
     raw: dict[str, Any]                           # 受けた形のまま（新しい版を作る＝戻すときに使う）
+
+    def target_needs(self) -> TargetNeeds:
+        """目的のお客様を呼ぶのに、発信対象の一覧から何が要るか（決め方はここだけ。取込・版の割り当て・門が使う）。
+        名前を使う種類（役職と名前・名前のみ）は名前（と読み）。役職を使う種類（役職のみ・役職と名前）は、業務で役職を1つ
+        書いていなければ、一覧の役職。誰でもは、何も要らない（Intent.md 6-2）。"""
+        kind, role = self.target_person.get("kind"), self.target_person.get("role")
+        return TargetNeeds(name=kind in ("name", "role_and_name"),
+                           role=kind in ("role", "role_and_name") and role is None)
 
     def next_of(self, question_id: str, answer: str) -> str:
         """その質問でその答えのとき、次に行く質問の番号か END（決め方はここだけ。会話の流れの制御はこれを読む）。"""
@@ -118,6 +140,9 @@ def _name(v: Any, where: str, source: str, problems: list[str]) -> Name | None:
         problems.append(f"{where} は表記（text）と読み（reading）です")
         return None
     t, r = _text(v["text"], f"{where}の表記", problems), _text(v["reading"], f"{where}の読み", problems)
+    if r is not None and (why := readings.problem(r)) is not None:
+        problems.append(f"{where}の読み「{r}」：{why}")
+        return None
     return None if t is None or r is None else Name(t, r, source)
 
 
@@ -380,12 +405,44 @@ def restore(tx: Tx, version_id: UUID) -> UUID:
     return save_version(tx, v["business_id"], load(tx, version_id).raw)
 
 
+def target_of(tx: Tx, task_id: UUID) -> dict[str, Any]:
+    """その行で、目的のお客様をどう呼ぶか（会話が読む。1か所）：種類・役職（業務で1つ書いていればそれ、無ければ一覧の役職）・
+    目的のお客様の名前と読み・お客様の会社名と読み。いまの版の業務設定で決まる。"""
+    t = tx.one("SELECT t.source_name, t.source_name_reading, t.target_name, t.target_name_reading, t.target_role,"
+               "       salescall.run_current_version(t.run_id) AS version_id FROM salescall.tasks t WHERE t.task_id = %s",
+               (task_id,))
+    if t is None:
+        raise LookupError(f"その行は無い（または、取引の範囲の外）：{task_id}")
+    s = load(tx, t["version_id"])
+    kind, role = s.target_person["kind"], s.target_person["role"]
+    uses_name = kind in ("name", "role_and_name")
+    uses_role = kind in ("role", "role_and_name")
+    return {"kind": kind,
+            "role": (role or t["target_role"]) if uses_role else None,
+            "person": {"text": t["target_name"], "reading": t["target_name_reading"]} if uses_name else None,
+            "company": None if t["source_name"] is None else {"text": t["source_name"], "reading": t["source_name_reading"]}}
+
+
+def _open_tasks_missing(tx: Tx, run_id: UUID, needs: TargetNeeds) -> int:
+    """その実施回の、まだ終えていない行のうち、目的のお客様を呼ぶ材料が足りない行の数。"""
+    rows = tx.all("SELECT t.target_name, t.target_role FROM salescall.tasks t WHERE t.run_id = %s"
+                  " AND coalesce((SELECT n.kind FROM salescall.task_next_actions n WHERE n.task_id = t.task_id"
+                  "               ORDER BY n.seq DESC LIMIT 1) <> 'end', true)", (run_id,))
+    return sum(1 for r in rows if needs.missing(name=r["target_name"], role=r["target_role"]) is not None)
+
+
 def assign(tx: Tx, run_id: UUID, version_id: UUID, *, reason: str) -> str:
     """実施回に版を割り当てる（記録つき。DESIGN.md 3-2）。割り当てた版の、品質の段の始め方の答えを返す
     （quality_stage.prepare：opened／mock_needed／already／stopped_version）。中身の無い版は割り当てない。"""
     if not reason.strip():
         raise ValueError("版を割り当てる理由を書いてください")
-    load(tx, version_id)                             # 中身・業務の決まりが確かめに通る版だけ
+    s = load(tx, version_id)                         # 中身・業務の決まりが確かめに通る版だけ
+    missing = _open_tasks_missing(tx, run_id, s.target_needs())
+    if missing:                                      # 目的のお客様を呼べない行を残したまま、版を替えない（全部か、何も無いか）
+        raise SettingsInvalid([f"この版は、目的のお客様を{'名前' if s.target_needs().name else '役職'}で呼びますが、"
+                               f"この実施回のまだ終えていない行のうち {missing} 行に、その列がありません。"
+                               "この版は、その列のある一覧を取り込んだ新しい実施回に割り当ててください（取り込んだ行は変えないため、"
+                               "同じ実施回に取り込み直しても足せません）"])
     row = tx.one(
         "INSERT INTO salescall.run_versions (tenant_id, client_id, run_id, business_id, seq, version_id, assigned_by, reason)"
         " SELECT r.tenant_id, r.client_id, r.run_id, r.business_id,"

@@ -12,8 +12,8 @@ from salescall.core import attempts, dnc, importer, target_policy
 from salescall.core.access import Rejected
 from salescall.core.import_files import read
 from salescall.core.phone import normalize
-from tests.support import ADMIN, OPERATOR, SYSTEM, World, fictional_jp_fixed
-from tests.test_import import MAP, csv_file
+from tests.support import ADMIN, OPERATOR, SYSTEM, World, ensure_rules, fictional_jp_fixed
+from tests.test_import import ai, MAP, csv_file
 
 
 def jp_setup(w, tenant=None, phone=None):
@@ -140,10 +140,12 @@ def set_client(w, s, key, value):
 
 def import_rows(w, s, run, rows):
     sheet = read("一覧.csv", csv_file(rows))
+    version = in_client(w, s, lambda tx: tx.one("SELECT salescall.run_current_version(%s) AS v", (run,)))["v"]
+    ensure_rules(w, s, version)
 
     def work(tx):
-        plan = importer.preview(tx, run, sheet, MAP)
-        return importer.register(tx, run, sheet, MAP, expected_digest=plan.digest)
+        plan = importer.preview(tx, run, sheet, MAP, suggest_readings=ai)
+        return importer.register(tx, run, sheet, MAP, expected_digest=plan.digest, ai_readings=plan.ai_readings)
     return in_client(w, s, work, actor=OPERATOR)
 
 

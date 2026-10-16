@@ -230,6 +230,8 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      ("tests.test_apology.Apology.test_frozen",)),
     ("業務設定の中身の変更の拒みを外す", "DROP TRIGGER business_contents_frozen ON salescall.business_contents",
      ("tests.test_business_settings.Versions.test_contents_are_frozen",)),
+    ("タスクの名前には読みがある、の約束を外す", "ALTER TABLE salescall.tasks DROP CONSTRAINT task_name_has_reading",
+     ("tests.test_import.Targets.test_the_database_keeps_names_with_readings",)),
     ("管理者あての知らせを契約者から隠す、の決まりを外す",
      "DROP POLICY notice_scope ON salescall.notification_events; CREATE POLICY notice_scope ON salescall.notification_events"
      " USING (tenant_id IS NULL OR tenant_id = salescall.cur_tenant()) WITH CHECK (true)",

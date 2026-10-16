@@ -22,7 +22,8 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from salescall.core import approval, business_rules, calling_hours, dnc, quality_stage, settings, stops, target_policy
+from salescall.core import (approval, business_rules, business_settings, calling_hours, dnc, quality_stage, settings, stops,
+                            target_policy)
 from salescall.core.access import Rejected, Tx
 from salescall.core.calendar import CalendarOutOfRange, holiday_checker
 from salescall.core.phone import normalize
@@ -45,6 +46,9 @@ REASONS: dict[str, tuple[str, str]] = {
     "max_attempts": ("この行に発信してよい回数を使い切りました", "permanent"),
     "no_version": ("実施回に業務設定の版が割り当てられていません", "cannot_judge"),
     "rules_missing": ("この版の業務の決まり（断りの答え・理由×扱い・再発信の方針）がありません", "cannot_judge"),
+    "settings_missing": ("この版の業務設定（名乗り・質問・目的のお客様など）が無いか、確かめに通りません", "cannot_judge"),
+    "target_name_missing": ("この業務は目的のお客様を名前で呼びますが、この行に目的のお客様の名前がありません", "cannot_judge"),
+    "target_role_missing": ("この業務は目的のお客様を役職で呼びますが、この行に目的のお客様の役職がありません", "cannot_judge"),
     "version_not_ready": ("この版は、まだかけられる段に入っていません（模擬通話・最初の段の前）", "wait"),
     "stage_full": ("いまの段の件数に達しました（次の段へ進むのを待っています）", "wait"),
     "stopped": ("止まっています", "wait"),
@@ -116,7 +120,8 @@ def _task(tx: Tx, task_id: UUID, contact_id: UUID | None = None) -> dict[str, An
     """行と、かける番号（contact_id・phone_e164）。番号は、渡されればそれ、無ければいまの予定の番号
     （予定が無い・終えた行は一覧の番号。どちらにしても門は通さない）。行の番号の表にある番号だけ。"""
     row = tx.one(
-        "SELECT t.task_id, t.tenant_id, t.client_id, t.run_id, t.client_ref, r.business_id, n.contact_id, n.phone_e164"
+        "SELECT t.task_id, t.tenant_id, t.client_id, t.run_id, t.client_ref, t.target_name, t.target_role, r.business_id,"
+        "       n.contact_id, n.phone_e164"
         " FROM salescall.tasks t"
         " JOIN salescall.runs r ON r.client_id = t.client_id AND r.run_id = t.run_id"
         " JOIN salescall.task_numbers n ON n.task_id = t.task_id AND n.contact_id = coalesce(%s,"
@@ -272,9 +277,18 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
         business_rules.load(tx, version)
     except (business_rules.RulesMissing, business_rules.RulesInvalid):
         return _deny("rules_missing")
+    try:   # 話す中身の無い通話をしない：その版の業務設定が確かめに通らなければ通さない（読むのは会話と同じ1か所）
+        content = business_settings.load(tx, version)
+    except (LookupError, business_settings.SettingsInvalid):
+        return _deny("settings_missing")
     # お詫びの電話（DESIGN.md 10-1-2）は、業務の話し方を使わない（決まった文面だけ）：品質の段の件数に数えず、業務の品質の停止
     # （言ってはいけないこと・品質の基準・判定できない）では止めない。ほかの停止（全体・管理者か契約者が押した緊急停止・費用・回線など）では止める
     apology = nxt["purpose"] == "apology"
+    # 目的のお客様を呼ぶ材料が足りない行にかけない（足りるかの決まりは業務設定の1か所。取込・版の割り当てと同じ。お詫びは、
+    # 前の通話で話したお客様に伝えるので、業務の呼び方を使わない）
+    short = None if apology else content.target_needs().missing(name=task["target_name"], role=task["target_role"])
+    if short is not None:
+        return _deny(short[0])
     ok, why = (True, None) if apology else quality_stage.allowance(tx, version)
     if not ok:
         return _deny(why)

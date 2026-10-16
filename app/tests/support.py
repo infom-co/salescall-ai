@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import itertools
 import os
+import json
 import uuid
 from datetime import timedelta
 from uuid import UUID
@@ -100,14 +101,18 @@ class World:
                        " VALUES (%s, %s, %s, %s, 1, %s)", (tenant, client, bid, vid, OPERATOR.name))
             tx.execute("INSERT INTO salescall.questions (tenant_id, client_id, version_id, question_id, position, type_name, required)"
                        " VALUES (%s, %s, %s, 'Q1', 1, 'datetime', true)", (tenant, client, vid))
+            put_content(tx, tenant, client, vid)
         self.a.in_client(OPERATOR, tenant, client, work)
         return bid, vid
 
     def add_version(self, tenant: UUID, client: UUID, business: UUID, version_no: int) -> UUID:
         vid = uuid.uuid4()
-        self.a.in_client(OPERATOR, tenant, client, lambda tx: tx.execute(
-            "INSERT INTO salescall.business_versions (tenant_id, client_id, business_id, version_id, version_no, created_by)"
-            " VALUES (%s, %s, %s, %s, %s, %s)", (tenant, client, business, vid, version_no, OPERATOR.name)))
+
+        def work(tx):
+            tx.execute("INSERT INTO salescall.business_versions (tenant_id, client_id, business_id, version_id, version_no, created_by)"
+                       " VALUES (%s, %s, %s, %s, %s, %s)", (tenant, client, business, vid, version_no, OPERATOR.name))
+            put_content(tx, tenant, client, vid)
+        self.a.in_client(OPERATOR, tenant, client, work)
         return vid
 
     def run(self, tenant: UUID, client: UUID, business: UUID, version: UUID) -> UUID:
@@ -163,3 +168,51 @@ class World:
         self.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: tx.execute(
             "UPDATE salescall.attempts SET state = %s, hangup_side = %s WHERE attempt_id = %s",
             (state, hangup_side, attempt)))
+
+
+def content(target_person: dict | None = None) -> dict:
+    """試験の業務設定の中身（架空。質問は Q1＝日時・必須の1つ。業務の決まりは試験ごとに business_rules.save で置く）。"""
+    return {"purpose": "架空の業務の目的", "target_class": "corporate",
+            "caller": {"company": {"text": "株式会社テスト", "reading": "かぶしきがいしゃてすと"},
+                       "person": {"text": "山田", "reading": "やまだ"}, "purpose_line": None},
+            "target_person": target_person or {"kind": "anyone", "role": None}, "busy_line": None, "voice": "S2",
+            "questions": [{"id": "Q1", "text": "ご希望の日時をお聞かせください。", "ask_about": None, "type": "datetime",
+                           "required": True, "choices": None, "next": None, "unit": None}],
+            "names": []}
+
+
+def put_content(tx, tenant, client, version, target_person: dict | None = None) -> None:
+    """試験の版に、業務設定の中身を置く（本番では business_settings.save_version が置く）。"""
+    tx.execute("INSERT INTO salescall.business_contents (tenant_id, client_id, version_id, content, saved_by)"
+               " VALUES (%s, %s, %s, %s, %s)",
+               (tenant, client, version, json.dumps(content(target_person), ensure_ascii=False), OPERATOR.name))
+
+
+def ensure_rules(w: "World", s: dict, version=None) -> None:
+    """試験の版に、業務の決まり（rules_raw の既定）が無ければ置く（本番の版は、必ず業務の決まりと中身を持つ）。"""
+    from salescall.core import business_rules
+    vid = version or s["version"]
+
+    def work(tx):
+        if tx.one("SELECT 1 FROM salescall.business_rules WHERE version_id = %s", (vid,)) is None:
+            business_rules.save(tx, vid, rules_raw())
+    w.a.in_client(OPERATOR, s["tenant"], s["client"], work)
+
+
+def full_version(w: "World", s: dict, target_person: dict | None = None, *, content_too: bool = True):
+    """試験の業務に、ひとそろいの版（質問 Q1・業務設定の中身・業務の決まり）を足す（版の番号は次の番号）。中身を置かない版も作れる。"""
+    from salescall.core import business_rules
+    vid = uuid.uuid4()
+
+    def work(tx):
+        tx.execute("INSERT INTO salescall.business_versions (tenant_id, client_id, business_id, version_id, version_no,"
+                   " created_by) SELECT %s, %s, %s, %s, max(version_no) + 1, %s FROM salescall.business_versions"
+                   " WHERE business_id = %s", (s["tenant"], s["client"], s["business"], vid, OPERATOR.name, s["business"]))
+        tx.execute("INSERT INTO salescall.questions (tenant_id, client_id, version_id, question_id, position, type_name, required)"
+                   " VALUES (%s, %s, %s, 'Q1', 1, 'datetime', true)", (s["tenant"], s["client"], vid))
+        if content_too:
+            put_content(tx, s["tenant"], s["client"], vid, target_person)
+        business_rules.save(tx, vid, rules_raw())
+    w.a.in_client(OPERATOR, s["tenant"], s["client"], work)
+    return vid
+

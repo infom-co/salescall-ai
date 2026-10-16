@@ -709,5 +709,36 @@ class Calendar(Base):
             owner_access().in_system(OPERATOR, lambda tx: tx.execute("DELETE FROM salescall.calendar_holidays"))
 
 
+
+class Content(Base):
+    """話す中身と、目的のお客様を呼ぶ材料（業務設定の1か所の決まり。取込・版の割り当てと同じ）。"""
+    def switch_to(self, s, target_person=None, *, content=True):
+        """新しい版（業務の決まり・段つき）を作り、実施回に直接割り当てる（割り当ての確かめを通らなかった場合と同じ状態）。"""
+        from tests.support import full_version
+        vid = full_version(self.w, s, target_person, content_too=content)
+
+        def work(tx):
+            tx.execute("INSERT INTO salescall.run_versions (tenant_id, client_id, run_id, business_id, seq, version_id,"
+                       " assigned_by, reason) VALUES (%s, %s, %s, %s, 2, %s, %s, %s)",
+                       (s["tenant"], s["client"], s["run"], s["business"], vid, "試験", "試験"))
+            quality_stage.open_stage(tx, vid, 1, None, evidence="試験")
+        self.tx(s, work, OPERATOR)
+
+    def test_a_version_without_content_is_not_called(self):
+        s = self.ready()
+        self.switch_to(s, content=False)
+        self.assertEqual(self.reason(s), "settings_missing")
+
+    def test_a_row_without_the_targets_name_is_not_called(self):
+        s = self.ready()
+        self.switch_to(s, {"kind": "name", "role": None})
+        self.assertEqual(self.reason(s), "target_name_missing")
+        s2 = self.ready()
+        self.switch_to(s2, {"kind": "role", "role": None})
+        self.assertEqual(self.reason(s2), "target_role_missing")
+        s3 = self.ready()
+        self.switch_to(s3, {"kind": "role", "role": "社長"})                # 業務で役職を書いていれば、行の役職は要らない
+        self.assertIsInstance(self.claim(s3), gate.Claim)
+
 if __name__ == "__main__":
     unittest.main()

@@ -122,7 +122,7 @@ class Import(unittest.TestCase):
         p = self.preview(data, suggest_readings=ai, confirmed_names=fixed)
         self.assertEqual((p.problems, p.names_to_confirm), ([], []))
         v = self.tx(lambda tx: bi.register(tx, self.s["business"], "業務設定.xlsx", data, expected_digest=p.digest,
-                                           confirmed_names=fixed, suggest_readings=ai))
+                                           confirmed_names=fixed, ai=p.ai))
         got = self.tx(lambda tx: bs.load(tx, v))
         self.assertIn(bs.Name("テスト便", "てすとびん", "script", "person"), got.names)
 
@@ -132,7 +132,7 @@ class Import(unittest.TestCase):
         p = self.preview(data, suggest_readings=lambda texts: {"テスト便": "てすとびん"})
         self.assertEqual((p.problems, p.names_to_confirm), ([], []))
         v = self.tx(lambda tx: bi.register(tx, self.s["business"], "業務設定.xlsx", data, expected_digest=p.digest,
-                                           suggest_readings=lambda texts: {"テスト便": "てすとびん"}))
+                                           ai=p.ai))
         self.assertIn(bs.Name("テスト便", "てすとびん", "script", "ai"), self.tx(lambda tx: bs.load(tx, v)).names)
 
     def test_a_version_with_an_unconfirmed_ai_reading_is_refused_in_verification_mode(self):
@@ -144,6 +144,30 @@ class Import(unittest.TestCase):
         self.start_verification()
         with self.assertRaises(bs.SettingsInvalid):
             self.tx(lambda tx: bs.save_version(tx, self.s["business"], r))
+
+    def test_the_ai_is_asked_once_and_registration_uses_the_previewed_answer(self):
+        """AI は同じ問いに毎回同じ答えを返すとは限らない。プレビューで1回だけ聞き、登録はその答えを使う（聞き直すと、契約者が
+        見たものと違う中身になり、登録できなくなる。2026-10-16 に見つけた穴）。"""
+        data = book(sheets={"名前": [("表記", "読み"), ("テスト便", None)]})
+        answers = iter(["てすとびん", "てすとべん"])                 # 2回目は違う答え
+        asked = []
+
+        def ai(texts):
+            asked.append(list(texts))
+            return {"テスト便": next(answers)}
+        p = self.preview(data, suggest_readings=ai)
+        v = self.tx(lambda tx: bi.register(tx, self.s["business"], "業務設定.xlsx", data, expected_digest=p.digest, ai=p.ai))
+        self.assertEqual(len(asked), 1)                                   # 登録では聞かない
+        self.assertIn(bs.Name("テスト便", "てすとびん", "script", "ai"), self.tx(lambda tx: bs.load(tx, v)).names)
+
+    def test_a_reading_must_be_kana(self):
+        """AI が漢字やローマ字を返したら、読みとして使わない（読みが無い＝止まる）。"""
+        data = book(sheets={"名前": [("表記", "読み"), ("テスト便", None)]})
+        p = self.preview(data, suggest_readings=lambda texts: {"テスト便": "test bin"})
+        self.assertTrue(any("名前「テスト便」の読みがありません" in x for x in p.problems), p.problems)
+        bad = book(sheets={"名前": [("表記", "読み"), ("テスト便", "手素都便")]})
+        p = self.preview(bad)
+        self.assertTrue(any("ひらがなかカタカナ" in x for x in p.problems), p.problems)
 
     def test_no_reading_and_no_suggestion_is_a_problem(self):
         p = self.preview(book(sheets={"名前": [("表記", "読み"), ("テスト便", None)]}))
@@ -167,7 +191,7 @@ class Import(unittest.TestCase):
         self.assertEqual(p.problems, [])
         self.assertEqual(asked, ["ご利用は何名様でしょうか。", "拠点の数を教えていただけますか。"])   # 数の質問だけ
         v = self.tx(lambda tx: bi.register(tx, self.s["business"], "業務設定.xlsx", data, expected_digest=p.digest,
-                                           decide_units=decide))
+                                           ai=p.ai))
         got = {q.id: q.unit for q in self.tx(lambda tx: bs.load(tx, v)).questions}
         self.assertEqual(got, {"Q1": None, "Q2": None, "Q3": "名", "Q4": None})
 
