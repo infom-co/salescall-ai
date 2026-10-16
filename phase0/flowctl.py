@@ -36,6 +36,10 @@ STATES = ("empty", "heard", "unclear", "checking", "confirmed", "accepted", "don
 # ⛔「ね」「よ」「で」などの1文字は外さない（名前の終わり＝「あかね」などを削るため）
 # 確かめない型（選択肢・自由な意見）は、相手の言葉のまま（自由な意見の「よかったです」を「よかった」に変えない）
 _TAIL = re.compile(r"(?:です|でございます|になります)?[。、．！？!?\s]*$")
+# 日時・数・金額の値の後ろの、頼む言葉（「15日の午後2時でお願いします」の「でお願いします」）も値に入れない。
+# ⛔ G-46：AIが相手の言葉をそのまま値にして報告し、言い直しが「15日の午後2時でお願いしますということでよろしいでしょうか？」になった
+#    （これまでの試験の値 約1,600個のうち1回）。⚠️「いつでも大丈夫です」の「大丈夫」は外さない（言い直しの形をユーザーに聞いていただいた）
+_REQUEST_TAIL = re.compile(r"(?<=\S)で(?:お願い(?:します|いたします|致します|できますか|できますでしょうか|したいです))$")
 # 空白に意味の無い型（日付・時刻・日時・数・金額）は、値の中の空白も外す。
 # ⛔ 2026-10-14 G-34：相手の声を文字にしたもの（「15 日の午後 2 時でお願いします。」）を、AIがそのまま写して報告し、
 #    値が「15 日の午後 2 時」になった（依頼主へ渡す値に空白が入る）。名前・住所・メールは、空白に意味がありうるので外さない
@@ -83,6 +87,8 @@ def normalize_value(qtype: str, value: str | None, unit: str = "") -> str | None
     v = value.strip()
     if qtype in CONFIRM_TYPES:
         v = _TAIL.sub("", v).strip()
+        if qtype in DATE_TIME_TYPES | NUMBER_TYPES:
+            v = _REQUEST_TAIL.sub("", v).strip()
     if qtype in NO_SPACE_TYPES:
         v = _SPACE.sub("", v)
         if qtype == "number":
@@ -223,6 +229,8 @@ CONFIRM_LABEL = {"affirmed": "合っている", "corrected": "違う値を言わ
 # - 相手の言い間違い（相手が自分で言い直した・答えを変えた）：「承知しました。それでは、16日の午後2時で、よろしいでしょうか？」
 # - AIが訂正を報告せずに自分で言い直し、相手が「はい」と言った（G-36）：「はい、念のため、16日の午後2時と、おっしゃいましたでしょうか。」
 AFTER = {"misheard": ("聞き違いのあと", "お詫びのあとの言い直し", "shitsurei"),
+         # 同じ項目を2度聞き違えた（名前の読みの3つ目の確かめ）：「申し訳ございません、」（重いほう）＋「改めまして…」
+         "misheard_again": ("聞き違いのあと", "お詫びのあとの言い直し", "moushiwake_heavy"),
          "restated": ("言い直しのあと", "言い直しを受けて", "shouchi"),
          "unreported": ("聞き取りにくかったあと", "念のための言い直し", "hai")}
 # 値を直されたとき、こちらの聞き違いか相手の言い間違いかは、プログラムが相手の言葉（会話AIの聞き取りの文字）から決める。
@@ -280,6 +288,10 @@ class Limits:
     ask_back: int = 2
     recheck: int = 1           # 締めの前の念のための確認：1項目1回まで（その項目を聞く最後の1回。言い方は「…もう一度だけ…」）
     after_correction: int = 1  # 訂正のあとの復唱：1回まで
+    # 名前の読みの確かめで言う読みの数（まず言ってみる読みを含めて）。候補が3つある名前（「角田」＝つのだ・かくた・かどた）で、AIが相手の
+    # 言った読みを聞き分けられない回（G-46：名前だけで「カドタです。」と直されると、AIの報告は使えないことが多い）も、相手に順に確かめて
+    # いただけば正しい読みに着く。✅ 2026-10-14 ユーザー「大事なポイントは3回までOK」の範囲（最初の確かめ＋2回）
+    reading_tries: int = 3
 
 
 @dataclass
@@ -376,7 +388,6 @@ class Item:
     pending_value: str | None = None  # 午前・午後を聞いている値（答えが届いたら、そこへ入れる）
     ampm_asked: bool = False          # 午前・午後を聞いたか（1項目1回まで）
     tried_readings: list = field(default_factory=list)  # 名前の読みの確かめで、これまでに言った読み（同じ読みを2度言わない）
-    reading_choice_asked: bool = False  # 相手が直した読みを、候補から選んで報告し直すよう AI に頼んだか（1項目1回まで。G-46）
 
     def set(self, state: str, why: str) -> None:
         assert state in STATES, state
@@ -620,18 +631,10 @@ class Flow:
                 return self._reject(f"「{q.reading_of}」の読みは、相手が言ったとおりの音を、ひらがなだけで"
                                     f"{ARG_LABEL['correction']}に入れて、もう一度報告してください（「{correction}」は使えません）。")
         if q.reading_of and result == "corrected":
-            untried = [r for r in q.readings if r not in it.tried_readings]
-            if (not correction or correction in it.tried_readings) and len(untried) >= 2 and not it.reading_choice_asked:
-                # ⛔ G-46：「いや、カドタです。」に、AIは直す前と同じ「つのだ」で報告した（または何も報告しなかった）。残りの候補が2つ以上だと、
-                #    どれで確かめるかの材料が無い（並びの先の「かくた」で確かめてしまった）⇒ 相手の声を聞いたばかりの AI に、候補から選ばせる。
-                #    相手にはまだ何も言わない（記録も書き換えない）。1項目1回まで
-                it.reading_choice_asked = True
-                shown = "".join(f"「{r}」" for r in untried)
-                return {"result": "rejected",
-                        "message": f"相手は読みを直しました（「{self.callee_said[:20]}」）。相手が言った読みは、{shown}のどれでしたか。"
-                                   f"相手の声にいちばん近い読みを{ARG_LABEL['correction']}に入れて、{ARG_LABEL['result']}"
-                                   f"「{CONFIRM_LABEL['corrected']}」で、confirm_field をもう一度報告してください。どれとも違えば、聞こえたとおりの音を"
-                                   "ひらがなで入れます。報告するまで、相手には何も言いません。"}
+            # ⛔ G-46 で試して外したもの：AIの報告が使えないときに、候補を並べて AI に選ばせる段。名前だけで「カドタです。」と直された場面で、
+            #    並べる順を「かくた・かどた」にすると5本中1本、逆にすると5本中4本＝AIは聞いて選ばず、並びの先を取る。候補を見せずに
+            #    聞こえた音を書かせても5本中1本（「つのだ」3回・「たばた」1回）。⇒ 次に確かめる読みは next_reading が決め、
+            #    外れていれば相手が直してくれる（下の reading_tries まで）
             # 次に確かめる読みは、next_reading の1か所が決める（AIは濁りの違いを聞き分けられない＝G-45・G-46）。
             # 無ければ確かめをやめて、名前を使わずにお呼びする
             heard, correction = correction, next_reading(correction, q.readings, it.tried_readings)
@@ -670,11 +673,14 @@ class Flow:
                                   "recheck_queue": list(self.recheck_queue), "confirm_requested_at": self.confirm_requested_at,
                                   "awaiting_say": self.awaiting_say}
             return self._advance("確認できました。" + self._reading_note(qid))
-        if result == "corrected" and it.corrections < self.limits.after_correction:
+        more = (len(it.tried_readings) < self.limits.reading_tries) if q.reading_of else (it.corrections < self.limits.after_correction)
+        if result == "corrected" and more:
             it.corrections += 1
             it.value = correction
             kind = correction_kind(self.callee_said)
-            it.set("heard", "相手が訂正した（こちらの聞き違い）" if kind == "misheard" else "相手が訂正した（相手の言い間違い）")
+            if kind == "misheard" and it.corrections >= 2:
+                kind = "misheard_again"  # 同じ項目を2度聞き違えた＝こちらの誤りが重なった ⇒ 重いお詫び（✅ 2026-10-16 ユーザー：こちらの誤りは 04）
+            it.set("heard", "相手が訂正した（こちらの聞き違い）" if kind.startswith("misheard") else "相手が訂正した（相手の言い間違い）")
             return self._ask_confirm(qid, after=kind)
         it.set("unresolved", "訂正のあとも合わない" if result == "corrected" else "相手が答えなかった")
         return self._advance("「-」にします。" + self._reading_note(qid))
@@ -872,9 +878,16 @@ class Flow:
            AIは Q2 を最初から聞き直した（言い直しの返事を待っていることが、伝わっていなかった）。"""
         if self.awaiting_confirm is not None:
             say = self.awaiting_say
-            return (f"いまは {self.awaiting_confirm} の言い直し「{say}」への、相手の返事を待っています。"
-                    f"相手が肯定したら confirm_field を{ARG_LABEL['result']}「{CONFIRM_LABEL['affirmed']}」で、違う値を言ったら"
-                    f"「{CONFIRM_LABEL['corrected']}」と{ARG_LABEL['correction']}で報告してください。"
+            how = (f"相手が肯定したら confirm_field を{ARG_LABEL['result']}「{CONFIRM_LABEL['affirmed']}」で、違う値を言ったら"
+                   f"「{CONFIRM_LABEL['corrected']}」と{ARG_LABEL['correction']}で報告してください。")
+            if self.callee_turns > (self.confirm_requested_at or 0):
+                # ⛔ G-46：報告の種類の名前を書き違えて差し戻されたとき、ここが「相手がまだ答えていなければ、もう一度聞いて」としか言わず、
+                #    相手はもう「角田です。」と答えていたのに、AIは同じ確かめをもう一度声に出した（相手は同じことを2回聞かれる）。
+                #    ⇒ 相手の返事が届いているなら、聞き直さずに、その返事を報告し直してもらう
+                heard = f"（「{self.callee_said[:30]}」）" if self.callee_said else ""
+                return (f"いまは {self.awaiting_confirm} の言い直し「{say}」への、相手の返事{heard}がもう届いています。"
+                        f"もう一度聞かずに、何も言わないで、その返事を報告し直してください。{how}")
+            return (f"いまは {self.awaiting_confirm} の言い直し「{say}」への、相手の返事を待っています。{how}"
                     f"相手がまだ答えていなければ、「{say}」と、もう一度聞いてください。")
         if self.current is None:
             return "質問は終わりです。締めの言葉を言って終えてください。"

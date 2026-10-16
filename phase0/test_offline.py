@@ -1274,6 +1274,17 @@ class SpokenNameTest(unittest.TestCase):
         self.assertEqual(b.opening(), "お忙しいところ恐れ入ります。株式会社「だいわはうすこうぎょう」の「中島」と申します。")
 
 
+class RequestTailTest(unittest.TestCase):
+    """⛔ G-46：AIが「15日の午後2時でお願いします」を値にして報告し、言い直しが「…でお願いしますということでよろしいでしょうか？」になった。"""
+
+    def test_request_tail(self):
+        from flowctl import normalize_value
+        self.assertEqual(normalize_value("datetime", "15日の午後2時でお願いします。"), "15日の午後2時")
+        self.assertEqual(normalize_value("number", "3人でお願いいたします", "人"), "3人")
+        self.assertEqual(normalize_value("datetime", "いつでも大丈夫です"), "いつでも大丈夫")   # 聞いていただいた形は変えない
+        self.assertEqual(normalize_value("name", "なかしまでお願いします"), "なかしまでお願いします")  # 名前の型には当てない
+
+
 class ReadingConfirmTest(unittest.TestCase):
     """読みが決まらない名前を、会話の中で確かめる（flowctl.reading_question）。✅ 2026-10-16 ユーザー：「お名前はやまざき様でよろしかった
     でしょうか」「お名前を確認させていただきたいのですが、ヤマザキ様とお呼びしたらよろしいでしょうか？」。ほかの値と同じ言い直しの流れ。"""
@@ -1347,29 +1358,38 @@ class ReadingConfirmTest(unittest.TestCase):
         self.assertEqual(next_reading("なかしま", ["なかじま", "なかしま"], ["なかじま"]), "なかしま")
         self.assertEqual(next_reading("なかじま", ["なかじま", "なかしま"], ["なかじま"]), "なかしま")
 
-    def test_choose_among_candidates_when_ai_heard_nothing_usable(self):
-        """⛔ G-46：「いや、カドタです。」に、AIは直す前と同じ「つのだ」で報告した。残りの候補が2つ以上なら、AIに候補から選ばせる（1回まで）。"""
+    def test_three_candidates_are_tried_in_turn(self):
+        """⛔ G-46：名前だけで「カドタです。」と直されると、AIの報告は使えないことが多い（候補を並べて選ばせても、並びの先を取る）。
+        ⇒ 相手に順に確かめていただく（言う読みは3つまで）。2度目の聞き違いは重いお詫び。"""
         from flowctl import Flow, reading_question
         f = Flow([reading_question("N1", "角田", "つのだ", ["つのだ", "かくた", "かどた"])])
+        f.on_callee(); f.on_heard("角田です。")
+        r = f.apply("confirm_field", {"question_id": "N1", "result": "affirmed"})   # 名前だけの言い直し＝直された（AIは「合っている」）
+        self.assertEqual((r["say"], r["ack"]), ("改めましてお名前の読みの方は「かくた」様でよろしかったでしょうか？", "shitsurei"))
         f.on_callee(); f.on_heard("いや、角田です。")
-        r = f.apply("confirm_field", {"question_id": "N1", "result": "corrected", "correction": "つのだ"})
-        self.assertEqual(r["result"], "rejected")
-        self.assertIn("「かくた」「かどた」のどれでしたか", r["message"])
-        self.assertEqual(f.items["N1"].value, "つのだ")             # 記録は書き換えない
-        r = f.apply("confirm_field", {"question_id": "N1", "result": "corrected", "correction": "かどた"})  # 相手の新しい発話は無い
-        self.assertEqual(r["say"], "改めましてお名前の読みの方は「かどた」様でよろしかったでしょうか？")
-        # 選ばせても使える読みが来なければ、並びの先の候補（2回は頼まない）
+        r = f.apply("confirm_field", {"question_id": "N1", "result": "affirmed"})
+        self.assertEqual((r["say"], r["ack"]), ("改めましてお名前の読みの方は「かどた」様でよろしかったでしょうか？", "moushiwake_heavy"))
+        f.on_callee(); f.on_heard("はい、そうです。")
+        f.apply("confirm_field", {"question_id": "N1", "result": "affirmed"})
+        self.assertEqual(f.readings(), {"角田": "かどた"})
+        # 3つとも違うと言われたら、名前を使わずにお呼びする（4つ目は聞かない）
+        f = Flow([reading_question("N1", "角田", "つのだ", ["つのだ", "かくた", "かどた"])])
+        for _ in range(3):
+            f.on_callee(); f.on_heard("いや、違います。")
+            r = f.apply("confirm_field", {"question_id": "N1", "result": "corrected", "correction": "すみた"})
+        self.assertEqual(f.items["N1"].state, "unresolved")
+        self.assertIn("お名前を使わずに", r["message"])
+
+    def test_reminder_does_not_ask_again_after_callee_replied(self):
+        """⛔ G-46：報告の種類の名前を書き違えて差し戻されたとき、「相手がまだ答えていなければ、もう一度聞いて」としか言わず、
+        相手はもう答えていたのに、AIが同じ確かめをもう一度声に出した。"""
+        from flowctl import Flow, reading_question
         f = Flow([reading_question("N1", "角田", "つのだ", ["つのだ", "かくた", "かどた"])])
         f.on_callee(); f.on_heard("角田です。")
-        r = f.apply("confirm_field", {"question_id": "N1", "result": "affirmed"})   # 名前だけの言い直し＝直された
+        r = f.apply("confirm_field", {"question_id": "N1", "result": "回答された値", "correction": "かどだ"})
         self.assertEqual(r["result"], "rejected")
-        r = f.apply("confirm_field", {"question_id": "N1", "result": "affirmed"})
-        self.assertIn("「かくた」様", r["say"])
-        # 候補が1つしか残らなければ、選ばせずにその候補（G-45 の中島）
-        f = Flow([reading_question("N1", "中島", "なかじま", ["なかじま", "なかしま"])])
-        f.on_callee(); f.on_heard("いや、中島です。")
-        r = f.apply("confirm_field", {"question_id": "N1", "result": "corrected", "correction": "なかじま"})
-        self.assertIn("「なかしま」様", r["say"])
+        self.assertIn("もう一度聞かずに", r["message"])
+        self.assertNotIn("もう一度聞いてください", r["message"])
 
     def test_voicing_misheard_correction_uses_candidate(self):
         """⛔ G-46：相手は「カドタ」と直したのに、AIは「かどだ」と報告し、プログラムは「かどだ」様で確かめていた。"""

@@ -90,7 +90,9 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
     if callee_voice == "swap":
         callee_voice = callee_voice_for(voice_type)
     callee_lines = [{**x, "wav": callee_wav(x["wav"], callee_voice), **({"again": callee_wav(x["again"], callee_voice)} if "again" in x else {})}
-                    if isinstance(x, dict) and "wav" in x else x for x in callee_lines]
+                    if isinstance(x, dict) and "wav" in x else
+                    {**x, "yes": callee_wav(x["yes"], callee_voice), "no": callee_wav(x["no"], callee_voice)}
+                    if isinstance(x, dict) and "if_value" in x else x for x in callee_lines]
     flow = Flow(business.questions, busy_ask=business.busy_ask, lead_ins=lead_ins, play_recordings=play_recordings,
                 **({"confirm": confirm} if confirm else {}))  # confirm：言い直しの言い方（G-25 の比べだけ）。lead_ins：G-27
     turns: list[dict] = []
@@ -148,6 +150,14 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                 if swap_before is not None and i == swap_before and sessions == 1:
                     break  # 張り替え：このセッションを閉じて、いまの位置を渡して開き直す
                 line = again or callee_lines[i]
+                if isinstance(line, dict) and "if_value" in line:
+                    # こちらの言った値で答えが変わる相手（G-46：名前の読みを違う読みで聞かれたら、もう一度直す）。
+                    # その項目がもう確かめ済みなら、この台詞は言わない（次の台詞へ）
+                    qid, want = line["if_value"]
+                    if flow.items[qid].state == "confirmed":
+                        i += 1
+                        continue
+                    line = {"wav": line["yes"] if flow.items[qid].value == want else line["no"]}
                 if isinstance(line, dict) and "silence_s" in line:
                     log_start = len(flow.log)
                     async with silence_while(s):
