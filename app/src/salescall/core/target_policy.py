@@ -7,7 +7,8 @@
 理由の名前（門の不許可の理由の一覧と同じ名前。DESIGN.md 5-2-1 の11）：
   number_unknown（番号が不明）／number_kind_forbidden（システムが決してかけない種類）／
   number_kind_not_allowed（業務の設定でかけない種類：フリーダイヤル・ナビダイヤル）／
-  dnc_client（依頼者の発信禁止の番号）／dnc_system（システム共通の発信禁止）／
+  dnc_client（依頼者の発信禁止の番号）／dnc_contractor（契約者の共通の発信禁止。その契約者のすべての依頼者に効く）／
+  other_contractor_called（ほかの契約者がかけた番号で、契約者の設定が「かけない」）／
   dnc_client_ref（断ったお客様の管理番号。依頼者ごとの設定で、管理番号を「お客様を表す変わらない番号」としたとき。DESIGN.md 3-6）
 """
 
@@ -36,9 +37,14 @@ def block_reason(tx: Tx, number: PhoneNumber, *, client_ref: str | None, tenant_
         return ("number_kind_not_allowed", f"{_KIND_NAME[number.kind]}へは、この業務の設定でかけません")
     hit = dnc.lookup(tx, number.e164, client_ref=client_ref)
     if hit is None:
+        # ほかの契約者がかけた番号に「かけない」と、契約者が決めていれば（2026-10-16 ユーザー。間隔のときは門が見る）
+        if settings.resolve(tx, "gate.other_contractor_interval", tenant_id=tenant_id, client_id=client_id,
+                            business_id=business_id) == "never" \
+                and tx.one("SELECT salescall.number_dialed_by_other_tenant(%s) AS d", (number.e164,))["d"]:
+            return ("other_contractor_called", "ほかの契約者がかけた番号です（契約者の設定で、かけないことにしています）")
         return None
     return {
         "client": ("dnc_client", "発信禁止に登録されている番号です"),
-        "system": ("dnc_system", "システム共通の発信禁止に登録されている番号です"),
+        "contractor": ("dnc_contractor", "契約者の共通の発信禁止に登録されている番号です"),
         "client_ref": ("dnc_client_ref", "この管理番号のお客様は、発信禁止です（もうかけないでと言われたお客様）"),
     }[hit["ledger"]]

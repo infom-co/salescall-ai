@@ -66,17 +66,25 @@ class Register(unittest.TestCase):
         self.assertEqual((state_of(w, s, a), state_of(w, other_number, b)), ("released", "claimed"))
         self.assertIsNone(blocked(w, same_number_other_client, s["raw"]))   # 依頼者の台帳は、その依頼者にだけ効く
 
-    def test_system_ledger_applies_to_every_client_and_releases_their_claims(self):
+    def test_contractor_ledger_applies_to_every_client_of_that_contractor(self):
+        """共通の発信禁止は契約者ごと（2026-10-16 ユーザー：「システム共通の発信禁止　契約者」）：その契約者のすべての依頼者に
+        効き、ほかの契約者には効かない。登録も取り消しも管理者か契約者だけ（システムの処理はしない）。"""
         w = World(); s1 = jp_setup(w)
         a = w.insert_claim(s1)
-        with self.assertRaises(Rejected):                    # 契約者は、全体に効く登録はできない（管理者だけ）
-            w.a.in_system(OPERATOR, lambda tx: dnc.register_system(tx, s1["raw"], "試験"))
-        n = w.a.in_system(ADMIN, lambda tx: dnc.register_system(tx, s1["raw"], "総務省の注意喚起（試験）"))
-        self.assertEqual(n, 1)
+        mine = lambda work, actor=OPERATOR: w.a.in_tenant(actor, s1["tenant"], work)
+        with self.assertRaises(Rejected):
+            mine(lambda tx: dnc.register_contractor(tx, s1["raw"], "試験"), SYSTEM)
+        got = mine(lambda tx: dnc.register_contractor(tx, s1["raw"], "総務省の注意喚起（試験）"))
+        self.assertEqual(got["released_claims"], 1)
         self.assertEqual(state_of(w, s1, a), "released")
-        s2 = World().setup()   # ほかの契約者の依頼者
-        s2["raw"] = s1["raw"]
-        self.assertEqual(blocked(w, s2, s1["raw"])[0], "dnc_system")
+        s2 = jp_setup(w, tenant=s1["tenant"], phone=s1["raw"])           # 同じ契約者の、ほかの依頼者
+        self.assertEqual(blocked(w, s2, s1["raw"])[0], "dnc_contractor")
+        s3 = jp_setup(World(), phone=s1["raw"])                           # ほかの契約者の依頼者には効かない
+        self.assertIsNone(blocked(w, s3, s1["raw"]))
+        with self.assertRaises(Rejected):
+            mine(lambda tx: dnc.revoke_contractor(tx, got["entry_id"], "システムは取り消せない"), SYSTEM)
+        mine(lambda tx: dnc.revoke_contractor(tx, got["entry_id"], "誤って登録した（試験）"), ADMIN)
+        self.assertIsNone(blocked(w, s2, s1["raw"]))
 
     def test_other_clients_cannot_see_the_ledger(self):
         w = World(); s = jp_setup(w); other = jp_setup(w, tenant=s["tenant"])

@@ -41,7 +41,8 @@ REASONS: dict[str, tuple[str, str]] = {
     "number_kind_forbidden": ("かけない種類の番号です", "permanent"),
     "number_kind_not_allowed": ("この業務の設定でかけない種類の番号です", "permanent"),
     "dnc_client": ("発信禁止です", "permanent"),
-    "dnc_system": ("システム共通の発信禁止です", "permanent"),
+    "dnc_contractor": ("契約者の共通の発信禁止です", "permanent"),
+    "other_contractor_called": ("ほかの契約者がかけた番号です（契約者の設定で、かけない）", "permanent"),
     "dnc_client_ref": ("この管理番号のお客様は発信禁止です", "permanent"),
     "max_attempts": ("この行に発信してよい回数を使い切りました", "permanent"),
     "no_version": ("実施回に業務設定の版が割り当てられていません", "cannot_judge"),
@@ -187,9 +188,17 @@ def _pacing(tx: Tx, task: dict[str, Any], now: datetime, assume_promised: bool |
     if unknown is not None:
         limits.append((unknown + timedelta(seconds=int(_setting(tx, "gate.unknown_result_min_interval", task))),
                        "unknown_result_interval"))
-    cross = int(_setting(tx, "gate.cross_client_interval", task))
+    # 同じ番号へ、ほかの依頼者がかけたとき：同じ契約者の中＝システムの間隔／ほかの契約者＝契約者の設定（2026-10-16 ユーザー。
+    # 「かけない」は target_policy が答える）
     for r in tx.all("SELECT relation, last_at FROM salescall.number_last_dial_elsewhere(%s)", (task["phone_e164"],)):
-        limits.append((r["last_at"] + timedelta(seconds=cross), "cross_client_interval_" + r["relation"]))
+        if r["relation"] == "same_tenant":
+            gap = timedelta(seconds=int(_setting(tx, "gate.cross_client_interval", task)))
+        else:
+            v = _setting(tx, "gate.other_contractor_interval", task)
+            if v == "never":
+                continue
+            gap = timedelta(hours=v["hours"]) if "hours" in v else timedelta(days=v["days"])
+        limits.append((r["last_at"] + gap, "cross_client_interval_" + r["relation"]))
     binding = [x for x in limits if x[0] > now]
     if not binding:
         return Pacing(remaining, now, None, promised)
@@ -324,13 +333,13 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
     if dials >= int(_setting(tx, "line.max_dials_per_day", task)):
         return _deny("line_daily_limit")
 
-    # (9) 同時の本数：依頼者ごとの上限と、全体の会話AIの枠（5-2 の9。全依頼者で共有）
+    # (9) 同時の本数：依頼者ごとの上限と、契約者の会話AIの枠（5-2 の9。契約者ごと＝2026-10-16 ユーザー）
     active = tx.one("SELECT count(*) AS n FROM salescall.attempts WHERE salescall.is_live(state, claim_expires_at)")["n"]
     if active >= int(_setting(tx, "calling.max_concurrent_calls", task)):
         return _deny("client_concurrency")
     capacity = int(Decimal(str(_setting(tx, "gate.ai_tpm_limit", task))) * Decimal(str(_setting(tx, "gate.ai_tpm_safety", task)))
                    // Decimal(str(_setting(tx, "gate.ai_tpm_per_call", task))))
-    if tx.one("SELECT salescall.active_attempts_total() AS n")["n"] >= capacity:
+    if tx.one("SELECT salescall.active_attempts_of_tenant() AS n")["n"] >= capacity:
         return _deny("ai_capacity")
 
     # (10) 予約。同じお客様・番号・回線の進行中は、データベースの部分一意が拒む（その部分だけ取り消して理由を返す）

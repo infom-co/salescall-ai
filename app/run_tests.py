@@ -127,10 +127,17 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      ("tests.test_import.DatabaseGuards.test_import_records_cannot_be_changed_even_by_the_owner",)),
     ("取込の記録の行の制限を外す", "ALTER TABLE salescall.import_rows DISABLE ROW LEVEL SECURITY",
      ("tests.test_import.DatabaseGuards.test_other_clients_cannot_see_import_records",)),
-    ("システム共通の発信禁止で、ほかの依頼者の予約を取り消す処理を空にする",
-     "CREATE OR REPLACE FUNCTION salescall.release_claims_for_system_dnc(p_phone text) RETURNS integer"
+    ("契約者の共通の発信禁止で、ほかの依頼者の予約を取り消す処理を空にする",
+     "CREATE OR REPLACE FUNCTION salescall.release_claims_for_contractor_dnc(p_phone text) RETURNS integer"
      " LANGUAGE sql SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ SELECT 0 $$",
-     ("tests.test_dnc.Register.test_system_ledger_applies_to_every_client_and_releases_their_claims",)),
+     ("tests.test_dnc.Register.test_contractor_ledger_applies_to_every_client_of_that_contractor",)),
+    ("契約者の共通の発信禁止を、ほかの契約者にも見せる", "ALTER TABLE salescall.contractor_dnc_entries DISABLE ROW LEVEL SECURITY",
+     ("tests.test_dnc.Register.test_contractor_ledger_applies_to_every_client_of_that_contractor",)),
+    ("会話AIの枠を、すべての契約者で数える（前の形）",
+     "CREATE OR REPLACE FUNCTION salescall.active_attempts_of_tenant() RETURNS integer LANGUAGE sql STABLE SECURITY DEFINER"
+     " SET search_path = salescall, pg_temp AS $$ SELECT count(*)::integer FROM salescall.attempts"
+     " WHERE salescall.is_live(state, claim_expires_at) $$",
+     ("tests.test_gate.Lines.test_ai_capacity_is_per_contractor",)),
     ("発信禁止の取り消しは人だけ、の決まりを外す", "DROP TRIGGER dnc_entries_guard ON salescall.dnc_entries",
      ("tests.test_dnc.Revoke.test_only_a_person_revokes_once_and_can_register_again",)),
     ("発信禁止の有効な登録は1つ、の約束を外す", "DROP INDEX salescall.dnc_one_active",
@@ -214,8 +221,9 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("全体の範囲の停止を、人では管理者だけにする仕掛けを外す", "DROP TRIGGER system_scope_by_admin ON salescall.stop_events",
      ("tests.test_watch.SystemStopsAndChecks.test_manual_stop_is_not_resumed_by_checks",
       "tests.test_watch.SystemStopsAndChecks.test_only_admin_resumes_system_stops_by_hand")),
-    ("システム共通の発信禁止を管理者だけにする仕掛けを外す", "DROP TRIGGER system_dnc_by_admin ON salescall.system_dnc_entries",
-     ("tests.test_dnc.Register.test_system_ledger_applies_to_every_client_and_releases_their_claims",)),
+    ("契約者の共通の発信禁止を、管理者か契約者だけにする仕掛けを外す",
+     "DROP TRIGGER contractor_dnc_guard ON salescall.contractor_dnc_entries",
+     ("tests.test_dnc.Register.test_contractor_ledger_applies_to_every_client_of_that_contractor",)),
     # 承認の部分（10-2）
     ("行を承認できるのは運営者だけ、の仕掛けを外す", "DROP TRIGGER task_approval_by_operator ON salescall.task_approvals",
      ("tests.test_approval.HumanApproval.test_dials_only_approved_rows",)),

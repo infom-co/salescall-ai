@@ -256,7 +256,7 @@ class PerClientSettings(unittest.TestCase):
 
     def test_shared_equipment_and_harm_guards_are_system_only(self):
         for key, value in [("stop.ai_rate_limit.backoff", [5]), ("gate.claim_lifetime", 1), ("line.lease", 1),
-                           ("gate.ai_tpm_limit", 1), ("gate.cross_client_interval", 1), ("quality.max_forbidden_speech", 3),
+                           ("gate.cross_client_interval", 1), ("quality.max_forbidden_speech", 3),
                            ("quality.max_unknown_judgments", 3), ("calling.hours_limit", {d: [["00:00", "23:59"]] for d in
                                ("mon", "tue", "wed", "thu", "fri", "sat", "sun", "holiday")})]:
             with self.subTest(key=key), self.assertRaises(Rejected):

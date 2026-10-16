@@ -1,6 +1,6 @@
 """発信禁止台帳（Q3「このお客様は、かけてはいけないお客様か」）。持ち主 CL-2。DESIGN.md 3-6・5-2・Intent.md 原則14。
 
-- 登録するのは、この部品の `register`（依頼者の台帳）と `register_system`（システム共通）だけ（I-12。app/checks が見張る）。
+- 登録するのは、この部品の `register`（依頼者の台帳）と `register_contractor`（契約者の共通の台帳。その契約者のすべての依頼者に効く。2026-10-16 ユーザー）だけ（I-12。app/checks が見張る）。
   呼ぶ側：会話の「もうかけないで」（その場で）・通話後の検証の拒否の聞き逃し・判定の番号違い・依頼者の発信禁止の一覧の取込・契約者。
 - 番号は番号の正規化（Q1）を通す。そろえられない番号は登録できない（ValueError）。
 - **どこまで止めるかを決めるのは `register` の1か所だけ**（2026-10-14 ユーザー決定。DESIGN.md 3-6）：
@@ -111,19 +111,33 @@ def unsettled_reach_covers(tx: Tx, e164: str, *, client_ref: str | None) -> bool
     return False
 
 
-def register_system(tx: Tx, phone: PhoneNumber | str, reason: str) -> int:
-    """システム共通の発信禁止に登録する（全依頼者に効く）。取り消した予約の数を返す。"""
+def register_contractor(tx: Tx, phone: PhoneNumber | str, reason: str) -> dict[str, Any]:
+    """取引の契約者の、共通の発信禁止に登録する（その契約者のすべての依頼者に効く。2026-10-16 ユーザー：「システム共通の
+    発信禁止　契約者」）。登録できるのは管理者か契約者だけ（データベースが守る）。登録（entry_id）と、取り消した予約の数を返す。"""
     n = _number(phone)
     tx.execute(
-        "INSERT INTO salescall.system_dnc_entries (phone_e164, reason, registered_by)"
-        " VALUES (%s, %s, salescall.cur_actor()) ON CONFLICT (phone_e164) DO NOTHING",
+        "INSERT INTO salescall.contractor_dnc_entries (tenant_id, phone_e164, reason, registered_by)"
+        " VALUES (salescall.cur_tenant(), %s, %s, salescall.cur_actor())"
+        " ON CONFLICT (tenant_id, phone_e164) WHERE revoked_at IS NULL DO NOTHING",
         (n.e164, reason),
     )
-    return tx.one("SELECT salescall.release_claims_for_system_dnc(%s) AS n", (n.e164,))["n"]
+    entry = tx.one("SELECT entry_id FROM salescall.contractor_dnc_entries WHERE phone_e164 = %s AND revoked_at IS NULL",
+                   (n.e164,))
+    return {"entry_id": entry["entry_id"],
+            "released_claims": tx.one("SELECT salescall.release_claims_for_contractor_dnc(%s) AS n", (n.e164,))["n"]}
+
+
+def revoke_contractor(tx: Tx, entry_id: UUID, reason: str) -> None:
+    """契約者の共通の発信禁止の登録を取り消す（管理者か契約者だけ・理由つき・1回だけ。データベースが守る）。"""
+    row = tx.one(
+        "UPDATE salescall.contractor_dnc_entries SET revoked_at = now(), revoked_by = salescall.cur_actor(),"
+        " revoke_reason = %s WHERE entry_id = %s AND revoked_at IS NULL RETURNING entry_id", (reason, entry_id))
+    if row is None:
+        raise DncEntryNotFound(str(entry_id))
 
 
 def lookup(tx: Tx, e164: str, *, client_ref: str | None = None) -> dict[str, Any] | None:
-    """その番号（または、その行の管理番号）が発信禁止なら、どの台帳か（client / system / client_ref）と理由。
+    """その番号（または、その行の管理番号）が発信禁止なら、どの台帳か（client / contractor / client_ref）と理由。
 
     管理番号の登録は、設定を「いいえ」に戻しても効く（止める側に倒す。取り消しは契約者が。DESIGN.md 3-6）。
     """
@@ -131,9 +145,9 @@ def lookup(tx: Tx, e164: str, *, client_ref: str | None = None) -> dict[str, Any
                  (e164,))
     if row is not None:
         return {"ledger": "client", "reason": row["reason"]}
-    row = tx.one("SELECT reason FROM salescall.system_dnc_entries WHERE phone_e164 = %s", (e164,))
+    row = tx.one("SELECT reason FROM salescall.contractor_dnc_entries WHERE phone_e164 = %s AND revoked_at IS NULL", (e164,))
     if row is not None:
-        return {"ledger": "system", "reason": row["reason"]}
+        return {"ledger": "contractor", "reason": row["reason"]}
     if client_ref is not None:
         row = tx.one("SELECT reason::text AS reason FROM salescall.dnc_entries WHERE client_ref = %s AND revoked_at IS NULL",
                      (client_ref,))

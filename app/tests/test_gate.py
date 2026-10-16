@@ -54,13 +54,17 @@ class Base(unittest.TestCase):
         self.override("gate.ai_tpm_limit", 10 ** 9)   # 会話AIの枠は全体で共有：ほかの試験の進行中の試行に左右されない
         load_calendar()
 
-    def capacity_of(self, extra):
-        """いま生きている進行中の数 ＋ extra 本だけ通る枠にする（0.8 ÷ 7,500 の計算で、ちょうどの値）。
-        生きている数は、門の関数を使わずに数える（門の数え方を誤っても、この試験が気づくように）。"""
+    def capacity_of(self, s, extra):
+        """その契約者の、いま生きている進行中の数 ＋ extra 本だけ通る枠にする（0.8 ÷ 7,500 の計算で、ちょうどの値）。
+        会話AIの枠は契約者ごと（2026-10-16 ユーザー）なので、契約者の設定として置く。生きている数は、門の関数を使わずに数える
+        （門の数え方を誤っても、この試験が気づくように）。"""
         n = owner_access().in_system(SYSTEM, lambda tx: tx.one(
-            "SELECT count(*) AS n FROM salescall.attempts WHERE state IN ('dialing', 'ringing', 'answered',"
-            " 'in_conversation', 'ending') OR (state = 'claimed' AND claim_expires_at > now())"))["n"]
-        self.override("gate.ai_tpm_limit", (n + extra) * 9375)
+            "SELECT count(*) AS n FROM salescall.attempts WHERE tenant_id = %s AND (state IN ('dialing', 'ringing', 'answered',"
+            " 'in_conversation', 'ending') OR (state = 'claimed' AND claim_expires_at > now()))", (s["tenant"],)))["n"]
+        self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: tx.execute(
+            "INSERT INTO salescall.setting_values (key, scope, tenant_id, value, status, rationale, review_when, set_by)"
+            " VALUES ('gate.ai_tpm_limit', 'tenant', %s, %s, 'decided', '試験', '試験', '試験')",
+            (s["tenant"], json.dumps((n + extra) * 9375))))
 
     # ── 試験のあいだだけ、システムの値を変える（終わったら、元の行の写しを足して戻す）
     def override(self, key, value):
@@ -384,6 +388,23 @@ class Pacing(Base):
         self.assertEqual(self.reason(a), "cross_client_interval_same_tenant")
         self.assertEqual(self.reason(other), "cross_client_interval_other_tenant")   # 契約者の外は、中身を出さない
 
+    def test_the_interval_with_other_contractors_is_the_contractors_setting(self):
+        """ほかの契約者が同じ番号へかけたときの間隔は、契約者の設定（○○時間・○○日・かけない。2026-10-16 ユーザー）。"""
+        a = self.ready()
+        other = self.ready(phone=a["phone"])
+        self.past_attempt(a, ["dialing", "no_answer"])
+        put_tenant = lambda v: self.w.a.in_tenant(OPERATOR, other["tenant"], lambda tx: settings.set_value(
+            tx, "gate.other_contractor_interval", v, scope="tenant", status="decided", rationale="試験", review_when="試験",
+            tenant_id=other["tenant"]))
+        put_tenant({"hours": 1})
+        p = self.tx(other, lambda tx: gate.pacing(tx, other["task"]))
+        self.assertEqual(p.binding, "cross_client_interval_other_tenant")
+        self.assertLess(p.earliest - self.tx(other, lambda tx: tx.one("SELECT now() AS t")["t"]), timedelta(hours=1, seconds=5))
+        put_tenant("never")
+        self.assertEqual(self.reason(other), "other_contractor_called")   # かけない：その行は終える側（permanent）
+        with self.assertRaises(Rejected):
+            put_tenant({"weeks": 1})                                     # 形の違う値は、データベースが拒む
+
     def test_own_retries_are_not_cross_client(self):
         s = self.ready()
         self.override("gate.same_contact_min_interval", 1)
@@ -478,11 +499,17 @@ class Capacity(Base):
         self.lease(s, line=line2)
         self.assertEqual(self.reason(s, task=t2, line=line2), "client_concurrency")
 
-    def test_ai_capacity_is_shared_by_everyone(self):
-        a, b = self.ready(), self.ready()
-        self.capacity_of(1)
+    def test_ai_capacity_is_per_contractor(self):
+        """会話AIの枠は契約者ごと（2026-10-16 ユーザー：「会話AIの枠　契約者」）。同じ契約者の依頼者どうしで分け合い、
+        ほかの契約者の発信は数えない。"""
+        a = self.ready()
+        b = self.ready(tenant=a["tenant"])
+        self.capacity_of(a, 1)
         self.assertIsInstance(self.claim(a), gate.Claim)
         self.assertEqual(self.reason(b), "ai_capacity")
+        other = self.ready()
+        self.capacity_of(other, 1)
+        self.assertIsInstance(self.claim(other), gate.Claim)
 
 
 class ActiveConflicts(Base):
@@ -602,8 +629,8 @@ class ExpiredClaimsDoNotUseCapacity(Base):
         stale = self.ready()
         self.assertIsInstance(self.claim(stale), gate.Claim)
         time.sleep(1.2)                       # 期限が切れた（取り消されるのは、そのお客様・番号・回線の次の予約のとき）
-        fresh = self.ready()
-        self.capacity_of(1)
+        fresh = self.ready(tenant=stale["tenant"])   # 同じ契約者（会話AIの枠は契約者ごと）
+        self.capacity_of(fresh, 1)
         self.put_client(fresh, "calling.max_concurrent_calls", 1)
         self.assertIsInstance(self.claim(fresh), gate.Claim)
 
@@ -632,8 +659,9 @@ class Concurrency(Base):
         self.assertEqual(sum(isinstance(g, gate.Claim) for g in got), 1)
 
     def test_ai_capacity_holds_under_concurrency(self):
-        rows = [self.ready() for _ in range(6)]
-        self.capacity_of(2)
+        first = self.ready()
+        rows = [first] + [self.ready(tenant=first["tenant"]) for _ in range(5)]
+        self.capacity_of(first, 2)
         got = self.run_all([lambda r=r: self.claim(r) for r in rows])
         self.assertEqual(sum(isinstance(g, gate.Claim) for g in got), 2)
 
