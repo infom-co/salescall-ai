@@ -1227,7 +1227,7 @@ class SpokenNameTest(unittest.TestCase):
         from instruction import Business
         q = [Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"))]
         b = Business(company="大和ハウス工業", caller="中島", purpose="", questions=q, company_reading="だいわはうすこうぎょう")
-        self.assertEqual(b.opening(), "お忙しいところ恐れ入ります。株式会社「だいわはうすこうぎょう」の「中島」と申します。")
+        self.assertEqual(b.opening(), "お忙しいところ失礼いたします。株式会社「だいわはうすこうぎょう」の「中島」と申します。")
 
 
 class ReadingConfirmTest(unittest.TestCase):
@@ -1249,7 +1249,7 @@ class ReadingConfirmTest(unittest.TestCase):
         f = self.flow()
         r = self.do(f, "record_answer", question_id="Q1", condition_id="はい")
         self.assertEqual(r["result"], "confirm_required")  # 次の質問の代わりに、読みの確かめ（相手に聞かずに言い直しの形で始まる）
-        self.assertEqual(r["say"], "お名前を確認させていただきたいのですが「やまざき」様とお呼びしたらよろしいでしょうか？")
+        self.assertEqual(r["say"], "お名前の読みの方は「やまざき」様でよろしかったでしょうか？")
         r = self.do(f, "confirm_field", question_id="N1", result="affirmed")
         self.assertEqual((r["result"], r["question_id"]), ("next", "Q2"))
         self.assertIn("「山崎」様は「やまざき」様とお呼びします", r["message"])
@@ -1260,7 +1260,7 @@ class ReadingConfirmTest(unittest.TestCase):
         self.do(f, "record_answer", question_id="Q1", condition_id="はい")
         r = self.do(f, "confirm_field", question_id="N1", result="corrected", correction="ヤマサキです")
         self.assertEqual((r["result"], r["ack"]), ("confirm_required", "shitsurei"))  # こちらの読み違え＝お詫び「失礼いたしました。」
-        self.assertEqual(r["say"], "改めましてお名前は「やまさき」様でよろしかったでしょうか？")
+        self.assertEqual(r["say"], "改めましてお名前の読みの方は「やまさき」様でよろしかったでしょうか？")
         r = self.do(f, "confirm_field", question_id="N1", result="affirmed")
         self.assertEqual(f.readings(), {"山崎": "やまさき"})
         self.assertEqual(r["question_id"], "Q2")
@@ -1285,14 +1285,14 @@ class ReadingConfirmTest(unittest.TestCase):
         f = Flow([reading_question("N1", "中島", "なかじま")])   # 最初の質問なら、始めから返事待ち（名乗りのあとに言われる）
         self.assertEqual(f.awaiting_confirm, "N1")
         r = self.do(f, "confirm_field", question_id="N1", result="corrected", correction="なかしま")
-        self.assertEqual(r["say"], "改めましてお名前は「なかしま」様でよろしかったでしょうか？")
+        self.assertEqual(r["say"], "改めましてお名前の読みの方は「なかしま」様でよろしかったでしょうか？")
 
     def test_same_reading_reported_as_correction_uses_other_candidate(self):
         """⛔ G-45：相手が「いや、ナカシマです。」と直したのに、AIは「なかじま」（直す前と同じ読み）で訂正を報告した。"""
         from flowctl import Flow, reading_question
         f = Flow([reading_question("N1", "中島", "なかじま", ["なかじま", "なかしま"])])
         r = self.do(f, "confirm_field", question_id="N1", result="corrected", correction="なかじま")
-        self.assertEqual(r["say"], "改めましてお名前は「なかしま」様でよろしかったでしょうか？")   # まだ言っていない読みで確かめる
+        self.assertEqual(r["say"], "改めましてお名前の読みの方は「なかしま」様でよろしかったでしょうか？")   # まだ言っていない読みで確かめる
         r = self.do(f, "confirm_field", question_id="N1", result="affirmed")
         self.assertEqual(f.readings(), {"中島": "なかしま"})
         f = Flow([reading_question("N1", "中島", "なかじま", ["なかじま", "なかしま"])])
@@ -1308,7 +1308,7 @@ class ReadingConfirmTest(unittest.TestCase):
         f.on_callee()
         f.on_heard("いや、中島です。")
         r = f.apply("confirm_field", {"question_id": "N1", "result": "affirmed"})
-        self.assertEqual(r["say"], "改めましてお名前は「なかしま」様でよろしかったでしょうか？")
+        self.assertEqual(r["say"], "改めましてお名前の読みの方は「なかしま」様でよろしかったでしょうか？")
         f.on_callee()
         f.on_heard("いえいえ、そうです。")                     # 「いえいえ」は打ち消しではない
         f.apply("confirm_field", {"question_id": "N1", "result": "affirmed"})
@@ -1327,6 +1327,19 @@ class ReadingConfirmTest(unittest.TestCase):
                 f.on_heard("はい、そうです。")
                 f.apply("confirm_field", {"question_id": "N1", "result": "affirmed"})
             self.assertEqual(f.readings(), {"中島": want}, heard)
+
+    def test_kinds_and_target_call(self):
+        """✅ 2026-10-16 ユーザー：法人「（部署、役職）の（相手の名前）様はいらっしゃいますでしょうか？」「お名前の読みの方は…様で
+        よろしかったでしょうか？」／個人「（相手の名前）様のお電話でお間違いないでしょうか？」「お名前の方は…様でよろしかったでしょうか？」"""
+        from flowctl import Flow, reading_question
+        from phrases import target_call
+        self.assertEqual(target_call("法人", "「なかじま」", "営業部部長"), "営業部部長の「なかじま」様はいらっしゃいますでしょうか？")
+        self.assertEqual(target_call("法人", "「なかじま」"), "「なかじま」様はいらっしゃいますでしょうか？")
+        self.assertEqual(target_call("個人", "「なかじま」", "営業部部長"), "「なかじま」様のお電話でお間違いないでしょうか？")
+        f = Flow([reading_question("N1", "中島", "なかじま", ["なかじま", "なかしま"], kind="個人")])
+        self.assertEqual(f.questions["N1"].text, "お名前の方は「なかじま」様でよろしかったでしょうか？")
+        r = self.do(f, "confirm_field", question_id="N1", result="corrected", correction="なかしま")
+        self.assertEqual(r["say"], "改めましてお名前の方は「なかしま」様でよろしかったでしょうか？")
 
     def test_unread_rule(self):
         from flowctl import Question

@@ -292,6 +292,7 @@ class Question:
     reading_of: str = ""
     prefill: str = ""
     readings: tuple = ()        # 考えられる読み（names.decide の candidates。まず言ってみる読みを含む）。AIが聞き分けられないときに使う
+    reading_kind: str = "法人"  # 確かめの言い方（phrases.NAME_READING_ASK の鍵＝発信対象の区分。法人／個人）
 
     def __post_init__(self):
         assert self.type in TYPES, f"{self.id} の型「{self.type}」は、型の一覧にありません（I-16）"
@@ -317,12 +318,13 @@ class Question:
 _KANA = re.compile(r"[ぁ-ゖー]+")
 
 
-def reading_question(qid: str, surface: str, likely: str, readings: tuple | list = ()) -> "Question":
+def reading_question(qid: str, surface: str, likely: str, readings: tuple | list = (), kind: str = "法人") -> "Question":
     """読みが決まらない相手の名前（「山崎」＝やまざき／やまさき）を、会話の中で確かめる、プログラムが足す質問（DESIGN.md 6-2）。
     ✅ 2026-10-16 ユーザー：「なかじまとなかしまなどは人が見ても判断できません。それは会話の中で失礼のないように語るか、場合によっては
        聞き出す」。⇒ 新しい流れは作らず、ほかの値と同じ「言い直して確かめる」流れ（4-4）にのせる：まず言ってみる読みで
-       「お名前を確認させていただきたいのですが「やまざき」様とお呼びしたらよろしいでしょうか？」と聞き、相手が認めれば確認済み、
-       「いえ、やまさきです」なら、録音「失礼いたしました。」＋「改めましてお名前は「やまさき」様でよろしかったでしょうか？」で確かめる。
+       「お名前の読みの方は「なかじま」様でよろしかったでしょうか？」（個人なら「お名前の方は…」。kind＝発信対象の区分）と聞き、
+       相手が認めれば確認済み、「いや、なかしまです」なら、録音「失礼いたしました。」＋「改めましてお名前の読みの方は「なかしま」様で
+       よろしかったでしょうか？」で確かめる。
        確かめられなければ、名前を使わずに「ご担当者様」のようにお呼びする（失礼のないように語る）。
     必須にしない（聞き返して相手を煩わせない。確かめられなければ名前を使わないだけ）。
     readings＝考えられる読み。⛔ G-45：相手が「いや、ナカシマです。」と直したのに、AIは「中島」と聞いて、訂正の読みを直す前と同じ
@@ -330,8 +332,8 @@ def reading_question(qid: str, surface: str, likely: str, readings: tuple | list
     考えられる読みのうち、まだ言っていない読みで確かめる（_op_confirm_field）。"""
     likely = hira(likely)
     alts = tuple(dict.fromkeys([likely] + [hira(r) for r in readings if r]))
-    return Question(qid, NAME_READING_ASK.format(v=quote(likely)), "name", required=False, conditions=("答えた",),
-                    topic="お名前のお読み", reading_of=surface, prefill=likely, readings=alts)
+    return Question(qid, NAME_READING_ASK[kind].format(v=quote(likely)), "name", required=False, conditions=("答えた",),
+                    topic="お名前のお読み", reading_of=surface, prefill=likely, readings=alts, reading_kind=kind)
 
 
 @dataclass
@@ -750,8 +752,6 @@ class Flow:
         # 場面：聞き返した・念のための確認・訂正のあとは「聞き取りにくかったあと」、それ以外は「ふつう」（phrases.CONFIRM）
         situation = AFTER[after][0] if after else (
             "聞き取りにくかったあと" if (it.ask_backs or it.corrections or self.phase == "rechecking") else "ふつう")
-        if self.questions[qid].reading_of:  # 名前の読みを直していただいたあと（「お名前は「やまさき」様でよろしかったでしょうか？」）
-            situation = "名前の読み・直されたあと"
         n = self.confirm_counts.get(situation, 0)
         self.confirm_counts[situation] = n + 1
         # 言い直す値：値の無い選択肢の型（はい／いいえなど。聞き返したあとは復唱する＝6-11）は、選んだ選択肢で言い直す。
@@ -761,7 +761,10 @@ class Flow:
             shown = quote(it.value)
             it.tried_readings.append(it.value)
         lead = AFTER[after][1] if after else "言い直し"
-        say = self.awaiting_say = self._lead(lead) + self.confirm(shown, situation, n)
+        q = self.questions[qid]
+        # 名前の読みは、質問と同じ言い方で、直していただいた読みを言う（「改めましてお名前の読みの方は「なかしま」様でよろしかったでしょうか？」）
+        phrase = NAME_READING_ASK[q.reading_kind].format(v=shown) if q.reading_of else self.confirm(shown, situation, n)
+        say = self.awaiting_say = self._lead(lead) + phrase
         return {"result": "confirm_required", "value": shown, "say": say, "after": after,
                 "message": f"言い直して確かめます。「{say}」と言って、相手の返事を待ってください。"}
 

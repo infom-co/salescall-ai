@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from flowctl import ARG_LABEL, CONFIRM_LABEL, END_LABEL, GOT, SYSTEM_LABEL, Question
 from names import quote  # noqa: F401（名前を「」でくくる唯一の場所。ここからも読める）
 
-from phrases import APOLOGY, ASK_BACK  # noqa: F401（決まった言い方は phrases.py の1か所。試験からも、ここ経由で読める）
+from phrases import APOLOGY, ASK_BACK, GREETING  # noqa: F401（決まった言い方は phrases.py の1か所。試験からも、ここ経由で読める）
 # プログラムから会話AIへ送る合図の文面（文字で送る。相手には聞こえない）。合図の文面はここだけに置く（DESIGN.md 6-7）
 CUES = {
     # AIが黙ったとき：1回だけ返事を促す
@@ -61,12 +61,12 @@ class Business:
 
     def opening(self) -> str:
         company, caller = self._said()
-        return f"お忙しいところ恐れ入ります。株式会社{company}の{caller}と申します。"
+        return f"{GREETING}株式会社{company}の{caller}と申します。"
 
     def opening_parts(self) -> list[str]:
         """名乗りの録音を、文ごとに分けたもの（DESIGN.md 6-13 の案）。最後は最初の質問。"""
         company, caller = self._said()
-        parts = ["お忙しいところ恐れ入ります。", f"株式会社{company}の{caller}と申します。"]
+        parts = [GREETING, f"株式会社{company}の{caller}と申します。"]
         if self.purpose_line:
             parts.append(self.purpose_line)
         parts.append(self.questions[0].text)
