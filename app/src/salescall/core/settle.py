@@ -119,12 +119,8 @@ def _notice_forbidden(tx: Tx, a: dict[str, Any], *, prepare: bool = True) -> boo
     refs: dict[str, Any] = {"attempt_id": a["attempt_id"], "task_id": a["task_id"], "version_id": a["version_id"]}
     if prepare:
         draft = apology.prepare(tx, a["attempt_id"])
-        if draft["order_id"] is not None:
-            summary += f"お詫びの電話の案：「{draft['text']}」承認すると、AI がこの相手にかけて伝えます。"
-            refs["apology_order_id"] = draft["order_id"]
-        else:
-            summary += ("お詫びの電話の案は作れません（業務設定に、正しい案内が無い言ってはいけないこと："
-                        f"{', '.join(draft['missing'])}）。")
+        summary += f"お詫びの電話の案：「{draft['text']}」承認すると、AI がこの相手にかけて伝えます。"
+        refs["apology_order_id"] = draft["order_id"]
     notify.emit(tx, "forbidden_speech", key=f"forbidden_speech:{a['attempt_id']}", summary=summary, refs=refs)
     return True
 

@@ -54,16 +54,24 @@ class Apology(Helpers):
         self.order(s, aid)
         self.assertEqual(self.tx(s, lambda tx: apology.for_task(tx, s["task"]))["text"], TEXT)
 
-    def test_no_draft_without_a_correct_statement(self):
+    def test_improper_speech_uses_the_other_script(self):
+        """正しい案内の無いこと（失礼な言葉など）を言ったときは、別の文面（2026-10-16 ユーザー）。"""
         s = self.fresh(stage_cap=20)
         self.verified_call(s, VerificationSummary(2, 0, 1, (ForbiddenFinding("F2", "失礼な言葉"),)), items=TAKEN)
         aid = self.tx(s, lambda tx: tx.one("SELECT attempt_id FROM salescall.attempts WHERE task_id = %s", (s["task"],)))
-        self.assertIsNone(self.draft(s, aid["attempt_id"]))
         notice = self.tx(s, lambda tx: tx.one("SELECT summary FROM salescall.notification_events WHERE event_key = %s",
                                               (f"forbidden_speech:{aid['attempt_id']}",)))
-        self.assertIn("お詫びの電話の案は作れません", notice["summary"])
-        with self.assertRaises(ValueError):                            # 業務設定に無い名前は、検証が残せない
+        self.assertIn("先ほどのお電話で、不適切な発言をしてしまいました。大変失礼いたしました。誠に申し訳ございませんでした。",
+                      notice["summary"])
+        self.assertIsNotNone(self.draft(s, aid["attempt_id"]))
+        with self.assertRaises(ValueError):                            # 数と中身が合わない検証の結果は作れない
             VerificationSummary(1, 0, 1, ())
+
+    def test_both_kinds_in_one_apology(self):
+        got = apology.text([{"wrong": "A", "correct": "a"}], improper=True)
+        self.assertEqual(got, "先ほどのお電話で、誤って「A」というご案内をしてしまいましたが、正しくは「a」となります。"
+                              "また、不適切な発言もしてしまいました。"
+                              "不正確なご案内と不適切な発言をしてしまいまして、誠に申し訳ございませんでした。")
 
     def test_two_mistakes_in_one_apology_and_a_later_day(self):
         got = apology.text([{"wrong": "A", "correct": "a"}, {"wrong": "B", "correct": "b"}])

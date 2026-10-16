@@ -9,7 +9,8 @@
   合否を決めて記録する。合格なら、その業務の品質の停止を解き（止まった版とは違う版のときだけ）、最初の段を開く。
 - 段の評価（`evaluate`。締めの処理が通話ごとに呼ぶ）：
   - 数の基準は、毎回見る。超えたら、その場で業務を止める：言ってはいけないこと（0件まで。原因 forbidden_speech）・
-    判定できない（**同じ原因が2件になったら**。原因 judge_unknown。2026-10-16 ユーザー決定。1件だけなら偶然の誤りかもしれない）。
+    判定できない（**1件で止める**。原因 judge_unknown。止める理由に、判定できない原因の名前と意味を入れて管理者へ知らせる。
+    2026-10-16 ユーザー決定：(a)(c)(d)）。
   - 割合の基準（2つの耳の食い違い・苦情・技術的な失敗・検証できなかった）は、段の件数に達し、その分がすべて締め終わったときに見る
     （小さな数の割合はぶれるため）。内側なら次の段へ（最後の段のあとは全部）、外れたら業務を止める（原因 quality_gate）。
   - 評価のたびに、指標ごとの値・基準・内側か外か・結果を記録する（CL-3 の 4-1e の2）。
@@ -30,6 +31,7 @@ from typing import Any
 from uuid import UUID
 
 from salescall.core import notify, settings, stops
+from salescall.core.judge import UNKNOWN_CAUSES
 from salescall.core.access import Tx
 
 STOP_CAUSES = ("quality_gate", "forbidden_speech", "judge_unknown")    # 品質で止める原因（模擬通話の合格で解く）
@@ -259,7 +261,13 @@ def evaluate(tx: Tx, version_id: UUID) -> dict[str, Any] | None:
     if cause is not None:
         bad = ", ".join(f"{k}={x['hits']}/{x['total']}" if x["total"] is not None else f"{k}={x['hits']}"
                         for k, x in m.items() if not x["inside"])
-        stop_id = stops.stop(tx, scope="business", cause=cause, reason=f"品質の基準を外れた（{bad}）",
+        reason = f"品質の基準を外れた（{bad}）"
+        if cause == "judge_unknown":   # 何が原因か（決まった名前と意味・直す担当）を、止める理由に入れて知らせる（(c)）
+            unk = m["unknown_judgments"]
+            reason = (f"判定できない通話がありました（原因：{unk['cause']}＝{UNKNOWN_CAUSES.get(unk['cause'], '不明')}。"
+                      f"通話 {len(unk['attempts'])} 件）。その行は判定待ちで残しています。原因を直し、その場面を入れた模擬通話に"
+                      "合格したら再開します")
+        stop_id = stops.stop(tx, scope="business", cause=cause, reason=reason,
                              evidence=f"version_id={version_id}", tenant_id=v["tenant_id"], client_id=v["client_id"],
                              business_id=v["business_id"])["event_id"]
         outcome = "stop"

@@ -44,8 +44,10 @@ CREATE TABLE salescall.apology_orders (
   order_id          bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   task_id           uuid NOT NULL,
   source_attempt_id uuid NOT NULL UNIQUE,            -- 言ってはいけないことを言った通話（1つに1つ）
-  pairs             jsonb NOT NULL CHECK (jsonb_typeof(pairs) = 'array' AND jsonb_array_length(pairs) >= 1),
+  pairs             jsonb NOT NULL CHECK (jsonb_typeof(pairs) = 'array'),
                                                      -- [{"wrong": 誤って案内したこと, "correct": 正しい内容}, …]
+  improper          boolean NOT NULL,                -- 正しい案内の無いこと（失礼な言葉など）も言った（別の文面を足す）
+  CHECK (jsonb_array_length(pairs) >= 1 OR improper),
   prepared_at       timestamptz NOT NULL DEFAULT now(),
   FOREIGN KEY (tenant_id, client_id) REFERENCES salescall.clients (tenant_id, client_id),
   FOREIGN KEY (client_id, source_attempt_id, task_id) REFERENCES salescall.attempts (client_id, attempt_id, task_id)

@@ -117,18 +117,17 @@ class Stages(Base):
         self.verified_call(self.second_row(s), said(), items=[("Q1", "confirmed", None)])
         self.assertEqual([r["cause"] for r in self.business_stops(s)], ["forbidden_speech"])   # 解いたあとの分は数える
 
-    def test_same_unknown_cause_twice_stops_and_a_mock_with_the_scenes_resumes(self):
-        """判定できない：1件では止めない。同じ原因が2件で止める。その場面を入れた模擬通話の合格で、同じ版でも再開
-        （2026-10-16 ユーザー決定）。"""
+    def test_one_unknown_stops_with_its_cause_and_a_mock_with_the_scene_resumes(self):
+        """判定できない：1件でその業務を止め、原因を知らせる。その場面を入れた模擬通話の合格で、同じ版でも再開
+        （2026-10-16 ユーザー決定：(a)(c)(d)）。"""
         s = self.fresh(stage_cap=20)
         self.verified_call(s, VerificationSummary(1, 0, 0), report=rep(cut=None))
-        self.assertEqual(self.business_stops(s), [])                   # 1件では止めない
-        self.verified_call(self.second_row(s), VerificationSummary(1, 0, 0), report=rep(cut=None))
         stops_now = self.business_stops(s)
         self.assertEqual([r["cause"] for r in stops_now], ["judge_unknown"])
+        self.assertIn("切れ方の材料が報告に無い", stops_now[0]["reason"])       # 何が原因かを、止めた理由に書く
         why = self.tx(s, lambda tx: stops.explain(tx, stops_now[0]["event_id"]))
         unk = why["quality"]["metrics"]["unknown_judgments"]
-        self.assertEqual((unk["cause"], len(unk["attempts"])), ("cut_missing", 2))
+        self.assertEqual((unk["cause"], len(unk["attempts"])), ("cut_missing", 1))
         no_scenes = self.tx(s, lambda tx: quality_stage.record_mock(tx, s["version"], GOOD))
         self.assertEqual(no_scenes["outcome"], "scenes_missing")       # 止めた原因の場面を入れていない
         self.assertEqual(len(self.business_stops(s)), 1)
@@ -136,12 +135,6 @@ class Stages(Base):
         got = self.tx(s, lambda tx: quality_stage.record_mock(tx, s["version"], with_scenes))
         self.assertEqual(got["outcome"], "opened")
         self.assertEqual(self.business_stops(s), [])                   # 同じ版でも再開（原因は業務設定とは限らない）
-
-    def test_different_unknown_causes_do_not_add_up(self):
-        s = self.fresh(stage_cap=20)
-        self.verified_call(s, VerificationSummary(1, 0, 0), report=rep(cut=None))                       # 切れ方の材料が無い
-        self.verified_call(self.second_row(s), VerificationSummary(1, 0, 0), report=rep(("reception",)))  # 繋がらなかった理由が無い
-        self.assertEqual(self.business_stops(s), [])
 
     def test_stage_end_advances_when_inside(self):
         s = self.fresh(stage_cap=1)
