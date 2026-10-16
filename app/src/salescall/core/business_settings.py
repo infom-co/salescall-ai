@@ -213,6 +213,11 @@ def check(raw: Any, *, field_types: frozenset[str]) -> Settings:
                  dict(tp), busy_line, voice or "", tuple(questions), tuple(names), None, raw)
     if questions and len({q.id for q in questions}) == len(questions):
         problems += _flow_problems(s, raw["rules"])
+        try:   # 業務の決まりの確かめ（core/business_rules.py の1か所。版の番号は、版を作るときに付く）
+            business_rules.check(UUID(int=0), tuple(q.id for q in questions if q.required), tuple(q.id for q in questions),
+                                 raw["rules"])
+        except business_rules.RulesInvalid as e:
+            problems.append(f"業務の決まり：{e}")
     if problems:
         raise SettingsInvalid(problems)
     return s
