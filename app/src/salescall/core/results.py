@@ -22,10 +22,10 @@ ResultKind = Literal["judged", "human", "rejudged"]
 
 
 def latest(tx: Tx, task_id: UUID) -> dict[str, Any] | None:
-    """いちばん新しい結果の版（無ければ None）。"""
+    """いちばん新しい結果の版（無ければ None）。最新を選ぶのはデータベースの見方 latest_task_results の1か所。"""
     return tx.one(
         "SELECT task_id, version_no, kind, business_state, attempt_id, judge_version, complaint, detail, snapshot,"
-        " decided_at, decided_by FROM salescall.task_results WHERE task_id = %s ORDER BY version_no DESC LIMIT 1",
+        " decided_at, decided_by FROM salescall.latest_task_results WHERE task_id = %s",
         (task_id,),
     )
 

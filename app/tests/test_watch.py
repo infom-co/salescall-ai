@@ -53,6 +53,18 @@ class Classify(unittest.TestCase):
                 self.assertTrue(e.meaning and e.ref)
         self.assertIn("ai_server_error", errors.COUNTED_FOR["ai_connection"])
 
+    def test_every_counted_kind_has_its_evidence(self):
+        # 続いた回数を数え直す「直った証拠」は、止める種類すべてにあり、データベースが知っている名前だけ
+        stopping = {k for k, a in errors.ACTIONS.items() if a.stop_cause is not None}
+        self.assertEqual(set(errors.EVIDENCE), stopping)
+        self.assertTrue(set(errors.EVIDENCE.values()) <= {"in_conversation", "verified", "ringing", "none"})
+        self.assertEqual(errors.counted_with("ear_unreachable"), ("ear_unreachable",))
+        self.assertNotIn("ear_unreachable", errors.counted_with("ai_unreachable"))
+        for k in stopping:
+            with self.subTest(k):
+                self.assertTrue(all(errors.ACTIONS[x].stop_scope == errors.ACTIONS[k].stop_scope
+                                    for x in errors.counted_with(k)))
+
     def test_the_table_is_complete_and_never_switches_keys_on_unknown(self):
         for kind, a in errors.ACTIONS.items():
             with self.subTest(kind):
@@ -242,6 +254,55 @@ class SystemStopsAndChecks(unittest.TestCase):
                     "DELETE FROM salescall.stop_checks WHERE stop_event_id = %s"):
             with self.subTest(sql=sql), self.assertRaises(Rejected):
                 own.in_system(OPERATOR, lambda tx: tx.execute(sql, (sid,)))
+
+    def ai_stops(self):
+        return [r for r in self.a.in_system(SYSTEM, lambda tx: stops.open_stops(tx, tenant_id=None, client_id=None,
+                                                                                    business_id=None))
+                if r["cause"] == "ai_connection"]
+
+    def test_ear_errors_are_not_reset_by_conversations(self):
+        # 2026-10-16 見直し：別の耳だけつながらないとき、ほかの通話が会話に入るたびに数え直していて、止まらなかった
+        override(self, "stop.ai.stop_after_failures", 2)
+        w = World(); s = w.setup()
+        ear = ErrorReport("ear", None, None, unreachable=True)
+        watch.after_error(self.a, SYSTEM, ear)
+        aid = w.insert_claim(s)
+        for st in ("dialing", "answered", "in_conversation"):
+            w.move(s, aid, st)                                       # 会話AIは動いている（別の耳の直った証拠ではない）
+        watch.after_error(self.a, SYSTEM, ear)
+        self.assertEqual(len(self.ai_stops()), 1)
+
+    def test_counting_needs_the_transaction_of_that_scope(self):
+        w = World(); s = w.setup(); other = World().setup()
+        with self.assertRaises(PermissionError):                     # 全体のエラーの数は、全体の取引だけ
+            self.a.in_tenant(SYSTEM, s["tenant"], lambda tx: watch.decide_stop(tx, "ai_unreachable"))
+        n = self.a.in_tenant(SYSTEM, s["tenant"], lambda tx: tx.one(
+            "SELECT salescall.consecutive_errors(%s, 'line_failure', 'ringing', %s) AS n", (["line"], other["line"]))["n"])
+        self.assertIsNone(n)                                         # ほかの契約者の回線は数えない
+        spent = self.a.in_tenant(SYSTEM, s["tenant"], lambda tx: tx.one("SELECT salescall.spent_today_all() AS y")["y"])
+        self.assertIsNone(spent)                                     # 全体の費用は、全体の取引だけ
+        listed = self.a.in_tenant(SYSTEM, s["tenant"], lambda tx: tx.all(
+            "SELECT * FROM salescall.open_system_stops('budget')"))
+        self.assertEqual(listed, [])
+
+    def test_checks_of_system_stops_only_from_the_system_transaction(self):
+        sid = self.storage_stop()
+        s = World().setup()
+        due = self.a.in_tenant(SYSTEM, s["tenant"], watch.due_checks)
+        self.assertNotIn(sid, [r["event_id"] for r in due])          # 契約者の取引からは、全体の停止を確かめない
+        with self.assertRaises(Rejected):
+            self.a.in_tenant(SYSTEM, s["tenant"], lambda tx: watch.record_check(tx, sid, True, evidence="試験"))
+
+    def test_every_error_reaches_the_admin_and_contractors_only_by_the_table(self):
+        # 2026-10-16 見直し：キーの無効化（直せるのは管理者だけ）が、管理者に届いていなかった
+        s = World().setup()
+        watch.after_error(self.a, SYSTEM, ErrorReport("ai", 1007, "API key not valid. Please pass a valid API key."),
+                          tenant_id=s["tenant"], client_id=s["client"])
+        like = f"error:key_specific:{s['tenant']}:{s['client']}:%"
+        sql = "SELECT for_admin FROM salescall.notification_events WHERE event_key LIKE %s"
+        self.assertEqual([r["for_admin"] for r in self.a.in_system(ADMIN, lambda tx: tx.all(sql, ("admin:" + like,)))],
+                         [True])
+        self.assertEqual(self.a.in_client(OPERATOR, s["tenant"], s["client"], lambda tx: tx.all(sql, (like,))), [])
 
     def test_notify_once_an_hour(self):
         for _ in range(2):

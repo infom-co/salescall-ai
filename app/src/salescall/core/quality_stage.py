@@ -119,9 +119,8 @@ def _quality_stop(tx: Tx, business_id: UUID) -> dict[str, Any] | None:
     """その業務の、まだ解かれていない品質の停止と、止めた版（無ければ None）。"""
     return tx.one(
         "SELECT s.event_id, s.cause::text AS cause, (SELECT q.version_id FROM salescall.quality_evaluations q"
-        "  WHERE q.stop_event_id = s.event_id) AS version_id FROM salescall.stop_events s"
-        " WHERE s.action = 'stop' AND s.scope = 'business' AND s.business_id = %s AND s.cause::text = ANY(%s)"
-        " AND NOT EXISTS (SELECT 1 FROM salescall.stop_events r WHERE r.resolves_event_id = s.event_id)"
+        "  WHERE q.stop_event_id = s.event_id) AS version_id FROM salescall.open_stop_events s"
+        " WHERE s.scope = 'business' AND s.business_id = %s AND s.cause::text = ANY(%s)"
         " ORDER BY s.event_id LIMIT 1", (business_id, list(STOP_CAUSES)))
 
 

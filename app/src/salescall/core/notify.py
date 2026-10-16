@@ -7,6 +7,9 @@
 - **管理者あて**（`admin=True`。2026-10-16 ユーザー承認）：プログラムの誤り・エラーの一覧など、直せるのが管理者だけの出来事は、
   契約者の台帳に入れるのと同じ呼び出しで、管理者あての写しも入れる（契約者を持たない行。読めるのは管理者と送る処理だけ。0027）。
   どの出来事を管理者に知らせるかは、呼ぶ側の決まった1か所（判定できない原因＝`judge.PROGRAM_CAUSES`、エラー＝すべて）が決める。
+  エラーのうち、契約者にも知らせるのは、処置の表（core/errors.py）が「知らせる」とした種類だけ（ほかは管理者あてだけ。
+  `contractor=False`）。2026-10-16 見直し：前は「知らせる」の種類だけを管理者にも送り、キーの無効化など、直せるのが管理者
+  だけのエラーが、管理者に届いていなかった。
 - 要約に、お客様の電話番号・名前・発話の中身を入れない（画面と知らせに出す。中身は refs の ID で指す。CL-3 の 4-1e の5）。
   要約は、この部品を呼ぶ処理が、決まった言葉と ID・数から作る（会話の文字をそのまま入れない）。
 """
@@ -36,14 +39,19 @@ class UnknownKind(Exception):
     """一覧に無い種類。"""
 
 
-def emit(tx: Tx, kind: str, *, key: str, summary: str, refs: dict[str, Any] | None = None, admin: bool = False) -> bool:
-    """出来事を台帳に入れる（取引の契約者・依頼者の出来事）。admin＝管理者あての写しも入れる。新しく入れたら True、同じ鍵が
-    もうあれば False。"""
+def emit(tx: Tx, kind: str, *, key: str, summary: str, refs: dict[str, Any] | None = None, admin: bool = False,
+         contractor: bool = True) -> bool:
+    """出来事を台帳に入れる（取引の契約者・依頼者の出来事）。admin＝管理者あての写しも入れる。contractor=False＝契約者の台帳には
+    入れない（管理者あてだけ。admin と組で使う）。新しく入れたら True、同じ鍵がもうあれば False。"""
     if kind not in KINDS:
         raise UnknownKind(kind)
+    if not (admin or contractor):
+        raise ValueError("あて先がありません（管理者か契約者のどちらか）")
     if admin:
-        tx.one("SELECT salescall.notify_admin(%s, %s, %s, %s)",
-               (kind, key, summary, json.dumps(refs or {}, ensure_ascii=False, default=str)))
+        got = tx.one("SELECT salescall.notify_admin(%s, %s, %s, %s) AS new",
+                     (kind, key, summary, json.dumps(refs or {}, ensure_ascii=False, default=str)))["new"]
+        if not contractor:
+            return got
     row = tx.one(
         "INSERT INTO salescall.notification_events (tenant_id, client_id, kind, event_key, summary, refs)"
         " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s)"

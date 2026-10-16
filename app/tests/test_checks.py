@@ -116,6 +116,18 @@ class SingleWriters(Planted):
         root = self._app({"src/salescall/output/ledger.py": 'SQL = "UPDATE salescall.deliveries SET state = %s"\n'})
         self.assertEqual(rules.single_writers(root), [])
 
+    def test_notification_deliveries_only_from_output(self):
+        # 2026-10-16 見直し：表の行の括弧がずれて、知らせの送信の記録が「連携の台帳の中の鍵」になり、見張られていなかった
+        root = self._app({"src/salescall/core/x.py": 'SQL = "INSERT INTO salescall.notification_deliveries (a) VALUES (1)"\n',
+                          "src/salescall/output/y.py": 'SQL = "INSERT INTO salescall.notification_deliveries (a) VALUES (1)"\n'})
+        self.assertEqual([v.path for v in rules.single_writers(root)], ["src/salescall/core/x.py"])
+
+    def test_writers_table_shape(self):
+        # 書き手の表の1行は、書き方（INSERT・UPDATE）ごとの場所だけ（ほかの鍵が入っていたら、表の行がずれている）
+        for table, verbs in rules.WRITERS.items():
+            self.assertTrue(set(verbs) <= {"INSERT", "UPDATE"}, table)
+            self.assertTrue(all(isinstance(v, frozenset) for v in verbs.values()), table)
+
 
 class PhoneFormatting(Planted):
     def test_formatting_outside_q1(self):

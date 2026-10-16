@@ -9,10 +9,13 @@
 - 切れ方の判定（7-1c）も、ここの1か所（`classify_cut`）。門の「数えない発信」は、その結果（試行に記録）を読む。
 
 上から順に、最初に当たったものが答え：
-  (1) 発信の拒否（通話中の申告・通話後の検証で見つかった・切れ方の判定が「断った」）  ⇒ do_not_call
-  (2) 番号違い（電話口の種別に wrong_party）                                          ⇒ out_of_scope（番号違い）
+  (1) 番号違い（電話口の種別に wrong_party）                                          ⇒ out_of_scope（番号違い）
       ただし、お客様が言った番号へかけた通話なら、行は終えない（2026-10-15 ユーザー。DESIGN.md 3-5）
                                                                                   ⇒ not_reached（言われた番号が番号違い）
+      番号違いの電話口が断った・何も言わずに切ったときも、ここ（止めるのは、その番号だけ。行のお客様が断ったのではない
+      ので、行の番号すべて・管理番号へ広げない。DESIGN.md 3-6。2026-10-16 見直し：前は断りを先に見て、番号違いの相手の
+      断りで、行のお客様ごと止めていた）
+  (2) 発信の拒否（通話中の申告・通話後の検証で見つかった・切れ方の判定が「断った」）  ⇒ do_not_call
   (3) 範囲外の求めで終えた                                                          ⇒ out_of_scope
   (4) 用件を断られた（業務の決まりの「断りの答え」が取れた）                          ⇒ declined
   (5) 必須の質問がすべて取れた（confirmed・accepted。4-4 の定義）                     ⇒ completed
@@ -32,16 +35,20 @@ from typing import Any
 from salescall.core.business_rules import Rules
 from salescall.core.call_report import CallReport
 
-JUDGE_VERSION = "judge-2026-10-16.1"
+JUDGE_VERSION = "judge-2026-10-16.2"
 # 「判定できない」の原因の名前（同じ原因かを数える単位）と意味。プログラムの誤りか（直せるのは管理者だけ＝管理者にも知らせる。
-# 2026-10-16 ユーザー承認）も、ここで決まる（1か所）。業務設定の抜けは契約者が直す。
+# 2026-10-16 ユーザー承認）も、ここで決まる（1か所）。業務設定の抜けは契約者が直す（いまは無い：業務の決まりは、必須の質問ごとに、
+# 決まった理由のすべてに扱いが無いと保存できない＝business_rules。2026-10-16 見直し：前は「理由×扱いが決まらない」を業務設定の
+# 抜けとしていたが、起きるのは会話の処理が理由を書かなかった・一覧に無い理由を書いたときだけ）。
 UNKNOWN_CAUSES: dict[str, str] = {
     "report_missing": "お客様が出た通話なのに、会話の報告が無い（会話の処理の誤り。直すのは管理者）",
     "cut_missing": "お客様と話した通話なのに、切れ方の材料が報告に無い（会話の処理の誤り。直すのは管理者）",
-    "handling_missing": "取れていない必須の質問の理由に、扱いが業務設定で決まっていない（業務設定の抜け。直すのは契約者）",
+    "reason_missing": "取れていない必須の質問の「わからない」「答えない」に、理由が無い・決まった理由のどれでもない"
+                      "（会話の処理の誤り。直すのは管理者）",
     "not_reached_reason_missing": "目的のお客様に繋がらなかった理由が報告に無い（会話の処理の誤り。直すのは管理者）",
 }
-PROGRAM_CAUSES = frozenset({"report_missing", "cut_missing", "not_reached_reason_missing"})   # プログラムの誤り（管理者が直す）
+PROGRAM_CAUSES = frozenset({"report_missing", "cut_missing", "reason_missing",
+                            "not_reached_reason_missing"})   # プログラムの誤り（管理者が直す）
 TAKEN = frozenset({"confirmed", "accepted"})                  # 「取れた」の定義（4-4。ここで2つ目を作らない）
 HUMAN_PARTIES = frozenset({"reception", "target", "wrong_party"})
 
@@ -125,16 +132,18 @@ def judge(inp: JudgeInput) -> Judgement:
     if raw_cut == "missing":
         return unknown("cut_missing", "お客様と話した通話なのに、切れ方の材料（切れた瞬間に話していた側など）が報告されていません")
 
-    # (1) 発信の拒否（原則14）
+    # (1) 番号違い（その番号の持ち主の断りも、その番号だけを止める）
+    if r and "wrong_party" in r.parties:
+        refused = {"wrong_party_refused": True} if r.do_not_call or cut == "refused" or inp.refused_after else {}
+        if inp.facts.dialed_callee_number:   # 言われた番号が違った：その番号だけ止め、番号を確かめて聞き直す（次の動き）
+            return done("not_reached", dnc="wrong_party", not_reached="wrong_alternate", **refused)
+        return done("out_of_scope", dnc="wrong_party", out_of_scope="wrong_party", **refused)
+    # (2) 発信の拒否（原則14）
     if (r and r.do_not_call) or cut == "refused":
         return done("do_not_call", dnc="refused_in_call", refusal="in_call" if r and r.do_not_call else "cut")
     if inp.refused_after:
         return done("do_not_call", dnc="refused_found_after", refusal="found_after")
-    # (2)(3) 番号違い・範囲外
-    if r and "wrong_party" in r.parties:
-        if inp.facts.dialed_callee_number:   # 言われた番号が違った：その番号だけ止め、番号を確かめて聞き直す（次の動き）
-            return done("not_reached", dnc="wrong_party", not_reached="wrong_alternate")
-        return done("out_of_scope", dnc="wrong_party", out_of_scope="wrong_party")
+    # (3) 範囲外
     if r and r.out_of_scope:
         return done("out_of_scope", out_of_scope="request")
     # (4) 用件を断られた（断りの答えが「取れた」）
@@ -153,7 +162,7 @@ def judge(inp: JudgeInput) -> Judgement:
             continue
         h = rules.handling.get((q, it.state, it.reason)) if it.reason is not None else None
         if h is None:
-            return unknown("handling_missing", f"質問 {q} の {it.state} に、理由×扱いが決まらない（理由 {it.reason!r}）")
+            return unknown("reason_missing", f"質問 {q} の {it.state} に、決まった理由が無い（理由 {it.reason!r}）")
         if h.kind == "conclude":
             return done("concluded", conclusion=h.conclusion, concluded_by=q)
     # (7) かけ直しの約束

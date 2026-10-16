@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from salescall.core import reward, stops, usage
+from salescall.core import approval, reward, stops, usage
 from salescall.core.access import Rejected
 from tests.support import OPERATOR, SYSTEM, owner_access
 from tests.test_settle import SettleBase
@@ -141,6 +141,19 @@ class CostRatio(Priced):
         self.assertGreater(m["upper"], m["revenue"])                   # 成果・話せた本数のぶれを多めに見込む
         with self.assertRaises(ValueError):
             self.terms(s, days_ago=0)                                  # どれも 0 円の決まりは足せない
+
+    def test_a_completion_corrected_away_is_not_counted(self):
+        # 2026-10-16 見直し：契約者が「完了でない」と直した行も、はじめて完了になった版で成果に数えていた
+        s = self.ready()
+        self.terms(s, per_completed_yen=100)
+        self.talked(s)
+        self.assertEqual(self.month(s)["breakdown"]["completed"]["count"], 1)
+        self.tx(s, lambda tx: approval.correct_result(tx, s["task"], business_state="incomplete", complaint=False,
+                                                      snapshot={"試験": "契約者が直した"}), OPERATOR)
+        self.assertEqual(self.month(s)["breakdown"]["completed"]["count"], 0)
+        self.tx(s, lambda tx: approval.correct_result(tx, s["task"], business_state="completed", complaint=False,
+                                                      snapshot={"試験": "やはり完了"}), OPERATOR)
+        self.assertEqual(self.month(s)["breakdown"]["completed"]["count"], 1)   # 数える時刻は、はじめて完了になった時
 
     def test_monthly_is_prorated(self):
         s = self.ready()

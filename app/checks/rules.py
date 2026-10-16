@@ -201,8 +201,8 @@ WRITERS: dict[str, dict[str, frozenset[str]]] = {
     "imports": {"INSERT": frozenset({_CORE + "importer.py"})},
     "import_rows": {"INSERT": frozenset({_CORE + "importer.py"})},
     "deliveries": {"INSERT": frozenset({"src/salescall/output/"}),           # 連携の台帳（Q17。持ち主 CL-3）
-    "notification_deliveries": {"INSERT": frozenset({"src/salescall/output/"})},   # 知らせの送信の記録（Q23。送るのは CL-3）
                    "UPDATE": frozenset({"src/salescall/output/"})},
+    "notification_deliveries": {"INSERT": frozenset({"src/salescall/output/"})},   # 知らせの送信の記録（Q23。送るのは CL-3）
 }
 _WRITE = re.compile(r"\b(INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+salescall\.(\w+|\{\})", re.IGNORECASE)
 

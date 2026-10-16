@@ -99,6 +99,13 @@ class Revoke(unittest.TestCase):
         self.assertNotEqual(again["entry_id"], e)
         self.assertEqual(blocked(w, s, s["raw"])[0], "dnc_client")
 
+    def test_the_admin_can_revoke_too(self):
+        # 2026-10-16 見直し：断る文は「管理者か契約者」なのに、契約者しか通していなかった
+        w = World(); s = jp_setup(w)
+        e = in_client(w, s, lambda tx: dnc.register(tx, s["raw"], "manual"))["entry_id"]
+        in_client(w, s, lambda tx: dnc.revoke(tx, e, "依頼者から登録の誤りと連絡（試験）"), actor=ADMIN)
+        self.assertIsNone(blocked(w, s, s["raw"]))
+
 
 class Policy(unittest.TestCase):
     """番号で決まる「かけない理由」は1か所（取込と門の両方がこれを呼ぶ）。"""

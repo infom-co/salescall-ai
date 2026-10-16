@@ -3,7 +3,8 @@
 - 報酬の決まりを足すのは `set_terms` だけ（I-12。app/checks が見張る）。依頼者ごと・版つき（いつから使うか）。報酬の形は、
   成果1件あたり・かけた1本あたり・話せた1本あたり・月額・時給の組み合わせ（依頼者によって違う。2026-10-15 ユーザー）。
 - 今月（日本時間の月）の数を数えるのは `month` の1か所：報酬の内訳・費用・かけた本数。上限・赤字の判断は core/usage.py。
-  - 成果1件＝その行の業務の状態が、はじめて「完了」になった（契約者が直した版も含む）。かけた1本＝発信した（dialing に入った）。
+  - 成果1件＝いまの業務の状態（最新の結果の版）が「完了」の行を、はじめて「完了」になった時刻で数える（契約者が直した版も
+    含む。完了でないと直した行は数えない）。かけた1本＝発信した（dialing に入った）。
     話せた1本＝会話に入った（in_conversation に入った）。どれも、その出来事の時刻に効いていた決まりの単価で数える
     （あとから決まりを変えても、過去の分は変わらない）。
   - 月額＝その月のうち、決まりが効いていた時間で日割り（月の途中の割合を、月末の見込みと比べられるように）。
@@ -110,7 +111,9 @@ def month(tx: Tx, *, confidence: float, gap_max: int) -> dict[str, Any]:
                " salescall.from_jst(date_trunc('month', salescall.jst(now())) + interval '1 month') AS e, now() AS now")
     events = {
         "completed": ("per_completed_yen", "SELECT min(r.decided_at) AS at FROM salescall.task_results r"
-                                           " WHERE r.business_state = 'completed' GROUP BY r.task_id"),
+                                           " JOIN salescall.latest_task_results l ON l.task_id = r.task_id"
+                                           " WHERE r.business_state = 'completed' AND l.business_state = 'completed'"
+                                           " GROUP BY r.task_id"),
         "dial": ("per_dial_yen", "SELECT h.at FROM salescall.attempt_state_history h JOIN salescall.attempts a"
                                  " ON a.attempt_id = h.attempt_id WHERE h.to_state = 'dialing' AND a.purpose <> 'apology'"),
         "talk": ("per_talk_yen", "SELECT h.at FROM salescall.attempt_state_history h JOIN salescall.attempts a"

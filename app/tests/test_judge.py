@@ -78,6 +78,13 @@ class Order(unittest.TestCase):
         self.assertEqual(run(rep=report(dnc=True)).dnc_reason, "refused_in_call")
         self.assertEqual(run(refused_after=True).dnc_reason, "refused_found_after")
         self.assertEqual(run(rep=report(("wrong_party",))).dnc_reason, "wrong_party")
+        # 番号違いの電話口が断った・何も言わずに切った：その番号だけ（行のお客様ごと止めない。2026-10-16 見直し）
+        for name, kw in (("断った", dict(rep=report(("wrong_party",), dnc=True))),
+                         ("検証で断りが見つかった", dict(rep=report(("wrong_party",)), refused_after=True))):
+            with self.subTest(name):
+                j = run(**kw)
+                self.assertEqual((j.state, j.dnc_reason, j.detail["wrong_party_refused"]),
+                                 ("out_of_scope", "wrong_party", True))
         self.assertIsNone(run().dnc_reason)
         self.assertTrue(run(rep=report(complaint=True)).complaint)
 
@@ -399,11 +406,14 @@ class Shapes(unittest.TestCase):
 
 class Causes(unittest.TestCase):
     def test_program_causes_go_to_the_admin(self):
-        """判定できない原因のうち、プログラムの誤り（会話の処理）は管理者が直す。業務設定の抜けは契約者（2026-10-16 ユーザー承認）。"""
+        """判定できない原因のうち、プログラムの誤り（会話の処理）は管理者が直す（2026-10-16 ユーザー承認）。理由の無い
+        「わからない」「答えない」も会話の処理の誤り（業務の決まりは、決まった理由のすべてに扱いが無いと保存できない）。"""
         from salescall.core.judge import PROGRAM_CAUSES, UNKNOWN_CAUSES
         self.assertLessEqual(PROGRAM_CAUSES, set(UNKNOWN_CAUSES))
-        self.assertNotIn("handling_missing", PROGRAM_CAUSES)
-        self.assertEqual(set(UNKNOWN_CAUSES) - PROGRAM_CAUSES, {"handling_missing"})
+        self.assertEqual(set(UNKNOWN_CAUSES), PROGRAM_CAUSES)
+        for items in ({"Q1": Item("refused", None, None), "Q2": TAKEN["Q2"]},
+                      {"Q1": Item("dont_know", None, "そのほか"), "Q2": TAKEN["Q2"]}):
+            self.assertEqual(run(items=items).detail["unknown_cause"], "reason_missing")
 
 
 if __name__ == "__main__":

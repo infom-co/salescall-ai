@@ -2,16 +2,23 @@
 持ち主 CL-2（運転の状態 Q13。DESIGN.md 9-1）。
 
 押し方（本番のPCで）：`python -m salescall.core.emergency stop "理由"`／`status`／`release "理由"`
-- **stop**：(1) まず、このPCの上に「止めた」印を残す（ネットが切れていても必ずできる）。(2) データベースへ届けば、全体の範囲の
-  管理者か契約者が押した緊急停止（manual）を記録する（ふつうの停止と同じ。門が止め、まだ発信していない予約を取り消す。画面にも出る）。
+- **stop**：(1) まず、このPCの上に「止めた」印を残す（ネットが切れていても必ずできる）。(2) データベースへ届けば、押した管理者か
+  契約者の範囲の緊急停止（manual）を記録する（ふつうの停止と同じ。門が止め、まだ発信していない予約を取り消す。画面にも出る）。
+  範囲：管理者＝全体／契約者＝その契約者（全体の範囲の停止は管理者だけ。0018・0019）。記録できたら、印にその停止の番号を書く。
   届かなければ、そのことを表示する（印だけで止まっている）。
 - **印があるあいだ、発信の出口（core/dial_exit.py）はかけない**（予約を戻す）。⚠️ ネットが切れているあいだに押し、あとでネットが
   戻ったとき、データベースに停止が無くても発信を始めないため（止めたつもりで、かけ始める穴を作らない）。
   印は「発信の出口の物理的な止め」で、かけてよいかの判断（門）は増やさない。
-- **release**：データベースの、この道で記録した緊急停止を解いてから、印を消す。データベースへ届かなければ、印は消さない
-  （解いたことを記録できないまま、かけ始めない）。
-- 押すのは、そのPCを使う管理者か契約者（全体の範囲の緊急停止は管理者だけ。0018・0019）。名前は環境変数 SALESCALL_ACTOR_NAME。
-  データベースへのつなぎ方は環境変数 SALESCALL_DATABASE_URL（APIキーと同じく、値を画面・記録に出さない）。
+- **印が効いているかの判断は `engaged` の1か所**：印に書いた停止が、データベースで解かれていたら（管理者か契約者が画面から
+  解いた）、印を消す（2026-10-16 見直し：前は、画面から解いても印が残り、画面は「止まっていない」のに、このPCは黙ってかけ
+  なかった）。印に停止の番号が無い（届かないまま押した）・停止が見えない・印が読めないときは、止めたままにする。
+- **release**：データベースの、この道で記録した緊急停止（押した範囲のもの）を解いてから、印を消す。データベースへ届かなければ、
+  印は消さない（解いたことを記録できないまま、かけ始めない）。印が別の範囲で押されたものなら、解かない（その範囲の管理者か
+  契約者が解く）。
+- 押すのは、そのPCを使う管理者か契約者。環境変数：SALESCALL_ACTOR_NAME（名前）・SALESCALL_ACTOR_KIND（admin＝管理者／
+  operator＝契約者。決め打ちしない：前は誰が押しても管理者として記録していた）・SALESCALL_TENANT_ID（契約者のとき）。
+  データベースへのつなぎ方は SALESCALL_DATABASE_URL（APIキーと同じく、値を画面・記録に出さない）。
+  名前・種類が無くても、印は残す（止めることは、いつでもできる）。
 """
 
 from __future__ import annotations
@@ -22,6 +29,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 from salescall.core import stops
 from salescall.core.access import Access, Actor, Tx
@@ -35,85 +43,147 @@ def flag_path() -> Path:
     return Path(given) if given else Path.home() / ".salescall" / "EMERGENCY_STOP"
 
 
-def engaged() -> dict[str, Any] | None:
-    """印があれば、その中身（理由・時刻・誰が）。無ければ None。読めない印も「ある」とみなす（止める側に倒す）。"""
+def _read_flag() -> dict[str, Any] | None:
     p = flag_path()
     if not p.exists():
         return None
     try:
-        return json.loads(p.read_text(encoding="utf-8"))
+        got = json.loads(p.read_text(encoding="utf-8"))
+        return got if isinstance(got, dict) else {"reason": "印の中身が読めません（止めたままにします）"}
     except (OSError, ValueError):
         return {"reason": "印の中身が読めません（止めたままにします）"}
 
 
-def _write_flag(reason: str, by: str) -> Path:
+def engaged(tx: Tx | None = None) -> dict[str, Any] | None:
+    """印が効いていれば、その中身（理由・誰が・範囲・時刻・停止の番号）。効いていなければ None（判断はここだけ）。
+    tx を渡すと、印に書いた停止がデータベースで解かれていれば、印を消して None を返す（解いた記録が正本）。
+    停止が取引から見えない・番号が無い・印が読めないときは、効いているとみなす（止める側に倒す）。"""
+    flag = _read_flag()
+    if flag is None or tx is None or not isinstance(flag.get("db_event"), int):
+        return flag
+    row = tx.one("SELECT (SELECT 1 FROM salescall.open_stop_events o WHERE o.event_id = s.event_id) IS NULL AS resolved"
+                 " FROM salescall.stop_events s WHERE s.event_id = %s AND s.action = 'stop'", (flag["db_event"],))
+    if row is None or not row["resolved"]:
+        return flag
+    flag_path().unlink(missing_ok=True)
+    return None
+
+
+def _write_flag(content: dict[str, Any]) -> Path:
     p = flag_path()
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_suffix(".tmp")
-    tmp.write_text(json.dumps({"reason": reason, "by": by, "at": datetime.now(timezone.utc).isoformat()},
-                              ensure_ascii=False), encoding="utf-8")
+    tmp.write_text(json.dumps(content, ensure_ascii=False, default=str), encoding="utf-8")
     tmp.replace(p)                                   # 書きかけの印を残さない（置き換えは1回で済む）
     return p
 
 
-def stop_all(access: Access | None, actor: Actor, reason: str) -> dict[str, Any]:
-    """止める：印を残し、データベースへ届けば全体の緊急停止を記録する（つなぎ先が無い＝None でも、印は残す）。"""
+def _in_scope(access: Access, actor: Actor, tenant_id: UUID | None, work):
+    """押した管理者か契約者の範囲の取引（管理者＝全体／契約者＝その契約者）。"""
+    if actor.kind == "admin":
+        return access.in_system(actor, work)
+    if actor.kind == "operator" and tenant_id is not None:
+        return access.in_tenant(actor, tenant_id, work)
+    raise PermissionError("押せるのは管理者（admin）か、契約者（operator。契約者の番号つき）です")
+
+
+def stop_all(access: Access | None, actor: Actor | None, reason: str, *, tenant_id: UUID | None = None,
+             no_actor: str = "押した管理者か契約者が分かりません") -> dict[str, Any]:
+    """止める：印を残し、データベースへ届けば、押した範囲の緊急停止を記録して、印に停止の番号を書く
+    （つなぎ先が無い＝None・押した管理者か契約者が分からない＝None でも、印は残す）。"""
     if not reason.strip():
         raise ValueError("止める理由を書いてください")
-    path = _write_flag(reason, actor.name)
-    if access is None:
-        return {"flag": str(path), "db_event": None, "db_error": "つなぎ先（SALESCALL_DATABASE_URL）がありません"}
+    flag = {"reason": reason, "by": None if actor is None else actor.name, "kind": None if actor is None else actor.kind,
+            "tenant_id": tenant_id if actor is not None and actor.kind == "operator" else None,
+            "at": datetime.now(timezone.utc).isoformat(), "db_event": None}
+    path = _write_flag(flag)
+    if access is None or actor is None:
+        return {"flag": str(path), "db_event": None,
+                "db_error": no_actor if actor is None else "つなぎ先（SALESCALL_DATABASE_URL）がありません"}
+    scope = "system" if actor.kind == "admin" else "tenant"
     try:
-        event = access.in_system(actor, lambda tx: stops.stop(tx, scope="system", cause="manual", reason=reason,
-                                                              evidence=EVIDENCE)["event_id"])
-        return {"flag": str(path), "db_event": event, "db_error": None}
+        event = _in_scope(access, actor, tenant_id, lambda tx: stops.stop(
+            tx, scope=scope, cause="manual", reason=reason, evidence=EVIDENCE,
+            tenant_id=None if scope == "system" else tenant_id)["event_id"])
     except Exception as e:  # noqa: BLE001  データベースへ届かなくても、印で止まっている（そのことを返す）
-        return {"flag": str(path), "db_event": None, "db_error": type(e).__name__}
+        return {"flag": str(path), "db_event": None, "db_error": f"{type(e).__name__}：{e}" if isinstance(e, PermissionError)
+                else type(e).__name__}
+    _write_flag(dict(flag, db_event=event))
+    return {"flag": str(path), "db_event": event, "db_error": None}
 
 
 def _open_by_this_switch(tx: Tx) -> list[int]:
+    """この道で記録した、まだ解かれていない緊急停止のうち、取引の範囲のもの（全体の取引＝全体／契約者の取引＝その契約者）。"""
     return [r["event_id"] for r in tx.all(
-        "SELECT s.event_id FROM salescall.stop_events s WHERE s.action = 'stop' AND s.scope = 'system' AND s.cause = 'manual'"
-        " AND s.evidence = %s AND NOT EXISTS (SELECT 1 FROM salescall.stop_events r WHERE r.resolves_event_id = s.event_id)",
-        (EVIDENCE,))]
+        "SELECT s.event_id FROM salescall.open_stop_events s WHERE s.cause = 'manual' AND s.evidence = %s"
+        " AND CASE WHEN salescall.cur_tenant() IS NULL THEN s.scope = 'system'"
+        "          ELSE s.scope = 'tenant' AND s.tenant_id = salescall.cur_tenant() END", (EVIDENCE,))]
 
 
-def release_all(access: Access | None, actor: Actor, reason: str) -> dict[str, Any]:
-    """解く：この道で記録した緊急停止を、データベースで解いてから、印を消す。届かなければ印は消さない。"""
+def release_all(access: Access | None, actor: Actor, reason: str, *, tenant_id: UUID | None = None) -> dict[str, Any]:
+    """解く：この道で記録した緊急停止（押した範囲のもの）を、データベースで解いてから、印を消す。届かなければ印は消さない。
+    印が別の範囲で押されたものなら、解かない。"""
     if not reason.strip():
         raise ValueError("解く理由を書いてください")
     if access is None:
         return {"released": False, "resumed": [], "db_error": "つなぎ先（SALESCALL_DATABASE_URL）がありません"}
+    flag = _read_flag()
+    if flag is not None and flag.get("db_event") is not None and (flag.get("kind"), str(flag.get("tenant_id"))) != (
+            actor.kind, str(tenant_id if actor.kind == "operator" else None)):
+        return {"released": False, "resumed": [], "db_error": "印は別の範囲で押されたものです（その範囲の管理者か契約者が解きます）"}
     try:
-        resumed = access.in_system(actor, lambda tx: [stops.resume(tx, e, reason=reason, evidence=EVIDENCE)
-                                                      for e in _open_by_this_switch(tx)])
+        resumed = _in_scope(access, actor, tenant_id, lambda tx: [stops.resume(tx, e, reason=reason, evidence=EVIDENCE)
+                                                                  for e in _open_by_this_switch(tx)])
     except Exception as e:  # noqa: BLE001
         return {"released": False, "resumed": [], "db_error": type(e).__name__}
     flag_path().unlink(missing_ok=True)
     return {"released": True, "resumed": resumed, "db_error": None}
 
 
+def _actor_from_env() -> tuple[Actor | None, UUID | None, str | None]:
+    """押した管理者か契約者（環境変数）。分からなければ (None, None, 理由)。"""
+    name = os.environ.get("SALESCALL_ACTOR_NAME", "").strip()
+    kind = os.environ.get("SALESCALL_ACTOR_KIND", "")
+    tenant = os.environ.get("SALESCALL_TENANT_ID", "").strip()
+    if not name or kind not in ("admin", "operator"):
+        return None, None, "SALESCALL_ACTOR_NAME と SALESCALL_ACTOR_KIND（admin か operator）がありません"
+    try:
+        tenant_id = UUID(tenant) if tenant else None
+    except ValueError:
+        return None, None, "SALESCALL_TENANT_ID の形が違います"
+    if kind == "operator" and tenant_id is None:
+        return None, None, "契約者（operator）は SALESCALL_TENANT_ID が要ります"
+    return Actor(name, kind), tenant_id, None
+
+
 def main(argv: list[str]) -> int:
     if not argv or argv[0] not in ("stop", "status", "release"):
         print('使い方：python -m salescall.core.emergency stop "理由" | status | release "理由"')
         return 2
-    if argv[0] == "status":
-        got = engaged()
-        print("止めています：" + json.dumps(got, ensure_ascii=False) if got else "止めていません（このPCの印はありません）")
-        return 0
-    reason = " ".join(argv[1:])
     url = os.environ.get("SALESCALL_DATABASE_URL")
     access = Access(url) if url else None             # つなぎ先が無くても、止める（印を残す）ことはできる
-    actor = Actor(os.environ.get("SALESCALL_ACTOR_NAME", "本番のPCの管理者"), "admin")
+    actor, tenant_id, missing = _actor_from_env()
+    reason = " ".join(argv[1:])
+    if argv[0] == "status":
+        got = engaged()
+        if got is not None and access is not None and actor is not None:
+            try:                                       # 画面から解かれていれば、印を消す（判断は engaged）
+                got = _in_scope(access, actor, tenant_id, engaged)
+            except Exception:  # noqa: BLE001  届かなければ、印のとおり
+                pass
+        print("止めています：" + json.dumps(got, ensure_ascii=False) if got else "止めていません（このPCの印はありません）")
+        return 0
     if argv[0] == "stop":
-        got = stop_all(access, actor, reason)
+        got = stop_all(access, actor, reason, tenant_id=tenant_id, no_actor=missing or "")
         print("このPCの印を置きました（発信の出口は、かけません）：" + got["flag"])
         print("データベースにも記録しました" if got["db_event"] else
-              f"⚠️ データベースへ届きませんでした（{got['db_error']}）。印だけで止まっています。届くようになったら、もう一度押してください")
+              f"⚠️ データベースへ記録できませんでした（{got['db_error']}）。印だけで止まっています。直したら、もう一度押してください")
         return 0
-    got = release_all(access, actor, reason)
-    print("解きました" if got["released"] else
-          f"⚠️ データベースへ届かないので、解いていません（{got['db_error']}）。印はそのままです")
+    if actor is None:
+        print(f"⚠️ 解いていません（{missing}）。印はそのままです")
+        return 1
+    got = release_all(access, actor, reason, tenant_id=tenant_id)
+    print("解きました" if got["released"] else f"⚠️ 解いていません（{got['db_error']}）。印はそのままです")
     return 0 if got["released"] else 1
 
 

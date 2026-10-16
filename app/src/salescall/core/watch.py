@@ -2,8 +2,9 @@
 
 - エラーの種類と処置は core/errors.py の表だけを読む（ここで2つ目の判断を作らない）。止める・解くの記録は core/stops.py。
 - **止めるか**（`decide_stop`）：処置の表の「止める原因・範囲・何回続いたら」と、「何回続いたか」（データベースの1か所
-  `salescall.consecutive_errors`。回線＝その回線でお客様を呼び出せた発信より後／会話AI・別の耳＝どこかの通話が会話に入った時刻より後。
-  どちらも、同じ原因・同じ範囲の停止が解かれた時刻より後＝契約者が再開したら・確かめで解けたら数え直す）。
+  `salescall.consecutive_errors`。種類ごとの「直った証拠」（core/errors.py の EVIDENCE）より後：回線＝その回線でお客様を
+  呼び出せた発信／会話AI＝どこかの通話が会話に入った／別の耳＝どこかの通話の検証が済んだ。どれも、同じ原因・同じ範囲の停止が
+  解かれた時刻より後＝管理者か契約者が再開したら・確かめで解けたら数え直す）。
   同じ原因・同じ範囲で、まだ解かれていない停止があれば、重ねて止めない。
 - **解くか**（`record_check`）：システムが止めた停止のうち、確かめで解ける原因（保存・回線・会話AI）だけ。確かめの結果を記録し、
   決めた回数続けて成功したら、同じ取引で解く。**次に確かめてよい時刻より前の確かめは受け付けない**（ばたつきで伸びた待ちを、
@@ -40,8 +41,8 @@ class NotProbeable(Exception):
 
 def record_error(tx: Tx, report: errors.ErrorReport, *, line_id: UUID | None = None,
                  attempt_id: UUID | None = None) -> str:
-    """起きたエラーを分類して記録する（取引の契約者・依頼者で）。種類を返す。処置の表が「知らせる」なら、知らせの台帳に入れる
-    （同じ種類は、同じ範囲で1時間に1回）。止めるかは `decide_stop`（範囲に合った取引で呼ぶ）。"""
+    """起きたエラーを分類して記録する（取引の契約者・依頼者で）。種類を返す。どの種類も管理者に知らせ、処置の表が「知らせる」
+    なら契約者にも知らせる（同じ種類は、同じ範囲で1時間に1回）。止めるかは `decide_stop`（範囲に合った取引で呼ぶ）。"""
     kind = errors.classify(report)
     row = tx.one(
         "INSERT INTO salescall.error_events (tenant_id, client_id, line_id, attempt_id, source, kind, code, message)"
@@ -50,10 +51,11 @@ def record_error(tx: Tx, report: errors.ErrorReport, *, line_id: UUID | None = N
         "           salescall.cur_tenant() AS tenant, salescall.cur_client() AS client",
         (line_id, attempt_id, report.source, kind, report.code, report.message))
     action = errors.ACTIONS[kind]
-    if action.notify:
-        notify.emit(tx, "error_notice", key=f"error:{kind}:{row['tenant']}:{row['client']}:{row['hour']}",
-                    summary=f"エラー：{action.meaning}", refs={"error_id": row["error_id"], "kind": kind},
-                    admin=True)   # エラーの一覧と処置はプログラム（直せるのは管理者だけ）
+    # エラーの一覧と処置はプログラム（直せるのは管理者だけ）なので、どの種類も管理者に知らせる。契約者には、処置の表が
+    # 「知らせる」とした種類だけ
+    notify.emit(tx, "error_notice", key=f"error:{kind}:{row['tenant']}:{row['client']}:{row['hour']}",
+                summary=f"エラー：{action.meaning}", refs={"error_id": row["error_id"], "kind": kind},
+                admin=True, contractor=action.notify)
     return kind
 
 
@@ -65,16 +67,16 @@ def decide_stop(tx: Tx, kind: str, *, line_id: UUID | None = None) -> dict[str, 
         return None
     if action.stop_scope == "line" and line_id is None:
         raise ValueError("回線を止める種類なのに、回線がありません")
+    line = line_id if action.stop_scope == "line" else None
     open_same = tx.one(
-        "SELECT event_id FROM salescall.stop_events s WHERE s.action = 'stop' AND s.cause = %s AND s.scope = %s"
-        " AND s.line_id IS NOT DISTINCT FROM %s"
-        " AND NOT EXISTS (SELECT 1 FROM salescall.stop_events r WHERE r.resolves_event_id = s.event_id) LIMIT 1",
-        (action.stop_cause, action.stop_scope, line_id if action.stop_scope == "line" else None))
+        "SELECT event_id FROM salescall.open_stop_events s WHERE s.cause = %s AND s.scope = %s"
+        " AND s.line_id IS NOT DISTINCT FROM %s LIMIT 1", (action.stop_cause, action.stop_scope, line))
     if open_same is not None:
         return None                                  # もう止まっている（重ねて止めない）
-    n = tx.one("SELECT salescall.consecutive_errors(%s, %s, %s) AS n",
-               (list(errors.COUNTED_FOR[action.stop_cause]), action.stop_cause,
-                line_id if action.stop_scope == "line" else None))["n"]
+    n = tx.one("SELECT salescall.consecutive_errors(%s, %s, %s, %s) AS n",
+               (list(errors.counted_with(kind)), action.stop_cause, errors.EVIDENCE[kind], line))["n"]
+    if n is None:
+        raise PermissionError("この取引では、その範囲のエラーを数えられません（全体＝全体の取引／回線＝その回線の契約者の取引）")
     need = 1 if action.stop_after is None else int(settings.system_value(tx, action.stop_after))
     if n < need:
         return None
@@ -117,9 +119,8 @@ def _flapping_wait(tx: Tx, stop: dict[str, Any], interval: int) -> timedelta:
 def record_check(tx: Tx, stop_event_id: int, ok: bool, *, evidence: str) -> dict[str, Any]:
     """停止を解く確かめの結果を記録し、決めた回数続けて成功したら解く（同じ取引）。記録を返す（resumed＝解いたか）。"""
     s = tx.one(
-        "SELECT event_id, scope, cause::text AS cause, line_id, actor_kind::text AS actor_kind, at FROM salescall.stop_events s"
-        " WHERE s.event_id = %s AND s.action = 'stop'"
-        " AND NOT EXISTS (SELECT 1 FROM salescall.stop_events r WHERE r.resolves_event_id = s.event_id)", (stop_event_id,))
+        "SELECT event_id, scope, cause::text AS cause, line_id, actor_kind::text AS actor_kind, at"
+        " FROM salescall.open_stop_events s WHERE s.event_id = %s", (stop_event_id,))
     if s is None:
         raise LookupError(f"まだ解かれていない停止ではありません（または、取引の範囲の外）：{stop_event_id}")
     if s["actor_kind"] != "system" or s["cause"] not in PROBE_SETTINGS:
@@ -142,11 +143,12 @@ def record_check(tx: Tx, stop_event_id: int, ok: bool, *, evidence: str) -> dict
 
 
 def due_checks(tx: Tx) -> list[dict[str, Any]]:
-    """いま確かめてよい停止（取引で見える、システムが止めた、確かめで解ける原因の、まだ解かれていない停止）。"""
+    """いま確かめてよい停止（システムが止めた、確かめで解ける原因の、まだ解かれていない停止のうち、この取引が確かめを書ける
+    もの：全体の取引＝全体の停止／契約者の取引＝その契約者の停止）。"""
     return tx.all(
-        "SELECT s.event_id, s.scope, s.cause::text AS cause, s.line_id FROM salescall.stop_events s"
-        " WHERE s.action = 'stop' AND s.actor_kind = 'system' AND s.cause::text = ANY(%s)"
-        " AND NOT EXISTS (SELECT 1 FROM salescall.stop_events r WHERE r.resolves_event_id = s.event_id)"
+        "SELECT s.event_id, s.scope, s.cause::text AS cause, s.line_id FROM salescall.open_stop_events s"
+        " WHERE s.actor_kind = 'system' AND s.cause::text = ANY(%s)"
+        " AND (s.scope = 'system') = (salescall.cur_tenant() IS NULL)"   # 確かめを書ける停止だけ（0029 の (3)）
         " AND coalesce((SELECT c.next_check_at FROM salescall.stop_checks c WHERE c.stop_event_id = s.event_id"
         "               ORDER BY c.check_id DESC LIMIT 1), '-infinity') <= now()"
         " ORDER BY s.event_id", (list(PROBE_SETTINGS),))

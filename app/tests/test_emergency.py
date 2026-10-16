@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import io
 import os
 import tempfile
+from contextlib import redirect_stdout
 from pathlib import Path
 
 from salescall.core import dial_exit, emergency, stops
 from salescall.core.access import Access
-from tests.support import ADMIN
+from tests.support import ADMIN, OPERATOR
 from tests.test_gate import Base, FakeDriver
 
 UNREACHABLE = Access("host=127.0.0.1 port=1 dbname=none user=none connect_timeout=1", max_attempts=1)
@@ -63,3 +65,46 @@ class Emergency(Base):
     def test_reason_is_required(self):
         with self.assertRaises(ValueError):
             emergency.stop_all(self.w.a, ADMIN, " ")
+
+    def test_a_resume_on_the_screen_clears_the_flag(self):
+        # 2026-10-16 見直し：前は、画面から解いても印が残り、画面は「止まっていない」のに、このPCは黙ってかけなかった
+        s = self.ready()
+        got = emergency.stop_all(self.w.a, ADMIN, "試験：画面が開けない")
+        self.w.a.in_system(ADMIN, lambda tx: stops.resume(tx, got["db_event"], reason="試験：画面から解いた"))
+        self.assertIsNotNone(emergency.engaged())                     # 取引なしでは、印のとおり（止める側）
+        driver = FakeDriver()
+        claim = self.claim(s)
+        self.assertTrue(dial_exit.dial(self.w.a, ADMIN, s["tenant"], s["client"], claim.attempt_id, driver))
+        self.assertEqual(len(driver.calls), 1)                         # 解いた記録が正本：印は消え、かける
+        self.assertIsNone(emergency.engaged())
+
+    def test_a_contractor_stops_only_their_own_scope(self):
+        # 2026-10-16 見直し：前は、誰が押しても管理者として全体を止めていた
+        s = self.ready()
+        with self.assertRaises(PermissionError):
+            emergency._in_scope(self.w.a, OPERATOR, None, lambda tx: None)   # 契約者の番号が無ければ、範囲が決まらない
+        got = emergency.stop_all(self.w.a, OPERATOR, "試験：契約者が押した", tenant_id=s["tenant"])
+        self.assertIsNotNone(got["db_event"])
+        self.assertEqual(self.system_stops(), [])                      # 全体は止めない
+        mine = self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: stops.open_stops(
+            tx, tenant_id=s["tenant"], client_id=None, business_id=None))
+        self.assertEqual([(r["scope"], r["cause"]) for r in mine], [("tenant", "manual")])
+        self.assertFalse(emergency.release_all(self.w.a, ADMIN, "試験：別の範囲")["released"])   # 押した範囲で解く
+        self.assertIsNotNone(emergency.engaged())
+        done = emergency.release_all(self.w.a, OPERATOR, "試験：直った", tenant_id=s["tenant"])
+        self.assertEqual((done["released"], len(done["resumed"])), (True, 1))
+        self.assertIsNone(emergency.engaged())
+
+    def test_without_who_pressed_the_flag_is_kept_but_not_recorded(self):
+        for k in ("SALESCALL_ACTOR_KIND", "SALESCALL_ACTOR_NAME", "SALESCALL_DATABASE_URL"):
+            self.addCleanup(os.environ.__setitem__, k, os.environ[k]) if k in os.environ else None
+            os.environ.pop(k, None)
+        with redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(emergency.main(["stop", "試験：誰か分からない"]), 0)
+        self.assertIsNotNone(emergency.engaged())                      # 止めることは、いつでもできる
+        self.assertIsNone(emergency.engaged()["kind"])
+        self.assertIn("SALESCALL_ACTOR_KIND", out.getvalue())
+        self.assertEqual(self.system_stops(), [])                      # 決め打ちで管理者として記録しない
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(emergency.main(["release", "試験"]), 1)  # 誰か分からなければ解かない
+        self.assertIsNotNone(emergency.engaged())

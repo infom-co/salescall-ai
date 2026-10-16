@@ -238,6 +238,15 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      ("tests.test_notify.Ledger.test_admin_copy_is_seen_only_by_the_admin",)),
     ("報酬の決まりの変更の拒みを外す", "DROP TRIGGER reward_terms_frozen ON salescall.reward_terms",
      ("tests.test_usage.CostRatio.test_terms_are_frozen",)),
+    ("いまの結果の版を、最初の版にする",
+     "CREATE OR REPLACE VIEW salescall.latest_task_results WITH (security_invoker = true) AS"
+     " SELECT DISTINCT ON (r.task_id) r.* FROM salescall.task_results r ORDER BY r.task_id, r.version_no",
+     ("tests.test_usage.CostRatio.test_a_completion_corrected_away_is_not_counted",)),
+    ("発信禁止の取り消しを、契約者だけにする（前の誤り）",
+     "CREATE OR REPLACE FUNCTION salescall.dnc_before_change() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN"
+     " IF NEW.revoked_at IS NOT NULL AND salescall.cur_actor_kind() IS DISTINCT FROM 'operator' THEN"
+     " RAISE EXCEPTION 'x' USING ERRCODE = 'insufficient_privilege'; END IF; RETURN NEW; END $$",
+     ("tests.test_dnc.Revoke.test_the_admin_can_revoke_too",)),
     ("システムが止めた停止を、見守りに見せない",
      "CREATE OR REPLACE FUNCTION salescall.open_system_stops(p_cause text) RETURNS TABLE (event_id bigint, scope text,"
      " tenant_id uuid, client_id uuid, stopped_on date) LANGUAGE sql STABLE SECURITY DEFINER"
@@ -264,16 +273,38 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      ("tests.test_quality.Stages.test_done_needs_the_numbers",)),
     # 見守り（Q9・9-1）
     ("何回続いたかを数えない（いつも0）",
-     "CREATE OR REPLACE FUNCTION salescall.consecutive_errors(p_kinds text[], p_cause text, p_line uuid DEFAULT NULL)"
-     " RETURNS integer LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ SELECT 0 $$",
+     "CREATE OR REPLACE FUNCTION salescall.consecutive_errors(p_kinds text[], p_cause text, p_evidence text,"
+     " p_line uuid DEFAULT NULL) RETURNS integer LANGUAGE sql STABLE SECURITY DEFINER"
+     " SET search_path = salescall, pg_temp AS $$ SELECT 0 $$",
      ("tests.test_watch.LineStops.test_consecutive_line_errors_stop_only_that_line",)),
     ("呼び出せた発信で数え直さない",
-     "CREATE OR REPLACE FUNCTION salescall.consecutive_errors(p_kinds text[], p_cause text, p_line uuid DEFAULT NULL)"
-     " RETURNS integer LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$"
+     "CREATE OR REPLACE FUNCTION salescall.consecutive_errors(p_kinds text[], p_cause text, p_evidence text,"
+     " p_line uuid DEFAULT NULL) RETURNS integer LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$"
      " SELECT count(*)::integer FROM salescall.error_events e WHERE e.kind = ANY(p_kinds)"
      " AND (p_line IS NULL OR e.line_id = p_line) $$",
      ("tests.test_watch.LineStops.test_a_call_that_rang_resets_the_count",
       "tests.test_watch.LineStops.test_a_person_resume_restarts_the_count_and_explain_shows_why")),
+    ("別の耳のエラーも、会話に入った通話で数え直す（前の誤り）",
+     "CREATE OR REPLACE FUNCTION salescall.consecutive_errors(p_kinds text[], p_cause text, p_evidence text,"
+     " p_line uuid DEFAULT NULL) RETURNS integer LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$"
+     " SELECT count(*)::integer FROM salescall.error_events e WHERE e.kind = ANY(p_kinds)"
+     " AND e.occurred_at > (SELECT coalesce(max(h.at), '-infinity') FROM salescall.attempt_state_history h"
+     "                      WHERE h.to_state = 'in_conversation') $$",
+     ("tests.test_watch.SystemStopsAndChecks.test_ear_errors_are_not_reset_by_conversations",)),
+    ("エラーの数を、範囲の外の取引にも見せる",
+     "CREATE OR REPLACE FUNCTION salescall.consecutive_errors(p_kinds text[], p_cause text, p_evidence text,"
+     " p_line uuid DEFAULT NULL) RETURNS integer LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$"
+     " SELECT count(*)::integer FROM salescall.error_events e WHERE e.kind = ANY(p_kinds) $$",
+     ("tests.test_watch.SystemStopsAndChecks.test_counting_needs_the_transaction_of_that_scope",)),
+    ("停止を解く確かめを、範囲の外の取引からも書ける",
+     "DROP POLICY check_scope ON salescall.stop_checks; CREATE POLICY check_scope ON salescall.stop_checks"
+     " USING (true) WITH CHECK (true)",
+     ("tests.test_watch.SystemStopsAndChecks.test_checks_of_system_stops_only_from_the_system_transaction",)),
+    ("解いた停止も、まだ止まっているとみなす",
+     "CREATE OR REPLACE VIEW salescall.open_stop_events WITH (security_invoker = true) AS"
+     " SELECT s.* FROM salescall.stop_events s WHERE s.action = 'stop'",
+     ("tests.test_emergency.Emergency.test_a_resume_on_the_screen_clears_the_flag",
+      "tests.test_watch.SystemStopsAndChecks.test_storage_failure_stops_at_once_and_resumes_after_successes")),
     ("止めた理由の説明に、数えたエラーを出さない",
      "CREATE OR REPLACE FUNCTION salescall.errors_for_stop(p_stop bigint, p_kinds text[], p_limit integer)"
      " RETURNS TABLE (error_id bigint, source text, kind text, code integer, message text, occurred_at timestamptz)"

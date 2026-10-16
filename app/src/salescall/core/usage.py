@@ -65,9 +65,8 @@ def spent_today(tx: Tx) -> Decimal:
 
 
 def _open_stop(tx: Tx, scope: str, cause: str) -> bool:
-    return tx.one("SELECT 1 FROM salescall.stop_events s WHERE s.action = 'stop' AND s.cause::text = %s AND s.scope = %s"
-                  " AND NOT EXISTS (SELECT 1 FROM salescall.stop_events r WHERE r.resolves_event_id = s.event_id)"
-                  " LIMIT 1", (cause, scope)) is not None
+    return tx.one("SELECT 1 FROM salescall.open_stop_events s WHERE s.cause::text = %s AND s.scope = %s LIMIT 1",
+                  (cause, scope)) is not None
 
 
 def _check_client_budget(tx: Tx, tenant_id: UUID, client_id: UUID) -> int | None:

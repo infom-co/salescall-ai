@@ -134,6 +134,28 @@ COUNTED_FOR: dict[str, tuple[str, ...]] = {
     for cause in {a.stop_cause for a in ACTIONS.values() if a.stop_cause is not None}
 }
 
+# 止める種類ごとに、「直った」とみなす証拠（続いた回数を、この証拠の時刻から数え直す。1か所。データベースの
+# salescall.consecutive_errors がこの名前で読む）。2026-10-16 見直し：前は会話AIと別の耳を「どこかの通話が会話に入った」で
+# まとめて数え直していたので、別の耳だけつながらないとき、ほかの通話が会話に入るたびに数え直し、止まらなかった。
+#   in_conversation＝どこかの通話が会話に入った（会話AIが動いた）／verified＝どこかの通話の検証が済んだ（別の耳が動いた）／
+#   ringing＝その回線でお客様を呼び出せた（回線が動いた）／none＝証拠を持たない（1回で止める種類）
+EVIDENCE: dict[str, str] = {
+    "config_error": "in_conversation",
+    "ai_unreachable": "in_conversation",
+    "ai_server_error": "in_conversation",
+    "unknown_ai": "in_conversation",
+    "ear_unreachable": "verified",
+    "line": "ringing",
+    "unknown_line": "ringing",
+    "storage": "none",
+}
+
+
+def counted_with(kind: str) -> tuple[str, ...]:
+    """その種類で止めるか決めるとき、合わせて数える種類（同じ止める原因で、同じ証拠で数え直す種類。1か所）。"""
+    a = ACTIONS[kind]
+    return tuple(k for k in COUNTED_FOR[a.stop_cause] if EVIDENCE[k] == EVIDENCE[kind])
+
 
 def lookup(e: ErrorReport) -> CatalogEntry | None:
     """一覧で、そのエラーに当たる最初の行（無ければ None）。報告の行にも当たる（意味を画面に出すため）。"""
