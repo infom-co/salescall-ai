@@ -49,11 +49,13 @@ class Business:
     # 相手が「忙しい」と言ったときの一言（Intent.md 9-4）。空なら丁寧に終える（既定＝安全側）。文があれば、1回だけそれで聞く
     # （2026-10-13 ユーザー：依頼主によっては粘ってほしい。トークスクリプト（業務情報）で選べるように。既定の文は phrases.BUSY_ASK）
     busy_ask: str | None = None
-    # 自社名・担当者名の読み（ひらがな。空＝決まらない＝表記のまま渡す）。設定に無ければ取込で names.decide が決める（Intent.md 6-8）。
+    # 自社名・担当者名の読み（ひらがな。空＝決まらない＝表記のまま渡す）。自社名は、設定に無ければ取込で names.decide が決める（Intent.md 6-8）。
+    # ✅ 2026-10-16 ユーザー決定（案C）：担当者名の読みは、設定に必ず入れる（名乗りでは言い換えられない。個人向けでは名乗ることが法律の確認事項）。
+    #    必須かどうかを確かめるのは設定の登録（CL-2）。ここは、担当者名を unread_names に入れた矛盾した設定を受け付けない。
     # 声に出す文には読みのほうを入れる（G-44：漢字のままだと読み違える。instruction.quote_in_text と同じ決まり）
     company_reading: str = ""
     caller_reading: str = ""
-    # こちら側の名前で、読みが決まらないもの（台本の中の担当者名など。表記）。指示文で、声に出さずに言い換える決まりを渡す（unread_rule）。
+    # こちら側の名前で、読みが決まらないもの（台本の中の、名乗る担当者以外の人の名前など。表記）。指示文で、声に出さずに言い換える決まりを渡す（unread_rule）。
     # ⚠️ お客様側の名前（目的の人）は入れない：まず言ってみる読みで呼び、つながってから確かめる（flowctl.reading_question。✅ 2026-10-16 ユーザー）
     unread_names: list[str] = field(default_factory=list)
     # 台本の名前（names.decide の戻り値）。質問の文・用件の一文・忙しいときの一言の中の名前を、作るときに1回だけ quote_in_text に通す
@@ -61,16 +63,18 @@ class Business:
     names: list = field(default_factory=list)
 
     def __post_init__(self):
+        # 担当者名は名乗りで必ず声に出すので、「声に出さずに言い換える名前」には入れられない（指示が矛盾する。案C＝読みは設定に必須）
+        assert self.caller not in self.unread_names, f"担当者名「{self.caller}」は、読みを設定に入れてください（unread_names には入れられません）"
         if not self.names:
             return
         import dataclasses
         import unicodedata
-        # 名乗りの社名・担当者名の読みも、名前の一覧から取る（読みの正本は名前の一覧1つ。設定に読みが入っていれば、そちらを先に使う）
-        # ⛔ 見直し（2026-10-16 の2回目）：前は名乗りだけが company_reading／caller_reading を見て、一覧の読みを見ていなかった
+        # 名乗りの社名の読みも、名前の一覧から取る（設定に読みが入っていれば、そちらを先に使う）
+        # ⛔ 見直し（2026-10-16 の2回目）：前は名乗りだけが company_reading を見て、一覧の読みを見ていなかった
         # ＝一覧に読みがあっても、名乗りは漢字・質問の文はひらがな、と食い違いうる形だった
+        # ✅ 担当者名は一覧から取らない：読みは設定に必ず入れる（2026-10-16 ユーザー決定＝案C。取込で決める決め方は使わない）
         got = {unicodedata.normalize("NFKC", n["surface"]): n.get("reading") or "" for n in self.names if isinstance(n, dict) and n.get("surface")}
         self.company_reading = self.company_reading or got.get(unicodedata.normalize("NFKC", self.company), "")
-        self.caller_reading = self.caller_reading or got.get(unicodedata.normalize("NFKC", self.caller), "")
         self.questions = [q if q.reading_of else dataclasses.replace(q, text=quote_in_text(q.text, self.names)) for q in self.questions]
         self.purpose_line = quote_in_text(self.purpose_line, self.names) if self.purpose_line else self.purpose_line
         self.busy_ask = quote_in_text(self.busy_ask, self.names) if self.busy_ask else self.busy_ask

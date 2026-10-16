@@ -1244,15 +1244,25 @@ class SpokenNameTest(unittest.TestCase):
         self.assertEqual(spoken_question(qs, "N1"), (qs[1].text, ""))
 
     def test_opening_reads_from_names(self):
-        """⛔ 見直し（2回目）：名乗りの社名・担当者名の読みも、名前の一覧から取る（読みの正本を1つにする）。設定の読みがあれば、そちらが先。"""
+        """⛔ 見直し（2回目）：名乗りの社名の読みも、名前の一覧から取る。設定の読みがあれば、そちらが先。
+        ✅ 担当者名は一覧から取らない（2026-10-16 ユーザー決定＝案C：担当者名の読みは設定に必ず入れる）。"""
         from flowctl import Question
         from instruction import Business
         q = [Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"))]
         names = [{"surface": "アオバ物流", "reading": "あおばぶつりゅう"}, {"surface": "東海林", "reading": "しょうじ"}]
-        b = Business(company="アオバ物流", caller="東海林", purpose="", questions=q, names=names)
-        self.assertEqual(b.opening(), "お忙しいところ恐れ入ります。株式会社「あおばぶつりゅう」の「しょうじ」と申します。")
         b = Business(company="アオバ物流", caller="東海林", purpose="", questions=q, names=names, caller_reading="とうかいりん")
         self.assertEqual(b.opening(), "お忙しいところ恐れ入ります。株式会社「あおばぶつりゅう」の「とうかいりん」と申します。")
+        b = Business(company="アオバ物流", caller="東海林", purpose="", questions=q, names=names, company_reading="あおば")
+        self.assertEqual(b.opening(), "お忙しいところ恐れ入ります。株式会社「あおば」の「東海林」と申します。")
+
+    def test_caller_cannot_be_unread(self):
+        """✅ 2026-10-16 ユーザー決定（案C）：担当者名は名乗りで必ず言うので、「声に出さずに言い換える名前」には入れられない。"""
+        from flowctl import Question
+        from instruction import Business
+        q = [Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"))]
+        with self.assertRaises(AssertionError):
+            Business(company="アオバ物流", caller="中島", purpose="", questions=q, unread_names=["中島"])
+        Business(company="アオバ物流", caller="佐藤", purpose="", questions=q, unread_names=["中島"])  # ほかの名前ならよい
 
     def test_business_uses_readings(self):
         from flowctl import Question
