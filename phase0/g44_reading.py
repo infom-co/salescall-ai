@@ -43,7 +43,23 @@ NAMES = [
     ("佐藤", "さとう", "", "株式会社アオバ物流の{n}と申します。"),            # ふつうの名前（比べる元）
     ("アオバ物流", "あおばぶつりゅう", "", "株式会社{n}の佐藤と申します。"),
 ]
+# 英字・カタカナの名前（2026-10-16 追加。CL-1 が「まだ測っていない」と報告したもの）。読みが決まった名前は、くくる処理がひらがなに置き換える
+# （instruction.quote_in_text）が、⚠️ 英字・カタカナは漢字のような読み違えが無いかもしれず、ひらがなにすると、かえって崩れる（伸ばす音・
+# 外来語の調子）おそれもある ⇒ もとの書き方（K）・カタカナ（KATA）・ひらがな（HIRA）で比べる。よくある読み違え＝英字を1文字ずつ読む・ローマ字読み
+NAMES_ALNUM = [
+    ("ＡＢＣホールディングス", "えーびーしーほーるでぃんぐす", "あぶく", "すでに{n}様にもご導入いただいております。"),
+    ("スマートリンクPro", "すまーとりんくぷろ", "ぴーあーるおー", "新しいサービスの{n}のご案内です。"),
+    ("NTT東日本", "えぬてぃーてぃーひがしにほん", "えぬてぃーてぃーとうにほん", "回線は{n}をお使いでしょうか。"),
+    ("KDDI", "けーでぃーでぃーあい", "かでぃ", "{n}の回線と同じ料金です。"),
+    ("freee", "ふりー", "ふりーいーいー", "会計ソフトの{n}と連携しております。"),
+    ("Sansan", "さんさん", "えすえーえぬ", "名刺管理の{n}をお使いの会社様が多いです。"),
+    ("LIXIL", "りくしる", "えるあいえっくす", "{n}様の製品を扱っております。"),
+    ("au", "えーゆー", "あう", "携帯は{n}をお使いでしょうか。"),
+    ("IKEA", "いけあ", "あいけあ", "{n}の近くに事務所がございます。"),
+    ("コージーコーナー", "こーじーこーなー", "", "{n}様のお近くです。"),       # ふつうのカタカナ（比べる元）
+]
 METHODS = ["K", "KN", "P", "KATA", "HIRA"]
+NAME_SETS = {"kanji": (NAMES, METHODS), "alnum": (NAMES_ALNUM, ["K", "KATA", "HIRA"])}
 HOW = "電話で、お客様に丁寧に話すように"
 OUT = HERE / "results" / "reading"
 
@@ -109,16 +125,19 @@ def judge(kana: str, reading: str, wrong: str, method: str) -> str:
 async def record(args) -> list[dict]:
     client = make_client(pick_key(args))
     OUT.mkdir(parents=True, exist_ok=True)
+    names, methods = NAME_SETS[args.set]
+    tag = "" if args.set == "kanji" else f"_{args.set}"
     rows = []
     for rep in range(args.reps):
-        for i, (surface, reading, wrong, sentence) in enumerate(NAMES):
-            for m in METHODS:
+        for i, (surface, reading, wrong, sentence) in enumerate(names):
+            for m in methods:
                 text, note = text_for(m, surface, reading, sentence)
-                row = {"name": surface, "reading": reading, "wrong": wrong, "method": m, "rep": rep, "text": text, "note": note}
+                row = {"set": args.set, "name": surface, "reading": reading, "wrong": wrong, "method": m, "rep": rep, "text": text,
+                       "note": note}
                 try:
                     pcm, rate = await read_one(client, args, text, note)
                     if pcm:
-                        path = OUT / f"G44_{i:02d}_{m}_{rep}.wav"
+                        path = OUT / f"G44{tag}_{i:02d}_{m}_{rep}.wav"
                         write_wav(path, pcm, rate)
                         row["wav"] = path.name
                 except Exception as exc:
@@ -170,6 +189,7 @@ def main() -> None:
     require_python()
     p = base_parser(__doc__)
     p.add_argument("--reps", type=int, default=2)
+    p.add_argument("--set", choices=sorted(NAME_SETS), default="kanji", help="名前の組（kanji＝読み違えやすい漢字の名前・alnum＝英字とカタカナの名前）")
     p.add_argument("--pause", type=float, default=1.0)
     p.add_argument("--pause-flash", type=float, default=15.0)
     p.add_argument("--batch", type=int, default=70)
@@ -191,7 +211,8 @@ def main() -> None:
     else:
         rows = asyncio.run(record(args))
     if args.record_only:
-        save_result("G-44", {"names": NAMES, "methods": METHODS, "rows": rows, "recorded_only": True})
+        save_result("G-44", {"set": args.set, "names": NAME_SETS[args.set][0], "methods": NAME_SETS[args.set][1], "rows": rows,
+                             "recorded_only": True})
         return
     summary = verify(args, rows)
     for m, v in summary.items():

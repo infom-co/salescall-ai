@@ -123,6 +123,14 @@ def hira(s: str) -> str:
     return "".join(chr(ord(c) - 0x60) if "ァ" <= c <= "ヶ" else c for c in (s or "") if not c.isspace())
 
 
+def unvoiced(s: str) -> str:
+    """ひらがなの濁点・半濁点を外した形（「かどだ」⇒「かとた」、「なかじま」⇒「なかしま」）。読みを比べるときだけに使う。
+    会話のAIは、同じ漢字の名前の読みの濁りの違いを聞き分けられない（G-45：「なかしま」と直されて「なかじま」と報告／
+    G-46：「カドタ」と直されて「かどだ」と報告）ので、AIの聞いた読みと読みの候補を、この形で比べる（flowctl.next_reading）。"""
+    out = unicodedata.normalize("NFD", hira(s))
+    return unicodedata.normalize("NFC", "".join(c for c in out if c not in "\u3099\u309a"))
+
+
 def decide(text: str, model_runs: list[list[dict]]) -> list[dict]:
     """名前の一覧と読みを決める（取込のとき。人は確かめない）。model_runs＝別々の文字のモデルの答え（by_model の戻り値）。
     名前：どちらかのモデルが出したもの（G-42：見落とし0・余分0。両方が出したものだけにすると1つ見落とした）。単語分けは使わない

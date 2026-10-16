@@ -58,7 +58,7 @@ class Business:
     # こちら側の名前で、読みが決まらないもの（台本の中の、名乗る担当者以外の人の名前など。表記）。指示文で、声に出さずに言い換える決まりを渡す（unread_rule）。
     # ⚠️ お客様側の名前（目的の人）は入れない：まず言ってみる読みで呼び、つながってから確かめる（flowctl.reading_question。✅ 2026-10-16 ユーザー）
     unread_names: list[str] = field(default_factory=list)
-    # 台本の名前（names.decide の戻り値）。質問の文・用件の一文・忙しいときの一言の中の名前を、作るときに1回だけ quote_in_text に通す
+    # 台本の名前（names.decide の戻り値）。質問の文・目的・用件の一文・忙しいときの一言の中の名前を、作るときに1回だけ quote_in_text に通す
     # （⛔ 見直しで見つけた漏れ：読みのひらがなへの置き換えが名乗りにしか効かず、質問の文の名前は漢字のまま・読みがなは2回読まれた）
     names: list = field(default_factory=list)
 
@@ -76,6 +76,7 @@ class Business:
         got = {unicodedata.normalize("NFKC", n["surface"]): n.get("reading") or "" for n in self.names if isinstance(n, dict) and n.get("surface")}
         self.company_reading = self.company_reading or got.get(unicodedata.normalize("NFKC", self.company), "")
         self.questions = [q if q.reading_of else dataclasses.replace(q, text=quote_in_text(q.text, self.names)) for q in self.questions]
+        self.purpose = quote_in_text(self.purpose, self.names) if self.purpose else self.purpose  # AIに渡す目的の中の名前も（AIが口にしうる）
         self.purpose_line = quote_in_text(self.purpose_line, self.names) if self.purpose_line else self.purpose_line
         self.busy_ask = quote_in_text(self.busy_ask, self.names) if self.busy_ask else self.busy_ask
 

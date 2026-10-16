@@ -1,0 +1,562 @@
+{
+  "item": "G-46",
+  "saved_at": "2026-10-16T15:28:45",
+  "model": "gemini-3.8-live",
+  "summary": {
+    "A そのまま": "0/0",
+    "A 読みを直す": "0/0",
+    "A 名前だけ言い直す": "0/0",
+    "B そのまま": "0/0",
+    "B かくたに直す": "0/0",
+    "B かどたに直す": "0/1",
+    "B 名前だけかどた": "0/0"
+  },
+  "rows": [
+    {
+      "rep": 0,
+      "scene": "B かどたに直す",
+      "want": "かどた",
+      "voice_type": "S4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_yes_reserved.wav"
+          },
+          "heard": "はい、予約しています。",
+          "intended": "お名前の読みの方は「つのだ」様でよろしかったでしょうか？",
+          "tool_events": [
+            {
+              "at_s": 0.427,
+              "name": "record_answer",
+              "args": {
+                "question_id": "Q1",
+                "value": "はい、予約しています",
+                "condition_id": "はい"
+              },
+              "reply": "confirm_required",
+              "ack": "hai",
+              "say": "お名前の読みの方は「つのだ」様でよろしかったでしょうか？",
+              "play": null
+            }
+          ],
+          "first_audio_after_s": 1.063,
+          "finished_after_s": 4.152,
+          "audio_seconds": 3.08,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.063,
+              "audio_s": 0.0,
+              "text": "お名前の読みの方は「つのだ」様でよろしかったでしょうか？"
+            }
+          ],
+          "heard_events": [
+            {
+              "at_s": 0.319,
+              "text": "はい、予約しています。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.429,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.43,
+              "kind": "turn_complete"
+            },
+            {
+              "at_s": 1.063,
+              "kind": "audio_start",
+              "chunk": 1
+            },
+            {
+              "at_s": 4.152,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "N1",
+          "check": {
+            "voiced_s": 2.93,
+            "compared_with": "intended",
+            "morae": 27,
+            "expected_s": 3.0,
+            "ratio": 0.98,
+            "kind": "ok"
+          },
+          "audio_file": "20261016_152823_G46_B_かどたに直す_0_S4_0_ok.wav"
+        },
+        {
+          "index": 1,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_correct_kadota.wav"
+          },
+          "heard": "いや、角田です。",
+          "intended": "改めましてお名前の読みの方は「かどだ」様でよろしかったでしょうか？",
+          "tool_events": [
+            {
+              "at_s": 0.477,
+              "name": "confirm_field",
+              "args": {
+                "correction": "かどだ",
+                "question_id": "N1",
+                "result": "corrected"
+              },
+              "reply": "confirm_required",
+              "ack": "shitsurei",
+              "say": "改めましてお名前の読みの方は「かどだ」様でよろしかったでしょうか？",
+              "play": null
+            }
+          ],
+          "first_audio_after_s": 1.109,
+          "finished_after_s": 5.203,
+          "audio_seconds": 4.08,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.109,
+              "audio_s": 0.0,
+              "text": "改めましてお名前の読みの方は「かどだ」様でよろしかったでしょうか？"
+            }
+          ],
+          "heard_events": [
+            {
+              "at_s": 0.34,
+              "text": "いや、角田です。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.477,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.478,
+              "kind": "turn_complete"
+            },
+            {
+              "at_s": 1.109,
+              "kind": "audio_start",
+              "chunk": 1
+            },
+            {
+              "at_s": 5.203,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "N1",
+          "check": {
+            "voiced_s": 3.83,
+            "compared_with": "intended",
+            "morae": 34,
+            "expected_s": 3.78,
+            "ratio": 1.01,
+            "kind": "ok"
+          },
+          "audio_file": "20261016_152830_G46_B_かどたに直す_0_S4_1_ok.wav"
+        },
+        {
+          "index": 2,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_affirm.wav"
+          },
+          "heard": "はい、そうです。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.485,
+              "name": "confirm_field",
+              "args": {
+                "result": "affirmed",
+                "question_id": "N1"
+              },
+              "reply": "next",
+              "ack": "shouchi",
+              "say": null,
+              "play": [
+                {
+                  "kind": "question",
+                  "id": "Q2",
+                  "text": "それではご希望の日時をお聞かせいただけますでしょうか？",
+                  "lead": "それでは"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.485,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.484,
+              "text": "はい、そうです。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.485,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.485,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          }
+        },
+        {
+          "index": 3,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_datetime_pm.wav"
+          },
+          "heard": "15 日の午後 2 時でお願いします。",
+          "intended": "ありがとうございます。15日の午後2時でよろしいでしょうか？",
+          "tool_events": [
+            {
+              "at_s": 0.532,
+              "name": "record_answer",
+              "args": {
+                "value": "15日の午後2時",
+                "condition_id": "答えた",
+                "question_id": "Q2"
+              },
+              "reply": "confirm_required",
+              "ack": "hai",
+              "say": "ありがとうございます。15日の午後2時でよろしいでしょうか？",
+              "play": null
+            }
+          ],
+          "first_audio_after_s": 1.008,
+          "finished_after_s": 4.297,
+          "audio_seconds": 3.28,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.332,
+              "audio_s": 2.0,
+              "text": "ありがとうございます。15"
+            },
+            {
+              "at_s": 1.478,
+              "audio_s": 3.0,
+              "text": "日の午後2時でよろ"
+            },
+            {
+              "at_s": 1.577,
+              "audio_s": 3.28,
+              "text": "しいでしょうか？"
+            }
+          ],
+          "heard_events": [
+            {
+              "at_s": 0.422,
+              "text": "15 日の午後 2 時でお願いします。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.533,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.533,
+              "kind": "turn_complete"
+            },
+            {
+              "at_s": 1.008,
+              "kind": "audio_start",
+              "chunk": 1
+            },
+            {
+              "at_s": 4.297,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "check": {
+            "voiced_s": 3.24,
+            "compared_with": "intended",
+            "morae": 32,
+            "expected_s": 3.56,
+            "ratio": 0.91,
+            "kind": "ok"
+          },
+          "audio_file": "20261016_152839_G46_B_かどたに直す_0_S4_3_ok.wav"
+        },
+        {
+          "index": 4,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_affirm.wav"
+          },
+          "heard": "はい。そうです。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.264,
+              "name": "confirm_field",
+              "args": {
+                "question_id": "Q2",
+                "result": "affirmed"
+              },
+              "reply": "end",
+              "ack": "hai",
+              "say": null,
+              "play": [
+                {
+                  "kind": "closing",
+                  "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.265,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.201,
+              "text": "はい。そうです。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.265,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.265,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "closing",
+          "current_after": null,
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          }
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "question_id": "Q1",
+            "value": "はい、予約しています",
+            "condition_id": "はい"
+          },
+          "reply": {
+            "result": "confirm_required",
+            "question_id": "N1",
+            "value": "つのだ",
+            "say": "お名前の読みの方は「つのだ」様でよろしかったでしょうか？",
+            "after": null,
+            "message": "受け付けました。次は、お名前の読みの確認です。「お名前の読みの方は「つのだ」様でよろしかったでしょうか？」と言って、相手の返事を待ってください。相手が認めたら confirm_field を返事の種類「合っている」で、違う読みを言われたら「違う値を言われた」で報告し、訂正された値には相手が言ったとおりの音をひらがなで入れます（漢字を思い浮かべて、知っている読みに直さない）。",
+            "ack": "hai"
+          },
+          "callee_turns": 1
+        },
+        {
+          "op": "confirm_field",
+          "args": {
+            "correction": "かどだ",
+            "question_id": "N1",
+            "result": "corrected"
+          },
+          "reply": {
+            "result": "confirm_required",
+            "value": "「かどだ」",
+            "say": "改めましてお名前の読みの方は「かどだ」様でよろしかったでしょうか？",
+            "after": "misheard",
+            "message": "言い直して確かめます。「改めましてお名前の読みの方は「かどだ」様でよろしかったでしょうか？」と言って、相手の返事を待ってください。",
+            "ack": "shitsurei"
+          },
+          "callee_turns": 2
+        },
+        {
+          "op": "confirm_field",
+          "args": {
+            "result": "affirmed",
+            "question_id": "N1"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q2",
+            "question": "ご希望の日時をお聞かせいただけますでしょうか？",
+            "play": [
+              {
+                "kind": "question",
+                "id": "Q2",
+                "text": "それではご希望の日時をお聞かせいただけますでしょうか？",
+                "lead": "それでは"
+              }
+            ],
+            "message": "確認できました。このあと「角田」様は「かどだ」様とお呼びします。次の質問 Q2「それではご希望の日時をお聞かせいただけますでしょうか？」は、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、相手の答えを待ってください。相手が答えたら record_answer で報告します。",
+            "ack": "shouchi"
+          },
+          "callee_turns": 3
+        },
+        {
+          "op": "record_answer",
+          "args": {
+            "value": "15日の午後2時",
+            "condition_id": "答えた",
+            "question_id": "Q2"
+          },
+          "reply": {
+            "result": "confirm_required",
+            "value": "15日の午後2時",
+            "say": "ありがとうございます。15日の午後2時でよろしいでしょうか？",
+            "after": null,
+            "message": "言い直して確かめます。「ありがとうございます。15日の午後2時でよろしいでしょうか？」と言って、相手の返事を待ってください。",
+            "ack": "hai"
+          },
+          "callee_turns": 4
+        },
+        {
+          "op": "confirm_field",
+          "args": {
+            "question_id": "Q2",
+            "result": "affirmed"
+          },
+          "reply": {
+            "result": "end",
+            "play": [
+              {
+                "kind": "closing",
+                "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+              }
+            ],
+            "message": "確認できました。質問は終わりです。締めの言葉「お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。」は、プログラムが録音で流しました。何も言わずに終えます。",
+            "ack": "hai"
+          },
+          "callee_turns": 5
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "accepted",
+          "value": "はい、予約しています",
+          "condition": "はい",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "N1": {
+          "state": "confirmed",
+          "value": "かどだ",
+          "condition": "答えた",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 1
+        },
+        "Q2": {
+          "state": "confirmed",
+          "value": "15日の午後2時",
+          "condition": "答えた",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        }
+      },
+      "export": {
+        "Q1": "はい",
+        "N1": "かどだ",
+        "Q2": "15日の午後2時"
+      },
+      "final_phase": "closing",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "checks": {
+        "q1_ok": true,
+        "n1_final": [
+          "confirmed",
+          "かどだ"
+        ],
+        "scene_ok": false,
+        "asked": [
+          "つのだ",
+          "かどだ"
+        ],
+        "ai_heard_right": false,
+        "q2_ok": true,
+        "q2_lead": "それでは",
+        "spoke_over_play": 0,
+        "rejected": 0
+      },
+      "ai_corrections": [
+        "かどだ"
+      ],
+      "n1_reports": [
+        [
+          "record_answer",
+          {
+            "question_id": "Q1",
+            "value": "はい、予約しています",
+            "condition_id": "はい"
+          },
+          "confirm_required"
+        ],
+        [
+          "confirm_field",
+          {
+            "correction": "かどだ",
+            "question_id": "N1",
+            "result": "corrected"
+          },
+          "confirm_required"
+        ],
+        [
+          "confirm_field",
+          {
+            "result": "affirmed",
+            "question_id": "N1"
+          },
+          "next"
+        ]
+      ],
+      "said": [
+        "お名前の読みの方は「つのだ」様でよろしかったでしょうか？",
+        "改めましてお名前の読みの方は「かどだ」様でよろしかったでしょうか？",
+        "",
+        "ありがとうございます。15日の午後2時でよろしいでしょうか？",
+        ""
+      ],
+      "callee_said": [
+        "はい、予約しています。",
+        "いや、角田です。",
+        "はい、そうです。",
+        "15 日の午後 2 時でお願いします。",
+        "はい。そうです。"
+      ]
+    }
+  ]
+}

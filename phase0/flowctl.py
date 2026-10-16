@@ -17,7 +17,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from names import hira, quote
+from names import hira, quote, unvoiced
 from phrases import AMPM_ASK, CLOSE_DECLINED, CLOSING, LEAD_IN, NAME_READING_ASK
 from phrases import ask_again as ask_again_phrase
 from phrases import confirm as confirm_phrase
@@ -322,6 +322,30 @@ class Question:
 _KANA = re.compile(r"[ぁ-ゖー]+")
 
 
+def next_reading(heard: str | None, readings: tuple | list, tried: list[str]) -> str | None:
+    """相手が名前の読みを直したときに、次に確かめる読みを決める唯一の場所（flowctl.reading_question）。
+    heard＝AIが聞いたと報告した読み（ひらがな。無ければ None）、readings＝考えられる読み（names.decide の candidates）、tried＝もう言った読み。
+    会話のAIは、同じ漢字の名前の読みの濁りの違いを聞き分けられない（G-45：「いや、ナカシマです。」に19回中15回「合っている」・3回「なかじま」／
+    G-46：「いや、カドタです。」を「かどだ」と報告）。確かめるのは相手（こちらの声は、ひらがなの読みで正しく届く）なので、
+    ここは「次にどの読みで聞くか」だけを決める：
+    (1) AIの聞いた読みが、まだ言っていない候補なら、それ
+    (2) 候補には無いが、濁りを外すと、まだ言っていない候補と同じなら、その候補（「かどだ」⇒「かどた」。2つ以上なら、濁りの違いが少ないほう）
+    (3) 候補のどれとも違う読みなら、AIの聞いた読み（相手が候補に無い読みを言った）。ただし、言った読みと濁りだけ違う読みは、
+        まず言ってみる読みのほかに候補があるときは使わない（AIが、こちらの言った読みを濁りだけ違えて聞いた形）。ほかに候補が無いときだけ使う（「やまざき」⇒「やまさき」）
+    (4) それ以外（読みが無い・言った読みと同じ）は、まだ言っていない候補の最初
+    どれも無ければ None（＝確かめをやめて、名前を使わずにお呼びする）。"""
+    untried = [r for r in readings if r not in tried]
+    if heard and heard not in tried:
+        if heard in untried:
+            return heard
+        same = [r for r in untried if unvoiced(r) == unvoiced(heard)]
+        if same:
+            return min(same, key=lambda r: sum(x != y for x, y in zip(r, heard)))
+        if len(readings) <= 1 or all(unvoiced(t) != unvoiced(heard) for t in tried):
+            return heard
+    return untried[0] if untried else None
+
+
 def reading_question(qid: str, surface: str, likely: str, readings: tuple | list = (), kind: str = "法人") -> "Question":
     """読みが決まらない相手の名前（「山崎」＝やまざき／やまさき）を、会話の中で確かめる、プログラムが足す質問（DESIGN.md 6-2）。
     ✅ 2026-10-16 ユーザー：「なかじまとなかしまなどは人が見ても判断できません。それは会話の中で失礼のないように語るか、場合によっては
@@ -352,6 +376,7 @@ class Item:
     pending_value: str | None = None  # 午前・午後を聞いている値（答えが届いたら、そこへ入れる）
     ampm_asked: bool = False          # 午前・午後を聞いたか（1項目1回まで）
     tried_readings: list = field(default_factory=list)  # 名前の読みの確かめで、これまでに言った読み（同じ読みを2度言わない）
+    reading_choice_asked: bool = False  # 相手が直した読みを、候補から選んで報告し直すよう AI に頼んだか（1項目1回まで。G-46）
 
     def set(self, state: str, why: str) -> None:
         assert state in STATES, state
@@ -594,15 +619,28 @@ class Flow:
             if result == "corrected" and not _KANA.fullmatch(correction):
                 return self._reject(f"「{q.reading_of}」の読みは、相手が言ったとおりの音を、ひらがなだけで"
                                     f"{ARG_LABEL['correction']}に入れて、もう一度報告してください（「{correction}」は使えません）。")
-        if q.reading_of and result == "corrected" and (not correction or correction in it.tried_readings):
-            # 相手は「違う」と言ったのに、同じ読み（または読みの無い訂正）が報告された＝AIが読みの違いを聞き分けられなかった（G-45）。
-            # 考えられる読みのうち、まだ言っていない読みで確かめる。無ければ確かめをやめて、名前を使わずにお呼びする
-            correction = next((r for r in q.readings if r not in it.tried_readings), None)
+        if q.reading_of and result == "corrected":
+            untried = [r for r in q.readings if r not in it.tried_readings]
+            if (not correction or correction in it.tried_readings) and len(untried) >= 2 and not it.reading_choice_asked:
+                # ⛔ G-46：「いや、カドタです。」に、AIは直す前と同じ「つのだ」で報告した（または何も報告しなかった）。残りの候補が2つ以上だと、
+                #    どれで確かめるかの材料が無い（並びの先の「かくた」で確かめてしまった）⇒ 相手の声を聞いたばかりの AI に、候補から選ばせる。
+                #    相手にはまだ何も言わない（記録も書き換えない）。1項目1回まで
+                it.reading_choice_asked = True
+                shown = "".join(f"「{r}」" for r in untried)
+                return {"result": "rejected",
+                        "message": f"相手は読みを直しました（「{self.callee_said[:20]}」）。相手が言った読みは、{shown}のどれでしたか。"
+                                   f"相手の声にいちばん近い読みを{ARG_LABEL['correction']}に入れて、{ARG_LABEL['result']}"
+                                   f"「{CONFIRM_LABEL['corrected']}」で、confirm_field をもう一度報告してください。どれとも違えば、聞こえたとおりの音を"
+                                   "ひらがなで入れます。報告するまで、相手には何も言いません。"}
+            # 次に確かめる読みは、next_reading の1か所が決める（AIは濁りの違いを聞き分けられない＝G-45・G-46）。
+            # 無ければ確かめをやめて、名前を使わずにお呼びする
+            heard, correction = correction, next_reading(correction, q.readings, it.tried_readings)
             if correction is None:
                 self.awaiting_confirm = None
                 it.set("unresolved", "相手が読みを直したが、ほかの読みの候補が無い")
                 return self._advance("「-」にします。" + self._reading_note(qid))
-            it.set(it.state, f"AIが、言った読みと同じ読みで訂正を報告した（聞き分けられない）⇒ 候補の「{correction}」で確かめる")
+            if correction != heard:
+                it.set(it.state, f"AIの聞いた読み「{heard or '（無し）'}」は使わず、候補の「{correction}」で確かめる（濁りの違いは聞き分けられない）")
         if result == "corrected" and correction is None:  # 訂正の値の無い報告は、記録を書き換える前に差し戻す（上と同じ漏れ）
             return self._reject(f"訂正された値がありません。相手が言い直した値を「{ARG_LABEL['correction']}」に入れて、もう一度報告してください。")
         if result == "corrected" and (why := form_problem(self.questions[qid].type, correction)):

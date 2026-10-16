@@ -1233,6 +1233,8 @@ class SpokenNameTest(unittest.TestCase):
         b = Business(company="アオバ物流", caller="佐藤", purpose="", questions=q, names=names, purpose_line="東海林（しょうじ）の件です。")
         self.assertEqual(b.questions[0].text, "「だいわはうすこうぎょう」様と同じ形で、「しょうじ」が「中島」の件で伺ってもよろしいでしょうか？")
         self.assertEqual(b.purpose_line, "「しょうじ」の件です。")
+        b = Business(company="アオバ物流", caller="佐藤", purpose="東海林（しょうじ）が担当する体験授業の案内", questions=q, names=names)
+        self.assertEqual(b.purpose, "「しょうじ」が担当する体験授業の案内")   # AIに渡す目的の中の名前も、同じ1か所を通す
         self.assertEqual(b.opening_parts()[-1], b.questions[0].text)  # 名乗りに続く最初の質問も、同じ文
 
     def test_lead_word_does_not_shift_with_reading_question(self):
@@ -1328,6 +1330,54 @@ class ReadingConfirmTest(unittest.TestCase):
         self.assertEqual(f.awaiting_confirm, "N1")
         r = self.do(f, "confirm_field", question_id="N1", result="corrected", correction="なかしま")
         self.assertEqual(r["say"], "改めましてお名前の読みの方は「なかしま」様でよろしかったでしょうか？")
+
+    def test_next_reading(self):
+        """次に確かめる読みを決める1か所（flowctl.next_reading）。⛔ G-46：「いや、カドタです。」を、AIは「かどだ」と報告した。"""
+        from flowctl import next_reading
+        c3 = ["つのだ", "かくた", "かどた"]
+        self.assertEqual(next_reading("かどだ", c3, ["つのだ"]), "かどた")     # 濁りだけ違う ⇒ 候補の読み
+        self.assertEqual(next_reading("かくた", c3, ["つのだ"]), "かくた")     # 候補そのもの
+        self.assertEqual(next_reading("かぐた", c3, ["つのだ"]), "かくた")
+        self.assertEqual(next_reading("つのだ", c3, ["つのだ"]), "かくた")     # 言った読みと同じ ⇒ まだ言っていない候補の最初
+        self.assertEqual(next_reading(None, c3, ["つのだ"]), "かくた")
+        self.assertEqual(next_reading("つのた", c3, ["つのだ"]), "かくた")     # 言った読みを濁りだけ違えて聞いた形 ⇒ 使わない
+        self.assertEqual(next_reading("すみた", c3, ["つのだ"]), "すみた")     # 候補に無い読みを相手が言った
+        self.assertEqual(next_reading("かどだ", c3, ["つのだ", "かくた", "かどた"]), None)  # 候補が尽きた（言った読みと濁りだけ違う）…
+        self.assertEqual(next_reading("やまさき", ["やまざき"], ["やまざき"]), "やまさき")  # ほかに候補が無ければ、濁りだけ違う訂正も使う
+        self.assertEqual(next_reading("なかしま", ["なかじま", "なかしま"], ["なかじま"]), "なかしま")
+        self.assertEqual(next_reading("なかじま", ["なかじま", "なかしま"], ["なかじま"]), "なかしま")
+
+    def test_choose_among_candidates_when_ai_heard_nothing_usable(self):
+        """⛔ G-46：「いや、カドタです。」に、AIは直す前と同じ「つのだ」で報告した。残りの候補が2つ以上なら、AIに候補から選ばせる（1回まで）。"""
+        from flowctl import Flow, reading_question
+        f = Flow([reading_question("N1", "角田", "つのだ", ["つのだ", "かくた", "かどた"])])
+        f.on_callee(); f.on_heard("いや、角田です。")
+        r = f.apply("confirm_field", {"question_id": "N1", "result": "corrected", "correction": "つのだ"})
+        self.assertEqual(r["result"], "rejected")
+        self.assertIn("「かくた」「かどた」のどれでしたか", r["message"])
+        self.assertEqual(f.items["N1"].value, "つのだ")             # 記録は書き換えない
+        r = f.apply("confirm_field", {"question_id": "N1", "result": "corrected", "correction": "かどた"})  # 相手の新しい発話は無い
+        self.assertEqual(r["say"], "改めましてお名前の読みの方は「かどた」様でよろしかったでしょうか？")
+        # 選ばせても使える読みが来なければ、並びの先の候補（2回は頼まない）
+        f = Flow([reading_question("N1", "角田", "つのだ", ["つのだ", "かくた", "かどた"])])
+        f.on_callee(); f.on_heard("角田です。")
+        r = f.apply("confirm_field", {"question_id": "N1", "result": "affirmed"})   # 名前だけの言い直し＝直された
+        self.assertEqual(r["result"], "rejected")
+        r = f.apply("confirm_field", {"question_id": "N1", "result": "affirmed"})
+        self.assertIn("「かくた」様", r["say"])
+        # 候補が1つしか残らなければ、選ばせずにその候補（G-45 の中島）
+        f = Flow([reading_question("N1", "中島", "なかじま", ["なかじま", "なかしま"])])
+        f.on_callee(); f.on_heard("いや、中島です。")
+        r = f.apply("confirm_field", {"question_id": "N1", "result": "corrected", "correction": "なかじま"})
+        self.assertIn("「なかしま」様", r["say"])
+
+    def test_voicing_misheard_correction_uses_candidate(self):
+        """⛔ G-46：相手は「カドタ」と直したのに、AIは「かどだ」と報告し、プログラムは「かどだ」様で確かめていた。"""
+        from flowctl import Flow, reading_question
+        f = Flow([reading_question("N1", "角田", "つのだ", ["つのだ", "かくた", "かどた"])])
+        f.on_callee(); f.on_heard("いや、角田です。")
+        r = f.apply("confirm_field", {"question_id": "N1", "result": "corrected", "correction": "かどだ"})
+        self.assertEqual(r["say"], "改めましてお名前の読みの方は「かどた」様でよろしかったでしょうか？")
 
     def test_same_reading_reported_as_correction_uses_other_candidate(self):
         """⛔ G-45：相手が「いや、ナカシマです。」と直したのに、AIは「なかじま」（直す前と同じ読み）で訂正を報告した。"""
