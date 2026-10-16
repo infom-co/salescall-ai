@@ -132,6 +132,19 @@ class Settle(SettleBase):
         self.assertEqual(kinds, ["judged", "rejudged"])                   # 判定できなかった記録も残す
         self.assertEqual(self.tx(s, settle.rejudge_held), [])            # もう判定待ちではない
 
+    def test_a_held_row_is_rejudged_when_its_items_are_fixed(self):
+        """「わからない」の理由が無い（会話の処理の誤り）で判定待ちになった行は、項目の値が直ったら判定し直す（2026-10-16
+        見直し：前は項目を比べず、会話の処理を直して項目を作り直しても、判定待ちのままだった）。"""
+        s = self.ready()
+        aid = self.call(s, items=[("Q1", "dont_know", None)])
+        got = self.settle(s, aid)
+        self.assertEqual((got["state"], got["decision"].kind), ("unknown", "hold"))
+        self.assertEqual(self.tx(s, settle.rejudge_held), [])
+        self.tx(s, lambda tx: tx.execute("UPDATE salescall.item_values SET reason = 'undecided' WHERE task_id = %s"
+                                         " AND question_id = 'Q1'", (s["task"],)))        # 会話の処理が理由を書き直した
+        again = self.tx(s, settle.rejudge_held)
+        self.assertEqual([g["state"] for g in again], ["incomplete"])
+
     def test_rebuilt_reports_cannot_be_changed(self):
         s = self.ready()
         aid = self.call(s, report=rep(cut=None))

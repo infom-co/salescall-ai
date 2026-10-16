@@ -12,12 +12,16 @@ core/import_files.py。
 - 標準のひな形の、シート・列・言葉の名前の正本は、この部品の `SHEETS`・`LABELS`（画面のひな形の書き出しも、これを読む）。
 - **AI（読みの案・単位を決める処理）に聞くのは、プレビューの1回だけ**（`ask_ai`）。登録は、プレビューの答え（`Preview.ai`）を
   そのまま使う（もう一度聞くと答えが変わりうる＝契約者が見たものと違う中身になり、登録できなくなる）。
-- 名前の読み（Intent.md 6-8）：決め方は core/readings.py の1か所。入口が読みを持ってくれば、それを使う。無ければ AI の読みの案
-  （`ReadingSuggester`。作るのは CL-1）を使う。**契約者が確かめるのは、検証モードの業務の AI の案だけ**（2026-10-16 ユーザー：「検証中はAIが認識したものを私が確認します」。
-  確かめるかを決めるのは business_settings の1か所）。契約者が確かめた（直した）読みは、入口の読みの無い名前の AI の案に代わる（入口の読みは上書きしない）。質問の文などの「」の中の
-  言葉で、名前の一覧に無いものは「名前かもしれない言葉」として示す（枠だけ。⏳ 候補の出し方は CL-1 が比べている。PHASE0 G-23）。
+- 名前と読み（Intent.md 6-8。CL-1 の連絡帳 4-15・4-16）：台本（業務設定の文）から名前を洗い出して読みを決めるのは CL-1 の決め方
+  （`readings.NameFinder`＝`names.decide`。管理者も契約者も確かめない。2026-10-16 ユーザー）。入口が名前と読みを持ってくれば、
+  それを使う。決め方の順は core/readings.py の1か所。**読みが決まらない名前でも止めない**（考えられる読みとまず言ってみる読みを
+  持って登録し、会話の中で確かめる）。**契約者が確かめるのは、検証モードの業務の、AI が決めた読みだけ**（「検証中はAIが認識した
+  ものを私が確認します」。確かめるかを決めるのは business_settings の1か所）。**名乗りの担当者名の読みは必ず入口で入れる**
+  （案C。AI では決めない）。
 - 数の質問の単位（CL-1 の連絡帳 4-14）：入口が単位を持ってこなければ、単位を決める処理（`UnitDecider`。決め方は CL-1 の1か所）
   の答えを入れる。管理者も契約者も確かめない。決まらなければ空（補わない）。
+- 質問の「聞くこと」（CL-1 の連絡帳 4-15・G-43）：入口が持ってこなければ、聞くことを決める処理（`TopicDecider`。CL-1 の
+  `topics.decide`）の答えを入れる。管理者も契約者も確かめない。決まらなければ空（聞くことを言わずに聞き返す）。
 - 「わからない・答えたくない」のシートは、質問ID「全部」の行で、必須の質問すべての扱いを1度に書ける（質問ごとの行があれば、
   そちらが勝つ）。
 """
@@ -27,6 +31,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import unicodedata
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -71,17 +76,15 @@ OTHER_ANSWER = "その他"           # 分岐の回答条件：受け皿
 END_LABEL = "終わり"              # 分岐の次の質問ID：終わり
 _SPLIT = re.compile(r"[／\n]")    # 選択肢・断りの答えの区切り（全角の「／」か、欄の中の改行）
 _INTERVAL = re.compile(r"^\s*(\d+)\s*(時間おき|日後)\s*$")
-_QUOTED = re.compile(r"「([^「」]{1,40})」")
 
 
 @dataclass
 class Preview:
     raw: dict[str, Any] | None                    # 業務設定の形（読めなかったら None）
     problems: list[str]                           # 直すこと（シート・行つき）。空なら登録できる
-    names_to_confirm: list[dict[str, str]]        # 契約者が読みを確かめる名前（検証モードの AI の案。表記・読み・出どころ）
-    maybe_names: list[str] = field(default_factory=list)   # 「」の中の、名前の一覧に無い言葉（名前なら「名前」のシートに足す）
+    names_to_confirm: list[dict[str, str]]        # 契約者が読みを確かめる名前（検証モードの、AI が決めた読み。表記・読み・出どころ）
     digest: str = ""                              # 登録のときに同じ中身かを確かめる指紋
-    ai: dict[str, dict[str, str]] = field(default_factory=dict)   # AI の答え（登録にそのまま渡す。聞き直さない）
+    ai: dict[str, Any] = field(default_factory=dict)   # AI の答え（登録にそのまま渡す。聞き直さない）
 
 
 def _sheets(file_name: str, data: bytes, mapping: dict[str, Any]) -> tuple[dict[str, tuple[Sheet, dict[str, int]]], list[str]]:
@@ -227,7 +230,8 @@ def _to_raw(sheets: dict[str, tuple[Sheet, dict[str, int]]], problems: list[str]
     pairs += [(v.get("text"), v.get("reading"), "script") for _, v in _rows(sheets, "names", problems)]
     for text, reading, source in pairs:
         if text:                                   # 読みは無くてもよい（AI の読みの案を使う。`review`）
-            names.append({"text": text, "reading": reading, "source": source, "reading_by": "given" if reading else None})
+            names.append({"text": text, "reading": reading, "source": source, "reading_by": "given" if reading else None,
+                          "candidates": [], "likely": None})
     raw = {
         "purpose": basic.get("purpose"), "target_class": tclass,
         "caller": {"company": {"text": basic.get("company"), "reading": basic.get("company_reading")},
@@ -245,7 +249,7 @@ def _field_types(tx: Tx) -> frozenset[str]:
     return frozenset(r["type_name"] for r in tx.all("SELECT type_name FROM salescall.field_types"))
 
 
-ReadingSuggester = readings.Suggester              # 名前の読みの案を出す処理（正本は core/readings.py。作るのは CL-1）
+NameFinder = readings.NameFinder                    # 台本から名前と読みを出す処理（正本は core/readings.py。作るのは CL-1）
 
 UnitDecider = Callable[[list[str]], dict[str, str]]
 """数の質問の単位を決める処理（質問の文の並び → 文ごとの単位。決まらない文は入れないか空）。決め方は CL-1 の1か所
@@ -256,81 +260,114 @@ def _names(raw: dict[str, Any]) -> list[dict[str, Any]]:
     return [n for n in (raw.get("names") if isinstance(raw.get("names"), list) else []) if isinstance(n, dict) and n.get("text")]
 
 
+TopicDecider = Callable[[list[str]], dict[str, str]]
+"""質問の「聞くこと」（聞き返しの言い方に使う）を決める処理（質問の文の並び → 文ごとの聞くこと。決まらない文は入れないか空）。
+決め方は CL-1 の1か所（`topics.decide`：質問の文の形の決まりか、文字のモデル2つが合うときだけ。G-43。CL-1 の連絡帳 4-15）。
+管理者も契約者も確かめない。"""
+
+
+def _topic_questions(raw: dict[str, Any]) -> list[dict[str, Any]]:
+    qs = raw.get("questions") if isinstance(raw.get("questions"), list) else []
+    return [q for q in qs if isinstance(q, dict) and not q.get("ask_about") and isinstance(q.get("text"), str)
+            and q["text"].strip()]
+
+
+def _decided(texts: list[str], decide: Callable[[list[str]], dict[str, str]] | None) -> dict[str, str]:
+    """文ごとに決める処理に、1回だけ聞く（決まった答えだけ返す）。"""
+    if not texts or decide is None:
+        return {}
+    return {t: u.strip() for t, u in decide(texts).items() if t in texts and isinstance(u, str) and u.strip()}
+
+
 def _unit_questions(raw: dict[str, Any]) -> list[dict[str, Any]]:
     qs = raw.get("questions") if isinstance(raw.get("questions"), list) else []
     return [q for q in qs if isinstance(q, dict) and q.get("type") == business_settings.UNIT_TYPE
             and not q.get("unit") and isinstance(q.get("text"), str) and q["text"].strip()]
 
 
-def ask_ai(raw: dict[str, Any], *, confirmed_names: Any = (), suggest_readings: ReadingSuggester | None = None,
-           decide_units: UnitDecider | None = None) -> dict[str, dict[str, str]]:
-    """業務設定の形について、AI（と単位を決める処理）に1回だけ聞く。答え＝{"readings": 表記→読み, "units": 質問の文→単位}。
+def _script(raw: dict[str, Any]) -> str:
+    """名前を洗い出す台本（業務設定の文をまとめたもの。名乗り・用件・目的・忙しいときの一言・質問の文・入口の名前）。"""
+    caller = raw.get("caller") if isinstance(raw.get("caller"), dict) else {}
+    parts = [((caller.get("company") or {}).get("text") if isinstance(caller.get("company"), dict) else None),
+             caller.get("purpose_line"), raw.get("purpose"), raw.get("busy_line")]
+    parts += [q.get("text") for q in (raw.get("questions") if isinstance(raw.get("questions"), list) else [])
+              if isinstance(q, dict)]
+    parts += [n["text"] for n in _names(raw) if n.get("source") == "script"]
+    return "\n".join(p for p in parts if isinstance(p, str) and p.strip())
+
+
+def ask_ai(raw: dict[str, Any], *, find_names: NameFinder | None = None, decide_units: UnitDecider | None = None,
+           decide_topics: TopicDecider | None = None) -> dict[str, Any]:
+    """業務設定の形について、AI（名前と読み・単位・聞くことを決める処理。どれも CL-1 の決め方）に1回だけ聞く。
+    答え＝{"names": 表記 → 読み（readings.to_json の形）, "units": 質問の文 → 単位, "topics": 質問の文 → 聞くこと}。
     **プレビューで聞いた答えを、登録でもそのまま使う**（もう一度聞くと答えが変わりうる＝契約者が見たものと違う中身になる）。"""
-    confirmed = {t for t, _ in confirmed_names}
-    texts = [n["text"] for n in _names(raw) if not n.get("reading") and n["text"] not in confirmed]
-    units: dict[str, str] = {}
-    to_decide = sorted({q["text"] for q in _unit_questions(raw)})
-    if to_decide and decide_units is not None:
-        units = {t: u.strip() for t, u in decide_units(to_decide).items()
-                 if t in to_decide and isinstance(u, str) and u.strip()}
-    return {"readings": readings.ask(texts, suggest_readings), "units": units}
+    return {"names": readings.to_json(readings.find(_script(raw), find_names)),
+            "units": _decided(sorted({q["text"] for q in _unit_questions(raw)}), decide_units),
+            "topics": _decided(sorted({q["text"] for q in _topic_questions(raw)}), decide_topics)}
 
 
 def review(tx: Tx, business_id: UUID, raw: dict[str, Any], *, confirmed_names: Any = (),
-           ai: dict[str, dict[str, str]] | None = None, problems: list[str] | None = None) -> Preview:
+           ai: dict[str, Any] | None = None, problems: list[str] | None = None) -> Preview:
     """業務設定の形を確かめる（どの入口も、ここを通る：ファイル・依頼者の画面から抜き出したもの・画面の入力）。何も書かない。
     AI には聞かない（AI の答えは `ask_ai` で1回だけ聞いて、ai に渡す）。
-    - 名前の読み：決め方は core/readings.py の1か所（入口の読み＞契約者が確かめた AI の案＞AI の案。どれで決めたかを
-      `reading_by` に残す）。AI の案を契約者が確かめるのは検証モードの業務だけ（確かめていなければ問題に出る）。名乗りの自社名・担当者名の
-      読みも、名前の一覧と同じ読みにそろえる。
-    - 数の質問の単位：入口が持ってこなければ、AI の答えの単位を入れる（無ければ空）。
-    - 「」の中の言葉で、名前の一覧に無いものを「名前かもしれない言葉」として示す（枠だけ）。"""
+    - 名前と読み：入口の名前に、AI が洗い出した名前を足す（同じ表記は1つ）。読みの決め方は core/readings.py の1か所（入口の読み
+      ＞契約者が確かめた読み＞AI が決めた読み＞決まらない＝候補つき）。検証モードの業務では、AI が決めた読みを契約者が確かめる
+      （確かめていなければ問題に出る）。名乗りの自社名・担当者名の読みは、名前の一覧の読みの写し。
+    - 数の質問の単位：入口が持ってこなければ、AI の答えの単位を入れる（無ければ空）。"""
     problems = list(problems or [])
     ai = ai or {}
     raw = json.loads(json.dumps(raw, ensure_ascii=False))           # 受けたものを変えない
     verification = business_settings.ai_reading_needs_person(tx, business_id)
     confirmed = {t: r for t, r in confirmed_names}
+    found = readings.from_json(ai.get("names"))
     names = _names(raw)
+    have = {unicodedata.normalize("NFKC", n["text"]) for n in names}
+    for text in sorted(found):                                       # AI が洗い出した名前（入口に無いもの）
+        if unicodedata.normalize("NFKC", text) not in have:
+            names.append({"text": text, "reading": None, "source": "script"})
+            have.add(unicodedata.normalize("NFKC", text))
+    by_key = {unicodedata.normalize("NFKC", t): r for t, r in found.items()}
     to_confirm = []
     for n in names:
-        got = readings.resolve(n["text"], n.get("reading"), confirmed=confirmed, ai=ai.get("readings", {}))
-        n["reading"], n["reading_by"] = got.reading, got.by
-        if got.reading is None:
-            problems.append(f"名前「{n['text']}」の読みがありません（読みを入れてください。AI の読みの案も出せませんでした）")
-        elif readings.needs_person(got, verification=verification):
+        try:
+            got = readings.resolve(n["text"], n.get("reading"), confirmed=confirmed,
+                                   ai={n["text"]: by_key.get(unicodedata.normalize("NFKC", n["text"]), readings.UNDECIDED)})
+        except ValueError as e:
+            problems.append(str(e))
+            got = readings.UNDECIDED
+        n.update(got.as_json())
+        if readings.needs_person(got, verification=verification):
             to_confirm.append({"text": n["text"], "reading": got.reading, "source": n.get("source")})
+    raw["names"] = [{k: n.get(k) for k in business_settings.NAME_KEYS} for n in names]
     for q in _unit_questions(raw):
         q["unit"] = ai.get("units", {}).get(q["text"]) or None
+    for q in _topic_questions(raw):
+        q["ask_about"] = ai.get("topics", {}).get(q["text"]) or None
     caller = raw.get("caller") if isinstance(raw.get("caller"), dict) else {}
     for key in ("company", "person"):
         c = caller.get(key)
         if isinstance(c, dict) and c.get("text"):
-            same = next((n for n in names if n.get("text") == c["text"]), None)
+            same = next((n for n in raw["names"] if n.get("text") == c["text"]), None)
             if same is not None:
                 c["reading"] = same["reading"]
     try:
         business_settings.check(raw, field_types=_field_types(tx), ai_reading_needs_person=verification)   # 確かめは1か所
     except business_settings.SettingsInvalid as e:
         problems += [p for p in e.problems if p not in problems]
-    questions = raw.get("questions") if isinstance(raw.get("questions"), list) else []
-    texts = [q.get("text") or "" for q in questions if isinstance(q, dict)]
-    texts += [caller.get("purpose_line") or "", raw.get("busy_line") or ""]
-    known = {n.get("text") for n in names}
-    maybe = sorted({m for t in texts if isinstance(t, str) for m in _QUOTED.findall(t) if m not in known})
     digest = hashlib.sha256(json.dumps(raw, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
-    return Preview(raw, problems, to_confirm, maybe, digest, ai)
+    return Preview(raw, problems, to_confirm, digest, ai)
 
 
 def preview(tx: Tx, business_id: UUID, file_name: str, data: bytes, *, mapping: dict[str, Any] | None = None,
-            confirmed_names: Any = (), suggest_readings: ReadingSuggester | None = None,
-            decide_units: UnitDecider | None = None) -> Preview:
+            confirmed_names: Any = (), find_names: NameFinder | None = None,
+            decide_units: UnitDecider | None = None, decide_topics: TopicDecider | None = None) -> Preview:
     """ファイル（入口の1つ）を業務設定の形にして、AI に1回だけ聞き、確かめた結果を返す（何も書かない）。
     返す Preview の ai（AI の答え）を、登録（`register`）にそのまま渡す。"""
     sheets, problems = _sheets(file_name, data, mapping or {})
     if problems and not sheets:
         return Preview(None, problems, [])
     raw, problems = _to_raw(sheets, problems)
-    ai = ask_ai(raw, confirmed_names=confirmed_names, suggest_readings=suggest_readings, decide_units=decide_units)
+    ai = ask_ai(raw, find_names=find_names, decide_units=decide_units, decide_topics=decide_topics)
     return review(tx, business_id, raw, confirmed_names=confirmed_names, ai=ai, problems=problems)
 
 
@@ -349,7 +386,7 @@ def register_reviewed(tx: Tx, business_id: UUID, p: Preview, *, expected_digest:
 
 def register(tx: Tx, business_id: UUID, file_name: str, data: bytes, *, expected_digest: str,
              mapping: dict[str, Any] | None = None, confirmed_names: Any = (),
-             ai: dict[str, dict[str, str]] | None = None) -> UUID:
+             ai: dict[str, Any] | None = None) -> UUID:
     """ファイルの入口の登録：読み直して、プレビューと同じ中身なら版を作る。AI には聞き直さない（ai＝プレビューの AI の答え）。"""
     sheets, problems = _sheets(file_name, data, mapping or {})
     if problems and not sheets:

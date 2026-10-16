@@ -13,10 +13,13 @@
   システムの答えでもないのに飛ばすと、判定が「一部だけ取れた」になり、断ったお客様にかけ直すことになる）／読みを確かめていない名前／
   必須の質問が1つも無い／選択肢の名前が、出力の印・システムが足す答えと同じ／断りの答えが選択肢に無い／業務の決まりの確かめ。
   「終了条件の矛盾」は、この形では起きない（終わりは、分岐の「終わり」か最後の質問の次の1つだけ）。
-- 名前の読み（Intent.md 6-8）：読みごとに、誰が決めたか（`reading_by`：入口が持ってきた／AI の案／契約者が確かめた）を持つ。
-  **契約者が確かめるのは、検証モードの業務の AI の案だけ**（2026-10-16 ユーザー：「検証中はAIが認識したものを私が確認します」。
-  管理者も契約者も介在しない仕組みなので、フルオートでは確かめない）。検証モードかは、承認の部分（core/approval.py）に聞く（切り替えは1つ）。
-  ⏳ 名前の候補の出し方（単語に分ける処理か、文字のモデルか）は CL-1 が比べている（PHASE0 G-23）。
+- 名前の読み（Intent.md 6-8。決め方は core/readings.py の1か所）：読みごとに、誰が決めたか（`reading_by`：入口が持ってきた／
+  AI が決めた／契約者が確かめた）を持つ。**読みが決まらない名前も置ける**（読みは空、考えられる読み `candidates` と、まず言って
+  みる読み `likely` を持つ。会話の中で確かめる。2026-10-16 ユーザー・CL-1 の連絡帳 4-15）。**契約者が確かめるのは、検証モードの
+  業務の、AI が決めた読みだけ**（「検証中はAIが認識したものを私が確認します」。検証モードかは承認の部分＝core/approval.py に聞く）。
+  **名乗りの担当者名の読みは必ず入口で入れる**（2026-10-16 ユーザー決定＝案C。名乗りでは言い換えられず、個人向けでは名乗ることが
+  法律の確認事項。AI では決めない。CL-1 の連絡帳 4-16）。名前の読みの正本は名前の一覧（`names`）で、名乗り（`caller`）の読みは、
+  その写し（同じでなければ通さない）。名前の洗い出しと読みの決め方は CL-1（`names.decide`。2つのモデルが合うときだけ決まる）。
 - 数の質問の単位（`unit`。CL-1 の連絡帳 4-14）：数の型の質問だけが持つ（空でもよい＝補わない）。決めるのは取込のときのプログラム
   （CL-1 の決め方。管理者も契約者も確かめない）。この部品は形を確かめるだけ。
 """
@@ -59,9 +62,11 @@ class SettingsInvalid(Exception):
 @dataclass(frozen=True)
 class Name:
     text: str
-    reading: str
+    reading: str | None                          # ひらがな。None＝読みが決まらない（会話の中で確かめる）
     source: str
-    reading_by: str = "given"
+    reading_by: str | None = "given"
+    candidates: tuple[str, ...] = ()             # 読みが決まらないときの、考えられる読み
+    likely: str | None = None                    # 読みが決まらないときの、まず言ってみる読み
 
 
 @dataclass(frozen=True)
@@ -135,15 +140,57 @@ def _text(v: Any, where: str, problems: list[str], *, optional: bool = False) ->
     return v.strip()
 
 
-def _name(v: Any, where: str, source: str, problems: list[str]) -> Name | None:
+NAME_KEYS = {"text", "reading", "source", "reading_by", "candidates", "likely"}
+NAME_BY = tuple(b for b in READING_BY if b != "conversation")   # 業務設定の名前の読みを決めるもの（会話で確かめるのは発信対象の名前）
+
+
+def _kana(v: Any) -> bool:
+    return isinstance(v, str) and readings.normalize(v) == v
+
+
+def _names_entry(x: Any, where: str, problems: list[str], *, ai_reading_needs_person: bool) -> Name | None:
+    """名前の一覧の1つ（形の確かめはここだけ）。"""
+    if not isinstance(x, dict) or set(x) != NAME_KEYS or x.get("source") not in NAME_SOURCES:
+        problems.append(f"{where}は {sorted(NAME_KEYS)} です（source は {list(NAME_SOURCES)}）")
+        return None
+    text = _text(x["text"], f"{where}の表記", problems)
+    reading, by, cands, likely = x["reading"], x["reading_by"], x["candidates"], x["likely"]
+    if not isinstance(cands, list) or not all(_kana(c) for c in cands) or (likely is not None and not _kana(likely)):
+        problems.append(f"{where}の考えられる読み・まず言ってみる読みは、ひらがなです")
+        return None
+    if reading is None:
+        if by is not None:
+            problems.append(f"{where}は読みが無いのに、読みを決めたもの（reading_by）があります")
+            return None
+    elif not _kana(reading) or by not in NAME_BY or cands or likely is not None:
+        problems.append(f"{where}の読みは、ひらがなで、読みを決めたもの（{list(NAME_BY)}）と組です（決まった読みには候補を付けません）")
+        return None
+    if by == "ai" and ai_reading_needs_person:
+        problems.append(f"名前「{x['text']}」の読み「{reading}」は AI が決めた読みです。検証モードでは、契約者が確かめてから使います"
+                        "（Intent.md 6-8）")
+    return None if text is None else Name(text, reading, x["source"], by, tuple(cands), likely)
+
+
+def _caller(v: Any, where: str, names: list[Name], problems: list[str], *, reading_required: bool) -> Name | None:
+    """名乗りの名前（表記と読み）。読みの正本は名前の一覧で、ここはその写し（同じでなければ通さない）。"""
     if not isinstance(v, dict) or set(v) != {"text", "reading"}:
         problems.append(f"{where} は表記（text）と読み（reading）です")
         return None
-    t, r = _text(v["text"], f"{where}の表記", problems), _text(v["reading"], f"{where}の読み", problems)
-    if r is not None and (why := readings.problem(r)) is not None:
-        problems.append(f"{where}の読み「{r}」：{why}")
+    t = _text(v["text"], f"{where}の表記", problems)
+    if t is None:
         return None
-    return None if t is None or r is None else Name(t, r, source)
+    entry = next((n for n in names if n.text == t and n.source == "caller"), None)
+    if entry is None:
+        problems.append(f"{where}「{t}」が、名前の一覧（名乗り）にありません")
+        return None
+    if v["reading"] != entry.reading:
+        problems.append(f"{where}「{t}」の読みが、名前の一覧の読みと違います")
+        return None
+    if reading_required and (entry.reading is None or entry.reading_by != "given"):
+        problems.append(f"{where}「{t}」の読みを、ひらがなで入れてください（担当者名の読みは必ず入れます。AI では決めません。"
+                        "2026-10-16 ユーザー決定）")
+        return None
+    return entry
 
 
 def possible_answers(q: Question) -> tuple[str, ...]:
@@ -181,14 +228,24 @@ def check(raw: Any, *, field_types: frozenset[str], ai_reading_needs_person: boo
     elif target_class not in TARGET_CLASSES_OPEN:
         problems.append("お客様が個人の業務は、まだ選べません（法令の確かめ＝計画書 13章が済み、名乗りの法定事項と拒否の即時登録を"
                         "システムが強制する形を作ってから開きます。いまは法人だけ）")
+    names: list[Name] = []
+    if not isinstance(raw["names"], list):
+        problems.append("名前の一覧（names）は並びです")
+    else:
+        for n, x in enumerate(raw["names"], 1):
+            nm = _names_entry(x, f"名前 {n} 番目", problems, ai_reading_needs_person=ai_reading_needs_person)
+            if nm is not None:
+                names.append(nm)
+        if len({n.text for n in names}) != len(names):   # 同じ表記に読みが2つあると、どちらで言うか決まらない
+            problems.append("名前の一覧に、同じ表記が2つあります（表記ごとに1つ。名乗りの名前は source を caller にします）")
     caller = raw["caller"]
     company = person = None
     purpose_line = None
     if not isinstance(caller, dict) or set(caller) != {"company", "person", "purpose_line"}:
         problems.append("名乗り（caller）は、自社名（company）・担当者名（person）・用件の一文（purpose_line）です")
     else:
-        company = _name(caller["company"], "名乗りの自社名", "caller", problems)
-        person = _name(caller["person"], "名乗りの担当者名", "caller", problems)
+        company = _caller(caller["company"], "名乗りの自社名", names, problems, reading_required=False)
+        person = _caller(caller["person"], "名乗りの担当者名", names, problems, reading_required=True)
         purpose_line = _text(caller["purpose_line"], "用件の一文", problems, optional=True)
     # 目的のお客様：役職は、業務で1つ書く（role）か、書かずに発信対象データの役職の列を使う（None。取込で列があるかを確かめる）。
     # 名前のみ・誰でもは、役職を持たない
@@ -241,24 +298,9 @@ def check(raw: Any, *, field_types: frozenset[str], ai_reading_needs_person: boo
             questions.append(Question(qid, _text(q["text"], f"{where}の文", problems) or "",
                                       _text(q["ask_about"], f"{where}の聞くこと", problems, optional=True),
                                       q["type"], bool(q["required"]), choices, dict(nxt), unit))
-    names: list[Name] = []
-    if not isinstance(raw["names"], list):
-        problems.append("名前の一覧（names）は並びです")
-    else:
-        for n, x in enumerate(raw["names"], 1):
-            if not isinstance(x, dict) or set(x) != {"text", "reading", "source", "reading_by"} \
-                    or x.get("source") not in NAME_SOURCES or x.get("reading_by") not in READING_BY:
-                problems.append(f"名前 {n} 番目は text・reading・source（{list(NAME_SOURCES)}）・reading_by（{list(READING_BY)}）です")
-                continue
-            if x["reading_by"] == "ai" and ai_reading_needs_person:
-                problems.append(f"名前「{x['text']}」の読み「{x['reading']}」は AI の案です。検証モードでは、契約者が確かめてから使います"
-                                "（Intent.md 6-8）")
-            nm = _name({"text": x["text"], "reading": x["reading"]}, f"名前 {n} 番目", x["source"], problems)
-            if nm is not None:
-                names.append(Name(nm.text, nm.reading, nm.source, x["reading_by"]))
     if questions and not any(q.required for q in questions):
         problems.append("必須の質問が1つもありません（どんな通話でも「すべて取れた」になる。Intent.md 6-4）")
-    s = Settings(purpose or "", target_class if target_class in TARGET_CLASSES else "", company or Name("", "", "caller"), person or Name("", "", "caller"), purpose_line,
+    s = Settings(purpose or "", target_class if target_class in TARGET_CLASSES else "", company or Name("", None, "caller", None), person or Name("", None, "caller", None), purpose_line,
                  dict(tp), busy_line, voice or "", tuple(questions), tuple(names), None, raw)
     # 分岐は、すべての質問が読めたときだけ確かめる（読めなかった質問を除いて確かめると「分岐先がありません」などのうその理由が出る）
     if questions and len(questions) == len(raw["questions"]) and len({q.id for q in questions}) == len(questions):
@@ -407,20 +449,32 @@ def restore(tx: Tx, version_id: UUID) -> UUID:
 
 def target_of(tx: Tx, task_id: UUID) -> dict[str, Any]:
     """その行で、目的のお客様をどう呼ぶか（会話が読む。1か所）：種類・役職（業務で1つ書いていればそれ、無ければ一覧の役職）・
-    目的のお客様の名前と読み・お客様の会社名と読み。いまの版の業務設定で決まる。"""
-    t = tx.one("SELECT t.source_name, t.source_name_reading, t.target_name, t.target_name_reading, t.target_role,"
-               "       salescall.run_current_version(t.run_id) AS version_id FROM salescall.tasks t WHERE t.task_id = %s",
+    目的のお客様の名前とお客様の会社名（どちらも {text, reading, reading_by, candidates, likely}）。いまの版の業務設定で決まる。
+    名前の読みは、会話の中でお客様に確かめた読みがあれば、それを使う（readings.with_confirmed）。読みが決まらなければ reading は
+    空で、candidates・likely を持つ（会話の中で確かめる。CL-1 の flowctl.reading_question）。"""
+    t = tx.one("SELECT t.*, salescall.run_current_version(t.run_id) AS version_id FROM salescall.tasks t WHERE t.task_id = %s",
                (task_id,))
     if t is None:
         raise LookupError(f"その行は無い（または、取引の範囲の外）：{task_id}")
+    said = {r["which"]: r["reading"] for r in tx.all(
+        "SELECT DISTINCT ON (which) which, reading FROM salescall.task_confirmed_readings WHERE task_id = %s"
+        " ORDER BY which, confirm_id DESC", (task_id,))}
+
+    def name(which: str) -> dict[str, Any] | None:
+        p = f"{which}_name"
+        if t[p] is None:
+            return None
+        r = readings.Reading(t[f"{p}_reading"], t[f"{p}_reading_by"], tuple(t[f"{p}_reading_candidates"]),
+                             t[f"{p}_reading_likely"])
+        return {"text": t[p], **readings.with_confirmed(r, said.get(which)).as_json()}
     s = load(tx, t["version_id"])
     kind, role = s.target_person["kind"], s.target_person["role"]
     uses_name = kind in ("name", "role_and_name")
     uses_role = kind in ("role", "role_and_name")
     return {"kind": kind,
             "role": (role or t["target_role"]) if uses_role else None,
-            "person": {"text": t["target_name"], "reading": t["target_name_reading"]} if uses_name else None,
-            "company": None if t["source_name"] is None else {"text": t["source_name"], "reading": t["source_name_reading"]}}
+            "person": name("target") if uses_name else None,
+            "company": name("source")}
 
 
 def _open_tasks_missing(tx: Tx, run_id: UUID, needs: TargetNeeds) -> int:

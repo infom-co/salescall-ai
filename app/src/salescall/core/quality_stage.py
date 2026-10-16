@@ -17,7 +17,8 @@
   - 評価のたびに、指標ごとの値・基準・内側か外か・結果を記録する（CL-3 の 4-1e の2）。
 - 記録が無い版は、まだかけられない（模擬通話の合格・最初の段を開く前。判断できなければ通さない）。
 - **判定できないで止めた業務の再開**（2026-10-16 ユーザー決定）：原因を直して、**その場面（止めた原因の通話）を入れた模擬通話**に
-  合格したら、自動で再開する。原因は業務設定とは限らない（会話の処理・判定の処理）ので、同じ版でも再開する。どの場面を入れたかは
+  合格したら、自動で再開する。ほかの原因（言ってはいけないこと・品質の基準）で止めた業務でも、止めた版の測りの中に判定できなかった
+  通話があれば、その場面を入れることを求める（すでに止まっているあいだの判定できないを、見落として再開しない）。原因は業務設定とは限らない（会話の処理・判定の処理）ので、同じ版でも再開する。どの場面を入れたかは
   模擬通話の記録（scenes）で確かめる（入れていなければ再開しない）。
 - **管理者か契約者が品質の停止を解いたら、その版を測り直す**（2026-10-15 ユーザー：「人の判断で再開できる仕組みは？」）。段の件数と指標は、
   その版の通話のうち「人が解いた時刻に、まだ締めていなかった通話」から数える（数える通話の範囲は `_WINDOW` の1か所）。
@@ -161,8 +162,10 @@ def record_mock(tx: Tx, version_id: UUID, r: MockResult) -> dict[str, Any]:
     outcome = "failed"
     if passed:
         stop = _quality_stop(tx, v["business_id"])
-        if stop is not None and stop["cause"] == "judge_unknown" and not set(_incidents(tx, stop["event_id"])) <= {str(x) for x in r.scenes}:
-            outcome = "scenes_missing"           # 止めた原因の場面を入れていない模擬通話では、直ったと言えない
+        if stop is not None and not set(_incidents(tx, stop["event_id"])) <= {str(x) for x in r.scenes}:
+            # 判定できなかった通話の場面を入れていない模擬通話では、直ったと言えない。止めた原因が判定できないでなくても同じ
+            # （2026-10-16 見直し：品質の停止がもうあるあいだに締めた通話が判定できなかったとき、前は場面を求めずに再開していた）
+            outcome = "scenes_missing"
         elif stop is not None and stop["cause"] != "judge_unknown" and stop["version_id"] == version_id:
             outcome = "stopped_version"          # 止まった版そのもの：合格でも再開しない（新しい版で）
         else:

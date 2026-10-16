@@ -131,16 +131,29 @@ def _after(tx: Tx, a: dict[str, Any], out: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def _items(tx: Tx, task_id: UUID) -> dict[str, Item]:
+    """行の項目（判定の入力。読むのはここだけ）。"""
+    return {r["question_id"]: Item(r["state"], r["condition"], r["reason"]) for r in tx.all(
+        "SELECT question_id, state::text AS state, condition, reason FROM salescall.item_values WHERE task_id = %s",
+        (task_id,))}
+
+
+def _items_snapshot(items: dict[str, Item]) -> dict[str, dict[str, Any]]:
+    return {q: {"state": i.state, "condition": i.condition, "reason": i.reason} for q, i in sorted(items.items())}
+
+
 def _inputs_now(tx: Tx, a: dict[str, Any]) -> dict[str, Any]:
-    """いま判定し直すなら使う入力の版：判定の処理の版・業務設定の版（実施回のいまの版）・会話の報告の出どころ。"""
+    """いま判定し直すなら使う入力：判定の処理の版・業務設定の版（実施回のいまの版）・会話の報告の出どころ・行の項目
+    （2026-10-16 見直し：会話の処理を直して項目の値を作り直しても、前は項目を比べず、判定し直さなかった）。"""
     version = tx.one("SELECT salescall.run_current_version(%s) AS v", (a["run_id"],))["v"]
     return {"judge_version": JUDGE_VERSION, "rules_version": str(version),
-            "report_source": call_report.load_with_source(tx, a["attempt_id"])[1]}
+            "report_source": call_report.load_with_source(tx, a["attempt_id"])[1],
+            "items": _items_snapshot(_items(tx, a["task_id"]))}
 
 
 def rejudge(tx: Tx, attempt_id: UUID) -> dict[str, Any] | None:
     """判定待ちの行の、その試行を判定し直す（2026-10-16 ユーザー決定）。原因が直ったとき（判定の処理の版・業務設定の版・
-    作り直した会話の報告のどれかが、前の判定と違う）だけ判定する。何も変わっていなければ何もしない（None）。
+    作り直した会話の報告・行の項目のどれかが、前の判定と違う）だけ判定する。何も変わっていなければ何もしない（None）。
     判定し直した結果は、結果の版 rejudged として足し、ふつうの締めと同じ道で次の動きを書く。"""
     a = _attempt(tx, attempt_id)
     held = tx.one("SELECT 1 FROM salescall.task_next_actions n WHERE n.task_id = %s AND n.kind = 'hold'"
@@ -154,7 +167,7 @@ def rejudge(tx: Tx, attempt_id: UUID) -> dict[str, Any] | None:
         return None
     now = _inputs_now(tx, a)
     before = {"judge_version": last["judge_version"], "rules_version": last["snapshot"].get("rules_version"),
-              "report_source": last["snapshot"].get("report_source")}
+              "report_source": last["snapshot"].get("report_source"), "items": last["snapshot"].get("items")}
     if now == before:
         return None                                # 何も直っていない：同じ入力で判定し直しても同じ結果
     out = _judge_and_write(tx, a, kind="rejudged", rules_version=now["rules_version"])
@@ -181,9 +194,7 @@ def _judge_and_write(tx: Tx, a: dict[str, Any], *, kind: str, rules_version: Any
     attempt_id = a["attempt_id"]
     report, report_source = call_report.load_with_source(tx, attempt_id)
     rules = business_rules.load(tx, rules_version)
-    items = {r["question_id"]: Item(r["state"], r["condition"], r["reason"]) for r in tx.all(
-        "SELECT question_id, state::text AS state, condition, reason FROM salescall.item_values WHERE task_id = %s",
-        (a["task_id"],))}
+    items = _items(tx, a["task_id"])
     refused_after = tx.one("SELECT 1 FROM salescall.dnc_entries WHERE source_attempt_id = %s"
                            " AND reason = 'refused_found_after' LIMIT 1", (attempt_id,)) is not None
     unclear_is_refusal = bool(settings.resolve(tx, "judge.unclear_disconnect_is_refusal", tenant_id=a["tenant_id"],
@@ -205,7 +216,7 @@ def _judge_and_write(tx: Tx, a: dict[str, Any], *, kind: str, rules_version: Any
         "facts": {"end_state": a["state"], "hangup_side": a["hangup_side"], "reached_answer": a["reached_answer"],
                   "verification": a["verification"]},
         "report": None if report is None else report.to_json(), "report_source": report_source,
-        "items": {q: {"state": i.state, "condition": i.condition, "reason": i.reason} for q, i in sorted(items.items())},
+        "items": _items_snapshot(items),
         "rules_version": str(rules.version_id), "refused_after": refused_after, "unclear_is_refusal": unclear_is_refusal,
     }
     version_no = results.append(tx, a["task_id"], kind=kind, business_state=j.state, attempt_id=attempt_id,

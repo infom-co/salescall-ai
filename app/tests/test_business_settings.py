@@ -13,6 +13,11 @@ FIELD_TYPES = frozenset({"date", "time", "datetime", "number", "amount", "name",
                          "choice", "free_text"})
 
 
+def name(text, reading, source, by="given", candidates=(), likely=None) -> dict:
+    return {"text": text, "reading": reading, "source": source, "reading_by": by if reading else None,
+            "candidates": list(candidates), "likely": likely}
+
+
 def raw() -> dict:
     """試験の業務設定（架空）：予約するか（しない＝断り＝終わり）→ 希望の日時。"""
     r = rules_raw(required=("Q1", "Q2"), decline={"Q1": ["しない"]})
@@ -31,7 +36,8 @@ def raw() -> dict:
             {"id": "Q2", "text": "ご希望の日時をお聞かせください。", "ask_about": "ご希望の日時", "type": "datetime",
              "required": True, "choices": None, "next": None, "unit": None},
         ],
-        "names": [{"text": "テスト物流", "reading": "てすとぶつりゅう", "source": "caller", "reading_by": "given"}],
+        "names": [name("株式会社テスト物流", "かぶしきがいしゃてすとぶつりゅう", "caller"), name("山田", "やまだ", "caller"),
+                  name("テスト物流", "てすとぶつりゅう", "script")],
         "rules": r,
     }
 
@@ -56,15 +62,24 @@ class Check(unittest.TestCase):
         r = raw(); r["questions"][1]["next"] = {"*": "Q1"}; cases.append((r, "終わらない輪"))
         r = raw(); r["questions"][0]["next"] = {"*": "END"}; cases.append((r, "質問 Q2 へは、どこからも行きません"))
         r = raw(); r["rules"]["decline"] = {}; cases.append((r, "必須の質問 Q2 を聞かずに終わる道があります"))
-        r = raw(); r["names"][0]["reading_by"] = "ai"; cases.append((r, "AI の案です。検証モードでは、契約者が確かめてから"))
-        r = raw(); r["names"][0]["reading_by"] = None; cases.append((r, "reading_by"))
+        r = raw(); r["names"][2]["reading_by"] = "ai"; cases.append((r, "AI が決めた読みです。検証モードでは、契約者が確かめてから"))
+        r = raw(); r["names"][2]["reading_by"] = None; cases.append((r, "読みを決めたもの"))
+        r = raw(); r["names"][2]["reading"] = "テストブツリュウ"; cases.append((r, "ひらがなで"))      # 持つのはひらがな
+        r = raw(); r["names"][2].update(reading=None, reading_by=None, candidates=["中島"]); cases.append((r, "ひらがなです"))
+        r = raw(); r["names"][2]["candidates"] = ["てすと"]; cases.append((r, "決まった読みには候補を付けません"))
+        r = raw(); r["names"].append(name("テスト物流", "てすとものながれ", "script")); cases.append((r, "同じ表記が2つ"))
+        r = raw(); r["caller"]["company"]["reading"] = "べつのよみ"; cases.append((r, "名前の一覧の読みと違います"))
+        r = raw(); del r["names"][1]; cases.append((r, "名乗りの担当者名「山田」が、名前の一覧（名乗り）にありません"))
+        # 担当者名の読みは、入口で必ず入れる（2026-10-16 ユーザー決定＝案C。読みが決まらない・AI の読みは通さない）
+        r = raw(); r["names"][1].update(reading=None, reading_by=None, candidates=["やまだ"], likely="やまだ")
+        r["caller"]["person"]["reading"] = None; cases.append((r, "担当者名の読みは必ず入れます"))
+        r = raw(); r["names"][1]["reading_by"] = "ai"; cases.append((r, "担当者名の読みは必ず入れます"))
         r = raw(); r["questions"][1]["unit"] = "人"; cases.append((r, "単位は、数の型（number）の質問だけ"))
         r = raw(); r["questions"][0]["choices"] = ["する", "わからない"]; cases.append((r, "システムが足す答え"))
         r = raw(); r["questions"][0]["choices"] = ["する", "-"]; cases.append((r, "出力の印"))
         r = raw(); r["rules"]["decline"] = {"Q1": ["やめる"]}; cases.append((r, "断りの答え「やめる」は、その質問の選択肢にありません"))
         r = raw(); r["questions"][1]["type"] = "color"; cases.append((r, "型の一覧にありません"))
         r = raw(); r["questions"][1]["choices"] = ["はい"]; cases.append((r, "決まっています"))
-        r = raw(); r["caller"]["company"]["reading"] = ""; cases.append((r, "名乗りの自社名の読み が空です"))
         r = raw(); r["target_person"] = {"kind": "anyone", "role": "社長"}; cases.append((r, "役職を書きません"))
         r = raw(); r["target_class"] = "individual"; cases.append((r, "お客様が個人の業務は、まだ選べません"))
         r = raw(); r["target_class"] = None; cases.append((r, "お客様の区分（target_class）は"))
@@ -85,7 +100,7 @@ class Check(unittest.TestCase):
         self.assertFalse(any("分岐先" in p or "どこからも" in p for p in got), got)   # 読めない質問の巻き添えの理由を出さない
 
     def test_all_problems_are_listed_at_once(self):
-        r = raw(); r["purpose"] = ""; r["voice"] = ""; r["names"][0]["reading_by"] = "ai"
+        r = raw(); r["purpose"] = ""; r["voice"] = ""; r["names"][2]["reading_by"] = "ai"
         self.assertGreaterEqual(len(problems_of(r)), 3)                # 1つずつではなく、まとめて示す
 
     def test_system_answers_may_skip(self):
@@ -95,10 +110,16 @@ class Check(unittest.TestCase):
         bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True)
 
     def test_ai_reading_and_unit(self):
-        """AI の読みの案は、フルオートでは契約者が確かめずに通る。数の質問は単位を持てる。"""
-        r = raw(); r["names"][0]["reading_by"] = "ai"
+        """AI が決めた読みは、フルオートでは契約者が確かめずに通る。読みが決まらない名前も、検証モードでも通る（会話の中で確かめる。
+        2026-10-16 ユーザー）。自社名の読みは決まらなくてもよい。数の質問は単位を持てる。"""
+        r = raw(); r["names"][2]["reading_by"] = "ai"
         s = bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=False)
-        self.assertEqual(s.names[0].reading_by, "ai")
+        self.assertEqual(s.names[2].reading_by, "ai")
+        r = raw(); r["names"][2].update(reading=None, reading_by=None, candidates=["てすとぶつりゅう", "てすともつりゅう"],
+                                        likely="てすとぶつりゅう")
+        r["names"][0].update(reading=None, reading_by=None); r["caller"]["company"]["reading"] = None
+        s = bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True)
+        self.assertEqual((s.names[2].reading, s.names[2].likely, s.company.reading), (None, "てすとぶつりゅう", None))
         r = raw(); r["questions"][1].update(type="number", unit="名")
         self.assertEqual(bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True).questions[1].unit, "名")
 

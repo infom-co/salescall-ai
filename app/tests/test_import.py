@@ -13,7 +13,7 @@ import threading
 import unittest
 from unittest import mock
 
-from salescall.core import business_settings, dnc, importer, next_action, settings
+from salescall.core import business_settings, dnc, importer, next_action, settings, tasks
 from salescall.core.access import Rejected
 from salescall.core.import_files import read
 from salescall.core.phone import normalize
@@ -24,8 +24,13 @@ MAP = {"phone": "電話番号", "client_ref": "管理番号", "name": "会社名
 
 
 def ai(texts):
-    """試験の AI の読みの案（架空。どの名前にも同じ読みを返す）。"""
-    return {t: "てすとがいしゃ" for t in texts}
+    """試験の AI の読み（架空。どの名前にも同じ読みを、決まった読みとして返す）。"""
+    return {t: {"reading": "てすとがいしゃ", "candidates": [], "likely": None} for t in texts}
+
+
+def undecided(texts):
+    """試験の AI の読み（架空。どの名前も読みが決まらず、候補を返す）。"""
+    return {t: {"reading": "", "candidates": ["なかじま", "なかしま"], "likely": "なかじま"} for t in texts}
 
 
 def csv_file(rows, header=("管理番号", "会社名", "電話番号")) -> bytes:
@@ -317,8 +322,11 @@ class Targets(Base):
                                             (4, "stopped", "reading_invalid")])    # 読みが漢字のまま＝読みとして使えない
         task = r["rows"][0]["task_id"]
         got = self.tx(lambda tx: business_settings.target_of(tx, task))
-        self.assertEqual(got, {"kind": "name", "role": None, "person": {"text": "岡田", "reading": "おかだ"},
-                               "company": {"text": "架空商事", "reading": "てすとがいしゃ"}})   # 会社名の読みは AI の案
+        self.assertEqual(got, {"kind": "name", "role": None,
+                               "person": {"text": "岡田", "reading": "おかだ", "reading_by": "given", "candidates": [],
+                                          "likely": None},
+                               "company": {"text": "架空商事", "reading": "てすとがいしゃ", "reading_by": "ai",
+                                           "candidates": [], "likely": None}})   # 会社名の読みは AI が決めた読み
 
     def test_a_business_that_calls_by_role_needs_the_role_unless_the_business_names_it(self):
         _, run = self.run_with({"kind": "role", "role": None})
@@ -371,7 +379,7 @@ class Targets(Base):
 
         def changing(texts):
             asked.append(list(texts))
-            return {t: next(answers) for t in texts}
+            return {t: {"reading": next(answers)} for t in texts}
         data = csv_file([("A", "架空商事", fictional_jp_fixed())])
         sheet = read("一覧.csv", data)
         plan = self.tx(lambda tx: importer.preview(tx, self.s["run"], sheet, MAP, suggest_readings=changing))
@@ -390,18 +398,46 @@ class Targets(Base):
             self.tx(lambda tx: business_settings.assign(tx, self.s["run"], vid, reason="試験：名前を使う版へ"))
         self.assertIn("2 行に、その列がありません", e.exception.problems[0])   # setup の行と取り込んだ行
 
-    def test_the_database_keeps_names_with_readings(self):
-        """名前には必ず読み（と、読みを決めたもの）がある。取込の処理が誤っても、データベースが拒む。"""
+    def test_an_undecided_reading_is_registered_and_confirmed_in_the_call(self):
+        """読みが決まらない名前でも止めない（2026-10-16 ユーザー：会話の中で確かめる）。考えられる読みとまず言ってみる読みを持って
+        登録し、会話で確かめた読みがあれば、次からはそれを決まった読みとして使う（CL-1 の連絡帳 4-15）。"""
+        vid, run = self.run_with({"kind": "name", "role": None})
+        data = csv_file([("A", "架空商事", fictional_jp_fixed(), "中島", None, None)], header=self.HEADER)
+        sheet = read("一覧.csv", data)
+        plan = self.tx(lambda tx: importer.preview(tx, run, sheet, self.MAP, suggest_readings=undecided))
+        self.assertEqual(self.outcomes(plan), [(2, "registered", None)])
+        r = self.tx(lambda tx: importer.register(tx, run, sheet, self.MAP, expected_digest=plan.digest,
+                                                 ai_readings=plan.ai_readings))
+        task = r["rows"][0]["task_id"]
+        got = self.tx(lambda tx: business_settings.target_of(tx, task))["person"]
+        self.assertEqual(got, {"text": "中島", "reading": None, "reading_by": None, "candidates": ["なかじま", "なかしま"],
+                               "likely": "なかじま"})
+        aid = self.w.insert_claim({**self.s, "task": task,
+                                   "contact": self.tx(lambda tx: tasks.list_number(tx, task))["contact_id"],
+                                   "phone": self.tx(lambda tx: tasks.list_number(tx, task))["phone_e164"]}, version=vid)
+        self.tx(lambda tx: tasks.record_confirmed_reading(tx, task, "target", "ナカシマ", attempt_id=aid))
+        got = self.tx(lambda tx: business_settings.target_of(tx, task))["person"]
+        self.assertEqual((got["reading"], got["reading_by"]), ("なかしま", "conversation"))
+        with self.assertRaises(Rejected):                                 # ほかの行の通話で確かめた読みは付けない
+            self.tx(lambda tx: tasks.record_confirmed_reading(tx, self.s["task"], "target", "なかしま", attempt_id=aid))
+
+    def test_the_database_keeps_readings_in_shape(self):
+        """読みと読みを決めたものは組・決まった読みに候補を付けない・読みはひらがな・名前の無い読みは無い。取込の処理が誤っても、
+        データベースが拒む。"""
         cid = self.tx(lambda tx: tx.one("SELECT contact_id FROM salescall.contacts LIMIT 1"))["contact_id"]
         _, run = self.run_with(None)
-        for cols, vals in ((("source_name",), ("架空商事",)), (("target_name",), ("岡田",)),
-                           (("target_name", "target_name_reading"), ("岡田", "おかだ"))):
+        for cols, vals in ((("target_name", "target_name_reading"), ("岡田", "おかだ")),
+                           (("target_name", "target_name_reading", "target_name_reading_by"), ("岡田", "オカダ", "given")),
+                           (("target_name", "target_name_reading", "target_name_reading_by", "target_name_reading_likely"),
+                            ("岡田", "おかだ", "given", "おかだ")),
+                           (("source_name_reading_candidates",), (["なかじま"],)),
+                           (("source_name", "source_name_reading_likely"), ("中島", "中島"))):
             with self.subTest(cols=cols), self.assertRaises(Rejected) as e:
                 self.tx(lambda tx: tx.execute(
                     f"INSERT INTO salescall.tasks (tenant_id, client_id, run_id, contact_id, {', '.join(cols)})"
                     f" VALUES (%s, %s, %s, %s, {', '.join(['%s'] * len(cols))})",
                     (self.s["tenant"], self.s["client"], run, cid, *vals)))
-            self.assertEqual(e.exception.constraint, "task_name_has_reading")
+            self.assertEqual(e.exception.constraint, "task_name_readings")
 
     def test_a_reading_column_alone_is_refused(self):
         with self.assertRaises(importer.ImportRejected):

@@ -7,6 +7,9 @@
    （タスクの行そのものは固定できない：システムの処理の役は、タスクを書き換える権限を持たないため。）
 ⇒ 番号を振る処理は、必ずこれを先に呼ぶ。
 
+会話の中でお客様に確かめた名前の読み（2026-10-16 ユーザー・CL-1 の連絡帳 4-15）：書くのは `record_confirmed_reading` だけ。
+次にかけるときは、この読みを決まった読みとして使う（読むのは business_settings.target_of の1か所）。
+
 行の番号（DESIGN.md 3-5）：依頼者の一覧の1行は1つのまま、番号を表（task_numbers）に持つ。一覧の番号の行はデータベースが
 タスクを作ったときに自分で足す。お客様が言った別の番号を足すのは `add_callee_number` だけ。行の番号を読むのは `numbers` だけ。
 """
@@ -16,7 +19,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from salescall.core import contacts
+from salescall.core import contacts, readings
 from salescall.core.access import Tx
 from salescall.core.phone import PhoneNumber
 
@@ -72,3 +75,17 @@ def add_callee_number(tx: Tx, task_id: UUID, number: PhoneNumber, *, source_atte
     if tx.one("SELECT 1 FROM salescall.task_numbers WHERE task_id = %s AND contact_id = %s", (task_id, contact_id)) is None:
         raise TaskNotFound(str(task_id))
     return contact_id
+
+
+def record_confirmed_reading(tx: Tx, task_id: UUID, which: str, reading: str, *, attempt_id: UUID) -> None:
+    """会話の中でお客様に確かめた名前の読みを記録する（which：source＝お客様の会社名／target＝目的のお客様の名前）。
+    読みはひらがなに直して持つ（readings.normalize）。読みとして使えなければ ValueError。確かめた通話は、その行の通話だけ
+    （データベースが守る）。"""
+    if which not in ("source", "target"):
+        raise ValueError(f"どの名前か（which）は source か target です：{which!r}")
+    r = readings.normalize(reading)
+    if r is None:
+        raise ValueError(f"読み「{reading}」：読みは、ひらがなかカタカナで書きます")
+    tx.execute("INSERT INTO salescall.task_confirmed_readings (tenant_id, client_id, task_id, which, reading, attempt_id,"
+               " confirmed_by) SELECT t.tenant_id, t.client_id, t.task_id, %s, %s, %s, salescall.cur_actor()"
+               " FROM salescall.tasks t WHERE t.task_id = %s", (which, r, attempt_id, task_id))

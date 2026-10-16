@@ -9,8 +9,10 @@
 - 番号の判断は番号の正規化（Q1）、「そのお客様・番号へかけてよいか」は `target_policy`（門と同じ1か所）。ここで2つ目を作らない。
 - タスク・取込の記録を書くのは、この部品だけ（連絡先は contacts、最初の予定は next_action を通す。I-12）。
 - **名前の読み**（お客様の会社名・目的のお客様の名前。Intent.md 6-8）：決め方は core/readings.py の1か所（業務設定と同じ）。
-  読みの列があればそれ、無ければ AI の読みの案。検証モードの業務では、AI の案を契約者が確かめてから登録する（確かめていない行は
-  止めて、プレビューに確かめる名前を出す）。**AI に聞くのはプレビューの1回だけ**（`preview` が聞き、`Plan.ai_readings` を
+  読みの列があればそれ、無ければ AI の読み。**読みが決まらない名前でも止めない**（読みは空、考えられる読みとまず言ってみる読みを
+  持って登録し、会話の中で確かめる。2026-10-16 ユーザー・CL-1 の連絡帳 4-15）。検証モードの業務では、AI が決めた読みを契約者が
+  確かめてから登録する（確かめていない行は止めて、プレビューに確かめる名前を出す）。読みの列の値が読みとして使えない（漢字など）
+  行は、入口のデータの誤りとして止める。**AI に聞くのはプレビューの1回だけ**（`preview` が聞き、`Plan.ai_readings` を
   登録にそのまま渡す。もう一度聞くと答えが変わりうる＝契約者が見たものと違う中身になる）。
 - **目的のお客様の名前・役職**：要るかは業務設定の版の1か所（`Settings.target_needs`）。実施回に版があれば、その版で確かめる
   （要る列を選んでいなければ取込を始めない・その欄が空の行は止める）。版をあとで割り当てるときも、同じ決まりで確かめる
@@ -23,7 +25,8 @@
   (9) その実施回に同じ番号のタスクがある：管理番号も同じなら「もう登録済み」、違えば止める
   (10) その実施回に、同じ管理番号で別の番号のタスクがある ⇒ 止める
   (11) 目的のお客様の名前・役職が要るのに無い ⇒ 止める
-  (12) 名前（会社名・目的のお客様の名前）の読みが無い・読みとして使えない・検証モードで AI の案を契約者が確かめていない ⇒ 止める
+  (12) 名前（会社名・目的のお客様の名前）の読みの列の値が読みとして使えない・検証モードで AI が決めた読みを契約者が確かめていない
+       ⇒ 止める（読みが決まらないだけなら止めない）
   (13) ここまで当たらなければ合格（登録する）
   (7)(8) は「上の行が先」：止めた行は番号・管理番号を取らない（止めた行のせいで、ほかの行を止めない）。
 番号の先頭の 0 が消えた（DESIGN.md 3-4 の4）：xlsx は欄が数の型なら（確かな証拠）。CSV は列ごとに、番号の欄が
@@ -69,9 +72,9 @@ class RowPlan:
     name: str | None = None
     source_phone: str | None = None
     task_id: UUID | None = None   # already のとき：もうあるタスク
-    name_reading: readings.Reading = readings.Reading(None, None)
+    name_reading: readings.Reading = readings.UNDECIDED
     person_name: str | None = None
-    person_reading: readings.Reading = readings.Reading(None, None)
+    person_reading: readings.Reading = readings.UNDECIDED
     person_role: str | None = None
 
     def key(self) -> list[Any]:
@@ -79,8 +82,7 @@ class RowPlan:
         n = self.number
         return [self.row_no, self.outcome, self.reason_code, n.e164 if n else None, n.zero_added if n else False,
                 self.client_ref, self.name, self.source_phone, str(self.task_id) if self.task_id else None,
-                self.name_reading.reading, self.name_reading.by, self.person_name, self.person_reading.reading,
-                self.person_reading.by, self.person_role]
+                self.name_reading.as_json(), self.person_name, self.person_reading.as_json(), self.person_role]
 
 
 @dataclass(frozen=True)
@@ -88,7 +90,7 @@ class Plan:
     run_id: UUID
     rows: tuple[RowPlan, ...]
     digest: str
-    ai_readings: dict[str, str]                   # AI の読みの案（登録にそのまま渡す。聞き直さない）
+    ai_readings: dict[str, dict[str, Any]]        # AI の読み（readings.to_json の形。登録にそのまま渡す。聞き直さない）
     to_confirm: tuple[dict[str, Any], ...]        # 検証モードで契約者が確かめる名前（表記・AI の案・行番号）
 
     def counts(self) -> dict[str, int]:
@@ -116,11 +118,22 @@ def preview(tx: Tx, run_id: UUID, sheet: Sheet, mapping: dict[str, str], *, conf
                  ai=readings.ask(texts, suggest_readings))
 
 
+def _read(text: str | None, given: str | None, *, confirmed: dict[str, str],
+          ai: dict[str, readings.Reading]) -> tuple[readings.Reading, str | None]:
+    """その名前の読み（決め方は readings の1か所）と、読みの列の値が使えないときの理由。"""
+    if text is None:
+        return readings.UNDECIDED, None
+    try:
+        return readings.resolve(text, given, confirmed=confirmed, ai=ai), None
+    except ValueError as e:
+        return readings.UNDECIDED, str(e)
+
+
 def register(tx: Tx, run_id: UUID, sheet: Sheet, mapping: dict[str, str], *, expected_digest: str,
-             confirmed_names: Any = (), ai_readings: dict[str, str] | None = None) -> dict[str, Any]:
+             confirmed_names: Any = (), ai_readings: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
     """契約者が確かめたプレビューと同じなら、合格の行を全部登録し、行ごとの結果を記録する（1つの取引）。
     AI には聞き直さない（ai_readings＝プレビューの Plan.ai_readings）。"""
-    plan = _plan(tx, run_id, sheet, mapping, confirmed_names=confirmed_names, ai=ai_readings or {})
+    plan = _plan(tx, run_id, sheet, mapping, confirmed_names=confirmed_names, ai=readings.from_json(ai_readings))
     if plan.digest != expected_digest:
         raise PlanChanged("プレビューのあとで結果が変わりました（発信禁止・設定・ほかの取込）。もう一度プレビューを確かめてください")
     import_id = tx.one(
@@ -139,12 +152,16 @@ def register(tx: Tx, run_id: UUID, sheet: Sheet, mapping: dict[str, str], *, exp
             task_id = tx.one(
                 "INSERT INTO salescall.tasks (tenant_id, client_id, run_id, contact_id, client_ref, source_name,"
                 "                             source_phone, source_row, import_id, source_name_reading, source_name_reading_by,"
-                "                             target_name, target_name_reading, target_name_reading_by, target_role)"
-                " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+                "                             source_name_reading_candidates, source_name_reading_likely,"
+                "                             target_name, target_name_reading, target_name_reading_by,"
+                "                             target_name_reading_candidates, target_name_reading_likely, target_role)"
+                " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,"
+                "         %s, %s, %s, %s)"
                 " RETURNING task_id",
                 (run_id, contact_id, r.client_ref, r.name, r.source_phone, r.row_no, import_id,
-                 r.name_reading.reading, r.name_reading.by, r.person_name, r.person_reading.reading, r.person_reading.by,
-                 r.person_role),
+                 r.name_reading.reading, r.name_reading.by, list(r.name_reading.candidates), r.name_reading.likely,
+                 r.person_name, r.person_reading.reading, r.person_reading.by, list(r.person_reading.candidates),
+                 r.person_reading.likely, r.person_role),
             )["task_id"]
             next_action.schedule_now(tx, task_id, cause="取込")
         tx.execute(
@@ -199,7 +216,7 @@ def _zero_lost(sheet: Sheet, col: int) -> list[bool]:
 
 
 def _plan(tx: Tx, run_id: UUID, sheet: Sheet, mapping: dict[str, str], *, confirmed_names: Any,
-          ai: dict[str, str]) -> Plan:
+          ai: dict[str, readings.Reading]) -> Plan:
     run = tx.one("SELECT tenant_id, client_id, business_id, salescall.run_current_version(run_id) AS version_id"
                  " FROM salescall.runs WHERE run_id = %s", (run_id,))
     if run is None:
@@ -266,10 +283,8 @@ def _plan(tx: Tx, run_id: UUID, sheet: Sheet, mapping: dict[str, str], *, confir
         name = _text(row, cols, "name")
         number = normalize(raw_phone, leading_zero_lost=lost)
         person_name, person_role = _text(row, cols, "person_name"), _text(row, cols, "person_role")
-        name_reading = readings.resolve(name, _text(row, cols, "name_reading"), confirmed=confirmed, ai=ai) if name \
-            else readings.Reading(None, None)
-        person_reading = readings.resolve(person_name, _text(row, cols, "person_name_reading"), confirmed=confirmed,
-                                          ai=ai) if person_name else readings.Reading(None, None)
+        name_reading, bad_name = _read(name, _text(row, cols, "name_reading"), confirmed=confirmed, ai=ai)
+        person_reading, bad_person = _read(person_name, _text(row, cols, "person_name_reading"), confirmed=confirmed, ai=ai)
         found = dict(number=number, client_ref=ref, name=name, source_phone=raw_phone.strip(), name_reading=name_reading,
                      person_name=person_name, person_reading=person_reading, person_role=person_role)
         blocked = target_policy.block_reason(tx, number, client_ref=ref, tenant_id=run["tenant_id"],
@@ -304,7 +319,7 @@ def _plan(tx: Tx, run_id: UUID, sheet: Sheet, mapping: dict[str, str], *, confir
             for text, got in named:              # 検証モードで契約者が確かめる名前（行の中のすべて。止める理由とは別に出す）
                 if text is not None and got.reading is not None and readings.needs_person(got, verification=verification):
                     to_confirm.setdefault((text, got.reading), []).append(row.row_no)
-            why = _reading_problem(named, verification)
+            why = ("reading_invalid", bad_name or bad_person) if (bad_name or bad_person) else _reading_problem(named, verification)
             if why is not None:
                 rows.append(stop(why[0], why[1], **found))
                 continue
@@ -318,21 +333,17 @@ def _plan(tx: Tx, run_id: UUID, sheet: Sheet, mapping: dict[str, str], *, confir
             "mapping": dict(sorted(mapping.items())), "rows": [r.key() for r in rows]}
     digest = hashlib.sha256(json.dumps(body, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
     confirm = tuple({"text": t, "reading": rd, "rows": nos} for (t, rd), nos in sorted(to_confirm.items()))
-    return Plan(run_id, tuple(rows), digest, dict(ai), confirm)
+    return Plan(run_id, tuple(rows), digest, readings.to_json(ai), confirm)
 
 
 def _reading_problem(names: tuple[tuple[str | None, readings.Reading], ...],
                      verification: bool) -> tuple[str, str] | None:
-    """名前の読みで止める理由（理由の名前と日本語）。読みの決め方そのものは core/readings.py。"""
+    """名前の読みで止める理由（理由の名前と日本語）。読みの決め方そのものは core/readings.py。読みが決まらないだけなら止めない
+    （会話の中で確かめる）。"""
     for text, got in names:
         if text is None:
             continue
-        if got.reading is None:
-            return ("reading_missing", f"名前「{text}」の読みがありません（読みの列に入れてください。AI の読みの案も"
-                                       "出せませんでした）")
-        if (why := readings.problem(got.reading)) is not None:
-            return ("reading_invalid", f"名前「{text}」の読み「{got.reading}」：{why}")
         if readings.needs_person(got, verification=verification):
-            return ("reading_unconfirmed", f"名前「{text}」の読み「{got.reading}」は AI の案です。検証モードでは、契約者が"
+            return ("reading_unconfirmed", f"名前「{text}」の読み「{got.reading}」は AI が決めた読みです。検証モードでは、契約者が"
                                            "確かめてから登録します")
     return None

@@ -152,6 +152,21 @@ class Stages(Base):
         both = replace(GOOD, scenes=tuple(UUID(a) for a in first) + (late,), evidence="試験：両方の場面")
         self.assertEqual(self.tx(s, lambda tx: quality_stage.record_mock(tx, s["version"], both))["outcome"], "opened")
 
+    def test_an_unknown_while_already_stopped_is_not_forgotten(self):
+        """言ってはいけないことで止まったあとに締めた別の通話が判定できなかったら、新しい版の模擬通話にも、その場面を求める
+        （2026-10-16 見直し：品質の停止がもうあるあいだは評価しないので、前は判定できないを見落として再開した）。"""
+        s = self.fresh(stage_cap=20)
+        s2 = self.second_row(s)
+        late = self.call(s2, report=rep(("reception",)), verify=None)      # 先にかけ始めていた通話
+        self.verified_call(s, said(3))                                      # 言ってはいけないこと ⇒ 止まる
+        self.tx(s, lambda tx: attempts.record_verification(tx, late, "done", summary=VerificationSummary(1, 0, 0)))
+        self.settle(s2, late)                                              # 止まったあとに締めた：判定できない
+        newer = self.newer_version(s, 3)
+        got = self.tx(s, lambda tx: quality_stage.record_mock(tx, newer["version"], GOOD))
+        self.assertEqual(got["outcome"], "scenes_missing")
+        with_scene = replace(GOOD, scenes=(late,), evidence="試験：判定できなかった場面を入れた")
+        self.assertEqual(self.tx(s, lambda tx: quality_stage.record_mock(tx, newer["version"], with_scene))["outcome"], "opened")
+
     def test_stage_end_advances_when_inside(self):
         s = self.fresh(stage_cap=1)
         self.verified_call(s, VerificationSummary(3, 0, 0), items=[("Q1", "confirmed", None)])
