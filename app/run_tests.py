@@ -265,8 +265,14 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      " tenant_id uuid, client_id uuid, stopped_on date) LANGUAGE sql STABLE SECURITY DEFINER"
      " SET search_path = salescall, pg_temp AS $$ SELECT NULL::bigint, NULL::text, NULL::uuid, NULL::uuid, NULL::date"
      " WHERE false $$",
-     ("tests.test_usage.CostRatio.test_deficit_stops_and_resumes_when_terms_are_fixed",
-      "tests.test_usage.Budget.test_system_limit_and_new_day")),
+     ("tests.test_usage.CostRatio.test_deficit_warns_first_and_stops_if_not_confirmed_within_the_grace",)),
+    ("見守りに、期限の来た赤字の警告を見せない",
+     "CREATE OR REPLACE FUNCTION salescall.open_deficit_warnings() RETURNS TABLE (tenant_id uuid, client_id uuid)"
+     " LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ SELECT NULL::uuid, NULL::uuid"
+     " WHERE false $$",
+     ("tests.test_usage.CostRatio.test_deficit_warns_first_and_stops_if_not_confirmed_within_the_grace",)),
+    ("赤字の警告の確認を、システムの処理にもさせる", "DROP TRIGGER deficit_warning_guard ON salescall.deficit_warnings",
+     ("tests.test_usage.CostRatio.test_a_confirmed_deficit_does_not_stop",)),
     ("時給の時間を数えない",
      "CREATE OR REPLACE FUNCTION salescall.work_seconds(p_from timestamptz, p_to timestamptz, p_gap_max integer)"
      " RETURNS TABLE (at timestamptz, seconds numeric) LANGUAGE sql STABLE SECURITY DEFINER"
@@ -275,7 +281,7 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("全体の今日の金額を数えない（いつも0）",
      "CREATE OR REPLACE FUNCTION salescall.spent_today_all() RETURNS numeric"
      " LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ SELECT 0::numeric $$",
-     ("tests.test_usage.Budget.test_system_limit_and_new_day",)),
+     ("tests.test_usage.Budget.test_system_limit_is_only_noticed_to_the_admin",)),
     # 品質の段（Q22）
     ("言ってはいけないことを言ったかを、いつも「言っていない」にする",
      "CREATE OR REPLACE FUNCTION salescall.said_forbidden(p_attempt uuid) RETURNS boolean"

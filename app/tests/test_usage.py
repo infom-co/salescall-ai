@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import time
 from decimal import Decimal
 
-from salescall.core import approval, reward, stops, usage
+from salescall.core import approval, gate, reward, stops, usage
 from salescall.core.access import Rejected
-from tests.support import OPERATOR, SYSTEM, owner_access
+from tests.support import ADMIN, OPERATOR, SYSTEM, owner_access
 from tests.test_settle import SettleBase
 from tests.test_watch import override, resume_open_system_stops
 
@@ -93,38 +94,37 @@ class Budget(Priced):
                                                valid_from=tx.one("SELECT now() - interval '40 days' AS t")["t"],
                                                note="試験"), OPERATOR)
 
-    def test_client_over_its_daily_limit_is_stopped(self):
+    def budget_notices(self, s, like):
+        return self.w.a.in_system(ADMIN, lambda tx: tx.all(
+            "SELECT event_key FROM salescall.notification_events WHERE kind = 'budget' AND event_key LIKE %s", (like,))) \
+            if s is None else self.tx(s, lambda tx: tx.all(
+                "SELECT event_key FROM salescall.notification_events WHERE kind = 'budget' AND event_key LIKE %s", (like,)))
+
+    def test_client_over_its_daily_limit_is_only_noticed(self):
+        """依頼者の1日の上限を超えても止めない。注意を知らせるだけ（1日1回。2026-10-16 ユーザー：「注意喚起のみ」）。"""
         s = self.ready()
         self.ample(s)
         self.put_client(s, "budget.client_daily_yen", 5)
         self.priced("0.01")
-        got = self.tx(s, lambda tx: usage.record(tx, source="ai", service="gemini-3.8-live", tier="free", kind="measured", quantity=100, unit="input_tokens"))
-        self.assertIsNone(got["stopped"])                              # 1円：上限の内側
-        got = self.tx(s, lambda tx: usage.record(tx, source="ai", service="gemini-3.8-live", tier="free", kind="measured", quantity=500, unit="input_tokens"))
-        self.assertIsNotNone(got["stopped"])                           # 6円 ＞ 5円
-        self.assertEqual(self.reason(s), "stopped")
-        again = self.tx(s, lambda tx: usage.record(tx, source="ai", service="gemini-3.8-live", tier="free", kind="measured", quantity=1, unit="input_tokens"))
-        self.assertIsNone(again["stopped"])                            # 重ねて止めない
+        rec = lambda q: self.tx(s, lambda tx: usage.record(tx, source="ai", service="gemini-3.8-live", tier="free",
+                                                           kind="measured", quantity=q, unit="input_tokens"))
+        rec(100)
+        self.assertEqual(self.budget_notices(s, f"client_daily:{s['client']}:%"), [])   # 1円：上限の内側
+        self.assertIsNone(rec(500)["stopped"])                          # 6円 ＞ 5円：止めない
+        rec(1)
+        self.assertEqual(len(self.budget_notices(s, f"client_daily:{s['client']}:%")), 1)   # 1日1回
+        self.assertIsInstance(self.claim(s), gate.Claim)                 # 発信は続く
 
-    def test_system_limit_and_new_day(self):
+    def test_system_limit_is_only_noticed_to_the_admin(self):
         s = self.ready()
         self.ample(s)
         override(self, "budget.system_daily_yen", 0)
         self.priced("0.01")
-        self.tx(s, lambda tx: usage.record(tx, source="ai", service="gemini-3.8-live", tier="free", kind="measured", quantity=100, unit="input_tokens"))
-        got = usage.tick(self.w.a, SYSTEM)
-        self.assertIsNotNone(got["stopped"])
-        self.assertEqual(self.reason(s), "stopped")
-        # 前の日に止めた費用の停止は、日が替わったので解く（止めた時刻を前の日にして作る）
-        own = owner_access()
-        old = own.in_system(SYSTEM, lambda tx: tx.one(
-            "INSERT INTO salescall.stop_events (scope, action, cause, actor, actor_kind, reason, at)"
-            " VALUES ('system', 'stop', 'budget', %s, 'system', '試験：前の日', now() - interval '1 day')"
-            " RETURNING event_id", (SYSTEM.name,)))["event_id"]
-        resumed = usage.tick(self.w.a, SYSTEM)["resumed"]
-        self.assertEqual(len(resumed), 1)                              # 今日止めた分は、まだ解かない
-        self.assertNotIn(old, [r["event_id"] for r in self.w.a.in_system(SYSTEM, lambda tx: stops.open_stops(
-            tx, tenant_id=None, client_id=None, business_id=None))])
+        self.tx(s, lambda tx: usage.record(tx, source="ai", service="gemini-3.8-live", tier="free", kind="measured",
+                                           quantity=100, unit="input_tokens"))
+        self.assertEqual(usage.tick(self.w.a, SYSTEM)["stopped"], [])
+        self.assertEqual(len(self.budget_notices(None, "admin:system_daily:%")), 1)
+        self.assertIsInstance(self.claim(s), gate.Claim)
 
 
 class CostRatio(Priced):
@@ -217,13 +217,25 @@ class CostRatio(Priced):
         self.assertEqual(len(self.notices(s)), 1)                      # 1日1回
         self.assertEqual(self.client_stops(s), [])
 
-    def test_deficit_stops_and_resumes_when_terms_are_fixed(self):
+    def warnings(self, s):
+        return self.tx(s, lambda tx: tx.all("SELECT warning_id, confirmed_at, closed_why FROM salescall.deficit_warnings"
+                                            " ORDER BY warning_id"))
+
+    def test_deficit_warns_first_and_stops_if_not_confirmed_within_the_grace(self):
+        """赤字：まず警告して知らせ、期限（1時間）までに確認ボタンが押されなければ止める（2026-10-16 ユーザー）。止めるのは
+        見守りの tick でも（利用量の記録が無くても、期限が来たら止める）。赤字でなくなったら自動で解く。"""
         s = self.ready()
-        override(self, "budget.system_daily_yen", 10 ** 9)            # ほかの試験の費用で全体が止まらないように
         self.terms(s, per_dial_yen=10)
         self.talked(s)
         self.priced("0.01")
-        self.assertIsNotNone(self.spend(s, 15)["stopped"])             # 費用 15円 ＞ 報酬 10円
+        self.put_client(s, "budget.deficit_grace", 1)
+        self.assertIsNone(self.spend(s, 15)["stopped"])                # 費用 15円 ＞ 報酬 10円：まず警告
+        self.assertEqual(len(self.warnings(s)), 1)
+        self.assertEqual(self.client_stops(s), [])
+        notes = self.tx(s, lambda tx: tx.all("SELECT kind FROM salescall.notification_events WHERE kind = 'deficit_warning'"))
+        self.assertEqual(len(notes), 1)
+        time.sleep(1.2)
+        usage.tick(self.w.a, SYSTEM)                                   # 期限が過ぎても確認されていない
         self.assertEqual(self.client_stops(s), ["deficit"])
         sid = self.tx(s, lambda tx: stops.open_stops(tx, tenant_id=s["tenant"], client_id=s["client"],
                                                      business_id=None))[0]["event_id"]
@@ -234,15 +246,31 @@ class CostRatio(Priced):
         usage.tick(self.w.a, SYSTEM)
         self.assertEqual(self.client_stops(s), [])                     # 赤字でなくなったので、自動で解く
 
+    def test_a_confirmed_deficit_does_not_stop(self):
+        s = self.ready()
+        self.terms(s, per_dial_yen=10)
+        self.talked(s)
+        self.priced("0.01")
+        self.put_client(s, "budget.deficit_grace", 1)
+        self.spend(s, 15)
+        wid = self.warnings(s)[0]["warning_id"]
+        with self.assertRaises(Rejected):
+            self.tx(s, lambda tx: usage.confirm_deficit(tx, wid))         # システムの処理は確認できない
+        self.tx(s, lambda tx: usage.confirm_deficit(tx, wid), OPERATOR)  # 契約者が確認ボタンを押した
+        time.sleep(1.2)
+        usage.tick(self.w.a, SYSTEM)
+        self.spend(s, 1)
+        self.assertEqual(self.client_stops(s), [])                     # 確認が効いているあいだは止めない
+
     def test_a_count_that_can_vary_is_judged_only_when_sure(self):
         s = self.ready()
         self.put_client(s, "budget.client_daily_yen", 100000)
         self.terms(s, per_completed_yen=1000)                          # 成果1件 1,000円。まだ成果0件
         self.priced("0.01")
         self.spend(s, 2900)
-        self.assertEqual(self.client_stops(s), [])                     # 0件でも、多めに見込めば約2,996円：まだ判断しない
+        self.assertEqual(self.warnings(s), [])                         # 0件でも、多めに見込めば約2,996円：まだ判断しない
         self.spend(s, 100)
-        self.assertEqual(self.client_stops(s), ["deficit"])            # 3,000円 ＞ 約2,996円：赤字と判断
+        self.assertEqual(len(self.warnings(s)), 1)                     # 3,000円 ＞ 約2,996円：赤字と判断（まず警告）
 
     def test_no_terms_is_a_notice_not_a_stop(self):
         """報酬の決まりが無いのは設定の抜け（お客様には影響しない）：止めずに「設定がされていません」を知らせる（2026-10-16
