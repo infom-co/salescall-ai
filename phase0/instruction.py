@@ -48,13 +48,22 @@ class Business:
     # 相手が「忙しい」と言ったときの一言（Intent.md 9-4）。空なら丁寧に終える（既定＝安全側）。文があれば、1回だけそれで聞く
     # （2026-10-13 ユーザー：依頼主によっては粘ってほしい。トークスクリプト（業務情報）で選べるように。既定の文は phrases.BUSY_ASK）
     busy_ask: str | None = None
+    # 自社名・担当者名の読み（ひらがな。空＝決まらない＝表記のまま渡す）。設定に無ければ取込で names.decide が決める（Intent.md 6-8）。
+    # 声に出す文には読みのほうを入れる（G-44：漢字のままだと読み違える。instruction.quote_in_text と同じ決まり）
+    company_reading: str = ""
+    caller_reading: str = ""
+
+    def _said(self) -> tuple[str, str]:
+        return quote(self.company_reading or self.company), quote(self.caller_reading or self.caller)
 
     def opening(self) -> str:
-        return f"お忙しいところ恐れ入ります。株式会社{quote(self.company)}の{quote(self.caller)}と申します。"
+        company, caller = self._said()
+        return f"お忙しいところ恐れ入ります。株式会社{company}の{caller}と申します。"
 
     def opening_parts(self) -> list[str]:
         """名乗りの録音を、文ごとに分けたもの（DESIGN.md 6-13 の案）。最後は最初の質問。"""
-        parts = ["お忙しいところ恐れ入ります。", f"株式会社{quote(self.company)}の{quote(self.caller)}と申します。"]
+        company, caller = self._said()
+        parts = ["お忙しいところ恐れ入ります。", f"株式会社{company}の{caller}と申します。"]
         if self.purpose_line:
             parts.append(self.purpose_line)
         parts.append(self.questions[0].text)
@@ -69,8 +78,14 @@ def quote(name: str) -> str:
 _OPEN, _CLOSE = "「『", "」』"
 
 
-def quote_in_text(text: str, names: list[str]) -> str:
+def quote_in_text(text: str, names: list) -> str:
     """台本などの文の中の名前を、「」でくくる（名前の位置にだけ付け、ほかの文字は1文字も変えない）。
+    names＝名前の表記（文字）か、names.decide の名前（{"surface", "reading"}）。**読みが決まっている名前は、くくった中身を読み（ひらがな）に
+    置き換える**（「大阪の「にっぽんばし」店」）。読みが決まらない名前（reading が空）は、表記のままくくる。
+    ✅ G-44（2026-10-16）：読み違えやすい名前12を、録音と同じ形で読ませた。漢字のまま「」でくくる形は24本中8本しか正しく読まず（「枚方」⇒
+       まいかた・「中島」⇒なかじま（正しくは なかしま）・「東海林」⇒とうかいりん など）、ひらがなで渡す形は23本中21本（読めなかったのは
+       「山崎」＝やまさき の2本だけ。どの渡し方でも「やまざき」になった）。読みを指示に添える形は20本、文に「（読み）」を添える形は13本で、
+       「とうかいりんしょうじ」と2回言った回もあった。カタカナで渡す形は「アオバ物流」を2本とも「おおば」と読んだ。
     - 長い名前から先に当てる（「川崎市中原区」と「中原区」が重なれば、長いほうを1回だけくくる）
     - 同じ名前が何回出ても、全部くくる
     - もともと「」『』の中にある所は、くくらない（二重にしない）
@@ -79,7 +94,8 @@ def quote_in_text(text: str, names: list[str]) -> str:
       （「上野原」は1つの単語なので、中の「上野」には付けない。「株式会社ＡＢＣホールディングス営業部」は
        「株式／会社／ＡＢＣ／ホールディングス／営業／部」と分かれるので、「ＡＢＣホールディングス」に付けられる）
     ⚠️ 限界：単語に分ける処理が、1つの名前を2つに分けることがある（「神田川」＝「神田／川」）。名前の一覧に「神田」だけがあると、
-       「「神田」川」になる。名前の一覧に長いほうの名前があれば、長いほうが先に当たる。取込のプレビューで人が確かめる（Intent.md 6-8）。
+       「「神田」川」になる。名前の一覧に長いほうの名前があれば、長いほうが先に当たる（取込の文字のモデルは「兵庫県三田市」のように
+       まとまりで出す。G-42）。
     """
     import unicodedata
 
@@ -96,20 +112,26 @@ def quote_in_text(text: str, names: list[str]) -> str:
             depth = max(0, depth - 1)
         if depth or ch in _CLOSE:
             taken[i] = True
+    readings = {}
+    for n in names:
+        if isinstance(n, dict) and n.get("surface"):
+            readings[unicodedata.normalize("NFKC", n["surface"])] = n.get("reading") or ""
+        elif isinstance(n, str) and n:
+            readings.setdefault(unicodedata.normalize("NFKC", n), "")
     spans = []
-    for name in sorted({unicodedata.normalize("NFKC", n) for n in names if n}, key=len, reverse=True):
+    for name in sorted(readings, key=len, reverse=True):
         start = 0
         while (i := normed.find(name, start)) != -1:
             j = i + len(name)
             start = i + 1
             if any(taken[i:j]) or i not in edges or j not in edges:
                 continue
-            spans.append((i, j))
+            spans.append((i, j, readings[name]))
             for k in range(i, j):
                 taken[k] = True
     out, pos = [], 0
-    for i, j in sorted(spans):
-        out.append(text[pos:i] + quote(text[i:j]))
+    for i, j, r in sorted(spans):
+        out.append(text[pos:i] + quote(r or text[i:j]))
         pos = j
     out.append(text[pos:])
     return "".join(out)
@@ -194,7 +216,7 @@ def build(business: Business, voice_type: str, resume=None, opening_mode: str = 
     voice, style_text = voice_style(voice_type)
     first = business.questions[0]
     parts = [
-        f"あなたは株式会社{quote(business.company)}の{quote(business.caller)}として、電話をかけています。日本語で、丁寧に短く話します。",
+        "あなたは株式会社{}の{}として、電話をかけています。日本語で、丁寧に短く話します。".format(*business._said()),
         f"目的：{business.purpose}",
     ]
     if resume is None and opening_mode == "recorded":

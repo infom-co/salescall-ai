@@ -1212,6 +1212,24 @@ class TopicTest(unittest.TestCase):
         self.assertEqual(decide("何名様でお越しになりますでしょうか？", ["ご来店の人数"]), "")                       # 1つでは決めない
 
 
+class SpokenNameTest(unittest.TestCase):
+    """決まった読みは、声に出す文の名前をひらがなにして渡す（instruction.quote_in_text・Business。G-44）。決まらない名前は表記のまま。"""
+
+    def test_quote_with_readings(self):
+        from instruction import quote_in_text
+        names = [{"surface": "日本橋", "reading": "にっぽんばし"}, {"surface": "中島", "reading": ""}, "上野原"]
+        self.assertEqual(quote_in_text("大阪の日本橋店と、上野原の土地と、中島の件です。", names),
+                         "大阪の「にっぽんばし」店と、「上野原」の土地と、「中島」の件です。")
+        self.assertEqual(quote_in_text("上野の件です。", ["上野"]), "「上野」の件です。")  # 文字だけの名前は、いままでどおり
+
+    def test_business_uses_readings(self):
+        from flowctl import Question
+        from instruction import Business
+        q = [Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"))]
+        b = Business(company="大和ハウス工業", caller="中島", purpose="", questions=q, company_reading="だいわはうすこうぎょう")
+        self.assertEqual(b.opening(), "お忙しいところ恐れ入ります。株式会社「だいわはうすこうぎょう」の「中島」と申します。")
+
+
 class NameReadingRuleTest(unittest.TestCase):
     """台本に書いてある読みがなを、プログラムが読む（names.given_reading・G-42）。"""
 
