@@ -11,7 +11,7 @@
   余分（名前でないものを名前にした）も数える。⛔「」以外の文字が変わる回は、プログラムがくくる形（instruction.quote_in_text）では起きない
   ことを、試験（test_offline.QuoteInTextTest）で確かめてある。
 - 比べる：単語分け（by_tokenizer）／文字のモデル（3.8・3.7・3.6 Flash は2回、3.5 Flash Lite は2回）／その組み合わせ。
-1日の上限（Flash は各20回）に収まるよう、1回の問い合わせで全部の台本を見させる。1つのキーで1回ずつ順番に。
+1日の上限（Flash は各20回）に収まるよう、1回の問い合わせで全部の台本を見させる。上限に当たったら次のキーで続ける（common.KeyRing）。
 """
 from __future__ import annotations
 

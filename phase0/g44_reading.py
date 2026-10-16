@@ -10,7 +10,7 @@
   名前を2回言っていないか（P）を数える。2つの書き起こしが食い違う回は「判定できない」として別に数える。
   ⚠️ 書き起こしのモデルも読み違えうる（例：「にっぽんばし」と言ったのに「にほんばし」と書く）。KATA・HIRA は読みが文に書いてあるので、
   ここで正しい読みが出ない割合が、書き起こしの側の誤りの目安になる。
-Live（会話のモデル）は1日の回数の上限が無い。書き起こしは Flash を使うので、まとめて数回で済ませる。1つのキーで1回ずつ順番に。
+Live（会話のモデル）は1日の回数の上限が無い。書き起こしは Flash を使うので、まとめて数回で済ませる。上限に当たったら次のキーで続ける（common.KeyRing）。
 """
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ import json
 import time
 from pathlib import Path
 
-from common import HERE, base_parser, call_with_retry, describe_error, make_client, pick_key, require_python, \
+from common import HERE, KeyRing, base_parser, call_with_retry, describe_error, make_client, pick_key, require_python, \
     save_partial, save_result, say, write_wav
 from g23_names import find_models
 from instruction import voice_style
@@ -155,7 +155,8 @@ EXTRA_VERIFIERS = {"3 Flash": "Gemini 3 Flash Preview"}
 
 
 def verify(args, rows: list[dict]) -> dict:
-    client = make_client(pick_key(args))
+    ring = KeyRing(args)  # 上限に当たったら次のキーで続ける（✅ ユーザー：「どのキーを使っても大丈夫」）
+    client = ring.client()
     ids, _ = find_models(client)
     want = {k: d for k, d in EXTRA_VERIFIERS.items() if k in (args.verifier or [])}
     if want:
@@ -170,10 +171,10 @@ def verify(args, rows: list[dict]) -> dict:
         for start in range(0, len(clips), args.batch):
             part = clips[start:start + args.batch]
             try:
-                kana, _ = call_with_retry(lambda: transcribe(client, ids[key], [OUT / r["wav"] for r in part]))
+                kana, _ = ring.call(ids[key], lambda c: transcribe(c, ids[key], [OUT / r["wav"] for r in part]))
                 for r, k in zip(part, kana):
                     r.setdefault("kana", {})[key] = k
-            except Exception as exc:  # ⛔ 上限（429）はやり直さない。そのモデルの書き起こしはここまで
+            except Exception as exc:  # どのキーも上限・混雑がやまない・ほかの誤り：そのモデルの書き起こしはここまで
                 say(key, "書き起こしが止まりました：", describe_error(exc).get("message", "")[:200])
                 break
             save_partial("G-44", {"rows": rows})

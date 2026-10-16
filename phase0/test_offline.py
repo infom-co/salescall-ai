@@ -1274,6 +1274,65 @@ class SpokenNameTest(unittest.TestCase):
         self.assertEqual(b.opening(), "お忙しいところ恐れ入ります。株式会社「だいわはうすこうぎょう」の「中島」と申します。")
 
 
+class KeyRingTest(unittest.TestCase):
+    """⛔ 2026-10-16 ユーザー：「キーはどれを使ってもいいと言ってるよ」＝上限に当たったら次のキーで続ける。"""
+
+    def test_moves_to_next_key_on_quota(self):
+        import argparse
+        import common
+
+        class Quota(Exception):
+            code = 429
+
+        ring = common.KeyRing(argparse.Namespace(proxy_key=False, env="/nonexistent", key_name=None, key_index=0), min_interval_s=0)
+        ring.keys = [common.ApiKey("K0", "a" * 39), common.ApiKey("K1", "b" * 39), common.ApiKey("K2", "c" * 39)]
+        ring._clients = {0: "c0", 1: "c1", 2: "c2"}
+        calls = []
+
+        def fn(client):
+            calls.append(client)
+            if client in ("c0", "c1"):
+                raise Quota("429 RESOURCE_EXHAUSTED")
+            return "ok"
+
+        self.assertEqual(ring.call("m", fn), ("ok", 2))
+        self.assertEqual(ring.call("m", fn), ("ok", 2))        # 上限に当たったキーは、そのモデルでは飛ばす
+        self.assertEqual(calls, ["c0", "c1", "c2", "c2"])
+        with self.assertRaises(RuntimeError):
+            ring.call("m", lambda c: (_ for _ in ()).throw(Quota("429")))
+
+    def test_denied_project_and_per_minute_limit(self):
+        import argparse
+        import common
+        from unittest import mock
+
+        class Denied(Exception):
+            code = 403
+
+        class Minute(Exception):
+            code = 429
+
+        ring = common.KeyRing(argparse.Namespace(proxy_key=False, env="/nonexistent", key_name=None, key_index=0), min_interval_s=0)
+        ring.keys = [common.ApiKey("K0", "a" * 39), common.ApiKey("K1", "b" * 39)]
+        ring._clients = {0: "c0", 1: "c1"}
+        n = {"c1": 0}
+
+        def fn(client):
+            if client == "c0":
+                raise Denied("403 PERMISSION_DENIED. Your project has been denied access.")
+            n["c1"] += 1
+            if n["c1"] == 1:
+                raise Minute("429 RESOURCE_EXHAUSTED. Please retry in 2.5s.")
+            return "ok"
+
+        with mock.patch("time.sleep") as sl:
+            self.assertEqual(ring.call("m", fn), ("ok", 1))
+        self.assertEqual(ring.denied, {0})                 # 止められたキーは、どのモデルでも飛ばす
+        self.assertNotIn(1, ring.spent.get("m", set()))     # 1分の上限は、待って同じキーで続ける（1日の上限と取り違えない）
+        self.assertTrue(any(c.args[0] >= 2.5 for c in sl.call_args_list))
+        self.assertEqual(common.retry_after_s(Exception("Please retry in 11h8m7.1s")), 11 * 3600 + 8 * 60 + 7.1)
+
+
 class ScriptRecordingTest(unittest.TestCase):
     """✅ 2026-10-16 ユーザー：「こちら側の担当者名は、依頼者ごとの録音時に録音しておくといいでしょう」。名乗り（自社名・担当者名）と
     用件も依頼主の単位で録音し、読みが決まらないこちら側の名前は、読みの候補ごとに録音を作って、人が聞いて選ぶ。"""

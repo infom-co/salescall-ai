@@ -163,6 +163,83 @@ def is_unavailable(exc: BaseException) -> bool:
     return str(getattr(exc, "code", "")) == "503" or getattr(exc, "status", "") == "UNAVAILABLE"
 
 
+def is_quota(exc: BaseException) -> bool:
+    """1日・1分の上限（429 RESOURCE_EXHAUSTED）に当たったか。"""
+    return str(getattr(exc, "code", "")) == "429" or getattr(exc, "status", "") == "RESOURCE_EXHAUSTED" or "RESOURCE_EXHAUSTED" in str(exc)
+
+
+def is_denied(exc: BaseException) -> bool:
+    """キーのプロジェクトそのものが止められているか（403 PERMISSION_DENIED。「Your project has been denied access」）。
+    2026-10-16：2つ目のキー（GEMINI_API_KEY_2）で、文字のモデルがこの答えだった（上限ではない＝待っても戻らない）。"""
+    return str(getattr(exc, "code", "")) == "403" or getattr(exc, "status", "") == "PERMISSION_DENIED"
+
+
+def retry_after_s(exc: BaseException) -> float | None:
+    """上限の誤りに書いてある「あと何秒で使えるか」（無ければ None）。1分の上限（数十秒）と1日の上限（数時間）を見分けるのに使う。"""
+    m = re.search(r"retry in (?:(\d+)h)?(?:(\d+)m)?([\d.]+)s", str(exc))
+    if not m:
+        return None
+    return int(m.group(1) or 0) * 3600 + int(m.group(2) or 0) * 60 + float(m.group(3))
+
+
+class KeyRing:
+    """キーを順に使う（文字のモデルの問い合わせ）。
+    ✅ 2026-10-12 ユーザー：「どのキーを使っても大丈夫です」。⛔ 2026-10-16 ユーザー：「キーはどれを使ってもいいと言ってるよ。制限はあなたが
+       勝手に決めただけじゃないですか」＝私（CL-1）が「1つ目のキーだけ」と決めて、上限に当たると確かめを止めていた。
+    - 1分の上限（429。あと数十秒で使える）：同じキーで、言われた秒数だけ待ってから続ける。そもそも当たらないように、同じキー・同じモデルの
+      問い合わせは min_interval_s 秒あける（無料枠の文字のモデルは1分に5回まで＝ユーザーが管理画面で確かめた表）。
+      ⛔ 2026-10-16：3秒おきに聞いて1分の上限に当たり、1日の上限と取り違えて次のキーへ進んでいた
+    - 1日の上限（429。あと数時間）：そのモデルでは、そのキーを飛ばして次のキーで続ける
+    - プロジェクトが止められている（403）：そのキーを、どのモデルでも飛ばす
+    ⚠️ 上限はプロジェクトごとに数えられる。同じプロジェクトのキーなら、次のキーもすぐ上限に当たる。"""
+
+    def __init__(self, args, min_interval_s: float = 13.0):
+        self.keys = [PROXY_PLACEHOLDER] if getattr(args, "proxy_key", False) else load_keys(args.env, args.key_name)
+        self.start = getattr(args, "key_index", 0)
+        self.min_interval_s = min_interval_s
+        self.spent: dict[str, set[int]] = {}   # モデル ⇒ 1日の上限に当たったキーの番号
+        self.denied: set[int] = set()          # プロジェクトが止められているキーの番号
+        self._clients: dict[int, object] = {}
+        self._last: dict[tuple[int, str], float] = {}
+
+    def client(self, i: int | None = None):
+        i = self.start if i is None else i
+        if i not in self._clients:
+            self._clients[i] = make_client(self.keys[i])
+        return self._clients[i]
+
+    def call(self, model: str, fn):
+        """fn(client) を、そのモデルで使えるキーで呼ぶ（混んでいる 503 は call_with_retry が待ってやり直す）。戻り値＝(結果, キーの番号)。"""
+        import time
+        for k in range(len(self.keys)):
+            i = (self.start + k) % len(self.keys)
+            if i in self.denied or i in self.spent.get(model, set()):
+                continue
+            for _ in range(3):  # 1分の上限で待つのは3回まで
+                wait = self._last.get((i, model), -1e9) + self.min_interval_s - time.monotonic()
+                if wait > 0:
+                    time.sleep(wait)
+                self._last[(i, model)] = time.monotonic()
+                try:
+                    return call_with_retry(lambda: fn(self.client(i)))[0], i
+                except Exception as exc:
+                    if is_denied(exc):
+                        self.denied.add(i)
+                        say(f"{self.keys[i].label} はプロジェクトが止められています ⇒ このキーは使いません")
+                        break
+                    if not is_quota(exc):
+                        raise
+                    after = retry_after_s(exc)
+                    if after is not None and after <= 90:
+                        say(f"{self.keys[i].label} は {model} の1分の上限に当たりました ⇒ {after:.0f}秒待って続けます")
+                        time.sleep(after + 1)
+                        continue
+                    self.spent.setdefault(model, set()).add(i)
+                    say(f"{self.keys[i].label} は {model} の1日の上限に当たりました ⇒ 次のキーで続けます")
+                    break
+        raise RuntimeError(f"どのキーでも {model} を使えません（1日の上限・プロジェクトが止められている）")
+
+
 def call_with_retry(fn, waits=(10, 30, 90)):
     """混んでいる（503）ときだけ、間を空けて、やり直す。戻り値＝(結果, やり直した回数)。ほかの誤りと、やり直しを使い切った誤りは、そのまま上げる。
     ⛔ 2026-10-13 G-23：やり直しが無く、3.6〜3.8 Flash の 42回中38回が 503 で「結果なし」になり、比べが成り立たなかった。"""
