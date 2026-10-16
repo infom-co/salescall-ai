@@ -1661,7 +1661,17 @@ class RecordingCheckTest(unittest.TestCase):
         one_sentence = self.tone((0.1, False), (0.8, True), (0.35, False), (0.8, True), (0.2, False))
         self.assertFalse(long_pauses_ok("お忙しいところお時間をいただきましてありがとうございました。", one_sentence, self.RATE))
         self.assertTrue(long_pauses_ok("ありがとうございました。それでは失礼いたします。", one_sentence, self.RATE))
-        self.assertTrue(long_pauses_ok("それではご希望の日時をお聞かせいただけますでしょうか？", one_sentence, self.RATE))  # 頭のつなぎの言葉のあと
+        lead = self.tone((0.1, False), (0.8, True), (0.30, False), (0.8, True), (0.2, False))  # つなぎの言葉のあとの間（上限 0.32秒の内側）
+        self.assertTrue(long_pauses_ok("それではご希望の日時をお聞かせいただけますでしょうか？", lead, self.RATE))  # 頭のつなぎの言葉のあと
+
+    def test_pause_after_lead_word_has_a_limit(self):
+        """✅ 2026-10-16 ユーザー：「それではの後も少しだけ間が長い」（0.38秒）。「続きまして」のあとの 0.30秒は指摘なし。"""
+        from make_ack_clips import long_pauses_ok
+        text = "それではご希望の日時をお聞かせいただけますでしょうか？"
+        long_lead = self.tone((0.1, False), (0.6, True), (0.38, False), (1.5, True), (0.2, False))
+        ok_lead = self.tone((0.1, False), (0.6, True), (0.30, False), (1.5, True), (0.2, False))
+        self.assertFalse(long_pauses_ok(text, long_lead, self.RATE))
+        self.assertTrue(long_pauses_ok(text, ok_lead, self.RATE))
 
     def test_short_comma_like_pause_is_rejected(self):
         """⛔ 2026-10-15：締めの候補は、文の途中の 0.12〜0.24秒の無音で「、」が入った言い方に聞こえた（ユーザー）。0.08秒は聞こえなかった。"""

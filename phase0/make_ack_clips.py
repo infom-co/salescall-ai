@@ -77,16 +77,26 @@ LONG_PAUSE_S = 0.11  # 文の途中に入れてよい無音の長さの上限（
 #    あった（区切りのご指摘がなかった昼の締めは、同じ場所が 0.08〜0.1秒）。⇒ 0.11秒にした。選んでいただいた録音（承知しました・はい・
 #    ありがとうございます・失礼いたしました・最初の質問・「続きまして…」）は、この基準でも通る。⚠️「それではご希望の日時を…」だけは、
 #    つなぎの言葉のあと（0.38秒）のほかに 0.12秒の無音が1つあり、この基準では落ちる（ユーザーは「前半はどれも良い」と聞いた＝0.12秒は境目）
+#    ⇒ ✅ 2026-10-16 ユーザー（通話まるごとを聞いて）：「『それでは、ご希望の日時を、お聞かせいただけますでしょうか？』になってしまっている。
+#    それではの後も少しだけ間が長い」＝0.12秒も「、」に聞こえる。作り直して選び直す
+LEAD_PAUSE_MAX_S = 0.32  # 頭のつなぎの言葉（「それでは」「続きまして」）のあとの間の上限
+# ✅ 2026-10-16 ユーザー：「それではの後も少しだけ間が長い」（0.38秒）。「続きまして」のあと（0.30秒。G-38 の05）は指摘なし
+LEAD_SPAN_S = 1.0  # 声の始まりからこの長さの中で切れていれば、つなぎの言葉のあとの間とみなす（「それでは」約0.8秒・「続きまして」約0.9秒）
 
 
 def long_pauses_ok(text: str, pcm: bytes, rate: int) -> bool:
-    """文の途中に長い無音が無いか（✅ 2026-10-15 ユーザー：句読点のような間・テンポの悪さ）。文の切れ目と、頭のつなぎの言葉のあとの間だけは許す。"""
+    """文の途中に長い無音が無いか（✅ 2026-10-15 ユーザー：句読点のような間・テンポの悪さ）。文の切れ目と、頭のつなぎの言葉のあとの間だけは許す。
+    頭のつなぎの言葉のあとの間も、長すぎれば落とす（LEAD_PAUSE_MAX_S）。"""
     from phrases import LEAD_IN
     runs = voice_runs(voiced(pcm, rate), 0.05)
-    long = sum(1 for a, b in zip(runs, runs[1:]) if b[0] - a[1] >= LONG_PAUSE_S)
-    allowed = len(re.findall(r"[。？?！!]", text.rstrip("。？?！!、")))
-    allowed += any(text.startswith(w) for forms in LEAD_IN.values() for w in forms)
-    return long <= allowed
+    if not runs:
+        return False
+    gaps = [(a[1] - runs[0][0], b[0] - a[1]) for a, b in zip(runs, runs[1:]) if b[0] - a[1] >= LONG_PAUSE_S]
+    if any(text.startswith(w) for forms in LEAD_IN.values() for w in forms) and gaps and gaps[0][0] <= LEAD_SPAN_S:
+        if gaps[0][1] > LEAD_PAUSE_MAX_S:
+            return False
+        gaps = gaps[1:]
+    return len(gaps) <= len(re.findall(r"[。？?！!]", text.rstrip("。？?！!、")))
 
 
 def heard_ok(text: str, heard: dict) -> bool:

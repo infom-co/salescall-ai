@@ -1204,5 +1204,130 @@
     "ok": false,
     "seconds": 5.64,
     "try": 45
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "moushiwake",
+    "text": "申し訳ございません、",
+    "heard": {
+      "0.0": "申し訳ございません。",
+      "1.0": "申し訳ございません。"
+    },
+    "ok": true,
+    "seconds": 1.48,
+    "try": 1,
+    "wav": "S2_moushiwake_1.wav"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "moushiwake",
+    "text": "申し訳ございません、",
+    "heard": {
+      "0.0": "申し訳ございません。",
+      "1.0": "申し訳ございません。"
+    },
+    "ok": true,
+    "seconds": 1.36,
+    "try": 2,
+    "wav": "S2_moushiwake_2.wav"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "wait",
+    "text": "少々お待ちいただいてもよろしいでしょうか？",
+    "heard": {
+      "0.0": "少々お待ちいただいてもよろしいでしょうか？",
+      "1.0": "少々お待ちいただいてもよろしいでしょうか？"
+    },
+    "ok": true,
+    "seconds": 2.28,
+    "try": 1,
+    "wav": "S2_wait_1.wav"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "wait",
+    "text": "少々お待ちいただいてもよろしいでしょうか？",
+    "heard": {
+      "0.0": "少々お待ちいただいてもよろしいでしょうか？",
+      "1.0": "少々お待ちいただいてもよろしいでしょうか？"
+    },
+    "ok": false,
+    "seconds": 2.68,
+    "try": 2
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "wait",
+    "text": "少々お待ちいただいてもよろしいでしょうか？",
+    "heard": {
+      "0.0": "少々お待ちいただいてもよろしいでしょうか。",
+      "1.0": "少々お待ちいただいてもよろしいでしょうか。"
+    },
+    "ok": true,
+    "seconds": 2.14,
+    "try": 3,
+    "wav": "S2_wait_2.wav"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "moushiwake",
+    "text": "申し訳ございません、",
+    "heard": {
+      "0.0": "申し訳ございません。",
+      "1.0": "申し訳ございません。"
+    },
+    "ok": true,
+    "seconds": 1.16,
+    "try": 1,
+    "wav": "S4_moushiwake_1.wav"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "moushiwake",
+    "text": "申し訳ございません、",
+    "heard": {
+      "0.0": "申し訳ございません。",
+      "1.0": "申し訳ございません。"
+    },
+    "ok": true,
+    "seconds": 1.08,
+    "try": 2,
+    "wav": "S4_moushiwake_2.wav"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "wait",
+    "text": "少々お待ちいただいてもよろしいでしょうか？",
+    "heard": {
+      "0.0": "少々お待ちいただいてもよろしいでしょうか？",
+      "1.0": "少々お待ちいただいてもよろしいでしょうか。"
+    },
+    "ok": true,
+    "seconds": 2.42,
+    "try": 1,
+    "wav": "S4_wait_1.wav"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "wait",
+    "text": "少々お待ちいただいてもよろしいでしょうか？",
+    "heard": {
+      "0.0": "少々お待ちいただいてもよろしいでしょうか？",
+      "1.0": "少々お待ちいただいてもよろしいでしょうか？"
+    },
+    "ok": true,
+    "seconds": 2.5,
+    "try": 2,
+    "wav": "S4_wait_2.wav"
   }
 ]
