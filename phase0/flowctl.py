@@ -332,6 +332,9 @@ class Question:
 
 
 _KANA = re.compile(r"[ぁ-ゖー]+")
+# 相手からの質問（文の終わりが「？」か、問いかけの言い終わり）。⚠️「はい？」（聞き返し）も当たるが、次の質問へ進む所（_advance）でしか見ないので、
+# 当たっても、AIが自分で次の質問を言う（録音を流さない）だけ
+_CALLEE_ASKS = re.compile(r"(?:[？?]|(?:です|ます|でしょう|ません|んです|ない|でした|ました)か[。]?)$")
 
 
 def next_reading(heard: str | None, readings: tuple | list, tried: list[str]) -> str | None:
@@ -819,13 +822,34 @@ class Flow:
     def _remaining(self) -> list[str]:
         return [qid for qid in self.order if self.items[qid].state == "empty"]
 
+    def _callee_question(self) -> str | None:
+        """いまの相手の発話の中の、相手からの質問（無ければ None）。相手の言葉の文字（会話AIの聞き取り）で、文の終わりが問いかけのもの。
+        ⛔ G-47：相手が「はい、予約しています。当日はどなたが担当されるんですか？」と答えたのに、プログラムはすぐ次の質問の録音を流し、
+           AIには「何も言わずに待って」と伝えた＝相手の質問が10本中10本、聞き流された。"""
+        for sent in re.findall(r"[^。！!？?]+[。！!？?]?", self.callee_said or ""):
+            t = sent.strip()
+            if _CALLEE_ASKS.search(t):
+                return t
+        return None
+
     def _advance(self, prefix: str) -> dict:
+        # 相手が質問をしていたら、録音は流さずに、AIがまず短く答えてから次へ進む（録音で流すと、相手の質問にかぶせることになる）
+        asked = self._callee_question()
+        if asked:
+            prefix += (f"相手が質問をしています（「{asked[:40]}」）。まず、答えられる範囲で短く答えます（分からないことは作らず、約束もしません）。"
+                       "そのあと続けて、")
         rest = self._remaining()
         if self.phase == "asking" and rest:
             self.current = rest[0]
             q = self.questions[self.current]
             if q.reading_of:
                 return self._enter_reading(q.id, prefix)
+            if self.play_recordings and asked:
+                # 録音を流す形でも、この質問だけは AIが言う。つなぎの言葉は、録音で流すときと同じ並び（spoken_question）から取る
+                # （受けの言葉の数え方と混ぜると、同じ「それでは」が続きうる）
+                text, lead = spoken_question(list(self.questions.values()), q.id)
+                return {"result": "next", "question_id": q.id, "question": q.text,
+                        "message": f"{prefix}次の質問は {q.id}「{text}」です。" + (f"「{lead}」から話し始めてください。" if lead else "")}
             if self.play_recordings:
                 text, lead = spoken_question(list(self.questions.values()), q.id)
                 return {"result": "next", "question_id": q.id, "question": q.text,
@@ -851,7 +875,7 @@ class Flow:
                     "message": f"{prefix}念のための確認です。{q.id} を、もう1回だけ「{say}」と聞いて、相手の答えを待ってください。"
                                "相手が答えたら record_answer で報告します。"}
         self.current, self.phase = None, "closing"
-        if self.play_recordings and not self.hurried:
+        if self.play_recordings and not self.hurried and not asked:
             return {"result": "end", "play": [{"kind": "closing", "text": CLOSING}],
                     "message": f"{prefix}質問は終わりです。締めの言葉「{CLOSING}」は、プログラムが録音で流しました。何も言わずに終えます。"}
         return {"result": "end", "message": f"{prefix}質問は終わりです。締めの言葉を言って終えてください。"}

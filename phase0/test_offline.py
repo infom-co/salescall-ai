@@ -1274,6 +1274,37 @@ class SpokenNameTest(unittest.TestCase):
         self.assertEqual(b.opening(), "お忙しいところ恐れ入ります。株式会社「だいわはうすこうぎょう」の「中島」と申します。")
 
 
+class CalleeQuestionTest(unittest.TestCase):
+    """⛔ G-47：相手が答えと一緒に質問をしたのに、すぐ次の質問の録音を流し、相手の質問を聞き流した（10本中10本）。"""
+
+    def flow(self, play=True):
+        from flowctl import Flow, Question
+        return Flow([Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ")),
+                     Question("Q2", "ご希望の日時をお聞かせいただけますでしょうか？", "datetime", conditions=("答えた",))],
+                    play_recordings=play)
+
+    def test_question_holds_the_recording(self):
+        f = self.flow()
+        f.on_callee(); f.on_heard("はい、予約しています。当日はどなたが担当されるんですか？")
+        r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい"})
+        self.assertNotIn("play", r)                                    # 録音は流さない
+        self.assertIn("当日はどなたが担当されるんですか？", r["message"])   # まず答える
+        self.assertIn("「それでは」から話し始めて", r["message"])          # つなぎの言葉は録音と同じ並び
+
+    def test_plain_answer_plays(self):
+        f = self.flow()
+        f.on_callee(); f.on_heard("はい、予約しています。")
+        r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい"})
+        self.assertEqual(r["play"][0]["id"], "Q2")
+
+    def test_question_endings(self):
+        from flowctl import _CALLEE_ASKS
+        for t in ("料金はおいくらですか", "どなたが担当されるんですか？", "来ていただけるんでしょうか", "それって無料ですか。"):
+            self.assertTrue(_CALLEE_ASKS.search(t), t)
+        for t in ("はい、予約しています。", "15日の午後2時でお願いします。", "いいえ、まだしていません", "はい、そうです。"):
+            self.assertFalse(_CALLEE_ASKS.search(t), t)
+
+
 class RequestTailTest(unittest.TestCase):
     """⛔ G-46：AIが「15日の午後2時でお願いします」を値にして報告し、言い直しが「…でお願いしますということでよろしいでしょうか？」になった。"""
 

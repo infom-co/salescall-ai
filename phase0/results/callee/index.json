@@ -1569,5 +1569,20 @@
     "tries": 3,
     "seconds": 0.7,
     "wav": "Leda_name_only_kadota.wav"
+  },
+  {
+    "voice": "Leda",
+    "id": "ask_staff",
+    "text": "はい、予約しています。当日はどなたが担当されるんですか？",
+    "how": null,
+    "said": "はい、予約しています。当日はどなたが担当されるんですか？",
+    "heard": "はい、予約しています。当日はどなたが担当されるんですか？",
+    "diffs": [],
+    "question_needed": false,
+    "question_ok": true,
+    "ok": true,
+    "tries": 1,
+    "seconds": 4.6,
+    "wav": "Leda_ask_staff.wav"
   }
 ]
