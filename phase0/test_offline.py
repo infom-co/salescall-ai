@@ -1181,6 +1181,47 @@ class UnitTest(unittest.TestCase):
         self.assertEqual(normalize_value("number", "3"), "3")           # 単位の無い質問は、いまと同じ
 
 
+class TopicTest(unittest.TestCase):
+    """質問の「聞くこと」（topics.py・G-43。✅ 2026-10-16 ユーザー「人を介さない形で」）。決まりは質問の文の言葉だけを使い、
+    言葉を作り出さない。聞く質問でない形（「資料をお送りしても」「ご確認いただけますか」「聞いたことは」）には付けない。"""
+
+    def test_rule(self):
+        from topics import by_rule
+        cases = {"ご希望の日時をお聞かせいただけますでしょうか？": "ご希望の日時",
+                 "差し支えなければご年齢をお伺いしてもよろしいでしょうか？": "ご年齢",          # 「ば」のあとから
+                 "恐れ入りますがご住所をお伺いしてもよろしいでしょうか？": "ご住所",            # 「が」のあとから
+                 "ご連絡のつきやすい時間帯をお知らせいただけますでしょうか？": "ご連絡のつきやすい時間帯",  # 名詞にかかる動詞は中に入る
+                 "お名前をフルネームでお伺いしてもよろしいでしょうか？": "お名前",
+                 "担当の方のお名前と部署をお伺いしてもよろしいでしょうか？": "担当の方のお名前と部署",
+                 "お名前を頂戴してもよろしいでしょうか？": "お名前", "ご住所を確認させていただけますでしょうか？": "ご住所",
+                 "お名前をお聞きしてもよろしいでしょうか？": "お名前",
+                 "資料をお送りしてもよろしいでしょうか？": "", "ご契約の内容をご確認いただけますでしょうか？": "",
+                 "このサービスを聞いたことはございますでしょうか？": "", "何名様でお越しになりますでしょうか？": "",
+                 "お使いになっている回線を教えていただけますでしょうか？": ""}                 # 形が崩れる（「いる回線」）＝空
+        for q, want in cases.items():
+            self.assertEqual(by_rule(q), want, q)
+
+    def test_check_and_decide(self):
+        from topics import check, decide
+        self.assertTrue(check("ご来店の人数"))
+        for bad in ("", "人数をお伺い", "ご来店の人数ですか？", "いる回線", "とても長い長い長い長い長い長い長い長い言い方の名前"):
+            self.assertFalse(check(bad), bad)
+        self.assertEqual(decide("ご希望の日時をお聞かせいただけますでしょうか？", ["日時", "日時"]), "ご希望の日時")  # 決まりが先
+        self.assertEqual(decide("何名様でお越しになりますでしょうか？", ["ご来店の人数", "ご来店の人数"]), "ご来店の人数")
+        self.assertEqual(decide("何名様でお越しになりますでしょうか？", ["ご来店の人数", "お越しになる人数"]), "")  # 食い違い＝空
+        self.assertEqual(decide("何名様でお越しになりますでしょうか？", ["ご来店の人数"]), "")                       # 1つでは決めない
+
+
+class NameReadingRuleTest(unittest.TestCase):
+    """台本に書いてある読みがなを、プログラムが読む（names.given_reading・G-42）。"""
+
+    def test_given_reading(self):
+        from names import given_reading
+        self.assertEqual(given_reading("講師の東海林（しょうじ）が担当いたします。", "東海林"), "しょうじ")
+        self.assertEqual(given_reading("担当の角田(ツノダ)です。", "角田"), "つのだ")
+        self.assertEqual(given_reading("担当の角田です。", "角田"), "")
+
+
 class AskLadderTest(unittest.TestCase):
     """聞き返しの回数と言い方（DESIGN.md 6-11）。✅ 2026-10-14 ユーザー：必須の項目を聞く回数は、最初の質問のほかに最大3回
     （その場2回＋締めの前の念のための確認1回）。依頼主ごとに変えられる。最後の1回は「申し訳ございません、」（相づちの録音）＋

@@ -25,17 +25,22 @@ from listen import differences, hear_feeds, in_all, in_any
 from make_callee_samples import verified
 from live_util import build_config
 from turn_check import bad_kinds
+from topics import decide as decide_topic
 from units import decide
 
+Q1_TEXT = "ご予約はされていますでしょうか？"
+Q2_TEXT = "ご希望の日時をお聞かせいただけますでしょうか？"
 Q3_TEXT = "ご来店の人数をお伺いしてもよろしいでしょうか？"
 BUSINESS = Business(
     company="アオバ物流", caller="佐藤", purpose="ご予約の確認", purpose_line="ご予約の確認でお電話いたしました。",
-    questions=[Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"), topic="ご予約の有無"),
+    # 聞くこと（topic）は取込と同じ決め方で（topics.decide。G-43）。試験の業務ではモデルを呼ばないので、決まりだけで決まる分になる
+    # （Q1 は「（聞くこと）を＋聞く言葉」の形ではないので空＝聞くことを言わずに聞き返す。前は手で「ご予約の有無」と書いていた）
+    questions=[Question("Q1", Q1_TEXT, "yes_no", conditions=("はい", "いいえ"), topic=decide_topic(Q1_TEXT, [])),
                # ✅ 2026-10-15 ユーザー：お客様に向ける言い方は、命令の形（「〜ください」）や冷たい言い回しを避け、柔らかく同意をいただく
                #    接客の話し方に ⇒ 試験の業務設定（トークスクリプト）の質問も直した（前は「ご希望の日時をお聞かせください。」など。G-36 まで）
                # ✅ 2026-10-15 ユーザー（G-37 を聞いて）：言葉の途中の読点で不自然な間が入る ⇒ 読点を外した
-               Question("Q2", "ご希望の日時をお聞かせいただけますでしょうか？", "datetime", conditions=("答えた",), topic="ご希望の日時"),
-               Question("Q3", Q3_TEXT, "number", conditions=("答えた",), topic="ご来店の人数",
+               Question("Q2", Q2_TEXT, "datetime", conditions=("答えた",), topic=decide_topic(Q2_TEXT, [])),
+               Question("Q3", Q3_TEXT, "number", conditions=("答えた",), topic=decide_topic(Q3_TEXT, []),
                         unit=decide(Q3_TEXT, []))],  # 単位は取込と同じ決め方で（units.decide。G-41。この文は決まりだけで「人」に決まる）
 )
 PARTS = BUSINESS.opening_parts()  # [あいさつ, 名乗り, 用件, 最初の質問]
