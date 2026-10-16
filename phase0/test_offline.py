@@ -908,8 +908,8 @@ class AckChoiceTest(unittest.TestCase):
         self.assertIsNone(self.report(f, "record_answer", question_id="Q2", condition_id="はい"))  # 差し戻し：流さない
         self.assertEqual(self.report(f, "record_answer", question_id="Q1", condition_id="refused"), "shouchi")
         from flowctl import Limits
-        for _ in range(Limits().ask_back):
-            self.assertEqual(self.report(f, "report_unclear", question_id="Q2"), "moushiwake")   # 聞き返す（申し訳なさそうに）
+        acks = [self.report(f, "report_unclear", question_id="Q2") for _ in range(Limits().ask_back)]
+        self.assertEqual(acks, ["moushiwake", "moushiwake_heavy"])  # 1回目は軽いお詫び・2回目からは重いお詫び（✅ 2026-10-16 ユーザー）
         self.assertEqual(self.report(f, "report_unclear", question_id="Q2"), "hai")              # 聞き返しを使い切って先へ
         self.assertEqual(self.report(f, "record_answer", question_id="Q3", condition_id="答えた", value="3人"), "hai")
         self.assertEqual(self.report(f, "confirm_field", question_id="Q3", result="corrected", correction="4人"), "shitsurei")
@@ -947,7 +947,7 @@ class AckChoiceTest(unittest.TestCase):
         self.assertEqual(f.log[-1]["reply"]["ack"], "shouchi")
         self.assertNotIn("ack", out)
         self.assertFalse(set(out.values()) & set(ACK))
-        for ack in ("hai", "shouchi", "arigatou", "shitsurei", "moushiwake"):
+        for ack in ("hai", "shouchi", "arigatou", "shitsurei", "moushiwake", "moushiwake_heavy"):
             self.assertIn(ack, ACK)
 
     def test_thinking_callee_gets_short_hai(self):
@@ -1008,7 +1008,7 @@ class FormCheckTest(unittest.TestCase):
         self.assertEqual((f.items["Q2"].state, f.items["Q2"].value), ("unclear", None))  # 記録しない
         self.assertIn("3人", f.items["Q2"].history[-1][2])                             # どの値で止めたかは残す
         r = self.do(f, "record_answer", question_id="Q2", condition_id="答えた", value="はい")
-        self.assertEqual((r["result"], r["ack"], r["say"]), ("ask_back", "moushiwake", "もう一回よろしいでしょうか？"))  # 2回目
+        self.assertEqual((r["result"], r["ack"], r["say"]), ("ask_back", "moushiwake_heavy", "もう一回よろしいでしょうか？"))  # 2回目＝重いお詫び
         r = self.do(f, "record_answer", question_id="Q2", condition_id="答えた", value="15日の午後2時")
         self.assertEqual(r["result"], "confirm_required")
         self.assertIn("おっしゃいましたでしょうか", r["say"])  # 聞き返したあとの言い直しの形
@@ -1150,12 +1150,12 @@ class AskLadderTest(unittest.TestCase):
         from phrases import ASK_BACK
         f = self.flow()
         said = [self.do(f, "report_unclear", question_id="Q1") for _ in range(2)]
-        self.assertEqual([(r["say"], r["ack"]) for r in said], [(ASK_BACK, "moushiwake"), ("もう一回よろしいでしょうか？", "moushiwake")])
+        self.assertEqual([(r["say"], r["ack"]) for r in said], [(ASK_BACK, "moushiwake"), ("もう一回よろしいでしょうか？", "moushiwake_heavy")])
         r = self.do(f, "report_unclear", question_id="Q1")
         self.assertEqual((r["result"], r["question_id"], f.items["Q1"].state), ("next", "Q2", "unresolved"))  # その場は2回まで
         self.do(f, "record_answer", question_id="Q2", condition_id="答えた", value="3人")
         r = self.do(f, "confirm_field", question_id="Q2", result="affirmed")
-        self.assertEqual((r["result"], r["question_id"], r["say"], r["ack"]), ("recheck", "Q1", self.LAST, "moushiwake"))  # 最後の1回
+        self.assertEqual((r["result"], r["question_id"], r["say"], r["ack"]), ("recheck", "Q1", self.LAST, "moushiwake_heavy"))  # 最後の1回＝重いお詫び
         self.assertIn(self.LAST, r["message"])
         self.assertEqual(self.do(f, "record_answer", question_id="Q1", condition_id="答えた", value="15日の午後2時")["result"], "confirm_required")
         self.assertEqual(self.do(f, "confirm_field", question_id="Q1", result="affirmed")["result"], "end")
@@ -1183,7 +1183,7 @@ class AskLadderTest(unittest.TestCase):
         self.assertFalse(any("もう一度だけ" in s for s in says), says)
         h = self.flow(ask_back=1, recheck=0)  # 1回きりの聞き直しが、答えが質問に合わないとき：言い方も相づちも、最後の1回のもの
         r = self.do(h, "record_answer", question_id="Q1", condition_id="答えた", value="3人")
-        self.assertEqual((r["say"], r["ack"]), (self.LAST, "moushiwake"))
+        self.assertEqual((r["say"], r["ack"]), (self.LAST, "moushiwake_heavy"))
 
     def heard(self, f, said):
         """相手が話した（会話AIの聞き取りの文字が届いた）。"""

@@ -43,6 +43,8 @@ def speech_seconds(pcm: bytes, rate: int) -> float:
 
 # 読み方（相づちとお詫びで、声の調子を変える）と、長さの上限（声だけの長さ・秒）
 HOW = {"moushiwake": "電話で、相手に聞き取れなかったことを申し訳なく思いながら、丁寧に",
+       # ✅ 2026-10-16 ユーザー：重大なお詫び（2回目以降の聞き返し・最後の1回・こちらの誤り・クレーム・かけ直し）
+       "moushiwake_heavy": "電話で、お客様にご迷惑をおかけしたことを、心から深くお詫びするように、誠実に、丁寧に",
        "shitsurei": "電話で、こちらの聞き違いを丁寧にお詫びするように",
        # ✅ 2026-10-14 ユーザー：「Sadachbia の『ありがとうございます。』の1つが、明るいのは良いが、ハイテンション過ぎて、ちょっとお客が
        #    引きそう。『前向き』なくらいでいい」「Leda の『ありがとうございます。』は逆に少し、感謝が足りない暗い感じが多い」
@@ -56,7 +58,7 @@ HOW = {"moushiwake": "電話で、相手に聞き取れなかったことを申�
        "wait": "電話で、お客様に少し待っていただくことを、申し訳なく思いながら、柔らかく丁寧にお願いするように",
        "question": "電話で、お客様に丁寧に、柔らかくお聞きするように"}
 DEFAULT_HOW = "電話で、相手の話に相づちを打つように、短く"
-MAX_S = {"hai": 1.0, "shouchi": 1.4, "arigatou": 1.6, "shitsurei": 1.6, "moushiwake": 1.6, "lead_soredeha": 1.0,
+MAX_S = {"hai": 1.0, "shouchi": 1.4, "arigatou": 1.6, "shitsurei": 1.6, "moushiwake": 1.6, "moushiwake_heavy": 1.8, "lead_soredeha": 1.0,
          "lead_tsuzukimashite": 1.2, "lead_deha": 0.8, "closing": 8.0, "wait": 3.5, "question": 5.0}
 
 
@@ -119,10 +121,12 @@ def words(script: bool) -> tuple[dict, Path]:
     return {aid: (text, aid) for aid, text in RECORDED.items()}, OUT
 
 
-def adopt(names: list[str], script: bool, as_type: str | None = None) -> dict:
+def adopt(names: list[str], script: bool, as_type: str | None = None, as_id: str | None = None) -> dict:
     """人が選んだ候補を、使う録音にする（候補の確かめの結果も、そのまま台帳に移す）。
     as_type：別の声の型の録り方で作った候補を、この声の型の録音として使う（同じ声の名前のときだけ）。
-    ✅ 2026-10-15 ユーザー：「録音は私がチェックする場合、S4とS2を分ける必要はありません。私が最高に良いと思えるものを選んでいるからです」"""
+    ✅ 2026-10-15 ユーザー：「録音は私がチェックする場合、S4とS2を分ける必要はありません。私が最高に良いと思えるものを選んでいるからです」
+    as_id：同じ言葉の別の録音（例：「申し訳ございません、」の重いお詫び＝moushiwake_heavy）として使う（言葉が同じときだけ）。
+    ✅ 2026-10-16 ユーザー：「申し訳ございません、02軽いお詫びの時、04重大なお詫びの時」"""
     table, out = words(script)
     index_path = out / "index.json"
     made = json.loads(index_path.read_text(encoding="utf-8")) if index_path.exists() else []
@@ -137,6 +141,9 @@ def adopt(names: list[str], script: bool, as_type: str | None = None) -> dict:
         where, row = cands[name]
         row = {k: v for k, v in row.items() if k not in ("features", "st_from_ref", "cond", "take")}
         assert row["text"] == table[row["id"]][0], (name, row["text"])  # 文が変わったあとの古い候補は使わない
+        if as_id and as_id != row["id"]:
+            assert table[as_id][0] == row["text"], (name, as_id)  # 言葉が違う録音は使わない
+            row.update({"made_as_id": row["id"], "id": as_id})
         if as_type and as_type != row["type"]:
             assert voice_style(as_type)[0] == voice_style(row["type"])[0], (name, as_type)  # 声の名前が違う録音は使わない
             row.update({"made_as": row["type"], "type": as_type})
@@ -247,9 +254,10 @@ def main() -> None:
     p.add_argument("--candidates", type=int, default=0, help="確かめに通った録り方を、この本数だけ候補として残す（人が聞いて選ぶ）")
     p.add_argument("--adopt", action="append", help="人が選んだ候補（例 S4_shouchi_2）を使う録音にする（キーを使わない）")
     p.add_argument("--as", dest="as_type", choices=sorted(VOICE_TYPES), help="--adopt：この声の型の録音として使う（同じ声の名前のときだけ）")
+    p.add_argument("--as-id", help="--adopt：同じ言葉の別の録音として使う（例 moushiwake_heavy）")
     args = p.parse_args()
     if args.adopt:
-        print(json.dumps(adopt(args.adopt, args.script, args.as_type), ensure_ascii=False))
+        print(json.dumps(adopt(args.adopt, args.script, args.as_type, args.as_id), ensure_ascii=False))
         return
     if args.dry_run:  # 下見は保存しない（G-36 と同じ）
         print(json.dumps(asyncio.run(run(args)), ensure_ascii=False))
