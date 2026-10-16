@@ -1,4 +1,4 @@
-"""相手が言った別の番号へのかけ直しの試験（DESIGN.md 3-5・3-6・5-2-2・7-2-1）。
+"""お客様が言った別の番号へのかけ直しの試験（DESIGN.md 3-5・3-6・5-2-2・7-2-1）。
 
 - データベースの約束：行の番号の表（一覧の番号は自動で入る・変えられない）／発信と予定は、その行の番号にしかかけられない／
   1つの行に進行中の発信は1つだけ。
@@ -79,7 +79,7 @@ class DatabasePromises(Base):
         s = self.ready()
         t2 = self.ready()
         k2 = self.w.contact(s["tenant"], s["client"], jp())
-        stranger = self.w.insert_claim(t2)             # ほかの依頼主の行の試行
+        stranger = self.w.insert_claim(t2)             # ほかの依頼者の行の試行
         for source_attempt in (None, stranger, uuid.uuid4()):
             with self.subTest(source_attempt=source_attempt), self.assertRaises(Rejected):
                 self.tx(s, lambda tx: tx.execute(
@@ -142,7 +142,7 @@ class Flow(Base):
         self.assertIsInstance(c, gate.Claim, c)
         self.assertEqual(c.phone_e164, normalize(said).e164)            # 門は予定の番号へかける（一覧の番号ではない）
         detail = self.tx(s, lambda tx: results.latest(tx, s["task"]))["detail"]
-        self.assertEqual(detail["callback"]["number_said"], said)          # 依頼主へは、相手が言ったままの番号も渡る
+        self.assertEqual(detail["callback"]["number_said"], said)          # 依頼者へは、お客様が言ったままの番号も渡る
 
     def test_retries_stay_on_the_number_the_callee_gave(self):
         s = self.ready_jp()
@@ -199,7 +199,7 @@ class Flow(Base):
 
 
 class SameParty(Base):
-    """同じ相手＝かける番号が同じ発信、または同じ行の発信（番号を変えて回数・間隔をすり抜けない）。"""
+    """同じお客様＝かける番号が同じ発信、または同じ行の発信（番号を変えて回数・間隔をすり抜けない）。"""
 
     def test_daily_limit_and_interval_count_the_row(self):
         s = self.ready_jp()
@@ -228,7 +228,7 @@ class SameParty(Base):
 
 
 class WrongNumber(Base):
-    """相手が言った番号が番号違いだったとき（2026-10-15 ユーザー決定）：証拠と付け合わせ（番号の確かめ）、聞き違いなら正しい番号へ、
+    """お客様が言った番号が番号違いだったとき（2026-10-15 ユーザー決定）：証拠と付け合わせ（番号の確かめ）、聞き違いなら正しい番号へ、
     言われたとおりなら、番号を聞いた通話の番号へかけ、番号違いだったことを告げて、もう一度番号を伺う。"""
 
     def wrong_call(self, s, outcome=None, corrected=None):

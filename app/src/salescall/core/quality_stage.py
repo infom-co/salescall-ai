@@ -3,7 +3,7 @@
 **段を決めるのは、この部品の1か所**（指標を数える `metrics`・段を評価して進める／止める `evaluate`・模擬通話の合否 `record_mock`・
 版の始め方 `prepare`）。門は `allowance` を読むだけ。画面は記録（段・評価・模擬通話）を読んでそのまま出す（数え直さない）。
 
-- 版の始め方（`prepare`）：依頼主で模擬通話に合格したことが無い（依頼主ごとに最初のみ。2026-10-13 ユーザー）か、その業務が品質で
+- 版の始め方（`prepare`）：依頼者で模擬通話に合格したことが無い（依頼者ごとに最初のみ。2026-10-13 ユーザー）か、その業務が品質で
   止まっている ⇒ 模擬通話の合格を待つ。それ以外 ⇒ 最初の段を開く。止まった版そのものでは再開しない（9-1）。
 - 模擬通話（`record_mock`）：流すのは CL-1。本数・正解と一致した値と判定の割合・言ってはいけないことの数を、設定の基準と比べて
   合否を決めて記録する。合格なら、その業務の品質の停止を解き（止まった版とは違う版のときだけ）、最初の段を開く。
@@ -65,7 +65,7 @@ def current(tx: Tx, version_id: UUID) -> dict[str, Any] | None:
 
 
 def used(tx: Tx, version_id: UUID) -> int:
-    """いまの段の件数に数える通話：その版で、相手が出た（応答まで進んだ）試行と、生きている進行中の試行（出るかもしれない）。"""
+    """いまの段の件数に数える通話：その版で、お客様が出た（応答まで進んだ）試行と、生きている進行中の試行（出るかもしれない）。"""
     return tx.one(
         f"SELECT count(*) AS n FROM ({_WINDOW}) a"
         " WHERE salescall.is_live(a.state, a.claim_expires_at) OR EXISTS (SELECT 1 FROM salescall.attempt_state_history h"
@@ -92,14 +92,14 @@ def open_stage(tx: Tx, version_id: UUID, stage_no: int, cap: int | None, *, evid
 
 @dataclass(frozen=True)
 class MockResult:
-    """模擬通話の結果（流すのは CL-1。相手役が正解を知っている台本で流し、正解と比べた数）。"""
+    """模擬通話の結果（流すのは CL-1。お客様役が正解を知っている台本で流し、正解と比べた数）。"""
     calls: int
     value_hits: int
     value_total: int
     judgment_hits: int          # 業務の判定が正解と一致した本数（1本に判定は1つ ⇒ judgment_total ＝ calls）
     judgment_total: int
     forbidden_speech: int       # 言ってはいけないことの数（2つの耳で確かめたもの）
-    evidence: str               # 台本の版・流した記録の場所など（相手の個人情報は無い：模擬通話）
+    evidence: str               # 台本の版・流した記録の場所など（お客様の個人情報は無い：模擬通話）
     scenes: tuple[UUID, ...] = ()   # 台本に入れた、実際の通話の場面（試行）。判定できないで止めた業務の再開に要る
 
 
@@ -134,11 +134,11 @@ def prepare(tx: Tx, version_id: UUID) -> str:
     stop = _quality_stop(tx, v["business_id"])
     if stop is not None and stop["cause"] != "judge_unknown" and stop["version_id"] == version_id:
         return "stopped_version"
-    passed_before = tx.one("SELECT 1 FROM salescall.mock_runs WHERE passed LIMIT 1") is not None   # この依頼主（取引の範囲）
+    passed_before = tx.one("SELECT 1 FROM salescall.mock_runs WHERE passed LIMIT 1") is not None   # この依頼者（取引の範囲）
     if stop is not None or not passed_before:
         return "mock_needed"
     sizes = list(_get(tx, v, "quality.stage.sizes"))
-    open_stage(tx, version_id, 1, sizes[0], evidence="この依頼主は模擬通話に合格済み（依頼主ごとに最初のみ）")
+    open_stage(tx, version_id, 1, sizes[0], evidence="この依頼者は模擬通話に合格済み（依頼者ごとに最初のみ）")
     return "opened"
 
 

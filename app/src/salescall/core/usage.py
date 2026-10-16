@@ -5,14 +5,14 @@
   単価が無い組は記録できない（PriceMissing。推測で 0円にしない）。
 - 回線：Rakuten Link は明細を返さないので、締めの処理が「話していた秒数 × 単価」の推定を書く（`record_line_estimate`）。
   会話AI・別の耳：返ってきた量を実測として、返らなければ推定として、会話の処理・検証（CL-1）が `record` を呼ぶ。
-- 予算（1日の上限。日本時間の日）：依頼主の上限を超えたら、記録した取引の中で、その依頼主を止める（原因 budget）。
+- 予算（1日の上限。日本時間の日）：依頼者の上限を超えたら、記録した取引の中で、その依頼者を止める（原因 budget）。
   全体の上限と、日が替わったときの解除は、見守りが呼ぶ `tick`（全体の取引から）。門は停止を見るだけ（判断を増やさない）。
-- **報酬に対する費用の割合**（2026-10-15 ユーザー決定。今月の数は core/reward.py の `month`）：記録のたびに、その依頼主の今月を見る。
+- **報酬に対する費用の割合**（2026-10-15 ユーザー決定。今月の数は core/reward.py の `month`）：記録のたびに、その依頼者の今月を見る。
   どちらの判断も、成果・話せた本数のぶれを多めに見込んだ報酬（`upper`。確かさは設定 budget.judge_confidence）で行う
   ＝判断し始める本数を決め打ちにせず、報酬と費用から逆算される。
-  - 赤字（今月の費用 ＞ 多めに見込んだ報酬）⇒ その依頼主を止める（原因 deficit）。報酬の決まりが無い依頼主は、報酬 0 円なので、
+  - 赤字（今月の費用 ＞ 多めに見込んだ報酬）⇒ その依頼者を止める（原因 deficit）。報酬の決まりが無い依頼者は、報酬 0 円なので、
     費用がかかれば赤字として止まる（決まりを入れ忘れたまま、費用だけかけ続けない）。
-  - 赤字でなく、割合（費用 ÷ 多めに見込んだ報酬）が上限（budget.max_cost_ratio。既定 30％。依頼主ごとに選べる）を超えた
+  - 赤字でなく、割合（費用 ÷ 多めに見込んだ報酬）が上限（budget.max_cost_ratio。既定 30％。依頼者ごとに選べる）を超えた
     ⇒ 知らせるだけ（1日1回）。
   - 赤字の停止は、見守りの `tick` が今月の数を見直し、赤字でなくなったら解く（報酬の決まりを直した・月が替わった・月額の日割りが
     積み上がった）。
@@ -42,7 +42,7 @@ def set_price(tx: Tx, *, source: str, unit: str, yen_per_unit: Decimal, valid_fr
 
 def record(tx: Tx, *, source: str, kind: str, quantity: Decimal | int, unit: str,
            attempt_id: UUID | None = None) -> dict[str, Any]:
-    """利用量を1行記録する（取引の依頼主の分）。依頼主の1日の上限を超えたら、その依頼主を止める（同じ取引）。"""
+    """利用量を1行記録する（取引の依頼者の分）。依頼者の1日の上限を超えたら、その依頼者を止める（同じ取引）。"""
     price = tx.one("SELECT price_id, yen_per_unit FROM salescall.price_versions WHERE source = %s AND unit = %s"
                    " AND valid_from <= now() ORDER BY valid_from DESC LIMIT 1", (source, unit))
     if price is None:
@@ -59,7 +59,7 @@ def record(tx: Tx, *, source: str, kind: str, quantity: Decimal | int, unit: str
 
 
 def spent_today(tx: Tx) -> Decimal:
-    """取引の依頼主の、今日（日本時間）の金額。"""
+    """取引の依頼者の、今日（日本時間）の金額。"""
     return tx.one("SELECT coalesce(sum(amount_yen), 0) AS y FROM salescall.usage_entries"
                   " WHERE salescall.jst(occurred_at)::date = salescall.jst(now())::date")["y"]
 
@@ -81,7 +81,7 @@ def _check_client_budget(tx: Tx, tenant_id: UUID, client_id: UUID) -> int | None
 
 
 def _deficit(tx: Tx, tenant_id: UUID, client_id: UUID) -> tuple[bool, dict[str, Any]]:
-    """取引の依頼主が、いま赤字として止めるべきか（判断は1か所：費用 ＞ 多めに見込んだ報酬）と、今月の数。"""
+    """取引の依頼者が、いま赤字として止めるべきか（判断は1か所：費用 ＞ 多めに見込んだ報酬）と、今月の数。"""
     m = reward.month(tx, confidence=float(settings.system_value(tx, "budget.judge_confidence")),
                      gap_max=int(settings.system_value(tx, "budget.hourly_gap_max")))
     return m["cost"] > m["upper"], m
@@ -108,7 +108,7 @@ def _check_cost_ratio(tx: Tx, tenant_id: UUID, client_id: UUID) -> int | None:
 
 
 def record_line_estimate(tx: Tx, attempt_id: UUID) -> dict[str, Any] | None:
-    """回線の料金の推定（締めの処理が呼ぶ）：相手が出てから終わるまでの秒数 × 単価。相手が出なかった通話は書かない。"""
+    """回線の料金の推定（締めの処理が呼ぶ）：お客様が出てから終わるまでの秒数 × 単価。お客様が出なかった通話は書かない。"""
     row = tx.one(
         "SELECT extract(epoch FROM a.ended_at - h.at) AS seconds FROM salescall.attempts a"
         " JOIN LATERAL (SELECT min(at) AS at FROM salescall.attempt_state_history"

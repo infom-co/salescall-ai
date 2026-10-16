@@ -104,7 +104,7 @@ class ResultVersions(unittest.TestCase):
 
     def test_result_attempt_must_belong_to_the_task(self):
         w = World(); s = w.setup(); s2 = w.setup(tenant=s["tenant"])
-        # 同じ依頼主の、別のタスクの試行を指すことはできない
+        # 同じ依頼者の、別のタスクの試行を指すことはできない
         k2 = w.contact(s["tenant"], s["client"], s2["phone"])
         t2 = w.task(s["tenant"], s["client"], s["run"], k2)
         aid = w.insert_claim(dict(s, task=t2, contact=k2, phone=s2["phone"], line=w.line(s["tenant"])))

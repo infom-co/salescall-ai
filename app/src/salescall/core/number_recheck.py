@@ -1,9 +1,9 @@
-"""番号の確かめ（相手が言った番号が「番号違い」だったとき。DESIGN.md 3-5。2026-10-15 ユーザー決定）。持ち主 CL-2。
+"""番号の確かめ（お客様が言った番号が「番号違い」だったとき。DESIGN.md 3-5。2026-10-15 ユーザー決定）。持ち主 CL-2。
 
 ユーザー：「最初にかけた相手が番号を伝え忘れたか、こちらの聞き違いの可能性がある。証拠と付け合わせ、確認の上、それでも間違いなら、
-最初の相手に、お聞きした番号が番号違いだったことを告げ、再度、かけ直し先の番号を伺う」。
+最初のお客様に、お聞きした番号が番号違いだったことを告げ、再度、かけ直し先の番号を伺う」。
 
-- 要るのは、**相手が言った番号（行の番号の表で callee）へかけて、番号違い（相手の種別 wrong_party）だった通話**だけ（`needed`）。
+- 要るのは、**お客様が言った番号（行の番号の表で callee）へかけて、番号違い（電話口の種別 wrong_party）だった通話**だけ（`needed`）。
 - 付け合わせるのは、その通話の通話後の検証（Q21。CL-1）：番号を聞いた通話（`source_attempt`）の証拠（録音・別の耳の文字）と、
   かけた番号を比べ、結果をここで記録する（`record`。書くのはここだけ。変更不可）：
     misheard＝こちらの聞き違い（正しい番号つき）／as_said＝言われたとおりにかけていた／cannot_check＝付け合わせられなかった。
@@ -37,7 +37,7 @@ def dialed(tx: Tx, attempt_id: UUID) -> dict[str, Any] | None:
 
 
 def needed(tx: Tx, attempt_id: UUID) -> bool:
-    """番号の確かめが要る通話か：相手が言った番号へかけて、番号違いだった。"""
+    """番号の確かめが要る通話か：お客様が言った番号へかけて、番号違いだった。"""
     number = dialed(tx, attempt_id)
     if number is None or number["source"] != "callee":
         return False
@@ -49,7 +49,7 @@ def record(tx: Tx, attempt_id: UUID, outcome: Outcome, *, corrected: str | None,
            checked_by: str) -> None:
     """付け合わせた結果を記録する（通話後の検証 Q21 だけが呼ぶ。1回だけ）。corrected：聞き違いのときの正しい番号。"""
     if not needed(tx, attempt_id):
-        raise RecheckInvalid("相手が言った番号へかけて番号違いだった通話ではありません")
+        raise RecheckInvalid("お客様が言った番号へかけて番号違いだった通話ではありません")
     if outcome not in OUTCOMES:
         raise RecheckInvalid(f"結果は {OUTCOMES} のどれかです（{outcome!r}）")
     e164 = None

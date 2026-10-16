@@ -26,7 +26,7 @@ Scope = Literal["system", "tenant", "client", "business", "line"]   # line＝そ
 Cause = Literal["manual", "storage_failure", "line_failure", "ai_connection", "project_denied",
                 "forbidden_speech", "quality_gate", "budget", "deficit", "judge_unknown"]
 
-SCOPE_NAMES: dict[str, str] = {"system": "全体", "tenant": "契約者", "client": "依頼主", "business": "業務", "line": "回線"}
+SCOPE_NAMES: dict[str, str] = {"system": "全体", "tenant": "契約者", "client": "依頼者", "business": "業務", "line": "回線"}
 
 
 @dataclass(frozen=True)
@@ -63,7 +63,7 @@ CAUSES: dict[str, CauseInfo] = {
                         "上限の設定。上限を上げずに解くと、次の利用の記録でまた止まる"),
     "deficit": CauseInfo("赤字（今月の費用が、今月の報酬を超えた）",
                          "報酬の決まりを直した・月が替わった・月額の日割りが積み上がって、赤字でなくなったら解く（見守りが確かめる）",
-                         "その依頼主の報酬の決まりと、今月の費用の内訳。決まりを直さずに解くと、次の利用の記録でまた止まる"),
+                         "その依頼者の報酬の決まりと、今月の費用の内訳。決まりを直さずに解くと、次の利用の記録でまた止まる"),
 }
 
 

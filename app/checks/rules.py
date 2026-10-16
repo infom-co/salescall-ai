@@ -116,7 +116,7 @@ def web_parts_only_in_web(app_root: Path) -> list[Violation]:
     return out
 
 
-# ── 11章：「いま誰が・どの契約者・どの依頼主か」をデータベースへ渡すのは、読み書きの層の1か所だけ
+# ── 11章：「いま誰が・どの契約者・どの依頼者か」をデータベースへ渡すのは、読み書きの層の1か所だけ
 SCOPE_SETTING_ALLOWED = {"src/salescall/core/access.py"}
 # 設定の名前は、引用符でくくった形（'salescall.tenant_id' など）か、set_config で渡す。
 # ⚠️ 型の名前（salescall.actor_kind）を取り違えないよう、引用符でくくった形だけを見る（2026-10-13 に取り違えた）。
@@ -131,7 +131,7 @@ def scope_settings_only_in_layer(app_root: Path) -> list[Violation]:
             continue
         for text, line in _string_constants(_parse(path)):
             if _SCOPE_SETTING.search(text):
-                out.append(Violation("11章", rel, line, "契約者・依頼主・誰が、をデータベースへ渡すのは、読み書きの層だけです"))
+                out.append(Violation("11章", rel, line, "契約者・依頼者・誰が、をデータベースへ渡すのは、読み書きの層だけです"))
     return out
 
 

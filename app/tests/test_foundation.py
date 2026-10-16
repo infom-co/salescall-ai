@@ -16,7 +16,7 @@ from tests.support import OPERATOR, SYSTEM, World, fictional_phone, owner_access
 
 
 class OneContactPerNumber(unittest.TestCase):
-    """3-1：同じ依頼主の中で、同じ番号は1つの連絡先。"""
+    """3-1：同じ依頼者の中で、同じ番号は1つの連絡先。"""
 
     def test_same_client_same_number_is_rejected(self):
         w = World()
@@ -30,7 +30,7 @@ class OneContactPerNumber(unittest.TestCase):
         w = World()
         t = w.tenant(); p = fictional_phone()
         w.contact(t, w.client(t), p)
-        w.contact(t, w.client(t), p)  # 依頼主が違えば別の連絡先
+        w.contact(t, w.client(t), p)  # 依頼者が違えば別の連絡先
 
     def test_number_must_be_normalized(self):
         w = World()
@@ -51,12 +51,12 @@ class OneTaskPerRunAndContact(unittest.TestCase):
 
 
 class ClientIsolation(unittest.TestCase):
-    """3-0 の1・11章：別の依頼主のデータは、見えない・変えられない・指せない（3重の守り）。"""
+    """3-0 の1・11章：別の依頼者のデータは、見えない・変えられない・指せない（3重の守り）。"""
 
     def setUp(self):
         self.w = World()
         self.a = self.w.setup()
-        self.b = self.w.setup(tenant=self.a["tenant"])  # 同じ契約者の、別の依頼主
+        self.b = self.w.setup(tenant=self.a["tenant"])  # 同じ契約者の、別の依頼者
 
     def test_cannot_see_other_clients_rows(self):
         a, b = self.a, self.b
@@ -75,14 +75,14 @@ class ClientIsolation(unittest.TestCase):
 
     def test_cannot_write_row_for_other_client(self):
         a, b = self.a, self.b
-        with self.assertRaises(Rejected):  # 行ごとの制限（書く行の依頼主が、取引の依頼主と違う）
+        with self.assertRaises(Rejected):  # 行ごとの制限（書く行の依頼者が、取引の依頼者と違う）
             self.w.a.in_client(OPERATOR, a["tenant"], a["client"], lambda tx: tx.execute(
                 "INSERT INTO salescall.contacts (tenant_id, client_id, phone_e164) VALUES (%s, %s, %s)",
                 (b["tenant"], b["client"], fictional_phone())))
 
     def test_cannot_point_to_other_clients_parent(self):
         a, b = self.a, self.b
-        with self.assertRaises(Rejected) as e:  # 組の参照（自分の依頼主の行として、別の依頼主の連絡先を指す）
+        with self.assertRaises(Rejected) as e:  # 組の参照（自分の依頼者の行として、別の依頼者の連絡先を指す）
             self.w.task(a["tenant"], a["client"], a["run"], b["contact"])
         self.assertEqual(e.exception.sqlstate, "23503")
 
@@ -265,7 +265,7 @@ class AttemptTransitions(unittest.TestCase):
             ("released", [], "not_needed"), ("no_answer", ["dialing"], "not_needed"),
             ("busy", ["dialing"], "not_needed"), ("call_failed", ["dialing"], "not_needed"),
             ("technical_error", ["dialing", "answered"], "pending"), ("dropped", ["dialing", "answered"], "pending"),
-            ("technical_error", ["dialing"], "not_needed"),   # 相手が出る前の結果不明は、誰とも話していない（2026-10-14）
+            ("technical_error", ["dialing"], "not_needed"),   # お客様が出る前の結果不明は、誰とも話していない（2026-10-14）
         ]:
             with self.subTest(end=end):
                 s = w.setup()
@@ -353,7 +353,7 @@ class VersionMustBeRunsCurrent(unittest.TestCase):
 
 
 class OneActiveAttempt(unittest.TestCase):
-    """3-1・I-2・I-21：進行中の試行は、連絡先・番号（依頼主・契約者をまたいで）・回線ごとに1つだけ。"""
+    """3-1・I-2・I-21：進行中の試行は、連絡先・番号（依頼者・契約者をまたいで）・回線ごとに1つだけ。"""
 
     def test_per_contact(self):
         w = World(); s = w.setup()
@@ -365,7 +365,7 @@ class OneActiveAttempt(unittest.TestCase):
     def test_per_number_across_clients_and_tenants(self):
         w = World(); p = fictional_phone()
         s1 = w.setup(phone=p)
-        s2 = w.setup(phone=p, tenant=s1["tenant"])  # 同じ契約者の別の依頼主
+        s2 = w.setup(phone=p, tenant=s1["tenant"])  # 同じ契約者の別の依頼者
         s3 = w.setup(phone=p)                       # 別の契約者
         w.insert_claim(s1)
         for other in (s2, s3):
@@ -393,7 +393,7 @@ class OneActiveAttempt(unittest.TestCase):
         w.insert_claim(s)
 
     def test_concurrent_claims_on_one_number_only_one_wins(self):
-        """別々の依頼主・契約者の処理が、同じ番号を同時に予約しても、通るのは1つだけ（わざと同時に動かす）。"""
+        """別々の依頼者・契約者の処理が、同じ番号を同時に予約しても、通るのは1つだけ（わざと同時に動かす）。"""
         w = World(); p = fictional_phone()
         setups = [w.setup(phone=p) for _ in range(4)] + [w.setup(phone=p, tenant=None) for _ in range(4)]
         start = threading.Barrier(len(setups))

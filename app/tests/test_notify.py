@@ -7,7 +7,7 @@ from unittest import mock
 
 from salescall.core import calendar, notify, stops
 from salescall.core.access import Rejected
-from tests.support import OPERATOR, SYSTEM, World, app_access, owner_access
+from tests.support import ADMIN, OPERATOR, SYSTEM, World, app_access, owner_access
 
 
 def events(access, tenant=None, client=None, key_prefix=""):
@@ -42,11 +42,33 @@ class Ledger(unittest.TestCase):
         stranger = self.w.setup()
         key = f"test:{s['task']}"
         self.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: notify.emit(tx, "judge_unknown", key=key, summary="x"))
-        self.assertEqual(len(events(self.a, s["tenant"], s["client"], key)), 1)        # その依頼主
+        self.assertEqual(len(events(self.a, s["tenant"], s["client"], key)), 1)        # その依頼者
         self.assertEqual(len(events(self.a, s["tenant"], None, key)), 1)               # 契約者
-        self.assertEqual(events(self.a, s["tenant"], other_client, key), [])           # 同じ契約者のほかの依頼主
+        self.assertEqual(events(self.a, s["tenant"], other_client, key), [])           # 同じ契約者のほかの依頼者
         self.assertEqual(events(self.a, stranger["tenant"], None, key), [])            # ほかの契約者
         self.assertEqual(events(self.a, None, None, key), [])                          # 全体の取引
+
+    def test_admin_copy_is_seen_only_by_the_admin(self):
+        """管理者あての写し（プログラムの誤りなど。2026-10-16 ユーザー承認）：管理者と送る処理だけが読める。契約者には見えない。"""
+        s = self.w.setup()
+        stranger = self.w.setup()
+        key = f"test:{s['task']}"
+        self.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: notify.emit(
+            tx, "judge_unknown", key=key, summary="x", refs={"attempt_id": "a1"}, admin=True))
+        sql = "SELECT tenant_id, refs, for_admin FROM salescall.notification_events WHERE event_key = %s"
+        admin = self.a.in_system(ADMIN, lambda tx: tx.all(sql, ("admin:" + key,)))
+        self.assertEqual(len(admin), 1)
+        self.assertEqual((admin[0]["tenant_id"], admin[0]["for_admin"], admin[0]["refs"]["client_id"]),
+                         (None, True, str(s["client"])))                     # どの依頼者の出来事かは refs に
+        self.assertEqual(len(events(self.a, s["tenant"], s["client"], key)), 1)        # 契約者の台帳にも入る
+        for t, c in ((s["tenant"], s["client"]), (stranger["tenant"], None)):
+            got = (self.a.in_client(OPERATOR, t, c, lambda tx: tx.all(sql, ("admin:" + key,))) if c is not None
+                   else self.a.in_tenant(OPERATOR, t, lambda tx: tx.all(sql, ("admin:" + key,))))
+            self.assertEqual(got, [])                                         # 契約者には見えない（自分の分もほかの分も）
+        with self.assertRaises(Rejected):                                     # 契約者は、管理者あての行を自分で書けない
+            self.a.in_system(OPERATOR, lambda tx: tx.execute(
+                "INSERT INTO salescall.notification_events (kind, event_key, summary, for_admin)"
+                " VALUES ('judge_unknown', 'forged', 'x', true)"))
 
     def test_frozen(self):
         s = self.w.setup()

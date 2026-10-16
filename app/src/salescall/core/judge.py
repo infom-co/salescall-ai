@@ -10,16 +10,16 @@
 
 上から順に、最初に当たったものが答え：
   (1) 発信の拒否（通話中の申告・通話後の検証で見つかった・切れ方の判定が「断った」）  ⇒ do_not_call
-  (2) 番号違い（相手の種別に wrong_party）                                          ⇒ out_of_scope（番号違い）
-      ただし、相手が言った番号へかけた通話なら、行は終えない（2026-10-15 ユーザー。DESIGN.md 3-5）
+  (2) 番号違い（電話口の種別に wrong_party）                                          ⇒ out_of_scope（番号違い）
+      ただし、お客様が言った番号へかけた通話なら、行は終えない（2026-10-15 ユーザー。DESIGN.md 3-5）
                                                                                   ⇒ not_reached（言われた番号が番号違い）
   (3) 範囲外の求めで終えた                                                          ⇒ out_of_scope
   (4) 用件を断られた（業務の決まりの「断りの答え」が取れた）                          ⇒ declined
   (5) 必須の質問がすべて取れた（confirmed・accepted。4-4 の定義）                     ⇒ completed
   (6) 取れていない必須の質問の扱いが「結論として終える」                              ⇒ concluded（結論の名前）
-  (7) かけ直しの約束（相手に頼まれた・分かるお客様／時を聞いた・こちらが約束した）          ⇒ callback_scheduled
+  (7) かけ直しの約束（お客様に頼まれた・分かるお客様／時を聞いた・こちらが約束した）          ⇒ callback_scheduled
   (8) お客様と話したが、目的のお客様に繋がらなかった                                          ⇒ not_reached（不在／取り次いでもらえなかった）
-  (9) 会話に至らなかった（相手が出なかった・お客様の声でなかった）                              ⇒ open
+  (9) 会話に至らなかった（お客様が出なかった・お客様の声でなかった）                              ⇒ open
   (10) 必須の質問が1つでも取れていない                                               ⇒ incomplete
   (11) どれでもない（入力の誤り）                                                      ⇒ unknown
 """
@@ -33,13 +33,15 @@ from salescall.core.business_rules import Rules
 from salescall.core.call_report import CallReport
 
 JUDGE_VERSION = "judge-2026-10-16.1"
-# 「判定できない」の原因の名前（同じ原因かを数える単位。直す担当も決まる）
+# 「判定できない」の原因の名前（同じ原因かを数える単位）と意味。プログラムの誤りか（直せるのは管理者だけ＝管理者にも知らせる。
+# 2026-10-16 ユーザー承認）も、ここで決まる（1か所）。業務設定の抜けは契約者が直す。
 UNKNOWN_CAUSES: dict[str, str] = {
-    "report_missing": "相手が出た通話なのに、会話の報告が無い（会話の処理の誤り。CL-1）",
-    "cut_missing": "お客様と話した通話なのに、切れ方の材料が報告に無い（会話の処理の誤り。CL-1）",
-    "handling_missing": "取れていない必須の質問の理由に、扱いが業務設定で決まっていない（業務設定の抜け。契約者）",
-    "not_reached_reason_missing": "目的のお客様に繋がらなかった理由が報告に無い（会話の処理の誤り。CL-1）",
+    "report_missing": "お客様が出た通話なのに、会話の報告が無い（会話の処理の誤り。直すのは管理者）",
+    "cut_missing": "お客様と話した通話なのに、切れ方の材料が報告に無い（会話の処理の誤り。直すのは管理者）",
+    "handling_missing": "取れていない必須の質問の理由に、扱いが業務設定で決まっていない（業務設定の抜け。直すのは契約者）",
+    "not_reached_reason_missing": "目的のお客様に繋がらなかった理由が報告に無い（会話の処理の誤り。直すのは管理者）",
 }
+PROGRAM_CAUSES = frozenset({"report_missing", "cut_missing", "not_reached_reason_missing"})   # プログラムの誤り（管理者が直す）
 TAKEN = frozenset({"confirmed", "accepted"})                  # 「取れた」の定義（4-4。ここで2つ目を作らない）
 HUMAN_PARTIES = frozenset({"reception", "target", "wrong_party"})
 
@@ -56,8 +58,8 @@ class Facts:
     """試行の事実（データベースの試行の記録から）。"""
     end_state: str
     hangup_side: str | None      # 回線の信号（dropped のときだけ。callee / line / unknown）
-    reached_answer: bool         # 相手が出た（応答まで進んだ）ことがあるか
-    dialed_callee_number: bool   # かけた番号が、相手が言った別の番号か（行の番号の表で callee。3-5）
+    reached_answer: bool         # お客様が出た（応答まで進んだ）ことがあるか
+    dialed_callee_number: bool   # かけた番号が、お客様が言った別の番号か（行の番号の表で callee。3-5）
 
 
 @dataclass(frozen=True)
@@ -76,17 +78,17 @@ class Judgement:
     complaint: bool
     disconnect: str | None       # 試行に記録する切れ方（normal / refused / interrupted。決められないものは設定で決めたほう）
     dnc_reason: str | None       # 発信禁止に登録する理由（refused_in_call / refused_found_after / wrong_party）
-    detail: dict[str, Any]       # 判定の中身（依頼主への報告・次の動きが読む。policy_key＝再発信の方針の鍵）
+    detail: dict[str, Any]       # 判定の中身（依頼者への報告・次の動きが読む。policy_key＝再発信の方針の鍵）
 
 
 def classify_cut(facts: Facts, report: CallReport | None) -> str | None:
     """切れ方の判定（7-1c。2026-10-14 ユーザー承認）。お客様と話した通話で、ふつうに終えたのでないときだけ決める。
     返す値：normal / refused / interrupted / unclear（材料はあるが決められない）／missing（材料が報告されていない＝入力の誤り）。
-    対象でなければ None。⚠️ missing を unclear と同じに扱わない（報告の書き損じで、ふつうに終えた相手を営業拒否にしない）。"""
+    対象でなければ None。⚠️ missing を unclear と同じに扱わない（報告の書き損じで、ふつうに終えたお客様を営業拒否にしない）。"""
     if not facts.reached_answer or facts.end_state not in ("ended", "dropped") or report is None:
         return None
     if not any(p in HUMAN_PARTIES for p in report.parties):
-        return None                              # 留守電・自動音声・FAX は、相手の意思が無い
+        return None                              # 留守電・自動音声・FAX は、お客様の意思が無い
     cut = report.cut
     if cut is None:
         return "missing"
@@ -95,11 +97,11 @@ def classify_cut(facts: Facts, report: CallReport | None) -> str | None:
     if cut.callee_refused_last:
         return "refused"                         # 断りの言葉のあとに切れた
     if cut.speaker == "callee":
-        return "interrupted"                     # 相手の言葉が途中で途切れた
+        return "interrupted"                     # お客様の言葉が途中で途切れた
     if facts.hangup_side == "line":
         return "interrupted"                     # 回線の信号で、回線の側で切れたと分かる
     if cut.speaker in ("ai", "none"):
-        return "refused"                         # AIが話している途中・話し終えたあとの間に、相手が何も言わずに切った
+        return "refused"                         # AIが話している途中・話し終えたあとの間に、お客様が何も言わずに切った
     return "unclear"
 
 
@@ -116,10 +118,10 @@ def judge(inp: JudgeInput) -> Judgement:
     def unknown(cause: str, error: str) -> Judgement:
         return Judgement("unknown", complaint, None, None, {**detail, "unknown_cause": cause, "error": error})
 
-    # 相手が出たのに会話の報告が無い：結果不明（処理が落ちた）なら、何も分からないまま扱う（長い間隔のあとかけ直す。4-2）。
+    # お客様が出たのに会話の報告が無い：結果不明（処理が落ちた）なら、何も分からないまま扱う（長い間隔のあとかけ直す。4-2）。
     # それ以外は入力の誤り（報告を書き損ねた）。決めつけない
     if inp.facts.reached_answer and r is None and inp.facts.end_state != "technical_error":
-        return unknown("report_missing", "相手が出た通話なのに、会話の報告がありません")
+        return unknown("report_missing", "お客様が出た通話なのに、会話の報告がありません")
     if raw_cut == "missing":
         return unknown("cut_missing", "お客様と話した通話なのに、切れ方の材料（切れた瞬間に話していた側など）が報告されていません")
 

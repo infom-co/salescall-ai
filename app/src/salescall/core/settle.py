@@ -7,12 +7,12 @@
       次の動き（next_action。決め方は next_action の1か所）
 - 同じ試行は1回だけ締める（2回目は前の結果を返す。データベースも、1つの試行に判定の版は1つと守る）。
 - 締めが済むまで、門はその行に次をかけない（`awaiting_decision`）。
-- 相手が言った別の番号（DESIGN.md 3-5）：そろえられた番号は、かけるかどうかに関係なく、その行の番号に足す（tasks の1か所。
-  相手が断ったら、この番号も止めるため＝3-6）。かけるか・どの番号へかけるかは次の動き（next_action.choose_number）が決める。
+- お客様が言った別の番号（DESIGN.md 3-5）：そろえられた番号は、かけるかどうかに関係なく、その行の番号に足す（tasks の1か所。
+  お客様が断ったら、この番号も止めるため＝3-6）。かけるか・どの番号へかけるかは次の動き（next_action.choose_number）が決める。
 - **判定できなかった行は、判定待ちで残す**（2026-10-16 ユーザー決定）：判定できない＝こちらの誤りなので、何も決めない
   （切れ方・発信禁止・別の番号を書かず、結果 unknown と判定待ちだけ）。原因が直ったら（判定の処理の版・業務設定の版・
   録音から作り直した会話の報告のどれかが変わったら）`rejudge` が判定し直す。最初の締めと判定し直しは、同じ1つの道を通る。
-- 相手が言った番号が番号違いだった（2026-10-15 ユーザー決定）：番号の確かめ（core/number_recheck.py。通話後の検証の中で記録済み）を
+- お客様が言った番号が番号違いだった（2026-10-15 ユーザー決定）：番号の確かめ（core/number_recheck.py。通話後の検証の中で記録済み）を
   読み、聞き違いなら正しい番号を行に足す。次にどこへかけるか（正しい番号／番号を聞いた通話の番号へ聞き直し）は次の動きが決める。
 """
 
@@ -24,7 +24,7 @@ from uuid import UUID
 from salescall.core import (apology, approval, attempts, business_rules, call_report, dnc, next_action, notify, number_recheck,
                             quality_stage, results, settings, target_policy, tasks, usage)
 from salescall.core.access import Tx
-from salescall.core.judge import JUDGE_VERSION, Facts, Item, JudgeInput, Judgement, judge
+from salescall.core.judge import JUDGE_VERSION, PROGRAM_CAUSES, Facts, Item, JudgeInput, Judgement, judge
 from salescall.core.phone import normalize
 
 
@@ -33,7 +33,7 @@ class NotReady(Exception):
 
 
 def unsettled(tx: Tx) -> list[dict[str, Any]]:
-    """締めを待っている試行（取引の依頼主の分）：終わっていて、検証が済んだ・要らないもので、判定の版が無いもの。"""
+    """締めを待っている試行（取引の依頼者の分）：終わっていて、検証が済んだ・要らないもので、判定の版が無いもの。"""
     return tx.all(
         "SELECT a.attempt_id, a.task_id FROM salescall.attempts a"
         " WHERE a.state NOT IN ('claimed', 'released') AND NOT salescall.is_active(a.state)"
@@ -74,7 +74,7 @@ def settle(tx: Tx, attempt_id: UUID) -> dict[str, Any]:
     if a["purpose"] == "apology":
         return _settle_apology(tx, a)
     out = _judge_and_write(tx, a, kind="judged", rules_version=a["version_id"])
-    usage.record_line_estimate(tx, attempt_id)   # 利用量の台帳（Q16）：回線の料金の推定（相手が出た通話だけ。試行ごとに1回）
+    usage.record_line_estimate(tx, attempt_id)   # 利用量の台帳（Q16）：回線の料金の推定（お客様が出た通話だけ。試行ごとに1回）
     return _after(tx, a, out)
 
 
@@ -101,7 +101,7 @@ def _settle_apology(tx: Tx, a: dict[str, Any]) -> dict[str, Any]:
     if decision.kind == "end":
         notify.emit(tx, "apology", key=f"apology:{attempt_id}",
                     summary={"apology_done": "お詫びを伝えました。",
-                             "apology_unreached": "お詫びの電話が、決めた回数かけても相手に届きませんでした。",
+                             "apology_unreached": "お詫びの電話が、決めた回数かけてもお客様に届きませんでした。",
                              "do_not_call": "お詫びの電話で、発信を断られました。"}.get(
                         decision.end_reason, f"お詫びの電話を終えました（{decision.end_reason}）。"),
                     refs={"attempt_id": attempt_id, "task_id": a["task_id"], "order_id": order["order_id"]})
@@ -119,7 +119,7 @@ def _notice_forbidden(tx: Tx, a: dict[str, Any], *, prepare: bool = True) -> boo
     refs: dict[str, Any] = {"attempt_id": a["attempt_id"], "task_id": a["task_id"], "version_id": a["version_id"]}
     if prepare:
         draft = apology.prepare(tx, a["attempt_id"])
-        summary += f"お詫びの電話の案：「{draft['text']}」承認すると、AI がこの相手にかけて伝えます。"
+        summary += f"お詫びの電話の案：「{draft['text']}」承認すると、AI がこのお客様にかけて伝えます。"
         refs["apology_order_id"] = draft["order_id"]
     notify.emit(tx, "forbidden_speech", key=f"forbidden_speech:{a['attempt_id']}", summary=summary, refs=refs)
     return True
@@ -162,7 +162,7 @@ def rejudge(tx: Tx, attempt_id: UUID) -> dict[str, Any] | None:
 
 
 def rejudge_held(tx: Tx) -> list[dict[str, Any]]:
-    """取引の依頼主の、判定待ちの行をすべて見て、原因が直ったものを判定し直す（見守り役が決まった間隔で呼ぶ）。"""
+    """取引の依頼者の、判定待ちの行をすべて見て、原因が直ったものを判定し直す（見守り役が決まった間隔で呼ぶ）。"""
     done = []
     for row in tx.all(
             "SELECT (SELECT a.attempt_id FROM salescall.attempts a WHERE a.task_id = n.task_id"
@@ -211,8 +211,10 @@ def _judge_and_write(tx: Tx, a: dict[str, Any], *, kind: str, rules_version: Any
     version_no = results.append(tx, a["task_id"], kind=kind, business_state=j.state, attempt_id=attempt_id,
                                 judge_version=JUDGE_VERSION, complaint=j.complaint, snapshot=snapshot, detail=j.detail,
                                 decided_by="判定")
-    if not decided:   # 判定できない：こちらの誤り。行は判定待ちで残す（次の動き）。契約者へ知らせる（その試行で1回）
+    if not decided:   # 判定できない：こちらの誤り。行は判定待ちで残す（次の動き）。契約者へ知らせる（その試行で1回）。
+        #               プログラムの誤りなら管理者にも（直せるのは管理者だけ。原因ごとの決まりは judge の1か所）
         notify.emit(tx, "judge_unknown", key=f"judge_unknown:{attempt_id}",
+                    admin=j.detail.get("unknown_cause") in PROGRAM_CAUSES,
                     summary=f"判定できない通話がありました（その行は判定待ちで残し、原因が直ったら判定し直します）。"
                             f"{j.detail.get('error', '')}",
                     refs={"attempt_id": attempt_id, "task_id": a["task_id"], "judge_version": JUDGE_VERSION,
@@ -228,9 +230,9 @@ def _judge_and_write(tx: Tx, a: dict[str, Any], *, kind: str, rules_version: Any
 
 
 def _number_material(tx: Tx, a: dict[str, Any], e164: str | None, *, source_attempt_id: UUID) -> next_action.Alternate:
-    """相手が言った番号（または、聞き違いだったときの正しい番号）を行の番号に足し、かけてよいかの材料を集める（1か所）。
+    """お客様が言った番号（または、聞き違いだったときの正しい番号）を行の番号に足し、かけてよいかの材料を集める（1か所）。
     判定の結果に関係なく足す（同じ通話で断られたら、この番号も止める。足すのは発信禁止の登録より前）。
-    source_attempt_id＝その番号を相手が言った通話。e164 が None＝そろえられない番号（言ったままの番号は判定の中身に残る）。"""
+    source_attempt_id＝その番号をお客様が言った通話。e164 が None＝そろえられない番号（言ったままの番号は判定の中身に残る）。"""
     scope = dict(tenant_id=a["tenant_id"], client_id=a["client_id"], business_id=a["business_id"])
     allowed = bool(settings.resolve(tx, "callback.call_alternate_number", **scope))
     if e164 is None:
@@ -248,7 +250,7 @@ def _recheck(tx: Tx, a: dict[str, Any], j: Judgement, dialed: dict[str, Any]) ->
     r = number_recheck.load(tx, a["attempt_id"])
     if r is None:   # 通話後の検証が、確かめを記録せずに済むことはない（attempts.record_verification が守る）
         raise NotReady("番号違いだった番号の確かめ（証拠との付け合わせ）がありません")
-    source = dialed["source_attempt_id"]       # その番号を相手が言った通話
+    source = dialed["source_attempt_id"]       # その番号をお客様が言った通話
     corrected = None if r["outcome"] != "misheard" else _number_material(tx, a, r["corrected_e164"],
                                                                           source_attempt_id=source)
     return next_action.Recheck(

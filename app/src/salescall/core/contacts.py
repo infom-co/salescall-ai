@@ -1,6 +1,6 @@
-"""連絡先（正規化した番号。依頼主ごとに1つ。DESIGN.md 3-1）。持ち主 CL-2。
+"""連絡先（正規化した番号。依頼者ごとに1つ。DESIGN.md 3-1）。持ち主 CL-2。
 
-連絡先を作るのは、この部品の `get_or_create` だけ（I-12。取込も、相手が言った別の番号も、ここを通る）。
+連絡先を作るのは、この部品の `get_or_create` だけ（I-12。取込も、お客様が言った別の番号も、ここを通る）。
 番号は番号の正規化（Q1）を通したものだけを受け取る（そろえられない番号の連絡先は作れない）。
 """
 
@@ -13,7 +13,7 @@ from salescall.core.phone import PhoneNumber
 
 
 def get_or_create(tx: Tx, number: PhoneNumber) -> UUID:
-    """その依頼主の、その番号の連絡先（無ければ作る）。取引の依頼主の範囲で動く。"""
+    """その依頼者の、その番号の連絡先（無ければ作る）。取引の依頼者の範囲で動く。"""
     if number.e164 is None:
         raise ValueError(f"そろえられない番号の連絡先は作れません：{number.reason}")
     tx.execute(

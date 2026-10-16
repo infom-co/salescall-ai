@@ -2,7 +2,7 @@
 
 - エラーの種類と処置は core/errors.py の表だけを読む（ここで2つ目の判断を作らない）。止める・解くの記録は core/stops.py。
 - **止めるか**（`decide_stop`）：処置の表の「止める原因・範囲・何回続いたら」と、「何回続いたか」（データベースの1か所
-  `salescall.consecutive_errors`。回線＝その回線で相手を呼び出せた発信より後／会話AI・別の耳＝どこかの通話が会話に入った時刻より後。
+  `salescall.consecutive_errors`。回線＝その回線でお客様を呼び出せた発信より後／会話AI・別の耳＝どこかの通話が会話に入った時刻より後。
   どちらも、同じ原因・同じ範囲の停止が解かれた時刻より後＝契約者が再開したら・確かめで解けたら数え直す）。
   同じ原因・同じ範囲で、まだ解かれていない停止があれば、重ねて止めない。
 - **解くか**（`record_check`）：システムが止めた停止のうち、確かめで解ける原因（保存・回線・会話AI）だけ。確かめの結果を記録し、
@@ -40,7 +40,7 @@ class NotProbeable(Exception):
 
 def record_error(tx: Tx, report: errors.ErrorReport, *, line_id: UUID | None = None,
                  attempt_id: UUID | None = None) -> str:
-    """起きたエラーを分類して記録する（取引の契約者・依頼主で）。種類を返す。処置の表が「知らせる」なら、知らせの台帳に入れる
+    """起きたエラーを分類して記録する（取引の契約者・依頼者で）。種類を返す。処置の表が「知らせる」なら、知らせの台帳に入れる
     （同じ種類は、同じ範囲で1時間に1回）。止めるかは `decide_stop`（範囲に合った取引で呼ぶ）。"""
     kind = errors.classify(report)
     row = tx.one(
@@ -52,7 +52,8 @@ def record_error(tx: Tx, report: errors.ErrorReport, *, line_id: UUID | None = N
     action = errors.ACTIONS[kind]
     if action.notify:
         notify.emit(tx, "error_notice", key=f"error:{kind}:{row['tenant']}:{row['client']}:{row['hour']}",
-                    summary=f"エラー：{action.meaning}", refs={"error_id": row["error_id"], "kind": kind})
+                    summary=f"エラー：{action.meaning}", refs={"error_id": row["error_id"], "kind": kind},
+                    admin=True)   # エラーの一覧と処置はプログラム（直せるのは管理者だけ）
     return kind
 
 

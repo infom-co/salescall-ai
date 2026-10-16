@@ -72,7 +72,7 @@ class SystemStops(unittest.TestCase):
         self.assertEqual([x["cause"] for x in open_for(w, s)], ["quality_gate"])
         other_business = w.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: tx.one(
             "SELECT business_id FROM salescall.business_versions WHERE version_id = %s", (other_v,)))["business_id"]
-        self.assertEqual(open_for(w, s, business=other_business), [])   # 同じ依頼主の、ほかの業務は止まらない
+        self.assertEqual(open_for(w, s, business=other_business), [])   # 同じ依頼者の、ほかの業務は止まらない
 
     def test_system_stop_is_seen_everywhere(self):
         w = World(); s = w.setup()

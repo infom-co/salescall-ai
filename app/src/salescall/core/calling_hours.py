@@ -121,7 +121,7 @@ def _hhmm(sec: int) -> str:
 def allowed(hours: dict, ng: dict, is_holiday: Callable[[date], bool], start: datetime, end: datetime, *,
             callee_at: datetime | None = None) -> bool:
     """start から end まで（日本時間）かけてよいか（門が使う1か所）：かけてよい時間帯から NG時間を引いた残りの内側。
-    ただし相手が自分で指定した時刻（callee_at）があれば、その時刻を含む「その日のNG時間の枠」の中は、NG時間でもかけてよい
+    ただしお客様が自分で指定した時刻（callee_at）があれば、その時刻を含む「その日のNG時間の枠」の中は、NG時間でもかけてよい
     （2026-10-15 ユーザー：「通常は控えるが、相手が自分で指定した時刻なら、かけてよい」）。かけてよい時間帯はいつも守る。"""
     if covers(subtract(hours, ng), is_holiday, start, end):
         return True

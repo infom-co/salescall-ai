@@ -1,14 +1,14 @@
-"""発信禁止台帳（Q3「この相手は、かけてはいけない相手か」）。持ち主 CL-2。DESIGN.md 3-6・5-2・Intent.md 原則14。
+"""発信禁止台帳（Q3「このお客様は、かけてはいけないお客様か」）。持ち主 CL-2。DESIGN.md 3-6・5-2・Intent.md 原則14。
 
-- 登録するのは、この部品の `register`（依頼主の台帳）と `register_system`（システム共通）だけ（I-12。app/checks が見張る）。
-  呼ぶ側：会話の「もうかけないで」（その場で）・通話後の検証の拒否の聞き逃し・判定の番号違い・依頼主の発信禁止の一覧の取込・契約者。
+- 登録するのは、この部品の `register`（依頼者の台帳）と `register_system`（システム共通）だけ（I-12。app/checks が見張る）。
+  呼ぶ側：会話の「もうかけないで」（その場で）・通話後の検証の拒否の聞き逃し・判定の番号違い・依頼者の発信禁止の一覧の取込・契約者。
 - 番号は番号の正規化（Q1）を通す。そろえられない番号は登録できない（ValueError）。
 - **どこまで止めるかを決めるのは `register` の1か所だけ**（2026-10-14 ユーザー決定。DESIGN.md 3-6）：
-  相手が断った（`REFUSALS`）ことが、どの通話（試行）で分かったかが渡されたら、
-  (b) その行（タスク）の番号すべてを止める（相手が言った別の番号も。番号の一覧は tasks.numbers の1か所）。
-  (c) 契約者が依頼主ごとの設定で「管理番号は相手を表す変わらない番号」を「はい」にしていたら（設定 `dnc.client_ref_is_stable_id`）、
-      その行の管理番号も止める（次の一覧で、同じ相手が別の番号で入ってきても止まる）。
-  番号違い（wrong_party）は、その番号の持ち主が別の相手だったということなので、その番号だけ（行・管理番号へ広げない）。
+  お客様が断った（`REFUSALS`）ことが、どの通話（試行）で分かったかが渡されたら、
+  (b) その行（タスク）の番号すべてを止める（お客様が言った別の番号も。番号の一覧は tasks.numbers の1か所）。
+  (c) 契約者が依頼者ごとの設定で「管理番号はお客様を表す変わらない番号」を「はい」にしていたら（設定 `dnc.client_ref_is_stable_id`）、
+      その行の管理番号も止める（次の一覧で、同じお客様が別の番号で入ってきても止まる）。
+  番号違い（wrong_party）は、その番号の持ち主が別のお客様だったということなので、その番号だけ（行・管理番号へ広げない）。
 - 同じ番号・同じ管理番号の有効な登録は1つ（2回目の登録は、前の登録をそのまま返す。何度呼んでも同じ結果）。
 - **登録した取引の中で、止めた番号・管理番号のまだ発信していない予約を取り消す**（DESIGN.md 5-2-1 の2）。
 - 取り消し（revoke）は管理者か契約者だけ・記録つき・1回だけ（データベースが守る）。自動では取り消さない（Intent.md 10-3）。
@@ -27,11 +27,11 @@ from salescall.core.access import Tx
 from salescall.core.phone import PhoneNumber, normalize
 
 Reason = Literal["refused_in_call", "refused_found_after", "wrong_party", "manual", "client_list"]
-REFUSALS = frozenset({"refused_in_call", "refused_found_after"})   # 相手が断った ⇒ 相手（行）ごと止める
+REFUSALS = frozenset({"refused_in_call", "refused_found_after"})   # お客様が断った ⇒ お客様（行）ごと止める
 
 
 class DncEntryNotFound(Exception):
-    """その登録は無い（取り消し済み・取引の依頼主の範囲の外を含む）。"""
+    """その登録は無い（取り消し済み・取引の依頼者の範囲の外を含む）。"""
 
 
 def _number(phone: PhoneNumber | str) -> PhoneNumber:
@@ -42,7 +42,7 @@ def _number(phone: PhoneNumber | str) -> PhoneNumber:
 
 
 def register(tx: Tx, phone: PhoneNumber | str, reason: Reason, *, source_attempt_id: UUID | None = None) -> dict[str, Any]:
-    """取引の依頼主の発信禁止台帳に登録する（どこまで広げるかは、この中の1か所で決める）。
+    """取引の依頼者の発信禁止台帳に登録する（どこまで広げるかは、この中の1か所で決める）。
 
     返すもの：entry_id（渡された番号の登録）・reason・numbers（止めた番号）・client_refs（止めた管理番号）・released_claims。
     """
@@ -82,8 +82,8 @@ def register(tx: Tx, phone: PhoneNumber | str, reason: Reason, *, source_attempt
 
 
 def reach(tx: Tx, task_id: UUID) -> tuple[list[str], str | None]:
-    """その行の相手が断ったときに止める範囲（広げ方の正本。DESIGN.md 3-6）：(b) その行の番号すべて（相手が言った別の番号も。
-    tasks.numbers の1か所）と、(c) 契約者が依頼主ごとの設定で選んでいれば、その行の管理番号（無ければ None）。"""
+    """その行のお客様が断ったときに止める範囲（広げ方の正本。DESIGN.md 3-6）：(b) その行の番号すべて（お客様が言った別の番号も。
+    tasks.numbers の1か所）と、(c) 契約者が依頼者ごとの設定で選んでいれば、その行の管理番号（無ければ None）。"""
     t = tx.one("SELECT t.tenant_id, t.client_id, t.client_ref, r.business_id FROM salescall.tasks t"
                " JOIN salescall.runs r ON r.client_id = t.client_id AND r.run_id = t.run_id WHERE t.task_id = %s",
                (task_id,))
@@ -98,10 +98,10 @@ def reach(tx: Tx, task_id: UUID) -> tuple[list[str], str | None]:
 
 def unsettled_reach_covers(tx: Tx, e164: str, *, client_ref: str | None) -> bool:
     """締めがまだの発信（発信まで進み、判定の結果がまだ無い試行。通話中も含む）のどれかが、もし断られていたら、
-    この番号（またはこの管理番号）を止めることになるか。取引の依頼主の分（発信禁止は依頼主ごと）。
+    この番号（またはこの管理番号）を止めることになるか。取引の依頼者の分（発信禁止は依頼者ごと）。
 
-    止めるのは締めの処理（判定のあと）なので、締めの前にこの範囲へかけると、断った相手にまたかけうる
-    （例：一覧の番号で断られた行の、相手が言った別の番号を、別の実施回の行がかける）。"""
+    止めるのは締めの処理（判定のあと）なので、締めの前にこの範囲へかけると、断ったお客様にまたかけうる
+    （例：一覧の番号で断られた行の、お客様が言った別の番号を、別の実施回の行がかける）。"""
     for p in tx.all("SELECT DISTINCT a.task_id FROM salescall.attempts a"
                     " WHERE a.state NOT IN ('claimed', 'released')"
                     "   AND NOT salescall.is_settled(a.attempt_id)"):
@@ -112,7 +112,7 @@ def unsettled_reach_covers(tx: Tx, e164: str, *, client_ref: str | None) -> bool
 
 
 def register_system(tx: Tx, phone: PhoneNumber | str, reason: str) -> int:
-    """システム共通の発信禁止に登録する（全依頼主に効く）。取り消した予約の数を返す。"""
+    """システム共通の発信禁止に登録する（全依頼者に効く）。取り消した予約の数を返す。"""
     n = _number(phone)
     tx.execute(
         "INSERT INTO salescall.system_dnc_entries (phone_e164, reason, registered_by)"

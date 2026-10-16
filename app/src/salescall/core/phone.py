@@ -79,7 +79,7 @@ def _is_separator(ch: str) -> bool:
 
 
 def normalize(raw: str | None, *, leading_zero_lost: bool = False) -> PhoneNumber:
-    """依頼主のファイルのままの番号を受け取り、そろえた番号と種類を返す。
+    """依頼者のファイルのままの番号を受け取り、そろえた番号と種類を返す。
 
     leading_zero_lost：表計算ソフトで数として保存され、先頭の 0 が消えたと**取込が列ごとに決めた**ときだけ True
     （1つの値だけを見て決めない。例：xlsx の数の型の列。DESIGN.md 3-4）。True のとき、0 で始まらない 9〜10 桁に 0 を足す。

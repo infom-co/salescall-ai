@@ -6,7 +6,7 @@
   指紋が同じときだけ**書く（プレビューのあとで発信禁止・設定・ほかの取込が変わっていたら、何も書かずに
   `PlanChanged`。契約者はもう一度プレビューを見る）。⇒ 登録されるのは、契約者が見たプレビューとまったく同じもの。
 - 登録は1つの取引で、合格の行を全部（1行でも書けなければ何も登録しない）。止めた行は、行番号と理由だけを記録に残す。
-- 番号の判断は番号の正規化（Q1）、「その相手・番号へかけてよいか」は `target_policy`（門と同じ1か所）。ここで2つ目を作らない。
+- 番号の判断は番号の正規化（Q1）、「そのお客様・番号へかけてよいか」は `target_policy`（門と同じ1か所）。ここで2つ目を作らない。
 - タスク・取込の記録を書くのは、この部品だけ（連絡先は contacts、最初の予定は next_action を通す。I-12）。
 
 行の合否（上から順に。最初に当たった理由で止める）：
@@ -35,7 +35,7 @@ from salescall.core.access import Tx
 from salescall.core.import_files import Cell, Sheet
 from salescall.core.phone import PhoneNumber, normalize
 
-FIELDS = ("phone", "client_ref", "name")   # 対応付けられる欄（番号・依頼主の管理番号・名前）
+FIELDS = ("phone", "client_ref", "name")   # 対応付けられる欄（番号・依頼者の管理番号・名前）
 _EXPONENT = re.compile(r"^\s*[+-]?\d+(\.\d+)?[eE][+-]?\d+\s*$")
 
 
@@ -192,7 +192,7 @@ def _plan(tx: Tx, run_id: UUID, sheet: Sheet, mapping: dict[str, str]) -> Plan:
             continue
         ref = cells["client_ref"].text.strip() if "client_ref" in cells and cells["client_ref"].text else None
         if "client_ref" in cells and ref is None:
-            rows.append(stop("ref_missing", "管理番号がありません（結果を依頼主の表と突き合わせる鍵です）"))
+            rows.append(stop("ref_missing", "管理番号がありません（結果を依頼者の表と突き合わせる鍵です）"))
             continue
         if ref is not None and _EXPONENT.match(ref):
             rows.append(stop("ref_digits_lost", "管理番号が指数の書き方（例：1.23E+15）で、桁が失われています"))

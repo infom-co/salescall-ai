@@ -66,8 +66,8 @@ class Check(unittest.TestCase):
         r = raw(); r["questions"][1]["choices"] = ["はい"]; cases.append((r, "決まっています"))
         r = raw(); r["caller"]["company"]["reading"] = ""; cases.append((r, "名乗りの自社名の読み が空です"))
         r = raw(); r["target_person"] = {"kind": "anyone", "role": "社長"}; cases.append((r, "役職を書きません"))
-        r = raw(); r["target_class"] = "individual"; cases.append((r, "相手が個人の業務は、まだ選べません"))
-        r = raw(); r["target_class"] = None; cases.append((r, "相手の区分（target_class）は"))
+        r = raw(); r["target_class"] = "individual"; cases.append((r, "お客様が個人の業務は、まだ選べません"))
+        r = raw(); r["target_class"] = None; cases.append((r, "お客様の区分（target_class）は"))
         r = raw(); r["questions"][0]["next"] = {"しない": "END", "*": "Q2", "やめる": "END"}
         cases.append((r, "分岐の答え「やめる」は、その質問の答えにありません"))
         r = raw()
@@ -123,7 +123,7 @@ class Versions(unittest.TestCase):
         self.assertNotEqual(back, v)
         self.assertEqual(self.tx(lambda tx: bs.load(tx, back)).raw, got.raw)
         outcome = self.tx(lambda tx: bs.assign(tx, self.s["run"], back, reason="試験：新しい版に切り替え"))
-        self.assertEqual(outcome, "mock_needed")                       # 依頼主で最初の模擬通話を待つ
+        self.assertEqual(outcome, "mock_needed")                       # 依頼者で最初の模擬通話を待つ
         self.assertEqual(self.tx(lambda tx: tx.one("SELECT salescall.run_current_version(%s) AS v",
                                                    (self.s["run"],))["v"]), back)
 

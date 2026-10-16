@@ -18,7 +18,7 @@ REASONS = ("担当ではない", "まだ決まっていない", "いまは分か
 def book(*, sheets=None, drop=(), rename=None) -> bytes:
     """標準のひな形どおりの、架空の業務設定のファイル。sheets で中身を差し替え、drop でシートを外す。"""
     content = {
-        "基本": [("項目", "値"), ("業務の目的", "予約の希望日時を伺う"), ("相手の区分", "法人"), ("自社名", "株式会社テスト物流"),
+        "基本": [("項目", "値"), ("業務の目的", "予約の希望日時を伺う"), ("お客様の区分", "法人"), ("自社名", "株式会社テスト物流"),
                ("自社名の読み", "かぶしきがいしゃてすとぶつりゅう"), ("担当者名", "山田"), ("担当者名の読み", "やまだ"),
                ("用件の一文", "ご予約の確認でお電話いたしました。"), ("目的のお客様", "誰でも"), ("目的のお客様の役職", None),
                ("忙しいと言われたときの一言", None), ("声の型", "S2")],
@@ -81,7 +81,7 @@ class Import(unittest.TestCase):
 
     def test_register_refuses_a_changed_preview(self):
         p = self.preview(book())
-        other = book(sheets={"基本": [("項目", "値"), ("業務の目的", "目的を書き換えた"), ("相手の区分", "法人"), ("自社名", "株式会社テスト物流"),
+        other = book(sheets={"基本": [("項目", "値"), ("業務の目的", "目的を書き換えた"), ("お客様の区分", "法人"), ("自社名", "株式会社テスト物流"),
                                      ("自社名の読み", "かぶしきがいしゃてすとぶつりゅう"), ("担当者名", "山田"),
                                      ("担当者名の読み", "やまだ"), ("目的のお客様", "誰でも"), ("声の型", "S2")]})
         with self.assertRaises(bi.PreviewChanged):
@@ -98,7 +98,7 @@ class Import(unittest.TestCase):
         self.assertTrue(any("かけ直し" in x for x in p.problems), p.problems)
         renamed = book(rename={"質問": "質問一覧"})
         p = self.preview(renamed, mapping={"sheets": {"questions": "質問一覧"}})
-        self.assertEqual(p.problems, [])                                  # 依頼主の形を対応付けて読む
+        self.assertEqual(p.problems, [])                                  # 依頼者の形を対応付けて読む
 
     def test_words_in_quotes_that_may_be_names(self):
         p = self.preview(book(sheets={"名前": [("表記", "読み")]}))
@@ -172,7 +172,7 @@ class Import(unittest.TestCase):
         self.assertEqual(got, {"Q1": None, "Q2": None, "Q3": "名", "Q4": None})
 
     def test_other_entrances_go_the_same_way(self):
-        """依頼主の画面から抜き出した中身（同じ形）も、同じ確かめと登録の道を通る。"""
+        """依頼者の画面から抜き出した中身（同じ形）も、同じ確かめと登録の道を通る。"""
         from tests.test_business_settings import raw
         extracted = raw()
         extracted["names"].append({"text": "テスト便", "reading": None, "source": "script", "reading_by": None})

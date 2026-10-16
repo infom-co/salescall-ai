@@ -46,7 +46,7 @@ class Order(unittest.TestCase):
             ("目的のお客様に繋がらなかった", dict(items={}, rep=report(("reception",), not_reached="absent")), "not_reached"),
             ("出なかった", dict(facts=Facts("no_answer", None, False, False), rep=None, items={}), "open"),
             ("留守電だけ", dict(facts=Facts("ended", None, True, False), rep=report(("voicemail",), cut=None), items={}), "open"),
-            ("相手が出る前の結果不明", dict(facts=Facts("technical_error", None, False, False), rep=None, items={}), "open"),
+            ("お客様が出る前の結果不明", dict(facts=Facts("technical_error", None, False, False), rep=None, items={}), "open"),
             ("一部だけ取れた", dict(items={"Q1": TAKEN["Q1"]}), "incomplete"),
             ("わからない＝日を改める", dict(items={"Q1": Item("dont_know", None, "undecided"), "Q2": TAKEN["Q2"]}), "incomplete"),
         ]
@@ -68,7 +68,7 @@ class Order(unittest.TestCase):
             ("わからないの理由が無い", dict(items={"Q1": Item("refused", None, None), "Q2": TAKEN["Q2"]})),
             ("宣言に無い理由", dict(items={"Q1": Item("dont_know", None, "そのほか"), "Q2": TAKEN["Q2"]})),
             ("繋がらなかった理由が無い", dict(items={}, rep=report(("reception",)))),
-            ("相手が出たのに報告が無い", dict(rep=None, items={})),
+            ("お客様が出たのに報告が無い", dict(rep=None, items={})),
         ]:
             with self.subTest(name):
                 self.assertEqual(run(**kw).state, "unknown")
@@ -102,10 +102,10 @@ class CutTable(unittest.TestCase):
         rows = [
             ("締めのあと", dropped("callee"), Cut("ai", True, False), "normal"),
             ("断りの言葉のあと", dropped("callee"), Cut("none", False, True), "refused"),
-            ("相手の言葉が途中で途切れた", dropped("unknown"), Cut("callee", False, False), "interrupted"),
+            ("お客様の言葉が途中で途切れた", dropped("unknown"), Cut("callee", False, False), "interrupted"),
             ("回線の側で切れた", dropped("line"), Cut(None, False, False), "interrupted"),
-            ("AIが話している途中に、相手が切った", dropped("callee"), Cut("ai", False, False), "refused"),
-            ("話し終えたあとの間に、相手が切った", dropped("unknown"), Cut("none", False, False), "refused"),
+            ("AIが話している途中に、お客様が切った", dropped("callee"), Cut("ai", False, False), "refused"),
+            ("話し終えたあとの間に、お客様が切った", dropped("unknown"), Cut("none", False, False), "refused"),
             ("決められない", dropped("unknown"), Cut(None, False, False), "unclear"),
         ]
         for name, facts, cut, expected in rows:
@@ -118,7 +118,7 @@ class CutTable(unittest.TestCase):
         self.assertEqual(classify_cut(Facts("dropped", "callee", True, False), report(cut=None)), "missing")
 
     def test_missing_cut_facts_are_an_input_error_not_a_refusal(self):
-        """切れ方の材料の報告漏れで、ふつうに終えた相手を営業拒否にしない（材料が無い ≠ 決められない）。"""
+        """切れ方の材料の報告漏れで、ふつうに終えたお客様を営業拒否にしない（材料が無い ≠ 決められない）。"""
         j = run(rep=report(cut=None))
         self.assertEqual((j.state, j.dnc_reason, j.disconnect), ("unknown", None, None))
 
@@ -136,7 +136,7 @@ class CutTable(unittest.TestCase):
 
 P_NONE = gate.Pacing(3, NOW, None, False)
 HOUR = timedelta(hours=1)        # 試験の業務の決まりの間隔（1時間おき）が指す時刻は NOW + HOUR（_retry_at の答えとして渡す）
-MAIN, ALT = uuid.UUID(int=1), uuid.UUID(int=2)     # 一覧の番号・相手が言った別の番号（連絡先）
+MAIN, ALT = uuid.UUID(int=1), uuid.UUID(int=2)     # 一覧の番号・お客様が言った別の番号（連絡先）
 
 
 def after_call(j_kw, *, verification="done", normal=P_NONE, promised=gate.Pacing(3, NOW, None, True), times=1,
@@ -175,7 +175,7 @@ class AfterCall(unittest.TestCase):
         self.assertEqual((d.kind, d.at, d.promised), ("call", NOW + HOUR, True))
 
     def test_callee_named_time_is_kept_on_the_schedule(self):
-        """相手が言った時刻は予定に残る（NG時間でもかけてよい根拠）。門で止められても引き継ぐ。"""
+        """お客様が言った時刻は予定に残る（NG時間でもかけてよい根拠）。門で止められても引き継ぐ。"""
         at = NOW + timedelta(hours=3)
         d = after_call(dict(items={}, rep=report(callback=Callback("later", at, None, None, None))))
         self.assertEqual((d.at, d.callee_at), (at, at))
@@ -254,7 +254,7 @@ class AlternateNumber(unittest.TestCase):
 
 
 class WrongNumberTheCalleeGave(unittest.TestCase):
-    """相手が言った番号が番号違いだったとき（2026-10-15 ユーザー決定。DESIGN.md 3-5）：証拠と付け合わせ、聞き違いなら正しい番号へ、
+    """お客様が言った番号が番号違いだったとき（2026-10-15 ユーザー決定。DESIGN.md 3-5）：証拠と付け合わせ、聞き違いなら正しい番号へ、
     言われたとおりなら、番号を聞いた通話の番号へかけ、番号違いだったことを告げて番号を聞き直す。"""
     FIXED = uuid.UUID(int=3)   # 聞き違いだったときの正しい番号
 
@@ -374,7 +374,7 @@ class Shapes(unittest.TestCase):
         for cb in (Callback("other_number", None, "ゼロサン、ゼロゼロゼロゼロの…", None, None),     # そろえられない番号も受ける
                    Callback("other_number", NOW, "03-0000-0001", "+81300000001", None)):
             self.assertEqual(from_json(report(callback=cb).to_json()).callback, cb)
-        for name, change in [("知らない項目", {"extra": 1}), ("知らない相手の種別", {"parties": ["boss"]}),
+        for name, change in [("知らない項目", {"extra": 1}), ("知らない電話口の種別", {"parties": ["boss"]}),
                              ("版が違う", {"version": 99}), ("真偽でない", {"do_not_call": "no"}),
                              ("目的のお客様に繋がったのに理由", {"not_reached": "absent"}),
                              ("時差の無い時刻", {"callback": {"reason": "later", "at": "2030-01-07T10:00:00",
@@ -394,6 +394,16 @@ class Shapes(unittest.TestCase):
                                                            "person": None}})]:
             with self.subTest(name), self.assertRaises(ReportInvalid):
                 from_json({**good, **change})
+
+
+
+class Causes(unittest.TestCase):
+    def test_program_causes_go_to_the_admin(self):
+        """判定できない原因のうち、プログラムの誤り（会話の処理）は管理者が直す。業務設定の抜けは契約者（2026-10-16 ユーザー承認）。"""
+        from salescall.core.judge import PROGRAM_CAUSES, UNKNOWN_CAUSES
+        self.assertLessEqual(PROGRAM_CAUSES, set(UNKNOWN_CAUSES))
+        self.assertNotIn("handling_missing", PROGRAM_CAUSES)
+        self.assertEqual(set(UNKNOWN_CAUSES) - PROGRAM_CAUSES, {"handling_missing"})
 
 
 if __name__ == "__main__":

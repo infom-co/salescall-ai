@@ -127,7 +127,7 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      ("tests.test_import.DatabaseGuards.test_import_records_cannot_be_changed_even_by_the_owner",)),
     ("取込の記録の行の制限を外す", "ALTER TABLE salescall.import_rows DISABLE ROW LEVEL SECURITY",
      ("tests.test_import.DatabaseGuards.test_other_clients_cannot_see_import_records",)),
-    ("システム共通の発信禁止で、ほかの依頼主の予約を取り消す処理を空にする",
+    ("システム共通の発信禁止で、ほかの依頼者の予約を取り消す処理を空にする",
      "CREATE OR REPLACE FUNCTION salescall.release_claims_for_system_dnc(p_phone text) RETURNS integer"
      " LANGUAGE sql SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ SELECT 0 $$",
      ("tests.test_dnc.Register.test_system_ledger_applies_to_every_client_and_releases_their_claims",)),
@@ -146,7 +146,7 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      "CREATE OR REPLACE FUNCTION salescall.is_live(s salescall.attempt_state, expires timestamptz) RETURNS boolean"
      " LANGUAGE sql STABLE AS $$ SELECT salescall.is_active(s) $$",
      ("tests.test_gate.ExpiredClaimsDoNotUseCapacity.test_expired_claims_elsewhere_do_not_block",)),
-    ("ほかの依頼主の発信の時刻を見ない",
+    ("ほかの依頼者の発信の時刻を見ない",
      "CREATE OR REPLACE FUNCTION salescall.number_last_dial_elsewhere(p_phone text) RETURNS TABLE (relation text, last_at timestamptz)"
      " LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ SELECT NULL::text, NULL::timestamptz WHERE false $$",
      ("tests.test_gate.Pacing.test_cross_client_interval_tells_same_or_other_tenant_only",)),
@@ -169,11 +169,11 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      "CREATE OR REPLACE FUNCTION salescall.release_claims_in_scope(p_scope text, p_tenant uuid, p_client uuid, p_business uuid)"
      " RETURNS integer LANGUAGE sql SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ SELECT 0 $$",
      ("tests.test_gate.ChangesReleaseClaims.test_setting_change", "tests.test_gate.ChangesReleaseClaims.test_calendar_load")),
-    ("相手の意思と関係ない発信も、間隔・1日の回数に数える",
+    ("お客様の意思と関係ない発信も、間隔・1日の回数に数える",
      "CREATE OR REPLACE FUNCTION salescall.not_by_callee(s salescall.attempt_state, disconnect text, p_attempt uuid)"
      " RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT false $$",
      ("tests.test_gate.NotByCallee.test_failed_or_line_dropped_calls_do_not_count",)),
-    ("相手が出る前の結果不明も、検証待ちにする",
+    ("お客様が出る前の結果不明も、検証待ちにする",
      "CREATE OR REPLACE FUNCTION salescall.reached_answer(p_attempt uuid) RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT true $$",
      ("tests.test_gate.Pacing.test_unknown_result_before_answer_needs_no_long_wait",)),
     ("1つの試行に判定の版は1つ、の約束を外す", "DROP INDEX salescall.task_results_one_judgement_per_attempt",
@@ -230,6 +230,10 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      ("tests.test_apology.Apology.test_frozen",)),
     ("業務設定の中身の変更の拒みを外す", "DROP TRIGGER business_contents_frozen ON salescall.business_contents",
      ("tests.test_business_settings.Versions.test_contents_are_frozen",)),
+    ("管理者あての知らせを契約者から隠す、の決まりを外す",
+     "DROP POLICY notice_scope ON salescall.notification_events; CREATE POLICY notice_scope ON salescall.notification_events"
+     " USING (tenant_id IS NULL OR tenant_id = salescall.cur_tenant()) WITH CHECK (true)",
+     ("tests.test_notify.Ledger.test_admin_copy_is_seen_only_by_the_admin",)),
     ("報酬の決まりの変更の拒みを外す", "DROP TRIGGER reward_terms_frozen ON salescall.reward_terms",
      ("tests.test_usage.CostRatio.test_terms_are_frozen",)),
     ("システムが止めた停止を、見守りに見せない",
@@ -284,7 +288,7 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      ("tests.test_notify.Ledger.test_who_can_see",)),
     ("知らせの台帳の変更の拒みを外す", "DROP TRIGGER notification_events_frozen ON salescall.notification_events",
      ("tests.test_notify.Ledger.test_frozen",)),
-    ("相手が指定した時刻は約束したかけ直しだけ、の決まりを外す",
+    ("お客様が指定した時刻は約束したかけ直しだけ、の決まりを外す",
      "ALTER TABLE salescall.task_next_actions DROP CONSTRAINT task_next_actions_callee_at",
      ("tests.test_gate.Hours.test_callee_time_only_on_promised_calls",)),
     ("発信の目的は変えられない、の仕掛けを外す", "DROP TRIGGER attempt_purpose_fixed ON salescall.attempts",

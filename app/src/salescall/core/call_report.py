@@ -3,10 +3,10 @@
 - 形と確かめは、この1か所（`from_json`）。書く（`save`。書き込む入口 core/conversation_io.py から呼ぶ）ときも、
   読む（`load`。締めの処理 core/settle.py が読む）ときも、同じ確かめを通す。合わない報告は受け取らない（ReportInvalid）。
 - 「わからない」を既定値で埋めない（原則10）：分からないものは None のまま。判定が「決められない」として扱う。
-- 名前（相手の種別など）は DESIGN.md 4-3・6-2・7-1c のもの。⚠️ 仮の形：CL-1 の会話の処理を app/ へ移すときに合わせて版を上げる。
+- 名前（電話口の種別など）は DESIGN.md 4-3・6-2・7-1c のもの。⚠️ 仮の形：CL-1 の会話の処理を app/ へ移すときに合わせて版を上げる。
 - 版 2 に足した項目（2026-10-16）：お詫びの電話で、文面を伝えられたか（apology_delivered。無ければ None）。
-- 版 2（2026-10-15）：別の番号のかけ直しに、相手が言ったままの番号（number_said）を必ず持つ。そろえた番号（number_e164）は
-  そろえられたときだけ（内線つき・桁が足りないなど、そろえられない番号も、言われたことは記録して依頼主へ渡す。DESIGN.md 3-5）。
+- 版 2（2026-10-15）：別の番号のかけ直しに、お客様が言ったままの番号（number_said）を必ず持つ。そろえた番号（number_e164）は
+  そろえられたときだけ（内線つき・桁が足りないなど、そろえられない番号も、言われたことは記録して依頼者へ渡す。DESIGN.md 3-5）。
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from salescall.core.phone import normalize
 VERSION = 2
 PARTY_KINDS = ("unknown", "reception", "target", "voicemail", "ivr", "fax", "wrong_party")   # 4-3（区間ごと）
 CALLBACK_REASONS = ("absent", "other_number", "later", "ask_who", "ask_when", "our_promise")
-# 不在・別の番号・あとで（相手に頼まれた。6-2）／分かるお客様・分かる時を聞いた（15-2-3 の a1・a2）／こちらが約束した
+# 不在・別の番号・あとで（お客様に頼まれた。6-2）／分かるお客様・分かる時を聞いた（15-2-3 の a1・a2）／こちらが約束した
 NOT_REACHED_REASONS = ("absent", "not_transferred")      # 目的のお客様に繋がらなかった理由（7-1）
 SPEAKERS = ("callee", "ai", "none")                      # 切れた瞬間に話していた側（7-1c）
 
@@ -36,7 +36,7 @@ class ReportInvalid(Exception):
 class Callback:
     reason: str
     at: datetime | None          # かけ直す時刻（取れたときだけ。時差つき）
-    number_said: str | None      # 別の番号：相手が言ったまま（reason = other_number のときは必ず要る。それ以外は持たない）
+    number_said: str | None      # 別の番号：お客様が言ったまま（reason = other_number のときは必ず要る。それ以外は持たない）
     number_e164: str | None      # 別の番号：番号の正規化（Q1）でそろえた番号（そろえられたときだけ）
     person: str | None           # 分かるお客様（a1）
 
@@ -45,19 +45,19 @@ class Callback:
 class Cut:
     speaker: str | None          # 切れた瞬間に話していた側（分からなければ None）
     in_closing: bool             # 締めの言葉に入っていた・締めのあとだった
-    callee_refused_last: bool    # 相手の最後の発話が、断りの言葉だった
+    callee_refused_last: bool    # お客様の最後の発話が、断りの言葉だった
 
 
 @dataclass(frozen=True)
 class CallReport:
-    parties: tuple[str, ...]     # 区間ごとの相手の種別（並び順）
+    parties: tuple[str, ...]     # 区間ごとの電話口の種別（並び順）
     do_not_call: bool            # 発信の拒否（営業拒否）の申告
     out_of_scope: bool           # 範囲外の求めで終えた
     complaint: bool              # 苦情・怒り
-    hurried: bool                # 相手が急いでいて終えた
+    hurried: bool                # お客様が急いでいて終えた
     not_reached: str | None      # 目的のお客様に繋がらなかった理由
     callback: Callback | None
-    cut: Cut | None              # 切れ方の材料（相手が出なかった通話は None）
+    cut: Cut | None              # 切れ方の材料（お客様が出なかった通話は None）
     apology_delivered: bool | None = None   # お詫びの電話だけ：その通話で話したお客様に、文面を伝えられたか（10-1-2）
 
     def to_json(self) -> dict[str, Any]:
@@ -119,14 +119,14 @@ def from_json(raw: Any) -> CallReport:
                 raise ReportInvalid("callback.at は時差つきの時刻です")
         said, number = c.get("number_said"), c.get("number_e164")
         if said is not None and (not isinstance(said, str) or not said.strip()):
-            raise ReportInvalid("callback.number_said は、相手が言ったままの番号（文字）です")
+            raise ReportInvalid("callback.number_said は、お客様が言ったままの番号（文字）です")
         if number is not None and (not isinstance(number, str) or normalize(number).e164 != number):
             raise ReportInvalid("callback.number_e164 は、番号の正規化（Q1）を通した番号です")
         reason = _choice(c.get("reason"), CALLBACK_REASONS, "callback.reason")
         if (reason == "other_number") != (said is not None):
-            raise ReportInvalid("別の番号のかけ直しには、相手が言ったままの番号が要り、それ以外には番号を持ちません")
+            raise ReportInvalid("別の番号のかけ直しには、お客様が言ったままの番号が要り、それ以外には番号を持ちません")
         if number is not None and said is None:
-            raise ReportInvalid("そろえた番号だけがあって、相手が言ったままの番号がありません")
+            raise ReportInvalid("そろえた番号だけがあって、お客様が言ったままの番号がありません")
         person = c.get("person")
         if person is not None and (not isinstance(person, str) or not person.strip()):
             raise ReportInvalid("callback.person は名前です")

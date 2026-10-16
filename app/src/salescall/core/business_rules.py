@@ -40,7 +40,7 @@ class RulesMissing(Exception):
 @dataclass(frozen=True)
 class Handling:
     kind: str
-    conclusion: str | None       # conclude のときの結論の名前（依頼主へ渡す名前）
+    conclusion: str | None       # conclude のときの結論の名前（依頼者へ渡す名前）
 
 
 INTERVAL_UNITS = ("hours", "days")   # かけ直しの間隔：n 時間おき／n 日後（2026-10-15 ユーザー：業務ごとに選べるように）

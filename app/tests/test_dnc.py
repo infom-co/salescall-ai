@@ -1,4 +1,4 @@
-"""発信禁止台帳（Q3）と「その相手・番号へかけてよいか」（target_policy）の試験。
+"""発信禁止台帳（Q3）と「そのお客様・番号へかけてよいか」（target_policy）の試験。
 
 ⚠️ 番号は架空のもの（局番のあとが 0000 の、実在しない番号）。
 """
@@ -64,7 +64,7 @@ class Register(unittest.TestCase):
         r = in_client(w, s, lambda tx: dnc.register(tx, s["raw"], "refused_found_after"))
         self.assertEqual(r["released_claims"], 1)
         self.assertEqual((state_of(w, s, a), state_of(w, other_number, b)), ("released", "claimed"))
-        self.assertIsNone(blocked(w, same_number_other_client, s["raw"]))   # 依頼主の台帳は、その依頼主にだけ効く
+        self.assertIsNone(blocked(w, same_number_other_client, s["raw"]))   # 依頼者の台帳は、その依頼者にだけ効く
 
     def test_system_ledger_applies_to_every_client_and_releases_their_claims(self):
         w = World(); s1 = jp_setup(w)
@@ -74,7 +74,7 @@ class Register(unittest.TestCase):
         n = w.a.in_system(ADMIN, lambda tx: dnc.register_system(tx, s1["raw"], "総務省の注意喚起（試験）"))
         self.assertEqual(n, 1)
         self.assertEqual(state_of(w, s1, a), "released")
-        s2 = World().setup()   # ほかの契約者の依頼主
+        s2 = World().setup()   # ほかの契約者の依頼者
         s2["raw"] = s1["raw"]
         self.assertEqual(blocked(w, s2, s1["raw"])[0], "dnc_system")
 
@@ -91,7 +91,7 @@ class Revoke(unittest.TestCase):
         e = in_client(w, s, lambda tx: dnc.register(tx, s["raw"], "manual"))["entry_id"]
         with self.assertRaises(Rejected):
             in_client(w, s, lambda tx: dnc.revoke(tx, e, "システムは取り消せない"))
-        in_client(w, s, lambda tx: dnc.revoke(tx, e, "依頼主から登録の誤りと連絡（試験）"), actor=OPERATOR)
+        in_client(w, s, lambda tx: dnc.revoke(tx, e, "依頼者から登録の誤りと連絡（試験）"), actor=OPERATOR)
         self.assertIsNone(blocked(w, s, s["raw"]))
         with self.assertRaises(dnc.DncEntryNotFound):
             in_client(w, s, lambda tx: dnc.revoke(tx, e, "2回目"), actor=OPERATOR)
@@ -128,7 +128,7 @@ class Policy(unittest.TestCase):
         self.assertIsNone(blocked(w, s, "0570-000-001"))
         self.assertEqual(blocked(w, s, "0120-000-001")[0], "number_kind_not_allowed")
         other = jp_setup(w, tenant=s["tenant"])
-        self.assertEqual(blocked(w, other, "0570-000-001")[0], "number_kind_not_allowed")   # ほかの依頼主は初めの値のまま
+        self.assertEqual(blocked(w, other, "0570-000-001")[0], "number_kind_not_allowed")   # ほかの依頼者は初めの値のまま
 
 
 def set_client(w, s, key, value):
@@ -160,7 +160,7 @@ def claim_row(w, s, task_id, *, dialing=False):
 
 
 class RefusalScope(unittest.TestCase):
-    """2026-10-14 ユーザー決定：(b) 断った相手の行の番号すべてを止める（必ず）＋(c) 依頼主ごとの設定で選べば管理番号でも止める。"""
+    """2026-10-14 ユーザー決定：(b) 断ったお客様の行の番号すべてを止める（必ず）＋(c) 依頼者ごとの設定で選べば管理番号でも止める。"""
 
     def setUp(self):
         self.w = World()
@@ -180,14 +180,14 @@ class RefusalScope(unittest.TestCase):
         got = self.refuse_on(r["rows"][0]["task_id"])
         self.assertEqual((len(got["numbers"]), got["client_refs"]), (1, []))
         again = import_rows(self.w, self.s, self.run2, [("A-1", "架空商事", fictional_jp_fixed())])
-        self.assertEqual(self.outcome(again), [("registered", None)])   # 管理番号が相手を表すかは分からない
+        self.assertEqual(self.outcome(again), [("registered", None)])   # 管理番号がお客様を表すかは分からない
 
     def test_stable_ref_stops_the_same_party_with_another_number(self):
         set_client(self.w, self.s, "dnc.client_ref_is_stable_id", True)
         r1 = import_rows(self.w, self.s, self.s["run"], [("A-1", "架空商事", fictional_jp_fixed())])
         r2 = import_rows(self.w, self.s, self.run2, [("A-1", "架空商事 支店", fictional_jp_fixed()),
                                                      ("B-1", "架空工業", fictional_jp_fixed())])
-        other_claim, _ = claim_row(self.w, self.s, r2["rows"][0]["task_id"])        # 別の実施回の同じ相手の予約
+        other_claim, _ = claim_row(self.w, self.s, r2["rows"][0]["task_id"])        # 別の実施回の同じお客様の予約
         unrelated_claim, _ = claim_row(self.w, self.s, r2["rows"][1]["task_id"])
         got = self.refuse_on(r1["rows"][0]["task_id"])
         self.assertEqual((got["client_refs"], got["released_claims"]), (["A-1"], 1))
@@ -197,7 +197,7 @@ class RefusalScope(unittest.TestCase):
         later = import_rows(self.w, self.s, self.run3, [("A-1", "架空商事", fictional_jp_fixed()),
                                                         ("B-2", "架空物産", fictional_jp_fixed())])
         self.assertEqual(self.outcome(later), [("stopped", "dnc_client_ref"), ("registered", None)])
-        # 門も同じ判断を呼ぶ（別の実施回にもう入っていた同じ相手の行は、かけない）
+        # 門も同じ判断を呼ぶ（別の実施回にもう入っていた同じお客様の行は、かけない）
         number = normalize(fictional_jp_fixed())
         hit = in_client(self.w, self.s, lambda tx: target_policy.block_reason(
             tx, number, client_ref="A-1", tenant_id=self.s["tenant"], client_id=self.s["client"],
@@ -213,7 +213,7 @@ class RefusalScope(unittest.TestCase):
         self.assertEqual(self.outcome(import_rows(self.w, self.s, self.run2, rows)), [("stopped", "dnc_client_ref")])
         ref_entry = in_client(self.w, self.s, lambda tx: tx.one(
             "SELECT entry_id FROM salescall.dnc_entries WHERE client_ref = 'A-1'"))["entry_id"]
-        in_client(self.w, self.s, lambda tx: dnc.revoke(tx, ref_entry, "依頼主の管理番号の付け方が変わった（試験）"),
+        in_client(self.w, self.s, lambda tx: dnc.revoke(tx, ref_entry, "依頼者の管理番号の付け方が変わった（試験）"),
                   actor=OPERATOR)
         self.assertEqual(self.outcome(import_rows(self.w, self.s, self.run2, rows)), [("registered", None)])
 
@@ -223,7 +223,7 @@ class RefusalScope(unittest.TestCase):
         got = self.refuse_on(r["rows"][0]["task_id"], reason="wrong_party")
         self.assertEqual((len(got["numbers"]), got["client_refs"]), (1, []))
         again = import_rows(self.w, self.s, self.run2, [("A-1", "架空商事", fictional_jp_fixed())])
-        self.assertEqual(self.outcome(again), [("registered", None)])   # 相手は断っていない
+        self.assertEqual(self.outcome(again), [("registered", None)])   # お客様は断っていない
 
     def test_refusing_twice_keeps_one_entry_each(self):
         set_client(self.w, self.s, "dnc.client_ref_is_stable_id", True)
@@ -239,7 +239,7 @@ class RefusalScope(unittest.TestCase):
         self.assertEqual((n["numbers"], n["refs"]), (1, 1))
 
     def test_database_refuses_bad_entries(self):
-        for cols, vals in ((("client_ref", "reason"), ("A-1", "wrong_party")),   # 番号違いで相手を止めない
+        for cols, vals in ((("client_ref", "reason"), ("A-1", "wrong_party")),   # 番号違いでお客様を止めない
                            (("reason",), ("manual",)),                           # 番号も管理番号も無い
                            (("phone_e164", "client_ref", "reason"), ("+81300000001", "A-1", "manual"))):  # 両方
             with self.subTest(cols=cols), self.assertRaises(Rejected):

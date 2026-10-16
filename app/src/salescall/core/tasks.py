@@ -7,8 +7,8 @@
    （タスクの行そのものは固定できない：システムの処理の役は、タスクを書き換える権限を持たないため。）
 ⇒ 番号を振る処理は、必ずこれを先に呼ぶ。
 
-行の番号（DESIGN.md 3-5）：依頼主の一覧の1行は1つのまま、番号を表（task_numbers）に持つ。一覧の番号の行はデータベースが
-タスクを作ったときに自分で足す。相手が言った別の番号を足すのは `add_callee_number` だけ。行の番号を読むのは `numbers` だけ。
+行の番号（DESIGN.md 3-5）：依頼者の一覧の1行は1つのまま、番号を表（task_numbers）に持つ。一覧の番号の行はデータベースが
+タスクを作ったときに自分で足す。お客様が言った別の番号を足すのは `add_callee_number` だけ。行の番号を読むのは `numbers` だけ。
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from salescall.core.phone import PhoneNumber
 
 
 class TaskNotFound(Exception):
-    """そのタスクは無い（または、取引の依頼主の範囲の外）。"""
+    """そのタスクは無い（または、取引の依頼者の範囲の外）。"""
 
 
 def lock(tx: Tx, task_id: UUID) -> dict[str, Any]:
@@ -40,7 +40,7 @@ def lock(tx: Tx, task_id: UUID) -> dict[str, Any]:
 
 
 def numbers(tx: Tx, task_id: UUID) -> list[str]:
-    """そのタスク（依頼主の一覧の1行）の番号すべて（そろえた番号。一覧の番号が先、あとは足した順）。
+    """そのタスク（依頼者の一覧の1行）の番号すべて（そろえた番号。一覧の番号が先、あとは足した順）。
     行ごとに番号を数える処理（発信禁止を行ごとに広げる dnc など）は、必ずこれを呼ぶ。"""
     rows = tx.all("SELECT phone_e164 FROM salescall.task_numbers WHERE task_id = %s"
                   " ORDER BY source = 'callee', added_at, phone_e164", (task_id,))
@@ -59,9 +59,9 @@ def list_number(tx: Tx, task_id: UUID) -> dict[str, Any]:
 
 
 def add_callee_number(tx: Tx, task_id: UUID, number: PhoneNumber, *, source_attempt_id: UUID) -> UUID:
-    """相手が言った別の番号を、その行の番号に足す（DESIGN.md 3-5。足すのはここだけ）。その番号の連絡先を返す。
+    """お客様が言った別の番号を、その行の番号に足す（DESIGN.md 3-5。足すのはここだけ）。その番号の連絡先を返す。
 
-    かけるかどうかに関係なく足す（その相手が断ったら、この番号も止めるため。3-6）。同じ番号がもう行にあれば何もしない
+    かけるかどうかに関係なく足す（そのお客様が断ったら、この番号も止めるため。3-6）。同じ番号がもう行にあれば何もしない
     （一覧の番号と同じ番号を言われた場合も）。そろえられない番号は足せない（ValueError）。"""
     contact_id = contacts.get_or_create(tx, number)
     tx.execute(

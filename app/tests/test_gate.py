@@ -108,7 +108,7 @@ class Base(unittest.TestCase):
         return got.reason
 
     def past_attempt(self, s, path, *, verify=None, line=None, side=None, report=None, settled=True):
-        """前の試行を1つ作って、path の状態まで進め、本物の締めの処理で締める（相手が出た通話には会話の報告を置く）。
+        """前の試行を1つ作って、path の状態まで進め、本物の締めの処理で締める（お客様が出た通話には会話の報告を置く）。
         そのあと、門の守りそのものを試すため、次の予定を「いま」に書き直す（次の動きが誤った場合と同じ）。"""
         aid = self.w.insert_claim(s, line=line)
         for state in path:
@@ -267,7 +267,7 @@ class Hours(Base):
         self.assertEqual(self.reason(s), "outside_hours")
 
     def test_ng_hours_are_not_called(self):
-        """NG時間（2026-10-15 ユーザー）：かけてよい時間帯の内でも、依頼主・業務ごとのNG時間にはかけない。"""
+        """NG時間（2026-10-15 ユーザー）：かけてよい時間帯の内でも、依頼者・業務ごとのNG時間にはかけない。"""
         s = self.ready()
         self.put_client(s, "calling.ng_hours", ALL_DAY)                 # 1日じゅうNG
         self.assertEqual(self.reason(s), "outside_hours")
@@ -279,7 +279,7 @@ class Hours(Base):
         self.assertEqual(hours["mon"], [["00:00", "24:00"]])
 
     def test_callee_named_time_may_fall_in_ng_hours(self):
-        """相手が自分で指定した時刻なら、NG時間でもかける。その日のその枠の中だけ（2026-10-15 ユーザー）。"""
+        """お客様が自分で指定した時刻なら、NG時間でもかける。その日のその枠の中だけ（2026-10-15 ユーザー）。"""
         s = self.ready()
         self.put_client(s, "calling.ng_hours", ALL_DAY)                     # いまはNG時間
         now = self.tx(s, lambda tx: tx.one("SELECT now() AS t, salescall.jst(now()) AS local"))
@@ -292,7 +292,7 @@ class Hours(Base):
         sched(now["t"] - timedelta(days=1))
         self.assertEqual(self.reason(s), "outside_hours")                    # 前の日に言われた時刻：日がずれたら控える
         sched(now["t"])
-        self.assertIsInstance(self.claim(s), gate.Claim)                    # 相手が指定した時刻
+        self.assertIsInstance(self.claim(s), gate.Claim)                    # お客様が指定した時刻
 
     def test_callee_time_only_on_promised_calls(self):
         s = self.ready()
@@ -363,7 +363,7 @@ class Pacing(Base):
         self.assertEqual(self.reason(s), "unknown_result_interval")
 
     def test_unknown_result_before_answer_needs_no_long_wait(self):
-        """相手が出る前の結果不明は、誰とも話していない：検証も長い間隔も要らない（通信の問題で繋がらなかった扱い）。"""
+        """お客様が出る前の結果不明は、誰とも話していない：検証も長い間隔も要らない（通信の問題で繋がらなかった扱い）。"""
         s = self.ready()
         self.past_attempt(s, ["dialing", "technical_error"])
         self.assertIsInstance(self.claim(s), gate.Claim)
@@ -389,18 +389,18 @@ class Pacing(Base):
         self.override("gate.same_contact_min_interval", 1)
         self.past_attempt(s, ["dialing", "no_answer"])
         time.sleep(1.1)
-        self.assertIsInstance(self.claim(s), gate.Claim)   # 同じ依頼主の再発信に、依頼主をまたいだ間隔はかからない
+        self.assertIsInstance(self.claim(s), gate.Claim)   # 同じ依頼者の再発信に、依頼者をまたいだ間隔はかからない
 
 
 class NotByCallee(Base):
     """2026-10-14 ユーザー決定：最小の間隔（5分）・1日の回数（2回）の対象外。
-    相手と約束したかけ直し／通信の問題などで繋がらなかった／相手の意思と関係なく切れた発信。"""
+    お客様と約束したかけ直し／通信の問題などで繋がらなかった／お客様の意思と関係なく切れた発信。"""
 
     def test_failed_or_interrupted_calls_do_not_count(self):
         interrupted = CallReport(("target",), False, False, False, False, None, None, Cut("callee", False, False))
         line_cut = CallReport(("target",), False, False, False, False, None, None, Cut(None, False, False))
         for path, side, rep in ((["dialing", "call_failed"], None, None), (["dialing", "technical_error"], None, None),
-                                (["dialing", "answered", "dropped"], "unknown", interrupted),   # 相手の言葉が途中で途切れた
+                                (["dialing", "answered", "dropped"], "unknown", interrupted),   # お客様の言葉が途中で途切れた
                                 (["dialing", "answered", "dropped"], "line", line_cut)):        # 回線の側で切れた
             with self.subTest(path=path, side=side):
                 s = self.ready()
@@ -410,7 +410,7 @@ class NotByCallee(Base):
 
     def test_normal_ends_still_count(self):
         s = self.ready()
-        self.past_attempt(s, ["dialing", "answered", "dropped"], side="callee", verify="done")   # 締めのあとに相手が切った
+        self.past_attempt(s, ["dialing", "answered", "dropped"], side="callee", verify="done")   # 締めのあとにお客様が切った
         self.assertEqual(self.reason(s), "same_contact_interval")
 
     def test_promised_callback_skips_interval_and_daily_limit(self):
@@ -419,7 +419,7 @@ class NotByCallee(Base):
         self.past_attempt(s, ["dialing", "no_answer"])
         self.assertIn(self.reason(s), ("same_contact_interval", "daily_attempts"))   # ふつうの予定なら、どちらも止める
         self.tx(s, lambda tx: next_action.schedule_call(tx, s["task"], tx.one("SELECT now() AS t")["t"],
-                                                        contact_id=s["contact"], cause="相手に頼まれた折り返し", promised=True))
+                                                        contact_id=s["contact"], cause="お客様に頼まれた折り返し", promised=True))
         self.assertIsInstance(self.claim(s), gate.Claim)
 
     def test_one_way_of_counting_for_every_limit(self):
@@ -434,7 +434,7 @@ class NotByCallee(Base):
         self.past_attempt(s2, ["dialing", "no_answer"])             # 出なかった：数える
         self.assertEqual(self.reason(s2), "max_attempts")
         self.tx(s2, lambda tx: next_action.schedule_call(tx, s2["task"], tx.one("SELECT now() AS t")["t"],
-                                                         contact_id=s2["contact"], cause="相手に頼まれた折り返し", promised=True))
+                                                         contact_id=s2["contact"], cause="お客様に頼まれた折り返し", promised=True))
         self.assertIsInstance(self.claim(s2), gate.Claim)           # 約束したかけ直しは、回数の上限でも止めない
 
     def test_promised_callback_still_respects_other_rules(self):
@@ -601,7 +601,7 @@ class ExpiredClaimsDoNotUseCapacity(Base):
         self.override("gate.claim_lifetime", 1)
         stale = self.ready()
         self.assertIsInstance(self.claim(stale), gate.Claim)
-        time.sleep(1.2)                       # 期限が切れた（取り消されるのは、その相手・番号・回線の次の予約のとき）
+        time.sleep(1.2)                       # 期限が切れた（取り消されるのは、そのお客様・番号・回線の次の予約のとき）
         fresh = self.ready()
         self.capacity_of(1)
         self.put_client(fresh, "calling.max_concurrent_calls", 1)

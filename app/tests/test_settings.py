@@ -77,14 +77,14 @@ class Shapes(unittest.TestCase):
                 "INSERT INTO salescall.setting_values (key, scope, tenant_id, client_id, value, status, rationale,"
                 " review_when, set_by) VALUES ('gate.claim_lifetime', 'client', %s, %s, '60', 'decided', 'x', 'x', 'x')",
                 (t, c)))
-        # 範囲の重なりで合成する設定（時間帯）は、依頼主ごとの設定で狭められる
+        # 範囲の重なりで合成する設定（時間帯）は、依頼者ごとの設定で狭められる
         w.a.in_client(OPERATOR, t, c, lambda tx: tx.execute(
             "INSERT INTO salescall.setting_values (key, scope, tenant_id, client_id, value, status, rationale,"
-            " review_when, set_by) VALUES ('calling.hours', 'client', %s, %s, %s, 'decided', '依頼主の営業時間', 'x', 'x')",
+            " review_when, set_by) VALUES ('calling.hours', 'client', %s, %s, %s, 'decided', '依頼者の営業時間', 'x', 'x')",
             (t, c, '{"mon": [["10:00","17:00"]], "tue": [], "wed": [], "thu": [], "fri": [], "sat": [], "sun": [], "holiday": []}')))
 
     def test_business_hours_may_cross_midnight(self):
-        """営業時間は日をまたいでよい（深夜営業 18:00〜翌03:00。2026-10-15 ユーザー）。依頼主ごとに入れられる。"""
+        """営業時間は日をまたいでよい（深夜営業 18:00〜翌03:00。2026-10-15 ユーザー）。依頼者ごとに入れられる。"""
         w = World(); t = w.tenant(); c = w.client(t)
         w.a.in_client(OPERATOR, t, c, lambda tx: tx.execute(
             "INSERT INTO salescall.setting_values (key, scope, tenant_id, client_id, value, status, rationale,"
@@ -116,7 +116,7 @@ class SystemValuesByAdmin(unittest.TestCase):
         with self.assertRaises(Rejected):
             a.in_system(OPERATOR, lambda tx: usage.set_price(tx, source="line", unit="seconds", yen_per_unit=Decimal(0),
                                                              valid_from="2026-01-02", note="試験"))
-        w = World(); t = w.tenant(); c = w.client(t)                   # 依頼主ごとの値は、契約者が入れられる
+        w = World(); t = w.tenant(); c = w.client(t)                   # 依頼者ごとの値は、契約者が入れられる
         w.a.in_client(OPERATOR, t, c, lambda tx: tx.execute(
             "INSERT INTO salescall.setting_values (key, scope, tenant_id, client_id, value, status, rationale, review_when,"
             " set_by) VALUES ('retry.max_attempts_per_task', 'client', %s, %s, '2', 'decided', '試験', '試験', '試験')",
@@ -153,7 +153,7 @@ class AppendOnly(unittest.TestCase):
 def put(w, t, c, key, value, *, scope="client", business=None):
     w.a.in_client(OPERATOR, t, c, lambda tx: tx.execute(
         "INSERT INTO salescall.setting_values (key, scope, tenant_id, client_id, business_id, value, status, rationale,"
-        " review_when, set_by) VALUES (%s, %s, %s, %s, %s, %s, 'decided', '依頼主の設定（試験）', '試験', '試験')",
+        " review_when, set_by) VALUES (%s, %s, %s, %s, %s, %s, 'decided', '依頼者の設定（試験）', '試験', '試験')",
         (key, scope, t, c, business, json.dumps(value))))
 
 
@@ -187,8 +187,8 @@ class UserDecisions(unittest.TestCase):
 
 
 class PerClientSettings(unittest.TestCase):
-    """依頼主タブごとに設定できる。2026-10-13 ユーザー：「川下の方が強くないと、依頼主ごとの意味がない」
-    ⇒ 業務 ＞ 依頼主 ＞ 契約者 ＞ システム の順で上書き。超えられない枠を持つ設定だけ、枠の内側に収める。"""
+    """依頼者タブごとに設定できる。2026-10-13 ユーザー：「川下の方が強くないと、依頼主ごとの意味がない」
+    ⇒ 業務 ＞ 依頼者 ＞ 契約者 ＞ システム の順で上書き。超えられない枠を持つ設定だけ、枠の内側に収める。"""
 
     def setUp(self):
         self.w = World(); self.t = self.w.tenant(); self.c = self.w.client(self.t)
@@ -224,7 +224,7 @@ class PerClientSettings(unittest.TestCase):
                          {"value": 3600, "from": "client", "bounded_by": "gate.unknown_result_min_interval_floor"})
 
     def test_calling_hours_follow_the_client_inside_the_frame(self):
-        """2026-10-13 ユーザー：日祝も含め、依頼主ごとに自由に。歯止めは深夜・早朝（毎日 7〜22時）だけ。"""
+        """2026-10-13 ユーザー：日祝も含め、依頼者ごとに自由に。歯止めは深夜・早朝（毎日 7〜22時）だけ。"""
         put(self.w, self.t, self.c, "calling.hours", {
             "mon": [["06:00", "12:00"], ["13:00", "23:00"]], "tue": [["10:00", "17:00"]], "wed": [], "thu": [["09:00", "18:00"]],
             "fri": [["09:00", "18:00"]], "sat": [["09:00", "18:00"]], "sun": [["10:00", "16:00"]], "holiday": [["10:00", "16:00"]]})
@@ -241,7 +241,7 @@ class PerClientSettings(unittest.TestCase):
         self.assertIsNone(self.detail("calling.hours")["bounded_by"])
 
     def test_concurrent_calls_follow_the_client(self):
-        """依頼主ごとの本数は上書き（全体の本数は、門が会話AIの枠と回線の数で絞る。写しの外枠は持たない＝15-2 の34）。"""
+        """依頼者ごとの本数は上書き（全体の本数は、門が会話AIの枠と回線の数で絞る。写しの外枠は持たない＝15-2 の34）。"""
         put(self.w, self.t, self.c, "calling.max_concurrent_calls", 10)
         self.assertEqual(self.detail("calling.max_concurrent_calls"), {"value": 10, "from": "client", "bounded_by": None})
 

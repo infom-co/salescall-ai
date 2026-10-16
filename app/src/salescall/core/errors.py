@@ -77,7 +77,7 @@ class ErrorReport:
     """起きたエラー（呼び出し元が、分かったことをそのまま渡す。推測で埋めない）。"""
     source: str                    # SOURCES のどれか
     code: int | None               # 閉じる番号など（無ければ None）
-    message: str | None            # 文面（相手の発話・番号を入れない。エラーの文面だけ）
+    message: str | None            # 文面（お客様の発話・番号を入れない。エラーの文面だけ）
     unreachable: bool = False      # つながらなかった（接続を開けない・応答が無い・時間切れ）と、呼び出し元が確かに言える
 
 

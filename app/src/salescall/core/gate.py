@@ -1,4 +1,4 @@
-"""発信の門（Q2「今この相手にかけてよいか」）。持ち主 CL-2。DESIGN.md 5-2・5-2-1。
+"""発信の門（Q2「今このお客様にかけてよいか」）。持ち主 CL-2。DESIGN.md 5-2・5-2-1。
 
 - **判定と予約を1つの取引で行う**（直列化の水準。読み書きの層が始め、ぶつかったら最初からやり直す）。すべて通ったときだけ
   試行（予約 `claimed`）を作り、予約証を返す。**1つでも判断できなければ通さない**（設定が無い・暦の範囲の外・材料が無い）。
@@ -9,9 +9,9 @@
 - 不許可は、理由の名前（下の REASONS が一覧の正本）を返し、記録に残す（画面で理由ごとに数える）。理由の種類：
   permanent＝待っても変わらない（次の動きは終える）／wait＝待てば変わる（次の動きは待ってかけ直す）／
   cannot_judge＝判断の材料が無い（通さない。契約者が直す。暦の取り込み・設定の値・業務の版）。
-- 依頼主の範囲の外（ほかの依頼主・契約者の試行）は、中身を返さない確かめの関数だけで見る（「同じ契約者か、外か」だけ）。
+- 依頼者の範囲の外（ほかの依頼者・契約者の試行）は、中身を返さない確かめの関数だけで見る（「同じ契約者か、外か」だけ）。
 - **どの番号へかけるか**は、いまの予定（次の動きの記録の最新）が持つ番号（行の番号の表にある番号だけ。DESIGN.md 3-5）。
-  門は決め直さない。「同じ相手」は、かける番号が同じ発信と、同じ行（一覧の1行）の発信の両方（番号を変えて回数を増やさない）。
+  門は決め直さない。「同じお客様」は、かける番号が同じ発信と、同じ行（一覧の1行）の発信の両方（番号を変えて回数を増やさない）。
 """
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ REASONS: dict[str, tuple[str, str]] = {
     "number_kind_not_allowed": ("この業務の設定でかけない種類の番号です", "permanent"),
     "dnc_client": ("発信禁止です", "permanent"),
     "dnc_system": ("システム共通の発信禁止です", "permanent"),
-    "dnc_client_ref": ("この管理番号の相手は発信禁止です", "permanent"),
+    "dnc_client_ref": ("この管理番号のお客様は発信禁止です", "permanent"),
     "max_attempts": ("この行に発信してよい回数を使い切りました", "permanent"),
     "no_version": ("実施回に業務設定の版が割り当てられていません", "cannot_judge"),
     "rules_missing": ("この版の業務の決まり（断りの答え・理由×扱い・再発信の方針）がありません", "cannot_judge"),
@@ -50,32 +50,32 @@ REASONS: dict[str, tuple[str, str]] = {
     "stopped": ("止まっています", "wait"),
     "outside_hours": ("かけてよい時間帯の外です", "wait"),
     "calendar_out_of_range": ("祝日の暦が無い日です", "cannot_judge"),
-    "related_unsettled": ("この相手にかかわる前の発信の締め（断られたかの確かめ）が、まだ済んでいません", "wait"),
-    "same_contact_interval": ("同じ相手への前の発信から、間隔が空いていません", "wait"),
+    "related_unsettled": ("このお客様にかかわる前の発信の締め（断られたかの確かめ）が、まだ済んでいません", "wait"),
+    "same_contact_interval": ("同じお客様への前の発信から、間隔が空いていません", "wait"),
     "unknown_result_interval": ("結果が分からない前の発信から、間隔が空いていません", "wait"),
-    "daily_attempts": ("同じ相手へ、今日かけてよい回数を使い切りました", "wait"),
-    "cross_client_interval_same_tenant": ("ほかの依頼主が同じ番号へかけたばかりです", "wait"),
+    "daily_attempts": ("同じお客様へ、今日かけてよい回数を使い切りました", "wait"),
+    "cross_client_interval_same_tenant": ("ほかの依頼者が同じ番号へかけたばかりです", "wait"),
     "cross_client_interval_other_tenant": ("同じ番号へかけたばかりです", "wait"),   # 契約者の外は、中身を出さない
     "line_unknown": ("その回線はありません", "cannot_judge"),
     "line_not_leased": ("回線を借りていません（または、借用の期限が予約証より先に切れます）", "wait"),
     "line_daily_limit": ("この回線の、今日の発信の上限に達しました", "wait"),
     "line_busy": ("回線が使用中です", "wait"),
-    "client_concurrency": ("この依頼主の同時の本数の上限です", "wait"),
+    "client_concurrency": ("この依頼者の同時の本数の上限です", "wait"),
     "ai_capacity": ("会話AIの枠がいっぱいです", "wait"),
-    "contact_active": ("同じ番号の相手（この依頼主の別の行を含む）に、進行中の発信があります", "wait"),
+    "contact_active": ("同じ番号のお客様（この依頼者の別の行を含む）に、進行中の発信があります", "wait"),
     "task_active": ("この行（ほかの番号を含む）に、進行中の発信があります", "wait"),
     "number_active_same_client": ("同じ番号に、進行中の発信があります", "wait"),
-    "number_active_same_tenant": ("同じ番号に、ほかの依頼主の進行中の発信があります", "wait"),
+    "number_active_same_tenant": ("同じ番号に、ほかの依頼者の進行中の発信があります", "wait"),
     "number_active_other_tenant": ("同じ番号に、進行中の発信があります", "wait"),   # 契約者の外は、中身を出さない
     "setting_missing": ("設定の値が決まっていません", "cannot_judge"),
 }
 
 _DIALED = "state NOT IN ('claimed', 'released')"   # 発信まで進んだ試行（回数・間隔に数えるのは、これだけ。5-2-1 の8）
-# 同じ相手への最小の間隔・1日の回数に数える発信：相手の意思と関係なく繋がらなかった・切れたものは数えない（2026-10-14 ユーザー決定。
+# 同じお客様への最小の間隔・1日の回数に数える発信：お客様の意思と関係なく繋がらなかった・切れたものは数えない（2026-10-14 ユーザー決定。
 # 決まりはデータベースの1か所 salescall.not_by_callee）
 _COUNTED = _DIALED + " AND NOT salescall.not_by_callee(state, disconnect, attempt_id)"
 _DIALED_A = "a.state NOT IN ('claimed', 'released')"   # 同じ決まり（表の別名つき）
-_SAME = "(contact_id = %s OR task_id = %s)"             # 同じ相手：かける番号が同じ発信、または同じ行の発信
+_SAME = "(contact_id = %s OR task_id = %s)"             # 同じお客様：かける番号が同じ発信、または同じ行の発信
 
 
 @dataclass(frozen=True)
@@ -100,11 +100,11 @@ class Denied:
 
 @dataclass(frozen=True)
 class Pacing:
-    """回数と間隔（5-2-1 の8）。earliest が None ＝ この相手にかかわる前の発信の締め待ち（いつかけられるか、まだ決まらない）。"""
+    """回数と間隔（5-2-1 の8）。earliest が None ＝ このお客様にかかわる前の発信の締め待ち（いつかけられるか、まだ決まらない）。"""
     remaining: int
     earliest: datetime | None
     binding: str | None    # earliest を決めた理由の名前（今すぐかけられるなら None）
-    promised: bool         # いまの予定が、相手と約束したかけ直しか（回数の上限・最小の間隔・1日の回数の対象外）
+    promised: bool         # いまの予定が、お客様と約束したかけ直しか（回数の上限・最小の間隔・1日の回数の対象外）
 
 
 def _deny(reason: str) -> Denied:
@@ -137,7 +137,7 @@ def _hours_settings(tx: Tx, scope: dict[str, Any]) -> tuple[dict, dict]:
 def calling_hours_for(tx: Tx, *, tenant_id: UUID, client_id: UUID, business_id: UUID | None,
                       callee_time: bool = False) -> dict:
     """かけてよい時間帯（曜日・祝日ごと）。ふつうは、かけてよい時間帯から NG時間を引いた残り（次の始まりを探すのに使う）。
-    callee_time＝相手が自分で指定した時刻を確かめるとき（会話の側の確かめなど）：NG時間を引かない
+    callee_time＝お客様が自分で指定した時刻を確かめるとき（会話の側の確かめなど）：NG時間を引かない
     （2026-10-15 ユーザー：「NG時間は通常は控えるが、相手が自分で指定した時刻なら、かけてよい」）。"""
     hours, ng = _hours_settings(tx, dict(tenant_id=tenant_id, client_id=client_id, business_id=business_id))
     return hours if callee_time else calling_hours.subtract(hours, ng)
@@ -149,8 +149,8 @@ def _setting(tx: Tx, key: str, task: dict[str, Any]) -> Any:
 
 
 def _pacing(tx: Tx, task: dict[str, Any], now: datetime, assume_promised: bool | None = None) -> Pacing:
-    # 「かけた回数」の数え方は1つ（行の回数の上限・1日の回数・最小の間隔のどれも）：相手の意思と関係なく繋がらなかった・
-    # 切れた発信は数えない。相手と約束したかけ直しは、どの上限でも止めない（2026-10-14 ユーザー：「ほぼ同じことでしょ。統一」）
+    # 「かけた回数」の数え方は1つ（行の回数の上限・1日の回数・最小の間隔のどれも）：お客様の意思と関係なく繋がらなかった・
+    # 切れた発信は数えない。お客様と約束したかけ直しは、どの上限でも止めない（2026-10-14 ユーザー：「ほぼ同じことでしょ。統一」）
     counted = tx.one(f"SELECT count(*) AS n FROM salescall.attempts WHERE task_id = %s AND {_COUNTED}",
                      (task["task_id"],))["n"]
     remaining = max(0, int(_setting(tx, "retry.max_attempts_per_task", task)) - counted)
@@ -163,7 +163,7 @@ def _pacing(tx: Tx, task: dict[str, Any], now: datetime, assume_promised: bool |
     # 締めがまだの発信が、もし断られていたら、この番号（管理番号）も止める ⇒ 締めが済むまで待つ（発信禁止の広げ方の1か所を読む）
     if dnc.unsettled_reach_covers(tx, task["phone_e164"], client_ref=task["client_ref"]):
         return Pacing(remaining, None, "related_unsettled", promised)
-    same = (task["contact_id"], task["task_id"])   # 同じ相手＝かける番号が同じ発信、または同じ行の発信
+    same = (task["contact_id"], task["task_id"])   # 同じお客様＝かける番号が同じ発信、または同じ行の発信
     limits: list[tuple[datetime, str]] = []
     if not promised:
         last = tx.one(f"SELECT max(ended_at) AS at FROM salescall.attempts WHERE {_SAME} AND {_COUNTED}", same)["at"]
@@ -176,7 +176,7 @@ def _pacing(tx: Tx, task: dict[str, Any], now: datetime, assume_promised: bool |
             f"  AND salescall.jst(claimed_at)::date = salescall.jst(now())::date", same)
         if today["n"] >= int(_setting(tx, "gate.max_dials_per_contact_per_day", task)):
             limits.append((today["tomorrow"], "daily_attempts"))
-    # 結果不明のあとの長い間隔は、相手が出たあと（話していたかもしれない）の結果不明だけ（相手が出る前なら、誰とも話していない）
+    # 結果不明のあとの長い間隔は、お客様が出たあと（話していたかもしれない）の結果不明だけ（お客様が出る前なら、誰とも話していない）
     unknown = tx.one(f"SELECT max(ended_at) AS at FROM salescall.attempts WHERE {_SAME} AND state = 'technical_error'"
                      " AND salescall.reached_answer(attempt_id)", same)["at"]
     if unknown is not None:
@@ -203,7 +203,7 @@ def counted_dial_times(tx: Tx, task_id: UUID, *, purpose: str) -> list[datetime]
 def pacing(tx: Tx, task_id: UUID, *, contact_id: UUID | None = None, promised: bool | None = None) -> Pacing:
     """その行（タスク）の、残りの回数と、次にかけてよい最も早い時刻（門・次の動き・画面が読む1か所）。
     contact_id：その番号へかける場合で数える（次の動きが、決める前に使う）。None ならいまの予定の番号。
-    promised：次の予定を「相手と約束したかけ直し」にした場合で数える（同上）。None ならいまの予定のまま。"""
+    promised：次の予定を「お客様と約束したかけ直し」にした場合で数える（同上）。None ならいまの予定のまま。"""
     task = _task(tx, task_id, contact_id)
     return _pacing(tx, task, tx.one("SELECT now() AS now")["now"], promised)
 
@@ -279,7 +279,7 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
     if not ok:
         return _deny(why)
 
-    # (5) 止まっているか（全体・契約者・依頼主・業務・回線）
+    # (5) 止まっているか（全体・契約者・依頼者・業務・回線）
     open_now = stops.open_stops(tx, tenant_id=task["tenant_id"], client_id=task["client_id"],
                                 business_id=task["business_id"], line_id=line_id)
     if apology:
@@ -310,7 +310,7 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
     if dials >= int(_setting(tx, "line.max_dials_per_day", task)):
         return _deny("line_daily_limit")
 
-    # (9) 同時の本数：依頼主ごとの上限と、全体の会話AIの枠（5-2 の9。全依頼主で共有）
+    # (9) 同時の本数：依頼者ごとの上限と、全体の会話AIの枠（5-2 の9。全依頼者で共有）
     active = tx.one("SELECT count(*) AS n FROM salescall.attempts WHERE salescall.is_live(state, claim_expires_at)")["n"]
     if active >= int(_setting(tx, "calling.max_concurrent_calls", task)):
         return _deny("client_concurrency")
@@ -319,7 +319,7 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
     if tx.one("SELECT salescall.active_attempts_total() AS n")["n"] >= capacity:
         return _deny("ai_capacity")
 
-    # (10) 予約。同じ相手・番号・回線の進行中は、データベースの部分一意が拒む（その部分だけ取り消して理由を返す）
+    # (10) 予約。同じお客様・番号・回線の進行中は、データベースの部分一意が拒む（その部分だけ取り消して理由を返す）
     try:
         with tx.savepoint():
             row = tx.one(

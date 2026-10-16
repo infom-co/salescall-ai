@@ -3,8 +3,11 @@
 - 出来事を台帳に入れるのは、この部品の `emit` だけ（I-12。app/checks が見張る）。停止・品質の段・締め・暦の取り込みなどは、
   出来事を入れるだけで、自分で送らない（同じ知らせが二重に届く・漏れるのを防ぐ）。
 - 同じ出来事は1回だけ（出来事の鍵 `key`。同じ鍵で2回呼んでも1つ）。鍵は出来事そのものを指す名前にする（例 "stop:123"）。
-- 契約者・依頼主は取引のものをそのまま使う（全体の取引なら全体の出来事）。
-- 要約に、相手の電話番号・名前・発話の中身を入れない（画面と知らせに出す。中身は refs の ID で指す。CL-3 の 4-1e の5）。
+- 契約者・依頼者は取引のものをそのまま使う（全体の取引なら全体の出来事）。
+- **管理者あて**（`admin=True`。2026-10-16 ユーザー承認）：プログラムの誤り・エラーの一覧など、直せるのが管理者だけの出来事は、
+  契約者の台帳に入れるのと同じ呼び出しで、管理者あての写しも入れる（契約者を持たない行。読めるのは管理者と送る処理だけ。0027）。
+  どの出来事を管理者に知らせるかは、呼ぶ側の決まった1か所（判定できない原因＝`judge.PROGRAM_CAUSES`、エラー＝すべて）が決める。
+- 要約に、お客様の電話番号・名前・発話の中身を入れない（画面と知らせに出す。中身は refs の ID で指す。CL-3 の 4-1e の5）。
   要約は、この部品を呼ぶ処理が、決まった言葉と ID・数から作る（会話の文字をそのまま入れない）。
 """
 
@@ -33,10 +36,14 @@ class UnknownKind(Exception):
     """一覧に無い種類。"""
 
 
-def emit(tx: Tx, kind: str, *, key: str, summary: str, refs: dict[str, Any] | None = None) -> bool:
-    """出来事を台帳に入れる（取引の契約者・依頼主の出来事）。新しく入れたら True、同じ鍵がもうあれば False。"""
+def emit(tx: Tx, kind: str, *, key: str, summary: str, refs: dict[str, Any] | None = None, admin: bool = False) -> bool:
+    """出来事を台帳に入れる（取引の契約者・依頼者の出来事）。admin＝管理者あての写しも入れる。新しく入れたら True、同じ鍵が
+    もうあれば False。"""
     if kind not in KINDS:
         raise UnknownKind(kind)
+    if admin:
+        tx.one("SELECT salescall.notify_admin(%s, %s, %s, %s)",
+               (kind, key, summary, json.dumps(refs or {}, ensure_ascii=False, default=str)))
     row = tx.one(
         "INSERT INTO salescall.notification_events (tenant_id, client_id, kind, event_key, summary, refs)"
         " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s)"

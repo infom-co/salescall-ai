@@ -1,7 +1,7 @@
 """業務設定の取込（引き継ぎの (10)。Intent.md 6-1 の方式B・6-4・6-5・6-8）。持ち主 CL-2。
 
 入口ごとに、業務設定の1つの形（core/business_settings.py の `check` が受ける形）にするだけ。入口は、Excel のファイル
-（標準のひな形。シートと列の名前は、依頼主の形に合わせて対応付けられる＝`preview`）と、依頼主の画面から抜き出したもの・画面の
+（標準のひな形。シートと列の名前は、依頼者の形に合わせて対応付けられる＝`preview`）と、依頼者の画面から抜き出したもの・画面の
 入力（同じ形を作って `review` に渡す。2026-10-16 ユーザー：「依頼主の画面から抽出する場合もある」）。**どの入口も `review`
 （確かめ）と `register_reviewed`（登録）の同じ道を通る**。確かめそのものは business_settings の1か所。ファイルを読むのは
 core/import_files.py。
@@ -46,7 +46,7 @@ SHEETS: dict[str, tuple[str, dict[str, str], bool]] = {
     "forbidden": ("言ってはいけないこと", {"key": "名前", "say_not": "言ってはいけないこと", "correct": "正しい案内"}, False),
     "names": ("名前", {"text": "表記", "reading": "読み"}, False),
 }
-BASIC_ITEMS = {"業務の目的": "purpose", "相手の区分": "target_class", "自社名": "company", "自社名の読み": "company_reading", "担当者名": "person",
+BASIC_ITEMS = {"業務の目的": "purpose", "お客様の区分": "target_class", "自社名": "company", "自社名の読み": "company_reading", "担当者名": "person",
                "担当者名の読み": "person_reading", "用件の一文": "purpose_line", "目的のお客様": "target_kind",
                "目的のお客様の役職": "target_role", "忙しいと言われたときの一言": "busy_line", "声の型": "voice"}
 LABELS: dict[str, dict[str, str]] = {
@@ -152,7 +152,7 @@ def _to_raw(sheets: dict[str, tuple[Sheet, dict[str, int]]], problems: list[str]
         else:
             basic[item] = v.get("value")
     tkind = _label("target_kind", basic.get("target_kind"), "シート「基本」の目的のお客様", problems)
-    tclass = _label("target_class", basic.get("target_class"), "シート「基本」の相手の区分", problems)
+    tclass = _label("target_class", basic.get("target_class"), "シート「基本」のお客様の区分", problems)
 
     questions, decline = [], {}
     for row_no, v in _rows(sheets, "questions", problems):
@@ -254,7 +254,7 @@ UnitDecider = Callable[[list[str]], dict[str, str]]
 def review(tx: Tx, business_id: UUID, raw: dict[str, Any], *, confirmed_names: Any = (),
            suggest_readings: ReadingSuggester | None = None, decide_units: UnitDecider | None = None,
            problems: list[str] | None = None) -> Preview:
-    """業務設定の形を確かめる（どの入口も、ここを通る：ファイル・依頼主の画面から抜き出したもの・画面の入力）。何も書かない。
+    """業務設定の形を確かめる（どの入口も、ここを通る：ファイル・依頼者の画面から抜き出したもの・画面の入力）。何も書かない。
     - 名前の読み：契約者が確かめた読み（confirmed_names＝(表記, 読み) の並び。契約者が直した読みも、ここで渡す）＞入口が持ってきた読み＞
       AI の読みの案（suggest_readings）の順で使い、どれで決めたかを `reading_by` に残す。AI の案を契約者が確かめるか（検証モード）は
       business_settings が決め、確かめていなければ問題に出る。名乗りの自社名・担当者名の読みも、名前の一覧と同じ読みにそろえる。

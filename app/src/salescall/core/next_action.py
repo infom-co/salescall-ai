@@ -10,8 +10,8 @@
   - 決める予定は、門の最も早い時刻より前にしない（門で止まるだけの予定を作らない）。
   - 門で止められた理由が「前の発信の締めがまだ」「予定の時刻より前」なら、何も書かない（締めより先に予定を書き直さない）。
 - **どの番号へかけるかも、ここだけが決める**（`choose_number`。DESIGN.md 3-5）。予定（かけ直す）は必ず番号を持ち、門はその番号へ
-  かける。決め方：相手が「別の番号にかけ直して」と言った ⇒ その番号（業務の設定で「かけない」・かけない理由がある ⇒ 終える。
-  番号は記録して依頼主へ渡す）／それ以外 ⇒ いまかけた番号のまま（門で止められたあとは、いまの予定の番号のまま）。
+  かける。決め方：お客様が「別の番号にかけ直して」と言った ⇒ その番号（業務の設定で「かけない」・かけない理由がある ⇒ 終える。
+  番号は記録して依頼者へ渡す）／それ以外 ⇒ いまかけた番号のまま（門で止められたあとは、いまの予定の番号のまま）。
   最初の予定（取込）は一覧の番号。
 """
 
@@ -70,7 +70,7 @@ def _append(tx: Tx, task_id: UUID, *, call_at: datetime | None, end_reason: str 
                                or (target.purpose == "ask_number_again") != (target.wrong_contact_id is not None)):
         raise ValueError("発信の目的は normal か ask_number_again（聞き直しは、番号違いだった番号を必ず持つ）")
     if callee_at is not None and not (calls and promised):
-        raise ValueError("相手が指定した時刻を持てるのは、約束したかけ直しだけです")
+        raise ValueError("お客様が指定した時刻を持てるのは、約束したかけ直しだけです")
     lock(tx, task_id)  # 同じタスクへの追記を1つずつ順にする（tasks.py の説明）
     row = tx.one(
         "INSERT INTO salescall.task_next_actions (tenant_id, client_id, task_id, seq, kind, call_at, end_reason, cause,"
@@ -89,10 +89,10 @@ def _append(tx: Tx, task_id: UUID, *, call_at: datetime | None, end_reason: str 
 
 def schedule_call(tx: Tx, task_id: UUID, call_at: datetime, *, contact_id: UUID, cause: str, promised: bool,
                   purpose: str = "normal", wrong_contact_id: UUID | None = None, callee_at: datetime | None = None) -> int:
-    """かけ直す（日時・かける先）を記録する。promised＝相手と約束したかけ直し（相手に頼まれた・こちらが約束した）か。
-    約束したかけ直しは、門の「同じ相手への最小の間隔・1日の回数」の対象外（2026-10-14 ユーザー決定）。
+    """かけ直す（日時・かける先）を記録する。promised＝お客様と約束したかけ直し（お客様に頼まれた・こちらが約束した）か。
+    約束したかけ直しは、門の「同じお客様への最小の間隔・1日の回数」の対象外（2026-10-14 ユーザー決定）。
     contact_id：かける番号（その行の番号の表にある番号だけ。データベースも守る）。purpose：発信の目的（PURPOSES）。
-    callee_at：相手が自分で指定した時刻（その時刻を含むその日のNG時間の枠の中は、NG時間でもかけてよい）。"""
+    callee_at：お客様が自分で指定した時刻（その時刻を含むその日のNG時間の枠の中は、NG時間でもかけてよい）。"""
     return _append(tx, task_id, call_at=call_at, end_reason=None, cause=cause, promised=promised,
                    target=Target(contact_id, None, purpose, wrong_contact_id), callee_at=callee_at)
 
@@ -128,11 +128,11 @@ END_STATES = frozenset({"completed", "declined", "do_not_call", "out_of_scope", 
 class Decision:
     kind: str                    # call / end / hold（判定待ち）
     at: datetime | None          # call のとき
-    promised: bool | None        # call のとき：相手と約束したかけ直しか
+    promised: bool | None        # call のとき：お客様と約束したかけ直しか
     end_reason: str | None       # end のとき
     rule: str                    # どの決まりで決めたか（記録の cause に残す）
     target: Target | None = None     # call のとき：かける先（番号・目的）
-    callee_at: datetime | None = None    # call のとき：相手が自分で指定した時刻（NG時間でもかけてよい根拠）
+    callee_at: datetime | None = None    # call のとき：お客様が自分で指定した時刻（NG時間でもかけてよい根拠）
 
     @property
     def contact_id(self) -> UUID | None:
@@ -153,7 +153,7 @@ def _hold(rule: str) -> Decision:
 
 @dataclass(frozen=True)
 class Alternate:
-    """相手が「別の番号にかけ直して」と言ったときの材料（締めの処理が集める）。"""
+    """お客様が「別の番号にかけ直して」と言ったときの材料（締めの処理が集める）。"""
     contact_id: UUID | None      # 行の番号に足した連絡先（そろえられない番号なら None）
     allowed: bool                # 業務の設定 callback.call_alternate_number（かけ直すか）
     blocked: str | None          # その番号へかけない理由の名前（target_policy の1か所。そろえられない番号は number_unknown）
@@ -161,7 +161,7 @@ class Alternate:
 
 @dataclass(frozen=True)
 class Recheck:
-    """相手が言った番号が番号違いだったときの材料（締めの処理が集める。番号の確かめ＝core/number_recheck.py）。"""
+    """お客様が言った番号が番号違いだったときの材料（締めの処理が集める。番号の確かめ＝core/number_recheck.py）。"""
     outcome: str                         # misheard / as_said / cannot_check
     corrected: Alternate | None          # 聞き違いのとき：正しい番号（行に足したもの）とその材料
     source_contact_id: UUID              # 番号を聞いた通話でかけた番号（聞き直しはここへかける）
@@ -170,7 +170,7 @@ class Recheck:
 
 def _alternate_target(alt: Alternate) -> Target:
     if not alt.allowed:
-        return Target(None, "alternate_not_called")          # 業務の設定でかけない：番号を記録して依頼主へ渡すだけ（3-5）
+        return Target(None, "alternate_not_called")          # 業務の設定でかけない：番号を記録して依頼者へ渡すだけ（3-5）
     if alt.blocked is not None:
         return Target(None, f"alternate_blocked:{alt.blocked}")   # かけない種類・発信禁止・そろえられない：記録だけ
     return Target(alt.contact_id)
@@ -178,8 +178,8 @@ def _alternate_target(alt: Alternate) -> Target:
 
 def choose_number(j: Judgement, *, dialed: Target, alternate: Alternate | None, recheck: Recheck | None) -> Target:
     """次にかける先（番号と発信の目的。1か所。DESIGN.md 3-5）。dialed＝いまの通話でかけた先（番号・目的）。
-    - 相手が「別の番号にかけ直して」と言った ⇒ その番号（設定でかけない・かけない理由があれば、かけない）。
-    - 相手が言った番号が番号違いだった ⇒ 番号の確かめのとおり：聞き違い ⇒ 正しい番号／言われたとおり・確かめられない ⇒
+    - お客様が「別の番号にかけ直して」と言った ⇒ その番号（設定でかけない・かけない理由があれば、かけない）。
+    - お客様が言った番号が番号違いだった ⇒ 番号の確かめのとおり：聞き違い ⇒ 正しい番号／言われたとおり・確かめられない ⇒
       番号を聞いた通話の番号へ「番号の聞き直し」（同じ行で2度目なら、聞き直さずに終える）。
     - 聞き直しの通話で、会話に至らなかった ⇒ 目的を引き継ぐ（いつかけるか・何回までかは decide_after_call：
       聞き直しの回数の上限まで、毎回、前と別の時間帯に。2026-10-15 ユーザー）。
@@ -230,16 +230,16 @@ def decide_after_call(j: Judgement, *, verification: str, normal: gate.Pacing, p
     if j.state == "unknown":   # 2026-10-16 ユーザー決定：終えずに残し、原因が直ったら判定し直す
         return _hold(f"判定できなかった（{j.detail.get('unknown_cause')}）：判定待ちで残す")
     if target.contact_id is None:
-        return _end(target.end_reason, "相手が言った番号へは、かけない（番号は記録して依頼主へ渡す）")
+        return _end(target.end_reason, "お客様が言った番号へは、かけない（番号は記録して依頼者へ渡す）")
     key = j.detail.get("policy_key")
     if j.state == "not_reached" and j.detail.get("not_reached") == "wrong_alternate":
-        # 相手に頼まれたかけ直しが、まだ果たせていない（番号違い）：約束したかけ直しのまま、すぐ（門の最も早い時刻）
+        # お客様に頼まれたかけ直しが、まだ果たせていない（番号違い）：約束したかけ直しのまま、すぐ（門の最も早い時刻）
         return _call(promised.earliest or now, True, "言われた番号が番号違い：番号の確かめのとおり", target)
     if j.state == "callback_scheduled":
         cb = j.detail["callback"]
         callee_at = None
         if cb["at"] is not None:
-            at = callee_at = datetime.fromisoformat(cb["at"])   # 相手が言った時刻（NG時間でもかけてよい）
+            at = callee_at = datetime.fromisoformat(cb["at"])   # お客様が言った時刻（NG時間でもかけてよい）
         else:
             p = rules.retry[key]
             if p.action == "end" or times_with_key > p.max_times:
@@ -247,12 +247,12 @@ def decide_after_call(j: Judgement, *, verification: str, normal: gate.Pacing, p
             if retry_at is None:
                 return _end("no_calling_hours", "これから先、かけてよい時間帯が無い")
             at = retry_at
-        return _call(max(at, promised.earliest or now), True, "相手と約束したかけ直し", target, callee_at)
+        return _call(max(at, promised.earliest or now), True, "お客様と約束したかけ直し", target, callee_at)
     if target.purpose == "ask_number_again":   # 聞き直しの電話に出なかった（会話に至らなかった）
         if ask is None:
             raise ValueError("番号の聞き直しで出なかったのに、その材料がありません")
         if ask.tries >= ask.limit:
-            return _end("ask_number_again_unanswered", f"番号の聞き直し：{ask.limit} 回かけても出なかった（番号は依頼主へ渡す）")
+            return _end("ask_number_again_unanswered", f"番号の聞き直し：{ask.limit} 回かけても出なかった（番号は依頼者へ渡す）")
         if ask.at is None:
             return _end("no_calling_hours", "これから先、かけてよい時間帯が無い")
         return _call(max(ask.at, promised.earliest or ask.at), True,
@@ -274,7 +274,7 @@ def decide_after_call(j: Judgement, *, verification: str, normal: gate.Pacing, p
 def decide_after_denial(d: gate.Denied, *, current_promised: bool, current: Target | None, pacing: gate.Pacing,
                         now: datetime, opening: datetime | None, retry_wait: int,
                         current_callee_at: datetime | None = None) -> Decision | None:
-    """門で止められたあとの次の動き。何も書かないときは None。かける先（番号・目的）と、相手が指定した時刻は、いまの予定のまま。"""
+    """門で止められたあとの次の動き。何も書かないときは None。かける先（番号・目的）と、お客様が指定した時刻は、いまの予定のまま。"""
     if d.reason in ("awaiting_decision", "not_due", "no_schedule", "task_ended", "judge_pending"):
         return None    # 締めの処理・いまの予定に任せる（先に書き直さない）。予定の無い行・終えた行に、門の答えから書かない
     if current is None or current.contact_id is None:
@@ -302,7 +302,7 @@ def _write(tx: Tx, task_id: UUID, d: Decision) -> int:
 def after_call(tx: Tx, task_id: UUID, j: Judgement, *, verification: str, rules: Rules, dialed: Target,
                dialed_at: datetime, alternate: Alternate | None, recheck: Recheck | None, forbidden: bool) -> Decision:
     """締めの処理（core/settle.py）だけが呼ぶ。判定の結果から次の動きを決めて記録する（同じ取引）。
-    dialed＝この通話でかけた先（番号・目的）、dialed_at＝かけた時刻。alternate＝相手が言った別の番号の材料（言われたときだけ）。
+    dialed＝この通話でかけた先（番号・目的）、dialed_at＝かけた時刻。alternate＝お客様が言った別の番号の材料（言われたときだけ）。
     recheck＝言われた番号が番号違いだったときの番号の確かめ（そのときだけ）。"""
     now = tx.one("SELECT now() AS now")["now"]
     key = j.detail.get("policy_key")
@@ -378,7 +378,7 @@ def _new_band_retry(tx: Tx, task_id: UUID, after: datetime, *, purpose: str) -> 
 
 
 def schedule_apology(tx: Tx, task_id: UUID, contact_id: UUID, *, cause: str) -> int:
-    """お詫びの電話の予定を書く（core/apology.py の `order` だけが呼ぶ）。いまから、その番号へ。相手と約束したかけ直しと同じく、
+    """お詫びの電話の予定を書く（core/apology.py の `order` だけが呼ぶ）。いまから、その番号へ。お客様と約束したかけ直しと同じく、
     回数の上限・1日の回数・最小の間隔では止めない（お詫びは営業の電話ではない）。時間帯・NG時間・発信禁止は門が止める。"""
     return _append(tx, task_id, call_at=None, end_reason=None, cause=cause, call_now=True, promised=True,
                    target=Target(contact_id, purpose="apology"))
@@ -392,7 +392,7 @@ def decide_after_apology(*, delivered: bool, refused: bool, retry: AskAgain, pro
     if delivered:
         return _end("apology_done", "お詫びを伝えた")
     if retry.tries >= retry.limit:
-        return _end("apology_unreached", f"お詫びの電話：{retry.limit} 回かけても、相手に届かなかった")
+        return _end("apology_unreached", f"お詫びの電話：{retry.limit} 回かけても、お客様に届かなかった")
     if retry.at is None:
         return _end("no_calling_hours", "これから先、かけてよい時間帯が無い")
     return _call(max(retry.at, promised.earliest or retry.at), True,

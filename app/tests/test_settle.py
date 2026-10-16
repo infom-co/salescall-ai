@@ -116,6 +116,9 @@ class Settle(SettleBase):
         rows = self.tx(s, lambda tx: tx.all("SELECT kind FROM salescall.notification_events WHERE event_key = %s",
                                             (f"judge_unknown:{aid}",)))
         self.assertEqual(rows, [{"kind": "judge_unknown"}])
+        admin = self.tx(s, lambda tx: tx.all("SELECT for_admin FROM salescall.notification_events WHERE event_key = %s",
+                                             (f"admin:judge_unknown:{aid}",)))
+        self.assertEqual(admin, [{"for_admin": True}])                    # 会話の処理の誤り：直せる管理者にも知らせる
         self.assertEqual(self.tx(s, lambda tx: tx.one("SELECT disconnect FROM salescall.attempts WHERE attempt_id = %s",
                                                       (aid,)))["disconnect"], None)      # 判定できないときは何も決めない
         self.assertEqual(self.reason(s), "judge_pending")                 # 門は、判定待ちの行にかけない
@@ -154,7 +157,7 @@ class Settle(SettleBase):
         nxt = self.tx(s, lambda tx: next_action.current(tx, s["task"]))
         self.assertEqual((got["state"], nxt["kind"], nxt["promised"]), ("callback_scheduled", "call", True))
         self.assertGreaterEqual(nxt["call_at"], at)
-        self.assertEqual(nxt["callee_at"], at)                          # 相手が言った時刻（NG時間でもかけてよい根拠）
+        self.assertEqual(nxt["callee_at"], at)                          # お客様が言った時刻（NG時間でもかけてよい根拠）
 
     def test_not_ready_and_once_only(self):
         s = self.ready()

@@ -27,7 +27,7 @@ HangupSide = Literal["callee", "line", "unknown"]
 
 
 class AttemptNotFound(Exception):
-    """その試行は無い（または、取引の依頼主の範囲の外）。"""
+    """その試行は無い（または、取引の依頼者の範囲の外）。"""
 
 
 def move(tx: Tx, attempt_id: UUID, to_state: LineState, *, hangup_side: HangupSide | None = None) -> dict[str, Any]:
@@ -75,7 +75,7 @@ class RecheckMissing(Exception):
 class ForbiddenFinding:
     """言ってしまった、言ってはいけないこと（2つの耳で確かめたもの）。"""
     item: str                 # 業務の決まりの、言ってはいけないことの名前（core/business_rules.py の forbidden）
-    said: str                 # AI が実際に言ったこと（AI の発話だけ。相手の発話は入れない）
+    said: str                 # AI が実際に言ったこと（AI の発話だけ。お客様の発話は入れない）
 
 
 @dataclass(frozen=True)
@@ -95,7 +95,7 @@ def record_verification(tx: Tx, attempt_id: UUID, result: Literal["done", "faile
                         summary: VerificationSummary | None) -> None:
     """通話後の検証（Q21）だけが呼ぶ。「待ち」から「済み」か「確かめられなかった」へ。
     - 済み（done）は、検証の結果の数（summary）を必ず一緒に残す（データベースも守る）。確かめられなかった（failed）は持たない。
-    - 相手が言った番号へかけて番号違いだった通話は、番号の確かめ（core/number_recheck.py）を記録してからでないと済ませられない
+    - お客様が言った番号へかけて番号違いだった通話は、番号の確かめ（core/number_recheck.py）を記録してからでないと済ませられない
       （付け合わせられなかったときも cannot_check として記録する）。"""
     if (result == "done") != (summary is not None):
         raise ValueError("検証の結果の数は、済み（done）のときだけ、必ず渡します")

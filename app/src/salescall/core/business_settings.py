@@ -10,7 +10,7 @@
   `prepare`）を呼ぶ（模擬通話を待つか、最初の段を開く）。
 - 確かめること（Intent.md 6-4）：形の誤り・必須の欄の不足／分岐先が無い／どこからも行かない質問（必須の質問へ行く道が無いを含む）／
   終わらない輪／受け皿（どの答えにも当たらないときの行き先）が無い／**必須の質問を飛ばして終わる道**（その答えが「断り」でも
-  システムの答えでもないのに飛ばすと、判定が「一部だけ取れた」になり、断った相手にかけ直すことになる）／読みを確かめていない名前／
+  システムの答えでもないのに飛ばすと、判定が「一部だけ取れた」になり、断ったお客様にかけ直すことになる）／読みを確かめていない名前／
   必須の質問が1つも無い／選択肢の名前が、出力の印・システムが足す答えと同じ／断りの答えが選択肢に無い／業務の決まりの確かめ。
   「終了条件の矛盾」は、この形では起きない（終わりは、分岐の「終わり」か最後の質問の次の1つだけ）。
 - 名前の読み（Intent.md 6-8）：読みごとに、誰が決めたか（`reading_by`：入口が持ってきた／AI の案／契約者が確かめた）を持つ。
@@ -36,8 +36,8 @@ ANY = "*"                                         # 分岐の受け皿（ほか�
 SYSTEM_CHOICES = ("わからない", "答えたくない")      # システムがどの質問にも足す答え（CL-1 の連絡帳 2-1。名前の正本はここ）
 VALUE_CHOICE = "答えた"                            # 値を聞く質問の選択肢（値そのものは項目の値に入る）
 YES_NO_CHOICES = ("はい", "いいえ")
-OUTPUT_MARKS = ("-", "✕")                         # 依頼主へ渡す印の既定（DESIGN.md 7-1b。依頼主ごとの印は出力の型で。⏳ 出力の型を作るとき足す）
-TARGET_CLASSES = ("corporate", "individual")      # 相手の区分：法人／個人（Intent.md 6-2・13章。業務ごとに必ず書く）
+OUTPUT_MARKS = ("-", "✕")                         # 依頼者へ渡す印の既定（DESIGN.md 7-1b。依頼者ごとの印は出力の型で。⏳ 出力の型を作るとき足す）
+TARGET_CLASSES = ("corporate", "individual")      # お客様の区分：法人／個人（Intent.md 6-2・13章。業務ごとに必ず書く）
 TARGET_CLASSES_OPEN = ("corporate",)              # いま選べる区分：法人だけ（Intent.md 3-1・18-3）。個人は、13章の確かめが済み、
 #                                                   名乗りの法定事項と拒否の即時登録をシステムが強制する形を作ってから開く（設定では開けない）
 TARGET_PERSON_KINDS = ("role", "role_and_name", "name", "anyone")
@@ -71,7 +71,7 @@ class Question:
     ask_about: str | None        # 聞くこと（聞き返しの言い方に使う。無くてもよい。CL-1 の 4-10）
     type: str
     required: bool
-    choices: tuple[str, ...]     # 依頼主が書いた選択肢（値を聞く質問は「答えた」、はい／いいえは「はい」「いいえ」）
+    choices: tuple[str, ...]     # 依頼者が書いた選択肢（値を聞く質問は「答えた」、はい／いいえは「はい」「いいえ」）
     next: dict[str, str]         # 答え → 次の質問の番号か END（空＝並びの次へ）
     unit: str | None = None      # 数の質問の単位（例：「人」。空なら補わない。CL-1 の 4-14）
 
@@ -79,7 +79,7 @@ class Question:
 @dataclass(frozen=True)
 class Settings:
     purpose: str                                  # 業務の目的・達成目標
-    target_class: str                             # 相手の区分（corporate＝法人／individual＝個人）
+    target_class: str                             # お客様の区分（corporate＝法人／individual＝個人）
     company: Name                                 # 名乗りの自社名
     person: Name                                  # 名乗りの担当者名
     purpose_line: str | None                      # 用件の一文（空でもよい）
@@ -122,12 +122,12 @@ def _name(v: Any, where: str, source: str, problems: list[str]) -> Name | None:
 
 
 def possible_answers(q: Question) -> tuple[str, ...]:
-    """その質問で返りうる答え（依頼主の選択肢＋システムが足す答え）。"""
+    """その質問で返りうる答え（依頼者の選択肢＋システムが足す答え）。"""
     return q.choices + SYSTEM_CHOICES
 
 
 def _choices(raw: Any, type_name: str, where: str, problems: list[str]) -> tuple[str, ...]:
-    """型ごとの選択肢（決め方はここだけ）。決まった選択肢（choice）だけ依頼主が書く。ほかは型で決まる（書いてあれば同じであること）。"""
+    """型ごとの選択肢（決め方はここだけ）。決まった選択肢（choice）だけ依頼者が書く。ほかは型で決まる（書いてあれば同じであること）。"""
     fixed = {"yes_no": YES_NO_CHOICES}.get(type_name, None if type_name == "choice" else (VALUE_CHOICE,))
     if fixed is not None:
         if raw is not None and tuple(raw) != fixed:
@@ -152,9 +152,9 @@ def check(raw: Any, *, field_types: frozenset[str], ai_reading_needs_person: boo
     purpose = _text(raw["purpose"], "業務の目的", problems)
     target_class = raw["target_class"]
     if target_class not in TARGET_CLASSES:
-        problems.append(f"相手の区分（target_class）は {list(TARGET_CLASSES)}（法人／個人）のどちらかです")
+        problems.append(f"お客様の区分（target_class）は {list(TARGET_CLASSES)}（法人／個人）のどちらかです")
     elif target_class not in TARGET_CLASSES_OPEN:
-        problems.append("相手が個人の業務は、まだ選べません（法令の確かめ＝計画書 13章が済み、名乗りの法定事項と拒否の即時登録を"
+        problems.append("お客様が個人の業務は、まだ選べません（法令の確かめ＝計画書 13章が済み、名乗りの法定事項と拒否の即時登録を"
                         "システムが強制する形を作ってから開きます。いまは法人だけ）")
     caller = raw["caller"]
     company = person = None

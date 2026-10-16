@@ -71,7 +71,7 @@ class NextOpening(unittest.TestCase):
 
 
 class OtherBand(unittest.TestCase):
-    """出なかった相手へ、前と別の時間帯にかけ直す（2026-10-15 ユーザー）。区切り [12, 15]＝午前・昼過ぎ・夕方。"""
+    """出なかったお客様へ、前と別の時間帯にかけ直す（2026-10-15 ユーザー）。区切り [12, 15]＝午前・昼過ぎ・夕方。"""
     B = [12, 15]
     L = timedelta(seconds=30)
 
@@ -101,7 +101,7 @@ class OtherBand(unittest.TestCase):
 
 
 class CalleeTime(unittest.TestCase):
-    """NG時間は通常は控えるが、相手が自分で指定した時刻なら、かけてよい（2026-10-15 ユーザー）。"""
+    """NG時間は通常は控えるが、お客様が自分で指定した時刻なら、かけてよい（2026-10-15 ユーザー）。"""
     NG = {k: [["12:00", "13:00"]] for k in KEYS}
     L = timedelta(seconds=30)
 
@@ -111,7 +111,7 @@ class CalleeTime(unittest.TestCase):
     def test_ng_is_avoided_unless_the_callee_named_the_time(self):
         self.assertTrue(self.ok(at(MON, 10)))
         self.assertFalse(self.ok(at(MON, 12, 30)))                                     # こちらからは控える
-        self.assertTrue(self.ok(at(MON, 12, 30), at(MON, 12, 30)))                     # 相手が指定した
+        self.assertTrue(self.ok(at(MON, 12, 30), at(MON, 12, 30)))                     # お客様が指定した
         self.assertTrue(self.ok(at(MON, 12, 45), at(MON, 12, 30)))                     # 同じ日の同じ枠の中（少し遅れた）
         self.assertTrue(self.ok(at(MON, 11, 59, 50), at(MON, 12, 30)))                 # 枠の手前から枠へ入る
         self.assertFalse(self.ok(at(MON + timedelta(days=1), 12, 30), at(MON, 12, 30)))   # 日がずれたら控える

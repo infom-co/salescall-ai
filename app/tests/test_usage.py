@@ -24,7 +24,7 @@ class Ledger(SettleBase):
         self.assertEqual(got[0]["amount_yen"], 0)                     # Rakuten Link の国内通話は無料
         s2 = self.ready()
         self.settle(s2, self.call(s2, ["dialing", "no_answer"]))
-        self.assertEqual(self.entries(s2), [])                        # 相手が出なかった通話は書かない
+        self.assertEqual(self.entries(s2), [])                        # お客様が出なかった通話は書かない
 
     def test_missing_price_is_not_guessed(self):
         s = self.ready()
@@ -98,7 +98,7 @@ class Budget(Priced):
 
 
 class CostRatio(Priced):
-    """報酬に対する費用の割合（2026-10-15 ユーザー決定：既定 30％・依頼主ごとに選べる。超えたら知らせるだけ。赤字なら止める）。"""
+    """報酬に対する費用の割合（2026-10-15 ユーザー決定：既定 30％・依頼者ごとに選べる。超えたら知らせるだけ。赤字なら止める）。"""
     def terms(self, s, *, days_ago=1, **yen):
         return self.tx(s, lambda tx: reward.set_terms(
             tx, reward.Terms(**{k: Decimal(v) for k, v in yen.items()}),
@@ -164,7 +164,7 @@ class CostRatio(Priced):
         self.talked(s)
         self.priced("0.01")
         self.put_client(s, "budget.max_cost_ratio", 0.6)
-        self.spend(s, 5)                                               # 50％：この依頼主の上限 60％ の内側
+        self.spend(s, 5)                                               # 50％：この依頼者の上限 60％ の内側
         self.assertEqual(self.notices(s), [])
         self.put_client(s, "budget.max_cost_ratio", 0.3)
         got = self.spend(s, 0.01)

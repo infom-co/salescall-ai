@@ -20,7 +20,7 @@ GOOD = MockResult(calls=10, value_hits=40, value_total=40, judgment_hits=10, jud
 
 class Base(SettleBase):
     def fresh(self, *, stage_cap=None):
-        """段の無い版から始める行（模擬通話にまだ合格していない依頼主）。stage_cap を渡すと、その件数の最初の段を開く。"""
+        """段の無い版から始める行（模擬通話にまだ合格していない依頼者）。stage_cap を渡すと、その件数の最初の段を開く。"""
         s = self.ready()
         own_version = self.w.add_version(s["tenant"], s["client"], s["business"], 2)
         self.tx(s, lambda tx: tx.execute(
@@ -80,7 +80,7 @@ class Mock(Base):
         self.assertEqual((got["passed"], got["outcome"]), (True, "opened"))
         stage = self.tx(s, lambda tx: quality_stage.current(tx, s["version"]))
         self.assertEqual((stage["stage_no"], stage["cap"]), (1, 20))
-        newer = self.newer_version(s, 3)                                # 依頼主ごとに最初のみ：次の版はすぐ始める
+        newer = self.newer_version(s, 3)                                # 依頼者ごとに最初のみ：次の版はすぐ始める
         self.assertEqual(self.tx(s, lambda tx: quality_stage.prepare(tx, newer["version"])), "opened")
 
 

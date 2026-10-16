@@ -1,4 +1,4 @@
-"""試験の土台：架空の契約者・依頼主・業務などを作る（試験の中だけで使う）。
+"""試験の土台：架空の契約者・依頼者・業務などを作る（試験の中だけで使う）。
 
 ⚠️ 電話番号は、架空の番号として決められている範囲（英国 Ofcom がドラマ用に取ってある +44 7700 900000〜900999）
 だけを使う。実在の会社・お客様・番号は使わない。データベースへは、本番と同じ読み書きの層（Access）だけを通す。
@@ -80,7 +80,7 @@ class World:
     def client(self, tenant: UUID) -> UUID:
         cid = uuid.uuid4()
         self.a.in_tenant(OPERATOR, tenant, lambda tx: tx.execute(
-            "INSERT INTO salescall.clients (tenant_id, client_id, name) VALUES (%s, %s, %s)", (tenant, cid, "架空の依頼主")))
+            "INSERT INTO salescall.clients (tenant_id, client_id, name) VALUES (%s, %s, %s)", (tenant, cid, "架空の依頼者")))
         return cid
 
     def line(self, tenant: UUID) -> UUID:
