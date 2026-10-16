@@ -4,6 +4,7 @@
   読む（`load`。締めの処理 core/settle.py が読む）ときも、同じ確かめを通す。合わない報告は受け取らない（ReportInvalid）。
 - 「わからない」を既定値で埋めない（原則10）：分からないものは None のまま。判定が「決められない」として扱う。
 - 名前（相手の種別など）は DESIGN.md 4-3・6-2・7-1c のもの。⚠️ 仮の形：CL-1 の会話の処理を app/ へ移すときに合わせて版を上げる。
+- 版 2 に足した項目（2026-10-16）：お詫びの電話で、文面を伝えられたか（apology_delivered。無ければ None）。
 - 版 2（2026-10-15）：別の番号のかけ直しに、相手が言ったままの番号（number_said）を必ず持つ。そろえた番号（number_e164）は
   そろえられたときだけ（内線つき・桁が足りないなど、そろえられない番号も、言われたことは記録して依頼主へ渡す。DESIGN.md 3-5）。
 """
@@ -57,6 +58,7 @@ class CallReport:
     not_reached: str | None      # 目的の人に繋がらなかった理由
     callback: Callback | None
     cut: Cut | None              # 切れ方の材料（相手が出なかった通話は None）
+    apology_delivered: bool | None = None   # お詫びの電話だけ：その通話で話した人に、文面を伝えられたか（10-1-2）
 
     def to_json(self) -> dict[str, Any]:
         d = asdict(self)
@@ -94,7 +96,7 @@ def _keys(d: Any, allowed: set[str], where: str) -> dict:
 def from_json(raw: Any) -> CallReport:
     """報告を確かめて読む（ただ1つの確かめ）。"""
     d = _keys(raw, {"version", "parties", "do_not_call", "out_of_scope", "complaint", "hurried", "not_reached",
-                    "callback", "cut"}, "報告")
+                    "callback", "cut", "apology_delivered"}, "報告")
     if d.get("version") != VERSION:
         raise ReportInvalid(f"報告の版が違います（{d.get('version')!r}。この部品は {VERSION}）")
     parties = d.get("parties")
@@ -134,8 +136,11 @@ def from_json(raw: Any) -> CallReport:
         c = _keys(d["cut"], {"speaker", "in_closing", "callee_refused_last"}, "cut")
         cut = Cut(_choice(c.get("speaker"), SPEAKERS, "cut.speaker", optional=True), _bool(c, "in_closing"),
                   _bool(c, "callee_refused_last"))
+    delivered = d.get("apology_delivered")
+    if delivered is not None and not isinstance(delivered, bool):
+        raise ReportInvalid("apology_delivered は true / false です")
     return CallReport(parties_t, _bool(d, "do_not_call"), _bool(d, "out_of_scope"), _bool(d, "complaint"),
-                      _bool(d, "hurried"), not_reached, cb, cut)
+                      _bool(d, "hurried"), not_reached, cb, cut, delivered)
 
 
 def save(tx: Tx, attempt_id: UUID, report: CallReport) -> None:

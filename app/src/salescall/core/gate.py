@@ -87,7 +87,7 @@ class Claim:
     phone_e164: str
     version_id: UUID
     expires_at: datetime
-    purpose: str                 # 発信の目的（normal / ask_number_again。会話の処理が読んで話す。DESIGN.md 3-5）
+    purpose: str                 # 発信の目的（normal / ask_number_again / apology。会話の処理が読んで話す。DESIGN.md 3-5・10-1-2）
     wrong_phone_e164: str | None   # 番号の聞き直しのとき：番号違いだった番号（「お聞きした番号が…」と告げる）
 
 
@@ -247,7 +247,7 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
     # 「前の発信に判定の結果があるか」で決める。判定と次の予定は、締めの処理 core/settle.py が1つの取引で書く）
     unsettled = tx.one(
         f"SELECT 1 FROM salescall.attempts a WHERE a.task_id = %s AND {_DIALED_A}"
-        " AND NOT EXISTS (SELECT 1 FROM salescall.task_results r WHERE r.attempt_id = a.attempt_id) LIMIT 1",
+        " AND NOT salescall.is_settled(a.attempt_id) LIMIT 1",
         (task["task_id"],))
     if unsettled is not None:
         return _deny("awaiting_decision")
@@ -272,13 +272,19 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
         business_rules.load(tx, version)
     except (business_rules.RulesMissing, business_rules.RulesInvalid):
         return _deny("rules_missing")
-    ok, why = quality_stage.allowance(tx, version)
+    # お詫びの電話（DESIGN.md 10-1-2）は、業務の話し方を使わない（決まった文面だけ）：品質の段の件数に数えず、業務の品質の停止
+    # （言ってはいけないこと・品質の基準・判定できない）では止めない。ほかの停止（全体・人の緊急停止・費用・回線など）では止める
+    apology = nxt["purpose"] == "apology"
+    ok, why = (True, None) if apology else quality_stage.allowance(tx, version)
     if not ok:
         return _deny(why)
 
     # (5) 止まっているか（全体・契約者・依頼主・業務・回線）
-    if stops.open_stops(tx, tenant_id=task["tenant_id"], client_id=task["client_id"],
-                        business_id=task["business_id"], line_id=line_id):
+    open_now = stops.open_stops(tx, tenant_id=task["tenant_id"], client_id=task["client_id"],
+                                business_id=task["business_id"], line_id=line_id)
+    if apology:
+        open_now = [s for s in open_now if not (s["scope"] == "business" and s["cause"] in quality_stage.STOP_CAUSES)]
+    if open_now:
         return _deny("stopped")
 
     # (6) 時間帯：予約から予約証の期限まで、まるごと内側（5-2-1 の4）。祝日の暦の外は判断できない（5-2-1 の5）

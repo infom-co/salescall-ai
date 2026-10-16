@@ -104,7 +104,7 @@ def unsettled_reach_covers(tx: Tx, e164: str, *, client_ref: str | None) -> bool
     （例：一覧の番号で断られた行の、相手が言った別の番号を、別の実施回の行がかける）。"""
     for p in tx.all("SELECT DISTINCT a.task_id FROM salescall.attempts a"
                     " WHERE a.state NOT IN ('claimed', 'released')"
-                    "   AND NOT EXISTS (SELECT 1 FROM salescall.task_results r WHERE r.attempt_id = a.attempt_id)"):
+                    "   AND NOT salescall.is_settled(a.attempt_id)"):
         row_numbers, ref = reach(tx, p["task_id"])
         if e164 in row_numbers or (client_ref is not None and ref == client_ref):
             return True

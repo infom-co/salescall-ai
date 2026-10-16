@@ -10,6 +10,7 @@
   - 時給＝人が架電作業をしていた時間に当たる時間（2026-10-15 ユーザー）。回線ごとに（1回線＝1人）、その依頼主の発信の予約から
     終わりまでと、同じ回線で次もその依頼主の発信だったときの短い合間（設定 budget.hourly_gap_max 以内）。数えるのは
     データベースの1か所（salescall.work_seconds）。
+  - お詫びの電話（こちらの誤りのため）は、どの報酬にも数えない（かけた1本・話せた1本・時給）。費用には数える。
 - **ぶれを多めに見込んだ報酬**（`upper`）：成果と話せた本数は偶然でぶれる（月の初めに成果0件でも、本当の成果の割合が低いとは
   限らない）。そこで、この2つの数を、確かさ（設定 budget.judge_confidence）の上側まで多めに見込んだ報酬も出す（ポアソン分布の
   上側の限界）。判断する側は、これでも上限・赤字になるときだけ判断する ⇒ 判断し始める本数を決め打ちにせず、報酬と費用から
@@ -110,8 +111,10 @@ def month(tx: Tx, *, confidence: float, gap_max: int) -> dict[str, Any]:
     events = {
         "completed": ("per_completed_yen", "SELECT min(r.decided_at) AS at FROM salescall.task_results r"
                                            " WHERE r.business_state = 'completed' GROUP BY r.task_id"),
-        "dial": ("per_dial_yen", "SELECT h.at FROM salescall.attempt_state_history h WHERE h.to_state = 'dialing'"),
-        "talk": ("per_talk_yen", "SELECT h.at FROM salescall.attempt_state_history h WHERE h.to_state = 'in_conversation'"),
+        "dial": ("per_dial_yen", "SELECT h.at FROM salescall.attempt_state_history h JOIN salescall.attempts a"
+                                 " ON a.attempt_id = h.attempt_id WHERE h.to_state = 'dialing' AND a.purpose <> 'apology'"),
+        "talk": ("per_talk_yen", "SELECT h.at FROM salescall.attempt_state_history h JOIN salescall.attempts a"
+                                 " ON a.attempt_id = h.attempt_id WHERE h.to_state = 'in_conversation' AND a.purpose <> 'apology'"),
     }
     breakdown: dict[str, dict[str, Any]] = {}
     for name, (col, sql) in events.items():

@@ -169,7 +169,9 @@ WRITERS: dict[str, dict[str, frozenset[str]]] = {
     "mock_runs": {"INSERT": frozenset({_CORE + "quality_stage.py"})},         # 模擬通話の合否（10-1）
     "usage_entries": {"INSERT": frozenset({_CORE + "usage.py"})},             # 利用量の台帳（Q16）
     "price_versions": {"INSERT": frozenset({_CORE + "usage.py"})},            # 単価の表（Q16）
-    "reward_terms": {"INSERT": frozenset({_CORE + "reward.py"})},             # 報酬の決まり（12-1-1）
+    "reward_terms": {"INSERT": frozenset({_CORE + "reward.py"})},             # 報酬の決まり（12-1-2）
+    "apology_orders": {"INSERT": frozenset({_CORE + "apology.py"})},          # お詫びの指示（10-1-2）
+    "apology_outcomes": {"INSERT": frozenset({_CORE + "settle.py"})},         # お詫びの電話の結果（締めの処理だけ）
     "quality_evaluations": {"INSERT": frozenset({_CORE + "quality_stage.py"})},   # 品質の段の評価（Q22）
     "imports": {"INSERT": frozenset({_CORE + "importer.py"})},
     "import_rows": {"INSERT": frozenset({_CORE + "importer.py"})},

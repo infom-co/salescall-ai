@@ -45,9 +45,10 @@ METRICS: dict[str, tuple[str, str]] = {
 
 
 # 段と指標に数える通話（1か所）：その版の通話のうち、その版の品質の停止を人が最後に解いた時刻に、まだ締めていなかったもの。
+# お詫びの電話は数えない（業務の話し方を使わない。決まった文面だけ）。
 # 引数は (版, 版)。解いたことが無ければ、その版の通話すべて。
 _WINDOW = (
-    "SELECT a.* FROM salescall.attempts a WHERE a.version_id = %s AND NOT EXISTS ("
+    "SELECT a.* FROM salescall.attempts a WHERE a.version_id = %s AND a.purpose <> 'apology' AND NOT EXISTS ("
     " SELECT 1 FROM salescall.task_results r WHERE r.attempt_id = a.attempt_id AND r.kind = 'judged'"
     " AND r.decided_at <= (SELECT coalesce(max(z.at), '-infinity') FROM salescall.stop_events z"
     "                      JOIN salescall.quality_evaluations q ON q.stop_event_id = z.resolves_event_id"
@@ -242,8 +243,7 @@ def evaluate(tx: Tx, version_id: UUID) -> dict[str, Any] | None:
     else:
         unsettled = tx.one(
             f"SELECT 1 FROM ({_WINDOW}) a WHERE a.state NOT IN ('claimed', 'released')"
-            " AND NOT EXISTS (SELECT 1 FROM salescall.task_results r WHERE r.attempt_id = a.attempt_id"
-            "                 AND r.kind = 'judged') LIMIT 1", (version_id, version_id)) is not None
+            " AND NOT salescall.is_settled(a.attempt_id) LIMIT 1", (version_id, version_id)) is not None
         if stage["cap"] is not None and n_used >= stage["cap"] and not unsettled:
             if all(x["inside"] for x in m.values()):
                 sizes = list(_get(tx, v, "quality.stage.sizes"))

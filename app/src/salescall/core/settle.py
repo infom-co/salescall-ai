@@ -38,7 +38,7 @@ def unsettled(tx: Tx) -> list[dict[str, Any]]:
         "SELECT a.attempt_id, a.task_id FROM salescall.attempts a"
         " WHERE a.state NOT IN ('claimed', 'released') AND NOT salescall.is_active(a.state)"
         "   AND a.verification IN ('done', 'failed', 'not_needed')"
-        "   AND NOT EXISTS (SELECT 1 FROM salescall.task_results r WHERE r.attempt_id = a.attempt_id)"
+        "   AND NOT salescall.is_settled(a.attempt_id)"
         " ORDER BY a.ended_at")
 
 
@@ -71,9 +71,53 @@ def settle(tx: Tx, attempt_id: UUID) -> dict[str, Any]:
         raise NotReady("発信していない・まだ終わっていない試行です")
     if a["verification"] == "pending":
         raise NotReady("通話後の検証が済んでいません")
+    if a["purpose"] == "apology":
+        return _settle_apology(tx, a)
     out = _judge_and_write(tx, a, kind="judged", rules_version=a["version_id"])
     usage.record_line_estimate(tx, attempt_id)   # 利用量の台帳（Q16）：回線の料金の推定（相手が出た通話だけ。試行ごとに1回）
     return _after(tx, a, out)
+
+
+def _settle_apology(tx: Tx, a: dict[str, Any]) -> dict[str, Any]:
+    """お詫びの電話を締める（業務の判定はしない＝業務の結果を変えない。DESIGN.md 10-1-2）。伝えられたか（会話の報告。
+    報告に無ければ、伝えていない側に倒す）・発信の拒否・言ってはいけないことを見て、次の動きを決める。"""
+    attempt_id = a["attempt_id"]
+    if tx.one("SELECT 1 FROM salescall.apology_outcomes WHERE attempt_id = %s", (attempt_id,)) is not None:
+        return {"version_no": None, "state": None, "already": True}
+    order = tx.one("SELECT order_id FROM salescall.apology_orders WHERE task_id = %s ORDER BY order_id DESC LIMIT 1",
+                   (a["task_id"],))
+    if order is None:
+        raise NotReady("お詫びの指示が無いのに、お詫びの電話をかけています")
+    report = call_report.load(tx, attempt_id)
+    delivered = bool(report is not None and report.apology_delivered)
+    refused = bool(report is not None and report.do_not_call)
+    tx.execute("INSERT INTO salescall.apology_outcomes (tenant_id, client_id, attempt_id, order_id, delivered)"
+               " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s)",
+               (attempt_id, order["order_id"], delivered))
+    if refused:
+        dnc.register(tx, a["phone_e164"], "refused_in_call", source_attempt_id=attempt_id)
+    _notice_forbidden(tx, a)
+    decision = next_action.after_apology(tx, a["task_id"], delivered=delivered, refused=refused,
+                                         dialed=next_action.Target(a["contact_id"], None, "apology", None))
+    if decision.kind == "end":
+        notify.emit(tx, "apology", key=f"apology:{attempt_id}",
+                    summary={"apology_done": "お詫びを伝えました。",
+                             "apology_unreached": "お詫びの電話が、決めた回数かけても相手に届きませんでした。",
+                             "do_not_call": "お詫びの電話で、発信を断られました。"}.get(
+                        decision.end_reason, f"お詫びの電話を終えました（{decision.end_reason}）。"),
+                    refs={"attempt_id": attempt_id, "task_id": a["task_id"], "order_id": order["order_id"]})
+    usage.record_line_estimate(tx, attempt_id)
+    return {"version_no": None, "state": None, "decision": decision, "delivered": delivered, "already": False}
+
+
+def _notice_forbidden(tx: Tx, a: dict[str, Any]) -> bool:
+    """言ってはいけないことを言った通話なら、管理者（運営者）へ知らせる（その試行で1回）。言ったかを返す。"""
+    forbidden = attempts.forbidden_speech(tx, a["attempt_id"])
+    if forbidden:
+        notify.emit(tx, "forbidden_speech", key=f"forbidden_speech:{a['attempt_id']}",
+                    summary="言ってはいけないことを言った通話がありました。その行はひとまず終えました。",
+                    refs={"attempt_id": a["attempt_id"], "task_id": a["task_id"], "version_id": a["version_id"]})
+    return forbidden
 
 
 def _after(tx: Tx, a: dict[str, Any], out: dict[str, Any]) -> dict[str, Any]:
@@ -168,11 +212,7 @@ def _judge_and_write(tx: Tx, a: dict[str, Any], *, kind: str, rules_version: Any
                             f"{j.detail.get('error', '')}",
                     refs={"attempt_id": attempt_id, "task_id": a["task_id"], "judge_version": JUDGE_VERSION,
                           "unknown_cause": j.detail.get("unknown_cause")})
-    forbidden = attempts.forbidden_speech(tx, attempt_id)
-    if forbidden:   # 言ってはいけないことを言った：その行はひとまず終え、管理者（運営者）へ知らせる
-        notify.emit(tx, "forbidden_speech", key=f"forbidden_speech:{attempt_id}",
-                    summary="言ってはいけないことを言った通話がありました。その行はひとまず終えました。",
-                    refs={"attempt_id": attempt_id, "task_id": a["task_id"], "version_id": a["version_id"]})
+    forbidden = _notice_forbidden(tx, a)   # 言ってはいけないことを言った：その行はひとまず終え、管理者（運営者）へ知らせる
     if j.dnc_reason is not None:
         dnc.register(tx, a["phone_e164"], j.dnc_reason, source_attempt_id=attempt_id)
     decision = next_action.after_call(

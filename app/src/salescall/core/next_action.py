@@ -43,7 +43,7 @@ def current(tx: Tx, task_id: UUID) -> dict[str, Any] | None:
     )
 
 
-PURPOSES = ("normal", "ask_number_again")   # 発信の目的：ふつう／番号の聞き直し（DESIGN.md 3-5。会話の処理が読んで話す）
+PURPOSES = ("normal", "ask_number_again", "apology")   # 発信の目的：ふつう／番号の聞き直し（3-5）／お詫び（10-1-2）
 
 
 @dataclass(frozen=True)
@@ -204,9 +204,10 @@ def choose_number(j: Judgement, *, dialed: Target, alternate: Alternate | None, 
 
 @dataclass(frozen=True)
 class AskAgain:
-    """番号の聞き直しの電話に出なかったときの材料（2026-10-15 ユーザー：「3回までなどの制限をかけ、別の時間帯にかけ直す」）。"""
-    tries: int                   # この行で、聞き直しとしてかけた回数（門の数え方。今回を含む）
-    limit: int                   # 設定 retry.ask_number_again_max
+    """別の時間帯にかけ直す電話（番号の聞き直し・お詫び）に出なかったときの材料（2026-10-15 ユーザー：「3回までなどの制限を
+    かけ、別の時間帯にかけ直す」）。"""
+    tries: int                   # この行で、その目的でかけた回数（門の数え方。今回を含む）
+    limit: int                   # 設定 retry.ask_number_again_max／retry.apology_max
     at: datetime | None          # まだ試していない時間帯の、次にかけられる時刻（無ければ None）
 
 
@@ -313,7 +314,7 @@ def after_call(tx: Tx, task_id: UUID, j: Judgement, *, verification: str, rules:
     promised = gate.pacing(tx, task_id, contact_id=count_at, promised=True)
     ask = None
     if target.purpose == "ask_number_again" and j.state == "open":
-        ask = _ask_again(tx, task_id, max(now, promised.earliest or now))
+        ask = _new_band_retry(tx, task_id, max(now, promised.earliest or now), purpose="ask_number_again")
     policy = rules.retry.get(key) if key is not None else None
     retry_at = _retry_at(tx, task_id, policy.interval, now, dialed_at) if policy and policy.action == "call" else None
     d = decide_after_call(j, verification=verification,
@@ -353,12 +354,16 @@ def _retry_at(tx: Tx, task_id: UUID, interval: tuple[str, int], now: datetime, d
     return None if found is None else tx.one("SELECT salescall.from_jst(%s) AS t", (found,))["t"]
 
 
-def _ask_again(tx: Tx, task_id: UUID, after: datetime) -> AskAgain:
-    """聞き直しで出なかったときの材料：かけた回数と試した時間帯（門の数え方）・まだ試していない時間帯の次にかけられる時刻。"""
+_BAND_RETRY_LIMITS = {"ask_number_again": "retry.ask_number_again_max", "apology": "retry.apology_max"}
+
+
+def _new_band_retry(tx: Tx, task_id: UUID, after: datetime, *, purpose: str) -> AskAgain:
+    """別の時間帯にかけ直す電話（番号の聞き直し・お詫び）で出なかったときの材料：その目的でかけた回数と試した時間帯
+    （門の数え方）・まだ試していない時間帯の次にかけられる時刻。"""
     scope = _scope(tx, task_id)
     get = lambda key: settings.resolve(tx, key, **scope)   # noqa: E731
     boundaries = list(get("retry.time_band_boundaries"))
-    tried_at = gate.counted_dial_times(tx, task_id, purpose="ask_number_again")
+    tried_at = gate.counted_dial_times(tx, task_id, purpose=purpose)
     local = tx.one("SELECT salescall.jst(%s) AS t", (after,))["t"]
     hours, length = gate.calling_hours_for(tx, **scope), timedelta(seconds=int(get("gate.claim_lifetime")))
     try:
@@ -369,7 +374,40 @@ def _ask_again(tx: Tx, task_id: UUID, after: datetime) -> AskAgain:
         at = None if found is None else tx.one("SELECT salescall.from_jst(%s) AS t", (found,))["t"]
     except CalendarOutOfRange:   # 暦の無い日に当たる：決めつけず、待ってから門にもう一度確かめさせる
         at = after + timedelta(seconds=int(get("gate.denied_retry_wait")))
-    return AskAgain(len(tried_at), int(get("retry.ask_number_again_max")), at)
+    return AskAgain(len(tried_at), int(get(_BAND_RETRY_LIMITS[purpose])), at)
+
+
+def schedule_apology(tx: Tx, task_id: UUID, contact_id: UUID, *, cause: str) -> int:
+    """お詫びの電話の予定を書く（core/apology.py の `order` だけが呼ぶ）。いまから、その番号へ。相手と約束したかけ直しと同じく、
+    回数の上限・1日の回数・最小の間隔では止めない（お詫びは営業の電話ではない）。時間帯・NG時間・発信禁止は門が止める。"""
+    return _append(tx, task_id, call_at=None, end_reason=None, cause=cause, call_now=True, promised=True,
+                   target=Target(contact_id, purpose="apology"))
+
+
+def decide_after_apology(*, delivered: bool, refused: bool, retry: AskAgain, promised: gate.Pacing,
+                         target: Target) -> Decision:
+    """お詫びの電話のあとの次の動き（業務の結果は変えない）。伝えた・断られた ⇒ 終える。届かなかった ⇒ 別の時間帯に、決めた回数まで。"""
+    if refused:
+        return _end("do_not_call", "お詫びの電話で、発信を断られた")
+    if delivered:
+        return _end("apology_done", "お詫びを伝えた")
+    if retry.tries >= retry.limit:
+        return _end("apology_unreached", f"お詫びの電話：{retry.limit} 回かけても、相手に届かなかった")
+    if retry.at is None:
+        return _end("no_calling_hours", "これから先、かけてよい時間帯が無い")
+    return _call(max(retry.at, promised.earliest or retry.at), True,
+                 f"お詫びの電話：届かなかった ⇒ 別の時間帯に（{retry.tries + 1} 回目）", target)
+
+
+def after_apology(tx: Tx, task_id: UUID, *, delivered: bool, refused: bool, dialed: Target) -> Decision:
+    """締めの処理（core/settle.py）だけが呼ぶ。お詫びの電話のあとの次の動きを決めて記録する（同じ取引）。"""
+    now = tx.one("SELECT now() AS now")["now"]
+    promised = gate.pacing(tx, task_id, contact_id=dialed.contact_id, promised=True)
+    d = decide_after_apology(delivered=delivered, refused=refused,
+                             retry=_new_band_retry(tx, task_id, max(now, promised.earliest or now), purpose="apology"),
+                             promised=promised, target=dialed)
+    _write(tx, task_id, d)
+    return d
 
 
 def after_denial(tx: Tx, task_id: UUID, denied: gate.Denied, *, tenant_id: UUID, client_id: UUID,
