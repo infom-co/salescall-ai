@@ -170,7 +170,7 @@ def is_quota(exc: BaseException) -> bool:
 
 def is_denied(exc: BaseException) -> bool:
     """キーのプロジェクトそのものが止められているか（403 PERMISSION_DENIED。「Your project has been denied access」）。
-    2026-10-16：2つ目のキー（GEMINI_API_KEY_2）で、文字のモデルがこの答えだった（上限ではない＝待っても戻らない）。"""
+    2026-10-16：GEMINI_API_KEY_10 で、文字のモデルがこの答えだった（上限ではない＝待っても戻らない）。"""
     return str(getattr(exc, "code", "")) == "403" or getattr(exc, "status", "") == "PERMISSION_DENIED"
 
 
@@ -193,7 +193,7 @@ class KeyRing:
     - プロジェクトが止められている（403）：そのキーを、どのモデルでも飛ばす
     ⚠️ 上限はプロジェクトごとに数えられる。同じプロジェクトのキーなら、次のキーもすぐ上限に当たる。"""
 
-    def __init__(self, args, min_interval_s: float = 13.0):
+    def __init__(self, args, min_interval_s: float = 13.0, state_path: Path | None = None):
         self.keys = [PROXY_PLACEHOLDER] if getattr(args, "proxy_key", False) else load_keys(args.env, args.key_name)
         self.start = getattr(args, "key_index", 0)
         self.min_interval_s = min_interval_s
@@ -201,6 +201,36 @@ class KeyRing:
         self.denied: set[int] = set()          # プロジェクトが止められているキーの番号
         self._clients: dict[int, object] = {}
         self._last: dict[tuple[int, str], float] = {}
+        # その日の状態を覚えておく（上限に当たったキーに、次の実行でまた問い合わせない）。キーの値は書かない（指紋だけ）。
+        # 1日の上限は、太平洋時間の0時に戻る（Google の決まり）ので、その日付で分ける
+        self.state_path = state_path if state_path is not None else (None if getattr(args, "dry_run", False) else RESULTS_DIR / "keyring_state.json")
+        self._load()
+
+    @staticmethod
+    def _today() -> str:
+        from zoneinfo import ZoneInfo
+        return _dt.datetime.now(ZoneInfo("America/Los_Angeles")).date().isoformat()
+
+    def _load(self) -> None:
+        if not self.state_path or not Path(self.state_path).exists():
+            return
+        try:
+            st = json.loads(Path(self.state_path).read_text(encoding="utf-8"))
+        except Exception:
+            return
+        fp = {k.fingerprint: i for i, k in enumerate(self.keys)}
+        self.denied = {fp[f] for f in st.get("denied", []) if f in fp}
+        if st.get("day") == self._today():
+            self.spent = {m: {fp[f] for f in fs if f in fp} for m, fs in st.get("spent", {}).items()}
+
+    def _save(self) -> None:
+        if not self.state_path:
+            return
+        RESULTS_DIR.mkdir(exist_ok=True)
+        Path(self.state_path).write_text(json.dumps({
+            "day": self._today(), "denied": sorted(self.keys[i].fingerprint for i in self.denied),
+            "spent": {m: sorted(self.keys[i].fingerprint for i in v) for m, v in self.spent.items()}}, ensure_ascii=False, indent=2),
+            encoding="utf-8")
 
     def client(self, i: int | None = None):
         i = self.start if i is None else i
@@ -225,6 +255,7 @@ class KeyRing:
                 except Exception as exc:
                     if is_denied(exc):
                         self.denied.add(i)
+                        self._save()
                         say(f"{self.keys[i].label} はプロジェクトが止められています ⇒ このキーは使いません")
                         break
                     if not is_quota(exc):
@@ -235,6 +266,7 @@ class KeyRing:
                         time.sleep(after + 1)
                         continue
                     self.spent.setdefault(model, set()).add(i)
+                    self._save()
                     say(f"{self.keys[i].label} は {model} の1日の上限に当たりました ⇒ 次のキーで続けます")
                     break
         raise RuntimeError(f"どのキーでも {model} を使えません（1日の上限・プロジェクトが止められている）")
