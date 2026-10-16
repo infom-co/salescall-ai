@@ -5,7 +5,8 @@
   有料枠が選択可能」）：単価は、サービス（会話AIの API・別の耳・回線の方式）と、会話AI・別の耳の枠（無料・有料）ごと。契約者が
   入れた単価が、管理者が入れた初めの値より強い。どの単価を使うかは `price_for` の1か所。報酬の単価は依頼者ごと（core/reward.py）。
 - 1行ごとに：出どころ（会話AI・別の耳・回線）・実測か推定か・量・単位・使った単価・金額。金額は記録したときの単価で決まる。
-  単価が無い組は記録できない（PriceMissing。推測で 0円にしない）。
+  単価が無い組でも止めない：量だけ記録し、金額は空（推測で 0円にしない）。契約者へ「設定がされていません」の注意を知らせる
+  （1日1回。2026-10-16 ユーザー：「止めるというのは、このまま進めると、お客様に対して、影響が出てしまうということだけ」）。
 - 回線：Rakuten Link は明細を返さないので、締めの処理が「話していた秒数 × 単価」の推定を書く（`record_line_estimate`）。
   会話AI・別の耳：返ってきた量を実測として、返らなければ推定として、会話の処理・検証（CL-1）が `record` を呼ぶ。
 - 予算（1日の上限。日本時間の日）：依頼者の上限を超えたら、記録した取引の中で、その依頼者を止める（原因 budget）。
@@ -13,8 +14,9 @@
 - **報酬に対する費用の割合**（2026-10-15 ユーザー決定。今月の数は core/reward.py の `month`）：記録のたびに、その依頼者の今月を見る。
   どちらの判断も、成果・話せた本数のぶれを多めに見込んだ報酬（`upper`。確かさは設定 budget.judge_confidence）で行う
   ＝判断し始める本数を決め打ちにせず、報酬と費用から逆算される。
-  - 赤字（今月の費用 ＞ 多めに見込んだ報酬）⇒ その依頼者を止める（原因 deficit）。報酬の決まりが無い依頼者は、報酬 0 円なので、
-    費用がかかれば赤字として止まる（決まりを入れ忘れたまま、費用だけかけ続けない）。
+  - 赤字（今月の費用 ＞ 多めに見込んだ報酬）⇒ その依頼者を止める（原因 deficit。2026-10-15 ユーザー決定「赤字なら止める」）。
+  - 報酬の決まりが無い依頼者は、赤字かを判断できないので、止めずに「設定がされていません」の注意を知らせる（1日1回。2026-10-16
+    ユーザー：止めるのは、お客様に影響が出るときだけ。前は報酬 0円とみなして止めていた）。
   - 赤字でなく、割合（費用 ÷ 多めに見込んだ報酬）が上限（budget.max_cost_ratio。既定 30％。依頼者ごとに選べる）を超えた
     ⇒ 知らせるだけ（1日1回）。
   - 赤字の停止は、見守りの `tick` が今月の数を見直し、赤字でなくなったら解く（報酬の決まりを直した・月が替わった・月額の日割りが
@@ -62,9 +64,17 @@ def price_for(tx: Tx, *, source: str, service: str, tier: str | None, unit: str)
 def record(tx: Tx, *, source: str, service: str, tier: str | None, kind: str, quantity: Decimal | int, unit: str,
            attempt_id: UUID | None = None) -> dict[str, Any]:
     """利用量を1行記録する（取引の依頼者の分）。使ったサービスと枠（無料・有料）の単価で金額を決める（price_for）。
-    依頼者の1日の上限を超えたら、その依頼者を止める（同じ取引）。"""
-    price = price_for(tx, source=source, service=service, tier=tier, unit=unit)
-    amount = Decimal(quantity) * Decimal(price["yen_per_unit"])
+    単価が入っていなければ、量だけ記録して金額は空にし、注意を知らせる（止めない）。依頼者の1日の上限を超えたら、その依頼者を止める
+    （同じ取引。2026-10-15 ユーザー決定）。"""
+    try:
+        price = price_for(tx, source=source, service=service, tier=tier, unit=unit)
+    except PriceMissing:
+        price = {"price_id": None, "yen_per_unit": None}
+        day = tx.one("SELECT salescall.jst(now())::date AS d")["d"]
+        notify.emit(tx, "setting_missing", key=f"price_missing:{source}:{service}:{tier}:{unit}:{day}",
+                    summary=f"費用の単価が設定されていません（{source}・{service}・{tier or '-'}・{unit}）。費用は量だけ記録しています",
+                    refs={"source": source, "service": service, "tier": tier, "unit": unit})
+    amount = None if price["yen_per_unit"] is None else Decimal(quantity) * Decimal(price["yen_per_unit"])
     row = tx.one(
         "INSERT INTO salescall.usage_entries (tenant_id, client_id, attempt_id, source, kind, quantity, unit, price_id,"
         " amount_yen) VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s, %s, %s, %s)"
@@ -106,17 +116,21 @@ def _deficit(tx: Tx, tenant_id: UUID, client_id: UUID) -> tuple[bool, dict[str, 
 def _check_cost_ratio(tx: Tx, tenant_id: UUID, client_id: UUID) -> int | None:
     deficit, m = _deficit(tx, tenant_id, client_id)
     figures = f"今月の費用 {m['cost']:.2f}円・報酬 {m['revenue']:.2f}円"
+    day = tx.one("SELECT salescall.jst(now())::date AS d")["d"]
+    if not m["has_terms"]:
+        # 報酬の決まりが無いのは設定の抜け（お客様には影響しない）：止めずに注意を知らせる（2026-10-16 ユーザー）
+        notify.emit(tx, "setting_missing", key=f"reward_terms_missing:{client_id}:{day}",
+                    summary=f"報酬の決まりが設定されていません（赤字かを判断できません。{figures}）", refs={"client_id": client_id})
+        return None
     if deficit:
         if _open_stop(tx, "client", "deficit"):
             return None
-        why = "" if m["has_terms"] else "（報酬の決まりがありません）"
-        return stops.stop(tx, scope="client", cause="deficit", reason=f"赤字：{figures}{why}",
+        return stops.stop(tx, scope="client", cause="deficit", reason=f"赤字：{figures}",
                           evidence="利用量の台帳・報酬の決まり", tenant_id=tenant_id, client_id=client_id)["event_id"]
     limit = Decimal(settings.resolve(tx, "budget.max_cost_ratio", tenant_id=tenant_id, client_id=client_id,
                                      business_id=None))
     if m["upper"] > 0 and m["cost"] / m["upper"] > limit:
         ratio = m["cost"] / m["upper"]
-        day = tx.one("SELECT salescall.jst(now())::date AS d")["d"]
         notify.emit(tx, "budget", key=f"cost_ratio:{client_id}:{day}",
                     summary=f"報酬に対する費用の割合が上限を超えました（多めに見込んでも {ratio:.0%} ＞ {limit:.0%}。{figures}）",
                     refs={"client_id": client_id, "ratio": str(ratio), "limit": str(limit)})

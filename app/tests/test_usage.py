@@ -26,10 +26,17 @@ class Ledger(SettleBase):
         self.settle(s2, self.call(s2, ["dialing", "no_answer"]))
         self.assertEqual(self.entries(s2), [])                        # お客様が出なかった通話は書かない
 
-    def test_missing_price_is_not_guessed(self):
+    def test_a_missing_price_is_a_notice_not_a_stop(self):
+        """単価が無くても止めない（お客様に影響しない）。量だけ記録し、金額は空（推測で 0円にしない）。契約者へ「設定がされて
+        いません」を知らせる（2026-10-16 ユーザー）。"""
         s = self.ready()
-        with self.assertRaises(usage.PriceMissing):
-            self.tx(s, lambda tx: usage.record(tx, source="ai", service="gemini-3.8-live", tier="free", kind="estimated", quantity=10, unit="seconds"))
+        got = self.tx(s, lambda tx: usage.record(tx, source="ai", service="gemini-3.8-live", tier="free", kind="estimated",
+                                                 quantity=10, unit="seconds"))
+        self.assertEqual((got["amount_yen"], got["stopped"]), (None, None))
+        kinds = self.tx(s, lambda tx: [r["kind"] for r in tx.all("SELECT kind FROM salescall.notification_events"
+                                                                 " WHERE event_key LIKE 'price_missing:%'")])
+        self.assertEqual(kinds, ["setting_missing"])
+        self.assertEqual(self.tx(s, lambda tx: reward.month(tx, confidence=0.95, gap_max=300))["unpriced_entries"], 1)
 
     def test_frozen(self):
         s = self.ready()
@@ -72,7 +79,11 @@ class PricesPerContractor(Priced):
         self.assertEqual(rec(s, "paid")["amount_yen"], Decimal("5.0"))
         self.assertEqual(rec(s, "free")["amount_yen"], 0)                 # 無料枠は初めの値（0円）
         with self.assertRaises(usage.PriceMissing):
-            rec(other, "paid")                                            # ほかの契約者の単価は使わない（推測で0円にしない）
+            self.tx(other, lambda tx: usage.price_for(tx, source="ai", service="gemini-3.8-live", tier="paid",
+                                                      unit="input_tokens"))   # ほかの契約者の単価は使わない
+        seen = self.tx(other, lambda tx: tx.one("SELECT count(*) AS n FROM salescall.price_versions WHERE tenant_id = %s",
+                                                (s["tenant"],)))["n"]
+        self.assertEqual(seen, 0)                                         # ほかの契約者の単価は、データベースが見せない
 
 
 class Budget(Priced):
@@ -233,14 +244,16 @@ class CostRatio(Priced):
         self.spend(s, 100)
         self.assertEqual(self.client_stops(s), ["deficit"])            # 3,000円 ＞ 約2,996円：赤字と判断
 
-    def test_no_terms_is_a_deficit(self):
+    def test_no_terms_is_a_notice_not_a_stop(self):
+        """報酬の決まりが無いのは設定の抜け（お客様には影響しない）：止めずに「設定がされていません」を知らせる（2026-10-16
+        ユーザー：「止めるというのは、このまま進めると、お客様に対して、影響が出てしまうということだけ」）。"""
         s = self.ready()
         self.priced("0.01")
         self.spend(s, 1)
-        self.assertEqual(self.client_stops(s), ["deficit"])            # 報酬の決まりが無い＝報酬 0円
-        reason = self.tx(s, lambda tx: tx.one("SELECT reason FROM salescall.stop_events WHERE cause = 'deficit'"
-                                              " ORDER BY event_id DESC LIMIT 1"))["reason"]
-        self.assertIn("報酬の決まりがありません", reason)
+        self.assertEqual(self.client_stops(s), [])
+        rows = self.tx(s, lambda tx: tx.all("SELECT kind FROM salescall.notification_events WHERE event_key LIKE %s",
+                                            (f"reward_terms_missing:{s['client']}:%",)))
+        self.assertEqual(rows, [{"kind": "setting_missing"}])
 
     def test_terms_are_frozen(self):
         s = self.ready()

@@ -105,7 +105,8 @@ _PRICE_AT = ("coalesce((SELECT t.{col} FROM salescall.reward_terms t WHERE t.val
 
 def month(tx: Tx, *, confidence: float, gap_max: int) -> dict[str, Any]:
     """取引の依頼者の、今月（日本時間）の数。cost・revenue（合計）・breakdown（形ごとの数と円。時給は秒）・
-    upper（成果と話せた本数を、確かさ confidence の上側まで多めに見込んだ報酬）・has_terms（報酬の決まりがあるか）。
+    upper（成果と話せた本数を、確かさ confidence の上側まで多めに見込んだ報酬）・has_terms（報酬の決まりがあるか）・
+    unpriced_entries（単価が設定されておらず金額の無い利用量の数。費用はその分を含まない＝画面で注意として出す）。
     confidence・gap_max は設定の値（読むのは呼ぶ側の1か所。core/usage.py）。"""
     b = tx.one("SELECT salescall.from_jst(date_trunc('month', salescall.jst(now()))) AS s,"
                " salescall.from_jst(date_trunc('month', salescall.jst(now())) + interval '1 month') AS e, now() AS now")
@@ -136,8 +137,9 @@ def month(tx: Tx, *, confidence: float, gap_max: int) -> dict[str, Any]:
         if end > start:
             monthly += Decimal(t["monthly_yen"]) * Decimal((end - start).total_seconds()) / Decimal(span)
     breakdown["monthly"] = {"count": None, "yen": monthly}
-    cost = Decimal(tx.one("SELECT coalesce(sum(amount_yen), 0) AS y FROM salescall.usage_entries"
-                          " WHERE occurred_at >= %s AND occurred_at <= %s", (b["s"], b["now"]))["y"])
+    c = tx.one("SELECT coalesce(sum(amount_yen), 0) AS y, count(*) FILTER (WHERE amount_yen IS NULL) AS unpriced"
+               " FROM salescall.usage_entries WHERE occurred_at >= %s AND occurred_at <= %s", (b["s"], b["now"]))
+    cost = Decimal(c["y"])
     revenue = sum((x["yen"] for x in breakdown.values()), Decimal(0))
     # ぶれる2つ（成果・話せた本数）を多めに見込んだ分：見た数より多い分を、いまの決まりの単価で足す
     now_terms = next((t for t in reversed(terms) if t["valid_from"] <= b["now"]), None)
@@ -147,4 +149,4 @@ def month(tx: Tx, *, confidence: float, gap_max: int) -> dict[str, Any]:
         price = Decimal(0) if now_terms is None else Decimal(now_terms[col])
         upper += price * Decimal(str(poisson_upper(k, confidence) - k))
     return {"month_start": b["s"], "cost": cost, "revenue": revenue, "upper": upper, "breakdown": breakdown,
-            "has_terms": bool(terms)}
+            "has_terms": bool(terms), "unpriced_entries": c["unpriced"]}
