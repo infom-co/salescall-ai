@@ -1,0 +1,62 @@
+[
+  {
+    "word": "Q2_lead_soredeha",
+    "file": "それでは/それでは_01.wav",
+    "candidate": "S4_Q2_lead_soredeha_2"
+  },
+  {
+    "word": "Q2_lead_soredeha",
+    "file": "それでは/それでは_02.wav",
+    "candidate": "S2_Q2_lead_soredeha_2"
+  },
+  {
+    "word": "Q2_lead_soredeha",
+    "file": "それでは/それでは_03.wav",
+    "candidate": "S4_Q2_lead_soredeha_1"
+  },
+  {
+    "word": "Q2_lead_soredeha",
+    "file": "それでは/それでは_04.wav",
+    "candidate": "S2_Q2_lead_soredeha_1"
+  },
+  {
+    "word": "moushiwake",
+    "file": "申し訳ございません/申し訳ございません_01.wav",
+    "candidate": "S2_moushiwake_2"
+  },
+  {
+    "word": "moushiwake",
+    "file": "申し訳ございません/申し訳ございません_02.wav",
+    "candidate": "S4_moushiwake_2"
+  },
+  {
+    "word": "moushiwake",
+    "file": "申し訳ございません/申し訳ございません_03.wav",
+    "candidate": "S4_moushiwake_1"
+  },
+  {
+    "word": "moushiwake",
+    "file": "申し訳ございません/申し訳ございません_04.wav",
+    "candidate": "S2_moushiwake_1"
+  },
+  {
+    "word": "wait",
+    "file": "少々お待ちいただいても/少々お待ちいただいても_01.wav",
+    "candidate": "S2_wait_1"
+  },
+  {
+    "word": "wait",
+    "file": "少々お待ちいただいても/少々お待ちいただいても_02.wav",
+    "candidate": "S2_wait_2"
+  },
+  {
+    "word": "wait",
+    "file": "少々お待ちいただいても/少々お待ちいただいても_03.wav",
+    "candidate": "S4_wait_1"
+  },
+  {
+    "word": "wait",
+    "file": "少々お待ちいただいても/少々お待ちいただいても_04.wav",
+    "candidate": "S4_wait_2"
+  }
+]
