@@ -1222,6 +1222,27 @@ class SpokenNameTest(unittest.TestCase):
                          "大阪の「にっぽんばし」店と、「上野原」の土地と、「中島」の件です。")
         self.assertEqual(quote_in_text("上野の件です。", ["上野"]), "「上野」の件です。")  # 文字だけの名前は、いままでどおり
 
+    def test_business_question_texts_use_readings(self):
+        """⛔ 見直しで見つけた漏れ：読みの置き換えが名乗りにしか効かず、質問の文の名前は漢字のまま、読みがなは2回読まれた。"""
+        from flowctl import Question
+        from instruction import Business
+        names = [{"surface": "大和ハウス工業", "reading": "だいわはうすこうぎょう"}, {"surface": "東海林", "reading": "しょうじ"},
+                 {"surface": "中島", "reading": ""}]
+        q = [Question("Q1", "「大和ハウス工業」様と同じ形で、東海林（しょうじ）が中島の件で伺ってもよろしいでしょうか？", "yes_no",
+                      conditions=("はい", "いいえ"))]
+        b = Business(company="アオバ物流", caller="佐藤", purpose="", questions=q, names=names, purpose_line="東海林（しょうじ）の件です。")
+        self.assertEqual(b.questions[0].text, "「だいわはうすこうぎょう」様と同じ形で、「しょうじ」が「中島」の件で伺ってもよろしいでしょうか？")
+        self.assertEqual(b.purpose_line, "「しょうじ」の件です。")
+        self.assertEqual(b.opening_parts()[-1], b.questions[0].text)  # 名乗りに続く最初の質問も、同じ文
+
+    def test_lead_word_does_not_shift_with_reading_question(self):
+        """⛔ 見直しで見つけた漏れ：読みの確かめを挟むと、次の質問のつなぎの言葉（録音の名前）が「それでは」から「続きまして」にずれた。"""
+        from flowctl import Question, reading_question, spoken_question
+        qs = [Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ")), reading_question("N1", "中島", "なかじま"),
+              Question("Q2", "ご希望の日時をお聞かせいただけますでしょうか？", "datetime", conditions=("答えた",))]
+        self.assertEqual(spoken_question(qs, "Q2")[1], "それでは")
+        self.assertEqual(spoken_question(qs, "N1"), (qs[1].text, ""))
+
     def test_business_uses_readings(self):
         from flowctl import Question
         from instruction import Business
@@ -1314,6 +1335,13 @@ class ReadingConfirmTest(unittest.TestCase):
         f.apply("confirm_field", {"question_id": "N1", "result": "affirmed"})
         self.assertEqual(f.readings(), {"中島": "なかしま"})
 
+    def test_denial_words(self):
+        from flowctl import DENIAL
+        for said in ("いや、中島です。", "いえ、なかしまです", "違います", "ちがいます、なかしまです", "違う違う"):
+            self.assertTrue(DENIAL.match(said), said)
+        for said in ("いえいえ、そうです", "違いません", "違いないです", "はい、そうです", "中島です"):
+            self.assertFalse(DENIAL.match(said), said)
+
     def test_name_only_reply_is_a_correction(self):
         """相手が認める言葉を言わずに名前だけを言い直した（「ナカシマです。」）＝直された。「はい、中島です。」は認めた。"""
         from flowctl import Flow, reading_question
@@ -1346,7 +1374,8 @@ class ReadingConfirmTest(unittest.TestCase):
         from instruction import Business, build
         q = [Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"))]
         _, text = build(Business(company="アオバ物流", caller="佐藤", purpose="", questions=q, unread_names=["角田"]), "S4")
-        self.assertIn("「角田」。こちら側の人の名前なら、お名前を声に出さずに", text)
+        self.assertIn("こちら側の人の名前のうち、「角田」は読み方が決まっていません。この名前は声に出さずに", text)
+        self.assertNotIn("お客様側", text)  # お客様側の名前は、まず言ってみる読みで呼んで確かめる（使わない、とは言わない）
         _, text = build(Business(company="アオバ物流", caller="佐藤", purpose="", questions=q), "S4")
         self.assertNotIn("読み方が決まっていません", text)
 

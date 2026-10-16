@@ -53,8 +53,20 @@ class Business:
     # 声に出す文には読みのほうを入れる（G-44：漢字のままだと読み違える。instruction.quote_in_text と同じ決まり）
     company_reading: str = ""
     caller_reading: str = ""
-    # 読みが決まらない名前（names.decide で reading が空のもの。表記）。指示文で、声に出さずに言い換える決まりを渡す（unread_rule）
+    # こちら側の名前で、読みが決まらないもの（台本の中の担当者名など。表記）。指示文で、声に出さずに言い換える決まりを渡す（unread_rule）。
+    # ⚠️ お客様側の名前（目的の人）は入れない：まず言ってみる読みで呼び、つながってから確かめる（flowctl.reading_question。✅ 2026-10-16 ユーザー）
     unread_names: list[str] = field(default_factory=list)
+    # 台本の名前（names.decide の戻り値）。質問の文・用件の一文・忙しいときの一言の中の名前を、作るときに1回だけ quote_in_text に通す
+    # （⛔ 見直しで見つけた漏れ：読みのひらがなへの置き換えが名乗りにしか効かず、質問の文の名前は漢字のまま・読みがなは2回読まれた）
+    names: list = field(default_factory=list)
+
+    def __post_init__(self):
+        if not self.names:
+            return
+        import dataclasses
+        self.questions = [q if q.reading_of else dataclasses.replace(q, text=quote_in_text(q.text, self.names)) for q in self.questions]
+        self.purpose_line = quote_in_text(self.purpose_line, self.names) if self.purpose_line else self.purpose_line
+        self.busy_ask = quote_in_text(self.busy_ask, self.names) if self.busy_ask else self.busy_ask
 
     def _said(self) -> tuple[str, str]:
         return quote(self.company_reading or self.company), quote(self.caller_reading or self.caller)
@@ -81,7 +93,8 @@ _OPEN, _CLOSE = "「『", "」』"
 def quote_in_text(text: str, names: list) -> str:
     """台本などの文の中の名前を、「」でくくる（名前の位置にだけ付け、ほかの文字は1文字も変えない）。
     names＝名前の表記（文字）か、names.decide の名前（{"surface", "reading"}）。**読みが決まっている名前は、くくった中身を読み（ひらがな）に
-    置き換える**（「大阪の「にっぽんばし」店」）。読みが決まらない名前（reading が空）は、表記のままくくる。
+    置き換える**（「大阪の「にっぽんばし」店」）。読みが決まらない名前（reading が空）は、表記のままくくる。もとからかっこの中にある名前も
+    中身を読みにし、名前のすぐあとの読みがな（「（しょうじ）」）は外す。声に出す文（指示文・質問・録音の文）は、すべてここを通す（Business）。
     ✅ G-44（2026-10-16）：読み違えやすい名前12を、録音と同じ形で読ませた。漢字のまま「」でくくる形は24本中8本しか正しく読まず（「枚方」⇒
        まいかた・「中島」⇒なかじま（正しくは なかしま）・「東海林」⇒とうかいりん など）、ひらがなで渡す形は23本中21本（読めなかったのは
        「山崎」＝やまさき の2本だけ。どの渡し方でも「やまざき」になった）。読みを指示に添える形は20本、文に「（読み）」を添える形は13本で、
@@ -97,10 +110,21 @@ def quote_in_text(text: str, names: list) -> str:
        「「神田」川」になる。名前の一覧に長いほうの名前があれば、長いほうが先に当たる（取込の文字のモデルは「兵庫県三田市」のように
        まとまりで出す。G-42）。
     """
+    import re
     import unicodedata
 
     from jtext import word_edges
+    from names import hira
 
+    readings = {}
+    for n in names:
+        if isinstance(n, dict) and n.get("surface"):
+            readings[unicodedata.normalize("NFKC", n["surface"])] = n.get("reading") or ""
+        elif isinstance(n, str) and n:
+            readings.setdefault(unicodedata.normalize("NFKC", n), "")
+    # もとから「」『』でくくってある名前（「大和ハウス工業」様）も、読みが決まっていれば中身を読みにする（かっこはそのまま）
+    text = re.sub(r"([「『])([^「」『』]+)([」』])",
+                  lambda m: m.group(1) + (readings.get(unicodedata.normalize("NFKC", m.group(2))) or m.group(2)) + m.group(3), text)
     normed = "".join(unicodedata.normalize("NFKC", ch) if len(unicodedata.normalize("NFKC", ch)) == 1 else ch for ch in text)
     edges = word_edges(text)
     taken = [False] * len(text)
@@ -112,12 +136,6 @@ def quote_in_text(text: str, names: list) -> str:
             depth = max(0, depth - 1)
         if depth or ch in _CLOSE:
             taken[i] = True
-    readings = {}
-    for n in names:
-        if isinstance(n, dict) and n.get("surface"):
-            readings[unicodedata.normalize("NFKC", n["surface"])] = n.get("reading") or ""
-        elif isinstance(n, str) and n:
-            readings.setdefault(unicodedata.normalize("NFKC", n), "")
     spans = []
     for name in sorted(readings, key=len, reverse=True):
         start = 0
@@ -133,6 +151,9 @@ def quote_in_text(text: str, names: list) -> str:
     for i, j, r in sorted(spans):
         out.append(text[pos:i] + quote(r or text[i:j]))
         pos = j
+        # 名前のすぐあとの読みがな（「東海林（しょうじ）」の「（しょうじ）」）が読みと同じなら外す（そのまま読ませると2回言う）
+        if r and (m := re.match(r"\s*[（(]\s*([ぁ-ゖァ-ヶー]+)\s*[）)]", text[j:])) and hira(m.group(1)) == r:
+            pos = j + m.end()
     out.append(text[pos:])
     return "".join(out)
 
@@ -245,12 +266,12 @@ def build(business: Business, voice_type: str, resume=None, opening_mode: str = 
 
 
 def unread_rule(names: list[str]) -> str:
-    """読みが決まらない名前の扱い（指示文の1か所）。✅ 2026-10-16 ユーザー：「なかじまとなかしまなどは人が見ても判断できません。それは会話の
-    中で失礼のないように語るか、場合によっては聞き出す」。⇒ こちら側の名前は声に出さずに言い換える（読み違えて言わない）。お客様側の名前は、
-    流れの制御が確かめの言い方を渡す（flowctl.reading_question）まで、お名前を使わずにお呼びする。"""
+    """こちら側の、読みが決まらない名前の扱い（指示文の1か所）。✅ 2026-10-16 ユーザー：「なかじまとなかしまなどは人が見ても判断できません。
+    それは会話の中で失礼のないように語るか、場合によっては聞き出す」。⇒ こちら側の名前は、相手に聞いても分からないので、声に出さずに言い換える。
+    お客様側の名前（目的の人）は、ここには入れない（まず言ってみる読みで呼び、つながってから確かめる＝flowctl.reading_question）。
+    ⛔ 見直しで直した：前は「お客様側の名前は確かめるまで使わない」とも書いていた＝承認いただいた形（言ってみる読みで呼ぶ）と食い違っていた。"""
     shown = "".join(quote(n) for n in names)
-    return (f"次の名前は、読み方が決まっていません：{shown}。こちら側の人の名前なら、お名前を声に出さずに「担当の者」のように言い換えて"
-            "話します。お客様側の方のお名前は、プログラムが確かめの言い方を渡すまで、お名前を使わずに「ご担当者様」のようにお呼びします。"
+    return (f"こちら側の人の名前のうち、{shown}は読み方が決まっていません。この名前は声に出さずに、「担当の者」のように言い換えて話します。"
             "読み方を自分で決めて言ってはいけません。")
 
 

@@ -119,7 +119,8 @@ def given_reading(text: str, surface: str) -> str:
 
 
 def hira(s: str) -> str:
-    return "".join(chr(ord(c) - 0x60) if "ァ" <= c <= "ヶ" else c for c in s or "")
+    """カタカナをひらがなに（空白は外す）。"""
+    return "".join(chr(ord(c) - 0x60) if "ァ" <= c <= "ヶ" else c for c in (s or "") if not c.isspace())
 
 
 def decide(text: str, model_runs: list[list[dict]]) -> list[dict]:
@@ -164,16 +165,4 @@ def decide(text: str, model_runs: list[list[dict]]) -> list[dict]:
         #    聞き出す」⇒ 流れの制御の名前の読みの確かめ（flowctl.reading_question）で、この読みを言って相手に確かめていただく
         likely = hira(hits[0].get("reading", "")) if hits[0].get("reading") else (cands[0] if cands else "")
         out.append({"surface": surface, "reading": "", "source": "", "candidates": cands, "likely": likely})
-    return out
-
-
-def spoken_text(text: str, names: list[dict]) -> str:
-    """台本の文から、名前のあとの読みがな（「東海林（しょうじ）」の「（しょうじ）」）を外した、声に出す文。録音の文・質問の文に使う
-    （そのまま読ませると「しょうじしょうじ」と2回言う）。読みがなは decide が読みとして持つ。"""
-    import re
-
-    out = text
-    for n in names:
-        if n.get("source") == "台本の読みがな":
-            out = re.sub(re.escape(n["surface"]) + r"\s*[（(]\s*[ぁ-んァ-ヶー]+\s*[）)]", n["surface"], out)
     return out
