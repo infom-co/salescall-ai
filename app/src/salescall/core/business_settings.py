@@ -4,7 +4,7 @@
 （取込は、ファイルをこの形にするだけ。確かめを2つ作らない）。確かめに通らなければ、何も置かない（全部か、何も無いか）。
 
 - 版を作る（`save_version`）：1つの取引で、版・質問（番号・並び・型・必須か）・業務の決まり（core/business_rules.py）・
-  中身（名乗り・目的・目的の人・忙しいときの一言・声の型・質問の文と選択肢と分岐・名前の一覧）を書く。版は変えない。
+  中身（名乗り・目的・目的のお客様・忙しいときの一言・声の型・質問の文と選択肢と分岐・名前の一覧）を書く。版は変えない。
   直すときは新しい版（`restore` は、前の版の中身から新しい版を作る＝前の版へ戻す）。
 - 実施回に版を割り当てる（`assign`。記録つき。DESIGN.md 3-2）：割り当てたら、品質の段の始め方（core/quality_stage.py の
   `prepare`）を呼ぶ（模擬通話を待つか、最初の段を開く）。
@@ -13,12 +13,12 @@
   システムの答えでもないのに飛ばすと、判定が「一部だけ取れた」になり、断った相手にかけ直すことになる）／読みを確かめていない名前／
   必須の質問が1つも無い／選択肢の名前が、出力の印・システムが足す答えと同じ／断りの答えが選択肢に無い／業務の決まりの確かめ。
   「終了条件の矛盾」は、この形では起きない（終わりは、分岐の「終わり」か最後の質問の次の1つだけ）。
-- 名前の読み（Intent.md 6-8）：読みごとに、誰が決めたか（`reading_by`：入口が持ってきた／AI の案／人が確かめた）を持つ。
-  **人が確かめるのは、検証モードの業務の AI の案だけ**（2026-10-16 ユーザー：「検証中はAIが認識したものを私が確認します」。
-  人は介在しない仕組みなので、フルオートでは確かめない）。検証モードかは、承認の部分（core/approval.py）に聞く（切り替えは1つ）。
+- 名前の読み（Intent.md 6-8）：読みごとに、誰が決めたか（`reading_by`：入口が持ってきた／AI の案／契約者が確かめた）を持つ。
+  **契約者が確かめるのは、検証モードの業務の AI の案だけ**（2026-10-16 ユーザー：「検証中はAIが認識したものを私が確認します」。
+  管理者も契約者も介在しない仕組みなので、フルオートでは確かめない）。検証モードかは、承認の部分（core/approval.py）に聞く（切り替えは1つ）。
   ⏳ 名前の候補の出し方（単語に分ける処理か、文字のモデルか）は CL-1 が比べている（PHASE0 G-23）。
 - 数の質問の単位（`unit`。CL-1 の連絡帳 4-14）：数の型の質問だけが持つ（空でもよい＝補わない）。決めるのは取込のときのプログラム
-  （CL-1 の決め方。人は確かめない）。この部品は形を確かめるだけ。
+  （CL-1 の決め方。管理者も契約者も確かめない）。この部品は形を確かめるだけ。
 """
 
 from __future__ import annotations
@@ -41,9 +41,9 @@ TARGET_CLASSES = ("corporate", "individual")      # 相手の区分：法人／�
 TARGET_CLASSES_OPEN = ("corporate",)              # いま選べる区分：法人だけ（Intent.md 3-1・18-3）。個人は、13章の確かめが済み、
 #                                                   名乗りの法定事項と拒否の即時登録をシステムが強制する形を作ってから開く（設定では開けない）
 TARGET_PERSON_KINDS = ("role", "role_and_name", "name", "anyone")
-# 役職のみ（決裁権者を含む）／役職（部署）＋名前／名前のみ／その店・会社の人なら誰でも（Intent.md 6-2。2026-10-13 ユーザー）
+# 役職のみ（決裁権者を含む）／役職（部署）＋名前／名前のみ／その店・会社のお客様なら誰でも（Intent.md 6-2。2026-10-13 ユーザー）
 NAME_SOURCES = ("caller", "script")               # 名乗り（自社名・担当者名）／トークスクリプトの文章（商品名・地名など）
-READING_BY = ("given", "ai", "person")            # 読みを決めたもの：入口が持ってきた／AI の読みの案／人が確かめた（直した）
+READING_BY = ("given", "ai", "person")            # 読みを決めたもの：入口が持ってきた／AI の読みの案／契約者が確かめた（直した）
 UNIT_TYPE = "number"                              # 単位を持てる型（金額には補わない。DESIGN.md 6-2 の ⚠️）
 QUESTION_KEYS = {"id", "text", "ask_about", "type", "required", "choices", "next", "unit"}
 
@@ -83,7 +83,7 @@ class Settings:
     company: Name                                 # 名乗りの自社名
     person: Name                                  # 名乗りの担当者名
     purpose_line: str | None                      # 用件の一文（空でもよい）
-    target_person: dict[str, Any]                 # 目的の人 {kind, role}
+    target_person: dict[str, Any]                 # 目的のお客様 {kind, role}
     busy_line: str | None                         # 「忙しい」と言われたときの一言（空なら丁寧に終える）
     voice: str                                    # 声の型の名前（CL-1。Intent.md 9-8）
     questions: tuple[Question, ...]
@@ -144,7 +144,7 @@ def _choices(raw: Any, type_name: str, where: str, problems: list[str]) -> tuple
 
 def check(raw: Any, *, field_types: frozenset[str], ai_reading_needs_person: bool) -> Settings:
     """業務設定を確かめて読む（ただ1つの確かめ。業務の決まりは版を作るときに business_rules が確かめる）。
-    ai_reading_needs_person：AI の読みの案を、人が確かめていなければ通さないか（版を作るときは設定 `ai_reading_needs_person`
+    ai_reading_needs_person：AI の読みの案を、契約者が確かめていなければ通さないか（版を作るときは設定 `ai_reading_needs_person`
     の答え。置いた版を読むときは False＝置いた時に確かめ済み）。合わなければ SettingsInvalid（見つけた理由をすべて並べる）。"""
     problems: list[str] = []
     if not isinstance(raw, dict) or set(raw) != KEYS:
@@ -165,16 +165,16 @@ def check(raw: Any, *, field_types: frozenset[str], ai_reading_needs_person: boo
         company = _name(caller["company"], "名乗りの自社名", "caller", problems)
         person = _name(caller["person"], "名乗りの担当者名", "caller", problems)
         purpose_line = _text(caller["purpose_line"], "用件の一文", problems, optional=True)
-    # 目的の人：役職は、業務で1つ書く（role）か、書かずに発信対象データの役職の列を使う（None。取込で列があるかを確かめる）。
+    # 目的のお客様：役職は、業務で1つ書く（role）か、書かずに発信対象データの役職の列を使う（None。取込で列があるかを確かめる）。
     # 名前のみ・誰でもは、役職を持たない
     tp = raw["target_person"]
     if not isinstance(tp, dict) or set(tp) != {"kind", "role"} or tp.get("kind") not in TARGET_PERSON_KINDS:
-        problems.append(f"目的の人は、種類（kind：{list(TARGET_PERSON_KINDS)}）と役職（role）です")
+        problems.append(f"目的のお客様は、種類（kind：{list(TARGET_PERSON_KINDS)}）と役職（role）です")
         tp = {"kind": None, "role": None}
     elif tp["kind"] in ("name", "anyone") and tp["role"] is not None:
-        problems.append("目的の人が「名前のみ」「誰でも」のときは、役職を書きません")
+        problems.append("目的のお客様が「名前のみ」「誰でも」のときは、役職を書きません")
     elif tp["role"] is not None:
-        _text(tp["role"], "目的の人の役職", problems)
+        _text(tp["role"], "目的のお客様の役職", problems)
     busy_line = _text(raw["busy_line"], "忙しいと言われたときの一言", problems, optional=True)
     voice = _text(raw["voice"], "声の型", problems)
 
@@ -226,7 +226,7 @@ def check(raw: Any, *, field_types: frozenset[str], ai_reading_needs_person: boo
                 problems.append(f"名前 {n} 番目は text・reading・source（{list(NAME_SOURCES)}）・reading_by（{list(READING_BY)}）です")
                 continue
             if x["reading_by"] == "ai" and ai_reading_needs_person:
-                problems.append(f"名前「{x['text']}」の読み「{x['reading']}」は AI の案です。検証モードでは、人が確かめてから使います"
+                problems.append(f"名前「{x['text']}」の読み「{x['reading']}」は AI の案です。検証モードでは、契約者が確かめてから使います"
                                 "（Intent.md 6-8）")
             nm = _name({"text": x["text"], "reading": x["reading"]}, f"名前 {n} 番目", x["source"], problems)
             if nm is not None:
@@ -322,7 +322,7 @@ def _field_types(tx: Tx) -> frozenset[str]:
 
 
 def ai_reading_needs_person(tx: Tx, business_id: UUID) -> bool:
-    """その業務で、AI の読みの案を人が確かめてから使うか（検証モードのあいだだけ。原則9：違いは人の段だけ）。"""
+    """その業務で、AI の読みの案を契約者が確かめてから使うか（検証モードのあいだだけ。原則9：違いは契約者の承認の段だけ）。"""
     return approval.human_for_business(tx, business_id)
 
 

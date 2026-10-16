@@ -47,7 +47,7 @@ class Csv(unittest.TestCase):
                 self.assertEqual(texts(s)[0], (2, ["架空商事", "03-0000-0001"]))
 
     def test_ambiguous_encoding_is_not_guessed(self):
-        """短い日本語は、UTF-8 とも Shift_JIS とも読めることがある。推測で選ばず、両方を見せて人が選ぶ。"""
+        """短い日本語は、UTF-8 とも Shift_JIS とも読めることがある。推測で選ばず、両方を見せて契約者が選ぶ。"""
         data = "名前,番号\nあい,03-0000-0001\n".encode("utf-8")
         with self.assertRaises(EncodingAmbiguous) as cm:
             read("一覧.csv", data)

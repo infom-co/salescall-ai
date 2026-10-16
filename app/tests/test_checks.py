@@ -152,7 +152,7 @@ class DialOnlyThroughExit(Planted):
 
 
 class SettingsReadInOnePlace(Planted):
-    """決まった設定は1か所からしか読まない：時間帯は gate（NG時間を引く。5-2-2）、人の承認のモードは承認の部分（I-13）。"""
+    """決まった設定は1か所からしか読まない：時間帯は gate（NG時間を引く。5-2-2）、契約者の承認のモードは承認の部分（I-13）。"""
 
     def test_reading_hours_elsewhere(self):
         root = self._app({"src/salescall/core/next_action.py": "def f(tx, r):\n    return r(tx, 'calling.hours')\n",

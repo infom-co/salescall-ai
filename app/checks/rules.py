@@ -172,7 +172,7 @@ WRITERS: dict[str, dict[str, frozenset[str]]] = {
     "calendar_holidays": {"INSERT": frozenset({_CORE + "calendar.py"})},
     "task_results": {"INSERT": frozenset({_CORE + "results.py"})},           # 業務の状態（Q5 の記録）
     "result_releases": {"INSERT": frozenset({_CORE + "approval.py"})},
-    "task_approvals": {"INSERT": frozenset({_CORE + "approval.py"})},       # 発信の前の人の承認（10-2）       # 送ってよい印は承認の部分だけ（10章）
+    "task_approvals": {"INSERT": frozenset({_CORE + "approval.py"})},       # 発信の前の契約者の承認（10-2）       # 送ってよい印は承認の部分だけ（10章）
     "task_next_actions": {"INSERT": frozenset({_CORE + "next_action.py"})},  # 次の予定（Q4）
     "dnc_entries": {"INSERT": frozenset({_CORE + "dnc.py"}), "UPDATE": frozenset({_CORE + "dnc.py"})},  # Q3
     "system_dnc_entries": {"INSERT": frozenset({_CORE + "dnc.py"})},
@@ -194,7 +194,7 @@ WRITERS: dict[str, dict[str, frozenset[str]]] = {
     "price_versions": {"INSERT": frozenset({_CORE + "usage.py"})},            # 単価の表（Q16）
     "reward_terms": {"INSERT": frozenset({_CORE + "reward.py"})},             # 報酬の決まり（12-1-2）
     "apology_orders": {"INSERT": frozenset({_CORE + "apology.py"})},          # お詫びの電話の案（システムが作る。10-1-2）
-    "apology_approvals": {"INSERT": frozenset({_CORE + "apology.py"})},       # お詫びの電話の承認（人だけ）
+    "apology_approvals": {"INSERT": frozenset({_CORE + "apology.py"})},       # お詫びの電話の承認（管理者か契約者だけ）
     "forbidden_findings": {"INSERT": frozenset({_CORE + "attempts.py"})},     # 言ってしまったこと（検証を済ませる1か所）
     "apology_outcomes": {"INSERT": frozenset({_CORE + "settle.py"})},         # お詫びの電話の結果（締めの処理だけ）
     "quality_evaluations": {"INSERT": frozenset({_CORE + "quality_stage.py"})},   # 品質の段の評価（Q22）
@@ -292,11 +292,11 @@ def dial_only_through_exit(app_root: Path) -> list[Violation]:
 
 # ── 決まった設定を読んでよいのは1か所だけ（設定の名前 → 読んでよいファイル・決まりの番号・理由）
 #    - 時間帯（かけてよい時間帯・かけない時間）：実際に使う時間帯を出す gate の1か所（NG時間を引き忘れない。5-2-2）
-#    - 人の承認のモード：承認の部分だけ（I-13。判定などがモードを読むと、両モードで動きが変わる）
+#    - 契約者の承認のモード：承認の部分だけ（I-13。判定などがモードを読むと、両モードで動きが変わる）
 SETTING_READERS: dict[str, tuple[str, str, str]] = {
     "calling.hours": ("src/salescall/core/gate.py", "5-2-2", "時間帯の設定は gate.calling_hours_for から読みます（NG時間を引き忘れない）"),
     "calling.ng_hours": ("src/salescall/core/gate.py", "5-2-2", "時間帯の設定は gate.calling_hours_for から読みます（NG時間を引き忘れない）"),
-    "approval.human": ("src/salescall/core/approval.py", "I-13", "人の承認のモードを読むのは、承認の部分（core/approval.py）だけです"),
+    "approval.human": ("src/salescall/core/approval.py", "I-13", "契約者の承認のモードを読むのは、承認の部分（core/approval.py）だけです"),
 }
 
 

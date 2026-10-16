@@ -109,7 +109,7 @@ class Stages(Base):
         why = self.tx(s, lambda tx: stops.explain(tx, sid))
         self.assertEqual(why["stop"]["cause"], "forbidden_speech")
         self.assertEqual(why["quality"]["metrics"]["forbidden_speech"]["hits"], 1)   # どの指標が外れたか
-        self.assertEqual(len(why["held_results"]), 1)                 # 送らずに待っている結果（人が確かめて送れる）
+        self.assertEqual(len(why["held_results"]), 1)                 # 送らずに待っている結果（契約者が確かめて送れる）
         self.tx(s, lambda tx: stops.resume(tx, sid, reason="試験：場面を聞いて、言い方の問題ではないと判断"), OPERATOR)
         self.assertEqual(self.tx(s, lambda tx: quality_stage.used(tx, s["version"])), 0)   # 測り直し
         self.verified_call(self.second_row(s), VerificationSummary(2, 0, 0), items=[("Q1", "confirmed", None)])

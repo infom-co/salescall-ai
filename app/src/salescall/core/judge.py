@@ -17,9 +17,9 @@
   (4) 用件を断られた（業務の決まりの「断りの答え」が取れた）                          ⇒ declined
   (5) 必須の質問がすべて取れた（confirmed・accepted。4-4 の定義）                     ⇒ completed
   (6) 取れていない必須の質問の扱いが「結論として終える」                              ⇒ concluded（結論の名前）
-  (7) かけ直しの約束（相手に頼まれた・分かる人／時を聞いた・こちらが約束した）          ⇒ callback_scheduled
-  (8) 人と話したが、目的の人に繋がらなかった                                          ⇒ not_reached（不在／取り次いでもらえなかった）
-  (9) 会話に至らなかった（相手が出なかった・人でなかった）                              ⇒ open
+  (7) かけ直しの約束（相手に頼まれた・分かるお客様／時を聞いた・こちらが約束した）          ⇒ callback_scheduled
+  (8) お客様と話したが、目的のお客様に繋がらなかった                                          ⇒ not_reached（不在／取り次いでもらえなかった）
+  (9) 会話に至らなかった（相手が出なかった・お客様の声でなかった）                              ⇒ open
   (10) 必須の質問が1つでも取れていない                                               ⇒ incomplete
   (11) どれでもない（入力の誤り）                                                      ⇒ unknown
 """
@@ -36,9 +36,9 @@ JUDGE_VERSION = "judge-2026-10-16.1"
 # 「判定できない」の原因の名前（同じ原因かを数える単位。直す担当も決まる）
 UNKNOWN_CAUSES: dict[str, str] = {
     "report_missing": "相手が出た通話なのに、会話の報告が無い（会話の処理の誤り。CL-1）",
-    "cut_missing": "人と話した通話なのに、切れ方の材料が報告に無い（会話の処理の誤り。CL-1）",
-    "handling_missing": "取れていない必須の質問の理由に、扱いが業務設定で決まっていない（業務設定の抜け。運営者）",
-    "not_reached_reason_missing": "目的の人に繋がらなかった理由が報告に無い（会話の処理の誤り。CL-1）",
+    "cut_missing": "お客様と話した通話なのに、切れ方の材料が報告に無い（会話の処理の誤り。CL-1）",
+    "handling_missing": "取れていない必須の質問の理由に、扱いが業務設定で決まっていない（業務設定の抜け。契約者）",
+    "not_reached_reason_missing": "目的のお客様に繋がらなかった理由が報告に無い（会話の処理の誤り。CL-1）",
 }
 TAKEN = frozenset({"confirmed", "accepted"})                  # 「取れた」の定義（4-4。ここで2つ目を作らない）
 HUMAN_PARTIES = frozenset({"reception", "target", "wrong_party"})
@@ -80,7 +80,7 @@ class Judgement:
 
 
 def classify_cut(facts: Facts, report: CallReport | None) -> str | None:
-    """切れ方の判定（7-1c。2026-10-14 ユーザー承認）。人と話した通話で、ふつうに終えたのでないときだけ決める。
+    """切れ方の判定（7-1c。2026-10-14 ユーザー承認）。お客様と話した通話で、ふつうに終えたのでないときだけ決める。
     返す値：normal / refused / interrupted / unclear（材料はあるが決められない）／missing（材料が報告されていない＝入力の誤り）。
     対象でなければ None。⚠️ missing を unclear と同じに扱わない（報告の書き損じで、ふつうに終えた相手を営業拒否にしない）。"""
     if not facts.reached_answer or facts.end_state not in ("ended", "dropped") or report is None:
@@ -121,7 +121,7 @@ def judge(inp: JudgeInput) -> Judgement:
     if inp.facts.reached_answer and r is None and inp.facts.end_state != "technical_error":
         return unknown("report_missing", "相手が出た通話なのに、会話の報告がありません")
     if raw_cut == "missing":
-        return unknown("cut_missing", "人と話した通話なのに、切れ方の材料（切れた瞬間に話していた人など）が報告されていません")
+        return unknown("cut_missing", "お客様と話した通話なのに、切れ方の材料（切れた瞬間に話していた側など）が報告されていません")
 
     # (1) 発信の拒否（原則14）
     if (r and r.do_not_call) or cut == "refused":
@@ -163,10 +163,10 @@ def judge(inp: JudgeInput) -> Judgement:
                     policy_key=None if cb.at else "callback_unspecified_time")
     human = bool(r and any(p in HUMAN_PARTIES for p in r.parties))
     conversation = inp.facts.reached_answer and human
-    # (8) 人と話したが、目的の人に繋がらなかった
+    # (8) お客様と話したが、目的のお客様に繋がらなかった
     if conversation and "target" not in r.parties:
         if r.not_reached is None:
-            return unknown("not_reached_reason_missing", "目的の人に繋がらなかった理由がありません")
+            return unknown("not_reached_reason_missing", "目的のお客様に繋がらなかった理由がありません")
         return done("not_reached", not_reached=r.not_reached, policy_key="not_reached_" + r.not_reached)
     # (9) 会話に至らなかった
     if not conversation:

@@ -51,7 +51,7 @@ def apply(owner_conninfo: str, directory: Path = MIGRATIONS_DIR) -> list[str]:
 
 
 if __name__ == "__main__":
-    # 接続文字列（合言葉を含みうる）は、命令の引数に書かず、環境変数で渡す（ほかの人から見える場所に出さない）
+    # 接続文字列（合言葉を含みうる）は、命令の引数に書かず、環境変数で渡す（PC のほかの利用者から見える場所に出さない）
     dsn = os.environ.get("SALESCALL_OWNER_DSN")
     if not dsn:
         print("環境変数 SALESCALL_OWNER_DSN に、表の持ち主の役でつなぐ接続文字列を入れてください")

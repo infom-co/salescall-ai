@@ -28,7 +28,7 @@ class Apology(Helpers):
                                             (aid,)))
 
     def order(self, s, aid, actor=OPERATOR):
-        """システムが作った案を、人が承認する。"""
+        """システムが作った案を、契約者が承認する。"""
         return self.tx(s, lambda tx: apology.approve(tx, self.draft(s, aid)["order_id"]), actor)
 
     def apology_call(self, s, **report):
@@ -49,7 +49,7 @@ class Apology(Helpers):
         self.assertEqual(self.tx(s, lambda tx: apology.for_task(tx, s["task"])), None)   # 承認するまで、かけない
         self.assertEqual(self.reason(s), "task_ended")
         with self.assertRaises(Rejected) as e:
-            self.order(s, aid, actor=SYSTEM)                          # システムは承認しない（人が確認して承認する）
+            self.order(s, aid, actor=SYSTEM)                          # システムは承認しない（契約者が確認して承認する）
         self.assertEqual(e.exception.constraint, "apology_approval_by_person")
         self.order(s, aid)
         self.assertEqual(self.tx(s, lambda tx: apology.for_task(tx, s["task"]))["text"], TEXT)
@@ -122,9 +122,9 @@ class Apology(Helpers):
     def test_other_stops_still_stop_it(self):
         s = self.fresh(stage_cap=20)
         self.order(s, self.incident(s))
-        self.tx(s, lambda tx: stops.stop(tx, scope="business", cause="manual", reason="試験：人の緊急停止",
+        self.tx(s, lambda tx: stops.stop(tx, scope="business", cause="manual", reason="試験：管理者か契約者が押した緊急停止",
                                          tenant_id=s["tenant"], client_id=s["client"], business_id=s["business"]), OPERATOR)
-        self.assertEqual(self.reason(s), "stopped")                    # 人の緊急停止では止める
+        self.assertEqual(self.reason(s), "stopped")                    # 管理者か契約者が押した緊急停止では止める
 
     def test_frozen(self):
         s = self.fresh(stage_cap=20)

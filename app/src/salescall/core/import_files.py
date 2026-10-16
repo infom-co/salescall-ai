@@ -8,7 +8,7 @@
 - CSV の文字の決まり：先頭に BOM があれば UTF-8。無ければ UTF-8 と Shift_JIS（cp932）の両方で厳密に読み、
   片方だけ読めればそれ、両方読めて中身が同じ（英数字だけ）なら UTF-8。
   **両方読めて中身が違うときは、推測で選ばない**（`EncodingAmbiguous`。両方の読み方の先頭の数行を返すので、
-  画面で見せて人が選び、`encoding` を指定して読み直す）。
+  画面で見せて契約者が選び、`encoding` を指定して読み直す）。
   測った結果（2026-10-14）：日本語が2文字だけの UTF-8 は約5割が Shift_JIS としても読め、Shift_JIS の2文字は約2%が
   UTF-8 としても読める。⇒「UTF-8 を先に試す」では、短いファイルで名前が化ける（会話で化けた社名を読み上げうる）。
   日本語が100文字を超えると、ほぼ両方では読めなくなるので、ふつうの一覧では選ぶ場面は出ない。
@@ -87,7 +87,7 @@ ENCODINGS = ("utf-8", "cp932")
 
 def read(file_name: str, data: bytes, *, sheet_name: str | None = None, encoding: str | None = None) -> Sheet:
     """ファイルを読む。種類は名前の拡張子で決める（.csv / .xlsx）。読めなければ FileRejected。
-    encoding：CSV の文字の決まりを人が選んだとき（EncodingAmbiguous のあと）だけ渡す。"""
+    encoding：CSV の文字の決まりを契約者が選んだとき（EncodingAmbiguous のあと）だけ渡す。"""
     lower = file_name.lower()
     digest = hashlib.sha256(data).hexdigest()
     if lower.endswith(".csv"):

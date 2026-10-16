@@ -43,7 +43,7 @@ class Order(unittest.TestCase):
             ("すべて取れた", dict(), "completed"),
             ("答えない＝結論", dict(items={"Q1": Item("refused", None, "policy"), "Q2": TAKEN["Q2"]}), "concluded"),
             ("かけ直しの約束", dict(items={}, rep=report(callback=Callback("later", NOW, None, None, None))), "callback_scheduled"),
-            ("目的の人に繋がらなかった", dict(items={}, rep=report(("reception",), not_reached="absent")), "not_reached"),
+            ("目的のお客様に繋がらなかった", dict(items={}, rep=report(("reception",), not_reached="absent")), "not_reached"),
             ("出なかった", dict(facts=Facts("no_answer", None, False, False), rep=None, items={}), "open"),
             ("留守電だけ", dict(facts=Facts("ended", None, True, False), rep=report(("voicemail",), cut=None), items={}), "open"),
             ("相手が出る前の結果不明", dict(facts=Facts("technical_error", None, False, False), rep=None, items={}), "open"),
@@ -376,7 +376,7 @@ class Shapes(unittest.TestCase):
             self.assertEqual(from_json(report(callback=cb).to_json()).callback, cb)
         for name, change in [("知らない項目", {"extra": 1}), ("知らない相手の種別", {"parties": ["boss"]}),
                              ("版が違う", {"version": 99}), ("真偽でない", {"do_not_call": "no"}),
-                             ("目的の人に繋がったのに理由", {"not_reached": "absent"}),
+                             ("目的のお客様に繋がったのに理由", {"not_reached": "absent"}),
                              ("時差の無い時刻", {"callback": {"reason": "later", "at": "2030-01-07T10:00:00",
                                                          "number_said": None, "number_e164": None, "person": None}}),
                              ("別の番号なのに番号が無い", {"callback": {"reason": "other_number", "at": None,

@@ -8,7 +8,7 @@ DESIGN.md 7-1・7-2・15-2-3。必須の質問そのものは、質問の表（q
 - **言ってはいけないこと**（forbidden。Intent.md 6-2 の禁止事項）：名前 → 言ってはいけないこと（say_not）と、正しい案内
   （correct。誤って言ったときに、お詫びの電話で伝える正しい内容。無いもの＝失礼な言葉など は null）。会話の処理（CL-1）は
   これを指示に入れ、通話後の検証は、言ってしまったときに、どの名前に当たったかと実際に言ったことを残す。
-  お詫びの電話の文面は、この2つからシステムが作る（人は確認と承認だけ。2026-10-16 ユーザー。DESIGN.md 10-1-2）。
+  お詫びの電話の文面は、この2つからシステムが作る（契約者は確認と承認だけ。2026-10-16 ユーザー。DESIGN.md 10-1-2）。
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from salescall.core.access import Tx
 DONT_KNOW_REASONS = ("not_in_charge", "undecided", "unknown_now", "unspecified")
 # 担当ではない／まだ決まっていない／いまは分からない／理由を言わなかった（受け皿）
 REFUSED_REASONS = ("policy", "unwilling")        # 決まりで言えない／答えたくない（受け皿）
-HANDLINGS = ("ask_who", "ask_when", "retry", "conclude")   # (a1) 分かる人 (a2) 分かる時 (b) 日を改める (d) 結論として終える
+HANDLINGS = ("ask_who", "ask_when", "retry", "conclude")   # (a1) 分かるお客様 (a2) 分かる時 (b) 日を改める (d) 結論として終える
 REFUSED_HANDLINGS = ("conclude",)                # 「答えない」は二度と聞かない ⇒ (d) だけ（15-2-3）
 POLICY_KEYS = ("open", "incomplete", "not_reached_absent", "not_reached_not_transferred", "callback_unspecified_time")
 # 会話に至らなかった／一部だけ取れた／不在（戻る時刻は取れなかった）／取り次いでもらえなかった／かけ直しの時刻が決まっていない

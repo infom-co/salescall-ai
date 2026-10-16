@@ -53,8 +53,8 @@ class ForbiddenSpeech(Helpers):
         notices = self.tx(s, lambda tx: tx.all("SELECT client_id FROM salescall.notification_events"
                                                " WHERE kind = 'forbidden_speech' AND refs ->> 'task_id' = %s",
                                                (str(s["task"]),)))
-        self.assertEqual([n["client_id"] for n in notices], [s["client"]])   # 運営者（＝管理者）の知らせ
-        self.assertEqual(len(self.releases(s)), 1)                   # 取れた結果は、ふつうどおり（人を待たない）
+        self.assertEqual([n["client_id"] for n in notices], [s["client"]])   # 契約者（＝管理者）の知らせ
+        self.assertEqual(len(self.releases(s)), 1)                   # 取れた結果は、ふつうどおり（管理者も契約者も待たない）
 
 
 class HumanApproval(Helpers):
@@ -76,9 +76,9 @@ class HumanApproval(Helpers):
         self.human(s)
         self.tx(s, lambda tx: approval.approve_task(tx, s["task"]), OPERATOR)
         got = self.verified_call(s, VerificationSummary(2, 0, 0), items=TAKEN)
-        self.assertEqual(self.releases(s), [])                       # 人が確かめるまで送らない
+        self.assertEqual(self.releases(s), [])                       # 契約者が確かめるまで送らない
         fixed = self.tx(s, lambda tx: approval.correct_result(tx, s["task"], business_state="incomplete", complaint=False,
-                                                              snapshot={"理由": "試験：人が聞き直した"}), OPERATOR)
+                                                              snapshot={"理由": "試験：契約者が聞き直した"}), OPERATOR)
         self.assertEqual([r["version_no"] for r in self.releases(s)], [fixed])
         kinds = self.tx(s, lambda tx: [r["kind"] for r in tx.all(
             "SELECT kind::text AS kind FROM salescall.task_results WHERE task_id = %s ORDER BY version_no", (s["task"],))])

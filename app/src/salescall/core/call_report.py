@@ -23,9 +23,9 @@ from salescall.core.phone import normalize
 VERSION = 2
 PARTY_KINDS = ("unknown", "reception", "target", "voicemail", "ivr", "fax", "wrong_party")   # 4-3（区間ごと）
 CALLBACK_REASONS = ("absent", "other_number", "later", "ask_who", "ask_when", "our_promise")
-# 不在・別の番号・あとで（相手に頼まれた。6-2）／分かる人・分かる時を聞いた（15-2-3 の a1・a2）／こちらが約束した
-NOT_REACHED_REASONS = ("absent", "not_transferred")      # 目的の人に繋がらなかった理由（7-1）
-SPEAKERS = ("callee", "ai", "none")                      # 切れた瞬間に話していた人（7-1c）
+# 不在・別の番号・あとで（相手に頼まれた。6-2）／分かるお客様・分かる時を聞いた（15-2-3 の a1・a2）／こちらが約束した
+NOT_REACHED_REASONS = ("absent", "not_transferred")      # 目的のお客様に繋がらなかった理由（7-1）
+SPEAKERS = ("callee", "ai", "none")                      # 切れた瞬間に話していた側（7-1c）
 
 
 class ReportInvalid(Exception):
@@ -38,12 +38,12 @@ class Callback:
     at: datetime | None          # かけ直す時刻（取れたときだけ。時差つき）
     number_said: str | None      # 別の番号：相手が言ったまま（reason = other_number のときは必ず要る。それ以外は持たない）
     number_e164: str | None      # 別の番号：番号の正規化（Q1）でそろえた番号（そろえられたときだけ）
-    person: str | None           # 分かる人（a1）
+    person: str | None           # 分かるお客様（a1）
 
 
 @dataclass(frozen=True)
 class Cut:
-    speaker: str | None          # 切れた瞬間に話していた人（分からなければ None）
+    speaker: str | None          # 切れた瞬間に話していた側（分からなければ None）
     in_closing: bool             # 締めの言葉に入っていた・締めのあとだった
     callee_refused_last: bool    # 相手の最後の発話が、断りの言葉だった
 
@@ -55,10 +55,10 @@ class CallReport:
     out_of_scope: bool           # 範囲外の求めで終えた
     complaint: bool              # 苦情・怒り
     hurried: bool                # 相手が急いでいて終えた
-    not_reached: str | None      # 目的の人に繋がらなかった理由
+    not_reached: str | None      # 目的のお客様に繋がらなかった理由
     callback: Callback | None
     cut: Cut | None              # 切れ方の材料（相手が出なかった通話は None）
-    apology_delivered: bool | None = None   # お詫びの電話だけ：その通話で話した人に、文面を伝えられたか（10-1-2）
+    apology_delivered: bool | None = None   # お詫びの電話だけ：その通話で話したお客様に、文面を伝えられたか（10-1-2）
 
     def to_json(self) -> dict[str, Any]:
         d = asdict(self)
@@ -105,7 +105,7 @@ def from_json(raw: Any) -> CallReport:
     parties_t = tuple(_choice(p, PARTY_KINDS, "parties") for p in parties)
     not_reached = _choice(d.get("not_reached"), NOT_REACHED_REASONS, "not_reached", optional=True)
     if not_reached is not None and "target" in parties_t:
-        raise ReportInvalid("目的の人に繋がったのに、繋がらなかった理由があります")
+        raise ReportInvalid("目的のお客様に繋がったのに、繋がらなかった理由があります")
     cb = None
     if d.get("callback") is not None:
         c = _keys(d["callback"], {"reason", "at", "number_said", "number_e164", "person"}, "callback")

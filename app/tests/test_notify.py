@@ -43,7 +43,7 @@ class Ledger(unittest.TestCase):
         key = f"test:{s['task']}"
         self.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: notify.emit(tx, "judge_unknown", key=key, summary="x"))
         self.assertEqual(len(events(self.a, s["tenant"], s["client"], key)), 1)        # その依頼主
-        self.assertEqual(len(events(self.a, s["tenant"], None, key)), 1)               # 運営者（契約者）
+        self.assertEqual(len(events(self.a, s["tenant"], None, key)), 1)               # 契約者
         self.assertEqual(events(self.a, s["tenant"], other_client, key), [])           # 同じ契約者のほかの依頼主
         self.assertEqual(events(self.a, stranger["tenant"], None, key), [])            # ほかの契約者
         self.assertEqual(events(self.a, None, None, key), [])                          # 全体の取引

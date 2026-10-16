@@ -8,7 +8,7 @@
 - 回数と間隔の数え方は `pacing` の1か所（5-2-1 の8）。門も、次の動き（Q4）も、画面も、これを読む。
 - 不許可は、理由の名前（下の REASONS が一覧の正本）を返し、記録に残す（画面で理由ごとに数える）。理由の種類：
   permanent＝待っても変わらない（次の動きは終える）／wait＝待てば変わる（次の動きは待ってかけ直す）／
-  cannot_judge＝判断の材料が無い（通さない。運営者が直す。暦の取り込み・設定の値・業務の版）。
+  cannot_judge＝判断の材料が無い（通さない。契約者が直す。暦の取り込み・設定の値・業務の版）。
 - 依頼主の範囲の外（ほかの依頼主・契約者の試行）は、中身を返さない確かめの関数だけで見る（「同じ契約者か、外か」だけ）。
 - **どの番号へかけるか**は、いまの予定（次の動きの記録の最新）が持つ番号（行の番号の表にある番号だけ。DESIGN.md 3-5）。
   門は決め直さない。「同じ相手」は、かける番号が同じ発信と、同じ行（一覧の1行）の発信の両方（番号を変えて回数を増やさない）。
@@ -35,7 +35,7 @@ REASONS: dict[str, tuple[str, str]] = {
     "judge_pending": ("前の通話が判定できず、判定し直しを待っています", "wait"),
     "not_due": ("次の予定の時刻より前です", "wait"),
     "awaiting_decision": ("前の発信の判定と次の予定が、まだ済んでいません", "wait"),
-    "awaiting_approval": ("人の承認を使う業務で、この行がまだ承認されていません", "wait"),
+    "awaiting_approval": ("契約者の承認を使う業務で、この行がまだ承認されていません", "wait"),
     "number_unknown": ("番号が不明です", "permanent"),
     "number_kind_forbidden": ("かけない種類の番号です", "permanent"),
     "number_kind_not_allowed": ("この業務の設定でかけない種類の番号です", "permanent"),
@@ -241,7 +241,7 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
         return _deny("judge_pending")
     if nxt["call_at"] > now:
         return _deny("not_due")
-    if not approval.task_cleared(tx, task["task_id"]):   # 人の承認を使う業務：運営者が承認した行だけ（モードは承認の部分が読む）
+    if not approval.task_cleared(tx, task["task_id"]):   # 契約者の承認を使う業務：契約者が承認した行だけ（モードは承認の部分が読む）
         return _deny("awaiting_approval")
     # 前の発信の締め（判定の結果の版）が済むまで、次をかけない（予定を誰が書き直しても抜け道にならないよう、
     # 「前の発信に判定の結果があるか」で決める。判定と次の予定は、締めの処理 core/settle.py が1つの取引で書く）
@@ -273,7 +273,7 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
     except (business_rules.RulesMissing, business_rules.RulesInvalid):
         return _deny("rules_missing")
     # お詫びの電話（DESIGN.md 10-1-2）は、業務の話し方を使わない（決まった文面だけ）：品質の段の件数に数えず、業務の品質の停止
-    # （言ってはいけないこと・品質の基準・判定できない）では止めない。ほかの停止（全体・人の緊急停止・費用・回線など）では止める
+    # （言ってはいけないこと・品質の基準・判定できない）では止めない。ほかの停止（全体・管理者か契約者が押した緊急停止・費用・回線など）では止める
     apology = nxt["purpose"] == "apology"
     ok, why = (True, None) if apology else quality_stage.allowance(tx, version)
     if not ok:

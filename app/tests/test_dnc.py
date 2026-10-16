@@ -69,7 +69,7 @@ class Register(unittest.TestCase):
     def test_system_ledger_applies_to_every_client_and_releases_their_claims(self):
         w = World(); s1 = jp_setup(w)
         a = w.insert_claim(s1)
-        with self.assertRaises(Rejected):                    # 運営者（契約者の利用者）は、全体に効く登録はできない
+        with self.assertRaises(Rejected):                    # 契約者は、全体に効く登録はできない（管理者だけ）
             w.a.in_system(OPERATOR, lambda tx: dnc.register_system(tx, s1["raw"], "試験"))
         n = w.a.in_system(ADMIN, lambda tx: dnc.register_system(tx, s1["raw"], "総務省の注意喚起（試験）"))
         self.assertEqual(n, 1)

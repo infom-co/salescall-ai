@@ -6,16 +6,16 @@
 （確かめ）と `register_reviewed`（登録）の同じ道を通る**。確かめそのものは business_settings の1か所。ファイルを読むのは
 core/import_files.py。
 
-流れ（Intent.md 6-5）：`preview`（何も書かない）⇒ 人が問題を直す（検証中は、AI の読みの案も確かめる）⇒ `register`
+流れ（Intent.md 6-5）：`preview`（何も書かない）⇒ 契約者が問題を直す（検証モードでは、AI の読みの案も確かめる）⇒ `register`
 （プレビューと同じ中身のときだけ、新しい版を作る。全部か、何も無いか）。
 
 - 標準のひな形の、シート・列・言葉の名前の正本は、この部品の `SHEETS`・`LABELS`（画面のひな形の書き出しも、これを読む）。
 - 名前の読み（Intent.md 6-8）：入口が読みを持ってくれば、それを使う。無ければ AI の読みの案（`ReadingSuggester`。作るのは
-  CL-1）を使う。**人が確かめるのは、検証中の AI の案だけ**（2026-10-16 ユーザー：「検証中はAIが認識したものを私が確認します」。
-  確かめるかを決めるのは business_settings の1か所）。人が確かめた（直した）読みは、どの読みより優先する。質問の文などの「」の中の
+  CL-1）を使う。**契約者が確かめるのは、検証モードの業務の AI の案だけ**（2026-10-16 ユーザー：「検証中はAIが認識したものを私が確認します」。
+  確かめるかを決めるのは business_settings の1か所）。契約者が確かめた（直した）読みは、どの読みより優先する。質問の文などの「」の中の
   言葉で、名前の一覧に無いものは「名前かもしれない言葉」として示す（枠だけ。⏳ 候補の出し方は CL-1 が比べている。PHASE0 G-23）。
 - 数の質問の単位（CL-1 の連絡帳 4-14）：入口が単位を持ってこなければ、単位を決める処理（`UnitDecider`。決め方は CL-1 の1か所）
-  の答えを入れる。人は確かめない。決まらなければ空（補わない）。
+  の答えを入れる。管理者も契約者も確かめない。決まらなければ空（補わない）。
 - 「わからない・答えたくない」のシートは、質問ID「全部」の行で、必須の質問すべての扱いを1度に書ける（質問ごとの行があれば、
   そちらが勝つ）。
 """
@@ -47,8 +47,8 @@ SHEETS: dict[str, tuple[str, dict[str, str], bool]] = {
     "names": ("名前", {"text": "表記", "reading": "読み"}, False),
 }
 BASIC_ITEMS = {"業務の目的": "purpose", "相手の区分": "target_class", "自社名": "company", "自社名の読み": "company_reading", "担当者名": "person",
-               "担当者名の読み": "person_reading", "用件の一文": "purpose_line", "目的の人": "target_kind",
-               "目的の人の役職": "target_role", "忙しいと言われたときの一言": "busy_line", "声の型": "voice"}
+               "担当者名の読み": "person_reading", "用件の一文": "purpose_line", "目的のお客様": "target_kind",
+               "目的のお客様の役職": "target_role", "忙しいと言われたときの一言": "busy_line", "声の型": "voice"}
 LABELS: dict[str, dict[str, str]] = {
     "type": {"日付": "date", "時刻": "time", "日時": "datetime", "数": "number", "金額": "amount", "名前": "name",
              "電話番号": "phone", "メール": "email", "住所": "address", "はい／いいえ": "yes_no", "選択肢": "choice",
@@ -58,7 +58,7 @@ LABELS: dict[str, dict[str, str]] = {
     "state": {"わからない": "dont_know", "答えたくない": "refused"},
     "reason": {"担当ではない": "not_in_charge", "まだ決まっていない": "undecided", "いまは分からない": "unknown_now",
                "理由を言わなかった": "unspecified", "決まりで言えない": "policy", "答えたくない": "unwilling"},
-    "kind": {"分かる人を聞く": "ask_who", "分かる時を聞く": "ask_when", "日を改める": "retry", "結論として終える": "conclude"},
+    "kind": {"分かるお客様を聞く": "ask_who", "分かる時を聞く": "ask_when", "日を改める": "retry", "結論として終える": "conclude"},
     "retry_key": {"会話に至らなかった": "open", "一部だけ取れた": "incomplete", "不在": "not_reached_absent",
                   "取り次いでもらえなかった": "not_reached_not_transferred", "かけ直しの時刻が決まっていない": "callback_unspecified_time"},
     "action": {"かける": "call", "終える": "end"},
@@ -76,7 +76,7 @@ _QUOTED = re.compile(r"「([^「」]{1,40})」")
 class Preview:
     raw: dict[str, Any] | None                    # 業務設定の形（読めなかったら None）
     problems: list[str]                           # 直すこと（シート・行つき）。空なら登録できる
-    names_to_confirm: list[dict[str, str]]        # 人が読みを確かめる名前（検証中の AI の案。表記・読み・出どころ）
+    names_to_confirm: list[dict[str, str]]        # 契約者が読みを確かめる名前（検証モードの AI の案。表記・読み・出どころ）
     maybe_names: list[str] = field(default_factory=list)   # 「」の中の、名前の一覧に無い言葉（名前なら「名前」のシートに足す）
     digest: str = ""                              # 登録のときに同じ中身かを確かめる指紋
 
@@ -151,7 +151,7 @@ def _to_raw(sheets: dict[str, tuple[Sheet, dict[str, int]]], problems: list[str]
             problems.append(f"シート「基本」：項目「{v.get('item')}」が2つあります")
         else:
             basic[item] = v.get("value")
-    tkind = _label("target_kind", basic.get("target_kind"), "シート「基本」の目的の人", problems)
+    tkind = _label("target_kind", basic.get("target_kind"), "シート「基本」の目的のお客様", problems)
     tclass = _label("target_class", basic.get("target_class"), "シート「基本」の相手の区分", problems)
 
     questions, decline = [], {}
@@ -244,19 +244,19 @@ def _field_types(tx: Tx) -> frozenset[str]:
 
 ReadingSuggester = Callable[[list[str]], dict[str, str]]
 """名前の読みの案を出す処理（表記の並び → 表記ごとの読み）。AI（文字のモデル）で出すのは会話の担当 CL-1（Gemini のキーを
-使うのは CL-1 だけ）。検証中は、人が確かめてから使う（2026-10-16 ユーザー：「検証中はAIが認識したものを私が確認します」）。"""
+使うのは CL-1 だけ）。検証モードでは、契約者が確かめてから使う（2026-10-16 ユーザー：「検証中はAIが認識したものを私が確認します」）。"""
 
 UnitDecider = Callable[[list[str]], dict[str, str]]
 """数の質問の単位を決める処理（質問の文の並び → 文ごとの単位。決まらない文は入れないか空）。決め方は CL-1 の1か所
-（CL-1 の連絡帳 4-14。質問の文の数える言葉か、文字のモデル2つが合うときだけ）。人は確かめない。"""
+（CL-1 の連絡帳 4-14。質問の文の数える言葉か、文字のモデル2つが合うときだけ）。管理者も契約者も確かめない。"""
 
 
 def review(tx: Tx, business_id: UUID, raw: dict[str, Any], *, confirmed_names: Any = (),
            suggest_readings: ReadingSuggester | None = None, decide_units: UnitDecider | None = None,
            problems: list[str] | None = None) -> Preview:
     """業務設定の形を確かめる（どの入口も、ここを通る：ファイル・依頼主の画面から抜き出したもの・画面の入力）。何も書かない。
-    - 名前の読み：人が確かめた読み（confirmed_names＝(表記, 読み) の並び。人が直した読みも、ここで渡す）＞入口が持ってきた読み＞
-      AI の読みの案（suggest_readings）の順で使い、どれで決めたかを `reading_by` に残す。AI の案を人が確かめるか（検証中）は
+    - 名前の読み：契約者が確かめた読み（confirmed_names＝(表記, 読み) の並び。契約者が直した読みも、ここで渡す）＞入口が持ってきた読み＞
+      AI の読みの案（suggest_readings）の順で使い、どれで決めたかを `reading_by` に残す。AI の案を契約者が確かめるか（検証モード）は
       business_settings が決め、確かめていなければ問題に出る。名乗りの自社名・担当者名の読みも、名前の一覧と同じ読みにそろえる。
     - 数の質問の単位：入口が持ってこなければ、decide_units の答えを入れる（決まらなければ空）。
     - 「」の中の言葉で、名前の一覧に無いものを「名前かもしれない言葉」として示す（枠だけ）。"""
@@ -327,7 +327,7 @@ class PreviewChanged(Exception):
 
 
 def register_reviewed(tx: Tx, business_id: UUID, p: Preview, *, expected_digest: str) -> UUID:
-    """人が確かめたプレビューと同じ中身なら、新しい版を作る（どの入口も、ここを通る。1つの取引。問題が1つでもあれば何も書かない）。"""
+    """契約者が確かめたプレビューと同じ中身なら、新しい版を作る（どの入口も、ここを通る。1つの取引。問題が1つでもあれば何も書かない）。"""
     if p.digest != expected_digest:
         raise PreviewChanged("プレビューのあとで中身が変わりました。もう一度プレビューを確かめてください")
     if p.problems or p.raw is None:

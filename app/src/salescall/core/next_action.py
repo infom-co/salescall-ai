@@ -220,7 +220,7 @@ def decide_after_call(j: Judgement, *, verification: str, normal: gate.Pacing, p
     retry_at＝この結果の再発信の方針の間隔（n 時間おき／n 日後）が指す時刻（`_retry_at` の1か所で出す。かけてよい時間帯が
     これから先に無ければ None）。forbidden＝この通話で、言ってはいけないことを言った（通話後の検証で、2つの耳で確かめた）。"""
     if forbidden:   # 2026-10-15 ユーザー：「その行はひとまず終える。依頼主でなく、管理者へ報告。場合によっては、お詫びを入れる」
-        return _end("forbidden_speech", "言ってはいけないことを言った：その行はひとまず終える（管理者へ知らせた）")
+        return _end("forbidden_speech", "言ってはいけないことを言った：その行はひとまず終える（契約者へ知らせた）")
     if j.state in END_STATES:
         return _end(j.state, "目的を果たした・終わった結果")
     if verification == "failed":

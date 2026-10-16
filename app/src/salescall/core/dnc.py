@@ -1,17 +1,17 @@
 """発信禁止台帳（Q3「この相手は、かけてはいけない相手か」）。持ち主 CL-2。DESIGN.md 3-6・5-2・Intent.md 原則14。
 
 - 登録するのは、この部品の `register`（依頼主の台帳）と `register_system`（システム共通）だけ（I-12。app/checks が見張る）。
-  呼ぶ側：会話の「もうかけないで」（その場で）・通話後の検証の拒否の聞き逃し・判定の番号違い・依頼主の発信禁止の一覧の取込・運営者。
+  呼ぶ側：会話の「もうかけないで」（その場で）・通話後の検証の拒否の聞き逃し・判定の番号違い・依頼主の発信禁止の一覧の取込・契約者。
 - 番号は番号の正規化（Q1）を通す。そろえられない番号は登録できない（ValueError）。
 - **どこまで止めるかを決めるのは `register` の1か所だけ**（2026-10-14 ユーザー決定。DESIGN.md 3-6）：
   相手が断った（`REFUSALS`）ことが、どの通話（試行）で分かったかが渡されたら、
   (b) その行（タスク）の番号すべてを止める（相手が言った別の番号も。番号の一覧は tasks.numbers の1か所）。
-  (c) 運営者が依頼主ごとの設定で「管理番号は相手を表す変わらない番号」を「はい」にしていたら（設定 `dnc.client_ref_is_stable_id`）、
+  (c) 契約者が依頼主ごとの設定で「管理番号は相手を表す変わらない番号」を「はい」にしていたら（設定 `dnc.client_ref_is_stable_id`）、
       その行の管理番号も止める（次の一覧で、同じ相手が別の番号で入ってきても止まる）。
   番号違い（wrong_party）は、その番号の持ち主が別の相手だったということなので、その番号だけ（行・管理番号へ広げない）。
 - 同じ番号・同じ管理番号の有効な登録は1つ（2回目の登録は、前の登録をそのまま返す。何度呼んでも同じ結果）。
 - **登録した取引の中で、止めた番号・管理番号のまだ発信していない予約を取り消す**（DESIGN.md 5-2-1 の2）。
-- 取り消し（revoke）は人だけ・記録つき・1回だけ（データベースが守る）。自動では取り消さない（Intent.md 10-3）。
+- 取り消し（revoke）は管理者か契約者だけ・記録つき・1回だけ（データベースが守る）。自動では取り消さない（Intent.md 10-3）。
 - 引くのは `lookup`。門と取込は、`target_policy` を通して引く。
 - **断られたら止める範囲**（`reach`）も、ここの1か所。門は、締めがまだの発信（断られたかがまだ決まっていない）の範囲に入る
   番号・管理番号へかけない（`unsettled_reach_covers`。止める前にかけてしまう隙を作らない。DESIGN.md 5-2-2）。
@@ -83,7 +83,7 @@ def register(tx: Tx, phone: PhoneNumber | str, reason: Reason, *, source_attempt
 
 def reach(tx: Tx, task_id: UUID) -> tuple[list[str], str | None]:
     """その行の相手が断ったときに止める範囲（広げ方の正本。DESIGN.md 3-6）：(b) その行の番号すべて（相手が言った別の番号も。
-    tasks.numbers の1か所）と、(c) 運営者が依頼主ごとの設定で選んでいれば、その行の管理番号（無ければ None）。"""
+    tasks.numbers の1か所）と、(c) 契約者が依頼主ごとの設定で選んでいれば、その行の管理番号（無ければ None）。"""
     t = tx.one("SELECT t.tenant_id, t.client_id, t.client_ref, r.business_id FROM salescall.tasks t"
                " JOIN salescall.runs r ON r.client_id = t.client_id AND r.run_id = t.run_id WHERE t.task_id = %s",
                (task_id,))
@@ -125,7 +125,7 @@ def register_system(tx: Tx, phone: PhoneNumber | str, reason: str) -> int:
 def lookup(tx: Tx, e164: str, *, client_ref: str | None = None) -> dict[str, Any] | None:
     """その番号（または、その行の管理番号）が発信禁止なら、どの台帳か（client / system / client_ref）と理由。
 
-    管理番号の登録は、設定を「いいえ」に戻しても効く（止める側に倒す。取り消しは人が。DESIGN.md 3-6）。
+    管理番号の登録は、設定を「いいえ」に戻しても効く（止める側に倒す。取り消しは契約者が。DESIGN.md 3-6）。
     """
     row = tx.one("SELECT reason::text AS reason FROM salescall.dnc_entries WHERE phone_e164 = %s AND revoked_at IS NULL",
                  (e164,))
@@ -143,7 +143,7 @@ def lookup(tx: Tx, e164: str, *, client_ref: str | None = None) -> dict[str, Any
 
 
 def revoke(tx: Tx, entry_id: UUID, reason: str) -> None:
-    """発信禁止の登録を取り消す（人だけ・理由つき・1回だけ。データベースが守る）。自動では呼ばない（Intent.md 10-3）。
+    """発信禁止の登録を取り消す（管理者か契約者だけ・理由つき・1回だけ。データベースが守る）。自動では呼ばない（Intent.md 10-3）。
     行ごとに広げて登録したものも、1つずつ取り消す（番号と管理番号は別の登録）。"""
     row = tx.one(
         "UPDATE salescall.dnc_entries SET revoked_at = now(), revoked_by = salescall.cur_actor(), revoke_reason = %s"

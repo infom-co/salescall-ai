@@ -20,7 +20,7 @@ def book(*, sheets=None, drop=(), rename=None) -> bytes:
     content = {
         "基本": [("項目", "値"), ("業務の目的", "予約の希望日時を伺う"), ("相手の区分", "法人"), ("自社名", "株式会社テスト物流"),
                ("自社名の読み", "かぶしきがいしゃてすとぶつりゅう"), ("担当者名", "山田"), ("担当者名の読み", "やまだ"),
-               ("用件の一文", "ご予約の確認でお電話いたしました。"), ("目的の人", "誰でも"), ("目的の人の役職", None),
+               ("用件の一文", "ご予約の確認でお電話いたしました。"), ("目的のお客様", "誰でも"), ("目的のお客様の役職", None),
                ("忙しいと言われたときの一言", None), ("声の型", "S2")],
         "質問": [("質問ID", "質問の文", "聞くこと", "型", "必須", "選択肢", "断りの答え"),
                ("Q1", "「テスト便」のご予約はなさいますか。", "ご予約", "選択肢", "はい", "する／しない", "しない"),
@@ -61,14 +61,14 @@ class Import(unittest.TestCase):
         return self.tx(lambda tx: bi.preview(tx, self.s["business"], "業務設定.xlsx", data, **kw))
 
     def start_verification(self):
-        """検証モードの業務（AI の読みの案を人が確かめる。切り替えは人の承認と同じ1つ）。"""
+        """検証モードの業務（AI の読みの案を契約者が確かめる。切り替えは契約者の承認と同じ1つ）。"""
         self.tx(lambda tx: settings.set_value(tx, "approval.human", True, scope="business", status="decided",
                                               rationale="試験：検証モード", review_when="試験",
                                               tenant_id=self.s["tenant"], client_id=self.s["client"],
                                               business_id=self.s["business"]))
 
     def test_preview_and_register(self):
-        """入口が持ってきた読みは、人が確かめずに使う（人は介在しない。確かめるのは検証中の AI の案だけ）。"""
+        """入口が持ってきた読みは、契約者が確かめずに使う（管理者も契約者も介在しない。確かめるのは検証モードの AI の案だけ）。"""
         data = book()
         p = self.preview(data)
         self.assertEqual((p.problems, p.names_to_confirm), ([], []))
@@ -83,7 +83,7 @@ class Import(unittest.TestCase):
         p = self.preview(book())
         other = book(sheets={"基本": [("項目", "値"), ("業務の目的", "目的を書き換えた"), ("相手の区分", "法人"), ("自社名", "株式会社テスト物流"),
                                      ("自社名の読み", "かぶしきがいしゃてすとぶつりゅう"), ("担当者名", "山田"),
-                                     ("担当者名の読み", "やまだ"), ("目的の人", "誰でも"), ("声の型", "S2")]})
+                                     ("担当者名の読み", "やまだ"), ("目的のお客様", "誰でも"), ("声の型", "S2")]})
         with self.assertRaises(bi.PreviewChanged):
             self.tx(lambda tx: bi.register(tx, self.s["business"], "業務設定.xlsx", other, expected_digest=p.digest))
 
@@ -105,7 +105,7 @@ class Import(unittest.TestCase):
         self.assertEqual(p.maybe_names, ["テスト便"])                    # 「」の中の、名前の一覧に無い言葉
 
     def test_during_verification_a_person_confirms_the_ai_reading(self):
-        """読みが無ければ AI の読みの案を使う。検証モードでは、人が確かめてから（直してもよい）。2026-10-16 ユーザー：「検証中は
+        """読みが無ければ AI の読みの案を使う。検証モードでは、契約者が確かめてから（直してもよい）。2026-10-16 ユーザー：「検証中は
         AIが認識したものを私が確認します」。"""
         self.start_verification()
         data = book(sheets={"名前": [("表記", "読み"), ("テスト便", None)]})
@@ -118,7 +118,7 @@ class Import(unittest.TestCase):
         self.assertEqual(asked, ["テスト便"])
         self.assertEqual(p.names_to_confirm, [{"text": "テスト便", "reading": "てすとべん", "source": "script"}])
         self.assertTrue(any("AI の案です" in x for x in p.problems), p.problems)
-        fixed = [("テスト便", "てすとびん")]                                # 人が「てすとびん」に直して確かめた
+        fixed = [("テスト便", "てすとびん")]                                # 契約者が「てすとびん」に直して確かめた
         p = self.preview(data, suggest_readings=ai, confirmed_names=fixed)
         self.assertEqual((p.problems, p.names_to_confirm), ([], []))
         v = self.tx(lambda tx: bi.register(tx, self.s["business"], "業務設定.xlsx", data, expected_digest=p.digest,
@@ -127,7 +127,7 @@ class Import(unittest.TestCase):
         self.assertIn(bs.Name("テスト便", "てすとびん", "script", "person"), got.names)
 
     def test_after_verification_the_ai_reading_is_used_without_a_person(self):
-        """フルオート（検証モードでない業務）では、AI の読みの案をそのまま使う（人は介在しない）。どれで決めたかは残る。"""
+        """フルオート（検証モードでない業務）では、AI の読みの案をそのまま使う（管理者も契約者も介在しない）。どれで決めたかは残る。"""
         data = book(sheets={"名前": [("表記", "読み"), ("テスト便", None)]})
         p = self.preview(data, suggest_readings=lambda texts: {"テスト便": "てすとびん"})
         self.assertEqual((p.problems, p.names_to_confirm), ([], []))
@@ -150,7 +150,7 @@ class Import(unittest.TestCase):
         self.assertTrue(any("名前「テスト便」の読みがありません" in x for x in p.problems), p.problems)
 
     def test_units_of_number_questions_are_decided_without_a_person(self):
-        """数の質問の単位は、単位を決める処理（CL-1 の1か所）の答えを入れる。人は確かめない。決まらなければ空。"""
+        """数の質問の単位は、単位を決める処理（CL-1 の1か所）の答えを入れる。管理者も契約者も確かめない。決まらなければ空。"""
         rows = [("質問ID", "質問の文", "聞くこと", "型", "必須", "選択肢", "断りの答え"),
                 ("Q1", "「テスト便」のご予約はなさいますか。", "ご予約", "選択肢", "はい", "する／しない", "しない"),
                 ("Q2", "ご希望の日時をお聞かせください。", "ご希望の日時", "日時", "はい", None, None),

@@ -471,7 +471,7 @@ class DeliveriesOnlyForReleasedVersions(unittest.TestCase):
 
 
 class DoNotCallLedger(unittest.TestCase):
-    """Q3：発信禁止の登録は消せない。取り消しは人だけが、記録つきで1回。有効な登録は番号ごとに1つ。"""
+    """Q3：発信禁止の登録は消せない。取り消しは契約者だけが、記録つきで1回。有効な登録は番号ごとに1つ。"""
 
     def _register(self, w, s):
         eid = uuid.uuid4()

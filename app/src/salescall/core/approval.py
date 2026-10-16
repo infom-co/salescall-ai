@@ -2,13 +2,13 @@
 
 - **いまどちらのモードか（設定 approval.human）を読むのは、この部品だけ**（I-13。app/checks が見張る）。門・締めの処理は、
   ここに問い合わせるだけ（判定の処理はモードを読まない＝両モードで1文字も変わらない）。業務設定の版を作るとき、AI の名前の
-  読みの案を人が確かめるか（検証モードのあいだだけ。2026-10-16 ユーザー：「検証中はAIが認識したものを私が確認します」）も、
+  読みの案を契約者が確かめるか（検証モードのあいだだけ。2026-10-16 ユーザー：「検証中はAIが認識したものを私が確認します」）も、
   ここに問い合わせる（`human_for_business`。検証の切り替えは1つ）。
-- 発信の前（`task_cleared`。門が呼ぶ）：人の承認を使う業務では、運営者が承認した行だけを通す（承認の記録は `approve_task`）。
+- 発信の前（`task_cleared`。門が呼ぶ）：契約者の承認を使う業務では、契約者が承認した行だけを通す（承認の記録は `approve_task`）。
 - 「送ってよい」の印（result_releases）を付けるのも、ここだけ：
   - フルオート（`after_judged`。締めの処理が判定のあとに呼ぶ）：判定した版に自動で付ける。**ただし最初の段の版の結果は、その段の
     指標が基準を満たして次の段へ進んでから、まとめて付ける**（基準を外れた版の結果を、確かめないまま依頼主へ送らない。10-1 の3）。
-  - 人の承認を使う業務：運営者が承認した版（`approve_result`）か、直した版（`correct_result`。人の版を足す。システムの版は残す）
+  - 契約者の承認を使う業務：契約者が承認した版（`approve_result`）か、直した版（`correct_result`。契約者の版を足す。システムの版は残す）
     にだけ付ける。
 """
 
@@ -22,7 +22,7 @@ from salescall.core.access import Tx
 
 
 def human_for_business(tx: Tx, business_id: UUID) -> bool:
-    """その業務が検証モード（人の承認を使う）か。"""
+    """その業務が検証モード（契約者の承認を使う）か。"""
     b = tx.one("SELECT tenant_id, client_id FROM salescall.businesses WHERE business_id = %s", (business_id,))
     if b is None:
         raise LookupError(f"その業務は無い（または、取引の範囲の外）：{business_id}")
@@ -44,7 +44,7 @@ def task_cleared(tx: Tx, task_id: UUID) -> bool:
 
 
 def approve_task(tx: Tx, task_id: UUID) -> None:
-    """運営者が行を承認する（運営者だけ。データベースが守る）。"""
+    """契約者が行を承認する（契約者だけ。データベースが守る）。"""
     tx.execute("INSERT INTO salescall.task_approvals (tenant_id, client_id, task_id, approved_by)"
                " SELECT tenant_id, client_id, task_id, salescall.cur_actor() FROM salescall.tasks WHERE task_id = %s",
                (task_id,))
@@ -79,15 +79,15 @@ def after_judged(tx: Tx, task_id: UUID, version_no: int, version_id: UUID) -> li
 
 
 def approve_result(tx: Tx, task_id: UUID, version_no: int) -> None:
-    """人の承認：運営者が、その結果の版を確かめて「送ってよい」にする。"""
+    """契約者の承認：契約者が、その結果の版を確かめて「送ってよい」にする。"""
     _release(tx, task_id, version_no)
 
 
 def correct_result(tx: Tx, task_id: UUID, *, business_state: str, complaint: bool, snapshot: dict[str, Any],
                    detail: dict[str, Any] | None = None) -> int:
-    """人の承認：運営者が結果を直す。人の版を足して（システムが判定した版は残す＝誤判定率の材料）、その版を送ってよいにする。"""
+    """契約者の承認：契約者が結果を直す。契約者の版を足して（システムが判定した版は残す＝誤判定率の材料）、その版を送ってよいにする。"""
     version_no = results.append(tx, task_id, kind="human", business_state=business_state, attempt_id=None,
-                                judge_version=None, complaint=complaint, snapshot=snapshot, decided_by="運営者",
+                                judge_version=None, complaint=complaint, snapshot=snapshot, decided_by="契約者",
                                 detail=detail)
     _release(tx, task_id, version_no)
     return version_no

@@ -110,8 +110,8 @@ def _settle_apology(tx: Tx, a: dict[str, Any]) -> dict[str, Any]:
 
 
 def _notice_forbidden(tx: Tx, a: dict[str, Any], *, prepare: bool = True) -> bool:
-    """言ってはいけないことを言った通話なら、お詫びの電話の案を作り（prepare。お詫びの電話そのものでは作らない）、管理者
-    （運営者）へ知らせる（その試行で1回。人は案を確認して承認するだけ）。言ったかを返す。"""
+    """言ってはいけないことを言った通話なら、お詫びの電話の案を作り（prepare。お詫びの電話そのものでは作らない）、契約者
+    へ知らせる（その試行で1回。契約者は案を確認して承認するだけ）。言ったかを返す。"""
     forbidden = attempts.forbidden_speech(tx, a["attempt_id"])
     if not forbidden:
         return False
@@ -211,13 +211,13 @@ def _judge_and_write(tx: Tx, a: dict[str, Any], *, kind: str, rules_version: Any
     version_no = results.append(tx, a["task_id"], kind=kind, business_state=j.state, attempt_id=attempt_id,
                                 judge_version=JUDGE_VERSION, complaint=j.complaint, snapshot=snapshot, detail=j.detail,
                                 decided_by="判定")
-    if not decided:   # 判定できない：こちらの誤り。行は判定待ちで残す（次の動き）。運営者へ知らせる（その試行で1回）
+    if not decided:   # 判定できない：こちらの誤り。行は判定待ちで残す（次の動き）。契約者へ知らせる（その試行で1回）
         notify.emit(tx, "judge_unknown", key=f"judge_unknown:{attempt_id}",
                     summary=f"判定できない通話がありました（その行は判定待ちで残し、原因が直ったら判定し直します）。"
                             f"{j.detail.get('error', '')}",
                     refs={"attempt_id": attempt_id, "task_id": a["task_id"], "judge_version": JUDGE_VERSION,
                           "unknown_cause": j.detail.get("unknown_cause")})
-    forbidden = _notice_forbidden(tx, a)   # 言ってはいけないことを言った：その行はひとまず終え、管理者（運営者）へ知らせる
+    forbidden = _notice_forbidden(tx, a)   # 言ってはいけないことを言った：その行はひとまず終え、契約者へ知らせる
     if j.dnc_reason is not None:
         dnc.register(tx, a["phone_e164"], j.dnc_reason, source_attempt_id=attempt_id)
     decision = next_action.after_call(

@@ -135,7 +135,7 @@ class LineStops(unittest.TestCase):
         self.assertIsNone(why["resolved"])
         self.a.in_tenant(OPERATOR, self.s["tenant"], lambda tx: stops.resume(tx, sid, reason="試験：端末を入れ直した"))
         self.line_error()
-        self.assertEqual(self.line_stops(), [])                       # 人が解いたら数え直す（前の数でまた止めない）
+        self.assertEqual(self.line_stops(), [])                       # 管理者か契約者が解いたら数え直す（前の数でまた止めない）
         for _ in range(need - 1):
             self.line_error()
         self.assertEqual(len(self.line_stops()), 1)                   # 解いたあと、また続いたら止める
@@ -196,7 +196,7 @@ class SystemStopsAndChecks(unittest.TestCase):
         self.assertGreater(w2, w1)
 
     def test_manual_stop_is_not_resumed_by_checks(self):
-        with self.assertRaises(Rejected):                    # 全体の緊急停止は、システムの管理者だけ（運営者は押せない）
+        with self.assertRaises(Rejected):                    # 全体の緊急停止は、管理者だけ（契約者は押せない）
             self.a.in_system(OPERATOR, lambda tx: stops.stop(tx, scope="system", cause="manual", reason="試験"))
         sid = self.a.in_system(ADMIN, lambda tx: stops.stop(tx, scope="system", cause="manual", reason="試験"))["event_id"]
         with self.assertRaises(watch.NotProbeable):
@@ -210,7 +210,7 @@ class SystemStopsAndChecks(unittest.TestCase):
         with self.assertRaises(Rejected):
             self.a.in_system(OPERATOR, lambda tx: stops.resume(tx, sid, reason="試験"))
         why = self.a.in_system(ADMIN, lambda tx: stops.explain(tx, sid))
-        self.assertEqual(why["who_can_resume"], "システムの管理者")
+        self.assertEqual(why["who_can_resume"], "管理者")
         self.assertEqual(why["errors"][0]["meaning"], errors.ACTIONS["storage"].meaning)
         self.a.in_system(ADMIN, lambda tx: stops.resume(tx, sid, reason="試験：保存先を直した"))
         why = self.a.in_system(ADMIN, lambda tx: stops.explain(tx, sid))

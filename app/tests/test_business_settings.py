@@ -56,7 +56,7 @@ class Check(unittest.TestCase):
         r = raw(); r["questions"][1]["next"] = {"*": "Q1"}; cases.append((r, "終わらない輪"))
         r = raw(); r["questions"][0]["next"] = {"*": "END"}; cases.append((r, "質問 Q2 へは、どこからも行きません"))
         r = raw(); r["rules"]["decline"] = {}; cases.append((r, "必須の質問 Q2 を聞かずに終わる道があります"))
-        r = raw(); r["names"][0]["reading_by"] = "ai"; cases.append((r, "AI の案です。検証モードでは、人が確かめてから"))
+        r = raw(); r["names"][0]["reading_by"] = "ai"; cases.append((r, "AI の案です。検証モードでは、契約者が確かめてから"))
         r = raw(); r["names"][0]["reading_by"] = None; cases.append((r, "reading_by"))
         r = raw(); r["questions"][1]["unit"] = "人"; cases.append((r, "単位は、数の型（number）の質問だけ"))
         r = raw(); r["questions"][0]["choices"] = ["する", "わからない"]; cases.append((r, "システムが足す答え"))
@@ -95,7 +95,7 @@ class Check(unittest.TestCase):
         bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True)
 
     def test_ai_reading_and_unit(self):
-        """AI の読みの案は、フルオートでは人が確かめずに通る。数の質問は単位を持てる。"""
+        """AI の読みの案は、フルオートでは契約者が確かめずに通る。数の質問は単位を持てる。"""
         r = raw(); r["names"][0]["reading_by"] = "ai"
         s = bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=False)
         self.assertEqual(s.names[0].reading_by, "ai")

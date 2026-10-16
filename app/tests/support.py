@@ -1,7 +1,7 @@
 """試験の土台：架空の契約者・依頼主・業務などを作る（試験の中だけで使う）。
 
 ⚠️ 電話番号は、架空の番号として決められている範囲（英国 Ofcom がドラマ用に取ってある +44 7700 900000〜900999）
-だけを使う。実在の会社・人・番号は使わない。データベースへは、本番と同じ読み書きの層（Access）だけを通す。
+だけを使う。実在の会社・お客様・番号は使わない。データベースへは、本番と同じ読み書きの層（Access）だけを通す。
 """
 
 from __future__ import annotations
@@ -15,10 +15,10 @@ from uuid import UUID
 from salescall.core.access import Access, Actor
 from salescall.core.attempts import ForbiddenFinding, VerificationSummary
 
-OPERATOR = Actor("試験の運営者", "operator")
+OPERATOR = Actor("試験の契約者", "operator")
 CLEAN = VerificationSummary(items_checked=1, items_disagreed=0, forbidden_speech=0)   # 検証で何も見つからなかった
 SYSTEM = Actor("試験のシステムの処理", "system")
-ADMIN = Actor("試験のシステムの管理者", "admin")
+ADMIN = Actor("試験の管理者", "admin")
 
 _numbers = itertools.count(int(uuid.uuid4().int % 500))
 

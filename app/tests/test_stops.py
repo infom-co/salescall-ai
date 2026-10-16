@@ -1,5 +1,5 @@
 """運転の状態の試験（DESIGN.md 9-1・Intent.md 10-3）：止めるのも解くのもシステムが原因ごとに行い、
-人の緊急停止だけは人が解く。止めたら、まだ発信していない予約は同じ取引で取り消される。"""
+管理者か契約者が押した緊急停止だけは管理者か契約者が解く。止めたら、まだ発信していない予約は同じ取引で取り消される。"""
 
 from __future__ import annotations
 
@@ -98,7 +98,7 @@ class ManualStops(unittest.TestCase):
     def setUp(self):
         self.w = World(); self.s = self.w.setup()
         self.e = self.w.a.in_client(OPERATOR, self.s["tenant"], self.s["client"], lambda tx: stops.stop(
-            tx, scope="client", cause="manual", reason="運営者の緊急停止",
+            tx, scope="client", cause="manual", reason="契約者の緊急停止",
             tenant_id=self.s["tenant"], client_id=self.s["client"]))["event_id"]
 
     def test_system_cannot_resume_a_manual_stop(self):
@@ -115,7 +115,7 @@ class ManualStops(unittest.TestCase):
                 tx, scope="client", cause="manual", reason="x", tenant_id=s["tenant"], client_id=s["client"]))
 
     def test_actor_must_match_the_transaction(self):
-        """システムの処理が「人」と書いて、人の緊急停止を解こうとしても、データベースが拒む。"""
+        """システムの処理が「管理者・契約者」と書いて、管理者か契約者が押した緊急停止を解こうとしても、データベースが拒む。"""
         s = self.s
         with self.assertRaises(Rejected):
             self.w.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: tx.execute(

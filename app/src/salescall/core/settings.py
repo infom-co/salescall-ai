@@ -59,7 +59,7 @@ def set_system_value(tx: Tx, key: str, value: Any, *, status: Literal["provision
 def set_value(tx: Tx, key: str, value: Any, *, scope: Literal["system", "tenant", "client", "business"],
               status: Literal["provisional", "decided"], rationale: str, review_when: str,
               tenant_id: UUID | None = None, client_id: UUID | None = None, business_id: UUID | None = None) -> int:
-    """その範囲の値を足す（運営者が依頼主タブで決めた値など）。前の値は記録に残る。形が違えば、データベースが拒む。
+    """その範囲の値を足す（契約者が依頼主タブで決めた値など）。前の値は記録に残る。形が違えば、データベースが拒む。
 
     **同じ取引の中で、その範囲のまだ発信していない予約を取り消す**（門の判定に効く変更。DESIGN.md 5-2-1 の2）。
     どの設定が門に効くかを一覧にすると漏れるので、設定を変えたら必ず取り消す（予約は次の回にまた取れる）。
