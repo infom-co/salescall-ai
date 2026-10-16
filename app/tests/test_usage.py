@@ -29,11 +29,11 @@ class Ledger(SettleBase):
     def test_missing_price_is_not_guessed(self):
         s = self.ready()
         with self.assertRaises(usage.PriceMissing):
-            self.tx(s, lambda tx: usage.record(tx, source="ai", kind="estimated", quantity=10, unit="seconds"))
+            self.tx(s, lambda tx: usage.record(tx, source="ai", service="gemini-3.8-live", tier="free", kind="estimated", quantity=10, unit="seconds"))
 
     def test_frozen(self):
         s = self.ready()
-        self.tx(s, lambda tx: usage.record(tx, source="ai", kind="measured", quantity=100, unit="input_tokens"))
+        self.tx(s, lambda tx: usage.record(tx, source="ai", service="gemini-3.8-live", tier="free", kind="measured", quantity=100, unit="input_tokens"))
         own = owner_access()
         for sql in ("UPDATE salescall.usage_entries SET amount_yen = 5", "DELETE FROM salescall.usage_entries"):
             with self.subTest(sql=sql), self.assertRaises(Rejected):
@@ -50,10 +50,29 @@ class Priced(SettleBase):
         """試験のあいだだけ、会話AIの入力の単価を変える（終わったら 0円の単価を足して戻す）。"""
         own = owner_access()
         put = lambda y: own.in_system(SYSTEM, lambda tx: usage.set_price(
-            tx, source="ai", unit="input_tokens", yen_per_unit=Decimal(y),
+            tx, source="ai", service="gemini-3.8-live", tier="free", unit="input_tokens", yen_per_unit=Decimal(y),
             valid_from=tx.one("SELECT clock_timestamp() AS t")["t"], note="試験"))
         put(yen)
         self.addCleanup(put, 0)
+
+
+class PricesPerContractor(Priced):
+    def test_the_contractors_price_wins_and_tiers_are_separate(self):
+        """費用の単価は契約者ごと（2026-10-16 ユーザー：「契約者　使用するAIのAPIと回線を選べます」「APIも無料枠と有料枠が選択可能」）。
+        契約者が入れた単価が初めの値より強く、ほかの契約者には効かない。無料枠と有料枠は別の単価。"""
+        s, other = self.ready(), self.ready()
+        put = lambda t, tier, y, actor=OPERATOR: self.w.a.in_tenant(actor, t, lambda tx: usage.set_price(
+            tx, source="ai", service="gemini-3.8-live", tier=tier, unit="input_tokens", yen_per_unit=Decimal(y),
+            valid_from=tx.one("SELECT clock_timestamp() AS t")["t"], note="試験"))
+        put(s["tenant"], "paid", "0.5")
+        with self.assertRaises(Rejected):
+            put(s["tenant"], "paid", "0.1", SYSTEM)                       # システムの処理は単価を入れない
+        rec = lambda x, tier: self.tx(x, lambda tx: usage.record(
+            tx, source="ai", service="gemini-3.8-live", tier=tier, kind="measured", quantity=10, unit="input_tokens"))
+        self.assertEqual(rec(s, "paid")["amount_yen"], Decimal("5.0"))
+        self.assertEqual(rec(s, "free")["amount_yen"], 0)                 # 無料枠は初めの値（0円）
+        with self.assertRaises(usage.PriceMissing):
+            rec(other, "paid")                                            # ほかの契約者の単価は使わない（推測で0円にしない）
 
 
 class Budget(Priced):
@@ -68,12 +87,12 @@ class Budget(Priced):
         self.ample(s)
         self.put_client(s, "budget.client_daily_yen", 5)
         self.priced("0.01")
-        got = self.tx(s, lambda tx: usage.record(tx, source="ai", kind="measured", quantity=100, unit="input_tokens"))
+        got = self.tx(s, lambda tx: usage.record(tx, source="ai", service="gemini-3.8-live", tier="free", kind="measured", quantity=100, unit="input_tokens"))
         self.assertIsNone(got["stopped"])                              # 1円：上限の内側
-        got = self.tx(s, lambda tx: usage.record(tx, source="ai", kind="measured", quantity=500, unit="input_tokens"))
+        got = self.tx(s, lambda tx: usage.record(tx, source="ai", service="gemini-3.8-live", tier="free", kind="measured", quantity=500, unit="input_tokens"))
         self.assertIsNotNone(got["stopped"])                           # 6円 ＞ 5円
         self.assertEqual(self.reason(s), "stopped")
-        again = self.tx(s, lambda tx: usage.record(tx, source="ai", kind="measured", quantity=1, unit="input_tokens"))
+        again = self.tx(s, lambda tx: usage.record(tx, source="ai", service="gemini-3.8-live", tier="free", kind="measured", quantity=1, unit="input_tokens"))
         self.assertIsNone(again["stopped"])                            # 重ねて止めない
 
     def test_system_limit_and_new_day(self):
@@ -81,7 +100,7 @@ class Budget(Priced):
         self.ample(s)
         override(self, "budget.system_daily_yen", 0)
         self.priced("0.01")
-        self.tx(s, lambda tx: usage.record(tx, source="ai", kind="measured", quantity=100, unit="input_tokens"))
+        self.tx(s, lambda tx: usage.record(tx, source="ai", service="gemini-3.8-live", tier="free", kind="measured", quantity=100, unit="input_tokens"))
         got = usage.tick(self.w.a, SYSTEM)
         self.assertIsNotNone(got["stopped"])
         self.assertEqual(self.reason(s), "stopped")
@@ -110,7 +129,7 @@ class CostRatio(Priced):
         return aid
 
     def spend(self, s, yen):
-        return self.tx(s, lambda tx: usage.record(tx, source="ai", kind="measured", quantity=int(yen * 100),
+        return self.tx(s, lambda tx: usage.record(tx, source="ai", service="gemini-3.8-live", tier="free", kind="measured", quantity=int(yen * 100),
                                                   unit="input_tokens"))      # 単価 0.01円
 
     def month(self, s, confidence=0.95, gap_max=300):

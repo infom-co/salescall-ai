@@ -133,6 +133,8 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      ("tests.test_dnc.Register.test_contractor_ledger_applies_to_every_client_of_that_contractor",)),
     ("契約者の共通の発信禁止を、ほかの契約者にも見せる", "ALTER TABLE salescall.contractor_dnc_entries DISABLE ROW LEVEL SECURITY",
      ("tests.test_dnc.Register.test_contractor_ledger_applies_to_every_client_of_that_contractor",)),
+    ("契約者の単価を、ほかの契約者にも見せる", "ALTER TABLE salescall.price_versions DISABLE ROW LEVEL SECURITY",
+     ("tests.test_usage.PricesPerContractor.test_the_contractors_price_wins_and_tiers_are_separate",)),
     ("会話AIの枠を、すべての契約者で数える（前の形）",
      "CREATE OR REPLACE FUNCTION salescall.active_attempts_of_tenant() RETURNS integer LANGUAGE sql STABLE SECURITY DEFINER"
      " SET search_path = salescall, pg_temp AS $$ SELECT count(*)::integer FROM salescall.attempts"

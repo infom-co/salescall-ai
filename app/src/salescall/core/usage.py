@@ -1,6 +1,9 @@
 """利用量の台帳と予算（Q16「いくら使ったか」。DESIGN.md 12-1・9-1 の budget）。持ち主 CL-2。
 
-- 台帳に書くのは、この部品の `record` だけ（I-12。app/checks が見張る）。単価を足すのは `set_price` だけ（システム共通）。
+- 台帳に書くのは、この部品の `record` だけ（I-12。app/checks が見張る）。単価を足すのは `set_price` だけ。
+- **費用の単価は契約者ごと**（2026-10-16 ユーザー：「契約者　使用するAIのAPIと回線を選べます。楽天リンクは初期設定」「APIも無料枠と
+  有料枠が選択可能」）：単価は、サービス（会話AIの API・別の耳・回線の方式）と、会話AI・別の耳の枠（無料・有料）ごと。契約者が
+  入れた単価が、管理者が入れた初めの値より強い。どの単価を使うかは `price_for` の1か所。報酬の単価は依頼者ごと（core/reward.py）。
 - 1行ごとに：出どころ（会話AI・別の耳・回線）・実測か推定か・量・単位・使った単価・金額。金額は記録したときの単価で決まる。
   単価が無い組は記録できない（PriceMissing。推測で 0円にしない）。
 - 回線：Rakuten Link は明細を返さないので、締めの処理が「話していた秒数 × 単価」の推定を書く（`record_line_estimate`）。
@@ -33,20 +36,34 @@ class PriceMissing(Exception):
     """その出どころ・単位の単価が無い（記録できない）。"""
 
 
-def set_price(tx: Tx, *, source: str, unit: str, yen_per_unit: Decimal, valid_from: Any, note: str) -> int:
-    """単価を足す（システム共通。全体の取引で）。あとから足した単価は、その時刻からの記録に使う。"""
-    return tx.one("INSERT INTO salescall.price_versions (source, unit, yen_per_unit, valid_from, note, set_by)"
-                  " VALUES (%s, %s, %s, %s, %s, salescall.cur_actor()) RETURNING price_id",
-                  (source, unit, yen_per_unit, valid_from, note))["price_id"]
+def set_price(tx: Tx, *, source: str, service: str, tier: str | None, unit: str, yen_per_unit: Decimal, valid_from: Any,
+              note: str) -> int:
+    """単価を足す。全体の取引なら、どの契約者にも効く初めの値（管理者だけ）。契約者の取引なら、その契約者の単価（契約者が自分の
+    選んだサービスの単価を入れる。初めの値より強い）。あとから足した単価は、その時刻からの記録に使う。
+    service：会話AIの API・別の耳・回線の方式（例 gemini-3.8-live・rakuten_link）。tier：会話AI・別の耳の無料枠（free）か
+    有料枠（paid）。回線は None。"""
+    return tx.one("INSERT INTO salescall.price_versions (tenant_id, source, service, tier, unit, yen_per_unit, valid_from, note,"
+                  " set_by) VALUES (salescall.cur_tenant(), %s, %s, %s, %s, %s, %s, %s, salescall.cur_actor())"
+                  " RETURNING price_id", (source, service, tier, unit, yen_per_unit, valid_from, note))["price_id"]
 
 
-def record(tx: Tx, *, source: str, kind: str, quantity: Decimal | int, unit: str,
-           attempt_id: UUID | None = None) -> dict[str, Any]:
-    """利用量を1行記録する（取引の依頼者の分）。依頼者の1日の上限を超えたら、その依頼者を止める（同じ取引）。"""
-    price = tx.one("SELECT price_id, yen_per_unit FROM salescall.price_versions WHERE source = %s AND unit = %s"
-                   " AND valid_from <= now() ORDER BY valid_from DESC LIMIT 1", (source, unit))
+def price_for(tx: Tx, *, source: str, service: str, tier: str | None, unit: str) -> dict[str, Any]:
+    """いま使う単価（決め方はここだけ）：取引の契約者が入れた単価 ＞ 管理者が入れた初めの値。無ければ PriceMissing
+    （推測で 0円にしない）。"""
+    price = tx.one("SELECT price_id, yen_per_unit FROM salescall.price_versions WHERE source = %s AND service = %s"
+                   " AND tier IS NOT DISTINCT FROM %s AND unit = %s AND valid_from <= now()"
+                   " AND (tenant_id IS NULL OR tenant_id = salescall.cur_tenant())"
+                   " ORDER BY tenant_id IS NULL, valid_from DESC LIMIT 1", (source, service, tier, unit))
     if price is None:
-        raise PriceMissing(f"単価がありません：{source}・{unit}")
+        raise PriceMissing(f"単価がありません：{source}・{service}・{tier or '-'}・{unit}")
+    return price
+
+
+def record(tx: Tx, *, source: str, service: str, tier: str | None, kind: str, quantity: Decimal | int, unit: str,
+           attempt_id: UUID | None = None) -> dict[str, Any]:
+    """利用量を1行記録する（取引の依頼者の分）。使ったサービスと枠（無料・有料）の単価で金額を決める（price_for）。
+    依頼者の1日の上限を超えたら、その依頼者を止める（同じ取引）。"""
+    price = price_for(tx, source=source, service=service, tier=tier, unit=unit)
     amount = Decimal(quantity) * Decimal(price["yen_per_unit"])
     row = tx.one(
         "INSERT INTO salescall.usage_entries (tenant_id, client_id, attempt_id, source, kind, quantity, unit, price_id,"
@@ -109,14 +126,15 @@ def _check_cost_ratio(tx: Tx, tenant_id: UUID, client_id: UUID) -> int | None:
 def record_line_estimate(tx: Tx, attempt_id: UUID) -> dict[str, Any] | None:
     """回線の料金の推定（締めの処理が呼ぶ）：お客様が出てから終わるまでの秒数 × 単価。お客様が出なかった通話は書かない。"""
     row = tx.one(
-        "SELECT extract(epoch FROM a.ended_at - h.at) AS seconds FROM salescall.attempts a"
+        "SELECT extract(epoch FROM a.ended_at - h.at) AS seconds, l.method FROM salescall.attempts a"
+        " JOIN salescall.lines l ON l.tenant_id = a.tenant_id AND l.line_id = a.line_id"
         " JOIN LATERAL (SELECT min(at) AS at FROM salescall.attempt_state_history"
         "               WHERE attempt_id = a.attempt_id AND to_state = 'answered') h ON true"
         " WHERE a.attempt_id = %s AND a.ended_at IS NOT NULL AND h.at IS NOT NULL", (attempt_id,))
     if row is None:
         return None
-    return record(tx, source="line", kind="estimated", quantity=Decimal(row["seconds"]).quantize(Decimal("0.001")),
-                  unit="seconds", attempt_id=attempt_id)
+    return record(tx, source="line", service=row["method"], tier=None, kind="estimated",
+                  quantity=Decimal(row["seconds"]).quantize(Decimal("0.001")), unit="seconds", attempt_id=attempt_id)
 
 
 def tick(access: Access, actor: Actor) -> dict[str, Any]:

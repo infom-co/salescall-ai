@@ -114,7 +114,8 @@ class SystemValuesByAdmin(unittest.TestCase):
         from decimal import Decimal
         from salescall.core import usage
         with self.assertRaises(Rejected):
-            a.in_system(OPERATOR, lambda tx: usage.set_price(tx, source="line", unit="seconds", yen_per_unit=Decimal(0),
+            a.in_system(OPERATOR, lambda tx: usage.set_price(tx, source="line", service="rakuten_link", tier=None,
+                                                             unit="seconds", yen_per_unit=Decimal(0),
                                                              valid_from="2026-01-02", note="試験"))
         w = World(); t = w.tenant(); c = w.client(t)                   # 依頼者ごとの値は、契約者が入れられる
         w.a.in_client(OPERATOR, t, c, lambda tx: tx.execute(

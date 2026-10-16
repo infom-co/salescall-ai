@@ -88,7 +88,7 @@ class World:
         lid = uuid.uuid4()
         self.a.in_tenant(OPERATOR, tenant, lambda tx: tx.execute(
             "INSERT INTO salescall.lines (tenant_id, line_id, name, method) VALUES (%s, %s, %s, %s)",
-            (tenant, lid, "架空の回線", "mock")))
+            (tenant, lid, "架空の回線", "rakuten_link")))   # 回線の方式の初期は Rakuten Link（2026-10-16 ユーザー）
         return lid
 
     def business_with_version(self, tenant: UUID, client: UUID) -> tuple[UUID, UUID]:
