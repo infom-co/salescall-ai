@@ -35,6 +35,9 @@ from g37_recorded import measures, plan, speech_rate
 from stitch_gap import callee_audio
 from voice_features import features, read_wav, semitones
 
+# ⛔ 2026-10-15：C1 の「明るく」・T2 の「明るく」・T3 の「はきはきと」は、ユーザーが 2026-10-12 に「営業には不向きな強引そうな
+#    詐欺師のような怪しいニュアンス」と言った言葉だった（コンパクトのあと、前のやり取りを読み直さずに使った）。⇒ この試験の記録としてだけ残す。
+#    本番の指示・録音の読み方には使わない（test_offline.WordingTest）。
 # 指示の組（試験の名前ごと）。値＝いまの S4（にこやか）に足す一文（None＝別の型をそのまま使う）
 SETS = {
     "G-39": {"C0": "", "C1": "声は、明るく、はつらつとした、若々しい声で話してください。", "C2": None},
