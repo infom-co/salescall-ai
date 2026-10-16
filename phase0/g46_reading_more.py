@@ -32,16 +32,28 @@ def business(surface: str, likely: str, readings: list[str]) -> Business:
 
 NAKAJIMA = business("中島", "なかじま", ["なかじま", "なかしま"])
 TSUNODA = business("角田", "つのだ", ["つのだ", "かくた", "かどた"])
-TAIL = [W("affirm"), W("datetime_pm"), W("affirm")]
+TAIL = [W("datetime_pm"), W("affirm")]
+
+
+def reply(want: str, deny: str) -> dict:
+    """こちらの言った読みで答えが変わる相手：合っていれば「はい、そうです。」、違えば、もう一度直す（convo の if_value）。
+    ⛔ G-46 の1〜3回目は、相手役が違う読みで聞かれても「はい、そうです。」と答える台本だった（3つ目の候補まで確かめる形を試せなかった）"""
+    return {"if_value": ("N1", want), "yes": W("affirm")["wav"], "no": W(deny)["wav"]}
+
+
+def corrected(first: str, want: str, deny: str) -> list:
+    return [W("yes_reserved"), W(first), reply(want, deny), reply(want, deny), *TAIL]
+
+
 # 場面：(業務, 相手の台詞, 相手の言った読み)
 SCENES = {
-    "A そのまま": (NAKAJIMA, [W("yes_reserved"), *TAIL], "なかじま"),
-    "A 読みを直す": (NAKAJIMA, [W("yes_reserved"), W("correct_nakashima"), *TAIL], "なかしま"),
-    "A 名前だけ言い直す": (NAKAJIMA, [W("yes_reserved"), W("name_only_nakashima"), *TAIL], "なかしま"),
-    "B そのまま": (TSUNODA, [W("yes_reserved"), *TAIL], "つのだ"),
-    "B かくたに直す": (TSUNODA, [W("yes_reserved"), W("correct_kakuta"), *TAIL], "かくた"),
-    "B かどたに直す": (TSUNODA, [W("yes_reserved"), W("correct_kadota"), *TAIL], "かどた"),
-    "B 名前だけかどた": (TSUNODA, [W("yes_reserved"), W("name_only_kadota"), *TAIL], "かどた"),
+    "A そのまま": (NAKAJIMA, [W("yes_reserved"), W("affirm"), *TAIL], "なかじま"),
+    "A 読みを直す": (NAKAJIMA, corrected("correct_nakashima", "なかしま", "correct_nakashima"), "なかしま"),
+    "A 名前だけ言い直す": (NAKAJIMA, corrected("name_only_nakashima", "なかしま", "correct_nakashima"), "なかしま"),
+    "B そのまま": (TSUNODA, [W("yes_reserved"), W("affirm"), *TAIL], "つのだ"),
+    "B かくたに直す": (TSUNODA, corrected("correct_kakuta", "かくた", "correct_kakuta"), "かくた"),
+    "B かどたに直す": (TSUNODA, corrected("correct_kadota", "かどた", "correct_kadota"), "かどた"),
+    "B 名前だけかどた": (TSUNODA, corrected("name_only_kadota", "かどた", "correct_kadota"), "かどた"),
 }
 
 
@@ -64,13 +76,13 @@ def measures(call: dict, want: str) -> dict:
         if any(e.get("play") for e in t.get("tool_events") or []) and (t.get("audio_seconds") or 0) > 0.5:
             spoke_over_play += 1
     first = asked[0] if asked else None
-    second = asked[1] if len(asked) > 1 else None
     corrected_scene = want != first
     return {"checks": {"q1_ok": it["Q1"]["condition"] == "はい" and it["Q1"]["state"] in GOT,
                        "n1_final": (it["N1"]["state"], it["N1"]["value"]),
-                       # 場面どおり：認める場面は1回で確定、直す場面は「直されたあとに確かめた読み」が相手の言った読み
-                       "scene_ok": (it["N1"]["state"] == "confirmed" and it["N1"]["value"] == want and len(asked) == 1) if not corrected_scene
-                       else second == want,
+                       # 場面どおり：相手の言った読みで確かめが済んだ（相手役は、違う読みで聞かれたら直す＝if_value）。
+                       # 認める場面は1回で確定していること
+                       "scene_ok": it["N1"]["state"] == "confirmed" and it["N1"]["value"] == want and (corrected_scene or len(asked) == 1),
+                       "tries": len(asked),
                        "asked": asked,
                        "ai_heard_right": (want in ai_corrections) if corrected_scene else None,
                        "q2_ok": normalize_value("datetime", it["Q2"]["value"]) == "15日の午後2時" and it["Q2"]["state"] == "confirmed",

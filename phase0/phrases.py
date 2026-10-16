@@ -147,7 +147,8 @@ assert set(LEAD_RECORDED) == set(LEAD_IN["次の質問"])
 #    ファイル名（質問の録音の名前の後ろ）と、G-37 の1回目・2回目の記録を聞き直すときだけに使う
 # 待ってもらう一言は2本（言葉は同じ。録音の読み方が違う）：軽いとき（wait）・深刻なとき（wait_heavy）
 # ✅ 2026-10-16 ユーザー：「02は軽い時、04は深刻な時で使い分けでOK」（お詫びの軽い・重いと同じ分け方）
-RECORDED = {**ACK, "closing": CLOSING, "wait": WAIT, "wait_heavy": WAIT}
+# 名乗りの頭のあいさつも、どの依頼主にも同じ言葉なので、契約者の単位で録音する（名乗りの残り＝自社名・担当者名・用件は、依頼主の単位）
+RECORDED = {**ACK, "closing": CLOSING, "wait": WAIT, "wait_heavy": WAIT, "greeting": GREETING}
 
 
 def lead_in(kind: str, n: int) -> str:

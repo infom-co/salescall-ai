@@ -1274,6 +1274,159 @@ class SpokenNameTest(unittest.TestCase):
         self.assertEqual(b.opening(), "お忙しいところ恐れ入ります。株式会社「だいわはうすこうぎょう」の「中島」と申します。")
 
 
+class KeyRingTest(unittest.TestCase):
+    """⛔ 2026-10-16 ユーザー：「キーはどれを使ってもいいと言ってるよ」＝上限に当たったら次のキーで続ける。"""
+
+    def test_moves_to_next_key_on_quota(self):
+        import argparse
+        import common
+
+        class Quota(Exception):
+            code = 429
+
+        ring = common.KeyRing(argparse.Namespace(proxy_key=False, env="/nonexistent", key_name=None, key_index=0), min_interval_s=0)
+        ring.keys = [common.ApiKey("K0", "a" * 39), common.ApiKey("K1", "b" * 39), common.ApiKey("K2", "c" * 39)]
+        ring._clients = {0: "c0", 1: "c1", 2: "c2"}
+        calls = []
+
+        def fn(client):
+            calls.append(client)
+            if client in ("c0", "c1"):
+                raise Quota("429 RESOURCE_EXHAUSTED")
+            return "ok"
+
+        self.assertEqual(ring.call("m", fn), ("ok", 2))
+        self.assertEqual(ring.call("m", fn), ("ok", 2))        # 上限に当たったキーは、そのモデルでは飛ばす
+        self.assertEqual(calls, ["c0", "c1", "c2", "c2"])
+        with self.assertRaises(RuntimeError):
+            ring.call("m", lambda c: (_ for _ in ()).throw(Quota("429")))
+
+    def test_denied_project_and_per_minute_limit(self):
+        import argparse
+        import common
+        from unittest import mock
+
+        class Denied(Exception):
+            code = 403
+
+        class Minute(Exception):
+            code = 429
+
+        ring = common.KeyRing(argparse.Namespace(proxy_key=False, env="/nonexistent", key_name=None, key_index=0), min_interval_s=0)
+        ring.keys = [common.ApiKey("K0", "a" * 39), common.ApiKey("K1", "b" * 39)]
+        ring._clients = {0: "c0", 1: "c1"}
+        n = {"c1": 0}
+
+        def fn(client):
+            if client == "c0":
+                raise Denied("403 PERMISSION_DENIED. Your project has been denied access.")
+            n["c1"] += 1
+            if n["c1"] == 1:
+                raise Minute("429 RESOURCE_EXHAUSTED. Please retry in 2.5s.")
+            return "ok"
+
+        with mock.patch("time.sleep") as sl:
+            self.assertEqual(ring.call("m", fn), ("ok", 1))
+        self.assertEqual(ring.denied, {0})                 # 止められたキーは、どのモデルでも飛ばす
+        self.assertNotIn(1, ring.spent.get("m", set()))     # 1分の上限は、待って同じキーで続ける（1日の上限と取り違えない）
+        self.assertTrue(any(c.args[0] >= 2.5 for c in sl.call_args_list))
+        self.assertEqual(common.retry_after_s(Exception("Please retry in 11h8m7.1s")), 11 * 3600 + 8 * 60 + 7.1)
+
+
+class ScriptRecordingTest(unittest.TestCase):
+    """✅ 2026-10-16 ユーザー：「こちら側の担当者名は、依頼者ごとの録音時に録音しておくといいでしょう」。名乗り（自社名・担当者名）と
+    用件も依頼主の単位で録音し、読みが決まらないこちら側の名前は、読みの候補ごとに録音を作って、人が聞いて選ぶ。"""
+
+    def business(self):
+        from flowctl import Question
+        from instruction import Business
+        names = [{"surface": "新垣", "reading": "", "candidates": ["あらがき", "しんがき"], "likely": "あらがき"},
+                 {"surface": "東海林", "reading": "しょうじ"}]
+        q = [Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ")),
+             Question("Q2", "当日は講師の新垣がご案内いたしますがよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"))]
+        return Business(company="アオバ物流", caller="東海林", caller_reading="しょうじ", purpose="", questions=q, names=names,
+                        purpose_line="ご予約の確認でお電話いたしました。")
+
+    def test_table_has_intro_and_variants(self):
+        from make_ack_clips import script_table
+        table, readings = script_table(self.business())
+        self.assertEqual(table["intro"][0], "株式会社「アオバ物流」の「しょうじ」と申します。")   # 担当者名は設定の読み（案C）
+        self.assertIn("purpose", table)
+        v = {k: t[0] for k, t in table.items() if k.startswith("Q2")}
+        self.assertEqual(v, {"Q2_lead_soredeha_v1": "それでは当日は講師の「あらがき」がご案内いたしますがよろしいでしょうか？",   # まず言ってみる読みが先
+                             "Q2_lead_soredeha_v2": "それでは当日は講師の「しんがき」がご案内いたしますがよろしいでしょうか？"})
+        self.assertEqual(sorted(readings[k]["新垣"] for k in v), ["あらがき", "しんがき"])
+
+    def test_chosen_reading_is_kept_and_conflicts_stop(self):
+        import tempfile
+        from pathlib import Path
+        from make_ack_clips import record_readings, script_table
+        _, readings = script_table(self.business())
+        ids = {r["新垣"]: k for k, r in readings.items()}
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "name_readings.json"
+            book = record_readings([{"id": ids["しんがき"], "chosen_from": "S4_x_1"}], readings, path)
+            self.assertEqual(book["新垣"], {"reading": "しんがき", "source": "録音で選んだ", "chosen_in": "S4_x_1"})
+            with self.assertRaises(AssertionError):
+                record_readings([{"id": ids["あらがき"], "chosen_from": "S4_x_2"}], readings, path)
+
+    def test_ear_check_skips_names(self):
+        """⛔ 見直し：別の耳は「しょうじ」を「庄司」、「アオバ物流」を「青葉物流」と書いた（名前の読みは別の耳では確かめられない）。"""
+        from make_ack_clips import heard_ok
+        text = "株式会社「アオバ物流」の「しょうじ」と申します。"
+        self.assertTrue(heard_ok(text, {"0.0": "株式会社青葉物流の庄司と申します。", "1.0": "株式会社アオバ物流の東海林と申します。"}))
+        self.assertFalse(heard_ok(text, {"0.0": "株式会社青葉物流の庄司ともうしまう。", "1.0": "株式会社青葉物流の庄司と申します。"}))
+        self.assertFalse(heard_ok(text, {"0.0": "株式会社の庄司と申します。", "1.0": "株式会社青葉物流の庄司と申します。"}))  # 名前が抜けた
+        self.assertTrue(heard_ok("ご予約はされていますでしょうか？", {"0.0": "ご予約はされていますでしょうか。", "1.0": "ご予約はされていますでしょうか"}))
+
+    def test_contract_table_has_greeting(self):
+        from make_ack_clips import words
+        table, _ = words(False)
+        self.assertEqual(table["greeting"][0], "お忙しいところ恐れ入ります。")
+
+
+class CalleeQuestionTest(unittest.TestCase):
+    """⛔ G-47：相手が答えと一緒に質問をしたのに、すぐ次の質問の録音を流し、相手の質問を聞き流した（10本中10本）。"""
+
+    def flow(self, play=True):
+        from flowctl import Flow, Question
+        return Flow([Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ")),
+                     Question("Q2", "ご希望の日時をお聞かせいただけますでしょうか？", "datetime", conditions=("答えた",))],
+                    play_recordings=play)
+
+    def test_question_holds_the_recording(self):
+        f = self.flow()
+        f.on_callee(); f.on_heard("はい、予約しています。当日はどなたが担当されるんですか？")
+        r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい"})
+        self.assertNotIn("play", r)                                    # 録音は流さない
+        self.assertIn("当日はどなたが担当されるんですか？", r["message"])   # まず答える
+        self.assertIn("「それでは」から話し始めて", r["message"])          # つなぎの言葉は録音と同じ並び
+
+    def test_plain_answer_plays(self):
+        f = self.flow()
+        f.on_callee(); f.on_heard("はい、予約しています。")
+        r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい"})
+        self.assertEqual(r["play"][0]["id"], "Q2")
+
+    def test_question_endings(self):
+        from flowctl import _CALLEE_ASKS
+        for t in ("料金はおいくらですか", "どなたが担当されるんですか？", "来ていただけるんでしょうか", "それって無料ですか。"):
+            self.assertTrue(_CALLEE_ASKS.search(t), t)
+        for t in ("はい、予約しています。", "15日の午後2時でお願いします。", "いいえ、まだしていません", "はい、そうです。"):
+            self.assertFalse(_CALLEE_ASKS.search(t), t)
+
+
+class RequestTailTest(unittest.TestCase):
+    """⛔ G-46：AIが「15日の午後2時でお願いします」を値にして報告し、言い直しが「…でお願いしますということでよろしいでしょうか？」になった。"""
+
+    def test_request_tail(self):
+        from flowctl import normalize_value
+        self.assertEqual(normalize_value("datetime", "15日の午後2時でお願いします。"), "15日の午後2時")
+        self.assertEqual(normalize_value("number", "3人でお願いいたします", "人"), "3人")
+        self.assertEqual(normalize_value("datetime", "いつでも大丈夫です"), "いつでも大丈夫")   # 聞いていただいた形は変えない
+        self.assertEqual(normalize_value("name", "なかしまでお願いします"), "なかしまでお願いします")  # 名前の型には当てない
+
+
 class ReadingConfirmTest(unittest.TestCase):
     """読みが決まらない名前を、会話の中で確かめる（flowctl.reading_question）。✅ 2026-10-16 ユーザー：「お名前はやまざき様でよろしかった
     でしょうか」「お名前を確認させていただきたいのですが、ヤマザキ様とお呼びしたらよろしいでしょうか？」。ほかの値と同じ言い直しの流れ。"""
@@ -1347,29 +1500,38 @@ class ReadingConfirmTest(unittest.TestCase):
         self.assertEqual(next_reading("なかしま", ["なかじま", "なかしま"], ["なかじま"]), "なかしま")
         self.assertEqual(next_reading("なかじま", ["なかじま", "なかしま"], ["なかじま"]), "なかしま")
 
-    def test_choose_among_candidates_when_ai_heard_nothing_usable(self):
-        """⛔ G-46：「いや、カドタです。」に、AIは直す前と同じ「つのだ」で報告した。残りの候補が2つ以上なら、AIに候補から選ばせる（1回まで）。"""
+    def test_three_candidates_are_tried_in_turn(self):
+        """⛔ G-46：名前だけで「カドタです。」と直されると、AIの報告は使えないことが多い（候補を並べて選ばせても、並びの先を取る）。
+        ⇒ 相手に順に確かめていただく（言う読みは3つまで）。2度目の聞き違いは重いお詫び。"""
         from flowctl import Flow, reading_question
         f = Flow([reading_question("N1", "角田", "つのだ", ["つのだ", "かくた", "かどた"])])
+        f.on_callee(); f.on_heard("角田です。")
+        r = f.apply("confirm_field", {"question_id": "N1", "result": "affirmed"})   # 名前だけの言い直し＝直された（AIは「合っている」）
+        self.assertEqual((r["say"], r["ack"]), ("改めましてお名前の読みの方は「かくた」様でよろしかったでしょうか？", "shitsurei"))
         f.on_callee(); f.on_heard("いや、角田です。")
-        r = f.apply("confirm_field", {"question_id": "N1", "result": "corrected", "correction": "つのだ"})
-        self.assertEqual(r["result"], "rejected")
-        self.assertIn("「かくた」「かどた」のどれでしたか", r["message"])
-        self.assertEqual(f.items["N1"].value, "つのだ")             # 記録は書き換えない
-        r = f.apply("confirm_field", {"question_id": "N1", "result": "corrected", "correction": "かどた"})  # 相手の新しい発話は無い
-        self.assertEqual(r["say"], "改めましてお名前の読みの方は「かどた」様でよろしかったでしょうか？")
-        # 選ばせても使える読みが来なければ、並びの先の候補（2回は頼まない）
+        r = f.apply("confirm_field", {"question_id": "N1", "result": "affirmed"})
+        self.assertEqual((r["say"], r["ack"]), ("改めましてお名前の読みの方は「かどた」様でよろしかったでしょうか？", "moushiwake_heavy"))
+        f.on_callee(); f.on_heard("はい、そうです。")
+        f.apply("confirm_field", {"question_id": "N1", "result": "affirmed"})
+        self.assertEqual(f.readings(), {"角田": "かどた"})
+        # 3つとも違うと言われたら、名前を使わずにお呼びする（4つ目は聞かない）
+        f = Flow([reading_question("N1", "角田", "つのだ", ["つのだ", "かくた", "かどた"])])
+        for _ in range(3):
+            f.on_callee(); f.on_heard("いや、違います。")
+            r = f.apply("confirm_field", {"question_id": "N1", "result": "corrected", "correction": "すみた"})
+        self.assertEqual(f.items["N1"].state, "unresolved")
+        self.assertIn("お名前を使わずに", r["message"])
+
+    def test_reminder_does_not_ask_again_after_callee_replied(self):
+        """⛔ G-46：報告の種類の名前を書き違えて差し戻されたとき、「相手がまだ答えていなければ、もう一度聞いて」としか言わず、
+        相手はもう答えていたのに、AIが同じ確かめをもう一度声に出した。"""
+        from flowctl import Flow, reading_question
         f = Flow([reading_question("N1", "角田", "つのだ", ["つのだ", "かくた", "かどた"])])
         f.on_callee(); f.on_heard("角田です。")
-        r = f.apply("confirm_field", {"question_id": "N1", "result": "affirmed"})   # 名前だけの言い直し＝直された
+        r = f.apply("confirm_field", {"question_id": "N1", "result": "回答された値", "correction": "かどだ"})
         self.assertEqual(r["result"], "rejected")
-        r = f.apply("confirm_field", {"question_id": "N1", "result": "affirmed"})
-        self.assertIn("「かくた」様", r["say"])
-        # 候補が1つしか残らなければ、選ばせずにその候補（G-45 の中島）
-        f = Flow([reading_question("N1", "中島", "なかじま", ["なかじま", "なかしま"])])
-        f.on_callee(); f.on_heard("いや、中島です。")
-        r = f.apply("confirm_field", {"question_id": "N1", "result": "corrected", "correction": "なかじま"})
-        self.assertIn("「なかしま」様", r["say"])
+        self.assertIn("もう一度聞かずに", r["message"])
+        self.assertNotIn("もう一度聞いてください", r["message"])
 
     def test_voicing_misheard_correction_uses_candidate(self):
         """⛔ G-46：相手は「カドタ」と直したのに、AIは「かどだ」と報告し、プログラムは「かどだ」様で確かめていた。"""
