@@ -32,7 +32,7 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
-from salescall.core import notify, settings, stops
+from salescall.core import approval, notify, settings, stops
 from salescall.core.judge import UNKNOWN_CAUSES
 from salescall.core.access import Tx
 
@@ -73,12 +73,17 @@ def used(tx: Tx, version_id: UUID) -> int:
         "      WHERE h.attempt_id = a.attempt_id AND h.to_state = 'answered')", (version_id, version_id))["n"]
 
 
+def _verification(tx: Tx, version_id: UUID) -> bool:
+    """その版の業務が検証モードか（読むのは承認の部分の1か所。I-13）。段階的な立ち上げ・1件で止める品質の門は、検証モードだけ。"""
+    return approval.human_for_business(tx, _version(tx, version_id)["business_id"])
+
+
 def allowance(tx: Tx, version_id: UUID) -> tuple[bool, str | None]:
     """その版で、いま新しく予約してよいか（よい, 理由の名前）。理由：version_not_ready・stage_full。"""
     stage = current(tx, version_id)
     if stage is None:
         return False, "version_not_ready"
-    if stage["cap"] is not None and used(tx, version_id) >= stage["cap"]:
+    if stage["cap"] is not None and _verification(tx, version_id) and used(tx, version_id) >= stage["cap"]:
         return False, "stage_full"
     return True, None
 
@@ -240,6 +245,8 @@ def evaluate(tx: Tx, version_id: UUID) -> dict[str, Any] | None:
     v = _version(tx, version_id)
     if _quality_stop(tx, v["business_id"]) is not None:
         return None
+    if not _verification(tx, version_id):
+        return _evaluate_production(tx, version_id, v, stage)
     m = metrics(tx, version_id)
     n_used = used(tx, version_id)
     outcome, stop_id, cause = "continue", None, None
@@ -282,3 +289,57 @@ def evaluate(tx: Tx, version_id: UUID) -> dict[str, Any] | None:
         " RETURNING eval_id",
         (version_id, stage["stage_no"], stage["cap"], n_used, json.dumps(m, default=str), outcome, stop_id))
     return {"eval_id": row["eval_id"], "outcome": outcome, "metrics": m, "stop_event_id": stop_id}
+
+
+def _production_counts(tx: Tx, business_id: UUID) -> dict[str, Any]:
+    """本番の、その業務の今日（日本時間）の数（品質の停止を最後に解いたあとの通話だけ）：言ってはいけないことを言った通話の数と、
+    判定できない原因ごとの通話。お詫びの電話は数えない。"""
+    window = (
+        "WITH since AS (SELECT coalesce(max(r.at), '-infinity') AS t FROM salescall.stop_events r"
+        "               JOIN salescall.stop_events s ON s.event_id = r.resolves_event_id"
+        "               WHERE s.scope = 'business' AND s.business_id = %s AND s.cause::text = ANY(%s)),"
+        " a AS (SELECT a.attempt_id FROM salescall.attempts a"
+        "       JOIN salescall.business_versions bv ON bv.version_id = a.version_id, since"
+        "       WHERE bv.business_id = %s AND a.purpose <> 'apology' AND a.claimed_at > since.t"
+        "         AND salescall.jst(a.claimed_at)::date = salescall.jst(now())::date) ")
+    args = (business_id, list(STOP_CAUSES), business_id)
+    forbidden = tx.one(window + "SELECT count(*) AS n FROM a WHERE salescall.said_forbidden(a.attempt_id)", args)["n"]
+    unknown = {r["c"] or "": [str(x) for x in r["a"]] for r in tx.all(
+        window + "SELECT r.detail ->> 'unknown_cause' AS c, array_agg(r.attempt_id ORDER BY r.attempt_id) AS a"
+        " FROM salescall.task_results r JOIN a ON a.attempt_id = r.attempt_id"
+        " WHERE r.kind = 'judged' AND r.business_state = 'unknown' GROUP BY 1", args)}
+    return {"forbidden_speech": forbidden, "unknown_by_cause": unknown}
+
+
+def _evaluate_production(tx: Tx, version_id: UUID, v: dict[str, Any], stage: dict[str, Any]) -> dict[str, Any]:
+    """本番の評価（2026-10-16 ユーザー決定）：1件だけなら止めずに次の行へ（その行は、言ってはいけないこと＝終えてお詫びの案、
+    判定できない＝判定待ち。どちらも知らせる＝締めの処理）。その日のうちに同じ原因が設定の件数
+    （quality.production_same_cause_per_day。初めは3）になったら、その業務を止め、管理者へ知らせる。割合の基準と段は見ない
+    （検証モードだけ）。"""
+    limit = int(_get(tx, v, "quality.production_same_cause_per_day"))
+    c = _production_counts(tx, v["business_id"])
+    cause, reason = None, ""
+    worst = max(c["unknown_by_cause"], key=lambda k: (len(c["unknown_by_cause"][k]), k), default=None)
+    if c["forbidden_speech"] >= limit:
+        cause = "forbidden_speech"
+        reason = f"今日、言ってはいけないことを言った通話が {c['forbidden_speech']} 件になりました（基準 {limit} 件）"
+    elif worst is not None and len(c["unknown_by_cause"][worst]) >= limit:
+        cause = "judge_unknown"
+        reason = (f"今日、同じ原因で判定できない通話が {len(c['unknown_by_cause'][worst])} 件になりました（原因：{worst}＝"
+                  f"{UNKNOWN_CAUSES.get(worst, '不明')}。基準 {limit} 件）。その行は判定待ちで残しています。原因を直し、その場面を"
+                  "入れた模擬通話に合格したら再開します")
+    stop_id = None
+    if cause is not None:
+        stop_id = stops.stop(tx, scope="business", cause=cause, reason=reason, evidence=f"version_id={version_id}",
+                             tenant_id=v["tenant_id"], client_id=v["client_id"], business_id=v["business_id"])["event_id"]
+        notify.emit(tx, "stopped", key=f"stop:{stop_id}", admin=True, contractor=False,
+                    summary=f"同じ原因が続いたので、業務を止めました（{reason}）",
+                    refs={"stop_event_id": stop_id, "business_id": v["business_id"], "cause": cause})
+    m = {"production": {"limit": limit, **c}}
+    row = tx.one(
+        "INSERT INTO salescall.quality_evaluations (tenant_id, client_id, version_id, stage_no, cap, used, metrics, outcome,"
+        " stop_event_id) VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s, %s, %s, %s)"
+        " RETURNING eval_id",
+        (version_id, stage["stage_no"], stage["cap"], used(tx, version_id), json.dumps(m, default=str),
+         "stop" if cause else "continue", stop_id))
+    return {"eval_id": row["eval_id"], "outcome": "stop" if cause else "continue", "metrics": m, "stop_event_id": stop_id}

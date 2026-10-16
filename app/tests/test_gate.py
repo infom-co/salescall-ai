@@ -15,7 +15,7 @@ import uuid
 from datetime import timedelta
 from unittest import mock
 
-from salescall.core import (attempts, business_rules, calendar, call_report, dial_exit, dnc, gate, next_action,
+from salescall.core import (approval, attempts, business_rules, calendar, call_report, dial_exit, dnc, gate, next_action,
                             quality_stage, settings, settle, stops)
 from salescall.core.call_report import CallReport, Cut
 from salescall.core.access import Rejected
@@ -228,7 +228,10 @@ class VersionAndStage(Base):
         self.assertEqual(self.reason(s), "version_not_ready")
 
     def test_stage_cap_counts_answered_and_active(self):
+        """段の件数は検証モードだけ（2026-10-16 ユーザー）。"""
         s = self.ready()
+        self.put_client(s, "approval.human", True)
+        self.tx(s, lambda tx: approval.approve_task(tx, s["task"]), OPERATOR)
         self.tx(s, lambda tx: quality_stage.open_stage(tx, s["version"], 1, 1, evidence="試験：最初の段は1件"), OPERATOR)
         phone2 = normalize(fictional_jp_fixed()).e164
         k2 = self.w.contact(s["tenant"], s["client"], phone2)

@@ -6,12 +6,13 @@ import unittest
 from dataclasses import replace
 from uuid import UUID
 
-from salescall.core import attempts, business_rules, next_action, quality_stage, stops
+from salescall.core import approval, attempts, business_rules, next_action, quality_stage, stops
 from salescall.core.access import Rejected
 from salescall.core.attempts import VerificationSummary
 from salescall.core.phone import normalize
 from salescall.core.quality_stage import MockResult
-from tests.support import OPERATOR, SYSTEM, fictional_jp_fixed, rules_raw, said
+from salescall.core import gate
+from tests.support import ADMIN, OPERATOR, SYSTEM, fictional_jp_fixed, rules_raw, said
 from tests.test_settle import TALK, SettleBase, rep
 
 GOOD = MockResult(calls=10, value_hits=40, value_total=40, judgment_hits=10, judgment_total=10, forbidden_speech=0,
@@ -85,6 +86,18 @@ class Mock(Base):
 
 
 class Stages(Base):
+    """検証モードの品質の門（2026-10-16 ユーザー：言ってはいけない・品質の基準・判定できない・段階的な立ち上げは検証モードで）。"""
+    def fresh(self, **kw):
+        s = super().fresh(**kw)
+        self.put_client(s, "approval.human", True)                     # 検証モード（契約者が行を承認してから発信する）
+        self.tx(s, lambda tx: approval.approve_task(tx, s["task"]), OPERATOR)
+        return s
+
+    def second_row(self, s):
+        r = super().second_row(s)
+        self.tx(r, lambda tx: approval.approve_task(tx, r["task"]), OPERATOR)
+        return r
+
     def test_forbidden_speech_stops_at_once_and_only_a_new_version_resumes(self):
         s = self.fresh(stage_cap=20)
         got = self.verified_call(s, said(3))      # 言ってはいけないことが1件
@@ -109,7 +122,7 @@ class Stages(Base):
         why = self.tx(s, lambda tx: stops.explain(tx, sid))
         self.assertEqual(why["stop"]["cause"], "forbidden_speech")
         self.assertEqual(why["quality"]["metrics"]["forbidden_speech"]["hits"], 1)   # どの指標が外れたか
-        self.assertEqual(why["held_results"], [])                     # 本格稼働では、取れた結果はふつうどおり確定している
+        self.assertEqual(len(why["held_results"]), 1)                 # 検証モード：契約者の確かめを待つ結果
         self.tx(s, lambda tx: stops.resume(tx, sid, reason="試験：場面を聞いて、言い方の問題ではないと判断"), OPERATOR)
         self.assertEqual(self.tx(s, lambda tx: quality_stage.used(tx, s["version"])), 0)   # 測り直し
         self.verified_call(self.second_row(s), VerificationSummary(2, 0, 0), items=[("Q1", "confirmed", None)])
@@ -203,3 +216,42 @@ class Stages(Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Production(Base):
+    """本番（検証モードでない業務）の品質の見方（2026-10-16 ユーザー決定）：1件だけなら止めずに次の行へ。その日のうちに同じ原因が
+    3件（設定）になったら、その業務を止めて管理者へ知らせる。段階的な立ち上げ（段の件数）は見ない。"""
+    def rows(self, s, n):
+        return [s] + [self.second_row(s) for _ in range(n - 1)]
+
+    def test_one_forbidden_speech_goes_on_and_three_stop_the_business(self):
+        s = self.fresh(stage_cap=20)
+        rows = self.rows(s, 3)
+        got = self.verified_call(rows[0], said(3))
+        self.assertEqual((got["decision"].kind, got["decision"].end_reason), ("end", "forbidden_speech"))   # その行は終える
+        self.assertEqual(self.business_stops(s), [])                   # 1件だけなら、業務は止めない
+        self.verified_call(rows[1], said(3))
+        self.assertEqual(self.business_stops(s), [])
+        self.verified_call(rows[2], said(3))
+        self.assertEqual([r["cause"] for r in self.business_stops(s)], ["forbidden_speech"])   # 同じ原因が3件
+        admin = self.w.a.in_system(ADMIN, lambda tx: tx.all(
+            "SELECT kind FROM salescall.notification_events WHERE for_admin AND kind = 'stopped' AND refs ->> 'business_id' = %s",
+            (str(s["business"]),)))
+        self.assertEqual(len(admin), 1)                                 # 管理者へ知らせる
+
+    def test_unknowns_stop_only_when_the_same_cause_repeats(self):
+        s = self.fresh(stage_cap=20)
+        self.put_client(s, "quality.production_same_cause_per_day", 2)
+        rows = self.rows(s, 3)
+        self.verified_call(rows[0], VerificationSummary(1, 0, 0), report=rep(cut=None))       # 切れ方の材料が無い
+        self.verified_call(rows[1], VerificationSummary(1, 0, 0), items=[("Q1", "dont_know", None)])   # 理由が無い（別の原因）
+        self.assertEqual(self.business_stops(s), [])                   # 原因ごとに1件ずつ：止めない
+        self.verified_call(rows[2], VerificationSummary(1, 0, 0), report=rep(cut=None))
+        self.assertEqual([r["cause"] for r in self.business_stops(s)], ["judge_unknown"])   # 同じ原因が2件（設定）
+
+    def test_the_stage_cap_is_only_for_verification(self):
+        s = self.fresh(stage_cap=1)
+        self.verified_call(s, VerificationSummary(2, 2, 0), items=[("Q1", "confirmed", None)])   # 食い違い100％でも
+        self.assertEqual(self.business_stops(s), [])                   # 割合の基準は見ない（検証モードだけ）
+        r = self.second_row(s)
+        self.assertIsInstance(self.claim(r), gate.Claim)                # 段の件数（1件）を超えてかける

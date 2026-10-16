@@ -20,7 +20,7 @@ from datetime import timedelta
 from typing import Any
 from uuid import UUID
 
-from salescall.core import errors, notify, settings, stops
+from salescall.core import errors, next_action, notify, settings, stops
 from salescall.core.access import Access, Actor, Tx
 
 # 確かめで解ける原因 → （確かめの間隔, 何回続けて成功したら解くか）の設定の名前
@@ -51,11 +51,17 @@ def record_error(tx: Tx, report: errors.ErrorReport, *, line_id: UUID | None = N
         "           salescall.cur_tenant() AS tenant, salescall.cur_client() AS client",
         (line_id, attempt_id, report.source, kind, report.code, report.message))
     action = errors.ACTIONS[kind]
-    # エラーの一覧と処置はプログラム（直せるのは管理者だけ）なので、どの種類も管理者に知らせる。契約者には、処置の表が
-    # 「知らせる」とした種類だけ
+    # エラーの一覧と処置はプログラム（直せるのは管理者だけ）なので、どの種類も管理者に知らせる。根源的なものは「直しの依頼」。
+    # 契約者には、処置の表が「知らせる」とした種類だけ
     notify.emit(tx, "error_notice", key=f"error:{kind}:{row['tenant']}:{row['client']}:{row['hour']}",
-                summary=f"エラー：{action.meaning}", refs={"error_id": row["error_id"], "kind": kind},
+                summary=f"{'直しの依頼' if action.fundamental else 'エラー'}：{action.meaning}",
+                refs={"error_id": row["error_id"], "kind": kind, "fundamental": action.fundamental},
                 admin=True, contractor=action.notify)
+    if action.hold_row and attempt_id is not None:
+        # その行だけ判定待ちにする（かけ直さない）。ほかの行は続ける（2026-10-16 ユーザー）
+        task = tx.one("SELECT task_id FROM salescall.attempts WHERE attempt_id = %s", (attempt_id,))
+        if task is not None:
+            next_action.hold(tx, task["task_id"], cause=f"エラー：{kind}（管理者に直しを依頼）")
     return kind
 
 
@@ -81,8 +87,10 @@ def decide_stop(tx: Tx, kind: str, *, line_id: UUID | None = None) -> dict[str, 
     if n < need:
         return None
     tenant = tx.one("SELECT salescall.cur_tenant() AS t")["t"]
+    how = ("根源的なもの：管理者に直しを依頼しました。直るまで新しい発信を待ちます" if action.fundamental
+           else "一時的なもの：直ったら自動で続けます")
     return stops.stop(tx, scope=action.stop_scope, cause=action.stop_cause,
-                      reason=f"{action.meaning}（続けて {n} 回。基準 {need} 回）", evidence=f"エラーの種類：{kind}",
+                      reason=f"{action.meaning}（続けて {n} 回。基準 {need} 回。{how}）", evidence=f"エラーの種類：{kind}",
                       tenant_id=tenant if action.stop_scope == "line" else None, line_id=line_id)
 
 

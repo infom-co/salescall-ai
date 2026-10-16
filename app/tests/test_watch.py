@@ -159,13 +159,14 @@ class SystemStopsAndChecks(unittest.TestCase):
     def setUp(self):
         self.a = app_access()
         self.addCleanup(resume_open_system_stops)
-        override(self, "stop.storage.probe_interval", 1)
+        override(self, "stop.ai.probe_interval", 1)
 
-    def storage_stop(self):
-        watch.after_error(self.a, SYSTEM, ErrorReport("storage", None, "試験：書き込めない"))
+    def config_stop(self):
+        """設定の誤り（根源的・1回で全体の新しい発信を待つ）で、システムが止めた全体の停止を作る。"""
+        watch.after_error(self.a, SYSTEM, ErrorReport("ai", 1007, "thinking_level is not supported for this model"))
         rows = [r for r in self.a.in_system(SYSTEM, lambda tx: stops.open_stops(tx, tenant_id=None, client_id=None,
                                                                                     business_id=None))
-                if r["cause"] == "storage_failure"]
+                if r["cause"] == "ai_connection"]
         self.assertEqual(len(rows), 1)
         return rows[0]["event_id"]
 
@@ -176,10 +177,10 @@ class SystemStopsAndChecks(unittest.TestCase):
         now = self.a.in_system(SYSTEM, lambda tx: tx.one("SELECT now() AS t")["t"])
         time.sleep(max(0.0, (got["next_check_at"] - now).total_seconds()) + 0.05)
 
-    def test_storage_failure_stops_at_once_and_resumes_after_successes(self):
+    def test_a_system_stop_resumes_after_successful_checks(self):
         override(self, "stop.flapping.window", 1)                  # 前の試験で止めた分を、ばたつきに数えない
         time.sleep(1.1)
-        sid = self.storage_stop()
+        sid = self.config_stop()
         self.assertIn(sid, [r["event_id"] for r in self.a.in_system(SYSTEM, watch.due_checks)])
         got = self.check(sid, True)
         with self.assertRaises(watch.NotDue):                      # 待ちの途中の確かめは受け付けない
@@ -196,10 +197,10 @@ class SystemStopsAndChecks(unittest.TestCase):
             tx, tenant_id=None, client_id=None, business_id=None))])
 
     def test_flapping_makes_the_wait_longer(self):
-        first = self.storage_stop()
+        first = self.config_stop()
         g1 = self.check(first, True)
         self.a.in_system(SYSTEM, lambda tx: stops.resume(tx, first, reason="試験"))
-        second = self.storage_stop()                                 # 短い間に、また止まった
+        second = self.config_stop()                                 # 短い間に、また止まった
         g2 = self.check(second, True)
         w1 = g1["next_check_at"] - self.a.in_system(SYSTEM, lambda tx: tx.one(
             "SELECT checked_at FROM salescall.stop_checks WHERE stop_event_id = %s", (first,)))["checked_at"]
@@ -218,13 +219,14 @@ class SystemStopsAndChecks(unittest.TestCase):
         self.a.in_system(ADMIN, lambda tx: stops.resume(tx, sid, reason="試験"))
 
     def test_only_admin_resumes_system_stops_by_hand(self):
-        sid = self.storage_stop()                                       # システムが止めた全体の停止
+        sid = self.config_stop()                                       # システムが止めた全体の停止
         with self.assertRaises(Rejected):
             self.a.in_system(OPERATOR, lambda tx: stops.resume(tx, sid, reason="試験"))
         why = self.a.in_system(ADMIN, lambda tx: stops.explain(tx, sid))
         self.assertEqual(why["who_can_resume"], "管理者")
-        self.assertEqual(why["errors"][0]["meaning"], errors.ACTIONS["storage"].meaning)
-        self.a.in_system(ADMIN, lambda tx: stops.resume(tx, sid, reason="試験：保存先を直した"))
+        self.assertIn("設定の誤り", why["errors"][0]["meaning"])
+        self.assertIn("根源的なもの：管理者に直しを依頼しました", why["stop"]["reason"])
+        self.a.in_system(ADMIN, lambda tx: stops.resume(tx, sid, reason="試験：設定を直した"))
         why = self.a.in_system(ADMIN, lambda tx: stops.explain(tx, sid))
         self.assertEqual(why["resolved"]["actor_kind"], "admin")
 
@@ -247,7 +249,7 @@ class SystemStopsAndChecks(unittest.TestCase):
         self.assertEqual(sorted(causes), sorted(stops.CAUSES))
 
     def test_checks_are_frozen(self):
-        sid = self.storage_stop()
+        sid = self.config_stop()
         self.check(sid, False)
         own = owner_access()
         for sql in ("UPDATE salescall.stop_checks SET ok = true WHERE stop_event_id = %s",
@@ -286,7 +288,7 @@ class SystemStopsAndChecks(unittest.TestCase):
         self.assertEqual(listed, [])
 
     def test_checks_of_system_stops_only_from_the_system_transaction(self):
-        sid = self.storage_stop()
+        sid = self.config_stop()
         s = World().setup()
         due = self.a.in_tenant(SYSTEM, s["tenant"], watch.due_checks)
         self.assertNotIn(sid, [r["event_id"] for r in due])          # 契約者の取引からは、全体の停止を確かめない
@@ -303,6 +305,24 @@ class SystemStopsAndChecks(unittest.TestCase):
         self.assertEqual([r["for_admin"] for r in self.a.in_system(ADMIN, lambda tx: tx.all(sql, ("admin:" + like,)))],
                          [True])
         self.assertEqual(self.a.in_client(OPERATOR, s["tenant"], s["client"], lambda tx: tx.all(sql, (like,))), [])
+
+    def test_a_storage_failure_holds_only_that_row_and_asks_the_admin(self):
+        """保存の失敗は全体を止めない：その行だけ判定待ちにして（かけ直さない）、管理者に直しを依頼し、ほかの行は続ける
+        （2026-10-16 ユーザー：「理由を記載とあなたへの修正依頼をして、次の行に進んだらいいでしょ」）。"""
+        w = World(); s = w.setup()
+        aid = w.insert_claim(s)
+        w.move(s, aid, "dialing")
+        watch.after_error(self.a, SYSTEM, ErrorReport("storage", None, "試験：書き込めない"),
+                          tenant_id=s["tenant"], client_id=s["client"], attempt_id=aid)
+        self.assertEqual([r for r in self.a.in_system(SYSTEM, lambda tx: stops.open_stops(
+            tx, tenant_id=None, client_id=None, business_id=None)) if r["cause"] == "storage_failure"], [])
+        kind = self.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: tx.one(
+            "SELECT kind FROM salescall.task_next_actions WHERE task_id = %s ORDER BY seq DESC LIMIT 1", (s["task"],)))["kind"]
+        self.assertEqual(kind, "hold")
+        admin = self.a.in_system(ADMIN, lambda tx: tx.all(
+            "SELECT summary FROM salescall.notification_events WHERE event_key LIKE %s",
+            (f"admin:error:storage:{s['tenant']}:{s['client']}:%",)))
+        self.assertTrue(admin and admin[0]["summary"].startswith("直しの依頼"))
 
     def test_notify_once_an_hour(self):
         for _ in range(2):

@@ -84,7 +84,9 @@ class Apology(Helpers):
     def test_delivered_ends_the_row_without_changing_the_result(self):
         s = self.fresh(stage_cap=20)
         self.order(s, self.incident(s))
-        self.assertEqual([r["cause"] for r in self.business_stops(s)], ["forbidden_speech"])
+        self.assertEqual(self.business_stops(s), [])                   # 本番：1件だけなら業務は止めない（2026-10-16 ユーザー）
+        self.tx(s, lambda tx: stops.stop(tx, scope="business", cause="forbidden_speech", reason="試験：品質の停止",
+                                         tenant_id=s["tenant"], client_id=s["client"], business_id=s["business"]))
         claim = self.claim(s)
         self.assertIsInstance(claim, gate.Claim)                       # 業務の品質の停止では、お詫びは止めない
         self.assertEqual(claim.purpose, "apology")

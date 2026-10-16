@@ -323,7 +323,7 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      "CREATE OR REPLACE VIEW salescall.open_stop_events WITH (security_invoker = true) AS"
      " SELECT s.* FROM salescall.stop_events s WHERE s.action = 'stop'",
      ("tests.test_emergency.Emergency.test_a_resume_on_the_screen_clears_the_flag",
-      "tests.test_watch.SystemStopsAndChecks.test_storage_failure_stops_at_once_and_resumes_after_successes")),
+      "tests.test_watch.SystemStopsAndChecks.test_a_system_stop_resumes_after_successful_checks")),
     ("止めた理由の説明に、数えたエラーを出さない",
      "CREATE OR REPLACE FUNCTION salescall.errors_for_stop(p_stop bigint, p_kinds text[], p_limit integer)"
      " RETURNS TABLE (error_id bigint, source text, kind text, code integer, message text, occurred_at timestamptz)"
