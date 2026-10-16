@@ -151,6 +151,8 @@ async def record(args) -> list[dict]:
 
 # 書き起こしに使える、取込の比べ（g23_names.MODELS）に無いモデル（表示名で引く）。⚠️ 2026-10-16：3.8 Flash が混んでいて答えが返らず、
 # 3.7 Flash・3.6 Flash は1日の上限に達していたため足した。相手役の名前の声（G-46）を、5本とも台本どおりの読みで書き起こした
+# ⛔ ただし、濁りの違いは聞き分けられない（ひらがなで「なかしま」と読ませた2本を、2本とも「なかじま」と書いた。3.8 Flash は1本ずつなら書き分けた）
+#    ⇒ 濁りの違いの確かめには使わない
 EXTRA_VERIFIERS = {"3 Flash": "Gemini 3 Flash Preview"}
 
 
@@ -204,7 +206,10 @@ def main() -> None:
     p.add_argument("--set", choices=sorted(NAME_SETS), default="kanji", help="名前の組（kanji＝読み違えやすい漢字の名前・alnum＝英字とカタカナの名前）")
     p.add_argument("--pause", type=float, default=1.0)
     p.add_argument("--pause-flash", type=float, default=15.0)
-    p.add_argument("--batch", type=int, default=70)
+    # ⛔ 2026-10-16：前の既定は 70本を1回で書き起こさせる形だった。何本もまとめて聞かせると、隣の音声に引きずられる（「山崎」の5つの渡し方の
+    #    文が「がくいん／がくえん」までそろい、ひらがなで「やまさき」と言えていた2本も「やまざき」と書かれた）。1本ずつなら、濁りの違いの対
+    #    （なかしま／なかじま／やまさき／やまざき）を4本とも書き分けた ⇒ 既定は1本ずつ
+    p.add_argument("--batch", type=int, default=1)
     p.add_argument("--verify-only", help="録った結果（G-44 の保存した結果）を書き起こして数える")
     p.add_argument("--record-only", action="store_true", help="録るだけ（書き起こしは --verify-only であとで）")
     p.add_argument("--verifier", action="append", help="書き起こしに使うモデル（既定は 3.8 Flash と 3.7 Flash）")
