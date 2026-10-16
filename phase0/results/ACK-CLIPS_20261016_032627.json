@@ -1,0 +1,52 @@
+{
+  "item": "ACK-CLIPS",
+  "saved_at": "2026-10-16T03:26:27",
+  "model": "gemini-3.8-live",
+  "candidates": [
+    {
+      "type": "S2",
+      "voice": "Sadachbia",
+      "id": "wait",
+      "text": "少々お待ちいただいてもよろしいでしょうか？",
+      "heard": {
+        "0.0": "少々お待ちいただいてもよろしいでしょうか？",
+        "1.0": "少々お待ちいただいてもよろしいでしょうか？"
+      },
+      "ok": true,
+      "seconds": 2.62,
+      "try": 1,
+      "wav": "S2_wait_1.wav"
+    },
+    {
+      "type": "S2",
+      "voice": "Sadachbia",
+      "id": "wait",
+      "text": "少々お待ちいただいてもよろしいでしょうか？",
+      "heard": {
+        "0.0": "少々お待ち頂いてもよろしいでしょうか？",
+        "1.0": "少々お待ちいただいてもよろしいでしょうか？"
+      },
+      "ok": true,
+      "seconds": 2.46,
+      "try": 2,
+      "wav": "S2_wait_2.wav"
+    },
+    {
+      "type": "S2",
+      "voice": "Sadachbia",
+      "id": "wait",
+      "text": "少々お待ちいただいてもよろしいでしょうか？",
+      "heard": {
+        "0.0": "少々お待ちいただいてもよろしいでしょうか？",
+        "1.0": "少々お待ちいただいてもよろしいでしょうか。"
+      },
+      "ok": true,
+      "seconds": 2.32,
+      "try": 3,
+      "wav": "S2_wait_3.wav"
+    }
+  ],
+  "kept": {
+    "S2_wait": 3
+  }
+}
