@@ -104,6 +104,11 @@ def norm_surface(s: str) -> str:
     return s
 
 
+def quote(name: str) -> str:
+    """名前を「」でくくる唯一の場所（instruction.quote_in_text・Business・流れの制御の名前の読みの確かめが使う）。"""
+    return f"「{name}」"
+
+
 def given_reading(text: str, surface: str) -> str:
     """台本の文の中で、名前のすぐあとに書いてある読みがな（「東海林（しょうじ）」「角田(つのだ)」）。無ければ空。"""
     import re
@@ -124,7 +129,8 @@ def decide(text: str, model_runs: list[list[dict]]) -> list[dict]:
     読み：(1) 台本に書いてある読みがな（given_reading）(2) 2つのモデルの読みが同じで、どちらも「決まらない」としていないとき
           (3) それ以外は空＝読みが決まらない（candidates に候補）。G-42：2つのモデルを合わせると、読みを誤って決めたのは0、
           文から読みが決まらない6つ（中島・山崎・角田・河野・新垣・場所の手がかりの無い三田）は6つとも「決まらない」になった。
-    戻り値：[{"surface", "reading"（空＝決まらない）, "source"（"台本の読みがな"・"モデル2つ"・""）, "candidates"}]"""
+    戻り値：[{"surface", "reading"（空＝決まらない）, "source"（"台本の読みがな"・"モデル2つ"・""）, "candidates", "likely"（決まらないとき、
+    まず言ってみる読み）}]"""
     from jtext import compare_reading
 
     rd = lambda s: compare_reading(s or "").replace(" ", "")  # noqa: E731
@@ -153,7 +159,11 @@ def decide(text: str, model_runs: list[list[dict]]) -> list[dict]:
             for c in [x.get("reading", "")] + list(x.get("candidates") or []):
                 if c and rd(c) not in {rd(y) for y in cands}:
                     cands.append(hira(c))
-        out.append({"surface": surface, "reading": "", "source": "", "candidates": cands})
+        # likely＝会話の中で確かめるときに、まず言ってみる読み（2つのモデルの reading が同じならそれ、違えば先のモデルの reading）。
+        # ✅ 2026-10-16 ユーザー：「なかじまとなかしまなどは人が見ても判断できません。会話の中で失礼のないように語るか、場合によっては
+        #    聞き出す」⇒ 流れの制御の名前の読みの確かめ（flowctl.reading_question）で、この読みを言って相手に確かめていただく
+        likely = hira(hits[0].get("reading", "")) if hits[0].get("reading") else (cands[0] if cands else "")
+        out.append({"surface": surface, "reading": "", "source": "", "candidates": cands, "likely": likely})
     return out
 
 

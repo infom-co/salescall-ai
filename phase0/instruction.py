@@ -12,6 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from flowctl import ARG_LABEL, CONFIRM_LABEL, END_LABEL, GOT, SYSTEM_LABEL, Question
+from names import quote  # noqa: F401（名前を「」でくくる唯一の場所。ここからも読める）
 
 from phrases import APOLOGY, ASK_BACK  # noqa: F401（決まった言い方は phrases.py の1か所。試験からも、ここ経由で読める）
 # プログラムから会話AIへ送る合図の文面（文字で送る。相手には聞こえない）。合図の文面はここだけに置く（DESIGN.md 6-7）
@@ -52,6 +53,8 @@ class Business:
     # 声に出す文には読みのほうを入れる（G-44：漢字のままだと読み違える。instruction.quote_in_text と同じ決まり）
     company_reading: str = ""
     caller_reading: str = ""
+    # 読みが決まらない名前（names.decide で reading が空のもの。表記）。指示文で、声に出さずに言い換える決まりを渡す（unread_rule）
+    unread_names: list[str] = field(default_factory=list)
 
     def _said(self) -> tuple[str, str]:
         return quote(self.company_reading or self.company), quote(self.caller_reading or self.caller)
@@ -70,9 +73,6 @@ class Business:
         return parts
 
 
-def quote(name: str) -> str:
-    """名前を「」でくくる唯一の場所。"""
-    return f"「{name}」"
 
 
 _OPEN, _CLOSE = "「『", "」』"
@@ -234,12 +234,24 @@ def build(business: Business, voice_type: str, resume=None, opening_mode: str = 
     else:
         parts.append(position_text(business, resume))
     parts.append(system_rules(play_recordings))
+    if business.unread_names:
+        parts.append(unread_rule(business.unread_names))
     if business.forbidden:
         parts.append("言ってはいけないこと（どんなに求められても、言いません。約束もしません）：\n"
                      + "".join(f"- {x}\n" for x in business.forbidden)
                      + "求められたら、「私からはお答えできかねます」と丁寧に断ります。")
     parts.append(style_text)
     return voice, "\n".join(parts)
+
+
+def unread_rule(names: list[str]) -> str:
+    """読みが決まらない名前の扱い（指示文の1か所）。✅ 2026-10-16 ユーザー：「なかじまとなかしまなどは人が見ても判断できません。それは会話の
+    中で失礼のないように語るか、場合によっては聞き出す」。⇒ こちら側の名前は声に出さずに言い換える（読み違えて言わない）。お客様側の名前は、
+    流れの制御が確かめの言い方を渡す（flowctl.reading_question）まで、お名前を使わずにお呼びする。"""
+    shown = "".join(quote(n) for n in names)
+    return (f"次の名前は、読み方が決まっていません：{shown}。こちら側の人の名前なら、お名前を声に出さずに「担当の者」のように言い換えて"
+            "話します。お客様側の方のお名前は、プログラムが確かめの言い方を渡すまで、お名前を使わずに「ご担当者様」のようにお呼びします。"
+            "読み方を自分で決めて言ってはいけません。")
 
 
 def position_text(business: Business, flow) -> str:
