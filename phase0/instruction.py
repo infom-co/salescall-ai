@@ -99,6 +99,30 @@ class Business:
 
 
 
+MAX_VARIANTS = 6  # 1つの文から作る、読みの候補ごとの録音の数の上限（読みが決まらない名前が2つ以上ある文でも、増えすぎないように）
+
+
+def reading_variants(text: str, names: list) -> list[tuple[dict, str]]:
+    """録音にする文（名乗り・用件・質問）の中の、読みが決まらない名前を、読みの候補ごとの文にする。依頼主ごとの録音で、人が聞いて
+    正しい読みの録音を選ぶ（✅ 2026-10-16 ユーザー：「こちら側の担当者名は、依頼者ごとの録音時に録音しておくといいでしょう」）。
+    選ばれた録音の読みが、その名前の読みになる（録音にした文は、録音のとおりに読まれるので、言い換えの決まり＝unread_rule は効かない。G-47）。
+    戻り値：[(その文で読む読み {表記: 読み}, 文)]。読みが決まらない名前が無ければ [({}, text)]。まず言ってみる読みを先に並べる。"""
+    from names import hira
+
+    out = [({}, text)]
+    for n in names:
+        if not (isinstance(n, dict) and n.get("surface") and not n.get("reading")):
+            continue
+        mark = f"「{n['surface']}」"
+        if mark not in text:
+            continue
+        cands = list(dict.fromkeys(hira(r) for r in [n.get("likely"), *(n.get("candidates") or [])] if r))
+        if not cands:
+            continue
+        out = [({**m, n["surface"]: c}, t.replace(mark, f"「{c}」")) for m, t in out for c in cands]
+    return out[:MAX_VARIANTS]
+
+
 _OPEN, _CLOSE = "「『", "」』"
 
 

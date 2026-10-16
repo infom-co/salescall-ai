@@ -57,10 +57,14 @@ HOW = {"moushiwake": "電話で、相手に聞き取れなかったことを申�
        "closing": "電話の最後に、お客様に感謝を伝えるように、前向きに、心を込めて、落ち着いた調子で。言葉の途中で区切らずに、なめらかに、ひと続きで",
        "wait": "電話で、お客様に少し待っていただくことを、申し訳なく思いながら、柔らかく丁寧にお願いするように",
        "wait_heavy": "電話で、ご迷惑をおかけしているお客様に、さらにお待ちいただくことを、心から申し訳なく思いながら、誠実に、丁寧にお願いするように",
-       "question": "電話で、お客様に丁寧に、柔らかくお聞きするように"}
+       "question": "電話で、お客様に丁寧に、柔らかくお聞きするように",
+       "greeting": "電話に出てくださったお客様に、最初のごあいさつをするように、丁寧に、落ち着いた調子で",
+       "intro": "電話で、お客様に会社名と自分の名前を名乗るように、丁寧に、落ち着いた調子で。名前ははっきりと",
+       "purpose": "電話で、お客様にお電話の用件を伝えるように、丁寧に、柔らかく"}
 DEFAULT_HOW = "電話で、相手の話に相づちを打つように、短く"
 MAX_S = {"hai": 1.0, "shouchi": 1.4, "arigatou": 1.6, "shitsurei": 1.6, "moushiwake": 1.6, "moushiwake_heavy": 1.8, "lead_soredeha": 1.0,
-         "lead_tsuzukimashite": 1.2, "lead_deha": 0.8, "closing": 8.0, "wait": 3.5, "wait_heavy": 3.8, "question": 5.0}
+         "lead_tsuzukimashite": 1.2, "lead_deha": 0.8, "closing": 8.0, "wait": 3.5, "wait_heavy": 3.8, "question": 5.0,
+         "greeting": 2.5, "intro": 4.5, "purpose": 4.5}
 
 
 END_SILENCE_S = 0.1  # 声のあとに、これだけの無音が無ければ、声の途中で切れた録音として落とす
@@ -103,22 +107,53 @@ def long_pauses_ok(text: str, pcm: bytes, rate: int) -> bool:
 
 
 def heard_ok(text: str, heard: dict) -> bool:
-    """2通りの聞き方の両方で、読みが合うか（句読点・言い終わりの違いは比べない）。"""
-    want = compare_reading(text)
-    return bool(heard) and all(v is not None and compare_reading(v) == want for v in heard.values())
+    """2通りの聞き方の両方で、読みが合うか（句読点・言い終わりの違いは比べない）。
+    名前（「」でくくった所。くくるのは instruction.quote_in_text の1か所）は比べず、名前の前後の言葉だけを比べる。
+    ⛔ 見直しで見つけた穴：別の耳は名前を、聞いた音に合う別の漢字で書く（「しょうじ」⇒「庄司」・「アオバ物流」⇒「青葉物流」）か、
+       ふつうの読みの漢字で書く（「しんがき」⇒「新垣」＝あらがき）。名前まで比べると、読みのめずらしい名前は正しく読めた録音ほど落ち、
+       ふつうの読みで読み違えた録音が通っていた。名前の読みは、人が聞いて選ぶときに確かめる（✅ 2026-10-16 ユーザー：「こちら側の
+       担当者名は、依頼者ごとの録音時に録音しておくといいでしょう」）"""
+    parts = re.split(r"「[^「」]+」", text)
+    if len(parts) == 1:
+        want = compare_reading(text)
+        return bool(heard) and all(v is not None and compare_reading(v) == want for v in heard.values())
+    pattern = ".+?".join(re.escape(compare_reading(x)) for x in parts)
+    return bool(heard) and all(v is not None and re.fullmatch(pattern, compare_reading(v)) for v in heard.values())
+
+
+def script_table(business) -> tuple[dict, dict]:
+    """依頼主の単位の録音の表 {中の名前: (言葉, 読み方と長さの上限の鍵)} と、{中の名前: その録音で読んだ名前の読み}。
+    ✅ 2026-10-16 ユーザー：「こちら側の担当者名は、依頼者ごとの録音時に録音しておくといいでしょう」⇒ 名乗り（自社名・担当者名）と
+    用件の一文も、依頼主の単位で録音する（前は質問の文だけ）。名前の読みは、人が聞いて選ぶときに確かめる（別の耳では確かめられない）。
+    読みが決まらない名前が入る文は、読みの候補ごとに録音を作る（instruction.reading_variants）。選ばれた録音の読みが、その名前の読みになる。"""
+    from flowctl import spoken_question
+    from instruction import reading_variants
+    from phrases import LEAD_RECORDED
+
+    items = [("intro", business.opening_parts()[1], "intro")]
+    if business.purpose_line:
+        items.append(("purpose", business.purpose_line, "purpose"))
+    for q in business.questions:  # つなぎの言葉と質問を1本で録音する（順番で決まるつなぎの言葉。flowctl.spoken_question）
+        if q.reading_of:
+            continue  # 名前の読みの確かめは、まず言ってみる読みが相手ごとに変わるので、AIが言う（録音にしない）
+        text, lead = spoken_question(business.questions, q.id)
+        items.append((f"{q.id}_{LEAD_RECORDED[lead]}" if lead else q.id, text, "question"))
+    table, readings = {}, {}
+    for base, text, how in items:
+        variants = reading_variants(text, business.names)
+        for k, (read, t) in enumerate(variants, 1):
+            aid = base if len(variants) == 1 else f"{base}_v{k}"
+            table[aid] = (t, how)
+            if read:
+                readings[aid] = read
+    return table, readings
 
 
 def words(script: bool) -> tuple[dict, Path]:
-    """作る録音の表 {中の名前: (言葉, 読み方と長さの上限の鍵)} と、置き場所。script＝依頼主の単位（試験の業務設定の質問の文）。"""
+    """作る録音の表 {中の名前: (言葉, 読み方と長さの上限の鍵)} と、置き場所。script＝依頼主の単位（試験の業務設定）。"""
     if script:
-        from flowctl import spoken_question
         from g22_opening import BUSINESS
-        from phrases import LEAD_RECORDED
-        table = {}
-        for q in BUSINESS.questions:  # つなぎの言葉と質問を1本で録音する（順番で決まるつなぎの言葉。flowctl.spoken_question）
-            text, lead = spoken_question(BUSINESS.questions, q.id)
-            table[f"{q.id}_{LEAD_RECORDED[lead]}" if lead else q.id] = (text, "question")
-        return table, SCRIPT_OUT
+        return script_table(BUSINESS)[0], SCRIPT_OUT
     return {aid: (text, aid) for aid, text in RECORDED.items()}, OUT
 
 
@@ -156,7 +191,30 @@ def adopt(names: list[str], script: bool, as_type: str | None = None, as_id: str
         made = [m for m in made if (m["type"], m["id"]) != (row["type"], row["id"])] + [row]
         done.append(row)
     index_path.write_text(json.dumps(made, ensure_ascii=False, indent=2), encoding="utf-8")
-    return {"adopted": done}
+    chosen = adopted_readings(done, script)
+    return {"adopted": done, "name_readings": chosen}
+
+
+def adopted_readings(done: list[dict], script: bool) -> dict:
+    """選ばれた録音で読んだ名前の読みを、その名前の読みとして残す（依頼主の単位のときだけ。台帳は SCRIPT_OUT/name_readings.json）。"""
+    if not script:
+        return {}
+    from g22_opening import BUSINESS
+    return record_readings(done, script_table(BUSINESS)[1], SCRIPT_OUT / "name_readings.json")
+
+
+def record_readings(done: list[dict], readings: dict, path: Path) -> dict:
+    """読みの出どころ＝「録音で選んだ」。⚠️ 同じ名前を、別の録音で別の読みに選んだら止める（読みは名前ごとに1つ。どちらが正しいかを
+    人に選び直していただく）。"""
+    book = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    for row in done:
+        for surface, reading in readings.get(row["id"], {}).items():
+            old = book.get(surface, {}).get("reading")
+            assert old in (None, reading), f"「{surface}」の読みを、前に「{old}」で選んでいます（今回は「{reading}」）"
+            book[surface] = {"reading": reading, "source": "録音で選んだ", "chosen_in": row.get("chosen_from")}
+    if book:
+        path.write_text(json.dumps(book, ensure_ascii=False, indent=2), encoding="utf-8")
+    return book
 
 
 async def run(args) -> dict:
