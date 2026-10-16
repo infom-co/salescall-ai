@@ -21,6 +21,7 @@ from phrases import AMPM_ASK, CLOSE_DECLINED, CLOSING, LEAD_IN
 from phrases import ask_again as ask_again_phrase
 from phrases import confirm as confirm_phrase
 from phrases import lead_in as lead_in_phrase
+from units import supply_unit
 
 # 型の一覧（Q19）：その場で言い直して確かめる型。DESIGN.md 4-4
 CONFIRM_TYPES = {"date", "time", "datetime", "number", "amount", "name", "phone", "email", "address"}
@@ -71,14 +72,21 @@ def _kanji_to_digits(v: str) -> str:
     return _KANJI_NUMBER.sub(repl, v)
 
 
-def normalize_value(qtype: str, value: str | None) -> str | None:
+def normalize_value(qtype: str, value: str | None, unit: str = "") -> str | None:
+    """値の形をそろえる。unit は数の質問の単位（Question.unit。取込で決めたもの）で、数の型の数字だけの値に補う（units.supply_unit）。
+    ✅ 2026-10-16 ユーザー：「入れる方向でOK」（G-37：相手の「3人です」を AI が「3 です」と聞き、言い直しが「3で大丈夫でしょうか？」に
+    なった）。補った値が、言い直しと依頼主へ渡す値の両方になる。⚠️ 金額の型には補わない（数字だけの「50」は、相手の「50万」の「万」が
+    聞き落とされた形でもありうる＝「50円」と言い直すと桁を誤る）。"""
     if value is None:
         return None
     v = value.strip()
     if qtype in CONFIRM_TYPES:
         v = _TAIL.sub("", v).strip()
     if qtype in NO_SPACE_TYPES:
-        v = _kanji_to_digits(_SPACE.sub("", v))
+        v = _SPACE.sub("", v)
+        if qtype == "number":
+            v = supply_unit(v, unit)
+        v = _kanji_to_digits(v)
     return v or None
 GOT = ("confirmed", "accepted")  # 「取れた」（4-4）
 
@@ -269,6 +277,7 @@ class Question:
     required: bool = True
     conditions: tuple = ()      # 業務が宣言した選択肢（依頼主が書いたまま。システムの2つは足さなくてよい）
     topic: str = ""             # 聞くこと（「ご希望の日時」など。聞き返しの言い方に使う。業務設定。無ければ言わずに聞き返す）
+    unit: str = ""              # 数の型の単位（「人」など）。取込で質問の文から決める（units。人は確かめない）。空なら補わない
 
     def __post_init__(self):
         assert self.type in TYPES, f"{self.id} の型「{self.type}」は、型の一覧にありません（I-16）"
@@ -463,7 +472,7 @@ class Flow:
         if cond not in q.all_conditions:
             shown = SYSTEM_LABEL.get(cond, cond)
             return self._reject(f"{ARG_LABEL['condition_id']}「{shown}」は、この質問の選択肢にありません（選べるのは {'、'.join(q.labels)}）。")
-        value = normalize_value(q.type, a.get("value"))
+        value = normalize_value(q.type, a.get("value"), q.unit)
         if cond not in SYSTEM_CONDITIONS and (why := form_problem(q.type, value)):
             return self._bad_form(qid, value, why)
         if value is None and q.type not in CHOICE_TYPES and cond not in SYSTEM_CONDITIONS:
@@ -505,7 +514,7 @@ class Flow:
             # ⛔ 2026-10-14 G-34（2回）：AIが答えを報告せずに自分で言い直し、相手の返事を confirm_field で報告してきた。前の差し戻しは
             #    「相手が答えたら record_answer で」としか言わず、相手がもう答えているのに AIが待つと読めた。1回は報告し直さず、次の質問の
             #    答え「3人」が日時の答えとして記録され、確かめまで済んだ。⇒ 答えがまだ報告されていないことと、報告する値を、はっきり言う
-            v = normalize_value(self.questions[qid].type, a.get("correction"))
+            v = normalize_value(self.questions[qid].type, a.get("correction"), self.questions[qid].unit)
             self.unreported_correction = (qid, correction_kind(self.callee_said)) if a.get("result") == "corrected" else None
             shown = f"（「{v}」）" if v else ""
             return self._reject(f"{qid} の答えは、まだ record_answer で報告されていません。相手が答えた値{shown}を、いま record_answer で"
@@ -522,7 +531,7 @@ class Flow:
             return self._reject("相手の返事をまだ聞いていません。言い直したら、相手が返事をするまで待ってから報告してください。")
         it = self.items[qid]
         result = a.get("result")
-        correction = normalize_value(self.questions[qid].type, a.get("correction"))
+        correction = normalize_value(self.questions[qid].type, a.get("correction"), self.questions[qid].unit)
         if result == "corrected" and correction is None:  # 訂正の値の無い報告は、記録を書き換える前に差し戻す（上と同じ漏れ）
             return self._reject(f"訂正された値がありません。相手が言い直した値を「{ARG_LABEL['correction']}」に入れて、もう一度報告してください。")
         if result == "corrected" and (why := form_problem(self.questions[qid].type, correction)):

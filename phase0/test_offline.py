@@ -1128,6 +1128,59 @@ class FormCheckTest(unittest.TestCase):
         self.assertEqual(set(re.findall(r"[A-Za-z_][A-Za-z_0-9]*", text)) - {"Q2", "record_answer"}, set())  # 中の名前を見せない
 
 
+class UnitTest(unittest.TestCase):
+    """数の質問の単位（units.py・G-41。✅ 2026-10-16 ユーザー「入れる方向でOK」「人は基本的に介在しない」）。数字だけの答えに、取込で
+    決めた単位を補う。単位がもう付いている答えは変えない。金額の型には補わない。"""
+
+    def test_rule(self):
+        from units import by_rule
+        cases = {"ご来店の人数をお伺いしてもよろしいでしょうか？": "人", "何名様でお越しになりますでしょうか？": "名",
+                 "ご来店の人数は何名様でしょうか？": "名",            # 「人」と「名」は同じ意味（2つの単位とは数えない）
+                 "今の複合機はお使いになって何年目でしょうか？": "年目",  # 長い言葉から当てる（「年」にしない）
+                 "建物は何階建てでしょうか？": "階建て", "築年数をお伺いしてもよろしいでしょうか？": "年",
+                 "ご宿泊は何泊何日のご予定でしょうか？": "",          # 意味の違う単位が2つ＝決めない
+                 "従業員数をお伺いしてもよろしいでしょうか？": "",      # 数える言葉が文に無い（モデルに任せる）
+                 "お部屋はいくつご用意すればよろしいでしょうか？": "", "お部屋の広さはどのくらいでしょうか？": ""}
+        for q, want in cases.items():
+            self.assertEqual(by_rule(q), want, q)
+
+    def test_supply(self):
+        from units import supply_unit
+        cases = {"3": "3人", "2か3": "2か3人", "2、3": "2、3人", "10から15": "10から15人", "3くらい": "3人くらい", "約3": "約3人",
+                 "3人": "3人", "3名様": "3名様", "大人2人と子ども1人": "大人2人と子ども1人", "ふたり": "ふたり", "3つ": "3つ"}
+        for v, want in cases.items():
+            self.assertEqual(supply_unit(v, "人"), want, v)
+        self.assertEqual(supply_unit("3", ""), "3")  # 単位が決まらなかった質問は、いまと同じ
+
+    def test_clean(self):
+        from units import clean_unit
+        self.assertEqual(clean_unit("名様"), "名")
+        for bad in ("3人", "人、名", "とても長い言葉です", ""):
+            self.assertEqual(clean_unit(bad), "", bad)
+
+    def test_decide(self):
+        from units import agree, decide
+        self.assertEqual(decide("ご来店の人数をお伺いしてもよろしいでしょうか？", ["台", "台"]), "人")  # 文の言葉が先（モデルは使わない）
+        self.assertEqual(decide("従業員数をお伺いしてもよろしいでしょうか？", ["人", "名"]), "人")       # 同じ意味なら合う
+        self.assertEqual(decide("パソコンはいくつお使いでしょうか？", ["台", "つ"]), "台")              # 「つ」は数える言葉に従う
+        self.assertEqual(decide("お子様はおいくつでいらっしゃいますでしょうか？", ["歳", "つ"]), "歳")  # G-41 の 3.7 Flash の誤りを止める
+        self.assertEqual(decide("拠点の数をお伺いしてもよろしいでしょうか？", ["か所", "拠点"]), "")   # 食い違い＝補わない
+        self.assertEqual(decide("通塾にかかるお時間はどのくらいでしょうか？", ["", "分"]), "")         # 片方が空＝補わない
+        self.assertEqual(decide("従業員数をお伺いしてもよろしいでしょうか？", ["人"]), "")              # モデル1つでは決めない
+        self.assertEqual(agree("つ", "つ"), "つ")
+
+    def test_flow_supplies_unit_to_readback_and_value(self):
+        from flowctl import Flow, Question, normalize_value
+        f = Flow([Question("Q1", "ご来店の人数をお伺いしてもよろしいでしょうか？", "number", conditions=("答えた",), unit="人")])
+        f.on_callee()
+        r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "答えた", "value": "3 です"})
+        self.assertIn("3人で", r["say"])                    # 言い直し：「3人で大丈夫でしょうか？」（前は「3で…」）
+        self.assertEqual(f.items["Q1"].value, "3人")         # 依頼主へ渡す値
+        self.assertEqual(normalize_value("number", "三", "人"), "3人")  # 補ってから漢数字を直す
+        self.assertEqual(normalize_value("amount", "50", "円"), "50")   # 金額には補わない（「50万」の聞き落としでありうる）
+        self.assertEqual(normalize_value("number", "3"), "3")           # 単位の無い質問は、いまと同じ
+
+
 class AskLadderTest(unittest.TestCase):
     """聞き返しの回数と言い方（DESIGN.md 6-11）。✅ 2026-10-14 ユーザー：必須の項目を聞く回数は、最初の質問のほかに最大3回
     （その場2回＋締めの前の念のための確認1回）。依頼主ごとに変えられる。最後の1回は「申し訳ございません、」（相づちの録音）＋
