@@ -163,6 +163,10 @@ WRITERS: dict[str, dict[str, frozenset[str]]] = {
     "call_reports": {"INSERT": frozenset({_CORE + "call_report.py"})},       # 会話から返る報告（形は1か所）
     "call_report_rebuilds": {"INSERT": frozenset({_CORE + "call_report.py"})},   # 録音から作り直した報告（0021）
     "business_rules": {"INSERT": frozenset({_CORE + "business_rules.py"})},  # 業務の決まり（形は1か所）
+    "business_versions": {"INSERT": frozenset({_CORE + "business_settings.py"})},   # 業務設定の版（(10)。版を作るのは1か所）
+    "questions": {"INSERT": frozenset({_CORE + "business_settings.py"})},
+    "business_contents": {"INSERT": frozenset({_CORE + "business_settings.py"})},
+    "run_versions": {"INSERT": frozenset({_CORE + "business_settings.py"})},        # 実施回への版の割り当て（記録つき）
     "version_stages": {"INSERT": frozenset({_CORE + "quality_stage.py"})},   # 品質の段（Q22）
     "calendar_loads": {"INSERT": frozenset({_CORE + "calendar.py"})},        # 祝日の暦（Q12 の材料）
     "calendar_holidays": {"INSERT": frozenset({_CORE + "calendar.py"})},

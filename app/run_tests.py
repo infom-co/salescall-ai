@@ -228,6 +228,8 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      ("tests.test_apology.Apology.test_the_system_prepares_and_only_a_person_approves",)),
     ("お詫びの指示の変更の拒みを外す", "DROP TRIGGER apology_orders_frozen ON salescall.apology_orders",
      ("tests.test_apology.Apology.test_frozen",)),
+    ("業務設定の中身の変更の拒みを外す", "DROP TRIGGER business_contents_frozen ON salescall.business_contents",
+     ("tests.test_business_settings.Versions.test_contents_are_frozen",)),
     ("報酬の決まりの変更の拒みを外す", "DROP TRIGGER reward_terms_frozen ON salescall.reward_terms",
      ("tests.test_usage.CostRatio.test_terms_are_frozen",)),
     ("システムが止めた停止を、見守りに見せない",
