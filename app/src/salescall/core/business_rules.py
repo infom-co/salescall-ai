@@ -1,9 +1,14 @@
-"""業務の決まり（業務設定の版ごと）：断りの答え・「わからない」「答えない」の理由×扱い・再発信の方針。持ち主 CL-2。
+"""業務の決まり（業務設定の版ごと）：断りの答え・「わからない」「答えない」の理由×扱い・再発信の方針・言ってはいけないこと。
+持ち主 CL-2。
 DESIGN.md 7-1・7-2・15-2-3。必須の質問そのものは、質問の表（questions.required）が正本（ここに写さない）。
 
 - 形と確かめは、この1か所（`check`）。置く（`save`。業務設定の取込 (10) から呼ぶ）ときも、読む（`load`。判定・次の動き）
   ときも同じ確かめを通す。決まりの抜け（宣言の無い組）は受け取らない（既定値で埋めない。原則10）。
 - 名前の一覧（理由・扱い・再発信の方針の鍵）は、ここが正本。足すときは、ここと試験を直す（処理に場合分けを書かない）。
+- **言ってはいけないこと**（forbidden。Intent.md 6-2 の禁止事項）：名前 → 言ってはいけないこと（say_not）と、正しい案内
+  （correct。誤って言ったときに、お詫びの電話で伝える正しい内容。無いもの＝失礼な言葉など は null）。会話の処理（CL-1）は
+  これを指示に入れ、通話後の検証は、言ってしまったときに、どの名前に当たったかと実際に言ったことを残す。
+  お詫びの電話の文面は、この2つからシステムが作る（人は確認と承認だけ。2026-10-16 ユーザー。DESIGN.md 10-1-2）。
 """
 
 from __future__ import annotations
@@ -49,12 +54,19 @@ class Policy:
 
 
 @dataclass(frozen=True)
+class Forbidden:
+    say_not: str                 # 言ってはいけないこと
+    correct: str | None          # 正しい案内（お詫びの電話で伝える。無ければ None）
+
+
+@dataclass(frozen=True)
 class Rules:
     version_id: UUID
     required: tuple[str, ...]                          # 必須の質問（並び順）。質問の表から
     decline: dict[str, frozenset[str]]                 # 質問 → 「用件を断られた」とする答え（選択肢）
     handling: dict[tuple[str, str, str], Handling]     # (質問, dont_know / refused, 理由) → 扱い
     retry: dict[str, Policy]                           # 再発信の方針の鍵 → 方針
+    forbidden: dict[str, "Forbidden"]                  # 言ってはいけないことの名前 → 中身
 
 
 def _int(v: Any, where: str) -> int:
@@ -67,10 +79,20 @@ def check(version_id: UUID, required: tuple[str, ...], questions: tuple[str, ...
     """業務の決まりを確かめて読む（ただ1つの確かめ）。"""
     if not required:
         raise RulesInvalid("必須の質問が1つもありません（どんな通話でも「すべて取れた」になる。Intent.md 6-4）")
-    if not isinstance(raw, dict) or set(raw) != {"decline", "handling", "retry"}:
-        raise RulesInvalid("決まりは decline・handling・retry の3つです")
-    if not all(isinstance(raw[k], dict) for k in ("decline", "handling", "retry")):
-        raise RulesInvalid("decline・handling・retry は、どれも表（名前 → 中身）です")
+    if not isinstance(raw, dict) or set(raw) != {"decline", "handling", "retry", "forbidden"}:
+        raise RulesInvalid("決まりは decline・handling・retry・forbidden の4つです")
+    if not all(isinstance(raw[k], dict) for k in ("decline", "handling", "retry", "forbidden")):
+        raise RulesInvalid("decline・handling・retry・forbidden は、どれも表（名前 → 中身）です")
+    forbidden: dict[str, Forbidden] = {}
+    for key, f in raw["forbidden"].items():
+        if not isinstance(f, dict) or set(f) != {"say_not", "correct"}:
+            raise RulesInvalid(f"言ってはいけないこと {key} は say_not（言ってはいけないこと）と correct（正しい案内）です")
+        say_not, correct = f["say_not"], f["correct"]
+        if not isinstance(say_not, str) or not say_not.strip():
+            raise RulesInvalid(f"言ってはいけないこと {key} の say_not が空です")
+        if correct is not None and (not isinstance(correct, str) or not correct.strip()):
+            raise RulesInvalid(f"言ってはいけないこと {key} の correct は、正しい案内の文か null です")
+        forbidden[key] = Forbidden(say_not.strip(), None if correct is None else correct.strip())
     decline: dict[str, frozenset[str]] = {}
     for q, answers in raw["decline"].items():
         if q not in questions:
@@ -114,7 +136,7 @@ def check(version_id: UUID, required: tuple[str, ...], questions: tuple[str, ...
                 raise RulesInvalid(f"再発信の方針 {key} の間隔は {{\"hours\": n}}（n 時間おき）か {{\"days\": n}}（n 日後）の1つです")
             unit = next(iter(iv))
             retry[key] = Policy("call", _int(p["max_times"], f"{key}.max_times"), (unit, _int(iv[unit], f"{key}.interval.{unit}")))
-    return Rules(version_id, required, decline, handling, retry)
+    return Rules(version_id, required, decline, handling, retry, forbidden)
 
 
 def _questions(tx: Tx, version_id: UUID) -> tuple[tuple[str, ...], tuple[str, ...]]:

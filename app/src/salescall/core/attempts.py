@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 from uuid import UUID
 
-from salescall.core import number_recheck
+from salescall.core import business_rules, number_recheck
 from salescall.core.access import Tx
 
 ACTIVE_STATES = ("claimed", "dialing", "ringing", "answered", "in_conversation", "ending")
@@ -72,11 +72,23 @@ class RecheckMissing(Exception):
 
 
 @dataclass(frozen=True)
+class ForbiddenFinding:
+    """言ってしまった、言ってはいけないこと（2つの耳で確かめたもの）。"""
+    item: str                 # 業務の決まりの、言ってはいけないことの名前（core/business_rules.py の forbidden）
+    said: str                 # AI が実際に言ったこと（AI の発話だけ。相手の発話は入れない）
+
+
+@dataclass(frozen=True)
 class VerificationSummary:
     """通話後の検証の結果の数（品質の段の指標になる。DESIGN.md 10-1）。"""
     items_checked: int        # 2つの耳で確かめた項目の数
     items_disagreed: int      # そのうち、2つの耳が食い違った項目の数
     forbidden_speech: int     # 言ってはいけないこと（2つの耳で確かめたもの）の数
+    findings: tuple[ForbiddenFinding, ...] = ()   # その中身（数と同じだけ。お詫びの電話の文面を作るのに使う）
+
+    def __post_init__(self) -> None:
+        if len(self.findings) != self.forbidden_speech:
+            raise ValueError("言ってはいけないことの数と、その中身（findings）の数が合いません")
 
 
 def record_verification(tx: Tx, attempt_id: UUID, result: Literal["done", "failed"], *,
@@ -95,6 +107,17 @@ def record_verification(tx: Tx, attempt_id: UUID, result: Literal["done", "faile
             " forbidden_speech) SELECT tenant_id, client_id, attempt_id, %s, %s, %s FROM salescall.attempts"
             " WHERE attempt_id = %s",
             (summary.items_checked, summary.items_disagreed, summary.forbidden_speech, attempt_id))
+        if summary.findings:
+            version = tx.one("SELECT version_id FROM salescall.attempts WHERE attempt_id = %s", (attempt_id,))["version_id"]
+            known = business_rules.load(tx, version).forbidden
+            for n, f in enumerate(summary.findings, 1):
+                if f.item not in known:
+                    raise ValueError(f"言ってはいけないことの名前 {f.item!r} は、この版の業務の決まりにありません")
+                if not f.said.strip():
+                    raise ValueError("言ってしまったこと（said）が空です")
+                tx.execute("INSERT INTO salescall.forbidden_findings (tenant_id, client_id, attempt_id, seq, item, said)"
+                           " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s)",
+                           (attempt_id, n, f.item, f.said.strip()))
     row = tx.one(
         "UPDATE salescall.attempts SET verification = %s WHERE attempt_id = %s RETURNING attempt_id",
         (result, attempt_id),

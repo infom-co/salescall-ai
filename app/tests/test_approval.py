@@ -7,7 +7,7 @@ import unittest
 from salescall.core import approval, gate, quality_stage
 from salescall.core.access import Rejected
 from salescall.core.attempts import VerificationSummary
-from tests.support import OPERATOR, SYSTEM
+from tests.support import OPERATOR, SYSTEM, said
 from tests.test_quality import Base
 
 TAKEN = [("Q1", "confirmed", None)]
@@ -48,7 +48,7 @@ class ForbiddenSpeech(Helpers):
     def test_the_row_ends_and_the_admin_is_told(self):
         s = self.fresh(stage_cap=1)
         self.tx(s, lambda tx: quality_stage.open_stage(tx, s["version"], 2, 100, evidence="試験"), OPERATOR)
-        got = self.verified_call(s, VerificationSummary(2, 0, 1), items=TAKEN)
+        got = self.verified_call(s, said(), items=TAKEN)
         self.assertEqual((got["decision"].kind, got["decision"].end_reason), ("end", "forbidden_speech"))   # 判定に関係なく終える
         notices = self.tx(s, lambda tx: tx.all("SELECT client_id FROM salescall.notification_events"
                                                " WHERE kind = 'forbidden_speech' AND refs ->> 'task_id' = %s",

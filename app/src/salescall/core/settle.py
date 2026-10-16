@@ -21,7 +21,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from salescall.core import (approval, attempts, business_rules, call_report, dnc, next_action, notify, number_recheck,
+from salescall.core import (apology, approval, attempts, business_rules, call_report, dnc, next_action, notify, number_recheck,
                             quality_stage, results, settings, target_policy, tasks, usage)
 from salescall.core.access import Tx
 from salescall.core.judge import JUDGE_VERSION, Facts, Item, JudgeInput, Judgement, judge
@@ -84,10 +84,9 @@ def _settle_apology(tx: Tx, a: dict[str, Any]) -> dict[str, Any]:
     attempt_id = a["attempt_id"]
     if tx.one("SELECT 1 FROM salescall.apology_outcomes WHERE attempt_id = %s", (attempt_id,)) is not None:
         return {"version_no": None, "state": None, "already": True}
-    order = tx.one("SELECT order_id FROM salescall.apology_orders WHERE task_id = %s ORDER BY order_id DESC LIMIT 1",
-                   (a["task_id"],))
+    order = apology.for_task(tx, a["task_id"])
     if order is None:
-        raise NotReady("お詫びの指示が無いのに、お詫びの電話をかけています")
+        raise NotReady("承認されたお詫びの案が無いのに、お詫びの電話をかけています")
     report = call_report.load(tx, attempt_id)
     delivered = bool(report is not None and report.apology_delivered)
     refused = bool(report is not None and report.do_not_call)
@@ -96,7 +95,7 @@ def _settle_apology(tx: Tx, a: dict[str, Any]) -> dict[str, Any]:
                (attempt_id, order["order_id"], delivered))
     if refused:
         dnc.register(tx, a["phone_e164"], "refused_in_call", source_attempt_id=attempt_id)
-    _notice_forbidden(tx, a)
+    _notice_forbidden(tx, a, prepare=False)
     decision = next_action.after_apology(tx, a["task_id"], delivered=delivered, refused=refused,
                                          dialed=next_action.Target(a["contact_id"], None, "apology", None))
     if decision.kind == "end":
@@ -110,14 +109,24 @@ def _settle_apology(tx: Tx, a: dict[str, Any]) -> dict[str, Any]:
     return {"version_no": None, "state": None, "decision": decision, "delivered": delivered, "already": False}
 
 
-def _notice_forbidden(tx: Tx, a: dict[str, Any]) -> bool:
-    """言ってはいけないことを言った通話なら、管理者（運営者）へ知らせる（その試行で1回）。言ったかを返す。"""
+def _notice_forbidden(tx: Tx, a: dict[str, Any], *, prepare: bool = True) -> bool:
+    """言ってはいけないことを言った通話なら、お詫びの電話の案を作り（prepare。お詫びの電話そのものでは作らない）、管理者
+    （運営者）へ知らせる（その試行で1回。人は案を確認して承認するだけ）。言ったかを返す。"""
     forbidden = attempts.forbidden_speech(tx, a["attempt_id"])
-    if forbidden:
-        notify.emit(tx, "forbidden_speech", key=f"forbidden_speech:{a['attempt_id']}",
-                    summary="言ってはいけないことを言った通話がありました。その行はひとまず終えました。",
-                    refs={"attempt_id": a["attempt_id"], "task_id": a["task_id"], "version_id": a["version_id"]})
-    return forbidden
+    if not forbidden:
+        return False
+    summary = "言ってはいけないことを言った通話がありました。その行はひとまず終えました。"
+    refs: dict[str, Any] = {"attempt_id": a["attempt_id"], "task_id": a["task_id"], "version_id": a["version_id"]}
+    if prepare:
+        draft = apology.prepare(tx, a["attempt_id"])
+        if draft["order_id"] is not None:
+            summary += f"お詫びの電話の案：「{draft['text']}」承認すると、AI がこの相手にかけて伝えます。"
+            refs["apology_order_id"] = draft["order_id"]
+        else:
+            summary += ("お詫びの電話の案は作れません（業務設定に、正しい案内が無い言ってはいけないこと："
+                        f"{', '.join(draft['missing'])}）。")
+    notify.emit(tx, "forbidden_speech", key=f"forbidden_speech:{a['attempt_id']}", summary=summary, refs=refs)
+    return True
 
 
 def _after(tx: Tx, a: dict[str, Any], out: dict[str, Any]) -> dict[str, Any]:

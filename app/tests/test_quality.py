@@ -11,7 +11,7 @@ from salescall.core.access import Rejected
 from salescall.core.attempts import VerificationSummary
 from salescall.core.phone import normalize
 from salescall.core.quality_stage import MockResult
-from tests.support import OPERATOR, SYSTEM, fictional_jp_fixed, rules_raw
+from tests.support import OPERATOR, SYSTEM, fictional_jp_fixed, rules_raw, said
 from tests.test_settle import TALK, SettleBase, rep
 
 GOOD = MockResult(calls=10, value_hits=40, value_total=40, judgment_hits=10, judgment_total=10, forbidden_speech=0,
@@ -87,7 +87,7 @@ class Mock(Base):
 class Stages(Base):
     def test_forbidden_speech_stops_at_once_and_only_a_new_version_resumes(self):
         s = self.fresh(stage_cap=20)
-        got = self.verified_call(s, VerificationSummary(3, 0, 1))      # 言ってはいけないことが1件
+        got = self.verified_call(s, said(3))      # 言ってはいけないことが1件
         self.assertEqual([r["cause"] for r in self.business_stops(s)], ["forbidden_speech"])
         self.tx(s, lambda tx: next_action.schedule_now(tx, s["task"], cause="試験：予定をいまに"))
         self.assertEqual(self.reason(s), "stopped")
@@ -104,7 +104,7 @@ class Stages(Base):
 
     def test_a_person_resume_measures_the_version_again(self):
         s = self.fresh(stage_cap=2)
-        self.verified_call(s, VerificationSummary(3, 0, 1), items=[("Q1", "confirmed", None)])
+        self.verified_call(s, said(3), items=[("Q1", "confirmed", None)])
         sid = self.business_stops(s)[0]["event_id"]
         why = self.tx(s, lambda tx: stops.explain(tx, sid))
         self.assertEqual(why["stop"]["cause"], "forbidden_speech")
@@ -114,7 +114,7 @@ class Stages(Base):
         self.assertEqual(self.tx(s, lambda tx: quality_stage.used(tx, s["version"])), 0)   # 測り直し
         self.verified_call(self.second_row(s), VerificationSummary(2, 0, 0), items=[("Q1", "confirmed", None)])
         self.assertEqual(self.business_stops(s), [])                   # 前の1件で、また止まらない
-        self.verified_call(self.second_row(s), VerificationSummary(2, 0, 1), items=[("Q1", "confirmed", None)])
+        self.verified_call(self.second_row(s), said(), items=[("Q1", "confirmed", None)])
         self.assertEqual([r["cause"] for r in self.business_stops(s)], ["forbidden_speech"])   # 解いたあとの分は数える
 
     def test_same_unknown_cause_twice_stops_and_a_mock_with_the_scenes_resumes(self):

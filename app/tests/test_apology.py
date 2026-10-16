@@ -7,23 +7,29 @@ from dataclasses import replace
 
 from salescall.core import apology, attempts, gate, quality_stage, reward, stops
 from salescall.core.access import Rejected
-from salescall.core.attempts import VerificationSummary
-from tests.support import OPERATOR, SYSTEM, owner_access
+from salescall.core.attempts import ForbiddenFinding, VerificationSummary
+from tests.support import OPERATOR, SYSTEM, owner_access, said
 from tests.test_approval import TAKEN, Helpers
 from tests.test_settle import rep
 
-SAID = VerificationSummary(2, 0, 1)        # 言ってはいけないことを1件言った
+TEXT = ("先ほどのお電話で、誤って「初月は無料です」というご案内をしてしまいましたが、正しくは「初月は半額です」となります。"
+        "不正確なご案内をしてしまいまして、誠に申し訳ございませんでした。")
 
 
 class Apology(Helpers):
     def incident(self, s):
         """言ってはいけないことを言った通話（その行は終わり、業務は止まる）。その試行を返す。"""
-        self.verified_call(s, SAID, items=TAKEN)
+        self.verified_call(s, said(), items=TAKEN)
         return self.tx(s, lambda tx: tx.one("SELECT attempt_id FROM salescall.attempts WHERE task_id = %s"
                                             " ORDER BY claimed_at DESC LIMIT 1", (s["task"],)))["attempt_id"]
 
+    def draft(self, s, aid):
+        return self.tx(s, lambda tx: tx.one("SELECT order_id FROM salescall.apology_orders WHERE source_attempt_id = %s",
+                                            (aid,)))
+
     def order(self, s, aid, actor=OPERATOR):
-        return self.tx(s, lambda tx: apology.order(tx, aid, wrong_text="初月無料", correct_text="初月は半額"), actor)
+        """システムが作った案を、人が承認する。"""
+        return self.tx(s, lambda tx: apology.approve(tx, self.draft(s, aid)["order_id"]), actor)
 
     def apology_call(self, s, **report):
         aid = self.call(s, report=replace(rep(), **report))
@@ -33,22 +39,37 @@ class Apology(Helpers):
         return self.tx(s, lambda tx: tx.one("SELECT count(*) AS n FROM salescall.task_results WHERE task_id = %s",
                                             (s["task"],)))["n"]
 
-    def test_only_a_person_orders_and_only_after_forbidden_speech(self):
+    def test_the_system_prepares_and_only_a_person_approves(self):
         s = self.fresh(stage_cap=20)
         aid = self.incident(s)
-        with self.assertRaises(Rejected):
-            self.order(s, aid, actor=SYSTEM)                          # システムは決めない（管理者が決める）
-        clean = self.fresh(stage_cap=20)                               # 言ってはいけないことを言っていない通話（別の業務）
-        self.verified_call(clean, VerificationSummary(1, 0, 0), items=TAKEN)
-        clean_aid = self.tx(clean, lambda tx: tx.one("SELECT attempt_id FROM salescall.attempts WHERE task_id = %s",
-                                                     (clean["task"],)))["attempt_id"]
+        notice = self.tx(s, lambda tx: tx.one("SELECT summary, refs FROM salescall.notification_events"
+                                              " WHERE event_key = %s", (f"forbidden_speech:{aid}",)))
+        self.assertIn(TEXT, notice["summary"])                         # 案は、システムが作って知らせる
+        self.assertEqual(int(notice["refs"]["apology_order_id"]), self.draft(s, aid)["order_id"])
+        self.assertEqual(self.tx(s, lambda tx: apology.for_task(tx, s["task"])), None)   # 承認するまで、かけない
+        self.assertEqual(self.reason(s), "task_ended")
         with self.assertRaises(Rejected) as e:
-            self.order(clean, clean_aid)
-        self.assertEqual(e.exception.constraint, "apology_order_after_forbidden")
+            self.order(s, aid, actor=SYSTEM)                          # システムは承認しない（人が確認して承認する）
+        self.assertEqual(e.exception.constraint, "apology_approval_by_person")
         self.order(s, aid)
-        got = self.tx(s, lambda tx: apology.for_task(tx, s["task"]))
-        self.assertEqual(got["text"], "先ほどのお電話で、誤って「初月無料」というご案内をしてしまいましたが、正しくは「初月は半額」"
-                                      "となります。不正確なご案内をしてしまいまして、誠に申し訳ございませんでした。")
+        self.assertEqual(self.tx(s, lambda tx: apology.for_task(tx, s["task"]))["text"], TEXT)
+
+    def test_no_draft_without_a_correct_statement(self):
+        s = self.fresh(stage_cap=20)
+        self.verified_call(s, VerificationSummary(2, 0, 1, (ForbiddenFinding("F2", "失礼な言葉"),)), items=TAKEN)
+        aid = self.tx(s, lambda tx: tx.one("SELECT attempt_id FROM salescall.attempts WHERE task_id = %s", (s["task"],)))
+        self.assertIsNone(self.draft(s, aid["attempt_id"]))
+        notice = self.tx(s, lambda tx: tx.one("SELECT summary FROM salescall.notification_events WHERE event_key = %s",
+                                              (f"forbidden_speech:{aid['attempt_id']}",)))
+        self.assertIn("お詫びの電話の案は作れません", notice["summary"])
+        with self.assertRaises(ValueError):                            # 業務設定に無い名前は、検証が残せない
+            VerificationSummary(1, 0, 1, ())
+
+    def test_two_mistakes_in_one_apology(self):
+        got = apology.text([{"wrong": "A", "correct": "a"}, {"wrong": "B", "correct": "b"}])
+        self.assertEqual(got, "先ほどのお電話で、誤って「A」というご案内をしてしまいましたが、正しくは「a」となります。"
+                              "また、誤って「B」というご案内をしてしまいましたが、正しくは「b」となります。"
+                              "不正確なご案内をしてしまいまして、誠に申し訳ございませんでした。")
 
     def test_delivered_ends_the_row_without_changing_the_result(self):
         s = self.fresh(stage_cap=20)
@@ -97,12 +118,13 @@ class Apology(Helpers):
 
     def test_frozen(self):
         s = self.fresh(stage_cap=20)
-        self.order(s, self.incident(s))
+        self.incident(s)                                               # 案だけ（承認していない）
         own = owner_access()
-        for sql in ("UPDATE salescall.apology_orders SET correct_text = 'x'", "DELETE FROM salescall.apology_orders"):
-            with self.subTest(sql=sql), self.assertRaises(Rejected):
+        for sql in ("""UPDATE salescall.apology_orders SET pairs = '[{"wrong": "x", "correct": "y"}]'""",
+                    "DELETE FROM salescall.apology_orders"):
+            with self.subTest(sql=sql), self.assertRaises(Rejected) as e:
                 own.in_client(OPERATOR, s["tenant"], s["client"], lambda tx: tx.execute(sql))
-
+            self.assertNotEqual(e.exception.sqlstate, "23503")         # 参照のつながりではなく、変更不可の仕掛けで断る
 
 if __name__ == "__main__":
     unittest.main()

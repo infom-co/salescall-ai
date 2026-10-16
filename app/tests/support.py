@@ -13,7 +13,7 @@ from datetime import timedelta
 from uuid import UUID
 
 from salescall.core.access import Access, Actor
-from salescall.core.attempts import VerificationSummary
+from salescall.core.attempts import ForbiddenFinding, VerificationSummary
 
 OPERATOR = Actor("試験の運営者", "operator")
 CLEAN = VerificationSummary(items_checked=1, items_disagreed=0, forbidden_speech=0)   # 検証で何も見つからなかった
@@ -36,6 +36,11 @@ def fictional_jp_fixed() -> str:
     return f"03-0000-{next(_jp_numbers) % 10000:04d}"
 
 
+def said(checked: int = 2, disagreed: int = 0) -> "VerificationSummary":
+    """言ってはいけないこと（業務の決まりの F1）を1件言った、通話後の検証の結果。"""
+    return VerificationSummary(checked, disagreed, 1, (ForbiddenFinding("F1", "初月は無料です"),))
+
+
 def rules_raw(required=("Q1",), *, decline=None, retry=None, handling=None) -> dict:
     """試験の業務の決まり（すべての組に宣言がある形）。既定：わからない＝日を改める、答えない＝結論「回答不可」、
     再発信は どれも「かけ直す（3回まで・1時間おき）」。"""
@@ -43,6 +48,8 @@ def rules_raw(required=("Q1",), *, decline=None, retry=None, handling=None) -> d
         return {"dont_know": {r: {"kind": "retry"} for r in ("not_in_charge", "undecided", "unknown_now", "unspecified")},
                 "refused": {r: {"kind": "conclude", "conclusion": "回答不可"} for r in ("policy", "unwilling")}}
     return {"decline": decline or {},
+            "forbidden": {"F1": {"say_not": "初月は無料です", "correct": "初月は半額です"},
+                          "F2": {"say_not": "失礼な言葉", "correct": None}},
             "handling": handling or {q: per_q() for q in required},
             "retry": retry or {k: {"action": "call", "max_times": 3, "interval": {"hours": 1}}
                                for k in ("open", "incomplete", "not_reached_absent", "not_reached_not_transferred",
