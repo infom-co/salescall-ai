@@ -1227,7 +1227,7 @@ class SpokenNameTest(unittest.TestCase):
         from instruction import Business
         q = [Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"))]
         b = Business(company="大和ハウス工業", caller="中島", purpose="", questions=q, company_reading="だいわはうすこうぎょう")
-        self.assertEqual(b.opening(), "お忙しいところ失礼いたします。株式会社「だいわはうすこうぎょう」の「中島」と申します。")
+        self.assertEqual(b.opening(), "お忙しいところ恐れ入ります。株式会社「だいわはうすこうぎょう」の「中島」と申します。")
 
 
 class ReadingConfirmTest(unittest.TestCase):
@@ -1330,12 +1330,12 @@ class ReadingConfirmTest(unittest.TestCase):
 
     def test_kinds_and_target_call(self):
         """✅ 2026-10-16 ユーザー：法人「（部署、役職）の（相手の名前）様はいらっしゃいますでしょうか？」「お名前の読みの方は…様で
-        よろしかったでしょうか？」／個人「（相手の名前）様のお電話でお間違いないでしょうか？」「お名前の方は…様でよろしかったでしょうか？」"""
+        よろしかったでしょうか？」／個人「（相手の名前）様のお電話でお間違えないでしょうか？」「お名前の方は…様でよろしかったでしょうか？」"""
         from flowctl import Flow, reading_question
         from phrases import target_call
         self.assertEqual(target_call("法人", "「なかじま」", "営業部部長"), "営業部部長の「なかじま」様はいらっしゃいますでしょうか？")
         self.assertEqual(target_call("法人", "「なかじま」"), "「なかじま」様はいらっしゃいますでしょうか？")
-        self.assertEqual(target_call("個人", "「なかじま」", "営業部部長"), "「なかじま」様のお電話でお間違いないでしょうか？")
+        self.assertEqual(target_call("個人", "「なかじま」", "営業部部長"), "「なかじま」様のお電話でお間違えないでしょうか？")
         f = Flow([reading_question("N1", "中島", "なかじま", ["なかじま", "なかしま"], kind="個人")])
         self.assertEqual(f.questions["N1"].text, "お名前の方は「なかじま」様でよろしかったでしょうか？")
         r = self.do(f, "confirm_field", question_id="N1", result="corrected", correction="なかしま")
