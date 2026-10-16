@@ -57,6 +57,11 @@ class PhoneNumber:
     reason: str | None = None  # 不明・かけない種類のときの理由（日本語）
     zero_added: bool = False   # 先頭の 0 が消えたとして 0 を足した（leading_zero_lost のときだけ。取込のプレビューで見せる）
 
+    def __post_init__(self) -> None:
+        # システムが決してかけない種類には、必ず理由の文を付ける（取込のプレビュー・門の理由で、そのまま見せる。CL-3 の 4-1f の2）
+        if self.kind in SYSTEM_FORBIDDEN_KINDS and not (self.reason and self.reason.strip()):
+            raise ValueError(f"かけない種類（{self.kind}）の番号に、理由の文がありません")
+
     @property
     def system_forbidden(self) -> bool:
         return self.kind in SYSTEM_FORBIDDEN_KINDS

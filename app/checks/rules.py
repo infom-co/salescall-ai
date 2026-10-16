@@ -97,6 +97,25 @@ def db_driver_only_in_layer(app_root: Path) -> list[Violation]:
     return out
 
 
+# ── 画面の部品（CL-3 の 4-1d の1）を使ってよいのは、画面の場所（web/）だけ。試験の部品 httpx は試験だけ。
+#    業務の土台（core）・会話・出力は、画面の部品に頼らない（画面を差し替えても、判断は変わらない）
+WEB_PARTS = ("fastapi", "starlette", "jinja2", "uvicorn", "multipart", "python_multipart")
+WEB_PLACE = "src/salescall/web/"
+
+
+def web_parts_only_in_web(app_root: Path) -> list[Violation]:
+    out: list[Violation] = []
+    for path in _python_files(app_root):
+        rel = _rel(app_root, path)
+        for module, line in _imported_modules(_parse(path)):
+            top = module.split(".")[0]
+            if top in WEB_PARTS and not (rel.startswith(WEB_PLACE) or rel.startswith("tests/")):
+                out.append(Violation("持ち場", rel, line, f"画面の部品 {module} は、画面の場所（{WEB_PLACE}）だけが使えます"))
+            if top == "httpx" and not rel.startswith("tests/"):
+                out.append(Violation("持ち場", rel, line, "httpx は、試験だけが使えます"))
+    return out
+
+
 # ── 11章：「いま誰が・どの契約者・どの依頼主か」をデータベースへ渡すのは、読み書きの層の1か所だけ
 SCOPE_SETTING_ALLOWED = {"src/salescall/core/access.py"}
 # 設定の名前は、引用符でくくった形（'salescall.tenant_id' など）か、set_config で渡す。
@@ -300,6 +319,7 @@ ALL_RULES: tuple[Callable[[Path], list[Violation]], ...] = (
     key_values_only_in_key_selection,
     dial_only_through_exit,
     settings_read_in_one_place,
+    web_parts_only_in_web,
 )
 
 

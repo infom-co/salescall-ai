@@ -8,6 +8,16 @@ dependencies = [
     "psycopg[binary]==3.2.10",   # PostgreSQL へつなぐ部品（使ってよいのは読み書きの層だけ。DESIGN.md 11章・I-31）
     "openpyxl==3.1.5",           # xlsx（Excel）の読み込み（発信対象の取込。core/import_files.py だけが使う）
     "defusedxml==0.7.1",         # openpyxl が xlsx の中の XML を安全に読むために使う（悪意のある XML で止まらない）
+    # 画面（持ち主 CL-3。CL-3 の連絡帳 4-1d の1。使ってよいのは src/salescall/web/ だけ＝機械が見張る）。版は出てから2週間より前のもの
+    "fastapi==0.142.2",          # 画面の裏側（2026-09-30）
+    "jinja2==3.1.6",             # 画面のひな形
+    "uvicorn==0.54.0",           # 画面を動かすサーバー（2026-09-25）
+    "python-multipart==0.0.32",  # 画面からの送信（ファイル・入力）を読む
+]
+
+[project.optional-dependencies]
+test = [
+    "httpx==0.28.1",             # 画面を通した試験（試験だけで使う）
 ]
 
 [build-system]

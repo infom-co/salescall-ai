@@ -45,6 +45,15 @@ class Planted(unittest.TestCase):
         found = rules.db_driver_only_in_layer(root)
         self.assertEqual([(v.rule, v.path) for v in found], [("I-31", "src/salescall/web/x.py")])
 
+    def test_web_parts_only_in_web(self):
+        root = self._app({"src/salescall/core/x.py": "import fastapi\nfrom jinja2 import Template\n",
+                          "src/salescall/output/y.py": "import httpx\n",
+                          "src/salescall/web/app.py": "import fastapi\nimport uvicorn\n",
+                          "tests/test_web.py": "import httpx\n"})
+        found = rules.web_parts_only_in_web(root)
+        self.assertEqual(sorted((v.path, v.line) for v in found),
+                         [("src/salescall/core/x.py", 1), ("src/salescall/core/x.py", 2), ("src/salescall/output/y.py", 1)])
+
     def test_scope_settings_outside_layer(self):
         root = self._app({"src/salescall/output/x.py": f"SQL = \"SELECT {SET_CONFIG}('{SCOPE_KEY}', '1', true)\"\n"})
         self.assertEqual([v.rule for v in rules.scope_settings_only_in_layer(root)], ["11章"])

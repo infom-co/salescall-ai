@@ -10,7 +10,7 @@ import itertools
 import random
 import unittest
 
-from salescall.core.phone import normalize
+from salescall.core.phone import PhoneNumber, normalize
 
 FIXED = ("fixed", "+81300000001", "0300000001")
 MOBILE = ("mobile", "+819000000001", "09000000001")
@@ -153,6 +153,21 @@ class KindsAndSpecials(unittest.TestCase):
                 n = normalize(raw)
                 self.assertEqual(n.kind, "unknown")
                 self.assertIn("184", n.reason)
+
+
+class ForbiddenAlwaysHasAReason(unittest.TestCase):
+    """システムが決してかけない種類には、必ず理由の文がある（取込のプレビュー・門の理由でそのまま見せる。CL-3 の 4-1f の2）。"""
+    def test_every_forbidden_result_has_a_reason(self):
+        for raw in ("#9110", "110", "119", "+1 212 555 0100", "010-1-212-555-0100", "0990-123-456", "020-1234-5678",
+                    "abc", "", "03-1234", "0120-12-345"):
+            with self.subTest(raw=raw):
+                n = normalize(raw)
+                if n.system_forbidden:
+                    self.assertTrue(n.reason and n.reason.strip(), n)
+
+    def test_a_forbidden_kind_without_a_reason_cannot_be_made(self):
+        with self.assertRaises(ValueError):
+            PhoneNumber("special", None, None, None)
 
 
 class UnknownIsNotGuessed(unittest.TestCase):
