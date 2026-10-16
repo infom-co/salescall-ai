@@ -124,7 +124,9 @@ assert set(LEAD_RECORDED) == set(LEAD_IN["次の質問"])
 # 依頼主の単位で録音するのは、トークスクリプト（名乗り・質問の文）だけ
 # ⚠️ 2026-10-15：つなぎの言葉だけの録音は使わなくなった（質問と1本で録音する＝flowctl.spoken_question）。LEAD_RECORDED は、録音の
 #    ファイル名（質問の録音の名前の後ろ）と、G-37 の1回目・2回目の記録を聞き直すときだけに使う
-RECORDED = {**ACK, "closing": CLOSING, "wait": WAIT}
+# 待ってもらう一言は2本（言葉は同じ。録音の読み方が違う）：軽いとき（wait）・深刻なとき（wait_heavy）
+# ✅ 2026-10-16 ユーザー：「02は軽い時、04は深刻な時で使い分けでOK」（お詫びの軽い・重いと同じ分け方）
+RECORDED = {**ACK, "closing": CLOSING, "wait": WAIT, "wait_heavy": WAIT}
 
 
 def lead_in(kind: str, n: int) -> str:
