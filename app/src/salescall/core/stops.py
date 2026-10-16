@@ -116,8 +116,8 @@ def explain(tx: Tx, stop_event_id: int, *, error_limit: int = 20) -> dict[str, A
     """何で止まったか（画面と契約者の判断のため。1か所）。取引で見える停止だけ。中身：
     stop（範囲・原因・理由・根拠・誰が・いつ）・cause（意味・自動で解く決まり・管理者か契約者が解く前に確かめること）・who_can_resume・
     resolved（解かれていれば、誰が・いつ・なぜ）・errors（その停止に数えたエラーと、一覧で引いた意味と出どころ）・
-    checks（解く確かめの記録）・quality（品質の評価の指標）・held_results（品質で止めた版の、まだ送っていない結果。
-    契約者が確かめて送るなら approval.approve_result・直すなら approval.correct_result）。"""
+    checks（解く確かめの記録）・quality（品質の評価の指標）・held_results（品質で止めた版の、まだ確定していない結果＝検証モードで
+    契約者の確かめを待つもの。確定するなら approval.approve_result・直すなら approval.correct_result。依頼者へ渡すことではない）。"""
     s = tx.one(
         "SELECT event_id, scope::text AS scope, tenant_id, client_id, business_id, line_id, cause::text AS cause, reason,"
         " evidence, actor, actor_kind::text AS actor_kind, at FROM salescall.stop_events WHERE event_id = %s AND action = 'stop'",

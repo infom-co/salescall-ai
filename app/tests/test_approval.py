@@ -22,20 +22,18 @@ class Helpers(Base):
 
 
 class Released(Helpers):
-    def test_first_stage_results_wait_until_the_stage_passes(self):
-        s = self.fresh(stage_cap=2)
+    def test_first_stage_results_are_confirmed_without_waiting_for_the_stage(self):
+        """本格稼働（フルオート）では、最初の段でも、判定した結果をそのまま確定する（2026-10-16 ユーザー：検証時は契約者が
+        確かめ、本格稼働してから依頼者ごとの形で渡す。前は段が埋まるまで待たせ、行が少ないと、いつまでも確定しなかった）。"""
+        s = self.fresh(stage_cap=20)
         self.verified_call(s, VerificationSummary(2, 0, 0), items=TAKEN)
-        self.assertEqual(self.releases(s), [])                       # 最初の段：まだ送らない
-        s2 = self.second_row(s)
-        self.verified_call(s2, VerificationSummary(2, 0, 0), items=TAKEN)
-        self.assertEqual(self.tx(s, lambda tx: quality_stage.current(tx, s["version"]))["stage_no"], 2)
-        self.assertEqual(len(self.releases(s)), 1)                   # 段が進んだので、待っていた結果にもまとめて付く
-        self.assertEqual(len(self.releases(s2)), 1)
+        self.assertEqual(self.tx(s, lambda tx: quality_stage.current(tx, s["version"]))["stage_no"], 1)
+        self.assertEqual(len(self.releases(s)), 1)
 
-    def test_results_of_a_stopped_version_are_not_released(self):
+    def test_a_quality_stop_stops_new_calls_but_results_stay_as_they_are(self):
         s = self.fresh(stage_cap=1)
-        self.verified_call(s, VerificationSummary(2, 2, 0), items=TAKEN)   # 食い違い 100% ⇒ 止まる
-        self.assertEqual(self.releases(s), [])
+        self.verified_call(s, VerificationSummary(2, 2, 0), items=TAKEN)   # 食い違い 100% ⇒ 止まる（新しい発信を）
+        self.assertEqual(len(self.releases(s)), 1)                         # 取れた結果は、ふつうどおり確定する
 
     def test_later_stages_release_at_once(self):
         s = self.fresh(stage_cap=1)
