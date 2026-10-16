@@ -1181,6 +1181,286 @@ class UnitTest(unittest.TestCase):
         self.assertEqual(normalize_value("number", "3"), "3")           # 単位の無い質問は、いまと同じ
 
 
+class TopicTest(unittest.TestCase):
+    """質問の「聞くこと」（topics.py・G-43。✅ 2026-10-16 ユーザー「人を介さない形で」）。決まりは質問の文の言葉だけを使い、
+    言葉を作り出さない。聞く質問でない形（「資料をお送りしても」「ご確認いただけますか」「聞いたことは」）には付けない。"""
+
+    def test_rule(self):
+        from topics import by_rule
+        cases = {"ご希望の日時をお聞かせいただけますでしょうか？": "ご希望の日時",
+                 "差し支えなければご年齢をお伺いしてもよろしいでしょうか？": "ご年齢",          # 「ば」のあとから
+                 "恐れ入りますがご住所をお伺いしてもよろしいでしょうか？": "ご住所",            # 「が」のあとから
+                 "ご連絡のつきやすい時間帯をお知らせいただけますでしょうか？": "ご連絡のつきやすい時間帯",  # 名詞にかかる動詞は中に入る
+                 "お名前をフルネームでお伺いしてもよろしいでしょうか？": "お名前",
+                 "担当の方のお名前と部署をお伺いしてもよろしいでしょうか？": "担当の方のお名前と部署",
+                 "お名前を頂戴してもよろしいでしょうか？": "お名前", "ご住所を確認させていただけますでしょうか？": "ご住所",
+                 "お名前をお聞きしてもよろしいでしょうか？": "お名前",
+                 "資料をお送りしてもよろしいでしょうか？": "", "ご契約の内容をご確認いただけますでしょうか？": "",
+                 "このサービスを聞いたことはございますでしょうか？": "", "何名様でお越しになりますでしょうか？": "",
+                 "お使いになっている回線を教えていただけますでしょうか？": ""}                 # 形が崩れる（「いる回線」）＝空
+        for q, want in cases.items():
+            self.assertEqual(by_rule(q), want, q)
+
+    def test_check_and_decide(self):
+        from topics import check, decide
+        self.assertTrue(check("ご来店の人数"))
+        for bad in ("", "人数をお伺い", "ご来店の人数ですか？", "いる回線", "とても長い長い長い長い長い長い長い長い言い方の名前"):
+            self.assertFalse(check(bad), bad)
+        self.assertEqual(decide("ご希望の日時をお聞かせいただけますでしょうか？", ["日時", "日時"]), "ご希望の日時")  # 決まりが先
+        self.assertEqual(decide("何名様でお越しになりますでしょうか？", ["ご来店の人数", "ご来店の人数"]), "ご来店の人数")
+        self.assertEqual(decide("何名様でお越しになりますでしょうか？", ["ご来店の人数", "お越しになる人数"]), "")  # 食い違い＝空
+        self.assertEqual(decide("何名様でお越しになりますでしょうか？", ["ご来店の人数"]), "")                       # 1つでは決めない
+
+
+class SpokenNameTest(unittest.TestCase):
+    """決まった読みは、声に出す文の名前をひらがなにして渡す（instruction.quote_in_text・Business。G-44）。決まらない名前は表記のまま。"""
+
+    def test_quote_with_readings(self):
+        from instruction import quote_in_text
+        names = [{"surface": "日本橋", "reading": "にっぽんばし"}, {"surface": "中島", "reading": ""}, "上野原"]
+        self.assertEqual(quote_in_text("大阪の日本橋店と、上野原の土地と、中島の件です。", names),
+                         "大阪の「にっぽんばし」店と、「上野原」の土地と、「中島」の件です。")
+        self.assertEqual(quote_in_text("上野の件です。", ["上野"]), "「上野」の件です。")  # 文字だけの名前は、いままでどおり
+
+    def test_business_question_texts_use_readings(self):
+        """⛔ 見直しで見つけた漏れ：読みの置き換えが名乗りにしか効かず、質問の文の名前は漢字のまま、読みがなは2回読まれた。"""
+        from flowctl import Question
+        from instruction import Business
+        names = [{"surface": "大和ハウス工業", "reading": "だいわはうすこうぎょう"}, {"surface": "東海林", "reading": "しょうじ"},
+                 {"surface": "中島", "reading": ""}]
+        q = [Question("Q1", "「大和ハウス工業」様と同じ形で、東海林（しょうじ）が中島の件で伺ってもよろしいでしょうか？", "yes_no",
+                      conditions=("はい", "いいえ"))]
+        b = Business(company="アオバ物流", caller="佐藤", purpose="", questions=q, names=names, purpose_line="東海林（しょうじ）の件です。")
+        self.assertEqual(b.questions[0].text, "「だいわはうすこうぎょう」様と同じ形で、「しょうじ」が「中島」の件で伺ってもよろしいでしょうか？")
+        self.assertEqual(b.purpose_line, "「しょうじ」の件です。")
+        b = Business(company="アオバ物流", caller="佐藤", purpose="東海林（しょうじ）が担当する体験授業の案内", questions=q, names=names)
+        self.assertEqual(b.purpose, "「しょうじ」が担当する体験授業の案内")   # AIに渡す目的の中の名前も、同じ1か所を通す
+        self.assertEqual(b.opening_parts()[-1], b.questions[0].text)  # 名乗りに続く最初の質問も、同じ文
+
+    def test_lead_word_does_not_shift_with_reading_question(self):
+        """⛔ 見直しで見つけた漏れ：読みの確かめを挟むと、次の質問のつなぎの言葉（録音の名前）が「それでは」から「続きまして」にずれた。"""
+        from flowctl import Question, reading_question, spoken_question
+        qs = [Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ")), reading_question("N1", "中島", "なかじま"),
+              Question("Q2", "ご希望の日時をお聞かせいただけますでしょうか？", "datetime", conditions=("答えた",))]
+        self.assertEqual(spoken_question(qs, "Q2")[1], "それでは")
+        self.assertEqual(spoken_question(qs, "N1"), (qs[1].text, ""))
+
+    def test_opening_reads_from_names(self):
+        """⛔ 見直し（2回目）：名乗りの社名の読みも、名前の一覧から取る。設定の読みがあれば、そちらが先。
+        ✅ 担当者名は一覧から取らない（2026-10-16 ユーザー決定＝案C：担当者名の読みは設定に必ず入れる）。"""
+        from flowctl import Question
+        from instruction import Business
+        q = [Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"))]
+        names = [{"surface": "アオバ物流", "reading": "あおばぶつりゅう"}, {"surface": "東海林", "reading": "しょうじ"}]
+        b = Business(company="アオバ物流", caller="東海林", purpose="", questions=q, names=names, caller_reading="とうかいりん")
+        self.assertEqual(b.opening(), "お忙しいところ恐れ入ります。株式会社「あおばぶつりゅう」の「とうかいりん」と申します。")
+        b = Business(company="アオバ物流", caller="東海林", purpose="", questions=q, names=names, company_reading="あおば")
+        self.assertEqual(b.opening(), "お忙しいところ恐れ入ります。株式会社「あおば」の「東海林」と申します。")
+
+    def test_caller_cannot_be_unread(self):
+        """✅ 2026-10-16 ユーザー決定（案C）：担当者名は名乗りで必ず言うので、「声に出さずに言い換える名前」には入れられない。"""
+        from flowctl import Question
+        from instruction import Business
+        q = [Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"))]
+        with self.assertRaises(AssertionError):
+            Business(company="アオバ物流", caller="中島", purpose="", questions=q, unread_names=["中島"])
+        Business(company="アオバ物流", caller="佐藤", purpose="", questions=q, unread_names=["中島"])  # ほかの名前ならよい
+
+    def test_business_uses_readings(self):
+        from flowctl import Question
+        from instruction import Business
+        q = [Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"))]
+        b = Business(company="大和ハウス工業", caller="中島", purpose="", questions=q, company_reading="だいわはうすこうぎょう")
+        self.assertEqual(b.opening(), "お忙しいところ恐れ入ります。株式会社「だいわはうすこうぎょう」の「中島」と申します。")
+
+
+class ReadingConfirmTest(unittest.TestCase):
+    """読みが決まらない名前を、会話の中で確かめる（flowctl.reading_question）。✅ 2026-10-16 ユーザー：「お名前はやまざき様でよろしかった
+    でしょうか」「お名前を確認させていただきたいのですが、ヤマザキ様とお呼びしたらよろしいでしょうか？」。ほかの値と同じ言い直しの流れ。"""
+
+    def flow(self):
+        from flowctl import Flow, Question, reading_question
+        return Flow([Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ")),
+                     reading_question("N1", "山崎", "やまざき"),
+                     Question("Q2", "ご希望の日時をお聞かせいただけますでしょうか？", "datetime", conditions=("答えた",))])
+
+    @staticmethod
+    def do(f, name, **args):
+        f.on_callee()
+        return f.apply(name, args)
+
+    def test_affirmed(self):
+        f = self.flow()
+        r = self.do(f, "record_answer", question_id="Q1", condition_id="はい")
+        self.assertEqual(r["result"], "confirm_required")  # 次の質問の代わりに、読みの確かめ（相手に聞かずに言い直しの形で始まる）
+        self.assertEqual(r["say"], "お名前の読みの方は「やまざき」様でよろしかったでしょうか？")
+        r = self.do(f, "confirm_field", question_id="N1", result="affirmed")
+        self.assertEqual((r["result"], r["question_id"]), ("next", "Q2"))
+        self.assertIn("「山崎」様は「やまざき」様とお呼びします", r["message"])
+        self.assertEqual(f.readings(), {"山崎": "やまざき"})
+
+    def test_corrected_then_affirmed(self):
+        f = self.flow()
+        self.do(f, "record_answer", question_id="Q1", condition_id="はい")
+        r = self.do(f, "confirm_field", question_id="N1", result="corrected", correction="ヤマサキです")
+        self.assertEqual((r["result"], r["ack"]), ("confirm_required", "shitsurei"))  # こちらの読み違え＝お詫び「失礼いたしました。」
+        self.assertEqual(r["say"], "改めましてお名前の読みの方は「やまさき」様でよろしかったでしょうか？")
+        r = self.do(f, "confirm_field", question_id="N1", result="affirmed")
+        self.assertEqual(f.readings(), {"山崎": "やまさき"})
+        self.assertEqual(r["question_id"], "Q2")
+
+    def test_kanji_correction_is_rejected(self):
+        f = self.flow()
+        self.do(f, "record_answer", question_id="Q1", condition_id="はい")
+        r = self.do(f, "confirm_field", question_id="N1", result="corrected", correction="山崎")
+        self.assertEqual(r["result"], "rejected")
+        self.assertIn("ひらがなだけ", r["message"])
+        self.assertEqual(f.items["N1"].value, "やまざき")  # 記録は書き換えない
+
+    def test_unconfirmed_means_no_name(self):
+        f = self.flow()
+        self.do(f, "record_answer", question_id="Q1", condition_id="はい")
+        r = self.do(f, "confirm_field", question_id="N1", result="no_answer")
+        self.assertIn("お名前を使わずに", r["message"])
+        self.assertEqual(f.readings(), {})
+
+    def test_first_question(self):
+        from flowctl import Flow, reading_question
+        f = Flow([reading_question("N1", "中島", "なかじま")])   # 最初の質問なら、始めから返事待ち（名乗りのあとに言われる）
+        self.assertEqual(f.awaiting_confirm, "N1")
+        r = self.do(f, "confirm_field", question_id="N1", result="corrected", correction="なかしま")
+        self.assertEqual(r["say"], "改めましてお名前の読みの方は「なかしま」様でよろしかったでしょうか？")
+
+    def test_next_reading(self):
+        """次に確かめる読みを決める1か所（flowctl.next_reading）。⛔ G-46：「いや、カドタです。」を、AIは「かどだ」と報告した。"""
+        from flowctl import next_reading
+        c3 = ["つのだ", "かくた", "かどた"]
+        self.assertEqual(next_reading("かどだ", c3, ["つのだ"]), "かどた")     # 濁りだけ違う ⇒ 候補の読み
+        self.assertEqual(next_reading("かくた", c3, ["つのだ"]), "かくた")     # 候補そのもの
+        self.assertEqual(next_reading("かぐた", c3, ["つのだ"]), "かくた")
+        self.assertEqual(next_reading("つのだ", c3, ["つのだ"]), "かくた")     # 言った読みと同じ ⇒ まだ言っていない候補の最初
+        self.assertEqual(next_reading(None, c3, ["つのだ"]), "かくた")
+        self.assertEqual(next_reading("つのた", c3, ["つのだ"]), "かくた")     # 言った読みを濁りだけ違えて聞いた形 ⇒ 使わない
+        self.assertEqual(next_reading("すみた", c3, ["つのだ"]), "すみた")     # 候補に無い読みを相手が言った
+        self.assertEqual(next_reading("かどだ", c3, ["つのだ", "かくた", "かどた"]), None)  # 候補が尽きた（言った読みと濁りだけ違う）…
+        self.assertEqual(next_reading("やまさき", ["やまざき"], ["やまざき"]), "やまさき")  # ほかに候補が無ければ、濁りだけ違う訂正も使う
+        self.assertEqual(next_reading("なかしま", ["なかじま", "なかしま"], ["なかじま"]), "なかしま")
+        self.assertEqual(next_reading("なかじま", ["なかじま", "なかしま"], ["なかじま"]), "なかしま")
+
+    def test_choose_among_candidates_when_ai_heard_nothing_usable(self):
+        """⛔ G-46：「いや、カドタです。」に、AIは直す前と同じ「つのだ」で報告した。残りの候補が2つ以上なら、AIに候補から選ばせる（1回まで）。"""
+        from flowctl import Flow, reading_question
+        f = Flow([reading_question("N1", "角田", "つのだ", ["つのだ", "かくた", "かどた"])])
+        f.on_callee(); f.on_heard("いや、角田です。")
+        r = f.apply("confirm_field", {"question_id": "N1", "result": "corrected", "correction": "つのだ"})
+        self.assertEqual(r["result"], "rejected")
+        self.assertIn("「かくた」「かどた」のどれでしたか", r["message"])
+        self.assertEqual(f.items["N1"].value, "つのだ")             # 記録は書き換えない
+        r = f.apply("confirm_field", {"question_id": "N1", "result": "corrected", "correction": "かどた"})  # 相手の新しい発話は無い
+        self.assertEqual(r["say"], "改めましてお名前の読みの方は「かどた」様でよろしかったでしょうか？")
+        # 選ばせても使える読みが来なければ、並びの先の候補（2回は頼まない）
+        f = Flow([reading_question("N1", "角田", "つのだ", ["つのだ", "かくた", "かどた"])])
+        f.on_callee(); f.on_heard("角田です。")
+        r = f.apply("confirm_field", {"question_id": "N1", "result": "affirmed"})   # 名前だけの言い直し＝直された
+        self.assertEqual(r["result"], "rejected")
+        r = f.apply("confirm_field", {"question_id": "N1", "result": "affirmed"})
+        self.assertIn("「かくた」様", r["say"])
+        # 候補が1つしか残らなければ、選ばせずにその候補（G-45 の中島）
+        f = Flow([reading_question("N1", "中島", "なかじま", ["なかじま", "なかしま"])])
+        f.on_callee(); f.on_heard("いや、中島です。")
+        r = f.apply("confirm_field", {"question_id": "N1", "result": "corrected", "correction": "なかじま"})
+        self.assertIn("「なかしま」様", r["say"])
+
+    def test_voicing_misheard_correction_uses_candidate(self):
+        """⛔ G-46：相手は「カドタ」と直したのに、AIは「かどだ」と報告し、プログラムは「かどだ」様で確かめていた。"""
+        from flowctl import Flow, reading_question
+        f = Flow([reading_question("N1", "角田", "つのだ", ["つのだ", "かくた", "かどた"])])
+        f.on_callee(); f.on_heard("いや、角田です。")
+        r = f.apply("confirm_field", {"question_id": "N1", "result": "corrected", "correction": "かどだ"})
+        self.assertEqual(r["say"], "改めましてお名前の読みの方は「かどた」様でよろしかったでしょうか？")
+
+    def test_same_reading_reported_as_correction_uses_other_candidate(self):
+        """⛔ G-45：相手が「いや、ナカシマです。」と直したのに、AIは「なかじま」（直す前と同じ読み）で訂正を報告した。"""
+        from flowctl import Flow, reading_question
+        f = Flow([reading_question("N1", "中島", "なかじま", ["なかじま", "なかしま"])])
+        r = self.do(f, "confirm_field", question_id="N1", result="corrected", correction="なかじま")
+        self.assertEqual(r["say"], "改めましてお名前の読みの方は「なかしま」様でよろしかったでしょうか？")   # まだ言っていない読みで確かめる
+        r = self.do(f, "confirm_field", question_id="N1", result="affirmed")
+        self.assertEqual(f.readings(), {"中島": "なかしま"})
+        f = Flow([reading_question("N1", "中島", "なかじま", ["なかじま", "なかしま"])])
+        self.do(f, "confirm_field", question_id="N1", result="corrected", correction="なかじま")
+        r = self.do(f, "confirm_field", question_id="N1", result="corrected", correction="なかしま")  # 2つとも違う＝名前を使わない
+        self.assertIn("お名前を使わずに", r["message"])
+        self.assertEqual(f.readings(), {})
+
+    def test_denial_words_decide_over_ai_affirmed(self):
+        """⛔ G-45：相手の「いや、中島です。」を、AIが「合っている」と報告した。認めたか直されたかは、相手の言葉で決める。"""
+        from flowctl import Flow, reading_question
+        f = Flow([reading_question("N1", "中島", "なかじま", ["なかじま", "なかしま"])])
+        f.on_callee()
+        f.on_heard("いや、中島です。")
+        r = f.apply("confirm_field", {"question_id": "N1", "result": "affirmed"})
+        self.assertEqual(r["say"], "改めましてお名前の読みの方は「なかしま」様でよろしかったでしょうか？")
+        f.on_callee()
+        f.on_heard("いえいえ、そうです。")                     # 「いえいえ」は打ち消しではない
+        f.apply("confirm_field", {"question_id": "N1", "result": "affirmed"})
+        self.assertEqual(f.readings(), {"中島": "なかしま"})
+
+    def test_denial_words(self):
+        from flowctl import DENIAL
+        for said in ("いや、中島です。", "いえ、なかしまです", "違います", "ちがいます、なかしまです", "違う違う"):
+            self.assertTrue(DENIAL.match(said), said)
+        for said in ("いえいえ、そうです", "違いません", "違いないです", "はい、そうです", "中島です"):
+            self.assertFalse(DENIAL.match(said), said)
+
+    def test_name_only_reply_is_a_correction(self):
+        """相手が認める言葉を言わずに名前だけを言い直した（「ナカシマです。」）＝直された。「はい、中島です。」は認めた。"""
+        from flowctl import Flow, reading_question
+        for heard, want in (("中島です。", "なかしま"), ("ナカシマです。", "なかしま"), ("はい、中島です。", "なかじま"), ("", "なかじま")):
+            f = Flow([reading_question("N1", "中島", "なかじま", ["なかじま", "なかしま"])])
+            f.on_callee()
+            f.on_heard(heard)
+            r = f.apply("confirm_field", {"question_id": "N1", "result": "affirmed"})
+            if r["result"] == "confirm_required":
+                f.on_callee()
+                f.on_heard("はい、そうです。")
+                f.apply("confirm_field", {"question_id": "N1", "result": "affirmed"})
+            self.assertEqual(f.readings(), {"中島": want}, heard)
+
+    def test_kinds_and_target_call(self):
+        """✅ 2026-10-16 ユーザー：法人「（部署、役職）の（相手の名前）様はいらっしゃいますでしょうか？」「お名前の読みの方は…様で
+        よろしかったでしょうか？」／個人「（相手の名前）様のお電話でお間違えないでしょうか？」「お名前の方は…様でよろしかったでしょうか？」"""
+        from flowctl import Flow, reading_question
+        from phrases import target_call
+        self.assertEqual(target_call("法人", "「なかじま」", "営業部部長"), "営業部部長の「なかじま」様はいらっしゃいますでしょうか？")
+        self.assertEqual(target_call("法人", "「なかじま」"), "「なかじま」様はいらっしゃいますでしょうか？")
+        self.assertEqual(target_call("個人", "「なかじま」", "営業部部長"), "「なかじま」様のお電話でお間違えないでしょうか？")
+        f = Flow([reading_question("N1", "中島", "なかじま", ["なかじま", "なかしま"], kind="個人")])
+        self.assertEqual(f.questions["N1"].text, "お名前の方は「なかじま」様でよろしかったでしょうか？")
+        r = self.do(f, "confirm_field", question_id="N1", result="corrected", correction="なかしま")
+        self.assertEqual(r["say"], "改めましてお名前の方は「なかしま」様でよろしかったでしょうか？")
+
+    def test_unread_rule(self):
+        from flowctl import Question
+        from instruction import Business, build
+        q = [Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"))]
+        _, text = build(Business(company="アオバ物流", caller="佐藤", purpose="", questions=q, unread_names=["角田"]), "S4")
+        self.assertIn("こちら側の人の名前のうち、「角田」は読み方が決まっていません。この名前は声に出さずに", text)
+        self.assertNotIn("お客様側", text)  # お客様側の名前は、まず言ってみる読みで呼んで確かめる（使わない、とは言わない）
+        _, text = build(Business(company="アオバ物流", caller="佐藤", purpose="", questions=q), "S4")
+        self.assertNotIn("読み方が決まっていません", text)
+
+
+class NameReadingRuleTest(unittest.TestCase):
+    """台本に書いてある読みがなを、プログラムが読む（names.given_reading・G-42）。"""
+
+    def test_given_reading(self):
+        from names import given_reading
+        self.assertEqual(given_reading("講師の東海林（しょうじ）が担当いたします。", "東海林"), "しょうじ")
+        self.assertEqual(given_reading("担当の角田(ツノダ)です。", "角田"), "つのだ")
+        self.assertEqual(given_reading("担当の角田です。", "角田"), "")
+
+
 class AskLadderTest(unittest.TestCase):
     """聞き返しの回数と言い方（DESIGN.md 6-11）。✅ 2026-10-14 ユーザー：必須の項目を聞く回数は、最初の質問のほかに最大3回
     （その場2回＋締めの前の念のための確認1回）。依頼主ごとに変えられる。最後の1回は「申し訳ございません、」（相づちの録音）＋
@@ -1469,18 +1749,20 @@ class NeverStuckTest(unittest.TestCase):
     ようにしてください」）：(1) 誤りで止まらない (2) 締めでない限り、どの返事にも次にすることが書いてある (3) 聞き返し・念のための確認は
     決まった回数で尽き、同じ報告をくり返されても、通話は必ず締めに着く。"""
 
-    VALUES = ("15日の午後2時", "3人", "はい", "いつでも", "答えなかった", "違います", "", None, "16 日の午後 2 時", "x" * 3)
+    VALUES = ("15日の午後2時", "3人", "はい", "いつでも", "答えなかった", "違います", "", None, "16 日の午後 2 時", "x" * 3, "やまさき", "ヤマザキ様")
 
     def flow(self):
-        from flowctl import Flow, Question
+        from flowctl import Flow, Question, reading_question
+        # 名前の読みの確かめ（プログラムが足す質問。2026-10-16）も混ぜる：これを足しても止まらないこと
         return Flow([Question("Q1", "ご予約はされていますか。", "yes_no", conditions=("はい", "いいえ"), topic="ご予約の有無"),
+                     reading_question("N1", "山崎", "やまざき"),
                      Question("Q2", "ご希望の日時をお聞かせください。", "datetime", conditions=("答えた",), topic="ご希望の日時"),
                      Question("Q3", "ご来店の人数をお聞かせください。", "number", conditions=("答えた",), required=False)])
 
     def random_report(self, rnd, f):
         """ふつうの報告を多めに、誤った報告（いまの質問でない・選択肢に無い・項目名の書き違え・無い操作）も混ぜる。"""
         from flowctl import CONFIRM_LABEL
-        qid = f.current if (f.current and rnd.random() < 0.85) else rnd.choice(("Q1", "Q2", "Q3", "Q9"))
+        qid = f.current if (f.current and rnd.random() < 0.85) else rnd.choice(("Q1", "N1", "Q2", "Q3", "Q9"))
         x = rnd.random()
         if f.awaiting_confirm and x < 0.6:
             name, args = "confirm_field", {"question_id": qid, "result": rnd.choice(tuple(CONFIRM_LABEL) + ("bad",)),

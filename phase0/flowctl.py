@@ -17,7 +17,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from phrases import AMPM_ASK, CLOSE_DECLINED, CLOSING, LEAD_IN
+from names import hira, quote, unvoiced
+from phrases import AMPM_ASK, CLOSE_DECLINED, CLOSING, LEAD_IN, NAME_READING_ASK
 from phrases import ask_again as ask_again_phrase
 from phrases import confirm as confirm_phrase
 from phrases import lead_in as lead_in_phrase
@@ -183,8 +184,11 @@ def spoken_question(questions: list["Question"], qid: str) -> tuple[str, str]:
     「続きまして」・4問目「では」…）。最初の質問は名乗りと一緒に流すので、つなぎの言葉は付けない。
     ✅ 2026-10-15 ユーザー（聞き比べ）：つなぎの言葉と質問を1本で録音したほうが「しいて言えば自然」⇒ 1本の録音にする。順番で決めておけば、
     依頼主ごとの録音は質問1つにつき1本のまま（流れの制御・録音を作る道具の両方が、ここを使う）"""
-    i = [q.id for q in questions].index(qid)
-    q = questions[i]
+    q = next(x for x in questions if x.id == qid)
+    if q.reading_of:  # プログラムが足す読みの確かめ：AIが言う（録音でない）。つなぎの言葉は付けない
+        return q.text, ""
+    # ⛔ 見直しで見つけた漏れ：読みの確かめを挟むと、そのあとの質問のつなぎの言葉（＝録音の名前）が1つずれた（「それでは」⇒「続きまして」）
+    i = [x.id for x in questions if not x.reading_of].index(qid)
     if i == 0:
         return q.text, ""
     lead = LEAD_IN["次の質問"][(i - 1) % len(LEAD_IN["次の質問"])]
@@ -228,6 +232,15 @@ AFTER = {"misheard": ("聞き違いのあと", "お詫びのあとの言い直�
 # G-34〜G-36 の 30回に当てて、決めたとおりに分かれる（「あ、すみません、間違えました。」6回／「いや、16日って言ったんですけど。」6回・
 # 「いえ、16日の午後2時です。」18回）
 SELF_CORRECTION = re.compile(r"間違|まちが|やっぱ|変更|変え")
+
+
+# 名前の読みの確かめへの返事が「違う」で始まるか（「いや、中島です。」「いえ、ナカシマです」「違います」）。「いえいえ」は打ち消しではない
+# （「いえいえ、それで大丈夫です」）。⛔ G-45：相手の「いや、中島です。」を、AIが「合っている」と報告した（AIには同じ名前に聞こえる）
+# ⛔ 見直しで直した：前の「違」「ちが」は「違いません」「違いないです」（＝合っている）にも当たった
+DENIAL = re.compile(r"^(?:いや|いえ(?!いえ)|(?:違|ちが)(?:います|う|って|いますけど))")
+# 認める言葉で始まる返事（「はい」「ええ」「そうです」「大丈夫です」「合ってます」「それで」）。名前の読みの確かめで、相手が認める言葉を
+# 言わずに名前だけを言い直したとき（「ナカシマです。」）は、直されたとして扱う（相手は認めるときは「はい」と言う）
+AFFIRM = re.compile(r"^(?:はい|ええ|うん|そう|大丈夫|合って|あって|それで|結構|いえいえ)")
 
 
 def correction_kind(callee_said: str) -> str:
@@ -278,9 +291,17 @@ class Question:
     conditions: tuple = ()      # 業務が宣言した選択肢（依頼主が書いたまま。システムの2つは足さなくてよい）
     topic: str = ""             # 聞くこと（「ご希望の日時」など。聞き返しの言い方に使う。業務設定。無ければ言わずに聞き返す）
     unit: str = ""              # 数の型の単位（「人」など）。取込で質問の文から決める（units。人は確かめない）。空なら補わない
+    # 名前の読みの確かめ（reading_question が作る、プログラムが足す質問）：reading_of＝読みが決まらない名前の表記（「山崎」）、
+    # prefill＝まず言ってみる読み（ひらがな。names.decide の likely）。この質問は、相手に聞かずに言い直しの形で始まる
+    reading_of: str = ""
+    prefill: str = ""
+    readings: tuple = ()        # 考えられる読み（names.decide の candidates。まず言ってみる読みを含む）。AIが聞き分けられないときに使う
+    reading_kind: str = "法人"  # 確かめの言い方（phrases.NAME_READING_ASK の鍵＝発信対象の区分。法人／個人）
 
     def __post_init__(self):
         assert self.type in TYPES, f"{self.id} の型「{self.type}」は、型の一覧にありません（I-16）"
+        assert not self.reading_of or (self.type == "name" and _KANA.fullmatch(self.prefill or "")), \
+            f"{self.id}：名前の読みの確かめは、名前の型で、まず言ってみる読み（ひらがな）が要ります"
         clash = set(self.conditions) & (set(SYSTEM_CONDITIONS) | set(SYSTEM_LABEL.values()))
         assert not clash, f"{self.id} の選択肢が、システムの選択肢と同じ名前です：{clash}"
 
@@ -298,6 +319,51 @@ class Question:
         return self.type in CONFIRM_TYPES
 
 
+_KANA = re.compile(r"[ぁ-ゖー]+")
+
+
+def next_reading(heard: str | None, readings: tuple | list, tried: list[str]) -> str | None:
+    """相手が名前の読みを直したときに、次に確かめる読みを決める唯一の場所（flowctl.reading_question）。
+    heard＝AIが聞いたと報告した読み（ひらがな。無ければ None）、readings＝考えられる読み（names.decide の candidates）、tried＝もう言った読み。
+    会話のAIは、同じ漢字の名前の読みの濁りの違いを聞き分けられない（G-45：「いや、ナカシマです。」に19回中15回「合っている」・3回「なかじま」／
+    G-46：「いや、カドタです。」を「かどだ」と報告）。確かめるのは相手（こちらの声は、ひらがなの読みで正しく届く）なので、
+    ここは「次にどの読みで聞くか」だけを決める：
+    (1) AIの聞いた読みが、まだ言っていない候補なら、それ
+    (2) 候補には無いが、濁りを外すと、まだ言っていない候補と同じなら、その候補（「かどだ」⇒「かどた」。2つ以上なら、濁りの違いが少ないほう）
+    (3) 候補のどれとも違う読みなら、AIの聞いた読み（相手が候補に無い読みを言った）。ただし、言った読みと濁りだけ違う読みは、
+        まず言ってみる読みのほかに候補があるときは使わない（AIが、こちらの言った読みを濁りだけ違えて聞いた形）。ほかに候補が無いときだけ使う（「やまざき」⇒「やまさき」）
+    (4) それ以外（読みが無い・言った読みと同じ）は、まだ言っていない候補の最初
+    どれも無ければ None（＝確かめをやめて、名前を使わずにお呼びする）。"""
+    untried = [r for r in readings if r not in tried]
+    if heard and heard not in tried:
+        if heard in untried:
+            return heard
+        same = [r for r in untried if unvoiced(r) == unvoiced(heard)]
+        if same:
+            return min(same, key=lambda r: sum(x != y for x, y in zip(r, heard)))
+        if len(readings) <= 1 or all(unvoiced(t) != unvoiced(heard) for t in tried):
+            return heard
+    return untried[0] if untried else None
+
+
+def reading_question(qid: str, surface: str, likely: str, readings: tuple | list = (), kind: str = "法人") -> "Question":
+    """読みが決まらない相手の名前（「山崎」＝やまざき／やまさき）を、会話の中で確かめる、プログラムが足す質問（DESIGN.md 6-2）。
+    ✅ 2026-10-16 ユーザー：「なかじまとなかしまなどは人が見ても判断できません。それは会話の中で失礼のないように語るか、場合によっては
+       聞き出す」。⇒ 新しい流れは作らず、ほかの値と同じ「言い直して確かめる」流れ（4-4）にのせる：まず言ってみる読みで
+       「お名前の読みの方は「なかじま」様でよろしかったでしょうか？」（個人なら「お名前の方は…」。kind＝発信対象の区分）と聞き、
+       相手が認めれば確認済み、「いや、なかしまです」なら、録音「失礼いたしました。」＋「改めましてお名前の読みの方は「なかしま」様で
+       よろしかったでしょうか？」で確かめる。
+       確かめられなければ、名前を使わずに「ご担当者様」のようにお呼びする（失礼のないように語る）。
+    必須にしない（聞き返して相手を煩わせない。確かめられなければ名前を使わないだけ）。
+    readings＝考えられる読み。⛔ G-45：相手が「いや、ナカシマです。」と直したのに、AIは「中島」と聞いて、訂正の読みを直す前と同じ
+    「なかじま」で報告した（漢字が同じ名前の読みの違いを、AIは聞き分けられない）。⇒ 相手が「違う」と言ったのに同じ読みが報告されたら、
+    考えられる読みのうち、まだ言っていない読みで確かめる（_op_confirm_field）。"""
+    likely = hira(likely)
+    alts = tuple(dict.fromkeys([likely] + [hira(r) for r in readings if r]))
+    return Question(qid, NAME_READING_ASK[kind].format(v=quote(likely)), "name", required=False, conditions=("答えた",),
+                    topic="お名前のお読み", reading_of=surface, prefill=likely, readings=alts, reading_kind=kind)
+
+
 @dataclass
 class Item:
     state: str = "empty"
@@ -309,6 +375,8 @@ class Item:
     history: list = field(default_factory=list)
     pending_value: str | None = None  # 午前・午後を聞いている値（答えが届いたら、そこへ入れる）
     ampm_asked: bool = False          # 午前・午後を聞いたか（1項目1回まで）
+    tried_readings: list = field(default_factory=list)  # 名前の読みの確かめで、これまでに言った読み（同じ読みを2度言わない）
+    reading_choice_asked: bool = False  # 相手が直した読みを、候補から選んで報告し直すよう AI に頼んだか（1項目1回まで。G-46）
 
     def set(self, state: str, why: str) -> None:
         assert state in STATES, state
@@ -354,6 +422,8 @@ class Flow:
         self.confirm_requested_at: int | None = None
         self.hurried = False
         self.log: list[dict] = []        # 呼ばれた操作と返事（確かめの記録）
+        if self.questions[self.current].reading_of:
+            self._enter_reading(self.current)
 
     # ── 相手の発話が届いた（本番では、相手の音声の発話の検出で数える）
     def on_callee(self) -> None:
@@ -501,6 +571,12 @@ class Flow:
 
     def _op_report_unclear(self, a: dict) -> dict:
         qid = a.get("question_id")
+        if self.awaiting_confirm is not None and self.awaiting_confirm == qid and self.questions[qid].reading_of:
+            # 名前の読みの確かめは、相手の答えの言い直しではなく、こちらから聞く質問（相手はまだ何も答えていない）。その返事が聞き取れない
+            # ときは、ほかの質問と同じく聞き取れないとして扱う（必須でないので聞き返さず、名前を使わずにお呼びする）。⛔ 試験で見つけた漏れ：
+            # 言い直しの返事待ちとして report_unclear を差し戻し続け、聞き取れない相手で流れが進まなかった（NeverStuckTest）
+            self.awaiting_confirm = None
+            return self._ask_again(qid, "unclear", "聞き取れない・曖昧")
         if self.awaiting_confirm is not None:
             return self._reject("いまは report_unclear では受け付けません。")
         if qid != self.current:
@@ -532,6 +608,39 @@ class Flow:
         it = self.items[qid]
         result = a.get("result")
         correction = normalize_value(self.questions[qid].type, a.get("correction"), self.questions[qid].unit)
+        q = self.questions[qid]
+        if q.reading_of and result == "affirmed" and self._reading_denied(q):
+            # 読みの違いは AIには聞き分けられない（G-45）ので、認めたか直されたかは、相手の言葉でプログラムが決める
+            # （値を直されたときの直され方を相手の言葉で決めるのと同じ。✅ 2026-10-14 ユーザー決定 (a)）
+            result, correction = "corrected", None
+            it.set(it.state, f"相手が「{self.callee_said[:20]}」と直したのに、AIは「合っている」と報告した ⇒ 直されたとして扱う")
+        if q.reading_of and correction:
+            correction = hira(re.sub(r"[\s様さん。、]", "", correction))
+            if result == "corrected" and not _KANA.fullmatch(correction):
+                return self._reject(f"「{q.reading_of}」の読みは、相手が言ったとおりの音を、ひらがなだけで"
+                                    f"{ARG_LABEL['correction']}に入れて、もう一度報告してください（「{correction}」は使えません）。")
+        if q.reading_of and result == "corrected":
+            untried = [r for r in q.readings if r not in it.tried_readings]
+            if (not correction or correction in it.tried_readings) and len(untried) >= 2 and not it.reading_choice_asked:
+                # ⛔ G-46：「いや、カドタです。」に、AIは直す前と同じ「つのだ」で報告した（または何も報告しなかった）。残りの候補が2つ以上だと、
+                #    どれで確かめるかの材料が無い（並びの先の「かくた」で確かめてしまった）⇒ 相手の声を聞いたばかりの AI に、候補から選ばせる。
+                #    相手にはまだ何も言わない（記録も書き換えない）。1項目1回まで
+                it.reading_choice_asked = True
+                shown = "".join(f"「{r}」" for r in untried)
+                return {"result": "rejected",
+                        "message": f"相手は読みを直しました（「{self.callee_said[:20]}」）。相手が言った読みは、{shown}のどれでしたか。"
+                                   f"相手の声にいちばん近い読みを{ARG_LABEL['correction']}に入れて、{ARG_LABEL['result']}"
+                                   f"「{CONFIRM_LABEL['corrected']}」で、confirm_field をもう一度報告してください。どれとも違えば、聞こえたとおりの音を"
+                                   "ひらがなで入れます。報告するまで、相手には何も言いません。"}
+            # 次に確かめる読みは、next_reading の1か所が決める（AIは濁りの違いを聞き分けられない＝G-45・G-46）。
+            # 無ければ確かめをやめて、名前を使わずにお呼びする
+            heard, correction = correction, next_reading(correction, q.readings, it.tried_readings)
+            if correction is None:
+                self.awaiting_confirm = None
+                it.set("unresolved", "相手が読みを直したが、ほかの読みの候補が無い")
+                return self._advance("「-」にします。" + self._reading_note(qid))
+            if correction != heard:
+                it.set(it.state, f"AIの聞いた読み「{heard or '（無し）'}」は使わず、候補の「{correction}」で確かめる（濁りの違いは聞き分けられない）")
         if result == "corrected" and correction is None:  # 訂正の値の無い報告は、記録を書き換える前に差し戻す（上と同じ漏れ）
             return self._reject(f"訂正された値がありません。相手が言い直した値を「{ARG_LABEL['correction']}」に入れて、もう一度報告してください。")
         if result == "corrected" and (why := form_problem(self.questions[qid].type, correction)):
@@ -560,7 +669,7 @@ class Flow:
             self.last_affirmed = {"qid": qid, "callee_turns": self.callee_turns, "phase": self.phase, "current": self.current,
                                   "recheck_queue": list(self.recheck_queue), "confirm_requested_at": self.confirm_requested_at,
                                   "awaiting_say": self.awaiting_say}
-            return self._advance("確認できました。")
+            return self._advance("確認できました。" + self._reading_note(qid))
         if result == "corrected" and it.corrections < self.limits.after_correction:
             it.corrections += 1
             it.value = correction
@@ -568,7 +677,33 @@ class Flow:
             it.set("heard", "相手が訂正した（こちらの聞き違い）" if kind == "misheard" else "相手が訂正した（相手の言い間違い）")
             return self._ask_confirm(qid, after=kind)
         it.set("unresolved", "訂正のあとも合わない" if result == "corrected" else "相手が答えなかった")
-        return self._advance("「-」にします。")
+        return self._advance("「-」にします。" + self._reading_note(qid))
+
+    def _reading_denied(self, q: "Question") -> bool:
+        """名前の読みの確かめへの相手の返事（会話AIの聞き取りの文字）が、直す返事か：打ち消しの言葉で始まる（「いや、中島です。」）、
+        または認める言葉で始まらずに名前を言い直している（「ナカシマです。」）。文字が届いていなければ、AIの報告のまま。"""
+        said = re.sub(r"^[\s、。]+", "", self.callee_said or "")
+        if not said:
+            return False
+        if DENIAL.match(said):
+            return True
+        named = q.reading_of in said or any(r in hira(said) for r in q.readings)
+        return named and not AFFIRM.match(said)
+
+    def _reading_note(self, qid: str) -> str:
+        """名前の読みの確かめが済んだ（または確かめられなかった）ときに、AIへ伝えること。それ以外の質問では空。"""
+        q, it = self.questions[qid], self.items[qid]
+        if not q.reading_of:
+            return ""
+        if it.state == "confirmed":
+            return f"このあと「{q.reading_of}」様は「{it.value}」様とお呼びします。"
+        # 確かめられなかった：読み違えたままお呼びしない（✅ 2026-10-16 ユーザー：「失礼のないように語る」）
+        return f"「{q.reading_of}」様の読みは確かめられませんでした。このあとは、お名前を使わずに「ご担当者様」のようにお呼びします。"
+
+    def readings(self) -> dict[str, str]:
+        """会話の中で相手に確かめていただいた名前の読み（表記 ⇒ ひらがな）。依頼主へ渡す値・次にかけるときに使う。"""
+        return {q.reading_of: self.items[q.id].value for q in self.questions.values()
+                if q.reading_of and self.items[q.id].state == "confirmed"}
 
     def _affirmed_in_this_turn(self, qid: str) -> bool:
         """qid の確かめが、いまの相手の発話への報告で済んだばかりか（そのあと相手がまだ話していない）。"""
@@ -633,7 +768,20 @@ class Flow:
             return {"result": "ask_back", "question_id": q.id, "say": say, "ask_n": it.ask_backs, "ask_reason": reason, "ask_last": last,
                     "message": f"{shown}「{say}」と聞き返して、相手の答えを待ってください。相手が答えたら record_answer で報告します。"}
         it.set("unresolved", f"{why}・聞き返しを使い切った" if self.phase == "asking" else f"{why}・念のための確認でも聞けなかった")
-        return self._advance(f"{shown}「-」にします。")
+        return self._advance(f"{shown}「-」にします。" + self._reading_note(qid))
+
+    def _enter_reading(self, qid: str, prefix: str = "") -> dict:
+        """名前の読みの確かめを始める（reading_question）。まず言ってみる読みを値にして、言い直しの返事待ちにする。言い方は質問の文。"""
+        q, it = self.questions[qid], self.items[qid]
+        it.condition, it.value = q.conditions[0], q.prefill
+        it.tried_readings.append(q.prefill)
+        it.set("checking", f"読みが決まらない名前「{q.reading_of}」を、まず言ってみる読みで確かめる")
+        self.awaiting_confirm, self.confirm_requested_at, self.awaiting_say = qid, self.callee_turns, q.text
+        return {"result": "confirm_required", "question_id": qid, "value": q.prefill, "say": q.text, "after": None,
+                "message": f"{prefix}次は、お名前の読みの確認です。「{q.text}」と言って、相手の返事を待ってください。相手が認めたら"
+                           f" confirm_field を{ARG_LABEL['result']}「{CONFIRM_LABEL['affirmed']}」で、違う読みを言われたら"
+                           f"「{CONFIRM_LABEL['corrected']}」で報告し、{ARG_LABEL['correction']}には相手が言ったとおりの音をひらがなで入れます"
+                           "（漢字を思い浮かべて、知っている読みに直さない）。"}
 
     def _ask_confirm(self, qid: str, after: str | None = None) -> dict:
         """言い直して確かめる。after＝値を直されたあとか（AFTER の鍵。場面の言い方・頭の言葉・流す相づちを、その表の1か所から選ぶ）。
@@ -651,8 +799,14 @@ class Flow:
         # 言い直す値：値の無い選択肢の型（はい／いいえなど。聞き返したあとは復唱する＝6-11）は、選んだ選択肢で言い直す。
         # ⛔ 2026-10-14 に見つけた穴：値だけを渡していたため、「Noneで、よろしいでしょうか。」という文を作っていた
         shown = it.value or SYSTEM_LABEL.get(it.condition, it.condition)
+        if self.questions[qid].reading_of:
+            shown = quote(it.value)
+            it.tried_readings.append(it.value)
         lead = AFTER[after][1] if after else "言い直し"
-        say = self.awaiting_say = self._lead(lead) + self.confirm(shown, situation, n)
+        q = self.questions[qid]
+        # 名前の読みは、質問と同じ言い方で、直していただいた読みを言う（「改めましてお名前の読みの方は「なかしま」様でよろしかったでしょうか？」）
+        phrase = NAME_READING_ASK[q.reading_kind].format(v=shown) if q.reading_of else self.confirm(shown, situation, n)
+        say = self.awaiting_say = self._lead(lead) + phrase
         return {"result": "confirm_required", "value": shown, "say": say, "after": after,
                 "message": f"言い直して確かめます。「{say}」と言って、相手の返事を待ってください。"}
 
@@ -664,6 +818,8 @@ class Flow:
         if self.phase == "asking" and rest:
             self.current = rest[0]
             q = self.questions[self.current]
+            if q.reading_of:
+                return self._enter_reading(q.id, prefix)
             if self.play_recordings:
                 text, lead = spoken_question(list(self.questions.values()), q.id)
                 return {"result": "next", "question_id": q.id, "question": q.text,

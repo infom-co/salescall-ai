@@ -12,8 +12,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from flowctl import ARG_LABEL, CONFIRM_LABEL, END_LABEL, GOT, SYSTEM_LABEL, Question
+from names import quote  # noqa: F401（名前を「」でくくる唯一の場所。ここからも読める）
 
-from phrases import APOLOGY, ASK_BACK  # noqa: F401（決まった言い方は phrases.py の1か所。試験からも、ここ経由で読める）
+from phrases import APOLOGY, ASK_BACK, GREETING  # noqa: F401（決まった言い方は phrases.py の1か所。試験からも、ここ経由で読める）
 # プログラムから会話AIへ送る合図の文面（文字で送る。相手には聞こえない）。合図の文面はここだけに置く（DESIGN.md 6-7）
 CUES = {
     # AIが黙ったとき：1回だけ返事を促す
@@ -48,29 +49,68 @@ class Business:
     # 相手が「忙しい」と言ったときの一言（Intent.md 9-4）。空なら丁寧に終える（既定＝安全側）。文があれば、1回だけそれで聞く
     # （2026-10-13 ユーザー：依頼主によっては粘ってほしい。トークスクリプト（業務情報）で選べるように。既定の文は phrases.BUSY_ASK）
     busy_ask: str | None = None
+    # 自社名・担当者名の読み（ひらがな。空＝決まらない＝表記のまま渡す）。自社名は、設定に無ければ取込で names.decide が決める（Intent.md 6-8）。
+    # ✅ 2026-10-16 ユーザー決定（案C）：担当者名の読みは、設定に必ず入れる（名乗りでは言い換えられない。個人向けでは名乗ることが法律の確認事項）。
+    #    必須かどうかを確かめるのは設定の登録（CL-2）。ここは、担当者名を unread_names に入れた矛盾した設定を受け付けない。
+    # 声に出す文には読みのほうを入れる（G-44：漢字のままだと読み違える。instruction.quote_in_text と同じ決まり）
+    company_reading: str = ""
+    caller_reading: str = ""
+    # こちら側の名前で、読みが決まらないもの（台本の中の、名乗る担当者以外の人の名前など。表記）。指示文で、声に出さずに言い換える決まりを渡す（unread_rule）。
+    # ⚠️ お客様側の名前（目的の人）は入れない：まず言ってみる読みで呼び、つながってから確かめる（flowctl.reading_question。✅ 2026-10-16 ユーザー）
+    unread_names: list[str] = field(default_factory=list)
+    # 台本の名前（names.decide の戻り値）。質問の文・目的・用件の一文・忙しいときの一言の中の名前を、作るときに1回だけ quote_in_text に通す
+    # （⛔ 見直しで見つけた漏れ：読みのひらがなへの置き換えが名乗りにしか効かず、質問の文の名前は漢字のまま・読みがなは2回読まれた）
+    names: list = field(default_factory=list)
+
+    def __post_init__(self):
+        # 担当者名は名乗りで必ず声に出すので、「声に出さずに言い換える名前」には入れられない（指示が矛盾する。案C＝読みは設定に必須）
+        assert self.caller not in self.unread_names, f"担当者名「{self.caller}」は、読みを設定に入れてください（unread_names には入れられません）"
+        if not self.names:
+            return
+        import dataclasses
+        import unicodedata
+        # 名乗りの社名の読みも、名前の一覧から取る（設定に読みが入っていれば、そちらを先に使う）
+        # ⛔ 見直し（2026-10-16 の2回目）：前は名乗りだけが company_reading を見て、一覧の読みを見ていなかった
+        # ＝一覧に読みがあっても、名乗りは漢字・質問の文はひらがな、と食い違いうる形だった
+        # ✅ 担当者名は一覧から取らない：読みは設定に必ず入れる（2026-10-16 ユーザー決定＝案C。取込で決める決め方は使わない）
+        got = {unicodedata.normalize("NFKC", n["surface"]): n.get("reading") or "" for n in self.names if isinstance(n, dict) and n.get("surface")}
+        self.company_reading = self.company_reading or got.get(unicodedata.normalize("NFKC", self.company), "")
+        self.questions = [q if q.reading_of else dataclasses.replace(q, text=quote_in_text(q.text, self.names)) for q in self.questions]
+        self.purpose = quote_in_text(self.purpose, self.names) if self.purpose else self.purpose  # AIに渡す目的の中の名前も（AIが口にしうる）
+        self.purpose_line = quote_in_text(self.purpose_line, self.names) if self.purpose_line else self.purpose_line
+        self.busy_ask = quote_in_text(self.busy_ask, self.names) if self.busy_ask else self.busy_ask
+
+    def _said(self) -> tuple[str, str]:
+        return quote(self.company_reading or self.company), quote(self.caller_reading or self.caller)
 
     def opening(self) -> str:
-        return f"お忙しいところ恐れ入ります。株式会社{quote(self.company)}の{quote(self.caller)}と申します。"
+        company, caller = self._said()
+        return f"{GREETING}株式会社{company}の{caller}と申します。"
 
     def opening_parts(self) -> list[str]:
         """名乗りの録音を、文ごとに分けたもの（DESIGN.md 6-13 の案）。最後は最初の質問。"""
-        parts = ["お忙しいところ恐れ入ります。", f"株式会社{quote(self.company)}の{quote(self.caller)}と申します。"]
+        company, caller = self._said()
+        parts = [GREETING, f"株式会社{company}の{caller}と申します。"]
         if self.purpose_line:
             parts.append(self.purpose_line)
         parts.append(self.questions[0].text)
         return parts
 
 
-def quote(name: str) -> str:
-    """名前を「」でくくる唯一の場所。"""
-    return f"「{name}」"
 
 
 _OPEN, _CLOSE = "「『", "」』"
 
 
-def quote_in_text(text: str, names: list[str]) -> str:
+def quote_in_text(text: str, names: list) -> str:
     """台本などの文の中の名前を、「」でくくる（名前の位置にだけ付け、ほかの文字は1文字も変えない）。
+    names＝名前の表記（文字）か、names.decide の名前（{"surface", "reading"}）。**読みが決まっている名前は、くくった中身を読み（ひらがな）に
+    置き換える**（「大阪の「にっぽんばし」店」）。読みが決まらない名前（reading が空）は、表記のままくくる。もとからかっこの中にある名前も
+    中身を読みにし、名前のすぐあとの読みがな（「（しょうじ）」）は外す。声に出す文（指示文・質問・録音の文）は、すべてここを通す（Business）。
+    ✅ G-44（2026-10-16）：読み違えやすい名前12を、録音と同じ形で読ませた。漢字のまま「」でくくる形は24本中8本しか正しく読まず（「枚方」⇒
+       まいかた・「中島」⇒なかじま（正しくは なかしま）・「東海林」⇒とうかいりん など）、ひらがなで渡す形は23本中21本（読めなかったのは
+       「山崎」＝やまさき の2本だけ。どの渡し方でも「やまざき」になった）。読みを指示に添える形は20本、文に「（読み）」を添える形は13本で、
+       「とうかいりんしょうじ」と2回言った回もあった。カタカナで渡す形は「アオバ物流」を2本とも「おおば」と読んだ。
     - 長い名前から先に当てる（「川崎市中原区」と「中原区」が重なれば、長いほうを1回だけくくる）
     - 同じ名前が何回出ても、全部くくる
     - もともと「」『』の中にある所は、くくらない（二重にしない）
@@ -79,12 +119,24 @@ def quote_in_text(text: str, names: list[str]) -> str:
       （「上野原」は1つの単語なので、中の「上野」には付けない。「株式会社ＡＢＣホールディングス営業部」は
        「株式／会社／ＡＢＣ／ホールディングス／営業／部」と分かれるので、「ＡＢＣホールディングス」に付けられる）
     ⚠️ 限界：単語に分ける処理が、1つの名前を2つに分けることがある（「神田川」＝「神田／川」）。名前の一覧に「神田」だけがあると、
-       「「神田」川」になる。名前の一覧に長いほうの名前があれば、長いほうが先に当たる。取込のプレビューで人が確かめる（Intent.md 6-8）。
+       「「神田」川」になる。名前の一覧に長いほうの名前があれば、長いほうが先に当たる（取込の文字のモデルは「兵庫県三田市」のように
+       まとまりで出す。G-42）。
     """
+    import re
     import unicodedata
 
     from jtext import word_edges
+    from names import hira
 
+    readings = {}
+    for n in names:
+        if isinstance(n, dict) and n.get("surface"):
+            readings[unicodedata.normalize("NFKC", n["surface"])] = n.get("reading") or ""
+        elif isinstance(n, str) and n:
+            readings.setdefault(unicodedata.normalize("NFKC", n), "")
+    # もとから「」『』でくくってある名前（「大和ハウス工業」様）も、読みが決まっていれば中身を読みにする（かっこはそのまま）
+    text = re.sub(r"([「『])([^「」『』]+)([」』])",
+                  lambda m: m.group(1) + (readings.get(unicodedata.normalize("NFKC", m.group(2))) or m.group(2)) + m.group(3), text)
     normed = "".join(unicodedata.normalize("NFKC", ch) if len(unicodedata.normalize("NFKC", ch)) == 1 else ch for ch in text)
     edges = word_edges(text)
     taken = [False] * len(text)
@@ -97,20 +149,23 @@ def quote_in_text(text: str, names: list[str]) -> str:
         if depth or ch in _CLOSE:
             taken[i] = True
     spans = []
-    for name in sorted({unicodedata.normalize("NFKC", n) for n in names if n}, key=len, reverse=True):
+    for name in sorted(readings, key=len, reverse=True):
         start = 0
         while (i := normed.find(name, start)) != -1:
             j = i + len(name)
             start = i + 1
             if any(taken[i:j]) or i not in edges or j not in edges:
                 continue
-            spans.append((i, j))
+            spans.append((i, j, readings[name]))
             for k in range(i, j):
                 taken[k] = True
     out, pos = [], 0
-    for i, j in sorted(spans):
-        out.append(text[pos:i] + quote(text[i:j]))
+    for i, j, r in sorted(spans):
+        out.append(text[pos:i] + quote(r or text[i:j]))
         pos = j
+        # 名前のすぐあとの読みがな（「東海林（しょうじ）」の「（しょうじ）」）が読みと同じなら外す（そのまま読ませると2回言う）
+        if r and (m := re.match(r"\s*[（(]\s*([ぁ-ゖァ-ヶー]+)\s*[）)]", text[j:])) and hira(m.group(1)) == r:
+            pos = j + m.end()
     out.append(text[pos:])
     return "".join(out)
 
@@ -194,7 +249,7 @@ def build(business: Business, voice_type: str, resume=None, opening_mode: str = 
     voice, style_text = voice_style(voice_type)
     first = business.questions[0]
     parts = [
-        f"あなたは株式会社{quote(business.company)}の{quote(business.caller)}として、電話をかけています。日本語で、丁寧に短く話します。",
+        "あなたは株式会社{}の{}として、電話をかけています。日本語で、丁寧に短く話します。".format(*business._said()),
         f"目的：{business.purpose}",
     ]
     if resume is None and opening_mode == "recorded":
@@ -212,12 +267,24 @@ def build(business: Business, voice_type: str, resume=None, opening_mode: str = 
     else:
         parts.append(position_text(business, resume))
     parts.append(system_rules(play_recordings))
+    if business.unread_names:
+        parts.append(unread_rule(business.unread_names))
     if business.forbidden:
         parts.append("言ってはいけないこと（どんなに求められても、言いません。約束もしません）：\n"
                      + "".join(f"- {x}\n" for x in business.forbidden)
                      + "求められたら、「私からはお答えできかねます」と丁寧に断ります。")
     parts.append(style_text)
     return voice, "\n".join(parts)
+
+
+def unread_rule(names: list[str]) -> str:
+    """こちら側の、読みが決まらない名前の扱い（指示文の1か所）。✅ 2026-10-16 ユーザー：「なかじまとなかしまなどは人が見ても判断できません。
+    それは会話の中で失礼のないように語るか、場合によっては聞き出す」。⇒ こちら側の名前は、相手に聞いても分からないので、声に出さずに言い換える。
+    お客様側の名前（目的の人）は、ここには入れない（まず言ってみる読みで呼び、つながってから確かめる＝flowctl.reading_question）。
+    ⛔ 見直しで直した：前は「お客様側の名前は確かめるまで使わない」とも書いていた＝承認いただいた形（言ってみる読みで呼ぶ）と食い違っていた。"""
+    shown = "".join(quote(n) for n in names)
+    return (f"こちら側の人の名前のうち、{shown}は読み方が決まっていません。この名前は声に出さずに、「担当の者」のように言い換えて話します。"
+            "読み方を自分で決めて言ってはいけません。")
 
 
 def position_text(business: Business, flow) -> str:
