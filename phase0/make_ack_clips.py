@@ -191,24 +191,50 @@ async def run(args) -> dict:
     return {"model": args.model, "made": made, "missing": [(m["type"], m["id"]) for m in made if not m.get("ok")]}
 
 
+# 前置きの一言を付けて読ませ、文の切れ目の無音のところで後ろの文だけを残す録音（声の高さ・速さには手を加えない。切るのは無音のところだけ）。
+# ✅ 2026-10-16 ユーザー：「少々お待ち、どれもダメ　理由は同じ　少々とお待ちに区切りがあるのと、いただいても、よろしいでしょうかと区切りがある」
+#    （10本とも。区切りは無音ではなく、確かめでは見分けられない）⇒「前に一言付けて自然な流れで読ませ、文の切れ目の無音のところで後ろの文だけを
+#    残す」案に「(2)で進めて」。⚠️ 区切りが少なくなるかは、まだ確かめていない（人の耳で選ぶ）
+CONTEXT = {"wait": "かしこまりました。"}
+CUT_GAP_S = 0.15   # 前置きの文と、残す文の間の無音の長さの下限（文の切れ目とみなす）
+CUT_KEEP_S = 0.03  # 残す文の声の始まりの前に残す無音（声の頭を切らないため）
+
+
+def cut_after_context(pcm: bytes, rate: int) -> bytes | None:
+    """前置きの文のあとの、最初の文の切れ目（CUT_GAP_S 以上の無音）から後ろだけを返す。切れ目が無ければ None。"""
+    runs = voice_runs(voiced(pcm, rate), 0.05)
+    for a, b in zip(runs, runs[1:]):
+        if b[0] - a[1] >= CUT_GAP_S:
+            start = max(0, int((b[0] - CUT_KEEP_S) * rate)) * 2
+            return pcm[start:]
+    return None
+
+
 async def take(client, args, vt: str, aid: str, text: str, how: str, voice_note: str = "") -> tuple[dict, bytes, int]:
     """1回読ませて、確かめる（両方の耳で読みが合う・声だけの長さが上限以内・文の途中に長い無音が無い・声の途中で切れていない）。
-    voice_note＝声そのものの指示（G-38 で比べる。空なら足さない）。"""
+    voice_note＝声そのものの指示（G-38 で比べる。空なら足さない）。
+    前置きのある言葉（CONTEXT）は、前置きと一緒に読ませて後ろだけを残し、残した声を確かめる（頭が欠けていないかも、耳で確かめる）。"""
     voice, style = voice_style(vt)
+    context = CONTEXT.get(aid, "")
     try:
         inst = (f"{style}{voice_note}\nあなたは音声の材料を作る係です。渡された言葉だけを、{HOW.get(how, DEFAULT_HOW)}、そのまま読み上げます。"
                 "言葉を足しません。")
         async with client.aio.live.connect(model=args.model, config=build_config(voice=voice, system_instruction=inst)) as s:
             t = time.monotonic()
-            await send_text(s, f"読み上げる言葉：{text}")
+            await send_text(s, f"読み上げる言葉：{context}{text}")
             turn = await collect_turn(s, started_at=t, timeout_s=60)
         pcm, rate = bytes(turn.audio), turn.audio_rate or 24000
+        if context and pcm:
+            pcm = cut_after_context(pcm, rate) or b""  # 文の切れ目が無ければ、使えない録り方
         seconds = speech_seconds(pcm, rate) if pcm else 0.0
         heard = await hear_feeds(client, pcm, rate) if pcm else {}
         ok = (bool(pcm) and heard_ok(text, heard) and seconds <= MAX_S[how] and long_pauses_ok(text, pcm, rate)
               and ends_in_silence(pcm, rate))
-        say(f"{vt} {text}：聞こえた {heard} 長さ {seconds:.2f}秒 合格={ok}")
-        return {"type": vt, "voice": voice, "id": aid, "text": text, "heard": heard, "ok": ok, "seconds": round(seconds, 2)}, pcm, rate
+        say(f"{vt} {context}{text}：聞こえた {heard} 長さ {seconds:.2f}秒 合格={ok}")
+        row = {"type": vt, "voice": voice, "id": aid, "text": text, "heard": heard, "ok": ok, "seconds": round(seconds, 2)}
+        if context:
+            row["context"] = context
+        return row, pcm, rate
     except Exception as exc:
         return {"type": vt, "id": aid, "text": text, "ok": False, "error": describe_error(exc)}, b"", 0
 

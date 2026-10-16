@@ -1673,6 +1673,18 @@ class RecordingCheckTest(unittest.TestCase):
         self.assertFalse(long_pauses_ok(text, long_lead, self.RATE))
         self.assertTrue(long_pauses_ok(text, ok_lead, self.RATE))
 
+    def test_cut_after_context_keeps_only_the_second_sentence(self):
+        """前置き「かしこまりました。」のあとの文の切れ目で切り、後ろだけを残す（声の頭の前に少し無音を残す）。切れ目が無ければ使わない。"""
+        from make_ack_clips import CUT_KEEP_S, cut_after_context
+        from barge import voice_runs, voiced
+        pcm = self.tone((0.1, False), (0.7, True), (0.4, False), (1.5, True), (0.3, False))
+        kept = cut_after_context(pcm, self.RATE)
+        runs = voice_runs(voiced(kept, self.RATE), 0.05)
+        self.assertEqual(len(runs), 1)                                    # 前置きの文は残らない
+        self.assertAlmostEqual(runs[0][0], CUT_KEEP_S, delta=0.02)        # 声の頭は切らない
+        self.assertAlmostEqual(runs[0][1] - runs[0][0], 1.5, delta=0.05)  # 後ろの文はそのまま
+        self.assertIsNone(cut_after_context(self.tone((0.1, False), (2.0, True), (0.3, False)), self.RATE))
+
     def test_short_comma_like_pause_is_rejected(self):
         """⛔ 2026-10-15：締めの候補は、文の途中の 0.12〜0.24秒の無音で「、」が入った言い方に聞こえた（ユーザー）。0.08秒は聞こえなかった。"""
         from make_ack_clips import long_pauses_ok
