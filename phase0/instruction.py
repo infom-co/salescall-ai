@@ -64,6 +64,13 @@ class Business:
         if not self.names:
             return
         import dataclasses
+        import unicodedata
+        # 名乗りの社名・担当者名の読みも、名前の一覧から取る（読みの正本は名前の一覧1つ。設定に読みが入っていれば、そちらを先に使う）
+        # ⛔ 見直し（2026-10-16 の2回目）：前は名乗りだけが company_reading／caller_reading を見て、一覧の読みを見ていなかった
+        # ＝一覧に読みがあっても、名乗りは漢字・質問の文はひらがな、と食い違いうる形だった
+        got = {unicodedata.normalize("NFKC", n["surface"]): n.get("reading") or "" for n in self.names if isinstance(n, dict) and n.get("surface")}
+        self.company_reading = self.company_reading or got.get(unicodedata.normalize("NFKC", self.company), "")
+        self.caller_reading = self.caller_reading or got.get(unicodedata.normalize("NFKC", self.caller), "")
         self.questions = [q if q.reading_of else dataclasses.replace(q, text=quote_in_text(q.text, self.names)) for q in self.questions]
         self.purpose_line = quote_in_text(self.purpose_line, self.names) if self.purpose_line else self.purpose_line
         self.busy_ask = quote_in_text(self.busy_ask, self.names) if self.busy_ask else self.busy_ask
