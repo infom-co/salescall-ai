@@ -105,8 +105,23 @@ def transcribe(client, model: str, clips: list[Path]) -> list[str]:
     return [got.get(n, "") for n in range(1, len(clips) + 1)]
 
 
+_VOWEL = {c: v for v, cs in {"あ": "あかさたなはまやらわがざだばぱぁゃ", "い": "いきしちにひみりぎじぢびぴぃ",
+                              "う": "うくすつぬふむゆるぐずづぶぷぅゅ", "え": "えけせてねへめれげぜでべぺぇ",
+                              "お": "おこそとのほもよろをごぞどぼぽぉょ"}.items() for c in cs}
+
+
 def h(s: str) -> str:
-    return compare_reading(s or "").replace(" ", "").replace("ー", "")
+    """比べる形：伸ばす音の書き方の違いを同じにする（「こーじー」「こおじい」「こうじい」⇒ 同じ）。
+    ⛔ 2026-10-16：書き起こしが「コージーコーナー」を「こおじいこおなあ」と書き、正しい読みを「ほかの読み」と数えていた（前は「ー」を消すだけ）。"""
+    out: list[str] = []
+    for c in compare_reading(s or "").replace(" ", ""):
+        out.append(_VOWEL.get(out[-1], "") if c == "ー" and out else c)
+    t = "".join(out)
+    for a, b in (("おう", "おお"), ("こう", "こお"), ("そう", "そお"), ("とう", "とお"), ("のう", "のお"), ("ほう", "ほお"), ("もう", "もお"),
+                 ("よう", "よお"), ("ろう", "ろお"), ("ごう", "ごお"), ("ぞう", "ぞお"), ("どう", "どお"), ("ぼう", "ぼお"), ("ぽう", "ぽお"),
+                 ("ょう", "ょお")):
+        t = t.replace(a, b)
+    return t
 
 
 def judge(kana: str, reading: str, wrong: str, method: str) -> str:
