@@ -65,11 +65,13 @@ class Apology(Helpers):
         with self.assertRaises(ValueError):                            # 業務設定に無い名前は、検証が残せない
             VerificationSummary(1, 0, 1, ())
 
-    def test_two_mistakes_in_one_apology(self):
+    def test_two_mistakes_in_one_apology_and_a_later_day(self):
         got = apology.text([{"wrong": "A", "correct": "a"}, {"wrong": "B", "correct": "b"}])
         self.assertEqual(got, "先ほどのお電話で、誤って「A」というご案内をしてしまいましたが、正しくは「a」となります。"
                               "また、誤って「B」というご案内をしてしまいましたが、正しくは「b」となります。"
                               "不正確なご案内をしてしまいまして、誠に申し訳ございませんでした。")
+        later = apology.text([{"wrong": "A", "correct": "a"}], same_day=False)
+        self.assertTrue(later.startswith("先日のお電話で、"))          # 翌日以降にかけ直したとき
 
     def test_delivered_ends_the_row_without_changing_the_result(self):
         s = self.fresh(stage_cap=20)

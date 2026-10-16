@@ -23,17 +23,22 @@ from uuid import UUID
 from salescall.core import business_rules, next_action
 from salescall.core.access import Tx
 
-# 2026-10-16 ユーザー決定の文面（「○○」に、誤って案内したことと正しい内容が入る）。誤りが2つ以上なら「また、…」で続ける
-TEMPLATE_FIRST = "先ほどのお電話で、誤って「{wrong}」というご案内をしてしまいましたが、正しくは「{correct}」となります。"
+# 2026-10-16 ユーザー決定の文面（「○○」に、誤って案内したことと正しい内容が入る）。誤りが2つ以上なら「また、…」で続ける。
+# 誤った通話と、お詫びの電話の日が違えば（相手が出ず、翌日以降にかけ直したとき）「先ほど」を「先日」にする（2026-10-16 ユーザー承認）
+TEMPLATE_FIRST = "{when}のお電話で、誤って「{wrong}」というご案内をしてしまいましたが、正しくは「{correct}」となります。"
+WHEN_SAME_DAY, WHEN_LATER = "先ほど", "先日"
 TEMPLATE_MORE = "また、誤って「{wrong}」というご案内をしてしまいましたが、正しくは「{correct}」となります。"
 TEMPLATE_END = "不正確なご案内をしてしまいまして、誠に申し訳ございませんでした。"
 
 
-def text(pairs: list[dict[str, str]]) -> str:
-    """伝える文面（1か所）。pairs＝[{"wrong": 誤って案内したこと, "correct": 正しい内容}, …]（1つ以上）。"""
+def text(pairs: list[dict[str, str]], *, same_day: bool = True) -> str:
+    """伝える文面（1か所）。pairs＝[{"wrong": 誤って案内したこと, "correct": 正しい内容}, …]（1つ以上）。
+    same_day＝誤った通話と同じ日（日本時間）に伝えるか（違えば「先日」）。"""
     if not pairs:
         raise ValueError("誤って案内したことが1つもありません")
-    parts = [(TEMPLATE_FIRST if n == 0 else TEMPLATE_MORE).format(wrong=p["wrong"].strip(), correct=p["correct"].strip())
+    when = WHEN_SAME_DAY if same_day else WHEN_LATER
+    parts = [(TEMPLATE_FIRST if n == 0 else TEMPLATE_MORE).format(when=when, wrong=p["wrong"].strip(),
+                                                                  correct=p["correct"].strip())
              for n, p in enumerate(pairs)]
     return "".join(parts) + TEMPLATE_END
 
@@ -74,8 +79,11 @@ def approve(tx: Tx, order_id: int) -> None:
 
 
 def for_task(tx: Tx, task_id: UUID) -> dict[str, Any] | None:
-    """その行の、承認されたいちばん新しいお詫びの案と、伝える文面（無ければ None）。"""
-    row = tx.one("SELECT o.order_id, o.source_attempt_id, o.pairs FROM salescall.apology_orders o"
-                 " JOIN salescall.apology_approvals p ON p.order_id = o.order_id"
+    """その行の、承認されたいちばん新しいお詫びの案と、いま伝える文面（無ければ None。誤った通話と今日の日付で「先ほど」か
+    「先日」かが決まる）。"""
+    row = tx.one("SELECT o.order_id, o.source_attempt_id, o.pairs,"
+                 "       salescall.jst(a.claimed_at)::date = salescall.jst(now())::date AS same_day"
+                 " FROM salescall.apology_orders o JOIN salescall.apology_approvals p ON p.order_id = o.order_id"
+                 " JOIN salescall.attempts a ON a.attempt_id = o.source_attempt_id"
                  " WHERE o.task_id = %s ORDER BY o.order_id DESC LIMIT 1", (task_id,))
-    return None if row is None else dict(row, text=text(row["pairs"]))
+    return None if row is None else dict(row, text=text(row["pairs"], same_day=row["same_day"]))
