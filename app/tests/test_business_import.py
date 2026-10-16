@@ -78,7 +78,9 @@ class Import(unittest.TestCase):
 
     def test_register_refuses_a_changed_preview(self):
         p = self.preview(book(), confirmed_names=ALL_NAMES)
-        other = book(sheets={"名前": [("表記", "読み"), ("テスト便", "てすとべん")]})
+        other = book(sheets={"基本": [("項目", "値"), ("業務の目的", "目的を書き換えた"), ("自社名", "株式会社テスト物流"),
+                                     ("自社名の読み", "かぶしきがいしゃてすとぶつりゅう"), ("担当者名", "山田"),
+                                     ("担当者名の読み", "やまだ"), ("目的の人", "誰でも"), ("声の型", "S2")]})
         with self.assertRaises(bi.PreviewChanged):
             self.tx(lambda tx: bi.register(tx, self.s["business"], "業務設定.xlsx", other, expected_digest=p.digest,
                                            confirmed_names=ALL_NAMES))
@@ -99,6 +101,45 @@ class Import(unittest.TestCase):
     def test_words_in_quotes_that_may_be_names(self):
         p = self.preview(book(sheets={"名前": [("表記", "読み")]}), confirmed_names=ALL_NAMES)
         self.assertEqual(p.maybe_names, ["テスト便"])                    # 「」の中の、名前の一覧に無い言葉
+
+    def test_missing_reading_uses_the_ai_suggestion_and_a_person_confirms(self):
+        """読みが無ければ AI の読みの案を出し、人が確かめる（直してもよい）。2026-10-16 ユーザー：「検証中はAIが認識したものを
+        私が確認します」。"""
+        data = book(sheets={"名前": [("表記", "読み"), ("テスト便", None)]})
+        asked = []
+
+        def ai(texts):
+            asked.extend(texts)
+            return {"テスト便": "てすとべん"}                            # AI の案（誤り）
+        p = self.preview(data, suggest_readings=ai)
+        self.assertEqual(asked, ["テスト便"])
+        self.assertIn({"text": "テスト便", "reading": "てすとべん", "source": "script", "by": "AI の読みの案"},
+                      p.names_to_confirm)
+        fixed = ALL_NAMES                                                 # 人が「てすとびん」に直して確かめた
+        p = self.preview(data, suggest_readings=ai, confirmed_names=fixed)
+        self.assertEqual(p.problems, [])
+        v = self.tx(lambda tx: bi.register(tx, self.s["business"], "業務設定.xlsx", data, expected_digest=p.digest,
+                                           confirmed_names=fixed, suggest_readings=ai))
+        got = self.tx(lambda tx: bs.load(tx, v))
+        self.assertIn(bs.Name("テスト便", "てすとびん", "script"), got.names)
+
+    def test_no_reading_and_no_suggestion_is_a_problem(self):
+        p = self.preview(book(sheets={"名前": [("表記", "読み"), ("テスト便", None)]}), confirmed_names=ALL_NAMES[:2])
+        self.assertTrue(any("名前「テスト便」の読みがありません" in x for x in p.problems), p.problems)
+
+    def test_other_entrances_go_the_same_way(self):
+        """依頼主の画面から抜き出した中身（同じ形）も、同じ確かめと登録の道を通る。"""
+        from tests.test_business_settings import raw
+        extracted = raw()
+        for n in extracted["names"]:
+            n["confirmed"] = False                                        # 抜き出した側は確かめを持たない
+        p = self.tx(lambda tx: bi.review(tx, extracted))
+        self.assertTrue(p.problems)                                       # 人が読みを確かめるまで登録できない
+        ok = [("テスト物流", "てすとぶつりゅう"), ("株式会社テスト物流", "かぶしきがいしゃてすとぶつりゅう")]
+        p = self.tx(lambda tx: bi.review(tx, extracted, confirmed_names=ok))
+        self.assertEqual(p.problems, [])
+        v = self.tx(lambda tx: bi.register_reviewed(tx, self.s["business"], p, expected_digest=p.digest))
+        self.assertEqual(self.tx(lambda tx: bs.load(tx, v)).company.text, "株式会社テスト物流")
 
     def test_nothing_is_written_on_problems(self):
         bad = book(drop=("かけ直し",))

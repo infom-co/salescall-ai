@@ -1,15 +1,17 @@
 """業務設定の取込（引き継ぎの (10)。Intent.md 6-1 の方式B・6-4・6-5・6-8）。持ち主 CL-2。
 
-Excel のファイル（標準のひな形。シートと列の名前は、依頼主の形に合わせて対応付けられる）を、業務設定の1つの形
-（core/business_settings.py の `check` が受ける形）にするだけ。**確かめは business_settings の1か所**（ここで2つ目を作らない）。
-ファイルを読むのは core/import_files.py。
+入口ごとに、業務設定の1つの形（core/business_settings.py の `check` が受ける形）にするだけ。入口は、Excel のファイル
+（標準のひな形。シートと列の名前は、依頼主の形に合わせて対応付けられる＝`preview`）と、依頼主の画面から抜き出したもの・画面の
+入力（同じ形を作って `review` に渡す。2026-10-16 ユーザー：「依頼主の画面から抽出する場合もある」）。**どの入口も `review`
+（確かめ）と `register_reviewed`（登録）の同じ道を通る**。確かめそのものは business_settings の1か所。ファイルを読むのは
+core/import_files.py。
 
 流れ（Intent.md 6-5）：`preview`（何も書かない）⇒ 人が問題を直し、名前の読みを確かめる ⇒ `register`（プレビューと同じ中身の
 ときだけ、新しい版を作る。全部か、何も無いか）。
 
 - 標準のひな形の、シート・列・言葉の名前の正本は、この部品の `SHEETS`・`LABELS`（画面のひな形の書き出しも、これを読む）。
-- 名前の読み（Intent.md 6-8）：ファイルの名乗りと「名前」のシートの名前は、人がプレビューで読みを確かめたもの（`confirmed`）だけを
-  登録できる。質問の文などの「」の中の言葉で、名前の一覧に無いものは「名前かもしれない言葉」として示す（枠だけ。⏳ 候補の
+- 名前の読み（Intent.md 6-8）：名乗りと「名前」のシートの名前は、人がプレビューで読みを確かめたもの（`confirmed`）だけを
+  登録できる。読みが無ければ、AI の読みの案（`ReadingSuggester`。作るのは CL-1）を出し、人が確かめる（直してもよい）。質問の文などの「」の中の言葉で、名前の一覧に無いものは「名前かもしれない言葉」として示す（枠だけ。⏳ 候補の
   出し方は CL-1 が比べている。PHASE0 G-23）。
 - 「わからない・答えたくない」のシートは、質問ID「全部」の行で、必須の質問すべての扱いを1度に書ける（質問ごとの行があれば、
   そちらが勝つ）。
@@ -20,6 +22,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 from uuid import UUID
@@ -134,8 +137,7 @@ def _split(value: str | None) -> list[str] | None:
     return None if not value else [x.strip() for x in _SPLIT.split(value) if x.strip()]
 
 
-def _to_raw(sheets: dict[str, tuple[Sheet, dict[str, int]]], confirmed: set[tuple[str, str]],
-            problems: list[str]) -> tuple[dict[str, Any], list[dict[str, str]], list[str]]:
+def _to_raw(sheets: dict[str, tuple[Sheet, dict[str, int]]], problems: list[str]) -> tuple[dict[str, Any], list[str]]:
     basic: dict[str, str | None] = {}
     for row_no, v in _rows(sheets, "basic", problems):
         item = BASIC_ITEMS.get(v.get("item") or "")
@@ -211,16 +213,13 @@ def _to_raw(sheets: dict[str, tuple[Sheet, dict[str, int]]], confirmed: set[tupl
     for row_no, v in _rows(sheets, "forbidden", problems):
         forbidden[v.get("key") or f"行{row_no}"] = {"say_not": v.get("say_not"), "correct": v.get("correct")}
 
-    names, to_confirm = [], []
+    names = []
     pairs = [(basic.get("company"), basic.get("company_reading"), "caller"),
              (basic.get("person"), basic.get("person_reading"), "caller")]
     pairs += [(v.get("text"), v.get("reading"), "script") for _, v in _rows(sheets, "names", problems)]
     for text, reading, source in pairs:
-        if text and reading:
-            ok = (text, reading) in confirmed
-            names.append({"text": text, "reading": reading, "source": source, "confirmed": ok})
-            if not ok:
-                to_confirm.append({"text": text, "reading": reading, "source": source})
+        if text:                                   # 読みは無くてもよい（AI の読みの案を人が確かめる。`review`）
+            names.append({"text": text, "reading": reading, "source": source, "confirmed": False})
     raw = {
         "purpose": basic.get("purpose"),
         "caller": {"company": {"text": basic.get("company"), "reading": basic.get("company_reading")},
@@ -231,41 +230,91 @@ def _to_raw(sheets: dict[str, tuple[Sheet, dict[str, int]]], confirmed: set[tupl
         "questions": questions, "names": names,
         "rules": {"decline": decline, "handling": handling, "retry": retry, "forbidden": forbidden},
     }
-    texts = [q.get("text") or "" for q in questions] + [basic.get("purpose_line") or "", basic.get("busy_line") or ""]
-    known = {n["text"] for n in names}
-    maybe = sorted({m for t in texts for m in _QUOTED.findall(t) if m not in known})
-    return raw, to_confirm, maybe
+    return raw, problems
 
 
 def _field_types(tx: Tx) -> frozenset[str]:
     return frozenset(r["type_name"] for r in tx.all("SELECT type_name FROM salescall.field_types"))
 
 
-def preview(tx: Tx, file_name: str, data: bytes, *, mapping: dict[str, Any] | None = None,
-            confirmed_names: list[tuple[str, str]] = ()) -> Preview:
-    """ファイルを業務設定の形にして、確かめた結果を返す（何も書かない）。confirmed_names＝人が読みを確かめた（表記, 読み）。"""
-    sheets, problems = _sheets(file_name, data, mapping or {})
-    if problems and not sheets:
-        return Preview(None, problems, [])
-    raw, to_confirm, maybe = _to_raw(sheets, set(map(tuple, confirmed_names)), problems)
+ReadingSuggester = Callable[[list[str]], dict[str, str]]
+"""名前の読みの案を出す処理（表記の並び → 表記ごとの読み）。AI（文字のモデル）で出すのは会話の担当 CL-1（Gemini のキーを
+使うのは CL-1 だけ）。案は案：人が確かめる（2026-10-16 ユーザー：「検証中はAIが認識したものを私が確認します」）。"""
+
+
+def review(tx: Tx, raw: dict[str, Any], *, confirmed_names: Any = (), suggest_readings: ReadingSuggester | None = None,
+           problems: list[str] | None = None) -> Preview:
+    """業務設定の形を確かめる（どの入口も、ここを通る：ファイル・依頼主の画面から抜き出したもの・画面の入力）。何も書かない。
+    - 名前の読み：人が確かめた読み（confirmed_names＝(表記, 読み) の並び。人が直した読みも、ここで渡す）＞入口が持ってきた読み＞
+      AI の読みの案（suggest_readings）の順で使い、**人が確かめた読みと同じものだけ**を「確かめた」にする（確かめていない名前があれば
+      登録できない。Intent.md 6-8）。名乗りの自社名・担当者名の読みも、名前の一覧と同じ読みにそろえる。
+    - 「」の中の言葉で、名前の一覧に無いものを「名前かもしれない言葉」として示す（枠だけ）。"""
+    problems = list(problems or [])
+    raw = json.loads(json.dumps(raw, ensure_ascii=False))           # 受けたものを変えない
+    confirmed = {t: r for t, r in confirmed_names}
+    names = raw.get("names") if isinstance(raw.get("names"), list) else []
+    missing = [n.get("text") for n in names if isinstance(n, dict) and n.get("text")
+               and not n.get("reading") and n.get("text") not in confirmed]
+    suggested = suggest_readings(missing) if suggest_readings and missing else {}
+    to_confirm = []
+    for n in names:
+        if not isinstance(n, dict) or not n.get("text"):
+            continue
+        text = n["text"]
+        given = n.get("reading")
+        reading = confirmed.get(text) or given or suggested.get(text)
+        n["reading"], n["confirmed"] = reading, reading is not None and confirmed.get(text) == reading
+        if reading is None:
+            problems.append(f"名前「{text}」の読みがありません（読みを入れるか、AI の読みの案を確かめてください）")
+        elif not n["confirmed"]:
+            to_confirm.append({"text": text, "reading": reading, "source": n.get("source"),
+                               "by": "入口の読み" if given else "AI の読みの案"})
+    caller = raw.get("caller") if isinstance(raw.get("caller"), dict) else {}
+    for key in ("company", "person"):
+        c = caller.get(key)
+        if isinstance(c, dict) and c.get("text"):
+            same = next((n for n in names if isinstance(n, dict) and n.get("text") == c["text"]), None)
+            if same is not None:
+                c["reading"] = same["reading"]
     try:
         business_settings.check(raw, field_types=_field_types(tx))   # 確かめは1か所（業務の決まりも、この中）
     except business_settings.SettingsInvalid as e:
-        problems += e.problems
+        problems += [p for p in e.problems if p not in problems]
+    questions = raw.get("questions") if isinstance(raw.get("questions"), list) else []
+    texts = [q.get("text") or "" for q in questions if isinstance(q, dict)]
+    texts += [caller.get("purpose_line") or "", raw.get("busy_line") or ""]
+    known = {n.get("text") for n in names if isinstance(n, dict)}
+    maybe = sorted({m for t in texts if isinstance(t, str) for m in _QUOTED.findall(t) if m not in known})
     digest = hashlib.sha256(json.dumps(raw, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
     return Preview(raw, problems, to_confirm, maybe, digest)
+
+
+def preview(tx: Tx, file_name: str, data: bytes, *, mapping: dict[str, Any] | None = None,
+            confirmed_names: Any = (), suggest_readings: ReadingSuggester | None = None) -> Preview:
+    """ファイル（入口の1つ）を業務設定の形にして、確かめた結果を返す（何も書かない）。"""
+    sheets, problems = _sheets(file_name, data, mapping or {})
+    if problems and not sheets:
+        return Preview(None, problems, [])
+    raw, problems = _to_raw(sheets, problems)
+    return review(tx, raw, confirmed_names=confirmed_names, suggest_readings=suggest_readings, problems=problems)
 
 
 class PreviewChanged(Exception):
     """プレビューのあとで、ファイル・対応付け・名前の確かめが変わった（もう一度プレビューを確かめる）。"""
 
 
-def register(tx: Tx, business_id: UUID, file_name: str, data: bytes, *, expected_digest: str,
-             mapping: dict[str, Any] | None = None, confirmed_names: list[tuple[str, str]] = ()) -> UUID:
-    """人が確かめたプレビューと同じ中身なら、新しい版を作る（1つの取引。問題が1つでもあれば何も書かない）。版の番号を返す。"""
-    p = preview(tx, file_name, data, mapping=mapping, confirmed_names=confirmed_names)
+def register_reviewed(tx: Tx, business_id: UUID, p: Preview, *, expected_digest: str) -> UUID:
+    """人が確かめたプレビューと同じ中身なら、新しい版を作る（どの入口も、ここを通る。1つの取引。問題が1つでもあれば何も書かない）。"""
     if p.digest != expected_digest:
         raise PreviewChanged("プレビューのあとで中身が変わりました。もう一度プレビューを確かめてください")
     if p.problems or p.raw is None:
         raise business_settings.SettingsInvalid(p.problems)
     return business_settings.save_version(tx, business_id, p.raw)
+
+
+def register(tx: Tx, business_id: UUID, file_name: str, data: bytes, *, expected_digest: str,
+             mapping: dict[str, Any] | None = None, confirmed_names: Any = (),
+             suggest_readings: ReadingSuggester | None = None) -> UUID:
+    """ファイルの入口の登録：読み直して、プレビューと同じ中身なら版を作る。"""
+    p = preview(tx, file_name, data, mapping=mapping, confirmed_names=confirmed_names, suggest_readings=suggest_readings)
+    return register_reviewed(tx, business_id, p, expected_digest=expected_digest)
