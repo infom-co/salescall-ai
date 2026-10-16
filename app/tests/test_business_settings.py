@@ -26,24 +26,24 @@ def raw() -> dict:
         "voice": "S2",
         "questions": [
             {"id": "Q1", "text": "ご予約はなさいますか。", "ask_about": "ご予約", "type": "choice", "required": True,
-             "choices": ["する", "しない"], "next": {"しない": "END", "*": "Q2"}},
+             "choices": ["する", "しない"], "next": {"しない": "END", "*": "Q2"}, "unit": None},
             {"id": "Q2", "text": "ご希望の日時をお聞かせください。", "ask_about": "ご希望の日時", "type": "datetime",
-             "required": True, "choices": None, "next": None},
+             "required": True, "choices": None, "next": None, "unit": None},
         ],
-        "names": [{"text": "テスト物流", "reading": "てすとぶつりゅう", "source": "caller", "confirmed": True}],
+        "names": [{"text": "テスト物流", "reading": "てすとぶつりゅう", "source": "caller", "reading_by": "given"}],
         "rules": r,
     }
 
 
 def problems_of(r: dict) -> list[str]:
     with unittest.TestCase().assertRaises(bs.SettingsInvalid) as e:
-        bs.check(r, field_types=FIELD_TYPES)
+        bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True)
     return e.exception.problems
 
 
 class Check(unittest.TestCase):
     def test_valid_and_flow(self):
-        s = bs.check(raw(), field_types=FIELD_TYPES)
+        s = bs.check(raw(), field_types=FIELD_TYPES, ai_reading_needs_person=True)
         self.assertEqual(s.questions[1].choices, ("答えた",))            # 値を聞く質問の選択肢は型で決まる
         self.assertEqual((s.next_of("Q1", "しない"), s.next_of("Q1", "する"), s.next_of("Q1", "わからない"),
                           s.next_of("Q2", "答えた")), ("END", "Q2", "Q2", "END"))
@@ -55,7 +55,9 @@ class Check(unittest.TestCase):
         r = raw(); r["questions"][1]["next"] = {"*": "Q1"}; cases.append((r, "終わらない輪"))
         r = raw(); r["questions"][0]["next"] = {"*": "END"}; cases.append((r, "質問 Q2 へは、どこからも行きません"))
         r = raw(); r["rules"]["decline"] = {}; cases.append((r, "必須の質問 Q2 を聞かずに終わる道があります"))
-        r = raw(); r["names"][0]["confirmed"] = False; cases.append((r, "読みを、まだ人が確かめていません"))
+        r = raw(); r["names"][0]["reading_by"] = "ai"; cases.append((r, "AI の案です。検証中は、人が確かめてから"))
+        r = raw(); r["names"][0]["reading_by"] = None; cases.append((r, "reading_by"))
+        r = raw(); r["questions"][1]["unit"] = "人"; cases.append((r, "単位は、数の型（number）の質問だけ"))
         r = raw(); r["questions"][0]["choices"] = ["する", "わからない"]; cases.append((r, "システムが足す答え"))
         r = raw(); r["questions"][0]["choices"] = ["する", "-"]; cases.append((r, "出力の印"))
         r = raw(); r["rules"]["decline"] = {"Q1": ["やめる"]}; cases.append((r, "断りの答え「やめる」は、その質問の選択肢にありません"))
@@ -80,14 +82,22 @@ class Check(unittest.TestCase):
         self.assertFalse(any("分岐先" in p or "どこからも" in p for p in got), got)   # 読めない質問の巻き添えの理由を出さない
 
     def test_all_problems_are_listed_at_once(self):
-        r = raw(); r["purpose"] = ""; r["voice"] = ""; r["names"][0]["confirmed"] = False
+        r = raw(); r["purpose"] = ""; r["voice"] = ""; r["names"][0]["reading_by"] = "ai"
         self.assertGreaterEqual(len(problems_of(r)), 3)                # 1つずつではなく、まとめて示す
 
     def test_system_answers_may_skip(self):
         """「わからない」「答えたくない」で次へ進むのは、理由×扱いで決まる（飛ばしでは止めない）。"""
         r = raw()
         r["questions"][0]["next"] = {"しない": "END", "わからない": "END", "*": "Q2"}
-        bs.check(r, field_types=FIELD_TYPES)
+        bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True)
+
+    def test_ai_reading_and_unit(self):
+        """AI の読みの案は、検証を終えたら人が確かめずに通る。数の質問は単位を持てる。"""
+        r = raw(); r["names"][0]["reading_by"] = "ai"
+        s = bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=False)
+        self.assertEqual(s.names[0].reading_by, "ai")
+        r = raw(); r["questions"][1].update(type="number", unit="名")
+        self.assertEqual(bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True).questions[1].unit, "名")
 
 
 class Versions(unittest.TestCase):

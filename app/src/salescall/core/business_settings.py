@@ -13,8 +13,12 @@
   システムの答えでもないのに飛ばすと、判定が「一部だけ取れた」になり、断った相手にかけ直すことになる）／読みを確かめていない名前／
   必須の質問が1つも無い／選択肢の名前が、出力の印・システムが足す答えと同じ／断りの答えが選択肢に無い／業務の決まりの確かめ。
   「終了条件の矛盾」は、この形では起きない（終わりは、分岐の「終わり」か最後の質問の次の1つだけ）。
-- 名前の洗い出し（Intent.md 6-8）は枠だけ：取込の処理が候補を出し、人がプレビューで読みを確かめる（確かめた印 confirmed）。
-  ⏳ 候補の出し方（単語に分ける処理か、文字のモデルか）は CL-1 が比べている（PHASE0 G-23）。
+- 名前の読み（Intent.md 6-8）：読みごとに、誰が決めたか（`reading_by`：入口が持ってきた／AI の案／人が確かめた）を持つ。
+  **人が確かめるのは、検証中の AI の案だけ**（2026-10-16 ユーザー：「検証中はAIが認識したものを私が確認します」。人は介在しない
+  仕組みなので、検証が終われば確かめない）。確かめるかは設定 `names.ai_reading_by_person` で、読むのはここだけ（機械が見張る）。
+  ⏳ 名前の候補の出し方（単語に分ける処理か、文字のモデルか）は CL-1 が比べている（PHASE0 G-23）。
+- 数の質問の単位（`unit`。CL-1 の連絡帳 4-14）：数の型の質問だけが持つ（空でもよい＝補わない）。決めるのは取込のときのプログラム
+  （CL-1 の決め方。人は確かめない）。この部品は形を確かめるだけ。
 """
 
 from __future__ import annotations
@@ -24,7 +28,7 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
-from salescall.core import business_rules, quality_stage
+from salescall.core import business_rules, quality_stage, settings
 from salescall.core.access import Tx
 
 END = "END"                                       # 分岐の行き先「終わり」
@@ -36,6 +40,9 @@ OUTPUT_MARKS = ("-", "✕")                         # 依頼主へ渡す印の�
 TARGET_PERSON_KINDS = ("role", "role_and_name", "name", "anyone")
 # 役職のみ（決裁権者を含む）／役職（部署）＋名前／名前のみ／その店・会社の人なら誰でも（Intent.md 6-2。2026-10-13 ユーザー）
 NAME_SOURCES = ("caller", "script")               # 名乗り（自社名・担当者名）／トークスクリプトの文章（商品名・地名など）
+READING_BY = ("given", "ai", "person")            # 読みを決めたもの：入口が持ってきた／AI の読みの案／人が確かめた（直した）
+UNIT_TYPE = "number"                              # 単位を持てる型（金額には補わない。DESIGN.md 6-2 の ⚠️）
+QUESTION_KEYS = {"id", "text", "ask_about", "type", "required", "choices", "next", "unit"}
 
 
 class SettingsInvalid(Exception):
@@ -51,6 +58,7 @@ class Name:
     text: str
     reading: str
     source: str
+    reading_by: str = "given"
 
 
 @dataclass(frozen=True)
@@ -62,6 +70,7 @@ class Question:
     required: bool
     choices: tuple[str, ...]     # 依頼主が書いた選択肢（値を聞く質問は「答えた」、はい／いいえは「はい」「いいえ」）
     next: dict[str, str]         # 答え → 次の質問の番号か END（空＝並びの次へ）
+    unit: str | None = None      # 数の質問の単位（例：「人」。空なら補わない。CL-1 の 4-14）
 
 
 @dataclass(frozen=True)
@@ -129,9 +138,10 @@ def _choices(raw: Any, type_name: str, where: str, problems: list[str]) -> tuple
     return names
 
 
-def check(raw: Any, *, field_types: frozenset[str]) -> Settings:
+def check(raw: Any, *, field_types: frozenset[str], ai_reading_needs_person: bool) -> Settings:
     """業務設定を確かめて読む（ただ1つの確かめ。業務の決まりは版を作るときに business_rules が確かめる）。
-    合わなければ SettingsInvalid（見つけた理由をすべて並べる）。"""
+    ai_reading_needs_person：AI の読みの案を、人が確かめていなければ通さないか（版を作るときは設定 `ai_reading_needs_person`
+    の答え。置いた版を読むときは False＝置いた時に確かめ済み）。合わなければ SettingsInvalid（見つけた理由をすべて並べる）。"""
     problems: list[str] = []
     if not isinstance(raw, dict) or set(raw) != KEYS:
         raise SettingsInvalid([f"業務設定は {sorted(KEYS)} の {len(KEYS)} つです"])
@@ -165,8 +175,8 @@ def check(raw: Any, *, field_types: frozenset[str]) -> Settings:
         seen: set[str] = set()
         for n, q in enumerate(raw["questions"], 1):
             where = f"質問 {n} 番目"
-            if not isinstance(q, dict) or set(q) != {"id", "text", "ask_about", "type", "required", "choices", "next"}:
-                problems.append(f"{where}は id・text・ask_about・type・required・choices・next です")
+            if not isinstance(q, dict) or set(q) != QUESTION_KEYS:
+                problems.append(f"{where}は id・text・ask_about・type・required・choices・next・unit です")
                 continue
             qid = q["id"]
             if not isinstance(qid, str) or not qid or len(qid) > 32 or not all(c.isascii() and (c.isalnum() or c in "_-")
@@ -190,23 +200,27 @@ def check(raw: Any, *, field_types: frozenset[str]) -> Settings:
             if not isinstance(nxt, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in nxt.items()):
                 problems.append(f"{where}の分岐（next）は、答え → 次の質問の番号か {END} の表です")
                 nxt = {}
+            unit = _text(q["unit"], f"{where}の単位", problems, optional=True)
+            if unit is not None and q["type"] != UNIT_TYPE:
+                problems.append(f"{where}の単位は、数の型（{UNIT_TYPE}）の質問だけが持てます")
             questions.append(Question(qid, _text(q["text"], f"{where}の文", problems) or "",
                                       _text(q["ask_about"], f"{where}の聞くこと", problems, optional=True),
-                                      q["type"], bool(q["required"]), choices, dict(nxt)))
+                                      q["type"], bool(q["required"]), choices, dict(nxt), unit))
     names: list[Name] = []
     if not isinstance(raw["names"], list):
         problems.append("名前の一覧（names）は並びです")
     else:
         for n, x in enumerate(raw["names"], 1):
-            if not isinstance(x, dict) or set(x) != {"text", "reading", "source", "confirmed"} \
-                    or x.get("source") not in NAME_SOURCES:
-                problems.append(f"名前 {n} 番目は text・reading・source（{list(NAME_SOURCES)}）・confirmed です")
+            if not isinstance(x, dict) or set(x) != {"text", "reading", "source", "reading_by"} \
+                    or x.get("source") not in NAME_SOURCES or x.get("reading_by") not in READING_BY:
+                problems.append(f"名前 {n} 番目は text・reading・source（{list(NAME_SOURCES)}）・reading_by（{list(READING_BY)}）です")
                 continue
-            if x["confirmed"] is not True:
-                problems.append(f"名前「{x['text']}」の読みを、まだ人が確かめていません（Intent.md 6-8）")
+            if x["reading_by"] == "ai" and ai_reading_needs_person:
+                problems.append(f"名前「{x['text']}」の読み「{x['reading']}」は AI の案です。検証中は、人が確かめてから使います"
+                                "（Intent.md 6-8）")
             nm = _name({"text": x["text"], "reading": x["reading"]}, f"名前 {n} 番目", x["source"], problems)
             if nm is not None:
-                names.append(nm)
+                names.append(Name(nm.text, nm.reading, nm.source, x["reading_by"]))
     if questions and not any(q.required for q in questions):
         problems.append("必須の質問が1つもありません（どんな通話でも「すべて取れた」になる。Intent.md 6-4）")
     s = Settings(purpose or "", company or Name("", "", "caller"), person or Name("", "", "caller"), purpose_line,
@@ -297,6 +311,15 @@ def _field_types(tx: Tx) -> frozenset[str]:
     return frozenset(r["type_name"] for r in tx.all("SELECT type_name FROM salescall.field_types"))
 
 
+def ai_reading_needs_person(tx: Tx, business_id: UUID) -> bool:
+    """その業務で、AI の読みの案を人が確かめてから使うか（設定 names.ai_reading_by_person を読むのは、ここだけ）。"""
+    b = tx.one("SELECT tenant_id, client_id FROM salescall.businesses WHERE business_id = %s", (business_id,))
+    if b is None:
+        raise LookupError(f"その業務は無い（または、取引の範囲の外）：{business_id}")
+    return bool(settings.resolve(tx, "names.ai_reading_by_person", tenant_id=b["tenant_id"], client_id=b["client_id"],
+                                 business_id=business_id))
+
+
 def _content(s: Settings) -> dict[str, Any]:
     """中身の表に置く形（業務の決まりは business_rules に置くので入れない）。"""
     return {k: v for k, v in s.raw.items() if k != "rules"}
@@ -304,7 +327,7 @@ def _content(s: Settings) -> dict[str, Any]:
 
 def save_version(tx: Tx, business_id: UUID, raw: dict[str, Any]) -> UUID:
     """業務設定を確かめて、新しい版を作る（1つの取引。確かめに通らなければ何も置かない）。版の番号を返す。"""
-    s = check(raw, field_types=_field_types(tx))
+    s = check(raw, field_types=_field_types(tx), ai_reading_needs_person=ai_reading_needs_person(tx, business_id))
     version = tx.one(
         "INSERT INTO salescall.business_versions (tenant_id, client_id, business_id, version_no, created_by)"
         " SELECT b.tenant_id, b.client_id, b.business_id,"
@@ -335,7 +358,7 @@ def load(tx: Tx, version_id: UUID) -> Settings:
         raise LookupError(f"その版の業務設定の中身がありません：{version_id}")
     rules = business_rules.load(tx, version_id)
     raw = dict(row["content"], rules=_rules_raw(tx, version_id))
-    s = check(raw, field_types=_field_types(tx))
+    s = check(raw, field_types=_field_types(tx), ai_reading_needs_person=False)   # 置いた時に確かめ済み
     return Settings(**{**s.__dict__, "rules": rules})
 
 
