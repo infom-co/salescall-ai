@@ -1,7 +1,9 @@
 """承認の部分（検証モード。DESIGN.md 10-1 の3・10-2）。持ち主 CL-2。
 
 - **いまどちらのモードか（設定 approval.human）を読むのは、この部品だけ**（I-13。app/checks が見張る）。門・締めの処理は、
-  ここに問い合わせるだけ（判定の処理はモードを読まない＝両モードで1文字も変わらない）。
+  ここに問い合わせるだけ（判定の処理はモードを読まない＝両モードで1文字も変わらない）。業務設定の版を作るとき、AI の名前の
+  読みの案を人が確かめるか（検証モードのあいだだけ。2026-10-16 ユーザー：「検証中はAIが認識したものを私が確認します」）も、
+  ここに問い合わせる（`human_for_business`。検証の切り替えは1つ）。
 - 発信の前（`task_cleared`。門が呼ぶ）：人の承認を使う業務では、運営者が承認した行だけを通す（承認の記録は `approve_task`）。
 - 「送ってよい」の印（result_releases）を付けるのも、ここだけ：
   - フルオート（`after_judged`。締めの処理が判定のあとに呼ぶ）：判定した版に自動で付ける。**ただし最初の段の版の結果は、その段の
@@ -19,11 +21,19 @@ from salescall.core import quality_stage, results, settings
 from salescall.core.access import Tx
 
 
+def human_for_business(tx: Tx, business_id: UUID) -> bool:
+    """その業務が検証モード（人の承認を使う）か。"""
+    b = tx.one("SELECT tenant_id, client_id FROM salescall.businesses WHERE business_id = %s", (business_id,))
+    if b is None:
+        raise LookupError(f"その業務は無い（または、取引の範囲の外）：{business_id}")
+    return bool(settings.resolve(tx, "approval.human", tenant_id=b["tenant_id"], client_id=b["client_id"],
+                                 business_id=business_id))
+
+
 def _human(tx: Tx, task_id: UUID) -> bool:
-    s = tx.one("SELECT t.tenant_id, t.client_id, r.business_id FROM salescall.tasks t"
+    s = tx.one("SELECT r.business_id FROM salescall.tasks t"
                " JOIN salescall.runs r ON r.client_id = t.client_id AND r.run_id = t.run_id WHERE t.task_id = %s", (task_id,))
-    return bool(settings.resolve(tx, "approval.human", tenant_id=s["tenant_id"], client_id=s["client_id"],
-                                 business_id=s["business_id"]))
+    return human_for_business(tx, s["business_id"])
 
 
 def task_cleared(tx: Tx, task_id: UUID) -> bool:

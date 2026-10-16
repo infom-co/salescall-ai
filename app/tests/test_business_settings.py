@@ -18,6 +18,7 @@ def raw() -> dict:
     r = rules_raw(required=("Q1", "Q2"), decline={"Q1": ["しない"]})
     return {
         "purpose": "予約の希望日時を伺う",
+        "target_class": "corporate",
         "caller": {"company": {"text": "株式会社テスト物流", "reading": "かぶしきがいしゃてすとぶつりゅう"},
                    "person": {"text": "山田", "reading": "やまだ"},
                    "purpose_line": "ご予約の確認でお電話いたしました。"},
@@ -55,7 +56,7 @@ class Check(unittest.TestCase):
         r = raw(); r["questions"][1]["next"] = {"*": "Q1"}; cases.append((r, "終わらない輪"))
         r = raw(); r["questions"][0]["next"] = {"*": "END"}; cases.append((r, "質問 Q2 へは、どこからも行きません"))
         r = raw(); r["rules"]["decline"] = {}; cases.append((r, "必須の質問 Q2 を聞かずに終わる道があります"))
-        r = raw(); r["names"][0]["reading_by"] = "ai"; cases.append((r, "AI の案です。検証中は、人が確かめてから"))
+        r = raw(); r["names"][0]["reading_by"] = "ai"; cases.append((r, "AI の案です。検証モードでは、人が確かめてから"))
         r = raw(); r["names"][0]["reading_by"] = None; cases.append((r, "reading_by"))
         r = raw(); r["questions"][1]["unit"] = "人"; cases.append((r, "単位は、数の型（number）の質問だけ"))
         r = raw(); r["questions"][0]["choices"] = ["する", "わからない"]; cases.append((r, "システムが足す答え"))
@@ -65,6 +66,8 @@ class Check(unittest.TestCase):
         r = raw(); r["questions"][1]["choices"] = ["はい"]; cases.append((r, "決まっています"))
         r = raw(); r["caller"]["company"]["reading"] = ""; cases.append((r, "名乗りの自社名の読み が空です"))
         r = raw(); r["target_person"] = {"kind": "anyone", "role": "社長"}; cases.append((r, "役職を書きません"))
+        r = raw(); r["target_class"] = "individual"; cases.append((r, "相手が個人の業務は、まだ選べません"))
+        r = raw(); r["target_class"] = None; cases.append((r, "相手の区分（target_class）は"))
         r = raw(); r["questions"][0]["next"] = {"しない": "END", "*": "Q2", "やめる": "END"}
         cases.append((r, "分岐の答え「やめる」は、その質問の答えにありません"))
         r = raw()
@@ -92,7 +95,7 @@ class Check(unittest.TestCase):
         bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True)
 
     def test_ai_reading_and_unit(self):
-        """AI の読みの案は、検証を終えたら人が確かめずに通る。数の質問は単位を持てる。"""
+        """AI の読みの案は、フルオートでは人が確かめずに通る。数の質問は単位を持てる。"""
         r = raw(); r["names"][0]["reading_by"] = "ai"
         s = bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=False)
         self.assertEqual(s.names[0].reading_by, "ai")

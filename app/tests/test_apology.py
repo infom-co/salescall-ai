@@ -61,16 +61,16 @@ class Apology(Helpers):
         aid = self.tx(s, lambda tx: tx.one("SELECT attempt_id FROM salescall.attempts WHERE task_id = %s", (s["task"],)))
         notice = self.tx(s, lambda tx: tx.one("SELECT summary FROM salescall.notification_events WHERE event_key = %s",
                                               (f"forbidden_speech:{aid['attempt_id']}",)))
-        self.assertIn("先ほどのお電話で、不適切な発言をしてしまいました。大変失礼いたしました。誠に申し訳ございませんでした。",
-                      notice["summary"])
+        self.assertIn("先ほどのお電話で、「失礼な言葉」といった不適切な発言をしてしまいました。大変失礼いたしました。"
+                      "誠に申し訳ございませんでした。", notice["summary"])                  # 何を言ってしまったかを伝える
         self.assertIsNotNone(self.draft(s, aid["attempt_id"]))
         with self.assertRaises(ValueError):                            # 数と中身が合わない検証の結果は作れない
             VerificationSummary(1, 0, 1, ())
 
     def test_both_kinds_in_one_apology(self):
-        got = apology.text([{"wrong": "A", "correct": "a"}], improper=True)
+        got = apology.text([{"wrong": "A", "correct": "a"}], improper=["B", "C"])
         self.assertEqual(got, "先ほどのお電話で、誤って「A」というご案内をしてしまいましたが、正しくは「a」となります。"
-                              "また、不適切な発言もしてしまいました。"
+                              "また、「B」「C」といった不適切な発言もしてしまいました。"
                               "不正確なご案内と不適切な発言をしてしまいまして、誠に申し訳ございませんでした。")
 
     def test_two_mistakes_in_one_apology_and_a_later_day(self):

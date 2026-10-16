@@ -14,8 +14,8 @@
   必須の質問が1つも無い／選択肢の名前が、出力の印・システムが足す答えと同じ／断りの答えが選択肢に無い／業務の決まりの確かめ。
   「終了条件の矛盾」は、この形では起きない（終わりは、分岐の「終わり」か最後の質問の次の1つだけ）。
 - 名前の読み（Intent.md 6-8）：読みごとに、誰が決めたか（`reading_by`：入口が持ってきた／AI の案／人が確かめた）を持つ。
-  **人が確かめるのは、検証中の AI の案だけ**（2026-10-16 ユーザー：「検証中はAIが認識したものを私が確認します」。人は介在しない
-  仕組みなので、検証が終われば確かめない）。確かめるかは設定 `names.ai_reading_by_person` で、読むのはここだけ（機械が見張る）。
+  **人が確かめるのは、検証モードの業務の AI の案だけ**（2026-10-16 ユーザー：「検証中はAIが認識したものを私が確認します」。
+  人は介在しない仕組みなので、フルオートでは確かめない）。検証モードかは、承認の部分（core/approval.py）に聞く（切り替えは1つ）。
   ⏳ 名前の候補の出し方（単語に分ける処理か、文字のモデルか）は CL-1 が比べている（PHASE0 G-23）。
 - 数の質問の単位（`unit`。CL-1 の連絡帳 4-14）：数の型の質問だけが持つ（空でもよい＝補わない）。決めるのは取込のときのプログラム
   （CL-1 の決め方。人は確かめない）。この部品は形を確かめるだけ。
@@ -28,7 +28,7 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
-from salescall.core import business_rules, quality_stage, settings
+from salescall.core import approval, business_rules, quality_stage
 from salescall.core.access import Tx
 
 END = "END"                                       # 分岐の行き先「終わり」
@@ -37,6 +37,9 @@ SYSTEM_CHOICES = ("わからない", "答えたくない")      # システム�
 VALUE_CHOICE = "答えた"                            # 値を聞く質問の選択肢（値そのものは項目の値に入る）
 YES_NO_CHOICES = ("はい", "いいえ")
 OUTPUT_MARKS = ("-", "✕")                         # 依頼主へ渡す印の既定（DESIGN.md 7-1b。依頼主ごとの印は出力の型で。⏳ 出力の型を作るとき足す）
+TARGET_CLASSES = ("corporate", "individual")      # 相手の区分：法人／個人（Intent.md 6-2・13章。業務ごとに必ず書く）
+TARGET_CLASSES_OPEN = ("corporate",)              # いま選べる区分：法人だけ（Intent.md 3-1・18-3）。個人は、13章の確かめが済み、
+#                                                   名乗りの法定事項と拒否の即時登録をシステムが強制する形を作ってから開く（設定では開けない）
 TARGET_PERSON_KINDS = ("role", "role_and_name", "name", "anyone")
 # 役職のみ（決裁権者を含む）／役職（部署）＋名前／名前のみ／その店・会社の人なら誰でも（Intent.md 6-2。2026-10-13 ユーザー）
 NAME_SOURCES = ("caller", "script")               # 名乗り（自社名・担当者名）／トークスクリプトの文章（商品名・地名など）
@@ -76,6 +79,7 @@ class Question:
 @dataclass(frozen=True)
 class Settings:
     purpose: str                                  # 業務の目的・達成目標
+    target_class: str                             # 相手の区分（corporate＝法人／individual＝個人）
     company: Name                                 # 名乗りの自社名
     person: Name                                  # 名乗りの担当者名
     purpose_line: str | None                      # 用件の一文（空でもよい）
@@ -97,7 +101,7 @@ class Settings:
         return ids[i + 1] if i + 1 < len(ids) else END
 
 
-KEYS = {"purpose", "caller", "target_person", "busy_line", "voice", "questions", "names", "rules"}
+KEYS = {"purpose", "target_class", "caller", "target_person", "busy_line", "voice", "questions", "names", "rules"}
 
 
 def _text(v: Any, where: str, problems: list[str], *, optional: bool = False) -> str | None:
@@ -146,6 +150,12 @@ def check(raw: Any, *, field_types: frozenset[str], ai_reading_needs_person: boo
     if not isinstance(raw, dict) or set(raw) != KEYS:
         raise SettingsInvalid([f"業務設定は {sorted(KEYS)} の {len(KEYS)} つです"])
     purpose = _text(raw["purpose"], "業務の目的", problems)
+    target_class = raw["target_class"]
+    if target_class not in TARGET_CLASSES:
+        problems.append(f"相手の区分（target_class）は {list(TARGET_CLASSES)}（法人／個人）のどちらかです")
+    elif target_class not in TARGET_CLASSES_OPEN:
+        problems.append("相手が個人の業務は、まだ選べません（法令の確かめ＝計画書 13章が済み、名乗りの法定事項と拒否の即時登録を"
+                        "システムが強制する形を作ってから開きます。いまは法人だけ）")
     caller = raw["caller"]
     company = person = None
     purpose_line = None
@@ -216,14 +226,14 @@ def check(raw: Any, *, field_types: frozenset[str], ai_reading_needs_person: boo
                 problems.append(f"名前 {n} 番目は text・reading・source（{list(NAME_SOURCES)}）・reading_by（{list(READING_BY)}）です")
                 continue
             if x["reading_by"] == "ai" and ai_reading_needs_person:
-                problems.append(f"名前「{x['text']}」の読み「{x['reading']}」は AI の案です。検証中は、人が確かめてから使います"
+                problems.append(f"名前「{x['text']}」の読み「{x['reading']}」は AI の案です。検証モードでは、人が確かめてから使います"
                                 "（Intent.md 6-8）")
             nm = _name({"text": x["text"], "reading": x["reading"]}, f"名前 {n} 番目", x["source"], problems)
             if nm is not None:
                 names.append(Name(nm.text, nm.reading, nm.source, x["reading_by"]))
     if questions and not any(q.required for q in questions):
         problems.append("必須の質問が1つもありません（どんな通話でも「すべて取れた」になる。Intent.md 6-4）")
-    s = Settings(purpose or "", company or Name("", "", "caller"), person or Name("", "", "caller"), purpose_line,
+    s = Settings(purpose or "", target_class if target_class in TARGET_CLASSES else "", company or Name("", "", "caller"), person or Name("", "", "caller"), purpose_line,
                  dict(tp), busy_line, voice or "", tuple(questions), tuple(names), None, raw)
     # 分岐は、すべての質問が読めたときだけ確かめる（読めなかった質問を除いて確かめると「分岐先がありません」などのうその理由が出る）
     if questions and len(questions) == len(raw["questions"]) and len({q.id for q in questions}) == len(questions):
@@ -312,12 +322,8 @@ def _field_types(tx: Tx) -> frozenset[str]:
 
 
 def ai_reading_needs_person(tx: Tx, business_id: UUID) -> bool:
-    """その業務で、AI の読みの案を人が確かめてから使うか（設定 names.ai_reading_by_person を読むのは、ここだけ）。"""
-    b = tx.one("SELECT tenant_id, client_id FROM salescall.businesses WHERE business_id = %s", (business_id,))
-    if b is None:
-        raise LookupError(f"その業務は無い（または、取引の範囲の外）：{business_id}")
-    return bool(settings.resolve(tx, "names.ai_reading_by_person", tenant_id=b["tenant_id"], client_id=b["client_id"],
-                                 business_id=business_id))
+    """その業務で、AI の読みの案を人が確かめてから使うか（検証モードのあいだだけ。原則9：違いは人の段だけ）。"""
+    return approval.human_for_business(tx, business_id)
 
 
 def _content(s: Settings) -> dict[str, Any]:

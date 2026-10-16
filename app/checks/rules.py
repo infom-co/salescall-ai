@@ -297,8 +297,6 @@ SETTING_READERS: dict[str, tuple[str, str, str]] = {
     "calling.hours": ("src/salescall/core/gate.py", "5-2-2", "時間帯の設定は gate.calling_hours_for から読みます（NG時間を引き忘れない）"),
     "calling.ng_hours": ("src/salescall/core/gate.py", "5-2-2", "時間帯の設定は gate.calling_hours_for から読みます（NG時間を引き忘れない）"),
     "approval.human": ("src/salescall/core/approval.py", "I-13", "人の承認のモードを読むのは、承認の部分（core/approval.py）だけです"),
-    "names.ai_reading_by_person": ("src/salescall/core/business_settings.py", "3-7",
-                                   "AI の読みの案を人が確かめるかを読むのは、業務設定の部品（core/business_settings.py）だけです"),
 }
 
 

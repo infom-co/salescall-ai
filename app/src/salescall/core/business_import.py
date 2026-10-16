@@ -46,13 +46,14 @@ SHEETS: dict[str, tuple[str, dict[str, str], bool]] = {
     "forbidden": ("言ってはいけないこと", {"key": "名前", "say_not": "言ってはいけないこと", "correct": "正しい案内"}, False),
     "names": ("名前", {"text": "表記", "reading": "読み"}, False),
 }
-BASIC_ITEMS = {"業務の目的": "purpose", "自社名": "company", "自社名の読み": "company_reading", "担当者名": "person",
+BASIC_ITEMS = {"業務の目的": "purpose", "相手の区分": "target_class", "自社名": "company", "自社名の読み": "company_reading", "担当者名": "person",
                "担当者名の読み": "person_reading", "用件の一文": "purpose_line", "目的の人": "target_kind",
                "目的の人の役職": "target_role", "忙しいと言われたときの一言": "busy_line", "声の型": "voice"}
 LABELS: dict[str, dict[str, str]] = {
     "type": {"日付": "date", "時刻": "time", "日時": "datetime", "数": "number", "金額": "amount", "名前": "name",
              "電話番号": "phone", "メール": "email", "住所": "address", "はい／いいえ": "yes_no", "選択肢": "choice",
              "自由な意見": "free_text"},
+    "target_class": {"法人": "corporate", "個人": "individual"},
     "target_kind": {"役職のみ": "role", "役職と名前": "role_and_name", "名前のみ": "name", "誰でも": "anyone"},
     "state": {"わからない": "dont_know", "答えたくない": "refused"},
     "reason": {"担当ではない": "not_in_charge", "まだ決まっていない": "undecided", "いまは分からない": "unknown_now",
@@ -151,6 +152,7 @@ def _to_raw(sheets: dict[str, tuple[Sheet, dict[str, int]]], problems: list[str]
         else:
             basic[item] = v.get("value")
     tkind = _label("target_kind", basic.get("target_kind"), "シート「基本」の目的の人", problems)
+    tclass = _label("target_class", basic.get("target_class"), "シート「基本」の相手の区分", problems)
 
     questions, decline = [], {}
     for row_no, v in _rows(sheets, "questions", problems):
@@ -224,7 +226,7 @@ def _to_raw(sheets: dict[str, tuple[Sheet, dict[str, int]]], problems: list[str]
         if text:                                   # 読みは無くてもよい（AI の読みの案を使う。`review`）
             names.append({"text": text, "reading": reading, "source": source, "reading_by": "given" if reading else None})
     raw = {
-        "purpose": basic.get("purpose"),
+        "purpose": basic.get("purpose"), "target_class": tclass,
         "caller": {"company": {"text": basic.get("company"), "reading": basic.get("company_reading")},
                    "person": {"text": basic.get("person"), "reading": basic.get("person_reading")},
                    "purpose_line": basic.get("purpose_line")},
