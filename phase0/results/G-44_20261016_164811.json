@@ -1,0 +1,735 @@
+{
+  "item": "G-44",
+  "saved_at": "2026-10-16T16:48:11",
+  "set": "alnum",
+  "names": [
+    [
+      "ＡＢＣホールディングス",
+      "えーびーしーほーるでぃんぐす",
+      "あぶく",
+      "すでに{n}様にもご導入いただいております。"
+    ],
+    [
+      "スマートリンクPro",
+      "すまーとりんくぷろ",
+      "ぴーあーるおー",
+      "新しいサービスの{n}のご案内です。"
+    ],
+    [
+      "NTT東日本",
+      "えぬてぃーてぃーひがしにほん",
+      "えぬてぃーてぃーとうにほん",
+      "回線は{n}をお使いでしょうか。"
+    ],
+    [
+      "KDDI",
+      "けーでぃーでぃーあい",
+      "かでぃ",
+      "{n}の回線と同じ料金です。"
+    ],
+    [
+      "freee",
+      "ふりー",
+      "ふりーいーいー",
+      "会計ソフトの{n}と連携しております。"
+    ],
+    [
+      "Sansan",
+      "さんさん",
+      "えすえーえぬ",
+      "名刺管理の{n}をお使いの会社様が多いです。"
+    ],
+    [
+      "LIXIL",
+      "りくしる",
+      "えるあいえっくす",
+      "{n}様の製品を扱っております。"
+    ],
+    [
+      "au",
+      "えーゆー",
+      "あう",
+      "携帯は{n}をお使いでしょうか。"
+    ],
+    [
+      "IKEA",
+      "いけあ",
+      "あいけあ",
+      "{n}の近くに事務所がございます。"
+    ],
+    [
+      "コージーコーナー",
+      "こーじーこーなー",
+      "",
+      "{n}様のお近くです。"
+    ]
+  ],
+  "methods": [
+    "K",
+    "KATA",
+    "HIRA"
+  ],
+  "rows": [
+    {
+      "set": "alnum",
+      "name": "ＡＢＣホールディングス",
+      "reading": "えーびーしーほーるでぃんぐす",
+      "wrong": "あぶく",
+      "method": "K",
+      "rep": 0,
+      "text": "すでに「ＡＢＣホールディングス」様にもご導入いただいております。",
+      "note": "",
+      "wav": "G44_alnum_00_K_0.wav"
+    },
+    {
+      "set": "alnum",
+      "name": "ＡＢＣホールディングス",
+      "reading": "えーびーしーほーるでぃんぐす",
+      "wrong": "あぶく",
+      "method": "KATA",
+      "rep": 0,
+      "text": "すでに「エービーシーホールディングス」様にもご導入いただいております。",
+      "note": "",
+      "wav": "G44_alnum_00_KATA_0.wav"
+    },
+    {
+      "set": "alnum",
+      "name": "ＡＢＣホールディングス",
+      "reading": "えーびーしーほーるでぃんぐす",
+      "wrong": "あぶく",
+      "method": "HIRA",
+      "rep": 0,
+      "text": "すでに「えーびーしーほーるでぃんぐす」様にもご導入いただいております。",
+      "note": "",
+      "wav": "G44_alnum_00_HIRA_0.wav"
+    },
+    {
+      "set": "alnum",
+      "name": "スマートリンクPro",
+      "reading": "すまーとりんくぷろ",
+      "wrong": "ぴーあーるおー",
+      "method": "K",
+      "rep": 0,
+      "text": "新しいサービスの「スマートリンクPro」のご案内です。",
+      "note": "",
+      "wav": "G44_alnum_01_K_0.wav"
+    },
+    {
+      "set": "alnum",
+      "name": "スマートリンクPro",
+      "reading": "すまーとりんくぷろ",
+      "wrong": "ぴーあーるおー",
+      "method": "KATA",
+      "rep": 0,
+      "text": "新しいサービスの「スマートリンクプロ」のご案内です。",
+      "note": "",
+      "wav": "G44_alnum_01_KATA_0.wav"
+    },
+    {
+      "set": "alnum",
+      "name": "スマートリンクPro",
+      "reading": "すまーとりんくぷろ",
+      "wrong": "ぴーあーるおー",
+      "method": "HIRA",
+      "rep": 0,
+      "text": "新しいサービスの「すまーとりんくぷろ」のご案内です。",
+      "note": "",
+      "wav": "G44_alnum_01_HIRA_0.wav"
+    },
+    {
+      "set": "alnum",
+      "name": "NTT東日本",
+      "reading": "えぬてぃーてぃーひがしにほん",
+      "wrong": "えぬてぃーてぃーとうにほん",
+      "method": "K",
+      "rep": 0,
+      "text": "回線は「NTT東日本」をお使いでしょうか。",
+      "note": "",
+      "wav": "G44_alnum_02_K_0.wav"
+    },
+    {
+      "set": "alnum",
+      "name": "NTT東日本",
+      "reading": "えぬてぃーてぃーひがしにほん",
+      "wrong": "えぬてぃーてぃーとうにほん",
+      "method": "KATA",
+      "rep": 0,
+      "text": "回線は「エヌティーティーヒガシニホン」をお使いでしょうか。",
+      "note": "",
+      "wav": "G44_alnum_02_KATA_0.wav"
+    },
+    {
+      "set": "alnum",
+      "name": "NTT東日本",
+      "reading": "えぬてぃーてぃーひがしにほん",
+      "wrong": "えぬてぃーてぃーとうにほん",
+      "method": "HIRA",
+      "rep": 0,
+      "text": "回線は「えぬてぃーてぃーひがしにほん」をお使いでしょうか。",
+      "note": "",
+      "wav": "G44_alnum_02_HIRA_0.wav"
+    },
+    {
+      "set": "alnum",
+      "name": "KDDI",
+      "reading": "けーでぃーでぃーあい",
+      "wrong": "かでぃ",
+      "method": "K",
+      "rep": 0,
+      "text": "「KDDI」の回線と同じ料金です。",
+      "note": "",
+      "wav": "G44_alnum_03_K_0.wav"
+    },
+    {
+      "set": "alnum",
+      "name": "KDDI",
+      "reading": "けーでぃーでぃーあい",
+      "wrong": "かでぃ",
+      "method": "KATA",
+      "rep": 0,
+      "text": "「ケーディーディーアイ」の回線と同じ料金です。",
+      "note": "",
+      "wav": "G44_alnum_03_KATA_0.wav"
+    },
+    {
+      "set": "alnum",
+      "name": "KDDI",
+      "reading": "けーでぃーでぃーあい",
+      "wrong": "かでぃ",
+      "method": "HIRA",
+      "rep": 0,
+      "text": "「けーでぃーでぃーあい」の回線と同じ料金です。",
+      "note": "",
+      "wav": "G44_alnum_03_HIRA_0.wav"
+    },
+    {
+      "set": "alnum",
+      "name": "freee",
+      "reading": "ふりー",
+      "wrong": "ふりーいーいー",
+      "method": "K",
+      "rep": 0,
+      "text": "会計ソフトの「freee」と連携しております。",
+      "note": "",
+      "wav": "G44_alnum_04_K_0.wav"
+    },
+    {
+      "set": "alnum",
+      "name": "freee",
+      "reading": "ふりー",
+      "wrong": "ふりーいーいー",
+      "method": "KATA",
+      "rep": 0,
+      "text": "会計ソフトの「フリー」と連携しております。",
+      "note": "",
+      "wav": "G44_alnum_04_KATA_0.wav"
+    },
+    {
+      "set": "alnum",
+      "name": "freee",
+      "reading": "ふりー",
+      "wrong": "ふりーいーいー",
+      "method": "HIRA",
+      "rep": 0,
+      "text": "会計ソフトの「ふりー」と連携しております。",
+      "note": "",
+      "wav": "G44_alnum_04_HIRA_0.wav"
+    },
+    {
+      "set": "alnum",
+      "name": "Sansan",
+      "reading": "さんさん",
+      "wrong": "えすえーえぬ",
+      "method": "K",
+      "rep": 0,
+      "text": "名刺管理の「Sansan」をお使いの会社様が多いです。",
+      "note": "",
+      "wav": "G44_alnum_05_K_0.wav"
+    },
+    {
+      "set": "alnum",
+      "name": "Sansan",
+      "reading": "さんさん",
+      "wrong": "えすえーえぬ",
+      "method": "KATA",
+      "rep": 0,
+      "text": "名刺管理の「サンサン」をお使いの会社様が多いです。",
+      "note": "",
+      "wav": "G44_alnum_05_KATA_0.wav"
+    },
+    {
+      "set": "alnum",
+      "name": "Sansan",
+      "reading": "さんさん",
+      "wrong": "えすえーえぬ",
+      "method": "HIRA",
+      "rep": 0,
+      "text": "名刺管理の「さんさん」をお使いの会社様が多いです。",
+      "note": "",
+      "wav": "G44_alnum_05_HIRA_0.wav"
+    },
+    {
+      "set": "alnum",
+      "name": "LIXIL",
+      "reading": "りくしる",
+      "wrong": "えるあいえっくす",
+      "method": "K",
+      "rep": 0,
+      "text": "「LIXIL」様の製品を扱っております。",
+      "note": "",
+      "wav": "G44_alnum_06_K_0.wav"
+    },
+    {
+      "set": "alnum",
+      "name": "LIXIL",
+      "reading": "りくしる",
+      "wrong": "えるあいえっくす",
+      "method": "KATA",
+      "rep": 0,
+      "text": "「リクシル」様の製品を扱っております。",
+      "note": "",
+      "wav": "G44_alnum_06_KATA_0.wav"
+    },
+    {
+      "set": "alnum",
+      "name": "LIXIL",
+      "reading": "りくしる",
+      "wrong": "えるあいえっくす",
+      "method": "HIRA",
+      "rep": 0,
+      "text": "「りくしる」様の製品を扱っております。",
+      "note": "",
+      "wav": "G44_alnum_06_HIRA_0.wav"
+    },
+    {
+      "set": "alnum",
+      "name": "au",
+      "reading": "えーゆー",
+      "wrong": "あう",
+      "method": "K",
+      "rep": 0,
+      "text": "携帯は「au」をお使いでしょうか。",
+      "note": "",
+      "wav": "G44_alnum_07_K_0.wav"
+    },
+    {
+      "set": "alnum",
+      "name": "au",
+      "reading": "えーゆー",
+      "wrong": "あう",
+      "method": "KATA",
+      "rep": 0,
+      "text": "携帯は「エーユー」をお使いでしょうか。",
+      "note": "",
+      "wav": "G44_alnum_07_KATA_0.wav"
+    },
+    {
+      "set": "alnum",
+      "name": "au",
+      "reading": "えーゆー",
+      "wrong": "あう",
+      "method": "HIRA",
+      "rep": 0,
+      "text": "携帯は「えーゆー」をお使いでしょうか。",
+      "note": "",
+      "wav": "G44_alnum_07_HIRA_0.wav"
+    },
+    {
+      "set": "alnum",
+      "name": "IKEA",
+      "reading": "いけあ",
+      "wrong": "あいけあ",
+      "method": "K",
+      "rep": 0,
+      "text": "「IKEA」の近くに事務所がございます。",
+      "note": "",
+      "wav": "G44_alnum_08_K_0.wav"
+    },
+    {
+      "set": "alnum",
+      "name": "IKEA",
+      "reading": "いけあ",
+      "wrong": "あいけあ",
+      "method": "KATA",
+      "rep": 0,
+      "text": "「イケア」の近くに事務所がございます。",
+      "note": "",
+      "wav": "G44_alnum_08_KATA_0.wav"
+    },
+    {
+      "set": "alnum",
+      "name": "IKEA",
+      "reading": "いけあ",
+      "wrong": "あいけあ",
+      "method": "HIRA",
+      "rep": 0,
+      "text": "「いけあ」の近くに事務所がございます。",
+      "note": "",
+      "wav": "G44_alnum_08_HIRA_0.wav"
+    },
+    {
+      "set": "alnum",
+      "name": "コージーコーナー",
+      "reading": "こーじーこーなー",
+      "wrong": "",
+      "method": "K",
+      "rep": 0,
+      "text": "「コージーコーナー」様のお近くです。",
+      "note": "",
+      "wav": "G44_alnum_09_K_0.wav"
+    },
+    {
+      "set": "alnum",
+      "name": "コージーコーナー",
+      "reading": "こーじーこーなー",
+      "wrong": "",
+      "method": "KATA",
+      "rep": 0,
+      "text": "「コージーコーナー」様のお近くです。",
+      "note": "",
+      "wav": "G44_alnum_09_KATA_0.wav"
+    },
+    {
+      "set": "alnum",
+      "name": "コージーコーナー",
+      "reading": "こーじーこーなー",
+      "wrong": "",
+      "method": "HIRA",
+      "rep": 0,
+      "text": "「こーじーこーなー」様のお近くです。",
+      "note": "",
+      "wav": "G44_alnum_09_HIRA_0.wav"
+    },
+    {
+      "set": "alnum",
+      "name": "ＡＢＣホールディングス",
+      "reading": "えーびーしーほーるでぃんぐす",
+      "wrong": "あぶく",
+      "method": "K",
+      "rep": 1,
+      "text": "すでに「ＡＢＣホールディングス」様にもご導入いただいております。",
+      "note": "",
+      "wav": "G44_alnum_00_K_1.wav"
+    },
+    {
+      "set": "alnum",
+      "name": "ＡＢＣホールディングス",
+      "reading": "えーびーしーほーるでぃんぐす",
+      "wrong": "あぶく",
+      "method": "KATA",
+      "rep": 1,
+      "text": "すでに「エービーシーホールディングス」様にもご導入いただいております。",
+      "note": "",
+      "wav": "G44_alnum_00_KATA_1.wav"
+    },
+    {
+      "set": "alnum",
+      "name": "ＡＢＣホールディングス",
+      "reading": "えーびーしーほーるでぃんぐす",
+      "wrong": "あぶく",
+      "method": "HIRA",
+      "rep": 1,
+      "text": "すでに「えーびーしーほーるでぃんぐす」様にもご導入いただいております。",
+      "note": "",
+      "wav": "G44_alnum_00_HIRA_1.wav"
+    },
+    {
+      "set": "alnum",
+      "name": "スマートリンクPro",
+      "reading": "すまーとりんくぷろ",
+      "wrong": "ぴーあーるおー",
+      "method": "K",
+      "rep": 1,
+      "text": "新しいサービスの「スマートリンクPro」のご案内です。",
+      "note": "",
+      "wav": "G44_alnum_01_K_1.wav"
+    },
+    {
+      "set": "alnum",
+      "name": "スマートリンクPro",
+      "reading": "すまーとりんくぷろ",
+      "wrong": "ぴーあーるおー",
+      "method": "KATA",
+      "rep": 1,
+      "text": "新しいサービスの「スマートリンクプロ」のご案内です。",
+      "note": "",
+      "wav": "G44_alnum_01_KATA_1.wav"
+    },
+    {
+      "set": "alnum",
+      "name": "スマートリンクPro",
+      "reading": "すまーとりんくぷろ",
+      "wrong": "ぴーあーるおー",
+      "method": "HIRA",
+      "rep": 1,
+      "text": "新しいサービスの「すまーとりんくぷろ」のご案内です。",
+      "note": "",
+      "wav": "G44_alnum_01_HIRA_1.wav"
+    },
+    {
+      "set": "alnum",
+      "name": "NTT東日本",
+      "reading": "えぬてぃーてぃーひがしにほん",
+      "wrong": "えぬてぃーてぃーとうにほん",
+      "method": "K",
+      "rep": 1,
+      "text": "回線は「NTT東日本」をお使いでしょうか。",
+      "note": "",
+      "wav": "G44_alnum_02_K_1.wav"
+    },
+    {
+      "set": "alnum",
+      "name": "NTT東日本",
+      "reading": "えぬてぃーてぃーひがしにほん",
+      "wrong": "えぬてぃーてぃーとうにほん",
+      "method": "KATA",
+      "rep": 1,
+      "text": "回線は「エヌティーティーヒガシニホン」をお使いでしょうか。",
+      "note": "",
+      "wav": "G44_alnum_02_KATA_1.wav"
+    },
+    {
+      "set": "alnum",
+      "name": "NTT東日本",
+      "reading": "えぬてぃーてぃーひがしにほん",
+      "wrong": "えぬてぃーてぃーとうにほん",
+      "method": "HIRA",
+      "rep": 1,
+      "text": "回線は「えぬてぃーてぃーひがしにほん」をお使いでしょうか。",
+      "note": "",
+      "wav": "G44_alnum_02_HIRA_1.wav"
+    },
+    {
+      "set": "alnum",
+      "name": "KDDI",
+      "reading": "けーでぃーでぃーあい",
+      "wrong": "かでぃ",
+      "method": "K",
+      "rep": 1,
+      "text": "「KDDI」の回線と同じ料金です。",
+      "note": "",
+      "wav": "G44_alnum_03_K_1.wav"
+    },
+    {
+      "set": "alnum",
+      "name": "KDDI",
+      "reading": "けーでぃーでぃーあい",
+      "wrong": "かでぃ",
+      "method": "KATA",
+      "rep": 1,
+      "text": "「ケーディーディーアイ」の回線と同じ料金です。",
+      "note": "",
+      "wav": "G44_alnum_03_KATA_1.wav"
+    },
+    {
+      "set": "alnum",
+      "name": "KDDI",
+      "reading": "けーでぃーでぃーあい",
+      "wrong": "かでぃ",
+      "method": "HIRA",
+      "rep": 1,
+      "text": "「けーでぃーでぃーあい」の回線と同じ料金です。",
+      "note": "",
+      "wav": "G44_alnum_03_HIRA_1.wav"
+    },
+    {
+      "set": "alnum",
+      "name": "freee",
+      "reading": "ふりー",
+      "wrong": "ふりーいーいー",
+      "method": "K",
+      "rep": 1,
+      "text": "会計ソフトの「freee」と連携しております。",
+      "note": "",
+      "wav": "G44_alnum_04_K_1.wav"
+    },
+    {
+      "set": "alnum",
+      "name": "freee",
+      "reading": "ふりー",
+      "wrong": "ふりーいーいー",
+      "method": "KATA",
+      "rep": 1,
+      "text": "会計ソフトの「フリー」と連携しております。",
+      "note": "",
+      "wav": "G44_alnum_04_KATA_1.wav"
+    },
+    {
+      "set": "alnum",
+      "name": "freee",
+      "reading": "ふりー",
+      "wrong": "ふりーいーいー",
+      "method": "HIRA",
+      "rep": 1,
+      "text": "会計ソフトの「ふりー」と連携しております。",
+      "note": "",
+      "wav": "G44_alnum_04_HIRA_1.wav"
+    },
+    {
+      "set": "alnum",
+      "name": "Sansan",
+      "reading": "さんさん",
+      "wrong": "えすえーえぬ",
+      "method": "K",
+      "rep": 1,
+      "text": "名刺管理の「Sansan」をお使いの会社様が多いです。",
+      "note": "",
+      "wav": "G44_alnum_05_K_1.wav"
+    },
+    {
+      "set": "alnum",
+      "name": "Sansan",
+      "reading": "さんさん",
+      "wrong": "えすえーえぬ",
+      "method": "KATA",
+      "rep": 1,
+      "text": "名刺管理の「サンサン」をお使いの会社様が多いです。",
+      "note": "",
+      "wav": "G44_alnum_05_KATA_1.wav"
+    },
+    {
+      "set": "alnum",
+      "name": "Sansan",
+      "reading": "さんさん",
+      "wrong": "えすえーえぬ",
+      "method": "HIRA",
+      "rep": 1,
+      "text": "名刺管理の「さんさん」をお使いの会社様が多いです。",
+      "note": "",
+      "wav": "G44_alnum_05_HIRA_1.wav"
+    },
+    {
+      "set": "alnum",
+      "name": "LIXIL",
+      "reading": "りくしる",
+      "wrong": "えるあいえっくす",
+      "method": "K",
+      "rep": 1,
+      "text": "「LIXIL」様の製品を扱っております。",
+      "note": "",
+      "wav": "G44_alnum_06_K_1.wav"
+    },
+    {
+      "set": "alnum",
+      "name": "LIXIL",
+      "reading": "りくしる",
+      "wrong": "えるあいえっくす",
+      "method": "KATA",
+      "rep": 1,
+      "text": "「リクシル」様の製品を扱っております。",
+      "note": "",
+      "wav": "G44_alnum_06_KATA_1.wav"
+    },
+    {
+      "set": "alnum",
+      "name": "LIXIL",
+      "reading": "りくしる",
+      "wrong": "えるあいえっくす",
+      "method": "HIRA",
+      "rep": 1,
+      "text": "「りくしる」様の製品を扱っております。",
+      "note": "",
+      "wav": "G44_alnum_06_HIRA_1.wav"
+    },
+    {
+      "set": "alnum",
+      "name": "au",
+      "reading": "えーゆー",
+      "wrong": "あう",
+      "method": "K",
+      "rep": 1,
+      "text": "携帯は「au」をお使いでしょうか。",
+      "note": "",
+      "wav": "G44_alnum_07_K_1.wav"
+    },
+    {
+      "set": "alnum",
+      "name": "au",
+      "reading": "えーゆー",
+      "wrong": "あう",
+      "method": "KATA",
+      "rep": 1,
+      "text": "携帯は「エーユー」をお使いでしょうか。",
+      "note": "",
+      "wav": "G44_alnum_07_KATA_1.wav"
+    },
+    {
+      "set": "alnum",
+      "name": "au",
+      "reading": "えーゆー",
+      "wrong": "あう",
+      "method": "HIRA",
+      "rep": 1,
+      "text": "携帯は「えーゆー」をお使いでしょうか。",
+      "note": "",
+      "wav": "G44_alnum_07_HIRA_1.wav"
+    },
+    {
+      "set": "alnum",
+      "name": "IKEA",
+      "reading": "いけあ",
+      "wrong": "あいけあ",
+      "method": "K",
+      "rep": 1,
+      "text": "「IKEA」の近くに事務所がございます。",
+      "note": "",
+      "wav": "G44_alnum_08_K_1.wav"
+    },
+    {
+      "set": "alnum",
+      "name": "IKEA",
+      "reading": "いけあ",
+      "wrong": "あいけあ",
+      "method": "KATA",
+      "rep": 1,
+      "text": "「イケア」の近くに事務所がございます。",
+      "note": "",
+      "wav": "G44_alnum_08_KATA_1.wav"
+    },
+    {
+      "set": "alnum",
+      "name": "IKEA",
+      "reading": "いけあ",
+      "wrong": "あいけあ",
+      "method": "HIRA",
+      "rep": 1,
+      "text": "「いけあ」の近くに事務所がございます。",
+      "note": "",
+      "wav": "G44_alnum_08_HIRA_1.wav"
+    },
+    {
+      "set": "alnum",
+      "name": "コージーコーナー",
+      "reading": "こーじーこーなー",
+      "wrong": "",
+      "method": "K",
+      "rep": 1,
+      "text": "「コージーコーナー」様のお近くです。",
+      "note": "",
+      "wav": "G44_alnum_09_K_1.wav"
+    },
+    {
+      "set": "alnum",
+      "name": "コージーコーナー",
+      "reading": "こーじーこーなー",
+      "wrong": "",
+      "method": "KATA",
+      "rep": 1,
+      "text": "「コージーコーナー」様のお近くです。",
+      "note": "",
+      "wav": "G44_alnum_09_KATA_1.wav"
+    },
+    {
+      "set": "alnum",
+      "name": "コージーコーナー",
+      "reading": "こーじーこーなー",
+      "wrong": "",
+      "method": "HIRA",
+      "rep": 1,
+      "text": "「こーじーこーなー」様のお近くです。",
+      "note": "",
+      "wav": "G44_alnum_09_HIRA_1.wav"
+    }
+  ],
+  "recorded_only": true
+}

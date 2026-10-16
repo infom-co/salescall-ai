@@ -149,9 +149,20 @@ async def record(args) -> list[dict]:
     return rows
 
 
+# 書き起こしに使える、取込の比べ（g23_names.MODELS）に無いモデル（表示名で引く）。⚠️ 2026-10-16：3.8 Flash が混んでいて答えが返らず、
+# 3.7 Flash・3.6 Flash は1日の上限に達していたため足した。相手役の名前の声（G-46）を、5本とも台本どおりの読みで書き起こした
+EXTRA_VERIFIERS = {"3 Flash": "Gemini 3 Flash Preview"}
+
+
 def verify(args, rows: list[dict]) -> dict:
     client = make_client(pick_key(args))
     ids, _ = find_models(client)
+    want = {k: d for k, d in EXTRA_VERIFIERS.items() if k in (args.verifier or [])}
+    if want:
+        for m in client.models.list():
+            for k, d in want.items():
+                if (getattr(m, "display_name", "") or "").strip() == d:
+                    ids[k] = m.name.split("/")[-1]
     clips = [r for r in rows if r.get("wav")]
     for key in (args.verifier or ["3.8 Flash", "3.7 Flash"]):
         if key not in ids:
