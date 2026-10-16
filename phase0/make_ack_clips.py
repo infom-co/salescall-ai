@@ -43,6 +43,8 @@ def speech_seconds(pcm: bytes, rate: int) -> float:
 
 # 読み方（相づちとお詫びで、声の調子を変える）と、長さの上限（声だけの長さ・秒）
 HOW = {"moushiwake": "電話で、相手に聞き取れなかったことを申し訳なく思いながら、丁寧に",
+       # ✅ 2026-10-16 ユーザー：重大なお詫び（2回目以降の聞き返し・最後の1回・こちらの誤り・クレーム・かけ直し）
+       "moushiwake_heavy": "電話で、お客様にご迷惑をおかけしたことを、心から深くお詫びするように、誠実に、丁寧に",
        "shitsurei": "電話で、こちらの聞き違いを丁寧にお詫びするように",
        # ✅ 2026-10-14 ユーザー：「Sadachbia の『ありがとうございます。』の1つが、明るいのは良いが、ハイテンション過ぎて、ちょっとお客が
        #    引きそう。『前向き』なくらいでいい」「Leda の『ありがとうございます。』は逆に少し、感謝が足りない暗い感じが多い」
@@ -54,10 +56,11 @@ HOW = {"moushiwake": "電話で、相手に聞き取れなかったことを申�
        #    なって、少しテンポが悪い」（文の途中に 0.2〜0.4秒の無音が入っていた）⇒ 区切らずに読ませ、文の途中の長い無音は確かめで落とす
        "closing": "電話の最後に、お客様に感謝を伝えるように、前向きに、心を込めて、落ち着いた調子で。言葉の途中で区切らずに、なめらかに、ひと続きで",
        "wait": "電話で、お客様に少し待っていただくことを、申し訳なく思いながら、柔らかく丁寧にお願いするように",
+       "wait_heavy": "電話で、ご迷惑をおかけしているお客様に、さらにお待ちいただくことを、心から申し訳なく思いながら、誠実に、丁寧にお願いするように",
        "question": "電話で、お客様に丁寧に、柔らかくお聞きするように"}
 DEFAULT_HOW = "電話で、相手の話に相づちを打つように、短く"
-MAX_S = {"hai": 1.0, "shouchi": 1.4, "arigatou": 1.6, "shitsurei": 1.6, "moushiwake": 1.6, "lead_soredeha": 1.0,
-         "lead_tsuzukimashite": 1.2, "lead_deha": 0.8, "closing": 8.0, "wait": 3.5, "question": 5.0}
+MAX_S = {"hai": 1.0, "shouchi": 1.4, "arigatou": 1.6, "shitsurei": 1.6, "moushiwake": 1.6, "moushiwake_heavy": 1.8, "lead_soredeha": 1.0,
+         "lead_tsuzukimashite": 1.2, "lead_deha": 0.8, "closing": 8.0, "wait": 3.5, "wait_heavy": 3.8, "question": 5.0}
 
 
 END_SILENCE_S = 0.1  # 声のあとに、これだけの無音が無ければ、声の途中で切れた録音として落とす
@@ -119,10 +122,12 @@ def words(script: bool) -> tuple[dict, Path]:
     return {aid: (text, aid) for aid, text in RECORDED.items()}, OUT
 
 
-def adopt(names: list[str], script: bool, as_type: str | None = None) -> dict:
+def adopt(names: list[str], script: bool, as_type: str | None = None, as_id: str | None = None) -> dict:
     """人が選んだ候補を、使う録音にする（候補の確かめの結果も、そのまま台帳に移す）。
     as_type：別の声の型の録り方で作った候補を、この声の型の録音として使う（同じ声の名前のときだけ）。
-    ✅ 2026-10-15 ユーザー：「録音は私がチェックする場合、S4とS2を分ける必要はありません。私が最高に良いと思えるものを選んでいるからです」"""
+    ✅ 2026-10-15 ユーザー：「録音は私がチェックする場合、S4とS2を分ける必要はありません。私が最高に良いと思えるものを選んでいるからです」
+    as_id：同じ言葉の別の録音（例：「申し訳ございません、」の重いお詫び＝moushiwake_heavy）として使う（言葉が同じときだけ）。
+    ✅ 2026-10-16 ユーザー：「申し訳ございません、02軽いお詫びの時、04重大なお詫びの時」"""
     table, out = words(script)
     index_path = out / "index.json"
     made = json.loads(index_path.read_text(encoding="utf-8")) if index_path.exists() else []
@@ -137,6 +142,9 @@ def adopt(names: list[str], script: bool, as_type: str | None = None) -> dict:
         where, row = cands[name]
         row = {k: v for k, v in row.items() if k not in ("features", "st_from_ref", "cond", "take")}
         assert row["text"] == table[row["id"]][0], (name, row["text"])  # 文が変わったあとの古い候補は使わない
+        if as_id and as_id != row["id"]:
+            assert table[as_id][0] == row["text"], (name, as_id)  # 言葉が違う録音は使わない
+            row.update({"made_as_id": row["id"], "id": as_id})
         if as_type and as_type != row["type"]:
             assert voice_style(as_type)[0] == voice_style(row["type"])[0], (name, as_type)  # 声の名前が違う録音は使わない
             row.update({"made_as": row["type"], "type": as_type})
@@ -184,24 +192,50 @@ async def run(args) -> dict:
     return {"model": args.model, "made": made, "missing": [(m["type"], m["id"]) for m in made if not m.get("ok")]}
 
 
+# 前置きの一言を付けて読ませ、文の切れ目の無音のところで後ろの文だけを残す録音（声の高さ・速さには手を加えない。切るのは無音のところだけ）。
+# ✅ 2026-10-16 ユーザー：「少々お待ち、どれもダメ　理由は同じ　少々とお待ちに区切りがあるのと、いただいても、よろしいでしょうかと区切りがある」
+#    （10本とも。区切りは無音ではなく、確かめでは見分けられない）⇒「前に一言付けて自然な流れで読ませ、文の切れ目の無音のところで後ろの文だけを
+#    残す」案に「(2)で進めて」。⚠️ 区切りが少なくなるかは、まだ確かめていない（人の耳で選ぶ）
+CONTEXT = {"wait": "かしこまりました。", "wait_heavy": "かしこまりました。"}
+CUT_GAP_S = 0.15   # 前置きの文と、残す文の間の無音の長さの下限（文の切れ目とみなす）
+CUT_KEEP_S = 0.03  # 残す文の声の始まりの前に残す無音（声の頭を切らないため）
+
+
+def cut_after_context(pcm: bytes, rate: int) -> bytes | None:
+    """前置きの文のあとの、最初の文の切れ目（CUT_GAP_S 以上の無音）から後ろだけを返す。切れ目が無ければ None。"""
+    runs = voice_runs(voiced(pcm, rate), 0.05)
+    for a, b in zip(runs, runs[1:]):
+        if b[0] - a[1] >= CUT_GAP_S:
+            start = max(0, int((b[0] - CUT_KEEP_S) * rate)) * 2
+            return pcm[start:]
+    return None
+
+
 async def take(client, args, vt: str, aid: str, text: str, how: str, voice_note: str = "") -> tuple[dict, bytes, int]:
     """1回読ませて、確かめる（両方の耳で読みが合う・声だけの長さが上限以内・文の途中に長い無音が無い・声の途中で切れていない）。
-    voice_note＝声そのものの指示（G-38 で比べる。空なら足さない）。"""
+    voice_note＝声そのものの指示（G-38 で比べる。空なら足さない）。
+    前置きのある言葉（CONTEXT）は、前置きと一緒に読ませて後ろだけを残し、残した声を確かめる（頭が欠けていないかも、耳で確かめる）。"""
     voice, style = voice_style(vt)
+    context = CONTEXT.get(aid, "")
     try:
         inst = (f"{style}{voice_note}\nあなたは音声の材料を作る係です。渡された言葉だけを、{HOW.get(how, DEFAULT_HOW)}、そのまま読み上げます。"
                 "言葉を足しません。")
         async with client.aio.live.connect(model=args.model, config=build_config(voice=voice, system_instruction=inst)) as s:
             t = time.monotonic()
-            await send_text(s, f"読み上げる言葉：{text}")
+            await send_text(s, f"読み上げる言葉：{context}{text}")
             turn = await collect_turn(s, started_at=t, timeout_s=60)
         pcm, rate = bytes(turn.audio), turn.audio_rate or 24000
+        if context and pcm:
+            pcm = cut_after_context(pcm, rate) or b""  # 文の切れ目が無ければ、使えない録り方
         seconds = speech_seconds(pcm, rate) if pcm else 0.0
         heard = await hear_feeds(client, pcm, rate) if pcm else {}
         ok = (bool(pcm) and heard_ok(text, heard) and seconds <= MAX_S[how] and long_pauses_ok(text, pcm, rate)
               and ends_in_silence(pcm, rate))
-        say(f"{vt} {text}：聞こえた {heard} 長さ {seconds:.2f}秒 合格={ok}")
-        return {"type": vt, "voice": voice, "id": aid, "text": text, "heard": heard, "ok": ok, "seconds": round(seconds, 2)}, pcm, rate
+        say(f"{vt} {context}{text}：聞こえた {heard} 長さ {seconds:.2f}秒 合格={ok}")
+        row = {"type": vt, "voice": voice, "id": aid, "text": text, "heard": heard, "ok": ok, "seconds": round(seconds, 2)}
+        if context:
+            row["context"] = context
+        return row, pcm, rate
     except Exception as exc:
         return {"type": vt, "id": aid, "text": text, "ok": False, "error": describe_error(exc)}, b"", 0
 
@@ -247,9 +281,10 @@ def main() -> None:
     p.add_argument("--candidates", type=int, default=0, help="確かめに通った録り方を、この本数だけ候補として残す（人が聞いて選ぶ）")
     p.add_argument("--adopt", action="append", help="人が選んだ候補（例 S4_shouchi_2）を使う録音にする（キーを使わない）")
     p.add_argument("--as", dest="as_type", choices=sorted(VOICE_TYPES), help="--adopt：この声の型の録音として使う（同じ声の名前のときだけ）")
+    p.add_argument("--as-id", help="--adopt：同じ言葉の別の録音として使う（例 moushiwake_heavy）")
     args = p.parse_args()
     if args.adopt:
-        print(json.dumps(adopt(args.adopt, args.script, args.as_type), ensure_ascii=False))
+        print(json.dumps(adopt(args.adopt, args.script, args.as_type, args.as_id), ensure_ascii=False))
         return
     if args.dry_run:  # 下見は保存しない（G-36 と同じ）
         print(json.dumps(asyncio.run(run(args)), ensure_ascii=False))

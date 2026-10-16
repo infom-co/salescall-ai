@@ -908,8 +908,8 @@ class AckChoiceTest(unittest.TestCase):
         self.assertIsNone(self.report(f, "record_answer", question_id="Q2", condition_id="はい"))  # 差し戻し：流さない
         self.assertEqual(self.report(f, "record_answer", question_id="Q1", condition_id="refused"), "shouchi")
         from flowctl import Limits
-        for _ in range(Limits().ask_back):
-            self.assertEqual(self.report(f, "report_unclear", question_id="Q2"), "moushiwake")   # 聞き返す（申し訳なさそうに）
+        acks = [self.report(f, "report_unclear", question_id="Q2") for _ in range(Limits().ask_back)]
+        self.assertEqual(acks, ["moushiwake", "moushiwake_heavy"])  # 1回目は軽いお詫び・2回目からは重いお詫び（✅ 2026-10-16 ユーザー）
         self.assertEqual(self.report(f, "report_unclear", question_id="Q2"), "hai")              # 聞き返しを使い切って先へ
         self.assertEqual(self.report(f, "record_answer", question_id="Q3", condition_id="答えた", value="3人"), "hai")
         self.assertEqual(self.report(f, "confirm_field", question_id="Q3", result="corrected", correction="4人"), "shitsurei")
@@ -947,7 +947,7 @@ class AckChoiceTest(unittest.TestCase):
         self.assertEqual(f.log[-1]["reply"]["ack"], "shouchi")
         self.assertNotIn("ack", out)
         self.assertFalse(set(out.values()) & set(ACK))
-        for ack in ("hai", "shouchi", "arigatou", "shitsurei", "moushiwake"):
+        for ack in ("hai", "shouchi", "arigatou", "shitsurei", "moushiwake", "moushiwake_heavy"):
             self.assertIn(ack, ACK)
 
     def test_thinking_callee_gets_short_hai(self):
@@ -1008,7 +1008,7 @@ class FormCheckTest(unittest.TestCase):
         self.assertEqual((f.items["Q2"].state, f.items["Q2"].value), ("unclear", None))  # 記録しない
         self.assertIn("3人", f.items["Q2"].history[-1][2])                             # どの値で止めたかは残す
         r = self.do(f, "record_answer", question_id="Q2", condition_id="答えた", value="はい")
-        self.assertEqual((r["result"], r["ack"], r["say"]), ("ask_back", "moushiwake", "もう一回よろしいでしょうか？"))  # 2回目
+        self.assertEqual((r["result"], r["ack"], r["say"]), ("ask_back", "moushiwake_heavy", "もう一回よろしいでしょうか？"))  # 2回目＝重いお詫び
         r = self.do(f, "record_answer", question_id="Q2", condition_id="答えた", value="15日の午後2時")
         self.assertEqual(r["result"], "confirm_required")
         self.assertIn("おっしゃいましたでしょうか", r["say"])  # 聞き返したあとの言い直しの形
@@ -1128,6 +1128,59 @@ class FormCheckTest(unittest.TestCase):
         self.assertEqual(set(re.findall(r"[A-Za-z_][A-Za-z_0-9]*", text)) - {"Q2", "record_answer"}, set())  # 中の名前を見せない
 
 
+class UnitTest(unittest.TestCase):
+    """数の質問の単位（units.py・G-41。✅ 2026-10-16 ユーザー「入れる方向でOK」「人は基本的に介在しない」）。数字だけの答えに、取込で
+    決めた単位を補う。単位がもう付いている答えは変えない。金額の型には補わない。"""
+
+    def test_rule(self):
+        from units import by_rule
+        cases = {"ご来店の人数をお伺いしてもよろしいでしょうか？": "人", "何名様でお越しになりますでしょうか？": "名",
+                 "ご来店の人数は何名様でしょうか？": "名",            # 「人」と「名」は同じ意味（2つの単位とは数えない）
+                 "今の複合機はお使いになって何年目でしょうか？": "年目",  # 長い言葉から当てる（「年」にしない）
+                 "建物は何階建てでしょうか？": "階建て", "築年数をお伺いしてもよろしいでしょうか？": "年",
+                 "ご宿泊は何泊何日のご予定でしょうか？": "",          # 意味の違う単位が2つ＝決めない
+                 "従業員数をお伺いしてもよろしいでしょうか？": "",      # 数える言葉が文に無い（モデルに任せる）
+                 "お部屋はいくつご用意すればよろしいでしょうか？": "", "お部屋の広さはどのくらいでしょうか？": ""}
+        for q, want in cases.items():
+            self.assertEqual(by_rule(q), want, q)
+
+    def test_supply(self):
+        from units import supply_unit
+        cases = {"3": "3人", "2か3": "2か3人", "2、3": "2、3人", "10から15": "10から15人", "3くらい": "3人くらい", "約3": "約3人",
+                 "3人": "3人", "3名様": "3名様", "大人2人と子ども1人": "大人2人と子ども1人", "ふたり": "ふたり", "3つ": "3つ"}
+        for v, want in cases.items():
+            self.assertEqual(supply_unit(v, "人"), want, v)
+        self.assertEqual(supply_unit("3", ""), "3")  # 単位が決まらなかった質問は、いまと同じ
+
+    def test_clean(self):
+        from units import clean_unit
+        self.assertEqual(clean_unit("名様"), "名")
+        for bad in ("3人", "人、名", "とても長い言葉です", ""):
+            self.assertEqual(clean_unit(bad), "", bad)
+
+    def test_decide(self):
+        from units import agree, decide
+        self.assertEqual(decide("ご来店の人数をお伺いしてもよろしいでしょうか？", ["台", "台"]), "人")  # 文の言葉が先（モデルは使わない）
+        self.assertEqual(decide("従業員数をお伺いしてもよろしいでしょうか？", ["人", "名"]), "人")       # 同じ意味なら合う
+        self.assertEqual(decide("パソコンはいくつお使いでしょうか？", ["台", "つ"]), "台")              # 「つ」は数える言葉に従う
+        self.assertEqual(decide("お子様はおいくつでいらっしゃいますでしょうか？", ["歳", "つ"]), "歳")  # G-41 の 3.7 Flash の誤りを止める
+        self.assertEqual(decide("拠点の数をお伺いしてもよろしいでしょうか？", ["か所", "拠点"]), "")   # 食い違い＝補わない
+        self.assertEqual(decide("通塾にかかるお時間はどのくらいでしょうか？", ["", "分"]), "")         # 片方が空＝補わない
+        self.assertEqual(decide("従業員数をお伺いしてもよろしいでしょうか？", ["人"]), "")              # モデル1つでは決めない
+        self.assertEqual(agree("つ", "つ"), "つ")
+
+    def test_flow_supplies_unit_to_readback_and_value(self):
+        from flowctl import Flow, Question, normalize_value
+        f = Flow([Question("Q1", "ご来店の人数をお伺いしてもよろしいでしょうか？", "number", conditions=("答えた",), unit="人")])
+        f.on_callee()
+        r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "答えた", "value": "3 です"})
+        self.assertIn("3人で", r["say"])                    # 言い直し：「3人で大丈夫でしょうか？」（前は「3で…」）
+        self.assertEqual(f.items["Q1"].value, "3人")         # 依頼主へ渡す値
+        self.assertEqual(normalize_value("number", "三", "人"), "3人")  # 補ってから漢数字を直す
+        self.assertEqual(normalize_value("amount", "50", "円"), "50")   # 金額には補わない（「50万」の聞き落としでありうる）
+        self.assertEqual(normalize_value("number", "3"), "3")           # 単位の無い質問は、いまと同じ
+
+
 class AskLadderTest(unittest.TestCase):
     """聞き返しの回数と言い方（DESIGN.md 6-11）。✅ 2026-10-14 ユーザー：必須の項目を聞く回数は、最初の質問のほかに最大3回
     （その場2回＋締めの前の念のための確認1回）。依頼主ごとに変えられる。最後の1回は「申し訳ございません、」（相づちの録音）＋
@@ -1150,12 +1203,12 @@ class AskLadderTest(unittest.TestCase):
         from phrases import ASK_BACK
         f = self.flow()
         said = [self.do(f, "report_unclear", question_id="Q1") for _ in range(2)]
-        self.assertEqual([(r["say"], r["ack"]) for r in said], [(ASK_BACK, "moushiwake"), ("もう一回よろしいでしょうか？", "moushiwake")])
+        self.assertEqual([(r["say"], r["ack"]) for r in said], [(ASK_BACK, "moushiwake"), ("もう一回よろしいでしょうか？", "moushiwake_heavy")])
         r = self.do(f, "report_unclear", question_id="Q1")
         self.assertEqual((r["result"], r["question_id"], f.items["Q1"].state), ("next", "Q2", "unresolved"))  # その場は2回まで
         self.do(f, "record_answer", question_id="Q2", condition_id="答えた", value="3人")
         r = self.do(f, "confirm_field", question_id="Q2", result="affirmed")
-        self.assertEqual((r["result"], r["question_id"], r["say"], r["ack"]), ("recheck", "Q1", self.LAST, "moushiwake"))  # 最後の1回
+        self.assertEqual((r["result"], r["question_id"], r["say"], r["ack"]), ("recheck", "Q1", self.LAST, "moushiwake_heavy"))  # 最後の1回＝重いお詫び
         self.assertIn(self.LAST, r["message"])
         self.assertEqual(self.do(f, "record_answer", question_id="Q1", condition_id="答えた", value="15日の午後2時")["result"], "confirm_required")
         self.assertEqual(self.do(f, "confirm_field", question_id="Q1", result="affirmed")["result"], "end")
@@ -1183,7 +1236,7 @@ class AskLadderTest(unittest.TestCase):
         self.assertFalse(any("もう一度だけ" in s for s in says), says)
         h = self.flow(ask_back=1, recheck=0)  # 1回きりの聞き直しが、答えが質問に合わないとき：言い方も相づちも、最後の1回のもの
         r = self.do(h, "record_answer", question_id="Q1", condition_id="答えた", value="3人")
-        self.assertEqual((r["say"], r["ack"]), (self.LAST, "moushiwake"))
+        self.assertEqual((r["say"], r["ack"]), (self.LAST, "moushiwake_heavy"))
 
     def heard(self, f, said):
         """相手が話した（会話AIの聞き取りの文字が届いた）。"""
@@ -1672,6 +1725,18 @@ class RecordingCheckTest(unittest.TestCase):
         ok_lead = self.tone((0.1, False), (0.6, True), (0.30, False), (1.5, True), (0.2, False))
         self.assertFalse(long_pauses_ok(text, long_lead, self.RATE))
         self.assertTrue(long_pauses_ok(text, ok_lead, self.RATE))
+
+    def test_cut_after_context_keeps_only_the_second_sentence(self):
+        """前置き「かしこまりました。」のあとの文の切れ目で切り、後ろだけを残す（声の頭の前に少し無音を残す）。切れ目が無ければ使わない。"""
+        from make_ack_clips import CUT_KEEP_S, cut_after_context
+        from barge import voice_runs, voiced
+        pcm = self.tone((0.1, False), (0.7, True), (0.4, False), (1.5, True), (0.3, False))
+        kept = cut_after_context(pcm, self.RATE)
+        runs = voice_runs(voiced(kept, self.RATE), 0.05)
+        self.assertEqual(len(runs), 1)                                    # 前置きの文は残らない
+        self.assertAlmostEqual(runs[0][0], CUT_KEEP_S, delta=0.02)        # 声の頭は切らない
+        self.assertAlmostEqual(runs[0][1] - runs[0][0], 1.5, delta=0.05)  # 後ろの文はそのまま
+        self.assertIsNone(cut_after_context(self.tone((0.1, False), (2.0, True), (0.3, False)), self.RATE))
 
     def test_short_comma_like_pause_is_rejected(self):
         """⛔ 2026-10-15：締めの候補は、文の途中の 0.12〜0.24秒の無音で「、」が入った言い方に聞こえた（ユーザー）。0.08秒は聞こえなかった。"""

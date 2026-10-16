@@ -25,7 +25,9 @@ from listen import differences, hear_feeds, in_all, in_any
 from make_callee_samples import verified
 from live_util import build_config
 from turn_check import bad_kinds
+from units import decide
 
+Q3_TEXT = "ご来店の人数をお伺いしてもよろしいでしょうか？"
 BUSINESS = Business(
     company="アオバ物流", caller="佐藤", purpose="ご予約の確認", purpose_line="ご予約の確認でお電話いたしました。",
     questions=[Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"), topic="ご予約の有無"),
@@ -33,7 +35,8 @@ BUSINESS = Business(
                #    接客の話し方に ⇒ 試験の業務設定（トークスクリプト）の質問も直した（前は「ご希望の日時をお聞かせください。」など。G-36 まで）
                # ✅ 2026-10-15 ユーザー（G-37 を聞いて）：言葉の途中の読点で不自然な間が入る ⇒ 読点を外した
                Question("Q2", "ご希望の日時をお聞かせいただけますでしょうか？", "datetime", conditions=("答えた",), topic="ご希望の日時"),
-               Question("Q3", "ご来店の人数をお伺いしてもよろしいでしょうか？", "number", conditions=("答えた",), topic="ご来店の人数")],
+               Question("Q3", Q3_TEXT, "number", conditions=("答えた",), topic="ご来店の人数",
+                        unit=decide(Q3_TEXT, []))],  # 単位は取込と同じ決め方で（units.decide。G-41。この文は決まりだけで「人」に決まる）
 )
 PARTS = BUSINESS.opening_parts()  # [あいさつ, 名乗り, 用件, 最初の質問]
 NAME = ["アオバ", "青葉", "あおば", "大場", "オーバ", "オオバ"]  # 社名（「ア」がオ寄りに聞こえるものも、言えたとみなす）

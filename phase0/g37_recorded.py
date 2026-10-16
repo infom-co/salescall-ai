@@ -20,13 +20,14 @@ import json
 import statistics as st
 from pathlib import Path
 
-from common import base_parser, describe_error, drop_partial, make_client, pick_key, require_python, save_partial, save_result, say
+from common import HERE, base_parser, describe_error, drop_partial, make_client, pick_key, require_python, save_partial, save_result, say
 from convo import CALLEE_FOR, callee_voice_for, run_call
 from g22_opening import BUSINESS
 from g30_latency import keep_call
 from g34_ack import FAST, FOLLOWUP_WAIT_S
 from g36_customer import WANT, judge, scenes, turn_measures, utt
 from instruction import VOICE_TYPES
+from phrases import RECORDED
 from stitch_gap import played_wav, stitch_call
 
 SCENES = ("ふつう", "長い間", "先に答えた", "訂正")
@@ -103,6 +104,9 @@ def needed(p: dict) -> list[str]:
         items = [{"kind": "closing", "text": ""}] + [{"kind": "question", "id": q.id, "text": t, "lead": lead}
                                                       for q in BUSINESS.questions[1:] for t, lead in [spoken_question(BUSINESS.questions, q.id)]]
         miss += [str(played_wav(vt, i).name) for i in items if not played_wav(vt, i).exists()]
+        # 相づち・お詫び・待ってもらう一言（契約者の単位）も数える（⛔ 2026-10-16：数えていなかった＝重いお詫びを足したとき、
+        #    L4 の録音が無いことに気づけなかった）
+        miss += [f"{vt}_{aid}.wav" for aid in RECORDED if not (HERE / "results" / "ack" / f"{vt}_{aid}.wav").exists()]
     return miss
 
 

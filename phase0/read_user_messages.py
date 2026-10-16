@@ -4,8 +4,11 @@
 ⛔ 要約だけを頼りにして、前にいただいた注意（締めの言葉の「、」のような区切り・「お忙しいところ」の崩れ・「明るく」「はきはき」を使わない・
    音の変換は間が空く）を繰り返した。⇒ コンパクトのあとは、この道具でユーザーの発言をすべて読み直してから作業に戻る。
 
-使い方：python read_user_messages.py <会話の記録 .jsonl> [--since 2026-10-12T14:00] [--out ファイル]
-- 途中で届いた発言（作業中に送られたもの）も拾う。同じ発言が2回記録されていれば1回にする。
+使い方：python read_user_messages.py <会話の記録 .jsonl> [--since 2026-10-12T14:00] [--until …] [--with-assistant] [--out ファイル]
+- 途中で届いた発言（作業中に送られたもの）も拾う。同じ発言が続けて2回記録されたもの（10分以内）だけを1回にする。
+  ⛔ 2026-10-16 の失敗：同じ文の発言を、時刻が離れていても1回にしていた ⇒ ユーザーが同じ注意をくり返した発言
+  （10-12 と 10-16 の「コンパクト前のやり取りをきっちりと確認して、記憶を取り戻して」）が、読み直しから消えていた。
+- --with-assistant：こちらの返事（文字の部分だけ）も、時刻の順に混ぜて出す（コンパクト前に何を言ったか・何を約束したかを確かめる）。
 - キーなどの秘密は会話の記録に書かない決まりなので、読み直しても外へは出ない（出力は作業場所に置き、リポジトリには入れない）。
 """
 from __future__ import annotations
@@ -18,42 +21,60 @@ SKIP = ("<system-reminder>", "<task-notification>", "This session is being conti
         "<command-", "<local-command")
 
 
-def user_messages(path: Path, since: str = "") -> list[tuple[str, str]]:
-    """[(時刻, 発言)]。古い順。"""
-    out, seen = [], set()
+def user_messages(path: Path, since: str = "", until: str = "", with_assistant: bool = False) -> list[tuple[str, str, str]]:
+    """[(時刻, 誰, 発言)]。古い順。誰＝「ユーザー」か「CL-1」。"""
+    out, last_seen = [], {}
     for line in path.read_text(encoding="utf-8").splitlines():
         try:
             d = json.loads(line)
         except json.JSONDecodeError:
             continue
         ts = d.get("timestamp", "")
-        if ts < since:
+        if ts < since or (until and ts > until):
             continue
-        texts = []
+        texts, who = [], "ユーザー"
         if d.get("type") == "user":
             c = d.get("message", {}).get("content")
             texts = [c] if isinstance(c, str) else [x.get("text", "") for x in (c or []) if isinstance(x, dict) and x.get("type") == "text"]
         elif d.get("type") == "queue-operation" and isinstance(d.get("content"), str):  # 作業中に届いた発言
             texts = [d["content"]]
+        elif with_assistant and d.get("type") == "assistant":
+            c = d.get("message", {}).get("content") or []
+            texts, who = [x.get("text", "") for x in c if isinstance(x, dict) and x.get("type") == "text"], "CL-1"
         for t in texts:
             s = t.strip()
-            if not s or s.startswith(SKIP) or s[:200] in seen:
+            if not s or (who == "ユーザー" and s.startswith(SKIP)):
                 continue
-            seen.add(s[:200])
-            out.append((ts[:16], s))
+            key = (who, s[:200])
+            if key in last_seen and _minutes(last_seen[key], ts) < 10:  # 同じ発言が続けて2回記録されたもの
+                continue
+            last_seen[key] = ts
+            out.append((ts[:16], who, s))
     return sorted(out)
+
+
+def _minutes(a: str, b: str) -> float:
+    import datetime as dt
+    f = lambda x: dt.datetime.fromisoformat(x.replace("Z", "+00:00"))  # noqa: E731
+    try:
+        return abs((f(b) - f(a)).total_seconds()) / 60
+    except ValueError:
+        return 0.0
 
 
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("transcript", type=Path)
     p.add_argument("--since", default="")
+    p.add_argument("--until", default="")
+    p.add_argument("--with-assistant", action="store_true")
     p.add_argument("--out", type=Path)
     args = p.parse_args()
-    text = "\n\n------\n".join(f"[{ts}]\n{s}" for ts, s in user_messages(args.transcript, args.since))
+    rows = user_messages(args.transcript, args.since, args.until, args.with_assistant)
+    text = "\n\n------\n".join(f"[{ts}] {who}\n{s}" for ts, who, s in rows)
     if args.out:
         args.out.write_text(text, encoding="utf-8")
-        print(f"{args.out} に書きました（{len(text)} 字）")
+        print(f"{args.out} に書きました（{len(text)} 字・{len(rows)} 件）")
     else:
         print(text)
 

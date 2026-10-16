@@ -237,34 +237,6 @@
     "wav": "L4_lead_deha.wav"
   },
   {
-    "type": "S2",
-    "voice": "Sadachbia",
-    "id": "wait",
-    "text": "少々お待ちいただいてもよろしいでしょうか？",
-    "heard": {
-      "0.0": "少々お待ちいただいてもよろしいでしょうか。",
-      "1.0": "少々お待ちいただいてもよろしいでしょうか？"
-    },
-    "ok": true,
-    "seconds": 2.28,
-    "tries": 1,
-    "wav": "S2_wait.wav"
-  },
-  {
-    "type": "S4",
-    "voice": "Sadachbia",
-    "id": "wait",
-    "text": "少々お待ちいただいてもよろしいでしょうか？",
-    "heard": {
-      "0.0": "少々お待ちいただいてもよろしいでしょうか？",
-      "1.0": "少々お待ちいただいてもよろしいでしょうか？"
-    },
-    "ok": true,
-    "seconds": 2.52,
-    "tries": 1,
-    "wav": "S4_wait.wav"
-  },
-  {
     "type": "L4",
     "voice": "Leda",
     "id": "wait",
@@ -488,6 +460,113 @@
     "try": 2,
     "wav": "S4_moushiwake.wav",
     "chosen_from": "S4_moushiwake_2",
+    "chosen_by": "人"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "moushiwake_heavy",
+    "text": "申し訳ございません、",
+    "heard": {
+      "0.0": "申し訳ございません。",
+      "1.0": "申し訳ございません。"
+    },
+    "ok": true,
+    "seconds": 1.48,
+    "try": 1,
+    "wav": "S2_moushiwake_heavy.wav",
+    "made_as_id": "moushiwake",
+    "chosen_from": "S2_moushiwake_1",
+    "chosen_by": "人"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "moushiwake_heavy",
+    "text": "申し訳ございません、",
+    "heard": {
+      "0.0": "申し訳ございません。",
+      "1.0": "申し訳ございません。"
+    },
+    "ok": true,
+    "seconds": 1.48,
+    "try": 1,
+    "wav": "S4_moushiwake_heavy.wav",
+    "made_as_id": "moushiwake",
+    "made_as": "S2",
+    "chosen_from": "S2_moushiwake_1",
+    "chosen_by": "人"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "wait",
+    "text": "少々お待ちいただいてもよろしいでしょうか？",
+    "heard": {
+      "0.0": "少々お待ちいただいてもよろしいでしょうか？",
+      "1.0": "少々お待ちいただいてもよろしいでしょうか。"
+    },
+    "ok": true,
+    "seconds": 2.16,
+    "context": "かしこまりました。",
+    "try": 1,
+    "wav": "S2_wait.wav",
+    "chosen_from": "S2_wait_1",
+    "chosen_by": "人"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "wait_heavy",
+    "text": "少々お待ちいただいてもよろしいでしょうか？",
+    "heard": {
+      "0.0": "少々お待ちいただいてもよろしいでしょうか。",
+      "1.0": "少々お待ちいただいてもよろしいでしょうか？"
+    },
+    "ok": true,
+    "seconds": 2.42,
+    "context": "かしこまりました。",
+    "try": 3,
+    "wav": "S2_wait_heavy.wav",
+    "made_as_id": "wait",
+    "made_as": "S4",
+    "chosen_from": "S4_wait_3",
+    "chosen_by": "人"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "wait",
+    "text": "少々お待ちいただいてもよろしいでしょうか？",
+    "heard": {
+      "0.0": "少々お待ちいただいてもよろしいでしょうか？",
+      "1.0": "少々お待ちいただいてもよろしいでしょうか。"
+    },
+    "ok": true,
+    "seconds": 2.16,
+    "context": "かしこまりました。",
+    "try": 1,
+    "wav": "S4_wait.wav",
+    "made_as": "S2",
+    "chosen_from": "S2_wait_1",
+    "chosen_by": "人"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "wait_heavy",
+    "text": "少々お待ちいただいてもよろしいでしょうか？",
+    "heard": {
+      "0.0": "少々お待ちいただいてもよろしいでしょうか。",
+      "1.0": "少々お待ちいただいてもよろしいでしょうか？"
+    },
+    "ok": true,
+    "seconds": 2.42,
+    "context": "かしこまりました。",
+    "try": 3,
+    "wav": "S4_wait_heavy.wav",
+    "made_as_id": "wait",
+    "chosen_from": "S4_wait_3",
     "chosen_by": "人"
   }
 ]

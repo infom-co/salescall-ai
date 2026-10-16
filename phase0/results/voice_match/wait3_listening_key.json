@@ -1,0 +1,26 @@
+[
+  {
+    "file": "少々お待ち_01.wav",
+    "candidate": "S2_wait_3"
+  },
+  {
+    "file": "少々お待ち_02.wav",
+    "candidate": "S2_wait_1"
+  },
+  {
+    "file": "少々お待ち_03.wav",
+    "candidate": "S2_wait_2"
+  },
+  {
+    "file": "少々お待ち_04.wav",
+    "candidate": "S4_wait_3"
+  },
+  {
+    "file": "少々お待ち_05.wav",
+    "candidate": "S4_wait_2"
+  },
+  {
+    "file": "少々お待ち_06.wav",
+    "candidate": "S4_wait_1"
+  }
+]
