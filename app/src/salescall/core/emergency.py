@@ -56,11 +56,13 @@ def _write_flag(reason: str, by: str) -> Path:
     return p
 
 
-def stop_all(access: Access, actor: Actor, reason: str) -> dict[str, Any]:
-    """止める：印を残し、データベースへ届けば全体の緊急停止を記録する。"""
+def stop_all(access: Access | None, actor: Actor, reason: str) -> dict[str, Any]:
+    """止める：印を残し、データベースへ届けば全体の緊急停止を記録する（つなぎ先が無い＝None でも、印は残す）。"""
     if not reason.strip():
         raise ValueError("止める理由を書いてください")
     path = _write_flag(reason, actor.name)
+    if access is None:
+        return {"flag": str(path), "db_event": None, "db_error": "つなぎ先（SALESCALL_DATABASE_URL）がありません"}
     try:
         event = access.in_system(actor, lambda tx: stops.stop(tx, scope="system", cause="manual", reason=reason,
                                                               evidence=EVIDENCE)["event_id"])
@@ -76,10 +78,12 @@ def _open_by_this_switch(tx: Tx) -> list[int]:
         (EVIDENCE,))]
 
 
-def release_all(access: Access, actor: Actor, reason: str) -> dict[str, Any]:
+def release_all(access: Access | None, actor: Actor, reason: str) -> dict[str, Any]:
     """解く：この道で記録した緊急停止を、データベースで解いてから、印を消す。届かなければ印は消さない。"""
     if not reason.strip():
         raise ValueError("解く理由を書いてください")
+    if access is None:
+        return {"released": False, "resumed": [], "db_error": "つなぎ先（SALESCALL_DATABASE_URL）がありません"}
     try:
         resumed = access.in_system(actor, lambda tx: [stops.resume(tx, e, reason=reason, evidence=EVIDENCE)
                                                       for e in _open_by_this_switch(tx)])
@@ -98,7 +102,8 @@ def main(argv: list[str]) -> int:
         print("止めています：" + json.dumps(got, ensure_ascii=False) if got else "止めていません（このPCの印はありません）")
         return 0
     reason = " ".join(argv[1:])
-    access = Access(os.environ["SALESCALL_DATABASE_URL"])
+    url = os.environ.get("SALESCALL_DATABASE_URL")
+    access = Access(url) if url else None             # つなぎ先が無くても、止める（印を残す）ことはできる
     actor = Actor(os.environ.get("SALESCALL_ACTOR_NAME", "本番のPCの管理者"), "admin")
     if argv[0] == "stop":
         got = stop_all(access, actor, reason)

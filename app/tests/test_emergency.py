@@ -54,6 +54,12 @@ class Emergency(Base):
         self.assertFalse(emergency.release_all(UNREACHABLE, ADMIN, "試験")["released"])
         self.assertIsNotNone(emergency.engaged())                     # 解いたことを記録できなければ、印は消さない
 
+    def test_without_a_connection_setting_the_flag_is_still_written(self):
+        got = emergency.stop_all(None, ADMIN, "試験：つなぎ先が無い")
+        self.assertIsNotNone(emergency.engaged())
+        self.assertIsNone(got["db_event"])
+        self.assertFalse(emergency.release_all(None, ADMIN, "試験")["released"])
+
     def test_reason_is_required(self):
         with self.assertRaises(ValueError):
             emergency.stop_all(self.w.a, ADMIN, " ")

@@ -211,7 +211,8 @@ def check(raw: Any, *, field_types: frozenset[str]) -> Settings:
         problems.append("必須の質問が1つもありません（どんな通話でも「すべて取れた」になる。Intent.md 6-4）")
     s = Settings(purpose or "", company or Name("", "", "caller"), person or Name("", "", "caller"), purpose_line,
                  dict(tp), busy_line, voice or "", tuple(questions), tuple(names), None, raw)
-    if questions and len({q.id for q in questions}) == len(questions):
+    # 分岐は、すべての質問が読めたときだけ確かめる（読めなかった質問を除いて確かめると「分岐先がありません」などのうその理由が出る）
+    if questions and len(questions) == len(raw["questions"]) and len({q.id for q in questions}) == len(questions):
         problems += _flow_problems(s, raw["rules"])
         try:   # 業務の決まりの確かめ（core/business_rules.py の1か所。版の番号は、版を作るときに付く）
             business_rules.check(UUID(int=0), tuple(q.id for q in questions if q.required), tuple(q.id for q in questions),

@@ -73,6 +73,12 @@ class Check(unittest.TestCase):
             with self.subTest(expected):
                 self.assertTrue(any(expected in p for p in problems_of(r)), problems_of(r))
 
+    def test_no_false_reason_when_a_question_cannot_be_read(self):
+        r = raw(); r["questions"][1]["type"] = "color"                     # Q2 が読めない
+        got = problems_of(r)
+        self.assertTrue(any("型の一覧にありません" in p for p in got))
+        self.assertFalse(any("分岐先" in p or "どこからも" in p for p in got), got)   # 読めない質問の巻き添えの理由を出さない
+
     def test_all_problems_are_listed_at_once(self):
         r = raw(); r["purpose"] = ""; r["voice"] = ""; r["names"][0]["confirmed"] = False
         self.assertGreaterEqual(len(problems_of(r)), 3)                # 1つずつではなく、まとめて示す

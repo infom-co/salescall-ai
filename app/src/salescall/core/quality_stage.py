@@ -177,10 +177,11 @@ def record_mock(tx: Tx, version_id: UUID, r: MockResult) -> dict[str, Any]:
 
 
 def _incidents(tx: Tx, stop_event_id: int) -> list[str]:
-    """判定できないで止めた停止の、原因の通話（試行）。止めたときの評価の記録から読む。"""
-    row = tx.one("SELECT metrics -> 'unknown_judgments' -> 'attempts' AS a FROM salescall.quality_evaluations"
-                 " WHERE stop_event_id = %s", (stop_event_id,))
-    return [] if row is None or row["a"] is None else [str(x) for x in row["a"]]
+    """判定できないで止めた停止の、模擬通話に入れる場面：止めた版の、いまの測り（`_WINDOW`）の中で判定できなかった通話すべて
+    （原因を問わない）。⚠️ 止めたときの記録だけを見ると、止めたあとに締めた別の通話（回線が複数のとき）の判定できないを、
+    入れないまま再開してしまう。"""
+    row = tx.one("SELECT version_id FROM salescall.quality_evaluations WHERE stop_event_id = %s", (stop_event_id,))
+    return [] if row is None else metrics(tx, row["version_id"])["unknown_judgments"]["all_attempts"]
 
 
 def metrics(tx: Tx, version_id: UUID) -> dict[str, dict[str, Any]]:
@@ -222,7 +223,8 @@ def metrics(tx: Tx, version_id: UUID) -> dict[str, dict[str, Any]]:
                      "limit": limit, "inside": inside}
     # 判定できない：同じ原因の件数（いちばん多い原因で比べる）。原因ごとの件数と、いちばん多い原因の通話を残す（再開の確かめに使う）
     out["unknown_judgments"].update(causes={c or "": len(a) for c, a in by_cause.items()}, cause=worst,
-                                    attempts=[] if worst is None else by_cause[worst])
+                                    attempts=[] if worst is None else by_cause[worst],
+                                    all_attempts=sorted(a for x in by_cause.values() for a in x))
     return out
 
 

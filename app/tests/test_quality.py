@@ -136,6 +136,22 @@ class Stages(Base):
         self.assertEqual(got["outcome"], "opened")
         self.assertEqual(self.business_stops(s), [])                   # 同じ版でも再開（原因は業務設定とは限らない）
 
+    def test_resume_needs_every_unknown_call_since_the_stop(self):
+        """止めたあとに締めた別の通話（回線が複数のとき）も判定できなかったら、その場面も入れないと再開しない。"""
+        s = self.fresh(stage_cap=20)
+        s2 = self.second_row(s)
+        late = self.call(s2, report=rep(("reception",)), verify=None)      # 先にかけ始めていた通話
+        self.verified_call(s, VerificationSummary(1, 0, 0), report=rep(cut=None))   # 判定できない ⇒ 止まる
+        sid = self.business_stops(s)[0]["event_id"]
+        first = self.tx(s, lambda tx: stops.explain(tx, sid))["quality"]["metrics"]["unknown_judgments"]["attempts"]
+        self.tx(s, lambda tx: attempts.record_verification(tx, late, "done", summary=VerificationSummary(1, 0, 0)))
+        self.settle(s2, late)                                              # 止まったあとに締めた：これも判定できない
+        only_first = replace(GOOD, scenes=tuple(UUID(a) for a in first), evidence="試験：最初の場面だけ")
+        got = self.tx(s, lambda tx: quality_stage.record_mock(tx, s["version"], only_first))
+        self.assertEqual(got["outcome"], "scenes_missing")
+        both = replace(GOOD, scenes=tuple(UUID(a) for a in first) + (late,), evidence="試験：両方の場面")
+        self.assertEqual(self.tx(s, lambda tx: quality_stage.record_mock(tx, s["version"], both))["outcome"], "opened")
+
     def test_stage_end_advances_when_inside(self):
         s = self.fresh(stage_cap=1)
         self.verified_call(s, VerificationSummary(3, 0, 0), items=[("Q1", "confirmed", None)])
