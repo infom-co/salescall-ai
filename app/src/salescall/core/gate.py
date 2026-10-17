@@ -21,8 +21,8 @@ from datetime import datetime, timedelta
 from typing import Any
 from uuid import UUID
 
-from salescall.core import (approval, business_rules, business_settings, calling_hours, dnc, quality_stage, settings, stops,
-                            target_policy)
+from salescall.core import (approval, business_rules, business_settings, calling_hours, dnc, notify, quality_stage, settings,
+                            stops, target_policy)
 from salescall.core.access import Rejected, Tx
 from salescall.core.calendar import CalendarOutOfRange, holiday_checker
 from salescall.core.phone import normalize
@@ -63,6 +63,9 @@ REASONS: dict[str, tuple[str, str]] = {
     "line_unknown": ("その回線はありません", "cannot_judge"),
     "line_not_leased": ("回線を借りていません（または、借用の期限が予約証より先に切れます）", "wait"),
     "line_daily_limit": ("この回線の、今日の発信の上限に達しました", "wait"),
+    "line_other_client": ("この回線は、ほかの依頼者に割り当てた発信番号です", "wait"),
+    "line_used_by_other_client": ("この発信番号で、ほかの依頼者がこの番号へかけたことがあります（依頼者が替わったら発信番号を替える）",
+                                  "wait"),
     "line_busy": ("回線が使用中です", "wait"),
     "client_concurrency": ("この依頼者の同時の本数の上限です", "wait"),
     "contact_active": ("同じ番号のお客様（この依頼者の別の行を含む）に、進行中の発信があります", "wait"),
@@ -92,6 +95,7 @@ class Claim:
     expires_at: datetime
     purpose: str                 # 発信の目的（normal / ask_number_again / apology。会話の処理が読んで話す。DESIGN.md 3-5・10-1-2）
     wrong_phone_e164: str | None   # 番号の聞き直しのとき：番号違いだった番号（「お聞きした番号が…」と告げる）
+    voice_type: str              # この通話で話す声の型（`choose_voice` の1か所で決めた。会話の処理は、この声の型で話す）
 
 
 @dataclass(frozen=True)
@@ -220,6 +224,26 @@ def purpose_dials(tx: Tx, task_id: UUID, *, purpose: str) -> list[PurposeDial]:
         f" WHERE task_id = %s AND purpose = %s AND {_DIALED} ORDER BY claimed_at", (task_id, purpose))]
 
 
+def choose_voice(tx: Tx, task_id: UUID, phone_e164: str, business_voice: str) -> str:
+    """この通話で話す声の型（決めるのはここだけ。DESIGN.md 5-2-2 の順10）。
+    (1) この行で前に話した声の型があれば、それ（同じお客様へのかけ直しは同じ声。A/B のグループも保つ。お詫びの電話も同じ声）。
+    (2) ほかの依頼者（ほかの契約者を含む）がこの番号へかけたことがあり、業務の声の型がそのときと同じ声なら、ほかの声の初めの声の型
+        （2026-10-17 ユーザー：「依頼者が違うと、期間に関係なく、声…は変えた方がいい」「同じ男性ならサービスを聞く前に嫌悪感を
+        持たれるので、Ledaが対応するなど」「契約者が変わると…声は変えた方がいい」）。
+    (3) それ以外は、業務設定の声の型。"""
+    mine = tx.one("SELECT voice_type FROM salescall.attempts WHERE task_id = %s AND voice_type IS NOT NULL"
+                  " ORDER BY claimed_at DESC LIMIT 1", (task_id,))
+    if mine is not None:
+        return mine["voice_type"]
+    before = tx.one("SELECT salescall.number_last_voice_elsewhere(%s) AS v", (phone_e164,))["v"]
+    own = tx.one("SELECT voice_name FROM salescall.voice_types WHERE code = %s", (business_voice,))
+    if before is None or own is None or own["voice_name"] != before:
+        return business_voice
+    other = tx.one("SELECT code FROM salescall.voice_types WHERE default_for_voice AND voice_name <> %s"
+                   " ORDER BY voice_name LIMIT 1", (before,))
+    return other["code"] if other is not None else business_voice
+
+
 def pacing(tx: Tx, task_id: UUID, *, contact_id: UUID | None = None, promised: bool | None = None) -> Pacing:
     """その行（タスク）の、残りの回数と、次にかけてよい最も早い時刻（門・次の動き・画面が読む1か所）。
     contact_id：その番号へかける場合で数える（次の動きが、決める前に使う）。None ならいまの予定の番号。
@@ -330,11 +354,24 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
         return _deny(pace.binding)
 
     # (8) 回線：借りている本人で、借用の期限が予約証の期限より先。回線ごとの1日の上限（Intent.md 8-6）
-    line = tx.one("SELECT lease_holder, lease_expires_at FROM salescall.lines WHERE line_id = %s", (line_id,))
+    line = tx.one("SELECT lease_holder, lease_expires_at, client_id FROM salescall.lines WHERE line_id = %s", (line_id,))
     if line is None:
         return _deny("line_unknown")
     if line["lease_holder"] != lease_holder or line["lease_expires_at"] < now + lifetime:
         return _deny("line_not_leased")
+    # 発信番号：依頼者に割り当てた回線は、その依頼者だけ。依頼者が替わったら、期間に関係なく発信番号を替える（2026-10-17
+    # ユーザー：「依頼者が違うと、期間に関係なく、声と発信番号は変えた方がいい」「依頼者ごとに発信番号があることがデフォルト。
+    # ただし、検証時は発信番号は1つでOK」）。替えられる回線が無いときは、ほかの回線が空くのを待つ（契約者に、依頼者ごとの
+    # 発信番号が無いことを知らせる。設定の抜けは注意だけ）
+    if line["client_id"] is not None and line["client_id"] != task["client_id"]:
+        return _deny("line_other_client")
+    if not approval.human_for_business(tx, task["business_id"]) and tx.one(
+            "SELECT salescall.line_called_number_elsewhere(%s, %s) AS hit", (line_id, task["phone_e164"]))["hit"]:
+        notify.emit(tx, "setting_missing", key=f"own_line:{task['client_id']}:{local.date()}",
+                    summary="この依頼者に専用の発信番号（回線）がありません。ほかの依頼者がかけた番号へは、同じ発信番号ではかけないので、"
+                            "その番号は待っています。依頼者ごとの発信番号を用意してください。",
+                    refs={"client_id": task["client_id"], "line_id": line_id})
+        return _deny("line_used_by_other_client")
     dials = tx.one("SELECT salescall.line_dials_on(%s, %s) AS n", (line_id, local.date()))["n"]
     if dials >= int(_setting(tx, "line.max_dials_per_day", task)):
         return _deny("line_daily_limit")
@@ -346,17 +383,18 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
         return _deny("client_concurrency")
 
     # (10) 予約。同じお客様・番号・回線の進行中は、データベースの部分一意が拒む（その部分だけ取り消して理由を返す）
+    voice = choose_voice(tx, task["task_id"], task["phone_e164"], content.voice)
     try:
         with tx.savepoint():
             row = tx.one(
                 "INSERT INTO salescall.attempts (tenant_id, client_id, task_id, contact_id, phone_e164, line_id, version_id,"
-                "                                state, claimed_at, claim_expires_at, purpose, wrong_contact_id)"
+                "                                state, claimed_at, claim_expires_at, purpose, wrong_contact_id, voice_type)"
                 " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s, %s, 'claimed', now(), now() + %s,"
-                "         %s, %s)"
+                "         %s, %s, %s)"
                 " RETURNING attempt_id, claim_expires_at,"
                 "   (SELECT phone_e164 FROM salescall.task_numbers WHERE task_id = %s AND contact_id = %s) AS wrong_phone",
                 (task["task_id"], task["contact_id"], task["phone_e164"], line_id, version, lifetime,
-                 nxt["purpose"], nxt["wrong_contact_id"], task["task_id"], nxt["wrong_contact_id"]))
+                 nxt["purpose"], nxt["wrong_contact_id"], voice, task["task_id"], nxt["wrong_contact_id"]))
     except Rejected as e:
         if e.constraint == "attempts_one_active_per_contact":
             return _deny("contact_active")
@@ -369,4 +407,4 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
             return _deny("number_active_" + (relation or "other_tenant"))
         raise
     return Claim(row["attempt_id"], task["task_id"], line_id, task["phone_e164"], version, row["claim_expires_at"],
-                 nxt["purpose"], row["wrong_phone"])
+                 nxt["purpose"], row["wrong_phone"], voice)

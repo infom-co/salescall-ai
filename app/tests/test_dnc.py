@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import unittest
 
-from salescall.core import attempts, dnc, importer, target_policy
+from salescall.core import attempts, dnc, importer, target_policy, tasks
 from salescall.core.access import Rejected
 from salescall.core.import_files import read
 from salescall.core.phone import normalize
@@ -198,6 +198,22 @@ class RefusalScope(unittest.TestCase):
         self.assertEqual((len(got["numbers"]), got["client_refs"]), (1, []))
         again = import_rows(self.w, self.s, self.run2, [("A-1", "架空商事", fictional_jp_fixed())])
         self.assertEqual(self.outcome(again), [("registered", None)])   # 管理番号がお客様を表すかは分からない
+
+    def test_refusal_reaches_rows_of_the_same_client_that_share_a_number(self):
+        """同じ依頼者のほかの一覧の行で、断った行と番号を共有する行の番号も止める（2026-10-17 ユーザー決定：「広げる案でOK」）。
+        4月の一覧の行 X＝{代表 A・担当者の携帯 B}、5月の一覧の行 Y＝{代表 A}。Y で断られたら B も止める。
+        共有しない行・別の依頼者は止めない（別の依頼者はサービスも別なので、断られるとは限らない）。"""
+        a, b, c = fictional_jp_fixed(), normalize(fictional_jp_fixed()), fictional_jp_fixed()
+        x = import_rows(self.w, self.s, self.s["run"], [("X", "架空商事", a), ("Z", "架空工業", c)])["rows"]
+        first, _ = claim_row(self.w, self.s, x[0]["task_id"], dialing=True)
+        in_client(self.w, self.s, lambda tx: tasks.add_callee_number(tx, x[0]["task_id"], b, source_attempt_id=first))
+        y = import_rows(self.w, self.s, self.run2, [("Y", "架空商事", a)])["rows"]
+        in_client(self.w, self.s, lambda tx: attempts.move(tx, first, "no_answer"))
+        got = self.refuse_on(y[0]["task_id"])
+        self.assertEqual(set(got["numbers"]), {normalize(a).e164, b.e164})
+        other = World().setup(tenant=self.s["tenant"])
+        hit = in_client(self.w, other, lambda tx: dnc.lookup(tx, b.e164))
+        self.assertIsNone(hit)                                               # 別の依頼者には効かない
 
     def test_stable_ref_stops_the_same_party_with_another_number(self):
         set_client(self.w, self.s, "dnc.client_ref_is_stable_id", True)

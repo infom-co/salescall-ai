@@ -214,7 +214,8 @@ def _choices(raw: Any, type_name: str, where: str, problems: list[str]) -> tuple
     return names
 
 
-def check(raw: Any, *, field_types: frozenset[str], ai_reading_needs_person: bool) -> Settings:
+def check(raw: Any, *, field_types: frozenset[str], ai_reading_needs_person: bool,
+          voice_types: frozenset[str] | None = None) -> Settings:
     """業務設定を確かめて読む（ただ1つの確かめ。業務の決まりは版を作るときに business_rules が確かめる）。
     ai_reading_needs_person：AI の読みの案を、契約者が確かめていなければ通さないか（版を作るときは設定 `ai_reading_needs_person`
     の答え。置いた版を読むときは False＝置いた時に確かめ済み）。合わなければ SettingsInvalid（見つけた理由をすべて並べる）。"""
@@ -259,6 +260,8 @@ def check(raw: Any, *, field_types: frozenset[str], ai_reading_needs_person: boo
         _text(tp["role"], "目的のお客様の役職", problems)
     busy_line = _text(raw["busy_line"], "忙しいと言われたときの一言", problems, optional=True)
     voice = _text(raw["voice"], "声の型", problems)
+    if voice is not None and voice_types is not None and voice not in voice_types:
+        problems.append(f"声の型「{voice}」は、声の型の一覧にありません（{sorted(voice_types)}）")
 
     questions: list[Question] = []
     if not isinstance(raw["questions"], list) or not raw["questions"]:
@@ -388,6 +391,11 @@ def _flow_problems(s: Settings, rules_raw: Any) -> list[str]:
     return problems
 
 
+def voice_types(tx: Tx) -> frozenset[str]:
+    """声の型の一覧の名前（中身は CL-1 の持ち物。DESIGN.md 5-2-2 の順10）。"""
+    return frozenset(r["code"] for r in tx.all("SELECT code FROM salescall.voice_types"))
+
+
 def _field_types(tx: Tx) -> frozenset[str]:
     return frozenset(r["type_name"] for r in tx.all("SELECT type_name FROM salescall.field_types"))
 
@@ -404,7 +412,8 @@ def _content(s: Settings) -> dict[str, Any]:
 
 def save_version(tx: Tx, business_id: UUID, raw: dict[str, Any]) -> UUID:
     """業務設定を確かめて、新しい版を作る（1つの取引。確かめに通らなければ何も置かない）。版の番号を返す。"""
-    s = check(raw, field_types=_field_types(tx), ai_reading_needs_person=ai_reading_needs_person(tx, business_id))
+    s = check(raw, field_types=_field_types(tx), ai_reading_needs_person=ai_reading_needs_person(tx, business_id),
+              voice_types=voice_types(tx))
     version = tx.one(
         "INSERT INTO salescall.business_versions (tenant_id, client_id, business_id, version_no, created_by)"
         " SELECT b.tenant_id, b.client_id, b.business_id,"
@@ -435,7 +444,8 @@ def load(tx: Tx, version_id: UUID) -> Settings:
         raise LookupError(f"その版の業務設定の中身がありません：{version_id}")
     rules = business_rules.load(tx, version_id)
     raw = dict(row["content"], rules=_rules_raw(tx, version_id))
-    s = check(raw, field_types=_field_types(tx), ai_reading_needs_person=False)   # 置いた時に確かめ済み
+    s = check(raw, field_types=_field_types(tx), ai_reading_needs_person=False,   # 置いた時に確かめ済み
+              voice_types=voice_types(tx))
     return Settings(**{**s.__dict__, "rules": rules})
 
 

@@ -553,6 +553,55 @@ class ActiveConflicts(Base):
         self.assertEqual(self.reason(c), "number_active_other_tenant")
 
 
+
+class CallerNumberAndVoice(Base):
+    """依頼者が替わったら、期間に関係なく発信番号と声を替える（2026-10-17 ユーザー決定）。依頼者ごとの発信番号が初めの形。
+    検証モードでは発信番号は1つでよい。契約者が替われば発信番号は別（契約者の携帯）だが、声は替える。"""
+
+    def dialed(self, s, line=None):
+        c = self.claim(s, line=line)
+        self.assertIsInstance(c, gate.Claim, c)
+        self.assertTrue(dial_exit.dial(self.w.a, SYSTEM, s["tenant"], s["client"], c.attempt_id, FakeDriver()))
+        self.w.move(s, c.attempt_id, "no_answer")
+        return c
+
+    def test_another_client_or_contractor_gets_the_other_voice(self):
+        self.override("gate.cross_client_interval", 1)
+        a = self.ready()
+        self.assertEqual(self.dialed(a).voice_type, "S2")                           # 業務の声の型（Sadachbia）
+        time.sleep(1.1)
+        b = self.ready(tenant=a["tenant"], phone=a["phone"])                        # 同じ契約者の、ほかの依頼者
+        self.assertEqual(self.claim(b).voice_type, "L4")                            # 前が男性の声 ⇒ Leda
+        c = self.ready(phone=a["phone"])                                            # ほかの契約者（中身は見えず、声の名前だけ）
+        self.assertEqual(self.tx(c, lambda tx: gate.choose_voice(tx, c["task"], c["phone"], "S4")), "L4")
+        self.assertEqual(self.tx(c, lambda tx: gate.choose_voice(tx, c["task"], c["phone"], "L4")), "L4")   # もう違う声
+
+    def test_the_same_row_keeps_its_voice(self):
+        """同じ行（同じお客様へのかけ直し・お詫び）は、前に話した声のまま（業務の声の型をあとで替えても）。"""
+        a = self.ready()
+        first = self.dialed(a)
+        self.assertEqual(self.tx(a, lambda tx: gate.choose_voice(tx, a["task"], a["phone"], "L4")), first.voice_type)
+
+    def test_caller_number_changes_with_the_client(self):
+        self.override("gate.cross_client_interval", 1)
+        a = self.ready()
+        self.dialed(a)
+        time.sleep(1.1)
+        b = self.ready(tenant=a["tenant"], phone=a["phone"])
+        self.lease(b, line=a["line"])
+        self.assertEqual(self.reason(b, line=a["line"]), "line_used_by_other_client")   # 同じ発信番号ではかけない
+        notice = self.tx(b, lambda tx: tx.one("SELECT count(*) AS n FROM salescall.notification_events"
+                                              " WHERE kind = 'setting_missing' AND refs ->> 'client_id' = %s",
+                                              (str(b["client"]),)))["n"]
+        self.assertEqual(notice, 1)                                                 # 依頼者ごとの発信番号が無いと知らせる
+        self.lease(b)
+        self.assertIsInstance(self.claim(b), gate.Claim)                            # 自分の発信番号ならかける
+        mine = self.ready(tenant=a["tenant"])
+        self.w.a.in_tenant(OPERATOR, a["tenant"], lambda tx: tx.execute(
+            "UPDATE salescall.lines SET client_id = %s WHERE line_id = %s", (a["client"], mine["line"])))
+        self.assertEqual(self.reason(mine), "line_other_client")                   # ほかの依頼者に割り当てた発信番号
+
+
 class ExpiredClaims(Base):
     def test_expired_claim_is_released_and_cannot_dial(self):
         self.override("gate.claim_lifetime", 1)

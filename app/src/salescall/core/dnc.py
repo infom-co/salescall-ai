@@ -83,7 +83,11 @@ def register(tx: Tx, phone: PhoneNumber | str, reason: Reason, *, source_attempt
 
 def reach(tx: Tx, task_id: UUID) -> tuple[list[str], str | None]:
     """その行のお客様が断ったときに止める範囲（広げ方の正本。DESIGN.md 3-6）：(b) その行の番号すべて（お客様が言った別の番号も。
-    tasks.numbers の1か所）と、(c) 契約者が依頼者ごとの設定で選んでいれば、その行の管理番号（無ければ None）。"""
+    tasks.numbers の1か所）と、同じ依頼者のほかの行（ほかの一覧の行も）のうち、その行と番号を1つでも共有する行の番号すべて
+    （2026-10-17 ユーザー決定：「広げる案でOK。断られた場合は、同じ依頼者、同じ発信番号でかけ直しは絶対にNG」。例：5月の一覧の
+    代表番号で断られたら、4月の一覧で同じ代表番号を持つ行の担当者の携帯も止める。広げるのは1段だけ＝共有する行の番号まで）、
+    (c) 契約者が依頼者ごとの設定で選んでいれば、その行の管理番号（無ければ None）。依頼者をまたいでは広げない（取引の依頼者の分
+    しか見えない。別の依頼者はサービスも別なので、断られるとは限らない＝2026-10-17 ユーザー）。"""
     t = tx.one("SELECT t.tenant_id, t.client_id, t.client_ref, r.business_id FROM salescall.tasks t"
                " JOIN salescall.runs r ON r.client_id = t.client_id AND r.run_id = t.run_id WHERE t.task_id = %s",
                (task_id,))
@@ -93,7 +97,12 @@ def reach(tx: Tx, task_id: UUID) -> tuple[list[str], str | None]:
     if t["client_ref"] is not None and settings.resolve(tx, "dnc.client_ref_is_stable_id", tenant_id=t["tenant_id"],
                                                         client_id=t["client_id"], business_id=t["business_id"]):
         ref = t["client_ref"]
-    return tasks.numbers(tx, task_id), ref
+    own = tasks.numbers(tx, task_id)
+    shared = [r["phone_e164"] for r in tx.all(
+        "SELECT DISTINCT o.phone_e164 FROM salescall.task_numbers o"
+        " WHERE o.task_id IN (SELECT s.task_id FROM salescall.task_numbers s WHERE s.phone_e164 = ANY(%s) AND s.task_id <> %s)"
+        " ORDER BY o.phone_e164", (own, task_id))]
+    return list(dict.fromkeys(own + shared)), ref
 
 
 def undecided_reach_overlaps(tx: Tx, task_id: UUID) -> bool:

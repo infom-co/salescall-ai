@@ -420,7 +420,8 @@ def review(tx: Tx, business_id: UUID, raw: dict[str, Any], *, confirmed_names: A
             if same is not None:
                 c["reading"] = same["reading"]
     try:
-        business_settings.check(raw, field_types=_field_types(tx), ai_reading_needs_person=verification)   # 確かめは1か所
+        business_settings.check(raw, field_types=_field_types(tx), ai_reading_needs_person=verification,   # 確かめは1か所
+                                voice_types=business_settings.voice_types(tx))
     except business_settings.SettingsInvalid as e:
         problems += [p for p in e.problems if p not in problems]
     return Preview(raw, problems, to_confirm, _digest(business_id, raw), ai)
