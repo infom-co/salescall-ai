@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from flowctl import ANY_LABEL, ARG_LABEL, CONFIRM_LABEL, END_LABEL, GOT, SYSTEM_LABEL, Question
+from flowctl import ANY_LABEL, ARG_LABEL, CONFIRM_LABEL, END_LABEL, GOT, PART_LABEL, SYSTEM_LABEL, Question
 from names import quote  # noqa: F401（名前を「」でくくる唯一の場所。ここからも読める）
 
 from phrases import APOLOGY, ASK_BACK, GREETING  # noqa: F401（決まった言い方は phrases.py の1か所。試験からも、ここ経由で読める）
@@ -95,6 +95,11 @@ class Business:
             parts.append(self.purpose_line)
         parts.append(self.questions[0].text)
         return parts
+
+    def replay_parts(self) -> dict:
+        """名乗りを録音で流し直すときの部分（flowctl.Flow の opening。部分 → 文）。文は opening_parts と同じもの（録音も同じ）。"""
+        parts = self.opening_parts()
+        return {"greeting": parts[0], "intro": parts[1], "purpose": self.purpose_line or ""}
 
 
 
@@ -290,12 +295,7 @@ def build(business: Business, voice_type: str, resume=None, opening_mode: str = 
         parts.append(
             f"相手が電話に出たら、名乗りと最初の質問（「{''.join(business.opening_parts())}」）を、録音で相手に流します。あなたは言いません。"
             "録音が最後まで流れたら、あなたは相手の答えから会話を続けます。もう一度名乗ったり、同じ質問を繰り返したりしてはいけません。"
-            "相手が聞き返したら、聞き返されたことに答えてから、最初の質問 "
-            f"{first.id} を聞き直します。聞き取れなかった様子のとき（「もう一度お願いします」「はい？」など）は、録音の文を最初から"
-            "もう一度言います。誰からの電話かを聞かれたとき（「どちら様ですか」など）は、社名と名前を言います。用件を聞かれたとき"
-            "（「何のご用件ですか」など）は、用件を言います（名乗り直しません）。"
-            "相手が別の人に代わったら、代わった人に、あらためて短く名乗って用件を伝えます。"
-            "録音の途中で相手が話し始めたときは、プログラムが、録音のどこまでが相手に届いたかを知らせます。")
+            + replay_rule() + "録音の途中で相手が話し始めたときは、プログラムが、録音のどこまでが相手に届いたかを知らせます。")
     elif resume is None:
         parts.append(f"相手が電話に出たら、まず「{business.opening()}」と名乗り、続けて最初の質問 {first.id}「{first.text}」を聞きます。")
     else:
@@ -309,6 +309,18 @@ def build(business: Business, voice_type: str, resume=None, opening_mode: str = 
                      + "求められたら、「私からはお答えできかねます」と丁寧に断ります。")
     parts.append(style_text)
     return voice, "\n".join(parts)
+
+
+def replay_rule() -> str:
+    """名乗りを録音で流す通話で、聞き返されたときの決まり（指示文の1か所。最初のセッションと、張り替えのあとの「いまの位置」の両方で使う）。
+    ✅ 2026-10-13 ユーザー：名乗り直しも録音で流す（「間が大丈夫ならOK」）。⛔ G-22・G-29：AIが自分で名乗り直すと、社名が正しく
+    聞こえない（24本中、2通りの耳の両方で正しく聞こえたのは3本）⇒ AIは部分を選ぶだけ（flowctl.Flow._op_replay_opening）。
+    何を流すか（お詫びの録音・質問の録音の有無・まだ届いていない部分）は場面で変わるので、ここには書かず、操作の返事が伝える。
+    ⛔ 2026-10-17 の見直しで見つけた漏れ：前は最初のセッションの文にだけ書いていた＝張り替えのあとのAIは、この決まりを知らなかった。"""
+    return ("名乗りや用件を聞き返されたら、自分では言わずに replay_opening を呼びます（プログラムが名乗りの録音を流します。そのあとに"
+            f"することは、返事に書いてあります）。誰からの電話かを聞かれた（「どちら様ですか」など）＝「{PART_LABEL['intro']}」、用件を聞かれた"
+            f"（「何のご用件ですか」など）＝「{PART_LABEL['purpose']}」、聞き取れなかった様子（「もう一度お願いします」「はい？」「え？」など）＝"
+            f"「{PART_LABEL['all']}」、相手が別の人に代わった（「お電話代わりました」）＝「{PART_LABEL['handover']}」。")
 
 
 def unread_rule(names: list[str]) -> str:
@@ -335,7 +347,8 @@ def position_text(business: Business, flow) -> str:
             done.append(f"{q.id}「{q.text}」⇒ わからないと言われた（聞き直さない）")
         elif it.state == "refused":
             done.append(f"{q.id}「{q.text}」⇒ 答えたくないと言われた（二度と聞かない）")
-    lines = ["これは通話の続きです。回線の都合で、つなぎ直しました。名乗りはもう済んでいます。もう一度名乗ってはいけません。"]
+    lines = ["これは通話の続きです。回線の都合で、つなぎ直しました。名乗りはもう済んでいます。もう一度名乗ってはいけません。"
+             + (replay_rule() if flow.opening else "")]
     if done:
         lines.append("ここまでに聞けたこと：" + "／".join(done))
     if flow.awaiting_confirm:
@@ -352,8 +365,14 @@ def position_text(business: Business, flow) -> str:
 def barge_in_note(business: Business, done: list[str], rest: list[str]) -> str:
     """名乗りの録音の途中で相手が話し始めて止めたとき、AIへ知らせる文（DESIGN.md 6-13 の案。文面はここだけ）。"""
     heard = "".join(done) if done else "（まだ何も届いていません）"
+    # 名乗り・用件を伝え直すときは、自分で言わずに replay_opening（録音。頭の「失礼いたしました。」もプログラムが流す）。⛔ G-29：AIが自分で
+    # 名乗り直した社名は、6本中、2通りの耳の両方で正しく聞こえたのは0本
     return (f"［プログラムからのお知らせ］名乗りの録音は「{heard}」まで相手に届いたところで、相手が話し始めたので止めました。"
             f"まだ相手に伝えていないこと：「{''.join(rest)}」。"
-            f"相手の話にかぶせてしまったので、「{APOLOGY[0]}」と添えてから、相手の話に答えてください。そのあと、まだ伝えていないことを、会話の流れの中で短く伝えてください。"
-            "相手に届いたことは、繰り返さなくてかまいません。")
+            "相手の話に答えるのに名乗りや用件が要るとき（「どちら様？」「何でしょう？」など）は、自分では言わずに replay_opening を呼びます"
+            # まだ届いていない名乗り・用件は、流れの制御が足して流す（Flow.on_opening_cut。⛔ G-50：AIは「名乗り」だけを選び、用件が届かなかった）
+            f"（誰かを聞かれた＝「{PART_LABEL['intro']}」、用件を聞かれた＝「{PART_LABEL['purpose']}」、聞き取れなかった様子＝「{PART_LABEL['all']}」。"
+            "まだ届いていない名乗り・用件は、プログラムが一緒に流します）。"
+            f"相手がもう質問に答えているときは、そのまま答えを報告します。相手に届いたことは、繰り返さなくてかまいません。"
+            f"相手の話にかぶせてしまったので、自分で話すときは、話し始めに「{APOLOGY[0]}」を添えます（replay_opening のときは、プログラムが流します）。")
 

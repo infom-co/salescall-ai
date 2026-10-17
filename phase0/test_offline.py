@@ -616,8 +616,10 @@ class AIToJapaneseTest(unittest.TestCase):
 
     def test_declarations_and_checks_use_one_table(self):
         from flowctl import ARG_LABEL, OP_ARGS, tool_declarations
-        decls = {d.name: d for d in tool_declarations(self.business().questions)[0].function_declarations}
+        decls = {d.name: d for d in tool_declarations(self.business().questions, replay=True)[0].function_declarations}
         self.assertEqual(set(decls), set(OP_ARGS))
+        # 名乗りの流し直しは、名乗りを録音で流す形のときだけ宣言する（6-13）
+        self.assertNotIn("replay_opening", {d.name for d in tool_declarations(self.business().questions)[0].function_declarations})
         self.assertFalse({n for n, d in decls.items() if d.behavior})  # 返事を待たない宣言は使わない（G-33・G-36 の形 B は外した）
         for name, (req, opt) in OP_ARGS.items():
             self.assertEqual(set(decls[name].parameters.properties), {ARG_LABEL[k] for k in req + opt}, name)
@@ -630,12 +632,13 @@ class AIToJapaneseTest(unittest.TestCase):
         from flowctl import Flow, tool_declarations
         from instruction import build
         b = self.business()
-        allowed = {"record_answer", "report_unclear", "confirm_field", "request_end", "Q1", "Q2"}  # 操作の名前（道具の決まり）と質問の番号
+        allowed = {"record_answer", "report_unclear", "confirm_field", "request_end", "replay_opening", "Q1", "Q2"}  # 操作の名前（道具の決まり）と質問の番号
         shown = [build(b, t)[1] for t in ("S2", "L4")]
         shown += [build(b, "S2", opening_mode="recorded")[1]]
-        for d in tool_declarations(b.questions)[0].function_declarations:
+        for d in tool_declarations(b.questions, replay=True)[0].function_declarations:
             shown.append(json.dumps(d.model_dump(exclude_none=True), ensure_ascii=False))
-        f = Flow(b.questions)
+        f = Flow(b.questions, opening=b.replay_parts())
+        shown.append(json.dumps(f.handle(fc("replay_opening", 流し直す部分="名乗り")), ensure_ascii=False))
         for name, args in (("record_answer", {"質問": "Q2", "答えの種類": "はい"}), ("record_answer", {"質問": "Q1", "答えの種類": "はい"}),
                            ("record_answer", {"質問": "Q2", "答えの種類": "答えた"}),
                            ("record_answer", {"質問": "Q2", "答えの種類": "答えた", "値": "15日"}), ("request_end", {"理由": "質問が終わった"}),
@@ -1702,6 +1705,102 @@ class AmbiguousAnswerTest(unittest.TestCase):
             Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"), meanings={"たぶん": "x"})
         with self.assertRaises(AssertionError):
             Question("Q2", "ご希望の日時をお聞かせいただけますでしょうか？", "datetime", conditions=("答えた",), meanings={"答えた": "x"})
+
+
+class ReplayOpeningTest(unittest.TestCase):
+    """名乗りを録音で流し直す（DESIGN.md 6-13。✅ 2026-10-13 ユーザー：名乗り直しも録音で流す）。⛔ G-22・G-29：AIが自分で名乗り直すと、
+    社名が正しく聞こえない（24本中3本）。AIは部分を選ぶだけで、流すのは流れの制御が渡す録音。"""
+
+    def flow(self, play=True, **kw):
+        from flowctl import Flow
+        from g22_opening import BUSINESS
+        return Flow(BUSINESS.questions, play_recordings=play, opening=BUSINESS.replay_parts(), **kw), BUSINESS
+
+    def test_parts(self):
+        f, b = self.flow()
+        intro, purpose, q1 = b.opening_parts()[1], b.purpose_line, b.questions[0].text
+        for part, want, ack in (("intro", [intro, q1], "shitsurei"), ("purpose", [purpose, q1], "shitsurei"),
+                                ("all", [intro, purpose, q1], "shitsurei")):
+            f, _ = self.flow()
+            f.on_callee()
+            r = f.apply("replay_opening", {"part": part})
+            self.assertEqual(([p["text"] for p in r["play"]], r["ack"]), (want, ack), part)
+        f, _ = self.flow()
+        r = f.apply("replay_opening", {"part": "handover"})  # 代わった方へ：あいさつから。お詫びの相づちは流さない
+        self.assertEqual(([p.get("part", p["kind"]) for p in r["play"]], r["ack"]), (["greeting", "intro", "purpose", "question"], None))
+
+    def test_silent_and_state(self):
+        f, _ = self.flow()
+        f.on_callee()
+        reply, silent = f.handle_call(type("FC", (), {"name": "replay_opening", "args": {"流し直す部分": "名乗り"}})())
+        self.assertTrue(silent)                            # 録音を流すので、AIは話さない
+        self.assertEqual((f.current, f.items["Q1"].state), ("Q1", "empty"))  # 質問の位置は変わらない
+        self.assertIn("録音で流しました", reply["次にすること"])
+
+    def test_limit(self):
+        f, _ = self.flow()
+        for _ in range(2):
+            self.assertEqual(f.apply("replay_opening", {"part": "all"})["result"], "replayed")
+        r = f.apply("replay_opening", {"part": "all"})  # 3回目は流さない（使い切ったら、AIが短く答える＝止まらない）
+        self.assertEqual(r["result"], "rejected")
+
+    def test_while_waiting_for_a_restatement(self):
+        # 言い直しの返事待ちのときは、録音のあとにAIが言い直しをもう一度言う（値で変わるので録音にできない）
+        f, _ = self.flow()
+        f.on_callee(); f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい"})
+        f.on_callee(); f.on_heard("15日の午後2時でお願いします。")
+        r = f.apply("record_answer", {"question_id": "Q2", "condition_id": "答えた", "value": "15日の午後2時"})
+        f.on_callee(); f.on_heard("え、どちら様ですか？")
+        reply, silent = f.handle_call(type("FC", (), {"name": "replay_opening", "args": {"流し直す部分": "名乗り"}})())
+        self.assertFalse(silent)
+        self.assertEqual([p["part"] for p in f.log[-1]["reply"]["play"]], ["intro"])
+        self.assertIn(f.awaiting_say, reply["次にすること"])
+
+    def test_without_recorded_questions_ai_asks(self):
+        f, _ = self.flow(play=False)
+        reply, silent = f.handle_call(type("FC", (), {"name": "replay_opening", "args": {"流し直す部分": "用件"}})())
+        self.assertFalse(silent)
+        self.assertIn("ご予約はされていますでしょうか？", reply["次にすること"])
+
+    def test_unheard_parts_are_added(self):
+        # 録音の途中で止めたときは、まだ届いていない名乗り・用件を、AIが選んだ部分に足して流す（⛔ G-50：用件が届く前の「どちら様」に、
+        # AIは「名乗り」だけを選んだ＝用件が一度も届かない）。あいさつは足さない。一度流したら、次からは足さない
+        f, b = self.flow()
+        greeting, intro, purpose, q1 = b.opening_parts()
+        for done, part, want in (([], "intro", [intro, purpose, q1]), ([greeting], "intro", [intro, purpose, q1]),
+                                 ([greeting, intro], "purpose", [purpose, q1]), ([greeting, intro], "intro", [intro, purpose, q1]),
+                                 ([greeting, intro, purpose], "intro", [intro, q1])):
+            f, _ = self.flow()
+            f.on_opening_cut(done)
+            f.on_callee()
+            self.assertEqual([p["text"] for p in f.apply("replay_opening", {"part": part})["play"]], want, (done, part))
+        f, _ = self.flow()
+        f.on_opening_cut([greeting])
+        f.apply("replay_opening", {"part": "intro"})
+        self.assertEqual([p["text"] for p in f.apply("replay_opening", {"part": "intro"})["play"]], [intro, q1])
+
+    def test_rule_after_session_swap(self):
+        # 張り替えのあとの「いまの位置」にも、流し直しの決まりを渡す（⛔ 見直しで見つけた漏れ：最初のセッションの文にだけあった）
+        from flowctl import Flow
+        from instruction import position_text
+        f, b = self.flow()
+        self.assertIn("replay_opening", position_text(b, f))
+        self.assertNotIn("replay_opening", position_text(b, Flow(b.questions)))
+
+    def test_no_question_left(self):
+        # 質問が全部済んだあと（締めの最中など）：質問の録音を足さず、答えの報告も求めない（⛔ 見直しで見つけた漏れ）
+        f, _ = self.flow()
+        f.current, f.phase = None, "closing"
+        reply, silent = f.handle_call(type("FC", (), {"name": "replay_opening", "args": {"流し直す部分": "名乗り"}})())
+        self.assertTrue(silent)
+        self.assertEqual([p.get("part", p["kind"]) for p in f.log[-1]["reply"]["play"]], ["intro"])
+        self.assertNotIn("record_answer", reply["次にすること"])
+
+    def test_no_opening_recording(self):
+        from flowctl import Flow
+        from g22_opening import BUSINESS
+        r = Flow(BUSINESS.questions).apply("replay_opening", {"part": "intro"})
+        self.assertEqual(r["result"], "rejected")
 
 
 class RequestTailTest(unittest.TestCase):
