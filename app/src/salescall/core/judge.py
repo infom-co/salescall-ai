@@ -9,6 +9,9 @@
 - 切れ方の判定（7-1c）も、ここの1か所（`classify_cut`）。門の「数えない発信」は、その結果（試行に記録）を読む。
 
 上から順に、最初に当たったものが答え：
+  (0) FAX の回線（電話口が FAX だけ。お客様の声が無い）                               ⇒ out_of_scope（FAX）。その番号は以後かけない
+      （発信禁止 fax_line。その番号だけ。Intent.md 9-4。2026-10-17 の計画書との突き合わせ：前は「会話に至らなかった」として
+      かけ直していた）。お客様が言った番号が FAX だったときは、番号違いと同じく行を終えずに確かめて聞き直す
   (1) 番号違い（電話口の種別に wrong_party）                                          ⇒ out_of_scope（番号違い）
       ただし、お客様が言った番号へかけた通話なら、行は終えない（2026-10-15 ユーザー。DESIGN.md 3-5）
                                                                                   ⇒ not_reached（言われた番号が番号違い）
@@ -36,7 +39,7 @@ from typing import Any
 from salescall.core.business_rules import Rules
 from salescall.core.call_report import CallReport
 
-JUDGE_VERSION = "judge-2026-10-17.2"
+JUDGE_VERSION = "judge-2026-10-17.3"
 # 「判定できない」の原因の名前（同じ原因かを数える単位）と意味。プログラムの誤りか（直せるのは管理者だけ＝管理者にも知らせる。
 # 2026-10-16 ユーザー承認）も、ここで決まる（1か所）。業務設定の抜けは契約者が直す（いまは無い：業務の決まりは、必須の質問ごとに、
 # 決まった理由のすべてに扱いが無いと保存できない＝business_rules。2026-10-16 見直し：前は「理由×扱いが決まらない」を業務設定の
@@ -85,7 +88,7 @@ class Judgement:
     state: str                   # 業務の状態（4-1）
     complaint: bool
     disconnect: str | None       # 試行に記録する切れ方（normal / refused / interrupted。決められないものは設定で決めたほう）
-    dnc_reason: str | None       # 発信禁止に登録する理由（refused_in_call / refused_found_after / wrong_party）
+    dnc_reason: str | None       # 発信禁止に登録する理由（refused_in_call / refused_found_after / wrong_party / fax_line）
     detail: dict[str, Any]       # 判定の中身（依頼者への報告・次の動きが読む。policy_key＝再発信の方針の鍵）
 
 
@@ -144,6 +147,11 @@ def refusal(inp: JudgeInput) -> Judgement | None:
         if inp.refused_after:   # 報告は無くても、通話後の検証が録音から拒否を見つけた：はっきりした拒否が勝つ（2026-10-17 の見直し）
             return done("do_not_call", dnc="refused_found_after", refusal="found_after")
         return unknown("report_missing", "お客様が出た通話なのに、会話の報告がありません")
+    # (0) FAX の回線：お客様に届かない番号。その番号だけ止める（番号違いと同じ扱い。行のお客様が断ったのではない）
+    if r and "fax" in r.parties and not any(p in HUMAN_PARTIES for p in r.parties):
+        if inp.facts.dialed_callee_number:   # 言われた番号が FAX だった：その番号だけ止め、番号を確かめて聞き直す（次の動き）
+            return done("not_reached", dnc="fax_line", not_reached="wrong_alternate", fax_line=True)
+        return done("out_of_scope", dnc="fax_line", out_of_scope="fax_line")
     # (1) 番号違い（その番号の持ち主の断りも、その番号だけを止める）
     if r and "wrong_party" in r.parties:
         refused = {"wrong_party_refused": True} if r.do_not_call or cut == "refused" or inp.refused_after else {}

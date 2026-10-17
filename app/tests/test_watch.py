@@ -22,7 +22,9 @@ class Classify(unittest.TestCase):
         self.assertEqual(c("ai", 1007, "見たことのない文面"), "unknown_ai")          # 番号だけでは決めない
         self.assertEqual(c("ai", None, None, unreachable=True), "ai_unreachable")
         self.assertEqual(c("ear", None, None, unreachable=True), "ear_unreachable")
-        self.assertEqual(c("ear", 1099, "x"), "unknown_other")
+        self.assertEqual(c("ear", 1099, "x"), "ear_error")                 # 別の耳の不明：止めない（直しの依頼）
+        self.assertEqual(c("ear", 503, "UNAVAILABLE"), "ear_unreachable")    # 別の耳の一時的な誤り：止めない
+        self.assertEqual(c("ear", 1007, "thinking_level is not supported for this model"), "ear_error")
         self.assertEqual((c("line", None, "x"), c("storage", None, "x"), c("delivery", 500, "x")),
                          ("line", "storage", "delivery"))
         with self.assertRaises(ValueError):
@@ -295,6 +297,18 @@ class TenantAiStopsAndChecks(unittest.TestCase):
             "SELECT count(*) AS n FROM salescall.notification_events WHERE for_admin AND kind = 'error_notice'"
             " AND refs ->> 'kind' = 'ear_unreachable'"))["n"]
         self.assertGreaterEqual(n, 1)
+
+    def test_no_ear_error_ever_stops_calling(self):
+        """別の耳（通話後の検証）のエラーは、どの種類でも発信を止めない（2026-10-17 の計画書との突き合わせ：前は別の耳の
+        Google の側の誤り 503 が続く・設定の誤り 1007 が1回で、その契約者の発信を止めていた）。"""
+        override(self, "stop.ai.stop_after_failures", 2)
+        for report in (ErrorReport("ear", 503, "UNAVAILABLE"), ErrorReport("ear", 1007, "thinking_level is not supported"),
+                       ErrorReport("ear", 1099, "x")):
+            for _ in range(3):
+                self.ai_error(report)
+        self.assertEqual(self.ai_stops(), [])
+        for k in [k for k in errors.ACTIONS if k.startswith("ear_")]:
+            self.assertIsNone(errors.ACTIONS[k].stop_cause)
 
     def test_counting_needs_the_transaction_of_that_scope(self):
         other = World().setup()

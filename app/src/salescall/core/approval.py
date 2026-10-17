@@ -57,9 +57,12 @@ def approve_task(tx: Tx, task_id: UUID) -> None:
 
 
 def _release(tx: Tx, task_id: UUID, version_no: int) -> None:
-    tx.execute("INSERT INTO salescall.result_releases (tenant_id, client_id, task_id, version_no, released_by)"
-               " SELECT tenant_id, client_id, task_id, version_no, salescall.cur_actor() FROM salescall.task_results"
-               " WHERE task_id = %s AND version_no = %s ON CONFLICT DO NOTHING", (task_id, version_no))
+    """「確定した」の印を付ける（1か所）。検証の段階か本番かも印に持たせる（検証の段階の結果は、依頼者へ何も渡さない＝2026-10-16
+    ユーザー。出力の型 CL-3 が、この印で分ける。2026-10-17 の計画書との突き合わせで足した）。"""
+    stage = "verification" if _human(tx, task_id) else "production"
+    tx.execute("INSERT INTO salescall.result_releases (tenant_id, client_id, task_id, version_no, released_by, stage)"
+               " SELECT tenant_id, client_id, task_id, version_no, salescall.cur_actor(), %s FROM salescall.task_results"
+               " WHERE task_id = %s AND version_no = %s ON CONFLICT DO NOTHING", (stage, task_id, version_no))
 
 
 def after_judged(tx: Tx, task_id: UUID, version_no: int, version_id: UUID) -> list[tuple[UUID, int]]:

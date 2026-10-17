@@ -9,6 +9,7 @@
   (c) 契約者が依頼者ごとの設定で「管理番号はお客様を表す変わらない番号」を「はい」にしていたら（設定 `dnc.client_ref_is_stable_id`）、
       その行の管理番号も止める（次の一覧で、同じお客様が別の番号で入ってきても止まる）。
   番号違い（wrong_party）は、その番号の持ち主が別のお客様だったということなので、その番号だけ（行・管理番号へ広げない）。
+  FAX の回線（fax_line）も、その番号だけ（お客様に届かない番号。Intent.md 9-4「その番号は以後かけない」）。
 - 同じ番号・同じ管理番号の有効な登録は1つ（2回目の登録は、前の登録をそのまま返す。何度呼んでも同じ結果）。
 - **登録した取引の中で、止めた番号・管理番号のまだ発信していない予約を取り消す**（DESIGN.md 5-2-1 の2）。
 - 取り消し（revoke）は管理者か契約者だけ・記録つき・1回だけ（データベースが守る）。自動では取り消さない（Intent.md 10-3）。
@@ -26,7 +27,7 @@ from salescall.core import attempts, settings, tasks
 from salescall.core.access import Tx
 from salescall.core.phone import PhoneNumber, normalize
 
-Reason = Literal["refused_in_call", "refused_found_after", "wrong_party", "manual", "client_list"]
+Reason = Literal["refused_in_call", "refused_found_after", "wrong_party", "fax_line", "manual", "client_list"]
 REFUSALS = frozenset({"refused_in_call", "refused_found_after"})   # お客様が断った ⇒ お客様（行）ごと止める
 
 

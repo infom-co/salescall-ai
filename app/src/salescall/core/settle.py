@@ -115,7 +115,7 @@ def _settle_apology(tx: Tx, a: dict[str, Any]) -> dict[str, Any]:
         dnc.register(tx, a["phone_e164"], j.dnc_reason, source_attempt_id=attempt_id)
     refused = j is not None and j.state == "do_not_call"
     # 通話後の検証で拒否の聞き逃しを確かめられなかった：ふつうの通話と同じく、この行はもうかけない（かけない側に倒す）
-    stop_reason = ("apology_wrong_party" if j is not None and j.dnc_reason == "wrong_party" else
+    stop_reason = (f"apology_{j.dnc_reason}" if j is not None and j.dnc_reason in ("wrong_party", "fax_line") else
                    "apology_verification_failed" if a["verification"] == "failed" else None)
     _notice_forbidden(tx, a, prepare=False)
     decision = next_action.after_apology(tx, a["task_id"], delivered=delivered, refused=refused, stop_reason=stop_reason,
@@ -126,6 +126,7 @@ def _settle_apology(tx: Tx, a: dict[str, Any]) -> dict[str, Any]:
                              "apology_unreached": "お詫びの電話が、決めた回数かけてもお客様に届きませんでした。",
                              "do_not_call": "お詫びの電話で、発信を断られました。",
                              "apology_wrong_party": "お詫びの電話の番号が、番号違いでした（その番号は発信禁止にしました）。",
+                             "apology_fax_line": "お詫びの電話の番号が、FAX でした（その番号は発信禁止にしました）。",
                              "apology_verification_failed": "お詫びの電話の、通話後の確かめができませんでした（もうかけません）。"}.get(
                         decision.end_reason, f"お詫びの電話を終えました（{decision.end_reason}）。"),
                     refs={"attempt_id": attempt_id, "task_id": a["task_id"], "order_id": order["order_id"]})
@@ -263,11 +264,15 @@ def _judge_and_write(tx: Tx, a: dict[str, Any], *, kind: str, rules_version: Any
         #               プログラムの誤りなら管理者にも（直せるのは管理者だけ。原因ごとの決まりは judge の1か所）
         notify.emit(tx, "judge_unknown", key=f"judge_unknown:{attempt_id}",
                     admin=j.detail.get("unknown_cause") in PROGRAM_CAUSES,
-                    summary=f"判定できない通話がありました（その行は判定待ちで残し、原因が直ったら判定し直します）。"
-                            f"{j.detail.get('error', '')}",
+                    summary="判定できない通話がありました（判定待ちで残しています）。",   # 注意は短く（原因は refs と画面で）
                     refs={"attempt_id": attempt_id, "task_id": a["task_id"], "judge_version": JUDGE_VERSION,
-                          "unknown_cause": j.detail.get("unknown_cause")})
+                          "unknown_cause": j.detail.get("unknown_cause"), "error": j.detail.get("error")})
     forbidden = _notice_forbidden(tx, a)   # 言ってはいけないことを言った：その行はひとまず終え、契約者へ知らせる
+    if j.complaint:
+        # 苦情があった：その行は終える（次の動き）。苦情は、契約者が対応する特例（Intent.md 18-3「クレームになりそうなときなど、
+        # 特例のときだけ人が対応する」）なので知らせる（2026-10-17 の計画書との突き合わせ：前は印を残すだけで、誰にも届かなかった）
+        notify.emit(tx, "complaint", key=f"complaint:{attempt_id}", summary="苦情があった通話がありました。",
+                    refs={"attempt_id": attempt_id, "task_id": a["task_id"]})
     if j.dnc_reason is not None:
         dnc.register(tx, a["phone_e164"], j.dnc_reason, source_attempt_id=attempt_id)
     decision = next_action.after_call(

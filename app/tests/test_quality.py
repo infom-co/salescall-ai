@@ -266,13 +266,16 @@ class Production(Base):
         class Back(Exception):
             pass
 
-        def next_day(tx):
-            for t in ("attempts", "stop_events"):
+        def next_day(tx):   # 止めたのは昨日：かけた・締めた・止めた時刻を1日前へ（数えるのは締めた日）
+            tables = ("attempts", "stop_events", "task_results")
+            for t in tables:
                 tx.execute(f"ALTER TABLE salescall.{t} DISABLE TRIGGER USER")
             tx.execute("UPDATE salescall.attempts SET claimed_at = claimed_at - interval '1 day' WHERE client_id = %s",
                        (s["client"],))
+            tx.execute("UPDATE salescall.task_results SET decided_at = decided_at - interval '1 day' WHERE client_id = %s",
+                       (s["client"],))
             tx.execute("UPDATE salescall.stop_events SET at = at - interval '1 day' WHERE event_id = %s", (sid,))
-            for t in ("attempts", "stop_events"):
+            for t in tables:
                 tx.execute(f"ALTER TABLE salescall.{t} ENABLE TRIGGER USER")
             scenes = quality_stage._incidents(tx, sid)
             no_scenes = quality_stage.record_mock(tx, s["version"], GOOD)["outcome"]

@@ -95,8 +95,8 @@ class World:
         bid, vid = uuid.uuid4(), uuid.uuid4()
 
         def work(tx):
-            tx.execute("INSERT INTO salescall.businesses (tenant_id, client_id, business_id, name, target_kind)"
-                       " VALUES (%s, %s, %s, %s, 'corporate')", (tenant, client, bid, "架空の業務"))
+            tx.execute("INSERT INTO salescall.businesses (tenant_id, client_id, business_id, name)"
+                       " VALUES (%s, %s, %s, %s)", (tenant, client, bid, "架空の業務"))
             tx.execute("INSERT INTO salescall.business_versions (tenant_id, client_id, business_id, version_id, version_no, created_by)"
                        " VALUES (%s, %s, %s, %s, 1, %s)", (tenant, client, bid, vid, OPERATOR.name))
             tx.execute("INSERT INTO salescall.questions (tenant_id, client_id, version_id, question_id, position, type_name, required)"

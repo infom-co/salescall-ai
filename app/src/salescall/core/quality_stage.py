@@ -313,7 +313,9 @@ def _stop(tx: Tx, v: dict[str, Any], version_id: UUID, cause: str, reason: str, 
 
 def _production_counts(tx: Tx, business_id: UUID, day: Any = None) -> dict[str, Any]:
     """本番の、その業務のその日（日本時間。None＝今日）の数（品質の停止を最後に解いたあとの通話だけ）：言ってはいけないことを
-    言った通話の数と、判定できない原因ごとの通話。お詫びの電話は数えない。"""
+    言った通話の数と、判定できない原因ごとの通話。お詫びの電話は数えない。**その日＝通話を締めた（最初に判定した）日**：言って
+    はいけないこと・判定できないが分かるのは、通話後の検証と締めのあと（2026-10-17 の計画書との突き合わせ：前はかけた日で数えた
+    ので、夜にかけて日付が変わってから締めた通話は、どの日の数にも入らず、止めなかった）。"""
     window = (
         "WITH since AS (SELECT coalesce(max(r.at), '-infinity') AS t FROM salescall.stop_events r"
         "               JOIN salescall.stop_events s ON s.event_id = r.resolves_event_id"
@@ -321,11 +323,13 @@ def _production_counts(tx: Tx, business_id: UUID, day: Any = None) -> dict[str, 
         " a AS (SELECT a.attempt_id FROM salescall.attempts a"
         "       JOIN salescall.business_versions bv ON bv.version_id = a.version_id, since"
         "       WHERE bv.business_id = %s AND a.purpose <> 'apology' AND a.claimed_at > since.t"
-        "         AND salescall.jst(a.claimed_at)::date = coalesce(%s::date, salescall.jst(now())::date)) ")
+        "         AND salescall.jst((SELECT min(r0.decided_at) FROM salescall.task_results r0"
+        "                            WHERE r0.attempt_id = a.attempt_id AND r0.kind = 'judged'))::date"
+        "             = coalesce(%s::date, salescall.jst(now())::date)) ")
     args = (business_id, list(STOP_CAUSES), business_id, day)
     forbidden = tx.one(window + "SELECT count(*) AS n FROM a WHERE salescall.said_forbidden(a.attempt_id)", args)["n"]
     unknown = {r["c"] or "": [str(x) for x in r["a"]] for r in tx.all(
-        window + "SELECT r.detail ->> 'unknown_cause' AS c, array_agg(r.attempt_id ORDER BY r.attempt_id) AS a"
+        window + "SELECT r.detail ->> 'unknown_cause' AS c, array_agg(DISTINCT r.attempt_id ORDER BY r.attempt_id) AS a"
         " FROM salescall.task_results r JOIN a ON a.attempt_id = r.attempt_id"
         " WHERE r.kind = 'judged' AND r.business_state = 'unknown' GROUP BY 1", args)}
     return {"forbidden_speech": forbidden, "unknown_by_cause": unknown}

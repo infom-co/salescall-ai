@@ -110,10 +110,10 @@ LABELS: dict[str, str] = {
     "key_specific": "キーが使えません", "project_denied": "会話AIの1分の上限に当たりました",
     "config_error": "会話AIの設定の誤りです", "project_quota": "会話AIの利用枠を超えました",
     "ai_unreachable": "会話AIにつながりません", "ear_unreachable": "通話後の確かめ（別の耳）につながりません",
+    "ear_error": "通話後の確かめ（別の耳）の誤りです",
     "ai_server_error": "会話AIの側の誤り・混雑です", "session_drop": "通話中に会話AIが切れました",
     "line": "回線の異常です", "storage": "保存に失敗しました", "delivery": "結果の書き戻しに失敗しました",
     "unknown_ai": "原因の分からない会話AIの誤りです", "unknown_line": "原因の分からない回線の誤りです",
-    "unknown_other": "原因の分からない誤りです",
 }
 
 ACTIONS: dict[str, Action] = {
@@ -136,6 +136,10 @@ ACTIONS: dict[str, Action] = {
                               "やり直す（つながるまで、その行は締めずに待つ＝同じお客様には、断られたかが決まるまでかけない）。"
                               "管理者に知らせる（2026-10-17：止めるのはお客様に影響が出るときだけ。検証が遅れても、門が"
                               "その行と同じお客様を守るので、お客様には影響が出ない）"),
+    "ear_error": Action("keep", "none", None, None, None, True,
+                        "別の耳（通話後の検証）の設定の誤り・原因の分からない誤り：発信は止めない（止めるのはお客様に影響が出るときだけ。"
+                        "検証が済むまで、門がその行と同じお客様にかけないので、お客様には影響が出ない）。管理者に直しを依頼する。"
+                        "検証は順番待ちのまま、直ったらやり直す", fundamental=True),
     "ai_server_error": Action("keep", "backoff", "ai_connection", "tenant", "stop.ai.stop_after_failures", False,
                               "Google の側の誤り・混雑・時間切れ（公式の一覧の 500・503・504。一時的）：間隔を伸ばしてやり直す。続いたら、直るまで新しい発信を待ち、直ったら自動で続ける"),
     "session_drop": Action("keep", "reconnect_once", None, None, None, False,
@@ -155,7 +159,6 @@ ACTIONS: dict[str, Action] = {
                          "不明（会話AI）：キーを切り替えない。続いたら新しい発信を待ち、管理者に直しを依頼する", fundamental=True),
     "unknown_line": Action("keep", "none", "line_failure", "line", "stop.line.stop_after_failures", True,
                            "不明（回線）：続いたら、その回線の発信を待ち、管理者に直しを依頼する", fundamental=True),
-    "unknown_other": Action("keep", "none", None, None, None, True, "不明：知らせる（止める範囲を決められない）"),
 }
 
 # 止める原因ごとに、続けて数えるエラーの種類（同じ原因で止める種類を合わせて数える。1か所）
@@ -203,11 +206,16 @@ def classify(e: ErrorReport) -> str:
     if e.source in ("ai", "ear"):
         entry = lookup(e)
         # 切断は、開いたセッションが途中で切れたこと。開けなかった（つながらなかった）なら、つながらないの種類にする
-        if entry is not None and entry.kind is not None and not (entry.kind == "session_drop" and e.unreachable):
-            return entry.kind
-        if e.unreachable:
-            return "ai_unreachable" if e.source == "ai" else "ear_unreachable"
-        return "unknown_ai" if e.source == "ai" else "unknown_other"
+        kind = (entry.kind if entry is not None and entry.kind is not None
+                and not (entry.kind == "session_drop" and e.unreachable) else None)
+        if kind is None:
+            kind = "ai_unreachable" if e.unreachable else "unknown_ai"
+        if e.source == "ear" and ACTIONS[kind].stop_cause is not None:
+            # 別の耳のエラーで、発信は止めない（2026-10-17：止めるのはお客様に影響が出るときだけ＝検証が済むまで門が同じお客様を
+            # 守る）。一覧の種類のうち止める種類は、一時的なら「つながらない」、根源的（設定の誤り・不明）なら「別の耳の誤り」にする
+            # （2026-10-17 の計画書との突き合わせ：前は別の耳の 503 が3回・1007 が1回で、その契約者の発信を止めていた）
+            kind = "ear_error" if ACTIONS[kind].fundamental else "ear_unreachable"
+        return kind
     if e.source == "line":
         return "line"
     if e.source == "storage":

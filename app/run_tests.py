@@ -82,6 +82,12 @@ def _with_db(dsn: str, dbname: str, user: str) -> str:
 # データベースの守りを、わざと1つずつ外す。外したら、その守りを試す試験が本当に落ちることを確かめる（DESIGN.md 14章：
 # 落ちることを確かめていない見張りは、見張っていないのと同じ）。守りを足したら、ここにも足す。
 MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    ("検証の段階の結果を依頼者へ渡さない守りを外す",
+     "ALTER TABLE salescall.deliveries DROP CONSTRAINT deliveries_production_release",
+     ("tests.test_foundation.DeliveriesOnlyForReleasedVersions.test_results_confirmed_in_verification_never_reach_the_requester",)),
+    ("個人の業務を作れない守りを外す",
+     "ALTER TABLE salescall.business_contents DROP CONSTRAINT business_contents_corporate_only",
+     ("tests.test_foundation.OnlyCorporateForNow.test_individual_target_is_rejected",)),
     ("番号ごとの進行中の制約を外す", "DROP INDEX salescall.attempts_one_active_per_number",
      ("tests.test_foundation.OneActiveAttempt.test_per_number_across_clients_and_tenants",
       "tests.test_foundation.OneActiveAttempt.test_concurrent_claims_on_one_number_only_one_wins")),

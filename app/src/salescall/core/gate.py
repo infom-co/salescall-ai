@@ -80,6 +80,10 @@ _DIALED = "state NOT IN ('claimed', 'released')"   # 発信まで進んだ試行
 # 同じお客様への最小の間隔・1日の回数に数える発信：お客様の意思と関係なく繋がらなかった・切れたものは数えない（2026-10-14 ユーザー決定。
 # 決まりはデータベースの1か所 salescall.not_by_callee）
 _COUNTED = _DIALED + " AND NOT salescall.not_by_callee(state, disconnect, attempt_id)"
+# 行の回数の上限・1日の回数に数える発信：上に加えて、お客様と約束したかけ直しは数えない（2026-10-14 ユーザー：「かけ直しの約束を
+# 相手側にした場合やかけ直しを依頼された場合は対象外」。2026-10-17 の計画書との突き合わせ：前は約束したかけ直しを止めないだけで、
+# かけたあとは回数に数えていたので、そのあとのふつうのかけ直しが減った）。最小の間隔は、約束したかけ直しも起点に数える（歯止め）
+_COUNTED_TIMES = _COUNTED + " AND NOT promised"
 _DIALED_A = "a.state NOT IN ('claimed', 'released')"   # 同じ決まり（表の別名つき）
 _SAME = "(contact_id = %s OR task_id = %s)"             # 同じお客様：かける番号が同じ発信、または同じ行の発信
 
@@ -159,7 +163,7 @@ def _setting(tx: Tx, key: str, task: dict[str, Any]) -> Any:
 def _pacing(tx: Tx, task: dict[str, Any], now: datetime, assume_promised: bool | None = None) -> Pacing:
     # 「かけた回数」の数え方は1つ（行の回数の上限・1日の回数・最小の間隔のどれも）：お客様の意思と関係なく繋がらなかった・
     # 切れた発信は数えない。お客様と約束したかけ直しは、どの上限でも止めない（2026-10-14 ユーザー：「ほぼ同じことでしょ。統一」）
-    counted = tx.one(f"SELECT count(*) AS n FROM salescall.attempts WHERE task_id = %s AND {_COUNTED}",
+    counted = tx.one(f"SELECT count(*) AS n FROM salescall.attempts WHERE task_id = %s AND {_COUNTED_TIMES}",
                      (task["task_id"],))["n"]
     remaining = max(0, int(_setting(tx, "retry.max_attempts_per_task", task)) - counted)
     if assume_promised is None:
@@ -180,7 +184,7 @@ def _pacing(tx: Tx, task: dict[str, Any], now: datetime, assume_promised: bool |
                            "same_contact_interval"))
         today = tx.one(
             f"SELECT count(*) AS n, salescall.jst_day_start(salescall.jst(now())::date + 1) AS tomorrow"
-            f" FROM salescall.attempts WHERE {_SAME} AND {_COUNTED}"
+            f" FROM salescall.attempts WHERE {_SAME} AND {_COUNTED_TIMES}"
             f"  AND salescall.jst(claimed_at)::date = salescall.jst(now())::date", same)
         if today["n"] >= int(_setting(tx, "gate.max_dials_per_contact_per_day", task)):
             limits.append((today["tomorrow"], "daily_attempts"))
@@ -293,7 +297,7 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
     now, local = clock["now"], clock["local"]
 
     # (1) 次の予定（Q4 の記録を読むだけ）
-    nxt = tx.one("SELECT kind, call_at, decided_at, purpose, wrong_contact_id, salescall.jst(callee_at) AS callee_at"
+    nxt = tx.one("SELECT kind, call_at, decided_at, purpose, wrong_contact_id, promised, salescall.jst(callee_at) AS callee_at"
                  " FROM salescall.task_next_actions WHERE task_id = %s ORDER BY seq DESC LIMIT 1", (task["task_id"],))
     if nxt is None:
         return _deny("no_schedule")
@@ -408,13 +412,15 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
         with tx.savepoint():
             row = tx.one(
                 "INSERT INTO salescall.attempts (tenant_id, client_id, task_id, contact_id, phone_e164, line_id, version_id,"
-                "                                state, claimed_at, claim_expires_at, purpose, wrong_contact_id, voice_type)"
+                "                                state, claimed_at, claim_expires_at, purpose, wrong_contact_id, voice_type,"
+                "                                promised)"
                 " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s, %s, 'claimed', now(), now() + %s,"
-                "         %s, %s, %s)"
+                "         %s, %s, %s, %s)"
                 " RETURNING attempt_id, claim_expires_at,"
                 "   (SELECT phone_e164 FROM salescall.task_numbers WHERE task_id = %s AND contact_id = %s) AS wrong_phone",
                 (task["task_id"], task["contact_id"], task["phone_e164"], line_id, version, lifetime,
-                 nxt["purpose"], nxt["wrong_contact_id"], voice, task["task_id"], nxt["wrong_contact_id"]))
+                 nxt["purpose"], nxt["wrong_contact_id"], voice, bool(nxt["promised"]), task["task_id"],
+                 nxt["wrong_contact_id"]))
     except Rejected as e:
         if e.constraint == "attempts_one_active_per_contact":
             return _deny("contact_active")

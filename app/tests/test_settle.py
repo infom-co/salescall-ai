@@ -106,6 +106,25 @@ class Settle(SettleBase):
         self.assertNotEqual(calling_hours.band_of(row["next"], [12, 15]), calling_hours.band_of(row["tried"], [12, 15]))
         self.assertFalse(12 <= row["next"].hour < 13)                              # NG時間（昼休み）は避ける
 
+    def test_a_fax_line_is_never_called_again_and_a_complaint_reaches_the_contractor(self):
+        """FAX の回線：その番号は発信禁止（その番号だけ）にして行を終える（Intent.md 9-4）。苦情：行を終え、契約者へ知らせる
+        （Intent.md 18-3：クレームは契約者が対応する特例）。どちらも 2026-10-17 の計画書との突き合わせで直した。"""
+        s = self.ready()
+        aid = self.call(s, report=rep(("fax",), cut=None))
+        got = self.settle(s, aid)
+        self.assertEqual((got["state"], got["decision"].kind), ("out_of_scope", "end"))
+        dnc_rows = self.tx(s, lambda tx: tx.all("SELECT phone_e164, client_ref, reason::text AS reason"
+                                                " FROM salescall.dnc_entries WHERE source_attempt_id = %s", (aid,)))
+        self.assertEqual(dnc_rows, [{"phone_e164": s["phone"], "client_ref": None, "reason": "fax_line"}])
+        c = self.ready()
+        aid = self.call(c, report=CallReport(("target",), False, False, True, False, None, None, Cut("ai", True, False)),
+                        items=[("Q1", "confirmed", None)])
+        got = self.settle(c, aid)
+        self.assertEqual(got["decision"].kind, "end")
+        rows = self.tx(c, lambda tx: tx.all("SELECT kind, summary FROM salescall.notification_events WHERE event_key = %s",
+                                            (f"complaint:{aid}",)))
+        self.assertEqual(rows, [{"kind": "complaint", "summary": "苦情があった通話がありました。"}])
+
     def test_unknown_holds_the_row_and_is_rejudged_when_fixed(self):
         """判定できない（切れ方の材料が報告されていない）：行は終えずに判定待ちで残し、知らせの台帳に入れる。
         原因が直ったら（録音から作り直した報告）、判定し直して、ふつうの次の動きへ（2026-10-16 ユーザー決定）。"""

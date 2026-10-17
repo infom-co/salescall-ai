@@ -103,6 +103,11 @@ class Order(unittest.TestCase):
                                  ("out_of_scope", "wrong_party", True))
         self.assertIsNone(run().dnc_reason)
         self.assertTrue(run(rep=report(complaint=True)).complaint)
+        # FAX の回線：その番号は以後かけない（Intent.md 9-4。2026-10-17 の計画書との突き合わせ：前はかけ直していた）。止めるのは
+        # その番号だけ（番号違いと同じ）。お客様の声が混じれば FAX の回線ではない
+        j = run(rep=report(("fax",)), items={})
+        self.assertEqual((j.state, j.dnc_reason, j.detail["out_of_scope"]), ("out_of_scope", "fax_line", "fax_line"))
+        self.assertNotEqual(run(rep=report(("reception", "fax")), items={}).dnc_reason, "fax_line")
 
     def test_policy_keys(self):
         self.assertEqual(run(items={"Q1": TAKEN["Q1"]}).detail["policy_key"], "incomplete")

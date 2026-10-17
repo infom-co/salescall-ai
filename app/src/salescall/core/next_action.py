@@ -410,8 +410,8 @@ def decide_after_apology(*, delivered: bool, refused: bool, retry: AskAgain, pro
     """お詫びの電話のあとの次の動き（業務の結果は変えない）。伝えた・断られた ⇒ 終える。届かなかった ⇒ 別の時間帯に、決めた回数まで。"""
     if refused:
         return _end("do_not_call", "お詫びの電話で、発信を断られた")
-    if stop_reason is not None:   # 番号違い・断ったかを確かめられなかった：もうかけない（締めの処理が judge.refusal で決めた）
-        return _end(stop_reason, "お詫びの電話：もうかけない（番号違い・通話後の確かめができなかった）")
+    if stop_reason is not None:   # 番号違い・FAX・断ったかを確かめられなかった：もうかけない（締めの処理が judge.refusal で決めた）
+        return _end(stop_reason, "お詫びの電話：もうかけない（番号違い・FAX・通話後の確かめができなかった）")
     if delivered:
         return _end("apology_done", "お詫びを伝えた")
     if retry.tries >= retry.limit:

@@ -178,11 +178,19 @@ class OnlyCorporateForNow(unittest.TestCase):
     """Intent.md 3-1：個人を対象にした業務は、13章の確かめが済むまで作れない。"""
 
     def test_individual_target_is_rejected(self):
+        # 守りは、法人／個人の正本（業務設定の中身の target_class）に置く（2026-10-17：前は業務の表に2つ目の持ち場所があった）
         w = World(); t = w.tenant(); c = w.client(t)
-        with self.assertRaises(Rejected):
-            w.a.in_client(OPERATOR, t, c, lambda tx: tx.execute(
-                "INSERT INTO salescall.businesses (tenant_id, client_id, name, target_kind) VALUES (%s, %s, 'x', 'individual')",
-                (t, c)))
+        b, _ = w.business_with_version(t, c)
+        v = uuid.uuid4()
+
+        def individual(tx):
+            tx.execute("INSERT INTO salescall.business_versions (tenant_id, client_id, business_id, version_id, version_no,"
+                       " created_by) VALUES (%s, %s, %s, %s, 2, 'x')", (t, c, b, v))
+            tx.execute("INSERT INTO salescall.business_contents (tenant_id, client_id, version_id, content, saved_by)"
+                       " VALUES (%s, %s, %s, '{\"target_class\": \"individual\"}', 'x')", (t, c, v))
+        with self.assertRaises(Rejected) as e:
+            w.a.in_client(OPERATOR, t, c, individual)
+        self.assertEqual(e.exception.constraint, "business_contents_corporate_only")
 
 
 class NamesMatchTheDesign(unittest.TestCase):
@@ -446,6 +454,26 @@ class ConflictsAreRetried(unittest.TestCase):
 class DeliveriesOnlyForReleasedVersions(unittest.TestCase):
     """10章・3-1：送れるのは「送ってよい印」の付いた版だけ。同じ版を同じ送り先へ2回は作れない。"""
 
+    def test_results_confirmed_in_verification_never_reach_the_requester(self):
+        """検証の段階で確定した結果には、送り先への連携（依頼者へ渡す道）を作れない（2026-10-16 ユーザー：「依頼者に途中作業
+        していることは絶対に知らせてはいけない」。データベースが守る）。"""
+        w = World(); s = w.setup(); dest = uuid.uuid4()
+
+        def prepare(tx):
+            tx.execute("INSERT INTO salescall.task_results (tenant_id, client_id, task_id, version_no, kind, business_state,"
+                       " judge_version, complaint, detail, snapshot, decided_by)"
+                       " VALUES (%s, %s, %s, 1, 'judged', 'completed', 'judge-1', false, '{}', '{}', 'judge')",
+                       (s["tenant"], s["client"], s["task"]))
+            tx.execute("INSERT INTO salescall.destinations (tenant_id, client_id, destination_id, name, method, upsert_capable)"
+                       " VALUES (%s, %s, %s, '架空の送り先', 'mock', true)", (s["tenant"], s["client"], dest))
+            tx.execute("INSERT INTO salescall.result_releases (tenant_id, client_id, task_id, version_no, released_by, stage)"
+                       " VALUES (%s, %s, %s, 1, '契約者', 'verification')", (s["tenant"], s["client"], s["task"]))
+        w.a.in_client(OPERATOR, s["tenant"], s["client"], prepare)
+        with self.assertRaises(Rejected):
+            w.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: tx.execute(
+                "INSERT INTO salescall.deliveries (tenant_id, client_id, task_id, destination_id, version_no, state, send_count)"
+                " VALUES (%s, %s, %s, %s, 1, 'pending', 0)", (s["tenant"], s["client"], s["task"], dest)))
+
     def test_release_then_deliver_once(self):
         w = World(); s = w.setup(); dest = uuid.uuid4()
 
@@ -463,8 +491,8 @@ class DeliveriesOnlyForReleasedVersions(unittest.TestCase):
         with self.assertRaises(Rejected):
             deliver()  # 印が無い
         w.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: tx.execute(
-            "INSERT INTO salescall.result_releases (tenant_id, client_id, task_id, version_no, released_by)"
-            " VALUES (%s, %s, %s, 1, '承認の部分')", (s["tenant"], s["client"], s["task"])))
+            "INSERT INTO salescall.result_releases (tenant_id, client_id, task_id, version_no, released_by, stage)"
+            " VALUES (%s, %s, %s, 1, '承認の部分', 'production')", (s["tenant"], s["client"], s["task"])))
         deliver()
         with self.assertRaises(Rejected):
             deliver()  # 同じ版を同じ送り先へ2回

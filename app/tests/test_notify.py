@@ -103,10 +103,11 @@ class Emitters(unittest.TestCase):
             for _ in range(2):
                 with self.assertRaises(OSError):
                     calendar.sync_official(self.a, SYSTEM, fetch=broken)
-        rows = events(self.a, None, None, "calendar_sync_failed:")
         today = self.a.in_system(SYSTEM, lambda tx: tx.one("SELECT salescall.jst(now())::date AS d"))["d"]
+        rows = events(self.a, None, None, "admin:calendar_sync_failed:")   # 暦は管理者の持ち物：管理者あてだけ（Intent.md 1-4）
         self.assertEqual([r["event_key"] for r in rows if r["event_key"].endswith(str(today))],
-                         [f"calendar_sync_failed:{today}"])
+                         [f"admin:calendar_sync_failed:{today}"])
+        self.assertEqual(events(self.a, None, None, "calendar_sync_failed:"), [])   # 契約者の台帳には入れない
 
 
 if __name__ == "__main__":

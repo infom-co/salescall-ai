@@ -451,6 +451,32 @@ class NotByCallee(Base):
                                                          contact_id=s2["contact"], cause="お客様に頼まれた折り返し", promised=True))
         self.assertIsInstance(self.claim(s2), gate.Claim)           # 約束したかけ直しは、回数の上限でも止めない
 
+    def test_a_promised_callback_is_not_counted_afterwards(self):
+        """約束したかけ直しは、かけたあとも、行の回数の上限・1日の回数に数えない（2026-10-14 ユーザー：「かけ直しの約束を相手側に
+        した場合やかけ直しを依頼された場合は対象外」。2026-10-17 の計画書との突き合わせ：前は、かけたあと数えていたので、そのあと
+        のふつうのかけ直しが減った）。最小の間隔は、約束したかけ直しも起点に数える（歯止め）。"""
+        s = self.ready()
+        self.override("gate.same_contact_min_interval", 1)
+        self.put_client(s, "gate.max_dials_per_contact_per_day", 1)
+        self.put_client(s, "retry.max_attempts_per_task", 1)
+        now = lambda tx: tx.one("SELECT now() AS t")["t"]
+        self.tx(s, lambda tx: next_action.schedule_call(tx, s["task"], now(tx), contact_id=s["contact"],
+                                                        cause="お客様に頼まれた折り返し", promised=True))
+        c = self.claim(s)
+        self.assertIsInstance(c, gate.Claim)
+        self.assertTrue(dial_exit.dial(self.w.a, SYSTEM, s["tenant"], s["client"], c.attempt_id, FakeDriver()))
+        self.w.move(s, c.attempt_id, "no_answer")                    # 約束したかけ直しに出なかった
+        self.tx(s, lambda tx: settle.settle(tx, c.attempt_id))
+        self.assertTrue(self.tx(s, lambda tx: tx.one("SELECT promised FROM salescall.attempts WHERE attempt_id = %s",
+                                                     (c.attempt_id,))["promised"]))
+        self.tx(s, lambda tx: next_action.schedule_call(tx, s["task"], now(tx), contact_id=s["contact"], cause="ふつうの予定",
+                                                        promised=False))
+        time.sleep(1.1)
+        self.assertIsInstance(self.claim(s), gate.Claim)           # 1日1回・行1回の上限でも、ふつうのかけ直しができる
+        with self.assertRaises(Rejected):                           # 約束したかけ直しかは、あとから変えられない
+            owner_access().in_client(OPERATOR, s["tenant"], s["client"], lambda tx: tx.execute(
+                "UPDATE salescall.attempts SET promised = false WHERE attempt_id = %s", (c.attempt_id,)))
+
     def test_promised_callback_still_respects_other_rules(self):
         s = self.ready()
         self.tx(s, lambda tx: dnc.register(tx, s["phone"], "manual"))
@@ -581,11 +607,13 @@ class CallerNumberAndVoice(Base):
     """依頼者が替わったら、期間に関係なく発信番号と声を替える（2026-10-17 ユーザー決定）。依頼者ごとの発信番号が初めの形。
     検証モードでは発信番号は1つでよい。契約者が替われば発信番号は別（契約者の携帯）だが、声は替える。"""
 
-    def dialed(self, s, line=None):
+    def dialed(self, s, line=None, path=("ringing", "answered", "ending", "ended")):
+        """発信して、状態を path の順に進める（既定：お客様が出て話した）。"""
         c = self.claim(s, line=line)
         self.assertIsInstance(c, gate.Claim, c)
         self.assertTrue(dial_exit.dial(self.w.a, SYSTEM, s["tenant"], s["client"], c.attempt_id, FakeDriver()))
-        self.w.move(s, c.attempt_id, "no_answer")
+        for state in path:
+            self.w.move(s, c.attempt_id, state)
         return c
 
     def test_another_client_or_contractor_gets_the_other_voice(self):
@@ -609,6 +637,24 @@ class CallerNumberAndVoice(Base):
         self.dialed(y)                                                          # ほかの依頼者が Sadachbia でかけた
         time.sleep(1.1)
         self.assertEqual(self.tx(r, lambda tx: gate.choose_voice(tx, r["task"], r["phone"], "S2")), "L4")
+
+    def test_only_what_the_customer_saw_or_heard_counts(self):
+        """声は、お客様が出た発信の声だけ（出なかった発信の声は聞いていない）。発信番号は、お客様の電話を鳴らした発信だけ
+        （出なくても着信の履歴に番号が残る。発信に失敗した発信の番号は出ていない）。2026-10-17 の計画書との突き合わせ。"""
+        self.override("gate.cross_client_interval", 1)
+        a = self.ready()
+        self.dialed(a, path=("ringing", "no_answer"))                              # 鳴ったが出なかった（S2）
+        time.sleep(1.1)
+        b = self.ready(tenant=a["tenant"], phone=a["phone"])
+        self.assertEqual(self.tx(b, lambda tx: gate.choose_voice(tx, b["task"], b["phone"], "S2")), "S2")   # 声は替えない
+        self.lease(b, line=a["line"])
+        self.assertEqual(self.reason(b, line=a["line"]), "line_used_by_other_client")   # 番号は着信の履歴に残る
+        c = self.ready()
+        self.dialed(c, path=("call_failed",))                                       # 発信に失敗した（鳴っていない）
+        time.sleep(1.1)
+        d = self.ready(tenant=c["tenant"], phone=c["phone"])
+        self.lease(d, line=c["line"])
+        self.assertIsInstance(self.claim(d, line=c["line"]), gate.Claim)            # 番号は出ていない：同じ回線でかけてよい
 
     def test_the_same_row_keeps_its_voice(self):
         """同じ行（同じお客様へのかけ直し・お詫び）は、前に話した声のまま（業務の声の型をあとで替えても）。"""
