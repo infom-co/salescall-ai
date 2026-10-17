@@ -319,6 +319,35 @@ def reply_lead(text: str | None) -> str | None:
     return "はい" if _LEAD_YES.search(t) else "いいえ" if _LEAD_NO.search(t) else None
 
 
+# 頭の返事の言葉の言い方の違い（伸ばし方を含む：「ええ」と「えー」・「いや」と「いやあ」。2026-10-17：AmiVoice はこの書き方で返す）
+_LEAD_READING = ((re.compile(r"^(?:いいえ|いえ|いや)[ーあぁ]*"), "いいえ"), (re.compile(r"^(?:はい|え[えー])[ーえぇ]*"), "はい"))
+# 答えの前の言いよどみ（読みにそろえたあと。長いものから先に当てる）。「えー」だけは返事の言葉（「ええ」）にもなるので入れない
+# 「あ」「あー」「あっ」は、返事の言葉の前のときだけ（「ありがとう」の「あ」は言いよどみではない）
+_HEAD_FILLER = re.compile(r"^(?:(?:えーっと|えっと|えーと|ええと|あのー|あのう|あの|そのー|その|うーん|んー|まあ|(?:あー|あっ|あ)(?=はい|いいえ|いえ|いや|ええ|えー))"
+                          r"[、。,.\s]*)+")
+
+
+def heard_alike(a: str, b: str) -> bool:
+    """2つの耳の文字が同じことを言っているか（G-15）。読み（ひらがな）にそろえ、句読点・書き方の違い（「家まだ」と「いえ、まだ」）と、頭の返事の
+    言葉の言い方の違い（「いえ」「いいえ」「いや」・「はい」「ええ」）と、答えの前の言いよどみ（「あ」「えっと」「あの」など）は見ない。
+    それ以外の違い（「捨てないです」と「してないです」）は食い違い。
+    【2026-10-17】言いよどみ：AmiVoice は答えの前の息の音を「あ」と書く（「あはい。予約しています。」）。記録の通話に当てると、見ない形で
+    AmiVoice の要らない確かめは 104 → 66、拾える誤りは同じ（ほかの耳は変わらない）。
+    G-14 の報告 600回ほどに当てると、AIが正しく選んだ回で食い違ったのは 563回中34回（6%）・AIが誤った回は2回とも食い違った。
+    ⛔ 通話の中で測ると（G-15 の続き。Gemini の書き起こしのモデルを別の耳にした）、食い違いで確かめた14回のうち13回は正しい答えへの要らない確かめ
+    （152本の8.5%）で、拾えた誤りは0（残った誤り「してないです」は、2つの耳が両方とも「捨てないです」と聞いた）⇒ 既定では使わない
+    （convo.run_call の ear_check は既定で切る。別の耳の文字が届かなければ比べない＝この決まりは働かない）。会話AIと独立した別の耳が
+    見つかったら、耳を入れ替えて測り直す。"""
+    from jtext import compare_reading
+
+    def norm(s: str) -> str:
+        t = _HEAD_FILLER.sub("", compare_reading(s))
+        for pat, w in _LEAD_READING:
+            t = pat.sub(w, t)
+        return t
+    return norm(a) == norm(b)
+
+
 # 選択肢の名前が返事の言葉だけのもの（「はい」「いいえ」）。この名前のままでは言い直せない（「はいでよろしいでしょうか？」）
 _BARE_REPLY = re.compile(r"はい|いいえ|いえ|ええ|うん|いや")
 
@@ -380,6 +409,9 @@ class Limits:
     # いただけば正しい読みに着く。✅ 2026-10-14 ユーザー「大事なポイントは3回までOK」の範囲（最初の確かめ＋2回）
     reading_tries: int = 3
     replays: int = 2           # 名乗りの流し直し：1通話2回まで（同じ相手に何度も同じ録音を流さない。使い切ったらAIが短く答える）
+    # 別の耳の文字を待つ長さ（別の耳を使うときだけ。既定では使わない＝heard_alike）：相手の話し終わりから、この秒まで（G-15：別の耳は中央1.56秒・遅いほうから1割1.74秒で文字を出す。報告の瞬間に流す
+    # 相づちと0.6秒の間のあとに次の声が始まるのは約2.4秒なので、ふつうは待ちが相手に聞こえない）。間に合わなければ比べずに進む（止まらない）
+    ear_wait_s: float = 2.0
 
 
 @dataclass
@@ -533,6 +565,7 @@ class Flow:
         # AIが答えを報告せずに言い直し、相手に値を直された：(質問, 直され方＝AFTER の鍵)。その答えの報告で、直され方に合う言い直しにする
         self.unreported_correction: tuple[str, str] | None = None
         self.callee_said = ""            # いまの相手の発話の文字（会話AIの聞き取り。届いた分だけ。on_heard）
+        self.ear_said: str | None = None  # いまの相手の発話の、別の耳の文字（on_ear。届かなかった・使わない通話は None）
         # いちばん最近「合っている」で確かめが済んだ項目と、そのときの流れの位置（同じ相手の発話への報告を、AIが「違う値を言われた」に
         # 直したとき、その確かめを取り消して戻すため。_reopen）
         self.last_affirmed: dict | None = None
@@ -567,10 +600,20 @@ class Flow:
     def on_callee(self) -> None:
         self.callee_turns += 1
         self.callee_said = ""
+        self.ear_said = None
 
     # ── 相手の言葉の文字が届いた（会話AIの聞き取り。値を直されたときの直され方を、プログラムが決めるのに使う）
     def on_heard(self, text: str) -> None:
         self.callee_said += text
+
+    # ── 別の耳（会話AIとは別の音声認識）の、いまの相手の発話の文字が届いた（DESIGN.md 6-10 の (5)。G-15）
+    def on_ear(self, text: str | None) -> None:
+        self.ear_said = text
+
+    # ── この操作の返事を作る前に、別の耳の文字を待つか：確かめない型（はい／いいえ・選択肢）の答えの報告だけ（値を聞く型は言い直して確かめる）
+    def wants_ear(self, name: str) -> bool:
+        q = self.questions.get(self.current) if self.current else None
+        return name == "record_answer" and q is not None and q.type in CHOICE_TYPES and self.awaiting_confirm is None
 
     # ── AIの操作を受ける唯一の入口（AIに見せる言葉＝日本語）。ここで1回だけ中の名前に置き換え、返事を日本語に戻す。
     #    相づち（ack）は電話接続側が流すもので、AIには見せない（AIの返事から外す）
@@ -719,14 +762,18 @@ class Flow:
             return self._advance("受け付けました。")
         expected = q.reply_choice(reply_lead(said)) if q.type in CHOICE_TYPES else None  # 頭の「はい」「いいえ」が意味する選択肢
         lead = expected and expected != cond
-        if q.type in CHOICE_TYPES and (ambiguous_answer(said) or lead):
+        # 2つの耳の文字が食い違う（G-15。会話AIの聞き取りと、別の耳。読みにそろえて比べる）
+        ears = q.type in CHOICE_TYPES and bool(self.callee_said) and self.ear_said is not None and not heard_alike(self.callee_said, self.ear_said)
+        if q.type in CHOICE_TYPES and (ambiguous_answer(said) or lead or ears):
             # 受け入れにも断りにも取れる答え（DESIGN.md 6-10 の (3)）：AIが選んだ選択肢のまま渡さず、その意味で合っているかを確かめる。
             # 必須でない項目は、聞き返さない決まり（6-11）に合わせて確かめず「-」
             if not q.required:
-                it.set("unresolved", f"曖昧な答え（「{said[:20]}」）・必須でないので確かめない")
+                it.set("unresolved", f"{'聞き取りが食い違う' if ears and not lead and not ambiguous_answer(said) else '曖昧な答え'}"
+                                     f"（「{said[:20]}」）・必須でないので確かめない")
                 return self._advance("「-」にします。")
-            it.set("heard", f"{'言葉の頭とAIの選んだ答えが食い違う' if lead else '曖昧な答え'}（「{said[:20]}」）・"
-                            f"AIは「{cond}」と受け取った")
+            why = ("言葉の頭とAIの選んだ答えが食い違う" if lead else f"別の耳の文字（「{self.ear_said[:20]}」）と食い違う" if ears
+                   else "曖昧な答え")
+            it.set("heard", f"{why}（「{said[:20]}」）・AIは「{cond}」と受け取った")
             it.ambiguous_asked = True
             return self._ask_confirm(qid, after="ambiguous")
         it.set("heard", "聞き取れた")
@@ -960,10 +1007,7 @@ class Flow:
                                f"応じなければ、もう一度 request_end を{ARG_LABEL['reason']}「{END_LABEL['callee_hurry']}」で呼んでください。"}
         if reason in ("callee_hurry", "callee_refused_call"):
             self.hurried = True
-            self.current, self.phase = None, "closing"
-            return {"result": "end", "say": CLOSE_DECLINED,
-                    "message": f"「{CLOSE_DECLINED}」と言って終えてください。この言い方だけを使い、言葉を足しません"
-                               f"（またお電話します、などの約束をしない）。念のための確認はしません。"}
+            return self._close(declined=True)
         if self.current is not None:
             # いま聞いている質問がある間は、終えられない（まだ聞いていない・言い直しの返事待ち・念のための確認の最中）
             # ⛔ 2026-10-13 の試験で見つけた漏れ：「まだ聞いていない項目」だけを数えていたため、言い直しの返事待ちや
@@ -1154,11 +1198,22 @@ class Flow:
             return {"result": "recheck", "question_id": q.id, "question": q.text, "say": say,
                     "message": f"{prefix}念のための確認です。{q.id} を、もう1回だけ「{say}」と聞いて、相手の答えを待ってください。"
                                "相手が答えたら record_answer で報告します。"}
+        return self._close(declined=self.hurried, prefix=f"{prefix}質問は終わりです。", asked=bool(asked))
+
+    def _close(self, declined: bool, prefix: str = "", asked: bool = False) -> dict:
+        """締め（DESIGN.md 6-14）を作る唯一の場所。毎回同じ文なので、言い方は決まった1つ（ふつう＝CLOSING・急いでいる／断られた＝CLOSE_DECLINED）。
+        録音で流す形なら録音を流してAIは黙る（6-13：毎回同じ文の発話は録音）。AIが話す形と、相手の質問にAIが答えてから締めるときは、
+        AIがその言い方のまま言う。⛔ 2026-10-17 の見直しで見つけた漏れ：ふつうの締めは、録音で流す形のときしか言い方を渡しておらず、
+        AIが話す形では「締めの言葉を言って」とだけ伝えていた＝AIが自分で文を作り、「お気軽にお問い合わせください」「お気をつけて
+        お越しくださいませ」（命令の形）を足した（G-45）。断られたときの締めは録音にしていなかった（「お忙しいところ」はAIの声で崩れやすい）。"""
+        text, rid = (CLOSE_DECLINED, "closing_declined") if declined else (CLOSING, "closing")
         self.current, self.phase = None, "closing"
-        if self.play_recordings and not self.hurried and not asked:
-            return {"result": "end", "play": [{"kind": "closing", "text": CLOSING}],
-                    "message": f"{prefix}質問は終わりです。締めの言葉「{CLOSING}」は、プログラムが録音で流しました。何も言わずに終えます。"}
-        return {"result": "end", "message": f"{prefix}質問は終わりです。締めの言葉を言って終えてください。"}
+        if self.play_recordings and not asked:
+            return {"result": "end", "play": [{"kind": "closing", "id": rid, "text": text}],
+                    "message": f"{prefix}締めの言葉「{text}」は、プログラムが録音で流しました。何も言わずに終えます。"}
+        return {"result": "end", "say": text,
+                "message": f"{prefix}「{text}」と言って終えてください。この言い方だけを使い、言葉を足しません"
+                           "（またお電話します、などの約束もしません）。"}
 
     def _lead(self, kind: str) -> str:
         """受けの言葉（lead_ins が無効なら空）。種類ごとに順番に回す。"""

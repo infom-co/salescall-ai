@@ -18,8 +18,9 @@ import asyncio
 import json
 from collections import Counter
 
-from common import HERE, base_parser, describe_error, drop_partial, make_client, pick_key, require_python, save_partial, save_result, say
+from common import HERE, KeyRing, base_parser, describe_error, drop_partial, require_python, save_partial, save_result, say
 from convo import run_call
+from ears import EAR_KINDS, PREFERRED_EARS
 from flowctl import Question
 from g22_opening import BUSINESS as BASE
 from g30_latency import keep_call
@@ -116,7 +117,10 @@ def measures(call: dict, item: dict) -> dict:
     said = [e["reply"].get("say") for e in call["flow_log"] if e["reply"].get("say")]
     return {"op": op, "condition": cond, "state": it["state"], "taken_condition": it["condition"],
             "verdict": verdict(item["want"], it["state"], it["condition"], op, cond, ended=bool(call.get("hurried"))), "program_said": said[:1],
-            "callee_heard": [t.get("heard") for t in call["turns"]][:1]}
+            "callee_heard": [t.get("heard") for t in call["turns"]][:1],
+            # 別の耳（--ear）：届いた文字・話し終わりから待った秒・別の耳との食い違いで確かめたか
+            "ear_check": (call["turns"][0].get("ear_check") if call["turns"] else None),
+            "ear_confirm": any("別の耳" in h[2] or "聞き取りが食い違う" in h[2] for h in it.get("history") or [])}
 
 
 def tally(rows: list[dict]) -> dict:
@@ -159,7 +163,7 @@ GOT_STATES = ("confirmed", "accepted")
 
 
 async def run_followup(args) -> dict:
-    client = make_client(pick_key(args))
+    ring = KeyRing(args)  # 上限に当たったら次のキーで、その通話を初めからやり直す（common.KeyRing.acall）
     clip = {(m["voice"], m["id"]): m for m in json.loads((HERE / "results" / "callee" / "g14" / "index.json").read_text(encoding="utf-8"))
             if m.get("ok") and not m.get("noise")}
     voices = sorted({v for v, _ in clip} & set(args.voice or {v for v, _ in clip}))
@@ -172,9 +176,9 @@ async def run_followup(args) -> dict:
                                                               else followup_lines(clip, voice, truth))
             head = {"scene": scene, "voice": voice, "truth": truth}
             try:
-                call = await run_call(client, args.model, business("Q1"), "S4", lines, opening_mode="recorded", use_ear=False,
-                                      save_audio="bad", audio_label=f"G14f_{voice}_{first}", followup_wait_s=FOLLOWUP_WAIT_S,
-                                      play_recordings=True, **FAST)
+                call, _ = await ring.acall(args.model, lambda client: run_call(
+                    client, args.model, business("Q1"), "S4", lines, opening_mode="recorded", use_ear=False,
+                    save_audio="bad", audio_label=f"G14f_{voice}_{first}", followup_wait_s=FOLLOWUP_WAIT_S, play_recordings=True, **FAST))
                 row = keep_call(head, call, lambda c: {
                     "verdict": followup_verdict(c, truth), "ops": [(e["op"], e["args"], e["reply"]["result"]) for e in c["flow_log"]],
                     "program_said": [e["reply"].get("say") for e in c["flow_log"] if e["reply"].get("say")],
@@ -191,7 +195,8 @@ async def run_followup(args) -> dict:
 
 
 async def run(args) -> dict:
-    client = make_client(pick_key(args))
+    ring = KeyRing(args)  # 上限に当たったら次のキーで、その通話を初めからやり直す（common.KeyRing.acall。⛔ 2026-10-17：1つのキーだけでつなぎ、
+    # 6つの声を同時に流すと上限に当たって 153本のうち104本が止まった）
     items = [m for m in json.loads((HERE / "results" / "callee" / "g14" / "index.json").read_text(encoding="utf-8"))
              if m.get("ok") and m["want"] != "follow"]
     if args.only:
@@ -206,9 +211,10 @@ async def run(args) -> dict:
     for n, item in enumerate(items[: args.limit or None]):
         head = {**{k: item[k] for k in ("id", "voice", "question", "want", "kind", "text")}, "noise_tag": "雑音" if item.get("noise") else "無し"}
         try:
-            call = await run_call(client, args.model, business(item["question"], not args.no_meanings), "S4", [{"wav": item["wav"]}], opening_mode="recorded",
-                                  use_ear=False, save_audio="bad", audio_label=f"G14_{item['voice']}_{item['id']}",
-                                  followup_wait_s=FOLLOWUP_WAIT_S, play_recordings=True, **FAST)
+            call, _ = await ring.acall(args.model, lambda client: run_call(
+                client, args.model, business(item["question"], not args.no_meanings), "S4", [{"wav": item["wav"]}], opening_mode="recorded",
+                use_ear=False, save_audio="bad", audio_label=f"G14_{item['voice']}_{item['id']}",
+                followup_wait_s=FOLLOWUP_WAIT_S, play_recordings=True, ear_kind=args.ear, **FAST))
             row = keep_call(head, call, lambda c: measures(c, item))
         except Exception as exc:
             row = {**head, "error": describe_error(exc)}
@@ -232,6 +238,8 @@ def main() -> None:
     p.add_argument("--tag", default="", help="結果のファイル名に足す印（同時に流す回を分けるため。例 -base-Kore）")
     p.add_argument("--as-question", choices=list(QUESTIONS), help="試験集の声を、この質問への答えとして流す（例：Q3）")
     p.add_argument("--followup", action="store_true", help="確かめの返事まで流す場面（FOLLOWUP）を流す")
+    p.add_argument("--ear", nargs="?", const=PREFERRED_EARS[0], choices=EAR_KINDS,
+                   help="別の耳を通話の中で使う（名前を付けなければ ears.PREFERRED_EARS の先頭＝Soniox。DESIGN.md 6-10 の (5)。G-15）")
     p.add_argument("--no-meanings", action="store_true", help="意味の言葉を渡さない（選択肢の名前で言い直す形と比べるため）")
     p.add_argument("--tally", help="結果のファイル名の頭（例 G-14-base-）で、同時に流した回を合わせて数える（問い合わせはしない）")
     args = p.parse_args()

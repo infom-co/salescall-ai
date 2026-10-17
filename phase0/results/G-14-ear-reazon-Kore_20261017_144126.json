@@ -1,0 +1,4682 @@
+{
+  "item": "G-14-ear-reazon-Kore",
+  "saved_at": "2026-10-17T14:41:26",
+  "model": "gemini-3.8-live",
+  "summary": {
+    "全体": {
+      "正しい": 25,
+      "報告が無い": 2,
+      "意味を確かめた（はっきりした答えに）": 4
+    },
+    "kind=はっきり": {
+      "正しい": 10,
+      "報告が無い": 2,
+      "意味を確かめた（はっきりした答えに）": 2
+    },
+    "kind=遠回し": {
+      "正しい": 8,
+      "意味を確かめた（はっきりした答えに）": 2
+    },
+    "kind=わからない": {
+      "正しい": 3
+    },
+    "kind=曖昧": {
+      "正しい": 3
+    },
+    "kind=任せる": {
+      "正しい": 1
+    },
+    "voice=Kore": {
+      "正しい": 25,
+      "報告が無い": 2,
+      "意味を確かめた（はっきりした答えに）": 4
+    },
+    "noise_tag=無し": {
+      "正しい": 20,
+      "報告が無い": 1,
+      "意味を確かめた（はっきりした答えに）": 3
+    },
+    "noise_tag=雑音": {
+      "正しい": 5,
+      "意味を確かめた（はっきりした答えに）": 1,
+      "報告が無い": 1
+    },
+    "want=はい": {
+      "正しい": 5,
+      "報告が無い": 2,
+      "意味を確かめた（はっきりした答えに）": 2
+    },
+    "want=いいえ": {
+      "正しい": 7
+    },
+    "want=unknown": {
+      "正しい": 3
+    },
+    "want=ambiguous": {
+      "正しい": 3
+    },
+    "want=カード": {
+      "正しい": 2,
+      "意味を確かめた（はっきりした答えに）": 2
+    },
+    "want=振込": {
+      "正しい": 4
+    },
+    "want=any": {
+      "正しい": 1
+    }
+  },
+  "rows": [
+    {
+      "id": "y1",
+      "voice": "Kore",
+      "question": "Q1",
+      "want": "はい",
+      "kind": "はっきり",
+      "text": "はい、予約しています。",
+      "noise_tag": "無し",
+      "voice_type": "S4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "g14/Kore_y1.wav"
+          },
+          "heard": "はい、予約しています。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.301,
+              "name": "record_answer",
+              "args": {
+                "condition_id": "はい",
+                "value": "はい",
+                "question_id": "Q1"
+              },
+              "reply": "end",
+              "ack": "hai",
+              "say": null,
+              "play": [
+                {
+                  "kind": "closing",
+                  "id": "closing",
+                  "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.305,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.284,
+              "text": "はい、予約しています。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.303,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.305,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "closing",
+          "current_after": null,
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          },
+          "ear_check": {
+            "text": "はい予約しています",
+            "waited_s": 0.851,
+            "arrived_s": 0.734
+          }
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "condition_id": "はい",
+            "value": "はい",
+            "question_id": "Q1"
+          },
+          "reply": {
+            "result": "end",
+            "play": [
+              {
+                "kind": "closing",
+                "id": "closing",
+                "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+              }
+            ],
+            "message": "受け付けました。質問は終わりです。締めの言葉「お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。」は、プログラムが録音で流しました。何も言わずに終えます。",
+            "ack": "hai"
+          },
+          "callee_turns": 1
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "accepted",
+          "value": "はい",
+          "condition": "はい",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0,
+          "history": [
+            [
+              "empty",
+              "heard",
+              "聞き取れた"
+            ],
+            [
+              "heard",
+              "accepted",
+              "確かめない型で、はっきり聞き取れた"
+            ]
+          ]
+        }
+      },
+      "export": {
+        "Q1": "はい"
+      },
+      "final_phase": "closing",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "ear_errors": [],
+      "op": "record_answer",
+      "condition": "はい",
+      "state": "accepted",
+      "taken_condition": "はい",
+      "verdict": "正しい",
+      "program_said": [],
+      "callee_heard": [
+        "はい、予約しています。"
+      ],
+      "ear_check": {
+        "text": "はい予約しています",
+        "waited_s": 0.851,
+        "arrived_s": 0.734
+      },
+      "ear_confirm": false
+    },
+    {
+      "id": "y2",
+      "voice": "Kore",
+      "question": "Q1",
+      "want": "はい",
+      "kind": "はっきり",
+      "text": "はい。",
+      "noise_tag": "無し",
+      "voice_type": "S4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "g14/Kore_y2.wav"
+          },
+          "heard": "はい。",
+          "intended": "（プログラムが録音で流しました）",
+          "tool_events": [],
+          "first_audio_after_s": 2.093,
+          "finished_after_s": 3.192,
+          "audio_seconds": 1.12,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 2.093,
+              "audio_s": 0.0,
+              "text": "（プログラムが録音で流しました）"
+            }
+          ],
+          "heard_events": [
+            {
+              "at_s": 2.092,
+              "text": "はい。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 2.093,
+              "kind": "audio_start",
+              "chunk": 0
+            },
+            {
+              "at_s": 3.192,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q1",
+          "check": {
+            "voiced_s": 0.85,
+            "compared_with": "intended",
+            "morae": 19,
+            "expected_s": 2.11,
+            "ratio": 0.4,
+            "kind": "cut_off"
+          },
+          "audio_file": "20261017_143909_G14_Kore_y2_S4_0_cut_off.wav",
+          "ear_check": {
+            "arrived_s": 0.57
+          }
+        }
+      ],
+      "flow_log": [],
+      "items": {
+        "Q1": {
+          "state": "empty",
+          "value": null,
+          "condition": null,
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0,
+          "history": []
+        }
+      },
+      "export": {
+        "Q1": "-"
+      },
+      "final_phase": "asking",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "ear_errors": [],
+      "op": "なし",
+      "condition": null,
+      "state": "empty",
+      "taken_condition": null,
+      "verdict": "報告が無い",
+      "program_said": [],
+      "callee_heard": [
+        "はい。"
+      ],
+      "ear_check": {
+        "arrived_s": 0.57
+      },
+      "ear_confirm": false
+    },
+    {
+      "id": "y5",
+      "voice": "Kore",
+      "question": "Q1",
+      "want": "はい",
+      "kind": "遠回し",
+      "text": "予約済みです。",
+      "noise_tag": "無し",
+      "voice_type": "S4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "g14/Kore_y5.wav"
+          },
+          "heard": "予約済みです。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.776,
+              "name": "record_answer",
+              "args": {
+                "condition_id": "はい",
+                "question_id": "Q1",
+                "value": "予約済みです"
+              },
+              "reply": "end",
+              "ack": "hai",
+              "say": null,
+              "play": [
+                {
+                  "kind": "closing",
+                  "id": "closing",
+                  "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.777,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.531,
+              "text": "予約済みです。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.776,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.777,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "closing",
+          "current_after": null,
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          },
+          "ear_check": {
+            "text": "予約済みです",
+            "waited_s": 1.318,
+            "arrived_s": 0.681
+          }
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "condition_id": "はい",
+            "question_id": "Q1",
+            "value": "予約済みです"
+          },
+          "reply": {
+            "result": "end",
+            "play": [
+              {
+                "kind": "closing",
+                "id": "closing",
+                "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+              }
+            ],
+            "message": "受け付けました。質問は終わりです。締めの言葉「お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。」は、プログラムが録音で流しました。何も言わずに終えます。",
+            "ack": "hai"
+          },
+          "callee_turns": 1
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "accepted",
+          "value": "予約済みです",
+          "condition": "はい",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0,
+          "history": [
+            [
+              "empty",
+              "heard",
+              "聞き取れた"
+            ],
+            [
+              "heard",
+              "accepted",
+              "確かめない型で、はっきり聞き取れた"
+            ]
+          ]
+        }
+      },
+      "export": {
+        "Q1": "はい"
+      },
+      "final_phase": "closing",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "ear_errors": [],
+      "op": "record_answer",
+      "condition": "はい",
+      "state": "accepted",
+      "taken_condition": "はい",
+      "verdict": "正しい",
+      "program_said": [],
+      "callee_heard": [
+        "予約済みです。"
+      ],
+      "ear_check": {
+        "text": "予約済みです",
+        "waited_s": 1.318,
+        "arrived_s": 0.681
+      },
+      "ear_confirm": false
+    },
+    {
+      "id": "y6",
+      "voice": "Kore",
+      "question": "Q1",
+      "want": "はい",
+      "kind": "遠回し",
+      "text": "一応、予約はしてあります。",
+      "noise_tag": "無し",
+      "voice_type": "S4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "g14/Kore_y6.wav"
+          },
+          "heard": "一応予約はしてあります。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.526,
+              "name": "record_answer",
+              "args": {
+                "condition_id": "はい",
+                "value": "一応予約はしてあります",
+                "question_id": "Q1"
+              },
+              "reply": "end",
+              "ack": "hai",
+              "say": null,
+              "play": [
+                {
+                  "kind": "closing",
+                  "id": "closing",
+                  "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.527,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.269,
+              "text": "一応予約はしてあります。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.527,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.527,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "closing",
+          "current_after": null,
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          },
+          "ear_check": {
+            "text": "一応予約はしてあります",
+            "waited_s": 0.982,
+            "arrived_s": 0.629
+          }
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "condition_id": "はい",
+            "value": "一応予約はしてあります",
+            "question_id": "Q1"
+          },
+          "reply": {
+            "result": "end",
+            "play": [
+              {
+                "kind": "closing",
+                "id": "closing",
+                "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+              }
+            ],
+            "message": "受け付けました。質問は終わりです。締めの言葉「お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。」は、プログラムが録音で流しました。何も言わずに終えます。",
+            "ack": "hai"
+          },
+          "callee_turns": 1
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "accepted",
+          "value": "一応予約はしてあります",
+          "condition": "はい",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0,
+          "history": [
+            [
+              "empty",
+              "heard",
+              "聞き取れた"
+            ],
+            [
+              "heard",
+              "accepted",
+              "確かめない型で、はっきり聞き取れた"
+            ]
+          ]
+        }
+      },
+      "export": {
+        "Q1": "はい"
+      },
+      "final_phase": "closing",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "ear_errors": [],
+      "op": "record_answer",
+      "condition": "はい",
+      "state": "accepted",
+      "taken_condition": "はい",
+      "verdict": "正しい",
+      "program_said": [],
+      "callee_heard": [
+        "一応予約はしてあります。"
+      ],
+      "ear_check": {
+        "text": "一応予約はしてあります",
+        "waited_s": 0.982,
+        "arrived_s": 0.629
+      },
+      "ear_confirm": false
+    },
+    {
+      "id": "n1",
+      "voice": "Kore",
+      "question": "Q1",
+      "want": "いいえ",
+      "kind": "はっきり",
+      "text": "いいえ、まだです。",
+      "noise_tag": "無し",
+      "voice_type": "S4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "g14/Kore_n1.wav"
+          },
+          "heard": "いえ、まだです。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.423,
+              "name": "record_answer",
+              "args": {
+                "condition_id": "いいえ",
+                "value": "いいえ、まだです。",
+                "question_id": "Q1"
+              },
+              "reply": "end",
+              "ack": "hai",
+              "say": null,
+              "play": [
+                {
+                  "kind": "closing",
+                  "id": "closing",
+                  "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.424,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.217,
+              "text": "いえ、まだです。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.423,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.424,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "closing",
+          "current_after": null,
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          },
+          "ear_check": {
+            "text": "いいえまだです",
+            "waited_s": 0.942,
+            "arrived_s": 0.683
+          }
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "condition_id": "いいえ",
+            "value": "いいえ、まだです。",
+            "question_id": "Q1"
+          },
+          "reply": {
+            "result": "end",
+            "play": [
+              {
+                "kind": "closing",
+                "id": "closing",
+                "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+              }
+            ],
+            "message": "受け付けました。質問は終わりです。締めの言葉「お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。」は、プログラムが録音で流しました。何も言わずに終えます。",
+            "ack": "hai"
+          },
+          "callee_turns": 1
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "accepted",
+          "value": "いいえ、まだです。",
+          "condition": "いいえ",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0,
+          "history": [
+            [
+              "empty",
+              "heard",
+              "聞き取れた"
+            ],
+            [
+              "heard",
+              "accepted",
+              "確かめない型で、はっきり聞き取れた"
+            ]
+          ]
+        }
+      },
+      "export": {
+        "Q1": "いいえ"
+      },
+      "final_phase": "closing",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "ear_errors": [],
+      "op": "record_answer",
+      "condition": "いいえ",
+      "state": "accepted",
+      "taken_condition": "いいえ",
+      "verdict": "正しい",
+      "program_said": [],
+      "callee_heard": [
+        "いえ、まだです。"
+      ],
+      "ear_check": {
+        "text": "いいえまだです",
+        "waited_s": 0.942,
+        "arrived_s": 0.683
+      },
+      "ear_confirm": false
+    },
+    {
+      "id": "n2",
+      "voice": "Kore",
+      "question": "Q1",
+      "want": "いいえ",
+      "kind": "はっきり",
+      "text": "いえ、まだしていません。",
+      "noise_tag": "無し",
+      "voice_type": "S4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "g14/Kore_n2.wav"
+          },
+          "heard": "家まだしていません。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.598,
+              "name": "record_answer",
+              "args": {
+                "question_id": "Q1",
+                "value": "していません",
+                "condition_id": "いいえ"
+              },
+              "reply": "end",
+              "ack": "hai",
+              "say": null,
+              "play": [
+                {
+                  "kind": "closing",
+                  "id": "closing",
+                  "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.599,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.378,
+              "text": "家まだしていません。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.599,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.599,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "closing",
+          "current_after": null,
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          },
+          "ear_check": {
+            "text": "いいえまだしていません",
+            "waited_s": 0.925,
+            "arrived_s": 0.457
+          }
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "question_id": "Q1",
+            "value": "していません",
+            "condition_id": "いいえ"
+          },
+          "reply": {
+            "result": "end",
+            "play": [
+              {
+                "kind": "closing",
+                "id": "closing",
+                "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+              }
+            ],
+            "message": "受け付けました。質問は終わりです。締めの言葉「お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。」は、プログラムが録音で流しました。何も言わずに終えます。",
+            "ack": "hai"
+          },
+          "callee_turns": 1
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "accepted",
+          "value": "していません",
+          "condition": "いいえ",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0,
+          "history": [
+            [
+              "empty",
+              "heard",
+              "聞き取れた"
+            ],
+            [
+              "heard",
+              "accepted",
+              "確かめない型で、はっきり聞き取れた"
+            ]
+          ]
+        }
+      },
+      "export": {
+        "Q1": "いいえ"
+      },
+      "final_phase": "closing",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "ear_errors": [],
+      "op": "record_answer",
+      "condition": "いいえ",
+      "state": "accepted",
+      "taken_condition": "いいえ",
+      "verdict": "正しい",
+      "program_said": [],
+      "callee_heard": [
+        "家まだしていません。"
+      ],
+      "ear_check": {
+        "text": "いいえまだしていません",
+        "waited_s": 0.925,
+        "arrived_s": 0.457
+      },
+      "ear_confirm": false
+    },
+    {
+      "id": "n4",
+      "voice": "Kore",
+      "question": "Q1",
+      "want": "いいえ",
+      "kind": "遠回し",
+      "text": "いや、これからなんです。",
+      "noise_tag": "無し",
+      "voice_type": "S4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "g14/Kore_n4.wav"
+          },
+          "heard": "いや、これからなんです。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.693,
+              "name": "record_answer",
+              "args": {
+                "value": "これから",
+                "question_id": "Q1",
+                "condition_id": "いいえ"
+              },
+              "reply": "end",
+              "ack": "hai",
+              "say": null,
+              "play": [
+                {
+                  "kind": "closing",
+                  "id": "closing",
+                  "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.694,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.504,
+              "text": "いや、これからなんです。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.693,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.694,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "closing",
+          "current_after": null,
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          },
+          "ear_check": {
+            "text": "いやこれからなんです",
+            "waited_s": 1.018,
+            "arrived_s": 0.462
+          }
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "value": "これから",
+            "question_id": "Q1",
+            "condition_id": "いいえ"
+          },
+          "reply": {
+            "result": "end",
+            "play": [
+              {
+                "kind": "closing",
+                "id": "closing",
+                "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+              }
+            ],
+            "message": "受け付けました。質問は終わりです。締めの言葉「お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。」は、プログラムが録音で流しました。何も言わずに終えます。",
+            "ack": "hai"
+          },
+          "callee_turns": 1
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "accepted",
+          "value": "これから",
+          "condition": "いいえ",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0,
+          "history": [
+            [
+              "empty",
+              "heard",
+              "聞き取れた"
+            ],
+            [
+              "heard",
+              "accepted",
+              "確かめない型で、はっきり聞き取れた"
+            ]
+          ]
+        }
+      },
+      "export": {
+        "Q1": "いいえ"
+      },
+      "final_phase": "closing",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "ear_errors": [],
+      "op": "record_answer",
+      "condition": "いいえ",
+      "state": "accepted",
+      "taken_condition": "いいえ",
+      "verdict": "正しい",
+      "program_said": [],
+      "callee_heard": [
+        "いや、これからなんです。"
+      ],
+      "ear_check": {
+        "text": "いやこれからなんです",
+        "waited_s": 1.018,
+        "arrived_s": 0.462
+      },
+      "ear_confirm": false
+    },
+    {
+      "id": "n5",
+      "voice": "Kore",
+      "question": "Q1",
+      "want": "いいえ",
+      "kind": "遠回し",
+      "text": "予約はしてないですね。",
+      "noise_tag": "無し",
+      "voice_type": "S4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "g14/Kore_n5.wav"
+          },
+          "heard": "予約はしてないですね。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.332,
+              "name": "record_answer",
+              "args": {
+                "condition_id": "いいえ",
+                "value": "予約はしてないです",
+                "question_id": "Q1"
+              },
+              "reply": "end",
+              "ack": "hai",
+              "say": null,
+              "play": [
+                {
+                  "kind": "closing",
+                  "id": "closing",
+                  "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.333,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.328,
+              "text": "予約はしてないですね。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.333,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.333,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "closing",
+          "current_after": null,
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          },
+          "ear_check": {
+            "text": "予約はしてないですね",
+            "waited_s": 0.674,
+            "arrived_s": 0.493
+          }
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "condition_id": "いいえ",
+            "value": "予約はしてないです",
+            "question_id": "Q1"
+          },
+          "reply": {
+            "result": "end",
+            "play": [
+              {
+                "kind": "closing",
+                "id": "closing",
+                "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+              }
+            ],
+            "message": "受け付けました。質問は終わりです。締めの言葉「お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。」は、プログラムが録音で流しました。何も言わずに終えます。",
+            "ack": "hai"
+          },
+          "callee_turns": 1
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "accepted",
+          "value": "予約はしてないです",
+          "condition": "いいえ",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0,
+          "history": [
+            [
+              "empty",
+              "heard",
+              "聞き取れた"
+            ],
+            [
+              "heard",
+              "accepted",
+              "確かめない型で、はっきり聞き取れた"
+            ]
+          ]
+        }
+      },
+      "export": {
+        "Q1": "いいえ"
+      },
+      "final_phase": "closing",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "ear_errors": [],
+      "op": "record_answer",
+      "condition": "いいえ",
+      "state": "accepted",
+      "taken_condition": "いいえ",
+      "verdict": "正しい",
+      "program_said": [],
+      "callee_heard": [
+        "予約はしてないですね。"
+      ],
+      "ear_check": {
+        "text": "予約はしてないですね",
+        "waited_s": 0.674,
+        "arrived_s": 0.493
+      },
+      "ear_confirm": false
+    },
+    {
+      "id": "u1",
+      "voice": "Kore",
+      "question": "Q1",
+      "want": "unknown",
+      "kind": "わからない",
+      "text": "ちょっとわからないです。",
+      "noise_tag": "無し",
+      "voice_type": "S4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "g14/Kore_u1.wav"
+          },
+          "heard": "ちょっと分からないです。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.277,
+              "name": "record_answer",
+              "args": {
+                "value": "わからない",
+                "condition_id": "unknown",
+                "question_id": "Q1"
+              },
+              "reply": "end",
+              "ack": "shouchi",
+              "say": null,
+              "play": [
+                {
+                  "kind": "closing",
+                  "id": "closing",
+                  "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.281,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.271,
+              "text": "ちょっと分からないです。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.278,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.281,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "closing",
+          "current_after": null,
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          },
+          "ear_check": {
+            "text": "ちょっとわからないです",
+            "waited_s": 0.741,
+            "arrived_s": 0.651
+          }
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "value": "わからない",
+            "condition_id": "unknown",
+            "question_id": "Q1"
+          },
+          "reply": {
+            "result": "end",
+            "play": [
+              {
+                "kind": "closing",
+                "id": "closing",
+                "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+              }
+            ],
+            "message": "受け付けました（わからない）。質問は終わりです。締めの言葉「お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。」は、プログラムが録音で流しました。何も言わずに終えます。",
+            "ack": "shouchi"
+          },
+          "callee_turns": 1
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "dont_know",
+          "value": "わからない",
+          "condition": "unknown",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0,
+          "history": [
+            [
+              "empty",
+              "dont_know",
+              "相手が「わからない」と答えた"
+            ]
+          ]
+        }
+      },
+      "export": {
+        "Q1": "-"
+      },
+      "final_phase": "closing",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "ear_errors": [],
+      "op": "record_answer",
+      "condition": "unknown",
+      "state": "dont_know",
+      "taken_condition": "unknown",
+      "verdict": "正しい",
+      "program_said": [],
+      "callee_heard": [
+        "ちょっと分からないです。"
+      ],
+      "ear_check": {
+        "text": "ちょっとわからないです",
+        "waited_s": 0.741,
+        "arrived_s": 0.651
+      },
+      "ear_confirm": false
+    },
+    {
+      "id": "u2",
+      "voice": "Kore",
+      "question": "Q1",
+      "want": "unknown",
+      "kind": "わからない",
+      "text": "家族がしたかもしれないです。",
+      "noise_tag": "無し",
+      "voice_type": "S4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "g14/Kore_u2.wav"
+          },
+          "heard": "家族がしたかもしれないです。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.448,
+              "name": "record_answer",
+              "args": {
+                "value": "家族がしたかもしれない",
+                "question_id": "Q1",
+                "condition_id": "unknown"
+              },
+              "reply": "end",
+              "ack": "shouchi",
+              "say": null,
+              "play": [
+                {
+                  "kind": "closing",
+                  "id": "closing",
+                  "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.449,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.176,
+              "text": "家族がしたかもしれないです。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.449,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.449,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "closing",
+          "current_after": null,
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          },
+          "ear_check": {
+            "text": "家族がしたかもしれないです",
+            "waited_s": 1.016,
+            "arrived_s": 0.765
+          }
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "value": "家族がしたかもしれない",
+            "question_id": "Q1",
+            "condition_id": "unknown"
+          },
+          "reply": {
+            "result": "end",
+            "play": [
+              {
+                "kind": "closing",
+                "id": "closing",
+                "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+              }
+            ],
+            "message": "受け付けました（わからない）。質問は終わりです。締めの言葉「お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。」は、プログラムが録音で流しました。何も言わずに終えます。",
+            "ack": "shouchi"
+          },
+          "callee_turns": 1
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "dont_know",
+          "value": "家族がしたかもしれない",
+          "condition": "unknown",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0,
+          "history": [
+            [
+              "empty",
+              "dont_know",
+              "相手が「わからない」と答えた"
+            ]
+          ]
+        }
+      },
+      "export": {
+        "Q1": "-"
+      },
+      "final_phase": "closing",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "ear_errors": [],
+      "op": "record_answer",
+      "condition": "unknown",
+      "state": "dont_know",
+      "taken_condition": "unknown",
+      "verdict": "正しい",
+      "program_said": [],
+      "callee_heard": [
+        "家族がしたかもしれないです。"
+      ],
+      "ear_check": {
+        "text": "家族がしたかもしれないです",
+        "waited_s": 1.016,
+        "arrived_s": 0.765
+      },
+      "ear_confirm": false
+    },
+    {
+      "id": "a1",
+      "voice": "Kore",
+      "question": "Q1",
+      "want": "ambiguous",
+      "kind": "曖昧",
+      "text": "大丈夫です。",
+      "noise_tag": "無し",
+      "voice_type": "S4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "g14/Kore_a1.wav"
+          },
+          "heard": "大丈夫です。",
+          "intended": "念のためご予約はされているということでよろしいでしょうか?",
+          "tool_events": [
+            {
+              "at_s": 0.422,
+              "name": "record_answer",
+              "args": {
+                "value": "大丈夫です",
+                "question_id": "Q1",
+                "condition_id": "はい"
+              },
+              "reply": "confirm_required",
+              "ack": "hai",
+              "say": "念のためご予約はされているということでよろしいでしょうか？",
+              "play": null
+            }
+          ],
+          "first_audio_after_s": 0.985,
+          "finished_after_s": 4.693,
+          "audio_seconds": 3.7,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 0.985,
+              "audio_s": 0.0,
+              "text": "念のためご予約はされているという"
+            },
+            {
+              "at_s": 1.115,
+              "audio_s": 1.78,
+              "text": "ことでよろしいでしょうか?"
+            }
+          ],
+          "heard_events": [
+            {
+              "at_s": 0.258,
+              "text": "大丈夫です。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.422,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.422,
+              "kind": "turn_complete"
+            },
+            {
+              "at_s": 0.985,
+              "kind": "audio_start",
+              "chunk": 1
+            },
+            {
+              "at_s": 4.693,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q1",
+          "check": {
+            "voiced_s": 3.37,
+            "compared_with": "intended",
+            "morae": 29,
+            "expected_s": 3.22,
+            "ratio": 1.05,
+            "kind": "ok"
+          },
+          "ear_check": {
+            "text": "大丈夫です",
+            "waited_s": 0.957,
+            "arrived_s": 0.676
+          }
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "value": "大丈夫です",
+            "question_id": "Q1",
+            "condition_id": "はい"
+          },
+          "reply": {
+            "result": "confirm_required",
+            "value": "ご予約はされているということ",
+            "say": "念のためご予約はされているということでよろしいでしょうか？",
+            "after": "ambiguous",
+            "message": "言い直して確かめます。「念のためご予約はされているということでよろしいでしょうか？」と言って、相手の返事を待ってください。相手が認めたら confirm_field を返事の種類「合っている」で、違うと言われたら「違う値を言われた」で報告し、訂正された値には相手の答えに合う選択肢の名前（はい、いいえ、わからない、答えたくない）を入れます。",
+            "ack": "hai"
+          },
+          "callee_turns": 1
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "checking",
+          "value": "大丈夫です",
+          "condition": "はい",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0,
+          "history": [
+            [
+              "empty",
+              "heard",
+              "曖昧な答え（「大丈夫です。」）・AIは「はい」と受け取った"
+            ],
+            [
+              "heard",
+              "checking",
+              "言い直して確かめる"
+            ]
+          ]
+        }
+      },
+      "export": {
+        "Q1": "-"
+      },
+      "final_phase": "asking",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "ear_errors": [],
+      "op": "record_answer",
+      "condition": "はい",
+      "state": "checking",
+      "taken_condition": "はい",
+      "verdict": "正しい",
+      "program_said": [
+        "念のためご予約はされているということでよろしいでしょうか？"
+      ],
+      "callee_heard": [
+        "大丈夫です。"
+      ],
+      "ear_check": {
+        "text": "大丈夫です",
+        "waited_s": 0.957,
+        "arrived_s": 0.676
+      },
+      "ear_confirm": false
+    },
+    {
+      "id": "a2",
+      "voice": "Kore",
+      "question": "Q1",
+      "want": "ambiguous",
+      "kind": "曖昧",
+      "text": "結構です。",
+      "noise_tag": "無し",
+      "voice_type": "S4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "g14/Kore_a2.wav"
+          },
+          "heard": "結構です。",
+          "intended": "念のためご予約はされていないということでよろしいでしょうか？",
+          "tool_events": [
+            {
+              "at_s": 0.752,
+              "name": "request_end",
+              "args": {
+                "reason": "callee_refused_call"
+              },
+              "reply": "rejected",
+              "ack": null,
+              "say": null,
+              "play": null
+            },
+            {
+              "at_s": 1.051,
+              "name": "record_answer",
+              "args": {
+                "value": "結構です",
+                "condition_id": "いいえ",
+                "question_id": "Q1"
+              },
+              "reply": "confirm_required",
+              "ack": "hai",
+              "say": "念のためご予約はされていないということでよろしいでしょうか？",
+              "play": null
+            }
+          ],
+          "first_audio_after_s": 1.504,
+          "finished_after_s": 5.607,
+          "audio_seconds": 4.12,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.504,
+              "audio_s": 0.0,
+              "text": "念のためご予約はされていない"
+            },
+            {
+              "at_s": 1.768,
+              "audio_s": 2.0,
+              "text": "ということでよろしいでしょう"
+            },
+            {
+              "at_s": 1.979,
+              "audio_s": 2.96,
+              "text": "か？"
+            }
+          ],
+          "heard_events": [
+            {
+              "at_s": 0.481,
+              "text": "結構です。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.753,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.755,
+              "kind": "turn_complete"
+            },
+            {
+              "at_s": 1.052,
+              "kind": "tool_response_sent",
+              "chunk": 1
+            },
+            {
+              "at_s": 1.053,
+              "kind": "turn_complete"
+            },
+            {
+              "at_s": 1.504,
+              "kind": "audio_start",
+              "chunk": 2
+            },
+            {
+              "at_s": 5.607,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q1",
+          "check": {
+            "voiced_s": 3.81,
+            "compared_with": "intended",
+            "morae": 30,
+            "expected_s": 3.33,
+            "ratio": 1.14,
+            "kind": "ok"
+          },
+          "ear_check": {
+            "text": "結構です",
+            "waited_s": 1.584,
+            "arrived_s": 0.64
+          }
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "request_end",
+          "args": {
+            "reason": "callee_refused_call"
+          },
+          "reply": {
+            "result": "rejected",
+            "message": "相手の「結構です。」だけでは、通話を断られたとは決められません（前の質問によって意味が変わる言葉です）。相手にはまだ何も言わずに、いまの質問 Q1 の答えとして、選択肢（はい、いいえ）から近いものを選んで、すぐ record_answer で報告してください。確かめ・聞き返しの言い方は、プログラムが返事で渡します（自分で聞き直してはいけません）。いまの質問は Q1「ご予約はされていますでしょうか？」です。相手が答えたら record_answer で報告してください（聞き取れなかったら report_unclear）。",
+            "ack": null
+          },
+          "callee_turns": 1
+        },
+        {
+          "op": "record_answer",
+          "args": {
+            "value": "結構です",
+            "condition_id": "いいえ",
+            "question_id": "Q1"
+          },
+          "reply": {
+            "result": "confirm_required",
+            "value": "ご予約はされていないということ",
+            "say": "念のためご予約はされていないということでよろしいでしょうか？",
+            "after": "ambiguous",
+            "message": "言い直して確かめます。「念のためご予約はされていないということでよろしいでしょうか？」と言って、相手の返事を待ってください。相手が認めたら confirm_field を返事の種類「合っている」で、違うと言われたら「違う値を言われた」で報告し、訂正された値には相手の答えに合う選択肢の名前（はい、いいえ、わからない、答えたくない）を入れます。",
+            "ack": "hai"
+          },
+          "callee_turns": 1
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "checking",
+          "value": "結構です",
+          "condition": "いいえ",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0,
+          "history": [
+            [
+              "empty",
+              "heard",
+              "曖昧な答え（「結構です。」）・AIは「いいえ」と受け取った"
+            ],
+            [
+              "heard",
+              "checking",
+              "言い直して確かめる"
+            ]
+          ]
+        }
+      },
+      "export": {
+        "Q1": "-"
+      },
+      "final_phase": "asking",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "ear_errors": [],
+      "op": "request_end",
+      "condition": "callee_refused_call",
+      "state": "checking",
+      "taken_condition": "いいえ",
+      "verdict": "正しい",
+      "program_said": [
+        "念のためご予約はされていないということでよろしいでしょうか？"
+      ],
+      "callee_heard": [
+        "結構です。"
+      ],
+      "ear_check": {
+        "text": "結構です",
+        "waited_s": 1.584,
+        "arrived_s": 0.64
+      },
+      "ear_confirm": false
+    },
+    {
+      "id": "c1",
+      "voice": "Kore",
+      "question": "Q2",
+      "want": "カード",
+      "kind": "はっきり",
+      "text": "カードでお願いします。",
+      "noise_tag": "無し",
+      "voice_type": "S4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "g14/Kore_c1.wav"
+          },
+          "heard": "カードでお願いします。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.472,
+              "name": "record_answer",
+              "args": {
+                "value": "カード",
+                "question_id": "Q2",
+                "condition_id": "カード"
+              },
+              "reply": "end",
+              "ack": "hai",
+              "say": null,
+              "play": [
+                {
+                  "kind": "closing",
+                  "id": "closing",
+                  "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.472,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.268,
+              "text": "カードでお願いします。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.472,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.472,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "closing",
+          "current_after": null,
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          },
+          "ear_check": {
+            "text": "カードでおねがいします",
+            "waited_s": 1.014,
+            "arrived_s": 0.689
+          }
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "value": "カード",
+            "question_id": "Q2",
+            "condition_id": "カード"
+          },
+          "reply": {
+            "result": "end",
+            "play": [
+              {
+                "kind": "closing",
+                "id": "closing",
+                "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+              }
+            ],
+            "message": "受け付けました。質問は終わりです。締めの言葉「お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。」は、プログラムが録音で流しました。何も言わずに終えます。",
+            "ack": "hai"
+          },
+          "callee_turns": 1
+        }
+      ],
+      "items": {
+        "Q2": {
+          "state": "accepted",
+          "value": "カード",
+          "condition": "カード",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0,
+          "history": [
+            [
+              "empty",
+              "heard",
+              "聞き取れた"
+            ],
+            [
+              "heard",
+              "accepted",
+              "確かめない型で、はっきり聞き取れた"
+            ]
+          ]
+        }
+      },
+      "export": {
+        "Q2": "カード"
+      },
+      "final_phase": "closing",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "ear_errors": [],
+      "op": "record_answer",
+      "condition": "カード",
+      "state": "accepted",
+      "taken_condition": "カード",
+      "verdict": "正しい",
+      "program_said": [],
+      "callee_heard": [
+        "カードでお願いします。"
+      ],
+      "ear_check": {
+        "text": "カードでおねがいします",
+        "waited_s": 1.014,
+        "arrived_s": 0.689
+      },
+      "ear_confirm": false
+    },
+    {
+      "id": "c2",
+      "voice": "Kore",
+      "question": "Q2",
+      "want": "カード",
+      "kind": "遠回し",
+      "text": "クレジットカードで。",
+      "noise_tag": "無し",
+      "voice_type": "S4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "g14/Kore_c2.wav"
+          },
+          "heard": "クレジットカードで",
+          "intended": "念のためお支払いはカードでよろしいでしょうか？",
+          "tool_events": [
+            {
+              "at_s": 0.823,
+              "name": "record_answer",
+              "args": {
+                "value": "クレジットカード",
+                "question_id": "Q2",
+                "condition_id": "カード"
+              },
+              "reply": "confirm_required",
+              "ack": "hai",
+              "say": "念のためお支払いはカードでよろしいでしょうか？",
+              "play": null
+            }
+          ],
+          "first_audio_after_s": 1.212,
+          "finished_after_s": 4.498,
+          "audio_seconds": 3.28,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.212,
+              "audio_s": 0.0,
+              "text": "念のためお支払いはカード"
+            },
+            {
+              "at_s": 1.537,
+              "audio_s": 1.96,
+              "text": "でよろしいでしょうか？"
+            }
+          ],
+          "heard_events": [
+            {
+              "at_s": 0.27,
+              "text": "クレジットカードで"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.823,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.824,
+              "kind": "turn_complete"
+            },
+            {
+              "at_s": 1.212,
+              "kind": "audio_start",
+              "chunk": 1
+            },
+            {
+              "at_s": 4.498,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "check": {
+            "voiced_s": 2.98,
+            "compared_with": "intended",
+            "morae": 23,
+            "expected_s": 2.56,
+            "ratio": 1.17,
+            "kind": "ok"
+          },
+          "ear_check": {
+            "text": "クレジットカード",
+            "waited_s": 1.189,
+            "arrived_s": 0.506
+          }
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "value": "クレジットカード",
+            "question_id": "Q2",
+            "condition_id": "カード"
+          },
+          "reply": {
+            "result": "confirm_required",
+            "value": "お支払いはカード",
+            "say": "念のためお支払いはカードでよろしいでしょうか？",
+            "after": "ambiguous",
+            "message": "言い直して確かめます。「念のためお支払いはカードでよろしいでしょうか？」と言って、相手の返事を待ってください。相手が認めたら confirm_field を返事の種類「合っている」で、違うと言われたら「違う値を言われた」で報告し、訂正された値には相手の答えに合う選択肢の名前（カード、振込、どちらでも、わからない、答えたくない）を入れます。",
+            "ack": "hai"
+          },
+          "callee_turns": 1
+        }
+      ],
+      "items": {
+        "Q2": {
+          "state": "checking",
+          "value": "クレジットカード",
+          "condition": "カード",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0,
+          "history": [
+            [
+              "empty",
+              "heard",
+              "別の耳の文字（「クレジットカード」）と食い違う（「クレジットカードで」）・AIは「カード」と受け取った"
+            ],
+            [
+              "heard",
+              "checking",
+              "言い直して確かめる"
+            ]
+          ]
+        }
+      },
+      "export": {
+        "Q2": "-"
+      },
+      "final_phase": "asking",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "ear_errors": [],
+      "op": "record_answer",
+      "condition": "カード",
+      "state": "checking",
+      "taken_condition": "カード",
+      "verdict": "意味を確かめた（はっきりした答えに）",
+      "program_said": [
+        "念のためお支払いはカードでよろしいでしょうか？"
+      ],
+      "callee_heard": [
+        "クレジットカードで"
+      ],
+      "ear_check": {
+        "text": "クレジットカード",
+        "waited_s": 1.189,
+        "arrived_s": 0.506
+      },
+      "ear_confirm": true
+    },
+    {
+      "id": "c3",
+      "voice": "Kore",
+      "question": "Q2",
+      "want": "カード",
+      "kind": "遠回し",
+      "text": "カード払いにします。",
+      "noise_tag": "無し",
+      "voice_type": "S4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "g14/Kore_c3.wav"
+          },
+          "heard": "カード払いにします。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.258,
+              "name": "record_answer",
+              "args": {
+                "question_id": "Q2",
+                "condition_id": "カード",
+                "value": "カード"
+              },
+              "reply": "end",
+              "ack": "hai",
+              "say": null,
+              "play": [
+                {
+                  "kind": "closing",
+                  "id": "closing",
+                  "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.268,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.257,
+              "text": "カード払いにします。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.259,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.268,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "closing",
+          "current_after": null,
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          },
+          "ear_check": {
+            "text": "カード払いにします",
+            "waited_s": 0.862,
+            "arrived_s": 0.78
+          }
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "question_id": "Q2",
+            "condition_id": "カード",
+            "value": "カード"
+          },
+          "reply": {
+            "result": "end",
+            "play": [
+              {
+                "kind": "closing",
+                "id": "closing",
+                "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+              }
+            ],
+            "message": "受け付けました。質問は終わりです。締めの言葉「お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。」は、プログラムが録音で流しました。何も言わずに終えます。",
+            "ack": "hai"
+          },
+          "callee_turns": 1
+        }
+      ],
+      "items": {
+        "Q2": {
+          "state": "accepted",
+          "value": "カード",
+          "condition": "カード",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0,
+          "history": [
+            [
+              "empty",
+              "heard",
+              "聞き取れた"
+            ],
+            [
+              "heard",
+              "accepted",
+              "確かめない型で、はっきり聞き取れた"
+            ]
+          ]
+        }
+      },
+      "export": {
+        "Q2": "カード"
+      },
+      "final_phase": "closing",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "ear_errors": [],
+      "op": "record_answer",
+      "condition": "カード",
+      "state": "accepted",
+      "taken_condition": "カード",
+      "verdict": "正しい",
+      "program_said": [],
+      "callee_heard": [
+        "カード払いにします。"
+      ],
+      "ear_check": {
+        "text": "カード払いにします",
+        "waited_s": 0.862,
+        "arrived_s": 0.78
+      },
+      "ear_confirm": false
+    },
+    {
+      "id": "t1",
+      "voice": "Kore",
+      "question": "Q2",
+      "want": "振込",
+      "kind": "はっきり",
+      "text": "振込でお願いします。",
+      "noise_tag": "無し",
+      "voice_type": "S4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "g14/Kore_t1.wav"
+          },
+          "heard": "振り込みでお願いします。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 1.565,
+              "name": "record_answer",
+              "args": {
+                "value": "振込",
+                "question_id": "Q2",
+                "condition_id": "振込"
+              },
+              "reply": "end",
+              "ack": "hai",
+              "say": null,
+              "play": [
+                {
+                  "kind": "closing",
+                  "id": "closing",
+                  "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 1.566,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.413,
+              "text": "振り込みでお願いします。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 1.566,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 1.566,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "closing",
+          "current_after": null,
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          },
+          "ear_check": {
+            "text": "振り込みでお願いします",
+            "waited_s": 2.033,
+            "arrived_s": 0.632
+          }
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "value": "振込",
+            "question_id": "Q2",
+            "condition_id": "振込"
+          },
+          "reply": {
+            "result": "end",
+            "play": [
+              {
+                "kind": "closing",
+                "id": "closing",
+                "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+              }
+            ],
+            "message": "受け付けました。質問は終わりです。締めの言葉「お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。」は、プログラムが録音で流しました。何も言わずに終えます。",
+            "ack": "hai"
+          },
+          "callee_turns": 1
+        }
+      ],
+      "items": {
+        "Q2": {
+          "state": "accepted",
+          "value": "振込",
+          "condition": "振込",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0,
+          "history": [
+            [
+              "empty",
+              "heard",
+              "聞き取れた"
+            ],
+            [
+              "heard",
+              "accepted",
+              "確かめない型で、はっきり聞き取れた"
+            ]
+          ]
+        }
+      },
+      "export": {
+        "Q2": "振込"
+      },
+      "final_phase": "closing",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "ear_errors": [],
+      "op": "record_answer",
+      "condition": "振込",
+      "state": "accepted",
+      "taken_condition": "振込",
+      "verdict": "正しい",
+      "program_said": [],
+      "callee_heard": [
+        "振り込みでお願いします。"
+      ],
+      "ear_check": {
+        "text": "振り込みでお願いします",
+        "waited_s": 2.033,
+        "arrived_s": 0.632
+      },
+      "ear_confirm": false
+    },
+    {
+      "id": "t2",
+      "voice": "Kore",
+      "question": "Q2",
+      "want": "振込",
+      "kind": "遠回し",
+      "text": "銀行振込で。",
+      "noise_tag": "無し",
+      "voice_type": "S4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "g14/Kore_t2.wav"
+          },
+          "heard": "銀行振り込みで",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.385,
+              "name": "record_answer",
+              "args": {
+                "question_id": "Q2",
+                "condition_id": "振込",
+                "value": "銀行振り込み"
+              },
+              "reply": "end",
+              "ack": "hai",
+              "say": null,
+              "play": [
+                {
+                  "kind": "closing",
+                  "id": "closing",
+                  "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.389,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.331,
+              "text": "銀行振り込みで"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.386,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.389,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "closing",
+          "current_after": null,
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          },
+          "ear_check": {
+            "text": "銀行振り込みで",
+            "waited_s": 0.743,
+            "arrived_s": 0.512
+          }
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "question_id": "Q2",
+            "condition_id": "振込",
+            "value": "銀行振り込み"
+          },
+          "reply": {
+            "result": "end",
+            "play": [
+              {
+                "kind": "closing",
+                "id": "closing",
+                "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+              }
+            ],
+            "message": "受け付けました。質問は終わりです。締めの言葉「お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。」は、プログラムが録音で流しました。何も言わずに終えます。",
+            "ack": "hai"
+          },
+          "callee_turns": 1
+        }
+      ],
+      "items": {
+        "Q2": {
+          "state": "accepted",
+          "value": "銀行振り込み",
+          "condition": "振込",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0,
+          "history": [
+            [
+              "empty",
+              "heard",
+              "聞き取れた"
+            ],
+            [
+              "heard",
+              "accepted",
+              "確かめない型で、はっきり聞き取れた"
+            ]
+          ]
+        }
+      },
+      "export": {
+        "Q2": "振込"
+      },
+      "final_phase": "closing",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "ear_errors": [],
+      "op": "record_answer",
+      "condition": "振込",
+      "state": "accepted",
+      "taken_condition": "振込",
+      "verdict": "正しい",
+      "program_said": [],
+      "callee_heard": [
+        "銀行振り込みで"
+      ],
+      "ear_check": {
+        "text": "銀行振り込みで",
+        "waited_s": 0.743,
+        "arrived_s": 0.512
+      },
+      "ear_confirm": false
+    },
+    {
+      "id": "t3",
+      "voice": "Kore",
+      "question": "Q2",
+      "want": "振込",
+      "kind": "遠回し",
+      "text": "振り込みにします。",
+      "noise_tag": "無し",
+      "voice_type": "S4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "g14/Kore_t3.wav"
+          },
+          "heard": "振り込みにします。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.857,
+              "name": "record_answer",
+              "args": {
+                "value": "振込",
+                "question_id": "Q2",
+                "condition_id": "振込"
+              },
+              "reply": "end",
+              "ack": "hai",
+              "say": null,
+              "play": [
+                {
+                  "kind": "closing",
+                  "id": "closing",
+                  "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.858,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.418,
+              "text": "振り込みにします。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.858,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.858,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "closing",
+          "current_after": null,
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          },
+          "ear_check": {
+            "text": "振り込みにします",
+            "waited_s": 1.397,
+            "arrived_s": 0.673
+          }
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "value": "振込",
+            "question_id": "Q2",
+            "condition_id": "振込"
+          },
+          "reply": {
+            "result": "end",
+            "play": [
+              {
+                "kind": "closing",
+                "id": "closing",
+                "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+              }
+            ],
+            "message": "受け付けました。質問は終わりです。締めの言葉「お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。」は、プログラムが録音で流しました。何も言わずに終えます。",
+            "ack": "hai"
+          },
+          "callee_turns": 1
+        }
+      ],
+      "items": {
+        "Q2": {
+          "state": "accepted",
+          "value": "振込",
+          "condition": "振込",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0,
+          "history": [
+            [
+              "empty",
+              "heard",
+              "聞き取れた"
+            ],
+            [
+              "heard",
+              "accepted",
+              "確かめない型で、はっきり聞き取れた"
+            ]
+          ]
+        }
+      },
+      "export": {
+        "Q2": "振込"
+      },
+      "final_phase": "closing",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "ear_errors": [],
+      "op": "record_answer",
+      "condition": "振込",
+      "state": "accepted",
+      "taken_condition": "振込",
+      "verdict": "正しい",
+      "program_said": [],
+      "callee_heard": [
+        "振り込みにします。"
+      ],
+      "ear_check": {
+        "text": "振り込みにします",
+        "waited_s": 1.397,
+        "arrived_s": 0.673
+      },
+      "ear_confirm": false
+    },
+    {
+      "id": "u3",
+      "voice": "Kore",
+      "question": "Q2",
+      "want": "unknown",
+      "kind": "わからない",
+      "text": "まだ決めてないです。",
+      "noise_tag": "無し",
+      "voice_type": "S4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "g14/Kore_u3.wav"
+          },
+          "heard": "まだ決めてないです。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.265,
+              "name": "record_answer",
+              "args": {
+                "value": "まだ決めてないです",
+                "question_id": "Q2",
+                "condition_id": "unknown"
+              },
+              "reply": "end",
+              "ack": "shouchi",
+              "say": null,
+              "play": [
+                {
+                  "kind": "closing",
+                  "id": "closing",
+                  "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.269,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.264,
+              "text": "まだ決めてないです。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.265,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.269,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "closing",
+          "current_after": null,
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          },
+          "ear_check": {
+            "text": "まだ決めてないです",
+            "waited_s": 0.673,
+            "arrived_s": 0.615
+          }
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "value": "まだ決めてないです",
+            "question_id": "Q2",
+            "condition_id": "unknown"
+          },
+          "reply": {
+            "result": "end",
+            "play": [
+              {
+                "kind": "closing",
+                "id": "closing",
+                "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+              }
+            ],
+            "message": "受け付けました（わからない）。質問は終わりです。締めの言葉「お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。」は、プログラムが録音で流しました。何も言わずに終えます。",
+            "ack": "shouchi"
+          },
+          "callee_turns": 1
+        }
+      ],
+      "items": {
+        "Q2": {
+          "state": "dont_know",
+          "value": "まだ決めてないです",
+          "condition": "unknown",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0,
+          "history": [
+            [
+              "empty",
+              "dont_know",
+              "相手が「わからない」と答えた"
+            ]
+          ]
+        }
+      },
+      "export": {
+        "Q2": "-"
+      },
+      "final_phase": "closing",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "ear_errors": [],
+      "op": "record_answer",
+      "condition": "unknown",
+      "state": "dont_know",
+      "taken_condition": "unknown",
+      "verdict": "正しい",
+      "program_said": [],
+      "callee_heard": [
+        "まだ決めてないです。"
+      ],
+      "ear_check": {
+        "text": "まだ決めてないです",
+        "waited_s": 0.673,
+        "arrived_s": 0.615
+      },
+      "ear_confirm": false
+    },
+    {
+      "id": "a3",
+      "voice": "Kore",
+      "question": "Q2",
+      "want": "any",
+      "kind": "任せる",
+      "text": "どちらでも大丈夫です。",
+      "noise_tag": "無し",
+      "voice_type": "S4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "g14/Kore_a3.wav"
+          },
+          "heard": "どちらでも大丈夫です。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.464,
+              "name": "record_answer",
+              "args": {
+                "question_id": "Q2",
+                "value": "どちらでも大丈夫です",
+                "condition_id": "any"
+              },
+              "reply": "end",
+              "ack": "hai",
+              "say": null,
+              "play": [
+                {
+                  "kind": "closing",
+                  "id": "closing",
+                  "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.466,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.359,
+              "text": "どちらでも大丈夫です。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.465,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.466,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "closing",
+          "current_after": null,
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          },
+          "ear_check": {
+            "text": "どちらでも大丈夫です",
+            "waited_s": 0.993,
+            "arrived_s": 0.697
+          }
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "question_id": "Q2",
+            "value": "どちらでも大丈夫です",
+            "condition_id": "any"
+          },
+          "reply": {
+            "result": "end",
+            "play": [
+              {
+                "kind": "closing",
+                "id": "closing",
+                "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+              }
+            ],
+            "message": "受け付けました。質問は終わりです。締めの言葉「お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。」は、プログラムが録音で流しました。何も言わずに終えます。",
+            "ack": "hai"
+          },
+          "callee_turns": 1
+        }
+      ],
+      "items": {
+        "Q2": {
+          "state": "accepted",
+          "value": "どちらでも大丈夫です",
+          "condition": "any",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0,
+          "history": [
+            [
+              "empty",
+              "heard",
+              "聞き取れた"
+            ],
+            [
+              "heard",
+              "accepted",
+              "確かめない型で、はっきり聞き取れた"
+            ]
+          ]
+        }
+      },
+      "export": {
+        "Q2": "どちらでも"
+      },
+      "final_phase": "closing",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "ear_errors": [],
+      "op": "record_answer",
+      "condition": "any",
+      "state": "accepted",
+      "taken_condition": "any",
+      "verdict": "正しい",
+      "program_said": [],
+      "callee_heard": [
+        "どちらでも大丈夫です。"
+      ],
+      "ear_check": {
+        "text": "どちらでも大丈夫です",
+        "waited_s": 0.993,
+        "arrived_s": 0.697
+      },
+      "ear_confirm": false
+    },
+    {
+      "id": "a4",
+      "voice": "Kore",
+      "question": "Q1",
+      "want": "ambiguous",
+      "kind": "曖昧",
+      "text": "いいです。",
+      "noise_tag": "無し",
+      "voice_type": "S4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "g14/Kore_a4.wav"
+          },
+          "heard": "いいです。",
+          "intended": "念のためご予約はされているということでよろしいでしょうか？",
+          "tool_events": [
+            {
+              "at_s": 0.304,
+              "name": "record_answer",
+              "args": {
+                "value": "いいです",
+                "condition_id": "はい",
+                "question_id": "Q1"
+              },
+              "reply": "confirm_required",
+              "ack": "hai",
+              "say": "念のためご予約はされているということでよろしいでしょうか？",
+              "play": null
+            }
+          ],
+          "first_audio_after_s": 0.765,
+          "finished_after_s": 4.429,
+          "audio_seconds": 3.66,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 0.765,
+              "audio_s": 0.0,
+              "text": "念のためご予約はされている"
+            },
+            {
+              "at_s": 0.986,
+              "audio_s": 1.82,
+              "text": "ということでよろ"
+            },
+            {
+              "at_s": 1.313,
+              "audio_s": 2.86,
+              "text": "しいでしょうか？"
+            }
+          ],
+          "heard_events": [
+            {
+              "at_s": 0.231,
+              "text": "いいです。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.304,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.306,
+              "kind": "turn_complete"
+            },
+            {
+              "at_s": 0.765,
+              "kind": "audio_start",
+              "chunk": 1
+            },
+            {
+              "at_s": 4.429,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q1",
+          "check": {
+            "voiced_s": 3.38,
+            "compared_with": "intended",
+            "morae": 29,
+            "expected_s": 3.22,
+            "ratio": 1.05,
+            "kind": "ok"
+          },
+          "ear_check": {
+            "text": "いいです",
+            "waited_s": 0.782,
+            "arrived_s": 0.602
+          }
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "value": "いいです",
+            "condition_id": "はい",
+            "question_id": "Q1"
+          },
+          "reply": {
+            "result": "confirm_required",
+            "value": "ご予約はされているということ",
+            "say": "念のためご予約はされているということでよろしいでしょうか？",
+            "after": "ambiguous",
+            "message": "言い直して確かめます。「念のためご予約はされているということでよろしいでしょうか？」と言って、相手の返事を待ってください。相手が認めたら confirm_field を返事の種類「合っている」で、違うと言われたら「違う値を言われた」で報告し、訂正された値には相手の答えに合う選択肢の名前（はい、いいえ、わからない、答えたくない）を入れます。",
+            "ack": "hai"
+          },
+          "callee_turns": 1
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "checking",
+          "value": "いいです",
+          "condition": "はい",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0,
+          "history": [
+            [
+              "empty",
+              "heard",
+              "曖昧な答え（「いいです。」）・AIは「はい」と受け取った"
+            ],
+            [
+              "heard",
+              "checking",
+              "言い直して確かめる"
+            ]
+          ]
+        }
+      },
+      "export": {
+        "Q1": "-"
+      },
+      "final_phase": "asking",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "ear_errors": [],
+      "op": "record_answer",
+      "condition": "はい",
+      "state": "checking",
+      "taken_condition": "はい",
+      "verdict": "正しい",
+      "program_said": [
+        "念のためご予約はされているということでよろしいでしょうか？"
+      ],
+      "callee_heard": [
+        "いいです。"
+      ],
+      "ear_check": {
+        "text": "いいです",
+        "waited_s": 0.782,
+        "arrived_s": 0.602
+      },
+      "ear_confirm": false
+    },
+    {
+      "id": "y4",
+      "voice": "Kore",
+      "question": "Q1",
+      "want": "はい",
+      "kind": "遠回し",
+      "text": "ええ、してます。",
+      "noise_tag": "無し",
+      "voice_type": "S4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "g14/Kore_y4.wav"
+          },
+          "heard": "ええ、してます。",
+          "intended": "念のためご予約はされているということでよろしいでしょうか?",
+          "tool_events": [
+            {
+              "at_s": 0.596,
+              "name": "record_answer",
+              "args": {
+                "condition_id": "はい",
+                "question_id": "Q1",
+                "value": "はい"
+              },
+              "reply": "confirm_required",
+              "ack": "hai",
+              "say": "念のためご予約はされているということでよろしいでしょうか？",
+              "play": null
+            }
+          ],
+          "first_audio_after_s": 0.997,
+          "finished_after_s": 4.896,
+          "audio_seconds": 3.86,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 0.997,
+              "audio_s": 0.0,
+              "text": "念のためご予約はされているということで"
+            },
+            {
+              "at_s": 1.31,
+              "audio_s": 2.06,
+              "text": "よろしいでしょうか?"
+            }
+          ],
+          "heard_events": [
+            {
+              "at_s": 0.397,
+              "text": "ええ、してます。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.596,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.597,
+              "kind": "turn_complete"
+            },
+            {
+              "at_s": 0.997,
+              "kind": "audio_start",
+              "chunk": 1
+            },
+            {
+              "at_s": 4.896,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q1",
+          "check": {
+            "voiced_s": 3.54,
+            "compared_with": "intended",
+            "morae": 29,
+            "expected_s": 3.22,
+            "ratio": 1.1,
+            "kind": "ok"
+          },
+          "ear_check": {
+            "text": "ええ出ます",
+            "waited_s": 1.037,
+            "arrived_s": 0.561
+          }
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "condition_id": "はい",
+            "question_id": "Q1",
+            "value": "はい"
+          },
+          "reply": {
+            "result": "confirm_required",
+            "value": "ご予約はされているということ",
+            "say": "念のためご予約はされているということでよろしいでしょうか？",
+            "after": "ambiguous",
+            "message": "言い直して確かめます。「念のためご予約はされているということでよろしいでしょうか？」と言って、相手の返事を待ってください。相手が認めたら confirm_field を返事の種類「合っている」で、違うと言われたら「違う値を言われた」で報告し、訂正された値には相手の答えに合う選択肢の名前（はい、いいえ、わからない、答えたくない）を入れます。",
+            "ack": "hai"
+          },
+          "callee_turns": 1
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "checking",
+          "value": "はい",
+          "condition": "はい",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0,
+          "history": [
+            [
+              "empty",
+              "heard",
+              "別の耳の文字（「ええ出ます」）と食い違う（「ええ、してます。」）・AIは「はい」と受け取った"
+            ],
+            [
+              "heard",
+              "checking",
+              "言い直して確かめる"
+            ]
+          ]
+        }
+      },
+      "export": {
+        "Q1": "-"
+      },
+      "final_phase": "asking",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "ear_errors": [],
+      "op": "record_answer",
+      "condition": "はい",
+      "state": "checking",
+      "taken_condition": "はい",
+      "verdict": "意味を確かめた（はっきりした答えに）",
+      "program_said": [
+        "念のためご予約はされているということでよろしいでしょうか？"
+      ],
+      "callee_heard": [
+        "ええ、してます。"
+      ],
+      "ear_check": {
+        "text": "ええ出ます",
+        "waited_s": 1.037,
+        "arrived_s": 0.561
+      },
+      "ear_confirm": true
+    },
+    {
+      "id": "n3",
+      "voice": "Kore",
+      "question": "Q1",
+      "want": "いいえ",
+      "kind": "遠回し",
+      "text": "してないです。",
+      "noise_tag": "無し",
+      "voice_type": "S4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "g14/Kore_n3.wav"
+          },
+          "heard": "してないです。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.569,
+              "name": "record_answer",
+              "args": {
+                "question_id": "Q1",
+                "condition_id": "いいえ",
+                "value": "していない"
+              },
+              "reply": "end",
+              "ack": "hai",
+              "say": null,
+              "play": [
+                {
+                  "kind": "closing",
+                  "id": "closing",
+                  "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.57,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.248,
+              "text": "してないです。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.57,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.57,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "closing",
+          "current_after": null,
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          },
+          "ear_check": {
+            "text": "してないです",
+            "waited_s": 1.044,
+            "arrived_s": 0.607
+          }
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "question_id": "Q1",
+            "condition_id": "いいえ",
+            "value": "していない"
+          },
+          "reply": {
+            "result": "end",
+            "play": [
+              {
+                "kind": "closing",
+                "id": "closing",
+                "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+              }
+            ],
+            "message": "受け付けました。質問は終わりです。締めの言葉「お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。」は、プログラムが録音で流しました。何も言わずに終えます。",
+            "ack": "hai"
+          },
+          "callee_turns": 1
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "accepted",
+          "value": "していない",
+          "condition": "いいえ",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0,
+          "history": [
+            [
+              "empty",
+              "heard",
+              "聞き取れた"
+            ],
+            [
+              "heard",
+              "accepted",
+              "確かめない型で、はっきり聞き取れた"
+            ]
+          ]
+        }
+      },
+      "export": {
+        "Q1": "いいえ"
+      },
+      "final_phase": "closing",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "ear_errors": [],
+      "op": "record_answer",
+      "condition": "いいえ",
+      "state": "accepted",
+      "taken_condition": "いいえ",
+      "verdict": "正しい",
+      "program_said": [],
+      "callee_heard": [
+        "してないです。"
+      ],
+      "ear_check": {
+        "text": "してないです",
+        "waited_s": 1.044,
+        "arrived_s": 0.607
+      },
+      "ear_confirm": false
+    },
+    {
+      "id": "y3",
+      "voice": "Kore",
+      "question": "Q1",
+      "want": "はい",
+      "kind": "はっきり",
+      "text": "はい、先週しました。",
+      "noise_tag": "無し",
+      "voice_type": "S4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "g14/Kore_y3.wav"
+          },
+          "heard": "はい、清掃しました。",
+          "intended": "念のためご予約はされているということでよろしいでしょうか？",
+          "tool_events": [
+            {
+              "at_s": 0.333,
+              "name": "record_answer",
+              "args": {
+                "value": "はい、精算しました",
+                "condition_id": "はい",
+                "question_id": "Q1"
+              },
+              "reply": "confirm_required",
+              "ack": "hai",
+              "say": "念のためご予約はされているということでよろしいでしょうか？",
+              "play": null
+            }
+          ],
+          "first_audio_after_s": 0.781,
+          "finished_after_s": 4.208,
+          "audio_seconds": 3.44,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 0.781,
+              "audio_s": 0.0,
+              "text": "念のためご予約はされているということでよろしいでしょうか？"
+            }
+          ],
+          "heard_events": [
+            {
+              "at_s": 0.299,
+              "text": "はい、清掃しました。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.333,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.335,
+              "kind": "turn_complete"
+            },
+            {
+              "at_s": 0.781,
+              "kind": "audio_start",
+              "chunk": 1
+            },
+            {
+              "at_s": 4.208,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q1",
+          "check": {
+            "voiced_s": 2.99,
+            "compared_with": "intended",
+            "morae": 29,
+            "expected_s": 3.22,
+            "ratio": 0.93,
+            "kind": "ok"
+          },
+          "ear_check": {
+            "text": "はい先週しました",
+            "waited_s": 0.719,
+            "arrived_s": 0.624
+          }
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "value": "はい、精算しました",
+            "condition_id": "はい",
+            "question_id": "Q1"
+          },
+          "reply": {
+            "result": "confirm_required",
+            "value": "ご予約はされているということ",
+            "say": "念のためご予約はされているということでよろしいでしょうか？",
+            "after": "ambiguous",
+            "message": "言い直して確かめます。「念のためご予約はされているということでよろしいでしょうか？」と言って、相手の返事を待ってください。相手が認めたら confirm_field を返事の種類「合っている」で、違うと言われたら「違う値を言われた」で報告し、訂正された値には相手の答えに合う選択肢の名前（はい、いいえ、わからない、答えたくない）を入れます。",
+            "ack": "hai"
+          },
+          "callee_turns": 1
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "checking",
+          "value": "はい、精算しました",
+          "condition": "はい",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0,
+          "history": [
+            [
+              "empty",
+              "heard",
+              "別の耳の文字（「はい先週しました」）と食い違う（「はい、清掃しました。」）・AIは「はい」と受け取った"
+            ],
+            [
+              "heard",
+              "checking",
+              "言い直して確かめる"
+            ]
+          ]
+        }
+      },
+      "export": {
+        "Q1": "-"
+      },
+      "final_phase": "asking",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "ear_errors": [],
+      "op": "record_answer",
+      "condition": "はい",
+      "state": "checking",
+      "taken_condition": "はい",
+      "verdict": "意味を確かめた（はっきりした答えに）",
+      "program_said": [
+        "念のためご予約はされているということでよろしいでしょうか？"
+      ],
+      "callee_heard": [
+        "はい、清掃しました。"
+      ],
+      "ear_check": {
+        "text": "はい先週しました",
+        "waited_s": 0.719,
+        "arrived_s": 0.624
+      },
+      "ear_confirm": true
+    },
+    {
+      "id": "y1_noise",
+      "voice": "Kore",
+      "question": "Q1",
+      "want": "はい",
+      "kind": "はっきり",
+      "text": "はい、予約しています。",
+      "noise_tag": "雑音",
+      "voice_type": "S4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "g14/Kore_y1_noise.wav"
+          },
+          "heard": "はい、予約しています。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.549,
+              "name": "record_answer",
+              "args": {
+                "condition_id": "はい",
+                "value": "はい",
+                "question_id": "Q1"
+              },
+              "reply": "end",
+              "ack": "hai",
+              "say": null,
+              "play": [
+                {
+                  "kind": "closing",
+                  "id": "closing",
+                  "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.55,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.528,
+              "text": "はい、予約しています。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.549,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.55,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "closing",
+          "current_after": null,
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          },
+          "ear_check": {
+            "text": "はい予約しています",
+            "waited_s": 0.654,
+            "arrived_s": 0.264
+          }
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "condition_id": "はい",
+            "value": "はい",
+            "question_id": "Q1"
+          },
+          "reply": {
+            "result": "end",
+            "play": [
+              {
+                "kind": "closing",
+                "id": "closing",
+                "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+              }
+            ],
+            "message": "受け付けました。質問は終わりです。締めの言葉「お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。」は、プログラムが録音で流しました。何も言わずに終えます。",
+            "ack": "hai"
+          },
+          "callee_turns": 1
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "accepted",
+          "value": "はい",
+          "condition": "はい",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0,
+          "history": [
+            [
+              "empty",
+              "heard",
+              "聞き取れた"
+            ],
+            [
+              "heard",
+              "accepted",
+              "確かめない型で、はっきり聞き取れた"
+            ]
+          ]
+        }
+      },
+      "export": {
+        "Q1": "はい"
+      },
+      "final_phase": "closing",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "ear_errors": [],
+      "op": "record_answer",
+      "condition": "はい",
+      "state": "accepted",
+      "taken_condition": "はい",
+      "verdict": "正しい",
+      "program_said": [],
+      "callee_heard": [
+        "はい、予約しています。"
+      ],
+      "ear_check": {
+        "text": "はい予約しています",
+        "waited_s": 0.654,
+        "arrived_s": 0.264
+      },
+      "ear_confirm": false
+    },
+    {
+      "id": "y2_noise",
+      "voice": "Kore",
+      "question": "Q1",
+      "want": "はい",
+      "kind": "はっきり",
+      "text": "はい。",
+      "noise_tag": "雑音",
+      "voice_type": "S4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "g14/Kore_y2_noise.wav"
+          },
+          "heard": "はい。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.766,
+              "name": "record_answer",
+              "args": {
+                "question_id": "Q1",
+                "value": "はい",
+                "condition_id": "はい"
+              },
+              "reply": "end",
+              "ack": "hai",
+              "say": null,
+              "play": [
+                {
+                  "kind": "closing",
+                  "id": "closing",
+                  "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.767,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.475,
+              "text": "はい。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.766,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.767,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "closing",
+          "current_after": null,
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          },
+          "ear_check": {
+            "text": "はい",
+            "waited_s": 0.835,
+            "arrived_s": 0.168
+          }
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "question_id": "Q1",
+            "value": "はい",
+            "condition_id": "はい"
+          },
+          "reply": {
+            "result": "end",
+            "play": [
+              {
+                "kind": "closing",
+                "id": "closing",
+                "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+              }
+            ],
+            "message": "受け付けました。質問は終わりです。締めの言葉「お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。」は、プログラムが録音で流しました。何も言わずに終えます。",
+            "ack": "hai"
+          },
+          "callee_turns": 1
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "accepted",
+          "value": "はい",
+          "condition": "はい",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0,
+          "history": [
+            [
+              "empty",
+              "heard",
+              "聞き取れた"
+            ],
+            [
+              "heard",
+              "accepted",
+              "確かめない型で、はっきり聞き取れた"
+            ]
+          ]
+        }
+      },
+      "export": {
+        "Q1": "はい"
+      },
+      "final_phase": "closing",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "ear_errors": [],
+      "op": "record_answer",
+      "condition": "はい",
+      "state": "accepted",
+      "taken_condition": "はい",
+      "verdict": "正しい",
+      "program_said": [],
+      "callee_heard": [
+        "はい。"
+      ],
+      "ear_check": {
+        "text": "はい",
+        "waited_s": 0.835,
+        "arrived_s": 0.168
+      },
+      "ear_confirm": false
+    },
+    {
+      "id": "n1_noise",
+      "voice": "Kore",
+      "question": "Q1",
+      "want": "いいえ",
+      "kind": "はっきり",
+      "text": "いいえ、まだです。",
+      "noise_tag": "雑音",
+      "voice_type": "S4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "g14/Kore_n1_noise.wav"
+          },
+          "heard": "いいえ、まだです。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.721,
+              "name": "record_answer",
+              "args": {
+                "question_id": "Q1",
+                "value": "いいえ、まだです。",
+                "condition_id": "いいえ"
+              },
+              "reply": "end",
+              "ack": "hai",
+              "say": null,
+              "play": [
+                {
+                  "kind": "closing",
+                  "id": "closing",
+                  "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.721,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.478,
+              "text": "いいえ、まだです。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.721,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.721,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "closing",
+          "current_after": null,
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          },
+          "ear_check": {
+            "text": "いいえまだです",
+            "waited_s": 0.847,
+            "arrived_s": 0.274
+          }
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "question_id": "Q1",
+            "value": "いいえ、まだです。",
+            "condition_id": "いいえ"
+          },
+          "reply": {
+            "result": "end",
+            "play": [
+              {
+                "kind": "closing",
+                "id": "closing",
+                "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+              }
+            ],
+            "message": "受け付けました。質問は終わりです。締めの言葉「お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。」は、プログラムが録音で流しました。何も言わずに終えます。",
+            "ack": "hai"
+          },
+          "callee_turns": 1
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "accepted",
+          "value": "いいえ、まだです。",
+          "condition": "いいえ",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0,
+          "history": [
+            [
+              "empty",
+              "heard",
+              "聞き取れた"
+            ],
+            [
+              "heard",
+              "accepted",
+              "確かめない型で、はっきり聞き取れた"
+            ]
+          ]
+        }
+      },
+      "export": {
+        "Q1": "いいえ"
+      },
+      "final_phase": "closing",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "ear_errors": [],
+      "op": "record_answer",
+      "condition": "いいえ",
+      "state": "accepted",
+      "taken_condition": "いいえ",
+      "verdict": "正しい",
+      "program_said": [],
+      "callee_heard": [
+        "いいえ、まだです。"
+      ],
+      "ear_check": {
+        "text": "いいえまだです",
+        "waited_s": 0.847,
+        "arrived_s": 0.274
+      },
+      "ear_confirm": false
+    },
+    {
+      "id": "n2_noise",
+      "voice": "Kore",
+      "question": "Q1",
+      "want": "いいえ",
+      "kind": "はっきり",
+      "text": "いえ、まだしていません。",
+      "noise_tag": "雑音",
+      "voice_type": "S4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "g14/Kore_n2_noise.wav"
+          },
+          "heard": "いいえ、まだしていません。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.602,
+              "name": "record_answer",
+              "args": {
+                "value": "いいえ、まだしていません",
+                "condition_id": "いいえ",
+                "question_id": "Q1"
+              },
+              "reply": "end",
+              "ack": "hai",
+              "say": null,
+              "play": [
+                {
+                  "kind": "closing",
+                  "id": "closing",
+                  "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.603,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.49,
+              "text": "いいえ、まだしていません。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.603,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.603,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "closing",
+          "current_after": null,
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          },
+          "ear_check": {
+            "text": "いいえまだしていません",
+            "waited_s": 0.649,
+            "arrived_s": 0.206
+          }
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "value": "いいえ、まだしていません",
+            "condition_id": "いいえ",
+            "question_id": "Q1"
+          },
+          "reply": {
+            "result": "end",
+            "play": [
+              {
+                "kind": "closing",
+                "id": "closing",
+                "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+              }
+            ],
+            "message": "受け付けました。質問は終わりです。締めの言葉「お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。」は、プログラムが録音で流しました。何も言わずに終えます。",
+            "ack": "hai"
+          },
+          "callee_turns": 1
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "accepted",
+          "value": "いいえ、まだしていません",
+          "condition": "いいえ",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0,
+          "history": [
+            [
+              "empty",
+              "heard",
+              "聞き取れた"
+            ],
+            [
+              "heard",
+              "accepted",
+              "確かめない型で、はっきり聞き取れた"
+            ]
+          ]
+        }
+      },
+      "export": {
+        "Q1": "いいえ"
+      },
+      "final_phase": "closing",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "ear_errors": [],
+      "op": "record_answer",
+      "condition": "いいえ",
+      "state": "accepted",
+      "taken_condition": "いいえ",
+      "verdict": "正しい",
+      "program_said": [],
+      "callee_heard": [
+        "いいえ、まだしていません。"
+      ],
+      "ear_check": {
+        "text": "いいえまだしていません",
+        "waited_s": 0.649,
+        "arrived_s": 0.206
+      },
+      "ear_confirm": false
+    },
+    {
+      "id": "c1_noise",
+      "voice": "Kore",
+      "question": "Q2",
+      "want": "カード",
+      "kind": "はっきり",
+      "text": "カードでお願いします。",
+      "noise_tag": "雑音",
+      "voice_type": "S4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "g14/Kore_c1_noise.wav"
+          },
+          "heard": "カードをお願いします。",
+          "intended": "念のためお支払いはカードでよろしいでしょうか?",
+          "tool_events": [
+            {
+              "at_s": 0.557,
+              "name": "record_answer",
+              "args": {
+                "question_id": "Q2",
+                "value": "カード",
+                "condition_id": "カード"
+              },
+              "reply": "confirm_required",
+              "ack": "hai",
+              "say": "念のためお支払いはカードでよろしいでしょうか？",
+              "play": null
+            }
+          ],
+          "first_audio_after_s": 0.999,
+          "finished_after_s": 3.943,
+          "audio_seconds": 2.95,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 0.999,
+              "audio_s": 0.0,
+              "text": "念のためお支払いはカードで"
+            },
+            {
+              "at_s": 1.252,
+              "audio_s": 1.79,
+              "text": "よろしいでしょうか?"
+            }
+          ],
+          "heard_events": [
+            {
+              "at_s": 0.485,
+              "text": "カードをお願いします。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.558,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.558,
+              "kind": "turn_complete"
+            },
+            {
+              "at_s": 0.999,
+              "kind": "audio_start",
+              "chunk": 1
+            },
+            {
+              "at_s": 3.943,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "check": {
+            "voiced_s": 2.61,
+            "compared_with": "intended",
+            "morae": 23,
+            "expected_s": 2.56,
+            "ratio": 1.02,
+            "kind": "ok"
+          },
+          "ear_check": {
+            "text": "カードでお願いします",
+            "waited_s": 0.64,
+            "arrived_s": 0.21
+          }
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "question_id": "Q2",
+            "value": "カード",
+            "condition_id": "カード"
+          },
+          "reply": {
+            "result": "confirm_required",
+            "value": "お支払いはカード",
+            "say": "念のためお支払いはカードでよろしいでしょうか？",
+            "after": "ambiguous",
+            "message": "言い直して確かめます。「念のためお支払いはカードでよろしいでしょうか？」と言って、相手の返事を待ってください。相手が認めたら confirm_field を返事の種類「合っている」で、違うと言われたら「違う値を言われた」で報告し、訂正された値には相手の答えに合う選択肢の名前（カード、振込、どちらでも、わからない、答えたくない）を入れます。",
+            "ack": "hai"
+          },
+          "callee_turns": 1
+        }
+      ],
+      "items": {
+        "Q2": {
+          "state": "checking",
+          "value": "カード",
+          "condition": "カード",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0,
+          "history": [
+            [
+              "empty",
+              "heard",
+              "別の耳の文字（「カードでお願いします」）と食い違う（「カードをお願いします。」）・AIは「カード」と受け取った"
+            ],
+            [
+              "heard",
+              "checking",
+              "言い直して確かめる"
+            ]
+          ]
+        }
+      },
+      "export": {
+        "Q2": "-"
+      },
+      "final_phase": "asking",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "ear_errors": [],
+      "op": "record_answer",
+      "condition": "カード",
+      "state": "checking",
+      "taken_condition": "カード",
+      "verdict": "意味を確かめた（はっきりした答えに）",
+      "program_said": [
+        "念のためお支払いはカードでよろしいでしょうか？"
+      ],
+      "callee_heard": [
+        "カードをお願いします。"
+      ],
+      "ear_check": {
+        "text": "カードでお願いします",
+        "waited_s": 0.64,
+        "arrived_s": 0.21
+      },
+      "ear_confirm": true
+    },
+    {
+      "id": "t1_noise",
+      "voice": "Kore",
+      "question": "Q2",
+      "want": "振込",
+      "kind": "はっきり",
+      "text": "振込でお願いします。",
+      "noise_tag": "雑音",
+      "voice_type": "S4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "g14/Kore_t1_noise.wav"
+          },
+          "heard": "振り込みでお願いします。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.606,
+              "name": "record_answer",
+              "args": {
+                "condition_id": "振込",
+                "value": "振込",
+                "question_id": "Q2"
+              },
+              "reply": "end",
+              "ack": "hai",
+              "say": null,
+              "play": [
+                {
+                  "kind": "closing",
+                  "id": "closing",
+                  "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.608,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.564,
+              "text": "振り込みでお願いします。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.607,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.608,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "closing",
+          "current_after": null,
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          },
+          "ear_check": {
+            "text": "振り込みでお願いします",
+            "waited_s": 0.651,
+            "arrived_s": 0.21
+          }
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "condition_id": "振込",
+            "value": "振込",
+            "question_id": "Q2"
+          },
+          "reply": {
+            "result": "end",
+            "play": [
+              {
+                "kind": "closing",
+                "id": "closing",
+                "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+              }
+            ],
+            "message": "受け付けました。質問は終わりです。締めの言葉「お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。」は、プログラムが録音で流しました。何も言わずに終えます。",
+            "ack": "hai"
+          },
+          "callee_turns": 1
+        }
+      ],
+      "items": {
+        "Q2": {
+          "state": "accepted",
+          "value": "振込",
+          "condition": "振込",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0,
+          "history": [
+            [
+              "empty",
+              "heard",
+              "聞き取れた"
+            ],
+            [
+              "heard",
+              "accepted",
+              "確かめない型で、はっきり聞き取れた"
+            ]
+          ]
+        }
+      },
+      "export": {
+        "Q2": "振込"
+      },
+      "final_phase": "closing",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "ear_errors": [],
+      "op": "record_answer",
+      "condition": "振込",
+      "state": "accepted",
+      "taken_condition": "振込",
+      "verdict": "正しい",
+      "program_said": [],
+      "callee_heard": [
+        "振り込みでお願いします。"
+      ],
+      "ear_check": {
+        "text": "振り込みでお願いします",
+        "waited_s": 0.651,
+        "arrived_s": 0.21
+      },
+      "ear_confirm": false
+    },
+    {
+      "id": "y3_noise",
+      "voice": "Kore",
+      "question": "Q1",
+      "want": "はい",
+      "kind": "はっきり",
+      "text": "はい、先週しました。",
+      "noise_tag": "雑音",
+      "voice_type": "S4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "g14/Kore_y3_noise.wav"
+          },
+          "heard": "はい、転送しました。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.673,
+              "name": "replay_opening",
+              "args": {
+                "part": "handover"
+              },
+              "reply": "replayed",
+              "ack": null,
+              "say": null,
+              "play": [
+                {
+                  "kind": "opening",
+                  "part": "greeting",
+                  "text": "お忙しいところ恐れ入ります。"
+                },
+                {
+                  "kind": "opening",
+                  "part": "intro",
+                  "text": "株式会社「アオバ物流」の「佐藤」と申します。"
+                },
+                {
+                  "kind": "opening",
+                  "part": "purpose",
+                  "text": "ご予約の確認でお電話いたしました。"
+                },
+                {
+                  "kind": "question",
+                  "id": "Q1",
+                  "text": "ご予約はされていますでしょうか？",
+                  "lead": ""
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.676,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.47,
+              "text": "はい、転送しました。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.674,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.676,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q1",
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          },
+          "ear_check": {
+            "arrived_s": 0.258
+          }
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "replay_opening",
+          "args": {
+            "part": "handover"
+          },
+          "reply": {
+            "result": "replayed",
+            "play": [
+              {
+                "kind": "opening",
+                "part": "greeting",
+                "text": "お忙しいところ恐れ入ります。"
+              },
+              {
+                "kind": "opening",
+                "part": "intro",
+                "text": "株式会社「アオバ物流」の「佐藤」と申します。"
+              },
+              {
+                "kind": "opening",
+                "part": "purpose",
+                "text": "ご予約の確認でお電話いたしました。"
+              },
+              {
+                "kind": "question",
+                "id": "Q1",
+                "text": "ご予約はされていますでしょうか？",
+                "lead": ""
+              }
+            ],
+            "message": "「お忙しいところ恐れ入ります。株式会社「アオバ物流」の「佐藤」と申します。ご予約の確認でお電話いたしました。ご予約はされていますでしょうか？」は、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、相手の答えを待ってください。相手が答えたら record_answer で報告します。",
+            "ack": null
+          },
+          "callee_turns": 1
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "empty",
+          "value": null,
+          "condition": null,
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0,
+          "history": []
+        }
+      },
+      "export": {
+        "Q1": "-"
+      },
+      "final_phase": "asking",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "ear_errors": [],
+      "op": "なし",
+      "condition": null,
+      "state": "empty",
+      "taken_condition": null,
+      "verdict": "報告が無い",
+      "program_said": [],
+      "callee_heard": [
+        "はい、転送しました。"
+      ],
+      "ear_check": {
+        "arrived_s": 0.258
+      },
+      "ear_confirm": false
+    }
+  ]
+}

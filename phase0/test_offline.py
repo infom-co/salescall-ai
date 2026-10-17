@@ -201,6 +201,16 @@ class FlowTest(unittest.TestCase):
             self.assertEqual((r["result"], r["say"]), ("end", CLOSE_DECLINED), reason)
             self.assertIn(CLOSE_DECLINED, r["message"])
         self.assertEqual(CLOSE_DECLINED, "お忙しいところ申し訳ございませんでした。それでは失礼いたします。")  # ユーザーの言葉のまま
+        # ふつうの締めも、AIが話す形では決まった言い方を渡す（⛔ 前は「締めの言葉を言って」とだけ伝え、AIが「お気軽にお問い合わせください」を足した）
+        from phrases import CLOSING
+        f = self.flow()
+        f.current = f.order[-1]
+        f.items[f.current].state = "accepted"
+        for q in f.order:
+            f.items[q].state = "accepted"
+        r = f._advance("")
+        self.assertEqual((r["result"], r["say"]), ("end", CLOSING))
+        self.assertIn("言葉を足しません", r["message"])
         from instruction import Business, build
         b = Business(company="アオバ物流", caller="佐藤", purpose="ご予約の確認", questions=list(self.flow().questions.values()))
         self.assertIn("約束してはいけません", build(b, "S2")[1])
@@ -1386,6 +1396,55 @@ class KeyRingTest(unittest.TestCase):
             self.assertEqual((again.spent, again.denied), ({"m": {0}}, {1}))
             self.assertNotIn("a" * 39, path.read_text(encoding="utf-8"))   # キーの値は書かない
 
+    def test_live_calls_move_to_next_key(self):
+        # ⛔ 2026-10-17：通話の試験は1つのキーだけでつなぎ、上限（会話のモデルは閉じる番号 1011・「exceeded your current quota」）に当たると
+        # 止まっていた ⇒ 次のキーで初めからやり直す。止められたプロジェクトは使わない。ほかの誤りはそのまま上げる
+        import argparse
+        import asyncio
+        import common
+
+        class Live(Exception):
+            def __init__(self, code, msg):
+                super().__init__(f"{code} None. {msg}")
+                self.code = code
+
+        ring = common.KeyRing(argparse.Namespace(proxy_key=False, env="/nonexistent", key_name=None, key_index=0), min_interval_s=0,
+                              state_path=False)
+        ring.keys = [common.ApiKey(f"K{i}", chr(97 + i) * 39) for i in range(3)]
+        ring._clients = {0: "c0", 1: "c1", 2: "c2"}
+        calls = []
+
+        async def fn(client):
+            calls.append(client)
+            if client == "c0":
+                raise Live(1011, "You exceeded your current quota, please check your plan and billing details.")
+            if client == "c1":
+                raise Live(1008, "Your project has been denied access. Please contact support.")
+            return "ok"
+
+        self.assertEqual(asyncio.run(ring.acall("live", fn)), ("ok", 2))
+        self.assertEqual(asyncio.run(ring.acall("live", fn)), ("ok", 2))      # 休み中のキー・止められたキーは飛ばす
+        self.assertEqual(calls, ["c0", "c1", "c2", "c2"])
+        self.assertEqual(ring.denied, {1})
+
+        async def other(client):
+            raise ValueError("ほかの誤り")
+        with self.assertRaises(ValueError):
+            asyncio.run(ring.acall("live", other))
+
+    def test_session_timeout_is_not_a_denied_project(self):
+        # ⛔ つなぎの時間切れも閉じる番号 1008 で返る（2026-10-17 G-15）＝番号だけで「止められたプロジェクト」と決めない
+        import common
+
+        class Live(Exception):
+            code = 1008
+        goaway = Live("1008 None. Connection aborted because the client failed to close the connection after receiving a GoAway signal "
+                      "once the session duration limit was reached.")
+        self.assertFalse(common.is_denied(goaway))
+        self.assertTrue(common.is_denied(Live("1008 None. Your project has been denied access. Please contact support.")))
+        self.assertTrue(common.is_quota(Exception("1011 None. You exceeded your current quota, please check your plan and billing details.")))
+        self.assertFalse(common.is_quota(goaway))
+
 
 class ScriptRecordingTest(unittest.TestCase):
     """✅ 2026-10-16 ユーザー：「こちら側の担当者名は、依頼者ごとの録音時に録音しておくといいでしょう」。名乗り（自社名・担当者名）と
@@ -1468,6 +1527,278 @@ class CalleeQuestionTest(unittest.TestCase):
             self.assertTrue(_CALLEE_ASKS.search(t), t)
         for t in ("はい、予約しています。", "15日の午後2時でお願いします。", "いいえ、まだしていません", "はい、そうです。"):
             self.assertFalse(_CALLEE_ASKS.search(t), t)
+
+
+class EarsTest(unittest.TestCase):
+    """通話の中の別の耳（ears.py）：入口は1つ（open_ear）、どの耳も同じ形（feed で流す・wait で確定した文字を待つ）。つながずに確かめる。"""
+
+    def test_amivoice_events(self):
+        from ears import amivoice_final
+        self.assertEqual(amivoice_final('A {"text": "してないです。", "results": []}'), "してないです。")
+        # 言いよどみの印は外して言葉は残す（⛔ 初めの設定では「いいえ」「ええ」を言いよどみとして消していた。ears.AMIVOICE_KEEP_FILLER）
+        self.assertEqual(amivoice_final('A {"text": "%い%%え%まだです。"}'), "いえまだです。")
+        self.assertEqual(amivoice_final('A {"text": "%えー%してます。"}'), "えーしてます。")
+        for ev in ('U {"text": "して"}', "S 1200", "E 2300", "C", 'A {"text": ""}', "A not-json", 'A {"text": "%%"}'):
+            self.assertIsNone(amivoice_final(ev), ev)
+
+    def test_soniox_tokens(self):
+        from ears import soniox_update
+        pending = []
+        self.assertEqual(soniox_update(pending, {"tokens": [{"text": "して", "is_final": True}, {"text": "ない", "is_final": False}]}), [])
+        self.assertEqual(soniox_update(pending, {"tokens": [{"text": "ないです。", "is_final": True}, {"text": "<end>", "is_final": True}]}),
+                         ["してないです。"])
+        self.assertEqual(pending, [])                                           # 話し終わりで、次の発話のために空にする
+        # こちらから頼んだ確定（{"type": "finalize"}）の終わりの印「<fin>」でも、1つの発話として渡す
+        self.assertEqual(soniox_update(pending, {"tokens": [{"text": "はい、", "is_final": True}, {"text": "先週しました。", "is_final": True},
+                                                            {"text": "<fin>", "is_final": True}]}), ["はい、先週しました。"])
+        with self.assertRaises(RuntimeError):
+            soniox_update(pending, {"error_code": 401, "error_message": "unauthorized"})
+
+    def test_pieces_during_the_voice_are_joined(self):
+        # ⛔ 2026-10-17：耳が発話の途中の間で区切ったとき、最初のかけら（「はい。」）で渡していた ⇒ 声を流し終えたあとに届いた分で、
+        # ためた分と合わせて渡す。声を流し終えたあとに何も届かなければ、待ちの終わりに、ためた分を渡す
+        import asyncio
+        from ears import Ear
+
+        class SplitEar(Ear):
+            def __init__(self, after: bool):
+                super().__init__()
+                self.after, self.n = after, 0
+
+            async def _send(self, pcm, voice):
+                if voice:
+                    self.n += 1
+                    if self.n == 2:
+                        self._final("はい。")                                    # 声を流している間のかけら
+
+            async def _fed(self):
+                if self.after:
+                    self._final("先週しました。")
+
+        async def go(after: bool):
+            async with SplitEar(after) as ear:
+                await ear.feed(b"\0\0" * 8000, 16000)
+                return await ear.wait(0.3)
+        self.assertEqual(asyncio.run(go(True)), "はい。先週しました。")
+        self.assertEqual(asyncio.run(go(False)), "はい。")
+
+    def test_missing_key_and_model_stop_with_instructions(self):
+        import os
+        import tempfile
+        from ears import open_ear, reazon_files
+        from pathlib import Path
+        os.environ.pop("SONIOX_API_KEY", None)
+        with self.assertRaises(SystemExit) as e:
+            open_ear("soniox", env_path=os.path.join(tempfile.gettempdir(), "no-such.env"))
+        self.assertIn("SONIOX_API_KEY", str(e.exception))
+        with self.assertRaises(SystemExit) as e:
+            reazon_files(Path(tempfile.mkdtemp()))
+        self.assertIn("get_reazon_model.py", str(e.exception))
+        with self.assertRaises(SystemExit):
+            open_ear("no-such-ear")
+
+    def test_key_is_hidden(self):
+        import os
+        from common import load_secret, redact
+        os.environ["AMIVOICE_APPKEY"] = "test-value-123456"
+        try:
+            self.assertEqual(load_secret("AMIVOICE_APPKEY", env_path="/no/such.env"), "test-value-123456")
+            self.assertNotIn("test-value-123456", redact("s LSB16K -a-general authorization=test-value-123456"))
+        finally:
+            os.environ.pop("AMIVOICE_APPKEY")
+
+    def test_feed_and_wait(self):
+        # 共通の形：流している間は無音を止め、流し終えたら（この耳は、そこで）確定した文字を渡す。最初に届いた時刻を残す
+        import asyncio
+        from ears import Ear
+
+        class FakeEar(Ear):
+            def __init__(self):
+                super().__init__()
+                self.sent = []
+
+            async def _send(self, pcm, voice):
+                self.sent.append(voice)
+
+            async def _fed(self):
+                self._final("はい、予約しています。")
+
+        async def go():
+            async with FakeEar() as ear:
+                await ear.feed(b"\0\0" * 8000, 16000)                         # 0.5秒の声
+                return ear, await ear.wait(1.0), await asyncio.wait_for(ear.wait(0.1), 1.0)
+        ear, text, again = asyncio.run(go())
+        self.assertEqual((text, again), ("はい、予約しています。", "はい、予約しています。"))
+        self.assertIsNotNone(ear.first_at)
+        self.assertGreaterEqual(ear.sent.count(True), 5)                        # 0.1秒ずつ5つ
+
+    def test_reazon_cuts_from_before_the_voice(self):
+        # ⛔ 2026-10-17：声の頭から切り出して渡すと、頭の言葉を落とした（「はい、予約しています。」⇒「予約しています」）。
+        # ⇒ 発話の前の PREROLL_S 秒（その前に流れていた音）から切り出す。つないだ直後の発話は、無音から（モデルを読まずに確かめる）
+        import asyncio
+        from ears import RATE, ReazonEar
+        pre = int(ReazonEar.PREROLL_S * RATE) * 2
+
+        async def go():
+            ear = ReazonEar()
+            await ear._send(b"\1\0" * 10, voice=True)
+            first = bytes(ear._buf)
+            ear._buf = bytearray()
+            await ear._send(b"\2\0" * RATE, voice=False)                        # 1秒の回線の音
+            await ear._send(b"\3\0" * 10, voice=True)
+            await ear._send(b"\4\0" * 10, voice=True)
+            return first, bytes(ear._buf)
+        first, second = asyncio.run(go())
+        self.assertEqual(first, bytes(pre) + b"\1\0" * 10)
+        self.assertEqual(second, b"\2\0" * (pre // 2) + b"\3\0" * 10 + b"\4\0" * 10)  # 直前の音は PREROLL_S 秒だけ・頭に1回だけ
+
+
+class EarsTryTest(unittest.TestCase):
+    """独立した別の耳を1つの命令で試す道具（ears_try.py）と、ユーザーが貼る文字（docs/EARS_SETUP.md）。つながずに確かめる。"""
+
+    DOC = Path(__file__).resolve().parent.parent / "docs" / "EARS_SETUP.md"
+
+    def blocks(self) -> list[str]:
+        """手順書の枠（``` で囲んだ所）の中の行。"""
+        lines, inside = [], False
+        for line in self.DOC.read_text(encoding="utf-8").splitlines():
+            if line.startswith("```"):
+                inside = not inside
+            elif inside and line.strip():
+                lines.append(line.strip())
+        return lines
+
+    def test_doc_has_every_host_and_key_name(self):
+        # 手順書の枠に、コードがつなぐ接続先（ワイルドカードを含む）と、コードが読むキーの名前が、すべてある（食い違うと、貼っても動かない）
+        from ears import SECRETS
+        from ears_try import HOSTS
+        lines = self.blocks()
+
+        def covered(host: str) -> bool:
+            return any(d == host or (d.startswith("*.") and host.endswith(d[1:])) for d in lines)
+        hosts = {h for hs in HOSTS.values() for h in hs} | {"generativelanguage.googleapis.com", "release-assets.githubusercontent.com"}
+        for h in sorted(hosts):
+            self.assertTrue(covered(h), h)
+        for name in SECRETS.values():
+            self.assertTrue(any(l.startswith(f"{name}=") for l in lines), name)
+
+    def test_predict_counts_like_the_call(self):
+        # 通話の中と同じ決まり：別の耳の文字が ear_wait_s 秒までに届いて食い違えば確かめる。数えるのは AI が選んだ答えで
+        # （⛔ 1回目は会話AIの文字が台本と違うかで数え、文字が違ってもAIが正しく選んだ通話の確かめを「拾える誤り」にしていた）
+        from ears_try import predict
+        rows = [{"wav": "a.wav", "text": "してないです。", "ear": "してないです", "first_s": 0.3},
+                {"wav": "c.wav", "text": "はい、先週しました。", "ear": "はい、先週しました", "first_s": 0.5},
+                {"wav": "d.wav", "text": "予約済みです。", "ear": "要約済みです", "first_s": 2.5},
+                {"wav": "e.wav", "text": "いいえ、まだです。", "ear": "いえ、まだです", "first_s": 0.4},
+                {"wav": "f.wav", "text": "大丈夫です。", "ear": "大丈夫", "first_s": 0.4}]
+        calls = [{"wav": "a.wav", "heard": "捨てないです。", "condition": "はい", "want": "いいえ"},      # AIが誤った・別の耳と食い違う ⇒ 拾える
+                 {"wav": "a.wav", "heard": "してないです。", "condition": "いいえ", "want": "いいえ"},
+                 {"wav": "c.wav", "heard": "はい、清掃しました。", "condition": "はい", "want": "はい"},  # 文字は違うがAIは正しい ⇒ 要らない確かめ
+                 {"wav": "d.wav", "heard": "予約済みです。", "condition": "はい", "want": "はい"},       # 間に合わない
+                 {"wav": "e.wav", "heard": "いいえ、まだです。", "condition": "はい", "want": "いいえ"},  # 同じに聞いたがAIが誤った ⇒ 拾えない
+                 {"wav": "f.wav", "heard": "大丈夫です。", "condition": "はい", "want": "ambiguous"},    # 曖昧な答えは数えない
+                 {"wav": "a.wav", "heard": "してないです。", "condition": "いいえ", "want": None},       # 正解の無い記録は数えない
+                 {"wav": "z.wav", "heard": "はい。", "condition": "はい", "want": "はい"}]               # この耳が聞いていない声
+        p = predict(rows, calls)
+        self.assertEqual((p["通話"], p["AIが正しく選んだ"], p["拾える誤り"], p["要らない確かめ"], p["間に合わない"], p["拾えない誤り"]),
+                         (5, 3, 1, 1, 1, 1))
+
+    def test_in_call_counts(self):
+        from ears_try import in_call
+        rows = [{"verdict": "正しい", "want": "はい", "condition": "はい", "ear_confirm": False, "ear_check": {"text": "はい"}},
+                {"verdict": "意味を確かめた（はっきりした答えに）", "want": "いいえ", "condition": "いいえ", "ear_confirm": True, "ear_check": {"text": "x"}},
+                {"verdict": "意味を確かめた（はっきりした答えに）", "want": "いいえ", "condition": "はい", "ear_confirm": True, "ear_check": {"text": "x"}},
+                {"verdict": "意味を確かめた（はっきりした答えに）", "want": "ambiguous", "condition": "はい", "ear_confirm": True, "ear_check": {"text": "x"}},
+                {"verdict": "⛔違う条件", "want": "いいえ", "condition": "はい", "ear_confirm": False, "ear_check": None}]
+        c = in_call(rows)
+        self.assertEqual((c["通話"], c["要らない確かめ（AIは正しかった）"], c["拾えた（AIが誤っていた）"], c["拾えなかった誤り"], c["別の耳の文字が届かなかった"]),
+                         (5, 1, 1, 1, 1))
+
+    def test_missing_reports_key_by_name_only(self):
+        import os
+        from ears_try import missing
+        os.environ.pop("AMIVOICE_APPKEY", None)
+        with unittest.mock.patch("ears_try.reachable", return_value=None):
+            got = missing("amivoice", "/no/such.env")
+        self.assertTrue(any("AMIVOICE_APPKEY" in m for m in got), got)
+        os.environ["AMIVOICE_APPKEY"] = "test-value-987654"
+        try:
+            with unittest.mock.patch("ears_try.reachable", return_value="接続先 x が止められています"):
+                got = missing("amivoice", "/no/such.env")
+            self.assertEqual(len(got), 1)
+            self.assertFalse(any("test-value-987654" in m for m in got))
+            self.assertTrue(common.has_secret("AMIVOICE_APPKEY", "/no/such.env"))
+        finally:
+            os.environ.pop("AMIVOICE_APPKEY")
+
+    def test_model_archive_names(self):
+        # 外から来たまとめたファイルは、置き場の外を指す名前・使わないもの（試しの声・説明書き）を取り出さない
+        from get_reazon_model import wanted
+        d = "sherpa-onnx-zipformer-ja-reazonspeech-2024-08-01"
+        self.assertEqual(wanted(f"{d}/encoder-epoch-99-avg-1.onnx"), "encoder-epoch-99-avg-1.onnx")
+        self.assertEqual(wanted(f"{d}/joiner-epoch-99-avg-1.int8.onnx"), "joiner-epoch-99-avg-1.int8.onnx")
+        self.assertEqual(wanted(f"{d}/tokens.txt"), "tokens.txt")
+        for bad in (f"{d}/test_wavs/1.wav", f"{d}/README.md", "../encoder.onnx", "/tmp/encoder.onnx", f"{d}/sub/encoder.onnx", "encoder.onnx",
+                    f"{d}/../encoder.onnx"):
+            self.assertIsNone(wanted(bad), bad)
+
+
+class EarCheckTest(unittest.TestCase):
+    """DESIGN.md 6-10 の (5)・G-15：確かめない型の答えは、会話AIの聞き取りと別の耳の文字を比べ、食い違えば意味を確かめる。
+    ⛔ G-14 の残りの誤り：「してないです」を会話AIが「捨てないです」と聞いてAIが「はい」を選んだ・「いや、これから」を「や、これから」と聞いて
+    「している」を選んだ（どちらも、別の耳は正しく聞いた）。"""
+
+    def flow(self, required=True):
+        from flowctl import Flow, Question
+        return Flow([Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"), required=required,
+                              meanings=AmbiguousAnswerTest.M),
+                     Question("Q2", "ご希望の日時をお聞かせいただけますでしょうか？", "datetime", conditions=("答えた",))])
+
+    def answer(self, f, heard, ear, cond):
+        f.on_callee(); f.on_heard(heard)
+        self.assertTrue(f.wants_ear("record_answer"))
+        f.on_ear(ear)
+        return f.apply("record_answer", {"question_id": "Q1", "condition_id": cond, "value": heard})
+
+    def test_alike(self):
+        from flowctl import heard_alike
+        for a, b in (("家まだしていません。", "いえ、まだしていません。"), ("いいえ、まだです。", "いえ、まだです。"), ("はい、予約しています。", "はい予約しています"),
+                     ("いや、これからなんです。", "いいえ、これからなんです。"),
+                     # 頭の返事の言葉の伸ばし方の違い（2026-10-17：AmiVoice は「えー」「いやあ」と書く）
+                     ("ええ、してます。", "えーしてます。"), ("いや、これからなんです。", "いやあ、これからなんです。"), ("いいえ、まだです。", "いえまだです。"),
+                     # 答えの前の言いよどみ（AmiVoice は息の音を「あ」と書く）
+                     ("はい、予約しています。", "あはい。予約しています。"), ("まだです。", "えーと、まだです。"), ("してないです。", "あのー、してないです。")):
+            self.assertTrue(heard_alike(a, b), (a, b))
+        for a, b in (("捨てないです。", "してないです。"), ("や、これからなんです。", "いや、これからなんです。"), ("はい、清掃しました。", "はい、先週しました。"),
+                     ("や、これからなんです。", "いやあ、これからなんです。"), ("いいえ、まだです。", "はい、まだです。"), ("ええ、してます。", "いえ、してます。"),
+                     ("いいえ、まだです。", "あ、はい、まだです。"), ("ありがとうございます。", "りがとうございます。")):
+            self.assertFalse(heard_alike(a, b), (a, b))
+
+    def test_disagreement_is_confirmed(self):
+        f = self.flow()
+        r = self.answer(f, "捨てないです。", "してないです。", "はい")
+        self.assertEqual((r["result"], f.awaiting_confirm), ("confirm_required", "Q1"))
+        self.assertIn("ご予約はお済みということ", r["say"])                  # 意味の言葉で確かめる（曖昧な答えと同じ道）
+        self.assertTrue(any("別の耳" in why for _, _, why in f.items["Q1"].history))
+
+    def test_agreement_or_no_ear_is_taken(self):
+        for ear in ("いいえ、まだです。", None):                             # 同じこと・別の耳が間に合わなかった（比べない＝止まらない）
+            f = self.flow()
+            r = self.answer(f, "いえ、まだです。", ear, "いいえ")
+            self.assertEqual((r["result"], f.items["Q1"].state), ("next", "accepted"), ear)
+
+    def test_not_required_is_unresolved(self):
+        f = self.flow(required=False)
+        r = self.answer(f, "捨てないです。", "してないです。", "はい")
+        self.assertEqual(f.items["Q1"].state, "unresolved")                 # 必須でない項目は確かめない（曖昧な答えと同じ）
+
+    def test_only_for_choice_answers(self):
+        f = self.flow()
+        f.current = "Q2"
+        self.assertFalse(f.wants_ear("record_answer"))                     # 値を聞く型は、言い直して確かめる
+        self.assertFalse(f.wants_ear("confirm_field"))
+        f.on_callee()
+        self.assertIsNone(f.ear_said)                                       # 相手の発話ごとに消える
 
 
 class AmbiguousAnswerTest(unittest.TestCase):
@@ -2279,7 +2610,8 @@ class PlayRecordingsTest(unittest.TestCase):
         f.on_callee()
         out, silent = f.handle_call(fc("confirm_field", 質問="Q2", 返事の種類="合っている"))
         self.assertTrue(silent)
-        self.assertEqual((f.log[-1]["reply"]["result"], f.log[-1]["reply"]["play"]), ("end", [{"kind": "closing", "text": CLOSING}]))
+        self.assertEqual((f.log[-1]["reply"]["result"], f.log[-1]["reply"]["play"]),
+                         ("end", [{"kind": "closing", "id": "closing", "text": CLOSING}]))
 
     def test_lead_is_fixed_by_question_order(self):
         """つなぎの言葉は質問の順番で決まる（依頼主ごとの録音は、質問1つにつき1本のまま）。最初の質問は名乗りと一緒なので付けない。"""
@@ -2288,13 +2620,30 @@ class PlayRecordingsTest(unittest.TestCase):
         self.assertEqual([spoken_question(qs, q.id)[1] for q in qs], ["", "それでは", "続きまして", "では", "それでは"])
         self.assertEqual(spoken_question(qs, "Q3")[0], "続きまして質問3ですか？")
 
-    def test_declined_call_is_not_played(self):
-        """通話を断られたときの締めは、これまでどおり（録音の締めは、質問が全部終わったときだけ）。"""
+    def test_declined_close_is_played_too(self):
+        """断られたときの締めも、毎回同じ文なので録音で流す（6-13。flowctl.Flow._close）。⛔ 前は「これまでどおり」AIが言っていた
+        （「お忙しいところ」はAIの声で崩れやすい）。"""
+        from phrases import CLOSE_DECLINED, RECORDED
+        for reason in ("通話を断られた", "相手が急いでいる"):
+            f = self.flow()
+            f.on_callee()
+            out, silent = f.handle_call(fc("request_end", 理由=reason))
+            self.assertTrue(silent, reason)
+            self.assertEqual(f.log[-1]["reply"]["play"], [{"kind": "closing", "id": "closing_declined", "text": CLOSE_DECLINED}])
+        self.assertEqual(RECORDED["closing_declined"], CLOSE_DECLINED)
+
+    def test_close_after_callee_question_is_said(self):
+        # 相手が最後に質問をしていたら、AIが短く答えてから、決まった締めの言い方のまま言う（録音を流すと、相手の質問にかぶせる）
+        from phrases import CLOSING
         f = self.flow()
-        f.on_callee()
-        out, silent = f.handle_call(fc("request_end", 理由="通話を断られた"))
+        f.on_callee(); f.handle_call(fc("record_answer", 質問="Q1", 答えの種類="はい"))
+        f.on_callee(); f.handle_call(fc("record_answer", 質問="Q2", 答えの種類="答えた", 値="15日の午後2時"))
+        f.on_callee(); f.on_heard("はい。当日はどなたが担当されるんですか？")
+        out, silent = f.handle_call(fc("confirm_field", 質問="Q2", 返事の種類="合っている"))
+        r = f.log[-1]["reply"]
         self.assertFalse(silent)
-        self.assertIsNone(f.log[-1]["reply"].get("play"))
+        self.assertEqual((r["result"], r["say"], r.get("play")), ("end", CLOSING, None))
+        self.assertIn(CLOSING, out["次にすること"])
 
     def test_rule_in_instruction_only_when_playing(self):
         from g22_opening import BUSINESS

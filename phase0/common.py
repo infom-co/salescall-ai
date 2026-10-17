@@ -111,6 +111,29 @@ def load_keys(env_path: str | os.PathLike, key_names: list[str] | None = None) -
     return keys
 
 
+def _secret_value(name: str, env_path: str | os.PathLike | None) -> str | None:
+    env_path = env_path or os.environ.get("SALESCALL_ENV", DEFAULT_ENV_PATH)
+    pairs = read_env_file(env_path) if Path(env_path).is_file() else list(os.environ.items())
+    return next((v for n, v in pairs if n == name and v), None)
+
+
+def has_secret(name: str, env_path: str | os.PathLike | None = None) -> bool:
+    """キーが入っているか（値は伏せる一覧にも画面にも出さず、あるかだけ。足りないものの確かめ用）。"""
+    return _secret_value(name, env_path) is not None
+
+
+def load_secret(name: str, env_path: str | os.PathLike | None = None) -> str:
+    """Gemini 以外のキー（別の耳など）を1つ読む唯一の場所。`.env` があればそこから、無ければ環境変数から。値は伏せる一覧に入れ、画面には名前だけ出す。
+    無ければ、入れ方を書いて止める（⛔ キーの値をチャットで聞かない。クラウドの作業環境では「環境変数」の欄に入れていただく＝docs/EARS_SETUP.md）。"""
+    value = _secret_value(name, env_path)
+    if not value:
+        raise SystemExit(f"キー {name} が見つかりません。作業環境の設定（セッションの上のクラウド環境のメニュー →「編集」）の「環境変数」の欄に、"
+                         f"{name}=（キー） の1行で入れてください（手順：docs/EARS_SETUP.md）。")
+    _LOADED_SECRETS.append(value)
+    say(f"キー {name} を読みました")
+    return value
+
+
 def redact(text: object) -> str:
     """画面・ファイルに出す前に、読み込んだキーの値をすべて伏せる（ここを通さずに出さない）。"""
     s = str(text)
@@ -164,15 +187,18 @@ def is_unavailable(exc: BaseException) -> bool:
 
 
 def is_quota(exc: BaseException) -> bool:
-    """1日・1分の上限（429 RESOURCE_EXHAUSTED）に当たったか。"""
-    return str(getattr(exc, "code", "")) == "429" or getattr(exc, "status", "") == "RESOURCE_EXHAUSTED" or "RESOURCE_EXHAUSTED" in str(exc)
+    """1日・1分の上限（429 RESOURCE_EXHAUSTED）に当たったか。会話のモデル（つなぎっぱなしの接続）では、閉じる番号 1011 と
+    「You exceeded your current quota」の文面で返る（2026-10-17：6つの声を同じキーで同時に流した G-14 --ear amivoice）。"""
+    return (str(getattr(exc, "code", "")) == "429" or getattr(exc, "status", "") == "RESOURCE_EXHAUSTED" or "RESOURCE_EXHAUSTED" in str(exc)
+            or "exceeded your current quota" in str(exc))
 
 
 def is_denied(exc: BaseException) -> bool:
     """キーのプロジェクトそのものが止められているか（403 PERMISSION_DENIED。「Your project has been denied access」）。
     2026-10-16：GEMINI_API_KEY_10 で、文字のモデルがこの答えだった（上限ではない＝待っても戻らない）。"""
-    # 会話のモデル（つなぎっぱなしの接続）では、閉じる番号 1008 と同じ文面で返る（2026-10-17：GEMINI_API_KEY_15）
-    return (str(getattr(exc, "code", "")) in ("403", "1008") or getattr(exc, "status", "") == "PERMISSION_DENIED"
+    # 会話のモデル（つなぎっぱなしの接続）では、閉じる番号 1008 と同じ文面で返る（2026-10-17：GEMINI_API_KEY_15）。
+    # ⛔ 番号 1008 だけでは見分けない：つなぎの時間切れ（「…GoAway signal once the session duration…」）も 1008 で返る（2026-10-17 G-15）
+    return (str(getattr(exc, "code", "")) == "403" or getattr(exc, "status", "") == "PERMISSION_DENIED"
             or "denied access" in str(exc))
 
 
@@ -203,6 +229,7 @@ class KeyRing:
         self.denied: set[int] = set()          # プロジェクトが止められているキーの番号
         self._clients: dict[int, object] = {}
         self._last: dict[tuple[int, str], float] = {}
+        self._cool: dict[tuple[int, str], float] = {}  # 会話のモデルで上限に当たったキーの、休み明けの時刻（acall）
         # その日の状態を覚えておく（上限に当たったキーに、次の実行でまた問い合わせない）。キーの値は書かない（指紋だけ）。
         # 1日の上限は、太平洋時間の0時に戻る（Google の決まり）ので、その日付で分ける
         self.state_path = state_path if state_path is not None else (None if getattr(args, "dry_run", False) else RESULTS_DIR / "keyring_state.json")
@@ -272,6 +299,45 @@ class KeyRing:
                     say(f"{self.keys[i].label} は {model} の1日の上限に当たりました ⇒ 次のキーで続けます")
                     break
         raise RuntimeError(f"どのキーでも {model} を使えません（1日の上限・プロジェクトが止められている）")
+
+    LIVE_COOL_S = 600.0     # 会話のモデルで上限に当たったキーを休ませる秒（この実行の中だけ）
+    LIVE_MAX_WAIT_S = 1800.0
+
+    async def acall(self, model: str, fn):
+        """会話のモデル（つなぎっぱなしの接続。通話の試験）の call：await fn(client) を、使えるキーで呼ぶ。戻り値＝(結果, キーの番号)。
+        ⛔ 2026-10-17：通話の試験（g14_listen）は1つのキーだけでつないでいて、6つの声を同時に流すと上限に当たり、153本のうち104本が止まった。
+        - プロジェクトが止められている ⇒ call と同じく、そのキーは使わない（記録する）
+        - 上限 ⇒ そのキーを、この実行の中で LIVE_COOL_S 秒休ませて、次のキーで fn を初めからやり直す（会話のモデルの上限の答えには、
+          あと何秒かが書かれておらず、1分の上限か1日の上限かを見分けられないので、1日ぶん止める記録はしない）
+        - どのキーも休み中なら、いちばん早く空くまで待つ（合わせて LIVE_MAX_WAIT_S 秒まで）"""
+        import asyncio
+        import time
+        cool = self._cool
+        waited = 0.0
+        while True:
+            for k in range(len(self.keys)):
+                i = (self.start + k) % len(self.keys)
+                if i in self.denied or i in self.spent.get(model, set()) or cool.get((i, model), 0) > time.monotonic():
+                    continue
+                try:
+                    return await fn(self.client(i)), i
+                except Exception as exc:
+                    if is_denied(exc):
+                        self.denied.add(i)
+                        self._save()
+                        say(f"{self.keys[i].label} はプロジェクトが止められています ⇒ このキーは使いません")
+                        continue
+                    if not is_quota(exc):
+                        raise
+                    cool[(i, model)] = time.monotonic() + self.LIVE_COOL_S
+                    say(f"{self.keys[i].label} は {model} の上限に当たりました ⇒ 次のキーで初めからやり直します")
+            ends = [t for (i, m), t in cool.items() if m == model and i not in self.denied]
+            if not ends or waited >= self.LIVE_MAX_WAIT_S:
+                raise RuntimeError(f"どのキーでも {model} を使えません（上限・プロジェクトが止められている）")
+            pause = max(1.0, min(ends) - time.monotonic() + 1)
+            say(f"どのキーも {model} の上限で休み中 ⇒ {pause:.0f}秒待ちます")
+            await asyncio.sleep(pause)
+            waited += pause
 
 
 def call_with_retry(fn, waits=(10, 30, 90)):

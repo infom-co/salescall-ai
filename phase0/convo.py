@@ -23,10 +23,12 @@ from __future__ import annotations
 
 import asyncio
 import time
+from contextlib import nullcontext
 
 from common import HERE, read_wav_pcm16_mono, write_wav
 from flowctl import CHOICE_TYPES, Flow, tool_declarations
 from instruction import Business, barge_in_note, build
+from ears import open_ear
 from listen import hear
 from live_util import build_config, callee_turn, collect_turn, send_note, send_text, silence_while
 from turn_check import BAD_KINDS, check_ai_turn
@@ -50,6 +52,27 @@ def callee_wav(name: str, callee_voice: str | None) -> str:
     if callee_voice and name.startswith("Puck_"):
         return f"{callee_voice}_{name[len('Puck_'):]}"
     return name
+
+
+def ear_handler(ear, flow: Flow, pcm: bytes, rate: int, wav: str):
+    """別の耳（DESIGN.md 6-10 の (5)。G-15）：相手の声を、会話AIへ送るのと同時に別の耳（通話ごとに1本つないだ ears.Ear）へも流す。
+    確かめない型の答えの報告（flow.wants_ear）が来たら、返事を作る前に、別の耳の最初の確定した文字を、相手の話し終わりから
+    flow.limits.ear_wait_s 秒まで待って flow.on_ear へ渡す。間に合わない・別の耳が落ちた ⇒ None を渡す（比べない＝止まらない）。
+    返り値＝(報告の返事を作る処理, 声を流す作業, 記録)。"""
+    from stitch_gap import callee_speech
+
+    loop = asyncio.get_running_loop()
+    speech_end = loop.time() + len(pcm) / 2 / rate - callee_speech(wav)[2]  # 相手の声の終わり（声のあとの無音を引く）
+    task = asyncio.create_task(ear.feed(pcm, rate))
+    info: dict = {"_end": speech_end}
+
+    async def handle(fc):
+        if flow.wants_ear(fc.name) and "waited_s" not in info:
+            text = await ear.wait(speech_end + flow.limits.ear_wait_s - loop.time())
+            info.update(text=text, waited_s=round(loop.time() - speech_end, 3))
+            flow.on_ear(text)
+        return flow.handle_call(fc)
+    return handle, task, info
 
 
 MAX_AGAIN = 5  # 試験の歯止め（聞き返しの回数は、流れの制御が決める。これはその決まりが壊れたときに、通話を終わらせるためだけ）
@@ -82,11 +105,15 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                    opening_mode: str = "ai", barge_in: tuple[list[str], list[str]] | None = None,
                    thinking_budget: int | None = None, speech_end: dict | None = None, use_ear: bool = True, save_audio: str = "bad",
                    audio_label: str = "", confirm=None, gap_s: float = 0.0, lead_ins: bool = True,
-                   followup_wait_s: float | None = None, callee_voice: str | None = None, play_recordings: bool = False) -> dict:
+                   followup_wait_s: float | None = None, callee_voice: str | None = None, play_recordings: bool = False,
+                   ear_kind: str | None = None) -> dict:
     """followup_wait_s：相手の言葉の途中でAIが話し出していたとき・AIが黙って待ったとき（followup_reason）は、相手の続きの言葉への
     返事を、次の台詞を送る前に、この秒数まで、もう1回ぶん待つ（来なければ、相手が黙って待たされたことになる。
     記録の行は callee={"followup_of": 台詞, "reason": 理由}）。G-31・G-34
-    callee_voice：お客役の声（"swap"＝会話のAIの声と入れ替え。callee_voice_for）。台詞の声を、その声のファイルに読み替える（G-36〜）"""
+    callee_voice：お客役の声（"swap"＝会話のAIの声と入れ替え。callee_voice_for）。台詞の声を、その声のファイルに読み替える（G-36〜）
+    ear_kind：別の耳の名前（ears.EAR_KINDS）。相手の声を、会話AIと同時に別の耳へも流し、確かめない型の答えの報告の返事を作る前に、別の耳の
+    文字を待って流れの制御へ渡す（DESIGN.md 6-10 の (5)。G-15。ear_handler）。⛔ 既定では使わない（None）：Gemini の書き起こしのモデルを
+    別の耳にすると、要らない確かめが8.5%増え、拾えた誤りは0だった（G-15 の続き）。独立した別の耳（AmiVoice・Soniox・ReazonSpeech）を試す入口"""
     if callee_voice == "swap":
         callee_voice = callee_voice_for(voice_type)
     callee_lines = [{**x, "wav": callee_wav(x["wav"], callee_voice), **({"again": callee_wav(x["again"], callee_voice)} if "again" in x else {})}
@@ -142,78 +169,89 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
             row["audio_file"] = path.name
         turns.append(row)
 
-    i = 0
-    while i < len(callee_lines) and flow.phase != "closing":
-        sessions += 1
-        voice, cfg = config()
-        async with client.aio.live.connect(model=model, config=cfg) as s:
-            while i < len(callee_lines) and flow.phase != "closing":
-                if swap_before is not None and i == swap_before and sessions == 1:
-                    break  # 張り替え：このセッションを閉じて、いまの位置を渡して開き直す
-                line = again or callee_lines[i]
-                if isinstance(line, dict) and "if_value" in line:
-                    # こちらの言った値で答えが変わる相手（G-46：名前の読みを違う読みで聞かれたら、もう一度直す）。
-                    # その項目がもう確かめ済みなら、この台詞は言わない（次の台詞へ）。選択肢の型は、こちらが言い直した選択肢で比べる
-                    # （G-14 の続き：「念のためご予約はされているということでよろしいでしょうか？」に、相手の思っていた答えかで返事が変わる）
-                    qid, want = line["if_value"]
-                    it = flow.items[qid]
-                    if it.state in ("confirmed", "dont_know", "refused"):
+    async with (open_ear(ear_kind, client) if ear_kind else nullcontext()) as ear:  # 別の耳は通話ごとに1本（本番の形。ears.open_ear）
+        i = 0
+        while i < len(callee_lines) and flow.phase != "closing":
+            sessions += 1
+            voice, cfg = config()
+            async with client.aio.live.connect(model=model, config=cfg) as s:
+                while i < len(callee_lines) and flow.phase != "closing":
+                    if swap_before is not None and i == swap_before and sessions == 1:
+                        break  # 張り替え：このセッションを閉じて、いまの位置を渡して開き直す
+                    line = again or callee_lines[i]
+                    if isinstance(line, dict) and "if_value" in line:
+                        # こちらの言った値で答えが変わる相手（G-46：名前の読みを違う読みで聞かれたら、もう一度直す）。
+                        # その項目がもう確かめ済みなら、この台詞は言わない（次の台詞へ）。選択肢の型は、こちらが言い直した選択肢で比べる
+                        # （G-14 の続き：「念のためご予約はされているということでよろしいでしょうか？」に、相手の思っていた答えかで返事が変わる）
+                        qid, want = line["if_value"]
+                        it = flow.items[qid]
+                        if it.state in ("confirmed", "dont_know", "refused"):
+                            i += 1
+                            continue
+                        said = it.condition if flow.questions[qid].type in CHOICE_TYPES else it.value
+                        line = {"wav": line["yes"] if said == want else line["no"]}
+                    if isinstance(line, dict) and "silence_s" in line:
+                        log_start = len(flow.log)
+                        async with silence_while(s):
+                            turn = await collect_turn(s, started_at=time.monotonic(), on_tool_call=flow.handle_call, timeout_s=line["silence_s"],
+                                                     on_heard=flow.on_heard)
+                        await add_turn(turn, line, log_start, i, voice)
                         i += 1
                         continue
-                    said = it.condition if flow.questions[qid].type in CHOICE_TYPES else it.value
-                    line = {"wav": line["yes"] if said == want else line["no"]}
-                if isinstance(line, dict) and "silence_s" in line:
+                    if stall_at is not None and i == stall_at and sessions == 1:
+                        # AIが止まった：古いセッションへ相手の発話を送り、返事を受け取らずに閉じる
+                        flow.on_callee()
+                        await send_text(s, line)
+                        await asyncio.sleep(stall_wait_s)
+                        replay = i
+                        break
+                    if i == 0 and barge_in is not None and sessions == 1:
+                        flow.on_opening_cut(barge_in[0])  # 流れの制御も、どこまで届いたかを覚える（流し直しで、届いていない部分を足す）
+                        await send_note(s, barge_in_note(business, *barge_in))  # 録音のどこまでが届いたか
+                    if replay != i:  # 送り直しは、相手がもう一度話したのではないので数えない
+                        flow.on_callee()
                     log_start = len(flow.log)
-                    async with silence_while(s):
-                        turn = await collect_turn(s, started_at=time.monotonic(), on_tool_call=flow.handle_call, timeout_s=line["silence_s"],
-                                                 on_heard=flow.on_heard)
+                    if gap_s and i > 0:  # 相手が話し始めるまでの間（G-26：間の長さで、AIのふるまいが変わるかを見る）
+                        await asyncio.sleep(gap_s)
+                    ear_info = None
+                    if isinstance(line, dict):  # 録った相手の声
+                        pcm, prate = read_wav_pcm16_mono(HERE / "results" / "callee" / line["wav"])
+                        on_tool, ear_task, ear_info = (ear_handler(ear, flow, pcm, prate, line["wav"]) if ear is not None
+                                                       else (flow.handle_call, None, None))
+                        turn = await callee_turn(s, pcm, prate, on_tool_call=on_tool, timeout_s=90, on_heard=flow.on_heard)
+                        if ear_task is not None:
+                            await ear_task  # 声を流し終えるのを待つ（会話AIへ送るのと同じ長さ）
+                            # 待つ時間とは別に、文字が実際に届いた時刻（話し終わりから。待つ時間を決めるための記録）
+                            ear_info["arrived_s"] = round(ear.first_at - ear_info.pop("_end"), 3) if ear.first_at else None
+                    else:
+                        t = time.monotonic()
+                        flow.on_heard(line)  # 文字で送る相手の言葉は、そのまま相手の言葉の文字
+                        await send_text(s, line)
+                        turn = await collect_turn(s, started_at=t, on_tool_call=flow.handle_call, timeout_s=90, on_heard=flow.on_heard)
                     await add_turn(turn, line, log_start, i, voice)
+                    if ear_info is not None:
+                        turns[-1]["ear_check"] = ear_info
+                    turn_log_start = log_start
+                    reason = followup_reason(turn) if followup_wait_s else None
+                    if reason:
+                        log_start = len(flow.log)
+                        # 待つ間も、電話と同じく無音を送り続ける（会話AIは、無音が続くことで相手の話し終わりを知る）
+                        # ⛔ 2026-10-14 G-31 の1回目：無音を送らずに待っていたため、相手の続きの言葉の話し終わりが会話AIに伝わらず、
+                        #    返事が来なかった（試験の作りの誤り。本物の電話では無音が流れ続ける）
+                        async with silence_while(s, prate if isinstance(line, dict) else 16000):
+                            follow = await collect_turn(s, started_at=time.monotonic(), on_tool_call=flow.handle_call, timeout_s=followup_wait_s,
+                                                        on_heard=flow.on_heard)
+                        await add_turn(follow, {"followup_of": line, "reason": reason}, log_start, i, voice)
+                    if isinstance(line, dict) and "again" in line and asked_back(flow.log[turn_log_start:]) and again_n < MAX_AGAIN:
+                        # 聞き返された：本物の相手は、次の台詞へは進まず、聞かれたことに答え直す（⛔ 2026-10-14 G-36：台本の相手が聞き返しの
+                        # あとも次の台詞「はい、そうです」「3人です」へ進み、それが日時の答えとして報告された＝試験の作りの誤り）
+                        again, again_n = {"wav": line["again"], "again": line["again"]}, again_n + 1
+                        continue
+                    again, again_n = None, 0
                     i += 1
-                    continue
-                if stall_at is not None and i == stall_at and sessions == 1:
-                    # AIが止まった：古いセッションへ相手の発話を送り、返事を受け取らずに閉じる
-                    flow.on_callee()
-                    await send_text(s, line)
-                    await asyncio.sleep(stall_wait_s)
-                    replay = i
-                    break
-                if i == 0 and barge_in is not None and sessions == 1:
-                    flow.on_opening_cut(barge_in[0])  # 流れの制御も、どこまで届いたかを覚える（流し直しで、届いていない部分を足す）
-                    await send_note(s, barge_in_note(business, *barge_in))  # 録音のどこまでが届いたか
-                if replay != i:  # 送り直しは、相手がもう一度話したのではないので数えない
-                    flow.on_callee()
-                log_start = len(flow.log)
-                if gap_s and i > 0:  # 相手が話し始めるまでの間（G-26：間の長さで、AIのふるまいが変わるかを見る）
-                    await asyncio.sleep(gap_s)
-                if isinstance(line, dict):  # 録った相手の声
-                    pcm, prate = read_wav_pcm16_mono(HERE / "results" / "callee" / line["wav"])
-                    turn = await callee_turn(s, pcm, prate, on_tool_call=flow.handle_call, timeout_s=90, on_heard=flow.on_heard)
-                else:
-                    t = time.monotonic()
-                    flow.on_heard(line)  # 文字で送る相手の言葉は、そのまま相手の言葉の文字
-                    await send_text(s, line)
-                    turn = await collect_turn(s, started_at=t, on_tool_call=flow.handle_call, timeout_s=90, on_heard=flow.on_heard)
-                await add_turn(turn, line, log_start, i, voice)
-                turn_log_start = log_start
-                reason = followup_reason(turn) if followup_wait_s else None
-                if reason:
-                    log_start = len(flow.log)
-                    # 待つ間も、電話と同じく無音を送り続ける（会話AIは、無音が続くことで相手の話し終わりを知る）
-                    # ⛔ 2026-10-14 G-31 の1回目：無音を送らずに待っていたため、相手の続きの言葉の話し終わりが会話AIに伝わらず、
-                    #    返事が来なかった（試験の作りの誤り。本物の電話では無音が流れ続ける）
-                    async with silence_while(s, prate if isinstance(line, dict) else 16000):
-                        follow = await collect_turn(s, started_at=time.monotonic(), on_tool_call=flow.handle_call, timeout_s=followup_wait_s,
-                                                    on_heard=flow.on_heard)
-                    await add_turn(follow, {"followup_of": line, "reason": reason}, log_start, i, voice)
-                if isinstance(line, dict) and "again" in line and asked_back(flow.log[turn_log_start:]) and again_n < MAX_AGAIN:
-                    # 聞き返された：本物の相手は、次の台詞へは進まず、聞かれたことに答え直す（⛔ 2026-10-14 G-36：台本の相手が聞き返しの
-                    # あとも次の台詞「はい、そうです」「3人です」へ進み、それが日時の答えとして報告された＝試験の作りの誤り）
-                    again, again_n = {"wav": line["again"], "again": line["again"]}, again_n + 1
-                    continue
-                again, again_n = None, 0
-                i += 1
     return {"voice_type": voice_type, "sessions": sessions, "turns": turns, "flow_log": flow.log,
             "items": {k: {"state": v.state, "value": v.value, "condition": v.condition, "ask_backs": v.ask_backs,
-                          "rechecks": v.rechecks, "corrections": v.corrections} for k, v in flow.items.items()},
+                          "rechecks": v.rechecks, "corrections": v.corrections, "history": [list(h) for h in v.history]}
+                      for k, v in flow.items.items()},
             "export": flow.export(), "final_phase": flow.phase, "hurried": flow.hurried,
-            "opening_mode": opening_mode, "barge_in": barge_in}
+            "opening_mode": opening_mode, "barge_in": barge_in, "ear_errors": ear.errors if ear is not None else None}
