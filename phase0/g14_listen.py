@@ -20,7 +20,7 @@ from collections import Counter
 
 from common import HERE, KeyRing, base_parser, describe_error, drop_partial, require_python, save_partial, save_result, say
 from convo import run_call
-from ears import EAR_KINDS
+from ears import EAR_KINDS, PREFERRED_EARS
 from flowctl import Question
 from g22_opening import BUSINESS as BASE
 from g30_latency import keep_call
@@ -238,8 +238,8 @@ def main() -> None:
     p.add_argument("--tag", default="", help="結果のファイル名に足す印（同時に流す回を分けるため。例 -base-Kore）")
     p.add_argument("--as-question", choices=list(QUESTIONS), help="試験集の声を、この質問への答えとして流す（例：Q3）")
     p.add_argument("--followup", action="store_true", help="確かめの返事まで流す場面（FOLLOWUP）を流す")
-    p.add_argument("--ear", nargs="?", const="transcribe35", choices=EAR_KINDS,
-                   help="別の耳を通話の中で使う（名前を付けなければ Gemini の書き起こしの耳。DESIGN.md 6-10 の (5)。G-15）")
+    p.add_argument("--ear", nargs="?", const=PREFERRED_EARS[0], choices=EAR_KINDS,
+                   help="別の耳を通話の中で使う（名前を付けなければ ears.PREFERRED_EARS の先頭＝Soniox。DESIGN.md 6-10 の (5)。G-15）")
     p.add_argument("--no-meanings", action="store_true", help="意味の言葉を渡さない（選択肢の名前で言い直す形と比べるため）")
     p.add_argument("--tally", help="結果のファイル名の頭（例 G-14-base-）で、同時に流した回を合わせて数える（問い合わせはしない）")
     args = p.parse_args()

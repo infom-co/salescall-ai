@@ -327,3 +327,6 @@ def open_ear(kind: str, client=None, env_path: str | None = None) -> Ear:
 
 
 EAR_KINDS = ("transcribe35", "amivoice", "soniox", "reazon")
+# 使う耳の順（2026-10-17 ユーザー：「別の何かで差が付く可能性があるので、Soniox > AmiVoice の順で、最終確定はフェーズ1で決めましょう」）。
+# 根拠＝PHASE0_VERIFICATION.md G-15 の続きの4つの耳の表。名前を付けずに別の耳を使うとき（g14_listen.py --ear）は、この先頭の耳。
+PREFERRED_EARS = ("soniox", "amivoice")
