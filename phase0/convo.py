@@ -28,7 +28,8 @@ from contextlib import nullcontext
 from common import HERE, read_wav_pcm16_mono, write_wav
 from flowctl import CHOICE_TYPES, Flow, tool_declarations
 from instruction import Business, barge_in_note, build
-from listen import EarStream, hear
+from ears import open_ear
+from listen import hear
 from live_util import build_config, callee_turn, collect_turn, send_note, send_text, silence_while
 from turn_check import BAD_KINDS, check_ai_turn
 
@@ -54,7 +55,7 @@ def callee_wav(name: str, callee_voice: str | None) -> str:
 
 
 def ear_handler(ear, flow: Flow, pcm: bytes, rate: int, wav: str):
-    """別の耳（DESIGN.md 6-10 の (5)。G-15）：相手の声を、会話AIへ送るのと同時に別の耳（通話ごとに1本つないだ listen.EarStream）へも流す。
+    """別の耳（DESIGN.md 6-10 の (5)。G-15）：相手の声を、会話AIへ送るのと同時に別の耳（通話ごとに1本つないだ ears.Ear）へも流す。
     確かめない型の答えの報告（flow.wants_ear）が来たら、返事を作る前に、別の耳の最初の確定した文字を、相手の話し終わりから
     flow.limits.ear_wait_s 秒まで待って flow.on_ear へ渡す。間に合わない・別の耳が落ちた ⇒ None を渡す（比べない＝止まらない）。
     返り値＝(報告の返事を作る処理, 声を流す作業, 記録)。"""
@@ -105,14 +106,14 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                    thinking_budget: int | None = None, speech_end: dict | None = None, use_ear: bool = True, save_audio: str = "bad",
                    audio_label: str = "", confirm=None, gap_s: float = 0.0, lead_ins: bool = True,
                    followup_wait_s: float | None = None, callee_voice: str | None = None, play_recordings: bool = False,
-                   ear_check: bool = False) -> dict:
+                   ear_kind: str | None = None) -> dict:
     """followup_wait_s：相手の言葉の途中でAIが話し出していたとき・AIが黙って待ったとき（followup_reason）は、相手の続きの言葉への
     返事を、次の台詞を送る前に、この秒数まで、もう1回ぶん待つ（来なければ、相手が黙って待たされたことになる。
     記録の行は callee={"followup_of": 台詞, "reason": 理由}）。G-31・G-34
     callee_voice：お客役の声（"swap"＝会話のAIの声と入れ替え。callee_voice_for）。台詞の声を、その声のファイルに読み替える（G-36〜）
-    ear_check：相手の声を、会話AIと同時に別の耳へも流し、確かめない型の答えの報告の返事を作る前に、別の耳の文字を待って流れの制御へ渡す
-    （DESIGN.md 6-10 の (5)。G-15。ear_handler）。⛔ 既定では切る：Gemini の書き起こしのモデルを別の耳にすると、要らない確かめが8.5%増え、
-    拾えた誤りは0だった（G-15 の続き）。独立した別の耳を試すための入口として残す"""
+    ear_kind：別の耳の名前（ears.EAR_KINDS）。相手の声を、会話AIと同時に別の耳へも流し、確かめない型の答えの報告の返事を作る前に、別の耳の
+    文字を待って流れの制御へ渡す（DESIGN.md 6-10 の (5)。G-15。ear_handler）。⛔ 既定では使わない（None）：Gemini の書き起こしのモデルを
+    別の耳にすると、要らない確かめが8.5%増え、拾えた誤りは0だった（G-15 の続き）。独立した別の耳（AmiVoice・Soniox・ReazonSpeech）を試す入口"""
     if callee_voice == "swap":
         callee_voice = callee_voice_for(voice_type)
     callee_lines = [{**x, "wav": callee_wav(x["wav"], callee_voice), **({"again": callee_wav(x["again"], callee_voice)} if "again" in x else {})}
@@ -168,7 +169,7 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
             row["audio_file"] = path.name
         turns.append(row)
 
-    async with (EarStream(client) if ear_check else nullcontext()) as ear:  # 別の耳は通話ごとに1本（本番の形。listen.EarStream）
+    async with (open_ear(ear_kind, client) if ear_kind else nullcontext()) as ear:  # 別の耳は通話ごとに1本（本番の形。ears.open_ear）
         i = 0
         while i < len(callee_lines) and flow.phase != "closing":
             sessions += 1

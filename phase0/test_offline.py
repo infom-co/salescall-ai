@@ -1480,6 +1480,76 @@ class CalleeQuestionTest(unittest.TestCase):
             self.assertFalse(_CALLEE_ASKS.search(t), t)
 
 
+class EarsTest(unittest.TestCase):
+    """通話の中の別の耳（ears.py）：入口は1つ（open_ear）、どの耳も同じ形（feed で流す・wait で確定した文字を待つ）。つながずに確かめる。"""
+
+    def test_amivoice_events(self):
+        from ears import amivoice_final
+        self.assertEqual(amivoice_final('A {"text": "してないです。", "results": []}'), "してないです。")
+        for ev in ('U {"text": "して"}', "S 1200", "E 2300", "C", 'A {"text": ""}', "A not-json"):
+            self.assertIsNone(amivoice_final(ev), ev)
+
+    def test_soniox_tokens(self):
+        from ears import soniox_update
+        pending = []
+        self.assertEqual(soniox_update(pending, {"tokens": [{"text": "して", "is_final": True}, {"text": "ない", "is_final": False}]}), [])
+        self.assertEqual(soniox_update(pending, {"tokens": [{"text": "ないです。", "is_final": True}, {"text": "<end>", "is_final": True}]}),
+                         ["してないです。"])
+        self.assertEqual(pending, [])                                           # 話し終わりで、次の発話のために空にする
+        with self.assertRaises(RuntimeError):
+            soniox_update(pending, {"error_code": 401, "error_message": "unauthorized"})
+
+    def test_missing_key_and_model_stop_with_instructions(self):
+        import os
+        import tempfile
+        from ears import open_ear, reazon_files
+        from pathlib import Path
+        os.environ.pop("SONIOX_API_KEY", None)
+        with self.assertRaises(SystemExit) as e:
+            open_ear("soniox", env_path=os.path.join(tempfile.gettempdir(), "no-such.env"))
+        self.assertIn("SONIOX_API_KEY", str(e.exception))
+        with self.assertRaises(SystemExit) as e:
+            reazon_files(Path(tempfile.mkdtemp()))
+        self.assertIn("get_reazon_model.py", str(e.exception))
+        with self.assertRaises(SystemExit):
+            open_ear("no-such-ear")
+
+    def test_key_is_hidden(self):
+        import os
+        from common import load_secret, redact
+        os.environ["AMIVOICE_APPKEY"] = "test-value-123456"
+        try:
+            self.assertEqual(load_secret("AMIVOICE_APPKEY", env_path="/no/such.env"), "test-value-123456")
+            self.assertNotIn("test-value-123456", redact("s LSB16K -a-general authorization=test-value-123456"))
+        finally:
+            os.environ.pop("AMIVOICE_APPKEY")
+
+    def test_feed_and_wait(self):
+        # 共通の形：流している間は無音を止め、流し終えたら（この耳は、そこで）確定した文字を渡す。最初に届いた時刻を残す
+        import asyncio
+        from ears import Ear
+
+        class FakeEar(Ear):
+            def __init__(self):
+                super().__init__()
+                self.sent = []
+
+            async def _send(self, pcm, voice):
+                self.sent.append(voice)
+
+            async def _fed(self):
+                self._final("はい、予約しています。")
+
+        async def go():
+            async with FakeEar() as ear:
+                await ear.feed(b"\0\0" * 8000, 16000)                         # 0.5秒の声
+                return ear, await ear.wait(1.0), await asyncio.wait_for(ear.wait(0.1), 1.0)
+        ear, text, again = asyncio.run(go())
+        self.assertEqual((text, again), ("はい、予約しています。", "はい、予約しています。"))
+        self.assertIsNotNone(ear.first_at)
+        self.assertGreaterEqual(ear.sent.count(True), 5)                        # 0.1秒ずつ5つ
+
+
 class EarCheckTest(unittest.TestCase):
     """DESIGN.md 6-10 の (5)・G-15：確かめない型の答えは、会話AIの聞き取りと別の耳の文字を比べ、食い違えば意味を確かめる。
     ⛔ G-14 の残りの誤り：「してないです」を会話AIが「捨てないです」と聞いてAIが「はい」を選んだ・「いや、これから」を「や、これから」と聞いて

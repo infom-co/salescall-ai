@@ -20,6 +20,7 @@ from collections import Counter
 
 from common import HERE, base_parser, describe_error, drop_partial, make_client, pick_key, require_python, save_partial, save_result, say
 from convo import run_call
+from ears import EAR_KINDS
 from flowctl import Question
 from g22_opening import BUSINESS as BASE
 from g30_latency import keep_call
@@ -211,7 +212,7 @@ async def run(args) -> dict:
         try:
             call = await run_call(client, args.model, business(item["question"], not args.no_meanings), "S4", [{"wav": item["wav"]}], opening_mode="recorded",
                                   use_ear=False, save_audio="bad", audio_label=f"G14_{item['voice']}_{item['id']}",
-                                  followup_wait_s=FOLLOWUP_WAIT_S, play_recordings=True, ear_check=args.ear, **FAST)
+                                  followup_wait_s=FOLLOWUP_WAIT_S, play_recordings=True, ear_kind=args.ear, **FAST)
             row = keep_call(head, call, lambda c: measures(c, item))
         except Exception as exc:
             row = {**head, "error": describe_error(exc)}
@@ -235,7 +236,8 @@ def main() -> None:
     p.add_argument("--tag", default="", help="結果のファイル名に足す印（同時に流す回を分けるため。例 -base-Kore）")
     p.add_argument("--as-question", choices=list(QUESTIONS), help="試験集の声を、この質問への答えとして流す（例：Q3）")
     p.add_argument("--followup", action="store_true", help="確かめの返事まで流す場面（FOLLOWUP）を流す")
-    p.add_argument("--ear", action="store_true", help="別の耳を通話の中で使う（DESIGN.md 6-10 の (5)。G-15）")
+    p.add_argument("--ear", nargs="?", const="transcribe35", choices=EAR_KINDS,
+                   help="別の耳を通話の中で使う（名前を付けなければ Gemini の書き起こしの耳。DESIGN.md 6-10 の (5)。G-15）")
     p.add_argument("--no-meanings", action="store_true", help="意味の言葉を渡さない（選択肢の名前で言い直す形と比べるため）")
     p.add_argument("--tally", help="結果のファイル名の頭（例 G-14-base-）で、同時に流した回を合わせて数える（問い合わせはしない）")
     args = p.parse_args()
