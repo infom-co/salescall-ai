@@ -1,0 +1,5654 @@
+{
+  "item": "G-37",
+  "saved_at": "2026-10-17T06:45:58",
+  "model": "gemini-3.8-live",
+  "variant": {
+    "thinking_budget": 0,
+    "speech_end": {
+      "sensitivity": "HIGH",
+      "silence_ms": 400
+    }
+  },
+  "summary": {
+    "calls": 8,
+    "errors": 0,
+    "values_ok": 16,
+    "values": 16,
+    "by_scene": {
+      "ふつう": "2/2",
+      "長い間": "2/2",
+      "先に答えた": "2/2",
+      "訂正": "2/2"
+    },
+    "play_turns": 24,
+    "ai_spoke_on_play": 0,
+    "ai_said_on_play": [],
+    "repeated_question_after_play": 0,
+    "rejected": 0,
+    "speech_rate": {
+      "S4": {
+        "n": 20,
+        "median": 8.61,
+        "max": 10.06
+      }
+    },
+    "first_heard": {
+      "n": 46,
+      "median": 0.87,
+      "p90": 1.05
+    }
+  },
+  "rows": [
+    {
+      "rep": 0,
+      "type": "S4",
+      "scene": "ふつう",
+      "voice_type": "S4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_yes_reserved.wav"
+          },
+          "heard": "はい、予約しています。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.41,
+              "name": "record_answer",
+              "args": {
+                "value": "はい",
+                "question_id": "Q1",
+                "condition_id": "はい"
+              },
+              "reply": "next",
+              "ack": "shouchi",
+              "say": null,
+              "play": [
+                {
+                  "kind": "question",
+                  "id": "Q2",
+                  "text": "それではご希望の日時をお聞かせいただけますでしょうか？",
+                  "lead": "それでは"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.413,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.264,
+              "text": "はい、予約しています。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.411,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.413,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          }
+        },
+        {
+          "index": 1,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_datetime_pm.wav",
+            "again": "Leda_datetime_pm.wav"
+          },
+          "heard": "15 日の午後 2 時でお願いします。",
+          "intended": "ありがとうございます。15 日の午後 2 時でよろしいでしょうか？",
+          "tool_events": [
+            {
+              "at_s": 0.751,
+              "name": "record_answer",
+              "args": {
+                "question_id": "Q2",
+                "value": "15日の午後2時",
+                "condition_id": "答えた"
+              },
+              "reply": "confirm_required",
+              "ack": "hai",
+              "say": "ありがとうございます。15日の午後2時でよろしいでしょうか？",
+              "play": null
+            }
+          ],
+          "first_audio_after_s": 1.218,
+          "finished_after_s": 5.493,
+          "audio_seconds": 4.29,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.218,
+              "audio_s": 0.0,
+              "text": "ありがとうございます。15 "
+            },
+            {
+              "at_s": 1.394,
+              "audio_s": 0.97,
+              "text": "日の"
+            },
+            {
+              "at_s": 1.502,
+              "audio_s": 1.97,
+              "text": "午後 2 時でよろしい"
+            },
+            {
+              "at_s": 1.692,
+              "audio_s": 2.97,
+              "text": "でしょうか？"
+            }
+          ],
+          "heard_events": [
+            {
+              "at_s": 0.459,
+              "text": "15 日の午後 2 時でお願いします。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.752,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.752,
+              "kind": "turn_complete"
+            },
+            {
+              "at_s": 1.218,
+              "kind": "audio_start",
+              "chunk": 1
+            },
+            {
+              "at_s": 5.493,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "check": {
+            "voiced_s": 3.99,
+            "compared_with": "intended",
+            "morae": 32,
+            "expected_s": 3.56,
+            "ratio": 1.12,
+            "kind": "ok"
+          },
+          "audio_file": "20261017_064216_G37_ふつう_0_S4_1_ok.wav"
+        },
+        {
+          "index": 2,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_affirm.wav"
+          },
+          "heard": "はい、そうです。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.382,
+              "name": "confirm_field",
+              "args": {
+                "result": "affirmed",
+                "correction": "15日の午後2時",
+                "question_id": "Q2"
+              },
+              "reply": "next",
+              "ack": "arigatou",
+              "say": null,
+              "play": [
+                {
+                  "kind": "question",
+                  "id": "Q3",
+                  "text": "続きましてご来店の人数をお伺いしてもよろしいでしょうか？",
+                  "lead": "続きまして"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.384,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.365,
+              "text": "はい、そうです。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.382,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.384,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q3",
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          }
+        },
+        {
+          "index": 3,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_three_people.wav",
+            "again": "Leda_three_people.wav"
+          },
+          "heard": "3 人です。",
+          "intended": "かしこまりました。3人で大丈夫でしょうか？",
+          "tool_events": [
+            {
+              "at_s": 0.907,
+              "name": "record_answer",
+              "args": {
+                "condition_id": "答えた",
+                "question_id": "Q3",
+                "value": "3人"
+              },
+              "reply": "confirm_required",
+              "ack": "hai",
+              "say": "かしこまりました。3人で大丈夫でしょうか？",
+              "play": null
+            }
+          ],
+          "first_audio_after_s": 1.373,
+          "finished_after_s": 4.516,
+          "audio_seconds": 3.16,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.708,
+              "audio_s": 2.0,
+              "text": "かしこまりました。3"
+            },
+            {
+              "at_s": 1.797,
+              "audio_s": 3.0,
+              "text": "人で大丈夫"
+            },
+            {
+              "at_s": 1.887,
+              "audio_s": 3.16,
+              "text": "でしょうか？"
+            }
+          ],
+          "heard_events": [
+            {
+              "at_s": 0.657,
+              "text": "3 人です。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.907,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.908,
+              "kind": "turn_complete"
+            },
+            {
+              "at_s": 1.373,
+              "kind": "audio_start",
+              "chunk": 1
+            },
+            {
+              "at_s": 4.516,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q3",
+          "check": {
+            "voiced_s": 2.83,
+            "compared_with": "intended",
+            "morae": 22,
+            "expected_s": 2.44,
+            "ratio": 1.16,
+            "kind": "ok"
+          },
+          "audio_file": "20261017_064223_G37_ふつう_0_S4_3_ok.wav"
+        },
+        {
+          "index": 4,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_affirm.wav"
+          },
+          "heard": "はい。そうです。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.375,
+              "name": "confirm_field",
+              "args": {
+                "correction": "3人",
+                "question_id": "Q3",
+                "result": "affirmed"
+              },
+              "reply": "end",
+              "ack": "hai",
+              "say": null,
+              "play": [
+                {
+                  "kind": "closing",
+                  "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.375,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.173,
+              "text": "はい。そうです。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.375,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.375,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "closing",
+          "current_after": null,
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          }
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "value": "はい",
+            "question_id": "Q1",
+            "condition_id": "はい"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q2",
+            "question": "ご希望の日時をお聞かせいただけますでしょうか？",
+            "play": [
+              {
+                "kind": "question",
+                "id": "Q2",
+                "text": "それではご希望の日時をお聞かせいただけますでしょうか？",
+                "lead": "それでは"
+              }
+            ],
+            "message": "受け付けました。次の質問 Q2「それではご希望の日時をお聞かせいただけますでしょうか？」は、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、相手の答えを待ってください。相手が答えたら record_answer で報告します。",
+            "ack": "shouchi"
+          },
+          "callee_turns": 1
+        },
+        {
+          "op": "record_answer",
+          "args": {
+            "question_id": "Q2",
+            "value": "15日の午後2時",
+            "condition_id": "答えた"
+          },
+          "reply": {
+            "result": "confirm_required",
+            "value": "15日の午後2時",
+            "say": "ありがとうございます。15日の午後2時でよろしいでしょうか？",
+            "after": null,
+            "message": "言い直して確かめます。「ありがとうございます。15日の午後2時でよろしいでしょうか？」と言って、相手の返事を待ってください。",
+            "ack": "hai"
+          },
+          "callee_turns": 2
+        },
+        {
+          "op": "confirm_field",
+          "args": {
+            "result": "affirmed",
+            "correction": "15日の午後2時",
+            "question_id": "Q2"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q3",
+            "question": "ご来店の人数をお伺いしてもよろしいでしょうか？",
+            "play": [
+              {
+                "kind": "question",
+                "id": "Q3",
+                "text": "続きましてご来店の人数をお伺いしてもよろしいでしょうか？",
+                "lead": "続きまして"
+              }
+            ],
+            "message": "確認できました。次の質問 Q3「続きましてご来店の人数をお伺いしてもよろしいでしょうか？」は、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、相手の答えを待ってください。相手が答えたら record_answer で報告します。",
+            "ack": "arigatou"
+          },
+          "callee_turns": 3
+        },
+        {
+          "op": "record_answer",
+          "args": {
+            "condition_id": "答えた",
+            "question_id": "Q3",
+            "value": "3人"
+          },
+          "reply": {
+            "result": "confirm_required",
+            "value": "3人",
+            "say": "かしこまりました。3人で大丈夫でしょうか？",
+            "after": null,
+            "message": "言い直して確かめます。「かしこまりました。3人で大丈夫でしょうか？」と言って、相手の返事を待ってください。",
+            "ack": "hai"
+          },
+          "callee_turns": 4
+        },
+        {
+          "op": "confirm_field",
+          "args": {
+            "correction": "3人",
+            "question_id": "Q3",
+            "result": "affirmed"
+          },
+          "reply": {
+            "result": "end",
+            "play": [
+              {
+                "kind": "closing",
+                "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+              }
+            ],
+            "message": "確認できました。質問は終わりです。締めの言葉「お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。」は、プログラムが録音で流しました。何も言わずに終えます。",
+            "ack": "hai"
+          },
+          "callee_turns": 5
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "accepted",
+          "value": "はい",
+          "condition": "はい",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q2": {
+          "state": "confirmed",
+          "value": "15日の午後2時",
+          "condition": "答えた",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q3": {
+          "state": "confirmed",
+          "value": "3人",
+          "condition": "答えた",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        }
+      },
+      "export": {
+        "Q1": "はい",
+        "Q2": "15日の午後2時",
+        "Q3": "3人"
+      },
+      "final_phase": "closing",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "turns_measured": [
+        {
+          "callee": "yes_reserved",
+          "said": "",
+          "reports": [
+            "record_answer"
+          ],
+          "replies": [
+            "next"
+          ],
+          "spoke": false,
+          "heard_at_report": "はい、予約しています。",
+          "ack": "shouchi",
+          "ack_at_s": 0.9,
+          "first_heard_s": 0.9
+        },
+        {
+          "callee": "datetime_pm",
+          "said": "ありがとうございます。15 日の午後 2 時でよろしいでしょうか？",
+          "reports": [
+            "record_answer"
+          ],
+          "replies": [
+            "confirm_required"
+          ],
+          "spoke": true,
+          "heard_at_report": "15 日の午後 2 時でお願いします。",
+          "cut_in": false,
+          "ai_at_s": 1.628,
+          "ack": "hai",
+          "ack_at_s": 1.161,
+          "first_heard_s": 1.161
+        },
+        {
+          "callee": "affirm",
+          "said": "",
+          "reports": [
+            "confirm_field"
+          ],
+          "replies": [
+            "next"
+          ],
+          "spoke": false,
+          "heard_at_report": "はい、そうです。",
+          "ack": "arigatou",
+          "ack_at_s": 0.772,
+          "first_heard_s": 0.772
+        },
+        {
+          "callee": "three_people",
+          "said": "かしこまりました。3人で大丈夫でしょうか？",
+          "reports": [
+            "record_answer"
+          ],
+          "replies": [
+            "confirm_required"
+          ],
+          "spoke": true,
+          "heard_at_report": "3 人です。",
+          "cut_in": false,
+          "ai_at_s": 1.463,
+          "ack": "hai",
+          "ack_at_s": 0.997,
+          "first_heard_s": 0.997
+        },
+        {
+          "callee": "affirm",
+          "said": "",
+          "reports": [
+            "confirm_field"
+          ],
+          "replies": [
+            "end"
+          ],
+          "spoke": false,
+          "heard_at_report": "はい。そうです。",
+          "ack": "hai",
+          "ack_at_s": 0.765,
+          "first_heard_s": 0.765
+        }
+      ],
+      "checks": {
+        "q1_ok": true,
+        "q2_ok": true,
+        "q3_ok": true,
+        "rejected": 0,
+        "ask_backs": 0,
+        "final_phase": "closing"
+      },
+      "acks": [
+        "shouchi",
+        "hai",
+        "arigatou",
+        "hai",
+        "hai"
+      ],
+      "says": [
+        "ありがとうございます。15日の午後2時でよろしいでしょうか？",
+        "かしこまりました。3人で大丈夫でしょうか？"
+      ],
+      "play_turns": [
+        {
+          "played": [
+            "それではご希望の日時をお聞かせいただけますでしょうか？"
+          ],
+          "ai_spoke": false,
+          "ai_said": ""
+        },
+        {
+          "played": [
+            "続きましてご来店の人数をお伺いしてもよろしいでしょうか？"
+          ],
+          "ai_spoke": false,
+          "ai_said": ""
+        },
+        {
+          "played": [
+            "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+          ],
+          "ai_spoke": false,
+          "ai_said": ""
+        }
+      ],
+      "after_play": [
+        {
+          "said": "ありがとうございます。15 日の午後 2 時でよろしいでしょうか？",
+          "repeated_question": false
+        },
+        {
+          "said": "かしこまりました。3人で大丈夫でしょうか？",
+          "repeated_question": false
+        }
+      ]
+    },
+    {
+      "rep": 0,
+      "type": "S4",
+      "scene": "長い間",
+      "voice_type": "S4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_yes_reserved.wav"
+          },
+          "heard": "はい、予約しています。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.333,
+              "name": "record_answer",
+              "args": {
+                "value": "はい",
+                "condition_id": "はい",
+                "question_id": "Q1"
+              },
+              "reply": "next",
+              "ack": "shouchi",
+              "say": null,
+              "play": [
+                {
+                  "kind": "question",
+                  "id": "Q2",
+                  "text": "それではご希望の日時をお聞かせいただけますでしょうか？",
+                  "lead": "それでは"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.334,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.259,
+              "text": "はい、予約しています。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.334,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.334,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          }
+        },
+        {
+          "index": 1,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_datetime_pm.wav"
+          },
+          "heard": "15 日の午後 2 時でお願いします。",
+          "intended": "ありがとうございます。15日の午後2時でよろしいでしょうか？",
+          "tool_events": [
+            {
+              "at_s": 0.561,
+              "name": "record_answer",
+              "args": {
+                "question_id": "Q2",
+                "value": "15日の午後2時",
+                "condition_id": "答えた"
+              },
+              "reply": "confirm_required",
+              "ack": "hai",
+              "say": "ありがとうございます。15日の午後2時でよろしいでしょうか？",
+              "play": null
+            }
+          ],
+          "first_audio_after_s": 0.997,
+          "finished_after_s": 4.602,
+          "audio_seconds": 3.6,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 0.997,
+              "audio_s": 0.0,
+              "text": "ありがとうございます。15日の午後2時でよろしいでしょうか？"
+            }
+          ],
+          "heard_events": [
+            {
+              "at_s": 0.303,
+              "text": "15 日の午後 2 時でお願いします。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.561,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.561,
+              "kind": "turn_complete"
+            },
+            {
+              "at_s": 0.997,
+              "kind": "audio_start",
+              "chunk": 1
+            },
+            {
+              "at_s": 4.602,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "check": {
+            "voiced_s": 3.55,
+            "compared_with": "intended",
+            "morae": 32,
+            "expected_s": 3.56,
+            "ratio": 1.0,
+            "kind": "ok"
+          },
+          "audio_file": "20261017_064239_G37_長い間_0_S4_1_ok.wav"
+        },
+        {
+          "index": 2,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_affirm.wav"
+          },
+          "heard": "はい、そうです。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.348,
+              "name": "confirm_field",
+              "args": {
+                "result": "affirmed",
+                "question_id": "Q2"
+              },
+              "reply": "next",
+              "ack": "arigatou",
+              "say": null,
+              "play": [
+                {
+                  "kind": "question",
+                  "id": "Q3",
+                  "text": "続きましてご来店の人数をお伺いしてもよろしいでしょうか？",
+                  "lead": "続きまして"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.349,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.348,
+              "text": "はい、そうです。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.349,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.349,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q3",
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          }
+        },
+        {
+          "index": 3,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_filler_eto.wav"
+          },
+          "heard": "Eh, ですね。",
+          "intended": "はい。",
+          "tool_events": [],
+          "first_audio_after_s": 0.512,
+          "finished_after_s": 0.954,
+          "audio_seconds": 0.47,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 0.512,
+              "audio_s": 0.0,
+              "text": "はい。"
+            }
+          ],
+          "heard_events": [
+            {
+              "at_s": 0.296,
+              "text": "Eh, ですね。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.512,
+              "kind": "audio_start",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.954,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q3",
+          "check": {
+            "voiced_s": 0.27,
+            "compared_with": "intended",
+            "morae": 2,
+            "expected_s": 0.22,
+            "ratio": 1.23,
+            "kind": "ok"
+          },
+          "audio_file": "20261017_064244_G37_長い間_0_S4_3_ok.wav"
+        },
+        {
+          "index": 4,
+          "session": 1,
+          "callee": {
+            "silence_s": 6.0
+          },
+          "heard": "",
+          "intended": "",
+          "tool_events": [],
+          "first_audio_after_s": null,
+          "finished_after_s": null,
+          "audio_seconds": null,
+          "timed_out": true,
+          "said_events": [],
+          "heard_events": [],
+          "timeline": [],
+          "phase_after": "asking",
+          "current_after": "Q3",
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": true
+          }
+        },
+        {
+          "index": 5,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_three_people.wav"
+          },
+          "heard": "3人です。",
+          "intended": "かしこまりました。3人で大丈夫でしょうか？",
+          "tool_events": [
+            {
+              "at_s": 0.77,
+              "name": "record_answer",
+              "args": {
+                "question_id": "Q3",
+                "value": "3人",
+                "condition_id": "答えた"
+              },
+              "reply": "confirm_required",
+              "ack": "hai",
+              "say": "かしこまりました。3人で大丈夫でしょうか？",
+              "play": null
+            }
+          ],
+          "first_audio_after_s": 1.381,
+          "finished_after_s": 4.407,
+          "audio_seconds": 3.02,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.381,
+              "audio_s": 0.0,
+              "text": "かしこまりました。3人で大丈夫"
+            },
+            {
+              "at_s": 1.739,
+              "audio_s": 2.18,
+              "text": "でしょうか？"
+            }
+          ],
+          "heard_events": [
+            {
+              "at_s": 0.613,
+              "text": "3人です。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.77,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.771,
+              "kind": "turn_complete"
+            },
+            {
+              "at_s": 1.381,
+              "kind": "audio_start",
+              "chunk": 1
+            },
+            {
+              "at_s": 4.407,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q3",
+          "check": {
+            "voiced_s": 2.64,
+            "compared_with": "intended",
+            "morae": 22,
+            "expected_s": 2.44,
+            "ratio": 1.08,
+            "kind": "ok"
+          },
+          "audio_file": "20261017_064255_G37_長い間_0_S4_5_ok.wav"
+        },
+        {
+          "index": 6,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_affirm.wav"
+          },
+          "heard": "はい。そうです。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.627,
+              "name": "confirm_field",
+              "args": {
+                "result": "affirmed",
+                "question_id": "Q3"
+              },
+              "reply": "end",
+              "ack": "hai",
+              "say": null,
+              "play": [
+                {
+                  "kind": "closing",
+                  "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.628,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.222,
+              "text": "はい。そうです。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.627,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.628,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "closing",
+          "current_after": null,
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          }
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "value": "はい",
+            "condition_id": "はい",
+            "question_id": "Q1"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q2",
+            "question": "ご希望の日時をお聞かせいただけますでしょうか？",
+            "play": [
+              {
+                "kind": "question",
+                "id": "Q2",
+                "text": "それではご希望の日時をお聞かせいただけますでしょうか？",
+                "lead": "それでは"
+              }
+            ],
+            "message": "受け付けました。次の質問 Q2「それではご希望の日時をお聞かせいただけますでしょうか？」は、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、相手の答えを待ってください。相手が答えたら record_answer で報告します。",
+            "ack": "shouchi"
+          },
+          "callee_turns": 1
+        },
+        {
+          "op": "record_answer",
+          "args": {
+            "question_id": "Q2",
+            "value": "15日の午後2時",
+            "condition_id": "答えた"
+          },
+          "reply": {
+            "result": "confirm_required",
+            "value": "15日の午後2時",
+            "say": "ありがとうございます。15日の午後2時でよろしいでしょうか？",
+            "after": null,
+            "message": "言い直して確かめます。「ありがとうございます。15日の午後2時でよろしいでしょうか？」と言って、相手の返事を待ってください。",
+            "ack": "hai"
+          },
+          "callee_turns": 2
+        },
+        {
+          "op": "confirm_field",
+          "args": {
+            "result": "affirmed",
+            "question_id": "Q2"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q3",
+            "question": "ご来店の人数をお伺いしてもよろしいでしょうか？",
+            "play": [
+              {
+                "kind": "question",
+                "id": "Q3",
+                "text": "続きましてご来店の人数をお伺いしてもよろしいでしょうか？",
+                "lead": "続きまして"
+              }
+            ],
+            "message": "確認できました。次の質問 Q3「続きましてご来店の人数をお伺いしてもよろしいでしょうか？」は、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、相手の答えを待ってください。相手が答えたら record_answer で報告します。",
+            "ack": "arigatou"
+          },
+          "callee_turns": 3
+        },
+        {
+          "op": "record_answer",
+          "args": {
+            "question_id": "Q3",
+            "value": "3人",
+            "condition_id": "答えた"
+          },
+          "reply": {
+            "result": "confirm_required",
+            "value": "3人",
+            "say": "かしこまりました。3人で大丈夫でしょうか？",
+            "after": null,
+            "message": "言い直して確かめます。「かしこまりました。3人で大丈夫でしょうか？」と言って、相手の返事を待ってください。",
+            "ack": "hai"
+          },
+          "callee_turns": 5
+        },
+        {
+          "op": "confirm_field",
+          "args": {
+            "result": "affirmed",
+            "question_id": "Q3"
+          },
+          "reply": {
+            "result": "end",
+            "play": [
+              {
+                "kind": "closing",
+                "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+              }
+            ],
+            "message": "確認できました。質問は終わりです。締めの言葉「お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。」は、プログラムが録音で流しました。何も言わずに終えます。",
+            "ack": "hai"
+          },
+          "callee_turns": 6
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "accepted",
+          "value": "はい",
+          "condition": "はい",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q2": {
+          "state": "confirmed",
+          "value": "15日の午後2時",
+          "condition": "答えた",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q3": {
+          "state": "confirmed",
+          "value": "3人",
+          "condition": "答えた",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        }
+      },
+      "export": {
+        "Q1": "はい",
+        "Q2": "15日の午後2時",
+        "Q3": "3人"
+      },
+      "final_phase": "closing",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "turns_measured": [
+        {
+          "callee": "yes_reserved",
+          "said": "",
+          "reports": [
+            "record_answer"
+          ],
+          "replies": [
+            "next"
+          ],
+          "spoke": false,
+          "heard_at_report": "はい、予約しています。",
+          "ack": "shouchi",
+          "ack_at_s": 0.823,
+          "first_heard_s": 0.823
+        },
+        {
+          "callee": "datetime_pm",
+          "said": "ありがとうございます。15日の午後2時でよろしいでしょうか？",
+          "reports": [
+            "record_answer"
+          ],
+          "replies": [
+            "confirm_required"
+          ],
+          "spoke": true,
+          "heard_at_report": "15 日の午後 2 時でお願いします。",
+          "cut_in": false,
+          "ai_at_s": 1.407,
+          "ack": "hai",
+          "ack_at_s": 0.971,
+          "first_heard_s": 0.971
+        },
+        {
+          "callee": "affirm",
+          "said": "",
+          "reports": [
+            "confirm_field"
+          ],
+          "replies": [
+            "next"
+          ],
+          "spoke": false,
+          "heard_at_report": "はい、そうです。",
+          "ack": "arigatou",
+          "ack_at_s": 0.738,
+          "first_heard_s": 0.738
+        },
+        {
+          "callee": "filler_eto",
+          "said": "はい。",
+          "reports": [],
+          "replies": [],
+          "spoke": true,
+          "cut_in": false,
+          "ai_at_s": 0.872,
+          "first_heard_s": 0.872
+        },
+        {
+          "callee": "silence6.0",
+          "said": "",
+          "reports": [],
+          "replies": [],
+          "spoke": false
+        },
+        {
+          "callee": "three_people",
+          "said": "かしこまりました。3人で大丈夫でしょうか？",
+          "reports": [
+            "record_answer"
+          ],
+          "replies": [
+            "confirm_required"
+          ],
+          "spoke": true,
+          "heard_at_report": "3人です。",
+          "cut_in": false,
+          "ai_at_s": 1.471,
+          "ack": "hai",
+          "ack_at_s": 0.86,
+          "first_heard_s": 0.86
+        },
+        {
+          "callee": "affirm",
+          "said": "",
+          "reports": [
+            "confirm_field"
+          ],
+          "replies": [
+            "end"
+          ],
+          "spoke": false,
+          "heard_at_report": "はい。そうです。",
+          "ack": "hai",
+          "ack_at_s": 1.017,
+          "first_heard_s": 1.017
+        }
+      ],
+      "checks": {
+        "q1_ok": true,
+        "q2_ok": true,
+        "q3_ok": true,
+        "rejected": 0,
+        "ask_backs": 0,
+        "final_phase": "closing"
+      },
+      "acks": [
+        "shouchi",
+        "hai",
+        "arigatou",
+        "hai",
+        "hai"
+      ],
+      "says": [
+        "ありがとうございます。15日の午後2時でよろしいでしょうか？",
+        "かしこまりました。3人で大丈夫でしょうか？"
+      ],
+      "play_turns": [
+        {
+          "played": [
+            "それではご希望の日時をお聞かせいただけますでしょうか？"
+          ],
+          "ai_spoke": false,
+          "ai_said": ""
+        },
+        {
+          "played": [
+            "続きましてご来店の人数をお伺いしてもよろしいでしょうか？"
+          ],
+          "ai_spoke": false,
+          "ai_said": ""
+        },
+        {
+          "played": [
+            "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+          ],
+          "ai_spoke": false,
+          "ai_said": ""
+        }
+      ],
+      "after_play": [
+        {
+          "said": "ありがとうございます。15日の午後2時でよろしいでしょうか？",
+          "repeated_question": false
+        },
+        {
+          "said": "はい。",
+          "repeated_question": false
+        }
+      ]
+    },
+    {
+      "rep": 0,
+      "type": "S4",
+      "scene": "先に答えた",
+      "voice_type": "S4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_yes_reserved.wav"
+          },
+          "heard": "はい、予約しています。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.337,
+              "name": "record_answer",
+              "args": {
+                "condition_id": "はい",
+                "value": "はい",
+                "question_id": "Q1"
+              },
+              "reply": "next",
+              "ack": "shouchi",
+              "say": null,
+              "play": [
+                {
+                  "kind": "question",
+                  "id": "Q2",
+                  "text": "それではご希望の日時をお聞かせいただけますでしょうか？",
+                  "lead": "それでは"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.338,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.258,
+              "text": "はい、予約しています。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.337,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.338,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          }
+        },
+        {
+          "index": 1,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_three_people.wav",
+            "again": "Leda_datetime_pm.wav"
+          },
+          "heard": "3人です。",
+          "intended": "恐れ入ります。ご希望の日時をもう一度お聞かせいただいてもよろしいでしょうか？",
+          "tool_events": [
+            {
+              "at_s": 0.948,
+              "name": "record_answer",
+              "args": {
+                "question_id": "Q2",
+                "value": "3人",
+                "condition_id": "答えた"
+              },
+              "reply": "ask_back",
+              "ack": "hai",
+              "say": "恐れ入ります。ご希望の日時をもう一度お聞かせいただいてもよろしいでしょうか？",
+              "play": null
+            }
+          ],
+          "first_audio_after_s": 1.481,
+          "finished_after_s": 6.035,
+          "audio_seconds": 4.55,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.481,
+              "audio_s": 0.0,
+              "text": "恐れ入ります。ご希望の日時"
+            },
+            {
+              "at_s": 1.814,
+              "audio_s": 1.95,
+              "text": "をもう一度お聞かせ"
+            },
+            {
+              "at_s": 1.916,
+              "audio_s": 2.95,
+              "text": "いただいてもよろしいでしょうか？"
+            }
+          ],
+          "heard_events": [
+            {
+              "at_s": 0.616,
+              "text": "3人です。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.949,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.95,
+              "kind": "turn_complete"
+            },
+            {
+              "at_s": 1.481,
+              "kind": "audio_start",
+              "chunk": 1
+            },
+            {
+              "at_s": 6.035,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "check": {
+            "voiced_s": 4.29,
+            "compared_with": "intended",
+            "morae": 39,
+            "expected_s": 4.33,
+            "ratio": 0.99,
+            "kind": "ok"
+          },
+          "audio_file": "20261017_064310_G37_先に答えた_0_S4_1_ok.wav"
+        },
+        {
+          "index": 1,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_datetime_pm.wav",
+            "again": "Leda_datetime_pm.wav"
+          },
+          "heard": "15 日の午後 2 時でお願いします。",
+          "intended": "ありがとうございます。15日の午後2時とおっしゃいましたでしょうか？",
+          "tool_events": [
+            {
+              "at_s": 0.369,
+              "name": "record_answer",
+              "args": {
+                "condition_id": "答えた",
+                "value": "15日の午後2時",
+                "question_id": "Q2"
+              },
+              "reply": "confirm_required",
+              "ack": "hai",
+              "say": "ありがとうございます。15日の午後2時とおっしゃいましたでしょうか？",
+              "play": null
+            }
+          ],
+          "first_audio_after_s": 0.664,
+          "finished_after_s": 4.436,
+          "audio_seconds": 3.77,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.062,
+              "audio_s": 1.97,
+              "text": "ありがとうございます。15"
+            },
+            {
+              "at_s": 1.438,
+              "audio_s": 2.97,
+              "text": "日の午後"
+            },
+            {
+              "at_s": 1.745,
+              "audio_s": 3.77,
+              "text": "2時とおっしゃいましたでしょうか？"
+            }
+          ],
+          "heard_events": [
+            {
+              "at_s": 0.368,
+              "text": "15 日の午後 2 時でお願いします。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.369,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.369,
+              "kind": "turn_complete"
+            },
+            {
+              "at_s": 0.664,
+              "kind": "audio_start",
+              "chunk": 1
+            },
+            {
+              "at_s": 4.436,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "check": {
+            "voiced_s": 3.65,
+            "compared_with": "intended",
+            "morae": 35,
+            "expected_s": 3.89,
+            "ratio": 0.94,
+            "kind": "ok"
+          },
+          "audio_file": "20261017_064318_G37_先に答えた_0_S4_1_ok.wav"
+        },
+        {
+          "index": 2,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_affirm.wav"
+          },
+          "heard": "はい。そうです。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.329,
+              "name": "confirm_field",
+              "args": {
+                "result": "affirmed",
+                "question_id": "Q2"
+              },
+              "reply": "next",
+              "ack": "arigatou",
+              "say": null,
+              "play": [
+                {
+                  "kind": "question",
+                  "id": "Q3",
+                  "text": "続きましてご来店の人数をお伺いしてもよろしいでしょうか？",
+                  "lead": "続きまして"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.329,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.204,
+              "text": "はい。そうです。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.329,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.329,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q3",
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          }
+        },
+        {
+          "index": 3,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_three_people.wav",
+            "again": "Leda_three_people.wav"
+          },
+          "heard": "3人です。",
+          "intended": "かしこまりました。3人でよろしいでしょうか？",
+          "tool_events": [
+            {
+              "at_s": 0.873,
+              "name": "record_answer",
+              "args": {
+                "value": "3人",
+                "condition_id": "答えた",
+                "question_id": "Q3"
+              },
+              "reply": "confirm_required",
+              "ack": "hai",
+              "say": "かしこまりました。3人でよろしいでしょうか？",
+              "play": null
+            }
+          ],
+          "first_audio_after_s": 1.236,
+          "finished_after_s": 4.292,
+          "audio_seconds": 3.06,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.862,
+              "audio_s": 1.98,
+              "text": "かしこまりました。3人"
+            },
+            {
+              "at_s": 1.955,
+              "audio_s": 3.06,
+              "text": "でよろしいでしょうか？"
+            }
+          ],
+          "heard_events": [
+            {
+              "at_s": 0.757,
+              "text": "3人です。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.873,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.874,
+              "kind": "turn_complete"
+            },
+            {
+              "at_s": 1.236,
+              "kind": "audio_start",
+              "chunk": 1
+            },
+            {
+              "at_s": 4.292,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q3",
+          "check": {
+            "voiced_s": 2.7,
+            "compared_with": "intended",
+            "morae": 21,
+            "expected_s": 2.33,
+            "ratio": 1.16,
+            "kind": "ok"
+          },
+          "audio_file": "20261017_064325_G37_先に答えた_0_S4_3_ok.wav"
+        },
+        {
+          "index": 4,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_affirm.wav"
+          },
+          "heard": "はい。そうです。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.345,
+              "name": "confirm_field",
+              "args": {
+                "question_id": "Q3",
+                "result": "affirmed"
+              },
+              "reply": "end",
+              "ack": "hai",
+              "say": null,
+              "play": [
+                {
+                  "kind": "closing",
+                  "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.346,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.218,
+              "text": "はい。そうです。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.345,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.346,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "closing",
+          "current_after": null,
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          }
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "condition_id": "はい",
+            "value": "はい",
+            "question_id": "Q1"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q2",
+            "question": "ご希望の日時をお聞かせいただけますでしょうか？",
+            "play": [
+              {
+                "kind": "question",
+                "id": "Q2",
+                "text": "それではご希望の日時をお聞かせいただけますでしょうか？",
+                "lead": "それでは"
+              }
+            ],
+            "message": "受け付けました。次の質問 Q2「それではご希望の日時をお聞かせいただけますでしょうか？」は、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、相手の答えを待ってください。相手が答えたら record_answer で報告します。",
+            "ack": "shouchi"
+          },
+          "callee_turns": 1
+        },
+        {
+          "op": "record_answer",
+          "args": {
+            "question_id": "Q2",
+            "value": "3人",
+            "condition_id": "答えた"
+          },
+          "reply": {
+            "result": "ask_back",
+            "question_id": "Q2",
+            "say": "恐れ入ります。ご希望の日時をもう一度お聞かせいただいてもよろしいでしょうか？",
+            "ask_n": 1,
+            "ask_reason": "form",
+            "ask_last": false,
+            "message": "Q2「ご希望の日時をお聞かせいただけますでしょうか？」の答えとして「3人」が報告されましたが、日付も時刻も無く、数だけがあります。「恐れ入ります。ご希望の日時をもう一度お聞かせいただいてもよろしいでしょうか？」と聞き返して、相手の答えを待ってください。相手が答えたら record_answer で報告します。",
+            "ack": "hai"
+          },
+          "callee_turns": 2
+        },
+        {
+          "op": "record_answer",
+          "args": {
+            "condition_id": "答えた",
+            "value": "15日の午後2時",
+            "question_id": "Q2"
+          },
+          "reply": {
+            "result": "confirm_required",
+            "value": "15日の午後2時",
+            "say": "ありがとうございます。15日の午後2時とおっしゃいましたでしょうか？",
+            "after": null,
+            "message": "言い直して確かめます。「ありがとうございます。15日の午後2時とおっしゃいましたでしょうか？」と言って、相手の返事を待ってください。",
+            "ack": "hai"
+          },
+          "callee_turns": 3
+        },
+        {
+          "op": "confirm_field",
+          "args": {
+            "result": "affirmed",
+            "question_id": "Q2"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q3",
+            "question": "ご来店の人数をお伺いしてもよろしいでしょうか？",
+            "play": [
+              {
+                "kind": "question",
+                "id": "Q3",
+                "text": "続きましてご来店の人数をお伺いしてもよろしいでしょうか？",
+                "lead": "続きまして"
+              }
+            ],
+            "message": "確認できました。次の質問 Q3「続きましてご来店の人数をお伺いしてもよろしいでしょうか？」は、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、相手の答えを待ってください。相手が答えたら record_answer で報告します。",
+            "ack": "arigatou"
+          },
+          "callee_turns": 4
+        },
+        {
+          "op": "record_answer",
+          "args": {
+            "value": "3人",
+            "condition_id": "答えた",
+            "question_id": "Q3"
+          },
+          "reply": {
+            "result": "confirm_required",
+            "value": "3人",
+            "say": "かしこまりました。3人でよろしいでしょうか？",
+            "after": null,
+            "message": "言い直して確かめます。「かしこまりました。3人でよろしいでしょうか？」と言って、相手の返事を待ってください。",
+            "ack": "hai"
+          },
+          "callee_turns": 5
+        },
+        {
+          "op": "confirm_field",
+          "args": {
+            "question_id": "Q3",
+            "result": "affirmed"
+          },
+          "reply": {
+            "result": "end",
+            "play": [
+              {
+                "kind": "closing",
+                "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+              }
+            ],
+            "message": "確認できました。質問は終わりです。締めの言葉「お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。」は、プログラムが録音で流しました。何も言わずに終えます。",
+            "ack": "hai"
+          },
+          "callee_turns": 6
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "accepted",
+          "value": "はい",
+          "condition": "はい",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q2": {
+          "state": "confirmed",
+          "value": "15日の午後2時",
+          "condition": "答えた",
+          "ask_backs": 1,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q3": {
+          "state": "confirmed",
+          "value": "3人",
+          "condition": "答えた",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        }
+      },
+      "export": {
+        "Q1": "はい",
+        "Q2": "15日の午後2時",
+        "Q3": "3人"
+      },
+      "final_phase": "closing",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "turns_measured": [
+        {
+          "callee": "yes_reserved",
+          "said": "",
+          "reports": [
+            "record_answer"
+          ],
+          "replies": [
+            "next"
+          ],
+          "spoke": false,
+          "heard_at_report": "はい、予約しています。",
+          "ack": "shouchi",
+          "ack_at_s": 0.827,
+          "first_heard_s": 0.827
+        },
+        {
+          "callee": "three_people",
+          "said": "恐れ入ります。ご希望の日時をもう一度お聞かせいただいてもよろしいでしょうか？",
+          "reports": [
+            "record_answer"
+          ],
+          "replies": [
+            "ask_back"
+          ],
+          "spoke": true,
+          "heard_at_report": "3人です。",
+          "cut_in": false,
+          "ai_at_s": 1.571,
+          "ack": "hai",
+          "ack_at_s": 1.038,
+          "first_heard_s": 1.038
+        },
+        {
+          "callee": "datetime_pm",
+          "said": "ありがとうございます。15日の午後2時とおっしゃいましたでしょうか？",
+          "reports": [
+            "record_answer"
+          ],
+          "replies": [
+            "confirm_required"
+          ],
+          "spoke": true,
+          "heard_at_report": "15 日の午後 2 時でお願いします。",
+          "cut_in": false,
+          "ai_at_s": 1.074,
+          "ack": "hai",
+          "ack_at_s": 0.779,
+          "first_heard_s": 0.779
+        },
+        {
+          "callee": "affirm",
+          "said": "",
+          "reports": [
+            "confirm_field"
+          ],
+          "replies": [
+            "next"
+          ],
+          "spoke": false,
+          "heard_at_report": "はい。そうです。",
+          "ack": "arigatou",
+          "ack_at_s": 0.719,
+          "first_heard_s": 0.719
+        },
+        {
+          "callee": "three_people",
+          "said": "かしこまりました。3人でよろしいでしょうか？",
+          "reports": [
+            "record_answer"
+          ],
+          "replies": [
+            "confirm_required"
+          ],
+          "spoke": true,
+          "heard_at_report": "3人です。",
+          "cut_in": false,
+          "ai_at_s": 1.326,
+          "ack": "hai",
+          "ack_at_s": 0.963,
+          "first_heard_s": 0.963
+        },
+        {
+          "callee": "affirm",
+          "said": "",
+          "reports": [
+            "confirm_field"
+          ],
+          "replies": [
+            "end"
+          ],
+          "spoke": false,
+          "heard_at_report": "はい。そうです。",
+          "ack": "hai",
+          "ack_at_s": 0.735,
+          "first_heard_s": 0.735
+        }
+      ],
+      "checks": {
+        "q1_ok": true,
+        "q2_ok": true,
+        "q3_ok": true,
+        "rejected": 0,
+        "ask_backs": 1,
+        "final_phase": "closing"
+      },
+      "acks": [
+        "shouchi",
+        "hai",
+        "hai",
+        "arigatou",
+        "hai",
+        "hai"
+      ],
+      "says": [
+        "恐れ入ります。ご希望の日時をもう一度お聞かせいただいてもよろしいでしょうか？",
+        "ありがとうございます。15日の午後2時とおっしゃいましたでしょうか？",
+        "かしこまりました。3人でよろしいでしょうか？"
+      ],
+      "play_turns": [
+        {
+          "played": [
+            "それではご希望の日時をお聞かせいただけますでしょうか？"
+          ],
+          "ai_spoke": false,
+          "ai_said": ""
+        },
+        {
+          "played": [
+            "続きましてご来店の人数をお伺いしてもよろしいでしょうか？"
+          ],
+          "ai_spoke": false,
+          "ai_said": ""
+        },
+        {
+          "played": [
+            "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+          ],
+          "ai_spoke": false,
+          "ai_said": ""
+        }
+      ],
+      "after_play": [
+        {
+          "said": "恐れ入ります。ご希望の日時をもう一度お聞かせいただいてもよろしいでしょうか？",
+          "repeated_question": false
+        },
+        {
+          "said": "かしこまりました。3人でよろしいでしょうか？",
+          "repeated_question": false
+        }
+      ]
+    },
+    {
+      "rep": 0,
+      "type": "S4",
+      "scene": "訂正",
+      "voice_type": "S4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_yes_reserved.wav"
+          },
+          "heard": "はい、予約しています。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.668,
+              "name": "record_answer",
+              "args": {
+                "condition_id": "はい",
+                "question_id": "Q1",
+                "value": "はい"
+              },
+              "reply": "next",
+              "ack": "shouchi",
+              "say": null,
+              "play": [
+                {
+                  "kind": "question",
+                  "id": "Q2",
+                  "text": "それではご希望の日時をお聞かせいただけますでしょうか？",
+                  "lead": "それでは"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.669,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.43,
+              "text": "はい、予約しています。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.668,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.669,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          }
+        },
+        {
+          "index": 1,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_datetime_pm.wav",
+            "again": "Leda_datetime_pm.wav"
+          },
+          "heard": "15 日の午後 2 時でお願いします。",
+          "intended": "ありがとうございます。15日の午後2時でよろしいでしょうか?",
+          "tool_events": [
+            {
+              "at_s": 0.66,
+              "name": "record_answer",
+              "args": {
+                "condition_id": "答えた",
+                "question_id": "Q2",
+                "value": "15日の午後2時"
+              },
+              "reply": "confirm_required",
+              "ack": "hai",
+              "say": "ありがとうございます。15日の午後2時でよろしいでしょうか？",
+              "play": null
+            }
+          ],
+          "first_audio_after_s": 1.174,
+          "finished_after_s": 4.918,
+          "audio_seconds": 3.74,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.174,
+              "audio_s": 0.0,
+              "text": "ありがとうございます。15日"
+            },
+            {
+              "at_s": 1.711,
+              "audio_s": 1.98,
+              "text": "の午後2時でよろしい"
+            },
+            {
+              "at_s": 1.932,
+              "audio_s": 3.14,
+              "text": "でしょうか?"
+            }
+          ],
+          "heard_events": [
+            {
+              "at_s": 0.264,
+              "text": "15 日の午後 2 時でお願いします。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.661,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.661,
+              "kind": "turn_complete"
+            },
+            {
+              "at_s": 1.174,
+              "kind": "audio_start",
+              "chunk": 1
+            },
+            {
+              "at_s": 4.918,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "check": {
+            "voiced_s": 3.4,
+            "compared_with": "intended",
+            "morae": 32,
+            "expected_s": 3.56,
+            "ratio": 0.96,
+            "kind": "ok"
+          },
+          "audio_file": "20261017_064341_G37_訂正_0_S4_1_ok.wav"
+        },
+        {
+          "index": 2,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_correct_16.wav",
+            "again": "Leda_correct_16.wav"
+          },
+          "heard": "いえ、16日の午後 2 時です。",
+          "intended": "改めまして16日の午後2時で大丈夫でしょうか?",
+          "tool_events": [
+            {
+              "at_s": 0.698,
+              "name": "confirm_field",
+              "args": {
+                "result": "corrected",
+                "question_id": "Q2",
+                "correction": "16日の午後2時"
+              },
+              "reply": "confirm_required",
+              "ack": "shitsurei",
+              "say": "改めまして16日の午後2時で大丈夫でしょうか？",
+              "play": null
+            }
+          ],
+          "first_audio_after_s": 1.349,
+          "finished_after_s": 5.004,
+          "audio_seconds": 3.65,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.721,
+              "audio_s": 1.97,
+              "text": "改めまして16日"
+            },
+            {
+              "at_s": 1.873,
+              "audio_s": 2.97,
+              "text": "の午後2時"
+            },
+            {
+              "at_s": 1.919,
+              "audio_s": 3.65,
+              "text": "で大丈夫でしょうか?"
+            }
+          ],
+          "heard_events": [
+            {
+              "at_s": 0.417,
+              "text": "いえ、16日の午後 2 時です。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.699,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.701,
+              "kind": "turn_complete"
+            },
+            {
+              "at_s": 1.349,
+              "kind": "audio_start",
+              "chunk": 1
+            },
+            {
+              "at_s": 5.004,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "check": {
+            "voiced_s": 3.31,
+            "compared_with": "intended",
+            "morae": 30,
+            "expected_s": 3.33,
+            "ratio": 0.99,
+            "kind": "ok"
+          },
+          "audio_file": "20261017_064349_G37_訂正_0_S4_2_ok.wav"
+        },
+        {
+          "index": 3,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_affirm.wav"
+          },
+          "heard": "はい、そうです。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.448,
+              "name": "confirm_field",
+              "args": {
+                "question_id": "Q2",
+                "result": "affirmed"
+              },
+              "reply": "next",
+              "ack": "arigatou",
+              "say": null,
+              "play": [
+                {
+                  "kind": "question",
+                  "id": "Q3",
+                  "text": "続きましてご来店の人数をお伺いしてもよろしいでしょうか？",
+                  "lead": "続きまして"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.452,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.212,
+              "text": "はい、そうです。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.452,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.452,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q3",
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          }
+        },
+        {
+          "index": 4,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_three_people.wav",
+            "again": "Leda_three_people.wav"
+          },
+          "heard": "3 人です。",
+          "intended": "かしこまりました。3人で大丈夫でしょうか?",
+          "tool_events": [
+            {
+              "at_s": 0.945,
+              "name": "record_answer",
+              "args": {
+                "question_id": "Q3",
+                "value": "3人",
+                "condition_id": "答えた"
+              },
+              "reply": "confirm_required",
+              "ack": "hai",
+              "say": "かしこまりました。3人で大丈夫でしょうか？",
+              "play": null
+            }
+          ],
+          "first_audio_after_s": 1.517,
+          "finished_after_s": 4.54,
+          "audio_seconds": 3.02,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.517,
+              "audio_s": 0.0,
+              "text": "かしこまりました。3人で大丈夫"
+            },
+            {
+              "at_s": 2.039,
+              "audio_s": 2.18,
+              "text": "でしょうか?"
+            }
+          ],
+          "heard_events": [
+            {
+              "at_s": 0.579,
+              "text": "3 人です。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.945,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.945,
+              "kind": "turn_complete"
+            },
+            {
+              "at_s": 1.517,
+              "kind": "audio_start",
+              "chunk": 1
+            },
+            {
+              "at_s": 4.54,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q3",
+          "check": {
+            "voiced_s": 2.67,
+            "compared_with": "intended",
+            "morae": 22,
+            "expected_s": 2.44,
+            "ratio": 1.09,
+            "kind": "ok"
+          },
+          "audio_file": "20261017_064357_G37_訂正_0_S4_4_ok.wav"
+        },
+        {
+          "index": 5,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_affirm.wav"
+          },
+          "heard": "はい。そうです。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.438,
+              "name": "confirm_field",
+              "args": {
+                "question_id": "Q3",
+                "result": "affirmed"
+              },
+              "reply": "end",
+              "ack": "hai",
+              "say": null,
+              "play": [
+                {
+                  "kind": "closing",
+                  "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.438,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.177,
+              "text": "はい。そうです。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.438,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.438,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "closing",
+          "current_after": null,
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          }
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "condition_id": "はい",
+            "question_id": "Q1",
+            "value": "はい"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q2",
+            "question": "ご希望の日時をお聞かせいただけますでしょうか？",
+            "play": [
+              {
+                "kind": "question",
+                "id": "Q2",
+                "text": "それではご希望の日時をお聞かせいただけますでしょうか？",
+                "lead": "それでは"
+              }
+            ],
+            "message": "受け付けました。次の質問 Q2「それではご希望の日時をお聞かせいただけますでしょうか？」は、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、相手の答えを待ってください。相手が答えたら record_answer で報告します。",
+            "ack": "shouchi"
+          },
+          "callee_turns": 1
+        },
+        {
+          "op": "record_answer",
+          "args": {
+            "condition_id": "答えた",
+            "question_id": "Q2",
+            "value": "15日の午後2時"
+          },
+          "reply": {
+            "result": "confirm_required",
+            "value": "15日の午後2時",
+            "say": "ありがとうございます。15日の午後2時でよろしいでしょうか？",
+            "after": null,
+            "message": "言い直して確かめます。「ありがとうございます。15日の午後2時でよろしいでしょうか？」と言って、相手の返事を待ってください。",
+            "ack": "hai"
+          },
+          "callee_turns": 2
+        },
+        {
+          "op": "confirm_field",
+          "args": {
+            "result": "corrected",
+            "question_id": "Q2",
+            "correction": "16日の午後2時"
+          },
+          "reply": {
+            "result": "confirm_required",
+            "value": "16日の午後2時",
+            "say": "改めまして16日の午後2時で大丈夫でしょうか？",
+            "after": "misheard",
+            "message": "言い直して確かめます。「改めまして16日の午後2時で大丈夫でしょうか？」と言って、相手の返事を待ってください。",
+            "ack": "shitsurei"
+          },
+          "callee_turns": 3
+        },
+        {
+          "op": "confirm_field",
+          "args": {
+            "question_id": "Q2",
+            "result": "affirmed"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q3",
+            "question": "ご来店の人数をお伺いしてもよろしいでしょうか？",
+            "play": [
+              {
+                "kind": "question",
+                "id": "Q3",
+                "text": "続きましてご来店の人数をお伺いしてもよろしいでしょうか？",
+                "lead": "続きまして"
+              }
+            ],
+            "message": "確認できました。次の質問 Q3「続きましてご来店の人数をお伺いしてもよろしいでしょうか？」は、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、相手の答えを待ってください。相手が答えたら record_answer で報告します。",
+            "ack": "arigatou"
+          },
+          "callee_turns": 4
+        },
+        {
+          "op": "record_answer",
+          "args": {
+            "question_id": "Q3",
+            "value": "3人",
+            "condition_id": "答えた"
+          },
+          "reply": {
+            "result": "confirm_required",
+            "value": "3人",
+            "say": "かしこまりました。3人で大丈夫でしょうか？",
+            "after": null,
+            "message": "言い直して確かめます。「かしこまりました。3人で大丈夫でしょうか？」と言って、相手の返事を待ってください。",
+            "ack": "hai"
+          },
+          "callee_turns": 5
+        },
+        {
+          "op": "confirm_field",
+          "args": {
+            "question_id": "Q3",
+            "result": "affirmed"
+          },
+          "reply": {
+            "result": "end",
+            "play": [
+              {
+                "kind": "closing",
+                "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+              }
+            ],
+            "message": "確認できました。質問は終わりです。締めの言葉「お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。」は、プログラムが録音で流しました。何も言わずに終えます。",
+            "ack": "hai"
+          },
+          "callee_turns": 6
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "accepted",
+          "value": "はい",
+          "condition": "はい",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q2": {
+          "state": "confirmed",
+          "value": "16日の午後2時",
+          "condition": "答えた",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 1
+        },
+        "Q3": {
+          "state": "confirmed",
+          "value": "3人",
+          "condition": "答えた",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        }
+      },
+      "export": {
+        "Q1": "はい",
+        "Q2": "16日の午後2時",
+        "Q3": "3人"
+      },
+      "final_phase": "closing",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "turns_measured": [
+        {
+          "callee": "yes_reserved",
+          "said": "",
+          "reports": [
+            "record_answer"
+          ],
+          "replies": [
+            "next"
+          ],
+          "spoke": false,
+          "heard_at_report": "はい、予約しています。",
+          "ack": "shouchi",
+          "ack_at_s": 1.158,
+          "first_heard_s": 1.158
+        },
+        {
+          "callee": "datetime_pm",
+          "said": "ありがとうございます。15日の午後2時でよろしいでしょうか?",
+          "reports": [
+            "record_answer"
+          ],
+          "replies": [
+            "confirm_required"
+          ],
+          "spoke": true,
+          "heard_at_report": "15 日の午後 2 時でお願いします。",
+          "cut_in": false,
+          "ai_at_s": 1.584,
+          "ack": "hai",
+          "ack_at_s": 1.07,
+          "first_heard_s": 1.07
+        },
+        {
+          "callee": "correct_16",
+          "said": "改めまして16日の午後2時で大丈夫でしょうか?",
+          "reports": [
+            "confirm_field"
+          ],
+          "replies": [
+            "confirm_required"
+          ],
+          "spoke": true,
+          "heard_at_report": "いえ、16日の午後 2 時です。",
+          "cut_in": false,
+          "ai_at_s": 1.609,
+          "ack": "shitsurei",
+          "ack_at_s": 0.958,
+          "first_heard_s": 0.958
+        },
+        {
+          "callee": "affirm",
+          "said": "",
+          "reports": [
+            "confirm_field"
+          ],
+          "replies": [
+            "next"
+          ],
+          "spoke": false,
+          "heard_at_report": "はい、そうです。",
+          "ack": "arigatou",
+          "ack_at_s": 0.838,
+          "first_heard_s": 0.838
+        },
+        {
+          "callee": "three_people",
+          "said": "かしこまりました。3人で大丈夫でしょうか?",
+          "reports": [
+            "record_answer"
+          ],
+          "replies": [
+            "confirm_required"
+          ],
+          "spoke": true,
+          "heard_at_report": "3 人です。",
+          "cut_in": false,
+          "ai_at_s": 1.607,
+          "ack": "hai",
+          "ack_at_s": 1.035,
+          "first_heard_s": 1.035
+        },
+        {
+          "callee": "affirm",
+          "said": "",
+          "reports": [
+            "confirm_field"
+          ],
+          "replies": [
+            "end"
+          ],
+          "spoke": false,
+          "heard_at_report": "はい。そうです。",
+          "ack": "hai",
+          "ack_at_s": 0.828,
+          "first_heard_s": 0.828
+        }
+      ],
+      "checks": {
+        "q1_ok": true,
+        "q2_ok": true,
+        "q3_ok": true,
+        "rejected": 0,
+        "ask_backs": 0,
+        "final_phase": "closing"
+      },
+      "acks": [
+        "shouchi",
+        "hai",
+        "shitsurei",
+        "arigatou",
+        "hai",
+        "hai"
+      ],
+      "says": [
+        "ありがとうございます。15日の午後2時でよろしいでしょうか？",
+        "改めまして16日の午後2時で大丈夫でしょうか？",
+        "かしこまりました。3人で大丈夫でしょうか？"
+      ],
+      "play_turns": [
+        {
+          "played": [
+            "それではご希望の日時をお聞かせいただけますでしょうか？"
+          ],
+          "ai_spoke": false,
+          "ai_said": ""
+        },
+        {
+          "played": [
+            "続きましてご来店の人数をお伺いしてもよろしいでしょうか？"
+          ],
+          "ai_spoke": false,
+          "ai_said": ""
+        },
+        {
+          "played": [
+            "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+          ],
+          "ai_spoke": false,
+          "ai_said": ""
+        }
+      ],
+      "after_play": [
+        {
+          "said": "ありがとうございます。15日の午後2時でよろしいでしょうか?",
+          "repeated_question": false
+        },
+        {
+          "said": "かしこまりました。3人で大丈夫でしょうか?",
+          "repeated_question": false
+        }
+      ]
+    },
+    {
+      "rep": 1,
+      "type": "S4",
+      "scene": "ふつう",
+      "voice_type": "S4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_yes_reserved.wav"
+          },
+          "heard": "はい、予約しています。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.313,
+              "name": "record_answer",
+              "args": {
+                "value": "はい",
+                "question_id": "Q1",
+                "condition_id": "はい"
+              },
+              "reply": "next",
+              "ack": "shouchi",
+              "say": null,
+              "play": [
+                {
+                  "kind": "question",
+                  "id": "Q2",
+                  "text": "それではご希望の日時をお聞かせいただけますでしょうか？",
+                  "lead": "それでは"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.317,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.261,
+              "text": "はい、予約しています。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.313,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.317,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          }
+        },
+        {
+          "index": 1,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_datetime_pm.wav",
+            "again": "Leda_datetime_pm.wav"
+          },
+          "heard": "15 日の午後 2 時でお願いします。",
+          "intended": "ありがとうございます。15日の午後2時でよろしいでしょうか？",
+          "tool_events": [
+            {
+              "at_s": 0.609,
+              "name": "record_answer",
+              "args": {
+                "value": "15日の午後2時",
+                "condition_id": "答えた",
+                "question_id": "Q2"
+              },
+              "reply": "confirm_required",
+              "ack": "hai",
+              "say": "ありがとうございます。15日の午後2時でよろしいでしょうか？",
+              "play": null
+            }
+          ],
+          "first_audio_after_s": 1.021,
+          "finished_after_s": 4.402,
+          "audio_seconds": 3.4,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.021,
+              "audio_s": 0.0,
+              "text": "ありがとうございます。15"
+            },
+            {
+              "at_s": 1.275,
+              "audio_s": 2.12,
+              "text": "日の午後2時でよろしいでしょうか？"
+            }
+          ],
+          "heard_events": [
+            {
+              "at_s": 0.37,
+              "text": "15 日の午後 2 時でお願いします。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.609,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.612,
+              "kind": "turn_complete"
+            },
+            {
+              "at_s": 1.021,
+              "kind": "audio_start",
+              "chunk": 1
+            },
+            {
+              "at_s": 4.402,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "check": {
+            "voiced_s": 3.18,
+            "compared_with": "intended",
+            "morae": 32,
+            "expected_s": 3.56,
+            "ratio": 0.9,
+            "kind": "ok"
+          },
+          "audio_file": "20261017_064412_G37_ふつう_1_S4_1_ok.wav"
+        },
+        {
+          "index": 2,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_affirm.wav"
+          },
+          "heard": "はい。そうです。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.301,
+              "name": "confirm_field",
+              "args": {
+                "question_id": "Q2",
+                "result": "affirmed"
+              },
+              "reply": "next",
+              "ack": "arigatou",
+              "say": null,
+              "play": [
+                {
+                  "kind": "question",
+                  "id": "Q3",
+                  "text": "続きましてご来店の人数をお伺いしてもよろしいでしょうか？",
+                  "lead": "続きまして"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.305,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.292,
+              "text": "はい。そうです。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.302,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.305,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q3",
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          }
+        },
+        {
+          "index": 3,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_three_people.wav",
+            "again": "Leda_three_people.wav"
+          },
+          "heard": "3 人です。",
+          "intended": "かしこまりました。3人で大丈夫でしょうか？",
+          "tool_events": [
+            {
+              "at_s": 0.813,
+              "name": "record_answer",
+              "args": {
+                "value": "3人",
+                "condition_id": "答えた",
+                "question_id": "Q3"
+              },
+              "reply": "confirm_required",
+              "ack": "hai",
+              "say": "かしこまりました。3人で大丈夫でしょうか？",
+              "play": null
+            }
+          ],
+          "first_audio_after_s": 1.413,
+          "finished_after_s": 3.985,
+          "audio_seconds": 2.59,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.413,
+              "audio_s": 0.0,
+              "text": "かしこまりました。3人で大丈夫"
+            },
+            {
+              "at_s": 1.686,
+              "audio_s": 1.95,
+              "text": "でしょうか？"
+            }
+          ],
+          "heard_events": [
+            {
+              "at_s": 0.713,
+              "text": "3 人です。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.813,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.814,
+              "kind": "turn_complete"
+            },
+            {
+              "at_s": 1.413,
+              "kind": "audio_start",
+              "chunk": 1
+            },
+            {
+              "at_s": 3.985,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q3",
+          "check": {
+            "voiced_s": 2.35,
+            "compared_with": "intended",
+            "morae": 22,
+            "expected_s": 2.44,
+            "ratio": 0.96,
+            "kind": "ok"
+          },
+          "audio_file": "20261017_064419_G37_ふつう_1_S4_3_ok.wav"
+        },
+        {
+          "index": 4,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_affirm.wav"
+          },
+          "heard": "はい、そうです。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.594,
+              "name": "confirm_field",
+              "args": {
+                "result": "affirmed",
+                "question_id": "Q3"
+              },
+              "reply": "end",
+              "ack": "hai",
+              "say": null,
+              "play": [
+                {
+                  "kind": "closing",
+                  "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.595,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.451,
+              "text": "はい、そうです。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.594,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.595,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "closing",
+          "current_after": null,
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          }
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "value": "はい",
+            "question_id": "Q1",
+            "condition_id": "はい"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q2",
+            "question": "ご希望の日時をお聞かせいただけますでしょうか？",
+            "play": [
+              {
+                "kind": "question",
+                "id": "Q2",
+                "text": "それではご希望の日時をお聞かせいただけますでしょうか？",
+                "lead": "それでは"
+              }
+            ],
+            "message": "受け付けました。次の質問 Q2「それではご希望の日時をお聞かせいただけますでしょうか？」は、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、相手の答えを待ってください。相手が答えたら record_answer で報告します。",
+            "ack": "shouchi"
+          },
+          "callee_turns": 1
+        },
+        {
+          "op": "record_answer",
+          "args": {
+            "value": "15日の午後2時",
+            "condition_id": "答えた",
+            "question_id": "Q2"
+          },
+          "reply": {
+            "result": "confirm_required",
+            "value": "15日の午後2時",
+            "say": "ありがとうございます。15日の午後2時でよろしいでしょうか？",
+            "after": null,
+            "message": "言い直して確かめます。「ありがとうございます。15日の午後2時でよろしいでしょうか？」と言って、相手の返事を待ってください。",
+            "ack": "hai"
+          },
+          "callee_turns": 2
+        },
+        {
+          "op": "confirm_field",
+          "args": {
+            "question_id": "Q2",
+            "result": "affirmed"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q3",
+            "question": "ご来店の人数をお伺いしてもよろしいでしょうか？",
+            "play": [
+              {
+                "kind": "question",
+                "id": "Q3",
+                "text": "続きましてご来店の人数をお伺いしてもよろしいでしょうか？",
+                "lead": "続きまして"
+              }
+            ],
+            "message": "確認できました。次の質問 Q3「続きましてご来店の人数をお伺いしてもよろしいでしょうか？」は、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、相手の答えを待ってください。相手が答えたら record_answer で報告します。",
+            "ack": "arigatou"
+          },
+          "callee_turns": 3
+        },
+        {
+          "op": "record_answer",
+          "args": {
+            "value": "3人",
+            "condition_id": "答えた",
+            "question_id": "Q3"
+          },
+          "reply": {
+            "result": "confirm_required",
+            "value": "3人",
+            "say": "かしこまりました。3人で大丈夫でしょうか？",
+            "after": null,
+            "message": "言い直して確かめます。「かしこまりました。3人で大丈夫でしょうか？」と言って、相手の返事を待ってください。",
+            "ack": "hai"
+          },
+          "callee_turns": 4
+        },
+        {
+          "op": "confirm_field",
+          "args": {
+            "result": "affirmed",
+            "question_id": "Q3"
+          },
+          "reply": {
+            "result": "end",
+            "play": [
+              {
+                "kind": "closing",
+                "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+              }
+            ],
+            "message": "確認できました。質問は終わりです。締めの言葉「お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。」は、プログラムが録音で流しました。何も言わずに終えます。",
+            "ack": "hai"
+          },
+          "callee_turns": 5
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "accepted",
+          "value": "はい",
+          "condition": "はい",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q2": {
+          "state": "confirmed",
+          "value": "15日の午後2時",
+          "condition": "答えた",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q3": {
+          "state": "confirmed",
+          "value": "3人",
+          "condition": "答えた",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        }
+      },
+      "export": {
+        "Q1": "はい",
+        "Q2": "15日の午後2時",
+        "Q3": "3人"
+      },
+      "final_phase": "closing",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "turns_measured": [
+        {
+          "callee": "yes_reserved",
+          "said": "",
+          "reports": [
+            "record_answer"
+          ],
+          "replies": [
+            "next"
+          ],
+          "spoke": false,
+          "heard_at_report": "はい、予約しています。",
+          "ack": "shouchi",
+          "ack_at_s": 0.803,
+          "first_heard_s": 0.803
+        },
+        {
+          "callee": "datetime_pm",
+          "said": "ありがとうございます。15日の午後2時でよろしいでしょうか？",
+          "reports": [
+            "record_answer"
+          ],
+          "replies": [
+            "confirm_required"
+          ],
+          "spoke": true,
+          "heard_at_report": "15 日の午後 2 時でお願いします。",
+          "cut_in": false,
+          "ai_at_s": 1.431,
+          "ack": "hai",
+          "ack_at_s": 1.019,
+          "first_heard_s": 1.019
+        },
+        {
+          "callee": "affirm",
+          "said": "",
+          "reports": [
+            "confirm_field"
+          ],
+          "replies": [
+            "next"
+          ],
+          "spoke": false,
+          "heard_at_report": "はい。そうです。",
+          "ack": "arigatou",
+          "ack_at_s": 0.691,
+          "first_heard_s": 0.691
+        },
+        {
+          "callee": "three_people",
+          "said": "かしこまりました。3人で大丈夫でしょうか？",
+          "reports": [
+            "record_answer"
+          ],
+          "replies": [
+            "confirm_required"
+          ],
+          "spoke": true,
+          "heard_at_report": "3 人です。",
+          "cut_in": false,
+          "ai_at_s": 1.503,
+          "ack": "hai",
+          "ack_at_s": 0.903,
+          "first_heard_s": 0.903
+        },
+        {
+          "callee": "affirm",
+          "said": "",
+          "reports": [
+            "confirm_field"
+          ],
+          "replies": [
+            "end"
+          ],
+          "spoke": false,
+          "heard_at_report": "はい、そうです。",
+          "ack": "hai",
+          "ack_at_s": 0.984,
+          "first_heard_s": 0.984
+        }
+      ],
+      "checks": {
+        "q1_ok": true,
+        "q2_ok": true,
+        "q3_ok": true,
+        "rejected": 0,
+        "ask_backs": 0,
+        "final_phase": "closing"
+      },
+      "acks": [
+        "shouchi",
+        "hai",
+        "arigatou",
+        "hai",
+        "hai"
+      ],
+      "says": [
+        "ありがとうございます。15日の午後2時でよろしいでしょうか？",
+        "かしこまりました。3人で大丈夫でしょうか？"
+      ],
+      "play_turns": [
+        {
+          "played": [
+            "それではご希望の日時をお聞かせいただけますでしょうか？"
+          ],
+          "ai_spoke": false,
+          "ai_said": ""
+        },
+        {
+          "played": [
+            "続きましてご来店の人数をお伺いしてもよろしいでしょうか？"
+          ],
+          "ai_spoke": false,
+          "ai_said": ""
+        },
+        {
+          "played": [
+            "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+          ],
+          "ai_spoke": false,
+          "ai_said": ""
+        }
+      ],
+      "after_play": [
+        {
+          "said": "ありがとうございます。15日の午後2時でよろしいでしょうか？",
+          "repeated_question": false
+        },
+        {
+          "said": "かしこまりました。3人で大丈夫でしょうか？",
+          "repeated_question": false
+        }
+      ]
+    },
+    {
+      "rep": 1,
+      "type": "S4",
+      "scene": "長い間",
+      "voice_type": "S4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_yes_reserved.wav"
+          },
+          "heard": "はい、予約しています。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.322,
+              "name": "record_answer",
+              "args": {
+                "question_id": "Q1",
+                "condition_id": "はい",
+                "value": "はい"
+              },
+              "reply": "next",
+              "ack": "shouchi",
+              "say": null,
+              "play": [
+                {
+                  "kind": "question",
+                  "id": "Q2",
+                  "text": "それではご希望の日時をお聞かせいただけますでしょうか？",
+                  "lead": "それでは"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.323,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.309,
+              "text": "はい、予約しています。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.322,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.323,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          }
+        },
+        {
+          "index": 1,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_datetime_pm.wav"
+          },
+          "heard": "15 日の午後 2 時でお願いします。",
+          "intended": "ありがとうございます。15日の午後2時でよろしいでしょうか？",
+          "tool_events": [
+            {
+              "at_s": 0.638,
+              "name": "record_answer",
+              "args": {
+                "condition_id": "答えた",
+                "value": "15日の午後2時",
+                "question_id": "Q2"
+              },
+              "reply": "confirm_required",
+              "ack": "hai",
+              "say": "ありがとうございます。15日の午後2時でよろしいでしょうか？",
+              "play": null
+            }
+          ],
+          "first_audio_after_s": 1.172,
+          "finished_after_s": 5.375,
+          "audio_seconds": 4.22,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.172,
+              "audio_s": 0.0,
+              "text": "ありがとうございます。15"
+            },
+            {
+              "at_s": 1.424,
+              "audio_s": 1.98,
+              "text": "日の午後2時でよろしい"
+            },
+            {
+              "at_s": 1.556,
+              "audio_s": 2.94,
+              "text": "でしょうか？"
+            }
+          ],
+          "heard_events": [
+            {
+              "at_s": 0.323,
+              "text": "15 日の午後 2 時でお願いします。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.638,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.64,
+              "kind": "turn_complete"
+            },
+            {
+              "at_s": 1.172,
+              "kind": "audio_start",
+              "chunk": 1
+            },
+            {
+              "at_s": 5.375,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "check": {
+            "voiced_s": 3.91,
+            "compared_with": "intended",
+            "morae": 32,
+            "expected_s": 3.56,
+            "ratio": 1.1,
+            "kind": "ok"
+          },
+          "audio_file": "20261017_064436_G37_長い間_1_S4_1_ok.wav"
+        },
+        {
+          "index": 2,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_affirm.wav"
+          },
+          "heard": "はい、そうです。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.62,
+              "name": "confirm_field",
+              "args": {
+                "result": "affirmed",
+                "question_id": "Q2"
+              },
+              "reply": "next",
+              "ack": "arigatou",
+              "say": null,
+              "play": [
+                {
+                  "kind": "question",
+                  "id": "Q3",
+                  "text": "続きましてご来店の人数をお伺いしてもよろしいでしょうか？",
+                  "lead": "続きまして"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.62,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.254,
+              "text": "はい、そうです。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.62,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.62,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q3",
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          }
+        },
+        {
+          "index": 3,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_filler_eto.wav"
+          },
+          "heard": "ええとですね。",
+          "intended": "はい。",
+          "tool_events": [],
+          "first_audio_after_s": 1.639,
+          "finished_after_s": 2.149,
+          "audio_seconds": 0.53,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.639,
+              "audio_s": 0.0,
+              "text": "はい。"
+            }
+          ],
+          "heard_events": [
+            {
+              "at_s": 0.393,
+              "text": "ええとですね。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 1.639,
+              "kind": "audio_start",
+              "chunk": 0
+            },
+            {
+              "at_s": 2.149,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q3",
+          "check": {
+            "voiced_s": 0.17,
+            "compared_with": "intended",
+            "kind": "silent",
+            "timed_out": false
+          },
+          "audio_file": "20261017_064442_G37_長い間_1_S4_3_silent.wav"
+        },
+        {
+          "index": 4,
+          "session": 1,
+          "callee": {
+            "silence_s": 6.0
+          },
+          "heard": "",
+          "intended": "",
+          "tool_events": [],
+          "first_audio_after_s": null,
+          "finished_after_s": null,
+          "audio_seconds": null,
+          "timed_out": true,
+          "said_events": [],
+          "heard_events": [],
+          "timeline": [],
+          "phase_after": "asking",
+          "current_after": "Q3",
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": true
+          }
+        },
+        {
+          "index": 5,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_three_people.wav"
+          },
+          "heard": "3人です。",
+          "intended": "かしこまりました。3人で大丈夫でしょうか？",
+          "tool_events": [
+            {
+              "at_s": 0.782,
+              "name": "record_answer",
+              "args": {
+                "question_id": "Q3",
+                "condition_id": "答えた",
+                "value": "3人"
+              },
+              "reply": "confirm_required",
+              "ack": "hai",
+              "say": "かしこまりました。3人で大丈夫でしょうか？",
+              "play": null
+            }
+          ],
+          "first_audio_after_s": 1.152,
+          "finished_after_s": 4.116,
+          "audio_seconds": 2.96,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.539,
+              "audio_s": 2.0,
+              "text": "かしこまりました。3人"
+            },
+            {
+              "at_s": 1.588,
+              "audio_s": 2.96,
+              "text": "で大丈夫でしょうか？"
+            }
+          ],
+          "heard_events": [
+            {
+              "at_s": 0.607,
+              "text": "3人です。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.782,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.8,
+              "kind": "turn_complete"
+            },
+            {
+              "at_s": 1.152,
+              "kind": "audio_start",
+              "chunk": 1
+            },
+            {
+              "at_s": 4.116,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q3",
+          "check": {
+            "voiced_s": 2.66,
+            "compared_with": "intended",
+            "morae": 22,
+            "expected_s": 2.44,
+            "ratio": 1.09,
+            "kind": "ok"
+          },
+          "audio_file": "20261017_064453_G37_長い間_1_S4_5_ok.wav"
+        },
+        {
+          "index": 6,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_affirm.wav"
+          },
+          "heard": "はい、そうです。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.32,
+              "name": "confirm_field",
+              "args": {
+                "result": "affirmed",
+                "question_id": "Q3"
+              },
+              "reply": "end",
+              "ack": "hai",
+              "say": null,
+              "play": [
+                {
+                  "kind": "closing",
+                  "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.32,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.319,
+              "text": "はい、そうです。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.32,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.32,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "closing",
+          "current_after": null,
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          }
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "question_id": "Q1",
+            "condition_id": "はい",
+            "value": "はい"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q2",
+            "question": "ご希望の日時をお聞かせいただけますでしょうか？",
+            "play": [
+              {
+                "kind": "question",
+                "id": "Q2",
+                "text": "それではご希望の日時をお聞かせいただけますでしょうか？",
+                "lead": "それでは"
+              }
+            ],
+            "message": "受け付けました。次の質問 Q2「それではご希望の日時をお聞かせいただけますでしょうか？」は、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、相手の答えを待ってください。相手が答えたら record_answer で報告します。",
+            "ack": "shouchi"
+          },
+          "callee_turns": 1
+        },
+        {
+          "op": "record_answer",
+          "args": {
+            "condition_id": "答えた",
+            "value": "15日の午後2時",
+            "question_id": "Q2"
+          },
+          "reply": {
+            "result": "confirm_required",
+            "value": "15日の午後2時",
+            "say": "ありがとうございます。15日の午後2時でよろしいでしょうか？",
+            "after": null,
+            "message": "言い直して確かめます。「ありがとうございます。15日の午後2時でよろしいでしょうか？」と言って、相手の返事を待ってください。",
+            "ack": "hai"
+          },
+          "callee_turns": 2
+        },
+        {
+          "op": "confirm_field",
+          "args": {
+            "result": "affirmed",
+            "question_id": "Q2"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q3",
+            "question": "ご来店の人数をお伺いしてもよろしいでしょうか？",
+            "play": [
+              {
+                "kind": "question",
+                "id": "Q3",
+                "text": "続きましてご来店の人数をお伺いしてもよろしいでしょうか？",
+                "lead": "続きまして"
+              }
+            ],
+            "message": "確認できました。次の質問 Q3「続きましてご来店の人数をお伺いしてもよろしいでしょうか？」は、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、相手の答えを待ってください。相手が答えたら record_answer で報告します。",
+            "ack": "arigatou"
+          },
+          "callee_turns": 3
+        },
+        {
+          "op": "record_answer",
+          "args": {
+            "question_id": "Q3",
+            "condition_id": "答えた",
+            "value": "3人"
+          },
+          "reply": {
+            "result": "confirm_required",
+            "value": "3人",
+            "say": "かしこまりました。3人で大丈夫でしょうか？",
+            "after": null,
+            "message": "言い直して確かめます。「かしこまりました。3人で大丈夫でしょうか？」と言って、相手の返事を待ってください。",
+            "ack": "hai"
+          },
+          "callee_turns": 5
+        },
+        {
+          "op": "confirm_field",
+          "args": {
+            "result": "affirmed",
+            "question_id": "Q3"
+          },
+          "reply": {
+            "result": "end",
+            "play": [
+              {
+                "kind": "closing",
+                "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+              }
+            ],
+            "message": "確認できました。質問は終わりです。締めの言葉「お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。」は、プログラムが録音で流しました。何も言わずに終えます。",
+            "ack": "hai"
+          },
+          "callee_turns": 6
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "accepted",
+          "value": "はい",
+          "condition": "はい",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q2": {
+          "state": "confirmed",
+          "value": "15日の午後2時",
+          "condition": "答えた",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q3": {
+          "state": "confirmed",
+          "value": "3人",
+          "condition": "答えた",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        }
+      },
+      "export": {
+        "Q1": "はい",
+        "Q2": "15日の午後2時",
+        "Q3": "3人"
+      },
+      "final_phase": "closing",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "turns_measured": [
+        {
+          "callee": "yes_reserved",
+          "said": "",
+          "reports": [
+            "record_answer"
+          ],
+          "replies": [
+            "next"
+          ],
+          "spoke": false,
+          "heard_at_report": "はい、予約しています。",
+          "ack": "shouchi",
+          "ack_at_s": 0.812,
+          "first_heard_s": 0.812
+        },
+        {
+          "callee": "datetime_pm",
+          "said": "ありがとうございます。15日の午後2時でよろしいでしょうか？",
+          "reports": [
+            "record_answer"
+          ],
+          "replies": [
+            "confirm_required"
+          ],
+          "spoke": true,
+          "heard_at_report": "15 日の午後 2 時でお願いします。",
+          "cut_in": false,
+          "ai_at_s": 1.582,
+          "ack": "hai",
+          "ack_at_s": 1.048,
+          "first_heard_s": 1.048
+        },
+        {
+          "callee": "affirm",
+          "said": "",
+          "reports": [
+            "confirm_field"
+          ],
+          "replies": [
+            "next"
+          ],
+          "spoke": false,
+          "heard_at_report": "はい、そうです。",
+          "ack": "arigatou",
+          "ack_at_s": 1.01,
+          "first_heard_s": 1.01
+        },
+        {
+          "callee": "filler_eto",
+          "said": "はい。",
+          "reports": [],
+          "replies": [],
+          "spoke": true,
+          "cut_in": false,
+          "ai_at_s": 1.999,
+          "first_heard_s": 1.999
+        },
+        {
+          "callee": "silence6.0",
+          "said": "",
+          "reports": [],
+          "replies": [],
+          "spoke": false
+        },
+        {
+          "callee": "three_people",
+          "said": "かしこまりました。3人で大丈夫でしょうか？",
+          "reports": [
+            "record_answer"
+          ],
+          "replies": [
+            "confirm_required"
+          ],
+          "spoke": true,
+          "heard_at_report": "3人です。",
+          "cut_in": false,
+          "ai_at_s": 1.242,
+          "ack": "hai",
+          "ack_at_s": 0.872,
+          "first_heard_s": 0.872
+        },
+        {
+          "callee": "affirm",
+          "said": "",
+          "reports": [
+            "confirm_field"
+          ],
+          "replies": [
+            "end"
+          ],
+          "spoke": false,
+          "heard_at_report": "はい、そうです。",
+          "ack": "hai",
+          "ack_at_s": 0.71,
+          "first_heard_s": 0.71
+        }
+      ],
+      "checks": {
+        "q1_ok": true,
+        "q2_ok": true,
+        "q3_ok": true,
+        "rejected": 0,
+        "ask_backs": 0,
+        "final_phase": "closing"
+      },
+      "acks": [
+        "shouchi",
+        "hai",
+        "arigatou",
+        "hai",
+        "hai"
+      ],
+      "says": [
+        "ありがとうございます。15日の午後2時でよろしいでしょうか？",
+        "かしこまりました。3人で大丈夫でしょうか？"
+      ],
+      "play_turns": [
+        {
+          "played": [
+            "それではご希望の日時をお聞かせいただけますでしょうか？"
+          ],
+          "ai_spoke": false,
+          "ai_said": ""
+        },
+        {
+          "played": [
+            "続きましてご来店の人数をお伺いしてもよろしいでしょうか？"
+          ],
+          "ai_spoke": false,
+          "ai_said": ""
+        },
+        {
+          "played": [
+            "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+          ],
+          "ai_spoke": false,
+          "ai_said": ""
+        }
+      ],
+      "after_play": [
+        {
+          "said": "ありがとうございます。15日の午後2時でよろしいでしょうか？",
+          "repeated_question": false
+        },
+        {
+          "said": "はい。",
+          "repeated_question": false
+        }
+      ]
+    },
+    {
+      "rep": 1,
+      "type": "S4",
+      "scene": "先に答えた",
+      "voice_type": "S4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_yes_reserved.wav"
+          },
+          "heard": "はい、予約しています。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.356,
+              "name": "record_answer",
+              "args": {
+                "question_id": "Q1",
+                "condition_id": "はい",
+                "value": "はい"
+              },
+              "reply": "next",
+              "ack": "shouchi",
+              "say": null,
+              "play": [
+                {
+                  "kind": "question",
+                  "id": "Q2",
+                  "text": "それではご希望の日時をお聞かせいただけますでしょうか？",
+                  "lead": "それでは"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.357,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.344,
+              "text": "はい、予約しています。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.356,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.357,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          }
+        },
+        {
+          "index": 1,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_three_people.wav",
+            "again": "Leda_datetime_pm.wav"
+          },
+          "heard": "3人です。",
+          "intended": "恐れ入ります。ご希望の日時をもう一度お聞かせいただいてもよろしいでしょうか？",
+          "tool_events": [
+            {
+              "at_s": 0.732,
+              "name": "record_answer",
+              "args": {
+                "value": "3人",
+                "condition_id": "答えた",
+                "question_id": "Q2"
+              },
+              "reply": "ask_back",
+              "ack": "hai",
+              "say": "恐れ入ります。ご希望の日時をもう一度お聞かせいただいてもよろしいでしょうか？",
+              "play": null
+            }
+          ],
+          "first_audio_after_s": 1.105,
+          "finished_after_s": 6.0,
+          "audio_seconds": 4.89,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.105,
+              "audio_s": 0.0,
+              "text": "恐れ入ります。ご希望の日時"
+            },
+            {
+              "at_s": 1.355,
+              "audio_s": 1.77,
+              "text": "をもう一度お聞かせ"
+            },
+            {
+              "at_s": 1.546,
+              "audio_s": 2.77,
+              "text": "いただいてもよろしい"
+            },
+            {
+              "at_s": 1.68,
+              "audio_s": 3.49,
+              "text": "でしょうか？"
+            }
+          ],
+          "heard_events": [
+            {
+              "at_s": 0.648,
+              "text": "3人です。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.732,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.735,
+              "kind": "turn_complete"
+            },
+            {
+              "at_s": 1.105,
+              "kind": "audio_start",
+              "chunk": 1
+            },
+            {
+              "at_s": 6.0,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "check": {
+            "voiced_s": 4.5,
+            "compared_with": "intended",
+            "morae": 39,
+            "expected_s": 4.33,
+            "ratio": 1.04,
+            "kind": "ok"
+          },
+          "audio_file": "20261017_064508_G37_先に答えた_1_S4_1_ok.wav"
+        },
+        {
+          "index": 1,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_datetime_pm.wav",
+            "again": "Leda_datetime_pm.wav"
+          },
+          "heard": "15 日の午後 2 時でお願いします。",
+          "intended": "ありがとうございます。15日の午後2時とおっしゃいましたでしょうか？",
+          "tool_events": [
+            {
+              "at_s": 0.5,
+              "name": "record_answer",
+              "args": {
+                "value": "15日の午後2時",
+                "condition_id": "答えた",
+                "question_id": "Q2"
+              },
+              "reply": "confirm_required",
+              "ack": "hai",
+              "say": "ありがとうございます。15日の午後2時とおっしゃいましたでしょうか？",
+              "play": null
+            }
+          ],
+          "first_audio_after_s": 0.893,
+          "finished_after_s": 5.126,
+          "audio_seconds": 4.23,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 0.893,
+              "audio_s": 0.0,
+              "text": "ありがとうございます。15"
+            },
+            {
+              "at_s": 1.213,
+              "audio_s": 1.79,
+              "text": "日の午後2時"
+            },
+            {
+              "at_s": 1.368,
+              "audio_s": 2.79,
+              "text": "とおっしゃいましたでしょうか？"
+            }
+          ],
+          "heard_events": [
+            {
+              "at_s": 0.367,
+              "text": "15 日の午後 2 時でお願いします。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.5,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.502,
+              "kind": "turn_complete"
+            },
+            {
+              "at_s": 0.893,
+              "kind": "audio_start",
+              "chunk": 1
+            },
+            {
+              "at_s": 5.126,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "check": {
+            "voiced_s": 3.98,
+            "compared_with": "intended",
+            "morae": 35,
+            "expected_s": 3.89,
+            "ratio": 1.02,
+            "kind": "ok"
+          },
+          "audio_file": "20261017_064516_G37_先に答えた_1_S4_1_ok.wav"
+        },
+        {
+          "index": 2,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_affirm.wav"
+          },
+          "heard": "はい。そうです。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.317,
+              "name": "confirm_field",
+              "args": {
+                "result": "affirmed",
+                "correction": "15日の午後2時",
+                "question_id": "Q2"
+              },
+              "reply": "next",
+              "ack": "arigatou",
+              "say": null,
+              "play": [
+                {
+                  "kind": "question",
+                  "id": "Q3",
+                  "text": "続きましてご来店の人数をお伺いしてもよろしいでしょうか？",
+                  "lead": "続きまして"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.322,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.23,
+              "text": "はい。そうです。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.318,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.322,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q3",
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          }
+        },
+        {
+          "index": 3,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_three_people.wav",
+            "again": "Leda_three_people.wav"
+          },
+          "heard": "3人です。",
+          "intended": "かしこまりました。3人でよろしいでしょうか？",
+          "tool_events": [
+            {
+              "at_s": 0.791,
+              "name": "record_answer",
+              "args": {
+                "question_id": "Q3",
+                "condition_id": "答えた",
+                "value": "3人"
+              },
+              "reply": "confirm_required",
+              "ack": "hai",
+              "say": "かしこまりました。3人でよろしいでしょうか？",
+              "play": null
+            }
+          ],
+          "first_audio_after_s": 1.512,
+          "finished_after_s": 4.268,
+          "audio_seconds": 2.75,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.512,
+              "audio_s": 0.0,
+              "text": "かしこまりました。3"
+            },
+            {
+              "at_s": 1.859,
+              "audio_s": 1.91,
+              "text": "人でよろしいでしょうか？"
+            }
+          ],
+          "heard_events": [
+            {
+              "at_s": 0.742,
+              "text": "3人です。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.791,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.791,
+              "kind": "turn_complete"
+            },
+            {
+              "at_s": 1.512,
+              "kind": "audio_start",
+              "chunk": 1
+            },
+            {
+              "at_s": 4.268,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q3",
+          "check": {
+            "voiced_s": 2.48,
+            "compared_with": "intended",
+            "morae": 21,
+            "expected_s": 2.33,
+            "ratio": 1.06,
+            "kind": "ok"
+          },
+          "audio_file": "20261017_064523_G37_先に答えた_1_S4_3_ok.wav"
+        },
+        {
+          "index": 4,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_affirm.wav"
+          },
+          "heard": "はい、そうです。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.263,
+              "name": "confirm_field",
+              "args": {
+                "result": "affirmed",
+                "question_id": "Q3",
+                "correction": "3人"
+              },
+              "reply": "end",
+              "ack": "hai",
+              "say": null,
+              "play": [
+                {
+                  "kind": "closing",
+                  "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.265,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.263,
+              "text": "はい、そうです。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.263,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.265,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "closing",
+          "current_after": null,
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          }
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "question_id": "Q1",
+            "condition_id": "はい",
+            "value": "はい"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q2",
+            "question": "ご希望の日時をお聞かせいただけますでしょうか？",
+            "play": [
+              {
+                "kind": "question",
+                "id": "Q2",
+                "text": "それではご希望の日時をお聞かせいただけますでしょうか？",
+                "lead": "それでは"
+              }
+            ],
+            "message": "受け付けました。次の質問 Q2「それではご希望の日時をお聞かせいただけますでしょうか？」は、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、相手の答えを待ってください。相手が答えたら record_answer で報告します。",
+            "ack": "shouchi"
+          },
+          "callee_turns": 1
+        },
+        {
+          "op": "record_answer",
+          "args": {
+            "value": "3人",
+            "condition_id": "答えた",
+            "question_id": "Q2"
+          },
+          "reply": {
+            "result": "ask_back",
+            "question_id": "Q2",
+            "say": "恐れ入ります。ご希望の日時をもう一度お聞かせいただいてもよろしいでしょうか？",
+            "ask_n": 1,
+            "ask_reason": "form",
+            "ask_last": false,
+            "message": "Q2「ご希望の日時をお聞かせいただけますでしょうか？」の答えとして「3人」が報告されましたが、日付も時刻も無く、数だけがあります。「恐れ入ります。ご希望の日時をもう一度お聞かせいただいてもよろしいでしょうか？」と聞き返して、相手の答えを待ってください。相手が答えたら record_answer で報告します。",
+            "ack": "hai"
+          },
+          "callee_turns": 2
+        },
+        {
+          "op": "record_answer",
+          "args": {
+            "value": "15日の午後2時",
+            "condition_id": "答えた",
+            "question_id": "Q2"
+          },
+          "reply": {
+            "result": "confirm_required",
+            "value": "15日の午後2時",
+            "say": "ありがとうございます。15日の午後2時とおっしゃいましたでしょうか？",
+            "after": null,
+            "message": "言い直して確かめます。「ありがとうございます。15日の午後2時とおっしゃいましたでしょうか？」と言って、相手の返事を待ってください。",
+            "ack": "hai"
+          },
+          "callee_turns": 3
+        },
+        {
+          "op": "confirm_field",
+          "args": {
+            "result": "affirmed",
+            "correction": "15日の午後2時",
+            "question_id": "Q2"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q3",
+            "question": "ご来店の人数をお伺いしてもよろしいでしょうか？",
+            "play": [
+              {
+                "kind": "question",
+                "id": "Q3",
+                "text": "続きましてご来店の人数をお伺いしてもよろしいでしょうか？",
+                "lead": "続きまして"
+              }
+            ],
+            "message": "確認できました。次の質問 Q3「続きましてご来店の人数をお伺いしてもよろしいでしょうか？」は、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、相手の答えを待ってください。相手が答えたら record_answer で報告します。",
+            "ack": "arigatou"
+          },
+          "callee_turns": 4
+        },
+        {
+          "op": "record_answer",
+          "args": {
+            "question_id": "Q3",
+            "condition_id": "答えた",
+            "value": "3人"
+          },
+          "reply": {
+            "result": "confirm_required",
+            "value": "3人",
+            "say": "かしこまりました。3人でよろしいでしょうか？",
+            "after": null,
+            "message": "言い直して確かめます。「かしこまりました。3人でよろしいでしょうか？」と言って、相手の返事を待ってください。",
+            "ack": "hai"
+          },
+          "callee_turns": 5
+        },
+        {
+          "op": "confirm_field",
+          "args": {
+            "result": "affirmed",
+            "question_id": "Q3",
+            "correction": "3人"
+          },
+          "reply": {
+            "result": "end",
+            "play": [
+              {
+                "kind": "closing",
+                "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+              }
+            ],
+            "message": "確認できました。質問は終わりです。締めの言葉「お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。」は、プログラムが録音で流しました。何も言わずに終えます。",
+            "ack": "hai"
+          },
+          "callee_turns": 6
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "accepted",
+          "value": "はい",
+          "condition": "はい",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q2": {
+          "state": "confirmed",
+          "value": "15日の午後2時",
+          "condition": "答えた",
+          "ask_backs": 1,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q3": {
+          "state": "confirmed",
+          "value": "3人",
+          "condition": "答えた",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        }
+      },
+      "export": {
+        "Q1": "はい",
+        "Q2": "15日の午後2時",
+        "Q3": "3人"
+      },
+      "final_phase": "closing",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "turns_measured": [
+        {
+          "callee": "yes_reserved",
+          "said": "",
+          "reports": [
+            "record_answer"
+          ],
+          "replies": [
+            "next"
+          ],
+          "spoke": false,
+          "heard_at_report": "はい、予約しています。",
+          "ack": "shouchi",
+          "ack_at_s": 0.846,
+          "first_heard_s": 0.846
+        },
+        {
+          "callee": "three_people",
+          "said": "恐れ入ります。ご希望の日時をもう一度お聞かせいただいてもよろしいでしょうか？",
+          "reports": [
+            "record_answer"
+          ],
+          "replies": [
+            "ask_back"
+          ],
+          "spoke": true,
+          "heard_at_report": "3人です。",
+          "cut_in": false,
+          "ai_at_s": 1.195,
+          "ack": "hai",
+          "ack_at_s": 0.822,
+          "first_heard_s": 0.822
+        },
+        {
+          "callee": "datetime_pm",
+          "said": "ありがとうございます。15日の午後2時とおっしゃいましたでしょうか？",
+          "reports": [
+            "record_answer"
+          ],
+          "replies": [
+            "confirm_required"
+          ],
+          "spoke": true,
+          "heard_at_report": "15 日の午後 2 時でお願いします。",
+          "cut_in": false,
+          "ai_at_s": 1.303,
+          "ack": "hai",
+          "ack_at_s": 0.91,
+          "first_heard_s": 0.91
+        },
+        {
+          "callee": "affirm",
+          "said": "",
+          "reports": [
+            "confirm_field"
+          ],
+          "replies": [
+            "next"
+          ],
+          "spoke": false,
+          "heard_at_report": "はい。そうです。",
+          "ack": "arigatou",
+          "ack_at_s": 0.707,
+          "first_heard_s": 0.707
+        },
+        {
+          "callee": "three_people",
+          "said": "かしこまりました。3人でよろしいでしょうか？",
+          "reports": [
+            "record_answer"
+          ],
+          "replies": [
+            "confirm_required"
+          ],
+          "spoke": true,
+          "heard_at_report": "3人です。",
+          "cut_in": false,
+          "ai_at_s": 1.602,
+          "ack": "hai",
+          "ack_at_s": 0.881,
+          "first_heard_s": 0.881
+        },
+        {
+          "callee": "affirm",
+          "said": "",
+          "reports": [
+            "confirm_field"
+          ],
+          "replies": [
+            "end"
+          ],
+          "spoke": false,
+          "heard_at_report": "はい、そうです。",
+          "ack": "hai",
+          "ack_at_s": 0.653,
+          "first_heard_s": 0.653
+        }
+      ],
+      "checks": {
+        "q1_ok": true,
+        "q2_ok": true,
+        "q3_ok": true,
+        "rejected": 0,
+        "ask_backs": 1,
+        "final_phase": "closing"
+      },
+      "acks": [
+        "shouchi",
+        "hai",
+        "hai",
+        "arigatou",
+        "hai",
+        "hai"
+      ],
+      "says": [
+        "恐れ入ります。ご希望の日時をもう一度お聞かせいただいてもよろしいでしょうか？",
+        "ありがとうございます。15日の午後2時とおっしゃいましたでしょうか？",
+        "かしこまりました。3人でよろしいでしょうか？"
+      ],
+      "play_turns": [
+        {
+          "played": [
+            "それではご希望の日時をお聞かせいただけますでしょうか？"
+          ],
+          "ai_spoke": false,
+          "ai_said": ""
+        },
+        {
+          "played": [
+            "続きましてご来店の人数をお伺いしてもよろしいでしょうか？"
+          ],
+          "ai_spoke": false,
+          "ai_said": ""
+        },
+        {
+          "played": [
+            "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+          ],
+          "ai_spoke": false,
+          "ai_said": ""
+        }
+      ],
+      "after_play": [
+        {
+          "said": "恐れ入ります。ご希望の日時をもう一度お聞かせいただいてもよろしいでしょうか？",
+          "repeated_question": false
+        },
+        {
+          "said": "かしこまりました。3人でよろしいでしょうか？",
+          "repeated_question": false
+        }
+      ]
+    },
+    {
+      "rep": 1,
+      "type": "S4",
+      "scene": "訂正",
+      "voice_type": "S4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_yes_reserved.wav"
+          },
+          "heard": "はい、予約しています。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.338,
+              "name": "record_answer",
+              "args": {
+                "question_id": "Q1",
+                "value": "はい",
+                "condition_id": "はい"
+              },
+              "reply": "next",
+              "ack": "shouchi",
+              "say": null,
+              "play": [
+                {
+                  "kind": "question",
+                  "id": "Q2",
+                  "text": "それではご希望の日時をお聞かせいただけますでしょうか？",
+                  "lead": "それでは"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.339,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.298,
+              "text": "はい、予約しています。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.339,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.339,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          }
+        },
+        {
+          "index": 1,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_datetime_pm.wav",
+            "again": "Leda_datetime_pm.wav"
+          },
+          "heard": "15 日の午後 2 時でお願いします。",
+          "intended": "ありがとうございます。15日の午後2時でよろしいでしょうか？",
+          "tool_events": [
+            {
+              "at_s": 0.63,
+              "name": "record_answer",
+              "args": {
+                "question_id": "Q2",
+                "condition_id": "答えた",
+                "value": "15日の午後2時"
+              },
+              "reply": "confirm_required",
+              "ack": "hai",
+              "say": "ありがとうございます。15日の午後2時でよろしいでしょうか？",
+              "play": null
+            }
+          ],
+          "first_audio_after_s": 1.073,
+          "finished_after_s": 4.64,
+          "audio_seconds": 3.56,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.073,
+              "audio_s": 0.0,
+              "text": "ありがとうございます。15日の"
+            },
+            {
+              "at_s": 1.78,
+              "audio_s": 1.72,
+              "text": "午後2時でよろしいでしょうか？"
+            }
+          ],
+          "heard_events": [
+            {
+              "at_s": 0.369,
+              "text": "15 日の午後 2 時でお願いします。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.63,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.631,
+              "kind": "turn_complete"
+            },
+            {
+              "at_s": 1.073,
+              "kind": "audio_start",
+              "chunk": 1
+            },
+            {
+              "at_s": 4.64,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "check": {
+            "voiced_s": 3.29,
+            "compared_with": "intended",
+            "morae": 32,
+            "expected_s": 3.56,
+            "ratio": 0.93,
+            "kind": "ok"
+          },
+          "audio_file": "20261017_064539_G37_訂正_1_S4_1_ok.wav"
+        },
+        {
+          "index": 2,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_correct_16.wav",
+            "again": "Leda_correct_16.wav"
+          },
+          "heard": "家 16 日の午後 2 時です。",
+          "intended": "改めまして16日の午後2時で大丈夫でしょうか？",
+          "tool_events": [
+            {
+              "at_s": 0.536,
+              "name": "confirm_field",
+              "args": {
+                "question_id": "Q2",
+                "correction": "16日の午後2時",
+                "result": "corrected"
+              },
+              "reply": "confirm_required",
+              "ack": "shitsurei",
+              "say": "改めまして16日の午後2時で大丈夫でしょうか？",
+              "play": null
+            }
+          ],
+          "first_audio_after_s": 0.972,
+          "finished_after_s": 4.765,
+          "audio_seconds": 3.81,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 0.972,
+              "audio_s": 0.0,
+              "text": "改めまして16日の"
+            },
+            {
+              "at_s": 1.203,
+              "audio_s": 1.93,
+              "text": "午後2時で大丈夫"
+            },
+            {
+              "at_s": 1.37,
+              "audio_s": 2.85,
+              "text": "でしょうか？"
+            }
+          ],
+          "heard_events": [
+            {
+              "at_s": 0.443,
+              "text": "家 16 日の午後 2 時です。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.536,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.536,
+              "kind": "turn_complete"
+            },
+            {
+              "at_s": 0.972,
+              "kind": "audio_start",
+              "chunk": 1
+            },
+            {
+              "at_s": 4.765,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "check": {
+            "voiced_s": 3.51,
+            "compared_with": "intended",
+            "morae": 30,
+            "expected_s": 3.33,
+            "ratio": 1.05,
+            "kind": "ok"
+          },
+          "audio_file": "20261017_064546_G37_訂正_1_S4_2_ok.wav"
+        },
+        {
+          "index": 3,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_affirm.wav"
+          },
+          "heard": "はい。そうです。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.22,
+              "name": "confirm_field",
+              "args": {
+                "result": "affirmed",
+                "question_id": "Q2"
+              },
+              "reply": "next",
+              "ack": "arigatou",
+              "say": null,
+              "play": [
+                {
+                  "kind": "question",
+                  "id": "Q3",
+                  "text": "続きましてご来店の人数をお伺いしてもよろしいでしょうか？",
+                  "lead": "続きまして"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.222,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.178,
+              "text": "はい。そうです。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.22,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.222,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q3",
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          }
+        },
+        {
+          "index": 4,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_three_people.wav",
+            "again": "Leda_three_people.wav"
+          },
+          "heard": "3 人です。",
+          "intended": "かしこまりました。3人で大丈夫でしょうか？",
+          "tool_events": [
+            {
+              "at_s": 0.796,
+              "name": "record_answer",
+              "args": {
+                "question_id": "Q3",
+                "value": "3人",
+                "condition_id": "答えた"
+              },
+              "reply": "confirm_required",
+              "ack": "hai",
+              "say": "かしこまりました。3人で大丈夫でしょうか？",
+              "play": null
+            }
+          ],
+          "first_audio_after_s": 1.208,
+          "finished_after_s": 4.081,
+          "audio_seconds": 2.89,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.208,
+              "audio_s": 0.0,
+              "text": "かしこまりました。3人で大丈夫"
+            },
+            {
+              "at_s": 1.496,
+              "audio_s": 1.97,
+              "text": "でしょうか？"
+            }
+          ],
+          "heard_events": [
+            {
+              "at_s": 0.706,
+              "text": "3 人です。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.796,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.796,
+              "kind": "turn_complete"
+            },
+            {
+              "at_s": 1.209,
+              "kind": "audio_start",
+              "chunk": 1
+            },
+            {
+              "at_s": 4.081,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q3",
+          "check": {
+            "voiced_s": 2.59,
+            "compared_with": "intended",
+            "morae": 22,
+            "expected_s": 2.44,
+            "ratio": 1.06,
+            "kind": "ok"
+          },
+          "audio_file": "20261017_064553_G37_訂正_1_S4_4_ok.wav"
+        },
+        {
+          "index": 5,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_affirm.wav"
+          },
+          "heard": "はい、そうです。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.304,
+              "name": "confirm_field",
+              "args": {
+                "result": "affirmed",
+                "question_id": "Q3"
+              },
+              "reply": "end",
+              "ack": "hai",
+              "say": null,
+              "play": [
+                {
+                  "kind": "closing",
+                  "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.304,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.258,
+              "text": "はい、そうです。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.304,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.304,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "closing",
+          "current_after": null,
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          }
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "question_id": "Q1",
+            "value": "はい",
+            "condition_id": "はい"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q2",
+            "question": "ご希望の日時をお聞かせいただけますでしょうか？",
+            "play": [
+              {
+                "kind": "question",
+                "id": "Q2",
+                "text": "それではご希望の日時をお聞かせいただけますでしょうか？",
+                "lead": "それでは"
+              }
+            ],
+            "message": "受け付けました。次の質問 Q2「それではご希望の日時をお聞かせいただけますでしょうか？」は、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、相手の答えを待ってください。相手が答えたら record_answer で報告します。",
+            "ack": "shouchi"
+          },
+          "callee_turns": 1
+        },
+        {
+          "op": "record_answer",
+          "args": {
+            "question_id": "Q2",
+            "condition_id": "答えた",
+            "value": "15日の午後2時"
+          },
+          "reply": {
+            "result": "confirm_required",
+            "value": "15日の午後2時",
+            "say": "ありがとうございます。15日の午後2時でよろしいでしょうか？",
+            "after": null,
+            "message": "言い直して確かめます。「ありがとうございます。15日の午後2時でよろしいでしょうか？」と言って、相手の返事を待ってください。",
+            "ack": "hai"
+          },
+          "callee_turns": 2
+        },
+        {
+          "op": "confirm_field",
+          "args": {
+            "question_id": "Q2",
+            "correction": "16日の午後2時",
+            "result": "corrected"
+          },
+          "reply": {
+            "result": "confirm_required",
+            "value": "16日の午後2時",
+            "say": "改めまして16日の午後2時で大丈夫でしょうか？",
+            "after": "misheard",
+            "message": "言い直して確かめます。「改めまして16日の午後2時で大丈夫でしょうか？」と言って、相手の返事を待ってください。",
+            "ack": "shitsurei"
+          },
+          "callee_turns": 3
+        },
+        {
+          "op": "confirm_field",
+          "args": {
+            "result": "affirmed",
+            "question_id": "Q2"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q3",
+            "question": "ご来店の人数をお伺いしてもよろしいでしょうか？",
+            "play": [
+              {
+                "kind": "question",
+                "id": "Q3",
+                "text": "続きましてご来店の人数をお伺いしてもよろしいでしょうか？",
+                "lead": "続きまして"
+              }
+            ],
+            "message": "確認できました。次の質問 Q3「続きましてご来店の人数をお伺いしてもよろしいでしょうか？」は、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、相手の答えを待ってください。相手が答えたら record_answer で報告します。",
+            "ack": "arigatou"
+          },
+          "callee_turns": 4
+        },
+        {
+          "op": "record_answer",
+          "args": {
+            "question_id": "Q3",
+            "value": "3人",
+            "condition_id": "答えた"
+          },
+          "reply": {
+            "result": "confirm_required",
+            "value": "3人",
+            "say": "かしこまりました。3人で大丈夫でしょうか？",
+            "after": null,
+            "message": "言い直して確かめます。「かしこまりました。3人で大丈夫でしょうか？」と言って、相手の返事を待ってください。",
+            "ack": "hai"
+          },
+          "callee_turns": 5
+        },
+        {
+          "op": "confirm_field",
+          "args": {
+            "result": "affirmed",
+            "question_id": "Q3"
+          },
+          "reply": {
+            "result": "end",
+            "play": [
+              {
+                "kind": "closing",
+                "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+              }
+            ],
+            "message": "確認できました。質問は終わりです。締めの言葉「お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。」は、プログラムが録音で流しました。何も言わずに終えます。",
+            "ack": "hai"
+          },
+          "callee_turns": 6
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "accepted",
+          "value": "はい",
+          "condition": "はい",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q2": {
+          "state": "confirmed",
+          "value": "16日の午後2時",
+          "condition": "答えた",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 1
+        },
+        "Q3": {
+          "state": "confirmed",
+          "value": "3人",
+          "condition": "答えた",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        }
+      },
+      "export": {
+        "Q1": "はい",
+        "Q2": "16日の午後2時",
+        "Q3": "3人"
+      },
+      "final_phase": "closing",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "turns_measured": [
+        {
+          "callee": "yes_reserved",
+          "said": "",
+          "reports": [
+            "record_answer"
+          ],
+          "replies": [
+            "next"
+          ],
+          "spoke": false,
+          "heard_at_report": "はい、予約しています。",
+          "ack": "shouchi",
+          "ack_at_s": 0.828,
+          "first_heard_s": 0.828
+        },
+        {
+          "callee": "datetime_pm",
+          "said": "ありがとうございます。15日の午後2時でよろしいでしょうか？",
+          "reports": [
+            "record_answer"
+          ],
+          "replies": [
+            "confirm_required"
+          ],
+          "spoke": true,
+          "heard_at_report": "15 日の午後 2 時でお願いします。",
+          "cut_in": false,
+          "ai_at_s": 1.483,
+          "ack": "hai",
+          "ack_at_s": 1.04,
+          "first_heard_s": 1.04
+        },
+        {
+          "callee": "correct_16",
+          "said": "改めまして16日の午後2時で大丈夫でしょうか？",
+          "reports": [
+            "confirm_field"
+          ],
+          "replies": [
+            "confirm_required"
+          ],
+          "spoke": true,
+          "heard_at_report": "家 16 日の午後 2 時です。",
+          "cut_in": false,
+          "ai_at_s": 1.232,
+          "ack": "shitsurei",
+          "ack_at_s": 0.796,
+          "first_heard_s": 0.796
+        },
+        {
+          "callee": "affirm",
+          "said": "",
+          "reports": [
+            "confirm_field"
+          ],
+          "replies": [
+            "next"
+          ],
+          "spoke": false,
+          "heard_at_report": "はい。そうです。",
+          "ack": "arigatou",
+          "ack_at_s": 0.61,
+          "first_heard_s": 0.61
+        },
+        {
+          "callee": "three_people",
+          "said": "かしこまりました。3人で大丈夫でしょうか？",
+          "reports": [
+            "record_answer"
+          ],
+          "replies": [
+            "confirm_required"
+          ],
+          "spoke": true,
+          "heard_at_report": "3 人です。",
+          "cut_in": false,
+          "ai_at_s": 1.298,
+          "ack": "hai",
+          "ack_at_s": 0.886,
+          "first_heard_s": 0.886
+        },
+        {
+          "callee": "affirm",
+          "said": "",
+          "reports": [
+            "confirm_field"
+          ],
+          "replies": [
+            "end"
+          ],
+          "spoke": false,
+          "heard_at_report": "はい、そうです。",
+          "ack": "hai",
+          "ack_at_s": 0.694,
+          "first_heard_s": 0.694
+        }
+      ],
+      "checks": {
+        "q1_ok": true,
+        "q2_ok": true,
+        "q3_ok": true,
+        "rejected": 0,
+        "ask_backs": 0,
+        "final_phase": "closing"
+      },
+      "acks": [
+        "shouchi",
+        "hai",
+        "shitsurei",
+        "arigatou",
+        "hai",
+        "hai"
+      ],
+      "says": [
+        "ありがとうございます。15日の午後2時でよろしいでしょうか？",
+        "改めまして16日の午後2時で大丈夫でしょうか？",
+        "かしこまりました。3人で大丈夫でしょうか？"
+      ],
+      "play_turns": [
+        {
+          "played": [
+            "それではご希望の日時をお聞かせいただけますでしょうか？"
+          ],
+          "ai_spoke": false,
+          "ai_said": ""
+        },
+        {
+          "played": [
+            "続きましてご来店の人数をお伺いしてもよろしいでしょうか？"
+          ],
+          "ai_spoke": false,
+          "ai_said": ""
+        },
+        {
+          "played": [
+            "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+          ],
+          "ai_spoke": false,
+          "ai_said": ""
+        }
+      ],
+      "after_play": [
+        {
+          "said": "ありがとうございます。15日の午後2時でよろしいでしょうか？",
+          "repeated_question": false
+        },
+        {
+          "said": "かしこまりました。3人で大丈夫でしょうか？",
+          "repeated_question": false
+        }
+      ]
+    }
+  ]
+}

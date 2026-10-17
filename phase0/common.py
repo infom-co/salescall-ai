@@ -171,7 +171,9 @@ def is_quota(exc: BaseException) -> bool:
 def is_denied(exc: BaseException) -> bool:
     """キーのプロジェクトそのものが止められているか（403 PERMISSION_DENIED。「Your project has been denied access」）。
     2026-10-16：GEMINI_API_KEY_10 で、文字のモデルがこの答えだった（上限ではない＝待っても戻らない）。"""
-    return str(getattr(exc, "code", "")) == "403" or getattr(exc, "status", "") == "PERMISSION_DENIED"
+    # 会話のモデル（つなぎっぱなしの接続）では、閉じる番号 1008 と同じ文面で返る（2026-10-17：GEMINI_API_KEY_15）
+    return (str(getattr(exc, "code", "")) in ("403", "1008") or getattr(exc, "status", "") == "PERMISSION_DENIED"
+            or "denied access" in str(exc))
 
 
 def retry_after_s(exc: BaseException) -> float | None:
