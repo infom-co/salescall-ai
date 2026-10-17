@@ -732,7 +732,7 @@ class CallerNumberAndVoice(Base):
             self.tx(s, lambda tx: tx.execute(
                 "INSERT INTO salescall.recordings (tenant_id, client_id, set_id, part, spoken_text, audio_ref, audio_sha256)"
                 " VALUES (%s, %s, %s, 'Q2', 'x', 'test://x', %s)", (s["tenant"], s["client"], sid, "3" * 64)))
-        other = self.ready()                                                       # ほかの依頼者からは見えない
+        other = self.ready(tenant=s["tenant"])                                     # 同じ契約者のほかの依頼者からも見えない
         self.assertEqual(self.tx(other, lambda tx: recordings.parts(tx, sid)), {})
         cur = self.tx(s, lambda tx: recordings.current_sets(tx, s["version"], "Leda"))
         self.assertEqual(cur["business"], sid)
