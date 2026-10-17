@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
@@ -160,7 +161,7 @@ async def _collect_into(r: "TurnResult", session, *, started_at: float, on_tool_
         chunk = 0                  # いま受け取っている声のまとまりの番号（まとまりの終わりごとに増える）
         audio_in_chunk = False
 
-        def handle(msg):
+        async def handle(msg):
             nonlocal awaiting_reply_speech, audio_after_nudge, audio_in_chunk
             _count(r, msg)
             if msg.usage_metadata is not None:
@@ -175,6 +176,8 @@ async def _collect_into(r: "TurnResult", session, *, started_at: float, on_tool_
                 for fc in msg.tool_call.function_calls or []:
                     r.tool_calls.append({"name": fc.name, "args": fc.args, "at_s": at()})
                     out = on_tool_call(fc) if on_tool_call else {"result": "ok"}
+                    if inspect.isawaitable(out):  # 返事を作る処理が待つとき（別の耳の文字を待つ。convo.run_call の ear_check。G-15）
+                        out = await out
                     # on_tool_call は (返事, 話させない形か) も返せる（電話接続側が録音を流すときは、AIに話させない。G-37）
                     reply, silent = out if isinstance(out, tuple) else (out, False)
                     r.events.append({"at_s": at(), "kind": "tool_call", "name": fc.name, "args": fc.args, "reply": reply})
@@ -217,7 +220,7 @@ async def _collect_into(r: "TurnResult", session, *, started_at: float, on_tool_
 
         while True:
             async for msg in session.receive():
-                responses = handle(msg)
+                responses = await handle(msg)
                 if responses:
                     await session.send_tool_response(function_responses=[x for x, _ in responses])
                     r.events.append({"at_s": at(), "kind": "tool_response_sent", "chunk": chunk})

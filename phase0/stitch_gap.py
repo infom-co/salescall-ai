@@ -131,7 +131,7 @@ def played_wav(voice_type: str, item: dict) -> Path:
     if item["kind"] == "lead":
         return ack_wav(voice_type, LEAD_RECORDED[item["text"]])
     if item["kind"] == "closing":
-        return ack_wav(voice_type, "closing")
+        return ack_wav(voice_type, item.get("id", "closing"))  # ふつうの締め・断られたときの締め（flowctl.Flow._close）
     name = f"{item['id']}_{LEAD_RECORDED[item['lead']]}" if item.get("lead") else item["id"]
     return AUDIO_DIR.parent / "script" / f"{voice_type}_{name}.wav"
 

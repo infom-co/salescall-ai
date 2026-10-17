@@ -201,6 +201,16 @@ class FlowTest(unittest.TestCase):
             self.assertEqual((r["result"], r["say"]), ("end", CLOSE_DECLINED), reason)
             self.assertIn(CLOSE_DECLINED, r["message"])
         self.assertEqual(CLOSE_DECLINED, "お忙しいところ申し訳ございませんでした。それでは失礼いたします。")  # ユーザーの言葉のまま
+        # ふつうの締めも、AIが話す形では決まった言い方を渡す（⛔ 前は「締めの言葉を言って」とだけ伝え、AIが「お気軽にお問い合わせください」を足した）
+        from phrases import CLOSING
+        f = self.flow()
+        f.current = f.order[-1]
+        f.items[f.current].state = "accepted"
+        for q in f.order:
+            f.items[q].state = "accepted"
+        r = f._advance("")
+        self.assertEqual((r["result"], r["say"]), ("end", CLOSING))
+        self.assertIn("言葉を足しません", r["message"])
         from instruction import Business, build
         b = Business(company="アオバ物流", caller="佐藤", purpose="ご予約の確認", questions=list(self.flow().questions.values()))
         self.assertIn("約束してはいけません", build(b, "S2")[1])
@@ -1470,6 +1480,58 @@ class CalleeQuestionTest(unittest.TestCase):
             self.assertFalse(_CALLEE_ASKS.search(t), t)
 
 
+class EarCheckTest(unittest.TestCase):
+    """DESIGN.md 6-10 の (5)・G-15：確かめない型の答えは、会話AIの聞き取りと別の耳の文字を比べ、食い違えば意味を確かめる。
+    ⛔ G-14 の残りの誤り：「してないです」を会話AIが「捨てないです」と聞いてAIが「はい」を選んだ・「いや、これから」を「や、これから」と聞いて
+    「している」を選んだ（どちらも、別の耳は正しく聞いた）。"""
+
+    def flow(self, required=True):
+        from flowctl import Flow, Question
+        return Flow([Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"), required=required,
+                              meanings=AmbiguousAnswerTest.M),
+                     Question("Q2", "ご希望の日時をお聞かせいただけますでしょうか？", "datetime", conditions=("答えた",))])
+
+    def answer(self, f, heard, ear, cond):
+        f.on_callee(); f.on_heard(heard)
+        self.assertTrue(f.wants_ear("record_answer"))
+        f.on_ear(ear)
+        return f.apply("record_answer", {"question_id": "Q1", "condition_id": cond, "value": heard})
+
+    def test_alike(self):
+        from flowctl import heard_alike
+        for a, b in (("家まだしていません。", "いえ、まだしていません。"), ("いいえ、まだです。", "いえ、まだです。"), ("はい、予約しています。", "はい予約しています"),
+                     ("いや、これからなんです。", "いいえ、これからなんです。")):
+            self.assertTrue(heard_alike(a, b), (a, b))
+        for a, b in (("捨てないです。", "してないです。"), ("や、これからなんです。", "いや、これからなんです。"), ("はい、清掃しました。", "はい、先週しました。")):
+            self.assertFalse(heard_alike(a, b), (a, b))
+
+    def test_disagreement_is_confirmed(self):
+        f = self.flow()
+        r = self.answer(f, "捨てないです。", "してないです。", "はい")
+        self.assertEqual((r["result"], f.awaiting_confirm), ("confirm_required", "Q1"))
+        self.assertIn("ご予約はお済みということ", r["say"])                  # 意味の言葉で確かめる（曖昧な答えと同じ道）
+        self.assertTrue(any("別の耳" in why for _, _, why in f.items["Q1"].history))
+
+    def test_agreement_or_no_ear_is_taken(self):
+        for ear in ("いいえ、まだです。", None):                             # 同じこと・別の耳が間に合わなかった（比べない＝止まらない）
+            f = self.flow()
+            r = self.answer(f, "いえ、まだです。", ear, "いいえ")
+            self.assertEqual((r["result"], f.items["Q1"].state), ("next", "accepted"), ear)
+
+    def test_not_required_is_unresolved(self):
+        f = self.flow(required=False)
+        r = self.answer(f, "捨てないです。", "してないです。", "はい")
+        self.assertEqual(f.items["Q1"].state, "unresolved")                 # 必須でない項目は確かめない（曖昧な答えと同じ）
+
+    def test_only_for_choice_answers(self):
+        f = self.flow()
+        f.current = "Q2"
+        self.assertFalse(f.wants_ear("record_answer"))                     # 値を聞く型は、言い直して確かめる
+        self.assertFalse(f.wants_ear("confirm_field"))
+        f.on_callee()
+        self.assertIsNone(f.ear_said)                                       # 相手の発話ごとに消える
+
+
 class AmbiguousAnswerTest(unittest.TestCase):
     """DESIGN.md 6-10 の (3)：受け入れにも断りにも取れる答え（「大丈夫です」「結構です」）は、AIが選んだ選択肢のまま渡さず、意味を確かめる。
     ⛔ G-14：AIは24本中21本で、曖昧な答えを「はい」「いいえ」に決めた。⛔ 2026-10-17 に見つけた穴：選択肢の型の言い直しが
@@ -2279,7 +2341,8 @@ class PlayRecordingsTest(unittest.TestCase):
         f.on_callee()
         out, silent = f.handle_call(fc("confirm_field", 質問="Q2", 返事の種類="合っている"))
         self.assertTrue(silent)
-        self.assertEqual((f.log[-1]["reply"]["result"], f.log[-1]["reply"]["play"]), ("end", [{"kind": "closing", "text": CLOSING}]))
+        self.assertEqual((f.log[-1]["reply"]["result"], f.log[-1]["reply"]["play"]),
+                         ("end", [{"kind": "closing", "id": "closing", "text": CLOSING}]))
 
     def test_lead_is_fixed_by_question_order(self):
         """つなぎの言葉は質問の順番で決まる（依頼主ごとの録音は、質問1つにつき1本のまま）。最初の質問は名乗りと一緒なので付けない。"""
@@ -2288,13 +2351,30 @@ class PlayRecordingsTest(unittest.TestCase):
         self.assertEqual([spoken_question(qs, q.id)[1] for q in qs], ["", "それでは", "続きまして", "では", "それでは"])
         self.assertEqual(spoken_question(qs, "Q3")[0], "続きまして質問3ですか？")
 
-    def test_declined_call_is_not_played(self):
-        """通話を断られたときの締めは、これまでどおり（録音の締めは、質問が全部終わったときだけ）。"""
+    def test_declined_close_is_played_too(self):
+        """断られたときの締めも、毎回同じ文なので録音で流す（6-13。flowctl.Flow._close）。⛔ 前は「これまでどおり」AIが言っていた
+        （「お忙しいところ」はAIの声で崩れやすい）。"""
+        from phrases import CLOSE_DECLINED, RECORDED
+        for reason in ("通話を断られた", "相手が急いでいる"):
+            f = self.flow()
+            f.on_callee()
+            out, silent = f.handle_call(fc("request_end", 理由=reason))
+            self.assertTrue(silent, reason)
+            self.assertEqual(f.log[-1]["reply"]["play"], [{"kind": "closing", "id": "closing_declined", "text": CLOSE_DECLINED}])
+        self.assertEqual(RECORDED["closing_declined"], CLOSE_DECLINED)
+
+    def test_close_after_callee_question_is_said(self):
+        # 相手が最後に質問をしていたら、AIが短く答えてから、決まった締めの言い方のまま言う（録音を流すと、相手の質問にかぶせる）
+        from phrases import CLOSING
         f = self.flow()
-        f.on_callee()
-        out, silent = f.handle_call(fc("request_end", 理由="通話を断られた"))
+        f.on_callee(); f.handle_call(fc("record_answer", 質問="Q1", 答えの種類="はい"))
+        f.on_callee(); f.handle_call(fc("record_answer", 質問="Q2", 答えの種類="答えた", 値="15日の午後2時"))
+        f.on_callee(); f.on_heard("はい。当日はどなたが担当されるんですか？")
+        out, silent = f.handle_call(fc("confirm_field", 質問="Q2", 返事の種類="合っている"))
+        r = f.log[-1]["reply"]
         self.assertFalse(silent)
-        self.assertIsNone(f.log[-1]["reply"].get("play"))
+        self.assertEqual((r["result"], r["say"], r.get("play")), ("end", CLOSING, None))
+        self.assertIn(CLOSING, out["次にすること"])
 
     def test_rule_in_instruction_only_when_playing(self):
         from g22_opening import BUSINESS

@@ -1,0 +1,182 @@
+{
+  "item": "G-15-tail5-Fenrir",
+  "saved_at": "2026-10-17T10:58:50",
+  "rows": [
+    {
+      "rep": 0,
+      "voice": "Fenrir",
+      "id": "y1",
+      "wav": "g14/Fenrir_y1.wav",
+      "text": "はい、予約しています。",
+      "ear": "はい、予約しています。",
+      "ear_ok": true,
+      "diffs": [],
+      "first_s": 1.498,
+      "after_s": 1.498,
+      "live_n": 6,
+      "live_ok": 6,
+      "live_wrong": []
+    },
+    {
+      "rep": 0,
+      "voice": "Fenrir",
+      "id": "y2",
+      "wav": "g14/Fenrir_y2.wav",
+      "text": "はい。",
+      "ear": "はい。",
+      "ear_ok": true,
+      "diffs": [],
+      "first_s": 1.563,
+      "after_s": 1.563,
+      "live_n": 6,
+      "live_ok": 6,
+      "live_wrong": []
+    },
+    {
+      "rep": 0,
+      "voice": "Fenrir",
+      "id": "y3",
+      "wav": "g14/Fenrir_y3.wav",
+      "text": "はい、先週しました。",
+      "ear": "はい、先週しました。",
+      "ear_ok": true,
+      "diffs": [],
+      "first_s": 1.439,
+      "after_s": 1.439,
+      "live_n": 6,
+      "live_ok": 0,
+      "live_wrong": [
+        "はい、清掃しました。"
+      ]
+    },
+    {
+      "rep": 0,
+      "voice": "Fenrir",
+      "id": "y5",
+      "wav": "g14/Fenrir_y5.wav",
+      "text": "予約済みです。",
+      "ear": "予約済みです。",
+      "ear_ok": true,
+      "diffs": [],
+      "first_s": 1.659,
+      "after_s": 1.659,
+      "live_n": 5,
+      "live_ok": 5,
+      "live_wrong": []
+    },
+    {
+      "rep": 0,
+      "voice": "Fenrir",
+      "id": "y6",
+      "wav": "g14/Fenrir_y6.wav",
+      "text": "一応、予約はしてあります。",
+      "ear": "一応予約はしてあります。",
+      "ear_ok": true,
+      "diffs": [],
+      "first_s": 1.567,
+      "after_s": 1.567,
+      "live_n": 6,
+      "live_ok": 6,
+      "live_wrong": []
+    },
+    {
+      "rep": 0,
+      "voice": "Fenrir",
+      "id": "n1",
+      "wav": "g14/Fenrir_n1.wav",
+      "text": "いいえ、まだです。",
+      "ear": "いいえ、まだです。",
+      "ear_ok": true,
+      "diffs": [],
+      "first_s": 1.822,
+      "after_s": 1.822,
+      "live_n": 6,
+      "live_ok": 0,
+      "live_wrong": [
+        "いえ、まだです。"
+      ]
+    },
+    {
+      "rep": 0,
+      "voice": "Fenrir",
+      "id": "n2",
+      "wav": "g14/Fenrir_n2.wav",
+      "text": "いえ、まだしていません。",
+      "ear": "いえ、まだしていません。",
+      "ear_ok": true,
+      "diffs": [],
+      "first_s": 1.383,
+      "after_s": 1.383,
+      "live_n": 6,
+      "live_ok": 5,
+      "live_wrong": [
+        "いいえ、まだしていません。"
+      ]
+    },
+    {
+      "rep": 0,
+      "voice": "Fenrir",
+      "id": "n3",
+      "wav": "g14/Fenrir_n3.wav",
+      "text": "してないです。",
+      "ear": "してないです。",
+      "ear_ok": true,
+      "diffs": [],
+      "first_s": 1.701,
+      "after_s": 1.701,
+      "live_n": 6,
+      "live_ok": 4,
+      "live_wrong": [
+        "捨てないです。"
+      ]
+    },
+    {
+      "rep": 0,
+      "voice": "Fenrir",
+      "id": "n4",
+      "wav": "g14/Fenrir_n4.wav",
+      "text": "いや、これからなんです。",
+      "ear": "いや、これからなんです。",
+      "ear_ok": true,
+      "diffs": [],
+      "first_s": 1.736,
+      "after_s": 1.736,
+      "live_n": 6,
+      "live_ok": 6,
+      "live_wrong": []
+    },
+    {
+      "rep": 0,
+      "voice": "Fenrir",
+      "id": "n5",
+      "wav": "g14/Fenrir_n5.wav",
+      "text": "予約はしてないですね。",
+      "ear": "予約はしてないですね。",
+      "ear_ok": true,
+      "diffs": [],
+      "first_s": 1.619,
+      "after_s": 1.619,
+      "live_n": 6,
+      "live_ok": 6,
+      "live_wrong": []
+    }
+  ],
+  "summary": {
+    "声": 10,
+    "別の耳が台本どおり": 10,
+    "会話AIが誤ったことのある声": 4,
+    "そのうち別の耳は台本どおり": 4,
+    "会話AIがいつも正しかった声で、別の耳が誤った": 0,
+    "最後の文字が届くまで（中央・遅いほうから1割・最大）": [
+      1.619,
+      1.822,
+      1.822
+    ],
+    "最初の文字が届くまで（中央・遅いほうから1割・最大）": [
+      1.619,
+      1.822,
+      1.822
+    ],
+    "誤り": []
+  }
+}

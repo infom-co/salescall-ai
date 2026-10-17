@@ -1,0 +1,281 @@
+{
+  "item": "G-15-tail5-Charon",
+  "saved_at": "2026-10-17T10:59:40",
+  "rows": [
+    {
+      "rep": 0,
+      "voice": "Charon",
+      "id": "y1",
+      "wav": "g14/Charon_y1.wav",
+      "text": "はい、予約しています。",
+      "ear": "はい、予約しています。",
+      "ear_ok": true,
+      "diffs": [],
+      "first_s": 1.604,
+      "after_s": 1.604,
+      "live_n": 6,
+      "live_ok": 6,
+      "live_wrong": []
+    },
+    {
+      "rep": 0,
+      "voice": "Charon",
+      "id": "y2",
+      "wav": "g14/Charon_y2.wav",
+      "text": "はい。",
+      "ear": "はい。",
+      "ear_ok": true,
+      "diffs": [],
+      "first_s": 1.612,
+      "after_s": 1.612,
+      "live_n": 6,
+      "live_ok": 6,
+      "live_wrong": []
+    },
+    {
+      "rep": 0,
+      "voice": "Charon",
+      "id": "y3",
+      "wav": "g14/Charon_y3.wav",
+      "text": "はい、先週しました。",
+      "ear": "はい、先週しました。",
+      "ear_ok": true,
+      "diffs": [],
+      "first_s": 1.679,
+      "after_s": 1.679,
+      "live_n": 6,
+      "live_ok": 6,
+      "live_wrong": []
+    },
+    {
+      "rep": 0,
+      "voice": "Charon",
+      "id": "y5",
+      "wav": "g14/Charon_y5.wav",
+      "text": "予約済みです。",
+      "ear": "要約済みです。",
+      "ear_ok": false,
+      "diffs": [
+        {
+          "kind": "insert",
+          "script": "よ[]やくずみ",
+          "heard": "う",
+          "at": 1
+        }
+      ],
+      "first_s": 1.615,
+      "after_s": 1.615,
+      "live_n": 6,
+      "live_ok": 6,
+      "live_wrong": []
+    },
+    {
+      "rep": 0,
+      "voice": "Charon",
+      "id": "y6",
+      "wav": "g14/Charon_y6.wav",
+      "text": "一応、予約はしてあります。",
+      "ear": "一応予約はしてあります。",
+      "ear_ok": true,
+      "diffs": [],
+      "first_s": 1.539,
+      "after_s": 1.539,
+      "live_n": 6,
+      "live_ok": 6,
+      "live_wrong": []
+    },
+    {
+      "rep": 0,
+      "voice": "Charon",
+      "id": "n1",
+      "wav": "g14/Charon_n1.wav",
+      "text": "いいえ、まだです。",
+      "ear": "いいえ、まだです。",
+      "ear_ok": true,
+      "diffs": [],
+      "first_s": 1.421,
+      "after_s": 1.421,
+      "live_n": 6,
+      "live_ok": 6,
+      "live_wrong": []
+    },
+    {
+      "rep": 0,
+      "voice": "Charon",
+      "id": "n2",
+      "wav": "g14/Charon_n2.wav",
+      "text": "いえ、まだしていません。",
+      "ear": "いえ、まだしていません。",
+      "ear_ok": true,
+      "diffs": [],
+      "first_s": 1.427,
+      "after_s": 1.427,
+      "live_n": 6,
+      "live_ok": 5,
+      "live_wrong": [
+        "いいえ、まだしていません。"
+      ]
+    },
+    {
+      "rep": 0,
+      "voice": "Charon",
+      "id": "n3",
+      "wav": "g14/Charon_n3.wav",
+      "text": "してないです。",
+      "ear": "してないです。",
+      "ear_ok": true,
+      "diffs": [],
+      "first_s": 1.676,
+      "after_s": 1.676,
+      "live_n": 6,
+      "live_ok": 6,
+      "live_wrong": []
+    },
+    {
+      "rep": 0,
+      "voice": "Charon",
+      "id": "n4",
+      "wav": "g14/Charon_n4.wav",
+      "text": "いや、これからなんです。",
+      "ear": "いや、これからなんです。",
+      "ear_ok": true,
+      "diffs": [],
+      "first_s": 1.618,
+      "after_s": 1.618,
+      "live_n": 6,
+      "live_ok": 6,
+      "live_wrong": []
+    },
+    {
+      "rep": 0,
+      "voice": "Charon",
+      "id": "n5",
+      "wav": "g14/Charon_n5.wav",
+      "text": "予約はしてないですね。",
+      "ear": "予約はしてないですね。",
+      "ear_ok": true,
+      "diffs": [],
+      "first_s": 1.336,
+      "after_s": 1.336,
+      "live_n": 6,
+      "live_ok": 6,
+      "live_wrong": []
+    },
+    {
+      "rep": 0,
+      "voice": "Charon",
+      "id": "y1_noise",
+      "wav": "g14/Charon_y1_noise.wav",
+      "text": "はい、予約しています。",
+      "ear": "はい、予約しています。",
+      "ear_ok": true,
+      "diffs": [],
+      "first_s": 1.101,
+      "after_s": 1.101,
+      "live_n": 9,
+      "live_ok": 8,
+      "live_wrong": [
+        "Hi. 予約しています。"
+      ]
+    },
+    {
+      "rep": 0,
+      "voice": "Charon",
+      "id": "y2_noise",
+      "wav": "g14/Charon_y2_noise.wav",
+      "text": "はい。",
+      "ear": "はい。",
+      "ear_ok": true,
+      "diffs": [],
+      "first_s": 1.353,
+      "after_s": 1.353,
+      "live_n": 9,
+      "live_ok": 9,
+      "live_wrong": []
+    },
+    {
+      "rep": 0,
+      "voice": "Charon",
+      "id": "y3_noise",
+      "wav": "g14/Charon_y3_noise.wav",
+      "text": "はい、先週しました。",
+      "ear": "はい、編集しました。",
+      "ear_ok": false,
+      "diffs": [
+        {
+          "kind": "replace",
+          "script": "はい[せ]んしゅう",
+          "heard": "へ",
+          "at": 2
+        }
+      ],
+      "first_s": 1.097,
+      "after_s": 1.097,
+      "live_n": 9,
+      "live_ok": 0,
+      "live_wrong": [
+        "はい、編集しました。"
+      ]
+    },
+    {
+      "rep": 0,
+      "voice": "Charon",
+      "id": "n1_noise",
+      "wav": "g14/Charon_n1_noise.wav",
+      "text": "いいえ、まだです。",
+      "ear": "いえ、まだです。",
+      "ear_ok": false,
+      "diffs": [
+        {
+          "kind": "delete",
+          "script": "[い]いえまだ",
+          "heard": "",
+          "at": 0
+        }
+      ],
+      "first_s": 1.236,
+      "after_s": 1.236,
+      "live_n": 9,
+      "live_ok": 2,
+      "live_wrong": [
+        "いえ、まだです。",
+        "家まだです。"
+      ]
+    },
+    {
+      "rep": 0,
+      "voice": "Charon",
+      "id": "n2_noise",
+      "wav": "g14/Charon_n2_noise.wav",
+      "text": "いえ、まだしていません。",
+      "ear": "いえ、まだしていません。",
+      "ear_ok": true,
+      "diffs": [],
+      "first_s": 1.175,
+      "after_s": 1.175,
+      "live_n": 9,
+      "live_ok": 7,
+      "live_wrong": [
+        "いいえ、まだしていません。"
+      ]
+    }
+  ],
+  "summary": {
+    "声": 15,
+    "別の耳が台本どおり": 12,
+    "会話AIが誤ったことのある声": 5,
+    "そのうち別の耳は台本どおり": 3,
+    "会話AIがいつも正しかった声で、別の耳が誤った": 1,
+    "最後の文字が届くまで（中央・遅いほうから1割・最大）": [
+      1.427,
+      1.676,
+      1.679
+    ],
+    "最初の文字が届くまで（中央・遅いほうから1割・最大）": [
+      1.427,
+      1.676,
+      1.679
+    ],
+    "誤り": []
+  }
+}

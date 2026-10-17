@@ -48,22 +48,28 @@ def _cut_off(exc: BaseException | None) -> bool:
 
 
 async def hear(client, pcm16: bytes, rate: int, ear: str, idle_s: float = 3.0, lead_s: float = LEAD_S,
-               retry_wait_s: float = 10.0) -> str:
+               retry_wait_s: float = 10.0, timing: dict | None = None, tail_s: float = 1.5, on_final=None) -> str:
     """声を 16kHz にして、前に lead_s 秒の無音を置いてから 0.1秒ずつ送り、確定した文字起こしをつなげて返す。
     接続が途中で切れたら、間を空けて1回だけ聞き直す。それでも切れたら誤りを上げる（聞けた途中までを、聞けた結果として返さない）。
     ⛔ 2026-10-13 G-22：別の耳の接続が途中で切れ（1006）、受け取りの処理だけが黙って止まり、途中までの文字を全部聞いた結果として返していた。"""
     try:
-        return await _hear_once(client, pcm16, rate, ear, idle_s, lead_s)
+        return await _hear_once(client, pcm16, rate, ear, idle_s, lead_s, timing, tail_s, on_final)
     except Exception as exc:
         if not _cut_off(exc):
             raise
     await asyncio.sleep(retry_wait_s)
-    return await _hear_once(client, pcm16, rate, ear, idle_s, lead_s)
+    return await _hear_once(client, pcm16, rate, ear, idle_s, lead_s, timing, tail_s, on_final)
 
 
-async def _hear_once(client, pcm16: bytes, rate: int, ear: str, idle_s: float, lead_s: float) -> str:
+async def _hear_once(client, pcm16: bytes, rate: int, ear: str, idle_s: float, lead_s: float, timing: dict | None = None,
+                     tail_s: float = 1.5, on_final=None) -> str:
+    """on_final を渡すと、確定した文字が届くたびに、それまでの文字（つなげたもの）で呼ぶ（通話の中で、届いた瞬間に使うため。G-15）。
+    timing を渡すと、声を送り終えてから、最後の文字起こしが届くまでの秒（after_s）と、最初の文字起こしが届くまでの秒（first_s）を入れる
+    （声の終わりから数える。声のあとの無音は呼ぶ側が足す。G-15：通話の中で別の耳を使えるかの見積もり）。"""
     pcm = resample(pcm16, rate, 16000)
     finals: list[str] = []
+    times: list[float] = []
+    loop = asyncio.get_running_loop()
     async with client.aio.live.connect(model=_MODEL[ear], config=_config(ear)) as s:
         async def receiver():
             while True:
@@ -71,6 +77,9 @@ async def _hear_once(client, pcm16: bytes, rate: int, ear: str, idle_s: float, l
                     sc = m.server_content
                     if sc and sc.input_transcription and sc.input_transcription.text and getattr(sc.input_transcription, "finished", True) is not False:
                         finals.append(sc.input_transcription.text)
+                        times.append(loop.time())
+                        if on_final:
+                            on_final("".join(finals))
 
         rx = asyncio.create_task(receiver())
 
@@ -81,8 +90,9 @@ async def _hear_once(client, pcm16: bytes, rate: int, ear: str, idle_s: float, l
                 async with silence_while(s, 16000):  # 声の前の無音（話し始めの音を聞き落とさないため）
                     await asyncio.sleep(lead_s)
             await stream_audio(s, pcm, 16000)
-            async with silence_while(s, 16000):  # 話し終わりに気づかせる無音 1.5秒
-                await asyncio.sleep(1.5)
+            sent_at = loop.time()
+            async with silence_while(s, 16000):  # 話し終わりに気づかせる無音（tail_s 秒。そのあとに送り終わりを伝える）
+                await asyncio.sleep(tail_s)
             await s.send_realtime_input(audio_stream_end=True)
             last = -1
             while len(finals) != last and not rx.done():  # 新しい文字起こしが idle_s 秒届かなくなるまで待つ
@@ -95,7 +105,88 @@ async def _hear_once(client, pcm16: bytes, rate: int, ear: str, idle_s: float, l
                 rx.cancel()
         if rx_error() is not None:
             raise rx_error()  # 受け取りが途中で止まった（接続が切れたなど）
+    if timing is not None and times:
+        timing.update(first_s=round(times[0] - sent_at, 3), after_s=round(times[-1] - sent_at, 3))
     return "".join(finals)
+
+
+class EarStream:
+    """通話ごとに1本つなぐ別の耳（DESIGN.md 6-10 の (5)。本番の形。G-15）。相手の声を feed で流し、その発話の確定した文字を wait で受け取る。
+    流していない間は無音を流し続ける（電話がつながっている間と同じ。別の耳が話し終わりに自分で気づくため）。
+    ⛔ 2026-10-17 G-15 の通話の試験の1回目：相手の発話ごとに別の耳へつなぎ直していたため、つなぐ時間の分だけ文字が遅れ、152回中80回が
+       待つ時間（話し終わりから2秒）に間に合わなかった（試験の作りの誤り）。⇒ 通話の初めに1本だけつなぐ。
+    別の耳が落ちたら、それ以降は文字が届かないだけ（待つ側が時間で進む＝止まらない）。"""
+
+    def __init__(self, client, ear: str = "transcribe35"):
+        self.client, self.ear = client, ear
+        self.errors: list[str] = []
+
+    async def __aenter__(self):
+        self._cm = self.client.aio.live.connect(model=_MODEL[self.ear], config=_config(self.ear))
+        self.s = await self._cm.__aenter__()
+        self._loop = asyncio.get_running_loop()
+        self._got, self._text, self.first_at = self._loop.create_future(), "", None
+        self._feeding = asyncio.Event()
+        self._rx = asyncio.create_task(self._receive())
+        self._tx = asyncio.create_task(self._silence())
+        return self
+
+    async def __aexit__(self, *exc):
+        for t in (self._rx, self._tx):
+            t.cancel()
+        try:
+            await self._cm.__aexit__(*exc)
+        except Exception as e:  # 閉じるときの誤りで、通話の記録を失わない
+            self.errors.append(repr(e)[:200])
+
+    async def _receive(self) -> None:
+        try:
+            while True:
+                async for m in self.s.receive():
+                    sc = m.server_content
+                    if sc and sc.input_transcription and sc.input_transcription.text and getattr(sc.input_transcription, "finished", True) is not False:
+                        self._text += sc.input_transcription.text
+                        if not self._got.done():
+                            self.first_at = self._loop.time()  # この発話の最初の文字が届いた時刻（待つ時間を決めるための記録）
+                            self._got.set_result(self._text)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            self.errors.append(repr(e)[:200])
+
+    async def _silence(self) -> None:
+        from google.genai import types
+
+        from common import silence
+
+        chunk = silence(100, 16000)
+        try:
+            while True:
+                if not self._feeding.is_set():
+                    await self.s.send_realtime_input(audio=types.Blob(data=chunk, mime_type="audio/pcm;rate=16000"))
+                await asyncio.sleep(0.1)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            self.errors.append(repr(e)[:200])
+
+    async def feed(self, pcm16: bytes, rate: int) -> None:
+        """相手の発話1回ぶんを流す（この発話の文字を、新しく受け取り始める）。"""
+        self._got, self._text, self.first_at = self._loop.create_future(), "", None
+        self._feeding.set()
+        try:
+            await stream_audio(self.s, resample(pcm16, rate, 16000), 16000)
+        except Exception as e:
+            self.errors.append(repr(e)[:200])
+        finally:
+            self._feeding.clear()
+
+    async def wait(self, timeout_s: float) -> str | None:
+        """いまの発話の、最初の確定した文字（timeout_s 秒までに届かなければ None）。"""
+        try:
+            return await asyncio.wait_for(asyncio.shield(self._got), max(0.0, timeout_s))
+        except asyncio.TimeoutError:
+            return None
 
 
 def differences(expected: str, heard: str) -> list[dict]:
