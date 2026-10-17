@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -1284,7 +1285,8 @@ class KeyRingTest(unittest.TestCase):
         class Quota(Exception):
             code = 429
 
-        ring = common.KeyRing(argparse.Namespace(proxy_key=False, env="/nonexistent", key_name=None, key_index=0), min_interval_s=0)
+        ring = common.KeyRing(argparse.Namespace(proxy_key=False, env="/nonexistent", key_name=None, key_index=0), min_interval_s=0,
+                              state_path=False)
         ring.keys = [common.ApiKey("K0", "a" * 39), common.ApiKey("K1", "b" * 39), common.ApiKey("K2", "c" * 39)]
         ring._clients = {0: "c0", 1: "c1", 2: "c2"}
         calls = []
@@ -1312,7 +1314,8 @@ class KeyRingTest(unittest.TestCase):
         class Minute(Exception):
             code = 429
 
-        ring = common.KeyRing(argparse.Namespace(proxy_key=False, env="/nonexistent", key_name=None, key_index=0), min_interval_s=0)
+        ring = common.KeyRing(argparse.Namespace(proxy_key=False, env="/nonexistent", key_name=None, key_index=0), min_interval_s=0,
+                              state_path=False)
         ring.keys = [common.ApiKey("K0", "a" * 39), common.ApiKey("K1", "b" * 39)]
         ring._clients = {0: "c0", 1: "c1"}
         n = {"c1": 0}
@@ -1331,6 +1334,22 @@ class KeyRingTest(unittest.TestCase):
         self.assertNotIn(1, ring.spent.get("m", set()))     # 1分の上限は、待って同じキーで続ける（1日の上限と取り違えない）
         self.assertTrue(any(c.args[0] >= 2.5 for c in sl.call_args_list))
         self.assertEqual(common.retry_after_s(Exception("Please retry in 11h8m7.1s")), 11 * 3600 + 8 * 60 + 7.1)
+
+    def test_state_is_remembered_for_the_day(self):
+        import argparse
+        import tempfile
+        from pathlib import Path
+        import common
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "state.json"
+            ns = argparse.Namespace(proxy_key=False, env="/nonexistent", key_name=None, key_index=0)
+            keys = [common.ApiKey("K0", "a" * 39), common.ApiKey("K1", "b" * 39)]
+            with unittest.mock.patch.object(common, "load_keys", return_value=keys):
+                ring = common.KeyRing(ns, min_interval_s=0, state_path=path)
+                ring.spent["m"] = {0}; ring.denied = {1}; ring._save()
+                again = common.KeyRing(ns, min_interval_s=0, state_path=path)
+            self.assertEqual((again.spent, again.denied), ({"m": {0}}, {1}))
+            self.assertNotIn("a" * 39, path.read_text(encoding="utf-8"))   # キーの値は書かない
 
 
 class ScriptRecordingTest(unittest.TestCase):
