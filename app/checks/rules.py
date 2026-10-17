@@ -181,6 +181,18 @@ WRITERS: dict[str, dict[str, frozenset[str]]] = {
                     "UPDATE": frozenset({_CORE + "conversation_io.py"})},
     "task_append_locks": {"INSERT": frozenset({_CORE + "tasks.py"}), "UPDATE": frozenset({_CORE + "tasks.py"})},
     "setting_values": {"INSERT": frozenset({_CORE + "settings.py"})},        # 設定の値（Q10）
+    # 依頼者・業務・実施回・回線を作る・名前を直す・依頼者の有効／無効・回線の割り当てと使わなくなった印（Intent.md 4章 A・C。0051）
+    "clients": {"INSERT": frozenset({_CORE + "registry.py"}), "UPDATE": frozenset({_CORE + "registry.py"})},
+    "client_states": {"INSERT": frozenset({_CORE + "registry.py"})},
+    "businesses": {"INSERT": frozenset({_CORE + "registry.py"}), "UPDATE": frozenset({_CORE + "registry.py"})},
+    "runs": {"INSERT": frozenset({_CORE + "registry.py"}), "UPDATE": frozenset({_CORE + "registry.py"})},
+    "lines": {"INSERT": frozenset({_CORE + "registry.py"}), "UPDATE": frozenset({_CORE + "registry.py"})},
+    "voices": {"INSERT": frozenset({_CORE + "recordings.py"}), "UPDATE": frozenset({_CORE + "recordings.py"})},
+    "recording_sets": {"INSERT": frozenset({_CORE + "recordings.py"})},       # 録音の版と承認（6-13。0047）
+    "recordings": {"INSERT": frozenset({_CORE + "recordings.py"})},
+    "recording_approvals": {"INSERT": frozenset({_CORE + "recordings.py"})},
+    "fix_reports": {"INSERT": frozenset({_CORE + "fix_requests.py"})},        # 修正依頼の「直した」と承認（0048）
+    "fix_approvals": {"INSERT": frozenset({_CORE + "fix_requests.py"})},
     "contacts": {"INSERT": frozenset({_CORE + "contacts.py"})},              # 連絡先（番号は Q1 を通したものだけ）
     "tasks": {"INSERT": frozenset({_CORE + "importer.py"})},                 # タスクを作るのは取込だけ（3-4）
     "task_numbers": {"INSERT": frozenset({_CORE + "tasks.py"})},            # 行の番号（3-5。一覧の番号はデータベースが足す）

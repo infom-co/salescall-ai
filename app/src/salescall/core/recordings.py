@@ -28,6 +28,19 @@ class Part:
     audio_sha256: str    # 中身の指紋
 
 
+def add_voice(tx: Tx, voice_name: str, *, note: str) -> None:
+    """声の一覧に声を足す（会話AIのモデルが進化して声が増えたとき。管理者だけ＝データベースが守る）。話し方（声の型）は CL-1 が足す。"""
+    tx.execute("INSERT INTO salescall.voices (voice_name, note) VALUES (%s, %s)", (voice_name, note))
+
+
+def retire_voice(tx: Tx, voice_name: str, *, reason: str) -> None:
+    """声に「使わない」の印を付ける（1回だけ。管理者だけ）。門は、その声で話さない。"""
+    row = tx.one("UPDATE salescall.voices SET retired_at = now(), retired_reason = %s"
+                 " WHERE voice_name = %s AND retired_at IS NULL RETURNING voice_name", (reason, voice_name))
+    if row is None:
+        raise LookupError(f"使っている声ではありません：{voice_name}")
+
+
 def create_set(tx: Tx, *, unit: Literal["contractor", "business"], voice_name: str, parts: list[Part],
                version_id: UUID | None = None) -> UUID:
     """録音の組を作る（承認の前）。契約者の単位は取引の契約者、依頼者の単位は取引の依頼者の、その版。"""

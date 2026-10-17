@@ -52,6 +52,8 @@ REASONS: dict[str, tuple[str, str]] = {
     "version_not_ready": ("この版は、まだかけられる段に入っていません（模擬通話・最初の段の前）", "wait"),
     "stage_full": ("いまの段の件数に達しました（次の段へ進むのを待っています）", "wait"),
     "stopped": ("止まっています", "wait"),
+    "client_inactive": ("この依頼者は無効にしています", "wait"),
+    "line_retired": ("使わなくなった回線です", "cannot_judge"),
     "outside_hours": ("かけてよい時間帯の外です", "wait"),
     "calendar_out_of_range": ("祝日の暦が無い日です", "cannot_judge"),
     "related_unsettled": ("このお客様にかかわる前の発信の締め（断られたかの確かめ）が、まだ済んでいません", "wait"),
@@ -365,7 +367,10 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
     if not ok:
         return _deny(why)
 
-    # (5) 止まっているか（全体・契約者・依頼者・業務・回線）
+    # (5) 依頼者を無効にしていないか（Intent.md 4章 A。判断はデータベースの1か所 salescall.client_active）・止まっているか
+    #     （全体・契約者・依頼者・業務・回線）
+    if not tx.one("SELECT salescall.client_active(%s) AS a", (task["client_id"],))["a"]:
+        return _deny("client_inactive")
     open_now = stops.open_stops(tx, tenant_id=task["tenant_id"], client_id=task["client_id"],
                                 business_id=task["business_id"], line_id=line_id)
     if apology:
@@ -387,9 +392,12 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
         return _deny(pace.binding)
 
     # (8) 回線：借りている本人で、借用の期限が予約証の期限より先。回線ごとの1日の上限（Intent.md 8-6）
-    line = tx.one("SELECT lease_holder, lease_expires_at, client_id FROM salescall.lines WHERE line_id = %s", (line_id,))
+    line = tx.one("SELECT lease_holder, lease_expires_at, client_id, retired_at FROM salescall.lines WHERE line_id = %s",
+                  (line_id,))
     if line is None:
         return _deny("line_unknown")
+    if line["retired_at"] is not None:
+        return _deny("line_retired")
     if line["lease_holder"] != lease_holder or line["lease_expires_at"] < now + lifetime:
         return _deny("line_not_leased")
     # 発信番号：依頼者に割り当てた回線は、その依頼者だけ。依頼者が替わったら、期間に関係なく発信番号を替える（2026-10-17

@@ -34,6 +34,15 @@ def fictional_phone() -> str:
 _jp_numbers = itertools.count(int(uuid.uuid4().int % 5000))
 
 
+_caller_numbers = itertools.count(int(uuid.uuid4().int % 90_000_000))
+
+
+def fictional_caller() -> str:
+    """架空の発信番号（070-0000-0000〜。試験の回線にだけ使う。電話はかけない）。"""
+    n = next(_caller_numbers) % 100_000_000
+    return f"070-{n // 10000:04d}-{n % 10000:04d}"
+
+
 def fictional_jp_fixed() -> str:
     """架空の日本の固定電話の番号（03-0000-0000〜03-0000-9999。局番のあとが 0 で始まる番号は日本に無い）。"""
     return f"03-0000-{next(_jp_numbers) % 10000:04d}"
@@ -103,11 +112,10 @@ class World:
         return cid
 
     def line(self, tenant: UUID) -> UUID:
-        lid = uuid.uuid4()
-        self.a.in_tenant(OPERATOR, tenant, lambda tx: tx.execute(
-            "INSERT INTO salescall.lines (tenant_id, line_id, name, method) VALUES (%s, %s, %s, %s)",
-            (tenant, lid, "架空の回線", "rakuten_link")))   # 回線の方式の初期は Rakuten Link（2026-10-16 ユーザー）
-        return lid
+        from salescall.core import registry
+        # 回線の方式の初期は Rakuten Link（2026-10-16 ユーザー）。発信番号は架空の携帯の番号（試験の中で重ならないよう順に配る）
+        return self.a.in_tenant(OPERATOR, tenant, lambda tx: registry.create_line(
+            tx, "架空の回線", method="rakuten_link", caller=fictional_caller()))
 
     def business_with_version(self, tenant: UUID, client: UUID) -> tuple[UUID, UUID]:
         bid, vid = uuid.uuid4(), uuid.uuid4()
