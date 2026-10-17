@@ -1,0 +1,444 @@
+{
+  "item": "G-14-v10q4-Fenrir",
+  "saved_at": "2026-10-17T09:09:43",
+  "model": "gemini-3.8-live",
+  "summary": {
+    "全体": {
+      "正しい": 3
+    },
+    "kind=曖昧": {
+      "正しい": 3
+    },
+    "voice=Fenrir": {
+      "正しい": 3
+    },
+    "noise_tag=無し": {
+      "正しい": 3
+    },
+    "want=ambiguous": {
+      "正しい": 3
+    }
+  },
+  "rows": [
+    {
+      "id": "a1",
+      "voice": "Fenrir",
+      "question": "Q4",
+      "want": "ambiguous",
+      "kind": "曖昧",
+      "text": "大丈夫です。",
+      "noise_tag": "無し",
+      "voice_type": "S4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "g14/Fenrir_a1.wav"
+          },
+          "heard": "大丈夫です。",
+          "intended": "恐れ入ります。ご希望の日時をもう一度お聞かせいただいてもよろしいでしょうか?",
+          "tool_events": [
+            {
+              "at_s": 0.538,
+              "name": "record_answer",
+              "args": {
+                "value": "大丈夫です",
+                "condition_id": "答えた",
+                "question_id": "Q4"
+              },
+              "reply": "ask_back",
+              "ack": "hai",
+              "say": "恐れ入ります。ご希望の日時をもう一度お聞かせいただいてもよろしいでしょうか？",
+              "play": null
+            }
+          ],
+          "first_audio_after_s": 0.973,
+          "finished_after_s": 5.455,
+          "audio_seconds": 4.49,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 0.973,
+              "audio_s": 0.0,
+              "text": "恐れ入ります。ご希望の日時を"
+            },
+            {
+              "at_s": 1.21,
+              "audio_s": 1.97,
+              "text": "もう一度お聞かせいただいても"
+            },
+            {
+              "at_s": 1.401,
+              "audio_s": 2.97,
+              "text": "よろしいでしょうか?"
+            }
+          ],
+          "heard_events": [
+            {
+              "at_s": 0.481,
+              "text": "大丈夫です。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.54,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.542,
+              "kind": "turn_complete"
+            },
+            {
+              "at_s": 0.973,
+              "kind": "audio_start",
+              "chunk": 1
+            },
+            {
+              "at_s": 5.455,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q4",
+          "check": {
+            "voiced_s": 4.22,
+            "compared_with": "intended",
+            "morae": 39,
+            "expected_s": 4.33,
+            "ratio": 0.97,
+            "kind": "ok"
+          }
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "value": "大丈夫です",
+            "condition_id": "答えた",
+            "question_id": "Q4"
+          },
+          "reply": {
+            "result": "ask_back",
+            "question_id": "Q4",
+            "say": "恐れ入ります。ご希望の日時をもう一度お聞かせいただいてもよろしいでしょうか？",
+            "ask_n": 1,
+            "ask_reason": "form",
+            "ask_last": false,
+            "message": "Q4「ご希望の日時をお聞かせいただけますでしょうか？」の答えとして「大丈夫」が報告されましたが、日時ではなく、返事の言葉です。「恐れ入ります。ご希望の日時をもう一度お聞かせいただいてもよろしいでしょうか？」と聞き返して、相手の答えを待ってください。相手が答えたら record_answer で報告します。",
+            "ack": "hai"
+          },
+          "callee_turns": 1
+        }
+      ],
+      "items": {
+        "Q4": {
+          "state": "unclear",
+          "value": null,
+          "condition": null,
+          "ask_backs": 1,
+          "rechecks": 0,
+          "corrections": 0
+        }
+      },
+      "export": {
+        "Q4": "-"
+      },
+      "final_phase": "asking",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "op": "record_answer",
+      "condition": "答えた",
+      "state": "unclear",
+      "taken_condition": null,
+      "verdict": "正しい",
+      "program_said": [
+        "恐れ入ります。ご希望の日時をもう一度お聞かせいただいてもよろしいでしょうか？"
+      ],
+      "callee_heard": [
+        "大丈夫です。"
+      ]
+    },
+    {
+      "id": "a2",
+      "voice": "Fenrir",
+      "question": "Q4",
+      "want": "ambiguous",
+      "kind": "曖昧",
+      "text": "結構です。",
+      "noise_tag": "無し",
+      "voice_type": "S4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "g14/Fenrir_a2.wav"
+          },
+          "heard": "結構です。",
+          "intended": "恐れ入ります。ご希望の日時をもう一度お聞かせいただいてもよろしいでしょうか？",
+          "tool_events": [
+            {
+              "at_s": 0.765,
+              "name": "request_end",
+              "args": {
+                "reason": "callee_refused_call"
+              },
+              "reply": "ask_back",
+              "ack": "hai",
+              "say": "恐れ入ります。ご希望の日時をもう一度お聞かせいただいてもよろしいでしょうか？",
+              "play": null
+            }
+          ],
+          "first_audio_after_s": 1.132,
+          "finished_after_s": 6.178,
+          "audio_seconds": 5.04,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.132,
+              "audio_s": 0.0,
+              "text": "恐れ入ります。ご希望の日時を"
+            },
+            {
+              "at_s": 1.443,
+              "audio_s": 1.76,
+              "text": "もう一度お聞かせいただいてもよろしいでしょうか？"
+            }
+          ],
+          "heard_events": [
+            {
+              "at_s": 0.5,
+              "text": "結構です。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.765,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.766,
+              "kind": "turn_complete"
+            },
+            {
+              "at_s": 1.132,
+              "kind": "audio_start",
+              "chunk": 1
+            },
+            {
+              "at_s": 6.178,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q4",
+          "check": {
+            "voiced_s": 4.76,
+            "compared_with": "intended",
+            "morae": 39,
+            "expected_s": 4.33,
+            "ratio": 1.1,
+            "kind": "ok"
+          }
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "request_end",
+          "args": {
+            "reason": "callee_refused_call"
+          },
+          "reply": {
+            "result": "ask_back",
+            "question_id": "Q4",
+            "say": "恐れ入ります。ご希望の日時をもう一度お聞かせいただいてもよろしいでしょうか？",
+            "ask_n": 1,
+            "ask_reason": "form",
+            "ask_last": false,
+            "message": "Q4「ご希望の日時をお聞かせいただけますでしょうか？」の答えとして「結構です。」が報告されましたが、答えの値ではなく、返事の言葉です。「恐れ入ります。ご希望の日時をもう一度お聞かせいただいてもよろしいでしょうか？」と聞き返して、相手の答えを待ってください。相手が答えたら record_answer で報告します。",
+            "ack": "hai"
+          },
+          "callee_turns": 1
+        }
+      ],
+      "items": {
+        "Q4": {
+          "state": "unclear",
+          "value": null,
+          "condition": null,
+          "ask_backs": 1,
+          "rechecks": 0,
+          "corrections": 0
+        }
+      },
+      "export": {
+        "Q4": "-"
+      },
+      "final_phase": "asking",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "op": "request_end",
+      "condition": "callee_refused_call",
+      "state": "unclear",
+      "taken_condition": null,
+      "verdict": "正しい",
+      "program_said": [
+        "恐れ入ります。ご希望の日時をもう一度お聞かせいただいてもよろしいでしょうか？"
+      ],
+      "callee_heard": [
+        "結構です。"
+      ]
+    },
+    {
+      "id": "a4",
+      "voice": "Fenrir",
+      "question": "Q4",
+      "want": "ambiguous",
+      "kind": "曖昧",
+      "text": "いいです。",
+      "noise_tag": "無し",
+      "voice_type": "S4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "g14/Fenrir_a4.wav"
+          },
+          "heard": "いいです。",
+          "intended": "恐れ入ります。ご希望の日時をもう一度お聞かせいただいてもよろしいでしょうか?",
+          "tool_events": [
+            {
+              "at_s": 0.504,
+              "name": "record_answer",
+              "args": {
+                "condition_id": "答えた",
+                "value": "いいです",
+                "question_id": "Q4"
+              },
+              "reply": "ask_back",
+              "ack": "hai",
+              "say": "恐れ入ります。ご希望の日時をもう一度お聞かせいただいてもよろしいでしょうか？",
+              "play": null
+            }
+          ],
+          "first_audio_after_s": 0.925,
+          "finished_after_s": 5.833,
+          "audio_seconds": 4.9,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 0.925,
+              "audio_s": 0.0,
+              "text": "恐れ入ります。ご希望の日時"
+            },
+            {
+              "at_s": 1.162,
+              "audio_s": 1.86,
+              "text": "をもう一度お聞かせ"
+            },
+            {
+              "at_s": 1.357,
+              "audio_s": 2.86,
+              "text": "いただいてもよろしいでしょうか?"
+            }
+          ],
+          "heard_events": [
+            {
+              "at_s": 0.307,
+              "text": "いいです。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.504,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.505,
+              "kind": "turn_complete"
+            },
+            {
+              "at_s": 0.925,
+              "kind": "audio_start",
+              "chunk": 1
+            },
+            {
+              "at_s": 5.833,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q4",
+          "check": {
+            "voiced_s": 4.66,
+            "compared_with": "intended",
+            "morae": 39,
+            "expected_s": 4.33,
+            "ratio": 1.07,
+            "kind": "ok"
+          }
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "condition_id": "答えた",
+            "value": "いいです",
+            "question_id": "Q4"
+          },
+          "reply": {
+            "result": "ask_back",
+            "question_id": "Q4",
+            "say": "恐れ入ります。ご希望の日時をもう一度お聞かせいただいてもよろしいでしょうか？",
+            "ask_n": 1,
+            "ask_reason": "form",
+            "ask_last": false,
+            "message": "Q4「ご希望の日時をお聞かせいただけますでしょうか？」の答えとして「いい」が報告されましたが、日時ではなく、返事の言葉です。「恐れ入ります。ご希望の日時をもう一度お聞かせいただいてもよろしいでしょうか？」と聞き返して、相手の答えを待ってください。相手が答えたら record_answer で報告します。",
+            "ack": "hai"
+          },
+          "callee_turns": 1
+        }
+      ],
+      "items": {
+        "Q4": {
+          "state": "unclear",
+          "value": null,
+          "condition": null,
+          "ask_backs": 1,
+          "rechecks": 0,
+          "corrections": 0
+        }
+      },
+      "export": {
+        "Q4": "-"
+      },
+      "final_phase": "asking",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "op": "record_answer",
+      "condition": "答えた",
+      "state": "unclear",
+      "taken_condition": null,
+      "verdict": "正しい",
+      "program_said": [
+        "恐れ入ります。ご希望の日時をもう一度お聞かせいただいてもよろしいでしょうか？"
+      ],
+      "callee_heard": [
+        "いいです。"
+      ]
+    }
+  ]
+}

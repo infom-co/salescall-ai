@@ -616,8 +616,10 @@ class AIToJapaneseTest(unittest.TestCase):
 
     def test_declarations_and_checks_use_one_table(self):
         from flowctl import ARG_LABEL, OP_ARGS, tool_declarations
-        decls = {d.name: d for d in tool_declarations(self.business().questions)[0].function_declarations}
+        decls = {d.name: d for d in tool_declarations(self.business().questions, replay=True)[0].function_declarations}
         self.assertEqual(set(decls), set(OP_ARGS))
+        # 名乗りの流し直しは、名乗りを録音で流す形のときだけ宣言する（6-13）
+        self.assertNotIn("replay_opening", {d.name for d in tool_declarations(self.business().questions)[0].function_declarations})
         self.assertFalse({n for n, d in decls.items() if d.behavior})  # 返事を待たない宣言は使わない（G-33・G-36 の形 B は外した）
         for name, (req, opt) in OP_ARGS.items():
             self.assertEqual(set(decls[name].parameters.properties), {ARG_LABEL[k] for k in req + opt}, name)
@@ -630,12 +632,13 @@ class AIToJapaneseTest(unittest.TestCase):
         from flowctl import Flow, tool_declarations
         from instruction import build
         b = self.business()
-        allowed = {"record_answer", "report_unclear", "confirm_field", "request_end", "Q1", "Q2"}  # 操作の名前（道具の決まり）と質問の番号
+        allowed = {"record_answer", "report_unclear", "confirm_field", "request_end", "replay_opening", "Q1", "Q2"}  # 操作の名前（道具の決まり）と質問の番号
         shown = [build(b, t)[1] for t in ("S2", "L4")]
         shown += [build(b, "S2", opening_mode="recorded")[1]]
-        for d in tool_declarations(b.questions)[0].function_declarations:
+        for d in tool_declarations(b.questions, replay=True)[0].function_declarations:
             shown.append(json.dumps(d.model_dump(exclude_none=True), ensure_ascii=False))
-        f = Flow(b.questions)
+        f = Flow(b.questions, opening=b.replay_parts())
+        shown.append(json.dumps(f.handle(fc("replay_opening", 流し直す部分="名乗り")), ensure_ascii=False))
         for name, args in (("record_answer", {"質問": "Q2", "答えの種類": "はい"}), ("record_answer", {"質問": "Q1", "答えの種類": "はい"}),
                            ("record_answer", {"質問": "Q2", "答えの種類": "答えた"}),
                            ("record_answer", {"質問": "Q2", "答えの種類": "答えた", "値": "15日"}), ("request_end", {"理由": "質問が終わった"}),
@@ -1563,6 +1566,71 @@ class AmbiguousAnswerTest(unittest.TestCase):
         r = self.say(f, "もう結構です、かけてこないでください。", "request_end", reason="callee_refused_call")
         self.assertEqual(r["result"], "end")
 
+    def test_value_questions_follow_the_same_rule(self):
+        # ⛔ 2026-10-17 の見直しで見つけた漏れ：(1) 名前・電話番号の質問に「結構です」「はい」だけ ⇒「結構ということでよろしいでしょうか？」と
+        #    言い直していた (2) 値を聞く質問では、「結構です」だけで AIが断りと報告すると締めていた ⇒ どの型も同じ決まり（_ambiguous_only）
+        from flowctl import Flow, Question
+        for qt in ("datetime", "number", "name", "phone", "email", "address"):
+            for said in ("結構です。", "はい。", "大丈夫です。"):
+                f = Flow([Question("Q1", "質問の文", qt, conditions=("答えた",), topic="ご希望")])
+                r = self.say(f, said, "record_answer", question_id="Q1", condition_id="答えた", value=said.rstrip("。"))
+                self.assertEqual(r["result"], "ask_back", (qt, said))  # 答えの値ではない ⇒ 聞き返す（言い直さない）
+            f = Flow([Question("Q1", "質問の文", qt, conditions=("答えた",), topic="ご希望")])
+            r = self.say(f, "結構です。", "request_end", reason="callee_refused_call")
+            self.assertEqual((r["result"], f.hurried), ("ask_back", False), qt)    # その言葉だけでは締めない
+            r = self.say(f, "結構です。", "request_end", reason="callee_refused_call")
+            self.assertEqual((r["result"], f.hurried), ("end", True), qt)          # 聞き返したあとにまた言われたら、断りとして締める
+        f = Flow([Question("Q1", "ご要望をお聞かせいただけますでしょうか？", "free_text", conditions=("答えた",))])
+        r = self.say(f, "結構です。", "request_end", reason="callee_refused_call")
+        self.assertEqual(r["result"], "rejected")
+        r = self.say(f, "結構です。", "request_end", reason="callee_refused_call")  # 差し戻しは1回だけ（止まらない）
+        self.assertEqual(r["result"], "end")
+        g = Flow([Question("Q1", "ご担当者様のお名前をお伺いしてもよろしいでしょうか？", "name", conditions=("答えた",))])
+        r = self.say(g, "山田です。", "record_answer", question_id="Q1", condition_id="答えた", value="山田")
+        self.assertEqual(r["result"], "confirm_required")  # ふつうの名前は、これまでどおり言い直す
+
+    def test_system_answer_on_the_word_alone(self):
+        # ⛔ G-14 の続き：日時の質問への「大丈夫です」を、AIが「わからない」にした（聞き返さずに「-」）⇒ その言葉だけでは決めない
+        from flowctl import Flow, Question
+        f = Flow([Question("Q1", "ご希望の日時をお聞かせいただけますでしょうか？", "datetime", conditions=("答えた",), topic="ご希望の日時")])
+        r = self.say(f, "大丈夫です。", "record_answer", question_id="Q1", condition_id="unknown")
+        self.assertEqual(r["result"], "ask_back")
+        r = self.say(f, "大丈夫です。", "record_answer", question_id="Q1", condition_id="unknown")  # 聞き返したあとは、AIの報告のまま
+        self.assertEqual(f.items["Q1"].state, "dont_know")
+        f = self.flow()
+        r = self.say(f, "大丈夫です。", "record_answer", question_id="Q1", condition_id="unknown")
+        self.assertEqual(r["result"], "rejected")
+        self.assertIn("選択肢（はい、いいえ）から近いもの", r["message"])
+        r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい", "value": "大丈夫です"})
+        self.assertEqual(r["say"], "念のためご予約はお済みということでよろしいでしょうか？")
+        f = self.flow()  # 言い切っていない答え・はっきりした「わからない」は、これまでどおり「わからない」
+        for said in ("家族がしたかもしれないです。", "ちょっとわからないです。"):
+            f = self.flow()
+            self.say(f, said, "record_answer", question_id="Q1", condition_id="unknown")
+            self.assertEqual(f.items["Q1"].state, "dont_know", said)
+
+    def test_rejection_and_resume_tell_how_to_report_a_choice(self):
+        # ⛔ 2026-10-17 の見直しで見つけた漏れ：(1) 差し戻しの「いま求めていること」が、選択肢でも「違う値…訂正された値で」とだけ言っていた
+        #    (2) 張り替えの「いまの位置」が、確かめの言い方ではなく相手の言葉（「大丈夫です」）・中の名前（any）を見せていた
+        from instruction import Business, position_text
+        f = self.flow()
+        self.say(f, "大丈夫です。", "record_answer", question_id="Q1", condition_id="はい", value="大丈夫です")
+        r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい"})  # 確かめの返事待ちに、もう一度答えを報告した
+        self.assertEqual(r["result"], "rejected")
+        self.assertIn("選択肢の名前（はい、いいえ、わからない、答えたくない）", r["message"])
+        b = Business(company="アオバ物流", caller="佐藤", purpose="ご予約の確認", purpose_line="ご予約の確認でお電話いたしました。",
+                     questions=list(f.questions.values()))
+        text = position_text(b, f)
+        self.assertIn("「念のためご予約はお済みということでよろしいでしょうか？」と確かめて", text)
+        self.assertNotIn("値「大丈夫です」", text)
+        g = self.flow()
+        self.say(g, "はい、予約しています。", "record_answer", question_id="Q1", condition_id="はい", value="予約しています")
+        self.say(g, "どちらでもいいです。", "record_answer", question_id="Q2", condition_id="any")
+        text = position_text(b, g)
+        self.assertIn("⇒ はい（済み）", text)
+        self.assertIn("⇒ どちらでも（済み）", text)
+        self.assertNotIn("any", text)
+
     def test_lead_word_contradiction_is_confirmed(self):
         # ⛔ G-14：「いや、これからなんです。」を、AIが「はい」と報告した ⇒ 頭の言葉と食い違えば確かめる（一致すれば、これまでどおり）
         from flowctl import reply_lead
@@ -1639,6 +1707,102 @@ class AmbiguousAnswerTest(unittest.TestCase):
             Question("Q2", "ご希望の日時をお聞かせいただけますでしょうか？", "datetime", conditions=("答えた",), meanings={"答えた": "x"})
 
 
+class ReplayOpeningTest(unittest.TestCase):
+    """名乗りを録音で流し直す（DESIGN.md 6-13。✅ 2026-10-13 ユーザー：名乗り直しも録音で流す）。⛔ G-22・G-29：AIが自分で名乗り直すと、
+    社名が正しく聞こえない（24本中3本）。AIは部分を選ぶだけで、流すのは流れの制御が渡す録音。"""
+
+    def flow(self, play=True, **kw):
+        from flowctl import Flow
+        from g22_opening import BUSINESS
+        return Flow(BUSINESS.questions, play_recordings=play, opening=BUSINESS.replay_parts(), **kw), BUSINESS
+
+    def test_parts(self):
+        f, b = self.flow()
+        intro, purpose, q1 = b.opening_parts()[1], b.purpose_line, b.questions[0].text
+        for part, want, ack in (("intro", [intro, q1], "shitsurei"), ("purpose", [purpose, q1], "shitsurei"),
+                                ("all", [intro, purpose, q1], "shitsurei")):
+            f, _ = self.flow()
+            f.on_callee()
+            r = f.apply("replay_opening", {"part": part})
+            self.assertEqual(([p["text"] for p in r["play"]], r["ack"]), (want, ack), part)
+        f, _ = self.flow()
+        r = f.apply("replay_opening", {"part": "handover"})  # 代わった方へ：あいさつから。お詫びの相づちは流さない
+        self.assertEqual(([p.get("part", p["kind"]) for p in r["play"]], r["ack"]), (["greeting", "intro", "purpose", "question"], None))
+
+    def test_silent_and_state(self):
+        f, _ = self.flow()
+        f.on_callee()
+        reply, silent = f.handle_call(type("FC", (), {"name": "replay_opening", "args": {"流し直す部分": "名乗り"}})())
+        self.assertTrue(silent)                            # 録音を流すので、AIは話さない
+        self.assertEqual((f.current, f.items["Q1"].state), ("Q1", "empty"))  # 質問の位置は変わらない
+        self.assertIn("録音で流しました", reply["次にすること"])
+
+    def test_limit(self):
+        f, _ = self.flow()
+        for _ in range(2):
+            self.assertEqual(f.apply("replay_opening", {"part": "all"})["result"], "replayed")
+        r = f.apply("replay_opening", {"part": "all"})  # 3回目は流さない（使い切ったら、AIが短く答える＝止まらない）
+        self.assertEqual(r["result"], "rejected")
+
+    def test_while_waiting_for_a_restatement(self):
+        # 言い直しの返事待ちのときは、録音のあとにAIが言い直しをもう一度言う（値で変わるので録音にできない）
+        f, _ = self.flow()
+        f.on_callee(); f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい"})
+        f.on_callee(); f.on_heard("15日の午後2時でお願いします。")
+        r = f.apply("record_answer", {"question_id": "Q2", "condition_id": "答えた", "value": "15日の午後2時"})
+        f.on_callee(); f.on_heard("え、どちら様ですか？")
+        reply, silent = f.handle_call(type("FC", (), {"name": "replay_opening", "args": {"流し直す部分": "名乗り"}})())
+        self.assertFalse(silent)
+        self.assertEqual([p["part"] for p in f.log[-1]["reply"]["play"]], ["intro"])
+        self.assertIn(f.awaiting_say, reply["次にすること"])
+
+    def test_without_recorded_questions_ai_asks(self):
+        f, _ = self.flow(play=False)
+        reply, silent = f.handle_call(type("FC", (), {"name": "replay_opening", "args": {"流し直す部分": "用件"}})())
+        self.assertFalse(silent)
+        self.assertIn("ご予約はされていますでしょうか？", reply["次にすること"])
+
+    def test_unheard_parts_are_added(self):
+        # 録音の途中で止めたときは、まだ届いていない名乗り・用件を、AIが選んだ部分に足して流す（⛔ G-50：用件が届く前の「どちら様」に、
+        # AIは「名乗り」だけを選んだ＝用件が一度も届かない）。あいさつは足さない。一度流したら、次からは足さない
+        f, b = self.flow()
+        greeting, intro, purpose, q1 = b.opening_parts()
+        for done, part, want in (([], "intro", [intro, purpose, q1]), ([greeting], "intro", [intro, purpose, q1]),
+                                 ([greeting, intro], "purpose", [purpose, q1]), ([greeting, intro], "intro", [intro, purpose, q1]),
+                                 ([greeting, intro, purpose], "intro", [intro, q1])):
+            f, _ = self.flow()
+            f.on_opening_cut(done)
+            f.on_callee()
+            self.assertEqual([p["text"] for p in f.apply("replay_opening", {"part": part})["play"]], want, (done, part))
+        f, _ = self.flow()
+        f.on_opening_cut([greeting])
+        f.apply("replay_opening", {"part": "intro"})
+        self.assertEqual([p["text"] for p in f.apply("replay_opening", {"part": "intro"})["play"]], [intro, q1])
+
+    def test_rule_after_session_swap(self):
+        # 張り替えのあとの「いまの位置」にも、流し直しの決まりを渡す（⛔ 見直しで見つけた漏れ：最初のセッションの文にだけあった）
+        from flowctl import Flow
+        from instruction import position_text
+        f, b = self.flow()
+        self.assertIn("replay_opening", position_text(b, f))
+        self.assertNotIn("replay_opening", position_text(b, Flow(b.questions)))
+
+    def test_no_question_left(self):
+        # 質問が全部済んだあと（締めの最中など）：質問の録音を足さず、答えの報告も求めない（⛔ 見直しで見つけた漏れ）
+        f, _ = self.flow()
+        f.current, f.phase = None, "closing"
+        reply, silent = f.handle_call(type("FC", (), {"name": "replay_opening", "args": {"流し直す部分": "名乗り"}})())
+        self.assertTrue(silent)
+        self.assertEqual([p.get("part", p["kind"]) for p in f.log[-1]["reply"]["play"]], ["intro"])
+        self.assertNotIn("record_answer", reply["次にすること"])
+
+    def test_no_opening_recording(self):
+        from flowctl import Flow
+        from g22_opening import BUSINESS
+        r = Flow(BUSINESS.questions).apply("replay_opening", {"part": "intro"})
+        self.assertEqual(r["result"], "rejected")
+
+
 class RequestTailTest(unittest.TestCase):
     """⛔ G-46：AIが「15日の午後2時でお願いします」を値にして報告し、言い直しが「…でお願いしますということでよろしいでしょうか？」になった。"""
 
@@ -1674,6 +1838,16 @@ class ReadingConfirmTest(unittest.TestCase):
         self.assertEqual((r["result"], r["question_id"]), ("next", "Q2"))
         self.assertIn("「山崎」様は「やまざき」様とお呼びします", r["message"])
         self.assertEqual(f.readings(), {"山崎": "やまざき"})
+
+    def test_reading_like_a_reply_word(self):
+        # 返事の言葉と同じ音の読み（「井伊」＝いい）も、読みの確かめでは値の形の確かめに当てない（2026-10-17：返事の言葉だけの値を名前の型で
+        # 止めるようにしたため）
+        from flowctl import Flow, Question, reading_question
+        f = Flow([Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ")),
+                  reading_question("N1", "井伊", "いのい", ["いのい", "いい"])])
+        self.do(f, "record_answer", question_id="Q1", condition_id="はい")
+        r = self.do(f, "confirm_field", question_id="N1", result="corrected", correction="いい")
+        self.assertEqual(r["say"], "改めましてお名前の読みの方は「いい」様でよろしかったでしょうか？")
 
     def test_corrected_then_affirmed(self):
         f = self.flow()

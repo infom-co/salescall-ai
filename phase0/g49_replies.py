@@ -5,7 +5,7 @@ by_model_replies・decide_replies。2026-10-17）。
 ⇒ 取込のときに、質問ごとに、これらの言葉だけの答えがどの選択肢の意味になるかを、文字のモデル2つが質問の文から決める。決まれば、通話の中では
 確かめずにその選択肢で受け取る（例：「パンフレットをお送りしてもよろしいでしょうか？」に「結構です」＝お送りしない）。決まらなければ、
 通話の中で、AIの受け取った意味を確かめる（G-14）。
-- 材料：G-48 と同じ 30問 × 4つの言葉＝120組。
+- 材料：G-48 と同じ 30問 × 4つの言葉＝120組（2回目から、はい・いいえを足して 6つの言葉＝180組）。
 - 正解（TRUTH）：CL-1 が決めた、受け取ってよい答えの組（None＝決めない）。だれが聞いても一つに決まる組だけに選択肢を足した。書いていない組は
   None だけ（決めないのが正しい）。⛔ 一番こわいのは「決めすぎ」（正解に無い選択肢に決めた）＝相手に確かめずに違う答えが渡りうる。
 1日の上限（Flash は各20回）に収まるよう、1回の問い合わせで全部を見させる。上限に当たったら次のキーで続ける（common.KeyRing）。
@@ -16,7 +16,7 @@ import itertools
 import json
 
 from common import KeyRing, base_parser, describe_error, drop_partial, require_python, save_partial, save_result, say
-from flowctl import AMBIGUOUS_WORDS
+from flowctl import AMBIGUOUS_WORDS, REPLY_WORDS
 from g23_names import find_models
 from g48_meanings import QUESTIONS
 from meanings import by_model_replies, decide_replies
@@ -36,6 +36,14 @@ TRUTH = {
     27: {"大丈夫": {N, "はい"}, "平気": {N, "はい"}},              # お急ぎではございませんか？（はい＝急いでいない）
     28: {"大丈夫": {N, "はい"}, "結構": {N, "はい"}, "平気": {N, "はい"}},  # 当日のキャンセルはございませんか？
 }
+# 2回目に足した「はい」「いいえ」（2026-10-17。選択肢が言葉の質問で、頭の「はい」「いいえ」とAIの答えの食い違いを確かめるため）。
+# 選択肢が「はい・いいえ」の質問は、その選択肢（決めなくてもよい＝flowctl.Question.reply_choice が同じものを返す）。選択肢から選ぶ質問は決めない
+YES_NO = {3: ("ある", "ない"), 4: ("初めて", "2回目以降"), 6: ("利用する", "利用しない"), 9: ("参加する", "参加しない"),
+          10: ("変更なし", "変更あり"), 12: ("決まっている", "決まっていない"), 31: ("している", "していない")}
+for n, (q, cs) in enumerate(QUESTIONS, 1):
+    yes, no = YES_NO.get(n, ("はい", "いいえ") if set(cs) == {"はい", "いいえ"} else (None, None))
+    if yes:
+        TRUTH.setdefault(n, {}).update({"はい": {N, yes}, "いいえ": {N, no}})  # 決めないのは安全側（食い違いを確かめないだけ）
 
 
 def ok(n: int, word: str, got: str | None) -> bool:
@@ -47,7 +55,7 @@ def tally(rows: dict) -> dict:
     def count(get) -> dict:
         t = {"決めた（正しい）": 0, "決めない（正しい）": 0, "決めない（決めてよかった）": 0, "⛔決めすぎ": 0, "⛔決めすぎの例": []}
         for n, (q, cs) in enumerate(QUESTIONS, 1):
-            for w in AMBIGUOUS_WORDS:
+            for w in REPLY_WORDS:
                 g = get(n)
                 c = g.get(w)
                 if not ok(n, w, c):
@@ -69,7 +77,7 @@ def show(rows: dict) -> None:
     for n, (q, cs) in enumerate(QUESTIONS, 1):
         got = {k: v[n - 1] for k, v in rows.items()}
         marks = " ".join(f"{w}={'/'.join(str(g.get(w) or '-') for g in got.values())}{'' if all(ok(n, w, g.get(w)) for g in got.values()) else '⛔'}"
-                         for w in AMBIGUOUS_WORDS)
+                         for w in REPLY_WORDS)
         say(f"{n}：{q}（{'・'.join(cs)}） {marks}")
 
 

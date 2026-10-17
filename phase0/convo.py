@@ -94,6 +94,7 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                     {**x, "yes": callee_wav(x["yes"], callee_voice), "no": callee_wav(x["no"], callee_voice)}
                     if isinstance(x, dict) and "if_value" in x else x for x in callee_lines]
     flow = Flow(business.questions, busy_ask=business.busy_ask, lead_ins=lead_ins, play_recordings=play_recordings,
+                opening=business.replay_parts() if opening_mode == "recorded" else None,  # 名乗りを録音で流す形なら、流し直しもできる（6-13）
                 **({"confirm": confirm} if confirm else {}))  # confirm：言い直しの言い方（G-25 の比べだけ）。lead_ins：G-27
     turns: list[dict] = []
     sessions = 0
@@ -104,7 +105,7 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
     def config():
         voice, text = build(business, voice_type, resume=flow if sessions > 1 else None, opening_mode=opening_mode,
                             play_recordings=play_recordings)
-        return voice, build_config(voice=voice, system_instruction=text, tools=tool_declarations(business.questions),
+        return voice, build_config(voice=voice, system_instruction=text, tools=tool_declarations(business.questions, replay=bool(flow.opening)),
                                    thinking_budget=thinking_budget, speech_end=speech_end)
 
     async def add_turn(turn, line, log_start: int, i: int, voice: str) -> None:
@@ -177,6 +178,7 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                     replay = i
                     break
                 if i == 0 and barge_in is not None and sessions == 1:
+                    flow.on_opening_cut(barge_in[0])  # 流れの制御も、どこまで届いたかを覚える（流し直しで、届いていない部分を足す）
                     await send_note(s, barge_in_note(business, *barge_in))  # 録音のどこまでが届いたか
                 if replay != i:  # 送り直しは、相手がもう一度話したのではないので数えない
                     flow.on_callee()

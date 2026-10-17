@@ -31,9 +31,13 @@ QUESTIONS = {
     "Q2": Question("Q2", "お支払いはカードと振込のどちらがよろしいでしょうか？", "choice", conditions=("カード", "振込")),
     # 前の質問から「結構です」の意味が決まる質問（G-49：2つのモデルとも「結構」＝「いいえ」）。--as-question Q3 で、Q1 の答えの声を流す
     "Q3": Question("Q3", "パンフレットをお送りしてもよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ")),
+    # 値を聞く質問（「結構です」だけの答えは、答えの値ではない＝聞き返す。その言葉だけで締めない）。--as-question Q4
+    "Q4": Question("Q4", "ご希望の日時をお聞かせいただけますでしょうか？", "datetime", conditions=("答えた",), topic="ご希望の日時"),
+    # Q1 と同じ問いで、選択肢を言葉で書いた形（依頼主の台本は「決まっている・決まっていない」のように書くことが多い。Intent.md 6-3）
+    "Q5": Question("Q5", "ご予約はされていますでしょうか？", "yes_no", conditions=("している", "していない")),
 }
-# --as-question のときの正解の差し替え（その質問への答えとしての正解）。書いていない声は、もとの正解のまま
-WANT_AS = {"Q3": {"a2": "いいえ"}}
+# --as-question のときの正解の差し替え（その質問への答えとしての正解）：声ごと（id）か、もとの正解ごと（want）。書いていないものは、もとのまま
+WANT_AS = {"Q3": {"id": {"a2": "いいえ"}}, "Q5": {"want": {"はい": "している", "いいえ": "していない"}}}
 
 
 def _decided(name: str, decide) -> dict:
@@ -43,8 +47,10 @@ def _decided(name: str, decide) -> dict:
     if not files:
         return {}
     d = json.loads(files[-1].read_text(encoding="utf-8"))
-    rows = {k: {q: w for (q, _), w in zip(d["questions"], v)} for k, v in d["rows"].items()}
-    return {qid: decide(q, [rows[k].get(q.text, {}) for k in ("3.8 Flash", "3.7 Flash") if k in rows]) for qid, q in QUESTIONS.items()}
+    # 質問の文と選択肢の組で引く（同じ文で選択肢の違う質問がある＝Q1 と Q5）
+    rows = {k: {(q, tuple(c)): w for (q, c), w in zip(d["questions"], v)} for k, v in d["rows"].items()}
+    return {qid: decide(q, [rows[k].get((q.text, tuple(q.conditions)), {}) for k in ("3.8 Flash", "3.7 Flash") if k in rows])
+            for qid, q in QUESTIONS.items()}
 
 
 def meanings() -> dict:
@@ -60,7 +66,8 @@ def replies() -> dict:
 def business(qid: str, with_meanings: bool = True) -> Business:
     q = QUESTIONS[qid]
     if with_meanings:
-        q = Question(q.id, q.text, q.type, conditions=q.conditions, meanings=MEANINGS.get(qid, {}), reply_meanings=REPLIES.get(qid, {}))
+        q = Question(q.id, q.text, q.type, conditions=q.conditions, topic=q.topic, meanings=MEANINGS.get(qid, {}),
+                     reply_meanings=REPLIES.get(qid, {}))
     return Business(company=BASE.company, caller=BASE.caller, purpose="ご予約の確認", purpose_line=BASE.purpose_line, questions=[q])
 
 
@@ -192,7 +199,9 @@ async def run(args) -> dict:
     if args.voice:
         items = [m for m in items if m["voice"] in args.voice]
     if args.as_question:  # 同じ声を、別の質問への答えとして流す（正解は WANT_AS で差し替える）
-        items = [{**m, "question": args.as_question, "want": WANT_AS.get(args.as_question, {}).get(m["id"], m["want"])} for m in items]
+        w = WANT_AS.get(args.as_question, {})
+        items = [{**m, "question": args.as_question,
+                  "want": w.get("id", {}).get(m["id"], w.get("want", {}).get(m["want"], m["want"]))} for m in items]
     rows = []
     for n, item in enumerate(items[: args.limit or None]):
         head = {**{k: item[k] for k in ("id", "voice", "question", "want", "kind", "text")}, "noise_tag": "雑音" if item.get("noise") else "無し"}

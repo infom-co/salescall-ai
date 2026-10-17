@@ -1,0 +1,1982 @@
+{
+  "item": "G-50_1",
+  "saved_at": "2026-10-17T09:39:14",
+  "model": "gemini-3.8-live",
+  "summary": {
+    "K1_どちら様": {
+      "replay_ok": "1/1",
+      "spoke_name": "0/1",
+      "q1_ok": "1/1",
+      "asked_q2": "1/1"
+    },
+    "K2_ご用件": {
+      "replay_ok": "1/1",
+      "spoke_name": "0/1",
+      "q1_ok": "1/1",
+      "asked_q2": "1/1"
+    },
+    "K3_もう一度": {
+      "replay_ok": "1/1",
+      "spoke_name": "0/1",
+      "q1_ok": "1/1",
+      "asked_q2": "1/1"
+    },
+    "K4_はい？": {
+      "replay_ok": "0/0",
+      "spoke_name": "0/0",
+      "q1_ok": "0/0",
+      "asked_q2": "0/0"
+    },
+    "K6_代わる": {
+      "replay_ok": "1/1",
+      "spoke_name": "0/1",
+      "q1_ok": "1/1",
+      "asked_q2": "1/1"
+    },
+    "B0_最初から": {
+      "replay_ok": "1/1",
+      "spoke_name": "0/1",
+      "q1_ok": "1/1",
+      "asked_q2": "1/1"
+    },
+    "B1_あいさつのあと": {
+      "replay_ok": "1/1",
+      "spoke_name": "0/1",
+      "q1_ok": "1/1",
+      "asked_q2": "1/1"
+    },
+    "B2_名乗りのあと": {
+      "replay_ok": "1/1",
+      "spoke_name": "0/1",
+      "q1_ok": "1/1",
+      "asked_q2": "1/1"
+    },
+    "頼むまでの秒（中央・遅いほうから1割・最大）": [
+      0.828,
+      1.119,
+      1.119
+    ],
+    "誤り・数えられなかった": []
+  },
+  "rows": [
+    {
+      "rep": 0,
+      "scene": "K1_どちら様",
+      "type": "S2",
+      "voice_type": "S2",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_whois.wav"
+          },
+          "heard": "はい、どちら様ですか?",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.636,
+              "name": "replay_opening",
+              "args": {
+                "part": "intro"
+              },
+              "reply": "replayed",
+              "ack": "shitsurei",
+              "say": null,
+              "play": [
+                {
+                  "kind": "opening",
+                  "part": "intro",
+                  "text": "株式会社「アオバ物流」の「佐藤」と申します。"
+                },
+                {
+                  "kind": "question",
+                  "id": "Q1",
+                  "text": "ご予約はされていますでしょうか？",
+                  "lead": ""
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.639,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.398,
+              "text": "はい、どちら様ですか?"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.637,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.639,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q1",
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          }
+        },
+        {
+          "index": 1,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_yes_reserved.wav"
+          },
+          "heard": "はい、予約しています。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.272,
+              "name": "record_answer",
+              "args": {
+                "question_id": "Q1",
+                "value": "はい",
+                "condition_id": "はい"
+              },
+              "reply": "next",
+              "ack": "shouchi",
+              "say": null,
+              "play": [
+                {
+                  "kind": "question",
+                  "id": "Q2",
+                  "text": "それではご希望の日時をお聞かせいただけますでしょうか？",
+                  "lead": "それでは"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.273,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.272,
+              "text": "はい、予約しています。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.273,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.273,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          }
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "replay_opening",
+          "args": {
+            "part": "intro"
+          },
+          "reply": {
+            "result": "replayed",
+            "play": [
+              {
+                "kind": "opening",
+                "part": "intro",
+                "text": "株式会社「アオバ物流」の「佐藤」と申します。"
+              },
+              {
+                "kind": "question",
+                "id": "Q1",
+                "text": "ご予約はされていますでしょうか？",
+                "lead": ""
+              }
+            ],
+            "message": "「株式会社「アオバ物流」の「佐藤」と申します。ご予約はされていますでしょうか？」は、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、相手の答えを待ってください。相手が答えたら record_answer で報告します。",
+            "ack": "shitsurei"
+          },
+          "callee_turns": 1
+        },
+        {
+          "op": "record_answer",
+          "args": {
+            "question_id": "Q1",
+            "value": "はい",
+            "condition_id": "はい"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q2",
+            "question": "ご希望の日時をお聞かせいただけますでしょうか？",
+            "play": [
+              {
+                "kind": "question",
+                "id": "Q2",
+                "text": "それではご希望の日時をお聞かせいただけますでしょうか？",
+                "lead": "それでは"
+              }
+            ],
+            "message": "受け付けました。次の質問 Q2「それではご希望の日時をお聞かせいただけますでしょうか？」は、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、相手の答えを待ってください。相手が答えたら record_answer で報告します。",
+            "ack": "shouchi"
+          },
+          "callee_turns": 2
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "accepted",
+          "value": "はい",
+          "condition": "はい",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q2": {
+          "state": "empty",
+          "value": null,
+          "condition": null,
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q3": {
+          "state": "empty",
+          "value": null,
+          "condition": null,
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        }
+      },
+      "export": {
+        "Q1": "はい",
+        "Q2": "-",
+        "Q3": "-"
+      },
+      "final_phase": "asking",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "checks": {
+        "replay_ok": true,
+        "part": "名乗り",
+        "replays": 1,
+        "replay_at": 0,
+        "spoke_name": false,
+        "spoke_name_at": [],
+        "replay_turn_voice_s": null,
+        "q1_ok": true,
+        "asked_q2": true,
+        "ask_s": 0.976
+      },
+      "ops": [
+        [
+          "replay_opening",
+          {
+            "part": "intro"
+          },
+          "replayed"
+        ],
+        [
+          "record_answer",
+          {
+            "question_id": "Q1",
+            "value": "はい",
+            "condition_id": "はい"
+          },
+          "next"
+        ]
+      ],
+      "said": [
+        "",
+        ""
+      ],
+      "heard": [
+        "はい、どちら様ですか?",
+        "はい、予約しています。"
+      ]
+    },
+    {
+      "rep": 0,
+      "scene": "K2_ご用件",
+      "type": "S2",
+      "voice_type": "S2",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_what_for.wav"
+          },
+          "heard": "はい、何の御用件でしょうか?",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.411,
+              "name": "replay_opening",
+              "args": {
+                "part": "purpose"
+              },
+              "reply": "replayed",
+              "ack": "shitsurei",
+              "say": null,
+              "play": [
+                {
+                  "kind": "opening",
+                  "part": "purpose",
+                  "text": "ご予約の確認でお電話いたしました。"
+                },
+                {
+                  "kind": "question",
+                  "id": "Q1",
+                  "text": "ご予約はされていますでしょうか？",
+                  "lead": ""
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.419,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.261,
+              "text": "はい、何の御用件でしょうか?"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.411,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.419,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q1",
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          }
+        },
+        {
+          "index": 1,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_yes_reserved.wav"
+          },
+          "heard": "はい、予約しています。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.407,
+              "name": "record_answer",
+              "args": {
+                "value": "はい",
+                "question_id": "Q1",
+                "condition_id": "はい"
+              },
+              "reply": "next",
+              "ack": "shouchi",
+              "say": null,
+              "play": [
+                {
+                  "kind": "question",
+                  "id": "Q2",
+                  "text": "それではご希望の日時をお聞かせいただけますでしょうか？",
+                  "lead": "それでは"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.409,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.348,
+              "text": "はい、予約しています。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.407,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.409,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          }
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "replay_opening",
+          "args": {
+            "part": "purpose"
+          },
+          "reply": {
+            "result": "replayed",
+            "play": [
+              {
+                "kind": "opening",
+                "part": "purpose",
+                "text": "ご予約の確認でお電話いたしました。"
+              },
+              {
+                "kind": "question",
+                "id": "Q1",
+                "text": "ご予約はされていますでしょうか？",
+                "lead": ""
+              }
+            ],
+            "message": "「ご予約の確認でお電話いたしました。ご予約はされていますでしょうか？」は、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、相手の答えを待ってください。相手が答えたら record_answer で報告します。",
+            "ack": "shitsurei"
+          },
+          "callee_turns": 1
+        },
+        {
+          "op": "record_answer",
+          "args": {
+            "value": "はい",
+            "question_id": "Q1",
+            "condition_id": "はい"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q2",
+            "question": "ご希望の日時をお聞かせいただけますでしょうか？",
+            "play": [
+              {
+                "kind": "question",
+                "id": "Q2",
+                "text": "それではご希望の日時をお聞かせいただけますでしょうか？",
+                "lead": "それでは"
+              }
+            ],
+            "message": "受け付けました。次の質問 Q2「それではご希望の日時をお聞かせいただけますでしょうか？」は、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、相手の答えを待ってください。相手が答えたら record_answer で報告します。",
+            "ack": "shouchi"
+          },
+          "callee_turns": 2
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "accepted",
+          "value": "はい",
+          "condition": "はい",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q2": {
+          "state": "empty",
+          "value": null,
+          "condition": null,
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q3": {
+          "state": "empty",
+          "value": null,
+          "condition": null,
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        }
+      },
+      "export": {
+        "Q1": "はい",
+        "Q2": "-",
+        "Q3": "-"
+      },
+      "final_phase": "asking",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "checks": {
+        "replay_ok": true,
+        "part": "用件",
+        "replays": 1,
+        "replay_at": 0,
+        "spoke_name": false,
+        "spoke_name_at": [],
+        "replay_turn_voice_s": null,
+        "q1_ok": true,
+        "asked_q2": true,
+        "ask_s": 0.751
+      },
+      "ops": [
+        [
+          "replay_opening",
+          {
+            "part": "purpose"
+          },
+          "replayed"
+        ],
+        [
+          "record_answer",
+          {
+            "value": "はい",
+            "question_id": "Q1",
+            "condition_id": "はい"
+          },
+          "next"
+        ]
+      ],
+      "said": [
+        "",
+        ""
+      ],
+      "heard": [
+        "はい、何の御用件でしょうか?",
+        "はい、予約しています。"
+      ]
+    },
+    {
+      "rep": 0,
+      "scene": "K3_もう一度",
+      "type": "S2",
+      "voice_type": "S2",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_again.wav"
+          },
+          "heard": "すみません、もう一度お願いできますか?",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.296,
+              "name": "replay_opening",
+              "args": {
+                "part": "all"
+              },
+              "reply": "replayed",
+              "ack": "shitsurei",
+              "say": null,
+              "play": [
+                {
+                  "kind": "opening",
+                  "part": "intro",
+                  "text": "株式会社「アオバ物流」の「佐藤」と申します。"
+                },
+                {
+                  "kind": "opening",
+                  "part": "purpose",
+                  "text": "ご予約の確認でお電話いたしました。"
+                },
+                {
+                  "kind": "question",
+                  "id": "Q1",
+                  "text": "ご予約はされていますでしょうか？",
+                  "lead": ""
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.297,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.26,
+              "text": "すみません、もう一度お願いできますか?"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.296,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.297,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q1",
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          }
+        },
+        {
+          "index": 1,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_yes_reserved.wav"
+          },
+          "heard": "はい、予約しています。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.36,
+              "name": "record_answer",
+              "args": {
+                "condition_id": "はい",
+                "value": "はい",
+                "question_id": "Q1"
+              },
+              "reply": "next",
+              "ack": "shouchi",
+              "say": null,
+              "play": [
+                {
+                  "kind": "question",
+                  "id": "Q2",
+                  "text": "それではご希望の日時をお聞かせいただけますでしょうか？",
+                  "lead": "それでは"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.361,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.256,
+              "text": "はい、予約しています。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.36,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.361,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          }
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "replay_opening",
+          "args": {
+            "part": "all"
+          },
+          "reply": {
+            "result": "replayed",
+            "play": [
+              {
+                "kind": "opening",
+                "part": "intro",
+                "text": "株式会社「アオバ物流」の「佐藤」と申します。"
+              },
+              {
+                "kind": "opening",
+                "part": "purpose",
+                "text": "ご予約の確認でお電話いたしました。"
+              },
+              {
+                "kind": "question",
+                "id": "Q1",
+                "text": "ご予約はされていますでしょうか？",
+                "lead": ""
+              }
+            ],
+            "message": "「株式会社「アオバ物流」の「佐藤」と申します。ご予約の確認でお電話いたしました。ご予約はされていますでしょうか？」は、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、相手の答えを待ってください。相手が答えたら record_answer で報告します。",
+            "ack": "shitsurei"
+          },
+          "callee_turns": 1
+        },
+        {
+          "op": "record_answer",
+          "args": {
+            "condition_id": "はい",
+            "value": "はい",
+            "question_id": "Q1"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q2",
+            "question": "ご希望の日時をお聞かせいただけますでしょうか？",
+            "play": [
+              {
+                "kind": "question",
+                "id": "Q2",
+                "text": "それではご希望の日時をお聞かせいただけますでしょうか？",
+                "lead": "それでは"
+              }
+            ],
+            "message": "受け付けました。次の質問 Q2「それではご希望の日時をお聞かせいただけますでしょうか？」は、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、相手の答えを待ってください。相手が答えたら record_answer で報告します。",
+            "ack": "shouchi"
+          },
+          "callee_turns": 2
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "accepted",
+          "value": "はい",
+          "condition": "はい",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q2": {
+          "state": "empty",
+          "value": null,
+          "condition": null,
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q3": {
+          "state": "empty",
+          "value": null,
+          "condition": null,
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        }
+      },
+      "export": {
+        "Q1": "はい",
+        "Q2": "-",
+        "Q3": "-"
+      },
+      "final_phase": "asking",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "checks": {
+        "replay_ok": true,
+        "part": "最初から",
+        "replays": 1,
+        "replay_at": 0,
+        "spoke_name": false,
+        "spoke_name_at": [],
+        "replay_turn_voice_s": null,
+        "q1_ok": true,
+        "asked_q2": true,
+        "ask_s": 0.646
+      },
+      "ops": [
+        [
+          "replay_opening",
+          {
+            "part": "all"
+          },
+          "replayed"
+        ],
+        [
+          "record_answer",
+          {
+            "condition_id": "はい",
+            "value": "はい",
+            "question_id": "Q1"
+          },
+          "next"
+        ]
+      ],
+      "said": [
+        "",
+        ""
+      ],
+      "heard": [
+        "すみません、もう一度お願いできますか?",
+        "はい、予約しています。"
+      ]
+    },
+    {
+      "rep": 0,
+      "scene": "K4_はい？",
+      "type": "S2",
+      "skipped": "相手役の声が確かめに通っていない：['Leda_hai_q.wav']"
+    },
+    {
+      "rep": 0,
+      "scene": "K6_代わる",
+      "type": "S2",
+      "voice_type": "S2",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_transfer.wav"
+          },
+          "heard": "担当の者に代わりますので少々お待ちください。",
+          "intended": "かしこまりました。お待ちしております。",
+          "tool_events": [],
+          "first_audio_after_s": 0.599,
+          "finished_after_s": 2.733,
+          "audio_seconds": 2.13,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 0.599,
+              "audio_s": 0.0,
+              "text": "かしこまりました。お待ちしております。"
+            }
+          ],
+          "heard_events": [
+            {
+              "at_s": 0.346,
+              "text": "担当の者に代わりますので少々お待ちください。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.599,
+              "kind": "audio_start",
+              "chunk": 0
+            },
+            {
+              "at_s": 2.733,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q1",
+          "ear": "かしこまりました。お待ちしております。",
+          "check": {
+            "voiced_s": 1.84,
+            "compared_with": "heard",
+            "morae": 17,
+            "expected_s": 1.89,
+            "ratio": 0.97,
+            "kind": "ok"
+          }
+        },
+        {
+          "index": 1,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_taken_over.wav"
+          },
+          "heard": "お電話代わりました。担当の山田です。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.634,
+              "name": "replay_opening",
+              "args": {
+                "part": "handover"
+              },
+              "reply": "replayed",
+              "ack": null,
+              "say": null,
+              "play": [
+                {
+                  "kind": "opening",
+                  "part": "greeting",
+                  "text": "お忙しいところ恐れ入ります。"
+                },
+                {
+                  "kind": "opening",
+                  "part": "intro",
+                  "text": "株式会社「アオバ物流」の「佐藤」と申します。"
+                },
+                {
+                  "kind": "opening",
+                  "part": "purpose",
+                  "text": "ご予約の確認でお電話いたしました。"
+                },
+                {
+                  "kind": "question",
+                  "id": "Q1",
+                  "text": "ご予約はされていますでしょうか？",
+                  "lead": ""
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.641,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.437,
+              "text": "お電話代わりました。担当の山田です。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.635,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.641,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q1",
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          }
+        },
+        {
+          "index": 2,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_yes_reserved.wav"
+          },
+          "heard": "はい、予約しています。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.296,
+              "name": "record_answer",
+              "args": {
+                "value": "はい",
+                "question_id": "Q1",
+                "condition_id": "はい"
+              },
+              "reply": "next",
+              "ack": "shouchi",
+              "say": null,
+              "play": [
+                {
+                  "kind": "question",
+                  "id": "Q2",
+                  "text": "それではご希望の日時をお聞かせいただけますでしょうか？",
+                  "lead": "それでは"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.297,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.296,
+              "text": "はい、予約しています。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.297,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.297,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          }
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "replay_opening",
+          "args": {
+            "part": "handover"
+          },
+          "reply": {
+            "result": "replayed",
+            "play": [
+              {
+                "kind": "opening",
+                "part": "greeting",
+                "text": "お忙しいところ恐れ入ります。"
+              },
+              {
+                "kind": "opening",
+                "part": "intro",
+                "text": "株式会社「アオバ物流」の「佐藤」と申します。"
+              },
+              {
+                "kind": "opening",
+                "part": "purpose",
+                "text": "ご予約の確認でお電話いたしました。"
+              },
+              {
+                "kind": "question",
+                "id": "Q1",
+                "text": "ご予約はされていますでしょうか？",
+                "lead": ""
+              }
+            ],
+            "message": "「お忙しいところ恐れ入ります。株式会社「アオバ物流」の「佐藤」と申します。ご予約の確認でお電話いたしました。ご予約はされていますでしょうか？」は、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、相手の答えを待ってください。相手が答えたら record_answer で報告します。",
+            "ack": null
+          },
+          "callee_turns": 2
+        },
+        {
+          "op": "record_answer",
+          "args": {
+            "value": "はい",
+            "question_id": "Q1",
+            "condition_id": "はい"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q2",
+            "question": "ご希望の日時をお聞かせいただけますでしょうか？",
+            "play": [
+              {
+                "kind": "question",
+                "id": "Q2",
+                "text": "それではご希望の日時をお聞かせいただけますでしょうか？",
+                "lead": "それでは"
+              }
+            ],
+            "message": "受け付けました。次の質問 Q2「それではご希望の日時をお聞かせいただけますでしょうか？」は、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、相手の答えを待ってください。相手が答えたら record_answer で報告します。",
+            "ack": "shouchi"
+          },
+          "callee_turns": 3
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "accepted",
+          "value": "はい",
+          "condition": "はい",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q2": {
+          "state": "empty",
+          "value": null,
+          "condition": null,
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q3": {
+          "state": "empty",
+          "value": null,
+          "condition": null,
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        }
+      },
+      "export": {
+        "Q1": "はい",
+        "Q2": "-",
+        "Q3": "-"
+      },
+      "final_phase": "asking",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "checks": {
+        "replay_ok": true,
+        "part": "代わった方へ",
+        "replays": 1,
+        "replay_at": 1,
+        "spoke_name": false,
+        "spoke_name_at": [],
+        "replay_turn_voice_s": null,
+        "q1_ok": true,
+        "asked_q2": true,
+        "ask_s": 1.084
+      },
+      "ops": [
+        [
+          "replay_opening",
+          {
+            "part": "handover"
+          },
+          "replayed"
+        ],
+        [
+          "record_answer",
+          {
+            "value": "はい",
+            "question_id": "Q1",
+            "condition_id": "はい"
+          },
+          "next"
+        ]
+      ],
+      "said": [
+        "かしこまりました。お待ちしております。",
+        "",
+        ""
+      ],
+      "heard": [
+        "担当の者に代わりますので少々お待ちください。",
+        "お電話代わりました。担当の山田です。",
+        "はい、予約しています。"
+      ]
+    },
+    {
+      "rep": 0,
+      "scene": "B0_最初から",
+      "type": "S2",
+      "voice_type": "S2",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_barge_who.wav"
+          },
+          "heard": "はい、どちら様?",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.528,
+              "name": "replay_opening",
+              "args": {
+                "part": "intro"
+              },
+              "reply": "replayed",
+              "ack": "shitsurei",
+              "say": null,
+              "play": [
+                {
+                  "kind": "opening",
+                  "part": "intro",
+                  "text": "株式会社「アオバ物流」の「佐藤」と申します。"
+                },
+                {
+                  "kind": "question",
+                  "id": "Q1",
+                  "text": "ご予約はされていますでしょうか？",
+                  "lead": ""
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.529,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.347,
+              "text": "はい、どちら様?"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.528,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.529,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q1",
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          }
+        },
+        {
+          "index": 1,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_yes_reserved.wav"
+          },
+          "heard": "はい、予約しています。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.535,
+              "name": "record_answer",
+              "args": {
+                "value": "はい",
+                "question_id": "Q1",
+                "condition_id": "はい"
+              },
+              "reply": "next",
+              "ack": "shouchi",
+              "say": null,
+              "play": [
+                {
+                  "kind": "question",
+                  "id": "Q2",
+                  "text": "それではご希望の日時をお聞かせいただけますでしょうか？",
+                  "lead": "それでは"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.535,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.306,
+              "text": "はい、予約しています。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.535,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.535,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          }
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "replay_opening",
+          "args": {
+            "part": "intro"
+          },
+          "reply": {
+            "result": "replayed",
+            "play": [
+              {
+                "kind": "opening",
+                "part": "intro",
+                "text": "株式会社「アオバ物流」の「佐藤」と申します。"
+              },
+              {
+                "kind": "question",
+                "id": "Q1",
+                "text": "ご予約はされていますでしょうか？",
+                "lead": ""
+              }
+            ],
+            "message": "「株式会社「アオバ物流」の「佐藤」と申します。ご予約はされていますでしょうか？」は、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、相手の答えを待ってください。相手が答えたら record_answer で報告します。",
+            "ack": "shitsurei"
+          },
+          "callee_turns": 1
+        },
+        {
+          "op": "record_answer",
+          "args": {
+            "value": "はい",
+            "question_id": "Q1",
+            "condition_id": "はい"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q2",
+            "question": "ご希望の日時をお聞かせいただけますでしょうか？",
+            "play": [
+              {
+                "kind": "question",
+                "id": "Q2",
+                "text": "それではご希望の日時をお聞かせいただけますでしょうか？",
+                "lead": "それでは"
+              }
+            ],
+            "message": "受け付けました。次の質問 Q2「それではご希望の日時をお聞かせいただけますでしょうか？」は、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、相手の答えを待ってください。相手が答えたら record_answer で報告します。",
+            "ack": "shouchi"
+          },
+          "callee_turns": 2
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "accepted",
+          "value": "はい",
+          "condition": "はい",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q2": {
+          "state": "empty",
+          "value": null,
+          "condition": null,
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q3": {
+          "state": "empty",
+          "value": null,
+          "condition": null,
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        }
+      },
+      "export": {
+        "Q1": "はい",
+        "Q2": "-",
+        "Q3": "-"
+      },
+      "final_phase": "asking",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": [
+        [],
+        [
+          "お忙しいところ恐れ入ります。",
+          "株式会社「アオバ物流」の「佐藤」と申します。",
+          "ご予約の確認でお電話いたしました。",
+          "ご予約はされていますでしょうか？"
+        ]
+      ],
+      "checks": {
+        "replay_ok": true,
+        "part": "名乗り",
+        "replays": 1,
+        "replay_at": 0,
+        "spoke_name": false,
+        "spoke_name_at": [],
+        "replay_turn_voice_s": null,
+        "q1_ok": true,
+        "asked_q2": true,
+        "ask_s": 0.828
+      },
+      "ops": [
+        [
+          "replay_opening",
+          {
+            "part": "intro"
+          },
+          "replayed"
+        ],
+        [
+          "record_answer",
+          {
+            "value": "はい",
+            "question_id": "Q1",
+            "condition_id": "はい"
+          },
+          "next"
+        ]
+      ],
+      "said": [
+        "",
+        ""
+      ],
+      "heard": [
+        "はい、どちら様?",
+        "はい、予約しています。"
+      ]
+    },
+    {
+      "rep": 0,
+      "scene": "B1_あいさつのあと",
+      "type": "S2",
+      "voice_type": "S2",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_barge_who.wav"
+          },
+          "heard": "はい、どちら様?",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.819,
+              "name": "replay_opening",
+              "args": {
+                "part": "intro"
+              },
+              "reply": "replayed",
+              "ack": "shitsurei",
+              "say": null,
+              "play": [
+                {
+                  "kind": "opening",
+                  "part": "intro",
+                  "text": "株式会社「アオバ物流」の「佐藤」と申します。"
+                },
+                {
+                  "kind": "question",
+                  "id": "Q1",
+                  "text": "ご予約はされていますでしょうか？",
+                  "lead": ""
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.819,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.263,
+              "text": "はい、どちら様?"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.819,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.819,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q1",
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          }
+        },
+        {
+          "index": 1,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_yes_reserved.wav"
+          },
+          "heard": "はい、予約しています。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.787,
+              "name": "record_answer",
+              "args": {
+                "value": "はい、予約しています",
+                "condition_id": "はい",
+                "question_id": "Q1"
+              },
+              "reply": "next",
+              "ack": "shouchi",
+              "say": null,
+              "play": [
+                {
+                  "kind": "question",
+                  "id": "Q2",
+                  "text": "それではご希望の日時をお聞かせいただけますでしょうか？",
+                  "lead": "それでは"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.788,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.361,
+              "text": "はい、予約しています。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.788,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.788,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          }
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "replay_opening",
+          "args": {
+            "part": "intro"
+          },
+          "reply": {
+            "result": "replayed",
+            "play": [
+              {
+                "kind": "opening",
+                "part": "intro",
+                "text": "株式会社「アオバ物流」の「佐藤」と申します。"
+              },
+              {
+                "kind": "question",
+                "id": "Q1",
+                "text": "ご予約はされていますでしょうか？",
+                "lead": ""
+              }
+            ],
+            "message": "「株式会社「アオバ物流」の「佐藤」と申します。ご予約はされていますでしょうか？」は、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、相手の答えを待ってください。相手が答えたら record_answer で報告します。",
+            "ack": "shitsurei"
+          },
+          "callee_turns": 1
+        },
+        {
+          "op": "record_answer",
+          "args": {
+            "value": "はい、予約しています",
+            "condition_id": "はい",
+            "question_id": "Q1"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q2",
+            "question": "ご希望の日時をお聞かせいただけますでしょうか？",
+            "play": [
+              {
+                "kind": "question",
+                "id": "Q2",
+                "text": "それではご希望の日時をお聞かせいただけますでしょうか？",
+                "lead": "それでは"
+              }
+            ],
+            "message": "受け付けました。次の質問 Q2「それではご希望の日時をお聞かせいただけますでしょうか？」は、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、相手の答えを待ってください。相手が答えたら record_answer で報告します。",
+            "ack": "shouchi"
+          },
+          "callee_turns": 2
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "accepted",
+          "value": "はい、予約しています",
+          "condition": "はい",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q2": {
+          "state": "empty",
+          "value": null,
+          "condition": null,
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q3": {
+          "state": "empty",
+          "value": null,
+          "condition": null,
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        }
+      },
+      "export": {
+        "Q1": "はい",
+        "Q2": "-",
+        "Q3": "-"
+      },
+      "final_phase": "asking",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": [
+        [
+          "お忙しいところ恐れ入ります。"
+        ],
+        [
+          "株式会社「アオバ物流」の「佐藤」と申します。",
+          "ご予約の確認でお電話いたしました。",
+          "ご予約はされていますでしょうか？"
+        ]
+      ],
+      "checks": {
+        "replay_ok": true,
+        "part": "名乗り",
+        "replays": 1,
+        "replay_at": 0,
+        "spoke_name": false,
+        "spoke_name_at": [],
+        "replay_turn_voice_s": null,
+        "q1_ok": true,
+        "asked_q2": true,
+        "ask_s": 1.119
+      },
+      "ops": [
+        [
+          "replay_opening",
+          {
+            "part": "intro"
+          },
+          "replayed"
+        ],
+        [
+          "record_answer",
+          {
+            "value": "はい、予約しています",
+            "condition_id": "はい",
+            "question_id": "Q1"
+          },
+          "next"
+        ]
+      ],
+      "said": [
+        "",
+        ""
+      ],
+      "heard": [
+        "はい、どちら様?",
+        "はい、予約しています。"
+      ]
+    },
+    {
+      "rep": 0,
+      "scene": "B2_名乗りのあと",
+      "type": "S2",
+      "voice_type": "S2",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_barge_what.wav"
+          },
+          "heard": "はい、何でしょう?",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.296,
+              "name": "replay_opening",
+              "args": {
+                "part": "purpose"
+              },
+              "reply": "replayed",
+              "ack": "shitsurei",
+              "say": null,
+              "play": [
+                {
+                  "kind": "opening",
+                  "part": "purpose",
+                  "text": "ご予約の確認でお電話いたしました。"
+                },
+                {
+                  "kind": "question",
+                  "id": "Q1",
+                  "text": "ご予約はされていますでしょうか？",
+                  "lead": ""
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.302,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.266,
+              "text": "はい、何でしょう?"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.297,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.302,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q1",
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          }
+        },
+        {
+          "index": 1,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_yes_reserved.wav"
+          },
+          "heard": "はい、予約しています。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.332,
+              "name": "record_answer",
+              "args": {
+                "condition_id": "はい",
+                "question_id": "Q1",
+                "value": "はい"
+              },
+              "reply": "next",
+              "ack": "shouchi",
+              "say": null,
+              "play": [
+                {
+                  "kind": "question",
+                  "id": "Q2",
+                  "text": "それではご希望の日時をお聞かせいただけますでしょうか？",
+                  "lead": "それでは"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.332,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.304,
+              "text": "はい、予約しています。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.332,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.332,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          }
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "replay_opening",
+          "args": {
+            "part": "purpose"
+          },
+          "reply": {
+            "result": "replayed",
+            "play": [
+              {
+                "kind": "opening",
+                "part": "purpose",
+                "text": "ご予約の確認でお電話いたしました。"
+              },
+              {
+                "kind": "question",
+                "id": "Q1",
+                "text": "ご予約はされていますでしょうか？",
+                "lead": ""
+              }
+            ],
+            "message": "「ご予約の確認でお電話いたしました。ご予約はされていますでしょうか？」は、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、相手の答えを待ってください。相手が答えたら record_answer で報告します。",
+            "ack": "shitsurei"
+          },
+          "callee_turns": 1
+        },
+        {
+          "op": "record_answer",
+          "args": {
+            "condition_id": "はい",
+            "question_id": "Q1",
+            "value": "はい"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q2",
+            "question": "ご希望の日時をお聞かせいただけますでしょうか？",
+            "play": [
+              {
+                "kind": "question",
+                "id": "Q2",
+                "text": "それではご希望の日時をお聞かせいただけますでしょうか？",
+                "lead": "それでは"
+              }
+            ],
+            "message": "受け付けました。次の質問 Q2「それではご希望の日時をお聞かせいただけますでしょうか？」は、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、相手の答えを待ってください。相手が答えたら record_answer で報告します。",
+            "ack": "shouchi"
+          },
+          "callee_turns": 2
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "accepted",
+          "value": "はい",
+          "condition": "はい",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q2": {
+          "state": "empty",
+          "value": null,
+          "condition": null,
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        },
+        "Q3": {
+          "state": "empty",
+          "value": null,
+          "condition": null,
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        }
+      },
+      "export": {
+        "Q1": "はい",
+        "Q2": "-",
+        "Q3": "-"
+      },
+      "final_phase": "asking",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": [
+        [
+          "お忙しいところ恐れ入ります。",
+          "株式会社「アオバ物流」の「佐藤」と申します。"
+        ],
+        [
+          "ご予約の確認でお電話いたしました。",
+          "ご予約はされていますでしょうか？"
+        ]
+      ],
+      "checks": {
+        "replay_ok": true,
+        "part": "用件",
+        "replays": 1,
+        "replay_at": 0,
+        "spoke_name": false,
+        "spoke_name_at": [],
+        "replay_turn_voice_s": null,
+        "q1_ok": true,
+        "asked_q2": true,
+        "ask_s": 0.676
+      },
+      "ops": [
+        [
+          "replay_opening",
+          {
+            "part": "purpose"
+          },
+          "replayed"
+        ],
+        [
+          "record_answer",
+          {
+            "condition_id": "はい",
+            "question_id": "Q1",
+            "value": "はい"
+          },
+          "next"
+        ]
+      ],
+      "said": [
+        "",
+        ""
+      ],
+      "heard": [
+        "はい、何でしょう?",
+        "はい、予約しています。"
+      ]
+    }
+  ]
+}
