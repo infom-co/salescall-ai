@@ -1548,8 +1548,39 @@ class EarsTest(unittest.TestCase):
         self.assertEqual(soniox_update(pending, {"tokens": [{"text": "ないです。", "is_final": True}, {"text": "<end>", "is_final": True}]}),
                          ["してないです。"])
         self.assertEqual(pending, [])                                           # 話し終わりで、次の発話のために空にする
+        # こちらから頼んだ確定（{"type": "finalize"}）の終わりの印「<fin>」でも、1つの発話として渡す
+        self.assertEqual(soniox_update(pending, {"tokens": [{"text": "はい、", "is_final": True}, {"text": "先週しました。", "is_final": True},
+                                                            {"text": "<fin>", "is_final": True}]}), ["はい、先週しました。"])
         with self.assertRaises(RuntimeError):
             soniox_update(pending, {"error_code": 401, "error_message": "unauthorized"})
+
+    def test_pieces_during_the_voice_are_joined(self):
+        # ⛔ 2026-10-17：耳が発話の途中の間で区切ったとき、最初のかけら（「はい。」）で渡していた ⇒ 声を流し終えたあとに届いた分で、
+        # ためた分と合わせて渡す。声を流し終えたあとに何も届かなければ、待ちの終わりに、ためた分を渡す
+        import asyncio
+        from ears import Ear
+
+        class SplitEar(Ear):
+            def __init__(self, after: bool):
+                super().__init__()
+                self.after, self.n = after, 0
+
+            async def _send(self, pcm, voice):
+                if voice:
+                    self.n += 1
+                    if self.n == 2:
+                        self._final("はい。")                                    # 声を流している間のかけら
+
+            async def _fed(self):
+                if self.after:
+                    self._final("先週しました。")
+
+        async def go(after: bool):
+            async with SplitEar(after) as ear:
+                await ear.feed(b"\0\0" * 8000, 16000)
+                return await ear.wait(0.3)
+        self.assertEqual(asyncio.run(go(True)), "はい。先週しました。")
+        self.assertEqual(asyncio.run(go(False)), "はい。")
 
     def test_missing_key_and_model_stop_with_instructions(self):
         import os

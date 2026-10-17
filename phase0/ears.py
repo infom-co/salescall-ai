@@ -74,11 +74,13 @@ class Ear:
             self.errors.append(repr(e)[:200])
 
     def _final(self, text: str) -> None:
-        """いまの発話の確定した文字が届いた（受け取りの処理が呼ぶ）。最初に届いた時刻を残す（待つ時間を決めるための記録）。"""
+        """いまの発話の確定した文字が届いた（受け取りの処理が呼ぶ）。声を流している間に届いた分（耳が発話の途中の間で区切ったかけら）は
+        ためておき、声を流し終えたあとに届いた分で、それまでの分と合わせて1つの発話の文字として渡す。その時刻を残す（待つ時間を決めるための記録）。
+        ⛔ 2026-10-17：最初に届いたかけらで渡していたため、Soniox が「はい、先週しました。」を途中の間で区切ると「はい。」だけになった。"""
         if not text:
             return
         self._text += text
-        if not self._got.done():
+        if not self._feeding.is_set() and not self._got.done():
             self.first_at = self._loop.time()
             self._got.set_result(self._text)
 
@@ -99,6 +101,7 @@ class Ear:
             for i in range(0, len(pcm), step):
                 await self._send(pcm[i:i + step], voice=True)
                 await asyncio.sleep(CHUNK_S)
+            self._feeding.clear()       # ここから先に届いた確定した文字で渡す（_final）
             await self._fed()
         except Exception as e:
             self.errors.append(repr(e)[:200])
@@ -106,11 +109,11 @@ class Ear:
             self._feeding.clear()
 
     async def wait(self, timeout_s: float) -> str | None:
-        """いまの発話の、最初の確定した文字（timeout_s 秒までに届かなければ None）。"""
+        """いまの発話の確定した文字（声を流し終えたあとに届いた分まで。timeout_s 秒までに届かなければ、それまでにためた分か None）。"""
         try:
             return await asyncio.wait_for(asyncio.shield(self._got), max(0.0, timeout_s))
         except asyncio.TimeoutError:
-            return None
+            return self._text or None
 
     # ── 耳ごとに書く所
     async def _open(self) -> None: ...
@@ -197,14 +200,15 @@ class AmiVoiceEar(Ear):
 
 def soniox_update(pending: list[str], msg: dict) -> list[str]:
     """Soniox の返事1つを読み、話し終わった発話の文字の一覧を返す（pending は、まだ話し終わっていない確定した文字＝呼ぶ側が持つ）。
-    確定した言葉（is_final）だけを足し、話し終わりの印「<end>」で1つの発話として渡す。誤りの返事は誤りを上げる。"""
+    確定した言葉（is_final）だけを足し、確定し終わった印（こちらから頼んだ確定の「<fin>」・Soniox が自分で決めた話し終わりの「<end>」）で
+    1つの発話として渡す。誤りの返事は誤りを上げる。"""
     if msg.get("error_code") or msg.get("error_message"):
         raise RuntimeError(f"Soniox の誤り：{msg.get('error_code')} {str(msg.get('error_message'))[:120]}")
     done = []
     for t in msg.get("tokens") or []:
         if not t.get("is_final"):
             continue
-        if t.get("text") == "<end>":
+        if t.get("text") in ("<end>", "<fin>"):
             if pending:
                 done.append("".join(pending).strip())
                 pending.clear()
@@ -214,6 +218,9 @@ def soniox_update(pending: list[str], msg: dict) -> list[str]:
 
 
 class SonioxEar(Ear):
+    """声を流し終えたところで、こちらから確定を頼む（{"type": "finalize"}。Soniox の「手動の確定」）。話し終わりはこちら（通話の側）が
+    知っているので、区切りはこちらの1か所で決め、Soniox が自分で話し終わりを決める仕組み（endpoint detection）は使わない。
+    ⛔ 2026-10-17：Soniox が自分で決める形では、通話の中の153本のうち17本で、2秒の待ちに文字が間に合わなかった。"""
     name = "soniox"
 
     def __init__(self, key: str, url: str = SONIOX_URL, model: str = SONIOX_MODEL):
@@ -226,10 +233,13 @@ class SonioxEar(Ear):
 
         self.ws = await websockets.connect(self.url, max_size=None)
         await self.ws.send(json.dumps({"api_key": self.key, "model": self.model, "audio_format": "pcm_s16le", "sample_rate": RATE,
-                                       "num_channels": 1, "language_hints": ["ja"], "enable_endpoint_detection": True}))
+                                       "num_channels": 1, "language_hints": ["ja"], "enable_endpoint_detection": False}))
 
     async def _send(self, pcm: bytes, voice: bool) -> None:
         await self.ws.send(pcm)
+
+    async def _fed(self) -> None:
+        await self.ws.send(json.dumps({"type": "finalize"}))
 
     async def _close(self) -> None:
         try:
