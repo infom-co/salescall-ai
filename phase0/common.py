@@ -219,8 +219,8 @@ class KeyRing:
         except Exception:
             return
         fp = {k.fingerprint: i for i, k in enumerate(self.keys)}
-        self.denied = {fp[f] for f in st.get("denied", []) if f in fp}
-        if st.get("day") == self._today():
+        if st.get("day") == self._today():  # 止められたキーも、日が替われば確かめ直す（ユーザーが管理画面で直すことがある）
+            self.denied = {fp[f] for f in st.get("denied", []) if f in fp}
             self.spent = {m: {fp[f] for f in fs if f in fp} for m, fs in st.get("spent", {}).items()}
 
     def _save(self) -> None:
