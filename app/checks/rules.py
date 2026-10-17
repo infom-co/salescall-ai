@@ -193,6 +193,7 @@ WRITERS: dict[str, dict[str, frozenset[str]]] = {
     "recording_approvals": {"INSERT": frozenset({_CORE + "recordings.py"})},
     "fix_reports": {"INSERT": frozenset({_CORE + "fix_requests.py"})},        # 修正依頼の「直した」と承認（0048）
     "fix_approvals": {"INSERT": frozenset({_CORE + "fix_requests.py"})},
+    "backup_runs": {"INSERT": frozenset({_CORE + "backup.py"})},              # データベースの控えの記録（Intent.md 14-1。0052）
     "contacts": {"INSERT": frozenset({_CORE + "contacts.py"})},              # 連絡先（番号は Q1 を通したものだけ）
     "tasks": {"INSERT": frozenset({_CORE + "importer.py"})},                 # タスクを作るのは取込だけ（3-4）
     "task_numbers": {"INSERT": frozenset({_CORE + "tasks.py"})},            # 行の番号（3-5。一覧の番号はデータベースが足す）

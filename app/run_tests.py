@@ -447,7 +447,9 @@ def _fresh_db(superuser_dsn: str) -> tuple[str, str, str]:
     with psycopg.connect(superuser_dsn, autocommit=True) as conn:
         conn.execute(ROLES_SQL.read_text(encoding="utf-8"))
         conn.execute(f'CREATE DATABASE "{dbname}" OWNER salescall_owner')
+        conn.execute(f'CREATE DATABASE "{dbname}_restore" OWNER salescall_owner')   # 控えを戻して確かめる空のデータベース
     owner_dsn = _with_db(superuser_dsn, dbname, "salescall_owner")
+    os.environ["SALESCALL_TEST_RESTORE_DSN"] = _with_db(superuser_dsn, f"{dbname}_restore", "salescall_owner")
     migrate.apply(owner_dsn)
     return dbname, owner_dsn, _with_db(superuser_dsn, dbname, "salescall_app")
 
@@ -455,6 +457,7 @@ def _fresh_db(superuser_dsn: str) -> tuple[str, str, str]:
 def _drop_db(superuser_dsn: str, dbname: str) -> None:
     with psycopg.connect(superuser_dsn, autocommit=True) as conn:
         conn.execute(f'DROP DATABASE IF EXISTS "{dbname}" WITH (FORCE)')
+        conn.execute(f'DROP DATABASE IF EXISTS "{dbname}_restore" WITH (FORCE)')
 
 
 def _run_tests(owner_dsn: str, app_dsn: str, names: tuple[str, ...] | None, verbosity: int) -> bool:

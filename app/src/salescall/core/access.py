@@ -94,6 +94,18 @@ class Tx:
             yield
 
 
+@contextmanager
+def snapshot(conninfo: str) -> Iterator[tuple[str, Tx]]:
+    """データベースの控え（core/backup.py）だけが使う：書かない取引で、ある時点の見え方を固定し、その名前（pg_dump の --snapshot に
+    渡す）と取引を返す。表の持ち主の接続で使う（行ごとの制限を受けずに、すべての行を数える）。取引は、控えを取り終えるまで開いておく。"""
+    with psycopg.connect(conninfo, row_factory=dict_row) as conn:
+        conn.isolation_level = IsolationLevel.REPEATABLE_READ
+        conn.read_only = True
+        with conn.transaction():
+            row = conn.execute("SELECT pg_export_snapshot() AS s").fetchone()
+            yield row["s"], Tx(conn)
+
+
 class Access:
     """読み書きの層。取引の始め方は3つだけ（依頼者の範囲・契約者の範囲・システム共通）。"""
 
