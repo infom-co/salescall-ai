@@ -303,6 +303,13 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                                                         on_heard=flow.on_heard)
                         await add_turn(follow, {"followup_of": line, "reason": reason}, log_start, i, voice)
                     spoke = any(t.get("audio_seconds") for t in turns if t["index"] == i and t["session"] == sessions)
+                    ops = flow.log[turn_log_start:]
+                    if not spoke and ops and all(e["reply"].get("result") == "rejected" for e in ops) and swapped != i:
+                        # 報告がどれも差し戻され、そのあとAIが声を出さなかった＝相手には黙ったのと同じ（6-7：声が出ないのを見張る）。
+                        # ⛔ 2026-10-17：「結構です。」で締めを頼んで差し戻されたあと、AIが声を出さず（AI自身の文字は関係の無い外国語の文）、
+                        #    通話が止まった。張り替えは「声も操作も無い」ときだけだった
+                        replay = swapped = i
+                        break
                     if spoke and not flow.log[turn_log_start:] and settle is not None:
                         await settle()  # 判定が「答え」と決めたときだけ知らせる（Flow.unreported_note）
                     if spoke and not flow.log[turn_log_start:] and (note := flow.unreported_note()):
