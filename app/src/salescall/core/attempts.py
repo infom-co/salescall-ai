@@ -58,7 +58,8 @@ def start_dialing(tx: Tx, attempt_id: UUID) -> bool:
 
 
 def release(tx: Tx, attempt_ids: list[UUID]) -> int:
-    """門だけが呼ぶ。まだ発信していない予約を取り消す（期限切れ・門の前提が変わった。DESIGN.md 5-2-1 の2・3）。"""
+    """まだ発信していない予約を取り消す（期限切れ・門の前提が変わった＝停止・発信禁止・行を終えた・版を替えた・緊急停止の印。
+    DESIGN.md 5-2-1 の2・3）。"""
     if not attempt_ids:
         return 0
     return tx.execute(

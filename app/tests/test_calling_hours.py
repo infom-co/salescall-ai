@@ -88,6 +88,11 @@ class OtherBand(unittest.TestCase):
         self.assertEqual(self.find(WEEKDAY_9_18, at(MON, 16), {1, 2}), at(MON + timedelta(days=1), 9))   # 翌日の午前
         self.assertEqual(self.find(WEEKDAY_9_18, at(MON, 13), {0}), at(MON, 13))               # いまが試していない時間帯
 
+    def test_fractional_seconds_do_not_skip_the_current_band(self):
+        """いまの時刻に秒の端数があっても、いまの時間帯を飛ばさない（データベースの now() には端数がある。2026-10-16 の見直し）。"""
+        after = at(MON, 14) + timedelta(microseconds=500000)
+        self.assertEqual(self.find(WEEKDAY_9_18, after, {0}), after)
+
     def test_no_other_band_means_another_day(self):
         night = {k: [["18:00", "22:00"]] for k in KEYS}                                         # 夜だけ開くお店
         self.assertIsNone(self.find(night, at(MON, 19), {2}))       # 試していない時間帯が無い（どうするかは呼ぶ側：翌日の同じ頃）

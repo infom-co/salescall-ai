@@ -158,6 +158,35 @@ class Import(unittest.TestCase):
                                            confirmed_names=fixed, ai=p.ai))
         self.assertIn(bs.Name("テスト便", "てすとびん", "script", "person"), self.tx(lambda tx: bs.load(tx, v)).names)
 
+    def test_reviewing_a_preview_again_keeps_who_decided_the_reading(self):
+        """プレビューの形を、もう一度確かめても（画面で別の所を直して出し直すなど）、AI の読みは AI の読みのまま。
+        検証モードの確かめは抜けない（2026-10-16 の見直し I1：前は入口の読みに化けて、確かめなしで登録できた）。"""
+        self.start_verification()
+        data = book(sheets={"名前": [("表記", "読み"), ("テスト便", None)]})
+        found = finder({"surface": "テスト便", "reading": "てすとべん", "source": "モデル2つ", "candidates": []})
+        p1 = self.preview(data, find_names=found)
+        p2 = self.tx(lambda tx: bi.review(tx, self.s["business"], p1.raw))          # AI の答えを渡さずに出し直す
+        self.assertEqual(p2.names_to_confirm, [{"text": "テスト便", "reading": "てすとべん", "source": "script"}])
+        self.assertTrue(any("AI が決めた読みです" in x for x in p2.problems), p2.problems)
+        by = {n["text"]: n["reading_by"] for n in p2.raw["names"]}
+        self.assertEqual(by["テスト便"], "ai")
+
+    def test_the_entrance_reading_of_the_caller_is_not_replaced_by_the_ai(self):
+        """名乗りの自社名に入口の読みがあれば、名前の一覧の同じ表記も、その読み（AI の読みで上書きしない。2026-10-16 の見直し I3）。
+        名乗りと名前の一覧で入口の読みが食い違えば、問題に出す。"""
+        from tests.test_business_settings import raw
+        r = raw()
+        r["caller"]["company"] = {"text": "東海", "reading": "とうみ"}
+        r["names"] = [n for n in r["names"] if n["text"] != "株式会社テスト物流"] + [
+            {"text": "東海", "reading": None, "source": "script"}]
+        ai = {"names": {"東海": {"reading": "とうかい", "reading_by": "ai", "candidates": [], "likely": None}}}
+        p = self.tx(lambda tx: bi.review(tx, self.s["business"], r, ai=ai))
+        got = {n["text"]: (n["reading"], n["reading_by"]) for n in p.raw["names"]}
+        self.assertEqual((got["東海"], p.raw["caller"]["company"]["reading"]), (("とうみ", "given"), "とうみ"))
+        r["names"][-1]["reading"] = "とうかい"
+        p = self.tx(lambda tx: bi.review(tx, self.s["business"], r, ai=ai))
+        self.assertTrue(any("名乗りと名前の一覧で違います" in x for x in p.problems), p.problems)
+
     def test_after_verification_the_ai_reading_is_used_without_a_person(self):
         """フルオート（検証モードでない業務）では、AI が決めた読みをそのまま使う（管理者も契約者も介在しない）。台本の読みがなは
         入口の読み。どれで決めたかは残る。"""
@@ -217,6 +246,57 @@ class Import(unittest.TestCase):
         self.assertTrue(any("ひらがなかカタカナ" in x for x in p.problems), p.problems)
         kata = book(sheets={"名前": [("表記", "読み"), ("テスト便", "テストビン")]})
         self.assertEqual({n["text"]: n["reading"] for n in self.preview(kata).raw["names"]}["テスト便"], "てすとびん")
+
+    def test_missing_optional_sheet_is_noted_and_a_mapped_one_is_a_problem(self):
+        """無くてもよいシートが無いときは、プレビューに知らせる（黙って読み飛ばさない）。対応付けで名前を指定したシートが
+        無ければ問題（2026-10-16 の見直し I5）。"""
+        p = self.preview(book(rename={"言ってはいけないこと": "禁止事項"}))
+        self.assertEqual(p.problems, [])
+        self.assertIn("シート「言ってはいけないこと」がありません（無いものとして読みました。シートの名前を確かめてください）", p.notes)
+        p = self.preview(book(drop=("名前",)), mapping={"sheets": {"names": "名前の一覧"}})
+        self.assertTrue(any("シート「名前の一覧」" in x for x in p.problems), p.problems)
+
+    def test_a_choice_named_other_can_be_branched_and_the_star_is_the_catch_all(self):
+        """選択肢に「その他」があれば、分岐の「その他」はその選択肢。受け皿は「＊」（2026-10-16 の見直し I6）。"""
+        q = [("質問ID", "質問の文", "聞くこと", "型", "必須", "選択肢", "断りの答え"),
+             ("Q1", "どちらになさいますか。", "ご希望", "選択肢", "はい", "A／B／その他", None),
+             ("Q2", "詳しくお聞かせください。", "詳しく", "自由な意見", "いいえ", None, None),
+             ("Q3", "ご希望の日時をお聞かせください。", "ご希望の日時", "日時", "はい", None, None)]
+        b = [("質問ID", "回答条件", "次の質問ID"), ("Q1", "その他", "Q2"), ("Q1", "＊", "Q3")]
+        p = self.preview(book(sheets={"質問": q, "分岐": b}))
+        nxt = {x["id"]: x["next"] for x in p.raw["questions"]}
+        self.assertEqual(nxt["Q1"], {"その他": "Q2", bs.ANY: "Q3"})
+
+    def test_duplicate_rows_are_problems_not_silently_overwritten(self):
+        """同じ結果のかけ直し・同じ言ってはいけないこと・同じ質問×答え×理由の行が2つあれば、問題に出す（2026-10-16 の見直し I7）。"""
+        retry = book_rows("かけ直し") + [("不在", "終える", None, None)]
+        forbidden = book_rows("言ってはいけないこと") + [("F1", "必ず安くなります", None)]
+        handling = book_rows("わからない・答えたくない") + [("全部", "わからない", REASONS[0], "結論として終える", "不明")]
+        p = self.preview(book(sheets={"かけ直し": retry, "言ってはいけないこと": forbidden, "わからない・答えたくない": handling}))
+        for text in ("結果「不在」の行が2つあります", "名前「F1」が2つあります", "の行が2つあります（"):
+            self.assertTrue(any(text in x for x in p.problems), (text, p.problems))
+
+    def test_problems_point_to_the_sheet_and_row(self):
+        """名前・質問の問題は、ファイルのシートと行で出す（前は自社名・担当者名の分ずれて「名前 3 番目」と出た。I10）。"""
+        q = book_rows("質問")
+        q.insert(2, (None, None, None, None, None, None, None))                # 空の行（数えない）
+        q[3] = (None,) + q[3][1:]                                               # 4行目＝2つ目の質問の番号が無い
+        p = self.preview(book(sheets={"質問": q}))
+        self.assertTrue(any(x.startswith("シート「質問」の 4 行目の番号") for x in p.problems), p.problems)
+        names = {"名前": ["シート「基本」の自社名", "シート「基本」の担当者名", "シート「名前」の 2 行目"]}
+        self.assertEqual(bi._placed(["名前 3 番目の表記 が空です", "名前 4 番目の読み"], names),
+                         ["シート「名前」の 2 行目の表記 が空です", "名前 4 番目の読み"])   # ファイルに無い名前（AI が足した）はそのまま
+
+    def test_registration_recomputes_the_digest_and_includes_the_business(self):
+        """登録は、プレビューの指紋を信じず中身から出し直す。別の業務の指紋では登録できない（2026-10-16 の見直し I8）。"""
+        p = self.preview(book())
+        p.raw["purpose"] = "書き換えた目的"                                  # プレビューを書き換えても
+        with self.assertRaises(bi.PreviewChanged):
+            self.tx(lambda tx: bi.register_reviewed(tx, self.s["business"], p, expected_digest=p.digest))
+        other, _ = self.w.business_with_version(self.s["tenant"], self.s["client"])
+        q = self.preview(book())
+        with self.assertRaises(bi.PreviewChanged):
+            self.tx(lambda tx: bi.register_reviewed(tx, other, q, expected_digest=q.digest))
 
     def test_units_of_number_questions_are_decided_without_a_person(self):
         """数の質問の単位は、単位を決める処理（CL-1 の1か所）の答えを入れる。管理者も契約者も確かめない。決まらなければ空。"""

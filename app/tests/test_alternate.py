@@ -330,6 +330,26 @@ class WrongNumber(Base):
                     purpose="ask_number_again", wrong_contact_id=nxt["wrong_contact_id"]))
         self.assertEqual((got["decision"].kind, got["decision"].end_reason), ("end", "ask_number_again_unanswered"))
 
+    def test_ask_again_that_never_connects_is_bounded_and_spaced(self):
+        """回線の側で繋がらない聞き直しの電話も、回数に数える（数えないと上限なくかけ続けた＝2026-10-16 の見直し）。
+        かけ直しは、前の発信が終わってから最小の間隔（5分）を空ける（約束したかけ直しは門の間隔の対象外のため）。"""
+        s = self.ready_jp()
+        self.redirect(s)
+        self.wrong_call(s, "as_said")
+        for n in (1, 2, 3):
+            aid = self.call(s, ["dialing", "call_failed"])
+            got = self.settle(s, aid)
+            if n < 3:
+                nxt = self.current(s)
+                self.assertEqual((nxt["kind"], nxt["purpose"]), ("call", "ask_number_again"))
+                gap = self.tx(s, lambda tx: tx.one(
+                    "SELECT %s - ended_at AS g FROM salescall.attempts WHERE attempt_id = %s", (nxt["call_at"], aid)))["g"]
+                self.assertGreaterEqual(gap, timedelta(minutes=5))
+                self.tx(s, lambda tx: next_action.schedule_call(          # 試験：その時刻が来たことにする
+                    tx, s["task"], self.now(s), contact_id=nxt["contact_id"], cause="試験", promised=True,
+                    purpose="ask_number_again", wrong_contact_id=nxt["wrong_contact_id"]))
+        self.assertEqual((got["decision"].kind, got["decision"].end_reason), ("end", "ask_number_again_unanswered"))
+
     def test_database_promises(self):
         s = self.ready_jp()
         said, _, _ = self.redirect(s)

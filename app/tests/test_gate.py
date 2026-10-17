@@ -16,7 +16,7 @@ from datetime import timedelta
 from unittest import mock
 
 from salescall.core import (approval, attempts, business_rules, calendar, call_report, dial_exit, dnc, gate, next_action,
-                            quality_stage, settings, settle, stops)
+                            quality_stage, settings, settle, stops, tasks)
 from salescall.core.call_report import CallReport, Cut
 from salescall.core.access import Rejected
 from salescall.core.calendar import CalendarOutOfRange, CalendarRejected
@@ -506,7 +506,43 @@ class ActiveConflicts(Base):
         self.assertIsInstance(self.claim(s), gate.Claim)
         line2 = self.w.line(s["tenant"])
         self.lease(s, line=line2)
-        self.assertEqual(self.reason(s, task=t2, line=line2), "contact_active")
+        # 予約中の発信も「断られたかがまだ決まっていない」ので、同じお客様の行は先にそこで止まる（2026-10-16 の見直し）。
+        # データベースの部分一意（contact_active）は、その下の守りとして残る
+        self.assertEqual(self.reason(s, task=t2, line=line2), "related_unsettled")
+
+    def test_same_customer_is_protected_in_both_directions_and_while_reserved(self):
+        """同じお客様の守りは両方向（2026-10-16 の見直し G3）。行 X の番号 {A, B（お客様が言った別の番号）}・行 Y の番号 {A}。
+        Y が A を予約しているあいだ（まだ発信していない）、X は B へもかけない。X が B を予約しているあいだ、Y も A へかけない。"""
+        x = self.ready()
+        other = normalize(fictional_jp_fixed())
+        first = self.past_attempt(x, ["dialing", "call_failed"])        # B を言われた通話の代わり（番号の出どころに要る。間隔に数えない発信）
+        self.tx(x, lambda tx: tasks.add_callee_number(tx, x["task"], other, source_attempt_id=first))
+        other = other.e164
+        run2 = self.w.run(x["tenant"], x["client"], x["business"], x["version"])
+        y = self.w.task(x["tenant"], x["client"], run2, x["contact"])
+        self.tx(x, lambda tx: next_action.schedule_now(tx, y, cause="試験"))
+        b = self.tx(x, lambda tx: tx.one("SELECT contact_id FROM salescall.task_numbers WHERE task_id = %s AND phone_e164 = %s",
+                                         (x["task"], other)))["contact_id"]
+        self.tx(x, lambda tx: next_action.schedule_call(tx, x["task"], tx.one("SELECT now() AS n")["n"], contact_id=b,
+                                                        cause="試験", promised=False))
+        line2 = self.w.line(x["tenant"])
+        self.lease(x, line=line2)
+        self.assertIsInstance(self.claim(x, task=y, line=line2), gate.Claim)          # Y が A を予約
+        self.assertEqual(self.reason(x), "related_unsettled")                           # X は B へもかけない
+
+    def test_unknown_judgement_keeps_the_same_customer_protected(self):
+        """判定できない（会話の報告の切れ方が無い）通話は、断られたかがまだ決まっていない。同じお客様の別の行は、
+        判定し直すまでかけない（前は「締め済み」とみなして5分後にかけえた。2026-10-16 の見直し G2）。"""
+        x = self.ready()
+        run2 = self.w.run(x["tenant"], x["client"], x["business"], x["version"])
+        y = self.w.task(x["tenant"], x["client"], run2, x["contact"])
+        self.tx(x, lambda tx: next_action.schedule_now(tx, y, cause="試験"))
+        no_cut = CallReport(("target",), False, False, False, False, None, None, None)
+        self.past_attempt(x, ["dialing", "answered", "dropped"], side="callee", report=no_cut, verify="done")
+        state = self.tx(x, lambda tx: tx.one("SELECT business_state FROM salescall.latest_task_results WHERE task_id = %s",
+                                             (x["task"],)))["business_state"]
+        self.assertEqual(state, "unknown")
+        self.assertEqual(self.reason(x, task=y), "related_unsettled")
 
     def test_same_number_elsewhere_tells_only_the_relation(self):
         a = self.ready()

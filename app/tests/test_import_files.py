@@ -56,6 +56,16 @@ class Csv(unittest.TestCase):
         self.assertEqual(read("一覧.csv", data, encoding="utf-8").header, ("名前", "番号"))
         self.assertNotEqual(read("一覧.csv", data, encoding="cp932").header, ("名前", "番号"))
 
+    def test_euc_jp_is_not_read_as_shift_jis(self):
+        """EUC-JP の CSV は、Shift_JIS としても化けて「読めて」しまう。推測で選ばず、選んでもらう（2026-10-16 の見直し I12）。"""
+        data = "なまえ,あい\nあい,03-0000-0001\nかい,03-0000-0002\n".encode("euc_jp")   # Shift_JIS では半角カナに化ける
+        with self.assertRaises(EncodingAmbiguous) as cm:
+            read("一覧.csv", data)
+        self.assertEqual(set(cm.exception.samples), {"cp932", "euc_jp"})
+        self.assertEqual(read("一覧.csv", data, encoding="euc_jp").header, ("なまえ", "あい"))
+        long_body = "会社名,電話番号\n" + "".join(f"架空の株式会社その{i},03-0000-{i:04d}\n" for i in range(1, 30))
+        self.assertEqual(read("一覧.csv", long_body.encode("euc_jp")).encoding, "euc_jp")   # EUC-JP でしか読めない
+
     def test_ascii_only_is_utf8(self):
         self.assertEqual(read("a.csv", b"name,phone\nx,03-0000-0001\n").encoding, "utf-8")
 

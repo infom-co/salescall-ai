@@ -60,6 +60,24 @@ class Order(unittest.TestCase):
         self.assertEqual(run(rep=report(oos=True)).state, "out_of_scope")            # 範囲外は、取れていても範囲外
         self.assertEqual(run(items={**TAKEN, "Q3": Item("accepted", "いりません", None)}).state, "declined")
 
+    def test_explicit_refusal_wins_over_missing_cut_material(self):
+        """はっきりした拒否（通話中の申告・通話後の検証で見つかった）は、切れ方の材料が無くても拒否（2026-10-16 の見直し J9）。
+        材料が無く、拒否も無いときだけ判定できない。"""
+        self.assertEqual(run(rep=report(dnc=True, cut=None)).state, "do_not_call")
+        self.assertEqual(run(rep=report(cut=None), refused_after=True).state, "do_not_call")
+        self.assertEqual(run(rep=report(cut=None)).detail["unknown_cause"], "cut_missing")
+
+    def test_conclude_only_when_nothing_else_can_be_obtained(self):
+        """1つの必須の質問を断られても、まだ取れうる必須の質問が残っていれば行を終えない（2026-10-16 の見直し J7）。
+        取れていない必須の質問のどれもが「結論として終える」のときだけ、結論で終える。"""
+        refused_q1 = Item("refused", None, "policy")
+        cb = report(callback=Callback("later", NOW, None, None, None))
+        self.assertEqual(run(items={"Q1": refused_q1}, rep=cb).state, "callback_scheduled")      # Q2 はまだ聞いていない
+        self.assertEqual(run(items={"Q1": refused_q1}).state, "incomplete")                       # 再発信の方針へ
+        self.assertEqual(run(items={"Q1": refused_q1, "Q2": Item("dont_know", None, "undecided")}).state, "incomplete")
+        both = {"Q1": refused_q1, "Q2": Item("refused", None, "unwilling")}
+        self.assertEqual(run(items=both, rep=cb).state, "concluded")                              # どれも結論 ⇒ 終える
+
     def test_decline_answer_must_be_taken(self):
         self.assertEqual(run(items={**TAKEN, "Q3": Item("heard", "いりません", None)}).state, "completed")
 
@@ -204,7 +222,7 @@ class AfterCall(unittest.TestCase):
         j = run(items={"Q1": TAKEN["Q1"]})
         d = decide_after_call(j, verification="done", normal=P_NONE, promised=P_NONE, rules=RULES, times_with_key=1,
                               now=NOW, retry_at=None, target=Target(MAIN))
-        self.assertEqual((d.kind, d.end_reason), ("end", "no_calling_hours"))     # これから先、かけてよい時間帯が無い
+        self.assertEqual((d.kind, d.at), ("call", NOW + timedelta(days=1)))   # 時間帯が無い：行を終えず、1日後にもう一度確かめる
         two_days = NOW + timedelta(days=2)
         d = decide_after_call(j, verification="done", normal=P_NONE, promised=P_NONE, rules=RULES, times_with_key=1,
                               now=NOW, retry_at=two_days, target=Target(MAIN))
@@ -311,7 +329,7 @@ class WrongNumberTheCalleeGave(unittest.TestCase):
         d = decide(AskAgain(3, 3, later))
         self.assertEqual((d.kind, d.end_reason), ("end", "ask_number_again_unanswered"))
         d = decide(AskAgain(1, 3, None))
-        self.assertEqual((d.kind, d.end_reason), ("end", "no_calling_hours"))
+        self.assertEqual((d.kind, d.at, d.target, d.promised), ("call", NOW + timedelta(days=1), asking, True))   # 終えない
         with self.assertRaises(ValueError):
             decide(None)
         talked = run(items={"Q1": TAKEN["Q1"]})                                    # 会話したら、目的は果たした扱い
@@ -338,7 +356,7 @@ class AfterDenial(unittest.TestCase):
         self.assertEqual((d.kind, d.at, d.promised), ("call", opening, True))   # 約束したかけ直しの印は残す
         d = decide_after_denial(self.deny("outside_hours"), current_promised=False, current=Target(MAIN), pacing=P_NONE, now=NOW,
                                 opening=None, retry_wait=300)
-        self.assertEqual((d.kind, d.end_reason), ("end", "no_calling_hours"))
+        self.assertEqual((d.kind, d.at, d.promised), ("call", NOW + timedelta(days=1), False))   # 行を終えない
         for reason in ("line_busy", "setting_missing"):
             d = decide_after_denial(self.deny(reason), current_promised=False, current=Target(ALT), pacing=P_NONE, now=NOW,
                                     opening=None, retry_wait=300)

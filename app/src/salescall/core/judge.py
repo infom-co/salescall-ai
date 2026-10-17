@@ -16,10 +16,11 @@
       ので、行の番号すべて・管理番号へ広げない。DESIGN.md 3-6。2026-10-16 見直し：前は断りを先に見て、番号違いの相手の
       断りで、行のお客様ごと止めていた）
   (2) 発信の拒否（通話中の申告・通話後の検証で見つかった・切れ方の判定が「断った」）  ⇒ do_not_call
+      (1)(2) は `refusal` の1か所（お詫びの電話の締めも使う）。はっきりした拒否は、切れ方の材料が無くても拒否
   (3) 範囲外の求めで終えた                                                          ⇒ out_of_scope
   (4) 用件を断られた（業務の決まりの「断りの答え」が取れた）                          ⇒ declined
   (5) 必須の質問がすべて取れた（confirmed・accepted。4-4 の定義）                     ⇒ completed
-  (6) 取れていない必須の質問の扱いが「結論として終える」                              ⇒ concluded（結論の名前）
+  (6) 取れていない必須の質問のどれもが、扱い「結論として終える」                        ⇒ concluded（結論の名前）
   (7) かけ直しの約束（お客様に頼まれた・分かるお客様／時を聞いた・こちらが約束した）          ⇒ callback_scheduled
   (8) お客様と話したが、目的のお客様に繋がらなかった                                          ⇒ not_reached（不在／取り次いでもらえなかった）
   (9) 会話に至らなかった（お客様が出なかった・お客様の声でなかった）                              ⇒ open
@@ -35,7 +36,7 @@ from typing import Any
 from salescall.core.business_rules import Rules
 from salescall.core.call_report import CallReport
 
-JUDGE_VERSION = "judge-2026-10-16.2"
+JUDGE_VERSION = "judge-2026-10-17.1"
 # 「判定できない」の原因の名前（同じ原因かを数える単位）と意味。プログラムの誤りか（直せるのは管理者だけ＝管理者にも知らせる。
 # 2026-10-16 ユーザー承認）も、ここで決まる（1か所）。業務設定の抜けは契約者が直す（いまは無い：業務の決まりは、必須の質問ごとに、
 # 決まった理由のすべてに扱いが無いと保存できない＝business_rules。2026-10-16 見直し：前は「理由×扱いが決まらない」を業務設定の
@@ -113,9 +114,21 @@ def classify_cut(facts: Facts, report: CallReport | None) -> str | None:
 
 
 def judge(inp: JudgeInput) -> Judgement:
-    r, rules = inp.report, inp.rules
-    raw_cut = classify_cut(inp.facts, r)
-    cut = {"unclear": "refused" if inp.unclear_is_refusal else "interrupted", "missing": None}.get(raw_cut, raw_cut)
+    return refusal(inp) or _business(inp)
+
+
+def _cut(inp: JudgeInput) -> tuple[str | None, str | None]:
+    raw_cut = classify_cut(inp.facts, inp.report)
+    return raw_cut, {"unclear": "refused" if inp.unclear_is_refusal else "interrupted", "missing": None}.get(raw_cut, raw_cut)
+
+
+def refusal(inp: JudgeInput) -> Judgement | None:
+    """発信の拒否と番号違いの決め方（判定の (1)(2)。この1か所。お詫びの電話の締めも、これを使う＝2026-10-16 の見直し J6）。
+    決まれば結果、拒否も番号違いも無ければ None（業務の中身の判定へ進む）。断ったかを決められない（会話の報告が無い・
+    切れ方の材料が無い）ときは unknown。⚠️ はっきりした拒否（通話中の申告・通話後の検証で見つかった）は、切れ方の材料が
+    無くても拒否（前は材料の抜けを先に見て unknown にし、発信禁止を登録しなかった＝2026-10-16 の見直し J9）。"""
+    r = inp.report
+    raw_cut, cut = _cut(inp)
     complaint = bool(r and r.complaint)
     detail: dict[str, Any] = {"cut": raw_cut, "cut_recorded": cut}
 
@@ -129,20 +142,37 @@ def judge(inp: JudgeInput) -> Judgement:
     # それ以外は入力の誤り（報告を書き損ねた）。決めつけない
     if inp.facts.reached_answer and r is None and inp.facts.end_state != "technical_error":
         return unknown("report_missing", "お客様が出た通話なのに、会話の報告がありません")
-    if raw_cut == "missing":
-        return unknown("cut_missing", "お客様と話した通話なのに、切れ方の材料（切れた瞬間に話していた側など）が報告されていません")
-
     # (1) 番号違い（その番号の持ち主の断りも、その番号だけを止める）
     if r and "wrong_party" in r.parties:
         refused = {"wrong_party_refused": True} if r.do_not_call or cut == "refused" or inp.refused_after else {}
         if inp.facts.dialed_callee_number:   # 言われた番号が違った：その番号だけ止め、番号を確かめて聞き直す（次の動き）
             return done("not_reached", dnc="wrong_party", not_reached="wrong_alternate", **refused)
         return done("out_of_scope", dnc="wrong_party", out_of_scope="wrong_party", **refused)
-    # (2) 発信の拒否（原則14）
-    if (r and r.do_not_call) or cut == "refused":
-        return done("do_not_call", dnc="refused_in_call", refusal="in_call" if r and r.do_not_call else "cut")
+    # (2) 発信の拒否（原則14）：はっきりした拒否が先、切れ方はそのあと
+    if r and r.do_not_call:
+        return done("do_not_call", dnc="refused_in_call", refusal="in_call")
     if inp.refused_after:
         return done("do_not_call", dnc="refused_found_after", refusal="found_after")
+    if raw_cut == "missing":
+        return unknown("cut_missing", "お客様と話した通話なのに、切れ方の材料（切れた瞬間に話していた側など）が報告されていません")
+    if cut == "refused":
+        return done("do_not_call", dnc="refused_in_call", refusal="cut")
+    return None
+
+
+def _business(inp: JudgeInput) -> Judgement:
+    """業務の中身の判定（(3) から。発信の拒否・番号違いが無かった通話）。"""
+    r, rules = inp.report, inp.rules
+    raw_cut, cut = _cut(inp)
+    complaint = bool(r and r.complaint)
+    detail: dict[str, Any] = {"cut": raw_cut, "cut_recorded": cut}
+
+    def done(state: str, *, dnc: str | None = None, **more: Any) -> Judgement:
+        return Judgement(state, complaint, cut, dnc, {**detail, **more})
+
+    def unknown(cause: str, error: str) -> Judgement:
+        return Judgement("unknown", complaint, None, None, {**detail, "unknown_cause": cause, "error": error})
+
     # (3) 範囲外
     if r and r.out_of_scope:
         return done("out_of_scope", out_of_scope="request")
@@ -155,16 +185,27 @@ def judge(inp: JudgeInput) -> Judgement:
     missing = [q for q in rules.required if q not in inp.items or inp.items[q].state not in TAKEN]
     if not missing:
         return done("completed")
-    # (6) 取れていない必須の質問の扱い（「わからない」「答えない」は理由×扱いの宣言どおり。宣言が無ければ入力の誤り）
+    # (6) 取れていない必須の質問の扱い（「わからない」「答えない」は理由×扱いの宣言どおり。宣言が無ければ入力の誤り）。
+    #     結論として終えるのは、取れていない必須の質問のどれもが「結論として終える」のときだけ。まだ取れうる質問
+    #     （聞いていない・聞き取れない・ほかの扱い）が残っていれば、その項目だけ「✕」「-」のまま、かけ直しの約束・再発信の
+    #     方針へ進む（2026-10-16 の見直し J7：前は1つの質問を断られただけで、かけ直しの約束があっても行を終えていた。
+    #     2026-10-13 ユーザー：「その質問だけの答えたくない」はその項目だけ「✕」、かけ直すか終えるかは再発信の方針）
+    conclusion: tuple[str, Any] | None = None
+    obtainable = False
     for q in missing:
         it = inp.items.get(q)
         if it is None or it.state not in ("dont_know", "refused"):
+            obtainable = True
             continue
         h = rules.handling.get((q, it.state, it.reason)) if it.reason is not None else None
         if h is None:
             return unknown("reason_missing", f"質問 {q} の {it.state} に、決まった理由が無い（理由 {it.reason!r}）")
         if h.kind == "conclude":
-            return done("concluded", conclusion=h.conclusion, concluded_by=q)
+            conclusion = conclusion or (q, h)
+        else:
+            obtainable = True
+    if conclusion is not None and not obtainable:
+        return done("concluded", conclusion=conclusion[1].conclusion, concluded_by=conclusion[0])
     # (7) かけ直しの約束
     if r and r.callback is not None:
         cb = r.callback

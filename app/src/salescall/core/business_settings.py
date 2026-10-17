@@ -31,7 +31,7 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
-from salescall.core import approval, business_rules, quality_stage, readings
+from salescall.core import approval, attempts, business_rules, quality_stage, readings
 from salescall.core.access import Tx
 
 END = "END"                                       # 分岐の行き先「終わり」
@@ -202,7 +202,7 @@ def _choices(raw: Any, type_name: str, where: str, problems: list[str]) -> tuple
     """型ごとの選択肢（決め方はここだけ）。決まった選択肢（choice）だけ依頼者が書く。ほかは型で決まる（書いてあれば同じであること）。"""
     fixed = {"yes_no": YES_NO_CHOICES}.get(type_name, None if type_name == "choice" else (VALUE_CHOICE,))
     if fixed is not None:
-        if raw is not None and tuple(raw) != fixed:
+        if raw is not None and (not isinstance(raw, list) or tuple(raw) != fixed):   # 形の違う値でも落ちない（I9）
             problems.append(f"{where}の選択肢は、型 {type_name} では {list(fixed)} に決まっています")
         return fixed
     if not isinstance(raw, list) or not raw or not all(isinstance(c, str) and c.strip() for c in raw):
@@ -279,7 +279,7 @@ def check(raw: Any, *, field_types: frozenset[str], ai_reading_needs_person: boo
             if qid in seen:
                 problems.append(f"{where}が2つあります")
             seen.add(qid)
-            if q["type"] not in field_types:
+            if not isinstance(q["type"], str) or q["type"] not in field_types:   # 形の違う値でも落ちずに問題として出す（I9）
                 problems.append(f"{where}の型 {q['type']!r} は型の一覧にありません（{sorted(field_types)}）")
                 continue
             if not isinstance(q["required"], bool):
@@ -360,24 +360,28 @@ def _flow_problems(s: Settings, rules_raw: Any) -> list[str]:
         problems.append(f"質問 {qid} へは、どこからも行きません" + ("（必須の質問へ行く道がありません）" if by_id[qid].required else ""))
     if problems:
         return problems
-    # 必須の質問を飛ばして終わる道：答えが断り・システムの答えでないのに、必須を聞かずに終わりへ着く道
-    required = frozenset(q.id for q in s.questions if q.required)
+    # 必須の質問を飛ばして終わる道：答えが断り・システムの答えでないのに、必須を聞かずに終わりへ着く道。
+    # 道の途中で一度でも断り・システムの答えを通れば、その先はどこで終わってもよい。なので「飛ばして終わる道」は、
+    # 断り・システムの答えでない辺だけを通って、その必須の質問を通らずに終わりへ着く道。必須の質問ごとに、その質問を除いた
+    # 図で終わりへ届くかを見る（質問の数 × 辺の数。前は通った質問の組ごとに覚えていたので、質問が増えると何秒もかかり、
+    # 門・取込が版を読むたびに遅くなった＝2026-10-16 の見直し I2）
+    plain = {n: {t for a, t in out.items() if a not in SYSTEM_CHOICES and a not in decline.get(n, [])}
+             for n, out in edges.items()}
     found: set[str] = set()
-    memo: set[tuple[str, frozenset[str], bool]] = set()
-
-    def walk(n: str, asked: frozenset[str], excused: bool) -> None:
-        if (n, asked, excused) in memo:
-            return
-        memo.add((n, asked, excused))
-        asked = asked | {n}
-        for answer, t in edges[n].items():
-            ok = excused or answer in SYSTEM_CHOICES or answer in decline.get(n, [])
-            if t == END:
-                if not ok:
-                    found.update(required - asked)
-            else:
-                walk(t, asked, ok)
-    walk(first, frozenset(), False)
+    for r in (q.id for q in s.questions if q.required):
+        if r == first:
+            continue                              # 最初の質問は、どの道でも聞く
+        seen, stack, reached_end = {first}, [first], False
+        while stack and not reached_end:
+            for t in plain[stack.pop()]:
+                if t == END:
+                    reached_end = True
+                    break
+                if t != r and t not in seen:
+                    seen.add(t)
+                    stack.append(t)
+        if reached_end:
+            found.add(r)
     for qid in sorted(found):
         problems.append(f"必須の質問 {qid} を聞かずに終わる道があります（その道の答えを「断り」にするか、{qid} を必須から外す。"
                         "そのままだと「一部だけ取れた」になり、かけ直してしまう）")
@@ -505,4 +509,9 @@ def assign(tx: Tx, run_id: UUID, version_id: UUID, *, reason: str) -> str:
         (version_id, reason, run_id))
     if row is None:
         raise LookupError(f"その実施回は無い（または、取引の範囲の外）：{run_id}")
+    # 前の版で取った、まだ発信していない予約を取り消す（門の前提が変わったときの決まり＝DESIGN.md 5-2-1 の2。
+    # 取り消さないと、前の版で最大30秒かけうる。2026-10-16 の見直し G7）
+    attempts.release(tx, [r["attempt_id"] for r in tx.all(
+        "SELECT a.attempt_id FROM salescall.attempts a JOIN salescall.tasks t ON t.task_id = a.task_id"
+        " WHERE t.run_id = %s AND a.state = 'claimed' AND a.version_id <> %s", (run_id, version_id))])
     return quality_stage.prepare(tx, version_id)

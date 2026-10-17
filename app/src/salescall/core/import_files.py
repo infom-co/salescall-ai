@@ -5,9 +5,10 @@
 
 決まり（推測で読まない。読めないものは、理由をつけて断る）：
 - 1行目が見出し。行番号は、表計算ソフトで見える行番号（1行目＝見出し。値の中の改行は1行のまま）。
-- CSV の文字の決まり：先頭に BOM があれば UTF-8。無ければ UTF-8 と Shift_JIS（cp932）の両方で厳密に読み、
-  片方だけ読めればそれ、両方読めて中身が同じ（英数字だけ）なら UTF-8。
-  **両方読めて中身が違うときは、推測で選ばない**（`EncodingAmbiguous`。両方の読み方の先頭の数行を返すので、
+- CSV の文字の決まり：先頭に BOM があれば UTF-8。無ければ UTF-8・Shift_JIS（cp932）・EUC-JP のどれでも厳密に読み、
+  1つだけ読めればそれ、どれで読んでも中身が同じ（英数字だけ）なら UTF-8。
+  **2つ以上で読めて中身が違うときは、推測で選ばない**（2026-10-16 の見直し I12：前は EUC-JP を確かめず、EUC-JP の
+  ファイルが Shift_JIS として「読めて」しまい、化けた社名のまま通りえた）（`EncodingAmbiguous`。両方の読み方の先頭の数行を返すので、
   画面で見せて契約者が選び、`encoding` を指定して読み直す）。
   測った結果（2026-10-14）：日本語が2文字だけの UTF-8 は約5割が Shift_JIS としても読め、Shift_JIS の2文字は約2%が
   UTF-8 としても読める。⇒「UTF-8 を先に試す」では、短いファイルで名前が化ける（会話で化けた社名を読み上げうる）。
@@ -82,7 +83,7 @@ _EMPTY = Cell(None)
 _MAX_EXACT = 10 ** 15             # 表計算ソフトの数は15桁まで正確（それより大きい数は、桁が失われている）
 
 
-ENCODINGS = ("utf-8", "cp932")
+ENCODINGS = ("utf-8", "cp932", "euc_jp")
 
 
 def read(file_name: str, data: bytes, *, sheet_name: str | None = None, encoding: str | None = None) -> Sheet:
@@ -129,9 +130,9 @@ def _decode(data: bytes, chosen: str | None) -> tuple[str, str]:
         if not read_as:
             raise FileRejected("選んだ文字の決まりでは読めません" if chosen else
                                "文字の決まりが UTF-8 でも Shift_JIS でもありません（UTF-8 で保存し直してください）")
-        if len(read_as) == 2 and read_as["utf-8"] != read_as["cp932"]:
+        if len(set(read_as.values())) > 1:   # 2つ以上の読み方で読めて、中身が違う：推測で選ばない
             raise EncodingAmbiguous({enc: [ln for ln in t.splitlines() if ln.strip()][:5] for enc, t in read_as.items()})
-        encoding = "utf-8" if "utf-8" in read_as else next(iter(read_as))
+        encoding = next(enc for enc in ENCODINGS if enc in read_as)   # どれで読んでも同じ（英数字だけ）なら、並びの先
         text = read_as[encoding]
     if "\x00" in text:
         raise FileRejected("CSV の中に、文字ではないデータがあります（別の種類のファイルではありませんか）")

@@ -87,7 +87,7 @@ def next_opening_in_new_band(hours: dict, is_holiday: Callable[[date], bool], af
         d = after.date() + timedelta(days=offset)
         starts = {r0 for r0, _ in _ranges(hours, day_key(d, is_holiday))} | {b * 3600 for b in boundaries}
         if offset == 0:
-            starts.add(int(_of_day(after)))
+            starts.add(_of_day(after))   # 秒の端数も持つ（切り捨てると after より前になり、いまの時間帯を飛ばす）
         for s in sorted(starts):
             candidate = datetime.combine(d, time()) + timedelta(seconds=s)
             if offset == 0 and candidate < after:

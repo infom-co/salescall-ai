@@ -43,6 +43,9 @@ def dial(access: Access, actor: Actor, tenant_id: UUID, client_id: UUID, attempt
     phone = access.in_client(actor, tenant_id, client_id, begin)
     if phone is None:
         return False
+    if emergency.engaged() is not None:   # 発信中にした取引のあいだに押された緊急停止：回線に渡す直前にもう一度見る（かけていない）
+        access.in_client(actor, tenant_id, client_id, lambda tx: attempts.move(tx, attempt_id, "call_failed"))
+        return False
     try:
         driver.start_call(phone)
     except CallNotPlaced:

@@ -7,6 +7,7 @@ import os
 import tempfile
 from contextlib import redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 from salescall.core import dial_exit, emergency, stops
 from salescall.core.access import Access
@@ -42,6 +43,22 @@ class Emergency(Base):
         done = emergency.release_all(self.w.a, ADMIN, "試験：直った")
         self.assertTrue(done["released"])
         self.assertEqual((emergency.engaged(), self.system_stops()), (None, []))
+
+    def test_a_stop_pressed_while_marking_dialing_still_does_not_dial(self):
+        """発信中にする取引のあいだに押された印でも、回線に渡す直前に見て、かけない（2026-10-16 の見直し G5）。"""
+        s = self.ready()
+        claim = self.claim(s)
+        real = dial_exit.attempts.start_dialing
+
+        def start_then_press(tx, attempt_id):
+            ok = real(tx, attempt_id)
+            emergency._write_flag({"reason": "試験：取引のあいだに押した", "kind": "admin", "db_event": None})
+            return ok
+        driver = FakeDriver()
+        with mock.patch.object(dial_exit.attempts, "start_dialing", start_then_press):
+            self.assertFalse(dial_exit.dial(self.w.a, ADMIN, s["tenant"], s["client"], claim.attempt_id, driver))
+        self.assertEqual(driver.calls, [])
+        self.assertEqual(self.state(s, claim.attempt_id), "call_failed")                  # かけていない（回数に数えない）
 
     def test_without_the_database_the_flag_still_stops_and_is_kept(self):
         s = self.ready()

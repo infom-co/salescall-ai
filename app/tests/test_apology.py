@@ -8,6 +8,7 @@ from dataclasses import replace
 from salescall.core import apology, attempts, gate, quality_stage, reward, stops
 from salescall.core.access import Rejected
 from salescall.core.attempts import ForbiddenFinding, VerificationSummary
+from salescall.core.call_report import Cut
 from tests.support import OPERATOR, SYSTEM, owner_access, said
 from tests.test_approval import TAKEN, Helpers
 from tests.test_settle import rep
@@ -120,6 +121,20 @@ class Apology(Helpers):
         self.assertEqual(got["decision"].end_reason, "do_not_call")
         self.assertEqual(self.tx(s, lambda tx: tx.one("SELECT count(*) AS n FROM salescall.dnc_entries"
                                                       " WHERE phone_e164 = %s", (s["phone"],)))["n"], 1)
+
+    def test_refusal_is_decided_in_the_one_place(self):
+        """お詫びの電話の拒否も、判定と同じ1か所（judge.refusal）で決める（2026-10-16 の見直し J6）。
+        何も言わずに切った ⇒ 断った（発信禁止）。断ったかを決められない（切れ方の材料が無い）⇒ もうかけない。"""
+        s = self.fresh(stage_cap=20)
+        self.order(s, self.incident(s))
+        got = self.apology_call(s, cut=Cut("ai", False, False))       # AIが話している途中で、何も言わずに切った
+        self.assertEqual(got["decision"].end_reason, "do_not_call")
+        self.assertEqual(self.tx(s, lambda tx: tx.one("SELECT count(*) AS n FROM salescall.dnc_entries"
+                                                      " WHERE phone_e164 = %s", (s["phone"],)))["n"], 1)
+        t = self.fresh(stage_cap=20)
+        self.order(t, self.incident(t))
+        got = self.apology_call(t, cut=None)
+        self.assertEqual(got["decision"].end_reason, "apology_refusal_unknown")
 
     def test_other_stops_still_stop_it(self):
         s = self.fresh(stage_cap=20)

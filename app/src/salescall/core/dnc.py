@@ -14,7 +14,7 @@
 - 取り消し（revoke）は管理者か契約者だけ・記録つき・1回だけ（データベースが守る）。自動では取り消さない（Intent.md 10-3）。
 - 引くのは `lookup`。門と取込は、`target_policy` を通して引く。
 - **断られたら止める範囲**（`reach`）も、ここの1か所。門は、締めがまだの発信（断られたかがまだ決まっていない）の範囲に入る
-  番号・管理番号へかけない（`unsettled_reach_covers`。止める前にかけてしまう隙を作らない。DESIGN.md 5-2-2）。
+  番号・管理番号へかけない（`undecided_reach_overlaps`。止める前にかけてしまう隙を作らない。DESIGN.md 5-2-2）。
 """
 
 from __future__ import annotations
@@ -96,17 +96,21 @@ def reach(tx: Tx, task_id: UUID) -> tuple[list[str], str | None]:
     return tasks.numbers(tx, task_id), ref
 
 
-def unsettled_reach_covers(tx: Tx, e164: str, *, client_ref: str | None) -> bool:
-    """締めがまだの発信（発信まで進み、判定の結果がまだ無い試行。通話中も含む）のどれかが、もし断られていたら、
-    この番号（またはこの管理番号）を止めることになるか。取引の依頼者の分（発信禁止は依頼者ごと）。
+def undecided_reach_overlaps(tx: Tx, task_id: UUID) -> bool:
+    """この行と同じお客様の、ほかの行の発信で、断られたかがまだ決まっていないもの（予約・通話中・締め前・判定できないで
+    判定待ち。データベースの1か所 salescall.refusal_undecided）があるか。取引の依頼者の分（発信禁止は依頼者ごと）。
+    同じお客様＝止める範囲（この1か所の reach）が重なる行：番号を1つでも共有する、または同じ管理番号（設定で選んだとき）。
 
-    止めるのは締めの処理（判定のあと）なので、締めの前にこの範囲へかけると、断ったお客様にまたかけうる
-    （例：一覧の番号で断られた行の、お客様が言った別の番号を、別の実施回の行がかける）。"""
+    止めるのは締めの処理（判定のあと）なので、決まる前に同じお客様へかけると、断ったお客様にまたかけうる。2026-10-16 の
+    見直しで直した：(1) かける番号だけでなく、この行の番号すべてで重なりを見る（前は片方向で、お客様が言った別の番号の行が、
+    一覧の番号の行の通話中にかけえた）(2) 予約中（まだ発信していない）も見る (3) 判定できないの結果も「まだ決まっていない」。"""
+    mine, my_ref = reach(tx, task_id)
+    mine_set = set(mine)
     for p in tx.all("SELECT DISTINCT a.task_id FROM salescall.attempts a"
-                    " WHERE a.state NOT IN ('claimed', 'released')"
-                    "   AND NOT salescall.is_settled(a.attempt_id)"):
-        row_numbers, ref = reach(tx, p["task_id"])
-        if e164 in row_numbers or (client_ref is not None and ref == client_ref):
+                    " WHERE a.task_id <> %s AND a.state <> 'released' AND salescall.refusal_undecided(a.attempt_id)",
+                    (task_id,)):
+        numbers, ref = reach(tx, p["task_id"])
+        if mine_set.intersection(numbers) or (my_ref is not None and ref == my_ref):
             return True
     return False
 

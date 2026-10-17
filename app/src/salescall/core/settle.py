@@ -24,7 +24,7 @@ from uuid import UUID
 from salescall.core import (apology, approval, attempts, business_rules, call_report, dnc, next_action, notify, number_recheck,
                             quality_stage, results, settings, target_policy, tasks, usage)
 from salescall.core.access import Tx
-from salescall.core.judge import JUDGE_VERSION, PROGRAM_CAUSES, Facts, Item, JudgeInput, Judgement, judge
+from salescall.core.judge import JUDGE_VERSION, PROGRAM_CAUSES, Facts, Item, JudgeInput, Judgement, judge, refusal
 from salescall.core.phone import normalize
 
 
@@ -87,22 +87,38 @@ def _settle_apology(tx: Tx, a: dict[str, Any]) -> dict[str, Any]:
     order = apology.for_task(tx, a["task_id"])
     if order is None:
         raise NotReady("承認されたお詫びの案が無いのに、お詫びの電話をかけています")
-    report = call_report.load(tx, attempt_id)
+    inp, _, _ = _judge_input(tx, a, a["version_id"])
+    report = inp.report
     delivered = bool(report is not None and report.apology_delivered)
-    refused = bool(report is not None and report.do_not_call)
+    # 発信の拒否・番号違いは、判定と同じ1か所（judge.refusal）で決める（2026-10-16 の見直し J6：前は通話中の申告だけを見て、
+    # 何も言わずに切った＝断った、を見落としていた）。断ったかを決められない（報告・切れ方の抜け）・通話後の検証で確かめられ
+    # なかった ⇒ もうかけない（かけない側に倒す）
+    j = refusal(inp)
+    if j is not None and j.disconnect is not None and a["disconnect"] is None:
+        attempts.record_disconnect(tx, attempt_id, j.disconnect)
     tx.execute("INSERT INTO salescall.apology_outcomes (tenant_id, client_id, attempt_id, order_id, delivered)"
                " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s)",
                (attempt_id, order["order_id"], delivered))
-    if refused:
-        dnc.register(tx, a["phone_e164"], "refused_in_call", source_attempt_id=attempt_id)
+    if j is not None and j.dnc_reason is not None:
+        dnc.register(tx, a["phone_e164"], j.dnc_reason, source_attempt_id=attempt_id)
+    refused = j is not None and j.state == "do_not_call"
+    stop_reason = ("apology_wrong_party" if j is not None and j.dnc_reason == "wrong_party" else
+                   "apology_refusal_unknown" if (j is not None and j.state == "unknown") or a["verification"] == "failed"
+                   else None)
+    if j is not None and j.state == "unknown":
+        notify.emit(tx, "judge_unknown", key=f"judge_unknown:{attempt_id}", admin=j.detail.get("unknown_cause") in PROGRAM_CAUSES,
+                    summary=f"お詫びの電話で、断られたかを決められませんでした（もうかけません）。{j.detail.get('error', '')}",
+                    refs={"attempt_id": attempt_id, "task_id": a["task_id"], "unknown_cause": j.detail.get("unknown_cause")})
     _notice_forbidden(tx, a, prepare=False)
-    decision = next_action.after_apology(tx, a["task_id"], delivered=delivered, refused=refused,
+    decision = next_action.after_apology(tx, a["task_id"], delivered=delivered, refused=refused, stop_reason=stop_reason,
                                          dialed=next_action.Target(a["contact_id"], None, "apology", None))
     if decision.kind == "end":
         notify.emit(tx, "apology", key=f"apology:{attempt_id}",
                     summary={"apology_done": "お詫びを伝えました。",
                              "apology_unreached": "お詫びの電話が、決めた回数かけてもお客様に届きませんでした。",
-                             "do_not_call": "お詫びの電話で、発信を断られました。"}.get(
+                             "do_not_call": "お詫びの電話で、発信を断られました。",
+                             "apology_wrong_party": "お詫びの電話の番号が、番号違いでした（その番号は発信禁止にしました）。",
+                             "apology_refusal_unknown": "お詫びの電話で、断られたかを確かめられませんでした（もうかけません）。"}.get(
                         decision.end_reason, f"お詫びの電話を終えました（{decision.end_reason}）。"),
                     refs={"attempt_id": attempt_id, "task_id": a["task_id"], "order_id": order["order_id"]})
     usage.record_line_estimate(tx, attempt_id)
@@ -188,21 +204,27 @@ def rejudge_held(tx: Tx) -> list[dict[str, Any]]:
     return done
 
 
-def _judge_and_write(tx: Tx, a: dict[str, Any], *, kind: str, rules_version: Any) -> dict[str, Any]:
-    """判定して書く（最初の締めと、判定し直しの、同じ1つの道）。判定できなかったときは何も決めない（切れ方・発信禁止・
-    別の番号を書かず、結果 unknown と判定待ちだけ）。"""
+def _judge_input(tx: Tx, a: dict[str, Any], rules_version: Any) -> tuple[JudgeInput, str | None, dict[str, Any]]:
+    """判定の入力を集める1か所（ふつうの締め・判定し直し・お詫びの電話の締め）。"""
     attempt_id = a["attempt_id"]
     report, report_source = call_report.load_with_source(tx, attempt_id)
-    rules = business_rules.load(tx, rules_version)
-    items = _items(tx, a["task_id"])
     refused_after = tx.one("SELECT 1 FROM salescall.dnc_entries WHERE source_attempt_id = %s"
                            " AND reason = 'refused_found_after' LIMIT 1", (attempt_id,)) is not None
     unclear_is_refusal = bool(settings.resolve(tx, "judge.unclear_disconnect_is_refusal", tenant_id=a["tenant_id"],
                                                client_id=a["client_id"], business_id=a["business_id"]))
     dialed = number_recheck.dialed(tx, attempt_id)
-    inp = JudgeInput(Facts(a["state"], a["hangup_side"], a["reached_answer"], dialed["source"] == "callee"), report, items,
-                     rules, refused_after,
-                     unclear_is_refusal)
+    inp = JudgeInput(Facts(a["state"], a["hangup_side"], a["reached_answer"], dialed["source"] == "callee"), report,
+                     _items(tx, a["task_id"]), business_rules.load(tx, rules_version), refused_after, unclear_is_refusal)
+    return inp, report_source, dialed
+
+
+def _judge_and_write(tx: Tx, a: dict[str, Any], *, kind: str, rules_version: Any) -> dict[str, Any]:
+    """判定して書く（最初の締めと、判定し直しの、同じ1つの道）。判定できなかったときは何も決めない（切れ方・発信禁止・
+    別の番号を書かず、結果 unknown と判定待ちだけ）。"""
+    attempt_id = a["attempt_id"]
+    inp, report_source, dialed = _judge_input(tx, a, rules_version)
+    report, rules, items = inp.report, inp.rules, inp.items
+    refused_after, unclear_is_refusal = inp.refused_after, inp.unclear_is_refusal
     j = judge(inp)
     decided = j.state != "unknown"
     alternate = None if not decided or report is None or report.callback is None \

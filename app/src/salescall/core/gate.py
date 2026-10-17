@@ -164,8 +164,8 @@ def _pacing(tx: Tx, task: dict[str, Any], now: datetime, assume_promised: bool |
         promised = bool(nxt and nxt["promised"])
     else:
         promised = assume_promised
-    # 締めがまだの発信が、もし断られていたら、この番号（管理番号）も止める ⇒ 締めが済むまで待つ（発信禁止の広げ方の1か所を読む）
-    if dnc.unsettled_reach_covers(tx, task["phone_e164"], client_ref=task["client_ref"]):
+    # 同じお客様（止める範囲が重なる行）の発信で、断られたかがまだ決まっていないものがあれば、決まるまで待つ（dnc の1か所を読む）
+    if dnc.undecided_reach_overlaps(tx, task["task_id"]):
         return Pacing(remaining, None, "related_unsettled", promised)
     same = (task["contact_id"], task["task_id"])   # 同じお客様＝かける番号が同じ発信、または同じ行の発信
     limits: list[tuple[datetime, str]] = []
@@ -204,12 +204,20 @@ def _pacing(tx: Tx, task: dict[str, Any], now: datetime, assume_promised: bool |
     return Pacing(remaining, at, reason, promised)
 
 
-def counted_dial_times(tx: Tx, task_id: UUID, *, purpose: str) -> list[datetime]:
-    """その行で、その目的でかけた発信のうち、かけた回数に数えるもの（数え方は上の1つ）の、かけた時刻（日本時間）。
-    番号の聞き直しの回数と、試した時間帯を数えるのに使う（DESIGN.md 3-5）。"""
-    return [r["t"] for r in tx.all(
-        f"SELECT salescall.jst(claimed_at) AS t FROM salescall.attempts WHERE task_id = %s AND purpose = %s AND {_COUNTED}"
-        " ORDER BY claimed_at", (task_id, purpose))]
+@dataclass(frozen=True)
+class PurposeDial:
+    at: datetime        # かけた時刻（日本時間。時間帯はこれで決める）
+    ended: datetime     # 終わった時刻（日本時間。最小の間隔はここから数える＝門の数え方と同じ）
+    counted: bool       # お客様が出られた発信か（上の数え方。回線の側で繋がらなかった・切れたものは False）
+
+
+def purpose_dials(tx: Tx, task_id: UUID, *, purpose: str) -> list[PurposeDial]:
+    """その行で、その目的（番号の聞き直し・お詫び）でかけた発信（発信まで進んだもの）の、かけた時刻と、数える発信か。
+    別の時間帯にかけ直す電話の、回数・試した時間帯・最小の間隔を決めるのに使う（next_action._new_band_retry の1か所。DESIGN.md 3-5）。"""
+    return [PurposeDial(r["t"], r["e"], r["counted"]) for r in tx.all(
+        f"SELECT salescall.jst(claimed_at) AS t, salescall.jst(coalesce(ended_at, claimed_at)) AS e, ({_COUNTED}) AS counted"
+        f" FROM salescall.attempts"
+        f" WHERE task_id = %s AND purpose = %s AND {_DIALED} ORDER BY claimed_at", (task_id, purpose))]
 
 
 def pacing(tx: Tx, task_id: UUID, *, contact_id: UUID | None = None, promised: bool | None = None) -> Pacing:

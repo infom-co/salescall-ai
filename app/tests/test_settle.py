@@ -265,7 +265,9 @@ class AfterDenial(Base):
         d = self.claim(s)
         got = self.tx(s, lambda tx: next_action.after_denial(tx, s["task"], d, tenant_id=s["tenant"], client_id=s["client"],
                                                              business_id=s["business"]))
-        self.assertEqual((got.kind, got.end_reason), ("end", "no_calling_hours"))   # これから先、時間帯が無い
+        # これから先、時間帯が無い（依頼者の時間帯を空にした）：行を終えず、1日後にもう一度確かめる（2026-10-16 の見直し G6）
+        self.assertEqual(got.kind, "call")
+        self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["kind"], "call")
 
     def test_permanent_reason_ends_and_waiting_reason_reschedules(self):
         s = self.ready()

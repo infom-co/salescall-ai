@@ -55,6 +55,36 @@ class Check(unittest.TestCase):
         self.assertEqual((s.next_of("Q1", "しない"), s.next_of("Q1", "する"), s.next_of("Q1", "わからない"),
                           s.next_of("Q2", "答えた")), ("END", "Q2", "Q2", "END"))
 
+    def test_many_optional_follow_ups_check_quickly_and_still_find_skips(self):
+        """「はい ⇒ 詳しく聞く、いいえ ⇒ 次へ」が続く業務（40問）でも、確かめはすぐ終わる（前は質問の数に対して何倍にも
+        増え、36問で15秒かかった＝2026-10-16 の見直し I2）。必須を飛ばす道は、これまでどおり見つける。"""
+        import time
+        r = raw()
+        qs = [r["questions"][0]]
+        n = 20
+        for i in range(n):
+            ask, detail = f"A{i}", f"D{i}"
+            nxt = f"A{i + 1}" if i + 1 < n else "Q2"
+            qs.append({"id": ask, "text": "ご利用はございますか？", "ask_about": "ご利用", "type": "choice", "required": False,
+                       "choices": ["ある", "ない"], "next": {"ある": detail, "*": nxt}, "unit": None})
+            qs.append({"id": detail, "text": "詳しくお聞かせください。", "ask_about": "詳しく", "type": "free_text",
+                       "required": False, "choices": None, "next": {"*": nxt}, "unit": None})
+        qs[0] = dict(qs[0], next={"しない": "END", "*": "A0"})
+        qs.append(r["questions"][1])
+        r["questions"] = qs
+        started = time.monotonic()
+        bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True)
+        self.assertLess(time.monotonic() - started, 2.0)
+        qs[-2] = dict(qs[-2], next={"*": "END"})                         # 最後の詳しく聞く質問から、必須 Q2 を飛ばして終わる
+        self.assertTrue(any("必須の質問 Q2 を聞かずに終わる道" in p for p in problems_of(r)))
+
+    def test_malformed_values_are_problems_not_crashes(self):
+        """画面・抜き出しの入口から形の違う値が来ても、処理が落ちずに問題として並べる（2026-10-16 の見直し I9）。"""
+        r = raw(); r["questions"][1]["choices"] = 5
+        self.assertTrue(any("選択肢" in p for p in problems_of(r)))
+        r = raw(); r["questions"][1]["type"] = ["x"]
+        self.assertTrue(any("型" in p for p in problems_of(r)))
+
     def test_each_problem_is_found(self):
         cases = []
         r = raw(); r["questions"][0]["next"] = {"しない": "Q9", "*": "Q2"}; cases.append((r, "分岐先 Q9 がありません"))
@@ -147,6 +177,14 @@ class Versions(unittest.TestCase):
         self.assertEqual(outcome, "mock_needed")                       # 依頼者で最初の模擬通話を待つ
         self.assertEqual(self.tx(lambda tx: tx.one("SELECT salescall.run_current_version(%s) AS v",
                                                    (self.s["run"],))["v"]), back)
+
+    def test_assigning_a_new_version_releases_reservations_of_the_old_one(self):
+        """版を替えたら、前の版で取ったまだ発信していない予約を取り消す（門の前提が変わったときの決まり。2026-10-16 の見直し G7）。"""
+        claim = self.w.insert_claim(self.s)                            # 前の版での予約
+        v = self.tx(lambda tx: bs.save_version(tx, self.s["business"], raw()))
+        self.tx(lambda tx: bs.assign(tx, self.s["run"], v, reason="試験：新しい版に切り替え"))
+        state = self.tx(lambda tx: tx.one("SELECT state FROM salescall.attempts WHERE attempt_id = %s", (claim,)))["state"]
+        self.assertEqual(state, "released")
 
     def test_nothing_is_saved_when_invalid(self):
         before = self.tx(lambda tx: tx.one("SELECT count(*) AS n FROM salescall.business_versions")["n"])

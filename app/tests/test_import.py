@@ -189,6 +189,11 @@ class LeadingZero(Base):
         self.assertEqual(self.outcomes(plan), [(2, "stopped", "number_unknown"), (3, "registered", None)])
 
 
+    def test_csv_column_with_separators_or_labels_adds_nothing(self):
+        """区切りや言葉のある欄は文字として打ったもの。0 が消えた証拠にならないので、0 を足さない（2026-10-16 の見直し I13）。"""
+        _, plan = self.preview(csv_file([("A", "1", "3-0000-9031"), ("B", "2", "TEL:300009032")]))
+        self.assertEqual(self.outcomes(plan), [(2, "stopped", "number_unknown"), (3, "stopped", "number_unknown")])
+
 class SameAsPreview(Base):
     def test_changes_after_preview_write_nothing(self):
         x = fictional_jp_fixed()

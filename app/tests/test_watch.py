@@ -58,7 +58,6 @@ class Classify(unittest.TestCase):
         stopping = {k for k, a in errors.ACTIONS.items() if a.stop_cause is not None}
         self.assertEqual(set(errors.EVIDENCE), stopping)
         self.assertTrue(set(errors.EVIDENCE.values()) <= {"in_conversation", "verified", "ringing", "none"})
-        self.assertEqual(errors.counted_with("ear_unreachable"), ("ear_unreachable",))
         self.assertNotIn("ear_unreachable", errors.counted_with("ai_unreachable"))
         for k in stopping:
             with self.subTest(k):
@@ -262,17 +261,18 @@ class SystemStopsAndChecks(unittest.TestCase):
                                                                                     business_id=None))
                 if r["cause"] == "ai_connection"]
 
-    def test_ear_errors_are_not_reset_by_conversations(self):
-        # 2026-10-16 見直し：別の耳だけつながらないとき、ほかの通話が会話に入るたびに数え直していて、止まらなかった
+    def test_ear_errors_never_stop_calling_but_tell_the_administrator(self):
+        """別の耳（通話後の検証）につながらなくても、発信は止めない（2026-10-17：止めるのはお客様に影響が出るときだけ。
+        検証が済むまで、その行と同じお客様には門がかけない）。管理者に知らせる。"""
         override(self, "stop.ai.stop_after_failures", 2)
-        w = World(); s = w.setup()
         ear = ErrorReport("ear", None, None, unreachable=True)
-        watch.after_error(self.a, SYSTEM, ear)
-        aid = w.insert_claim(s)
-        for st in ("dialing", "answered", "in_conversation"):
-            w.move(s, aid, st)                                       # 会話AIは動いている（別の耳の直った証拠ではない）
-        watch.after_error(self.a, SYSTEM, ear)
-        self.assertEqual(len(self.ai_stops()), 1)
+        for _ in range(5):
+            watch.after_error(self.a, SYSTEM, ear)
+        self.assertEqual(self.ai_stops(), [])
+        n = self.a.in_system(SYSTEM, lambda tx: tx.one(
+            "SELECT count(*) AS n FROM salescall.notification_events WHERE for_admin AND kind = 'error_notice'"
+            " AND refs ->> 'kind' = 'ear_unreachable'"))["n"]
+        self.assertGreaterEqual(n, 1)
 
     def test_counting_needs_the_transaction_of_that_scope(self):
         w = World(); s = w.setup(); other = World().setup()

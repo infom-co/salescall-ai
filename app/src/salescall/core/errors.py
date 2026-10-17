@@ -119,9 +119,11 @@ ACTIONS: dict[str, Action] = {
                             "使えるキーが無ければ門が通さない）"),
     "ai_unreachable": Action("keep", "backoff", "ai_connection", "system", "stop.ai.stop_after_failures", False,
                              "会話AIにつながらない（一時的）：間隔を伸ばしてやり直す。続いたら、つながるまで新しい発信を待ち、直ったら自動で続ける"),
-    "ear_unreachable": Action("keep", "backoff", "ai_connection", "system", "stop.ai.stop_after_failures", False,
-                              "別の耳（通話後の検証）につながらない（一時的）：続いたら、つながるまで新しい発信を待つ（検証できない"
-                              "まま、かけた行が「検証できなかった」で終わり続けるのを防ぐ）。直ったら自動で続ける"),
+    "ear_unreachable": Action("keep", "backoff", None, None, None, True,
+                              "別の耳（通話後の検証）につながらない（一時的）：発信は止めない。検証は順番待ちのまま、キーを併用して"
+                              "やり直す（つながるまで、その行は締めずに待つ＝同じお客様には、断られたかが決まるまでかけない）。"
+                              "管理者に知らせる（2026-10-17：止めるのはお客様に影響が出るときだけ。検証が遅れても、門が"
+                              "その行と同じお客様を守るので、お客様には影響が出ない）"),
     "ai_server_error": Action("keep", "backoff", "ai_connection", "system", "stop.ai.stop_after_failures", False,
                               "Google の側の誤り・混雑・時間切れ（公式の一覧の 500・503・504。一時的）：間隔を伸ばしてやり直す。続いたら、直るまで新しい発信を待ち、直ったら自動で続ける"),
     "session_drop": Action("keep", "reconnect_once", None, None, None, False,
@@ -159,7 +161,6 @@ EVIDENCE: dict[str, str] = {
     "ai_unreachable": "in_conversation",
     "ai_server_error": "in_conversation",
     "unknown_ai": "in_conversation",
-    "ear_unreachable": "verified",
     "line": "ringing",
     "unknown_line": "ringing",
 }

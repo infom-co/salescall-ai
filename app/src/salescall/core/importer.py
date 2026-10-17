@@ -210,8 +210,11 @@ def _zero_lost(sheet: Sheet, col: int) -> list[bool]:
     if sheet.file_kind == "xlsx":
         return [r.cell(col).numeric for r in sheet.rows]
     texts = [r.cell(col).text for r in sheet.rows if r.cell(col).text is not None and r.cell(col).problem is None]
+    # 0 が消えるのは、表計算ソフトが数として保存したとき＝欄は数字だけ。区切り（「3-1234-5678」）や言葉（「TEL:」）の
+    # ある欄は、文字として打ったもので、0 が消えた証拠にならない（2026-10-16 の見直し I13）
     whole_column = bool(texts) and all(
-        normalize(t).kind == "unknown" and normalize(t, leading_zero_lost=True).kind != "unknown" for t in texts)
+        t.strip().isascii() and t.strip().isdigit()
+        and normalize(t).kind == "unknown" and normalize(t, leading_zero_lost=True).kind != "unknown" for t in texts)
     return [whole_column] * len(sheet.rows)
 
 

@@ -72,7 +72,8 @@ LABELS: dict[str, dict[str, str]] = {
     "required": {"はい": True, "○": True, "いいえ": False, "": False},
 }
 ALL_QUESTIONS = "全部"            # 「わからない・答えたくない」の質問ID：必須の質問すべて
-OTHER_ANSWER = "その他"           # 分岐の回答条件：受け皿
+OTHER_ANSWER = "その他"           # 分岐の回答条件：受け皿（その質問に「その他」という選択肢があれば、その選択肢＝下の ANY_LABEL で受け皿）
+ANY_LABEL = "＊"                  # 分岐の回答条件：いつでも受け皿
 END_LABEL = "終わり"              # 分岐の次の質問ID：終わり
 _SPLIT = re.compile(r"[／\n]")    # 選択肢・断りの答えの区切り（全角の「／」か、欄の中の改行）
 _INTERVAL = re.compile(r"^\s*(\d+)\s*(時間おき|日後)\s*$")
@@ -85,19 +86,27 @@ class Preview:
     names_to_confirm: list[dict[str, str]]        # 契約者が読みを確かめる名前（検証モードの、AI が決めた読み。表記・読み・出どころ）
     digest: str = ""                              # 登録のときに同じ中身かを確かめる指紋
     ai: dict[str, Any] = field(default_factory=dict)   # AI の答え（登録にそのまま渡す。聞き直さない）
+    notes: list[str] = field(default_factory=list)     # 知らせ（登録は止めない。例：無くてもよいシートが無かった）
 
 
-def _sheets(file_name: str, data: bytes, mapping: dict[str, Any]) -> tuple[dict[str, tuple[Sheet, dict[str, int]]], list[str]]:
+def _sheets(file_name: str, data: bytes, mapping: dict[str, Any]
+            ) -> tuple[dict[str, tuple[Sheet, dict[str, int]]], list[str], list[str]]:
     """役目ごとのシートと列の位置。mapping＝{"sheets": {役目: シートの名前}, "columns": {"役目.列の役目": 見出し}}（無い所は標準）。"""
     out: dict[str, tuple[Sheet, dict[str, int]]] = {}
     problems: list[str] = []
+    notes: list[str] = []
     for role, (default_name, columns, required) in SHEETS.items():
+        mapped = role in mapping.get("sheets", {})
         name = mapping.get("sheets", {}).get(role, default_name)
         try:
             sheet = read(file_name, data, sheet_name=name)
         except FileRejected as e:
-            if str(e) == "指定のシートがありません" and not required:
-                continue                                   # 無くてもよいシート（分岐・言ってはいけないこと・名前）
+            if str(e) == "指定のシートがありません" and not required and not mapped:
+                # 無くてもよいシート（分岐・言ってはいけないこと・名前）：無いものとして読み、プレビューに知らせる（黙って
+                # 読み飛ばさない。シートの名前の打ち違いに気づけるように。2026-10-16 の見直し I5）。対応付けで名前を
+                # 指定したシートが無ければ、問題（下）
+                notes.append(f"シート「{name}」がありません（無いものとして読みました。シートの名前を確かめてください）")
+                continue
             problems.append(f"シート「{name}」：{e}")
             continue
         cols: dict[str, int] = {}
@@ -109,7 +118,7 @@ def _sheets(file_name: str, data: bytes, mapping: dict[str, Any]) -> tuple[dict[
                 continue
             cols[col] = hits[0]
         out[role] = (sheet, cols)
-    return out, problems
+    return out, problems, notes
 
 
 def _rows(sheets: dict[str, tuple[Sheet, dict[str, int]]], role: str, problems: list[str]) -> list[tuple[int, dict[str, str | None]]]:
@@ -147,7 +156,9 @@ def _split(value: str | None) -> list[str] | None:
     return None if not value else [x.strip() for x in _SPLIT.split(value) if x.strip()]
 
 
-def _to_raw(sheets: dict[str, tuple[Sheet, dict[str, int]]], problems: list[str]) -> tuple[dict[str, Any], list[str]]:
+def _to_raw(sheets: dict[str, tuple[Sheet, dict[str, int]]], problems: list[str]
+            ) -> tuple[dict[str, Any], list[str], dict[str, list[str]]]:
+    """シートを業務設定の形にする。3つ目は、形の並びの何番目が、どのシートの何行目か（問題の位置の書き換えに使う＝`_placed`）。"""
     basic: dict[str, str | None] = {}
     for row_no, v in _rows(sheets, "basic", problems):
         item = BASIC_ITEMS.get(v.get("item") or "")
@@ -161,8 +172,10 @@ def _to_raw(sheets: dict[str, tuple[Sheet, dict[str, int]]], problems: list[str]
     tclass = _label("target_class", basic.get("target_class"), "シート「基本」のお客様の区分", problems)
 
     questions, decline = [], {}
+    where_q: list[str] = []
     for row_no, v in _rows(sheets, "questions", problems):
         where = f"シート「質問」の {row_no} 行目"
+        where_q.append(where)
         qtype = _label("type", v.get("type"), f"{where}の型", problems)
         required = _label("required", v.get("required"), f"{where}の必須", problems)
         questions.append({"id": v.get("id"), "text": v.get("text"), "ask_about": v.get("ask_about"), "type": qtype,
@@ -176,7 +189,12 @@ def _to_raw(sheets: dict[str, tuple[Sheet, dict[str, int]]], problems: list[str]
         if q is None:
             problems.append(f"シート「分岐」の {row_no} 行目：質問ID {v.get('id')} は「質問」のシートにありません")
             continue
-        answer = business_settings.ANY if v.get("answer") == OTHER_ANSWER else v.get("answer")
+        # 「その他」は受け皿。ただし、その質問に「その他」という選択肢があれば、その選択肢（受け皿は「＊」で書く）。
+        # 前は、いつも受け皿にしていたので、選択肢の「その他」へ分けられず、「わからない」「答えたくない」まで「その他」の
+        # 行き先へ行った（2026-10-16 の見直し I6）
+        literal = OTHER_ANSWER in (q.get("choices") or [])
+        answer = business_settings.ANY if v.get("answer") == ANY_LABEL or (v.get("answer") == OTHER_ANSWER and not literal) \
+            else v.get("answer")
         nxt = business_settings.END if v.get("next") == END_LABEL else v.get("next")
         q["next"] = q["next"] or {}
         if answer in q["next"]:
@@ -186,6 +204,7 @@ def _to_raw(sheets: dict[str, tuple[Sheet, dict[str, int]]], problems: list[str]
     required_ids = [q["id"] for q in questions if q["required"]]
     handling: dict[str, dict[str, dict[str, Any]]] = {}
     specific: set[tuple[str, str, str]] = set()
+    seen_handling: dict[tuple[Any, str, str], int] = {}
     for row_no, v in _rows(sheets, "handling", problems):
         where = f"シート「わからない・答えたくない」の {row_no} 行目"
         state = _label("state", v.get("state"), f"{where}の答え", problems)
@@ -194,6 +213,12 @@ def _to_raw(sheets: dict[str, tuple[Sheet, dict[str, int]]], problems: list[str]
         if None in (state, reason, kind):
             continue
         h = {"kind": kind} if kind != "conclude" else {"kind": kind, "conclusion": v.get("conclusion")}
+        row_key = (v.get("id"), state, reason)
+        if row_key in seen_handling:   # 同じ質問・答え・理由の行が2つ：黙って後ろの行にしない（2026-10-16 の見直し I7）
+            problems.append(f"{where}：質問 {v.get('id')} の「{v.get('state')}」「{v.get('reason')}」の行が2つあります"
+                            f"（{seen_handling[row_key]} 行目と）")
+            continue
+        seen_handling[row_key] = row_no
         targets = required_ids if v.get("id") == ALL_QUESTIONS else [v.get("id")]
         for qid in targets:
             if qid != ALL_QUESTIONS and (v.get("id") == ALL_QUESTIONS and (qid, state, reason) in specific):
@@ -203,35 +228,48 @@ def _to_raw(sheets: dict[str, tuple[Sheet, dict[str, int]]], problems: list[str]
                 specific.add((qid, state, reason))
 
     retry: dict[str, Any] = {}
+    seen_retry: dict[str, int] = {}
     for row_no, v in _rows(sheets, "retry", problems):
         where = f"シート「かけ直し」の {row_no} 行目"
         key = _label("retry_key", v.get("key"), f"{where}の結果", problems)
         action = _label("action", v.get("action"), f"{where}のかけ直すか", problems)
         if key is None or action is None:
             continue
+        if key in seen_retry:
+            problems.append(f"{where}：結果「{v.get('key')}」の行が2つあります（{seen_retry[key]} 行目と）")
+            continue
+        seen_retry[key] = row_no
         if action == "end":
             retry[key] = {"action": "end"}
             continue
         m = _INTERVAL.match(v.get("interval") or "")
         times = v.get("max_times")
-        if m is None or not (times or "").isdigit():
-            problems.append(f"{where}：かけるときは、回数（数）と間隔（「2時間おき」「1日後」の形）が要ります")
+        if m is None or not (times or "").isdigit() or int(times) < 1 or int(m.group(1)) < 1:
+            problems.append(f"{where}：かけるときは、回数（1以上の数）と間隔（「2時間おき」「1日後」の形。1以上）が要ります")
             continue
         retry[key] = {"action": "call", "max_times": int(times),
                       "interval": {"hours" if m.group(2) == "時間おき" else "days": int(m.group(1))}}
 
-    forbidden = {}
+    forbidden: dict[str, Any] = {}
+    seen_forbidden: dict[str, int] = {}
     for row_no, v in _rows(sheets, "forbidden", problems):
-        forbidden[v.get("key") or f"行{row_no}"] = {"say_not": v.get("say_not"), "correct": v.get("correct")}
+        key = v.get("key") or f"行{row_no}"
+        if key in seen_forbidden:
+            problems.append(f"シート「言ってはいけないこと」の {row_no} 行目：名前「{key}」が2つあります（{seen_forbidden[key]} 行目と）")
+            continue
+        seen_forbidden[key] = row_no
+        forbidden[key] = {"say_not": v.get("say_not"), "correct": v.get("correct")}
 
-    names = []
-    pairs = [(basic.get("company"), basic.get("company_reading"), "caller"),
-             (basic.get("person"), basic.get("person_reading"), "caller")]
-    pairs += [(v.get("text"), v.get("reading"), "script") for _, v in _rows(sheets, "names", problems)]
-    for text, reading, source in pairs:
+    names, where_n = [], []
+    pairs = [(basic.get("company"), basic.get("company_reading"), "caller", "シート「基本」の自社名"),
+             (basic.get("person"), basic.get("person_reading"), "caller", "シート「基本」の担当者名")]
+    pairs += [(v.get("text"), v.get("reading"), "script", f"シート「名前」の {row_no} 行目")
+              for row_no, v in _rows(sheets, "names", problems)]
+    for text, reading, source, where in pairs:
         if text:                                   # 読みは無くてもよい（AI の読みの案を使う。`review`）
             names.append({"text": text, "reading": reading, "source": source, "reading_by": "given" if reading else None,
                           "candidates": [], "likely": None})
+            where_n.append(where)
     raw = {
         "purpose": basic.get("purpose"), "target_class": tclass,
         "caller": {"company": {"text": basic.get("company"), "reading": basic.get("company_reading")},
@@ -242,7 +280,20 @@ def _to_raw(sheets: dict[str, tuple[Sheet, dict[str, int]]], problems: list[str]
         "questions": questions, "names": names,
         "rules": {"decline": decline, "handling": handling, "retry": retry, "forbidden": forbidden},
     }
-    return raw, problems
+    return raw, problems, {"名前": where_n, "質問": where_q}
+
+
+_POSITION = re.compile(r"(名前|質問) (\d+) 番目")
+
+
+def _placed(problems: list[str], where: dict[str, list[str]]) -> list[str]:
+    """業務設定の確かめ（1か所）の問題の「名前 n 番目」「質問 n 番目」を、ファイルのシートと行に書き換える
+    （前は、名前の一覧の頭に自社名・担当者名が入るので「名前」シートの1行目が「名前 3 番目」と出た。2026-10-16 の見直し I10）。"""
+    def place(m: re.Match) -> str:
+        rows = where.get(m.group(1), [])
+        i = int(m.group(2)) - 1
+        return rows[i] if 0 <= i < len(rows) else m.group(0)   # AI が足した名前など、ファイルに無いものはそのまま
+    return [_POSITION.sub(place, p) for p in problems]
 
 
 def _field_types(tx: Tx) -> frozenset[str]:
@@ -327,11 +378,30 @@ def review(tx: Tx, business_id: UUID, raw: dict[str, Any], *, confirmed_names: A
             names.append({"text": text, "reading": None, "source": "script"})
             have.add(unicodedata.normalize("NFKC", text))
     by_key = {unicodedata.normalize("NFKC", t): r for t, r in found.items()}
+    caller = raw.get("caller") if isinstance(raw.get("caller"), dict) else {}
+    caller_given = {c["text"]: c["reading"] for c in (caller.get(k) for k in ("company", "person"))
+                    if isinstance(c, dict) and isinstance(c.get("text"), str) and isinstance(c.get("reading"), str)
+                    and c["reading"].strip()}
     to_confirm = []
     for n in names:
+        # 入口が持ってきた読みは、読みを決めたものが入口（または無い）の読みだけ。プレビューの形をもう一度確かめたとき、
+        # AI の読み・契約者が確かめた読みを入口の読みにしない（2026-10-16 の見直し I1：検証モードの確かめが抜けた）
+        by = n.get("reading_by")
+        given = n.get("reading") if by in (None, "given") else None
+        ai_here = by_key.get(unicodedata.normalize("NFKC", n["text"]), readings.UNDECIDED)
+        if by == "ai" and n.get("reading") and ai_here.reading is None:
+            ai_here = readings.Reading(readings.normalize(n["reading"]), "ai")
+        here_confirmed = dict(confirmed)
+        if by == "person" and n.get("reading") and n["text"] not in here_confirmed:
+            here_confirmed[n["text"]] = n["reading"]
+        # 名乗りの自社名・担当者名に入口の読みがあれば、それが名前の読み（AI の読みで上書きしない＝I3）
+        if n["text"] in caller_given:
+            if given and readings.normalize(given) != readings.normalize(caller_given[n["text"]]):
+                problems.append(f"名前「{n['text']}」の読みが、名乗りと名前の一覧で違います"
+                                f"（「{caller_given[n['text']]}」と「{given}」）")
+            given = given or caller_given[n["text"]]
         try:
-            got = readings.resolve(n["text"], n.get("reading"), confirmed=confirmed,
-                                   ai={n["text"]: by_key.get(unicodedata.normalize("NFKC", n["text"]), readings.UNDECIDED)})
+            got = readings.resolve(n["text"], given, confirmed=here_confirmed, ai={n["text"]: ai_here})
         except ValueError as e:
             problems.append(str(e))
             got = readings.UNDECIDED
@@ -343,7 +413,6 @@ def review(tx: Tx, business_id: UUID, raw: dict[str, Any], *, confirmed_names: A
         q["unit"] = ai.get("units", {}).get(q["text"]) or None
     for q in _topic_questions(raw):
         q["ask_about"] = ai.get("topics", {}).get(q["text"]) or None
-    caller = raw.get("caller") if isinstance(raw.get("caller"), dict) else {}
     for key in ("company", "person"):
         c = caller.get(key)
         if isinstance(c, dict) and c.get("text"):
@@ -354,8 +423,13 @@ def review(tx: Tx, business_id: UUID, raw: dict[str, Any], *, confirmed_names: A
         business_settings.check(raw, field_types=_field_types(tx), ai_reading_needs_person=verification)   # 確かめは1か所
     except business_settings.SettingsInvalid as e:
         problems += [p for p in e.problems if p not in problems]
-    digest = hashlib.sha256(json.dumps(raw, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
-    return Preview(raw, problems, to_confirm, digest, ai)
+    return Preview(raw, problems, to_confirm, _digest(business_id, raw), ai)
+
+
+def _digest(business_id: UUID, raw: dict[str, Any] | None) -> str:
+    """プレビューと登録が同じ中身かを確かめる指紋（業務と中身。1か所）。"""
+    return hashlib.sha256(json.dumps({"business_id": str(business_id), "raw": raw}, ensure_ascii=False,
+                                     sort_keys=True).encode()).hexdigest()
 
 
 def preview(tx: Tx, business_id: UUID, file_name: str, data: bytes, *, mapping: dict[str, Any] | None = None,
@@ -363,12 +437,14 @@ def preview(tx: Tx, business_id: UUID, file_name: str, data: bytes, *, mapping: 
             decide_units: UnitDecider | None = None, decide_topics: TopicDecider | None = None) -> Preview:
     """ファイル（入口の1つ）を業務設定の形にして、AI に1回だけ聞き、確かめた結果を返す（何も書かない）。
     返す Preview の ai（AI の答え）を、登録（`register`）にそのまま渡す。"""
-    sheets, problems = _sheets(file_name, data, mapping or {})
+    sheets, problems, notes = _sheets(file_name, data, mapping or {})
     if problems and not sheets:
-        return Preview(None, problems, [])
-    raw, problems = _to_raw(sheets, problems)
+        return Preview(None, problems, [], notes=notes)
+    raw, problems, where = _to_raw(sheets, problems)
     ai = ask_ai(raw, find_names=find_names, decide_units=decide_units, decide_topics=decide_topics)
-    return review(tx, business_id, raw, confirmed_names=confirmed_names, ai=ai, problems=problems)
+    p = review(tx, business_id, raw, confirmed_names=confirmed_names, ai=ai, problems=problems)
+    p.problems, p.notes = _placed(p.problems, where), notes
+    return p
 
 
 class PreviewChanged(Exception):
@@ -377,7 +453,8 @@ class PreviewChanged(Exception):
 
 def register_reviewed(tx: Tx, business_id: UUID, p: Preview, *, expected_digest: str) -> UUID:
     """契約者が確かめたプレビューと同じ中身なら、新しい版を作る（どの入口も、ここを通る。1つの取引。問題が1つでもあれば何も書かない）。"""
-    if p.digest != expected_digest:
+    # 指紋は、渡されたものを信じず、中身から出し直す（プレビューは書き換えられる。業務も指紋に入れる。2026-10-16 の見直し I8）
+    if _digest(business_id, p.raw) != expected_digest:
         raise PreviewChanged("プレビューのあとで中身が変わりました。もう一度プレビューを確かめてください")
     if p.problems or p.raw is None:
         raise business_settings.SettingsInvalid(p.problems)
@@ -388,9 +465,10 @@ def register(tx: Tx, business_id: UUID, file_name: str, data: bytes, *, expected
              mapping: dict[str, Any] | None = None, confirmed_names: Any = (),
              ai: dict[str, Any] | None = None) -> UUID:
     """ファイルの入口の登録：読み直して、プレビューと同じ中身なら版を作る。AI には聞き直さない（ai＝プレビューの AI の答え）。"""
-    sheets, problems = _sheets(file_name, data, mapping or {})
+    sheets, problems, _ = _sheets(file_name, data, mapping or {})
     if problems and not sheets:
         raise business_settings.SettingsInvalid(problems)
-    raw, problems = _to_raw(sheets, problems)
+    raw, problems, where = _to_raw(sheets, problems)
     p = review(tx, business_id, raw, confirmed_names=confirmed_names, ai=ai, problems=problems)
+    p.problems = _placed(p.problems, where)
     return register_reviewed(tx, business_id, p, expected_digest=expected_digest)
