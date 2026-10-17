@@ -237,7 +237,7 @@ class WrongNumber(Base):
         if outcome is not None:
             self.tx(s, lambda tx: number_recheck.record(tx, aid, outcome, corrected=corrected,
                                                         evidence="試験：別の耳の文字と付け合わせた", checked_by="試験"))
-        self.tx(s, lambda tx: attempts.record_verification(tx, aid, "done", summary=CLEAN))
+        self.tx(s, lambda tx: attempts.record_verification(tx, aid, summary=CLEAN))
         return aid, self.settle(s, aid)
 
     def test_verification_needs_the_recheck_first(self):
@@ -245,9 +245,7 @@ class WrongNumber(Base):
         self.redirect(s)
         aid = self.call(s, report=rep(("wrong_party",)), verify=None)
         with self.assertRaises(attempts.RecheckMissing):
-            self.tx(s, lambda tx: attempts.record_verification(tx, aid, "done", summary=CLEAN))
-        with self.assertRaises(attempts.RecheckMissing):
-            self.tx(s, lambda tx: attempts.record_verification(tx, aid, "failed", summary=None))
+            self.tx(s, lambda tx: attempts.record_verification(tx, aid, summary=CLEAN))
 
     def test_as_said_calls_the_first_party_to_ask_again(self):
         s = self.ready_jp()

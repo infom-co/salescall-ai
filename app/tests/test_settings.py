@@ -13,6 +13,9 @@ from salescall.core.access import Rejected
 from tests.support import ADMIN, OPERATOR, SYSTEM, World, owner_access
 
 
+ALL_DAY = {d: [["00:00", "23:59"]] for d in ("mon", "tue", "wed", "thu", "fri", "sat", "sun", "holiday")}
+
+
 def sys_tx(work):
     """全体の取引（システムの値を変えられるのは管理者だけ。0017）。"""
     return World().a.in_system(ADMIN, work)
@@ -41,8 +44,10 @@ class EveryDefinitionHasAValue(unittest.TestCase):
 
     def test_reading_examples(self):
         self.assertEqual(sys_tx(lambda tx: settings.system_value(tx, "gate.claim_lifetime")), 30)
-        hours = sys_tx(lambda tx: settings.system_value(tx, "calling.hours"))
+        hours = sys_tx(lambda tx: settings.initial_value(tx, "calling.hours"))
         self.assertEqual((hours["mon"], hours["sun"], hours["holiday"]), ([["09:00", "18:00"]], [], []))
+        with self.assertRaises(ValueError):   # 依頼者・業務ごとに変えられる設定を、システムの値だけで読ませない
+            sys_tx(lambda tx: settings.system_value(tx, "calling.hours"))
 
     def test_missing_value_is_an_error_not_a_default(self):
         with self.assertRaises(settings.SettingMissing):
@@ -70,13 +75,19 @@ class Shapes(unittest.TestCase):
                 sys_tx(lambda tx: settings.set_system_value(tx, key, value, status="provisional",
                                                             rationale="試験", review_when="試験"))
 
-    def test_system_only_cannot_be_set_lower(self):
+    def test_cannot_be_set_finer_than_declared(self):
         w = World(); t = w.tenant(); c = w.client(t)
-        with self.assertRaises(Rejected):
-            w.a.in_client(OPERATOR, t, c, lambda tx: tx.execute(
-                "INSERT INTO salescall.setting_values (key, scope, tenant_id, client_id, value, status, rationale,"
-                " review_when, set_by) VALUES ('gate.claim_lifetime', 'client', %s, %s, '60', 'decided', 'x', 'x', 'x')",
-                (t, c)))
+        b, _ = w.business_with_version(t, c)
+        for key, scope, value in [("gate.claim_lifetime", "client", 60), ("gate.claim_lifetime", "tenant", 60),
+                                  ("gate.cross_client_interval", "client", 60), ("stop.ai.stop_after_failures", "client", 1),
+                                  ("line.max_dials_per_day", "business", 10), ("calling.hours_limit", "business", ALL_DAY)]:
+            with self.subTest(key=key, scope=scope), self.assertRaises(Rejected):
+                if scope == "tenant":
+                    w.a.in_tenant(OPERATOR, t, lambda tx: tx.execute(
+                        "INSERT INTO salescall.setting_values (key, scope, tenant_id, value, status, rationale, review_when,"
+                        " set_by) VALUES (%s, 'tenant', %s, %s, 'decided', 'x', 'x', 'x')", (key, t, json.dumps(value))))
+                else:
+                    put(w, t, c, key, value, scope=scope, business=b if scope == "business" else None)
         # 範囲の重なりで合成する設定（時間帯）は、依頼者ごとの設定で狭められる
         w.a.in_client(OPERATOR, t, c, lambda tx: tx.execute(
             "INSERT INTO salescall.setting_values (key, scope, tenant_id, client_id, value, status, rationale,"
@@ -167,7 +178,7 @@ class UserDecisions(unittest.TestCase):
     """2026-10-13 ユーザー決定の値が入っていること。"""
 
     def test_values(self):
-        v = lambda k: sys_tx(lambda tx: settings.system_value(tx, k))
+        v = lambda k: sys_tx(lambda tx: settings.initial_value(tx, k))
         self.assertEqual((v("retry.max_attempts_per_task"), v("quality.mock.calls"), v("stop.ai_rate_limit.backoff")),
                          (3, 10, [10, 30, 120, 600, 1800]))
         decided = {r["key"] for r in sys_tx(settings.provisional)}
@@ -257,9 +268,7 @@ class PerClientSettings(unittest.TestCase):
 
     def test_shared_equipment_and_harm_guards_are_system_only(self):
         for key, value in [("stop.ai_rate_limit.backoff", [5]), ("gate.claim_lifetime", 1), ("line.lease", 1),
-                           ("gate.cross_client_interval", 1), ("quality.max_forbidden_speech", 3),
-                           ("quality.max_unknown_judgments", 3), ("calling.hours_limit", {d: [["00:00", "23:59"]] for d in
-                               ("mon", "tue", "wed", "thu", "fri", "sat", "sun", "holiday")})]:
+                           ("quality.max_forbidden_speech", 3), ("quality.max_unknown_judgments", 3)]:
             with self.subTest(key=key), self.assertRaises(Rejected):
                 put(self.w, self.t, self.c, key, value)
 
@@ -272,12 +281,72 @@ class PerClientSettings(unittest.TestCase):
         self.assertEqual(self.detail("retry.max_attempts_per_task", client=c2)["value"], 3)
 
 
-class FramesMustBeSystemOnly(unittest.TestCase):
-    def test_a_frame_that_clients_can_move_is_rejected(self):
+class ScopesDecidedByUser(unittest.TestCase):
+    """2026-10-17 ユーザー：「1回線から1日 300本　依頼者ごと」「同じお客様への最小の間隔 5分　依頼者ごと」「依頼者をまたいだ間隔
+    3日　契約者」「会話AI・回線の異常で止める回数と、解くまでの確かめ　契約者」「深夜・早朝の歯止め 7〜22時 など　依頼者ごと」。"""
+
+    CLIENT = ("line.max_dials_per_day", "gate.same_contact_min_interval", "calling.hours_limit")
+    TENANT = ("gate.cross_client_interval", "stop.ai.stop_after_failures", "stop.ai.probe_interval",
+              "stop.ai.resume_after_successes", "stop.line.stop_after_failures", "stop.line.probe_interval",
+              "stop.line.resume_after_successes", "stop.flapping.window", "stop.flapping.wait_multiplier",
+              "stop.flapping.max_wait")
+
+    def setUp(self):
+        self.w = World(); self.t = self.w.tenant(); self.c = self.w.client(self.t)
+
+    def test_declared(self):
+        got = dict(sys_tx(lambda tx: [(r["key"], r["finest_scope"]) for r in tx.all(
+            "SELECT key, finest_scope::text FROM salescall.setting_definitions")]))
+        self.assertEqual({k: got[k] for k in self.CLIENT}, {k: "client" for k in self.CLIENT})
+        self.assertEqual({k: got[k] for k in self.TENANT}, {k: "tenant" for k in self.TENANT})
+        self.assertEqual(got["budget.system_daily_yen"], "system")   # すべての契約者に共通のものは管理者だけ
+
+    def test_client_values_are_used(self):
+        for key, value in [("line.max_dials_per_day", 120), ("gate.same_contact_min_interval", 900)]:
+            with self.subTest(key=key):
+                put(self.w, self.t, self.c, key, value)
+                self.assertEqual(resolved(self.w, self.t, self.c, key), value)
+                self.assertNotEqual(resolved(self.w, self.t, self.w.client(self.t), key), value)
+
+    def test_tenant_values_are_used_by_every_client_of_the_contractor(self):
+        for key, value in [("gate.cross_client_interval", 86400), ("stop.ai.stop_after_failures", 5)]:
+            with self.subTest(key=key):
+                self.w.a.in_tenant(OPERATOR, self.t, lambda tx: tx.execute(
+                    "INSERT INTO salescall.setting_values (key, scope, tenant_id, value, status, rationale, review_when,"
+                    " set_by) VALUES (%s, 'tenant', %s, %s, 'decided', '契約者の決まり', '試験', '試験')",
+                    (key, self.t, json.dumps(value))))
+                self.assertEqual(resolved(self.w, self.t, self.w.client(self.t), key), value)
+                other = self.w.tenant()
+                self.assertNotEqual(resolved(self.w, other, self.w.client(other), key), value)
+
+    def test_the_client_hours_limit_frames_the_business_hours(self):
+        """深夜・早朝の歯止めは依頼者ごと。業務の時間帯の入力の誤りは、その依頼者の歯止めの内側に収まる。"""
+        b, _ = self.w.business_with_version(self.t, self.c)
+        put(self.w, self.t, self.c, "calling.hours_limit", {d: [["08:00", "20:00"]] for d in ALL_DAY})
+        put(self.w, self.t, self.c, "calling.hours", ALL_DAY, scope="business", business=b)
+        d = self.w.a.in_client(SYSTEM, self.t, self.c, lambda tx: settings.resolve_detail(
+            tx, "calling.hours", tenant_id=self.t, client_id=self.c, business_id=b))
+        self.assertEqual((d["value"]["mon"], d["from"], d["bounded_by"]),
+                         ([["08:00", "20:00"]], "business", "calling.hours_limit"))
+        put(self.w, self.t, self.c, "calling.hours_limit", ALL_DAY)   # 依頼者が 24時間よいと決めれば、そのとおり
+        self.assertEqual(resolved(self.w, self.t, self.c, "calling.hours", business=b)["mon"], [["00:00", "23:59"]])
+
+
+class FramesCannotBeFinerThanWhatTheyFrame(unittest.TestCase):
+    def test_a_frame_that_a_finer_scope_can_move_is_rejected(self):
+        """枠（超えられない歯止め）を、収める設定より細かい範囲で動かせたら、枠にならない。"""
         with self.assertRaises(Rejected):
             owner_access().in_system(SYSTEM, lambda tx: tx.execute(
-                "INSERT INTO salescall.setting_definitions (key, merge_kind, value_type, meaning, design_ref, bound_key, bound_side)"
-                " VALUES ('test.bad_frame', 'override', 'integer', '試験', '試験', 'retry.max_attempts_per_task', 'upper')"))
+                "INSERT INTO salescall.setting_definitions (key, merge_kind, value_type, meaning, design_ref, bound_key,"
+                " bound_side, finest_scope) VALUES ('test.bad_frame', 'override', 'integer', '試験', '試験',"
+                " 'retry.max_attempts_per_task', 'upper', 'tenant')"))
+
+    def test_system_only_is_written_one_way(self):
+        """「システムだけ」は、いちばん細かく決められる範囲で表す（合成の種類の system_only は使わない）。"""
+        with self.assertRaises(Rejected):
+            owner_access().in_system(SYSTEM, lambda tx: tx.execute(
+                "INSERT INTO salescall.setting_definitions (key, merge_kind, value_type, meaning, design_ref, finest_scope)"
+                " VALUES ('test.old_way', 'system_only', 'integer', '試験', '試験', 'system')"))
 
 
 if __name__ == "__main__":

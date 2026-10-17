@@ -45,7 +45,6 @@ METRICS: dict[str, tuple[str, str]] = {
     "ear_disagreement": ("ratio", "quality.max_ear_disagreement"),
     "complaint": ("ratio", "quality.max_complaint"),
     "technical_error": ("ratio", "quality.max_technical_error"),
-    "verification_failed": ("ratio", "quality.max_verification_failed"),
 }
 
 
@@ -221,9 +220,7 @@ def metrics(tx: Tx, version_id: UUID) -> dict[str, dict[str, Any]]:
         "        (SELECT count(*) FROM talked) AS talked,"
         "        (SELECT count(*) FROM a WHERE state = 'technical_error') AS technical,"
         "        (SELECT count(*) FROM a WHERE state NOT IN ('claimed', 'released') AND NOT salescall.is_active(state))"
-        "          AS dialed,"
-        "        (SELECT count(*) FROM a WHERE verification = 'failed') AS vfailed,"
-        "        (SELECT count(*) FROM a WHERE verification IN ('done', 'failed')) AS verified", (version_id, version_id))
+        "          AS dialed", (version_id, version_id))
     by_cause = {r["c"]: [str(x) for x in r["a"]] for r in tx.all(
         f"SELECT r.detail ->> 'unknown_cause' AS c, array_agg(r.attempt_id ORDER BY r.attempt_id) AS a"
         f" FROM salescall.task_results r JOIN ({_WINDOW}) a ON a.attempt_id = r.attempt_id"
@@ -231,7 +228,7 @@ def metrics(tx: Tx, version_id: UUID) -> dict[str, dict[str, Any]]:
     worst = max(by_cause, key=lambda c: (len(by_cause[c]), c or ""), default=None)
     raw = {"unknown_judgments": (0 if worst is None else len(by_cause[worst]), None), "forbidden_speech": (row["forbidden"], None),
            "ear_disagreement": (row["ear_hits"], row["ear_total"]), "complaint": (row["complaint"], row["talked"]),
-           "technical_error": (row["technical"], row["dialed"]), "verification_failed": (row["vfailed"], row["verified"])}
+           "technical_error": (row["technical"], row["dialed"])}
     out = {}
     for name, (how, key) in METRICS.items():
         hits, total = raw[name]

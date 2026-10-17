@@ -12,16 +12,16 @@ import threading
 import time
 import unittest
 import uuid
-from datetime import timedelta
+from datetime import date, timedelta
 from unittest import mock
 
 from salescall.core import (approval, attempts, business_rules, calendar, call_report, dial_exit, dnc, gate, next_action,
-                            quality_stage, settings, settle, stops, tasks)
+                            quality_stage, recordings, settings, settle, stops, tasks)
 from salescall.core.call_report import CallReport, Cut
 from salescall.core.access import Rejected
 from salescall.core.calendar import CalendarOutOfRange, CalendarRejected
 from salescall.core.phone import normalize
-from tests.support import CLEAN, OPERATOR, SYSTEM, World, fictional_jp_fixed, owner_access, rules_raw
+from tests.support import ADMIN, CLEAN, OPERATOR, SYSTEM, World, fictional_jp_fixed, owner_access, rules_raw
 
 KEYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun", "holiday")
 ALL_DAY = {k: [["00:00", "24:00"]] for k in KEYS}
@@ -105,8 +105,7 @@ class Base(unittest.TestCase):
         for state in path:
             self.w.move(s, aid, state, side if state == "dropped" else None)
         if verify:
-            self.tx(s, lambda tx: attempts.record_verification(tx, aid, verify, 
-                                                             summary=CLEAN if verify == "done" else None))
+            self.tx(s, lambda tx: attempts.record_verification(tx, aid, summary=CLEAN))
         if "answered" in path:
             rep = report or CallReport(("target",), False, False, False, False, None, None, Cut("ai", True, False))
             self.tx(s, lambda tx: call_report.save(tx, aid, rep))
@@ -499,10 +498,10 @@ class Lines(Base):
         self.lease(t, line=s["line"])
         self.assertIsInstance(self.claim(s), gate.Claim)
         self.assertEqual(self.reason(t, line=s["line"]), "line_busy")
-        self.override("line.max_dials_per_day", 1)
         u = self.ready(tenant=s["tenant"])
         self.past_attempt(u, ["dialing", "no_answer"], line=u["line"])
         v = self.ready(tenant=s["tenant"])
+        self.put_client(v, "line.max_dials_per_day", 1)   # 1日の本数は依頼者ごと（2026-10-17 ユーザー）
         self.assertEqual(self.reason(v, line=u["line"]), "line_daily_limit")
 
 
@@ -616,6 +615,12 @@ class CallerNumberAndVoice(Base):
             self.w.move(s, c.attempt_id, state)
         return c
 
+    @staticmethod
+    def voice(tx, s, business_voice):
+        """門の声の決め方（choose_voice の1か所）を、その行・その版で呼ぶ。"""
+        return gate.choose_voice(tx, {"task_id": s["task"], "phone_e164": s["phone"], "client_id": s["client"]},
+                                 s["version"], business_voice, date.today())
+
     def test_another_client_or_contractor_gets_the_other_voice(self):
         self.override("gate.cross_client_interval", 1)
         a = self.ready()
@@ -624,8 +629,8 @@ class CallerNumberAndVoice(Base):
         b = self.ready(tenant=a["tenant"], phone=a["phone"])                        # 同じ契約者の、ほかの依頼者
         self.assertEqual(self.claim(b).voice_type, "L4")                            # 前が男性の声 ⇒ Leda
         c = self.ready(phone=a["phone"])                                            # ほかの契約者（中身は見えず、声の名前だけ）
-        self.assertEqual(self.tx(c, lambda tx: gate.choose_voice(tx, c["task"], c["phone"], "S4")), "L4")
-        self.assertEqual(self.tx(c, lambda tx: gate.choose_voice(tx, c["task"], c["phone"], "L4")), "L4")   # もう違う声
+        self.assertEqual(self.tx(c, lambda tx: self.voice(tx, c, "S4")), "L4")
+        self.assertEqual(self.tx(c, lambda tx: self.voice(tx, c, "L4")), "L4")   # もう違う声
 
     def test_a_reservation_that_never_dialed_does_not_fix_the_voice(self):
         """発信しなかった予約の声は、お客様が聞いていないので引き継がない（2026-10-17 の見直し）。"""
@@ -636,7 +641,7 @@ class CallerNumberAndVoice(Base):
         y = self.ready(tenant=r["tenant"], phone=r["phone"])
         self.dialed(y)                                                          # ほかの依頼者が Sadachbia でかけた
         time.sleep(1.1)
-        self.assertEqual(self.tx(r, lambda tx: gate.choose_voice(tx, r["task"], r["phone"], "S2")), "L4")
+        self.assertEqual(self.tx(r, lambda tx: self.voice(tx, r, "S2")), "L4")
 
     def test_only_what_the_customer_saw_or_heard_counts(self):
         """声は、お客様が出た発信の声だけ（出なかった発信の声は聞いていない）。発信番号は、お客様の電話を鳴らした発信だけ
@@ -646,7 +651,7 @@ class CallerNumberAndVoice(Base):
         self.dialed(a, path=("ringing", "no_answer"))                              # 鳴ったが出なかった（S2）
         time.sleep(1.1)
         b = self.ready(tenant=a["tenant"], phone=a["phone"])
-        self.assertEqual(self.tx(b, lambda tx: gate.choose_voice(tx, b["task"], b["phone"], "S2")), "S2")   # 声は替えない
+        self.assertEqual(self.tx(b, lambda tx: self.voice(tx, b, "S2")), "S2")   # 声は替えない
         self.lease(b, line=a["line"])
         self.assertEqual(self.reason(b, line=a["line"]), "line_used_by_other_client")   # 番号は着信の履歴に残る
         c = self.ready()
@@ -660,7 +665,77 @@ class CallerNumberAndVoice(Base):
         """同じ行（同じお客様へのかけ直し・お詫び）は、前に話した声のまま（業務の声の型をあとで替えても）。"""
         a = self.ready()
         first = self.dialed(a)
-        self.assertEqual(self.tx(a, lambda tx: gate.choose_voice(tx, a["task"], a["phone"], "L4")), first.voice_type)
+        self.assertEqual(self.tx(a, lambda tx: self.voice(tx, a, "L4")), first.voice_type)
+
+    def test_only_voices_with_approved_recordings_are_spoken(self):
+        """話してよい声は、承認した録音が契約者の単位とその版の両方にある声だけ（2026-10-17 ユーザー：「事前の録音チェック」）。
+        無ければ通さずに待ち、契約者に知らせる（止めない）。"""
+        only_s = self.w.tenant(voices=("Sadachbia",))                              # Leda の契約者の単位の録音が無い
+        a = self.ready(tenant=only_s)
+        self.assertEqual(self.tx(a, lambda tx: self.voice(tx, a, "L4")), "S2")     # 業務の声の型が使えなければ、使える声で
+        none = self.w.tenant(voices=())
+        b = self.ready(tenant=none)
+        self.assertEqual(self.reason(b), "voice_not_ready")
+        told = self.tx(b, lambda tx: tx.all(
+            "SELECT summary FROM salescall.notification_events WHERE kind = 'setting_missing'"))
+        self.assertEqual([r["summary"] for r in told], [gate.VOICE_NOT_READY])
+        x = self.ready(tenant=only_s)                                              # 承認していない組は使わない
+        self.tx(x, lambda tx: recordings.create_set(tx, unit="contractor", voice_name="Leda", parts=[
+            recordings.Part("greeting", "お忙しいところ恐れ入ります。", "test://Leda/greeting", "1" * 64)]), OPERATOR)
+        self.assertEqual(self.tx(x, lambda tx: recordings.ready_voices(tx, x["version"])), ["Sadachbia"])
+
+    def test_no_other_voice_waits_instead_of_using_the_same_voice(self):
+        self.override("gate.cross_client_interval", 1)
+        only_s = self.w.tenant(voices=("Sadachbia",))
+        a = self.ready(tenant=only_s)
+        self.dialed(a)                                                             # Sadachbia でかけた
+        time.sleep(1.1)
+        b = self.ready(tenant=only_s, phone=a["phone"])                            # ほかの依頼者：別の声の録音が無い
+        self.assertEqual(self.reason(b), "voice_used_by_other_client")
+
+    def test_a_new_voice_is_used_without_changing_the_code_and_a_retired_voice_is_not(self):
+        """会話AIのモデルが進化して声が増えたら、声の一覧に足すだけ（2026-10-17 ユーザー）。使えなくなった声は印を付ける。"""
+        self.override("gate.cross_client_interval", 1)
+        own = owner_access()
+        own.in_system(ADMIN, lambda tx: tx.execute(
+            "INSERT INTO salescall.voices (voice_name, note) VALUES ('Kore', '試験で足した声')"))
+        own.in_system(ADMIN, lambda tx: tx.execute(
+            "INSERT INTO salescall.voice_types (code, voice_name, default_for_voice, note) VALUES ('K1', 'Kore', true, '試験')"))
+        t = self.w.tenant(voices=("Sadachbia", "Kore"))                            # Leda の録音は無い
+        a = self.ready(tenant=t)
+        self.w.approve_voices(t, a["client"], a["version"], ("Kore",))
+        self.dialed(a)                                                             # Sadachbia
+        time.sleep(1.1)
+        b = self.ready(tenant=t, phone=a["phone"])
+        self.w.approve_voices(t, b["client"], b["version"], ("Kore",))
+        self.assertEqual(self.claim(b).voice_type, "K1")                           # 足した声で話す
+        with self.assertRaises(Rejected):                                          # 声を足せるのは管理者だけ
+            self.w.a.in_tenant(OPERATOR, t, lambda tx: tx.execute(
+                "INSERT INTO salescall.voices (voice_name, note) VALUES ('Puck', '契約者が足そうとした')"))
+        self.w.a.in_system(ADMIN, lambda tx: tx.execute(
+            "UPDATE salescall.voices SET retired_at = now(), retired_reason = '試験：モデルが替わって無くなった'"
+            " WHERE voice_name = 'Kore'"))
+        self.assertEqual(self.tx(b, lambda tx: recordings.ready_voices(tx, b["version"])), ["Sadachbia"])
+        with self.assertRaises(Rejected):                                          # 印は1回だけ・消せない
+            self.w.a.in_system(ADMIN, lambda tx: tx.execute("UPDATE salescall.voices SET retired_at = NULL,"
+                                                            " retired_reason = NULL WHERE voice_name = 'Kore'"))
+
+    def test_only_a_person_approves_recordings_and_an_approved_set_is_fixed(self):
+        s = self.ready()
+        sid = self.tx(s, lambda tx: recordings.create_set(tx, unit="business", voice_name="Leda", version_id=s["version"],
+                                                          parts=[recordings.Part("Q1", "ご希望の日時をお聞かせください。",
+                                                                                 "test://Leda/Q1", "2" * 64)]))
+        with self.assertRaises(Rejected):                                          # システムの処理は承認できない
+            self.tx(s, lambda tx: recordings.approve(tx, sid))
+        self.tx(s, lambda tx: recordings.approve(tx, sid), OPERATOR)
+        with self.assertRaises(Rejected):                                          # 承認した組には足せない
+            self.tx(s, lambda tx: tx.execute(
+                "INSERT INTO salescall.recordings (tenant_id, client_id, set_id, part, spoken_text, audio_ref, audio_sha256)"
+                " VALUES (%s, %s, %s, 'Q2', 'x', 'test://x', %s)", (s["tenant"], s["client"], sid, "3" * 64)))
+        other = self.ready()                                                       # ほかの依頼者からは見えない
+        self.assertEqual(self.tx(other, lambda tx: recordings.parts(tx, sid)), {})
+        cur = self.tx(s, lambda tx: recordings.current_sets(tx, s["version"], "Leda"))
+        self.assertEqual(cur["business"], sid)
 
     def test_caller_number_changes_with_the_client(self):
         self.override("gate.cross_client_interval", 1)

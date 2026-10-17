@@ -167,10 +167,10 @@ HOUR = timedelta(hours=1)        # 試験の業務の決まりの間隔（1時�
 MAIN, ALT = uuid.UUID(int=1), uuid.UUID(int=2)     # 一覧の番号・お客様が言った別の番号（連絡先）
 
 
-def after_call(j_kw, *, verification="done", normal=P_NONE, promised=gate.Pacing(3, NOW, None, True), times=1,
+def after_call(j_kw, *, normal=P_NONE, promised=gate.Pacing(3, NOW, None, True), times=1,
                alternate=None):
     j = run(**j_kw)
-    return decide_after_call(j, verification=verification, normal=normal, promised=promised, rules=RULES,
+    return decide_after_call(j, normal=normal, promised=promised, rules=RULES,
                              times_with_key=times, now=NOW, retry_at=NOW + HOUR,
                              target=choose_number(j, dialed=Target(MAIN), alternate=alternate, recheck=None))
 
@@ -182,8 +182,6 @@ class AfterCall(unittest.TestCase):
             with self.subTest(reason=reason):
                 d = after_call(kw)
                 self.assertEqual((d.kind, d.end_reason), ("end", reason))
-        d = after_call(dict(items={}), verification="failed")
-        self.assertEqual((d.kind, d.end_reason), ("end", "verification_failed"))
 
     def test_unknown_holds_the_row(self):
         """判定できない：終えずに判定待ちで残す（2026-10-16 ユーザー決定）。"""
@@ -223,11 +221,11 @@ class AfterCall(unittest.TestCase):
         d = after_call(dict(items={"Q1": TAKEN["Q1"]}), normal=gate.Pacing(0, NOW, None, False))
         self.assertEqual((d.kind, d.end_reason), ("end", "max_attempts"))
         j = run(items={"Q1": TAKEN["Q1"]})
-        d = decide_after_call(j, verification="done", normal=P_NONE, promised=P_NONE, rules=RULES, times_with_key=1,
+        d = decide_after_call(j, normal=P_NONE, promised=P_NONE, rules=RULES, times_with_key=1,
                               now=NOW, retry_at=None, target=Target(MAIN))
         self.assertEqual((d.kind, d.at), ("call", NOW + timedelta(days=1)))   # 時間帯が無い：行を終えず、1日後にもう一度確かめる
         two_days = NOW + timedelta(days=2)
-        d = decide_after_call(j, verification="done", normal=P_NONE, promised=P_NONE, rules=RULES, times_with_key=1,
+        d = decide_after_call(j, normal=P_NONE, promised=P_NONE, rules=RULES, times_with_key=1,
                               now=NOW, retry_at=two_days, target=Target(MAIN))
         self.assertEqual(d.at, two_days)                                           # 方針の間隔が指す時刻（n 日後）
         late = NOW + timedelta(days=1)
@@ -236,7 +234,7 @@ class AfterCall(unittest.TestCase):
         ending = check(V, ("Q1", "Q2"), ("Q1", "Q2", "Q3"), rules_raw(("Q1", "Q2"), retry={
             k: {"action": "end"} for k in ("open", "incomplete", "not_reached_absent", "not_reached_not_transferred",
                                              "callback_unspecified_time")}))
-        d = decide_after_call(run(items={"Q1": TAKEN["Q1"]}), verification="done", normal=P_NONE, promised=P_NONE,
+        d = decide_after_call(run(items={"Q1": TAKEN["Q1"]}), normal=P_NONE, promised=P_NONE,
                               rules=ending, times_with_key=1, now=NOW, retry_at=NOW + HOUR, target=Target(MAIN))
         self.assertEqual((d.kind, d.end_reason), ("end", "incomplete"))
 
@@ -261,7 +259,7 @@ class AlternateNumber(unittest.TestCase):
     def test_other_results_keep_the_number_just_called(self):
         j = run(items={"Q1": TAKEN["Q1"]})
         self.assertEqual(choose_number(j, dialed=Target(ALT), alternate=None, recheck=None), Target(ALT))
-        d = decide_after_call(j, verification="done", normal=P_NONE, promised=P_NONE, rules=RULES, times_with_key=1,
+        d = decide_after_call(j, normal=P_NONE, promised=P_NONE, rules=RULES, times_with_key=1,
                               now=NOW, retry_at=NOW + HOUR, target=choose_number(j, dialed=Target(ALT), alternate=None, recheck=None))
         self.assertEqual((d.kind, d.contact_id), ("call", ALT))
         later = run(items={}, rep=report(callback=Callback("later", NOW, None, None, None)))
@@ -275,7 +273,7 @@ class AlternateNumber(unittest.TestCase):
 
     def test_refusal_wins_over_the_other_number(self):
         j = run(items={}, rep=report(dnc=True, callback=self.OTHER.callback))
-        d = decide_after_call(j, verification="done", normal=P_NONE, promised=P_NONE, rules=RULES, times_with_key=1,
+        d = decide_after_call(j, normal=P_NONE, promised=P_NONE, rules=RULES, times_with_key=1,
                               now=NOW, retry_at=NOW + HOUR, target=choose_number(j, dialed=Target(MAIN), alternate=Alternate(ALT, True, None),
                                                             recheck=None))
         self.assertEqual((d.kind, d.end_reason), ("end", "do_not_call"))
@@ -293,7 +291,7 @@ class WrongNumberTheCalleeGave(unittest.TestCase):
     def decide(self, recheck, *, dialed=Target(ALT)):
         j = self.wrong()
         t = choose_number(j, dialed=dialed, alternate=None, recheck=recheck)
-        return decide_after_call(j, verification="done", normal=gate.Pacing(0, NOW, None, False), promised=P_NONE,
+        return decide_after_call(j, normal=gate.Pacing(0, NOW, None, False), promised=P_NONE,
                                  rules=RULES, times_with_key=1, now=NOW, retry_at=NOW + HOUR, target=t)
 
     def test_judged_as_not_reached_and_only_that_number_is_stopped(self):
@@ -324,7 +322,7 @@ class WrongNumberTheCalleeGave(unittest.TestCase):
         no_answer = run(facts=Facts("no_answer", None, False, False), rep=None, items={})
         self.assertEqual(choose_number(no_answer, dialed=asking, alternate=None, recheck=None), asking)
         later = NOW + timedelta(hours=3)
-        decide = lambda ask: decide_after_call(no_answer, verification="not_needed", normal=gate.Pacing(0, NOW, None, False),
+        decide = lambda ask: decide_after_call(no_answer, normal=gate.Pacing(0, NOW, None, False),
                                                promised=P_NONE, rules=RULES, times_with_key=9, now=NOW, retry_at=NOW + HOUR, target=asking,
                                                ask=ask)
         d = decide(AskAgain(1, 3, later))

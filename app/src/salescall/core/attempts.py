@@ -4,7 +4,7 @@
 - 回線の部品（呼び出し中・応答・会話中・締め・終わり）と復旧（結果不明）  ⇒ `move`
 - 発信の出口（予約 → 発信）                                              ⇒ `start_dialing`
 - 門（期限切れの予約を戻す・門の前提が変わった予約を取り消す）           ⇒ `release`
-- 通話後の検証（Q21。待ち → 済み／確かめられなかった）                    ⇒ `record_verification`
+- 通話後の検証（Q21。待ち → 済み）                                        ⇒ `record_verification`
 - 締めの処理（core/settle.py。判定が決めた切れ方を1回だけ）                ⇒ `record_disconnect`
 移ってよい組・期限・時刻・検証の状態の決まりは、データベースが持つ（ここで2つ目の決まりを作らない）。
 """
@@ -92,36 +92,36 @@ class VerificationSummary:
             raise ValueError("言ってはいけないことの数と、その中身（findings）の数が合いません")
 
 
-def record_verification(tx: Tx, attempt_id: UUID, result: Literal["done", "failed"], *,
-                        summary: VerificationSummary | None) -> None:
-    """通話後の検証（Q21）だけが呼ぶ。「待ち」から「済み」か「確かめられなかった」へ。
-    - 済み（done）は、検証の結果の数（summary）を必ず一緒に残す（データベースも守る）。確かめられなかった（failed）は持たない。
+def record_verification(tx: Tx, attempt_id: UUID, *, summary: VerificationSummary) -> None:
+    """通話後の検証（Q21）だけが呼ぶ。「待ち」から「済み」へ。検証の結果の数（summary）を必ず一緒に残す（データベースも守る）。
+    - 確かめができないときは、ここを呼ばない（「待ち」のまま）。できない原因は仕組みの不具合（別の耳につながらない・誤り・録音が
+      無い）なので、エラーの入口（core/watch.py の `after_error`）に渡し、直ってからやり直す（2026-10-17 ユーザー：「そんな状態自体が
+      問題では？」。前は「確かめられなかった」で、その行を終えていた）。
     - お客様が言った番号へかけて番号違いだった通話は、番号の確かめ（core/number_recheck.py）を記録してからでないと済ませられない
       （付け合わせられなかったときも cannot_check として記録する）。"""
-    if (result == "done") != (summary is not None):
-        raise ValueError("検証の結果の数は、済み（done）のときだけ、必ず渡します")
+    if summary is None:
+        raise ValueError("検証の結果の数を、必ず渡します")
     if number_recheck.needed(tx, attempt_id) and number_recheck.load(tx, attempt_id) is None:
         raise RecheckMissing("番号違いだった番号の確かめ（証拠との付け合わせ）を、先に記録してください")
-    if summary is not None:
-        tx.execute(
-            "INSERT INTO salescall.verification_summaries (tenant_id, client_id, attempt_id, items_checked, items_disagreed,"
-            " forbidden_speech) SELECT tenant_id, client_id, attempt_id, %s, %s, %s FROM salescall.attempts"
-            " WHERE attempt_id = %s",
-            (summary.items_checked, summary.items_disagreed, summary.forbidden_speech, attempt_id))
-        if summary.findings:
-            version = tx.one("SELECT version_id FROM salescall.attempts WHERE attempt_id = %s", (attempt_id,))["version_id"]
-            known = business_rules.load(tx, version).forbidden
-            for n, f in enumerate(summary.findings, 1):
-                if f.item not in known:
-                    raise ValueError(f"言ってはいけないことの名前 {f.item!r} は、この版の業務の決まりにありません")
-                if not f.said.strip():
-                    raise ValueError("言ってしまったこと（said）が空です")
-                tx.execute("INSERT INTO salescall.forbidden_findings (tenant_id, client_id, attempt_id, seq, item, said)"
-                           " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s)",
-                           (attempt_id, n, f.item, f.said.strip()))
+    tx.execute(
+        "INSERT INTO salescall.verification_summaries (tenant_id, client_id, attempt_id, items_checked, items_disagreed,"
+        " forbidden_speech) SELECT tenant_id, client_id, attempt_id, %s, %s, %s FROM salescall.attempts"
+        " WHERE attempt_id = %s",
+        (summary.items_checked, summary.items_disagreed, summary.forbidden_speech, attempt_id))
+    if summary.findings:
+        version = tx.one("SELECT version_id FROM salescall.attempts WHERE attempt_id = %s", (attempt_id,))["version_id"]
+        known = business_rules.load(tx, version).forbidden
+        for n, f in enumerate(summary.findings, 1):
+            if f.item not in known:
+                raise ValueError(f"言ってはいけないことの名前 {f.item!r} は、この版の業務の決まりにありません")
+            if not f.said.strip():
+                raise ValueError("言ってしまったこと（said）が空です")
+            tx.execute("INSERT INTO salescall.forbidden_findings (tenant_id, client_id, attempt_id, seq, item, said)"
+                       " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s)",
+                       (attempt_id, n, f.item, f.said.strip()))
     row = tx.one(
-        "UPDATE salescall.attempts SET verification = %s WHERE attempt_id = %s RETURNING attempt_id",
-        (result, attempt_id),
+        "UPDATE salescall.attempts SET verification = 'done' WHERE attempt_id = %s RETURNING attempt_id",
+        (attempt_id,),
     )
     if row is None:
         raise AttemptNotFound(str(attempt_id))

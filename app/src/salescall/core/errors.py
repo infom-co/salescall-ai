@@ -22,7 +22,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-SOURCES = ("ai", "ear", "line", "storage", "delivery")   # 会話AI／別の耳（通話後の検証）／回線／保存／連携
+SOURCES = ("ai", "ear", "line", "storage", "delivery", "recording")   # 会話AI／別の耳（通話後の検証）／回線／保存／連携／
+#                                                                       録音（通話の録音が残っていない・壊れている）
 
 @dataclass(frozen=True)
 class CatalogEntry:
@@ -113,6 +114,7 @@ LABELS: dict[str, str] = {
     "ear_error": "通話後の確かめ（別の耳）の誤りです",
     "ai_server_error": "会話AIの側の誤り・混雑です", "session_drop": "通話中に会話AIが切れました",
     "line": "回線の異常です", "storage": "保存に失敗しました", "delivery": "結果の書き戻しに失敗しました",
+    "recording": "通話の録音が残っていません",
     "unknown_ai": "原因の分からない会話AIの誤りです", "unknown_line": "原因の分からない回線の誤りです",
 }
 
@@ -153,6 +155,11 @@ ACTIONS: dict[str, Action] = {
                       "あなたへの修正依頼をして、次の行に進んだらいい」）。保存できなかった通話は締めが済まないまま残るので、門が"
                       "その行と同じお客様にはかけない（断られたかが決まっていない）。直れば、締めの処理が締め直す。"
                       "データベースそのものに届かないときは、門が判断できないので、発信は自然に待つ", fundamental=True),
+    "recording": Action("keep", "none", "line_failure", "line", None, True,
+                        "通話の録音が残っていない・壊れている（電話接続の録音の不具合）：通話後の確かめができないので、その回線の発信を"
+                        "すぐ止める（その回線で、確かめられない通話を増やさない）。管理者に直しを依頼する。確かめは待ちのまま"
+                        "（門が、その行と同じお客様にはかけない）、録音が見つかればやり直す（2026-10-17 ユーザー：「通話後の確かめが"
+                        "できない…そんな状態自体が問題では？」）", fundamental=True),
     "delivery": Action("keep", "backoff", None, None, None, False,
                        "連携（書き戻し）の失敗：連携だけ再送する（通話の結果は失わない。4-5）"),
     "unknown_ai": Action("keep", "none", "ai_connection", "tenant", "stop.ai.stop_after_failures", True,
@@ -179,6 +186,7 @@ EVIDENCE: dict[str, str] = {
     "unknown_ai": "in_conversation",
     "line": "ringing",
     "unknown_line": "ringing",
+    "recording": "none",       # 1回で止める（呼び出せた発信があっても、録音の不具合が直った証拠にはならない）
 }
 
 
@@ -220,4 +228,6 @@ def classify(e: ErrorReport) -> str:
         return "line"
     if e.source == "storage":
         return "storage"
+    if e.source == "recording":
+        return "recording"
     return "delivery"

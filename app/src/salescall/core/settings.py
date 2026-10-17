@@ -8,8 +8,10 @@
 - 階層（システム共通 → 契約者 → 依頼者 → 業務）を合成するのは `resolve` の1か所だけ（Q10）。合成の種類は、設定の定義が持つ。
   2026-10-13 ユーザー：「川下の方が強くないと、依頼主ごとの意味がない」⇒ 依頼者ごとの設定は「上書き」（業務 ＞ 依頼者 ＞
   契約者 ＞ システム）。システムの値は初めの値。
+  設定ごとに、いちばん細かく決められる範囲（finest_scope：システム／契約者／依頼者／業務）を定義が持つ（2026-10-17 ユーザー決定。
+  0045）。それより細かい範囲の値は、データベースが入れさせない。「システムだけ」は、いちばん細かく決められるのがシステムのもの。
   ただし「超えられない枠」（Intent.md 5-4 の緩められないもの・取り消せない害を防ぐもの）を持つ設定は、上書きの結果を
-  その枠の内側に収める（枠はシステムだけの別の設定。`resolve_detail` で、枠で収めたかが分かる）。
+  その枠の内側に収める（枠は、収める設定より細かく決められない別の設定。同じ範囲で読む。`resolve_detail` で、枠で収めたかが分かる）。
 """
 
 from __future__ import annotations
@@ -21,6 +23,7 @@ from uuid import UUID
 from salescall.core.access import Tx
 
 _DAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun", "holiday")
+_SCOPE_NAME = {"system": "システム", "tenant": "契約者", "client": "依頼者", "business": "業務"}
 
 
 class SettingMissing(Exception):
@@ -28,7 +31,19 @@ class SettingMissing(Exception):
 
 
 def system_value(tx: Tx, key: str) -> Any:
-    """システム共通の、いまの値。"""
+    """システムだけが決める設定の、いまの値。契約者・依頼者・業務ごとに変えられる設定は、範囲を渡して `resolve` で読む
+    （システムの値だけを読むと、契約者・依頼者の値を黙って読み落とす）。"""
+    d = tx.one("SELECT finest_scope FROM salescall.setting_definitions WHERE key = %s", (key,))
+    if d is None:
+        raise SettingMissing(key)
+    if d["finest_scope"] != "system":
+        raise ValueError(f"設定 {key} は{_SCOPE_NAME[d['finest_scope']]}ごとに変えられます。範囲を渡して resolve で読んでください")
+    return initial_value(tx, key)
+
+
+def initial_value(tx: Tx, key: str) -> Any:
+    """システムの値（契約者・依頼者・業務の値が無いときに使う、初めの値）。画面で「初めの値」を見せるときなどに使う。
+    処理の中の判断には使わない（契約者・依頼者の値を読み落とす。判断は `resolve`、システムだけの設定は `system_value`）。"""
     row = tx.one(
         "SELECT value FROM salescall.setting_values WHERE key = %s AND scope = 'system'"
         " ORDER BY value_id DESC LIMIT 1",
@@ -96,12 +111,10 @@ def resolve_detail(tx: Tx, key: str, *, tenant_id: UUID | None, client_id: UUID 
         value, origin = by_scope[scope], scope
     else:
         if "system" not in by_scope:
-            raise SettingMissing(key)  # 厳しいほう・足し合わせ・システムだけは、システムの値が必ず要る（8章）
+            raise SettingMissing(key)  # 厳しいほう・足し合わせは、システムの値が必ず要る（8章）
         values = list(by_scope.values())
         origin = "merged"
-        if kind == "system_only":
-            value, origin = by_scope["system"], "system"
-        elif kind == "min":
+        if kind == "min":
             value = min(values)
         elif kind == "max":
             value = max(values)
@@ -113,7 +126,9 @@ def resolve_detail(tx: Tx, key: str, *, tenant_id: UUID | None, client_id: UUID 
             raise ValueError(f"合成の種類が分かりません：{kind}")
     bounded_by = None
     if d["bound_key"] is not None:
-        bound = system_value(tx, d["bound_key"])  # 枠に値が無ければ SettingMissing（決まっていない ⇒ 使う側は通さない）
+        # 枠は、収める設定と同じ範囲で読む（依頼者ごとの歯止めは、その依頼者の値）。値が無ければ SettingMissing（決まっていない
+        # ⇒ 使う側は通さない）
+        bound = resolve(tx, d["bound_key"], tenant_id=tenant_id, client_id=client_id, business_id=business_id)
         side = d["bound_side"]
         limited = (min(value, bound) if side == "upper" else max(value, bound) if side == "lower"
                    else _intersect_hours([value, bound]))

@@ -6,10 +6,12 @@ import time
 import unittest
 from datetime import timedelta
 
-from salescall.core import attempts, business_rules, calling_hours, call_report, dnc, gate, next_action, quality_stage, results, settle
+from salescall.core import (attempts, business_rules, calling_hours, call_report, dnc, gate, next_action, quality_stage, results,
+                            settle, stops, watch)
+from salescall.core.errors import ErrorReport
 from salescall.core.access import Rejected
 from salescall.core.call_report import CallReport, Callback, Cut
-from tests.support import CLEAN, OPERATOR, SYSTEM, owner_access, rules_raw
+from tests.support import CLEAN, OPERATOR, SYSTEM, app_access, owner_access, rules_raw
 from tests.test_gate import KEYS, Base, FakeDriver, dial_exit
 
 TALK = ["dialing", "answered", "in_conversation", "ending", "ended"]
@@ -34,8 +36,7 @@ class SettleBase(Base):
         if "answered" in path:
             self.tx(s, lambda tx: call_report.save(tx, c.attempt_id, report or rep()))
             if verify:
-                self.tx(s, lambda tx: attempts.record_verification(tx, c.attempt_id, verify, 
-                                                             summary=CLEAN if verify == "done" else None))
+                self.tx(s, lambda tx: attempts.record_verification(tx, c.attempt_id, summary=CLEAN))
         return c.attempt_id
 
     def settle(self, s, aid):
@@ -198,18 +199,35 @@ class Settle(SettleBase):
             self.settle(s, aid)
         self.assertEqual([r["attempt_id"] for r in self.tx(s, lambda tx: settle.unsettled(tx))
                           if r["task_id"] == s["task"]], [])
-        self.tx(s, lambda tx: attempts.record_verification(tx, aid, "done", summary=CLEAN))
+        self.tx(s, lambda tx: attempts.record_verification(tx, aid, summary=CLEAN))
         self.assertIn(aid, [r["attempt_id"] for r in self.tx(s, lambda tx: settle.unsettled(tx))])
         first = self.settle(s, aid)
         again = self.settle(s, aid)
         self.assertEqual((again["already"], again["version_no"]), (True, first["version_no"]))
         self.assertNotIn(aid, [r["attempt_id"] for r in self.tx(s, lambda tx: settle.unsettled(tx))])
 
-    def test_failed_verification_ends_the_row(self):
+    def test_a_verification_that_cannot_run_waits_and_never_ends_the_row(self):
+        """通話後の確かめができないのは、仕組みの不具合だけ。行を終えず、確かめは待ちのまま（直ってからやり直す）。待っているあいだ、
+        門は同じお客様にかけない（2026-10-17 ユーザー：「そんな状態自体が問題では？」）。「確かめられなかった」は書けない。"""
         s = self.ready()
-        aid = self.call(s, verify="failed")
+        aid = self.call(s, verify=None)
+        with self.assertRaises(Rejected):
+            self.tx(s, lambda tx: tx.execute("UPDATE salescall.attempts SET verification = 'failed' WHERE attempt_id = %s",
+                                             (aid,)))
+        with self.assertRaises(settle.NotReady):
+            self.settle(s, aid)
+        other_run = self.w.run(s["tenant"], s["client"], s["business"], s["version"])   # 同じお客様の、ほかの一覧の行
+        other = self.w.task(s["tenant"], s["client"], other_run, s["contact"])
+        self.assertEqual(self.tx(s, lambda tx: gate.pacing(tx, other)).binding, "related_unsettled")
+        kind = watch.after_error(app_access(), SYSTEM, ErrorReport("recording", None, "試験：録音のファイルが無い"),
+                                 tenant_id=s["tenant"], client_id=s["client"], line_id=s["line"], attempt_id=aid)
+        self.assertEqual(kind, "recording")
+        self.assertEqual([r["cause"] for r in self.tx(s, lambda tx: stops.open_stops(
+            tx, tenant_id=s["tenant"], client_id=None, business_id=None, line_id=s["line"])) if r["scope"] == "line"],
+            ["line_failure"])                                           # 録音が残らない回線は、すぐ止める
+        self.tx(s, lambda tx: attempts.record_verification(tx, aid, summary=CLEAN))   # 直ってからやり直して済めば
         got = self.settle(s, aid)
-        self.assertEqual((got["state"], got["decision"].end_reason), ("incomplete", "verification_failed"))
+        self.assertNotEqual(got["decision"].kind, "end")
 
     def test_gate_does_not_dial_without_rules(self):
         """判定できない通話をしない：業務の決まりが無い版では、門が通さない。"""

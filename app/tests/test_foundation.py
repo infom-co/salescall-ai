@@ -295,7 +295,7 @@ class AttemptTransitions(unittest.TestCase):
             w.move(s, aid, "in_conversation", "callee")  # dropped でないのに切れ方を持つ
         w.move(s, aid, "dropped", "callee")
 
-    def test_verification_only_pending_to_done_or_failed(self):
+    def test_verification_only_pending_to_done(self):
         w = World(); s = w.setup()
         aid = w.insert_claim(s)
         w.move(s, aid, "released")  # not_needed
@@ -305,11 +305,9 @@ class AttemptTransitions(unittest.TestCase):
             set_v("done")
         s2 = w.setup(); a2 = w.insert_claim(s2)
         w.move(s2, a2, "dialing"); w.move(s2, a2, "answered"); w.move(s2, a2, "technical_error")  # pending
-        w.a.in_client(SYSTEM, s2["tenant"], s2["client"], lambda tx: tx.execute(
-            "UPDATE salescall.attempts SET verification = 'failed' WHERE attempt_id = %s", (a2,)))
-        with self.assertRaises(Rejected):
+        with self.assertRaises(Rejected):   # 「確かめられなかった」で諦めない（2026-10-17）
             w.a.in_client(SYSTEM, s2["tenant"], s2["client"], lambda tx: tx.execute(
-                "UPDATE salescall.attempts SET verification = 'done' WHERE attempt_id = %s", (a2,)))
+                "UPDATE salescall.attempts SET verification = 'failed' WHERE attempt_id = %s", (a2,)))
 
     def test_attempt_identity_cannot_change(self):
         w = World(); s = w.setup()

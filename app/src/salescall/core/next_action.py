@@ -223,7 +223,7 @@ class AskAgain:
     at: datetime | None          # まだ試していない時間帯の、次にかけられる時刻（無ければ None）
 
 
-def decide_after_call(j: Judgement, *, verification: str, normal: gate.Pacing, promised: gate.Pacing, rules: Rules,
+def decide_after_call(j: Judgement, *, normal: gate.Pacing, promised: gate.Pacing, rules: Rules,
                       times_with_key: int, now: datetime, target: Target, retry_at: datetime | None,
                       ask: AskAgain | None = None, forbidden: bool = False) -> Decision:
     """通話のあとの次の動き。normal / promised＝次にかける先へ、ふつうの予定・約束したかけ直しにした場合の門の数え方。
@@ -240,8 +240,6 @@ def decide_after_call(j: Judgement, *, verification: str, normal: gate.Pacing, p
         return _end("forbidden_speech", "言ってはいけないことを言った：その行はひとまず終える（契約者へ知らせた）")
     if j.state in END_STATES:
         return _end(j.state, "目的を果たした・終わった結果")
-    if verification == "failed":
-        return _end("verification_failed", "通話後の検証で、拒否の聞き逃しを確かめられなかった（かけない側に倒す）")
     if j.complaint:
         return _end("complaint", "苦情があった")
     if target.contact_id is None:
@@ -314,7 +312,7 @@ def _write(tx: Tx, task_id: UUID, d: Decision) -> int:
                    callee_at=d.callee_at)
 
 
-def after_call(tx: Tx, task_id: UUID, j: Judgement, *, verification: str, rules: Rules, dialed: Target,
+def after_call(tx: Tx, task_id: UUID, j: Judgement, *, rules: Rules, dialed: Target,
                dialed_at: datetime, alternate: Alternate | None, recheck: Recheck | None, forbidden: bool) -> Decision:
     """締めの処理（core/settle.py）だけが呼ぶ。判定の結果から次の動きを決めて記録する（同じ取引）。
     dialed＝この通話でかけた先（番号・目的）、dialed_at＝かけた時刻。alternate＝お客様が言った別の番号の材料（言われたときだけ）。
@@ -332,8 +330,7 @@ def after_call(tx: Tx, task_id: UUID, j: Judgement, *, verification: str, rules:
         ask = _new_band_retry(tx, task_id, max(now, promised.earliest or now), purpose="ask_number_again")
     policy = rules.retry.get(key) if key is not None else None
     retry_at = _retry_at(tx, task_id, policy.interval, now, dialed_at) if policy and policy.action == "call" else None
-    d = decide_after_call(j, verification=verification,
-                          normal=gate.pacing(tx, task_id, contact_id=count_at, promised=False),
+    d = decide_after_call(j, normal=gate.pacing(tx, task_id, contact_id=count_at, promised=False),
                           promised=promised, rules=rules, times_with_key=times, now=now, target=target,
                           retry_at=retry_at, ask=ask, forbidden=forbidden)
     _write(tx, task_id, d)
@@ -410,8 +407,8 @@ def decide_after_apology(*, delivered: bool, refused: bool, retry: AskAgain, pro
     """お詫びの電話のあとの次の動き（業務の結果は変えない）。伝えた・断られた ⇒ 終える。届かなかった ⇒ 別の時間帯に、決めた回数まで。"""
     if refused:
         return _end("do_not_call", "お詫びの電話で、発信を断られた")
-    if stop_reason is not None:   # 番号違い・FAX・断ったかを確かめられなかった：もうかけない（締めの処理が judge.refusal で決めた）
-        return _end(stop_reason, "お詫びの電話：もうかけない（番号違い・FAX・通話後の確かめができなかった）")
+    if stop_reason is not None:   # 番号違い・FAX：その番号へもうかけない（締めの処理が judge.refusal で決めた）
+        return _end(stop_reason, "お詫びの電話：もうかけない（番号違い・FAX）")
     if delivered:
         return _end("apology_done", "お詫びを伝えた")
     if retry.tries >= retry.limit:

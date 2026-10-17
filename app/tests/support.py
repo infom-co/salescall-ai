@@ -13,6 +13,7 @@ import uuid
 from datetime import timedelta
 from uuid import UUID
 
+from salescall.core import recordings
 from salescall.core.access import Access, Actor
 from salescall.core.attempts import ForbiddenFinding, VerificationSummary
 
@@ -20,6 +21,7 @@ OPERATOR = Actor("試験の契約者", "operator")
 CLEAN = VerificationSummary(items_checked=1, items_disagreed=0, forbidden_speech=0)   # 検証で何も見つからなかった
 SYSTEM = Actor("試験のシステムの処理", "system")
 ADMIN = Actor("試験の管理者", "admin")
+VOICES = ("Leda", "Sadachbia")   # 試験の土台は、どちらの声も録音を承認してある（話してよい声）
 
 _numbers = itertools.count(int(uuid.uuid4().int % 500))
 
@@ -72,11 +74,27 @@ class World:
     def __init__(self, access: Access | None = None) -> None:
         self.a = access or app_access()
 
-    def tenant(self) -> UUID:
+    def tenant(self, *, voices: tuple[str, ...] = VOICES) -> UUID:
         tid = uuid.uuid4()
         self.a.in_tenant(OPERATOR, tid, lambda tx: tx.execute(
             "INSERT INTO salescall.tenants (tenant_id, name) VALUES (%s, %s)", (tid, "架空の契約者")))
+        self.approve_voices(tid, None, None, voices)
         return tid
+
+    def approve_voices(self, tenant: UUID, client: UUID | None, version: UUID | None,
+                       voices: tuple[str, ...] = VOICES) -> None:
+        """声ごとに、録音の組を作って承認する（契約者の単位＝版なし／依頼者の単位＝その版。架空の録音）。"""
+        def work(tx):
+            for v in voices:
+                sid = recordings.create_set(tx, unit="contractor" if version is None else "business", voice_name=v,
+                                            parts=[recordings.Part("greeting", "お忙しいところ恐れ入ります。",
+                                                                   f"test://{v}/greeting", "0" * 64)],
+                                            version_id=version)
+                recordings.approve(tx, sid)
+        if version is None:
+            self.a.in_tenant(OPERATOR, tenant, work)
+        else:
+            self.a.in_client(OPERATOR, tenant, client, work)
 
     def client(self, tenant: UUID) -> UUID:
         cid = uuid.uuid4()
@@ -103,6 +121,7 @@ class World:
                        " VALUES (%s, %s, %s, 'Q1', 1, 'datetime', true)", (tenant, client, vid))
             put_content(tx, tenant, client, vid)
         self.a.in_client(OPERATOR, tenant, client, work)
+        self.approve_voices(tenant, client, vid)
         return bid, vid
 
     def add_version(self, tenant: UUID, client: UUID, business: UUID, version_no: int) -> UUID:
@@ -113,6 +132,7 @@ class World:
                        " VALUES (%s, %s, %s, %s, %s, %s)", (tenant, client, business, vid, version_no, OPERATOR.name))
             put_content(tx, tenant, client, vid)
         self.a.in_client(OPERATOR, tenant, client, work)
+        self.approve_voices(tenant, client, vid)
         return vid
 
     def run(self, tenant: UUID, client: UUID, business: UUID, version: UUID) -> UUID:
@@ -217,5 +237,6 @@ def full_version(w: "World", s: dict, target_person: dict | None = None, *, cont
             put_content(tx, s["tenant"], s["client"], vid, target_person)
         business_rules.save(tx, vid, rules_raw())
     w.a.in_client(OPERATOR, s["tenant"], s["client"], work)
+    w.approve_voices(s["tenant"], s["client"], vid)
     return vid
 

@@ -45,9 +45,9 @@ class AttemptParts(unittest.TestCase):
         for st in ("ringing", "answered", "in_conversation", "ending", "ended"):
             row = self.run_tx(lambda tx: attempts.move(tx, aid, st))
         self.assertEqual((row["state"], row["verification"]), ("ended", "pending"))
-        self.run_tx(lambda tx: attempts.record_verification(tx, aid, "done", summary=CLEAN))
-        with self.assertRaises(Rejected):
-            self.run_tx(lambda tx: attempts.record_verification(tx, aid, "failed", summary=None))
+        self.run_tx(lambda tx: attempts.record_verification(tx, aid, summary=CLEAN))
+        with self.assertRaises(Rejected):                                # 済んだ確かめは、やり直せない
+            self.run_tx(lambda tx: attempts.record_verification(tx, aid, summary=CLEAN))
 
     def test_move_refuses_gate_and_exit_states(self):
         aid = self.w.insert_claim(self.s)

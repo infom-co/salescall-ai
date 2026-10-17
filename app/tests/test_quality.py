@@ -51,7 +51,7 @@ class Base(SettleBase):
 
     def verified_call(self, s, summary, **kw):
         aid = self.call(s, verify=None, **kw)
-        self.tx(s, lambda tx: attempts.record_verification(tx, aid, "done", summary=summary))
+        self.tx(s, lambda tx: attempts.record_verification(tx, aid, summary=summary))
         return self.settle(s, aid)
 
     def second_row(self, s):
@@ -157,7 +157,7 @@ class Stages(Base):
         self.verified_call(s, VerificationSummary(1, 0, 0), report=rep(cut=None))   # 判定できない ⇒ 止まる
         sid = self.business_stops(s)[0]["event_id"]
         first = self.tx(s, lambda tx: stops.explain(tx, sid))["quality"]["metrics"]["unknown_judgments"]["attempts"]
-        self.tx(s, lambda tx: attempts.record_verification(tx, late, "done", summary=VerificationSummary(1, 0, 0)))
+        self.tx(s, lambda tx: attempts.record_verification(tx, late, summary=VerificationSummary(1, 0, 0)))
         self.settle(s2, late)                                              # 止まったあとに締めた：これも判定できない
         only_first = replace(GOOD, scenes=tuple(UUID(a) for a in first), evidence="試験：最初の場面だけ")
         got = self.tx(s, lambda tx: quality_stage.record_mock(tx, s["version"], only_first))
@@ -172,7 +172,7 @@ class Stages(Base):
         s2 = self.second_row(s)
         late = self.call(s2, report=rep(("reception",)), verify=None)      # 先にかけ始めていた通話
         self.verified_call(s, said(3))                                      # 言ってはいけないこと ⇒ 止まる
-        self.tx(s, lambda tx: attempts.record_verification(tx, late, "done", summary=VerificationSummary(1, 0, 0)))
+        self.tx(s, lambda tx: attempts.record_verification(tx, late, summary=VerificationSummary(1, 0, 0)))
         self.settle(s2, late)                                              # 止まったあとに締めた：判定できない
         newer = self.newer_version(s, 3)
         got = self.tx(s, lambda tx: quality_stage.record_mock(tx, newer["version"], GOOD))
@@ -207,7 +207,7 @@ class Stages(Base):
         s = self.fresh(stage_cap=5)
         aid = self.call(s, verify=None)
         with self.assertRaises(ValueError):
-            self.tx(s, lambda tx: attempts.record_verification(tx, aid, "done", summary=None))
+            self.tx(s, lambda tx: attempts.record_verification(tx, aid, summary=None))
         with self.assertRaises(Rejected) as e:                         # 処理を通らずに書いても、データベースが拒む
             self.tx(s, lambda tx: tx.execute("UPDATE salescall.attempts SET verification = 'done' WHERE attempt_id = %s",
                                              (aid,)))

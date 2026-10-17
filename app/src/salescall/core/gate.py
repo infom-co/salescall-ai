@@ -21,8 +21,8 @@ from datetime import datetime, timedelta
 from typing import Any
 from uuid import UUID
 
-from salescall.core import (approval, business_rules, business_settings, calling_hours, dnc, notify, quality_stage, settings,
-                            stops, target_policy)
+from salescall.core import (approval, business_rules, business_settings, calling_hours, dnc, notify, quality_stage,
+                            recordings, settings, stops, target_policy)
 from salescall.core.access import Rejected, Tx
 from salescall.core.calendar import CalendarOutOfRange, holiday_checker
 from salescall.core.phone import normalize
@@ -67,6 +67,8 @@ REASONS: dict[str, tuple[str, str]] = {
     "line_used_by_other_client": ("この発信番号で、ほかの依頼者がこの番号へかけたことがあります（依頼者が替わったら発信番号を替える）",
                                   "wait"),
     "line_busy": ("回線が使用中です", "wait"),
+    "voice_not_ready": ("この業務の、承認した録音のある声がありません", "wait"),
+    "voice_used_by_other_client": ("ほかの依頼者がこの番号へ同じ声でかけています（別の声の録音がありません）", "wait"),
     "client_concurrency": ("この依頼者の同時の本数の上限です", "wait"),
     "contact_active": ("同じ番号のお客様（この依頼者の別の行を含む）に、進行中の発信があります", "wait"),
     "task_active": ("この行（ほかの番号を含む）に、進行中の発信があります", "wait"),
@@ -233,24 +235,35 @@ def purpose_dials(tx: Tx, task_id: UUID, *, purpose: str) -> list[PurposeDial]:
 OWN_LINE_MISSING = "この依頼者に専用の発信番号がありません。発信番号を依頼者タブの「回線（発信番号）」で設定してください。"
 
 
-def choose_voice(tx: Tx, task_id: UUID, phone_e164: str, business_voice: str) -> str:
-    """この通話で話す声の型（決めるのはここだけ。DESIGN.md 5-2-2 の順10）。
-    (1) この行で前に話した声の型があれば、それ（同じお客様へのかけ直しは同じ声。A/B のグループも保つ。お詫びの電話も同じ声）。
-    (2) ほかの依頼者（ほかの契約者を含む）がこの番号へかけたことがあり、業務の声の型がそのときと同じ声なら、ほかの声の初めの声の型
-        （2026-10-17 ユーザー：「依頼者が違うと、期間に関係なく、声…は変えた方がいい」「同じ男性ならサービスを聞く前に嫌悪感を
-        持たれるので、Ledaが対応するなど」「契約者が変わると…声は変えた方がいい」）。
-    (3) それ以外は、業務設定の声の型。"""
+VOICE_NOT_READY = "この業務の録音が、まだ承認されていません。録音を聞いて承認してください。"
+OTHER_VOICE_MISSING = "別の声の録音がありません。ほかの依頼者がかけた番号へは、同じ声ではかけません。別の声の録音を承認してください。"
+
+
+def choose_voice(tx: Tx, task: dict[str, Any], version_id: UUID, business_voice: str, today: Any) -> str | Denied:
+    """この通話で話す声の型（決めるのはここだけ。DESIGN.md 5-2-2 の順10。2026-10-17 ユーザー：声を決める場所は門＝案A）。
+    話してよい声は、承認した録音のある声だけ（`recordings.ready_voices` の1か所。事前の録音チェック）。
+    (1) この行で前に話した声の型があり、その声が話してよい声なら、それ（同じお客様へのかけ直し・お詫びの電話は同じ声）。
+    (2) ほかの依頼者（ほかの契約者を含む）がこの番号へかけてお客様が聞いた声とは、別の声（2026-10-17 ユーザー：「依頼者が違うと、
+        期間に関係なく、声…は変えた方がいい」「同じ男性ならサービスを聞く前に嫌悪感を持たれるので、Ledaが対応するなど」）。
+        業務設定の声の型が使えればそれ、使えなければ、話してよいほかの声の初めの声の型（声の名前の順。声が増えても同じ決まり）。
+    話してよい声が無い・別の声が無いときは、通さずに待つ（発信番号を替えられないときと同じ）。契約者に知らせる（止めない）。"""
+    ready = recordings.ready_voices(tx, version_id)
+    types = {r["code"]: r for r in tx.all("SELECT code, voice_name, default_for_voice FROM salescall.voice_types")}
     mine = tx.one(f"SELECT voice_type FROM salescall.attempts WHERE task_id = %s AND voice_type IS NOT NULL AND {_DIALED}"
-                  " ORDER BY claimed_at DESC LIMIT 1", (task_id,))   # お客様が聞いた声だけ（発信しなかった予約は数えない）
-    if mine is not None:
+                  " ORDER BY claimed_at DESC LIMIT 1", (task["task_id"],))   # お客様が聞いた声だけ（発信しなかった予約は数えない）
+    if mine is not None and types[mine["voice_type"]]["voice_name"] in ready:
         return mine["voice_type"]
-    before = tx.one("SELECT salescall.number_last_voice_elsewhere(%s) AS v", (phone_e164,))["v"]
-    own = tx.one("SELECT voice_name FROM salescall.voice_types WHERE code = %s", (business_voice,))
-    if before is None or own is None or own["voice_name"] != before:
+    before = tx.one("SELECT salescall.number_last_voice_elsewhere(%s) AS v", (task["phone_e164"],))["v"]
+    usable = [v for v in ready if v != before]
+    own = types[business_voice]["voice_name"]
+    if own in usable:
         return business_voice
-    other = tx.one("SELECT code FROM salescall.voice_types WHERE default_for_voice AND voice_name <> %s"
-                   " ORDER BY voice_name LIMIT 1", (before,))
-    return other["code"] if other is not None else business_voice
+    if usable:
+        return next(code for code, t in sorted(types.items()) if t["voice_name"] == usable[0] and t["default_for_voice"])
+    reason, summary = ("voice_not_ready", VOICE_NOT_READY) if not ready else ("voice_used_by_other_client", OTHER_VOICE_MISSING)
+    notify.emit(tx, "setting_missing", key=f"{reason}:{version_id}:{today}", summary=summary,
+                refs={"client_id": task["client_id"], "version_id": version_id})
+    return _deny(reason)
 
 
 def pacing(tx: Tx, task_id: UUID, *, contact_id: UUID | None = None, promised: bool | None = None) -> Pacing:
@@ -406,8 +419,13 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
     if active >= int(_setting(tx, "calling.max_concurrent_calls", task)):
         return _deny("client_concurrency")
 
-    # (10) 予約。同じお客様・番号・回線の進行中は、データベースの部分一意が拒む（その部分だけ取り消して理由を返す）
-    voice = choose_voice(tx, task["task_id"], task["phone_e164"], content.voice)
+    # (10) 話す声（承認した録音のある声だけ。ほかの依頼者がかけた番号へは別の声。choose_voice の1か所。ほかの理由で通さない
+    #      ときに知らせを出さないよう、最後に決める）
+    voice = choose_voice(tx, task, version, content.voice, local.date())
+    if isinstance(voice, Denied):
+        return voice
+
+    # (11) 予約。同じお客様・番号・回線の進行中は、データベースの部分一意が拒む（その部分だけ取り消して理由を返す）
     try:
         with tx.savepoint():
             row = tx.one(

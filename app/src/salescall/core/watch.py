@@ -82,10 +82,10 @@ def decide_stop(tx: Tx, kind: str, *, line_id: UUID | None = None) -> dict[str, 
                (list(errors.counted_with(kind)), action.stop_cause, errors.EVIDENCE[kind], line))["n"]
     if n is None:
         raise PermissionError("この取引では、その範囲のエラーを数えられません（契約者の取引で数える。回線は、その回線の契約者の取引）")
-    need = 1 if action.stop_after is None else int(settings.system_value(tx, action.stop_after))
+    tenant = tx.one("SELECT salescall.cur_tenant() AS t")["t"]
+    need = 1 if action.stop_after is None else int(_tenant_setting(tx, action.stop_after, tenant))
     if n < need:
         return None
-    tenant = tx.one("SELECT salescall.cur_tenant() AS t")["t"]
     how = ("根源的なもの：管理者に直しを依頼しました。直るまで新しい発信を待ちます" if action.fundamental
            else "一時的なもの：直ったら自動で続けます")
     return stops.stop(tx, scope=action.stop_scope, cause=action.stop_cause,
@@ -110,22 +110,28 @@ def after_error(access: Access, actor: Actor, report: errors.ErrorReport, *, ten
     return kind
 
 
+def _tenant_setting(tx: Tx, key: str, tenant_id: UUID | None) -> Any:
+    """止める・解く決まりの値（契約者ごと＝2026-10-17 ユーザー：「異常で止める回数と、解くまでの確かめ　契約者」）。
+    全体の停止（契約者の無い停止）は、システムの値。"""
+    return settings.resolve(tx, key, tenant_id=tenant_id, client_id=None, business_id=None)
+
+
 def _flapping_wait(tx: Tx, stop: dict[str, Any], interval: int) -> timedelta:
-    window = int(settings.system_value(tx, "stop.flapping.window"))
+    window = int(_tenant_setting(tx, "stop.flapping.window", stop["tenant_id"]))
     times = tx.one(
         "SELECT count(*) AS n FROM salescall.stop_events s WHERE s.action = 'stop' AND s.cause = %s AND s.scope = %s"
         " AND s.line_id IS NOT DISTINCT FROM %s AND s.event_id <> %s AND s.at > %s - %s * interval '1 second'",
         (stop["cause"], stop["scope"], stop["line_id"], stop["event_id"], stop["at"], window))["n"]
     if times == 0:
         return timedelta(seconds=interval)
-    wait = interval * int(settings.system_value(tx, "stop.flapping.wait_multiplier")) ** times
-    return timedelta(seconds=min(wait, int(settings.system_value(tx, "stop.flapping.max_wait"))))
+    wait = interval * int(_tenant_setting(tx, "stop.flapping.wait_multiplier", stop["tenant_id"])) ** times
+    return timedelta(seconds=min(wait, int(_tenant_setting(tx, "stop.flapping.max_wait", stop["tenant_id"]))))
 
 
 def record_check(tx: Tx, stop_event_id: int, ok: bool, *, evidence: str) -> dict[str, Any]:
     """停止を解く確かめの結果を記録し、決めた回数続けて成功したら解く（同じ取引）。記録を返す（resumed＝解いたか）。"""
     s = tx.one(
-        "SELECT event_id, scope, cause::text AS cause, line_id, actor_kind::text AS actor_kind, at"
+        "SELECT event_id, scope, cause::text AS cause, tenant_id, line_id, actor_kind::text AS actor_kind, at"
         " FROM salescall.open_stop_events s WHERE s.event_id = %s", (stop_event_id,))
     if s is None:
         raise LookupError(f"まだ解かれていない停止ではありません（または、取引の範囲の外）：{stop_event_id}")
@@ -137,7 +143,8 @@ def record_check(tx: Tx, stop_event_id: int, ok: bool, *, evidence: str) -> dict
     if prev is not None and now < prev["next_check_at"]:
         raise NotDue(f"次に確かめてよいのは {prev['next_check_at']} から")
     interval_key, need_key = PROBE_SETTINGS[s["cause"]]
-    interval, need = int(settings.system_value(tx, interval_key)), int(settings.system_value(tx, need_key))
+    interval, need = (int(_tenant_setting(tx, interval_key, s["tenant_id"])),
+                      int(_tenant_setting(tx, need_key, s["tenant_id"])))
     streak = ((prev["streak"] if prev is not None else 0) + 1) if ok else 0
     next_at = now + _flapping_wait(tx, s, interval)
     tx.execute("INSERT INTO salescall.stop_checks (stop_event_id, ok, streak, checked_at, next_check_at, evidence)"

@@ -81,7 +81,7 @@ class Classify(unittest.TestCase):
         own = owner_access()
         keys = {a.stop_after for a in errors.ACTIONS.values() if a.stop_after}
         for k in keys:   # 「何回続いたら」の設定は、どれも値がある
-            self.assertGreaterEqual(own.in_system(SYSTEM, lambda tx: settings.system_value(tx, k)), 1)
+            self.assertGreaterEqual(own.in_system(SYSTEM, lambda tx: settings.initial_value(tx, k)), 1)
 
 
 def resume_open_system_stops():
@@ -120,7 +120,7 @@ class LineStops(unittest.TestCase):
             if r["scope"] == "line"]
 
     def test_consecutive_line_errors_stop_only_that_line(self):
-        need = owner_access().in_system(SYSTEM, lambda tx: settings.system_value(tx, "stop.line.stop_after_failures"))
+        need = owner_access().in_system(SYSTEM, lambda tx: settings.initial_value(tx, "stop.line.stop_after_failures"))
         for _ in range(need - 1):
             self.line_error()
         self.assertEqual(self.line_stops(), [])
@@ -130,8 +130,17 @@ class LineStops(unittest.TestCase):
         self.line_error()
         self.assertEqual(len(self.line_stops()), 1)                  # 重ねて止めない
 
+    def test_the_contractor_decides_how_many_failures_stop_a_line(self):
+        """止める回数は契約者ごと（2026-10-17 ユーザー：「会話AI・回線の異常で止める回数と、解くまでの確かめ　契約者」）。"""
+        self.w.a.in_tenant(OPERATOR, self.s["tenant"], lambda tx: tx.execute(
+            "INSERT INTO salescall.setting_values (key, scope, tenant_id, value, status, rationale, review_when, set_by)"
+            " VALUES ('stop.line.stop_after_failures', 'tenant', %s, '1', 'decided', '契約者の決まり', '試験', '試験')",
+            (self.s["tenant"],)))
+        self.line_error()
+        self.assertEqual([r["cause"] for r in self.line_stops()], ["line_failure"])
+
     def test_a_call_that_rang_resets_the_count(self):
-        need = owner_access().in_system(SYSTEM, lambda tx: settings.system_value(tx, "stop.line.stop_after_failures"))
+        need = owner_access().in_system(SYSTEM, lambda tx: settings.initial_value(tx, "stop.line.stop_after_failures"))
         for _ in range(need - 1):
             self.line_error()
         aid = self.w.insert_claim(self.s)
@@ -142,7 +151,7 @@ class LineStops(unittest.TestCase):
         self.assertEqual(self.line_stops(), [])
 
     def test_a_person_resume_restarts_the_count_and_explain_shows_why(self):
-        need = owner_access().in_system(SYSTEM, lambda tx: settings.system_value(tx, "stop.line.stop_after_failures"))
+        need = owner_access().in_system(SYSTEM, lambda tx: settings.initial_value(tx, "stop.line.stop_after_failures"))
         for _ in range(need):
             self.line_error()
         sid = self.line_stops()[0]["event_id"]

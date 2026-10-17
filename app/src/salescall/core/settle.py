@@ -37,7 +37,7 @@ def unsettled(tx: Tx) -> list[dict[str, Any]]:
     return tx.all(
         "SELECT a.attempt_id, a.task_id FROM salescall.attempts a"
         " WHERE a.state NOT IN ('claimed', 'released') AND NOT salescall.is_active(a.state)"
-        "   AND a.verification IN ('done', 'failed', 'not_needed')"
+        "   AND a.verification IN ('done', 'not_needed')"
         "   AND NOT salescall.is_settled(a.attempt_id)"
         " ORDER BY a.ended_at")
 
@@ -114,9 +114,7 @@ def _settle_apology(tx: Tx, a: dict[str, Any]) -> dict[str, Any]:
     if j is not None and j.dnc_reason is not None:
         dnc.register(tx, a["phone_e164"], j.dnc_reason, source_attempt_id=attempt_id)
     refused = j is not None and j.state == "do_not_call"
-    # 通話後の検証で拒否の聞き逃しを確かめられなかった：ふつうの通話と同じく、この行はもうかけない（かけない側に倒す）
-    stop_reason = (f"apology_{j.dnc_reason}" if j is not None and j.dnc_reason in ("wrong_party", "fax_line") else
-                   "apology_verification_failed" if a["verification"] == "failed" else None)
+    stop_reason = f"apology_{j.dnc_reason}" if j is not None and j.dnc_reason in ("wrong_party", "fax_line") else None
     _notice_forbidden(tx, a, prepare=False)
     decision = next_action.after_apology(tx, a["task_id"], delivered=delivered, refused=refused, stop_reason=stop_reason,
                                          dialed=next_action.Target(a["contact_id"], None, "apology", None))
@@ -126,8 +124,7 @@ def _settle_apology(tx: Tx, a: dict[str, Any]) -> dict[str, Any]:
                              "apology_unreached": "お詫びの電話が、決めた回数かけてもお客様に届きませんでした。",
                              "do_not_call": "お詫びの電話で、発信を断られました。",
                              "apology_wrong_party": "お詫びの電話の番号が、番号違いでした（その番号は発信禁止にしました）。",
-                             "apology_fax_line": "お詫びの電話の番号が、FAX でした（その番号は発信禁止にしました）。",
-                             "apology_verification_failed": "お詫びの電話の、通話後の確かめができませんでした（もうかけません）。"}.get(
+                             "apology_fax_line": "お詫びの電話の番号が、FAX でした（その番号は発信禁止にしました）。"}.get(
                         decision.end_reason, f"お詫びの電話を終えました（{decision.end_reason}）。"),
                     refs={"attempt_id": attempt_id, "task_id": a["task_id"], "order_id": order["order_id"]})
     usage.record_line_estimate(tx, attempt_id)
@@ -276,7 +273,7 @@ def _judge_and_write(tx: Tx, a: dict[str, Any], *, kind: str, rules_version: Any
     if j.dnc_reason is not None:
         dnc.register(tx, a["phone_e164"], j.dnc_reason, source_attempt_id=attempt_id)
     decision = next_action.after_call(
-        tx, a["task_id"], j, verification=a["verification"], rules=rules,
+        tx, a["task_id"], j, rules=rules,
         dialed=next_action.Target(a["contact_id"], None, a["purpose"], a["wrong_contact_id"]), dialed_at=a["claimed_at"],
         alternate=alternate, recheck=recheck, forbidden=forbidden)
     return {"version_no": version_no, "state": j.state, "decision": decision, "already": False}
