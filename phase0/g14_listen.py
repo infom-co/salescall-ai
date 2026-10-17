@@ -26,6 +26,7 @@ from g22_opening import BUSINESS as BASE
 from g30_latency import keep_call
 from g34_ack import FAST, FOLLOWUP_WAIT_S
 from instruction import Business
+from meaning_judge import JUDGE_MODELS
 
 QUESTIONS = {
     "Q1": Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ")),
@@ -120,7 +121,9 @@ def measures(call: dict, item: dict) -> dict:
             "callee_heard": [t.get("heard") for t in call["turns"]][:1],
             # 別の耳（--ear）：届いた文字・話し終わりから待った秒・別の耳との食い違いで確かめたか
             "ear_check": (call["turns"][0].get("ear_check") if call["turns"] else None),
-            "ear_confirm": any("別の耳" in h[2] or "聞き取りが食い違う" in h[2] for h in it.get("history") or [])}
+            "ear_confirm": any("別の耳" in h[2] or "聞き取りが食い違う" in h[2] for h in it.get("history") or []),
+            # 意味の2つ目の判定と食い違って確かめたか（DESIGN.md 6-10 の (6)。G-53）・判定が遅れて届いて「-」にしたか
+            "meaning_confirm": any("意味の判定" in h[2] for h in it.get("history") or [])}
 
 
 def tally(rows: list[dict]) -> dict:
@@ -208,13 +211,15 @@ async def run(args) -> dict:
         items = [{**m, "question": args.as_question,
                   "want": w.get("id", {}).get(m["id"], w.get("want", {}).get(m["want"], m["want"]))} for m in items]
     rows = []
+    from meaning_judge import make_judge
+    judge = make_judge(args, args.judge) if args.judge else None
     for n, item in enumerate(items[: args.limit or None]):
         head = {**{k: item[k] for k in ("id", "voice", "question", "want", "kind", "text")}, "noise_tag": "雑音" if item.get("noise") else "無し"}
         try:
             call, _ = await ring.acall(args.model, lambda client: run_call(
                 client, args.model, business(item["question"], not args.no_meanings), "S4", [{"wav": item["wav"]}], opening_mode="recorded",
                 use_ear=False, save_audio="bad", audio_label=f"G14_{item['voice']}_{item['id']}",
-                followup_wait_s=FOLLOWUP_WAIT_S, play_recordings=True, ear_kind=args.ear, **FAST))
+                followup_wait_s=FOLLOWUP_WAIT_S, play_recordings=True, ear_kind=args.ear, judge=judge, **FAST))
             row = keep_call(head, call, lambda c: measures(c, item))
         except Exception as exc:
             row = {**head, "error": describe_error(exc)}
@@ -241,6 +246,8 @@ def main() -> None:
     p.add_argument("--ear", nargs="?", const=PREFERRED_EARS[0], choices=EAR_KINDS,
                    help="別の耳を通話の中で使う（名前を付けなければ ears.PREFERRED_EARS の先頭＝Soniox。DESIGN.md 6-10 の (5)。G-15）")
     p.add_argument("--no-meanings", action="store_true", help="意味の言葉を渡さない（選択肢の名前で言い直す形と比べるため）")
+    p.add_argument("--judge", nargs="?", const="3.5 Flash Lite", choices=JUDGE_MODELS,
+                   help="意味の2つ目の判定を通話の中で使う（DESIGN.md 6-10 の (6)。G-53）。名前を付けなければ 3.5 Flash Lite")
     p.add_argument("--tally", help="結果のファイル名の頭（例 G-14-base-）で、同時に流した回を合わせて数える（問い合わせはしない）")
     args = p.parse_args()
     if args.tally:

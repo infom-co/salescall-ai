@@ -240,6 +240,8 @@ ARG_LABEL = {"question_id": "質問", "condition_id": "答えの種類", "value"
              "reason": "理由", "part": "流し直す部分"}
 SYSTEM_LABEL = {"unknown": "わからない", "refused": "答えたくない"}
 ANY_LABEL = "どちらでも"
+# 意味の2つ目の判定（meaning_judge。DESIGN.md 6-10 の (6)）が、どの選択肢とも決められないと答えたときの名前（受け入れにも断りにも取れる・言い切っていない・答えになっていない）
+UNDECIDED = "決められない"
 CONFIRM_LABEL = {"affirmed": "合っている", "corrected": "違う値を言われた", "no_answer": "答えなかった"}
 # 値を直されたあとの言い直し（✅ 2026-10-14 ユーザー）：(場面＝phrases.CONFIRM の鍵, 頭の言葉＝phrases.LEAD_IN の鍵, 流す相づち)
 # - こちらの聞き違い（相手に「違う」と言われた）：「失礼いたしました。改めまして、16日の午後2時で、大丈夫でしょうか？」
@@ -350,6 +352,16 @@ def heard_alike(a: str, b: str) -> bool:
 
 # 選択肢の名前が返事の言葉だけのもの（「はい」「いいえ」）。この名前のままでは言い直せない（「はいでよろしいでしょうか？」）
 _BARE_REPLY = re.compile(r"はい|いいえ|いえ|ええ|うん|いや")
+
+
+def choices_note(q: "Question") -> str:
+    """選択肢の意味（取込で決めた意味の言葉。Question.meanings）を、会話のAIへ知らせる一文（無ければ空）。依頼主へ渡る選択肢がどの意味かを、
+    会話のAI・意味の2つ目の判定（meaning_judge）・言い直し（choice_words）で同じにする（この1か所から、質問を知らせる所すべてに添える）。
+    ⛔ 2026-10-17 に見つけた穴：会話のAIには選択肢の名前しか見せていなかった＝打ち消しの問い（「ご不明な点はございませんでしょうか？」）の
+       「はい」の向きを、AIが自分で決めていた（意味の言葉は「はい」＝ご不明な点はないということ。G-53）。"""
+    if q.type not in CHOICE_TYPES or not q.meanings:
+        return ""
+    return f"{q.id} の選択肢の意味：" + "／".join(f"「{c}」＝{q.meanings[c]}" for c in q.conditions if q.meanings.get(c)) + "。"
 
 
 def choice_words(q: "Question", cond: str | None) -> str | None:
@@ -566,6 +578,8 @@ class Flow:
         self.unreported_correction: tuple[str, str] | None = None
         self.callee_said = ""            # いまの相手の発話の文字（会話AIの聞き取り。届いた分だけ。on_heard）
         self.ear_said: str | None = None  # いまの相手の発話の、別の耳の文字（on_ear。届かなかった・使わない通話は None）
+        self.meaning_said: str | None = None  # いまの相手の発話の、意味の2つ目の判定（on_meaning。中の名前か UNDECIDED。届かなければ None）
+        self.nudged_turn = -1            # 報告を促す知らせを出した相手の発話の番号（unreported_note。1つの発話に1回まで）
         # いちばん最近「合っている」で確かめが済んだ項目と、そのときの流れの位置（同じ相手の発話への報告を、AIが「違う値を言われた」に
         # 直したとき、その確かめを取り消して戻すため。_reopen）
         self.last_affirmed: dict | None = None
@@ -601,6 +615,14 @@ class Flow:
         self.callee_turns += 1
         self.callee_said = ""
         self.ear_said = None
+        self.meaning_said = None
+
+    # ── 相手の同じ発話を、張り替えた新しいつなぎへ送り直す（DESIGN.md 6-7）：相手は話していないので数えず、文字だけを受け取り直す。
+    #    ⛔ 2026-10-17 に見つけた穴：送り直しで on_callee を呼ばないまま、新しいつなぎの聞き取りを足していた（同じ言葉が2回たまる）
+    def on_resend(self) -> None:
+        self.callee_said = ""
+        self.ear_said = None
+        self.meaning_said = None
 
     # ── 相手の言葉の文字が届いた（会話AIの聞き取り。値を直されたときの直され方を、プログラムが決めるのに使う）
     def on_heard(self, text: str) -> None:
@@ -609,6 +631,40 @@ class Flow:
     # ── 別の耳（会話AIとは別の音声認識）の、いまの相手の発話の文字が届いた（DESIGN.md 6-10 の (5)。G-15）
     def on_ear(self, text: str | None) -> None:
         self.ear_said = text
+
+    # ── 意味の2つ目の判定（会話AIとは別の文字のAI。meaning_judge。DESIGN.md 6-10 の (6)。G-53）の答えが届いた（中の名前か UNDECIDED）。
+    #    qid を付けて呼ぶのは、判定が遅れて、その項目をもう受け取ったあとに届いたとき（late_meaning）
+    def on_meaning(self, cond: str | None, qid: str | None = None) -> None:
+        if qid is None:
+            self.meaning_said = cond
+        else:
+            self.late_meaning(qid, cond)
+
+    # ── AIのターンが、声は出したのに報告なしで終わった（電話接続側が呼ぶ）：報告を促す知らせ（出さないなら None）。
+    def unreported_note(self) -> str | None:
+        """いまの質問の答えだと、意味の2つ目の判定が決めた相手の言葉（on_meaning が選択肢・どちらでも・わからない・答えたくないのどれか）に、
+        AIが報告しなかったときだけ、1つの相手の発話に1回まで。知らせには、いまの質問の文を入れない（報告することだけ）。
+        この知らせへのAIの声は、報告より前のものは相手に流さない（電話接続側）。
+        ⛔ 2026-10-17：記録の通話で、相手の「はい。」「はい、先週しました。」（雑音）のあと、AIが短く声を出しただけで報告せずに終えた回が34回。
+           プログラムは気づく手立てを持っていなかった（PHASE0「答えの報告が抜けたとき」の案）。
+        ⛔ 2026-10-17 の1回目：判定を見ずに、相手の言葉があれば出し、知らせに「いまの質問は…」を入れた ⇒ 取り次ぎ（「代わりますので少々
+           お待ちください」）のあとにも出て、声の型 S4 の3本中2本で、代わった方にAIが自分で名乗って質問した・流し直しを頼まなかった
+           （6-7 の G-19 と同じ形：AIへの文字の合図が会話を乱す）。答えの3本では、AIは3本とも黙って正しく報告した。"""
+        if self.phase == "closing" or self.current is None or self.awaiting_confirm is not None:
+            return None
+        q = self.questions[self.current]
+        if self.meaning_said not in q.all_conditions or self.nudged_turn == self.callee_turns:
+            return None
+        self.nudged_turn = self.callee_turns
+        return (f"［プログラムからのお知らせ］相手の言葉（「{self.callee_said.strip()[:40]}」）は、{q.id} への答えです。"
+                "何も言わずに、record_answer で報告してください。このお知らせには、声で返事をしません。")
+
+    def late_meaning(self, qid: str, cond: str | None) -> None:
+        """判定が、その項目を受け取ったあとに届いた：食い違えば、受け取った答えを依頼主へ渡さない（「-」にして、締めの前の念のための確認で
+        もう一度聞く＝_advance の recheck_queue）。確かめずに渡った誤りを、判定の遅れで通さないため。"""
+        it, q = self.items[qid], self.questions[qid]
+        if it.state == "accepted" and self._meaning_disagrees(q, it.condition, cond):
+            it.set("unresolved", f"意味の判定（「{label(cond)}」）が遅れて届き、受け取った答え（「{label(it.condition)}」）と食い違う")
 
     # ── この操作の返事を作る前に、別の耳の文字を待つか：確かめない型（はい／いいえ・選択肢）の答えの報告だけ（値を聞く型は言い直して確かめる）
     def wants_ear(self, name: str) -> bool:
@@ -746,11 +802,19 @@ class Flow:
             # ⛔ G-14 の続き：日時の質問への「大丈夫です」を、AIは 6本中2本「わからない」にした（聞き返さずに「-」になる）
             return taken
         it.condition, it.value = cond, value
+        said = self.callee_said or value
+        # 意味の2つ目の判定と食い違う（6-10 の (6)。G-53）：言い直す答え。⛔ 2026-10-17：「いや、これからなんです」「家まだです」（聞き取りは正しい）を、
+        # AIが「わからない」と報告し、確かめずに受け取っていた（答えのあった項目が「-」になる）
+        other = self._meaning_disagrees(q, cond, self.meaning_said)
         if cond in SYSTEM_CONDITIONS:
+            if other and q.required:
+                it.condition = other
+                it.set("heard", f"意味の判定（「{label(other)}」）と食い違う（「{said[:20]}」）・AIは「{label(cond)}」と受け取った")
+                it.ambiguous_asked = True
+                return self._ask_confirm(qid, after="ambiguous")
             return self._take_system(qid, cond)
         after = self.unreported_correction[1] if self.unreported_correction and self.unreported_correction[0] == qid else None
         self.unreported_correction = None
-        said = self.callee_said or value
         word = ambiguous_word(said) if q.type in CHOICE_TYPES else None
         if q.reply_choice(word):
             # 前の質問から意味が決まる（取込で決めた）：確かめずに、その選択肢で受け取る（AIの選んだ選択肢と違えば、こちらを採る）
@@ -764,16 +828,19 @@ class Flow:
         lead = expected and expected != cond
         # 2つの耳の文字が食い違う（G-15。会話AIの聞き取りと、別の耳。読みにそろえて比べる）
         ears = q.type in CHOICE_TYPES and bool(self.callee_said) and self.ear_said is not None and not heard_alike(self.callee_said, self.ear_said)
-        if q.type in CHOICE_TYPES and (ambiguous_answer(said) or lead or ears):
+        if q.type in CHOICE_TYPES and (ambiguous_answer(said) or lead or ears or other):
             # 受け入れにも断りにも取れる答え（DESIGN.md 6-10 の (3)）：AIが選んだ選択肢のまま渡さず、その意味で合っているかを確かめる。
             # 必須でない項目は、聞き返さない決まり（6-11）に合わせて確かめず「-」
             if not q.required:
                 it.set("unresolved", f"{'聞き取りが食い違う' if ears and not lead and not ambiguous_answer(said) else '曖昧な答え'}"
                                      f"（「{said[:20]}」）・必須でないので確かめない")
                 return self._advance("「-」にします。")
+            # 理由は、もともとの決まり（頭の言葉・別の耳・曖昧な答え）を先に書く（意味の判定が増やした確かめを、記録から数えられるように）
             why = ("言葉の頭とAIの選んだ答えが食い違う" if lead else f"別の耳の文字（「{self.ear_said[:20]}」）と食い違う" if ears
-                   else "曖昧な答え")
-            it.set("heard", f"{why}（「{said[:20]}」）・AIは「{cond}」と受け取った")
+                   else "曖昧な答え" if ambiguous_answer(said) else f"意味の判定（「{label(self.meaning_said)}」）と食い違う")
+            it.set("heard", f"{why}（「{said[:20]}」）・AIは「{label(cond)}」と受け取った")
+            if other:
+                it.condition = other  # 判定が選択肢を選んだなら、判定のほうの意味で言い直す（_meaning_disagrees）
             it.ambiguous_asked = True
             return self._ask_confirm(qid, after="ambiguous")
         it.set("heard", "聞き取れた")
@@ -781,6 +848,18 @@ class Flow:
             return self._ask_confirm(qid, after=after)
         it.set("accepted", "確かめない型で、はっきり聞き取れた")
         return self._advance("受け付けました。")
+
+    @staticmethod
+    def _meaning_disagrees(q: "Question", cond: str | None, meaning: str | None) -> str | None:
+        """意味の判定（meaning）が、会話のAIの選んだ答え（cond）と食い違えば、言い直して確かめる答え（判定が選択肢か「どちらでも」を選んだなら
+        判定のほう、ほかは会話のAIのほう）。食い違わない・判定が無い・選択肢の型でない ⇒ None。
+        どちらも選択肢を選んでいない（わからない・答えたくない・決められない）ときは、食い違いとしない（言い直す答えが無い）。"""
+        if q.type not in CHOICE_TYPES or meaning is None or meaning == cond:
+            return None
+        named = meaning in q.conditions or meaning == ANY
+        if not named and cond in SYSTEM_CONDITIONS:
+            return None
+        return meaning if named else cond
 
     def _take_system(self, qid: str, cond: str) -> dict:
         """相手が「わからない」「答えたくない」と答えた（答えの報告と、言い直しへの返事の、どちらからも来る）。"""
@@ -1173,15 +1252,16 @@ class Flow:
                 # （受けの言葉の数え方と混ぜると、同じ「それでは」が続きうる）
                 text, lead = spoken_question(list(self.questions.values()), q.id)
                 return {"result": "next", "question_id": q.id, "question": q.text,
-                        "message": f"{prefix}次の質問は {q.id}「{text}」です。" + (f"「{lead}」から話し始めてください。" if lead else "")}
+                        "message": f"{prefix}次の質問は {q.id}「{text}」です。" + (f"「{lead}」から話し始めてください。" if lead else "")
+                                   + choices_note(q)}
             if self.play_recordings:
                 text, lead = spoken_question(list(self.questions.values()), q.id)
                 return {"result": "next", "question_id": q.id, "question": q.text,
                         "play": [{"kind": "question", "id": q.id, "text": text, "lead": lead}],
                         "message": f"{prefix}次の質問 {q.id}「{text}」は、プログラムが録音で流しました（相手にもう聞こえています）。"
-                                   "何も言わずに、相手の答えを待ってください。相手が答えたら record_answer で報告します。"}
+                                   "何も言わずに、相手の答えを待ってください。相手が答えたら record_answer で報告します。" + choices_note(q)}
             return {"result": "next", "question_id": q.id, "question": q.text,
-                    "message": f"{prefix}次の質問は {q.id}「{q.text}」です。" + self._lead_note("次の質問")}
+                    "message": f"{prefix}次の質問は {q.id}「{q.text}」です。" + self._lead_note("次の質問") + choices_note(q)}
         if self.phase == "asking":
             # 締めの前に、「-」の必須項目を1回だけ念のため確かめる（6-11）。急いでいる相手にはしない
             self.recheck_queue = [qid for qid in self.order

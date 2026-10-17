@@ -1339,14 +1339,41 @@ class KeyRingTest(unittest.TestCase):
         def fn(client):
             calls.append(client)
             if client in ("c0", "c1"):
-                raise Quota("429 RESOURCE_EXHAUSTED")
+                raise Quota("429 RESOURCE_EXHAUSTED. quotaId: GenerateRequestsPerDayPerProjectPerModel-FreeTier")   # 1日の上限
             return "ok"
 
         self.assertEqual(ring.call("m", fn), ("ok", 2))
         self.assertEqual(ring.call("m", fn), ("ok", 2))        # 上限に当たったキーは、そのモデルでは飛ばす
         self.assertEqual(calls, ["c0", "c1", "c2", "c2"])
         with self.assertRaises(RuntimeError):
-            ring.call("m", lambda c: (_ for _ in ()).throw(Quota("429")))
+            ring.call("m", lambda c: (_ for _ in ()).throw(Quota("429 PerDay")))
+
+    def test_limit_without_per_day_is_not_a_day(self):
+        # ⛔ 2026-10-17 G-53：待つ秒の書かれていない上限の知らせを1日の上限と決めつけ、使えるキーを全部「今日はもう使えない」にした
+        import argparse
+        import common
+        from unittest import mock
+
+        class Quota(Exception):
+            code = 429
+
+        ring = common.KeyRing(argparse.Namespace(proxy_key=False, env="/nonexistent", key_name=None, key_index=0), min_interval_s=0,
+                              state_path=False)
+        ring.keys = [common.ApiKey("K0", "a" * 39)]
+        ring._clients = {0: "c0"}
+        n = {"c0": 0}
+
+        def fn(client):
+            n["c0"] += 1
+            if n["c0"] == 1:
+                raise Quota("429 RESOURCE_EXHAUSTED. You exceeded your current quota")   # 秒も上限の名前も無い
+            return "ok"
+        with mock.patch("time.sleep") as sl:
+            self.assertEqual(ring.call("m", fn), ("ok", 0))
+        self.assertNotIn(0, ring.spent.get("m", set()))
+        self.assertTrue(any(c.args[0] >= 30 for c in sl.call_args_list))       # 秒が無ければ30秒待つ
+        self.assertTrue(common.is_daily(Exception("quotaId: GenerateRequestsPerDayPerProjectPerModel-FreeTier")))
+        self.assertFalse(common.is_daily(Exception("quotaId: GenerateRequestsPerMinutePerProjectPerModel-FreeTier")))
 
     def test_denied_project_and_per_minute_limit(self):
         import argparse
@@ -1431,6 +1458,20 @@ class KeyRingTest(unittest.TestCase):
             raise ValueError("ほかの誤り")
         with self.assertRaises(ValueError):
             asyncio.run(ring.acall("live", other))
+        # 待つ秒が書いてある上限（文字のモデルの1分の上限）は、その秒だけ休ませる（⛔ 前は10分休ませ、通話の中の判定が間に合わなかった）
+        import time
+
+        class Minute(Exception):
+            code = 429
+
+        async def minute(client):
+            if client == "c2":
+                raise Minute("429 RESOURCE_EXHAUSTED. quotaId: GenerateRequestsPerMinutePerProjectPerModel. Please retry in 3.0s.")
+            return "ok"
+        ring.denied, ring._cool = set(), {}
+        ring.start = 2
+        self.assertEqual(asyncio.run(ring.acall("text", minute)), ("ok", 0))
+        self.assertLess(ring._cool[(2, "text")] - time.monotonic(), 10)
 
     def test_session_timeout_is_not_a_denied_project(self):
         # ⛔ つなぎの時間切れも閉じる番号 1008 で返る（2026-10-17 G-15）＝番号だけで「止められたプロジェクト」と決めない
@@ -1844,6 +1885,175 @@ class EarCheckTest(unittest.TestCase):
         self.assertFalse(f.wants_ear("confirm_field"))
         f.on_callee()
         self.assertIsNone(f.ear_said)                                       # 相手の発話ごとに消える
+
+
+class MeaningJudgeTest(unittest.TestCase):
+    """DESIGN.md 6-10 の (6)・G-53：意味の2つ目の判定が、会話のAIの選んだ答えと食い違えば、そのまま受け取らずに確かめる。
+    ⛔ 2026-10-17 ユーザー：「精度は100％にする仕組みを作らないとだめですよ。間違えるのが当たり前でスルーしてるだろ！」＝記録の通話で、
+    意味を取り違えた答え12回を、流れの制御が確かめずに受け取っていた。"""
+    M = {"はい": "ご予約はお済みということ", "いいえ": "ご予約はまだということ"}
+
+    def flow(self):
+        from flowctl import Flow, Question
+        return Flow([Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"), meanings=self.M),
+                     Question("Q2", "お支払いはカードと振込のどちらがよろしいでしょうか？", "choice", conditions=("カード", "振込"))])
+
+    @staticmethod
+    def report(f, qid, heard, cond, meaning):
+        f.on_callee(); f.on_heard(heard); f.on_meaning(meaning)
+        return f.apply("record_answer", {"question_id": qid, "condition_id": cond, "value": heard})
+
+    def to_q2(self, f):
+        self.report(f, "Q1", "はい、予約しています。", "はい", "はい")
+        self.assertEqual(f.current, "Q2")
+
+    def test_agree_is_taken(self):
+        f = self.flow()
+        self.report(f, "Q1", "はい、予約しています。", "はい", "はい")
+        self.assertEqual(f.items["Q1"].state, "accepted")
+
+    def test_unknown_with_an_answer_is_checked(self):
+        # 「いや、これからなんです」をAIが「わからない」：判定は「いいえ」⇒ 判定の意味で言い直す（⛔ 前は確かめずに「-」）
+        f = self.flow()
+        r = self.report(f, "Q1", "いや、これからなんです。", "unknown", "いいえ")
+        self.assertEqual(r["result"], "confirm_required")
+        self.assertIn("ご予約はまだということ", r["say"])
+        self.assertEqual(f.items["Q1"].condition, "いいえ")
+
+    def test_any_for_not_decided_is_checked(self):
+        # 「まだ決めてないです」をAIが「どちらでも」：判定は「わからない」⇒ AIの答えで言い直す（言い直す選択肢が判定に無い）
+        f = self.flow()
+        self.to_q2(f)
+        r = self.report(f, "Q2", "まだ決めてないです。", "any", "unknown")
+        self.assertEqual(r["result"], "confirm_required")
+        self.assertIn("どちらでも構わない", r["say"])
+
+    def test_choice_for_either_is_checked(self):
+        # 「どちらでも大丈夫です」をAIが「カード」：判定は「どちらでも」⇒ 判定の意味で言い直す
+        from flowctl import ANY
+        f = self.flow()
+        self.to_q2(f)
+        r = self.report(f, "Q2", "どちらでも大丈夫です。", "カード", ANY)
+        self.assertEqual(r["result"], "confirm_required")
+        self.assertIn("どちらでも構わない", r["say"])
+
+    def test_undecided_against_a_choice_is_checked(self):
+        from flowctl import UNDECIDED
+        f = self.flow()
+        r = self.report(f, "Q1", "そうですね。", "はい", UNDECIDED)
+        self.assertEqual(r["result"], "confirm_required")
+        self.assertIn("ご予約はお済みということ", r["say"])
+
+    def test_no_choice_on_both_sides_is_not_a_clash(self):
+        # どちらも選択肢を選んでいない（わからない と 決められない）：言い直す答えが無い ⇒ AIの答えのまま
+        from flowctl import UNDECIDED
+        f = self.flow()
+        self.report(f, "Q1", "ちょっとわからないです。", "unknown", UNDECIDED)
+        self.assertEqual(f.items["Q1"].state, "dont_know")
+
+    def test_no_judgment_keeps_the_old_way(self):
+        f = self.flow()
+        self.report(f, "Q1", "はい、予約しています。", "はい", None)
+        self.assertEqual(f.items["Q1"].state, "accepted")
+
+    def test_late_clash_is_not_handed_over_and_is_asked_again(self):
+        # 判定が、受け取ったあとに届いて食い違った ⇒ 依頼主へ渡さない（「-」）・締めの前の念のための確認で、もう一度聞く
+        f = self.flow()
+        self.report(f, "Q1", "これからなんです。", "はい", None)      # 頭の言葉が無いので、いまの確かめでは拾えない
+        self.assertEqual(f.items["Q1"].state, "accepted")
+        f.on_meaning("いいえ", qid="Q1")
+        self.assertEqual(f.items["Q1"].state, "unresolved")
+        self.assertEqual(f.export()["Q1"], "-")
+        r = self.report(f, "Q2", "カードでお願いします。", "カード", "カード")
+        self.assertEqual((r["result"], r["question_id"]), ("recheck", "Q1"))
+
+    def test_late_agreement_changes_nothing(self):
+        f = self.flow()
+        self.report(f, "Q1", "はい、予約しています。", "はい", None)
+        f.on_meaning("はい", qid="Q1")
+        self.assertEqual(f.items["Q1"].state, "accepted")
+
+    def test_each_utterance_starts_without_a_judgment(self):
+        f = self.flow()
+        f.on_meaning("はい")
+        f.on_callee()
+        self.assertIsNone(f.meaning_said)
+
+
+class UnreportedNoteTest(unittest.TestCase):
+    """AIが声は出したのに、報告なしでターンを終えたときの、報告を促す知らせ（Flow.unreported_note）。
+    ⛔ 2026-10-17：記録の通話で、「はい。」などのあとに報告が抜けた回が34回。プログラムは気づく手立てを持っていなかった。
+    ⛔ 1回目は判定を見ずに出し、取り次ぎのあとの知らせで会話が乱れた ⇒ 意味の判定が「答え」と決めたときだけ。"""
+
+    def flow(self):
+        from flowctl import Flow, Question
+        return Flow([Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"),
+                              meanings={"はい": "ご予約はお済みということ", "いいえ": "ご予約はまだということ"})])
+
+    def test_only_for_an_answer_once_per_utterance(self):
+        f = self.flow()
+        f.on_callee(); f.on_heard("はい。"); f.on_meaning("はい")
+        note = f.unreported_note()
+        self.assertIn("「はい。」", note)
+        self.assertIn("record_answer", note)
+        self.assertNotIn("ご予約はされていますでしょうか", note)   # 質問の文は入れない（AIが自分で質問し直さないように）
+        self.assertIsNone(f.unreported_note())                      # 同じ発話には1回まで
+        f.on_callee(); f.on_heard("ちょっとわからないです。"); f.on_meaning("unknown")
+        self.assertIsNotNone(f.unreported_note())                   # 「わからない」も答え
+
+    def test_not_for_words_that_are_not_an_answer(self):
+        from flowctl import UNDECIDED
+        f = self.flow()
+        f.on_callee(); f.on_heard("担当の者に代わりますので少々お待ちください。"); f.on_meaning(UNDECIDED)
+        self.assertIsNone(f.unreported_note())                      # 取り次ぎ・考えている途中＝判定は「決められない」
+        f.on_callee(); f.on_heard("はい。")
+        self.assertIsNone(f.unreported_note())                      # 判定が無い
+
+    def test_not_after_the_end_or_while_confirming(self):
+        f = self.flow()
+        f.on_callee(); f.on_heard("大丈夫です。")
+        f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい", "value": "大丈夫です。"})
+        self.assertEqual(f.awaiting_confirm, "Q1")
+        f.on_callee(); f.on_heard("はい、そうです。"); f.on_meaning("はい")
+        self.assertIsNone(f.unreported_note())                      # 言い直しへの返事には、判定を走らせていない
+        f.apply("confirm_field", {"question_id": "Q1", "result": "affirmed"})
+        f.on_callee(); f.on_heard("はい。"); f.on_meaning("はい")
+        self.assertEqual(f.phase, "closing")
+        self.assertIsNone(f.unreported_note())
+
+
+class ChoicesNoteTest(unittest.TestCase):
+    """会話のAIにも、選択肢の意味（取込で決めた意味の言葉）を知らせる（flowctl.choices_note の1か所）。⛔ 2026-10-17：選択肢の名前しか
+    見せておらず、打ち消しの問いの「はい」の向きをAIが自分で決めていた。"""
+
+    def test_note_on_every_question_announcement(self):
+        from flowctl import Flow, Question, choices_note
+        from instruction import Business, build
+        q1 = Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"))
+        q2 = Question("Q2", "ご不明な点はございませんでしょうか？", "yes_no", conditions=("はい", "いいえ"),
+                      meanings={"はい": "ご不明な点はないということ", "いいえ": "ご不明な点がおありということ"})
+        self.assertEqual(choices_note(q1), "")                                  # 意味の言葉が無ければ足さない
+        self.assertIn("「はい」＝ご不明な点はないということ", choices_note(q2))
+        for play in (False, True):
+            f = Flow([q1, q2], play_recordings=play)
+            f.on_callee(); f.on_heard("はい、しています。")
+            r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい", "value": "はい、しています。"})
+            self.assertIn("ご不明な点はないということ", r["message"])               # 次の質問の知らせ（録音で流す形も）
+        b = Business(company="青葉物産", caller="佐藤", purpose="確認", questions=[q2, q1])
+        for mode in ("ai", "recorded"):
+            _, text = build(b, "S4", opening_mode=mode)
+            self.assertIn("ご不明な点はないということ", text)                       # 最初の質問
+
+
+class ResendTest(unittest.TestCase):
+    def test_resend_keeps_the_count_and_clears_the_words(self):
+        # 張り替えて同じ発話を送り直す（6-7）：相手は話していないので数えず、文字だけを受け取り直す（⛔ 前は同じ言葉が2回たまった）
+        from flowctl import Flow, Question
+        f = Flow([Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"))])
+        f.on_callee(); f.on_heard("はい。"); f.on_ear("はい"); f.on_meaning("はい")
+        n = f.callee_turns
+        f.on_resend(); f.on_heard("はい。")
+        self.assertEqual((f.callee_turns, f.callee_said, f.ear_said, f.meaning_said), (n, "はい。", None, None))
 
 
 class AmbiguousAnswerTest(unittest.TestCase):

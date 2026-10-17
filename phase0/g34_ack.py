@@ -32,9 +32,10 @@ import json
 import statistics as st
 from pathlib import Path
 
-from common import (base_parser, describe_error, drop_partial, make_client, pick_key, read_wav_pcm16_mono, require_python,
+from common import (KeyRing, base_parser, describe_error, drop_partial, read_wav_pcm16_mono, require_python,
                     save_partial, save_result, say)
 from convo import AUDIO_DIR, CUT_IN_S, run_call
+from meaning_judge import JUDGE_MODELS, make_judge
 from g22_opening import BUSINESS, W
 from g30_latency import VARIANTS as G30_VARIANTS
 from g30_latency import keep_call
@@ -197,14 +198,17 @@ async def run(args) -> dict:
         missing = [(vt, a) for vt in VOICE_TYPES for a in ("hai", "shouchi", "arigatou", "shitsurei", "moushiwake")
                    if not ack_wav(vt, a).exists()]
         return {"dry_run": True, "scenes": {k: [x.get("wav") or x for x in v] for k, v in plan.items()}, "ack_missing": missing}
-    client = make_client(pick_key(args))
+    ring = KeyRing(args)  # 上限・止められたキーは飛ばす（common.KeyRing.acall。⛔ 2026-10-17：止められたキーを指定して、12本とも止まった）
+    judge = make_judge(args, args.judge) if args.judge else None
     rows = []
     for rep in range(args.repeat):
         for vt in args.type or VOICE_TYPES:
             for scene in args.scene or scenes_names():
                 try:
-                    call = await run_call(client, args.model, BUSINESS, vt, plan[scene], opening_mode="recorded", use_ear=False,
-                                          save_audio="all", audio_label=f"G34_{scene}_{rep}", followup_wait_s=FOLLOWUP_WAIT_S, **FAST)
+                    call, used = await ring.acall(args.model, lambda client: run_call(
+                        client, args.model, BUSINESS, vt, plan[scene], opening_mode="recorded", use_ear=False,
+                        save_audio="all", audio_label=f"G34_{scene}_{rep}", followup_wait_s=FOLLOWUP_WAIT_S, judge=judge, **FAST))
+                    client = ring.client(used)
                 except Exception as exc:
                     call, row = None, {"rep": rep, "type": vt, "scene": scene, "error": describe_error(exc)}
                 if call is not None:
@@ -277,6 +281,7 @@ def main() -> None:
     p.add_argument("--pause", type=float, default=3.0)
     p.add_argument("--type", choices=sorted(VOICE_TYPES), action="append")
     p.add_argument("--scene", choices=scenes_names(), action="append")
+    p.add_argument("--judge", nargs="?", const="3.5 Flash Lite", choices=JUDGE_MODELS, help="意味の2つ目の判定を使う（DESIGN.md 6-10 の (6)）")
     args = p.parse_args()
     if args.rejudge:
         print(json.dumps(rejudge(args.rejudge), ensure_ascii=False, indent=1))
