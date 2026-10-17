@@ -24,9 +24,9 @@ from make_g14_set import OUT, load_all
 from stitch_gap import callee_speech
 
 
-def live_heard() -> dict:
-    """G-14 の記録から、声ごとの会話AIの聞き取りの文字（何回ぶんでも）。"""
-    out = defaultdict(list)
+def live_calls() -> list[dict]:
+    """G-14 の記録の、1回の通話ごとの、最初の答えの声・会話AIの聞き取りの文字・AIの最初の報告（condition）・正解（want。無い記録は None）。"""
+    out = []
     for p in sorted(glob.glob(str(OUT.parent.parent / "G-14*.json"))):
         if "TALLY" in p or "partial" in p:
             continue
@@ -39,7 +39,15 @@ def live_heard() -> dict:
                 continue
             c = r["turns"][0].get("callee")
             if isinstance(c, dict) and r["turns"][0].get("heard"):
-                out[c["wav"]].append(r["turns"][0]["heard"])
+                out.append({"wav": c["wav"], "heard": r["turns"][0]["heard"], "condition": r.get("condition"), "want": r.get("want")})
+    return out
+
+
+def live_heard() -> dict:
+    """G-14 の記録から、声ごとの会話AIの聞き取りの文字（何回ぶんでも）。"""
+    out = defaultdict(list)
+    for c in live_calls():
+        out[c["wav"]].append(c["heard"])
     return out
 
 

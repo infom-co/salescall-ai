@@ -111,14 +111,24 @@ def load_keys(env_path: str | os.PathLike, key_names: list[str] | None = None) -
     return keys
 
 
-def load_secret(name: str, env_path: str | os.PathLike | None = None) -> str:
-    """Gemini 以外のキー（別の耳など）を1つ読む唯一の場所。`.env` があればそこから、無ければ環境変数から。値は伏せる一覧に入れ、画面には名前だけ出す。
-    無ければ、入れ方を書いて止める（⛔ キーの値をチャットで聞かない。クラウドの作業環境では「シークレット」に入れていただく）。"""
+def _secret_value(name: str, env_path: str | os.PathLike | None) -> str | None:
     env_path = env_path or os.environ.get("SALESCALL_ENV", DEFAULT_ENV_PATH)
     pairs = read_env_file(env_path) if Path(env_path).is_file() else list(os.environ.items())
-    value = next((v for n, v in pairs if n == name and v), None)
+    return next((v for n, v in pairs if n == name and v), None)
+
+
+def has_secret(name: str, env_path: str | os.PathLike | None = None) -> bool:
+    """キーが入っているか（値は伏せる一覧にも画面にも出さず、あるかだけ。足りないものの確かめ用）。"""
+    return _secret_value(name, env_path) is not None
+
+
+def load_secret(name: str, env_path: str | os.PathLike | None = None) -> str:
+    """Gemini 以外のキー（別の耳など）を1つ読む唯一の場所。`.env` があればそこから、無ければ環境変数から。値は伏せる一覧に入れ、画面には名前だけ出す。
+    無ければ、入れ方を書いて止める（⛔ キーの値をチャットで聞かない。クラウドの作業環境では「環境変数」の欄に入れていただく＝docs/EARS_SETUP.md）。"""
+    value = _secret_value(name, env_path)
     if not value:
-        raise SystemExit(f"キー {name} が見つかりません。作業環境の設定の「シークレット」（または .env）に、名前 {name} で入れてください。")
+        raise SystemExit(f"キー {name} が見つかりません。作業環境の設定（セッションの上のクラウド環境のメニュー →「編集」）の「環境変数」の欄に、"
+                         f"{name}=（キー） の1行で入れてください（手順：docs/EARS_SETUP.md）。")
     _LOADED_SECRETS.append(value)
     say(f"キー {name} を読みました")
     return value

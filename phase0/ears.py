@@ -11,8 +11,9 @@ g15_ear --ear）は変えない。
   その発話の確定した文字を渡す。キー＝環境変数 SONIOX_API_KEY。
 - "reazon"：ReazonSpeech（日本語専門のモデル。PC の中で動く＝相手の声を外の会社に出さない）。sherpa-onnx で動かす。モデルは models/reazonspeech/
   （get_reazon_model.py で取る。GitHub には上げない）。試験では、発話を流し終えたところで文字にする（本番では、話し終わりの見張り（VAD）が要る）。
-⚠️ 2026-10-17：AmiVoice・Soniox の接続先と、ReazonSpeech のモデルの置き場（Hugging Face）は、この作業環境の通信の決まりで止められている
-   （ユーザーが許可を足すまで、つないで確かめられない）。命令の形は公式の資料の要点から書いた ⇒ つないだら、1本目で必ず確かめる。
+⚠️ 2026-10-17：AmiVoice・Soniox の接続先は、この作業環境の通信の決まりで止められている（ユーザーが許可を足すまで、つないで確かめられない。
+   設定に貼る文字は docs/EARS_SETUP.md）。命令の形は公式の資料の要点から書いた ⇒ つないだら、1本目で必ず確かめる（ears_try.py が確かめる）。
+   ReazonSpeech のモデルは、いまの通信の決まりのまま取れる置き場から取る（get_reazon_model.py）。
 キーの値は記録・画面に出さない（common.load_secret が伏せる一覧に入れる）。
 """
 from __future__ import annotations
@@ -240,8 +241,7 @@ def reazon_files(d: Path = REAZON_DIR) -> dict:
     def one(kind: str) -> str:
         got = sorted(p for p in d.glob(f"{kind}*.onnx") if "int8" not in p.name) or sorted(d.glob(f"{kind}*.onnx"))
         if not got:
-            raise SystemExit(f"ReazonSpeech のモデル（{kind}）が {d} にありません。python get_reazon_model.py で取ってください"
-                             "（作業環境の通信の決まりで huggingface.co を許可しておく）")
+            raise SystemExit(f"ReazonSpeech のモデル（{kind}）が {d} にありません。python get_reazon_model.py で取ってください")
         return str(got[0])
     tokens = d / "tokens.txt"
     if not tokens.exists():
@@ -250,14 +250,20 @@ def reazon_files(d: Path = REAZON_DIR) -> dict:
 
 
 class ReazonEar(Ear):
-    """PC の中で動く耳。声は外に出ない。発話を流し終えたところで文字にする（文字にする時間がそのまま遅れになる）。"""
+    """PC の中で動く耳。声は外に出ない。発話を流し終えたところで文字にする（文字にする時間がそのまま遅れになる）。
+    発話の前の PREROLL_S 秒（その前に流れていた回線の音）も一緒に文字にする。⛔ 2026-10-17：声の頭から切り出して渡すと、頭の言葉を落とした
+    （G-14 の Aoede の6本で「はい、予約しています。」⇒「予約しています」・「クレジットカードで。」⇒「カードで」。前に 0.5秒の無音を付けると
+    6本とも頭が戻った）。通話では相手が話し始める前にも回線の音が流れているので、話し始めの少し前から切り出すのが正しい形（ほかの耳は、
+    つながっている間の音をずっと受け取っているので、この切り出しは要らない）。"""
     name = "reazon"
+    PREROLL_S = 0.5
     _recognizer = None            # モデルは1回だけ読む（通話ごとに読み直さない）
 
     def __init__(self, threads: int = 2):
         super().__init__()
         self.threads = threads
         self._buf = bytearray()
+        self._pre = bytes(int(self.PREROLL_S * RATE) * 2)   # 通話の始めは無音から（つないだ直後の発話にも、前の音がある形にする）
 
     async def _open(self) -> None:
         if ReazonEar._recognizer is None:
@@ -268,7 +274,11 @@ class ReazonEar(Ear):
 
     async def _send(self, pcm: bytes, voice: bool) -> None:
         if voice:
+            if not self._buf:
+                self._buf.extend(self._pre)          # 発話の頭の前の音から
             self._buf.extend(pcm)
+        else:
+            self._pre = (self._pre + pcm)[-int(self.PREROLL_S * RATE) * 2:]
 
     async def _fed(self) -> None:
         import numpy as np

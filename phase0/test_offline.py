@@ -1549,6 +1549,116 @@ class EarsTest(unittest.TestCase):
         self.assertIsNotNone(ear.first_at)
         self.assertGreaterEqual(ear.sent.count(True), 5)                        # 0.1秒ずつ5つ
 
+    def test_reazon_cuts_from_before_the_voice(self):
+        # ⛔ 2026-10-17：声の頭から切り出して渡すと、頭の言葉を落とした（「はい、予約しています。」⇒「予約しています」）。
+        # ⇒ 発話の前の PREROLL_S 秒（その前に流れていた音）から切り出す。つないだ直後の発話は、無音から（モデルを読まずに確かめる）
+        import asyncio
+        from ears import RATE, ReazonEar
+        pre = int(ReazonEar.PREROLL_S * RATE) * 2
+
+        async def go():
+            ear = ReazonEar()
+            await ear._send(b"\1\0" * 10, voice=True)
+            first = bytes(ear._buf)
+            ear._buf = bytearray()
+            await ear._send(b"\2\0" * RATE, voice=False)                        # 1秒の回線の音
+            await ear._send(b"\3\0" * 10, voice=True)
+            await ear._send(b"\4\0" * 10, voice=True)
+            return first, bytes(ear._buf)
+        first, second = asyncio.run(go())
+        self.assertEqual(first, bytes(pre) + b"\1\0" * 10)
+        self.assertEqual(second, b"\2\0" * (pre // 2) + b"\3\0" * 10 + b"\4\0" * 10)  # 直前の音は PREROLL_S 秒だけ・頭に1回だけ
+
+
+class EarsTryTest(unittest.TestCase):
+    """独立した別の耳を1つの命令で試す道具（ears_try.py）と、ユーザーが貼る文字（docs/EARS_SETUP.md）。つながずに確かめる。"""
+
+    DOC = Path(__file__).resolve().parent.parent / "docs" / "EARS_SETUP.md"
+
+    def blocks(self) -> list[str]:
+        """手順書の枠（``` で囲んだ所）の中の行。"""
+        lines, inside = [], False
+        for line in self.DOC.read_text(encoding="utf-8").splitlines():
+            if line.startswith("```"):
+                inside = not inside
+            elif inside and line.strip():
+                lines.append(line.strip())
+        return lines
+
+    def test_doc_has_every_host_and_key_name(self):
+        # 手順書の枠に、コードがつなぐ接続先（ワイルドカードを含む）と、コードが読むキーの名前が、すべてある（食い違うと、貼っても動かない）
+        from ears import SECRETS
+        from ears_try import HOSTS
+        lines = self.blocks()
+
+        def covered(host: str) -> bool:
+            return any(d == host or (d.startswith("*.") and host.endswith(d[1:])) for d in lines)
+        hosts = {h for hs in HOSTS.values() for h in hs} | {"generativelanguage.googleapis.com", "release-assets.githubusercontent.com"}
+        for h in sorted(hosts):
+            self.assertTrue(covered(h), h)
+        for name in SECRETS.values():
+            self.assertTrue(any(l.startswith(f"{name}=") for l in lines), name)
+
+    def test_predict_counts_like_the_call(self):
+        # 通話の中と同じ決まり：別の耳の文字が ear_wait_s 秒までに届いて食い違えば確かめる。数えるのは AI が選んだ答えで
+        # （⛔ 1回目は会話AIの文字が台本と違うかで数え、文字が違ってもAIが正しく選んだ通話の確かめを「拾える誤り」にしていた）
+        from ears_try import predict
+        rows = [{"wav": "a.wav", "text": "してないです。", "ear": "してないです", "first_s": 0.3},
+                {"wav": "c.wav", "text": "はい、先週しました。", "ear": "はい、先週しました", "first_s": 0.5},
+                {"wav": "d.wav", "text": "予約済みです。", "ear": "要約済みです", "first_s": 2.5},
+                {"wav": "e.wav", "text": "いいえ、まだです。", "ear": "いえ、まだです", "first_s": 0.4},
+                {"wav": "f.wav", "text": "大丈夫です。", "ear": "大丈夫", "first_s": 0.4}]
+        calls = [{"wav": "a.wav", "heard": "捨てないです。", "condition": "はい", "want": "いいえ"},      # AIが誤った・別の耳と食い違う ⇒ 拾える
+                 {"wav": "a.wav", "heard": "してないです。", "condition": "いいえ", "want": "いいえ"},
+                 {"wav": "c.wav", "heard": "はい、清掃しました。", "condition": "はい", "want": "はい"},  # 文字は違うがAIは正しい ⇒ 要らない確かめ
+                 {"wav": "d.wav", "heard": "予約済みです。", "condition": "はい", "want": "はい"},       # 間に合わない
+                 {"wav": "e.wav", "heard": "いいえ、まだです。", "condition": "はい", "want": "いいえ"},  # 同じに聞いたがAIが誤った ⇒ 拾えない
+                 {"wav": "f.wav", "heard": "大丈夫です。", "condition": "はい", "want": "ambiguous"},    # 曖昧な答えは数えない
+                 {"wav": "a.wav", "heard": "してないです。", "condition": "いいえ", "want": None},       # 正解の無い記録は数えない
+                 {"wav": "z.wav", "heard": "はい。", "condition": "はい", "want": "はい"}]               # この耳が聞いていない声
+        p = predict(rows, calls)
+        self.assertEqual((p["通話"], p["AIが正しく選んだ"], p["拾える誤り"], p["要らない確かめ"], p["間に合わない"], p["拾えない誤り"]),
+                         (5, 3, 1, 1, 1, 1))
+
+    def test_in_call_counts(self):
+        from ears_try import in_call
+        rows = [{"verdict": "正しい", "want": "はい", "condition": "はい", "ear_confirm": False, "ear_check": {"text": "はい"}},
+                {"verdict": "意味を確かめた（はっきりした答えに）", "want": "いいえ", "condition": "いいえ", "ear_confirm": True, "ear_check": {"text": "x"}},
+                {"verdict": "意味を確かめた（はっきりした答えに）", "want": "いいえ", "condition": "はい", "ear_confirm": True, "ear_check": {"text": "x"}},
+                {"verdict": "意味を確かめた（はっきりした答えに）", "want": "ambiguous", "condition": "はい", "ear_confirm": True, "ear_check": {"text": "x"}},
+                {"verdict": "⛔違う条件", "want": "いいえ", "condition": "はい", "ear_confirm": False, "ear_check": None}]
+        c = in_call(rows)
+        self.assertEqual((c["通話"], c["要らない確かめ（AIは正しかった）"], c["拾えた（AIが誤っていた）"], c["拾えなかった誤り"], c["別の耳の文字が届かなかった"]),
+                         (5, 1, 1, 1, 1))
+
+    def test_missing_reports_key_by_name_only(self):
+        import os
+        from ears_try import missing
+        os.environ.pop("AMIVOICE_APPKEY", None)
+        with unittest.mock.patch("ears_try.reachable", return_value=None):
+            got = missing("amivoice", "/no/such.env")
+        self.assertTrue(any("AMIVOICE_APPKEY" in m for m in got), got)
+        os.environ["AMIVOICE_APPKEY"] = "test-value-987654"
+        try:
+            with unittest.mock.patch("ears_try.reachable", return_value="接続先 x が止められています"):
+                got = missing("amivoice", "/no/such.env")
+            self.assertEqual(len(got), 1)
+            self.assertFalse(any("test-value-987654" in m for m in got))
+            self.assertTrue(common.has_secret("AMIVOICE_APPKEY", "/no/such.env"))
+        finally:
+            os.environ.pop("AMIVOICE_APPKEY")
+
+    def test_model_archive_names(self):
+        # 外から来たまとめたファイルは、置き場の外を指す名前・使わないもの（試しの声・説明書き）を取り出さない
+        from get_reazon_model import wanted
+        d = "sherpa-onnx-zipformer-ja-reazonspeech-2024-08-01"
+        self.assertEqual(wanted(f"{d}/encoder-epoch-99-avg-1.onnx"), "encoder-epoch-99-avg-1.onnx")
+        self.assertEqual(wanted(f"{d}/joiner-epoch-99-avg-1.int8.onnx"), "joiner-epoch-99-avg-1.int8.onnx")
+        self.assertEqual(wanted(f"{d}/tokens.txt"), "tokens.txt")
+        for bad in (f"{d}/test_wavs/1.wav", f"{d}/README.md", "../encoder.onnx", "/tmp/encoder.onnx", f"{d}/sub/encoder.onnx", "encoder.onnx",
+                    f"{d}/../encoder.onnx"):
+            self.assertIsNone(wanted(bad), bad)
+
 
 class EarCheckTest(unittest.TestCase):
     """DESIGN.md 6-10 の (5)・G-15：確かめない型の答えは、会話AIの聞き取りと別の耳の文字を比べ、食い違えば意味を確かめる。

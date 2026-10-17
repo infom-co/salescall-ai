@@ -1,49 +1,72 @@
-"""ReazonSpeech（PC の中で動く日本語専門の耳。ears.ReazonEar）のモデルを取る（1回だけ）。置き場＝models/reazonspeech/（GitHub には上げない）。
+"""ReazonSpeech（PC の中で動く日本語専門の耳。ears.ReazonEar）のモデルを取る。置き場＝models/reazonspeech/（GitHub には上げない）。
 
-取り先：Hugging Face の reazon-research/reazonspeech-k2-v2（sherpa-onnx で動く形。エンコーダ・デコーダ・ジョイナ・言葉の一覧）。
-⚠️ 2026-10-17：この作業環境では huggingface.co が通信の決まりで止められている ⇒ ユーザーが作業環境の設定で許可を足してから流す。
-ファイルの名前は決め打ちにせず、Hugging Face のファイル一覧から選ぶ（名前が変わっても取れるように）。int8（小さく速い形）は --int8 のときだけ。
+取り先：sherpa-onnx（ReazonSpeech を動かす部品）が公開している、同じモデル（reazon-research/reazonspeech-k2-v2）を sherpa-onnx で動く形に
+まとめたファイル（GitHub の公開ファイル）。中身の説明書きに「reazon-research/reazonspeech-k2-v2 から」とある。
+✅ 2026-10-17：この置き場は、いまの作業環境の通信の決まりのまま取れた（Hugging Face は止められている ⇒ ユーザーの設定が1つ減った）。
+作業環境は使うたびに作り直されるので、モデルが無ければ ears_try.py がこれを呼んで取り直す。
+- 取るのは、エンコーダ・デコーダ・ジョイナ（ふつうの形と int8 の形）と言葉の一覧だけ。まとめたファイルの中の、それ以外のもの（試しの声など）は取り出さない。
+- まとめたファイルは外から来たものなので、中の名前を確かめてから取り出す（置き場の外を指す名前・ふつうのファイルでないものは取り出さない）。
 """
 from __future__ import annotations
 
 import argparse
-import json
+import tarfile
+import tempfile
 import urllib.request
 from pathlib import Path
 
 from ears import REAZON_DIR
 
-REPO = "reazon-research/reazonspeech-k2-v2"
+URL = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-zipformer-ja-reazonspeech-2024-08-01.tar.bz2"
+KINDS = ("encoder", "decoder", "joiner")
 
 
-def files(repo: str) -> list[str]:
-    with urllib.request.urlopen(f"https://huggingface.co/api/models/{repo}", timeout=60) as r:
-        return [s["rfilename"] for s in json.load(r).get("siblings", [])]
+def wanted(name: str) -> str | None:
+    """まとめたファイルの中の1つの名前から、取り出すなら置き場での名前を返す（取り出さないなら None）。"""
+    parts = Path(name).parts
+    if len(parts) != 2 or ".." in parts or parts[0].startswith("/"):
+        return None
+    base = parts[1]
+    if base == "tokens.txt" or (base.endswith(".onnx") and base.startswith(KINDS)):
+        return base
+    return None
 
 
-def pick(names: list[str], int8: bool) -> list[str]:
-    out = [n for n in names if n.endswith("tokens.txt")]
-    for kind in ("encoder", "decoder", "joiner"):
-        cands = [n for n in names if Path(n).name.startswith(kind) and n.endswith(".onnx") and (("int8" in n) == int8)]
-        if not cands:
-            raise SystemExit(f"{kind} のファイルが見つかりません（一覧：{names[:20]}）")
-        out.append(sorted(cands)[0])
-    return out
+def have(d: Path = REAZON_DIR) -> bool:
+    return (d / "tokens.txt").exists() and all(any(d.glob(f"{k}*.onnx")) for k in KINDS)
+
+
+def fetch(url: str = URL, d: Path = REAZON_DIR) -> list[str]:
+    """取り出したファイルの名前の一覧。"""
+    d.mkdir(parents=True, exist_ok=True)
+    got = []
+    with tempfile.TemporaryDirectory() as tmp:
+        arc = Path(tmp) / "model.tar.bz2"
+        print(f"取っています：{url}（約700MB）")
+        urllib.request.urlretrieve(url, arc)
+        with tarfile.open(arc, "r:bz2") as t:
+            for m in t.getmembers():
+                base = wanted(m.name)
+                if not base or not m.isfile():
+                    continue
+                with t.extractfile(m) as src, open(d / base, "wb") as dst:
+                    while chunk := src.read(1 << 20):
+                        dst.write(chunk)
+                got.append(base)
+    if not have(d):
+        raise SystemExit(f"モデルのファイルがそろいませんでした（取り出したもの：{got}）")
+    return got
 
 
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--repo", default=REPO)
-    p.add_argument("--int8", action="store_true")
+    p.add_argument("--url", default=URL)
+    p.add_argument("--again", action="store_true", help="あっても取り直す")
     args = p.parse_args()
-    REAZON_DIR.mkdir(parents=True, exist_ok=True)
-    for name in pick(files(args.repo), args.int8):
-        dst = REAZON_DIR / Path(name).name
-        if dst.exists():
-            print(f"あります：{dst.name}")
-            continue
-        print(f"取っています：{name}")
-        urllib.request.urlretrieve(f"https://huggingface.co/{args.repo}/resolve/main/{name}", dst)
+    if have() and not args.again:
+        print(f"もうあります：{REAZON_DIR}")
+        return
+    print("取り出したもの：", fetch(args.url))
     print(f"置き場：{REAZON_DIR}")
 
 
