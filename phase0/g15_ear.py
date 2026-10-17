@@ -73,37 +73,43 @@ def tally(rows: list[dict]) -> dict:
 
 
 async def run(args) -> dict:
-    """耳を1本つなぎ（通話の中と同じ形＝ears.open_ear）、答えの声を1本ずつ流して、その発話の確定した文字を待つ。
+    """耳をつなぎ（通話の中と同じ形＝ears.open_ear）、答えの声を1本ずつ流して、その発話の確定した文字を待つ。相手役の声ごとに1本つなぎ直す
+    （1本の通話に、同じ相手の答えが何回か続く形。1本のつなぎは2分ほど）。
     ⚠️ 2026-10-17 の1回目・2回目（transcribe35 の 165本・声のあとに5秒の無音の形）は、声ごとに耳へつなぎ直す形（listen.hear）で測った。
-       3回目からは、どの耳も同じこの形で測る。"""
+       3回目からは、どの耳も同じこの形で測る。
+    ⛔ 2026-10-17：165本を1本のつなぎのまま流すと、Gemini の耳がつなぎの上限（約10分）で切られ、最後の10本の文字が届かなかった（試験の作りの誤り。
+       実際の通話は1本ごとに短い）⇒ 相手役の声ごとにつなぎ直す。誤りの記録も、その発話のあいだに起きたものだけを残す。"""
     client = make_client(pick_key(args)) if args.ear == "transcribe35" else None
     live = live_heard()
     # 声のファイルがある台詞だけ（作るのに失敗した台詞は、台帳に行だけがある）
     items = [m for m in load_all() if m.get("wav") and (not args.voice or m["voice"] in args.voice) and (not args.only or any(m["id"].startswith(o) for o in args.only))]
+    voices = list(dict.fromkeys(m["voice"] for m in items))
     rows = []
-    async with open_ear(args.ear, client, args.env) as ear:
-        loop = asyncio.get_running_loop()
-        for rep in range(args.repeat):
-            for m in items:
-                wav = m["wav"]
-                pcm, rate = read_wav_pcm16_mono(OUT.parent / wav)
-                row = {"rep": rep, "ear_kind": args.ear, "voice": m["voice"], "id": m["id"], "wav": wav, "text": m["text"]}
-                speech_end = loop.time() + len(pcm) / 2 / rate - callee_speech(wav)[2]  # 声の終わり（声のあとの無音を引く）
-                await ear.feed(pcm, rate)
-                text = await ear.wait(speech_end + args.wait - loop.time())
-                row.update(ear=text, ear_ok=ok(m["text"], text or ""), diffs=differences(m["text"], text or ""),
-                           first_s=round(ear.first_at - speech_end, 3) if ear.first_at else None)
-                row["after_s"] = row["first_s"]
-                if ear.errors:
-                    row["error"] = list(ear.errors)
-                heard = live.get(wav, [])
-                row.update(live_n=len(heard), live_ok=sum(1 for h in heard if ok(m["text"], h)),
-                           live_wrong=sorted({h for h in heard if not ok(m["text"], h)}))
-                rows.append(row)
-                say(f"[{rep}] {args.ear} {m['voice']} {m['id']}「{m['text']}」別の耳＝{row.get('ear')!r}（{'台本どおり' if row.get('ear_ok') else '違う'}・"
-                    f"{row.get('first_s')}秒）会話AI＝{row['live_ok']}/{row['live_n']} {row['live_wrong'][:2]} {row.get('error', '')}")
-                save_partial(f"G-15{args.tag}", {"rows": rows})
-                await asyncio.sleep(args.gap)  # 次の発話までの間（その間も、耳には無音が流れる）
+    loop = asyncio.get_running_loop()
+    for rep in range(args.repeat):
+        for voice in voices:
+            async with open_ear(args.ear, client, args.env) as ear:
+                for m in (m for m in items if m["voice"] == voice):
+                    wav = m["wav"]
+                    pcm, rate = read_wav_pcm16_mono(OUT.parent / wav)
+                    row = {"rep": rep, "ear_kind": args.ear, "voice": m["voice"], "id": m["id"], "wav": wav, "text": m["text"]}
+                    speech_end = loop.time() + len(pcm) / 2 / rate - callee_speech(wav)[2]  # 声の終わり（声のあとの無音を引く）
+                    seen = len(ear.errors)
+                    await ear.feed(pcm, rate)
+                    text = await ear.wait(speech_end + args.wait - loop.time())
+                    row.update(ear=text, ear_ok=ok(m["text"], text or ""), diffs=differences(m["text"], text or ""),
+                               first_s=round(ear.first_at - speech_end, 3) if ear.first_at else None)
+                    row["after_s"] = row["first_s"]
+                    if ear.errors[seen:]:
+                        row["error"] = ear.errors[seen:]
+                    heard = live.get(wav, [])
+                    row.update(live_n=len(heard), live_ok=sum(1 for h in heard if ok(m["text"], h)),
+                               live_wrong=sorted({h for h in heard if not ok(m["text"], h)}))
+                    rows.append(row)
+                    say(f"[{rep}] {args.ear} {m['voice']} {m['id']}「{m['text']}」別の耳＝{row.get('ear')!r}（{'台本どおり' if row.get('ear_ok') else '違う'}・"
+                        f"{row.get('first_s')}秒）会話AI＝{row['live_ok']}/{row['live_n']} {row['live_wrong'][:2]} {row.get('error', '')}")
+                    save_partial(f"G-15{args.tag}", {"rows": rows})
+                    await asyncio.sleep(args.gap)  # 次の発話までの間（その間も、耳には無音が流れる）
     return {"ear_kind": args.ear, "rows": rows, "summary": tally(rows)}
 
 
