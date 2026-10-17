@@ -209,10 +209,10 @@ class CostRatio(Priced):
         self.assertAlmostEqual(float(got["yen"]), float(took) + 90, places=3)
 
     def test_the_caution_of_the_deficit_notice_is_per_client_and_in_plain_words(self):
-        """赤字の知らせの慎重さは依頼者ごと・3つの選び方（2026-10-17 ユーザー：「初めての契約者でも分かるように」）。
-        画面の例の本数（成果1件 1,000円・電話1本 2円・成果0件）が、中の確かさの計算と合っている。"""
-        for name, examples in (("early", 800), ("normal", 1500), ("careful", 2300)):
-            calls = 1000 * reward.poisson_upper(0, reward.CAUTIONS[name][2]) / 2
+        """赤字の知らせの早さは依頼者ごと・3つの選び方（2026-10-17 ユーザー：案B「成果が0件のまま、使った費用が成果1件分の報酬の
+        4分の1・半分・1件分を超えたら知らせる」）。画面の例の本数（成果1件 1,000円・電話1本 2円）が、中の計算と合っている。"""
+        for name, examples in (("early", 125), ("normal", 250), ("careful", 500)):
+            calls = 1000 * reward.poisson_upper(0, reward.caution_confidence(name)) / 2
             self.assertLess(abs(calls - examples) / examples, 0.01, name)
             self.assertIn(f"約{examples:,}本", reward.CAUTIONS[name][1])
         s = self.ready()
@@ -288,12 +288,12 @@ class CostRatio(Priced):
     def test_a_count_that_can_vary_is_judged_only_when_sure(self):
         s = self.ready()
         self.put_client(s, "budget.client_daily_yen", 100000)
-        self.terms(s, per_completed_yen=1000)                          # 成果1件 1,000円。まだ成果0件
+        self.terms(s, per_completed_yen=1000, caution="normal")        # 成果1件 1,000円。まだ成果0件。中くらい＝成果1件分の半分
         self.priced("0.01")
-        self.spend(s, 2900)
-        self.assertEqual(self.warnings(s), [])                         # 0件でも、多めに見込めば約2,996円：まだ判断しない
-        self.spend(s, 100)
-        self.assertEqual(len(self.warnings(s)), 1)                     # 3,000円 ＞ 約2,996円：赤字と判断（まず警告）
+        self.spend(s, 490)
+        self.assertEqual(self.warnings(s), [])                         # 0件でも、成果半分（500円）まで見込む：まだ判断しない
+        self.spend(s, 20)
+        self.assertEqual(len(self.warnings(s)), 1)                     # 510円 ＞ 500円：赤字と判断（まず警告）
 
     def test_no_terms_is_a_notice_not_a_stop(self):
         """報酬の決まりが無いのは設定の抜け（お客様には影響しない）：止めずに「設定がされていません」を知らせる（2026-10-16
