@@ -6,7 +6,7 @@ import json
 import time
 import unittest
 
-from salescall.core import errors, settings, stops, watch
+from salescall.core import errors, fix_requests, settings, stops, watch
 from salescall.core.access import Rejected
 from salescall.core.errors import ErrorReport
 from tests.support import ADMIN, OPERATOR, SYSTEM, World, app_access, owner_access
@@ -22,7 +22,7 @@ class Classify(unittest.TestCase):
         self.assertEqual(c("ai", 1007, "見たことのない文面"), "unknown_ai")          # 番号だけでは決めない
         self.assertEqual(c("ai", None, None, unreachable=True), "ai_unreachable")
         self.assertEqual(c("ear", None, None, unreachable=True), "ear_unreachable")
-        self.assertEqual(c("ear", 1099, "x"), "ear_error")                 # 別の耳の不明：止めない（直しの依頼）
+        self.assertEqual(c("ear", 1099, "x"), "ear_error")                 # 別の耳の不明：止めない（CL-1 に修正依頼）
         self.assertEqual(c("ear", 503, "UNAVAILABLE"), "ear_unreachable")    # 別の耳の一時的な誤り：止めない
         self.assertEqual(c("ear", 1007, "thinking_level is not supported for this model"), "ear_error")
         self.assertEqual((c("line", None, "x"), c("storage", None, "x"), c("delivery", 500, "x")),
@@ -256,12 +256,12 @@ class TenantAiStopsAndChecks(unittest.TestCase):
             self.a.in_system(OPERATOR, lambda tx: stops.resume(tx, sid, reason="試験"))
         self.a.in_system(ADMIN, lambda tx: stops.resume(tx, sid, reason="試験"))
 
-    def test_the_contractor_can_resume_and_the_admin_is_asked_to_fix(self):
+    def test_the_contractor_can_resume_and_cl1_is_asked_to_fix(self):
         sid = self.config_stop()                                       # システムが止めた契約者の停止（根源的）
         why = self.a.in_tenant(OPERATOR, self.s["tenant"], lambda tx: stops.explain(tx, sid))
         self.assertEqual(why["who_can_resume"], "その契約者・管理者")
         self.assertIn("設定の誤り", why["errors"][0]["meaning"])
-        self.assertIn("根源的なもの：管理者に直しを依頼しました", why["stop"]["reason"])
+        self.assertIn("根源的なもの：CL-1 に修正依頼を出しました", why["stop"]["reason"])
         admin = self.a.in_system(ADMIN, lambda tx: tx.all(
             "SELECT summary FROM salescall.notification_events WHERE event_key = %s", (f"admin:stop:{sid}",)))
         self.assertEqual([a["summary"] for a in admin], ["発信を止めました（契約者：会話AIの異常）。"])
@@ -353,8 +353,8 @@ class TenantAiStopsAndChecks(unittest.TestCase):
                          [True])
         self.assertEqual(self.a.in_client(OPERATOR, s["tenant"], s["client"], lambda tx: tx.all(sql, (like,))), [])
 
-    def test_a_storage_failure_does_not_stop_and_asks_the_admin(self):
-        """保存の失敗は全体を止めない：管理者に直しを依頼し、ほかの行は続ける（2026-10-16 ユーザー：「理由を記載とあなたへの
+    def test_a_storage_failure_does_not_stop_and_asks_cl2_to_fix_it(self):
+        """保存の失敗は止めない：CL-2 に修正依頼を出し、ほかの行は続ける。管理者は確かめ・承認だけ（2026-10-16 ユーザー：「理由を記載とあなたへの
         修正依頼をして、次の行に進んだらいいでしょ」）。保存できなかった通話は締めが済まないので、門がその行と同じお客様を守る。
         2026-10-17：前は行に「判定待ち」を別に付けていたが、締めのあとに付くと解く道が無く、止まり続けたので外した。"""
         w = World(); s = w.setup()
@@ -373,7 +373,42 @@ class TenantAiStopsAndChecks(unittest.TestCase):
         admin = self.a.in_system(ADMIN, lambda tx: tx.all(
             "SELECT summary FROM salescall.notification_events WHERE event_key LIKE %s",
             (f"admin:error:storage:{s['tenant']}:{s['client']}:%",)))
-        self.assertEqual([a["summary"] for a in admin], ["直しの依頼：保存に失敗しました"])   # 注意は短く
+        self.assertEqual([a["summary"] for a in admin], ["CL-2 に修正依頼：保存に失敗しました"])   # 注意は短く
+        got = [r for r in self.a.in_system(SYSTEM, lambda tx: fix_requests.open_requests(tx, "CL-2"))
+               if r["refs"].get("tenant_id") == str(s["tenant"])]
+        self.assertEqual([(r["kind"], r["summary"]) for r in got], [("storage", "保存に失敗しました")])
+
+    def test_a_missing_recording_does_not_stop_the_line_and_asks_for_a_fix(self):
+        """録音が残らない通話があっても、回線を止めない。修正依頼を出し、ほかの行は続ける（2026-10-17 ユーザー：「また止めて人に
+        介在してもらってるじゃないか…止めずに CL1 か CL2 に修正依頼を出さないといけないだろ」）。"""
+        w = World(); s = w.setup()
+        for _ in range(5):
+            watch.after_error(self.a, SYSTEM, ErrorReport("recording", None, "試験：録音のファイルが無い"),
+                              tenant_id=s["tenant"], client_id=s["client"], line_id=s["line"])
+        self.assertEqual(self.a.in_tenant(SYSTEM, s["tenant"], lambda tx: stops.open_stops(
+            tx, tenant_id=s["tenant"], client_id=None, business_id=None, line_id=s["line"])), [])
+        got = self.a.in_system(SYSTEM, lambda tx: fix_requests.open_requests(tx, "CL-2"))
+        self.assertIn("recording", [r["kind"] for r in got])
+
+    def test_the_assignee_reports_the_fix_and_only_the_admin_approves(self):
+        """担当が「直した」を書き、管理者が確かめて承認する（人は承認だけ）。契約者には修正依頼は見えない。"""
+        w = World(); s = w.setup()
+        watch.after_error(self.a, SYSTEM, ErrorReport("storage", None, "試験：書き込めない"),
+                          tenant_id=s["tenant"], client_id=s["client"])
+        rid = [r for r in self.a.in_system(SYSTEM, lambda tx: fix_requests.open_requests(tx, "CL-2"))
+               if r["refs"].get("tenant_id") == str(s["tenant"])][0]["request_id"]
+        self.assertEqual(self.a.in_tenant(OPERATOR, s["tenant"], lambda tx: tx.all(
+            "SELECT 1 FROM salescall.fix_requests")), [])
+        with self.assertRaises(Rejected):                                       # 承認を先に書けない・システムは承認できない
+            self.a.in_system(SYSTEM, lambda tx: fix_requests.approve(tx, rid))
+        with self.assertRaises(Rejected):                                       # 「直した」は人が書かない
+            self.a.in_system(ADMIN, lambda tx: fix_requests.report_fixed(tx, rid, "試験"))
+        self.a.in_system(SYSTEM, lambda tx: fix_requests.report_fixed(tx, rid, "試験：書き込みの誤りを直した"))
+        with self.assertRaises(Rejected):
+            self.a.in_system(SYSTEM, lambda tx: fix_requests.approve(tx, rid))
+        self.a.in_system(ADMIN, lambda tx: fix_requests.approve(tx, rid))
+        self.assertNotIn(rid, [r["request_id"] for r in self.a.in_system(SYSTEM, lambda tx: fix_requests.open_requests(
+            tx, "CL-2"))])
 
     def test_notify_once_an_hour(self):
         for _ in range(2):

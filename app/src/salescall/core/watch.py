@@ -23,7 +23,7 @@ from datetime import timedelta
 from typing import Any
 from uuid import UUID
 
-from salescall.core import errors, notify, settings, stops
+from salescall.core import errors, fix_requests, notify, settings, stops
 from salescall.core.access import Access, Actor, Tx
 
 # 確かめで解ける原因 → （確かめの間隔, 何回続けて成功したら解くか）の設定の名前
@@ -53,19 +53,21 @@ def record_error(tx: Tx, report: errors.ErrorReport, *, line_id: UUID | None = N
         "           salescall.cur_tenant() AS tenant, salescall.cur_client() AS client",
         (line_id, attempt_id, report.source, kind, report.code, report.message))
     action = errors.ACTIONS[kind]
-    # エラーの一覧と処置はプログラム（直せるのは管理者だけ）なので、どの種類も管理者に知らせる。根源的なものは「直しの依頼」。
-    # 契約者には、処置の表が「知らせる」とした種類だけ
-    notify.emit(tx, "error_notice", key=f"error:{kind}:{row['tenant']}:{row['client']}:{row['hour']}",
-                summary=f"{'直しの依頼' if action.fundamental else 'エラー'}：{errors.LABELS[kind]}",
-                refs={"error_id": row["error_id"], "kind": kind, "fundamental": action.fundamental,
-                      "attempt_id": attempt_id},
-                admin=True, contractor=action.notify)
+    key = f"{kind}:{row['tenant']}:{row['client']}:{row['hour']}"
+    refs = {"error_id": row["error_id"], "kind": kind, "attempt_id": attempt_id}
+    # 根源的なもの（待っても直らない）は、止めずに直す担当へ修正依頼を出す（2026-10-17 ユーザー：「人はそのプロセスをチェック
+    # もしくは承認するだけ」）。管理者には、どの種類も知らせる（確かめ・承認のため）。契約者には、処置の表が「知らせる」とした種類だけ
+    if action.fixer is not None:
+        fix_requests.request(tx, action.fixer, kind, key=f"error:{key}", summary=errors.LABELS[kind], refs=refs)
+    notify.emit(tx, "error_notice", key=f"error:{key}",
+                summary=(f"{action.fixer} に修正依頼：" if action.fixer else "エラー：") + errors.LABELS[kind],
+                refs={**refs, "fixer": action.fixer}, admin=True, contractor=action.notify)
     return kind
 
 
 def decide_stop(tx: Tx, kind: str, *, line_id: UUID | None = None) -> dict[str, Any] | None:
     """処置の表のとおり、止めるなら止める（その契約者の取引で呼ぶ：契約者＝その契約者の会話AIの異常／回線＝その回線）。
-    止めた停止の記録を返す（止めなければ None）。根源的なもの（直せるのが管理者だけ）は、管理者にも知らせる。"""
+    止めた停止の記録を返す（止めなければ None）。根源的なもの（直す担当へ修正依頼を出したもの）は、管理者にも知らせる（確かめ・承認のため）。"""
     action = errors.ACTIONS[kind]
     if action.stop_cause is None:
         return None
@@ -86,7 +88,7 @@ def decide_stop(tx: Tx, kind: str, *, line_id: UUID | None = None) -> dict[str, 
     need = 1 if action.stop_after is None else int(_tenant_setting(tx, action.stop_after, tenant))
     if n < need:
         return None
-    how = ("根源的なもの：管理者に直しを依頼しました。直るまで新しい発信を待ちます" if action.fundamental
+    how = (f"根源的なもの：{action.fixer} に修正依頼を出しました。直るまで新しい発信を待ちます" if action.fundamental
            else "一時的なもの：直ったら自動で続けます")
     return stops.stop(tx, scope=action.stop_scope, cause=action.stop_cause,
                       reason=f"{action.meaning}（続けて {n} 回。基準 {need} 回。{how}）", evidence=f"エラーの種類：{kind}",

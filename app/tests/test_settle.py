@@ -6,8 +6,8 @@ import time
 import unittest
 from datetime import timedelta
 
-from salescall.core import (attempts, business_rules, calling_hours, call_report, dnc, gate, next_action, quality_stage, results,
-                            settle, stops, watch)
+from salescall.core import (attempts, business_rules, calling_hours, call_report, dnc, fix_requests, gate, next_action,
+                            quality_stage, results, settle, stops, watch)
 from salescall.core.errors import ErrorReport
 from salescall.core.access import Rejected
 from salescall.core.call_report import CallReport, Callback, Cut
@@ -208,7 +208,7 @@ class Settle(SettleBase):
 
     def test_a_verification_that_cannot_run_waits_and_never_ends_the_row(self):
         """通話後の確かめができないのは、仕組みの不具合だけ。行を終えず、確かめは待ちのまま（直ってからやり直す）。待っているあいだ、
-        門は同じお客様にかけない（2026-10-17 ユーザー：「そんな状態自体が問題では？」）。「確かめられなかった」は書けない。"""
+        門は同じお客様にかけない（2026-10-17 ユーザー：「そんな状態自体が問題では？」）。「確かめられなかった」は書けない。録音が残らなくても回線は止めず、修正依頼を出す。"""
         s = self.ready()
         aid = self.call(s, verify=None)
         with self.assertRaises(Rejected):
@@ -222,9 +222,11 @@ class Settle(SettleBase):
         kind = watch.after_error(app_access(), SYSTEM, ErrorReport("recording", None, "試験：録音のファイルが無い"),
                                  tenant_id=s["tenant"], client_id=s["client"], line_id=s["line"], attempt_id=aid)
         self.assertEqual(kind, "recording")
-        self.assertEqual([r["cause"] for r in self.tx(s, lambda tx: stops.open_stops(
+        self.assertEqual([r for r in self.tx(s, lambda tx: stops.open_stops(
             tx, tenant_id=s["tenant"], client_id=None, business_id=None, line_id=s["line"])) if r["scope"] == "line"],
-            ["line_failure"])                                           # 録音が残らない回線は、すぐ止める
+            [])                                                         # 回線は止めない（修正依頼を出して、ほかの行を続ける）
+        self.assertIn("recording", [r["kind"] for r in app_access().in_system(SYSTEM, lambda tx: fix_requests.open_requests(
+            tx, "CL-2"))])
         self.tx(s, lambda tx: attempts.record_verification(tx, aid, summary=CLEAN))   # 直ってからやり直して済めば
         got = self.settle(s, aid)
         self.assertNotEqual(got["decision"].kind, "end")

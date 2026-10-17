@@ -41,8 +41,8 @@ class CauseInfo:
 CAUSES: dict[str, CauseInfo] = {
     "manual": CauseInfo("緊急停止", "管理者か契約者が押した緊急停止", "自動では解かない（管理者か契約者だけが解く）",
                         "押した理由が片付いたか"),
-    "storage_failure": CauseInfo("保存の失敗", "記録の保存の失敗（いまは、この原因で止める処理は無い：保存の失敗では止めず、管理者に"
-                                 "直しを依頼して、ほかの行を続ける。2026-10-16 ユーザー）",
+    "storage_failure": CauseInfo("保存の失敗", "記録の保存の失敗（いまは、この原因で止める処理は無い：保存の失敗では止めず、CL-2 に"
+                                 "修正依頼を出して、ほかの行を続ける。2026-10-16 ユーザー）",
                                  "自動では解かない（この原因で止める処理が無い）", "データベースの状態"),
     "line_failure": CauseInfo("回線の異常", "その回線の異常が続いた（発信の失敗・回線の上限・端末やアプリの異常）",
                               "回線の応答の確かめが、決めた回数続けて成功したら解く",
@@ -77,7 +77,7 @@ CAUSES: dict[str, CauseInfo] = {
 def stop(tx: Tx, *, scope: Scope, cause: Cause, reason: str, evidence: str | None = None,
          tenant_id: UUID | None = None, client_id: UUID | None = None, business_id: UUID | None = None,
          line_id: UUID | None = None, admin: bool = False) -> dict[str, Any]:
-    """止める。止めた記録と、取り消した予約の数を返す。admin＝管理者あての写しも知らせる（直せるのが管理者だけの原因・
+    """止める。止めた記録と、取り消した予約の数を返す。admin＝管理者あての写しも知らせる（担当へ修正依頼を出した原因＝管理者は確かめ・承認・
     ユーザーが「管理者へ知らせる」と決めた停止。決めるのは呼ぶ側の1か所）。知らせは短く、範囲と原因の短い名前だけ（理由・根拠は
     `explain`＝画面の「止まった理由」で見る。2026-10-17 ユーザー：注意は短く、詳しくは i マークで）。"""
     row = tx.one(

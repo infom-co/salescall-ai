@@ -40,19 +40,21 @@ from salescall.core.business_rules import Rules
 from salescall.core.call_report import CallReport
 
 JUDGE_VERSION = "judge-2026-10-17.3"
-# 「判定できない」の原因の名前（同じ原因かを数える単位）と意味。プログラムの誤りか（直せるのは管理者だけ＝管理者にも知らせる。
-# 2026-10-16 ユーザー承認）も、ここで決まる（1か所）。業務設定の抜けは契約者が直す（いまは無い：業務の決まりは、必須の質問ごとに、
+# 「判定できない」の原因の名前（同じ原因かを数える単位）と意味。プログラムの誤りか（直す担当へ修正依頼を出し、管理者にも
+# 知らせる＝確かめ・承認のため。2026-10-16・10-17 ユーザー）も、ここで決まる（1か所）。業務設定の抜けは契約者が直す（いまは無い：業務の決まりは、必須の質問ごとに、
 # 決まった理由のすべてに扱いが無いと保存できない＝business_rules。2026-10-16 見直し：前は「理由×扱いが決まらない」を業務設定の
 # 抜けとしていたが、起きるのは会話の処理が理由を書かなかった・一覧に無い理由を書いたときだけ）。
 UNKNOWN_CAUSES: dict[str, str] = {
-    "report_missing": "お客様が出た通話なのに、会話の報告が無い（会話の処理の誤り。直すのは管理者）",
-    "cut_missing": "お客様と話した通話なのに、切れ方の材料が報告に無い（会話の処理の誤り。直すのは管理者）",
+    "report_missing": "お客様が出た通話なのに、会話の報告が無い（会話の処理の誤り。直すのは CL-1）",
+    "cut_missing": "お客様と話した通話なのに、切れ方の材料が報告に無い（会話の処理の誤り。直すのは CL-1）",
     "reason_missing": "取れていない必須の質問の「わからない」「答えない」に、理由が無い・決まった理由のどれでもない"
-                      "（会話の処理の誤り。直すのは管理者）",
-    "not_reached_reason_missing": "目的のお客様に繋がらなかった理由が報告に無い（会話の処理の誤り。直すのは管理者）",
+                      "（会話の処理の誤り。直すのは CL-1）",
+    "not_reached_reason_missing": "目的のお客様に繋がらなかった理由が報告に無い（会話の処理の誤り。直すのは CL-1）",
 }
-PROGRAM_CAUSES = frozenset({"report_missing", "cut_missing", "reason_missing",
-                            "not_reached_reason_missing"})   # プログラムの誤り（管理者が直す）
+# プログラムの誤りと、直す担当（止めずに修正依頼を出す。人は確かめ・承認だけ＝2026-10-17 ユーザー）
+UNKNOWN_CAUSE_FIXERS: dict[str, str] = {"report_missing": "CL-1", "cut_missing": "CL-1", "reason_missing": "CL-1",
+                                        "not_reached_reason_missing": "CL-1"}
+PROGRAM_CAUSES = frozenset(UNKNOWN_CAUSE_FIXERS)
 TAKEN = frozenset({"confirmed", "accepted"})                  # 「取れた」の定義（4-4。ここで2つ目を作らない）
 HUMAN_PARTIES = frozenset({"reception", "target", "wrong_party"})
 

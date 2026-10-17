@@ -21,10 +21,11 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from salescall.core import (apology, approval, attempts, business_rules, call_report, dnc, next_action, notify, number_recheck,
-                            quality_stage, results, settings, target_policy, tasks, usage)
+from salescall.core import (apology, approval, attempts, business_rules, call_report, dnc, fix_requests, next_action, notify,
+                            number_recheck, quality_stage, results, settings, target_policy, tasks, usage)
 from salescall.core.access import Tx
-from salescall.core.judge import JUDGE_VERSION, PROGRAM_CAUSES, Facts, Item, JudgeInput, Judgement, judge, refusal
+from salescall.core.judge import (JUDGE_VERSION, UNKNOWN_CAUSE_FIXERS, UNKNOWN_CAUSES, Facts, Item, JudgeInput, Judgement,
+                                  judge, refusal)
 from salescall.core.phone import normalize
 
 
@@ -98,10 +99,7 @@ def _settle_apology(tx: Tx, a: dict[str, Any]) -> dict[str, Any]:
         # 断ったかを決められない（会話の報告・切れ方の材料の抜け＝こちらの誤り）：ふつうの通話と同じく、何も決めずに残す。
         # 締めずにおくので、この行と同じお客様のほかの行も、決まるまでかけない（2026-10-17 の見直し：前は「もうかけない」で
         # 締めてしまい、同じお客様のほかの行が、断ったかもしれないお客様へすぐかけえた）。報告を作り直せば、締め直される
-        notify.emit(tx, "judge_unknown", key=f"judge_unknown:{attempt_id}", admin=j.detail.get("unknown_cause") in PROGRAM_CAUSES,
-                    summary="お詫びの電話で、断られたかを決められませんでした（決まるまで、このお客様にはかけません）。",
-                    refs={"attempt_id": attempt_id, "task_id": a["task_id"], "unknown_cause": j.detail.get("unknown_cause"),
-                          "error": j.detail.get("error")})
+        _notice_unknown(tx, a, j, "お詫びの電話で、断られたかを決められませんでした（決まるまで、このお客様にはかけません）。")
         cur = next_action.current(tx, a["task_id"])
         if cur is None or cur["kind"] != "hold":
             next_action.hold(tx, a["task_id"], cause=f"お詫びの電話：断ったかを決められない（{j.detail.get('unknown_cause')}）")
@@ -257,13 +255,8 @@ def _judge_and_write(tx: Tx, a: dict[str, Any], *, kind: str, rules_version: Any
     version_no = results.append(tx, a["task_id"], kind=kind, business_state=j.state, attempt_id=attempt_id,
                                 judge_version=JUDGE_VERSION, complaint=j.complaint, snapshot=snapshot, detail=j.detail,
                                 decided_by="判定")
-    if not decided:   # 判定できない：こちらの誤り。行は判定待ちで残す（次の動き）。契約者へ知らせる（その試行で1回）。
-        #               プログラムの誤りなら管理者にも（直せるのは管理者だけ。原因ごとの決まりは judge の1か所）
-        notify.emit(tx, "judge_unknown", key=f"judge_unknown:{attempt_id}",
-                    admin=j.detail.get("unknown_cause") in PROGRAM_CAUSES,
-                    summary="判定できない通話がありました（判定待ちで残しています）。",   # 注意は短く（原因は refs と画面で）
-                    refs={"attempt_id": attempt_id, "task_id": a["task_id"], "judge_version": JUDGE_VERSION,
-                          "unknown_cause": j.detail.get("unknown_cause"), "error": j.detail.get("error")})
+    if not decided:   # 判定できない：こちらの誤り。行は判定待ちで残す（次の動き）
+        _notice_unknown(tx, a, j, "判定できない通話がありました（判定待ちで残しています）。")   # 注意は短く（原因は refs と画面で）
     forbidden = _notice_forbidden(tx, a)   # 言ってはいけないことを言った：その行はひとまず終え、契約者へ知らせる
     if j.complaint:
         # 苦情があった：その行は終える（次の動き）。苦情は、契約者が対応する特例（Intent.md 18-3「クレームになりそうなときなど、
@@ -277,6 +270,20 @@ def _judge_and_write(tx: Tx, a: dict[str, Any], *, kind: str, rules_version: Any
         dialed=next_action.Target(a["contact_id"], None, a["purpose"], a["wrong_contact_id"]), dialed_at=a["claimed_at"],
         alternate=alternate, recheck=recheck, forbidden=forbidden)
     return {"version_no": version_no, "state": j.state, "decision": decision, "already": False}
+
+
+def _notice_unknown(tx: Tx, a: dict[str, Any], j: Judgement, summary: str) -> None:
+    """判定できない（断られたかを決められない）通話を知らせる1か所（その試行で1回）：契約者へ知らせる。プログラムの誤りなら、
+    止めずに直す担当へ修正依頼を出し、管理者にも知らせる（確かめ・承認のため。担当は judge.UNKNOWN_CAUSE_FIXERS の1か所）。"""
+    cause = j.detail.get("unknown_cause")
+    refs = {"attempt_id": a["attempt_id"], "task_id": a["task_id"], "judge_version": JUDGE_VERSION,
+            "unknown_cause": cause, "error": j.detail.get("error")}
+    fixer = UNKNOWN_CAUSE_FIXERS.get(cause)
+    if fixer is not None:
+        fix_requests.request(tx, fixer, cause, key=f"judge_unknown:{a['attempt_id']}", summary=UNKNOWN_CAUSES[cause],
+                             refs=refs)
+    notify.emit(tx, "judge_unknown", key=f"judge_unknown:{a['attempt_id']}", admin=fixer is not None, summary=summary,
+                refs={**refs, "fixer": fixer})
 
 
 def _number_material(tx: Tx, a: dict[str, Any], e164: str | None, *, source_attempt_id: UUID) -> next_action.Alternate:

@@ -11,9 +11,9 @@
   `_evaluate_production`（その日のうちに同じ原因が設定の件数になったら止めて、管理者へ知らせる。2026-10-16 ユーザー決定）：
   - 数の基準は、毎回見る。超えたら、その場で業務を止める：言ってはいけないこと（0件まで。原因 forbidden_speech）・
     判定できない（**1件で止める**。原因 judge_unknown。止める理由に、判定できない原因の名前と意味を入れる。2026-10-16 ユーザー決定：
-    (a)(c)(d)）。管理者にも知らせるかは `_stop` の1か所で決める（本番の停止と、直せるのが管理者だけの判定できない原因
-    ＝`judge.PROGRAM_CAUSES`）。
-  - 割合の基準（2つの耳の食い違い・苦情・技術的な失敗・検証できなかった）は、段の件数に達し、その分がすべて締め終わったときに見る
+    (a)(c)(d)）。管理者にも知らせるかは `_stop` の1か所で決める（本番の停止と、プログラムの誤りの判定できない原因
+    ＝`judge.PROGRAM_CAUSES`。直す担当へは締めの処理が修正依頼を出し、管理者は確かめ・承認）。
+  - 割合の基準（2つの耳の食い違い・苦情・技術的な失敗）は、段の件数に達し、その分がすべて締め終わったときに見る
     （小さな数の割合はぶれるため）。内側なら次の段へ（最後の段のあとは全部）、外れたら業務を止める（原因 quality_gate）。
   - 評価のたびに、指標ごとの値・基準・内側か外か・結果を記録する（CL-3 の 4-1e の2）。
 - 記録が無い版は、まだかけられない（模擬通話の合格・最初の段を開く前。判断できなければ通さない）。
@@ -301,7 +301,7 @@ def evaluate(tx: Tx, version_id: UUID) -> dict[str, Any] | None:
 def _stop(tx: Tx, v: dict[str, Any], version_id: UUID, cause: str, reason: str, *, production: bool,
           unknown_cause: str | None) -> int:
     """品質で業務を止める（検証モードも本番も、ここだけ）。管理者にも知らせるか：本番の停止（2026-10-16 ユーザー決定：「業務を止め、
-    管理者へ知らせる」）と、判定できない原因が、直せるのが管理者だけのもの（`judge.PROGRAM_CAUSES`。Intent.md 1-4）のとき。"""
+    管理者へ知らせる」）と、判定できない原因がプログラムの誤り（`judge.PROGRAM_CAUSES`。直す担当へは締めの処理が修正依頼を出す。管理者は確かめ・承認）のとき。"""
     admin = production or (cause == "judge_unknown" and unknown_cause in PROGRAM_CAUSES)
     return stops.stop(tx, scope="business", cause=cause, reason=reason, evidence=f"version_id={version_id}",
                       tenant_id=v["tenant_id"], client_id=v["client_id"], business_id=v["business_id"],
