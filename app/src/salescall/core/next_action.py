@@ -43,7 +43,8 @@ def current(tx: Tx, task_id: UUID) -> dict[str, Any] | None:
     )
 
 
-PURPOSES = ("normal", "ask_number_again", "apology")   # 発信の目的：ふつう／番号の聞き直し（3-5）／お詫び（10-1-2）
+PURPOSES = ("normal", "ask_number_again", "apology", "resume")   # 発信の目的：ふつう／番号の聞き直し（3-5）／お詫び（10-1-2）／
+#                                                                   続き（途中で切れた通話のかけ直し。お詫びから始めて続ける）
 
 
 @dataclass(frozen=True)
@@ -223,7 +224,7 @@ class AskAgain:
     at: datetime | None          # まだ試していない時間帯の、次にかけられる時刻（無ければ None）
 
 
-def decide_after_call(j: Judgement, *, normal: gate.Pacing, promised: gate.Pacing, rules: Rules,
+def decide_after_call(j: Judgement, *, cut_off: bool = False, normal: gate.Pacing, promised: gate.Pacing, rules: Rules,
                       times_with_key: int, now: datetime, target: Target, retry_at: datetime | None,
                       ask: AskAgain | None = None, forbidden: bool = False) -> Decision:
     """通話のあとの次の動き。normal / promised＝次にかける先へ、ふつうの予定・約束したかけ直しにした場合の門の数え方。
@@ -248,6 +249,13 @@ def decide_after_call(j: Judgement, *, normal: gate.Pacing, promised: gate.Pacin
     if j.state == "not_reached" and j.detail.get("not_reached") == "wrong_alternate":
         # お客様に頼まれたかけ直しが、まだ果たせていない（番号違い）：約束したかけ直しのまま、すぐ（門の最も早い時刻）
         return _call(promised.earliest or now, True, "言われた番号が番号違い：番号の確かめのとおり", target)
+    # 途中で切れた（お客様が出たあと、こちらの仕組みが止まった・回線が切れた＝お客様の意思ではない）：復旧次第、お詫びとともに
+    # すぐかけ直す（2026-10-17 ユーザー：「復旧次第、お詫びとともにすぐかけ直さないといけないでしょ！」）。目的「続き」で、会話は
+    # お詫びから始めて続ける。お客様が時刻を言ったかけ直しの約束があれば、その時刻を守る（下）
+    if cut_off and target.purpose in ("normal", "resume") and not (
+            j.state == "callback_scheduled" and j.detail["callback"]["at"] is not None):
+        return _call(promised.earliest or now, True, "途中で切れた：復旧次第、お詫びとともにすぐかけ直す",
+                     Target(target.contact_id, purpose="resume"))
     if j.state == "callback_scheduled":
         cb = j.detail["callback"]
         callee_at = None
@@ -313,8 +321,10 @@ def _write(tx: Tx, task_id: UUID, d: Decision) -> int:
 
 
 def after_call(tx: Tx, task_id: UUID, j: Judgement, *, rules: Rules, dialed: Target,
-               dialed_at: datetime, alternate: Alternate | None, recheck: Recheck | None, forbidden: bool) -> Decision:
+               dialed_at: datetime, alternate: Alternate | None, recheck: Recheck | None, forbidden: bool,
+               cut_off: bool = False) -> Decision:
     """締めの処理（core/settle.py）だけが呼ぶ。判定の結果から次の動きを決めて記録する（同じ取引）。
+    cut_off＝お客様が出たあと、お客様の意思と関係なく途中で切れた（決めるのは締めの処理の1か所）。
     dialed＝この通話でかけた先（番号・目的）、dialed_at＝かけた時刻。alternate＝お客様が言った別の番号の材料（言われたときだけ）。
     recheck＝言われた番号が番号違いだったときの番号の確かめ（そのときだけ）。"""
     now = tx.one("SELECT now() AS now")["now"]
@@ -330,7 +340,7 @@ def after_call(tx: Tx, task_id: UUID, j: Judgement, *, rules: Rules, dialed: Tar
         ask = _new_band_retry(tx, task_id, max(now, promised.earliest or now), purpose="ask_number_again")
     policy = rules.retry.get(key) if key is not None else None
     retry_at = _retry_at(tx, task_id, policy.interval, now, dialed_at) if policy and policy.action == "call" else None
-    d = decide_after_call(j, normal=gate.pacing(tx, task_id, contact_id=count_at, promised=False),
+    d = decide_after_call(j, cut_off=cut_off, normal=gate.pacing(tx, task_id, contact_id=count_at, promised=False),
                           promised=promised, rules=rules, times_with_key=times, now=now, target=target,
                           retry_at=retry_at, ask=ask, forbidden=forbidden)
     _write(tx, task_id, d)

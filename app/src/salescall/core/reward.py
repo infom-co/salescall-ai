@@ -15,7 +15,8 @@
     （salescall.work_seconds）。
   - お詫びの電話（こちらの誤りのため）は、どの報酬にも数えない（かけた1本・話せた1本・時給）。費用には数える。
 - **ぶれを多めに見込んだ報酬**（`upper`）：成果と話せた本数は偶然でぶれる（月の初めに成果0件でも、本当の成果の割合が低いとは
-  限らない）。そこで、この2つの数を、確かさ（依頼者ごとの報酬の決まり `Terms.judge_confidence`。2026-10-17 ユーザー：「依頼者ごと」）の上側まで多めに見込んだ報酬も出す（ポアソン分布の
+  限らない）。そこで、この2つの数を、確かさ（依頼者ごとの報酬の決まりの「赤字の知らせの慎重さ」＝`CAUTIONS`。2026-10-17 ユーザー：「依頼者ごと」「初めての契約者
+  でも分かるように」）の上側まで多めに見込んだ報酬も出す（ポアソン分布の
   上側の限界）。判断する側は、これでも上限・赤字になるときだけ判断する ⇒ 判断し始める本数を決め打ちにせず、報酬と費用から
   逆算される（例：成果1件 1,000円・1本 約2円なら、成果0件のまま約1,500本＝約3,000円で赤字と判断）。
 """
@@ -31,11 +32,29 @@ from typing import Any
 from salescall.core.access import Tx
 
 
+# 赤字の知らせの慎重さ（2026-10-17 ユーザー：「初めての契約者でも分かるように」）。画面に出す名前と説明、中の確かさは、ここだけ。
+# 例は「成果1件 1,000円・電話1本 約2円の依頼者で、まだ成果が0件のとき、何本かけたところで赤字と知らせるか」（どれも計算で出した数）
+CAUTIONS: dict[str, tuple[str, str, float]] = {
+    "early": ("早めに知らせる",
+              "成果がまだ出ていない時期でも、早めに赤字をお知らせします。成果がたまたま遅れているだけのときも、お知らせが出ることが"
+              "あります（例：約800本で）", 0.80),
+    "normal": ("ふつう（おすすめ）",
+               "早すぎず遅すぎず、赤字をお知らせします（例：約1,500本で）", 0.95),
+    "careful": ("よく確かめてから知らせる",
+                "成果がたまたま遅れているだけの時期には、ほとんどお知らせしません。そのぶん、お知らせは遅くなります（例：約2,300本で）",
+                0.99),
+}
+# 時給の「電話と電話の間」の画面の初めの値と、上下のボタン1回の幅（秒。2026-10-17 ユーザー：「デフォルト2分、ボタン1回で30秒ずつ」）
+HOURLY_GAP_INITIAL_SECONDS = 120
+HOURLY_GAP_STEP_SECONDS = 30
+
+
 @dataclass(frozen=True)
 class Terms:
-    """報酬の決まり（円）。使わない形は 0。judge_confidence（赤字かの判断の慎重さ。例 0.95＝取り違えを20回に1回より少なく）は
-    必ず書く。hourly_gap_seconds（電話と電話の間の秒数）は、時給の決まりがあるときは必ず書く（どちらも入れ忘れを既定値で埋めない）。"""
-    judge_confidence: Decimal | None = None
+    """報酬の決まり（円）。使わない形は 0。deficit_caution（赤字の知らせの慎重さ：`CAUTIONS` の名前）は必ず書く。
+    hourly_gap_seconds（電話と電話の間の秒数）は、時給の決まりがあるときは必ず書く（どちらも入れ忘れを既定値で埋めない。
+    画面は初めの値を見せて、契約者が確かめて登録する）。"""
+    deficit_caution: str | None = None
     per_completed_yen: Decimal = Decimal(0)
     per_dial_yen: Decimal = Decimal(0)
     per_talk_yen: Decimal = Decimal(0)
@@ -49,17 +68,17 @@ def set_terms(tx: Tx, terms: Terms, *, valid_from: datetime, note: str) -> int:
     if not any(v > 0 for v in (terms.per_completed_yen, terms.per_dial_yen, terms.per_talk_yen, terms.monthly_yen,
                                terms.hourly_yen)):
         raise ValueError("報酬の決まりが、どれも 0 円です")
-    if terms.judge_confidence is None:
-        raise ValueError("赤字かの判断の慎重さ（judge_confidence）がありません")
+    if terms.deficit_caution not in CAUTIONS:
+        raise ValueError(f"赤字の知らせの慎重さは {list(CAUTIONS)} のどれかです（{terms.deficit_caution!r}）")
     if terms.hourly_yen > 0 and terms.hourly_gap_seconds is None:
         raise ValueError("時給の決まりには、電話と電話の間の秒数（hourly_gap_seconds）が要ります")
     return tx.one(
         "INSERT INTO salescall.reward_terms (tenant_id, client_id, valid_from, per_completed_yen, per_dial_yen, per_talk_yen,"
-        " monthly_yen, hourly_yen, hourly_gap_seconds, judge_confidence, note, set_by)"
+        " monthly_yen, hourly_yen, hourly_gap_seconds, deficit_caution, note, set_by)"
         " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s, %s, %s, %s, %s, %s, salescall.cur_actor())"
         " RETURNING terms_id",
         (valid_from, terms.per_completed_yen, terms.per_dial_yen, terms.per_talk_yen, terms.monthly_yen, terms.hourly_yen,
-         terms.hourly_gap_seconds, terms.judge_confidence, note))["terms_id"]
+         terms.hourly_gap_seconds, terms.deficit_caution, note))["terms_id"]
 
 
 def _upper_q(a: float, x: float) -> float:
@@ -117,7 +136,7 @@ def month(tx: Tx) -> dict[str, Any]:
     """取引の依頼者の、今月（日本時間）の数。cost・revenue（合計）・breakdown（形ごとの数と円。時給は秒）・
     upper（成果と話せた本数を、確かさ confidence の上側まで多めに見込んだ報酬）・has_terms（報酬の決まりがあるか）・
     unpriced_entries（単価が設定されておらず金額の無い利用量の数。費用はその分を含まない＝画面で注意として出す）。
-    確かさは、いまの報酬の決まりの judge_confidence（決まりが無ければ、多めに見込まない）。"""
+    確かさは、いまの報酬の決まりの赤字の知らせの慎重さ（`CAUTIONS`。決まりが無ければ、多めに見込まない）。"""
     b = tx.one("SELECT salescall.from_jst(date_trunc('month', salescall.jst(now()))) AS s,"
                " salescall.from_jst(date_trunc('month', salescall.jst(now())) + interval '1 month') AS e, now() AS now")
     events = {
@@ -138,7 +157,7 @@ def month(tx: Tx) -> dict[str, Any]:
     work = tx.one(f"SELECT coalesce(sum(x.seconds), 0) AS s, coalesce(sum(x.seconds / 3600 * {_PRICE_AT.format(col='hourly_yen')}),"
                   " 0) AS yen FROM salescall.work_seconds(%s, %s) x", (b["s"], b["now"]))
     breakdown["hourly"] = {"count": None, "seconds": Decimal(work["s"]), "yen": Decimal(work["yen"])}
-    terms = tx.all("SELECT valid_from, monthly_yen, per_completed_yen, per_talk_yen, judge_confidence FROM salescall.reward_terms"
+    terms = tx.all("SELECT valid_from, monthly_yen, per_completed_yen, per_talk_yen, deficit_caution FROM salescall.reward_terms"
                    " ORDER BY valid_from")
     monthly, span = Decimal(0), (b["e"] - b["s"]).total_seconds()
     for i, t in enumerate(terms):
@@ -158,6 +177,6 @@ def month(tx: Tx) -> dict[str, Any]:
         if now_terms is None:
             break
         k = breakdown[name]["count"]
-        upper += Decimal(now_terms[col]) * Decimal(str(poisson_upper(k, float(now_terms["judge_confidence"])) - k))
+        upper += Decimal(now_terms[col]) * Decimal(str(poisson_upper(k, CAUTIONS[now_terms["deficit_caution"]][2]) - k))
     return {"month_start": b["s"], "cost": cost, "revenue": revenue, "upper": upper, "breakdown": breakdown,
             "has_terms": bool(terms), "unpriced_entries": c["unpriced"]}

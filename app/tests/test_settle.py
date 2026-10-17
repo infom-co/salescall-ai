@@ -259,6 +259,38 @@ class Settle(SettleBase):
         self.assertIsNone(self.tx(s, lambda tx: results.latest(tx, s["task"])))
 
 
+class CutOffCalls(SettleBase):
+    """途中で切れた通話（お客様が出たあと、こちらの仕組みが止まった・回線が切れた）は、復旧次第、お詫びとともにすぐかけ直す
+    （2026-10-17 ユーザー：「復旧次第、お詫びとともにすぐかけ直さないといけないでしょ！」）。回数・間隔には数えない。"""
+
+    def resumed(self, got):
+        d = got["decision"]
+        self.assertEqual((d.kind, d.target.purpose, d.promised), ("call", "resume", True))
+
+    def test_a_line_drop_while_the_customer_talked_is_called_back_with_an_apology(self):
+        s = self.ready()
+        aid = self.call(s, ("dialing", "ringing", "answered", "in_conversation", "dropped"), side="line",
+                        report=rep(cut=Cut("callee", False, False)))
+        self.resumed(self.settle(s, aid))
+        c = self.claim(s)                                               # すぐ（間隔をあけずに）かけられる
+        self.assertEqual((type(c).__name__, getattr(c, "purpose", None)), ("Claim", "resume"))
+
+    def test_a_call_cut_by_our_failure_is_called_back_with_an_apology(self):
+        s = self.ready()
+        aid = self.call(s, ("dialing", "ringing", "answered", "in_conversation", "technical_error"))
+        self.resumed(self.settle(s, aid))
+
+    def test_a_customer_who_hung_up_or_was_not_reached_is_not_called_back_at_once(self):
+        s = self.ready()
+        aid = self.call(s, ("dialing", "ringing", "answered", "in_conversation", "dropped"), side="callee",
+                        report=rep(cut=Cut("ai", False, False)))            # AIが話している途中で、お客様が切った＝断った
+        self.assertEqual(self.settle(s, aid)["decision"].end_reason, "do_not_call")
+        t = self.ready()
+        aid = self.call(t, ("dialing", "technical_error"))               # お客様が出る前に止まった：お詫びは要らない
+        got = self.settle(t, aid)["decision"]
+        self.assertNotEqual(got.target and got.target.purpose, "resume")
+
+
 class DatabaseGuards(Base):
     def test_one_judgement_per_attempt(self):
         s = self.ready()

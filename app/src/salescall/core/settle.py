@@ -265,10 +265,13 @@ def _judge_and_write(tx: Tx, a: dict[str, Any], *, kind: str, rules_version: Any
                     refs={"attempt_id": attempt_id, "task_id": a["task_id"]})
     if j.dnc_reason is not None:
         dnc.register(tx, a["phone_e164"], j.dnc_reason, source_attempt_id=attempt_id)
+    # 途中で切れた：お客様が出たあと、お客様の意思と関係なく切れた（こちらの仕組みが止まった＝結果不明／回線・言葉の途中で切れた＝
+    # 切れ方の判定が「不自然な中断」）。数え方の決まり salescall.not_by_callee のうち、お客様が出たもの
+    cut_off = bool(a["reached_answer"]) and (a["state"] == "technical_error" or j.disconnect == "interrupted")
     decision = next_action.after_call(
         tx, a["task_id"], j, rules=rules,
         dialed=next_action.Target(a["contact_id"], None, a["purpose"], a["wrong_contact_id"]), dialed_at=a["claimed_at"],
-        alternate=alternate, recheck=recheck, forbidden=forbidden)
+        alternate=alternate, recheck=recheck, forbidden=forbidden, cut_off=cut_off)
     return {"version_no": version_no, "state": j.state, "decision": decision, "already": False}
 
 

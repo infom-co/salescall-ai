@@ -90,7 +90,7 @@ class PricesPerContractor(Priced):
 class Budget(Priced):
     def ample(self, s):
         """赤字で止まらないよう、十分な月額の報酬を入れる（1日の上限だけを確かめる）。"""
-        self.tx(s, lambda tx: reward.set_terms(tx, reward.Terms(monthly_yen=Decimal(10 ** 12), judge_confidence=Decimal("0.95")),
+        self.tx(s, lambda tx: reward.set_terms(tx, reward.Terms(monthly_yen=Decimal(10 ** 12), deficit_caution="normal"),
                                                valid_from=tx.one("SELECT now() - interval '40 days' AS t")["t"],
                                                note="試験"), OPERATOR)
 
@@ -129,10 +129,10 @@ class Budget(Priced):
 
 class CostRatio(Priced):
     """報酬に対する費用の割合（2026-10-15 ユーザー決定：既定 30％・依頼者ごとに選べる。超えたら知らせるだけ。赤字なら止める）。"""
-    def terms(self, s, *, days_ago=1, gap=None, confidence="0.95", **yen):
+    def terms(self, s, *, days_ago=1, gap=None, caution="normal", **yen):
         return self.tx(s, lambda tx: reward.set_terms(
             tx, reward.Terms(**{k: Decimal(v) for k, v in yen.items()}, hourly_gap_seconds=gap,
-                             judge_confidence=None if confidence is None else Decimal(confidence)),
+                             deficit_caution=caution),
             valid_from=tx.one("SELECT now() - %s * interval '1 day' AS t", (days_ago,))["t"], note="試験"), OPERATOR)
 
     def talked(self, s):
@@ -199,7 +199,7 @@ class CostRatio(Priced):
         with self.assertRaises(ValueError):                            # 時給には、電話と電話の間が要る
             self.terms(s, hourly_yen=3600)
         with self.assertRaises(ValueError):                            # 赤字の判断の慎重さも、必ず書く
-            self.terms(s, per_dial_yen=1, confidence=None)
+            self.terms(s, per_dial_yen=1, caution=None)
         self.terms(s, hourly_yen=3600, gap=90)                         # 1秒 1円・間は 90秒
         aid = self.talked(s)
         took = self.tx(s, lambda tx: tx.one("SELECT extract(epoch FROM ended_at - claimed_at) AS t FROM salescall.attempts"
@@ -208,14 +208,21 @@ class CostRatio(Priced):
         self.assertAlmostEqual(float(got["seconds"]), float(took) + 90, places=3)
         self.assertAlmostEqual(float(got["yen"]), float(took) + 90, places=3)
 
-    def test_the_caution_of_the_deficit_judgement_is_per_client(self):
-        """赤字かの判断の慎重さは依頼者ごと（2026-10-17 ユーザー）。慎重なほど、成果のぶれを多めに見込む。"""
+    def test_the_caution_of_the_deficit_notice_is_per_client_and_in_plain_words(self):
+        """赤字の知らせの慎重さは依頼者ごと・3つの選び方（2026-10-17 ユーザー：「初めての契約者でも分かるように」）。
+        画面の例の本数（成果1件 1,000円・電話1本 2円・成果0件）が、中の確かさの計算と合っている。"""
+        for name, examples in (("early", 800), ("normal", 1500), ("careful", 2300)):
+            calls = 1000 * reward.poisson_upper(0, reward.CAUTIONS[name][2]) / 2
+            self.assertLess(abs(calls - examples) / examples, 0.01, name)
+            self.assertIn(f"約{examples:,}本", reward.CAUTIONS[name][1])
         s = self.ready()
-        self.terms(s, per_completed_yen=1000, confidence="0.99")
+        self.terms(s, per_completed_yen=1000, caution="careful")
         careful = self.month(s)["upper"]
         t = self.ready()
-        self.terms(t, per_completed_yen=1000, confidence="0.80")
+        self.terms(t, per_completed_yen=1000, caution="early")
         self.assertGreater(careful, self.month(t)["upper"])
+        with self.assertRaises(ValueError):
+            self.terms(t, per_completed_yen=1000, caution="0.95")
 
     def test_over_the_ratio_only_notifies_and_each_client_can_choose(self):
         s = self.ready()
