@@ -29,29 +29,38 @@ from instruction import Business
 QUESTIONS = {
     "Q1": Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ")),
     "Q2": Question("Q2", "お支払いはカードと振込のどちらがよろしいでしょうか？", "choice", conditions=("カード", "振込")),
+    # 前の質問から「結構です」の意味が決まる質問（G-49：2つのモデルとも「結構」＝「いいえ」）。--as-question Q3 で、Q1 の答えの声を流す
+    "Q3": Question("Q3", "パンフレットをお送りしてもよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ")),
 }
+# --as-question のときの正解の差し替え（その質問への答えとしての正解）。書いていない声は、もとの正解のまま
+WANT_AS = {"Q3": {"a2": "いいえ"}}
 
 
-def meanings() -> dict:
-    """選択肢ごとの意味の言葉（取込で決めるもの＝meanings.decide）。G-48 で2つのモデルに出させた結果から、取込と同じ決め方で決める
-    （手で書かない）。G-48 の結果が無ければ空（選択肢の名前で言い直す）。"""
-    from meanings import decide
-    files = sorted((HERE / "results").glob("G-48_*.json"))
+def _decided(name: str, decide) -> dict:
+    """取込で決めるもの（意味の言葉＝G-48・曖昧な言葉の意味＝G-49）を、保存した2つのモデルの答えから、取込と同じ決め方で決める（手で書かない）。
+    結果が無ければ空（意味の言葉が無ければ選択肢の名前で言い直す・曖昧な言葉は確かめる）。"""
+    files = sorted((HERE / "results").glob(f"{name}_*.json"))
     if not files:
         return {}
     d = json.loads(files[-1].read_text(encoding="utf-8"))
     rows = {k: {q: w for (q, _), w in zip(d["questions"], v)} for k, v in d["rows"].items()}
-    out = {}
-    for qid, q in QUESTIONS.items():
-        got = [rows[k].get(q.text, {}) for k in ("3.8 Flash", "3.7 Flash") if k in rows]
-        out[qid] = decide(q.text, q.conditions, got)
-    return out
+    return {qid: decide(q, [rows[k].get(q.text, {}) for k in ("3.8 Flash", "3.7 Flash") if k in rows]) for qid, q in QUESTIONS.items()}
+
+
+def meanings() -> dict:
+    from meanings import decide
+    return _decided("G-48", lambda q, got: decide(q.text, q.conditions, got))
+
+
+def replies() -> dict:
+    from meanings import decide_replies
+    return _decided("G-49", lambda q, got: decide_replies(q.conditions, got))
 
 
 def business(qid: str, with_meanings: bool = True) -> Business:
     q = QUESTIONS[qid]
     if with_meanings:
-        q = Question(q.id, q.text, q.type, conditions=q.conditions, meanings=MEANINGS.get(qid, {}))
+        q = Question(q.id, q.text, q.type, conditions=q.conditions, meanings=MEANINGS.get(qid, {}), reply_meanings=REPLIES.get(qid, {}))
     return Business(company=BASE.company, caller=BASE.caller, purpose="ご予約の確認", purpose_line=BASE.purpose_line, questions=[q])
 
 
@@ -75,12 +84,14 @@ TAKEN = {"accepted": "受け付けた", "confirmed": "受け付けた", "dont_kn
          "unresolved": "「-」", "refused": "答えたくない", "empty": "まだ"}
 
 
-def verdict(want: str, state: str, cond: str | None, op: str, reason: str | None) -> str:
+def verdict(want: str, state: str, cond: str | None, op: str, reason: str | None, ended: bool = True) -> str:
     """数え方は、AIの報告ではなく、流れの制御が最後にどう受け取ったか（依頼主へ渡るもの）で決める。
     ⛔ 1回目（いまの形）はAIの最初の報告で数えた。プログラムが曖昧な答えを確かめる形（6-10 の (3)）を足したので、同じ数え方で数え直す（--tally）"""
     taken = TAKEN.get(state, state)
     if taken == "まだ":
-        return "断りとして締めた" if op == "request_end" and reason == "callee_refused_call" else "報告が無い"
+        if op == "request_end" and reason == "callee_refused_call":  # 締めたか（流れの制御が「結構です」だけの断りを差し戻したら、締めていない）
+            return "断りとして締めた" if ended else "報告が無い（断りを差し戻したあと）"
+        return "報告が無い"
     if want == "ambiguous":  # 決めずに確かめる・聞き返す・「わからない」「-」にする、のどれか（答えたくない、は相手が言っていない）
         return "曖昧を決めてしまった" if taken in ("受け付けた", "答えたくない") else "正しい"
     if want == "unknown":
@@ -97,7 +108,7 @@ def measures(call: dict, item: dict) -> dict:
     it = call["items"][item["question"]]
     said = [e["reply"].get("say") for e in call["flow_log"] if e["reply"].get("say")]
     return {"op": op, "condition": cond, "state": it["state"], "taken_condition": it["condition"],
-            "verdict": verdict(item["want"], it["state"], it["condition"], op, cond), "program_said": said[:1],
+            "verdict": verdict(item["want"], it["state"], it["condition"], op, cond, ended=bool(call.get("hurried"))), "program_said": said[:1],
             "callee_heard": [t.get("heard") for t in call["turns"]][:1]}
 
 
@@ -111,6 +122,7 @@ def tally(rows: list[dict]) -> dict:
 
 
 MEANINGS = meanings()
+REPLIES = replies()
 
 
 # 確かめの返事まで流す場面（--followup）：(最初の答え, 相手が思っていた答え)。相手は、こちらの言い直した選択肢が思っていた答えなら
@@ -179,6 +191,8 @@ async def run(args) -> dict:
         items = [m for m in items if any(m["id"].startswith(o) for o in args.only)]
     if args.voice:
         items = [m for m in items if m["voice"] in args.voice]
+    if args.as_question:  # 同じ声を、別の質問への答えとして流す（正解は WANT_AS で差し替える）
+        items = [{**m, "question": args.as_question, "want": WANT_AS.get(args.as_question, {}).get(m["id"], m["want"])} for m in items]
     rows = []
     for n, item in enumerate(items[: args.limit or None]):
         head = {**{k: item[k] for k in ("id", "voice", "question", "want", "kind", "text")}, "noise_tag": "雑音" if item.get("noise") else "無し"}
@@ -207,6 +221,7 @@ def main() -> None:
     p.add_argument("--only", action="append", help="試験集の中の名前の頭（「y」「a1」など）で絞る")
     p.add_argument("--voice", action="append", help="試験集の声で絞る（声ごとに別のキーで同時に流すため）")
     p.add_argument("--tag", default="", help="結果のファイル名に足す印（同時に流す回を分けるため。例 -base-Kore）")
+    p.add_argument("--as-question", choices=list(QUESTIONS), help="試験集の声を、この質問への答えとして流す（例：Q3）")
     p.add_argument("--followup", action="store_true", help="確かめの返事まで流す場面（FOLLOWUP）を流す")
     p.add_argument("--no-meanings", action="store_true", help="意味の言葉を渡さない（選択肢の名前で言い直す形と比べるため）")
     p.add_argument("--tally", help="結果のファイル名の頭（例 G-14-base-）で、同時に流した回を合わせて数える（問い合わせはしない）")

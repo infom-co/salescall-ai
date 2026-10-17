@@ -1,0 +1,161 @@
+{
+  "item": "G-14-v6a2-Aoede",
+  "saved_at": "2026-10-17T08:44:04",
+  "model": "gemini-3.8-live",
+  "summary": {
+    "全体": {
+      "断りとして締めた": 1
+    },
+    "kind=曖昧": {
+      "断りとして締めた": 1
+    },
+    "voice=Aoede": {
+      "断りとして締めた": 1
+    },
+    "noise_tag=無し": {
+      "断りとして締めた": 1
+    },
+    "want=ambiguous": {
+      "断りとして締めた": 1
+    }
+  },
+  "rows": [
+    {
+      "id": "a2",
+      "voice": "Aoede",
+      "question": "Q1",
+      "want": "ambiguous",
+      "kind": "曖昧",
+      "text": "結構です。",
+      "noise_tag": "無し",
+      "voice_type": "S4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "g14/Aoede_a2.wav"
+          },
+          "heard": "結構です。",
+          "intended": "かしこまりました。念のための確認でございますが、ご予約はお済みでしょうか。",
+          "tool_events": [
+            {
+              "at_s": 0.837,
+              "name": "request_end",
+              "args": {
+                "reason": "callee_refused_call"
+              },
+              "reply": "rejected",
+              "ack": null,
+              "say": null,
+              "play": null
+            }
+          ],
+          "first_audio_after_s": 1.296,
+          "finished_after_s": 6.241,
+          "audio_seconds": 4.94,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.296,
+              "audio_s": 0.0,
+              "text": "かしこまりました。念のための確認"
+            },
+            {
+              "at_s": 1.618,
+              "audio_s": 1.74,
+              "text": "でございますが、ご予約"
+            },
+            {
+              "at_s": 1.74,
+              "audio_s": 2.74,
+              "text": "はお済みで"
+            },
+            {
+              "at_s": 1.851,
+              "audio_s": 3.86,
+              "text": "しょうか。"
+            }
+          ],
+          "heard_events": [
+            {
+              "at_s": 0.563,
+              "text": "結構です。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.839,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.84,
+              "kind": "turn_complete"
+            },
+            {
+              "at_s": 1.296,
+              "kind": "audio_start",
+              "chunk": 1
+            },
+            {
+              "at_s": 6.241,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q1",
+          "check": {
+            "voiced_s": 4.58,
+            "compared_with": "intended",
+            "morae": 37,
+            "expected_s": 4.11,
+            "ratio": 1.11,
+            "kind": "ok"
+          }
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "request_end",
+          "args": {
+            "reason": "callee_refused_call"
+          },
+          "reply": {
+            "result": "rejected",
+            "message": "相手の「結構です。」だけでは、通話を断られたとは決められません（前の質問によって意味が変わる言葉です）。いまの質問 Q1 の答えとして、選択肢（はい、いいえ、わからない、答えたくない）から近いものを選んで record_answer で報告してください。プログラムが意味を確かめます。いまの質問は Q1「ご予約はされていますでしょうか？」です。相手が答えたら record_answer で報告してください（聞き取れなかったら report_unclear）。",
+            "ack": null
+          },
+          "callee_turns": 1
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "empty",
+          "value": null,
+          "condition": null,
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        }
+      },
+      "export": {
+        "Q1": "-"
+      },
+      "final_phase": "asking",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "op": "request_end",
+      "condition": "callee_refused_call",
+      "state": "empty",
+      "taken_condition": null,
+      "verdict": "断りとして締めた",
+      "program_said": [],
+      "callee_heard": [
+        "結構です。"
+      ]
+    }
+  ]
+}

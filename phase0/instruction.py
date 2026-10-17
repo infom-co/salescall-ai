@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from flowctl import ARG_LABEL, CONFIRM_LABEL, END_LABEL, GOT, SYSTEM_LABEL, Question
+from flowctl import ANY_LABEL, ARG_LABEL, CONFIRM_LABEL, END_LABEL, GOT, SYSTEM_LABEL, Question
 from names import quote  # noqa: F401（名前を「」でくくる唯一の場所。ここからも読める）
 
 from phrases import APOLOGY, ASK_BACK, GREETING  # noqa: F401（決まった言い方は phrases.py の1か所。試験からも、ここ経由で読める）
@@ -235,6 +235,12 @@ def system_rules(play_recordings: bool = False) -> str:
         f"- 相手が「わからない」と答えたら{ARG_LABEL['condition_id']}を「{SYSTEM_LABEL['unknown']}」に、答えたくないと言ったら"
         f"「{SYSTEM_LABEL['refused']}」にして record_answer を呼びます。"
         "答えたくないと言われた質問は、二度と聞きません。\n"
+        # ✅ 2026-10-17 ユーザー：選択肢の質問の「どちらでも大丈夫です」は答え（「いつでも」と同じ）。⛔ G-14：合う選択肢が無く、AIは
+        #    「わからない」「カード」「答えたくない」に分けた
+        # ⛔ G-14 の続き：この決まりを足した1回目、「まだ決めてないです」を 6本中5本「どちらでも」にした ⇒ 任せた・まだ決めていない、を分けて書く
+        f"- 選択肢から選ぶ質問で、相手が、どれを選んでもよいとこちらに任せたときだけ（「どちらでも大丈夫です」「どれでもいいです」など）、"
+        f"{ARG_LABEL['condition_id']}を「{ANY_LABEL}」にして record_answer を呼びます。まだ決めていない・分からないとき（「まだ決めてないです」"
+        f"「ちょっと分からないです」）は「{SYSTEM_LABEL['unknown']}」です。\n"
         "- 日付・時刻・数・金額・名前・電話番号・メール・住所は、返事に「言い直して」とあれば、返事に書いてある確認の言い方のとおりに言って、"
         "相手の返事を待ちます。相手が返事をしてから confirm_field で報告します（相手の返事を聞く前に報告してはいけません）。\n"
         # ✅ 2026-10-15 ユーザー：午前・午後の確かめは、AIからプログラムへ移す（営業時間から決める。flowctl.fill_ampm）。⛔ G-37：AIが「32 です」を
