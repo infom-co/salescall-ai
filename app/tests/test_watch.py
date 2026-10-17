@@ -68,7 +68,7 @@ class Classify(unittest.TestCase):
     def test_the_table_is_complete_and_never_switches_keys_on_unknown(self):
         for kind, a in errors.ACTIONS.items():
             with self.subTest(kind):
-                self.assertIn(a.key, ("keep", "mark_key_unusable", "other_project_only"))
+                self.assertIn(a.key, ("keep", "mark_key_unusable", "next_key"))
                 self.assertEqual(a.stop_cause is None, a.stop_scope is None)
                 if kind.startswith("unknown") or kind == "config_error":
                     self.assertEqual(a.key, "keep")

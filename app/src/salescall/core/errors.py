@@ -11,6 +11,9 @@
   返った。2026-10-12 の実測）。一覧に無いものは「不明」（推測で種類を決めない）。
 - 不明のときは、キーを切り替えない（原因が分からないので、キーを変えても直るとは限らない。切り替えるのは、キーのせいと
   分かったときだけ＝Intent.md 12-3 の切り替えのルール1）。続いたら新しい発信を待ち、管理者に直しを依頼する。
+- 上限（2026-10-17 ユーザー：「本番はできるだけ分制限などの制限を回避し、1日制限や回避できなかった他の制限が来たら次のキー」）：
+  1分の上限は、門が会話AIの枠を数えて当たらないようにする（DESIGN.md 5-2 の9）。それでも当たったもの・1日の上限は、
+  次のキーで続ける（`next_key`）。
 - 表の「知らせる」は、知らせの台帳に入れるだけ（管理者・契約者の返事を待たない。2026-10-13 ユーザー：管理者も契約者も介在しない仕組み）。
 """
 
@@ -86,7 +89,8 @@ class ErrorReport:
 class Action:
     """処置（表の1行）。"""
     key: str                       # キー：keep（変えない）／mark_key_unusable（そのキーを使わない印）／
-                                   #       other_project_only（別のプロジェクトと分かっているキーだけ）
+                                   #       next_key（そのプロジェクトを休ませ、次のキーで続ける。同じプロジェクトと分かっているキーは
+                                   #       飛ばす。2026-10-17 ユーザー：「1日制限や回避できなかった他の制限が来たら次のキー」）
     retry: str                     # やり直し：none／backoff（間隔を伸ばしながら上限まで）／reconnect_once（6-7）／
                                    #           project_backoff（そのプロジェクトを待ってから1回だけ。設定 stop.ai_rate_limit.backoff）
     stop_cause: str | None         # 止めるときの原因（DESIGN.md 9-1 の名前）。None＝止めない
@@ -103,13 +107,15 @@ class Action:
 ACTIONS: dict[str, Action] = {
     "key_specific": Action("mark_key_unusable", "none", None, None, None, False,
                            "キー固有（認証失敗・キーの無効化）：そのキーを使わない印を付け、次のセッションから別のキー"),
-    "project_denied": Action("other_project_only", "project_backoff", None, None, None, True,
-                             "プロジェクトの利用拒否（1分あたりの上限）：そのプロジェクトをしばらく使わない（待ちは 10秒→30秒→2分→10分→30分）"),
+    "project_denied": Action("next_key", "project_backoff", None, None, None, True,
+                             "プロジェクトの利用拒否（1分あたりの上限。門の数え方で避けきれなかったもの）：そのプロジェクトをしばらく休ませ"
+                             "（待ちは 10秒→30秒→2分→10分→30分）、次のキーで続ける"),
     "config_error": Action("keep", "none", "ai_connection", "system", None, True,
                            "設定の誤り：キーを切り替えず、新しい発信を待つ（設定を直すまで、どのキーでも同じ結果。管理者に直しを依頼）",
                            fundamental=True),
-    "project_quota": Action("other_project_only", "none", None, None, None, True,
-                            "プロジェクトの枠の超過：同じプロジェクトのキーへは切り替えない（無ければ門が通さない）"),
+    "project_quota": Action("next_key", "none", None, None, None, True,
+                            "プロジェクトの枠の超過（1日の上限など）：次のキーで続ける（同じプロジェクトと分かっているキーは飛ばす。"
+                            "使えるキーが無ければ門が通さない）"),
     "ai_unreachable": Action("keep", "backoff", "ai_connection", "system", "stop.ai.stop_after_failures", False,
                              "会話AIにつながらない（一時的）：間隔を伸ばしてやり直す。続いたら、つながるまで新しい発信を待ち、直ったら自動で続ける"),
     "ear_unreachable": Action("keep", "backoff", "ai_connection", "system", "stop.ai.stop_after_failures", False,
