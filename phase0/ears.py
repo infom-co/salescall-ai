@@ -7,13 +7,13 @@ g15_ear --ear）は変えない。
   要らない確かめが8.5%増え、拾えた誤りは0 ⇒ 既定では使わない。
 - "amivoice"：AmiVoice（アドバンスト・メディア。日本の会社。日本語専門・電話向けの実績）。WebSocket の s／p／e の命令、確定した文字は A の知らせ。
   記録を残さない接続先（…/v1/nolog/）を使う（相手の声を相手の会社に残さない）。キー＝環境変数 AMIVOICE_APPKEY。
-- "soniox"：Soniox（日本語の精度を最も強く打ち出している。自社の測定）。WebSocket。最初に設定の JSON、そのあと声。話し終わり（<end> の印）で、
-  その発話の確定した文字を渡す。キー＝環境変数 SONIOX_API_KEY。
+- "soniox"：Soniox（日本語の精度を最も強く打ち出している。自社の測定）。WebSocket。最初に設定の JSON、そのあと声。発話の区切りで、こちらから
+  確定を頼み（finalize）、確定し終わった印（<fin>）で、その発話の確定した文字を渡す。キー＝環境変数 SONIOX_API_KEY。
 - "reazon"：ReazonSpeech（日本語専門のモデル。PC の中で動く＝相手の声を外の会社に出さない）。sherpa-onnx で動かす。モデルは models/reazonspeech/
-  （get_reazon_model.py で取る。GitHub には上げない）。試験では、発話を流し終えたところで文字にする（本番では、話し終わりの見張り（VAD）が要る）。
-⚠️ 2026-10-17：AmiVoice・Soniox の接続先は、この作業環境の通信の決まりで止められている（ユーザーが許可を足すまで、つないで確かめられない。
-   設定に貼る文字は docs/EARS_SETUP.md）。命令の形は公式の資料の要点から書いた ⇒ つないだら、1本目で必ず確かめる（ears_try.py が確かめる）。
-   ReazonSpeech のモデルは、いまの通信の決まりのまま取れる置き場から取る（get_reazon_model.py）。
+  （get_reazon_model.py で取る。GitHub には上げない）。発話の区切りで文字にする。
+発話の区切りは、どの耳も同じ1か所（Ear.feed：声の終わりから CUT_S 秒の所。本物の通話の、話し終わりの見張りと同じ形）。そこで区切りを伝えるのは Soniox（確定を頼む）と ReazonSpeech（文字にする）。AmiVoice と Gemini の耳は、自分で話し終わりに気づく。
+✅ 2026-10-17：4つの耳とも、この作業環境でつないで測った（設定に貼る文字は docs/EARS_SETUP.md・確かめと比べた表は ears_try.py）。使う順は
+   PREFERRED_EARS（ユーザー決定。最終確定はフェーズ1）。
 キーの値は記録・画面に出さない（common.load_secret が伏せる一覧に入れる）。
 """
 from __future__ import annotations
@@ -28,6 +28,14 @@ from common import HERE, load_secret, silence
 
 RATE = 16000                      # どの耳にも 16kHz・16bit・1チャンネルで流す（電話の 8kHz は、本番の音声の変換の1か所で 16kHz にする＝8-3）
 CHUNK_S = 0.1                     # 0.1秒ずつ、実際の通話と同じ速さで流す
+# 声が止んでから、発話の区切りを耳へ伝えるまでの回線の音の長さ（秒）。本物の通話では、話し終わりの見張りが無音を少し待ってから区切るので、
+# 声の最後の音のすぐあとで区切ることは無い。⛔ 2026-10-17 の見直しで見つけた：試験の声のファイルをそのまま流し終えた所で区切っていたため、
+# 声のあとの無音が 0.02秒の Leda の「してないです。」で、Soniox が「してない。」で確定し、落とした「です。」が次の発話の頭に混ざった
+# （「です。 いや、これからなんです。」）。この形にすると2本とも台本どおり（Soniox は 165本中 156 ⇒ 159）。Fenrir の「予約済みです。」⇒
+# 「予約済みで。」は、0.5秒の無音のあとに確定を頼んでも同じ＝Soniox の聞き違い。⚠️ ReazonSpeech は、声のあとの無音の長さで文字が変わる
+# （この形で 147 ⇒ 143。無音を足した2本で語尾に「か」が付き、無音が短くなった2本で「いいね」「すてない」）。本番の値は、フェーズ1で
+# 見張りの設定として決める。
+CUT_S = 0.3
 SECRETS = {"amivoice": "AMIVOICE_APPKEY", "soniox": "SONIOX_API_KEY"}
 AMIVOICE_URL = "wss://acp-api.amivoice.com/v1/nolog/"   # ⚠️ 最後の「/」が無いと、記録を残す接続先になる（公式の資料）
 AMIVOICE_ENGINE = "-a-general"   # 汎用エンジン
@@ -38,6 +46,7 @@ AMIVOICE_KEEP_FILLER = "keepFillerToken=1"
 SONIOX_URL = "wss://stt-rt.soniox.com/transcribe-websocket"
 SONIOX_MODEL = "stt-rt-v5"        # リアルタイムの最新（2026-10-17 に Soniox のモデルの一覧で確かめた：stt-rt-v3・v4・v5。ears_try が毎回一覧を出す）
 REAZON_DIR = HERE / "models" / "reazonspeech"
+GEMINI_EAR_MODEL = "gemini-3.5-transcribe-live"   # Gemini の書き起こしの耳（キーは common.KeyRing で選ぶ：上限・止められたキーは飛ばす）
 
 
 class Ear:
@@ -91,12 +100,15 @@ class Ear:
                 await self._send(chunk, voice=False)
             await asyncio.sleep(CHUNK_S)
 
-    async def feed(self, pcm16: bytes, rate: int) -> None:
-        """相手の発話1回ぶんを、実際の通話と同じ速さで流す（この発話の文字を、新しく受け取り始める）。"""
+    async def feed(self, pcm16: bytes, rate: int, tail_s: float) -> None:
+        """相手の発話1回ぶんを、実際の通話と同じ速さで流す（この発話の文字を、新しく受け取り始める）。tail_s＝pcm の終わりの、声のあとの無音の秒。
+        声の終わりから CUT_S 秒の所で区切りを伝える（ファイルの無音が足りなければ無音を足す。残りは、つながっている間の無音として流れる）。"""
         self._got, self._text, self.first_at = self._loop.create_future(), "", None
         self._feeding.set()
         try:
             pcm = resample(pcm16, rate, RATE)
+            cut = int((len(pcm16) / 2 / rate - tail_s + CUT_S) * RATE) * 2
+            pcm = (pcm + bytes(max(0, cut - len(pcm))))[:cut]
             step = int(RATE * CHUNK_S) * 2
             for i in range(0, len(pcm), step):
                 await self._send(pcm[i:i + step], voice=True)
@@ -109,11 +121,13 @@ class Ear:
             self._feeding.clear()
 
     async def wait(self, timeout_s: float) -> str | None:
-        """いまの発話の確定した文字（声を流し終えたあとに届いた分まで。timeout_s 秒までに届かなければ、それまでにためた分か None）。"""
+        """いまの発話の確定した文字（声を流し終えたあとに届いた分まで）。timeout_s 秒までに届かなければ None（比べない）。
+        ⛔ 途中のかけら（声を流している間に届いた分だけ）は返さない：かけらで比べると、正しい答えにも食い違いが出て要らない確かめになる
+        （2026-10-17 の見直しで見つけた：一度かけらを返す形にしていた。見込みの数え方 ears_try.predict も、届かなければ比べない）。"""
         try:
             return await asyncio.wait_for(asyncio.shield(self._got), max(0.0, timeout_s))
         except asyncio.TimeoutError:
-            return self._text or None
+            return None
 
     # ── 耳ごとに書く所
     async def _open(self) -> None: ...
@@ -134,7 +148,7 @@ class GeminiEar(Ear):
     async def _open(self) -> None:
         from google.genai import types
 
-        self._cm = self.client.aio.live.connect(model="gemini-3.5-transcribe-live", config=types.LiveConnectConfig(
+        self._cm = self.client.aio.live.connect(model=GEMINI_EAR_MODEL, config=types.LiveConnectConfig(
             input_audio_transcription=types.AudioTranscriptionConfig()))
         self.s = await self._cm.__aenter__()
 

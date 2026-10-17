@@ -1556,7 +1556,7 @@ class EarsTest(unittest.TestCase):
 
     def test_pieces_during_the_voice_are_joined(self):
         # ⛔ 2026-10-17：耳が発話の途中の間で区切ったとき、最初のかけら（「はい。」）で渡していた ⇒ 声を流し終えたあとに届いた分で、
-        # ためた分と合わせて渡す。声を流し終えたあとに何も届かなければ、待ちの終わりに、ためた分を渡す
+        # ためた分と合わせて渡す。声を流し終えたあとに何も届かなければ、かけらだけでは比べない（None）
         import asyncio
         from ears import Ear
 
@@ -1577,10 +1577,10 @@ class EarsTest(unittest.TestCase):
 
         async def go(after: bool):
             async with SplitEar(after) as ear:
-                await ear.feed(b"\0\0" * 8000, 16000)
+                await ear.feed(b"\0\0" * 8000, 16000, 0.0)
                 return await ear.wait(0.3)
         self.assertEqual(asyncio.run(go(True)), "はい。先週しました。")
-        self.assertEqual(asyncio.run(go(False)), "はい。")
+        self.assertIsNone(asyncio.run(go(False)))                               # かけらだけなら比べない（返さない）
 
     def test_missing_key_and_model_stop_with_instructions(self):
         import os
@@ -1625,12 +1625,36 @@ class EarsTest(unittest.TestCase):
 
         async def go():
             async with FakeEar() as ear:
-                await ear.feed(b"\0\0" * 8000, 16000)                         # 0.5秒の声
+                await ear.feed(b"\0\0" * 8000, 16000, 0.0)                    # 0.5秒の声
                 return ear, await ear.wait(1.0), await asyncio.wait_for(ear.wait(0.1), 1.0)
         ear, text, again = asyncio.run(go())
         self.assertEqual((text, again), ("はい、予約しています。", "はい、予約しています。"))
         self.assertIsNotNone(ear.first_at)
         self.assertGreaterEqual(ear.sent.count(True), 5)                        # 0.1秒ずつ5つ
+
+    def test_cut_after_the_voice(self):
+        # 区切りを伝えるのは、声の終わりから CUT_S 秒の所（本物の通話の、話し終わりの見張りと同じ）。⛔ 2026-10-17：ファイルを流し終えた所で
+        # 区切っていたため、声のあとの無音が無いファイルで、Soniox が最後の「す」を落とした。ファイルの無音が長ければ、そこまでは流さない
+        import asyncio
+        from ears import CUT_S, Ear
+
+        class CountEar(Ear):
+            def __init__(self):
+                super().__init__()
+                self.sent, self.at_fed = 0, None
+
+            async def _send(self, pcm, voice):
+                self.sent += len(pcm) if voice else 0
+
+            async def _fed(self):
+                self.at_fed = self.sent
+
+        async def go(seconds: float, tail_s: float):
+            async with CountEar() as ear:
+                await ear.feed(b"\0\0" * int(16000 * seconds), 16000, tail_s)
+                return ear.at_fed / 2 / 16000
+        self.assertAlmostEqual(asyncio.run(go(0.5, 0.0)), 0.5 + CUT_S, places=2)     # 無音の無いファイル：無音を足す
+        self.assertAlmostEqual(asyncio.run(go(1.5, 0.9)), 0.6 + CUT_S, places=2)     # 無音の長いファイル：声の終わりから CUT_S 秒まで
 
     def test_reazon_cuts_from_before_the_voice(self):
         # ⛔ 2026-10-17：声の頭から切り出して渡すと、頭の言葉を落とした（「はい、予約しています。」⇒「予約しています」）。
@@ -1685,23 +1709,44 @@ class EarsTryTest(unittest.TestCase):
     def test_predict_counts_like_the_call(self):
         # 通話の中と同じ決まり：別の耳の文字が ear_wait_s 秒までに届いて食い違えば確かめる。数えるのは AI が選んだ答えで
         # （⛔ 1回目は会話AIの文字が台本と違うかで数え、文字が違ってもAIが正しく選んだ通話の確かめを「拾える誤り」にしていた）
+        # （⛔ 2回目は、いまの頭の言葉の確かめでもう拾える通話も「拾える誤り」に数えていた ⇒「いまの確かめで拾える」に分ける）
+        # （⛔ 3回目は、言い切っていない答えの確かめを見落とした ⇒ 決まりを書き写さず、流れの制御そのものに渡す）
         from ears_try import predict
+        from flowctl import Question
+        qs = {"Q1": Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"))}
         rows = [{"wav": "a.wav", "text": "してないです。", "ear": "してないです", "first_s": 0.3},
                 {"wav": "c.wav", "text": "はい、先週しました。", "ear": "はい、先週しました", "first_s": 0.5},
                 {"wav": "d.wav", "text": "予約済みです。", "ear": "要約済みです", "first_s": 2.5},
-                {"wav": "e.wav", "text": "いいえ、まだです。", "ear": "いえ、まだです", "first_s": 0.4},
-                {"wav": "f.wav", "text": "大丈夫です。", "ear": "大丈夫", "first_s": 0.4}]
+                {"wav": "e.wav", "text": "まだです。", "ear": "まだです", "first_s": 0.4},
+                {"wav": "g.wav", "text": "いいえ、まだです。", "ear": "いえ、まだです", "first_s": 0.4},
+                {"wav": "f.wav", "text": "大丈夫です。", "ear": "大丈夫", "first_s": 0.4},
+                {"wav": "h.wav", "text": "家族がしたかもしれないです。", "ear": "家族が来たかもしれないです", "first_s": 0.4}]
         calls = [{"wav": "a.wav", "heard": "捨てないです。", "condition": "はい", "want": "いいえ"},      # AIが誤った・別の耳と食い違う ⇒ 拾える
                  {"wav": "a.wav", "heard": "してないです。", "condition": "いいえ", "want": "いいえ"},
                  {"wav": "c.wav", "heard": "はい、清掃しました。", "condition": "はい", "want": "はい"},  # 文字は違うがAIは正しい ⇒ 要らない確かめ
                  {"wav": "d.wav", "heard": "予約済みです。", "condition": "はい", "want": "はい"},       # 間に合わない
-                 {"wav": "e.wav", "heard": "いいえ、まだです。", "condition": "はい", "want": "いいえ"},  # 同じに聞いたがAIが誤った ⇒ 拾えない
+                 {"wav": "e.wav", "heard": "まだです。", "condition": "はい", "want": "いいえ"},          # 同じに聞いたがAIが誤った ⇒ 拾えない
+                 {"wav": "g.wav", "heard": "いいえ、まだです。", "condition": "はい", "want": "いいえ", "question": "Q1"},  # 頭の言葉の確かめが拾う
+                 {"wav": "h.wav", "heard": "家族がしたかもしれないです。", "condition": "はい", "want": "いいえ"},  # 言い切っていない答えの確かめが拾う
                  {"wav": "f.wav", "heard": "大丈夫です。", "condition": "はい", "want": "ambiguous"},    # 曖昧な答えは数えない
                  {"wav": "a.wav", "heard": "してないです。", "condition": "いいえ", "want": None},       # 正解の無い記録は数えない
                  {"wav": "z.wav", "heard": "はい。", "condition": "はい", "want": "はい"}]               # この耳が聞いていない声
-        p = predict(rows, calls)
-        self.assertEqual((p["通話"], p["AIが正しく選んだ"], p["拾える誤り"], p["要らない確かめ"], p["間に合わない"], p["拾えない誤り"]),
-                         (5, 3, 1, 1, 1, 1))
+        calls = [{"op": "record_answer", **c} for c in calls]
+        # AIの最初の報告が答えの報告でない（締めた・報告が無い）：別の耳が効く所ではない（⛔ 4回目は「いまの確かめで拾える」に数えていた）
+        calls += [{"wav": "e.wav", "heard": "結構です。", "op": "request_end", "condition": "callee_refused_call", "want": "いいえ"},
+                  {"wav": "e.wav", "heard": "まだです。", "op": "なし", "condition": None, "want": "いいえ"}]
+        p = predict(rows, calls, questions=qs)
+        self.assertEqual((p["通話"], p["AIが正しく選んだ"], p["拾える誤り"], p["要らない確かめ"], p["間に合わない"], p["拾えない誤り"],
+                          p["いまの確かめで拾える"], p["答えの報告ではない"]), (7, 3, 1, 1, 1, 1, 2, 2))
+
+    def test_carried_over(self):
+        # 前の発話の終わりの言葉が、この発話の別の耳の文字の頭に入ったか（⛔ 2026-10-17 の見直しまで「混ざりは0回」と書いていた）
+        from g15_ear import carried_over
+        self.assertTrue(carried_over("してないです。", "いや、これからなんです。", "です。 いや、これからなんです。"))   # Soniox：確定し損ねた語尾
+        self.assertTrue(carried_over("はい。", "予約済みです。", "はい。予約済みです。"))                              # Gemini の耳：遅れて届いた
+        self.assertFalse(carried_over("はい。", "はい、予約しています。", "はい、予約しています。"))                    # この発話の頭が同じ言葉
+        self.assertFalse(carried_over("してないです。", "予約済みです。", "予約済みで。"))
+        self.assertFalse(carried_over("はい。", "予約済みです。", None))
 
     def test_in_call_counts(self):
         from ears_try import in_call

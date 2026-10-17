@@ -62,8 +62,9 @@ def ear_handler(ear, flow: Flow, pcm: bytes, rate: int, wav: str):
     from stitch_gap import callee_speech
 
     loop = asyncio.get_running_loop()
-    speech_end = loop.time() + len(pcm) / 2 / rate - callee_speech(wav)[2]  # 相手の声の終わり（声のあとの無音を引く）
-    task = asyncio.create_task(ear.feed(pcm, rate))
+    tail = callee_speech(wav)[2]
+    speech_end = loop.time() + len(pcm) / 2 / rate - tail  # 相手の声の終わり（声のあとの無音を引く）
+    task = asyncio.create_task(ear.feed(pcm, rate, tail))
     info: dict = {"_end": speech_end}
 
     async def handle(fc):

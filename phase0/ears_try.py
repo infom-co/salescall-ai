@@ -9,8 +9,8 @@ docs/EARS_SETUP.md（ここで確かめる接続先の名前・キーの名前�
  (1) 足りないものの確かめ：キー（AmiVoice・Soniox）・接続先に届くか（作業環境の通信の決まり）・モデル（ReazonSpeech。無ければ取る）
  (2) 1本だけつないで確かめる（試験集の「はい、予約しています。」）：つなぎ方（命令の形）が正しく、文字が届くか
  (3) G-15：答えの声すべてを、この耳だけで聞く（g15_ear.py --ear。どの耳も同じ形＝通話ごとに1本つなぐ）
- (4) 見込み：G-14 の記録にある通話（会話AIの聞き取りの文字・AIが選んだ答え）に、この耳の文字を、通話の中と同じ比べ方で当てる
-     （flowctl.heard_alike・待つのは Limits.ear_wait_s 秒まで）。AIが選んだ答えで、拾える誤り・要らない確かめを数える（問い合わせはしない）
+ (4) 見込み：G-14 の記録にある通話（会話AIの聞き取りの文字・AIが選んだ答え）に、この耳の文字を当て、流れの制御そのもの（flowctl.Flow）に
+     渡して、別の耳があるときと無いときを比べる（待つのは Limits.ear_wait_s 秒まで）。拾える誤り・要らない確かめを数える（問い合わせはしない）
  (5) 通話の中で使う形（g14_listen.py --ear）：(4) で拾える誤りが1つも無い耳は流さない（足しても数字が上がらない仕組みは外す）
  (6) 比べた表（results/EARS-TRY_*.json）
 キーの値は画面にも記録にも出さない（キーは common.load_secret だけが読む。ここでは、あるかだけを見る）。
@@ -28,10 +28,10 @@ import sys
 import urllib.parse
 from collections import Counter
 
-from common import HERE, RESULTS_DIR, base_parser, has_secret, load_keys, make_client, pick_key, read_wav_pcm16_mono, require_python, save_result, say
-from ears import AMIVOICE_URL, EAR_KINDS, SECRETS, SONIOX_MODEL, SONIOX_URL, open_ear
-from flowctl import Limits, heard_alike
-from g15_ear import live_calls, ok
+from common import HERE, RESULTS_DIR, KeyRing, base_parser, has_secret, load_keys, read_wav_pcm16_mono, require_python, save_result, say
+from ears import AMIVOICE_URL, EAR_KINDS, GEMINI_EAR_MODEL, SECRETS, SONIOX_MODEL, SONIOX_URL, open_ear
+from flowctl import Limits
+from g15_ear import live_calls, ok, tally
 from make_g14_set import OUT, load_all
 from stitch_gap import callee_speech
 import get_reazon_model
@@ -100,8 +100,9 @@ async def smoke(kind: str, client, env_path: str | None) -> dict:
     pcm, rate = read_wav_pcm16_mono(OUT.parent / m["wav"])
     async with open_ear(kind, client, env_path) as ear:
         loop = asyncio.get_running_loop()
-        speech_end = loop.time() + len(pcm) / 2 / rate - callee_speech(m["wav"])[2]
-        await ear.feed(pcm, rate)
+        tail = callee_speech(m["wav"])[2]
+        speech_end = loop.time() + len(pcm) / 2 / rate - tail
+        await ear.feed(pcm, rate, tail)
         text = await ear.wait(speech_end + 8.0 - loop.time())
         return {"script": m["text"], "text": text, "ok": ok(m["text"], text or ""), "first_s": round(ear.first_at - speech_end, 3) if ear.first_at else None,
                 "errors": list(ear.errors)}
@@ -133,30 +134,65 @@ def latest(pattern: str) -> list[str]:
     return sorted(p for p in glob.glob(str(RESULTS_DIR / pattern)) if "_partial" not in p and "TALLY" not in p)
 
 
-def predict(rows: list[dict], calls: list[dict], wait_s: float = Limits.ear_wait_s) -> dict:
-    """G-15 のこの耳の文字を、G-14 の記録の通話（g15_ear.live_calls：会話AIの聞き取りの文字・AIの最初の報告・正解）に当て、通話の中と同じ決まりで数える。
-    ・食い違えば確かめる（flowctl.Flow._op_record_answer の ears と同じ：別の耳の文字が wait_s 秒までに届いて、heard_alike でない）
-    ・数えるのは、in_call と同じく AI が選んだ答えで：AIが正しく選んだ通話で確かめれば「要らない確かめ」、誤って選んだ通話で確かめれば「拾える誤り」。
-      曖昧な答え（もともとプログラムが確かめる）と、正解の無い記録は数えない。
+TAKEN = ("accepted", "confirmed", "dont_know", "refused")   # 流れの制御が、AIの報告をそのまま受け取った状態
+
+
+def flow_takes(q, heard: str, condition: str | None, ear: str | None) -> bool:
+    """流れの制御（flowctl.Flow）そのものに、会話AIの聞き取り・AIの報告・別の耳の文字を渡し、AIの報告をそのまま受け取るか（確かめずに）。
+    見込みの数え方に、流れの制御の決まり（頭の言葉の食い違い・言い切っていない答え・曖昧な答え・別の耳との食い違い）を書き写さないための1か所。"""
+    from flowctl import Flow
+    f = Flow([q])
+    f.on_callee()
+    f.on_heard(heard)
+    if f.wants_ear("record_answer"):
+        f.on_ear(ear)
+    f.apply("record_answer", {"question_id": q.id, "condition_id": condition, "value": heard})
+    return f.items[q.id].state in TAKEN
+
+
+def predict(rows: list[dict], calls: list[dict], wait_s: float = Limits.ear_wait_s, questions: dict | None = None) -> dict:
+    """G-15 のこの耳の文字を、G-14 の記録の通話（g15_ear.live_calls：会話AIの聞き取りの文字・AIの最初の報告・正解・質問）に当て、
+    流れの制御そのもの（flow_takes）で、別の耳があるときと無いときを比べて数える（別の耳の文字は wait_s 秒までに届いたものだけ）。
+    ・AIが正しく選んだ通話：別の耳があるときだけ確かめれば「要らない確かめ」
+    ・AIが誤って選んだ通話：別の耳が無くても確かめれば「いまの確かめで拾える」、別の耳があるときだけ確かめれば「拾える誤り」（新しく拾える）、
+      どちらでも受け取れば「拾えない誤り」
+    ・曖昧な答え（もともとプログラムが確かめる）と、正解の無い記録は数えない。AIの最初の報告が答えの報告（record_answer）でない通話
+      （聞き取れない・締める・報告が無い）も、別の耳が効く所ではないので「答えの報告ではない」に分ける。
     ⛔ 2026-10-17 の1回目は、会話AIの文字が台本と違うかで数えた ⇒ 物差しの耳（Gemini）で「要らない確かめ 1.5%・拾える誤り 37組」と出たが、
-       実際の通話の中では 8.5%・0回だった（文字が違っても、AIの選ぶ答えは正しいことが多い＝「清掃しました」でも「はい」）。"""
+       実際の通話の中では 8.5%・0回だった（文字が違っても、AIの選ぶ答えは正しいことが多い＝「清掃しました」でも「はい」）。
+    ⛔ 2回目・3回目は、いまの確かめでもう拾える通話を「拾える誤り」に数えていた（2回目は頭の言葉の確かめを、3回目は言い切っていない答えの確かめを
+       見落とした：Gemini の耳が「家族がしたかもしれないです」を「来た」と聞き違えた12回を、拾える誤りに数えた）。決まりを書き写していたため
+       ⇒ 流れの制御そのものに渡す形にした。
+    ⛔ 4回目は、AIの最初の報告が答えの報告でない通話（「結構です」で締めた・報告が無い）にも答えの報告を作って渡し、流れの制御が
+       差し戻したのを「いまの確かめで拾える」に数えていた（Soniox で 108 のうち 33）。"""
+    if questions is None:
+        from g14_listen import QUESTIONS, business
+        questions = {q: business(q).questions[0] for q in QUESTIONS}
     ears = {r["wav"]: (r["ear"] if r.get("first_s") is not None and r["first_s"] <= wait_s else None) for r in rows if "ear" in r}
     c = Counter()
     for call in calls:
-        if call["wav"] not in ears or call.get("want") in (None, "ambiguous", "follow"):
+        q = questions.get(call.get("question") or "Q1")
+        if call["wav"] not in ears or call.get("want") in (None, "ambiguous", "follow") or q is None:
+            continue
+        if call.get("op") != "record_answer":
+            c["答えの報告ではない"] += 1
             continue
         ear, right = ears[call["wav"]], call.get("condition") == call["want"]
         c["通話"] += 1
         c["AIが正しく選んだ"] += right
+        base = flow_takes(q, call["heard"], call.get("condition"), None)
+        took = flow_takes(q, call["heard"], call.get("condition"), ear) if ear is not None else base
         if ear is None:
             c["間に合わない"] += 1
-        elif not heard_alike(call["heard"], ear):
-            c["要らない確かめ" if right else "拾える誤り"] += 1
-        elif not right:
-            c["拾えない誤り"] += 1
-    wrong = c["通話"] - c["AIが正しく選んだ"]
+        if right:
+            c["要らない確かめ"] += base and not took
+        elif not base:
+            c["いまの確かめで拾える"] += 1
+        else:
+            c["拾える誤り" if not took else "拾えない誤り"] += 1
+    new_wrong = c["拾える誤り"] + c["拾えない誤り"]
     return {**dict(c), "要らない確かめの割合": round(c["要らない確かめ"] / c["AIが正しく選んだ"], 3) if c["AIが正しく選んだ"] else None,
-            "拾える誤りの割合": round(c["拾える誤り"] / wrong, 3) if wrong else None}
+            "拾える誤りの割合": round(c["拾える誤り"] / new_wrong, 3) if new_wrong else None}
 
 
 def in_call(rows: list[dict]) -> dict:
@@ -182,8 +218,10 @@ def try_ear(kind: str, args, calls: list[dict]) -> dict:
     if kind == "soniox":
         out["Sonioxのモデル"] = {"使う名前": SONIOX_MODEL, "使える名前": soniox_models(args.env)}
         say("Soniox のモデル：", json.dumps(out["Sonioxのモデル"], ensure_ascii=False))
-    client = make_client(pick_key(args)) if kind == "transcribe35" else None
-    s = asyncio.run(smoke(kind, client, args.env))
+    if kind == "transcribe35":   # 上限・止められたキーは飛ばす（common.KeyRing.acall。⛔ 2026-10-17 の見直し：1つのキーだけで、止められたキーで止まった）
+        s, _ = asyncio.run(KeyRing(args).acall(GEMINI_EAR_MODEL, lambda client: smoke(kind, client, args.env)))
+    else:
+        s = asyncio.run(smoke(kind, None, args.env))
     out["1本だけの確かめ"] = s
     say(f"{NAMES[kind]}：1本だけの確かめ「{s['script']}」⇒ {s['text']!r}（{s['first_s']}秒） {s['errors']}")
     if not s["text"]:
@@ -194,7 +232,8 @@ def try_ear(kind: str, args, calls: list[dict]) -> dict:
             return {**out, "止まった所": "(3) G-15"}
         found = latest(f"G-15-{kind}_*.json")
     g15 = json.loads(open(found[-1], encoding="utf-8").read())
-    out.update({"G-15": found[-1].rsplit("/", 1)[-1], "G-15の数え": g15["summary"], "見込み": predict(g15["rows"], calls)})
+    # 数えは、保存した結果の行から毎回数え直す（あとから足した数え＝前の発話の文字が混ざった、も、前の回の結果に当たる）
+    out.update({"G-15": found[-1].rsplit("/", 1)[-1], "G-15の数え": tally(g15["rows"]), "見込み": predict(g15["rows"], calls)})
     say(f"{NAMES[kind]}：見込み", json.dumps(out["見込み"], ensure_ascii=False))
     if args.skip_in_call:
         return {**out, "止まった所": "（通話の中の試験は流さない指定）"}
@@ -226,10 +265,11 @@ def table(results: list[dict]) -> None:
             line.append("足りないもの：" + "／".join(r["足りないもの"]))
         if "G-15の数え" in r:
             g = r["G-15の数え"]
-            line.append(f"台本どおり {g['別の耳が台本どおり']}/{g['声']}・最初の文字まで（中央・遅いほうから1割・最大）{g['最初の文字が届くまで（中央・遅いほうから1割・最大）']}")
+            line.append(f"台本どおり {g['別の耳が台本どおり']}/{g['声']}・最初の文字まで（中央・遅いほうから1割・最大）{g['最初の文字が届くまで（中央・遅いほうから1割・最大）']}"
+                        f"・前の発話の文字が混ざった {len(g['前の発話の文字が混ざった'])}")
         if "見込み" in r:
             p = r["見込み"]
-            line.append(f"見込み：拾える誤り {p.get('拾える誤り', 0)}・拾えない誤り {p.get('拾えない誤り', 0)}・要らない確かめ {p.get('要らない確かめ', 0)}（{p.get('要らない確かめの割合')}）・間に合わない {p.get('間に合わない', 0)}")
+            line.append(f"見込み：新しく拾える誤り {p.get('拾える誤り', 0)}・拾えない誤り {p.get('拾えない誤り', 0)}・いまの確かめで拾える {p.get('いまの確かめで拾える', 0)}・要らない確かめ {p.get('要らない確かめ', 0)}（{p.get('要らない確かめの割合')}）・間に合わない {p.get('間に合わない', 0)}")
         if "通話の中" in r:
             line.append("通話の中：" + json.dumps(r["通話の中"], ensure_ascii=False))
         say(" ｜ ".join(line))
