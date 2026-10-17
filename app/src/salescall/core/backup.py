@@ -24,6 +24,7 @@ import os
 import re
 import subprocess
 import tempfile
+import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -238,6 +239,12 @@ BASE = "salescall-backup"
 AI, SUBMISSION, RECORDING = "AI", "submission", "recording"
 _DATED = re.compile(r"^salescall-(\d{8})-(\d{6})[.-].*\.enc$")      # 控えのファイルの名前（日時つき。消す決まりはこの名前だけを見る）
 _UNSAFE = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
+# 会社の種類の言葉（フォルダの名前には入れない。2026-10-17 ユーザー：「架空商事-本社」だけでいい）。文字の形をそろえた（NFKC）あとの形で書く
+_COMPANY_KINDS = re.compile(
+    r"(株式|有限|合同|合資|合名)会社|(一般|公益)(社団|財団)法人|特定非営利活動法人|NPO法人"
+    r"|(医療|社会福祉|学校|宗教|弁護士|税理士|行政書士|司法書士|監査|社会保険労務士)法人"
+    r"|\((株|有|同|資|名|社|財|医|福|学|宗)\)")
+_BREAKS = re.compile(r'(\s|[\\/:*?"<>|\x00-\x1f])+')    # 区切り（空白・Windows で使えない文字）は「-」1つにする
 _RESERVED = {"con", "prn", "aux", "nul", "system"} | {f"com{i}" for i in range(1, 10)} | {f"lpt{i}" for i in range(1, 10)}
 
 
@@ -255,8 +262,11 @@ class Drive:
 
 
 def folder_name_from(name: str) -> str | None:
-    """依頼者の名前（依頼者タブの自社情報の会社名）から、フォルダの名前を作る（Windows で使えない文字を外す）。使えなければ None。"""
-    n = _UNSAFE.sub("", name).strip()[:60].rstrip(". ")
+    """依頼者の名前（依頼者タブの自社情報の会社名）から、フォルダの名前を作る。使えなければ None。
+    文字の形をそろえ（全角の英数字・空白・㈱ など）、会社の種類の言葉（株式会社・(株) など）を外し、区切り（空白・Windows で
+    使えない文字）を「-」にする（例「株式会社 架空商事:本社」⇒「架空商事-本社」。2026-10-17 ユーザー）。"""
+    n = _COMPANY_KINDS.sub(" ", unicodedata.normalize("NFKC", name))
+    n = _BREAKS.sub("-", n.strip()).strip("-. ")[:60].rstrip("-. ")
     return None if not n or n.lower() in _RESERVED else n
 
 

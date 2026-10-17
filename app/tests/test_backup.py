@@ -106,10 +106,16 @@ class PerClient(unittest.TestCase):
 
     def test_folders_follow_the_client_name_and_fall_back_to_client_numbers(self):
         t = self.w.tenant()
-        a = self.named_client(t, "株式会社 架空/商事:本社")
+        for given, want in (("株式会社 架空商事:本社", "架空商事-本社"),       # 2026-10-17 ユーザー：「架空商事-本社」だけでいい
+                            ("㈱架空商事　本社", "架空商事-本社"), ("架空商事（株） 本社", "架空商事-本社"),
+                            ("架空ＡＢＣ株式会社", "架空ABC"), ("一般社団法人 架空協会 / 東京支部", "架空協会-東京支部"),
+                            ("株式会社", None), ("CON", None)):
+            with self.subTest(given=given):
+                self.assertEqual(backup.folder_name_from(given), want)
+        a = self.named_client(t, "株式会社 架空商事:本社")
         b = self.named_client(t, "CON")                                  # Windows で使えない名前
         name_a = backup.client_folder(self.app, t, a)
-        self.assertEqual(name_a, "株式会社 架空商事本社")
+        self.assertEqual(name_a, "架空商事-本社")
         self.assertRegex(backup.client_folder(self.app, t, b), r"^client\d+$")
         self.w.a.in_tenant(OPERATOR, t, lambda tx: registry.rename_client(tx, a, "名前を直した"))
         self.assertEqual(backup.client_folder(self.app, t, a), name_a)   # 名前を直しても、フォルダは変えない
