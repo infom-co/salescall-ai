@@ -40,18 +40,6 @@
   },
   {
     "voice": "Fenrir",
-    "id": "y4",
-    "question": "Q1",
-    "want": "はい",
-    "kind": "遠回し",
-    "text": "ええ、してます。",
-    "ok": false,
-    "heard": "ええ、知ってます。",
-    "tries": 3,
-    "seconds": 1.26
-  },
-  {
-    "voice": "Fenrir",
     "id": "y5",
     "question": "Q1",
     "want": "はい",
@@ -309,5 +297,43 @@
     "tries": 1,
     "seconds": 0.79,
     "wav": "g14/Fenrir_a4.wav"
+  },
+  {
+    "voice": "Fenrir",
+    "id": "f1",
+    "question": "Q1",
+    "want": "follow",
+    "kind": "続きの返事",
+    "text": "はい、そうです。",
+    "ok": true,
+    "heard": "はい、そうです。",
+    "tries": 2,
+    "seconds": 1.4,
+    "wav": "g14/Fenrir_f1.wav"
+  },
+  {
+    "voice": "Fenrir",
+    "id": "y4",
+    "question": "Q1",
+    "want": "はい",
+    "kind": "遠回し",
+    "text": "ええ、してます。",
+    "ok": false,
+    "heard": "し て ます。",
+    "tries": 3,
+    "seconds": 0.74
+  },
+  {
+    "voice": "Fenrir",
+    "id": "f2",
+    "question": "Q1",
+    "want": "follow",
+    "kind": "続きの返事",
+    "text": "いいえ、予約はしています。",
+    "ok": true,
+    "heard": "いいえ、予約はしています。",
+    "tries": 1,
+    "seconds": 1.93,
+    "wav": "g14/Fenrir_f2.wav"
   }
 ]

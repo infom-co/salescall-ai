@@ -27,30 +27,6 @@
   },
   {
     "voice": "Kore",
-    "id": "y3",
-    "question": "Q1",
-    "want": "はい",
-    "kind": "はっきり",
-    "text": "はい、先週しました。",
-    "ok": false,
-    "heard": "はい、精進しました。",
-    "tries": 3,
-    "seconds": 1.68
-  },
-  {
-    "voice": "Kore",
-    "id": "y4",
-    "question": "Q1",
-    "want": "はい",
-    "kind": "遠回し",
-    "text": "ええ、してます。",
-    "ok": false,
-    "heard": "してます。",
-    "tries": 3,
-    "seconds": 1.44
-  },
-  {
-    "voice": "Kore",
     "id": "y5",
     "question": "Q1",
     "want": "はい",
@@ -100,18 +76,6 @@
     "tries": 3,
     "seconds": 1.78,
     "wav": "g14/Kore_n2.wav"
-  },
-  {
-    "voice": "Kore",
-    "id": "n3",
-    "question": "Q1",
-    "want": "いいえ",
-    "kind": "遠回し",
-    "text": "してないです。",
-    "ok": false,
-    "heard": "捨てないです。",
-    "tries": 3,
-    "seconds": 1.2
   },
   {
     "voice": "Kore",
@@ -307,5 +271,70 @@
     "tries": 1,
     "seconds": 1.01,
     "wav": "g14/Kore_a4.wav"
+  },
+  {
+    "voice": "Kore",
+    "id": "y4",
+    "question": "Q1",
+    "want": "はい",
+    "kind": "遠回し",
+    "text": "ええ、してます。",
+    "ok": true,
+    "heard": "ええ、してます。",
+    "tries": 2,
+    "seconds": 1.28,
+    "wav": "g14/Kore_y4.wav"
+  },
+  {
+    "voice": "Kore",
+    "id": "n3",
+    "question": "Q1",
+    "want": "いいえ",
+    "kind": "遠回し",
+    "text": "してないです。",
+    "ok": true,
+    "heard": "してないです。",
+    "tries": 1,
+    "seconds": 1.28,
+    "wav": "g14/Kore_n3.wav"
+  },
+  {
+    "voice": "Kore",
+    "id": "f1",
+    "question": "Q1",
+    "want": "follow",
+    "kind": "続きの返事",
+    "text": "はい、そうです。",
+    "ok": true,
+    "heard": "はい、そうです。",
+    "tries": 1,
+    "seconds": 1.44,
+    "wav": "g14/Kore_f1.wav"
+  },
+  {
+    "voice": "Kore",
+    "id": "y3",
+    "question": "Q1",
+    "want": "はい",
+    "kind": "はっきり",
+    "text": "はい、先週しました。",
+    "ok": true,
+    "heard": "はい、専修しました。",
+    "tries": 3,
+    "seconds": 1.96,
+    "wav": "g14/Kore_y3.wav"
+  },
+  {
+    "voice": "Kore",
+    "id": "f2",
+    "question": "Q1",
+    "want": "follow",
+    "kind": "続きの返事",
+    "text": "いいえ、予約はしています。",
+    "ok": true,
+    "heard": "いいえ、予約はしています。",
+    "tries": 2,
+    "seconds": 2.05,
+    "wav": "g14/Kore_f2.wav"
   }
 ]

@@ -131,18 +131,6 @@
   },
   {
     "voice": "Puck",
-    "id": "y4",
-    "question": "Q1",
-    "want": "はい",
-    "kind": "遠回し",
-    "text": "ええ、してます。",
-    "ok": false,
-    "heard": "stim",
-    "tries": 3,
-    "seconds": 0.8
-  },
-  {
-    "voice": "Puck",
     "id": "n1",
     "question": "Q1",
     "want": "いいえ",
@@ -192,18 +180,6 @@
     "tries": 1,
     "seconds": 0.72,
     "wav": "g14/Puck_a2.wav"
-  },
-  {
-    "voice": "Puck",
-    "id": "c1",
-    "question": "Q2",
-    "want": "カード",
-    "kind": "はっきり",
-    "text": "カードでお願いします。",
-    "ok": false,
-    "heard": "カードでお願いし",
-    "tries": 3,
-    "seconds": 0.79
   },
   {
     "voice": "Puck",
@@ -308,5 +284,56 @@
     "tries": 1,
     "seconds": 0.78,
     "wav": "g14/Puck_a4.wav"
+  },
+  {
+    "voice": "Puck",
+    "id": "c1",
+    "question": "Q2",
+    "want": "カード",
+    "kind": "はっきり",
+    "text": "カードでお願いします。",
+    "ok": true,
+    "heard": "カードでお願いします。",
+    "tries": 2,
+    "seconds": 1.46,
+    "wav": "g14/Puck_c1.wav"
+  },
+  {
+    "voice": "Puck",
+    "id": "f1",
+    "question": "Q1",
+    "want": "follow",
+    "kind": "続きの返事",
+    "text": "はい、そうです。",
+    "ok": true,
+    "heard": "はい、そうです。",
+    "tries": 1,
+    "seconds": 1.17,
+    "wav": "g14/Puck_f1.wav"
+  },
+  {
+    "voice": "Puck",
+    "id": "y4",
+    "question": "Q1",
+    "want": "はい",
+    "kind": "遠回し",
+    "text": "ええ、してます。",
+    "ok": false,
+    "heard": "ste",
+    "tries": 3,
+    "seconds": 0.79
+  },
+  {
+    "voice": "Puck",
+    "id": "f2",
+    "question": "Q1",
+    "want": "follow",
+    "kind": "続きの返事",
+    "text": "いいえ、予約はしています。",
+    "ok": true,
+    "heard": "いいえ、予約はしています。",
+    "tries": 1,
+    "seconds": 2.16,
+    "wav": "g14/Puck_f2.wav"
   }
 ]

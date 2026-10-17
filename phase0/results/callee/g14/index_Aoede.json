@@ -27,30 +27,6 @@
   },
   {
     "voice": "Aoede",
-    "id": "y3",
-    "question": "Q1",
-    "want": "はい",
-    "kind": "はっきり",
-    "text": "はい、先週しました。",
-    "ok": false,
-    "heard": "はい、専攻しました。",
-    "tries": 3,
-    "seconds": 1.92
-  },
-  {
-    "voice": "Aoede",
-    "id": "y4",
-    "question": "Q1",
-    "want": "はい",
-    "kind": "遠回し",
-    "text": "ええ、してます。",
-    "ok": false,
-    "heard": "してます。",
-    "tries": 3,
-    "seconds": 1.38
-  },
-  {
-    "voice": "Aoede",
     "id": "y5",
     "question": "Q1",
     "want": "はい",
@@ -87,18 +63,6 @@
     "tries": 1,
     "seconds": 1.9,
     "wav": "g14/Aoede_n1.wav"
-  },
-  {
-    "voice": "Aoede",
-    "id": "n2",
-    "question": "Q1",
-    "want": "いいえ",
-    "kind": "はっきり",
-    "text": "いえ、まだしていません。",
-    "ok": false,
-    "heard": "いや、まだしていません。",
-    "tries": 3,
-    "seconds": 1.9
   },
   {
     "voice": "Aoede",
@@ -307,5 +271,69 @@
     "tries": 1,
     "seconds": 0.76,
     "wav": "g14/Aoede_a4.wav"
+  },
+  {
+    "voice": "Aoede",
+    "id": "y3",
+    "question": "Q1",
+    "want": "はい",
+    "kind": "はっきり",
+    "text": "はい、先週しました。",
+    "ok": true,
+    "heard": "はい、先週しました。",
+    "tries": 2,
+    "seconds": 1.86,
+    "wav": "g14/Aoede_y3.wav"
+  },
+  {
+    "voice": "Aoede",
+    "id": "f1",
+    "question": "Q1",
+    "want": "follow",
+    "kind": "続きの返事",
+    "text": "はい、そうです。",
+    "ok": true,
+    "heard": "はい、そうです。",
+    "tries": 1,
+    "seconds": 1.43,
+    "wav": "g14/Aoede_f1.wav"
+  },
+  {
+    "voice": "Aoede",
+    "id": "y4",
+    "question": "Q1",
+    "want": "はい",
+    "kind": "遠回し",
+    "text": "ええ、してます。",
+    "ok": false,
+    "heard": "してます。",
+    "tries": 3,
+    "seconds": 1.68
+  },
+  {
+    "voice": "Aoede",
+    "id": "n2",
+    "question": "Q1",
+    "want": "いいえ",
+    "kind": "はっきり",
+    "text": "いえ、まだしていません。",
+    "ok": true,
+    "heard": "いえ、まだしていません。",
+    "tries": 3,
+    "seconds": 1.92,
+    "wav": "g14/Aoede_n2.wav"
+  },
+  {
+    "voice": "Aoede",
+    "id": "f2",
+    "question": "Q1",
+    "want": "follow",
+    "kind": "続きの返事",
+    "text": "いいえ、予約はしています。",
+    "ok": true,
+    "heard": "いいえ、予約はしています。",
+    "tries": 1,
+    "seconds": 2.22,
+    "wav": "g14/Aoede_f2.wav"
   }
 ]

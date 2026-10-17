@@ -27,30 +27,6 @@
   },
   {
     "voice": "Aoede",
-    "id": "y3",
-    "question": "Q1",
-    "want": "はい",
-    "kind": "はっきり",
-    "text": "はい、先週しました。",
-    "ok": false,
-    "heard": "はい、専攻しました。",
-    "tries": 3,
-    "seconds": 1.92
-  },
-  {
-    "voice": "Aoede",
-    "id": "y4",
-    "question": "Q1",
-    "want": "はい",
-    "kind": "遠回し",
-    "text": "ええ、してます。",
-    "ok": false,
-    "heard": "してます。",
-    "tries": 3,
-    "seconds": 1.38
-  },
-  {
-    "voice": "Aoede",
     "id": "y5",
     "question": "Q1",
     "want": "はい",
@@ -87,18 +63,6 @@
     "tries": 1,
     "seconds": 1.9,
     "wav": "g14/Aoede_n1.wav"
-  },
-  {
-    "voice": "Aoede",
-    "id": "n2",
-    "question": "Q1",
-    "want": "いいえ",
-    "kind": "はっきり",
-    "text": "いえ、まだしていません。",
-    "ok": false,
-    "heard": "いや、まだしていません。",
-    "tries": 3,
-    "seconds": 1.9
   },
   {
     "voice": "Aoede",
@@ -309,6 +273,70 @@
     "wav": "g14/Aoede_a4.wav"
   },
   {
+    "voice": "Aoede",
+    "id": "y3",
+    "question": "Q1",
+    "want": "はい",
+    "kind": "はっきり",
+    "text": "はい、先週しました。",
+    "ok": true,
+    "heard": "はい、先週しました。",
+    "tries": 2,
+    "seconds": 1.86,
+    "wav": "g14/Aoede_y3.wav"
+  },
+  {
+    "voice": "Aoede",
+    "id": "f1",
+    "question": "Q1",
+    "want": "follow",
+    "kind": "続きの返事",
+    "text": "はい、そうです。",
+    "ok": true,
+    "heard": "はい、そうです。",
+    "tries": 1,
+    "seconds": 1.43,
+    "wav": "g14/Aoede_f1.wav"
+  },
+  {
+    "voice": "Aoede",
+    "id": "y4",
+    "question": "Q1",
+    "want": "はい",
+    "kind": "遠回し",
+    "text": "ええ、してます。",
+    "ok": false,
+    "heard": "してます。",
+    "tries": 3,
+    "seconds": 1.68
+  },
+  {
+    "voice": "Aoede",
+    "id": "n2",
+    "question": "Q1",
+    "want": "いいえ",
+    "kind": "はっきり",
+    "text": "いえ、まだしていません。",
+    "ok": true,
+    "heard": "いえ、まだしていません。",
+    "tries": 3,
+    "seconds": 1.92,
+    "wav": "g14/Aoede_n2.wav"
+  },
+  {
+    "voice": "Aoede",
+    "id": "f2",
+    "question": "Q1",
+    "want": "follow",
+    "kind": "続きの返事",
+    "text": "いいえ、予約はしています。",
+    "ok": true,
+    "heard": "いいえ、予約はしています。",
+    "tries": 1,
+    "seconds": 2.22,
+    "wav": "g14/Aoede_f2.wav"
+  },
+  {
     "voice": "Charon",
     "id": "y1",
     "question": "Q1",
@@ -346,18 +374,6 @@
     "tries": 2,
     "seconds": 1.93,
     "wav": "g14/Charon_y3.wav"
-  },
-  {
-    "voice": "Charon",
-    "id": "y4",
-    "question": "Q1",
-    "want": "はい",
-    "kind": "遠回し",
-    "text": "ええ、してます。",
-    "ok": false,
-    "heard": "ええ、知ってます。",
-    "tries": 3,
-    "seconds": 1.32
   },
   {
     "voice": "Charon",
@@ -620,6 +636,49 @@
     "wav": "g14/Charon_a4.wav"
   },
   {
+    "voice": "Charon",
+    "id": "f1",
+    "question": "Q1",
+    "want": "follow",
+    "kind": "続きの返事",
+    "text": "はい、そうです。",
+    "ok": true,
+    "heard": "はい、そうです。",
+    "tries": 2,
+    "seconds": 1.15,
+    "wav": "g14/Charon_f1.wav"
+  },
+  {
+    "voice": "Charon",
+    "id": "y4",
+    "question": "Q1",
+    "want": "はい",
+    "kind": "遠回し",
+    "text": "ええ、してます。",
+    "ok": false,
+    "error": {
+      "type": "ValueError",
+      "module": "builtins",
+      "message": "a cannot be empty"
+    },
+    "heard": "し",
+    "tries": 3,
+    "seconds": 0.69
+  },
+  {
+    "voice": "Charon",
+    "id": "f2",
+    "question": "Q1",
+    "want": "follow",
+    "kind": "続きの返事",
+    "text": "いいえ、予約はしています。",
+    "ok": true,
+    "heard": "いいえ、予約はしています。",
+    "tries": 1,
+    "seconds": 1.85,
+    "wav": "g14/Charon_f2.wav"
+  },
+  {
     "voice": "Fenrir",
     "id": "y1",
     "question": "Q1",
@@ -657,18 +716,6 @@
     "tries": 1,
     "seconds": 1.88,
     "wav": "g14/Fenrir_y3.wav"
-  },
-  {
-    "voice": "Fenrir",
-    "id": "y4",
-    "question": "Q1",
-    "want": "はい",
-    "kind": "遠回し",
-    "text": "ええ、してます。",
-    "ok": false,
-    "heard": "ええ、知ってます。",
-    "tries": 3,
-    "seconds": 1.26
   },
   {
     "voice": "Fenrir",
@@ -931,6 +978,44 @@
     "wav": "g14/Fenrir_a4.wav"
   },
   {
+    "voice": "Fenrir",
+    "id": "f1",
+    "question": "Q1",
+    "want": "follow",
+    "kind": "続きの返事",
+    "text": "はい、そうです。",
+    "ok": true,
+    "heard": "はい、そうです。",
+    "tries": 2,
+    "seconds": 1.4,
+    "wav": "g14/Fenrir_f1.wav"
+  },
+  {
+    "voice": "Fenrir",
+    "id": "y4",
+    "question": "Q1",
+    "want": "はい",
+    "kind": "遠回し",
+    "text": "ええ、してます。",
+    "ok": false,
+    "heard": "し て ます。",
+    "tries": 3,
+    "seconds": 0.74
+  },
+  {
+    "voice": "Fenrir",
+    "id": "f2",
+    "question": "Q1",
+    "want": "follow",
+    "kind": "続きの返事",
+    "text": "いいえ、予約はしています。",
+    "ok": true,
+    "heard": "いいえ、予約はしています。",
+    "tries": 1,
+    "seconds": 1.93,
+    "wav": "g14/Fenrir_f2.wav"
+  },
+  {
     "voice": "Kore",
     "id": "y1",
     "question": "Q1",
@@ -955,30 +1040,6 @@
     "tries": 1,
     "seconds": 0.64,
     "wav": "g14/Kore_y2.wav"
-  },
-  {
-    "voice": "Kore",
-    "id": "y3",
-    "question": "Q1",
-    "want": "はい",
-    "kind": "はっきり",
-    "text": "はい、先週しました。",
-    "ok": false,
-    "heard": "はい、精進しました。",
-    "tries": 3,
-    "seconds": 1.68
-  },
-  {
-    "voice": "Kore",
-    "id": "y4",
-    "question": "Q1",
-    "want": "はい",
-    "kind": "遠回し",
-    "text": "ええ、してます。",
-    "ok": false,
-    "heard": "してます。",
-    "tries": 3,
-    "seconds": 1.44
   },
   {
     "voice": "Kore",
@@ -1031,18 +1092,6 @@
     "tries": 3,
     "seconds": 1.78,
     "wav": "g14/Kore_n2.wav"
-  },
-  {
-    "voice": "Kore",
-    "id": "n3",
-    "question": "Q1",
-    "want": "いいえ",
-    "kind": "遠回し",
-    "text": "してないです。",
-    "ok": false,
-    "heard": "捨てないです。",
-    "tries": 3,
-    "seconds": 1.2
   },
   {
     "voice": "Kore",
@@ -1240,6 +1289,71 @@
     "wav": "g14/Kore_a4.wav"
   },
   {
+    "voice": "Kore",
+    "id": "y4",
+    "question": "Q1",
+    "want": "はい",
+    "kind": "遠回し",
+    "text": "ええ、してます。",
+    "ok": true,
+    "heard": "ええ、してます。",
+    "tries": 2,
+    "seconds": 1.28,
+    "wav": "g14/Kore_y4.wav"
+  },
+  {
+    "voice": "Kore",
+    "id": "n3",
+    "question": "Q1",
+    "want": "いいえ",
+    "kind": "遠回し",
+    "text": "してないです。",
+    "ok": true,
+    "heard": "してないです。",
+    "tries": 1,
+    "seconds": 1.28,
+    "wav": "g14/Kore_n3.wav"
+  },
+  {
+    "voice": "Kore",
+    "id": "f1",
+    "question": "Q1",
+    "want": "follow",
+    "kind": "続きの返事",
+    "text": "はい、そうです。",
+    "ok": true,
+    "heard": "はい、そうです。",
+    "tries": 1,
+    "seconds": 1.44,
+    "wav": "g14/Kore_f1.wav"
+  },
+  {
+    "voice": "Kore",
+    "id": "y3",
+    "question": "Q1",
+    "want": "はい",
+    "kind": "はっきり",
+    "text": "はい、先週しました。",
+    "ok": true,
+    "heard": "はい、専修しました。",
+    "tries": 3,
+    "seconds": 1.96,
+    "wav": "g14/Kore_y3.wav"
+  },
+  {
+    "voice": "Kore",
+    "id": "f2",
+    "question": "Q1",
+    "want": "follow",
+    "kind": "続きの返事",
+    "text": "いいえ、予約はしています。",
+    "ok": true,
+    "heard": "いいえ、予約はしています。",
+    "tries": 2,
+    "seconds": 2.05,
+    "wav": "g14/Kore_f2.wav"
+  },
+  {
     "voice": "Leda",
     "id": "y1",
     "question": "Q1",
@@ -1267,30 +1381,6 @@
   },
   {
     "voice": "Leda",
-    "id": "y3",
-    "question": "Q1",
-    "want": "はい",
-    "kind": "はっきり",
-    "text": "はい、先週しました。",
-    "ok": false,
-    "heard": "はい、洗車しました。",
-    "tries": 3,
-    "seconds": 1.84
-  },
-  {
-    "voice": "Leda",
-    "id": "y4",
-    "question": "Q1",
-    "want": "はい",
-    "kind": "遠回し",
-    "text": "ええ、してます。",
-    "ok": false,
-    "heard": "へしてます。",
-    "tries": 3,
-    "seconds": 1.31
-  },
-  {
-    "voice": "Leda",
     "id": "y5",
     "question": "Q1",
     "want": "はい",
@@ -1314,18 +1404,6 @@
     "tries": 1,
     "seconds": 1.94,
     "wav": "g14/Leda_y6.wav"
-  },
-  {
-    "voice": "Leda",
-    "id": "n1",
-    "question": "Q1",
-    "want": "いいえ",
-    "kind": "はっきり",
-    "text": "いいえ、まだです。",
-    "ok": false,
-    "heard": "いえ、まだです。",
-    "tries": 3,
-    "seconds": 1.47
   },
   {
     "voice": "Leda",
@@ -1549,6 +1627,70 @@
     "wav": "g14/Leda_a4.wav"
   },
   {
+    "voice": "Leda",
+    "id": "y4",
+    "question": "Q1",
+    "want": "はい",
+    "kind": "遠回し",
+    "text": "ええ、してます。",
+    "ok": true,
+    "heard": "ええ、してます。",
+    "tries": 2,
+    "seconds": 0.76,
+    "wav": "g14/Leda_y4.wav"
+  },
+  {
+    "voice": "Leda",
+    "id": "n1",
+    "question": "Q1",
+    "want": "いいえ",
+    "kind": "はっきり",
+    "text": "いいえ、まだです。",
+    "ok": true,
+    "heard": "いいえ、まだです。",
+    "tries": 2,
+    "seconds": 1.43,
+    "wav": "g14/Leda_n1.wav"
+  },
+  {
+    "voice": "Leda",
+    "id": "f1",
+    "question": "Q1",
+    "want": "follow",
+    "kind": "続きの返事",
+    "text": "はい、そうです。",
+    "ok": true,
+    "heard": "はい、そうです。",
+    "tries": 1,
+    "seconds": 1.56,
+    "wav": "g14/Leda_f1.wav"
+  },
+  {
+    "voice": "Leda",
+    "id": "y3",
+    "question": "Q1",
+    "want": "はい",
+    "kind": "はっきり",
+    "text": "はい、先週しました。",
+    "ok": false,
+    "heard": "はい、清掃しました。",
+    "tries": 3,
+    "seconds": 1.92
+  },
+  {
+    "voice": "Leda",
+    "id": "f2",
+    "question": "Q1",
+    "want": "follow",
+    "kind": "続きの返事",
+    "text": "いいえ、予約はしています。",
+    "ok": true,
+    "heard": "いいえ、予約はしています。",
+    "tries": 2,
+    "seconds": 2.43,
+    "wav": "g14/Leda_f2.wav"
+  },
+  {
     "voice": "Puck",
     "id": "y1",
     "question": "Q1",
@@ -1680,18 +1822,6 @@
   },
   {
     "voice": "Puck",
-    "id": "y4",
-    "question": "Q1",
-    "want": "はい",
-    "kind": "遠回し",
-    "text": "ええ、してます。",
-    "ok": false,
-    "heard": "stim",
-    "tries": 3,
-    "seconds": 0.8
-  },
-  {
-    "voice": "Puck",
     "id": "n1",
     "question": "Q1",
     "want": "いいえ",
@@ -1741,18 +1871,6 @@
     "tries": 1,
     "seconds": 0.72,
     "wav": "g14/Puck_a2.wav"
-  },
-  {
-    "voice": "Puck",
-    "id": "c1",
-    "question": "Q2",
-    "want": "カード",
-    "kind": "はっきり",
-    "text": "カードでお願いします。",
-    "ok": false,
-    "heard": "カードでお願いし",
-    "tries": 3,
-    "seconds": 0.79
   },
   {
     "voice": "Puck",
@@ -1857,6 +1975,57 @@
     "tries": 1,
     "seconds": 0.78,
     "wav": "g14/Puck_a4.wav"
+  },
+  {
+    "voice": "Puck",
+    "id": "c1",
+    "question": "Q2",
+    "want": "カード",
+    "kind": "はっきり",
+    "text": "カードでお願いします。",
+    "ok": true,
+    "heard": "カードでお願いします。",
+    "tries": 2,
+    "seconds": 1.46,
+    "wav": "g14/Puck_c1.wav"
+  },
+  {
+    "voice": "Puck",
+    "id": "f1",
+    "question": "Q1",
+    "want": "follow",
+    "kind": "続きの返事",
+    "text": "はい、そうです。",
+    "ok": true,
+    "heard": "はい、そうです。",
+    "tries": 1,
+    "seconds": 1.17,
+    "wav": "g14/Puck_f1.wav"
+  },
+  {
+    "voice": "Puck",
+    "id": "y4",
+    "question": "Q1",
+    "want": "はい",
+    "kind": "遠回し",
+    "text": "ええ、してます。",
+    "ok": false,
+    "heard": "ste",
+    "tries": 3,
+    "seconds": 0.79
+  },
+  {
+    "voice": "Puck",
+    "id": "f2",
+    "question": "Q1",
+    "want": "follow",
+    "kind": "続きの返事",
+    "text": "いいえ、予約はしています。",
+    "ok": true,
+    "heard": "いいえ、予約はしています。",
+    "tries": 1,
+    "seconds": 2.16,
+    "wav": "g14/Puck_f2.wav"
   },
   {
     "voice": "Charon",
@@ -2038,6 +2207,20 @@
     "tries": 1,
     "seconds": 1.79,
     "wav": "g14/Kore_t1_noise.wav",
+    "noise": "白い雑音 15dB"
+  },
+  {
+    "voice": "Kore",
+    "id": "y3_noise",
+    "question": "Q1",
+    "want": "はい",
+    "kind": "はっきり",
+    "text": "はい、先週しました。",
+    "ok": true,
+    "heard": "はい、専修しました。",
+    "tries": 3,
+    "seconds": 1.96,
+    "wav": "g14/Kore_y3_noise.wav",
     "noise": "白い雑音 15dB"
   }
 ]

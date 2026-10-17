@@ -60,6 +60,9 @@ CONFIRM = {
     # （よろしかったでしょうか？）」）と、相手の言い間違い（「承知しました。それでは、16日の午後2時で、よろしいでしょうか？」）で分ける
     "聞き違いのあと": ("{v}{de}大丈夫でしょうか？", "{v}{de}よろしかったでしょうか？"),
     "言い直しのあと": ("{v}{de}よろしいでしょうか？",),
+    # 受け入れにも断りにも取れる答え（「大丈夫です」「結構です」）の意味を確かめる（DESIGN.md 6-10 の (3)。flowctl.ambiguous_answer）。
+    # 「大丈夫でしょうか」は使わない（相手の「大丈夫です」をそのまま聞き返す形になり、また「大丈夫です」と返る）
+    "曖昧な答えのあと": ("{v}{de}よろしいでしょうか？", "{v}{de}よろしかったでしょうか？"),
 }
 # 名乗りの頭。✅ 2026-10-16 ユーザー：「名乗りの頭は、『お忙しいところ恐れ入ります。』でOK」（法人・個人の名乗りの例では「お忙しいところ
 #    失礼いたします。」と書かれていたので一度替えたが、もとのままにする）
@@ -97,9 +100,11 @@ def joiner(value: str) -> str:
     return "で" if pos in ("名詞", "接尾辞", "補助記号", "記号") else "ということで"
 
 
-def confirm(value: str, situation: str = "ふつう", n: int = 0) -> str:
-    """言い直しの言い方。situation は CONFIRM の鍵、n はその場面で何回目か（順番に回す）。"""
-    forms = CONFIRM[situation]
+def confirm(value: str, situation: str = "ふつう", n: int = 0, meaning: bool = False) -> str:
+    """言い直しの言い方。situation は CONFIRM の鍵、n はその場面で何回目か（順番に回す）。
+    meaning：選択肢の答えの意味を言い直すとき（「ご予約はお済みということでよろしいでしょうか？」。value は flowctl.choice_words）。
+    言葉を聞き返す形（「（値）とおっしゃいましたでしょうか？」）は、意味の言い直しには合わないので使わない。"""
+    forms = [f for f in CONFIRM[situation] if not meaning or "{de}" in f]
     return forms[n % len(forms)].format(v=value, de=joiner(value))
 
 APOLOGY = ("失礼いたしました。", "申し訳ございません。")

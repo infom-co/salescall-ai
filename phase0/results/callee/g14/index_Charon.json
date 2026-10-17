@@ -40,18 +40,6 @@
   },
   {
     "voice": "Charon",
-    "id": "y4",
-    "question": "Q1",
-    "want": "はい",
-    "kind": "遠回し",
-    "text": "ええ、してます。",
-    "ok": false,
-    "heard": "ええ、知ってます。",
-    "tries": 3,
-    "seconds": 1.32
-  },
-  {
-    "voice": "Charon",
     "id": "y5",
     "question": "Q1",
     "want": "はい",
@@ -309,5 +297,48 @@
     "tries": 1,
     "seconds": 0.94,
     "wav": "g14/Charon_a4.wav"
+  },
+  {
+    "voice": "Charon",
+    "id": "f1",
+    "question": "Q1",
+    "want": "follow",
+    "kind": "続きの返事",
+    "text": "はい、そうです。",
+    "ok": true,
+    "heard": "はい、そうです。",
+    "tries": 2,
+    "seconds": 1.15,
+    "wav": "g14/Charon_f1.wav"
+  },
+  {
+    "voice": "Charon",
+    "id": "y4",
+    "question": "Q1",
+    "want": "はい",
+    "kind": "遠回し",
+    "text": "ええ、してます。",
+    "ok": false,
+    "error": {
+      "type": "ValueError",
+      "module": "builtins",
+      "message": "a cannot be empty"
+    },
+    "heard": "し",
+    "tries": 3,
+    "seconds": 0.69
+  },
+  {
+    "voice": "Charon",
+    "id": "f2",
+    "question": "Q1",
+    "want": "follow",
+    "kind": "続きの返事",
+    "text": "いいえ、予約はしています。",
+    "ok": true,
+    "heard": "いいえ、予約はしています。",
+    "tries": 1,
+    "seconds": 1.85,
+    "wav": "g14/Charon_f2.wav"
   }
 ]

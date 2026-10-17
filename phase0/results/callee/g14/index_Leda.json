@@ -27,30 +27,6 @@
   },
   {
     "voice": "Leda",
-    "id": "y3",
-    "question": "Q1",
-    "want": "はい",
-    "kind": "はっきり",
-    "text": "はい、先週しました。",
-    "ok": false,
-    "heard": "はい、洗車しました。",
-    "tries": 3,
-    "seconds": 1.84
-  },
-  {
-    "voice": "Leda",
-    "id": "y4",
-    "question": "Q1",
-    "want": "はい",
-    "kind": "遠回し",
-    "text": "ええ、してます。",
-    "ok": false,
-    "heard": "へしてます。",
-    "tries": 3,
-    "seconds": 1.31
-  },
-  {
-    "voice": "Leda",
     "id": "y5",
     "question": "Q1",
     "want": "はい",
@@ -74,18 +50,6 @@
     "tries": 1,
     "seconds": 1.94,
     "wav": "g14/Leda_y6.wav"
-  },
-  {
-    "voice": "Leda",
-    "id": "n1",
-    "question": "Q1",
-    "want": "いいえ",
-    "kind": "はっきり",
-    "text": "いいえ、まだです。",
-    "ok": false,
-    "heard": "いえ、まだです。",
-    "tries": 3,
-    "seconds": 1.47
   },
   {
     "voice": "Leda",
@@ -307,5 +271,69 @@
     "tries": 1,
     "seconds": 0.93,
     "wav": "g14/Leda_a4.wav"
+  },
+  {
+    "voice": "Leda",
+    "id": "y4",
+    "question": "Q1",
+    "want": "はい",
+    "kind": "遠回し",
+    "text": "ええ、してます。",
+    "ok": true,
+    "heard": "ええ、してます。",
+    "tries": 2,
+    "seconds": 0.76,
+    "wav": "g14/Leda_y4.wav"
+  },
+  {
+    "voice": "Leda",
+    "id": "n1",
+    "question": "Q1",
+    "want": "いいえ",
+    "kind": "はっきり",
+    "text": "いいえ、まだです。",
+    "ok": true,
+    "heard": "いいえ、まだです。",
+    "tries": 2,
+    "seconds": 1.43,
+    "wav": "g14/Leda_n1.wav"
+  },
+  {
+    "voice": "Leda",
+    "id": "f1",
+    "question": "Q1",
+    "want": "follow",
+    "kind": "続きの返事",
+    "text": "はい、そうです。",
+    "ok": true,
+    "heard": "はい、そうです。",
+    "tries": 1,
+    "seconds": 1.56,
+    "wav": "g14/Leda_f1.wav"
+  },
+  {
+    "voice": "Leda",
+    "id": "y3",
+    "question": "Q1",
+    "want": "はい",
+    "kind": "はっきり",
+    "text": "はい、先週しました。",
+    "ok": false,
+    "heard": "はい、清掃しました。",
+    "tries": 3,
+    "seconds": 1.92
+  },
+  {
+    "voice": "Leda",
+    "id": "f2",
+    "question": "Q1",
+    "want": "follow",
+    "kind": "続きの返事",
+    "text": "いいえ、予約はしています。",
+    "ok": true,
+    "heard": "いいえ、予約はしています。",
+    "tries": 2,
+    "seconds": 2.43,
+    "wav": "g14/Leda_f2.wav"
   }
 ]
