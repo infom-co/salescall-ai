@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import tempfile
 import time
 import unittest
-from datetime import timedelta
+import uuid
+from datetime import datetime, timedelta
+from pathlib import Path
 
-from salescall.core import (attempts, business_rules, calling_hours, call_report, dnc, fix_requests, gate, next_action,
-                            quality_stage, results, settle, stops, watch)
+from salescall.core import (attempts, backup, business_rules, calling_hours, call_report, dnc, fix_requests, gate,
+                            next_action, quality_stage, recordings, results, settle, stops, watch)
 from salescall.core.errors import ErrorReport
 from salescall.core.access import Rejected
 from salescall.core.call_report import CallReport, Callback, Cut
@@ -289,6 +292,43 @@ class CutOffCalls(SettleBase):
         aid = self.call(t, ("dialing", "technical_error"))               # お客様が出る前に止まった：お詫びは要らない
         got = self.settle(t, aid)["decision"]
         self.assertNotEqual(got.target and got.target.purpose, "resume")
+
+
+class RecordingHolds(SettleBase):
+    """検証モードの通話と、誤判定率の抜き取りの通話の録音は、測り終わるまで消さない（2026-10-17 ユーザー 案A。Intent.md 11-4 第2版）。"""
+
+    def test_verification_calls_keep_their_recordings_until_measured(self):
+        s = self.ready()
+        normal = self.call(s, items=[("Q1", "confirmed", None)])
+        self.settle(s, normal)
+        t = self.ready()
+        checked = self.call(t, items=[("Q1", "confirmed", None)])
+        self.put_client(t, "approval.human", True)                     # 検証モード
+        self.settle(t, checked)
+        held = lambda x: self.tx(x, lambda tx: [r["reason"] for r in tx.all(   # noqa: E731
+            "SELECT reason FROM salescall.recording_holds WHERE released_at IS NULL ORDER BY reason")])
+        self.assertEqual((held(s), held(t)), ([], ["verification"]))
+        self.tx(s, lambda tx: recordings.hold(tx, normal, "sample"))    # 誤判定率の抜き取り（抜き取る処理が付ける）
+
+        root = Path(tempfile.mkdtemp(prefix="salescall-test-rec-"))
+        (root / backup.DRIVE_MARK).write_text("控え用")
+        drive = backup.Drive(root)
+        long_ago = datetime.now().astimezone() - timedelta(days=200)    # 2か月（60日）より古い
+        files = {}
+        for x, aid in ((s, normal), (t, checked), (s, uuid.uuid4())):
+            d = drive.folder(backup.client_folder(self.w.a, x["tenant"], x["client"]), backup.RECORDING).path
+            d.mkdir(parents=True, exist_ok=True)
+            files[aid] = d / backup.recording_file_name(aid, long_ago, "call")
+            files[aid].write_bytes(b"x")
+        backup.prune(self.w.a, drive)
+        self.assertEqual([f.exists() for f in files.values()], [True, True, False])   # 印の無い古い録音だけ消す
+
+        self.assertEqual(self.tx(s, lambda tx: recordings.release(tx, [normal], "sample", measurement="試験の誤判定率 第1回")), 1)
+        self.tx(t, lambda tx: recordings.release(tx, [checked], "verification", measurement="試験の検証の期間"))
+        with self.assertRaises(Rejected):                                # 外した印は戻せない
+            self.tx(t, lambda tx: tx.execute("UPDATE salescall.recording_holds SET released_at = NULL, released_for = NULL"))
+        backup.prune(self.w.a, drive)
+        self.assertEqual([f.exists() for f in files.values()], [False, False, False])  # 測り終わったら、ふつうの決まり
 
 
 class DatabaseGuards(Base):

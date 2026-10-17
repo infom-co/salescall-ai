@@ -376,6 +376,13 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("大文字・小文字だけ違うフォルダの名前を2つ作れる",
      "DROP INDEX salescall.client_backup_folders_one_name",
      ("tests.test_backup.PerClient.test_folders_follow_the_client_name_and_fall_back_to_client_numbers",)),
+    ("測り終わる前の録音を消せる（印を見ない）",
+     "CREATE OR REPLACE FUNCTION salescall.recordings_held(p_attempts uuid[]) RETURNS SETOF uuid LANGUAGE sql STABLE"
+     " SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ SELECT NULL::uuid WHERE false $$",
+     ("tests.test_settle.RecordingHolds.test_verification_calls_keep_their_recordings_until_measured",)),
+    ("外した録音の印を戻せる",
+     "DROP TRIGGER recording_hold_released_once ON salescall.recording_holds",
+     ("tests.test_settle.RecordingHolds.test_verification_calls_keep_their_recordings_until_measured",)),
     ("通話後の確かめを「確かめられなかった」で諦められる",
      "ALTER TABLE salescall.attempts DROP CONSTRAINT attempts_verification_never_gives_up",
      ("tests.test_foundation.AttemptTransitions.test_verification_only_pending_to_done",

@@ -404,8 +404,20 @@ def open_file(path: Path, key: bytes) -> bytes:
     return decrypt(path.read_bytes(), key, path.name)
 
 
+def recording_file_name(attempt_id: UUID, started: datetime, part: str) -> str:
+    """ハードディスクに置く録音のファイルの名前（録音を写す処理＝電話接続・CL-1 が使う1か所）。日時と通話を名前に入れる
+    （古い録音を消す処理が、日時と「測り終わるまで消さない」印を見るため）。part＝その通話の中の録音の名前（例 call）。"""
+    if not re.fullmatch(r"[a-z0-9_]{1,30}", part):
+        raise ValueError(f"録音の名前は英小文字・数字・_ で書きます（{part!r}）")
+    return f"salescall-{started.astimezone():%Y%m%d-%H%M%S}-{attempt_id}-{part}.enc"
+
+
+_HELD_ID = re.compile(r"-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-")
+
+
 def prune(app: Access, drive: Drive, *, now: datetime | None = None) -> int:
-    """残す日数を過ぎた控えを消す（名前に日時のある控えのファイルだけ。AI用・提出用＝システムの設定、録音＝契約者ごとの設定）。"""
+    """残す日数を過ぎた控えを消す（名前に日時のある控えのファイルだけ。AI用・提出用＝システムの設定、録音＝契約者ごとの設定）。
+    録音は、測り終わるまで消さない印（`recordings.hold`）の付いた通話のものを消さない（2026-10-17 ユーザー 案A）。"""
     now = datetime.now().astimezone() if now is None else now
     days = app.in_system(SYSTEM, lambda tx: {AI: int(settings.system_value(tx, "backup.ai.keep_days_drive")),
                                               SUBMISSION: int(settings.system_value(tx, "backup.submission.keep_days_drive"))})
@@ -419,12 +431,18 @@ def prune(app: Access, drive: Drive, *, now: datetime | None = None) -> int:
                 keep[RECORDING] = int(app.in_tenant(SYSTEM, who, lambda tx: settings.resolve(
                     tx, "recording.keep_days_drive", tenant_id=who, client_id=None, business_id=None)))
         for kind, n in keep.items():
-            for f in ((folder / kind).iterdir() if (folder / kind).is_dir() else ()):
-                m = _DATED.match(f.name)
-                if m and datetime.strptime(m.group(1) + m.group(2), "%Y%m%d%H%M%S").replace(tzinfo=now.tzinfo) \
-                        < now - timedelta(days=n):
-                    f.unlink()
-                    removed += 1
+            old = [f for f in ((folder / kind).iterdir() if (folder / kind).is_dir() else ())
+                   if (m := _DATED.match(f.name))
+                   and datetime.strptime(m.group(1) + m.group(2), "%Y%m%d%H%M%S").replace(tzinfo=now.tzinfo)
+                   < now - timedelta(days=n)]
+            if kind == RECORDING:
+                ids = {f: m.group(1) for f in old if (m := _HELD_ID.search(f.name))}
+                held = set(app.in_system(SYSTEM, lambda tx: [str(r["h"]) for r in tx.all(
+                    "SELECT salescall.recordings_held(%s::uuid[]) AS h", (sorted(set(ids.values())),))]))
+                old = [f for f in old if ids.get(f) not in held]
+            for f in old:
+                f.unlink()
+                removed += 1
     return removed
 
 

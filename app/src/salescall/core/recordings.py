@@ -8,6 +8,9 @@
   依頼者の単位の両方にあり、初めの声の型を持つもの（2026-10-17 ユーザー：「事前の録音チェックになる方向性」「新しい声が増える
   かもしれません」＝声を足しても処理は変えない）。門（core/gate.py の `choose_voice`）だけが使う。
 - 流すときに使う組は `current_sets`（それぞれの単位で、いちばん新しく承認した組）。
+- **測り終わるまで消さない録音**（`hold`・`release`。表の作り 0056。2026-10-17 ユーザー 案A。Intent.md 11-4 第2版）：検証モードの通話
+  （締めのときに付ける）と、誤判定率を測るために抜き取った通話（抜き取る処理が付ける）は、測り終わって外すまで、古い録音を消す処理
+  （core/backup.py の `prune`）が消さない。外すのは測定を記録する処理（16-3）が、使い終えた通話について1回だけ。
 """
 
 from __future__ import annotations
@@ -26,6 +29,27 @@ class Part:
     spoken_text: str     # 録音の文
     audio_ref: str       # 音声のファイルの置き場の参照
     audio_sha256: str    # 中身の指紋
+
+
+HOLD_REASONS = ("verification", "sample")   # 検証モードの通話・誤判定率を測るために抜き取った通話
+
+
+def hold(tx: Tx, attempt_id: UUID, reason: str) -> None:
+    """その通話の録音を、測り終わるまで消さない印を付ける（同じ理由は1つ）。"""
+    if reason not in HOLD_REASONS:
+        raise ValueError(f"録音を残す理由は {HOLD_REASONS} のどれかです（{reason!r}）")
+    tx.execute("INSERT INTO salescall.recording_holds (tenant_id, client_id, attempt_id, reason)"
+               " SELECT tenant_id, client_id, attempt_id, %s FROM salescall.attempts WHERE attempt_id = %s"
+               " ON CONFLICT (attempt_id, reason) DO NOTHING", (reason, attempt_id))
+
+
+def release(tx: Tx, attempt_ids: list[UUID], reason: str, *, measurement: str) -> int:
+    """測り終わった通話の印を外す（どの測定で使い終えたかを書く。1回だけ）。外した数を返す。ほかの理由の印が残っていれば消さない。"""
+    if not measurement.strip():
+        raise ValueError("使い終えた測定の名前が要ります")
+    return len(tx.all("UPDATE salescall.recording_holds SET released_at = now(), released_for = %s"
+                      " WHERE attempt_id = ANY(%s) AND reason = %s AND released_at IS NULL RETURNING attempt_id",
+                      (measurement, list(attempt_ids), reason)))
 
 
 def add_voice(tx: Tx, voice_name: str, *, note: str) -> None:

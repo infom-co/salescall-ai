@@ -22,7 +22,7 @@ from typing import Any
 from uuid import UUID
 
 from salescall.core import (apology, approval, attempts, business_rules, call_report, dnc, fix_requests, next_action, notify,
-                            number_recheck, quality_stage, results, settings, target_policy, tasks, usage)
+                            number_recheck, quality_stage, recordings, results, settings, target_policy, tasks, usage)
 from salescall.core.access import Tx
 from salescall.core.judge import (JUDGE_VERSION, UNKNOWN_CAUSE_FIXERS, UNKNOWN_CAUSES, Facts, Item, JudgeInput, Judgement,
                                   judge, refusal)
@@ -72,6 +72,8 @@ def settle(tx: Tx, attempt_id: UUID) -> dict[str, Any]:
         raise NotReady("発信していない・まだ終わっていない試行です")
     if a["verification"] == "pending":
         raise NotReady("通話後の検証が済んでいません")
+    if approval.human_for_business(tx, a["business_id"]):   # 検証モードの通話の録音は、測り終わるまで消さない（Intent.md 11-4 第2版）
+        recordings.hold(tx, attempt_id, "verification")
     if a["purpose"] == "apology":
         return _settle_apology(tx, a)
     out = _judge_and_write(tx, a, kind="judged", rules_version=a["version_id"])

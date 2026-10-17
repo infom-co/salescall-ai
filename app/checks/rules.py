@@ -191,6 +191,8 @@ WRITERS: dict[str, dict[str, frozenset[str]]] = {
     "recording_sets": {"INSERT": frozenset({_CORE + "recordings.py"})},       # 録音の版と承認（6-13。0047）
     "recordings": {"INSERT": frozenset({_CORE + "recordings.py"})},
     "recording_approvals": {"INSERT": frozenset({_CORE + "recordings.py"})},
+    "recording_holds": {"INSERT": frozenset({_CORE + "recordings.py"}),        # 測り終わるまで消さない録音（11-4 第2版。0056）
+                        "UPDATE": frozenset({_CORE + "recordings.py"})},
     "fix_reports": {"INSERT": frozenset({_CORE + "fix_requests.py"})},        # 修正依頼の「直した」と承認（0048）
     "fix_approvals": {"INSERT": frozenset({_CORE + "fix_requests.py"})},
     "backup_runs": {"INSERT": frozenset({_CORE + "backup.py"})},              # データベースの控えの記録（Intent.md 14-1。0052）
