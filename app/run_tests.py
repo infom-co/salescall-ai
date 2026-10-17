@@ -135,11 +135,6 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      ("tests.test_dnc.Register.test_contractor_ledger_applies_to_every_client_of_that_contractor",)),
     ("契約者の単価を、ほかの契約者にも見せる", "ALTER TABLE salescall.price_versions DISABLE ROW LEVEL SECURITY",
      ("tests.test_usage.PricesPerContractor.test_the_contractors_price_wins_and_tiers_are_separate",)),
-    ("会話AIの枠を、すべての契約者で数える（前の形）",
-     "CREATE OR REPLACE FUNCTION salescall.active_attempts_of_tenant() RETURNS integer LANGUAGE sql STABLE SECURITY DEFINER"
-     " SET search_path = salescall, pg_temp AS $$ SELECT count(*)::integer FROM salescall.attempts"
-     " WHERE salescall.is_live(state, claim_expires_at) $$",
-     ("tests.test_gate.Lines.test_ai_capacity_is_per_contractor",)),
     ("発信禁止の取り消しは人だけ、の決まりを外す", "DROP TRIGGER dnc_entries_guard ON salescall.dnc_entries",
      ("tests.test_dnc.Revoke.test_only_a_person_revokes_once_and_can_register_again",)),
     ("発信禁止の有効な登録は1つ、の約束を外す", "DROP INDEX salescall.dnc_one_active",

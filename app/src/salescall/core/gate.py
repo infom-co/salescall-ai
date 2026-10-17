@@ -18,7 +18,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
@@ -66,7 +65,6 @@ REASONS: dict[str, tuple[str, str]] = {
     "line_daily_limit": ("この回線の、今日の発信の上限に達しました", "wait"),
     "line_busy": ("回線が使用中です", "wait"),
     "client_concurrency": ("この依頼者の同時の本数の上限です", "wait"),
-    "ai_capacity": ("会話AIの枠がいっぱいです", "wait"),
     "contact_active": ("同じ番号のお客様（この依頼者の別の行を含む）に、進行中の発信があります", "wait"),
     "task_active": ("この行（ほかの番号を含む）に、進行中の発信があります", "wait"),
     "number_active_same_client": ("同じ番号に、進行中の発信があります", "wait"),
@@ -333,14 +331,11 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
     if dials >= int(_setting(tx, "line.max_dials_per_day", task)):
         return _deny("line_daily_limit")
 
-    # (9) 同時の本数：依頼者ごとの上限と、契約者の会話AIの枠（5-2 の9。契約者ごと＝2026-10-16 ユーザー）
+    # (9) 同時の本数：依頼者ごとの上限。会話AIの1分の上限では待たせない（2026-10-17 ユーザー：「1分制限を超えそうになったら、
+    #     きりのいいところで、次のキーと併用して進んだらいい」＝キーの選択 Q15 が次のキーを併せて使う。5-2 の9）
     active = tx.one("SELECT count(*) AS n FROM salescall.attempts WHERE salescall.is_live(state, claim_expires_at)")["n"]
     if active >= int(_setting(tx, "calling.max_concurrent_calls", task)):
         return _deny("client_concurrency")
-    capacity = int(Decimal(str(_setting(tx, "gate.ai_tpm_limit", task))) * Decimal(str(_setting(tx, "gate.ai_tpm_safety", task)))
-                   // Decimal(str(_setting(tx, "gate.ai_tpm_per_call", task))))
-    if tx.one("SELECT salescall.active_attempts_of_tenant() AS n")["n"] >= capacity:
-        return _deny("ai_capacity")
 
     # (10) 予約。同じお客様・番号・回線の進行中は、データベースの部分一意が拒む（その部分だけ取り消して理由を返す）
     try:
