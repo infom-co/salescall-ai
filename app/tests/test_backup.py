@@ -69,7 +69,7 @@ class Backup(unittest.TestCase):
         self.assertIn("backup_failed", [r["kind"] for r in asked])
         told = self.app.in_system(ADMIN, lambda tx: tx.all(
             "SELECT summary FROM salescall.notification_events WHERE kind = 'backup_failed' AND for_admin"
-            " AND event_key LIKE '%%:program'"))
+            " AND event_key LIKE '%%:system'"))
         self.assertEqual(len(told), 1)                                # 1日1回（同じ日の失敗は重ねない）
         self.assertNotIn("password", str(told) + str([r["summary"] for r in asked]))
 
@@ -119,6 +119,13 @@ class PerClient(unittest.TestCase):
         self.assertRegex(backup.client_folder(self.app, t, b), r"^client\d+$")
         self.w.a.in_tenant(OPERATOR, t, lambda tx: registry.rename_client(tx, a, "名前を直した"))
         self.assertEqual(backup.client_folder(self.app, t, a), name_a)   # 名前を直しても、フォルダは変えない
+        latin = self.named_client(t, "Kakuu Shoji")
+        self.assertEqual(backup.client_folder(self.app, t, latin), "Kakuu-Shoji")
+        self.assertRegex(backup.client_folder(self.app, t, self.named_client(t, "KAKUU SHOJI")), r"^client\d+$")
+        with self.assertRaises(Rejected):                                 # 大文字・小文字だけ違う名前は、表も重なりとして拒む（Windows）
+            self.w.a.in_client(SYSTEM, t, self.named_client(t, "別の依頼者"), lambda tx: tx.execute(
+                "INSERT INTO salescall.client_backup_folders (tenant_id, client_id, folder_name)"
+                " VALUES (salescall.cur_tenant(), salescall.cur_client(), 'KAKUU-SHOJI')"))
         for who in (self.w.a, owner_access()):                            # 決めたフォルダの名前は、表の持ち主でも変えられない
             with self.subTest(who=who), self.assertRaises(Rejected):
                 who.in_tenant(OPERATOR, t, lambda tx: tx.execute(
@@ -147,6 +154,34 @@ class PerClient(unittest.TestCase):
         with self.assertRaises(Rejected):                                 # 写した記録は変えられない
             self.w.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: tx.execute(
                 "UPDATE salescall.submission_files SET copied_as = 'x' WHERE submission_id = %s", (sub,)))
+
+    def test_submissions_are_copied_right_away_and_kept_while_the_drive_is_missing(self):
+        """見守り役が数分ごとに写す（Fly.io に残る時間を短く）。ハードディスクが外れていれば写さずに残し（消すと失う）、つないだら写す。"""
+        s = World().setup()
+        sub = self.w.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: backup.record_submission(
+            tx, "結果.csv", "架空の結果".encode()))
+        content = lambda: self.w.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: tx.one(   # noqa: E731
+            "SELECT content FROM salescall.submission_files WHERE submission_id = %s", (sub,)))["content"]
+        (self.root / backup.DRIVE_MARK).unlink()
+        failed = backup.copy_submissions(self.app, self.drive, key=KEY)
+        self.assertEqual(len(failed), 1)
+        self.assertIsNotNone(content())                                   # 外れている間は残す
+        (self.root / backup.DRIVE_MARK).write_text("控え用")
+        self.assertEqual(backup.copy_submissions(self.app, self.drive, key=KEY), [])
+        self.assertIsNone(content())
+        self.assertEqual(backup.copy_submissions(self.app, self.drive, key=KEY), [])   # 写すものが無ければ何もしない
+
+    def test_failures_are_asked_to_fix_by_kind(self):
+        """同じ日に、データベース全体と依頼者ごとの控えが両方失敗したら、修正依頼も種類ごとに出る（片方が埋もれない）。"""
+        World().setup()
+        got = backup.run_daily(self.app, os.environ["SALESCALL_TEST_OWNER_DSN"], os.environ["SALESCALL_TEST_RESTORE_DSN"],
+                               self.drive, key=b"short")
+        self.assertFalse(any(r.ok for r in got))
+        asked = self.app.in_system(SYSTEM, lambda tx: [r["summary"] for r in fix_requests.open_requests(tx, "CL-2")
+                                                       if r["kind"] == "backup_failed"])
+        for part in ("system", "client_ai"):
+            with self.subTest(part=part):
+                self.assertTrue(any(x.startswith(backup.PARTS[part] + "：") for x in asked), asked)
 
     def test_old_backups_are_removed_by_kind(self):
         """AI用は1年、提出用は3年（ハードディスク）。名前に日時のある控えのファイルだけを消す。"""

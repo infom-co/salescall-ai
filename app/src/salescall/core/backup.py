@@ -198,23 +198,30 @@ def _verify(blob: bytes, file_name: str, offsite: Destination, restore_conninfo:
         raise BackupFailed(f"戻した控えの行の数が、取ったときと違います（{len(diff)} 個の表。例：{', '.join(diff[:3])}）")
 
 
+# 控えの種類（記録の kind）と、知らせ・修正依頼に書く名前（1か所）
+PARTS = {"system": "データベース全体の控え", "client_ai": "依頼者ごとの AI用の控え", "submission": "提出用の控え"}
+
+
 def _record(app: Access, started: datetime, file_name: str | None, blob: bytes | None, counts: dict[str, int] | None,
-            placed: list[str], error: str | None, *, drive: bool, client_id: UUID | None = None) -> None:
+            placed: list[str], error: str | None, *, drive: bool, part: str = "system", client_id: UUID | None = None) -> None:
+    """1回ずつ記録する。失敗は、ハードディスクが外れていれば管理者に「つないでください」、ほかは種類ごとに1日1つ CL-2 へ修正依頼
+    （同じ日に別の種類が失敗しても、まとめて消えないように種類で分ける）。"""
     def work(tx: Tx) -> None:
         tx.execute("INSERT INTO salescall.backup_runs (started_at, file_name, sha256, size_bytes, table_counts, destinations,"
                    " restore_ok, error, kind, client_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
                    (started, file_name, None if blob is None else hashlib.sha256(blob).hexdigest(),
                     None if blob is None else len(blob), None if counts is None else json.dumps(counts, sort_keys=True), placed,
-                    error is None, error, "system" if client_id is None else "client_ai", client_id))
+                    error is None, error, part, client_id))
         if error is not None:
             day = tx.one("SELECT salescall.jst(now())::date AS d")["d"]
             if drive:   # ハードディスクをつなぐのは人の作業（プログラムの直しではない）
                 summary = "控え用のハードディスクがつながっていません。PC にハードディスクをつないでください。"
             else:
-                fix_requests.request(tx, "CL-2", "backup_failed", key=f"backup_failed:{day}", summary=error)
-                summary = "データベースの控えが取れませんでした（CL-2 に修正依頼を出しました）。"
-            notify.emit(tx, "backup_failed", key=f"backup_failed:{day}:{'drive' if drive else 'program'}", summary=summary,
-                        refs={"error": error}, admin=True, contractor=False)
+                fix_requests.request(tx, "CL-2", "backup_failed", key=f"backup_failed:{day}:{part}",
+                                     summary=f"{PARTS[part]}：{error}", refs={"client_id": client_id})
+                summary = f"{PARTS[part]}が取れませんでした（CL-2 に修正依頼を出しました）。"
+            notify.emit(tx, "backup_failed", key=f"backup_failed:{day}:{'drive' if drive else part}", summary=summary,
+                        refs={"error": error, "client_id": client_id}, admin=True, contractor=False)
     app.in_system(SYSTEM, work)
 
 
@@ -338,9 +345,9 @@ def _client_ai(app: Access, source: Tx, drive: Drive, tenant_id: UUID, client_id
     except Exception as e:  # noqa: BLE001 ここで受けて記録する（止めない）
         error = str(e) if isinstance(e, BackupFailed) else f"思いがけない誤り（{type(e).__name__}）"
         _record(app, started, file_name if blob else None, blob, counts, placed, error, drive=isinstance(e, DriveMissing),
-                client_id=client_id)
+                part="client_ai", client_id=client_id)
         return Result(False, None, error)
-    _record(app, started, file_name, blob, counts, placed, None, drive=False, client_id=client_id)
+    _record(app, started, file_name, blob, counts, placed, None, drive=False, part="client_ai", client_id=client_id)
     return Result(True, file_name, None)
 
 
@@ -350,6 +357,23 @@ def record_submission(tx: Tx, file_name: str, data: bytes) -> int:
     return tx.one("INSERT INTO salescall.submission_files (tenant_id, client_id, file_name, sha256, content)"
                   " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s) RETURNING submission_id",
                   (file_name, hashlib.sha256(data).hexdigest(), data))["submission_id"]
+
+
+def copy_submissions(app: Access, drive: Drive, *, key: bytes) -> list[Result]:
+    """まだ写していない提出用のファイルを、すべての依頼者について、ハードディスクへ写す。**見守り役が数分ごとに呼ぶ**（「提出用は
+    Fly.io には保存しない」＝2026-10-17 ユーザー。毎日1回だと最長1日 Fly.io に残るため）。ハードディスクが外れていれば写さずに残し
+    （消すと失う）、管理者に「つないでください」と知らせる。うまく写せた依頼者の分は返さない（失敗だけを返す）。"""
+    waiting = app.in_system(SYSTEM, lambda tx: tx.all("SELECT tenant_id, client_id FROM salescall.submissions_waiting()"))
+    failed = []
+    for c in waiting:
+        try:
+            _copy_submissions(app, drive, c["tenant_id"], c["client_id"], key=key)
+        except Exception as e:  # noqa: BLE001 記録して続ける（止めない）
+            error = str(e) if isinstance(e, BackupFailed) else f"思いがけない誤り（{type(e).__name__}）"
+            _record(app, datetime.now().astimezone(), None, None, None, [], error, drive=isinstance(e, DriveMissing),
+                    part="submission", client_id=c["client_id"])
+            failed.append(Result(False, None, error))
+    return failed
 
 
 def _copy_submissions(app: Access, drive: Drive, tenant_id: UUID, client_id: UUID, *, key: bytes) -> int:
@@ -405,8 +429,8 @@ def prune(app: Access, drive: Drive, *, now: datetime | None = None) -> int:
 
 
 def run_daily(app: Access, source_conninfo: str, restore_conninfo: str, drive: Drive, *, key: bytes) -> list[Result]:
-    """毎日1回の控え（PC で見守り役が呼ぶ）：データベース全体（戻せるかを確かめる）→ 依頼者ごとの AI用 → 提出用を写す → 古いものを
-    消す。ハードディスクがつながっていなければ、何も置かずに管理者へ「つないでください」と知らせる。"""
+    """毎日1回の控え（PC で見守り役が呼ぶ）：データベース全体（戻せるかを確かめる）→ 依頼者ごとの AI用 → 提出用の残りを写す（ふだんは
+    見守り役が数分ごとに `copy_submissions` で写す）→ 古いものを消す。ハードディスクがつながっていなければ、何も置かずに管理者へ「つないでください」と知らせる。"""
     if not drive.attached():
         _record(app, datetime.now().astimezone(), None, None, None, [], "控え用のハードディスクがつながっていません", drive=True)
         return [Result(False, None, "控え用のハードディスクがつながっていません")]
@@ -415,13 +439,6 @@ def run_daily(app: Access, source_conninfo: str, restore_conninfo: str, drive: D
         clients = source.all("SELECT tenant_id, client_id FROM salescall.clients ORDER BY created_at")
         for c in clients:
             results.append(_client_ai(app, source, drive, c["tenant_id"], c["client_id"], key=key))
-    for c in clients:
-        try:
-            _copy_submissions(app, drive, c["tenant_id"], c["client_id"], key=key)
-        except Exception as e:  # noqa: BLE001 記録して続ける（止めない）
-            error = str(e) if isinstance(e, BackupFailed) else f"思いがけない誤り（{type(e).__name__}）"
-            _record(app, datetime.now().astimezone(), None, None, None, [], "提出用の控え：" + error,
-                    drive=isinstance(e, DriveMissing), client_id=c["client_id"])
-            results.append(Result(False, None, error))
+    results += copy_submissions(app, drive, key=key)
     prune(app, drive)
     return results
