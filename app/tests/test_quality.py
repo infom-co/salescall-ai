@@ -12,7 +12,7 @@ from salescall.core.attempts import VerificationSummary
 from salescall.core.phone import normalize
 from salescall.core.quality_stage import MockResult
 from salescall.core import gate
-from tests.support import ADMIN, OPERATOR, SYSTEM, fictional_jp_fixed, rules_raw, said
+from tests.support import ADMIN, OPERATOR, SYSTEM, fictional_jp_fixed, owner_access, rules_raw, said
 from tests.test_settle import TALK, SettleBase, rep
 
 GOOD = MockResult(calls=10, value_hits=40, value_total=40, judgment_hits=10, judgment_total=10, forbidden_speech=0,
@@ -248,6 +248,41 @@ class Production(Base):
         self.assertEqual(self.business_stops(s), [])                   # 原因ごとに1件ずつ：止めない
         self.verified_call(rows[2], VerificationSummary(1, 0, 0), report=rep(cut=None))
         self.assertEqual([r["cause"] for r in self.business_stops(s)], ["judge_unknown"])   # 同じ原因が2件（設定）
+
+    def test_a_production_stop_needs_its_scenes_even_the_next_day(self):
+        """本番で止めた業務の再開に要る場面は、止めた日の通話から数える。⚠️ 前は「今日」で数えたので、次の日に模擬通話を流すと
+        場面が空になり、場面を入れずに再開した。止めたことは、契約者にも管理者にも1回ずつ知らせる。"""
+        s = self.fresh(stage_cap=20)
+        self.put_client(s, "quality.production_same_cause_per_day", 2)
+        for r in self.rows(s, 2):
+            self.verified_call(r, VerificationSummary(1, 0, 0), report=rep(cut=None))
+        sid = self.business_stops(s)[0]["event_id"]
+        q = ("SELECT for_admin, summary FROM salescall.notification_events WHERE kind = 'stopped'"
+             " AND refs ->> 'stop_event_id' = %s")
+        sent = self.tx(s, lambda tx: tx.all(q, (str(sid),)))            # 管理者が読む（契約者あてと管理者あての写し）
+        self.assertEqual(sorted(x["for_admin"] for x in sent), [False, True])
+        self.assertTrue(all(x["summary"] == "発信を止めました（業務：判定できない通話）。" for x in sent))   # 知らせは短く
+
+        class Back(Exception):
+            pass
+
+        def next_day(tx):
+            for t in ("attempts", "stop_events"):
+                tx.execute(f"ALTER TABLE salescall.{t} DISABLE TRIGGER USER")
+            tx.execute("UPDATE salescall.attempts SET claimed_at = claimed_at - interval '1 day' WHERE client_id = %s",
+                       (s["client"],))
+            tx.execute("UPDATE salescall.stop_events SET at = at - interval '1 day' WHERE event_id = %s", (sid,))
+            for t in ("attempts", "stop_events"):
+                tx.execute(f"ALTER TABLE salescall.{t} ENABLE TRIGGER USER")
+            scenes = quality_stage._incidents(tx, sid)
+            no_scenes = quality_stage.record_mock(tx, s["version"], GOOD)["outcome"]
+            with_scenes = quality_stage.record_mock(
+                tx, s["version"], replace(GOOD, scenes=tuple(UUID(a) for a in scenes), evidence="試験"))["outcome"]
+            raise Back(len(scenes), no_scenes, with_scenes)            # 試しの取引は取り消す（時刻を動かしたため）
+
+        with self.assertRaises(Back) as e:
+            owner_access().in_client(OPERATOR, s["tenant"], s["client"], next_day)
+        self.assertEqual(e.exception.args, (2, "scenes_missing", "opened"))
 
     def test_the_stage_cap_is_only_for_verification(self):
         s = self.fresh(stage_cap=1)

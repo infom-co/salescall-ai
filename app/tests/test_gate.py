@@ -200,6 +200,9 @@ class VersionAndStage(Base):
         t = self.w.task(s["tenant"], s["client"], run, s["contact"])
         self.tx(s, lambda tx: next_action.schedule_now(tx, t, cause="試験"))
         self.assertEqual(self.reason(s, task=t), "no_version")
+        notes = self.tx(s, lambda tx: tx.all("SELECT summary FROM salescall.notification_events WHERE kind = 'setting_missing'"
+                                             " AND refs ->> 'reason' = 'no_version'"))
+        self.assertEqual([n["summary"] for n in notes], [gate.SETTING_GAPS["no_version"]])   # 黙って待たせない（2026-10-17）
 
     def test_version_without_stage_cannot_dial(self):
         s = self.ready()
@@ -530,6 +533,26 @@ class ActiveConflicts(Base):
         self.assertIsInstance(self.claim(x, task=y, line=line2), gate.Claim)          # Y が A を予約
         self.assertEqual(self.reason(x), "related_unsettled")                           # X は B へもかけない
 
+    def test_an_expired_reservation_does_not_hold_the_same_customer(self):
+        """期限の切れた予約（見守り役が落ちて取り消されないまま残ったもの）は、同じお客様のほかの行を待たせない（2026-10-17 の見直し）。"""
+        self.override("gate.claim_lifetime", 1)
+        x = self.ready()
+        other = normalize(fictional_jp_fixed())
+        first = self.past_attempt(x, ["dialing", "call_failed"])
+        self.tx(x, lambda tx: tasks.add_callee_number(tx, x["task"], other, source_attempt_id=first))
+        run2 = self.w.run(x["tenant"], x["client"], x["business"], x["version"])
+        y = self.w.task(x["tenant"], x["client"], run2, x["contact"])
+        self.tx(x, lambda tx: next_action.schedule_now(tx, y, cause="試験"))
+        b = self.tx(x, lambda tx: tx.one("SELECT contact_id FROM salescall.task_numbers WHERE task_id = %s AND phone_e164 = %s",
+                                         (x["task"], other.e164)))["contact_id"]
+        self.tx(x, lambda tx: next_action.schedule_call(tx, x["task"], tx.one("SELECT now() AS n")["n"], contact_id=b,
+                                                        cause="試験", promised=False))
+        line2 = self.w.line(x["tenant"])
+        self.lease(x, line=line2)
+        self.assertIsInstance(self.claim(x, task=y, line=line2), gate.Claim)          # Y が A を予約して、そのまま期限切れ
+        time.sleep(1.2)
+        self.assertIsInstance(self.claim(x), gate.Claim)                                # X は B へかけられる
+
     def test_unknown_judgement_keeps_the_same_customer_protected(self):
         """判定できない（会話の報告の切れ方が無い）通話は、断られたかがまだ決まっていない。同じお客様の別の行は、
         判定し直すまでかけない（前は「締め済み」とみなして5分後にかけえた。2026-10-16 の見直し G2）。"""
@@ -575,6 +598,17 @@ class CallerNumberAndVoice(Base):
         c = self.ready(phone=a["phone"])                                            # ほかの契約者（中身は見えず、声の名前だけ）
         self.assertEqual(self.tx(c, lambda tx: gate.choose_voice(tx, c["task"], c["phone"], "S4")), "L4")
         self.assertEqual(self.tx(c, lambda tx: gate.choose_voice(tx, c["task"], c["phone"], "L4")), "L4")   # もう違う声
+
+    def test_a_reservation_that_never_dialed_does_not_fix_the_voice(self):
+        """発信しなかった予約の声は、お客様が聞いていないので引き継がない（2026-10-17 の見直し）。"""
+        self.override("gate.cross_client_interval", 1)
+        r = self.ready()
+        c = self.claim(r)
+        self.tx(r, lambda tx: attempts.release(tx, [c.attempt_id]))           # 予約だけで取り消された（S2）
+        y = self.ready(tenant=r["tenant"], phone=r["phone"])
+        self.dialed(y)                                                          # ほかの依頼者が Sadachbia でかけた
+        time.sleep(1.1)
+        self.assertEqual(self.tx(r, lambda tx: gate.choose_voice(tx, r["task"], r["phone"], "S2")), "L4")
 
     def test_the_same_row_keeps_its_voice(self):
         """同じ行（同じお客様へのかけ直し・お詫び）は、前に話した声のまま（業務の声の型をあとで替えても）。"""

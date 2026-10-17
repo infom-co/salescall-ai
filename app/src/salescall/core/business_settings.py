@@ -322,9 +322,14 @@ def _flow_problems(s: Settings, rules_raw: Any) -> list[str]:
     """分岐の確かめ（分岐先・受け皿・どこからも行かない質問・終わらない輪・必須を飛ばして終わる道・断りの答え）。"""
     problems: list[str] = []
     by_id = {q.id: q for q in s.questions}
-    decline = rules_raw.get("decline", {}) if isinstance(rules_raw, dict) and isinstance(rules_raw.get("decline"), dict) else {}
+    # 断りの答えは、形が正しいときだけ使う（形の誤りは業務の決まりの確かめ business_rules.check が問題に出す。形の崩れた断りの
+    # 答えで分岐を確かめると、落ちるか「必須を聞かずに終わる道」のうその理由が出る＝2026-10-17 の見直し）
+    raw_decline = rules_raw.get("decline") if isinstance(rules_raw, dict) else None
+    decline_ok = isinstance(raw_decline, dict) and all(
+        isinstance(v, list) and all(isinstance(a, str) for a in v) for v in raw_decline.values())
+    decline: dict[str, list[str]] = raw_decline if decline_ok else {}
     for qid, answers in decline.items():
-        if qid in by_id and isinstance(answers, list):
+        if qid in by_id:
             for a in answers:
                 if a not in by_id[qid].choices:
                     problems.append(f"質問 {qid} の断りの答え「{a}」は、その質問の選択肢にありません")
@@ -361,7 +366,7 @@ def _flow_problems(s: Settings, rules_raw: Any) -> list[str]:
     unreachable = [q.id for q in s.questions if q.id not in state]
     for qid in unreachable:
         problems.append(f"質問 {qid} へは、どこからも行きません" + ("（必須の質問へ行く道がありません）" if by_id[qid].required else ""))
-    if problems:
+    if problems or not decline_ok:
         return problems
     # 必須の質問を飛ばして終わる道：答えが断り・システムの答えでないのに、必須を聞かずに終わりへ着く道。
     # 道の途中で一度でも断り・システムの答えを通れば、その先はどこで終わってもよい。なので「飛ばして終わる道」は、
@@ -444,8 +449,7 @@ def load(tx: Tx, version_id: UUID) -> Settings:
         raise LookupError(f"その版の業務設定の中身がありません：{version_id}")
     rules = business_rules.load(tx, version_id)
     raw = dict(row["content"], rules=_rules_raw(tx, version_id))
-    s = check(raw, field_types=_field_types(tx), ai_reading_needs_person=False,   # 置いた時に確かめ済み
-              voice_types=voice_types(tx))
+    s = check(raw, field_types=_field_types(tx), ai_reading_needs_person=False)   # 置いた時に確かめ済み（読み・声の型）
     return Settings(**{**s.__dict__, "rules": rules})
 
 

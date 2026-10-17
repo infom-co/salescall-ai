@@ -3,10 +3,13 @@
 - エラーの種類と処置は core/errors.py の表だけを読む（ここで2つ目の判断を作らない）。止める・解くの記録は core/stops.py。
 - **止めるか**（`decide_stop`）：処置の表の「止める原因・範囲・何回続いたら」と、「何回続いたか」（データベースの1か所
   `salescall.consecutive_errors`。種類ごとの「直った証拠」（core/errors.py の EVIDENCE）より後：回線＝その回線でお客様を
-  呼び出せた発信／会話AI＝どこかの通話が会話に入った／別の耳＝どこかの通話の検証が済んだ。どれも、同じ原因・同じ範囲の停止が
+  呼び出せた発信／会話AI＝その契約者のどこかの通話が会話に入った。どれも、同じ原因・同じ範囲の停止が
   解かれた時刻より後＝管理者か契約者が再開したら・確かめで解けたら数え直す）。
   同じ原因・同じ範囲で、まだ解かれていない停止があれば、重ねて止めない。
-- **解くか**（`record_check`）：システムが止めた停止のうち、確かめで解ける原因（保存・回線・会話AI）だけ。確かめの結果を記録し、
+- **止める範囲は、その契約者か、その回線**（全体は止めない）。会話AIの枠は契約者ごと（契約者が自分のキー・プロジェクトを持つ。
+  2026-10-16 ユーザー。Intent.md 1-4）なので、会話AIの異常も、その契約者のエラーだけを数えて、その契約者だけを止める
+  （2026-10-17 見直し：前は全体で数えて全体を止め、ある契約者のキーの誤りで、ほかの契約者まで止まった）。
+- **解くか**（`record_check`）：システムが止めた停止のうち、確かめで解ける原因（回線・会話AI）だけ。確かめの結果を記録し、
   決めた回数続けて成功したら、同じ取引で解く。**次に確かめてよい時刻より前の確かめは受け付けない**（ばたつきで伸びた待ちを、
   確かめを早めて越えられない）。待ち＝確かめの間隔 ×（ばたつきの倍率 ^ 期間内に同じ原因・同じ範囲で止まった回数）、上限つき。
 - 確かめそのもの（試しの書き込み・回線の応答・試しのセッション）は、それぞれの持ち主の部品が行い、結果だけをここへ渡す。
@@ -20,12 +23,11 @@ from datetime import timedelta
 from typing import Any
 from uuid import UUID
 
-from salescall.core import errors, next_action, notify, settings, stops
+from salescall.core import errors, notify, settings, stops
 from salescall.core.access import Access, Actor, Tx
 
 # 確かめで解ける原因 → （確かめの間隔, 何回続けて成功したら解くか）の設定の名前
 PROBE_SETTINGS: dict[str, tuple[str, str]] = {
-    "storage_failure": ("stop.storage.probe_interval", "stop.storage.resume_after_successes"),
     "line_failure": ("stop.line.probe_interval", "stop.line.resume_after_successes"),
     "ai_connection": ("stop.ai.probe_interval", "stop.ai.resume_after_successes"),
 }
@@ -42,7 +44,7 @@ class NotProbeable(Exception):
 def record_error(tx: Tx, report: errors.ErrorReport, *, line_id: UUID | None = None,
                  attempt_id: UUID | None = None) -> str:
     """起きたエラーを分類して記録する（取引の契約者・依頼者で）。種類を返す。どの種類も管理者に知らせ、処置の表が「知らせる」
-    なら契約者にも知らせる（同じ種類は、同じ範囲で1時間に1回）。止めるかは `decide_stop`（範囲に合った取引で呼ぶ）。"""
+    なら契約者にも知らせる（同じ種類は、同じ範囲で1時間に1回）。止めるかは `decide_stop`（その契約者の取引で呼ぶ）。"""
     kind = errors.classify(report)
     row = tx.one(
         "INSERT INTO salescall.error_events (tenant_id, client_id, line_id, attempt_id, source, kind, code, message)"
@@ -54,20 +56,16 @@ def record_error(tx: Tx, report: errors.ErrorReport, *, line_id: UUID | None = N
     # エラーの一覧と処置はプログラム（直せるのは管理者だけ）なので、どの種類も管理者に知らせる。根源的なものは「直しの依頼」。
     # 契約者には、処置の表が「知らせる」とした種類だけ
     notify.emit(tx, "error_notice", key=f"error:{kind}:{row['tenant']}:{row['client']}:{row['hour']}",
-                summary=f"{'直しの依頼' if action.fundamental else 'エラー'}：{action.meaning}",
-                refs={"error_id": row["error_id"], "kind": kind, "fundamental": action.fundamental},
+                summary=f"{'直しの依頼' if action.fundamental else 'エラー'}：{errors.LABELS[kind]}",
+                refs={"error_id": row["error_id"], "kind": kind, "fundamental": action.fundamental,
+                      "attempt_id": attempt_id},
                 admin=True, contractor=action.notify)
-    if action.hold_row and attempt_id is not None:
-        # その行だけ判定待ちにする（かけ直さない）。ほかの行は続ける（2026-10-16 ユーザー）
-        task = tx.one("SELECT task_id FROM salescall.attempts WHERE attempt_id = %s", (attempt_id,))
-        if task is not None:
-            next_action.hold(tx, task["task_id"], cause=f"エラー：{kind}（管理者に直しを依頼）")
     return kind
 
 
 def decide_stop(tx: Tx, kind: str, *, line_id: UUID | None = None) -> dict[str, Any] | None:
-    """処置の表のとおり、止めるなら止める（範囲に合った取引で呼ぶ：全体＝全体の取引／回線＝その回線の契約者の取引）。
-    止めた停止の記録を返す（止めなければ None）。"""
+    """処置の表のとおり、止めるなら止める（その契約者の取引で呼ぶ：契約者＝その契約者の会話AIの異常／回線＝その回線）。
+    止めた停止の記録を返す（止めなければ None）。根源的なもの（直せるのが管理者だけ）は、管理者にも知らせる。"""
     action = errors.ACTIONS[kind]
     if action.stop_cause is None:
         return None
@@ -76,13 +74,14 @@ def decide_stop(tx: Tx, kind: str, *, line_id: UUID | None = None) -> dict[str, 
     line = line_id if action.stop_scope == "line" else None
     open_same = tx.one(
         "SELECT event_id FROM salescall.open_stop_events s WHERE s.cause = %s AND s.scope = %s"
-        " AND s.line_id IS NOT DISTINCT FROM %s LIMIT 1", (action.stop_cause, action.stop_scope, line))
+        " AND s.tenant_id = salescall.cur_tenant() AND s.line_id IS NOT DISTINCT FROM %s LIMIT 1",
+        (action.stop_cause, action.stop_scope, line))
     if open_same is not None:
         return None                                  # もう止まっている（重ねて止めない）
     n = tx.one("SELECT salescall.consecutive_errors(%s, %s, %s, %s) AS n",
                (list(errors.counted_with(kind)), action.stop_cause, errors.EVIDENCE[kind], line))["n"]
     if n is None:
-        raise PermissionError("この取引では、その範囲のエラーを数えられません（全体＝全体の取引／回線＝その回線の契約者の取引）")
+        raise PermissionError("この取引では、その範囲のエラーを数えられません（契約者の取引で数える。回線は、その回線の契約者の取引）")
     need = 1 if action.stop_after is None else int(settings.system_value(tx, action.stop_after))
     if n < need:
         return None
@@ -91,7 +90,7 @@ def decide_stop(tx: Tx, kind: str, *, line_id: UUID | None = None) -> dict[str, 
            else "一時的なもの：直ったら自動で続けます")
     return stops.stop(tx, scope=action.stop_scope, cause=action.stop_cause,
                       reason=f"{action.meaning}（続けて {n} 回。基準 {need} 回。{how}）", evidence=f"エラーの種類：{kind}",
-                      tenant_id=tenant if action.stop_scope == "line" else None, line_id=line_id)
+                      tenant_id=tenant, line_id=line, admin=action.fundamental)
 
 
 def after_error(access: Access, actor: Actor, report: errors.ErrorReport, *, tenant_id: UUID | None = None,
@@ -104,10 +103,9 @@ def after_error(access: Access, actor: Actor, report: errors.ErrorReport, *, ten
             return access.in_tenant(actor, tenant_id, work)
         return access.in_system(actor, work)
     kind = run(lambda tx: record_error(tx, report, line_id=line_id, attempt_id=attempt_id))
-    action = errors.ACTIONS[kind]
-    if action.stop_scope == "system":
-        access.in_system(actor, lambda tx: decide_stop(tx, kind))
-    elif action.stop_scope == "line":
+    if errors.ACTIONS[kind].stop_scope is not None:
+        if tenant_id is None:      # 止める種類（会話AI・回線）は、契約者のキー・回線で起きる。どの契約者か分からなければ数えられない
+            raise ValueError(f"止める種類のエラー（{kind}）なのに、契約者がありません")
         access.in_tenant(actor, tenant_id, lambda tx: decide_stop(tx, kind, line_id=line_id))
     return kind
 

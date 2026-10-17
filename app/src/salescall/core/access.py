@@ -116,7 +116,8 @@ class Access:
         return self._run(actor, tenant_id, None, work)
 
     def in_system(self, actor: Actor, work: Callable[[Tx], T]) -> T:
-        """システム共通の表（全体の停止・システムの発信禁止）だけを扱う取引。契約者・依頼者の行は見えない。"""
+        """システム共通の表（全体の停止・祝日の暦・管理者あての知らせ）だけを扱う取引。契約者・依頼者の行は見えない。
+        （発信禁止の共通の台帳は、2026-10-16 から契約者ごと＝契約者の取引で扱う。0032）"""
         return self._run(actor, None, None, work)
 
     def _run(self, actor: Actor, tenant_id: UUID | None, client_id: UUID | None, work: Callable[[Tx], T]) -> T:

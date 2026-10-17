@@ -20,7 +20,7 @@
   (3) 範囲外の求めで終えた                                                          ⇒ out_of_scope
   (4) 用件を断られた（業務の決まりの「断りの答え」が取れた）                          ⇒ declined
   (5) 必須の質問がすべて取れた（confirmed・accepted。4-4 の定義）                     ⇒ completed
-  (6) 取れていない必須の質問のどれもが、扱い「結論として終える」                        ⇒ concluded（結論の名前）
+  (6) 取れていない必須の質問の扱いが「結論として終える」                              ⇒ concluded（結論の名前）
   (7) かけ直しの約束（お客様に頼まれた・分かるお客様／時を聞いた・こちらが約束した）          ⇒ callback_scheduled
   (8) お客様と話したが、目的のお客様に繋がらなかった                                          ⇒ not_reached（不在／取り次いでもらえなかった）
   (9) 会話に至らなかった（お客様が出なかった・お客様の声でなかった）                              ⇒ open
@@ -36,7 +36,7 @@ from typing import Any
 from salescall.core.business_rules import Rules
 from salescall.core.call_report import CallReport
 
-JUDGE_VERSION = "judge-2026-10-17.1"
+JUDGE_VERSION = "judge-2026-10-17.2"
 # 「判定できない」の原因の名前（同じ原因かを数える単位）と意味。プログラムの誤りか（直せるのは管理者だけ＝管理者にも知らせる。
 # 2026-10-16 ユーザー承認）も、ここで決まる（1か所）。業務設定の抜けは契約者が直す（いまは無い：業務の決まりは、必須の質問ごとに、
 # 決まった理由のすべてに扱いが無いと保存できない＝business_rules。2026-10-16 見直し：前は「理由×扱いが決まらない」を業務設定の
@@ -141,6 +141,8 @@ def refusal(inp: JudgeInput) -> Judgement | None:
     # お客様が出たのに会話の報告が無い：結果不明（処理が落ちた）なら、何も分からないまま扱う（長い間隔のあとかけ直す。4-2）。
     # それ以外は入力の誤り（報告を書き損ねた）。決めつけない
     if inp.facts.reached_answer and r is None and inp.facts.end_state != "technical_error":
+        if inp.refused_after:   # 報告は無くても、通話後の検証が録音から拒否を見つけた：はっきりした拒否が勝つ（2026-10-17 の見直し）
+            return done("do_not_call", dnc="refused_found_after", refusal="found_after")
         return unknown("report_missing", "お客様が出た通話なのに、会話の報告がありません")
     # (1) 番号違い（その番号の持ち主の断りも、その番号だけを止める）
     if r and "wrong_party" in r.parties:
@@ -186,26 +188,18 @@ def _business(inp: JudgeInput) -> Judgement:
     if not missing:
         return done("completed")
     # (6) 取れていない必須の質問の扱い（「わからない」「答えない」は理由×扱いの宣言どおり。宣言が無ければ入力の誤り）。
-    #     結論として終えるのは、取れていない必須の質問のどれもが「結論として終える」のときだけ。まだ取れうる質問
-    #     （聞いていない・聞き取れない・ほかの扱い）が残っていれば、その項目だけ「✕」「-」のまま、かけ直しの約束・再発信の
-    #     方針へ進む（2026-10-16 の見直し J7：前は1つの質問を断られただけで、かけ直しの約束があっても行を終えていた。
-    #     2026-10-13 ユーザー：「その質問だけの答えたくない」はその項目だけ「✕」、かけ直すか終えるかは再発信の方針）
-    conclusion: tuple[str, Any] | None = None
-    obtainable = False
+    #     扱いが「結論として終える」の項目があれば、結論で終える（会話の側は、その扱いで丁寧に締めて終えるので、あとの質問は
+    #     聞かれない。⛔ 2026-10-17 取り下げ：前日に「取れていない必須のどれもが結論のときだけ」に変えたが、扱いの表
+    #     ＝DESIGN.md 15-2-3「結論として終える：丁寧に締める・終える」と食い違い、聞かれなかった質問のために上限までかけ直した）
     for q in missing:
         it = inp.items.get(q)
         if it is None or it.state not in ("dont_know", "refused"):
-            obtainable = True
             continue
         h = rules.handling.get((q, it.state, it.reason)) if it.reason is not None else None
         if h is None:
             return unknown("reason_missing", f"質問 {q} の {it.state} に、決まった理由が無い（理由 {it.reason!r}）")
         if h.kind == "conclude":
-            conclusion = conclusion or (q, h)
-        else:
-            obtainable = True
-    if conclusion is not None and not obtainable:
-        return done("concluded", conclusion=conclusion[1].conclusion, concluded_by=conclusion[0])
+            return done("concluded", conclusion=h.conclusion, concluded_by=q)
     # (7) かけ直しの約束
     if r and r.callback is not None:
         cb = r.callback

@@ -32,36 +32,43 @@ SCOPE_NAMES: dict[str, str] = {"system": "全体", "tenant": "契約者", "clien
 @dataclass(frozen=True)
 class CauseInfo:
     """停止の原因の説明（画面と知らせに出す。1か所）。"""
+    label: str            # 短い名前（知らせに出す。注意は短く、詳しくは画面の「止まった理由」で。2026-10-17 ユーザー）
     meaning: str          # 何が起きたか
     auto_resume: str      # 自動で解く決まり
     before_resume: str    # 管理者か契約者が解く前に確かめること（管理者か契約者が解いたら、どうなるか）
 
 
 CAUSES: dict[str, CauseInfo] = {
-    "manual": CauseInfo("管理者か契約者が押した緊急停止", "自動では解かない（管理者か契約者だけが解く）", "押した理由が片付いたか"),
-    "storage_failure": CauseInfo("記録の保存に失敗した（記録できないまま、かけ続けない）",
-                                 "試しの書き込みが、決めた回数続けて成功したら解く", "データベースの状態"),
-    "line_failure": CauseInfo("その回線の異常が続いた（発信の失敗・回線の上限・端末やアプリの異常）",
+    "manual": CauseInfo("緊急停止", "管理者か契約者が押した緊急停止", "自動では解かない（管理者か契約者だけが解く）",
+                        "押した理由が片付いたか"),
+    "storage_failure": CauseInfo("保存の失敗", "記録の保存の失敗（いまは、この原因で止める処理は無い：保存の失敗では止めず、管理者に"
+                                 "直しを依頼して、ほかの行を続ける。2026-10-16 ユーザー）",
+                                 "自動では解かない（この原因で止める処理が無い）", "データベースの状態"),
+    "line_failure": CauseInfo("回線の異常", "その回線の異常が続いた（発信の失敗・回線の上限・端末やアプリの異常）",
                               "回線の応答の確かめが、決めた回数続けて成功したら解く",
                               "端末・アプリの状態。管理者か契約者が解くと、続いたエラーは解いた時から数え直す"),
-    "ai_connection": CauseInfo("会話AI・別の耳の異常が続いた（つながらない・Google の側の誤り・設定の誤り・不明のエラー）",
+    "ai_connection": CauseInfo("会話AIの異常", "会話AIの異常が続いた（つながらない・Google の側の誤り・設定の誤り・不明のエラー）",
                                "試しのセッションが、決めた回数続けて成功したら解く（設定の誤りは、直すまで確かめも失敗する）",
                                "数えたエラーの意味（会話AIのエラーの一覧）。管理者か契約者が解くと、続いたエラーは解いた時から数え直す"),
-    "project_denied": CauseInfo("会話AIのプロジェクトの利用拒否・枠の超過",
-                                "いまは、この原因で止める処理は無い（利用拒否は、そのプロジェクトをしばらく使わないことで扱う）",
-                                "Google の管理画面の上限"),
-    "forbidden_speech": CauseInfo("言ってはいけないことを言った（2つの耳で確かめた）",
+    "project_denied": CauseInfo("会話AIの利用拒否", "会話AIのプロジェクトの利用拒否・枠の超過（いまは、この原因で止める処理は無い："
+                                "そのプロジェクトをしばらく休ませ、次のキーで続ける。2026-10-17 ユーザー）",
+                                "自動では解かない（この原因で止める処理が無い）", "Google の管理画面の上限"),
+    "forbidden_speech": CauseInfo("言ってはいけないこと", "言ってはいけないことを言った（2つの耳で確かめた。検証モードは1件、"
+                                  "本番は同じ日に決めた件数で止める）",
                                   "直した新しい版が模擬通話に合格したら解く",
                                   "その通話の場面。管理者か契約者が解くと、その版をもう一度測り直す（段の件数を最初から数える）"),
-    "quality_gate": CauseInfo("品質の基準を外れた（判定できない・2つの耳の食い違い・苦情・技術的な失敗 など）",
+    "quality_gate": CauseInfo("品質の基準", "品質の基準を外れた（2つの耳の食い違い・苦情・技術的な失敗・検証できなかった の割合。"
+                              "検証モードだけ）",
                               "直した新しい版が模擬通話に合格したら解く",
                               "外れた指標。管理者か契約者が解くと、その版をもう一度測り直す（段の件数を最初から数える）"),
-    "judge_unknown": CauseInfo("「判定できない」通話があった（会話の報告の書き漏れなど、こちらの誤り）",
+    "judge_unknown": CauseInfo("判定できない通話", "「判定できない」通話があった（会話の報告の書き漏れなど、こちらの誤り。検証モードは"
+                               "1件、本番は同じ日に同じ原因が決めた件数で止める）",
                                "原因を直して、その場面を入れた模擬通話に合格したら解く（同じ版でもよい）",
                                "評価の記録の原因と通話。判定待ちの行は、原因が直れば自動で判定し直す"),
-    "budget": CauseInfo("費用の1日の上限を超えた", "日が替わったら解く",
-                        "上限の設定。上限を上げずに解くと、次の利用の記録でまた止まる"),
-    "deficit": CauseInfo("赤字（今月の費用が、今月の報酬を超えた）",
+    "budget": CauseInfo("費用の上限", "費用の1日の上限を超えた（いまは、この原因で止める処理は無い：注意を知らせるだけ。"
+                        "2026-10-16 ユーザー：「注意喚起のみ」）",
+                        "自動では解かない（この原因で止める処理が無い）", "上限の設定"),
+    "deficit": CauseInfo("赤字", "赤字（今月の費用が、今月の報酬を超えた。警告から期限までに確認されなかった）",
                          "報酬の決まりを直した・月が替わった・月額の日割りが積み上がって、赤字でなくなったら解く（見守りが確かめる）",
                          "その依頼者の報酬の決まりと、今月の費用の内訳。決まりを直さずに解くと、次の利用の記録でまた止まる"),
 }
@@ -69,8 +76,10 @@ CAUSES: dict[str, CauseInfo] = {
 
 def stop(tx: Tx, *, scope: Scope, cause: Cause, reason: str, evidence: str | None = None,
          tenant_id: UUID | None = None, client_id: UUID | None = None, business_id: UUID | None = None,
-         line_id: UUID | None = None) -> dict[str, Any]:
-    """止める。止めた記録と、取り消した予約の数を返す。"""
+         line_id: UUID | None = None, admin: bool = False) -> dict[str, Any]:
+    """止める。止めた記録と、取り消した予約の数を返す。admin＝管理者あての写しも知らせる（直せるのが管理者だけの原因・
+    ユーザーが「管理者へ知らせる」と決めた停止。決めるのは呼ぶ側の1か所）。知らせは短く、範囲と原因の短い名前だけ（理由・根拠は
+    `explain`＝画面の「止まった理由」で見る。2026-10-17 ユーザー：注意は短く、詳しくは i マークで）。"""
     row = tx.one(
         "INSERT INTO salescall.stop_events (scope, tenant_id, client_id, business_id, line_id, action, cause, actor,"
         " actor_kind, reason, evidence)"
@@ -80,9 +89,9 @@ def stop(tx: Tx, *, scope: Scope, cause: Cause, reason: str, evidence: str | Non
     )
     released = tx.one("SELECT salescall.release_claims_for_stop(%s) AS n", (row["event_id"],))["n"]
     notify.emit(tx, "stopped", key=f"stop:{row['event_id']}",
-                summary=f"発信を止めました（{SCOPE_NAMES[scope]}・{CAUSES[cause].meaning}）。{reason}",
+                summary=f"発信を止めました（{SCOPE_NAMES[scope]}：{CAUSES[cause].label}）。",
                 refs={"stop_event_id": row["event_id"], "scope": scope, "cause": cause, "client_id": client_id,
-                      "business_id": business_id, "line_id": line_id})
+                      "business_id": business_id, "line_id": line_id}, admin=admin)
     return {"event_id": row["event_id"], "released_claims": released}
 
 
@@ -93,13 +102,15 @@ def resume(tx: Tx, stop_event_id: int, *, reason: str, evidence: str | None = No
         " actor, actor_kind, reason, evidence)"
         " SELECT scope, tenant_id, client_id, business_id, line_id, 'resume', event_id, salescall.cur_actor(),"
         "        salescall.cur_actor_kind()::salescall.actor_kind, %s, %s"
-        " FROM salescall.stop_events WHERE event_id = %s AND action = 'stop' RETURNING event_id",
+        " FROM salescall.stop_events WHERE event_id = %s AND action = 'stop' RETURNING event_id, scope",
         (reason, evidence, stop_event_id),
     )
     if row is None:
         raise LookupError(f"その停止は無い（または、取引の範囲の外）：{stop_event_id}")
-    notify.emit(tx, "resumed", key=f"resume:{row['event_id']}", summary=f"止めていた発信を解きました（停止 {stop_event_id}）。{reason}",
-                refs={"stop_event_id": stop_event_id, "resume_event_id": row["event_id"]})
+    cause = tx.one("SELECT cause::text AS c FROM salescall.stop_events WHERE event_id = %s", (stop_event_id,))["c"]
+    notify.emit(tx, "resumed", key=f"resume:{row['event_id']}",
+                summary=f"止めていた発信を解きました（{SCOPE_NAMES[row['scope']]}：{CAUSES[cause].label}）。",
+                refs={"stop_event_id": stop_event_id, "resume_event_id": row["event_id"], "cause": cause})
     return row["event_id"]
 
 
@@ -128,7 +139,7 @@ def explain(tx: Tx, stop_event_id: int, *, error_limit: int = 20) -> dict[str, A
                       " WHERE resolves_event_id = %s", (stop_event_id,))
     found = []
     kinds = errors.COUNTED_FOR.get(s["cause"], ())
-    if kinds and s["scope"] in ("system", "line"):
+    if kinds and s["scope"] in ("system", "tenant", "line"):
         for e in tx.all("SELECT * FROM salescall.errors_for_stop(%s, %s, %s)", (stop_event_id, list(kinds), error_limit)):
             entry = errors.lookup(errors.ErrorReport(e["source"], e["code"], e["message"]))
             found.append(dict(e, meaning=errors.ACTIONS[e["kind"]].meaning if entry is None else entry.meaning,
@@ -146,7 +157,7 @@ def explain(tx: Tx, stop_event_id: int, *, error_limit: int = 20) -> dict[str, A
             " AND NOT EXISTS (SELECT 1 FROM salescall.result_releases x WHERE x.task_id = r.task_id"
             "                 AND x.version_no = r.version_no) ORDER BY r.task_id, r.version_no", (quality["version_id"],))
     info = CAUSES[s["cause"]]
-    return {"stop": s, "cause": {"meaning": info.meaning, "auto_resume": info.auto_resume,
+    return {"stop": s, "cause": {"label": info.label, "meaning": info.meaning, "auto_resume": info.auto_resume,
                                  "before_resume": info.before_resume},
             "who_can_resume": "管理者" if s["scope"] == "system" else "その契約者・管理者",
             "resolved": resolved, "errors": found, "checks": checks, "quality": quality, "held_results": held}

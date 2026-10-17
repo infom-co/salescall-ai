@@ -108,18 +108,29 @@ def reach(tx: Tx, task_id: UUID) -> tuple[list[str], str | None]:
 def undecided_reach_overlaps(tx: Tx, task_id: UUID) -> bool:
     """この行と同じお客様の、ほかの行の発信で、断られたかがまだ決まっていないもの（予約・通話中・締め前・判定できないで
     判定待ち。データベースの1か所 salescall.refusal_undecided）があるか。取引の依頼者の分（発信禁止は依頼者ごと）。
-    同じお客様＝止める範囲（この1か所の reach）が重なる行：番号を1つでも共有する、または同じ管理番号（設定で選んだとき）。
+    「同じお客様」＝その発信が断られていたら、この行の番号（または管理番号）が止まる（止める範囲は `reach` の1か所）。
 
-    止めるのは締めの処理（判定のあと）なので、決まる前に同じお客様へかけると、断ったお客様にまたかけうる。2026-10-16 の
-    見直しで直した：(1) かける番号だけでなく、この行の番号すべてで重なりを見る（前は片方向で、お客様が言った別の番号の行が、
-    一覧の番号の行の通話中にかけえた）(2) 予約中（まだ発信していない）も見る (3) 判定できないの結果も「まだ決まっていない」。"""
-    mine, my_ref = reach(tx, task_id)
-    mine_set = set(mine)
-    for p in tx.all("SELECT DISTINCT a.task_id FROM salescall.attempts a"
-                    " WHERE a.task_id <> %s AND a.state <> 'released' AND salescall.refusal_undecided(a.attempt_id)",
-                    (task_id,)):
+    止めるのは締めの処理（判定のあと）なので、決まる前に同じお客様へかけると、断ったお客様にまたかけうる。
+    2026-10-16 の見直しで直した：(1) かける番号だけでなく、この行の番号すべてで見る（両方向）(2) 予約中も見る
+    (3) 判定できないの結果も「まだ決まっていない」。2026-10-17 の見直しで直した：(4) 期限の切れた予約（取り消されないまま
+    残ったもの）は見ない (5) 重なりは「相手が断ったら、この行の番号が止まるか」で見る（前は両方の範囲の重なりで見て、
+    2段離れた行まで待たせた）(6) 調べる行を、この行の範囲の番号を持つ行・同じ管理番号の行に絞る（試行が増えても遅くしない）。"""
+    t = tx.one("SELECT client_ref FROM salescall.tasks WHERE task_id = %s", (task_id,))
+    if t is None:
+        raise tasks.TaskNotFound(str(task_id))
+    mine = set(tasks.numbers(tx, task_id))
+    near, _ = reach(tx, task_id)   # この行の番号と、番号を共有する行の番号（相手の範囲が、この行の番号に届きうる行の番号）
+    for p in tx.all(
+            "SELECT DISTINCT a.task_id FROM salescall.attempts a"
+            " WHERE a.task_id <> %s AND a.state <> 'released'"
+            "   AND NOT (a.state = 'claimed' AND a.claim_expires_at <= now())"
+            "   AND (EXISTS (SELECT 1 FROM salescall.task_numbers n WHERE n.task_id = a.task_id AND n.phone_e164 = ANY(%s))"
+            "        OR (%s::text IS NOT NULL AND EXISTS (SELECT 1 FROM salescall.tasks o WHERE o.task_id = a.task_id"
+            "                                             AND o.client_ref = %s)))"
+            "   AND salescall.refusal_undecided(a.attempt_id)",
+            (task_id, list(near), t["client_ref"], t["client_ref"])):
         numbers, ref = reach(tx, p["task_id"])
-        if mine_set.intersection(numbers) or (my_ref is not None and ref == my_ref):
+        if mine.intersection(numbers) or (ref is not None and ref == t["client_ref"]):
             return True
     return False
 

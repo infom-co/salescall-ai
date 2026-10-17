@@ -95,36 +95,48 @@ class Action:
     retry: str                     # やり直し：none／backoff（間隔を伸ばしながら上限まで）／reconnect_once（6-7）／
                                    #           project_backoff（そのプロジェクトを待ってから1回だけ。設定 stop.ai_rate_limit.backoff）
     stop_cause: str | None         # 止めるときの原因（DESIGN.md 9-1 の名前）。None＝止めない
-    stop_scope: str | None         # 止める範囲：system／line
+    stop_scope: str | None         # 止める範囲：tenant（その契約者。会話AIの枠は契約者ごと＝キー・プロジェクトは契約者のもの。
+                                   #   2026-10-16 ユーザー）／line（その回線）
     stop_after: str | None         # 何回続いたら止めるか（設定の名前。None＝1回で止める）
     notify: bool                   # 契約者に知らせる（知らせの台帳に入れるだけ。管理者には、どの種類も知らせる）
     meaning: str                   # 日本語（画面・知らせに出す）
     fundamental: bool = False      # 根源的（設定の誤り・原因の分からない誤りが続く）＝管理者に直しを依頼する。そうでなければ一時的
     #                                （混雑・つながらない・時間切れ）＝間隔を伸ばして待ち、直ったら自動で続ける（2026-10-16 ユーザー：
     #                                「一時的なものなのか、根源的なものなのかで対応が違う」）
-    hold_row: bool = False         # その通話の行を判定待ちにする（かけ直さない。管理者に直しを依頼し、ほかの行は続ける）
 
+
+# 知らせに出す短い名前（注意は短く。詳しい意味は Action.meaning＝画面の「止まった理由」・i マークで。2026-10-17 ユーザー）
+LABELS: dict[str, str] = {
+    "key_specific": "キーが使えません", "project_denied": "会話AIの1分の上限に当たりました",
+    "config_error": "会話AIの設定の誤りです", "project_quota": "会話AIの利用枠を超えました",
+    "ai_unreachable": "会話AIにつながりません", "ear_unreachable": "通話後の確かめ（別の耳）につながりません",
+    "ai_server_error": "会話AIの側の誤り・混雑です", "session_drop": "通話中に会話AIが切れました",
+    "line": "回線の異常です", "storage": "保存に失敗しました", "delivery": "結果の書き戻しに失敗しました",
+    "unknown_ai": "原因の分からない会話AIの誤りです", "unknown_line": "原因の分からない回線の誤りです",
+    "unknown_other": "原因の分からない誤りです",
+}
 
 ACTIONS: dict[str, Action] = {
     "key_specific": Action("mark_key_unusable", "none", None, None, None, False,
                            "キー固有（認証失敗・キーの無効化）：そのキーを使わない印を付け、次のセッションから別のキー"),
     "project_denied": Action("next_key", "project_backoff", None, None, None, True,
-                             "プロジェクトの利用拒否（1分あたりの上限。門の数え方で避けきれなかったもの）：そのプロジェクトをしばらく休ませ"
-                             "（待ちは 10秒→30秒→2分→10分→30分）、次のキーで続ける"),
-    "config_error": Action("keep", "none", "ai_connection", "system", None, True,
+                             "プロジェクトの利用拒否（1分あたりの上限）：そのプロジェクトをしばらく休ませ"
+                             "（待ちは 10秒→30秒→2分→10分→30分）、次のキーで続ける（2026-10-17 ユーザー：門では待たせない）"),
+    "config_error": Action("keep", "none", "ai_connection", "tenant", None, True,
                            "設定の誤り：キーを切り替えず、新しい発信を待つ（設定を直すまで、どのキーでも同じ結果。管理者に直しを依頼）",
                            fundamental=True),
     "project_quota": Action("next_key", "none", None, None, None, True,
                             "プロジェクトの枠の超過（1日の上限など）：次のキーで続ける（同じプロジェクトと分かっているキーは飛ばす。"
-                            "使えるキーが無ければ門が通さない）"),
-    "ai_unreachable": Action("keep", "backoff", "ai_connection", "system", "stop.ai.stop_after_failures", False,
-                             "会話AIにつながらない（一時的）：間隔を伸ばしてやり直す。続いたら、つながるまで新しい発信を待ち、直ったら自動で続ける"),
+                            "使えるキーが1つも無ければ、キーの選択が「会話AIにつながらない」（ai_unreachable）として知らせる）"),
+    "ai_unreachable": Action("keep", "backoff", "ai_connection", "tenant", "stop.ai.stop_after_failures", False,
+                             "会話AIにつながらない（一時的。使えるキーが1つも無いときも、これ）：間隔を伸ばしてやり直す。続いたら、"
+                             "つながるまで、その契約者の新しい発信を待ち、直ったら自動で続ける"),
     "ear_unreachable": Action("keep", "backoff", None, None, None, True,
                               "別の耳（通話後の検証）につながらない（一時的）：発信は止めない。検証は順番待ちのまま、キーを併用して"
                               "やり直す（つながるまで、その行は締めずに待つ＝同じお客様には、断られたかが決まるまでかけない）。"
                               "管理者に知らせる（2026-10-17：止めるのはお客様に影響が出るときだけ。検証が遅れても、門が"
                               "その行と同じお客様を守るので、お客様には影響が出ない）"),
-    "ai_server_error": Action("keep", "backoff", "ai_connection", "system", "stop.ai.stop_after_failures", False,
+    "ai_server_error": Action("keep", "backoff", "ai_connection", "tenant", "stop.ai.stop_after_failures", False,
                               "Google の側の誤り・混雑・時間切れ（公式の一覧の 500・503・504。一時的）：間隔を伸ばしてやり直す。続いたら、直るまで新しい発信を待ち、直ったら自動で続ける"),
     "session_drop": Action("keep", "reconnect_once", None, None, None, False,
                            "通話中のセッションの切断：会話AIは1回だけつなぎ直し、駄目ならおわびして終える（6-7。その行は、"
@@ -133,12 +145,13 @@ ACTIONS: dict[str, Action] = {
     "line": Action("keep", "none", "line_failure", "line", "stop.line.stop_after_failures", False,
                    "回線（発信失敗・回線の上限・端末やアプリの異常。一時的）：続いたら、その回線の発信を待ち、直ったら自動で続ける"),
     "storage": Action("keep", "none", None, None, None, True,
-                      "保存の失敗：その行を判定待ちにして（断られたことが記録できていない恐れがあるので、かけ直さない）、管理者に直しを"
-                      "依頼し、ほかの行は続ける（2026-10-16 ユーザー：「理由を記載とあなたへの修正依頼をして、次の行に進んだらいい」。"
-                      "データベースそのものに届かないときは、門が判断できないので、発信は自然に待つ）", fundamental=True, hold_row=True),
+                      "保存の失敗：全体は止めない。管理者に直しを依頼し、ほかの行は続ける（2026-10-16 ユーザー：「理由を記載と"
+                      "あなたへの修正依頼をして、次の行に進んだらいい」）。保存できなかった通話は締めが済まないまま残るので、門が"
+                      "その行と同じお客様にはかけない（断られたかが決まっていない）。直れば、締めの処理が締め直す。"
+                      "データベースそのものに届かないときは、門が判断できないので、発信は自然に待つ", fundamental=True),
     "delivery": Action("keep", "backoff", None, None, None, False,
                        "連携（書き戻し）の失敗：連携だけ再送する（通話の結果は失わない。4-5）"),
-    "unknown_ai": Action("keep", "none", "ai_connection", "system", "stop.ai.stop_after_failures", True,
+    "unknown_ai": Action("keep", "none", "ai_connection", "tenant", "stop.ai.stop_after_failures", True,
                          "不明（会話AI）：キーを切り替えない。続いたら新しい発信を待ち、管理者に直しを依頼する", fundamental=True),
     "unknown_line": Action("keep", "none", "line_failure", "line", "stop.line.stop_after_failures", True,
                            "不明（回線）：続いたら、その回線の発信を待ち、管理者に直しを依頼する", fundamental=True),

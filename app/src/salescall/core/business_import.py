@@ -244,7 +244,7 @@ def _to_raw(sheets: dict[str, tuple[Sheet, dict[str, int]]], problems: list[str]
             continue
         m = _INTERVAL.match(v.get("interval") or "")
         times = v.get("max_times")
-        if m is None or not (times or "").isdigit() or int(times) < 1 or int(m.group(1)) < 1:
+        if m is None or not (times or "").isdecimal() or int(times) < 1 or int(m.group(1)) < 1:
             problems.append(f"{where}：かけるときは、回数（1以上の数）と間隔（「2時間おき」「1日後」の形。1以上）が要ります")
             continue
         retry[key] = {"action": "call", "max_times": int(times),
@@ -307,8 +307,13 @@ UnitDecider = Callable[[list[str]], dict[str, str]]
 （CL-1 の連絡帳 4-14。質問の文の数える言葉か、文字のモデル2つが合うときだけ）。管理者も契約者も確かめない。"""
 
 
+def _is_name(n: Any) -> bool:
+    """名前の一覧の1つとして読める形か（表記が文字）。読めない形は、そのまま残して、確かめ（check）が問題に出す。"""
+    return isinstance(n, dict) and isinstance(n.get("text"), str) and bool(n["text"].strip())
+
+
 def _names(raw: dict[str, Any]) -> list[dict[str, Any]]:
-    return [n for n in (raw.get("names") if isinstance(raw.get("names"), list) else []) if isinstance(n, dict) and n.get("text")]
+    return [n for n in (raw.get("names") if isinstance(raw.get("names"), list) else []) if _is_name(n)]
 
 
 TopicDecider = Callable[[list[str]], dict[str, str]]
@@ -358,7 +363,8 @@ def ask_ai(raw: dict[str, Any], *, find_names: NameFinder | None = None, decide_
 
 
 def review(tx: Tx, business_id: UUID, raw: dict[str, Any], *, confirmed_names: Any = (),
-           ai: dict[str, Any] | None = None, problems: list[str] | None = None) -> Preview:
+           ai: dict[str, Any] | None = None, problems: list[str] | None = None,
+           where: dict[str, list[str]] | None = None) -> Preview:
     """業務設定の形を確かめる（どの入口も、ここを通る：ファイル・依頼者の画面から抜き出したもの・画面の入力）。何も書かない。
     AI には聞かない（AI の答えは `ask_ai` で1回だけ聞いて、ai に渡す）。
     - 名前と読み：入口の名前に、AI が洗い出した名前を足す（同じ表記は1つ）。読みの決め方は core/readings.py の1か所（入口の読み
@@ -371,19 +377,30 @@ def review(tx: Tx, business_id: UUID, raw: dict[str, Any], *, confirmed_names: A
     verification = business_settings.ai_reading_needs_person(tx, business_id)
     confirmed = {t: r for t, r in confirmed_names}
     found = readings.from_json(ai.get("names"))
-    names = _names(raw)
-    have = {unicodedata.normalize("NFKC", n["text"]) for n in names}
-    for text in sorted(found):                                       # AI が洗い出した名前（入口に無いもの）
+    # 名前の一覧は、読めない形の行も順番どおり残す（落とすと、確かめが問題に出せず、問題の位置もずれる。2026-10-17 の見直し）。
+    # 一覧そのものが並びでなければ、AI の名前を足さず、そのまま確かめに渡す
+    listed = isinstance(raw.get("names"), list) or raw.get("names") is None
+    names = list(raw.get("names") or []) if listed else []
+    have = {unicodedata.normalize("NFKC", n["text"]) for n in names if _is_name(n)}
+    for text in sorted(found) if listed else ():                     # AI が洗い出した名前（入口に無いもの）
         if unicodedata.normalize("NFKC", text) not in have:
             names.append({"text": text, "reading": None, "source": "script"})
             have.add(unicodedata.normalize("NFKC", text))
     by_key = {unicodedata.normalize("NFKC", t): r for t, r in found.items()}
     caller = raw.get("caller") if isinstance(raw.get("caller"), dict) else {}
+    # 名乗りの読みは、確かめのたびに名前の一覧の読みを写す（下）。なので、名前の一覧で AI・契約者が決めた読みと同じなら、それは
+    # 写し（入口の読みではない）。写しを入口の読みとして読むと、プレビューの形をもう一度確かめたとき、AI の読みが入口の読みに
+    # なり、検証モードの確かめ・担当者名の読みは必須の決まりが抜ける（2026-10-17 の見直し：I1 と同じ穴が名乗りから開いていた）
+    copied = {n["text"]: readings.normalize(n.get("reading")) for n in names
+              if _is_name(n) and n.get("reading_by") in ("ai", "person")}
     caller_given = {c["text"]: c["reading"] for c in (caller.get(k) for k in ("company", "person"))
                     if isinstance(c, dict) and isinstance(c.get("text"), str) and isinstance(c.get("reading"), str)
-                    and c["reading"].strip()}
+                    and c["reading"].strip()
+                    and not (c["text"] in copied and copied[c["text"]] == readings.normalize(c["reading"]))}
     to_confirm = []
     for n in names:
+        if not _is_name(n):
+            continue
         # 入口が持ってきた読みは、読みを決めたものが入口（または無い）の読みだけ。プレビューの形をもう一度確かめたとき、
         # AI の読み・契約者が確かめた読みを入口の読みにしない（2026-10-16 の見直し I1：検証モードの確かめが抜けた）
         by = n.get("reading_by")
@@ -408,7 +425,8 @@ def review(tx: Tx, business_id: UUID, raw: dict[str, Any], *, confirmed_names: A
         n.update(got.as_json())
         if readings.needs_person(got, verification=verification):
             to_confirm.append({"text": n["text"], "reading": got.reading, "source": n.get("source")})
-    raw["names"] = [{k: n.get(k) for k in business_settings.NAME_KEYS} for n in names]
+    if listed:
+        raw["names"] = [{k: n.get(k) for k in business_settings.NAME_KEYS} if isinstance(n, dict) else n for n in names]
     for q in _unit_questions(raw):
         q["unit"] = ai.get("units", {}).get(q["text"]) or None
     for q in _topic_questions(raw):
@@ -416,7 +434,7 @@ def review(tx: Tx, business_id: UUID, raw: dict[str, Any], *, confirmed_names: A
     for key in ("company", "person"):
         c = caller.get(key)
         if isinstance(c, dict) and c.get("text"):
-            same = next((n for n in raw["names"] if n.get("text") == c["text"]), None)
+            same = next((n for n in names if _is_name(n) and n.get("text") == c["text"]), None)
             if same is not None:
                 c["reading"] = same["reading"]
     try:
@@ -424,13 +442,16 @@ def review(tx: Tx, business_id: UUID, raw: dict[str, Any], *, confirmed_names: A
                                 voice_types=business_settings.voice_types(tx))
     except business_settings.SettingsInvalid as e:
         problems += [p for p in e.problems if p not in problems]
-    return Preview(raw, problems, to_confirm, _digest(business_id, raw), ai)
+    if where is not None:                                             # ファイルの入口：問題の位置をシートと行にする
+        problems = _placed(problems, where)
+    return Preview(raw, problems, to_confirm, _digest(business_id, raw, problems), ai)
 
 
-def _digest(business_id: UUID, raw: dict[str, Any] | None) -> str:
-    """プレビューと登録が同じ中身かを確かめる指紋（業務と中身。1か所）。"""
-    return hashlib.sha256(json.dumps({"business_id": str(business_id), "raw": raw}, ensure_ascii=False,
-                                     sort_keys=True).encode()).hexdigest()
+def _digest(business_id: UUID, raw: dict[str, Any] | None, problems: list[str]) -> str:
+    """プレビューと登録が同じ中身かを確かめる指紋（業務と中身と問題。1か所）。問題も入れる：確かめ（check）の外で見つかった問題
+    （ファイルの読めない行・重なった行など。中身 raw には残らない）を、プレビューから消して登録できないように（2026-10-17 の見直し）。"""
+    return hashlib.sha256(json.dumps({"business_id": str(business_id), "raw": raw, "problems": problems},
+                                     ensure_ascii=False, sort_keys=True).encode()).hexdigest()
 
 
 def preview(tx: Tx, business_id: UUID, file_name: str, data: bytes, *, mapping: dict[str, Any] | None = None,
@@ -443,8 +464,8 @@ def preview(tx: Tx, business_id: UUID, file_name: str, data: bytes, *, mapping: 
         return Preview(None, problems, [], notes=notes)
     raw, problems, where = _to_raw(sheets, problems)
     ai = ask_ai(raw, find_names=find_names, decide_units=decide_units, decide_topics=decide_topics)
-    p = review(tx, business_id, raw, confirmed_names=confirmed_names, ai=ai, problems=problems)
-    p.problems, p.notes = _placed(p.problems, where), notes
+    p = review(tx, business_id, raw, confirmed_names=confirmed_names, ai=ai, problems=problems, where=where)
+    p.notes = notes
     return p
 
 
@@ -455,7 +476,7 @@ class PreviewChanged(Exception):
 def register_reviewed(tx: Tx, business_id: UUID, p: Preview, *, expected_digest: str) -> UUID:
     """契約者が確かめたプレビューと同じ中身なら、新しい版を作る（どの入口も、ここを通る。1つの取引。問題が1つでもあれば何も書かない）。"""
     # 指紋は、渡されたものを信じず、中身から出し直す（プレビューは書き換えられる。業務も指紋に入れる。2026-10-16 の見直し I8）
-    if _digest(business_id, p.raw) != expected_digest:
+    if _digest(business_id, p.raw, p.problems) != expected_digest:
         raise PreviewChanged("プレビューのあとで中身が変わりました。もう一度プレビューを確かめてください")
     if p.problems or p.raw is None:
         raise business_settings.SettingsInvalid(p.problems)
@@ -470,6 +491,5 @@ def register(tx: Tx, business_id: UUID, file_name: str, data: bytes, *, expected
     if problems and not sheets:
         raise business_settings.SettingsInvalid(problems)
     raw, problems, where = _to_raw(sheets, problems)
-    p = review(tx, business_id, raw, confirmed_names=confirmed_names, ai=ai, problems=problems)
-    p.problems = _placed(p.problems, where)
+    p = review(tx, business_id, raw, confirmed_names=confirmed_names, ai=ai, problems=problems, where=where)
     return register_reviewed(tx, business_id, p, expected_digest=expected_digest)

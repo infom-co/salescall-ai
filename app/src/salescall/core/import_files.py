@@ -40,10 +40,10 @@ class FileRejected(Exception):
 
 
 class EncodingAmbiguous(FileRejected):
-    """UTF-8 と Shift_JIS のどちらでも読めて、中身が違う。samples：読み方ごとの先頭の数行（画面で見せて選んでもらう）。"""
+    """2つ以上の文字の決まり（ENCODINGS）で読めて、中身が違う。samples：読み方ごとの先頭の数行（画面で見せて選んでもらう）。"""
 
     def __init__(self, samples: dict[str, list[str]]) -> None:
-        super().__init__("文字の決まり（UTF-8 か Shift_JIS か）を決められません。正しく読める方を選んでください")
+        super().__init__(f"文字の決まり（{' か '.join(_NAMES[e] for e in samples)}）を決められません。正しく読める方を選んでください")
         self.samples = samples
 
 
@@ -84,6 +84,7 @@ _MAX_EXACT = 10 ** 15             # 表計算ソフトの数は15桁まで正確
 
 
 ENCODINGS = ("utf-8", "cp932", "euc_jp")
+_NAMES = {"utf-8": "UTF-8", "cp932": "Shift_JIS", "euc_jp": "EUC-JP"}   # 画面・知らせに出す名前（ENCODINGS と組）
 
 
 def read(file_name: str, data: bytes, *, sheet_name: str | None = None, encoding: str | None = None) -> Sheet:
@@ -112,7 +113,7 @@ def _text(value: str | None) -> str | None:
 # ── CSV ──
 def _decode(data: bytes, chosen: str | None) -> tuple[str, str]:
     if chosen is not None and chosen not in ENCODINGS:
-        raise FileRejected(f"文字の決まりは {' か '.join(ENCODINGS)} です")
+        raise FileRejected(f"文字の決まりは {' か '.join(_NAMES[e] for e in ENCODINGS)} のどれかです")
     if data.startswith(codecs.BOM_UTF8):
         if chosen not in (None, "utf-8"):
             raise FileRejected("UTF-8 の印（BOM）があるファイルです")
@@ -129,7 +130,8 @@ def _decode(data: bytes, chosen: str | None) -> tuple[str, str]:
                 pass
         if not read_as:
             raise FileRejected("選んだ文字の決まりでは読めません" if chosen else
-                               "文字の決まりが UTF-8 でも Shift_JIS でもありません（UTF-8 で保存し直してください）")
+                               f"文字の決まりが {'・'.join(_NAMES[e] for e in ENCODINGS)} のどれでもありません"
+                               "（UTF-8 で保存し直してください）")
         if len(set(read_as.values())) > 1:   # 2つ以上の読み方で読めて、中身が違う：推測で選ばない
             raise EncodingAmbiguous({enc: [ln for ln in t.splitlines() if ln.strip()][:5] for enc, t in read_as.items()})
         encoding = next(enc for enc in ENCODINGS if enc in read_as)   # どれで読んでも同じ（英数字だけ）なら、並びの先

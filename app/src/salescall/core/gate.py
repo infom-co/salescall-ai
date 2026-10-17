@@ -236,8 +236,8 @@ def choose_voice(tx: Tx, task_id: UUID, phone_e164: str, business_voice: str) ->
         （2026-10-17 ユーザー：「依頼者が違うと、期間に関係なく、声…は変えた方がいい」「同じ男性ならサービスを聞く前に嫌悪感を
         持たれるので、Ledaが対応するなど」「契約者が変わると…声は変えた方がいい」）。
     (3) それ以外は、業務設定の声の型。"""
-    mine = tx.one("SELECT voice_type FROM salescall.attempts WHERE task_id = %s AND voice_type IS NOT NULL"
-                  " ORDER BY claimed_at DESC LIMIT 1", (task_id,))
+    mine = tx.one(f"SELECT voice_type FROM salescall.attempts WHERE task_id = %s AND voice_type IS NOT NULL AND {_DIALED}"
+                  " ORDER BY claimed_at DESC LIMIT 1", (task_id,))   # お客様が聞いた声だけ（発信しなかった予約は数えない）
     if mine is not None:
         return mine["voice_type"]
     before = tx.one("SELECT salescall.number_last_voice_elsewhere(%s) AS v", (phone_e164,))["v"]
@@ -272,7 +272,20 @@ def claim(tx: Tx, *, task_id: UUID, line_id: UUID, lease_holder: str) -> Claim |
         tx.execute("INSERT INTO salescall.gate_denials (tenant_id, client_id, task_id, line_id, reason)"
                    " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s)",
                    (task_id, None if outcome.reason == "line_unknown" else line_id, outcome.reason))
+        if outcome.reason in SETTING_GAPS:   # 設定の抜けで待っている：黙って待たせず、契約者に知らせる（止めない。原則6）
+            notify.emit(tx, "setting_missing", key=f"gate:{outcome.reason}:{task['client_id']}:{task['run_id']}",
+                        summary=SETTING_GAPS[outcome.reason], refs={"client_id": task["client_id"], "run_id": task["run_id"],
+                                                                     "reason": outcome.reason})
     return outcome
+
+
+# 門が設定の抜けで待たせる理由と、契約者への注意の短い文（2026-10-17 の見直し：前は黙って待たせていた）
+SETTING_GAPS: dict[str, str] = {
+    "no_version": "実施回に業務設定の版が割り当てられていません。業務設定の版を割り当ててください。",
+    "rules_missing": "業務設定の版に、業務の決まり（断りの答え・理由ごとの扱い・かけ直し）がありません。業務設定を直してください。",
+    "settings_missing": "業務設定の版が確かめに通りません。業務設定を直してください。",
+    "setting_missing": "設定の値が決まっていない項目があります。設定を確かめてください。",
+}
 
 
 def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: str) -> Claim | Denied:
@@ -325,6 +338,8 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
         content = business_settings.load(tx, version)
     except (LookupError, business_settings.SettingsInvalid):
         return _deny("settings_missing")
+    if content.voice not in business_settings.voice_types(tx):   # 声の型が一覧から外れた（置いた時は一覧にあった）
+        return _deny("settings_missing")
     # お詫びの電話（DESIGN.md 10-1-2）は、業務の話し方を使わない（決まった文面だけ）：品質の段の件数に数えず、業務の品質の停止
     # （言ってはいけないこと・品質の基準・判定できない）では止めない。ほかの停止（全体・管理者か契約者が押した緊急停止・費用・回線など）では止める
     apology = nxt["purpose"] == "apology"
@@ -372,9 +387,10 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
         return _deny("line_other_client")
     if not approval.human_for_business(tx, task["business_id"]) and tx.one(
             "SELECT salescall.line_called_number_elsewhere(%s, %s) AS hit", (line_id, task["phone_e164"]))["hit"]:
-        notify.emit(tx, "setting_missing", key=f"own_line:{task['client_id']}:{local.date()}",
-                    summary=OWN_LINE_MISSING,
-                    refs={"client_id": task["client_id"], "line_id": line_id})
+        if tx.one("SELECT 1 FROM salescall.lines WHERE client_id = %s LIMIT 1", (task["client_id"],)) is None:
+            # 専用の回線がまだ無いときだけ知らせる（専用の回線が使用中で共有の回線が回ってきたときは、知らせない）
+            notify.emit(tx, "setting_missing", key=f"own_line:{task['client_id']}:{local.date()}",
+                        summary=OWN_LINE_MISSING, refs={"client_id": task["client_id"], "line_id": line_id})
         return _deny("line_used_by_other_client")
     dials = tx.one("SELECT salescall.line_dials_on(%s, %s) AS n", (line_id, local.date()))["n"]
     if dials >= int(_setting(tx, "line.max_dials_per_day", task)):

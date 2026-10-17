@@ -5,7 +5,7 @@ from __future__ import annotations
 import unittest
 from dataclasses import replace
 
-from salescall.core import apology, attempts, gate, quality_stage, reward, stops
+from salescall.core import apology, attempts, gate, next_action, quality_stage, reward, stops
 from salescall.core.access import Rejected
 from salescall.core.attempts import ForbiddenFinding, VerificationSummary
 from salescall.core.call_report import Cut
@@ -133,8 +133,13 @@ class Apology(Helpers):
                                                       " WHERE phone_e164 = %s", (s["phone"],)))["n"], 1)
         t = self.fresh(stage_cap=20)
         self.order(t, self.incident(t))
-        got = self.apology_call(t, cut=None)
-        self.assertEqual(got["decision"].end_reason, "apology_refusal_unknown")
+        got = self.apology_call(t, cut=None)                            # 断ったかを決められない：何も決めずに残す
+        self.assertTrue(got.get("held"))
+        self.assertEqual(self.tx(t, lambda tx: next_action.current(tx, t["task"]))["kind"], "hold")
+        unsettled = self.tx(t, lambda tx: tx.one(
+            "SELECT count(*) AS n FROM salescall.attempts a WHERE a.task_id = %s AND a.purpose = 'apology'"
+            " AND salescall.refusal_undecided(a.attempt_id)", (t["task"],)))["n"]
+        self.assertEqual(unsettled, 1)                                   # 同じお客様のほかの行は、決まるまでかけない
 
     def test_other_stops_still_stop_it(self):
         s = self.fresh(stage_cap=20)

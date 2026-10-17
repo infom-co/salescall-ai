@@ -67,16 +67,14 @@ class Order(unittest.TestCase):
         self.assertEqual(run(rep=report(cut=None), refused_after=True).state, "do_not_call")
         self.assertEqual(run(rep=report(cut=None)).detail["unknown_cause"], "cut_missing")
 
-    def test_conclude_only_when_nothing_else_can_be_obtained(self):
-        """1つの必須の質問を断られても、まだ取れうる必須の質問が残っていれば行を終えない（2026-10-16 の見直し J7）。
-        取れていない必須の質問のどれもが「結論として終える」のときだけ、結論で終える。"""
+    def test_a_conclude_handling_ends_the_row_even_if_later_questions_were_not_asked(self):
+        """扱いが「結論として終える」の項目があれば、結論で終える（会話の側は丁寧に締めて終えるので、あとの質問は聞かれない。
+        2026-10-17：前日の「どれもが結論のときだけ」は扱いの表と食い違っていたので取り下げた）。"""
         refused_q1 = Item("refused", None, "policy")
-        cb = report(callback=Callback("later", NOW, None, None, None))
-        self.assertEqual(run(items={"Q1": refused_q1}, rep=cb).state, "callback_scheduled")      # Q2 はまだ聞いていない
-        self.assertEqual(run(items={"Q1": refused_q1}).state, "incomplete")                       # 再発信の方針へ
-        self.assertEqual(run(items={"Q1": refused_q1, "Q2": Item("dont_know", None, "undecided")}).state, "incomplete")
-        both = {"Q1": refused_q1, "Q2": Item("refused", None, "unwilling")}
-        self.assertEqual(run(items=both, rep=cb).state, "concluded")                              # どれも結論 ⇒ 終える
+        self.assertEqual(run(items={"Q1": refused_q1}).state, "concluded")
+        self.assertEqual(run(items={"Q1": refused_q1}, rep=report(callback=Callback("later", NOW, None, None, None))).state,
+                         "concluded")
+        self.assertEqual(run(items={"Q1": Item("dont_know", None, "undecided")}).state, "incomplete")   # 扱いが「日を改める」
 
     def test_decline_answer_must_be_taken(self):
         self.assertEqual(run(items={**TAKEN, "Q3": Item("heard", "いりません", None)}).state, "completed")

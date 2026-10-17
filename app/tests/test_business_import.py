@@ -208,6 +208,56 @@ class Import(unittest.TestCase):
         p = self.preview(book(sheets={"基本": rows}), find_names=found)
         self.assertTrue(any("担当者名の読みは必ず入れます" in x for x in p.problems), p.problems)
 
+    def test_reviewing_again_does_not_make_the_callers_ai_reading_an_entrance_reading(self):
+        """名乗りの読みは、名前の一覧の読みの写し。もう一度確かめたとき、写した AI の読みを入口の読みにしない（2026-10-17 の見直し：
+        前は担当者名の読みが無くても、2回目の確かめで問題が消え、AI の読みが入口の読みとして登録できた）。"""
+        rows = [r for r in book_rows("基本") if r[0] != "担当者名の読み"]
+        found = finder({"surface": "山田", "reading": "やまだ", "source": "モデル2つ", "candidates": []})
+        p1 = self.preview(book(sheets={"基本": rows}), find_names=found)
+        p2 = self.tx(lambda tx: bi.review(tx, self.s["business"], p1.raw, ai=p1.ai))
+        self.assertTrue(any("担当者名の読みは必ず入れます" in x for x in p2.problems), p2.problems)
+        self.assertEqual({n["text"]: n["reading_by"] for n in p2.raw["names"]}["山田"], "ai")
+        self.start_verification()                                       # 検証モード：自社名の AI の読みの確かめも抜けない
+        from tests.test_business_settings import raw
+        r = raw()
+        r["caller"]["company"]["reading"] = None
+        r["names"] = [dict(n, reading=None) if n["text"] == "株式会社テスト物流" else n for n in r["names"]]
+        ai = {"names": {"株式会社テスト物流": {"reading": "かぶしきがいしゃてすとぶつりゅう", "reading_by": "ai",
+                                          "candidates": [], "likely": None}}}
+        q1 = self.tx(lambda tx: bi.review(tx, self.s["business"], r, ai=ai))
+        q2 = self.tx(lambda tx: bi.review(tx, self.s["business"], q1.raw))
+        self.assertEqual([n["text"] for n in q2.names_to_confirm], ["株式会社テスト物流"])
+
+    def test_malformed_input_is_a_problem_not_a_crash(self):
+        """画面・抜き出しの入口から崩れた形が来ても、落ちずに問題として出す（2026-10-17 の見直し）。"""
+        from tests.test_business_settings import raw
+        for decline in (None, 5, "しない"):
+            with self.subTest(decline=decline):
+                r = raw()
+                r["rules"]["decline"] = {"Q1": decline}
+                p = self.tx(lambda tx: bi.review(tx, self.s["business"], r))
+                self.assertTrue(any("断りの答え" in x for x in p.problems), p.problems)
+                self.assertFalse(any("聞かずに終わる" in x for x in p.problems), p.problems)   # うその理由を足さない
+        r = raw()
+        r["names"].append({"text": 123, "reading": "いち", "source": "script"})
+        p = self.tx(lambda tx: bi.review(tx, self.s["business"], r))
+        self.assertTrue(any("表記" in x for x in p.problems), p.problems)
+        retry = [("結果", "かけ直すか", "回数", "間隔")] + [
+            (k, "かける", "²", "2時間おき") for k in ("会話に至らなかった", "一部だけ取れた", "不在", "取り次いでもらえなかった")
+        ] + [("かけ直しの時刻が決まっていない", "かける", "2", "1日後")]
+        p = self.preview(book(sheets={"かけ直し": retry}))
+        self.assertTrue(any("回数（1以上の数）" in x for x in p.problems), p.problems)
+
+    def test_problems_found_outside_the_check_are_in_the_digest(self):
+        """確かめ（check）の外で見つかった問題（重なった行など。中身には残らない）は指紋に入る：プレビューから問題を消しても
+        登録できない（2026-10-17 の見直し）。"""
+        rows = book_rows("名前") + [("テスト便", "てすとびん")]                 # 同じ名前の行が2つ
+        p = self.preview(book(sheets={"名前": rows}))
+        self.assertTrue(p.problems)
+        p.problems = []
+        with self.assertRaises(bi.PreviewChanged):
+            self.tx(lambda tx: bi.register_reviewed(tx, self.s["business"], p, expected_digest=p.digest))
+
     def test_a_version_with_an_unconfirmed_ai_reading_is_refused_in_verification_mode(self):
         """プレビューを通さずに版を作っても、同じ確かめ（業務設定の1か所）が止める。"""
         from tests.test_business_settings import raw

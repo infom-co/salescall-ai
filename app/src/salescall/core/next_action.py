@@ -231,6 +231,11 @@ def decide_after_call(j: Judgement, *, verification: str, normal: gate.Pacing, p
     target＝`choose_number` の答え（次にかける先、または終える理由）。ask＝聞き直しで出なかったときの材料（そのときだけ）。
     retry_at＝この結果の再発信の方針の間隔（n 時間おき／n 日後）が指す時刻（`_retry_at` の1か所で出す。かけてよい時間帯が
     これから先に無ければ None）。forbidden＝この通話で、言ってはいけないことを言った（通話後の検証で、2つの耳で確かめた）。"""
+    # 判定できない：何も決めない（終える理由も含めて）。終えずに残し、原因が直ったら判定し直す（2026-10-16 ユーザー決定）。
+    # ⚠️ 先に見る：言ってはいけないこと・検証の失敗・苦情で先に終えると、判定し直す道が無くなり、断られたかが決まらないまま
+    # 同じお客様のほかの行を止め続けた（2026-10-17 の見直し）。判定し直したあと、この順でもう一度決まる
+    if j.state == "unknown":
+        return _hold(f"判定できなかった（{j.detail.get('unknown_cause')}）：判定待ちで残す")
     if forbidden:   # 2026-10-15 ユーザー：「その行はひとまず終える。依頼主でなく、管理者へ報告。場合によっては、お詫びを入れる」
         return _end("forbidden_speech", "言ってはいけないことを言った：その行はひとまず終える（契約者へ知らせた）")
     if j.state in END_STATES:
@@ -239,8 +244,6 @@ def decide_after_call(j: Judgement, *, verification: str, normal: gate.Pacing, p
         return _end("verification_failed", "通話後の検証で、拒否の聞き逃しを確かめられなかった（かけない側に倒す）")
     if j.complaint:
         return _end("complaint", "苦情があった")
-    if j.state == "unknown":   # 2026-10-16 ユーザー決定：終えずに残し、原因が直ったら判定し直す
-        return _hold(f"判定できなかった（{j.detail.get('unknown_cause')}）：判定待ちで残す")
     if target.contact_id is None:
         return _end(target.end_reason, "お客様が言った番号へは、かけない（番号は記録して依頼者へ渡す）")
     key = j.detail.get("policy_key")
@@ -408,7 +411,7 @@ def decide_after_apology(*, delivered: bool, refused: bool, retry: AskAgain, pro
     if refused:
         return _end("do_not_call", "お詫びの電話で、発信を断られた")
     if stop_reason is not None:   # 番号違い・断ったかを確かめられなかった：もうかけない（締めの処理が judge.refusal で決めた）
-        return _end(stop_reason, "お詫びの電話：もうかけない（番号違い・断ったかを確かめられなかった）")
+        return _end(stop_reason, "お詫びの電話：もうかけない（番号違い・通話後の確かめができなかった）")
     if delivered:
         return _end("apology_done", "お詫びを伝えた")
     if retry.tries >= retry.limit:

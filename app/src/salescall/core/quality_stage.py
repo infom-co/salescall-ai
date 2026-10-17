@@ -7,11 +7,12 @@
   止まっている ⇒ 模擬通話の合格を待つ。それ以外 ⇒ 最初の段を開く。止まった版そのものでは再開しない（9-1）。
 - 模擬通話（`record_mock`）：流すのは CL-1。本数・正解と一致した値と判定の割合・言ってはいけないことの数を、設定の基準と比べて
   合否を決めて記録する。合格なら、その業務の品質の停止を解き（止まった版とは違う版のときだけ）、最初の段を開く。
-- 段の評価（`evaluate`。締めの処理が通話ごとに呼ぶ）：
+- 段の評価（`evaluate`。締めの処理が通話ごとに呼ぶ）。**段・割合の基準・1件で止めるのは、検証モードの業務だけ**。本番は
+  `_evaluate_production`（その日のうちに同じ原因が設定の件数になったら止めて、管理者へ知らせる。2026-10-16 ユーザー決定）：
   - 数の基準は、毎回見る。超えたら、その場で業務を止める：言ってはいけないこと（0件まで。原因 forbidden_speech）・
-    判定できない（**1件で止める**。原因 judge_unknown。止める理由に、判定できない原因の名前と意味を入れて契約者へ知らせる。⏳ 会話の処理・判定の処理の誤り
-    （直せるのは管理者だけ）は、管理者へも知らせる形をこれから作る。
-    2026-10-16 ユーザー決定：(a)(c)(d)）。
+    判定できない（**1件で止める**。原因 judge_unknown。止める理由に、判定できない原因の名前と意味を入れる。2026-10-16 ユーザー決定：
+    (a)(c)(d)）。管理者にも知らせるかは `_stop` の1か所で決める（本番の停止と、直せるのが管理者だけの判定できない原因
+    ＝`judge.PROGRAM_CAUSES`）。
   - 割合の基準（2つの耳の食い違い・苦情・技術的な失敗・検証できなかった）は、段の件数に達し、その分がすべて締め終わったときに見る
     （小さな数の割合はぶれるため）。内側なら次の段へ（最後の段のあとは全部）、外れたら業務を止める（原因 quality_gate）。
   - 評価のたびに、指標ごとの値・基準・内側か外か・結果を記録する（CL-3 の 4-1e の2）。
@@ -33,7 +34,7 @@ from typing import Any
 from uuid import UUID
 
 from salescall.core import approval, notify, settings, stops
-from salescall.core.judge import UNKNOWN_CAUSES
+from salescall.core.judge import PROGRAM_CAUSES, UNKNOWN_CAUSES
 from salescall.core.access import Tx
 
 STOP_CAUSES = ("quality_gate", "forbidden_speech", "judge_unknown")    # 品質で止める原因（模擬通話の合格で解く）
@@ -185,11 +186,21 @@ def record_mock(tx: Tx, version_id: UUID, r: MockResult) -> dict[str, Any]:
 
 
 def _incidents(tx: Tx, stop_event_id: int) -> list[str]:
-    """判定できないで止めた停止の、模擬通話に入れる場面：止めた版の、いまの測り（`_WINDOW`）の中で判定できなかった通話すべて
-    （原因を問わない）。⚠️ 止めたときの記録だけを見ると、止めたあとに締めた別の通話（回線が複数のとき）の判定できないを、
-    入れないまま再開してしまう。"""
-    row = tx.one("SELECT version_id FROM salescall.quality_evaluations WHERE stop_event_id = %s", (stop_event_id,))
-    return [] if row is None else metrics(tx, row["version_id"])["unknown_judgments"]["all_attempts"]
+    """品質の停止の、模擬通話に入れる場面：判定できなかった通話すべて（原因を問わない）。数える範囲は、止めたときと同じ決まり：
+    検証モードで止めた停止は、止めた版のいまの測り（`_WINDOW`）、本番で止めた停止は、その業務の止めた日の通話
+    （`_production_counts`。止めた日で数える：⚠️ 「今日」で数えると、模擬通話を次の日に流したとき場面が空になり、場面を入れずに
+    再開してしまう）。⚠️ 止めたときの記録だけを見ると、止めたあとに締めた別の通話（回線が複数のとき）の判定できないを、
+    入れないまま再開してしまう。どちらで止めたかは、評価の記録（本番は metrics に production がある）で見る（いまのモードでは
+    なく、止めたときのモード）。"""
+    row = tx.one(
+        "SELECT q.version_id, q.metrics ? 'production' AS production, s.business_id, salescall.jst(s.at)::date AS day"
+        " FROM salescall.quality_evaluations q JOIN salescall.stop_events s ON s.event_id = q.stop_event_id"
+        " WHERE q.stop_event_id = %s", (stop_event_id,))
+    if row is None:
+        return []
+    if row["production"]:
+        return sorted(a for x in _production_counts(tx, row["business_id"], row["day"])["unknown_by_cause"].values() for a in x)
+    return metrics(tx, row["version_id"])["unknown_judgments"]["all_attempts"]
 
 
 def metrics(tx: Tx, version_id: UUID) -> dict[str, dict[str, Any]]:
@@ -279,9 +290,8 @@ def evaluate(tx: Tx, version_id: UUID) -> dict[str, Any] | None:
             reason = (f"判定できない通話がありました（原因：{unk['cause']}＝{UNKNOWN_CAUSES.get(unk['cause'], '不明')}。"
                       f"通話 {len(unk['attempts'])} 件）。その行は判定待ちで残しています。原因を直し、その場面を入れた模擬通話に"
                       "合格したら再開します")
-        stop_id = stops.stop(tx, scope="business", cause=cause, reason=reason,
-                             evidence=f"version_id={version_id}", tenant_id=v["tenant_id"], client_id=v["client_id"],
-                             business_id=v["business_id"])["event_id"]
+        stop_id = _stop(tx, v, version_id, cause, reason, production=False,
+                        unknown_cause=m["unknown_judgments"]["cause"])
         outcome = "stop"
     row = tx.one(
         "INSERT INTO salescall.quality_evaluations (tenant_id, client_id, version_id, stage_no, cap, used, metrics, outcome,"
@@ -291,9 +301,19 @@ def evaluate(tx: Tx, version_id: UUID) -> dict[str, Any] | None:
     return {"eval_id": row["eval_id"], "outcome": outcome, "metrics": m, "stop_event_id": stop_id}
 
 
-def _production_counts(tx: Tx, business_id: UUID) -> dict[str, Any]:
-    """本番の、その業務の今日（日本時間）の数（品質の停止を最後に解いたあとの通話だけ）：言ってはいけないことを言った通話の数と、
-    判定できない原因ごとの通話。お詫びの電話は数えない。"""
+def _stop(tx: Tx, v: dict[str, Any], version_id: UUID, cause: str, reason: str, *, production: bool,
+          unknown_cause: str | None) -> int:
+    """品質で業務を止める（検証モードも本番も、ここだけ）。管理者にも知らせるか：本番の停止（2026-10-16 ユーザー決定：「業務を止め、
+    管理者へ知らせる」）と、判定できない原因が、直せるのが管理者だけのもの（`judge.PROGRAM_CAUSES`。Intent.md 1-4）のとき。"""
+    admin = production or (cause == "judge_unknown" and unknown_cause in PROGRAM_CAUSES)
+    return stops.stop(tx, scope="business", cause=cause, reason=reason, evidence=f"version_id={version_id}",
+                      tenant_id=v["tenant_id"], client_id=v["client_id"], business_id=v["business_id"],
+                      admin=admin)["event_id"]
+
+
+def _production_counts(tx: Tx, business_id: UUID, day: Any = None) -> dict[str, Any]:
+    """本番の、その業務のその日（日本時間。None＝今日）の数（品質の停止を最後に解いたあとの通話だけ）：言ってはいけないことを
+    言った通話の数と、判定できない原因ごとの通話。お詫びの電話は数えない。"""
     window = (
         "WITH since AS (SELECT coalesce(max(r.at), '-infinity') AS t FROM salescall.stop_events r"
         "               JOIN salescall.stop_events s ON s.event_id = r.resolves_event_id"
@@ -301,8 +321,8 @@ def _production_counts(tx: Tx, business_id: UUID) -> dict[str, Any]:
         " a AS (SELECT a.attempt_id FROM salescall.attempts a"
         "       JOIN salescall.business_versions bv ON bv.version_id = a.version_id, since"
         "       WHERE bv.business_id = %s AND a.purpose <> 'apology' AND a.claimed_at > since.t"
-        "         AND salescall.jst(a.claimed_at)::date = salescall.jst(now())::date) ")
-    args = (business_id, list(STOP_CAUSES), business_id)
+        "         AND salescall.jst(a.claimed_at)::date = coalesce(%s::date, salescall.jst(now())::date)) ")
+    args = (business_id, list(STOP_CAUSES), business_id, day)
     forbidden = tx.one(window + "SELECT count(*) AS n FROM a WHERE salescall.said_forbidden(a.attempt_id)", args)["n"]
     unknown = {r["c"] or "": [str(x) for x in r["a"]] for r in tx.all(
         window + "SELECT r.detail ->> 'unknown_cause' AS c, array_agg(r.attempt_id ORDER BY r.attempt_id) AS a"
@@ -330,11 +350,7 @@ def _evaluate_production(tx: Tx, version_id: UUID, v: dict[str, Any], stage: dic
                   "入れた模擬通話に合格したら再開します")
     stop_id = None
     if cause is not None:
-        stop_id = stops.stop(tx, scope="business", cause=cause, reason=reason, evidence=f"version_id={version_id}",
-                             tenant_id=v["tenant_id"], client_id=v["client_id"], business_id=v["business_id"])["event_id"]
-        notify.emit(tx, "stopped", key=f"stop:{stop_id}", admin=True, contractor=False,
-                    summary=f"同じ原因が続いたので、業務を止めました（{reason}）",
-                    refs={"stop_event_id": stop_id, "business_id": v["business_id"], "cause": cause})
+        stop_id = _stop(tx, v, version_id, cause, reason, production=True, unknown_cause=worst)
     m = {"production": {"limit": limit, **c}}
     row = tx.one(
         "INSERT INTO salescall.quality_evaluations (tenant_id, client_id, version_id, stage_no, cap, used, metrics, outcome,"
