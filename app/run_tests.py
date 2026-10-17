@@ -82,9 +82,6 @@ def _with_db(dsn: str, dbname: str, user: str) -> str:
 # データベースの守りを、わざと1つずつ外す。外したら、その守りを試す試験が本当に落ちることを確かめる（DESIGN.md 14章：
 # 落ちることを確かめていない見張りは、見張っていないのと同じ）。守りを足したら、ここにも足す。
 MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
-    ("検証の段階の結果を依頼者へ渡さない守りを外す",
-     "ALTER TABLE salescall.deliveries DROP CONSTRAINT deliveries_production_release",
-     ("tests.test_foundation.DeliveriesOnlyForReleasedVersions.test_results_confirmed_in_verification_never_reach_the_requester",)),
     ("個人の業務を作れない守りを外す",
      "ALTER TABLE salescall.business_contents DROP CONSTRAINT business_contents_corporate_only",
      ("tests.test_foundation.OnlyCorporateForNow.test_individual_target_is_rejected",)),
@@ -111,8 +108,9 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      " IF NOT salescall.is_active(NEW.state) THEN NEW.ended_at := now(); NEW.verification := 'pending'; END IF;"
      " RETURN NEW; END $$",
      ("tests.test_foundation.ExpiredClaimCannotDial.test_expired",)),
-    ("送ってよい印の参照を外す", "ALTER TABLE salescall.deliveries DROP CONSTRAINT deliveries_client_id_task_id_version_no_fkey",
-     ("tests.test_foundation.DeliveriesOnlyForReleasedVersions.test_release_then_deliver_once",)),
+    ("確定した印（本番の段階）の参照を外す", "ALTER TABLE salescall.deliveries DROP CONSTRAINT deliveries_production_release",
+     ("tests.test_foundation.DeliveriesOnlyForReleasedVersions.test_release_then_deliver_once",
+      "tests.test_foundation.DeliveriesOnlyForReleasedVersions.test_results_confirmed_in_verification_never_reach_the_requester")),
     ("人の緊急停止をシステムが解けない決まりを外す", "DROP TRIGGER stop_events_before_insert ON salescall.stop_events",
      ("tests.test_stops.ManualStops.test_system_cannot_resume_a_manual_stop",
       "tests.test_stops.ManualStops.test_actor_must_match_the_transaction")),
@@ -149,6 +147,23 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      "CREATE OR REPLACE FUNCTION salescall.number_last_voice_elsewhere(p_phone text) RETURNS text LANGUAGE sql STABLE"
      " SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ SELECT NULL::text $$",
      ("tests.test_gate.CallerNumberAndVoice.test_another_client_or_contractor_gets_the_other_voice",)),
+    ("ほかの依頼者の声を、お客様が出なかった発信でも数える",
+     "CREATE OR REPLACE FUNCTION salescall.number_last_voice_elsewhere(p_phone text) RETURNS text LANGUAGE sql STABLE"
+     " SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ SELECT v.voice_name FROM salescall.attempts a"
+     " JOIN salescall.voice_types v ON v.code = a.voice_type WHERE a.phone_e164 = p_phone"
+     " AND a.client_id IS DISTINCT FROM salescall.cur_client() AND a.state NOT IN ('claimed', 'released')"
+     " ORDER BY a.claimed_at DESC LIMIT 1 $$",
+     ("tests.test_gate.CallerNumberAndVoice.test_only_what_the_customer_saw_or_heard_counts",)),
+    ("ほかの依頼者の発信番号を、鳴らなかった発信でも数える",
+     "CREATE OR REPLACE FUNCTION salescall.line_called_number_elsewhere(p_line uuid, p_phone text) RETURNS boolean"
+     " LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ SELECT EXISTS (SELECT 1"
+     " FROM salescall.attempts a WHERE a.line_id = p_line AND a.tenant_id = salescall.cur_tenant()"
+     " AND a.phone_e164 = p_phone AND a.client_id IS DISTINCT FROM salescall.cur_client()"
+     " AND a.state NOT IN ('claimed', 'released')) $$",
+     ("tests.test_gate.CallerNumberAndVoice.test_only_what_the_customer_saw_or_heard_counts",)),
+    ("約束したかけ直しかを、あとから変えられる",
+     "DROP TRIGGER attempt_record_fixed ON salescall.attempts",
+     ("tests.test_gate.NotByCallee.test_a_promised_callback_is_not_counted_afterwards",)),
     ("ほかの依頼者がかけた発信番号を見ない（発信番号を替えない）",
      "CREATE OR REPLACE FUNCTION salescall.line_called_number_elsewhere(p_line uuid, p_phone text) RETURNS boolean"
      " LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ SELECT false $$",
@@ -203,8 +218,8 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("「わからない」「答えない」の理由は、その状態だけ、の決まりを外す",
      "ALTER TABLE salescall.item_values DROP CONSTRAINT item_values_reason_only_when_not_answered",
      ("tests.test_settle.DatabaseGuards.test_item_reason_only_when_not_answered",)),
-    ("番号違いで管理番号を止めない決まりを外す",
-     "ALTER TABLE salescall.dnc_entries DROP CONSTRAINT dnc_entries_ref_not_wrong_party",
+    ("番号違い・FAX で管理番号を止めない決まりを外す",
+     "ALTER TABLE salescall.dnc_entries DROP CONSTRAINT dnc_entries_ref_not_number_only",
      ("tests.test_dnc.RefusalScope.test_database_refuses_bad_entries",)),
     # 行の番号（DESIGN.md 3-5）
     ("試行は行の番号にだけかけられる、の参照を外す",
