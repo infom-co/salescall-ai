@@ -594,8 +594,8 @@ class CallerNumberAndVoice(Base):
                                               " WHERE kind = 'setting_missing' AND refs ->> 'client_id' = %s",
                                               (str(b["client"]),)))
         self.assertEqual([n["summary"] for n in notice], [gate.OWN_LINE_MISSING])   # 依頼者ごとの発信番号が無いと知らせる
-        self.assertTrue(gate.OWN_LINE_MISSING.startswith(
-            "この依頼者に専用の発信番号がありません。発信番号を依頼者タブの「回線（発信番号）」で設定してください。"))
+        self.assertEqual(gate.OWN_LINE_MISSING,
+                         "この依頼者に専用の発信番号がありません。発信番号を依頼者タブの「回線（発信番号）」で設定してください。")
         self.lease(b)
         self.assertIsInstance(self.claim(b), gate.Claim)                            # 自分の発信番号ならかける
         mine = self.ready(tenant=a["tenant"])

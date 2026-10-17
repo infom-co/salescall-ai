@@ -224,9 +224,9 @@ def purpose_dials(tx: Tx, task_id: UUID, *, purpose: str) -> list[PurposeDial]:
         f" WHERE task_id = %s AND purpose = %s AND {_DIALED} ORDER BY claimed_at", (task_id, purpose))]
 
 
-# 依頼者専用の発信番号が無いときの注意（2026-10-17 ユーザー決定の文。設定する場所は、画面の依頼者タブの「回線（発信番号）」＝CL-3）
-OWN_LINE_MISSING = ("この依頼者に専用の発信番号がありません。発信番号を依頼者タブの「回線（発信番号）」で設定してください。"
-                    "（ほかの依頼者がかけた番号へは、同じ発信番号ではかけないため、その番号は設定されるまで待っています）")
+# 依頼者専用の発信番号が無いときの注意（2026-10-17 ユーザー決定の文。設定する場所は、画面の依頼者タブの「回線（発信番号）」＝CL-3）。
+# 注意には短い文だけ。詳しい説明は、登録画面の i マーク（core/help_texts.py の "line.client"。2026-10-17 ユーザー）
+OWN_LINE_MISSING = "この依頼者に専用の発信番号がありません。発信番号を依頼者タブの「回線（発信番号）」で設定してください。"
 
 
 def choose_voice(tx: Tx, task_id: UUID, phone_e164: str, business_voice: str) -> str:
