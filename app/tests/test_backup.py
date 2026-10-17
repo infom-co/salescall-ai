@@ -27,15 +27,18 @@ class Backup(unittest.TestCase):
     def setUp(self):
         self.app = app_access()
         self.tmp = Path(tempfile.mkdtemp(prefix="salescall-test-backup-"))
-        self.here = backup.LocalDirectory("Fly.io の置き場（試験）", self.tmp / "fly")
-        self.away = backup.LocalDirectory("別の場所（試験）", self.tmp / "away", offsite=True)
+        self.here = backup.LocalDirectory("PC の中（試験）", self.tmp / "pc")
+        self.drive_root = self.tmp / "hdd"
+        self.drive_root.mkdir()
+        (self.drive_root / backup.DRIVE_MARK).write_text("控え用")
+        self.away = backup.AttachedDrive("PC に接続したハードディスク（試験）", self.drive_root / "salescall", drive_root=self.drive_root)
         World().setup()                                             # 控えに入る行を作っておく
 
     def take(self, destinations, key=KEY):
         return backup.take(self.app, os.environ["SALESCALL_TEST_OWNER_DSN"], os.environ["SALESCALL_TEST_RESTORE_DSN"],
                            destinations, key=key)
 
-    def test_take_place_in_two_places_and_restore_with_the_same_counts(self):
+    def test_take_place_on_the_attached_drive_and_restore_with_the_same_counts(self):
         got = self.take([self.here, self.away])
         self.assertTrue(got.ok, got.error)
         for d in (self.here, self.away):
@@ -51,7 +54,7 @@ class Backup(unittest.TestCase):
 
     def test_a_failure_does_not_stop_and_asks_cl2_to_fix_it(self):
         """取れない・戻せないときは、止めずに CL-2 へ修正依頼を出し、管理者に知らせる（2026-10-17 ユーザー）。"""
-        for destinations, key, says in (([self.here], KEY, "2か所以上"),
+        for destinations, key, says in (([self.here], KEY, "Fly.io とは別の場所"),
                                         ([self.here, self.away], b"short", "32バイト"),
                                         ([self.here, Tampered("壊れた置き場", self.tmp / "bad", offsite=True)], KEY,
                                          "置いたものと違います")):
@@ -63,9 +66,22 @@ class Backup(unittest.TestCase):
         asked = self.app.in_system(SYSTEM, lambda tx: fix_requests.open_requests(tx, "CL-2"))
         self.assertIn("backup_failed", [r["kind"] for r in asked])
         told = self.app.in_system(ADMIN, lambda tx: tx.all(
-            "SELECT summary FROM salescall.notification_events WHERE kind = 'backup_failed' AND for_admin"))
+            "SELECT summary FROM salescall.notification_events WHERE kind = 'backup_failed' AND for_admin"
+            " AND event_key LIKE '%%:program'"))
         self.assertEqual(len(told), 1)                                # 1日1回（同じ日の失敗は重ねない）
         self.assertNotIn("password", str(told) + str([r["summary"] for r in asked]))
+
+    def test_a_missing_drive_is_not_written_inside_the_pc_and_asks_a_person_to_attach_it(self):
+        """ハードディスクが外れていたら置かない（PC の中に同じ名前のフォルダを作って置いてしまわない）。つなぐのは人なので、
+        修正依頼ではなく、管理者に「つないでください」と知らせる。"""
+        (self.drive_root / backup.DRIVE_MARK).unlink()
+        got = self.take([self.away])
+        self.assertFalse(got.ok)
+        self.assertIn("つながっていません", got.error)
+        self.assertFalse((self.drive_root / "salescall").exists())
+        told = self.app.in_system(ADMIN, lambda tx: [r["summary"] for r in tx.all(
+            "SELECT summary FROM salescall.notification_events WHERE kind = 'backup_failed' AND for_admin")])
+        self.assertIn("控え用のハードディスクがつながっていません。PC にハードディスクをつないでください。", told)
 
 
 if __name__ == "__main__":

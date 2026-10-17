@@ -4,7 +4,10 @@ Intent.md 14-1：「毎日自動で取り、Fly.io とは別の場所にも置�
 失うと、断ったお客様にまたかけるため）」。CL-1 の条件：控えも暗号化する。
 - 取る（`take`）：ある時点の見え方を固定し（`access.snapshot`）、その時点の表ごとの行の数を数え、同じ時点を pg_dump で書き出す。
   書き出したものは暗号化する（AES-GCM。鍵は呼ぶ側が渡す＝鍵の値をこの部品は読まない・残さない・出さない）。
-- 置く：置き場（`Destination`）2か所以上に置く（Fly.io の中と、Fly.io とは別の場所。⏳ 別の場所をどこにするかはユーザーに確かめる）。
+- 置く：Fly.io とは別の場所を必ず含む置き場（`Destination`）に置く。**サブスク契約までは、PC に接続したハードディスク**
+  （`AttachedDrive`。2026-10-17 ユーザー：「クラウドだけでなく、暫定的にPCに接続のハードディスクに保存してください。サブスク契約まで」）。
+  クラウド（Fly.io）の側は、データベースの置き場を Fly.io が毎日自動で写す（ボリュームのスナップショット。残す日数は Fly.io の設定）。
+  ⇒ この処理は PC で動く（見守り役と同じ PC。データベースへは表の持ち主の接続で読む）。
 - 戻せるかを確かめる：置いた控えのうち、Fly.io とは別の場所のものを読み戻し、指紋を比べ、復号して、確かめ用の空のデータベースに
   pg_restore で戻し、表ごとの行の数が取ったときと同じかを比べる。
 - 記録（backup_runs）：うまくいっても、いかなくても1回ずつ残す。いかなければ、止めずに CL-2 へ修正依頼を出し、管理者に知らせる
@@ -61,6 +64,29 @@ class LocalDirectory:
         return (self.path / file_name).read_bytes()
 
 
+DRIVE_MARK = "salescall-backup-drive.txt"   # 控え用のハードディスクの一番上に置く印（中身は問わない）
+
+
+@dataclass(frozen=True)
+class AttachedDrive(LocalDirectory):
+    """PC に接続したハードディスク（Fly.io とは別の場所）。ハードディスクの一番上に印のファイル（DRIVE_MARK）を置いておく。
+    印が無ければ、つながっていないとみなして置かない（外れたときに、同じ名前のフォルダを PC の中に作って、そこへ置いてしまわない）。"""
+    drive_root: Path = Path("/")
+    offsite: bool = True
+
+    def put(self, file_name: str, data: bytes) -> None:
+        self._attached()
+        super().put(file_name, data)
+
+    def get(self, file_name: str) -> bytes:
+        self._attached()
+        return super().get(file_name)
+
+    def _attached(self) -> None:
+        if not (self.drive_root / DRIVE_MARK).is_file():
+            raise DriveMissing(f"控え用のハードディスク（{self.name}）がつながっていません")
+
+
 @dataclass(frozen=True)
 class Result:
     ok: bool
@@ -70,6 +96,10 @@ class Result:
 
 class BackupFailed(Exception):
     """控えが取れなかった・置けなかった・戻せなかった（中身は、鍵・接続文字列・お客様の情報を含まない短い説明）。"""
+
+
+class DriveMissing(BackupFailed):
+    """控え用のハードディスクがつながっていない（直すのは人：ハードディスクをつなぐ。修正依頼ではなく、管理者に知らせる）。"""
 
 
 def _counts(tx: Tx) -> dict[str, int]:
@@ -119,8 +149,8 @@ def take(app: Access, source_conninfo: str, restore_conninfo: str, destinations:
     try:
         if len(key) != 32:
             raise BackupFailed("控えの鍵は32バイトです")
-        if len(destinations) < 2 or not any(d.offsite for d in destinations):
-            raise BackupFailed("置き場は2か所以上、そのうち1か所は Fly.io とは別の場所が要ります")
+        if not any(d.offsite for d in destinations):
+            raise BackupFailed("置き場に、Fly.io とは別の場所（PC に接続したハードディスクなど）が要ります")
         with tempfile.TemporaryDirectory(prefix="salescall-backup-") as work:
             dump = Path(work) / "db.dump"
             with snapshot(source_conninfo) as (snap, tx):
@@ -134,9 +164,9 @@ def take(app: Access, source_conninfo: str, restore_conninfo: str, destinations:
         _verify(blob, file_name, [d for d in destinations if d.offsite][0], restore_conninfo, counts, key=key)
     except Exception as e:  # noqa: BLE001 ここで受けて記録する（止めない）
         error = str(e) if isinstance(e, BackupFailed) else f"思いがけない誤り（{type(e).__name__}）"
-        _record(app, started, file_name if blob else None, blob, counts, placed, error)
+        _record(app, started, file_name if blob else None, blob, counts, placed, error, drive=isinstance(e, DriveMissing))
         return Result(False, None, error)
-    _record(app, started, file_name, blob, counts, placed, None)
+    _record(app, started, file_name, blob, counts, placed, None, drive=False)
     return Result(True, file_name, None)
 
 
@@ -166,7 +196,7 @@ def _verify(blob: bytes, file_name: str, offsite: Destination, restore_conninfo:
 
 
 def _record(app: Access, started: datetime, file_name: str | None, blob: bytes | None, counts: dict[str, int] | None,
-            placed: list[str], error: str | None) -> None:
+            placed: list[str], error: str | None, *, drive: bool) -> None:
     def work(tx: Tx) -> None:
         tx.execute("INSERT INTO salescall.backup_runs (started_at, file_name, sha256, size_bytes, table_counts, destinations,"
                    " restore_ok, error) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
@@ -175,9 +205,13 @@ def _record(app: Access, started: datetime, file_name: str | None, blob: bytes |
                     error is None, error))
         if error is not None:
             day = tx.one("SELECT salescall.jst(now())::date AS d")["d"]
-            fix_requests.request(tx, "CL-2", "backup_failed", key=f"backup_failed:{day}", summary=error)
-            notify.emit(tx, "backup_failed", key=f"backup_failed:{day}", summary="データベースの控えが取れませんでした"
-                        "（CL-2 に修正依頼を出しました）。", refs={"error": error}, admin=True, contractor=False)
+            if drive:   # ハードディスクをつなぐのは人の作業（プログラムの直しではない）
+                summary = "控え用のハードディスクがつながっていません。PC にハードディスクをつないでください。"
+            else:
+                fix_requests.request(tx, "CL-2", "backup_failed", key=f"backup_failed:{day}", summary=error)
+                summary = "データベースの控えが取れませんでした（CL-2 に修正依頼を出しました）。"
+            notify.emit(tx, "backup_failed", key=f"backup_failed:{day}:{'drive' if drive else 'program'}", summary=summary,
+                        refs={"error": error}, admin=True, contractor=False)
     app.in_system(SYSTEM, work)
 
 
