@@ -95,13 +95,15 @@ def negated(words: str) -> bool:
 
 REPLY_PROMPT = (
     "電話でお客様に、選択肢のある質問をしたとき、お客様が「{words}」のどれかだけを答えることがあります。"
-    "これらの言葉は、前の質問によって、受け入れの意味にも、断りの意味にもなります。\n"
+    "「{ambiguous}」は、前の質問によって、受け入れの意味にも、断りの意味にもなります。\n"
     "質問ごとに、それぞれの言葉が、その質問への答えとして、選択肢のどれの意味になるかを choice に書いてください。\n"
     "決まり：\n"
     "- 質問の文から、だれが聞いても一つに決まるときだけ、選択肢を書きます。\n"
-    "- 受け入れとも断りとも取れるとき・選択肢を選んでいないときは、choice を空にします。迷ったら空にします。\n"
-    "- 例：「ご案内のメールをお送りしてもよろしいでしょうか？」（はい・いいえ）の「結構です」⇒「いいえ」（お断りの意味）、"
-    "「大丈夫です」⇒ 空（「送ってよい」とも「要らない」とも取れる）\n"
+    "- 受け入れとも断りとも取れるとき・選択肢を選んでいないとき（選択肢から選ぶ質問への「はい」など）は、choice を空にします。迷ったら空にします。\n"
+    "- 「はい」「いいえ」は、質問の文に「はい」「いいえ」と答えたときに、選択肢のどれになるかです（「〜ございませんでしょうか？」のような"
+    "打ち消しの問いへの「はい」は、打ち消しのほうの意味です）。\n"
+    "- 例：「ご案内のメールをお送りしてもよろしいでしょうか？」（送る・送らない）の「結構です」⇒「送らない」（お断りの意味）、"
+    "「大丈夫です」⇒ 空（「送ってよい」とも「要らない」とも取れる）、「はい」⇒「送る」\n"
     "質問（番号：質問の文／選択肢）：\n"
 )
 
@@ -119,21 +121,22 @@ def _reply_schema():
 
 
 def by_model_replies(client, model: str, questions: list[tuple[str, tuple]]) -> list[dict]:
-    """受け入れにも断りにも取れる言葉（flowctl.AMBIGUOUS_WORDS）だけの答えが、質問ごとにどの選択肢の意味になるか。1回の問い合わせで
-    まとめて答えさせ、質問ごとに {言葉: 選択肢}（決まらない言葉は入れない）を返す。"""
+    """返事の言葉（flowctl.REPLY_WORDS＝受け入れにも断りにも取れる言葉と、はい・いいえ）だけの答えが、質問ごとにどの選択肢の意味になるか。
+    1回の問い合わせでまとめて答えさせ、質問ごとに {言葉: 選択肢}（決まらない言葉は入れない）を返す。"""
     from google.genai import types
 
-    from flowctl import AMBIGUOUS_WORDS
+    from flowctl import AMBIGUOUS_WORDS, REPLY_WORDS
 
-    words = [f"{w}です" for w in AMBIGUOUS_WORDS]
+    said = {w: (f"{w}です" if w in AMBIGUOUS_WORDS else w) for w in REPLY_WORDS}  # お客様の言葉の形（「結構です」「はい」）
     body = "\n".join(f"{n}：{q}／{'・'.join(c)}" for n, (q, c) in enumerate(questions, 1))
     r = client.models.generate_content(
-        model=model, contents=REPLY_PROMPT.format(words="」「".join(words)) + body,
+        model=model, contents=REPLY_PROMPT.format(words="」「".join(said.values()),
+                                                  ambiguous="」「".join(said[w] for w in AMBIGUOUS_WORDS)) + body,
         config=types.GenerateContentConfig(response_mime_type="application/json", response_schema=_reply_schema(), temperature=0))
     out = [{} for _ in questions]
     for x in json.loads(r.text).get("items", []):
         n, word, choice = x.get("no"), clean(x.get("word")), clean(x.get("choice"))
-        key = next((w for w in AMBIGUOUS_WORDS if word in (w, f"{w}です")), None)
+        key = next((w for w in REPLY_WORDS if word in (w, said[w])), None)
         if isinstance(n, int) and 1 <= n <= len(questions) and key and choice in questions[n - 1][1]:
             out[n - 1][key] = choice
     return out
@@ -142,10 +145,10 @@ def by_model_replies(client, model: str, questions: list[tuple[str, tuple]]) -> 
 def decide_replies(choices: tuple, model_replies: list[dict]) -> dict:
     """言葉ごとに、2つ以上のモデルが同じ選択肢を答えたときだけ、その選択肢（取込のとき。人は確かめない）。決まらない言葉は入れない
     （通話の中で、AIの受け取った意味を確かめる＝flowctl）。⚠️ 誤って決めると、相手に確かめずに違う答えが渡る＝決めない側に倒す。"""
-    from flowctl import AMBIGUOUS_WORDS
+    from flowctl import REPLY_WORDS
 
     out = {}
-    for w in AMBIGUOUS_WORDS:
+    for w in REPLY_WORDS:
         got = [m.get(w) for m in model_replies]
         if len(got) >= 2 and got[0] in choices and all(g == got[0] for g in got[1:]):
             out[w] = got[0]

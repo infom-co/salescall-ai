@@ -327,7 +327,9 @@ def position_text(business: Business, flow) -> str:
     for q in business.questions:
         it = flow.items[q.id]
         if it.state in GOT:
-            done.append(f"{q.id}「{q.text}」⇒ {it.value or it.condition}（済み）")
+            # 答えは依頼主へ渡すものと同じ（flow.answer_of）。⛔ 2026-10-17 の見直しで見つけた漏れ：選択肢の質問でも相手の言葉（「大丈夫です」）や、
+            #    中の名前（英字の any）をそのまま見せていた
+            done.append(f"{q.id}「{q.text}」⇒ {flow.answer_of(q.id)}（済み）")
         elif it.state == "dont_know":
             # ⛔ 直す前は「取れた」と同じ行で、選択肢の中の名前（英字の unknown）をそのままAIに見せていた
             done.append(f"{q.id}「{q.text}」⇒ わからないと言われた（聞き直さない）")
@@ -337,8 +339,10 @@ def position_text(business: Business, flow) -> str:
     if done:
         lines.append("ここまでに聞けたこと：" + "／".join(done))
     if flow.awaiting_confirm:
-        it = flow.items[flow.awaiting_confirm]
-        lines.append(f"いまは {flow.awaiting_confirm} の値「{it.value}」を言い直して、相手の返事を待っているところです。")
+        # 言い直しの言い方は流れの制御が持っている（awaiting_say）。⛔ 2026-10-17 の見直しで見つけた漏れ：値そのものを渡していたので、
+        #    選択肢の確かめ（「念のため…ということでよろしいでしょうか？」）では、相手の言葉（「大丈夫です」）を言い直す形になっていた
+        lines.append(f"いまは {flow.awaiting_confirm} を「{flow.awaiting_say}」と確かめて、相手の返事を待っているところです。"
+                     + flow._confirm_how(flow.awaiting_confirm))
     elif flow.current:
         q = business.questions[[x.id for x in business.questions].index(flow.current)]
         lines.append(f"次に聞くのは {q.id}「{q.text}」です。相手が話したら、それに答えてから、この質問を聞きます。")

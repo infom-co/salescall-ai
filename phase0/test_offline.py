@@ -1563,6 +1563,71 @@ class AmbiguousAnswerTest(unittest.TestCase):
         r = self.say(f, "もう結構です、かけてこないでください。", "request_end", reason="callee_refused_call")
         self.assertEqual(r["result"], "end")
 
+    def test_value_questions_follow_the_same_rule(self):
+        # ⛔ 2026-10-17 の見直しで見つけた漏れ：(1) 名前・電話番号の質問に「結構です」「はい」だけ ⇒「結構ということでよろしいでしょうか？」と
+        #    言い直していた (2) 値を聞く質問では、「結構です」だけで AIが断りと報告すると締めていた ⇒ どの型も同じ決まり（_ambiguous_only）
+        from flowctl import Flow, Question
+        for qt in ("datetime", "number", "name", "phone", "email", "address"):
+            for said in ("結構です。", "はい。", "大丈夫です。"):
+                f = Flow([Question("Q1", "質問の文", qt, conditions=("答えた",), topic="ご希望")])
+                r = self.say(f, said, "record_answer", question_id="Q1", condition_id="答えた", value=said.rstrip("。"))
+                self.assertEqual(r["result"], "ask_back", (qt, said))  # 答えの値ではない ⇒ 聞き返す（言い直さない）
+            f = Flow([Question("Q1", "質問の文", qt, conditions=("答えた",), topic="ご希望")])
+            r = self.say(f, "結構です。", "request_end", reason="callee_refused_call")
+            self.assertEqual((r["result"], f.hurried), ("ask_back", False), qt)    # その言葉だけでは締めない
+            r = self.say(f, "結構です。", "request_end", reason="callee_refused_call")
+            self.assertEqual((r["result"], f.hurried), ("end", True), qt)          # 聞き返したあとにまた言われたら、断りとして締める
+        f = Flow([Question("Q1", "ご要望をお聞かせいただけますでしょうか？", "free_text", conditions=("答えた",))])
+        r = self.say(f, "結構です。", "request_end", reason="callee_refused_call")
+        self.assertEqual(r["result"], "rejected")
+        r = self.say(f, "結構です。", "request_end", reason="callee_refused_call")  # 差し戻しは1回だけ（止まらない）
+        self.assertEqual(r["result"], "end")
+        g = Flow([Question("Q1", "ご担当者様のお名前をお伺いしてもよろしいでしょうか？", "name", conditions=("答えた",))])
+        r = self.say(g, "山田です。", "record_answer", question_id="Q1", condition_id="答えた", value="山田")
+        self.assertEqual(r["result"], "confirm_required")  # ふつうの名前は、これまでどおり言い直す
+
+    def test_system_answer_on_the_word_alone(self):
+        # ⛔ G-14 の続き：日時の質問への「大丈夫です」を、AIが「わからない」にした（聞き返さずに「-」）⇒ その言葉だけでは決めない
+        from flowctl import Flow, Question
+        f = Flow([Question("Q1", "ご希望の日時をお聞かせいただけますでしょうか？", "datetime", conditions=("答えた",), topic="ご希望の日時")])
+        r = self.say(f, "大丈夫です。", "record_answer", question_id="Q1", condition_id="unknown")
+        self.assertEqual(r["result"], "ask_back")
+        r = self.say(f, "大丈夫です。", "record_answer", question_id="Q1", condition_id="unknown")  # 聞き返したあとは、AIの報告のまま
+        self.assertEqual(f.items["Q1"].state, "dont_know")
+        f = self.flow()
+        r = self.say(f, "大丈夫です。", "record_answer", question_id="Q1", condition_id="unknown")
+        self.assertEqual(r["result"], "rejected")
+        self.assertIn("選択肢（はい、いいえ）から近いもの", r["message"])
+        r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい", "value": "大丈夫です"})
+        self.assertEqual(r["say"], "念のためご予約はお済みということでよろしいでしょうか？")
+        f = self.flow()  # 言い切っていない答え・はっきりした「わからない」は、これまでどおり「わからない」
+        for said in ("家族がしたかもしれないです。", "ちょっとわからないです。"):
+            f = self.flow()
+            self.say(f, said, "record_answer", question_id="Q1", condition_id="unknown")
+            self.assertEqual(f.items["Q1"].state, "dont_know", said)
+
+    def test_rejection_and_resume_tell_how_to_report_a_choice(self):
+        # ⛔ 2026-10-17 の見直しで見つけた漏れ：(1) 差し戻しの「いま求めていること」が、選択肢でも「違う値…訂正された値で」とだけ言っていた
+        #    (2) 張り替えの「いまの位置」が、確かめの言い方ではなく相手の言葉（「大丈夫です」）・中の名前（any）を見せていた
+        from instruction import Business, position_text
+        f = self.flow()
+        self.say(f, "大丈夫です。", "record_answer", question_id="Q1", condition_id="はい", value="大丈夫です")
+        r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい"})  # 確かめの返事待ちに、もう一度答えを報告した
+        self.assertEqual(r["result"], "rejected")
+        self.assertIn("選択肢の名前（はい、いいえ、わからない、答えたくない）", r["message"])
+        b = Business(company="アオバ物流", caller="佐藤", purpose="ご予約の確認", purpose_line="ご予約の確認でお電話いたしました。",
+                     questions=list(f.questions.values()))
+        text = position_text(b, f)
+        self.assertIn("「念のためご予約はお済みということでよろしいでしょうか？」と確かめて", text)
+        self.assertNotIn("値「大丈夫です」", text)
+        g = self.flow()
+        self.say(g, "はい、予約しています。", "record_answer", question_id="Q1", condition_id="はい", value="予約しています")
+        self.say(g, "どちらでもいいです。", "record_answer", question_id="Q2", condition_id="any")
+        text = position_text(b, g)
+        self.assertIn("⇒ はい（済み）", text)
+        self.assertIn("⇒ どちらでも（済み）", text)
+        self.assertNotIn("any", text)
+
     def test_lead_word_contradiction_is_confirmed(self):
         # ⛔ G-14：「いや、これからなんです。」を、AIが「はい」と報告した ⇒ 頭の言葉と食い違えば確かめる（一致すれば、これまでどおり）
         from flowctl import reply_lead
@@ -1674,6 +1739,16 @@ class ReadingConfirmTest(unittest.TestCase):
         self.assertEqual((r["result"], r["question_id"]), ("next", "Q2"))
         self.assertIn("「山崎」様は「やまざき」様とお呼びします", r["message"])
         self.assertEqual(f.readings(), {"山崎": "やまざき"})
+
+    def test_reading_like_a_reply_word(self):
+        # 返事の言葉と同じ音の読み（「井伊」＝いい）も、読みの確かめでは値の形の確かめに当てない（2026-10-17：返事の言葉だけの値を名前の型で
+        # 止めるようにしたため）
+        from flowctl import Flow, Question, reading_question
+        f = Flow([Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ")),
+                  reading_question("N1", "井伊", "いのい", ["いのい", "いい"])])
+        self.do(f, "record_answer", question_id="Q1", condition_id="はい")
+        r = self.do(f, "confirm_field", question_id="N1", result="corrected", correction="いい")
+        self.assertEqual(r["say"], "改めましてお名前の読みの方は「いい」様でよろしかったでしょうか？")
 
     def test_corrected_then_affirmed(self):
         f = self.flow()

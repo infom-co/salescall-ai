@@ -115,8 +115,14 @@ DATE_TIME_WORDS = ("日", "時", "分", "月", "曜", "午前", "午後", "今�
 
 
 _NUMERAL = re.compile(r"[0-9０-９〇一二三四五六七八九十百千万]")
-_REPLY_ONLY = re.compile(r"(?:はい|ええ|うん|いいえ|いえ|いや|そう|です|違います|ちがいます|大丈夫|結構|ございます|わかりません|わからない|"
-                         r"分かりません|分からない|[、。，．！？!?\s])+")
+# 受け入れにも断りにも取れる言葉（DESIGN.md 6-10 の (3)。システム共通の一覧はここだけ＝曖昧な答えの見分け・返事の言葉だけの値・取込の
+# 「曖昧な言葉の意味」の全部が、この並びを使う）
+AMBIGUOUS_WORDS = ("大丈夫", "結構", "いい", "平気")
+# 質問ごとの「返事の言葉だけの答えの意味」（Question.reply_meanings）に入る言葉：受け入れにも断りにも取れる言葉と、はい・いいえ
+# （はい・いいえは、選択肢が「決まっている・決まっていない」のような言葉の質問で、どちらにあたるか。打ち消しの問いでは「はい」が打ち消し側）
+REPLY_WORDS = AMBIGUOUS_WORDS + ("はい", "いいえ")
+_REPLY_ONLY = re.compile(rf"(?:はい|ええ|うん|いいえ|いえ|いや|そう|です|違います|ちがいます|{'|'.join(AMBIGUOUS_WORDS)}|ございます|わかりません|"
+                         r"わからない|分かりません|分からない|[、。，．！？!?\s])+")
 
 
 # 数の言葉（かな）。⚠️ 短すぎる言葉（「ひと」「やっ」「いつ」「とお」）は入れない：「ひとまず」「やっぱり」「いつでも」「そのとおり」に当たる
@@ -137,6 +143,12 @@ def form_problem(qtype: str, value: str | None) -> str | None:
         if _NUMERAL.search(value) or _NUMBER_WORDS.search(value):
             return None
         return "数がありません"
+    if qtype in CONFIRM_TYPES - DATE_TIME_TYPES:
+        # 名前・電話番号・メール・住所：返事の言葉だけの値は、答えの値ではない。⛔ 2026-10-17 の見直しで見つけた漏れ：名前を聞いて
+        #    「結構です」「はい」とだけ言われると、「結構ということでよろしいでしょうか？」と言い直していた（日時・数は止めていた）
+        if _REPLY_ONLY.fullmatch(value):
+            return "答えの値ではなく、返事の言葉です"
+        return "相手の答えではなく、こちらの名前です" if value in _LABELS else None
     if qtype not in DATE_TIME_TYPES or any(w in value for w in DATE_TIME_WORDS):
         return None
     if _NUMERAL.search(value):
@@ -270,7 +282,6 @@ def correction_kind(callee_said: str) -> str:
 # 「いいえ」1本、「結構です」を「いいえ」2本と決め、4本は通話を断られたとして終えた。
 # ⚠️ 選択肢の質問の最初の答えにだけ当てる。言い直しへの返事（「…でよろしいでしょうか？」に「大丈夫です」）は、認める返事（AFFIRM）
 _FILLER = r"(?:あ+|あの+|えー*と?|え+|うーん|ん+|まあ)[、。\s]*"
-AMBIGUOUS_WORDS = ("大丈夫", "結構", "いい", "平気")
 AMBIGUOUS = re.compile(rf"(?:{_FILLER})*(?:(?:{'|'.join(AMBIGUOUS_WORDS)})(?:です|っす)?よ?[、。！!\s]*)+")
 # 言い切っていない答え（「家族がしたかもしれないです」「たぶんカードです」）も、AIが選んだ選択肢のまま渡さず、同じように意味を確かめる。
 # ⛔ G-14（いまの形・v2）：「家族がしたかもしれないです」を、AIは 12本中11本「はい」と決めた（正しくは「わからない」か、確かめる）。
@@ -396,7 +407,7 @@ class Question:
         assert not clash, f"{self.id} の選択肢が、システムの選択肢と同じ名前です：{clash}"
         assert not self.meanings or (self.type in CHOICE_TYPES and set(self.meanings) <= set(self.conditions)), \
             f"{self.id}：意味の言葉は、選択肢の型の、宣言した選択肢にだけ付けられます"
-        assert not self.reply_meanings or (self.type in CHOICE_TYPES and set(self.reply_meanings) <= set(AMBIGUOUS_WORDS)
+        assert not self.reply_meanings or (self.type in CHOICE_TYPES and set(self.reply_meanings) <= set(REPLY_WORDS)
                                            and set(self.reply_meanings.values()) <= set(self.conditions)), \
             f"{self.id}：曖昧な言葉の意味は、選択肢の型の、宣言した選択肢にだけ決められます"
 
@@ -408,6 +419,13 @@ class Question:
     def labels(self) -> tuple:
         """AIに見せる選択肢の名前（業務の選択肢はそのまま、システムが足すものは日本語の名前）。all_conditions と同じ並び。"""
         return tuple(label(c) for c in self.all_conditions)
+
+    def reply_choice(self, word: str | None) -> str | None:
+        """返事の言葉だけの答え（REPLY_WORDS の1つ）が、この質問でどの選択肢の意味になるか（決まらなければ None。唯一の場所）。
+        取込で決めたもの（reply_meanings）。選択肢が「はい」「いいえ」そのものなら、はい・いいえはその選択肢（決めるまでもない）。"""
+        if word in self.reply_meanings:
+            return self.reply_meanings[word]
+        return word if word in ("はい", "いいえ") and word in self.conditions else None
 
     def condition_of(self, name: str | None) -> str | None:
         """選択肢の名前（AIに見せる名前）から、中の名前（無ければ None）。"""
@@ -646,6 +664,8 @@ class Flow:
             return self._reject(f"{ARG_LABEL['condition_id']}「{shown}」は、この質問の選択肢にありません（選べるのは {'、'.join(q.labels)}）。")
         value = normalize_value(q.type, a.get("value"), q.unit)
         if cond not in SYSTEM_CONDITIONS and (why := form_problem(q.type, value)):
+            # 値を聞く質問に「結構です」だけ：答えの値ではないので聞き返す（そのあとにまた言われたら、断りとして締めてよい＝_op_request_end）
+            it.ambiguous_asked = it.ambiguous_asked or bool(ambiguous_word(self.callee_said or value))
             return self._bad_form(qid, value, why)
         if value is None and q.type not in CHOICE_TYPES and cond not in SYSTEM_CONDITIONS:
             # ⛔ 2026-10-13 G-25 で見つけた漏れ：値の要る質問で値の無い答えを受け付け、言い直しに「Noneで、よろしいでしょうか。」を
@@ -656,6 +676,10 @@ class Flow:
             value, ask = fill_ampm(value, self.business_hours)
             if ask and not it.ampm_asked:
                 return self._ask_ampm(qid, value)
+        if cond in SYSTEM_CONDITIONS and (taken := self._ambiguous_only(f"「{SYSTEM_LABEL[cond]}」")):
+            # 相手の言葉が「大丈夫です」「結構です」だけなのに、AIが「わからない」「答えたくない」を選んだ：その言葉だけで決めない
+            # ⛔ G-14 の続き：日時の質問への「大丈夫です」を、AIは 6本中2本「わからない」にした（聞き返さずに「-」になる）
+            return taken
         it.condition, it.value = cond, value
         if cond in SYSTEM_CONDITIONS:
             return self._take_system(qid, cond)
@@ -663,22 +687,23 @@ class Flow:
         self.unreported_correction = None
         said = self.callee_said or value
         word = ambiguous_word(said) if q.type in CHOICE_TYPES else None
-        if word in q.reply_meanings:
+        if q.reply_choice(word):
             # 前の質問から意味が決まる（取込で決めた）：確かめずに、その選択肢で受け取る（AIの選んだ選択肢と違えば、こちらを採る）
-            cond = it.condition = q.reply_meanings[word]
+            cond = it.condition = q.reply_choice(word)
             it.set("heard", f"「{said[:20]}」は、この質問では「{cond}」の意味（取込で質問の文から決めた）")
             if it.ask_backs or self.phase == "rechecking" or after:
                 return self._ask_confirm(qid, after=after)
             it.set("accepted", "曖昧な言葉だが、前の質問から意味が決まる")
             return self._advance("受け付けました。")
-        lead = reply_lead(said) if q.type == "yes_no" and set(q.conditions) == {"はい", "いいえ"} else None
-        if q.type in CHOICE_TYPES and (ambiguous_answer(said) or (lead and lead != cond)):
+        expected = q.reply_choice(reply_lead(said)) if q.type in CHOICE_TYPES else None  # 頭の「はい」「いいえ」が意味する選択肢
+        lead = expected and expected != cond
+        if q.type in CHOICE_TYPES and (ambiguous_answer(said) or lead):
             # 受け入れにも断りにも取れる答え（DESIGN.md 6-10 の (3)）：AIが選んだ選択肢のまま渡さず、その意味で合っているかを確かめる。
             # 必須でない項目は、聞き返さない決まり（6-11）に合わせて確かめず「-」
             if not q.required:
                 it.set("unresolved", f"曖昧な答え（「{said[:20]}」）・必須でないので確かめない")
                 return self._advance("「-」にします。")
-            it.set("heard", f"{'言葉の頭とAIの選んだ答えが食い違う' if lead and lead != cond else '曖昧な答え'}（「{said[:20]}」）・"
+            it.set("heard", f"{'言葉の頭とAIの選んだ答えが食い違う' if lead else '曖昧な答え'}（「{said[:20]}」）・"
                             f"AIは「{cond}」と受け取った")
             it.ambiguous_asked = True
             return self._ask_confirm(qid, after="ambiguous")
@@ -708,6 +733,8 @@ class Flow:
             return self._ask_again(qid, "unclear", "聞き取れない・曖昧")
         if self.awaiting_confirm is not None:
             return self._reject("いまは report_unclear では受け付けません。")
+        if taken := self._ambiguous_only("聞き取れない"):
+            return taken
         if qid != self.current:
             return self._reject(f"{qid} は、いまの質問ではありません。")
         q, it = self.questions[qid], self.items[qid]
@@ -775,7 +802,8 @@ class Flow:
             correction = chosen
         if result == "corrected" and correction is None:  # 訂正の値の無い報告は、記録を書き換える前に差し戻す（上と同じ漏れ）
             return self._reject(f"訂正された値がありません。相手が言い直した値を「{ARG_LABEL['correction']}」に入れて、もう一度報告してください。")
-        if result == "corrected" and (why := form_problem(self.questions[qid].type, correction)):
+        # 名前の読みの訂正は、候補から選んだ読み（next_reading）なので、値の形の確かめに当てない（「井伊（いい）」を返事の言葉と取り違えない）
+        if result == "corrected" and not q.reading_of and (why := form_problem(self.questions[qid].type, correction)):
             self.awaiting_confirm = None  # 言い直しの返事待ちをやめて、質問から聞き直す（6-2）
             return self._bad_form(qid, correction, why)
         if result in ("corrected", "affirmed") and correction and self.questions[qid].type in AMPM_TYPES:
@@ -857,21 +885,9 @@ class Flow:
 
     def _op_request_end(self, a: dict) -> dict:
         reason = a.get("reason")
-        q = self.questions.get(self.current) if self.current else None
-        if (reason in ("callee_hurry", "callee_refused_call") and q is not None and q.type in CHOICE_TYPES and self.phase == "asking"
-                and self.awaiting_confirm is None and not self.items[q.id].ambiguous_asked and ambiguous_word(self.callee_said)):
-            # 相手の言葉が「結構です」のような言葉だけ：その言葉だけで、通話を断られたとは決めない。いまの質問の答えとして受け取る
-            # （前の質問から意味が決まればその選択肢、決まらなければ意味を確かめる）。確かめたあとにまた言われたら、断りとして締める。
-            # ✅ 2026-10-17 ユーザー：「『結構です。』だけでは判断できない。人でも前の質問や会話から判断する言葉です」
-            # ⛔ G-14：相手の「結構です。」（「ご予約はされていますでしょうか？」への答え）を、AIは 6本中4本・30本中4本で通話の断りとして締めた
-            word = ambiguous_word(self.callee_said)
-            if word in q.reply_meanings:
-                return self._op_record_answer({"question_id": q.id, "condition_id": q.reply_meanings[word], "value": self.callee_said.strip()})
-            return self._reject(f"相手の「{self.callee_said.strip()[:20]}」だけでは、通話を断られたとは決められません（前の質問によって意味が"
-                                f"変わる言葉です）。相手にはまだ何も言わずに、いまの質問 {q.id} の答えとして、選択肢（{'、'.join(q.labels)}）から近いものを"
-                                "選んで、すぐ record_answer で報告してください。確かめの言い方は、プログラムが返事で渡します（自分で聞き直してはいけません）。")
-            # ⛔ G-14：前の文（「…報告してください。プログラムが意味を確かめます。」）では、6本中1本でAIが報告せずに、自分の言葉で
-            #    「かしこまりました。念のための確認でございますが、ご予約はお済みでしょうか。」と聞き直した
+        if reason in ("callee_hurry", "callee_refused_call") and (taken := self._ambiguous_only("通話を断られた")):
+            # 相手の言葉が「結構です」のような言葉だけ：その言葉だけで、通話を断られたとは決めない（_ambiguous_only）
+            return taken
         if reason == "callee_hurry" and self.busy_ask and not self.busy_asked:
             # 業務設定で「引き止める」を選んだとき：1回だけ、決まった一言で聞く。2回目の「急いでいる」は終える
             self.busy_asked = True
@@ -892,6 +908,37 @@ class Flow:
         return self._advance("")
 
     # ── 内部
+    def _ambiguous_only(self, ai_said: str) -> dict | None:
+        """相手の言葉が「結構です」「大丈夫です」のような言葉だけなのに、AIが答えとしてでなく「通話を断られた」「聞き取れない」と報告した
+        ときの扱い（唯一の場所）。その言葉だけで決めず、いまの質問の答えとして受け取る。当たらなければ None（AIの報告のまま）。
+        - 選択肢の質問：前の質問から意味が決まれば、その選択肢（Question.reply_meanings）。決まらなければ、AIに選択肢を選んで報告し直させ、
+          意味を確かめる（_op_record_answer）
+        - 値を聞く質問：答えの値ではないので、聞き返す（答えが質問に合わないときと同じ。_bad_form）
+        - 自由な意見：その言葉のまま、答えとして報告し直させる
+        確かめた・聞き返したあとにまた言われたら（ambiguous_asked）、AIの報告のまま（2度目は、前の会話から断りと分かる）。
+        ✅ 2026-10-17 ユーザー：「『結構です。』だけでは判断できない。人でも前の質問や会話から判断する言葉です」
+        ⛔ G-14：相手の「結構です。」（「ご予約はされていますでしょうか？」への答え）を、AIは 30本中4本で通話の断りとして締めた"""
+        q = self.questions.get(self.current) if self.current else None
+        said = (self.callee_said or "").strip()
+        word = ambiguous_word(said)
+        if q is None or not word or self.phase != "asking" or self.awaiting_confirm is not None or self.items[q.id].ambiguous_asked:
+            return None
+        if q.type in CHOICE_TYPES and q.reply_choice(word):
+            return self._op_record_answer({"question_id": q.id, "condition_id": q.reply_choice(word), "value": said})
+        if q.type in CONFIRM_TYPES:
+            self.items[q.id].ambiguous_asked = True
+            return self._bad_form(q.id, said, "答えの値ではなく、返事の言葉です")
+        # 差し戻すのは1回だけ（AIが報告し直さずに同じ報告を繰り返しても、流れが止まらないように＝2度目はAIの報告のまま）
+        self.items[q.id].ambiguous_asked = True
+        # 選ぶのは業務の選択肢から（「わからない」「答えたくない」も、その言葉だけでは決めない）
+        how = (f"選択肢（{'、'.join(label(c) for c in q.all_conditions if c not in SYSTEM_CONDITIONS)}）から近いものを選んで"
+               if q.type in CHOICE_TYPES else "聞いたとおりの言葉を値に入れて")
+        # ⛔ G-14：前の文（「…報告してください。プログラムが意味を確かめます。」）では、6本中1本でAIが報告せずに、自分の言葉で
+        #    「かしこまりました。念のための確認でございますが、ご予約はお済みでしょうか。」と聞き直した ⇒ 何も言わずに、すぐ報告させる
+        return self._reject(f"相手の「{said[:20]}」だけでは、{ai_said}とは決められません（前の質問によって意味が変わる言葉です）。"
+                            f"相手にはまだ何も言わずに、いまの質問 {q.id} の答えとして、{how}、すぐ record_answer で報告してください。"
+                            "確かめ・聞き返しの言い方は、プログラムが返事で渡します（自分で聞き直してはいけません）。")
+
     def _bad_form(self, qid: str, value: str, why: str) -> dict:
         """答えの値の形が質問の型に合わない（DESIGN.md 6-2）。値は記録せず、聞き返し（_ask_again）へ。"""
         q = self.questions[qid]
@@ -931,10 +978,7 @@ class Flow:
         it.set("checking", f"読みが決まらない名前「{q.reading_of}」を、まず言ってみる読みで確かめる")
         self.awaiting_confirm, self.confirm_requested_at, self.awaiting_say = qid, self.callee_turns, q.text
         return {"result": "confirm_required", "question_id": qid, "value": q.prefill, "say": q.text, "after": None,
-                "message": f"{prefix}次は、お名前の読みの確認です。「{q.text}」と言って、相手の返事を待ってください。相手が認めたら"
-                           f" confirm_field を{ARG_LABEL['result']}「{CONFIRM_LABEL['affirmed']}」で、違う読みを言われたら"
-                           f"「{CONFIRM_LABEL['corrected']}」で報告し、{ARG_LABEL['correction']}には相手が言ったとおりの音をひらがなで入れます"
-                           "（漢字を思い浮かべて、知っている読みに直さない）。"}
+                "message": f"{prefix}次は、お名前の読みの確認です。「{q.text}」と言って、相手の返事を待ってください。{self._confirm_how(qid)}"}
 
     def _ask_confirm(self, qid: str, after: str | None = None) -> dict:
         """言い直して確かめる。after＝値を直されたあとか（AFTER の鍵。場面の言い方・頭の言葉・流す相づちを、その表の1か所から選ぶ）。
@@ -974,11 +1018,22 @@ class Flow:
         else:
             phrase = self.confirm(shown, situation, n)
         say = self.awaiting_say = self._lead(lead) + phrase
-        how = (f"相手が認めたら confirm_field を{ARG_LABEL['result']}「{CONFIRM_LABEL['affirmed']}」で、違うと言われたら"
-               f"「{CONFIRM_LABEL['corrected']}」で報告し、{ARG_LABEL['correction']}には相手の答えに合う選択肢の名前（{'、'.join(q.labels)}）"
-               "を入れます。" if choice else "")
         return {"result": "confirm_required", "value": shown, "say": say, "after": after,
-                "message": f"言い直して確かめます。「{say}」と言って、相手の返事を待ってください。{how}"}
+                "message": f"言い直して確かめます。「{say}」と言って、相手の返事を待ってください。" + (self._confirm_how(qid) if choice else "")}
+
+    def _confirm_how(self, qid: str) -> str:
+        """言い直しへの相手の返事の報告の仕方（唯一の場所。言い直しを始めるとき・差し戻すとき＝_now の両方が使う）。質問の種類で、
+        訂正された値に入れるものが違う：名前の読み＝聞いたとおりの音のひらがな／選択肢＝選択肢の名前／値＝直したあとの値の全部。
+        ⛔ 2026-10-17 の見直しで見つけた漏れ：差し戻しのとき（_now）は、選択肢の質問でも「違う値を…訂正された値で」とだけ伝えていた"""
+        q = self.questions[qid]
+        ok, ng, corr = CONFIRM_LABEL["affirmed"], CONFIRM_LABEL["corrected"], ARG_LABEL["correction"]
+        if q.reading_of:
+            return (f"相手が認めたら confirm_field を{ARG_LABEL['result']}「{ok}」で、違う読みを言われたら「{ng}」で報告し、{corr}には"
+                    "相手が言ったとおりの音をひらがなで入れます（漢字を思い浮かべて、知っている読みに直さない）。")
+        if q.type in CHOICE_TYPES:
+            return (f"相手が認めたら confirm_field を{ARG_LABEL['result']}「{ok}」で、違うと言われたら「{ng}」で報告し、{corr}には"
+                    f"相手の答えに合う選択肢の名前（{'、'.join(q.labels)}）を入れます。")
+        return f"相手が肯定したら confirm_field を{ARG_LABEL['result']}「{ok}」で、違う値を言ったら「{ng}」と{corr}で報告してください。"
 
     def _remaining(self) -> list[str]:
         return [qid for qid in self.order if self.items[qid].state == "empty"]
@@ -1063,8 +1118,7 @@ class Flow:
            AIは Q2 を最初から聞き直した（言い直しの返事を待っていることが、伝わっていなかった）。"""
         if self.awaiting_confirm is not None:
             say = self.awaiting_say
-            how = (f"相手が肯定したら confirm_field を{ARG_LABEL['result']}「{CONFIRM_LABEL['affirmed']}」で、違う値を言ったら"
-                   f"「{CONFIRM_LABEL['corrected']}」と{ARG_LABEL['correction']}で報告してください。")
+            how = self._confirm_how(self.awaiting_confirm)
             if self.callee_turns > (self.confirm_requested_at or 0):
                 # ⛔ G-46：報告の種類の名前を書き違えて差し戻されたとき、ここが「相手がまだ答えていなければ、もう一度聞いて」としか言わず、
                 #    相手はもう「角田です。」と答えていたのに、AIは同じ確かめをもう一度声に出した（相手は同じことを2回聞かれる）。
@@ -1083,16 +1137,21 @@ class Flow:
                 f"（聞き取れなかったら report_unclear）。")
 
     # ── 依頼主へ渡す書き方（7-1b。Q20 の唯一の場所）
+    def answer_of(self, qid: str) -> str | None:
+        """取れた項目の答え（依頼主へ渡すもの・張り替えのときにAIへ渡す「聞けたこと」の両方。唯一の場所）。選択肢の型は、宣言された選択肢
+        （相手の言葉そのものではない。任された答えは「どちらでも」）、それ以外は値。"""
+        it = self.items[qid]
+        if self.questions[qid].type in CHOICE_TYPES or it.value in (None, ""):
+            return label(it.condition)
+        return it.value
+
     def export(self, unknown_mark: str = "-", refused_mark: str = "✕") -> dict:
         out = {}
         for qid, it in self.items.items():
             if it.state == "refused":
                 out[qid] = refused_mark
             elif it.state in GOT:
-                if self.questions[qid].type in CHOICE_TYPES or it.value in (None, ""):
-                    out[qid] = label(it.condition)  # 選択肢の型は、宣言された選択肢（相手の言葉そのものではない）。任された答えは「どちらでも」
-                else:
-                    out[qid] = it.value
+                out[qid] = self.answer_of(qid)
             else:
                 out[qid] = unknown_mark
         return out
