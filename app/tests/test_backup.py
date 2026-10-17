@@ -6,10 +6,12 @@ import os
 import tempfile
 import unittest
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from pathlib import Path
 
-from salescall.core import backup, fix_requests
-from tests.support import ADMIN, SYSTEM, World, app_access
+from salescall.core import backup, fix_requests, registry
+from salescall.core.access import Rejected
+from tests.support import ADMIN, OPERATOR, SYSTEM, World, app_access, owner_access
 
 KEY = bytes(range(32))   # 試験の鍵（本番の鍵は呼ぶ側が渡す）
 
@@ -82,6 +84,87 @@ class Backup(unittest.TestCase):
         told = self.app.in_system(ADMIN, lambda tx: [r["summary"] for r in tx.all(
             "SELECT summary FROM salescall.notification_events WHERE kind = 'backup_failed' AND for_admin")])
         self.assertIn("控え用のハードディスクがつながっていません。PC にハードディスクをつないでください。", told)
+
+
+class PerClient(unittest.TestCase):
+    """依頼者ごとの控え（2026-10-17 ユーザー：「E:\\salescall-backup\\client1」「AI用と、提出用で分ける。AI用は…HDに1年
+    …\\AI。提出用はFly.ioには保存しない　HDに3年 …\\submission」「client1・client2 がデフォルト、自社情報からフォルダ名が自動で」）。"""
+
+    def setUp(self):
+        self.app = app_access()
+        self.w = World()
+        self.root = Path(tempfile.mkdtemp(prefix="salescall-test-hdd-"))
+        (self.root / backup.DRIVE_MARK).write_text("控え用")
+        self.drive = backup.Drive(self.root)
+
+    def run_daily(self):
+        return backup.run_daily(self.app, os.environ["SALESCALL_TEST_OWNER_DSN"], os.environ["SALESCALL_TEST_RESTORE_DSN"],
+                                self.drive, key=KEY)
+
+    def named_client(self, t, name):
+        return self.w.a.in_tenant(OPERATOR, t, lambda tx: registry.create_client(tx, name))
+
+    def test_folders_follow_the_client_name_and_fall_back_to_client_numbers(self):
+        t = self.w.tenant()
+        a = self.named_client(t, "株式会社 架空/商事:本社")
+        b = self.named_client(t, "CON")                                  # Windows で使えない名前
+        name_a = backup.client_folder(self.app, t, a)
+        self.assertEqual(name_a, "株式会社 架空商事本社")
+        self.assertRegex(backup.client_folder(self.app, t, b), r"^client\d+$")
+        self.w.a.in_tenant(OPERATOR, t, lambda tx: registry.rename_client(tx, a, "名前を直した"))
+        self.assertEqual(backup.client_folder(self.app, t, a), name_a)   # 名前を直しても、フォルダは変えない
+        for who in (self.w.a, owner_access()):                            # 決めたフォルダの名前は、表の持ち主でも変えられない
+            with self.subTest(who=who), self.assertRaises(Rejected):
+                who.in_tenant(OPERATOR, t, lambda tx: tx.execute(
+                    "UPDATE salescall.client_backup_folders SET folder_name = 'x' WHERE client_id = %s", (a,)))
+
+    def test_daily_backup_places_system_and_per_client_ai_and_copies_submissions(self):
+        s = World().setup()
+        sub = self.w.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: backup.record_submission(
+            tx, "結果_2026-10-17.csv", "架空の結果".encode()))
+        results = self.run_daily()
+        self.assertTrue(all(r.ok for r in results), [r.error for r in results if not r.ok])
+        base = self.root / backup.BASE
+        self.assertTrue(list((base / "system" / backup.AI).glob("salescall-*.dump.enc")))
+        folder = backup.client_folder(self.app, s["tenant"], s["client"])
+        ai = list((base / folder / backup.AI).glob("salescall-*.ai.enc"))
+        self.assertEqual(len(ai), 1)
+        head, tables = backup.read_client_export(backup.open_file(ai[0], KEY))
+        self.assertEqual(head["client_id"], str(s["client"]))
+        self.assertTrue(tables["tasks"])                                  # その依頼者の行が入っている
+        self.assertEqual({r["client_id"] for rows in tables.values() for r in rows}, {str(s["client"])})   # ほかの依頼者は入らない
+        copied = list((base / folder / backup.SUBMISSION).glob("salescall-*.enc"))
+        self.assertEqual([backup.open_file(f, KEY) for f in copied], ["架空の結果".encode()])
+        row = self.w.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: tx.one(
+            "SELECT content, copied_as FROM salescall.submission_files WHERE submission_id = %s", (sub,)))
+        self.assertEqual((row["content"], row["copied_as"]), (None, copied[0].name))   # Fly.io には残さない
+        with self.assertRaises(Rejected):                                 # 写した記録は変えられない
+            self.w.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: tx.execute(
+                "UPDATE salescall.submission_files SET copied_as = 'x' WHERE submission_id = %s", (sub,)))
+
+    def test_old_backups_are_removed_by_kind(self):
+        """AI用は1年、提出用は3年（ハードディスク）。名前に日時のある控えのファイルだけを消す。"""
+        s = World().setup()
+        folder = backup.client_folder(self.app, s["tenant"], s["client"])
+        now = datetime.now().astimezone()
+        def put(kind, days_ago, tail):
+            d = self.root / backup.BASE / folder / kind
+            d.mkdir(parents=True, exist_ok=True)
+            f = d / f"salescall-{now - timedelta(days=days_ago):%Y%m%d-%H%M%S}{tail}"
+            f.write_bytes(b"x")
+            return f
+        old_ai, new_ai = put(backup.AI, 400, ".ai.enc"), put(backup.AI, 300, ".ai.enc")
+        mid_sub, old_sub = put(backup.SUBMISSION, 400, "-1-a.csv.enc"), put(backup.SUBMISSION, 1200, "-2-b.csv.enc")
+        other = self.root / backup.BASE / folder / backup.AI / "人が置いたメモ.txt"
+        other.write_text("消さない")
+        backup.prune(self.app, self.drive, now=now)
+        self.assertEqual([f.exists() for f in (old_ai, new_ai, mid_sub, old_sub, other)], [False, True, True, False, True])
+
+    def test_nothing_is_written_when_the_drive_is_not_attached(self):
+        (self.root / backup.DRIVE_MARK).unlink()
+        got = self.run_daily()
+        self.assertEqual([r.ok for r in got], [False])
+        self.assertFalse((self.root / backup.BASE).exists())
 
 
 if __name__ == "__main__":

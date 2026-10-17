@@ -366,6 +366,13 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("同じ発信番号の回線を2つ作れる",
      "DROP INDEX salescall.lines_one_per_caller_number",
      ("tests.test_registry.Lines.test_the_caller_number_is_required_checked_unique_and_fixed",)),
+    # 依頼者ごとの控え（3-10・0054）
+    ("提出用のファイルの、写した記録を変えられる",
+     "DROP TRIGGER submission_copied_once ON salescall.submission_files",
+     ("tests.test_backup.PerClient.test_daily_backup_places_system_and_per_client_ai_and_copies_submissions",)),
+    ("依頼者の控えのフォルダの名前を、あとから変えられる",
+     "DROP TRIGGER client_backup_folders_frozen ON salescall.client_backup_folders",
+     ("tests.test_backup.PerClient.test_folders_follow_the_client_name_and_fall_back_to_client_numbers",)),
     ("通話後の確かめを「確かめられなかった」で諦められる",
      "ALTER TABLE salescall.attempts DROP CONSTRAINT attempts_verification_never_gives_up",
      ("tests.test_foundation.AttemptTransitions.test_verification_only_pending_to_done",
