@@ -25,7 +25,7 @@ import asyncio
 import time
 
 from common import HERE, read_wav_pcm16_mono, write_wav
-from flowctl import Flow, tool_declarations
+from flowctl import CHOICE_TYPES, Flow, tool_declarations
 from instruction import Business, barge_in_note, build
 from listen import hear
 from live_util import build_config, callee_turn, collect_turn, send_note, send_text, silence_while
@@ -152,12 +152,15 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                 line = again or callee_lines[i]
                 if isinstance(line, dict) and "if_value" in line:
                     # こちらの言った値で答えが変わる相手（G-46：名前の読みを違う読みで聞かれたら、もう一度直す）。
-                    # その項目がもう確かめ済みなら、この台詞は言わない（次の台詞へ）
+                    # その項目がもう確かめ済みなら、この台詞は言わない（次の台詞へ）。選択肢の型は、こちらが言い直した選択肢で比べる
+                    # （G-14 の続き：「念のためご予約はされているということでよろしいでしょうか？」に、相手の思っていた答えかで返事が変わる）
                     qid, want = line["if_value"]
-                    if flow.items[qid].state == "confirmed":
+                    it = flow.items[qid]
+                    if it.state in ("confirmed", "dont_know", "refused"):
                         i += 1
                         continue
-                    line = {"wav": line["yes"] if flow.items[qid].value == want else line["no"]}
+                    said = it.condition if flow.questions[qid].type in CHOICE_TYPES else it.value
+                    line = {"wav": line["yes"] if said == want else line["no"]}
                 if isinstance(line, dict) and "silence_s" in line:
                     log_start = len(flow.log)
                     async with silence_while(s):

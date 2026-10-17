@@ -1,0 +1,546 @@
+{
+  "item": "G-44-ALNUM-SINGLE_partial",
+  "saved_at": "2026-10-17T06:34:27",
+  "rows": [
+    {
+      "name": "ＡＢＣホールディングス",
+      "reading": "えーびーしーほーるでぃんぐす",
+      "method": "K",
+      "rep": 0,
+      "wav": "G44_alnum_00_K_0.wav",
+      "kana": "すでにえーびーしーほーるでぃんぐすさまにもごどうにゅういただいております",
+      "verdict": "正しい",
+      "key": 0
+    },
+    {
+      "name": "ＡＢＣホールディングス",
+      "reading": "えーびーしーほーるでぃんぐす",
+      "method": "KATA",
+      "rep": 0,
+      "wav": "G44_alnum_00_KATA_0.wav",
+      "kana": "すでにえーびーしーほーるでぃんぐすさまにもごどうにゅういただいております",
+      "verdict": "正しい",
+      "key": 0
+    },
+    {
+      "name": "ＡＢＣホールディングス",
+      "reading": "えーびーしーほーるでぃんぐす",
+      "method": "HIRA",
+      "rep": 0,
+      "wav": "G44_alnum_00_HIRA_0.wav",
+      "kana": "すでにえーびーしーほーるでぃんぐすさまにもごどうにゅういただいております",
+      "verdict": "正しい",
+      "key": 2
+    },
+    {
+      "name": "スマートリンクPro",
+      "reading": "すまーとりんくぷろ",
+      "method": "K",
+      "rep": 0,
+      "wav": "G44_alnum_01_K_0.wav",
+      "kana": "あたらしいさーびすのすまーとりんくぷろのごあんないです",
+      "verdict": "正しい",
+      "key": 3
+    },
+    {
+      "name": "スマートリンクPro",
+      "reading": "すまーとりんくぷろ",
+      "method": "KATA",
+      "rep": 0,
+      "wav": "G44_alnum_01_KATA_0.wav",
+      "kana": "あたらしいさーびすのすまーとりんくぷろのごあんないです",
+      "verdict": "正しい",
+      "key": 2
+    },
+    {
+      "name": "スマートリンクPro",
+      "reading": "すまーとりんくぷろ",
+      "method": "HIRA",
+      "rep": 0,
+      "wav": "G44_alnum_01_HIRA_0.wav",
+      "kana": "あたらしいさーびすのすまーとりんくぷろのごあんないです",
+      "verdict": "正しい",
+      "key": 3
+    },
+    {
+      "name": "NTT東日本",
+      "reading": "えぬてぃーてぃーひがしにほん",
+      "method": "K",
+      "rep": 0,
+      "wav": "G44_alnum_02_K_0.wav",
+      "kana": "かいせんはえぬてぃーてぃーひがしにほんをおつかいでしょうか",
+      "verdict": "正しい",
+      "key": 3
+    },
+    {
+      "name": "NTT東日本",
+      "reading": "えぬてぃーてぃーひがしにほん",
+      "method": "KATA",
+      "rep": 0,
+      "wav": "G44_alnum_02_KATA_0.wav",
+      "kana": "かいせんはえぬてぃーてぃーひがしにほんをおつかいでしょうか",
+      "verdict": "正しい",
+      "key": 3
+    },
+    {
+      "name": "NTT東日本",
+      "reading": "えぬてぃーてぃーひがしにほん",
+      "method": "HIRA",
+      "rep": 0,
+      "wav": "G44_alnum_02_HIRA_0.wav",
+      "kana": "かいせんはえぬてぃーてぃーひがしにほんをおつかいでしょうか",
+      "verdict": "正しい",
+      "key": 3
+    },
+    {
+      "name": "KDDI",
+      "reading": "けーでぃーでぃーあい",
+      "method": "K",
+      "rep": 0,
+      "wav": "G44_alnum_03_K_0.wav",
+      "kana": "けーでぃーでぃーあいのかいせんとおなじりょうきんです",
+      "verdict": "正しい",
+      "key": 3
+    },
+    {
+      "name": "KDDI",
+      "reading": "けーでぃーでぃーあい",
+      "method": "KATA",
+      "rep": 0,
+      "wav": "G44_alnum_03_KATA_0.wav",
+      "kana": "けーでぃーでぃーあいのかいせんとおなじりょうきんです",
+      "verdict": "正しい",
+      "key": 3
+    },
+    {
+      "name": "KDDI",
+      "reading": "けーでぃーでぃーあい",
+      "method": "HIRA",
+      "rep": 0,
+      "wav": "G44_alnum_03_HIRA_0.wav",
+      "kana": "けーでぃーでぃーあいのかいせんとおなじりょうきんです",
+      "verdict": "正しい",
+      "key": 3
+    },
+    {
+      "name": "freee",
+      "reading": "ふりー",
+      "method": "K",
+      "rep": 0,
+      "wav": "G44_alnum_04_K_0.wav",
+      "kana": "かいけいそふとのふりーとれんけいしております",
+      "verdict": "正しい",
+      "key": 3
+    },
+    {
+      "name": "freee",
+      "reading": "ふりー",
+      "method": "KATA",
+      "rep": 0,
+      "wav": "G44_alnum_04_KATA_0.wav",
+      "kana": "かいけいそふとのふりーとれんけいしております",
+      "verdict": "正しい",
+      "key": 6
+    },
+    {
+      "name": "freee",
+      "reading": "ふりー",
+      "method": "HIRA",
+      "rep": 0,
+      "wav": "G44_alnum_04_HIRA_0.wav",
+      "kana": "かいけいそふとのふりーとれんけいしております",
+      "verdict": "正しい",
+      "key": 6
+    },
+    {
+      "name": "Sansan",
+      "reading": "さんさん",
+      "method": "K",
+      "rep": 0,
+      "wav": "G44_alnum_05_K_0.wav",
+      "kana": "めいしかんりのさんさんをおつかいのかいしゃさまがおおいです",
+      "verdict": "正しい",
+      "key": 6
+    },
+    {
+      "name": "Sansan",
+      "reading": "さんさん",
+      "method": "KATA",
+      "rep": 0,
+      "wav": "G44_alnum_05_KATA_0.wav",
+      "kana": "めいしかんりのさんさんをおつかいのかいしゃさまがおおいです",
+      "verdict": "正しい",
+      "key": 6
+    },
+    {
+      "name": "Sansan",
+      "reading": "さんさん",
+      "method": "HIRA",
+      "rep": 0,
+      "wav": "G44_alnum_05_HIRA_0.wav",
+      "kana": "めいしかんりのさんさんをおつかいのかいしゃさまがおおいです",
+      "verdict": "正しい",
+      "key": 6
+    },
+    {
+      "name": "LIXIL",
+      "reading": "りくしる",
+      "method": "K",
+      "rep": 0,
+      "wav": "G44_alnum_06_K_0.wav",
+      "kana": "りくしるさまのせいひんをあつかっております",
+      "verdict": "正しい",
+      "key": 6
+    },
+    {
+      "name": "LIXIL",
+      "reading": "りくしる",
+      "method": "KATA",
+      "rep": 0,
+      "wav": "G44_alnum_06_KATA_0.wav",
+      "kana": "りくしるさまのせいひんをあつかっております",
+      "verdict": "正しい",
+      "key": 6
+    },
+    {
+      "name": "LIXIL",
+      "reading": "りくしる",
+      "method": "HIRA",
+      "rep": 0,
+      "wav": "G44_alnum_06_HIRA_0.wav",
+      "kana": "りくしるさまのせいひんをあつかっております",
+      "verdict": "正しい",
+      "key": 6
+    },
+    {
+      "name": "au",
+      "reading": "えーゆー",
+      "method": "K",
+      "rep": 0,
+      "wav": "G44_alnum_07_K_0.wav",
+      "kana": "けいたいわ",
+      "verdict": "ほかの読み",
+      "key": 6
+    },
+    {
+      "name": "au",
+      "reading": "えーゆー",
+      "method": "KATA",
+      "rep": 0,
+      "wav": "G44_alnum_07_KATA_0.wav",
+      "kana": "けーたいは えーゆーをおつかいでしょうか",
+      "verdict": "正しい",
+      "key": 6
+    },
+    {
+      "name": "au",
+      "reading": "えーゆー",
+      "method": "HIRA",
+      "rep": 0,
+      "wav": "G44_alnum_07_HIRA_0.wav",
+      "kana": "けいたいはえーゆーをおつかいでしょうか",
+      "verdict": "正しい",
+      "key": 6
+    },
+    {
+      "name": "IKEA",
+      "reading": "いけあ",
+      "method": "K",
+      "rep": 0,
+      "wav": "G44_alnum_08_K_0.wav",
+      "kana": "いけあのちかくにじむしょがございます",
+      "verdict": "正しい",
+      "key": 6
+    },
+    {
+      "name": "IKEA",
+      "reading": "いけあ",
+      "method": "KATA",
+      "rep": 0,
+      "wav": "G44_alnum_08_KATA_0.wav",
+      "kana": "いけあのちかくにじむしょがございます",
+      "verdict": "正しい",
+      "key": 6
+    },
+    {
+      "name": "IKEA",
+      "reading": "いけあ",
+      "method": "HIRA",
+      "rep": 0,
+      "wav": "G44_alnum_08_HIRA_0.wav",
+      "kana": "いけあのちかくにじむしょがございます",
+      "verdict": "正しい",
+      "key": 6
+    },
+    {
+      "name": "コージーコーナー",
+      "reading": "こーじーこーなー",
+      "method": "K",
+      "rep": 0,
+      "wav": "G44_alnum_09_K_0.wav",
+      "kana": "こーじーこーなーさまのおちかくです",
+      "verdict": "正しい",
+      "key": 6
+    },
+    {
+      "name": "コージーコーナー",
+      "reading": "こーじーこーなー",
+      "method": "KATA",
+      "rep": 0,
+      "wav": "G44_alnum_09_KATA_0.wav",
+      "kana": "こーじーこーなーさまのおちかくです",
+      "verdict": "正しい",
+      "key": 6
+    },
+    {
+      "name": "コージーコーナー",
+      "reading": "こーじーこーなー",
+      "method": "HIRA",
+      "rep": 0,
+      "wav": "G44_alnum_09_HIRA_0.wav",
+      "kana": "こおじいこおなあさまのおちかくです",
+      "verdict": "正しい",
+      "key": 6
+    },
+    {
+      "name": "ＡＢＣホールディングス",
+      "reading": "えーびーしーほーるでぃんぐす",
+      "method": "K",
+      "rep": 1,
+      "wav": "G44_alnum_00_K_1.wav",
+      "kana": "すでにあびーしーほーるでぃんぐすさまにもごどうにゅういただいております",
+      "verdict": "ほかの読み",
+      "key": 6
+    },
+    {
+      "name": "ＡＢＣホールディングス",
+      "reading": "えーびーしーほーるでぃんぐす",
+      "method": "KATA",
+      "rep": 1,
+      "wav": "G44_alnum_00_KATA_1.wav",
+      "kana": "すでにえーびーしーほーるでぃんぐすさまにもごどうにゅういただいております",
+      "verdict": "正しい",
+      "key": 6
+    },
+    {
+      "name": "ＡＢＣホールディングス",
+      "reading": "えーびーしーほーるでぃんぐす",
+      "method": "HIRA",
+      "rep": 1,
+      "wav": "G44_alnum_00_HIRA_1.wav",
+      "kana": "すでにえーびーしーほーるでぃんぐすさまにもごどうにゅういただいております",
+      "verdict": "正しい",
+      "key": 7
+    },
+    {
+      "name": "スマートリンクPro",
+      "reading": "すまーとりんくぷろ",
+      "method": "K",
+      "rep": 1,
+      "wav": "G44_alnum_01_K_1.wav",
+      "kana": "あたらしいさーびすのすまーとりんくぷろのごあんないです",
+      "verdict": "正しい",
+      "key": 7
+    },
+    {
+      "name": "スマートリンクPro",
+      "reading": "すまーとりんくぷろ",
+      "method": "KATA",
+      "rep": 1,
+      "wav": "G44_alnum_01_KATA_1.wav",
+      "kana": "あたらしいさーびすのすまーとりんくぷろのごあんないです",
+      "verdict": "正しい",
+      "key": 7
+    },
+    {
+      "name": "スマートリンクPro",
+      "reading": "すまーとりんくぷろ",
+      "method": "HIRA",
+      "rep": 1,
+      "wav": "G44_alnum_01_HIRA_1.wav",
+      "kana": "あたらしいさーびすのすまーとりんくぷろのごあんないです",
+      "verdict": "正しい",
+      "key": 7
+    },
+    {
+      "name": "NTT東日本",
+      "reading": "えぬてぃーてぃーひがしにほん",
+      "method": "K",
+      "rep": 1,
+      "wav": "G44_alnum_02_K_1.wav",
+      "kana": "かいせんはえぬてぃーてぃーひがしにほんをおつかいでしょうか",
+      "verdict": "正しい",
+      "key": 7
+    },
+    {
+      "name": "NTT東日本",
+      "reading": "えぬてぃーてぃーひがしにほん",
+      "method": "KATA",
+      "rep": 1,
+      "wav": "G44_alnum_02_KATA_1.wav",
+      "kana": "かいせんはえぬてぃーてぃーひがしにほんをおつかいでしょうか",
+      "verdict": "正しい",
+      "key": 7
+    },
+    {
+      "name": "NTT東日本",
+      "reading": "えぬてぃーてぃーひがしにほん",
+      "method": "HIRA",
+      "rep": 1,
+      "wav": "G44_alnum_02_HIRA_1.wav",
+      "kana": "かいせんはえぬてぃーてぃーひがしにほんをおつかいでしょうか",
+      "verdict": "正しい",
+      "key": 7
+    },
+    {
+      "name": "KDDI",
+      "reading": "けーでぃーでぃーあい",
+      "method": "K",
+      "rep": 1,
+      "wav": "G44_alnum_03_K_1.wav",
+      "kana": "けーでぃーあいのかいせんとおなじりょうきんです",
+      "verdict": "ほかの読み",
+      "key": 7
+    },
+    {
+      "name": "KDDI",
+      "reading": "けーでぃーでぃーあい",
+      "method": "KATA",
+      "rep": 1,
+      "wav": "G44_alnum_03_KATA_1.wav",
+      "kana": "けーでぃーでぃーあいのかいせんとおなじりょうきんです",
+      "verdict": "正しい",
+      "key": 7
+    },
+    {
+      "name": "KDDI",
+      "reading": "けーでぃーでぃーあい",
+      "method": "HIRA",
+      "rep": 1,
+      "wav": "G44_alnum_03_HIRA_1.wav",
+      "kana": "けーでぃーでぃーあいのかいせんとおなじりょうきんです",
+      "verdict": "正しい",
+      "key": 7
+    },
+    {
+      "name": "freee",
+      "reading": "ふりー",
+      "method": "K",
+      "rep": 1,
+      "wav": "G44_alnum_04_K_1.wav",
+      "kana": "かいけいそふとのふりーとれんけいしております",
+      "verdict": "正しい",
+      "key": 7
+    },
+    {
+      "name": "freee",
+      "reading": "ふりー",
+      "method": "KATA",
+      "rep": 1,
+      "wav": "G44_alnum_04_KATA_1.wav",
+      "kana": "かいけいそふとのふりーとれんけいしております",
+      "verdict": "正しい",
+      "key": 7
+    },
+    {
+      "name": "freee",
+      "reading": "ふりー",
+      "method": "HIRA",
+      "rep": 1,
+      "wav": "G44_alnum_04_HIRA_1.wav",
+      "kana": "かいけいそふとのふりーとれんけいしております",
+      "verdict": "正しい",
+      "key": 7
+    },
+    {
+      "name": "Sansan",
+      "reading": "さんさん",
+      "method": "K",
+      "rep": 1,
+      "wav": "G44_alnum_05_K_1.wav",
+      "kana": "めいしかんりのさんさんをおつかいのかいしゃさまがおおいです",
+      "verdict": "正しい",
+      "key": 2
+    },
+    {
+      "name": "Sansan",
+      "reading": "さんさん",
+      "method": "KATA",
+      "rep": 1,
+      "wav": "G44_alnum_05_KATA_1.wav",
+      "kana": "めいしかんりのさんさんをおつかいのかいしゃさまがおおいです",
+      "verdict": "正しい",
+      "key": 2
+    },
+    {
+      "name": "Sansan",
+      "reading": "さんさん",
+      "method": "HIRA",
+      "rep": 1,
+      "wav": "G44_alnum_05_HIRA_1.wav",
+      "kana": "めいしかんりのさんさんをおつかいのかいしゃさまがおおいです",
+      "verdict": "正しい",
+      "key": 2
+    },
+    {
+      "name": "LIXIL",
+      "reading": "りくしる",
+      "method": "K",
+      "rep": 1,
+      "wav": "G44_alnum_06_K_1.wav",
+      "kana": "りくしるさまのせいひんをあつかっております",
+      "verdict": "正しい",
+      "key": 2
+    },
+    {
+      "name": "LIXIL",
+      "reading": "りくしる",
+      "method": "KATA",
+      "rep": 1,
+      "wav": "G44_alnum_06_KATA_1.wav",
+      "kana": "りくしるさまのせいひんをあつかっております",
+      "verdict": "正しい",
+      "key": 2
+    },
+    {
+      "name": "LIXIL",
+      "reading": "りくしる",
+      "method": "HIRA",
+      "rep": 1,
+      "wav": "G44_alnum_06_HIRA_1.wav",
+      "kana": "りくしるさまのせいひんをあつかっております",
+      "verdict": "正しい",
+      "key": 2
+    },
+    {
+      "name": "au",
+      "reading": "えーゆー",
+      "method": "K",
+      "rep": 1,
+      "wav": "G44_alnum_07_K_1.wav",
+      "kana": "けいたいはえーゆーをおつかいでしょうか",
+      "verdict": "正しい",
+      "key": 2
+    },
+    {
+      "name": "au",
+      "reading": "えーゆー",
+      "method": "KATA",
+      "rep": 1,
+      "wav": "G44_alnum_07_KATA_1.wav",
+      "kana": "けいたいはえーゆーをおつかいでしょうか",
+      "verdict": "正しい",
+      "key": 2
+    },
+    {
+      "name": "au",
+      "reading": "えーゆー",
+      "method": "HIRA",
+      "rep": 1,
+      "wav": "G44_alnum_07_HIRA_1.wav",
+      "kana": "けいたいはえーゆーをおつかいでしょうか",
+      "verdict": "正しい",
+      "key": 2
+    }
+  ]
+}

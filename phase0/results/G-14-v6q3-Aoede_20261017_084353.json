@@ -1,0 +1,434 @@
+{
+  "item": "G-14-v6q3-Aoede",
+  "saved_at": "2026-10-17T08:43:53",
+  "model": "gemini-3.8-live",
+  "summary": {
+    "全体": {
+      "正しい": 3
+    },
+    "kind=曖昧": {
+      "正しい": 3
+    },
+    "voice=Aoede": {
+      "正しい": 3
+    },
+    "noise_tag=無し": {
+      "正しい": 3
+    },
+    "want=ambiguous": {
+      "正しい": 2
+    },
+    "want=いいえ": {
+      "正しい": 1
+    }
+  },
+  "rows": [
+    {
+      "id": "a1",
+      "voice": "Aoede",
+      "question": "Q3",
+      "want": "ambiguous",
+      "kind": "曖昧",
+      "text": "大丈夫です。",
+      "noise_tag": "無し",
+      "voice_type": "S4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "g14/Aoede_a1.wav"
+          },
+          "heard": "大丈夫です。",
+          "intended": "念のためパンフレットをお送りしてもよろしいということでよろしいでしょうか?",
+          "tool_events": [
+            {
+              "at_s": 0.427,
+              "name": "record_answer",
+              "args": {
+                "question_id": "Q3",
+                "condition_id": "はい",
+                "value": "大丈夫です"
+              },
+              "reply": "confirm_required",
+              "ack": "hai",
+              "say": "念のためパンフレットをお送りしてもよろしいということでよろしいでしょうか？",
+              "play": null
+            }
+          ],
+          "first_audio_after_s": 1.551,
+          "finished_after_s": 5.775,
+          "audio_seconds": 4.22,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.551,
+              "audio_s": 0.0,
+              "text": "念のためパンフレットをお"
+            },
+            {
+              "at_s": 2.028,
+              "audio_s": 1.78,
+              "text": "送りしてもよろしい"
+            },
+            {
+              "at_s": 2.047,
+              "audio_s": 2.78,
+              "text": "ということでよろ"
+            },
+            {
+              "at_s": 2.062,
+              "audio_s": 3.78,
+              "text": "しいでしょうか?"
+            }
+          ],
+          "heard_events": [
+            {
+              "at_s": 0.274,
+              "text": "大丈夫です。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.429,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.431,
+              "kind": "turn_complete"
+            },
+            {
+              "at_s": 1.551,
+              "kind": "audio_start",
+              "chunk": 1
+            },
+            {
+              "at_s": 5.775,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q3",
+          "check": {
+            "voiced_s": 3.99,
+            "compared_with": "intended",
+            "morae": 37,
+            "expected_s": 4.11,
+            "ratio": 0.97,
+            "kind": "ok"
+          }
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "question_id": "Q3",
+            "condition_id": "はい",
+            "value": "大丈夫です"
+          },
+          "reply": {
+            "result": "confirm_required",
+            "value": "パンフレットをお送りしてもよろしいということ",
+            "say": "念のためパンフレットをお送りしてもよろしいということでよろしいでしょうか？",
+            "after": "ambiguous",
+            "message": "言い直して確かめます。「念のためパンフレットをお送りしてもよろしいということでよろしいでしょうか？」と言って、相手の返事を待ってください。相手が認めたら confirm_field を返事の種類「合っている」で、違うと言われたら「違う値を言われた」で報告し、訂正された値には相手の答えに合う選択肢の名前（はい、いいえ、わからない、答えたくない）を入れます。",
+            "ack": "hai"
+          },
+          "callee_turns": 1
+        }
+      ],
+      "items": {
+        "Q3": {
+          "state": "checking",
+          "value": "大丈夫です",
+          "condition": "はい",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        }
+      },
+      "export": {
+        "Q3": "-"
+      },
+      "final_phase": "asking",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "op": "record_answer",
+      "condition": "はい",
+      "state": "checking",
+      "taken_condition": "はい",
+      "verdict": "正しい",
+      "program_said": [
+        "念のためパンフレットをお送りしてもよろしいということでよろしいでしょうか？"
+      ],
+      "callee_heard": [
+        "大丈夫です。"
+      ]
+    },
+    {
+      "id": "a2",
+      "voice": "Aoede",
+      "question": "Q3",
+      "want": "いいえ",
+      "kind": "曖昧",
+      "text": "結構です。",
+      "noise_tag": "無し",
+      "voice_type": "S4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "g14/Aoede_a2.wav"
+          },
+          "heard": "結構です。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.77,
+              "name": "record_answer",
+              "args": {
+                "condition_id": "いいえ",
+                "value": "結構です",
+                "question_id": "Q3"
+              },
+              "reply": "end",
+              "ack": "hai",
+              "say": null,
+              "play": [
+                {
+                  "kind": "closing",
+                  "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.772,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.553,
+              "text": "結構です。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.771,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.772,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "closing",
+          "current_after": null,
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          }
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "condition_id": "いいえ",
+            "value": "結構です",
+            "question_id": "Q3"
+          },
+          "reply": {
+            "result": "end",
+            "play": [
+              {
+                "kind": "closing",
+                "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+              }
+            ],
+            "message": "受け付けました。質問は終わりです。締めの言葉「お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。」は、プログラムが録音で流しました。何も言わずに終えます。",
+            "ack": "hai"
+          },
+          "callee_turns": 1
+        }
+      ],
+      "items": {
+        "Q3": {
+          "state": "accepted",
+          "value": "結構です",
+          "condition": "いいえ",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        }
+      },
+      "export": {
+        "Q3": "いいえ"
+      },
+      "final_phase": "closing",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "op": "record_answer",
+      "condition": "いいえ",
+      "state": "accepted",
+      "taken_condition": "いいえ",
+      "verdict": "正しい",
+      "program_said": [],
+      "callee_heard": [
+        "結構です。"
+      ]
+    },
+    {
+      "id": "a4",
+      "voice": "Aoede",
+      "question": "Q3",
+      "want": "ambiguous",
+      "kind": "曖昧",
+      "text": "いいです。",
+      "noise_tag": "無し",
+      "voice_type": "S4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "g14/Aoede_a4.wav"
+          },
+          "heard": "いいです。",
+          "intended": "念のためパンフレットはお送りしないということでよろしいでしょうか?",
+          "tool_events": [
+            {
+              "at_s": 1.127,
+              "name": "record_answer",
+              "args": {
+                "question_id": "Q3",
+                "value": "いいです",
+                "condition_id": "いいえ"
+              },
+              "reply": "confirm_required",
+              "ack": "hai",
+              "say": "念のためパンフレットはお送りしないということでよろしいでしょうか？",
+              "play": null
+            }
+          ],
+          "first_audio_after_s": 1.587,
+          "finished_after_s": 5.59,
+          "audio_seconds": 4.02,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.587,
+              "audio_s": 0.0,
+              "text": "念のためパンフレットはお"
+            },
+            {
+              "at_s": 2.0,
+              "audio_s": 1.98,
+              "text": "送りしないということでよ"
+            },
+            {
+              "at_s": 2.084,
+              "audio_s": 3.18,
+              "text": "ろしいでしょうか?"
+            }
+          ],
+          "heard_events": [
+            {
+              "at_s": 0.532,
+              "text": "いいです。"
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 1.127,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 1.128,
+              "kind": "turn_complete"
+            },
+            {
+              "at_s": 1.587,
+              "kind": "audio_start",
+              "chunk": 1
+            },
+            {
+              "at_s": 5.59,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q3",
+          "check": {
+            "voiced_s": 3.83,
+            "compared_with": "intended",
+            "morae": 33,
+            "expected_s": 3.67,
+            "ratio": 1.05,
+            "kind": "ok"
+          }
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "record_answer",
+          "args": {
+            "question_id": "Q3",
+            "value": "いいです",
+            "condition_id": "いいえ"
+          },
+          "reply": {
+            "result": "confirm_required",
+            "value": "パンフレットはお送りしないということ",
+            "say": "念のためパンフレットはお送りしないということでよろしいでしょうか？",
+            "after": "ambiguous",
+            "message": "言い直して確かめます。「念のためパンフレットはお送りしないということでよろしいでしょうか？」と言って、相手の返事を待ってください。相手が認めたら confirm_field を返事の種類「合っている」で、違うと言われたら「違う値を言われた」で報告し、訂正された値には相手の答えに合う選択肢の名前（はい、いいえ、わからない、答えたくない）を入れます。",
+            "ack": "hai"
+          },
+          "callee_turns": 1
+        }
+      ],
+      "items": {
+        "Q3": {
+          "state": "checking",
+          "value": "いいです",
+          "condition": "いいえ",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0
+        }
+      },
+      "export": {
+        "Q3": "-"
+      },
+      "final_phase": "asking",
+      "hurried": false,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "op": "record_answer",
+      "condition": "いいえ",
+      "state": "checking",
+      "taken_condition": "いいえ",
+      "verdict": "正しい",
+      "program_said": [
+        "念のためパンフレットはお送りしないということでよろしいでしょうか？"
+      ],
+      "callee_heard": [
+        "いいです。"
+      ]
+    }
+  ]
+}

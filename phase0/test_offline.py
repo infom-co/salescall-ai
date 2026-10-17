@@ -1213,6 +1213,38 @@ class TopicTest(unittest.TestCase):
         self.assertEqual(decide("何名様でお越しになりますでしょうか？", ["ご来店の人数"]), "")                       # 1つでは決めない
 
 
+class MeaningTest(unittest.TestCase):
+    """選択肢ごとの意味の言葉（meanings.py・G-48）。⚠️ 一番こわいのは向きの取り違え（「はい」に「されていない」）＝相手が認めると逆の答えが渡る。
+    わざと取り違えた言葉を混ぜて、決まらないことを確かめる（Intent.md 16-1「わざと壊す」）。"""
+    Q = "ご予約はされていますでしょうか？"
+
+    def test_check(self):
+        from meanings import check
+        self.assertTrue(check("ご予約はされているということ", self.Q, "はい"))
+        self.assertTrue(check("お支払いはカード", "お支払いはカードと振込のどちらがよろしいでしょうか？", "カード"))
+        for bad in ("", "はい", "ご予約、されているということ", "ご予約はされていますか", "ご予約はされているでしょうか",
+                    "とても長い長い長い長い長い長い長い長い長い長い言い方", "ご来店は初めてということ"):  # 最後＝質問に無い言葉だけ
+            self.assertFalse(check(bad, self.Q, "はい"), bad)
+
+    def test_decide(self):
+        from meanings import decide
+        a = {"はい": "ご予約はされているということ", "いいえ": "ご予約はされていないということ"}
+        b = {"はい": "ご予約はお済みということ", "いいえ": "ご予約はまだされていないということ"}
+        self.assertEqual(decide(self.Q, ("はい", "いいえ"), [a, b]), a)            # 言い方が違っても、向きがそろえば最初のモデルの言葉
+        flipped = {"はい": "ご予約はされていないということ", "いいえ": "ご予約はされているということ"}
+        self.assertEqual(decide(self.Q, ("はい", "いいえ"), [a, flipped]), {})     # わざと取り違えた：向きが食い違えば決めない
+        self.assertEqual(decide(self.Q, ("はい", "いいえ"), [a]), {})              # 1つでは決めない
+        self.assertEqual(decide(self.Q, ("はい", "いいえ"), [a, {"はい": a["はい"]}]), {"はい": a["はい"]})  # 片方に無い選択肢は決めない
+
+    def test_negated(self):
+        from meanings import negated
+        for w in ("ご予約はされていないということ", "お電話は差し上げなくてよろしいということ", "お電話は不要ということ",
+                  "ご予約の日時に変更はないということ", "ご予約の日時に変更はなしということ"):
+            self.assertTrue(negated(w), w)
+        for w in ("ご予約はされているということ", "ご予約の日時に変更があるということ", "お支払いはカード"):
+            self.assertFalse(negated(w), w)
+
+
 class SpokenNameTest(unittest.TestCase):
     """決まった読みは、声に出す文の名前をひらがなにして渡す（instruction.quote_in_text・Business。G-44）。決まらない名前は表記のまま。"""
 
@@ -1433,6 +1465,178 @@ class CalleeQuestionTest(unittest.TestCase):
             self.assertTrue(_CALLEE_ASKS.search(t), t)
         for t in ("はい、予約しています。", "15日の午後2時でお願いします。", "いいえ、まだしていません", "はい、そうです。"):
             self.assertFalse(_CALLEE_ASKS.search(t), t)
+
+
+class AmbiguousAnswerTest(unittest.TestCase):
+    """DESIGN.md 6-10 の (3)：受け入れにも断りにも取れる答え（「大丈夫です」「結構です」）は、AIが選んだ選択肢のまま渡さず、意味を確かめる。
+    ⛔ G-14：AIは24本中21本で、曖昧な答えを「はい」「いいえ」に決めた。⛔ 2026-10-17 に見つけた穴：選択肢の型の言い直しが
+    「はいとおっしゃいましたでしょうか？」になり、言い直しを打ち消されても選択肢は「はい」のままだった（依頼主へ「はい」が渡る）。"""
+    M = {"はい": "ご予約はお済みということ", "いいえ": "ご予約はまだということ"}
+
+    def flow(self, meanings=None, required=True, play=False):
+        from flowctl import Flow, Question
+        return Flow([Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"), required=required,
+                              meanings=self.M if meanings is None else meanings),
+                     Question("Q2", "お支払いはカードと振込のどちらがよろしいでしょうか？", "choice", conditions=("カード", "振込"))],
+                    play_recordings=play)
+
+    @staticmethod
+    def say(f, heard, op, **args):
+        f.on_callee(); f.on_heard(heard)
+        return f.apply(op, args)
+
+    def test_list(self):
+        from flowctl import ambiguous_answer
+        for t in ("大丈夫です。", "結構です", "いいです。", "あ、大丈夫です。", "えーと、結構です。", "大丈夫です、大丈夫です。", "いいですよ。",
+                  "家族がしたかもしれないです。", "たぶんカードです。", "多分してます", "おそらくまだです", "したかも。"):  # 言い切っていない答え
+            self.assertTrue(ambiguous_answer(t), t)
+        # 認める・打ち消す言葉が付いていれば、その言葉で決まる。「いいえ」は打ち消し。文字が無ければ決めない。「と思います」は言い切りの柔らかい形
+        for t in ("はい、大丈夫です。", "いいえ。", "いえ、結構です。", "どちらでも大丈夫です。", "はい、予約しています。", "", None,
+                  "カードがいいと思います。", "かもめ便でお願いします", "鴨川に住んでいます"):
+            self.assertFalse(ambiguous_answer(t), t)
+
+    def test_ambiguous_is_confirmed_by_meaning(self):
+        f = self.flow()
+        r = self.say(f, "大丈夫です。", "record_answer", question_id="Q1", condition_id="はい", value="大丈夫です")
+        self.assertEqual(r["result"], "confirm_required")
+        self.assertEqual(r["say"], "念のためご予約はお済みということでよろしいでしょうか？")
+        self.assertEqual(r["ack"], "hai")
+        self.assertNotIn("大丈夫でしょうか", r["say"])   # 相手の「大丈夫です」をそのまま聞き返さない
+        r = self.say(f, "はい。", "confirm_field", question_id="Q1", result="affirmed")
+        self.assertEqual((f.items["Q1"].state, f.export()["Q1"]), ("confirmed", "はい"))
+
+    def test_denied_meaning_takes_the_named_choice(self):
+        f = self.flow()
+        self.say(f, "大丈夫です。", "record_answer", question_id="Q1", condition_id="はい", value="大丈夫です")
+        r = self.say(f, "いえ、まだです。", "confirm_field", question_id="Q1", result="corrected", correction="いいえ")
+        self.assertEqual(r["say"], "改めましてご予約はまだということで大丈夫でしょうか？")
+        self.say(f, "はい。", "confirm_field", question_id="Q1", result="affirmed")
+        self.assertEqual(f.export()["Q1"], "いいえ")
+
+    def test_correction_must_be_a_choice(self):
+        f = self.flow()
+        self.say(f, "大丈夫です。", "record_answer", question_id="Q1", condition_id="はい", value="大丈夫です")
+        r = self.say(f, "いえ、まだです。", "confirm_field", question_id="Q1", result="corrected", correction="まだです")
+        self.assertEqual(r["result"], "rejected")
+        self.assertIn("はい、いいえ、わからない、答えたくない", r["message"])
+        self.assertEqual(f.items["Q1"].condition, "はい")  # 記録は書き換えない
+        r = f.apply("confirm_field", {"question_id": "Q1", "result": "corrected", "correction": "わからない"})  # 同じ発話への報告し直し
+        self.assertEqual((f.items["Q1"].state, f.export()["Q1"]), ("dont_know", "-"))
+
+    def test_clear_answer_is_not_confirmed(self):
+        f = self.flow()
+        r = self.say(f, "はい、予約しています。", "record_answer", question_id="Q1", condition_id="はい", value="予約しています")
+        self.assertEqual(r["result"], "next")
+        self.assertEqual(f.items["Q1"].state, "accepted")
+
+    def pamphlet(self):
+        # 前の質問から意味が決まる質問（G-49：2つのモデルが「結構」＝「いいえ」と決めた）
+        from flowctl import Flow, Question
+        return Flow([Question("Q3", "パンフレットをお送りしてもよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"),
+                              meanings={"はい": "パンフレットをお送りしてもよろしいということ", "いいえ": "パンフレットはお送りしなくてよろしいということ"},
+                              reply_meanings={"結構": "いいえ"})])
+
+    def test_question_decides_the_word(self):
+        # ✅ 2026-10-17 ユーザー：「人でも前の質問や会話から判断する言葉です」⇒ 前の質問で決まれば、確かめずにその意味（AIの選んだものと違っても）
+        f = self.pamphlet()
+        r = self.say(f, "結構です。", "record_answer", question_id="Q3", condition_id="はい", value="結構です")
+        self.assertEqual((r["result"], f.items["Q3"].state, f.export()["Q3"]), ("end", "accepted", "いいえ"))
+        f = self.pamphlet()
+        r = self.say(f, "大丈夫です。", "record_answer", question_id="Q3", condition_id="はい", value="大丈夫です")
+        self.assertEqual(r["result"], "confirm_required")  # 「大丈夫」は、この質問でも決まらない ⇒ 確かめる
+
+    def test_word_alone_does_not_end_the_call(self):
+        # ⛔ G-14：相手の「結構です。」だけで、AIが通話の断りとして締めた（30本中4本）
+        f = self.flow()
+        r = self.say(f, "結構です。", "request_end", reason="callee_refused_call")
+        self.assertEqual(r["result"], "rejected")
+        self.assertIn("record_answer", r["message"])
+        self.assertFalse(f.hurried)
+        r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "いいえ", "value": "結構です"})
+        self.assertEqual(r["say"], "念のためご予約はまだということでよろしいでしょうか？")
+        r = self.say(f, "結構です。", "request_end", reason="callee_refused_call")  # 確かめたあとにまた言われた＝断りとして締める
+        self.assertEqual((r["result"], f.hurried), ("end", True))
+        f = self.pamphlet()  # 前の質問で意味が決まる：その答えで受け取って続ける
+        r = self.say(f, "結構です。", "request_end", reason="callee_refused_call")
+        self.assertEqual((f.items["Q3"].state, f.export()["Q3"], f.hurried), ("accepted", "いいえ", False))
+        f = self.flow()  # 断りの言葉が付いていれば、断り
+        r = self.say(f, "もう結構です、かけてこないでください。", "request_end", reason="callee_refused_call")
+        self.assertEqual(r["result"], "end")
+
+    def test_lead_word_contradiction_is_confirmed(self):
+        # ⛔ G-14：「いや、これからなんです。」を、AIが「はい」と報告した ⇒ 頭の言葉と食い違えば確かめる（一致すれば、これまでどおり）
+        from flowctl import reply_lead
+        f = self.flow()
+        r = self.say(f, "いや、これからなんです。", "record_answer", question_id="Q1", condition_id="はい", value="これから")
+        self.assertEqual((r["result"], r["say"]), ("confirm_required", "念のためご予約はお済みということでよろしいでしょうか？"))
+        f = self.flow()
+        r = self.say(f, "いや、これからなんです。", "record_answer", question_id="Q1", condition_id="いいえ", value="これから")
+        self.assertEqual((r["result"], f.items["Q1"].state), ("next", "accepted"))
+        for t, want in (("はい、予約しています。", "はい"), ("いいえ、まだです。", "いいえ"), ("いえ、まだしていません。", "いいえ"),
+                        ("あ、はい、まだです。", "はい"), ("いえいえ、大丈夫です。", None), ("いやー、どうでしょう。", None), ("予約済みです。", None)):
+            self.assertEqual(reply_lead(t), want, t)
+
+    def test_any_is_an_answer_for_choice(self):
+        # ✅ 2026-10-17 ユーザー：選択肢の質問の「どちらでも大丈夫です」は答え（「いつでも」と同じ）。はい／いいえの質問には無い
+        from flowctl import Flow
+        f = self.flow()
+        self.assertNotIn("どちらでも", f.questions["Q1"].labels)
+        self.assertEqual(f.questions["Q2"].labels, ("カード", "振込", "どちらでも", "わからない", "答えたくない"))
+        self.say(f, "はい、予約しています。", "record_answer", question_id="Q1", condition_id="はい")
+        r = f.handle(type("FC", (), {"name": "record_answer", "args": {"質問": "Q2", "答えの種類": "どちらでも", "値": "どちらでも大丈夫です"}})())
+        self.assertEqual((f.items["Q2"].state, f.export()["Q2"]), ("accepted", "どちらでも"))
+        self.assertNotIn("any", str(r))  # AIへの返事に中の名前を出さない
+        g = Flow([f.questions["Q1"]])
+        r = self.say(g, "どちらでもいいです。", "record_answer", question_id="Q1", condition_id="any")
+        self.assertEqual(r["result"], "rejected")  # はい／いいえの質問の選択肢には無い
+
+    def test_any_after_ask_back_is_restated(self):
+        f = self.flow()
+        self.say(f, "はい、予約しています。", "record_answer", question_id="Q1", condition_id="はい")
+        self.say(f, "え？", "report_unclear", question_id="Q2")
+        r = self.say(f, "どちらでも大丈夫です。", "record_answer", question_id="Q2", condition_id="any")
+        self.assertTrue(r["say"].endswith("どちらでも構わないということでよろしかったでしょうか？"), r["say"])
+        r = self.say(f, "いえ、カードでお願いします。", "confirm_field", question_id="Q2", result="corrected", correction="カード")
+        self.assertEqual(f.items["Q2"].condition, "カード")
+
+    def test_transcript_missing_uses_reported_words(self):
+        f = self.flow()
+        r = self.say(f, "", "record_answer", question_id="Q1", condition_id="いいえ", value="結構です")
+        self.assertEqual(r["say"], "念のためご予約はまだということでよろしいでしょうか？")
+
+    def test_without_meaning_words_asks_again(self):
+        # 意味の言葉が取込で決まらず、選択肢が「はい」「いいえ」だけ：言い直せないので聞き返す（止まらない）
+        f = self.flow(meanings={})
+        r = self.say(f, "大丈夫です。", "record_answer", question_id="Q1", condition_id="はい", value="大丈夫です")
+        self.assertEqual(r["result"], "ask_back")
+
+    def test_not_required_becomes_dash(self):
+        f = self.flow(required=False)
+        r = self.say(f, "大丈夫です。", "record_answer", question_id="Q1", condition_id="はい", value="大丈夫です")
+        self.assertEqual((r["result"], f.items["Q1"].state), ("next", "unresolved"))
+
+    def test_choice_label_is_its_own_words(self):
+        # 選択肢の名前が言葉になっている（「カード」）ときは、名前のまま言い直せる。聞き返したあとの言い直し（6-11）
+        f = self.flow()
+        self.say(f, "はい、予約しています。", "record_answer", question_id="Q1", condition_id="はい")
+        self.say(f, "え？", "report_unclear", question_id="Q2")
+        r = self.say(f, "カードで。", "record_answer", question_id="Q2", condition_id="カード", value="カードで")
+        self.assertTrue(r["say"].endswith("カードでよろしかったでしょうか？"), r["say"])
+        self.assertNotIn("おっしゃいましたでしょうか", r["say"])  # 意味の言い直しに、言葉を聞き返す形は使わない
+
+    def test_yes_no_after_ask_back_without_words_is_accepted(self):
+        # ⛔ 直す前：「はいとおっしゃいましたでしょうか？」と言い直していた。言い直す言葉が無ければ、聞き取れた答えのまま受け付ける
+        f = self.flow(meanings={})
+        self.say(f, "え？", "report_unclear", question_id="Q1")
+        r = self.say(f, "はい。", "record_answer", question_id="Q1", condition_id="はい", value="はい")
+        self.assertEqual((r["result"], f.items["Q1"].state), ("next", "accepted"))
+
+    def test_meanings_only_for_declared_choices(self):
+        from flowctl import Question
+        with self.assertRaises(AssertionError):
+            Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"), meanings={"たぶん": "x"})
+        with self.assertRaises(AssertionError):
+            Question("Q2", "ご希望の日時をお聞かせいただけますでしょうか？", "datetime", conditions=("答えた",), meanings={"答えた": "x"})
 
 
 class RequestTailTest(unittest.TestCase):
