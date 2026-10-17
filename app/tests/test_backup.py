@@ -86,6 +86,23 @@ class Backup(unittest.TestCase):
         self.assertIn("控え用のハードディスクがつながっていません。PC にハードディスクをつないでください。", told)
 
 
+class Key(unittest.TestCase):
+    """控えの鍵：Proton Pass で作った文字を PC の環境変数に入れ、そこから作る（2026-10-17 ユーザー）。"""
+
+    def test_the_same_text_makes_the_same_key_and_the_value_is_never_shown(self):
+        text = "架空の鍵の元-0123456789-abcdefghij"
+        key = backup.load_key({backup.KEY_ENV: text + "\n"})            # 写したときの改行は外す
+        self.assertEqual((len(key), key), (32, backup.key_from_text(text)))
+        self.assertNotEqual(key, backup.key_from_text(text + "x"))
+        blob = backup.encrypt(b"data", key, "f")
+        self.assertEqual(backup.decrypt(blob, backup.load_key({backup.KEY_ENV: text}), "f"), b"data")
+        for env, says in (({}, "入っていません"), ({backup.KEY_ENV: "short-secret"}, "20文字以上")):
+            with self.subTest(says=says), self.assertRaises(backup.BackupFailed) as got:
+                backup.load_key(env)
+            self.assertIn(says, str(got.exception))
+            self.assertNotIn("short-secret", str(got.exception))
+
+
 class PerClient(unittest.TestCase):
     """依頼者ごとの控え（2026-10-17 ユーザー：「E:\\salescall-backup\\client1」「AI用と、提出用で分ける。AI用は…HDに1年
     …\\AI。提出用はFly.ioには保存しない　HDに3年 …\\submission」「client1・client2 がデフォルト、自社情報からフォルダ名が自動で」）。"""

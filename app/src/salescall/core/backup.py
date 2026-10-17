@@ -116,6 +116,29 @@ def _quoted(qualified: str) -> str:
     return f'"{schema}"."{table}"'
 
 
+# 控えの鍵（2026-10-17 ユーザー決定 案A：PC と管理者の写しの2か所。写しは Proton Pass で作った＝ユーザー）。
+# 鍵の元は Proton Pass で作った文字（20文字以上）。PC の環境変数に入れ、そこから32バイトの鍵を作る（読むのは load_key の1か所）。
+KEY_ENV = "SALESCALL_BACKUP_KEY"
+KEY_MIN_CHARS = 20
+_KEY_SALT = b"salescall-backup-key-1"     # 作り方を変えたら番号を上げる（前の控えは前の作り方でしか戻せない）
+
+
+def key_from_text(text: str) -> bytes:
+    """Proton Pass で作った文字から、控えの鍵（32バイト）を作る。前後の空白・改行は外す（写し間違いを防ぐ）。値は出さない。"""
+    text = text.strip()
+    if len(text) < KEY_MIN_CHARS:
+        raise BackupFailed(f"控えの鍵の元は{KEY_MIN_CHARS}文字以上です（Proton Pass で作った文字を、そのまま写してください）")
+    return hashlib.scrypt(text.encode(), salt=_KEY_SALT, n=2 ** 14, r=8, p=1, dklen=32)
+
+
+def load_key(environ: dict[str, str] | None = None) -> bytes:
+    """PC の環境変数から控えの鍵を読む（見守り役が呼ぶ）。無ければ、入れ方を書いた BackupFailed（値は書かない）。"""
+    text = (os.environ if environ is None else environ).get(KEY_ENV, "")
+    if not text.strip():
+        raise BackupFailed(f"控えの鍵が入っていません。PC の環境変数 {KEY_ENV} に、Proton Pass に置いた文字をそのまま入れてください")
+    return key_from_text(text)
+
+
 def encrypt(data: bytes, key: bytes, file_name: str) -> bytes:
     """控えを暗号化する（AES-GCM。ファイルの名前も合わせて守る＝別のファイルと取り替えられたら復号できない）。"""
     nonce = os.urandom(12)
