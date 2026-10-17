@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from pathlib import Path
 
 from audio import resample
@@ -30,6 +31,10 @@ CHUNK_S = 0.1                     # 0.1秒ずつ、実際の通話と同じ速�
 SECRETS = {"amivoice": "AMIVOICE_APPKEY", "soniox": "SONIOX_API_KEY"}
 AMIVOICE_URL = "wss://acp-api.amivoice.com/v1/nolog/"   # ⚠️ 最後の「/」が無いと、記録を残す接続先になる（公式の資料）
 AMIVOICE_ENGINE = "-a-general"   # 汎用エンジン
+# 言いよどみ（フィラー）として扱う言葉を、結果から消さない。⛔ 2026-10-17 G-15：初めの設定のままでは、答えの頭の「いいえ」「ええ」を
+# 言いよどみとして消していた（「いいえ、まだです。」⇒「まだです。」・「ええ、してます。」⇒「してます。」。この設定で「%い%%え%まだです。」
+# 「%えー%してます。」と返る＝はい／いいえの答えでは、まさにこの言葉が要る）。
+AMIVOICE_KEEP_FILLER = "keepFillerToken=1"
 SONIOX_URL = "wss://stt-rt.soniox.com/transcribe-websocket"
 SONIOX_MODEL = "stt-rt-v5"        # リアルタイムの最新（2026-10-17 に Soniox のモデルの一覧で確かめた：stt-rt-v3・v4・v5。ears_try が毎回一覧を出す）
 REAZON_DIR = HERE / "models" / "reazonspeech"
@@ -148,13 +153,15 @@ class GeminiEar(Ear):
 
 def amivoice_final(event: str) -> str | None:
     """AmiVoice の知らせ（文字の1行）から、確定した文字を取り出す。確定（A）のときだけ文字、それ以外は None。
-    知らせ：S（話し始め）・E（話し終わり）・C（文字にし始め）・U（途中の文字）・A（確定した文字。JSON の text）・G（そのほか）。"""
+    知らせ：S（話し始め）・E（話し終わり）・C（文字にし始め）・U（途中の文字）・A（確定した文字。JSON の text）・G（そのほか）。
+    言いよどみの印（「%えー%」の %）は外して、言葉は残す（AMIVOICE_KEEP_FILLER）。"""
     if not event.startswith("A"):
         return None
     try:
-        return (json.loads(event[1:].strip() or "{}").get("text") or "").strip() or None
+        text = json.loads(event[1:].strip() or "{}").get("text") or ""
     except json.JSONDecodeError:
         return None
+    return re.sub(r"%([^%]*)%", r"\1", text).strip() or None
 
 
 class AmiVoiceEar(Ear):
@@ -168,7 +175,7 @@ class AmiVoiceEar(Ear):
         import websockets
 
         self.ws = await websockets.connect(self.url, max_size=None)
-        await self.ws.send(f"s LSB16K {self.engine} authorization={self.key}")
+        await self.ws.send(f"s LSB16K {self.engine} authorization={self.key} {AMIVOICE_KEEP_FILLER}")
         ack = await self.ws.recv()                      # s の返事（誤りなら「s 理由」）
         if not isinstance(ack, str) or ack.strip() != "s":
             raise RuntimeError(f"AmiVoice が始められませんでした：{str(ack)[:120]}")

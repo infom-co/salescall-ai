@@ -18,7 +18,7 @@ import asyncio
 import json
 from collections import Counter
 
-from common import HERE, base_parser, describe_error, drop_partial, make_client, pick_key, require_python, save_partial, save_result, say
+from common import HERE, KeyRing, base_parser, describe_error, drop_partial, require_python, save_partial, save_result, say
 from convo import run_call
 from ears import EAR_KINDS
 from flowctl import Question
@@ -163,7 +163,7 @@ GOT_STATES = ("confirmed", "accepted")
 
 
 async def run_followup(args) -> dict:
-    client = make_client(pick_key(args))
+    ring = KeyRing(args)  # 上限に当たったら次のキーで、その通話を初めからやり直す（common.KeyRing.acall）
     clip = {(m["voice"], m["id"]): m for m in json.loads((HERE / "results" / "callee" / "g14" / "index.json").read_text(encoding="utf-8"))
             if m.get("ok") and not m.get("noise")}
     voices = sorted({v for v, _ in clip} & set(args.voice or {v for v, _ in clip}))
@@ -176,9 +176,9 @@ async def run_followup(args) -> dict:
                                                               else followup_lines(clip, voice, truth))
             head = {"scene": scene, "voice": voice, "truth": truth}
             try:
-                call = await run_call(client, args.model, business("Q1"), "S4", lines, opening_mode="recorded", use_ear=False,
-                                      save_audio="bad", audio_label=f"G14f_{voice}_{first}", followup_wait_s=FOLLOWUP_WAIT_S,
-                                      play_recordings=True, **FAST)
+                call, _ = await ring.acall(args.model, lambda client: run_call(
+                    client, args.model, business("Q1"), "S4", lines, opening_mode="recorded", use_ear=False,
+                    save_audio="bad", audio_label=f"G14f_{voice}_{first}", followup_wait_s=FOLLOWUP_WAIT_S, play_recordings=True, **FAST))
                 row = keep_call(head, call, lambda c: {
                     "verdict": followup_verdict(c, truth), "ops": [(e["op"], e["args"], e["reply"]["result"]) for e in c["flow_log"]],
                     "program_said": [e["reply"].get("say") for e in c["flow_log"] if e["reply"].get("say")],
@@ -195,7 +195,8 @@ async def run_followup(args) -> dict:
 
 
 async def run(args) -> dict:
-    client = make_client(pick_key(args))
+    ring = KeyRing(args)  # 上限に当たったら次のキーで、その通話を初めからやり直す（common.KeyRing.acall。⛔ 2026-10-17：1つのキーだけでつなぎ、
+    # 6つの声を同時に流すと上限に当たって 153本のうち104本が止まった）
     items = [m for m in json.loads((HERE / "results" / "callee" / "g14" / "index.json").read_text(encoding="utf-8"))
              if m.get("ok") and m["want"] != "follow"]
     if args.only:
@@ -210,9 +211,10 @@ async def run(args) -> dict:
     for n, item in enumerate(items[: args.limit or None]):
         head = {**{k: item[k] for k in ("id", "voice", "question", "want", "kind", "text")}, "noise_tag": "雑音" if item.get("noise") else "無し"}
         try:
-            call = await run_call(client, args.model, business(item["question"], not args.no_meanings), "S4", [{"wav": item["wav"]}], opening_mode="recorded",
-                                  use_ear=False, save_audio="bad", audio_label=f"G14_{item['voice']}_{item['id']}",
-                                  followup_wait_s=FOLLOWUP_WAIT_S, play_recordings=True, ear_kind=args.ear, **FAST)
+            call, _ = await ring.acall(args.model, lambda client: run_call(
+                client, args.model, business(item["question"], not args.no_meanings), "S4", [{"wav": item["wav"]}], opening_mode="recorded",
+                use_ear=False, save_audio="bad", audio_label=f"G14_{item['voice']}_{item['id']}",
+                followup_wait_s=FOLLOWUP_WAIT_S, play_recordings=True, ear_kind=args.ear, **FAST))
             row = keep_call(head, call, lambda c: measures(c, item))
         except Exception as exc:
             row = {**head, "error": describe_error(exc)}

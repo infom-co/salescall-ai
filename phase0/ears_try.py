@@ -201,16 +201,20 @@ def try_ear(kind: str, args, calls: list[dict]) -> dict:
     if not out["見込み"].get("拾える誤り"):
         return {**out, "止まった所": "(5) 拾える誤りが無いので、通話の中の試験は流さない"}
     tag = f"-ear-{kind}"
-    if not (args.reuse and latest(f"G-14{tag}-*_*.json")):
+    if not (args.reuse and all(latest(f"G-14{tag}-{v}_*.json") for v in VOICES)):
         procs, jobs = [], args.jobs or JOBS.get(kind, len(VOICES))
-        for v in VOICES:
-            procs.append(subprocess.Popen([sys.executable, "g14_listen.py", "--ear", kind, "--voice", v, f"--tag={tag}-{v}"], cwd=HERE))
+        n = len(load_keys(args.env))
+        for j, v in enumerate(VOICES):
+            # 同時に流す声ごとに、使い始めるキーをずらす（上限に当たったら、どのキーでも次へ移る＝common.KeyRing.acall）
+            procs.append(subprocess.Popen([sys.executable, "g14_listen.py", "--ear", kind, "--voice", v, f"--tag={tag}-{v}",
+                                           f"--key-index={j * n // len(VOICES)}"], cwd=HERE))
             while sum(p.poll() is None for p in procs) >= jobs:
                 procs[[p.poll() is None for p in procs].index(True)].wait()
         for p in procs:
             p.wait()
-    rows = [r for f in latest(f"G-14{tag}-*_*.json") for r in json.loads(open(f, encoding="utf-8").read())["rows"]]
-    out["通話の中"] = in_call(rows)
+    files = [latest(f"G-14{tag}-{v}_*.json")[-1] for v in VOICES if latest(f"G-14{tag}-{v}_*.json")]   # 声ごとに最新の回だけ
+    rows = [r for f in files for r in json.loads(open(f, encoding="utf-8").read())["rows"]]
+    out["通話の中"] = {**in_call(rows), "止まった通話": sum(1 for r in rows if "error" in r)}
     return {**out, "止まった所": "（最後まで）"}
 
 

@@ -1396,6 +1396,55 @@ class KeyRingTest(unittest.TestCase):
             self.assertEqual((again.spent, again.denied), ({"m": {0}}, {1}))
             self.assertNotIn("a" * 39, path.read_text(encoding="utf-8"))   # キーの値は書かない
 
+    def test_live_calls_move_to_next_key(self):
+        # ⛔ 2026-10-17：通話の試験は1つのキーだけでつなぎ、上限（会話のモデルは閉じる番号 1011・「exceeded your current quota」）に当たると
+        # 止まっていた ⇒ 次のキーで初めからやり直す。止められたプロジェクトは使わない。ほかの誤りはそのまま上げる
+        import argparse
+        import asyncio
+        import common
+
+        class Live(Exception):
+            def __init__(self, code, msg):
+                super().__init__(f"{code} None. {msg}")
+                self.code = code
+
+        ring = common.KeyRing(argparse.Namespace(proxy_key=False, env="/nonexistent", key_name=None, key_index=0), min_interval_s=0,
+                              state_path=False)
+        ring.keys = [common.ApiKey(f"K{i}", chr(97 + i) * 39) for i in range(3)]
+        ring._clients = {0: "c0", 1: "c1", 2: "c2"}
+        calls = []
+
+        async def fn(client):
+            calls.append(client)
+            if client == "c0":
+                raise Live(1011, "You exceeded your current quota, please check your plan and billing details.")
+            if client == "c1":
+                raise Live(1008, "Your project has been denied access. Please contact support.")
+            return "ok"
+
+        self.assertEqual(asyncio.run(ring.acall("live", fn)), ("ok", 2))
+        self.assertEqual(asyncio.run(ring.acall("live", fn)), ("ok", 2))      # 休み中のキー・止められたキーは飛ばす
+        self.assertEqual(calls, ["c0", "c1", "c2", "c2"])
+        self.assertEqual(ring.denied, {1})
+
+        async def other(client):
+            raise ValueError("ほかの誤り")
+        with self.assertRaises(ValueError):
+            asyncio.run(ring.acall("live", other))
+
+    def test_session_timeout_is_not_a_denied_project(self):
+        # ⛔ つなぎの時間切れも閉じる番号 1008 で返る（2026-10-17 G-15）＝番号だけで「止められたプロジェクト」と決めない
+        import common
+
+        class Live(Exception):
+            code = 1008
+        goaway = Live("1008 None. Connection aborted because the client failed to close the connection after receiving a GoAway signal "
+                      "once the session duration limit was reached.")
+        self.assertFalse(common.is_denied(goaway))
+        self.assertTrue(common.is_denied(Live("1008 None. Your project has been denied access. Please contact support.")))
+        self.assertTrue(common.is_quota(Exception("1011 None. You exceeded your current quota, please check your plan and billing details.")))
+        self.assertFalse(common.is_quota(goaway))
+
 
 class ScriptRecordingTest(unittest.TestCase):
     """✅ 2026-10-16 ユーザー：「こちら側の担当者名は、依頼者ごとの録音時に録音しておくといいでしょう」。名乗り（自社名・担当者名）と
@@ -1486,7 +1535,10 @@ class EarsTest(unittest.TestCase):
     def test_amivoice_events(self):
         from ears import amivoice_final
         self.assertEqual(amivoice_final('A {"text": "してないです。", "results": []}'), "してないです。")
-        for ev in ('U {"text": "して"}', "S 1200", "E 2300", "C", 'A {"text": ""}', "A not-json"):
+        # 言いよどみの印は外して言葉は残す（⛔ 初めの設定では「いいえ」「ええ」を言いよどみとして消していた。ears.AMIVOICE_KEEP_FILLER）
+        self.assertEqual(amivoice_final('A {"text": "%い%%え%まだです。"}'), "いえまだです。")
+        self.assertEqual(amivoice_final('A {"text": "%えー%してます。"}'), "えーしてます。")
+        for ev in ('U {"text": "して"}', "S 1200", "E 2300", "C", 'A {"text": ""}', "A not-json", 'A {"text": "%%"}'):
             self.assertIsNone(amivoice_final(ev), ev)
 
     def test_soniox_tokens(self):
@@ -1680,9 +1732,15 @@ class EarCheckTest(unittest.TestCase):
     def test_alike(self):
         from flowctl import heard_alike
         for a, b in (("家まだしていません。", "いえ、まだしていません。"), ("いいえ、まだです。", "いえ、まだです。"), ("はい、予約しています。", "はい予約しています"),
-                     ("いや、これからなんです。", "いいえ、これからなんです。")):
+                     ("いや、これからなんです。", "いいえ、これからなんです。"),
+                     # 頭の返事の言葉の伸ばし方の違い（2026-10-17：AmiVoice は「えー」「いやあ」と書く）
+                     ("ええ、してます。", "えーしてます。"), ("いや、これからなんです。", "いやあ、これからなんです。"), ("いいえ、まだです。", "いえまだです。"),
+                     # 答えの前の言いよどみ（AmiVoice は息の音を「あ」と書く）
+                     ("はい、予約しています。", "あはい。予約しています。"), ("まだです。", "えーと、まだです。"), ("してないです。", "あのー、してないです。")):
             self.assertTrue(heard_alike(a, b), (a, b))
-        for a, b in (("捨てないです。", "してないです。"), ("や、これからなんです。", "いや、これからなんです。"), ("はい、清掃しました。", "はい、先週しました。")):
+        for a, b in (("捨てないです。", "してないです。"), ("や、これからなんです。", "いや、これからなんです。"), ("はい、清掃しました。", "はい、先週しました。"),
+                     ("や、これからなんです。", "いやあ、これからなんです。"), ("いいえ、まだです。", "はい、まだです。"), ("ええ、してます。", "いえ、してます。"),
+                     ("いいえ、まだです。", "あ、はい、まだです。"), ("ありがとうございます。", "りがとうございます。")):
             self.assertFalse(heard_alike(a, b), (a, b))
 
     def test_disagreement_is_confirmed(self):
