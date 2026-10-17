@@ -224,6 +224,11 @@ def purpose_dials(tx: Tx, task_id: UUID, *, purpose: str) -> list[PurposeDial]:
         f" WHERE task_id = %s AND purpose = %s AND {_DIALED} ORDER BY claimed_at", (task_id, purpose))]
 
 
+# 依頼者専用の発信番号が無いときの注意（2026-10-17 ユーザー決定の文。設定する場所は、画面の依頼者タブの「回線（発信番号）」＝CL-3）
+OWN_LINE_MISSING = ("この依頼者に専用の発信番号がありません。発信番号を依頼者タブの「回線（発信番号）」で設定してください。"
+                    "（ほかの依頼者がかけた番号へは、同じ発信番号ではかけないため、その番号は設定されるまで待っています）")
+
+
 def choose_voice(tx: Tx, task_id: UUID, phone_e164: str, business_voice: str) -> str:
     """この通話で話す声の型（決めるのはここだけ。DESIGN.md 5-2-2 の順10）。
     (1) この行で前に話した声の型があれば、それ（同じお客様へのかけ直しは同じ声。A/B のグループも保つ。お詫びの電話も同じ声）。
@@ -368,8 +373,7 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
     if not approval.human_for_business(tx, task["business_id"]) and tx.one(
             "SELECT salescall.line_called_number_elsewhere(%s, %s) AS hit", (line_id, task["phone_e164"]))["hit"]:
         notify.emit(tx, "setting_missing", key=f"own_line:{task['client_id']}:{local.date()}",
-                    summary="この依頼者に専用の発信番号（回線）がありません。ほかの依頼者がかけた番号へは、同じ発信番号ではかけないので、"
-                            "その番号は待っています。依頼者ごとの発信番号を用意してください。",
+                    summary=OWN_LINE_MISSING,
                     refs={"client_id": task["client_id"], "line_id": line_id})
         return _deny("line_used_by_other_client")
     dials = tx.one("SELECT salescall.line_dials_on(%s, %s) AS n", (line_id, local.date()))["n"]

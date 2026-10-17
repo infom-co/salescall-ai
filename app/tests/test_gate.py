@@ -590,10 +590,12 @@ class CallerNumberAndVoice(Base):
         b = self.ready(tenant=a["tenant"], phone=a["phone"])
         self.lease(b, line=a["line"])
         self.assertEqual(self.reason(b, line=a["line"]), "line_used_by_other_client")   # 同じ発信番号ではかけない
-        notice = self.tx(b, lambda tx: tx.one("SELECT count(*) AS n FROM salescall.notification_events"
+        notice = self.tx(b, lambda tx: tx.all("SELECT summary FROM salescall.notification_events"
                                               " WHERE kind = 'setting_missing' AND refs ->> 'client_id' = %s",
-                                              (str(b["client"]),)))["n"]
-        self.assertEqual(notice, 1)                                                 # 依頼者ごとの発信番号が無いと知らせる
+                                              (str(b["client"]),)))
+        self.assertEqual([n["summary"] for n in notice], [gate.OWN_LINE_MISSING])   # 依頼者ごとの発信番号が無いと知らせる
+        self.assertTrue(gate.OWN_LINE_MISSING.startswith(
+            "この依頼者に専用の発信番号がありません。発信番号を依頼者タブの「回線（発信番号）」で設定してください。"))
         self.lease(b)
         self.assertIsInstance(self.claim(b), gate.Claim)                            # 自分の発信番号ならかける
         mine = self.ready(tenant=a["tenant"])
