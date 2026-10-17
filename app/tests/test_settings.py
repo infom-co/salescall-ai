@@ -227,14 +227,6 @@ class PerClientSettings(unittest.TestCase):
                 put(self.w, self.t, self.c, key, value)
                 self.assertEqual(self.detail(key)["value"], value)
 
-    def test_unknown_result_interval_has_a_floor(self):
-        put(self.w, self.t, self.c, "gate.unknown_result_min_interval", 7200)
-        self.assertEqual(self.detail("gate.unknown_result_min_interval")["value"], 7200)
-        c2 = self.w.client(self.t)
-        put(self.w, self.t, c2, "gate.unknown_result_min_interval", 600)
-        self.assertEqual(self.detail("gate.unknown_result_min_interval", client=c2),
-                         {"value": 3600, "from": "client", "bounded_by": "gate.unknown_result_min_interval_floor"})
-
     def test_calling_hours_follow_the_client_inside_the_frame(self):
         """2026-10-13 ユーザー：日祝も含め、依頼者ごとに自由に。歯止めは深夜・早朝（毎日 7〜22時）だけ。"""
         put(self.w, self.t, self.c, "calling.hours", {

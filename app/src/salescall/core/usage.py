@@ -12,7 +12,7 @@
 - 予算（1日の上限。日本時間の日）：依頼者の上限を超えたら、その依頼者の契約者へ注意を知らせる（1日1回）。全体の上限は、見守りが
   呼ぶ `tick` が管理者へ注意を知らせる。**どちらも止めない**（2026-10-16 ユーザー：「注意喚起のみ」。お客様には影響しない）。
 - **報酬に対する費用の割合**（2026-10-15 ユーザー決定。今月の数は core/reward.py の `month`）：記録のたびに、その依頼者の今月を見る。
-  どちらの判断も、成果・話せた本数のぶれを多めに見込んだ報酬（`upper`。確かさは設定 budget.judge_confidence）で行う
+  どちらの判断も、成果・話せた本数のぶれを多めに見込んだ報酬（`upper`。確かさは依頼者ごとの報酬の決まり）で行う
   ＝判断し始める本数を決め打ちにせず、報酬と費用から逆算される。
   - 赤字（今月の費用 ＞ 多めに見込んだ報酬）⇒ まず警告して契約者へ知らせる。期限（設定 budget.deficit_grace＝1時間）までに
     管理者か契約者が確認ボタンを押さなければ、その依頼者を止める（原因 deficit。2026-10-16 ユーザー：「警告喚起後、確認ボタンを
@@ -113,8 +113,7 @@ def _check_client_budget(tx: Tx, tenant_id: UUID, client_id: UUID) -> None:
 
 def _deficit(tx: Tx, tenant_id: UUID, client_id: UUID) -> tuple[bool, dict[str, Any]]:
     """取引の依頼者が、いま赤字か（判断は1か所：費用 ＞ 多めに見込んだ報酬）と、今月の数。"""
-    m = reward.month(tx, confidence=float(settings.system_value(tx, "budget.judge_confidence")),
-                     gap_max=int(settings.system_value(tx, "budget.hourly_gap_max")))
+    m = reward.month(tx)
     return m["cost"] > m["upper"], m
 
 

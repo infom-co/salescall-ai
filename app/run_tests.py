@@ -219,7 +219,8 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("お客様の意思と関係ない発信も、間隔・1日の回数に数える",
      "CREATE OR REPLACE FUNCTION salescall.not_by_callee(s salescall.attempt_state, disconnect text, p_attempt uuid)"
      " RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT false $$",
-     ("tests.test_gate.NotByCallee.test_failed_or_line_dropped_calls_do_not_count",)),
+     ("tests.test_gate.NotByCallee.test_failed_or_line_dropped_calls_do_not_count",
+      "tests.test_gate.Pacing.test_a_call_cut_by_our_failure_is_like_a_line_drop")),
     ("お客様が出る前の結果不明も、検証待ちにする",
      "CREATE OR REPLACE FUNCTION salescall.reached_answer(p_attempt uuid) RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT true $$",
      ("tests.test_gate.Pacing.test_unknown_result_before_answer_needs_no_long_wait",)),

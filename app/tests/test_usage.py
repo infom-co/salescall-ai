@@ -37,7 +37,7 @@ class Ledger(SettleBase):
         kinds = self.tx(s, lambda tx: [r["kind"] for r in tx.all("SELECT kind FROM salescall.notification_events"
                                                                  " WHERE event_key LIKE 'price_missing:%'")])
         self.assertEqual(kinds, ["setting_missing"])
-        self.assertEqual(self.tx(s, lambda tx: reward.month(tx, confidence=0.95, gap_max=300))["unpriced_entries"], 1)
+        self.assertEqual(self.tx(s, lambda tx: reward.month(tx))["unpriced_entries"], 1)
 
     def test_frozen(self):
         s = self.ready()
@@ -90,7 +90,7 @@ class PricesPerContractor(Priced):
 class Budget(Priced):
     def ample(self, s):
         """赤字で止まらないよう、十分な月額の報酬を入れる（1日の上限だけを確かめる）。"""
-        self.tx(s, lambda tx: reward.set_terms(tx, reward.Terms(monthly_yen=Decimal(10 ** 12)),
+        self.tx(s, lambda tx: reward.set_terms(tx, reward.Terms(monthly_yen=Decimal(10 ** 12), judge_confidence=Decimal("0.95")),
                                                valid_from=tx.one("SELECT now() - interval '40 days' AS t")["t"],
                                                note="試験"), OPERATOR)
 
@@ -129,9 +129,10 @@ class Budget(Priced):
 
 class CostRatio(Priced):
     """報酬に対する費用の割合（2026-10-15 ユーザー決定：既定 30％・依頼者ごとに選べる。超えたら知らせるだけ。赤字なら止める）。"""
-    def terms(self, s, *, days_ago=1, **yen):
+    def terms(self, s, *, days_ago=1, gap=None, confidence="0.95", **yen):
         return self.tx(s, lambda tx: reward.set_terms(
-            tx, reward.Terms(**{k: Decimal(v) for k, v in yen.items()}),
+            tx, reward.Terms(**{k: Decimal(v) for k, v in yen.items()}, hourly_gap_seconds=gap,
+                             judge_confidence=None if confidence is None else Decimal(confidence)),
             valid_from=tx.one("SELECT now() - %s * interval '1 day' AS t", (days_ago,))["t"], note="試験"), OPERATOR)
 
     def talked(self, s):
@@ -143,8 +144,8 @@ class CostRatio(Priced):
         return self.tx(s, lambda tx: usage.record(tx, source="ai", service="gemini-3.8-live", tier="free", kind="measured", quantity=int(yen * 100),
                                                   unit="input_tokens"))      # 単価 0.01円
 
-    def month(self, s, confidence=0.95, gap_max=300):
-        return self.tx(s, lambda tx: reward.month(tx, confidence=confidence, gap_max=gap_max))
+    def month(self, s):
+        return self.tx(s, lambda tx: reward.month(tx))
 
     def notices(self, s):
         return self.tx(s, lambda tx: tx.all("SELECT summary FROM salescall.notification_events WHERE kind = 'budget'"
@@ -191,15 +192,30 @@ class CostRatio(Priced):
         got = self.month(s)["breakdown"]["monthly"]["yen"]
         self.assertTrue(0 < got <= 3000)
 
-    def test_hourly_counts_the_calling_work_time(self):
+    def test_hourly_counts_like_a_person_would(self):
+        """時給の作業時間は、人と同じ速さで数える：電話1本ごとに、かけ始めから終わりまで＋電話と電話の間（依頼者ごとの秒数）
+        （2026-10-17 ユーザー：「時給換算では、人がやるのと同じスピードが重要」「1から2分くらい」「依頼者ごとに上下で設定」）。"""
         s = self.ready()
-        self.terms(s, hourly_yen=3600)                                 # 1秒 1円
+        with self.assertRaises(ValueError):                            # 時給には、電話と電話の間が要る
+            self.terms(s, hourly_yen=3600)
+        with self.assertRaises(ValueError):                            # 赤字の判断の慎重さも、必ず書く
+            self.terms(s, per_dial_yen=1, confidence=None)
+        self.terms(s, hourly_yen=3600, gap=90)                         # 1秒 1円・間は 90秒
         aid = self.talked(s)
         took = self.tx(s, lambda tx: tx.one("SELECT extract(epoch FROM ended_at - claimed_at) AS t FROM salescall.attempts"
                                             " WHERE attempt_id = %s", (aid,)))["t"]
         got = self.month(s)["breakdown"]["hourly"]
-        self.assertAlmostEqual(float(got["seconds"]), float(took), places=3)   # 予約から終わりまで（次の発信が無い）
-        self.assertAlmostEqual(float(got["yen"]), float(took), places=3)
+        self.assertAlmostEqual(float(got["seconds"]), float(took) + 90, places=3)
+        self.assertAlmostEqual(float(got["yen"]), float(took) + 90, places=3)
+
+    def test_the_caution_of_the_deficit_judgement_is_per_client(self):
+        """赤字かの判断の慎重さは依頼者ごと（2026-10-17 ユーザー）。慎重なほど、成果のぶれを多めに見込む。"""
+        s = self.ready()
+        self.terms(s, per_completed_yen=1000, confidence="0.99")
+        careful = self.month(s)["upper"]
+        t = self.ready()
+        self.terms(t, per_completed_yen=1000, confidence="0.80")
+        self.assertGreater(careful, self.month(t)["upper"])
 
     def test_over_the_ratio_only_notifies_and_each_client_can_choose(self):
         s = self.ready()

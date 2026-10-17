@@ -56,7 +56,6 @@ REASONS: dict[str, tuple[str, str]] = {
     "calendar_out_of_range": ("祝日の暦が無い日です", "cannot_judge"),
     "related_unsettled": ("このお客様にかかわる前の発信の締め（断られたかの確かめ）が、まだ済んでいません", "wait"),
     "same_contact_interval": ("同じお客様への前の発信から、間隔が空いていません", "wait"),
-    "unknown_result_interval": ("結果が分からない前の発信から、間隔が空いていません", "wait"),
     "daily_attempts": ("同じお客様へ、今日かけてよい回数を使い切りました", "wait"),
     "cross_client_interval_same_tenant": ("ほかの依頼者が同じ番号へかけたばかりです", "wait"),
     "cross_client_interval_other_tenant": ("同じ番号へかけたばかりです", "wait"),   # 契約者の外は、中身を出さない
@@ -190,12 +189,9 @@ def _pacing(tx: Tx, task: dict[str, Any], now: datetime, assume_promised: bool |
             f"  AND salescall.jst(claimed_at)::date = salescall.jst(now())::date", same)
         if today["n"] >= int(_setting(tx, "gate.max_dials_per_contact_per_day", task)):
             limits.append((today["tomorrow"], "daily_attempts"))
-    # 結果不明のあとの長い間隔は、お客様が出たあと（話していたかもしれない）の結果不明だけ（お客様が出る前なら、誰とも話していない）
-    unknown = tx.one(f"SELECT max(ended_at) AS at FROM salescall.attempts WHERE {_SAME} AND state = 'technical_error'"
-                     " AND salescall.reached_answer(attempt_id)", same)["at"]
-    if unknown is not None:
-        limits.append((unknown + timedelta(seconds=int(_setting(tx, "gate.unknown_result_min_interval", task))),
-                       "unknown_result_interval"))
+    # こちらの不具合で切れた通話（結果不明）は、回線が途中で切れた通話と同じ（数えない＝not_by_callee の1か所）。前は、お客様が
+    # 出たあとなら1時間あけていた（2026-10-17 ユーザー：「たどり着いていない場合は、その理由で違うよね」＝次は理由ごとの再発信の
+    # 方針で決める。断っていたかもしれないことは、通話後の確かめが受け持つ）
     # 同じ番号へ、ほかの依頼者がかけたとき：同じ契約者の中＝システムの間隔／ほかの契約者＝契約者の設定（2026-10-16 ユーザー。
     # 「かけない」は target_policy が答える）
     for r in tx.all("SELECT relation, last_at FROM salescall.number_last_dial_elsewhere(%s)", (task["phone_e164"],)):

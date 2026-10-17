@@ -100,7 +100,7 @@ class Apology(Helpers):
                                                " AND refs ->> 'task_id' = %s", (str(s["task"]),)))
         self.assertEqual([n["summary"] for n in notices], ["お詫びを伝えました。"])
         self.assertEqual(self.tx(s, lambda tx: quality_stage.used(tx, s["version"])), 1)    # 段の件数に数えない
-        m = self.tx(s, lambda tx: reward.month(tx, confidence=0.95, gap_max=300))
+        m = self.tx(s, lambda tx: reward.month(tx))
         self.assertEqual(m["breakdown"]["dial"]["count"], 1)           # 報酬にも数えない（こちらの誤りのため）
 
     def test_not_delivered_tries_another_band_up_to_the_limit(self):

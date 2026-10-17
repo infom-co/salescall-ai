@@ -353,10 +353,13 @@ class Pacing(Base):
         p = self.tx(s, lambda tx: gate.pacing(tx, s["task"]))
         self.assertEqual((p.remaining, p.binding), (2, "same_contact_interval"))
 
-    def test_unknown_result_waits_longer(self):
+    def test_a_call_cut_by_our_failure_is_like_a_line_drop(self):
+        """こちらの仕組みが通話の途中で落ちた（結果不明）は、お客様が切ったのではない：回線が途中で切れた通話と同じく、回数・間隔に
+        数えない（2026-10-17 ユーザー。前は1時間あけていた）。次は理由ごとの再発信の方針で決まる。"""
         s = self.ready()
         self.past_attempt(s, ["dialing", "answered", "technical_error"], verify="done")
-        self.assertEqual(self.reason(s), "unknown_result_interval")
+        self.assertEqual(self.tx(s, lambda tx: gate.pacing(tx, s["task"])).remaining, 3)
+        self.assertIsInstance(self.claim(s), gate.Claim)
 
     def test_unknown_result_before_answer_needs_no_long_wait(self):
         """お客様が出る前の結果不明は、誰とも話していない：検証も長い間隔も要らない（通信の問題で繋がらなかった扱い）。"""
