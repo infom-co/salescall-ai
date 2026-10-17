@@ -31,7 +31,7 @@ SECRETS = {"amivoice": "AMIVOICE_APPKEY", "soniox": "SONIOX_API_KEY"}
 AMIVOICE_URL = "wss://acp-api.amivoice.com/v1/nolog/"   # ⚠️ 最後の「/」が無いと、記録を残す接続先になる（公式の資料）
 AMIVOICE_ENGINE = "-a-general"   # 汎用エンジン
 SONIOX_URL = "wss://stt-rt.soniox.com/transcribe-websocket"
-SONIOX_MODEL = "stt-rt-v4"        # ⚠️ 公式の例の名前。新しい名前（v5）がありうる ⇒ つないだら、モデルの一覧で確かめる
+SONIOX_MODEL = "stt-rt-v5"        # リアルタイムの最新（2026-10-17 に Soniox のモデルの一覧で確かめた：stt-rt-v3・v4・v5。ears_try が毎回一覧を出す）
 REAZON_DIR = HERE / "models" / "reazonspeech"
 
 
