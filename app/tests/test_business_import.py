@@ -387,6 +387,33 @@ class Import(unittest.TestCase):
         got = {q.id: q.ask_about for q in self.tx(lambda tx: bs.load(tx, v)).questions}
         self.assertEqual(got, {"Q1": "ご予約", "Q2": "ご希望の日時"})
 
+    def test_meanings_and_replies_are_decided_without_a_person(self):
+        """はい／いいえ・選択肢の質問の意味の言葉と曖昧な言葉の意味は、取込のときに AI（CL-1 の決め方）に1回ずつだけ聞いて入れる
+        （管理者も契約者も確かめない）。使えない組（宣言に無い選択肢・決まった一覧に無い言葉）は入れない。答えが無い・形が違うときは
+        空のまま登録できる（会話は止まらない。CL-1 の連絡帳 4-17）。登録では聞き直さない。"""
+        asked = []
+
+        def meanings(pairs):
+            asked.append(("meanings", pairs))
+            return [{"する": "ご予約なさるということ", "しない": "ご予約はなさらないということ", "わからない": "x"} for _ in pairs]
+
+        def replies(pairs):
+            asked.append(("replies", pairs))
+            return [{"結構": "しない", "たぶん": "する"} for _ in pairs]
+
+        data = book()
+        p = self.preview(data, decide_meanings=meanings, decide_replies=replies)
+        self.assertEqual(p.problems, [])
+        self.assertEqual(asked, [("meanings", [("「テスト便」のご予約はなさいますか。", ("する", "しない"))]),
+                                 ("replies", [("「テスト便」のご予約はなさいますか。", ("する", "しない"))])])
+        v = self.tx(lambda tx: bi.register(tx, self.s["business"], "業務設定.xlsx", data, expected_digest=p.digest, ai=p.ai))
+        q1 = self.tx(lambda tx: bs.load(tx, v)).questions[0]
+        self.assertEqual((q1.meanings, q1.replies),
+                         ({"する": "ご予約なさるということ", "しない": "ご予約はなさらないということ"}, {"結構": "しない"}))
+        self.assertEqual(len(asked), 2)                                   # 登録では聞き直さない
+        p = self.preview(data, decide_meanings=lambda pairs: [], decide_replies=None)   # 形の違う答え・聞けない
+        self.assertEqual((p.problems, p.raw["questions"][0]["meanings"], p.raw["questions"][0]["replies"]), ([], None, None))
+
     def test_other_entrances_go_the_same_way(self):
         """依頼者の画面から抜き出した中身（同じ形）も、同じ確かめと登録の道を通る。"""
         from tests.test_business_settings import raw

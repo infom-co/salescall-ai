@@ -32,9 +32,9 @@ def raw() -> dict:
         "voice": "S2",
         "questions": [
             {"id": "Q1", "text": "ご予約はなさいますか。", "ask_about": "ご予約", "type": "choice", "required": True,
-             "choices": ["する", "しない"], "next": {"しない": "END", "*": "Q2"}, "unit": None},
+             "choices": ["する", "しない"], "next": {"しない": "END", "*": "Q2"}, "unit": None, "meanings": None, "replies": None},
             {"id": "Q2", "text": "ご希望の日時をお聞かせください。", "ask_about": "ご希望の日時", "type": "datetime",
-             "required": True, "choices": None, "next": None, "unit": None},
+             "required": True, "choices": None, "next": None, "unit": None, "meanings": None, "replies": None},
         ],
         "names": [name("株式会社テスト物流", "かぶしきがいしゃてすとぶつりゅう", "caller"), name("山田", "やまだ", "caller"),
                   name("テスト物流", "てすとぶつりゅう", "script")],
@@ -55,6 +55,40 @@ class Check(unittest.TestCase):
         self.assertEqual((s.next_of("Q1", "しない"), s.next_of("Q1", "する"), s.next_of("Q1", "わからない"),
                           s.next_of("Q2", "答えた")), ("END", "Q2", "Q2", "END"))
 
+    def test_meanings_and_replies_of_choice_questions(self):
+        """はい／いいえ・選択肢の質問は、意味の言葉（選択肢 → 言葉）と曖昧な言葉の意味（言葉 → 選択肢）を持てる。宣言した選択肢に
+        だけ付く（システムの答えには付けない。CL-1 の連絡帳 4-17）。"""
+        r = raw()
+        r["questions"][0]["meanings"] = {"する": "ご予約なさるということ", "しない": "ご予約はなさらないということ"}
+        r["questions"][0]["replies"] = {"結構": "しない"}
+        s = bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True)
+        self.assertEqual((s.questions[0].meanings["する"], s.questions[0].replies), ("ご予約なさるということ", {"結構": "しない"}))
+        self.assertEqual((s.questions[1].meanings, s.questions[1].replies), ({}, {}))
+        for key, bad in (("meanings", {"わからない": "わからないということ"}), ("meanings", {"する": " "}),
+                         ("replies", {"結構": "どちらでも"}), ("replies", {"たぶん": "する"}), ("meanings", ["する"])):
+            with self.subTest(key=key, bad=bad):
+                r = raw()
+                r["questions"][0][key] = bad
+                self.assertTrue(any("意味" in p for p in problems_of(r)), problems_of(r))
+        r = raw()
+        r["questions"][1]["meanings"] = {"答えた": "お答えいただいたということ"}
+        self.assertTrue(any("はい／いいえ・決まった選択肢の質問だけ" in p for p in problems_of(r)), problems_of(r))
+
+    def test_any_is_a_system_answer_of_choice_questions(self):
+        """決まった選択肢の質問には、システムが「どちらでも」を足す（お客様がこちらに任せた＝取れた答え。2026-10-17 ユーザー。
+        CL-1 の連絡帳 4-17）。同じ名前の選択肢は書けない。分岐を書くなら、その行き先も要る（受け皿でよい）。はい／いいえには足さない。"""
+        s = bs.check(raw(), field_types=FIELD_TYPES, ai_reading_needs_person=True)
+        self.assertEqual(bs.possible_answers(s.questions[0]), ("する", "しない", "どちらでも", "わからない", "答えたくない"))
+        self.assertEqual(s.next_of("Q1", "どちらでも"), "Q2")                       # 受け皿へ
+        r = raw()
+        r["questions"][0]["choices"] = ["する", "しない", "どちらでも"]
+        self.assertTrue(any("選択肢「どちらでも」は、システムが足す答え" in p for p in problems_of(r)), problems_of(r))
+        r = raw()
+        r["questions"][0]["next"] = {"する": "Q2", "しない": "END", "わからない": "Q2", "答えたくない": "Q2"}
+        self.assertTrue(any("受け皿がありません" in p and "どちらでも" in p for p in problems_of(r)), problems_of(r))
+        yes_no = bs.Question("Q9", "ご予約はお済みですか。", None, "yes_no", True, bs.YES_NO_CHOICES, {})
+        self.assertNotIn("どちらでも", bs.possible_answers(yes_no))
+
     def test_many_optional_follow_ups_check_quickly_and_still_find_skips(self):
         """「はい ⇒ 詳しく聞く、いいえ ⇒ 次へ」が続く業務（40問）でも、確かめはすぐ終わる（前は質問の数に対して何倍にも
         増え、36問で15秒かかった＝2026-10-16 の見直し I2）。必須を飛ばす道は、これまでどおり見つける。"""
@@ -66,9 +100,9 @@ class Check(unittest.TestCase):
             ask, detail = f"A{i}", f"D{i}"
             nxt = f"A{i + 1}" if i + 1 < n else "Q2"
             qs.append({"id": ask, "text": "ご利用はございますか？", "ask_about": "ご利用", "type": "choice", "required": False,
-                       "choices": ["ある", "ない"], "next": {"ある": detail, "*": nxt}, "unit": None})
+                       "choices": ["ある", "ない"], "next": {"ある": detail, "*": nxt}, "unit": None, "meanings": None, "replies": None})
             qs.append({"id": detail, "text": "詳しくお聞かせください。", "ask_about": "詳しく", "type": "free_text",
-                       "required": False, "choices": None, "next": {"*": nxt}, "unit": None})
+                       "required": False, "choices": None, "next": {"*": nxt}, "unit": None, "meanings": None, "replies": None})
         qs[0] = dict(qs[0], next={"しない": "END", "*": "A0"})
         qs.append(r["questions"][1])
         r["questions"] = qs

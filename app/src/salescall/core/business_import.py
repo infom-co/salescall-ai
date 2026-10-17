@@ -180,7 +180,7 @@ def _to_raw(sheets: dict[str, tuple[Sheet, dict[str, int]]], problems: list[str]
         required = _label("required", v.get("required"), f"{where}の必須", problems)
         questions.append({"id": v.get("id"), "text": v.get("text"), "ask_about": v.get("ask_about"), "type": qtype,
                           "required": required, "choices": _split(v.get("choices")) if qtype == "choice" else None,
-                          "next": None, "unit": None})
+                          "next": None, "unit": None, "meanings": None, "replies": None})
         if v.get("decline"):
             decline[v.get("id")] = _split(v.get("decline"))
     by_id = {q["id"]: q for q in questions}
@@ -328,6 +328,52 @@ def _topic_questions(raw: dict[str, Any]) -> list[dict[str, Any]]:
             and q["text"].strip()]
 
 
+MeaningDecider = Callable[[list[tuple[str, tuple[str, ...]]]], list[dict[str, str]]]
+"""はい／いいえ・選択肢の質問の「意味の言葉」を決める処理（(質問の文, 選択肢の並び) の並び → 同じ並びで {選択肢: 意味の言葉}。
+決まらない選択肢は入れない）。決め方は CL-1 の1か所（`meanings.by_model` を2つのモデルで1回ずつ → `meanings.decide`。CL-1 の
+連絡帳 4-17）。管理者も契約者も確かめない。"""
+
+ReplyDecider = Callable[[list[tuple[str, tuple[str, ...]]]], list[dict[str, str]]]
+"""はい／いいえ・選択肢の質問の「曖昧な言葉の意味」を決める処理（(質問の文, 選択肢の並び) の並び → 同じ並びで {言葉: 選択肢}。
+決まらない言葉は入れない）。決め方は CL-1 の1か所（`meanings.by_model_replies` を2つのモデルで1回ずつ → `meanings.decide_replies`。
+CL-1 の連絡帳 4-17）。管理者も契約者も確かめない。"""
+
+
+def _choice_questions(raw: dict[str, Any], key: str) -> list[tuple[dict[str, Any], tuple[str, ...]]]:
+    """意味の言葉（key＝meanings）・曖昧な言葉の意味（replies）が、まだ入口から来ていない選択肢の質問と、その選択肢。"""
+    qs = raw.get("questions") if isinstance(raw.get("questions"), list) else []
+    out = []
+    for q in qs:
+        if isinstance(q, dict) and q.get("type") in business_settings.CHOICE_TYPES and not q.get(key) \
+                and isinstance(q.get("text"), str) and q["text"].strip():
+            choices = business_settings.declared_choices(q["type"], q.get("choices"))
+            if choices:
+                out.append((q, choices))
+    return out
+
+
+def _pair_key(text: str, choices: tuple[str, ...]) -> str:
+    """AI の答えの鍵（質問の文と選択肢の組。同じ文でも選択肢が違えば別）。"""
+    return json.dumps([text, list(choices)], ensure_ascii=False)
+
+
+def _decided_pairs(raw: dict[str, Any], key: str, decide: MeaningDecider | ReplyDecider | None) -> dict[str, dict[str, str]]:
+    """選択肢の質問ごとに決める処理に、1回だけ聞く（使える組だけ返す＝`business_settings.valid_answer_words`。答えが無い・形が
+    違うときは空：会話は止まらない＝空なら選択肢の名前で言い直し、曖昧な言葉は通話の中で確かめる）。"""
+    pairs = list(dict.fromkeys((q["text"], c) for q, c in _choice_questions(raw, key)))
+    if not pairs or decide is None:
+        return {}
+    got = decide(pairs)
+    if not isinstance(got, list) or len(got) != len(pairs):
+        return {}
+    out = {}
+    for (text, choices), d in zip(pairs, got):
+        good = business_settings.valid_answer_words(d, choices, replies=key == "replies")
+        if good:
+            out[_pair_key(text, choices)] = good
+    return out
+
+
 def _decided(texts: list[str], decide: Callable[[list[str]], dict[str, str]] | None) -> dict[str, str]:
     """文ごとに決める処理に、1回だけ聞く（決まった答えだけ返す）。"""
     if not texts or decide is None:
@@ -353,13 +399,17 @@ def _script(raw: dict[str, Any]) -> str:
 
 
 def ask_ai(raw: dict[str, Any], *, find_names: NameFinder | None = None, decide_units: UnitDecider | None = None,
-           decide_topics: TopicDecider | None = None) -> dict[str, Any]:
-    """業務設定の形について、AI（名前と読み・単位・聞くことを決める処理。どれも CL-1 の決め方）に1回だけ聞く。
-    答え＝{"names": 表記 → 読み（readings.to_json の形）, "units": 質問の文 → 単位, "topics": 質問の文 → 聞くこと}。
+           decide_topics: TopicDecider | None = None, decide_meanings: MeaningDecider | None = None,
+           decide_replies: ReplyDecider | None = None) -> dict[str, Any]:
+    """業務設定の形について、AI（名前と読み・単位・聞くこと・選択肢の意味の言葉・曖昧な言葉の意味を決める処理。どれも CL-1 の
+    決め方）に1回だけ聞く。答え＝{"names": 表記 → 読み（readings.to_json の形）, "units": 質問の文 → 単位, "topics": 質問の文 →
+    聞くこと, "meanings": 質問の文と選択肢 → {選択肢: 意味の言葉}, "replies": 質問の文と選択肢 → {言葉: 選択肢}}。
     **プレビューで聞いた答えを、登録でもそのまま使う**（もう一度聞くと答えが変わりうる＝契約者が見たものと違う中身になる）。"""
     return {"names": readings.to_json(readings.find(_script(raw), find_names)),
             "units": _decided(sorted({q["text"] for q in _unit_questions(raw)}), decide_units),
-            "topics": _decided(sorted({q["text"] for q in _topic_questions(raw)}), decide_topics)}
+            "topics": _decided(sorted({q["text"] for q in _topic_questions(raw)}), decide_topics),
+            "meanings": _decided_pairs(raw, "meanings", decide_meanings),
+            "replies": _decided_pairs(raw, "replies", decide_replies)}
 
 
 def review(tx: Tx, business_id: UUID, raw: dict[str, Any], *, confirmed_names: Any = (),
@@ -431,6 +481,9 @@ def review(tx: Tx, business_id: UUID, raw: dict[str, Any], *, confirmed_names: A
         q["unit"] = ai.get("units", {}).get(q["text"]) or None
     for q in _topic_questions(raw):
         q["ask_about"] = ai.get("topics", {}).get(q["text"]) or None
+    for key in ("meanings", "replies"):                              # 選択肢の質問：入口が持ってこなければ、AI の答えを入れる
+        for q, choices in _choice_questions(raw, key):
+            q[key] = (ai.get(key) or {}).get(_pair_key(q["text"], choices)) or None
     for key in ("company", "person"):
         c = caller.get(key)
         if isinstance(c, dict) and c.get("text"):
@@ -456,14 +509,16 @@ def _digest(business_id: UUID, raw: dict[str, Any] | None, problems: list[str]) 
 
 def preview(tx: Tx, business_id: UUID, file_name: str, data: bytes, *, mapping: dict[str, Any] | None = None,
             confirmed_names: Any = (), find_names: NameFinder | None = None,
-            decide_units: UnitDecider | None = None, decide_topics: TopicDecider | None = None) -> Preview:
+            decide_units: UnitDecider | None = None, decide_topics: TopicDecider | None = None,
+            decide_meanings: MeaningDecider | None = None, decide_replies: ReplyDecider | None = None) -> Preview:
     """ファイル（入口の1つ）を業務設定の形にして、AI に1回だけ聞き、確かめた結果を返す（何も書かない）。
     返す Preview の ai（AI の答え）を、登録（`register`）にそのまま渡す。"""
     sheets, problems, notes = _sheets(file_name, data, mapping or {})
     if problems and not sheets:
         return Preview(None, problems, [], notes=notes)
     raw, problems, where = _to_raw(sheets, problems)
-    ai = ask_ai(raw, find_names=find_names, decide_units=decide_units, decide_topics=decide_topics)
+    ai = ask_ai(raw, find_names=find_names, decide_units=decide_units, decide_topics=decide_topics,
+                decide_meanings=decide_meanings, decide_replies=decide_replies)
     p = review(tx, business_id, raw, confirmed_names=confirmed_names, ai=ai, problems=problems, where=where)
     p.notes = notes
     return p

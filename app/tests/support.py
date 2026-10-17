@@ -177,7 +177,7 @@ def content(target_person: dict | None = None) -> dict:
                        "person": {"text": "山田", "reading": "やまだ"}, "purpose_line": None},
             "target_person": target_person or {"kind": "anyone", "role": None}, "busy_line": None, "voice": "S2",
             "questions": [{"id": "Q1", "text": "ご希望の日時をお聞かせください。", "ask_about": None, "type": "datetime",
-                           "required": True, "choices": None, "next": None, "unit": None}],
+                           "required": True, "choices": None, "next": None, "unit": None, "meanings": None, "replies": None}],
             "names": [{"text": "株式会社テスト", "reading": "かぶしきがいしゃてすと", "source": "caller", "reading_by": "given",
                        "candidates": [], "likely": None},
                       {"text": "山田", "reading": "やまだ", "source": "caller", "reading_by": "given",

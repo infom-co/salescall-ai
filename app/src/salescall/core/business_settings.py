@@ -27,7 +27,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 from uuid import UUID
 
@@ -37,6 +37,13 @@ from salescall.core.access import Tx
 END = "END"                                       # 分岐の行き先「終わり」
 ANY = "*"                                         # 分岐の受け皿（ほかのどの答えでも）
 SYSTEM_CHOICES = ("わからない", "答えたくない")      # システムがどの質問にも足す答え（CL-1 の連絡帳 2-1。名前の正本はここ）
+ANY_CHOICE = "どちらでも"                          # 決まった選択肢（choice）の質問にだけシステムが足す答え：お客様がこちらに任せた
+#   （「どちらでも大丈夫です」）。答えとして受ける＝「取れた」（「わからない」「答えたくない」とは違う。断りにもしない。2026-10-17
+#   ユーザー：「いつでも」と同じ。CL-1 の連絡帳 4-17。会話の中の名前は any）。はい／いいえの質問には足さない
+CHOICE_TYPES = ("yes_no", "choice")               # 選択肢で答える型（意味の言葉・曖昧な言葉の意味を持てる）
+REPLY_WORDS = ("大丈夫", "結構", "いい", "平気", "はい", "いいえ")
+#   返事の言葉だけの答え（曖昧な言葉の意味の鍵）。正本は会話の側（CL-1 の flowctl.REPLY_WORDS＝受け入れにも断りにも取れる言葉と、
+#   はい・いいえ）。会話の側が変えたら、ここも合わせる
 VALUE_CHOICE = "答えた"                            # 値を聞く質問の選択肢（値そのものは項目の値に入る）
 YES_NO_CHOICES = ("はい", "いいえ")
 OUTPUT_MARKS = ("-", "✕")                         # 依頼者へ渡す印の既定（DESIGN.md 7-1b。依頼者ごとの印は出力の型で。⏳ 出力の型を作るとき足す）
@@ -48,7 +55,7 @@ TARGET_PERSON_KINDS = ("role", "role_and_name", "name", "anyone")
 NAME_SOURCES = ("caller", "script")               # 名乗り（自社名・担当者名）／トークスクリプトの文章（商品名・地名など）
 READING_BY = readings.BY                          # 読みを決めたもの（正本は core/readings.py）
 UNIT_TYPE = "number"                              # 単位を持てる型（金額には補わない。DESIGN.md 6-2 の ⚠️）
-QUESTION_KEYS = {"id", "text", "ask_about", "type", "required", "choices", "next", "unit"}
+QUESTION_KEYS = {"id", "text", "ask_about", "type", "required", "choices", "next", "unit", "meanings", "replies"}
 
 
 class SettingsInvalid(Exception):
@@ -79,6 +86,12 @@ class Question:
     choices: tuple[str, ...]     # 依頼者が書いた選択肢（値を聞く質問は「答えた」、はい／いいえは「はい」「いいえ」）
     next: dict[str, str]         # 答え → 次の質問の番号か END（空＝並びの次へ）
     unit: str | None = None      # 数の質問の単位（例：「人」。空なら補わない。CL-1 の 4-14）
+    # 選択肢の質問（はい／いいえ・決まった選択肢）の、選択肢ごとの意味の言葉（選択肢 → 言葉。例：「はい」→「ご予約はされているということ」）。
+    # 会話が答えを言い直して確かめるときに使う。空でもよい（空なら選択肢の名前で言い直す）。宣言した選択肢にだけ（CL-1 の 4-17）
+    meanings: dict[str, str] = field(default_factory=dict)
+    # 返事の言葉だけの答え（REPLY_WORDS）が、この質問でどの選択肢の意味になるか（言葉 → 選択肢。例：「パンフレットをお送りしても
+    # よろしいでしょうか？」の「結構」→「いいえ」）。決まらない言葉は入れない（会話の中で確かめる。CL-1 の 4-17）
+    replies: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -194,24 +207,61 @@ def _caller(v: Any, where: str, names: list[Name], problems: list[str], *, readi
 
 
 def possible_answers(q: Question) -> tuple[str, ...]:
-    """その質問で返りうる答え（依頼者の選択肢＋システムが足す答え）。"""
-    return q.choices + SYSTEM_CHOICES
+    """その質問で返りうる答え（依頼者の選択肢＋システムが足す答え。決まった選択肢の質問には「どちらでも」も）。"""
+    return q.choices + ((ANY_CHOICE,) if q.type == "choice" else ()) + SYSTEM_CHOICES
+
+
+def declared_choices(type_name: Any, raw: Any) -> tuple[str, ...] | None:
+    """型と書かれた選択肢から、その質問の選択肢（読めなければ None）。決め方はここだけ（確かめ `_choices` と取込が使う）。
+    決まった選択肢（choice）だけ依頼者が書く。ほかは型で決まる（書いてあれば同じであること）。"""
+    fixed = {"yes_no": YES_NO_CHOICES}.get(type_name, None if type_name == "choice" else (VALUE_CHOICE,))
+    if fixed is not None:
+        return fixed if raw is None or (isinstance(raw, list) and tuple(raw) == fixed) else None   # 形の違う値でも落ちない（I9）
+    if not isinstance(raw, list) or not raw or not all(isinstance(c, str) and c.strip() for c in raw):
+        return None
+    return tuple(c.strip() for c in raw)
 
 
 def _choices(raw: Any, type_name: str, where: str, problems: list[str]) -> tuple[str, ...]:
-    """型ごとの選択肢（決め方はここだけ）。決まった選択肢（choice）だけ依頼者が書く。ほかは型で決まる（書いてあれば同じであること）。"""
-    fixed = {"yes_no": YES_NO_CHOICES}.get(type_name, None if type_name == "choice" else (VALUE_CHOICE,))
-    if fixed is not None:
-        if raw is not None and (not isinstance(raw, list) or tuple(raw) != fixed):   # 形の違う値でも落ちない（I9）
+    """型ごとの選択肢（`declared_choices`）。読めなければ問題に出す。"""
+    got = declared_choices(type_name, raw)
+    if type_name != "choice":
+        fixed = YES_NO_CHOICES if type_name == "yes_no" else (VALUE_CHOICE,)
+        if got is None:
             problems.append(f"{where}の選択肢は、型 {type_name} では {list(fixed)} に決まっています")
         return fixed
-    if not isinstance(raw, list) or not raw or not all(isinstance(c, str) and c.strip() for c in raw):
+    if got is None:
         problems.append(f"{where}は決まった選択肢（choice）なので、選択肢を1つ以上書いてください")
         return ()
-    names = tuple(c.strip() for c in raw)
-    if len(set(names)) != len(names):
+    if len(set(got)) != len(got):
         problems.append(f"{where}の選択肢に、同じ名前が2つあります")
-    return names
+    return got
+
+
+def valid_answer_words(raw: Any, choices: tuple[str, ...], *, replies: bool) -> dict[str, str]:
+    """意味の言葉（選択肢 → 言葉）か、曖昧な言葉の意味（言葉 → 選択肢）のうち、使える組だけ（決め方はここだけ。確かめと、取込の
+    AI の答えの受け取りが使う）。宣言した選択肢にだけ付く（システムの「わからない」「答えたくない」「どちらでも」には付けない）。"""
+    if not isinstance(raw, dict):
+        return {}
+    if replies:
+        return {k: v for k, v in raw.items() if k in REPLY_WORDS and isinstance(v, str) and v in choices}
+    return {k: v.strip() for k, v in raw.items() if k in choices and isinstance(v, str) and v.strip()}
+
+
+def _answer_words(raw: Any, type_name: str, choices: tuple[str, ...], where: str, problems: list[str], *,
+                  replies: bool) -> dict[str, str]:
+    """質問の意味の言葉・曖昧な言葉の意味を読む（無ければ空）。合わない組があれば問題に出す。"""
+    if raw is None or raw == {}:
+        return {}
+    what = "曖昧な言葉の意味" if replies else "意味の言葉"
+    if type_name not in CHOICE_TYPES:
+        problems.append(f"{where}の{what}は、はい／いいえ・決まった選択肢の質問だけが持てます")
+        return {}
+    good = valid_answer_words(raw, choices, replies=replies)
+    if not isinstance(raw, dict) or len(good) != len(raw):
+        problems.append(f"{where}の{what}は、" + (f"言葉（{list(REPLY_WORDS)}）→ 宣言した選択肢" if replies
+                                                  else "宣言した選択肢 → 言葉（文字）") + " の表です")
+    return good
 
 
 def check(raw: Any, *, field_types: frozenset[str], ai_reading_needs_person: bool,
@@ -289,18 +339,21 @@ def check(raw: Any, *, field_types: frozenset[str], ai_reading_needs_person: boo
                 problems.append(f"{where}の必須か（required）は true / false です")
             choices = _choices(q["choices"], q["type"], where, problems)
             for c in choices:
-                if c in SYSTEM_CHOICES or c in OUTPUT_MARKS or c in (END, ANY):
-                    problems.append(f"{where}の選択肢「{c}」は、システムが足す答え・出力の印・分岐の印と同じ名前です")
+                if c in SYSTEM_CHOICES or c == ANY_CHOICE or c in OUTPUT_MARKS or c in (END, ANY):
+                    problems.append(f"{where}の選択肢「{c}」は、システムが足す答え（{list(SYSTEM_CHOICES)}・{ANY_CHOICE}）・"
+                                    "出力の印・分岐の印と同じ名前です")
             nxt = q["next"] if q["next"] is not None else {}
             if not isinstance(nxt, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in nxt.items()):
                 problems.append(f"{where}の分岐（next）は、答え → 次の質問の番号か {END} の表です")
                 nxt = {}
             unit = _text(q["unit"], f"{where}の単位", problems, optional=True)
+            meanings = _answer_words(q["meanings"], q["type"], choices, where, problems, replies=False)
+            replies = _answer_words(q["replies"], q["type"], choices, where, problems, replies=True)
             if unit is not None and q["type"] != UNIT_TYPE:
                 problems.append(f"{where}の単位は、数の型（{UNIT_TYPE}）の質問だけが持てます")
             questions.append(Question(qid, _text(q["text"], f"{where}の文", problems) or "",
                                       _text(q["ask_about"], f"{where}の聞くこと", problems, optional=True),
-                                      q["type"], bool(q["required"]), choices, dict(nxt), unit))
+                                      q["type"], bool(q["required"]), choices, dict(nxt), unit, meanings, replies))
     if questions and not any(q.required for q in questions):
         problems.append("必須の質問が1つもありません（どんな通話でも「すべて取れた」になる。Intent.md 6-4）")
     s = Settings(purpose or "", target_class if target_class in TARGET_CLASSES else "", company or Name("", None, "caller", None), person or Name("", None, "caller", None), purpose_line,
