@@ -3912,6 +3912,16 @@ class TargetTest(unittest.TestCase):
         r = self.say(f, "どちら様ですか？", "replay_opening", part="intro")
         self.assertEqual([p["part"] for p in r["play"]], ["intro", "target"])
 
+    def test_target_again_before_any_answer_is_a_new_person(self):
+        # 繋いだあと、何も答えないうちに、また目的の人が出た：代わった方への流し直し（あいさつ・名乗り・用件・いまの質問）
+        f, b = self.flow()
+        self.say(f, "岡田ですね。", "report_party", party="target")                 # 受付の方を目的の人と報告してしまった
+        r = self.say(f, "お電話代わりました。岡田です。", "report_party", party="target")
+        self.assertEqual([p.get("part", p["kind"]) for p in r["play"]], ["greeting", "intro", "purpose", "question"])
+        self.say(f, "はい、予約しています。", "record_answer", question_id="Q1", condition_id="はい", value="予約しています")
+        r = self.say(f, "岡田は私です。", "report_party", party="target")             # 答えたあとは同じ方
+        self.assertEqual(r["result"], "noted")
+
     def test_unnamed_new_person_is_asked_once(self):
         # 代わった方が名乗らなかった：「「おかだ」様でいらっしゃいますでしょうか？」と1回だけ聞く（AIが言う）。認めたら、全部流して質問へ
         f, b = self.flow()

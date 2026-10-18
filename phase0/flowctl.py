@@ -1385,6 +1385,12 @@ class Flow:
         if self.phase == "calling":
             self.passed_on = True  # 受付の方：目的の人は、このあと代わって出る別の方。お取り次ぎを待つ間は話させない
             return {"result": "noted", "silent": True, "message": f"受け付けました。{self._now()}"}
+        if party == "target" and self.target and self.opening and all(it.state == "empty" for it in self.items.values()):
+            # 繋いだあと、まだ何も答えていないうちに、また目的の人が出た＝前の「目的の人」は取り次いだ方だった（AIが早く報告した）か、
+            # 人が替わった ⇒ 代わった方への流し直しと同じ（あいさつ・名乗り・用件・いまの質問）。⛔ 2026-10-19 G-57 の4回目：会話AIの聞き取りが
+            # 「岡田ですね。」で切れ（続きの「少々お待ちください。」は次の発話に入った）、AIが受付の方を目的の人と報告して用件と質問を流し、
+            # 代わった岡田様には名乗りも用件も流れなかった（その場の判定なしで流した回）
+            return self._op_replay_opening({"part": "handover"})
         return {"result": "noted", "message": f"受け付けました。{self._now()}"}
 
     def _target_reported(self) -> dict:
