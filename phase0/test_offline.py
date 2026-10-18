@@ -639,10 +639,10 @@ class AIToJapaneseTest(unittest.TestCase):
         import json
         import re
 
-        from flowctl import Flow, tool_declarations
+        from flowctl import OPS, Flow, tool_declarations
         from instruction import build
         b = self.business()
-        allowed = {"record_answer", "report_unclear", "confirm_field", "request_end", "replay_opening", "Q1", "Q2"}  # 操作の名前（道具の決まり）と質問の番号
+        allowed = set(OPS) | {"Q1", "Q2"}  # 操作の名前（道具の決まり）と質問の番号
         shown = [build(b, t)[1] for t in ("S2", "L4")]
         shown += [build(b, "S2", opening_mode="recorded")[1]]
         for d in tool_declarations(b.questions, replay=True)[0].function_declarations:
@@ -3606,6 +3606,70 @@ class CallFactsTest(unittest.TestCase):
         import inspect
         import convo
         self.assertIn('"facts": flow.facts', inspect.getsource(convo.run_call))
+
+
+class PartyTest(unittest.TestCase):
+    """相手の種別（DESIGN.md 4-3・6-2 の report_party）：人ではない相手（留守番電話・自動音声の案内・FAX）には話さずに終え、
+    番号違いは決まった締めで終える。Intent.md 9-4：決まっていない場面は安全側（丁寧に終える）。留守番電話の伝言は業務設定（空なら残さない）。"""
+
+    def flow(self, **kw):
+        from flowctl import Flow, Question
+        return Flow([Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"))], **kw)
+
+    @staticmethod
+    def say(f, heard, op, **args):
+        f.on_callee(); f.on_heard(heard)
+        return f.apply(op, args)
+
+    def test_not_a_person_hangs_up_without_a_word(self):
+        from types import SimpleNamespace
+        from flowctl import PARTY_LABEL
+        for party, heard in (("voicemail", "ただいま電話に出ることができません。発信音のあとにお名前とご用件をお話しください。"),
+                             ("ivr", "お電話ありがとうございます。ご用件の番号を押してください。"), ("fax", "（ピー、ピー）")):
+            f = self.flow()
+            f.on_callee(); f.on_heard(heard)
+            reply, silent = f.handle_call(SimpleNamespace(name="report_party", args={"相手": PARTY_LABEL[party]}))
+            last = f.log[-1]["reply"]
+            self.assertEqual((last["result"], last.get("hang_up"), last.get("say"), last.get("play"), last["ack"]),
+                             ("end", True, None, None, None), party)
+            self.assertTrue(silent, party)                                   # AIに話させない
+            self.assertNotIn("hang_up", reply)                               # 中で使う印（電話接続側が切る）。AIには見せない
+            self.assertEqual((f.facts["party"][0]["party"], f.end_reason, f.phase, f.hurried), (party, party, "closing", False))
+            self.assertEqual(f.export(), {"Q1": "-"})
+
+    def test_voicemail_message_is_left_only_when_the_business_sets_one(self):
+        msg = "株式会社アオバ物流の佐藤です。ご予約の確認でお電話いたしました。改めてお電話いたします。"
+        f = self.flow(voicemail_message=msg)
+        r = self.say(f, "ただいま電話に出ることができません。", "report_party", party="voicemail")
+        self.assertEqual((r["result"], r["say"], r.get("hang_up")), ("end", msg, None))
+        f = self.flow(voicemail_message=msg, play_recordings=True)       # 録音で流す形：設定の伝言の録音を流し、AIは黙る
+        r = self.say(f, "ただいま電話に出ることができません。", "report_party", party="voicemail")
+        self.assertEqual(r["play"], [{"kind": "closing", "id": "voicemail_message", "text": msg}])
+
+    def test_wrong_party_closes_politely(self):
+        from phrases import CLOSE_DECLINED
+        f = self.flow()
+        r = self.say(f, "え、うちは山田ですけど、番号をお間違えではないですか？", "report_party", party="wrong_party")
+        self.assertEqual((r["result"], r["say"], r["ack"], f.end_reason, f.hurried), ("end", CLOSE_DECLINED, None, "wrong_party", False))
+        self.assertIn("番号をお間違え", f.facts["party"][0]["said"])
+
+    def test_people_are_noted_and_the_flow_goes_on(self):
+        # 受付・目的の人：いまは記録だけ（目的の人に繋がってから質問を始める流れは、目的の人のある業務で使う）
+        f = self.flow()
+        r = self.say(f, "はい、株式会社アオバでございます。", "report_party", party="reception")
+        self.assertEqual((r["result"], f.current, f.phase), ("noted", "Q1", "asking"))
+        self.assertIn("Q1", r["message"])
+
+    def test_ai_sees_the_operation_and_the_rule(self):
+        from flowctl import PARTY_LABEL, tool_declarations
+        from instruction import Business, build
+        qs = list(self.flow().questions.values())
+        d = next(d for d in tool_declarations(qs)[0].function_declarations if d.name == "report_party")
+        self.assertEqual(d.parameters.properties["相手"].enum,
+                         [PARTY_LABEL[k] for k in ("voicemail", "ivr", "fax", "wrong_party")])  # 目的の人の無い業務では、受付・目的の人は見せない
+        text = build(Business(company="アオバ物流", caller="佐藤", purpose="ご予約の確認", questions=qs), "S2")[1]
+        self.assertIn("report_party", text)
+        self.assertIn("何も言わずに", text)
 
 
 class G53LabelsTest(unittest.TestCase):

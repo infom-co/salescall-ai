@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from flowctl import ANY_LABEL, ARG_LABEL, CONFIRM_LABEL, END_LABEL, GOT, PART_LABEL, SYSTEM_LABEL, Question, choices_note
+from flowctl import ANY_LABEL, ARG_LABEL, CONFIRM_LABEL, END_LABEL, GOT, PART_LABEL, PARTY_LABEL, SYSTEM_LABEL, Question, choices_note
 from names import quote  # noqa: F401（名前を「」でくくる唯一の場所。ここからも読める）
 
 from phrases import APOLOGY, ASK_BACK, GREETING  # noqa: F401（決まった言い方は phrases.py の1か所。試験からも、ここ経由で読める）
@@ -49,6 +49,9 @@ class Business:
     # 相手が「忙しい」と言ったときの一言（Intent.md 9-4）。空なら丁寧に終える（既定＝安全側）。文があれば、1回だけそれで聞く
     # （2026-10-13 ユーザー：依頼主によっては粘ってほしい。トークスクリプト（業務情報）で選べるように。既定の文は phrases.BUSY_ASK）
     busy_ask: str | None = None
+    # 留守番電話に残す伝言（Intent.md 9-4「伝言を残すか残さないかを設定で選ぶ。残す場合の文面も設定で持つ」。⏳ 残すかは 18-2 の14 で
+    # ユーザーが決める）。空なら残さずに切る（安全側）
+    voicemail_message: str | None = None
     # 自社名・担当者名の読み（ひらがな。空＝決まらない＝表記のまま渡す）。自社名は、設定に無ければ取込で names.decide が決める（Intent.md 6-8）。
     # ✅ 2026-10-16 ユーザー決定（案C）：担当者名の読みは、設定に必ず入れる（名乗りでは言い換えられない。個人向けでは名乗ることが法律の確認事項）。
     #    必須かどうかを確かめるのは設定の登録（CL-2）。ここは、担当者名を unread_names に入れた矛盾した設定を受け付けない。
@@ -271,6 +274,11 @@ def system_rules(play_recordings: bool = False) -> str:
         # 怒り・苦情（Intent.md 9-4）：弁明や約束をせず、謝意を伝えて終える。人へ知らせる印は流れの制御が残す（Flow._note）
         f"相手が怒っている・苦情を言っているときは、言い訳・説明・約束をせずに、すぐ「{END_LABEL['callee_complaint']}」で呼びます"
         "（締めの言い方は、プログラムが返事で渡します）。\n"
+        # 相手の種別（DESIGN.md 4-3・Intent.md 9-4）：人ではない相手には話さない。伝言を残すかは業務設定（流れの制御が返事で決める）
+        "- 電話に出たのが人ではないとき（留守番電話の案内「ただいま電話に出ることができません」「発信音のあとに」・自動音声の案内"
+        "「〜の方は1番を押してください」・ファクスの音）は、何も言わずに report_party で知らせます（伝言を残すかは、プログラムが返事で決めます）。"
+        f"こちらがかけた先ではないと言われたとき（「うちは〇〇ではありません」「番号をお間違えでは」）も、report_party を「{PARTY_LABEL['wrong_party']}」"
+        "で呼びます。\n"
         # ⛔ 2026-10-17 の見直し：前は「お礼を言って終えます」と書いていた＝AIが締めの文を自分で作り、「お気軽にお問い合わせください」
         #    「お気をつけてお越しくださいませ」（命令の形）を足した（G-45）。締めの言い方は流れの制御の1か所（flowctl.Flow._close）が決める
         "- 締めは、返事に書いてある締めの言い方のとおりに言って終えます。言葉を足しません。録音で流したとあれば、何も言いません。\n"

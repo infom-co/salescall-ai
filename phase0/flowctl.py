@@ -237,7 +237,7 @@ def other_value(qtype: str, pending: str | None, given: str | None) -> str | Non
 #    英字の「result」は 82回中0回。「答えの種類」は 89回中0回）。⇒ 「答えの種類」と同じ形の「返事の種類」にした。
 #    書き違えは名前を変えても0にはならない前提で、宣言に無い項目名・選択肢は、すべて差し戻す（Flow.apply の _check_args）。
 ARG_LABEL = {"question_id": "質問", "condition_id": "答えの種類", "value": "値", "result": "返事の種類", "correction": "訂正された値",
-             "reason": "理由", "part": "流し直す部分"}
+             "reason": "理由", "part": "流し直す部分", "party": "相手"}
 SYSTEM_LABEL = {"unknown": "わからない", "refused": "答えたくない"}
 ANY_LABEL = "どちらでも"
 # 意味の2つ目の判定（meaning_judge。DESIGN.md 6-10 の (6)）が、どの選択肢とも決められないと答えたときの名前（受け入れにも断りにも取れる・言い切っていない・答えになっていない）
@@ -374,16 +374,25 @@ DECLINED_ENDS = ("callee_hurry", "callee_refused_call", "callee_complaint")
 REPLY_KEY_LABEL = {"result": "結果", "message": "次にすること", "question_id": "質問", "question": "質問の文", "value": "値", "say": "言い方"}
 RESULT_LABEL = {"next": "次の質問", "confirm_required": "言い直して確かめる", "rejected": "差し戻し", "ask_back": "聞き返す",
                 "recheck": "念のための確認", "end": "締め", "busy_ask": "引き止めの一言", "replayed": "録音で流し直した",
-                "hold": "取り次ぎを待つ"}
+                "hold": "取り次ぎを待つ", "noted": "受け付けた"}
 # 名乗りの流し直し（DESIGN.md 6-13。✅ 2026-10-13 ユーザー：名乗り直しも録音で流す「間が大丈夫ならOK」）：AIが選ぶ部分の名前
 # 名乗り＝「どちら様ですか」／用件＝「何のご用件ですか」／最初から＝聞き取れなかった様子（「もう一度」「はい？」）／代わった方へ＝別の人に代わった
 PART_LABEL = {"intro": "名乗り", "purpose": "用件", "all": "最初から", "handover": "代わった方へ"}
 OPENING_ORDER = ("greeting", "intro", "purpose")  # 名乗りの録音の部分の順（instruction.Business.replay_parts の鍵）
-INTERNAL_KEYS = {"ack", "ask_n", "ask_reason", "ask_last", "after", "play", "speak"}  # 中で使うだけの項目（電話接続側・数え方が読む）。AIへの返事には入れない
+# 相手の種別（DESIGN.md 4-3。report_party）：電話に出た相手が何か（AIに見せる名前なので英字を使わない＝FAX は「ファクス」）。受付・目的の人は、目的の人のある業務だけでAIに見せる
+# （「誰でも」の業務は、最初の相手が目的の人＝報告しなくてよい）。人ではない相手（留守番電話・自動音声の案内・FAX）には話さずに終え、
+# 番号違いは決まった締めで終える（Intent.md 9-4）
+PARTY_LABEL = {"reception": "受付の方", "target": "目的の人", "voicemail": "留守番電話", "ivr": "自動音声の案内", "fax": "ファクスの音",
+               "wrong_party": "番号違い"}
+NOT_A_PERSON = ("voicemail", "ivr", "fax")
+PERSON_PARTIES = ("reception", "target")
+# hang_up＝話さずに切る（電話接続側が読む）
+INTERNAL_KEYS = {"ack", "ask_n", "ask_reason", "ask_last", "after", "play", "speak", "hang_up"}  # 中で使うだけの項目（電話接続側・数え方が読む）。AIへの返事には入れない
 # こちらが使う名前（AIに見せる日本語の名前）。値の欄に入っていたら、相手の答えではない（form_problem）
-_LABELS = set(SYSTEM_LABEL.values()) | set(CONFIRM_LABEL.values()) | set(END_LABEL.values()) | {"答えた"}
+_LABELS = set(SYSTEM_LABEL.values()) | set(CONFIRM_LABEL.values()) | set(END_LABEL.values()) | set(PARTY_LABEL.values()) | {"答えた"}
 _FROM_LABEL = {"condition_id": {**{v: k for k, v in SYSTEM_LABEL.items()}, ANY_LABEL: ANY}, "result": {v: k for k, v in CONFIRM_LABEL.items()},
-               "reason": {v: k for k, v in END_LABEL.items()}, "part": {v: k for k, v in PART_LABEL.items()}}
+               "reason": {v: k for k, v in END_LABEL.items()}, "part": {v: k for k, v in PART_LABEL.items()},
+               "party": {v: k for k, v in PARTY_LABEL.items()}}
 _ARG_FROM_LABEL = {v: k for k, v in ARG_LABEL.items()}
 
 
@@ -396,12 +405,13 @@ OP_ARGS = {"record_answer": (("question_id", "condition_id"), ("value",)),
            "report_unclear": (("question_id",), ()),
            "confirm_field": (("question_id", "result"), ("correction",)),
            "request_end": (("reason",), ()),
-           "replay_opening": (("part",), ())}
+           "replay_opening": (("part",), ()),
+           "report_party": (("party",), ())}
 # ✅ 2026-10-14 ユーザー：考えている相手への「はい」は形 A（AIが自分で言う）。⇒ 比べた形 B（AIは黙って「相手が考えている」と報告し、
 #    相づちはプログラムが録音で流す。G-36）の操作は外した（B は、答えを考えている途中と読み違えて黙った回があった）
 OPS = tuple(OP_ARGS)
 # 選択肢が決まっている項目（中の名前 → その表）。答えの種類（condition_id）は質問ごとに違うので、record_answer の中で確かめる
-_ENUM_ARGS = {"result": CONFIRM_LABEL, "reason": END_LABEL, "part": PART_LABEL}
+_ENUM_ARGS = {"result": CONFIRM_LABEL, "reason": END_LABEL, "part": PART_LABEL, "party": PARTY_LABEL}
 
 
 @dataclass
@@ -557,11 +567,15 @@ class Item:
 class Flow:
     def __init__(self, questions: list[Question], limits: Limits | None = None, confirm=confirm_phrase,
                  busy_ask: str | None = None, lead_ins: bool = True, play_recordings: bool = False,
-                 business_hours: tuple[int, int] = DEFAULT_BUSINESS_HOURS, opening: dict | None = None):
+                 business_hours: tuple[int, int] = DEFAULT_BUSINESS_HOURS, opening: dict | None = None,
+                 voicemail_message: str | None = None):
         """confirm：言い直しの言い方を作る関数 (値, 場面, 何回目) → 文（ふだんは phrases.confirm。言い方を比べる試験 G-25 だけが別のものを渡す）。
         busy_ask：相手が「忙しい」と言ったときに1回だけ言う一言（業務設定。None なら丁寧に終える＝既定。Intent.md 9-4）。"""
         self.confirm = confirm
         self.busy_ask = busy_ask
+        # 留守番電話に残す伝言（業務設定。Intent.md 9-4・18-2 の14。None なら残さずに切る＝安全側）
+        self.voicemail_message = voicemail_message
+        self.party: str | None = None     # いまの相手の種別（PARTY_LABEL の中の名前。報告が無ければ None＝不明。DESIGN.md 4-3）
         self.busy_asked = False
         self.confirm_counts: dict[str, int] = {}   # 言い直しの場面ごとの回数（同じ言い方が続かないよう、順番に回す）
         self.awaiting_say: str | None = None       # いま返事を待っている言い直しの、言い方（差し戻しのときも同じ言い方を使う）
@@ -738,7 +752,7 @@ class Flow:
     def handle_call(self, fc) -> tuple[dict, bool]:
         reply = self.handle(fc)
         last = self.log[-1]["reply"]
-        return reply, bool(last.get("play")) and not last.get("speak")
+        return reply, (bool(last.get("play")) and not last.get("speak")) or bool(last.get("hang_up"))
 
     # ── 中の名前での入口（handle と試験は、ここを通す）。記録（log）は中の名前で残す
     def apply(self, name: str, args: dict) -> dict:
@@ -788,6 +802,8 @@ class Flow:
             return AFTER[reply["after"]][2] if reply.get("after") else "hai"  # 何のあとの言い直しかは、言い直しを作る所（_ask_confirm）が決めたもの
         if name == "record_answer" and args.get("condition_id") in SYSTEM_CONDITIONS:
             return "shouchi"
+        if name == "report_party":
+            return None  # 留守番電話・番号違い・受付に「承知しました」などは合わない（番号違いの締めの頭に「失礼いたしました。」を流すと、締めの「失礼」と重なる）
         if name == "replay_opening":
             # 名乗りの流し直しの頭は「失礼いたしました。」（6-13）。代わった方へは、録音のあいさつから始まるので相づちは流さない
             return None if args.get("part") == "handover" else "shitsurei"
@@ -1250,6 +1266,30 @@ class Flow:
                 "message": f"「{shown}」は、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、相手の答えを待ってください。"
                            "相手が答えたら record_answer で報告します。"}
 
+    def _op_report_party(self, a: dict) -> dict:
+        """相手の種別の報告（DESIGN.md 4-3・6-2）。人ではない相手（留守番電話・自動音声の案内・FAX）には話さずに切る（留守番電話は、業務設定の
+        伝言があれば残してから切る）。番号違いは、断られたときと同じ決まった締めで終える（業務の判定は範囲外＝7-1 の順2）。受付・目的の人は
+        記録して続ける（目的の人に繋がってから質問を始める流れは、目的の人のある業務の流れ）。
+        ⛔ 2026-10-18 の見直しで見つけた漏れ：相手の種別を報告する手立てが無く、留守番電話の案内・自動音声にも、AIは質問を続けるか、
+           自分で何かを言うしかなかった（Intent.md 9-4 の「伝言を残すか残さないかを設定で選ぶ」に届かない）"""
+        party = a["party"]
+        self.party = party
+        self._note("party", party=party)
+        if party == "voicemail" and self.voicemail_message:
+            return self._close("voicemail", text=(self.voicemail_message, "voicemail_message"))
+        if party in NOT_A_PERSON:
+            return self._hang_up(party)
+        if party == "wrong_party":
+            return self._close("wrong_party")
+        return {"result": "noted", "message": f"受け付けました。{self._now()}"}
+
+    def _hang_up(self, reason: str) -> dict:
+        """話さずに切る唯一の場所（人ではない相手）。締めの言葉も相づちも流さない。"""
+        self.current, self.phase, self.end_reason = None, "closing", reason
+        self._note("end", reason=reason)
+        return {"result": "end", "hang_up": True,
+                "message": f"相手は{PARTY_LABEL[reason]}です（人ではありません）。何も言わずに終えます（言葉を言いません）。"}
+
     def _op_request_end(self, a: dict) -> dict:
         reason = a.get("reason")
         if reason in ("callee_hurry", "callee_refused_call") and (taken := self._ambiguous_only("通話を断られた")):
@@ -1471,14 +1511,14 @@ class Flow:
         発話の番号に付ける（試作では通話の記録の turns）。"""
         self.facts.setdefault(kind, []).append({"turn": self.callee_turns, "said": (self.callee_said or "").strip()[:80], **extra})
 
-    def _close(self, reason: str, prefix: str = "", asked: bool = False) -> dict:
+    def _close(self, reason: str, prefix: str = "", asked: bool = False, text: tuple[str, str] | None = None) -> dict:
         """締め（DESIGN.md 6-14）を作る唯一の場所。毎回同じ文なので、言い方は決まった1つ（ふつう＝CLOSING・急いでいる／断られた／怒っている
         ＝CLOSE_DECLINED）。reason＝締めた理由（END_LABEL の中の名前。通話の事実の end に残す）。
         録音で流す形なら録音を流してAIは黙る（6-13：毎回同じ文の発話は録音）。AIが話す形と、相手の質問にAIが答えてから締めるときは、
         AIがその言い方のまま言う。⛔ 2026-10-17 の見直しで見つけた漏れ：ふつうの締めは、録音で流す形のときしか言い方を渡しておらず、
         AIが話す形では「締めの言葉を言って」とだけ伝えていた＝AIが自分で文を作り、「お気軽にお問い合わせください」「お気をつけて
         お越しくださいませ」（命令の形）を足した（G-45）。断られたときの締めは録音にしていなかった（「お忙しいところ」はAIの声で崩れやすい）。"""
-        text, rid = (CLOSE_DECLINED, "closing_declined") if reason in DECLINED_ENDS else (CLOSING, "closing")
+        text, rid = text or ((CLOSING, "closing") if reason == "done" else (CLOSE_DECLINED, "closing_declined"))
         self.current, self.phase, self.end_reason = None, "closing", reason
         self._note("end", reason=reason)
         if self.play_recordings and not asked:
@@ -1520,6 +1560,8 @@ class Flow:
                         f"もう一度聞かずに、何も言わないで、その返事を報告し直してください。{how}")
             return (f"いまは {self.awaiting_confirm} の言い直し「{say}」への、相手の返事を待っています。{how}"
                     f"相手がまだ答えていなければ、「{say}」と、もう一度聞いてください。")
+        if self.end_reason in NOT_A_PERSON:
+            return "通話は終わりです。何も言いません。"
         if self.current is None:
             return "質問は終わりです。締めの言葉を言って終えてください。"
         q = self.questions[self.current]
@@ -1556,8 +1598,9 @@ class Flow:
         return {qid: it.hedged for qid, it in self.items.items() if it.state in GOT and it.hedged}
 
 
-def tool_declarations(questions: list[Question], replay: bool = False):
+def tool_declarations(questions: list[Question], replay: bool = False, target: bool = False):
     """AIが呼べる操作（6-2）の宣言を作る唯一の場所。条件の選択肢は、質問の宣言＋システムの2つ。
+    target：目的の人のある業務か（相手の種別に、受付・目的の人を足す。DESIGN.md 4-3）。
     ⛔ 2026-10-14 G-33：答えの報告を「返事を待たない」宣言にする形は採らない（AIが受けの言葉を先に言わなかった）。"""
     from google.genai import types
 
@@ -1590,6 +1633,9 @@ def tool_declarations(questions: list[Question], replay: bool = False):
               f"「{PART_LABEL['intro']}」、ご用件＝「{PART_LABEL['purpose']}」、聞き取れなかった様子＝「{PART_LABEL['all']}」、"
               f"別の人に代わった＝「{PART_LABEL['handover']}」）",
               {A["part"]: s(list(PART_LABEL.values()))}, [A["part"]])] if replay else []),
+        fd("report_party", "電話に出たのが人ではないとき（留守番電話の案内・自動音声の案内・ファクスの音）や、番号違い（かけた先とは別の人・別の会社）"
+           "だったときに知らせる" + ("。受付の方が出た・目的の人に代わったときも知らせる" if target else ""),
+           {A["party"]: s([PARTY_LABEL[k] for k in (PERSON_PARTIES if target else ()) + NOT_A_PERSON + ("wrong_party",)])}, [A["party"]]),
         fd("request_end", f"電話を終えたいときに呼ぶ。相手が急いでいる・切ろうとしているなら「{END_LABEL['callee_hurry']}」、"
            f"通話自体を断られた（「営業はお断りしています」「もうかけないで」など）なら「{END_LABEL['callee_refused_call']}」、"
            f"相手が怒っている・苦情を言っているなら「{END_LABEL['callee_complaint']}」、質問が全部終わったなら「{END_LABEL['done']}」",

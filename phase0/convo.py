@@ -198,6 +198,7 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                     {**x, "yes": callee_wav(x["yes"], callee_voice), "no": callee_wav(x["no"], callee_voice)}
                     if isinstance(x, dict) and "if_value" in x else x for x in callee_lines]
     flow = Flow(business.questions, busy_ask=business.busy_ask, lead_ins=lead_ins, play_recordings=play_recordings,
+                voicemail_message=business.voicemail_message,
                 opening=business.replay_parts() if opening_mode == "recorded" else None,  # 名乗りを録音で流す形なら、流し直しもできる（6-13）
                 **({"confirm": confirm} if confirm else {}))  # confirm：言い直しの言い方（G-25 の比べだけ）。lead_ins：G-27
     flow.use_checks(*[k for k, used in (("ear", ear_kind), ("judge", judge), ("judge2", judge2)) if used])
