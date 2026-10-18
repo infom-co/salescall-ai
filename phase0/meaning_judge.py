@@ -40,7 +40,6 @@ PROMPT = (
     "- 「〜ございませんでしょうか？」のような打ち消しの問いへの「はい」「いいえ」は、選べるものの名前（意味）で、どちらの意味かを決めます。\n"
     "- こちらが答えを言い直して確かめたあとの返事は、お客様が認めた意味で選びます（言い直した意味を「はい」と認めたら、その意味）。\n"
     # ⚠️ 例は、試験の言葉（G-14・G-52）と同じ言い方にしない（同じだと、試験で測った正しさが高く出る）
-    "{hedge}"
     "- 迷ったら「" + UNDECIDED + "」を選びます。\n"
     "質問：「{question}」\n"
     "{asked}"
@@ -49,12 +48,9 @@ PROMPT = (
 )
 
 
-# ⏳ 試している決まり（G-53 の3回目で測ってから決める）：言い切っていない返事は「決められない」。⛔ G-53 の2回目：言い直しへの返事 1,356個のうち
-#    15個で、認めていない返事を「認めた」と読み、うち13個に言い切っていない目印があった（「メールのほうが助かりますが…」「していないはずですが…」）。
-#    ⚠️ 「〜なんですが」は、はっきりしたお願いの前置きにも使う（「メールでお願いしたいんですが」）＝正しい答えを止めないかも測る
-HEDGE_RULE = ("- 言い切っていない返事（「〜ですが…」で言いさす・「〜かな」「〜かね」・「〜はず」・「〜くらい」・「できれば〜」）は、"
-              "認めたとも直したとも決めず「" + UNDECIDED + "」を選びます。\n")
-USE_HEDGE_RULE = False  # 測るとき（g53_meaning --hedge）だけ True にする
+# ⛔ 2026-10-18 取り下げた決まりの案：「言い切っていない返事（『〜ですが…』『できれば〜』『〜かな』『〜はず』『〜くらい』）は決められない」。
+#    ユーザー：「『メールのほうが助かりますが、電話でも大丈夫です』なら、メールは優先でOK…決まらないではないですよね」＝望みが言えていれば答え。
+#    案は逆の向きだった（測った「直った」は、作らせたモデルの誤った正解に合わせただけのものを含む。PHASE0 G-53 の3回目）。
 
 
 def options(q, asked: str | None = None) -> list[tuple[str, str, str]]:
@@ -80,7 +76,7 @@ def options(q, asked: str | None = None) -> list[tuple[str, str, str]]:
 
 def prompt(q, text: str, asked: str | None = None) -> str:
     said = f"こちらが言い直して確かめた言葉：「{asked}」\n" if asked else ""
-    return PROMPT.format(question=q.text, asked=said, text=text, hedge=HEDGE_RULE if USE_HEDGE_RULE else "",
+    return PROMPT.format(question=q.text, asked=said, text=text,
                          choices="\n".join(f"- {n}：{d}" for n, d, _ in options(q, asked)))
 
 
