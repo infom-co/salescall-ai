@@ -21,9 +21,9 @@ from convo import run_call
 from flowctl import ANY, TAKEN
 from g22_opening import BUSINESS as BASE
 from g34_ack import FAST
-from g53_meaning import JUDGES, g48_questions, truth
+from g53_meaning import JUDGES, accept, g48_questions, truth
 from instruction import Business
-from meaning_judge import JUDGE2, make_judge
+from meaning_judge import JUDGE2, make_judges
 
 
 def business(q) -> Business:
@@ -31,31 +31,34 @@ def business(q) -> Business:
                     questions=[q])
 
 
-def outcome(call: dict, qid: str, want: str) -> str:
+def outcome(call: dict, qid: str, want: list[str]) -> str:
+    """want＝受け取ってよい読み（g53_meaning.accept＝付け直した正解。数えるのは G-53 と同じ1か所）。"""
     it = call["items"][qid]
     if it["state"] in TAKEN:
         got = "unknown" if it["state"] == "dont_know" else "refused" if it["state"] == "refused" else it["condition"]
-        return "受け取った・正しい" if got == want else "⛔受け取った・誤り"
+        return "受け取った・正しい" if got in want else "⛔受け取った・誤り"
     return {"checking": "確かめた", "unclear": "聞き返した", "unresolved": "「-」", "empty": "受け取っていない"}.get(it["state"], it["state"])
 
 
 async def lane(k: int, items: list[dict], qmap: dict, args, rows: list[dict]) -> None:
     a = base_parser("").parse_args(["--key-index", str(k)] + (["--env", args.env] if args.env else []))
     client = make_client(pick_key(a))
-    judge = make_judge(a, "3.5 Flash Lite")
-    judge2 = make_judge(a, JUDGE2) if args.judge2 else None  # 2つ目の判定（✅ 2026-10-18 ユーザー：当面は Sonnet だけ）
+    a.judge, a.judge2 = "3.5 Flash Lite", JUDGE2 if args.judge2 else None  # 2つ目の判定（✅ 2026-10-18 ユーザー：当面は Sonnet だけ）
+    judges = make_judges(a)
     for it in items:
         q = qmap[it["qid"]]
-        want = truth(it)
-        head = {"set": it["set"], "qid": it["qid"], "text": it["text"], "truth": want, "key": k,
+        want = accept(it)  # ⛔ 2026-10-18 に見つけた漏れ：作らせたモデルの付けた正解（truth）のまま数えていた
+        head = {"set": it["set"], "qid": it["qid"], "text": it["text"], "truth": truth(it), "accept": want, "key": k,
                 **{j: it.get(j) for j in JUDGES if j in it}}
         try:
             call = await run_call(client, args.model, business(q), "S4", [it["text"]], opening_mode="recorded", use_ear=False,
-                                  save_audio="none", play_recordings=True, judge=judge, judge2=judge2, **FAST)
+                                  save_audio="none", play_recordings=True, **judges, **FAST)
             ops = [(e["op"], e["args"].get("condition_id") or e["args"].get("result") or e["args"].get("reason"), e["reply"]["result"])
                    for e in call["flow_log"]]
-            judged = next((t.get("ear_check", {}).get("judge") for t in call["turns"] if t.get("ear_check")), None)
-            row = {**head, "outcome": outcome(call, q.id, want), "ops": ops, "judge_in_call": judged,
+            checks = next((t["ear_check"] for t in call["turns"] if t.get("ear_check")), {})
+            judged = checks.get("judge")
+            row = {**head, "outcome": outcome(call, q.id, want), "ops": ops, "judge_in_call": judged, "judge2_in_call": checks.get("judge2"),
+                   "checked_after_call": call.get("checked_after_call"),
                    "history": call["items"][q.id]["history"], "unchecked": call.get("unchecked")}
         except Exception as exc:
             row = {**head, "error": describe_error(exc)}
@@ -76,9 +79,10 @@ def summarize(rows: list[dict]) -> dict:
     bad = [r for r in rows if r.get("outcome", "").startswith("⛔")]
     # 2つ目の判定の候補が、残った誤りを拾えたか（G-53 でその答えに聞いた判定。正解でなければ、通話の判定と食い違って確かめに回る見込み）
     out["残った誤りを2つ目の判定の候補が拾えたか"] = {
-        j: f"{sum(1 for r in bad if r.get(j) is not None and r.get(j) != r['truth'])}/{sum(1 for r in bad if r.get(j) is not None)}"
+        j: f"{sum(1 for r in bad if r.get(j) is not None and r.get(j) not in r['accept'])}/{sum(1 for r in bad if r.get(j) is not None)}"
         for j in JUDGES if j != "3.5 Flash Lite"}
-    out["⛔の中身"] = [f"{r['qid']}「{r['text']}」正解={r['truth']} 操作={r.get('ops')} 判定={r.get('judge_in_call')}" for r in bad]
+    out["⛔の中身"] = [f"{r['qid']}「{r['text']}」正解={r['accept']} 操作={r.get('ops')} 判定={r.get('judge_in_call')} 2つ目={r.get('judge2_in_call')}"
+                     for r in bad]
     return out
 
 

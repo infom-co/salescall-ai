@@ -3494,6 +3494,21 @@ class JudgeSetupTest(unittest.TestCase):
         self.assertEqual(read(q, other_text("Jev 1.14", jev), asked), cond)
         self.assertIsNone(read(q, other_text("Jev 1.14", {"error": {"code": 402}}), asked))
 
+    def test_call_tests_choose_judges_in_one_place(self):
+        # 判定の選び方は meaning_judge の1か所（add_judge_args・make_judges）。2つ目の判定の既定は JUDGE2（✅ 2026-10-18 ユーザー：当面は Sonnet だけ）
+        import argparse
+        from meaning_judge import JUDGE2, add_judge_args
+        here = Path(__file__).resolve().parent
+        for f in ("g14_listen.py", "g34_ack.py", "g50_replay.py"):
+            src = (here / f).read_text(encoding="utf-8")
+            self.assertIn("add_judge_args(p)", src, f)
+            self.assertNotIn('"--judge"', src, f)
+        p = argparse.ArgumentParser()
+        add_judge_args(p)
+        a = p.parse_args(["--judge", "--judge2"])
+        self.assertEqual((a.judge, a.judge2), ("3.5 Flash Lite", JUDGE2))
+        self.assertEqual(JUDGE2, "Claude Sonnet 5.5（考える）")
+
     def test_decisive_answers_go_first_and_survive_rejudge(self):
         # 1日の上限が少ないとき、いまの判定が言い直しへの返事を認めたと読み違えた答えを、先に判定させる（判定し直しで読みを捨てても印は残る）
         from g53_meaning import BASE, first, misread_as_affirmed

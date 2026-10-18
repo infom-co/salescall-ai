@@ -26,7 +26,7 @@ from g22_opening import BUSINESS as BASE
 from g30_latency import keep_call
 from g34_ack import FAST, FOLLOWUP_WAIT_S
 from instruction import Business
-from meaning_judge import JUDGE_MODELS
+from meaning_judge import add_judge_args
 
 QUESTIONS = {
     "Q1": Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ")),
@@ -169,8 +169,8 @@ async def run_followup(args) -> dict:
     ring = KeyRing(args)  # 上限に当たったら次のキーで、その通話を初めからやり直す（common.KeyRing.acall）
     # 別の耳・意味の判定（--ear・--judge）も、最初の答えの場面と同じく渡す（言い直しへの返事も同じ確かめに当てる＝DESIGN.md 1章）。
     # ⛔ 2026-10-18 に見つけた漏れ：この場面には渡しておらず、--ear・--judge を付けても確かめ無しで流れていた
-    from meaning_judge import make_judge
-    judge = make_judge(args, args.judge) if args.judge else None
+    from meaning_judge import make_judges
+    judges = make_judges(args)
     clip = {(m["voice"], m["id"]): m for m in json.loads((HERE / "results" / "callee" / "g14" / "index.json").read_text(encoding="utf-8"))
             if m.get("ok") and not m.get("noise")}
     voices = sorted({v for v, _ in clip} & set(args.voice or {v for v, _ in clip}))
@@ -186,7 +186,7 @@ async def run_followup(args) -> dict:
                 call, _ = await ring.acall(args.model, lambda client: run_call(
                     client, args.model, business("Q1"), "S4", lines, opening_mode="recorded", use_ear=False,
                     save_audio="bad", audio_label=f"G14f_{voice}_{first}", followup_wait_s=FOLLOWUP_WAIT_S, play_recordings=True,
-                    ear_kind=args.ear, judge=judge, **FAST))
+                    ear_kind=args.ear, **judges, **FAST))
                 row = keep_call(head, call, lambda c: {
                     "verdict": followup_verdict(c, truth), "ops": [(e["op"], e["args"], e["reply"]["result"]) for e in c["flow_log"]],
                     "program_said": [e["reply"].get("say") for e in c["flow_log"] if e["reply"].get("say")],
@@ -218,15 +218,15 @@ async def run(args) -> dict:
         items = [{**m, "question": args.as_question,
                   "want": w.get("id", {}).get(m["id"], w.get("want", {}).get(m["want"], m["want"]))} for m in items]
     rows = []
-    from meaning_judge import make_judge
-    judge = make_judge(args, args.judge) if args.judge else None
+    from meaning_judge import make_judges
+    judges = make_judges(args)
     for n, item in enumerate(items[: args.limit or None]):
         head = {**{k: item[k] for k in ("id", "voice", "question", "want", "kind", "text")}, "noise_tag": "雑音" if item.get("noise") else "無し"}
         try:
             call, _ = await ring.acall(args.model, lambda client: run_call(
                 client, args.model, business(item["question"], not args.no_meanings), "S4", [{"wav": item["wav"]}], opening_mode="recorded",
                 use_ear=False, save_audio="bad", audio_label=f"G14_{item['voice']}_{item['id']}",
-                followup_wait_s=FOLLOWUP_WAIT_S, play_recordings=True, ear_kind=args.ear, judge=judge, **FAST))
+                followup_wait_s=FOLLOWUP_WAIT_S, play_recordings=True, ear_kind=args.ear, **judges, **FAST))
             row = keep_call(head, call, lambda c: measures(c, item))
         except Exception as exc:
             row = {**head, "error": describe_error(exc)}
@@ -253,8 +253,7 @@ def main() -> None:
     p.add_argument("--ear", nargs="?", const=PREFERRED_EARS[0], choices=EAR_KINDS,
                    help="別の耳を通話の中で使う（名前を付けなければ ears.PREFERRED_EARS の先頭＝Soniox。DESIGN.md 6-10 の (5)。G-15）")
     p.add_argument("--no-meanings", action="store_true", help="意味の言葉を渡さない（選択肢の名前で言い直す形と比べるため）")
-    p.add_argument("--judge", nargs="?", const="3.5 Flash Lite", choices=JUDGE_MODELS,
-                   help="意味の2つ目の判定を通話の中で使う（DESIGN.md 6-10 の (6)。G-53）。名前を付けなければ 3.5 Flash Lite")
+    add_judge_args(p)
     p.add_argument("--tally", help="結果のファイル名の頭（例 G-14-base-）で、同時に流した回を合わせて数える（問い合わせはしない）")
     args = p.parse_args()
     if args.tally:

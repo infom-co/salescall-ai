@@ -328,6 +328,19 @@ async def ajudge_other(client, name: str, q, text: str, asked: str | None = None
     return read(q, other_text(name, data), asked)
 
 
+def add_judge_args(p) -> None:
+    """通話の試験が判定を選ぶ引数（どの試験も、ここから足す＝選び方を試験ごとに書かない）。--judge＝その場の判定（既定 3.5 Flash Lite）・
+    --judge2＝後ろで走らせる2つ目の判定（既定 JUDGE2）。"""
+    p.add_argument("--judge", nargs="?", const="3.5 Flash Lite", choices=JUDGE_MODELS, help="意味の判定を使う（DESIGN.md 6-10 の (6)）")
+    p.add_argument("--judge2", nargs="?", const=JUDGE2, choices=tuple(OTHER_JUDGES) + JUDGE_MODELS,
+                   help=f"2つ目の判定を使う（DESIGN.md 1-3 の (2)。既定 {JUDGE2}）")
+
+
+def make_judges(args) -> dict:
+    """add_judge_args で選んだ判定を、run_call にそのまま渡せる形で（{"judge": …, "judge2": …}。選ばれていなければ None）。"""
+    return {k: make_judge(args, getattr(args, k)) if getattr(args, k, None) else None for k in ("judge", "judge2")}
+
+
 def make_judge(args, model_name: str):
     """通話の中で使う形：async (質問, 相手の言葉, こちらが言い直した言葉) -> 中の名前。キーは会話と同じく、上限・止められたキーを飛ばす
     （common.KeyRing.acall）。どの試験も、これを run_call(judge=…) に渡す（作り方を試験ごとに書かない）。"""
