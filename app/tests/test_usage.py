@@ -155,11 +155,6 @@ class CostRatio(Priced):
         return [r["cause"] for r in self.tx(s, lambda tx: stops.open_stops(tx, tenant_id=s["tenant"], client_id=s["client"],
                                                                           business_id=None))]
 
-    def test_upper_limit_of_a_count(self):
-        self.assertAlmostEqual(reward.poisson_upper(0, 0.95), 2.9957, places=3)    # 0件を見たとき（3の決まり）
-        self.assertAlmostEqual(reward.poisson_upper(10, 0.95), 16.962, places=2)
-        self.assertGreater(reward.poisson_upper(1000, 0.95), 1000)
-
     def test_each_form_is_counted_at_the_price_of_its_time(self):
         s = self.ready()
         self.terms(s, per_completed_yen=100, per_dial_yen=1, per_talk_yen=10)
@@ -212,7 +207,7 @@ class CostRatio(Priced):
         """赤字の知らせの早さは依頼者ごと・3つの選び方（2026-10-17 ユーザー：案B「成果が0件のまま、使った費用が成果1件分の報酬の
         4分の1・半分・1件分を超えたら知らせる」）。画面の例の本数（成果1件 1,000円・電話1本 2円）が、中の計算と合っている。"""
         for name, examples in (("early", 125), ("normal", 250), ("careful", 500)):
-            calls = 1000 * reward.poisson_upper(0, reward.caution_confidence(name)) / 2
+            calls = 1000 * float(reward.caution_margin(name)) / 2
             self.assertLess(abs(calls - examples) / examples, 0.01, name)
             self.assertIn(f"約{examples:,}本", reward.CAUTIONS[name][1])
         s = self.ready()

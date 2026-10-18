@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from salescall.core import (attempts, backup, business_rules, calling_hours, call_report, dnc, fix_requests, gate,
+from salescall.core import (approval, attempts, backup, business_rules, calling_hours, call_report, dnc, fix_requests, gate,
                             next_action, quality_stage, recordings, results, settle, stops, watch)
 from salescall.core.errors import ErrorReport
 from salescall.core.access import Rejected
@@ -283,6 +283,14 @@ class CutOffCalls(SettleBase):
         aid = self.call(s, ("dialing", "ringing", "answered", "in_conversation", "technical_error"))
         self.resumed(self.settle(s, aid))
 
+    def test_a_customer_who_hung_up_during_their_own_words_is_not_called_back_at_once(self):
+        """お客様の言葉の途中で切れても、回線の信号が「お客様が切った」なら、お客様が自分で切った（すぐかけ直さない）。"""
+        s = self.ready()
+        aid = self.call(s, ("dialing", "ringing", "answered", "in_conversation", "dropped"), side="callee",
+                        report=rep(cut=Cut("callee", False, False)))
+        got = self.settle(s, aid)["decision"]
+        self.assertNotEqual(got.target and got.target.purpose, "resume")
+
     def test_a_customer_who_hung_up_or_was_not_reached_is_not_called_back_at_once(self):
         s = self.ready()
         aid = self.call(s, ("dialing", "ringing", "answered", "in_conversation", "dropped"), side="callee",
@@ -302,8 +310,10 @@ class RecordingHolds(SettleBase):
         normal = self.call(s, items=[("Q1", "confirmed", None)])
         self.settle(s, normal)
         t = self.ready()
+        self.put_client(t, "approval.human", True)                     # 検証モードでかける（印はかけたときのモードで付く）
+        self.tx(t, lambda tx: approval.approve_task(tx, t["task"]), OPERATOR)
+        self.tx(t, lambda tx: quality_stage.open_stage(tx, t["version"], 1, 1, evidence="試験：最初の段は1件"), OPERATOR)
         checked = self.call(t, items=[("Q1", "confirmed", None)])
-        self.put_client(t, "approval.human", True)                     # 検証モード
         self.settle(t, checked)
         held = lambda x: self.tx(x, lambda tx: [r["reason"] for r in tx.all(   # noqa: E731
             "SELECT reason FROM salescall.recording_holds WHERE released_at IS NULL ORDER BY reason")])

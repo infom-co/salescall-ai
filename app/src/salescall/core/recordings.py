@@ -57,6 +57,14 @@ def add_voice(tx: Tx, voice_name: str, *, note: str) -> None:
     tx.execute("INSERT INTO salescall.voices (voice_name, note) VALUES (%s, %s)", (voice_name, note))
 
 
+def add_voice_type(tx: Tx, code: str, voice_name: str, *, default_for_voice: bool, note: str) -> None:
+    """声の型（声の名前＋話し方）を足す（管理者だけ＝データベースが守る。2026-10-18 の見直し：前は移行のファイルでしか足せず、
+    足した声がいつまでも使えなかった）。話し方の中身は CL-1 の持ち物（連絡帳で知らせてもらう）。新しい声には、初めの声の型
+    （default_for_voice）を1つ足す（声を替えるとき、替えた先に使う。話してよい声は、初めの声の型のある声だけ＝`ready_voices`）。"""
+    tx.execute("INSERT INTO salescall.voice_types (code, voice_name, default_for_voice, note) VALUES (%s, %s, %s, %s)",
+               (code, voice_name, default_for_voice, note))
+
+
 def retire_voice(tx: Tx, voice_name: str, *, reason: str) -> None:
     """声に「使わない」の印を付ける（1回だけ。管理者だけ）。門は、その声で話さない。"""
     row = tx.one("UPDATE salescall.voices SET retired_at = now(), retired_reason = %s"

@@ -333,6 +333,19 @@ class FramesCannotBeFinerThanWhatTheyFrame(unittest.TestCase):
                 " bound_side, finest_scope) VALUES ('test.bad_frame', 'override', 'integer', '試験', '試験',"
                 " 'retry.max_attempts_per_task', 'upper', 'tenant')"))
 
+    def test_a_migration_that_rewrites_definitions_cannot_break_the_frames(self):
+        """定義の変更止めを外して書き換える移行（0045 のような）でも、枠が収める設定より細かくなれば断る。"""
+        def rewrite(tx):
+            tx.execute("ALTER TABLE salescall.setting_definitions DISABLE TRIGGER setting_definitions_frozen")
+            tx.execute("UPDATE salescall.setting_definitions SET finest_scope = 'business' WHERE key = 'calling.hours_limit'")
+            tx.execute("UPDATE salescall.setting_definitions SET finest_scope = 'client' WHERE key = 'calling.hours'")
+            tx.execute("ALTER TABLE salescall.setting_definitions ENABLE TRIGGER setting_definitions_frozen")
+        with self.assertRaises(Rejected):
+            owner_access().in_system(SYSTEM, rewrite)
+        got = owner_access().in_system(SYSTEM, lambda tx: tx.one(
+            "SELECT finest_scope::text AS f FROM salescall.setting_definitions WHERE key = 'calling.hours_limit'"))["f"]
+        self.assertEqual(got, "client")                                  # 書き換えは残らない
+
     def test_system_only_is_written_one_way(self):
         """「システムだけ」は、いちばん細かく決められる範囲で表す（合成の種類の system_only は使わない）。"""
         with self.assertRaises(Rejected):

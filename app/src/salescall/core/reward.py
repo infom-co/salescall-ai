@@ -14,16 +14,16 @@
     `Terms.hourly_gap_seconds`。ユーザー：「1から2分くらい」「依頼者ごとに上下で設定できる」）。数えるのはデータベースの1か所
     （salescall.work_seconds）。
   - お詫びの電話（こちらの誤りのため）は、どの報酬にも数えない（かけた1本・話せた1本・時給）。費用には数える。
-- **ぶれを多めに見込んだ報酬**（`upper`）：成果と話せた本数は偶然でぶれる（月の初めに成果0件でも、本当の成果の割合が低いとは
-  限らない）。そこで、この2つの数を、確かさ（依頼者ごとの報酬の決まりの「赤字の知らせの早さ」＝`CAUTIONS`。2026-10-17 ユーザー：「依頼者ごと」「初めての契約者
-  でも分かるように」）の上側まで多めに見込んだ報酬も出す（ポアソン分布の
-  上側の限界）。判断する側は、これでも上限・赤字になるときだけ判断する ⇒ 判断し始める本数を決め打ちにせず、報酬と費用から
-  逆算される（例：成果1件 1,000円・1本 約2円なら、成果0件のまま約1,500本＝約3,000円で赤字と判断）。
+- **余裕を足した報酬**（`upper`）：成果と話せた本数は偶然でぶれる（月の初めに成果0件でも、本当の成果の割合が低いとは限らない）。
+  そこで、今月の報酬に「成果1件分・話せた1本分の報酬の、赤字の知らせの早さの割合（4分の1・半分・1件分）」を余裕として足す
+  （依頼者ごとの報酬の決まりの「赤字の知らせの早さ」＝`CAUTIONS`。2026-10-17 ユーザー：案B「成果が0件のまま、使った費用が成果1件分
+  の報酬の4分の1・半分・1件分を超えたら知らせる」）。判断する側は、これでも上限・赤字になるときだけ判断する（例：成果1件 1,000円・
+  1本 約2円・早めなら、成果0件のまま約125本＝約250円で赤字と判断）。成果が出たあとも、同じ余裕のまま（2026-10-18 の見直し：前は
+  ぶれの計算で余裕が成果の数とともに変わり、早めでは成果1件目から余裕が0になって、画面の説明と合わなかった）。
 """
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
@@ -34,8 +34,7 @@ from salescall.core.access import Tx
 
 # 赤字の知らせの早さ（2026-10-17 ユーザー：「初めての契約者でも分かるように」・案B「成果が0件のまま、使った費用が成果1件分の報酬の
 # 4分の1・半分・1件分を超えたら知らせる」）。画面に出す名前と説明、中の数は、ここだけ。
-# 中の数＝成果が0件のとき、成果を何件分まで多めに見込むか（margin）。成果が出始めたら、実際の成果に、同じ考え方の余裕を足して判断する
-# （確かさ＝1 − e^(−margin)。成果0件で見込む数がちょうど margin になる確かさ＝`caution_confidence`）。
+# 中の数＝報酬に足す余裕（成果1件分・話せた1本分の報酬の何倍か＝margin）。成果が出たあとも同じ余裕を足す。
 # 例は「成果1件 1,000円・電話1本 約2円の依頼者」（どれも計算で出した数）
 CAUTION_EXAMPLE = "例：成果1件の報酬が1,000円、電話1本の費用が約2円の依頼者なら"
 CAUTIONS: dict[str, tuple[str, str, float]] = {
@@ -48,9 +47,10 @@ CAUTIONS: dict[str, tuple[str, str, float]] = {
 }
 
 
-def caution_confidence(name: str) -> float:
-    """その早さで使う確かさ（成果0件のとき、多めに見込む数が margin になる）。"""
-    return 1 - math.exp(-CAUTIONS[name][2])
+def caution_margin(name: str) -> Decimal:
+    """その早さで報酬に足す余裕（成果1件分・話せた1本分の報酬の何倍か）。"""
+    return Decimal(str(CAUTIONS[name][2]))
+
 # 時給の「電話と電話の間」の画面の初めの値と、上下のボタン1回の幅（秒。2026-10-17 ユーザー：「デフォルト2分、ボタン1回で30秒ずつ」）
 HOURLY_GAP_INITIAL_SECONDS = 120
 HOURLY_GAP_STEP_SECONDS = 30
@@ -88,52 +88,6 @@ def set_terms(tx: Tx, terms: Terms, *, valid_from: datetime, note: str) -> int:
          terms.hourly_gap_seconds, terms.deficit_caution, note))["terms_id"]
 
 
-def _upper_q(a: float, x: float) -> float:
-    """上側の正則化ガンマ関数 Q(a, x)（a は正の整数で使う）。級数と連分数（よく知られた計算のしかた）。"""
-    if x <= 0:
-        return 1.0
-    log_front = a * math.log(x) - x - math.lgamma(a)
-    if x < a + 1:                                    # 下側を級数で出して、1 から引く
-        term = total = 1.0 / a
-        n = a
-        for _ in range(10_000):
-            n += 1
-            term *= x / n
-            total += term
-            if term < total * 1e-15:
-                break
-        return max(0.0, 1.0 - total * math.exp(log_front))
-    b, c, d = x + 1 - a, 1e300, 1.0 / (x + 1 - a)   # 上側を連分数で出す
-    h = d
-    for i in range(1, 10_000):
-        an = -i * (i - a)
-        b += 2
-        d = an * d + b
-        d = 1e-300 if abs(d) < 1e-300 else d
-        c = b + an / c
-        c = 1e-300 if abs(c) < 1e-300 else c
-        d = 1.0 / d
-        step = d * c
-        h *= step
-        if abs(step - 1) < 1e-15:
-            break
-    return math.exp(log_front) * h
-
-
-def poisson_upper(k: int, confidence: float) -> float:
-    """k 回起きたのを見たとき、起きる数の見込みの上側の限界（確かさ confidence）。P(X ≤ k | λ) ＝ 1 − confidence となる λ。
-    例：k＝0、確かさ 0.95 ⇒ 約 3.0。"""
-    target = 1 - confidence
-    lo, hi = float(k), float(k) + 10 * math.sqrt(k + 1) + 10
-    for _ in range(200):                             # P(X ≤ k | λ) ＝ Q(k + 1, λ) は λ で減る
-        mid = (lo + hi) / 2
-        if _upper_q(k + 1, mid) > target:
-            lo = mid
-        else:
-            hi = mid
-    return hi
-
-
 # その時刻に効いていた決まりの、ある形の単価（無ければ 0）
 _PRICE_AT = ("coalesce((SELECT t.{col} FROM salescall.reward_terms t WHERE t.valid_from <= x.at"
              " ORDER BY t.valid_from DESC LIMIT 1), 0)")
@@ -141,9 +95,9 @@ _PRICE_AT = ("coalesce((SELECT t.{col} FROM salescall.reward_terms t WHERE t.val
 
 def month(tx: Tx) -> dict[str, Any]:
     """取引の依頼者の、今月（日本時間）の数。cost・revenue（合計）・breakdown（形ごとの数と円。時給は秒）・
-    upper（成果と話せた本数を、確かさ confidence の上側まで多めに見込んだ報酬）・has_terms（報酬の決まりがあるか）・
+    upper（余裕を足した報酬）・has_terms（いま効いている報酬の決まりがあるか。先の日付からの決まりだけなら無い）・
     unpriced_entries（単価が設定されておらず金額の無い利用量の数。費用はその分を含まない＝画面で注意として出す）。
-    確かさは、いまの報酬の決まりの赤字の知らせの早さ（`CAUTIONS`。決まりが無ければ、多めに見込まない）。"""
+    余裕は、いまの報酬の決まりの赤字の知らせの早さ（`CAUTIONS`。決まりが無ければ、足さない）。"""
     b = tx.one("SELECT salescall.from_jst(date_trunc('month', salescall.jst(now()))) AS s,"
                " salescall.from_jst(date_trunc('month', salescall.jst(now())) + interval '1 month') AS e, now() AS now")
     events = {
@@ -177,13 +131,11 @@ def month(tx: Tx) -> dict[str, Any]:
                " FROM salescall.usage_entries WHERE occurred_at >= %s AND occurred_at <= %s", (b["s"], b["now"]))
     cost = Decimal(c["y"])
     revenue = sum((x["yen"] for x in breakdown.values()), Decimal(0))
-    # ぶれる2つ（成果・話せた本数）を多めに見込んだ分：見た数より多い分を、いまの決まりの単価で足す
+    # ぶれる2つ（成果・話せた本数）の余裕：いまの決まりの単価 × 赤字の知らせの早さの割合
     now_terms = next((t for t in reversed(terms) if t["valid_from"] <= b["now"]), None)
     upper = revenue
-    for name, col in (("completed", "per_completed_yen"), ("talk", "per_talk_yen")):
-        if now_terms is None:
-            break
-        k = breakdown[name]["count"]
-        upper += Decimal(now_terms[col]) * Decimal(str(poisson_upper(k, caution_confidence(now_terms["deficit_caution"])) - k))
+    if now_terms is not None:
+        margin = caution_margin(now_terms["deficit_caution"])
+        upper += (Decimal(now_terms["per_completed_yen"]) + Decimal(now_terms["per_talk_yen"])) * margin
     return {"month_start": b["s"], "cost": cost, "revenue": revenue, "upper": upper, "breakdown": breakdown,
-            "has_terms": bool(terms), "unpriced_entries": c["unpriced"]}
+            "has_terms": now_terms is not None, "unpriced_entries": c["unpriced"]}

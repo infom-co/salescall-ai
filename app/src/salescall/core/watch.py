@@ -57,12 +57,23 @@ def record_error(tx: Tx, report: errors.ErrorReport, *, line_id: UUID | None = N
     refs = {"error_id": row["error_id"], "kind": kind, "attempt_id": attempt_id}
     # 根源的なもの（待っても直らない）は、止めずに直す担当へ修正依頼を出す（2026-10-17 ユーザー：「人はそのプロセスをチェック
     # もしくは承認するだけ」）。管理者には、どの種類も知らせる（確かめ・承認のため）。契約者には、処置の表が「知らせる」とした種類だけ
-    if action.fixer is not None:
-        fix_requests.request(tx, action.fixer, kind, key=f"error:{key}", summary=errors.LABELS[kind], refs=refs)
+    fixer = action.fixer or (action.lasting_fixer if action.lasting_fixer and _lasting(tx, kind) else None)
+    if fixer is not None:
+        fix_requests.request(tx, fixer, kind, key=f"error:{kind}:{row['tenant']}", refs=refs,
+                             summary=errors.LABELS[kind] + ("" if action.fixer else "（1時間以上続いている）"))
     notify.emit(tx, "error_notice", key=f"error:{key}",
-                summary=(f"{action.fixer} に修正依頼：" if action.fixer else "エラー：") + errors.LABELS[kind],
-                refs={**refs, "fixer": action.fixer}, admin=True, contractor=action.notify)
+                summary=(f"{fixer} に修正依頼：" if fixer else "エラー：") + errors.LABELS[kind],
+                refs={**refs, "fixer": fixer}, admin=True, contractor=action.notify)
     return kind
+
+
+def _lasting(tx: Tx, kind: str) -> bool:
+    """その契約者で、その種類が errors.LASTING 以上続いているか（その長さより長くあかずに起き続けている）。"""
+    return tx.one(
+        "WITH e AS (SELECT occurred_at, lag(occurred_at) OVER (ORDER BY occurred_at) AS prev FROM salescall.error_events"
+        "           WHERE kind = %s AND tenant_id = salescall.cur_tenant() AND occurred_at > now() - interval '7 days')"
+        " SELECT coalesce(now() - max(occurred_at) FILTER (WHERE prev IS NULL OR occurred_at - prev > %s) >= %s, false) AS lasting"
+        " FROM e", (kind, errors.LASTING, errors.LASTING))["lasting"]
 
 
 def decide_stop(tx: Tx, kind: str, *, line_id: UUID | None = None) -> dict[str, Any] | None:

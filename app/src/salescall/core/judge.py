@@ -118,6 +118,17 @@ def classify_cut(facts: Facts, report: CallReport | None) -> str | None:
     return "unclear"
 
 
+def cut_off(*, reached_answer: bool, end_state: str, raw_cut: str | None, hangup_side: str | None) -> bool:
+    """途中で切れた＝お客様が出たあと、お客様の意思と関係なく切れた（こちらの仕組みが止まった／回線・言葉の途中で切れた）。復旧次第、
+    お詫びとともにすぐかけ直す（2026-10-17 ユーザー：「仕組みが途中で止まった通話や、回線が途中で切れた通話は復旧次第、お詫びと
+    ともにすぐかけ直さないといけないでしょ！」）。**決めるのはこの1か所**。入れないもの（2026-10-18 の見直し）：回線の信号が
+    「お客様が切った」もの（お客様が自分で切った）・切れ方を決められなかったもの（依頼者の設定で「断り」としない場合も、
+    途中で切れたとは分からない）。raw_cut＝依頼者の設定で写す前の切れ方（`classify_cut`）。"""
+    if not reached_answer:
+        return False
+    return end_state == "technical_error" or (raw_cut == "interrupted" and hangup_side != "callee")
+
+
 def judge(inp: JudgeInput) -> Judgement:
     return refusal(inp) or _business(inp)
 
@@ -143,7 +154,8 @@ def refusal(inp: JudgeInput) -> Judgement | None:
     def unknown(cause: str, error: str) -> Judgement:
         return Judgement("unknown", complaint, None, None, {**detail, "unknown_cause": cause, "error": error})
 
-    # お客様が出たのに会話の報告が無い：結果不明（処理が落ちた）なら、何も分からないまま扱う（長い間隔のあとかけ直す。4-2）。
+    # お客様が出たのに会話の報告が無い：結果不明（処理が落ちた）なら、何も分からないまま扱う（途中で切れた通話として、復旧次第
+    # お詫びとともにすぐかけ直す＝`cut_off`。2026-10-17 ユーザー）。
     # それ以外は入力の誤り（報告を書き損ねた）。決めつけない
     if inp.facts.reached_answer and r is None and inp.facts.end_state != "technical_error":
         if inp.refused_after:   # 報告は無くても、通話後の検証が録音から拒否を見つけた：はっきりした拒否が勝つ（2026-10-17 の見直し）

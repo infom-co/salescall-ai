@@ -120,9 +120,10 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("設定の行の見え方を、同じ契約者の中で緩める",
      "ALTER POLICY setting_scope ON salescall.setting_values USING (scope = 'system' OR tenant_id = salescall.cur_tenant())",
      ("tests.test_settings.PerClientSettings.test_other_client_of_the_same_tenant_cannot_see_the_value",)),
-    ("設定の枠は、収める設定より細かく決められない決まりを外す",
-     "DROP TRIGGER setting_definitions_before_insert ON salescall.setting_definitions",
-     ("tests.test_settings.FramesCannotBeFinerThanWhatTheyFrame.test_a_frame_that_a_finer_scope_can_move_is_rejected",)),
+    ("設定の枠は、収める設定より細かく決められない決まりを外す（足すときも、移行で書き換えるときも）",
+     "DROP TRIGGER setting_definitions_rules_hold ON salescall.setting_definitions",
+     ("tests.test_settings.FramesCannotBeFinerThanWhatTheyFrame.test_a_frame_that_a_finer_scope_can_move_is_rejected",
+      "tests.test_settings.FramesCannotBeFinerThanWhatTheyFrame.test_a_migration_that_rewrites_definitions_cannot_break_the_frames")),
     ("決められる範囲より細かい設定の値を入れられる",
      "CREATE OR REPLACE FUNCTION salescall.setting_value_before_insert() RETURNS trigger LANGUAGE plpgsql AS $$"
      " DECLARE d salescall.setting_definitions; BEGIN SELECT * INTO d FROM salescall.setting_definitions WHERE key = NEW.key;"
@@ -383,6 +384,21 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("外した録音の印を戻せる",
      "DROP TRIGGER recording_hold_released_once ON salescall.recording_holds",
      ("tests.test_settle.RecordingHolds.test_verification_calls_keep_their_recordings_until_measured",)),
+    ("控えの残す日数を0にできる",
+     "ALTER TABLE salescall.setting_values DROP CONSTRAINT setting_values_keep_days_at_least_one",
+     ("tests.test_backup.PerClient.test_keep_days_are_at_least_one_and_backup_lookups_are_for_the_backup_only",)),
+    ("ほかの契約者の控えの情報を、誰の取引からでも読める",
+     "CREATE OR REPLACE FUNCTION salescall.only_backup_system() RETURNS void LANGUAGE plpgsql STABLE AS $$ BEGIN END $$",
+     ("tests.test_backup.PerClient.test_keep_days_are_at_least_one_and_backup_lookups_are_for_the_backup_only",)),
+    ("同じ不具合の修正依頼が、いくつも出る",
+     "CREATE OR REPLACE FUNCTION salescall.request_fix(p_assignee text, p_kind text, p_key text, p_summary text, p_refs jsonb)"
+     " RETURNS boolean LANGUAGE sql SECURITY DEFINER SET search_path = salescall, pg_temp AS $$"
+     " INSERT INTO salescall.fix_requests (assignee, kind, event_key, fault_key, summary, refs)"
+     " VALUES (p_assignee, p_kind, p_key || '#' || gen_random_uuid(), p_key, p_summary, coalesce(p_refs, '{}')) RETURNING true $$",
+     ("tests.test_backup.PerClient.test_one_fix_request_per_fault_until_reported_fixed",)),
+    ("声の型を、誰でも足せる・書き換えられる",
+     "DROP TRIGGER voice_types_guard ON salescall.voice_types",
+     ("tests.test_gate.CallerNumberAndVoice.test_a_new_voice_is_used_without_changing_the_code_and_a_retired_voice_is_not",)),
     ("通話後の確かめを「確かめられなかった」で諦められる",
      "ALTER TABLE salescall.attempts DROP CONSTRAINT attempts_verification_never_gives_up",
      ("tests.test_foundation.AttemptTransitions.test_verification_only_pending_to_done",

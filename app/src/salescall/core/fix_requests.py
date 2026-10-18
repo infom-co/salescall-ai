@@ -19,7 +19,8 @@ ASSIGNEES = ("CL-1", "CL-2", "CL-3")   # CL-1＝会話・別の耳・録音／CL
 
 
 def request(tx: Tx, assignee: str, kind: str, *, key: str, summary: str, refs: dict[str, Any] | None = None) -> bool:
-    """修正依頼を出す（どの取引の中からでも。同じ鍵は1つ）。新しく出したら True。"""
+    """修正依頼を出す（どの取引の中からでも）。key＝どの不具合か（時刻や通話を入れない）。同じ不具合は、担当が「直した」と報告する
+    まで1つ（報告のあとにまた起きたら、新しく出す。決めるのはデータベースの request_fix の1か所）。新しく出したら True。"""
     if assignee not in ASSIGNEES:
         raise ValueError(f"修正依頼の担当は {ASSIGNEES} のどれかです（{assignee!r}）")
     return tx.one("SELECT salescall.request_fix(%s, %s, %s, %s, %s) AS new",

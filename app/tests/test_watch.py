@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import time
 import unittest
+from datetime import timedelta
 
 from salescall.core import errors, fix_requests, settings, stops, watch
 from salescall.core.access import Rejected
@@ -389,6 +390,25 @@ class TenantAiStopsAndChecks(unittest.TestCase):
             tx, tenant_id=s["tenant"], client_id=None, business_id=None, line_id=s["line"])), [])
         got = self.a.in_system(SYSTEM, lambda tx: fix_requests.open_requests(tx, "CL-2"))
         self.assertIn("recording", [r["kind"] for r in got])
+
+    def test_a_lasting_temporary_error_becomes_a_fix_request(self):
+        """一時的なもの（別の耳につながらない）でも、1時間以上続いたら担当（CL-1）へ修正依頼を出す。続いていなければ出さない
+        （2026-10-18 の見直し：前は何日続いても修正依頼にならず、その間お客様の行が待ち続けた）。"""
+        ear = ErrorReport("ear", None, None, unreachable=True)
+        def asked(t):
+            return [r for r in self.a.in_system(SYSTEM, lambda tx: fix_requests.open_requests(tx, "CL-1"))
+                    if r["kind"] == "ear_unreachable" and r["refs"].get("tenant_id") == str(t)]
+        short = World().setup()
+        watch.after_error(self.a, SYSTEM, ear, tenant_id=short["tenant"], client_id=short["client"])
+        self.assertEqual(asked(short["tenant"]), [])
+        long = World().setup()
+        for minutes in (110, 70, 30):                                   # 30〜40分おきに、2時間近く続いている
+            self.a.in_client(SYSTEM, long["tenant"], long["client"], lambda tx: tx.execute(
+                "INSERT INTO salescall.error_events (tenant_id, client_id, source, kind, occurred_at)"
+                " VALUES (salescall.cur_tenant(), salescall.cur_client(), 'ear', 'ear_unreachable', now() - %s)",
+                (timedelta(minutes=minutes),)))
+        watch.after_error(self.a, SYSTEM, ear, tenant_id=long["tenant"], client_id=long["client"])
+        self.assertEqual(len(asked(long["tenant"])), 1)
 
     def test_the_assignee_reports_the_fix_and_only_the_admin_approves(self):
         """担当が「直した」を書き、管理者が確かめて承認する（人は承認だけ）。契約者には修正依頼は見えない。"""

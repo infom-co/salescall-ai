@@ -699,11 +699,13 @@ class CallerNumberAndVoice(Base):
     def test_a_new_voice_is_used_without_changing_the_code_and_a_retired_voice_is_not(self):
         """会話AIのモデルが進化して声が増えたら、声の一覧に足すだけ（2026-10-17 ユーザー）。使えなくなった声は印を付ける。"""
         self.override("gate.cross_client_interval", 1)
-        own = owner_access()
-        own.in_system(ADMIN, lambda tx: tx.execute(
-            "INSERT INTO salescall.voices (voice_name, note) VALUES ('Kore', '試験で足した声')"))
-        own.in_system(ADMIN, lambda tx: tx.execute(
-            "INSERT INTO salescall.voice_types (code, voice_name, default_for_voice, note) VALUES ('K1', 'Kore', true, '試験')"))
+        self.w.a.in_system(ADMIN, lambda tx: recordings.add_voice(tx, "Kore", note="試験で足した声"))   # 管理者がデータを足すだけ
+        self.w.a.in_system(ADMIN, lambda tx: recordings.add_voice_type(tx, "K1", "Kore", default_for_voice=True, note="試験"))
+        with self.assertRaises(Rejected):                                          # 声の型を足せるのは管理者だけ
+            self.w.a.in_tenant(OPERATOR, self.w.tenant(), lambda tx: recordings.add_voice_type(
+                tx, "K2", "Kore", default_for_voice=False, note="契約者が足そうとした"))
+        with self.assertRaises(Rejected):                                          # 足した声の型は変えられない
+            self.w.a.in_system(ADMIN, lambda tx: tx.execute("UPDATE salescall.voice_types SET note = '書き換え' WHERE code = 'K1'"))
         t = self.w.tenant(voices=("Sadachbia", "Kore"))                            # Leda の録音は無い
         a = self.ready(tenant=t)
         self.w.approve_voices(t, a["client"], a["version"], ("Kore",))

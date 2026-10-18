@@ -53,7 +53,7 @@ REASONS: dict[str, tuple[str, str]] = {
     "stage_full": ("いまの段の件数に達しました（次の段へ進むのを待っています）", "wait"),
     "stopped": ("止まっています", "wait"),
     "client_inactive": ("この依頼者は無効にしています", "wait"),
-    "line_retired": ("使わなくなった回線です", "cannot_judge"),
+    "line_retired": ("使わなくなった回線です", "wait"),   # 回線の状態（行は、ほかの回線でかけられる）
     "outside_hours": ("かけてよい時間帯の外です", "wait"),
     "calendar_out_of_range": ("祝日の暦が無い日です", "cannot_judge"),
     "related_unsettled": ("このお客様にかかわる前の発信の締め（断られたかの確かめ）が、まだ済んでいません", "wait"),
@@ -329,6 +329,11 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
     if unsettled is not None:
         return _deny("awaiting_decision")
 
+    # (1b) 依頼者を無効にしていないか（Intent.md 4章 A。判断はデータベースの1か所 salescall.client_active）。業務設定の確かめより
+    #      先に見る（無効の依頼者の設定の抜けを、契約者に知らせない＝2026-10-18 の見直し）
+    if not tx.one("SELECT salescall.client_active(%s) AS a", (task["client_id"],))["a"]:
+        return _deny("client_inactive")
+
     # (2) データで決まる「かけない理由」（番号の種類・発信禁止の番号と管理番号。取込と同じ1か所）
     blocked = target_policy.block_reason(tx, normalize(task["phone_e164"]), client_ref=task["client_ref"],
                                          tenant_id=task["tenant_id"], client_id=task["client_id"],
@@ -367,10 +372,7 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
     if not ok:
         return _deny(why)
 
-    # (5) 依頼者を無効にしていないか（Intent.md 4章 A。判断はデータベースの1か所 salescall.client_active）・止まっているか
-    #     （全体・契約者・依頼者・業務・回線）
-    if not tx.one("SELECT salescall.client_active(%s) AS a", (task["client_id"],))["a"]:
-        return _deny("client_inactive")
+    # (5) 止まっているか（全体・契約者・依頼者・業務・回線）
     open_now = stops.open_stops(tx, tenant_id=task["tenant_id"], client_id=task["client_id"],
                                 business_id=task["business_id"], line_id=line_id)
     if apology:
@@ -454,5 +456,9 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
             relation = tx.one("SELECT salescall.number_active_relation(%s) AS r", (task["phone_e164"],))["r"]
             return _deny("number_active_" + (relation or "other_tenant"))
         raise
+    # 検証モードでかけた通話の録音は、測り終わるまで消さない（Intent.md 11-4 第2版・2026-10-17 ユーザー 案A）。印は、かけたときの
+    # モードで付ける（締めるときのモードで決めると、検証の終わり際の通話に印が付かなかった＝2026-10-18 の見直し）
+    if approval.human_for_business(tx, task["business_id"]):
+        recordings.hold(tx, row["attempt_id"], "verification")
     return Claim(row["attempt_id"], task["task_id"], line_id, task["phone_e164"], version, row["claim_expires_at"],
                  nxt["purpose"], row["wrong_phone"], voice)

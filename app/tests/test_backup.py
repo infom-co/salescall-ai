@@ -73,6 +73,25 @@ class Backup(unittest.TestCase):
         self.assertEqual(len(told), 1)                                # 1日1回（同じ日の失敗は重ねない）
         self.assertNotIn("password", str(told) + str([r["summary"] for r in asked]))
 
+    def test_the_check_never_wipes_the_real_database(self):
+        """確かめ用の接続先を本番と書き間違えても、消さずに止める（2026-10-18 の見直し）。"""
+        got = backup.take(
+            self.app, os.environ["SALESCALL_TEST_OWNER_DSN"], os.environ["SALESCALL_TEST_OWNER_DSN"], [self.away], key=KEY)
+        self.assertFalse(got.ok)
+        self.assertIn("本番のデータベースと同じ", got.error)
+        n = owner_access().in_system(SYSTEM, lambda tx: tx.one("SELECT count(*) AS n FROM salescall.clients"))["n"]
+        self.assertGreater(n, 0)                                        # 本番の表は残っている
+
+    def test_tool_errors_do_not_carry_customer_data(self):
+        """道具の誤りの文（お客様の行の中身が入りうる）は残さず、段と種類だけを残す。パスワードは引数に入れない。"""
+        with self.assertRaises(backup.BackupFailed) as got:
+            backup._run(["sh", "-c", "echo 'COPY contacts, line 1: 架空太郎 09000000000' >&2; exit 1", "sh"],
+                        "dbname=x password=架空のパスワード", "試験の段")
+        self.assertEqual(str(got.exception), "試験の段に失敗しました（種類は分からない。終了コード 1）")
+        dsn, secret = backup.tool_connection("dbname=x password=架空のパスワード")
+        self.assertNotIn("架空のパスワード", dsn)
+        self.assertEqual(secret, {"PGPASSWORD": "架空のパスワード"})
+
     def test_a_missing_drive_is_not_written_inside_the_pc_and_asks_a_person_to_attach_it(self):
         """ハードディスクが外れていたら置かない（PC の中に同じ名前のフォルダを作って置いてしまわない）。つなぐのは人なので、
         修正依頼ではなく、管理者に「つないでください」と知らせる。"""
@@ -152,10 +171,15 @@ class PerClient(unittest.TestCase):
         s = World().setup()
         sub = self.w.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: backup.record_submission(
             tx, "結果_2026-10-17.csv", "架空の結果".encode()))
+        was_due = backup.due(self.app)                                   # 全体の控えは1日1回（ほかの試験が今日もう取っていれば取らない）
         results = self.run_daily()
         self.assertTrue(all(r.ok for r in results), [r.error for r in results if not r.ok])
         base = self.root / backup.BASE
-        self.assertTrue(list((base / "system" / backup.AI).glob("salescall-*.dump.enc")))
+        self.assertEqual(bool(list((base / "system" / backup.AI).glob("salescall-*.dump.enc"))), was_due)
+        self.assertFalse(backup.due(self.app))
+        again = self.run_daily()                                         # 数分後にもう一度：今日の分は済んだので、重ねて取らない
+        self.assertEqual((again, len(list((base / backup.client_folder(self.app, s["tenant"], s["client"]) / backup.AI)
+                                          .glob("salescall-*.ai.enc")))), ([], 1))
         folder = backup.client_folder(self.app, s["tenant"], s["client"])
         ai = list((base / folder / backup.AI).glob("salescall-*.ai.enc"))
         self.assertEqual(len(ai), 1)
@@ -180,12 +204,12 @@ class PerClient(unittest.TestCase):
         content = lambda: self.w.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: tx.one(   # noqa: E731
             "SELECT content FROM salescall.submission_files WHERE submission_id = %s", (sub,)))["content"]
         (self.root / backup.DRIVE_MARK).unlink()
-        failed = backup.copy_submissions(self.app, self.drive, key=KEY)
-        self.assertEqual(len(failed), 1)
-        backup.copy_submissions(self.app, self.drive, key=KEY)          # 数分後にもう一度（まだ外れている）
-        rows = self.app.in_system(ADMIN, lambda tx: tx.one(
-            "SELECT count(*) AS n FROM salescall.backup_runs WHERE kind = 'submission' AND client_id = %s", (s["client"],)))["n"]
-        self.assertEqual(rows, 1)                                         # 同じ日の同じ失敗は1行（数分ごとに増えない）
+        drive_rows = lambda: self.app.in_system(ADMIN, lambda tx: tx.one(   # noqa: E731
+            "SELECT count(*) AS n FROM salescall.backup_runs WHERE kind = 'drive'"))["n"]
+        before = drive_rows()
+        for _ in range(3):                                               # 数分ごとに呼ばれても（まだ外れている）
+            self.assertEqual([r.error for r in backup.copy_submissions(self.app, self.drive, key=KEY)], [backup.DRIVE_MISSING])
+        self.assertLessEqual(drive_rows() - before, 1)                   # 記録は1時間に1行まで
         self.assertIsNotNone(content())                                   # 外れている間は残す
         (self.root / backup.DRIVE_MARK).write_text("控え用")
         self.assertEqual(backup.copy_submissions(self.app, self.drive, key=KEY), [])
@@ -197,6 +221,8 @@ class PerClient(unittest.TestCase):
         World().setup()
         got = backup.run_daily(self.app, os.environ["SALESCALL_TEST_OWNER_DSN"], os.environ["SALESCALL_TEST_RESTORE_DSN"],
                                self.drive, key=b"short")
+        got.append(backup.take(self.app, os.environ["SALESCALL_TEST_OWNER_DSN"], os.environ["SALESCALL_TEST_RESTORE_DSN"],
+                               [self.drive.folder("system", backup.AI)], key=b"short"))   # 全体の控えは今日もう済んでいることがある
         self.assertFalse(any(r.ok for r in got))
         asked = self.app.in_system(SYSTEM, lambda tx: [r["summary"] for r in fix_requests.open_requests(tx, "CL-2")
                                                        if r["kind"] == "backup_failed"])
@@ -221,6 +247,38 @@ class PerClient(unittest.TestCase):
         other.write_text("消さない")
         backup.prune(self.app, self.drive, now=now)
         self.assertEqual([f.exists() for f in (old_ai, new_ai, mid_sub, old_sub, other)], [False, True, True, False, True])
+
+    def test_the_newest_verified_backup_is_kept_even_if_old(self):
+        """控えの失敗が長く続いても、戻せることまで確かめた一番新しい控えは消さない。"""
+        now = datetime.now().astimezone()
+        dest = [self.drive.folder("system", backup.AI)]
+        take = lambda days: backup.take(self.app, os.environ["SALESCALL_TEST_OWNER_DSN"],   # noqa: E731
+                                        os.environ["SALESCALL_TEST_RESTORE_DSN"], dest, key=KEY, now=now - timedelta(days=days))
+        oldest, older = take(500), take(400)
+        self.assertTrue(oldest.ok and older.ok)
+        backup.prune(self.app, self.drive, now=now)
+        self.assertEqual([(dest[0].path / r.file_name).exists() for r in (oldest, older)], [False, True])
+
+    def test_keep_days_are_at_least_one_and_backup_lookups_are_for_the_backup_only(self):
+        with self.assertRaises(Rejected):
+            self.app.in_system(ADMIN, lambda tx: tx.execute(
+                "INSERT INTO salescall.setting_values (key, scope, value, status, rationale, review_when, set_by)"
+                " VALUES ('backup.ai.keep_days_drive', 'system', '0', 'decided', '試験', '試験', '試験')"))
+        t = self.w.tenant()
+        for sql in ("SELECT salescall.backup_folder_taken('client1')", "SELECT salescall.backup_folder_owner('client1')",
+                    "SELECT * FROM salescall.submissions_waiting()", "SELECT salescall.recordings_held(ARRAY[]::uuid[])"):
+            with self.subTest(sql=sql), self.assertRaises(Rejected):   # ほかの契約者の情報は、控えの処理だけが読める
+                self.w.a.in_tenant(OPERATOR, t, lambda tx: tx.execute(sql))
+
+    def test_one_fix_request_per_fault_until_reported_fixed(self):
+        """同じ不具合の修正依頼は、直したと報告されるまで1つ（前は1時間ごと・1日ごと・通話ごとに増えた）。"""
+        ask = lambda: self.app.in_system(SYSTEM, lambda tx: fix_requests.request(   # noqa: E731
+            tx, "CL-2", "backup_failed", key="試験の不具合:1", summary="試験"))
+        self.assertEqual([ask(), ask()], [True, False])
+        rid = self.app.in_system(SYSTEM, lambda tx: [r["request_id"] for r in fix_requests.open_requests(tx, "CL-2")
+                                                      if r["summary"] == "試験"][0])
+        self.app.in_system(SYSTEM, lambda tx: fix_requests.report_fixed(tx, rid, "試験：直した"))
+        self.assertEqual(ask(), True)                                    # 直したあとにまた起きた：新しく出す
 
     def test_nothing_is_written_when_the_drive_is_not_attached(self):
         (self.root / backup.DRIVE_MARK).unlink()

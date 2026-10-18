@@ -296,8 +296,11 @@ def decide_after_denial(d: gate.Denied, *, current_promised: bool, current: Targ
                         now: datetime, opening: datetime | None, retry_wait: int,
                         current_callee_at: datetime | None = None) -> Decision | None:
     """門で止められたあとの次の動き。何も書かないときは None。かける先（番号・目的）と、お客様が指定した時刻は、いまの予定のまま。"""
-    if d.reason in ("awaiting_decision", "not_due", "no_schedule", "task_ended", "judge_pending"):
-        return None    # 締めの処理・いまの予定に任せる（先に書き直さない）。予定の無い行・終えた行に、門の答えから書かない
+    if d.reason in ("awaiting_decision", "not_due", "no_schedule", "task_ended", "judge_pending", "client_inactive"):
+        # 締めの処理・いまの予定に任せる（先に書き直さない）。予定の無い行・終えた行に、門の答えから書かない。無効の依頼者は
+        # 依頼者全体の状態なので、行ごとに予定を書き直さない（前は5分ごとに書き直し続けた＝2026-10-18 の見直し。有効に戻せば、
+        # いまの予定のままかける。候補を出す処理は client_active の1か所で無効の依頼者を除く）
+        return None
     if current is None or current.contact_id is None:
         raise ValueError("いまの予定に番号がありません（かけ直す予定は必ず番号を持つ）")
     if d.kind == "permanent":

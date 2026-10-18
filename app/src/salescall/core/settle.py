@@ -22,10 +22,10 @@ from typing import Any
 from uuid import UUID
 
 from salescall.core import (apology, approval, attempts, business_rules, call_report, dnc, fix_requests, next_action, notify,
-                            number_recheck, quality_stage, recordings, results, settings, target_policy, tasks, usage)
+                            number_recheck, quality_stage, results, settings, target_policy, tasks, usage)
 from salescall.core.access import Tx
 from salescall.core.judge import (JUDGE_VERSION, UNKNOWN_CAUSE_FIXERS, UNKNOWN_CAUSES, Facts, Item, JudgeInput, Judgement,
-                                  judge, refusal)
+                                  cut_off as judge_cut_off, judge, refusal)
 from salescall.core.phone import normalize
 
 
@@ -72,8 +72,6 @@ def settle(tx: Tx, attempt_id: UUID) -> dict[str, Any]:
         raise NotReady("発信していない・まだ終わっていない試行です")
     if a["verification"] == "pending":
         raise NotReady("通話後の検証が済んでいません")
-    if approval.human_for_business(tx, a["business_id"]):   # 検証モードの通話の録音は、測り終わるまで消さない（Intent.md 11-4 第2版）
-        recordings.hold(tx, attempt_id, "verification")
     if a["purpose"] == "apology":
         return _settle_apology(tx, a)
     out = _judge_and_write(tx, a, kind="judged", rules_version=a["version_id"])
@@ -267,9 +265,9 @@ def _judge_and_write(tx: Tx, a: dict[str, Any], *, kind: str, rules_version: Any
                     refs={"attempt_id": attempt_id, "task_id": a["task_id"]})
     if j.dnc_reason is not None:
         dnc.register(tx, a["phone_e164"], j.dnc_reason, source_attempt_id=attempt_id)
-    # 途中で切れた：お客様が出たあと、お客様の意思と関係なく切れた（こちらの仕組みが止まった＝結果不明／回線・言葉の途中で切れた＝
-    # 切れ方の判定が「不自然な中断」）。数え方の決まり salescall.not_by_callee のうち、お客様が出たもの
-    cut_off = bool(a["reached_answer"]) and (a["state"] == "technical_error" or j.disconnect == "interrupted")
+    # 途中で切れた（お客様の意思と関係なく）：決めるのは judge.cut_off の1か所
+    cut_off = judge_cut_off(reached_answer=bool(a["reached_answer"]), end_state=a["state"], raw_cut=j.detail.get("cut"),
+                            hangup_side=a["hangup_side"])
     decision = next_action.after_call(
         tx, a["task_id"], j, rules=rules,
         dialed=next_action.Target(a["contact_id"], None, a["purpose"], a["wrong_contact_id"]), dialed_at=a["claimed_at"],
@@ -285,7 +283,7 @@ def _notice_unknown(tx: Tx, a: dict[str, Any], j: Judgement, summary: str) -> No
             "unknown_cause": cause, "error": j.detail.get("error")}
     fixer = UNKNOWN_CAUSE_FIXERS.get(cause)
     if fixer is not None:
-        fix_requests.request(tx, fixer, cause, key=f"judge_unknown:{a['attempt_id']}", summary=UNKNOWN_CAUSES[cause],
+        fix_requests.request(tx, fixer, cause, key=f"judge_unknown:{cause}", summary=UNKNOWN_CAUSES[cause],
                              refs=refs)
     notify.emit(tx, "judge_unknown", key=f"judge_unknown:{a['attempt_id']}", admin=fixer is not None, summary=summary,
                 refs={**refs, "fixer": fixer})
