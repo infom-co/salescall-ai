@@ -4,3 +4,4 @@ pykakasi==2.3.0
 fugashi==1.5.2
 unidic-lite==1.0.8
 sherpa-onnx==1.13.8
+anthropic==1.15.0

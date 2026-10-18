@@ -17,7 +17,7 @@ import asyncio
 import json
 
 from common import KeyRing, base_parser, describe_error, drop_partial, require_python, save_partial, save_result, say
-from meaning_judge import JUDGE_MODELS, make_judge
+from meaning_judge import add_judge_args, make_judges
 from convo import callee_voice_for, callee_wav, run_call
 from flowctl import GOT, PART_LABEL
 from g22_opening import BUSINESS, NAME, PARTS, W
@@ -78,7 +78,7 @@ def measures(call: dict, scene: str) -> dict:
 
 async def run(args) -> dict:
     ring = KeyRing(args)  # 上限・止められたキーは飛ばす（common.KeyRing.acall）
-    judge = make_judge(args, args.judge) if args.judge else None
+    judges = make_judges(args)
     rows = []
     for rep in range(args.repeat):
         for scene, (lines, barge, _, _) in SCENES.items():
@@ -100,7 +100,7 @@ async def run(args) -> dict:
                     call, _ = await ring.acall(args.model, lambda client: run_call(
                         client, args.model, BUSINESS, vt, lines, opening_mode="recorded", barge_in=barge, use_ear=True,
                         save_audio="bad", audio_label=f"G50_{scene}_{vt}_{rep}", followup_wait_s=FOLLOWUP_WAIT_S,
-                        play_recordings=True, callee_voice=voice, swap_before=args.swap_before, judge=judge, **FAST))
+                        play_recordings=True, callee_voice=voice, swap_before=args.swap_before, **judges, **FAST))
                     row = keep_call(head, call, lambda c: measures(c, scene))
                 except Exception as exc:
                     row = {**head, "error": describe_error(exc)}
@@ -145,7 +145,7 @@ def main() -> None:
     p.add_argument("--only", action="append")
     p.add_argument("--type", choices=sorted(VOICE_TYPES), action="append")
     p.add_argument("--tag", default="")
-    p.add_argument("--judge", nargs="?", const="3.5 Flash Lite", choices=JUDGE_MODELS, help="意味の2つ目の判定を使う（DESIGN.md 6-10 の (6)）")
+    add_judge_args(p)
     # お客役の声：既定は会話のAIと入れ替え（G-36 から）。その声の台詞が確かめに通っていないときは、通っている声（Puck など）を指定する
     p.add_argument("--callee", default="swap", help="お客役の声（swap＝会話のAIと入れ替え／Puck・Leda・Sadachbia など）")
     # 張り替え：その番号の相手の発話の前でセッションを開き直す（張り替えのあとの指示文にも、流し直しの決まりが要る。0＝最初の発話の前）

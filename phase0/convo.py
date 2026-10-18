@@ -25,6 +25,7 @@ import asyncio
 import time
 from contextlib import nullcontext
 
+from audio import is_fax_tone
 from common import HERE, read_wav_pcm16_mono, write_wav
 from flowctl import CHOICE_TYPES, Flow, tool_declarations
 from instruction import Business, barge_in_note, build
@@ -81,7 +82,7 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
         speech_end, task, ear = loop.time(), None, None
     info: dict = {"_end": speech_end}
     turn = flow.callee_turns
-    qid, asked = flow.judge_context()
+    q, asked = flow.judge_context()  # 判定の質問（目的の人を呼んでいる段では、呼ぶ一言）
 
     async def hearing():
         await asyncio.sleep(max(0.0, speech_end - loop.time()))
@@ -117,15 +118,16 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
         if not text:
             return None
         try:
-            got = await asyncio.wait_for(run(flow.questions[qid], text, asked), LATE_CHECK_S)
+            got = await asyncio.wait_for(run(q, text, asked), LATE_CHECK_S)
         except Exception as exc:  # 判定が落ちても通話は止めない（届かなかった＝通話後の検証へ）
             info[f"{kind}_error"] = repr(exc)[:200]
             return None
-        info.update({kind: got, f"{kind}_text": text, f"{kind}_s": round(loop.time() - speech_end, 3)})
+        info.update({kind: got, f"{kind}_firm": getattr(got, "firm", None), f"{kind}_text": text,
+                     f"{kind}_s": round(loop.time() - speech_end, 3)})
         flow.on_check(kind, got, turn)
         return got
-    jtask = asyncio.create_task(judging("judge", judge)) if judge is not None and qid else None
-    j2task = asyncio.create_task(judging("judge2", judge2)) if judge2 is not None and qid else None
+    jtask = asyncio.create_task(judging("judge", judge)) if judge is not None and q else None
+    j2task = asyncio.create_task(judging("judge2", judge2)) if judge2 is not None and q else None
     info["_tasks"] = [t for t in (etask, jtask, j2task) if t is not None]
 
     async def handle(fc):
@@ -197,11 +199,14 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                     {**x, "yes": callee_wav(x["yes"], callee_voice), "no": callee_wav(x["no"], callee_voice)}
                     if isinstance(x, dict) and "if_value" in x else x for x in callee_lines]
     flow = Flow(business.questions, busy_ask=business.busy_ask, lead_ins=lead_ins, play_recordings=play_recordings,
+                voicemail_message=business.voicemail_message,
+                # 目的の人のある業務：繋がるまで最初の質問を渡さない（DESIGN.md 4-3）。名乗り・用件の文は、AIが話す形でも流れの制御が持つ
+                target=business.replay_parts() if business.target is not None else None,
                 opening=business.replay_parts() if opening_mode == "recorded" else None,  # 名乗りを録音で流す形なら、流し直しもできる（6-13）
                 **({"confirm": confirm} if confirm else {}))  # confirm：言い直しの言い方（G-25 の比べだけ）。lead_ins：G-27
     flow.use_checks(*[k for k, used in (("ear", ear_kind), ("judge", judge), ("judge2", judge2)) if used])
     checking = bool(ear_kind or judge or judge2)
-    pending: list = []  # 確かめの作業（通話の終わりに、まだ走っているものを止める＝届かなかったものは通話後の検証へ）
+    pending: list = []  # 確かめの作業（通話の終わりに、まだ走っているものは届くまで待つ＝通話後の検証と同じ。待っても届かなければ止める）
     turns: list[dict] = []
     sessions = 0
     replay: int | None = None  # 送り直す相手の発話の番号（止まったときの張り替え）
@@ -212,7 +217,8 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
     def config():
         voice, text = build(business, voice_type, resume=flow if sessions > 1 else None, opening_mode=opening_mode,
                             play_recordings=play_recordings)
-        return voice, build_config(voice=voice, system_instruction=text, tools=tool_declarations(business.questions, replay=bool(flow.opening)),
+        return voice, build_config(voice=voice, system_instruction=text, tools=tool_declarations(business.questions, replay=bool(flow.opening),
+                                                                                          target=business.target is not None),
                                    thinking_budget=thinking_budget, speech_end=speech_end)
 
     async def add_turn(turn, line, log_start: int, i: int, voice: str) -> None:
@@ -298,6 +304,14 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                     ear_info, on_tool, settle = None, flow.handle_call, None
                     if isinstance(line, dict):  # 録った相手の声
                         pcm, prate = read_wav_pcm16_mono(HERE / "results" / "callee" / line["wav"])
+                        if is_fax_tone(pcm, prate):
+                            # 音で分かる相手（ファクス）：会話AIに聞かせる前に、プログラムが決めて切る（DESIGN.md 4-3 の優先順位の1。本番では
+                            # 電話接続側が、受けた音を流しながら同じ見分け方を当てる）
+                            flow.on_signal("fax")
+                            turns.append({"index": i, "session": sessions, "callee": line, "signal": "fax", "heard": "", "intended": "",
+                                          "tool_events": [], "audio_seconds": 0})
+                            i += 1
+                            continue
                         on_tool, ear_task, ear_info, settle = (check_handler(flow, ear=ear, judge=judge, judge2=judge2, pcm=pcm, rate=prate,
                                                                              wav=line["wav"])
                                                                if checking else (flow.handle_call, None, None, None))
@@ -361,12 +375,23 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                         continue
                     again, again_n = None, 0
                     i += 1
+    # 通話は終わった：まだ走っている確かめは、届くまで待って同じ決まりで当てる（通話後の検証＝DESIGN.md 6-12 と同じ判定・同じ決まり。
+    # Flow.on_check ⇒ _late）。LATE_CHECK_S まで待っても届かないものは止める（届かなかった＝unchecked。通話後の検証でやり直す）。
+    # ⛔ 2026-10-18 に見つけた漏れ：通話の終わりに止めていたので、1秒以上かかる2つ目の判定（Sonnet 5.5）が、短い試験の通話ではほとんど
+    #    当たらないまま「受け取った」と数えていた（本番では通話後の検証で当たる）
+    before_after = len(flow.unchecked())
+    running = [t for t in pending if not t.done()]
+    if running:
+        await asyncio.wait(running, timeout=LATE_CHECK_S)
     for t in pending:
-        t.cancel()  # 通話は終わった：まだ届いていない確かめは、通話後の検証でやり直す（unchecked）
+        t.cancel()
     return {"voice_type": voice_type, "sessions": sessions, "turns": turns, "flow_log": flow.log,
             "items": {k: {"state": v.state, "value": v.value, "condition": v.condition, "ask_backs": v.ask_backs,
-                          "rechecks": v.rechecks, "corrections": v.corrections, "history": [list(h) for h in v.history]}
+                          "rechecks": v.rechecks, "corrections": v.corrections, "hedged": v.hedged,
+                          "history": [list(h) for h in v.history]}
                       for k, v in flow.items.items()},
-            "export": flow.export(), "final_phase": flow.phase, "hurried": flow.hurried,
+            "export": flow.export(), "hedged_words": flow.hedged_words(), "final_phase": flow.phase, "hurried": flow.hurried,
+            "facts": flow.facts,
+            "checked_after_call": before_after - len(flow.unchecked()),
             "opening_mode": opening_mode, "barge_in": barge_in, "ear_errors": ear.errors if ear is not None else None,
             "unchecked": flow.unchecked()}

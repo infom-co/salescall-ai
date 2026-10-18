@@ -63,6 +63,9 @@ CONFIRM = {
     # 受け入れにも断りにも取れる答え（「大丈夫です」「結構です」）の意味を確かめる（DESIGN.md 6-10 の (3)。flowctl.ambiguous_answer）。
     # 「大丈夫でしょうか」は使わない（相手の「大丈夫です」をそのまま聞き返す形になり、また「大丈夫です」と返る）
     "曖昧な答えのあと": ("{v}{de}よろしいでしょうか？", "{v}{de}よろしかったでしょうか？"),
+    # 言い切っていない最初の答え（✅ 2026-10-18 ユーザー：「『はい、念のためご予約はお済みということでよろしかったでしょうか？』この場合、
+    # こちらの方が自然」＝「ご回答」は入れず、「よろしかったでしょうか」で確かめる）
+    "言い切っていない答えのあと": ("{v}{de}よろしかったでしょうか？",),
 }
 # 名乗りの頭。✅ 2026-10-16 ユーザー：「名乗りの頭は、『お忙しいところ恐れ入ります。』でOK」（法人・個人の名乗りの例では「お忙しいところ
 #    失礼いたします。」と書かれていたので一度替えたが、もとのままにする）
@@ -71,12 +74,39 @@ GREETING = "お忙しいところ恐れ入ります。"
 #   法人「…（部署、役職）の（相手の名前）様はいらっしゃいますでしょうか？」／個人「…（相手の名前）様のお電話でお間違えないでしょうか？」
 #   （✅ 2026-10-16 ユーザー：「『お間違えないでしょうか』でOK」＝ユーザーの言い方のまま）。{role}＝部署と役職（「営業部部長」。無ければ空）、{name}＝「」でくくった名前（読みが決まって
 #   いれば ひらがなの読み＝G-44、決まらなければ まず言ってみる読み）
-TARGET_CALL = {"法人": "{role}{name}様はいらっしゃいますでしょうか？", "個人": "{name}様のお電話でお間違えないでしょうか？"}
+TARGET_CALL = {"法人": "{who}はいらっしゃいますでしょうか？", "個人": "{who}のお電話でお間違えないでしょうか？"}
+
+
+def target_who(kind: str, name: str, role: str = "") -> str:
+    """目的の人の呼び方の唯一の場所（「営業部部長の「おかだ」様」「「おかだ」様」「社長様」）。name は「」でくくったもの。
+    名前の無い「役職のみ」の目的の人（社長・店長など）は、役職の呼び方（ROLE_HONORIFIC）。"""
+    if not name:
+        return role_honorific(role)
+    return f"{role}の{name}様" if role and kind == "法人" else f"{name}様"
 
 
 def target_call(kind: str, name: str, role: str = "") -> str:
-    """目的の人を呼ぶ一言（法人＝取り次ぎを頼む／個人＝ご本人かを確かめる）。name は「」でくくったもの。"""
-    return TARGET_CALL[kind].format(role=f"{role}の" if role and kind == "法人" else "", name=name)
+    """目的の人を呼ぶ一言（法人＝取り次ぎを頼む／個人＝ご本人かを確かめる）。役職のみは法人の形（役職は会社・お店の中の人を指す）。"""
+    return TARGET_CALL[kind if name else "法人"].format(who=target_who(kind, name, role))
+
+
+# 「役職のみ」の目的の人の呼び方（DESIGN.md 4-3「役職ごとの呼び方は1つの一覧に持つ」）。⏳ CL-1 の案（2026-10-13 の表。ユーザーに確かめていただく）
+ROLE_HONORIFIC = {"社長": "社長様", "店長": "店長様", "オーナー": "オーナー様", "院長": "院長先生", "理事長": "理事長様",
+                  "決裁権のある方": "決裁のご担当の方"}
+
+
+def role_honorific(role: str) -> str:
+    """役職の呼び方（一覧に無い役職は「〜様」）。"""
+    return ROLE_HONORIFIC.get(role, f"{role}様")
+
+
+# 取り次がれて代わった方が名乗らなかったとき、目的の人かを1回だけ確かめる言い方（DESIGN.md 4-3）。name は「」でくくった名前
+# （名前の無い目的の人は役職の呼び方）。⏳ CL-1 の案（2026-10-13 の表の「「岡田」様でいらっしゃいますでしょうか。」を「？」で終える形に）
+TARGET_CONFIRM = "{who}でいらっしゃいますでしょうか？"
+
+
+def target_confirm(name: str, role: str = "") -> str:
+    return TARGET_CONFIRM.format(who=f"{name}様" if name else role_honorific(role))
 
 
 # 読みが決まらない相手の名前を、会話の中で確かめる言い方（流れの制御の reading_question の質問の文と、直していただいたあとの言い直し）。
@@ -88,6 +118,16 @@ NAME_READING_ASK = {"法人": "お名前の読みの方は{v}様でよろしか�
 # ✅ 2026-10-15 ユーザー承認：同意をいただく形に（前は「…少しだけ、お時間をいただけますでしょうか。」）
 BUSY_ASK = "お忙しいところ申し訳ございません。少しだけお時間をいただいてもよろしいでしょうか？"
 CLOSE_DECLINED = "お忙しいところ申し訳ございませんでした。それでは失礼いたします。"
+# かけ直しの申し出（DESIGN.md 6-2・flowctl.Flow._op_request_callback）のときに、システムが足す質問の文。鍵＝役目（何を聞くか）。
+# ✅ 2026-10-14 ユーザー：「電話に出られる時間などはお分かりになりますでしょうか？」（別の番号へかけ直すとき）
+# ⏳ 残りの3つは CL-1 の案（2026-10-18。ユーザーに確かめていただく）。決まった言い方なので、言葉の途中に読点を入れない（10-15 の決まり）
+CALLBACK_ASK = {
+    "back_time": "恐れ入りますが何時ごろお戻りになりますでしょうか？",                    # 不在：戻られる時刻（✅ 必ず聞く＝ユーザーの指示）
+    "later_time": "恐れ入りますが何時ごろでしたらご都合よろしいでしょうか？",             # あとで：かけ直してよい時刻
+    # 別の番号へ：番号。「おかけ直しする番号」とは言わない（かけ直すかは門と次の動きが決める＝約束しない。G-22）
+    "number": "恐れ入りますがお電話番号をお伺いしてもよろしいでしょうか？",
+    "reachable_time": "電話に出られる時間などはお分かりになりますでしょうか？",          # 別の番号へ：出られる時間（✅ ユーザーの言い方のまま）
+}
 
 
 def joiner(value: str) -> str:
@@ -105,9 +145,30 @@ def confirm(value: str, situation: str = "ふつう", n: int = 0, meaning: bool 
     meaning：選択肢の答えの意味を言い直すとき（「ご予約はお済みということでよろしいでしょうか？」。value は flowctl.choice_words）。
     言葉を聞き返す形（「（値）とおっしゃいましたでしょうか？」）は、意味の言い直しには合わないので使わない。"""
     forms = [f for f in CONFIRM[situation] if not meaning or "{de}" in f]
+    # 言い直す言葉と語尾で、同じ言葉を2回言わない（「お送りして大丈夫だということで大丈夫でしょうか」・「よろしいということでよろしい…」）。
+    # ✅ 2026-10-18 ユーザー：「語尾に『よろしい』が2回は違和感」
+    forms = [f for f in forms if not any(w in value and w in f for w in ("よろし", "大丈夫"))] or forms
     return forms[n % len(forms)].format(v=value, de=joiner(value))
 
+
+def restate_words(words: str, said: str | None = None) -> str:
+    """選択肢の意味の言葉に「よろしい」が入っていれば（申し出の質問の「パンフレットをお送りしてよろしいということ」）、お客様が言った言葉
+    （「大丈夫です」⇒「大丈夫だ」・「結構です」⇒「結構だ」・「いいです」⇒「いい」）に替える。お客様の言葉に無ければ「大丈夫だ」。
+    ✅ 2026-10-18 ユーザー：「『はい、念のためパンフレットをお送りして大丈夫だということでよろしかったでしょうか？』語尾に『よろしい』が2回は
+       違和感。相手が言ったことを聞き返した方が確か」"""
+    if "よろしい" not in words:
+        return words
+    from flowctl import ambiguous_word
+
+    w = ambiguous_word(said)
+    return words.replace("よろしい", "いい" if w == "いい" else f"{w or '大丈夫'}だ")
+
 APOLOGY = ("失礼いたしました。", "申し訳ございません。")
+# 「AIですか？」と聞かれたときの答えの既定の文（Intent.md 9-4「答える文面は業務設定で持つ」・原則8「人間だとは偽らない」）。
+# 業務設定（instruction.Business.ai_answer）に文があれば、そちらを使う。⏳ CL-1 の案（2026-10-18。ユーザーに確かめていただく）
+# AIに見せる文なので英字を使わない（読み方もそろう）＝「エーアイ」。決まった言い方・録音の文なので、言葉の途中に読点を入れない（10-15）。
+# 録音で流す形では、名乗りと同じく依頼主の単位の録音（instruction.Business.replay_parts の ai）
+AI_ANSWER = "はいエーアイの音声でお電話しております。"
 # 録音で流す相づち（中の名前 → 言葉）。中の名前は録音のファイル名に使う（results/ack/{声の型}_{中の名前}.wav）
 ACK = {
     "hai": "はい、",                       # 基本
@@ -155,7 +216,9 @@ assert set(LEAD_RECORDED) == set(LEAD_IN["次の質問"])
 # ✅ 2026-10-16 ユーザー：「02は軽い時、04は深刻な時で使い分けでOK」（お詫びの軽い・重いと同じ分け方）
 # 名乗りの頭のあいさつも、どの依頼主にも同じ言葉なので、契約者の単位で録音する（名乗りの残り＝自社名・担当者名・用件は、依頼主の単位）
 # 締めは2つとも録音（毎回同じ文。DESIGN.md 6-13・6-14。flowctl.Flow._close）。断られたときの締めは 2026-10-17 に足した（前はAIが言っていた）
-RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait": WAIT, "wait_heavy": WAIT, "greeting": GREETING}
+# かけ直しで足す質問も、どの依頼主にも同じ文なので、契約者の単位で録音する（flowctl.question_play。⛔ 2026-10-19 G-57：AIに言わせると言葉を足した）
+RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait": WAIT, "wait_heavy": WAIT, "greeting": GREETING,
+            **{f"callback_{k}": v for k, v in CALLBACK_ASK.items()}}
 
 
 def lead_in(kind: str, n: int) -> str:
