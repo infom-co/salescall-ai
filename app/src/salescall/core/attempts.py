@@ -15,8 +15,9 @@ from dataclasses import dataclass
 from typing import Any, Literal
 from uuid import UUID
 
-from salescall.core import business_rules, number_recheck
+from salescall.core import business_rules, number_recheck, settings, watch
 from salescall.core.access import Tx
+from salescall.core.errors import ErrorReport
 
 ACTIVE_STATES = ("claimed", "dialing", "ringing", "answered", "in_conversation", "ending")
 
@@ -86,10 +87,13 @@ class VerificationSummary:
     items_disagreed: int      # そのうち、2つの耳が食い違った項目の数
     forbidden_speech: int     # 言ってはいけないこと（2つの耳で確かめたもの）の数
     findings: tuple[ForbiddenFinding, ...] = ()   # その中身（数と同じだけ。お詫びの電話の文面を作るのに使う）
+    recording_missing: bool = False  # 録音が届かないまま待つ時間を過ぎ、確かめずに済ませた（`finish_without_recording` だけが付ける）
 
     def __post_init__(self) -> None:
         if len(self.findings) != self.forbidden_speech:
             raise ValueError("言ってはいけないことの数と、その中身（findings）の数が合いません")
+        if self.recording_missing and (self.items_checked or self.items_disagreed or self.forbidden_speech):
+            raise ValueError("録音なしで済ませた確かめは、確かめた数を持ちません")
 
 
 def record_verification(tx: Tx, attempt_id: UUID, *, summary: VerificationSummary) -> None:
@@ -105,9 +109,9 @@ def record_verification(tx: Tx, attempt_id: UUID, *, summary: VerificationSummar
         raise RecheckMissing("番号違いだった番号の確かめ（証拠との付け合わせ）を、先に記録してください")
     tx.execute(
         "INSERT INTO salescall.verification_summaries (tenant_id, client_id, attempt_id, items_checked, items_disagreed,"
-        " forbidden_speech) SELECT tenant_id, client_id, attempt_id, %s, %s, %s FROM salescall.attempts"
+        " forbidden_speech, recording_missing) SELECT tenant_id, client_id, attempt_id, %s, %s, %s, %s FROM salescall.attempts"
         " WHERE attempt_id = %s",
-        (summary.items_checked, summary.items_disagreed, summary.forbidden_speech, attempt_id))
+        (summary.items_checked, summary.items_disagreed, summary.forbidden_speech, summary.recording_missing, attempt_id))
     if summary.findings:
         version = tx.one("SELECT version_id FROM salescall.attempts WHERE attempt_id = %s", (attempt_id,))["version_id"]
         known = business_rules.load(tx, version).forbidden
@@ -125,6 +129,32 @@ def record_verification(tx: Tx, attempt_id: UUID, *, summary: VerificationSummar
     )
     if row is None:
         raise AttemptNotFound(str(attempt_id))
+
+
+class RecordingWaitNotOver(Exception):
+    """まだ録音を待つ時間の中（録音なしでは済ませない）。"""
+
+
+def finish_without_recording(tx: Tx, attempt_id: UUID) -> None:
+    """録音が届かないまま、通話の終わりから待つ時間（設定 verification.recording_wait＝10分）を過ぎた通話の確かめを、「録音なし」で
+    済ませる（通話後の検証が呼ぶ。2026-10-18 ユーザー決定）。そのあと締めの処理が、通話中の報告だけで結果を決める。
+    - 待つ時間を過ぎたかを決めるのは、ここの1か所。まだなら RecordingWaitNotOver（待ちのまま）。
+    - 番号違いの確かめが要る通話は、付け合わせられないので cannot_check として記録する。
+    - 録音が残らないこと自体は仕組みの不具合なので、エラーの入口に渡す（修正依頼。その通話は待たない）。"""
+    wait = int(settings.system_value(tx, "verification.recording_wait"))
+    row = tx.one("SELECT verification, ended_at IS NOT NULL AND ended_at + make_interval(secs => %s) <= now() AS over"
+                 " FROM salescall.attempts WHERE attempt_id = %s", (wait, attempt_id))
+    if row is None:
+        raise AttemptNotFound(str(attempt_id))
+    if row["verification"] != "pending":
+        raise ValueError(f"確かめが待ちの通話ではありません（{row['verification']}）")
+    if not row["over"]:
+        raise RecordingWaitNotOver(f"通話の終わりから {wait} 秒たっていません（録音を待ちます）")
+    if number_recheck.needed(tx, attempt_id) and number_recheck.load(tx, attempt_id) is None:
+        number_recheck.record(tx, attempt_id, "cannot_check", corrected=None, evidence="録音が届かなかった（付け合わせられない）",
+                              checked_by="通話後の検証（録音なし）")
+    watch.record_error(tx, ErrorReport("recording", None, "録音が届かないまま、待つ時間を過ぎた"), attempt_id=attempt_id)
+    record_verification(tx, attempt_id, summary=VerificationSummary(0, 0, 0, recording_missing=True))
 
 
 def forbidden_speech(tx: Tx, attempt_id: UUID) -> bool:

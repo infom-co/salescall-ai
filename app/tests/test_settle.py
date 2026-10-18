@@ -209,6 +209,23 @@ class Settle(SettleBase):
         self.assertEqual((again["already"], again["version_no"]), (True, first["version_no"]))
         self.assertNotIn(aid, [r["attempt_id"] for r in self.tx(s, lambda tx: settle.unsettled(tx))])
 
+    def test_a_recording_that_never_arrives_is_settled_without_it_after_the_wait(self):
+        """録音が届かないまま、通話の終わりから待つ時間（10分）を過ぎたら、確かめを「録音なし」で済ませ、通話中の報告だけで結果を
+        決める（2026-10-18 ユーザー決定）。待つ時間の中では済ませない。録音が残らないことは修正依頼にする。"""
+        s = self.ready()
+        aid = self.call(s, items=[("Q1", "confirmed", None)], verify=None)
+        with self.assertRaises(attempts.RecordingWaitNotOver):                  # まだ待つ時間の中
+            self.tx(s, lambda tx: attempts.finish_without_recording(tx, aid))
+        self.override("verification.recording_wait", 1)
+        time.sleep(1.1)
+        self.tx(s, lambda tx: attempts.finish_without_recording(tx, aid))
+        got = self.tx(s, lambda tx: tx.one("SELECT recording_missing, items_checked FROM salescall.verification_summaries"
+                                           " WHERE attempt_id = %s", (aid,)))
+        self.assertEqual((got["recording_missing"], got["items_checked"]), (True, 0))
+        self.assertEqual(self.settle(s, aid)["state"], "completed")              # 通話中の報告だけで決まる
+        asked = self.w.a.in_system(SYSTEM, lambda tx: [r["kind"] for r in fix_requests.open_requests(tx, "CL-2")])
+        self.assertIn("recording", asked)
+
     def test_a_verification_that_cannot_run_waits_and_never_ends_the_row(self):
         """通話後の確かめができないのは、仕組みの不具合だけ。行を終えず、確かめは待ちのまま（直ってからやり直す）。待っているあいだ、
         門は同じお客様にかけない（2026-10-17 ユーザー：「そんな状態自体が問題では？」）。「確かめられなかった」は書けない。録音が残らなくても回線は止めず、修正依頼を出す。"""
