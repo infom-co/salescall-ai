@@ -387,6 +387,7 @@ def main() -> None:
     p.add_argument("--judge", action="append", choices=JUDGES, help="判定のモデル（既定は2つとも）")
     p.add_argument("--reuse", help="前の結果のファイル（作った答え・判定済みの分を使い回す）")
     p.add_argument("--tag", default="", help="結果のファイル名に足す印（同時に流す回を分けるため）")
+    p.add_argument("--hedge", action="store_true", help="判定の決まりに「言い切っていない返事は決められない」を足して測る（meaning_judge.HEDGE_RULE）")
     p.add_argument("--sets", help="判定する組だけ（例 E、DE）。ほかの組は判定しない（数えには入る）")
     p.add_argument("--rejudge", action="store_true", help="--reuse の判定を捨てて測り直す（判定の文・選べるものを変えたとき）")
     p.add_argument("--add-de", action="store_true", help="--reuse の答えに、D（言い直しへの返事）・E（答えでない言葉）を作って足す")
@@ -394,6 +395,9 @@ def main() -> None:
     p.add_argument("--interval", type=float, default=4.0, help="同じキー・同じモデルに続けて聞く間（秒）。1分の上限に当たったら、言われた秒だけ待つ")
     args = p.parse_args()
     args.judge = args.judge or ["3.5 Flash Lite"]
+    if args.hedge:
+        import meaning_judge
+        meaning_judge.USE_HEDGE_RULE = True
     ring = KeyRing(args)
     ids, _ = find_models(ring.client())
     from g14_listen import business
