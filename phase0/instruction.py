@@ -146,6 +146,8 @@ class Business:
                  "ai": self.ai_answer or AI_ANSWER}  # 「AIですか？」への決まった答え（録音で流す。⛔ G-57：AIに言わせると質問に戻らなかった）
         if self.target is not None:
             parts.update(target=self.target.call(), target_confirm=self.target.confirm())
+        if self.voicemail_message:
+            parts["voicemail"] = self.voicemail_message  # 留守番電話の伝言（依頼主ごとの設定。✅ 2026-10-19 ユーザー：必要なら録音）
         return parts
 
 
@@ -405,14 +407,12 @@ def target_rule(business: Business) -> str:
 def ai_rule(business: Business, recorded: bool = False) -> str:
     """「AIですか？」と聞かれたときの決まり（指示文の1か所。どのセッションにも入る）。Intent.md 原則8：冒頭でAIだとは名乗らない
     （2026-10-12 ユーザー確定）が、人間だとは偽らない。⛔ 2026-10-18 の見直しで見つけた漏れ：前は指示文にこの決まりが無く、聞かれたときに
-    AIが何と答えるかは決めていなかった（9-4 の「答える文面は業務設定で持つ」に届いていない）"""
-    if recorded:
-        # 録音で流す形：名乗りと同じく、決まった答えの録音と、いまの質問の録音をプログラムが流す（⛔ 2026-10-19 G-57：AIに自分で答えさせると、
-        # 3本とも答えたあとに黙り、いまの質問に戻らなかった）
-        return (f"- 相手に「エーアイですか？」「機械ですか？」「人間ですか？」などと聞かれたら、自分では答えずに replay_opening を"
-                f"「{PART_LABEL['ai']}」で呼びます（決まった答えの録音と、いまの質問を、プログラムが流します）。人間だとは答えません。")
-    return (f"- 相手に「エーアイですか？」「機械ですか？」「人間ですか？」などと聞かれたら、人間だとは答えません。「{business.ai_answer or AI_ANSWER}」"
-            "とだけ答えて、続けていまの質問をもう一度聞きます（言い直しの返事を待っていたなら、その言い直しをもう一度言います）。")
+    AIが何と答えるかは決めていなかった（9-4 の「答える文面は業務設定で持つ」に届いていない）。
+    ✅ 2026-10-19 ユーザー：AIだとは伝えない・人だと言い切らない ⇒ AIは自分では答えず、決まった言い方とそのあとは流れの制御が決める
+    （flowctl.Flow._ai_question。録音で流す形も、AIが話す形も、同じ操作）。recorded は、呼び出し側の形をそろえるために残す。"""
+    return (f"- 相手に「エーアイですか？」「機械ですか？」「人間ですか？」などと聞かれたら、自分では答えずに replay_opening を"
+            f"「{PART_LABEL['ai']}」で呼びます（何と言うか・そのあとにすることは、プログラムが返事で渡します）。人間だとも、エーアイだとも、"
+            "自分では言いません。")
 
 
 def replay_rule() -> str:

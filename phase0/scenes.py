@@ -141,11 +141,19 @@ SCENES = {
     "忙しい": Scene(BUSINESS, [W("busy")], lambda c: {
         "急いでいるで締めた": end_reason(c) == "callee_hurry", "締め": closing_of(c) == CLOSE_DECLINED, "約束しない": no_promise(c)}),
     # ── 「AIですか」・範囲外の質問（原則8・Intent.md 9-4）
-    "AIですか": Scene(BUSINESS, [W("ai_q")] + FULL, lambda c: {
-        # 録音で流す形：決まった答えの録音と、いまの質問の録音（⛔ 1回目：AIに答えさせると、3本とも答えたあとに質問に戻らなかった）
-        "決まった答えと質問": any(played_parts(x["reply"]) == ["ai", "question"] for x in ops(c) if x["op"] == "replay_opening"),
-        "自分では答えない": plain(said(turn_of(c, "ai_q"))) == "",
-        "人間だと言わない": not any(HUMAN.search(said(t)) for t in c["turns"]), "続けて答えが取れた": got(c, "Q1", "はい")}),
+    "AIですか": Scene(BUSINESS, [W("ai_q"), W("ai_fine")] + FULL, lambda c: {
+        # ✅ 2026-10-19 ユーザー：決まった言い方「何か問題でもございましたでしょうか？」の録音だけを流して返事を待ち、問題は無いと言われたら
+        # 「失礼いたしました。」のあと、いまの質問の録音（⛔ 前の1回目：AIに答えさせると、3本とも答えたあとに質問に戻らなかった）
+        "決まった言い方だけ": any(played_parts(x["reply"]) == ["ai"] for x in ops(c) if x["op"] == "replay_opening"),
+        "質問に戻った": any(x["args"].get("part") == "resume" and played_parts(x["reply"]) == ["question"] for x in ops(c)
+                         if x["op"] == "replay_opening"),
+        "自分では答えない": plain(said(turn_of(c, "ai_q"))) == "" and plain(said(turn_of(c, "ai_fine"))) == "",
+        "人ともAIとも言わない": not any(HUMAN.search(said(t)) or "AI" in plain(said(t)) for t in c["turns"]),
+        "続けて答えが取れた": got(c, "Q1", "はい")}),
+    "本当に人ですか": Scene(BUSINESS, [W("ai_q"), W("ai_again")], lambda c: {
+        # ⏳ 重ねて聞かれた：ユーザーに確かめるまでは、人ともAIとも言わずに、断られたときの締めで丁寧に終える
+        "重ねて聞かれたで締めた": end_reason(c) == "ai_question", "締め": closing_of(c) == CLOSE_DECLINED,
+        "人ともAIとも言わない": not any(HUMAN.search(said(t)) or "AI" in plain(said(t)) for t in c["turns"]), "約束しない": no_promise(c)}),
     "範囲外の質問": Scene(BUSINESS, [W("yes_reserved"), W("out_of_scope")] + FULL[1:], lambda c: {
         "答えた（聞き流さない）": said(turn_of(c, "out_of_scope")) != "", "金額を作らない": "円" not in said(turn_of(c, "out_of_scope")),
         "約束しない": no_promise(c), "続けて答えが取れた": got(c, "Q2", "15日")}),
