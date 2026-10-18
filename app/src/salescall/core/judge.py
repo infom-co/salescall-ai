@@ -46,7 +46,7 @@ from salescall.core.business_rules import Rules
 from salescall.core.call_report import CallReport
 
 # 判定の決まりの版（変えたら上げる）。かけ直しの時刻の読み方の版も入れる（読み方を直すと、判定待ちの行が判定し直される＝settle.rejudge）
-JUDGE_VERSION = f"judge-2026-10-19.2+time-{spoken_time.VERSION}"
+JUDGE_VERSION = f"judge-2026-10-19.3+time-{spoken_time.VERSION}"
 # 「判定できない」の原因の名前（同じ原因かを数える単位）と意味。プログラムの誤りか（直す担当へ修正依頼を出し、管理者にも
 # 知らせる＝確かめ・承認のため。2026-10-16・10-17 ユーザー）も、ここで決まる（1か所）。業務設定の抜けは契約者が直す（いまは無い：業務の決まりは、必須の質問ごとに、
 # 決まった理由のすべてに扱いが無いと保存できない＝business_rules。2026-10-16 見直し：前は「理由×扱いが決まらない」を業務設定の
@@ -95,6 +95,7 @@ class JudgeInput:
     rules: Rules
     refused_after: bool          # 通話後の検証で、拒否の聞き逃しが見つかった（Q21 が発信禁止に登録した）
     unclear_is_refusal: bool     # 切れ方を決められないとき、営業拒否として扱うか（設定 judge.unclear_disconnect_is_refusal）
+    callee_hours: tuple[int, int] = spoken_time.DEFAULT_BUSINESS_HOURS   # お客様の営業時間（設定 callee.business_hours。午前・午後を決める）
 
 
 @dataclass(frozen=True)
@@ -237,7 +238,7 @@ def _business(inp: JudgeInput) -> Judgement:
     # (7) かけ直しの約束
     if r and r.callback is not None:
         cb = r.callback
-        when = spoken_time.read(cb.time_said, inp.facts.called_at)
+        when = spoken_time.read(cb.time_said, inp.facts.called_at, inp.callee_hours)
         if when.kind == spoken_time.UNREADABLE:
             return unknown("callback_time_unreadable", f"かけ直しの時刻「{cb.time_said}」を読めません（{when.why}）")
         if when.kind == spoken_time.CONFIRM:
@@ -247,6 +248,7 @@ def _business(inp: JudgeInput) -> Judgement:
         # exact＝お客様が時刻を指定した（その時刻を含むNG時間の枠でもかけてよい）
         return done("callback_scheduled", callback={"reason": cb.reason, "at": iso(when.start), "until": iso(when.end),
                                                      "daily": None if when.daily is None else list(when.daily),
+                                                     "days": None if when.days is None else list(when.days),
                                                      "exact": when.exact, "time_said": cb.time_said,
                                                      "number_said": cb.number_said, "number_e164": cb.number_e164,
                                                      "person": cb.person},

@@ -319,7 +319,7 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
 
     # (1) 次の予定（Q4 の記録を読むだけ）
     nxt = tx.one("SELECT kind, call_at, decided_at, purpose, wrong_contact_id, promised, salescall.jst(callee_at) AS callee_at,"
-                 "       salescall.jst(window_until) AS window_until, window_daily"
+                 "       salescall.jst(window_until) AS window_until, window_daily, window_days"
                  " FROM salescall.task_next_actions WHERE task_id = %s ORDER BY seq DESC LIMIT 1", (task["task_id"],))
     if nxt is None:
         return _deny("no_schedule")
@@ -401,7 +401,8 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
     # (6b) お客様が言ったかけ直しの時間の幅（「夕方」「3時まで」など。2026-10-19 ユーザー。表の作り 0086）：幅の外ではかけない。
     #      幅の決まりは calling_hours.in_window の1か所。次の幅（次の日の同じ幅＝案A）は次の動きが決める
     if not calling_hours.in_window(local, nxt["window_until"],
-                                   None if nxt["window_daily"] is None else tuple(nxt["window_daily"])):
+                                   None if nxt["window_daily"] is None else tuple(nxt["window_daily"]),
+                                   None if nxt["window_days"] is None else tuple(nxt["window_days"]), holiday_checker(tx)):
         return _deny("callback_window")
 
     # (7) 間隔の待ち

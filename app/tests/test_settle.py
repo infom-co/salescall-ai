@@ -405,6 +405,28 @@ class CallbackWindow(SettleBase):
         got = self.tx(s, lambda tx: next_action._window_opening(tx, s["task"], at(d2, 9), evening))
         self.assertEqual(got[0], at(d2, 17))                                  # 幅の中でも NG時間は守る（時刻の指定ではない）
 
+    def test_the_gate_keeps_to_the_kinds_of_days(self):
+        """「平日なら」「土日祝なら」：その日の種類の外では、門がかけない。次の動きは、その種類の次の日の始まりへ（0087）。"""
+        from salescall.core.calendar import holiday_checker
+        s = self.ready()
+        today = self.tx(s, lambda tx: calling_hours.day_key(tx.one("SELECT salescall.jst(now())::date AS d")["d"],
+                                                             holiday_checker(tx)))
+        others = tuple(k for k in KEYS if k != today)
+        now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
+        self.tx(s, lambda tx: next_action.schedule_call(
+            tx, s["task"], now, contact_id=s["contact"], cause="試験", promised=True,
+            window=next_action.Window(None, None, others)))
+        denied = self.claim(s)
+        self.assertEqual(getattr(denied, "reason", None), "callback_window")
+        self.tx(s, lambda tx: next_action.after_denial(tx, s["task"], denied, tenant_id=s["tenant"], client_id=s["client"],
+                                                       business_id=s["business"]))
+        nxt = self.tx(s, lambda tx: tx.one(
+            "SELECT salescall.jst(call_at) AS at, window_days FROM salescall.task_next_actions WHERE task_id = %s"
+            " ORDER BY seq DESC LIMIT 1", (s["task"],)))
+        key = self.tx(s, lambda tx: calling_hours.day_key(nxt["at"].date(), holiday_checker(tx)))
+        self.assertIn(key, others)
+        self.assertEqual((nxt["at"].hour, nxt["at"].minute, sorted(nxt["window_days"])), (0, 0, sorted(others)))
+
     def test_after_no_answer_the_next_call_keeps_the_window(self):
         """幅の中でかけて出なかった：次のかけ直し（契約者の再発信の方針）も、同じ幅の中で（次の日の同じ幅＝案A）。"""
         s = self.ready()

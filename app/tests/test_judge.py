@@ -468,12 +468,12 @@ class Shapes(unittest.TestCase):
         from salescall.core.judge import UNKNOWN_CAUSE_FIXERS
         for said, cause, fixer in (("夕方", "callback_time_unconfirmed", "CL-1"),     # 19時の通話：今日の夕方は過ぎた
                                    ("明日のお昼", "callback_time_unconfirmed", "CL-1"),   # 昼は確かめる（2026-10-19 ユーザー）
-                                   ("近いうちに", "callback_time_unreadable", "CL-2")):
+                                   ("そのへんで", "callback_time_unreadable", "CL-2")):
             with self.subTest(said=said):
                 j = run(items={}, rep=report(callback=callback("later", time=said)))
                 self.assertEqual((j.state, j.detail["unknown_cause"], UNKNOWN_CAUSE_FIXERS[cause]), ("unknown", cause, fixer))
         # 拒否は、読めない時刻より先（発信禁止を、時刻の読み方の抜けで遅らせない）
-        self.assertEqual(run(items={}, rep=report(dnc=True, callback=callback("later", time="近いうちに"))).state, "do_not_call")
+        self.assertEqual(run(items={}, rep=report(dnc=True, callback=callback("later", time="そのへんで"))).state, "do_not_call")
 
 
 class Causes(unittest.TestCase):

@@ -224,9 +224,12 @@ def _judge_input(tx: Tx, a: dict[str, Any], rules_version: Any) -> tuple[JudgeIn
     unclear_is_refusal = bool(settings.resolve(tx, "judge.unclear_disconnect_is_refusal", tenant_id=a["tenant_id"],
                                                client_id=a["client_id"], business_id=a["business_id"]))
     dialed = number_recheck.dialed(tx, attempt_id)
+    open_, close = settings.resolve(tx, "callee.business_hours", tenant_id=a["tenant_id"], client_id=a["client_id"],
+                                    business_id=a["business_id"])   # お客様の営業時間（午前・午後を決める。日をまたいでよい）
+    seconds = lambda hhmm: int(hhmm[:2]) * 3600 + int(hhmm[3:]) * 60   # noqa: E731
     inp = JudgeInput(Facts(a["state"], a["hangup_side"], a["reached_answer"], dialed["source"] == "callee", a["claimed_at"]),
                      report, _items(tx, a["task_id"]), business_rules.load(tx, rules_version), refused_after,
-                     unclear_is_refusal)
+                     unclear_is_refusal, (seconds(open_), seconds(close)))
     return inp, report_source, dialed
 
 

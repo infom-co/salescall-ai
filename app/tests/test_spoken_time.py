@@ -80,14 +80,15 @@ class Windows(unittest.TestCase):
             "週末": (at(2026, 10, 17), at(2026, 10, 19)),
             "来週末": (at(2026, 10, 24), at(2026, 10, 26)),
             "来週の土日": (at(2026, 10, 24), at(2026, 10, 26)),
-            "月末": (at(2026, 10, 27), at(2026, 11, 1)),
+            "月末": (at(2026, 10, 29), at(2026, 11, 1)),                     # 月の最後の3日（2026-10-19 ユーザー）
             "来月": (at(2026, 11, 1), at(2026, 12, 1)),
             "来月はいつでも": (at(2026, 11, 1), at(2026, 12, 1)),
             "来月の上旬": (at(2026, 11, 1), at(2026, 11, 11)),
             "来月の中旬": (at(2026, 11, 11), at(2026, 11, 21)),
             "来月下旬": (at(2026, 11, 21), at(2026, 12, 1)),
-            "来月の頭": (at(2026, 11, 1), at(2026, 11, 6)),
-            "11月末": (at(2026, 11, 26), at(2026, 12, 1)),
+            "来月の頭": (at(2026, 11, 1), at(2026, 11, 4)),                  # 1〜3日（2026-10-19 ユーザー）
+            "来月初め": (at(2026, 11, 1), at(2026, 11, 4)),
+            "11月末": (at(2026, 11, 28), at(2026, 12, 1)),
             "11月": (at(2026, 11, 1), at(2026, 12, 1)),
             "今月中": (NOW, at(2026, 11, 1)),
             "下旬": (at(2026, 10, 21), at(2026, 11, 1)),
@@ -113,11 +114,75 @@ class Windows(unittest.TestCase):
                 self.assertEqual(read(text, NOW).kind, UNSPECIFIED)
 
 
+class MoreWords(unittest.TestCase):
+    """2026-10-19 ユーザー：「週中や再来週、明後日 明々後日、あさって、しあさって、なども大丈夫ですか？他にもあるんじゃないかな！？」"""
+
+    def test_more_day_and_time_words(self):
+        cases = {   # 言葉 ⇒ (答え, 始まり, 終わり, 1日の中の幅, 日の種類)。通話は 2026-10-14（水）10:00
+            "しあさって": (WINDOW, at(2026, 10, 17), at(2026, 10, 18), None, None),
+            "明々後日の午後": (WINDOW, at(2026, 10, 17, 13), at(2026, 10, 18), (13 * H, DAY), None),
+            "週中": (WINDOW, NOW, at(2026, 10, 16), None, None),                     # 火〜木（今日から）
+            "来週の週中": (WINDOW, at(2026, 10, 20), at(2026, 10, 23), None, None),
+            "来週半ば": (WINDOW, at(2026, 10, 20), at(2026, 10, 23), None, None),
+            "再来週": (WINDOW, at(2026, 10, 26), at(2026, 11, 2), None, None),
+            "週明け": (WINDOW, at(2026, 10, 19), at(2026, 10, 20), None, None),          # 明日以後でいちばん近い月曜
+            "今日中": (WINDOW, NOW, at(2026, 10, 15), None, None),
+            "明日中": (WINDOW, at(2026, 10, 15), at(2026, 10, 16), None, None),
+            "今晩": (WINDOW, at(2026, 10, 14, 18), at(2026, 10, 14, 20), (18 * H, 20 * H), None),
+            "明朝": (WINDOW, at(2026, 10, 15), at(2026, 10, 15, 10), (0, 10 * H), None),
+            "3日後": (WINDOW, at(2026, 10, 17), at(2026, 10, 18), None, None),
+            "1週間後": (WINDOW, at(2026, 10, 21), at(2026, 10, 22), None, None),
+            "2か月後": (WINDOW, at(2026, 12, 14), at(2026, 12, 15), None, None),
+            "2〜3日後": (WINDOW, at(2026, 10, 16), at(2026, 10, 18), None, None),
+            "年内": (WINDOW, NOW, at(2027, 1, 1), None, None),
+            "3時台": (WINDOW, at(2026, 10, 14, 15), at(2026, 10, 14, 16), (15 * H, 16 * H), None),
+            "夕方以降": (WINDOW, at(2026, 10, 14, 16), at(2026, 10, 15), (16 * H, DAY), None),
+            "午後一": (WINDOW, at(2026, 10, 14, 13), at(2026, 10, 14, 14), (13 * H, 14 * H), None),
+            "午後イチでお願いします": (WINDOW, at(2026, 10, 14, 13), at(2026, 10, 14, 14), (13 * H, 14 * H), None),
+            "3時以降でしたら大丈夫です": (WINDOW, at(2026, 10, 14, 15), at(2026, 10, 15), (15 * H, DAY), None),
+            "平日の夕方": (WINDOW, NOW, None, (16 * H, 18 * H), ("mon", "tue", "wed", "thu", "fri")),
+            "土日祝ならいつでも": (WINDOW, NOW, None, None, ("sat", "sun", "holiday")),
+            "来週の平日の午前中": (WINDOW, at(2026, 10, 19), at(2026, 10, 25, 12), (0, 12 * H), ("mon", "tue", "wed", "thu", "fri")),
+            "今晩8時": (AT, at(2026, 10, 14, 20), None, None, None),
+            "明朝9時": (AT, at(2026, 10, 15, 9), None, None, None),
+            "30分後": (AT, at(2026, 10, 14, 10, 30), None, None, None),
+            "1時間半後": (AT, at(2026, 10, 14, 11, 30), None, None, None),
+            "4時前後": (AT, at(2026, 10, 14, 16), None, None, None),
+            "あとで": (UNSPECIFIED, None, None, None, None),
+            "後ほどお願いします": (UNSPECIFIED, None, None, None, None),
+        }
+        for text, want in cases.items():
+            with self.subTest(text=text):
+                r = read(text, NOW)
+                self.assertEqual((r.kind, r.start, r.end, r.daily, r.days), want)
+        for text in ("年明け", "年末", "数日後", "近いうちに", "連休明け", "夕方過ぎ", "夕方まで", "お昼前", "深夜", "月初"):
+            with self.subTest(text=text):
+                self.assertEqual(read(text, NOW).kind, CONFIRM)                 # 幅が1つに決まらない（月初＝今月は過ぎた）
+
+    def test_am_or_pm_from_business_hours(self):
+        """午前・午後の無い時刻は、お客様の営業時間に入るほう（2026-10-19 ユーザー：「通常午前3時に電話をかけてほしい人はいない
+        ので、営業時間の範囲だけ」。CL-1 の fill_ampm と同じ決まり：時の単位で、終わりの時も含む）。"""
+        company = (9 * H, 19 * H)
+        self.assertEqual(read("3時", NOW, company).start, at(2026, 10, 14, 15))
+        self.assertEqual(read("7時", NOW, company).start, at(2026, 10, 14, 19))     # 19時は営業時間の終わりの時（含む）
+        self.assertEqual(read("明日の9時", NOW, company).start, at(2026, 10, 15, 9))
+        self.assertEqual(read("12時", NOW, company).start, at(2026, 10, 14, 12))    # 12時は昼の12時
+        r = read("3時まで", NOW, company)
+        self.assertEqual((r.kind, r.end), (WINDOW, at(2026, 10, 14, 15)))
+        r = read("明日の3時から5時", NOW, company)
+        self.assertEqual((r.start, r.end), (at(2026, 10, 15, 15), at(2026, 10, 15, 17)))
+        night = (18 * H, 3 * H)                                                       # 夜のお店（日をまたぐ）
+        self.assertEqual(read("明日の1時", NOW, night).start, at(2026, 10, 15, 1))
+        self.assertEqual(read("9時", NOW, night).start, at(2026, 10, 14, 21))
+        for hours in ((0, 23 * H), (13 * H, 14 * H)):                                 # 両方入る・どちらも入らない ⇒ 確かめる
+            with self.subTest(hours=hours):
+                self.assertEqual(read("明日の3時", NOW, hours).kind, CONFIRM)
+
+
 class NotGuessed(unittest.TestCase):
     def test_needs_confirming(self):
         """言い方は分かるが、いつかが1つに決まらない ⇒ 通話の中で確かめる（推し量らない）。"""
         for text in ("昼", "お昼", "昼過ぎ", "お昼過ぎ", "明日のお昼", "明日の昼1時",   # 2026-10-19 ユーザー：昼は確かめる
-                     "3時", "3時まで", "明日の3時から",                            # 午前か午後かが決まらない
                      "午前9時",                                                    # 過ぎた時刻（今日の 9:00）
                      "水曜日の午後3時",                                            # 今日と同じ曜日
                      "来週の日曜日の午後3時",                                      # 日曜日（週の始まりで変わる）
@@ -132,13 +197,12 @@ class NotGuessed(unittest.TestCase):
                 self.assertTrue(r.why)
 
     def test_unreadable(self):
-        for text in ("明日か明後日の午後3時", "明日の3時でしたら大丈夫です", "来月の午後3時ごろの予定です", "折り返し",
-                     "近いうちに"):
+        for text in ("明日か明後日の午後3時", "来月の午後3時ごろの予定です", "折り返し", "そのへんで"):
             with self.subTest(text=text):
                 r = read(text, NOW)
                 self.assertIn(r.kind, (UNREADABLE, CONFIRM))
                 self.assertIsNone(r.start)
-        self.assertEqual(read("近いうちに", NOW).kind, UNREADABLE)
+        self.assertEqual(read("そのへんで", NOW).kind, UNREADABLE)
 
     def test_past_windows_need_confirming(self):
         evening = datetime(2026, 10, 14, 19, 0, tzinfo=JST)

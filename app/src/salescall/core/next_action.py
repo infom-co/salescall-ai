@@ -41,7 +41,7 @@ def current(tx: Tx, task_id: UUID) -> dict[str, Any] | None:
     """いまの予定（いちばん新しい記録）。無ければ None（まだ何も決めていない）。"""
     return tx.one(
         "SELECT task_id, seq, kind, call_at, end_reason, cause, promised, contact_id, purpose, wrong_contact_id, callee_at,"
-        "       window_until, window_daily, decided_at"
+        "       window_until, window_daily, window_days, decided_at"
         " FROM salescall.task_next_actions"
         " WHERE task_id = %s ORDER BY seq DESC LIMIT 1",
         (task_id,),
@@ -66,13 +66,20 @@ class Window:
     """お客様が言ったかけ直しの時間の幅（次の予定に持たせ、門が守る）。どちらも無い幅は持たない（＝幅なし）。"""
     until: datetime | None               # 幅の終わり（含まない）
     daily: tuple[int, int] | None        # 1日の中の幅（0時からの秒）。時間の言葉があるときだけ（次の日の同じ幅＝案A）
+    days: tuple[str, ...] | None = None  # かけてよい日の種類（「平日」など。曜日・祝日の鍵）
+
+    @property
+    def empty(self) -> bool:
+        return self.until is None and self.daily is None and self.days is None
 
 
 def window_of(row: dict[str, Any] | None) -> Window | None:
     """次の予定の記録の幅（無ければ None）。"""
-    if row is None or (row.get("window_until") is None and row.get("window_daily") is None):
+    if row is None:
         return None
-    return Window(row["window_until"], None if row["window_daily"] is None else tuple(row["window_daily"]))
+    w = Window(row["window_until"], None if row["window_daily"] is None else tuple(row["window_daily"]),
+               None if row.get("window_days") is None else tuple(row["window_days"]))
+    return None if w.empty else w
 
 
 def _append(tx: Tx, task_id: UUID, *, call_at: datetime | None, end_reason: str | None, cause: str,
@@ -93,20 +100,21 @@ def _append(tx: Tx, task_id: UUID, *, call_at: datetime | None, end_reason: str 
         raise ValueError("お客様が指定した時刻を持てるのは、約束したかけ直しだけです")
     if window is not None and not calls:
         raise ValueError("時間の幅を持てるのは、かけ直す予定だけです")
-    if window is not None and window.until is None and window.daily is None:
+    if window is not None and window.empty:
         window = None
     lock(tx, task_id)  # 同じタスクへの追記を1つずつ順にする（tasks.py の説明）
     row = tx.one(
         "INSERT INTO salescall.task_next_actions (tenant_id, client_id, task_id, seq, kind, call_at, end_reason, cause,"
         "                                         promised, contact_id, purpose, wrong_contact_id, callee_at, window_until,"
-        "                                         window_daily)"
+        "                                         window_daily, window_days)"
         " SELECT t.tenant_id, t.client_id, t.task_id,"
         "        coalesce((SELECT max(n.seq) FROM salescall.task_next_actions n WHERE n.task_id = t.task_id), 0) + 1,"
-        "        %s, CASE WHEN %s THEN now() ELSE %s::timestamptz END, %s, %s, %s, %s, %s, %s, %s, %s, %s"
+        "        %s, CASE WHEN %s THEN now() ELSE %s::timestamptz END, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s"
         " FROM salescall.tasks t WHERE t.task_id = %s RETURNING seq",
         ("hold" if hold else "call" if calls else "end", call_now, call_at, end_reason, cause, promised,
          target and target.contact_id, target and target.purpose, target and target.wrong_contact_id, callee_at,
-         window and window.until, None if window is None or window.daily is None else list(window.daily), task_id),
+         window and window.until, None if window is None or window.daily is None else list(window.daily),
+         None if window is None or window.days is None else list(window.days), task_id),
     )
     if row is None:
         raise TaskNotFound(str(task_id))
@@ -392,8 +400,8 @@ def after_call(tx: Tx, task_id: UUID, j: Judgement, *, rules: Rules, dialed: Tar
     if cb is not None and cb["at"] is not None and not cb.get("exact", True):
         after = max(now, datetime.fromisoformat(cb["at"]), promised.earliest or now)
         w = Window(None if cb.get("until") is None else datetime.fromisoformat(cb["until"]),
-                   None if cb.get("daily") is None else tuple(cb["daily"]))
-        at, w2 = (after, None) if w.until is None and w.daily is None else _window_opening(tx, task_id, after, w)
+                   None if cb.get("daily") is None else tuple(cb["daily"]), None if cb.get("days") is None else tuple(cb["days"]))
+        at, w2 = (after, None) if w.empty else _window_opening(tx, task_id, after, w)
         if at is None:
             key = "callback_unspecified_time"
         else:
@@ -461,7 +469,7 @@ def _window_opening(tx: Tx, task_id: UUID, after: datetime, window: Window) -> t
     幅の終わりまでに無ければ（案A。2026-10-19 ユーザー）：時間の言葉がある幅 ⇒ 次の日以降の同じ幅（幅の終わりは、その日の幅の
     終わり）／日だけの約束 ⇒ (None, None)＝時刻の決まっていない約束へ（契約者の間隔）。"""
     scope = _scope(tx, task_id)
-    hours = calling_hours.restrict(gate.calling_hours_for(tx, **scope), window.daily)
+    hours = calling_hours.restrict(gate.calling_hours_for(tx, **scope), window.daily, window.days)
     length = timedelta(seconds=int(settings.resolve(tx, "gate.claim_lifetime", **scope)))
     clock = tx.one("SELECT salescall.jst(%s) AS after, salescall.jst(%s) AS until", (after, window.until))
     local, until = clock["after"], clock["until"]
@@ -470,7 +478,7 @@ def _window_opening(tx: Tx, task_id: UUID, after: datetime, window: Window) -> t
         if found is not None and (until is None or found < until):
             return tx.one("SELECT salescall.from_jst(%s) AS t", (found,))["t"], window
         if window.daily is None or until is None:
-            return None, None
+            return None, None   # 日だけの約束が過ぎた（終わりの無い幅は、上で見つからなければ、これから先に無い）
         found = calling_hours.next_opening(hours, holiday_checker(tx), max(local, until), length)
     except CalendarOutOfRange:   # 暦の無い日に当たる：決めつけず、いまの幅のまま、門にもう一度確かめさせる
         return after, window
@@ -478,7 +486,7 @@ def _window_opening(tx: Tx, task_id: UUID, after: datetime, window: Window) -> t
         return None, None
     day_end = datetime.combine(found.date(), datetime.min.time()) + timedelta(seconds=window.daily[1])
     t = tx.one("SELECT salescall.from_jst(%s) AS at, salescall.from_jst(%s) AS until", (found, day_end))
-    return t["at"], Window(t["until"], window.daily)
+    return t["at"], Window(t["until"], window.daily, window.days)
 
 
 _BAND_RETRY_LIMITS = {"ask_number_again": "retry.ask_number_again_max", "apology": "retry.apology_max"}
