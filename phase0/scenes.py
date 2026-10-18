@@ -40,7 +40,10 @@ def plain(s: str) -> str:
 
 
 def said(t: dict) -> str:
-    """AIのそのターンの声の文字（別の耳の文字があればそれ。無ければAI自身の文字）。"""
+    """AIのそのターンの声の文字（別の耳の文字があればそれ。無ければAI自身の文字）。声の無いターンは空（⛔ 1回目：声が0秒なのに、AI自身の文字
+    「<no speech>{pause}」「…」を話したと数えていた）。"""
+    if not t.get("audio_seconds"):
+        return ""
     return (t.get("ear") or t.get("intended") or "").strip()
 
 
