@@ -365,7 +365,8 @@ def run_judges(args, items: list[dict], qmap: dict, ids: dict) -> None:
     gem = [k for k in args.judge if k not in OTHER_JUDGES]  # Google の判定（キーごとの流れで、1日の上限を飛ばしながら）
     others: queue.Queue = queue.Queue()  # Google 以外の判定（1日の上限が無い有料の枠＝見本に絞らず全部）
     for key in args.judge:  # 判定ごとに、決め手の答え（first）から、--sets の組の順に
-        pool = sample if sample and key not in (BASE, *OTHER_JUDGES) else items
+        pool = (sample if sample and key not in (BASE, *OTHER_JUDGES)
+                else [it for it in items if it.get("見本")] if key == BASE and any(it.get("見本") for it in items) else items)
         for it in sorted(pool, key=lambda it: (not first(it), order.get(it["set"], 0))):
             if key not in it and it.get("maker") != key and (not args.sets or it["set"] in args.sets):
                 (others if key in OTHER_JUDGES else jobs).put((key, it))
@@ -551,6 +552,11 @@ def main() -> None:
             # ほかの判定の読みは残す（新しい形で測った候補と、測り直したいまの判定を、同じ答えで比べるため）
             for it in items:
                 it["前の読み違え"] = first(it)
+            if args.sample and BASE in args.judge:
+                # いまの判定（3.5 Flash Lite）を測り直すときも、見本（前の読みで誤った・決められなかった答え＋ほかから無作為に --sample 個）
+                # だけにする。見本は、前の読みを捨てる前に決める（捨てたあとでは、どれが難しい答えか分からない）
+                for it in pick_sample(items, args.sample):
+                    it["見本"] = True
             items = [{k: v for k, v in it.items() if not any(k == j or (k.startswith(j) and k[len(j):] in ("秒", "誤り", "言い切り"))
                                                              for j in args.judge)} for it in items]
         if args.add_de and not any(it["set"] in ("D", "E") for it in items):

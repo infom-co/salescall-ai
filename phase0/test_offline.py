@@ -3920,6 +3920,83 @@ class TargetTest(unittest.TestCase):
         f, b = self.flow()
         self.assertIn("目的の人", position_text(b, f))
 
+    def checked(self):
+        f, b = self.flow()
+        f.use_checks("judge")
+        return f, b
+
+    @staticmethod
+    def heard(f, text, judged):
+        f.on_callee(); f.on_heard(text)
+        if judged is not None:
+            f.on_check("judge", judged)
+
+    def test_judge_runs_while_calling(self):
+        # 呼んでいる段にも、意味の判定を当てる（呼ぶ一言を判定の「質問」にする）。⛔ 直す前：いまの質問が無いので判定が走らず、
+        #    取り次ぎ（「少々お待ちください」）を見分ける独立した確かめが無かった
+        from flowctl import TARGET_IS_THERE, TARGET_IS_AWAY
+        f, b = self.checked()
+        q, asked = f.judge_context()
+        self.assertEqual((q.text, asked), (b.target.call(), None))
+        self.assertEqual(set(q.conditions), {TARGET_IS_THERE, TARGET_IS_AWAY})
+        g, _ = self.flow()
+        g.on_callee()
+        g.apply("report_party", {"party": "target"})
+        self.assertEqual(g.judge_context()[0].id, "Q1")                         # 繋がったら、いまの質問
+
+    def test_target_report_is_taken_when_the_judge_agrees(self):
+        from flowctl import TARGET_IS_THERE
+        f, b = self.checked()
+        self.assertTrue(f.wants_checks("report_party", {"相手": "目的の人"}))     # 判定を待ってから返事を作る
+        self.heard(f, "はい、岡田は私ですが。", TARGET_IS_THERE)
+        self.assertEqual(f.apply("report_party", {"party": "target"})["result"], "next")
+
+    def test_target_report_on_a_hold_is_not_taken(self):
+        # AIが「岡田ですね。少々お待ちください。」を目的の人と報告した：判定は取り次ぎ ⇒ 黙って待つ（用件・質問を受付の方に流さない）
+        from flowctl import HOLD
+        f, b = self.checked()
+        self.heard(f, "岡田ですね。少々お待ちください。", HOLD)
+        r = f.apply("report_party", {"party": "target"})
+        self.assertEqual((r["result"], f.phase, f.passed_on), ("hold", "calling", True))
+
+    def test_target_report_on_away_is_not_taken(self):
+        from flowctl import TARGET_IS_AWAY
+        f, b = self.checked()
+        self.heard(f, "あいにく岡田は席を外しておりまして。", TARGET_IS_AWAY)
+        r = f.apply("report_party", {"party": "target"})
+        self.assertEqual((r["result"], f.phase), ("rejected", "calling"))
+        self.assertIn("request_callback", r["message"])
+
+    def test_target_report_unsure_is_confirmed_once(self):
+        # 判定が決められない・代わった人が話し始めた：目的の人かを1回だけ確かめる（確かめへの返事には、その言い方を添えて判定する）
+        from flowctl import HANDOVER, TARGET_IS_THERE, UNDECIDED
+        for judged in (HANDOVER, UNDECIDED):
+            f, b = self.checked()
+            self.heard(f, "はい、お電話代わりました。", judged)
+            r = f.apply("report_party", {"party": "target"})
+            self.assertEqual((r["result"], r["say"]), ("confirm_target", b.target.confirm()), judged)
+            f.on_callee()
+            self.assertEqual(f.judge_context()[1], b.target.confirm())          # 確かめた言い方を添えて判定する
+            f.on_heard("はい、そうです。"); f.on_check("judge", TARGET_IS_THERE)
+            r = f.apply("report_party", {"party": "target"})
+            self.assertEqual([p.get("part", p["kind"]) for p in r["play"]], ["greeting", "intro", "purpose", "question"], judged)
+
+    def test_no_judge_or_late_judge_takes_the_report(self):
+        # 判定を使わない通話・判定が届かなかった（待つのは2秒まで）：AIの報告のまま進む（止まらない）
+        f, b = self.flow()
+        self.heard(f, "はい、私です。", None)
+        self.assertEqual(f.apply("report_party", {"party": "target"})["result"], "next")
+        f, b = self.checked()
+        self.heard(f, "はい、私です。", None)
+        self.assertEqual(f.apply("report_party", {"party": "target"})["result"], "next")
+
+    def test_call_harness_judges_with_the_flow_question(self):
+        import inspect
+        import convo
+        src = inspect.getsource(convo.check_handler)
+        self.assertIn("q, asked = flow.judge_context()", src)
+        self.assertNotIn("flow.questions[qid]", src)
+
 
 class G53LabelsTest(unittest.TestCase):
     """G-53 の数え方：付け直した正解（g53_labels.json）を1か所（g53_meaning.accept）で使う。"""

@@ -76,7 +76,35 @@ UTTERANCES = {
     "name_only_kadota": "カドタです。",
     # こちら側の名前（読みが決まらない担当者以外の人の名前）を、AIが口にしてしまうかを見る（G-47）。答えと一緒に、当日の担当を聞く
     "ask_staff": "はい、予約しています。当日はどなたが担当されるんですか？",
+    # 2026-10-18：電話ならではの場面（Intent.md 9-4・16-2 の模擬通話の回帰。scenes.py）
+    "voicemail": ("ただいま電話に出ることができません。ピーという発信音のあとに、お名前とご用件をお話しください。",
+                  "留守番電話の案内の録音のように、ていねいに、落ち着いた平らな調子で"),
+    "ivr": ("お電話ありがとうございます。ご予約の方は1番を、そのほかのお問い合わせの方は2番を押してください。",
+            "会社の自動音声の案内の録音のように、ていねいに、平らな調子で"),
+    "dnc": "営業の電話ですよね。もうかけてこないでください。",
+    "refuse_sales": "すみません、営業のお電話はお断りしてるんですよ。",
+    "complaint": ("何回電話してくるんですか。迷惑なんですけど。", "少し怒って、いらいらした感じで"),
+    "ai_q": "これって、AIですか？",
+    "out_of_scope": "あ、ついでに聞きたいんですけど、キャンセル料っていくらかかりますか？",
+    "wrong_number": "え、うちは山田ですけど、番号お間違えじゃないですか？",
+    "absent_family": "あ、本人は今ちょっと出かけてるんですけど。",
+    "later": "今ちょっと手が離せないので、あとでかけてもらえますか？",
+    "other_number": "この番号じゃなくて、携帯のほうにかけてもらえますか？",
+    "number_answer": "090の1234の5678です。",
+    "back_5pm": "夕方の5時ごろには戻ると思います。",
+    "later_time": "そうですね、夜の7時以降なら大丈夫です。",
+    "reachable_dunno": "ちょっと分からないです。",
+    # 目的の人のある業務（DESIGN.md 4-3。目的の人＝営業部部長の岡田様）
+    "target_self": "はい、岡田は私ですが。",
+    "hold_target": "岡田ですね。少々お待ちください。",
+    "taken_over_okada": "お電話代わりました。岡田です。",
+    "taken_over_unnamed": "はい、お電話代わりました。",
+    "absent_okada": "あいにく岡田は席を外しておりまして。",
+    "reception_refuse": "申し訳ございません、営業のお電話はお取り次ぎしておりません。",
 }
+# 人の声でない相手の音（作った声ではないので、別の耳の確かめは無い）。ファクスの答える音（CED 2100Hz のあと、V.21 の信号＝1650・1850Hz を
+# 300ボーで切り替える音。ITU-T T.30）。声の名前ごとに同じ音のファイルを置く（台詞の声の読み替え＝convo.callee_wav が使えるように）
+TONES = {"fax_tone": "fax"}
 # 別の耳は名前を漢字で書くので、カタカナで書いた名前の読みは比べられない（「中島」＝なかじま と読んでしまう）。名前だけ、その漢字に
 # 直してから比べる（読みそのものは G-44 の書き起こしで確かめた）。名前の一覧ではなく、この試験の材料の名前だけ
 NAME_SPELLINGS = {"ナカシマ": "中島", "カクタ": "角田", "カドタ": "角田"}
@@ -93,8 +121,39 @@ def text_and_how(v) -> tuple[str, str | None]:
     return (v, None) if isinstance(v, str) else v
 
 
+def tone_pcm(kind: str, rate: int = 16000) -> bytes:
+    """人の声でない相手の音（TONES）を作る。いまはファクスの答える音だけ：CED（2100Hz を3秒）・75ミリ秒の無音・V.21 の信号
+    （1650Hz と 1850Hz を 300ボーで切り替える音を2秒。中身は HDLC の旗＝0111 1110 の並び）。電話の音質に落として返す。"""
+    import numpy as np
+
+    assert kind == "fax", kind
+    r = 8000
+    ced = np.sin(2 * np.pi * 2100 * np.arange(int(3.0 * r)) / r)
+    gap = np.zeros(int(0.075 * r))
+    bits = [int(b) for b in "01111110" * 75]  # 300ボーで2秒分
+    per = r // 300
+    freq = np.repeat([1650 if b else 1850 for b in bits], per)
+    fsk = np.sin(2 * np.pi * np.cumsum(freq) / r)
+    x = 0.5 * np.concatenate([ced, gap, fsk, np.zeros(int(0.5 * r))])
+    return phone_quality((x * 32767).astype("<i2").tobytes(), r, rate)
+
+
+def write_tones() -> list[str]:
+    """TONES の音のファイルを、声の名前ごとに書く（同じ音）。キーを使わない。"""
+    out = []
+    for uid, kind in TONES.items():
+        pcm = tone_pcm(kind)
+        for voice in CALLEE_VOICES:
+            path = OUT / f"{voice}_{uid}.wav"
+            write_wav(path, pcm, 16000)
+            out.append(path.name)
+    return out
+
+
 def verified(wav: str) -> bool:
     """その声が、確かめ（sample_ok）に通っているか。試験は、通っていない声を使わない。"""
+    if any(wav.endswith(f"_{uid}.wav") for uid in TONES):
+        return (OUT / wav).exists()  # 作った音（声ではない）：別の耳の確かめは無い。ファイルがあればよい
     index = OUT / "index.json"
     made = json.loads(index.read_text(encoding="utf-8")) if index.exists() else []
     return any(m.get("wav") == wav and m.get("ok") is True for m in made)
@@ -147,6 +206,7 @@ async def run(args) -> dict:
         for v in CALLEE_VOICES:
             build_config(voice=v, system_instruction=INSTRUCTION)
         return {"dry_run": True}
+    say("作った音：", write_tones())
     client = make_client(pick_key(args))
     index = OUT / "index.json"
     made = json.loads(index.read_text(encoding="utf-8")) if index.exists() else []

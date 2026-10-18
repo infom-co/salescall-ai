@@ -81,7 +81,7 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
         speech_end, task, ear = loop.time(), None, None
     info: dict = {"_end": speech_end}
     turn = flow.callee_turns
-    qid, asked = flow.judge_context()
+    q, asked = flow.judge_context()  # 判定の質問（目的の人を呼んでいる段では、呼ぶ一言）
 
     async def hearing():
         await asyncio.sleep(max(0.0, speech_end - loop.time()))
@@ -117,7 +117,7 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
         if not text:
             return None
         try:
-            got = await asyncio.wait_for(run(flow.questions[qid], text, asked), LATE_CHECK_S)
+            got = await asyncio.wait_for(run(q, text, asked), LATE_CHECK_S)
         except Exception as exc:  # 判定が落ちても通話は止めない（届かなかった＝通話後の検証へ）
             info[f"{kind}_error"] = repr(exc)[:200]
             return None
@@ -125,8 +125,8 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
                      f"{kind}_s": round(loop.time() - speech_end, 3)})
         flow.on_check(kind, got, turn)
         return got
-    jtask = asyncio.create_task(judging("judge", judge)) if judge is not None and qid else None
-    j2task = asyncio.create_task(judging("judge2", judge2)) if judge2 is not None and qid else None
+    jtask = asyncio.create_task(judging("judge", judge)) if judge is not None and q else None
+    j2task = asyncio.create_task(judging("judge2", judge2)) if judge2 is not None and q else None
     info["_tasks"] = [t for t in (etask, jtask, j2task) if t is not None]
 
     async def handle(fc):
