@@ -3765,6 +3765,13 @@ class CallbackTest(unittest.TestCase):
         r = self.say(f, "あいにく本人は出かけておりまして。", "request_callback", why="absent")
         self.assertEqual(r["play"], [{"kind": "recorded", "id": "callback_back_time", "text": CALLBACK_ASK["back_time"]}])
         self.assertEqual(RECORDED["callback_back_time"], CALLBACK_ASK["back_time"])
+        # 申し出の言葉が「〜もらえますか？」でも、相手からの質問として答えさせない（⛔ G-57 の2回目：AIに答えさせて、6本中2本で
+        #    「私の方では折り返しのお電話はお約束できかねます」と言い、足す質問も録音でなくAIが言った）
+        for why, heard in (("later", "今ちょっと手が離せないので、あとでかけてもらえますか？"), ("other_number", "携帯のほうにかけてもらえますか？")):
+            f = self.flow(play=True)
+            r = self.say(f, heard, "request_callback", why=why)
+            self.assertEqual(r["play"][0]["kind"], "recorded", why)
+            self.assertNotIn("相手が質問をしています", r["message"], why)
         f = self.flow(play=False)                                                       # AIが話す形では AIが言う
         r = self.say(f, "あいにく本人は出かけておりまして。", "request_callback", why="absent")
         self.assertNotIn("play", r)

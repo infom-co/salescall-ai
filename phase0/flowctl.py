@@ -1412,10 +1412,10 @@ class Flow:
         self.phase, self.opening_unheard, self.passed_on, self.asked_target = "asking", [], False, None
         texts = "".join(self.target[k] for k in keys)
         if not keys:
-            return self._advance("目的の人に繋がりました。")
+            return self._advance("目的の人に繋がりました。", handled=True)
         if not self.opening:
-            return self._advance(f"目的の人に繋がりました。まず「{texts}」と言ってから、")
-        r = self._advance(f"目的の人に繋がりました。「{texts}」は、プログラムが録音で流しました（相手にもう聞こえています）。続けて、")
+            return self._advance(f"目的の人に繋がりました。まず「{texts}」と言ってから、", handled=True)
+        r = self._advance(f"目的の人に繋がりました。「{texts}」は、プログラムが録音で流しました（相手にもう聞こえています）。続けて、", handled=True)
         if "play" not in r:
             r["speak"] = True  # 最初の質問は AIが言う（読みの確かめ・相手の質問に答えてから聞くとき）：録音のあとに話させる
         r["play"] = [{"kind": "opening", "part": k, "text": self.opening[k]} for k in keys] + r.get("play", [])
@@ -1439,7 +1439,7 @@ class Flow:
         self.order = [q.id for q in qs]
         self.phase, self.recheck_queue = "asking", []
         self.awaiting_confirm = self.awaiting_say = None
-        return self._advance("")
+        return self._advance("", handled=True)
 
     def _hang_up(self, reason: str) -> dict:
         """話さずに切る唯一の場所（人ではない相手）。締めの言葉も相づちも流さない。"""
@@ -1627,9 +1627,12 @@ class Flow:
                 return t
         return None
 
-    def _advance(self, prefix: str) -> dict:
-        # 相手が質問をしていたら、録音は流さずに、AIがまず短く答えてから次へ進む（録音で流すと、相手の質問にかぶせることになる）
-        asked = self._callee_question()
+    def _advance(self, prefix: str, handled: bool = False) -> dict:
+        # 相手が質問をしていたら、録音は流さずに、AIがまず短く答えてから次へ進む（録音で流すと、相手の質問にかぶせることになる）。
+        # handled＝相手の言葉そのものを、いまの操作が受けた（かけ直しの申し出「あとでかけてもらえますか？」・目的の人の名乗り）＝答えに添えた
+        # 質問ではないので、答えさせない。⛔ 2026-10-19 G-57 の2回目：かけ直しの申し出の「〜もらえますか？」を相手からの質問として扱い、
+        #    AIに「まず答えて」と渡したので、AIが「私の方では折り返しのお電話はお約束できかねます」と言い、足す質問も録音でなくAIが言った（6本中2本）
+        asked = None if handled else self._callee_question()
         if asked:
             prefix += (f"相手が質問をしています（「{asked[:40]}」）。まず、答えられる範囲で短く答えます（分からないことは作らず、約束もしません）。"
                        "そのあと続けて、")

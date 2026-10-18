@@ -81,6 +81,11 @@ def said_to(call: dict, wav_name: str) -> str:
     return "".join(said(t) for t in call["turns"] if line_of(t).endswith(f"_{wav_name}.wav"))
 
 
+def callback_recorded(call: dict) -> bool:
+    """かけ直しで足す質問を、録音で流したか（AIに言わせない。⛔ 1回目・2回目：AIが言うと「折り返しのお電話はお約束できかねます」などを足した）。"""
+    return any(x["op"] == "request_callback" and (x["reply"].get("play") or [{}])[0].get("kind") == "recorded" for x in ops(call))
+
+
 def no_promise(call: dict) -> bool:
     return not any(PROMISE.search(said(t)) for t in call["turns"])
 
@@ -147,14 +152,14 @@ SCENES = {
     # ── かけ直しの申し出（DESIGN.md 6-2）
     "不在": Scene(BUSINESS, [W("absent_family"), W("back_5pm"), W("affirm")], lambda c: {
         "理由": last_fact(c, "callback").get("why") == "absent", "戻る時刻": "5時" in (last_fact(c, "callback").get("time") or ""),
-        "締め": closing_of(c) == CLOSING, "約束しない": no_promise(c)}),
+        "締め": closing_of(c) == CLOSING, "約束しない": no_promise(c), "足す質問は録音": callback_recorded(c)}),
     "あとで": Scene(BUSINESS, [W("later"), W("later_time"), W("affirm")], lambda c: {
         "理由": last_fact(c, "callback").get("why") == "later", "時刻": "7時" in (last_fact(c, "callback").get("time") or ""),
-        "締め": closing_of(c) == CLOSING, "約束しない": no_promise(c)}),
+        "締め": closing_of(c) == CLOSING, "約束しない": no_promise(c), "足す質問は録音": callback_recorded(c)}),
     "別の番号": Scene(BUSINESS, [W("other_number"), W("number_answer"), W("affirm"), W("reachable_dunno")], lambda c: {
         "理由": last_fact(c, "callback").get("why") == "other_number",
         "番号": "5678" in re.sub(r"\D", "", last_fact(c, "callback").get("number") or ""), "締め": closing_of(c) == CLOSING,
-        "約束しない": no_promise(c)}),
+        "約束しない": no_promise(c), "足す質問は録音": callback_recorded(c)}),
     # ── 目的の人のある業務（DESIGN.md 4-3）
     "目的の人_本人": Scene(TARGET_BUSINESS, [W("target_self")] + FULL, lambda c: {
         "繋いだ": connect_reply(c) != {}, "用件を流した": "purpose" in played_parts(connect_reply(c)),
@@ -176,7 +181,7 @@ SCENES = {
         "代わった方に全部": played_parts(connect_reply(c))[:3] == ["greeting", "intro", "purpose"], "答えが取れた": got(c, "Q1", "はい")}),
     "目的の人_不在": Scene(TARGET_BUSINESS, [W("absent_okada"), W("back_5pm"), W("affirm")], lambda c: {
         "理由": last_fact(c, "callback").get("why") == "absent", "戻る時刻": "5時" in (last_fact(c, "callback").get("time") or ""),
-        "用件を受付に流さない": connect_reply(c) == {}, "締め": closing_of(c) == CLOSING}),
+        "用件を受付に流さない": connect_reply(c) == {}, "締め": closing_of(c) == CLOSING, "足す質問は録音": callback_recorded(c)}),
     "目的の人_受付で断られる": Scene(TARGET_BUSINESS, [W("reception_refuse")], lambda c: {
         "発信禁止の申告": bool(c.get("facts", {}).get("do_not_call")), "締め": closing_of(c) == CLOSE_DECLINED}),
 }
