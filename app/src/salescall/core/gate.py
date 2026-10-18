@@ -87,7 +87,6 @@ _COUNTED = _DIALED + " AND NOT salescall.not_by_callee(state, disconnect, attemp
 # 相手側にした場合やかけ直しを依頼された場合は対象外」。2026-10-17 の計画書との突き合わせ：前は約束したかけ直しを止めないだけで、
 # かけたあとは回数に数えていたので、そのあとのふつうのかけ直しが減った）。最小の間隔は、約束したかけ直しも起点に数える（歯止め）
 _COUNTED_TIMES = _COUNTED + " AND NOT promised"
-_DIALED_A = "a.state NOT IN ('claimed', 'released')"   # 同じ決まり（表の別名つき）
 _SAME = "(contact_id = %s OR task_id = %s)"             # 同じお客様：かける番号が同じ発信、または同じ行の発信
 
 
@@ -294,6 +293,12 @@ def claim(tx: Tx, *, task_id: UUID, line_id: UUID, lease_holder: str) -> Claim |
     return outcome
 
 
+# 行のせいではない理由（候補を出す処理が、行の予定を書き直さずに扱う。DESIGN.md 5-4）：回線の理由＝その回線でしばらくかけない
+# （ほかの回線は、その行をかけられる）／依頼者の理由＝その依頼者の行を、この回だけ飛ばす。それ以外は、次の動き（after_denial）へ渡す
+LINE_REASONS = frozenset({"line_unknown", "line_not_leased", "line_retired", "line_daily_limit", "line_other_client", "line_busy"})
+CLIENT_REASONS = frozenset({"client_concurrency", "client_inactive"})
+
+
 # 門が設定の抜けで待たせる理由と、契約者への注意の短い文（2026-10-17 の見直し：前は黙って待たせていた）
 SETTING_GAPS: dict[str, str] = {
     "no_version": "実施回に業務設定の版が割り当てられていません。業務設定の版を割り当ててください。",
@@ -322,11 +327,7 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
         return _deny("awaiting_approval")
     # 前の発信の締め（判定の結果の版）が済むまで、次をかけない（予定を誰が書き直しても抜け道にならないよう、
     # 「前の発信に判定の結果があるか」で決める。判定と次の予定は、締めの処理 core/settle.py が1つの取引で書く）
-    unsettled = tx.one(
-        f"SELECT 1 FROM salescall.attempts a WHERE a.task_id = %s AND {_DIALED_A}"
-        " AND NOT salescall.is_settled(a.attempt_id) LIMIT 1",
-        (task["task_id"],))
-    if unsettled is not None:
+    if tx.one("SELECT salescall.task_awaiting_decision(%s) AS w", (task["task_id"],))["w"]:   # 決まりは1か所（0063）
         return _deny("awaiting_decision")
 
     # (1b) 依頼者を無効にしていないか（Intent.md 4章 A。判断はデータベースの1か所 salescall.client_active）。業務設定の確かめより

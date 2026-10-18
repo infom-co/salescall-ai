@@ -23,8 +23,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import timedelta
 
-SOURCES = ("ai", "ear", "line", "storage", "delivery", "recording")   # 会話AI／別の耳（通話後の検証）／回線／保存／連携／
-#                                                                       録音（通話の録音が残っていない・壊れている）
+SOURCES = ("ai", "ear", "line", "storage", "delivery", "recording", "supervisor")   # 会話AI／別の耳（通話後の検証）／回線／保存／
+#   連携／録音（通話の録音が残っていない・壊れている）／見守り役（決まった間隔の仕事・回線ごとの発信の繰り返しの処理の誤り。0063）
 
 @dataclass(frozen=True)
 class CatalogEntry:
@@ -127,7 +127,7 @@ LABELS: dict[str, str] = {
     "ear_error": "通話後の確かめ（別の耳）の誤りです",
     "ai_server_error": "会話AIの側の誤り・混雑です", "session_drop": "通話中に会話AIが切れました",
     "line": "回線の異常です", "storage": "保存に失敗しました", "delivery": "結果の書き戻しに失敗しました",
-    "recording": "通話の録音が残っていません",
+    "recording": "通話の録音が残っていません", "supervisor": "見守り役の処理の誤りです",
     "unknown_ai": "原因の分からない会話AIの誤りです", "unknown_line": "原因の分からない回線の誤りです",
 }
 
@@ -174,6 +174,10 @@ ACTIONS: dict[str, Action] = {
                         "続ける（2026-10-17 ユーザー：「止めずに CL1 か CL2 に修正依頼を出さないといけないだろ」）。その通話の"
                         "確かめは待ちのまま（門が、その行と同じお客様にはかけない）、録音が見つかればやり直す。⏳ 電話接続の担当が"
                         "決まったら、その担当へ", fixer="CL-2"),
+    "supervisor": Action("keep", "none", None, None, None, False,
+                         "見守り役の処理の誤り（決まった間隔の仕事・回線ごとの発信の繰り返しが落ちた）：止めない。CL-2 に修正依頼を"
+                         "出し、ほかの仕事は続ける（落ちた回線の処理は、その回線の進行中の通話を後始末してから立ち上げ直す。DESIGN.md 5-4）",
+                         fixer="CL-2"),
     "delivery": Action("keep", "backoff", None, None, None, False,
                        "連携（書き戻し）の失敗：連携だけ再送する（通話の結果は失わない。4-5）。1時間以上続いたら CL-3 に修正依頼を出す",
                        lasting_fixer="CL-3"),
@@ -244,6 +248,6 @@ def classify(e: ErrorReport) -> str:
         return "line"
     if e.source == "storage":
         return "storage"
-    if e.source == "recording":
-        return "recording"
+    if e.source in ("recording", "supervisor"):
+        return e.source
     return "delivery"

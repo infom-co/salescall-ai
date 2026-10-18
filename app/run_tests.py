@@ -399,6 +399,28 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("声の型を、誰でも足せる・書き換えられる",
      "DROP TRIGGER voice_types_guard ON salescall.voice_types",
      ("tests.test_gate.CallerNumberAndVoice.test_a_new_voice_is_used_without_changing_the_code_and_a_retired_voice_is_not",)),
+    # 見守り役（5-4・0063）
+    ("ほかの見守り役が生きて借りている回線を借りられる",
+     "CREATE OR REPLACE FUNCTION salescall.lease_line(p_line uuid, p_holder text, p_seconds integer) RETURNS timestamptz"
+     " LANGUAGE sql SECURITY DEFINER SET search_path = salescall, pg_temp AS $$"
+     " UPDATE salescall.lines SET lease_holder = p_holder, lease_expires_at = now() + make_interval(secs => p_seconds)"
+     " WHERE line_id = p_line AND retired_at IS NULL RETURNING lease_expires_at $$",
+     ("tests.test_supervisor.Leases.test_one_supervisor_holds_a_line_and_another_takes_it_only_after_it_expires",)),
+    ("生きている回線の通話を、後始末で終わらせてしまう",
+     "CREATE OR REPLACE FUNCTION salescall.recover_lines(p_holder text, p_line uuid DEFAULT NULL)"
+     " RETURNS TABLE (line_id uuid, released integer, ended integer) LANGUAGE plpgsql SECURITY DEFINER"
+     " SET search_path = salescall, pg_temp AS $$ DECLARE l record; r integer; e integer; BEGIN"
+     " FOR l IN SELECT x.line_id FROM salescall.lines x WHERE x.tenant_id = salescall.cur_tenant() LOOP"
+     " UPDATE salescall.attempts SET state = 'released' WHERE attempts.line_id = l.line_id AND state = 'claimed';"
+     " GET DIAGNOSTICS r = ROW_COUNT; line_id := l.line_id; released := r; ended := 0; RETURN NEXT; END LOOP; END $$",
+     ("tests.test_supervisor.Recovery.test_only_expired_lines_of_other_pcs_are_cleaned_up",)),
+    ("同じ仕事を2つの見守り役が同時にできる",
+     "CREATE OR REPLACE FUNCTION salescall.take_job(p_key text, p_holder text, p_seconds integer) RETURNS boolean"
+     " LANGUAGE sql AS $$ SELECT true $$",
+     ("tests.test_supervisor.Leases.test_jobs_are_taken_by_one_supervisor_and_only_by_the_system",)),
+    ("前の発信の締めが済んでいない行を、門が通す・候補に出す",
+     "CREATE OR REPLACE FUNCTION salescall.task_awaiting_decision(p_task uuid) RETURNS boolean LANGUAGE sql AS $$ SELECT false $$",
+     ("tests.test_gate.Pacing.test_unsettled_attempt_blocks_the_row",)),
     ("通話後の確かめを「確かめられなかった」で諦められる",
      "ALTER TABLE salescall.attempts DROP CONSTRAINT attempts_verification_never_gives_up",
      ("tests.test_foundation.AttemptTransitions.test_verification_only_pending_to_done",

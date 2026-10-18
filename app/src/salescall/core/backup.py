@@ -104,8 +104,23 @@ class BackupFailed(Exception):
     """控えが取れなかった・置けなかった・戻せなかった（中身は、鍵・接続文字列・お客様の情報を含まない短い説明）。"""
 
 
-class DriveMissing(BackupFailed):
-    """控え用のハードディスクがつながっていない（直すのは人：ハードディスクをつなぐ。修正依頼ではなく、管理者に知らせる）。"""
+class PersonNeeded(BackupFailed):
+    """直すのが管理者の作業のもの（プログラムの直しではない）：修正依頼ではなく、管理者に `ask` を知らせる。"""
+    ask = ""
+
+
+class DriveMissing(PersonNeeded):
+    """控え用のハードディスクがつながっていない。"""
+    ask = "控え用のハードディスクがつながっていません。PC にハードディスクをつないでください。"
+
+
+class KeyMissing(PersonNeeded):
+    """控えの鍵が PC に入っていない・短すぎる。"""
+    ask = "控えの鍵が PC に入っていません（または短すぎます）。手順書 docs/PC_SETUP.md のとおり、Proton Pass の文字を入れてください。"
+
+
+def _ask(e: BaseException) -> str | None:
+    return e.ask if isinstance(e, PersonNeeded) else None
 
 
 def _counts(tx: Tx) -> dict[str, int]:
@@ -130,16 +145,22 @@ def key_from_text(text: str) -> bytes:
     """Proton Pass で作った文字から、控えの鍵（32バイト）を作る。前後の空白・改行は外す（写し間違いを防ぐ）。値は出さない。"""
     text = text.strip()
     if len(text) < KEY_MIN_CHARS:
-        raise BackupFailed(f"控えの鍵の元は{KEY_MIN_CHARS}文字以上です（Proton Pass で作った文字を、そのまま写してください）")
+        raise KeyMissing(f"控えの鍵の元は{KEY_MIN_CHARS}文字以上です（Proton Pass で作った文字を、そのまま写してください）")
     return hashlib.scrypt(text.encode(), salt=_KEY_SALT, n=2 ** 14, r=8, p=1, dklen=32)
 
 
 def load_key(environ: dict[str, str] | None = None) -> bytes:
-    """PC の環境変数から控えの鍵を読む（見守り役が呼ぶ）。無ければ、入れ方を書いた BackupFailed（値は書かない）。"""
+    """PC の環境変数から控えの鍵を読む（見守り役が呼ぶ）。無ければ、入れ方を書いた KeyMissing（値は書かない）。"""
     text = (os.environ if environ is None else environ).get(KEY_ENV, "")
     if not text.strip():
-        raise BackupFailed(f"控えの鍵が入っていません。PC の環境変数 {KEY_ENV} に、Proton Pass に置いた文字をそのまま入れてください")
+        raise KeyMissing(f"控えの鍵が入っていません。PC の環境変数 {KEY_ENV} に、Proton Pass に置いた文字をそのまま入れてください")
     return key_from_text(text)
+
+
+def key_matches(text: str, environ: dict[str, str] | None = None) -> bool:
+    """管理者が貼った Proton Pass の文字と、PC に入っている文字が、同じ鍵になるか（PC の文字が1文字でも違うと、確かめは通るのに
+    Proton Pass の文字では控えを戻せない。見守り役の check-key が呼ぶ。どちらの値も出さない）。"""
+    return key_from_text(text) == load_key(environ)
 
 
 def encrypt(data: bytes, key: bytes, file_name: str) -> bytes:
@@ -216,9 +237,9 @@ def take(app: Access, source_conninfo: str, restore_conninfo: str, destinations:
                 source_identity=source_identity)
     except Exception as e:  # noqa: BLE001 ここで受けて記録する（止めない）
         error = _why(e)
-        _record(app, started, file_name if blob else None, blob, counts, placed, error, drive=isinstance(e, DriveMissing))
+        _record(app, started, file_name if blob else None, blob, counts, placed, error, person=_ask(e))
         return Result(False, None, error)
-    _record(app, started, file_name, blob, counts, placed, None, drive=False)
+    _record(app, started, file_name, blob, counts, placed, None, person=None)
     return Result(True, file_name, None)
 
 
@@ -259,9 +280,11 @@ DRIVE_MISSING = "控え用のハードディスクがつながっていません
 
 
 def _record(app: Access, started: datetime, file_name: str | None, blob: bytes | None, counts: dict[str, int] | None,
-            placed: list[str], error: str | None, *, drive: bool, part: str = "system", client_id: UUID | None = None) -> None:
-    """1回ずつ記録する（やり直しは `_may_try` が1時間あけるので、失敗の行は種類・依頼者ごとに1日24行まで）。失敗は、ハードディスクが
-    外れていれば管理者に「つないでください」、ほかは種類ごとに CL-2 へ修正依頼（同じ不具合は、直したと報告するまで1つ）。"""
+            placed: list[str], error: str | None, *, person: str | None, part: str = "system",
+            client_id: UUID | None = None) -> None:
+    """1回ずつ記録する（やり直しは `_may_try` が1時間あけるので、失敗の行は種類・依頼者ごとに1日24行まで）。失敗は、直すのが管理者の
+    作業なら（person＝ハードディスクをつなぐ・鍵を入れる）管理者にそれを知らせ、ほかは種類ごとに CL-2 へ修正依頼（同じ不具合は、直したと
+    報告するまで1つ）。"""
     def work(tx: Tx) -> None:
         tx.execute("INSERT INTO salescall.backup_runs (started_at, file_name, sha256, size_bytes, table_counts, destinations,"
                    " restore_ok, error, kind, client_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
@@ -270,13 +293,13 @@ def _record(app: Access, started: datetime, file_name: str | None, blob: bytes |
                     error is None, error, part, client_id))
         if error is not None:
             day = tx.one("SELECT salescall.jst(now())::date AS d")["d"]
-            if drive:   # ハードディスクをつなぐのは人の作業（プログラムの直しではない）
-                summary = "控え用のハードディスクがつながっていません。PC にハードディスクをつないでください。"
+            if person is not None:   # 管理者の作業（プログラムの直しではない）
+                summary = person
             else:
                 fix_requests.request(tx, "CL-2", "backup_failed", key=f"backup_failed:{part}",
                                      summary=f"{PARTS[part]}：{error}", refs={"client_id": client_id})
                 summary = f"{PARTS[part]}が取れませんでした（CL-2 に修正依頼を出しました）。"
-            notify.emit(tx, "backup_failed", key=f"backup_failed:{day}:{'drive' if drive else part}", summary=summary,
+            notify.emit(tx, "backup_failed", key=f"backup_failed:{day}:{'person:' + person if person else part}", summary=summary,
                         refs={"error": error, "client_id": client_id}, admin=True, contractor=False)
     app.in_system(SYSTEM, work)
 
@@ -305,7 +328,7 @@ def _drive_ready(app: Access, drive: "Drive") -> bool:
     if drive.attached():
         return True
     if _may_try(app, "drive"):
-        _record(app, datetime.now().astimezone(), None, None, None, [], DRIVE_MISSING, drive=True, part="drive")
+        _record(app, datetime.now().astimezone(), None, None, None, [], DRIVE_MISSING, person=DriveMissing.ask, part="drive")
     return False
 
 
@@ -421,10 +444,10 @@ def _client_ai(app: Access, source: Tx, drive: Drive, tenant_id: UUID, client_id
             raise BackupFailed("読み戻した AI用の控えの行の数が、取ったときと違います")
     except Exception as e:  # noqa: BLE001 ここで受けて記録する（止めない）
         error = _why(e)
-        _record(app, started, file_name if blob else None, blob, counts, placed, error, drive=isinstance(e, DriveMissing),
+        _record(app, started, file_name if blob else None, blob, counts, placed, error, person=_ask(e),
                 part="client_ai", client_id=client_id)
         return Result(False, None, error)
-    _record(app, started, file_name, blob, counts, placed, None, drive=False, part="client_ai", client_id=client_id)
+    _record(app, started, file_name, blob, counts, placed, None, person=None, part="client_ai", client_id=client_id)
     return Result(True, file_name, None)
 
 
@@ -447,7 +470,7 @@ def copy_submissions(app: Access, drive: Drive, *, key: bytes) -> list[Result]:
         try:
             work()
         except Exception as e:  # noqa: BLE001 記録して続ける（止めない）
-            _record(app, datetime.now().astimezone(), None, None, None, [], _why(e), drive=isinstance(e, DriveMissing),
+            _record(app, datetime.now().astimezone(), None, None, None, [], _why(e), person=_ask(e),
                     part="submission", client_id=client_id)
             failed.append(Result(False, None, _why(e)))
     waiting: list[dict[str, Any]] = []
@@ -536,6 +559,18 @@ def prune(app: Access, drive: Drive, *, now: datetime | None = None) -> int:
     return removed
 
 
+def run_configured(app: Access, source_conninfo: str, restore_conninfo: str, drive_root: Path,
+                   environ: dict[str, str]) -> list[Result]:
+    """見守り役が呼ぶ入口：PC の鍵を読み（無ければ管理者に「鍵を入れてください」）、`run_daily` を呼ぶ。"""
+    try:
+        key = load_key(environ)
+    except KeyMissing as e:
+        if _may_try(app, "system"):
+            _record(app, datetime.now().astimezone(), None, None, None, [], str(e), person=e.ask)
+        return [Result(False, None, str(e))]
+    return run_daily(app, source_conninfo, restore_conninfo, Drive(drive_root), key=key)
+
+
 def run_daily(app: Access, source_conninfo: str, restore_conninfo: str, drive: Drive, *, key: bytes) -> list[Result]:
     """控えの処理（PC で見守り役が数分ごとに呼んでよい。やるかは種類ごとに `_may_try`）：データベース全体（1日1回。戻せるかを
     確かめる）→ 依頼者ごとの AI用（1日1回）→ 提出用を写す（数分ごと）→ 古いものを消す（1日1回）。ハードディスクがつながっていなければ、何も置かずに管理者へ「つないでください」と知らせる。"""
@@ -550,15 +585,15 @@ def run_daily(app: Access, source_conninfo: str, restore_conninfo: str, drive: D
                 if _may_try(app, "client_ai", c["client_id"]):
                     results.append(_client_ai(app, source, drive, c["tenant_id"], c["client_id"], key=key))
     except Exception as e:  # noqa: BLE001 依頼者の一覧が読めない：記録して続ける（止めない）
-        _record(app, datetime.now().astimezone(), None, None, None, [], _why(e), drive=False, part="client_ai")
+        _record(app, datetime.now().astimezone(), None, None, None, [], _why(e), person=None, part="client_ai")
         results.append(Result(False, None, _why(e)))
     results += copy_submissions(app, drive, key=key)
     if _may_try(app, "prune"):
         started = datetime.now().astimezone()
         try:
             prune(app, drive)
-            _record(app, started, None, None, None, [], None, drive=False, part="prune")
+            _record(app, started, None, None, None, [], None, person=None, part="prune")
         except Exception as e:  # noqa: BLE001 片付けが落ちても（ファイルが使用中など）、記録して続ける
-            _record(app, started, None, None, None, [], _why(e), drive=isinstance(e, DriveMissing), part="prune")
+            _record(app, started, None, None, None, [], _why(e), person=_ask(e), part="prune")
             results.append(Result(False, None, _why(e)))
     return results
