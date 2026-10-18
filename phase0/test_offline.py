@@ -3998,6 +3998,26 @@ class TargetTest(unittest.TestCase):
         self.assertNotIn("flow.questions[qid]", src)
 
 
+class ScenesTest(unittest.TestCase):
+    """16-2 の模擬通話の回帰（scenes.py）：場面の台詞は、お客役の台詞の一覧（make_callee_samples）の1か所にあるものだけ。"""
+
+    def test_lines_come_from_the_one_list(self):
+        from make_callee_samples import TONES, UTTERANCES
+        from scenes import SCENES
+        for name, sc in SCENES.items():
+            for x in sc.lines:
+                uid = x["wav"].removeprefix("Puck_").removesuffix(".wav")
+                self.assertIn(uid, set(UTTERANCES) | set(TONES), name)
+
+    def test_expectations_run_on_an_empty_call(self):
+        # 通話が何も起きずに終わっても、数え方が落ちない（どの決まりも「守られなかった」と数える）
+        from scenes import SCENES, measures
+        empty = {"turns": [], "flow_log": [], "items": {"Q1": {}, "Q2": {}, "Q3": {}}, "facts": {}}
+        for name in SCENES:
+            m = measures(empty, name)
+            self.assertFalse(m["pass"], name)
+
+
 class G53LabelsTest(unittest.TestCase):
     """G-53 の数え方：付け直した正解（g53_labels.json）を1か所（g53_meaning.accept）で使う。"""
 
