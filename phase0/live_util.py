@@ -91,6 +91,7 @@ class TurnResult:
     interrupted: bool = False
     timed_out: bool = False  # 決めた秒数のうちに、AIがターンを終えなかった（黙った・止まった）
     nudged: bool = False     # 声が出ないので、返事を促す合図を送った（DESIGN.md 6-7）
+    silent: bool = False     # 決めた秒数のうちに、声も操作も出なかった（AIが黙った。silent_after_s。DESIGN.md 6-7 の張り替えへ）
     first_audio_after_s: float | None = None
     finished_after_s: float | None = None
     message_kinds: dict[str, int] = field(default_factory=dict)
@@ -119,10 +120,12 @@ class TurnResult:
 
 
 async def collect_turn(session, *, started_at: float, on_tool_call=None, timeout_s: float = 60.0,
-                       nudge_after_s: float | None = None, nudge_text: str | None = None, on_heard=None) -> TurnResult:
+                       nudge_after_s: float | None = None, nudge_text: str | None = None, on_heard=None,
+                       silent_after_s: float | None = None) -> TurnResult:
     """1ターン分を受け取る。関数の呼び出しが来たら `on_tool_call(function_call) -> dict` で返事を作って返す。
 
     nudge_after_s：この秒数のあいだ声が出なければ、nudge_text を1回だけ送って返事を促す（AIが黙ったとき。DESIGN.md 6-7）。
+    silent_after_s：この秒数のあいだ声も操作も出なければ、受け取りをやめて silent にして返す（AIが黙った＝6-7 の張り替えは呼ぶ側が決める）。
     見張りはここだけに置く（相手の声で始まるターンも、文字で始まるターンも、同じ見張りを通る）。
     ⛔ 2026-10-14 G-33：答えの報告を「返事を待たない」宣言にする形（受けの言葉が先）は、AIが受けの言葉を先に言わなかったので採らず、
        受け取りの処理も外した（記録は DESIGN.md 6-15・PHASE0_VERIFICATION.md の G-33）。
@@ -140,6 +143,17 @@ async def collect_turn(session, *, started_at: float, on_tool_call=None, timeout
             r.nudged = True
             r.events.append({"at_s": round(time.monotonic() - started_at, 3), "kind": "nudged"})
             await send_text(session, nudge_text)
+    if silent_after_s is not None:
+        done, _ = await asyncio.wait({task}, timeout=silent_after_s)
+        if not done and r.first_audio_after_s is None and not r.tool_calls:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            r.silent = r.timed_out = True
+            r.events.append({"at_s": round(time.monotonic() - started_at, 3), "kind": "silent"})
+            return r
     await task
     return r
 
@@ -192,7 +206,8 @@ async def _collect_into(r: "TurnResult", session, *, started_at: float, on_tool_
                     r.input_transcript.append(sc.input_transcription.text)
                     # 相手の言葉の文字が、AIの報告より先に届くか（報告の時点で、プログラムが相手の言葉を見て決められるか。2026-10-14 G-36：
                     # AIは、こちらの聞き違いと相手の言い間違いを見分けられなかった＝12本中12本「相手が言い直した」）
-                    r.events.append({"at_s": at(), "kind": "heard", "text": sc.input_transcription.text})
+                    r.events.append({"at_s": at(), "kind": "heard", "text": sc.input_transcription.text,
+                                     "finished": sc.input_transcription.finished})
                     if on_heard:
                         on_heard(sc.input_transcription.text)
                 if sc.output_transcription is not None and sc.output_transcription.text:
@@ -296,14 +311,15 @@ async def silence_while(session, rate: int = INPUT_RATE, chunk_ms: int = 100):
 
 
 async def callee_turn(session, pcm16: bytes, rate: int, *, on_tool_call=None, timeout_s: float = 60.0,
-                      nudge_after_s: float | None = None, nudge_text: str | None = None, on_heard=None) -> TurnResult:
+                      nudge_after_s: float | None = None, nudge_text: str | None = None, on_heard=None,
+                      silent_after_s: float | None = None) -> TurnResult:
     """相手の発話1回ぶん：声を送り、話し終わりのあとは無音を送りながら、AIの返事（1ターン）を受け取る。
     待ち時間（first_audio_after_s）は、相手が話し終えた時刻から数える。"""
     await stream_audio(session, pcm16, rate)
     ended = time.monotonic()
     async with silence_while(session, rate):
         return await collect_turn(session, started_at=ended, on_tool_call=on_tool_call, timeout_s=timeout_s,
-                                  nudge_after_s=nudge_after_s, nudge_text=nudge_text, on_heard=on_heard)
+                                  nudge_after_s=nudge_after_s, nudge_text=nudge_text, on_heard=on_heard, silent_after_s=silent_after_s)
 
 
 def safe(text: object) -> str:

@@ -16,7 +16,7 @@ import itertools
 import json
 
 from common import KeyRing, base_parser, describe_error, drop_partial, require_python, save_partial, save_result, say
-from flowctl import AMBIGUOUS_WORDS, REPLY_WORDS
+from flowctl import AMBIGUOUS_WORDS
 from g23_names import find_models
 from g48_meanings import QUESTIONS
 from meanings import by_model_replies, decide_replies
@@ -36,14 +36,7 @@ TRUTH = {
     27: {"大丈夫": {N, "はい"}, "平気": {N, "はい"}},              # お急ぎではございませんか？（はい＝急いでいない）
     28: {"大丈夫": {N, "はい"}, "結構": {N, "はい"}, "平気": {N, "はい"}},  # 当日のキャンセルはございませんか？
 }
-# 2回目に足した「はい」「いいえ」（2026-10-17。選択肢が言葉の質問で、頭の「はい」「いいえ」とAIの答えの食い違いを確かめるため）。
-# 選択肢が「はい・いいえ」の質問は、その選択肢（決めなくてもよい＝flowctl.Question.reply_choice が同じものを返す）。選択肢から選ぶ質問は決めない
-YES_NO = {3: ("ある", "ない"), 4: ("初めて", "2回目以降"), 6: ("利用する", "利用しない"), 9: ("参加する", "参加しない"),
-          10: ("変更なし", "変更あり"), 12: ("決まっている", "決まっていない"), 31: ("している", "していない")}
-for n, (q, cs) in enumerate(QUESTIONS, 1):
-    yes, no = YES_NO.get(n, ("はい", "いいえ") if set(cs) == {"はい", "いいえ"} else (None, None))
-    if yes:
-        TRUTH.setdefault(n, {}).update({"はい": {N, yes}, "いいえ": {N, no}})  # 決めないのは安全側（食い違いを確かめないだけ）
+# ⛔ 2回目に足した「はい」「いいえ」（2026-10-17。頭の言葉の確かめのため）は、2026-10-18 にその確かめと一緒に外した（flowctl の REPLY_WORDS の跡）
 
 
 def ok(n: int, word: str, got: str | None) -> bool:
@@ -55,7 +48,7 @@ def tally(rows: dict) -> dict:
     def count(get) -> dict:
         t = {"決めた（正しい）": 0, "決めない（正しい）": 0, "決めない（決めてよかった）": 0, "⛔決めすぎ": 0, "⛔決めすぎの例": []}
         for n, (q, cs) in enumerate(QUESTIONS, 1):
-            for w in REPLY_WORDS:
+            for w in AMBIGUOUS_WORDS:
                 g = get(n)
                 c = g.get(w)
                 if not ok(n, w, c):
@@ -77,7 +70,7 @@ def show(rows: dict) -> None:
     for n, (q, cs) in enumerate(QUESTIONS, 1):
         got = {k: v[n - 1] for k, v in rows.items()}
         marks = " ".join(f"{w}={'/'.join(str(g.get(w) or '-') for g in got.values())}{'' if all(ok(n, w, g.get(w)) for g in got.values()) else '⛔'}"
-                         for w in REPLY_WORDS)
+                         for w in AMBIGUOUS_WORDS)
         say(f"{n}：{q}（{'・'.join(cs)}） {marks}")
 
 

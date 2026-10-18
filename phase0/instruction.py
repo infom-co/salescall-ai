@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from flowctl import ANY_LABEL, ARG_LABEL, CONFIRM_LABEL, END_LABEL, GOT, PART_LABEL, SYSTEM_LABEL, Question
+from flowctl import ANY_LABEL, ARG_LABEL, CONFIRM_LABEL, END_LABEL, GOT, PART_LABEL, SYSTEM_LABEL, Question, choices_note
 from names import quote  # noqa: F401（名前を「」でくくる唯一の場所。ここからも読める）
 
 from phrases import APOLOGY, ASK_BACK, GREETING  # noqa: F401（決まった言い方は phrases.py の1か所。試験からも、ここ経由で読める）
@@ -300,9 +300,11 @@ def build(business: Business, voice_type: str, resume=None, opening_mode: str = 
         parts.append(
             f"相手が電話に出たら、名乗りと最初の質問（「{''.join(business.opening_parts())}」）を、録音で相手に流します。あなたは言いません。"
             "録音が最後まで流れたら、あなたは相手の答えから会話を続けます。もう一度名乗ったり、同じ質問を繰り返したりしてはいけません。"
-            + replay_rule() + "録音の途中で相手が話し始めたときは、プログラムが、録音のどこまでが相手に届いたかを知らせます。")
+            + replay_rule() + "録音の途中で相手が話し始めたときは、プログラムが、録音のどこまでが相手に届いたかを知らせます。"
+            + f"最初の質問は {first.id} です。" + choices_note(first))
     elif resume is None:
-        parts.append(f"相手が電話に出たら、まず「{business.opening()}」と名乗り、続けて最初の質問 {first.id}「{first.text}」を聞きます。")
+        parts.append(f"相手が電話に出たら、まず「{business.opening()}」と名乗り、続けて最初の質問 {first.id}「{first.text}」を聞きます。"
+                     + choices_note(first))
     else:
         parts.append(position_text(business, resume))
     parts.append(system_rules(play_recordings))
@@ -363,7 +365,7 @@ def position_text(business: Business, flow) -> str:
                      + flow._confirm_how(flow.awaiting_confirm))
     elif flow.current:
         q = business.questions[[x.id for x in business.questions].index(flow.current)]
-        lines.append(f"次に聞くのは {q.id}「{q.text}」です。相手が話したら、それに答えてから、この質問を聞きます。")
+        lines.append(f"次に聞くのは {q.id}「{q.text}」です。相手が話したら、それに答えてから、この質問を聞きます。" + choices_note(q))
     return "\n".join(lines)
 
 
