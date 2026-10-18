@@ -281,7 +281,7 @@ class ScopesDecidedByUser(unittest.TestCase):
     TENANT = ("gate.cross_client_interval", "stop.ai.stop_after_failures", "stop.ai.probe_interval",
               "stop.ai.resume_after_successes", "stop.line.stop_after_failures", "stop.line.probe_interval",
               "stop.line.resume_after_successes", "stop.flapping.window", "stop.flapping.wait_multiplier",
-              "stop.flapping.max_wait")
+              "stop.flapping.max_wait", "budget.tenant_daily_yen")   # 費用の見張りは契約者ごと（2026-10-18 ユーザー）
 
     def setUp(self):
         self.w = World(); self.t = self.w.tenant(); self.c = self.w.client(self.t)
@@ -291,7 +291,8 @@ class ScopesDecidedByUser(unittest.TestCase):
             "SELECT key, finest_scope::text FROM salescall.setting_definitions")]))
         self.assertEqual({k: got[k] for k in self.CLIENT}, {k: "client" for k in self.CLIENT})
         self.assertEqual({k: got[k] for k in self.TENANT}, {k: "tenant" for k in self.TENANT})
-        self.assertEqual(got["budget.system_daily_yen"], "system")   # すべての契約者に共通のものは管理者だけ
+        self.assertEqual(got["gate.claim_lifetime"], "system")       # すべての契約者に共通のもの（設備の手順の値）は管理者だけ
+        self.assertNotIn("budget.system_daily_yen", got)             # すべての契約者の費用の合計は、誰が払う額でもないので見ない
 
     def test_client_values_are_used(self):
         for key, value in [("line.max_dials_per_day", 120), ("gate.same_contact_min_interval", 900)]:

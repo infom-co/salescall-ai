@@ -327,11 +327,15 @@ class TenantAiStopsAndChecks(unittest.TestCase):
         n = self.a.in_tenant(SYSTEM, self.s["tenant"], lambda tx: tx.one(
             "SELECT salescall.consecutive_errors(%s, 'line_failure', 'ringing', %s) AS n", (["line"], other["line"]))["n"])
         self.assertIsNone(n)                                         # ほかの契約者の回線は数えない
-        spent = self.a.in_tenant(SYSTEM, self.s["tenant"], lambda tx: tx.one("SELECT salescall.spent_today_all() AS y")["y"])
-        self.assertIsNone(spent)                                     # 全体の費用は、全体の取引だけ
-        listed = self.a.in_tenant(SYSTEM, self.s["tenant"], lambda tx: tx.all(
-            "SELECT * FROM salescall.open_system_stops('budget')"))
-        self.assertEqual(listed, [])
+        spent = self.a.in_client(SYSTEM, self.s["tenant"], self.s["client"], lambda tx: tx.one(
+            "SELECT salescall.spent_today_tenant() AS y")["y"])
+        self.assertIsNone(spent)                                     # 契約者の今日の費用は、その契約者の取引だけ（0064）
+        sid = self.a.in_client(SYSTEM, other["tenant"], other["client"], lambda tx: stops.stop(
+            tx, scope="client", cause="deficit", reason="試験", evidence="試験", tenant_id=other["tenant"],
+            client_id=other["client"])["event_id"])
+        listed = lambda t: [r["event_id"] for r in self.a.in_tenant(SYSTEM, t, lambda tx: tx.all(   # noqa: E731
+            "SELECT * FROM salescall.open_system_stops('deficit')"))]
+        self.assertEqual((sid in listed(self.s["tenant"]), sid in listed(other["tenant"])), (False, True))   # ほかの契約者のは見えない
 
     def test_checks_only_from_that_contractor(self):
         sid = self.config_stop()

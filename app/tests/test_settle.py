@@ -359,14 +359,16 @@ class RecordingHolds(SettleBase):
             d.mkdir(parents=True, exist_ok=True)
             files[aid] = d / backup.recording_file_name(aid, long_ago, "call")
             files[aid].write_bytes(b"x")
-        backup.prune(self.w.a, drive)
+        for x in (s, t):                                                 # 片付けは契約者ごと（その契約者の PC）
+            backup.prune(self.w.a, drive, x["tenant"])
         self.assertEqual([f.exists() for f in files.values()], [True, True, False])   # 印の無い古い録音だけ消す
 
         self.assertEqual(self.tx(s, lambda tx: recordings.release(tx, [normal], "sample", measurement="試験の誤判定率 第1回")), 1)
         self.tx(t, lambda tx: recordings.release(tx, [checked], "verification", measurement="試験の検証の期間"))
         with self.assertRaises(Rejected):                                # 外した印は戻せない
             self.tx(t, lambda tx: tx.execute("UPDATE salescall.recording_holds SET released_at = NULL, released_for = NULL"))
-        backup.prune(self.w.a, drive)
+        for x in (s, t):                                                 # 片付けは契約者ごと（その契約者の PC）
+            backup.prune(self.w.a, drive, x["tenant"])
         self.assertEqual([f.exists() for f in files.values()], [False, False, False])  # 測り終わったら、ふつうの決まり
 
 

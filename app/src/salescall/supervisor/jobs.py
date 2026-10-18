@@ -39,7 +39,8 @@ class Context:
 class Job:
     name: str
     every: int                      # 何秒ごとか
-    scope: str                      # tenant＝この PC の契約者の仕事／system＝すべての契約者に共通の仕事（管理者の PC だけ）
+    scope: str                      # tenant＝この PC の契約者の仕事／system＝すべての契約者に共通の仕事（管理者の PC だけ）。
+                                    # 費用の見張りと控えは契約者ごと（2026-10-18 ユーザー）。共通は祝日の暦・全体の停止・データベース全体の控え
     lease: int                      # 借りる期限（秒）。仕事が終わるより長く（終われば返す）
     work: Callable[[Context], Any]
     wanted: Callable[[config.Config], bool] = lambda cfg: True   # この PC でする仕事か
@@ -110,8 +111,8 @@ def system_stop_checks(ctx: Context) -> None:
 
 
 def budget(ctx: Context) -> None:
-    """費用の見張り：全体の今日の費用の注意・赤字の警告の期限・赤字でなくなった停止を解く（12-1）。"""
-    usage.tick(ctx.access, ACTOR)
+    """費用の見張り（この PC の契約者の分）：今日の費用の注意・赤字の警告の期限・赤字でなくなった停止を解く（12-1）。"""
+    usage.tick(ctx.access, ACTOR, ctx.cfg.tenant_id)
 
 
 def holidays(ctx: Context) -> None:
@@ -120,9 +121,14 @@ def holidays(ctx: Context) -> None:
 
 
 def backups(ctx: Context) -> None:
-    """控え（データベース全体・依頼者ごとの AI用・提出用を写す・古いものを消す。やるかは種類ごとに backup の1か所が決める）。"""
+    """この PC の契約者の控え（依頼者ごとの AI用・提出用を写す・古いものを消す。やるかは種類ごとに backup の1か所が決める）。"""
+    backup.run_contractor(ctx.access, ctx.cfg.tenant_id, ctx.cfg.backup_drive, ctx.cfg.environ)
+
+
+def whole_backup(ctx: Context) -> None:
+    """データベース全体の控え（管理者の PC。1日1回、戻せるかまで確かめる）。"""
     cfg = ctx.cfg
-    backup.run_configured(ctx.access, cfg.owner_dsn, cfg.restore_dsn, cfg.backup_drive, cfg.environ)
+    backup.run_whole(ctx.access, cfg.owner_dsn, cfg.restore_dsn, cfg.backup_drive, cfg.environ)
 
 
 # 仕事の表（1か所）。なぜその間隔か：
@@ -133,17 +139,19 @@ def backups(ctx: Context) -> None:
 # - rejudge：判定できない原因が直るのは、修正が入ったとき（数分の遅れは問題にならない）
 # - budget：赤字の警告の期限（1時間）を見る。数分の遅れは問題にならない
 # - holidays：取りに行くかは calendar が決める（1日1回で足りる）
-# - backups：提出用を数分ごとに写す（2026-10-17 ユーザー：Fly.io に残さない）。全体の控えは backup が1日1回にする
+# - backups：提出用を数分ごとに写す（2026-10-17 ユーザー：Fly.io に残さない）。AI用は backup が1日1回にする
+# - whole_backup：数分ごとに見て、backup が1日1回にする（失敗したら1時間あけてやり直す）
 JOBS: tuple[Job, ...] = (
     Job("recover", 60, "tenant", 300, recover_expired),
     Job("settle", 15, "tenant", 600, settle_ready),
     Job("verify", 15, "tenant", 600, verify_pending, wanted=lambda cfg: cfg.verifier is not None),
     Job("stop_checks", 30, "tenant", 600, stop_checks, wanted=lambda cfg: cfg.prober is not None),
     Job("rejudge", 600, "tenant", 1800, rejudge_held),
-    Job("budget", 60, "system", 600, budget),
+    Job("budget", 60, "tenant", 600, budget),
     Job("system_stop_checks", 30, "system", 600, system_stop_checks, wanted=lambda cfg: cfg.prober is not None),
     Job("holidays", 3600, "system", 600, holidays),
-    Job("backups", 300, "system", 4 * 3600, backups, wanted=lambda cfg: cfg.backups),
+    Job("backups", 300, "tenant", 4 * 3600, backups, wanted=lambda cfg: cfg.backup_drive is not None),
+    Job("whole_backup", 300, "system", 4 * 3600, whole_backup, wanted=lambda cfg: cfg.whole_backup),
 )
 
 

@@ -46,7 +46,8 @@ class UnknownKind(Exception):
 def emit(tx: Tx, kind: str, *, key: str, summary: str, refs: dict[str, Any] | None = None, admin: bool = False,
          contractor: bool = True) -> bool:
     """出来事を台帳に入れる（取引の契約者・依頼者の出来事）。admin＝管理者あての写しも入れる。contractor=False＝契約者の台帳には
-    入れない（管理者あてだけ。admin と組で使う）。新しく入れたら True、同じ鍵がもうあれば False。"""
+    入れない（管理者あてだけ。admin と組で使う）。新しく入れたら True、同じ出来事がもうあれば False。同じ出来事かは、鍵と契約者で
+    決まる（管理者あての写しは、鍵と出どころの契約者。データベースの一意の約束の1か所＝0064。鍵に契約者を入れなくてよい）。"""
     if kind not in KINDS:
         raise UnknownKind(kind)
     if not (admin or contractor):
@@ -59,6 +60,6 @@ def emit(tx: Tx, kind: str, *, key: str, summary: str, refs: dict[str, Any] | No
     row = tx.one(
         "INSERT INTO salescall.notification_events (tenant_id, client_id, kind, event_key, summary, refs)"
         " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s)"
-        " ON CONFLICT (event_key) DO NOTHING RETURNING event_id",
+        " ON CONFLICT (event_key, tenant_id, origin_tenant) DO NOTHING RETURNING event_id",   # 同じ出来事かは契約者ごと（0064）
         (kind, key, summary, json.dumps(refs or {}, ensure_ascii=False, default=str)))
     return row is not None

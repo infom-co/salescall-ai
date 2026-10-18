@@ -62,7 +62,8 @@ class RetryExhausted(Exception):
 
 
 # データベースが「約束に反する」として拒んだもの。⇒ Rejected にする
-_REJECTIONS = (errors.IntegrityError, errors.InsufficientPrivilege, errors.RaiseException)
+_REJECTIONS = (errors.IntegrityError, errors.InsufficientPrivilege, errors.RaiseException,
+               errors.ReadOnlySqlTransaction)   # 書かない取引で書こうとした
 # ほかの取引とぶつかったもの。⇒ 取引を最初からやり直す
 _CONFLICTS = (errors.SerializationFailure, errors.DeadlockDetected)
 
@@ -124,11 +125,13 @@ class Access:
         self._conninfo = conninfo
         self._max_attempts = max_attempts
 
-    def in_client(self, actor: Actor, tenant_id: UUID, client_id: UUID, work: Callable[[Tx], T]) -> T:
-        """1つの依頼者のデータを読み書きする取引。依頼者のデータは、すべてこれで扱う（Q14）。"""
+    def in_client(self, actor: Actor, tenant_id: UUID, client_id: UUID, work: Callable[[Tx], T], *,
+                  read_only: bool = False) -> T:
+        """1つの依頼者のデータを読み書きする取引。依頼者のデータは、すべてこれで扱う（Q14）。
+        read_only＝書かない取引（ある時点の見え方を固定して読むだけ。長く読んでも、ほかの取引をやり直させない。控えの書き出しが使う）。"""
         if tenant_id is None or client_id is None:
             raise ValueError("契約者IDと依頼者IDは必ず要ります")
-        return self._run(actor, tenant_id, client_id, work)
+        return self._run(actor, tenant_id, client_id, work, read_only=read_only)
 
     def in_tenant(self, actor: Actor, tenant_id: UUID, work: Callable[[Tx], T]) -> T:
         """契約者のデータ（依頼者の一覧・回線・停止）を扱う取引。依頼者のデータの表は、どの行も見えない。"""
@@ -141,11 +144,13 @@ class Access:
         （発信禁止の共通の台帳は、2026-10-16 から契約者ごと＝契約者の取引で扱う。0032）"""
         return self._run(actor, None, None, work)
 
-    def _run(self, actor: Actor, tenant_id: UUID | None, client_id: UUID | None, work: Callable[[Tx], T]) -> T:
+    def _run(self, actor: Actor, tenant_id: UUID | None, client_id: UUID | None, work: Callable[[Tx], T], *,
+             read_only: bool = False) -> T:
         for attempt in range(self._max_attempts):
             try:
                 with psycopg.connect(self._conninfo, row_factory=dict_row) as conn:
-                    conn.isolation_level = IsolationLevel.SERIALIZABLE
+                    conn.isolation_level = IsolationLevel.REPEATABLE_READ if read_only else IsolationLevel.SERIALIZABLE
+                    conn.read_only = read_only
                     with conn.transaction():
                         conn.execute(
                             "SELECT set_config('salescall.tenant_id', %s, true), set_config('salescall.client_id', %s, true),"

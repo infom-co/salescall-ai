@@ -7,10 +7,15 @@ Intent.md 14-1：「毎日自動で取り、Fly.io とは別の場所にも置�
 - 置く：Fly.io とは別の場所を必ず含む置き場（`Destination`）に置く。**サブスク契約までは、PC に接続したハードディスク**
   （`AttachedDrive`。2026-10-17 ユーザー：「クラウドだけでなく、暫定的にPCに接続のハードディスクに保存してください。サブスク契約まで」）。
   クラウド（Fly.io）の側は、データベースの置き場を Fly.io が毎日自動で写す（ボリュームのスナップショット。残す日数は Fly.io の設定）。
-  ⇒ この処理は PC で動く（見守り役と同じ PC。データベースへは表の持ち主の接続で読む）。
+  ⇒ この処理は PC で動く（見守り役。**控えは契約者ごと**＝2026-10-18 ユーザー：「費用の見張りと控えは、契約者ごとですよ」）：
+  - 契約者の控え（`run_contractor`）：その契約者の PC が、その契約者の依頼者ごとの AI用・提出用を、その PC のハードディスクに置く。
+    読むのは、その契約者の取引から見える行だけ（表の持ち主の接続を契約者の PC に置かない）。知らせは、その契約者へ。
+  - データベース全体の控え（`run_whole`・`take`）：すべての契約者のデータが入るので、管理者の PC だけ（表の持ち主の接続で読む）。
+    データベースを契約者ごとに分けたら（Intent.md 1-4）、その契約者のデータベースの控えとして、その契約者の PC で取る。
 - 戻せるかを確かめる：置いた控えのうち、Fly.io とは別の場所のものを読み戻し、指紋を比べ、復号して、確かめ用の空のデータベースに
   pg_restore で戻し、表ごとの行の数が取ったときと同じかを比べる。
-- 記録（backup_runs）：うまくいっても、いかなくても1回ずつ残す。いかなければ、止めずに CL-2 へ修正依頼を出し、管理者に知らせる
+- 記録（backup_runs）：うまくいっても、いかなくても1回ずつ残す（契約者の控えは、その契約者の記録）。いかなければ、止めずに CL-2 へ
+  修正依頼を出し、管理者（契約者の控えなら、その契約者にも）に知らせる
   （2026-10-17 ユーザー：「止めずに CL1 か CL2 に修正依頼を出さないといけないだろ。人はそのプロセスをチェックもしくは承認するだけ」）。
 - 毎日1回（`due`）：今日（日本時間）の、戻せることまで確かめた控えが無ければ取る。呼ぶのは見守り役（常駐の処理）。
 - 記録・知らせ・修正依頼には、お客様の情報・鍵・接続文字列を入れない（行の数と指紋と、エラーの種類だけ）。
@@ -158,7 +163,7 @@ def load_key(environ: dict[str, str] | None = None) -> bytes:
 
 
 def key_matches(text: str, environ: dict[str, str] | None = None) -> bool:
-    """管理者が貼った Proton Pass の文字と、PC に入っている文字が、同じ鍵になるか（PC の文字が1文字でも違うと、確かめは通るのに
+    """PC の持ち主（契約者・管理者）が貼った Proton Pass の文字と、PC に入っている文字が、同じ鍵になるか（PC の文字が1文字でも違うと、確かめは通るのに
     Proton Pass の文字では控えを戻せない。見守り役の check-key が呼ぶ。どちらの値も出さない）。"""
     return key_from_text(text) == load_key(environ)
 
@@ -273,47 +278,62 @@ def _verify(blob: bytes, file_name: str, offsite: Destination, restore_conninfo:
 
 # 控えの種類（記録の kind）と、知らせ・修正依頼に書く名前（1か所）
 PARTS = {"system": "データベース全体の控え", "client_ai": "依頼者ごとの AI用の控え", "submission": "提出用の控え",
-         "prune": "古い控えの片付け", "drive": "控え用のハードディスクの確かめ"}
+         "prune": "古い控えの片付け", "drive": "控え用のハードディスクの確かめ", "key": "控えの鍵の確かめ"}
 _DAILY = ("system", "client_ai", "prune")   # 1日1回でよい種類（今日うまくいったら、もうしない）
-RETRY_AFTER = timedelta(hours=1)            # 失敗したら、同じ種類（・同じ依頼者）は1時間あけてやり直す
+RETRY_AFTER = timedelta(hours=1)            # 失敗したら、同じ種類（・同じ契約者・同じ依頼者）は1時間あけてやり直す
 DRIVE_MISSING = "控え用のハードディスクがつながっていません"
+
+
+def _in(app: Access, tenant_id: UUID | None, client_id: UUID | None, work: Any) -> Any:
+    """その記録の範囲の取引（データベース全体＝全体の取引・契約者の控え＝その契約者の取引・依頼者の控え＝その依頼者の取引。0064）。"""
+    if client_id is not None:
+        return app.in_client(SYSTEM, tenant_id, client_id, work)
+    if tenant_id is not None:
+        return app.in_tenant(SYSTEM, tenant_id, work)
+    return app.in_system(SYSTEM, work)
 
 
 def _record(app: Access, started: datetime, file_name: str | None, blob: bytes | None, counts: dict[str, int] | None,
             placed: list[str], error: str | None, *, person: str | None, part: str = "system",
-            client_id: UUID | None = None) -> None:
-    """1回ずつ記録する（やり直しは `_may_try` が1時間あけるので、失敗の行は種類・依頼者ごとに1日24行まで）。失敗は、直すのが管理者の
-    作業なら（person＝ハードディスクをつなぐ・鍵を入れる）管理者にそれを知らせ、ほかは種類ごとに CL-2 へ修正依頼（同じ不具合は、直したと
-    報告するまで1つ）。"""
+            tenant_id: UUID | None = None, client_id: UUID | None = None) -> None:
+    """1回ずつ記録する（やり直しは `_may_try` が1時間あけるので、失敗の行は種類・契約者・依頼者ごとに1日24行まで）。
+    失敗の知らせのあて先（決めるのはここだけ）：
+    - 直すのが PC の前の作業（person＝ハードディスクをつなぐ・鍵を入れる）なら、その PC の持ち主へそれを知らせる（契約者の控え＝
+      その契約者・データベース全体の控え＝管理者）。
+    - ほかは種類ごとに CL-2 へ修正依頼（同じ不具合は、直したと報告するまで1つ）を出し、管理者へ知らせる（契約者の控えなら、
+      その契約者にも。プログラムの誤りは直せるのが管理者だけ＝Intent.md 1-4）。"""
     def work(tx: Tx) -> None:
         tx.execute("INSERT INTO salescall.backup_runs (started_at, file_name, sha256, size_bytes, table_counts, destinations,"
-                   " restore_ok, error, kind, client_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                   " restore_ok, error, kind, tenant_id, client_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
                    (started, file_name, None if blob is None else hashlib.sha256(blob).hexdigest(),
                     None if blob is None else len(blob), None if counts is None else json.dumps(counts, sort_keys=True), placed,
-                    error is None, error, part, client_id))
+                    error is None, error, part, tenant_id, client_id))
         if error is not None:
             day = tx.one("SELECT salescall.jst(now())::date AS d")["d"]
-            if person is not None:   # 管理者の作業（プログラムの直しではない）
+            if person is not None:   # PC の前の作業（プログラムの直しではない）
                 summary = person
             else:
                 fix_requests.request(tx, "CL-2", "backup_failed", key=f"backup_failed:{part}",
                                      summary=f"{PARTS[part]}：{error}", refs={"client_id": client_id})
                 summary = f"{PARTS[part]}が取れませんでした（CL-2 に修正依頼を出しました）。"
+            mine = tenant_id is not None
             notify.emit(tx, "backup_failed", key=f"backup_failed:{day}:{'person:' + person if person else part}", summary=summary,
-                        refs={"error": error, "client_id": client_id}, admin=True, contractor=False)
-    app.in_system(SYSTEM, work)
+                        refs={"error": error, "client_id": client_id},
+                        admin=not mine or person is None, contractor=mine)
+    _in(app, tenant_id, client_id, work)
 
 
-def _may_try(app: Access, part: str, client_id: UUID | None = None) -> bool:
-    """その種類（・その依頼者）を、いまやってよいか（**判断はこの1か所**）：1日1回でよい種類は今日うまくいっていれば、しない。
-    失敗したあとは1時間あける（見守り役が数分ごとに呼んでも、重い書き出しを繰り返さない・控えを重ねて取らない）。"""
-    return app.in_system(SYSTEM, lambda tx: tx.one(
-        "SELECT NOT (%s AND EXISTS (SELECT 1 FROM salescall.backup_runs WHERE restore_ok AND kind = %s"
-        "                  AND client_id IS NOT DISTINCT FROM %s"
+def _may_try(app: Access, part: str, tenant_id: UUID | None = None, client_id: UUID | None = None) -> bool:
+    """その種類（・その契約者・その依頼者）を、いまやってよいか（**判断はこの1か所**）：1日1回でよい種類は今日うまくいっていれば、
+    しない。失敗したあとは1時間あける（見守り役が数分ごとに呼んでも、重い書き出しを繰り返さない・控えを重ねて取らない）。"""
+    return _in(app, tenant_id, None, lambda tx: tx.one(
+        "SELECT NOT (%(daily)s AND EXISTS (SELECT 1 FROM salescall.backup_runs WHERE restore_ok AND kind = %(part)s"
+        "                  AND tenant_id IS NOT DISTINCT FROM %(t)s AND client_id IS NOT DISTINCT FROM %(c)s"
         "                  AND salescall.jst(started_at)::date = salescall.jst(now())::date))"
-        "   AND NOT EXISTS (SELECT 1 FROM salescall.backup_runs WHERE NOT restore_ok AND kind = %s"
-        "                  AND client_id IS NOT DISTINCT FROM %s AND started_at > now() - %s) AS ok",
-        (part in _DAILY, part, client_id, part, client_id, RETRY_AFTER)))["ok"]
+        "   AND NOT EXISTS (SELECT 1 FROM salescall.backup_runs WHERE NOT restore_ok AND kind = %(part)s"
+        "                  AND tenant_id IS NOT DISTINCT FROM %(t)s AND client_id IS NOT DISTINCT FROM %(c)s"
+        "                  AND started_at > now() - %(after)s) AS ok",
+        {"daily": part in _DAILY, "part": part, "t": tenant_id, "c": client_id, "after": RETRY_AFTER}))["ok"]
 
 
 def due(app: Access) -> bool:
@@ -323,20 +343,31 @@ def due(app: Access) -> bool:
         "                   AND salescall.jst(started_at)::date = salescall.jst(now())::date) AS due"))["due"]
 
 
-def _drive_ready(app: Access, drive: "Drive") -> bool:
-    """ハードディスクがつながっているか。外れていれば、何も置かずに管理者へ「つないでください」（1時間に1回まで記録）。"""
+def _drive_ready(app: Access, drive: "Drive", tenant_id: UUID | None) -> bool:
+    """ハードディスクがつながっているか。外れていれば、何も置かずに PC の持ち主へ「つないでください」（1時間に1回まで記録）。"""
     if drive.attached():
         return True
-    if _may_try(app, "drive"):
-        _record(app, datetime.now().astimezone(), None, None, None, [], DRIVE_MISSING, person=DriveMissing.ask, part="drive")
+    if _may_try(app, "drive", tenant_id):
+        _record(app, datetime.now().astimezone(), None, None, None, [], DRIVE_MISSING, person=DriveMissing.ask, part="drive",
+                tenant_id=tenant_id)
     return False
 
 
+def _key(app: Access, environ: dict[str, str], tenant_id: UUID | None) -> bytes | None:
+    """PC の鍵を読む。無ければ PC の持ち主へ「鍵を入れてください」（1時間に1回まで記録）。"""
+    try:
+        return load_key(environ)
+    except KeyMissing as e:
+        if _may_try(app, "key", tenant_id):
+            _record(app, datetime.now().astimezone(), None, None, None, [], str(e), person=e.ask, part="key", tenant_id=tenant_id)
+        return None
+
+
 def latest(app: Access) -> dict[str, Any] | None:
-    """いちばん新しい記録（画面・見守り役が、控えが取れているかを見る）。"""
+    """いちばん新しい記録（管理者の画面が、控えが取れているかを見る）。"""
     return app.in_system(SYSTEM, lambda tx: tx.one(
-        "SELECT started_at, kind, client_id, file_name, size_bytes, destinations, restore_ok, error FROM salescall.backup_runs"
-        " ORDER BY run_id DESC LIMIT 1"))
+        "SELECT started_at, kind, tenant_id, client_id, file_name, size_bytes, destinations, restore_ok, error"
+        " FROM salescall.backup_runs ORDER BY run_id DESC LIMIT 1"))
 
 
 # ═════════ 依頼者ごとの控え（2026-10-17 ユーザー決定。表の作り 0054） ═════════
@@ -344,6 +375,7 @@ def latest(app: Access) -> dict[str, Any] | None:
 # <ハードディスク>\salescall-backup\system\AI。ユーザー：「E:\salescall-backup\client1\AI」「…\client1\submission」。
 BASE = "salescall-backup"
 AI, SUBMISSION, RECORDING = "AI", "submission", "recording"
+WHOLE = "system"                                                    # データベース全体の控えのフォルダ（依頼者のフォルダには使えない名前）
 _DATED = re.compile(r"^salescall-(\d{8})-(\d{6})[.-].*\.enc$")      # 控えのファイルの名前（日時つき。消す決まりはこの名前だけを見る）
 _UNSAFE = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
 # 会社の種類の言葉（フォルダの名前には入れない。2026-10-17 ユーザー：「架空商事-本社」だけでいい）。文字の形をそろえた（NFKC）あとの形で書く
@@ -352,7 +384,7 @@ _COMPANY_KINDS = re.compile(
     r"|(医療|社会福祉|学校|宗教|弁護士|税理士|行政書士|司法書士|監査|社会保険労務士)法人"
     r"|\((株|有|同|資|名|社|財|医|福|学|宗)\)")
 _BREAKS = re.compile(r'(\s|[\\/:*?"<>|\x00-\x1f])+')    # 区切り（空白・Windows で使えない文字）は「-」1つにする
-_RESERVED = {"con", "prn", "aux", "nul", "system"} | {f"com{i}" for i in range(1, 10)} | {f"lpt{i}" for i in range(1, 10)}
+_RESERVED = {"con", "prn", "aux", "nul", WHOLE} | {f"com{i}" for i in range(1, 10)} | {f"lpt{i}" for i in range(1, 10)}
 
 
 @dataclass(frozen=True)
@@ -395,20 +427,22 @@ def client_folder(app: Access, tenant_id: UUID, client_id: UUID) -> str:
 
 
 def _client_tables(tx: Tx) -> list[str]:
+    """依頼者を持つ表すべて（表の作りの台帳から。読む権限の無い表があれば、読むときに誤りになる＝黙って抜けない）。"""
     return [r["t"] for r in tx.all(
-        "SELECT c.table_name AS t FROM information_schema.columns c"
-        " JOIN pg_tables p ON p.schemaname = c.table_schema AND p.tablename = c.table_name"
-        " WHERE c.table_schema = 'salescall' AND c.column_name = 'client_id' ORDER BY 1")]
+        "SELECT c.relname AS t FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace"
+        " JOIN pg_attribute a ON a.attrelid = c.oid AND a.attname = 'client_id' AND NOT a.attisdropped"
+        " WHERE n.nspname = 'salescall' AND c.relkind IN ('r', 'p') ORDER BY 1")]
 
 
 def _client_export(tx: Tx, client_id: UUID) -> tuple[bytes, dict[str, int]]:
-    """その依頼者の行（依頼者を持つ表すべて）を、1行ずつの形で書き出す（AI用の控え。ほかの依頼者の行は入れない）。"""
+    """その依頼者の行（依頼者を持つ表すべて）を、1行ずつの形で書き出す（AI用の控え。tx＝その依頼者の書かない取引＝1つの時点。ほかの依頼者・
+    ほかの契約者の行は、データベースが見せない。表の持ち主の接続は使わない＝契約者の PC に置かない）。"""
     lines, counts = [], {}
     for t in _client_tables(tx):
         rows = tx.all(f'SELECT row_to_json(x)::text AS r FROM salescall."{t}" x WHERE x.client_id = %s ORDER BY 1', (client_id,))
         counts[t] = len(rows)
         lines += ['{"table": ' + json.dumps(t) + ', "row": ' + r["r"] + "}" for r in rows]
-    schema = tx.one("SELECT max(name) AS n FROM public.salescall_migrations")["n"]
+    schema = tx.one("SELECT salescall.schema_version() AS n")["n"]
     header = json.dumps({"format": "salescall-client-ai-1", "client_id": str(client_id), "schema": schema, "counts": counts},
                         sort_keys=True)
     return ("\n".join([header, *lines]) + "\n").encode(), counts
@@ -425,14 +459,14 @@ def read_client_export(data: bytes) -> tuple[dict[str, Any], dict[str, list[dict
     return head, tables
 
 
-def _client_ai(app: Access, source: Tx, drive: Drive, tenant_id: UUID, client_id: UUID, *, key: bytes) -> Result:
-    """その依頼者の AI用の控え（source＝表の持ち主の、時点を固定した取引。全部の依頼者を同じ時点で書き出す）。"""
+def _client_ai(app: Access, drive: Drive, tenant_id: UUID, client_id: UUID, *, key: bytes) -> Result:
+    """その依頼者の AI用の控え（その依頼者の取引で、1つの時点の行を書き出す）。"""
     started = datetime.now().astimezone()
     file_name = f"salescall-{started:%Y%m%d-%H%M%S}.ai.enc"
     blob, counts, placed = None, None, []
     try:
         dest = drive.folder(client_folder(app, tenant_id, client_id), AI)
-        data, counts = _client_export(source, client_id)
+        data, counts = app.in_client(SYSTEM, tenant_id, client_id, lambda tx: _client_export(tx, client_id), read_only=True)
         blob = encrypt(data, key, file_name)
         dest.put(file_name, blob)
         placed.append(dest.name)
@@ -445,25 +479,31 @@ def _client_ai(app: Access, source: Tx, drive: Drive, tenant_id: UUID, client_id
     except Exception as e:  # noqa: BLE001 ここで受けて記録する（止めない）
         error = _why(e)
         _record(app, started, file_name if blob else None, blob, counts, placed, error, person=_ask(e),
-                part="client_ai", client_id=client_id)
+                part="client_ai", tenant_id=tenant_id, client_id=client_id)
         return Result(False, None, error)
-    _record(app, started, file_name, blob, counts, placed, None, person=None, part="client_ai", client_id=client_id)
+    _record(app, started, file_name, blob, counts, placed, None, person=None, part="client_ai", tenant_id=tenant_id,
+            client_id=client_id)
     return Result(True, file_name, None)
 
 
 def record_submission(tx: Tx, file_name: str, data: bytes) -> int:
     """依頼者へ渡した結果のファイルを、提出用の控えのために置く（出力＝CL-3 が、渡したときに依頼者の取引で1回呼ぶ）。
-    PC の控えの処理がハードディスクへ写したら、中身は消える（Fly.io には残さない＝2026-10-17 ユーザー）。"""
+    契約者の PC の控えの処理がハードディスクへ写したら、中身は消える（Fly.io には残さない＝2026-10-17 ユーザー）。"""
     return tx.one("INSERT INTO salescall.submission_files (tenant_id, client_id, file_name, sha256, content)"
                   " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s) RETURNING submission_id",
                   (file_name, hashlib.sha256(data).hexdigest(), data))["submission_id"]
 
 
-def copy_submissions(app: Access, drive: Drive, *, key: bytes) -> list[Result]:
-    """まだ写していない提出用のファイルを、すべての依頼者について、ハードディスクへ写す。**見守り役が数分ごとに呼ぶ**（「提出用は
+def _clients(app: Access, tenant_id: UUID) -> list[UUID]:
+    return app.in_tenant(SYSTEM, tenant_id, lambda tx: [r["client_id"] for r in tx.all(
+        "SELECT client_id FROM salescall.clients ORDER BY created_at, client_id")])
+
+
+def copy_submissions(app: Access, drive: Drive, tenant_id: UUID, *, key: bytes) -> list[Result]:
+    """その契約者の依頼者の、まだ写していない提出用のファイルを、ハードディスクへ写す。**見守り役が数分ごとに呼ぶ**（「提出用は
     Fly.io には保存しない」＝2026-10-17 ユーザー。毎日1回だと最長1日 Fly.io に残るため）。ハードディスクが外れていれば写さずに残し
-    （消すと失う）、管理者に「つないでください」と知らせる。うまく写せた依頼者の分は返さない（失敗だけを返す）。"""
-    if not _drive_ready(app, drive):
+    （消すと失う）、契約者に「つないでください」と知らせる。うまく写せた依頼者の分は返さない（失敗だけを返す）。"""
+    if not _drive_ready(app, drive, tenant_id):
         return [Result(False, None, DRIVE_MISSING)]
     failed = []
     def step(client_id: UUID | None, work: Any) -> None:
@@ -471,15 +511,14 @@ def copy_submissions(app: Access, drive: Drive, *, key: bytes) -> list[Result]:
             work()
         except Exception as e:  # noqa: BLE001 記録して続ける（止めない）
             _record(app, datetime.now().astimezone(), None, None, None, [], _why(e), person=_ask(e),
-                    part="submission", client_id=client_id)
+                    part="submission", tenant_id=tenant_id, client_id=client_id)
             failed.append(Result(False, None, _why(e)))
-    waiting: list[dict[str, Any]] = []
-    if _may_try(app, "submission"):
-        step(None, lambda: waiting.extend(app.in_system(SYSTEM, lambda tx: tx.all(
-            "SELECT tenant_id, client_id FROM salescall.submissions_waiting()"))))
-    for c in waiting:
-        if _may_try(app, "submission", c["client_id"]):
-            step(c["client_id"], lambda: _copy_submissions(app, drive, c["tenant_id"], c["client_id"], key=key))
+    clients: list[UUID] = []
+    if _may_try(app, "submission", tenant_id):
+        step(None, lambda: clients.extend(_clients(app, tenant_id)))
+    for c in clients:
+        if _may_try(app, "submission", tenant_id, c):
+            step(c, lambda c=c: _copy_submissions(app, drive, tenant_id, c, key=key))
     return failed
 
 
@@ -522,24 +561,29 @@ def recording_file_name(attempt_id: UUID, started: datetime, part: str) -> str:
 _HELD_ID = re.compile(r"-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-")
 
 
-def prune(app: Access, drive: Drive, *, now: datetime | None = None) -> int:
-    """残す日数を過ぎた控えを消す（名前に日時のある控えのファイルだけ。AI用・提出用＝システムの設定、録音＝契約者ごとの設定）。
+def prune(app: Access, drive: Drive, tenant_id: UUID | None, *, now: datetime | None = None) -> int:
+    """残す日数を過ぎた控えを消す（名前に日時のある控えのファイルだけ）。tenant_id＝その契約者の依頼者のフォルダ（AI用・提出用＝
+    システムの設定、録音＝その契約者の設定）。None＝データベース全体のフォルダ（管理者の PC）。ほかの契約者のフォルダには触れない。
+    戻せることまで確かめた控えのうち、フォルダごとに一番新しいものは消さない（控えの失敗が長く続いても、1つは残る）。
     録音は、測り終わるまで消さない印（`recordings.hold`）の付いた通話のものを消さない（2026-10-17 ユーザー 案A）。"""
     now = datetime.now().astimezone() if now is None else now
-    days = app.in_system(SYSTEM, lambda tx: {AI: int(settings.system_value(tx, "backup.ai.keep_days_drive")),
-                                              SUBMISSION: int(settings.system_value(tx, "backup.submission.keep_days_drive"))})
-    # 戻せることまで確かめた控えのうち、フォルダごとに一番新しいものは消さない（控えの失敗が長く続いても、1つは残る）
-    verified = set(app.in_system(SYSTEM, lambda tx: [r["f"] for r in tx.all(
-        "SELECT file_name AS f FROM salescall.backup_runs WHERE restore_ok AND kind IN ('system', 'client_ai')")]))
+    def look(tx: Tx) -> tuple[dict[str, dict[str, int]], set[str]]:
+        days = {AI: int(settings.system_value(tx, "backup.ai.keep_days_drive")),
+                SUBMISSION: int(settings.system_value(tx, "backup.submission.keep_days_drive"))}
+        if tenant_id is None:
+            folders = {WHOLE: {AI: days[AI]}}
+        else:
+            days[RECORDING] = int(settings.resolve(tx, "recording.keep_days_drive", tenant_id=tenant_id, client_id=None,
+                                                   business_id=None))
+            folders = {r["f"]: days for r in tx.all("SELECT folder_name AS f FROM salescall.client_backup_folders")}
+        verified = {r["f"] for r in tx.all("SELECT file_name AS f FROM salescall.backup_runs WHERE restore_ok AND kind = %s"
+                                           " AND tenant_id IS NOT DISTINCT FROM %s",
+                                           ("system" if tenant_id is None else "client_ai", tenant_id))}
+        return folders, verified
+    folders, verified = _in(app, tenant_id, None, look)
     removed = 0
-    base = drive.root / BASE
-    for folder in (base.iterdir() if base.is_dir() else ()):
-        keep = dict(days)
-        if folder.name != "system":
-            who = app.in_system(SYSTEM, lambda tx: tx.one("SELECT salescall.backup_folder_owner(%s) AS t", (folder.name,))["t"])
-            if who is not None:
-                keep[RECORDING] = int(app.in_tenant(SYSTEM, who, lambda tx: settings.resolve(
-                    tx, "recording.keep_days_drive", tenant_id=who, client_id=None, business_id=None)))
+    for name, keep in folders.items():
+        folder = drive.root / BASE / name
         for kind, n in keep.items():
             old = [f for f in ((folder / kind).iterdir() if (folder / kind).is_dir() else ())
                    if (m := _DATED.match(f.name))
@@ -548,9 +592,9 @@ def prune(app: Access, drive: Drive, *, now: datetime | None = None) -> int:
             if kind == AI and old:   # 消すものがあるときだけ（old があればフォルダはある）
                 newest = max((f.name for f in (folder / kind).iterdir() if f.name in verified), default=None)
                 old = [f for f in old if f.name != newest]
-            if kind == RECORDING:
+            if kind == RECORDING and old:
                 ids = {f: m.group(1) for f in old if (m := _HELD_ID.search(f.name))}
-                held = set(app.in_system(SYSTEM, lambda tx: [str(r["h"]) for r in tx.all(
+                held = set(_in(app, tenant_id, None, lambda tx: [str(r["h"]) for r in tx.all(
                     "SELECT salescall.recordings_held(%s::uuid[]) AS h", (sorted(set(ids.values())),))]))
                 old = [f for f in old if ids.get(f) not in held]
             for f in old:
@@ -559,41 +603,57 @@ def prune(app: Access, drive: Drive, *, now: datetime | None = None) -> int:
     return removed
 
 
-def run_configured(app: Access, source_conninfo: str, restore_conninfo: str, drive_root: Path,
-                   environ: dict[str, str]) -> list[Result]:
-    """見守り役が呼ぶ入口：PC の鍵を読み（無ければ管理者に「鍵を入れてください」）、`run_daily` を呼ぶ。"""
+def _prune_step(app: Access, drive: Drive, tenant_id: UUID | None) -> list[Result]:
+    if not _may_try(app, "prune", tenant_id):
+        return []
+    started = datetime.now().astimezone()
     try:
-        key = load_key(environ)
-    except KeyMissing as e:
-        if _may_try(app, "system"):
-            _record(app, datetime.now().astimezone(), None, None, None, [], str(e), person=e.ask)
-        return [Result(False, None, str(e))]
-    return run_daily(app, source_conninfo, restore_conninfo, Drive(drive_root), key=key)
+        prune(app, drive, tenant_id)
+    except Exception as e:  # noqa: BLE001 片付けが落ちても（ファイルが使用中など）、記録して続ける
+        _record(app, started, None, None, None, [], _why(e), person=_ask(e), part="prune", tenant_id=tenant_id)
+        return [Result(False, None, _why(e))]
+    _record(app, started, None, None, None, [], None, person=None, part="prune", tenant_id=tenant_id)
+    return []
 
 
-def run_daily(app: Access, source_conninfo: str, restore_conninfo: str, drive: Drive, *, key: bytes) -> list[Result]:
-    """控えの処理（PC で見守り役が数分ごとに呼んでよい。やるかは種類ごとに `_may_try`）：データベース全体（1日1回。戻せるかを
-    確かめる）→ 依頼者ごとの AI用（1日1回）→ 提出用を写す（数分ごと）→ 古いものを消す（1日1回）。ハードディスクがつながっていなければ、何も置かずに管理者へ「つないでください」と知らせる。"""
-    if not _drive_ready(app, drive):
+# ═════════ 見守り役が呼ぶ入口（2つ。2026-10-18 ユーザー：「費用の見張りと控えは、契約者ごとですよ」） ═════════
+def run_contractor(app: Access, tenant_id: UUID, drive_root: Path, environ: dict[str, str]) -> list[Result]:
+    """契約者の控え（その契約者の PC の見守り役が数分ごとに呼んでよい。やるかは種類ごとに `_may_try`）：その契約者の依頼者ごとの
+    AI用（1日1回）→ 提出用を写す（数分ごと）→ その契約者のフォルダの古いものを消す（1日1回）。読むのは、その契約者の取引から見える
+    その契約者の行だけ（表の持ち主の接続は使わない）。置くのは、その PC のハードディスク・その PC の鍵（契約者が自分の Proton Pass に
+    置いた文字）。ハードディスク・鍵が無ければ、何も置かずに契約者へ知らせる。"""
+    key = _key(app, environ, tenant_id)
+    if key is None:
+        return [Result(False, None, PARTS["key"])]
+    drive = Drive(drive_root)
+    if not _drive_ready(app, drive, tenant_id):
+        return [Result(False, None, DRIVE_MISSING)]
+    results = []
+    try:
+        clients = _clients(app, tenant_id) if _may_try(app, "client_ai", tenant_id) else []
+    except Exception as e:  # noqa: BLE001 依頼者の一覧が読めない：記録して続ける（止めない）
+        _record(app, datetime.now().astimezone(), None, None, None, [], _why(e), person=None, part="client_ai", tenant_id=tenant_id)
+        results.append(Result(False, None, _why(e)))
+        clients = []
+    for c in clients:
+        if _may_try(app, "client_ai", tenant_id, c):
+            results.append(_client_ai(app, drive, tenant_id, c, key=key))
+    results += copy_submissions(app, drive, tenant_id, key=key)
+    return results + _prune_step(app, drive, tenant_id)
+
+
+def run_whole(app: Access, source_conninfo: str, restore_conninfo: str, drive_root: Path,
+              environ: dict[str, str]) -> list[Result]:
+    """データベース全体の控え（管理者の PC の見守り役が呼ぶ。1日1回、戻せるかまで確かめる）と、そのフォルダの古いものを消す。
+    データベース全体には、すべての契約者のデータが入るので、管理者のハードディスクにだけ置く（契約者の PC には置かない。データベースを
+    契約者ごとに分けたら、その契約者のデータベースの控えとして、その契約者の PC で取る＝Intent.md 1-4）。"""
+    key = _key(app, environ, None)
+    if key is None:
+        return [Result(False, None, PARTS["key"])]
+    drive = Drive(drive_root)
+    if not _drive_ready(app, drive, None):
         return [Result(False, None, DRIVE_MISSING)]
     results = []
     if _may_try(app, "system"):
-        results.append(take(app, source_conninfo, restore_conninfo, [drive.folder("system", AI)], key=key))
-    try:
-        with snapshot(source_conninfo) as (_, source):
-            for c in source.all("SELECT tenant_id, client_id FROM salescall.clients ORDER BY created_at"):
-                if _may_try(app, "client_ai", c["client_id"]):
-                    results.append(_client_ai(app, source, drive, c["tenant_id"], c["client_id"], key=key))
-    except Exception as e:  # noqa: BLE001 依頼者の一覧が読めない：記録して続ける（止めない）
-        _record(app, datetime.now().astimezone(), None, None, None, [], _why(e), person=None, part="client_ai")
-        results.append(Result(False, None, _why(e)))
-    results += copy_submissions(app, drive, key=key)
-    if _may_try(app, "prune"):
-        started = datetime.now().astimezone()
-        try:
-            prune(app, drive)
-            _record(app, started, None, None, None, [], None, person=None, part="prune")
-        except Exception as e:  # noqa: BLE001 片付けが落ちても（ファイルが使用中など）、記録して続ける
-            _record(app, started, None, None, None, [], _why(e), person=_ask(e), part="prune")
-            results.append(Result(False, None, _why(e)))
-    return results
+        results.append(take(app, source_conninfo, restore_conninfo, [drive.folder(WHOLE, AI)], key=key))
+    return results + _prune_step(app, drive, None)

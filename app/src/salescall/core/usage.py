@@ -9,8 +9,10 @@
   （1日1回。2026-10-16 ユーザー：「止めるというのは、このまま進めると、お客様に対して、影響が出てしまうということだけ」）。
 - 回線：Rakuten Link は明細を返さないので、締めの処理が「話していた秒数 × 単価」の推定を書く（`record_line_estimate`）。
   会話AI・別の耳：返ってきた量を実測として、返らなければ推定として、会話の処理・検証（CL-1）が `record` を呼ぶ。
-- 予算（1日の上限。日本時間の日）：依頼者の上限を超えたら、その依頼者の契約者へ注意を知らせる（1日1回）。全体の上限は、見守りが
-  呼ぶ `tick` が管理者へ注意を知らせる。**どちらも止めない**（2026-10-16 ユーザー：「注意喚起のみ」。お客様には影響しない）。
+- 予算（1日の上限。日本時間の日）：依頼者の上限を超えたら、その依頼者の契約者へ注意を知らせる（1日1回）。契約者の上限（その契約者の
+  すべての依頼者の合計）は、見守りが呼ぶ `tick` がその契約者へ注意を知らせる。**どちらも止めない**（2026-10-16 ユーザー：「注意喚起のみ」。
+  お客様には影響しない）。**費用の見張りは契約者ごと**（2026-10-18 ユーザー：「費用の見張りと控えは、契約者ごとですよ」＝費用は契約者が
+  払う。`tick` は契約者の PC の見守り役が、その契約者の分だけをする。すべての契約者の合計は、誰が払う額でもないので見ない）。
 - **報酬に対する費用の割合**（2026-10-15 ユーザー決定。今月の数は core/reward.py の `month`）：記録のたびに、その依頼者の今月を見る。
   どちらの判断も、成果・話せた本数のぶれの余裕を足した報酬（`upper`。余裕は依頼者ごとの報酬の決まりの「赤字の知らせの早さ」）で行う
   ＝判断し始める本数を決め打ちにせず、報酬と費用から逆算される。
@@ -205,33 +207,34 @@ def record_line_estimate(tx: Tx, attempt_id: UUID) -> dict[str, Any] | None:
                   quantity=Decimal(row["seconds"]).quantize(Decimal("0.001")), unit="seconds", attempt_id=attempt_id)
 
 
-def tick(access: Access, actor: Actor) -> dict[str, Any]:
-    """見守りが決まった間隔で呼ぶ：全体の今日の費用が上限を超えたら、管理者へ注意を知らせる（止めない）。赤字の警告の期限を見て、
-    確認されていなければ止める（利用量の記録が無いあいだも期限が来たら止めるため）。赤字の停止は、今月の数を見直して、
-    赤字でなくなっていたら解く。"""
-    def system(tx: Tx) -> None:
-        limit = Decimal(settings.system_value(tx, "budget.system_daily_yen"))
-        spent = tx.one("SELECT salescall.spent_today_all() AS y")["y"]
+def tick(access: Access, actor: Actor, tenant_id: UUID) -> dict[str, Any]:
+    """見守り役（その契約者の PC）が決まった間隔で呼ぶ、その契約者の費用の見張り：今日の費用が契約者の上限を超えたら、その契約者へ
+    注意を知らせる（止めない）。赤字の警告の期限を見て、確認されていなければ止める（利用量の記録が無いあいだも期限が来たら止めるため）。
+    赤字の停止は、今月の数を見直して、赤字でなくなっていたら解く。読むのは、その契約者の取引から見えるその契約者の分だけ。"""
+    def tenant(tx: Tx) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        limit = Decimal(settings.resolve(tx, "budget.tenant_daily_yen", tenant_id=tenant_id, client_id=None, business_id=None))
+        spent = tx.one("SELECT salescall.spent_today_tenant() AS y")["y"]
         if spent > limit:
             day = tx.one("SELECT salescall.jst(now())::date AS d")["d"]
-            notify.emit(tx, "budget", key=f"system_daily:{day}", admin=True, contractor=False,
-                        summary=f"全体の今日の費用が上限を超えました（{spent}円 ＞ {limit}円）。発信は止めていません",
+            notify.emit(tx, "budget", key=f"tenant_daily:{day}",
+                        summary=f"今日の費用（すべての依頼者の合計）が上限を超えました（{spent}円 ＞ {limit}円）。発信は止めていません",
                         refs={"spent": str(spent), "limit": str(limit)})
-    access.in_system(actor, system)
+        return (tx.all("SELECT * FROM salescall.open_deficit_warnings()"),
+                tx.all("SELECT * FROM salescall.open_system_stops('deficit')"))
+    warnings, deficit_stops = access.in_tenant(actor, tenant_id, tenant)
     stopped, resumed = [], []
-    for w in access.in_system(actor, lambda tx: tx.all("SELECT * FROM salescall.open_deficit_warnings()")):
-        got = access.in_client(actor, w["tenant_id"], w["client_id"],
-                               lambda tx, w=w: _deficit_step(tx, w["tenant_id"], w["client_id"]))
+    for w in warnings:
+        got = access.in_client(actor, tenant_id, w["client_id"], lambda tx, w=w: _deficit_step(tx, tenant_id, w["client_id"]))
         if got is not None:
             stopped.append(got)
-    for s in access.in_system(actor, lambda tx: tx.all("SELECT * FROM salescall.open_system_stops('deficit')")):
+    for s in deficit_stops:
         def check(tx: Tx, s=s) -> int | None:
-            deficit, m = _deficit(tx, s["tenant_id"], s["client_id"])
+            deficit, m = _deficit(tx, tenant_id, s["client_id"])
             if deficit:
                 return None
             return stops.resume(tx, s["event_id"], reason=f"赤字でなくなった（今月の費用 {m['cost']:.2f}円・報酬 {m['revenue']:.2f}円）",
                                 evidence="利用量の台帳・報酬の決まり")
-        got = access.in_client(actor, s["tenant_id"], s["client_id"], check)
+        got = access.in_client(actor, tenant_id, s["client_id"], check)
         if got is not None:
             resumed.append(got)
     return {"stopped": stopped, "resumed": resumed}

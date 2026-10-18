@@ -13,11 +13,11 @@ PC の環境変数から、下の表の名前（SALESCALL_ で始まるもの）
 | SALESCALL_CALL_RUNNER | 通話を最後まで進める部品を作る関数（会話＝CL-1） | 電話をかけるとき |
 | SALESCALL_VERIFIER | 通話後の検証の部品を作る関数（CL-1） | 検証をこの PC でするとき |
 | SALESCALL_PROBER | 停止を解く確かめの部品を作る関数（CL-1・電話接続） | 確かめをこの PC でするとき |
-| SALESCALL_SYSTEM_JOBS | 1 なら、すべての契約者に共通の仕事（費用の見張り・祝日の暦・控え）もこの PC でする（管理者の PC） | 管理者の PC |
-| SALESCALL_OWNER_DSN | データベースへの接続（表の持ち主。控えを取る） | 控えを取る PC |
-| SALESCALL_RESTORE_DSN | 戻せるかを確かめる、空のデータベース（本番と別） | 控えを取る PC |
-| SALESCALL_BACKUP_DRIVE | 控え用のハードディスクの一番上（例 E:\\） | 控えを取る PC |
-| SALESCALL_BACKUP_KEY | 控えの鍵の元（Proton Pass で作った文字。読むのは backup.load_key の1か所） | 控えを取る PC |
+| SALESCALL_SYSTEM_JOBS | 1 なら、すべての契約者に共通の仕事（祝日の暦・データベース全体の控え）もこの PC でする（管理者の PC） | 管理者の PC |
+| SALESCALL_OWNER_DSN | データベースへの接続（表の持ち主。データベース全体の控えを取る） | 管理者の PC |
+| SALESCALL_RESTORE_DSN | 戻せるかを確かめる、空のデータベース（本番と別） | 管理者の PC |
+| SALESCALL_BACKUP_DRIVE | 控え用のハードディスクの一番上（例 E:\\） | いつも（契約者の控え） |
+| SALESCALL_BACKUP_KEY | 控えの鍵の元（Proton Pass で作った文字。読むのは backup.load_key の1か所） | いつも（契約者の控え） |
 """
 
 from __future__ import annotations
@@ -57,8 +57,9 @@ class Config:
         return bool(self.lines and self.line_driver and self.call_runner)
 
     @property
-    def backups(self) -> bool:
-        """この PC で控えを取るか。"""
+    def whole_backup(self) -> bool:
+        """この PC でデータベース全体の控えを取るか（管理者の PC。すべての契約者のデータが入る）。契約者の控え（依頼者ごとの AI用・
+        提出用）は、控え用のハードディスクがあれば、どの契約者の PC でも取る（2026-10-18 ユーザー：「控えは、契約者ごとですよ」）。"""
         return self.system_jobs and bool(self.owner_dsn and self.restore_dsn and self.backup_drive)
 
 

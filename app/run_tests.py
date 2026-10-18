@@ -418,6 +418,37 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      "CREATE OR REPLACE FUNCTION salescall.take_job(p_key text, p_holder text, p_seconds integer) RETURNS boolean"
      " LANGUAGE sql AS $$ SELECT true $$",
      ("tests.test_supervisor.Leases.test_jobs_are_taken_by_one_supervisor_and_only_by_the_system",)),
+    # 費用の見張りと控えは契約者ごと（0064。2026-10-18 ユーザー）
+    ("契約者の取引から、ほかの契約者の控えの記録が読める",
+     "DROP POLICY backup_scope ON salescall.backup_runs;"
+     " CREATE POLICY backup_scope ON salescall.backup_runs USING (true)"
+     " WITH CHECK (salescall.cur_actor_kind() = 'system' AND tenant_id IS NOT DISTINCT FROM salescall.cur_tenant())",
+     ("tests.test_backup.PerClient.test_a_contractor_backs_up_only_its_own_clients_and_copies_submissions",)),
+    ("データベース全体の控え（すべての契約者のデータ）の記録に、契約者を付けられる",
+     "ALTER TABLE salescall.backup_runs DROP CONSTRAINT backup_runs_whole_has_no_tenant",
+     ("tests.test_backup.PerClient.test_the_whole_database_is_backed_up_only_by_the_admin_pc",)),
+    ("契約者の今日の費用に、ほかの契約者の費用が入る",
+     "CREATE OR REPLACE FUNCTION salescall.spent_today_tenant() RETURNS numeric LANGUAGE sql STABLE SECURITY DEFINER"
+     " SET search_path = salescall, pg_temp AS $$ SELECT CASE WHEN salescall.cur_client() IS NOT NULL THEN NULL ELSE"
+     " (SELECT coalesce(sum(amount_yen), 0) FROM salescall.usage_entries"
+     "  WHERE salescall.jst(occurred_at)::date = salescall.jst(now())::date) END $$",
+     ("tests.test_usage.Budget.test_contractor_limit_counts_only_that_contractor_and_is_only_noticed_to_it",)),
+    ("知らせの「同じ出来事」を、契約者をまたいで1つにする（2人目の契約者の知らせが落ちる）",
+     "ALTER TABLE salescall.notification_events ADD CONSTRAINT notification_one_key_for_all UNIQUE (event_key)",
+     ("tests.test_backup.PerClient.test_failures_are_asked_to_fix_by_kind_and_told_to_the_admin_and_that_contractor",)),
+    ("管理者あての写しが、ほかの契約者の同じ出来事とまとまる",
+     "CREATE OR REPLACE FUNCTION salescall.notify_admin(p_kind text, p_key text, p_summary text, p_refs jsonb) RETURNS boolean"
+     " LANGUAGE plpgsql SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ DECLARE got bigint; BEGIN"
+     " INSERT INTO salescall.notification_events (tenant_id, client_id, kind, event_key, summary, refs, for_admin, origin_tenant)"
+     " VALUES (NULL, NULL, p_kind, 'admin:' || p_key, p_summary, coalesce(p_refs, '{}'::jsonb), true, NULL)"
+     " ON CONFLICT (event_key, tenant_id, origin_tenant) DO NOTHING RETURNING event_id INTO got; RETURN got IS NOT NULL; END $$",
+     ("tests.test_backup.PerClient.test_failures_are_asked_to_fix_by_kind_and_told_to_the_admin_and_that_contractor",)),
+    ("契約者の取引から、ほかの契約者の止まっている依頼者が見える",
+     "CREATE OR REPLACE FUNCTION salescall.open_system_stops(p_cause text) RETURNS TABLE (event_id bigint, scope text,"
+     " tenant_id uuid, client_id uuid, stopped_on date) LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp"
+     " AS $$ SELECT s.event_id, s.scope::text, s.tenant_id, s.client_id, salescall.jst(s.at)::date FROM salescall.open_stop_events s"
+     " WHERE s.cause::text = p_cause AND s.actor_kind = 'system' $$",
+     ("tests.test_watch.TenantAiStopsAndChecks.test_counting_needs_the_transaction_of_that_scope",)),
     ("前の発信の締めが済んでいない行を、門が通す・候補に出す",
      "CREATE OR REPLACE FUNCTION salescall.task_awaiting_decision(p_task uuid) RETURNS boolean LANGUAGE sql AS $$ SELECT false $$",
      ("tests.test_gate.Pacing.test_unsettled_attempt_blocks_the_row",)),
@@ -469,7 +500,7 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      ("tests.test_watch.SystemStopsAndChecks.test_checks_are_frozen",)),
     # 知らせの台帳（Q23）
     ("同じ出来事は1回だけ、の約束を外す",
-     "ALTER TABLE salescall.notification_events DROP CONSTRAINT notification_events_event_key_key",
+     "DROP INDEX salescall.notification_events_one",
      ("tests.test_notify.Ledger.test_same_event_only_once_and_unknown_kind_is_refused",)),
     ("知らせの台帳の見える範囲を外す", "ALTER TABLE salescall.notification_events DISABLE ROW LEVEL SECURITY",
      ("tests.test_notify.Ledger.test_who_can_see",)),

@@ -5,12 +5,12 @@ from __future__ import annotations
 import time
 from decimal import Decimal
 
-from salescall.core import approval, gate, reward, stops, usage
+from salescall.core import approval, gate, reward, settings, stops, usage
 from salescall.core.access import Rejected
 from tests.support import ADMIN, OPERATOR, SYSTEM, owner_access
 from salescall.core.call_report import Cut
 from tests.test_settle import SettleBase, rep
-from tests.test_watch import override, resume_open_system_stops
+from tests.test_watch import resume_open_system_stops
 
 
 class Ledger(SettleBase):
@@ -116,16 +116,29 @@ class Budget(Priced):
         self.assertEqual(len(self.budget_notices(s, f"client_daily:{s['client']}:%")), 1)   # 1日1回
         self.assertIsInstance(self.claim(s), gate.Claim)                 # 発信は続く
 
-    def test_system_limit_is_only_noticed_to_the_admin(self):
-        s = self.ready()
-        self.ample(s)
-        override(self, "budget.system_daily_yen", 0)
+    def test_contractor_limit_counts_only_that_contractor_and_is_only_noticed_to_it(self):
+        """契約者の1日の上限（その契約者のすべての依頼者の合計）を超えたら、その契約者へ注意を知らせるだけ（止めない）。
+        ほかの契約者の費用は数えない（2026-10-18 ユーザー：「費用の見張りと控えは、契約者ごとですよ」＝費用は契約者が払う）。"""
+        s, other = self.ready(), self.ready()
+        for x in (s, other):
+            self.ample(x)
+        self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: settings.set_value(
+            tx, "budget.tenant_daily_yen", 0, scope="tenant", tenant_id=s["tenant"], status="decided", rationale="試験",
+            review_when="試験"))
         self.priced("0.01")
-        self.tx(s, lambda tx: usage.record(tx, source="ai", service="gemini-3.8-live", tier="free", kind="measured",
-                                           quantity=100, unit="input_tokens"))
-        self.assertEqual(usage.tick(self.w.a, SYSTEM)["stopped"], [])
-        self.assertEqual(len(self.budget_notices(None, "admin:system_daily:%")), 1)
-        self.assertIsInstance(self.claim(s), gate.Claim)
+        spend = lambda x: self.tx(x, lambda tx: usage.record(   # noqa: E731
+            tx, source="ai", service="gemini-3.8-live", tier="free", kind="measured", quantity=100, unit="input_tokens"))
+        notices = lambda x: self.w.a.in_tenant(OPERATOR, x["tenant"], lambda tx: tx.all(   # noqa: E731
+            "SELECT event_key FROM salescall.notification_events WHERE kind = 'budget' AND event_key LIKE 'tenant_daily:%'"))
+        spend(other)                                                    # ほかの契約者だけが使った
+        self.assertEqual(usage.tick(self.w.a, SYSTEM, s["tenant"]), {"stopped": [], "resumed": []})
+        self.assertEqual(notices(s), [])
+        spend(s)
+        usage.tick(self.w.a, SYSTEM, s["tenant"])
+        usage.tick(self.w.a, SYSTEM, s["tenant"])
+        usage.tick(self.w.a, SYSTEM, other["tenant"])
+        self.assertEqual((len(notices(s)), notices(other)), (1, []))  # その契約者へ1日1回。ほかの契約者の上限は初めの値のまま
+        self.assertIsInstance(self.claim(s), gate.Claim)                 # 発信は続く
 
 
 class CostRatio(Priced):
@@ -271,15 +284,15 @@ class CostRatio(Priced):
         notes = self.tx(s, lambda tx: tx.all("SELECT kind FROM salescall.notification_events WHERE kind = 'deficit_warning'"))
         self.assertEqual(len(notes), 1)
         time.sleep(1.2)
-        usage.tick(self.w.a, SYSTEM)                                   # 期限が過ぎても確認されていない
+        usage.tick(self.w.a, SYSTEM, s["tenant"])                                   # 期限が過ぎても確認されていない
         self.assertEqual(self.client_stops(s), ["deficit"])
         sid = self.tx(s, lambda tx: stops.open_stops(tx, tenant_id=s["tenant"], client_id=s["client"],
                                                      business_id=None))[0]["event_id"]
         self.assertEqual(self.tx(s, lambda tx: stops.explain(tx, sid))["cause"]["meaning"], stops.CAUSES["deficit"].meaning)
-        usage.tick(self.w.a, SYSTEM)
+        usage.tick(self.w.a, SYSTEM, s["tenant"])
         self.assertEqual(self.client_stops(s), ["deficit"])            # 見守りが見直しても、赤字のまま
         self.terms(s, per_dial_yen=10, monthly_yen=10 ** 9)            # 報酬の決まりを直した
-        usage.tick(self.w.a, SYSTEM)
+        usage.tick(self.w.a, SYSTEM, s["tenant"])
         self.assertEqual(self.client_stops(s), [])                     # 赤字でなくなったので、自動で解く
 
     def test_a_confirmed_deficit_does_not_stop(self):
@@ -294,7 +307,7 @@ class CostRatio(Priced):
             self.tx(s, lambda tx: usage.confirm_deficit(tx, wid))         # システムの処理は確認できない
         self.tx(s, lambda tx: usage.confirm_deficit(tx, wid), OPERATOR)  # 契約者が確認ボタンを押した
         time.sleep(1.2)
-        usage.tick(self.w.a, SYSTEM)
+        usage.tick(self.w.a, SYSTEM, s["tenant"])
         self.spend(s, 1)
         self.assertEqual(self.client_stops(s), [])                     # 確認が効いているあいだは止めない
 
