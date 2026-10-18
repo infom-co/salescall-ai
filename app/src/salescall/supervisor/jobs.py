@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 from uuid import UUID
 
-from salescall.core import backup, calendar, leases, settle, usage, watch
+from salescall.core import backup, calendar, leases, measure, settle, usage, watch
 from salescall.core.access import Access
 from salescall.supervisor import ACTOR, config, plugins, report
 
@@ -86,6 +86,12 @@ def rejudge_held(ctx: Context) -> None:
           lambda c: ctx.access.in_client(ACTOR, ctx.cfg.tenant_id, c, settle.rejudge_held))
 
 
+def draw_samples(ctx: Context) -> None:
+    """誤判定率を測るための抜き取り（業務ごと・週ごとに1回。するかは measure の1か所が決める。Intent.md 16-3）。"""
+    _each(ctx, "抜き取り", _clients(ctx),
+          lambda c: ctx.access.in_client(ACTOR, ctx.cfg.tenant_id, c, measure.draw))
+
+
 def verify_pending(ctx: Context) -> None:
     """通話後の検証（CL-1 の部品）：待ちの通話を確かめる。録音が届かないまま待つ時間を過ぎた通話は「録音なし」で済ませる
     （attempts.finish_without_recording。CL-1 の部品が呼ぶ）。"""
@@ -139,6 +145,7 @@ def whole_backup(ctx: Context) -> None:
 # - rejudge：判定できない原因が直るのは、修正が入ったとき（数分の遅れは問題にならない）
 # - budget：赤字の警告の期限（1時間）を見る。数分の遅れは問題にならない
 # - holidays：取りに行くかは calendar が決める（1日1回で足りる）
+# - samples：週に1回でよい（週の終わりから1日あけて選ぶ。するかは measure が決める）
 # - backups：提出用を数分ごとに写す（2026-10-17 ユーザー：Fly.io に残さない）。AI用は backup が1日1回にする
 # - whole_backup：数分ごとに見て、backup が1日1回にする（失敗したら1時間あけてやり直す）
 JOBS: tuple[Job, ...] = (
@@ -147,6 +154,7 @@ JOBS: tuple[Job, ...] = (
     Job("verify", 15, "tenant", 600, verify_pending, wanted=lambda cfg: cfg.verifier is not None),
     Job("stop_checks", 30, "tenant", 600, stop_checks, wanted=lambda cfg: cfg.prober is not None),
     Job("rejudge", 600, "tenant", 1800, rejudge_held),
+    Job("samples", 3600, "tenant", 1800, draw_samples),
     Job("budget", 60, "tenant", 600, budget),
     Job("system_stop_checks", 30, "system", 600, system_stop_checks, wanted=lambda cfg: cfg.prober is not None),
     Job("holidays", 3600, "system", 600, holidays),

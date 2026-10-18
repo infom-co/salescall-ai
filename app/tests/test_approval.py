@@ -75,7 +75,8 @@ class HumanApproval(Helpers):
         self.tx(s, lambda tx: approval.approve_task(tx, s["task"]), OPERATOR)
         got = self.verified_call(s, VerificationSummary(2, 0, 0), items=TAKEN)
         self.assertEqual(self.releases(s), [])                       # 契約者が確かめるまで送らない
-        fixed = self.tx(s, lambda tx: approval.correct_result(tx, s["task"], business_state="incomplete", complaint=False,
+        fixed = self.tx(s, lambda tx: approval.correct_result(tx, s["task"], checked_version=1, business_state="incomplete",
+                                                              wrong_items=["Q1"], complaint=False,
                                                               snapshot={"理由": "試験：契約者が聞き直した"}), OPERATOR)
         self.assertEqual([r["version_no"] for r in self.releases(s)], [fixed])
         kinds = self.tx(s, lambda tx: [r["kind"] for r in tx.all(

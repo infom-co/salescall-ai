@@ -188,11 +188,13 @@ class CostRatio(Priced):
         self.terms(s, per_completed_yen=100)
         self.talked(s)
         self.assertEqual(self.month(s)["breakdown"]["completed"]["count"], 1)
-        self.tx(s, lambda tx: approval.correct_result(tx, s["task"], business_state="incomplete", complaint=False,
-                                                      snapshot={"試験": "契約者が直した"}), OPERATOR)
+        self.tx(s, lambda tx: approval.correct_result(tx, s["task"], checked_version=1, business_state="incomplete",
+                                                      wrong_items=[], complaint=False, snapshot={"試験": "契約者が直した"}),
+                OPERATOR)
         self.assertEqual(self.month(s)["breakdown"]["completed"]["count"], 0)
-        self.tx(s, lambda tx: approval.correct_result(tx, s["task"], business_state="completed", complaint=False,
-                                                      snapshot={"試験": "やはり完了"}), OPERATOR)
+        self.tx(s, lambda tx: approval.correct_result(tx, s["task"], checked_version=1, business_state="completed",
+                                                      wrong_items=[], complaint=False, snapshot={"試験": "やはり完了"}),
+                OPERATOR)
         self.assertEqual(self.month(s)["breakdown"]["completed"]["count"], 1)   # 数える時刻は、はじめて完了になった時
 
     def test_monthly_is_prorated(self):

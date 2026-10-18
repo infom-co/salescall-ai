@@ -418,6 +418,13 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      "CREATE OR REPLACE FUNCTION salescall.take_job(p_key text, p_holder text, p_seconds integer) RETURNS boolean"
      " LANGUAGE sql AS $$ SELECT true $$",
      ("tests.test_supervisor.Leases.test_jobs_are_taken_by_one_supervisor_and_only_by_the_system",)),
+    # 誤判定率の正解と抜き取り（10-3・0066）
+    ("システムの処理が、誤判定率の正解を付けられる・人の版に付けられる",
+     "DROP TRIGGER judgement_check_guard ON salescall.judgement_checks",
+     ("tests.test_measure.Verification.test_only_a_person_checks_and_only_system_versions",)),
+    ("誤判定率の正解を書き換えられる",
+     "DROP TRIGGER judgement_checks_frozen ON salescall.judgement_checks",
+     ("tests.test_measure.Verification.test_only_a_person_checks_and_only_system_versions",)),
     # 発信禁止の一覧の取込（3-6-2・0065）
     ("依頼者の一覧の登録を、取込を通さずに入れられる",
      "ALTER TABLE salescall.dnc_entries DROP CONSTRAINT dnc_entries_list_from_import",

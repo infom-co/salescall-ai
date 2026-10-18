@@ -16,6 +16,9 @@
     いつまでも確定しなかった（ユーザー：「検証時は案B、本格稼働してから…送る」＝検証モードは契約者が確かめ、本格稼働は自動）。
   - 契約者の承認を使う業務（検証モード）：契約者が承認した版（`approve_result`）か、直した版（`correct_result`。契約者の版を足す。
     システムの版は残す）にだけ付ける。
+  - **承認・直したことは、誤判定率の正解になる**（Intent.md 16-3「検証モードで契約者が直した結果も、正解として使う」）：システムが
+    判定した版を承認したら「判定どおりが正解」、直したら「直した中身が正解」として `measure.record_check` に入れる（入れる所は
+    measure の1か所。その通話の「測り終わるまで消さない」印も、そこで外れる）。
 """
 
 from __future__ import annotations
@@ -23,8 +26,11 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from salescall.core import results, settings
+from salescall.core import measure, results, settings
 from salescall.core.access import Tx
+
+
+SYSTEM_KINDS = ("judged", "rejudged")   # システムが判定した版（正解を付ける相手）
 
 
 def human_for_business(tx: Tx, business_id: UUID) -> bool:
@@ -78,15 +84,27 @@ def after_judged(tx: Tx, task_id: UUID, version_no: int, version_id: UUID) -> li
 
 
 def approve_result(tx: Tx, task_id: UUID, version_no: int) -> None:
-    """契約者の承認：契約者が、その結果の版を確かめて「送ってよい」にする。"""
+    """契約者の承認：契約者が、その結果の版を確かめて「送ってよい」にする。システムが判定した版なら、判定どおりが正解。"""
     _release(tx, task_id, version_no)
+    v = tx.one("SELECT kind::text AS kind, business_state::text AS state FROM salescall.task_results"
+               " WHERE task_id = %s AND version_no = %s", (task_id, version_no))
+    if v["kind"] in SYSTEM_KINDS and v["state"] != "unknown":
+        measure.record_check(tx, task_id, version_no, truth_state=v["state"], wrong_items=[],
+                             source=measure.review_source(tx, task_id, version_no))
 
 
-def correct_result(tx: Tx, task_id: UUID, *, business_state: str, complaint: bool, snapshot: dict[str, Any],
-                   detail: dict[str, Any] | None = None) -> int:
-    """契約者の承認：契約者が結果を直す。契約者の版を足して（システムが判定した版は残す＝誤判定率の材料）、その版を送ってよいにする。"""
+def correct_result(tx: Tx, task_id: UUID, *, checked_version: int, business_state: str, wrong_items: list[str],
+                   complaint: bool, snapshot: dict[str, Any], detail: dict[str, Any] | None = None) -> int:
+    """契約者の承認：契約者が、システムが判定した版（checked_version）を確かめて直す。契約者の版を足して（システムが判定した版は
+    残す）、その版を送ってよいにする。直した中身（正しい業務の状態・違っていた項目＝質問の番号）は、その版の正解になる。"""
+    v = tx.one("SELECT kind::text AS kind FROM salescall.task_results WHERE task_id = %s AND version_no = %s",
+               (task_id, checked_version))
+    if v is None or v["kind"] not in SYSTEM_KINDS:
+        raise LookupError(f"直すのは、システムが判定した結果の版です：{task_id} の版 {checked_version}")
     version_no = results.append(tx, task_id, kind="human", business_state=business_state, attempt_id=None,
                                 judge_version=None, complaint=complaint, snapshot=snapshot, decided_by="契約者",
                                 detail=detail)
     _release(tx, task_id, version_no)
+    measure.record_check(tx, task_id, checked_version, truth_state=business_state, wrong_items=wrong_items,
+                         source=measure.review_source(tx, task_id, checked_version))
     return version_no

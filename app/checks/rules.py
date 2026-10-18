@@ -222,6 +222,9 @@ WRITERS: dict[str, dict[str, frozenset[str]]] = {
     "import_rows": {"INSERT": frozenset({_CORE + "importer.py"})},
     "dnc_imports": {"INSERT": frozenset({_CORE + "dnc_import.py"})},            # 発信禁止の一覧の取込（3-6-2。台帳に入れるのは dnc）
     "dnc_import_rows": {"INSERT": frozenset({_CORE + "dnc_import.py"})},
+    "judgement_checks": {"INSERT": frozenset({_CORE + "measure.py"})},       # 誤判定率の正解（16-3）
+    "sample_draws": {"INSERT": frozenset({_CORE + "measure.py"})},           # 誤判定率の抜き取り（16-3）
+    "sample_draw_calls": {"INSERT": frozenset({_CORE + "measure.py"})},
     "deliveries": {"INSERT": frozenset({"src/salescall/output/"}),           # 連携の台帳（Q17。持ち主 CL-3）
                    "UPDATE": frozenset({"src/salescall/output/"})},
     "notification_deliveries": {"INSERT": frozenset({"src/salescall/output/"})},   # 知らせの送信の記録（Q23。送るのは CL-3）
