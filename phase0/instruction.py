@@ -142,7 +142,8 @@ class Business:
         """名乗りの部分（flowctl.Flow の opening。部分 → 文）：流し直す録音と、目的の人に繋がったときに流す名乗り・用件の両方に使う。
         文は opening_parts と同じもの（録音も同じ）。目的の人のある業務では、呼ぶ一言（target）と、代わった方を確かめる一言（target_confirm）も。"""
         company, caller = self._said()
-        parts = {"greeting": GREETING, "intro": f"株式会社{company}の{caller}と申します。", "purpose": self.purpose_line or ""}
+        parts = {"greeting": GREETING, "intro": f"株式会社{company}の{caller}と申します。", "purpose": self.purpose_line or "",
+                 "ai": self.ai_answer or AI_ANSWER}  # 「AIですか？」への決まった答え（録音で流す。⛔ G-57：AIに言わせると質問に戻らなかった）
         if self.target is not None:
             parts.update(target=self.target.call(), target_confirm=self.target.confirm())
         return parts
@@ -376,7 +377,7 @@ def build(business: Business, voice_type: str, resume=None, opening_mode: str = 
                      + choices_note(first))
     else:
         parts.append(position_text(business, resume))
-    parts.append(system_rules(play_recordings) + ai_rule(business))
+    parts.append(system_rules(play_recordings) + ai_rule(business, recorded=opening_mode == "recorded" or bool(resume and resume.opening)))
     if business.unread_names:
         parts.append(unread_rule(business.unread_names))
     if business.forbidden:
@@ -401,12 +402,17 @@ def target_rule(business: Business) -> str:
             f"おります」「本日は休みです」）は、request_callback を「{CALLBACK_LABEL['absent']}」で呼びます。")
 
 
-def ai_rule(business: Business) -> str:
+def ai_rule(business: Business, recorded: bool = False) -> str:
     """「AIですか？」と聞かれたときの決まり（指示文の1か所。どのセッションにも入る）。Intent.md 原則8：冒頭でAIだとは名乗らない
     （2026-10-12 ユーザー確定）が、人間だとは偽らない。⛔ 2026-10-18 の見直しで見つけた漏れ：前は指示文にこの決まりが無く、聞かれたときに
     AIが何と答えるかは決めていなかった（9-4 の「答える文面は業務設定で持つ」に届いていない）"""
+    if recorded:
+        # 録音で流す形：名乗りと同じく、決まった答えの録音と、いまの質問の録音をプログラムが流す（⛔ 2026-10-19 G-57：AIに自分で答えさせると、
+        # 3本とも答えたあとに黙り、いまの質問に戻らなかった）
+        return (f"- 相手に「エーアイですか？」「機械ですか？」「人間ですか？」などと聞かれたら、自分では答えずに replay_opening を"
+                f"「{PART_LABEL['ai']}」で呼びます（決まった答えの録音と、いまの質問を、プログラムが流します）。人間だとは答えません。")
     return (f"- 相手に「エーアイですか？」「機械ですか？」「人間ですか？」などと聞かれたら、人間だとは答えません。「{business.ai_answer or AI_ANSWER}」"
-            "とだけ答えて、いまの質問を続けます（言い直しの返事を待っていたなら、その言い直しをもう一度言います）。")
+            "とだけ答えて、続けていまの質問をもう一度聞きます（言い直しの返事を待っていたなら、その言い直しをもう一度言います）。")
 
 
 def replay_rule() -> str:
@@ -418,7 +424,8 @@ def replay_rule() -> str:
     return ("名乗りや用件を聞き返されたら、自分では言わずに replay_opening を呼びます（プログラムが名乗りの録音を流します。そのあとに"
             f"することは、返事に書いてあります）。誰からの電話かを聞かれた（「どちら様ですか」など）＝「{PART_LABEL['intro']}」、用件を聞かれた"
             f"（「何のご用件ですか」など）＝「{PART_LABEL['purpose']}」、聞き取れなかった様子（「もう一度お願いします」「はい？」「え？」など）＝"
-            f"「{PART_LABEL['all']}」、相手が別の人に代わった（「お電話代わりました」）＝「{PART_LABEL['handover']}」。")
+            f"「{PART_LABEL['all']}」、相手が別の人に代わった（「お電話代わりました」）＝「{PART_LABEL['handover']}」、エーアイかと聞かれた"
+            f"＝「{PART_LABEL['ai']}」。")
 
 
 def unread_rule(names: list[str]) -> str:

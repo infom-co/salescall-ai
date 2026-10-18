@@ -201,13 +201,23 @@ def merge_ampm(pending: str | None, answer: str | None) -> str | None:
     return pending[:m.start()] + w.group() + pending[m.start():] if m else answer
 
 
+def question_play(questions: list["Question"], qid: str) -> dict:
+    """その質問を録音で流すときの1つ（電話接続側が流すもの）。業務の質問＝依頼主の単位の録音（つなぎの言葉＋質問の文）、かけ直しで足す質問＝
+    契約者の単位の録音（phrases.RECORDED の callback_〜。どの業務でも同じ文）。読みの確かめは録音にしない（相手ごとの名前を含む＝AIが言う）。"""
+    q = next(x for x in questions if x.id == qid)
+    if q.callback:
+        return {"kind": "recorded", "id": f"callback_{q.callback}", "text": q.text}
+    text, lead = spoken_question(questions, qid)
+    return {"kind": "question", "id": q.id, "text": text, "lead": lead}
+
+
 def spoken_question(questions: list["Question"], qid: str) -> tuple[str, str]:
     """録音で流す質問の文（つなぎの言葉＋質問の文）と、そのつなぎの言葉。つなぎの言葉は質問の順番で決める（2問目「それでは」・3問目
     「続きまして」・4問目「では」…）。最初の質問は名乗りと一緒に流すので、つなぎの言葉は付けない。
     ✅ 2026-10-15 ユーザー（聞き比べ）：つなぎの言葉と質問を1本で録音したほうが「しいて言えば自然」⇒ 1本の録音にする。順番で決めておけば、
     依頼主ごとの録音は質問1つにつき1本のまま（流れの制御・録音を作る道具の両方が、ここを使う）"""
     q = next(x for x in questions if x.id == qid)
-    if q.reading_of or q.callback:  # プログラムが足す質問（読みの確かめ・かけ直し）：AIが言う（録音でない）。つなぎの言葉は付けない
+    if q.reading_of or q.callback:  # プログラムが足す質問（読みの確かめ・かけ直し）：つなぎの言葉は付けない
         return q.text, ""
     # ⛔ 見直しで見つけた漏れ：読みの確かめを挟むと、そのあとの質問のつなぎの言葉（＝録音の名前）が1つずれた（「それでは」⇒「続きまして」）
     i = [x.id for x in questions if not x.reading_of and not x.callback].index(qid)
@@ -377,7 +387,9 @@ RESULT_LABEL = {"next": "次の質問", "confirm_required": "言い直して確�
                 "hold": "取り次ぎを待つ", "noted": "受け付けた", "confirm_target": "目的の人か確かめる"}
 # 名乗りの流し直し（DESIGN.md 6-13。✅ 2026-10-13 ユーザー：名乗り直しも録音で流す「間が大丈夫ならOK」）：AIが選ぶ部分の名前
 # 名乗り＝「どちら様ですか」／用件＝「何のご用件ですか」／最初から＝聞き取れなかった様子（「もう一度」「はい？」）／代わった方へ＝別の人に代わった
-PART_LABEL = {"intro": "名乗り", "purpose": "用件", "all": "最初から", "handover": "代わった方へ"}
+# エーアイか聞かれた＝「AIですか？」への決まった答え（instruction.Business の ai_answer。⛔ 2026-10-19 G-57：AIに自分で答えさせると、
+# 3本とも答えたあと黙り、いまの質問に戻らなかった ⇒ 名乗りと同じく、決まった答えの録音を流し、いまの質問の録音を続けて流す）
+PART_LABEL = {"intro": "名乗り", "purpose": "用件", "all": "最初から", "handover": "代わった方へ", "ai": "エーアイか聞かれた"}
 OPENING_ORDER = ("greeting", "intro", "purpose")  # 名乗りの録音の部分の順（instruction.Business.replay_parts の鍵）
 # 相手の種別（DESIGN.md 4-3。report_party）：電話に出た相手が何か（AIに見せる名前なので英字を使わない＝FAX は「ファクス」）。受付・目的の人は、目的の人のある業務だけでAIに見せる
 # （「誰でも」の業務は、最初の相手が目的の人＝報告しなくてよい）。人ではない相手（留守番電話・自動音声の案内・FAX）には話さずに終え、
@@ -865,7 +877,7 @@ class Flow:
             return None  # 留守番電話・番号違い・受付に「承知しました」などは合わない（番号違いの締めの頭に「失礼いたしました。」を流すと、締めの「失礼」と重なる）
         if name == "replay_opening":
             # 名乗りの流し直しの頭は「失礼いたしました。」（6-13）。代わった方へは、録音のあいさつから始まるので相づちは流さない
-            return None if args.get("part") == "handover" else "shitsurei"
+            return None if args.get("part") in ("handover", "ai") else "shitsurei"  # 「AIですか？」への答えは「はい」から始まる
         if name == "report_unclear":
             return "hai"  # 聞き返しを使い切って先へ進む：聞き取れていないので、「承知しました」「ありがとうございます」は合わない
         if result == "recheck":
@@ -1295,13 +1307,14 @@ class Flow:
             return self._ask_target()
         if self.replays >= self.limits.replays:
             return self._reject(f"名乗りの録音は、もう{self.replays}回流しました（同じ録音を何度も流しません）。聞かれたことに、自分の言葉で短く答えてください。")
-        keys = {"intro": ["intro"], "purpose": ["purpose"], "all": ["intro", "purpose"], "handover": ["greeting", "intro", "purpose"]}[part]
+        keys = {"intro": ["intro"], "purpose": ["purpose"], "all": ["intro", "purpose"], "handover": ["greeting", "intro", "purpose"],
+                "ai": ["ai"]}[part]
         # まだ届いていない名乗り・用件も一緒に流す（on_opening_cut）。あいさつは足さない（頭にお詫びの相づちが流れるので、重ねない）。
         # 目的の人に繋がる前（calling）は、用件は聞かれたときだけ流す（DESIGN.md 4-3：目的の人ではない方には、聞かれたら用件を言う）
         calling = self.phase == "calling"
         if calling and part == "all":
             keys = ["intro"]
-        keys = [k for k in OPENING_ORDER if self.opening.get(k)
+        keys = [k for k in OPENING_ORDER + ("ai",) if self.opening.get(k)
                 and (k in keys or (k != "greeting" and k in self.opening_unheard and not (calling and k == "purpose")))]
         if not keys:
             return self._reject(f"「{PART_LABEL[part]}」の録音はありません。聞かれたことに、自分で短く答えてください。")
@@ -1323,9 +1336,8 @@ class Flow:
                                "をもう一度言って、相手の返事を待ってください（前に言葉を足しません）。"}
         q = self.questions.get(self.current) if self.current else None
         if q is not None and self.play_recordings and not q.reading_of:
-            text, lead = spoken_question(list(self.questions.values()), q.id)
-            play.append({"kind": "question", "id": q.id, "text": text, "lead": lead})
-            shown += text
+            play.append(question_play(list(self.questions.values()), q.id))
+            shown += play[-1]["text"]
         elif q is not None:
             return {"result": "replayed", "play": play, "speak": True,
                     "message": f"「{shown}」は、プログラムが録音で流しました（相手にもう聞こえています）。続けて、いまの質問 {q.id}「{q.text}」を"
@@ -1624,7 +1636,7 @@ class Flow:
             q = self.questions[self.current]
             if q.reading_of:
                 return self._enter_reading(q.id, prefix)
-            if self.play_recordings and (asked or q.callback):
+            if self.play_recordings and asked:
                 # 録音を流す形でも、この質問だけは AIが言う。つなぎの言葉は、録音で流すときと同じ並び（spoken_question）から取る
                 # （受けの言葉の数え方と混ぜると、同じ「それでは」が続きうる）
                 text, lead = spoken_question(list(self.questions.values()), q.id)
@@ -1632,9 +1644,11 @@ class Flow:
                         "message": f"{prefix}次の質問は {q.id}「{text}」です。" + (f"「{lead}」から話し始めてください。" if lead else "")
                                    + choices_note(q)}
             if self.play_recordings:
-                text, lead = spoken_question(list(self.questions.values()), q.id)
-                return {"result": "next", "question_id": q.id, "question": q.text,
-                        "play": [{"kind": "question", "id": q.id, "text": text, "lead": lead}],
+                # かけ直しで足す質問も録音（⛔ 2026-10-19 G-57：AIに言わせると、3本中1本で「私の方では折り返しのお電話ができかねますので」と
+                # 足し、もう1本でも「かしこまりました。」を足した＝決まった文は録音にする決まり（6-13）に戻した）
+                play = question_play(list(self.questions.values()), q.id)
+                text = play["text"]
+                return {"result": "next", "question_id": q.id, "question": q.text, "play": [play],
                         "message": f"{prefix}次の質問 {q.id}「{text}」は、プログラムが録音で流しました（相手にもう聞こえています）。"
                                    "何も言わずに、相手の答えを待ってください。相手が答えたら record_answer で報告します。" + choices_note(q)}
             return {"result": "next", "question_id": q.id, "question": q.text,
@@ -1797,7 +1811,7 @@ def tool_declarations(questions: list[Question], replay: bool = False, target: b
            [A["question_id"], A["result"]]),
         *([fd("replay_opening", "名乗りや用件を聞き返されたとき、自分では言わずに、録音で流し直してもらう（どちら様＝"
               f"「{PART_LABEL['intro']}」、ご用件＝「{PART_LABEL['purpose']}」、聞き取れなかった様子＝「{PART_LABEL['all']}」、"
-              f"別の人に代わった＝「{PART_LABEL['handover']}」）",
+              f"別の人に代わった＝「{PART_LABEL['handover']}」、エーアイかと聞かれた＝「{PART_LABEL['ai']}」）",
               {A["part"]: s(list(PART_LABEL.values()))}, [A["part"]])] if replay else []),
         fd("report_party", "電話に出たのが人ではないとき（留守番電話の案内・自動音声の案内・ファクスの音）や、番号違い（かけた先とは別の人・別の会社）"
            "だったときに知らせる" + ("。受付の方が出た・目的の人に代わったときも知らせる" if target else ""),

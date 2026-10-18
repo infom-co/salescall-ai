@@ -166,8 +166,9 @@ def restate_words(words: str, said: str | None = None) -> str:
 APOLOGY = ("失礼いたしました。", "申し訳ございません。")
 # 「AIですか？」と聞かれたときの答えの既定の文（Intent.md 9-4「答える文面は業務設定で持つ」・原則8「人間だとは偽らない」）。
 # 業務設定（instruction.Business.ai_answer）に文があれば、そちらを使う。⏳ CL-1 の案（2026-10-18。ユーザーに確かめていただく）
-# AIに見せる文なので英字を使わない（読み方もそろう）＝「エーアイ」
-AI_ANSWER = "はい、エーアイの音声でお電話しております。"
+# AIに見せる文なので英字を使わない（読み方もそろう）＝「エーアイ」。決まった言い方・録音の文なので、言葉の途中に読点を入れない（10-15）。
+# 録音で流す形では、名乗りと同じく依頼主の単位の録音（instruction.Business.replay_parts の ai）
+AI_ANSWER = "はいエーアイの音声でお電話しております。"
 # 録音で流す相づち（中の名前 → 言葉）。中の名前は録音のファイル名に使う（results/ack/{声の型}_{中の名前}.wav）
 ACK = {
     "hai": "はい、",                       # 基本
@@ -215,7 +216,9 @@ assert set(LEAD_RECORDED) == set(LEAD_IN["次の質問"])
 # ✅ 2026-10-16 ユーザー：「02は軽い時、04は深刻な時で使い分けでOK」（お詫びの軽い・重いと同じ分け方）
 # 名乗りの頭のあいさつも、どの依頼主にも同じ言葉なので、契約者の単位で録音する（名乗りの残り＝自社名・担当者名・用件は、依頼主の単位）
 # 締めは2つとも録音（毎回同じ文。DESIGN.md 6-13・6-14。flowctl.Flow._close）。断られたときの締めは 2026-10-17 に足した（前はAIが言っていた）
-RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait": WAIT, "wait_heavy": WAIT, "greeting": GREETING}
+# かけ直しで足す質問も、どの依頼主にも同じ文なので、契約者の単位で録音する（flowctl.question_play。⛔ 2026-10-19 G-57：AIに言わせると言葉を足した）
+RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait": WAIT, "wait_heavy": WAIT, "greeting": GREETING,
+            **{f"callback_{k}": v for k, v in CALLBACK_ASK.items()}}
 
 
 def lead_in(kind: str, n: int) -> str:

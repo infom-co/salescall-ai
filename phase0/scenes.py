@@ -23,7 +23,7 @@ from g34_ack import FAST, FOLLOWUP_WAIT_S
 from instruction import VOICE_TYPES, Target
 from make_callee_samples import verified
 from meaning_judge import add_judge_args, make_judges
-from phrases import AI_ANSWER, CLOSE_DECLINED, CLOSING
+from phrases import CLOSE_DECLINED, CLOSING
 
 # 目的の人のある業務（DESIGN.md 4-3）：営業部部長の岡田様
 TARGET_BUSINESS = dataclasses.replace(BUSINESS, target=Target(name="岡田", reading="おかだ", role="営業部部長"))
@@ -125,7 +125,9 @@ SCENES = {
         "急いでいるで締めた": end_reason(c) == "callee_hurry", "締め": closing_of(c) == CLOSE_DECLINED, "約束しない": no_promise(c)}),
     # ── 「AIですか」・範囲外の質問（原則8・Intent.md 9-4）
     "AIですか": Scene(BUSINESS, [W("ai_q")] + FULL, lambda c: {
-        "決まった答え": plain(AI_ANSWER) in plain(said(turn_of(c, "ai_q"))),
+        # 録音で流す形：決まった答えの録音と、いまの質問の録音（⛔ 1回目：AIに答えさせると、3本とも答えたあとに質問に戻らなかった）
+        "決まった答えと質問": any(played_parts(x["reply"]) == ["ai", "question"] for x in ops(c) if x["op"] == "replay_opening"),
+        "自分では答えない": plain(said(turn_of(c, "ai_q"))) == "",
         "人間だと言わない": not any(HUMAN.search(said(t)) for t in c["turns"]), "続けて答えが取れた": got(c, "Q1", "はい")}),
     "範囲外の質問": Scene(BUSINESS, [W("yes_reserved"), W("out_of_scope")] + FULL[1:], lambda c: {
         "答えた（聞き流さない）": said(turn_of(c, "out_of_scope")) != "", "金額を作らない": "円" not in said(turn_of(c, "out_of_scope")),

@@ -3757,10 +3757,15 @@ class CallbackTest(unittest.TestCase):
         self.assertEqual(r["result"], "rejected")
         self.assertIn("C1", r["message"])
 
-    def test_spoken_by_ai_even_when_questions_are_recorded(self):
-        # 足す質問の録音はまだ無いので、録音で流す形でも AIが言う（つなぎの言葉も付けない）
-        from phrases import CALLBACK_ASK
+    def test_recorded_when_questions_are_recorded(self):
+        # 足す質問も、録音で流す形では契約者の単位の録音を流す（つなぎの言葉は付けない）。⛔ G-57：AIに言わせると、3本中1本で
+        # 「私の方では折り返しのお電話ができかねますので」と足した
+        from phrases import CALLBACK_ASK, RECORDED
         f = self.flow(play=True)
+        r = self.say(f, "あいにく本人は出かけておりまして。", "request_callback", why="absent")
+        self.assertEqual(r["play"], [{"kind": "recorded", "id": "callback_back_time", "text": CALLBACK_ASK["back_time"]}])
+        self.assertEqual(RECORDED["callback_back_time"], CALLBACK_ASK["back_time"])
+        f = self.flow(play=False)                                                       # AIが話す形では AIが言う
         r = self.say(f, "あいにく本人は出かけておりまして。", "request_callback", why="absent")
         self.assertNotIn("play", r)
         self.assertIn(CALLBACK_ASK["back_time"], r["message"])
@@ -3788,15 +3793,31 @@ class AIQuestionTest(unittest.TestCase):
                         questions=[Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"))], **kw)
 
     def test_rule_uses_the_business_text_or_the_default(self):
+        from flowctl import PART_LABEL
         from instruction import build
         from phrases import AI_ANSWER
-        for mode in ("ai", "recorded"):
-            text = build(self.business(), "S2", opening_mode=mode)[1]
-            self.assertIn(f"「{AI_ANSWER}」", text, mode)
-            self.assertIn("人間だとは答えません", text, mode)
-        mine = "はい、エーアイの自動音声でご案内しております。"
+        text = build(self.business(), "S2", opening_mode="ai")[1]                     # AIが話す形：AIが決まった答えを言い、質問に戻る
+        self.assertIn(f"「{AI_ANSWER}」", text)
+        self.assertIn("いまの質問をもう一度聞きます", text)
+        text = build(self.business(), "S2", opening_mode="recorded")[1]               # 録音で流す形：決まった答えの録音を流し直してもらう
+        self.assertIn(f"「{PART_LABEL['ai']}」", text)
+        for t in (build(self.business(), "S2", opening_mode=m)[1] for m in ("ai", "recorded")):
+            self.assertIn("人間だとは答えません", t)
+        mine = "はいエーアイの自動音声でご案内しております。"
         self.assertIn(f"「{mine}」", build(self.business(ai_answer=mine), "S2")[1])
-        self.assertNotIn(f"「{AI_ANSWER}」", build(self.business(ai_answer=mine), "S2")[1])
+        self.assertEqual(self.business(ai_answer=mine).replay_parts()["ai"], mine)
+        self.assertEqual(self.business().replay_parts()["ai"], AI_ANSWER)
+        self.assertNotIn("、", AI_ANSWER)                                             # 決まった言い方には読点を入れない（10-15）
+
+    def test_recorded_answer_then_the_question(self):
+        # 録音で流す形：決まった答えの録音のあと、いまの質問の録音（⛔ G-57：AIに答えさせると、3本とも質問に戻らなかった）
+        from flowctl import Flow
+        b = self.business()
+        f = Flow(b.questions, play_recordings=True, opening=b.replay_parts())
+        f.on_callee()
+        r = f.apply("replay_opening", {"part": "ai"})
+        self.assertEqual(([p.get("part", p["kind"]) for p in r["play"]], r["ack"]), (["ai", "question"], None))
+        self.assertEqual(f.current, "Q1")
 
     def test_rule_survives_a_session_swap(self):
         # 張り替えたあとのセッションにも同じ決まり（決まりは system_rules の1か所＝どのセッションの指示にも入る）
