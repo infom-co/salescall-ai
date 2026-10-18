@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from names import hira, quote, unvoiced
 from phrases import AMPM_ASK, CLOSE_DECLINED, CLOSING, LEAD_IN, NAME_READING_ASK
 from phrases import ask_again as ask_again_phrase
-from phrases import as_answer, confirm as confirm_phrase
+from phrases import confirm as confirm_phrase
 from phrases import lead_in as lead_in_phrase
 from units import supply_unit
 
@@ -260,9 +260,8 @@ AFTER = {"misheard": ("聞き違いのあと", "お詫びのあとの言い直�
          # 受け入れにも断りにも取れる答え（「大丈夫です」）の意味を、AIが受け取ったほうで確かめる：
          # 「はい、」＋「念のためご予約はお済みということでよろしいでしょうか？」（DESIGN.md 6-10 の (3)）
          "ambiguous": ("曖昧な答えのあと", "念のための言い直し", "hai"),
-         # 言い切っていない最初の答え（「たぶん予約してます」）：答えとして受け取ってよいかを確かめる言い方
-         # 「はい、」＋「念のためご予約はお済みというご回答でよろしかったでしょうか？」（✅ 2026-10-18 ユーザー：「最初の答えが言い切って
-         # いなければ、今までどおり『〜という（ご回答という）ことでよろしかったでしょうか？』のような感じの方がいいかもしれませんね」）
+         # 言い切っていない最初の答え（「たぶん予約してます」）：「はい、」＋「念のためご予約はお済みということでよろしかったでしょうか？」
+         # （✅ 2026-10-18 ユーザー：「この場合、こちらの方が自然」。その前の案「…というご回答で…」は採らなかった）
          "hedged": ("言い切っていない答えのあと", "念のための言い直し", "hai")}
 HEDGE_WHY = "言い切っていない答え"  # 確かめる理由の名前（言い直しの言い方を、曖昧な言葉の確かめと分ける。Flow._check_again）
 # 値を直されたとき、こちらの聞き違いか相手の言い間違いかは、プログラムが相手の言葉（会話AIの聞き取りの文字）から決める。
@@ -1353,8 +1352,6 @@ class Flow:
         # 言い直す値：値の無い選択肢の型（はい／いいえなど。聞き返したあとは復唱する＝6-11）は、選んだ選択肢で言い直す。
         # ⛔ 2026-10-14 に見つけた穴：値だけを渡していたため、「Noneで、よろしいでしょうか。」という文を作っていた
         shown = words if choice else (it.value or label(it.condition))
-        if after == "hedged":
-            shown = as_answer(shown)
         if q.reading_of:
             shown = quote(it.value)
             it.tried_readings.append(it.value)
