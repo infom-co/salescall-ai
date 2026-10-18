@@ -407,13 +407,49 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      " WHERE line_id = p_line AND retired_at IS NULL RETURNING lease_expires_at $$",
      ("tests.test_supervisor.Leases.test_one_supervisor_holds_a_line_and_another_takes_it_only_after_it_expires",)),
     ("生きている回線の通話を、後始末で終わらせてしまう",
-     "CREATE OR REPLACE FUNCTION salescall.recover_lines(p_holder text, p_line uuid DEFAULT NULL)"
+     "CREATE OR REPLACE FUNCTION salescall.recover_lines(p_holder text, p_line uuid DEFAULT NULL, p_except text DEFAULT NULL,"
+     " p_expired_for interval DEFAULT '0 seconds')"
      " RETURNS TABLE (line_id uuid, released integer, ended integer) LANGUAGE plpgsql SECURITY DEFINER"
      " SET search_path = salescall, pg_temp AS $$ DECLARE l record; r integer; e integer; BEGIN"
      " FOR l IN SELECT x.line_id FROM salescall.lines x WHERE x.tenant_id = salescall.cur_tenant() LOOP"
      " UPDATE salescall.attempts SET state = 'released' WHERE attempts.line_id = l.line_id AND state = 'claimed';"
      " GET DIAGNOSTICS r = ROW_COUNT; line_id := l.line_id; released := r; ended := 0; RETURN NEXT; END LOOP; END $$",
      ("tests.test_supervisor.Recovery.test_only_expired_lines_of_other_pcs_are_cleaned_up",)),
+    # 落ちた試行の後始末（5-4・0076。2026-10-18 の見直し）
+    ("決まった間隔の後始末が、自分の回線のまだ話している通話を終わらせる",
+     "CREATE OR REPLACE FUNCTION salescall.recover_lines(p_holder text, p_line uuid DEFAULT NULL, p_except text DEFAULT NULL,"
+     " p_expired_for interval DEFAULT '0 seconds')"
+     " RETURNS TABLE (line_id uuid, released integer, ended integer) LANGUAGE plpgsql SECURITY DEFINER"
+     " SET search_path = salescall, pg_temp AS $$ DECLARE l record; r integer; BEGIN"
+     " FOR l IN SELECT x.line_id FROM salescall.lines x WHERE x.tenant_id = salescall.cur_tenant()"
+     " AND x.lease_holder IS NOT NULL AND (CASE WHEN p_holder IS NULL THEN x.lease_expires_at < now() - p_expired_for"
+     " ELSE x.lease_holder = p_holder END) LOOP"
+     " UPDATE salescall.attempts SET state = 'released' WHERE attempts.line_id = l.line_id AND state = 'claimed';"
+     " GET DIAGNOSTICS r = ROW_COUNT; line_id := l.line_id; released := r; ended := 0; RETURN NEXT; END LOOP; END $$",
+     ("tests.test_supervisor.Recovery.test_the_periodic_cleanup_leaves_its_own_lines_and_the_admin_pc_cleans_stale_ones",)),
+    ("契約者の取引から、ほかの契約者の落ちた回線を探せる",
+     "CREATE OR REPLACE FUNCTION salescall.tenants_with_stale_lines(p_expired_for interval) RETURNS SETOF uuid"
+     " LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$"
+     " SELECT DISTINCT x.tenant_id FROM salescall.lines x WHERE x.lease_holder IS NOT NULL"
+     " AND x.lease_expires_at < now() - p_expired_for $$",
+     ("tests.test_supervisor.Recovery.test_the_periodic_cleanup_leaves_its_own_lines_and_the_admin_pc_cleans_stale_ones",)),
+    # 誤判定率を通話ごとに（10-3・0074。2026-10-18 の見直し）
+    ("誤判定率の正解の出どころを、呼ぶ側が偽れる",
+     "CREATE OR REPLACE FUNCTION salescall.judgement_check_guard() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN"
+     " IF salescall.cur_actor_kind() IS DISTINCT FROM 'operator' AND salescall.cur_actor_kind() IS DISTINCT FROM 'admin' THEN"
+     " RAISE EXCEPTION 'x' USING ERRCODE = 'insufficient_privilege'; END IF;"
+     " IF NOT salescall.call_to_measure(NEW.attempt_id) THEN RAISE EXCEPTION 'x' USING ERRCODE = 'check_violation'; END IF;"
+     " RETURN NEW; END $$",
+     ("tests.test_measure.Verification.test_the_source_is_decided_by_the_call_and_each_call_counts_once",)),
+    ("お客様と話していない通話に、誤判定率の正解を付けられる・検証の印が外れない",
+     "CREATE OR REPLACE FUNCTION salescall.call_to_measure(p_attempt uuid) RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT true $$",
+     ("tests.test_measure.Verification.test_calls_without_a_conversation_are_approved_and_their_mark_is_released",)),
+    ("その通話の古い判定の版に、誤判定率の正解を付けられる（1本を2回数える）",
+     "CREATE OR REPLACE FUNCTION salescall.judgement_check_guard() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN"
+     " IF NOT EXISTS (SELECT 1 FROM salescall.task_results r WHERE r.task_id = NEW.task_id AND r.version_no = NEW.version_no"
+     " AND r.kind IN ('judged', 'rejudged') AND r.attempt_id = NEW.attempt_id) THEN RAISE EXCEPTION 'x' USING ERRCODE = 'check_violation';"
+     " END IF; NEW.source := 'correction'; RETURN NEW; END $$",
+     ("tests.test_measure.Verification.test_the_truth_goes_on_the_latest_judgement_of_the_call",)),
     ("同じ仕事を2つの見守り役が同時にできる",
      "CREATE OR REPLACE FUNCTION salescall.take_job(p_key text, p_holder text, p_seconds integer) RETURNS boolean"
      " LANGUAGE sql AS $$ SELECT true $$",
@@ -482,7 +518,7 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      ("tests.test_usage.Budget.test_contractor_limit_counts_only_that_contractor_and_is_only_noticed_to_it",)),
     ("知らせの「同じ出来事」を、契約者をまたいで1つにする（2人目の契約者の知らせが落ちる）",
      "ALTER TABLE salescall.notification_events ADD CONSTRAINT notification_one_key_for_all UNIQUE (event_key)",
-     ("tests.test_backup.PerClient.test_failures_are_asked_to_fix_by_kind_and_told_to_the_admin_and_that_contractor",)),
+     ("tests.test_backup.PerClient.test_a_missing_key_is_asked_to_that_contractor",)),
     ("管理者あての写しが、ほかの契約者の同じ出来事とまとまる",
      "CREATE OR REPLACE FUNCTION salescall.notify_admin(p_kind text, p_key text, p_summary text, p_refs jsonb) RETURNS boolean"
      " LANGUAGE plpgsql SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ DECLARE got bigint; BEGIN"

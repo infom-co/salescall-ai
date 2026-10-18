@@ -12,7 +12,12 @@
 4. **回線ごとの処理を、別の処理（プロセス。`python -m salescall.supervisor line`）で動かす**（supervisor.line）。落ちたら、その回線の進行中の試行を後始末し、
    「見守り役の誤り」として記録して（CL-2 へ修正依頼）、間をあけて立ち上げ直す（続けて落ちるほど間を延ばす。上限5分）。
 5. **決まった間隔の仕事**（supervisor.jobs の表）を、それぞれ別の流れ（スレッド）で、同じ仕事が重ならないように回す。
-6. 止めるとき（Ctrl+C・止める印）：回線ごとの処理に止めるよう伝え、いまの通話が終わるのを待ってから、回線を返す。
+6. 止めるとき（Ctrl+C・止める印）：回線ごとの処理に止めるよう伝え、いまの通話が終わるのを待ってから、その回線の後始末をして、
+   回線を返す。回線ごとの処理は、本体とは別の処理のまとまりで立ち上げる（Ctrl+C が回線ごとの処理に届いて、通話の途中で落ちない）。
+7. **どの段の誤りでも、本体は止まらない**（データベースに届かない・回線ごとの処理を立ち上げられない など）：記録して（CL-2 へ
+   修正依頼）、次の回にまた試す（延ばす間隔は、前に読めた値を使う。同じ段の失敗が続くほど、試す間を延ばす）。
+   2026-10-18 の見直し：前は、ログインのときにネットがまだつながっていない・通信が一瞬切れる、だけで本体が終わり、その日は
+   電話がかからなかった。
 """
 
 from __future__ import annotations
@@ -21,26 +26,27 @@ import os
 import socket
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any, Callable
 from uuid import UUID
 
 from salescall.core import leases
 from salescall.core.access import Access
 from salescall.supervisor import ACTOR, config, jobs, report
-from salescall.supervisor.locks import AlreadyRunning, SingleInstance, line_in_use_here
+from salescall.supervisor.locks import AlreadyRunning, SingleInstance, line_in_use_here, lock_dir, machine_id
 
 RESTART_FIRST, RESTART_MAX = 5.0, 300.0   # 回線ごとの処理を立ち上げ直すまでの間（秒。続けて落ちるほど倍に）
+RENEW_FALLBACK = 10.0                      # 延ばす間隔をまだ一度も読めていないとき（データベースに届かない）の、次に試すまでの秒数
 
 
 def holder_name(cfg: config.Config) -> str:
-    """この見守り役の名前（PC と契約者で決まる。起動し直しても同じ＝前に落ちた自分の回線を後始末できる）。"""
-    return f"{socket.gethostname()}#{cfg.tenant_id}"
+    """この見守り役の名前（PC と契約者で決まる。起動し直しても同じ＝前に落ちた自分の回線を後始末できる）。PC は、PC の名前と、
+    OS が PC ごとに持つ番号で見分ける（PC の名前だけでは、同じ名前の PC が2台あると同じ見守り役とみなされ、二重発信の守りが外れる
+    ＝2026-10-18 の見直し）。"""
+    return f"{socket.gethostname()}#{machine_id()}#{cfg.tenant_id}"
 
 
 @dataclass
@@ -78,10 +84,25 @@ class _Child:
 
 
 def _start_process(cfg: config.Config, line_id: UUID, holder: str) -> tuple[Any, Any]:
+    # 別の処理のまとまりで立ち上げる（本体の画面の Ctrl+C が届かない。止めるのは、本体が入力を閉じたときだけ＝いまの通話のあと）
+    apart: dict[str, Any] = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt"
+                             else {"start_new_session": True})
     proc = subprocess.Popen([sys.executable, "-m", "salescall.supervisor", "line", str(line_id), holder],
-                            stdin=subprocess.PIPE, env={**os.environ, **cfg.environ})
+                            stdin=subprocess.PIPE, env={**os.environ, **cfg.environ}, **apart)
     child = _Child(proc)
     return child, child
+
+
+class _NoStop:
+    """立ち上げられなかった回線ごとの処理の、止める印の代わり（止めるものが無い）。"""
+
+    def set(self) -> None:
+        pass
+
+
+def _backoff(fails: int) -> float:
+    """続けて失敗するほど、次に試すまでの間を延ばす（上限 RESTART_MAX）。"""
+    return min(RESTART_FIRST * 2 ** fails, RESTART_MAX)
 
 
 @dataclass
@@ -95,6 +116,7 @@ class Supervisor:
     _next_job: dict[str, float] = field(default_factory=dict)
     _running: dict[str, Future] = field(default_factory=dict)
     _next_renew: float = 0.0
+    _renew_every: float | None = None
 
     def __post_init__(self) -> None:
         self.holder = self.holder or holder_name(self.cfg)
@@ -124,19 +146,25 @@ class Supervisor:
             else:
                 self.leased.add(line_id)
                 if line_id not in self.workers and not line_in_use_here(line_id):
-                    self._launch(line_id, fails=0)
-        every = self.access.in_system(ACTOR, leases.renew_every)
-        self._next_renew = now + every
+                    self._launch(line_id, fails=0, now=now)
+        try:
+            self._renew_every = float(self.access.in_system(ACTOR, leases.renew_every))
+        except Exception as e:  # noqa: BLE001 読めなければ、前に読めた値（無ければ短い間）で次に試す
+            report(self.access, self.cfg.tenant_id, "延ばす間隔の読み出し", e)
+        self._next_renew = now + (self._renew_every or RENEW_FALLBACK)
 
-    def _launch(self, line_id: UUID, *, fails: int) -> None:
+    def _launch(self, line_id: UUID, *, fails: int, now: float | None = None) -> None:
         """回線ごとの処理を立ち上げる。その前に、その回線の後始末をする（呼ぶのは、この PC にその回線の処理が無いと確かめたあと
-        ＝いま進行中の試行があれば、前の処理が残したもの）。"""
+        ＝いま進行中の試行があれば、前の処理が残したもの）。後始末も立ち上げもできなければ、間をあけてまた試す（続けるほど延ばす。
+        毎秒やり直して毎秒記録しない）。"""
+        now = time.monotonic() if now is None else now
         try:
             self.access.in_tenant(ACTOR, self.cfg.tenant_id, lambda tx: leases.recover(tx, self.holder, line_id))
-        except Exception as e:  # noqa: BLE001 後始末できなければ立ち上げない（次の延長の回にまた試す）
-            report(self.access, self.cfg.tenant_id, "回線の後始末", e, line_id=line_id)
+            process, stop = self.start_worker(self.cfg, line_id, self.holder)
+        except Exception as e:  # noqa: BLE001 立ち上げない（後始末が済まないうちにかけない）
+            report(self.access, self.cfg.tenant_id, "回線ごとの処理の立ち上げ", e, line_id=line_id)
+            self.workers[line_id] = _Worker(line_id, _NoStop(), None, fails + 1, now + _backoff(fails))
             return
-        process, stop = self.start_worker(self.cfg, line_id, self.holder)
         self.workers[line_id] = _Worker(line_id, stop, process, fails)
 
     def _stop_worker(self, line_id: UUID) -> None:
@@ -149,7 +177,7 @@ class Supervisor:
         for line_id, w in list(self.workers.items()):
             if w.process is None:   # 立ち上げ直す時刻を待っている
                 if now >= w.restart_at and line_id in self.leased and not line_in_use_here(line_id):
-                    self._launch(line_id, fails=w.fails)
+                    self._launch(line_id, fails=w.fails, now=now)
                 continue
             if w.process.is_alive():
                 continue
@@ -163,8 +191,7 @@ class Supervisor:
                 report(self.access, self.cfg.tenant_id, "回線の後始末", e, line_id=line_id)
             report(self.access, self.cfg.tenant_id, "回線ごとの処理が止まった",
                    RuntimeError(f"終わりの番号 {getattr(w.process, 'exitcode', None)}"), line_id=line_id)
-            wait = min(RESTART_FIRST * 2 ** w.fails, RESTART_MAX)
-            self.workers[line_id] = _Worker(line_id, w.stop, None, w.fails + 1, now + wait)
+            self.workers[line_id] = _Worker(line_id, w.stop, None, w.fails + 1, now + _backoff(w.fails))
 
     # ── 決まった間隔の仕事 ──
     def run_jobs(self, now: float) -> None:
@@ -180,13 +207,19 @@ class Supervisor:
     # ── 1回分（本体の繰り返し） ──
     def tick(self, now: float | None = None) -> None:
         now = time.monotonic() if now is None else now
-        if now >= self._next_renew:
-            self.renew(now)
-        self.watch_workers(now)
-        self.run_jobs(now)
+        steps: list[tuple[str, Callable[[], None]]] = [("回線の借用", lambda: self.renew(now))] if now >= self._next_renew else []
+        steps += [("回線ごとの処理の見張り", lambda: self.watch_workers(now)), ("決まった間隔の仕事", lambda: self.run_jobs(now))]
+        for what, step in steps:
+            try:
+                step()
+            except Exception as e:  # noqa: BLE001 どの段の誤りでも本体は止めない（次の回にまた試す）
+                report(self.access, self.cfg.tenant_id, what, e)
+                if what == "回線の借用":
+                    self._next_renew = now + (self._renew_every or RENEW_FALLBACK)
 
     def shutdown(self, wait_seconds: float = 600.0) -> None:
-        """回線ごとの処理を止め（いまの通話は最後まで）、終わったら回線を返す。"""
+        """回線ごとの処理を止め（いまの通話は最後まで）、終わったら、その回線の後始末をして返す（回線ごとの処理が通話の途中で落ちて
+        いれば、その試行を終わらせてから返す。返してから後始末すると、借りている名前が消えて、起動し直すまで残った）。"""
         for w in self.workers.values():
             w.stop.set()
         deadline = time.monotonic() + wait_seconds
@@ -196,8 +229,11 @@ class Supervisor:
         for line_id in list(self.leased):
             if line_in_use_here(line_id):   # まだ通話の途中：返さない（期限で切れたあと、ほかが後始末する）
                 continue
+            def back(tx: Any, l: UUID = line_id) -> None:
+                leases.recover(tx, self.holder, l)
+                leases.return_line(tx, l, self.holder)
             try:
-                self.access.in_tenant(ACTOR, self.cfg.tenant_id, lambda tx, l=line_id: leases.return_line(tx, l, self.holder))
+                self.access.in_tenant(ACTOR, self.cfg.tenant_id, back)
             except Exception:  # noqa: BLE001 返せなくても、期限で次が後始末する
                 pass
         self.pool.shutdown(wait=True)
@@ -206,10 +242,13 @@ class Supervisor:
 def serve(cfg: config.Config, stop: threading.Event | None = None) -> None:
     """見守り役を動かす（止める印が立つか Ctrl+C まで）。"""
     stop = stop or threading.Event()
-    lock = Path(tempfile.gettempdir()) / f"salescall-supervisor-{cfg.tenant_id}.lock"
+    lock = lock_dir() / f"salescall-supervisor-{cfg.tenant_id}.lock"
     with SingleInstance(lock):
         sup = Supervisor(cfg)
-        sup.start()
+        try:
+            sup.start()
+        except Exception as e:  # noqa: BLE001 起動のときに届かなくても止めない（tick がまた試す）
+            report(sup.access, cfg.tenant_id, "起動", e)
         try:
             while not stop.is_set():
                 sup.tick()

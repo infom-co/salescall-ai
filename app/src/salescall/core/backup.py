@@ -317,30 +317,40 @@ def _record(app: Access, started: datetime, file_name: str | None, blob: bytes |
                                      summary=f"{PARTS[part]}：{error}", refs={"client_id": client_id})
                 summary = f"{PARTS[part]}が取れませんでした（CL-2 に修正依頼を出しました）。"
             mine = tenant_id is not None
-            notify.emit(tx, "backup_failed", key=f"backup_failed:{day}:{'person:' + person if person else part}", summary=summary,
+            # 知らせの重なりは、日・作業か種類・依頼者ごと（依頼者を入れないと、同じ日の2つ目の依頼者の失敗が黙って落ちた＝2026-10-18 の見直し）
+            what = "person:" + person if person else part
+            notify.emit(tx, "backup_failed", key=f"backup_failed:{day}:{what}:{client_id or '-'}", summary=summary,
                         refs={"error": error, "client_id": client_id},
                         admin=not mine or person is None, contractor=mine)
     _in(app, tenant_id, client_id, work)
 
 
+def _done_today(tx: Tx, part: str, tenant_id: UUID | None, client_id: UUID | None) -> bool:
+    """その種類（・その契約者・その依頼者）が、今日（日本時間）うまくいったか（**判断はこの1か所**。`_may_try` と `due` が読む）。"""
+    return tx.one(
+        "SELECT EXISTS (SELECT 1 FROM salescall.backup_runs WHERE restore_ok AND kind = %(part)s"
+        "               AND tenant_id IS NOT DISTINCT FROM %(t)s AND client_id IS NOT DISTINCT FROM %(c)s"
+        "               AND salescall.jst(started_at)::date = salescall.jst(now())::date) AS done",
+        {"part": part, "t": tenant_id, "c": client_id})["done"]
+
+
 def _may_try(app: Access, part: str, tenant_id: UUID | None = None, client_id: UUID | None = None) -> bool:
     """その種類（・その契約者・その依頼者）を、いまやってよいか（**判断はこの1か所**）：1日1回でよい種類は今日うまくいっていれば、
     しない。失敗したあとは1時間あける（見守り役が数分ごとに呼んでも、重い書き出しを繰り返さない・控えを重ねて取らない）。"""
-    return _in(app, tenant_id, None, lambda tx: tx.one(
-        "SELECT NOT (%(daily)s AND EXISTS (SELECT 1 FROM salescall.backup_runs WHERE restore_ok AND kind = %(part)s"
-        "                  AND tenant_id IS NOT DISTINCT FROM %(t)s AND client_id IS NOT DISTINCT FROM %(c)s"
-        "                  AND salescall.jst(started_at)::date = salescall.jst(now())::date))"
-        "   AND NOT EXISTS (SELECT 1 FROM salescall.backup_runs WHERE NOT restore_ok AND kind = %(part)s"
-        "                  AND tenant_id IS NOT DISTINCT FROM %(t)s AND client_id IS NOT DISTINCT FROM %(c)s"
-        "                  AND started_at > now() - %(after)s) AS ok",
-        {"daily": part in _DAILY, "part": part, "t": tenant_id, "c": client_id, "after": RETRY_AFTER}))["ok"]
+    def look(tx: Tx) -> bool:
+        if part in _DAILY and _done_today(tx, part, tenant_id, client_id):
+            return False
+        return tx.one(
+            "SELECT NOT EXISTS (SELECT 1 FROM salescall.backup_runs WHERE NOT restore_ok AND kind = %(part)s"
+            "                   AND tenant_id IS NOT DISTINCT FROM %(t)s AND client_id IS NOT DISTINCT FROM %(c)s"
+            "                   AND started_at > now() - %(after)s) AS ok",
+            {"part": part, "t": tenant_id, "c": client_id, "after": RETRY_AFTER})["ok"]
+    return _in(app, tenant_id, None, look)
 
 
 def due(app: Access) -> bool:
     """今日（日本時間）の、戻せることまで確かめたデータベース全体の控えが、まだ無いか（画面・見守り役が見る）。"""
-    return app.in_system(SYSTEM, lambda tx: tx.one(
-        "SELECT NOT EXISTS (SELECT 1 FROM salescall.backup_runs WHERE restore_ok AND kind = 'system'"
-        "                   AND salescall.jst(started_at)::date = salescall.jst(now())::date) AS due"))["due"]
+    return not app.in_system(SYSTEM, lambda tx: _done_today(tx, "system", None, None))
 
 
 def _drive_ready(app: Access, drive: "Drive", tenant_id: UUID | None) -> bool:
@@ -567,7 +577,7 @@ def prune(app: Access, drive: Drive, tenant_id: UUID | None, *, now: datetime | 
     戻せることまで確かめた控えのうち、フォルダごとに一番新しいものは消さない（控えの失敗が長く続いても、1つは残る）。
     録音は、測り終わるまで消さない印（`recordings.hold`）の付いた通話のものを消さない（2026-10-17 ユーザー 案A）。"""
     now = datetime.now().astimezone() if now is None else now
-    def look(tx: Tx) -> tuple[dict[str, dict[str, int]], set[str]]:
+    def look(tx: Tx) -> tuple[dict[str, dict[str, int]], dict[str, set[str]]]:
         days = {AI: int(settings.system_value(tx, "backup.ai.keep_days_drive")),
                 SUBMISSION: int(settings.system_value(tx, "backup.submission.keep_days_drive"))}
         if tenant_id is None:
@@ -576,9 +586,18 @@ def prune(app: Access, drive: Drive, tenant_id: UUID | None, *, now: datetime | 
             days[RECORDING] = int(settings.resolve(tx, "recording.keep_days_drive", tenant_id=tenant_id, client_id=None,
                                                    business_id=None))
             folders = {r["f"]: days for r in tx.all("SELECT folder_name AS f FROM salescall.client_backup_folders")}
-        verified = {r["f"] for r in tx.all("SELECT file_name AS f FROM salescall.backup_runs WHERE restore_ok AND kind = %s"
-                                           " AND tenant_id IS NOT DISTINCT FROM %s",
-                                           ("system" if tenant_id is None else "client_ai", tenant_id))}
+        # 戻せることまで確かめた控え（フォルダとファイルの名前の組。ファイルの名前は時刻だけなので、依頼者が違えば同じ名前もある
+        # ＝フォルダごとに見る。2026-10-18 の見直し）
+        if tenant_id is None:
+            rows = tx.all("SELECT %s AS folder, file_name AS f FROM salescall.backup_runs WHERE restore_ok AND kind = 'system'",
+                          (WHOLE,))
+        else:
+            rows = tx.all("SELECT b.folder_name AS folder, r.file_name AS f FROM salescall.backup_runs r"
+                          " JOIN salescall.client_backup_folders b ON b.client_id = r.client_id"
+                          " WHERE r.restore_ok AND r.kind = 'client_ai' AND r.tenant_id = %s", (tenant_id,))
+        verified: dict[str, set[str]] = {}
+        for r in rows:
+            verified.setdefault(r["folder"], set()).add(r["f"])
         return folders, verified
     folders, verified = _in(app, tenant_id, None, look)
     removed = 0
@@ -590,7 +609,7 @@ def prune(app: Access, drive: Drive, tenant_id: UUID | None, *, now: datetime | 
                    and datetime.strptime(m.group(1) + m.group(2), "%Y%m%d%H%M%S").replace(tzinfo=now.tzinfo)
                    < now - timedelta(days=n)]
             if kind == AI and old:   # 消すものがあるときだけ（old があればフォルダはある）
-                newest = max((f.name for f in (folder / kind).iterdir() if f.name in verified), default=None)
+                newest = max((f.name for f in (folder / kind).iterdir() if f.name in verified.get(name, set())), default=None)
                 old = [f for f in old if f.name != newest]
             if kind == RECORDING and old:
                 ids = {f: m.group(1) for f in old if (m := _HELD_ID.search(f.name))}

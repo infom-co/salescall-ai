@@ -113,10 +113,17 @@ def _check_client_budget(tx: Tx, tenant_id: UUID, client_id: UUID) -> None:
                     refs={"client_id": client_id, "spent": str(spent), "limit": str(limit)})
 
 
-def _deficit(tx: Tx, tenant_id: UUID, client_id: UUID) -> tuple[bool, dict[str, Any]]:
-    """取引の依頼者が、いま赤字か（判断は1か所：費用 ＞ 多めに見込んだ報酬）と、今月の数。"""
+DEFICIT, NOT_DEFICIT, UNKNOWN = "deficit", "not_deficit", "unknown"
+
+
+def _deficit(tx: Tx, tenant_id: UUID, client_id: UUID) -> tuple[str, dict[str, Any]]:
+    """取引の依頼者が、いま赤字か（**判断は1か所**：費用 ＞ 多めに見込んだ報酬）と、今月の数。いま効いている報酬の決まりが無ければ
+    判断できない（UNKNOWN）：警告も停止も新しくはしない・今ある赤字の停止も解かない（解く根拠も無い）。設定の抜けとして知らせる
+    （`_check_cost_ratio`）。2026-10-18 の見直し：前は、決まりが無いときの扱いが3か所で違った。"""
     m = reward.month(tx)
-    return m["cost"] > m["upper"], m
+    if not m["has_terms"]:
+        return UNKNOWN, m
+    return (DEFICIT if m["cost"] > m["upper"] else NOT_DEFICIT), m
 
 
 def _setting(tx: Tx, key: str, tenant_id: UUID, client_id: UUID) -> Any:
@@ -127,11 +134,11 @@ def _deficit_step(tx: Tx, tenant_id: UUID, client_id: UUID) -> int | None:
     """赤字の警告と停止の進め方（判断はここだけ。利用量の記録のたびと、見守りの tick が呼ぶ）。止めたら停止の番号を返す。
     赤字でない ⇒ 開いている警告を閉じる／赤字で警告が無い・確認が切れた ⇒ 警告して知らせる／警告の期限までに確認されていない
     ⇒ 止める（原因 deficit）／確認済みで確認が効いているあいだ ⇒ 何もしない。"""
-    deficit, m = _deficit(tx, tenant_id, client_id)
+    state, m = _deficit(tx, tenant_id, client_id)
     figures = f"今月の費用 {m['cost']:.2f}円・報酬 {m['revenue']:.2f}円"
     w = tx.one("SELECT warning_id, deadline, confirmed_at, now() AS now FROM salescall.deficit_warnings"
                " WHERE closed_at IS NULL")
-    if not deficit or not m["has_terms"]:
+    if state != DEFICIT:
         if w is not None:
             tx.execute("UPDATE salescall.deficit_warnings SET closed_at = now(), closed_why = 'not_deficit'"
                        " WHERE warning_id = %s", (w["warning_id"],))
@@ -172,15 +179,15 @@ def confirm_deficit(tx: Tx, warning_id: int) -> None:
 
 
 def _check_cost_ratio(tx: Tx, tenant_id: UUID, client_id: UUID) -> int | None:
-    deficit, m = _deficit(tx, tenant_id, client_id)
+    state, m = _deficit(tx, tenant_id, client_id)
     figures = f"今月の費用 {m['cost']:.2f}円・報酬 {m['revenue']:.2f}円"
     day = tx.one("SELECT salescall.jst(now())::date AS d")["d"]
-    if not m["has_terms"]:
+    if state == UNKNOWN:
         # 報酬の決まりが無いのは設定の抜け（お客様には影響しない）：止めずに注意を知らせる（2026-10-16 ユーザー）
         notify.emit(tx, "setting_missing", key=f"reward_terms_missing:{client_id}:{day}",
                     summary=f"報酬の決まりが設定されていません（赤字かを判断できません。{figures}）", refs={"client_id": client_id})
         return None
-    if deficit:
+    if state == DEFICIT:
         return _deficit_step(tx, tenant_id, client_id)
     _deficit_step(tx, tenant_id, client_id)              # 赤字でなくなった：開いている警告を閉じる
     limit = Decimal(settings.resolve(tx, "budget.max_cost_ratio", tenant_id=tenant_id, client_id=client_id,
@@ -222,19 +229,27 @@ def tick(access: Access, actor: Actor, tenant_id: UUID) -> dict[str, Any]:
         return (tx.all("SELECT * FROM salescall.open_deficit_warnings()"),
                 tx.all("SELECT * FROM salescall.open_system_stops('deficit')"))
     warnings, deficit_stops = access.in_tenant(actor, tenant_id, tenant)
-    stopped, resumed = [], []
-    for w in warnings:
-        got = access.in_client(actor, tenant_id, w["client_id"], lambda tx, w=w: _deficit_step(tx, tenant_id, w["client_id"]))
+    stopped, resumed, failed = [], [], []
+    def each(client_id: UUID, work: Any, into: list[Any]) -> None:
+        """依頼者ごとに別の取引。1つの依頼者の誤りで、ほかの依頼者の「期限が来たので止める」「赤字の停止を解く」を止めない
+        （2026-10-18 の見直し）。誤りは最後にまとめて外へ出す（見守り役が記録する）。"""
+        try:
+            got = access.in_client(actor, tenant_id, client_id, work)
+        except Exception as e:  # noqa: BLE001
+            failed.append(e)
+            return
         if got is not None:
-            stopped.append(got)
+            into.append(got)
+    for w in warnings:
+        each(w["client_id"], lambda tx, w=w: _deficit_step(tx, tenant_id, w["client_id"]), stopped)
     for s in deficit_stops:
         def check(tx: Tx, s=s) -> int | None:
-            deficit, m = _deficit(tx, tenant_id, s["client_id"])
-            if deficit:
+            state, m = _deficit(tx, tenant_id, s["client_id"])
+            if state != NOT_DEFICIT:   # 赤字のまま・判断できない：解かない
                 return None
             return stops.resume(tx, s["event_id"], reason=f"赤字でなくなった（今月の費用 {m['cost']:.2f}円・報酬 {m['revenue']:.2f}円）",
                                 evidence="利用量の台帳・報酬の決まり")
-        got = access.in_client(actor, tenant_id, s["client_id"], check)
-        if got is not None:
-            resumed.append(got)
+        each(s["client_id"], check, resumed)
+    if failed:
+        raise ExceptionGroup("費用の見張りで、一部の依頼者の分ができませんでした", failed)
     return {"stopped": stopped, "resumed": resumed}

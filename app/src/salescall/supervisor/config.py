@@ -13,7 +13,7 @@ PC の環境変数から、下の表の名前（SALESCALL_ で始まるもの）
 | SALESCALL_CALL_RUNNER | 通話を最後まで進める部品を作る関数（会話＝CL-1） | 電話をかけるとき |
 | SALESCALL_VERIFIER | 通話後の検証の部品を作る関数（CL-1） | 検証をこの PC でするとき |
 | SALESCALL_PROBER | 停止を解く確かめの部品を作る関数（CL-1・電話接続） | 確かめをこの PC でするとき |
-| SALESCALL_SYSTEM_JOBS | 1 なら、すべての契約者に共通の仕事（祝日の暦・データベース全体の控え）もこの PC でする（管理者の PC） | 管理者の PC |
+| SALESCALL_SYSTEM_JOBS | 1 なら、すべての契約者に共通の仕事（祝日の暦・全体の停止の確かめ・落ちたままの PC の回線の後始末・データベース全体の控え）もこの PC でする（管理者の PC） | 管理者の PC |
 | SALESCALL_OWNER_DSN | データベースへの接続（表の持ち主。データベース全体の控えを取る） | 管理者の PC |
 | SALESCALL_RESTORE_DSN | 戻せるかを確かめる、空のデータベース（本番と別） | 管理者の PC |
 | SALESCALL_BACKUP_DRIVE | 控え用のハードディスクの一番上（例 E:\\） | いつも（契約者の控え） |

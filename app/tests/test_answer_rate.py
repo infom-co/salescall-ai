@@ -77,11 +77,13 @@ class Counts(unittest.TestCase):
         self.dial(["ringing", "no_answer"])
         self.dial(["busy"])
         self.dial(["call_failed"])                         # 鳴らせなかった：番号の評判と関係ない
+        self.dial(["answered", "in_conversation", "ending", "ended"])   # 呼び出し中を知らせずに出た回線も数える
+        self.dial(["ringing"])                             # まだ呼び出し中：結果が出ていないので数えない
         today = self.w.a.in_tenant(SYSTEM, self.s["tenant"], lambda tx: tx.one("SELECT salescall.jst(now())::date AS d")["d"])
         got = self.w.a.in_tenant(SYSTEM, self.s["tenant"], lambda tx: tx.all(
             "SELECT sum(dials)::int AS d, sum(answers)::int AS a FROM salescall.line_answer_counts(%s, %s, %s)",
             (self.s["line"], today, today)))[0]
-        self.assertEqual((got["d"], got["a"]), (3, 1))
+        self.assertEqual((got["d"], got["a"]), (4, 2))
         other = World().setup()
         seen = self.w.a.in_tenant(SYSTEM, other["tenant"], lambda tx: tx.all(
             "SELECT * FROM salescall.line_answer_counts(%s, %s, %s)", (self.s["line"], today, today)))

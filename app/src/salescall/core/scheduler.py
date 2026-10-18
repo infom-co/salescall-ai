@@ -28,8 +28,9 @@ def clients_for_line(tx: Tx, line_id: UUID) -> list[UUID]:
         " AND salescall.client_active(client_id) ORDER BY created_at", (line["tenant_id"], line["client_id"], line["client_id"]))]
 
 
-def due_tasks(tx: Tx, limit: int) -> list[dict[str, Any]]:
-    """取引の依頼者の、いまかけてよさそうな行（門に渡す順）。依頼者より広い範囲（全体・契約者・依頼者）で止まっていれば、無し。"""
+def due_tasks(tx: Tx, limit: int, *, skip_businesses: set[UUID] | frozenset[UUID] = frozenset()) -> list[dict[str, Any]]:
+    """取引の依頼者の、いまかけてよさそうな行（門に渡す順）。依頼者より広い範囲（全体・契約者・依頼者）で止まっていれば、無し。
+    skip_businesses＝この回、門が業務の理由（gate.BUSINESS_REASONS）で断った業務（その業務の行を出さない。判断は門がしたもの）。"""
     me = tx.one("SELECT salescall.cur_tenant() AS t, salescall.cur_client() AS c")
     if stops.open_stops(tx, tenant_id=me["t"], client_id=me["c"], business_id=None):
         return []
@@ -41,4 +42,5 @@ def due_tasks(tx: Tx, limit: int) -> list[dict[str, Any]]:
         " WHERE n.kind = 'call' AND n.call_at <= now()"
         "   AND NOT salescall.task_awaiting_decision(t.task_id) AND NOT salescall.task_excluded(t.task_id)"
         "   AND NOT EXISTS (SELECT 1 FROM salescall.attempts a WHERE a.task_id = t.task_id AND salescall.is_active(a.state))"
-        " ORDER BY n.promised DESC, n.call_at, t.task_id LIMIT %s", (limit,))
+        "   AND r.business_id <> ALL(%s::uuid[])"
+        " ORDER BY n.promised DESC, n.call_at, t.task_id LIMIT %s", (list(skip_businesses), limit))

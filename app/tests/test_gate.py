@@ -119,8 +119,11 @@ class Base(unittest.TestCase):
 
 
 class FakeDriver:
-    def __init__(self, fail=None):
-        self.calls, self.fail = [], fail
+    def __init__(self, fail=None, busy=False):
+        self.calls, self.fail, self.busy = [], fail, busy
+
+    def in_call(self):
+        return self.busy
 
     def start_call(self, phone):
         self.calls.append(phone)
@@ -781,14 +784,23 @@ class Exit(Base):
     def test_driver_failures(self):
         s = self.ready()
         c = self.claim(s)
-        self.assertFalse(dial_exit.dial(self.w.a, SYSTEM, s["tenant"], s["client"], c.attempt_id,
-                                        FakeDriver(dial_exit.CallNotPlaced("番号を受け付けなかった"))))
+        self.assertIs(dial_exit.dial(self.w.a, SYSTEM, s["tenant"], s["client"], c.attempt_id,
+                                     FakeDriver(dial_exit.CallNotPlaced("番号を受け付けなかった"))), dial_exit.Outcome.NOT_PLACED)
         self.assertEqual(self.state(s, c.attempt_id), "call_failed")
         s2 = self.ready()
         c2 = self.claim(s2)
         with self.assertRaises(RuntimeError):
             dial_exit.dial(self.w.a, SYSTEM, s2["tenant"], s2["client"], c2.attempt_id, FakeDriver(RuntimeError("切断")))
         self.assertEqual(self.state(s2, c2.attempt_id), "technical_error")   # かかったか分からない ⇒ 結果不明
+
+    def test_a_line_still_in_a_call_is_not_dialed(self):
+        """回線（スマホ）がまだ前の通話の途中なら、かけずに予約を戻す（処理が落ちて立ち上げ直しても、二重にかけない）。"""
+        s = self.ready()
+        c = self.claim(s)
+        d = FakeDriver(busy=True)
+        got = dial_exit.dial(self.w.a, SYSTEM, s["tenant"], s["client"], c.attempt_id, d)
+        self.assertEqual((got, d.calls, self.state(s, c.attempt_id)), (dial_exit.Outcome.LINE_IN_CALL, [], "released"))
+        self.assertFalse(got)
 
     def test_dnc_after_claim_stops_the_dial(self):
         s = self.ready()
@@ -1029,6 +1041,19 @@ class BusinessDailyLimit(Base):
         self.tx(s, lambda tx: next_action.schedule_call(tx, s["task"], tx.one("SELECT now() AS t")["t"],
                                                         contact_id=s["contact"], cause="試験", promised=True))
         self.assertIsInstance(self.claim(s), gate.Claim)                    # お客様と約束したかけ直しは止めない
+
+    def test_a_live_claim_of_the_business_counts_but_an_expired_one_does_not(self):
+        """予約してまだかけていない試行も数える（数えないと、同時に動く回線の本数まで上限を超える）。期限の切れた予約は数えない。"""
+        s = self.ready()
+        self.put_business(s, 1)
+        phone = normalize(fictional_jp_fixed()).e164
+        k = self.w.contact(s["tenant"], s["client"], phone)
+        other = dict(s, task=self.w.task(s["tenant"], s["client"], s["run"], k), contact=k, phone=phone)
+        live = self.w.insert_claim(other)
+        self.assertEqual(self.reason(s), "business_daily_limit")
+        self.tx(s, lambda tx: attempts.release(tx, [live]))
+        self.w.insert_claim(other, expires_in=timedelta(microseconds=1))
+        self.assertIsInstance(self.claim(s), gate.Claim)
 
     def test_the_value_is_null_or_a_positive_number(self):
         s = self.ready()

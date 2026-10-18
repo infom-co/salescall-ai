@@ -39,7 +39,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
@@ -55,7 +54,6 @@ FIELDS = ("phone", "client_ref", "name", "name_reading", "person_name", "person_
 # 対応付けられる欄：番号・依頼者の管理番号・お客様の名前（会社名など）とその読み・目的のお客様の名前とその読み・役職・
 # 「かけない」（2026-10-18 ユーザー決定。読み方は exclusions.read_mark の1か所。付けた行は登録して「かけない」の印を付ける）
 _READING_OF = {"name": "name_reading", "person_name": "person_name_reading"}   # 名前の欄 → 読みの欄
-_EXPONENT = re.compile(r"^\s*[+-]?\d+(\.\d+)?[eE][+-]?\d+\s*$")
 
 
 class PlanChanged(Exception):
@@ -261,8 +259,8 @@ def _plan(tx: Tx, run_id: UUID, sheet: Sheet, mapping: dict[str, str], *, confir
         if "client_ref" in cells and ref is None:
             rows.append(stop("ref_missing", "管理番号がありません（結果を依頼者の表と突き合わせる鍵です）"))
             continue
-        if ref is not None and _EXPONENT.match(ref):
-            rows.append(stop("ref_digits_lost", "管理番号が指数の書き方（例：1.23E+15）で、桁が失われています"))
+        if import_columns.ref_digits_lost(ref):
+            rows.append(stop("ref_digits_lost", import_columns.REF_DIGITS_LOST))
             continue
         name = _text(row, cols, "name")
         number = normalize(raw_phone, leading_zero_lost=lost)

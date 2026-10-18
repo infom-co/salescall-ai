@@ -71,7 +71,7 @@ class Backup(unittest.TestCase):
         self.assertIn("backup_failed", [r["kind"] for r in asked])
         told = self.app.in_system(ADMIN, lambda tx: tx.all(
             "SELECT summary FROM salescall.notification_events WHERE kind = 'backup_failed' AND for_admin"
-            " AND event_key LIKE '%%:system'"))
+            " AND event_key LIKE '%%:system:-'"))
         self.assertEqual(len(told), 1)                                # 1日1回（同じ日の失敗は重ねない）
         self.assertNotIn("password", str(told) + str([r["summary"] for r in asked]))
 
@@ -233,12 +233,13 @@ class PerClient(unittest.TestCase):
     def test_the_whole_database_is_backed_up_only_by_the_admin_pc(self):
         """データベース全体の控え（すべての契約者のデータが入る）は、管理者の PC だけ。記録は契約者を持たない。"""
         World().setup()
-        was_due = backup.due(self.app)                                   # 1日1回（ほかの試験が今日もう取っていれば取らない）
+        # 1日1回（ほかの試験が今日もう取っていれば取らない）。ほかの試験が1時間以内に失敗させていれば、やり直さない
+        was_due = backup.due(self.app) and backup._may_try(self.app, "system")
         results = self.run_whole()
         self.assertTrue(all(r.ok for r in results), [r.error for r in results if not r.ok])
         base = self.root / backup.BASE
         self.assertEqual(bool(list((base / backup.WHOLE / backup.AI).glob("salescall-*.dump.enc"))), was_due)
-        self.assertFalse(backup.due(self.app))
+        self.assertFalse(was_due and backup.due(self.app))
         self.assertEqual([p.name for p in (base.iterdir() if base.exists() else ()) if p.name != backup.WHOLE], [])   # 依頼者のフォルダは作らない
         with self.assertRaises(Rejected):                                 # データベース全体の記録に契約者は付けられない
             self.app.in_tenant(SYSTEM, self.w.tenant(), lambda tx: tx.execute(
@@ -267,10 +268,13 @@ class PerClient(unittest.TestCase):
         self.assertEqual(backup.copy_submissions(self.app, self.drive, s["tenant"], key=CKEY), [])   # 写すものが無ければ何もしない
 
     def test_a_missing_key_is_asked_to_that_contractor(self):
-        s = World().setup()
-        self.assertEqual([r.ok for r in self.run_contractor(s["tenant"], environ={})], [False])
-        self.assertEqual([r["kind"] for r in self.runs(s["tenant"])], ["key"])
-        self.assertEqual([r["summary"] for r in self.notices(s["tenant"])], [backup.KeyMissing.ask])
+        """鍵が無ければ、その契約者に「鍵を入れてください」。2人の契約者が同じ日に同じ知らせ（同じ鍵の出来事）になっても、
+        それぞれに届く（知らせの「同じ出来事」は契約者ごと＝0064）。"""
+        s, other = World().setup(), World().setup()
+        for x in (s, other):
+            self.assertEqual([r.ok for r in self.run_contractor(x["tenant"], environ={})], [False])
+            self.assertEqual([r["kind"] for r in self.runs(x["tenant"])], ["key"])
+            self.assertEqual([r["summary"] for r in self.notices(x["tenant"])], [backup.KeyMissing.ask])
         self.assertFalse((self.root / backup.BASE).exists())
 
     def test_failures_are_asked_to_fix_by_kind_and_told_to_the_admin_and_that_contractor(self):
@@ -291,6 +295,14 @@ class PerClient(unittest.TestCase):
             with self.subTest(tenant=x["tenant"]):
                 self.assertEqual(len(self.notices(x["tenant"])), 1)
                 self.assertIn(x["tenant"], [r["origin_tenant"] for r in self.notices()])
+
+    def test_two_clients_failing_on_the_same_day_are_both_told(self):
+        """同じ契約者の2つの依頼者の控えが同じ日に失敗しても、知らせはそれぞれに届く（2026-10-18 の見直し：前は2つ目が黙って落ちた）。"""
+        s = World().setup()
+        other = World().setup(tenant=s["tenant"])
+        for x in (s, other):
+            self.assertFalse(backup._client_ai(self.app, self.drive, x["tenant"], x["client"], key=b"short").ok)
+        self.assertEqual(len(self.notices(s["tenant"])), 2)
 
     def test_old_backups_are_removed_by_kind_only_in_that_contractors_folders(self):
         """AI用は1年、提出用は3年（ハードディスク）。名前に日時のある控えのファイルだけを消す。ほかの契約者のフォルダには触れない。"""

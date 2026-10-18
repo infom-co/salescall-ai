@@ -12,7 +12,8 @@
    - 依頼者の理由（gate.CLIENT_REASONS）なら、その依頼者の行は、この回だけ飛ばす。業務の理由（gate.BUSINESS_REASONS：その業務の
      今日の上限）なら、その業務の行は、この回だけ飛ばす（同じ依頼者のほかの業務の行はかける）。
 3. 予約証で発信の出口（dial_exit.dial）がかけ、通話を進める部品（CL-1）が最後まで進める。外へ出た誤りは、その試行を結果不明に
-   して「見守り役の誤り」として記録する（止めない）。
+   して「見守り役の誤り」として記録する（止めない）。回線がまだ前の通話の途中・回線の部品がかけられなかったときは、その回線を
+   休ませる（かけられなかったことは、回線の異常として数える＝続けば、エラーの処置の表のとおり、その回線を止める）。
 締め（判定・次の動き）は、見守り役の決まった間隔の仕事がする（jobs の settle）。
 """
 
@@ -22,8 +23,9 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
-from salescall.core import attempts, dial_exit, emergency, gate, next_action, scheduler, settings
+from salescall.core import attempts, dial_exit, emergency, gate, next_action, scheduler, settings, watch
 from salescall.core.access import Access, Actor
+from salescall.core.errors import ErrorReport
 from salescall.supervisor import ACTOR, config, plugins, report
 from salescall.supervisor.locks import SingleInstance, line_lock
 
@@ -58,28 +60,53 @@ def _end_unknown(access: Access, actor: Actor, tenant_id: UUID, client_id: UUID,
 def one_round(access: Access, actor: Actor, tenant_id: UUID, line_id: UUID, holder: str, driver: dial_exit.LineDriver,
               runner: plugins.CallRunner) -> Round:
     for client_id in access.in_tenant(actor, tenant_id, lambda tx: scheduler.clients_for_line(tx, line_id)):
-        tasks = access.in_client(actor, tenant_id, client_id, lambda tx: scheduler.due_tasks(tx, CANDIDATES_PER_CLIENT))
-        capped: set[UUID] = set()
+        got = _client_round(access, actor, tenant_id, client_id, line_id, holder, driver, runner)
+        if got is not None:
+            return got
+    return Round()
+
+
+def _client_round(access: Access, actor: Actor, tenant_id: UUID, client_id: UUID, line_id: UUID, holder: str,
+                  driver: dial_exit.LineDriver, runner: plugins.CallRunner) -> Round | None:
+    """1つの依頼者の行を、門に渡す。かけたか回線を休むなら Round、この依頼者でかけられる行が無ければ None。
+    業務の理由で断られた業務は、この回だけ飛ばし、その業務を除いて候補を読み直す（前は読み直さなかったので、上限に達した業務の
+    行が候補の先頭を埋めると、同じ依頼者のほかの業務の行が1日じゅう候補に入らなかった＝2026-10-18 の見直し）。"""
+    capped: set[UUID] = set()
+    while True:
+        tasks = access.in_client(actor, tenant_id, client_id,
+                                 lambda tx: scheduler.due_tasks(tx, CANDIDATES_PER_CLIENT, skip_businesses=capped))
+        newly = False
         for task in tasks:
             if task["business_id"] in capped:
                 continue
             got = access.in_client(actor, tenant_id, client_id,
                                    lambda tx, task=task: _claim(tx, task, line_id, holder, tenant_id, client_id))
             if isinstance(got, gate.Claim):
-                if dial_exit.dial(access, actor, tenant_id, client_id, got.attempt_id, driver):
+                done = dial_exit.dial(access, actor, tenant_id, client_id, got.attempt_id, driver)
+                if done is dial_exit.Outcome.DIALED:
                     try:
                         runner.run(access, actor, got, tenant_id=tenant_id, client_id=client_id)
                     except Exception as e:  # noqa: BLE001 その通話だけを結果不明にして、次へ進む（止めない）
                         _end_unknown(access, actor, tenant_id, client_id, got.attempt_id)
                         report(access, tenant_id, "通話を進める部品", e, line_id=line_id)
-                return Round(called=got.attempt_id)
+                    return Round(called=got.attempt_id)
+                if done is dial_exit.Outcome.NOT_PLACED:   # 回線の異常として数える（続けば、その回線を止める）
+                    watch.after_error(access, actor, ErrorReport("line", None, "回線の部品が電話をかけられなかった"),
+                                      tenant_id=tenant_id, line_id=line_id)
+                if done in (dial_exit.Outcome.NOT_PLACED, dial_exit.Outcome.LINE_IN_CALL):
+                    # かけられなかった・まだ前の通話の途中：その回線を休ませる（休まず次の行へ進むと、行の回数と回線の
+                    # 1日の上限を数分で使い切りうる＝2026-10-18 の見直し）
+                    return Round(pause=done.value)
+                return Round()   # 予約証が使えなかった（緊急停止など）：次の回で、門から考え直す
             if got.reason in gate.LINE_REASONS:
                 return Round(pause=got.reason)
             if got.reason in gate.CLIENT_REASONS:
-                break
+                return None
             if got.reason in gate.BUSINESS_REASONS:
                 capped.add(task["business_id"])
-    return Round()
+                newly = True
+        if not newly:
+            return None
 
 
 def run(environ: dict[str, str], line_id: str, holder: str, stop: Any) -> None:

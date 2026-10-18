@@ -60,20 +60,22 @@ class ClientList(Base):
                         ("", "架空商事", a)])
         plan, got = self.take(data)
         self.assertEqual([(r.row_no, r.outcome, r.reason_code) for r in plan.rows],
-                         [(2, "registered", None), (3, "empty", None), (4, "stopped", "number_unreadable"),
+                         [(2, "registered", "ref_matches_no_row"), (3, "empty", None),
+                          (4, "registered", "number_unreadable"),      # 番号が読めなくても、管理番号で止める（止める側に倒す）
                           (5, "registered", None), (6, "already", "already_stopped")])
-        self.assertEqual((got["counts"]["numbers"], got["counts"]["client_refs"]), (2, 1))
+        self.assertEqual((got["counts"]["numbers"], got["counts"]["client_refs"]), (2, 2))
+        self.assertEqual(self.blocked(fictional_jp_fixed(), ref="R-2")[0], "dnc_client_ref")
         for number in (a, b):
             self.assertEqual(self.blocked(number)[0], "dnc_client")    # 発信対象の取込と門が、同じ1か所で止める
         self.assertEqual(self.blocked(fictional_jp_fixed(), ref="R-1")[0], "dnc_client_ref")   # 一覧の管理番号のお客様も
         rows = self.client_tx(lambda tx: tx.all(
             "SELECT reason::text AS reason, import_id FROM salescall.dnc_entries WHERE import_id = %s", (got["import_id"],)))
-        self.assertEqual(({r["reason"] for r in rows}, len(rows)), ({"client_list"}, 3))
+        self.assertEqual(({r["reason"] for r in rows}, len(rows)), ({"client_list"}, 4))
         again_plan, again = self.take(data)                             # 同じ一覧をもう一度：新しく止めるものは無い
         self.assertEqual((again["counts"]["registered"], again["counts"]["numbers"]), (0, 0))
         rec = self.client_tx(lambda tx: tx.all(
             "SELECT outcome, new_numbers FROM salescall.dnc_import_rows WHERE import_id = %s ORDER BY row_no", (got["import_id"],)))
-        self.assertEqual([r["outcome"] for r in rec], ["registered", "empty", "stopped", "registered", "already"])
+        self.assertEqual([r["outcome"] for r in rec], ["registered", "empty", "registered", "registered", "already"])
 
     def test_numbers_that_lost_their_leading_zero_are_read_like_the_target_list(self):
         """表計算ソフトで先頭の 0 が消えた番号は、発信対象の取込と同じ決め方で 0 を足して止める（同じ番号を別の番号に読まない）。"""
@@ -82,6 +84,15 @@ class ClientList(Base):
         got = self.take(xlsx([("電話番号",), (int(digits),)]), {"phone": "電話番号"}, name="発信禁止.xlsx")[1]
         self.assertEqual(got["counts"]["numbers"], 1)
         self.assertEqual(self.blocked(number)[0], "dnc_client")
+
+    def test_a_reference_that_matches_no_row_is_pointed_out(self):
+        """管理番号に当たる行が無ければ、登録はするが注意を出す（数の型の欄なら、先頭の 0 が消えていないか確かめてもらう）。
+        当たる行があれば注意は無い。"""
+        import_rows(self.w, self.s, self.s["run"], [("000123", "架空商事", fictional_jp_fixed())])
+        plan = self.take(xlsx([("管理番号",), (123,), ("000123",)]), {"client_ref": "管理番号"}, name="発信禁止.xlsx")[0]
+        self.assertEqual([(r.outcome, r.reason_code) for r in plan.rows],
+                         [("registered", "ref_matches_no_row"), ("registered", None)])
+        self.assertIn("先頭の 0", plan.rows[0].reason)
 
     def test_the_customers_rows_are_stopped_like_a_refusal_but_not_other_clients(self):
         """一覧の番号・管理番号を持つ行のお客様は、断ったお客様と同じく、その行の番号すべてまで止める（お客様ごと。原則14）。

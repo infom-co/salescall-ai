@@ -27,7 +27,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
@@ -40,7 +39,6 @@ from salescall.core.phone import PhoneNumber, normalize
 
 FIELDS = ("phone", "client_ref")              # 番号・依頼者の管理番号（契約者の一覧は番号だけ）
 LIST_REASON = "契約者の一覧の取込"               # 契約者の共通の台帳の理由（どのファイルかは、登録が指す取込の記録にある）
-_EXPONENT = re.compile(r"^\s*[+-]?\d+(\.\d+)?[eE][+-]?\d+\s*$")
 
 
 class PlanChanged(Exception):
@@ -51,7 +49,7 @@ class PlanChanged(Exception):
 class RowPlan:
     row_no: int
     outcome: str                              # registered・already・stopped・empty
-    reason_code: str | None = None
+    reason_code: str | None = None            # 止めた・止めなかった理由。登録する行では注意（番号が読めず管理番号で止める など）
     reason: str | None = None
     number: PhoneNumber | None = None
     client_ref: str | None = None
@@ -151,14 +149,27 @@ def _plan(tx: Tx, sheet: Sheet, mapping: dict[str, str]) -> Plan:
         if raw is None and ref is None:
             rows.append(stop("nothing", "番号も管理番号もありません"))
             continue
-        if ref is not None and _EXPONENT.match(ref):
-            rows.append(stop("ref_digits_lost", "管理番号が指数の書き方（例：1.23E+15）で、桁が失われています。この行は止めていません"))
+        if import_columns.ref_digits_lost(ref):
+            rows.append(stop("ref_digits_lost", import_columns.REF_DIGITS_LOST + "。この行は止めていません"))
             continue
         number = None if raw is None else normalize(raw, leading_zero_lost=zero)
+        note: tuple[str | None, str | None] = (None, None)    # 登録する行の注意（プレビューに出す）
         if number is not None and number.e164 is None:
-            rows.append(stop("number_unreadable", f"番号として読めません（{number.reason}）。この行は止めていません"
-                                                  "（番号を直して、取り込み直してください）", client_ref=ref))
-            continue
+            if ref is None:
+                rows.append(stop("number_unreadable", f"番号として読めません（{number.reason}）。この行は止めていません"
+                                                      "（番号を直して、取り込み直してください）"))
+                continue
+            # 管理番号があれば、管理番号で止める（依頼者が名指ししたお客様。止める側に倒す＝2026-10-18 の見直し）
+            note = ("number_unreadable", f"番号として読めません（{number.reason}）。管理番号で止めます"
+                                         "（番号を直して取り込み直すと、番号でも止めます）")
+            number = None
+        if ledger == "client" and ref is not None and note[0] is None and tx.one(
+                "SELECT 1 FROM salescall.tasks WHERE client_ref = %s LIMIT 1", (ref,)) is None:
+            # 管理番号に当たる行がまだ無い（あとで取り込む行は取込が止める）。表計算ソフトで先頭の 0 が消えた管理番号は、別の
+            # 管理番号に見えるので、確かめてもらう（どちらの番号が正しいかは決めつけない）
+            note = ("ref_matches_no_row", "この管理番号の行は、まだありません（あとで取り込む行は止めます）。"
+                    + ("管理番号の欄が数の型なので、先頭の 0 が消えていないか確かめてください" if row.cell(cols["client_ref"]).numeric
+                       else "管理番号が依頼者の一覧と同じ書き方か確かめてください"))
         if ledger == "client":
             numbers, refs = dnc.stop_set(tx, number, "client_list", client_ref=ref)
         else:
@@ -172,7 +183,7 @@ def _plan(tx: Tx, sheet: Sheet, mapping: dict[str, str]) -> Plan:
             continue
         planned_numbers.update(new_numbers)
         planned_refs.update(new_refs)
-        rows.append(RowPlan(row.row_no, "registered", number=number, client_ref=ref, new_numbers=new_numbers,
+        rows.append(RowPlan(row.row_no, "registered", note[0], note[1], number=number, client_ref=ref, new_numbers=new_numbers,
                             new_refs=new_refs))
 
     body = {"ledger": ledger, "tenant": str(scope["t"]), "client": str(scope["c"]), "file": sheet.file_sha256,

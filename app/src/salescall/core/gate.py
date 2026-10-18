@@ -408,12 +408,18 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
     #      営業として新しくかける電話だけ（_NOT_NEW_PURPOSES と約束したかけ直しは、数えず止めない）
     cap = _setting(tx, "calling.business_daily_dials", task)
     if cap is not None and nxt["purpose"] not in _NOT_NEW_PURPOSES and not nxt["promised"]:
+        # 数えるのは、発信まで進んだ試行と、いま生きている予約（予約してまだかけていない試行を数えないと、同時に動く回線の本数
+        # まで上限を超える＝2026-10-18 の見直し。予約も数えると、同時の2つの門は直列化でぶつかり、片方がやり直す）
         made = tx.one(
             "SELECT count(*) AS n FROM salescall.attempts a"
             " JOIN salescall.tasks t ON t.client_id = a.client_id AND t.task_id = a.task_id"
             " JOIN salescall.runs r ON r.client_id = t.client_id AND r.run_id = t.run_id"
-            " WHERE r.business_id = %s AND a.state NOT IN ('claimed', 'released') AND a.purpose <> ALL(%s) AND NOT a.promised"
-            "   AND salescall.jst(a.claimed_at)::date = %s", (task["business_id"], list(_NOT_NEW_PURPOSES), local.date()))["n"]
+            " WHERE r.business_id = %s AND a.client_id = %s"
+            "   AND (a.state NOT IN ('claimed', 'released') OR salescall.is_live(a.state, a.claim_expires_at))"
+            "   AND a.purpose <> ALL(%s) AND NOT a.promised"
+            "   AND a.claimed_at >= salescall.jst_day_start(%s) AND a.claimed_at < salescall.jst_day_start(%s)",
+            (task["business_id"], task["client_id"], list(_NOT_NEW_PURPOSES), local.date(),
+             local.date() + timedelta(days=1)))["n"]
         if made >= int(cap):
             return _deny("business_daily_limit")
 

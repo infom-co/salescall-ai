@@ -30,7 +30,7 @@ from salescall.core import measure, results, settings
 from salescall.core.access import Tx
 
 
-SYSTEM_KINDS = ("judged", "rejudged")   # システムが判定した版（正解を付ける相手）
+SYSTEM_KINDS = measure.SYSTEM_KINDS      # システムが判定した版（直す相手・正解を付ける相手。決まりは measure の1か所）
 
 
 def human_for_business(tx: Tx, business_id: UUID) -> bool:
@@ -86,11 +86,10 @@ def after_judged(tx: Tx, task_id: UUID, version_no: int, version_id: UUID) -> li
 def approve_result(tx: Tx, task_id: UUID, version_no: int) -> None:
     """契約者の承認：契約者が、その結果の版を確かめて「送ってよい」にする。システムが判定した版なら、判定どおりが正解。"""
     _release(tx, task_id, version_no)
-    v = tx.one("SELECT kind::text AS kind, business_state::text AS state FROM salescall.task_results"
-               " WHERE task_id = %s AND version_no = %s", (task_id, version_no))
-    if v["kind"] in SYSTEM_KINDS and v["state"] != "unknown":
-        measure.record_check(tx, task_id, version_no, truth_state=v["state"], wrong_items=[],
-                             source=measure.review_source(tx, task_id, version_no))
+    v = tx.one("SELECT business_state::text AS state FROM salescall.task_results WHERE task_id = %s AND version_no = %s",
+               (task_id, version_no))
+    if v["state"] != "unknown":   # 判定できなかった版を承認しても、正解（業務の状態）は分からない
+        measure.record_check(tx, task_id, version_no, truth_state=v["state"], wrong_items=[])
 
 
 def correct_result(tx: Tx, task_id: UUID, *, checked_version: int, business_state: str, wrong_items: list[str],
@@ -105,6 +104,5 @@ def correct_result(tx: Tx, task_id: UUID, *, checked_version: int, business_stat
                                 judge_version=None, complaint=complaint, snapshot=snapshot, decided_by="契約者",
                                 detail=detail)
     _release(tx, task_id, version_no)
-    measure.record_check(tx, task_id, checked_version, truth_state=business_state, wrong_items=wrong_items,
-                         source=measure.review_source(tx, task_id, checked_version))
+    measure.record_check(tx, task_id, checked_version, truth_state=business_state, wrong_items=wrong_items)
     return version_no

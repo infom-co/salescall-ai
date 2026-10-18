@@ -66,7 +66,9 @@ class Row:
 
     @property
     def is_empty(self) -> bool:
-        return all(c.text is None and c.problem is None for c in self.cells)
+        """中身の無い行（チェックの列の外れ＝FALSE も中身ではない。表計算ソフトのチェックの列は、下の空の行まで FALSE が入るので、
+        数えると末尾の空の行が「番号の無い行」として並ぶ＝2026-10-18 の見直し）。"""
+        return all(c.text is None and (c.problem is None or c.flag is False) for c in self.cells)
 
 
 @dataclass(frozen=True)

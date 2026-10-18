@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from salescall.core.import_files import Sheet
@@ -39,6 +40,16 @@ def text(row: Any, cols: dict[str, int], field: str) -> str | None:
         return None
     t = row.cell(cols[field]).text
     return t.strip() if t is not None and t.strip() else None
+
+
+# 管理番号が指数の書き方（例：1.23E+15）＝表計算ソフトが大きな数として保存し、桁が失われた（2つの取込で同じ決まり）
+_EXPONENT = re.compile(r"^\s*[+-]?\d+(\.\d+)?[eE][+-]?\d+\s*$")
+REF_DIGITS_LOST = "管理番号が指数の書き方（例：1.23E+15）で、桁が失われています"
+
+
+def ref_digits_lost(ref: str | None) -> bool:
+    """管理番号の桁が失われているか（指数の書き方）。"""
+    return ref is not None and _EXPONENT.match(ref) is not None
 
 
 def zero_lost(sheet: Sheet, col: int) -> list[bool]:

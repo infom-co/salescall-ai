@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import Any, Callable
 from uuid import UUID
 
@@ -66,9 +67,24 @@ def _each(ctx: Context, what: str, items: list[Any], work: Callable[[Any], Any])
             report(ctx.access, ctx.cfg.tenant_id, what, e)
 
 
+# 管理者の PC が、ほかの契約者の回線を後始末するまでの、借用の期限が切れてからの長さ。ふつうの通話の長さ（会話AIの1回の音声の
+# セッションの上限 約15分＝Intent.md の Live API の上限）より十分長く＝その PC がデータベースに届かないだけで、まだ話している通話を
+# 終わらせない。その契約者のほかの PC は、期限が切れてすぐ後始末する（recover）
+STALE_AFTER = timedelta(minutes=30)
+
+
 def recover_expired(ctx: Context) -> None:
-    """借用の期限が切れた回線（ほかの PC が落ちた）の、進行中の試行の後始末（DESIGN.md 4-2）。"""
-    ctx.access.in_tenant(ACTOR, ctx.cfg.tenant_id, lambda tx: leases.recover(tx))
+    """借用の期限が切れた回線（同じ契約者のほかの PC が落ちた）の、進行中の試行の後始末（DESIGN.md 4-2）。自分が借りている回線は
+    除く（データベースに届かないあいだに期限が切れても、まだ話している自分の通話を終わらせない）。"""
+    ctx.access.in_tenant(ACTOR, ctx.cfg.tenant_id, lambda tx: leases.recover(tx, except_holder=ctx.holder))
+
+
+def recover_stale(ctx: Context) -> None:
+    """管理者の PC：契約者の PC が落ちたまま戻らない回線の後始末（すべての契約者に共通の仕事。残すと、その番号にすべての契約者が
+    かけられない・出たお客様へのお詫びが遅れる）。契約者ごとに別の取引。"""
+    tenants = ctx.access.in_system(ACTOR, lambda tx: leases.tenants_with_stale_lines(tx, STALE_AFTER))
+    _each(ctx, "ほかの PC の回線の後始末", tenants, lambda t: ctx.access.in_tenant(
+        ACTOR, t, lambda tx: leases.recover(tx, except_holder=ctx.holder, expired_for=STALE_AFTER)))
 
 
 def settle_ready(ctx: Context) -> None:
@@ -87,9 +103,12 @@ def rejudge_held(ctx: Context) -> None:
 
 
 def draw_samples(ctx: Context) -> None:
-    """誤判定率を測るための抜き取り（業務ごと・週ごとに1回。するかは measure の1か所が決める。Intent.md 16-3）。"""
-    _each(ctx, "抜き取り", _clients(ctx),
-          lambda c: ctx.access.in_client(ACTOR, ctx.cfg.tenant_id, c, measure.draw))
+    """誤判定率を測るための抜き取り（業務ごと・週ごとに1回。するかは measure の1か所が決める。Intent.md 16-3）と、測らない通話の
+    検証の印を外すこと（話していない通話・かけずに取り消した予約の録音を、ふつうの決まりに戻す）。"""
+    def work(tx: Any) -> None:
+        measure.release_unmeasured(tx)
+        measure.draw(tx)
+    _each(ctx, "抜き取り", _clients(ctx), lambda c: ctx.access.in_client(ACTOR, ctx.cfg.tenant_id, c, work))
 
 
 def answer_rates(ctx: Context) -> None:
@@ -144,6 +163,7 @@ def whole_backup(ctx: Context) -> None:
 
 # 仕事の表（1か所）。なぜその間隔か：
 # - recover：PC が落ちてから、その回線の通話を結果不明にするまでの遅れ（回線の借用の期限 60秒の上に、最大 60秒）
+# - recover_stale：契約者の PC が落ちたまま戻らないとき（STALE_AFTER の上に、最大 5分）
 # - settle：締めは次の動き（お詫びしてすぐかけ直す電話を含む）を決めるので、待たせない
 # - verify：通話後の検証は締めの前に要る（同じお客様への次の電話を待たせる）
 # - stop_checks：確かめてよい時刻は停止の記録が決める（ここは、その時刻を見に行く間隔）
@@ -156,6 +176,7 @@ def whole_backup(ctx: Context) -> None:
 # - whole_backup：数分ごとに見て、backup が1日1回にする（失敗したら1時間あけてやり直す）
 JOBS: tuple[Job, ...] = (
     Job("recover", 60, "tenant", 300, recover_expired),
+    Job("recover_stale", 300, "system", 600, recover_stale),
     Job("settle", 15, "tenant", 600, settle_ready),
     Job("verify", 15, "tenant", 600, verify_pending, wanted=lambda cfg: cfg.verifier is not None),
     Job("stop_checks", 30, "tenant", 600, stop_checks, wanted=lambda cfg: cfg.prober is not None),

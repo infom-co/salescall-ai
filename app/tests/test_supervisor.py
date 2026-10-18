@@ -9,11 +9,14 @@ import unittest
 import uuid
 from pathlib import Path
 
-from salescall.core import attempts, backup, call_report, fix_requests, leases, next_action, registry, scheduler, stops
+from salescall.core import (attempts, backup, business_rules, call_report, fix_requests, leases, next_action, quality_stage,
+                            registry, scheduler, stops)
+from salescall.core.phone import normalize
 from salescall.core.access import Rejected
 from salescall.supervisor import config, jobs, line
+from salescall.supervisor import main as main_mod
 from salescall.supervisor.main import Supervisor
-from tests.support import CLEAN, OPERATOR, SYSTEM
+from tests.support import CLEAN, OPERATOR, SYSTEM, fictional_jp_fixed, rules_raw
 from tests.test_gate import HOLDER, Base, FakeDriver
 from tests.test_settle import rep
 
@@ -108,6 +111,27 @@ class Recovery(SupervisorBase):
         self.assertEqual(self.state(s, c.attempt_id), "released")
 
 
+    def test_the_periodic_cleanup_leaves_its_own_lines_and_the_admin_pc_cleans_stale_ones(self):
+        """決まった間隔の後始末は、自分が借りている回線を、期限が切れていても終わらせない（データベースに届かないあいだに期限が
+        切れても、まだ話している自分の通話を結果不明にしない）。契約者の PC が落ちたまま戻らない回線は、管理者の PC が後始末する
+        （ふつうの通話の長さより十分長く期限が切れたままのものだけ）。"""
+        s = self.ready()
+        c = self.claim(s)
+        self.lease(s, seconds=-1)                                              # 自分の借用の期限が切れた（データベースに届かなかった）
+        jobs.recover_expired(jobs.Context(self.w.a, self.cfg(s), HOLDER))
+        self.assertEqual(self.state(s, c.attempt_id), "claimed")
+        admin = jobs.Context(self.w.a, self.cfg(s, SALESCALL_SYSTEM_JOBS="1"), "管理者のPC#y")
+        jobs.recover_stale(admin)
+        self.assertEqual(self.state(s, c.attempt_id), "claimed")               # 切れてすぐは、その契約者の PC に任せる
+        self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: tx.execute(
+            "UPDATE salescall.lines SET lease_expires_at = now() - %s - interval '1 minute' WHERE line_id = %s",
+            (jobs.STALE_AFTER, s["line"])))
+        jobs.recover_stale(admin)
+        self.assertEqual(self.state(s, c.attempt_id), "released")
+        with self.assertRaises(Rejected):                                      # 契約者の取引からは、ほかの契約者を探せない
+            self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: leases.tenants_with_stale_lines(tx, jobs.STALE_AFTER))
+
+
 class Candidates(SupervisorBase):
     def test_only_rows_the_gate_could_take_are_offered(self):
         s = self.ready()
@@ -151,11 +175,56 @@ class Rounds(SupervisorBase):
         self.assertEqual((got.called, got.pause), (None, "line_not_leased"))
         self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["seq"], before)
 
+    def test_a_line_that_cannot_place_calls_rests_and_counts_as_a_line_fault(self):
+        """回線の部品がかけられなかった・スマホがまだ通話中なら、休まず次の行へ進まない（行の回数と回線の上限を使い切らない）。
+        かけられなかったことは回線の異常として記録する（続けば、処置の表のとおり回線を止める）。"""
+        s = self.ready()
+        got = line.one_round(self.w.a, SYSTEM, s["tenant"], s["line"], HOLDER,
+                             FakeDriver(line.dial_exit.CallNotPlaced("アプリが受け付けなかった")), Runner())
+        self.assertEqual((got.called, got.pause), (None, "not_placed"))
+        faults = self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: tx.all(
+            "SELECT kind FROM salescall.error_events WHERE line_id = %s", (s["line"],)))
+        self.assertEqual([r["kind"] for r in faults], ["line"])
+        t = self.ready()
+        got = line.one_round(self.w.a, SYSTEM, t["tenant"], t["line"], HOLDER, FakeDriver(busy=True), Runner())
+        self.assertEqual((got.called, got.pause), (None, "line_in_call"))
+
     def test_a_failure_in_the_call_ends_only_that_call_and_asks_cl2(self):
         s = self.ready()
         got = line.one_round(self.w.a, SYSTEM, s["tenant"], s["line"], HOLDER, FakeDriver(), Runner(RuntimeError("試験")))
         self.assertEqual(self.state(s, got.called), "technical_error")
         self.assertTrue(self.asked_supervisor(s))
+
+    def test_a_capped_business_does_not_keep_the_other_businesses_of_the_client_out(self):
+        """上限に達した業務の行が候補の先頭を埋めても、その業務を除いて読み直し、同じ依頼者のほかの業務の行をかける。"""
+        s = self.ready()
+        b, v = self.w.business_with_version(s["tenant"], s["client"])
+        phone = normalize(fictional_jp_fixed()).e164
+        k = self.w.contact(s["tenant"], s["client"], phone)
+        task_b = self.w.task(s["tenant"], s["client"], self.w.run(s["tenant"], s["client"], b, v), k)
+        self.tx(s, lambda tx: quality_stage.open_stage(tx, v, 1, None, evidence="試験"), OPERATOR)
+        self.tx(s, lambda tx: business_rules.save(tx, v, rules_raw()), OPERATOR)
+        self.tx(s, lambda tx: tx.execute(
+            "INSERT INTO salescall.setting_values (key, scope, tenant_id, client_id, business_id, value, status, rationale,"
+            " review_when, set_by) VALUES ('calling.business_daily_dials', 'business', %s, %s, %s, '1', 'decided', '試験',"
+            " '試験', '試験')", (s["tenant"], s["client"], s["business"])), OPERATOR)
+        self.tx(s, lambda tx: next_action.schedule_now(tx, task_b, cause="試験"))       # 業務B の行は、業務A の行より後
+        phone_a = normalize(fictional_jp_fixed()).e164
+        k_a = self.w.contact(s["tenant"], s["client"], phone_a)
+        task_a2 = self.w.task(s["tenant"], s["client"], s["run"], k_a)
+        self.past_attempt(dict(s, task=task_a2, contact=k_a, phone=phone_a), ["dialing", "no_answer"])   # 業務A は今日1本＝上限
+        self.tx(s, lambda tx: next_action.hold(tx, task_a2, cause="試験：この行は候補に出さない"))
+        self.tx(s, lambda tx: next_action.schedule_now(tx, s["task"], cause="試験：業務A の行を先頭に"))
+        self.tx(s, lambda tx: next_action.schedule_now(tx, task_b, cause="試験"))
+        first = self.tx(s, lambda tx: scheduler.due_tasks(tx, 1))
+        self.assertEqual([r["task_id"] for r in first], [s["task"]])                    # 1行ずつなら、先頭は業務A
+        old, line.CANDIDATES_PER_CLIENT = line.CANDIDATES_PER_CLIENT, 1
+        try:
+            got = line.one_round(self.w.a, SYSTEM, s["tenant"], s["line"], HOLDER, FakeDriver(), Runner())
+        finally:
+            line.CANDIDATES_PER_CLIENT = old
+        self.assertEqual(self.tx(s, lambda tx: tx.one("SELECT task_id FROM salescall.attempts WHERE attempt_id = %s",
+                                                      (got.called,)))["task_id"], task_b)
 
     def test_a_failing_job_is_recorded_and_returned(self):
         s = self.ready()
@@ -201,6 +270,26 @@ class Main(SupervisorBase):
         sup.renew(2000.0)
         self.assertEqual(sup.leased, set())
         self.assertNotIn(s["line"], sup.workers)                                # その回線の処理は止める
+        sup.shutdown(0)
+
+    def test_the_supervisor_keeps_going_when_the_database_is_unreachable(self):
+        """データベースに届かない・回線ごとの処理を立ち上げられない、のどれでも本体は止まらない（次の回にまた試す。続けば間を延ばす）。"""
+        s = self.ready()
+        class Unreachable:
+            def __getattr__(self, name):
+                def fail(*a, **k):
+                    raise ConnectionError("試験：データベースに届かない")
+                return fail
+        sup = Supervisor(self.cfg(s), start_worker=lambda *a: (_ for _ in ()).throw(OSError("試験")), holder=HOLDER)
+        real, sup.access = sup.access, Unreachable()
+        sup.tick(0.0)                                                          # 止まらない
+        self.assertEqual(sup._next_renew, main_mod.RENEW_FALLBACK)
+        sup.access = real
+        sup.tick(100.0)                                                        # 届いた：借りられたが、立ち上げられない
+        w = sup.workers[s["line"]]
+        self.assertEqual((w.process, w.fails, w.restart_at), (None, 1, 100.0 + main_mod.RESTART_FIRST))
+        sup.tick(101.0)                                                        # 間をあけるまでは試さない
+        self.assertEqual(sup.workers[s["line"]].fails, 1)
         sup.shutdown(0)
 
     def test_the_supervisor_calls_through_a_separate_line_process_and_returns_the_line(self):

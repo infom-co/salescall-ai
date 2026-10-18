@@ -104,6 +104,11 @@ class Xlsx(unittest.TestCase):
         self.assertTrue(all(r.cells[0].problem for r in s.rows))
         self.assertFalse(any(r.is_empty for r in s.rows))
 
+    def test_a_row_with_only_an_unticked_box_is_empty(self):
+        """チェックの列の外れ（FALSE）だけの行は空の行（末尾なら切り落とす）。チェックの付いた（TRUE）行は中身がある。"""
+        s = read("a.xlsx", xlsx([["電話番号", "かけない"], ["03-0000-0001", False], [None, True], [None, False], [None, False]]))
+        self.assertEqual([(r.row_no, r.is_empty) for r in s.rows], [(2, False), (3, False)])
+
     def test_sheet_must_be_chosen_when_there_are_several(self):
         data = xlsx([["電話番号"], ["03-0000-0001"]], sheets=("一覧", "メモ"))
         with self.assertRaises(FileRejected):
