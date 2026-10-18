@@ -418,6 +418,16 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      "CREATE OR REPLACE FUNCTION salescall.take_job(p_key text, p_holder text, p_seconds integer) RETURNS boolean"
      " LANGUAGE sql AS $$ SELECT true $$",
      ("tests.test_supervisor.Leases.test_jobs_are_taken_by_one_supervisor_and_only_by_the_system",)),
+    # 行ごとの「かけない」（3-4-2・0071）
+    ("システムの処理が、ダッシュボードの「かけない」を付け外しできる",
+     "DROP TRIGGER task_exclusion_guard ON salescall.task_exclusions",
+     ("tests.test_exclusions.Marks.test_dashboard_marks_stop_the_row_until_it_is_put_back",)),
+    ("「かけない」の行に、門が通す・候補に出す",
+     "CREATE OR REPLACE FUNCTION salescall.task_excluded(p_task uuid) RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT false $$",
+     ("tests.test_exclusions.Marks.test_dashboard_marks_stop_the_row_until_it_is_put_back",)),
+    ("「かけない」の記録を書き換えられる",
+     "DROP TRIGGER task_exclusions_frozen ON salescall.task_exclusions",
+     ("tests.test_exclusions.Marks.test_dashboard_marks_stop_the_row_until_it_is_put_back",)),
     # 番号ごとの応答率（5-2-3・0068）
     ("鳴らせなかった通話も、応答率の本数に数える",
      "CREATE OR REPLACE FUNCTION salescall.line_answer_counts(p_line uuid, p_from date, p_to date) RETURNS TABLE (day date,"

@@ -19,7 +19,7 @@
   （business_settings.assign）。門も同じ決まりで確かめる。
 
 行の合否（上から順に。最初に当たった理由で止める）：
-  (1) 空の行 ⇒ 空 (2) 列の数が見出しと合わない（CSV） (3) 対応付けた欄の問題（エラーの値など） (4) 番号が無い
+  (1) 空の行 ⇒ 空 (2) 列の数が見出しと合わない（CSV） (3) 対応付けた欄の問題（エラーの値など）・「かけない」の列の値が読めない (4) 番号が無い
   (5) 管理番号の列を対応付けたのに管理番号が無い・桁が失われている (6) 番号が「不明」・かけない種類・発信禁止（番号・管理番号。target_policy）
   (7) ファイルの上の行（合格・登録済みの行）と同じ番号 (8) 上の行と同じ管理番号
   (9) その実施回に同じ番号のタスクがある：管理番号も同じなら「もう登録済み」、違えば止める
@@ -28,6 +28,8 @@
   (12) 名前（会社名・目的のお客様の名前）の読みの列の値が読みとして使えない・検証モードで AI が決めた読みを契約者が確かめていない
        ⇒ 止める（読みが決まらないだけなら止めない）
   (13) ここまで当たらなければ合格（登録する）
+  「かけない」の列で付けた行は、ほかの行と同じ確かめを通して登録し（もう登録済みの行も）、「かけない」の印を付ける（exclusions。
+  ダッシュボードで戻せる。2026-10-18 ユーザー決定）。
   (7)(8) は「上の行が先」：止めた行は番号・管理番号を取らない（止めた行のせいで、ほかの行を止めない）。
 番号の先頭の 0 が消えた（DESIGN.md 3-4 の4）：xlsx は欄が数の型なら（確かな証拠）。CSV は列ごとに、番号の欄が
 1つ残らず「0 で始まらず、0 を足すと日本の番号の決まりにぴったり合う」ときだけ。そうでなければ足さない（行は (6) で止まる）。
@@ -42,14 +44,16 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
-from salescall.core import approval, business_settings, contacts, import_columns, next_action, readings, target_policy
+from salescall.core import (approval, business_settings, contacts, exclusions, import_columns, next_action, readings,
+                            target_policy)
 from salescall.core.access import Tx
 from salescall.core.import_columns import ImportRejected
 from salescall.core.import_files import Cell, Sheet
 from salescall.core.phone import PhoneNumber, normalize
 
-FIELDS = ("phone", "client_ref", "name", "name_reading", "person_name", "person_name_reading", "person_role")
-# 対応付けられる欄：番号・依頼者の管理番号・お客様の名前（会社名など）とその読み・目的のお客様の名前とその読み・役職
+FIELDS = ("phone", "client_ref", "name", "name_reading", "person_name", "person_name_reading", "person_role", "exclude")
+# 対応付けられる欄：番号・依頼者の管理番号・お客様の名前（会社名など）とその読み・目的のお客様の名前とその読み・役職・
+# 「かけない」（2026-10-18 ユーザー決定。読み方は exclusions.read_mark の1か所。付けた行は登録して「かけない」の印を付ける）
 _READING_OF = {"name": "name_reading", "person_name": "person_name_reading"}   # 名前の欄 → 読みの欄
 _EXPONENT = re.compile(r"^\s*[+-]?\d+(\.\d+)?[eE][+-]?\d+\s*$")
 
@@ -73,13 +77,14 @@ class RowPlan:
     person_name: str | None = None
     person_reading: readings.Reading = readings.UNDECIDED
     person_role: str | None = None
+    excluded: bool = False        # 一覧の「かけない」の列で付けた（登録する行・もう登録済みの行に「かけない」の印を付ける）
 
     def key(self) -> list[Any]:
         """指紋に入れるもの（この行で、何が登録されるか・なぜ止めるか）。"""
         n = self.number
         return [self.row_no, self.outcome, self.reason_code, n.e164 if n else None, n.zero_added if n else False,
                 self.client_ref, self.name, self.source_phone, str(self.task_id) if self.task_id else None,
-                self.name_reading.as_json(), self.person_name, self.person_reading.as_json(), self.person_role]
+                self.name_reading.as_json(), self.person_name, self.person_reading.as_json(), self.person_role, self.excluded]
 
 
 @dataclass(frozen=True)
@@ -161,6 +166,8 @@ def register(tx: Tx, run_id: UUID, sheet: Sheet, mapping: dict[str, str], *, exp
                  r.person_reading.likely, r.person_role),
             )["task_id"]
             next_action.schedule_now(tx, task_id, cause="取込")
+        if r.excluded and r.outcome in ("registered", "already"):
+            exclusions.mark(tx, [task_id], excluded=True, reason=exclusions.IMPORT_REASON, source="import", import_id=import_id)
         tx.execute(
             "INSERT INTO salescall.import_rows (tenant_id, client_id, import_id, row_no, outcome, reason_code, reason,"
             "                                   task_id, zero_added)"
@@ -237,9 +244,14 @@ def _plan(tx: Tx, run_id: UUID, sheet: Sheet, mapping: dict[str, str], *, confir
                                                  "列がずれて、別の列の値を読む恐れがあります）"))
             continue
         cells: dict[str, Cell] = {f: row.cell(i) for f, i in cols.items()}
-        bad = next((f for f in FIELDS if f in cells and cells[f].problem is not None), None)
+        bad = next((f for f in FIELDS if f in cells and f != "exclude" and cells[f].problem is not None), None)
         if bad is not None:
             rows.append(stop("cell_problem", f"「{title(bad)}」の欄：{cells[bad].problem}"))
+            continue
+        skip = exclusions.read_mark(cells["exclude"]) if "exclude" in cells else False
+        if skip is None:
+            rows.append(stop("exclude_unreadable", f"「{title('exclude')}」の欄の値が読めません（空・かけない・○・レ・1・TRUE など"
+                                                   "と、かける・0・FALSE などのどれかで書いてください）"))
             continue
         raw_phone = cells["phone"].text
         if raw_phone is None:
@@ -258,7 +270,7 @@ def _plan(tx: Tx, run_id: UUID, sheet: Sheet, mapping: dict[str, str], *, confir
         name_reading, bad_name = _read(name, _text(row, cols, "name_reading"), confirmed=confirmed, ai=ai)
         person_reading, bad_person = _read(person_name, _text(row, cols, "person_name_reading"), confirmed=confirmed, ai=ai)
         found = dict(number=number, client_ref=ref, name=name, source_phone=raw_phone.strip(), name_reading=name_reading,
-                     person_name=person_name, person_reading=person_reading, person_role=person_role)
+                     person_name=person_name, person_reading=person_reading, person_role=person_role, excluded=skip)
         blocked = target_policy.block_reason(tx, number, client_ref=ref, tenant_id=run["tenant_id"],
                                              client_id=run["client_id"], business_id=run["business_id"])
         if blocked is not None:

@@ -51,7 +51,8 @@ class EncodingAmbiguous(FileRejected):
 class Cell:
     text: str | None              # 欄の文字（空・空白だけなら None）
     numeric: bool = False         # xlsx で数の型だった
-    problem: str | None = None    # 値を信じてはいけない理由（エラーの値・結果の無い式・桁が失われた数）
+    problem: str | None = None    # 値を信じてはいけない理由（エラーの値・結果の無い式・桁が失われた数・TRUE/FALSE）
+    flag: bool | None = None      # xlsx で TRUE・FALSE の値だった（チェックの列。どの欄で使えるかは取込が決める）
 
 
 @dataclass(frozen=True)
@@ -201,7 +202,7 @@ def _xlsx_cell(v, f) -> Cell:
             return Cell(None, problem="式の結果が保存されていません（表計算ソフトで開いて保存し直してください）")
         return _EMPTY
     if isinstance(value, bool):
-        return Cell(None, problem="TRUE・FALSE の値です")
+        return Cell(None, problem="TRUE・FALSE の値です", flag=value)
     if isinstance(value, int | float):
         if abs(value) >= _MAX_EXACT:
             return Cell(None, numeric=True, problem="15桁を超える数で、表計算ソフトで桁が失われています。列を文字にして保存し直してください")

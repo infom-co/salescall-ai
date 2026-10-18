@@ -64,6 +64,7 @@ REASONS: dict[str, tuple[str, str]] = {
     "line_unknown": ("その回線はありません", "cannot_judge"),
     "line_not_leased": ("回線を借りていません（または、借用の期限が予約証より先に切れます）", "wait"),
     "line_daily_limit": ("この回線の、今日の発信の上限に達しました", "wait"),
+    "excluded": ("「かけない」にしている行です（依頼者・契約者の都合。ダッシュボードで戻せます）", "wait"),
     "business_daily_limit": ("この業務の、今日の発信の上限に達しました（業務ごとの設定）", "wait"),
     "line_other_client": ("この回線は、ほかの依頼者に割り当てた発信番号です", "wait"),
     "line_used_by_other_client": ("この発信番号で、ほかの依頼者がこの番号へかけたことがあります（依頼者が替わったら発信番号を替える）",
@@ -335,6 +336,9 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
     # 「前の発信に判定の結果があるか」で決める。判定と次の予定は、締めの処理 core/settle.py が1つの取引で書く）
     if tx.one("SELECT salescall.task_awaiting_decision(%s) AS w", (task["task_id"],))["w"]:   # 決まりは1か所（0063）
         return _deny("awaiting_decision")
+    # 「かけない」にしている行（一覧の列・ダッシュボード。2026-10-18 ユーザー決定。決まりはデータベースの1か所 0071）
+    if tx.one("SELECT salescall.task_excluded(%s) AS x", (task["task_id"],))["x"]:
+        return _deny("excluded")
 
     # (1b) 依頼者を無効にしていないか（Intent.md 4章 A。判断はデータベースの1か所 salescall.client_active）。業務設定の確かめより
     #      先に見る（無効の依頼者の設定の抜けを、契約者に知らせない＝2026-10-18 の見直し）
