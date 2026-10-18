@@ -237,13 +237,21 @@ def set_a() -> list[dict]:
     return out
 
 
+def misread_as_affirmed(it: dict, key: str) -> bool:
+    """言い直しへの返事を、認めていないのに認めたと読んだ（受け取ると誤りになる向き＝G-53 の決め手。数えるのも、先に判定させるのも、ここ）。"""
+    got = it.get(key)
+    return it["set"] == "D" and got != truth(it) and (got == "affirmed" or got == it.get("asked_choice"))
+
+
 def pick_sample(items: list[dict], n: int) -> list[dict]:
     """2つ目の判定の候補（3.6〜3.8 Flash）は1日の上限が少ないので、3.5 Flash Lite が誤った・決められなかった答えと、ほかから無作為に n 個
-    （記録の通話の言葉・答えでない言葉は全部）。"""
+    （記録の通話の言葉・答えでない言葉は全部）。3.5 Flash Lite が言い直しへの返事を認めたと読み違えたものを先頭に置く
+    （⛔ 2026-10-18：組の順で流し、上限で止まって、決め手の15個のうち 3.6 Flash が判定できたのは1個だけだった）。"""
     import random
 
     hard = [it for it in items if it["set"] in ("A", "E") or it.get("3.5 Flash Lite") != truth(it)]
     rest = [it for it in items if it not in hard]
+    hard.sort(key=lambda it: not misread_as_affirmed(it, "3.5 Flash Lite"))
     return hard + random.Random(53).sample(rest, min(n, len(rest)))
 
 
@@ -328,7 +336,7 @@ def tally(items: list[dict], judges) -> dict:
             label = {"B": "選択肢", "D": it.get("kind")}.get(it["set"], want)
             t[f"{it['set']}・{label}"][res] += 1
             t["全体"][res] += 1
-            if it["set"] == "D" and res != "正しい" and (got == "affirmed" or (got == it.get("asked_choice") and want != got)):
+            if misread_as_affirmed(it, key):
                 t["全体"]["⛔⛔言い直しを、認めていないのに認めたと読んだ"] += 1
         secs = sorted(it[f"{key}秒"] for it in items if it.get(f"{key}秒") is not None)
         out[key] = {"数え": {k: dict(v) for k, v in t.items()},
