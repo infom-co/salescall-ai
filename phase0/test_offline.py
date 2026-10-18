@@ -628,8 +628,10 @@ class AIToJapaneseTest(unittest.TestCase):
         from flowctl import ARG_LABEL, OP_ARGS, tool_declarations
         decls = {d.name: d for d in tool_declarations(self.business().questions, replay=True)[0].function_declarations}
         self.assertEqual(set(decls), set(OP_ARGS))
-        # 名乗りの流し直しは、名乗りを録音で流す形のときだけ宣言する（6-13）
-        self.assertNotIn("replay_opening", {d.name for d in tool_declarations(self.business().questions)[0].function_declarations})
+        # 名乗りの流し直しの部分は、名乗りを録音で流す形のときだけ宣言する（6-13）。「エーアイか聞かれた」「質問に戻る」は、どの通話でも
+        # （✅ 2026-10-19 ユーザー：決まった言い方とそのあとは流れの制御が決める＝AIが話す形でも、AIに自分で答えさせない）
+        plain = {d.name: d for d in tool_declarations(self.business().questions)[0].function_declarations}
+        self.assertEqual(plain["replay_opening"].parameters.properties[ARG_LABEL["part"]].enum, ["エーアイか聞かれた", "質問に戻る"])
         self.assertFalse({n for n, d in decls.items() if d.behavior})  # 返事を待たない宣言は使わない（G-33・G-36 の形 B は外した）
         for name, (req, opt) in OP_ARGS.items():
             self.assertEqual(set(decls[name].parameters.properties), {ARG_LABEL[k] for k in req + opt}, name)
@@ -3660,9 +3662,18 @@ class PartyTest(unittest.TestCase):
         f = self.flow(voicemail_message=msg)
         r = self.say(f, "ただいま電話に出ることができません。", "report_party", party="voicemail")
         self.assertEqual((r["result"], r["say"], r.get("hang_up")), ("end", msg, None))
-        f = self.flow(voicemail_message=msg, play_recordings=True)       # 録音で流す形：設定の伝言の録音を流し、AIは黙る
+        # 録音で流す形：設定の伝言は依頼主の単位の録音（名乗りの部分 voicemail。✅ 2026-10-19 ユーザー：「依頼者ごとに設定で選べる形にして、
+        # 必要なら録音をしましょう」）を流し、AIは黙る
+        from instruction import Business
+        b = Business(company="アオバ物流", caller="佐藤", purpose="ご予約の確認", questions=list(self.flow().questions.values()),
+                     voicemail_message=msg)
+        self.assertEqual(b.replay_parts()["voicemail"], msg)
+        self.assertNotIn("voicemail", Business(company="アオバ物流", caller="佐藤", purpose="ご予約の確認",
+                                               questions=list(self.flow().questions.values())).replay_parts())  # 設定が無ければ録音も無い
+        f = self.flow(voicemail_message=msg, play_recordings=True, opening=b.replay_parts())
         r = self.say(f, "ただいま電話に出ることができません。", "report_party", party="voicemail")
-        self.assertEqual(r["play"], [{"kind": "closing", "id": "voicemail_message", "text": msg}])
+        self.assertEqual(r["play"], [{"kind": "opening", "part": "voicemail", "text": msg}])
+        self.assertEqual(f.end_reason, "voicemail")
 
     def test_wrong_party_closes_politely(self):
         from phrases import CLOSE_DECLINED
@@ -3789,53 +3800,127 @@ class CallbackTest(unittest.TestCase):
         self.assertIn("request_callback", text)
 
 
+class ClipTablesTest(unittest.TestCase):
+    """録音を作る表（make_ack_clips）に、どの録音にも読み方と長さの上限がある（⛔ 2026-10-19 の見直しで見つけた漏れ：かけ直しの質問を
+    契約者の単位の録音に足したとき、読み方も上限も無く、作ると止まった）。依頼主の単位の録音には「AIですか」への言い方と伝言も入る。"""
+
+    def test_every_recording_has_a_style_and_a_limit(self):
+        import dataclasses
+        from g22_opening import BUSINESS
+        from make_ack_clips import HOW, MAX_S, script_table, words
+        table = {**words(False)[0], **script_table(dataclasses.replace(BUSINESS, voicemail_message="株式会社アオバ物流の佐藤でございます。"))[0]}
+        for aid, (_, how) in table.items():
+            self.assertIn(how, MAX_S, aid)
+            self.assertTrue(how in HOW or aid in ("hai", "shouchi", "arigatou", "shitsurei", "moushiwake", "moushiwake_heavy"), aid)
+        self.assertIn("ai", table)
+        self.assertIn("voicemail", table)
+        self.assertIn("callback_back_time", table)
+
+
 class AIQuestionTest(unittest.TestCase):
-    """「AIですか？」と聞かれたとき（Intent.md 9-4・原則8）：人間だとは答えない。答える文面は業務設定（Business.ai_answer）、無ければ既定の文
-    （phrases.AI_ANSWER）。冒頭でAIだとは名乗らない（2026-10-12 ユーザー確定）ので、聞かれたときだけ答える。"""
+    """「AIですか？」と聞かれたとき（Intent.md 9-4・原則8）。✅ 2026-10-19 ユーザー：「絶対にAIであることを伝えてはいけない」「人だと断定するのも
+    問題がある」⇒ 1回目は決まった言い方「何か問題でもございましたでしょうか？」（業務設定 Business.ai_answer、無ければ phrases.AI_ANSWER）を
+    流して相手の返事を待つ。問題は無いと言われたら「失礼いたしました。」のあと、いまの位置へ戻る。⛔ 打ち消し（「いえ」）・人だという答えは
+    言わない（原則8「人間だとは偽らない」）。重ねて聞かれたら（⏳ ユーザーに確かめる）、決まるまでは人ともAIとも言わずに丁寧に終える。
+    冒頭でAIだとは名乗らない（2026-10-12 ユーザー確定）。"""
 
     def business(self, **kw):
         from flowctl import Question
         from instruction import Business
         return Business(company="アオバ物流", caller="佐藤", purpose="ご予約の確認",
-                        questions=[Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"))], **kw)
+                        questions=[Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ")),
+                                   Question("Q2", "ご来店の日にちを教えていただけますでしょうか？", "date", conditions=("答えた",))], **kw)
 
-    def test_rule_uses_the_business_text_or_the_default(self):
-        from flowctl import PART_LABEL
-        from instruction import build
+    def flow(self, recorded=True, **kw):
+        from flowctl import Flow
+        b = self.business(**kw)
+        return Flow(b.questions, play_recordings=recorded, opening=b.replay_parts() if recorded else None)
+
+    def test_the_words_neither_deny_nor_tell(self):
         from phrases import AI_ANSWER
-        text = build(self.business(), "S2", opening_mode="ai")[1]                     # AIが話す形：AIが決まった答えを言い、質問に戻る
-        self.assertIn(f"「{AI_ANSWER}」", text)
-        self.assertIn("いまの質問をもう一度聞きます", text)
-        text = build(self.business(), "S2", opening_mode="recorded")[1]               # 録音で流す形：決まった答えの録音を流し直してもらう
-        self.assertIn(f"「{PART_LABEL['ai']}」", text)
-        for t in (build(self.business(), "S2", opening_mode=m)[1] for m in ("ai", "recorded")):
-            self.assertIn("人間だとは答えません", t)
-        mine = "はいエーアイの自動音声でご案内しております。"
-        self.assertIn(f"「{mine}」", build(self.business(ai_answer=mine), "S2")[1])
-        self.assertEqual(self.business(ai_answer=mine).replay_parts()["ai"], mine)
-        self.assertEqual(self.business().replay_parts()["ai"], AI_ANSWER)
+        self.assertEqual(AI_ANSWER, "何か問題でもございましたでしょうか？")                 # ✅ ユーザーの言い方のまま
+        for w in ("いえ", "人間", "エーアイ", "AI", "機械", "自動"):
+            self.assertNotIn(w, AI_ANSWER)
         self.assertNotIn("、", AI_ANSWER)                                             # 決まった言い方には読点を入れない（10-15）
 
-    def test_recorded_answer_then_the_question(self):
-        # 録音で流す形：決まった答えの録音のあと、いまの質問の録音（⛔ G-57：AIに答えさせると、3本とも質問に戻らなかった）
-        from flowctl import Flow
-        b = self.business()
-        f = Flow(b.questions, play_recordings=True, opening=b.replay_parts())
+    def test_rule_hands_the_answer_to_the_program(self):
+        from flowctl import PART_LABEL
+        from instruction import build
+        for m in ("ai", "recorded"):
+            t = build(self.business(), "S2", opening_mode=m)[1]
+            self.assertIn(f"replay_opening を「{PART_LABEL['ai']}」で呼びます", t)
+            self.assertIn("人間だとも、エーアイだとも、自分では言いません", t)
+        mine = "どういったことでしょうか？"
+        self.assertEqual(self.business(ai_answer=mine).replay_parts()["ai"], mine)
+        from phrases import AI_ANSWER
+        self.assertEqual(self.business().replay_parts()["ai"], AI_ANSWER)
+
+    def test_first_ask_plays_the_words_and_waits(self):
+        # 決まった言い方の録音だけを流し、質問の録音は続けない（相手に聞き返したので、返事を待つ）。頭にお詫びは重ねない
+        f = self.flow()
         f.on_callee()
         r = f.apply("replay_opening", {"part": "ai"})
-        self.assertEqual(([p.get("part", p["kind"]) for p in r["play"]], r["ack"]), (["ai", "question"], None))
-        self.assertEqual(f.current, "Q1")
+        self.assertEqual(([p.get("part", p["kind"]) for p in r["play"]], r["ack"], r["result"]), (["ai"], None, "ai_question"))
+        self.assertEqual((f.current, f.ai_pending, [x["turn"] for x in f.facts["ai_question"]]), ("Q1", True, [1]))
+        self.assertIn("質問に戻る", r["message"])
+
+    def test_no_problem_goes_back_to_the_question(self):
+        f = self.flow()
+        f.on_callee()
+        f.apply("replay_opening", {"part": "ai"})
+        f.on_callee()                                                              # 「いや、なんか機械っぽかったので」
+        r = f.apply("replay_opening", {"part": "resume"})
+        self.assertEqual(([p.get("id") for p in r["play"]], r["ack"]), (["Q1"], "shitsurei"))   # 「失礼いたしました。」＋いまの質問の録音
+        self.assertFalse(f.ai_pending)
+        self.assertEqual(f.apply("replay_opening", {"part": "resume"})["result"], "rejected")     # 戻るのは1回だけ
+
+    def test_resume_while_a_restatement_waits(self):
+        # 言い直しの返事を待っている間に聞かれた：戻るときは、AIが言い直しをもう一度言う（録音の質問ではない）
+        f = self.flow()
+        f.on_callee(); f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい"})
+        f.on_callee(); r = f.apply("record_answer", {"question_id": "Q2", "condition_id": "答えた", "value": "15日"})
+        self.assertEqual(r["result"], "confirm_required")
+        f.on_callee(); f.apply("replay_opening", {"part": "ai"})
+        f.on_callee(); r = f.apply("replay_opening", {"part": "resume"})
+        self.assertTrue(r.get("speak"))
+        self.assertIn(f.awaiting_say, r["message"])
+
+    def test_an_answer_instead_ends_the_wait(self):
+        f = self.flow()
+        f.on_callee(); f.apply("replay_opening", {"part": "ai"})
+        f.on_callee(); f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい"})       # 返事の代わりに答えた
+        self.assertFalse(f.ai_pending)
+        self.assertEqual(f.apply("replay_opening", {"part": "resume"})["result"], "rejected")
+
+    def test_asked_again_closes_politely(self):
+        # ⏳ 重ねて聞かれた：ユーザーに確かめるまでは、人ともAIとも言わずに、断られたときの締めで終える（通話の事実の end＝ai_question）
+        from phrases import CLOSE_DECLINED
+        f = self.flow()
+        f.on_callee(); f.apply("replay_opening", {"part": "ai"})
+        f.on_callee(); r = f.apply("replay_opening", {"part": "ai"})               # 「本当に人ですか？」
+        self.assertEqual((r["result"], r["play"][0]["text"], f.end_reason), ("end", CLOSE_DECLINED, "ai_question"))
+        self.assertEqual([x["turn"] for x in f.facts["ai_question"]], [1, 2])
+
+    def test_ai_speaking_mode_says_the_same_words(self):
+        # AIが話す形（名乗りの録音が無い）でも、言い方はプログラムが渡す（AIに自分で答えさせない）
+        from phrases import AI_ANSWER
+        f = self.flow(recorded=False)
+        f.on_callee()
+        r = f.apply("replay_opening", {"part": "ai"})
+        self.assertEqual((r["result"], r["say"]), ("ai_question", AI_ANSWER))
+        f.on_callee()
+        r = f.apply("replay_opening", {"part": "resume"})
+        self.assertTrue(r.get("speak"))
+        self.assertIn("Q1", r["message"])
 
     def test_rule_survives_a_session_swap(self):
         # 張り替えたあとのセッションにも同じ決まり（決まりは system_rules の1か所＝どのセッションの指示にも入る）
-        from flowctl import Flow
+        from flowctl import Flow, PART_LABEL
         from instruction import build
-        from phrases import AI_ANSWER
         b = self.business()
-        self.assertIn(f"「{AI_ANSWER}」", build(b, "S2", resume=Flow(b.questions))[1])
+        self.assertIn(f"「{PART_LABEL['ai']}」で呼びます", build(b, "S2", resume=Flow(b.questions))[1])
 
     def test_not_announced_at_the_start(self):
-        from instruction import build
         b = self.business()
         self.assertNotIn("エーアイ", b.opening() + "".join(b.opening_parts()))
 
@@ -3911,6 +3996,16 @@ class TargetTest(unittest.TestCase):
         f, b = self.flow()
         r = self.say(f, "どちら様ですか？", "replay_opening", part="intro")
         self.assertEqual([p["part"] for p in r["play"]], ["intro", "target"])
+
+    def test_target_again_before_any_answer_is_a_new_person(self):
+        # 繋いだあと、何も答えないうちに、また目的の人が出た：代わった方への流し直し（あいさつ・名乗り・用件・いまの質問）
+        f, b = self.flow()
+        self.say(f, "岡田ですね。", "report_party", party="target")                 # 受付の方を目的の人と報告してしまった
+        r = self.say(f, "お電話代わりました。岡田です。", "report_party", party="target")
+        self.assertEqual([p.get("part", p["kind"]) for p in r["play"]], ["greeting", "intro", "purpose", "question"])
+        self.say(f, "はい、予約しています。", "record_answer", question_id="Q1", condition_id="はい", value="予約しています")
+        r = self.say(f, "岡田は私です。", "report_party", party="target")             # 答えたあとは同じ方
+        self.assertEqual(r["result"], "noted")
 
     def test_unnamed_new_person_is_asked_once(self):
         # 代わった方が名乗らなかった：「「おかだ」様でいらっしゃいますでしょうか？」と1回だけ聞く（AIが言う）。認めたら、全部流して質問へ
