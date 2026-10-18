@@ -14,6 +14,8 @@
     `Terms.hourly_gap_seconds`。ユーザー：「1から2分くらい」「依頼者ごとに上下で設定できる」）。数えるのはデータベースの1か所
     （salescall.work_seconds）。
   - お詫びの電話（こちらの誤りのため）は、どの報酬にも数えない（かけた1本・話せた1本・時給）。費用には数える。
+  - 途中で切れたあと、お詫びしてすぐかけ直した電話（目的 resume）は、1本あたりの報酬には数えない（1人のお客様に1本分）。時給には
+    その時間も入れる（1人のお客様への総時間）が、電話と電話の間は足さない（2026-10-18 ユーザー）。費用には数える。
 - **余裕を足した報酬**（`upper`）：成果と話せた本数は偶然でぶれる（月の初めに成果0件でも、本当の成果の割合が低いとは限らない）。
   そこで、今月の報酬に「成果1件分・話せた1本分の報酬の、赤字の知らせの早さの割合（4分の1・半分・1件分）」を余裕として足す
   （依頼者ごとの報酬の決まりの「赤字の知らせの早さ」＝`CAUTIONS`。2026-10-17 ユーザー：案B「成果が0件のまま、使った費用が成果1件分
@@ -88,6 +90,12 @@ def set_terms(tx: Tx, terms: Terms, *, valid_from: datetime, note: str) -> int:
          terms.hourly_gap_seconds, terms.deficit_caution, note))["terms_id"]
 
 
+# 1本あたりの報酬（かけた1本・話せた1本）に数える電話：お詫びの電話（こちらの誤りのため）と、途中で切れたあとにお詫びして
+# すぐかけ直した電話は数えない（2026-10-18 ユーザー：「回線が切れてもシステムが途切れても、1人のお客さんに対して、50円ですよね」）。
+# 時給の時間は salescall.work_seconds（かけ直した電話の時間も入れる＝1人のお客様への総時間。電話と電話の間は足さない）
+_BILLED_PER_CALL = "a.purpose NOT IN ('apology', 'resume')"
+
+
 # その時刻に効いていた決まりの、ある形の単価（無ければ 0）
 _PRICE_AT = ("coalesce((SELECT t.{col} FROM salescall.reward_terms t WHERE t.valid_from <= x.at"
              " ORDER BY t.valid_from DESC LIMIT 1), 0)")
@@ -106,9 +114,9 @@ def month(tx: Tx) -> dict[str, Any]:
                                            " WHERE r.business_state = 'completed' AND l.business_state = 'completed'"
                                            " GROUP BY r.task_id"),
         "dial": ("per_dial_yen", "SELECT h.at FROM salescall.attempt_state_history h JOIN salescall.attempts a"
-                                 " ON a.attempt_id = h.attempt_id WHERE h.to_state = 'dialing' AND a.purpose <> 'apology'"),
+                                 " ON a.attempt_id = h.attempt_id WHERE h.to_state = 'dialing' AND " + _BILLED_PER_CALL),
         "talk": ("per_talk_yen", "SELECT h.at FROM salescall.attempt_state_history h JOIN salescall.attempts a"
-                                 " ON a.attempt_id = h.attempt_id WHERE h.to_state = 'in_conversation' AND a.purpose <> 'apology'"),
+                                 " ON a.attempt_id = h.attempt_id WHERE h.to_state = 'in_conversation' AND " + _BILLED_PER_CALL),
     }
     breakdown: dict[str, dict[str, Any]] = {}
     for name, (col, sql) in events.items():

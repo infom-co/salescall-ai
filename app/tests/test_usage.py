@@ -8,7 +8,8 @@ from decimal import Decimal
 from salescall.core import approval, gate, reward, stops, usage
 from salescall.core.access import Rejected
 from tests.support import ADMIN, OPERATOR, SYSTEM, owner_access
-from tests.test_settle import SettleBase
+from salescall.core.call_report import Cut
+from tests.test_settle import SettleBase, rep
 from tests.test_watch import override, resume_open_system_stops
 
 
@@ -202,6 +203,23 @@ class CostRatio(Priced):
         got = self.month(s)["breakdown"]["hourly"]
         self.assertAlmostEqual(float(got["seconds"]), float(took) + 90, places=3)
         self.assertAlmostEqual(float(got["yen"]), float(took) + 90, places=3)
+
+    def test_a_call_cut_and_called_back_counts_as_one_customer(self):
+        """途中で切れて、お詫びしてすぐかけ直した電話は、1本あたりの報酬では1人のお客様に1本分。時給では2本の時間を足すが、電話と
+        電話の間は1回だけ（2026-10-18 ユーザー：「1人のお客さんに対して、50円ですよね」「時給では1人のお客様への総時間」）。"""
+        s = self.ready()
+        self.terms(s, per_dial_yen=50, per_talk_yen=50, hourly_yen=3600, gap=120)
+        cut = self.call(s, ("dialing", "ringing", "answered", "in_conversation", "dropped"), side="line",
+                        report=rep(cut=Cut("callee", False, False)))
+        self.assertEqual(self.settle(s, cut)["decision"].target.purpose, "resume")
+        again = self.talked(s)                                          # お詫びしてすぐかけ直した電話
+        self.assertEqual(self.tx(s, lambda tx: tx.one("SELECT purpose FROM salescall.attempts WHERE attempt_id = %s",
+                                                      (again,)))["purpose"], "resume")
+        m = self.month(s)["breakdown"]
+        self.assertEqual((m["dial"]["count"], m["talk"]["count"]), (1, 1))   # 50円ずつ1回
+        took = self.tx(s, lambda tx: tx.one("SELECT sum(extract(epoch FROM ended_at - claimed_at)) AS t FROM salescall.attempts"
+                                            " WHERE attempt_id IN (%s, %s)", (cut, again)))["t"]
+        self.assertAlmostEqual(float(m["hourly"]["seconds"]), float(took) + 120, places=3)   # 2本の時間＋間は1回
 
     def test_the_caution_of_the_deficit_notice_is_per_client_and_in_plain_words(self):
         """赤字の知らせの早さは依頼者ごと・3つの選び方（2026-10-17 ユーザー：案B「成果が0件のまま、使った費用が成果1件分の報酬の
