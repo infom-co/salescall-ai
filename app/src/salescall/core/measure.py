@@ -21,13 +21,12 @@ Intent.md 16-3：「誤判定率：通話のサンプルを管理者か契約者
 
 from __future__ import annotations
 
-import math
 import random
 from datetime import date, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
-from salescall.core import notify, recordings, settings
+from salescall.core import notify, recordings, settings, stats
 from salescall.core.access import Tx
 
 # 正解の出どころ：検証モードの確かめ（すべての結果を確かめる）・抜き取り（無作為）は、誤判定率の材料（録音の印の理由と同じ名前）。
@@ -148,27 +147,6 @@ def rates(tx: Tx, business_id: UUID, *, sources: tuple[str, ...] = MEASURED) -> 
 
 
 def upper_bound(wrong: int, n: int, confidence: float = 0.95) -> float:
-    """n 本のうち wrong 本が誤りだったとき、本当の誤りの割合が、この値より大きい見込みは (1 − confidence) 以下（片側の正確な上の
-    限度＝Clopper-Pearson）。例：60本で誤り0本 ⇒ 約0.049。"""
-    if not 0 <= wrong <= n or n == 0:
-        raise ValueError("本数が合いません")
-    if wrong == n:
-        return 1.0
-    alpha = 1 - confidence
-
-    def at_most(p: float) -> float:   # 誤りの割合が p のとき、誤りが wrong 本以下になる確率
-        if p <= 0:
-            return 1.0
-        logs = [math.lgamma(n + 1) - math.lgamma(k + 1) - math.lgamma(n - k + 1) + k * math.log(p) + (n - k) * math.log1p(-p)
-                for k in range(wrong + 1)]
-        top = max(logs)
-        return math.exp(top) * sum(math.exp(x - top) for x in logs)
-
-    lo, hi = wrong / n, 1.0
-    for _ in range(200):
-        mid = (lo + hi) / 2
-        if at_most(mid) > alpha:
-            lo = mid
-        else:
-            hi = mid
-    return hi
+    """n 本のうち wrong 本が誤りだったとき、本当の誤りの割合が、この値より大きい見込みは (1 − confidence) 以下（計算は
+    core/stats.py の1か所）。例：60本で誤り0本 ⇒ 約0.049。"""
+    return stats.upper_bound(wrong, n, confidence)
