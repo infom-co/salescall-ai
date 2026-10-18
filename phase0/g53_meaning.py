@@ -27,9 +27,10 @@ from common import HERE, KeyRing, base_parser, describe_error, require_python, s
 from flowctl import ANY, CHOICE_TYPES, HANDOVER, HOLD, Flow, Question
 from g23_names import find_models
 from g48_meanings import QUESTIONS as G48
-from meaning_judge import JUDGE_MODELS, UNDECIDED, judge
+from meaning_judge import JUDGE_MODELS, OTHER_JUDGES, UNDECIDED, judge, judge_other
 
-JUDGES = JUDGE_MODELS
+JUDGES = JUDGE_MODELS + tuple(OTHER_JUDGES)
+BASE = "3.5 Flash Lite"  # いまの判定（2つ目の判定の候補は、これと同じ答えで比べる）
 MAKERS = ("3.7 Flash", "3.6 Flash")
 # D・E を作るモデル（表示名）：判定の候補（JUDGE_MODELS）に入れないもの（自分で作った答えを判定すると、正しさが高く出る）
 MAKERS_DE = ("Gemini 3.5 Flash", "Gemini 3 Flash Preview")
@@ -237,13 +238,57 @@ def set_a() -> list[dict]:
     return out
 
 
+def misread_as_affirmed(it: dict, key: str) -> bool:
+    """言い直しへの返事を、認めていないのに認めたと読んだ（受け取ると誤りになる向き＝G-53 の決め手。数えるのも、先に判定させるのも、ここ）。"""
+    got = it.get(key)
+    return it["set"] == "D" and got != truth(it) and (got == "affirmed" or got == it.get("asked_choice"))
+
+
+def dangerous(it: dict, q: Question, key: str) -> bool:
+    """受け取ると誤りになる向きに読んだ（言い直しへの返事は misread_as_affirmed・ほかは、正解でない選択肢か「どちらでも」を選んだ）。"""
+    if it["set"] == "D":
+        return misread_as_affirmed(it, key)
+    got = it.get(key)
+    return got != truth(it) and (got in q.conditions or got == ANY)
+
+
+def first(it: dict) -> bool:
+    """1日の上限が少ないときに、先に判定させる答え：いまの判定（BASE）が言い直しへの返事を認めたと読み違えたもの。判定し直すときは、
+    捨てる前の読み違えの印（前の読み違え）で見る。⛔ 2026-10-18：組の順で流し、上限で止まって、決め手の15個が2回とも後回しになった"""
+    return bool(it.get("前の読み違え") or misread_as_affirmed(it, BASE))
+
+
+def versus(items: list[dict], qmap: dict, key: str) -> dict:
+    """2つ目の判定の候補（key）を、いまの判定（BASE）と同じ答えで比べる。BASE の読みを会話のAIの報告とみなし、key の読みが、流れの制御の
+    決まり（Flow._meaning_disagrees）で食い違うか（＝確かめに回るか）を数える。"""
+    c = Counter()
+    for it in items:
+        if BASE not in it or key not in it or it.get("maker") in (BASE, key) or it["qid"] not in qmap:
+            continue
+        q, b = qmap[it["qid"]], it[BASE]
+        clash = Flow._meaning_disagrees(q, b, it[key], confirming=it["set"] == "D") is not None
+        c["両方が判定"] += 1
+        if dangerous(it, q, BASE):
+            c["いまの判定が危ない向き"] += 1
+            c["⇒ 候補が食い違う（確かめに回る）" if clash else "⇒ ⛔候補も食い違わない（そろって通る）"] += 1
+        elif b == truth(it):
+            c["いまの判定が正しい"] += 1
+            if clash:
+                c["⇒ 候補が食い違う（要らない確かめ）"] += 1
+        if dangerous(it, q, key) and not dangerous(it, q, BASE):
+            c["候補だけが危ない向き"] += 1
+    return dict(c)
+
+
 def pick_sample(items: list[dict], n: int) -> list[dict]:
     """2つ目の判定の候補（3.6〜3.8 Flash）は1日の上限が少ないので、3.5 Flash Lite が誤った・決められなかった答えと、ほかから無作為に n 個
-    （記録の通話の言葉・答えでない言葉は全部）。"""
+    （記録の通話の言葉・答えでない言葉は全部）。3.5 Flash Lite が言い直しへの返事を認めたと読み違えたものを先頭に置く
+    （⛔ 2026-10-18：組の順で流し、上限で止まって、決め手の15個のうち 3.6 Flash が判定できたのは1個だけだった）。"""
     import random
 
     hard = [it for it in items if it["set"] in ("A", "E") or it.get("3.5 Flash Lite") != truth(it)]
     rest = [it for it in items if it not in hard]
+    hard.sort(key=lambda it: not first(it))
     return hard + random.Random(53).sample(rest, min(n, len(rest)))
 
 
@@ -260,10 +305,14 @@ def run_judges(args, items: list[dict], qmap: dict, ids: dict) -> None:
     probe = KeyRing(args)
     usable = [i for i in range(len(probe.keys)) if i not in probe.denied]
     jobs: queue.Queue = queue.Queue()
-    for key in args.judge:  # 判定ごとに、難しい答え（見本の先頭）から
-        for it in (sample if sample and key != "3.5 Flash Lite" else items):
-            if key not in it and it.get("maker") != key:
-                jobs.put((key, it))
+    order = {s: n for n, s in enumerate(args.sets or "")}  # --sets の並びの順に判定する（上限で止まっても、先の組は測り終える）
+    gem = [k for k in args.judge if k not in OTHER_JUDGES]  # Google の判定（キーごとの流れで、1日の上限を飛ばしながら）
+    others: queue.Queue = queue.Queue()  # Google 以外の判定（1日の上限が無い有料の枠＝見本に絞らず全部）
+    for key in args.judge:  # 判定ごとに、決め手の答え（first）から、--sets の組の順に
+        pool = sample if sample and key not in (BASE, *OTHER_JUDGES) else items
+        for it in sorted(pool, key=lambda it: (not first(it), order.get(it["set"], 0))):
+            if key not in it and it.get("maker") != key and (not args.sets or it["set"] in args.sets):
+                (others if key in OTHER_JUDGES else jobs).put((key, it))
     lock = threading.Lock()
     done = Counter()
 
@@ -278,7 +327,7 @@ def run_judges(args, items: list[dict], qmap: dict, ids: dict) -> None:
                 return
             if key in skip:
                 jobs.put((key, it))
-                if all(m in skip for m in args.judge):
+                if all(m in skip for m in gem):
                     return
                 continue
             q = qmap[it["qid"]]
@@ -303,11 +352,51 @@ def run_judges(args, items: list[dict], qmap: dict, ids: dict) -> None:
                 done[key] += 1
                 if sum(done.values()) % 50 == 0:
                     say("判定", dict(done), "残り", jobs.qsize())
-                    save_partial("G-53", {"items": items})
+                    save_partial(f"G-53{args.tag}", {"items": items})
 
-    with ThreadPoolExecutor(max_workers=len(usable)) as ex:
-        list(ex.map(worker, usable))
-    left = jobs.qsize()
+    def other_worker(_n: int):
+        import httpx
+        from common import load_secret
+
+        keys = {}
+        with httpx.Client(timeout=60) as http:
+            while True:
+                try:
+                    key, it = others.get_nowait()
+                except queue.Empty:
+                    return
+                q = qmap[it["qid"]]
+                if key not in keys:
+                    keys[key] = load_secret(OTHER_JUDGES[key]["key"], args.env)
+                for attempt in range(5):
+                    try:
+                        t = time.monotonic()
+                        it[key] = judge_other(http, key, q, it["text"], it.get("asked"), key=keys[key])
+                        it[f"{key}秒"] = round(time.monotonic() - t, 3)
+                        break
+                    except httpx.HTTPStatusError as exc:  # 上限（429）・混雑（5xx）は待ってやり直す。ほかは記録して次へ
+                        code = exc.response.status_code
+                        if code == 429 or code >= 500:
+                            time.sleep(float(exc.response.headers.get("retry-after") or 5 * 2 ** attempt))
+                            continue
+                        it[f"{key}誤り"] = f"{code} {describe_error(exc).get('message', '')[:200]}"
+                        break
+                    except Exception as exc:
+                        it[f"{key}誤り"] = describe_error(exc).get("message", "")[:200]
+                        break
+                with lock:
+                    done[key] += 1
+                    if sum(done.values()) % 50 == 0:
+                        say("判定", dict(done), "残り", jobs.qsize() + others.qsize())
+                        save_partial(f"G-53{args.tag}", {"items": items})
+
+    n_other = 4 * len({k for k in args.judge if k in OTHER_JUDGES})  # 有料の枠の1分の上限に収まる数（1つの会社に4本）
+    lanes = usable if gem else []
+    with ThreadPoolExecutor(max_workers=max(1, len(lanes) + n_other)) as ex:  # Google の流れと、ほかの会社の流れを同時に
+        futures = [ex.submit(worker, k) for k in lanes] + [ex.submit(other_worker, n) for n in range(n_other)]
+        for f in futures:
+            f.result()
+    left = jobs.qsize() + others.qsize()
     if left:
         say(f"⚠️ どのキーでも判定できなかった答えが {left} 個残りました（1日の上限）")
 
@@ -326,7 +415,7 @@ def tally(items: list[dict], judges) -> dict:
             label = {"B": "選択肢", "D": it.get("kind")}.get(it["set"], want)
             t[f"{it['set']}・{label}"][res] += 1
             t["全体"][res] += 1
-            if it["set"] == "D" and res != "正しい" and (got == "affirmed" or (got == it.get("asked_choice") and want != got)):
+            if misread_as_affirmed(it, key):
                 t["全体"]["⛔⛔言い直しを、認めていないのに認めたと読んだ"] += 1
         secs = sorted(it[f"{key}秒"] for it in items if it.get(f"{key}秒") is not None)
         out[key] = {"数え": {k: dict(v) for k, v in t.items()},
@@ -366,7 +455,9 @@ def predict_calls(items: list[dict], key: str) -> dict:
                 ok = (cond == want) if want != "ambiguous" else state == "dont_know"
                 if state == "dont_know" and want == "unknown":
                     ok = True
-                res = "受け取った・正しい" if ok else "⛔受け取った・誤り"
+                # 「わからない」で受け取った（依頼主へは「-」）のに答えがあった：誤った値は渡らない（答えを取り逃しただけ）＝誤りと分ける
+                res = ("受け取った・正しい" if ok else "受け取った・「-」（答えがあったのに）" if state == "dont_know"
+                       else "⛔受け取った・誤り")
             else:
                 res = "確かめる（AIは正しかった）" if right else "確かめる（AIが誤っていた）"
             c["通話"] += 1
@@ -382,12 +473,18 @@ def main() -> None:
     p = base_parser(__doc__)
     p.add_argument("--judge", action="append", choices=JUDGES, help="判定のモデル（既定は2つとも）")
     p.add_argument("--reuse", help="前の結果のファイル（作った答え・判定済みの分を使い回す）")
+    p.add_argument("--tag", default="", help="結果のファイル名に足す印（同時に流す回を分けるため）")
+    p.add_argument("--hedge", action="store_true", help="判定の決まりに「言い切っていない返事は決められない」を足して測る（meaning_judge.HEDGE_RULE）")
+    p.add_argument("--sets", help="判定する組だけ（例 E、DE）。ほかの組は判定しない（数えには入る）")
     p.add_argument("--rejudge", action="store_true", help="--reuse の判定を捨てて測り直す（判定の文・選べるものを変えたとき）")
     p.add_argument("--add-de", action="store_true", help="--reuse の答えに、D（言い直しへの返事）・E（答えでない言葉）を作って足す")
     p.add_argument("--sample", type=int, default=0, help="2つ目の判定の候補は、3.5 Flash Lite が誤った答えと、ほかから無作為にこの数だけ（1日の上限が少ない）")
     p.add_argument("--interval", type=float, default=4.0, help="同じキー・同じモデルに続けて聞く間（秒）。1分の上限に当たったら、言われた秒だけ待つ")
     args = p.parse_args()
     args.judge = args.judge or ["3.5 Flash Lite"]
+    if args.hedge:
+        import meaning_judge
+        meaning_judge.USE_HEDGE_RULE = True
     ring = KeyRing(args)
     ids, _ = find_models(ring.client())
     from g14_listen import business
@@ -396,7 +493,9 @@ def main() -> None:
     qmap = {q.id: q for q in qs + vqs} | {qid: business(qid).questions[0] for qid in ("Q1", "Q2", "Q3", "Q5")}
     if args.reuse:
         items = json.loads(open(args.reuse, encoding="utf-8").read())["items"]
-        if args.rejudge:  # 判定の文や選べるものを変えたとき：前の判定を捨てて、同じ答えで測り直す
+        if args.rejudge:  # 判定の文や選べるものを変えたとき：前の判定を捨てて、同じ答えで測り直す（決め手の印は残す＝first）
+            for it in items:
+                it["前の読み違え"] = first(it)
             items = [{k: v for k, v in it.items() if not any(k.startswith(j) for j in JUDGES)} for it in items]
         if args.add_de and not any(it["set"] in ("D", "E") for it in items):
             names = {m.display_name: m.name.split("/")[-1] for m in ring.client().models.list() if getattr(m, "display_name", None)}
@@ -415,9 +514,10 @@ def main() -> None:
     run_judges(args, items, qmap, ids)
     summary = tally(items, args.judge)
     summary["記録の通話に当てた見込み"] = {k: predict_calls(items, k) for k in args.judge}
+    summary[f"{BASE} と同じ答えで比べた"] = {k: versus(items, qmap, k) for k in args.judge if k != BASE}
     for k, v in summary.items():
         say(k, json.dumps({kk: vv for kk, vv in v.items() if kk != "⛔別の答えの例"}, ensure_ascii=False))
-    save_result("G-53", {"model_ids": ids, "summary": summary, "items": items})
+    save_result(f"G-53{args.tag}", {"model_ids": ids, "summary": summary, "items": items})
 
 
 if __name__ == "__main__":

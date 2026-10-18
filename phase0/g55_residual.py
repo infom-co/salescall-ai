@@ -1,7 +1,7 @@
 """G-55：残る誤り（DESIGN.md 1章の 1-3）＝会話のAIと意味の判定が、そろって同じ向きに意味を取り違えて、確かめずに受け取る回を数える（2026-10-18）。
 
 ✅ 2026-10-18 ユーザー：「残る誤りは、2つの仕組みがそろって同じ向きに誤ったときだけ ⇒ この対応も必要だよね。」
-- 材料：G-53 の答え（正解が決まっているもの）。(B) 打ち消しを混ぜた答え（G-52）と、(C) わからない・答えたくない・どちらでも・決められない。
+- 材料：G-53 の答え（正解が決まっているもの）。(B) 打ち消しを混ぜた答え（G-52）と、(C) わからない・どちらでも。
 - 形：本物の会話のAI（gemini-3.8-live）に、相手の言葉を文字で送る（聞き違いは入らない＝意味の取り違えだけを測る）。意味の判定（3.5 Flash Lite）も
   通話の中と同じく走らせる（convo.check_handler）。流れの制御が受け取ったものを、正解と比べる。
 - 数えること：(1) ⛔受け取った・誤り（AIと判定がそろって誤った＝残る誤り） (2) 確かめた（AIか判定が誤った・どちらかが決められなかった）
@@ -18,7 +18,7 @@ from collections import Counter
 
 from common import HERE, base_parser, describe_error, drop_partial, make_client, pick_key, require_python, save_partial, save_result, say
 from convo import run_call
-from flowctl import TAKEN
+from flowctl import ANY, TAKEN
 from g22_opening import BUSINESS as BASE
 from g34_ack import FAST
 from g53_meaning import JUDGES, g48_questions, truth
@@ -87,7 +87,11 @@ async def run(args) -> dict:
     pool = [it for it in src if it["set"] in ("B", "C") and it["qid"] in qmap]
     rnd = random.Random(55)
     b = [it for it in pool if it["set"] == "B"]
-    c = rnd.sample([it for it in pool if it["set"] == "C"], min(args.c_sample, sum(1 for it in pool if it["set"] == "C")))
+    if args.b_sample:  # 3.5 Flash Lite の1日の上限（1キー500回）のため、通話の試験と分け合うときに絞る
+        b = rnd.sample(b, min(args.b_sample, len(b)))
+    # (C) は「わからない」「どちらでも」だけ（「答えたくない」「決められない」として作らせた答えは、正解の付け方が合わないものが多い＝G-53）
+    cs = [it for it in pool if it["set"] == "C" and truth(it) in ("unknown", ANY)]
+    c = rnd.sample(cs, min(args.c_sample, len(cs)))
     items = b + c
     rnd.shuffle(items)
     if args.limit:
@@ -107,6 +111,7 @@ def main() -> None:
     p.add_argument("--items", help="G-53 の結果のファイル（既定は最新）")
     p.add_argument("--keys", required=True, help="使うキーの番号（カンマ区切り。キーごとに1本の流れで同時に流す）")
     p.add_argument("--c-sample", type=int, default=300, help="(C) から無作為に選ぶ数")
+    p.add_argument("--b-sample", type=int, default=0, help="(B) から無作為に選ぶ数（0＝全部）")
     p.add_argument("--limit", type=int, default=0)
     p.add_argument("--pause", type=float, default=1.0)
     p.add_argument("--tag", default="")

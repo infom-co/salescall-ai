@@ -1489,6 +1489,15 @@ class KeyRingTest(unittest.TestCase):
         self.assertEqual(asyncio.run(ring.acall("text", minute)), ("ok", 0))
         self.assertLess(ring._cool[(2, "text")] - time.monotonic(), 10)
 
+        # 待つ秒が無くても、1分の上限と書いてあれば30秒ほど（⛔ 2026-10-18：10分休ませ、通話の中の判定が届かなかった）
+        async def minute_no_secs(client):
+            if client == "c2":
+                raise Minute("429 RESOURCE_EXHAUSTED. quotaId: GenerateRequestsPerMinutePerProjectPerModel-FreeTier")
+            return "ok"
+        ring._cool = {}
+        self.assertEqual(asyncio.run(ring.acall("text", minute_no_secs)), ("ok", 0))
+        self.assertLess(ring._cool[(2, "text")] - time.monotonic(), 40)
+
     def test_session_timeout_is_not_a_denied_project(self):
         # ⛔ つなぎの時間切れも閉じる番号 1008 で返る（2026-10-17 G-15）＝番号だけで「止められたプロジェクト」と決めない
         import common
@@ -2100,6 +2109,29 @@ class MeaningJudgeTest(unittest.TestCase):
         self.assertIsNone(f.meaning_said)
 
 
+class MeaningJudgeOptionsTest(unittest.TestCase):
+    """意味の判定に見せる選べるもの（meaning_judge.options）：選択肢は意味の言葉を名前にする。⛔ G-53 の2回目：名前の「いいえ」と相手の
+    「違います」を言葉で結びつけ、言い直しを認めていないのに認めたと読んだ（2回）。"""
+
+    def test_choices_are_named_by_meaning(self):
+        import json
+        from flowctl import ANY, HOLD, Question
+        from meaning_judge import options, prompt, read
+        q = Question("Q1", "ご予約の日時に変更はございませんでしょうか？", "yes_no", conditions=("はい", "いいえ"),
+                     meanings={"はい": "ご予約の日時に変更はないということ", "いいえ": "ご予約の日時に変更がおありということ"})
+        names = [n for n, _, _ in options(q)]
+        self.assertEqual(names[:2], ["ご予約の日時に変更はないということ", "ご予約の日時に変更がおありということ"])
+        self.assertNotIn("- はい：", prompt(q, "違います。", "念のためご予約の日時に変更がおありということでよろしいでしょうか？"))
+        self.assertEqual(read(q, json.dumps({"choice": "ご予約の日時に変更はないということ"})), "はい")
+        self.assertEqual(read(q, json.dumps({"choice": HOLD})), HOLD)
+        c = Question("Q2", "お支払いはどちらになさいますか？", "choice", conditions=("カード", "振込"), meanings={"カード": "わからない"})
+        self.assertEqual([n for n, _, _ in options(c)][:3], ["カード", "振込", "どちらでも"])  # ほかの名前とかぶる意味の言葉は使わない
+        self.assertEqual(read(c, json.dumps({"choice": "どちらでも"})), ANY)
+        v = Question("Q3", "ご希望の日時をお聞かせいただけますでしょうか？", "datetime", conditions=("答えた",))
+        self.assertEqual(read(v, json.dumps({"choice": "合っている"}), "念のため16日でよろしいでしょうか？"), "affirmed")
+        self.assertIsNone(read(v, json.dumps({"choice": "はい"}), "念のため16日でよろしいでしょうか？"))
+
+
 class UnreportedNoteTest(unittest.TestCase):
     """AIが声は出したのに、報告なしでターンを終えたときの、報告を促す知らせ（Flow.unreported_note）。
     ⛔ 2026-10-17：記録の通話で、「はい。」などのあとに報告が抜けた回が34回。プログラムは気づく手立てを持っていなかった。
@@ -2196,14 +2228,24 @@ class AmbiguousAnswerTest(unittest.TestCase):
         return f.apply(op, args)
 
     def test_list(self):
-        from flowctl import ambiguous_answer
+        # 曖昧な答えの決まりは、流れの制御の比べ（Flow._compare）の1か所で当てる
+        from flowctl import Flow, Question
+        q = Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"))
+
+        def why(t, reported="はい", policy=True, confirming=False):
+            return Flow._compare(q, t or "", "affirmed" if confirming else reported, {}, policy=policy, confirming=confirming)[0]
         for t in ("大丈夫です。", "結構です", "いいです。", "あ、大丈夫です。", "えーと、結構です。", "大丈夫です、大丈夫です。", "いいですよ。",
                   "家族がしたかもしれないです。", "たぶんカードです。", "多分してます", "おそらくまだです", "したかも。"):  # 言い切っていない答え
-            self.assertTrue(ambiguous_answer(t), t)
+            self.assertEqual(why(t), "曖昧な答え", t)
         # 認める・打ち消す言葉が付いていれば、その言葉で決まる。「いいえ」は打ち消し。文字が無ければ決めない。「と思います」は言い切りの柔らかい形
         for t in ("はい、大丈夫です。", "いいえ。", "いえ、結構です。", "どちらでも大丈夫です。", "はい、予約しています。", "", None,
                   "カードがいいと思います。", "かもめ便でお願いします", "鴨川に住んでいます"):
-            self.assertFalse(ambiguous_answer(t), t)
+            self.assertIsNone(why(t), t)
+        # 言い直しへの返事：「大丈夫です」は認める返事（決まりを当てない）・「たぶんそうです」は言い切っていない（当てる）
+        self.assertIsNone(why("大丈夫です。", policy=False, confirming=True))
+        self.assertEqual(why("たぶんそうです。", policy=False, confirming=True), "曖昧な答え")
+        # 「わからない」の報告には、言い切っていない決まりを当てない（「たぶん分からないです」は、そのまま「わからない」）
+        self.assertIsNone(why("たぶん分からないです。", reported="unknown", policy=False))
 
     def test_ambiguous_is_confirmed_by_meaning(self):
         f = self.flow()
@@ -3315,6 +3357,72 @@ class RecordingCheckTest(unittest.TestCase):
         smooth = self.tone((0.1, False), (0.8, True), (0.08, False), (0.8, True), (0.2, False))
         self.assertFalse(long_pauses_ok(text, with_comma, self.RATE))
         self.assertTrue(long_pauses_ok(text, smooth, self.RATE))
+
+
+class JudgeSetupTest(unittest.TestCase):
+    """Google 以外の判定（meaning_judge.OTHER_JUDGES）と、ユーザーが貼る文字（docs/JUDGE_SETUP.md）。つながずに確かめる。"""
+
+    DOC = Path(__file__).resolve().parent.parent / "docs" / "JUDGE_SETUP.md"
+
+    def blocks(self) -> list[str]:
+        lines, inside = [], False
+        for line in self.DOC.read_text(encoding="utf-8").splitlines():
+            if line.startswith("```"):
+                inside = not inside
+            elif inside and line.strip():
+                lines.append(line.strip())
+        return lines
+
+    def q(self):
+        from g53_meaning import g48_questions
+        return next(q for q in g48_questions() if q.id == "G17")
+
+    def test_doc_has_every_host_and_key_name(self):
+        # 枠に、判定の接続先・キーの名前と、いま使えている接続先（貼り替えで消さない）が、すべてある
+        from meaning_judge import OTHER_JUDGES
+        lines = self.blocks()
+        for j in OTHER_JUDGES.values():
+            self.assertIn(j["host"], lines)
+            self.assertTrue(any(l.startswith(f"{j['key']}=") for l in lines), j["key"])
+        for keep in ("acp-api.amivoice.com", "stt-rt.soniox.com", "api.soniox.com", "*.googleapis.com", "github.com", "*.githubusercontent.com"):
+            self.assertIn(keep, lines)
+        # この作業の場所そのものが読む名前にしない
+        self.assertFalse(any(l.startswith("ANTHROPIC_API_KEY=") for l in lines))
+        self.assertNotIn("ANTHROPIC_API_KEY", {j["key"] for j in OTHER_JUDGES.values()})
+
+    def test_requests_carry_the_same_prompt_and_choices(self):
+        # 会社ごとに違うのは送り方だけ：同じ問い合わせの文と、同じ選べるものの名前（Gemini の _config と同じ並び）
+        from meaning_judge import OTHER_JUDGES, options, other_request, prompt
+        q, asked, text = self.q(), "念のためご連絡はメールでよろしいでしょうか？", "メールのほうが助かりますが…"
+        names = [n for n, _, _ in options(q, asked)]
+        for name in OTHER_JUDGES:
+            url, head, body = other_request(name, q, text, asked, "k")
+            self.assertTrue(url.startswith(f"https://{OTHER_JUDGES[name]['host']}/"))
+            sent = json.dumps(body, ensure_ascii=False)
+            self.assertIn(json.dumps(prompt(q, text, asked), ensure_ascii=False), sent)
+            self.assertIn(json.dumps(names, ensure_ascii=False), sent)
+
+    def test_replies_are_read_the_same_way(self):
+        # 返事の形が違っても、read で同じ中の名前になる・読めない返事は None
+        from meaning_judge import options, other_text, read
+        q, asked = self.q(), "念のためご連絡はメールでよろしいでしょうか？"
+        name, cond = options(q, asked)[0][0], options(q, asked)[0][2]
+        claude = {"content": [{"type": "tool_use", "name": "answer", "input": {"choice": name}}]}
+        gpt = {"output": [{"type": "reasoning"}, {"type": "message", "content": [{"type": "output_text", "text": json.dumps({"choice": name})}]}]}
+        self.assertEqual(read(q, other_text("Claude Haiku 5.5", claude), asked), cond)
+        self.assertEqual(read(q, other_text("GPT-6 Luna", gpt), asked), cond)
+        self.assertIsNone(read(q, other_text("Claude Haiku 5.5", {"content": [{"type": "text", "text": "…"}]}), asked))
+        self.assertIsNone(read(q, other_text("GPT-6 Luna", {"output": []}), asked))
+
+    def test_decisive_answers_go_first_and_survive_rejudge(self):
+        # 1日の上限が少ないとき、いまの判定が言い直しへの返事を認めたと読み違えた答えを、先に判定させる（判定し直しで読みを捨てても印は残る）
+        from g53_meaning import BASE, first, misread_as_affirmed
+        bad = {"set": "D", "qid": "G17", "text": "メールのほうが助かりますが…", "truth": "決められない", "asked_choice": "メール", BASE: "メール"}
+        ok = {"set": "D", "qid": "G17", "text": "はい、メールで。", "truth": "メール", "asked_choice": "メール", BASE: "メール"}
+        self.assertTrue(misread_as_affirmed(bad, BASE) and first(bad))
+        self.assertFalse(first(ok))
+        stripped = {k: v for k, v in bad.items() if k != BASE} | {"前の読み違え": True}
+        self.assertTrue(first(stripped))
 
 
 if __name__ == "__main__":
