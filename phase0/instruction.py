@@ -11,7 +11,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from flowctl import ANY_LABEL, ARG_LABEL, CONFIRM_LABEL, END_LABEL, GOT, PART_LABEL, PARTY_LABEL, SYSTEM_LABEL, Question, choices_note
+from flowctl import (ANY_LABEL, ARG_LABEL, CALLBACK_LABEL, CONFIRM_LABEL, END_LABEL, GOT, PART_LABEL, PARTY_LABEL, SYSTEM_LABEL, Question,
+                     choices_note)
 from names import quote  # noqa: F401（名前を「」でくくる唯一の場所。ここからも読める）
 
 from phrases import APOLOGY, ASK_BACK, GREETING  # noqa: F401（決まった言い方は phrases.py の1か所。試験からも、ここ経由で読める）
@@ -269,6 +270,11 @@ def system_rules(play_recordings: bool = False) -> str:
         "- プログラムの返事に言い方が書いてあるときは、その言い方から話し始めます。前に「失礼いたしました」「ありがとうございます」"
         "「かしこまりました」などを足しません（相づち・お詫びは、プログラムが録音で流します）。\n"
         "- 返事に「念のための確認」とあれば、返事に書いてある言い方のとおりに、その質問をもう1回だけ聞きます（言い方を足したり変えたりしません）。\n"
+        # かけ直しの申し出（DESIGN.md 6-2）：「かけ直して」と言われたときだけ。忙しいとだけ言われたときは request_end（引き止めるかは業務設定）
+        "- 相手が、かけ直してほしいと言ったとき（話すべき方がいない「出かけております」、「携帯のほうにかけてもらえますか」、"
+        f"「あとでかけてもらえますか」など）は、request_callback を呼びます（{ARG_LABEL['why']}は「{CALLBACK_LABEL['absent']}」"
+        f"「{CALLBACK_LABEL['other_number']}」「{CALLBACK_LABEL['later']}」のどれか）。プログラムが、次に聞くこと（戻られる時刻など）を返事で渡します。"
+        "かけ直すことは約束しません。\n"
         f"- 相手が急いでいる・切ろうとしているときは、request_end を{ARG_LABEL['reason']}「{END_LABEL['callee_hurry']}」で呼びます。"
         f"通話そのものを断られたら（「営業はお断りしています」「もうかけないで」など）「{END_LABEL['callee_refused_call']}」で呼びます。"
         # 怒り・苦情（Intent.md 9-4）：弁明や約束をせず、謝意を伝えて終える。人へ知らせる印は流れの制御が残す（Flow._note）
@@ -375,7 +381,9 @@ def position_text(business: Business, flow) -> str:
         lines.append(f"いまは {flow.awaiting_confirm} を「{flow.awaiting_say}」と確かめて、相手の返事を待っているところです。"
                      + flow._confirm_how(flow.awaiting_confirm))
     elif flow.current:
-        q = business.questions[[x.id for x in business.questions].index(flow.current)]
+        # ⛔ 2026-10-18 の見直しで見つけた漏れ：業務の質問の一覧から探していた＝プログラムが足した質問（かけ直しの C1 など）が
+        #    いまの質問のときに、張り替えで落ちる形だった ⇒ 流れの制御が持つ質問から取る
+        q = flow.questions[flow.current]
         lines.append(f"次に聞くのは {q.id}「{q.text}」です。相手が話したら、それに答えてから、この質問を聞きます。" + choices_note(q))
     return "\n".join(lines)
 

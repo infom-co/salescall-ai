@@ -639,10 +639,10 @@ class AIToJapaneseTest(unittest.TestCase):
         import json
         import re
 
-        from flowctl import OPS, Flow, tool_declarations
+        from flowctl import CALLBACK_IDS, OPS, Flow, tool_declarations
         from instruction import build
         b = self.business()
-        allowed = set(OPS) | {"Q1", "Q2"}  # 操作の名前（道具の決まり）と質問の番号
+        allowed = set(OPS) | {"Q1", "Q2"} | set(CALLBACK_IDS.values())  # 操作の名前（道具の決まり）と質問の番号
         shown = [build(b, t)[1] for t in ("S2", "L4")]
         shown += [build(b, "S2", opening_mode="recorded")[1]]
         for d in tool_declarations(b.questions, replay=True)[0].function_declarations:
@@ -3670,6 +3670,93 @@ class PartyTest(unittest.TestCase):
         text = build(Business(company="アオバ物流", caller="佐藤", purpose="ご予約の確認", questions=qs), "S2")[1]
         self.assertIn("report_party", text)
         self.assertIn("何も言わずに", text)
+
+
+class CallbackTest(unittest.TestCase):
+    """かけ直しの申し出（DESIGN.md 6-2 の request_callback）：理由ごとにシステムが足す質問を、ふつうの質問と同じ流れ（言い直して確かめる）で聞き、
+    取れたら締める。残りの業務の質問は聞かない（目的の人ではない・いまは話せない相手）。答えは依頼主へ渡す項目に入れず、通話の事実に残す。"""
+
+    def flow(self, play=False):
+        from flowctl import Flow, Question
+        return Flow([Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ")),
+                     Question("Q2", "ご希望の日時をお聞かせいただいてもよろしいでしょうか？", "datetime", conditions=("答えた",))],
+                    play_recordings=play)
+
+    @staticmethod
+    def say(f, heard, op, **args):
+        f.on_callee(); f.on_heard(heard)
+        return f.apply(op, args)
+
+    def test_absent_asks_when_back_and_closes(self):
+        from phrases import CALLBACK_ASK, CLOSING
+        f = self.flow()
+        r = self.say(f, "あいにく本人は出かけておりまして。", "request_callback", why="absent")
+        self.assertEqual((r["result"], r["question_id"], r["question"], r["ack"]), ("next", "C1", CALLBACK_ASK["back_time"], "shouchi"))
+        r = self.say(f, "3時ごろには戻ると思います。", "record_answer", question_id="C1", condition_id="答えた", value="3時ごろ")
+        self.assertEqual((r["result"], r["value"]), ("confirm_required", "午後3時ごろ"))   # 時刻はほかの値と同じく言い直して確かめる
+        r = self.say(f, "はい。", "confirm_field", question_id="C1", result="affirmed")
+        self.assertEqual((r["result"], r["say"], f.end_reason), ("end", CLOSING, "callback"))  # 残りの Q2 は聞かない
+        self.assertEqual(f.facts["callback"], [{"turn": 1, "said": "あいにく本人は出かけておりまして。", "why": "absent",
+                                                "time": "午後3時ごろ", "number": None}])
+        self.assertEqual(f.export(), {"Q1": "-", "Q2": "-"})                                  # 依頼主へ渡す項目には入れない
+
+    def test_other_number_asks_number_then_reachable_time(self):
+        from phrases import CALLBACK_ASK
+        f = self.flow()
+        self.say(f, "はい、予約しています。", "record_answer", question_id="Q1", condition_id="はい", value="予約しています")
+        r = self.say(f, "この番号じゃなくて、携帯のほうにかけてもらえますか。", "request_callback", why="other_number")
+        self.assertEqual((r["question_id"], r["question"]), ("C2", CALLBACK_ASK["number"]))
+        self.say(f, "090-1234-5678です。", "record_answer", question_id="C2", condition_id="答えた", value="090-1234-5678")
+        r = self.say(f, "はい。", "confirm_field", question_id="C2", result="affirmed")
+        self.assertEqual((r["result"], r["question_id"], r["question"]), ("next", "C1", CALLBACK_ASK["reachable_time"]))
+        r = self.say(f, "ちょっとわからないです。", "record_answer", question_id="C1", condition_id="unknown")
+        self.assertEqual((r["result"], f.end_reason), ("end", "callback"))                    # 出られる時間は分からなくてよい
+        self.assertEqual((f.facts["callback"][0]["number"], f.facts["callback"][0]["time"]), ("090-1234-5678", None))
+        self.assertEqual(f.export(), {"Q1": "はい", "Q2": "-"})
+
+    def test_later_time_is_asked_back_when_unclear_but_not_rechecked(self):
+        from flowctl import Limits
+        f = self.flow()
+        self.say(f, "今ちょっと手が離せないので、あとでかけてもらえますか。", "request_callback", why="later")
+        for _ in range(Limits().ask_back):
+            self.assertEqual(self.say(f, "えっと……", "report_unclear", question_id="C1")["result"], "ask_back")
+        r = self.say(f, "えっと……", "report_unclear", question_id="C1")
+        self.assertEqual((r["result"], f.end_reason, f.facts["callback"][0]["time"]), ("end", "callback", None))  # 念のための確認はしない
+
+    def test_resume_during_callback(self):
+        # 張り替えのときの「いまの位置」：足した質問がいまの質問でも書ける（⛔ 前は業務の質問の一覧から探していて、落ちる形だった）
+        from instruction import Business, position_text
+        from phrases import CALLBACK_ASK
+        f = self.flow()
+        self.say(f, "あいにく本人は出かけておりまして。", "request_callback", why="absent")
+        b = Business(company="アオバ物流", caller="佐藤", purpose="ご予約の確認", questions=[f.questions["Q1"], f.questions["Q2"]])
+        self.assertIn(CALLBACK_ASK["back_time"], position_text(b, f))
+
+    def test_only_one_callback_request(self):
+        f = self.flow()
+        self.say(f, "あとでかけてもらえますか。", "request_callback", why="later")
+        r = self.say(f, "あ、やっぱり携帯にかけてください。", "request_callback", why="other_number")
+        self.assertEqual(r["result"], "rejected")
+        self.assertIn("C1", r["message"])
+
+    def test_spoken_by_ai_even_when_questions_are_recorded(self):
+        # 足す質問の録音はまだ無いので、録音で流す形でも AIが言う（つなぎの言葉も付けない）
+        from phrases import CALLBACK_ASK
+        f = self.flow(play=True)
+        r = self.say(f, "あいにく本人は出かけておりまして。", "request_callback", why="absent")
+        self.assertNotIn("play", r)
+        self.assertIn(CALLBACK_ASK["back_time"], r["message"])
+
+    def test_ai_sees_the_operation_and_the_questions(self):
+        from flowctl import CALLBACK_LABEL, tool_declarations
+        from instruction import Business, build
+        qs = list(self.flow().questions.values())
+        decl = {d.name: d for d in tool_declarations(qs)[0].function_declarations}
+        self.assertEqual(decl["request_callback"].parameters.properties["かけ直しの理由"].enum, list(CALLBACK_LABEL.values()))
+        self.assertIn("C1", decl["record_answer"].parameters.properties["質問"].enum)
+        self.assertIn("C2", decl["confirm_field"].parameters.properties["質問"].enum)
+        text = build(Business(company="アオバ物流", caller="佐藤", purpose="ご予約の確認", questions=qs), "S2")[1]
+        self.assertIn("request_callback", text)
 
 
 class G53LabelsTest(unittest.TestCase):
