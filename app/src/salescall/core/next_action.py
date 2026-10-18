@@ -323,6 +323,11 @@ def _write(tx: Tx, task_id: UUID, d: Decision) -> int:
                    callee_at=d.callee_at)
 
 
+# 途中で切れた通話のあとの、お詫びしてすぐかけ直す電話（目的 resume）は、同じ行で続けて2回まで。それでも切れたら、ふつうの
+# 再発信の方針（間隔をあけてかけ直す）へ移す（2026-10-18 ユーザー 案A。電波の悪いお客様に、お詫びの電話をきりなくかけ続けないため）
+RESUME_IN_A_ROW = 2
+
+
 def after_call(tx: Tx, task_id: UUID, j: Judgement, *, rules: Rules, dialed: Target,
                dialed_at: datetime, alternate: Alternate | None, recheck: Recheck | None, forbidden: bool,
                cut_off: bool = False) -> Decision:
@@ -343,6 +348,12 @@ def after_call(tx: Tx, task_id: UUID, j: Judgement, *, rules: Rules, dialed: Tar
         ask = _new_band_retry(tx, task_id, max(now, promised.earliest or now), purpose="ask_number_again")
     policy = rules.retry.get(key) if key is not None else None
     retry_at = _retry_at(tx, task_id, policy.interval, now, dialed_at) if policy and policy.action == "call" else None
+    if cut_off:   # すでに続けて何回、お詫びしてすぐかけ直したか（今回を含む）
+        resumed = tx.one(
+            "SELECT coalesce(min(n) FILTER (WHERE purpose <> 'resume') - 1, count(*)) AS n FROM ("
+            "  SELECT purpose, row_number() OVER (ORDER BY claimed_at DESC) AS n FROM salescall.attempts"
+            "  WHERE task_id = %s AND state NOT IN ('claimed', 'released')) x", (task_id,))["n"]
+        cut_off = resumed < RESUME_IN_A_ROW
     d = decide_after_call(j, cut_off=cut_off, normal=gate.pacing(tx, task_id, contact_id=count_at, promised=False),
                           promised=promised, rules=rules, times_with_key=times, now=now, target=target,
                           retry_at=retry_at, ask=ask, forbidden=forbidden)

@@ -278,6 +278,18 @@ class CutOffCalls(SettleBase):
         c = self.claim(s)                                               # すぐ（間隔をあけずに）かけられる
         self.assertEqual((type(c).__name__, getattr(c, "purpose", None)), ("Claim", "resume"))
 
+    def test_at_most_two_call_backs_in_a_row_then_the_usual_retry(self):
+        """お詫びしてすぐかけ直すのは、同じ行で続けて2回まで（2026-10-18 ユーザー 案A）。3回目に切れたら、ふつうの再発信の方針。"""
+        s = self.ready()
+        cut = ("dialing", "ringing", "answered", "in_conversation", "dropped")
+        purposes = []
+        for _ in range(3):
+            aid = self.call(s, cut, side="line", report=rep(cut=Cut("callee", False, False)))
+            d = self.settle(s, aid)["decision"]
+            purposes.append(d.target.purpose if d.kind == "call" and d.target else d.kind)
+        self.assertEqual(purposes[:2], ["resume", "resume"])
+        self.assertNotEqual(purposes[2], "resume")
+
     def test_a_call_cut_by_our_failure_is_called_back_with_an_apology(self):
         s = self.ready()
         aid = self.call(s, ("dialing", "ringing", "answered", "in_conversation", "technical_error"))
