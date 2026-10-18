@@ -134,17 +134,26 @@ OTHER_JUDGES = {
 OPENAI_EFFORT = "low"  # 考える量（速さの公開の数字は low で約1.5秒。高くすると十数秒〜）
 
 
-def other_request(name: str, q, text: str, asked: str | None, key: str) -> tuple[str, dict, dict]:
-    """Google 以外の判定への問い合わせ（宛先・見出し・中身）。"""
+class OtherJudgeError(RuntimeError):
+    """Google 以外の判定の失敗（status＝返事の番号・retry＝待つように言われた秒）。上限（429）・混雑（5xx）は呼ぶ側がやり直す。"""
+
+    def __init__(self, status: int | None, message: str, retry: float | None = None):
+        super().__init__(f"{status} {message}")
+        self.status, self.retry = status, retry
+
+
+def other_request(name: str, q, text: str, asked: str | None) -> dict:
+    """Google 以外の判定への問い合わせの中身（会社ごとの形。問い合わせの文と選べるものは Gemini と同じ）。"""
     j, p = OTHER_JUDGES[name], prompt(q, text, asked)
     if j["maker"] == "anthropic":
-        return (f"https://{j['host']}/v1/messages", {"x-api-key": key, "anthropic-version": "2023-06-01"},
-                {"model": j["model"], "max_tokens": 64, "temperature": 0, "messages": [{"role": "user", "content": p}],
-                 "tools": [{"name": "answer", "description": "お客様の言葉に当たるものの名前", "input_schema": _schema(q, asked)}],
-                 "tool_choice": {"type": "tool", "name": "answer"}})
-    return (f"https://{j['host']}/v1/responses", {"authorization": f"Bearer {key}"},
-            {"model": j["model"], "input": p, "reasoning": {"effort": OPENAI_EFFORT}, "max_output_tokens": 2000,
-             "text": {"format": {"type": "json_schema", "name": "answer", "schema": _schema(q, asked), "strict": True}}})
+        # ⚠️ Claude Haiku 5.5 は temperature などを送ると断る（1以外は400＝2026-10-18 に当たった）。名前を指定した道具の呼び出しは、
+        #    考える段を飛ばして道具の呼び出しから返す（いちばん速い形）。strict＝選べるもの以外の名前を返させない
+        return {"model": j["model"], "max_tokens": 256, "messages": [{"role": "user", "content": p}],
+                "tools": [{"name": "answer", "description": "お客様の言葉に当たるものの名前", "input_schema": _schema(q, asked),
+                           "strict": True}],
+                "tool_choice": {"type": "tool", "name": "answer"}}
+    return {"model": j["model"], "input": p, "reasoning": {"effort": OPENAI_EFFORT}, "max_output_tokens": 2000,
+            "text": {"format": {"type": "json_schema", "name": "answer", "schema": _schema(q, asked), "strict": True}}}
 
 
 def other_text(name: str, data: dict) -> str | None:
@@ -155,20 +164,66 @@ def other_text(name: str, data: dict) -> str | None:
     return next((c.get("text") for o in data.get("output") or [] for c in o.get("content") or [] if c.get("type") == "output_text"), None)
 
 
-def judge_other(http, name: str, q, text: str, asked: str | None = None, *, key: str) -> str | None:
-    """judge と同じ（Google 以外の判定。http は httpx.Client）。上限・混雑は呼ぶ側がやり直す（httpx.HTTPStatusError）。"""
-    url, head, body = other_request(name, q, text, asked, key)
-    r = http.post(url, headers=head, json=body)
-    r.raise_for_status()
-    return read(q, other_text(name, r.json()), asked)
+def other_client(name: str, key: str, aio: bool = False):
+    """Google 以外の判定へ送る道具（Anthropic は公式の部品・OpenAI は httpx）。やり直しは呼ぶ側の1か所でするので、部品では繰り返さない。"""
+    if OTHER_JUDGES[name]["maker"] == "anthropic":
+        import anthropic
+
+        return (anthropic.AsyncAnthropic if aio else anthropic.Anthropic)(api_key=key, max_retries=0, timeout=60)
+    import httpx
+
+    return (httpx.AsyncClient if aio else httpx.Client)(base_url=f"https://{OTHER_JUDGES[name]['host']}", timeout=60,
+                                                        headers={"authorization": f"Bearer {key}"})
 
 
-async def ajudge_other(http, name: str, q, text: str, asked: str | None = None, *, key: str) -> str | None:
-    """judge_other と同じ（通話の中の形。http は httpx.AsyncClient）。"""
-    url, head, body = other_request(name, q, text, asked, key)
-    r = await http.post(url, headers=head, json=body)
-    r.raise_for_status()
-    return read(q, other_text(name, r.json()), asked)
+def _other_error(exc: BaseException) -> OtherJudgeError | None:
+    """部品ごとの失敗を、1つの形（OtherJudgeError）にそろえる。ほかの失敗は None（そのまま上げる）。"""
+    import anthropic
+    import httpx
+
+    if isinstance(exc, anthropic.APIStatusError):
+        r = exc.response
+        return OtherJudgeError(exc.status_code, str(exc.message)[:300], float(r.headers.get("retry-after") or 0) or None)
+    if isinstance(exc, httpx.HTTPStatusError):
+        r = exc.response
+        return OtherJudgeError(r.status_code, r.text[:300], float(r.headers.get("retry-after") or 0) or None)
+    return None
+
+
+def judge_other(client, name: str, q, text: str, asked: str | None = None) -> str | None:
+    """judge と同じ（Google 以外の判定。client は other_client で作る）。失敗は OtherJudgeError。"""
+    body = other_request(name, q, text, asked)
+    try:
+        if OTHER_JUDGES[name]["maker"] == "anthropic":
+            data = client.messages.create(**body).to_dict()
+        else:
+            r = client.post("/v1/responses", json=body)
+            r.raise_for_status()
+            data = r.json()
+    except Exception as exc:
+        err = _other_error(exc)
+        if err is None:
+            raise
+        raise err from exc
+    return read(q, other_text(name, data), asked)
+
+
+async def ajudge_other(client, name: str, q, text: str, asked: str | None = None) -> str | None:
+    """judge_other と同じ（通話の中の形。client は other_client(…, aio=True) で作る）。"""
+    body = other_request(name, q, text, asked)
+    try:
+        if OTHER_JUDGES[name]["maker"] == "anthropic":
+            data = (await client.messages.create(**body)).to_dict()
+        else:
+            r = await client.post("/v1/responses", json=body)
+            r.raise_for_status()
+            data = r.json()
+    except Exception as exc:
+        err = _other_error(exc)
+        if err is None:
+            raise
+        raise err from exc
+    return read(q, other_text(name, data), asked)
 
 
 def make_judge(args, model_name: str):
@@ -178,12 +233,10 @@ def make_judge(args, model_name: str):
     from g23_names import find_models
 
     if model_name in OTHER_JUDGES:
-        import httpx
-
-        key, http = load_secret(OTHER_JUDGES[model_name]["key"], args.env), httpx.AsyncClient(timeout=30)
+        client = other_client(model_name, load_secret(OTHER_JUDGES[model_name]["key"], args.env), aio=True)
 
         async def other(q, text, asked=None):
-            return await ajudge_other(http, model_name, q, text, asked, key=key)
+            return await ajudge_other(client, model_name, q, text, asked)
         return other
     ring = KeyRing(args)
     model = find_models(ring.client())[0][model_name]

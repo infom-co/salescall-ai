@@ -3396,11 +3396,12 @@ class JudgeSetupTest(unittest.TestCase):
         q, asked, text = self.q(), "念のためご連絡はメールでよろしいでしょうか？", "メールのほうが助かりますが…"
         names = [n for n, _, _ in options(q, asked)]
         for name in OTHER_JUDGES:
-            url, head, body = other_request(name, q, text, asked, "k")
-            self.assertTrue(url.startswith(f"https://{OTHER_JUDGES[name]['host']}/"))
+            body = other_request(name, q, text, asked)
             sent = json.dumps(body, ensure_ascii=False)
             self.assertIn(json.dumps(prompt(q, text, asked), ensure_ascii=False), sent)
             self.assertIn(json.dumps(names, ensure_ascii=False), sent)
+            # Claude Haiku 5.5 は温度などを送ると断る（2026-10-18 に400）
+            self.assertFalse({"temperature", "top_p", "top_k"} & set(body), name)
 
     def test_replies_are_read_the_same_way(self):
         # 返事の形が違っても、read で同じ中の名前になる・読めない返事は None

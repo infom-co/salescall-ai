@@ -12,7 +12,7 @@ import sys
 import time
 
 from common import HERE, base_parser, describe_error, has_secret, load_secret, require_python, say
-from meaning_judge import OTHER_JUDGES, judge_other
+from meaning_judge import OTHER_JUDGES, OtherJudgeError, judge_other, other_client
 
 # いまの判定を、いまの問い合わせの文で測った答え（2回目。C の組は判定し直していないので使わない）
 BASE_RESULT = "results/G-53_20261018_105658.json"
@@ -34,17 +34,16 @@ def check(name: str, env) -> bool:
         return False
     q = next(q for q in g48_questions() if q.id == "G17")  # ご連絡はお電話とメールのどちらがよろしいでしょうか？
     key = load_secret(j["key"], env)
-    with httpx.Client(timeout=60) as http:
-        t = time.monotonic()
-        try:
-            got = judge_other(http, name, q, "メールのほうが助かりますが…", "念のためご連絡はメールでよろしいでしょうか？", key=key)
-        except httpx.HTTPStatusError as exc:
-            say(f"⛔ {name}：{exc.response.status_code} {exc.response.text[:300]}")
-            if j["maker"] == "openai" and exc.response.status_code in (400, 404):
-                ids = [m["id"] for m in http.get(f"https://{j['host']}/v1/models", headers={"authorization": f"Bearer {key}"}).json().get("data", [])]
-                say("使えるモデル（gpt-6 を含む名前）：", sorted(i for i in ids if "gpt-6" in i))
-            return False
-        say(f"✅ {name}（{j['model']}）：{time.monotonic() - t:.2f}秒で「{got}」（正解は「決められない」）")
+    t = time.monotonic()
+    try:
+        got = judge_other(other_client(name, key), name, q, "メールのほうが助かりますが…", "念のためご連絡はメールでよろしいでしょうか？")
+    except OtherJudgeError as exc:
+        say(f"⛔ {name}：{exc}")
+        if j["maker"] == "openai" and exc.status in (400, 404):
+            ids = [m["id"] for m in other_client(name, key).get("/v1/models").json().get("data", [])]
+            say("使えるモデル（gpt-6 を含む名前）：", sorted(i for i in ids if "gpt-6" in i))
+        return False
+    say(f"✅ {name}（{j['model']}）：{time.monotonic() - t:.2f}秒で「{got}」（正解は「決められない」）")
     return True
 
 

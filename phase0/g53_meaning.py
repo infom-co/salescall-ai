@@ -355,40 +355,38 @@ def run_judges(args, items: list[dict], qmap: dict, ids: dict) -> None:
                     save_partial(f"G-53{args.tag}", {"items": items})
 
     def other_worker(_n: int):
-        import httpx
         from common import load_secret
+        from meaning_judge import OtherJudgeError, other_client
 
-        keys = {}
-        with httpx.Client(timeout=60) as http:
-            while True:
+        clients = {}  # 判定の名前 ⇒ 送る道具（流れごとに1つ）
+        while True:
+            try:
+                key, it = others.get_nowait()
+            except queue.Empty:
+                return
+            q = qmap[it["qid"]]
+            if key not in clients:
+                clients[key] = other_client(key, load_secret(OTHER_JUDGES[key]["key"], args.env))
+            for attempt in range(5):
                 try:
-                    key, it = others.get_nowait()
-                except queue.Empty:
-                    return
-                q = qmap[it["qid"]]
-                if key not in keys:
-                    keys[key] = load_secret(OTHER_JUDGES[key]["key"], args.env)
-                for attempt in range(5):
-                    try:
-                        t = time.monotonic()
-                        it[key] = judge_other(http, key, q, it["text"], it.get("asked"), key=keys[key])
-                        it[f"{key}秒"] = round(time.monotonic() - t, 3)
-                        break
-                    except httpx.HTTPStatusError as exc:  # 上限（429）・混雑（5xx）は待ってやり直す。ほかは記録して次へ
-                        code = exc.response.status_code
-                        if code == 429 or code >= 500:
-                            time.sleep(float(exc.response.headers.get("retry-after") or 5 * 2 ** attempt))
-                            continue
-                        it[f"{key}誤り"] = f"{code} {describe_error(exc).get('message', '')[:200]}"
-                        break
-                    except Exception as exc:
-                        it[f"{key}誤り"] = describe_error(exc).get("message", "")[:200]
-                        break
-                with lock:
-                    done[key] += 1
-                    if sum(done.values()) % 50 == 0:
-                        say("判定", dict(done), "残り", jobs.qsize() + others.qsize())
-                        save_partial(f"G-53{args.tag}", {"items": items})
+                    t = time.monotonic()
+                    it[key] = judge_other(clients[key], key, q, it["text"], it.get("asked"))
+                    it[f"{key}秒"] = round(time.monotonic() - t, 3)
+                    break
+                except OtherJudgeError as exc:  # 上限（429）・混雑（5xx）は待ってやり直す。ほかは記録して次へ
+                    if exc.status == 429 or (exc.status or 0) >= 500:
+                        time.sleep(exc.retry or 5 * 2 ** attempt)
+                        continue
+                    it[f"{key}誤り"] = str(exc)[:200]
+                    break
+                except Exception as exc:
+                    it[f"{key}誤り"] = describe_error(exc).get("message", "")[:200]
+                    break
+            with lock:
+                done[key] += 1
+                if sum(done.values()) % 50 == 0:
+                    say("判定", dict(done), "残り", jobs.qsize() + others.qsize())
+                    save_partial(f"G-53{args.tag}", {"items": items})
 
     n_other = 4 * len({k for k in args.judge if k in OTHER_JUDGES})  # 有料の枠の1分の上限に収まる数（1つの会社に4本）
     lanes = usable if gem else []
