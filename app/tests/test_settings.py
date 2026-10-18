@@ -277,7 +277,8 @@ class ScopesDecidedByUser(unittest.TestCase):
     """2026-10-17 ユーザー：「1回線から1日 300本　依頼者ごと」「同じお客様への最小の間隔 5分　依頼者ごと」「依頼者をまたいだ間隔
     3日　契約者」「会話AI・回線の異常で止める回数と、解くまでの確かめ　契約者」「深夜・早朝の歯止め 7〜22時 など　依頼者ごと」。"""
 
-    CLIENT = ("line.max_dials_per_day", "gate.same_contact_min_interval", "calling.hours_limit")
+    CLIENT = ("line.max_dials_per_day", "gate.same_contact_min_interval", "calling.hours_limit",
+              "measure.sample_per_week")   # 抜き取る本数は依頼者ごと（2026-10-18 ユーザー）
     TENANT = ("gate.cross_client_interval", "stop.ai.stop_after_failures", "stop.ai.probe_interval",
               "stop.ai.resume_after_successes", "stop.line.stop_after_failures", "stop.line.probe_interval",
               "stop.line.resume_after_successes", "stop.flapping.window", "stop.flapping.wait_multiplier",

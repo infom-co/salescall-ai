@@ -119,6 +119,25 @@ class Samples(Base):
         self.assertEqual(self.holds(s, a), [("sample", True)])
         self.assertEqual({k: self.rates(s)[k] for k in ("checked", "wrong")}, {"checked": 1, "wrong": 0})
 
+    def test_the_number_is_set_per_client_and_zero_draws_nothing(self):
+        """抜き取る本数は依頼者ごと（2026-10-18 ユーザー：「デフォルト、週10本」で、依頼者ごとの設定で選べる。安定しているなら0でも）。
+        業務ごとの値は入れられない。"""
+        s = self.ready()
+        self.put_client(s, "measure.sample_per_week", 0)
+        with self.assertRaises(Rejected):
+            self.tx(s, lambda tx: tx.execute(
+                "INSERT INTO salescall.setting_values (key, scope, tenant_id, client_id, business_id, value, status, rationale,"
+                " review_when, set_by) VALUES ('measure.sample_per_week', 'business', %s, %s, %s, '3', 'decided', '試験',"
+                " '試験', '試験')", (s["tenant"], s["client"], s["business"])), OPERATOR)
+        a = self.call(s, items=TAKEN)
+        self.settle(s, a)
+        _, tuesday = self.next_tuesday(s)
+        drawn = self.tx(s, lambda tx: measure.draw(tx, now=tuesday))
+        d = self.tx(s, lambda tx: tx.one("SELECT pool_size, wanted, drawn FROM salescall.sample_draws WHERE draw_id = %s",
+                                         (drawn[0],)))
+        self.assertEqual((d["pool_size"], d["wanted"], d["drawn"]), (1, 0, 0))
+        self.assertEqual(self.holds(s, a), [])
+
     def test_verification_calls_and_calls_without_a_conversation_are_not_drawn(self):
         s, t = self.ready(), self.ready()
         self.verified_mode(t)
