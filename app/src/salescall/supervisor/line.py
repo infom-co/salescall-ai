@@ -9,7 +9,8 @@
 2. 門（gate.claim）に渡す。通れば予約証が出る。
    - 行のせいの不許可は、次の動き（next_action.after_denial）へ渡す（次にいつ候補に出すかを決めるのは次の動きだけ＝Q4）。
    - 回線の理由（gate.LINE_REASONS）なら、行の予定は書き直さず、この回線はしばらく休む（ほかの回線は、その行をかけられる）。
-   - 依頼者の理由（gate.CLIENT_REASONS）なら、その依頼者の行は、この回だけ飛ばす。
+   - 依頼者の理由（gate.CLIENT_REASONS）なら、その依頼者の行は、この回だけ飛ばす。業務の理由（gate.BUSINESS_REASONS：その業務の
+     今日の上限）なら、その業務の行は、この回だけ飛ばす（同じ依頼者のほかの業務の行はかける）。
 3. 予約証で発信の出口（dial_exit.dial）がかけ、通話を進める部品（CL-1）が最後まで進める。外へ出た誤りは、その試行を結果不明に
    して「見守り役の誤り」として記録する（止めない）。
 締め（判定・次の動き）は、見守り役の決まった間隔の仕事がする（jobs の settle）。
@@ -39,7 +40,7 @@ class Round:
 
 def _claim(tx: Any, task: dict[str, Any], line_id: UUID, holder: str, tenant_id: UUID, client_id: UUID) -> Any:
     got = gate.claim(tx, task_id=task["task_id"], line_id=line_id, lease_holder=holder)
-    if isinstance(got, gate.Denied) and got.reason not in gate.LINE_REASONS | gate.CLIENT_REASONS:
+    if isinstance(got, gate.Denied) and got.reason not in gate.LINE_REASONS | gate.CLIENT_REASONS | gate.BUSINESS_REASONS:
         next_action.after_denial(tx, task["task_id"], got, tenant_id=tenant_id, client_id=client_id,
                                  business_id=task["business_id"])
     return got
@@ -58,7 +59,10 @@ def one_round(access: Access, actor: Actor, tenant_id: UUID, line_id: UUID, hold
               runner: plugins.CallRunner) -> Round:
     for client_id in access.in_tenant(actor, tenant_id, lambda tx: scheduler.clients_for_line(tx, line_id)):
         tasks = access.in_client(actor, tenant_id, client_id, lambda tx: scheduler.due_tasks(tx, CANDIDATES_PER_CLIENT))
+        capped: set[UUID] = set()
         for task in tasks:
+            if task["business_id"] in capped:
+                continue
             got = access.in_client(actor, tenant_id, client_id,
                                    lambda tx, task=task: _claim(tx, task, line_id, holder, tenant_id, client_id))
             if isinstance(got, gate.Claim):
@@ -73,6 +77,8 @@ def one_round(access: Access, actor: Actor, tenant_id: UUID, line_id: UUID, hold
                 return Round(pause=got.reason)
             if got.reason in gate.CLIENT_REASONS:
                 break
+            if got.reason in gate.BUSINESS_REASONS:
+                capped.add(task["business_id"])
     return Round()
 
 

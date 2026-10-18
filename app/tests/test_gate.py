@@ -998,3 +998,43 @@ class Content(Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BusinessDailyLimit(Base):
+    """業務ごとの1日の上限（2026-10-18 ユーザー決定：「業務ごと、デフォルトは上限なし」）。営業として新しくかける電話だけを数え、止める。"""
+
+    def put_business(self, s, value):
+        self.tx(s, lambda tx: tx.execute(
+            "INSERT INTO salescall.setting_values (key, scope, tenant_id, client_id, business_id, value, status, rationale,"
+            " review_when, set_by) VALUES ('calling.business_daily_dials', 'business', %s, %s, %s, %s, 'decided', '試験', '試験',"
+            " '試験')", (s["tenant"], s["client"], s["business"], json.dumps(value))), OPERATOR)
+
+    def other_row_dialed(self, s):
+        phone = normalize(fictional_jp_fixed()).e164
+        k = self.w.contact(s["tenant"], s["client"], phone)
+        other = dict(s, task=self.w.task(s["tenant"], s["client"], s["run"], k), contact=k, phone=phone)
+        self.past_attempt(other, ["dialing", "no_answer"])
+
+    def test_no_limit_by_default(self):
+        s = self.ready()
+        self.other_row_dialed(s)
+        self.assertIsInstance(self.claim(s), gate.Claim)
+
+    def test_the_limit_counts_the_business_dials_of_today_and_skips_promised_calls(self):
+        s = self.ready()
+        self.put_business(s, 1)
+        self.other_row_dialed(s)
+        self.assertEqual(self.reason(s), "business_daily_limit")
+        self.assertIn("business_daily_limit", gate.BUSINESS_REASONS)        # 見守り役は、その業務の行をこの回だけ飛ばす
+        self.tx(s, lambda tx: next_action.schedule_call(tx, s["task"], tx.one("SELECT now() AS t")["t"],
+                                                        contact_id=s["contact"], cause="試験", promised=True))
+        self.assertIsInstance(self.claim(s), gate.Claim)                    # お客様と約束したかけ直しは止めない
+
+    def test_the_value_is_null_or_a_positive_number(self):
+        s = self.ready()
+        for bad in (0, -1, "なし"):
+            with self.subTest(bad=bad), self.assertRaises(Rejected):
+                self.put_business(s, bad)
+        self.put_business(s, None)                                           # 上限なし
+        self.other_row_dialed(s)
+        self.assertIsInstance(self.claim(s), gate.Claim)

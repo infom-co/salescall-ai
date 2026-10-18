@@ -64,6 +64,7 @@ REASONS: dict[str, tuple[str, str]] = {
     "line_unknown": ("その回線はありません", "cannot_judge"),
     "line_not_leased": ("回線を借りていません（または、借用の期限が予約証より先に切れます）", "wait"),
     "line_daily_limit": ("この回線の、今日の発信の上限に達しました", "wait"),
+    "business_daily_limit": ("この業務の、今日の発信の上限に達しました（業務ごとの設定）", "wait"),
     "line_other_client": ("この回線は、ほかの依頼者に割り当てた発信番号です", "wait"),
     "line_used_by_other_client": ("この発信番号で、ほかの依頼者がこの番号へかけたことがあります（依頼者が替わったら発信番号を替える）",
                                   "wait"),
@@ -88,6 +89,9 @@ _COUNTED = _DIALED + " AND NOT salescall.not_by_callee(state, disconnect, attemp
 # かけたあとは回数に数えていたので、そのあとのふつうのかけ直しが減った）。最小の間隔は、約束したかけ直しも起点に数える（歯止め）
 _COUNTED_TIMES = _COUNTED + " AND NOT promised"
 _SAME = "(contact_id = %s OR task_id = %s)"             # 同じお客様：かける番号が同じ発信、または同じ行の発信
+# 営業として新しくかける電話ではないもの（業務ごとの1日の上限に数えず、上限でも止めない）：お詫びの電話・途中で切れたあとのかけ直し
+# （もう話したお客様）と、お客様と約束したかけ直し（お客様が頼んだ電話）。2026-10-18
+_NOT_NEW_PURPOSES = ("apology", "resume")
 
 
 @dataclass(frozen=True)
@@ -294,9 +298,11 @@ def claim(tx: Tx, *, task_id: UUID, line_id: UUID, lease_holder: str) -> Claim |
 
 
 # 行のせいではない理由（候補を出す処理が、行の予定を書き直さずに扱う。DESIGN.md 5-4）：回線の理由＝その回線でしばらくかけない
-# （ほかの回線は、その行をかけられる）／依頼者の理由＝その依頼者の行を、この回だけ飛ばす。それ以外は、次の動き（after_denial）へ渡す
+# （ほかの回線は、その行をかけられる）／依頼者の理由＝その依頼者の行を、この回だけ飛ばす／業務の理由＝その業務の行を、この回だけ
+# 飛ばす。それ以外は、次の動き（after_denial）へ渡す
 LINE_REASONS = frozenset({"line_unknown", "line_not_leased", "line_retired", "line_daily_limit", "line_other_client", "line_busy"})
 CLIENT_REASONS = frozenset({"client_concurrency", "client_inactive"})
+BUSINESS_REASONS = frozenset({"business_daily_limit"})   # 業務の理由＝その業務の行を、この回だけ飛ばす（ほかの業務の行はかける）
 
 
 # 門が設定の抜けで待たせる理由と、契約者への注意の短い文（2026-10-17 の見直し：前は黙って待たせていた）
@@ -393,6 +399,19 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
         return _deny(pace.binding)
     if pace.binding is not None:
         return _deny(pace.binding)
+
+    # (7b) 業務ごとの1日の上限（2026-10-18 ユーザー決定：「業務ごと、デフォルトは上限なし」。null＝上限なし）。数えるのも止めるのも、
+    #      営業として新しくかける電話だけ（_NOT_NEW_PURPOSES と約束したかけ直しは、数えず止めない）
+    cap = _setting(tx, "calling.business_daily_dials", task)
+    if cap is not None and nxt["purpose"] not in _NOT_NEW_PURPOSES and not nxt["promised"]:
+        made = tx.one(
+            "SELECT count(*) AS n FROM salescall.attempts a"
+            " JOIN salescall.tasks t ON t.client_id = a.client_id AND t.task_id = a.task_id"
+            " JOIN salescall.runs r ON r.client_id = t.client_id AND r.run_id = t.run_id"
+            " WHERE r.business_id = %s AND a.state NOT IN ('claimed', 'released') AND a.purpose <> ALL(%s) AND NOT a.promised"
+            "   AND salescall.jst(a.claimed_at)::date = %s", (task["business_id"], list(_NOT_NEW_PURPOSES), local.date()))["n"]
+        if made >= int(cap):
+            return _deny("business_daily_limit")
 
     # (8) 回線：借りている本人で、借用の期限が予約証の期限より先。回線ごとの1日の上限（Intent.md 8-6）
     line = tx.one("SELECT lease_holder, lease_expires_at, client_id, retired_at FROM salescall.lines WHERE line_id = %s",
