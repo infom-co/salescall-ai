@@ -394,7 +394,9 @@ def target_rule(business: Business) -> str:
     who = t.name or t.role
     return (f"目的の人は「{t.who()}」です。"
             f"電話に出た方が目的の人だと分かったら（「私です」「{who}は私です」「お電話代わりました、{who}です」など）、report_party を"
-            f"「{PARTY_LABEL['target']}」で呼びます（用件と最初の質問は、プログラムが返事で渡します）。お取り次ぎいただくとき（「少々お待ちください」"
+            f"「{PARTY_LABEL['target']}」で呼びます（用件と最初の質問は、プログラムが返事で渡します）。代わった方が名乗らないとき（「お電話"
+            f"代わりました」だけ）は、replay_opening を「{PART_LABEL['handover']}」で呼びます（目的の人かを確かめる言い方を、プログラムが返事で"
+            "渡します）。お取り次ぎいただくとき（「少々お待ちください」"
             f"「代わります」）は、report_party を「{PARTY_LABEL['reception']}」で呼んで、何も言わずに待ちます。目的の人がいないとき（「席を外して"
             f"おります」「本日は休みです」）は、request_callback を「{CALLBACK_LABEL['absent']}」で呼びます。")
 
