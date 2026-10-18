@@ -3637,6 +3637,24 @@ class PartyTest(unittest.TestCase):
             self.assertEqual((f.facts["party"][0]["party"], f.end_reason, f.phase, f.hurried), (party, party, "closing", False))
             self.assertEqual(f.export(), {"Q1": "-"})
 
+    def test_fax_is_known_by_its_sound(self):
+        # ファクスの音は、会話AIに聞かせる前にプログラムが見分けて切る（⛔ G-57：会話AIは3本とも何も報告せずに黙った）。人の声は当たらない
+        import glob
+        from audio import fax_tone_seconds, is_fax_tone
+        from common import HERE, read_wav_pcm16_mono
+        from make_callee_samples import tone_pcm
+        self.assertTrue(is_fax_tone(tone_pcm("fax"), 16000))
+        voices = [p for p in sorted(glob.glob(str(HERE / "results" / "callee" / "*.wav"))) if "fax_tone" not in p]
+        self.assertGreater(len(voices), 100)
+        self.assertEqual([p for p in voices if fax_tone_seconds(*read_wav_pcm16_mono(p)) >= 0.2], [])
+        f = self.flow()
+        f.on_callee()
+        r = f.on_signal("fax")
+        self.assertEqual((r["result"], r.get("hang_up"), f.facts["party"][0]["by"], f.end_reason), ("end", True, "signal", "fax"))
+        import inspect
+        import convo
+        self.assertIn("is_fax_tone(pcm, prate)", inspect.getsource(convo.run_call))
+
     def test_voicemail_message_is_left_only_when_the_business_sets_one(self):
         msg = "株式会社アオバ物流の佐藤です。ご予約の確認でお電話いたしました。改めてお電話いたします。"
         f = self.flow(voicemail_message=msg)

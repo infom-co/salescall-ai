@@ -25,6 +25,7 @@ import asyncio
 import time
 from contextlib import nullcontext
 
+from audio import is_fax_tone
 from common import HERE, read_wav_pcm16_mono, write_wav
 from flowctl import CHOICE_TYPES, Flow, tool_declarations
 from instruction import Business, barge_in_note, build
@@ -303,6 +304,14 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                     ear_info, on_tool, settle = None, flow.handle_call, None
                     if isinstance(line, dict):  # 録った相手の声
                         pcm, prate = read_wav_pcm16_mono(HERE / "results" / "callee" / line["wav"])
+                        if is_fax_tone(pcm, prate):
+                            # 音で分かる相手（ファクス）：会話AIに聞かせる前に、プログラムが決めて切る（DESIGN.md 4-3 の優先順位の1。本番では
+                            # 電話接続側が、受けた音を流しながら同じ見分け方を当てる）
+                            flow.on_signal("fax")
+                            turns.append({"index": i, "session": sessions, "callee": line, "signal": "fax", "heard": "", "intended": "",
+                                          "tool_events": [], "audio_seconds": 0})
+                            i += 1
+                            continue
                         on_tool, ear_task, ear_info, settle = (check_handler(flow, ear=ear, judge=judge, judge2=judge2, pcm=pcm, rate=prate,
                                                                              wav=line["wav"])
                                                                if checking else (flow.handle_call, None, None, None))

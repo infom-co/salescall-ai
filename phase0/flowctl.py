@@ -1346,9 +1346,20 @@ class Flow:
         記録して続ける（目的の人に繋がってから質問を始める流れは、目的の人のある業務の流れ）。
         ⛔ 2026-10-18 の見直しで見つけた漏れ：相手の種別を報告する手立てが無く、留守番電話の案内・自動音声にも、AIは質問を続けるか、
            自分で何かを言うしかなかった（Intent.md 9-4 の「伝言を残すか残さないかを設定で選ぶ」に届かない）"""
-        party = a["party"]
+        return self._party(a["party"], by="ai")
+
+    # ── 音・回線の信号で、相手の種別が分かった（DESIGN.md 4-3 の優先順位の1。電話接続側が、会話AIに聞かせる前に呼ぶ）。
+    #    ⛔ 2026-10-19 G-57：会話AIは、ファクスの答える音を聞いても3本とも何も報告せずに黙った（audio.is_fax_tone で見分ける）
+    def on_signal(self, party: str) -> dict:
+        assert party in NOT_A_PERSON, party
+        reply = self._party(party, by="signal")
+        self.log.append({"op": "signal", "args": {"party": party}, "reply": reply, "callee_turns": self.callee_turns})
+        return reply
+
+    def _party(self, party: str, by: str) -> dict:
+        """相手の種別が分かったときの扱いの唯一の場所（AIの報告 report_party と、音・回線の信号 on_signal の両方）。by＝どちらで分かったか。"""
         self.party = party
-        self._note("party", party=party)
+        self._note("party", party=party, by=by)
         if party == "voicemail" and self.voicemail_message:
             return self._close("voicemail", text=(self.voicemail_message, "voicemail_message"))
         if party in NOT_A_PERSON:
