@@ -217,6 +217,10 @@ def retry_after_s(exc: BaseException) -> float | None:
     return int(m.group(1) or 0) * 3600 + int(m.group(2) or 0) * 60 + float(m.group(3))
 
 
+class KeyUnusable(RuntimeError):
+    """KeyRing.call(rotate=False) の、そのキーが使えない（止められている・1日の上限・1分の上限が続いた）。"""
+
+
 class KeyRing:
     """キーを順に使う（文字のモデルの問い合わせ）。
     ✅ 2026-10-12 ユーザー：「どのキーを使っても大丈夫です」。⛔ 2026-10-16 ユーザー：「キーはどれを使ってもいいと言ってるよ。制限はあなたが
@@ -274,10 +278,12 @@ class KeyRing:
             self._clients[i] = make_client(self.keys[i])
         return self._clients[i]
 
-    def call(self, model: str, fn):
-        """fn(client) を、そのモデルで使えるキーで呼ぶ（混んでいる 503 は call_with_retry が待ってやり直す）。戻り値＝(結果, キーの番号)。"""
+    def call(self, model: str, fn, rotate: bool = True):
+        """fn(client) を、そのモデルで使えるキーで呼ぶ（混んでいる 503 は call_with_retry が待ってやり直す）。戻り値＝(結果, キーの番号)。
+        rotate=False：始めのキー（key_index）だけを使う（キーごとに1本の流れで、同じ仕事の山から取って流すとき。そのキーが使えなくなったら
+        KeyUnusable を投げ、流れのほうがやめる＝ほかの流れのキーに重ならない）。"""
         import time
-        for k in range(len(self.keys)):
+        for k in range(len(self.keys) if rotate else 1):
             i = (self.start + k) % len(self.keys)
             if i in self.denied or i in self.spent.get(model, set()):
                 continue
@@ -306,6 +312,8 @@ class KeyRing:
                     self._save()
                     say(f"{self.keys[i].label} は {model} の1日の上限に当たりました ⇒ 次のキーで続けます")
                     break
+        if not rotate:
+            raise KeyUnusable(f"{self.keys[self.start].label} では {model} を使えません")
         raise RuntimeError(f"どのキーでも {model} を使えません（1日の上限・プロジェクトが止められている・1分の上限が続いた）")
 
     LIVE_COOL_S = 600.0     # 会話のモデルで上限に当たったキーを休ませる秒（この実行の中だけ）

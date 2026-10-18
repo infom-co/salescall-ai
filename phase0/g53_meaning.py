@@ -5,8 +5,14 @@
  (A) G-14 の記録の通話の言葉（会話のAIの聞き取りの文字と、Soniox の文字。G-15）＝正解は通話の記録の want
  (B) G-52 の答え 756個（G-48 の31問 × 選択肢ごとに6つ × 文字のモデル2つ。打ち消しを混ぜた言い方）＝正解はその選択肢
  (C) この試験で作る答え：わからない・答えたくない・どちらでも（選択肢から選ぶ質問だけ）・決められない（はい／いいえの質問だけ）を、
-     文字のモデル2つ（判定に使わない 3.7 Flash・3.6 Flash）に、質問ごとに3つずつ作らせる
+     文字のモデル2つ（3.7 Flash・3.6 Flash）に、質問ごとに3つずつ作らせる
+ (D) 言い直しへの返事（2026-10-18。DESIGN.md 1章：言い直しへの返事も、最初の答えと同じ確かめに当てる）：G-48 の質問の選択肢ごと・値を聞く
+     質問（VALUE_QS）ごとに、流れの制御が実際に言う言い直し（Flow._ask_confirm）への返事を、認める・直す・違うとだけ言う・迷う・わからない の
+     5つの返し方で2つずつ、判定の候補に入れないモデル2つ（MAKERS_DE）に作らせる
+ (E) 答えでない言葉（2026-10-18。DESIGN.md 6-8）：取り次ぎを待つように言う言葉・代わった人の最初の言葉を、MAKERS_DE に作らせ、G-50 の
+     取り次ぎの場面の台詞も足す。最初の答えの場面と、言い直しの返事の場面の両方で判定させる
 判定は1つの答えに1回ずつ問い合わせる（本番と同じ形）。かかった時間も残す（通話の中で、会話のAIの報告を待つ間に間に合うか）。
+判定のモデルが自分で作った答え（C の 3.6 Flash・3.7 Flash）は、そのモデルの数えに入れない。
 """
 from __future__ import annotations
 
@@ -18,13 +24,23 @@ from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 
 from common import HERE, KeyRing, base_parser, describe_error, require_python, save_partial, save_result, say
-from flowctl import ANY, Question
+from flowctl import ANY, CHOICE_TYPES, HANDOVER, HOLD, Flow, Question
 from g23_names import find_models
 from g48_meanings import QUESTIONS as G48
-from meaning_judge import UNDECIDED, judge
+from meaning_judge import JUDGE_MODELS, UNDECIDED, judge
 
-JUDGES = ("3.5 Flash Lite", "3.8 Flash")
+JUDGES = JUDGE_MODELS
 MAKERS = ("3.7 Flash", "3.6 Flash")
+# D・E を作るモデル（表示名）：判定の候補（JUDGE_MODELS）に入れないもの（自分で作った答えを判定すると、正しさが高く出る）
+MAKERS_DE = ("Gemini 3.5 Flash", "Gemini 3 Flash Preview")
+# 値を聞く質問の言い直しへの返事（D）：(番号, 質問の文, 型, 言い直す値)
+VALUE_QS = (("V1", "ご希望の日時をお聞かせいただけますでしょうか？", "datetime", "16日の午後2時"),
+            ("V2", "何名様でのご来店でしょうか？", "number", "3人"),
+            ("V3", "お電話番号をお伺いしてもよろしいでしょうか？", "phone", "090-1234-5678"),
+            ("V4", "ご予算はおいくらくらいでしょうか？", "amount", "5万円"),
+            ("V5", "ご来店のご希望日はいつでしょうか？", "date", "来週の火曜日"),
+            ("V6", "ご住所をお伺いしてもよろしいでしょうか？", "address", "東京都港区芝5丁目"))
+REPLY_KINDS = ("認める", "直す", "違うだけ", "迷う", "わからない")
 KINDS = {"わからない": "unknown", "答えたくない": "refused", "どちらでも": ANY, "決められない": UNDECIDED}
 
 MAKE_PROMPT = (
@@ -96,6 +112,113 @@ def make_c(client, model: str, qs: list[Question]) -> list[dict]:
     return out
 
 
+def value_questions() -> list[Question]:
+    return [Question(n, text, kind, conditions=("答えた",)) for n, text, kind, _ in VALUE_QS]
+
+
+def asked_of(q: Question, cond: str | None, value: str | None = None) -> str | None:
+    """流れの制御が、その答えを言い直して確かめるときに実際に言う言葉（Flow._ask_confirm。言い直せなければ None）。"""
+    f = Flow([q])
+    f.items[q.id].condition, f.items[q.id].value = cond, value
+    r = f._ask_confirm(q.id, after="ambiguous")
+    return r.get("say") if r.get("result") == "confirm_required" else None
+
+
+DE_PROMPT = (
+    "電話でお客様に質問をして、お客様の答えを、こちらが言い直して確かめました。確かめごとに、お客様が次の返し方をするときの、自然な一言の返事を、"
+    "返し方ごとに2つずつ書いてください。\n"
+    "返し方：\n"
+    "- 認める：言い直した内容で合っていると認める（「はい」だけでなく、いろいろな言い方で）\n"
+    "- 直す：違うと言い、正しい答えを言う（選択肢の質問は、言い直したのと別の選択肢の意味を言い、その選択肢の名前を choice に入れる。値の質問は、別の値を言う）\n"
+    "- 違うだけ：違うとだけ言い、正しい答えは言わない\n"
+    "- 迷う：認めるとも違うとも決めきれない（あいまいに言う）\n"
+    "- わからない：わからない・覚えていない\n"
+    "決まり：電話で実際に言いそうな、短い言い方にします。言い直した言葉をそのまま繰り返すだけの返事は書きません。\n"
+    "確かめ（番号：質問の文／こちらが言い直した言葉／選択肢）：\n"
+)
+E_PROMPT = (
+    "電話でお客様に質問をしたところ、次のような、答えではない言葉が返ってくることがあります。それぞれ、自然な一言を8つずつ書いてください。\n"
+    "- 取り次ぐ：その場の人が、担当の人などに電話を代わるので、待つように言う（「担当に代わりますので少々お待ちください」のような言い方。"
+    "この例そのものは書かない）\n"
+    "- 代わった：電話を代わった別の人が、最初に話す言葉（名乗る・用件を聞く など。この例「お電話代わりました」そのものは書かない）\n"
+    "決まり：電話で実際に言いそうな、短い言い方にします。質問への答えは入れません。\n"
+)
+
+
+def make_d(client, model: str, qs: list[Question]) -> list[dict]:
+    """(D) 言い直しへの返事。正解：選択肢の質問＝認める→言い直した選択肢・直す→作ったモデルが言った選択肢・違うだけ→はい／いいえの質問は
+    もう片方（ほかの質問は決められない）・迷う→決められない・わからない→わからない。値の質問＝認める→合っている・直す／違うだけ→違う値を
+    言われた・迷う／わからない→決められない（どれも「合っている」ではない）。"""
+    from google.genai import types
+
+    pairs = []  # (質問, 言い直した選択肢, 言い直した言葉)
+    for q in qs:
+        if q.type in CHOICE_TYPES:
+            pairs += [(q, c, a) for c in q.conditions if (a := asked_of(q, c))]
+        else:
+            pairs.append((q, None, asked_of(q, "答えた", dict((n, v) for n, *_, v in VALUE_QS)[q.id])))
+    ans = types.Schema(type=types.Type.OBJECT, properties={"text": types.Schema(type=types.Type.STRING),
+                                                           "choice": types.Schema(type=types.Type.STRING)}, required=["text"])
+    item = types.Schema(type=types.Type.OBJECT, properties={
+        "no": types.Schema(type=types.Type.INTEGER), "kind": types.Schema(type=types.Type.STRING, enum=list(REPLY_KINDS)),
+        "answers": types.Schema(type=types.Type.ARRAY, items=ans)}, required=["no", "kind", "answers"])
+    schema = types.Schema(type=types.Type.OBJECT, properties={"items": types.Schema(type=types.Type.ARRAY, items=item)}, required=["items"])
+    body = "\n".join(f"{n}：{q.text}／{a}／{'・'.join(q.conditions) if q.type in CHOICE_TYPES else '（値の質問）'}"
+                     for n, (q, _, a) in enumerate(pairs, 1))
+    r = client.models.generate_content(model=model, contents=DE_PROMPT + body, config=types.GenerateContentConfig(
+        response_mime_type="application/json", response_schema=schema, temperature=0.7))
+    out = []
+    for x in json.loads(r.text).get("items", []):
+        n, kind = x.get("no"), x.get("kind")
+        if not (isinstance(n, int) and 1 <= n <= len(pairs)) or kind not in REPLY_KINDS:
+            continue
+        q, c, asked = pairs[n - 1]
+        for a in x.get("answers", [])[:2]:
+            text = (a.get("text") or "").strip()
+            if not text:
+                continue
+            if q.type not in CHOICE_TYPES:
+                want = {"認める": "affirmed", "直す": "corrected", "違うだけ": "corrected"}.get(kind, UNDECIDED)
+            elif kind == "認める":
+                want = c
+            elif kind == "直す":
+                want = a.get("choice") if a.get("choice") in q.conditions and a.get("choice") != c else None
+            elif kind == "違うだけ":
+                others = [o for o in q.conditions if o != c]
+                want = others[0] if q.type == "yes_no" and len(others) == 1 else UNDECIDED
+            else:
+                want = UNDECIDED if kind == "迷う" else "unknown"
+            if want is not None:  # 直す の選択肢が読めない答えは使わない
+                out.append({"set": "D", "maker": model, "qid": q.id, "text": text, "asked": asked, "truth": want, "kind": kind,
+                            "asked_choice": c})
+    return out
+
+
+def make_e(client, model: str, qs: list[Question]) -> list[dict]:
+    """(E) 答えでない言葉。1つの言葉を、最初の答えの場面と、言い直しの返事の場面（選択肢の質問を順に）で判定させる。G-50 の台詞も足す。"""
+    from google.genai import types
+    from make_callee_samples import UTTERANCES as LINES
+
+    item = types.Schema(type=types.Type.OBJECT, properties={
+        "kind": types.Schema(type=types.Type.STRING, enum=["取り次ぐ", "代わった"]),
+        "answers": types.Schema(type=types.Type.ARRAY, items=types.Schema(type=types.Type.STRING))}, required=["kind", "answers"])
+    schema = types.Schema(type=types.Type.OBJECT, properties={"items": types.Schema(type=types.Type.ARRAY, items=item)}, required=["items"])
+    r = client.models.generate_content(model=model, contents=E_PROMPT, config=types.GenerateContentConfig(
+        response_mime_type="application/json", response_schema=schema, temperature=0.7))
+    lines = [(t.strip(), {"取り次ぐ": HOLD, "代わった": HANDOVER}[x["kind"]]) for x in json.loads(r.text).get("items", [])
+             if x.get("kind") in ("取り次ぐ", "代わった") for t in x.get("answers", [])[:8] if t.strip()]
+    if model == MAKERS_DE[0]:
+        lines += [(LINES["transfer"], HOLD), (LINES["taken_over"], HANDOVER)]
+    choice_qs = [q for q in qs if q.type in CHOICE_TYPES]
+    out = []
+    for i, (text, want) in enumerate(lines):
+        q = choice_qs[i % len(choice_qs)]
+        out.append({"set": "E", "maker": model, "qid": q.id, "text": text, "truth": want, "asked": None})
+        q2 = choice_qs[(i + 7) % len(choice_qs)]
+        out.append({"set": "E", "maker": model, "qid": q2.id, "text": text, "truth": want, "asked": asked_of(q2, q2.conditions[0])})
+    return out
+
+
 def set_a() -> list[dict]:
     """G-14 の記録の通話の言葉（質問ごとに重ねない）。正解は、その言葉が来た通話の want（曖昧な答えは「決められない」）。"""
     from g15_ear import live_calls
@@ -115,51 +238,78 @@ def set_a() -> list[dict]:
 
 
 def pick_sample(items: list[dict], n: int) -> list[dict]:
-    """3.8 Flash の1日の上限が少ないので、3.5 Flash Lite が誤った・決められなかった答えと、ほかから無作為に n 個（記録の通話の言葉は全部）。"""
+    """2つ目の判定の候補（3.6〜3.8 Flash）は1日の上限が少ないので、3.5 Flash Lite が誤った・決められなかった答えと、ほかから無作為に n 個
+    （記録の通話の言葉・答えでない言葉は全部）。"""
     import random
 
-    hard = [it for it in items if it["set"] == "A" or it.get("3.5 Flash Lite") != truth(it)]
+    hard = [it for it in items if it["set"] in ("A", "E") or it.get("3.5 Flash Lite") != truth(it)]
     rest = [it for it in items if it not in hard]
     return hard + random.Random(53).sample(rest, min(n, len(rest)))
 
 
 def run_judges(args, items: list[dict], qmap: dict, ids: dict) -> None:
-    """1つの答えに1回ずつ、判定のモデルごとに問い合わせる（使えるキーごとに1本の流れで、同時に使えるキーの数だけ）。結果は items に書き込む。
-    ⛔ 2026-10-17 の1回目：キーの数（17）だけ同時に流し、止められている6本の分が、ほかの流れのキーに重なって1分の上限に当たり続けた"""
+    """1つの答えに1回ずつ、判定のモデルごとに問い合わせる。結果は items に書き込む。仕事は1つの山に積み、使えるキーごとに1本の流れが
+    山から取って流す（流れは自分のキーだけを使い、そのキーが使えなくなったら抜ける＝残りの仕事はほかの流れが取る）。
+    ⛔ 2026-10-17 の1回目：キーの数（17）だけ同時に流し、止められている6本の分が、ほかの流れのキーに重なって1分の上限に当たり続けた
+    ⛔ 2026-10-18：キーごとに仕事を前もって分けていたので、流れの途中で止められていると分かったキーの分が、ほかの流れのキーに重なった
+       （1分に約25件しか進まなかった）"""
+    import queue
+    from common import KeyUnusable
+
     sample = pick_sample(items, args.sample) if args.sample else []
-    usable = [i for i in range(len(KeyRing(args).keys)) if i not in KeyRing(args).denied]
-    n = len(usable)
+    probe = KeyRing(args)
+    usable = [i for i in range(len(probe.keys)) if i not in probe.denied]
+    jobs: queue.Queue = queue.Queue()
+    for key in args.judge:  # 判定ごとに、難しい答え（見本の先頭）から
+        for it in (sample if sample and key != "3.5 Flash Lite" else items):
+            if key not in it and it.get("maker") != key:
+                jobs.put((key, it))
     lock = threading.Lock()
     done = Counter()
 
-    def worker(w: int, mine: list[tuple[str, dict]]):
-        a = base_parser("").parse_args(["--key-index", str(usable[w])] + (["--env", args.env] if args.env else []))
+    def worker(k: int):
+        a = base_parser("").parse_args(["--key-index", str(k)] + (["--env", args.env] if args.env else []))
         ring = KeyRing(a, min_interval_s=args.interval)
-        for key, it in mine:
+        skip: set[str] = set()  # このキーで使えなくなったモデル
+        while True:
+            try:
+                key, it = jobs.get_nowait()
+            except queue.Empty:
+                return
+            if key in skip:
+                jobs.put((key, it))
+                if all(m in skip for m in args.judge):
+                    return
+                continue
             q = qmap[it["qid"]]
             took = {}
 
             def call(client):
                 t = time.monotonic()
-                got = judge(client, ids[key], q, it["text"])
+                got = judge(client, ids[key], q, it["text"], it.get("asked"))
                 took["s"] = round(time.monotonic() - t, 3)
                 return got
             try:
-                got, _ = ring.call(ids[key], call)
+                got, _ = ring.call(ids[key], call, rotate=False)
                 it[key] = got
                 it[f"{key}秒"] = took.get("s")
+            except KeyUnusable:
+                skip.add(key)
+                jobs.put((key, it))  # ほかの流れが取る
+                continue
             except Exception as exc:
                 it[f"{key}誤り"] = describe_error(exc).get("message", "")[:200]
             with lock:
                 done[key] += 1
                 if sum(done.values()) % 50 == 0:
-                    say("判定", dict(done))
+                    say("判定", dict(done), "残り", jobs.qsize())
                     save_partial("G-53", {"items": items})
 
-    jobs = [(key, it) for key in args.judge for it in items if key not in it and (key != "3.8 Flash" or not args.sample or it in sample)]
-    lanes = [jobs[w::n] for w in range(n)]
-    with ThreadPoolExecutor(max_workers=n) as ex:
-        list(ex.map(lambda w: worker(w, lanes[w]), range(n)))
+    with ThreadPoolExecutor(max_workers=len(usable)) as ex:
+        list(ex.map(worker, usable))
+    left = jobs.qsize()
+    if left:
+        say(f"⚠️ どのキーでも判定できなかった答えが {left} 個残りました（1日の上限）")
 
 
 def tally(items: list[dict], judges) -> dict:
@@ -169,10 +319,15 @@ def tally(items: list[dict], judges) -> dict:
         for it in items:
             if key not in it:
                 continue
+            if it.get("maker") == key:
+                continue  # 自分で作った答え
             got, want = it[key], truth(it)
             res = "正しい" if got == want else ("決められない（確かめる）" if got == UNDECIDED else "⛔別の答え")
-            t[f"{it['set']}・{want if it['set'] != 'B' else '選択肢'}"][res] += 1
+            label = {"B": "選択肢", "D": it.get("kind")}.get(it["set"], want)
+            t[f"{it['set']}・{label}"][res] += 1
             t["全体"][res] += 1
+            if it["set"] == "D" and res != "正しい" and (got == "affirmed" or (got == it.get("asked_choice") and want != got)):
+                t["全体"]["⛔⛔言い直しを、認めていないのに認めたと読んだ"] += 1
         secs = sorted(it[f"{key}秒"] for it in items if it.get(f"{key}秒") is not None)
         out[key] = {"数え": {k: dict(v) for k, v in t.items()},
                     "かかった秒（中央・遅いほうから1割・最大）": [secs[len(secs) // 2], secs[int(len(secs) * 0.9)], secs[-1]] if secs else None,
@@ -182,27 +337,18 @@ def tally(items: list[dict], judges) -> dict:
 
 
 def predict_calls(items: list[dict], key: str) -> dict:
-    """判定の結果を、G-14 の記録の通話（g15_ear.live_calls）に当てる：会話のAIの最初の報告・Soniox の文字（G-15。ear_wait_s までに届いたもの）・
-    意味の判定（会話のAIの聞き取りの文字の判定＝通話の中と同じ。convo.ear_handler）を、流れの制御そのもの（flowctl.Flow）に渡して、
+    """判定の結果を、G-14 の記録の通話（g15_ear.live_calls）に当てる：会話のAIの最初の報告・Soniox の文字（G-15。hold_s までに届いたもの）・
+    意味の判定（会話のAIの聞き取りの文字の判定＝通話の中と同じ。convo.check_handler）を、流れの制御そのもの（ears_try.flow_outcome）に渡して、
     依頼主へ渡るものを数える。判定が無い形（別の耳だけ）と比べる。⚠️ 判定の結果は、この試験で1回ずつ聞いたもの（通話の中の時間の遅れは入らない）。"""
-    from flowctl import Flow, Limits
+    from ears_try import TAKEN, flow_outcome
+    from flowctl import Limits
     from g14_listen import QUESTIONS, business
     from g15_ear import live_calls
 
     qs = {qid: business(qid).questions[0] for qid in QUESTIONS}
     rows = json.loads(open(sorted(glob.glob(str(HERE / "results" / "G-15-soniox_*.json")))[-1], encoding="utf-8").read())["rows"]
-    ears = {r["wav"]: (r["ear"] if r.get("first_s") is not None and r["first_s"] <= Limits.ear_wait_s else None) for r in rows}
+    ears = {r["wav"]: (r["ear"] if r.get("first_s") is not None and r["first_s"] <= Limits.hold_s else None) for r in rows}
     judged = {(it["qid"], it["text"]): it.get(key) for it in items if it["set"] == "A"}
-
-    def outcome(q, heard, cond, ear, meaning):
-        f = Flow([q])
-        f.on_callee()
-        f.on_heard(heard)
-        if f.wants_ear("record_answer"):
-            f.on_ear(ear)
-            f.on_meaning(meaning)
-        f.apply("record_answer", {"question_id": q.id, "condition_id": cond, "value": heard})
-        return f.items[q.id].state, f.items[q.id].condition
 
     out = {}
     for name, use in (("別の耳だけ", False), ("別の耳＋意味の判定", True)):
@@ -214,9 +360,9 @@ def predict_calls(items: list[dict], key: str) -> dict:
                 continue
             ear = ears.get(call["wav"])
             meaning = judged.get((qid, call["heard"])) if use else None
-            state, cond = outcome(q, call["heard"], call["condition"], ear, meaning)
+            state, cond = flow_outcome(q, call["heard"], call["condition"], {k: v for k, v in (("ear", ear), ("judge", meaning)) if v is not None})
             right = call["condition"] == want
-            if state in ("accepted", "confirmed", "dont_know", "refused"):
+            if state in TAKEN:
                 ok = (cond == want) if want != "ambiguous" else state == "dont_know"
                 if state == "dont_know" and want == "unknown":
                     ok = True
@@ -236,17 +382,29 @@ def main() -> None:
     p = base_parser(__doc__)
     p.add_argument("--judge", action="append", choices=JUDGES, help="判定のモデル（既定は2つとも）")
     p.add_argument("--reuse", help="前の結果のファイル（作った答え・判定済みの分を使い回す）")
-    p.add_argument("--sample", type=int, default=0, help="3.8 Flash は、3.5 Flash Lite が誤った答えと、ほかから無作為にこの数だけ（1日の上限が少ない）")
+    p.add_argument("--rejudge", action="store_true", help="--reuse の判定を捨てて測り直す（判定の文・選べるものを変えたとき）")
+    p.add_argument("--add-de", action="store_true", help="--reuse の答えに、D（言い直しへの返事）・E（答えでない言葉）を作って足す")
+    p.add_argument("--sample", type=int, default=0, help="2つ目の判定の候補は、3.5 Flash Lite が誤った答えと、ほかから無作為にこの数だけ（1日の上限が少ない）")
     p.add_argument("--interval", type=float, default=4.0, help="同じキー・同じモデルに続けて聞く間（秒）。1分の上限に当たったら、言われた秒だけ待つ")
     args = p.parse_args()
-    args.judge = args.judge or list(JUDGES)
+    args.judge = args.judge or ["3.5 Flash Lite"]
     ring = KeyRing(args)
     ids, _ = find_models(ring.client())
     from g14_listen import business
     qs = g48_questions()
-    qmap = {q.id: q for q in qs} | {qid: business(qid).questions[0] for qid in ("Q1", "Q2", "Q3", "Q5")}
+    vqs = value_questions()
+    qmap = {q.id: q for q in qs + vqs} | {qid: business(qid).questions[0] for qid in ("Q1", "Q2", "Q3", "Q5")}
     if args.reuse:
         items = json.loads(open(args.reuse, encoding="utf-8").read())["items"]
+        if args.rejudge:  # 判定の文や選べるものを変えたとき：前の判定を捨てて、同じ答えで測り直す
+            items = [{k: v for k, v in it.items() if not any(k.startswith(j) for j in JUDGES)} for it in items]
+        if args.add_de and not any(it["set"] in ("D", "E") for it in items):
+            names = {m.display_name: m.name.split("/")[-1] for m in ring.client().models.list() if getattr(m, "display_name", None)}
+            for m in MAKERS_DE:
+                for make, these in ((make_d, qs + vqs), (make_e, qs)):
+                    got, _ = ring.call(names[m], lambda c: make(c, names[m], these))
+                    say(m, "が作った", make.__name__, len(got))
+                    items += got
     else:
         items = set_a() + set_b(qs)
         for m in MAKERS:

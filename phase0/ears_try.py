@@ -10,7 +10,7 @@ docs/EARS_SETUP.md（ここで確かめる接続先の名前・キーの名前�
  (2) 1本だけつないで確かめる（試験集の「はい、予約しています。」）：つなぎ方（命令の形）が正しく、文字が届くか
  (3) G-15：答えの声すべてを、この耳だけで聞く（g15_ear.py --ear。どの耳も同じ形＝通話ごとに1本つなぐ）
  (4) 見込み：G-14 の記録にある通話（会話AIの聞き取りの文字・AIが選んだ答え）に、この耳の文字を当て、流れの制御そのもの（flowctl.Flow）に
-     渡して、別の耳があるときと無いときを比べる（待つのは Limits.ear_wait_s 秒まで）。拾える誤り・要らない確かめを数える（問い合わせはしない）
+     渡して、別の耳があるときと無いときを比べる（待つのは Limits.hold_s 秒まで）。拾える誤り・要らない確かめを数える（問い合わせはしない）
  (5) 通話の中で使う形（g14_listen.py --ear）：(4) で拾える誤りが1つも無い耳は流さない（足しても数字が上がらない仕組みは外す）
  (6) 比べた表（results/EARS-TRY_*.json）
 キーの値は画面にも記録にも出さない（キーは common.load_secret だけが読む。ここでは、あるかだけを見る）。
@@ -30,7 +30,7 @@ from collections import Counter
 
 from common import HERE, RESULTS_DIR, KeyRing, base_parser, has_secret, load_keys, read_wav_pcm16_mono, require_python, save_result, say
 from ears import AMIVOICE_URL, EAR_KINDS, GEMINI_EAR_MODEL, SECRETS, SONIOX_MODEL, SONIOX_URL, open_ear
-from flowctl import Limits
+from flowctl import TAKEN, Limits
 from g15_ear import live_calls, ok, tally
 from make_g14_set import OUT, load_all
 from stitch_gap import callee_speech
@@ -134,23 +134,28 @@ def latest(pattern: str) -> list[str]:
     return sorted(p for p in glob.glob(str(RESULTS_DIR / pattern)) if "_partial" not in p and "TALLY" not in p)
 
 
-TAKEN = ("accepted", "confirmed", "dont_know", "refused")   # 流れの制御が、AIの報告をそのまま受け取った状態
+def flow_outcome(q, heard: str, condition: str | None, check: dict | None = None) -> tuple[str, str | None]:
+    """流れの制御（flowctl.Flow）そのものに、会話AIの聞き取り・AIの最初の答えの報告・確かめ（Flow.on_check の名前 → 値。届いたものだけ）を
+    渡し、項目の状態と選択肢を返す。記録に当てて数える試験（この見込み・g53_meaning.predict_calls）は、すべてここを通す（流れの制御の決まりを
+    試験の側に書き写さないための1か所）。確かめは、報告の前に届いたものとして渡す（通話の中では hold_s まで待つ）。"""
+    from flowctl import Flow
+
+    f = Flow([q])
+    f.use_checks(*(check or {}))
+    f.on_callee()
+    f.on_heard(heard)
+    for kind, value in (check or {}).items():
+        f.on_check(kind, value)
+    f.apply("record_answer", {"question_id": q.id, "condition_id": condition, "value": heard})
+    return f.items[q.id].state, f.items[q.id].condition
 
 
 def flow_takes(q, heard: str, condition: str | None, ear: str | None) -> bool:
-    """流れの制御（flowctl.Flow）そのものに、会話AIの聞き取り・AIの報告・別の耳の文字を渡し、AIの報告をそのまま受け取るか（確かめずに）。
-    見込みの数え方に、流れの制御の決まり（頭の言葉の食い違い・言い切っていない答え・曖昧な答え・別の耳との食い違い）を書き写さないための1か所。"""
-    from flowctl import Flow
-    f = Flow([q])
-    f.on_callee()
-    f.on_heard(heard)
-    if f.wants_ear("record_answer"):
-        f.on_ear(ear)
-    f.apply("record_answer", {"question_id": q.id, "condition_id": condition, "value": heard})
-    return f.items[q.id].state in TAKEN
+    """AIの報告を、流れの制御がそのまま受け取るか（確かめずに）。別の耳の文字だけを渡す（flow_outcome）。"""
+    return flow_outcome(q, heard, condition, {"ear": ear} if ear is not None else None)[0] in TAKEN
 
 
-def predict(rows: list[dict], calls: list[dict], wait_s: float = Limits.ear_wait_s, questions: dict | None = None) -> dict:
+def predict(rows: list[dict], calls: list[dict], wait_s: float = Limits.hold_s, questions: dict | None = None) -> dict:
     """G-15 のこの耳の文字を、G-14 の記録の通話（g15_ear.live_calls：会話AIの聞き取りの文字・AIの最初の報告・正解・質問）に当て、
     流れの制御そのもの（flow_takes）で、別の耳があるときと無いときを比べて数える（別の耳の文字は wait_s 秒までに届いたものだけ）。
     ・AIが正しく選んだ通話：別の耳があるときだけ確かめれば「要らない確かめ」

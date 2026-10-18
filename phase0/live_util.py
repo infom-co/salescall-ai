@@ -206,7 +206,8 @@ async def _collect_into(r: "TurnResult", session, *, started_at: float, on_tool_
                     r.input_transcript.append(sc.input_transcription.text)
                     # 相手の言葉の文字が、AIの報告より先に届くか（報告の時点で、プログラムが相手の言葉を見て決められるか。2026-10-14 G-36：
                     # AIは、こちらの聞き違いと相手の言い間違いを見分けられなかった＝12本中12本「相手が言い直した」）
-                    r.events.append({"at_s": at(), "kind": "heard", "text": sc.input_transcription.text})
+                    r.events.append({"at_s": at(), "kind": "heard", "text": sc.input_transcription.text,
+                                     "finished": sc.input_transcription.finished})
                     if on_heard:
                         on_heard(sc.input_transcription.text)
                 if sc.output_transcription is not None and sc.output_transcription.text:

@@ -167,6 +167,10 @@ GOT_STATES = ("confirmed", "accepted")
 
 async def run_followup(args) -> dict:
     ring = KeyRing(args)  # 上限に当たったら次のキーで、その通話を初めからやり直す（common.KeyRing.acall）
+    # 別の耳・意味の判定（--ear・--judge）も、最初の答えの場面と同じく渡す（言い直しへの返事も同じ確かめに当てる＝DESIGN.md 1章）。
+    # ⛔ 2026-10-18 に見つけた漏れ：この場面には渡しておらず、--ear・--judge を付けても確かめ無しで流れていた
+    from meaning_judge import make_judge
+    judge = make_judge(args, args.judge) if args.judge else None
     clip = {(m["voice"], m["id"]): m for m in json.loads((HERE / "results" / "callee" / "g14" / "index.json").read_text(encoding="utf-8"))
             if m.get("ok") and not m.get("noise")}
     voices = sorted({v for v, _ in clip} & set(args.voice or {v for v, _ in clip}))
@@ -181,11 +185,14 @@ async def run_followup(args) -> dict:
             try:
                 call, _ = await ring.acall(args.model, lambda client: run_call(
                     client, args.model, business("Q1"), "S4", lines, opening_mode="recorded", use_ear=False,
-                    save_audio="bad", audio_label=f"G14f_{voice}_{first}", followup_wait_s=FOLLOWUP_WAIT_S, play_recordings=True, **FAST))
+                    save_audio="bad", audio_label=f"G14f_{voice}_{first}", followup_wait_s=FOLLOWUP_WAIT_S, play_recordings=True,
+                    ear_kind=args.ear, judge=judge, **FAST))
                 row = keep_call(head, call, lambda c: {
                     "verdict": followup_verdict(c, truth), "ops": [(e["op"], e["args"], e["reply"]["result"]) for e in c["flow_log"]],
                     "program_said": [e["reply"].get("say") for e in c["flow_log"] if e["reply"].get("say")],
-                    "callee_heard": [t.get("heard") for t in c["turns"]]})
+                    "callee_heard": [t.get("heard") for t in c["turns"]],
+                    "checks": [t.get("ear_check") for t in c["turns"]], "unchecked": c.get("unchecked"),
+                    "history": c["items"]["Q1"]["history"]})
             except Exception as exc:
                 row = {**head, "error": describe_error(exc)}
             rows.append(row)

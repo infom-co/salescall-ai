@@ -44,15 +44,17 @@ SCENES = {
 def measures(call: dict, scene: str) -> dict:
     lines, barge, ok_parts, at = SCENES[scene]
     turns, log = call["turns"], call["flow_log"]
-    replays = [e for e in log if e["op"] == "replay_opening"]
+    # 流れの制御が受け付けた流し直しだけ（取り次ぎを待つ間の頼みは、流れの制御が止める＝held。2026-10-18）
+    held = [e for e in log if e["op"] == "replay_opening" and e["reply"]["result"] == "hold"]
+    replays = [e for e in log if e["op"] == "replay_opening" and e["reply"]["result"] != "hold"]
     part = PART_LABEL.get(replays[0]["args"].get("part")) if replays else None
     # AIが自分で社名・名前を言ったか：言うつもりの文字（AI自身）と、別の耳の文字の、どちらかにあれば言ったとする（G-22 と同じ見方）
     spoke_name = [t["index"] for t in turns
                   if any(w in (t.get("intended") or "") + " " + (t.get("ear") or "") for w in NAME + [BUSINESS.caller])]
-    replay_turn = next((t for t in turns if any(e["name"] == "replay_opening" for e in t.get("tool_events") or [])), None)
+    replay_turn = next((t for t in turns if any(e["name"] == "replay_opening" and e["reply"] != "hold" for e in t.get("tool_events") or [])), None)
     ask_s = None
     if replay_turn and isinstance(replay_turn.get("callee"), dict) and "wav" in replay_turn["callee"]:
-        ev = next(e for e in replay_turn["tool_events"] if e["name"] == "replay_opening")
+        ev = next(e for e in replay_turn["tool_events"] if e["name"] == "replay_opening" and e["reply"] != "hold")
         if ev.get("at_s") is not None:  # 相手の声の終わりから数える（at_s は送り終えてから。声のあとの無音を足す。G-30 と同じ）
             ask_s = round(ev["at_s"] + callee_speech(replay_turn["callee"]["wav"])[2], 3)
     # 相手に、名乗りと用件が一度は届いたか（録音の途中で止めたときに届いた文＋流し直した文。あいさつは問わない。⛔ G-50 の1回目：
@@ -62,6 +64,7 @@ def measures(call: dict, scene: str) -> dict:
     return {"checks": {"all_delivered": all(p in delivered for p in PARTS[1:3]),"replay_ok": bool(replays) and part in ok_parts and replays[0]["reply"]["result"] == "replayed"
                                     and replay_turn is not None and replay_turn["index"] == at,
                        "part": part, "replays": len(replays), "replay_at": replay_turn["index"] if replay_turn else None,
+                       "held": len(held),  # 取り次ぎを待つ間に頼んで、流れの制御が止めた回数
                        "spoke_name": bool(spoke_name), "spoke_name_at": spoke_name,
                        # 流し直しのターンで、AIが自分の声を出したか（質問も録音で流すので、黙っているのが正しい）
                        "replay_turn_voice_s": (replay_turn or {}).get("audio_seconds"),
@@ -114,7 +117,7 @@ async def run(args) -> dict:
 def summarize(rows: list[dict]) -> dict:
     done = [r for r in rows if "checks" in r]
     summary = {s: {k: f"{sum(1 for r in done if r['scene'] == s and r['checks'].get(k))}/{sum(1 for r in done if r['scene'] == s)}"
-                   for k in ("replay_ok", "all_delivered", "spoke_name", "q1_ok", "asked_q2")} for s in SCENES}
+                   for k in ("replay_ok", "all_delivered", "spoke_name", "q1_ok", "asked_q2", "held")} for s in SCENES}
     asks = sorted(r["checks"]["ask_s"] for r in done if r["checks"].get("ask_s") is not None)
     summary["頼むまでの秒（中央・遅いほうから1割・最大）"] = [asks[len(asks) // 2], asks[int(len(asks) * 0.9)], asks[-1]] if asks else None
     summary["誤り・数えられなかった"] = [f"{r['scene']} {r.get('type')}" for r in rows if "error" in r or "measure_error" in r]
