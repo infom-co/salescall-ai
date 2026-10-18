@@ -3794,6 +3794,133 @@ class AIQuestionTest(unittest.TestCase):
         self.assertNotIn("エーアイ", b.opening() + "".join(b.opening_parts()))
 
 
+class TargetTest(unittest.TestCase):
+    """目的の人に繋がってから必須の質問を始める（DESIGN.md 4-3。✅ 2026-10-13 ユーザー：「決裁権者と話したいのに、関係ない人と話しても意味が
+    ない」）。名乗りの終わりは目的の人を呼ぶ一言。繋がったら、その方にまだ届いていない名乗り・用件を流してから最初の質問。"""
+
+    def business(self, **kw):
+        import dataclasses
+        from g22_opening import BUSINESS
+        from instruction import Target
+        return dataclasses.replace(BUSINESS, target=Target(name="岡田", reading="おかだ", role="営業部部長", **kw))
+
+    def flow(self, play=True, recorded=True):
+        from flowctl import Flow
+        b = self.business()
+        return Flow(b.questions, play_recordings=play, opening=b.replay_parts() if recorded else None, target=b.replay_parts()), b
+
+    @staticmethod
+    def say(f, heard, op, **args):
+        f.on_callee(); f.on_heard(heard)
+        return f.apply(op, args)
+
+    def test_opening_ends_with_the_call_and_no_question_until_connected(self):
+        f, b = self.flow()
+        self.assertEqual(b.opening_parts()[-1], "営業部部長の「おかだ」様はいらっしゃいますでしょうか？")
+        self.assertEqual((f.phase, f.current), ("calling", None))
+        r = self.say(f, "はい、予約しています。", "record_answer", question_id="Q1", condition_id="はい", value="予約しています")
+        self.assertEqual(r["result"], "rejected")
+        self.assertIn("目的の人", r["message"])
+        self.assertEqual(self.say(f, "はい。", "request_end", reason="done")["result"], "rejected")  # まだ終えられない（質問を始めていない）
+
+    def test_first_person_is_the_target(self):
+        # 最初に出た方が目的の人：まだ届いていない用件と、最初の質問を流す（名乗りはもう届いている）
+        f, b = self.flow()
+        r = self.say(f, "はい、岡田は私ですが。", "report_party", party="target")
+        self.assertEqual([p.get("part", p["kind"]) for p in r["play"]], ["purpose", "question"])
+        self.assertEqual((f.phase, f.current, f.party), ("asking", "Q1", "target"))
+
+    def test_transferred_target_hears_everything(self):
+        # 受付の方に取り次いでいただき、代わった方が目的の人：あいさつ・名乗り・用件・最初の質問（呼んだときの名乗りは受付の方にしか届いていない）
+        f, b = self.flow()
+        self.assertEqual(self.say(f, "少々お待ちください。", "report_party", party="reception")["result"], "noted")
+        r = self.say(f, "お電話代わりました、岡田です。", "report_party", party="target")
+        self.assertEqual([p.get("part", p["kind"]) for p in r["play"]], ["greeting", "intro", "purpose", "question"])
+
+    def test_hold_seen_by_the_judge_also_means_a_new_person(self):
+        from flowctl import HOLD
+        f, b = self.flow()
+        f.on_callee(); f.on_heard("少々お待ちください。"); f.on_check("judge", HOLD)
+        r = self.say(f, "お電話代わりました、岡田です。", "report_party", party="target")
+        self.assertEqual([p.get("part", p["kind"]) for p in r["play"]], ["greeting", "intro", "purpose", "question"])
+
+    def test_asked_the_purpose_then_call_once_more(self):
+        # 目的の人ではない方が用件を聞いてきたら、用件の一文を流してから、もう一度だけ呼ぶ一言（2回目からは呼ばない）
+        f, b = self.flow()
+        r = self.say(f, "どういったご用件でしょうか？", "replay_opening", part="purpose")
+        self.assertEqual([p["part"] for p in r["play"]], ["purpose", "target"])
+        r = self.say(f, "えっと、どちら様でしたっけ？", "replay_opening", part="intro")
+        self.assertEqual([p["part"] for p in r["play"]], ["intro"])
+        self.assertEqual(f.phase, "calling")
+        r = self.say(f, "はい、私が岡田です。", "report_party", party="target")      # 用件はもう届いている ⇒ 最初の質問だけ
+        self.assertEqual([p.get("part", p["kind"]) for p in r["play"]], ["question"])
+
+    def test_purpose_is_not_volunteered_to_reception(self):
+        # 名乗りを聞き返されたときは、名乗りと呼ぶ一言だけ（用件は聞かれたときだけ。届いていない用件を足すのは、質問へ進む前＝繋がってから）
+        f, b = self.flow()
+        r = self.say(f, "どちら様ですか？", "replay_opening", part="intro")
+        self.assertEqual([p["part"] for p in r["play"]], ["intro", "target"])
+
+    def test_unnamed_new_person_is_asked_once(self):
+        # 代わった方が名乗らなかった：「「おかだ」様でいらっしゃいますでしょうか？」と1回だけ聞く（AIが言う）。認めたら、全部流して質問へ
+        f, b = self.flow()
+        r = self.say(f, "はい、お電話代わりました。", "replay_opening", part="handover")
+        self.assertEqual((r["result"], r["say"]), ("confirm_target", "「おかだ」様でいらっしゃいますでしょうか？"))
+        self.assertNotIn("play", r)
+        r = self.say(f, "はい、そうです。", "report_party", party="target")
+        self.assertEqual([p.get("part", p["kind"]) for p in r["play"]], ["greeting", "intro", "purpose", "question"])
+
+    def test_absent_target_goes_to_callback(self):
+        from phrases import CALLBACK_ASK
+        f, b = self.flow()
+        r = self.say(f, "あいにく岡田は席を外しております。", "request_callback", why="absent")
+        self.assertEqual((r["question_id"], r["question"], f.phase), ("C1", CALLBACK_ASK["back_time"], "asking"))
+
+    def test_reception_refusing_is_a_do_not_call_report(self):
+        f, b = self.flow()
+        r = self.say(f, "営業のお電話はお断りしております。", "request_end", reason="callee_refused_call")
+        self.assertEqual((r["result"], len(f.facts["do_not_call"])), ("end", 1))
+
+    def test_ai_speaking_form(self):
+        # AIが話す形：繋がったら、AIが用件を言ってから最初の質問を聞く
+        f, b = self.flow(play=False, recorded=False)
+        r = self.say(f, "はい、私です。", "report_party", party="target")
+        self.assertIn(b.purpose_line, r["message"])
+        self.assertIn(b.questions[0].text, r["message"])
+        self.assertNotIn("play", r)
+
+    def test_unknown_party_or_anyone_business_is_unchanged(self):
+        from flowctl import Flow
+        from g22_opening import BUSINESS
+        f = Flow(BUSINESS.questions)
+        self.assertEqual((f.phase, f.current), ("asking", "Q1"))
+
+    def test_role_only_and_person(self):
+        from instruction import Target
+        self.assertEqual(Target(role="社長").call(), "社長様はいらっしゃいますでしょうか？")
+        self.assertEqual(Target(role="院長").confirm(), "院長先生でいらっしゃいますでしょうか？")
+        self.assertEqual(Target(kind="個人", name="岡田", reading="おかだ").call(), "「おかだ」様のお電話でお間違えないでしょうか？")
+        with self.assertRaises(AssertionError):
+            Target()                                    # 名前も役職も無い＝「誰でも」（Target を持たない）
+
+    def test_ai_is_told_about_the_target(self):
+        from flowctl import PARTY_LABEL, tool_declarations
+        from instruction import build
+        b = self.business()
+        for mode in ("recorded", "ai"):
+            text = build(b, "S2", opening_mode=mode)[1]
+            self.assertIn("営業部部長の「おかだ」様", text, mode)
+            self.assertIn(f"「{PARTY_LABEL['target']}」", text, mode)
+            self.assertNotIn(f"最初の質問 {b.questions[0].id}「", text.split("会話の決まり")[0], mode)  # 名乗りのあとに最初の質問を聞かせない
+        d = next(d for d in tool_declarations(b.questions, replay=True, target=True)[0].function_declarations if d.name == "report_party")
+        self.assertIn(PARTY_LABEL["target"], d.parameters.properties["相手"].enum)
+
+    def test_resume_while_calling(self):
+        from instruction import position_text
+        f, b = self.flow()
+        self.assertIn("目的の人", position_text(b, f))
+
+
 class G53LabelsTest(unittest.TestCase):
     """G-53 の数え方：付け直した正解（g53_labels.json）を1か所（g53_meaning.accept）で使う。"""
 

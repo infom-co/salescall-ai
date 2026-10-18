@@ -74,12 +74,39 @@ GREETING = "お忙しいところ恐れ入ります。"
 #   法人「…（部署、役職）の（相手の名前）様はいらっしゃいますでしょうか？」／個人「…（相手の名前）様のお電話でお間違えないでしょうか？」
 #   （✅ 2026-10-16 ユーザー：「『お間違えないでしょうか』でOK」＝ユーザーの言い方のまま）。{role}＝部署と役職（「営業部部長」。無ければ空）、{name}＝「」でくくった名前（読みが決まって
 #   いれば ひらがなの読み＝G-44、決まらなければ まず言ってみる読み）
-TARGET_CALL = {"法人": "{role}{name}様はいらっしゃいますでしょうか？", "個人": "{name}様のお電話でお間違えないでしょうか？"}
+TARGET_CALL = {"法人": "{who}はいらっしゃいますでしょうか？", "個人": "{who}のお電話でお間違えないでしょうか？"}
+
+
+def target_who(kind: str, name: str, role: str = "") -> str:
+    """目的の人の呼び方の唯一の場所（「営業部部長の「おかだ」様」「「おかだ」様」「社長様」）。name は「」でくくったもの。
+    名前の無い「役職のみ」の目的の人（社長・店長など）は、役職の呼び方（ROLE_HONORIFIC）。"""
+    if not name:
+        return role_honorific(role)
+    return f"{role}の{name}様" if role and kind == "法人" else f"{name}様"
 
 
 def target_call(kind: str, name: str, role: str = "") -> str:
-    """目的の人を呼ぶ一言（法人＝取り次ぎを頼む／個人＝ご本人かを確かめる）。name は「」でくくったもの。"""
-    return TARGET_CALL[kind].format(role=f"{role}の" if role and kind == "法人" else "", name=name)
+    """目的の人を呼ぶ一言（法人＝取り次ぎを頼む／個人＝ご本人かを確かめる）。役職のみは法人の形（役職は会社・お店の中の人を指す）。"""
+    return TARGET_CALL[kind if name else "法人"].format(who=target_who(kind, name, role))
+
+
+# 「役職のみ」の目的の人の呼び方（DESIGN.md 4-3「役職ごとの呼び方は1つの一覧に持つ」）。⏳ CL-1 の案（2026-10-13 の表。ユーザーに確かめていただく）
+ROLE_HONORIFIC = {"社長": "社長様", "店長": "店長様", "オーナー": "オーナー様", "院長": "院長先生", "理事長": "理事長様",
+                  "決裁権のある方": "決裁のご担当の方"}
+
+
+def role_honorific(role: str) -> str:
+    """役職の呼び方（一覧に無い役職は「〜様」）。"""
+    return ROLE_HONORIFIC.get(role, f"{role}様")
+
+
+# 取り次がれて代わった方が名乗らなかったとき、目的の人かを1回だけ確かめる言い方（DESIGN.md 4-3）。name は「」でくくった名前
+# （名前の無い目的の人は役職の呼び方）。⏳ CL-1 の案（2026-10-13 の表の「「岡田」様でいらっしゃいますでしょうか。」を「？」で終える形に）
+TARGET_CONFIRM = "{who}でいらっしゃいますでしょうか？"
+
+
+def target_confirm(name: str, role: str = "") -> str:
+    return TARGET_CONFIRM.format(who=f"{name}様" if name else role_honorific(role))
 
 
 # 読みが決まらない相手の名前を、会話の中で確かめる言い方（流れの制御の reading_question の質問の文と、直していただいたあとの言い直し）。
