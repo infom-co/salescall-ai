@@ -182,6 +182,10 @@ class PerClient(unittest.TestCase):
         (self.root / backup.DRIVE_MARK).unlink()
         failed = backup.copy_submissions(self.app, self.drive, key=KEY)
         self.assertEqual(len(failed), 1)
+        backup.copy_submissions(self.app, self.drive, key=KEY)          # 数分後にもう一度（まだ外れている）
+        rows = self.app.in_system(ADMIN, lambda tx: tx.one(
+            "SELECT count(*) AS n FROM salescall.backup_runs WHERE kind = 'submission' AND client_id = %s", (s["client"],)))["n"]
+        self.assertEqual(rows, 1)                                         # 同じ日の同じ失敗は1行（数分ごとに増えない）
         self.assertIsNotNone(content())                                   # 外れている間は残す
         (self.root / backup.DRIVE_MARK).write_text("控え用")
         self.assertEqual(backup.copy_submissions(self.app, self.drive, key=KEY), [])

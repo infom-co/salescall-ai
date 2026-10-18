@@ -228,8 +228,14 @@ PARTS = {"system": "データベース全体の控え", "client_ai": "依頼者�
 def _record(app: Access, started: datetime, file_name: str | None, blob: bytes | None, counts: dict[str, int] | None,
             placed: list[str], error: str | None, *, drive: bool, part: str = "system", client_id: UUID | None = None) -> None:
     """1回ずつ記録する。失敗は、ハードディスクが外れていれば管理者に「つないでください」、ほかは種類ごとに1日1つ CL-2 へ修正依頼
-    （同じ日に別の種類が失敗しても、まとめて消えないように種類で分ける）。"""
+    （同じ日に別の種類が失敗しても、まとめて消えないように種類で分ける）。**同じ日・同じ種類・同じ依頼者・同じ誤りの失敗は、2回目から
+    記録しない**（提出用は数分ごとに写すので、ハードディスクが外れている間に同じ失敗の行が1日に数百たまらないように）。"""
     def work(tx: Tx) -> None:
+        if error is not None and tx.one(
+                "SELECT EXISTS (SELECT 1 FROM salescall.backup_runs WHERE NOT restore_ok AND kind = %s"
+                " AND client_id IS NOT DISTINCT FROM %s AND error = %s"
+                " AND salescall.jst(started_at)::date = salescall.jst(now())::date) AS seen", (part, client_id, error))["seen"]:
+            return
         tx.execute("INSERT INTO salescall.backup_runs (started_at, file_name, sha256, size_bytes, table_counts, destinations,"
                    " restore_ok, error, kind, client_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
                    (started, file_name, None if blob is None else hashlib.sha256(blob).hexdigest(),
