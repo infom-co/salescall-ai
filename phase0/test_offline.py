@@ -4202,6 +4202,88 @@ class SilentAfterReplyTest(unittest.TestCase):
         self.assertFalse(r.silent)
 
 
+class OffScriptTest(unittest.TestCase):
+    """AIの声が、渡した言い方から外れたとき（DESIGN.md 6-7）：見分けるのは1か所（offscript.off_script）。止めて、お詫びの録音のあと
+    「改めまして、…」と言い直させる（✅ 2026-10-19 ユーザー：「違和感のない形にしないと、AIや機械だと勘繰られますよ」）。
+    ⛔ G-57 の3回目：言い直しのはずが、用件と関係の無い話「これらを踏まえて、実際のプレゼン資料の構成や…」を12秒した。"""
+    SAY = "ありがとうございます。夕方の5時頃でよろしいでしょうか？"
+
+    def test_what_counts_as_off_script(self):
+        from offscript import off_script
+        for ok in ("ありがとうございます。夕方の5時頃でよろしいでしょうか？", "承知いたしました。夕方の五時頃でよろしいでしょうか",
+                   "夕方の5時頃ですね", "承知いたしま", "ありがとうございます。夕", ""):
+            self.assertFalse(off_script(self.SAY, ok), ok)          # 受けの言葉の違い・漢数字・言い回し・まだ途中は外れにしない
+        for bad in ("承知いたしました。では、これらを踏まえて、実際の", "</li>\n</ul>\n<p><strong>2. Prepare", "Okay, I will now summarize"):
+            self.assertTrue(off_script(self.SAY, bad), bad)
+
+    def test_recorded_g57_turns(self):
+        # G-57 の1〜4回目の、言い方を渡したターン：外れと見るのは、本当に外れた2つだけ（文字が1字ずつ届いても、早まって外れにしない）
+        import glob
+        import json
+        from offscript import off_script
+        flagged, n = [], 0
+        for p in sorted(glob.glob(str(Path(__file__).parent / "results" / "G-57-[0-9]*_*.json"))):
+            for r in json.loads(Path(p).read_text(encoding="utf-8"))["rows"]:
+                for t in r.get("turns", []):
+                    says = [e["say"] for e in t.get("tool_events") or [] if e.get("say")]
+                    sp = t.get("intended") or ""
+                    if says and sp:
+                        n += 1
+                        if any(off_script(says[-1], sp[:k]) for k in range(1, len(sp) + 1)):
+                            flagged.append(sp[:20])
+        self.assertGreaterEqual(n, 150)
+        self.assertEqual(len(flagged), 1)                       # 声の無い英語の文字（同じターンで渡した言い方の代わりに返した）
+        self.assertTrue(flagged[0].startswith("</li>"))
+
+    def test_restate_starts_with_the_apology(self):
+        from offscript import restate
+        self.assertEqual(restate(self.SAY), "失礼いたしました。改めまして、夕方の5時頃でよろしいでしょうか？")
+        self.assertEqual(restate("かしこまりました。3人で大丈夫でしょうか？"), "失礼いたしました。改めまして、3人で大丈夫でしょうか？")
+
+    def test_flow_plays_the_apology_and_keeps_the_position(self):
+        from flowctl import Flow, Question
+        f = Flow([Question("Q1", "日時は。", "datetime", conditions=("答えた",)), Question("Q2", "人数は。", "number", conditions=("答えた",))])
+        f.on_callee()
+        r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "答えた", "value": "15日の午後2時"})
+        start = len(f.log) - 1
+        self.assertEqual(f.expected_say(start), r["say"])
+        self.assertIsNone(f.expected_say(len(f.log)))           # このターンに渡した言い方が無ければ見張らない（自由に答えるターン）
+        plan = f.on_off_script(r["say"])
+        self.assertEqual((plan["ack"], plan["say"]), (None, "失礼いたしました。改めまして、15日の午後2時でよろしいでしょうか？"))  # お詫びは録音にしない
+        self.assertEqual(f.awaiting_confirm, "Q1")               # 位置は変えない（言う中身は同じ）
+
+    def test_collector_stops_when_off_script(self):
+        import asyncio
+        from types import SimpleNamespace
+        from live_util import collect_turn
+
+        def said(text):
+            return SimpleNamespace(tool_call=None, usage_metadata=None, go_away=None, session_resumption_update=None,
+                                   server_content=SimpleNamespace(interrupted=False, input_transcription=None, model_turn=None,
+                                                                  output_transcription=SimpleNamespace(text=text)))
+
+        class Session:
+            async def receive(self):
+                for m in (said("承知いたしました。"), said("では、これらを"), said("踏まえて、実際の"), said("プレゼン資料の")):
+                    yield m
+                await asyncio.sleep(3600)
+
+        seen = []
+        r = asyncio.run(collect_turn(Session(), started_at=0.0, timeout_s=5,
+                                     off_script=lambda t: seen.append(t) or __import__("offscript").off_script(self.SAY, t)))
+        self.assertTrue(r.off_script)
+        self.assertEqual("".join(r.output_transcript), "承知いたしました。では、これらを踏まえて、実際の")  # そこで受け取りをやめた
+        self.assertEqual([e["kind"] for e in r.events if e["kind"] == "off_script"], ["off_script"])
+
+    def test_call_loop_uses_the_one_watch(self):
+        import inspect
+        import convo
+        src = inspect.getsource(convo.run_call)
+        self.assertEqual(src.count("off_script=watch(log_start, i)"), 3)   # 声で送る相手・文字で送る相手・続きを待つ間
+        self.assertEqual(src.count("stop_off_script(log_start, i)"), 2)    # 止めたあとは1か所
+        self.assertIn("flow.on_off_script(", src)
+
+
 class G53LabelsTest(unittest.TestCase):
     """G-53 の数え方：付け直した正解（g53_labels.json）を1か所（g53_meaning.accept）で使う。"""
 

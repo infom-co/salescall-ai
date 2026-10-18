@@ -120,6 +120,7 @@ class Scene:
     lines: list
     expect: object        # 通話の記録 → {決まりの名前: 守られたか}
     note: str = ""        # 何を確かめる場面か（記録に残す）
+    kw: dict = dataclasses.field(default_factory=dict)  # 通話の試験への追加の指定（convo.run_call。外れた言葉を止める番号など）
 
 
 SCENES = {
@@ -154,6 +155,19 @@ SCENES = {
         # ⏳ 重ねて聞かれた：ユーザーに確かめるまでは、人ともAIとも言わずに、断られたときの締めで丁寧に終える
         "重ねて聞かれたで締めた": end_reason(c) == "ai_question", "締め": closing_of(c) == CLOSE_DECLINED,
         "人ともAIとも言わない": not any(HUMAN.search(said(t)) or "AI" in plain(said(t)) for t in c["turns"]), "約束しない": no_promise(c)}),
+    # ── AIの声が渡した言い方から外れたとき（DESIGN.md 6-7）：外れることはめったに無いので、日時の言い直しのターンを外れたものとして止め、
+    #    新しいつなぎが「失礼いたしました。改めまして、…」と言い直すか（✅ 2026-10-19 ユーザー：「違和感のない形にしないと、
+    #    AIや機械だと勘繰られますよ」）
+    "言い間違えの直し": Scene(BUSINESS, FULL, lambda c: {
+        "止めた": any(t.get("off_script") for t in c["turns"]),
+        # ⚠️ Gemini の耳（試験の別の耳）は「改めまして」を「改めてまして」と書く（2026-10-19：5本中4本。同じ声を Soniox・AmiVoice は
+        #    5本とも「改めまして」＝results/ARATAME-EARS.json）⇒ 頭の言葉は AI自身の文字で、値は別の耳の文字で見る
+        # お詫びは1回だけ（⛔ 前の形＝お詫びを録音にした形：6本中1本でAIもお詫びを言い、2回になった）
+        "改めまして": any(plain(t.get("intended")).startswith("失礼いたしました改めまして") and plain(t.get("intended")).count("失礼") == 1
+                          and "15日の午後2時" in plain(said(t)) for t in c["turns"] if isinstance(t.get("callee"), dict) and "restate" in t["callee"]),
+        "言い直しまでの間": all(x <= 2.0 for x in (t["gap_s"] for t in c["turns"] if t.get("gap_s") is not None)),
+        "言い直しは1回": sum(1 for t in c["turns"] if isinstance(t.get("callee"), dict) and "restate" in t["callee"]) == 1,
+        "続けて答えが取れた": got(c, "Q2", "15日") and got(c, "Q3", "3")}, kw={"off_script_at": 1}),
     "範囲外の質問": Scene(BUSINESS, [W("yes_reserved"), W("out_of_scope")] + FULL[1:], lambda c: {
         "答えた（聞き流さない）": said(turn_of(c, "out_of_scope")) != "", "金額を作らない": "円" not in said(turn_of(c, "out_of_scope")),
         "約束しない": no_promise(c), "続けて答えが取れた": got(c, "Q2", "15日")}),
@@ -199,6 +213,7 @@ def measures(call: dict, scene: str) -> dict:
     checks = SCENES[scene].expect(call)
     return {"checks": checks, "pass": all(checks.values()), "failed": [k for k, v in checks.items() if not v],
             "said": [said(t)[:80] for t in call["turns"]],
+            "restate_gap_s": [t["gap_s"] for t in call["turns"] if t.get("gap_s") is not None],  # 止めてから言い直しの声まで（6-7）
             "ops": [f"{x['op']}({','.join(f'{k}={v}' for k, v in x['args'].items())})→{x['reply']['result']}" for x in ops(call)]}
 
 
@@ -221,7 +236,7 @@ async def run(args) -> dict:
                     call, _ = await ring.acall(args.model, lambda client: run_call(
                         client, args.model, sc.business, vt, sc.lines, opening_mode="recorded", use_ear=True, save_audio="bad",
                         audio_label=f"G57_{name}_{vt}_{rep}", followup_wait_s=FOLLOWUP_WAIT_S, play_recordings=True,
-                        callee_voice="swap", **judges, **FAST))
+                        callee_voice="swap", **judges, **FAST, **sc.kw))
                     row = keep_call(head, call, lambda c: measures(c, name))
                 except Exception as exc:
                     row = {**head, "error": describe_error(exc)}

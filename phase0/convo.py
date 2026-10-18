@@ -27,11 +27,12 @@ from contextlib import nullcontext
 
 from audio import is_fax_tone
 from common import HERE, read_wav_pcm16_mono, write_wav
+from offscript import off_script
 from flowctl import CHOICE_TYPES, Flow, tool_declarations
 from instruction import Business, barge_in_note, build
 from ears import open_ear
 from listen import hear
-from live_util import build_config, callee_turn, collect_turn, send_note, send_text, silence_while
+from live_util import build_config, callee_turn, collect_turn, open_session, send_note, send_text, silence_while
 from turn_check import BAD_KINDS, check_ai_turn
 
 AUDIO_DIR = HERE / "results" / "convo_audio"
@@ -182,7 +183,7 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                    thinking_budget: int | None = None, speech_end: dict | None = None, use_ear: bool = True, save_audio: str = "bad",
                    audio_label: str = "", confirm=None, gap_s: float = 0.0, lead_ins: bool = True,
                    followup_wait_s: float | None = None, callee_voice: str | None = None, play_recordings: bool = False,
-                   ear_kind: str | None = None, judge=None, judge2=None) -> dict:
+                   ear_kind: str | None = None, judge=None, judge2=None, off_script_at: int | None = None) -> dict:
     """followup_wait_s：相手の言葉の途中でAIが話し出していたとき・AIが黙って待ったとき（followup_reason）は、相手の続きの言葉への
     返事を、次の台詞を送る前に、この秒数まで、もう1回ぶん待つ（来なければ、相手が黙って待たされたことになる。
     記録の行は callee={"followup_of": 台詞, "reason": 理由}）。G-31・G-34
@@ -191,7 +192,9 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
     文字を待って流れの制御へ渡す（DESIGN.md 6-10 の (5)。G-15。check_handler）。⛔ 既定では使わない（None）：Gemini の書き起こしのモデルを
     別の耳にすると、要らない確かめが8.5%増え、拾えた誤りは0だった（G-15 の続き）。独立した別の耳（AmiVoice・Soniox・ReazonSpeech）を試す入口
     judge：意味の判定（async (質問, 相手の言葉, こちらが言い直した言葉) -> 中の名前。meaning_judge。DESIGN.md 6-10 の (6)。G-53）。
-    judge2：後ろで走らせる2つ目の判定（待たない。遅れて届けば同じ決まりで当てる）。check_handler"""
+    judge2：後ろで走らせる2つ目の判定（待たない。遅れて届けば同じ決まりで当てる）。check_handler
+    off_script_at：試験だけ。この番号の台詞へのAIの声を、渡した言い方から外れたものとして止める（外れたあとの言い直しの仕組みを確かめる。
+    外れることは、ふつうはめったに起きないので。DESIGN.md 6-7）"""
     if callee_voice == "swap":
         callee_voice = callee_voice_for(voice_type)
     callee_lines = [{**x, "wav": callee_wav(x["wav"], callee_voice), **({"again": callee_wav(x["again"], callee_voice)} if "again" in x else {})}
@@ -213,6 +216,27 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
     again: dict | None = None  # 聞き返されたので、相手が次に言い直す台詞（台詞の "again"。i は進めない）
     again_n = 0
     swapped: int | None = None  # 黙ったので張り替えた相手の発話の番号（1つの発話に1回まで）
+    restate_next: dict | None = None  # 外れた言葉を止めたあと、新しいつなぎに言わせること（Flow.on_off_script）
+    stopped_at = 0.0                  # 外れた言葉を止めた時刻（言い直しの声が出るまでの間を測る）
+    closing: list = []                # 後ろで閉じている古いつなぎ（live_util.open_session。通話の終わりにまとめて待つ）
+
+    def watch(log_start: int, i: int):
+        """そのターンの見張り：渡した言い方から外れたか（offscript.off_script。DESIGN.md 6-7）。1つの相手の発話に1回まで。"""
+        if swapped == i:
+            return None
+
+        def check(text: str) -> bool:
+            say = flow.expected_say(log_start)
+            return bool(say) and ((off_script_at == i and sessions == 1) or off_script(say, text))
+        return check
+
+    def stop_off_script(log_start: int, i: int) -> None:
+        """AIの声が渡した言い方から外れた（6-7。見張りの watch が止めた）：このつなぎを閉じ、新しいつなぎに「失礼いたしました。改めまして、…」と
+        言わせる（Flow.on_off_script）。相手の発話への報告は済んでいるので、送り直さずに次の台詞へ（⛔ G-57 の3回目：用件と関係の無い話を12秒した）。
+        呼ぶ側は、i を進めてセッションの輪を抜ける。どのターン（相手の発話への返事・続きを待つ間）でも、この1か所"""
+        nonlocal restate_next, swapped, stopped_at
+        turns[-1]["off_script"] = flow.on_off_script(flow.expected_say(log_start))
+        restate_next, swapped, stopped_at = turns[-1]["off_script"], i, time.monotonic()
 
     def config():
         voice, text = build(business, voice_type, resume=flow if sessions > 1 else None, opening_mode=opening_mode,
@@ -259,8 +283,21 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
         i = 0
         while i < len(callee_lines) and flow.phase != "closing":
             sessions += 1
+            opened_at = time.monotonic()
             voice, cfg = config()
-            async with client.aio.live.connect(model=model, config=cfg) as s:
+            async with open_session(client, model, cfg, closing) as s:
+                if restate_next is not None:
+                    # 外れた言葉を止めたあと（6-7）：電話接続側は、止めた瞬間にお詫びの録音（ack）を流している。新しいつなぎに、言い直しを言わせる
+                    log_start, plan, restate_next = len(flow.log), restate_next, None
+                    t = time.monotonic()
+                    await send_text(s, plan["message"])
+                    turn = await collect_turn(s, started_at=t, on_tool_call=flow.handle_call, timeout_s=30, on_heard=flow.on_heard)
+                    await add_turn(turn, {"restate": plan["say"]}, log_start, i - 1, voice)
+                    # 止めてから言い直しの声が出るまで（つなぎ直しの時間を含む。お詫びの録音「失礼いたしました。」は約1秒）
+                    turns[-1]["gap_s"] = (round(t + turn.first_audio_after_s - stopped_at, 2) if turn.first_audio_after_s is not None else None)
+                    # 内訳：古いつなぎを閉じる・新しいつなぎを開く・知らせてから声が出る（どこを縮めるかを決めるため）
+                    turns[-1]["gap_parts_s"] = {"close": round(opened_at - stopped_at, 2), "open": round(t - opened_at, 2),
+                                                "speak": turn.first_audio_after_s}
                 while i < len(callee_lines) and flow.phase != "closing":
                     if swap_before is not None and i == swap_before and sessions == 1:
                         break  # 張り替え：このセッションを閉じて、いまの位置を渡して開き直す
@@ -316,7 +353,7 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                                                                              wav=line["wav"])
                                                                if checking else (flow.handle_call, None, None, None))
                         turn = await callee_turn(s, pcm, prate, on_tool_call=on_tool, timeout_s=90, on_heard=flow.on_heard,
-                                                 silent_after_s=SILENT_SWAP_S if swapped != i else None)
+                                                 silent_after_s=SILENT_SWAP_S if swapped != i else None, off_script=watch(log_start, i))
                         if ear_task is not None:
                             await ear_task  # 声を流し終えるのを待つ（会話AIへ送るのと同じ長さ）
                             # 待つ時間とは別に、文字が実際に届いた時刻（話し終わりから。待つ時間を決めるための記録）
@@ -328,7 +365,7 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                                                         else (flow.handle_call, None, None, None))
                         await send_text(s, line)
                         turn = await collect_turn(s, started_at=t, on_tool_call=on_tool, timeout_s=90, on_heard=flow.on_heard,
-                                                  silent_after_s=SILENT_SWAP_S if swapped != i else None)
+                                                  silent_after_s=SILENT_SWAP_S if swapped != i else None, off_script=watch(log_start, i))
                     if ear_info is not None:
                         ear_info.pop("_end", None)
                         pending += ear_info.pop("_tasks", [])
@@ -336,6 +373,12 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                     if turn.silent:
                         # AIが黙った（6-7）：このつなぎを閉じ、いまの位置を渡して開き直し、相手の同じ発話を送り直す（相手は1回しか話していない）
                         replay = swapped = i
+                        break
+                    if turn.off_script:
+                        if ear_info is not None:
+                            turns[-1]["ear_check"] = ear_info
+                        stop_off_script(log_start, i)
+                        i += 1
                         break
                     if ear_info is not None:
                         turns[-1]["ear_check"] = ear_info
@@ -348,8 +391,12 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                         #    返事が来なかった（試験の作りの誤り。本物の電話では無音が流れ続ける）
                         async with silence_while(s, prate if isinstance(line, dict) else 16000):
                             follow = await collect_turn(s, started_at=time.monotonic(), on_tool_call=on_tool, timeout_s=followup_wait_s,
-                                                        on_heard=flow.on_heard)
+                                                        on_heard=flow.on_heard, off_script=watch(log_start, i))
                         await add_turn(follow, {"followup_of": line, "reason": reason}, log_start, i, voice)
+                        if follow.off_script:
+                            stop_off_script(log_start, i)
+                            i += 1
+                            break
                     spoke = any(t.get("audio_seconds") for t in turns if t["index"] == i and t["session"] == sessions)
                     ops = flow.log[turn_log_start:]
                     if not spoke and ops and all(e["reply"].get("result") == "rejected" for e in ops) and swapped != i:
@@ -385,6 +432,7 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
         await asyncio.wait(running, timeout=LATE_CHECK_S)
     for t in pending:
         t.cancel()
+    await asyncio.gather(*closing, return_exceptions=True)
     return {"voice_type": voice_type, "sessions": sessions, "turns": turns, "flow_log": flow.log,
             "items": {k: {"state": v.state, "value": v.value, "condition": v.condition, "ask_backs": v.ask_backs,
                           "rechecks": v.rechecks, "corrections": v.corrections, "hedged": v.hedged,
