@@ -27,13 +27,14 @@ from salescall.core.access import Tx
 from salescall.core.phone import normalize
 
 VERSION = 3
-FACT_KINDS = ("do_not_call", "complaint", "out_of_scope", "party", "callback", "end")
+FACT_KINDS = ("do_not_call", "complaint", "out_of_scope", "party", "callback", "ai_question", "end")
+# ai_question：「AIですか？」「人間ですか？」と聞かれた（聞かれるたびに1つ。CL-1 の 2-2 の版 0.5＝2026-10-19。判定には使わない。記録だけ）
 PARTY_KINDS = ("reception", "target", "voicemail", "ivr", "fax", "wrong_party")   # 4-3（区間ごと）
 PARTY_SOURCES = ("report", "signal")                     # 会話AIの報告で分かった／音・回線の信号で分かった
 CALLBACK_REASONS = ("absent", "other_number", "later", "ask_who", "ask_when", "our_promise")
 # 不在・別の番号・あとで（お客様に頼まれた。6-2）／分かるお客様・分かる時を聞いた（15-2-3 の a1・a2）／こちらが約束した
 END_REASONS = ("done", "callee_hurry", "callee_refused_call", "callee_complaint", "wrong_party", "voicemail", "ivr", "fax",
-               "callback")                               # 締めた理由（CL-1 の END_LABEL の名前）
+               "callback", "ai_question")                # 締めた理由（CL-1 の END_LABEL の名前。ai_question＝AIかを重ねて聞かれて終えた）
 HURRIED_ENDS = frozenset({"callee_hurry", "callee_refused_call", "callee_complaint"})   # 急いでいる・断られた・怒っている（CL-1 の Flow.hurried と同じ）
 NOT_REACHED_REASONS = ("absent", "not_transferred")      # 目的のお客様に繋がらなかった理由（7-1）
 SPEAKERS = ("callee", "ai", "none")                      # 切れた瞬間に話していた側（7-1c）
@@ -99,6 +100,7 @@ class CallReport:
     not_reached: str | None              # 目的のお客様に繋がらなかった理由
     cut: Cut | None                      # 切れ方の材料（お客様が出なかった通話は None）
     apology_delivered: bool | None = None   # お詫びの電話だけ：その通話で話したお客様に、文面を伝えられたか（10-1-2）
+    ai_questions: tuple[Said, ...] = ()  # 事実 ai_question：「AIですか？」と聞かれた（記録だけ。CL-1 の版 0.5）
 
     # ── 判定が読むもの（どれも事実から読む。ここの1か所）
     @property
@@ -140,6 +142,7 @@ class CallReport:
             "party": [{**said(p.evidence), "party": p.party, "by": p.by} for p in self.party_reports],
             "callback": [{**said(c.evidence), "why": c.reason, "time": c.time_said, "number": c.number_said,
                           "person": c.person} for c in self.callbacks],
+            "ai_question": [said(q) for q in self.ai_questions],
             "end": [{**said(e.evidence), "reason": e.reason} for e in self.ends]}
         return {"version": VERSION, "facts": {k: v for k, v in facts.items() if v}, "not_reached": self.not_reached,
                 "cut": None if self.cut is None else {"speaker": self.cut.speaker, "in_closing": self.cut.in_closing,
@@ -229,7 +232,8 @@ def from_json(raw: Any) -> CallReport:
     delivered = d.get("apology_delivered")
     if delivered is not None and not isinstance(delivered, bool):
         raise ReportInvalid("apology_delivered は true / false です")
-    return CallReport(refusals, complaints, oos, parties, tuple(callbacks), ends, not_reached, cut, delivered)
+    ai_questions = tuple(s for _, s in _records(facts, "ai_question", set()))
+    return CallReport(refusals, complaints, oos, parties, tuple(callbacks), ends, not_reached, cut, delivered, ai_questions)
 
 
 def save(tx: Tx, attempt_id: UUID, report: CallReport) -> None:
