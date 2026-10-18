@@ -470,6 +470,13 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      " LANGUAGE sql IMMUTABLE AS $$ SELECT true $$",
      ("tests.test_gate.BusinessDailyLimit.test_the_limit_counts_the_business_dials_of_today_and_skips_promised_calls",
       "tests.test_exclusions.Marks.test_apologies_resumes_and_promised_calls_are_made_even_on_a_row_set_to_do_not_call")),
+    ("「強制かけない」の行でも、お客様と約束したかけ直しをかける",
+     "CREATE OR REPLACE FUNCTION salescall.task_exclusion_level(p_task uuid) RETURNS text LANGUAGE sql STABLE AS"
+     " $$ SELECT CASE WHEN salescall.task_excluded(p_task) THEN 'exclude' ELSE 'call' END $$;"
+     " CREATE OR REPLACE FUNCTION salescall.task_excluded(p_task uuid) RETURNS boolean LANGUAGE sql STABLE AS"
+     " $$ SELECT coalesce((SELECT e.excluded FROM salescall.task_exclusions e WHERE e.task_id = p_task"
+     " ORDER BY e.seq DESC LIMIT 1), false) $$",
+     ("tests.test_exclusions.Marks.test_force_stops_every_call_of_the_row",)),
     # 契約者の鍵の見直し（11章・0084。2026-10-18）
     ("契約者の取引から、ほかの契約者の管理者あての知らせが読める",
      "DROP POLICY notice_scope ON salescall.notification_events; CREATE POLICY notice_scope ON salescall.notification_events"
@@ -529,7 +536,8 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      "DROP TRIGGER task_exclusion_guard ON salescall.task_exclusions",
      ("tests.test_exclusions.Marks.test_dashboard_marks_stop_the_row_until_it_is_put_back",)),
     ("「かけない」の行に、門が通す・候補に出す",
-     "CREATE OR REPLACE FUNCTION salescall.task_excluded(p_task uuid) RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT false $$",
+     "CREATE OR REPLACE FUNCTION salescall.task_exclusion_level(p_task uuid) RETURNS text LANGUAGE sql STABLE AS"
+     " $$ SELECT 'call'::text $$",   # 印の正本は task_exclusion_level（0085）
      ("tests.test_exclusions.Marks.test_dashboard_marks_stop_the_row_until_it_is_put_back",)),
     ("「かけない」の記録を書き換えられる",
      "DROP TRIGGER task_exclusions_frozen ON salescall.task_exclusions",

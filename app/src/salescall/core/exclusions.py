@@ -9,6 +9,11 @@
   （「かけない」の印があり、次の予定が営業として新しくかける電話のとき＝`salescall.is_new_call`）。門（理由 excluded）も、候補を
   出す処理も、これを読む。お詫びの電話・途中で切れたあとのかけ直し・お客様と約束したかけ直しは「かけない」の例外＝かける（2026-10-18
   ユーザー：「かけないことを除外ということなので、その3つは途中でかけないに切り替えてもかけるという意味ですよ」）。
+- **【2026-10-19 ユーザー決定】印は3つ**（`LEVELS`）：かける（call）／かけない（exclude。上の例外はかける）／**強制かけない**（force。
+  例外なしに、その行へは1本もかけない。ユーザー：「「かけない」と「強制かけない」の2つをつくって、強制かけないは、すべての電話を
+  ぜったいにかけないにしてください」）。行の印がどれかはデータベースの1か所（`salescall.task_exclusion_level`。表の作り 0085）。
+  番号の聞き直しの電話（お客様に頼まれたかけ直しの番号が番号違いだったとき）も、約束したかけ直しとして「かけない」の例外
+  （2026-10-19 ユーザー：「はい」）。
 - 発信禁止とは別のもの：発信禁止はお客様（番号）を止め、自動では戻さない。「かけない」は依頼者・契約者の都合でその行をかけないで
   おく印で、ダッシュボードで戻せる（戻したら、ふつうにかける）。
 - 「かけない」を付けた取引の中で、その行のまだ発信していない予約を取り消す（DESIGN.md 5-2-1 の2）。
@@ -24,45 +29,58 @@ from uuid import UUID
 from salescall.core import attempts
 from salescall.core.access import Tx
 
+LEVELS = ("call", "exclude", "force")   # かける・かけない・強制かけない
 # 「かけない」の列の値（文字の形をそろえ、大文字・小文字を区別しない形で比べる）。空はかける
+FORCE = frozenset({"強制かけない", "強制"})
 YES = frozenset({"かけない", "除外", "はい", "1", "true", "○", "◯", "●", "✓", "✔", "レ", "x", "×", "✕", "✖"})
 NO = frozenset({"かける", "いいえ", "0", "false"})
 IMPORT_REASON = "一覧の「かけない」の列"
 
 
-def read_mark(cell: Any) -> bool | None:
-    """「かけない」の列の欄を読む：True＝かけない・False＝かける（空を含む）・None＝読めない（推測しない）。
-    Excel のチェック（TRUE・FALSE）はそのまま。"""
+def read_mark(cell: Any) -> str | None:
+    """「かけない」の列の欄を読む：force＝強制かけない・exclude＝かけない・call＝かける（空を含む）・None＝読めない（推測しない）。
+    Excel のチェック（TRUE・FALSE）はそのまま（かけない・かける）。"""
     if getattr(cell, "flag", None) is not None:
-        return bool(cell.flag)
+        return "exclude" if cell.flag else "call"
     if cell.problem is not None:
         return None
     text = unicodedata.normalize("NFKC", cell.text or "").strip().casefold()
     if text == "" or text in NO:
-        return False
-    return True if text in YES else None
+        return "call"
+    if text in FORCE:
+        return "force"
+    return "exclude" if text in YES else None
 
 
-def mark(tx: Tx, task_ids: list[UUID], *, excluded: bool, reason: str, source: str = "dashboard",
+def mark(tx: Tx, task_ids: list[UUID], level: str, *, reason: str, source: str = "dashboard",
          import_id: UUID | None = None) -> list[UUID]:
-    """取引の依頼者の行に「かけない」を付ける（excluded=True）・外す（False）。いまと同じ行は記録を足さない。付け外しした行を返す。"""
+    """取引の依頼者の行の印を level（call＝かける・exclude＝かけない・force＝強制かけない）にする。いまと同じ印の行は記録を足さない
+    （一覧の取込は、いまより強い印のときだけ変える）。
+    変えた行を返す。まだ発信していない予約は、その印で止まるものを取り消す（かけないは新しい電話だけ・強制かけないは全部）。"""
+    if level not in LEVELS:
+        raise ValueError(f"印は {LEVELS} のどれかです（{level!r}）")
     if not reason.strip():
         raise ValueError("理由が要ります")
+    # 一覧の取込は印を強めるだけ（かける→かけない→強制かけない）。弱めるのはダッシュボードだけ（取り込み直しで、ダッシュボードの
+    # 「強制かけない」が「かけない」に黙って弱まらないように。列の「かける」で外さないのと同じ理由＝DESIGN.md 3-4-2）
     changed = [r["task_id"] for r in tx.all(
-        "SELECT t.task_id FROM salescall.tasks t WHERE t.task_id = ANY(%s) AND salescall.task_excluded(t.task_id) <> %s"
-        " ORDER BY t.task_id", (list(task_ids), excluded))]
+        "SELECT t.task_id FROM salescall.tasks t WHERE t.task_id = ANY(%s)"
+        "   AND CASE WHEN %s THEN array_position(%s::text[], salescall.task_exclusion_level(t.task_id))"
+        "                         < array_position(%s::text[], %s)"
+        "            ELSE salescall.task_exclusion_level(t.task_id) <> %s END"
+        " ORDER BY t.task_id", (list(task_ids), source == "import", list(LEVELS), list(LEVELS), level, level))]
     for task_id in changed:
-        tx.execute("INSERT INTO salescall.task_exclusions (tenant_id, client_id, task_id, excluded, reason, source, import_id,"
-                   "                                      decided_by)"
-                   " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s, %s, salescall.cur_actor())",
-                   (task_id, excluded, reason, source, import_id))
-    if excluded and changed:
+        tx.execute("INSERT INTO salescall.task_exclusions (tenant_id, client_id, task_id, excluded, forced, reason, source,"
+                   "                                      import_id, decided_by)"
+                   " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s, %s, %s, salescall.cur_actor())",
+                   (task_id, level != "call", level == "force", reason, source, import_id))
+    if level != "call" and changed:
         attempts.release(tx, [r["attempt_id"] for r in tx.all(
             "SELECT attempt_id FROM salescall.attempts WHERE task_id = ANY(%s) AND state = 'claimed'"
-            "   AND salescall.is_new_call(purpose, promised)", (changed,))])   # 例外の3つの予約は取り消さない
+            "   AND (%s OR salescall.is_new_call(purpose, promised))", (changed, level == "force"))])
     return changed
 
 
-def excluded(tx: Tx, task_id: UUID) -> bool:
-    """その行が、いま「かけない」か（データベースの1か所を読むだけ）。"""
-    return tx.one("SELECT salescall.task_excluded(%s) AS x", (task_id,))["x"]
+def level(tx: Tx, task_id: UUID) -> str:
+    """その行の、いまの印（call・exclude・force。データベースの1か所を読むだけ）。"""
+    return tx.one("SELECT salescall.task_exclusion_level(%s) AS x", (task_id,))["x"]

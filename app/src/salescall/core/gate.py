@@ -64,7 +64,7 @@ REASONS: dict[str, tuple[str, str]] = {
     "line_unknown": ("その回線はありません", "cannot_judge"),
     "line_not_leased": ("回線を借りていません（または、借用の期限が予約証より先に切れます）", "wait"),
     "line_daily_limit": ("この回線の、今日の発信の上限に達しました", "wait"),
-    "excluded": ("「かけない」にしている行です（依頼者・契約者の都合。ダッシュボードで戻せます）", "wait"),
+    "excluded": ("「かけない」か「強制かけない」にしている行です（依頼者・契約者の都合。ダッシュボードで戻せます）", "wait"),
     "business_daily_limit": ("この業務の、今日の発信の上限に達しました（業務ごとの設定）", "wait"),
     "line_other_client": ("この回線は、ほかの依頼者に割り当てた発信番号です", "wait"),
     "line_used_by_other_client": ("この発信番号で、ほかの依頼者がこの番号へかけたことがあります（依頼者が替わったら発信番号を替える）",
@@ -334,7 +334,8 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
     if tx.one("SELECT salescall.task_awaiting_decision(%s) AS w", (task["task_id"],))["w"]:   # 決まりは1か所（0063）
         return _deny("awaiting_decision")
     # 「かけない」にしている行（一覧の列・ダッシュボード。2026-10-18 ユーザー決定）。お詫び・途中で切れたあとのかけ直し・約束した
-    # かけ直しは、「かけない」の例外＝かける（2026-10-18 ユーザー。決まりはデータベースの1か所 task_excluded_now＝0078）
+    # かけ直しは、「かけない」の例外＝かける（2026-10-18 ユーザー）。「強制かけない」は例外なし（2026-10-19 ユーザー）。
+    # 決まりはデータベースの1か所 task_excluded_now（0078・0085）
     if tx.one("SELECT salescall.task_excluded_now(%s) AS x", (task["task_id"],))["x"]:
         return _deny("excluded")
 

@@ -75,14 +75,14 @@ class RowPlan:
     person_name: str | None = None
     person_reading: readings.Reading = readings.UNDECIDED
     person_role: str | None = None
-    excluded: bool = False        # 一覧の「かけない」の列で付けた（登録する行・もう登録済みの行に「かけない」の印を付ける）
+    exclusion: str = "call"       # 一覧の「かけない」の列の印（exclude・force なら、登録する行・もう登録済みの行にその印を付ける）
 
     def key(self) -> list[Any]:
         """指紋に入れるもの（この行で、何が登録されるか・なぜ止めるか）。"""
         n = self.number
         return [self.row_no, self.outcome, self.reason_code, n.e164 if n else None, n.zero_added if n else False,
                 self.client_ref, self.name, self.source_phone, str(self.task_id) if self.task_id else None,
-                self.name_reading.as_json(), self.person_name, self.person_reading.as_json(), self.person_role, self.excluded]
+                self.name_reading.as_json(), self.person_name, self.person_reading.as_json(), self.person_role, self.exclusion]
 
 
 @dataclass(frozen=True)
@@ -164,8 +164,8 @@ def register(tx: Tx, run_id: UUID, sheet: Sheet, mapping: dict[str, str], *, exp
                  r.person_reading.likely, r.person_role),
             )["task_id"]
             next_action.schedule_now(tx, task_id, cause="取込")
-        if r.excluded and r.outcome in ("registered", "already"):
-            exclusions.mark(tx, [task_id], excluded=True, reason=exclusions.IMPORT_REASON, source="import", import_id=import_id)
+        if r.exclusion != "call" and r.outcome in ("registered", "already"):
+            exclusions.mark(tx, [task_id], r.exclusion, reason=exclusions.IMPORT_REASON, source="import", import_id=import_id)
         tx.execute(
             "INSERT INTO salescall.import_rows (tenant_id, client_id, import_id, row_no, outcome, reason_code, reason,"
             "                                   task_id, zero_added)"
@@ -246,10 +246,10 @@ def _plan(tx: Tx, run_id: UUID, sheet: Sheet, mapping: dict[str, str], *, confir
         if bad is not None:
             rows.append(stop("cell_problem", f"「{title(bad)}」の欄：{cells[bad].problem}"))
             continue
-        skip = exclusions.read_mark(cells["exclude"]) if "exclude" in cells else False
+        skip = exclusions.read_mark(cells["exclude"]) if "exclude" in cells else "call"
         if skip is None:
             rows.append(stop("exclude_unreadable", f"「{title('exclude')}」の欄の値が読めません（空・かけない・○・レ・1・TRUE など"
-                                                   "と、かける・0・FALSE などのどれかで書いてください）"))
+                                                   "と、強制かけない・強制と、かける・0・FALSE などのどれかで書いてください）"))
             continue
         raw_phone = cells["phone"].text
         if raw_phone is None:
@@ -268,7 +268,7 @@ def _plan(tx: Tx, run_id: UUID, sheet: Sheet, mapping: dict[str, str], *, confir
         name_reading, bad_name = _read(name, _text(row, cols, "name_reading"), confirmed=confirmed, ai=ai)
         person_reading, bad_person = _read(person_name, _text(row, cols, "person_name_reading"), confirmed=confirmed, ai=ai)
         found = dict(number=number, client_ref=ref, name=name, source_phone=raw_phone.strip(), name_reading=name_reading,
-                     person_name=person_name, person_reading=person_reading, person_role=person_role, excluded=skip)
+                     person_name=person_name, person_reading=person_reading, person_role=person_role, exclusion=skip)
         blocked = target_policy.block_reason(tx, number, client_ref=ref, tenant_id=run["tenant_id"],
                                              client_id=run["client_id"], business_id=run["business_id"])
         if blocked is not None:

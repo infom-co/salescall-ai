@@ -24,14 +24,17 @@ class ReadMark(unittest.TestCase):
     def test_marks_are_read_without_guessing(self):
         for text in ("かけない", "○", "レ", "1", "TRUE", "✓", "x", "×", "除外", "はい", "ｘ"):
             with self.subTest(text=text):
-                self.assertIs(exclusions.read_mark(Cell(text)), True)
+                self.assertEqual(exclusions.read_mark(Cell(text)), "exclude")
+        for text in ("強制かけない", "強制", " 強制かけない "):
+            with self.subTest(text=text):
+                self.assertEqual(exclusions.read_mark(Cell(text)), "force")
         for text in (None, "", "  ", "0", "FALSE", "かける", "いいえ"):
             with self.subTest(text=text):
-                self.assertIs(exclusions.read_mark(Cell(text)), False)
-        for text in ("たぶん", "2", "後で"):
+                self.assertEqual(exclusions.read_mark(Cell(text)), "call")
+        for text in ("たぶん", "2", "後で", "強制的に"):
             with self.subTest(text=text):
                 self.assertIsNone(exclusions.read_mark(Cell(text)))           # 読めない値は推測しない
-        self.assertIs(exclusions.read_mark(Cell(None, problem="TRUE・FALSE の値です", flag=True)), True)   # Excel のチェック
+        self.assertEqual(exclusions.read_mark(Cell(None, problem="TRUE・FALSE の値です", flag=True)), "exclude")   # Excel のチェック
         self.assertIsNone(exclusions.read_mark(Cell(None, problem="表計算ソフトのエラーの値です（#N/A など）")))
 
 
@@ -41,16 +44,16 @@ class Marks(Base):
         waiting = self.claim(s)
         self.assertIsInstance(waiting, gate.Claim)
         with self.assertRaises(Rejected):                                    # ダッシュボードの付け外しは人だけ
-            self.tx(s, lambda tx: exclusions.mark(tx, [s["task"]], excluded=True, reason="試験"), SYSTEM)
-        self.assertEqual(self.tx(s, lambda tx: exclusions.mark(tx, [s["task"]], excluded=True, reason="依頼者の都合"), OPERATOR),
+            self.tx(s, lambda tx: exclusions.mark(tx, [s["task"]], "exclude", reason="試験"), SYSTEM)
+        self.assertEqual(self.tx(s, lambda tx: exclusions.mark(tx, [s["task"]], "exclude", reason="依頼者の都合"), OPERATOR),
                          [s["task"]])
         state = self.tx(s, lambda tx: tx.one("SELECT state::text AS s FROM salescall.attempts WHERE attempt_id = %s",
                                              (waiting.attempt_id,)))["s"]
         self.assertEqual(state, "released")                                   # まだ発信していない予約は取り消す
         self.assertEqual(self.reason(s), "excluded")
         self.assertNotIn(s["task"], [t["task_id"] for t in self.tx(s, lambda tx: scheduler.due_tasks(tx, 50))])
-        self.assertEqual(self.tx(s, lambda tx: exclusions.mark(tx, [s["task"]], excluded=True, reason="2回目"), OPERATOR), [])
-        self.tx(s, lambda tx: exclusions.mark(tx, [s["task"]], excluded=False, reason="依頼者から再開の連絡"), OPERATOR)
+        self.assertEqual(self.tx(s, lambda tx: exclusions.mark(tx, [s["task"]], "exclude", reason="2回目"), OPERATOR), [])
+        self.tx(s, lambda tx: exclusions.mark(tx, [s["task"]], "call", reason="依頼者から再開の連絡"), OPERATOR)
         self.assertIsInstance(self.claim(s), gate.Claim)                      # 戻したら、ふつうにかける
         rows = self.tx(s, lambda tx: tx.all("SELECT excluded FROM salescall.task_exclusions WHERE task_id = %s ORDER BY seq",
                                             (s["task"],)))
@@ -69,7 +72,7 @@ class Marks(Base):
                                                         contact_id=s["contact"], cause="試験", promised=True))
         promised = self.claim(s)
         self.assertIsInstance(promised, gate.Claim)
-        self.tx(s, lambda tx: exclusions.mark(tx, [s["task"]], excluded=True, reason="依頼者の都合"), OPERATOR)
+        self.tx(s, lambda tx: exclusions.mark(tx, [s["task"]], "exclude", reason="依頼者の都合"), OPERATOR)
         state = self.tx(s, lambda tx: tx.one("SELECT state::text AS s FROM salescall.attempts WHERE attempt_id = %s",
                                              (promised.attempt_id,)))["s"]
         self.assertEqual(state, "claimed")                                    # 約束したかけ直しの予約は残す
@@ -81,6 +84,36 @@ class Marks(Base):
                 ("normal", False), ("ask_number_again", False), ("apology", False), ("resume", False), ("normal", True))])
             self.assertEqual(got, [True, True, False, False, False])
 
+    def test_force_stops_every_call_of_the_row(self):
+        """「強制かけない」は、お詫び・途中で切れたあとのかけ直し・約束したかけ直し（番号の聞き直しを含む）も、例外なく1本もかけない
+        （2026-10-19 ユーザー：「強制かけないは、すべての電話をぜったいにかけないにしてください」）。まだ発信していない予約も取り消す。
+        「かけない」から「強制かけない」へ、強制から「かけない」へも変えられ、戻せばふつうにかける。"""
+        s = self.ready()
+        self.tx(s, lambda tx: next_action.schedule_call(tx, s["task"], tx.one("SELECT now() AS t")["t"],
+                                                        contact_id=s["contact"], cause="試験", promised=True))
+        promised = self.claim(s)
+        self.assertIsInstance(promised, gate.Claim)
+        self.assertEqual(self.tx(s, lambda tx: exclusions.mark(tx, [s["task"]], "exclude", reason="依頼者の都合"), OPERATOR),
+                         [s["task"]])
+        self.assertEqual(self.tx(s, lambda tx: exclusions.mark(tx, [s["task"]], "force", reason="依頼者から強く止められた"),
+                                 OPERATOR), [s["task"]])                       # かけない → 強制かけない も記録が残る
+        state = self.tx(s, lambda tx: tx.one("SELECT state::text AS s FROM salescall.attempts WHERE attempt_id = %s",
+                                             (promised.attempt_id,)))["s"]
+        self.assertEqual(state, "released")                                   # 約束したかけ直しの予約も取り消す
+        self.assertEqual(self.reason(s), "excluded")
+        self.assertNotIn(s["task"], [t["task_id"] for t in self.tx(s, lambda tx: scheduler.due_tasks(tx, 50))])
+        self.tx(s, lambda tx: exclusions.mark(tx, [s["task"]], "exclude", reason="強制は外す"), OPERATOR)
+        self.assertIsInstance(self.claim(s), gate.Claim)                      # 「かけない」に戻せば、約束したかけ直しはかける
+        rows = self.tx(s, lambda tx: tx.all("SELECT excluded, forced FROM salescall.task_exclusions WHERE task_id = %s ORDER BY seq",
+                                            (s["task"],)))
+        self.assertEqual([(r["excluded"], r["forced"]) for r in rows], [(True, False), (True, True), (True, False)])
+        with self.assertRaises(Rejected):                                     # 強制は「かけない」の一種（戻す記録には付けられない）
+            owner_access().in_client(OPERATOR, s["tenant"], s["client"], lambda tx: tx.execute(
+                "INSERT INTO salescall.task_exclusions (tenant_id, client_id, task_id, excluded, forced, reason, source, decided_by)"
+                " VALUES (%s, %s, %s, false, true, 'x', 'dashboard', 'x')", (s["tenant"], s["client"], s["task"])))
+        with self.assertRaises(ValueError):
+            self.tx(s, lambda tx: exclusions.mark(tx, [s["task"]], "maybe", reason="x"), OPERATOR)
+
 
 class ImportColumn(Base):
     def test_the_list_column_marks_rows_and_unreadable_values_stop_the_row(self):
@@ -90,12 +123,12 @@ class ImportColumn(Base):
                         header=("管理番号", "会社名", "電話番号", "かけない"))
         sheet = read("一覧.csv", data)
         plan = self.tx(s, lambda tx: importer.preview(tx, s["run"], sheet, MAP, suggest_readings=ai))
-        self.assertEqual([(r.outcome, r.reason_code, r.excluded) for r in plan.rows],
-                         [("registered", None, True), ("registered", None, False), ("stopped", "exclude_unreadable", False)])
+        self.assertEqual([(r.outcome, r.reason_code, r.exclusion) for r in plan.rows],
+                         [("registered", None, "exclude"), ("registered", None, "call"), ("stopped", "exclude_unreadable", "call")])
         got = self.tx(s, lambda tx: importer.register(tx, s["run"], sheet, MAP, expected_digest=plan.digest,
                                                       ai_readings=plan.ai_readings))
         first, second = got["rows"][0]["task_id"], got["rows"][1]["task_id"]
-        self.assertEqual(self.tx(s, lambda tx: [exclusions.excluded(tx, first), exclusions.excluded(tx, second)]), [True, False])
+        self.assertEqual(self.tx(s, lambda tx: [exclusions.level(tx, first), exclusions.level(tx, second)]), ["exclude", "call"])
         src = self.tx(s, lambda tx: tx.one("SELECT source, import_id FROM salescall.task_exclusions WHERE task_id = %s", (first,)))
         self.assertEqual((src["source"], src["import_id"]), ("import", got["import_id"]))
 
@@ -105,7 +138,25 @@ class ImportColumn(Base):
         sheet = read("一覧.xlsx", data)
         plan = self.tx(s, lambda tx: importer.preview(tx, s["run"], sheet, {"phone": "電話番号", "exclude": "かけない"},
                                                       suggest_readings=ai))
-        self.assertEqual([(r.outcome, r.excluded) for r in plan.rows], [("registered", True), ("registered", False)])
+        self.assertEqual([(r.outcome, r.exclusion) for r in plan.rows], [("registered", "exclude"), ("registered", "call")])
+
+    def test_force_in_the_list_column(self):
+        s = self.ready()
+        data_phone = fictional_jp_fixed()
+        data = csv_file([("R-1", "架空商事", data_phone, "強制かけない")], header=("管理番号", "会社名", "電話番号", "かけない"))
+        sheet = read("一覧.csv", data)
+        plan = self.tx(s, lambda tx: importer.preview(tx, s["run"], sheet, MAP, suggest_readings=ai))
+        got = self.tx(s, lambda tx: importer.register(tx, s["run"], sheet, MAP, expected_digest=plan.digest,
+                                                      ai_readings=plan.ai_readings))
+        self.assertEqual(self.tx(s, lambda tx: exclusions.level(tx, got["rows"][0]["task_id"])), "force")
+        task = got["rows"][0]["task_id"]
+        again = csv_file([("R-1", "架空商事", data_phone, "かけない")], header=("管理番号", "会社名", "電話番号", "かけない"))
+        sheet2 = read("一覧2.csv", again)
+        plan2 = self.tx(s, lambda tx: importer.preview(tx, s["run"], sheet2, MAP, suggest_readings=ai))
+        self.assertEqual([(r.outcome, r.exclusion) for r in plan2.rows], [("already", "exclude")])
+        self.tx(s, lambda tx: importer.register(tx, s["run"], sheet2, MAP, expected_digest=plan2.digest,
+                                                ai_readings=plan2.ai_readings))
+        self.assertEqual(self.tx(s, lambda tx: exclusions.level(tx, task)), "force")   # 取り込み直しで弱めない
 
 
 if __name__ == "__main__":
