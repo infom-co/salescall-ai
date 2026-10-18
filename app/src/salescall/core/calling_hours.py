@@ -72,6 +72,26 @@ def next_opening(hours: dict, is_holiday: Callable[[date], bool], after: datetim
     return None
 
 
+# ── お客様が言ったかけ直しの時間の幅（DESIGN.md 7-2。表の作り 0086。2026-10-19 ユーザー：「夕方」「3時まで」などに合わせてかける） ──
+def restrict(hours: dict, daily: tuple[int, int] | None) -> dict:
+    """かけてよい時間帯を、1日の中の幅（0時からの秒の [始まり, 終わり)）に絞った残り（曜日・祝日ごと。同じ形）。幅が無ければそのまま。"""
+    if daily is None:
+        return hours
+    lo, hi = daily
+    out = {}
+    for key in hours:
+        kept = [(max(a, lo), min(b, hi)) for a, b in _ranges(hours, key) if max(a, lo) < min(b, hi)]
+        out[key] = [[_hhmm(a), _hhmm(b) if b < _DAY else "24:00"] for a, b in kept]
+    return out
+
+
+def in_window(local: datetime, until_local: datetime | None, daily: tuple[int, int] | None) -> bool:
+    """その時刻（日本時間・時差なし）が、お客様が言った幅の中か（門が使う1か所）。until＝幅の終わり（含まない）。"""
+    if until_local is not None and local >= until_local:
+        return False
+    return daily is None or daily[0] <= _of_day(local) < daily[1]
+
+
 # ── 時間帯の区切り（「別の時間帯にかけ直す」。DESIGN.md 3-5・7-2-1。2026-10-15 ユーザー） ──
 def band_of(t: datetime, boundaries: list[int]) -> int:
     """その時刻が、1日のうちのどの時間帯か（0 から。boundaries＝区切りの時、例 [12, 15] ⇒ 午前・昼過ぎ・夕方の3つ）。"""

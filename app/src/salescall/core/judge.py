@@ -25,8 +25,10 @@
   (5) 必須の質問がすべて取れた（confirmed・accepted。4-4 の定義）                     ⇒ completed
   (6) 取れていない必須の質問の扱いが「結論として終える」                              ⇒ concluded（結論の名前）
   (7) かけ直しの約束（お客様に頼まれた・分かるお客様／時を聞いた・こちらが約束した）          ⇒ callback_scheduled
-      時刻は、お客様が言ったままの言葉を通話の時刻から読む（core/spoken_time.read の1か所）。時刻を決めない答え・時刻を聞けな
-      かった ⇒ 時刻の決まっていない約束（再発信の方針）。読めない言い方 ⇒ unknown（推し量って別の時刻にかけない。読み方を直して判定し直す）
+      時刻は、お客様が言ったままの言葉を通話の時刻から「かけてよい時間の幅」として読む（core/spoken_time.read の1か所。
+      2026-10-19 ユーザー）。ちょうどの時刻・幅 ⇒ その幅の中でかける。時刻を任せる答え・時刻を聞けなかった ⇒ 時刻の決まっていない
+      約束（再発信の方針）。1つに決まらない言い方（「昼」など）を通話の中で確かめないまま終わった ⇒ unknown（直すのは会話＝CL-1）。
+      読めない言い方 ⇒ unknown（直すのは読み方＝CL-2）。どちらも推し量って別の時刻にかけない（直したら判定し直す）
   (8) お客様と話したが、目的のお客様に繋がらなかった                                          ⇒ not_reached（不在／取り次いでもらえなかった）
   (9) 会話に至らなかった（お客様が出なかった・お客様の声でなかった）                              ⇒ open
   (10) 必須の質問が1つでも取れていない                                               ⇒ incomplete
@@ -44,7 +46,7 @@ from salescall.core.business_rules import Rules
 from salescall.core.call_report import CallReport
 
 # 判定の決まりの版（変えたら上げる）。かけ直しの時刻の読み方の版も入れる（読み方を直すと、判定待ちの行が判定し直される＝settle.rejudge）
-JUDGE_VERSION = f"judge-2026-10-19.1+time-{spoken_time.VERSION}"
+JUDGE_VERSION = f"judge-2026-10-19.2+time-{spoken_time.VERSION}"
 # 「判定できない」の原因の名前（同じ原因かを数える単位）と意味。プログラムの誤りか（直す担当へ修正依頼を出し、管理者にも
 # 知らせる＝確かめ・承認のため。2026-10-16・10-17 ユーザー）も、ここで決まる（1か所）。業務設定の抜けは契約者が直す（いまは無い：業務の決まりは、必須の質問ごとに、
 # 決まった理由のすべてに扱いが無いと保存できない＝business_rules。2026-10-16 見直し：前は「理由×扱いが決まらない」を業務設定の
@@ -55,12 +57,14 @@ UNKNOWN_CAUSES: dict[str, str] = {
     "reason_missing": "取れていない必須の質問の「わからない」「答えない」に、理由が無い・決まった理由のどれでもない"
                       "（会話の処理の誤り。直すのは CL-1）",
     "not_reached_reason_missing": "目的のお客様に繋がらなかった理由が報告に無い（会話の処理の誤り。直すのは CL-1）",
-    "callback_time_unreadable": "お客様が言ったかけ直しの時刻の言葉を、時刻に読めない（読み方 core/spoken_time の抜け。直すのは CL-2。"
-                                "会話の側で時刻を決めきれていない言い方なら、CL-2 から CL-1 へ伝える）",
+    "callback_time_unreadable": "お客様が言ったかけ直しの時刻の言葉を、時刻に読めない（読み方 core/spoken_time の抜け。直すのは CL-2）",
+    "callback_time_unconfirmed": "お客様が言ったかけ直しの時刻が1つに決まらない言い方（「昼」・午前か午後か など）のまま、通話の中で"
+                                 "確かめずに終わった（会話の処理の誤り。直すのは CL-1。確かめるかは spoken_time.read が答える）",
 }
 # プログラムの誤りと、直す担当（止めずに修正依頼を出す。人は確かめ・承認だけ＝2026-10-17 ユーザー）
 UNKNOWN_CAUSE_FIXERS: dict[str, str] = {"report_missing": "CL-1", "cut_missing": "CL-1", "reason_missing": "CL-1",
-                                        "not_reached_reason_missing": "CL-1", "callback_time_unreadable": "CL-2"}
+                                        "not_reached_reason_missing": "CL-1", "callback_time_unreadable": "CL-2",
+                                        "callback_time_unconfirmed": "CL-1"}
 PROGRAM_CAUSES = frozenset(UNKNOWN_CAUSE_FIXERS)
 TAKEN = frozenset({"confirmed", "accepted"})                  # 「取れた」の定義（4-4。ここで2つ目を作らない）
 HUMAN_PARTIES = frozenset({"reception", "target", "wrong_party"})
@@ -236,11 +240,17 @@ def _business(inp: JudgeInput) -> Judgement:
         when = spoken_time.read(cb.time_said, inp.facts.called_at)
         if when.kind == spoken_time.UNREADABLE:
             return unknown("callback_time_unreadable", f"かけ直しの時刻「{cb.time_said}」を読めません（{when.why}）")
-        at = when.at.isoformat() if when.at else None
-        return done("callback_scheduled", callback={"reason": cb.reason, "at": at, "time_said": cb.time_said,
+        if when.kind == spoken_time.CONFIRM:
+            return unknown("callback_time_unconfirmed", f"かけ直しの時刻「{cb.time_said}」が1つに決まりません（{when.why}）")
+        iso = lambda t: None if t is None else t.isoformat()   # noqa: E731
+        # at＝幅の始まり（ちょうどの時刻ならその時刻）・until＝幅の終わり（無ければ終わり無し）・daily＝1日の中の幅（秒）・
+        # exact＝お客様が時刻を指定した（その時刻を含むNG時間の枠でもかけてよい）
+        return done("callback_scheduled", callback={"reason": cb.reason, "at": iso(when.start), "until": iso(when.end),
+                                                     "daily": None if when.daily is None else list(when.daily),
+                                                     "exact": when.exact, "time_said": cb.time_said,
                                                      "number_said": cb.number_said, "number_e164": cb.number_e164,
                                                      "person": cb.person},
-                    policy_key=None if at else "callback_unspecified_time")
+                    policy_key=None if when.start else "callback_unspecified_time")
     human = bool(r and any(p in HUMAN_PARTIES for p in r.parties))
     conversation = inp.facts.reached_answer and human
     # (8) お客様と話したが、目的のお客様に繋がらなかった

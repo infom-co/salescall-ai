@@ -195,6 +195,22 @@ class Settle(SettleBase):
         self.assertGreaterEqual(nxt["call_at"], at)
         self.assertEqual(nxt["callee_at"], at)                          # お客様が言った時刻（NG時間でもかけてよい根拠）
 
+    def test_a_window_callback_is_called_inside_the_window(self):
+        """「（日）の夕方」：幅の始まり（16時）にかけ、幅（〜18時・1日の中の16〜18時）を次の予定に持たせる。NG時間の根拠
+        （お客様が指定したちょうどの時刻）は持たない（2026-10-19 ユーザー：「それに合わせてかけるべき」）。"""
+        s = self.ready()
+        day = self.tx(s, lambda tx: tx.one("SELECT (salescall.jst(now()) + interval '2 days')::date AS d")["d"])
+        aid = self.call(s, report=rep(callback=callback("later", time=f"{day.month}月{day.day}日の夕方")))
+        got = self.settle(s, aid)
+        nxt = self.tx(s, lambda tx: tx.one(
+            "SELECT kind, promised, callee_at, salescall.jst(call_at) AS at, salescall.jst(window_until) AS until, window_daily"
+            " FROM salescall.task_next_actions WHERE task_id = %s ORDER BY seq DESC LIMIT 1", (s["task"],)))
+        self.assertEqual(got["state"], "callback_scheduled")
+        self.assertEqual((nxt["kind"], nxt["promised"], nxt["callee_at"]), ("call", True, None))
+        self.assertEqual((nxt["at"], nxt["until"], nxt["window_daily"]),
+                         (datetime.combine(day, datetime.min.time()) + timedelta(hours=16),
+                          datetime.combine(day, datetime.min.time()) + timedelta(hours=18), [16 * 3600, 18 * 3600]))
+
     def test_not_ready_and_once_only(self):
         s = self.ready()
         aid = self.call(s, verify=None)
@@ -329,6 +345,80 @@ class CutOffCalls(SettleBase):
         aid = self.call(t, ("dialing", "technical_error"))               # お客様が出る前に止まった：お詫びは要らない
         got = self.settle(t, aid)["decision"]
         self.assertNotEqual(got.target and got.target.purpose, "resume")
+
+
+class CallbackWindow(SettleBase):
+    """お客様が言ったかけ直しの時間の幅（「夕方」「3時まで」「13日なら」など。DESIGN.md 7-2・表の作り 0086。2026-10-19 ユーザー：
+    「それに合わせてかけるべき」・案A「時間の言葉があれば次の日の同じ幅、日だけの約束なら日が過ぎたら契約者の間隔」）。"""
+
+    def local_now(self, s):
+        return self.tx(s, lambda tx: tx.one("SELECT salescall.jst(now()) AS t")["t"])
+
+    def from_jst(self, s, t):
+        return self.tx(s, lambda tx: tx.one("SELECT salescall.from_jst(%s) AS t", (t,))["t"])
+
+    def latest(self, s):
+        return self.tx(s, lambda tx: tx.one(
+            "SELECT kind, promised, callee_at, salescall.jst(call_at) AS at, salescall.jst(window_until) AS until, window_daily"
+            " FROM salescall.task_next_actions WHERE task_id = %s ORDER BY seq DESC LIMIT 1", (s["task"],)))
+
+    def test_the_gate_does_not_call_outside_the_window_and_moves_to_its_next_start(self):
+        """幅の外では、門がかけない（理由 callback_window）。次の動きは、幅の中の次の始まりへ予定を移す（幅はそのまま）。"""
+        s = self.ready()
+        local = self.local_now(s)
+        lo = local.hour + 2 if local.hour <= 20 else local.hour - 6          # いまを含まない1時間
+        day = local.date() if local.hour <= 20 else local.date() + timedelta(days=1)
+        until = self.from_jst(s, datetime.combine(local.date() + timedelta(days=3), datetime.min.time()))
+        now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
+        self.tx(s, lambda tx: next_action.schedule_call(
+            tx, s["task"], now, contact_id=s["contact"], cause="試験", promised=True,
+            window=next_action.Window(until, (lo * 3600, (lo + 1) * 3600))))
+        denied = self.claim(s)
+        self.assertIsInstance(denied, gate.Denied)
+        self.assertEqual(denied.reason, "callback_window")
+        self.tx(s, lambda tx: next_action.after_denial(tx, s["task"], denied, tenant_id=s["tenant"], client_id=s["client"],
+                                                       business_id=s["business"]))
+        nxt = self.latest(s)
+        self.assertEqual((nxt["at"], nxt["promised"], nxt["window_daily"]),
+                         (datetime.combine(day, datetime.min.time()) + timedelta(hours=lo), True, [lo * 3600, (lo + 1) * 3600]))
+        self.assertEqual(self.tx(s, lambda tx: tx.one("SELECT window_until FROM salescall.task_next_actions WHERE task_id = %s"
+                                                      " ORDER BY seq DESC LIMIT 1", (s["task"],)))["window_until"], until)
+
+    def test_a_passed_window_moves_to_the_same_window_of_the_next_day(self):
+        """案A：時間の言葉がある幅が過ぎたら、次の日の同じ幅（幅の終わりは、その日の幅の終わり）。日だけの約束は、過ぎたら
+        幅を外す（時刻の決まっていない約束＝契約者の間隔）。決めるのは next_action._window_opening の1か所。"""
+        s = self.ready()
+        d2 = self.local_now(s).date() + timedelta(days=2)
+        at = lambda d, h: self.from_jst(s, datetime.combine(d, datetime.min.time()) + timedelta(hours=h))   # noqa: E731
+        evening = next_action.Window(at(d2, 18), (16 * 3600, 18 * 3600))
+        got = self.tx(s, lambda tx: next_action._window_opening(tx, s["task"], at(d2, 19), evening))
+        self.assertEqual(got, (at(d2 + timedelta(days=1), 16),
+                               next_action.Window(at(d2 + timedelta(days=1), 18), (16 * 3600, 18 * 3600))))
+        got = self.tx(s, lambda tx: next_action._window_opening(tx, s["task"], at(d2, 17), evening))
+        self.assertEqual(got, (at(d2, 17), evening))                          # まだ幅の中：その時刻
+        whole_day = next_action.Window(at(d2 + timedelta(days=1), 0), None)   # 「（d2）ならいつでも」
+        self.assertEqual(self.tx(s, lambda tx: next_action._window_opening(tx, s["task"], at(d2, 19), whole_day)),
+                         (at(d2, 19), whole_day))
+        self.assertEqual(self.tx(s, lambda tx: next_action._window_opening(tx, s["task"], at(d2 + timedelta(days=1), 9),
+                                                                           whole_day)), (None, None))   # 日が過ぎた
+        self.put_client(s, "calling.ng_hours", {k: [["16:00", "17:00"]] for k in KEYS})
+        got = self.tx(s, lambda tx: next_action._window_opening(tx, s["task"], at(d2, 9), evening))
+        self.assertEqual(got[0], at(d2, 17))                                  # 幅の中でも NG時間は守る（時刻の指定ではない）
+
+    def test_after_no_answer_the_next_call_keeps_the_window(self):
+        """幅の中でかけて出なかった：次のかけ直し（契約者の再発信の方針）も、同じ幅の中で（次の日の同じ幅＝案A）。"""
+        s = self.ready()
+        local = self.local_now(s)
+        until = self.from_jst(s, datetime.combine(local.date() + timedelta(days=5), datetime.min.time()))
+        now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
+        self.tx(s, lambda tx: next_action.schedule_call(
+            tx, s["task"], now, contact_id=s["contact"], cause="試験", promised=True,
+            window=next_action.Window(until, (0, 24 * 3600))))
+        aid = self.call(s, ["dialing", "no_answer"])
+        self.settle(s, aid)
+        nxt = self.latest(s)
+        self.assertEqual((nxt["kind"], nxt["promised"], nxt["window_daily"]), ("call", False, [0, 24 * 3600]))
+        self.assertLess(nxt["at"], self.tx(s, lambda tx: tx.one("SELECT salescall.jst(%s) AS t", (until,))["t"]))
 
 
 class RecordingHolds(SettleBase):

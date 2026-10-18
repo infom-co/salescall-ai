@@ -443,21 +443,33 @@ class Shapes(unittest.TestCase):
         self.assertFalse(from_json({**r.to_json(), "facts": {"end": [{"turn": 5, "said": "", "reason": "done"}]}}).hurried)
 
     def test_callback_time_is_read_from_the_words(self):
-        """かけ直しの時刻は、お客様が言ったままの言葉を通話の時刻から読む（spoken_time の1か所）。読めない言葉は推し量らずに
-        判定できない（直す担当は CL-2）・時刻を決めない答えは、時刻の決まっていない約束。"""
-        j = run(items={}, rep=report(callback=callback("later", time="明日の午後3時")))   # 通話は日本の 2030-01-07 19:00
-        self.assertEqual((j.state, j.detail["callback"]["at"], j.detail["policy_key"]),
-                         ("callback_scheduled", "2030-01-08T15:00:00+09:00", None))
-        self.assertEqual(j.detail["callback"]["time_said"], "明日の午後3時")
+        """かけ直しの時刻は、お客様が言ったままの言葉を通話の時刻から「かけてよい時間の幅」として読む（spoken_time の1か所。
+        2026-10-19 ユーザー）。1つに決まらない言い方を確かめずに終わった ⇒ 判定できない（直すのは会話＝CL-1）、読めない言い方
+        ⇒ 判定できない（直すのは読み方＝CL-2）。時刻を任せる答えは、時刻の決まっていない約束。"""
+        j = run(items={}, rep=report(callback=callback("later", time="明日の午後3時")))   # 通話は日本の 2030-01-07（月）19:00
+        cb = j.detail["callback"]
+        self.assertEqual((j.state, cb["at"], cb["until"], cb["daily"], cb["exact"], j.detail["policy_key"]),
+                         ("callback_scheduled", "2030-01-08T15:00:00+09:00", None, None, True, None))
+        self.assertEqual(cb["time_said"], "明日の午後3時")
+        j = run(items={}, rep=report(callback=callback("later", time="明日の夕方")))
+        cb = j.detail["callback"]
+        self.assertEqual((cb["at"], cb["until"], cb["daily"], cb["exact"], j.detail["policy_key"]),
+                         ("2030-01-08T16:00:00+09:00", "2030-01-08T18:00:00+09:00", [16 * 3600, 18 * 3600], False, None))
+        j = run(items={}, rep=report(callback=callback("later", time="水曜日ならいつでも")))
+        cb = j.detail["callback"]
+        self.assertEqual((cb["at"], cb["until"], cb["daily"]), ("2030-01-09T00:00:00+09:00", "2030-01-10T00:00:00+09:00", None))
         j = run(items={}, rep=report(callback=callback("later", time="いつでも大丈夫です")))
         self.assertEqual((j.state, j.detail["callback"]["at"], j.detail["policy_key"]),
                          ("callback_scheduled", None, "callback_unspecified_time"))
-        j = run(items={}, rep=report(callback=callback("later", time="夕方")))
-        self.assertEqual((j.state, j.detail["unknown_cause"]), ("unknown", "callback_time_unreadable"))
         from salescall.core.judge import UNKNOWN_CAUSE_FIXERS
-        self.assertEqual(UNKNOWN_CAUSE_FIXERS["callback_time_unreadable"], "CL-2")
+        for said, cause, fixer in (("夕方", "callback_time_unconfirmed", "CL-1"),     # 19時の通話：今日の夕方は過ぎた
+                                   ("明日のお昼", "callback_time_unconfirmed", "CL-1"),   # 昼は確かめる（2026-10-19 ユーザー）
+                                   ("近いうちに", "callback_time_unreadable", "CL-2")):
+            with self.subTest(said=said):
+                j = run(items={}, rep=report(callback=callback("later", time=said)))
+                self.assertEqual((j.state, j.detail["unknown_cause"], UNKNOWN_CAUSE_FIXERS[cause]), ("unknown", cause, fixer))
         # 拒否は、読めない時刻より先（発信禁止を、時刻の読み方の抜けで遅らせない）
-        self.assertEqual(run(items={}, rep=report(dnc=True, callback=callback("later", time="夕方"))).state, "do_not_call")
+        self.assertEqual(run(items={}, rep=report(dnc=True, callback=callback("later", time="近いうちに"))).state, "do_not_call")
 
 
 class Causes(unittest.TestCase):
