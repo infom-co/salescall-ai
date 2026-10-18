@@ -28,19 +28,42 @@ SYSTEM_DESC = {ANY: "どれでもよいと、こちらに任された（「ど�
                "refused": "答えたくないと、答えを拒んだ"}
 KIND_DESC = {HOLD: "ほかの人に電話を代わる・取り次ぐので、待つように言った（答えではない）",
              HANDOVER: "電話を代わった別の人が、話し始めた（「お電話代わりました」など。答えではない）",
-             UNDECIDED: "受け入れにも断りにも取れて、この言葉だけでは決められない（「大丈夫です」「結構です」だけなど）・言い切っていない"
-                        "（「たぶん」「かもしれない」）・答えになっていない"}
+             UNDECIDED: "受け入れにも断りにも取れて、この言葉だけでは決められない（「大丈夫です」「結構です」だけなど）・どの答えにも寄っていない"
+                        "（迷っている・どちらとも言っていない）・答えになっていない"}
 CONFIRM_DESC = {"affirmed": "こちらが言い直した値で合っていると認めた", "corrected": "違う・直した（別の値を言った）"}
 
-PROMPT = (
-    "電話でお客様に質問をして、お客様が話しました。お客様の言葉が、次の選べるもののどれに当たるかを、1つだけ選んでください。\n"
+# 言い切っているか（✅ 2026-10-18 ユーザー：「『急ぎと言えば急ぎですが』『まあ、できれば早くとは思います』『さらっとは見たんですが』
+#    『していないはずですが…』『5万円くらいかなとは思いますが』なんかは、『yes,but 曖昧』のような返答にしておけばいいんじゃないですか？」）。
+#    寄っている答えは選び、言い切っていないことは別に答えさせる（それまでは「決められない」に入れていた＝寄っている向きが消えていた）。
+#    流れの制御は、最初の答えなら言い直して確かめ、言い直しへの返事なら、その答えに「曖昧」の印を付けて受け取る（Flow._hedged）
+FIRM = "firm"
+FIRM_RULE = ("言い切っていなくても（「たぶん」「〜はず」「〜と思うのですが」「〜かもしれない」「〜くらい」「〜程度」）、どれかの答えに寄っていれば"
+             "その答えを選び、" + FIRM + " を false にします。言い切っていれば true です（望みをはっきり言っていれば、言い方が柔らかくても true）。")
+
+
+class Reading(str):
+    """判定の答え（中の名前のまま比べられる）に、お客様が言い切っているか（firm）を添えたもの。"""
+
+    def __new__(cls, cond: str, firm: bool = True):
+        r = super().__new__(cls, cond)
+        r.firm = bool(firm)
+        return r
+
+
+# 判定の決まり（どの会社の判定にも同じ文で渡す。Jev のように、決まり・場面・選べるものを別々に受け取る判定には、この部分を問いとして渡す）
+RULES = (
+    "電話でお客様に質問をして、お客様が話しました。お客様の言葉が、次の選べるもののどれに当たるかを、1つだけ選んでください。"
+    "あわせて、お客様がその答えを言い切っているか（" + FIRM + "）も答えてください。\n"
     "決まり：\n"
     "- 言葉の意味で選びます。言葉の頭の「はい」「いいえ」だけで決めません（「いいえ、もう済ませてあります」は、済ませた側）。\n"
     "- 打ち消しを重ねた言い方は、意味で読みます（「していないわけではない」は、している側）。\n"
     "- 「〜ございませんでしょうか？」のような打ち消しの問いへの「はい」「いいえ」は、選べるものの名前（意味）で、どちらの意味かを決めます。\n"
     "- こちらが答えを言い直して確かめたあとの返事は、お客様が認めた意味で選びます（言い直した意味を「はい」と認めたら、その意味）。\n"
     # ⚠️ 例は、試験の言葉（G-14・G-52）と同じ言い方にしない（同じだと、試験で測った正しさが高く出る）
+    "- " + FIRM_RULE + "\n"
     "- 迷ったら「" + UNDECIDED + "」を選びます。\n"
+)
+PROMPT = RULES + (
     "質問：「{question}」\n"
     "{asked}"
     "選べるもの（名前：説明）：\n{choices}\n"
@@ -74,6 +97,11 @@ def options(q, asked: str | None = None) -> list[tuple[str, str, str]]:
     return head + [(k, d, k) for k, d in KIND_DESC.items()]
 
 
+def scene(q, text: str, asked: str | None = None) -> dict:
+    """判定に渡す場面（質問の文・こちらが言い直して確かめた言葉・お客様の言葉）。prompt はこれを文にしたもの。"""
+    return {"質問": q.text} | ({"こちらが言い直して確かめた言葉": asked} if asked else {}) | {"お客様の言葉": text}
+
+
 def prompt(q, text: str, asked: str | None = None) -> str:
     said = f"こちらが言い直して確かめた言葉：「{asked}」\n" if asked else ""
     return PROMPT.format(question=q.text, asked=said, text=text,
@@ -84,24 +112,29 @@ def _config(q, asked: str | None):
     from google.genai import types
 
     names = [n for n, _, _ in options(q, asked)]
-    schema = types.Schema(type=types.Type.OBJECT, properties={"choice": types.Schema(type=types.Type.STRING, enum=names)}, required=["choice"])
+    schema = types.Schema(type=types.Type.OBJECT, properties={"choice": types.Schema(type=types.Type.STRING, enum=names),
+                                                              FIRM: types.Schema(type=types.Type.BOOLEAN)}, required=["choice", FIRM])
     # ⚠️ 考える量（thinking_budget）は指定しない：3.5 Flash Lite は指定すると断る（400）。3.8 Flash は0にしても約3.3秒（2026-10-17 に測った）
     return types.GenerateContentConfig(response_mime_type="application/json", response_schema=schema, temperature=0)
 
 
-def read(q, text: str | None, asked: str | None = None) -> str | None:
-    """判定の返事から、中の名前（選択肢・any・unknown・refused／affirmed・corrected／HOLD・HANDOVER・UNDECIDED）。読めなければ None。"""
+def read(q, text: str | None, asked: str | None = None) -> Reading | None:
+    """判定の返事から、中の名前（選択肢・any・unknown・refused／affirmed・corrected／HOLD・HANDOVER・UNDECIDED）と、言い切っているか。
+    読めなければ None。言い切っているかが無い・読めない返事は、言い切っている（印を付けない＝ほかの確かめのとおり）。"""
     try:
-        name = json.loads(text or "{}").get("choice")
+        got = json.loads(text or "{}")
+        name, firm = got.get("choice"), got.get(FIRM)
     except (ValueError, AttributeError):
         return None
-    return next((c for n, _, c in options(q, asked) if n == name), None)
+    cond = next((c for n, _, c in options(q, asked) if n == name), None)
+    return None if cond is None else Reading(cond, firm is not False)
 
 
 def _schema(q, asked: str | None) -> dict:
     """選べるものの名前だけを返させる形（Gemini は _config・ほかの会社はこの形をそのまま渡す）。"""
-    return {"type": "object", "properties": {"choice": {"type": "string", "enum": [n for n, _, _ in options(q, asked)]}},
-            "required": ["choice"], "additionalProperties": False}
+    return {"type": "object", "properties": {"choice": {"type": "string", "enum": [n for n, _, _ in options(q, asked)]},
+                                             FIRM: {"type": "boolean"}},
+            "required": ["choice", FIRM], "additionalProperties": False}
 
 
 def judge(client, model: str, q, text: str, asked: str | None = None) -> str | None:
@@ -135,7 +168,11 @@ OTHER_JUDGES = {
     "Claude Sonnet 5.5（考える）": {"maker": "anthropic", "model": "claude-sonnet-5-5", "key": "ANTHROPIC_JUDGE_KEY",
                                   "host": "api.anthropic.com", "form": "json", "effort": "low", "thinking": {"type": "adaptive"}},
     "GPT-6 Luna": {"maker": "openai", "model": "gpt-6-luna", "key": "OPENAI_JUDGE_KEY", "host": "api.openai.com"},
+    # Jev（TypeSafe の、選ぶ・分けるだけの専用モデル。2026-10-18 ユーザー：「判断のみなら、Jevが安くて優秀だと聞きましたが、使えないんですか？」）。
+    # 直接の窓口は順番待ちなので OpenRouter を通す。最新の版を名前で決めて測る（「最新」の別名だと、測ったあとに中身が替わる）
+    "Jev 1.14": {"maker": "typesafe", "model": "typesafe/jev-1.14", "key": "OPENROUTER_JUDGE_KEY", "host": "openrouter.ai"},
 }
+OTHER_PATH = {"openai": "/v1/responses", "typesafe": "/api/v1/systemone"}  # 部品を使わず httpx で送る会社の窓口
 OPENAI_EFFORT = "low"  # 考える量（速さの公開の数字は low で約1.5秒。高くすると十数秒〜）
 
 
@@ -166,6 +203,12 @@ def other_request(name: str, q, text: str, asked: str | None) -> dict:
             body = {"model": j["model"], "max_tokens": 4096, "messages": [{"role": "user", "content": p}], "thinking": j["thinking"],
                     "output_config": {"effort": j["effort"], "format": {"type": "json_schema", "schema": _schema(q, asked)}}}
         return body
+    if j["maker"] == "typesafe":
+        # 決まり・場面・選べるものを別々に渡す形（選べるものの名前と説明は、ほかの判定と同じ）。答えは確からしさ付きの1つ
+        return {"model": j["model"], "state": scene(q, text, asked),
+                "questions": {"choice": {"type": "choice", "instructions": RULES,
+                                         "criteria": {n: d for n, d, _ in options(q, asked)}},
+                              FIRM: {"type": "noul", "instructions": "お客様は、答えを言い切っていますか？ " + FIRM_RULE}}}
     return {"model": j["model"], "input": p, "reasoning": {"effort": OPENAI_EFFORT}, "max_output_tokens": 2000,
             "text": {"format": {"type": "json_schema", "name": "answer", "schema": _schema(q, asked), "strict": True}}}
 
@@ -177,6 +220,10 @@ def other_text(name: str, data: dict) -> str | None:
             return next((c.get("text") for c in data.get("content") or [] if c.get("type") == "text"), None)
         got = next((c.get("input") for c in data.get("content") or [] if c.get("type") == "tool_use"), None)
         return json.dumps(got, ensure_ascii=False) if got else None
+    if OTHER_JUDGES[name]["maker"] == "typesafe":  # 言い切っているかは確からしさ（0〜1）で返る：半分より上なら言い切っている
+        answers = data.get("answers") or {}
+        got, firm = (answers.get("choice") or {}).get("choice"), (answers.get(FIRM) or {}).get("noul")
+        return json.dumps({"choice": got, FIRM: firm is None or firm > 0.5}, ensure_ascii=False) if got else None
     return next((c.get("text") for o in data.get("output") or [] for c in o.get("content") or [] if c.get("type") == "output_text"), None)
 
 
@@ -213,7 +260,7 @@ def judge_other(client, name: str, q, text: str, asked: str | None = None) -> st
         if OTHER_JUDGES[name]["maker"] == "anthropic":
             data = client.messages.create(**body).to_dict()
         else:
-            r = client.post("/v1/responses", json=body)
+            r = client.post(OTHER_PATH[OTHER_JUDGES[name]["maker"]], json=body)
             r.raise_for_status()
             data = r.json()
     except Exception as exc:
@@ -231,7 +278,7 @@ async def ajudge_other(client, name: str, q, text: str, asked: str | None = None
         if OTHER_JUDGES[name]["maker"] == "anthropic":
             data = (await client.messages.create(**body)).to_dict()
         else:
-            r = await client.post("/v1/responses", json=body)
+            r = await client.post(OTHER_PATH[OTHER_JUDGES[name]["maker"]], json=body)
             r.raise_for_status()
             data = r.json()
     except Exception as exc:

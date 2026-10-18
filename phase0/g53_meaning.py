@@ -24,7 +24,7 @@ from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 
 from common import HERE, KeyRing, base_parser, describe_error, require_python, save_partial, save_result, say
-from flowctl import ANY, CHOICE_TYPES, HANDOVER, HOLD, Flow, Question
+from flowctl import ANY, CHOICE_TYPES, HANDOVER, HOLD, SYSTEM_CONDITIONS, Flow, Question
 from g23_names import find_models
 from g48_meanings import QUESTIONS as G48
 from meaning_judge import JUDGE_MODELS, OTHER_JUDGES, UNDECIDED, judge, judge_other
@@ -78,15 +78,48 @@ def accept(it: dict) -> list[str]:
     ⛔ 2026-10-18 ユーザー：「『メールのほうが助かりますが、電話でも大丈夫です』なら…決まらないではないですよね」＝作らせたモデルの付けた
        正解を、中身を見ずに使っていた ⇒ CL-1 が1つずつ読んで付け直した（望みが言えていれば答え・事実がはっきりしなければ確かめる・
        どちらとも言っていなければ決められない。境目は、どちらの読みも正解）"""
-    global _LABELS
-    if _LABELS is None:
-        p = HERE / "g53_labels.json"
-        _LABELS = json.loads(p.read_text(encoding="utf-8"))["labels"] if p.exists() else {}
-    got = _LABELS.get(f"{it['set']}|{it['qid']}|{it['text']}|{it.get('asked') or ''}")
+    got = _label(it)
     if got:
         return got["accept"]
     want = truth(it)
     return [UNDECIDED, "unknown"] if want in (UNDECIDED, "unknown") else [want]
+
+
+def _label(it: dict) -> dict | None:
+    global _LABELS
+    if _LABELS is None:
+        p = HERE / "g53_labels.json"
+        _LABELS = json.loads(p.read_text(encoding="utf-8"))["labels"] if p.exists() else {}
+    return _LABELS.get(f"{it['set']}|{it['qid']}|{it['text']}|{it.get('asked') or ''}")
+
+
+def hedged(it: dict) -> bool:
+    """お客様が、答えに寄っているが言い切っていないか（正解の「曖昧」の印。数えるのはここ）。付け直した正解にあればそれ、無ければ言い切って
+    いない答えの決まり（flowctl.UNCERTAIN＝✅ ユーザー確定の言葉）に当たるか。✅ 2026-10-18 ユーザー：「yes,but 曖昧」"""
+    from flowctl import UNCERTAIN
+
+    got = _label(it)
+    if got and "hedged" in got:
+        return got["hedged"]
+    return bool(UNCERTAIN.search(it["text"]))
+
+
+def reading(it: dict, key: str):
+    """記録した判定の答えを、流れの制御に渡す形（言い切っているかを添える）に戻す。"""
+    from meaning_judge import Reading
+
+    got = it.get(key)
+    return None if got is None else Reading(got, it.get(f"{key}言い切り") is not False)
+
+
+def mark(it: dict, key: str) -> str | None:
+    """「曖昧」の印の数え：寄っている答えを正しく選んだときだけ（値が誤っていれば、印の前に誤り）。"""
+    if it.get(key) not in accept(it) or it[key] in (UNDECIDED, "unknown", HOLD, HANDOVER):
+        return None
+    unsure = it.get(f"{key}言い切り") is False
+    if hedged(it):
+        return "印が付いた" if unsure else "印が落ちた（値は正しい）"
+    return "要らない印（最初の答えなら要らない確かめ）" if unsure else None
 
 
 def g48_question(n: int, text: str, conditions: tuple, meanings: dict) -> Question:
@@ -287,6 +320,8 @@ def versus(items: list[dict], qmap: dict, key: str) -> dict:
             continue
         q, b = qmap[it["qid"]], it[BASE]
         clash = Flow._meaning_disagrees(q, b, it[key], confirming=it["set"] == "D") is not None
+        # 最初の答えは、候補が言い切っていないと読んでも確かめに回る（言い直しへの返事は、印を付けて受け取る＝確かめには回らない）
+        clash = clash or (it["set"] != "D" and b not in SYSTEM_CONDITIONS and Flow._judged_unsure({"judge": reading(it, key)}))
         c["両方が判定"] += 1
         if dangerous(it, q, BASE):
             c["いまの判定が危ない向き"] += 1
@@ -361,6 +396,7 @@ def run_judges(args, items: list[dict], qmap: dict, ids: dict) -> None:
             try:
                 got, _ = ring.call(ids[key], call, rotate=False)
                 it[key] = got
+                it[f"{key}言い切り"] = getattr(got, "firm", None)
                 it[f"{key}秒"] = took.get("s")
             except KeyUnusable:
                 skip.add(key)
@@ -391,6 +427,7 @@ def run_judges(args, items: list[dict], qmap: dict, ids: dict) -> None:
                 try:
                     t = time.monotonic()
                     it[key] = judge_other(clients[key], key, q, it["text"], it.get("asked"))
+                    it[f"{key}言い切り"] = getattr(it[key], "firm", None)
                     it[f"{key}秒"] = round(time.monotonic() - t, 3)
                     break
                 except OtherJudgeError as exc:  # 上限（429）・混雑（5xx）は待ってやり直す。ほかは記録して次へ
@@ -433,6 +470,8 @@ def tally(items: list[dict], judges) -> dict:
             label = {"B": "選択肢", "D": it.get("kind")}.get(it["set"], want)
             t[f"{it['set']}・{label}"][res] += 1
             t["全体"][res] += 1
+            if (m := mark(it, key)):
+                t["全体"][f"曖昧の印・{m}"] += 1
             if misread_as_affirmed(it, key):
                 t["全体"]["⛔⛔言い直しを、認めていないのに認めたと読んだ"] += 1
         secs = sorted(it[f"{key}秒"] for it in items if it.get(f"{key}秒") is not None)
@@ -455,7 +494,7 @@ def predict_calls(items: list[dict], key: str) -> dict:
     qs = {qid: business(qid).questions[0] for qid in QUESTIONS}
     rows = json.loads(open(sorted(glob.glob(str(HERE / "results" / "G-15-soniox_*.json")))[-1], encoding="utf-8").read())["rows"]
     ears = {r["wav"]: (r["ear"] if r.get("first_s") is not None and r["first_s"] <= Limits.hold_s else None) for r in rows}
-    judged = {(it["qid"], it["text"]): it.get(key) for it in items if it["set"] == "A"}
+    judged = {(it["qid"], it["text"]): reading(it, key) for it in items if it["set"] == "A"}
 
     out = {}
     for name, use in (("別の耳だけ", False), ("別の耳＋意味の判定", True)):

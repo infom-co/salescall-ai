@@ -3,7 +3,7 @@
 import json, sys, glob
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from g53_meaning import accept, dangerous, g48_questions, value_questions, versus
+from g53_meaning import JUDGES, accept, dangerous, mark, g48_questions, value_questions, versus
 from g14_listen import business
 from flowctl import UNDECIDED
 from collections import Counter
@@ -15,7 +15,7 @@ for f in files:
         k = (it["set"], it["qid"], it["text"], it.get("asked"))
         items.setdefault(k, {}).update(it)
 items = [i for i in items.values() if i["set"] in "ABDE"]
-J = [j for j in ("3.5 Flash Lite", "3.6 Flash", "3.7 Flash", "3.8 Flash", "Claude Haiku 5.5", "Claude Haiku 5.5（考える）", "Claude Sonnet 5.5", "Claude Sonnet 5.5（考える）") if any(j in i for i in items)]
+J = [j for j in JUDGES if any(j in i for i in items)]
 for j in J:
     its = [i for i in items if j in i and i.get("maker") != j]
     c = Counter()
@@ -33,6 +33,7 @@ for j in J:
     secs = sorted(i[f"{j}秒"] for i in its if i.get(f"{j}秒") is not None)
     sp = f"中央{secs[len(secs)//2]:.2f}・9割{secs[int(len(secs)*.9)]:.2f}・2秒以内{sum(s <= 2 for s in secs)}/{len(secs)}" if secs else ""
     print(f"{j}: {dict(c)} {sp}")
+    print("   曖昧の印:", dict(Counter(m for i in its if (m := mark(i, j)))))
     bad = [i for i in its if dangerous(i, qmap[i["qid"]], j)]
     print("   危ない:", Counter((i["set"], i.get("kind")) for i in bad).most_common(6))
     if j != "3.5 Flash Lite":

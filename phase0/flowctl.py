@@ -535,6 +535,7 @@ class Item:
     ampm_asked: bool = False          # 午前・午後を聞いたか（1項目1回まで）
     ambiguous_asked: bool = False     # 曖昧な答えの意味を確かめたか（そのあとの「結構です」は、確かめへの返事として受け取る）
     tried_readings: list = field(default_factory=list)  # 名前の読みの確かめで、これまでに言った読み（同じ読みを2度言わない）
+    hedged: str | None = None         # 言い直しへの返事が言い切っていなかった（その返事の言葉）：依頼主へは値に「曖昧」の印を付けて渡す（Flow._hedged）
 
     def set(self, state: str, why: str) -> None:
         assert state in STATES, state
@@ -682,6 +683,9 @@ class Flow:
             return
         why, _ = self._compare(q, t["said"], t["reported"], t["check"], policy=False, confirming=t["confirming"])
         if not why:
+            if t["confirming"] and not q.reading_of and not it.hedged and Flow._hedged(t["said"], t["check"]):
+                it.hedged = (t["said"] or "").strip()[:40]
+                it.set(it.state, f"言い切っていない返事だった（「{it.hedged}」・受け取ったあとに届いた確かめ）")
             return
         it.set("unresolved", f"{why}（受け取ったあとに届いた確かめ）・受け取った答え（「{label(t['reported'])}」）を渡さない")
         self.taken.pop(qid)
@@ -909,15 +913,33 @@ class Flow:
         text = (words or said or "").strip()
         if policy and AMBIGUOUS.fullmatch(text):
             return "曖昧な答え", reported
-        if reported not in SYSTEM_CONDITIONS and UNCERTAIN.search(text):
-            # 言い切っていない答えは、その言葉だけで決めない（✅ ユーザー確定）。最初の答えにも、言い直しへの返事（「たぶんそうです」）にも当てる。
+        if reported not in SYSTEM_CONDITIONS and not confirming and UNCERTAIN.search(text):
+            # 言い切っていない答えは、その言葉だけで決めない（✅ ユーザー確定）。最初の答えだけに当てる（言い直しへの返事は、言い直した
+            # 意味に寄っていれば、その答えに「曖昧」の印を付けて受け取る＝Flow._hedged。✅ 2026-10-18 ユーザー：「yes,but 曖昧」）。
             # 「わからない」「答えたくない」の報告には当てない（「たぶん分からないです」は、そのまま「わからない」）
             return "曖昧な答え", reported
         for kind in ("judge", "judge2"):
             back = Flow._meaning_disagrees(q, reported, check.get(kind), confirming)
             if back:
                 return f"意味の判定（「{label(check[kind])}」）と食い違う", back
+        if reported not in SYSTEM_CONDITIONS and not confirming and Flow._judged_unsure(check):
+            return "曖昧な答え（意味の判定が、言い切っていないと読んだ）", reported
         return None, None
+
+    @staticmethod
+    def _judged_unsure(check: dict) -> bool:
+        """意味の判定が、寄っている答えを選んだうえで、言い切っていないと読んだ（meaning_judge.Reading.firm）。"""
+        return any(getattr(check.get(k), "firm", True) is False and check.get(k) not in (UNDECIDED, HOLD, HANDOVER)
+                   for k in ("judge", "judge2"))
+
+    @staticmethod
+    def _hedged(said: str | None, check: dict) -> bool:
+        """言い直しへの返事が、言い直した答えに寄っているが言い切っていない（「〜はずですが」「〜くらいかなとは思いますが」）：
+        確かめがそろって受け取るときに、依頼主へ渡す値に「曖昧」の印を付ける（もう一度は聞かない）。言い切っていない答えの決まり（UNCERTAIN）と
+        意味の判定の、どちらかが言い切っていないと読めば付ける（印は値を変えない＝誤った値は渡らない）。
+        ✅ 2026-10-18 ユーザー：「『急ぎと言えば急ぎですが』…『5万円くらいかなとは思いますが』なんかは、『yes,but 曖昧』のような返答にしておけば
+           いいんじゃないですか？」⇒ それまでは、もう1回言い直し、それでも言い切らなければ「-」（寄っている向きが依頼主へ届かなかった）"""
+        return bool(UNCERTAIN.search(said or "")) or Flow._judged_unsure(check)
 
     @staticmethod
     def _meaning_disagrees(q: "Question", reported: str | None, meaning: str | None, confirming: bool = False) -> str | None:
@@ -1103,7 +1125,9 @@ class Flow:
             if why:
                 return self._confirm_again(qid, why, reported, back)
         if result == "affirmed":
-            it.set("confirmed", "相手が肯定した")
+            if not q.reading_of and Flow._hedged(self.callee_said, self.check):
+                it.hedged = (self.callee_said or "").strip()[:40]
+            it.set("confirmed", f"相手が肯定した（言い切っていない：「{it.hedged}」）" if it.hedged else "相手が肯定した")
             self.last_affirmed = {"qid": qid, "callee_turns": self.callee_turns, "phase": self.phase, "current": self.current,
                                   "recheck_queue": list(self.recheck_queue), "confirm_requested_at": self.confirm_requested_at,
                                   "awaiting_say": self.awaiting_say}
@@ -1475,13 +1499,14 @@ class Flow:
             return label(it.condition)
         return it.value
 
-    def export(self, unknown_mark: str = "-", refused_mark: str = "✕") -> dict:
+    def export(self, unknown_mark: str = "-", refused_mark: str = "✕", hedged_mark: str = "（曖昧）") -> dict:
+        """依頼主へ渡す値（DESIGN.md 7-1b）。言い切っていない返事で受け取った値には、印（hedged_mark）を付ける（⏳ 書き方はユーザーの承認待ち）。"""
         out = {}
         for qid, it in self.items.items():
             if it.state == "refused":
                 out[qid] = refused_mark
             elif it.state in GOT:
-                out[qid] = self.answer_of(qid)
+                out[qid] = self.answer_of(qid) + (hedged_mark if it.hedged else "")
             else:
                 out[qid] = unknown_mark
         return out

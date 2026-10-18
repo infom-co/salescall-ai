@@ -2241,9 +2241,12 @@ class AmbiguousAnswerTest(unittest.TestCase):
         for t in ("はい、大丈夫です。", "いいえ。", "いえ、結構です。", "どちらでも大丈夫です。", "はい、予約しています。", "", None,
                   "カードがいいと思います。", "かもめ便でお願いします", "鴨川に住んでいます"):
             self.assertIsNone(why(t), t)
-        # 言い直しへの返事：「大丈夫です」は認める返事（決まりを当てない）・「たぶんそうです」は言い切っていない（当てる）
+        # 言い直しへの返事：「大丈夫です」は認める返事（決まりを当てない）・「たぶんそうです」は言い切っていないが、聞き直さずに受け取る
+        # （値に「曖昧」の印を付ける＝Flow._hedged。✅ 2026-10-18 ユーザー：「yes,but 曖昧」）
         self.assertIsNone(why("大丈夫です。", policy=False, confirming=True))
-        self.assertEqual(why("たぶんそうです。", policy=False, confirming=True), "曖昧な答え")
+        self.assertIsNone(why("たぶんそうです。", policy=False, confirming=True))
+        self.assertTrue(Flow._hedged("たぶんそうです。", {}))
+        self.assertFalse(Flow._hedged("はい、そうです。", {}))
         # 「わからない」の報告には、言い切っていない決まりを当てない（「たぶん分からないです」は、そのまま「わからない」）
         self.assertIsNone(why("たぶん分からないです。", reported="unknown", policy=False))
 
@@ -2256,6 +2259,32 @@ class AmbiguousAnswerTest(unittest.TestCase):
         self.assertNotIn("大丈夫でしょうか", r["say"])   # 相手の「大丈夫です」をそのまま聞き返さない
         r = self.say(f, "はい。", "confirm_field", question_id="Q1", result="affirmed")
         self.assertEqual((f.items["Q1"].state, f.export()["Q1"]), ("confirmed", "はい"))
+
+    def test_hedged_reply_is_taken_with_a_mark(self):
+        # ✅ 2026-10-18 ユーザー：「『していないはずですが…』『5万円くらいかなとは思いますが』なんかは、『yes,but 曖昧』のような返答にしておけば
+        #    いいんじゃないですか？」⇒ 言い直しへの返事が言い切っていなければ、もう一度は聞かず、値に「曖昧」の印を付けて受け取る
+        from meaning_judge import Reading
+        f = self.flow()
+        f.use_checks("judge")
+        f.on_callee(); f.on_heard("大丈夫です。"); f.on_check("judge", Reading("はい"))
+        r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい", "value": "大丈夫です"})
+        self.assertEqual(r["result"], "confirm_required")
+        # 言い切っていない言葉（たぶん・はず…）が無くても、意味の判定が言い切っていないと読めば印を付ける
+        f.on_callee(); f.on_heard("予約したと言えばしたんですが。"); f.on_check("judge", Reading("はい", firm=False))
+        r = f.apply("confirm_field", {"question_id": "Q1", "result": "affirmed"})
+        self.assertEqual(f.items["Q1"].state, "confirmed")
+        self.assertEqual(f.export()["Q1"], "はい（曖昧）")
+        self.assertEqual(f.export(hedged_mark="")["Q1"], "はい")  # 印の書き方は出力の設定で変えられる（7-1b）
+
+    def test_unsure_first_answer_is_confirmed(self):
+        # 最初の答えは、意味の判定が言い切っていないと読めば、言い直して確かめる（言い切っていない答えの決まりと同じ）
+        from meaning_judge import Reading
+        f = self.flow()
+        f.use_checks("judge")
+        f.on_callee(); f.on_heard("予約したと言えばしたんですが。"); f.on_check("judge", Reading("はい", firm=False))
+        r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい", "value": "予約したと言えばした"})
+        self.assertEqual(r["result"], "confirm_required")
+        self.assertTrue(any("言い切っていない" in why for _, _, why in f.items["Q1"].history))
 
     def test_denied_meaning_takes_the_named_choice(self):
         f = self.flow()
@@ -3391,13 +3420,20 @@ class JudgeSetupTest(unittest.TestCase):
         self.assertNotIn("ANTHROPIC_API_KEY", {j["key"] for j in OTHER_JUDGES.values()})
 
     def test_requests_carry_the_same_prompt_and_choices(self):
-        # 会社ごとに違うのは送り方だけ：同じ問い合わせの文と、同じ選べるものの名前（Gemini の _config と同じ並び）
-        from meaning_judge import OTHER_JUDGES, options, other_request, prompt
+        # 会社ごとに違うのは送り方だけ：同じ問い合わせの文と、同じ選べるものの名前（Gemini の _config と同じ並び）。
+        # Jev は決まり・場面・選べるものを別々に受け取る：同じ決まりの文・同じ場面・同じ名前と説明（同じ並び）
+        from meaning_judge import OTHER_JUDGES, RULES, options, other_request, prompt, scene
         q, asked, text = self.q(), "念のためご連絡はメールでよろしいでしょうか？", "メールのほうが助かりますが…"
         names = [n for n, _, _ in options(q, asked)]
         for name in OTHER_JUDGES:
             body = other_request(name, q, text, asked)
             sent = json.dumps(body, ensure_ascii=False)
+            if OTHER_JUDGES[name]["maker"] == "typesafe":
+                ask = body["questions"]["choice"]
+                self.assertEqual((ask["instructions"], list(ask["criteria"].items()), body["state"]),
+                                 (RULES, [(n, d) for n, d, _ in options(q, asked)], scene(q, text, asked)))
+                self.assertEqual(prompt(q, text, asked).count(text), 1)
+                continue
             self.assertIn(json.dumps(prompt(q, text, asked), ensure_ascii=False), sent)
             self.assertIn(json.dumps(names, ensure_ascii=False), sent)
             # Claude Haiku 5.5 は温度などを送ると断る（2026-10-18 に400）
@@ -3414,6 +3450,9 @@ class JudgeSetupTest(unittest.TestCase):
         self.assertEqual(read(q, other_text("GPT-6 Luna", gpt), asked), cond)
         self.assertIsNone(read(q, other_text("Claude Haiku 5.5", {"content": [{"type": "text", "text": "…"}]}), asked))
         self.assertIsNone(read(q, other_text("GPT-6 Luna", {"output": []}), asked))
+        jev = {"answers": {"choice": {"type": "choice", "choice": name, "confidence": 0.99}}}
+        self.assertEqual(read(q, other_text("Jev 1.14", jev), asked), cond)
+        self.assertIsNone(read(q, other_text("Jev 1.14", {"error": {"code": 402}}), asked))
 
     def test_decisive_answers_go_first_and_survive_rejudge(self):
         # 1日の上限が少ないとき、いまの判定が言い直しへの返事を認めたと読み違えた答えを、先に判定させる（判定し直しで読みを捨てても印は残る）
