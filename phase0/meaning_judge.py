@@ -97,9 +97,15 @@ def read(q, text: str | None, asked: str | None = None) -> str | None:
     """判定の返事から、中の名前（選択肢・any・unknown・refused／affirmed・corrected／HOLD・HANDOVER・UNDECIDED）。読めなければ None。"""
     try:
         name = json.loads(text or "{}").get("choice")
-    except ValueError:
+    except (ValueError, AttributeError):
         return None
     return next((c for n, _, c in options(q, asked) if n == name), None)
+
+
+def _schema(q, asked: str | None) -> dict:
+    """選べるものの名前だけを返させる形（Gemini は _config・ほかの会社はこの形をそのまま渡す）。"""
+    return {"type": "object", "properties": {"choice": {"type": "string", "enum": [n for n, _, _ in options(q, asked)]}},
+            "required": ["choice"], "additionalProperties": False}
 
 
 def judge(client, model: str, q, text: str, asked: str | None = None) -> str | None:
@@ -116,13 +122,69 @@ async def ajudge(client, model: str, q, text: str, asked: str | None = None) -> 
 
 JUDGE_MODELS = ("3.5 Flash Lite", "3.6 Flash", "3.7 Flash", "3.8 Flash")   # 判定に使える文字のモデル（表示名。g23_names.find_models でIDを引く）
 
+# ── Google 以外の判定（DESIGN.md 1-3 の (2)・選んだ根拠は docs/JUDGE_SETUP.md）。同じ問い合わせの文・同じ選べるもの・同じ読み方（read）で、
+#    送り方だけが会社ごとに違う。
+#    ✅ 2026-10-18 ユーザー：「ジェミニより精度が悪いんだったら意味がないでしょ。ジェミニよりほぼ確実に精度がいいものを抜粋しないと時間の無駄」
+#       「最新モデルで評価しないとダメだよ」⇒ 各社の最新の、速くて安いモデルのうち、公開の数字で 3.5 Flash Lite を上回るものだけ
+#    ⚠️ キーの名前は ANTHROPIC_API_KEY にしない（この作業の場所そのものが読む名前と同じになる）
+OTHER_JUDGES = {
+    "Claude Haiku 5.5": {"maker": "anthropic", "model": "claude-haiku-5-5", "key": "ANTHROPIC_JUDGE_KEY", "host": "api.anthropic.com"},
+    "GPT-6 Luna": {"maker": "openai", "model": "gpt-6-luna", "key": "OPENAI_JUDGE_KEY", "host": "api.openai.com"},
+}
+OPENAI_EFFORT = "low"  # 考える量（速さの公開の数字は low で約1.5秒。高くすると十数秒〜）
+
+
+def other_request(name: str, q, text: str, asked: str | None, key: str) -> tuple[str, dict, dict]:
+    """Google 以外の判定への問い合わせ（宛先・見出し・中身）。"""
+    j, p = OTHER_JUDGES[name], prompt(q, text, asked)
+    if j["maker"] == "anthropic":
+        return (f"https://{j['host']}/v1/messages", {"x-api-key": key, "anthropic-version": "2023-06-01"},
+                {"model": j["model"], "max_tokens": 64, "temperature": 0, "messages": [{"role": "user", "content": p}],
+                 "tools": [{"name": "answer", "description": "お客様の言葉に当たるものの名前", "input_schema": _schema(q, asked)}],
+                 "tool_choice": {"type": "tool", "name": "answer"}})
+    return (f"https://{j['host']}/v1/responses", {"authorization": f"Bearer {key}"},
+            {"model": j["model"], "input": p, "reasoning": {"effort": OPENAI_EFFORT}, "max_output_tokens": 2000,
+             "text": {"format": {"type": "json_schema", "name": "answer", "schema": _schema(q, asked), "strict": True}}})
+
+
+def other_text(name: str, data: dict) -> str | None:
+    """Google 以外の判定の返事から、read に渡す文字（{"choice": 名前}）。"""
+    if OTHER_JUDGES[name]["maker"] == "anthropic":
+        got = next((c.get("input") for c in data.get("content") or [] if c.get("type") == "tool_use"), None)
+        return json.dumps(got, ensure_ascii=False) if got else None
+    return next((c.get("text") for o in data.get("output") or [] for c in o.get("content") or [] if c.get("type") == "output_text"), None)
+
+
+def judge_other(http, name: str, q, text: str, asked: str | None = None, *, key: str) -> str | None:
+    """judge と同じ（Google 以外の判定。http は httpx.Client）。上限・混雑は呼ぶ側がやり直す（httpx.HTTPStatusError）。"""
+    url, head, body = other_request(name, q, text, asked, key)
+    r = http.post(url, headers=head, json=body)
+    r.raise_for_status()
+    return read(q, other_text(name, r.json()), asked)
+
+
+async def ajudge_other(http, name: str, q, text: str, asked: str | None = None, *, key: str) -> str | None:
+    """judge_other と同じ（通話の中の形。http は httpx.AsyncClient）。"""
+    url, head, body = other_request(name, q, text, asked, key)
+    r = await http.post(url, headers=head, json=body)
+    r.raise_for_status()
+    return read(q, other_text(name, r.json()), asked)
+
 
 def make_judge(args, model_name: str):
     """通話の中で使う形：async (質問, 相手の言葉, こちらが言い直した言葉) -> 中の名前。キーは会話と同じく、上限・止められたキーを飛ばす
     （common.KeyRing.acall）。どの試験も、これを run_call(judge=…) に渡す（作り方を試験ごとに書かない）。"""
-    from common import KeyRing
+    from common import KeyRing, load_secret
     from g23_names import find_models
 
+    if model_name in OTHER_JUDGES:
+        import httpx
+
+        key, http = load_secret(OTHER_JUDGES[model_name]["key"], args.env), httpx.AsyncClient(timeout=30)
+
+        async def other(q, text, asked=None):
+            return await ajudge_other(http, model_name, q, text, asked, key=key)
+        return other
     ring = KeyRing(args)
     model = find_models(ring.client())[0][model_name]
 

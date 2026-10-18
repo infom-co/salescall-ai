@@ -3359,5 +3359,71 @@ class RecordingCheckTest(unittest.TestCase):
         self.assertTrue(long_pauses_ok(text, smooth, self.RATE))
 
 
+class JudgeSetupTest(unittest.TestCase):
+    """Google 以外の判定（meaning_judge.OTHER_JUDGES）と、ユーザーが貼る文字（docs/JUDGE_SETUP.md）。つながずに確かめる。"""
+
+    DOC = Path(__file__).resolve().parent.parent / "docs" / "JUDGE_SETUP.md"
+
+    def blocks(self) -> list[str]:
+        lines, inside = [], False
+        for line in self.DOC.read_text(encoding="utf-8").splitlines():
+            if line.startswith("```"):
+                inside = not inside
+            elif inside and line.strip():
+                lines.append(line.strip())
+        return lines
+
+    def q(self):
+        from g53_meaning import g48_questions
+        return next(q for q in g48_questions() if q.id == "G17")
+
+    def test_doc_has_every_host_and_key_name(self):
+        # 枠に、判定の接続先・キーの名前と、いま使えている接続先（貼り替えで消さない）が、すべてある
+        from meaning_judge import OTHER_JUDGES
+        lines = self.blocks()
+        for j in OTHER_JUDGES.values():
+            self.assertIn(j["host"], lines)
+            self.assertTrue(any(l.startswith(f"{j['key']}=") for l in lines), j["key"])
+        for keep in ("acp-api.amivoice.com", "stt-rt.soniox.com", "api.soniox.com", "*.googleapis.com", "github.com", "*.githubusercontent.com"):
+            self.assertIn(keep, lines)
+        # この作業の場所そのものが読む名前にしない
+        self.assertFalse(any(l.startswith("ANTHROPIC_API_KEY=") for l in lines))
+        self.assertNotIn("ANTHROPIC_API_KEY", {j["key"] for j in OTHER_JUDGES.values()})
+
+    def test_requests_carry_the_same_prompt_and_choices(self):
+        # 会社ごとに違うのは送り方だけ：同じ問い合わせの文と、同じ選べるものの名前（Gemini の _config と同じ並び）
+        from meaning_judge import OTHER_JUDGES, options, other_request, prompt
+        q, asked, text = self.q(), "念のためご連絡はメールでよろしいでしょうか？", "メールのほうが助かりますが…"
+        names = [n for n, _, _ in options(q, asked)]
+        for name in OTHER_JUDGES:
+            url, head, body = other_request(name, q, text, asked, "k")
+            self.assertTrue(url.startswith(f"https://{OTHER_JUDGES[name]['host']}/"))
+            sent = json.dumps(body, ensure_ascii=False)
+            self.assertIn(json.dumps(prompt(q, text, asked), ensure_ascii=False), sent)
+            self.assertIn(json.dumps(names, ensure_ascii=False), sent)
+
+    def test_replies_are_read_the_same_way(self):
+        # 返事の形が違っても、read で同じ中の名前になる・読めない返事は None
+        from meaning_judge import options, other_text, read
+        q, asked = self.q(), "念のためご連絡はメールでよろしいでしょうか？"
+        name, cond = options(q, asked)[0][0], options(q, asked)[0][2]
+        claude = {"content": [{"type": "tool_use", "name": "answer", "input": {"choice": name}}]}
+        gpt = {"output": [{"type": "reasoning"}, {"type": "message", "content": [{"type": "output_text", "text": json.dumps({"choice": name})}]}]}
+        self.assertEqual(read(q, other_text("Claude Haiku 5.5", claude), asked), cond)
+        self.assertEqual(read(q, other_text("GPT-6 Luna", gpt), asked), cond)
+        self.assertIsNone(read(q, other_text("Claude Haiku 5.5", {"content": [{"type": "text", "text": "…"}]}), asked))
+        self.assertIsNone(read(q, other_text("GPT-6 Luna", {"output": []}), asked))
+
+    def test_decisive_answers_go_first_and_survive_rejudge(self):
+        # 1日の上限が少ないとき、いまの判定が言い直しへの返事を認めたと読み違えた答えを、先に判定させる（判定し直しで読みを捨てても印は残る）
+        from g53_meaning import BASE, first, misread_as_affirmed
+        bad = {"set": "D", "qid": "G17", "text": "メールのほうが助かりますが…", "truth": "決められない", "asked_choice": "メール", BASE: "メール"}
+        ok = {"set": "D", "qid": "G17", "text": "はい、メールで。", "truth": "メール", "asked_choice": "メール", BASE: "メール"}
+        self.assertTrue(misread_as_affirmed(bad, BASE) and first(bad))
+        self.assertFalse(first(ok))
+        stripped = {k: v for k, v in bad.items() if k != BASE} | {"前の読み違え": True}
+        self.assertTrue(first(stripped))
+
+
 if __name__ == "__main__":
     unittest.main()
