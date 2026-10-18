@@ -69,6 +69,15 @@ def turn_of(call: dict, wav_name: str) -> dict:
     return next((t for t in call["turns"] if isinstance(t.get("callee"), dict) and t["callee"].get("wav", "").endswith(f"_{wav_name}.wav")), {})
 
 
+def said_to(call: dict, wav_name: str) -> str:
+    """その台詞へのAIの声の全部（続きの待ち＝followup の分も）。"""
+    def line_of(t):
+        cl = t.get("callee")
+        cl = cl.get("followup_of", cl) if isinstance(cl, dict) else cl
+        return cl.get("wav", "") if isinstance(cl, dict) else ""
+    return "".join(said(t) for t in call["turns"] if line_of(t).endswith(f"_{wav_name}.wav"))
+
+
 def no_promise(call: dict) -> bool:
     return not any(PROMISE.search(said(t)) for t in call["turns"])
 
@@ -149,14 +158,18 @@ SCENES = {
         "名乗り直さない": "intro" not in played_parts(connect_reply(c)), "答えが取れた": got(c, "Q1", "はい")}),
     "目的の人_取り次ぎ": Scene(TARGET_BUSINESS, [W("hold_target"), W("taken_over_okada")] + FULL, lambda c: {
         "代わった方に全部": played_parts(connect_reply(c))[:3] == ["greeting", "intro", "purpose"],
+        # ⛔ 1回目は数えていなかった：取り次ぎを待つ間に、AIが相手の言葉を真似た・ありもしない用件を7秒話した（3本中2本）
+        "取り次ぎの間は話さない": plain(said_to(c, "hold_target")) == "",
         "取り次ぐ方には流さない": not any(x["op"] == "report_party" and x["args"].get("party") == "target"
                                        and x["callee_turns"] == 1 and x["reply"]["result"] != "hold" for x in ops(c)),
         "答えが取れた": got(c, "Q1", "はい")}),
     "目的の人_名乗らない方": Scene(TARGET_BUSINESS, [W("hold_target"), W("taken_over_unnamed"), W("affirm")] + FULL, lambda c: {
         "確かめた": any(x["reply"]["result"] == "confirm_target" for x in ops(c)),
+        "取り次ぎの間は話さない": plain(said_to(c, "hold_target")) == "",
         "代わった方に全部": played_parts(connect_reply(c))[:3] == ["greeting", "intro", "purpose"], "答えが取れた": got(c, "Q1", "はい")}),
     "目的の人_用件を聞かれる": Scene(TARGET_BUSINESS, [W("what_for"), W("hold_target"), W("taken_over_okada")] + FULL, lambda c: {
         "用件と呼ぶ一言": any(played_parts(x["reply"]) == ["purpose", "target"] for x in ops(c) if x["op"] == "replay_opening"),
+        "取り次ぎの間は話さない": plain(said_to(c, "hold_target")) == "",
         "代わった方に全部": played_parts(connect_reply(c))[:3] == ["greeting", "intro", "purpose"], "答えが取れた": got(c, "Q1", "はい")}),
     "目的の人_不在": Scene(TARGET_BUSINESS, [W("absent_okada"), W("back_5pm"), W("affirm")], lambda c: {
         "理由": last_fact(c, "callback").get("why") == "absent", "戻る時刻": "5時" in (last_fact(c, "callback").get("time") or ""),

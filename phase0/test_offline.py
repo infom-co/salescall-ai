@@ -3871,8 +3871,13 @@ class TargetTest(unittest.TestCase):
 
     def test_transferred_target_hears_everything(self):
         # 受付の方に取り次いでいただき、代わった方が目的の人：あいさつ・名乗り・用件・最初の質問（呼んだときの名乗りは受付の方にしか届いていない）
+        from types import SimpleNamespace
         f, b = self.flow()
-        self.assertEqual(self.say(f, "少々お待ちください。", "report_party", party="reception")["result"], "noted")
+        f.on_callee(); f.on_heard("少々お待ちください。")
+        reply, silent = f.handle_call(SimpleNamespace(name="report_party", args={"相手": "受付の方"}))
+        # お取り次ぎを待つ間は話させない（⛔ G-57：話させる形で返していたので、3本中2本でAIが話した）
+        self.assertEqual((f.log[-1]["reply"]["result"], silent), ("noted", True))
+        self.assertNotIn("silent", reply)
         r = self.say(f, "お電話代わりました、岡田です。", "report_party", party="target")
         self.assertEqual([p.get("part", p["kind"]) for p in r["play"]], ["greeting", "intro", "purpose", "question"])
 
@@ -3996,7 +4001,7 @@ class TargetTest(unittest.TestCase):
         f, b = self.checked()
         self.heard(f, "岡田ですね。少々お待ちください。", HOLD)
         r = f.apply("report_party", {"party": "target"})
-        self.assertEqual((r["result"], f.phase, f.passed_on), ("hold", "calling", True))
+        self.assertEqual((r["result"], f.phase, f.passed_on, r.get("silent")), ("hold", "calling", True, True))
 
     def test_target_report_on_away_is_not_taken(self):
         from flowctl import TARGET_IS_AWAY

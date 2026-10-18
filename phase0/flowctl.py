@@ -407,8 +407,8 @@ CALLBACK_IDS = {"time": "C1", "number": "C2"}
 # 独立した判定とそろったときだけ受け取る。取り次ぎ＝HOLD・代わった人＝HANDOVER は、判定のほうの答えでない言葉）
 TARGET_IS_THERE, TARGET_IS_AWAY = "ご本人", "不在"
 TARGET_MEANINGS = {TARGET_IS_THERE: "お呼びした方ご本人が電話に出ているということ", TARGET_IS_AWAY: "お呼びした方はいらっしゃらないということ"}
-# hang_up＝話さずに切る（電話接続側が読む）
-INTERNAL_KEYS = {"ack", "ask_n", "ask_reason", "ask_last", "after", "play", "speak", "hang_up"}  # 中で使うだけの項目（電話接続側・数え方が読む）。AIへの返事には入れない
+# hang_up＝話さずに切る（電話接続側が読む）・silent＝AIに話させない返事（取り次ぎを待つ間など。handle_call）
+INTERNAL_KEYS = {"ack", "ask_n", "ask_reason", "ask_last", "after", "play", "speak", "hang_up", "silent"}  # 中で使うだけの項目（電話接続側・数え方が読む）。AIへの返事には入れない
 # こちらが使う名前（AIに見せる日本語の名前）。値の欄に入っていたら、相手の答えではない（form_problem）
 _LABELS = (set(SYSTEM_LABEL.values()) | set(CONFIRM_LABEL.values()) | set(END_LABEL.values()) | set(PARTY_LABEL.values())
            | set(CALLBACK_LABEL.values()) | {"答えた"})
@@ -817,7 +817,9 @@ class Flow:
     def handle_call(self, fc) -> tuple[dict, bool]:
         reply = self.handle(fc)
         last = self.log[-1]["reply"]
-        return reply, (bool(last.get("play")) and not last.get("speak")) or bool(last.get("hang_up"))
+        # 話させない返事：録音を流す（AIは続けて話さない）・話さずに切る・取り次ぎを待つ（⛔ 2026-10-19 G-57：受付の方の「少々お待ちください」の
+        # 報告に、話させる形で返していたので、3本中2本でAIが話した＝相手の言葉の真似・ありもしない用件「マンションの共用部修繕工事の…」を7秒）
+        return reply, (bool(last.get("play")) and not last.get("speak")) or bool(last.get("hang_up")) or bool(last.get("silent"))
 
     # ── 中の名前での入口（handle と試験は、ここを通す）。記録（log）は中の名前で残す
     def apply(self, name: str, args: dict) -> dict:
@@ -1080,7 +1082,7 @@ class Flow:
                 else "代わった方が話し始めたら、名乗りと用件を短く伝えてから、いまの質問を聞きます。")
         if self.meaning_said == HOLD:
             self.holding = True
-            return {"result": "hold", "message": f"相手は、ほかの人に取り次いでいます（「{said}」）。答えではありません。何も言わずに、"
+            return {"result": "hold", "silent": True, "message": f"相手は、ほかの人に取り次いでいます（「{said}」）。答えではありません。何も言わずに、"
                                                  f"代わった方が話し始めるのを待ってください。{then}"}
         if self.meaning_said == HANDOVER:
             return self._reject(f"相手の言葉（「{said}」）は、代わった方が話し始めた言葉で、答えではありません。" + then.replace("代わった方が話し始めたら、", ""))
@@ -1381,7 +1383,8 @@ class Flow:
         if self.phase == "calling" and party == "target":
             return self._target_reported()
         if self.phase == "calling":
-            self.passed_on = True  # 受付の方：目的の人は、このあと代わって出る別の方
+            self.passed_on = True  # 受付の方：目的の人は、このあと代わって出る別の方。お取り次ぎを待つ間は話させない
+            return {"result": "noted", "silent": True, "message": f"受け付けました。{self._now()}"}
         return {"result": "noted", "message": f"受け付けました。{self._now()}"}
 
     def _target_reported(self) -> dict:
