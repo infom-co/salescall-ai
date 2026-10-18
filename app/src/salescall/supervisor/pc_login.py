@@ -9,6 +9,10 @@
   「機器のログイン」）。ログインのページとサーバーは CL-3（サーバーの入口の形は、下の `START`・`TOKEN`）。
 - **受け取った鍵は、PC の中にしまう**（`save`。Windows は、その Windows の利用者だけが開ける形にしてから書く＝DPAPI。画面・記録に
   出さない）。見守り役は、`SALESCALL_DSN` が無ければ、しまった鍵でつなぐ（`load`。読むのは supervisor.config の1か所）。
+- **契約者は命令を打たない**（2026-10-18 ユーザー：「普通はこんなこと一般の人がしないですよね。ふつうは、指定URLにとんでそこからログイン
+  するだけでしょ」）：見守り役が動き出したとき（ログオンで自動）、まだログインしていなければ、`until_logged_in` が自動でブラウザに
+  ログインのページを開き、ログインが済むまで待つ（済んだら、そのまま動き出す）。ログインしないまま期限が切れたら、新しいコードで
+  待ち直す（ブラウザを開き直すのは `REOPEN_AFTER` ごとまで＝何度も開いて邪魔をしない）。命令 `login` は、管理者が手で直すとき用。
 - 同じ PC でログインし直すと、前の鍵は止まる（サーバーへ、前の PC の番号を渡す）。`logout` は、しまった鍵を消す（鍵そのものを
   止めるのは、画面の「この PC のログインを外す」）。
 - サーバーとのやり取りは HTTPS だけ（鍵を運ぶため）。
@@ -31,6 +35,10 @@ from uuid import UUID
 START = "/pc-login/start"    # 機器のログインを始める（返す：device_code・user_code・verification_uri(_complete)・interval・expires_in）
 TOKEN = "/pc-login/token"    # 鍵を受け取る（返す：待って authorization_pending／遅く slow_down／断られた access_denied／時間切れ
                              #   expired_token、または tenant_id・pc・conninfo）
+
+
+REOPEN_AFTER = 30 * 60      # ログインしないまま期限が切れたとき、ブラウザを開き直すまでの秒数（その間は、開いたページで待つ）
+RETRY_AFTER = 60            # サーバーに届かない・断られたときに、待ち直すまでの秒数
 
 
 class LoginFailed(Exception):
@@ -82,6 +90,37 @@ def login(server_url: str, *, previous: PcKey | None = None, post: Callable[[str
             raise LoginFailed(f"サーバーが断りました（{error}）")
         return PcKey(UUID(got["tenant_id"]), str(got["pc"]), str(got["conninfo"]))
     raise LoginFailed("時間切れです（ログインが済まないうちに、確かめのコードの期限が切れました）。もう一度、命令を打ってください")
+
+
+def until_logged_in(server_url: str, *, stop: Any = None, login_once: Callable[..., PcKey] | None = None,
+                    open_browser: Callable[[str], Any] = webbrowser.open,
+                    say: Callable[[str], Any] = print, sleep: Callable[[float], Any] = time.sleep,
+                    now: Callable[[], float] = time.monotonic, path: Path | None = None) -> PcKey | None:
+    """見守り役が動き出したときに、まだログインしていなければ呼ぶ：ログインが済むまで待ち直し、鍵をしまって返す（止める印が立てば
+    None）。ブラウザを開くのは、初めてと、そのあと REOPEN_AFTER ごとまで。"""
+    login_once = login_once or login
+    opened_at: float | None = None
+    while stop is None or not stop.is_set():
+        reopen = opened_at is None or now() - opened_at >= REOPEN_AFTER
+        try:
+            key = login_once(server_url, previous=load(path), open_browser=open_browser if reopen else _quiet,
+                             say=say if reopen else _quiet)
+        except LoginFailed as e:
+            if reopen:
+                opened_at = now()
+                say(f"{e}（しばらくしてから、もう一度ログインのページを開きます）")
+            sleep(RETRY_AFTER)
+            continue
+        except OSError:   # サーバーに届かない（ネットがまだつながっていない など）：待ち直す
+            sleep(RETRY_AFTER)
+            continue
+        save(key, path)
+        return key
+    return None
+
+
+def _quiet(_: str) -> None:
+    """開き直さない回は、ブラウザも案内も出さない（前に開いたページで待っている）。"""
 
 
 def key_path() -> Path:

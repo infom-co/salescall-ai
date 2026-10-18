@@ -100,6 +100,30 @@ class Login(unittest.TestCase):
             pc_login.login("http://salescall.example.invalid", post=FakeServer(self.issue))
 
 
+class Automatic(unittest.TestCase):
+    def test_the_supervisor_opens_the_login_page_by_itself_and_waits(self):
+        """契約者は命令を打たない：見守り役が、まだログインしていなければ自動でログインのページを開き、済むまで待つ。期限が切れたら
+        新しいコードで待ち直すが、ブラウザを開き直すのは REOPEN_AFTER ごとまで。ネットに届かないあいだも待ち直す。"""
+        path = Path(tempfile.mkdtemp(prefix="salescall-pc-")) / "pc-key.bin"
+        clock, opened, tries = Clock(), [], []
+        key = pc_login.PcKey(uuid.uuid4(), "0a1b2c3d", "host=z")
+
+        def login_once(server, *, previous, open_browser, say):   # 1回分のログイン（10分待って期限切れ、を4回のあとに済む）
+            tries.append(previous)
+            open_browser(SERVER + "/pc")
+            clock.t += 600
+            if len(tries) == 1:
+                raise OSError("試験：まだネットにつながっていない")
+            if len(tries) < 5:
+                raise pc_login.LoginFailed("時間切れです")
+            return key
+
+        got = pc_login.until_logged_in(SERVER, login_once=login_once, open_browser=opened.append, say=lambda t: None,
+                                       sleep=clock.sleep, now=clock.now, path=path)
+        self.assertEqual((got, pc_login.load(path), len(tries)), (key, key, 5))  # しまってから返す
+        self.assertEqual(len(opened), 2)                                         # 初めてと、30分たったときだけ開く
+
+
 class Config(unittest.TestCase):
     def test_the_admin_pc_uses_its_settings_and_a_contractor_pc_needs_a_login(self):
         tenant = uuid.uuid4()

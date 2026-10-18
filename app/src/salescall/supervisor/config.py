@@ -42,6 +42,10 @@ class ConfigMissing(Exception):
     """要る設定が入っていない（名前と入れ方だけを書く。値は書かない）。"""
 
 
+class NotLoggedIn(ConfigMissing):
+    """契約者の PC が、まだログインしていない（見守り役は、ブラウザでログインのページを開いて待つ＝supervisor.pc_login）。"""
+
+
 @dataclass(frozen=True)
 class Config:
     dsn: str
@@ -93,7 +97,7 @@ def load(environ: dict[str, str] | None = None, *, pc_key: Any = _STORED) -> Con
     if maybe("SALESCALL_DSN") is None:
         key = pc_login.load() if pc_key is _STORED else pc_key
         if key is None:
-            raise ConfigMissing("この PC は、まだログインしていません（python -m salescall.supervisor login。手順：docs/PC_SETUP.md）")
+            raise NotLoggedIn("この PC は、まだ SalesCall AI にログインしていません（見守り役が、ブラウザでログインのページを開きます）")
     try:
         tenant = key.tenant_id if key is not None else UUID(need("SALESCALL_TENANT_ID"))
         if key is not None and maybe("SALESCALL_TENANT_ID") not in (None, str(key.tenant_id)):

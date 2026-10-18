@@ -1,10 +1,11 @@
 """見守り役の命令（PC で使う。手順は docs/PC_SETUP.md）。
 
-- `python -m salescall.supervisor run`：見守り役を動かす（ログインのときに起動する）。
+- `python -m salescall.supervisor run`：見守り役を動かす（ログインのときに起動する）。契約者の PC がまだ SalesCall AI にログインして
+  いなければ、ブラウザでログインのページを開き、ログインが済むまで待ってから動き出す（契約者は命令を打たない）。
 - `python -m salescall.supervisor status`：どの設定が入っているか（値は出さない）。
 - `python -m salescall.supervisor check-key`：Proton Pass の文字を貼ると、PC に入れた鍵の文字と同じかだけを答える（値は出さない）。
-- `python -m salescall.supervisor login`：契約者の PC のログイン（ブラウザで SalesCall AI にログインすると、この PC のデータベースの鍵を
-  受け取って、PC の中にしまう。supervisor.pc_login）。`logout`：しまった鍵を消す。
+- `python -m salescall.supervisor login`：PC のログインを手でし直す（管理者が直すとき用。ふだんは run が自動でする。supervisor.pc_login）。
+  `logout`：しまった鍵を消す。
 """
 
 from __future__ import annotations
@@ -55,7 +56,14 @@ def run(argv: list[str]) -> int:
         return 0
     if command == "run":
         try:
-            main.serve(config.load())
+            try:
+                cfg = config.load()
+            except config.NotLoggedIn:   # 契約者の PC で、まだログインしていない：ブラウザでログインのページを開いて待つ
+                server = config.gather().get("SALESCALL_SERVER_URL", "").strip()
+                if not server or pc_login.until_logged_in(server) is None:
+                    raise
+                cfg = config.load()
+            main.serve(cfg)
         except (config.ConfigMissing, main.AlreadyRunning) as e:
             print(str(e))
             return 1
