@@ -37,7 +37,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
@@ -96,6 +96,7 @@ class JudgeInput:
     refused_after: bool          # 通話後の検証で、拒否の聞き逃しが見つかった（Q21 が発信禁止に登録した）
     unclear_is_refusal: bool     # 切れ方を決められないとき、営業拒否として扱うか（設定 judge.unclear_disconnect_is_refusal）
     callee_hours: tuple[int, int] = spoken_time.DEFAULT_BUSINESS_HOURS   # お客様の営業時間（設定 callee.business_hours。午前・午後を決める）
+    periods: dict[str, tuple[int, int]] = field(default_factory=lambda: spoken_time.PERIODS)   # 言葉ごとの幅（依頼者ごとの設定）
 
 
 @dataclass(frozen=True)
@@ -238,7 +239,7 @@ def _business(inp: JudgeInput) -> Judgement:
     # (7) かけ直しの約束
     if r and r.callback is not None:
         cb = r.callback
-        when = spoken_time.read(cb.time_said, inp.facts.called_at, inp.callee_hours)
+        when = spoken_time.read(cb.time_said, inp.facts.called_at, inp.callee_hours, inp.periods)
         if when.kind == spoken_time.UNREADABLE:
             return unknown("callback_time_unreadable", f"かけ直しの時刻「{cb.time_said}」を読めません（{when.why}）")
         if when.kind == spoken_time.CONFIRM:

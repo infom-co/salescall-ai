@@ -302,7 +302,9 @@ class ScopesDecidedByUser(unittest.TestCase):
     3日　契約者」「会話AI・回線の異常で止める回数と、解くまでの確かめ　契約者」「深夜・早朝の歯止め 7〜22時 など　依頼者ごと」。"""
 
     CLIENT = ("line.max_dials_per_day", "gate.same_contact_min_interval", "calling.hours_limit",
-              "measure.sample_per_week")   # 抜き取る本数は依頼者ごと（2026-10-18 ユーザー）
+              "measure.sample_per_week",   # 抜き取る本数は依頼者ごと（2026-10-18 ユーザー）
+              "callback.period_morning", "callback.period_forenoon", "callback.period_afternoon", "callback.period_evening",
+              "callback.period_night")     # かけ直しの言葉ごとの幅は依頼者ごと（2026-10-19。0088）
     TENANT = ("gate.cross_client_interval", "stop.ai.stop_after_failures", "stop.ai.probe_interval",
               "stop.ai.resume_after_successes", "stop.line.stop_after_failures", "stop.line.probe_interval",
               "stop.line.resume_after_successes", "stop.flapping.window", "stop.flapping.wait_multiplier",

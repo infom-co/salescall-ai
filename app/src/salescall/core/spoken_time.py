@@ -37,19 +37,38 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 
 # 読み方の版（読み方を変えたら上げる）。判定の版（judge.JUDGE_VERSION）に入る＝上げると、読めなかった「判定待ち」の行が判定し直される
-VERSION = "3"
+VERSION = "4"
 JST = timezone(timedelta(hours=9))
 AT, WINDOW, UNSPECIFIED, CONFIRM, UNREADABLE = "at", "window", "unspecified", "confirm", "unreadable"
 DAY = 24 * 3600
 H = 3600
 DEFAULT_BUSINESS_HOURS = (9 * H, 19 * H)   # 設定 callee.business_hours の初めの値（会社 9:00〜19:00）
 
-# 言葉ごとの1日の中の幅（秒。終わりは含まない）。かけてよい時間帯と重なる所だけを使う（朝・午前の始まりは、その日の始業になる）
-PERIODS: dict[str, tuple[int, int]] = {
-    "朝一": (0, 10 * H), "朝イチ": (0, 10 * H), "朝いち": (0, 10 * H), "朝": (0, 10 * H),
-    "午前中": (0, 12 * H), "午前": (0, 12 * H),
-    "午後一": (13 * H, 14 * H), "午後イチ": (13 * H, 14 * H), "午後いち": (13 * H, 14 * H), "午後": (13 * H, DAY),
-    "夕方": (16 * H, 18 * H), "夕刻": (16 * H, 18 * H), "夜": (18 * H, 20 * H), "晩": (18 * H, 20 * H)}
+# 言葉ごとの1日の中の幅（秒。終わりは含まない）。かけてよい時間帯と重なる所だけを使う（朝・午前の始まりは、その日の始業になる）。
+# 依頼者ごとの設定（callback.period_*。表の作り 0088）を `periods_from` で、言葉の表にする（判定が設定を渡す）。下は初めの値
+PERIOD_SETTINGS = {"morning": "callback.period_morning", "forenoon": "callback.period_forenoon",
+                   "afternoon": "callback.period_afternoon", "evening": "callback.period_evening", "night": "callback.period_night"}
+DEFAULT_PERIODS = {"morning": (0, 10 * H), "forenoon": (0, 12 * H), "afternoon": (13 * H, DAY), "evening": (16 * H, 18 * H),
+                   "night": (18 * H, 20 * H)}
+
+
+def periods_from(ranges: dict[str, tuple[int, int]]) -> dict[str, tuple[int, int]]:
+    """設定の幅（morning など → 秒の (始まり, 終わり)）を、言葉 → 幅の表にする。午後一＝午後の始まりから1時間。"""
+    a = ranges["afternoon"]
+    words = {"morning": ("朝一", "朝イチ", "朝いち", "朝"), "forenoon": ("午前中", "午前"), "afternoon": ("午後",),
+             "evening": ("夕方", "夕刻"), "night": ("夜", "晩")}
+    out = {w: ranges[k] for k, ws in words.items() for w in ws}
+    out.update({w: (a[0], min(a[0] + H, a[1])) for w in ("午後一", "午後イチ", "午後いち")})
+    return out
+
+
+def range_seconds(value: list[str]) -> tuple[int, int]:
+    """設定の時刻の範囲（["16:00", "18:00"]）を秒にする。終わりが始まり以前なら、その日の終わりまで（日をまたいでは読まない）。"""
+    s0, s1 = (int(v[:2]) * H + int(v[3:]) * 60 for v in value)
+    return s0, s1 if s1 > s0 else DAY
+
+
+PERIODS = periods_from(DEFAULT_PERIODS)
 # 確かめが要る言葉（いつかが1つに決まらない）
 _AMBIGUOUS_TIME = ("お昼前", "昼前", "お昼過ぎ", "お昼すぎ", "昼過ぎ", "昼すぎ", "お昼頃", "お昼ごろ", "昼頃", "昼ごろ", "お昼", "昼間",
                    "昼", "夜遅く", "遅く", "深夜", "夜中", "明け方", "早朝", "定時後", "終業後", "仕事終わり", "仕事のあと")
@@ -326,7 +345,8 @@ def _hour(m: re.Match, business: tuple[int, int]) -> int:
     return (am if am_in else pm) * H + minute * 60
 
 
-def _time_part(t: str, pos: int, business: tuple[int, int]) -> tuple[str, int, int, int]:
+def _time_part(t: str, pos: int, business: tuple[int, int],
+               periods: dict[str, tuple[int, int]] = PERIODS) -> tuple[str, int, int, int]:
     """時刻の言葉を読む：（種類 point／window／whole, 始まりの秒, 終わりの秒, 読んだ位置）。読めなければ _Ambiguous か ValueError。"""
     rest = t[pos:]
     if _WHOLE.fullmatch(rest):
@@ -341,12 +361,12 @@ def _time_part(t: str, pos: int, business: tuple[int, int]) -> tuple[str, int, i
         return "point", 12 * H, 12 * H, pos + 2
     m = _HOUR.match(t, pos)
     if m is None:
-        for word in sorted(PERIODS, key=len, reverse=True):
+        for word in sorted(periods, key=len, reverse=True):
             if rest.startswith(word):
                 end = pos + len(word)
                 if t.startswith("中", end):
                     end += 1
-                s0, s1 = PERIODS[word]
+                s0, s1 = periods[word]
                 if f := _FROM_TAIL.match(t, end):
                     if f.group() in ("過ぎ", "すぎ"):
                         raise _Ambiguous(f"「{word}過ぎ」は、いつからか1つに決まりません")
@@ -376,9 +396,11 @@ def _at(d: date, sec: int) -> datetime:
     return datetime.combine(d, time(), tzinfo=JST) + timedelta(seconds=sec)
 
 
-def read(text: str | None, now: datetime, business_hours: tuple[int, int] = DEFAULT_BUSINESS_HOURS) -> Reading:
+def read(text: str | None, now: datetime, business_hours: tuple[int, int] = DEFAULT_BUSINESS_HOURS,
+         periods: dict[str, tuple[int, int]] = PERIODS) -> Reading:
     """お客様が言った時刻の言葉を読む。now＝その通話の時刻（「明日」などの起点。過ぎた時刻は確かめが要る）。
     business_hours＝お客様の営業時間（0時からの秒の (始まり, 終わり)。設定 callee.business_hours。午前・午後を決める）。
+    periods＝言葉ごとの幅（依頼者ごとの設定 callback.period_* を `periods_from` で表にしたもの）。
     言葉が無い（時刻を聞けなかった）ときは UNSPECIFIED。"""
     if text is None or not text.strip():
         return Reading(UNSPECIFIED)
@@ -401,12 +423,12 @@ def read(text: str | None, now: datetime, business_hours: tuple[int, int] = DEFA
         pos = _JOIN.match(t, pos).end()
         if period is not None and not _TAIL.fullmatch(t[pos:]):
             # 「今晩8時」「明朝9時」：日に付いた時間の言葉を、うしろの時刻の頭に付けて読む（「夜8時」＝20時）
-            kind, s0, s1, end = _time_part(period + t[pos:], 0, business_hours)
+            kind, s0, s1, end = _time_part(period + t[pos:], 0, business_hours, periods)
             end += pos - len(period)
         elif period is not None:                      # 「今晩」「明朝」だけ
-            (s0, s1), kind, end = PERIODS[period], "window", pos
+            (s0, s1), kind, end = periods[period], "window", pos
         else:
-            kind, s0, s1, end = _time_part(t, pos, business_hours)
+            kind, s0, s1, end = _time_part(t, pos, business_hours, periods)
     except _Ambiguous as e:
         return _confirm(str(e))
     except ValueError as e:

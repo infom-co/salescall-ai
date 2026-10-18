@@ -22,7 +22,8 @@ from typing import Any
 from uuid import UUID
 
 from salescall.core import (apology, approval, attempts, business_rules, call_report, dnc, fix_requests, next_action, notify,
-                            number_recheck, quality_stage, results, settings, target_policy, tasks, usage)
+                            number_recheck, quality_stage, results, settings, spoken_time, target_policy, tasks,
+                            usage)
 from salescall.core.access import Tx
 from salescall.core.judge import (JUDGE_VERSION, UNKNOWN_CAUSE_FIXERS, UNKNOWN_CAUSES, Facts, Item, JudgeInput, Judgement,
                                   cut_off as judge_cut_off, judge, refusal)
@@ -224,12 +225,15 @@ def _judge_input(tx: Tx, a: dict[str, Any], rules_version: Any) -> tuple[JudgeIn
     unclear_is_refusal = bool(settings.resolve(tx, "judge.unclear_disconnect_is_refusal", tenant_id=a["tenant_id"],
                                                client_id=a["client_id"], business_id=a["business_id"]))
     dialed = number_recheck.dialed(tx, attempt_id)
-    open_, close = settings.resolve(tx, "callee.business_hours", tenant_id=a["tenant_id"], client_id=a["client_id"],
-                                    business_id=a["business_id"])   # お客様の営業時間（午前・午後を決める。日をまたいでよい）
+    get = lambda key: settings.resolve(tx, key, tenant_id=a["tenant_id"], client_id=a["client_id"],   # noqa: E731
+                                       business_id=a["business_id"])
     seconds = lambda hhmm: int(hhmm[:2]) * 3600 + int(hhmm[3:]) * 60   # noqa: E731
+    open_, close = get("callee.business_hours")   # お客様の営業時間（午前・午後を決める。日をまたいでよい）
+    periods = spoken_time.periods_from({k: spoken_time.range_seconds(get(key))     # 言葉ごとの幅（依頼者ごとの設定。0088）
+                                        for k, key in spoken_time.PERIOD_SETTINGS.items()})
     inp = JudgeInput(Facts(a["state"], a["hangup_side"], a["reached_answer"], dialed["source"] == "callee", a["claimed_at"]),
                      report, _items(tx, a["task_id"]), business_rules.load(tx, rules_version), refused_after,
-                     unclear_is_refusal, (seconds(open_), seconds(close)))
+                     unclear_is_refusal, (seconds(open_), seconds(close)), periods)
     return inp, report_source, dialed
 
 

@@ -179,6 +179,21 @@ class MoreWords(unittest.TestCase):
                 self.assertEqual(read("明日の3時", NOW, hours).kind, CONFIRM)
 
 
+class PeriodsBySetting(unittest.TestCase):
+    def test_periods_come_from_the_client_setting(self):
+        """言葉ごとの幅は依頼者ごとの設定（0088）。設定を変えれば読み方が変わる。終わりが始まり以前なら、その日の終わりまで。"""
+        from salescall.core.spoken_time import DEFAULT_PERIODS, PERIODS, periods_from, range_seconds
+        self.assertEqual(periods_from(DEFAULT_PERIODS), PERIODS)
+        self.assertEqual(range_seconds(["13:00", "00:00"]), (13 * H, DAY))
+        self.assertEqual(range_seconds(["18:00", "02:00"]), (18 * H, DAY))
+        shop = periods_from({**DEFAULT_PERIODS, "evening": range_seconds(["17:00", "19:00"]),
+                             "afternoon": range_seconds(["14:00", "00:00"])})
+        r = read("明日の夕方", NOW, periods=shop)
+        self.assertEqual((r.start, r.end), (at(2026, 10, 15, 17), at(2026, 10, 15, 19)))
+        r = read("明日の午後一", NOW, periods=shop)
+        self.assertEqual((r.start, r.end), (at(2026, 10, 15, 14), at(2026, 10, 15, 15)))
+
+
 class NotGuessed(unittest.TestCase):
     def test_needs_confirming(self):
         """言い方は分かるが、いつかが1つに決まらない ⇒ 通話の中で確かめる（推し量らない）。"""
