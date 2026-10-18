@@ -64,9 +64,19 @@ github.com
 ## (2) キーを取って、環境変数の欄に入れる
 
 ### Anthropic のキー（Claude Haiku 5.5）
-1. https://console.anthropic.com/ でアカウントを作ります。
-2. 「APIキー」の画面で、新しいキーを作り、コピーします。
-3. ⚠️ 前払いの残高を入れます（無料の分は無い見込みです。最低の金額は、公式の頁で確かめていません）。
+⚠️ **Claude の契約（チャットや Claude Code で使っている月額の契約）とは別の支払い**です。契約は Claude の画面と Claude Code の分で、プログラムから呼ぶ API は入っていません（[公式の説明](https://support.claude.com/en/articles/9876003)）。
+✅ ただし、**Max と Team の契約には、毎月の API の分（無料）が付いています**（[公式の説明](https://platform.claude.com/docs/en/about-claude/api-credits-for-subscribers)）：Max 5倍＝100ドル・Max 20倍＝200ドル・Team＝最大500ドル（席ごとの合計）。Pro と Enterprise には付きません。月ごとに消え、次の月へは持ち越せません。⇒ 測るのに要るのは0.5ドルより少ないので、**Max か Team なら、追加の支払いなしで測れます**。
+
+**Max か Team の場合**
+1. https://platform.claude.com/ で、API の組織を作ります（Claude の画面と同じアカウントで入れます）。
+2. Claude の画面の「設定」→「請求」（Team は「組織の設定」→「請求」）の「API クレジット」で「組織をつなぐ」（`Link organization`）を押し、1. の組織を選びます。⚠️ つなげる組織は1つだけで、あとから自分では変えられません（変えるには問い合わせ）。契約して7日たってから使えます。
+3. https://platform.claude.com/ の「APIキー」の画面で、新しいキーを作り、コピーします。
+4. 入った分は、同じ画面の「設定」→「請求」の「プロモーションのクレジット」で見られます。
+
+**Pro の場合**
+1. https://platform.claude.com/ で API の組織を作ります。
+2. 前払いの残高を入れます（最低の金額は、公式の頁で確かめていません）。
+3. 「APIキー」の画面で、新しいキーを作り、コピーします。
 
 ### OpenAI のキー（GPT-6 Luna）
 1. https://platform.openai.com/ でアカウントを作ります。
