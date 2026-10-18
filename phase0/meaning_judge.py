@@ -125,6 +125,9 @@ JUDGE_MODELS = ("3.5 Flash Lite", "3.6 Flash", "3.7 Flash", "3.8 Flash")   # 判
 #    ⚠️ キーの名前は ANTHROPIC_API_KEY にしない（この作業の場所そのものが読む名前と同じになる）
 OTHER_JUDGES = {
     "Claude Haiku 5.5": {"maker": "anthropic", "model": "claude-haiku-5-5", "key": "ANTHROPIC_JUDGE_KEY", "host": "api.anthropic.com"},
+    # 考える段を入れた形（2026-10-18：考えない形は「違います」を、言い直した意味を認めたと読む向きに 47 回誤った）
+    "Claude Haiku 5.5（考える）": {"maker": "anthropic", "model": "claude-haiku-5-5", "key": "ANTHROPIC_JUDGE_KEY", "host": "api.anthropic.com",
+                                 "think": "low"},
     "GPT-6 Luna": {"maker": "openai", "model": "gpt-6-luna", "key": "OPENAI_JUDGE_KEY", "host": "api.openai.com"},
 }
 OPENAI_EFFORT = "low"  # 考える量（速さの公開の数字は low で約1.5秒。高くすると十数秒〜）
@@ -144,10 +147,14 @@ def other_request(name: str, q, text: str, asked: str | None) -> dict:
     if j["maker"] == "anthropic":
         # ⚠️ Claude Haiku 5.5 は temperature などを送ると断る（1以外は400＝2026-10-18 に当たった）。名前を指定した道具の呼び出しは、
         #    考える段を飛ばして道具の呼び出しから返す（いちばん速い形）。strict＝選べるもの以外の名前を返させない
-        return {"model": j["model"], "max_tokens": 256, "messages": [{"role": "user", "content": p}],
+        body = {"model": j["model"], "max_tokens": 256, "messages": [{"role": "user", "content": p}],
                 "tools": [{"name": "answer", "description": "お客様の言葉に当たるものの名前", "input_schema": _schema(q, asked),
                            "strict": True}],
                 "tool_choice": {"type": "tool", "name": "answer"}}
+        if j.get("think"):  # 名前を指定した呼び出しは考える段を飛ばすので、道具は任せ、考える量を決め、道具で答えるように言う
+            body |= {"max_tokens": 4096, "tool_choice": {"type": "auto"}, "output_config": {"effort": j["think"]},
+                     "system": "選んだものは、必ず道具 answer で返してください。"}
+        return body
     return {"model": j["model"], "input": p, "reasoning": {"effort": OPENAI_EFFORT}, "max_output_tokens": 2000,
             "text": {"format": {"type": "json_schema", "name": "answer", "schema": _schema(q, asked), "strict": True}}}
 
