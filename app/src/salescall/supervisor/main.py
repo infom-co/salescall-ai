@@ -35,7 +35,7 @@ from uuid import UUID
 
 from salescall.core import leases
 from salescall.core.access import Access
-from salescall.supervisor import ACTOR, config, jobs, report
+from salescall.supervisor import ACTOR, config, jobs, report, updates
 from salescall.supervisor.locks import AlreadyRunning, SingleInstance, line_in_use_here, lock_dir, machine_id
 
 RESTART_FIRST, RESTART_MAX = 5.0, 300.0   # 回線ごとの処理を立ち上げ直すまでの間（秒。続けて落ちるほど倍に）
@@ -117,6 +117,7 @@ class Supervisor:
     _running: dict[str, Future] = field(default_factory=dict)
     _next_renew: float = 0.0
     _renew_every: float | None = None
+    version_gap: str = "same"         # プログラムとデータベースの版のずれ（supervisor.updates）
 
     def __post_init__(self) -> None:
         self.holder = self.holder or holder_name(self.cfg)
@@ -130,9 +131,15 @@ class Supervisor:
 
     # ── 回線の借用と、回線ごとの処理 ──
     def renew(self, now: float) -> None:
-        """回線を借りる・延ばす。借りられた回線は処理を動かし、借りられなかった回線は処理を止める。"""
+        """回線を借りる・延ばす。借りられた回線は処理を動かし、借りられなかった回線は処理を止める。プログラムとデータベースの版が
+        ずれていれば、回線ごとの処理を止め（いまの通話は最後まで）、立ち上げない（supervisor.updates。合えば、またかける）。"""
         if not self.cfg.calls:
             return
+        before = self.version_gap
+        self.version_gap = self.access.in_tenant(ACTOR, self.cfg.tenant_id, lambda tx: updates.check(tx, self.cfg.tenant_id))
+        if self.version_gap == updates.PROGRAM_NEW and before != updates.PROGRAM_NEW:   # 流し忘れ（不具合）：CL-2 へ（変わったときだけ）
+            report(self.access, self.cfg.tenant_id, "版のずれ（データベースへの表の作りの流し忘れ）",
+                   RuntimeError(updates.describe(self.version_gap)))
         for line_id in self.cfg.lines:
             try:
                 until = self.access.in_tenant(ACTOR, self.cfg.tenant_id,
@@ -140,8 +147,11 @@ class Supervisor:
             except Exception as e:  # noqa: BLE001 データベースに届かない：延ばせない回線は期限で門が通さなくなる
                 report(self.access, self.cfg.tenant_id, "回線の借用", e, line_id=line_id)
                 until = None
-            if until is None:
-                self.leased.discard(line_id)
+            if until is None or self.version_gap != updates.SAME:   # 借りられない・版がずれている：その回線の処理を止める
+                if until is None:
+                    self.leased.discard(line_id)
+                else:
+                    self.leased.add(line_id)
                 self._stop_worker(line_id)
             else:
                 self.leased.add(line_id)
@@ -176,7 +186,8 @@ class Supervisor:
         """落ちた回線ごとの処理を後始末して、間をあけて立ち上げ直す。"""
         for line_id, w in list(self.workers.items()):
             if w.process is None:   # 立ち上げ直す時刻を待っている
-                if now >= w.restart_at and line_id in self.leased and not line_in_use_here(line_id):
+                if (now >= w.restart_at and line_id in self.leased and self.version_gap == updates.SAME
+                        and not line_in_use_here(line_id)):
                     self._launch(line_id, fails=w.fails, now=now)
                 continue
             if w.process.is_alive():

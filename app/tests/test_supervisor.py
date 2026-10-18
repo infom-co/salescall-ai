@@ -13,7 +13,7 @@ from salescall.core import (attempts, backup, business_rules, call_report, fix_r
                             registry, scheduler, stops)
 from salescall.core.phone import normalize
 from salescall.core.access import Rejected
-from salescall.supervisor import config, jobs, line
+from salescall.supervisor import config, jobs, line, updates
 from salescall.supervisor import main as main_mod
 from salescall.supervisor.main import Supervisor
 from tests.support import CLEAN, OPERATOR, SYSTEM, fictional_jp_fixed, rules_raw
@@ -291,6 +291,44 @@ class Main(SupervisorBase):
         sup.tick(101.0)                                                        # 間をあけるまでは試さない
         self.assertEqual(sup.workers[s["line"]].fails, 1)
         sup.shutdown(0)
+
+    def test_a_program_out_of_step_with_the_database_makes_no_new_calls_and_asks_for_an_update(self):
+        """プログラムとデータベースの版がずれていれば、回線ごとの処理を止め（いまの通話は最後まで）、立ち上げない。プログラムが古ければ
+        契約者へ「更新」の知らせ（自動か手動かで文が違う）。版が合ったら、またかける。"""
+        s = self.ready()
+        started = []
+        def start(cfg, line_id, holder):
+            started.append(FakeProcess())
+            return started[-1], threading.Event()
+        sup = Supervisor(self.cfg(s), start_worker=start, holder=HOLDER)
+        sup.start()
+        self.assertEqual(len(started), 1)
+        real = updates.program_schema
+        updates.program_schema = lambda: "0001_古いプログラム.sql"                  # データベースが先に新しくなった
+        try:
+            sup.renew(100.0)
+            self.assertEqual((sup.version_gap, s["line"] in sup.workers, sup.leased), (updates.PROGRAM_OLD, False, {s["line"]}))
+            sup.watch_workers(10_000.0)
+            self.assertEqual(len(started), 1)                                     # 立ち上げない
+            notes = self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: tx.all(
+                "SELECT summary FROM salescall.notification_events WHERE kind = 'program_update'"))
+            self.assertEqual(len(notes), 1)
+            self.assertIn("自動", notes[0]["summary"])
+            t = self.ready()                                                      # 手動の契約者には「更新」を押してもらう
+            self.w.a.in_tenant(OPERATOR, t["tenant"], lambda tx: tx.execute(
+                "INSERT INTO salescall.setting_values (key, scope, tenant_id, value, status, rationale, review_when, set_by)"
+                " VALUES ('pc.auto_update', 'tenant', %s, 'false', 'decided', '試験', '試験', '試験')", (t["tenant"],)))
+            self.assertEqual(self.w.a.in_tenant(SYSTEM, t["tenant"], lambda tx: updates.check(tx, t["tenant"])), updates.PROGRAM_OLD)
+            manual = self.w.a.in_tenant(OPERATOR, t["tenant"], lambda tx: tx.one(
+                "SELECT summary FROM salescall.notification_events WHERE kind = 'program_update'"))["summary"]
+            self.assertIn("「更新」を押して", manual)
+        finally:
+            updates.program_schema = real
+        sup.renew(200.0)                                                          # 版が合った：またかける
+        self.assertEqual((sup.version_gap, len(started)), (updates.SAME, 2))
+        sup.shutdown(0)
+        self.assertEqual([updates.gap(x, "0080_b.sql") for x in ("0081_c.sql", "0079_a.sql", "0080_b.sql", None)],
+                         [updates.PROGRAM_OLD, updates.PROGRAM_NEW, updates.SAME, updates.PROGRAM_NEW])
 
     def test_the_supervisor_calls_through_a_separate_line_process_and_returns_the_line(self):
         """本物の立ち上げ方（回線ごとに別の処理）で1本かけ、決まった間隔の仕事が締め、止めると回線を返す。"""
