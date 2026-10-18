@@ -29,3 +29,5 @@ if __name__ == "__main__":
     m = sys.argv[1] if len(sys.argv) > 1 else "gemini-3.5-flash-lite"
     for kind, names in check(m).items():
         say(m, kind, len(names), names)
+    # ⛔ 2026-10-18 夜：11本とも「使える」と出たのに、流すと44個で全部が1日の上限に当たった（1回の問い合わせが通っただけ）
+    say("⚠️「使える」は、短い問い合わせが1回通っただけです。1日の残りの量は分かりません（量が要る測定は、少し流して様子を見る）。")
