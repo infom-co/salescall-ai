@@ -1350,7 +1350,8 @@ class Flow:
                 done = f"「{shown}{self.opening['target']}」は、プログラムが録音で流しました（相手にもう聞こえています）。"
             return {"result": "replayed", "play": play, "silent": True, "message": f"{done}{self._now()}"}
         if self.awaiting_confirm is not None:
-            return {"result": "replayed", "play": play, "speak": True,
+            # 言い方（say）も渡す：AIの声が外れたかを見張る（offscript。渡した言い方のあるターンだけを見張る）
+            return {"result": "replayed", "play": play, "speak": True, "say": self.awaiting_say,
                     "message": f"{done}続けて、言い直し「{self.awaiting_say}」をもう一度言って、相手の返事を待ってください（前に言葉を足しません）。"}
         q = self.questions.get(self.current) if self.current else None
         if q is not None and self.play_recordings and not q.reading_of:

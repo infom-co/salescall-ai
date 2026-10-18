@@ -20,7 +20,7 @@ async def main():
         for vt in ("S2", "S4", "L4"):
             call, _ = await ring.acall(args.model, lambda client: run_call(
                 client, args.model, sc.business, vt, sc.lines, opening_mode="recorded", use_ear=True, save_audio="all",
-                audio_label=f"ARATAME2_{vt}_{rep}_", followup_wait_s=scenes.FOLLOWUP_WAIT_S, play_recordings=True,
+                audio_label=f"ARATAME3_{vt}_{rep}_", followup_wait_s=scenes.FOLLOWUP_WAIT_S, play_recordings=True,
                 callee_voice="swap", **scenes.FAST, **sc.kw))
             m = scenes.measures(call, "言い間違えの直し")
             print("通話", vt, rep, "合格" if m["pass"] else "不合格", m["failed"], m["restate_gap_s"])
@@ -40,6 +40,6 @@ async def main():
                 text = await ear.wait(end + 8.0 - loop.time())
                 out.append({"ear": kind, "type": vt, "rep": rep, "file": f, "ai": intended, "gemini_ear": gem, "heard": text, "gap_s": gap, "parts": parts})
                 print(kind, vt, rep, "| AI:", intended, "| Gemini耳:", gem, "|", kind, ":", text, "| 間", gap, parts)
-    Path("/home/user/salescall-ai/phase0/results").joinpath("ARATAME-EARS-2.json").write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
+    Path("/home/user/salescall-ai/phase0/results").joinpath("ARATAME-EARS-3.json").write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
 
 asyncio.run(main())

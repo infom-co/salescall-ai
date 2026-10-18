@@ -114,6 +114,19 @@ def long_pauses_ok(text: str, pcm: bytes, rate: int) -> bool:
     return len(gaps) <= len(re.findall(r"[。？?！!]", text.rstrip("。？?！!、")))
 
 
+_STAND_IN = "山田"  # 名前の後ろの言葉を、名前に続く形で読むための仮の名前（読みは「やまだ」）
+
+
+def _part_reading(part: str, after_name: bool) -> str:
+    """名前の前後の言葉の読み。名前の後ろの言葉は、仮の名前に続けて読む（⛔ 2026-10-19：「様はいらっしゃいますでしょうか？」だけを読むと
+    「様」が「よう」になり、名前の入る文（目的の人を呼ぶ一言）の録音が、正しく読めていても全部落ちた）。"""
+    if not after_name:
+        return compare_reading(part)
+    stand_in = compare_reading(_STAND_IN)
+    r = compare_reading(_STAND_IN + part)
+    return r[len(stand_in):] if r.startswith(stand_in) else compare_reading(part)
+
+
 def heard_ok(text: str, heard: dict) -> bool:
     """2通りの聞き方の両方で、読みが合うか（句読点・言い終わりの違いは比べない）。
     名前（「」でくくった所。くくるのは instruction.quote_in_text の1か所）は比べず、名前の前後の言葉だけを比べる。
@@ -125,7 +138,7 @@ def heard_ok(text: str, heard: dict) -> bool:
     if len(parts) == 1:
         want = compare_reading(text)
         return bool(heard) and all(v is not None and compare_reading(v) == want for v in heard.values())
-    pattern = ".+?".join(re.escape(compare_reading(x)) for x in parts)
+    pattern = ".+?".join(re.escape(_part_reading(x, after_name=k > 0)) for k, x in enumerate(parts))
     return bool(heard) and all(v is not None and re.fullmatch(pattern, compare_reading(v)) for v in heard.values())
 
 
