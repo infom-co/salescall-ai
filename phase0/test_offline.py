@@ -3530,6 +3530,84 @@ class JudgeSetupTest(unittest.TestCase):
         self.assertTrue(first(stripped))
 
 
+class CallFactsTest(unittest.TestCase):
+    """通話の事実（業務の判定＝DESIGN.md 7-1 への入力のうち、会話の側が決めるもの）を、根拠の発話つきで1か所（Flow._note）に残す。
+    Intent.md 原則14：「もうかけないで」「営業はお断り」は、その場で発信禁止の申告。9-4：怒り・苦情は、弁明や約束をせず終え、人へ知らせる印。"""
+
+    def flow(self):
+        from flowctl import Flow, Question
+        return Flow([Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ")),
+                     Question("Q2", "ご希望の日時をお聞かせいただいてもよろしいでしょうか？", "datetime", conditions=("答えた",))])
+
+    @staticmethod
+    def say(f, heard, op, **args):
+        f.on_callee(); f.on_heard(heard)
+        return f.apply(op, args)
+
+    def test_refused_call_is_a_do_not_call_report(self):
+        from phrases import CLOSE_DECLINED
+        f = self.flow()
+        r = self.say(f, "営業の電話ですよね。もうかけてこないでください。", "request_end", reason="callee_refused_call")
+        self.assertEqual((r["result"], r["say"], r["ack"], f.phase), ("end", CLOSE_DECLINED, "shouchi", "closing"))
+        self.assertEqual([x["turn"] for x in f.facts["do_not_call"]], [1])                       # 発話の位置
+        self.assertIn("もうかけてこないで", f.facts["do_not_call"][0]["said"])                      # 根拠の発話
+        self.assertEqual(f.facts["end"], [{"turn": 1, "said": f.facts["do_not_call"][0]["said"], "reason": "callee_refused_call"}])
+        self.assertTrue(f.hurried)
+        self.assertNotIn("complaint", f.facts)
+
+    def test_complaint_is_marked_for_a_person_and_closed_without_promise(self):
+        from phrases import CLOSE_DECLINED
+        f = self.flow()
+        self.say(f, "はい、予約しています。", "record_answer", question_id="Q1", condition_id="はい", value="予約しています")
+        r = self.say(f, "何回かけてくるんですか。迷惑なんですけど。", "request_end", reason="callee_complaint")
+        self.assertEqual((r["result"], r["say"], f.phase), ("end", CLOSE_DECLINED, "closing"))
+        self.assertIsNone(r["ack"])                    # 締めの言い方そのものがお詫び（頭に「承知しました」を流さない）
+        self.assertEqual(f.facts["complaint"][0]["turn"], 2)
+        self.assertNotIn("do_not_call", f.facts)       # 苦情だけでは発信禁止にしない（7-1：人へ知らせる印は別に持つ）
+        self.assertEqual(f.export(), {"Q1": "はい", "Q2": "-"})  # 取れた答えは残る
+
+    def test_complaint_is_not_held_back_by_the_ambiguous_word_rule(self):
+        # 「結構です」だけで断りにしない決まり（_ambiguous_only）は、急いでいる・断りの報告にだけ当てる（怒りは言葉が違う）
+        f = self.flow()
+        r = self.say(f, "結構です。", "request_end", reason="callee_complaint")
+        self.assertEqual(r["result"], "end")
+
+    def test_hurry_and_done_are_not_reports(self):
+        f = self.flow()
+        self.say(f, "すみません、今ちょっと忙しいんですけど。", "request_end", reason="callee_hurry")
+        self.assertEqual((set(f.facts), f.facts["end"][0]["reason"], f.hurried), ({"end"}, "callee_hurry", True))
+        f = self.flow()
+        self.say(f, "はい、予約しています。", "record_answer", question_id="Q1", condition_id="はい", value="予約しています")
+        self.say(f, "15日の午後2時でお願いします。", "record_answer", question_id="Q2", condition_id="答えた", value="15日の午後2時")
+        r = self.say(f, "はい。", "confirm_field", question_id="Q2", result="affirmed")
+        self.assertEqual((r["result"], f.facts["end"][0]["reason"], f.hurried), ("end", "done", False))
+
+    def test_word_alone_then_again_becomes_a_report(self):
+        # 「結構です」だけ：1回目は答えとして確かめ、確かめたあとにまた言われたら断り＝発信禁止の申告（迷ったら原則14の側）
+        f = self.flow()
+        self.assertEqual(self.say(f, "結構です。", "request_end", reason="callee_refused_call")["result"], "rejected")
+        self.assertNotIn("do_not_call", f.facts)
+        f.apply("record_answer", {"question_id": "Q1", "condition_id": "いいえ", "value": "結構です"})
+        self.say(f, "結構です。", "request_end", reason="callee_refused_call")
+        self.assertEqual(len(f.facts["do_not_call"]), 1)
+
+    def test_ai_sees_the_reasons_and_the_rule(self):
+        from flowctl import END_LABEL, tool_declarations
+        from instruction import Business, build
+        decl = tool_declarations(list(self.flow().questions.values()))[0].function_declarations
+        end = next(d for d in decl if d.name == "request_end")
+        self.assertIn(END_LABEL["callee_complaint"], end.parameters.properties["理由"].enum)
+        self.assertIn(END_LABEL["callee_complaint"], end.description)
+        text = build(Business(company="アオバ物流", caller="佐藤", purpose="ご予約の確認", questions=list(self.flow().questions.values())), "S2")[1]
+        self.assertIn(f"「{END_LABEL['callee_complaint']}」", text)
+        self.assertIn("もうかけないで", text)
+
+    def test_call_result_carries_the_facts(self):
+        import inspect
+        import convo
+        self.assertIn('"facts": flow.facts', inspect.getsource(convo.run_call))
+
+
 class G53LabelsTest(unittest.TestCase):
     """G-53 の数え方：付け直した正解（g53_labels.json）を1か所（g53_meaning.accept）で使う。"""
 

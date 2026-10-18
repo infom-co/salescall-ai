@@ -378,6 +378,7 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                           "history": [list(h) for h in v.history]}
                       for k, v in flow.items.items()},
             "export": flow.export(), "hedged_words": flow.hedged_words(), "final_phase": flow.phase, "hurried": flow.hurried,
+            "facts": flow.facts,
             "checked_after_call": before_after - len(flow.unchecked()),
             "opening_mode": opening_mode, "barge_in": barge_in, "ear_errors": ear.errors if ear is not None else None,
             "unchecked": flow.unchecked()}

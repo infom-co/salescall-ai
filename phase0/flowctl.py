@@ -363,7 +363,14 @@ def choice_words(q: "Question", cond: str | None) -> str | None:
         return "どちらでも構わない"
     w = q.meanings.get(cond) or cond or ""
     return None if not w or _BARE_REPLY.fullmatch(w) else w
-END_LABEL = {"done": "質問が終わった", "callee_hurry": "相手が急いでいる", "callee_refused_call": "通話を断られた"}
+# 終わりを求める理由（request_end）。「通話を断られた」＝発信の拒否（営業お断り・もうかけないで）＝発信禁止の申告（Intent.md 原則14。
+# DESIGN.md 6-2 の断りの3つの上の段）。「相手が怒っている」＝怒り・苦情＝弁明や約束をせずに終え、人へ知らせる印（9-4・7-1 の順7）。
+# ⛔ 2026-10-18 の見直しで見つけた漏れ：前は「通話を断られた」で締めるだけで、発信禁止の申告をどこにも残していなかった（原則14 の
+#    「その場で発信禁止に登録」に届かない）。怒り・苦情を報告する手立ても無かった
+END_LABEL = {"done": "質問が終わった", "callee_hurry": "相手が急いでいる", "callee_refused_call": "通話を断られた",
+             "callee_complaint": "相手が怒っている"}
+# 断られたときの締め（CLOSE_DECLINED）で終える理由。念のための確認はしない（DESIGN.md 6-5）
+DECLINED_ENDS = ("callee_hurry", "callee_refused_call", "callee_complaint")
 REPLY_KEY_LABEL = {"result": "結果", "message": "次にすること", "question_id": "質問", "question": "質問の文", "value": "値", "say": "言い方"}
 RESULT_LABEL = {"next": "次の質問", "confirm_required": "言い直して確かめる", "rejected": "差し戻し", "ask_back": "聞き返す",
                 "recheck": "念のための確認", "end": "締め", "busy_ask": "引き止めの一言", "replayed": "録音で流し直した",
@@ -593,7 +600,10 @@ class Flow:
         self.awaiting_confirm: str | None = None
         self.callee_turns = 0
         self.confirm_requested_at: int | None = None
-        self.hurried = False
+        # 通話の事実（種類 → 起きた順の記録。_note だけが書く）。業務の判定（DESIGN.md 7-1。CL-2 の judge_task）へ渡す、会話の側が決めるもの：
+        # do_not_call＝発信禁止の申告（原則14）／complaint＝怒り・苦情（人へ知らせる印）／end＝通話を終えた理由。どれも根拠の発話つき
+        self.facts: dict[str, list[dict]] = {}
+        self.end_reason: str | None = None   # 締めた理由（END_LABEL の中の名前。_close だけが書く）
         self.log: list[dict] = []        # 呼ばれた操作と返事（確かめの記録）
         # 名乗りの録音の文（部分 → 文。instruction.Business.replay_parts）。名乗りを録音で流す形のときだけ（無ければ流し直しの操作は無い）
         self.opening = opening or {}
@@ -790,6 +800,10 @@ class Flow:
             return ("shouchi", "arigatou")[(self.ack_count - 1) % 2]
         if result == "end" and args.get("reason") == "callee_refused_call":
             return "shouchi"
+        if result == "end" and args.get("reason") == "callee_complaint":
+            # 怒り・苦情：締めの言い方そのもの（「お忙しいところ申し訳ございませんでした。…」）がお詫び。頭に「承知しました、」「はい、」を
+            # 流すと、相手の怒りを軽く受け流したように聞こえ、「申し訳ございません、」を流すとお詫びが2回続く ⇒ 流さない
+            return None
         return "hai"
 
     @staticmethod
@@ -1247,9 +1261,12 @@ class Flow:
             return {"result": "busy_ask", "say": self.busy_ask,
                     "message": f"「{self.busy_ask}」と1回だけ聞いてください。相手が応じたら、いまの質問から続けます。"
                                f"応じなければ、もう一度 request_end を{ARG_LABEL['reason']}「{END_LABEL['callee_hurry']}」で呼んでください。"}
-        if reason in ("callee_hurry", "callee_refused_call"):
-            self.hurried = True
-            return self._close(declined=True)
+        if reason in DECLINED_ENDS:
+            if reason == "callee_refused_call":
+                self._note("do_not_call")
+            elif reason == "callee_complaint":
+                self._note("complaint")
+            return self._close(reason)
         if self.current is not None:
             # いま聞いている質問がある間は、終えられない（まだ聞いていない・言い直しの返事待ち・念のための確認の最中）
             # ⛔ 2026-10-13 の試験で見つけた漏れ：「まだ聞いていない項目」だけを数えていたため、言い直しの返事待ちや
@@ -1441,16 +1458,29 @@ class Flow:
             return {"result": "recheck", "question_id": q.id, "question": q.text, "say": say,
                     "message": f"{prefix}念のための確認です。{q.id} を、もう1回だけ「{say}」と聞いて、相手の答えを待ってください。"
                                "相手が答えたら record_answer で報告します。"}
-        return self._close(declined=self.hurried, prefix=f"{prefix}質問は終わりです。", asked=bool(asked))
+        return self._close("done", prefix=f"{prefix}質問は終わりです。", asked=bool(asked))
 
-    def _close(self, declined: bool, prefix: str = "", asked: bool = False) -> dict:
-        """締め（DESIGN.md 6-14）を作る唯一の場所。毎回同じ文なので、言い方は決まった1つ（ふつう＝CLOSING・急いでいる／断られた＝CLOSE_DECLINED）。
+    @property
+    def hurried(self) -> bool:
+        """相手が急いでいる・通話を断られた・怒っている、で締めたか（念のための確認をしない・締めは断られたときの言い方）。"""
+        return self.end_reason in DECLINED_ENDS
+
+    def _note(self, kind: str, **extra) -> None:
+        """通話の事実を残す唯一の場所（self.facts）。根拠の発話＝相手の発話の番号（on_callee で数えた番号）と、その文字（会話AIの聞き取り）。
+        Intent.md 9-5「各項目には、根拠になった発話（時刻つき）を保存する」・11-1「拒否・同意の記録（根拠の発話）」。時刻は電話接続側が
+        発話の番号に付ける（試作では通話の記録の turns）。"""
+        self.facts.setdefault(kind, []).append({"turn": self.callee_turns, "said": (self.callee_said or "").strip()[:80], **extra})
+
+    def _close(self, reason: str, prefix: str = "", asked: bool = False) -> dict:
+        """締め（DESIGN.md 6-14）を作る唯一の場所。毎回同じ文なので、言い方は決まった1つ（ふつう＝CLOSING・急いでいる／断られた／怒っている
+        ＝CLOSE_DECLINED）。reason＝締めた理由（END_LABEL の中の名前。通話の事実の end に残す）。
         録音で流す形なら録音を流してAIは黙る（6-13：毎回同じ文の発話は録音）。AIが話す形と、相手の質問にAIが答えてから締めるときは、
         AIがその言い方のまま言う。⛔ 2026-10-17 の見直しで見つけた漏れ：ふつうの締めは、録音で流す形のときしか言い方を渡しておらず、
         AIが話す形では「締めの言葉を言って」とだけ伝えていた＝AIが自分で文を作り、「お気軽にお問い合わせください」「お気をつけて
         お越しくださいませ」（命令の形）を足した（G-45）。断られたときの締めは録音にしていなかった（「お忙しいところ」はAIの声で崩れやすい）。"""
-        text, rid = (CLOSE_DECLINED, "closing_declined") if declined else (CLOSING, "closing")
-        self.current, self.phase = None, "closing"
+        text, rid = (CLOSE_DECLINED, "closing_declined") if reason in DECLINED_ENDS else (CLOSING, "closing")
+        self.current, self.phase, self.end_reason = None, "closing", reason
+        self._note("end", reason=reason)
         if self.play_recordings and not asked:
             return {"result": "end", "play": [{"kind": "closing", "id": rid, "text": text}],
                     "message": f"{prefix}締めの言葉「{text}」は、プログラムが録音で流しました。何も言わずに終えます。"}
@@ -1561,6 +1591,7 @@ def tool_declarations(questions: list[Question], replay: bool = False):
               f"別の人に代わった＝「{PART_LABEL['handover']}」）",
               {A["part"]: s(list(PART_LABEL.values()))}, [A["part"]])] if replay else []),
         fd("request_end", f"電話を終えたいときに呼ぶ。相手が急いでいる・切ろうとしているなら「{END_LABEL['callee_hurry']}」、"
-           f"通話自体を断られたなら「{END_LABEL['callee_refused_call']}」、質問が全部終わったなら「{END_LABEL['done']}」",
+           f"通話自体を断られた（「営業はお断りしています」「もうかけないで」など）なら「{END_LABEL['callee_refused_call']}」、"
+           f"相手が怒っている・苦情を言っているなら「{END_LABEL['callee_complaint']}」、質問が全部終わったなら「{END_LABEL['done']}」",
            {A["reason"]: s(list(END_LABEL.values()))}, [A["reason"]]),
     ])]
