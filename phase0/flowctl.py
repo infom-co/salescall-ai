@@ -1003,7 +1003,11 @@ class Flow:
         if q.type in CHOICE_TYPES and back is not None:
             it.condition = back
         it.ambiguous_asked = True
-        return self._ask_confirm(qid, after="hedged" if why.startswith(HEDGE_WHY) else "ambiguous")
+        # 言い方は、確かめるきっかけ（言い切っていない答えの決まり・判定との食い違い）ではなく、お客様の言葉が言い切っているかで決める
+        # （⛔ 2026-10-18 に見つけた漏れ：AIが「わからない」と報告し、判定が「していない」と読んだ「たぶんしてないと思います」は、
+        #    食い違いがきっかけなので、言い切っていない答えの言い方にならなかった）
+        hedged = why.startswith(HEDGE_WHY) or Flow._hedged(self.callee_said, self.check)
+        return self._ask_confirm(qid, after="hedged" if hedged else "ambiguous")
 
     def _take_system(self, qid: str, cond: str) -> dict:
         """相手が「わからない」「答えたくない」と答えた（答えの報告と、言い直しへの返事の、どちらからも来る）。"""

@@ -2317,6 +2317,16 @@ class AmbiguousAnswerTest(unittest.TestCase):
         f.on_check("judge2", Reading("はい", firm=False))
         self.assertEqual((f.export()["Q1"], f.hedged_words()), ("はい", {"Q1": "ええ、そうだと思うんですけど。"}))
 
+    def test_hedged_answer_is_asked_softly_whatever_the_trigger(self):
+        # AIは「わからない」、判定は「していない」（言い切っていない答え）：食い違いがきっかけでも、言い方は言い切っていない答えのもの
+        from meaning_judge import Reading
+        f = self.flow()
+        f.use_checks("judge")
+        f.on_callee(); f.on_heard("たぶんしてないと思います。"); f.on_check("judge", Reading("いいえ", firm=False))
+        r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "unknown", "value": "たぶんしてない"})
+        self.assertEqual(r["result"], "confirm_required")
+        self.assertTrue(r["say"].endswith("よろしかったでしょうか？"), r["say"])
+
     def test_unsure_first_answer_is_confirmed(self):
         # 最初の答えは、意味の判定が言い切っていないと読めば、言い直して確かめる（言い切っていない答えの決まりと同じ）
         from meaning_judge import Reading
