@@ -12,6 +12,10 @@
    どれも聞き取りは正しく、別の耳では拾えない（私は「別の耳では直せません」と書いて、そのまま流していた）。
 - 判定に渡すのは、質問の文・こちらが言い直した言葉（言い直しへの返事のとき）・選べるもの・相手の言葉だけ。
   会話のAIの選んだ答えは渡さない（引きずられないように＝独立した判定）。
+- 選択肢は、**意味の言葉を名前にして**見せる（取込で決めた Question.meanings。無ければ選択肢の名前）。
+  ⛔ 2026-10-18 G-53 の2回目：選択肢の名前（「はい」「いいえ」）で見せていたら、「念のためご予約の日時に変更がおありということでよろしいでしょうか？」
+     への「違います」を「いいえ」（＝変更がおあり）と読んだ（2回）＝言い直しを認めていないのに、認めたと読む向き（誤った答えが渡る向き）。
+     「違います」と、名前の「いいえ」を、言葉で結びつけた。
 """
 from __future__ import annotations
 
@@ -33,7 +37,7 @@ PROMPT = (
     "決まり：\n"
     "- 言葉の意味で選びます。言葉の頭の「はい」「いいえ」だけで決めません（「いいえ、もう済ませてあります」は、済ませた側）。\n"
     "- 打ち消しを重ねた言い方は、意味で読みます（「していないわけではない」は、している側）。\n"
-    "- 「〜ございませんでしょうか？」のような打ち消しの問いへの「はい」「いいえ」は、選べるものの説明で、どちらの意味かを決めます。\n"
+    "- 「〜ございませんでしょうか？」のような打ち消しの問いへの「はい」「いいえ」は、選べるものの名前（意味）で、どちらの意味かを決めます。\n"
     "- こちらが答えを言い直して確かめたあとの返事は、お客様が認めた意味で選びます（言い直した意味を「はい」と認めたら、その意味）。\n"
     # ⚠️ 例は、試験の言葉（G-14・G-52）と同じ言い方にしない（同じだと、試験で測った正しさが高く出る）
     "- 迷ったら「" + UNDECIDED + "」を選びます。\n"
@@ -44,25 +48,36 @@ PROMPT = (
 )
 
 
-def options(q, asked: str | None = None) -> list[tuple[str, str]]:
-    """選べるもの（名前、説明）。選択肢の質問と、値を聞く質問の最初の答えは Question.all_conditions の並び。値を聞く質問の言い直しへの
-    返事は「合っている」「違う値を言われた」（AIの報告 confirm_field と同じ名前）。最後に、答えでない言葉の3つ。"""
+def options(q, asked: str | None = None) -> list[tuple[str, str, str]]:
+    """選べるもの（判定に見せる名前、説明、中の名前）。選択肢の質問と、値を聞く質問の最初の答えは Question.all_conditions の並び
+    （宣言した選択肢は、意味の言葉を名前にする。無い・ほかの名前とかぶるときは選択肢の名前）。値を聞く質問の言い直しへの返事は
+    「合っている」「違う値を言われた」（AIの報告 confirm_field と同じ名前）。最後に、答えでない言葉の3つ。"""
     if q.type in CHOICE_TYPES or asked is None:
-        head = [(label(c), SYSTEM_DESC.get(c) or q.meanings.get(c) or f"「{c}」と答えた") for c in q.all_conditions]
+        taken = {label(c) for c in q.all_conditions if c not in q.conditions} | set(KIND_DESC)
+        head = []
+        for c in q.all_conditions:
+            if c in q.conditions:
+                name = q.meanings.get(c)
+                if not name or name in taken:
+                    name = label(c)
+                taken.add(name)
+                head.append((name, "この意味の答え" if name != label(c) else f"「{c}」と答えた", c))
+            else:
+                head.append((label(c), SYSTEM_DESC[c], c))
     else:
-        head = [(CONFIRM_LABEL[k], d) for k, d in CONFIRM_DESC.items()]
-    return head + [(k, d) for k, d in KIND_DESC.items()]
+        head = [(CONFIRM_LABEL[k], d, k) for k, d in CONFIRM_DESC.items()]
+    return head + [(k, d, k) for k, d in KIND_DESC.items()]
 
 
 def prompt(q, text: str, asked: str | None = None) -> str:
     said = f"こちらが言い直して確かめた言葉：「{asked}」\n" if asked else ""
-    return PROMPT.format(question=q.text, asked=said, text=text, choices="\n".join(f"- {n}：{d}" for n, d in options(q, asked)))
+    return PROMPT.format(question=q.text, asked=said, text=text, choices="\n".join(f"- {n}：{d}" for n, d, _ in options(q, asked)))
 
 
 def _config(q, asked: str | None):
     from google.genai import types
 
-    names = [n for n, _ in options(q, asked)]
+    names = [n for n, _, _ in options(q, asked)]
     schema = types.Schema(type=types.Type.OBJECT, properties={"choice": types.Schema(type=types.Type.STRING, enum=names)}, required=["choice"])
     # ⚠️ 考える量（thinking_budget）は指定しない：3.5 Flash Lite は指定すると断る（400）。3.8 Flash は0にしても約3.3秒（2026-10-17 に測った）
     return types.GenerateContentConfig(response_mime_type="application/json", response_schema=schema, temperature=0)
@@ -74,11 +89,7 @@ def read(q, text: str | None, asked: str | None = None) -> str | None:
         name = json.loads(text or "{}").get("choice")
     except ValueError:
         return None
-    if name in KIND_DESC:
-        return name
-    if q.type not in CHOICE_TYPES and asked is not None:
-        return next((k for k, v in CONFIRM_LABEL.items() if v == name and k in CONFIRM_DESC), None)
-    return q.condition_of(name)
+    return next((c for n, _, c in options(q, asked) if n == name), None)
 
 
 def judge(client, model: str, q, text: str, asked: str | None = None) -> str | None:

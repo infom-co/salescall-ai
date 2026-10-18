@@ -307,11 +307,6 @@ def ambiguous_word(text: str | None) -> str | None:
     return said.pop() if len(said) == 1 else None
 
 
-def ambiguous_answer(text: str | None) -> bool:
-    """相手の言葉が、受け入れにも断りにも取れる答えだけか、言い切っていない答えか（文字が無ければ False＝決めない）。"""
-    t = (text or "").strip()
-    return bool(AMBIGUOUS.fullmatch(t) or UNCERTAIN.search(t))
-
 
 # 頭の返事の言葉の言い方の違い（伸ばし方を含む：「ええ」と「えー」・「いや」と「いやあ」。2026-10-17：AmiVoice はこの書き方で返す）
 _LEAD_READING = ((re.compile(r"^(?:いいえ|いえ|いや)[ーあぁ]*"), "いいえ"), (re.compile(r"^(?:はい|え[えー])[ーえぇ]*"), "はい"))
@@ -896,8 +891,10 @@ class Flow:
                  confirming: bool = False, words: str | None = None) -> tuple[str | None, str | None]:
         """会話AIの報告（reported。選択肢の型は選んだ選択肢・値を聞く型の言い直しへの返事は affirmed／corrected）を、独立した確かめに当てる：
         (1) 別の耳の文字（check["ear"]。聞き取り。6-10 の (5)。会話AIの聞き取り said と、読みにそろえて比べる）
-        (2) 曖昧な答えの決まり（policy のときだけ。✅ ユーザー確定：「結構です」「大丈夫です」だけ・言い切っていない答えは、その言葉だけで決めない。
-            当てる言葉は words＝会話AIの聞き取り、届いていなければAIの報告の値）
+        (2) 曖昧な答えの決まり（✅ ユーザー確定：「結構です」「大丈夫です」だけ・言い切っていない答えは、その言葉だけで決めない。当てる言葉は
+            words＝会話AIの聞き取り、届いていなければAIの報告の値）。「結構です」だけの決まりは policy のときだけ（言い直しへの返事の「大丈夫です」は、
+            言い直した意味を認める返事。取込で意味が決まった言葉も当てない）。言い切っていない答え（「たぶん」「かもしれない」）は、答えを選んだ報告と
+            「合っている」の報告のすべてに当てる
         (3) 意味の判定（check["judge"]・check["judge2"]。意味。6-10 の (6)。meaning_judge）
         返り値＝(確かめる理由, 言い直す答え)。理由が None ＝そろった（受け取ってよい）。届いていない確かめは比べない
         （遅れて届けば Flow.on_check が同じ決まりで当てる。最後まで届かなければ通話後の検証＝Flow.unchecked）。
@@ -909,7 +906,12 @@ class Flow:
         ear = check.get("ear")
         if bool(said) and ear is not None and not heard_alike(said, ear):
             return f"別の耳の文字（「{ear[:20]}」）と食い違う", reported
-        if policy and ambiguous_answer(words or said):
+        text = (words or said or "").strip()
+        if policy and AMBIGUOUS.fullmatch(text):
+            return "曖昧な答え", reported
+        if reported not in SYSTEM_CONDITIONS and UNCERTAIN.search(text):
+            # 言い切っていない答えは、その言葉だけで決めない（✅ ユーザー確定）。最初の答えにも、言い直しへの返事（「たぶんそうです」）にも当てる。
+            # 「わからない」「答えたくない」の報告には当てない（「たぶん分からないです」は、そのまま「わからない」）
             return "曖昧な答え", reported
         for kind in ("judge", "judge2"):
             back = Flow._meaning_disagrees(q, reported, check.get(kind), confirming)

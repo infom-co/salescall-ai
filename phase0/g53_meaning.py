@@ -260,9 +260,11 @@ def run_judges(args, items: list[dict], qmap: dict, ids: dict) -> None:
     probe = KeyRing(args)
     usable = [i for i in range(len(probe.keys)) if i not in probe.denied]
     jobs: queue.Queue = queue.Queue()
+    order = {s: n for n, s in enumerate(args.sets or "")}  # --sets の並びの順に判定する（上限で止まっても、先の組は測り終える）
     for key in args.judge:  # 判定ごとに、難しい答え（見本の先頭）から
-        for it in (sample if sample and key != "3.5 Flash Lite" else items):
-            if key not in it and it.get("maker") != key:
+        pool = sample if sample and key != "3.5 Flash Lite" else items
+        for it in sorted(pool, key=lambda it: order.get(it["set"], 0)):
+            if key not in it and it.get("maker") != key and (not args.sets or it["set"] in args.sets):
                 jobs.put((key, it))
     lock = threading.Lock()
     done = Counter()
@@ -303,7 +305,7 @@ def run_judges(args, items: list[dict], qmap: dict, ids: dict) -> None:
                 done[key] += 1
                 if sum(done.values()) % 50 == 0:
                     say("判定", dict(done), "残り", jobs.qsize())
-                    save_partial("G-53", {"items": items})
+                    save_partial(f"G-53{args.tag}", {"items": items})
 
     with ThreadPoolExecutor(max_workers=len(usable)) as ex:
         list(ex.map(worker, usable))
@@ -366,7 +368,9 @@ def predict_calls(items: list[dict], key: str) -> dict:
                 ok = (cond == want) if want != "ambiguous" else state == "dont_know"
                 if state == "dont_know" and want == "unknown":
                     ok = True
-                res = "受け取った・正しい" if ok else "⛔受け取った・誤り"
+                # 「わからない」で受け取った（依頼主へは「-」）のに答えがあった：誤った値は渡らない（答えを取り逃しただけ）＝誤りと分ける
+                res = ("受け取った・正しい" if ok else "受け取った・「-」（答えがあったのに）" if state == "dont_know"
+                       else "⛔受け取った・誤り")
             else:
                 res = "確かめる（AIは正しかった）" if right else "確かめる（AIが誤っていた）"
             c["通話"] += 1
@@ -382,6 +386,8 @@ def main() -> None:
     p = base_parser(__doc__)
     p.add_argument("--judge", action="append", choices=JUDGES, help="判定のモデル（既定は2つとも）")
     p.add_argument("--reuse", help="前の結果のファイル（作った答え・判定済みの分を使い回す）")
+    p.add_argument("--tag", default="", help="結果のファイル名に足す印（同時に流す回を分けるため）")
+    p.add_argument("--sets", help="判定する組だけ（例 E、DE）。ほかの組は判定しない（数えには入る）")
     p.add_argument("--rejudge", action="store_true", help="--reuse の判定を捨てて測り直す（判定の文・選べるものを変えたとき）")
     p.add_argument("--add-de", action="store_true", help="--reuse の答えに、D（言い直しへの返事）・E（答えでない言葉）を作って足す")
     p.add_argument("--sample", type=int, default=0, help="2つ目の判定の候補は、3.5 Flash Lite が誤った答えと、ほかから無作為にこの数だけ（1日の上限が少ない）")
@@ -417,7 +423,7 @@ def main() -> None:
     summary["記録の通話に当てた見込み"] = {k: predict_calls(items, k) for k in args.judge}
     for k, v in summary.items():
         say(k, json.dumps({kk: vv for kk, vv in v.items() if kk != "⛔別の答えの例"}, ensure_ascii=False))
-    save_result("G-53", {"model_ids": ids, "summary": summary, "items": items})
+    save_result(f"G-53{args.tag}", {"model_ids": ids, "summary": summary, "items": items})
 
 
 if __name__ == "__main__":

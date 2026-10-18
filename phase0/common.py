@@ -281,13 +281,15 @@ class KeyRing:
     def call(self, model: str, fn, rotate: bool = True):
         """fn(client) を、そのモデルで使えるキーで呼ぶ（混んでいる 503 は call_with_retry が待ってやり直す）。戻り値＝(結果, キーの番号)。
         rotate=False：始めのキー（key_index）だけを使う（キーごとに1本の流れで、同じ仕事の山から取って流すとき。そのキーが使えなくなったら
-        KeyUnusable を投げ、流れのほうがやめる＝ほかの流れのキーに重ならない）。"""
+        ＝止められている・1日の上限、KeyUnusable を投げ、流れのほうがやめる＝ほかの流れのキーに重ならない）。1分の上限は待って続ける。"""
         import time
         for k in range(len(self.keys) if rotate else 1):
             i = (self.start + k) % len(self.keys)
             if i in self.denied or i in self.spent.get(model, set()):
                 continue
-            for _ in range(3):  # 1分の上限で待つのは3回まで
+            # 1分の上限で待つのは3回まで（次のキーへ進めるとき）。自分のキーだけで流すとき（rotate=False）は、1分の上限なら待ち続ける
+            # （⛔ 2026-10-18：3回続いたらその流れを抜けさせていて、全部の流れが抜け、判定が1,105件残った。1日の上限ではなかった）
+            for _ in range(3 if rotate else 100):
                 wait = self._last.get((i, model), -1e9) + self.min_interval_s - time.monotonic()
                 if wait > 0:
                     time.sleep(wait)
@@ -347,7 +349,11 @@ class KeyRing:
                         raise
                     # 待つ秒が書いてあれば、その秒だけ休ませる（文字のモデルの1分の上限。⛔ 2026-10-17：意味の判定の1分の上限にも10分休ませ、
                     # 通話の試験の153本で判定が1つも間に合わなかった）。書いていなければ、会話のモデルと同じく LIVE_COOL_S
+                    # 待つ秒が無くても、1分の上限と書いてあれば（上限の名前に PerMinute）、call と同じく30秒（⛔ 2026-10-18：判定の測り直しと
+                    # 同時に流した通話の中の判定が、1分の上限のたびにキーを10分休ませ、判定が通話の中に届かなかった）
                     after = retry_after_s(exc)
+                    if after is None and "PerMinute" in str(exc):
+                        after = 30.0
                     rest = after + 1 if (after is not None and not is_daily(exc)) else self.LIVE_COOL_S
                     cool[(i, model)] = time.monotonic() + rest
                     say(f"{self.keys[i].label} は {model} の上限に当たりました ⇒ {rest:.0f}秒休ませて、次のキーで初めからやり直します")

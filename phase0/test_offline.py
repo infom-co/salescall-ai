@@ -1489,6 +1489,15 @@ class KeyRingTest(unittest.TestCase):
         self.assertEqual(asyncio.run(ring.acall("text", minute)), ("ok", 0))
         self.assertLess(ring._cool[(2, "text")] - time.monotonic(), 10)
 
+        # 待つ秒が無くても、1分の上限と書いてあれば30秒ほど（⛔ 2026-10-18：10分休ませ、通話の中の判定が届かなかった）
+        async def minute_no_secs(client):
+            if client == "c2":
+                raise Minute("429 RESOURCE_EXHAUSTED. quotaId: GenerateRequestsPerMinutePerProjectPerModel-FreeTier")
+            return "ok"
+        ring._cool = {}
+        self.assertEqual(asyncio.run(ring.acall("text", minute_no_secs)), ("ok", 0))
+        self.assertLess(ring._cool[(2, "text")] - time.monotonic(), 40)
+
     def test_session_timeout_is_not_a_denied_project(self):
         # ⛔ つなぎの時間切れも閉じる番号 1008 で返る（2026-10-17 G-15）＝番号だけで「止められたプロジェクト」と決めない
         import common
@@ -2100,6 +2109,29 @@ class MeaningJudgeTest(unittest.TestCase):
         self.assertIsNone(f.meaning_said)
 
 
+class MeaningJudgeOptionsTest(unittest.TestCase):
+    """意味の判定に見せる選べるもの（meaning_judge.options）：選択肢は意味の言葉を名前にする。⛔ G-53 の2回目：名前の「いいえ」と相手の
+    「違います」を言葉で結びつけ、言い直しを認めていないのに認めたと読んだ（2回）。"""
+
+    def test_choices_are_named_by_meaning(self):
+        import json
+        from flowctl import ANY, HOLD, Question
+        from meaning_judge import options, prompt, read
+        q = Question("Q1", "ご予約の日時に変更はございませんでしょうか？", "yes_no", conditions=("はい", "いいえ"),
+                     meanings={"はい": "ご予約の日時に変更はないということ", "いいえ": "ご予約の日時に変更がおありということ"})
+        names = [n for n, _, _ in options(q)]
+        self.assertEqual(names[:2], ["ご予約の日時に変更はないということ", "ご予約の日時に変更がおありということ"])
+        self.assertNotIn("- はい：", prompt(q, "違います。", "念のためご予約の日時に変更がおありということでよろしいでしょうか？"))
+        self.assertEqual(read(q, json.dumps({"choice": "ご予約の日時に変更はないということ"})), "はい")
+        self.assertEqual(read(q, json.dumps({"choice": HOLD})), HOLD)
+        c = Question("Q2", "お支払いはどちらになさいますか？", "choice", conditions=("カード", "振込"), meanings={"カード": "わからない"})
+        self.assertEqual([n for n, _, _ in options(c)][:3], ["カード", "振込", "どちらでも"])  # ほかの名前とかぶる意味の言葉は使わない
+        self.assertEqual(read(c, json.dumps({"choice": "どちらでも"})), ANY)
+        v = Question("Q3", "ご希望の日時をお聞かせいただけますでしょうか？", "datetime", conditions=("答えた",))
+        self.assertEqual(read(v, json.dumps({"choice": "合っている"}), "念のため16日でよろしいでしょうか？"), "affirmed")
+        self.assertIsNone(read(v, json.dumps({"choice": "はい"}), "念のため16日でよろしいでしょうか？"))
+
+
 class UnreportedNoteTest(unittest.TestCase):
     """AIが声は出したのに、報告なしでターンを終えたときの、報告を促す知らせ（Flow.unreported_note）。
     ⛔ 2026-10-17：記録の通話で、「はい。」などのあとに報告が抜けた回が34回。プログラムは気づく手立てを持っていなかった。
@@ -2196,14 +2228,24 @@ class AmbiguousAnswerTest(unittest.TestCase):
         return f.apply(op, args)
 
     def test_list(self):
-        from flowctl import ambiguous_answer
+        # 曖昧な答えの決まりは、流れの制御の比べ（Flow._compare）の1か所で当てる
+        from flowctl import Flow, Question
+        q = Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"))
+
+        def why(t, reported="はい", policy=True, confirming=False):
+            return Flow._compare(q, t or "", "affirmed" if confirming else reported, {}, policy=policy, confirming=confirming)[0]
         for t in ("大丈夫です。", "結構です", "いいです。", "あ、大丈夫です。", "えーと、結構です。", "大丈夫です、大丈夫です。", "いいですよ。",
                   "家族がしたかもしれないです。", "たぶんカードです。", "多分してます", "おそらくまだです", "したかも。"):  # 言い切っていない答え
-            self.assertTrue(ambiguous_answer(t), t)
+            self.assertEqual(why(t), "曖昧な答え", t)
         # 認める・打ち消す言葉が付いていれば、その言葉で決まる。「いいえ」は打ち消し。文字が無ければ決めない。「と思います」は言い切りの柔らかい形
         for t in ("はい、大丈夫です。", "いいえ。", "いえ、結構です。", "どちらでも大丈夫です。", "はい、予約しています。", "", None,
                   "カードがいいと思います。", "かもめ便でお願いします", "鴨川に住んでいます"):
-            self.assertFalse(ambiguous_answer(t), t)
+            self.assertIsNone(why(t), t)
+        # 言い直しへの返事：「大丈夫です」は認める返事（決まりを当てない）・「たぶんそうです」は言い切っていない（当てる）
+        self.assertIsNone(why("大丈夫です。", policy=False, confirming=True))
+        self.assertEqual(why("たぶんそうです。", policy=False, confirming=True), "曖昧な答え")
+        # 「わからない」の報告には、言い切っていない決まりを当てない（「たぶん分からないです」は、そのまま「わからない」）
+        self.assertIsNone(why("たぶん分からないです。", reported="unknown", policy=False))
 
     def test_ambiguous_is_confirmed_by_meaning(self):
         f = self.flow()
