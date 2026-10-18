@@ -133,13 +133,19 @@ class Provisioner:
                 conn.execute(sql.SQL("CREATE ROLE {} LOGIN PASSWORD {} NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE"
                                      " IN ROLE salescall_app").format(sql.Identifier(role), sql.Literal(verifier)))
 
-    def disable_login(self, role: str) -> bool:
-        """役を、つなげないようにする（契約が終わったとき）。役が無ければ False。"""
+    def disable_logins(self, name_or_prefix: str) -> int:
+        """名前がそれと同じか、それで始まる（頭の文字の末尾が「_」のとき）役を、つなげないようにする（PC のログインを外した・契約が
+        終わったとき）。止めた数を返す。"""
         with psycopg.connect(self._conninfo, autocommit=True) as conn:
-            if conn.execute("SELECT 1 FROM pg_roles WHERE rolname = %s", (role,)).fetchone() is None:
-                return False
-            conn.execute(sql.SQL("ALTER ROLE {} NOLOGIN").format(sql.Identifier(role)))
-            return True
+            if name_or_prefix.endswith("_"):
+                roles = [r[0] for r in conn.execute("SELECT rolname FROM pg_roles WHERE starts_with(rolname, %s) AND rolcanlogin",
+                                                    (name_or_prefix,)).fetchall()]
+            else:
+                roles = [r[0] for r in conn.execute("SELECT rolname FROM pg_roles WHERE rolname = %s AND rolcanlogin",
+                                                    (name_or_prefix,)).fetchall()]
+            for role in roles:
+                conn.execute(sql.SQL("ALTER ROLE {} NOLOGIN").format(sql.Identifier(role)))
+            return len(roles)
 
 
 def tool_connection(conninfo: str) -> tuple[str, dict[str, str]]:

@@ -24,8 +24,9 @@ class Base(unittest.TestCase):
         self.s, self.other = self.w.setup(), World().setup()
         self.prov = Provisioner(os.environ["SALESCALL_TEST_PROVISIONER_DSN"])
 
-    def issue(self, s=None, actor=SYSTEM):
-        return logins.issue(self.w.a, actor, self.prov, (s or self.s)["tenant"], base_conninfo=os.environ["SALESCALL_TEST_APP_DSN"])
+    def issue(self, s=None, actor=SYSTEM, replaces=None):
+        return logins.issue(self.w.a, actor, self.prov, (s or self.s)["tenant"], base_conninfo=os.environ["SALESCALL_TEST_APP_DSN"],
+                            pc_label="試験のPC", replaces=replaces)
 
 
 class Scope(Base):
@@ -68,25 +69,34 @@ class Issue(Base):
             self.issue(actor=OPERATOR)
         login = self.issue(actor=ADMIN)
         self.assertNotIn(login.password, repr(login))
-        self.assertEqual(login.role, logins.role_name(self.s["tenant"]))
+        self.assertNotIn(login.password, repr(login) + login.role)
+        self.assertEqual(login.role, logins.role_name(self.s["tenant"], login.pc))
         with self.assertRaises(LookupError):
             logins.revoke(self.w.a, SYSTEM, self.prov, self.other["tenant"])   # 払い出していない契約者
-        kinds = self.w.a.in_system(ADMIN, lambda tx: [r["kind"] for r in tx.all(
-            "SELECT kind FROM salescall.tenant_login_events WHERE tenant_id = %s ORDER BY event_id", (self.s["tenant"],))])
-        self.assertEqual(kinds, ["issued"])
+        kinds = self.w.a.in_system(ADMIN, lambda tx: [(r["kind"], r["pc"], r["pc_label"]) for r in tx.all(
+            "SELECT kind, pc, pc_label FROM salescall.tenant_login_events WHERE tenant_id = %s ORDER BY event_id", (self.s["tenant"],))])
+        self.assertEqual(kinds, [("issued", login.pc, "試験のPC")])
         self.assertEqual(self.w.a.in_tenant(OPERATOR, self.s["tenant"], lambda tx: tx.all(
             "SELECT 1 FROM salescall.tenant_login_events")), [])                # 契約者の取引からは見えない
 
-    @unittest.skipUnless(CHECKS_PASSWORDS, "合言葉を確かめるのは、使い捨てのデータベースだけ")
-    def test_reissuing_replaces_the_password_and_revoking_closes_the_login(self):
-        first, second = self.issue(), self.issue()
+    @unittest.skipUnless(CHECKS_PASSWORDS, "鍵を確かめるのは、使い捨てのデータベースだけ")
+    def test_keys_are_per_pc_and_relogin_replaces_and_revoking_closes(self):
+        """鍵は PC ごと（2台目の PC でログインしても、1台目は使える）。同じ PC でログインし直すと前の鍵は止まる。PC のログインを
+        外す＝その PC だけ、契約が終わった＝その契約者のすべての PC。"""
         ok = lambda login: Access(login.conninfo).in_tenant(OPERATOR, self.s["tenant"], lambda tx: tx.one("SELECT 1 AS x"))  # noqa: E731
-        self.assertEqual(ok(second)["x"], 1)
-        with self.assertRaises(Exception):                                   # 前の合言葉は使えない
+        first, second = self.issue(), self.issue()
+        self.assertEqual((ok(first)["x"], ok(second)["x"]), (1, 1))
+        again = self.issue(replaces=first.pc)                                # 1台目でログインし直した
+        self.assertEqual(ok(again)["x"], 1)
+        with self.assertRaises(Exception):
             ok(first)
-        logins.revoke(self.w.a, SYSTEM, self.prov, self.s["tenant"])
-        with self.assertRaises(Exception):                                   # 契約が終わったら、つなげない
+        self.assertEqual(logins.revoke(self.w.a, ADMIN, self.prov, self.s["tenant"], pc=second.pc), 1)
+        with self.assertRaises(Exception):
             ok(second)
+        self.assertEqual(ok(again)["x"], 1)                                  # ほかの PC は使える
+        self.assertEqual(logins.revoke(self.w.a, SYSTEM, self.prov, self.s["tenant"]), 1)   # 契約が終わった：残りすべて
+        with self.assertRaises(Exception):
+            ok(again)
 
 
 if __name__ == "__main__":

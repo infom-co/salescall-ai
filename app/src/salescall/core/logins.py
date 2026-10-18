@@ -7,11 +7,14 @@
 ⇒ **契約者が使うのは、SalesCall AI のログインIDとパスワードだけ**。この鍵は人が覚える・入れるものではなく、PC とデータベースの
 あいだで使う機械用の鍵（ふつうのアプリが、ログインしたあと裏で持つ通行証と同じ）。
 
-- 流れ：(1) 契約者が自分の PC で、見守り役の準備のときに SalesCall AI のログインIDとパスワードを1回入れる (2) SalesCall AI の
-  サーバーが確かめる（ログインの画面とサーバー＝CL-3）(3) サーバーが `issue` を呼び、その契約者の鍵を PC へ渡す。PC は中にしまい、
-  契約者には見せない (4) データベースは、つないだ鍵から契約者を決め、ほかの契約者の行・全体の取引・管理者としての動きを断る
-  （0077 の `cur_tenant`・`cur_actor_kind`） (5) パスワードを変えた・PC を替えた・漏れたおそれ＝`issue` をもう一度（鍵を替える。
-  前の鍵は使えない）、契約が終わった＝`revoke`（つなげなくする。データは消さない）。
+- 流れ：(1) 契約者が自分の PC で、見守り役の準備の命令を打つと、ブラウザで SalesCall AI のログインのページが開き、確かめのコードが出る
+  （`supervisor/pc_login.py`） (2) 契約者は、そのページで好きな方法でログインする（ID とパスワード・Google・パスキー。ログインの
+  ページとサーバー＝CL-3） (3) サーバーがログインを確かめ、`issue` を呼んで、その PC の鍵を PC へ渡す。PC は中にしまい、契約者には
+  見せない (4) データベースは、つないだ鍵から契約者を決め、ほかの契約者の行・全体の取引・管理者としての動きを断る（0077・0079 の
+  `cur_tenant`・`cur_actor_kind`） (5) 同じ PC でログインし直したら、前の鍵を止めて新しい鍵（`replaces`）。PC のログインを外す＝
+  `revoke(pc=…)`、契約が終わった＝`revoke`（その契約者のすべての PC。つなげなくする。データは消さない）。
+- **鍵は PC ごと**（0079。契約者ごとに1つだと、2台目の PC でログインすると1台目の鍵が使えなくなった）。PC は、パスワードに一切
+  触れない（ブラウザでログインするので、Google・パスキーも使える）。
 - ログインIDとパスワードそのものを PC に置いて、データベースが確かめる形にはしない（パスワードを PC に置くことになる）。
 - 鍵（データベースのログインの役。名前は `role_name`）は、ここで作って **返すのは1回だけ**（どこにも保存しない。記録・知らせ・
   画面に出さない。データベースへも平文では送らない＝確かめの値 `_scram` だけを送る）。払い出した・使えなくした、の記録
@@ -28,6 +31,7 @@ import base64
 import hashlib
 import hmac
 import os
+import re
 import secrets
 from dataclasses import dataclass
 from typing import Any
@@ -36,51 +40,66 @@ from uuid import UUID
 from salescall.core import access as access_mod
 from salescall.core.access import Access, Actor, Provisioner
 
-ROLE_PREFIX = "salescall_t_"     # データベースが、この名前の役を契約者の鍵とみなす（0077 の login_tenant）
+ROLE_PREFIX = "salescall_t_"     # データベースが、この名前の役を契約者の鍵とみなす（0079 の login_tenant）
+_PC = re.compile(r"^[0-9a-f]{8}$")  # PC の番号（払い出すときに作る）
 _ITERATIONS = 4096               # 確かめの値を作る繰り返しの数（PostgreSQL の決まりの値）
 
 
 @dataclass(frozen=True)
 class Login:
-    """払い出した鍵（返すのは1回だけ。保存しない）。conninfo＝契約者の PC の SALESCALL_DSN に入れる接続文字。"""
+    """払い出した PC の鍵（返すのは1回だけ。保存しない）。pc＝PC の番号（その PC のログインを外すときに使う）。conninfo＝その PC が
+    データベースへつなぐ接続文字（PC の中にしまう）。"""
     tenant_id: UUID
+    pc: str
     role: str
     password: str
     conninfo: str
 
     def __repr__(self) -> str:   # 記録や画面の誤りの表示に、鍵を出さない
-        return f"Login(tenant_id={self.tenant_id!r}, role={self.role!r}, password=***, conninfo=***)"
+        return f"Login(tenant_id={self.tenant_id!r}, pc={self.pc!r}, role={self.role!r}, password=***, conninfo=***)"
 
 
-def role_name(tenant_id: UUID) -> str:
-    """その契約者の鍵の役の名前。"""
-    return f"{ROLE_PREFIX}{UUID(str(tenant_id))}"
+def role_name(tenant_id: UUID, pc: str) -> str:
+    """その契約者の、その PC の鍵の役の名前（頭の契約者の番号から、データベースが契約者を決める＝0079 の login_tenant）。"""
+    if not _PC.match(pc):
+        raise ValueError(f"PC の番号の形が違います：{pc!r}")
+    return f"{ROLE_PREFIX}{UUID(str(tenant_id))}_{pc}"
 
 
-def issue(app: Access, actor: Actor, provisioner: Provisioner, tenant_id: UUID, *, base_conninfo: str) -> Login:
-    """その契約者の鍵を払い出す（初めて・替える）。actor＝管理者か、アカウントを作るシステムの処理（全体の取引）。
-    base_conninfo＝契約者の PC からつなぐデータベースの場所（役と鍵は入れない）。"""
-    role, password = role_name(tenant_id), secrets.token_urlsafe(32)
-    verifier = _scram(password)
+def issue(app: Access, actor: Actor, provisioner: Provisioner, tenant_id: UUID, *, base_conninfo: str, pc_label: str,
+          replaces: str | None = None) -> Login:
+    """その契約者の PC に、鍵を払い出す（PC がログインしたとき。ログインを確かめたサーバーが呼ぶ）。actor＝ログインを確かめる
+    システムの処理か管理者（全体の取引）。base_conninfo＝PC からつなぐデータベースの場所（役と鍵は入れない）。pc_label＝契約者に見せる
+    PC の名前。replaces＝同じ PC が前に持っていた PC の番号（ログインし直したとき。その鍵は止める）。"""
+    pc, password = secrets.token_hex(4), secrets.token_urlsafe(32)
+    role, verifier = role_name(tenant_id, pc), _scram(password)
     def work(tx: Any) -> None:
-        _record(tx, tenant_id, "issued")          # 払い出してよい人か・その契約者があるかは、データベースが守る（無ければ Rejected）
+        # 払い出してよい人か・その契約者があるかは、データベースが守る（無ければ Rejected）
+        _record(tx, tenant_id, "issued", pc=pc, pc_label=pc_label)
+        if replaces is not None:
+            _record(tx, tenant_id, "revoked", pc=replaces, pc_label=pc_label)
         provisioner.set_login(role, verifier)     # 記録が通ってから（同じ確かめの値なので、取引をやり直しても同じ結果）
+        if replaces is not None:
+            provisioner.disable_logins(role_name(tenant_id, replaces))
     app.in_system(actor, work)
-    return Login(tenant_id, role, password, access_mod.login_conninfo(base_conninfo, role, password))
+    return Login(tenant_id, pc, role, password, access_mod.login_conninfo(base_conninfo, role, password))
 
 
-def revoke(app: Access, actor: Actor, provisioner: Provisioner, tenant_id: UUID) -> None:
-    """その契約者の鍵を使えなくする（契約が終わったとき。データは消さない）。払い出していなければ LookupError（何も記録しない）。"""
-    def work(tx: Any) -> None:
-        _record(tx, tenant_id, "revoked")
-        if not provisioner.disable_login(role_name(tenant_id)):
-            raise LookupError(f"その契約者の鍵は、払い出していません：{tenant_id}")
-    app.in_system(actor, work)
+def revoke(app: Access, actor: Actor, provisioner: Provisioner, tenant_id: UUID, *, pc: str | None = None) -> int:
+    """鍵を使えなくする（データは消さない）。pc＝その PC だけ（画面で「この PC のログインを外す」）／None＝その契約者のすべての PC
+    （契約が終わったとき）。止めた鍵の数を返す。止める鍵が無ければ LookupError（何も記録しない）。"""
+    def work(tx: Any) -> int:
+        _record(tx, tenant_id, "revoked", pc=pc, pc_label=None)
+        n = provisioner.disable_logins(role_name(tenant_id, pc) if pc else f"{ROLE_PREFIX}{UUID(str(tenant_id))}_")
+        if n == 0:
+            raise LookupError(f"止める鍵がありません：{tenant_id}{'' if pc is None else ' の PC ' + pc}")
+        return n
+    return app.in_system(actor, work)
 
 
-def _record(tx: Any, tenant_id: UUID, kind: str) -> None:
-    tx.execute("INSERT INTO salescall.tenant_login_events (tenant_id, kind, done_by) VALUES (%s, %s, salescall.cur_actor())",
-               (tenant_id, kind))
+def _record(tx: Any, tenant_id: UUID, kind: str, *, pc: str | None, pc_label: str | None) -> None:
+    tx.execute("INSERT INTO salescall.tenant_login_events (tenant_id, kind, pc, pc_label, done_by)"
+               " VALUES (%s, %s, %s, %s, salescall.cur_actor())", (tenant_id, kind, pc, pc_label))
 
 
 def _scram(password: str) -> str:

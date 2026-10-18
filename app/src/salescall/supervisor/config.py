@@ -6,8 +6,9 @@ PC の環境変数から、下の表の名前（SALESCALL_ で始まるもの）
 
 | 名前 | 中身 | 要るとき |
 |---|---|---|
-| SALESCALL_DSN | データベースへの接続（アプリの役） | いつも |
-| SALESCALL_TENANT_ID | この PC の契約者（1台の PC は1人の契約者の回線だけを動かす。契約者が携帯を用意する＝Intent.md 8-6） | いつも |
+| SALESCALL_DSN | データベースへの接続（システムの役） | 管理者の PC（契約者の PC は入れない：PC のログインでしまった鍵でつなぐ＝pc_login） |
+| SALESCALL_TENANT_ID | この PC の契約者（1台の PC は1人の契約者の回線だけを動かす。契約者が携帯を用意する＝Intent.md 8-6） | 管理者の PC（契約者の PC は、しまった鍵の契約者） |
+| SALESCALL_SERVER_URL | SalesCall AI のサーバーの場所（https://…。PC のログインで使う） | 契約者の PC（ログインするとき） |
 | SALESCALL_LINES | この PC につないだ回線（回線の ID をカンマで区切る） | 電話をかけるとき |
 | SALESCALL_LINE_DRIVER | 回線の部品を作る関数（`モジュール:名前`。電話接続の担当） | 電話をかけるとき |
 | SALESCALL_CALL_RUNNER | 通話を最後まで進める部品を作る関数（会話＝CL-1） | 電話をかけるとき |
@@ -25,9 +26,14 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 from uuid import UUID
 
-NAMES = ("SALESCALL_DSN", "SALESCALL_TENANT_ID", "SALESCALL_LINES", "SALESCALL_LINE_DRIVER", "SALESCALL_CALL_RUNNER",
+from salescall.supervisor import pc_login
+
+_STORED = object()   # しまった鍵を読む（試験では代わりを渡す）
+
+NAMES = ("SALESCALL_DSN", "SALESCALL_TENANT_ID", "SALESCALL_SERVER_URL", "SALESCALL_LINES", "SALESCALL_LINE_DRIVER", "SALESCALL_CALL_RUNNER",
          "SALESCALL_VERIFIER", "SALESCALL_PROBER", "SALESCALL_SYSTEM_JOBS", "SALESCALL_OWNER_DSN", "SALESCALL_RESTORE_DSN",
          "SALESCALL_BACKUP_DRIVE", "SALESCALL_BACKUP_KEY")
 
@@ -69,7 +75,9 @@ def gather(environ: dict[str, str] | None = None) -> dict[str, str]:
     return {name: env[name] for name in NAMES if env.get(name, "") != ""}
 
 
-def load(environ: dict[str, str] | None = None) -> Config:
+def load(environ: dict[str, str] | None = None, *, pc_key: Any = _STORED) -> Config:
+    """設定を読む。データベースへの接続と契約者は、SALESCALL_DSN があればそれ（管理者の PC）、無ければ PC のログインでしまった鍵
+    （契約者の PC。`pc_login.load`）。pc_key＝試験で、しまった鍵の代わりを渡すとき。"""
     env = gather(environ)
 
     def need(name: str) -> str:
@@ -81,13 +89,20 @@ def load(environ: dict[str, str] | None = None) -> Config:
     def maybe(name: str) -> str | None:
         return env.get(name, "").strip() or None
 
+    key = None
+    if maybe("SALESCALL_DSN") is None:
+        key = pc_login.load() if pc_key is _STORED else pc_key
+        if key is None:
+            raise ConfigMissing("この PC は、まだログインしていません（python -m salescall.supervisor login。手順：docs/PC_SETUP.md）")
     try:
-        tenant = UUID(need("SALESCALL_TENANT_ID"))
+        tenant = key.tenant_id if key is not None else UUID(need("SALESCALL_TENANT_ID"))
+        if key is not None and maybe("SALESCALL_TENANT_ID") not in (None, str(key.tenant_id)):
+            raise ConfigMissing("SALESCALL_TENANT_ID が、この PC でログインした契約者と違います（入れなくて大丈夫です）")
         lines = tuple(UUID(x.strip()) for x in (maybe("SALESCALL_LINES") or "").split(",") if x.strip())
     except ValueError:
         raise ConfigMissing("SALESCALL_TENANT_ID・SALESCALL_LINES は ID（例 0a1b…）で書きます") from None
     drive = maybe("SALESCALL_BACKUP_DRIVE")
-    return Config(dsn=need("SALESCALL_DSN"), tenant_id=tenant, lines=lines, line_driver=maybe("SALESCALL_LINE_DRIVER"),
+    return Config(dsn=key.conninfo if key is not None else need("SALESCALL_DSN"), tenant_id=tenant, lines=lines, line_driver=maybe("SALESCALL_LINE_DRIVER"),
                   call_runner=maybe("SALESCALL_CALL_RUNNER"), verifier=maybe("SALESCALL_VERIFIER"),
                   prober=maybe("SALESCALL_PROBER"), system_jobs=maybe("SALESCALL_SYSTEM_JOBS") == "1",
                   owner_dsn=maybe("SALESCALL_OWNER_DSN"), restore_dsn=maybe("SALESCALL_RESTORE_DSN"),
@@ -95,6 +110,8 @@ def load(environ: dict[str, str] | None = None) -> Config:
 
 
 def status(environ: dict[str, str] | None = None) -> list[str]:
-    """どの設定が入っているか（値は出さない）。"""
+    """どの設定が入っているか（値は出さない）と、この PC がログインしているか。"""
     env = gather(environ)
-    return [f"{name}：{'入っています' if env.get(name, '').strip() else '入っていません'}" for name in NAMES]
+    key = pc_login.load()
+    return [f"{name}：{'入っています' if env.get(name, '').strip() else '入っていません'}" for name in NAMES] + [
+        f"この PC のログイン：{'済んでいます（契約者 ' + str(key.tenant_id) + '）' if key else 'まだです'}"]
