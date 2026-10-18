@@ -13,15 +13,15 @@ from salescall.core import (approval, attempts, backup, business_rules, calling_
                             next_action, quality_stage, recordings, results, settle, stops, watch)
 from salescall.core.errors import ErrorReport
 from salescall.core.access import Rejected
-from salescall.core.call_report import CallReport, Callback, Cut
-from tests.support import ADMIN, CLEAN, OPERATOR, SYSTEM, app_access, owner_access, rules_raw
+from salescall.core.call_report import Cut
+from tests.support import ADMIN, CLEAN, OPERATOR, SYSTEM, app_access, callback, make_report, owner_access, rules_raw
 from tests.test_gate import KEYS, Base, FakeDriver, dial_exit
 
 TALK = ["dialing", "answered", "in_conversation", "ending", "ended"]
 
 
 def rep(parties=("target",), *, dnc_=False, callback=None, cut=Cut("ai", True, False), not_reached=None):
-    return CallReport(tuple(parties), dnc_, False, False, False, not_reached, callback, cut)
+    return make_report(parties, dnc=dnc_, callback=callback, cut=cut, not_reached=not_reached)
 
 
 class SettleBase(Base):
@@ -121,7 +121,7 @@ class Settle(SettleBase):
                                                 " FROM salescall.dnc_entries WHERE source_attempt_id = %s", (aid,)))
         self.assertEqual(dnc_rows, [{"phone_e164": s["phone"], "client_ref": None, "reason": "fax_line"}])
         c = self.ready()
-        aid = self.call(c, report=CallReport(("target",), False, False, True, False, None, None, Cut("ai", True, False)),
+        aid = self.call(c, report=make_report(complaint=True),
                         items=[("Q1", "confirmed", None)])
         got = self.settle(c, aid)
         self.assertEqual(got["decision"].kind, "end")
@@ -187,8 +187,8 @@ class Settle(SettleBase):
 
     def test_callback_is_a_promised_schedule(self):
         s = self.ready()
-        at = self.tx(s, lambda tx: tx.one("SELECT now() + interval '2 hours' AS t")["t"])
-        aid = self.call(s, report=rep(callback=Callback("later", at, None, None, None)))
+        at = self.tx(s, lambda tx: tx.one("SELECT date_trunc('minute', now() + interval '2 hours') AS t")["t"])
+        aid = self.call(s, report=rep(callback=callback("later", at)))   # お客様が言った時刻（分まで）
         got = self.settle(s, aid)
         nxt = self.tx(s, lambda tx: next_action.current(tx, s["task"]))
         self.assertEqual((got["state"], nxt["kind"], nxt["promised"]), ("callback_scheduled", "call", True))

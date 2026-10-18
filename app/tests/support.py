@@ -53,6 +53,33 @@ def said(checked: int = 2, disagreed: int = 0) -> "VerificationSummary":
     return VerificationSummary(checked, disagreed, 1, (ForbiddenFinding("F1", "初月は無料です"),))
 
 
+def time_words(at) -> str:
+    """時刻を、お客様が言うような言葉にする（会話の報告のかけ直しの時刻。読むのは core/spoken_time）。日本の時刻で書く。"""
+    from salescall.core.spoken_time import JST
+    t = at.astimezone(JST)
+    hour = f"午前{t.hour}時" if t.hour < 12 else f"{t.hour}時"
+    return f"{t.month}月{t.day}日の{hour}{t.minute}分"
+
+
+def callback(reason: str, at=None, number: str | None = None, person: str | None = None, *, time: str | None = None):
+    """会話の報告のかけ直しの申し出（at＝時刻を言葉にして渡す。time＝言葉をそのまま渡す）。"""
+    from salescall.core.call_report import Callback, Said
+    return Callback(reason, time if time is not None else (None if at is None else time_words(at)), number, person,
+                    Said(3, "かけ直してください"))
+
+
+def make_report(parties=("target",), *, dnc: bool = False, oos: bool = False, complaint: bool = False,
+                not_reached: str | None = None, callback=None, cut="normal", apology_delivered: bool | None = None,
+                end: str | None = None):
+    """会話の報告（版3。通話の事実の形）を、試験の材料から作る。cut＝"normal" は、ふつうに締めた切れ方の材料。"""
+    from salescall.core.call_report import CallReport, Cut, End, Party, Said
+    ev = Said(2, "試験の発話")
+    return CallReport((ev,) if dnc else (), (ev,) if complaint else (), (ev,) if oos else (),
+                      tuple(Party(p, "report", Said(i, "試験の発話")) for i, p in enumerate(parties)),
+                      () if callback is None else (callback,), () if end is None else (End(end, ev),), not_reached,
+                      Cut("ai", True, False) if cut == "normal" else cut, apology_delivered)
+
+
 def rules_raw(required=("Q1",), *, decline=None, retry=None, handling=None) -> dict:
     """試験の業務の決まり（すべての組に宣言がある形）。既定：わからない＝日を改める、答えない＝結論「回答不可」、
     再発信は どれも「かけ直す（3回まで・1時間おき）」。"""

@@ -16,8 +16,9 @@ from salescall.core.gate import Claim
 
 class CallRunner(Protocol):
     """通話を最後まで進める部品（会話＝CL-1。電話接続の部品と組む）。発信の出口（dial_exit.dial）がかけたあとに呼ぶ。
-    試行の状態を終わりまで移し、報告を置く（attempts.move・call_report.save）。エラーは自分でエラーの入口（watch.after_error）へ
-    渡す。外へ出た誤りは、見守り役が「見守り役の誤り」として記録し、その試行を結果不明にする。"""
+    試行の状態を終わりまで移し、報告を置く（attempts.move・call_report.save。報告は版3＝通話の事実の形）。通話の途中で「もう
+    かけないで」の申告を聞いたら、その場で台帳へ入れる（dnc.register_declared。原則14）。エラーは自分でエラーの入口
+    （watch.after_error）へ渡す。外へ出た誤りは、見守り役が「見守り役の誤り」として記録し、その試行を結果不明にする。"""
 
     def run(self, access: Access, actor: Actor, claim: Claim, *, tenant_id: UUID, client_id: UUID) -> None: ...
 

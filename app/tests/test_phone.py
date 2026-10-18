@@ -10,6 +10,7 @@ import itertools
 import random
 import unittest
 
+from salescall.core import phone
 from salescall.core.phone import PhoneNumber, normalize
 
 FIXED = ("fixed", "+81300000001", "0300000001")
@@ -191,6 +192,46 @@ class UnknownIsNotGuessed(unittest.TestCase):
             for sep in ("", " ", "\n", "・", "-", "　", "　/　", "、", "　"):
                 with self.subTest(a=a, b=b, sep=repr(sep)):
                     self.assertEqual(normalize(a + sep + b).kind, "unknown")
+
+
+class Spoken(unittest.TestCase):
+    """お客様が電話で言った番号（会話の報告。CL-1 の連絡帳 4-22「番号は話し言葉のまま」）。"""
+
+    def test_digit_words_and_pauses(self):
+        for raw in ("ゼロサン、ゼロゼロゼロゼロのゼロゼロゼロイチ", "〇三の〇〇〇〇の〇〇〇一", "ぜろさん ぜろぜろぜろぜろ ぜろぜろぜろいち",
+                    "まるさんのまるまるまるまるのまるまるまるいち", "れいさん0000-0001", "03の0000の0001", "03、0000、0001"):
+            with self.subTest(raw=raw):
+                self.assertEqual(got(raw, spoken=True), FIXED)
+        self.assertEqual(got("ゼロキュウゼロのゼロゼロゼロゼロのゼロゼロゼロイチ", spoken=True), MOBILE)
+        n = normalize("ゼロキュウゼロのイチニーサンヨンのゴーロクナナハチ", spoken=True)
+        self.assertEqual(n.national, "09012345678")
+        n = normalize("ゼロロクのシチシチシチシチのキューキュークク", spoken=True)   # 「しち」を「し」＋「ち」にしない・「く」と「きゅー」
+        self.assertEqual(n.national, "0677779999")
+        self.assertEqual(normalize("にいち", spoken=True).reason, normalize("21").reason)   # 「に」＋「いち」（「にい」＋「ち」にしない）
+
+    def test_only_digit_words_are_read(self):
+        """位の言葉・ほかの言葉は直さない（残れば不明）。FAX は FAX。ふつうの読み（spoken でない）は、話し言葉を読まない。"""
+        for raw in ("ゼロサンの十二", "やまださんの番号", "ゼロサンのいちまん", "ファックスはゼロサンゼロゼロゼロゼロゼロゼロゼロイチ"):
+            with self.subTest(raw=raw):
+                self.assertEqual(normalize(raw, spoken=True).kind, "unknown")
+        self.assertIn("FAX", normalize("ファックスはゼロサンゼロゼロゼロゼロゼロゼロゼロイチ", spoken=True).reason)
+        self.assertEqual(normalize("ゼロサンゼロゼロゼロゼロゼロゼロゼロイチ").kind, "unknown")
+        self.assertEqual(normalize("03、0000、0001").kind, "unknown")
+
+    def test_two_spoken_numbers_never_become_one(self):
+        for a, b in itertools.product(("ゼロサンのゼロゼロゼロゼロのゼロゼロゼロイチ", "090の0000の0001"), repeat=2):
+            for sep in ("", "、", "の", " "):
+                with self.subTest(a=a, b=b, sep=sep):
+                    self.assertEqual(normalize(a + sep + b, spoken=True).kind, "unknown")
+
+    def test_longest_first_never_misreads(self):
+        """ある読みが別の読みの頭になっているとき、残りの字で始まる読みは無い（長いほうを先に当てても読み誤らない）。"""
+        words = list(phone._SPOKEN_DIGITS)
+        for short, long in itertools.permutations(words, 2):
+            if long.startswith(short):
+                rest = long[len(short):]
+                with self.subTest(short=short, long=long):
+                    self.assertFalse(any(w.startswith(rest[0]) for w in words))
 
 
 if __name__ == "__main__":

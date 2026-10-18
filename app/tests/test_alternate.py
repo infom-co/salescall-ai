@@ -12,12 +12,11 @@ import unittest
 import uuid
 from datetime import timedelta
 
-from salescall.core import attempts, calling_hours, dnc, gate, next_action, number_recheck, results, tasks
+from salescall.core import attempts, call_report, calling_hours, dnc, gate, next_action, number_recheck, results, tasks
 from salescall.core.access import Rejected
-from salescall.core.call_report import Callback
 from salescall.core.phone import normalize
-from tests.support import CLEAN, OPERATOR, SYSTEM, fictional_jp_fixed, owner_access
-from tests.test_settle import SettleBase, rep
+from tests.support import CLEAN, OPERATOR, SYSTEM, callback, fictional_jp_fixed, owner_access
+from tests.test_settle import FakeDriver, SettleBase, dial_exit, rep
 
 NO_ANSWER = ["dialing", "no_answer"]
 
@@ -27,9 +26,11 @@ def jp() -> str:
 
 
 def other(said, *, e164=True, at=None):
-    """「こちらの番号にかけ直して」の報告（番号は架空の日本の番号）。"""
-    return rep(("reception",), not_reached=None, callback=Callback(
-        "other_number", at, said, normalize(said).e164 if e164 else None, None))
+    """「こちらの番号にかけ直して」の報告（番号は架空の日本の番号。そろえた番号は、言ったままの番号から読む＝e164 は形の確かめ）。
+    at が無ければ「すぐ」（通話の時刻）。"""
+    assert (normalize(said, spoken=True).e164 is not None) == e164
+    return rep(("reception",), not_reached=None,
+               callback=callback("other_number", at, said, time=None if at is not None else "すぐ"))
 
 
 class Base(SettleBase):
@@ -47,10 +48,10 @@ class Base(SettleBase):
     def current(self, s):
         return self.tx(s, lambda tx: next_action.current(tx, s["task"]))
 
-    def redirect(self, s, said=None, *, at_plus="0 seconds", **kw):
-        """一覧の番号にかけ、受付で「こちらの番号に（at_plus のあと）かけ直して」と言われて締める。"""
+    def redirect(self, s, said=None, *, at_plus=None, **kw):
+        """一覧の番号にかけ、受付で「こちらの番号に（すぐ／at_plus のあと）かけ直して」と言われて締める。"""
         said = said or fictional_jp_fixed()
-        aid = self.call(s, report=other(said, at=self.now(s, at_plus), **kw))
+        aid = self.call(s, report=other(said, at=None if at_plus is None else self.now(s, at_plus), **kw))
         return said, aid, self.settle(s, aid)
 
 
@@ -189,10 +190,63 @@ class Flow(Base):
         for phone in (s["phone"], said):
             self.assertEqual(self.tx(s, lambda tx: dnc.lookup(tx, normalize(phone).e164))["ledger"], "client")
 
+    def declared_call(self, s, report, *, declare_twice=False, recheck=None):
+        """いまの予定の番号へかけ、通話の途中で「もうかけないで」の申告をその場で台帳へ入れ（register_declared）、
+        そのときの台帳を見てから、通話を終えて締める。返すもの：(申告のときに止まっていた番号, 締めの結果)。"""
+        c = self.claim(s)
+        self.assertTrue(dial_exit.dial(self.w.a, SYSTEM, s["tenant"], s["client"], c.attempt_id, FakeDriver()))
+        for st in ("answered", "in_conversation"):
+            self.tx(s, lambda tx: attempts.move(tx, c.attempt_id, st))
+        got = self.tx(s, lambda tx: dnc.register_declared(tx, c.attempt_id))
+        if declare_twice:
+            self.assertEqual(self.tx(s, lambda tx: dnc.register_declared(tx, c.attempt_id))["entry_id"], got["entry_id"])
+        stopped = {r["phone_e164"]: (r["reason"], r["source_attempt_id"]) for r in self.tx(s, lambda tx: tx.all(
+            "SELECT phone_e164, reason::text AS reason, source_attempt_id FROM salescall.dnc_entries"
+            " WHERE revoked_at IS NULL AND phone_e164 IS NOT NULL"))}
+        for st in ("ending", "ended"):
+            self.tx(s, lambda tx: attempts.move(tx, c.attempt_id, st))
+        self.tx(s, lambda tx: call_report.save(tx, c.attempt_id, report))
+        if recheck is not None:
+            self.tx(s, lambda tx: number_recheck.record(tx, c.attempt_id, recheck, corrected=None,
+                                                        evidence="試験：別の耳の文字と付け合わせた", checked_by="試験"))
+        self.tx(s, lambda tx: attempts.record_verification(tx, c.attempt_id, summary=CLEAN))
+        return c.attempt_id, stopped, self.settle(s, c.attempt_id)
+
+    def test_a_declaration_is_in_the_ledger_at_once_and_widened_at_settling(self):
+        """通話の途中の申告は、その場で、その通話の番号だけを台帳へ（原則14。CL-1 の 4-22）。行の番号すべてへ広げるのは締め。"""
+        s = self.ready_jp()
+        said, _, _ = self.redirect(s)                                       # 行：一覧の番号 ＋ お客様が言った番号（いまの予定）
+        aid, stopped, got = self.declared_call(s, rep(dnc_=True), declare_twice=True)
+        self.assertEqual(stopped, {normalize(said).e164: ("refused_in_call", aid)})   # その番号だけ（何度呼んでも1つ）
+        self.assertEqual(got["state"], "do_not_call")
+        for phone in (s["phone"], said):                                    # 締めで、行の番号すべてへ
+            self.assertEqual(self.tx(s, lambda tx: dnc.lookup(tx, normalize(phone).e164)),
+                             {"ledger": "client", "reason": "refused_in_call"})
+
+    def test_a_wrong_party_declaration_stops_only_that_number(self):
+        """申告した相手が番号違いの方だった：その番号の持ち主の断りなので、その番号だけ（行のお客様の番号へ広げない）。"""
+        s = self.ready_jp()
+        said, _, _ = self.redirect(s)
+        _, _, got = self.declared_call(s, rep(("wrong_party",), dnc_=True), recheck="as_said")
+        self.assertEqual(got["state"], "not_reached")
+        self.assertEqual(self.tx(s, lambda tx: dnc.lookup(tx, normalize(said).e164))["reason"], "refused_in_call")
+        self.assertIsNone(self.tx(s, lambda tx: dnc.lookup(tx, normalize(s["phone"]).e164)))
+
+    def test_no_declaration_without_a_callee(self):
+        s = self.ready_jp()
+        c = self.claim(s)
+        self.assertTrue(dial_exit.dial(self.w.a, SYSTEM, s["tenant"], s["client"], c.attempt_id, FakeDriver()))
+        with self.assertRaises(ValueError):                                 # 呼び出し中（お客様が出ていない）
+            self.tx(s, lambda tx: dnc.register_declared(tx, c.attempt_id))
+        with self.assertRaises(attempts.AttemptNotFound):
+            self.tx(s, lambda tx: dnc.register_declared(tx, uuid.uuid4()))
+        with self.assertRaises(ValueError):                                 # 広げない登録は、通話の申告の形だけ
+            self.tx(s, lambda tx: dnc.register(tx, s["phone"], "wrong_party", source_attempt_id=c.attempt_id, in_call=True))
+
     def test_refusal_in_the_same_call_also_stops_the_given_number(self):
         s = self.ready_jp()
         said = fictional_jp_fixed()
-        report = rep(("reception",), dnc_=True, callback=Callback("other_number", None, said, normalize(said).e164, None))
+        report = rep(("reception",), dnc_=True, callback=callback("other_number", None, said))
         got = self.settle(s, self.call(s, report=report))
         self.assertEqual(got["state"], "do_not_call")
         self.assertEqual(self.tx(s, lambda tx: dnc.lookup(tx, normalize(said).e164))["ledger"], "client")

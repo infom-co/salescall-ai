@@ -13,6 +13,10 @@
   `system_forbidden` が True。フリーダイヤル・ナビダイヤルなどを業務でかけてよいかは、core/target_policy.py が設定で決める
   （取込と門の両方が呼ぶ）。
 - 番号の決まりは、総務省の電話番号計画の一般的な形にもとづく（要確認：本番の前に、公式の番号計画で確かめる）。
+- お客様が電話で言った番号（会話の報告の、かけ直しの番号。CL-1 の連絡帳 4-22「番号は話し言葉のまま返す」）は `spoken=True` で読む：
+  数を1字ずつ読む言葉（「ゼロサン」「いちにーさんよん」「〇三」）を数字に、言葉の区切りの「の」「、」を区切りに直してから、
+  同じ決まりに当てる。**読み替えるのは、数を1字ずつ読む言葉と区切りだけ**（「十」「百」のような位の言葉・ほかの言葉は直さない＝
+  残れば「番号以外の文字」で不明）。区切りの「、」は2つの番号の印にしない（言葉の間の区切り。2つの番号は桁が合わずに不明になる）。
 """
 
 from __future__ import annotations
@@ -45,6 +49,15 @@ _LABEL = re.compile(r"^(?:TEL|Tel|tel|PHONE|Phone|phone|電話番号|電話|携�
 _FAX = re.compile(r"(FAX|Fax|fax|ファックス|ファクス|ファクシミリ)")
 _EXTENSION = re.compile(r"(内線|ext|Ext|EXT|extension|\d\s*#)")
 _MULTI = re.compile(r"([,/、;&~～〜]|\bor\b|\band\b|又は|または|及び|および|もしくは)")
+# 話し言葉の番号（spoken=True）：数を1字ずつ読む言葉（ひらがなにそろえてから、長い言葉を先に当てる：「しち」を「し」＋「ち」にしない）。
+# ⚠️ 伸ばす音は「ー」だけ（「にい」「ごお」は入れない：「にいち」＝「に」＋「いち」を「にい」＋「ち」と読み誤る）。
+#    ある言葉が別の言葉の頭になっているとき（「に」と「にー」・「し」と「しち」）、残りの字（「ー」「ち」）で始まる言葉は無い
+#    （あれば、長いほうを先に当てると読み誤る）＝試験 test_phone が確かめる
+_SPOKEN_DIGITS = {"ぜろ": "0", "れい": "0", "まる": "0", "いち": "1", "にー": "2", "に": "2", "さん": "3",
+                  "よん": "4", "しち": "7", "し": "4", "ごー": "5", "ご": "5", "ろく": "6", "なな": "7",
+                  "はち": "8", "きゅう": "9", "きゅー": "9", "く": "9"}
+_SPOKEN = re.compile("|".join(sorted(_SPOKEN_DIGITS, key=len, reverse=True)) + r"|[〇零一二三四五六七八九]|[のノ、,]")
+_KANJI_DIGITS = dict(zip("〇零一二三四五六七八九", "00123456789"))
 # 数字を含まない、かっこの注記（例：（代表）（携帯）（担当：山田））は取り除く
 _NOTE = re.compile(r"[\(\[【「〔][^\d\)\]】」〕]*[\)\]】」〕]")
 
@@ -78,15 +91,27 @@ def _is_separator(ch: str) -> bool:
     return cat.startswith("Z") or cat in ("Cc", "Cf", "Pd") or ch in _EXTRA_SEPARATORS
 
 
-def normalize(raw: str | None, *, leading_zero_lost: bool = False) -> PhoneNumber:
+def _spoken(text: str) -> str:
+    """話し言葉の番号の、数を1字ずつ読む言葉を数字に、区切りの言葉を空白に直す（ほかの文字はそのまま残す＝あとで不明になる）。"""
+    hira = "".join(chr(ord(c) - 0x60) if "ァ" <= c <= "ヶ" else c for c in text)
+    return _SPOKEN.sub(lambda m: " " if m.group() in "のノ、," else _SPOKEN_DIGITS.get(m.group()) or _KANJI_DIGITS[m.group()],
+                       hira)
+
+
+def normalize(raw: str | None, *, leading_zero_lost: bool = False, spoken: bool = False) -> PhoneNumber:
     """依頼者のファイルのままの番号を受け取り、そろえた番号と種類を返す。
 
     leading_zero_lost：表計算ソフトで数として保存され、先頭の 0 が消えたと**取込が列ごとに決めた**ときだけ True
     （1つの値だけを見て決めない。例：xlsx の数の型の列。DESIGN.md 3-4）。True のとき、0 で始まらない 9〜10 桁に 0 を足す。
+    spoken：お客様が電話で言った番号（会話の報告）。数を1字ずつ読む言葉と区切りの言葉を直してから読む（上の説明）。
     """
     if raw is None:
         return _unknown("番号がありません")
     text = unicodedata.normalize("NFKC", raw).strip()
+    if spoken:
+        if _FAX.search(text):
+            return _unknown("FAX と書かれています（FAX の番号には電話をかけません）")
+        text = _spoken(text).strip()
     m = re.fullmatch(r'=\s*"(.*)"', text)          # Excel の ="0312345678" の書き方
     if m:
         text = m.group(1).strip()

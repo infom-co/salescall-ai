@@ -117,7 +117,7 @@ class Apology(Helpers):
     def test_refusal_ends_and_registers_dnc(self):
         s = self.fresh(stage_cap=20)
         self.order(s, self.incident(s))
-        got = self.apology_call(s, do_not_call=True)
+        got = self.apology_call(s, refusals=rep(dnc_=True).refusals)
         self.assertEqual(got["decision"].end_reason, "do_not_call")
         self.assertEqual(self.tx(s, lambda tx: tx.one("SELECT count(*) AS n FROM salescall.dnc_entries"
                                                       " WHERE phone_e164 = %s", (s["phone"],)))["n"], 1)

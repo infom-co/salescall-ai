@@ -11,21 +11,24 @@ from datetime import datetime, timedelta, timezone
 
 from salescall.core import gate
 from salescall.core.business_rules import RulesInvalid, check
-from salescall.core.call_report import CallReport, Callback, Cut, ReportInvalid, from_json
+from salescall.core.call_report import CallReport, Cut, ReportInvalid, from_json
 from salescall.core.judge import Facts, Item, JudgeInput, classify_cut, judge
 from salescall.core.next_action import Alternate, AskAgain, Recheck, Target, choose_number, decide_after_call, decide_after_denial
-from tests.support import rules_raw
+from tests.support import callback, make_report, rules_raw
 
 V = uuid.uuid4()
 RULES = check(V, ("Q1", "Q2"), ("Q1", "Q2", "Q3"), rules_raw(("Q1", "Q2"), decline={"Q3": ["いりません"]}))
 NOW = datetime(2030, 1, 7, 10, 0, tzinfo=timezone.utc)
-TALKED = Facts("ended", None, True, False)
+TALKED = Facts("ended", None, True, False, NOW)
 TAKEN = {"Q1": Item("confirmed", None, None), "Q2": Item("accepted", "はい", None)}
+
+
+LATER = NOW + timedelta(hours=1)
 
 
 def report(parties=("target",), *, dnc=False, oos=False, complaint=False, not_reached=None, callback=None,
            cut=Cut("ai", True, False)) -> CallReport:
-    return CallReport(tuple(parties), dnc, oos, complaint, False, not_reached, callback, cut)
+    return make_report(parties, dnc=dnc, oos=oos, complaint=complaint, not_reached=not_reached, callback=callback, cut=cut)
 
 
 def run(*, facts=TALKED, rep=report(), items=None, refused_after=False, unclear_is_refusal=True):
@@ -42,11 +45,11 @@ class Order(unittest.TestCase):
             ("用件を断られた", dict(items={**TAKEN, "Q3": Item("accepted", "いりません", None)}), "declined"),
             ("すべて取れた", dict(), "completed"),
             ("答えない＝結論", dict(items={"Q1": Item("refused", None, "policy"), "Q2": TAKEN["Q2"]}), "concluded"),
-            ("かけ直しの約束", dict(items={}, rep=report(callback=Callback("later", NOW, None, None, None))), "callback_scheduled"),
+            ("かけ直しの約束", dict(items={}, rep=report(callback=callback("later", LATER))), "callback_scheduled"),
             ("目的のお客様に繋がらなかった", dict(items={}, rep=report(("reception",), not_reached="absent")), "not_reached"),
-            ("出なかった", dict(facts=Facts("no_answer", None, False, False), rep=None, items={}), "open"),
-            ("留守電だけ", dict(facts=Facts("ended", None, True, False), rep=report(("voicemail",), cut=None), items={}), "open"),
-            ("お客様が出る前の結果不明", dict(facts=Facts("technical_error", None, False, False), rep=None, items={}), "open"),
+            ("出なかった", dict(facts=Facts("no_answer", None, False, False, NOW), rep=None, items={}), "open"),
+            ("留守電だけ", dict(facts=Facts("ended", None, True, False, NOW), rep=report(("voicemail",), cut=None), items={}), "open"),
+            ("お客様が出る前の結果不明", dict(facts=Facts("technical_error", None, False, False, NOW), rep=None, items={}), "open"),
             ("一部だけ取れた", dict(items={"Q1": TAKEN["Q1"]}), "incomplete"),
             ("わからない＝日を改める", dict(items={"Q1": Item("dont_know", None, "undecided"), "Q2": TAKEN["Q2"]}), "incomplete"),
         ]
@@ -72,7 +75,7 @@ class Order(unittest.TestCase):
         2026-10-17：前日の「どれもが結論のときだけ」は扱いの表と食い違っていたので取り下げた）。"""
         refused_q1 = Item("refused", None, "policy")
         self.assertEqual(run(items={"Q1": refused_q1}).state, "concluded")
-        self.assertEqual(run(items={"Q1": refused_q1}, rep=report(callback=Callback("later", NOW, None, None, None))).state,
+        self.assertEqual(run(items={"Q1": refused_q1}, rep=report(callback=callback("later", LATER))).state,
                          "concluded")
         self.assertEqual(run(items={"Q1": Item("dont_know", None, "undecided")}).state, "incomplete")   # 扱いが「日を改める」
 
@@ -88,7 +91,7 @@ class Order(unittest.TestCase):
         ]:
             with self.subTest(name):
                 self.assertEqual(run(**kw).state, "unknown")
-        self.assertEqual(run(facts=Facts("technical_error", None, True, False), rep=None, items={}).state, "open")   # 落ちた通話
+        self.assertEqual(run(facts=Facts("technical_error", None, True, False, NOW), rep=None, items={}).state, "open")   # 落ちた通話
 
     def test_dnc_reasons_and_flags(self):
         self.assertEqual(run(rep=report(dnc=True)).dnc_reason, "refused_in_call")
@@ -113,9 +116,9 @@ class Order(unittest.TestCase):
         self.assertEqual(run(items={"Q1": TAKEN["Q1"]}).detail["policy_key"], "incomplete")
         self.assertEqual(run(items={}, rep=report(("reception",), not_reached="not_transferred")).detail["policy_key"],
                          "not_reached_not_transferred")
-        self.assertEqual(run(items={}, rep=report(callback=Callback("ask_who", None, None, None, "岡田"))).detail["policy_key"],
+        self.assertEqual(run(items={}, rep=report(callback=callback("ask_who", person="岡田"))).detail["policy_key"],
                          "callback_unspecified_time")
-        self.assertIsNone(run(items={}, rep=report(callback=Callback("later", NOW, None, None, None))).detail["policy_key"])
+        self.assertIsNone(run(items={}, rep=report(callback=callback("later", LATER))).detail["policy_key"])
 
     def test_same_input_same_result(self):
         kw = dict(items={"Q1": TAKEN["Q1"]})
@@ -126,7 +129,7 @@ class CutTable(unittest.TestCase):
     """7-1c（2026-10-14 ユーザー承認）。"""
 
     def test_each_row(self):
-        dropped = lambda side: Facts("dropped", side, True, False)
+        dropped = lambda side: Facts("dropped", side, True, False, NOW)
         rows = [
             ("締めのあと", dropped("callee"), Cut("ai", True, False), "normal"),
             ("断りの言葉のあと", dropped("callee"), Cut("none", False, True), "refused"),
@@ -141,9 +144,9 @@ class CutTable(unittest.TestCase):
                 self.assertEqual(classify_cut(facts, report(cut=cut)), expected)
 
     def test_only_conversations_with_people(self):
-        self.assertIsNone(classify_cut(Facts("dropped", "callee", True, False), report(("voicemail",), cut=Cut("ai", False, False))))
-        self.assertIsNone(classify_cut(Facts("no_answer", None, False, False), None))
-        self.assertEqual(classify_cut(Facts("dropped", "callee", True, False), report(cut=None)), "missing")
+        self.assertIsNone(classify_cut(Facts("dropped", "callee", True, False, NOW), report(("voicemail",), cut=Cut("ai", False, False))))
+        self.assertIsNone(classify_cut(Facts("no_answer", None, False, False, NOW), None))
+        self.assertEqual(classify_cut(Facts("dropped", "callee", True, False, NOW), report(cut=None)), "missing")
 
     def test_missing_cut_facts_are_an_input_error_not_a_refusal(self):
         """切れ方の材料の報告漏れで、ふつうに終えたお客様を営業拒否にしない（材料が無い ≠ 決められない）。"""
@@ -151,14 +154,14 @@ class CutTable(unittest.TestCase):
         self.assertEqual((j.state, j.dnc_reason, j.disconnect), ("unknown", None, None))
 
     def test_unclear_follows_the_setting(self):
-        unclear = dict(facts=Facts("dropped", "unknown", True, False), rep=report(cut=Cut(None, False, False)), items={})
+        unclear = dict(facts=Facts("dropped", "unknown", True, False, NOW), rep=report(cut=Cut(None, False, False)), items={})
         as_refusal = run(**unclear, unclear_is_refusal=True)
         as_recall = run(**unclear, unclear_is_refusal=False)
         self.assertEqual((as_refusal.state, as_refusal.disconnect), ("do_not_call", "refused"))
         self.assertEqual((as_recall.state, as_recall.disconnect), ("incomplete", "interrupted"))
 
     def test_refusing_cut_is_do_not_call(self):
-        j = run(facts=Facts("dropped", "callee", True, False), rep=report(cut=Cut("ai", False, False)), items={})
+        j = run(facts=Facts("dropped", "callee", True, False, NOW), rep=report(cut=Cut("ai", False, False)), items={})
         self.assertEqual((j.state, j.dnc_reason, j.disconnect), ("do_not_call", "refused_in_call", "refused"))
 
 
@@ -190,22 +193,22 @@ class AfterCall(unittest.TestCase):
 
     def test_callback(self):
         at = NOW + timedelta(hours=3)
-        d = after_call(dict(items={}, rep=report(callback=Callback("later", at, None, None, None))),
+        d = after_call(dict(items={}, rep=report(callback=callback("later", at))),
                        normal=gate.Pacing(0, NOW, None, False))
         self.assertEqual((d.kind, d.at, d.promised), ("call", at, True))      # 約束したかけ直しは回数の上限でも止めない
         later = NOW + timedelta(hours=5)
-        d = after_call(dict(items={}, rep=report(callback=Callback("later", at, None, None, None))),
+        d = after_call(dict(items={}, rep=report(callback=callback("later", at))),
                        promised=gate.Pacing(3, later, "cross_client_interval_other_tenant", True))
         self.assertEqual(d.at, later)                                          # 門の最も早い時刻より前にしない
-        d = after_call(dict(items={}, rep=report(callback=Callback("ask_who", None, None, None, "岡田"))))
+        d = after_call(dict(items={}, rep=report(callback=callback("ask_who", person="岡田"))))
         self.assertEqual((d.kind, d.at, d.promised), ("call", NOW + HOUR, True))
 
     def test_callee_named_time_is_kept_on_the_schedule(self):
         """お客様が言った時刻は予定に残る（NG時間でもかけてよい根拠）。門で止められても引き継ぐ。"""
         at = NOW + timedelta(hours=3)
-        d = after_call(dict(items={}, rep=report(callback=Callback("later", at, None, None, None))))
+        d = after_call(dict(items={}, rep=report(callback=callback("later", at))))
         self.assertEqual((d.at, d.callee_at), (at, at))
-        d = after_call(dict(items={}, rep=report(callback=Callback("ask_who", None, None, None, "岡田"))))
+        d = after_call(dict(items={}, rep=report(callback=callback("ask_who", person="岡田"))))
         self.assertIsNone(d.callee_at)                                         # 時刻を言われていない
         self.assertIsNone(after_call(dict(items={"Q1": TAKEN["Q1"]})).callee_at)
         d = decide_after_denial(gate.Denied("line_busy", *gate.REASONS["line_busy"]), current_promised=True,
@@ -241,7 +244,7 @@ class AfterCall(unittest.TestCase):
 
 class AlternateNumber(unittest.TestCase):
     """どの番号へかけるかは choose_number の1か所（DESIGN.md 3-5）。"""
-    OTHER = report(callback=Callback("other_number", NOW + timedelta(hours=1), "03-0000-0002", "+81300000002", None))
+    OTHER = report(callback=callback("other_number", NOW + timedelta(hours=1), "03-0000-0002"))
 
     def test_goes_to_the_number_the_callee_gave(self):
         d = after_call(dict(items={}, rep=self.OTHER), alternate=Alternate(ALT, True, None),
@@ -262,7 +265,7 @@ class AlternateNumber(unittest.TestCase):
         d = decide_after_call(j, normal=P_NONE, promised=P_NONE, rules=RULES, times_with_key=1,
                               now=NOW, retry_at=NOW + HOUR, target=choose_number(j, dialed=Target(ALT), alternate=None, recheck=None))
         self.assertEqual((d.kind, d.contact_id), ("call", ALT))
-        later = run(items={}, rep=report(callback=Callback("later", NOW, None, None, None)))
+        later = run(items={}, rep=report(callback=callback("later", LATER)))
         self.assertEqual(choose_number(later, dialed=Target(ALT), alternate=None, recheck=None), Target(ALT))
 
     def test_missing_material_is_an_error(self):
@@ -286,7 +289,7 @@ class WrongNumberTheCalleeGave(unittest.TestCase):
 
     @staticmethod
     def wrong(dialed_callee=True):
-        return run(facts=Facts("ended", None, True, dialed_callee), rep=report(("wrong_party",)), items={})
+        return run(facts=Facts("ended", None, True, dialed_callee, NOW), rep=report(("wrong_party",)), items={})
 
     def decide(self, recheck, *, dialed=Target(ALT)):
         j = self.wrong()
@@ -319,7 +322,7 @@ class WrongNumberTheCalleeGave(unittest.TestCase):
     def test_ask_again_keeps_its_purpose_while_nobody_answers(self):
         """2026-10-15 ユーザー：「時間帯により出られないことはよくある。3回までなどの制限をかけ、別の時間帯にかけ直す」。"""
         asking = Target(MAIN, None, "ask_number_again", ALT)
-        no_answer = run(facts=Facts("no_answer", None, False, False), rep=None, items={})
+        no_answer = run(facts=Facts("no_answer", None, False, False, NOW), rep=None, items={})
         self.assertEqual(choose_number(no_answer, dialed=asking, alternate=None, recheck=None), asking)
         later = NOW + timedelta(hours=3)
         decide = lambda ask: decide_after_call(no_answer, normal=gate.Pacing(0, NOW, None, False),
@@ -395,32 +398,66 @@ class Shapes(unittest.TestCase):
         self.assertEqual(check(V, ("Q1",), ("Q1",), good).required, ("Q1",))
 
     def test_report_rejects_wrong_shapes(self):
-        good = report(callback=Callback("later", NOW, None, None, None)).to_json()
-        self.assertEqual(from_json(good), report(callback=Callback("later", NOW, None, None, None)))
-        for cb in (Callback("other_number", None, "ゼロサン、ゼロゼロゼロゼロの…", None, None),     # そろえられない番号も受ける
-                   Callback("other_number", NOW, "03-0000-0001", "+81300000001", None)):
+        good = report(callback=callback("later", LATER), dnc=True, complaint=True).to_json()
+        self.assertEqual(from_json(good), report(callback=callback("later", LATER), dnc=True, complaint=True))
+        for cb in (callback("other_number", None, "ゼロサン、ゼロゼロゼロゼロの…"),     # そろえられない番号も受ける
+                   callback("other_number", LATER, "03-0000-0001"), callback("other_number"),   # 番号を聞けずに終わった
+                   callback("later", time="いつでも")):
             self.assertEqual(from_json(report(callback=cb).to_json()).callback, cb)
-        for name, change in [("知らない項目", {"extra": 1}), ("知らない電話口の種別", {"parties": ["boss"]}),
-                             ("版が違う", {"version": 99}), ("真偽でない", {"do_not_call": "no"}),
+        facts = good["facts"]
+        rec = {"turn": 1, "said": "あとでかけて"}
+        for name, change in [("知らない項目", {"extra": 1}), ("事実が無い", {"facts": None}),
+                             ("知らない事実の種類", {"facts": {**facts, "praise": [rec]}}),
+                             ("知らない電話口の種別", {"facts": {"party": [{**rec, "party": "boss", "by": "report"}]}}),
+                             ("種別の出どころが無い", {"facts": {"party": [{**rec, "party": "target"}]}}),
+                             ("版が違う", {"version": 2}), ("並びでない", {"facts": {"do_not_call": rec}}),
+                             ("根拠の発話の番号が無い", {"facts": {"do_not_call": [{"said": "もうかけないで"}]}}),
+                             ("根拠の発話の番号が負", {"facts": {"do_not_call": [{"turn": -1, "said": ""}]}}),
+                             ("根拠の発話の番号が真偽", {"facts": {"do_not_call": [{"turn": True, "said": ""}]}}),
+                             ("根拠の発話が長すぎる", {"facts": {"complaint": [{"turn": 1, "said": "あ" * 81}]}}),
+                             ("記録に知らない項目", {"facts": {"complaint": [{**rec, "level": 3}]}}),
+                             ("知らない締めた理由", {"facts": {"end": [{**rec, "reason": "bye"}]}}),
                              ("目的のお客様に繋がったのに理由", {"not_reached": "absent"}),
-                             ("時差の無い時刻", {"callback": {"reason": "later", "at": "2030-01-07T10:00:00",
-                                                         "number_said": None, "number_e164": None, "person": None}}),
-                             ("別の番号なのに番号が無い", {"callback": {"reason": "other_number", "at": None,
-                                                              "number_said": None, "number_e164": None, "person": None}}),
-                             ("別の番号なのに、言ったままの番号が無い", {"callback": {
-                                 "reason": "other_number", "at": None, "number_said": None, "number_e164": "+81300000001",
-                                 "person": None}}),
-                             ("別の番号でないのに番号がある", {"callback": {"reason": "later", "at": None,
-                                                                 "number_said": "03-0000-0001", "number_e164": None,
-                                                                 "person": None}}),
-                             ("言ったままの番号が空", {"callback": {"reason": "other_number", "at": None,
-                                                             "number_said": " ", "number_e164": None, "person": None}}),
-                             ("そろえていない番号", {"callback": {"reason": "other_number", "at": None,
-                                                           "number_said": "03-0000-0001", "number_e164": "03-0000-0001",
-                                                           "person": None}})]:
+                             ("別の番号でないのに番号がある", {"facts": {"callback": [
+                                 {**rec, "why": "later", "time": None, "number": "03-0000-0001", "person": None}]}}),
+                             ("言ったままの番号が空", {"facts": {"callback": [
+                                 {**rec, "why": "other_number", "time": None, "number": " ", "person": None}]}}),
+                             ("時刻の言葉が文字でない", {"facts": {"callback": [
+                                 {**rec, "why": "later", "time": 15, "number": None, "person": None}]}}),
+                             ("知らないかけ直しの理由", {"facts": {"callback": [
+                                 {**rec, "why": "soon", "time": None, "number": None, "person": None}]}})]:
             with self.subTest(name), self.assertRaises(ReportInvalid):
                 from_json({**good, **change})
 
+    def test_facts_are_read_in_one_place(self):
+        """判定が読むもの（申告・苦情・電話口の種別・かけ直し・急いでいたか）は、通話の事実から読む。そろえた番号は言ったままの番号から。"""
+        r = from_json({"version": 3, "not_reached": None, "cut": None, "apology_delivered": None, "facts": {
+            "party": [{"turn": 0, "said": "はい、山田商事です", "party": "reception", "by": "report"},
+                      {"turn": 2, "said": "お電話代わりました", "party": "target", "by": "report"}],
+            "callback": [{"turn": 4, "said": "携帯にお願いします", "why": "other_number", "time": None,
+                          "number": "ゼロキュウゼロのゼロゼロゼロゼロのゼロゼロゼロイチ", "person": None}],
+            "end": [{"turn": 5, "said": "急いでるので", "reason": "callee_hurry"}]}})
+        self.assertEqual((r.parties, r.do_not_call, r.complaint, r.out_of_scope, r.hurried, r.end_reason),
+                         (("reception", "target"), False, False, False, True, "callee_hurry"))
+        self.assertEqual((r.callback.reason, r.callback.number_e164), ("other_number", "+819000000001"))
+        self.assertFalse(from_json({**r.to_json(), "facts": {"end": [{"turn": 5, "said": "", "reason": "done"}]}}).hurried)
+
+    def test_callback_time_is_read_from_the_words(self):
+        """かけ直しの時刻は、お客様が言ったままの言葉を通話の時刻から読む（spoken_time の1か所）。読めない言葉は推し量らずに
+        判定できない（直す担当は CL-2）・時刻を決めない答えは、時刻の決まっていない約束。"""
+        j = run(items={}, rep=report(callback=callback("later", time="明日の午後3時")))   # 通話は日本の 2030-01-07 19:00
+        self.assertEqual((j.state, j.detail["callback"]["at"], j.detail["policy_key"]),
+                         ("callback_scheduled", "2030-01-08T15:00:00+09:00", None))
+        self.assertEqual(j.detail["callback"]["time_said"], "明日の午後3時")
+        j = run(items={}, rep=report(callback=callback("later", time="いつでも大丈夫です")))
+        self.assertEqual((j.state, j.detail["callback"]["at"], j.detail["policy_key"]),
+                         ("callback_scheduled", None, "callback_unspecified_time"))
+        j = run(items={}, rep=report(callback=callback("later", time="夕方")))
+        self.assertEqual((j.state, j.detail["unknown_cause"]), ("unknown", "callback_time_unreadable"))
+        from salescall.core.judge import UNKNOWN_CAUSE_FIXERS
+        self.assertEqual(UNKNOWN_CAUSE_FIXERS["callback_time_unreadable"], "CL-2")
+        # 拒否は、読めない時刻より先（発信禁止を、時刻の読み方の抜けで遅らせない）
+        self.assertEqual(run(items={}, rep=report(dnc=True, callback=callback("later", time="夕方"))).state, "do_not_call")
 
 
 class Causes(unittest.TestCase):

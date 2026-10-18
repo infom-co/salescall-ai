@@ -1,31 +1,43 @@
-"""会話から返る報告（試行ごとに1つ）。持ち主 CL-2（形は CL-1 の連絡帳 2-2「会話から返すもの」の仮の形・版 0.2）。
+"""会話から返る報告（試行ごとに1つ）。持ち主 CL-2（形は CL-1 の連絡帳 2-2「会話から返すもの」・版 0.4 の「通話の事実」）。
 
 - 形と確かめは、この1か所（`from_json`）。書く（`save`。書き込む入口 core/conversation_io.py から呼ぶ）ときも、
   読む（`load`。締めの処理 core/settle.py が読む）ときも、同じ確かめを通す。合わない報告は受け取らない（ReportInvalid）。
 - 「わからない」を既定値で埋めない（原則10）：分からないものは None のまま。判定が「決められない」として扱う。
-- 名前（電話口の種別など）は DESIGN.md 4-3・6-2・7-1c のもの。⚠️ 仮の形：CL-1 の会話の処理を app/ へ移すときに合わせて版を上げる。
-- 版 2 に足した項目（2026-10-16）：お詫びの電話で、文面を伝えられたか（apology_delivered。無ければ None）。
-- 版 2（2026-10-15）：別の番号のかけ直しに、お客様が言ったままの番号（number_said）を必ず持つ。そろえた番号（number_e164）は
-  そろえられたときだけ（内線つき・桁が足りないなど、そろえられない番号も、言われたことは記録して依頼者へ渡す。DESIGN.md 3-5）。
+- 名前（電話口の種別など）は DESIGN.md 4-3・6-2・7-1c のもの。
+- **版 3（2026-10-19。CL-1 の連絡帳 4-22）**：会話の側が決める事実を、CL-1 の「通話の事実」の形のまま受け取る（`facts`＝種類 →
+  起きた順の記録の並び。どの記録にも**根拠の発話**＝相手の発話の番号 `turn` とその文字 `said`（80字まで）。Intent.md 9-5・11-1）。
+  発信禁止の申告・苦情・範囲外の求め・電話口の種別・かけ直しの申し出・締めた理由。判定が読む「申告があったか」「電話口の種別の
+  並び」「かけ直し」などは、**この事実から読む**（`do_not_call`・`parties`・`callback` など。同じことを別の欄で二度受け取らない＝
+  食い違いようがない）。
+  - かけ直しの番号と時刻は、お客様が言ったまま（確かめ済みの言葉）を受け取る。番号をそろえるのは番号の正規化（Q1。
+    `phone.normalize(spoken=True)`）、時刻に直すのは `spoken_time.read`（判定が通話の時刻を起点に読む）。どちらも1か所。
+  - 版 2 から外したもの：急いでいて終えたか（締めた理由 `end` から読む＝`hurried`）・そろえた番号（言ったままの番号から読む）・
+    かけ直しの時刻（言ったままの言葉から読む）。
+- お詫びの電話で、文面を伝えられたか（apology_delivered。無ければ None。版 2 から）。
 """
 
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass
-from datetime import datetime
+from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
 from salescall.core.access import Tx
 from salescall.core.phone import normalize
 
-VERSION = 2
-PARTY_KINDS = ("unknown", "reception", "target", "voicemail", "ivr", "fax", "wrong_party")   # 4-3（区間ごと）
+VERSION = 3
+FACT_KINDS = ("do_not_call", "complaint", "out_of_scope", "party", "callback", "end")
+PARTY_KINDS = ("reception", "target", "voicemail", "ivr", "fax", "wrong_party")   # 4-3（区間ごと）
+PARTY_SOURCES = ("report", "signal")                     # 会話AIの報告で分かった／音・回線の信号で分かった
 CALLBACK_REASONS = ("absent", "other_number", "later", "ask_who", "ask_when", "our_promise")
 # 不在・別の番号・あとで（お客様に頼まれた。6-2）／分かるお客様・分かる時を聞いた（15-2-3 の a1・a2）／こちらが約束した
+END_REASONS = ("done", "callee_hurry", "callee_refused_call", "callee_complaint", "wrong_party", "voicemail", "ivr", "fax",
+               "callback")                               # 締めた理由（CL-1 の END_LABEL の名前）
+HURRIED_ENDS = frozenset({"callee_hurry", "callee_refused_call", "callee_complaint"})   # 急いでいる・断られた・怒っている（CL-1 の Flow.hurried と同じ）
 NOT_REACHED_REASONS = ("absent", "not_transferred")      # 目的のお客様に繋がらなかった理由（7-1）
 SPEAKERS = ("callee", "ai", "none")                      # 切れた瞬間に話していた側（7-1c）
+SAID_MAX = 80                                            # 根拠の発話の文字の長さの上限（CL-1 の _note と同じ）
 
 
 class ReportInvalid(Exception):
@@ -33,12 +45,38 @@ class ReportInvalid(Exception):
 
 
 @dataclass(frozen=True)
+class Said:
+    """根拠の発話：相手の発話の番号（通話の初めから数えた番号）と、その文字（会話AIの聞き取り。無ければ空）。"""
+    turn: int
+    said: str
+
+
+@dataclass(frozen=True)
+class Party:
+    party: str                   # 電話口の種別
+    by: str                      # report（会話AIの報告）／signal（音・回線の信号）
+    evidence: Said
+
+
+@dataclass(frozen=True)
 class Callback:
     reason: str
-    at: datetime | None          # かけ直す時刻（取れたときだけ。時差つき）
-    number_said: str | None      # 別の番号：お客様が言ったまま（reason = other_number のときは必ず要る。それ以外は持たない）
-    number_e164: str | None      # 別の番号：番号の正規化（Q1）でそろえた番号（そろえられたときだけ）
+    time_said: str | None        # かけ直す時刻：お客様が言ったまま（確かめ済み。取れなかったら None）。時刻に直すのは spoken_time.read
+    number_said: str | None      # 別の番号：お客様が言ったまま（確かめ済み。取れなかったら None。reason = other_number のときだけ）
     person: str | None           # 分かるお客様（a1）
+    evidence: Said
+
+    @property
+    def number_e164(self) -> str | None:
+        """番号の正規化（Q1）でそろえた番号（そろえられたときだけ。内線つき・桁が足りないなども、言ったままの番号は依頼者へ渡す。
+        DESIGN.md 3-5）。"""
+        return None if self.number_said is None else normalize(self.number_said, spoken=True).e164
+
+
+@dataclass(frozen=True)
+class End:
+    reason: str
+    evidence: Said
 
 
 @dataclass(frozen=True)
@@ -50,23 +88,63 @@ class Cut:
 
 @dataclass(frozen=True)
 class CallReport:
-    parties: tuple[str, ...]     # 区間ごとの電話口の種別（並び順）
-    do_not_call: bool            # 発信の拒否（営業拒否）の申告
-    out_of_scope: bool           # 範囲外の求めで終えた
-    complaint: bool              # 苦情・怒り
-    hurried: bool                # お客様が急いでいて終えた
-    not_reached: str | None      # 目的のお客様に繋がらなかった理由
-    callback: Callback | None
-    cut: Cut | None              # 切れ方の材料（お客様が出なかった通話は None）
+    # 通話の事実（CL-1 の facts。種類ごとに、起きた順の記録）
+    refusals: tuple[Said, ...]           # do_not_call：発信の拒否（営業拒否）の申告（原則14）
+    complaints: tuple[Said, ...]         # complaint：苦情・怒り
+    out_of_scope_requests: tuple[Said, ...]   # out_of_scope：範囲外の求めで終えた
+    party_reports: tuple[Party, ...]     # party：電話口の種別（区間ごと）
+    callbacks: tuple[Callback, ...]      # callback：かけ直しの申し出（いちばん新しいものが効く）
+    ends: tuple[End, ...]                # end：締めた理由（いちばん新しいものが効く）
+    # 会話の側の、そのほかの材料
+    not_reached: str | None              # 目的のお客様に繋がらなかった理由
+    cut: Cut | None                      # 切れ方の材料（お客様が出なかった通話は None）
     apology_delivered: bool | None = None   # お詫びの電話だけ：その通話で話したお客様に、文面を伝えられたか（10-1-2）
 
+    # ── 判定が読むもの（どれも事実から読む。ここの1か所）
+    @property
+    def do_not_call(self) -> bool:
+        return bool(self.refusals)
+
+    @property
+    def complaint(self) -> bool:
+        return bool(self.complaints)
+
+    @property
+    def out_of_scope(self) -> bool:
+        return bool(self.out_of_scope_requests)
+
+    @property
+    def parties(self) -> tuple[str, ...]:
+        return tuple(p.party for p in self.party_reports)
+
+    @property
+    def callback(self) -> Callback | None:
+        return self.callbacks[-1] if self.callbacks else None
+
+    @property
+    def end_reason(self) -> str | None:
+        return self.ends[-1].reason if self.ends else None
+
+    @property
+    def hurried(self) -> bool:
+        """お客様が急いでいる・通話を断られた・怒っている、で締めたか。"""
+        return self.end_reason in HURRIED_ENDS
+
     def to_json(self) -> dict[str, Any]:
-        d = asdict(self)
-        d["parties"] = list(self.parties)
-        if self.callback is not None and self.callback.at is not None:
-            d["callback"]["at"] = self.callback.at.isoformat()
-        d["version"] = VERSION
-        return d
+        def said(s: Said) -> dict[str, Any]:
+            return {"turn": s.turn, "said": s.said}
+        facts: dict[str, list[dict[str, Any]]] = {
+            "do_not_call": [said(s) for s in self.refusals],
+            "complaint": [said(s) for s in self.complaints],
+            "out_of_scope": [said(s) for s in self.out_of_scope_requests],
+            "party": [{**said(p.evidence), "party": p.party, "by": p.by} for p in self.party_reports],
+            "callback": [{**said(c.evidence), "why": c.reason, "time": c.time_said, "number": c.number_said,
+                          "person": c.person} for c in self.callbacks],
+            "end": [{**said(e.evidence), "reason": e.reason} for e in self.ends]}
+        return {"version": VERSION, "facts": {k: v for k, v in facts.items() if v}, "not_reached": self.not_reached,
+                "cut": None if self.cut is None else {"speaker": self.cut.speaker, "in_closing": self.cut.in_closing,
+                                                      "callee_refused_last": self.cut.callee_refused_last},
+                "apology_delivered": self.apology_delivered}
 
 
 def _bool(d: dict, key: str) -> bool:
@@ -93,44 +171,56 @@ def _keys(d: Any, allowed: set[str], where: str) -> dict:
     return d
 
 
+def _text(v: Any, key: str) -> str | None:
+    """言ったままの言葉（無ければ None。空の文字は受け取らない）。"""
+    if v is not None and (not isinstance(v, str) or not v.strip()):
+        raise ReportInvalid(f"{key} は、お客様が言ったままの言葉（文字）です")
+    return v
+
+
+def _records(facts: dict, kind: str, extra: set[str]) -> list[tuple[dict, Said]]:
+    """その種類の記録の並び（根拠の発話を確かめて取り出す）。"""
+    rows = facts.get(kind, [])
+    if not isinstance(rows, list):
+        raise ReportInvalid(f"facts.{kind} は記録の並びです")
+    out = []
+    for i, r in enumerate(rows):
+        where = f"facts.{kind}[{i}]"
+        r = _keys(r, {"turn", "said"} | extra, where)
+        turn, said = r.get("turn"), r.get("said")
+        if not isinstance(turn, int) or isinstance(turn, bool) or turn < 0:
+            raise ReportInvalid(f"{where}.turn は相手の発話の番号（0 以上の整数）です")
+        if not isinstance(said, str) or len(said) > SAID_MAX:
+            raise ReportInvalid(f"{where}.said は根拠の発話の文字（{SAID_MAX} 字まで）です")
+        out.append((r, Said(turn, said)))
+    return out
+
+
 def from_json(raw: Any) -> CallReport:
     """報告を確かめて読む（ただ1つの確かめ）。"""
-    d = _keys(raw, {"version", "parties", "do_not_call", "out_of_scope", "complaint", "hurried", "not_reached",
-                    "callback", "cut", "apology_delivered"}, "報告")
+    d = _keys(raw, {"version", "facts", "not_reached", "cut", "apology_delivered"}, "報告")
     if d.get("version") != VERSION:
         raise ReportInvalid(f"報告の版が違います（{d.get('version')!r}。この部品は {VERSION}）")
-    parties = d.get("parties")
-    if not isinstance(parties, list):
-        raise ReportInvalid("parties は並びです")
-    parties_t = tuple(_choice(p, PARTY_KINDS, "parties") for p in parties)
+    facts = _keys(d.get("facts"), set(FACT_KINDS), "facts")
+    refusals = tuple(s for _, s in _records(facts, "do_not_call", set()))
+    complaints = tuple(s for _, s in _records(facts, "complaint", set()))
+    oos = tuple(s for _, s in _records(facts, "out_of_scope", set()))
+    parties = tuple(Party(_choice(r.get("party"), PARTY_KINDS, "facts.party.party"),
+                          _choice(r.get("by"), PARTY_SOURCES, "facts.party.by"), s)
+                    for r, s in _records(facts, "party", {"party", "by"}))
+    callbacks = []
+    for r, s in _records(facts, "callback", {"why", "time", "number", "person"}):
+        reason = _choice(r.get("why"), CALLBACK_REASONS, "facts.callback.why")
+        number = _text(r.get("number"), "facts.callback.number")
+        if number is not None and reason != "other_number":
+            raise ReportInvalid("番号を持つのは、別の番号のかけ直しだけです")
+        callbacks.append(Callback(reason, _text(r.get("time"), "facts.callback.time"), number,
+                                  _text(r.get("person"), "facts.callback.person"), s))
+    ends = tuple(End(_choice(r.get("reason"), END_REASONS, "facts.end.reason"), s)
+                 for r, s in _records(facts, "end", {"reason"}))
     not_reached = _choice(d.get("not_reached"), NOT_REACHED_REASONS, "not_reached", optional=True)
-    if not_reached is not None and "target" in parties_t:
+    if not_reached is not None and any(p.party == "target" for p in parties):
         raise ReportInvalid("目的のお客様に繋がったのに、繋がらなかった理由があります")
-    cb = None
-    if d.get("callback") is not None:
-        c = _keys(d["callback"], {"reason", "at", "number_said", "number_e164", "person"}, "callback")
-        at = c.get("at")
-        if at is not None:
-            try:
-                at = datetime.fromisoformat(at)
-            except (TypeError, ValueError):
-                raise ReportInvalid("callback.at は時刻（ISO 8601）です") from None
-            if at.tzinfo is None:
-                raise ReportInvalid("callback.at は時差つきの時刻です")
-        said, number = c.get("number_said"), c.get("number_e164")
-        if said is not None and (not isinstance(said, str) or not said.strip()):
-            raise ReportInvalid("callback.number_said は、お客様が言ったままの番号（文字）です")
-        if number is not None and (not isinstance(number, str) or normalize(number).e164 != number):
-            raise ReportInvalid("callback.number_e164 は、番号の正規化（Q1）を通した番号です")
-        reason = _choice(c.get("reason"), CALLBACK_REASONS, "callback.reason")
-        if (reason == "other_number") != (said is not None):
-            raise ReportInvalid("別の番号のかけ直しには、お客様が言ったままの番号が要り、それ以外には番号を持ちません")
-        if number is not None and said is None:
-            raise ReportInvalid("そろえた番号だけがあって、お客様が言ったままの番号がありません")
-        person = c.get("person")
-        if person is not None and (not isinstance(person, str) or not person.strip()):
-            raise ReportInvalid("callback.person は名前です")
-        cb = Callback(reason, at, said, number, person)
     cut = None
     if d.get("cut") is not None:
         c = _keys(d["cut"], {"speaker", "in_closing", "callee_refused_last"}, "cut")
@@ -139,8 +229,7 @@ def from_json(raw: Any) -> CallReport:
     delivered = d.get("apology_delivered")
     if delivered is not None and not isinstance(delivered, bool):
         raise ReportInvalid("apology_delivered は true / false です")
-    return CallReport(parties_t, _bool(d, "do_not_call"), _bool(d, "out_of_scope"), _bool(d, "complaint"),
-                      _bool(d, "hurried"), not_reached, cb, cut, delivered)
+    return CallReport(refusals, complaints, oos, parties, tuple(callbacks), ends, not_reached, cut, delivered)
 
 
 def save(tx: Tx, attempt_id: UUID, report: CallReport) -> None:

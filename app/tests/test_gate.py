@@ -17,11 +17,11 @@ from unittest import mock
 
 from salescall.core import (approval, attempts, business_rules, calendar, call_report, dial_exit, dnc, gate, next_action,
                             quality_stage, recordings, settings, settle, stops, tasks)
-from salescall.core.call_report import CallReport, Cut
+from salescall.core.call_report import Cut
 from salescall.core.access import Rejected
 from salescall.core.calendar import CalendarOutOfRange, CalendarRejected
 from salescall.core.phone import normalize
-from tests.support import ADMIN, CLEAN, OPERATOR, SYSTEM, World, fictional_jp_fixed, owner_access, rules_raw
+from tests.support import ADMIN, CLEAN, OPERATOR, SYSTEM, World, fictional_jp_fixed, make_report, owner_access, rules_raw
 
 KEYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun", "holiday")
 ALL_DAY = {k: [["00:00", "24:00"]] for k in KEYS}
@@ -107,7 +107,7 @@ class Base(unittest.TestCase):
         if verify:
             self.tx(s, lambda tx: attempts.record_verification(tx, aid, summary=CLEAN))
         if "answered" in path:
-            rep = report or CallReport(("target",), False, False, False, False, None, None, Cut("ai", True, False))
+            rep = report or make_report()
             self.tx(s, lambda tx: call_report.save(tx, aid, rep))
         if settled and "dialing" in path:     # 予約だけで取り消した試行は、締める対象ではない
             self.tx(s, lambda tx: settle.settle(tx, aid))
@@ -416,8 +416,8 @@ class NotByCallee(Base):
     お客様と約束したかけ直し／通信の問題などで繋がらなかった／お客様の意思と関係なく切れた発信。"""
 
     def test_failed_or_interrupted_calls_do_not_count(self):
-        interrupted = CallReport(("target",), False, False, False, False, None, None, Cut("callee", False, False))
-        line_cut = CallReport(("target",), False, False, False, False, None, None, Cut(None, False, False))
+        interrupted = make_report(cut=Cut("callee", False, False))
+        line_cut = make_report(cut=Cut(None, False, False))
         for path, side, rep in ((["dialing", "call_failed"], None, None), (["dialing", "technical_error"], None, None),
                                 (["dialing", "answered", "dropped"], "unknown", interrupted),   # お客様の言葉が途中で途切れた
                                 (["dialing", "answered", "dropped"], "line", line_cut)):        # 回線の側で切れた
@@ -591,7 +591,7 @@ class ActiveConflicts(Base):
         run2 = self.w.run(x["tenant"], x["client"], x["business"], x["version"])
         y = self.w.task(x["tenant"], x["client"], run2, x["contact"])
         self.tx(x, lambda tx: next_action.schedule_now(tx, y, cause="試験"))
-        no_cut = CallReport(("target",), False, False, False, False, None, None, None)
+        no_cut = make_report(cut=None)
         self.past_attempt(x, ["dialing", "answered", "dropped"], side="callee", report=no_cut, verify="done")
         state = self.tx(x, lambda tx: tx.one("SELECT business_state FROM salescall.latest_task_results WHERE task_id = %s",
                                              (x["task"],)))["business_state"]
