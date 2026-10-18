@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from names import hira, quote, unvoiced
 from phrases import AMPM_ASK, CLOSE_DECLINED, CLOSING, LEAD_IN, NAME_READING_ASK
 from phrases import ask_again as ask_again_phrase
-from phrases import confirm as confirm_phrase
+from phrases import as_answer, confirm as confirm_phrase
 from phrases import lead_in as lead_in_phrase
 from units import supply_unit
 
@@ -259,7 +259,12 @@ AFTER = {"misheard": ("聞き違いのあと", "お詫びのあとの言い直�
          "unreported": ("聞き取りにくかったあと", "念のための言い直し", "hai"),
          # 受け入れにも断りにも取れる答え（「大丈夫です」）の意味を、AIが受け取ったほうで確かめる：
          # 「はい、」＋「念のためご予約はお済みということでよろしいでしょうか？」（DESIGN.md 6-10 の (3)）
-         "ambiguous": ("曖昧な答えのあと", "念のための言い直し", "hai")}
+         "ambiguous": ("曖昧な答えのあと", "念のための言い直し", "hai"),
+         # 言い切っていない最初の答え（「たぶん予約してます」）：答えとして受け取ってよいかを確かめる言い方
+         # 「はい、」＋「念のためご予約はお済みというご回答でよろしかったでしょうか？」（✅ 2026-10-18 ユーザー：「最初の答えが言い切って
+         # いなければ、今までどおり『〜という（ご回答という）ことでよろしかったでしょうか？』のような感じの方がいいかもしれませんね」）
+         "hedged": ("言い切っていない答えのあと", "念のための言い直し", "hai")}
+HEDGE_WHY = "言い切っていない答え"  # 確かめる理由の名前（言い直しの言い方を、曖昧な言葉の確かめと分ける。Flow._check_again）
 # 値を直されたとき、こちらの聞き違いか相手の言い間違いかは、プログラムが相手の言葉（会話AIの聞き取りの文字）から決める。
 # ✅ 2026-10-14 ユーザー決定（3つの案のうち「(a) プログラムが相手の言葉で見分ける」）。⛔ G-36 の2回目・3回目：AIに選ばせると、
 #    12本中12本「相手が言い直した」を選んだ（相手が「いや、16日って言ったんですけど。」と言っても）。
@@ -917,13 +922,13 @@ class Flow:
             # 言い切っていない答えは、その言葉だけで決めない（✅ ユーザー確定）。最初の答えだけに当てる（言い直しへの返事は、言い直した
             # 意味に寄っていれば、その答えに「曖昧」の印を付けて受け取る＝Flow._hedged。✅ 2026-10-18 ユーザー：「yes,but 曖昧」）。
             # 「わからない」「答えたくない」の報告には当てない（「たぶん分からないです」は、そのまま「わからない」）
-            return "曖昧な答え", reported
+            return HEDGE_WHY, reported
         for kind in ("judge", "judge2"):
             back = Flow._meaning_disagrees(q, reported, check.get(kind), confirming)
             if back:
                 return f"意味の判定（「{label(check[kind])}」）と食い違う", back
         if reported not in SYSTEM_CONDITIONS and not confirming and Flow._judged_unsure(check):
-            return "曖昧な答え（意味の判定が、言い切っていないと読んだ）", reported
+            return f"{HEDGE_WHY}（意味の判定が、言い切っていないと読んだ）", reported
         return None, None
 
     @staticmethod
@@ -999,7 +1004,7 @@ class Flow:
         if q.type in CHOICE_TYPES and back is not None:
             it.condition = back
         it.ambiguous_asked = True
-        return self._ask_confirm(qid, after="ambiguous")
+        return self._ask_confirm(qid, after="hedged" if why.startswith(HEDGE_WHY) else "ambiguous")
 
     def _take_system(self, qid: str, cond: str) -> dict:
         """相手が「わからない」「答えたくない」と答えた（答えの報告と、言い直しへの返事の、どちらからも来る）。"""
@@ -1333,7 +1338,7 @@ class Flow:
         if choice and words is None:
             # 選択肢の名前が返事の言葉だけ（「はい」「いいえ」）で、意味の言葉が取込で決まらなかった＝言い直せない（止めずに進める）。
             # 曖昧な答えは、言い直さずに聞き返す（聞き返しの回数と言い方は _ask_again の1か所）。それ以外は聞き取れた答えのまま受け付ける
-            if after == "ambiguous":
+            if after in ("ambiguous", "hedged"):
                 return self._ask_again(qid, "unclear", "曖昧な答え（言い直す言葉が無い）")
             it.set("accepted", "選択肢の型で、言い直す言葉が無い（聞き取れた答えのまま受け付ける）")
             return self._advance("受け付けました。")
@@ -1348,6 +1353,8 @@ class Flow:
         # 言い直す値：値の無い選択肢の型（はい／いいえなど。聞き返したあとは復唱する＝6-11）は、選んだ選択肢で言い直す。
         # ⛔ 2026-10-14 に見つけた穴：値だけを渡していたため、「Noneで、よろしいでしょうか。」という文を作っていた
         shown = words if choice else (it.value or label(it.condition))
+        if after == "hedged":
+            shown = as_answer(shown)
         if q.reading_of:
             shown = quote(it.value)
             it.tried_readings.append(it.value)

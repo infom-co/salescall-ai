@@ -2234,9 +2234,11 @@ class AmbiguousAnswerTest(unittest.TestCase):
 
         def why(t, reported="はい", policy=True, confirming=False):
             return Flow._compare(q, t or "", "affirmed" if confirming else reported, {}, policy=policy, confirming=confirming)[0]
-        for t in ("大丈夫です。", "結構です", "いいです。", "あ、大丈夫です。", "えーと、結構です。", "大丈夫です、大丈夫です。", "いいですよ。",
-                  "家族がしたかもしれないです。", "たぶんカードです。", "多分してます", "おそらくまだです", "したかも。"):  # 言い切っていない答え
+        from flowctl import HEDGE_WHY
+        for t in ("大丈夫です。", "結構です", "いいです。", "あ、大丈夫です。", "えーと、結構です。", "大丈夫です、大丈夫です。", "いいですよ。"):
             self.assertEqual(why(t), "曖昧な答え", t)
+        for t in ("家族がしたかもしれないです。", "たぶんカードです。", "多分してます", "おそらくまだです", "したかも。"):  # 言い切っていない答え
+            self.assertEqual(why(t), HEDGE_WHY, t)
         # 認める・打ち消す言葉が付いていれば、その言葉で決まる。「いいえ」は打ち消し。文字が無ければ決めない。「と思います」は言い切りの柔らかい形
         for t in ("はい、大丈夫です。", "いいえ。", "いえ、結構です。", "どちらでも大丈夫です。", "はい、予約しています。", "", None,
                   "カードがいいと思います。", "かもめ便でお願いします", "鴨川に住んでいます"):
@@ -2275,6 +2277,16 @@ class AmbiguousAnswerTest(unittest.TestCase):
         self.assertEqual(f.items["Q1"].state, "confirmed")
         self.assertEqual(f.export()["Q1"], "はい（曖昧）")
         self.assertEqual(f.export(hedged_mark="")["Q1"], "はい")  # 印の書き方は出力の設定で変えられる（7-1b）
+
+    def test_hedged_first_answer_asks_if_it_is_the_answer(self):
+        # ✅ 2026-10-18 ユーザー：言い切っていない最初の答えは「〜というご回答でよろしかったでしょうか？」の形で確かめる
+        f = self.flow()
+        r = self.say(f, "たぶんしてます。", "record_answer", question_id="Q1", condition_id="はい", value="たぶんしてます")
+        self.assertEqual(r["result"], "confirm_required")
+        self.assertEqual(r["say"], "念のためご予約はお済みというご回答でよろしかったでしょうか？")
+        # 受け入れにも断りにも取れる言葉の確かめは、今までどおり（「ご回答」を入れない）
+        r = self.say(self.flow(), "大丈夫です。", "record_answer", question_id="Q1", condition_id="はい", value="大丈夫です")
+        self.assertEqual(r["say"], "念のためご予約はお済みということでよろしいでしょうか？")
 
     def test_unsure_first_answer_is_confirmed(self):
         # 最初の答えは、意味の判定が言い切っていないと読めば、言い直して確かめる（言い切っていない答えの決まりと同じ）

@@ -9,7 +9,9 @@
    (B) 確かめる形：会話AIが選んだ答え（候補）を、お客様の言葉が裏付けるか。正しい答えと、受け取ると誤りになる答えの両方を候補として聞く
 線は、答えを半分に分けて半分（決める側）で選び、残りの半分（確かめる側）で数える（同じ答えで線を決めて数えると、数字が高めに出るため）。
 確からしさはすべて結果に残す（線を決め直すときに、問い合わせし直さなくてよい）。
+(C) 振り分けの形：選ぶ形に、はっきり度（score）と、難しい答えを見分ける問い（noul）を足し、線を満たさない答えは Claude Sonnet 5.5（考える）へ回す
 使い方：python jev_try.py            （問い合わせて数える。結果は results/G-53-jev2_*.json）
+        python jev_try.py --gates    （(C) を問い合わせて数える。結果は results/G-53-jev3_*.json）
         python jev_try.py --reuse 結果  （問い合わせずに数え直す）"""
 from __future__ import annotations
 
@@ -18,6 +20,8 @@ import json
 import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
+
+import httpx
 
 from common import HERE, base_parser, load_secret, require_python, save_result, say
 from flowctl import ANY, HANDOVER, HOLD, UNDECIDED
@@ -40,6 +44,28 @@ def verify_request(model: str, q, text: str, asked: str | None, cand: str) -> di
                           FIRM: {"type": "noul", "instructions": "お客様は、その答えを言い切っていますか？", "criteria": JEV_FIRM}}}
 
 
+# (C) 振り分けの形（✅ 2026-10-18 ユーザー：「scoreと組み合わせることで、このスコア以上ならJevで間違いなく正確というラインを決めて、日常利用を
+#     Jev、難しい判断はsonnetなどにするなどして、精度アップができませんか？」）：選ぶ形と同じ場面に、はっきり度（score）と、Jev が自信を持って
+#     誤った答えの種類（断りの「結構です」・電話を代わった人のあいさつ・条件付きの話）を見分ける問い（noul）を足す。どれかに当たれば上のモデルへ回す
+CLARITY = ["どの答えとも言えない", "どれかの答えに寄っているが、含みを残している", "答えをはっきり言い切っている"]
+GATES = {"decline": ("お客様は、こちらの申し出や確かめを断っていますか？",
+                     {"true": "断っている（「結構です」「いりません」「けっこうです」など、受け取らない・要らないと言っている）",
+                      "false": "断っていない"}),
+         "handover": ("この言葉は、電話を代わった別の人の名乗りやあいさつですか？",
+                      {"true": "電話を代わった人が、名乗りやあいさつをしている（「お電話代わりました」「〇〇でございます」など）",
+                       "false": "電話に出ているお客様が、質問に返事をしている"}),
+         "condition": ("お客様は、答えに条件や但し書きを付けていますか？",
+                       {"true": "ある条件のときだけの話をしている（「〜だと」「〜なら」「〜全体では」など）",
+                        "false": "条件を付けずに答えている"})}
+
+
+def gate_request(model: str, q, text: str, asked: str | None) -> dict:
+    body = jev_request(model, q, text, asked)
+    body["questions"] |= {"clarity": {"type": "score", "instructions": "お客様の答えは、どのくらいはっきりしていますか？", "criteria": CLARITY}}
+    body["questions"] |= {k: {"type": "noul", "instructions": ins, "criteria": cr} for k, (ins, cr) in GATES.items()}
+    return body
+
+
 def candidates(it: dict, q) -> dict:
     """確かめる形で聞く候補（中の名前）：正しい答え（値のとき）と、受け取ると誤りになる答え。"""
     ok = accept(it)
@@ -58,20 +84,28 @@ def half(it: dict) -> str:
     return "決める側" if h % 2 == 0 else "確かめる側"
 
 
-def ask_all(items: list[dict], qmap: dict, env) -> None:
+def ask_all(items: list[dict], qmap: dict, env, gates: bool = False) -> None:
     j = OTHER_JUDGES[NAME]
     key = load_secret(j["key"], env)
 
     def one(it: dict) -> None:
         q, client = qmap[it["qid"]], other_client(NAME, key)
-        jobs = [("A", jev_request(j["model"], q, it["text"], it.get("asked")))]
-        names = {c: n for n, _, c in options(q, it.get("asked"))}
-        for side, c in candidates(it, q).items():
-            jobs.append((f"B_{side}", verify_request(j["model"], q, it["text"], it.get("asked"), names[c]), c))
+        if gates:
+            jobs = [("C", gate_request(j["model"], q, it["text"], it.get("asked")))]
+        else:
+            jobs = [("A", jev_request(j["model"], q, it["text"], it.get("asked")))]
+            names = {c: n for n, _, c in options(q, it.get("asked"))}
+            for side, c in candidates(it, q).items():
+                jobs.append((f"B_{side}", verify_request(j["model"], q, it["text"], it.get("asked"), names[c]), c))
         for job in jobs:
             for attempt in range(5):
                 t = time.monotonic()
-                r = client.post("/api/v1/systemone", json=job[1])
+                try:
+                    r = client.post("/api/v1/systemone", json=job[1])
+                except httpx.HTTPError as exc:  # ⛔ 2026-10-18：1回の時間切れで測定全体が止まり、問い合わせた分が残らなかった ⇒ やり直す
+                    it[f"jev_{job[0]}"] = {"error": f"{type(exc).__name__}"}
+                    time.sleep(2 * 2 ** attempt)
+                    continue
                 if r.status_code == 429 or r.status_code >= 500:
                     time.sleep(float(r.headers.get("retry-after") or 0) or 2 * 2 ** attempt)
                     continue
@@ -134,6 +168,55 @@ def score_B(items, qmap, sup_min) -> Counter:
     return c
 
 
+BIG = "Claude Sonnet 5.5（考える）"   # 上へ回す先（同じ答えで測った読み＝SOURCE）
+
+
+def gated(it: dict, q, rule: dict) -> tuple[str | None, bool | None, bool]:
+    """(C) の振り分け：Jev のままでよいか（rule の線をすべて満たす）。満たさなければ上のモデルの読み。返り値＝(読み, 言い切っているか, 上へ回したか)。"""
+    a = (it.get("jev_C") or {}).get("answers") or {}
+    ch = a.get("choice") or {}
+    got = read(q, json.dumps({"choice": ch.get("choice")}, ensure_ascii=False), it.get("asked"))
+    clarity = (a.get("clarity") or {}).get("score")
+    ok = (got is not None and (ch.get("confidence") or 0) >= rule["conf"]
+          and (clarity is None or clarity >= rule["clarity"])
+          and all(((a.get(k) or {}).get("noul") or 0) < rule[k] for k in GATES))
+    if ok:
+        firm = (a.get(FIRM) or {}).get("noul")
+        return str(got), (firm is None or firm >= 0.2), False
+    return it.get(BIG), it.get(f"{BIG}言い切り"), True
+
+
+def score_C(items, qmap, rule) -> Counter:
+    c = Counter()
+    for it in items:
+        q = qmap[it["qid"]]
+        got, firm, up = gated(it, q, rule)
+        c["上へ回した"] += up
+        if got is None:
+            c["読めない"] += 1
+            continue
+        t = {**it, "j": got, "j言い切り": firm}
+        c["判定した"] += 1
+        c["正しい" if got in accept(it) else "⛔危ない" if dangerous(t, q, "j") else "確かめに回る"] += 1
+        secs = ((it.get("jev_C") or {}).get("秒") or 0) + ((it.get(f"{BIG}秒") or 0) if up else 0)
+        c["2秒以内"] += secs <= 2
+    return c
+
+
+RULES_C = {"確からしさだけ": {"conf": 0.8, "clarity": 0, "decline": 2, "handover": 2, "condition": 2},
+           "確からしさ＋はっきり度": {"conf": 0.8, "clarity": 1.5, "decline": 2, "handover": 2, "condition": 2},
+           "確からしさ＋見分ける問い": {"conf": 0.8, "clarity": 0, "decline": 0.5, "handover": 0.5, "condition": 0.5},
+           "全部": {"conf": 0.8, "clarity": 1.5, "decline": 0.5, "handover": 0.5, "condition": 0.5},
+           "全部（確からしさ0.9）": {"conf": 0.9, "clarity": 1.5, "decline": 0.5, "handover": 0.5, "condition": 0.5},
+           "全部（見分ける問いを厳しく）": {"conf": 0.8, "clarity": 1.5, "decline": 0.2, "handover": 0.2, "condition": 0.2},
+           "Sonnet だけ": {"conf": 2, "clarity": 0, "decline": 2, "handover": 2, "condition": 2}}
+
+
+def report_C(items, qmap) -> dict:
+    return {side: {name: dict(score_C([it for it in items if half(it) == side], qmap, rule)) for name, rule in RULES_C.items()}
+            for side in ("決める側", "確かめる側")}
+
+
 def report(items, qmap) -> dict:
     out = {}
     for side in ("決める側", "確かめる側"):
@@ -148,21 +231,25 @@ def main() -> None:
     require_python()
     p = base_parser(__doc__)
     p.add_argument("--reuse", help="前の結果（問い合わせずに数え直す）")
+    p.add_argument("--gates", action="store_true", help="(C) 振り分けの形だけを聞いて数える（結果は results/G-53-jev3_*.json）")
     args = p.parse_args()
     qmap = {q.id: q for q in g48_questions() + value_questions()}
     from g14_listen import business
     qmap |= {qid: business(qid).questions[0] for qid in ("Q1", "Q2", "Q3", "Q5")}
     src = args.reuse or str(HERE / SOURCE)
     items = [it for it in json.loads(open(src, encoding="utf-8").read())["items"] if it["set"] in "ABDE" and it["qid"] in qmap]
+    gates = args.gates or any("jev_C" in it for it in items)
     if not args.reuse:
         items = [{k: v for k, v in it.items() if not k.startswith("jev_")} for it in items]
-        ask_all(items, qmap, args.env)
-    cost = sum((it.get(k) or {}).get("cost") or 0 for it in items for k in ("jev_A", "jev_B_pos", "jev_B_neg"))
-    errors = sum(1 for it in items for k in ("jev_A", "jev_B_pos", "jev_B_neg") if (it.get(k) or {}).get("error"))
-    summary = {"答え": len(items), "料金（ドル）": round(cost, 4), "失敗": errors, "数え": report(items, qmap)}
+        ask_all(items, qmap, args.env, gates)
+    keys = ("jev_C",) if gates else ("jev_A", "jev_B_pos", "jev_B_neg")
+    cost = sum((it.get(k) or {}).get("cost") or 0 for it in items for k in keys)
+    errors = sum(1 for it in items for k in keys if (it.get(k) or {}).get("error"))
+    summary = {"答え": len(items), "料金（ドル）": round(cost, 4), "失敗": errors,
+               "数え": report_C(items, qmap) if gates else report(items, qmap)}
     say(json.dumps(summary, ensure_ascii=False, indent=1))
     if not args.reuse:
-        save_result("G-53-jev2", {"items": items, "summary": summary})
+        save_result("G-53-jev3" if gates else "G-53-jev2", {"items": items, "summary": summary})
 
 
 if __name__ == "__main__":
