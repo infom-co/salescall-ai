@@ -3426,5 +3426,20 @@ class JudgeSetupTest(unittest.TestCase):
         self.assertTrue(first(stripped))
 
 
+class G53LabelsTest(unittest.TestCase):
+    """G-53 の数え方：付け直した正解（g53_labels.json）を1か所（g53_meaning.accept）で使う。"""
+
+    def test_relabel_wins_and_undecided_equals_unknown(self):
+        from g53_meaning import accept, misread_as_affirmed
+        # ユーザー：「メールのほうが助かりますが…」は決められないではない＝言い直したメールを認めた（作らせた正解は決められない）
+        it = {"set": "D", "qid": "G17", "text": "メールのほうが助かりますが…", "asked": "念のためご連絡はメールでよろしいでしょうか？",
+              "truth": "決められない", "kind": "迷う", "asked_choice": "メール", "j": "メール"}
+        self.assertEqual(accept(it), ["メール"])
+        self.assertFalse(misread_as_affirmed(it, "j"))
+        # 付け直していない答え：「決められない」と「わからない」は同じに数える（どちらでも値は渡らない）
+        plain = {"set": "D", "qid": "G1", "text": "（付け直していない答え）", "asked": "x", "truth": "unknown"}
+        self.assertEqual(set(accept(plain)), {"決められない", "unknown"})
+
+
 if __name__ == "__main__":
     unittest.main()

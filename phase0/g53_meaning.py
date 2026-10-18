@@ -69,6 +69,26 @@ def truth(it: dict) -> str:
     return it["truth"]
 
 
+_LABELS: dict | None = None
+
+
+def accept(it: dict) -> list[str]:
+    """受け取ってよい読み（正解。数えるのはすべてここ）。付け直した正解（g53_labels.json）があればそれ、無ければ truth の1つ。
+    「決められない」と「わからない」は、どちらで受け取っても誤った値は渡らないので、同じに数える。
+    ⛔ 2026-10-18 ユーザー：「『メールのほうが助かりますが、電話でも大丈夫です』なら…決まらないではないですよね」＝作らせたモデルの付けた
+       正解を、中身を見ずに使っていた ⇒ CL-1 が1つずつ読んで付け直した（望みが言えていれば答え・事実がはっきりしなければ確かめる・
+       どちらとも言っていなければ決められない。境目は、どちらの読みも正解）"""
+    global _LABELS
+    if _LABELS is None:
+        p = HERE / "g53_labels.json"
+        _LABELS = json.loads(p.read_text(encoding="utf-8"))["labels"] if p.exists() else {}
+    got = _LABELS.get(f"{it['set']}|{it['qid']}|{it['text']}|{it.get('asked') or ''}")
+    if got:
+        return got["accept"]
+    want = truth(it)
+    return [UNDECIDED, "unknown"] if want in (UNDECIDED, "unknown") else [want]
+
+
 def g48_question(n: int, text: str, conditions: tuple, meanings: dict) -> Question:
     """G-48 の質問を、流れの制御の質問の形に（選択肢から選ぶ質問＝「どちら」「どれ」を聞く文。ほかは、はい／いいえの型）。"""
     kind = "choice" if ("どちら" in text or "どれ" in text) else "yes_no"
@@ -241,7 +261,7 @@ def set_a() -> list[dict]:
 def misread_as_affirmed(it: dict, key: str) -> bool:
     """言い直しへの返事を、認めていないのに認めたと読んだ（受け取ると誤りになる向き＝G-53 の決め手。数えるのも、先に判定させるのも、ここ）。"""
     got = it.get(key)
-    return it["set"] == "D" and got != truth(it) and (got == "affirmed" or got == it.get("asked_choice"))
+    return it["set"] == "D" and got not in accept(it) and (got == "affirmed" or got == it.get("asked_choice"))
 
 
 def dangerous(it: dict, q: Question, key: str) -> bool:
@@ -249,7 +269,7 @@ def dangerous(it: dict, q: Question, key: str) -> bool:
     if it["set"] == "D":
         return misread_as_affirmed(it, key)
     got = it.get(key)
-    return got != truth(it) and (got in q.conditions or got == ANY)
+    return got not in accept(it) and (got in q.conditions or got == ANY)
 
 
 def first(it: dict) -> bool:
@@ -271,7 +291,7 @@ def versus(items: list[dict], qmap: dict, key: str) -> dict:
         if dangerous(it, q, BASE):
             c["いまの判定が危ない向き"] += 1
             c["⇒ 候補が食い違う（確かめに回る）" if clash else "⇒ ⛔候補も食い違わない（そろって通る）"] += 1
-        elif b == truth(it):
+        elif b in accept(it):
             c["いまの判定が正しい"] += 1
             if clash:
                 c["⇒ 候補が食い違う（要らない確かめ）"] += 1
@@ -286,7 +306,7 @@ def pick_sample(items: list[dict], n: int) -> list[dict]:
     （⛔ 2026-10-18：組の順で流し、上限で止まって、決め手の15個のうち 3.6 Flash が判定できたのは1個だけだった）。"""
     import random
 
-    hard = [it for it in items if it["set"] in ("A", "E") or it.get("3.5 Flash Lite") != truth(it)]
+    hard = [it for it in items if it["set"] in ("A", "E") or it.get("3.5 Flash Lite") not in accept(it)]
     rest = [it for it in items if it not in hard]
     hard.sort(key=lambda it: not first(it))
     return hard + random.Random(53).sample(rest, min(n, len(rest)))
@@ -409,7 +429,7 @@ def tally(items: list[dict], judges) -> dict:
             if it.get("maker") == key:
                 continue  # 自分で作った答え
             got, want = it[key], truth(it)
-            res = "正しい" if got == want else ("決められない（確かめる）" if got == UNDECIDED else "⛔別の答え")
+            res = "正しい" if got in accept(it) else ("決められない（確かめる）" if got in (UNDECIDED, "unknown") else "⛔別の答え")
             label = {"B": "選択肢", "D": it.get("kind")}.get(it["set"], want)
             t[f"{it['set']}・{label}"][res] += 1
             t["全体"][res] += 1
@@ -418,8 +438,8 @@ def tally(items: list[dict], judges) -> dict:
         secs = sorted(it[f"{key}秒"] for it in items if it.get(f"{key}秒") is not None)
         out[key] = {"数え": {k: dict(v) for k, v in t.items()},
                     "かかった秒（中央・遅いほうから1割・最大）": [secs[len(secs) // 2], secs[int(len(secs) * 0.9)], secs[-1]] if secs else None,
-                    "⛔別の答えの例": [f"{it['qid']}「{it['text']}」正解={truth(it)} 判定={it[key]}" for it in items
-                                   if key in it and it[key] not in (truth(it), UNDECIDED)][:80]}
+                    "⛔別の答えの例": [f"{it['qid']}「{it['text']}」正解={accept(it)} 判定={it[key]}" for it in items
+                                   if key in it and it[key] not in accept(it) + [UNDECIDED, "unknown"]][:80]}
     return out
 
 

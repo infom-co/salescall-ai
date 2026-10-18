@@ -128,6 +128,12 @@ OTHER_JUDGES = {
     # 考える段を入れた形（2026-10-18：考えない形は「違います」を、言い直した意味を認めたと読む向きに 47 回誤った）
     "Claude Haiku 5.5（考える）": {"maker": "anthropic", "model": "claude-haiku-5-5", "key": "ANTHROPIC_JUDGE_KEY", "host": "api.anthropic.com",
                                  "think": "low"},
+    # Sonnet 5.5（2026-10-18 ユーザー：「Sonnet5.5でも試した方がいい」）：名前を指定した道具の呼び出しは断る（400）ので、返事の形を決めて
+    # JSON で返させる。考えない形は {"type": "between_tools"}（道具が無いので考える段が無い）
+    "Claude Sonnet 5.5": {"maker": "anthropic", "model": "claude-sonnet-5-5", "key": "ANTHROPIC_JUDGE_KEY", "host": "api.anthropic.com",
+                          "form": "json", "effort": "low", "thinking": {"type": "between_tools"}},
+    "Claude Sonnet 5.5（考える）": {"maker": "anthropic", "model": "claude-sonnet-5-5", "key": "ANTHROPIC_JUDGE_KEY",
+                                  "host": "api.anthropic.com", "form": "json", "effort": "low", "thinking": {"type": "adaptive"}},
     "GPT-6 Luna": {"maker": "openai", "model": "gpt-6-luna", "key": "OPENAI_JUDGE_KEY", "host": "api.openai.com"},
 }
 OPENAI_EFFORT = "low"  # 考える量（速さの公開の数字は low で約1.5秒。高くすると十数秒〜）
@@ -154,6 +160,11 @@ def other_request(name: str, q, text: str, asked: str | None) -> dict:
         if j.get("think"):  # 名前を指定した呼び出しは考える段を飛ばすので、道具は任せ、考える量を決め、道具で答えるように言う
             body |= {"max_tokens": 4096, "tool_choice": {"type": "auto"}, "output_config": {"effort": j["think"]},
                      "system": "選んだものは、必ず道具 answer で返してください。"}
+        if j.get("form") == "json":  # 道具を使わず、返事の形（選べるものの名前だけ）を決めて返させる
+            # ⚠️ 断られたときに別のモデルへ回す仕組み（fallbacks）は入れない：測っているモデルの答えに、別のモデルの答えが混ざるため
+            #    （断られたら読めない返事＝None として数える）
+            body = {"model": j["model"], "max_tokens": 4096, "messages": [{"role": "user", "content": p}], "thinking": j["thinking"],
+                    "output_config": {"effort": j["effort"], "format": {"type": "json_schema", "schema": _schema(q, asked)}}}
         return body
     return {"model": j["model"], "input": p, "reasoning": {"effort": OPENAI_EFFORT}, "max_output_tokens": 2000,
             "text": {"format": {"type": "json_schema", "name": "answer", "schema": _schema(q, asked), "strict": True}}}
@@ -162,6 +173,8 @@ def other_request(name: str, q, text: str, asked: str | None) -> dict:
 def other_text(name: str, data: dict) -> str | None:
     """Google 以外の判定の返事から、read に渡す文字（{"choice": 名前}）。"""
     if OTHER_JUDGES[name]["maker"] == "anthropic":
+        if OTHER_JUDGES[name].get("form") == "json":
+            return next((c.get("text") for c in data.get("content") or [] if c.get("type") == "text"), None)
         got = next((c.get("input") for c in data.get("content") or [] if c.get("type") == "tool_use"), None)
         return json.dumps(got, ensure_ascii=False) if got else None
     return next((c.get("text") for o in data.get("output") or [] for c in o.get("content") or [] if c.get("type") == "output_text"), None)
