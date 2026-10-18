@@ -25,7 +25,7 @@ from uuid import UUID
 
 import psycopg
 import psycopg.conninfo
-from psycopg import IsolationLevel, errors
+from psycopg import IsolationLevel, errors, sql
 from psycopg.rows import dict_row
 
 T = TypeVar("T")
@@ -106,6 +106,40 @@ def snapshot(conninfo: str) -> Iterator[tuple[str, Tx]]:
         with conn.transaction():
             row = conn.execute("SELECT pg_export_snapshot() AS s").fetchone()
             yield row["s"], Tx(conn)
+
+
+def login_conninfo(base_conninfo: str, role: str, password: str) -> str:
+    """契約者の合言葉の接続文字（core/logins.py だけが使う）：base の接続先（場所・データベース）に、その契約者の役と合言葉を入れる。"""
+    d = psycopg.conninfo.conninfo_to_dict(base_conninfo)
+    d.update(user=role, password=password)
+    return psycopg.conninfo.make_conninfo(**d)
+
+
+class Provisioner:
+    """契約者ごとの合言葉（データベースのログインの役）を作る・替える・使えなくする（core/logins.py だけが使う。払い出し専用の役
+    salescall_provisioner の接続。DESIGN.md 11章）。合言葉は、平文でデータベースへ送らない（ここで作った確かめの値だけを送る＝
+    データベースの記録に合言葉が残らない）。"""
+
+    def __init__(self, conninfo: str) -> None:
+        self._conninfo = conninfo
+
+    def set_login(self, role: str, verifier: str) -> None:
+        """役が無ければ作り（システムの役の権限を受け継ぐ）、あれば合言葉を替えて、つなげるようにする。"""
+        with psycopg.connect(self._conninfo, autocommit=True) as conn:
+            exists = conn.execute("SELECT 1 FROM pg_roles WHERE rolname = %s", (role,)).fetchone() is not None
+            if exists:
+                conn.execute(sql.SQL("ALTER ROLE {} LOGIN PASSWORD {}").format(sql.Identifier(role), sql.Literal(verifier)))
+            else:
+                conn.execute(sql.SQL("CREATE ROLE {} LOGIN PASSWORD {} NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE"
+                                     " IN ROLE salescall_app").format(sql.Identifier(role), sql.Literal(verifier)))
+
+    def disable_login(self, role: str) -> bool:
+        """役を、つなげないようにする（契約が終わったとき）。役が無ければ False。"""
+        with psycopg.connect(self._conninfo, autocommit=True) as conn:
+            if conn.execute("SELECT 1 FROM pg_roles WHERE rolname = %s", (role,)).fetchone() is None:
+                return False
+            conn.execute(sql.SQL("ALTER ROLE {} NOLOGIN").format(sql.Identifier(role)))
+            return True
 
 
 def tool_connection(conninfo: str) -> tuple[str, dict[str, str]]:

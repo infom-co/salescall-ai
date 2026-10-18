@@ -5,7 +5,10 @@
 
 - **印を付け外しするのは `mark` の1か所**。入口は2つ：一覧の取込の「かけない」の列（core/importer.py が呼ぶ）と、ダッシュボードの
   レ点・一括（画面＝CL-3 が呼ぶ。管理者か契約者だけ＝データベースが守る）。記録は足していく（最新が正本。戻した記録も残る）。
-- **行がいま「かけない」かは、データベースの1か所**（`salescall.task_excluded`）。門（理由 excluded）も、候補を出す処理も、これを読む。
+- **行がいま「かけない」かは、データベースの1か所**（`salescall.task_excluded`）。**かけるのを止めるかは `salescall.task_excluded_now`**
+  （「かけない」の印があり、次の予定が営業として新しくかける電話のとき＝`salescall.is_new_call`）。門（理由 excluded）も、候補を
+  出す処理も、これを読む。お詫びの電話・途中で切れたあとのかけ直し・お客様と約束したかけ直しは「かけない」の例外＝かける（2026-10-18
+  ユーザー：「かけないことを除外ということなので、その3つは途中でかけないに切り替えてもかけるという意味ですよ」）。
 - 発信禁止とは別のもの：発信禁止はお客様（番号）を止め、自動では戻さない。「かけない」は依頼者・契約者の都合でその行をかけないで
   おく印で、ダッシュボードで戻せる（戻したら、ふつうにかける）。
 - 「かけない」を付けた取引の中で、その行のまだ発信していない予約を取り消す（DESIGN.md 5-2-1 の2）。
@@ -55,7 +58,8 @@ def mark(tx: Tx, task_ids: list[UUID], *, excluded: bool, reason: str, source: s
                    (task_id, excluded, reason, source, import_id))
     if excluded and changed:
         attempts.release(tx, [r["attempt_id"] for r in tx.all(
-            "SELECT attempt_id FROM salescall.attempts WHERE task_id = ANY(%s) AND state = 'claimed'", (changed,))])
+            "SELECT attempt_id FROM salescall.attempts WHERE task_id = ANY(%s) AND state = 'claimed'"
+            "   AND salescall.is_new_call(purpose, promised)", (changed,))])   # 例外の3つの予約は取り消さない
     return changed
 
 

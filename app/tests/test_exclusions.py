@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import unittest
 
-from salescall.core import exclusions, gate, importer, scheduler
+from salescall.core import attempts, exclusions, gate, importer, next_action, scheduler
 from salescall.core.access import Rejected
 from salescall.core.import_files import Cell, read
 from tests.support import OPERATOR, SYSTEM, fictional_jp_fixed, owner_access
@@ -58,6 +58,28 @@ class Marks(Base):
         with self.assertRaises(Rejected):
             owner_access().in_client(OPERATOR, s["tenant"], s["client"], lambda tx: tx.execute(
                 "UPDATE salescall.task_exclusions SET excluded = true WHERE task_id = %s", (s["task"],)))
+
+
+    def test_apologies_resumes_and_promised_calls_are_made_even_on_a_row_set_to_do_not_call(self):
+        """途中で「かけない」に変えても、お客様と約束したかけ直し（お詫び・途中で切れたあとのかけ直しも同じ決まり）はかける
+        （2026-10-18 ユーザー：「かけないことを除外ということなので、その3つは途中でかけないに切り替えてもかけるという意味ですよ」）。
+        まだ発信していない、その予約も取り消さない。"""
+        s = self.ready()
+        self.tx(s, lambda tx: next_action.schedule_call(tx, s["task"], tx.one("SELECT now() AS t")["t"],
+                                                        contact_id=s["contact"], cause="試験", promised=True))
+        promised = self.claim(s)
+        self.assertIsInstance(promised, gate.Claim)
+        self.tx(s, lambda tx: exclusions.mark(tx, [s["task"]], excluded=True, reason="依頼者の都合"), OPERATOR)
+        state = self.tx(s, lambda tx: tx.one("SELECT state::text AS s FROM salescall.attempts WHERE attempt_id = %s",
+                                             (promised.attempt_id,)))["s"]
+        self.assertEqual(state, "claimed")                                    # 約束したかけ直しの予約は残す
+        self.tx(s, lambda tx: attempts.release(tx, [promised.attempt_id]))
+        self.assertIn(s["task"], [t["task_id"] for t in self.tx(s, lambda tx: scheduler.due_tasks(tx, 50))])
+        self.assertIsInstance(self.claim(s), gate.Claim)                      # 印があっても、約束したかけ直しはかける
+        with self.subTest("決まりは1か所"):
+            got = self.tx(s, lambda tx: [tx.one("SELECT salescall.is_new_call(%s, %s) AS n", a)["n"] for a in (
+                ("normal", False), ("ask_number_again", False), ("apology", False), ("resume", False), ("normal", True))])
+            self.assertEqual(got, [True, True, False, False, False])
 
 
 class ImportColumn(Base):

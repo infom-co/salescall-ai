@@ -120,7 +120,7 @@ def run(environ: dict[str, str], line_id: str, holder: str, stop: Any) -> None:
 def _loop(cfg: config.Config, access: Access, line: UUID, holder: str, stop: Any) -> None:
     driver = plugins.load(cfg.line_driver, line)
     runner = plugins.load(cfg.call_runner, line)
-    pause = int(access.in_system(ACTOR, lambda tx: settings.system_value(tx, "gate.denied_retry_wait")))
+    pause = int(access.in_tenant(ACTOR, cfg.tenant_id, lambda tx: settings.system_value(tx, "gate.denied_retry_wait")))
     while not stop.is_set():
         try:
             if emergency.engaged() is not None:   # 本番の PC の緊急停止の印（出口も見るが、候補を出す前に休む）

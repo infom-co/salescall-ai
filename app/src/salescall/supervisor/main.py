@@ -148,7 +148,7 @@ class Supervisor:
                 if line_id not in self.workers and not line_in_use_here(line_id):
                     self._launch(line_id, fails=0, now=now)
         try:
-            self._renew_every = float(self.access.in_system(ACTOR, leases.renew_every))
+            self._renew_every = float(self.access.in_tenant(ACTOR, self.cfg.tenant_id, leases.renew_every))
         except Exception as e:  # noqa: BLE001 読めなければ、前に読めた値（無ければ短い間）で次に試す
             report(self.access, self.cfg.tenant_id, "延ばす間隔の読み出し", e)
         self._next_renew = now + (self._renew_every or RENEW_FALLBACK)

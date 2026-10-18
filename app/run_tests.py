@@ -63,6 +63,9 @@ def _throwaway_cluster() -> Iterator[str]:
     port = "54329"
     subprocess.run(prefix + [str(bindir / "initdb"), "-D", str(data), "-U", "postgres", "--auth=trust",
                              "--encoding=UTF8", "--locale=C", "-N"], check=True, capture_output=True)
+    # 契約者の合言葉（salescall_t_…）だけは、合言葉を本当に確かめる（払い出した合言葉でつなげることを試す。core/logins.py）
+    hba = data / "pg_hba.conf"
+    hba.write_text("local all /^salescall_t_ scram-sha-256\n" + hba.read_text())
     subprocess.run(prefix + [str(bindir / "pg_ctl"), "-D", str(data), "-w", "-l", str(tmp / "log"), "-o",
                              f"-c listen_addresses='' -k {sock} -p {port} -c fsync=off", "start"],
                    check=True, capture_output=True)
@@ -433,6 +436,40 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      " SELECT DISTINCT x.tenant_id FROM salescall.lines x WHERE x.lease_holder IS NOT NULL"
      " AND x.lease_expires_at < now() - p_expired_for $$",
      ("tests.test_supervisor.Recovery.test_the_periodic_cleanup_leaves_its_own_lines_and_the_admin_pc_cleans_stale_ones",)),
+    # 契約者ごとの合言葉（11章・0077。2026-10-18 ユーザー決定）
+    ("契約者の合言葉を、データベースが見分けない（ほかの契約者・全体の取引を開ける・管理者として動ける）",
+     "CREATE OR REPLACE FUNCTION salescall.login_tenant() RETURNS uuid LANGUAGE sql STABLE AS $$ SELECT NULL::uuid $$",
+     ("tests.test_logins.Scope.test_a_contractor_login_reaches_only_that_contractor",)),
+    ("契約者の取引から、祝日の暦を書ける",
+     "DROP TRIGGER calendar_loads_by_system ON salescall.calendar_loads",
+     ("tests.test_logins.Scope.test_a_contractor_login_reaches_only_that_contractor",)),
+    ("契約者の合言葉で、全体の仕事・ほかの契約者の仕事を借りられる",
+     "CREATE OR REPLACE FUNCTION salescall.take_job(p_key text, p_holder text, p_seconds integer) RETURNS boolean"
+     " LANGUAGE plpgsql SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ DECLARE got text; BEGIN"
+     " INSERT INTO salescall.job_leases AS j (job_key, holder, expires_at) VALUES (p_key, p_holder,"
+     " now() + make_interval(secs => p_seconds)) ON CONFLICT (job_key) DO UPDATE SET holder = EXCLUDED.holder,"
+     " expires_at = EXCLUDED.expires_at WHERE j.expires_at < now() OR j.holder = EXCLUDED.holder RETURNING holder INTO got;"
+     " RETURN got IS NOT NULL; END $$",
+     ("tests.test_logins.Scope.test_a_contractor_login_reaches_only_that_contractor",)),
+    ("時給の数え方で、ほかの契約者の依頼者の通話を数える",
+     "CREATE OR REPLACE FUNCTION salescall.work_seconds(p_from timestamptz, p_to timestamptz)"
+     " RETURNS TABLE (at timestamptz, seconds numeric) LANGUAGE sql STABLE SECURITY DEFINER"
+     " SET search_path = salescall, pg_temp AS $$ SELECT a.claimed_at, extract(epoch FROM a.ended_at - a.claimed_at)"
+     " FROM salescall.attempts a WHERE a.client_id = salescall.cur_client() AND a.ended_at IS NOT NULL $$",
+     ("tests.test_logins.Scope.test_a_contractor_login_reaches_only_that_contractor",)),
+    ("契約者が、合言葉を払い出せる",
+     "DROP TRIGGER tenant_login_event_guard ON salescall.tenant_login_events",
+     ("tests.test_logins.Issue.test_only_the_admin_or_the_system_issues_and_the_password_is_never_shown",)),
+    # 「かけない」の例外と、営業として新しくかける電話か（3-4-2・5-2 の7b・0078。2026-10-18 ユーザー）
+    ("「かけない」の行の、お客様と約束したかけ直しを止める",
+     "CREATE OR REPLACE FUNCTION salescall.task_excluded_now(p_task uuid) RETURNS boolean LANGUAGE sql STABLE AS"
+     " $$ SELECT salescall.task_excluded(p_task) $$",
+     ("tests.test_exclusions.Marks.test_apologies_resumes_and_promised_calls_are_made_even_on_a_row_set_to_do_not_call",)),
+    ("お詫び・かけ直し・約束したかけ直しも、業務の上限で止める",
+     "CREATE OR REPLACE FUNCTION salescall.is_new_call(p_purpose text, p_promised boolean) RETURNS boolean"
+     " LANGUAGE sql IMMUTABLE AS $$ SELECT true $$",
+     ("tests.test_gate.BusinessDailyLimit.test_the_limit_counts_the_business_dials_of_today_and_skips_promised_calls",
+      "tests.test_exclusions.Marks.test_apologies_resumes_and_promised_calls_are_made_even_on_a_row_set_to_do_not_call")),
     # 誤判定率を通話ごとに（10-3・0074。2026-10-18 の見直し）
     ("誤判定率の正解の出どころを、呼ぶ側が偽れる",
      "CREATE OR REPLACE FUNCTION salescall.judgement_check_guard() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN"
@@ -619,6 +656,7 @@ def _fresh_db(superuser_dsn: str) -> tuple[str, str, str]:
         conn.execute(f'CREATE DATABASE "{dbname}_restore" OWNER salescall_owner')   # 控えを戻して確かめる空のデータベース
     owner_dsn = _with_db(superuser_dsn, dbname, "salescall_owner")
     os.environ["SALESCALL_TEST_RESTORE_DSN"] = _with_db(superuser_dsn, f"{dbname}_restore", "salescall_owner")
+    os.environ["SALESCALL_TEST_PROVISIONER_DSN"] = _with_db(superuser_dsn, dbname, "salescall_provisioner")
     migrate.apply(owner_dsn)
     return dbname, owner_dsn, _with_db(superuser_dsn, dbname, "salescall_app")
 

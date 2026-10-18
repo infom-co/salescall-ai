@@ -191,10 +191,17 @@ JOBS: tuple[Job, ...] = (
 )
 
 
+def _in_scope(ctx: Context, job: Job, work: Callable[[Any], Any]) -> Any:
+    """仕事の範囲の取引（契約者の仕事＝その契約者の取引。契約者の PC の合言葉は全体の取引を開けない＝0077）。"""
+    if job.scope == "system":
+        return ctx.access.in_system(ACTOR, work)
+    return ctx.access.in_tenant(ACTOR, ctx.cfg.tenant_id, work)
+
+
 def run_job(ctx: Context, job: Job) -> bool:
     """1つの仕事を1回する（借りられなければ、しない）。したら True。"""
     key = job.key(ctx.cfg)
-    if not ctx.access.in_system(ACTOR, lambda tx: leases.take_job(tx, key, ctx.holder, job.lease)):
+    if not _in_scope(ctx, job, lambda tx: leases.take_job(tx, key, ctx.holder, job.lease)):
         return False
     try:
         job.work(ctx)
@@ -202,7 +209,7 @@ def run_job(ctx: Context, job: Job) -> bool:
         report(ctx.access, ctx.cfg.tenant_id, job.name, e)
     finally:
         try:
-            ctx.access.in_system(ACTOR, lambda tx: leases.return_job(tx, key, ctx.holder))
+            _in_scope(ctx, job, lambda tx: leases.return_job(tx, key, ctx.holder))
         except Exception:  # noqa: BLE001 返せなくても、期限で次が引き継ぐ
             pass
     return True

@@ -2,7 +2,7 @@
 
 - **判定はしない**：かけてよいかは門（`gate.claim`）だけが決める。ここは「予定の時刻を過ぎた行」を、門に渡す順に並べるだけ。
 - 門が必ず断る行は出さない（門と同じ1か所の決まりを読む）：次の予定が「かける」でない・時刻の前・前の発信の締めが済んでいない
-  （salescall.task_awaiting_decision）・「かけない」にしている（salescall.task_excluded。0071）・進行中の発信がある。依頼者を無効にした（salescall.client_active）・依頼者より広い範囲で
+  （salescall.task_awaiting_decision）・「かけない」で止まる（salescall.task_excluded_now。お詫び・かけ直し・約束したかけ直しは例外＝かける。0078）・進行中の発信がある。依頼者を無効にした（salescall.client_active）・依頼者より広い範囲で
   止まっている（stops.open_stops）依頼者の行も出さない（門に渡しても断られ、行ごとに予定を書き直し続けるため）。業務の範囲の
   停止は門に任せる（お詫びの電話は、業務の品質の停止では止めない＝門の決まり）。
 - 並べ方：お客様と約束したかけ直しを先に、そのあとは予定の時刻の古い順。
@@ -40,7 +40,7 @@ def due_tasks(tx: Tx, limit: int, *, skip_businesses: set[UUID] | frozenset[UUID
         " JOIN LATERAL (SELECT n.kind, n.call_at, n.promised FROM salescall.task_next_actions n WHERE n.task_id = t.task_id"
         "               ORDER BY n.seq DESC LIMIT 1) n ON true"
         " WHERE n.kind = 'call' AND n.call_at <= now()"
-        "   AND NOT salescall.task_awaiting_decision(t.task_id) AND NOT salescall.task_excluded(t.task_id)"
+        "   AND NOT salescall.task_awaiting_decision(t.task_id) AND NOT salescall.task_excluded_now(t.task_id)"
         "   AND NOT EXISTS (SELECT 1 FROM salescall.attempts a WHERE a.task_id = t.task_id AND salescall.is_active(a.state))"
         "   AND r.business_id <> ALL(%s::uuid[])"
         " ORDER BY n.promised DESC, n.call_at, t.task_id LIMIT %s", (list(skip_businesses), limit))

@@ -90,9 +90,6 @@ _COUNTED = _DIALED + " AND NOT salescall.not_by_callee(state, disconnect, attemp
 # かけたあとは回数に数えていたので、そのあとのふつうのかけ直しが減った）。最小の間隔は、約束したかけ直しも起点に数える（歯止め）
 _COUNTED_TIMES = _COUNTED + " AND NOT promised"
 _SAME = "(contact_id = %s OR task_id = %s)"             # 同じお客様：かける番号が同じ発信、または同じ行の発信
-# 営業として新しくかける電話ではないもの（業務ごとの1日の上限に数えず、上限でも止めない）：お詫びの電話・途中で切れたあとのかけ直し
-# （もう話したお客様）と、お客様と約束したかけ直し（お客様が頼んだ電話）。2026-10-18
-_NOT_NEW_PURPOSES = ("apology", "resume")
 
 
 @dataclass(frozen=True)
@@ -336,8 +333,9 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
     # 「前の発信に判定の結果があるか」で決める。判定と次の予定は、締めの処理 core/settle.py が1つの取引で書く）
     if tx.one("SELECT salescall.task_awaiting_decision(%s) AS w", (task["task_id"],))["w"]:   # 決まりは1か所（0063）
         return _deny("awaiting_decision")
-    # 「かけない」にしている行（一覧の列・ダッシュボード。2026-10-18 ユーザー決定。決まりはデータベースの1か所 0071）
-    if tx.one("SELECT salescall.task_excluded(%s) AS x", (task["task_id"],))["x"]:
+    # 「かけない」にしている行（一覧の列・ダッシュボード。2026-10-18 ユーザー決定）。お詫び・途中で切れたあとのかけ直し・約束した
+    # かけ直しは、「かけない」の例外＝かける（2026-10-18 ユーザー。決まりはデータベースの1か所 task_excluded_now＝0078）
+    if tx.one("SELECT salescall.task_excluded_now(%s) AS x", (task["task_id"],))["x"]:
         return _deny("excluded")
 
     # (1b) 依頼者を無効にしていないか（Intent.md 4章 A。判断はデータベースの1か所 salescall.client_active）。業務設定の確かめより
@@ -405,9 +403,10 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
         return _deny(pace.binding)
 
     # (7b) 業務ごとの1日の上限（2026-10-18 ユーザー決定：「業務ごと、デフォルトは上限なし」。null＝上限なし）。数えるのも止めるのも、
-    #      営業として新しくかける電話だけ（_NOT_NEW_PURPOSES と約束したかけ直しは、数えず止めない）
+    #      営業として新しくかける電話だけ（お詫び・途中で切れたあとのかけ直し・約束したかけ直しは、数えず止めない。決まりは
+    #      データベースの1か所 salescall.is_new_call＝0078）
     cap = _setting(tx, "calling.business_daily_dials", task)
-    if cap is not None and nxt["purpose"] not in _NOT_NEW_PURPOSES and not nxt["promised"]:
+    if cap is not None and tx.one("SELECT salescall.is_new_call(%s, %s) AS n", (nxt["purpose"], nxt["promised"]))["n"]:
         # 数えるのは、発信まで進んだ試行と、いま生きている予約（予約してまだかけていない試行を数えないと、同時に動く回線の本数
         # まで上限を超える＝2026-10-18 の見直し。予約も数えると、同時の2つの門は直列化でぶつかり、片方がやり直す）
         made = tx.one(
@@ -416,9 +415,9 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
             " JOIN salescall.runs r ON r.client_id = t.client_id AND r.run_id = t.run_id"
             " WHERE r.business_id = %s AND a.client_id = %s"
             "   AND (a.state NOT IN ('claimed', 'released') OR salescall.is_live(a.state, a.claim_expires_at))"
-            "   AND a.purpose <> ALL(%s) AND NOT a.promised"
+            "   AND salescall.is_new_call(a.purpose, a.promised)"
             "   AND a.claimed_at >= salescall.jst_day_start(%s) AND a.claimed_at < salescall.jst_day_start(%s)",
-            (task["business_id"], task["client_id"], list(_NOT_NEW_PURPOSES), local.date(),
+            (task["business_id"], task["client_id"], local.date(),
              local.date() + timedelta(days=1)))["n"]
         if made >= int(cap):
             return _deny("business_daily_limit")
