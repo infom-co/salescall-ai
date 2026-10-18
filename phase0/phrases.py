@@ -108,7 +108,23 @@ def confirm(value: str, situation: str = "ふつう", n: int = 0, meaning: bool 
     meaning：選択肢の答えの意味を言い直すとき（「ご予約はお済みということでよろしいでしょうか？」。value は flowctl.choice_words）。
     言葉を聞き返す形（「（値）とおっしゃいましたでしょうか？」）は、意味の言い直しには合わないので使わない。"""
     forms = [f for f in CONFIRM[situation] if not meaning or "{de}" in f]
+    # 言い直す言葉と語尾で、同じ言葉を2回言わない（「お送りして大丈夫だということで大丈夫でしょうか」・「よろしいということでよろしい…」）。
+    # ✅ 2026-10-18 ユーザー：「語尾に『よろしい』が2回は違和感」
+    forms = [f for f in forms if not any(w in value and w in f for w in ("よろし", "大丈夫"))] or forms
     return forms[n % len(forms)].format(v=value, de=joiner(value))
+
+
+def restate_words(words: str, said: str | None = None) -> str:
+    """選択肢の意味の言葉に「よろしい」が入っていれば（申し出の質問の「パンフレットをお送りしてよろしいということ」）、お客様が言った言葉
+    （「大丈夫です」⇒「大丈夫だ」・「結構です」⇒「結構だ」・「いいです」⇒「いい」）に替える。お客様の言葉に無ければ「大丈夫だ」。
+    ✅ 2026-10-18 ユーザー：「『はい、念のためパンフレットをお送りして大丈夫だということでよろしかったでしょうか？』語尾に『よろしい』が2回は
+       違和感。相手が言ったことを聞き返した方が確か」"""
+    if "よろしい" not in words:
+        return words
+    from flowctl import ambiguous_word
+
+    w = ambiguous_word(said)
+    return words.replace("よろしい", "いい" if w == "いい" else f"{w or '大丈夫'}だ")
 
 APOLOGY = ("失礼いたしました。", "申し訳ございません。")
 # 録音で流す相づち（中の名前 → 言葉）。中の名前は録音のファイル名に使う（results/ack/{声の型}_{中の名前}.wav）

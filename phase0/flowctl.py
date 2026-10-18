@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from names import hira, quote, unvoiced
 from phrases import AMPM_ASK, CLOSE_DECLINED, CLOSING, LEAD_IN, NAME_READING_ASK
 from phrases import ask_again as ask_again_phrase
-from phrases import confirm as confirm_phrase
+from phrases import confirm as confirm_phrase, restate_words
 from phrases import lead_in as lead_in_phrase
 from units import supply_unit
 
@@ -539,7 +539,7 @@ class Item:
     ampm_asked: bool = False          # 午前・午後を聞いたか（1項目1回まで）
     ambiguous_asked: bool = False     # 曖昧な答えの意味を確かめたか（そのあとの「結構です」は、確かめへの返事として受け取る）
     tried_readings: list = field(default_factory=list)  # 名前の読みの確かめで、これまでに言った読み（同じ読みを2度言わない）
-    hedged: str | None = None         # 言い直しへの返事が言い切っていなかった（その返事の言葉）：依頼主へは値に「曖昧」の印を付けて渡す（Flow._hedged）
+    hedged: str | None = None         # 言い直しへの返事が言い切っていなかった（その返事の言葉）：依頼主へは別の欄にお客様の言葉を渡す（Flow.hedged_words）
 
     def set(self, state: str, why: str) -> None:
         assert state in STATES, state
@@ -1351,7 +1351,7 @@ class Flow:
         self.confirm_counts[situation] = n + 1
         # 言い直す値：値の無い選択肢の型（はい／いいえなど。聞き返したあとは復唱する＝6-11）は、選んだ選択肢で言い直す。
         # ⛔ 2026-10-14 に見つけた穴：値だけを渡していたため、「Noneで、よろしいでしょうか。」という文を作っていた
-        shown = words if choice else (it.value or label(it.condition))
+        shown = restate_words(words, self.callee_said) if choice else (it.value or label(it.condition))
         if q.reading_of:
             shown = quote(it.value)
             it.tried_readings.append(it.value)
@@ -1503,17 +1503,23 @@ class Flow:
             return label(it.condition)
         return it.value
 
-    def export(self, unknown_mark: str = "-", refused_mark: str = "✕", hedged_mark: str = "（曖昧）") -> dict:
-        """依頼主へ渡す値（DESIGN.md 7-1b）。言い切っていない返事で受け取った値には、印（hedged_mark）を付ける（⏳ 書き方はユーザーの承認待ち）。"""
+    def export(self, unknown_mark: str = "-", refused_mark: str = "✕") -> dict:
+        """依頼主へ渡す値（DESIGN.md 7-1b）。言い切っていない返事で受け取った値も、値はそのまま（お客様の言葉は hedged_words の別の欄）。"""
         out = {}
         for qid, it in self.items.items():
             if it.state == "refused":
                 out[qid] = refused_mark
             elif it.state in GOT:
-                out[qid] = self.answer_of(qid) + (hedged_mark if it.hedged else "")
+                out[qid] = self.answer_of(qid)
             else:
                 out[qid] = unknown_mark
         return out
+
+
+    def hedged_words(self) -> dict:
+        """依頼主へ渡す別の欄：言い切っていない返事で受け取った項目の、お客様の言葉そのまま（DESIGN.md 7-1b）。
+        ✅ 2026-10-18 ユーザー：案C（「ご予約」の欄は「していない」・別の欄にお客様の言葉「していないはずですが…」）が分かりやすい"""
+        return {qid: it.hedged for qid, it in self.items.items() if it.state in GOT and it.hedged}
 
 
 def tool_declarations(questions: list[Question], replay: bool = False):

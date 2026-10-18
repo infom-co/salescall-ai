@@ -2275,8 +2275,26 @@ class AmbiguousAnswerTest(unittest.TestCase):
         f.on_callee(); f.on_heard("予約したと言えばしたんですが。"); f.on_check("judge", Reading("はい", firm=False))
         r = f.apply("confirm_field", {"question_id": "Q1", "result": "affirmed"})
         self.assertEqual(f.items["Q1"].state, "confirmed")
-        self.assertEqual(f.export()["Q1"], "はい（曖昧）")
-        self.assertEqual(f.export(hedged_mark="")["Q1"], "はい")  # 印の書き方は出力の設定で変えられる（7-1b）
+        # 依頼主へは、値はそのまま・別の欄にお客様の言葉（✅ 2026-10-18 ユーザー：案C）
+        self.assertEqual((f.export()["Q1"], f.hedged_words()), ("はい", {"Q1": "予約したと言えばしたんですが。"}))
+
+    def test_offer_restatement_echoes_the_word(self):
+        # ✅ 2026-10-18 ユーザー：「『はい、念のためパンフレットをお送りして大丈夫だということでよろしかったでしょうか？』語尾に『よろしい』が
+        #    2回は違和感。相手が言ったことを聞き返した方が確か」⇒ 意味の言葉の「よろしい」を、相手の言葉に替える（語尾と同じ言葉を重ねない）
+        from flowctl import Flow, Question
+        from phrases import confirm, restate_words
+        q = Question("Q8", "パンフレットをお送りしてもよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"),
+                     meanings={"はい": "パンフレットをお送りしてよろしいということ", "いいえ": "パンフレットはお送りしなくてよろしいということ"})
+        f = Flow([q])
+        r = self.say(f, "大丈夫です。", "record_answer", question_id="Q8", condition_id="はい", value="大丈夫です")
+        self.assertEqual(r["say"], "念のためパンフレットをお送りして大丈夫だということでよろしいでしょうか？")
+        self.assertEqual(restate_words("パンフレットはお送りしなくてよろしいということ", "結構です。"), "パンフレットはお送りしなくて結構だということ")
+        self.assertEqual(restate_words("パンフレットをお送りしてよろしいということ", "いいです"), "パンフレットをお送りしていいということ")
+        self.assertEqual(restate_words("ご予約はお済みということ", "大丈夫です。"), "ご予約はお済みということ")  # 「よろしい」が無ければそのまま
+        # 語尾は、言い直す言葉と同じ言葉を使わない形だけから選ぶ
+        for n in range(4):
+            said = confirm("パンフレットをお送りして大丈夫だということ", "ふつう", n, meaning=True)
+            self.assertEqual(said.count("大丈夫"), 1, said)
 
     def test_hedged_first_answer_is_asked_softly(self):
         # ✅ 2026-10-18 ユーザー：言い切っていない最初の答えは「はい、念のためご予約はお済みということでよろしかったでしょうか？」が自然

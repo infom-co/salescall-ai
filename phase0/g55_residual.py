@@ -23,7 +23,7 @@ from g22_opening import BUSINESS as BASE
 from g34_ack import FAST
 from g53_meaning import JUDGES, g48_questions, truth
 from instruction import Business
-from meaning_judge import make_judge
+from meaning_judge import JUDGE2, make_judge
 
 
 def business(q) -> Business:
@@ -43,6 +43,7 @@ async def lane(k: int, items: list[dict], qmap: dict, args, rows: list[dict]) ->
     a = base_parser("").parse_args(["--key-index", str(k)] + (["--env", args.env] if args.env else []))
     client = make_client(pick_key(a))
     judge = make_judge(a, "3.5 Flash Lite")
+    judge2 = make_judge(a, JUDGE2) if args.judge2 else None  # 2つ目の判定（✅ 2026-10-18 ユーザー：当面は Sonnet だけ）
     for it in items:
         q = qmap[it["qid"]]
         want = truth(it)
@@ -50,7 +51,7 @@ async def lane(k: int, items: list[dict], qmap: dict, args, rows: list[dict]) ->
                 **{j: it.get(j) for j in JUDGES if j in it}}
         try:
             call = await run_call(client, args.model, business(q), "S4", [it["text"]], opening_mode="recorded", use_ear=False,
-                                  save_audio="none", play_recordings=True, judge=judge, **FAST)
+                                  save_audio="none", play_recordings=True, judge=judge, judge2=judge2, **FAST)
             ops = [(e["op"], e["args"].get("condition_id") or e["args"].get("result") or e["args"].get("reason"), e["reply"]["result"])
                    for e in call["flow_log"]]
             judged = next((t.get("ear_check", {}).get("judge") for t in call["turns"] if t.get("ear_check")), None)
@@ -115,6 +116,7 @@ def main() -> None:
     p.add_argument("--limit", type=int, default=0)
     p.add_argument("--pause", type=float, default=1.0)
     p.add_argument("--tag", default="")
+    p.add_argument("--no-judge2", dest="judge2", action="store_false", help="2つ目の判定（meaning_judge.JUDGE2）を使わない（いまの判定だけで残る誤りを数える）")
     args = p.parse_args()
     save_result(f"G-55{args.tag}", asyncio.run(run(args)))
     drop_partial(f"G-55{args.tag}")

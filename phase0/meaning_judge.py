@@ -181,6 +181,9 @@ OTHER_JUDGES = {
     # 直接の窓口は順番待ちなので OpenRouter を通す。最新の版を名前で決めて測る（「最新」の別名だと、測ったあとに中身が替わる）
     "Jev 1.14": {"maker": "typesafe", "model": "typesafe/jev-1.14", "key": "OPENROUTER_JUDGE_KEY", "host": "openrouter.ai"},
 }
+# 2つ目の判定（convo.check_handler の judge2。DESIGN.md 1-3 の (2)）：✅ 2026-10-18 ユーザー：「クレジットの使い残しはもったいないので、当面は、
+#    Sonnetだけを使いましょう。Jev検証時を除く」（Max の月の API の分は繰り越さない）⇒ Jev との振り分け（jev_try.py）は検証のときだけ
+JUDGE2 = "Claude Sonnet 5.5（考える）"
 OTHER_PATH = {"openai": "/v1/responses", "typesafe": "/api/v1/systemone"}  # 部品を使わず httpx で送る会社の窓口
 OPENAI_EFFORT = "low"  # 考える量（速さの公開の数字は low で約1.5秒。高くすると十数秒〜）
 
