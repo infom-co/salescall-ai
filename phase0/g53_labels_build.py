@@ -84,6 +84,12 @@ for ns, (f, why) in fix.items():
     for n in ns:
         i = item(n)
         put(i, [x for x in f(i) if x], why)
+# (4) Claude Sonnet 5.5 を足して、危ない向きと数えたものを読み直した（2026-10-18）：付けた正解が狭すぎた2個
+def find(qid, text):
+    return next(i for i in d if i["qid"] == qid and i["text"] == text and i["set"] == "D")
+put(find("G8", "送ってもらってもいいですし、どちらでも。"), [ANY, "はい"], "⏳ 境目「送ってもらってもいい」＝送ってよいとも、どちらでも、とも読める")
+put(find("G26", "何が分からないかも分かりません"), [cond(find("G26", "何が分からないかも分かりません"), "ご不明な点がおありということ")] + NT,
+    "⏳ 境目「何が分からないかも分からない」＝不明な点がある、とも、わからない、とも読める")
 out = HERE_ / "g53_labels.json"
 json.dump({"note": "G-53 の正解の付け直し（2026-10-18 CL-1 が1つずつ読んだ。ユーザーの決まり：望みが言えていれば答え・事実がはっきりしなければ確かめる・"
                    "どちらとも言っていなければ決められない。⏳ の付いたものは境目＝どちらの読みも正解として数える）", "labels": labels},
