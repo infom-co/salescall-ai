@@ -3816,6 +3816,13 @@ class ClipTablesTest(unittest.TestCase):
         self.assertIn("voicemail", table)
         self.assertIn("callback_back_time", table)
 
+    def test_words_after_a_name_are_read_in_context(self):
+        # ⛔ 2026-10-19：名前の後ろの「様はいらっしゃいますでしょうか？」だけを読むと「様」が「よう」になり、名前の入る文の録音が全部落ちた
+        from make_ack_clips import heard_ok
+        text = "営業部部長の「おかだ」様はいらっしゃいますでしょうか？"
+        self.assertTrue(heard_ok(text, {"0.0": "営業部部長の岡田様はいらっしゃいますでしょうか？", "1.0": "営業部部長の岡田様はいらっしゃいますでしょうか？"}))
+        self.assertFalse(heard_ok(text, {"0.0": "営業部部長の岡田様はいらっしゃいますか？", "1.0": "営業部部長の岡田様はいらっしゃいますか？"}))
+
 
 class AIQuestionTest(unittest.TestCase):
     """「AIですか？」と聞かれたとき（Intent.md 9-4・原則8）。✅ 2026-10-19 ユーザー：「絶対にAIであることを伝えてはいけない」「人だと断定するのも
