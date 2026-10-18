@@ -384,7 +384,8 @@ DECLINED_ENDS = ("callee_hurry", "callee_refused_call", "callee_complaint")
 REPLY_KEY_LABEL = {"result": "結果", "message": "次にすること", "question_id": "質問", "question": "質問の文", "value": "値", "say": "言い方"}
 RESULT_LABEL = {"next": "次の質問", "confirm_required": "言い直して確かめる", "rejected": "差し戻し", "ask_back": "聞き返す",
                 "recheck": "念のための確認", "end": "締め", "busy_ask": "引き止めの一言", "replayed": "録音で流し直した",
-                "hold": "取り次ぎを待つ", "noted": "受け付けた", "confirm_target": "目的の人か確かめる", "ai_question": "エーアイか聞かれた"}
+                "hold": "取り次ぎを待つ", "noted": "受け付けた", "confirm_target": "目的の人か確かめる", "ai_question": "エーアイか聞かれた",
+                "restate": "言い直す"}
 # 名乗りの流し直し（DESIGN.md 6-13。✅ 2026-10-13 ユーザー：名乗り直しも録音で流す「間が大丈夫ならOK」）：AIが選ぶ部分の名前
 # 名乗り＝「どちら様ですか」／用件＝「何のご用件ですか」／最初から＝聞き取れなかった様子（「もう一度」「はい？」）／代わった方へ＝別の人に代わった
 # エーアイか聞かれた＝「AIですか？」「人間ですか？」への決まった言い方（instruction.Business の ai_answer。Flow._ai_question）。
@@ -1404,6 +1405,24 @@ class Flow:
 
     # ── 音・回線の信号で、相手の種別が分かった（DESIGN.md 4-3 の優先順位の1。電話接続側が、会話AIに聞かせる前に呼ぶ）。
     #    ⛔ 2026-10-19 G-57：会話AIは、ファクスの答える音を聞いても3本とも何も報告せずに黙った（audio.is_fax_tone で見分ける）
+    # ── AIの声が、渡した言い方から外れた（電話接続側の見張りが止めた。DESIGN.md 6-7。offscript.off_script）
+    def expected_say(self, since: int = 0) -> str | None:
+        """いまAIに言わせている決まった言い方：since 番目より後の記録のうち、いちばん新しい返事の「言い方」（無ければ None＝見張らない）。
+        AIが自由に答えるターン（相手の質問への答えなど）は、渡した言い方が無いので見張らない。"""
+        return self.log[-1]["reply"].get("say") if len(self.log) > since else None
+
+    def on_off_script(self, expected: str) -> dict:
+        """外れた言葉を止めたあと：新しいつなぎに「失礼いたしました。改めまして、（渡した言い方）」と言わせる（人が言い間違えて、少し間を
+        置いて言い直すのと同じ形。お詫びを録音にしない理由は offscript.restate）。✅ 2026-10-19 ユーザー：「違和感のない形にしないと、AIや機械だと勘繰られますよ。
+        その設計が必要でしょう」。流れの位置（言い直しの返事待ちなど）は変えない（言う中身は同じ）。"""
+        from offscript import restate
+        say = restate(expected)
+        reply = {"result": "restate", "ack": None, "say": say,
+                 "message": f"［プログラムからのお知らせ］さきほどの言葉は、渡した言い方と違ったので、プログラムが途中で止めました。"
+                            f"「{say}」とだけ言って（言葉を足しません）、相手の返事を待ちます。"}
+        self.log.append({"op": "signal", "args": {"off_script": expected}, "reply": reply, "callee_turns": self.callee_turns})
+        return reply
+
     def on_signal(self, party: str) -> dict:
         assert party in NOT_A_PERSON, party
         reply = self._party(party, by="signal")
