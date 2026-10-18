@@ -298,11 +298,12 @@ def misread_as_affirmed(it: dict, key: str) -> bool:
 
 
 def dangerous(it: dict, q: Question, key: str) -> bool:
-    """受け取ると誤りになる向きに読んだ（言い直しへの返事は misread_as_affirmed・ほかは、正解でない選択肢か「どちらでも」を選んだ）。"""
+    """受け取ると誤りになる向きに読んだ（言い直しへの返事は misread_as_affirmed・ほかは、正解でない選択肢か「どちらでも」を選んだ）。
+    最初の答えで、言い切っていないと読んだものは、流れの制御が言い直して確かめるので入れない（Flow._judged_unsure）。"""
     if it["set"] == "D":
         return misread_as_affirmed(it, key)
     got = it.get(key)
-    return got not in accept(it) and (got in q.conditions or got == ANY)
+    return got not in accept(it) and (got in q.conditions or got == ANY) and it.get(f"{key}言い切り") is not False
 
 
 def first(it: dict) -> bool:
@@ -532,7 +533,7 @@ def main() -> None:
     p.add_argument("--reuse", help="前の結果のファイル（作った答え・判定済みの分を使い回す）")
     p.add_argument("--tag", default="", help="結果のファイル名に足す印（同時に流す回を分けるため）")
     p.add_argument("--sets", help="判定する組だけ（例 E、DE）。ほかの組は判定しない（数えには入る）")
-    p.add_argument("--rejudge", action="store_true", help="--reuse の判定を捨てて測り直す（判定の文・選べるものを変えたとき）")
+    p.add_argument("--rejudge", action="store_true", help="--reuse の、--judge で渡した判定の読みを捨てて測り直す（判定の文・選べるものを変えたとき）")
     p.add_argument("--add-de", action="store_true", help="--reuse の答えに、D（言い直しへの返事）・E（答えでない言葉）を作って足す")
     p.add_argument("--sample", type=int, default=0, help="2つ目の判定の候補は、3.5 Flash Lite が誤った答えと、ほかから無作為にこの数だけ（1日の上限が少ない）")
     p.add_argument("--interval", type=float, default=4.0, help="同じキー・同じモデルに続けて聞く間（秒）。1分の上限に当たったら、言われた秒だけ待つ")
@@ -546,10 +547,12 @@ def main() -> None:
     qmap = {q.id: q for q in qs + vqs} | {qid: business(qid).questions[0] for qid in ("Q1", "Q2", "Q3", "Q5")}
     if args.reuse:
         items = json.loads(open(args.reuse, encoding="utf-8").read())["items"]
-        if args.rejudge:  # 判定の文や選べるものを変えたとき：前の判定を捨てて、同じ答えで測り直す（決め手の印は残す＝first）
+        if args.rejudge:  # 判定の文や選べるものを変えたとき：渡した判定（--judge）の前の読みを捨てて、同じ答えで測り直す（決め手の印は残す＝first）。
+            # ほかの判定の読みは残す（新しい形で測った候補と、測り直したいまの判定を、同じ答えで比べるため）
             for it in items:
                 it["前の読み違え"] = first(it)
-            items = [{k: v for k, v in it.items() if not any(k.startswith(j) for j in JUDGES)} for it in items]
+            items = [{k: v for k, v in it.items() if not any(k == j or (k.startswith(j) and k[len(j):] in ("秒", "誤り", "言い切り"))
+                                                             for j in args.judge)} for it in items]
         if args.add_de and not any(it["set"] in ("D", "E") for it in items):
             names = {m.display_name: m.name.split("/")[-1] for m in ring.client().models.list() if getattr(m, "display_name", None)}
             for m in MAKERS_DE:

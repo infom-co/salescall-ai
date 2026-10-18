@@ -37,8 +37,12 @@ CONFIRM_DESC = {"affirmed": "こちらが言い直した値で合っていると
 #    寄っている答えは選び、言い切っていないことは別に答えさせる（それまでは「決められない」に入れていた＝寄っている向きが消えていた）。
 #    流れの制御は、最初の答えなら言い直して確かめ、言い直しへの返事なら、その答えに「曖昧」の印を付けて受け取る（Flow._hedged）
 FIRM = "firm"
-FIRM_RULE = ("言い切っていなくても（「たぶん」「〜はず」「〜と思うのですが」「〜かもしれない」「〜くらい」「〜程度」）、どれかの答えに寄っていれば"
-             "その答えを選び、" + FIRM + " を false にします。言い切っていれば true です（望みをはっきり言っていれば、言い方が柔らかくても true）。")
+# ⛔ 2026-10-18 の1回目：例に「〜くらい」「〜程度」を入れ、「〜と思うのですが」と「〜と思います」を分けなかった ⇒ 最初の答えの「30名くらいです」
+#    「20名ほどおります」「来月以降になると思います」まで言い切っていないと読み、要らない確かめが約80個増えた（Sonnet 5.5・Haiku 5.5 の考える形。
+#    「と思います」は言い切りの柔らかい形＝✅ 2026-10-17 ユーザー確定の言い切っていない答えの一覧（flowctl.UNCERTAIN）にも入れていない）
+FIRM_RULE = ("言い切っていなくても（「たぶん」「〜はず」「〜かもしれない」「〜とは思うのですが」のように、含みを残す言い方）、どれかの答えに寄って"
+             "いればその答えを選び、" + FIRM + " を false にします。言い切っていれば true です（望みをはっきり言っている・「〜と思います」と"
+             "柔らかく言い切っている・数がおよそ（「〜ほど」「〜くらい」）でも選ぶ答えがはっきりしている、なら true）。")
 
 
 class Reading(str):
@@ -60,6 +64,11 @@ RULES = (
     "- 「〜ございませんでしょうか？」のような打ち消しの問いへの「はい」「いいえ」は、選べるものの名前（意味）で、どちらの意味かを決めます。\n"
     "- こちらが答えを言い直して確かめたあとの返事は、お客様が認めた意味で選びます（言い直した意味を「はい」と認めたら、その意味）。\n"
     # ⚠️ 例は、試験の言葉（G-14・G-52）と同じ言い方にしない（同じだと、試験で測った正しさが高く出る）
+    # ⛔ 2026-10-18：言い切っているかを足した形で、Claude Sonnet 5.5（考える）が、打ち消しの言い直し（「〜ではないということで…」）への
+    #    打ち消しの返事を、言い直した意味のまま読んだ（2回。受け取ると誤った値が渡る向き）⇒ 打ち消しの返事の決まりを足した。言い直しへの
+    #    「違うだけ」「認める」の返事 552個で、危ない読み 2 ⇒ 0・正しい 539 ⇒ 551（⚠️ 同じ答えで決まりを作って測った＝高めに出うる）
+    "- 言い直しを打ち消す返事（違う・そうではない、と言う）は、言い直した意味を打ち消した側を選びます（言い直したのが「〜ではない」の意味なら、"
+    "「〜である」の側。値を言い直したときは「" + CONFIRM_LABEL["corrected"] + "」）。\n"
     "- " + FIRM_RULE + "\n"
     "- 迷ったら「" + UNDECIDED + "」を選びます。\n"
 )
@@ -204,13 +213,38 @@ def other_request(name: str, q, text: str, asked: str | None) -> dict:
                     "output_config": {"effort": j["effort"], "format": {"type": "json_schema", "schema": _schema(q, asked)}}}
         return body
     if j["maker"] == "typesafe":
-        # 決まり・場面・選べるものを別々に渡す形（選べるものの名前と説明は、ほかの判定と同じ）。答えは確からしさ付きの1つ
-        return {"model": j["model"], "state": scene(q, text, asked),
-                "questions": {"choice": {"type": "choice", "instructions": RULES,
-                                         "criteria": {n: d for n, d, _ in options(q, asked)}},
-                              FIRM: {"type": "noul", "instructions": "お客様は、答えを言い切っていますか？ " + FIRM_RULE}}}
+        return jev_request(j["model"], q, text, asked)
     return {"model": j["model"], "input": p, "reasoning": {"effort": OPENAI_EFFORT}, "max_output_tokens": 2000,
             "text": {"format": {"type": "json_schema", "name": "answer", "schema": _schema(q, asked), "strict": True}}}
+
+
+# ── Jev（判断だけの専用モデル）への問い方。⛔ 2026-10-18 の1回目：チャットのAI向けの長い決まりの文（RULES）を、そのまま問い（instructions）に
+#    渡し、選択肢の定義を「この意味の答え」としか書かず、答えの確からしさを捨てていた（ユーザー：「Jevの使い方は理解できていますか？」）。
+#    公式の型（OpenRouter の Jev の手引き）：問いは短く1つ・選択肢の意味は定義（criteria）に書く・確からしさで線を決める（線は正解の付いた答えで）。
+#    決まりの中身は RULES・FIRM_RULE と同じ（言い直しへの返事は、認めたら言い直した意味・打ち消したら打ち消した側・寄っていればその答え）
+JEV_ASK = "お客様の言葉は、質問へのどの答えに当たりますか？"
+JEV_ASK_REPLY = ("お客様の言葉は、こちらが言い直して確かめた言葉への返事として、どの答えに当たりますか？"
+                 "（言い直した意味を認めたら、その意味。言い直しを打ち消したら、打ち消した側）")
+JEV_FIRM = {"true": "答えを言い切っている（望みをはっきり言っている・「〜と思います」と柔らかく言い切っている・数がおよそでも選ぶ答えがはっきりしている）",
+            "false": "答えに寄っているが、「たぶん」「〜はず」「〜かもしれない」「〜とは思うのですが」のように含みを残している"}
+
+
+def jev_criteria(q, asked: str | None = None) -> dict:
+    """Jev に渡す選択肢の定義（名前は options と同じ。答えの意味の選択肢は、意味で読むことを定義に書く）。"""
+    out = {}
+    for n, d, c in options(q, asked):
+        if d == "この意味の答え" or d.startswith("「"):
+            d = (f"お客様の答えの意味が「{n}」（打ち消しを重ねた言い方・打ち消しの問いへの「はい」「いいえ」も、言葉の頭ではなく意味で読む。"
+                 "言い切っていなくても、この意味に寄っていればこれ）")
+        out[n] = d
+    return out
+
+
+def jev_request(model: str, q, text: str, asked: str | None = None) -> dict:
+    """Jev への問い合わせ：どの答えか（choice・確からしさ付き）と、言い切っているか（noul）。"""
+    return {"model": model, "state": scene(q, text, asked),
+            "questions": {"choice": {"type": "choice", "instructions": JEV_ASK_REPLY if asked else JEV_ASK, "criteria": jev_criteria(q, asked)},
+                          FIRM: {"type": "noul", "instructions": "お客様は、その答えを言い切っていますか？", "criteria": JEV_FIRM}}}
 
 
 def other_text(name: str, data: dict) -> str | None:

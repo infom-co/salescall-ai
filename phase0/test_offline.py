@@ -3428,11 +3428,10 @@ class JudgeSetupTest(unittest.TestCase):
         for name in OTHER_JUDGES:
             body = other_request(name, q, text, asked)
             sent = json.dumps(body, ensure_ascii=False)
-            if OTHER_JUDGES[name]["maker"] == "typesafe":
+            if OTHER_JUDGES[name]["maker"] == "typesafe":  # 問いは短く・選択肢は同じ名前で同じ並び（定義は意味で読む書き方）・同じ場面
                 ask = body["questions"]["choice"]
-                self.assertEqual((ask["instructions"], list(ask["criteria"].items()), body["state"]),
-                                 (RULES, [(n, d) for n, d, _ in options(q, asked)], scene(q, text, asked)))
-                self.assertEqual(prompt(q, text, asked).count(text), 1)
+                self.assertEqual((list(ask["criteria"]), body["state"]), (names, scene(q, text, asked)))
+                self.assertLess(len(ask["instructions"]), 120)
                 continue
             self.assertIn(json.dumps(prompt(q, text, asked), ensure_ascii=False), sent)
             self.assertIn(json.dumps(names, ensure_ascii=False), sent)
