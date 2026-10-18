@@ -4069,6 +4069,44 @@ class ScenesTest(unittest.TestCase):
             self.assertFalse(m["pass"], name)
 
 
+class SilentAfterReplyTest(unittest.TestCase):
+    """AIが黙った（DESIGN.md 6-7）の見張り：話させる形の返事を送ったのに声が来ないときも、黙ったと見なす。
+    ⛔ G-57 の3回目：言い直しを求める返事のあと、AIが声を出さずに英語の文字だけを返し、操作があったので黙ったと見なさずに90秒待った。"""
+
+    def run_turn(self, messages, silent_reply: bool):
+        import asyncio
+        from types import SimpleNamespace
+        from live_util import collect_turn
+
+        class Session:
+            def __init__(self):
+                self.sent = []
+
+            async def send_tool_response(self, function_responses):
+                self.sent.append(function_responses)
+
+            async def receive(self):
+                for m in messages:
+                    yield m
+                await asyncio.sleep(3600)
+
+        fc = SimpleNamespace(name="record_answer", args={}, id="1")
+        msgs_tool = SimpleNamespace(tool_call=SimpleNamespace(function_calls=[fc]), server_content=None, usage_metadata=None,
+                                    go_away=None, session_resumption_update=None)
+        messages.insert(0, msgs_tool)
+        s = Session()
+        return asyncio.run(collect_turn(s, started_at=0.0, on_tool_call=lambda f: ({"result": "x"}, silent_reply), timeout_s=5,
+                                        silent_after_s=0.3))
+
+    def test_reply_that_wants_speech_but_none_comes(self):
+        r = self.run_turn([], silent_reply=False)
+        self.assertTrue(r.silent)
+
+    def test_silent_reply_is_not_silence(self):
+        r = self.run_turn([], silent_reply=True)       # 録音を流した：AIが黙るのは正しい
+        self.assertFalse(r.silent)
+
+
 class G53LabelsTest(unittest.TestCase):
     """G-53 の数え方：付け直した正解（g53_labels.json）を1か所（g53_meaning.accept）で使う。"""
 

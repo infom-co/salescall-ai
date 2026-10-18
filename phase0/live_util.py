@@ -92,6 +92,7 @@ class TurnResult:
     timed_out: bool = False  # 決めた秒数のうちに、AIがターンを終えなかった（黙った・止まった）
     nudged: bool = False     # 声が出ないので、返事を促す合図を送った（DESIGN.md 6-7）
     silent: bool = False     # 決めた秒数のうちに、声も操作も出なかった（AIが黙った。silent_after_s。DESIGN.md 6-7 の張り替えへ）
+    expects_speech: bool = False  # 話させる形の返事を送った（このあとAIが話すはず）
     first_audio_after_s: float | None = None
     finished_after_s: float | None = None
     message_kinds: dict[str, int] = field(default_factory=dict)
@@ -145,7 +146,10 @@ async def collect_turn(session, *, started_at: float, on_tool_call=None, timeout
             await send_text(session, nudge_text)
     if silent_after_s is not None:
         done, _ = await asyncio.wait({task}, timeout=silent_after_s)
-        if not done and r.first_audio_after_s is None and not r.tool_calls:
+        # 声が出ていない：操作も無い、または話させる形の返事を送ったのに声が来ない（⛔ 2026-10-19 G-57 の3回目：報告に「言い直して」と返した
+        # あと、AIが声を出さずに英語の文字だけを長く返し、操作があったので「黙った」と見なさず、90秒待った。次のターンで、AIは用件と関係の
+        # ない話「実際のプレゼン資料の構成や…」を12秒話した＝壊れたつなぎを張り替えずに使い続けた）
+        if not done and r.first_audio_after_s is None and (not r.tool_calls or r.expects_speech):
             task.cancel()
             try:
                 await task
@@ -241,6 +245,7 @@ async def _collect_into(r: "TurnResult", session, *, started_at: float, on_tool_
                     r.events.append({"at_s": at(), "kind": "tool_response_sent", "chunk": chunk})
                     if not all(silent for _, silent in responses):
                         awaiting_reply_speech = True  # 話させない返事だけなら、AIの声を待たない
+                        r.expects_speech = True
             r.events.append({"at_s": at(), "kind": "turn_complete"})
             audio_in_chunk = False
             chunk += 1
