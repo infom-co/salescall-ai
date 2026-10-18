@@ -121,7 +121,8 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
         except Exception as exc:  # 判定が落ちても通話は止めない（届かなかった＝通話後の検証へ）
             info[f"{kind}_error"] = repr(exc)[:200]
             return None
-        info.update({kind: got, f"{kind}_text": text, f"{kind}_s": round(loop.time() - speech_end, 3)})
+        info.update({kind: got, f"{kind}_firm": getattr(got, "firm", None), f"{kind}_text": text,
+                     f"{kind}_s": round(loop.time() - speech_end, 3)})
         flow.on_check(kind, got, turn)
         return got
     jtask = asyncio.create_task(judging("judge", judge)) if judge is not None and qid else None
@@ -201,7 +202,7 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                 **({"confirm": confirm} if confirm else {}))  # confirm：言い直しの言い方（G-25 の比べだけ）。lead_ins：G-27
     flow.use_checks(*[k for k, used in (("ear", ear_kind), ("judge", judge), ("judge2", judge2)) if used])
     checking = bool(ear_kind or judge or judge2)
-    pending: list = []  # 確かめの作業（通話の終わりに、まだ走っているものを止める＝届かなかったものは通話後の検証へ）
+    pending: list = []  # 確かめの作業（通話の終わりに、まだ走っているものは届くまで待つ＝通話後の検証と同じ。待っても届かなければ止める）
     turns: list[dict] = []
     sessions = 0
     replay: int | None = None  # 送り直す相手の発話の番号（止まったときの張り替え）
@@ -361,12 +362,22 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                         continue
                     again, again_n = None, 0
                     i += 1
+    # 通話は終わった：まだ走っている確かめは、届くまで待って同じ決まりで当てる（通話後の検証＝DESIGN.md 6-12 と同じ判定・同じ決まり。
+    # Flow.on_check ⇒ _late）。LATE_CHECK_S まで待っても届かないものは止める（届かなかった＝unchecked。通話後の検証でやり直す）。
+    # ⛔ 2026-10-18 に見つけた漏れ：通話の終わりに止めていたので、1秒以上かかる2つ目の判定（Sonnet 5.5）が、短い試験の通話ではほとんど
+    #    当たらないまま「受け取った」と数えていた（本番では通話後の検証で当たる）
+    before_after = len(flow.unchecked())
+    running = [t for t in pending if not t.done()]
+    if running:
+        await asyncio.wait(running, timeout=LATE_CHECK_S)
     for t in pending:
-        t.cancel()  # 通話は終わった：まだ届いていない確かめは、通話後の検証でやり直す（unchecked）
+        t.cancel()
     return {"voice_type": voice_type, "sessions": sessions, "turns": turns, "flow_log": flow.log,
             "items": {k: {"state": v.state, "value": v.value, "condition": v.condition, "ask_backs": v.ask_backs,
-                          "rechecks": v.rechecks, "corrections": v.corrections, "history": [list(h) for h in v.history]}
+                          "rechecks": v.rechecks, "corrections": v.corrections, "hedged": v.hedged,
+                          "history": [list(h) for h in v.history]}
                       for k, v in flow.items.items()},
-            "export": flow.export(), "final_phase": flow.phase, "hurried": flow.hurried,
+            "export": flow.export(), "hedged_words": flow.hedged_words(), "final_phase": flow.phase, "hurried": flow.hurried,
+            "checked_after_call": before_after - len(flow.unchecked()),
             "opening_mode": opening_mode, "barge_in": barge_in, "ear_errors": ear.errors if ear is not None else None,
             "unchecked": flow.unchecked()}

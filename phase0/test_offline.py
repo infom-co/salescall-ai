@@ -2303,6 +2303,20 @@ class AmbiguousAnswerTest(unittest.TestCase):
         self.assertEqual(r["result"], "confirm_required")
         self.assertEqual((r["say"], r["ack"]), ("念のためご予約はお済みということでよろしかったでしょうか？", "hai"))
 
+    def test_late_unsure_judge_marks_the_reply(self):
+        # 言い直しへの返事を受け取ったあとに、2つ目の判定（遅い）が「言い切っていない」と届いた：値は変えず、お客様の言葉を別の欄に残す
+        # （通話の終わりのあとに届いても同じ＝convo.run_call は、走っている確かめを届くまで待って当てる）
+        from meaning_judge import Reading
+        f = self.flow()
+        f.use_checks("judge", "judge2")
+        f.on_callee(); f.on_heard("大丈夫です。"); f.on_check("judge", Reading("はい"))
+        f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい", "value": "大丈夫です"})
+        f.on_callee(); f.on_heard("ええ、そうだと思うんですけど。"); f.on_check("judge", Reading("はい"))
+        f.apply("confirm_field", {"question_id": "Q1", "result": "affirmed"})
+        self.assertEqual((f.items["Q1"].state, f.hedged_words()), ("confirmed", {}))
+        f.on_check("judge2", Reading("はい", firm=False))
+        self.assertEqual((f.export()["Q1"], f.hedged_words()), ("はい", {"Q1": "ええ、そうだと思うんですけど。"}))
+
     def test_unsure_first_answer_is_confirmed(self):
         # 最初の答えは、意味の判定が言い切っていないと読めば、言い直して確かめる（言い切っていない答えの決まりと同じ）
         from meaning_judge import Reading
