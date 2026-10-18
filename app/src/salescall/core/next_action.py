@@ -388,7 +388,11 @@ def after_call(tx: Tx, task_id: UUID, j: Judgement, *, rules: Rules, dialed: Tar
     dialed＝この通話でかけた先（番号・目的）、dialed_at＝かけた時刻。alternate＝お客様が言った別の番号の材料（言われたときだけ）。
     recheck＝言われた番号が番号違いだったときの番号の確かめ（そのときだけ）。"""
     now = tx.one("SELECT now() AS now")["now"]
-    dialed_window = window_of(current(tx, task_id))   # かけた予定が持っていた、お客様が言った時間の幅
+    # かけた予定（発信のときに効いていた次の予定）が持っていた、お客様が言った時間の幅。いまの予定ではなく、発信の時刻までに
+    # 決めた予定から読む（判定し直しのときは、いまの予定が判定待ちになっていて、幅を失うため）
+    dialed_window = window_of(tx.one(
+        "SELECT window_until, window_daily, window_days FROM salescall.task_next_actions"
+        " WHERE task_id = %s AND decided_at <= %s ORDER BY seq DESC LIMIT 1", (task_id, dialed_at)))
     key = j.detail.get("policy_key")
     target = choose_number(j, dialed=dialed, alternate=alternate, recheck=recheck)
     count_at = target.contact_id or dialed.contact_id     # 終えるときは数え方を使わない（いまの番号で数えておく）
