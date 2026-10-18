@@ -42,8 +42,9 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
-from salescall.core import approval, business_settings, contacts, next_action, readings, target_policy
+from salescall.core import approval, business_settings, contacts, import_columns, next_action, readings, target_policy
 from salescall.core.access import Tx
+from salescall.core.import_columns import ImportRejected
 from salescall.core.import_files import Cell, Sheet
 from salescall.core.phone import PhoneNumber, normalize
 
@@ -51,10 +52,6 @@ FIELDS = ("phone", "client_ref", "name", "name_reading", "person_name", "person_
 # 対応付けられる欄：番号・依頼者の管理番号・お客様の名前（会社名など）とその読み・目的のお客様の名前とその読み・役職
 _READING_OF = {"name": "name_reading", "person_name": "person_name_reading"}   # 名前の欄 → 読みの欄
 _EXPONENT = re.compile(r"^\s*[+-]?\d+(\.\d+)?[eE][+-]?\d+\s*$")
-
-
-class ImportRejected(Exception):
-    """取込そのものを始められない（対応付けの誤り・実施回が無い）。理由は日本語。"""
 
 
 class PlanChanged(Exception):
@@ -178,44 +175,16 @@ def register(tx: Tx, run_id: UUID, sheet: Sheet, mapping: dict[str, str], *, exp
 
 # ── 行の合否（プレビューと登録の両方が使う、ただ1つの判断） ──
 def _columns(sheet: Sheet, mapping: dict[str, str]) -> dict[str, int]:
-    unknown = set(mapping) - set(FIELDS)
-    if unknown:
-        raise ImportRejected(f"対応付けられない欄の名前です：{sorted(unknown)}")
     if "phone" not in mapping:
         raise ImportRejected("電話番号の列を選んでください")
     for field, reading_field in _READING_OF.items():
         if reading_field in mapping and field not in mapping:
             raise ImportRejected("読みの列だけを選んでいます（名前の列も選んでください）")
-    cols: dict[str, int] = {}
-    for field, title in mapping.items():
-        hits = [i for i, h in enumerate(sheet.header) if h is not None and h == title]
-        if len(hits) != 1:
-            raise ImportRejected(f"見出し「{title}」の列が{'ありません' if not hits else ' 2つ以上あります'}")
-        cols[field] = hits[0]
-    if len(set(cols.values())) != len(cols):
-        raise ImportRejected("1つの列を、2つの欄に対応付けています")
-    return cols
+    return import_columns.columns(sheet, mapping, FIELDS)
 
 
-def _text(row: Any, cols: dict[str, int], field: str) -> str | None:
-    """その欄の文字（前後の空白を除く。無ければ None）。"""
-    if field not in cols:
-        return None
-    t = row.cell(cols[field]).text
-    return t.strip() if t is not None and t.strip() else None
-
-
-def _zero_lost(sheet: Sheet, col: int) -> list[bool]:
-    """行ごとに、番号の先頭の 0 が消えたとして扱うか（DESIGN.md 3-4 の4）。"""
-    if sheet.file_kind == "xlsx":
-        return [r.cell(col).numeric for r in sheet.rows]
-    texts = [r.cell(col).text for r in sheet.rows if r.cell(col).text is not None and r.cell(col).problem is None]
-    # 0 が消えるのは、表計算ソフトが数として保存したとき＝欄は数字だけ。区切り（「3-1234-5678」）や言葉（「TEL:」）の
-    # ある欄は、文字として打ったもので、0 が消えた証拠にならない（2026-10-16 の見直し I13）
-    whole_column = bool(texts) and all(
-        t.strip().isascii() and t.strip().isdigit()
-        and normalize(t).kind == "unknown" and normalize(t, leading_zero_lost=True).kind != "unknown" for t in texts)
-    return [whole_column] * len(sheet.rows)
+_text = import_columns.text
+_zero_lost = import_columns.zero_lost
 
 
 def _plan(tx: Tx, run_id: UUID, sheet: Sheet, mapping: dict[str, str], *, confirmed_names: Any,

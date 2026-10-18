@@ -109,7 +109,7 @@ class Registers(Base):
 class StopsRows(Base):
     def test_each_reason(self):
         dup, dnc_number = fictional_jp_fixed(), fictional_jp_fixed()
-        self.tx(lambda tx: dnc.register(tx, dnc_number, "client_list"))
+        self.tx(lambda tx: dnc.register(tx, dnc_number, "manual"))
         rows = [
             ("R-2", "番号が不明", "03-0000-0001 内線12"),
             ("R-3", "FAX", "FAX 03-0000-0002"),

@@ -1,10 +1,12 @@
 """発信禁止台帳（Q3「このお客様は、かけてはいけないお客様か」）。持ち主 CL-2。DESIGN.md 3-6・5-2・Intent.md 原則14。
 
 - 登録するのは、この部品の `register`（依頼者の台帳）と `register_contractor`（契約者の共通の台帳。その契約者のすべての依頼者に効く。2026-10-16 ユーザー）だけ（I-12。app/checks が見張る）。
-  呼ぶ側：会話の「もうかけないで」（その場で）・通話後の検証の拒否の聞き逃し・判定の番号違い・依頼者の発信禁止の一覧の取込・契約者。
+  呼ぶ側：会話の「もうかけないで」（その場で）・通話後の検証の拒否の聞き逃し・判定の番号違い・発信禁止の一覧の取込（core/dnc_import.py。
+  依頼者の一覧は理由 client_list・取込を指す）・契約者。
 - 番号は番号の正規化（Q1）を通す。そろえられない番号は登録できない（ValueError）。
-- **どこまで止めるかを決めるのは `register` の1か所だけ**（2026-10-14 ユーザー決定。DESIGN.md 3-6）：
-  お客様が断った（`REFUSALS`）ことが、どの通話（試行）で分かったかが渡されたら、
+- **どこまで止めるかを決めるのは `stop_set` の1か所だけ**（`register` も、一覧の取込のプレビューも、これを呼ぶ。2026-10-14 ユーザー決定。DESIGN.md 3-6）：
+  お客様ごとに止める理由（`CUSTOMER_WIDE`）のとき、そのお客様の行（どの通話で分かったか／依頼者の一覧なら、その番号・管理番号を
+  持つ行）について、
   (b) その行（タスク）の番号すべてを止める（お客様が言った別の番号も。番号の一覧は tasks.numbers の1か所）。
   (c) 契約者が依頼者ごとの設定で「管理番号はお客様を表す変わらない番号」を「はい」にしていたら（設定 `dnc.client_ref_is_stable_id`）、
       その行の管理番号も止める（次の一覧で、同じお客様が別の番号で入ってきても止まる）。
@@ -28,7 +30,10 @@ from salescall.core.access import Tx
 from salescall.core.phone import PhoneNumber, normalize
 
 Reason = Literal["refused_in_call", "refused_found_after", "wrong_party", "fax_line", "manual", "client_list"]
-REFUSALS = frozenset({"refused_in_call", "refused_found_after"})   # お客様が断った ⇒ お客様（行）ごと止める
+REFUSALS = frozenset({"refused_in_call", "refused_found_after"})   # お客様が断った
+# お客様（行）ごと止める理由：お客様が断った・依頼者の一覧（依頼者が受けた、お客様の「かけないで」。Intent.md 原則14「止めるのは
+# お客様ごと」。誤って広げても「かけない」側の誤りで害は無い＝Intent.md 10-3）
+CUSTOMER_WIDE = REFUSALS | {"client_list"}
 
 
 class DncEntryNotFound(Exception):
@@ -42,44 +47,84 @@ def _number(phone: PhoneNumber | str) -> PhoneNumber:
     return n
 
 
-def register(tx: Tx, phone: PhoneNumber | str, reason: Reason, *, source_attempt_id: UUID | None = None) -> dict[str, Any]:
-    """取引の依頼者の発信禁止台帳に登録する（どこまで広げるかは、この中の1か所で決める）。
-
-    返すもの：entry_id（渡された番号の登録）・reason・numbers（止めた番号）・client_refs（止めた管理番号）・released_claims。
-    """
-    n = _number(phone)
-    numbers, refs = [n.e164], []
+def stop_set(tx: Tx, phone: PhoneNumber | str | None, reason: Reason, *, source_attempt_id: UUID | None = None,
+             client_ref: str | None = None) -> tuple[list[str], list[str]]:
+    """その登録で止める番号と管理番号（**広げ方の正本**。書かない。`register` と、一覧の取込のプレビューが呼ぶ）。
+    番号違い・FAX はその番号だけ。お客様ごとに止める理由（`CUSTOMER_WIDE`）は、そのお客様の行それぞれの `reach` まで広げる：
+    断ったお客様の行＝どの通話で分かったか（source_attempt_id）、依頼者の一覧のお客様の行＝その番号か管理番号を持つ行（取引の
+    依頼者の行だけ。依頼者をまたいでは広げない）。"""
+    if phone is None and client_ref is None:
+        raise ValueError("番号か管理番号のどちらかが要ります")
+    if client_ref is not None and reason not in ("client_list", "manual"):
+        raise ValueError(f"管理番号を直接止めるのは、依頼者の一覧か契約者の登録だけです（{reason}）")
+    numbers = [] if phone is None else [_number(phone).e164]
+    refs = [] if client_ref is None else [client_ref.strip()]
+    rows: list[UUID] = []
     if source_attempt_id is not None:
         a = tx.one("SELECT task_id, phone_e164 FROM salescall.attempts WHERE attempt_id = %s", (source_attempt_id,))
         if a is None:
             raise attempts.AttemptNotFound(str(source_attempt_id))
-        if reason in REFUSALS:
-            row_numbers, ref = reach(tx, a["task_id"])
-            numbers += [a["phone_e164"], *row_numbers]
-            refs += [] if ref is None else [ref]
-    numbers = list(dict.fromkeys(numbers))
+        if reason in CUSTOMER_WIDE:
+            numbers.append(a["phone_e164"])
+            rows.append(a["task_id"])
+    if reason == "client_list":
+        rows += [r["task_id"] for r in tx.all(
+            "SELECT DISTINCT task_id FROM salescall.task_numbers WHERE phone_e164 = ANY(%s)"
+            " UNION SELECT task_id FROM salescall.tasks WHERE client_ref = ANY(%s) ORDER BY 1", (numbers, refs))]
+    for task_id in dict.fromkeys(rows):
+        row_numbers, ref = reach(tx, task_id)
+        numbers += row_numbers
+        refs += [] if ref is None else [ref]
+    return list(dict.fromkeys(numbers)), list(dict.fromkeys(refs))
+
+
+def register(tx: Tx, phone: PhoneNumber | str | None, reason: Reason, *, source_attempt_id: UUID | None = None,
+             client_ref: str | None = None, import_id: UUID | None = None) -> dict[str, Any]:
+    """取引の依頼者の発信禁止台帳に登録する（どこまで広げるかは `stop_set` の1か所で決める）。import_id＝一覧の取込から入れるとき
+    （理由 client_list は必ず取込から。データベースが守る）。
+
+    返すもの：entry_id（渡された番号の登録。番号が無ければ管理番号の登録）・reason・numbers（止めた番号）・client_refs（止めた
+    管理番号）・released_claims。
+    """
+    numbers, refs = stop_set(tx, phone, reason, source_attempt_id=source_attempt_id, client_ref=client_ref)
     for e164 in numbers:
         tx.execute(
-            "INSERT INTO salescall.dnc_entries (tenant_id, client_id, phone_e164, reason, source_attempt_id, registered_by)"
-            " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, salescall.cur_actor())"
+            "INSERT INTO salescall.dnc_entries (tenant_id, client_id, phone_e164, reason, source_attempt_id, registered_by,"
+            "                                   import_id)"
+            " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, salescall.cur_actor(), %s)"
             " ON CONFLICT (client_id, phone_e164) WHERE revoked_at IS NULL DO NOTHING",
-            (e164, reason, source_attempt_id),
+            (e164, reason, source_attempt_id, import_id),
         )
     for ref in refs:
         tx.execute(
-            "INSERT INTO salescall.dnc_entries (tenant_id, client_id, client_ref, reason, source_attempt_id, registered_by)"
-            " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, salescall.cur_actor())"
+            "INSERT INTO salescall.dnc_entries (tenant_id, client_id, client_ref, reason, source_attempt_id, registered_by,"
+            "                                   import_id)"
+            " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, salescall.cur_actor(), %s)"
             " ON CONFLICT (client_id, client_ref) WHERE revoked_at IS NULL DO NOTHING",
-            (ref, reason, source_attempt_id),
+            (ref, reason, source_attempt_id, import_id),
         )
-    entry = tx.one("SELECT entry_id, reason FROM salescall.dnc_entries WHERE phone_e164 = %s AND revoked_at IS NULL",
-                   (n.e164,))
+    entry = (tx.one("SELECT entry_id, reason FROM salescall.dnc_entries WHERE phone_e164 = %s AND revoked_at IS NULL",
+                    (_number(phone).e164,)) if phone is not None else
+             tx.one("SELECT entry_id, reason FROM salescall.dnc_entries WHERE client_ref = %s AND revoked_at IS NULL",
+                    (client_ref.strip(),)))
     claimed = [r["attempt_id"] for r in tx.all(
         "SELECT a.attempt_id FROM salescall.attempts a"
         " JOIN salescall.tasks t ON t.client_id = a.client_id AND t.task_id = a.task_id"
         " WHERE a.state = 'claimed' AND (a.phone_e164 = ANY(%s) OR t.client_ref = ANY(%s))", (numbers, refs))]
     return {"entry_id": entry["entry_id"], "reason": entry["reason"], "numbers": numbers, "client_refs": refs,
             "released_claims": attempts.release(tx, claimed)}
+
+
+def active(tx: Tx, numbers: list[str], refs: list[str], *, contractor: bool = False) -> tuple[set[str], set[str]]:
+    """そのうち、もう止まっている（取り消されていない登録がある）番号と管理番号。contractor＝契約者の共通の台帳で見る
+    （依頼者の台帳と契約者の台帳は別の登録。片方にあっても、もう片方の登録は要る）。"""
+    if contractor:
+        return {r["p"] for r in tx.all("SELECT phone_e164 AS p FROM salescall.contractor_dnc_entries"
+                                       " WHERE revoked_at IS NULL AND phone_e164 = ANY(%s)", (numbers,))}, set()
+    return ({r["p"] for r in tx.all("SELECT phone_e164 AS p FROM salescall.dnc_entries"
+                                    " WHERE revoked_at IS NULL AND phone_e164 = ANY(%s)", (numbers,))},
+            {r["r"] for r in tx.all("SELECT client_ref AS r FROM salescall.dnc_entries"
+                                    " WHERE revoked_at IS NULL AND client_ref = ANY(%s)", (refs,))})
 
 
 def reach(tx: Tx, task_id: UUID) -> tuple[list[str], str | None]:
@@ -136,15 +181,16 @@ def undecided_reach_overlaps(tx: Tx, task_id: UUID) -> bool:
     return False
 
 
-def register_contractor(tx: Tx, phone: PhoneNumber | str, reason: str) -> dict[str, Any]:
+def register_contractor(tx: Tx, phone: PhoneNumber | str, reason: str, *, import_id: UUID | None = None) -> dict[str, Any]:
     """取引の契約者の、共通の発信禁止に登録する（その契約者のすべての依頼者に効く。2026-10-16 ユーザー：「システム共通の
-    発信禁止　契約者」）。登録できるのは管理者か契約者だけ（データベースが守る）。登録（entry_id）と、取り消した予約の数を返す。"""
+    発信禁止　契約者」）。登録できるのは管理者か契約者だけ（データベースが守る）。その番号だけを止める（お客様の行は依頼者ごとに
+    あり、依頼者をまたいで広げない）。import_id＝契約者の一覧の取込から入れるとき。登録（entry_id）と、取り消した予約の数を返す。"""
     n = _number(phone)
     tx.execute(
-        "INSERT INTO salescall.contractor_dnc_entries (tenant_id, phone_e164, reason, registered_by)"
-        " VALUES (salescall.cur_tenant(), %s, %s, salescall.cur_actor())"
+        "INSERT INTO salescall.contractor_dnc_entries (tenant_id, phone_e164, reason, registered_by, import_id)"
+        " VALUES (salescall.cur_tenant(), %s, %s, salescall.cur_actor(), %s)"
         " ON CONFLICT (tenant_id, phone_e164) WHERE revoked_at IS NULL DO NOTHING",
-        (n.e164, reason),
+        (n.e164, reason, import_id),
     )
     entry = tx.one("SELECT entry_id FROM salescall.contractor_dnc_entries WHERE phone_e164 = %s AND revoked_at IS NULL",
                    (n.e164,))

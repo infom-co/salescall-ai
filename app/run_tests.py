@@ -418,6 +418,26 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      "CREATE OR REPLACE FUNCTION salescall.take_job(p_key text, p_holder text, p_seconds integer) RETURNS boolean"
      " LANGUAGE sql AS $$ SELECT true $$",
      ("tests.test_supervisor.Leases.test_jobs_are_taken_by_one_supervisor_and_only_by_the_system",)),
+    # 発信禁止の一覧の取込（3-6-2・0065）
+    ("依頼者の一覧の登録を、取込を通さずに入れられる",
+     "ALTER TABLE salescall.dnc_entries DROP CONSTRAINT dnc_entries_list_from_import",
+     ("tests.test_dnc_import.Guards.test_only_a_person_imports_and_records_and_list_entries_are_fixed",)),
+    ("システムの処理が、発信禁止の一覧を取り込める",
+     "DROP TRIGGER dnc_import_by_person ON salescall.dnc_imports",
+     ("tests.test_dnc_import.Guards.test_only_a_person_imports_and_records_and_list_entries_are_fixed",)),
+    ("一覧から入った登録の、取込を指す欄を書き換えられる",
+     "CREATE OR REPLACE FUNCTION salescall.dnc_before_change() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN"
+     " IF TG_OP = 'DELETE' THEN RAISE EXCEPTION 'x' USING ERRCODE = 'integrity_constraint_violation'; END IF;"
+     " IF OLD.revoked_at IS NOT NULL OR (NEW.phone_e164, NEW.client_ref, NEW.reason) IS DISTINCT FROM"
+     " (OLD.phone_e164, OLD.client_ref, OLD.reason) THEN RAISE EXCEPTION 'x' USING ERRCODE = 'integrity_constraint_violation';"
+     " END IF; RETURN NEW; END $$",
+     ("tests.test_dnc_import.Guards.test_only_a_person_imports_and_records_and_list_entries_are_fixed",)),
+    ("発信禁止の一覧の取込の記録を書き換えられる",
+     "DROP TRIGGER dnc_imports_frozen ON salescall.dnc_imports",
+     ("tests.test_dnc_import.Guards.test_only_a_person_imports_and_records_and_list_entries_are_fixed",)),
+    ("ほかの契約者の、発信禁止の一覧の取込が見える",
+     "ALTER TABLE salescall.dnc_imports DISABLE ROW LEVEL SECURITY",
+     ("tests.test_dnc_import.Guards.test_only_a_person_imports_and_records_and_list_entries_are_fixed",)),
     # 費用の見張りと控えは契約者ごと（0064。2026-10-18 ユーザー）
     ("契約者の取引から、ほかの契約者の控えの記録が読める",
      "DROP POLICY backup_scope ON salescall.backup_runs;"

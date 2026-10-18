@@ -220,6 +220,8 @@ WRITERS: dict[str, dict[str, frozenset[str]]] = {
     "imports": {"INSERT": frozenset({_CORE + "importer.py"})},
     "task_confirmed_readings": {"INSERT": frozenset({_CORE + "tasks.py"})},   # 会話で確かめた名前の読み（CL-1 の 4-15）
     "import_rows": {"INSERT": frozenset({_CORE + "importer.py"})},
+    "dnc_imports": {"INSERT": frozenset({_CORE + "dnc_import.py"})},            # 発信禁止の一覧の取込（3-6-2。台帳に入れるのは dnc）
+    "dnc_import_rows": {"INSERT": frozenset({_CORE + "dnc_import.py"})},
     "deliveries": {"INSERT": frozenset({"src/salescall/output/"}),           # 連携の台帳（Q17。持ち主 CL-3）
                    "UPDATE": frozenset({"src/salescall/output/"})},
     "notification_deliveries": {"INSERT": frozenset({"src/salescall/output/"})},   # 知らせの送信の記録（Q23。送るのは CL-3）
