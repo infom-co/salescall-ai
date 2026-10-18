@@ -229,13 +229,13 @@ def _day_part(t: str, today: date) -> tuple[tuple[date, date] | None, str | None
         return _named_month(today, m.group("mrel"), m.group("mon"), m.group("part")), None, m.end()
     if m := _MONTH.match(t):
         return _named_month(today, m.group("mrel"), m.group("mon"), None), None, m.end()
-    if m := _MIDWEEK.match(t):   # 週中・週の半ば＝火〜木（2026-10-19 CL-2 の案。ユーザーに確かめる）
+    if m := _MIDWEEK.match(t):   # 週中・週の半ば＝火〜木（✅ 2026-10-19 ユーザー「OK」）
         monday = _week_monday(today, m.group("week") or "今週")
         lo, hi = monday + timedelta(days=1), monday + timedelta(days=3)
         if hi < today:
             raise _Ambiguous("今週の半ばはもう過ぎています（来週のことか、決まりません）")
         return (max(lo, today), hi), None, m.end()
-    if m := _WEEK_START.match(t):  # 週明け＝明日以後でいちばん近い月曜日
+    if m := _WEEK_START.match(t):  # 週明け＝明日以後でいちばん近い月曜日の1日（✅ 2026-10-19 ユーザー「OK」）
         d = today + timedelta(days=(7 - today.weekday()) % 7 or 7)
         return (d, d), None, m.end()
     if m := _WEEKEND.match(t):
