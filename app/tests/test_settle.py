@@ -14,7 +14,7 @@ from salescall.core import (approval, attempts, backup, business_rules, calling_
 from salescall.core.errors import ErrorReport
 from salescall.core.access import Rejected
 from salescall.core.call_report import CallReport, Callback, Cut
-from tests.support import CLEAN, OPERATOR, SYSTEM, app_access, owner_access, rules_raw
+from tests.support import ADMIN, CLEAN, OPERATOR, SYSTEM, app_access, owner_access, rules_raw
 from tests.test_gate import KEYS, Base, FakeDriver, dial_exit
 
 TALK = ["dialing", "answered", "in_conversation", "ending", "ended"]
@@ -139,8 +139,8 @@ class Settle(SettleBase):
         rows = self.tx(s, lambda tx: tx.all("SELECT kind FROM salescall.notification_events WHERE event_key = %s",
                                             (f"judge_unknown:{aid}",)))
         self.assertEqual(rows, [{"kind": "judge_unknown"}])
-        admin = self.tx(s, lambda tx: tx.all("SELECT for_admin FROM salescall.notification_events WHERE event_key = %s",
-                                             (f"admin:judge_unknown:{aid}",)))
+        admin = self.w.a.in_system(ADMIN, lambda tx: tx.all(          # 管理者あては、全体の取引で読む（0084）
+            "SELECT for_admin FROM salescall.notification_events WHERE event_key = %s", (f"admin:judge_unknown:{aid}",)))
         self.assertEqual(admin, [{"for_admin": True}])                    # 会話の処理の誤り：直せる管理者にも知らせる
         self.assertEqual(self.tx(s, lambda tx: tx.one("SELECT disconnect FROM salescall.attempts WHERE attempt_id = %s",
                                                       (aid,)))["disconnect"], None)      # 判定できないときは何も決めない

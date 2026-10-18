@@ -259,7 +259,8 @@ class Production(Base):
         sid = self.business_stops(s)[0]["event_id"]
         q = ("SELECT for_admin, summary FROM salescall.notification_events WHERE kind = 'stopped'"
              " AND refs ->> 'stop_event_id' = %s")
-        sent = self.tx(s, lambda tx: tx.all(q, (str(sid),)))            # 管理者が読む（契約者あてと管理者あての写し）
+        sent = (self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: tx.all(q, (str(sid),)))      # 契約者あて
+                + self.w.a.in_system(ADMIN, lambda tx: tx.all(q, (str(sid),))))                 # 管理者あての写し（全体の取引だけ）
         self.assertEqual(sorted(x["for_admin"] for x in sent), [False, True])
         self.assertTrue(all(x["summary"] == "発信を止めました（業務：判定できない通話）。" for x in sent))   # 知らせは短く
 

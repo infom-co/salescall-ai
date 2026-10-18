@@ -14,6 +14,7 @@ PC の環境変数から、下の表の名前（SALESCALL_ で始まるもの）
 | SALESCALL_CALL_RUNNER | 通話を最後まで進める部品を作る関数（会話＝CL-1） | 電話をかけるとき |
 | SALESCALL_VERIFIER | 通話後の検証の部品を作る関数（CL-1） | 検証をこの PC でするとき |
 | SALESCALL_PROBER | 停止を解く確かめの部品を作る関数（CL-1・電話接続） | 確かめをこの PC でするとき |
+| SALESCALL_UPDATER | プログラムを自動で入れ替える部品を作る関数（インストーラーが入れる。⏳ 作るのはインストーラーと一緒。DESIGN.md 5-4-1） | 自動の更新をするとき |
 | SALESCALL_SYSTEM_JOBS | 1 なら、すべての契約者に共通の仕事（祝日の暦・全体の停止の確かめ・落ちたままの PC の回線の後始末・データベース全体の控え）もこの PC でする（管理者の PC） | 管理者の PC |
 | SALESCALL_OWNER_DSN | データベースへの接続（表の持ち主。データベース全体の控えを取る） | 管理者の PC |
 | SALESCALL_RESTORE_DSN | 戻せるかを確かめる、空のデータベース（本番と別） | 管理者の PC |
@@ -24,7 +25,7 @@ PC の環境変数から、下の表の名前（SALESCALL_ で始まるもの）
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -34,7 +35,7 @@ from salescall.supervisor import pc_login
 _STORED = object()   # しまった鍵を読む（試験では代わりを渡す）
 
 NAMES = ("SALESCALL_DSN", "SALESCALL_TENANT_ID", "SALESCALL_SERVER_URL", "SALESCALL_LINES", "SALESCALL_LINE_DRIVER", "SALESCALL_CALL_RUNNER",
-         "SALESCALL_VERIFIER", "SALESCALL_PROBER", "SALESCALL_SYSTEM_JOBS", "SALESCALL_OWNER_DSN", "SALESCALL_RESTORE_DSN",
+         "SALESCALL_VERIFIER", "SALESCALL_PROBER", "SALESCALL_UPDATER", "SALESCALL_SYSTEM_JOBS", "SALESCALL_OWNER_DSN", "SALESCALL_RESTORE_DSN",
          "SALESCALL_BACKUP_DRIVE", "SALESCALL_BACKUP_KEY")
 
 
@@ -48,18 +49,19 @@ class NotLoggedIn(ConfigMissing):
 
 @dataclass(frozen=True)
 class Config:
-    dsn: str
+    dsn: str = field(repr=False)     # 合言葉を含む（表示に出さない）
     tenant_id: UUID
     lines: tuple[UUID, ...]
     line_driver: str | None
     call_runner: str | None
     verifier: str | None
     prober: str | None
+    updater: str | None              # プログラムを自動で入れ替える部品（無ければ、更新は「更新してください」と知らせる）
     system_jobs: bool
-    owner_dsn: str | None
-    restore_dsn: str | None
+    owner_dsn: str | None = field(repr=False)
+    restore_dsn: str | None = field(repr=False)
     backup_drive: Path | None
-    environ: dict[str, str]          # 読んだ表の名前の値（控えの鍵は backup.load_key がここから読む）
+    environ: dict[str, str] = field(repr=False)   # 読んだ表の名前の値（控えの鍵は backup.load_key がここから読む。表示に出さない）
 
     @property
     def calls(self) -> bool:
@@ -108,7 +110,7 @@ def load(environ: dict[str, str] | None = None, *, pc_key: Any = _STORED) -> Con
     drive = maybe("SALESCALL_BACKUP_DRIVE")
     return Config(dsn=key.conninfo if key is not None else need("SALESCALL_DSN"), tenant_id=tenant, lines=lines, line_driver=maybe("SALESCALL_LINE_DRIVER"),
                   call_runner=maybe("SALESCALL_CALL_RUNNER"), verifier=maybe("SALESCALL_VERIFIER"),
-                  prober=maybe("SALESCALL_PROBER"), system_jobs=maybe("SALESCALL_SYSTEM_JOBS") == "1",
+                  prober=maybe("SALESCALL_PROBER"), updater=maybe("SALESCALL_UPDATER"), system_jobs=maybe("SALESCALL_SYSTEM_JOBS") == "1",
                   owner_dsn=maybe("SALESCALL_OWNER_DSN"), restore_dsn=maybe("SALESCALL_RESTORE_DSN"),
                   backup_drive=Path(drive) if drive else None, environ=env)
 

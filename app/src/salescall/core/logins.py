@@ -19,9 +19,10 @@
 - 鍵（データベースのログインの役。名前は `role_name`）は、ここで作って **返すのは1回だけ**（どこにも保存しない。記録・知らせ・
   画面に出さない。データベースへも平文では送らない＝確かめの値 `_scram` だけを送る）。払い出した・使えなくした、の記録
   （`tenant_login_events`）は鍵を持たない。
-- 払い出してよいのは、全体の取引の管理者か、ログインを確かめるシステムの処理だけ（記録の守り＝データベース）。記録が通ってから、
-  役を作る・替える（同じ取引の中。取引をやり直しても、同じ確かめの値なので結果は同じ）。
-- 作る・替える・使えなくするのは、払い出し専用の役（`salescall_provisioner`）の接続だけ（`access.Provisioner`）。サーバーにだけ置き、
+- 払い出してよいのは、全体の取引の管理者か、ログインを確かめるシステムの処理だけ（記録の守り＝データベース）。記録を確定してから
+  役を作る（役を作るのは取引の外なので、取引の中ではしない）。止めるときは、止めてから記録する。
+- 作る・替える・使えなくするのは、払い出し専用の役（`salescall_provisioner`）の接続だけ（`access.Provisioner`）。この役が呼べるのは、
+  名前と合言葉の形をデータベースが確かめる2つの関数だけ（0084。役を作る権限そのものは、ログインできない役だけが持つ）。サーバーにだけ置き、
   契約者の PC・見守り役には置かない。管理者の PC・画面の機械は、前と同じシステムの役でつなぐ。
 """
 
@@ -73,28 +74,27 @@ def issue(app: Access, actor: Actor, provisioner: Provisioner, tenant_id: UUID, 
     PC の名前。replaces＝同じ PC が前に持っていた PC の番号（ログインし直したとき。その鍵は止める）。"""
     pc, password = secrets.token_hex(4), secrets.token_urlsafe(32)
     role, verifier = role_name(tenant_id, pc), _scram(password)
-    def work(tx: Any) -> None:
-        # 払い出してよい人か・その契約者があるかは、データベースが守る（無ければ Rejected）
-        _record(tx, tenant_id, "issued", pc=pc, pc_label=pc_label)
-        if replaces is not None:
-            _record(tx, tenant_id, "revoked", pc=replaces, pc_label=pc_label)
-        provisioner.set_login(role, verifier)     # 記録が通ってから（同じ確かめの値なので、取引をやり直しても同じ結果）
-        if replaces is not None:
-            provisioner.disable_logins(role_name(tenant_id, replaces))
-    app.in_system(actor, work)
+    # 払い出してよい人か・その契約者があるかは、データベースが守る（無ければ Rejected）。記録を確定してから、役を1回だけ作る
+    # （役を作るのは取引の外＝取引をやり直すと二重になるので、取引の中ではしない。作れなければ誤りを返し、PC はログインし直す）
+    app.in_system(actor, lambda tx: _record(tx, tenant_id, "issued", pc=pc, pc_label=pc_label))
+    provisioner.set_login(role, verifier)
+    if replaces is not None and _PC.match(replaces):   # 同じ PC の前の鍵（この契約者の鍵だけ。ほかの契約者の番号なら当たらない）
+        revoke(app, actor, provisioner, tenant_id, pc=replaces, missing_ok=True)
     return Login(tenant_id, pc, role, password, access_mod.login_conninfo(base_conninfo, role, password))
 
 
-def revoke(app: Access, actor: Actor, provisioner: Provisioner, tenant_id: UUID, *, pc: str | None = None) -> int:
-    """鍵を使えなくする（データは消さない）。pc＝その PC だけ（画面で「この PC のログインを外す」）／None＝その契約者のすべての PC
-    （契約が終わったとき）。止めた鍵の数を返す。止める鍵が無ければ LookupError（何も記録しない）。"""
-    def work(tx: Any) -> int:
-        _record(tx, tenant_id, "revoked", pc=pc, pc_label=None)
-        n = provisioner.disable_logins(role_name(tenant_id, pc) if pc else f"{ROLE_PREFIX}{UUID(str(tenant_id))}_")
-        if n == 0:
-            raise LookupError(f"止める鍵がありません：{tenant_id}{'' if pc is None else ' の PC ' + pc}")
-        return n
-    return app.in_system(actor, work)
+def revoke(app: Access, actor: Actor, provisioner: Provisioner, tenant_id: UUID, *, pc: str | None = None,
+           missing_ok: bool = False) -> int:
+    """鍵を使えなくする（つないだままの接続も切る。データは消さない）。pc＝その PC だけ（画面で「この PC のログインを外す」）／None＝
+    その契約者のすべての PC（契約が終わったとき）。ある鍵の数を返す。止める鍵が無ければ LookupError（missing_ok なら 0。何も記録しない）。
+    止めてから記録する（止めるのはやり直しても同じ結果＝もう止まった鍵も数える。記録できなければ、呼び直せば記録が残る）。"""
+    n = provisioner.disable_logins(role_name(tenant_id, pc) if pc else f"{ROLE_PREFIX}{UUID(str(tenant_id))}_")
+    if n == 0:
+        if missing_ok:
+            return 0
+        raise LookupError(f"止める鍵がありません：{tenant_id}{'' if pc is None else ' の PC ' + pc}")
+    app.in_system(actor, lambda tx: _record(tx, tenant_id, "revoked", pc=pc, pc_label=None))
+    return n
 
 
 def _record(tx: Any, tenant_id: UUID, kind: str, *, pc: str | None, pc_label: str | None) -> None:

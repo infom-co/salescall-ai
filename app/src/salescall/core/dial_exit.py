@@ -54,7 +54,11 @@ class Outcome(Enum):
 
 def dial(access: Access, actor: Actor, tenant_id: UUID, client_id: UUID, attempt_id: UUID, driver: LineDriver) -> Outcome:
     """予約証の試行に発信する。結果を返す（かけたときだけ真）。"""
-    if driver.in_call():   # まだ前の通話の途中：かけずに予約を戻す（予約証が使えるかに関係なく、二重にかけない）
+    try:
+        busy = driver.in_call()
+    except Exception:  # noqa: BLE001 答えられない＝分からない：通話中とみなす（かけない側）
+        busy = True
+    if busy:   # まだ前の通話の途中：かけずに予約を戻す（予約証が使えるかに関係なく、二重にかけない）
         access.in_client(actor, tenant_id, client_id, lambda tx: attempts.release(tx, [attempt_id]))
         return Outcome.LINE_IN_CALL
 

@@ -27,6 +27,16 @@ def migration_files(directory: Path = MIGRATIONS_DIR) -> list[Path]:
     return sorted(directory.glob("[0-9][0-9][0-9][0-9]_*.sql"))
 
 
+def fingerprint(directory: Path = MIGRATIONS_DIR) -> tuple[str, str] | None:
+    """このプログラムが持つ表の作りの版：いちばん新しい名前と、すべての「名前:中身の指紋」を名前の順に並べた指紋（データベースの
+    側は salescall.schema_fingerprint＝同じ決まり。0083）。表の作りのファイルが無ければ None（版が分からない）。"""
+    files = migration_files(directory)
+    if not files:
+        return None
+    text = "".join(f"{p.name}:{hashlib.sha256(p.read_bytes()).hexdigest()}\n" for p in files)
+    return files[-1].name, hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
 def apply(owner_conninfo: str, directory: Path = MIGRATIONS_DIR) -> list[str]:
     """まだ流していない表の作りを流し、流したファイルの名前を返す。"""
     done: list[str] = []

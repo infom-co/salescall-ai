@@ -273,6 +273,30 @@ class PerClientSettings(unittest.TestCase):
         self.assertEqual(self.detail("retry.max_attempts_per_task", client=c2)["value"], 3)
 
 
+class Choice(unittest.TestCase):
+    """値の形「選択」（0081・0082）：選べるのは定義の選択肢だけ。選択の形の設定だけが選択肢を持つ。"""
+
+    def test_only_the_declared_choices_are_accepted(self):
+        w = World()
+        t = w.tenant()
+        c = w.client(t)
+        self.assertEqual(resolved(w, t, c, "judge.models"), "sonnet")         # 2026-10-18 ユーザー：当面は Sonnet だけ
+        def put_tenant(value):
+            w.a.in_tenant(OPERATOR, t, lambda tx: tx.execute(
+                "INSERT INTO salescall.setting_values (key, scope, tenant_id, value, status, rationale, review_when, set_by)"
+                " VALUES ('judge.models', 'tenant', %s, %s, 'decided', '試験', '試験', '試験')", (t, json.dumps(value))))
+        for bad in ("gpt", 1, ["sonnet"], None):
+            with self.subTest(bad=bad), self.assertRaises(Rejected):
+                put_tenant(bad)
+        put_tenant("jev_and_sonnet")                                            # 契約者が選ぶ
+        self.assertEqual(resolved(w, t, c, "judge.models"), "jev_and_sonnet")
+        for choices, value_type in ((None, "choice"), (["a"], "choice"), (["a", "b"], "integer")):
+            with self.subTest(choices=choices, value_type=value_type), self.assertRaises(Rejected):
+                owner_access().in_system(SYSTEM, lambda tx: tx.execute(
+                    "INSERT INTO salescall.setting_definitions (key, merge_kind, value_type, meaning, design_ref, finest_scope,"
+                    " choices) VALUES ('test.choice', 'override', %s, '試験', '試験', 'system', %s)", (value_type, choices)))
+
+
 class ScopesDecidedByUser(unittest.TestCase):
     """2026-10-17 ユーザー：「1回線から1日 300本　依頼者ごと」「同じお客様への最小の間隔 5分　依頼者ごと」「依頼者をまたいだ間隔
     3日　契約者」「会話AI・回線の異常で止める回数と、解くまでの確かめ　契約者」「深夜・早朝の歯止め 7〜22時 など　依頼者ごと」。"""
@@ -282,7 +306,8 @@ class ScopesDecidedByUser(unittest.TestCase):
     TENANT = ("gate.cross_client_interval", "stop.ai.stop_after_failures", "stop.ai.probe_interval",
               "stop.ai.resume_after_successes", "stop.line.stop_after_failures", "stop.line.probe_interval",
               "stop.line.resume_after_successes", "stop.flapping.window", "stop.flapping.wait_multiplier",
-              "stop.flapping.max_wait", "budget.tenant_daily_yen")   # 費用の見張りは契約者ごと（2026-10-18 ユーザー）
+              "stop.flapping.max_wait", "budget.tenant_daily_yen",   # 費用の見張りは契約者ごと（2026-10-18 ユーザー）
+              "judge.models", "pc.auto_update")   # 判定に使うAI・プログラムの更新（2026-10-18 ユーザー）
 
     def setUp(self):
         self.w = World(); self.t = self.w.tenant(); self.c = self.w.client(self.t)

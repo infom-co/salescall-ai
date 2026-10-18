@@ -15,6 +15,7 @@ import sys
 import threading
 
 from salescall.core import backup
+from salescall.core.access import LoginRefused
 from salescall.supervisor import config, line, main, pc_login
 
 
@@ -55,19 +56,28 @@ def run(argv: list[str]) -> int:
         line.run(config.gather(), argv[1], argv[2], stop)
         return 0
     if command == "run":
-        try:
+        # 契約者の PC：まだログインしていない・鍵が止められた（データベースが断った）なら、ブラウザでログインのページを開いて待ち、
+        # 済んだら動き出す（ログインし直すときは、前の鍵の PC の番号を渡す＝サーバーが前の鍵を止める）
+        server = config.gather().get("SALESCALL_SERVER_URL", "").strip()
+        while True:
             try:
-                cfg = config.load()
-            except config.NotLoggedIn:   # 契約者の PC で、まだログインしていない：ブラウザでログインのページを開いて待つ
-                server = config.gather().get("SALESCALL_SERVER_URL", "").strip()
-                if not server or pc_login.until_logged_in(server) is None:
-                    raise
-                cfg = config.load()
-            main.serve(cfg)
-        except (config.ConfigMissing, main.AlreadyRunning) as e:
-            print(str(e))
-            return 1
-        return 0
+                try:
+                    cfg = config.load()
+                except config.NotLoggedIn:
+                    if not server or pc_login.until_logged_in(server) is None:
+                        raise
+                    continue
+                main.serve(cfg)
+                return 0
+            except LoginRefused as e:
+                if not server or pc_login.load() is None:   # 管理者の PC（システムの接続）：合言葉を直すのは管理者
+                    print(str(e))
+                    return 1
+                if pc_login.until_logged_in(server) is None:
+                    return 1
+            except (config.ConfigMissing, main.AlreadyRunning) as e:
+                print(str(e))
+                return 1
     print("使い方：python -m salescall.supervisor [run | status | login | logout | check-key]")
     return 2
 

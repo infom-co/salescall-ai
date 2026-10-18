@@ -96,6 +96,13 @@ class Login(unittest.TestCase):
             self.run_login(FakeServer(self.issue, waits=(), final="access_denied"))
         with self.assertRaises(pc_login.LoginFailed):                            # 期限まで待っても済まない
             self.run_login(FakeServer(self.issue, waits=["authorization_pending"] * 500))
+        broken = lambda url, body: {"error": "server_error"} if url.endswith(pc_login.START) else {}   # noqa: E731
+        with self.assertRaises(pc_login.LoginFailed):                            # 答えの形が違っても、見守り役を終わらせない
+            self.run_login(broken)
+        half = FakeServer(self.issue, waits=())
+        half.issue = lambda replaces: None
+        with self.assertRaises(pc_login.LoginFailed):
+            self.run_login(lambda url, body: half(url, body) if url.endswith(pc_login.START) else {"pc": "x"})
         with self.assertRaises(pc_login.LoginFailed):                            # 鍵を運ぶので https だけ
             pc_login.login("http://salescall.example.invalid", post=FakeServer(self.issue))
 

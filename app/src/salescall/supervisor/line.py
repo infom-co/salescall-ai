@@ -26,7 +26,7 @@ from uuid import UUID
 from salescall.core import attempts, dial_exit, emergency, gate, next_action, scheduler, settings, watch
 from salescall.core.access import Access, Actor
 from salescall.core.errors import ErrorReport
-from salescall.supervisor import ACTOR, config, plugins, report
+from salescall.supervisor import ACTOR, config, plugins, report, updates
 from salescall.supervisor.locks import SingleInstance, line_lock
 
 CANDIDATES_PER_CLIENT = 20   # 1回に門へ渡す行の数の上限（依頼者ごと）。通れば1本かけて、また初めから並べ直す
@@ -124,6 +124,11 @@ def _loop(cfg: config.Config, access: Access, line: UUID, holder: str, stop: Any
     while not stop.is_set():
         try:
             if emergency.engaged() is not None:   # 本番の PC の緊急停止の印（出口も見るが、候補を出す前に休む）
+                stop.wait(IDLE_SECONDS)
+                continue
+            # この処理のプログラムとデータベースの版が合わなければ、新しい電話をかけない（本体が立ち上げたあとでデータベースが
+            # 新しくなった・本体と違う版のファイルで立ち上がった、でも、かける処理が自分の版で確かめる。supervisor.updates）
+            if access.in_tenant(ACTOR, cfg.tenant_id, updates.current) != updates.SAME:
                 stop.wait(IDLE_SECONDS)
                 continue
             got = one_round(access, ACTOR, cfg.tenant_id, line, holder, driver, runner)

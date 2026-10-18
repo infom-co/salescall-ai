@@ -29,6 +29,8 @@ def raw() -> dict:
                    "purpose_line": "ご予約の確認でお電話いたしました。"},
         "target_person": {"kind": "anyone", "role": None},
         "busy_line": None,
+        "voicemail_message": None,
+        "ai_answer": None,
         "voice": "S2",
         "questions": [
             {"id": "Q1", "text": "ご予約はなさいますか。", "ask_about": "ご予約", "type": "choice", "required": True,

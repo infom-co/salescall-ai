@@ -25,7 +25,7 @@ from uuid import UUID
 
 import psycopg
 import psycopg.conninfo
-from psycopg import IsolationLevel, errors, sql
+from psycopg import IsolationLevel, errors
 from psycopg.rows import dict_row
 
 T = TypeVar("T")
@@ -55,6 +55,23 @@ class Rejected(Exception):
         self.sqlstate = sqlstate
         self.constraint = constraint
         self.message = message
+
+
+class LoginRefused(Exception):
+    """データベースが、この接続の合言葉（PC の鍵）を断った（合言葉が違う・止められた・役が無い）。判断は `_login_refused` の1か所。
+    契約者の PC の見守り役は、これを受けたらログインし直す（supervisor）。"""
+
+
+# 合言葉を断られたときは、つなぐ段の誤りで、誤りの種類の番号が付かない（psycopg の OperationalError の文だけ）。データベースの
+# 言葉は英語（C）の決まり（DESIGN.md 11章）：合言葉が違う（28P01）・つなげない役（28000）・役が無い（28000）。
+_REFUSED_TEXTS = ("password authentication failed", "is not permitted to log in", "does not exist")
+
+
+def _login_refused(e: Exception) -> bool:
+    if not isinstance(e, psycopg.OperationalError) or getattr(e, "sqlstate", None) not in (None, "28P01", "28000"):
+        return False
+    text = str(e)
+    return "password authentication failed" in text or ("role" in text and any(t in text for t in _REFUSED_TEXTS[1:]))
 
 
 class RetryExhausted(Exception):
@@ -111,14 +128,15 @@ def snapshot(conninfo: str) -> Iterator[tuple[str, Tx]]:
 def login_conninfo(base_conninfo: str, role: str, password: str) -> str:
     """契約者の合言葉の接続文字（core/logins.py だけが使う）：base の接続先（場所・データベース）に、その契約者の役と合言葉を入れる。"""
     d = psycopg.conninfo.conninfo_to_dict(base_conninfo)
-    d.update(user=role, password=password)
+    # 契約者の PC からの通信は、必ず暗号化し、相手のサーバーを確かめる（鍵と、お客様のデータを運ぶ。同じ機械の中のつなぎ方では効かない）
+    d.update(user=role, password=password, sslmode="verify-full")
     return psycopg.conninfo.make_conninfo(**d)
 
 
 class Provisioner:
-    """契約者ごとの合言葉（データベースのログインの役）を作る・替える・使えなくする（core/logins.py だけが使う。払い出し専用の役
-    salescall_provisioner の接続。DESIGN.md 11章）。合言葉は、平文でデータベースへ送らない（ここで作った確かめの値だけを送る＝
-    データベースの記録に合言葉が残らない）。"""
+    """契約者の PC の鍵（データベースのログインの役）を作る・替える・止める（core/logins.py だけが使う。払い出し専用の役
+    salescall_provisioner の接続。DESIGN.md 11章）。この役が呼べるのは、データベースの2つの関数だけ（make_pc_login・stop_pc_logins。
+    名前と合言葉の形を、データベースが確かめる＝0084）。合言葉は、平文でデータベースへ送らない（確かめの値だけを送る）。"""
 
     def __init__(self, conninfo: str) -> None:
         self._conninfo = conninfo
@@ -126,26 +144,13 @@ class Provisioner:
     def set_login(self, role: str, verifier: str) -> None:
         """役が無ければ作り（システムの役の権限を受け継ぐ）、あれば合言葉を替えて、つなげるようにする。"""
         with psycopg.connect(self._conninfo, autocommit=True) as conn:
-            exists = conn.execute("SELECT 1 FROM pg_roles WHERE rolname = %s", (role,)).fetchone() is not None
-            if exists:
-                conn.execute(sql.SQL("ALTER ROLE {} LOGIN PASSWORD {}").format(sql.Identifier(role), sql.Literal(verifier)))
-            else:
-                conn.execute(sql.SQL("CREATE ROLE {} LOGIN PASSWORD {} NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE"
-                                     " IN ROLE salescall_app").format(sql.Identifier(role), sql.Literal(verifier)))
+            conn.execute("SELECT salescall.make_pc_login(%s, %s)", (role, verifier))
 
     def disable_logins(self, name_or_prefix: str) -> int:
-        """名前がそれと同じか、それで始まる（頭の文字の末尾が「_」のとき）役を、つなげないようにする（PC のログインを外した・契約が
-        終わったとき）。止めた数を返す。"""
+        """名前がそれと同じか、それで始まる（頭の文字の末尾が「_」のとき）役を、つなげないようにし、つないだままの接続も切る。
+        ある役の数を返す（もう止まっていても数える＝やり直せる）。"""
         with psycopg.connect(self._conninfo, autocommit=True) as conn:
-            if name_or_prefix.endswith("_"):
-                roles = [r[0] for r in conn.execute("SELECT rolname FROM pg_roles WHERE starts_with(rolname, %s) AND rolcanlogin",
-                                                    (name_or_prefix,)).fetchall()]
-            else:
-                roles = [r[0] for r in conn.execute("SELECT rolname FROM pg_roles WHERE rolname = %s AND rolcanlogin",
-                                                    (name_or_prefix,)).fetchall()]
-            for role in roles:
-                conn.execute(sql.SQL("ALTER ROLE {} NOLOGIN").format(sql.Identifier(role)))
-            return len(roles)
+            return int(conn.execute("SELECT salescall.stop_pc_logins(%s)", (name_or_prefix,)).fetchone()[0])
 
 
 def tool_connection(conninfo: str) -> tuple[str, dict[str, str]]:
@@ -202,4 +207,8 @@ class Access:
             except _CONFLICTS:
                 # ほかの取引とぶつかった ⇒ 少し待って最初からやり直す（待つ長さは少しずつ伸ばし、ばらつかせる）
                 time.sleep(min(0.2, 0.002 * (2 ** min(attempt, 7))) * (0.5 + random.random()))
+            except psycopg.OperationalError as e:   # ぶつかり（上）より後に見る（ぶつかりも、この種類の一つ）
+                if _login_refused(e):
+                    raise LoginRefused("データベースが、この接続の合言葉を断りました（PC の鍵が止められた・替えられた）") from None
+                raise
         raise RetryExhausted(f"ほかの取引とのぶつかりが {self._max_attempts} 回続きました")

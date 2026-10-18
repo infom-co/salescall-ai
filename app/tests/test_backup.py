@@ -296,6 +296,16 @@ class PerClient(unittest.TestCase):
                 self.assertEqual(len(self.notices(x["tenant"])), 1)
                 self.assertIn(x["tenant"], [r["origin_tenant"] for r in self.notices()])
 
+    def test_folder_names_do_not_show_other_contractors_clients(self):
+        """フォルダの名前の重なりは、契約者の中だけで見る（ほかの契約者に同じ名前の依頼者がいても、名前はずれない＝いるかが分からない。
+        0084）。同じ契約者の中では重ならない。"""
+        t1, t2 = self.w.tenant(), self.w.tenant()
+        a, b = self.named_client(t1, "架空商事株式会社"), self.named_client(t2, "架空商事株式会社")
+        c = self.named_client(t1, "架空商事株式会社")
+        names = [backup.client_folder(self.app, t, x) for t, x in ((t1, a), (t2, b), (t1, c))]
+        self.assertEqual(names[0], names[1])
+        self.assertNotEqual(names[0].lower(), names[2].lower())
+
     def test_two_clients_failing_on_the_same_day_are_both_told(self):
         """同じ契約者の2つの依頼者の控えが同じ日に失敗しても、知らせはそれぞれに届く（2026-10-18 の見直し：前は2つ目が黙って落ちた）。"""
         s = World().setup()
@@ -305,11 +315,14 @@ class PerClient(unittest.TestCase):
         self.assertEqual(len(self.notices(s["tenant"])), 2)
 
     def test_old_backups_are_removed_by_kind_only_in_that_contractors_folders(self):
-        """AI用は1年、提出用は3年（ハードディスク）。名前に日時のある控えのファイルだけを消す。ほかの契約者のフォルダには触れない。"""
+        """AI用は1年、提出用は3年（ハードディスク）。名前に日時のある控えのファイルだけを消す。ほかの契約者のフォルダには触れない
+        （ハードディスクは PC＝契約者ごと。フォルダの名前は契約者の中で重ならない＝ほかの契約者と同じ名前でもよい。0084）。"""
         s, other = World().setup(), World().setup()
+        theirs_root = Path(tempfile.mkdtemp(prefix="salescall-test-hdd-"))   # ほかの契約者の PC のハードディスク
         now = datetime.now().astimezone()
         def put(x, kind, days_ago, tail):
-            d = self.root / backup.BASE / backup.client_folder(self.app, x["tenant"], x["client"]) / kind
+            root = self.root if x is s else theirs_root
+            d = root / backup.BASE / backup.client_folder(self.app, x["tenant"], x["client"]) / kind
             d.mkdir(parents=True, exist_ok=True)
             f = d / f"salescall-{now - timedelta(days=days_ago):%Y%m%d-%H%M%S}{tail}"
             f.write_bytes(b"x")

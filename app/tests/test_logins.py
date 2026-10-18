@@ -11,8 +11,8 @@ from __future__ import annotations
 import os
 import unittest
 
-from salescall.core import logins
-from salescall.core.access import Access, Provisioner, Rejected
+from salescall.core import logins, notify, stops
+from salescall.core.access import Access, LoginRefused, Provisioner, Rejected, snapshot
 from tests.support import ADMIN, OPERATOR, SYSTEM, World
 
 CHECKS_PASSWORDS = "SALESCALL_TEST_SUPERUSER_DSN" not in os.environ   # 使い捨てのデータベースは、契約者の合言葉を本当に確かめる
@@ -58,6 +58,49 @@ class Scope(Base):
         self.assertTrue(mine.in_tenant(SYSTEM, s["tenant"], lambda tx: tx.one(
             "SELECT salescall.take_job(%s, 'x', 60) AS ok", (f"settle:{s['tenant']}",))["ok"]))   # その契約者の仕事は借りられる
 
+    def test_admin_notices_jobs_and_stops_of_others_are_out_of_reach(self):
+        """契約者の取引（種類が「システムの処理」でも）から、ほかの契約者の管理者あての知らせは読めない。ほかの契約者・全体の仕事の
+        借用は返せない。ほかの契約者の停止で、その予約は取り消せない（0084）。"""
+        mine = Access(self.issue().conninfo)
+        s, o = self.s, self.other
+        self.w.a.in_tenant(SYSTEM, o["tenant"], lambda tx: notify.emit(tx, "backup_failed", key="試験:管理者あて", summary="試験",
+                                                                      admin=True, contractor=False))
+        for access in (mine, self.w.a):                                       # 契約者の鍵でも、システムの役の契約者の取引でも
+            with self.subTest(access=access):
+                seen = access.in_tenant(SYSTEM, s["tenant"], lambda tx: tx.all(
+                    "SELECT 1 FROM salescall.notification_events WHERE for_admin"))
+                self.assertEqual(seen, [])
+        self.assertEqual(len(self.w.a.in_system(ADMIN, lambda tx: tx.all(
+            "SELECT 1 FROM salescall.notification_events WHERE for_admin AND origin_tenant = %s", (o["tenant"],)))), 1)
+        with self.assertRaises(Rejected):
+            mine.in_tenant(SYSTEM, s["tenant"], lambda tx: tx.one("SELECT salescall.return_job('holidays', 'x')"))
+        stop = self.w.a.in_tenant(SYSTEM, o["tenant"], lambda tx: stops.stop(
+            tx, cause="budget", reason="試験", tenant_id=o["tenant"], scope="tenant"))
+        with self.assertRaises(Rejected):
+            mine.in_tenant(SYSTEM, s["tenant"], lambda tx: tx.one("SELECT salescall.release_claims_for_stop(%s)",
+                                                                  (stop["event_id"],)))
+
+    def test_the_issuing_login_can_only_make_and_stop_pc_keys(self):
+        """払い出し専用の役は、PC の鍵の形の名前・確かめの値の形の合言葉で、作る・止めるだけ（システムの役の合言葉を替える・
+        名前を自由に付けた役を作る・自分をシステムの役にする、はできない。0084）。止めたら、つないだままの接続も切れる。"""
+        prov = Access(os.environ["SALESCALL_TEST_PROVISIONER_DSN"])
+        verifier = logins._scram("試験")
+        for name, sql, args in (
+                ("システムの役の合言葉を替える", "ALTER ROLE salescall_app PASSWORD 'x'", ()),
+                ("役を作る", "CREATE ROLE 試験の役 LOGIN", ()),
+                ("システムの役になる", "SET ROLE salescall_app", ()),
+                ("形の違う名前", "SELECT salescall.make_pc_login('salescall_t_自由な名前', %s)", (verifier,)),
+                ("合言葉の平文", "SELECT salescall.make_pc_login(%s, 'そのままの合言葉')",
+                 (logins.role_name(self.s["tenant"], "0a1b2c3d"),)),
+                ("表を読む", "SELECT 1 FROM salescall.tasks", ())):
+            with self.subTest(name), self.assertRaises(Rejected):
+                prov.in_system(SYSTEM, lambda tx: tx.execute(sql, args))
+        login = self.issue()
+        with snapshot(login.conninfo) as (_, held):                         # つないだままの接続
+            logins.revoke(self.w.a, SYSTEM, self.prov, self.s["tenant"], pc=login.pc)
+            with self.assertRaises(Exception):
+                held.one("SELECT 1 AS x")
+
     def test_the_system_login_is_unchanged(self):
         """管理者の PC・画面の機械のシステムの役は、前と同じ（全体の取引・管理者として動ける）。"""
         self.assertEqual(self.w.a.in_system(ADMIN, lambda tx: tx.one("SELECT salescall.cur_actor_kind() AS k"))["k"], "admin")
@@ -88,13 +131,13 @@ class Issue(Base):
         self.assertEqual((ok(first)["x"], ok(second)["x"]), (1, 1))
         again = self.issue(replaces=first.pc)                                # 1台目でログインし直した
         self.assertEqual(ok(again)["x"], 1)
-        with self.assertRaises(Exception):
+        with self.assertRaises(LoginRefused):                                # 前の鍵は断られる（見守り役はログインし直す）
             ok(first)
         self.assertEqual(logins.revoke(self.w.a, ADMIN, self.prov, self.s["tenant"], pc=second.pc), 1)
         with self.assertRaises(Exception):
             ok(second)
         self.assertEqual(ok(again)["x"], 1)                                  # ほかの PC は使える
-        self.assertEqual(logins.revoke(self.w.a, SYSTEM, self.prov, self.s["tenant"]), 1)   # 契約が終わった：残りすべて
+        self.assertEqual(logins.revoke(self.w.a, SYSTEM, self.prov, self.s["tenant"]), 3)   # 契約が終わった：すべて（止まった鍵も数える）
         with self.assertRaises(Exception):
             ok(again)
 

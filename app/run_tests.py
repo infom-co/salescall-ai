@@ -470,6 +470,39 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      " LANGUAGE sql IMMUTABLE AS $$ SELECT true $$",
      ("tests.test_gate.BusinessDailyLimit.test_the_limit_counts_the_business_dials_of_today_and_skips_promised_calls",
       "tests.test_exclusions.Marks.test_apologies_resumes_and_promised_calls_are_made_even_on_a_row_set_to_do_not_call")),
+    # 契約者の鍵の見直し（11章・0084。2026-10-18）
+    ("契約者の取引から、ほかの契約者の管理者あての知らせが読める",
+     "DROP POLICY notice_scope ON salescall.notification_events; CREATE POLICY notice_scope ON salescall.notification_events"
+     " USING ((tenant_id IS NULL AND (NOT for_admin OR salescall.cur_actor_kind() IN ('admin', 'system')))"
+     " OR (tenant_id = salescall.cur_tenant() AND (client_id IS NULL OR salescall.cur_client() IS NULL"
+     " OR client_id = salescall.cur_client())))"
+     " WITH CHECK ((tenant_id IS NULL AND salescall.cur_tenant() IS NULL AND NOT for_admin)"
+     " OR (tenant_id = salescall.cur_tenant() AND client_id IS NOT DISTINCT FROM salescall.cur_client()))",
+     ("tests.test_logins.Scope.test_admin_notices_jobs_and_stops_of_others_are_out_of_reach",)),
+    ("PC の鍵を、形の違う名前・合言葉の平文で作れる",
+     "GRANT CREATE ON SCHEMA salescall TO salescall_login_maker; SET ROLE salescall_login_maker; CREATE OR REPLACE FUNCTION salescall.make_pc_login(p_role text, p_verifier text) RETURNS void LANGUAGE plpgsql"
+     " SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ BEGIN"
+     " IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = p_role) THEN"
+     " EXECUTE format('ALTER ROLE %I LOGIN PASSWORD %L', p_role, p_verifier); ELSE"
+     " EXECUTE format('CREATE ROLE %I LOGIN PASSWORD %L IN ROLE salescall_app', p_role, p_verifier); END IF; END $$; RESET ROLE",
+     ("tests.test_logins.Scope.test_the_issuing_login_can_only_make_and_stop_pc_keys",)),
+    ("PC の鍵を止めても、つないだままの接続が残る",
+     "GRANT CREATE ON SCHEMA salescall TO salescall_login_maker; SET ROLE salescall_login_maker; CREATE OR REPLACE FUNCTION salescall.stop_pc_logins(p_name text) RETURNS integer LANGUAGE plpgsql"
+     " SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ DECLARE r record; n integer := 0; BEGIN"
+     " FOR r IN SELECT rolname FROM pg_roles WHERE CASE WHEN p_name LIKE '%\\_' THEN starts_with(rolname, p_name)"
+     " ELSE rolname = p_name END LOOP EXECUTE format('ALTER ROLE %I NOLOGIN', r.rolname); n := n + 1; END LOOP;"
+     " RETURN n; END $$; RESET ROLE",
+     ("tests.test_logins.Scope.test_the_issuing_login_can_only_make_and_stop_pc_keys",)),
+    ("控えのフォルダの名前から、ほかの契約者の依頼者が分かる",
+     "CREATE OR REPLACE FUNCTION salescall.backup_folder_taken(p_name text) RETURNS boolean LANGUAGE plpgsql STABLE"
+     " SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ BEGIN PERFORM salescall.only_backup_system();"
+     " RETURN EXISTS (SELECT 1 FROM salescall.client_backup_folders WHERE lower(folder_name) = lower(p_name)); END $$",
+     ("tests.test_backup.PerClient.test_folder_names_do_not_show_other_contractors_clients",)),
+    ("ほかの契約者・全体の仕事の借用を返せる",
+     "CREATE OR REPLACE FUNCTION salescall.return_job(p_key text, p_holder text) RETURNS boolean LANGUAGE sql"
+     " SECURITY DEFINER SET search_path = salescall, pg_temp AS $$"
+     " UPDATE salescall.job_leases SET expires_at = now() WHERE job_key = p_key AND holder = p_holder RETURNING true $$",
+     ("tests.test_logins.Scope.test_admin_notices_jobs_and_stops_of_others_are_out_of_reach",)),
     # 誤判定率を通話ごとに（10-3・0074。2026-10-18 の見直し）
     ("誤判定率の正解の出どころを、呼ぶ側が偽れる",
      "CREATE OR REPLACE FUNCTION salescall.judgement_check_guard() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN"

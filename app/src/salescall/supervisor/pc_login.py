@@ -65,31 +65,39 @@ def login(server_url: str, *, previous: PcKey | None = None, post: Callable[[str
         raise LoginFailed("SalesCall AI のサーバーの場所は https:// で始まるものだけです（鍵を運ぶため）")
     post = post or _post
     base = server_url.rstrip("/")
-    start = post(base + START, {"pc_label": socket.gethostname()})
-    page = start.get("verification_uri_complete") or start["verification_uri"]
+    try:   # サーバーの答えの形が違えば、ログインできなかったとして扱う（見守り役を終わらせない）
+        start = post(base + START, {"pc_label": socket.gethostname()})
+        page = start.get("verification_uri_complete") or start["verification_uri"]
+        code, device = str(start["user_code"]), str(start["device_code"])
+        interval, deadline = float(start.get("interval", 5)), now() + float(start.get("expires_in", 600))
+    except (KeyError, TypeError, ValueError, AttributeError):
+        raise LoginFailed("サーバーの答えの形が違います（ログインを始められませんでした）") from None
     say(f"ブラウザで SalesCall AI のログインのページを開きます（開かないときは、このページを開いてください：{page}）。\n"
-        f"ページに出る確かめのコードが「{start['user_code']}」と同じかを確かめてから、ログインしてください"
+        f"ページに出る確かめのコードが「{code}」と同じかを確かめてから、ログインしてください"
         "（ID とパスワード・Google・パスキーのどれでも）。")
     open_browser(page)
-    interval, deadline = float(start.get("interval", 5)), now() + float(start.get("expires_in", 600))
-    body = {"device_code": start["device_code"], **({"replaces": previous.pc} if previous else {})}
+    body = {"device_code": device, **({"replaces": previous.pc} if previous else {})}
     while now() < deadline:
         sleep(interval)
         got = post(base + TOKEN, body)
-        error = got.get("error")
+        error = got.get("error") if isinstance(got, dict) else "invalid_response"
         if error == "authorization_pending":
             continue
         if error == "slow_down":
             interval += 5
             continue
         if error == "access_denied":
-            raise LoginFailed("ログインが取り消されました。もう一度、命令を打ってください")
+            raise LoginFailed("ログインが取り消されました（しばらくすると、ログインのページがまた開きます）")
         if error == "expired_token":
             break
         if error is not None:
             raise LoginFailed(f"サーバーが断りました（{error}）")
-        return PcKey(UUID(got["tenant_id"]), str(got["pc"]), str(got["conninfo"]))
-    raise LoginFailed("時間切れです（ログインが済まないうちに、確かめのコードの期限が切れました）。もう一度、命令を打ってください")
+        try:
+            return PcKey(UUID(got["tenant_id"]), str(got["pc"]), str(got["conninfo"]))
+        except (KeyError, TypeError, ValueError, AttributeError):
+            raise LoginFailed("サーバーの答えの形が違います（鍵を受け取れませんでした）") from None
+    raise LoginFailed("時間切れです（ログインが済まないうちに、確かめのコードの期限が切れました。しばらくすると、ログインのページが"
+                      "また開きます）")
 
 
 def until_logged_in(server_url: str, *, stop: Any = None, login_once: Callable[..., PcKey] | None = None,
@@ -172,6 +180,8 @@ def _post(url: str, body: dict[str, Any]) -> dict[str, Any]:
             return json.loads(e.read().decode("utf-8"))
         except ValueError:
             raise LoginFailed(f"サーバーの答えが読めません（{e.code}）") from None
+    except ValueError:   # 答えが JSON でない
+        raise LoginFailed("サーバーの答えが読めません") from None
 
 
 def _protect(data: bytes) -> bytes:

@@ -331,7 +331,8 @@ class Targets(Base):
                                "person": {"text": "岡田", "reading": "おかだ", "reading_by": "given", "candidates": [],
                                           "likely": None},
                                "company": {"text": "架空商事", "reading": "てすとがいしゃ", "reading_by": "ai",
-                                           "candidates": [], "likely": None}})   # 会社名の読みは AI が決めた読み
+                                           "candidates": [], "likely": None},     # 会社名の読みは AI が決めた読み
+                               "target": {"kind": "法人", "name": "岡田", "reading": "おかだ", "role": ""}})  # 会話の「目的の人」の形
 
     def test_a_business_that_calls_by_role_needs_the_role_unless_the_business_names_it(self):
         _, run = self.run_with({"kind": "role", "role": None})
@@ -343,7 +344,8 @@ class Targets(Base):
         _, run2 = self.run_with({"kind": "role", "role": "社長"})              # 業務で役職を1つ書いていれば、一覧の列は要らない
         r = self.register(csv_file([("C", "架空物産", fictional_jp_fixed())]), run=run2)
         self.assertEqual(self.outcomes(r), [(2, "registered", None)])
-        self.assertEqual(self.tx(lambda tx: business_settings.target_of(tx, r["rows"][0]["task_id"]))["role"], "社長")
+        got = self.tx(lambda tx: business_settings.target_of(tx, r["rows"][0]["task_id"]))
+        self.assertEqual((got["role"], got["target"]), ("社長", {"kind": "法人", "name": "", "reading": "", "role": "社長"}))
 
     def test_in_verification_mode_the_contractor_confirms_ai_readings(self):
         """検証モード：AI の読みの案は、契約者が確かめるまで登録しない。確かめた（直した）読みで登録する。"""

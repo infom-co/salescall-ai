@@ -16,7 +16,7 @@ from salescall.core.access import Rejected
 from salescall.supervisor import config, jobs, line, updates
 from salescall.supervisor import main as main_mod
 from salescall.supervisor.main import Supervisor
-from tests.support import CLEAN, OPERATOR, SYSTEM, fictional_jp_fixed, rules_raw
+from tests.support import ADMIN, CLEAN, OPERATOR, SYSTEM, fictional_jp_fixed, rules_raw
 from tests.test_gate import HOLDER, Base, FakeDriver
 from tests.test_settle import rep
 
@@ -303,32 +303,47 @@ class Main(SupervisorBase):
         sup = Supervisor(self.cfg(s), start_worker=start, holder=HOLDER)
         sup.start()
         self.assertEqual(len(started), 1)
-        real = updates.program_schema
-        updates.program_schema = lambda: "0001_古いプログラム.sql"                  # データベースが先に新しくなった
+        real = updates.PROGRAM
+        updates.PROGRAM = ("0001_古いプログラム.sql", "0" * 64)                    # データベースが先に新しくなった
         try:
+            sup.check_version()
             sup.renew(100.0)
             self.assertEqual((sup.version_gap, s["line"] in sup.workers, sup.leased), (updates.PROGRAM_OLD, False, {s["line"]}))
             sup.watch_workers(10_000.0)
             self.assertEqual(len(started), 1)                                     # 立ち上げない
+            sup._running.clear()
+            sup.run_jobs(10_000.0)
+            self.assertEqual(sup._running, {})                                    # 決まった間隔の仕事もしない
+            c = self.claim(s)                                                     # 止めた処理が残した試行（落ちた）は、後始末する
+            sup.renew(300.0)
+            self.assertEqual(self.state(s, c.attempt_id), "released")
             notes = self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: tx.all(
                 "SELECT summary FROM salescall.notification_events WHERE kind = 'program_update'"))
             self.assertEqual(len(notes), 1)
-            self.assertIn("自動", notes[0]["summary"])
-            t = self.ready()                                                      # 手動の契約者には「更新」を押してもらう
-            self.w.a.in_tenant(OPERATOR, t["tenant"], lambda tx: tx.execute(
-                "INSERT INTO salescall.setting_values (key, scope, tenant_id, value, status, rationale, review_when, set_by)"
-                " VALUES ('pc.auto_update', 'tenant', %s, 'false', 'decided', '試験', '試験', '試験')", (t["tenant"],)))
-            self.assertEqual(self.w.a.in_tenant(SYSTEM, t["tenant"], lambda tx: updates.check(tx, t["tenant"])), updates.PROGRAM_OLD)
-            manual = self.w.a.in_tenant(OPERATOR, t["tenant"], lambda tx: tx.one(
+            self.assertIn("プログラムを更新してください", notes[0]["summary"])     # 入れ替えの部品が無い PC：自動とは言わない
+            admin = self.w.a.in_system(ADMIN, lambda tx: tx.all(
+                "SELECT 1 FROM salescall.notification_events WHERE kind = 'program_update' AND origin_tenant = %s", (s["tenant"],)))
+            self.assertEqual(len(admin), 1)                                       # 管理者にも写し
+            t = self.ready()                                                      # 入れ替えの部品があり、自動の契約者
+            self.assertEqual(self.w.a.in_tenant(SYSTEM, t["tenant"], lambda tx: updates.check(tx, t["tenant"], can_replace=True)),
+                             updates.PROGRAM_OLD)
+            auto = self.w.a.in_tenant(OPERATOR, t["tenant"], lambda tx: tx.one(
                 "SELECT summary FROM salescall.notification_events WHERE kind = 'program_update'"))["summary"]
-            self.assertIn("「更新」を押して", manual)
+            self.assertIn("自動で入れ替えます", auto)
         finally:
-            updates.program_schema = real
+            updates.PROGRAM = real
+        sup.check_version()
         sup.renew(200.0)                                                          # 版が合った：またかける
         self.assertEqual((sup.version_gap, len(started)), (updates.SAME, 2))
         sup.shutdown(0)
-        self.assertEqual([updates.gap(x, "0080_b.sql") for x in ("0081_c.sql", "0079_a.sql", "0080_b.sql", None)],
-                         [updates.PROGRAM_OLD, updates.PROGRAM_NEW, updates.SAME, updates.PROGRAM_NEW])
+        program = ("0080_b.sql", "f" * 64)
+        self.assertEqual([updates.gap(x, program) for x in (("0081_c.sql", "1"), ("0079_a.sql", "1"), ("0080_b.sql", "f" * 64),
+                                                             ("0080_b.sql", "2"), (None, None), None)],
+                         [updates.PROGRAM_OLD, updates.PROGRAM_NEW, updates.SAME, updates.MISMATCH, updates.UNKNOWN,
+                          updates.UNKNOWN])
+        self.assertEqual(updates.gap(("0080_b.sql", "f" * 64), None), updates.UNKNOWN)   # 表の作りのファイルが無い＝分からない
+        live = self.w.a.in_tenant(SYSTEM, s["tenant"], updates.current)
+        self.assertEqual(live, updates.SAME)                                     # プログラムとデータベースの指紋は同じ決まり
 
     def test_the_supervisor_calls_through_a_separate_line_process_and_returns_the_line(self):
         """本物の立ち上げ方（回線ごとに別の処理）で1本かけ、決まった間隔の仕事が締め、止めると回線を返す。"""

@@ -15,7 +15,9 @@
 6. 止めるとき（Ctrl+C・止める印）：回線ごとの処理に止めるよう伝え、いまの通話が終わるのを待ってから、その回線の後始末をして、
    回線を返す。回線ごとの処理は、本体とは別の処理のまとまりで立ち上げる（Ctrl+C が回線ごとの処理に届いて、通話の途中で落ちない）。
 7. **どの段の誤りでも、本体は止まらない**（データベースに届かない・回線ごとの処理を立ち上げられない など）：記録して（CL-2 へ
-   修正依頼）、次の回にまた試す（延ばす間隔は、前に読めた値を使う。同じ段の失敗が続くほど、試す間を延ばす）。
+   修正依頼）、次の回にまた試す（延ばす間隔は、前に読めた値を使う。回線ごとの処理の立ち上げは、続けて失敗するほど間を延ばし、
+   しばらく続けて動いたら数え直す）。ただし、データベースがこの PC の鍵を断ったら（止められた・替えられた）、本体を止めて
+   ログインし直す（__main__）。
    2026-10-18 の見直し：前は、ログインのときにネットがまだつながっていない・通信が一瞬切れる、だけで本体が終わり、その日は
    電話がかからなかった。
 """
@@ -34,11 +36,12 @@ from typing import Any, Callable
 from uuid import UUID
 
 from salescall.core import leases
-from salescall.core.access import Access
+from salescall.core.access import Access, LoginRefused
 from salescall.supervisor import ACTOR, config, jobs, report, updates
 from salescall.supervisor.locks import AlreadyRunning, SingleInstance, line_in_use_here, lock_dir, machine_id
 
 RESTART_FIRST, RESTART_MAX = 5.0, 300.0   # 回線ごとの処理を立ち上げ直すまでの間（秒。続けて落ちるほど倍に）
+STABLE_AFTER = 600.0                       # 回線ごとの処理が、これだけ続けて動いたら、落ちた回数を数え直す（秒）
 RENEW_FALLBACK = 10.0                      # 延ばす間隔をまだ一度も読めていないとき（データベースに届かない）の、次に試すまでの秒数
 
 
@@ -56,6 +59,7 @@ class _Worker:
     process: Any
     fails: int = 0
     restart_at: float = 0.0
+    started_at: float = 0.0
 
 
 class _Child:
@@ -117,7 +121,7 @@ class Supervisor:
     _running: dict[str, Future] = field(default_factory=dict)
     _next_renew: float = 0.0
     _renew_every: float | None = None
-    version_gap: str = "same"         # プログラムとデータベースの版のずれ（supervisor.updates）
+    version_gap: str = updates.UNKNOWN   # プログラムとデータベースの版のずれ（supervisor.updates。確かめるまでは「分からない」）
 
     def __post_init__(self) -> None:
         self.holder = self.holder or holder_name(self.cfg)
@@ -127,19 +131,32 @@ class Supervisor:
 
     # ── 起動 ──
     def start(self) -> None:
-        self.renew(time.monotonic())   # 前に落ちた自分の分の後始末は、回線ごとの処理を立ち上げる前に `_launch` がする
+        now = time.monotonic()
+        self.check_version()
+        self.renew(now)   # 前に落ちた自分の分の後始末は、回線ごとの処理を立ち上げる前に `_launch` がする
+
+    # ── プログラムとデータベースの版（supervisor.updates） ──
+    def check_version(self) -> None:
+        """版を比べる（回線の有無にかかわらず。管理者の PC も）。比べられなければ「分からない」＝合わないとみなす（かけない・仕事を
+        しない側）。流し忘れ・食い違い・分からないは、変わったときだけ CL-2 へ。"""
+        before = self.version_gap
+        try:
+            self.version_gap = self.access.in_tenant(ACTOR, self.cfg.tenant_id, lambda tx: updates.check(
+                tx, self.cfg.tenant_id, can_replace=self.cfg.updater is not None))
+        except Exception as e:  # noqa: BLE001
+            self.version_gap = updates.UNKNOWN
+            report(self.access, self.cfg.tenant_id, "版の確かめ", e)
+            return
+        if self.version_gap not in (updates.SAME, updates.PROGRAM_OLD) and before != self.version_gap:
+            report(self.access, self.cfg.tenant_id, "版のずれ", RuntimeError(updates.describe(self.version_gap)))
 
     # ── 回線の借用と、回線ごとの処理 ──
     def renew(self, now: float) -> None:
         """回線を借りる・延ばす。借りられた回線は処理を動かし、借りられなかった回線は処理を止める。プログラムとデータベースの版が
         ずれていれば、回線ごとの処理を止め（いまの通話は最後まで）、立ち上げない（supervisor.updates。合えば、またかける）。"""
-        if not self.cfg.calls:
+        if not self.cfg.calls:   # 回線の無い PC（管理者の PC など）：版の確かめと仕事の間隔だけ
+            self._next_renew = now + (self._renew_every or RENEW_FALLBACK)
             return
-        before = self.version_gap
-        self.version_gap = self.access.in_tenant(ACTOR, self.cfg.tenant_id, lambda tx: updates.check(tx, self.cfg.tenant_id))
-        if self.version_gap == updates.PROGRAM_NEW and before != updates.PROGRAM_NEW:   # 流し忘れ（不具合）：CL-2 へ（変わったときだけ）
-            report(self.access, self.cfg.tenant_id, "版のずれ（データベースへの表の作りの流し忘れ）",
-                   RuntimeError(updates.describe(self.version_gap)))
         for line_id in self.cfg.lines:
             try:
                 until = self.access.in_tenant(ACTOR, self.cfg.tenant_id,
@@ -152,6 +169,7 @@ class Supervisor:
                     self.leased.discard(line_id)
                 else:
                     self.leased.add(line_id)
+                    self._recover_if_idle(line_id)
                 self._stop_worker(line_id)
             else:
                 self.leased.add(line_id)
@@ -175,7 +193,17 @@ class Supervisor:
             report(self.access, self.cfg.tenant_id, "回線ごとの処理の立ち上げ", e, line_id=line_id)
             self.workers[line_id] = _Worker(line_id, _NoStop(), None, fails + 1, now + _backoff(fails))
             return
-        self.workers[line_id] = _Worker(line_id, stop, process, fails)
+        self.workers[line_id] = _Worker(line_id, stop, process, fails, started_at=now)
+
+    def _recover_if_idle(self, line_id: UUID) -> None:
+        """版がずれて止めているあいだ、この PC でその回線の処理が動いていなければ、その回線の進行中の試行を後始末する（止めた処理が
+        通話の途中で落ちても、版が合うまで試行が残らない。動いていなければ、残った試行は落ちた処理のもの）。"""
+        if line_id in self.workers or line_in_use_here(line_id):
+            return
+        try:
+            self.access.in_tenant(ACTOR, self.cfg.tenant_id, lambda tx: leases.recover(tx, self.holder, line_id))
+        except Exception as e:  # noqa: BLE001
+            report(self.access, self.cfg.tenant_id, "回線の後始末", e, line_id=line_id)
 
     def _stop_worker(self, line_id: UUID) -> None:
         w = self.workers.pop(line_id, None)
@@ -191,6 +219,8 @@ class Supervisor:
                     self._launch(line_id, fails=w.fails, now=now)
                 continue
             if w.process.is_alive():
+                if w.fails and now - w.started_at >= STABLE_AFTER:   # しばらく続けて動いた：落ちた回数を数え直す
+                    w.fails = 0
                 continue
             if line_in_use_here(line_id):   # 前の回線ごとの処理が、まだ通話の途中（立ち上げた処理は印を取れずに終わった）
                 self.workers[line_id] = _Worker(line_id, w.stop, None, w.fails, now + RESTART_FIRST)
@@ -206,6 +236,10 @@ class Supervisor:
 
     # ── 決まった間隔の仕事 ──
     def run_jobs(self, now: float) -> None:
+        """決まった間隔の仕事を回す。版がずれているあいだは、どの仕事もしない（古いプログラムが新しいデータベースの決まりを知らずに
+        書くと、守りが外れうる。supervisor.updates）。"""
+        if self.version_gap != updates.SAME:
+            return
         for job in jobs.JOBS:
             if not job.runs_here(self.cfg) or now < self._next_job.get(job.name, 0.0):
                 continue
@@ -218,11 +252,14 @@ class Supervisor:
     # ── 1回分（本体の繰り返し） ──
     def tick(self, now: float | None = None) -> None:
         now = time.monotonic() if now is None else now
-        steps: list[tuple[str, Callable[[], None]]] = [("回線の借用", lambda: self.renew(now))] if now >= self._next_renew else []
+        steps: list[tuple[str, Callable[[], None]]] = (
+            [("版の確かめ", self.check_version), ("回線の借用", lambda: self.renew(now))] if now >= self._next_renew else [])
         steps += [("回線ごとの処理の見張り", lambda: self.watch_workers(now)), ("決まった間隔の仕事", lambda: self.run_jobs(now))]
         for what, step in steps:
             try:
                 step()
+            except LoginRefused:   # この PC の鍵が止められた・替えられた：本体を止めて、ログインし直す（__main__）
+                raise
             except Exception as e:  # noqa: BLE001 どの段の誤りでも本体は止めない（次の回にまた試す）
                 report(self.access, self.cfg.tenant_id, what, e)
                 if what == "回線の借用":

@@ -118,6 +118,8 @@ class Settings:
     purpose_line: str | None                      # 用件の一文（空でもよい）
     target_person: dict[str, Any]                 # 目的のお客様 {kind, role}
     busy_line: str | None                         # 「忙しい」と言われたときの一言（空なら丁寧に終える）
+    voicemail_message: str | None                 # 留守番電話に残す伝言（空なら残さない。CL-1 の 4-22・Intent.md 9-4）
+    ai_answer: str | None                         # 「AIですか」と聞かれたときの答え（空なら会話の既定の文。CL-1 の 4-22）
     voice: str                                    # 声の型の名前（CL-1。Intent.md 9-8）
     questions: tuple[Question, ...]
     names: tuple[Name, ...]
@@ -142,7 +144,8 @@ class Settings:
         return ids[i + 1] if i + 1 < len(ids) else END
 
 
-KEYS = {"purpose", "target_class", "caller", "target_person", "busy_line", "voice", "questions", "names", "rules"}
+KEYS = {"purpose", "target_class", "caller", "target_person", "busy_line", "voicemail_message", "ai_answer", "voice", "questions",
+        "names", "rules"}
 
 
 def _text(v: Any, where: str, problems: list[str], *, optional: bool = False) -> str | None:
@@ -310,6 +313,8 @@ def check(raw: Any, *, field_types: frozenset[str], ai_reading_needs_person: boo
     elif tp["role"] is not None:
         _text(tp["role"], "目的のお客様の役職", problems)
     busy_line = _text(raw["busy_line"], "忙しいと言われたときの一言", problems, optional=True)
+    voicemail_message = _text(raw["voicemail_message"], "留守番電話に残す伝言", problems, optional=True)
+    ai_answer = _text(raw["ai_answer"], "「AIですか」と聞かれたときの答え", problems, optional=True)
     voice = _text(raw["voice"], "声の型", problems)
     if voice is not None and voice_types is not None and voice not in voice_types:
         problems.append(f"声の型「{voice}」は、声の型の一覧にありません（{sorted(voice_types)}）")
@@ -358,7 +363,7 @@ def check(raw: Any, *, field_types: frozenset[str], ai_reading_needs_person: boo
     if questions and not any(q.required for q in questions):
         problems.append("必須の質問が1つもありません（どんな通話でも「すべて取れた」になる。Intent.md 6-4）")
     s = Settings(purpose or "", target_class if target_class in TARGET_CLASSES else "", company or Name("", None, "caller", None), person or Name("", None, "caller", None), purpose_line,
-                 dict(tp), busy_line, voice or "", tuple(questions), tuple(names), None, raw)
+                 dict(tp), busy_line, voicemail_message, ai_answer, voice or "", tuple(questions), tuple(names), None, raw)
     # 分岐は、すべての質問が読めたときだけ確かめる（読めなかった質問を除いて確かめると「分岐先がありません」などのうその理由が出る）
     if questions and len(questions) == len(raw["questions"]) and len({q.id for q in questions}) == len(questions):
         problems += _flow_problems(s, raw["rules"])
@@ -521,7 +526,8 @@ def restore(tx: Tx, version_id: UUID) -> UUID:
 
 def target_of(tx: Tx, task_id: UUID) -> dict[str, Any]:
     """その行で、目的のお客様をどう呼ぶか（会話が読む。1か所）：種類・役職（業務で1つ書いていればそれ、無ければ一覧の役職）・
-    目的のお客様の名前とお客様の会社名（どちらも {text, reading, reading_by, candidates, likely}）。いまの版の業務設定で決まる。
+    目的のお客様の名前とお客様の会社名（どちらも {text, reading, reading_by, candidates, likely}）と、会話の「目的の人」の形
+    （target：{kind＝法人／個人, name, reading, role}。誰でもは None）。いまの版の業務設定で決まる。
     名前の読みは、会話の中でお客様に確かめた読みがあれば、それを使う（readings.with_confirmed）。読みが決まらなければ reading は
     空で、candidates・likely を持つ（会話の中で確かめる。CL-1 の flowctl.reading_question）。"""
     t = tx.one("SELECT t.*, salescall.run_current_version(t.run_id) AS version_id FROM salescall.tasks t WHERE t.task_id = %s",
@@ -543,10 +549,16 @@ def target_of(tx: Tx, task_id: UUID) -> dict[str, Any]:
     kind, role = s.target_person["kind"], s.target_person["role"]
     uses_name = kind in ("name", "role_and_name")
     uses_role = kind in ("role", "role_and_name")
-    return {"kind": kind,
-            "role": (role or t["target_role"]) if uses_role else None,
-            "person": name("target") if uses_name else None,
-            "company": name("source")}
+    person = name("target") if uses_name else None
+    role = (role or t["target_role"]) if uses_role else None
+    # 会話の「目的の人」の形（CL-1 の 4-22・phase0 の instruction.Target：区分・名前・読み・部署と役職）。誰でもは None（最初に出た人が
+    # 目的の人）。読みが決まらない名前は、まず言ってみる読み（確かめは会話の中で＝candidates・likely）
+    target = None if kind == "anyone" else {
+        "kind": "法人" if s.target_class == "corporate" else "個人",
+        "name": person["text"] if person else "",
+        "reading": (person["reading"] or person["likely"] or "") if person else "",
+        "role": role or ""}
+    return {"kind": kind, "role": role, "person": person, "company": name("source"), "target": target}
 
 
 def _open_tasks_missing(tx: Tx, run_id: UUID, needs: TargetNeeds) -> int:

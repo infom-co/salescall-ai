@@ -55,7 +55,8 @@ SHEETS: dict[str, tuple[str, dict[str, str], bool]] = {
 }
 BASIC_ITEMS = {"業務の目的": "purpose", "お客様の区分": "target_class", "自社名": "company", "自社名の読み": "company_reading", "担当者名": "person",
                "担当者名の読み": "person_reading", "用件の一文": "purpose_line", "目的のお客様": "target_kind",
-               "目的のお客様の役職": "target_role", "忙しいと言われたときの一言": "busy_line", "声の型": "voice"}
+               "目的のお客様の役職": "target_role", "忙しいと言われたときの一言": "busy_line",
+               "留守番電話に残す伝言": "voicemail_message", "「AIですか」への答え": "ai_answer", "声の型": "voice"}
 LABELS: dict[str, dict[str, str]] = {
     "type": {"日付": "date", "時刻": "time", "日時": "datetime", "数": "number", "金額": "amount", "名前": "name",
              "電話番号": "phone", "メール": "email", "住所": "address", "はい／いいえ": "yes_no", "選択肢": "choice",
@@ -276,7 +277,8 @@ def _to_raw(sheets: dict[str, tuple[Sheet, dict[str, int]]], problems: list[str]
                    "person": {"text": basic.get("person"), "reading": basic.get("person_reading")},
                    "purpose_line": basic.get("purpose_line")},
         "target_person": {"kind": tkind, "role": basic.get("target_role")},
-        "busy_line": basic.get("busy_line"), "voice": basic.get("voice"),
+        "busy_line": basic.get("busy_line"), "voicemail_message": basic.get("voicemail_message"),
+        "ai_answer": basic.get("ai_answer"), "voice": basic.get("voice"),
         "questions": questions, "names": names,
         "rules": {"decline": decline, "handling": handling, "retry": retry, "forbidden": forbidden},
     }
@@ -388,10 +390,12 @@ def _unit_questions(raw: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _script(raw: dict[str, Any]) -> str:
-    """名前を洗い出す台本（業務設定の文をまとめたもの。名乗り・用件・目的・忙しいときの一言・質問の文・入口の名前）。"""
+    """名前を洗い出す台本（業務設定の文をまとめたもの。名乗り・用件・目的・忙しいときの一言・留守番電話の伝言・「AIですか」への答え・
+    質問の文・入口の名前）。"""
     caller = raw.get("caller") if isinstance(raw.get("caller"), dict) else {}
     parts = [((caller.get("company") or {}).get("text") if isinstance(caller.get("company"), dict) else None),
-             caller.get("purpose_line"), raw.get("purpose"), raw.get("busy_line")]
+             caller.get("purpose_line"), raw.get("purpose"), raw.get("busy_line"), raw.get("voicemail_message"),
+             raw.get("ai_answer")]
     parts += [q.get("text") for q in (raw.get("questions") if isinstance(raw.get("questions"), list) else [])
               if isinstance(q, dict)]
     parts += [n["text"] for n in _names(raw) if n.get("source") == "script"]
