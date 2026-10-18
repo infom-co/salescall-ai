@@ -15,7 +15,7 @@ from flowctl import (ANY_LABEL, ARG_LABEL, CALLBACK_LABEL, CONFIRM_LABEL, END_LA
                      choices_note)
 from names import quote  # noqa: F401（名前を「」でくくる唯一の場所。ここからも読める）
 
-from phrases import APOLOGY, ASK_BACK, GREETING  # noqa: F401（決まった言い方は phrases.py の1か所。試験からも、ここ経由で読める）
+from phrases import AI_ANSWER, APOLOGY, ASK_BACK, GREETING  # noqa: F401（決まった言い方は phrases.py の1か所。試験からも、ここ経由で読める）
 # プログラムから会話AIへ送る合図の文面（文字で送る。相手には聞こえない）。合図の文面はここだけに置く（DESIGN.md 6-7）
 CUES = {
     # AIが黙ったとき：1回だけ返事を促す
@@ -53,6 +53,8 @@ class Business:
     # 留守番電話に残す伝言（Intent.md 9-4「伝言を残すか残さないかを設定で選ぶ。残す場合の文面も設定で持つ」。⏳ 残すかは 18-2 の14 で
     # ユーザーが決める）。空なら残さずに切る（安全側）
     voicemail_message: str | None = None
+    # 「AIですか？」と聞かれたときの答え（Intent.md 9-4「答える文面は業務設定で持つ」）。空なら既定の文（phrases.AI_ANSWER）
+    ai_answer: str | None = None
     # 自社名・担当者名の読み（ひらがな。空＝決まらない＝表記のまま渡す）。自社名は、設定に無ければ取込で names.decide が決める（Intent.md 6-8）。
     # ✅ 2026-10-16 ユーザー決定（案C）：担当者名の読みは、設定に必ず入れる（名乗りでは言い換えられない。個人向けでは名乗ることが法律の確認事項）。
     #    必須かどうかを確かめるのは設定の登録（CL-2）。ここは、担当者名を unread_names に入れた矛盾した設定を受け付けない。
@@ -325,6 +327,7 @@ def build(business: Business, voice_type: str, resume=None, opening_mode: str = 
     else:
         parts.append(position_text(business, resume))
     parts.append(system_rules(play_recordings))
+    parts.append(ai_rule(business))
     if business.unread_names:
         parts.append(unread_rule(business.unread_names))
     if business.forbidden:
@@ -333,6 +336,14 @@ def build(business: Business, voice_type: str, resume=None, opening_mode: str = 
                      + "求められたら、「私からはお答えできかねます」と丁寧に断ります。")
     parts.append(style_text)
     return voice, "\n".join(parts)
+
+
+def ai_rule(business: Business) -> str:
+    """「AIですか？」と聞かれたときの決まり（指示文の1か所。どのセッションにも入る）。Intent.md 原則8：冒頭でAIだとは名乗らない
+    （2026-10-12 ユーザー確定）が、人間だとは偽らない。⛔ 2026-10-18 の見直しで見つけた漏れ：前は指示文にこの決まりが無く、聞かれたときに
+    AIが何と答えるかは決めていなかった（9-4 の「答える文面は業務設定で持つ」に届いていない）"""
+    return (f"- 相手に「エーアイですか？」「機械ですか？」「人間ですか？」などと聞かれたら、人間だとは答えません。「{business.ai_answer or AI_ANSWER}」"
+            "とだけ答えて、いまの質問を続けます（言い直しの返事を待っていたなら、その言い直しをもう一度言います）。")
 
 
 def replay_rule() -> str:

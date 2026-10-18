@@ -3759,6 +3759,41 @@ class CallbackTest(unittest.TestCase):
         self.assertIn("request_callback", text)
 
 
+class AIQuestionTest(unittest.TestCase):
+    """「AIですか？」と聞かれたとき（Intent.md 9-4・原則8）：人間だとは答えない。答える文面は業務設定（Business.ai_answer）、無ければ既定の文
+    （phrases.AI_ANSWER）。冒頭でAIだとは名乗らない（2026-10-12 ユーザー確定）ので、聞かれたときだけ答える。"""
+
+    def business(self, **kw):
+        from flowctl import Question
+        from instruction import Business
+        return Business(company="アオバ物流", caller="佐藤", purpose="ご予約の確認",
+                        questions=[Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"))], **kw)
+
+    def test_rule_uses_the_business_text_or_the_default(self):
+        from instruction import build
+        from phrases import AI_ANSWER
+        for mode in ("ai", "recorded"):
+            text = build(self.business(), "S2", opening_mode=mode)[1]
+            self.assertIn(f"「{AI_ANSWER}」", text, mode)
+            self.assertIn("人間だとは答えません", text, mode)
+        mine = "はい、エーアイの自動音声でご案内しております。"
+        self.assertIn(f"「{mine}」", build(self.business(ai_answer=mine), "S2")[1])
+        self.assertNotIn(f"「{AI_ANSWER}」", build(self.business(ai_answer=mine), "S2")[1])
+
+    def test_rule_survives_a_session_swap(self):
+        # 張り替えたあとのセッションにも同じ決まり（決まりは system_rules の1か所＝どのセッションの指示にも入る）
+        from flowctl import Flow
+        from instruction import build
+        from phrases import AI_ANSWER
+        b = self.business()
+        self.assertIn(f"「{AI_ANSWER}」", build(b, "S2", resume=Flow(b.questions))[1])
+
+    def test_not_announced_at_the_start(self):
+        from instruction import build
+        b = self.business()
+        self.assertNotIn("エーアイ", b.opening() + "".join(b.opening_parts()))
+
+
 class G53LabelsTest(unittest.TestCase):
     """G-53 の数え方：付け直した正解（g53_labels.json）を1か所（g53_meaning.accept）で使う。"""
 

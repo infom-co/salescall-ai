@@ -137,6 +137,10 @@ def restate_words(words: str, said: str | None = None) -> str:
     return words.replace("よろしい", "いい" if w == "いい" else f"{w or '大丈夫'}だ")
 
 APOLOGY = ("失礼いたしました。", "申し訳ございません。")
+# 「AIですか？」と聞かれたときの答えの既定の文（Intent.md 9-4「答える文面は業務設定で持つ」・原則8「人間だとは偽らない」）。
+# 業務設定（instruction.Business.ai_answer）に文があれば、そちらを使う。⏳ CL-1 の案（2026-10-18。ユーザーに確かめていただく）
+# AIに見せる文なので英字を使わない（読み方もそろう）＝「エーアイ」
+AI_ANSWER = "はい、エーアイの音声でお電話しております。"
 # 録音で流す相づち（中の名前 → 言葉）。中の名前は録音のファイル名に使う（results/ack/{声の型}_{中の名前}.wav）
 ACK = {
     "hai": "はい、",                       # 基本
