@@ -4242,6 +4242,26 @@ class OffScriptTest(unittest.TestCase):
         self.assertEqual(len(flagged), 1)                       # 声の無い英語の文字（同じターンで渡した言い方の代わりに返した）
         self.assertTrue(flagged[0].startswith("</li>"))
 
+    def test_gate_waits_at_the_first_pause(self):
+        # 決まるまでは、最初の文の切れ目（受けの言葉の文のあと）までだけ流す。止めた時点で聞こえていたものを、流れた声と最初の文で決める
+        from offscript import SpeechGate
+        rate = 16000
+        tone = (b"\x00\x40" * (rate // 2))                         # 声の代わり（0.5秒）
+        pcm = tone * 2 + bytes(int(0.3 * rate) * 2) + tone * 2      # 1.0秒の声・0.3秒の間・1.0秒の声
+        g = SpeechGate(lambda: self.SAY)
+        g.on_audio(0.0)
+        self.assertIsNone(g.on_text("承知いたしました。"))
+        self.assertEqual(g.on_text("では、これらを踏まえて、実際の"), "off")
+        self.assertEqual(g.heard(5.0, pcm, rate)["kind"], "opener")  # 5秒たっていても、切れ目（1.0秒）より先は流していない
+        self.assertAlmostEqual(g.heard(5.0, pcm, rate)["seconds"], 1.0, delta=0.06)
+        g = SpeechGate(lambda: self.SAY)
+        g.on_audio(0.0)
+        g.on_text("これらを踏まえて、実際のプレゼン資料の")              # 受けの言葉が無く、最初の文から外れている
+        self.assertEqual(g.heard(0.5, pcm, rate)["kind"], "content")
+        self.assertEqual(g.heard(0.05, pcm, rate)["kind"], "none")
+        g = SpeechGate(lambda: None)
+        self.assertIsNone(g.on_text("何でも"))                       # 渡した言い方の無いターンは見張らない
+
     def test_restate_starts_with_the_apology(self):
         from offscript import restate
         self.assertEqual(restate(self.SAY), "失礼いたしました。改めまして、夕方の5時頃でよろしいでしょうか？")
@@ -4257,6 +4277,8 @@ class OffScriptTest(unittest.TestCase):
         self.assertIsNone(f.expected_say(len(f.log)))           # このターンに渡した言い方が無ければ見張らない（自由に答えるターン）
         plan = f.on_off_script(r["say"])
         self.assertEqual((plan["ack"], plan["say"]), (None, "失礼いたしました。改めまして、15日の午後2時でよろしいでしょうか？"))  # お詫びは録音にしない
+        self.assertEqual(f.on_off_script(r["say"], heard="opener")["say"], "それでは、15日の午後2時でよろしいでしょうか？")
+        self.assertEqual(f.on_off_script(r["say"], heard="none")["say"], r["say"])
         self.assertEqual(f.awaiting_confirm, "Q1")               # 位置は変えない（言う中身は同じ）
 
     def test_collector_stops_when_off_script(self):
@@ -4275,10 +4297,10 @@ class OffScriptTest(unittest.TestCase):
                     yield m
                 await asyncio.sleep(3600)
 
-        seen = []
-        r = asyncio.run(collect_turn(Session(), started_at=0.0, timeout_s=5,
-                                     off_script=lambda t: seen.append(t) or __import__("offscript").off_script(self.SAY, t)))
+        from offscript import SpeechGate
+        r = asyncio.run(collect_turn(Session(), started_at=0.0, timeout_s=5, gate=SpeechGate(lambda: self.SAY)))
         self.assertTrue(r.off_script)
+        self.assertEqual(r.heard["kind"], "none")                    # 声はまだ届いていない＝相手には何も聞こえていない
         self.assertEqual("".join(r.output_transcript), "承知いたしました。では、これらを踏まえて、実際の")  # そこで受け取りをやめた
         self.assertEqual([e["kind"] for e in r.events if e["kind"] == "off_script"], ["off_script"])
 
@@ -4286,8 +4308,9 @@ class OffScriptTest(unittest.TestCase):
         import inspect
         import convo
         src = inspect.getsource(convo.run_call)
-        self.assertEqual(src.count("off_script=watch(log_start, i)"), 3)   # 声で送る相手・文字で送る相手・続きを待つ間
-        self.assertEqual(src.count("stop_off_script(log_start, i)"), 2)    # 止めたあとは1か所
+        self.assertEqual(src.count("gate=watch(log_start, i)"), 2)          # 声で送る相手・文字で送る相手
+        self.assertEqual(src.count("gate=watch(turn_log_start, i)"), 1)     # 続きを待つ間（言い方は、相手の発話への返事で渡したもの）
+        self.assertEqual(src.count("stop_off_script("), 3)                 # 止めたあとは1か所（定義と、呼ぶ所2つ）
         self.assertIn("flow.on_off_script(", src)
 
 

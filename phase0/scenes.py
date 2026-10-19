@@ -114,6 +114,20 @@ def silent_hang_up(party: str):
     return check
 
 
+def restated(head: str):
+    """外れた言葉を止めたあとの言い直し：決まった頭の言葉から始まり、お詫びは多くて1回、日付が正しく（試験の耳は「改めまして」を「改めて
+    まして」と書くので、頭の言葉は AI自身の文字で見る）、そのあとの答えも取れたか。止めてから言い直しの声まで2秒以内。"""
+    def check(c: dict) -> dict:
+        rs = [t for t in c["turns"] if isinstance(t.get("callee"), dict) and "restate" in t["callee"]]
+        ai = plain(rs[0].get("intended")) if rs else ""
+        return {"止めた": any(t.get("off_script") for t in c["turns"]), "言い直しは1回": len(rs) == 1,
+                "頭の言葉": ai.startswith(head), "お詫びは多くて1回": ai.count("失礼") <= 1,
+                "日付": bool(rs) and "15日の午後2時" in plain(said(rs[0])),
+                "言い直しまでの間": all(t["gap_s"] <= 2.0 for t in rs if t.get("gap_s") is not None),
+                "続けて答えが取れた": got(c, "Q2", "15日") and got(c, "Q3", "3")}
+    return check
+
+
 @dataclasses.dataclass
 class Scene:
     business: object
@@ -156,18 +170,11 @@ SCENES = {
         "重ねて聞かれたで締めた": end_reason(c) == "ai_question", "締め": closing_of(c) == CLOSE_DECLINED,
         "人ともAIとも言わない": not any(HUMAN.search(said(t)) or "AI" in plain(said(t)) for t in c["turns"]), "約束しない": no_promise(c)}),
     # ── AIの声が渡した言い方から外れたとき（DESIGN.md 6-7）：外れることはめったに無いので、日時の言い直しのターンを外れたものとして止め、
-    #    新しいつなぎが「失礼いたしました。改めまして、…」と言い直すか（✅ 2026-10-19 ユーザー：「違和感のない形にしないと、
-    #    AIや機械だと勘繰られますよ」）
-    "言い間違えの直し": Scene(BUSINESS, FULL, lambda c: {
-        "止めた": any(t.get("off_script") for t in c["turns"]),
-        # ⚠️ Gemini の耳（試験の別の耳）は「改めまして」を「改めてまして」と書く（2026-10-19：5本中4本。同じ声を Soniox・AmiVoice は
-        #    5本とも「改めまして」＝results/ARATAME-EARS.json）⇒ 頭の言葉は AI自身の文字で、値は別の耳の文字で見る
-        # お詫びは1回だけ（⛔ 前の形＝お詫びを録音にした形：6本中1本でAIもお詫びを言い、2回になった）
-        "改めまして": any(plain(t.get("intended")).startswith("失礼いたしました改めまして") and plain(t.get("intended")).count("失礼") == 1
-                          and "15日の午後2時" in plain(said(t)) for t in c["turns"] if isinstance(t.get("callee"), dict) and "restate" in t["callee"]),
-        "言い直しまでの間": all(x <= 2.0 for x in (t["gap_s"] for t in c["turns"] if t.get("gap_s") is not None)),
-        "言い直しは1回": sum(1 for t in c["turns"] if isinstance(t.get("callee"), dict) and "restate" in t["callee"]) == 1,
-        "続けて答えが取れた": got(c, "Q2", "15日") and got(c, "Q3", "3")}, kw={"off_script_at": 1}),
+    #    相手に聞こえていたものに合わせた言い方で、新しいつなぎが言い直すか（✅ 2026-10-19 ユーザー：「違和感のない形にしないと、AIや機械だと
+    #    勘繰られますよ」「明らかに違う内容を喋ろうとしているのが事前に分かるのであれば、止めてもOK」＝offscript.SpeechGate・restate）
+    **{f"言い間違えの直し_{label}": Scene(BUSINESS, FULL, restated(head), kw={"off_script_at": 1, "off_script_heard": kind})
+       for kind, label, head in (("none", "聞こえる前", "ありがとうございます"), ("opener", "受けの言葉だけ", "それでは"),
+                                 ("content", "中身まで", "失礼いたしました改めまして"))},
     "範囲外の質問": Scene(BUSINESS, [W("yes_reserved"), W("out_of_scope")] + FULL[1:], lambda c: {
         "答えた（聞き流さない）": said(turn_of(c, "out_of_scope")) != "", "金額を作らない": "円" not in said(turn_of(c, "out_of_scope")),
         "約束しない": no_promise(c), "続けて答えが取れた": got(c, "Q2", "15日")}),

@@ -1412,16 +1412,19 @@ class Flow:
         AIが自由に答えるターン（相手の質問への答えなど）は、渡した言い方が無いので見張らない。"""
         return self.log[-1]["reply"].get("say") if len(self.log) > since else None
 
-    def on_off_script(self, expected: str) -> dict:
-        """外れた言葉を止めたあと：新しいつなぎに「失礼いたしました。改めまして、（渡した言い方）」と言わせる（人が言い間違えて、少し間を
-        置いて言い直すのと同じ形。お詫びを録音にしない理由は offscript.restate）。✅ 2026-10-19 ユーザー：「違和感のない形にしないと、AIや機械だと勘繰られますよ。
+    def on_off_script(self, expected: str, heard: str = "content") -> dict:
+        """外れた言葉を止めたあと：新しいつなぎに、相手に聞こえていたもの（heard＝offscript.SpeechGate.heard の kind）に合わせた言い方を言わせる
+        （何も聞こえていない＝渡した言い方のまま／受けの言葉だけ＝「それでは、…」／外れた中身まで＝「失礼いたしました。改めまして、…」。
+        人が言い間違えて、少し間を置いて言い直すのと同じ形。offscript.restate。お詫びを録音にしない理由も同じ所）。✅ 2026-10-19 ユーザー：「違和感のない形にしないと、AIや機械だと勘繰られますよ。
         その設計が必要でしょう」。流れの位置（言い直しの返事待ちなど）は変えない（言う中身は同じ）。"""
         from offscript import restate
-        say = restate(expected)
+        say = restate(expected, heard)
+        stopped = {"none": "相手に流す前に止めました（相手には何も聞こえていません）", "opener": "受けの言葉のあとで止めました",
+                   "content": "途中で止めました"}[heard]
         reply = {"result": "restate", "ack": None, "say": say,
-                 "message": f"［プログラムからのお知らせ］さきほどの言葉は、渡した言い方と違ったので、プログラムが途中で止めました。"
+                 "message": f"［プログラムからのお知らせ］さきほどの言葉は、渡した言い方と違ったので、プログラムが{stopped}。"
                             f"「{say}」とだけ言って（言葉を足しません）、相手の返事を待ちます。"}
-        self.log.append({"op": "signal", "args": {"off_script": expected}, "reply": reply, "callee_turns": self.callee_turns})
+        self.log.append({"op": "signal", "args": {"off_script": expected, "heard": heard}, "reply": reply, "callee_turns": self.callee_turns})
         return reply
 
     def on_signal(self, party: str) -> dict:

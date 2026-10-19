@@ -71,6 +71,66 @@ async def run(args) -> dict:
     return {"model": args.model, "type": args.type, "items": [{k: v for k, v in x.items() if k != "takes"} for x in index], "takes": index}
 
 
+# 2回目（✅ 2026-10-19 ユーザーの聞き比べ：「どれも少しおかしい」）：
+#   ・名前が「誇張しすぎ」（4本とも）⇒ かぎかっこを外す・漢字で渡す、を比べる
+#   ・「営業部部長」が「営業部長」の言い方になる（文まるごとの2本）⇒ 「営業部 部長」と間に空白を置いて渡す、を比べる（言葉は変えない）
+#   ・継ぎ合わせの「営業部部長の」が「偉そうな言い方」（1本だけで読ませた録音）⇒ 文まるごとの録音から、部署・役職の所を切り出して継ぐ
+ROUND2 = {  # 渡し方の名前 → (部署・役職, 名前の書き方 {読み: 書き方})
+    "空白_ひらがな": ("営業部 部長の", {"おかだ": "おかだ", "なかじま": "なかじま"}),
+    "空白_漢字": ("営業部 部長の", {"おかだ": "岡田", "なかじま": "中島"}),
+    "空白なし_漢字": ("営業部部長の", {"おかだ": "岡田", "なかじま": "中島"}),
+}
+CUT_FROM = "空白_漢字"  # 継ぎ合わせの材料にする渡し方
+
+
+def boundary_cut(pcm: bytes, rate: int, role: str, text: str) -> tuple[bytes, bytes] | None:
+    """文まるごとの録音を、部署・役職の所と、名前からあとの所に切る：部署・役職の読みの割合に近い所の、声の中の間（0.05秒以上）で切る。"""
+    from jtext import compare_reading
+    runs = voice_runs(voiced(pcm, rate), 0.03)
+    if len(runs) < 2:
+        return None
+    start, end = runs[0][0], runs[-1][1]
+    want = start + (end - start) * len(compare_reading(role)) / len(compare_reading(text))
+    gaps = [(abs(a[1] - want), a[1], b[0]) for a, b in zip(runs, runs[1:]) if b[0] - a[1] >= 0.05]
+    if not gaps:
+        return None
+    _, g0, g1 = min(gaps)
+    keep = 0.03
+    return pcm[:int((g0 + keep) * rate) * 2], pcm[int(max(g0, g1 - keep) * rate) * 2:]
+
+
+async def run2(args) -> dict:
+    client = make_client(pick_key(args))
+    out = OUT / "round2"
+    out.mkdir(parents=True, exist_ok=True)
+    items, cuts = [], {}
+    for how, (role, names) in ROUND2.items():
+        for reading, written in names.items():
+            text = f"{role}{written}様はいらっしゃいますでしょうか？"
+            pcm, rate, row = await good_take(client, args, args.type, "whole", text)
+            items.append({"kind": f"まるごと・{how}", "text": text, "pcm": trim(pcm, rate), "rate": rate, "rows": [row]})
+            if how == CUT_FROM:
+                cuts[reading] = (boundary_cut(trim(pcm, rate), rate, role, text), rate, text)
+    # 継ぎ合わせ：部署・役職の所は、もう1つの名前の文から切り出す（名前の文と、部署・役職の所が、別の録音になるように）
+    for reading, other in (("おかだ", "なかじま"), ("なかじま", "おかだ")):
+        (mine, rate, text), (theirs, _, _) = cuts[reading], cuts[other]
+        if mine is None or theirs is None:
+            say("切れ目が見つからなかった：", reading)
+            continue
+        joined = theirs[0] + bytes(int(JOIN_S * rate) * 2) + mine[1]
+        items.append({"kind": f"継ぎ合わせ・{CUT_FROM}（部署・役職は「{other}」の文から）", "text": text, "pcm": joined, "rate": rate, "rows": []})
+    random.Random(args.seed).shuffle(items)
+    index = []
+    for k, it in enumerate(items, 1):
+        name = f"{k:02d}.wav"
+        write_wav(out / name, it["pcm"], it["rate"])
+        index.append({"wav": name, "kind": it["kind"], "text": it["text"], "takes": it["rows"]})
+    (out / "index.json").write_text(json.dumps(index, ensure_ascii=False, indent=2), encoding="utf-8")
+    say("作った：", ", ".join(x["wav"] for x in index))
+    return {"model": args.model, "type": args.type, "round": 2, "items": [{k: v for k, v in x.items() if k != "takes"} for x in index],
+            "takes": index}
+
+
 def main() -> None:
     require_python()
     p = base_parser(__doc__)
@@ -78,8 +138,9 @@ def main() -> None:
     p.add_argument("--tries", type=int, default=4)
     p.add_argument("--pause", type=float, default=1.0)
     p.add_argument("--seed", type=int, default=19)
+    p.add_argument("--round", type=int, default=1)
     args = p.parse_args()
-    save_result("G-58", asyncio.run(run(args)))
+    save_result("G-58" if args.round == 1 else "G-58-2", asyncio.run(run(args) if args.round == 1 else run2(args)))
 
 
 if __name__ == "__main__":
