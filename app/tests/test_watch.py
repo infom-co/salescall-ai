@@ -344,6 +344,10 @@ class TenantAiStopsAndChecks(unittest.TestCase):
         self.assertNotIn(sid, [r["event_id"] for r in due])          # ほかの契約者の取引からは、確かめない
         with self.assertRaises((LookupError, Rejected)):
             self.a.in_tenant(SYSTEM, other["tenant"], lambda tx: watch.record_check(tx, sid, True, evidence="試験"))
+        with self.assertRaises(Rejected):                            # データベースも守る（処理の確かめを通らない書き方でも）
+            self.a.in_tenant(SYSTEM, other["tenant"], lambda tx: tx.execute(
+                "INSERT INTO salescall.stop_checks (stop_event_id, ok, streak, next_check_at, evidence)"
+                " VALUES (%s, true, 1, now() + interval '1 hour', '試験')", (sid,)))
         due = self.a.in_system(SYSTEM, watch.due_checks)
         self.assertNotIn(sid, [r["event_id"] for r in due])          # 全体の取引からも、契約者の停止は確かめない
 

@@ -223,7 +223,7 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("お客様の意思と関係ない発信も、間隔・1日の回数に数える",
      "CREATE OR REPLACE FUNCTION salescall.not_by_callee(s salescall.attempt_state, disconnect text, p_attempt uuid)"
      " RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT false $$",
-     ("tests.test_gate.NotByCallee.test_failed_or_line_dropped_calls_do_not_count",
+     ("tests.test_gate.NotByCallee.test_failed_or_interrupted_calls_do_not_count",
       "tests.test_gate.Pacing.test_a_call_cut_by_our_failure_is_like_a_line_drop")),
     ("お客様が出る前の結果不明も、検証待ちにする",
      "CREATE OR REPLACE FUNCTION salescall.reached_answer(p_attempt uuid) RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT true $$",
@@ -264,8 +264,7 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("システムの値を管理者だけにする仕掛けを外す", "DROP TRIGGER setting_values_system_by_admin ON salescall.setting_values",
      ("tests.test_settings.SystemValuesByAdmin.test_only_admin",)),
     ("全体の範囲の停止を、人では管理者だけにする仕掛けを外す", "DROP TRIGGER system_scope_by_admin ON salescall.stop_events",
-     ("tests.test_watch.SystemStopsAndChecks.test_manual_stop_is_not_resumed_by_checks",
-      "tests.test_watch.SystemStopsAndChecks.test_only_admin_resumes_system_stops_by_hand")),
+     ("tests.test_watch.TenantAiStopsAndChecks.test_manual_stop_is_not_resumed_by_checks",)),
     ("契約者の共通の発信禁止を、管理者か契約者だけにする仕掛けを外す",
      "DROP TRIGGER contractor_dnc_guard ON salescall.contractor_dnc_entries",
      ("tests.test_dnc.Register.test_contractor_ledger_applies_to_every_client_of_that_contractor",)),
@@ -317,14 +316,14 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("赤字の警告の確認を、システムの処理にもさせる", "DROP TRIGGER deficit_warning_guard ON salescall.deficit_warnings",
      ("tests.test_usage.CostRatio.test_a_confirmed_deficit_does_not_stop",)),
     ("時給の時間を数えない",
-     "CREATE OR REPLACE FUNCTION salescall.work_seconds(p_from timestamptz, p_to timestamptz, p_gap_max integer)"
+     "CREATE OR REPLACE FUNCTION salescall.work_seconds(p_from timestamptz, p_to timestamptz)"
      " RETURNS TABLE (at timestamptz, seconds numeric) LANGUAGE sql STABLE SECURITY DEFINER"
      " SET search_path = salescall, pg_temp AS $$ SELECT NULL::timestamptz, NULL::numeric WHERE false $$",
-     ("tests.test_usage.CostRatio.test_hourly_counts_the_calling_work_time",)),
-    ("全体の今日の金額を数えない（いつも0）",
-     "CREATE OR REPLACE FUNCTION salescall.spent_today_all() RETURNS numeric"
+     ("tests.test_usage.CostRatio.test_hourly_counts_like_a_person_would",)),
+    ("契約者の今日の金額を数えない（いつも0）",
+     "CREATE OR REPLACE FUNCTION salescall.spent_today_tenant() RETURNS numeric"
      " LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ SELECT 0::numeric $$",
-     ("tests.test_usage.Budget.test_system_limit_is_only_noticed_to_the_admin",)),
+     ("tests.test_usage.Budget.test_contractor_limit_counts_only_that_contractor_and_is_only_noticed_to_it",)),
     # 品質の段（Q22）
     ("言ってはいけないことを言ったかを、いつも「言っていない」にする",
      "CREATE OR REPLACE FUNCTION salescall.said_forbidden(p_attempt uuid) RETURNS boolean"
@@ -373,7 +372,7 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     # 依頼者ごとの控え（3-10・0054）
     ("提出用のファイルの、写した記録を変えられる",
      "DROP TRIGGER submission_copied_once ON salescall.submission_files",
-     ("tests.test_backup.PerClient.test_daily_backup_places_system_and_per_client_ai_and_copies_submissions",)),
+     ("tests.test_backup.PerClient.test_a_contractor_backs_up_only_its_own_clients_and_copies_submissions",)),
     ("依頼者の控えのフォルダの名前を、あとから変えられる",
      "DROP TRIGGER client_backup_folders_frozen ON salescall.client_backup_folders",
      ("tests.test_backup.PerClient.test_folders_follow_the_client_name_and_fall_back_to_client_numbers",)),
@@ -630,35 +629,34 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      " AND (p_line IS NULL OR e.line_id = p_line) $$",
      ("tests.test_watch.LineStops.test_a_call_that_rang_resets_the_count",
       "tests.test_watch.LineStops.test_a_person_resume_restarts_the_count_and_explain_shows_why")),
-    ("別の耳のエラーも、会話に入った通話で数え直す（前の誤り）",
+    ("続いたエラーを、直った証拠（呼び出せた発信など）で数え直さない",
      "CREATE OR REPLACE FUNCTION salescall.consecutive_errors(p_kinds text[], p_cause text, p_evidence text,"
      " p_line uuid DEFAULT NULL) RETURNS integer LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$"
      " SELECT count(*)::integer FROM salescall.error_events e WHERE e.kind = ANY(p_kinds)"
-     " AND e.occurred_at > (SELECT coalesce(max(h.at), '-infinity') FROM salescall.attempt_state_history h"
-     "                      WHERE h.to_state = 'in_conversation') $$",
-     ("tests.test_watch.SystemStopsAndChecks.test_ear_errors_are_not_reset_by_conversations",)),
+     " AND e.tenant_id = salescall.cur_tenant() AND (p_line IS NULL OR e.line_id = p_line) $$",
+     ("tests.test_watch.LineStops.test_a_call_that_rang_resets_the_count",)),
     ("エラーの数を、範囲の外の取引にも見せる",
      "CREATE OR REPLACE FUNCTION salescall.consecutive_errors(p_kinds text[], p_cause text, p_evidence text,"
      " p_line uuid DEFAULT NULL) RETURNS integer LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$"
      " SELECT count(*)::integer FROM salescall.error_events e WHERE e.kind = ANY(p_kinds) $$",
-     ("tests.test_watch.SystemStopsAndChecks.test_counting_needs_the_transaction_of_that_scope",)),
+     ("tests.test_watch.TenantAiStopsAndChecks.test_counting_needs_the_transaction_of_that_scope",)),
     ("停止を解く確かめを、範囲の外の取引からも書ける",
      "DROP POLICY check_scope ON salescall.stop_checks; CREATE POLICY check_scope ON salescall.stop_checks"
      " USING (true) WITH CHECK (true)",
-     ("tests.test_watch.SystemStopsAndChecks.test_checks_of_system_stops_only_from_the_system_transaction",)),
+     ("tests.test_watch.TenantAiStopsAndChecks.test_checks_only_from_that_contractor",)),
     ("解いた停止も、まだ止まっているとみなす",
      "CREATE OR REPLACE VIEW salescall.open_stop_events WITH (security_invoker = true) AS"
      " SELECT s.* FROM salescall.stop_events s WHERE s.action = 'stop'",
      ("tests.test_emergency.Emergency.test_a_resume_on_the_screen_clears_the_flag",
-      "tests.test_watch.SystemStopsAndChecks.test_a_system_stop_resumes_after_successful_checks")),
+      "tests.test_watch.TenantAiStopsAndChecks.test_an_ai_stop_resumes_after_successful_checks")),
     ("止めた理由の説明に、数えたエラーを出さない",
      "CREATE OR REPLACE FUNCTION salescall.errors_for_stop(p_stop bigint, p_kinds text[], p_limit integer)"
      " RETURNS TABLE (error_id bigint, source text, kind text, code integer, message text, occurred_at timestamptz)"
      " LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$"
      " SELECT NULL::bigint, NULL::text, NULL::text, NULL::integer, NULL::text, NULL::timestamptz WHERE false $$",
-     ("tests.test_watch.SystemStopsAndChecks.test_only_admin_resumes_system_stops_by_hand",)),
+     ("tests.test_watch.LineStops.test_a_person_resume_restarts_the_count_and_explain_shows_why",)),
     ("停止を解く確かめの記録の変更の拒みを外す", "DROP TRIGGER stop_checks_frozen ON salescall.stop_checks",
-     ("tests.test_watch.SystemStopsAndChecks.test_checks_are_frozen",)),
+     ("tests.test_watch.TenantAiStopsAndChecks.test_checks_are_frozen",)),
     # 知らせの台帳（Q23）
     ("同じ出来事は1回だけ、の約束を外す",
      "DROP INDEX salescall.notification_events_one",
@@ -734,7 +732,25 @@ def _run_tests(owner_dsn: str, app_dsn: str, names: tuple[str, ...] | None, verb
     return unittest.TextTestRunner(stream=stream, verbosity=verbosity).run(suite).wasSuccessful()
 
 
+def _missing_tests() -> list[str]:
+    """壊し試しが指す試験のうち、見つからない名前（試験の名前を変えた・消した）。⚠️ 見つからない名前は「読み込めない」という
+    落ちた試験になり、守りを外しても落ちたと数えていた（2026-10-19 の見直し：11通りが何も確かめていなかった）。"""
+    sys.path.insert(0, str(APP))
+    missing = []
+    for _, _, tests in MUTATIONS:
+        for name in tests:
+            suite = unittest.defaultTestLoader.loadTestsFromName(name)
+            if any(type(t).__name__ == "_FailedTest" for t in suite):
+                missing.append(name)
+    return missing
+
+
 def main() -> int:
+    missing = _missing_tests()
+    for name in missing:
+        print("壊し試しが指す試験が見つからない：", name)
+    if missing:
+        return 1
     violations = run_all(APP)
     for v in violations:
         print("見張りが落ちた：", v)
