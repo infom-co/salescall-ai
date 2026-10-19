@@ -38,7 +38,7 @@ def unsettled(tx: Tx) -> list[dict[str, Any]]:
     """締めを待っている試行（取引の依頼者の分）：終わっていて、検証が済んだ・要らないもので、判定の版が無いもの。"""
     return tx.all(
         "SELECT a.attempt_id, a.task_id FROM salescall.attempts a"
-        " WHERE a.state NOT IN ('claimed', 'released') AND NOT salescall.is_active(a.state)"
+        f" WHERE {attempts.dialed('a')} AND NOT salescall.is_active(a.state)"
         "   AND a.verification IN ('done', 'not_needed')"
         "   AND NOT salescall.is_settled(a.attempt_id)"
         " ORDER BY a.ended_at")
@@ -187,7 +187,7 @@ def rejudge(tx: Tx, attempt_id: UUID) -> dict[str, Any] | None:
                   (a["task_id"],)) is not None
     last = tx.one("SELECT judge_version, snapshot FROM salescall.task_results WHERE attempt_id = %s"
                   " AND kind IN ('judged', 'rejudged') ORDER BY version_no DESC LIMIT 1", (attempt_id,))
-    latest_attempt = tx.one("SELECT attempt_id FROM salescall.attempts WHERE task_id = %s AND state NOT IN ('claimed', 'released')"
+    latest_attempt = tx.one(f"SELECT attempt_id FROM salescall.attempts WHERE task_id = %s AND {attempts.DIALED}"
                             " ORDER BY claimed_at DESC LIMIT 1", (a["task_id"],))["attempt_id"]
     if not held or last is None or latest_attempt != attempt_id:
         return None
@@ -207,7 +207,7 @@ def rejudge_held(tx: Tx) -> list[dict[str, Any]]:
     done = []
     for row in tx.all(
             "SELECT (SELECT a.attempt_id FROM salescall.attempts a WHERE a.task_id = n.task_id"
-            "        AND a.state NOT IN ('claimed', 'released') ORDER BY a.claimed_at DESC LIMIT 1) AS attempt_id"
+            f"        AND {attempts.dialed('a')} ORDER BY a.claimed_at DESC LIMIT 1) AS attempt_id"
             " FROM salescall.current_next_actions n WHERE n.kind = 'hold'"):
         got = rejudge(tx, row["attempt_id"])
         if got is not None:

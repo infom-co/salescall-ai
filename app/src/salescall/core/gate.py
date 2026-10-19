@@ -21,7 +21,7 @@ from datetime import datetime, timedelta
 from typing import Any
 from uuid import UUID
 
-from salescall.core import (approval, business_rules, business_settings, calling_hours, dnc, notify, quality_stage,
+from salescall.core import (approval, attempts, business_rules, business_settings, calling_hours, dnc, notify, quality_stage,
                             recordings, settings, stops, target_policy)
 from salescall.core.access import Rejected, Tx
 from salescall.core.calendar import CalendarOutOfRange, holiday_checker
@@ -83,10 +83,9 @@ REASONS: dict[str, tuple[str, str]] = {
     "setting_missing": ("設定の値が決まっていません", "cannot_judge"),
 }
 
-DIALED = "state NOT IN ('claimed', 'released')"   # 発信まで進んだ試行（回数・間隔に数えるのは、これだけ。5-2-1 の8）
 # 同じお客様への最小の間隔・1日の回数に数える発信：お客様の意思と関係なく繋がらなかった・切れたものは数えない（2026-10-14 ユーザー決定。
 # 決まりはデータベースの1か所 salescall.not_by_callee）
-_COUNTED = DIALED + " AND NOT salescall.not_by_callee(state, disconnect, attempt_id)"
+_COUNTED = attempts.DIALED + " AND NOT salescall.not_by_callee(state, disconnect, attempt_id)"
 # 行の回数の上限・1日の回数に数える発信：上に加えて、お客様と約束したかけ直しは数えない（2026-10-14 ユーザー：「かけ直しの約束を
 # 相手側にした場合やかけ直しを依頼された場合は対象外」。2026-10-17 の計画書との突き合わせ：前は約束したかけ直しを止めないだけで、
 # かけたあとは回数に数えていたので、そのあとのふつうのかけ直しが減った）。最小の間隔は、約束したかけ直しも起点に数える（歯止め）
@@ -156,12 +155,15 @@ def _hours_settings(tx: Tx, scope: dict[str, Any]) -> tuple[dict, dict]:
 
 
 def calling_hours_for(tx: Tx, *, tenant_id: UUID, client_id: UUID, business_id: UUID | None,
-                      callee_time: bool = False) -> dict:
+                      callee_of_day: int | None = None) -> dict:
     """かけてよい時間帯（曜日・祝日ごと）。ふつうは、かけてよい時間帯から NG時間を引いた残り（次の始まりを探すのに使う）。
-    callee_time＝お客様が自分で指定した時刻を確かめるとき（会話の側の確かめなど）：NG時間を引かない
-    （2026-10-15 ユーザー：「NG時間は通常は控えるが、相手が自分で指定した時刻なら、かけてよい」）。"""
+    callee_of_day＝お客様が自分で指定した時刻（0時からの秒。会話の側の確かめ・時刻ちょうどの約束の回）：その時刻を含むNG時間の
+    枠は引かない（`calling_hours.excuse_ng` の1か所＝門と同じ決まり。2026-10-15 ユーザー：「NG時間は通常は控えるが、相手が自分で
+    指定した時刻なら、かけてよい」）。"""
     hours, ng = _hours_settings(tx, dict(tenant_id=tenant_id, client_id=client_id, business_id=business_id))
-    return hours if callee_time else calling_hours.subtract(hours, ng)
+    if callee_of_day is not None:
+        ng = calling_hours.excuse_ng(ng, callee_of_day)
+    return calling_hours.subtract(hours, ng)
 
 
 def _setting(tx: Tx, key: str, task: dict[str, Any]) -> Any:
@@ -173,8 +175,8 @@ CALL_LENGTH_DAYS = 30   # 業務の平均通話時間を測る期間（直近の
 
 
 def promise_guard_seconds(tx: Tx, task: dict[str, Any]) -> int:
-    """時刻を指定された約束の前に回線を空ける長さ（秒。1か所）：これから始めるふつうの電話の業務の平均通話時間（お客様が出た
-    通話の、予約から終わりまで。直近 CALL_LENGTH_DAYS 日）。数が設定 gate.exact_promise_guard_samples より少ないうちは、設定
+    """時刻を指定された約束の前に回線を空ける長さ（秒。1か所）：これから始める電話（時刻を指定された約束の電話のほかすべて）の
+    業務の平均通話時間（お客様が出て、ふつうに終えた・お客様が切った通話の、予約から終わりまで。直近 CALL_LENGTH_DAYS 日）。数が設定 gate.exact_promise_guard_samples より少ないうちは、設定
     gate.exact_promise_guard（初め5分）。2026-10-19 ユーザー：「業務ごとに平均通話時間を測って、それを利用するといいでしょう。
     30分かかる業務と1分で終わる業務では、同じにできないからです」。"""
     got = tx.one("SELECT seconds, calls FROM salescall.business_call_seconds(%s, %s)", (task["business_id"], CALL_LENGTH_DAYS))
@@ -244,7 +246,7 @@ def purpose_dials(tx: Tx, task_id: UUID, *, purpose: str) -> list[PurposeDial]:
     return [PurposeDial(r["t"], r["e"], r["counted"]) for r in tx.all(
         f"SELECT salescall.jst(claimed_at) AS t, salescall.jst(coalesce(ended_at, claimed_at)) AS e, ({_COUNTED}) AS counted"
         f" FROM salescall.attempts"
-        f" WHERE task_id = %s AND purpose = %s AND {DIALED} ORDER BY claimed_at", (task_id, purpose))]
+        f" WHERE task_id = %s AND purpose = %s AND {attempts.DIALED} ORDER BY claimed_at", (task_id, purpose))]
 
 
 # 依頼者専用の発信番号が無いときの注意（2026-10-17 ユーザー決定の文。設定する場所は、画面の依頼者タブの「回線（発信番号）」＝CL-3）。
@@ -266,7 +268,7 @@ def choose_voice(tx: Tx, task: dict[str, Any], version_id: UUID, business_voice:
     話してよい声が無い・別の声が無いときは、通さずに待つ（発信番号を替えられないときと同じ）。契約者に知らせる（止めない）。"""
     ready = recordings.ready_voices(tx, version_id)
     types = {r["code"]: r for r in tx.all("SELECT code, voice_name, default_for_voice FROM salescall.voice_types")}
-    mine = tx.one(f"SELECT voice_type FROM salescall.attempts WHERE task_id = %s AND voice_type IS NOT NULL AND {DIALED}"
+    mine = tx.one(f"SELECT voice_type FROM salescall.attempts WHERE task_id = %s AND voice_type IS NOT NULL AND {attempts.DIALED}"
                   " ORDER BY claimed_at DESC LIMIT 1", (task["task_id"],))   # お客様が聞いた声だけ（発信しなかった予約は数えない）
     if mine is not None and types[mine["voice_type"]]["voice_name"] in ready:
         return mine["voice_type"]
@@ -441,7 +443,7 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
             " JOIN salescall.tasks t ON t.client_id = a.client_id AND t.task_id = a.task_id"
             " JOIN salescall.runs r ON r.client_id = t.client_id AND r.run_id = t.run_id"
             " WHERE r.business_id = %s AND a.client_id = %s"
-            "   AND (a.state NOT IN ('claimed', 'released') OR salescall.is_live(a.state, a.claim_expires_at))"
+            f"   AND ({attempts.dialed('a')} OR salescall.is_live(a.state, a.claim_expires_at))"
             "   AND salescall.is_new_call(a.purpose, a.promised)"
             "   AND a.claimed_at >= salescall.jst_day_start(%s) AND a.claimed_at < salescall.jst_day_start(%s)",
             (task["business_id"], task["client_id"], local.date(),

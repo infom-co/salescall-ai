@@ -689,7 +689,7 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      "CREATE OR REPLACE FUNCTION salescall.line_promised_due(p_line uuid, p_day date, p_except uuid) RETURNS integer"
      " LANGUAGE sql STABLE AS $$ SELECT 0 $$",
      ("tests.test_supervisor.Rounds.test_promised_calls_go_first_across_clients_and_keep_their_share_of_the_line",)),
-    ("時刻を指定した約束の前でも、回線でふつうの電話を始める",
+    ("時刻を指定した約束の前でも、その回線でほかの電話を始める",
      "CREATE OR REPLACE FUNCTION salescall.line_kept_for_promise(p_line uuid, p_until timestamptz, p_except uuid)"
      " RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT false $$",
      ("tests.test_supervisor.Rounds.test_an_exact_time_promise_keeps_one_line_free_shortly_before",)),
@@ -742,8 +742,16 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     # 行のいまの予定・回線でかけてよい依頼者を、データベースの1か所で（0094）
     ("行のいまの予定に、いちばん古い記録を選ぶ",
      "CREATE OR REPLACE VIEW salescall.current_next_actions WITH (security_invoker = true) AS"
-     " SELECT DISTINCT ON (n.task_id) n.* FROM salescall.task_next_actions n ORDER BY n.task_id, n.seq",
+     " SELECT n.* FROM salescall.task_next_actions n"
+     " WHERE n.seq = (SELECT min(m.seq) FROM salescall.task_next_actions m WHERE m.task_id = n.task_id)",
      ("tests.test_settle.Settle.test_callback_is_a_promised_schedule",)),
+    ("回線の1日の上限で、約束を回線の数で割って回線ごとに切り上げる（合計が約束の数を超える）",
+     "CREATE OR REPLACE FUNCTION salescall.line_promised_due(p_line uuid, p_day date, p_except uuid) RETURNS integer"
+     " LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$"
+     " SELECT coalesce(ceil(sum(1.0 / (SELECT count(*) FROM salescall.lines_serving() s"
+     " WHERE salescall.line_serves(s.client_id, w.client_id)))), 0)::integer FROM salescall.promises_waiting() w"
+     " WHERE w.task_id <> p_except AND salescall.jst(w.call_at)::date <= p_day $$",
+     ("tests.test_supervisor.Rounds.test_the_daily_reservation_is_shared_by_the_lines_and_skips_promises_that_will_not_be_called_now",)),
     ("専用の回線で、ほかの依頼者の行もかける",
      "CREATE OR REPLACE FUNCTION salescall.line_serves(p_line_client uuid, p_client uuid) RETURNS boolean"
      " LANGUAGE sql IMMUTABLE AS $$ SELECT true $$",

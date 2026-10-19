@@ -11,7 +11,7 @@ from unittest import mock
 
 from salescall.core import dial_exit, emergency, stops
 from salescall.core.access import Access
-from tests.support import ADMIN, OPERATOR
+from tests.support import ADMIN, OPERATOR, SYSTEM
 from tests.test_gate import Base, FakeDriver
 
 UNREACHABLE = Access("host=127.0.0.1 port=1 dbname=none user=none connect_timeout=1", max_attempts=1)
@@ -135,6 +135,35 @@ class Emergency(Base):
             self.assertEqual(emergency.main(["release", "試験：直った"]), 0)
         self.assertIsNone(emergency.engaged())
         self.assertEqual(self.system_stops(), [])
+
+    def test_a_contractor_pc_stops_and_releases_its_contractor_with_the_pc_key(self):
+        """契約者の PC：見守り役と同じ PC の鍵で、その契約者として、その契約者を止め、解ける（全体は止めない）。"""
+        from salescall.core import logins
+        from salescall.core.access import Provisioner
+        from salescall.supervisor import pc_login
+        s = self.ready()
+        self.env()
+        key = logins.issue(self.w.a, SYSTEM, Provisioner(os.environ["SALESCALL_TEST_PROVISIONER_DSN"]), s["tenant"],
+                           pc_label="試験のPC", base_conninfo=os.environ["SALESCALL_TEST_APP_DSN"], replaces=None)
+        pc_login.load = lambda: pc_login.PcKey(key.tenant_id, key.pc, key.conninfo)
+        opened = lambda: self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: [   # noqa: E731
+            (r["scope"], r["cause"]) for r in stops.open_stops(tx, tenant_id=s["tenant"], client_id=None, business_id=None)])
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(emergency.main(["stop", "試験：契約者の PC"]), 0)
+        self.assertEqual(opened(), [("tenant", "manual")])
+        self.assertEqual(self.system_stops(), [])
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(emergency.main(["release", "試験：直った"]), 0)
+        self.assertEqual((opened(), emergency.engaged()), ([], None))
+
+    def test_a_broken_pc_key_still_places_the_flag(self):
+        """PC の鍵のファイルが壊れていても、止める印は残す（止めることは、いつでもできる。⚠️ 前は印を書く前に落ちた）。"""
+        from salescall.supervisor import pc_login
+        self.env()
+        pc_login.load = lambda: (_ for _ in ()).throw(ValueError("壊れた鍵のファイル"))
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(emergency.main(["stop", "試験：鍵が壊れている"]), 0)
+        self.assertIsNotNone(emergency.engaged())
 
     def test_without_who_pressed_the_flag_is_kept_but_not_recorded(self):
         self.env()                                                     # つなぎ先も PC の鍵も無い

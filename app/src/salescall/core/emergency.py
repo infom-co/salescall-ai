@@ -142,13 +142,18 @@ def release_all(access: Access | None, actor: Actor, reason: str, *, tenant_id: 
 
 
 def _who_and_where() -> tuple[Access | None, Actor | None, UUID | None, str | None]:
-    """つなぎ先と、押した管理者か契約者（見守り役と同じ `supervisor.config.load` の1か所）。分からなければ (None, None, None, 理由)。"""
+    """つなぎ先と、押した管理者か契約者（見守り役と同じ `supervisor.config.load` の1か所）。分からなければ (None, None, None, 理由)。
+    どんな誤り（設定の抜け・PC の鍵のファイルが壊れている・鍵が止められた など）でも、止める印を残せるように、ここで受ける
+    （止めることは、いつでもできる。⚠️ 前は設定の抜けだけを受け、鍵のファイルが壊れていると印を書く前に落ちた＝見直し4）。"""
     import socket
+    from salescall.core.access import LoginRefused
     from salescall.supervisor import config
     try:
         cfg = config.load()
     except config.ConfigMissing as e:
         return None, None, None, str(e)
+    except (Exception, LoginRefused) as e:  # noqa: BLE001
+        return None, None, None, f"つなぎ先を読めません（{type(e).__name__}）。PC でログインし直してください（docs/PC_SETUP.md）"
     admin = bool(cfg.environ.get("SALESCALL_DSN", "").strip())   # 管理者の PC（システムの接続）／契約者の PC（PC の鍵）
     who = Actor(f"{'管理者' if admin else '契約者'}の PC の緊急停止（{socket.gethostname()}）", "admin" if admin else "operator")
     return Access(cfg.dsn), who, None if admin else cfg.tenant_id, None

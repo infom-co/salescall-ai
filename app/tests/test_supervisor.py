@@ -205,7 +205,9 @@ class Rounds(SupervisorBase):
         now = self.tx(t, lambda tx: tx.one("SELECT now() AS t")["t"])
         self.tx(t, lambda tx: next_action.schedule_call(tx, t["task"], now, contact_id=t["contact"], cause="試験", promised=True))
         self.put_client(s, "line.max_dials_per_day", 1)
-        self.assertEqual(self.reason(s), "line_daily_limit")                   # ふつうの電話：約束の1本分を取り置く
+        kept = next(x for x in (s, t) if self.tx(s, lambda tx, x=x: tx.one(
+            "SELECT salescall.line_promised_due(%s, salescall.jst(now())::date, %s) AS n", (x["line"], uuid.uuid4()))["n"]))
+        self.assertEqual(self.reason(s, line=kept["line"]), "line_daily_limit")   # ふつうの電話：約束が割り当たった回線は、その1本分を取り置く
         got = line.one_round(self.w.a, SYSTEM, s["tenant"], s["line"], HOLDER, FakeDriver(), Runner())
         self.assertEqual(self.tx(t, lambda tx: tx.one("SELECT task_id FROM salescall.attempts WHERE attempt_id = %s",
                                                       (got.called,)))["task_id"], t["task"])   # あとの依頼者の約束が先
@@ -276,18 +278,24 @@ class Rounds(SupervisorBase):
         for x in (t, u):
             self.tx(x, lambda tx, x=x: next_action.schedule_call(tx, x["task"], now, contact_id=x["contact"], cause="試験",
                                                                  promised=True))   # 今日の約束（夜中でも日をまたがない）
+        reserved = lambda: [self.tx(s, lambda tx, x=x: tx.one(   # noqa: E731
+            "SELECT salescall.line_promised_due(%s, salescall.jst(now())::date, %s) AS n", (x["line"], uuid.uuid4()))["n"])
+            for x in (s, t, u)]
+        self.assertEqual(sum(reserved()), 2)                                   # 回線3本の取り置きの合計は、約束の数ちょうど
         self.put_client(s, "line.max_dials_per_day", 2)
         c = self.claim(s)
-        self.assertIsInstance(c, gate.Claim)                                   # 約束2つを3本で分ける：この回線の分は1
+        self.assertIsInstance(c, gate.Claim)                                   # 約束2つを3本で分ける：この回線の分は1以下
         self.tx(s, lambda tx: attempts.release(tx, [c.attempt_id]))
         self.tx(s, lambda tx: next_action.schedule_now(tx, s["task"], cause="試験"))
         self.put_client(s, "line.max_dials_per_day", 1)
-        self.assertEqual(self.reason(s), "line_daily_limit")
+        kept = next(x for x, n in zip((s, t, u), reserved()) if n)            # 約束が割り当たった回線は、その分を取り置く
+        self.assertEqual(self.reason(s, line=kept["line"]), "line_daily_limit")
         self.tx(u, lambda tx: stops.stop(tx, cause="budget", reason="試験", tenant_id=u["tenant"], scope="client",
                                          client_id=u["client"]))
         self.tx(t, lambda tx: next_action.schedule_call(tx, t["task"], now, contact_id=t["contact"], cause="試験", promised=True))
         busy = self.w.insert_claim(t, line=t["line"])                         # Tの約束はいま通話中
-        self.assertIsInstance(self.claim(s), gate.Claim)                       # 取り置く約束が無い
+        self.assertEqual(sum(reserved()), 0)                                   # 止まっている・通話中の約束は取り置かない
+        self.assertIsInstance(self.claim(s), gate.Claim)
         self.tx(t, lambda tx: attempts.release(tx, [busy]))
 
     def test_the_guard_is_the_average_call_length_of_the_business_once_measured(self):

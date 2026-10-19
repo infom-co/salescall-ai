@@ -21,6 +21,15 @@ from salescall.core.errors import ErrorReport
 
 ACTIVE_STATES = ("claimed", "dialing", "ringing", "answered", "in_conversation", "ending")
 
+
+def dialed(table: str = "") -> str:
+    """発信まで進んだ試行の条件（SQL。1か所。予約のまま・かけずに取り消した予約は入れない）。table＝表の別名（無ければ state）。
+    回数・間隔・「その回にかけたか」・続けて何回かけたか などは、どれもこれを使う。"""
+    return f"{table + '.' if table else ''}state NOT IN ('claimed', 'released')"
+
+
+DIALED = dialed()
+
 # 回線の部品と復旧が移してよい先（予約 → 発信・予約の取り消しは、それぞれ専用の処理だけ）
 LineState = Literal["ringing", "answered", "in_conversation", "ending", "ended",
                     "busy", "no_answer", "call_failed", "dropped", "technical_error"]

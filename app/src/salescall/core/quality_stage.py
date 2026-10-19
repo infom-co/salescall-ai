@@ -33,7 +33,7 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
-from salescall.core import approval, notify, settings, stops
+from salescall.core import approval, attempts, notify, settings, stops
 from salescall.core.judge import PROGRAM_CAUSES, UNKNOWN_CAUSES
 from salescall.core.access import Tx
 
@@ -219,7 +219,7 @@ def metrics(tx: Tx, version_id: UUID) -> dict[str, dict[str, Any]]:
         "        (SELECT count(*) FROM judged j JOIN talked t ON t.attempt_id = j.attempt_id WHERE j.complaint) AS complaint,"
         "        (SELECT count(*) FROM talked) AS talked,"
         "        (SELECT count(*) FROM a WHERE state = 'technical_error') AS technical,"
-        "        (SELECT count(*) FROM a WHERE state NOT IN ('claimed', 'released') AND NOT salescall.is_active(state))"
+        f"        (SELECT count(*) FROM a WHERE {attempts.DIALED} AND NOT salescall.is_active(state))"
         "          AS dialed", (version_id, version_id))
     by_cause = {r["c"]: [str(x) for x in r["a"]] for r in tx.all(
         f"SELECT r.detail ->> 'unknown_cause' AS c, array_agg(r.attempt_id ORDER BY r.attempt_id) AS a"
@@ -264,7 +264,7 @@ def evaluate(tx: Tx, version_id: UUID) -> dict[str, Any] | None:
         cause = "judge_unknown"
     else:
         unsettled = tx.one(
-            f"SELECT 1 FROM ({_WINDOW}) a WHERE a.state NOT IN ('claimed', 'released')"
+            f"SELECT 1 FROM ({_WINDOW}) a WHERE {attempts.dialed('a')}"
             " AND NOT salescall.is_settled(a.attempt_id) LIMIT 1", (version_id, version_id)) is not None
         if stage["cap"] is not None and n_used >= stage["cap"] and not unsettled:
             if all(x["inside"] for x in m.values()):

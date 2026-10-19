@@ -349,14 +349,18 @@ class CutOffCalls(SettleBase):
         self.assertTrue(dial_exit.dial(self.w.a, SYSTEM, s["tenant"], s["client"], c.attempt_id, FakeDriver()))
         for st in ("answered", "in_conversation"):
             self.tx(s, lambda tx: attempts.move(tx, c.attempt_id, st))
-        self.tx(s, lambda tx: call_report.save(tx, c.attempt_id, rep()))
+        self.tx(s, lambda tx: call_report.save(tx, c.attempt_id, rep(callback=callback("later", time="30分後"))))
         time.sleep(0.3)
         self.tx(s, lambda tx: attempts.move(tx, c.attempt_id, "technical_error"))
+        self.tx(s, lambda tx: attempts.record_verification(tx, c.attempt_id, summary=CLEAN))
         got = self.tx(s, lambda tx: tx.one(
             "SELECT a.ended_at, r.saved_at FROM salescall.attempts a JOIN salescall.call_reports r USING (attempt_id)"
             " WHERE a.attempt_id = %s", (c.attempt_id,)))
         self.assertLess(got["saved_at"], got["ended_at"])
         self.assertEqual(self.tx(s, lambda tx: settle._attempt(tx, c.attempt_id))["spoken_at"], got["saved_at"])
+        self.settle(s, c.attempt_id)                                          # 判定も、この時刻から「30分後」を読む
+        detail = self.tx(s, lambda tx: results.latest(tx, s["task"]))["detail"]
+        self.assertEqual(datetime.fromisoformat(detail["callback"]["at"]), got["saved_at"] + timedelta(minutes=30))
 
     def test_a_customer_who_hung_up_during_their_own_words_is_not_called_back_at_once(self):
         """お客様の言葉の途中で切れても、回線の信号が「お客様が切った」なら、お客様が自分で切った（すぐかけ直さない）。"""
@@ -515,7 +519,7 @@ class CallbackWindow(SettleBase):
                          (3, midnight(d + timedelta(days=21)), True))   # 話せないまま過ぎた回も数える（見守り役が止まっていた）
         last = replace(first, round=3)
         over = self.tx(s, lambda tx: next_action._keep_promise(tx, s["task"], last.until, last, target, now=now))
-        self.assertEqual((over.kind, over.end_reason), ("end", "callback_unspecified_time"))   # 4回目は方針の回数を超える
+        self.assertEqual((over.kind, over.end_reason), ("end", "callback_unspecified_time"))   # 最初の回＋方針の回数（3）を超える回は終える
         self.put_client(s, "calling.hours", {k: [] for k in KEYS})
         kept = self.tx(s, lambda tx: next_action._keep_promise(tx, s["task"], first.until, first, target, now=now))
         self.assertEqual((kept.kind, kept.promised, kept.window), ("call", True, first))   # 時間帯が無い：約束の幅のまま確かめ直す
@@ -572,8 +576,89 @@ class CallbackWindow(SettleBase):
             tx, s["task"], t, next_action._exact_window(tx, s["task"], t), next_action.Target(s["contact"]), now=now, exact=True))
         self.assertEqual((d.kind, d.at, d.callee_at), ("call", t, t))
 
+    def test_an_exact_promise_retry_keeps_out_of_another_ng_frame(self):
+        """時刻ちょうどの約束の回のかけ直しは、約束の時刻を含むNG時間の枠だけNG時間でもかけてよい。ほかのNG時間の枠は控える
+        （門の `calling_hours.allowed` と同じ決まり＝`excuse_ng` の1か所。⚠️ 前は次の動きがNG時間を全部無視し、門が止め続けた）。"""
+        from salescall.core.calendar import holiday_checker
+        s = self.ready()
+        clock = self.tx(s, lambda tx: tx.one(
+            "SELECT now() AS now, date_trunc('minute', now()) + interval '10 minutes' AS t,"
+            " salescall.jst(date_trunc('minute', now()) + interval '10 minutes') AS t_local"))
+        now, t, t_local = clock["now"], clock["t"], clock["t_local"]
+        if t_local.hour == 23:
+            self.skipTest("日本時間の23時台：試験の回が日をまたぐ")
+        hhmm = lambda d: (t_local + d).strftime("%H:%M")   # noqa: E731
+        self.put_client(s, "calling.ng_hours", {k: [[hhmm(timedelta(minutes=3)), hhmm(timedelta(minutes=50))]] for k in KEYS})
+        w = self.tx(s, lambda tx: next_action._exact_window(tx, s["task"], t))
+        d = self.tx(s, lambda tx: next_action._keep_promise(tx, s["task"], t + timedelta(minutes=5), w,
+                                                            next_action.Target(s["contact"]), now=now, exact=True))
+        self.assertEqual(d.at, t + timedelta(minutes=50))                     # ほかの枠の終わりまで待つ
+        allowed = lambda m: self.tx(s, lambda tx: calling_hours.allowed(   # noqa: E731
+            {k: [["00:00", "24:00"]] for k in KEYS},
+            {k: [[hhmm(timedelta(minutes=3)), hhmm(timedelta(minutes=50))]] for k in KEYS}, holiday_checker(tx),
+            t_local + timedelta(minutes=m), t_local + timedelta(minutes=m, seconds=60), callee_at=t_local))
+        self.assertEqual((allowed(5), allowed(50)), (False, True))           # 門も同じ答え
+
+    def test_a_window_retry_past_the_round_moves_to_the_next_round_without_an_apology(self):
+        """幅の約束で出なかったとき、再発信の方針の間隔（「2日後」）が回の終わりを越えるなら、次の回へ（回を飛ばさない。その回には
+        かけたので、お詫びの印は付けない。⚠️ 前は回を2つ飛ばし、お詫びの印も付けた＝2026-10-19 の見直し）。"""
+        keys = ("open", "incomplete", "not_reached_absent", "not_reached_not_transferred", "callback_unspecified_time")
+        s = self.ready(rules=rules_raw(retry={k: {"action": "call", "max_times": 3, "interval": {"days": 2}} for k in keys}))
+        local = self.local_now(s)
+        midnight = lambda day: self.from_jst(s, datetime.combine(day, datetime.min.time()))   # noqa: E731
+        w = next_action.Window(midnight(local.date() + timedelta(days=1)), (0, 24 * 3600), None, midnight(local.date()), "day")
+        now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
+        self.tx(s, lambda tx: next_action.schedule_call(tx, s["task"], now, contact_id=s["contact"], cause="試験", promised=True,
+                                                       window=w))
+        self.settle(s, self.call(s, ["dialing", "no_answer"]))
+        cur = self.tx(s, lambda tx: next_action.current(tx, s["task"]))
+        self.assertEqual((cur["promised"], cur["window_round"], cur["window_from"], cur["apology_owed"]),
+                         (True, 1, midnight(local.date() + timedelta(days=1)), False))
+
+    def test_an_untimed_promise_stays_a_promise_when_not_answered(self):
+        """時刻の決まっていない約束（「あとで」）の電話に出なかった：約束したかけ直しのまま（行の回数の上限で終えない）、契約者の
+        方針（callback_unspecified_time）の回数で終える（⚠️ 前は、約束でないふつうのかけ直しになり、回数の上限で終わった）。"""
+        s = self.ready()
+        self.put_client(s, "retry.max_attempts_per_task", 1)
+        aid = self.call(s, report=rep(callback=callback("later", time="あとで")))
+        self.assertEqual(self.settle(s, aid)["state"], "callback_scheduled")
+        now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
+        kinds = []
+        for _ in range(3):                                                   # 試験の方針：3回まで
+            self.tx(s, lambda tx: next_action.schedule_call(tx, s["task"], now, contact_id=s["contact"],
+                                                           cause="試験：いまかける", promised=True))
+            d = self.settle(s, self.call(s, ["dialing", "no_answer"]))["decision"]
+            kinds.append((d.kind, d.promised, d.end_reason))
+        self.assertEqual(kinds, [("call", True, None), ("call", True, None), ("end", None, "callback_unspecified_time")])
+
+    def test_minutes_later_is_called_as_soon_as_possible_not_as_an_exact_time(self):
+        """「30分後」：その時からの「すぐ」（時刻ちょうどの約束ではない＝お客様が指定した時刻の印 callee_at を持たない。2026-10-19
+        ユーザー：「いまは忙しいけど、できるだけ早くかけ直してということが多い」）。"""
+        s = self.ready()
+        aid = self.call(s, report=rep(callback=callback("later", time="30分後")))
+        self.settle(s, aid)
+        cur = self.tx(s, lambda tx: next_action.current(tx, s["task"]))
+        ended = self.tx(s, lambda tx: tx.one("SELECT least(ended_at, (SELECT saved_at FROM salescall.call_reports"
+                                             " WHERE attempt_id = %s)) AS t FROM salescall.attempts WHERE attempt_id = %s",
+                                             (aid, aid))["t"])
+        self.assertEqual((cur["promised"], cur["callee_at"], cur["window_daily"]), (True, None, None))
+        self.assertGreaterEqual(cur["call_at"], ended + timedelta(minutes=30) - timedelta(seconds=1))
+
+    def test_a_monthly_reason_moves_to_the_same_day_next_month(self):
+        """月の理由（月ぎめ・入金の間隔）で選んだ日は、話せなければ次の月の同じ日の回（2026-10-19 ユーザー）。"""
+        s = self.ready()
+        local = self.local_now(s)
+        first = (local.date().replace(day=1) + timedelta(days=32)).replace(day=3)
+        nxt = (first.replace(day=1) + timedelta(days=32)).replace(day=3)
+        midnight = lambda day: self.from_jst(s, datetime.combine(day, datetime.min.time()))   # noqa: E731
+        w = next_action.Window(midnight(first + timedelta(days=1)), None, None, midnight(first), "month:day:3")
+        now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
+        d = self.tx(s, lambda tx: next_action._keep_promise(tx, s["task"], w.until, w, next_action.Target(s["contact"]),
+                                                            now=now))
+        self.assertEqual((d.kind, d.window.round, d.window.since, d.at), ("call", 1, midnight(nxt), midnight(nxt)))
+
     def test_exact_promise_counts_cannot_be_zero(self):
-        """時刻ちょうどの約束の回数・日数・時間は1以上（0なら約束を一度もかけずに終えてしまう。データベースが守る＝0093）。"""
+        """時刻ちょうどの約束の時間・日数・かけ直しの間は1以上（0なら約束を一度もかけずに終えてしまう。データベースが守る＝0093）。"""
         s = self.ready()
         for key, value in (("callback.exact_slot", 0), ("callback.exact_days", 0), ("callback.exact_retry_gaps", [300, 0]),
                            ("callback.exact_retry_gaps", [])):

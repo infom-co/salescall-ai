@@ -10,7 +10,8 @@
 - `WINDOW`（幅）：start〜end（end＝その時刻より前。None＝終わり無し）、1日の中の幅 daily（時間の言葉があるときだけ）、
   話せなかったときの次の回の決め方 repeat（お客様がその日を選んだ理由。下の DAY_REPEAT ほか）、日の種類 days（「平日」
   「土日祝」などのときだけ。かけてよい日の鍵＝calling_hours の曜日・祝日の鍵）。幅の中でも、かけてよい時間帯・NG時間は守る（お客様は時刻を指定していない）。「すぐ」「なるべく早く」は、いまから
-  終わり無しの幅（2026-10-14 ユーザー「『なるべく早く』は『即』」）。
+  終わり無しの幅（2026-10-14 ユーザー「『なるべく早く』は『即』」）。「30分後」「1時間後」は、その時からの終わり無しの幅（「すぐ」と
+  同じ。2026-10-19 ユーザー：「いまは忙しいけど、できるだけ早くかけ直して」）。
 - `UNSPECIFIED`：時刻をこちらに任せる答え（「いつでも」「そちらのご都合で」「あとで」「後ほど」だけ）・時刻を聞けなかった ⇒
   時刻の決まっていない約束（契約者が決めた再発信の方針の間隔。⚠️「あとで」と言われたお客様に、すぐかけ直さない）。
 - `CONFIRM`：言い方は分かるが、いつかが1つに決まらない ⇒ **通話の中で確かめる**（会話＝CL-1）。例：「昼」（12時〜13時ごろとも、
@@ -150,7 +151,7 @@ class Reading:
     kind: str                            # AT / WINDOW / UNSPECIFIED / CONFIRM / UNREADABLE
     start: datetime | None = None        # AT：その時刻／WINDOW：幅の始まり（いまより前にしない）
     end: datetime | None = None          # WINDOW：幅の終わり（含まない。None＝終わり無し）
-    daily: tuple[int, int] | None = None  # WINDOW：1日の中の幅（秒）。時間の言葉があるときだけ（次の日の同じ幅＝案A）
+    daily: tuple[int, int] | None = None  # WINDOW：1日の中の幅（秒）。時間の言葉があるときだけ
     why: str | None = None               # CONFIRM・UNREADABLE の理由（日本語）
     days: tuple[str, ...] | None = None  # WINDOW：かけてよい日の種類（「平日」「土日祝」など。曜日・祝日の鍵）
     repeat: str | None = None            # WINDOW：話せなかったときの次の回（DAY_REPEAT・WEEK・"month:..."・None。`next_occurrence`）

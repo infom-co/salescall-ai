@@ -205,17 +205,11 @@ class AfterCall(unittest.TestCase):
         self.assertEqual((d.kind, d.end_reason, d.at), ("hold", None, None))
 
     def test_callback(self):
-        """時刻を言われていない約束：契約者の再発信の方針の間隔で、約束したかけ直し（回数の上限でも止めない）。時刻・幅を言われた
-        約束は、約束を守る次の動き（next_action._keep_promise の1か所。試験は test_settle）が無ければ決めない。"""
-        d = after_call(dict(items={}, rep=report(callback=callback("ask_who", person="岡田"))),
-                       normal=gate.Pacing(0, NOW, None, False))
-        self.assertEqual((d.kind, d.at, d.promised, d.callee_at), ("call", NOW + HOUR, True, None))
-        later = NOW + timedelta(hours=5)
-        d = after_call(dict(items={}, rep=report(callback=callback("ask_who", person="岡田"))),
-                       promised=gate.Pacing(3, later, "cross_client_interval_other_tenant", True))
-        self.assertEqual(d.at, later)                                          # 門の最も早い時刻より前にしない
-        with self.assertRaises(ValueError):
-            after_call(dict(items={}, rep=report(callback=callback("later", NOW + timedelta(hours=3)))))
+        """お客様と約束したかけ直しは、時刻・幅の約束も時刻の決まっていない約束も、約束を守る次の動き（next_action の
+        _keep_promise・_unspecified_next の1か所。試験は test_settle）が決める。無ければ決めない。"""
+        for cb in (callback("later", NOW + timedelta(hours=3)), callback("ask_who", person="岡田")):
+            with self.subTest(cb=cb), self.assertRaises(ValueError):
+                after_call(dict(items={}, rep=report(callback=cb)))
 
     def test_callee_named_time_is_kept_when_the_gate_denies(self):
         """お客様が言った時刻は、門で止められても予定に引き継ぐ（NG時間でもかけてよい根拠）。"""
@@ -257,9 +251,9 @@ class AlternateNumber(unittest.TestCase):
     OTHER = report(callback=callback("other_number", NOW + timedelta(hours=1), "03-0000-0002"))
 
     def test_goes_to_the_number_the_callee_gave(self):
-        untimed = report(callback=callback("other_number", None, "03-0000-0002"))   # 時刻のある約束は _keep_promise（test_settle）
-        d = after_call(dict(items={}, rep=untimed), alternate=Alternate(ALT, True, None), normal=gate.Pacing(0, NOW, None, False))
-        self.assertEqual((d.kind, d.contact_id, d.promised, d.at), ("call", ALT, True, NOW + HOUR))
+        j = run(items={}, rep=self.OTHER)
+        self.assertEqual(choose_number(j, dialed=Target(MAIN), alternate=Alternate(ALT, True, None), recheck=None),
+                         Target(ALT))                                   # いつかけるかは約束を守る次の動き（test_settle）
 
     def test_records_only_when_not_called(self):
         for alt, reason in [(Alternate(ALT, False, None), "alternate_not_called"),
