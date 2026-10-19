@@ -66,10 +66,11 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
                   tasks: list | None = None, audio_at: float | None = None):
     """相手の1つの発話の確かめ（DESIGN.md 1章・6-10）：相手の声を、会話AIへ送るのと同時に別の耳（通話ごとに1本つないだ ears.Ear）へも流し、
     相手の言葉が出揃ったら（Flow.words_complete＝会話AIの話し終わりの知らせ）、会話AIの聞き取りの文字（無ければ別の耳の文字）を意味の判定
-    （judge＝async (質問, 言葉, こちらが言い直した言葉) -> 中の名前。meaning_judge）へ渡す。judge2＝後ろで走らせる2つ目の判定（待たない）。
+    （judge・judge2＝async (質問, 言葉, こちらが言い直した言葉) -> 中の名前。会社の違う2つを同時に出す。meaning_judge.JudgePanel の受け持ち）へ渡す。
     届いたものは、いつ届いても、この発話の番号と見た言葉を付けて flow.on_check へ渡す（受け取ったあとに届けば、流れの制御が同じ決まりで
     当てる）。文字で送る相手の言葉（pcm 無し）は、はじめから出揃っている。
-    答えをそのまま受け取りうる報告（flow.wants_checks）が来たら、返事を作る前に、この報告と同じ相手の言葉の確かめ（別の耳・判定）を待つ（hold）。
+    答えをそのまま受け取りうる報告（flow.wants_checks）が来たら、返事を作る前に、この報告と同じ相手の言葉の確かめを待つ（hold）：別の耳と、
+    判定はどちらか先に届いた1つ（遅れて届いたほうは、流れの制御が同じ決まりで当てる）。
     返り値＝(報告の返事を作る処理, 声を流す作業, 記録, 判定を待つ処理)。判定を待つ処理（settle）：AIが報告しなかったターンのあと、報告を
     促すかを決める前に呼ぶ。tasks：始めた確かめの作業を足す先（通話の終わりに、まだ走っているものを待つため）。
     audio_at：この発話の声を送り始める、会話AIへ送った音の上の位置（live_util.audio_sent_s）。声の終わりの位置を流れの制御へ渡す（Flow.on_voice。
@@ -143,6 +144,8 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
                 got = await asyncio.wait_for(runs[kind](q, text, asked), LATE_CHECK_S)
             except Exception as exc:  # 判定が落ちても通話は止めない（届かなかった＝通話後の検証へ）
                 info[f"{kind}_error"] = repr(exc)[:200]
+                if getattr(exc, "tried", None):  # 受け持ちの判定・代わりの、答えが無かった理由（meaning_judge.NoJudgment）
+                    info[f"{kind}_tried"] = list(exc.tried)
                 return None
             info.setdefault(f"{kind}_calls_s", []).append(round(loop.time() - t0, 3))  # 判定そのものにかかった秒（待つ長さを決めるため）
             # 判定の間に相手がまた話し始めたら、話し終わるのを待ってから、言葉が増えたかを見る（増えていれば、この判定は渡さない）
@@ -154,15 +157,33 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
                 continue
             info.update({kind: got, f"{kind}_firm": getattr(got, "firm", None), f"{kind}_text": text,
                          f"{kind}_s": round(loop.time() - speech_end, 3), f"{kind}_took_s": round(loop.time() - t0, 3)})
+            if getattr(got, "by", None):  # どの判定が答えたか（止まった判定の代わりが入ったか。meaning_judge.JudgePanel）
+                info[f"{kind}_by"] = got.by
+                if got.tried:
+                    info[f"{kind}_tried"] = list(got.tried)
             flow.on_check(kind, got, turn, said=said)
             return got
     jobs = {kind: started(judging(kind)) for kind in runs}
 
-    async def hold(kinds: tuple[str, ...], ack: bool = True) -> None:
-        """報告を受け取る前（・報告を促すかを決める前）に、いまの相手の言葉の確かめ（kinds）がそろうのを待つ。相手が話している間は待ち続ける
-        （会話AIの話し終わりの知らせまで。相手が話しているので、こちらが黙っていても間にはならない。⛔ AIが相手の言葉の間で報告した
-        ＝G-57 の「岡田ですね。」「少々お待ちください。」）。話し終わってからは flow.limits.hold_s 秒まで。報告を待たせる間は「はい、」の相づち
-        （ack。held_ack）。
+    def judged() -> bool:
+        return any(k in flow.check for k in runs)  # いまの言葉の判定が、1つでも届いた（Flow.check はいまの言葉のものだけ）
+
+    async def judgments(every: bool) -> None:
+        """いまの言葉の判定を待つ：1つ届くまで（every＝全部が終わるまで）。答えずに終わった判定は待たない（もう1つを待つ）。"""
+        while every or not judged():
+            live = [t for t in jobs.values() if not t.done()]
+            if not live:
+                return
+            await asyncio.wait(live, return_when=asyncio.FIRST_COMPLETED)
+
+    async def hold(ear_too: bool, ack: bool = True, every: bool = False) -> None:
+        """報告を受け取る前（・報告を促すかを決める前）に、いまの相手の言葉の確かめがそろうのを待つ：別の耳（ear_too）と、判定はどちらか先に
+        届いた1つ（⛔ 2026-10-19 G-57 の9回目：その場の判定だけを待ち、2秒超が328回中58回・報告を待たせた185回中21回で間に合わなかった。
+        G-61：同じ会社の2本は遅れが一緒に出るが、違う会社の2つで早く届いたほうは、遅いほうから1割 1.53秒）。
+        every：取り消せない報告（Flow.binding＝目的の人に繋ぐ）は、待つ長さの中で判定を全部待つ（届いた判定どうしが食い違えば確かめる）。
+        相手が話している間は待ち続ける（会話AIの話し終わりの知らせまで。相手が話しているので、こちらが黙っていても間にはならない。
+        ⛔ AIが相手の言葉の間で報告した＝G-57 の「岡田ですね。」「少々お待ちください。」）。話し終わってからは flow.limits.hold_s 秒まで。
+        報告を待たせる間は「はい、」の相づち（ack。held_ack）。
         判定した言葉より相手の言葉が増えていたら（判定のあとに相手が話し続けた）、いまの言葉で判定し直す。"""
         t0 = quiet = loop.time()
         # 出揃うまで待つ：相手が話している間は待ち続け、話していないのに出揃わない（会話AIが声の終わりまで聞き取っていない＝遅れ）のは、
@@ -179,20 +200,26 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
             flow.on_voice(None)
         elif not complete():
             info["incomplete"] = True   # 会話AIが、まだ声の終わりまで聞き取っていない：途中の言葉では判定しない（流れの制御も使わない）
-        for kind in (k for k in runs if k in kinds or (k == "judge2" and "judge" in kinds)):
-            # いまの言葉の判定が無く、走っている判定も無いか古い言葉のもの ⇒ いまの言葉で判定し直す（2つ目の判定は待たない）
+        for kind in runs:
+            # いまの言葉の判定が無く、走っている判定も無いか古い言葉のもの ⇒ いまの言葉で判定し直す
             stale = jobs[kind].done() or judging_text.get(kind) not in (None, flow.callee_said)
             if complete() and flow.callee_said and kind not in flow.check and stale:
                 jobs[kind] = started(judging(kind, flow.callee_said, flow.callee_said))
                 info.setdefault("rejudged", []).append(kind)
-        waits = [t for t in ([etask] if "ear" in kinds else []) + [jobs[k] for k in kinds if k in jobs] if t is not None and not t.done()]
+        waits = [etask] if ear_too and etask is not None and not etask.done() else []
+        first = asyncio.create_task(judgments(every)) if runs and (every or not judged()) else None
+        if first is not None:
+            waits.append(first)
         if ack and (waits or ready - t0 > 0.05):
             info["held_ack"] = "hai"
         if waits and not info.get("incomplete"):  # 出揃っていなければ、判定を待っても使わない（流れの制御は決めずに待つ）
             await asyncio.wait(waits, timeout=max(0.0, max(ready, quiet) + flow.limits.hold_s - loop.time()))
-        info.setdefault("waits", []).append({"for": "report" if ack else "settle", "speaking_s": round(ready - t0, 3),
+        if first is not None and not first.done():
+            first.cancel()
+        info.setdefault("waits", []).append({"for": "report" if ack else "settle", "every": every, "speaking_s": round(ready - t0, 3),
                                              "waited_s": round(loop.time() - t0, 3),
-                                             "late": [k for k, t in (("ear", etask), *((k, jobs.get(k)) for k in kinds if k != "ear"))
+                                             "judged": [k for k in runs if k in flow.check],  # 決めるときに届いていた判定
+                                             "late": [k for k, t in ((("ear", etask),) if ear_too else ()) + tuple(jobs.items())
                                                       if t is not None and not t.done()]})
         if ack:
             info.setdefault("waited_s", info["waits"][-1]["waited_s"])
@@ -201,11 +228,11 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
     async def handle(fc):
         midway = not complete()  # AIが、相手の言葉が出揃う前に報告した（Flow.handle の midway）
         if flow.wants_checks(fc.name, fc.args):
-            await hold(("ear", "judge"))
+            await hold(ear_too=True, every=flow.binding(fc.name, fc.args))
         return flow.handle_call(fc, midway)
 
     async def settle() -> None:
-        await hold(("judge",), ack=False)
+        await hold(ear_too=False, ack=False)
     return handle, task, info, settle
 
 
@@ -218,8 +245,19 @@ MAX_AGAIN = 5  # 試験の歯止め（聞き返しの回数は、流れの制御
 
 def asked_back(entries: list[dict]) -> bool:
     """そのターンで受け付けた最後の報告への返事が、聞き返しか（流れの制御の記録から読む）。"""
+    return last_reply(entries) == "ask_back"
+
+
+def last_reply(entries: list[dict]) -> str | None:
+    """そのターンで受け付けた最後の報告への返事の種類（流れの制御の記録から読む。受け付けた報告が無ければ None）。"""
     accepted = [e for e in entries if (e.get("reply") or {}).get("result") != "rejected"]
-    return bool(accepted) and accepted[-1]["reply"].get("result") == "ask_back"
+    return accepted[-1]["reply"].get("result") if accepted else None
+
+
+# 試験の相手役が、次の台詞へ進まずに答え直す返事（返事の種類 ⇒ 台詞の鍵）：聞き返された（"again"）・目的の人かを聞かれた（"if_asked_target"＝
+# 目的の人ご本人の台詞だけが持つ。本物の方は「はい、そうです。」と答える。⛔ 2026-10-19 G-62：判定が遅れて目的の人かを確かめたとき、台本の
+# 相手は次の台詞「はい、予約しています。」へ進み、呼んでいる段のまま答えが差し戻され続けた＝試験の作りの誤り）
+ANSWER_AGAIN = {"ask_back": "again", "confirm_target": "if_asked_target"}
 
 
 def followup_reason(turn) -> str | None:
@@ -253,14 +291,14 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
     ear_kind：別の耳の名前（ears.EAR_KINDS）。相手の声を、会話AIと同時に別の耳へも流し、確かめない型の答えの報告の返事を作る前に、別の耳の
     文字を待って流れの制御へ渡す（DESIGN.md 6-10 の (5)。G-15。check_handler）。⛔ 既定では使わない（None）：Gemini の書き起こしのモデルを
     別の耳にすると、要らない確かめが8.5%増え、拾えた誤りは0だった（G-15 の続き）。独立した別の耳（AmiVoice・Soniox・ReazonSpeech）を試す入口
-    judge：意味の判定（async (質問, 相手の言葉, こちらが言い直した言葉) -> 中の名前。meaning_judge。DESIGN.md 6-10 の (6)。G-53）。
-    judge2：後ろで走らせる2つ目の判定（待たない。遅れて届けば同じ決まりで当てる）。check_handler
+    judge・judge2：意味の判定（async (質問, 相手の言葉, こちらが言い直した言葉) -> 中の名前。会社の違う2つを同時に出し、早く届いたほうで決め、
+    遅れて届いたほうも同じ決まりで当てる。meaning_judge.make_judges＝止まった判定の代わりも入る。DESIGN.md 6-10 の (6)。G-53・G-61）。check_handler
     off_script_at：試験だけ。この番号の台詞へのAIの声を、渡した言い方から外れたものとして止める（外れたあとの言い直しの仕組みを確かめる。
     外れることは、ふつうはめったに起きないので。DESIGN.md 6-7）。off_script_heard：試験だけ。そのとき相手に聞こえていたものを、この種類と
     みなす（offscript.restate の3つの言い方を、それぞれ確かめる）"""
     if callee_voice == "swap":
         callee_voice = callee_voice_for(voice_type)
-    callee_lines = [{**x, "wav": callee_wav(x["wav"], callee_voice), **({"again": callee_wav(x["again"], callee_voice)} if "again" in x else {})}
+    callee_lines = [{**x, "wav": callee_wav(x["wav"], callee_voice), **{k: callee_wav(x[k], callee_voice) for k in ANSWER_AGAIN.values() if k in x}}
                     if isinstance(x, dict) and "wav" in x else
                     {**x, "yes": callee_wav(x["yes"], callee_voice), "no": callee_wav(x["no"], callee_voice)}
                     if isinstance(x, dict) and "if_value" in x else x for x in callee_lines]
@@ -479,10 +517,11 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                         nudge = await collect_turn(s, started_at=time.monotonic(), on_tool_call=on_tool, timeout_s=followup_wait_s or 8.0,
                                                    on_heard=None)
                         await add_turn(nudge, {"nudge_of": line, "note": note}, log_start, i, voice)
-                    if isinstance(line, dict) and "again" in line and asked_back(flow.log[turn_log_start:]) and again_n < MAX_AGAIN:
-                        # 聞き返された：本物の相手は、次の台詞へは進まず、聞かれたことに答え直す（⛔ 2026-10-14 G-36：台本の相手が聞き返しの
-                        # あとも次の台詞「はい、そうです」「3人です」へ進み、それが日時の答えとして報告された＝試験の作りの誤り）
-                        again, again_n = {"wav": line["again"], "again": line["again"]}, again_n + 1
+                    key = ANSWER_AGAIN.get(last_reply(flow.log[turn_log_start:]))
+                    if isinstance(line, dict) and key in line and again_n < MAX_AGAIN:
+                        # 聞き返された・目的の人かを聞かれた：本物の相手は、次の台詞へは進まず、聞かれたことに答え直す（⛔ 2026-10-14 G-36：
+                        # 台本の相手が聞き返しのあとも次の台詞「はい、そうです」「3人です」へ進み、それが日時の答えとして報告された＝試験の作りの誤り）
+                        again, again_n = {"wav": line[key], key: line[key]}, again_n + 1
                         continue
                     again, again_n = None, 0
                     i += 1

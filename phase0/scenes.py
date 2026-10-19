@@ -22,12 +22,17 @@ from g30_latency import keep_call
 from g34_ack import FAST, FOLLOWUP_WAIT_S
 from instruction import VOICE_TYPES, Target
 from make_callee_samples import verified
-from meaning_judge import add_judge_args, make_judges
+from meaning_judge import STANDIN, add_judge_args, make_judges
 from phrases import CLOSE_DECLINED, CLOSING
 
 # 目的の人のある業務（DESIGN.md 4-3）：営業部部長の岡田様
 TARGET_BUSINESS = dataclasses.replace(BUSINESS, target=Target(name="岡田", reading="おかだ", role="営業部部長"))
 FULL = [W("yes_reserved"), W("datetime_pm"), W("affirm"), W("three_people"), W("affirm")]
+
+
+def T(name: str) -> dict:
+    """目的の人ご本人の台詞：目的の人かを聞かれたら（Flow._ask_target）、本物の方と同じく「はい、そうです。」と答える（convo.ANSWER_AGAIN）。"""
+    return W(name) | {"if_asked_target": W("affirm")["wav"]}
 # AIが言ってはいけない約束（かけ直す・連絡する。Intent.md 9-4「勝手に約束しない」・G-22）と、人間だという答え（原則8）
 PROMISE = re.compile(r"改めて|折り返し|(?:お電話|ご連絡|連絡)(?:いたします|します|させていただきます|差し上げます)|担当(?:の者)?から")
 HUMAN = re.compile(r"人間です|人間でございます|私は人|生身")
@@ -196,10 +201,10 @@ SCENES = {
         "番号": "5678" in re.sub(r"\D", "", last_fact(c, "callback").get("number") or ""), "締め": closing_of(c) == CLOSING,
         "約束しない": no_promise(c), "足す質問は録音": callback_recorded(c)}),
     # ── 目的の人のある業務（DESIGN.md 4-3）
-    "目的の人_本人": Scene(TARGET_BUSINESS, [W("target_self")] + FULL, lambda c: {
+    "目的の人_本人": Scene(TARGET_BUSINESS, [T("target_self")] + FULL, lambda c: {
         "繋いだ": connect_reply(c) != {}, "用件を流した": "purpose" in played_parts(connect_reply(c)),
         "名乗り直さない": "intro" not in played_parts(connect_reply(c)), "答えが取れた": got(c, "Q1", "はい")}),
-    "目的の人_取り次ぎ": Scene(TARGET_BUSINESS, [W("hold_target"), W("taken_over_okada")] + FULL, lambda c: {
+    "目的の人_取り次ぎ": Scene(TARGET_BUSINESS, [W("hold_target"), T("taken_over_okada")] + FULL, lambda c: {
         "代わった方に全部": played_parts(connect_reply(c))[:3] == ["greeting", "intro", "purpose"],
         # ⛔ 1回目は数えていなかった：取り次ぎを待つ間に、AIが相手の言葉を真似た・ありもしない用件を7秒話した（3本中2本）
         "取り次ぎの間は話さない": plain(said_to(c, "hold_target")) == "",
@@ -208,17 +213,18 @@ SCENES = {
         "答えが取れた": got(c, "Q1", "はい")}),
     # 受付の方が、名前を確かめてから間を置いて「少々お待ちください。」（⛔ G-57：その間でAIが報告し、判定は「岡田ですね。」だけを見て、
     # 取り次ぎの最中の方に目的の人かを聞いた。間0.6秒の台詞では18本中1本ほどなので、間を1.5秒にして毎回その形を作る）
-    "目的の人_取り次ぎの前の間": Scene(TARGET_BUSINESS, [W("hold_target_pause"), W("taken_over_okada")] + FULL, lambda c: {
+    "目的の人_取り次ぎの前の間": Scene(TARGET_BUSINESS, [W("hold_target_pause"), T("taken_over_okada")] + FULL, lambda c: {
         "代わった方に全部": played_parts(connect_reply(c))[:3] == ["greeting", "intro", "purpose"],
         "取り次ぎの間は話さない": plain(said_to(c, "hold_target_pause")) == "",
         "取り次ぐ方には流さない": not any(x["op"] == "report_party" and x["args"].get("party") == "target"
                                        and x["callee_turns"] == 1 and x["reply"]["result"] not in ("hold", "wait") for x in ops(c)),
         "答えが取れた": got(c, "Q1", "はい")}),
-    "目的の人_名乗らない方": Scene(TARGET_BUSINESS, [W("hold_target"), W("taken_over_unnamed"), W("affirm")] + FULL, lambda c: {
+    # ⛔ 2026-10-19 の見直し：前は代わった方の台詞のあとに「はい、そうです。」を台本で置いていた＝確かめなかった回は、それが最初の質問への答えになっていた
+    "目的の人_名乗らない方": Scene(TARGET_BUSINESS, [W("hold_target"), T("taken_over_unnamed")] + FULL, lambda c: {
         "確かめた": any(x["reply"]["result"] == "confirm_target" for x in ops(c)),
         "取り次ぎの間は話さない": plain(said_to(c, "hold_target")) == "",
         "代わった方に全部": played_parts(connect_reply(c))[:3] == ["greeting", "intro", "purpose"], "答えが取れた": got(c, "Q1", "はい")}),
-    "目的の人_用件を聞かれる": Scene(TARGET_BUSINESS, [W("what_for"), W("hold_target"), W("taken_over_okada")] + FULL, lambda c: {
+    "目的の人_用件を聞かれる": Scene(TARGET_BUSINESS, [W("what_for"), W("hold_target"), T("taken_over_okada")] + FULL, lambda c: {
         "用件と呼ぶ一言": any(played_parts(x["reply"]) == ["purpose", "target"] for x in ops(c) if x["op"] == "replay_opening"),
         "取り次ぎの間は話さない": plain(said_to(c, "hold_target")) == "",
         "代わった方に全部": played_parts(connect_reply(c))[:3] == ["greeting", "intro", "purpose"], "答えが取れた": got(c, "Q1", "はい")}),
@@ -265,7 +271,8 @@ async def run(args) -> dict:
                 say(f"[{rep}] {name} {vt}：{'合格' if row.get('pass') else '不合格'} {row.get('failed', '')} {row.get('error', '')}")
                 save_partial(f"G-57{args.tag}", {"rows": rows})
                 await asyncio.sleep(args.pause)
-    return {"model": args.model, "judges": {k: getattr(args, k) for k in ("judge", "judge2")}, "summary": summarize(rows), "rows": rows}
+    judged = {k: getattr(args, k) for k in ("judge", "judge2")} | {"standin": None if args.no_standin else STANDIN, "down": args.judge_down}
+    return {"model": args.model, "judges": judged, "summary": summarize(rows), "rows": rows}
 
 
 def summarize(rows: list[dict]) -> dict:

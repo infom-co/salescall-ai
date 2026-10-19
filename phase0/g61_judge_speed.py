@@ -11,14 +11,20 @@
      落ちないかを見る。本番では遅いほうは使わない）
 材料：G-53 の4回目の答え（G-53-firmlite2。正解は1つずつ読んで決めたもの＝g53_meaning.accept）から無作為に。
 使い方：python g61_judge_speed.py --items 120 --streams 4 --pace 3 [--a-keys 3,4,5]
+通話の記録で数える（問い合わせはしない）：python g61_judge_speed.py --calls results/G-57-…json …
+ ＝報告を待たせた回のうち、決めるときに判定が1つも届いていなかった回・判定の秒（話し終わりから・早く届いたほう）・どちらが先か・
+   止まった判定の代わり（meaning_judge.STANDIN）が入った回・答えにならなかった回・通話後の検証へ回った項目
+   （✅ 2026-10-19 ユーザー：「同じ会社のモデルだけだと、通信の問題が影響するでしょ」「どれかがダウンしていたら、Jevも使ったらいいんじゃない」）
 """
 from __future__ import annotations
 
 import asyncio
 import json
 import random
+import sys
 import time
 from collections import Counter
+from pathlib import Path
 
 from common import HERE, KeyRing, base_parser, describe_error, is_quota, require_python, save_partial, save_result, say
 from g23_names import find_models
@@ -149,8 +155,67 @@ def by_key(rows: list[dict], labels: dict) -> dict:
     return out
 
 
+def _q(xs: list[float], p: float):
+    xs = sorted(xs)
+    return xs[int(p * (len(xs) - 1))] if xs else None
+
+
+def calls_tally(paths: list[str]) -> dict:
+    """通話の試験（scenes.py ほか）の記録から、意味の判定の届き方を数える。古い記録（その場の判定だけを待っていた形）は、決めるときに
+    その場の判定が届いていなかった回（late に judge）を「間に合わなかった」と数える（新しい形は、届いていた判定＝judged が空の回）。"""
+    from meaning_judge import STANDIN
+    out = {}
+    for path in paths:
+        d = json.loads(open(path, encoding="utf-8").read())
+        held = missed = 0
+        first, by, decided = [], Counter(), Counter()
+        each = {"judge": [], "judge2": []}
+        unsure = none = 0
+        unchecked = 0
+        for r in d.get("rows", []):
+            unchecked += sum(len(v) for v in (r.get("unchecked") or {}).values())
+            for t in r.get("turns", []):
+                ec = t.get("ear_check") or {}
+                got = {k: ec[f"{k}_s"] for k in each if ec.get(f"{k}_s") is not None}
+                for k, v in got.items():
+                    each[k].append(v)
+                    by[ec.get(f"{k}_by") or "（記録なし）"] += 1
+                if got:
+                    first.append(min(got.values()))
+                for k in each:
+                    tried = ec.get(f"{k}_tried") or []
+                    unsure += any("unsure" in x for x in tried)
+                    none += f"{k}_error" in ec
+                for w in ec.get("waits", []):
+                    if w["for"] != "report":
+                        continue
+                    held += 1
+                    j = w.get("judged")
+                    missed += ("judge" in w["late"]) if j is None else (not j)
+                    if j is not None:  # 古い記録には無い
+                        decided["+".join(j) or "なし"] += 1
+        lim = LATE_S
+        out[Path(path).name] = {
+            "判定": d.get("judges"), "報告を待たせた": held, "決めるときに判定が届いていなかった": missed,
+            "決めるときに届いていた判定": dict(decided),
+            "早く届いたほうの秒（話し終わりから）": {"数": len(first), "中央": _q(first, .5), "遅いほうから1割": _q(first, .9), "最長": _q(first, 1),
+                                         f"{lim}秒超": sum(x > lim for x in first)},
+            **{f"{k}の秒": {"数": len(v), "中央": _q(v, .5), "遅いほうから1割": _q(v, .9), "最長": _q(v, 1), f"{lim}秒超": sum(x > lim for x in v)}
+               for k, v in each.items()},
+            "答えた判定": dict(by), f"{STANDIN}の確からしさが線より下": unsure, "答えが無かった（受け持ちごと）": none,
+            "通話後の検証へ回った項目": unchecked}
+    return out
+
+
 def main() -> None:
     require_python()
+    if "--calls" in sys.argv:
+        paths = sys.argv[sys.argv.index("--calls") + 1:]
+        data = calls_tally(paths)
+        for name, s in data.items():
+            say(name, json.dumps(s, ensure_ascii=False))
+        save_result("G-61-calls", {"from": paths, "tally": data})
+        return
     p = base_parser(__doc__)
     p.add_argument("--items", type=int, default=120)
     p.add_argument("--streams", type=int, default=4, help="同時に流す流れの数（通話の数のつもり）")

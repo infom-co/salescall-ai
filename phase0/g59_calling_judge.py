@@ -8,7 +8,7 @@ import asyncio
 import json
 
 from common import base_parser, require_python, save_result, say
-from meaning_judge import add_judge_args, make_judges
+from meaning_judge import NoJudgment, add_judge_args, make_judges
 
 # (相手の言葉, 受け取ってよい読み)。「岡田ですね。」は、聞き取りが途中で切れた形（G-57：続きの「少々お待ちください。」が次の発話に入った）
 LINES = [
@@ -41,8 +41,13 @@ async def run(args) -> dict:
             row = {"text": text, "accept": ok, "rep": rep}
             for k, j in judges.items():
                 if j is not None:
-                    got = await j(q, text, asked)
+                    try:
+                        got = await j(q, text, asked)
+                    except NoJudgment as exc:  # 答えにならなかった（Jev の確からしさが線より下・止まっている）：どれも選ばなかったと数える
+                        got, row[f"{k}_tried"] = None, exc.tried
                     row[k] = label(got) if got else None
+                    if got is not None and got.by:
+                        row[f"{k}_by"], row[f"{k}_sure"] = got.by, got.sure
             row["ok"] = all(row.get(k) in ok for k in judges if judges[k] is not None)
             rows.append(row)
             say(text, {k: row.get(k) for k in judges}, "OK" if row["ok"] else "×")

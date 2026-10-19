@@ -1438,7 +1438,13 @@ class KeyRingTest(unittest.TestCase):
                 ring = common.KeyRing(ns, min_interval_s=0, state_path=path)
                 ring.spent["m"] = {0}; ring.denied = {1}; ring._save()
                 again = common.KeyRing(ns, min_interval_s=0, state_path=path)
+                # 同じファイルに書くほかの KeyRing（同じ実行の会話のモデルと意味の判定）の記録を消さない（⛔ 後から書いたほうが消していた）
+                other = common.KeyRing(ns, min_interval_s=0, state_path=path)
+                other.spent, other.denied = {"text": {1}}, set()
+                other._save()
+                merged = common.KeyRing(ns, min_interval_s=0, state_path=path)
             self.assertEqual((again.spent, again.denied), ({"m": {0}}, {1}))
+            self.assertEqual((merged.spent, merged.denied), ({"m": {0}, "text": {1}}, {1}))
             self.assertNotIn("a" * 39, path.read_text(encoding="utf-8"))   # キーの値は書かない
 
     def test_live_calls_move_to_next_key(self):
@@ -1499,6 +1505,26 @@ class KeyRingTest(unittest.TestCase):
         ring._cool = {}
         self.assertEqual(asyncio.run(ring.acall("text", minute_no_secs)), ("ok", 0))
         self.assertLess(ring._cool[(2, "text")] - time.monotonic(), 40)
+
+        # 1日の上限と書いてある（文字のモデル）：その日はそのキーを使わない（⛔ 2026-10-19：10分休ませるだけで、休み明けのたびに
+        # 上限のキーへ順に問い合わせ直し、1回の判定に7.9秒かかった）
+        async def daily(client):
+            calls.append(client)
+            if client == "c2":
+                raise Minute("429 RESOURCE_EXHAUSTED. quotaId: GenerateRequestsPerDayPerProjectPerModel-FreeTier")
+            return "ok"
+        ring._cool, calls[:] = {}, []
+        self.assertEqual(asyncio.run(ring.acall("text", daily)), ("ok", 0))
+        self.assertEqual((ring.spent.get("text"), (2, "text") in ring._cool), ({2}, False))
+        self.assertEqual(asyncio.run(ring.acall("text", daily)), ("ok", 0))
+        self.assertEqual(calls, ["c2", "c0", "c0"])
+
+        # 通話の中の判定は、どのキーも休み中なら待たない（max_wait_s=0。JudgePanel が代わりへ回す）
+        ring._cool = {(i, "text"): time.monotonic() + 600 for i in range(3)}
+        t0 = time.monotonic()
+        with self.assertRaises(RuntimeError):
+            asyncio.run(ring.acall("text", daily, max_wait_s=0.0))
+        self.assertLess(time.monotonic() - t0, 0.5)
 
     def test_session_timeout_is_not_a_denied_project(self):
         # ⛔ つなぎの時間切れも閉じる番号 1008 で返る（2026-10-17 G-15）＝番号だけで「止められたプロジェクト」と決めない
@@ -3523,6 +3549,11 @@ class JudgeSetupTest(unittest.TestCase):
         jev = {"answers": {"choice": {"type": "choice", "choice": name, "confidence": 0.99}}}
         self.assertEqual(read(q, other_text("Jev 1.14", jev), asked), cond)
         self.assertIsNone(read(q, other_text("Jev 1.14", {"error": {"code": 402}}), asked))
+        # Jev の確からしさは答えに残す（線は JudgePanel が当てる）・言い切っているかは測って合った線（0.2）で読む（⛔ 半分で切っていた）
+        got = read(q, other_text("Jev 1.14", jev | {"answers": jev["answers"] | {"firm": {"type": "noul", "noul": 0.3}}}), asked)
+        self.assertEqual((got.sure, got.firm), (0.99, True))
+        self.assertFalse(read(q, other_text("Jev 1.14", jev | {"answers": jev["answers"] | {"firm": {"noul": 0.1}}}), asked).firm)
+        self.assertIsNone(read(q, other_text("Claude Haiku 5.5", claude), asked).sure)  # 確からしさを返さない判定は None
 
     def test_call_tests_choose_judges_in_one_place(self):
         # 判定の選び方は meaning_judge の1か所（add_judge_args・make_judges）。2つ目の判定の既定は JUDGE2（✅ 2026-10-18 ユーザー：当面は Sonnet だけ）
@@ -3548,6 +3579,219 @@ class JudgeSetupTest(unittest.TestCase):
         self.assertFalse(first(ok))
         stripped = {k: v for k, v in bad.items() if k != BASE} | {"前の読み違え": True}
         self.assertTrue(first(stripped))
+
+
+class JudgePanelTest(unittest.TestCase):
+    """通話の中の意味の判定の受け持ち（meaning_judge.JudgePanel）：会社の違う2つを受け持ちに置き、止まった判定の代わりに Jev が入る。
+    ✅ 2026-10-19 ユーザー：「同じ会社のモデルだけだと、通信の問題が影響するでしょ」「どれかがダウンしていたら、Jevも使ったらいいんじゃない」"""
+
+    LITE, SONNET, JEV = "3.5 Flash Lite", "Claude Sonnet 5.5（考える）", "Jev 1.14"
+
+    def panel(self, fail=None, sure=0.99, standin=True, took=None):
+        """fail：判定の名前 ⇒ 投げる失敗（呼ばれた順は calls に残る）。took：判定の名前 ⇒ かかる秒。"""
+        import asyncio
+
+        from meaning_judge import JudgePanel, Reading
+        calls, now = [], [0.0]
+        fail, took = fail or {}, took or {}
+
+        def judge(name, answer):
+            async def run(q, text, asked=None):
+                calls.append(name)
+                if name in took:
+                    await asyncio.sleep(took[name])
+                if name in fail:
+                    raise fail[name]
+                return Reading(answer, sure=sure if name == self.JEV else None)
+            return run
+        panel = JudgePanel({"judge": (self.LITE, judge(self.LITE, "はい")), "judge2": (self.SONNET, judge(self.SONNET, "はい"))},
+                           standin=(self.JEV, judge(self.JEV, "はい")) if standin else None, clock=lambda: now[0])
+        return panel, calls, now
+
+    @staticmethod
+    def ask(panel, kind):
+        import asyncio
+
+        from meaning_judge import NoJudgment
+        try:
+            return asyncio.run(panel.ask(kind, None, "はい。"))
+        except NoJudgment as exc:
+            return exc
+
+    def test_each_slot_asks_its_own_judge(self):
+        panel, calls, _ = self.panel()
+        self.assertEqual([self.ask(panel, k).by for k in ("judge", "judge2")], [self.LITE, self.SONNET])
+        self.assertEqual(calls, [self.LITE, self.SONNET])
+
+    def test_stopped_judge_is_replaced_and_skipped_for_a_while(self):
+        # 止まっている（混雑の 503）：その発話は Jev が答え、DOWN_S 秒は問い合わせずに Jev へ。過ぎたら、また問い合わせる
+        from meaning_judge import DOWN_S, OtherJudgeError
+        panel, calls, now = self.panel(fail={self.LITE: OtherJudgeError(503, "混雑")})
+        got = self.ask(panel, "judge")
+        self.assertEqual((got.by, [t["model"] for t in got.tried]), (self.JEV, [self.LITE]))
+        now[0] = DOWN_S - 1
+        self.assertEqual(self.ask(panel, "judge").tried[0]["error"], "止まっている（前の問い合わせ）")
+        self.assertEqual(calls, [self.LITE, self.JEV, self.JEV])
+        now[0] = DOWN_S + 1
+        self.ask(panel, "judge")
+        self.assertEqual(calls[-2:], [self.LITE, self.JEV])
+
+    def test_refused_request_is_replaced_only_for_that_utterance(self):
+        # 問い合わせの中身が断られた（400）：その発話だけ Jev。止まっているとはみなさない（次の発話は、また問い合わせる）
+        from meaning_judge import OtherJudgeError, outage
+        panel, calls, _ = self.panel(fail={self.LITE: OtherJudgeError(400, "形が違う")})
+        self.assertEqual(self.ask(panel, "judge").by, self.JEV)
+        self.ask(panel, "judge")
+        self.assertEqual(calls, [self.LITE, self.JEV, self.LITE, self.JEV])
+        self.assertTrue(all(outage(e) for e in (OtherJudgeError(429, ""), OtherJudgeError(403, ""), OtherJudgeError(None, ""),
+                                                 TimeoutError(), RuntimeError("どのキーでも使えません"))))
+
+    def test_slow_judge_is_cut_and_replaced(self):
+        # DOWN_AFTER_S 秒で打ち切り、止まっているとみなす（報告を待たせるのは2秒まで＝それより遅い判定は、その場の役に立たない）
+        import unittest.mock as m
+        panel, calls, _ = self.panel(took={self.LITE: 0.3})
+        with m.patch("meaning_judge.DOWN_AFTER_S", 0.05):
+            got = self.ask(panel, "judge")
+        self.assertEqual(got.by, self.JEV)
+        self.assertIn(self.LITE, panel.down_until)
+
+    def test_standin_serves_one_slot_only(self):
+        # 2社とも止まった：代わりは先に入った受け持ちだけ（同じ判定を2つの確かめに数えない）。入った受け持ちの判定が戻ったら返す
+        from meaning_judge import NoJudgment, OtherJudgeError
+        down = OtherJudgeError(503, "混雑")
+        panel, calls, now = self.panel(fail={self.LITE: down, self.SONNET: down})
+        self.assertEqual(self.ask(panel, "judge").by, self.JEV)
+        self.assertIsInstance(self.ask(panel, "judge2"), NoJudgment)
+        self.assertEqual(panel.holder, "judge")
+        panel.judges["judge"] = (self.LITE, panel.standin[1])  # 3.5 Flash Lite が戻った（答えを返す判定に差し替え）
+        now[0] = 1000
+        self.ask(panel, "judge")
+        self.assertIsNone(panel.holder)
+        self.assertEqual(self.ask(panel, "judge2").by, self.JEV)
+
+    def test_unsure_standin_is_not_an_answer(self):
+        # Jev の確からしさが線（0.95）より下：答えにしない（もう1つの判定で決め、通話後の検証へ）
+        from meaning_judge import NoJudgment, OtherJudgeError
+        panel, _, _ = self.panel(fail={self.LITE: OtherJudgeError(503, "混雑")}, sure=0.9)
+        got = self.ask(panel, "judge")
+        self.assertIsInstance(got, NoJudgment)
+        self.assertEqual({k: v for k, v in got.tried[-1].items() if k != "s"}, {"model": self.JEV, "unsure": "はい", "sure": 0.9})
+        # 受け持ちに置いたとき（検証）も同じ線で読む
+        from meaning_judge import JudgePanel
+        alone = JudgePanel({"judge": (self.JEV, panel.standin[1])}, clock=panel.clock)
+        self.assertIsInstance(self.ask(alone, "judge"), NoJudgment)
+
+    def test_standin_of_the_same_maker_is_not_used(self):
+        # 代わりが、ほかの受け持ちと同じ会社なら使わない（止まるのも遅れるのも一緒）
+        from meaning_judge import JudgePanel, maker
+        noop = None
+        panel = JudgePanel({"judge": (self.LITE, noop), "judge2": (self.JEV, noop)}, standin=("Claude Haiku 5.5", noop))
+        self.assertIsNotNone(panel.standin)
+        panel = JudgePanel({"judge": (self.LITE, noop), "judge2": (self.SONNET, noop)}, standin=("Claude Haiku 5.5", noop))
+        self.assertIsNone(panel.standin)
+        self.assertEqual({maker(n) for n in (self.LITE, self.SONNET, self.JEV)}, {"google", "anthropic", "typesafe"})
+
+    def test_forced_down_goes_the_same_way(self):
+        # 試験の「止まっているものとして流す」（--judge-down）は、本物の失敗と同じ道を通る
+        from meaning_judge import JudgePanel
+        panel, calls, _ = self.panel()
+        forced = JudgePanel(panel.judges, standin=panel.standin, down=[self.SONNET], clock=panel.clock)
+        self.assertEqual(self.ask(forced, "judge2").by, self.JEV)
+        self.assertIn(self.SONNET, forced.down_until)
+        self.assertNotIn(self.SONNET, calls)
+
+    def test_args_turn_on_the_standin(self):
+        import argparse
+
+        from meaning_judge import STANDIN, add_judge_args
+        p = argparse.ArgumentParser()
+        add_judge_args(p)
+        a = p.parse_args(["--judge", "--judge2", "--judge-down", self.LITE])
+        self.assertEqual((a.no_standin, a.judge_down, STANDIN), (False, [self.LITE], self.JEV))
+        self.assertTrue(p.parse_args(["--no-standin"]).no_standin)
+
+
+class FirstJudgmentTest(unittest.TestCase):
+    """会社の違う2つの判定のうち、早く届いたほうで決める（convo.check_handler の hold・Flow.meaning_said）。遅れて届いたほうも同じ決まりで当てる。
+    ⛔ 2026-10-19 G-57 の9回目：その場の判定（3.5 Flash Lite）だけを待ち、2秒超が328回中58回。G-61：違う会社の2つで早いほうは、遅いほうから1割 1.53秒"""
+
+    def flow(self):
+        from flowctl import Flow, Question
+        f = Flow([Question("Q1", "ご予約は。", "yes_no", conditions=("はい", "いいえ"))])
+        f.use_checks("judge", "judge2")
+        f.on_callee()
+        return f
+
+    def test_meaning_is_what_the_arrived_judgments_agree_on(self):
+        from flowctl import UNDECIDED
+        f = self.flow()
+        f.on_heard("はい、しています。")
+        self.assertIsNone(f.meaning_said)
+        f.on_check("judge2", "はい", said="はい、しています。")
+        self.assertEqual(f.meaning_said, "はい")      # 先に届いたほう（2つ目の受け持ちでも）で決める
+        f.on_check("judge", "はい", said="はい、しています。")
+        self.assertEqual(f.meaning_said, "はい")
+        f.check["judge"] = "いいえ"
+        self.assertEqual(f.meaning_said, UNDECIDED)   # 届いた判定どうしが食い違う ⇒ どちらにも決めない
+        self.assertTrue(f.judging)
+
+    def drive(self, took: dict, fail=(), binding=False):
+        """2つの判定（took＝受け持ち ⇒ かかる秒・fail＝答えずに失敗する受け持ち）で、出揃った言葉への報告を受ける。"""
+        import asyncio
+        import unittest.mock as m
+        from types import SimpleNamespace
+
+        from convo import check_handler
+        f, out = self.flow(), {}
+
+        def judge(kind):
+            async def run(q, text, asked=None):
+                await asyncio.sleep(took[kind])
+                if kind in fail:
+                    raise RuntimeError("止まっている")
+                return "はい"
+            return run
+
+        async def main():
+            pending = []
+            handle, _, info, _ = check_handler(f, judge=judge("judge"), judge2=judge("judge2"), pcm=b"\x00\x00", rate=16000, wav="x.wav",
+                                               tasks=pending, audio_at=1.0)
+            f.on_heard("はい、しています。"); f.on_activity(False, 2.0)
+            f.wants_checks = lambda name, args=None: True
+            f.binding = lambda name, args=None: binding
+            handle_call = f.handle_call
+            t0 = asyncio.get_running_loop().time()
+            f.handle_call = lambda fc, midway=False: (out.update(check=dict(f.check), at=asyncio.get_running_loop().time() - t0)
+                                                      or handle_call(fc, midway))
+            await handle(SimpleNamespace(name="record_answer", args={"質問": "Q1", "答えの種類": "はい"}))
+            await asyncio.wait(pending, timeout=3)
+            out["info"], out["after"] = info, dict(f.check)
+        with m.patch("stitch_gap.callee_speech", return_value=(b"", 16000, 0.0)):
+            asyncio.run(main())
+        return f, out
+
+    def test_report_is_decided_by_the_first_judgment(self):
+        # その場の判定が遅い（1.0秒）：先に届いた2つ目（0.1秒）で決め、遅いほうは待たない（あとで届いて、同じ決まりで当てる）
+        f, out = self.drive({"judge": 1.0, "judge2": 0.1})
+        self.assertEqual(set(out["check"]), {"judge2"})
+        self.assertLess(out["at"], 0.6)
+        self.assertEqual(out["info"]["waits"][-1]["judged"], ["judge2"])
+        self.assertEqual(set(out["after"]), {"judge", "judge2"})
+        self.assertEqual(f.items["Q1"].state, "accepted")
+
+    def test_binding_report_waits_for_every_judgment(self):
+        # 取り消せない報告（目的の人に繋ぐ＝Flow.binding）：待つ長さの中で、判定を全部待つ（早く届いたほうだけで繋がない）
+        f, out = self.drive({"judge": 0.05, "judge2": 0.4}, binding=True)
+        self.assertEqual(set(out["check"]), {"judge", "judge2"})
+        self.assertTrue(out["info"]["waits"][-1]["every"])
+        f, out = self.drive({"judge": 0.05, "judge2": 0.4})
+        self.assertEqual(set(out["check"]), {"judge"})
+
+    def test_failed_judgment_does_not_end_the_wait(self):
+        # 先に終わったほうが答えずに失敗した：もう1つを待つ（失敗を「届いた」と数えない）
+        f, out = self.drive({"judge": 0.05, "judge2": 0.3}, fail=("judge",))
+        self.assertEqual(set(out["check"]), {"judge2"})
+        self.assertIn("judge_error", out["info"])
 
 
 class CallFactsTest(unittest.TestCase):
@@ -4196,14 +4440,57 @@ class TargetTest(unittest.TestCase):
         f.on_check("judge", HOLD, said="岡田ですね。少々お待ちください。")
         self.assertEqual(f.handle_call(fc, midway=True)[0]["結果"], "取り次ぎを待つ")
 
-    def test_no_judge_or_late_judge_takes_the_report(self):
-        # 判定を使わない通話・判定が届かなかった（待つのは2秒まで）：AIの報告のまま進む（止まらない）
+    def test_late_hold_judgment_still_marks_passed_on(self):
+        # 受付の方の「少々お待ちください。」の判定が、代わった方が話し始めたあとに届いても、取り次がれたことは残る ⇒ 代わった方に全部を流す
+        # ⛔ 2026-10-19 G-62：いまの発話の判定だけで決めていたので、遅れて届くと、あいさつと名乗りを流さずに用件から始めた
+        from flowctl import HOLD, TARGET_IS_THERE
+        f, b = self.checked()
+        self.heard(f, "岡田ですね。少々お待ちください。", None)
+        held = f.callee_turns
+        self.heard(f, "お電話代わりました。岡田です。", TARGET_IS_THERE)
+        f.on_check("judge", HOLD, held, said="岡田ですね。少々お待ちください。")
+        self.assertNotEqual(f.meaning_said, HOLD)  # いまの発話の意味は変えない
+        r = f.apply("report_party", {"party": "target"})
+        self.assertEqual([p.get("part", p["kind"]) for p in r["play"]][:3], ["greeting", "intro", "purpose"])
+
+    def test_binding_reports_are_the_target_decisions(self):
+        # 判定を全部待つのは、取り消せない報告（目的の人に繋ぐ）だけ。答えの報告は、早く届いたほうで決める
+        f, b = self.checked()
+        self.assertTrue(f.binding("report_party", {"party": "target"}))
+        self.assertTrue(f.binding("replay_opening", {"part": "handover"}))
+        self.assertFalse(f.binding("report_party", {"party": "reception"}))
+        f.on_callee(); f.on_heard("岡田は私です。"); f.on_check("judge", "ご本人"); f.on_check("judge2", "ご本人")
+        f.apply("report_party", {"party": "target"})
+        self.assertEqual(f.phase, "asking")
+        self.assertFalse(f.binding("record_answer", {"question_id": "Q1", "condition_id": "はい"}))
+        self.assertFalse(f.binding("report_party", {"party": "target"}))
+
+    def test_disagreeing_judgments_ask_before_connecting(self):
+        # 2つの判定が食い違う（「はい、お電話代わりました。」を、一方は「ご本人」・もう一方は「代わった人」）：繋がずに目的の人かを確かめる
+        from flowctl import HANDOVER, TARGET_IS_THERE
+        f, b = self.checked()
+        f.use_checks("judge", "judge2")
+        f.on_callee(); f.on_heard("はい、お電話代わりました。"); f.on_check("judge", TARGET_IS_THERE); f.on_check("judge2", HANDOVER)
+        self.assertEqual(f.apply("report_party", {"party": "target"})["result"], "confirm_target")
+
+    def test_no_judge_takes_the_report_but_late_judge_asks_once(self):
+        # 判定を使わない通話：AIの報告のまま進む（止まらない）
         f, b = self.flow()
         self.heard(f, "はい、私です。", None)
         self.assertEqual(f.apply("report_party", {"party": "target"})["result"], "next")
+        # 判定を使う通話で、判定が届かなかった（待つのは2秒まで）：繋いだら戻せないので、目的の人かを1回だけ確かめる。認めたら繋ぐ
+        # ⛔ 2026-10-19 G-62：報告のまま繋いでいたので、受付の方の「少々お待ちください。」で判定が遅れたとき、受付の方を目的の人として繋いだ
         f, b = self.checked()
-        self.heard(f, "はい、私です。", None)
-        self.assertEqual(f.apply("report_party", {"party": "target"})["result"], "next")
+        self.heard(f, "岡田ですね。少々お待ちください。", None)
+        self.assertEqual(f.apply("report_party", {"party": "target"})["result"], "confirm_target")
+        self.assertEqual(f.phase, "calling")
+        # 判定がまた届かなくても、確かめは上限まで（limits.replays＝1通話2回。止まらない）＝そのあとは繋いで全部を流す
+        self.heard(f, "お電話代わりました。岡田です。", None)
+        self.assertEqual(f.apply("report_party", {"party": "target"})["result"], "confirm_target")
+        self.heard(f, "はい、そうです。", None)
+        r = f.apply("report_party", {"party": "target"})
+        self.assertEqual((r["result"], f.phase), ("next", "asking"))
+        self.assertEqual([p.get("part", p["kind"]) for p in r["play"]][:2], ["greeting", "intro"])  # 取り次がれた方には、あいさつ・名乗り・用件の全部
 
     def test_call_harness_judges_with_the_flow_question(self):
         import inspect
