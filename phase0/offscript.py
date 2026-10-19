@@ -83,6 +83,8 @@ def off_script(expected: str, spoken: str) -> bool:
 
 PAUSE_S = 0.15     # 文の切れ目とみなす、声の中の無音（受けの言葉の文のあと。電話へ流すのを、決まるまでここで待つ）
 NONE_S = 0.15      # これより短い声しか流れていなければ、相手には何も聞こえていないとみなす
+# 文の切れ目で待つ長さの上限（決まらなければ、そのあとは流す）。G-57 の言い方を渡したターン239で、待つ必要があったのは9・最長1.99秒
+MAX_HOLD_S = 2.0
 
 
 def first_pause(pcm: bytes, rate: int) -> float | None:
@@ -98,7 +100,10 @@ class SpeechGate:
     - AI自身の文字は、たいてい最初の声と同時に届き（G-57 の言い方を渡したターン239で、中央0.0秒）、声は流すより速く届く（決められた時点で、
       受け取り済みの声は中央1.79秒・流れていたのは中央0.27秒）⇒ 流す前に決められる。
     - 決まるまでは、最初の文の切れ目（受けの言葉の文のあと）までだけ流して待つ。言い方どおりと決まったら続きを流し、外れたら、それ以上流さない。
-      待つのは239ターン中9（0.5秒より短いのが5・最長2.0秒。文の切れ目なので、ふつうの間に聞こえる）。
+      待つのは239ターン中9（0.5秒より短いのが5・最長2.0秒。文の切れ目なので、ふつうの間に聞こえる）。待つのは MAX_HOLD_S まで。
+    - ⛔ 2026-10-19 G-57 の本番の形で見つけた穴：AI自身の文字が1つも届かないターンがある（言い方を渡して声が出た333ターン中11＝3.3%。声は
+      言い方どおり）。文字が無いまま切れ目で待つと、続きが流れない ⇒ 切れ目までに文字が1つも届いていなければ待たない（見張れないので、これまで
+      どおり流す）。文字は届いたが決まらないときだけ、MAX_HOLD_S まで待つ。
     expected_of：いまの渡した言い方を返す関数（返事を送るたびに変わる。None なら見張らない）。force：試験だけ（最初の文字で外れにする）。"""
 
     def __init__(self, expected_of, force: bool = False):
@@ -107,15 +112,17 @@ class SpeechGate:
 
     def reset(self, audio_from: int) -> None:
         """返事を送った（新しい言い方になる）。audio_from＝そこまでに受け取った声のバイト数（このあとの声だけを数える）。"""
-        self.text, self.state, self.audio_from, self.first_audio_at = "", None, audio_from, None
+        self.text, self.state, self.audio_from, self.first_audio_at, self.first_text_at = "", None, audio_from, None, None
 
     def on_audio(self, at_s: float) -> None:
         if self.first_audio_at is None:
             self.first_audio_at = at_s
 
-    def on_text(self, text: str) -> str | None:
-        """AI自身の文字が届いた。いまの決まり（None・"ok"・"off"）を返す。一度決まったら変えない。"""
+    def on_text(self, text: str, at_s: float | None = None) -> str | None:
+        """AI自身の文字が届いた（at_s＝届いた時刻）。いまの決まり（None・"ok"・"off"）を返す。一度決まったら変えない。"""
         self.text += text
+        if self.first_text_at is None:
+            self.first_text_at = at_s
         if self.state is None:
             expected = self.expected_of()
             if expected:
@@ -126,11 +133,20 @@ class SpeechGate:
         """外れたと決まって止めた時点（at_s）で、相手に聞こえていたもの。kind："none"＝まだ何も／"opener"＝受けの言葉の文だけ／
         "content"＝外れた中身まで（最初の文が受けの言葉でないとき＝待つ所より前に中身があった）。seconds＝流れた声の秒。"""
         pcm = pcm[self.audio_from:]
-        played = max(0.0, at_s - self.first_audio_at) if self.first_audio_at is not None else 0.0
+        total = len(pcm) / 2 / rate
+        elapsed = max(0.0, at_s - self.first_audio_at) if self.first_audio_at is not None else 0.0
         pause = first_pause(pcm, rate)
-        played = min(played, pause if pause is not None else len(pcm) / 2 / rate)
+        # 切れ目で待ったか：切れ目に着くまでに文字が届いていたときだけ（届かなければ待たずに流した）。待つのは MAX_HOLD_S まで
+        held = (pause is not None and self.first_text_at is not None and self.first_audio_at is not None
+                and self.first_text_at - self.first_audio_at <= pause)
+        if held:
+            played = pause if elapsed <= pause + MAX_HOLD_S else elapsed - MAX_HOLD_S
+        else:
+            played = elapsed
+        played = min(played, total)
         first = re.split(r"(?<=[。？！?!])", self.text, maxsplit=1)[0]
-        kind = "none" if played < NONE_S else ("opener" if not _core(first) else "content")
+        opener_only = not _core(first) and (pause is None or played <= pause + 0.05)  # 流れたのは、受けの言葉の文のうちだけ
+        kind = "none" if played < NONE_S else ("opener" if opener_only else "content")
         return {"kind": kind, "seconds": round(played, 2)}
 
 

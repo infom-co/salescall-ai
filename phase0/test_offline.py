@@ -4268,10 +4268,15 @@ class OffScriptTest(unittest.TestCase):
         pcm = tone * 2 + bytes(int(0.3 * rate) * 2) + tone * 2      # 1.0秒の声・0.3秒の間・1.0秒の声
         g = SpeechGate(lambda: self.SAY)
         g.on_audio(0.0)
-        self.assertIsNone(g.on_text("承知いたしました。"))
-        self.assertEqual(g.on_text("では、これらを踏まえて、実際の"), "off")
-        self.assertEqual(g.heard(5.0, pcm, rate)["kind"], "opener")  # 5秒たっていても、切れ目（1.0秒）より先は流していない
-        self.assertAlmostEqual(g.heard(5.0, pcm, rate)["seconds"], 1.0, delta=0.06)
+        self.assertIsNone(g.on_text("承知いたしました。", 0.0))
+        self.assertEqual(g.on_text("では、これらを踏まえて、実際の", 2.5), "off")
+        self.assertEqual(g.heard(2.5, pcm, rate)["kind"], "opener")  # 2.5秒たっていても、切れ目（1.0秒）より先は流していない
+        self.assertAlmostEqual(g.heard(2.5, pcm, rate)["seconds"], 1.0, delta=0.06)
+        self.assertEqual(g.heard(3.5, pcm, rate)["kind"], "content")  # 待つのは2秒まで（そのあとは流した）
+        g = SpeechGate(lambda: self.SAY)
+        g.on_audio(0.0)
+        g.on_text("承知いたしました。では、これらを踏まえて、実際の", 1.6)  # 切れ目（1.0秒）までに文字が届いていない ⇒ 待たずに流していた
+        self.assertEqual(g.heard(1.6, pcm, rate)["kind"], "content")
         g = SpeechGate(lambda: self.SAY)
         g.on_audio(0.0)
         g.on_text("これらを踏まえて、実際のプレゼン資料の")              # 受けの言葉が無く、最初の文から外れている

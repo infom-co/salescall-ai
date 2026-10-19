@@ -409,7 +409,8 @@ CALLBACK_IDS = {"time": "C1", "number": "C2"}
 # 目的の人を呼んでいる段（calling）の、意味の判定の「質問」（呼ぶ一言）の選択肢と意味の言葉（DESIGN.md 1-1：AIの報告「目的の人」を、
 # 独立した判定とそろったときだけ受け取る。取り次ぎ＝HOLD・代わった人＝HANDOVER は、判定のほうの答えでない言葉）
 TARGET_IS_THERE, TARGET_IS_AWAY = "ご本人", "不在"
-TARGET_MEANINGS = {TARGET_IS_THERE: "お呼びした方ご本人が電話に出ているということ", TARGET_IS_AWAY: "お呼びした方はいらっしゃらないということ"}
+TARGET_MEANINGS = {TARGET_IS_THERE: "お呼びした方ご本人が電話に出ているということ（電話を代わった方が、お呼びした方の名前を名乗ったときも）",
+                   TARGET_IS_AWAY: "お呼びした方はいらっしゃらないということ"}
 # hang_up＝話さずに切る（電話接続側が読む）・silent＝AIに話させない返事（取り次ぎを待つ間など。handle_call）
 INTERNAL_KEYS = {"ack", "ask_n", "ask_reason", "ask_last", "after", "play", "speak", "hang_up", "silent"}  # 中で使うだけの項目（電話接続側・数え方が読む）。AIへの返事には入れない
 # こちらが使う名前（AIに見せる日本語の名前）。値の欄に入っていたら、相手の答えではない（form_problem）

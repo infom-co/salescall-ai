@@ -225,7 +225,7 @@ async def _collect_into(r: "TurnResult", session, *, started_at: float, on_tool_
                     # 文字が声より先に届くかを測り、英語などをプログラムが止められるかを判断する（2026-10-13 G-16c）
                     r.events.append({"at_s": at(), "kind": "ai_said", "text": sc.output_transcription.text,
                                      "audio_s": round(len(r.audio) / 2 / (r.audio_rate or 24000), 3)})
-                    if gate is not None and not r.off_script and gate.on_text(sc.output_transcription.text) == "off":
+                    if gate is not None and not r.off_script and gate.on_text(sc.output_transcription.text, at()) == "off":
                         r.off_script = True
                         r.heard = gate.heard(at(), bytes(r.audio), r.audio_rate or 24000)
                         r.events.append({"at_s": at(), "kind": "off_script", "text": gate.text, "heard": r.heard,
