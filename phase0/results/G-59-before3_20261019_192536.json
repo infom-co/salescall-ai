@@ -1,0 +1,821 @@
+{
+  "item": "G-59-before3",
+  "saved_at": "2026-10-19T19:25:36",
+  "question": "営業部部長の「おかだ」様はいらっしゃいますでしょうか？",
+  "summary": {
+    "judge2": "66/66",
+    "judge2（前の言葉つき）": "36/36"
+  },
+  "rows": [
+    {
+      "text": "お電話代わりました。岡田です。",
+      "accept": [
+        "ご本人"
+      ],
+      "before": null,
+      "rep": 0,
+      "judge2": "ご本人",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。岡田です。",
+      "accept": [
+        "ご本人"
+      ],
+      "before": null,
+      "rep": 1,
+      "judge2": "ご本人",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。岡田です。",
+      "accept": [
+        "ご本人"
+      ],
+      "before": null,
+      "rep": 2,
+      "judge2": "ご本人",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました、営業部の岡田です。",
+      "accept": [
+        "ご本人"
+      ],
+      "before": null,
+      "rep": 0,
+      "judge2": "ご本人",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました、営業部の岡田です。",
+      "accept": [
+        "ご本人"
+      ],
+      "before": null,
+      "rep": 1,
+      "judge2": "ご本人",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました、営業部の岡田です。",
+      "accept": [
+        "ご本人"
+      ],
+      "before": null,
+      "rep": 2,
+      "judge2": "ご本人",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "はい、岡田です。",
+      "accept": [
+        "ご本人"
+      ],
+      "before": null,
+      "rep": 0,
+      "judge2": "ご本人",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "はい、岡田です。",
+      "accept": [
+        "ご本人"
+      ],
+      "before": null,
+      "rep": 1,
+      "judge2": "ご本人",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "はい、岡田です。",
+      "accept": [
+        "ご本人"
+      ],
+      "before": null,
+      "rep": 2,
+      "judge2": "ご本人",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "岡田は私ですが。",
+      "accept": [
+        "ご本人"
+      ],
+      "before": null,
+      "rep": 0,
+      "judge2": "ご本人",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "岡田は私ですが。",
+      "accept": [
+        "ご本人"
+      ],
+      "before": null,
+      "rep": 1,
+      "judge2": "ご本人",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "岡田は私ですが。",
+      "accept": [
+        "ご本人"
+      ],
+      "before": null,
+      "rep": 2,
+      "judge2": "ご本人",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。",
+      "accept": [
+        "代わった人が話し始めた"
+      ],
+      "before": null,
+      "rep": 0,
+      "judge2": "代わった人が話し始めた",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。",
+      "accept": [
+        "代わった人が話し始めた"
+      ],
+      "before": null,
+      "rep": 1,
+      "judge2": "代わった人が話し始めた",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。",
+      "accept": [
+        "代わった人が話し始めた"
+      ],
+      "before": null,
+      "rep": 2,
+      "judge2": "代わった人が話し始めた",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。山本です。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "before": null,
+      "rep": 0,
+      "judge2": "代わった人が話し始めた",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。山本です。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "before": null,
+      "rep": 1,
+      "judge2": "代わった人が話し始めた",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。山本です。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "before": null,
+      "rep": 2,
+      "judge2": "代わった人が話し始めた",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "岡田ですね。少々お待ちください。",
+      "accept": [
+        "取り次ぎを待つ"
+      ],
+      "before": null,
+      "rep": 0,
+      "judge2": "取り次ぎを待つ",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "岡田ですね。少々お待ちください。",
+      "accept": [
+        "取り次ぎを待つ"
+      ],
+      "before": null,
+      "rep": 1,
+      "judge2": "取り次ぎを待つ",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "岡田ですね。少々お待ちください。",
+      "accept": [
+        "取り次ぎを待つ"
+      ],
+      "before": null,
+      "rep": 2,
+      "judge2": "取り次ぎを待つ",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "少々お待ちください。",
+      "accept": [
+        "取り次ぎを待つ"
+      ],
+      "before": null,
+      "rep": 0,
+      "judge2": "取り次ぎを待つ",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "少々お待ちください。",
+      "accept": [
+        "取り次ぎを待つ"
+      ],
+      "before": null,
+      "rep": 1,
+      "judge2": "取り次ぎを待つ",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "少々お待ちください。",
+      "accept": [
+        "取り次ぎを待つ"
+      ],
+      "before": null,
+      "rep": 2,
+      "judge2": "取り次ぎを待つ",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "岡田は本日休みをいただいております。",
+      "accept": [
+        "不在"
+      ],
+      "before": null,
+      "rep": 0,
+      "judge2": "不在",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "岡田は本日休みをいただいております。",
+      "accept": [
+        "不在"
+      ],
+      "before": null,
+      "rep": 1,
+      "judge2": "不在",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "岡田は本日休みをいただいております。",
+      "accept": [
+        "不在"
+      ],
+      "before": null,
+      "rep": 2,
+      "judge2": "不在",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "岡田ですね。",
+      "accept": [
+        "決められない",
+        "取り次ぎを待つ"
+      ],
+      "before": null,
+      "rep": 0,
+      "judge2": "決められない",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "岡田ですね。",
+      "accept": [
+        "決められない",
+        "取り次ぎを待つ"
+      ],
+      "before": null,
+      "rep": 1,
+      "judge2": "決められない",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "岡田ですね。",
+      "accept": [
+        "決められない",
+        "取り次ぎを待つ"
+      ],
+      "before": null,
+      "rep": 2,
+      "judge2": "決められない",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "accept": [
+        "ご本人"
+      ],
+      "before": "岡田ですね。少々お待ちください。",
+      "rep": 0,
+      "judge2": "ご本人",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "accept": [
+        "ご本人"
+      ],
+      "before": "岡田ですね。少々お待ちください。",
+      "rep": 1,
+      "judge2": "ご本人",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "accept": [
+        "ご本人"
+      ],
+      "before": "岡田ですね。少々お待ちください。",
+      "rep": 2,
+      "judge2": "ご本人",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。",
+      "accept": [
+        "ご本人"
+      ],
+      "before": "岡田ですね。少々お待ちください。",
+      "rep": 0,
+      "judge2": "ご本人",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。",
+      "accept": [
+        "ご本人"
+      ],
+      "before": "岡田ですね。少々お待ちください。",
+      "rep": 1,
+      "judge2": "ご本人",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。",
+      "accept": [
+        "ご本人"
+      ],
+      "before": "岡田ですね。少々お待ちください。",
+      "rep": 2,
+      "judge2": "ご本人",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "accept": [
+        "ご本人"
+      ],
+      "before": "それでは岡田にお繋ぎします。",
+      "rep": 0,
+      "judge2": "ご本人",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "accept": [
+        "ご本人"
+      ],
+      "before": "それでは岡田にお繋ぎします。",
+      "rep": 1,
+      "judge2": "ご本人",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "accept": [
+        "ご本人"
+      ],
+      "before": "それでは岡田にお繋ぎします。",
+      "rep": 2,
+      "judge2": "ご本人",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。岡田です。",
+      "accept": [
+        "ご本人"
+      ],
+      "before": "岡田ですね。少々お待ちください。",
+      "rep": 0,
+      "judge2": "ご本人",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。岡田です。",
+      "accept": [
+        "ご本人"
+      ],
+      "before": "岡田ですね。少々お待ちください。",
+      "rep": 1,
+      "judge2": "ご本人",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。岡田です。",
+      "accept": [
+        "ご本人"
+      ],
+      "before": "岡田ですね。少々お待ちください。",
+      "rep": 2,
+      "judge2": "ご本人",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。山本です。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "before": "岡田ですね。少々お待ちください。",
+      "rep": 0,
+      "judge2": "代わった人が話し始めた",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。山本です。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "before": "岡田ですね。少々お待ちください。",
+      "rep": 1,
+      "judge2": "代わった人が話し始めた",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。山本です。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "before": "岡田ですね。少々お待ちください。",
+      "rep": 2,
+      "judge2": "代わった人が話し始めた",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "before": "担当の者に代わりますので、少々お待ちください。",
+      "rep": 0,
+      "judge2": "代わった人が話し始めた",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "before": "担当の者に代わりますので、少々お待ちください。",
+      "rep": 1,
+      "judge2": "代わった人が話し始めた",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "before": "担当の者に代わりますので、少々お待ちください。",
+      "rep": 2,
+      "judge2": "代わった人が話し始めた",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "before": "岡田は外出しておりますので、別の者に代わります。",
+      "rep": 0,
+      "judge2": "代わった人が話し始めた",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "before": "岡田は外出しておりますので、別の者に代わります。",
+      "rep": 1,
+      "judge2": "代わった人が話し始めた",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "before": "岡田は外出しておりますので、別の者に代わります。",
+      "rep": 2,
+      "judge2": "代わった人が話し始めた",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "岡田は本日休みをいただいております。",
+      "accept": [
+        "不在"
+      ],
+      "before": "岡田ですね。少々お待ちください。",
+      "rep": 0,
+      "judge2": "不在",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "岡田は本日休みをいただいております。",
+      "accept": [
+        "不在"
+      ],
+      "before": "岡田ですね。少々お待ちください。",
+      "rep": 1,
+      "judge2": "不在",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "岡田は本日休みをいただいております。",
+      "accept": [
+        "不在"
+      ],
+      "before": "岡田ですね。少々お待ちください。",
+      "rep": 2,
+      "judge2": "不在",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "岡田は取り込んでおりまして、対応できかねます。",
+      "accept": [
+        "不在"
+      ],
+      "before": "岡田ですね。少々お待ちください。",
+      "rep": 0,
+      "judge2": "不在",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "岡田は取り込んでおりまして、対応できかねます。",
+      "accept": [
+        "不在"
+      ],
+      "before": "岡田ですね。少々お待ちください。",
+      "rep": 1,
+      "judge2": "不在",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "岡田は取り込んでおりまして、対応できかねます。",
+      "accept": [
+        "不在"
+      ],
+      "before": "岡田ですね。少々お待ちください。",
+      "rep": 2,
+      "judge2": "不在",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "申し訳ございません、岡田はただいま電話に出られないとのことです。",
+      "accept": [
+        "不在"
+      ],
+      "before": "岡田ですね。少々お待ちください。",
+      "rep": 0,
+      "judge2": "不在",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "申し訳ございません、岡田はただいま電話に出られないとのことです。",
+      "accept": [
+        "不在"
+      ],
+      "before": "岡田ですね。少々お待ちください。",
+      "rep": 1,
+      "judge2": "不在",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "申し訳ございません、岡田はただいま電話に出られないとのことです。",
+      "accept": [
+        "不在"
+      ],
+      "before": "岡田ですね。少々お待ちください。",
+      "rep": 2,
+      "judge2": "不在",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お待たせいたしました。岡田は会議中でして、本日は難しいようです。",
+      "accept": [
+        "不在"
+      ],
+      "before": "岡田ですね。少々お待ちください。",
+      "rep": 0,
+      "judge2": "不在",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お待たせいたしました。岡田は会議中でして、本日は難しいようです。",
+      "accept": [
+        "不在"
+      ],
+      "before": "岡田ですね。少々お待ちください。",
+      "rep": 1,
+      "judge2": "不在",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お待たせいたしました。岡田は会議中でして、本日は難しいようです。",
+      "accept": [
+        "不在"
+      ],
+      "before": "岡田ですね。少々お待ちください。",
+      "rep": 2,
+      "judge2": "不在",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お待たせいたしました。",
+      "accept": [
+        "決められない",
+        "代わった人が話し始めた"
+      ],
+      "before": "岡田ですね。少々お待ちください。",
+      "rep": 0,
+      "judge2": "決められない",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お待たせいたしました。",
+      "accept": [
+        "決められない",
+        "代わった人が話し始めた"
+      ],
+      "before": "岡田ですね。少々お待ちください。",
+      "rep": 1,
+      "judge2": "決められない",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    },
+    {
+      "text": "お待たせいたしました。",
+      "accept": [
+        "決められない",
+        "代わった人が話し始めた"
+      ],
+      "before": "岡田ですね。少々お待ちください。",
+      "rep": 2,
+      "judge2": "決められない",
+      "judge2_by": "Claude Sonnet 5.5（考える）",
+      "judge2_sure": null,
+      "ok": true
+    }
+  ]
+}

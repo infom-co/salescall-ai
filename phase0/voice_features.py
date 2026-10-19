@@ -80,6 +80,31 @@ def features(pcm16: bytes, rate: int) -> dict | None:
             "low_ratio": round(float((st <= -LOW_ST).mean()), 3), "frames": len(pitches)}
 
 
+def unvoiced_spans(pcm16: bytes, rate: int, min_s: float = 0.03) -> list[tuple[float, float]]:
+    """声帯の震えの無い区間（無音・息の音＝「っし」の「シ」など。周期のずれが APERIODIC_MAX より大きいか、小さすぎる音）の (始まり, 終わり) の秒。
+    録音を継ぐ位置を決めるため（声の高さの継ぎ目が出ない所。g58_name_splice の4回目）。min_s より短い区間は除く。"""
+    x = np.frombuffer(pcm16, dtype="<i2").astype(np.float64) / 32768.0
+    lag_lo, lag_hi = int(rate / F0_MAX), int(rate / F0_MIN)
+    w, hop = int(rate * FRAME_S), int(rate * HOP_S)
+    n = w + lag_hi
+    if len(x) < n:
+        return []
+    frames = np.lib.stride_tricks.sliding_window_view(x, n)[::hop]
+    rms = np.sqrt((frames[:, :w] ** 2).mean(axis=1)) + 1e-12
+    db = 20 * np.log10(rms / rms.max())
+    voiceless = [d <= FLOOR_DB or _yin(f, w, lag_lo, lag_hi)[1] > APERIODIC_MAX for f, d in zip(frames, db)]
+    spans, start = [], None
+    for i, v in enumerate(voiceless + [False]):
+        t = (i * hop + w / 2) / rate
+        if v and start is None:
+            start = t
+        elif not v and start is not None:
+            if t - start >= min_s:
+                spans.append((round(start, 3), round(t, 3)))
+            start = None
+    return spans
+
+
 def semitones(a_hz: float, b_hz: float) -> float:
     """a が b より何半音高いか。"""
     return 12 * math.log2(a_hz / b_hz)

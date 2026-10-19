@@ -2364,5 +2364,35 @@
     "tries": 1,
     "seconds": 1.59,
     "wav": "Sadachbia_ai_again.wav"
+  },
+  {
+    "voice": "Leda",
+    "id": "busy_after_hold",
+    "text": "お待たせいたしました。申し訳ございません、岡田は取り込んでおりまして、ただいま電話に出られないとのことです。",
+    "how": null,
+    "said": "お待たせいたしました。申し訳ございません、岡田は取り込んでおりまして、ただいま電話に出られないとのことです。",
+    "heard": "お待たせいたしました。申し訳ございません。岡田は取り込んでおりまして、ただいま電話に出られないとのことです。",
+    "diffs": [],
+    "question_needed": false,
+    "question_ok": true,
+    "ok": true,
+    "tries": 1,
+    "seconds": 7.67,
+    "wav": "Leda_busy_after_hold.wav"
+  },
+  {
+    "voice": "Sadachbia",
+    "id": "busy_after_hold",
+    "text": "お待たせいたしました。申し訳ございません、岡田は取り込んでおりまして、ただいま電話に出られないとのことです。",
+    "how": null,
+    "said": "お待たせいたしました。申し訳ございません、岡田は取り込んでおりまして、ただいま電話に出られないとのことです。",
+    "heard": "お待たせいたしました。申し訳ございません。岡田は取り込んでおりまして、ただいま電話に出られないとのことです。",
+    "diffs": [],
+    "question_needed": false,
+    "question_ok": true,
+    "ok": true,
+    "tries": 1,
+    "seconds": 7.4,
+    "wav": "Sadachbia_busy_after_hold.wav"
   }
 ]

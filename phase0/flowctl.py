@@ -414,10 +414,15 @@ TARGET_IS_THERE, TARGET_IS_AWAY = "ご本人", "不在"
 # ご本人の意味（判定の決まりの1か所。meaning_judge.KIND_DESC の「代わった人」は、ここに当たるときは選ばない）。
 # ✅ 2026-10-19 ユーザー：「受付が『それでは岡田にお繋ぎします。』のような後に、『はい、お電話代わりました。』と言われれば、『ご本人』になりますよね」
 #    ⛔ 直す前は、判定に、その前の取り次いだ方の言葉を渡しておらず、名乗らない「はい、お電話代わりました。」を「代わった人」と読んでいた（G-62）
+# ⚠️ 2026-10-19 ユーザー（2回目）：「取り次いだ後に、『岡田は取り込んでおり、対応できません』ともう一度受付が言うこともあるので、取次後は
+#    必ずしも、本人とは限らないので注意、見直しが必要」⇒ ご本人とするのは、取り次いだあとに「電話を代わった方」が出たときだけ。出られないと
+#    伝える言葉は不在。取り次いだ方がまた出たのか、代わった方が出たのか分からない言葉は、ご本人と決めない（確かめる）
 TARGET_MEANINGS = {TARGET_IS_THERE: "お呼びした方ご本人が電話に出ているということ（電話を代わった方が、お呼びした方の名前を名乗ったときも・"
                                     "その前に取り次いだ方が、お呼びした方に取り次いだ（お名前を確かめて待つように言った・お繋ぎしますと言った）あとに、"
-                                    "代わった方が話し始めたときも）",
-                   TARGET_IS_AWAY: "お呼びした方はいらっしゃらないということ"}
+                                    "電話を代わった方が「お電話代わりました」のように出たときも）。取り次いだあとでも、お呼びした方が出られないと伝える言葉"
+                                    "（取り込んでいる・席を外しているなど）はこちらではなく、取り次いだ方がまた出たのか、代わった方が出たのか分からない言葉"
+                                    "（「お待たせいたしました」だけなど）もこちらではない",
+                   TARGET_IS_AWAY: "お呼びした方はいらっしゃらない・電話に出られないということ（取り次いだあとに、取り次いだ方がまた出て、そう伝えたときも）"}
 # hang_up＝話さずに切る（電話接続側が読む）・silent＝AIに話させない返事（取り次ぎを待つ間など。handle_call）
 INTERNAL_KEYS = {"ack", "ask_n", "ask_reason", "ask_last", "after", "play", "speak", "hang_up", "silent"}  # 中で使うだけの項目（電話接続側・数え方が読む）。AIへの返事には入れない
 # こちらが使う名前（AIに見せる日本語の名前）。値の欄に入っていたら、相手の答えではない（form_problem）
@@ -1585,6 +1590,8 @@ class Flow:
         # 目的の人として繋いだ（Anthropic を止めた形の72本中3本）。答えの報告は遅れて届いた判定で当て直せるが、繋いだら戻せない
         if j == TARGET_IS_THERE or (claimed and not self.judging) or self.target_asks >= self.limits.replays:
             return self._connect()
+        if j is None:
+            return self._ask_target(new_person=not claimed)  # 判定が届かなかった（上の決まり）：新しい方の印はAIの報告だけ
         if j == HOLD:
             return self._not_an_answer()
         if j == TARGET_IS_AWAY:
@@ -1643,10 +1650,14 @@ class Flow:
         return {"result": "end", "hang_up": True,
                 "message": f"相手は{PARTY_LABEL[reason]}です（人ではありません）。何も言わずに終えます（言葉を言いません）。"}
 
-    def _ask_target(self) -> dict:
+    def _ask_target(self, new_person: bool = True) -> dict:
         """取り次がれて代わった方が名乗らなかった：目的の人かを確かめる（DESIGN.md 4-3。言い方は phrases.target_confirm。相手ごとの名前なので
-        AIが言う）。1人に1回まで（limits.replays）。認めたら report_party（目的の人）＝_connect が、あいさつ・名乗り・用件・最初の質問を流す。"""
-        self.passed_on = True
+        AIが言う）。1人に1回まで（limits.replays）。認めたら report_party（目的の人）＝_connect が、あいさつ・名乗り・用件・最初の質問を流す。
+        new_person：新しい方が出た印がある（判定が「代わった人」「決められない」と読んだ・AIが「代わった方」と報告した）＝取り次がれた
+        （passed_on。繋いだら、あいさつ・名乗りから全部）。判定が届かずに確かめるとき（AIは「目的の人」と報告し、新しい方の印は無い）は付けない。
+        ⛔ 2026-10-19 G-62：いつも付けていたので、判定が遅れて最初に出たご本人に確かめたとき、繋いだあとに名乗りをもう一度流した"""
+        if new_person:
+            self.passed_on = True
         if self.target_asks >= self.limits.replays:
             return self._reject("代わった方には、もう目的の人かを確かめました。")
         self.target_asks += 1
