@@ -234,6 +234,12 @@ SCENES = {
     "目的の人_不在": Scene(TARGET_BUSINESS, [W("absent_okada"), W("back_5pm"), W("affirm")], lambda c: {
         "理由": last_fact(c, "callback").get("why") == "absent", "戻る時刻": "5時" in (last_fact(c, "callback").get("time") or ""),
         "用件を受付に流さない": connect_reply(c) == {}, "締め": closing_of(c) == CLOSING, "足す質問は録音": callback_recorded(c)}),
+    # 受付の方が取り次いだあと、また出て「出られない」と伝える：取り次いだあとでも、ご本人とは決めない（不在として、戻る時刻を聞いて締める）
+    # ⚠️ 2026-10-19 ユーザー：「取り次いだ後に、『岡田は取り込んでおり、対応できません』ともう一度受付が言うこともあるので、取次後は必ずしも、
+    #    本人とは限らないので注意、見直しが必要」
+    "目的の人_取り次いだあとに出られない": Scene(TARGET_BUSINESS, [W("hold_target"), W("busy_after_hold"), W("back_5pm"), W("affirm")], lambda c: {
+        "理由": last_fact(c, "callback").get("why") == "absent", "取り次ぎの間は話さない": plain(said_to(c, "hold_target")) == "",
+        "用件を受付に流さない": connect_reply(c) == {}, "締め": closing_of(c) == CLOSING, "足す質問は録音": callback_recorded(c)}),
     "目的の人_受付で断られる": Scene(TARGET_BUSINESS, [W("reception_refuse")], lambda c: {
         "発信禁止の申告": bool(c.get("facts", {}).get("do_not_call")), "締め": closing_of(c) == CLOSE_DECLINED}),
 }

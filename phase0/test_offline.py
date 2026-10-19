@@ -4509,22 +4509,34 @@ class TargetTest(unittest.TestCase):
 
     def test_no_judge_takes_the_report_but_late_judge_asks_once(self):
         # 判定を使わない通話：AIの報告のまま進む（止まらない）
+        from flowctl import HOLD
         f, b = self.flow()
         self.heard(f, "はい、私です。", None)
         self.assertEqual(f.apply("report_party", {"party": "target"})["result"], "next")
-        # 判定を使う通話で、判定が届かなかった（待つのは2秒まで）：繋いだら戻せないので、目的の人かを1回だけ確かめる。認めたら繋ぐ
+        # 判定を使う通話で、判定が届かなかった（待つのは2秒まで）：繋いだら戻せないので、目的の人かを確かめる。認めたら繋ぐ
         # ⛔ 2026-10-19 G-62：報告のまま繋いでいたので、受付の方の「少々お待ちください。」で判定が遅れたとき、受付の方を目的の人として繋いだ
         f, b = self.checked()
         self.heard(f, "岡田ですね。少々お待ちください。", None)
+        held = f.callee_turns
         self.assertEqual(f.apply("report_party", {"party": "target"})["result"], "confirm_target")
         self.assertEqual(f.phase, "calling")
-        # 判定がまた届かなくても、確かめは上限まで（limits.replays＝1通話2回。止まらない）＝そのあとは繋いで全部を流す
+        # 判定がまた届かなくても、確かめは上限まで（limits.replays＝1通話2回。止まらない）＝そのあとは繋ぐ。受付の方の言葉の判定（取り次ぎ）が
+        # 遅れて届けば、取り次がれた印が付き、代わった方には、あいさつ・名乗り・用件の全部を流す
         self.heard(f, "お電話代わりました。岡田です。", None)
         self.assertEqual(f.apply("report_party", {"party": "target"})["result"], "confirm_target")
+        f.on_check("judge", HOLD, held, said="岡田ですね。少々お待ちください。")
         self.heard(f, "はい、そうです。", None)
         r = f.apply("report_party", {"party": "target"})
         self.assertEqual((r["result"], f.phase), ("next", "asking"))
-        self.assertEqual([p.get("part", p["kind"]) for p in r["play"]][:2], ["greeting", "intro"])  # 取り次がれた方には、あいさつ・名乗り・用件の全部
+        self.assertEqual([p.get("part", p["kind"]) for p in r["play"]][:2], ["greeting", "intro"])
+        # 確かめただけでは「取り次がれた」としない：最初に出たご本人に確かめたあと繋いでも、名乗りは流し直さない（⛔ G-62）。
+        # 判定が1つも届かないとき、取り次がれたかの手がかりは、取り次ぎの判定と、AIの「受付の方」の報告だけ
+        g, _ = self.checked()
+        self.heard(g, "はい、岡田は私ですが。", None)
+        self.assertEqual(g.apply("report_party", {"party": "target"})["result"], "confirm_target")
+        self.heard(g, "はい、そうです。", "ご本人")
+        r = g.apply("report_party", {"party": "target"})
+        self.assertEqual([p.get("part", p["kind"]) for p in r["play"]], ["purpose", "question"])
 
     def test_call_harness_judges_with_the_flow_question(self):
         import inspect
