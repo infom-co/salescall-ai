@@ -112,6 +112,11 @@ UTTERANCES = {
 # 人の声でない相手の音（作った声ではないので、別の耳の確かめは無い）。ファクスの答える音（CED 2100Hz のあと、V.21 の信号＝1650・1850Hz を
 # 300ボーで切り替える音。ITU-T T.30）。声の名前ごとに同じ音のファイルを置く（台詞の声の読み替え＝convo.callee_wav が使えるように）
 TONES = {"fax_tone": "fax"}
+# 声も言葉もそのままで、文と文の間だけを長くした台詞（言葉の間を長くあける相手）：名前 → (もとの台詞, 間の秒)。もとの台詞が確かめに
+# 通っていれば、使う前に作る（verified）。⛔ 2026-10-19 G-57：受付の方の「岡田ですね。」「少々お待ちください。」（間0.6秒）の間で、
+# 会話AIが話し終わりと決めてAIが報告し、判定は「岡田ですね。」だけを見た（18本中1本ほど）。間を長くすると、毎回その形になる
+# （G-60：間1.6秒の「ええとですね。」「3人です。」は、5回とも間で話し終わりの知らせが来た）
+PAUSED = {"hold_target_pause": ("hold_target", 1.5)}
 # 別の耳は名前を漢字で書くので、カタカナで書いた名前の読みは比べられない（「中島」＝なかじま と読んでしまう）。名前だけ、その漢字に
 # 直してから比べる（読みそのものは G-44 の書き起こしで確かめた）。名前の一覧ではなく、この試験の材料の名前だけ
 NAME_SPELLINGS = {"ナカシマ": "中島", "カクタ": "角田", "カドタ": "角田"}
@@ -161,6 +166,14 @@ def verified(wav: str) -> bool:
     """その声が、確かめ（sample_ok）に通っているか。試験は、通っていない声を使わない。"""
     if any(wav.endswith(f"_{uid}.wav") for uid in TONES):
         return (OUT / wav).exists()  # 作った音（声ではない）：別の耳の確かめは無い。ファイルがあればよい
+    for uid, (base, pause_s) in PAUSED.items():
+        if wav.endswith(f"_{uid}.wav"):
+            source = wav[: -len(f"{uid}.wav")] + f"{base}.wav"
+            if not verified(source):
+                return False
+            from stitch_gap import widen_pause
+            widen_pause(source, pause_s, wav)  # もとの声から作り直す（間の秒を変えたら、すぐ効く）
+            return True
     index = OUT / "index.json"
     made = json.loads(index.read_text(encoding="utf-8")) if index.exists() else []
     return any(m.get("wav") == wav and m.get("ok") is True for m in made)

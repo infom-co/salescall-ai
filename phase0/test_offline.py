@@ -4004,6 +4004,21 @@ class TargetTest(unittest.TestCase):
         r = self.say(f, "お電話代わりました、岡田です。", "report_party", party="target")
         self.assertEqual([p.get("part", p["kind"]) for p in r["play"]], ["greeting", "intro", "purpose", "question"])
 
+    def test_handover_replay_uses_the_same_target_decision(self):
+        # AIが「代わった方」として名乗りの流し直しを頼んだ：目的の人かは、目的の人の報告と同じ1か所で決める（判定が「ご本人」なら繋いで
+        # 全部を流す・判定が無ければ目的の人かを確かめる）。⛔ 2026-10-19 G-57：判定が「ご本人」でも、目的の人かを聞き直していた
+        from flowctl import HOLD, TARGET_IS_THERE
+        f, b = self.flow()
+        f.use_checks("judge")
+        f.on_callee(); f.on_heard("少々お待ちください。"); f.on_check("judge", HOLD)
+        f.on_callee(); f.on_heard("お電話変わりました。岡田です。"); f.on_check("judge", TARGET_IS_THERE)
+        r = f.apply("replay_opening", {"part": "handover"})
+        self.assertEqual([p.get("part", p["kind"]) for p in r["play"]], ["greeting", "intro", "purpose", "question"])
+        self.assertEqual(f.phase, "asking")
+        f, b = self.flow()
+        f.on_callee(); f.on_heard("お電話変わりました。")
+        self.assertEqual(f.apply("replay_opening", {"part": "handover"})["result"], "confirm_target")
+
     def test_hold_seen_by_the_judge_also_means_a_new_person(self):
         from flowctl import HOLD
         f, b = self.flow()
@@ -4158,6 +4173,29 @@ class TargetTest(unittest.TestCase):
             r = f.apply("report_party", {"party": "target"})
             self.assertEqual([p.get("part", p["kind"]) for p in r["play"]], ["greeting", "intro", "purpose", "question"], judged)
 
+    def test_report_before_the_whole_words_waits(self):
+        # ⛔ 2026-10-19 G-57：受付の方の「岡田ですね。」（間1.5秒）「少々お待ちください。」の間で、AIが「目的の人」と報告した
+        from types import SimpleNamespace
+
+        from flowctl import HOLD
+        fc = SimpleNamespace(name="report_party", args={"相手": "目的の人"})
+        # (1) 会話AIが、まだ声の終わりまで聞き取っていない（話し終わりの位置が声の終わりより前）：途中の言葉の判定は使わず、決めずに待つ
+        f, b = self.checked()
+        f.on_callee(); f.on_voice(3.38); f.on_activity(True, 0.16); f.on_heard("岡田ですね。"); f.on_activity(False, 1.9)
+        f.on_check("judge", "決められない", said="岡田ですね。")
+        self.assertFalse(f.words_complete)
+        self.assertEqual(f.apply("report_party", {"party": "target"})["result"], "wait")
+        self.assertEqual(f.phase, "calling")
+        # (2) 言葉の途中で届いた報告（midway）で、出揃った言葉の判定が間に合わない：AIの報告のままにせず、決めずに待つ
+        f, b = self.checked()
+        f.on_callee(); f.on_voice(3.38); f.on_activity(False, 4.4); f.on_heard("岡田ですね。少々お待ちください。")
+        self.assertTrue(f.words_complete)
+        self.assertEqual(f.handle_call(fc, midway=True)[0]["結果"], "最後まで聞く")
+        self.assertEqual(f.phase, "calling")
+        # (3) 出揃った言葉の判定がそろえば、それで決める（取り次ぎ ⇒ 黙って待つ）
+        f.on_check("judge", HOLD, said="岡田ですね。少々お待ちください。")
+        self.assertEqual(f.handle_call(fc, midway=True)[0]["結果"], "取り次ぎを待つ")
+
     def test_no_judge_or_late_judge_takes_the_report(self):
         # 判定を使わない通話・判定が届かなかった（待つのは2秒まで）：AIの報告のまま進む（止まらない）
         f, b = self.flow()
@@ -4179,12 +4217,30 @@ class ScenesTest(unittest.TestCase):
     """16-2 の模擬通話の回帰（scenes.py）：場面の台詞は、お客役の台詞の一覧（make_callee_samples）の1か所にあるものだけ。"""
 
     def test_lines_come_from_the_one_list(self):
-        from make_callee_samples import TONES, UTTERANCES
+        from make_callee_samples import PAUSED, TONES, UTTERANCES
         from scenes import SCENES
         for name, sc in SCENES.items():
             for x in sc.lines:
                 uid = x["wav"].removeprefix("Puck_").removesuffix(".wav")
-                self.assertIn(uid, set(UTTERANCES) | set(TONES), name)
+                self.assertIn(uid, set(UTTERANCES) | set(TONES) | set(PAUSED), name)
+        self.assertTrue(all(base in UTTERANCES for base, _ in PAUSED.values()))
+
+    def test_widened_pause_keeps_the_voice(self):
+        # 間を長くした台詞：文と文の間だけが変わり、声の長さ（間を除く）は同じ
+        from barge import voice_runs, voiced
+        from make_callee_samples import PAUSED, verified
+        from stitch_gap import callee_speech
+        for uid, (base, pause_s) in PAUSED.items():
+            src, out = f"Sadachbia_{base}.wav", f"Sadachbia_{uid}.wav"
+            if not verified(src):
+                continue
+            self.assertTrue(verified(out))
+            (a, ra, _), (b, rb, _) = callee_speech(src), callee_speech(out)
+            ra_runs, rb_runs = voice_runs(voiced(a, ra), 0.15), voice_runs(voiced(b, rb), 0.15)
+            self.assertEqual(len(ra_runs), len(rb_runs))
+            self.assertAlmostEqual(rb_runs[1][0] - rb_runs[0][1], pause_s, delta=0.06)
+            voice = lambda runs: sum(y - x for x, y in runs)
+            self.assertAlmostEqual(voice(ra_runs), voice(rb_runs), delta=0.06)
 
     def test_expectations_run_on_an_empty_call(self):
         # 通話が何も起きずに終わっても、数え方が落ちない（どの決まりも「守られなかった」と数える）
@@ -4193,6 +4249,354 @@ class ScenesTest(unittest.TestCase):
         for name in SCENES:
             m = measures(empty, name)
             self.assertFalse(m["pass"], name)
+
+
+class JudgeWordsTest(unittest.TestCase):
+    """意味の判定に渡す言葉（convo.check_handler）：出揃った相手の言葉＝会話AIの話し終わりの知らせのあと、相手がまた話し始めていない間の
+    文字（Flow.words_complete）。⛔ 2026-10-19 G-57：受付の方の「岡田ですね。」「少々お待ちください。」の「岡田ですね。」だけで判定した。"""
+
+    def flow(self):
+        from flowctl import Flow, Question
+        f = Flow([Question("Q1", "日時は。", "datetime", conditions=("答えた",))])
+        f.on_callee()
+        return f
+
+    def judge(self, seen, took=0.2):
+        import asyncio
+
+        async def judge(q, text, asked=None):
+            seen.append(text)
+            await asyncio.sleep(took)
+            return "取り次ぎ" if "お待ち" in text else "決められない"
+        return judge
+
+    def drive(self, steps, report_at=None, pcm=b"\x00\x00", took=0.2, hold_s=None):
+        """steps：(秒, 'start'|'end'|文字) を時刻順に流す。report_at：その秒に報告（record_answer）を受ける。"""
+        import asyncio
+        import unittest.mock as m
+        from types import SimpleNamespace
+
+        from convo import check_handler
+        f, seen, out = self.flow(), [], {}
+        if hold_s is not None:
+            import dataclasses
+            f.limits = dataclasses.replace(f.limits, hold_s=hold_s)
+
+        async def main():
+            pending = []
+            handle, _, info, _ = check_handler(f, judge=self.judge(seen, took), pcm=pcm, rate=16000, wav="x.wav", tasks=pending,
+                                               audio_at=None if pcm is None else 1.0)  # 声の終わり＝送った音の上で約1.0秒
+            t0 = asyncio.get_running_loop().time()
+
+            async def feed():
+                for at, x in steps:
+                    await asyncio.sleep(max(0.0, t0 + at - asyncio.get_running_loop().time()))
+                    # end＝最後の声のあとの話し終わり（位置2.0秒）・mid＝文と文の間の話し終わり（声の終わりより前の位置0.5秒）
+                    (f.on_activity(True, 0.1) if x == "start" else f.on_activity(False, 2.0) if x == "end"
+                     else f.on_activity(False, 0.5) if x == "mid" else f.on_heard(x))
+            feeding = asyncio.create_task(feed())
+            if report_at is not None:
+                await asyncio.sleep(report_at)
+                f.wants_checks = lambda name, args=None: True
+                out["check_at_report"] = None
+                handle_call = f.handle_call
+                f.handle_call = lambda fc, midway=False: (out.update(check_at_report=dict(f.check), said_at_report=f.callee_said, midway=midway)
+                                                          or handle_call(fc, midway))
+                await handle(SimpleNamespace(name="record_answer", args={"質問": "Q1", "条件": "答えた"}))
+            await feeding
+            await asyncio.wait(pending, timeout=3)
+            out["info"] = info
+        with m.patch("stitch_gap.callee_speech", return_value=(b"", 16000, 0.0)):
+            asyncio.run(main())
+        return f, seen, out
+
+    def test_judges_the_words_after_the_speaker_finished(self):
+        f, seen, _ = self.drive([(0.0, "start"), (0.05, "岡田ですね。少々お待ちください。"), (0.05, "end")])
+        self.assertEqual(seen, ["岡田ですね。少々お待ちください。"])
+        self.assertEqual((f.check.get("judge"), f.check_said.get("judge")), ("取り次ぎ", "岡田ですね。少々お待ちください。"))
+
+    def test_does_not_judge_before_the_speaker_finished(self):
+        # 文字は届いたが、話し終わりの知らせがまだ（相手は話している）：判定しない
+        f, seen, _ = self.drive([(0.0, "start"), (0.05, "岡田ですね。")])
+        self.assertEqual(seen, [])
+        self.assertNotIn("judge", f.check)
+
+    def test_speaker_went_on_while_judging(self):
+        # 「岡田ですね。」で話し終わりの知らせ ⇒ 判定の間に、また話し始めて「少々お待ちください。」：前の判定は渡さず、出揃った言葉で判定し直す
+        f, seen, out = self.drive([(0.0, "start"), (0.02, "岡田ですね。"), (0.02, "end"), (0.1, "start"), (0.3, "少々お待ちください。"),
+                                 (0.3, "end")])
+        self.assertEqual(seen, ["岡田ですね。", "岡田ですね。少々お待ちください。"])
+        self.assertEqual(out["info"]["judge_stale"], ["岡田ですね。"])
+        self.assertEqual(f.check.get("judge"), "取り次ぎ")
+
+    def test_report_while_the_speaker_is_talking_waits_for_the_whole_words(self):
+        # AIが言葉の間で報告した（G-57）：相手が話している間は報告を待たせ、出揃った言葉の判定がそろってから受け取る
+        f, seen, out = self.drive([(0.0, "start"), (0.02, "岡田ですね。"), (0.02, "end"), (0.08, "start"), (0.4, "少々お待ちください。"),
+                                 (0.4, "end")], report_at=0.1)
+        self.assertEqual(out["said_at_report"], "岡田ですね。少々お待ちください。")
+        self.assertEqual(out["check_at_report"].get("judge"), "取り次ぎ")
+        self.assertGreater(out["info"]["waits"][0]["speaking_s"], 0.2)
+
+    def test_words_grew_after_the_judgment_is_judged_again_at_the_report(self):
+        # 判定を渡したあとに、相手がまた話した：前の言葉の判定は外れ（Flow.on_heard）、報告のときに、いまの言葉で判定し直す
+        f, seen, out = self.drive([(0.0, "start"), (0.02, "岡田ですね。"), (0.02, "end"), (0.4, "start"), (0.45, "少々お待ちください。"),
+                                 (0.45, "end")], report_at=0.6, took=0.1)
+        self.assertEqual(seen, ["岡田ですね。", "岡田ですね。少々お待ちください。"])
+        self.assertEqual(out["info"]["rejudged"], ["judge"])
+        self.assertEqual(out["check_at_report"].get("judge"), "取り次ぎ")
+
+    def test_end_between_sentences_is_not_the_end(self):
+        # 文と文の間の話し終わり（位置が声の終わりより前）：まだ出揃っていない。最後の声のあとの話し終わりで、全部の言葉を判定する
+        f, seen, out = self.drive([(0.0, "start"), (0.02, "岡田ですね。"), (0.02, "mid"), (0.3, "start"), (0.5, "少々お待ちください。"),
+                                   (0.5, "end")], report_at=0.1)
+        self.assertEqual(seen, ["岡田ですね。少々お待ちください。"])
+        self.assertTrue(out["midway"])
+        self.assertEqual(out["check_at_report"].get("judge"), "取り次ぎ")
+
+    def test_lagging_service_does_not_judge_the_part(self):
+        # 会話AIが遅れ、文と文の間の話し終わりのあと何も来ない：途中の言葉では判定しない（報告は midway のまま、流れの制御が決めずに待つ）
+        f, seen, out = self.drive([(0.0, "start"), (0.02, "岡田ですね。"), (0.02, "mid")], report_at=0.1, hold_s=0.3)
+        self.assertEqual(seen, [])
+        self.assertTrue(out["info"]["incomplete"])
+        self.assertTrue(out["midway"])
+        self.assertNotIn("judge", out["check_at_report"])
+
+    def test_text_line_is_complete_at_once(self):
+        # 文字で送る相手の言葉は、はじめから出揃っている（話し終わりの知らせは来ない）
+        f, seen, _ = self.drive([(0.0, "岡田ですね。")], pcm=None)
+        self.assertEqual(seen, ["岡田ですね。"])
+
+    def test_no_activity_at_the_report_judges_what_is_there(self):
+        # 話し始め・話し終わりの知らせが来ないつなぎ：報告のときに、いまある言葉で判定する（止まらない）
+        f, seen, out = self.drive([(0.0, "岡田ですね。")], report_at=0.05)
+        self.assertTrue(out["info"]["no_activity"])
+        self.assertEqual(out["check_at_report"].get("judge"), "決められない")
+
+
+class CurrentWordsCheckTest(unittest.TestCase):
+    """流れの制御は、いまの相手の言葉の判定だけを使う（Flow.on_check の said・Flow.on_heard）。"""
+
+    def flow(self):
+        from flowctl import Flow, Question
+        f = Flow([Question("Q1", "日時は。", "datetime", conditions=("答えた",))])
+        f.on_callee()
+        return f
+
+    def test_old_words_judgment_is_not_used(self):
+        f = self.flow()
+        f.on_heard("岡田ですね。")
+        f.on_heard("少々お待ちください。")
+        f.on_check("judge", "決められない", said="岡田ですね。")
+        self.assertNotIn("judge", f.check)
+
+    def test_words_growing_drops_the_judgment(self):
+        f = self.flow()
+        f.on_heard("岡田ですね。")
+        f.on_check("judge", "決められない", said="岡田ですね。")
+        f.on_check("ear", "岡田ですね。少々お待ちください。")
+        self.assertEqual(f.meaning_said, "決められない")
+        f.on_heard("少々お待ちください。")
+        self.assertIsNone(f.meaning_said)
+        self.assertEqual(f.ear_said, "岡田ですね。少々お待ちください。")   # 別の耳は、発話まるごと（外さない）
+
+    def test_words_complete_follows_the_speech_marks(self):
+        f = self.flow()
+        self.assertTrue(f.words_complete)        # 声を見張らない（文字で送った言葉）：届いた言葉が全部
+        f.on_voice(3.38)                         # 相手の声は、送った音の上で 3.38秒まで
+        self.assertFalse(f.words_complete)
+        f.on_activity(True, 0.16)
+        self.assertFalse(f.words_complete)
+        f.on_activity(False, 1.9)                # 文と文の間の話し終わり（位置が声の終わりより前）
+        self.assertFalse(f.words_complete)
+        f.on_activity(True, 2.5)
+        f.on_activity(False, 4.4)                # 最後の声のあとの話し終わり
+        self.assertTrue(f.words_complete)
+        f.on_activity(True, 5.0)                 # また話し始めた
+        self.assertFalse(f.words_complete)
+        f.on_callee()                            # 次の発話：声の終わりの位置は、電話接続側が渡し直す
+        f.on_voice(9.0)
+        f.on_activity(False, 8.0)
+        self.assertFalse(f.words_complete)
+        f.on_activity(False, 10.1)
+        self.assertTrue(f.words_complete)
+        f.on_callee()
+        f.on_voice(12.0)
+        f.on_voice(None)                         # 知らせの来ないつなぎだと決めた：届いた言葉で決める
+        self.assertTrue(f.words_complete)
+
+
+class InboxTest(unittest.TestCase):
+    """会話AIからの知らせの受け取り（live_util.Inbox）：報告の返事を待たせている間も、相手の言葉の文字と話し始め・話し終わりの知らせを、
+    届いた瞬間に渡す。⛔ 2026-10-19 G-57：受け取りを止めていたので、「少々お待ちください。」を返事を決めるまで読めなかった。"""
+
+    def test_words_arrive_while_a_report_is_held(self):
+        import asyncio
+        from types import SimpleNamespace
+
+        from live_util import collect_turn
+
+        def msg(**kw):
+            base = dict(usage_metadata=None, go_away=None, session_resumption_update=None, tool_call=None, server_content=None,
+                        tool_call_cancellation=None, voice_activity=None)
+            base.update(kw)
+            return SimpleNamespace(**base)
+        fc = SimpleNamespace(name="record_answer", args={}, id="1")
+        heard = lambda t: msg(server_content=SimpleNamespace(interrupted=False, input_transcription=SimpleNamespace(text=t, finished=None),
+                                                             output_transcription=None, model_turn=None, turn_complete=False))
+        end = msg(voice_activity=SimpleNamespace(voice_activity_type="VoiceActivityType.ACTIVITY_END", audio_offset="3.5s"))
+        seen, marks = [], []
+
+        class Session:
+            def __init__(self):
+                self.sent, self.calls = [], 0
+
+            async def send_tool_response(self, function_responses):
+                self.sent.append(function_responses)
+
+            async def receive(self):
+                self.calls += 1
+                if self.calls > 1:
+                    await asyncio.sleep(3600)
+                yield heard("岡田ですね。")
+                yield msg(tool_call=SimpleNamespace(function_calls=[fc]))
+                await asyncio.sleep(0.05)
+                yield heard("少々お待ちください。")
+                yield end
+
+        async def held(fc):
+            while "".join(seen) != "岡田ですね。少々お待ちください。" or not marks:  # 返事は、続きの文字と話し終わりが届いてから
+                await asyncio.sleep(0.01)
+            return {"result": "ok"}, True  # 話させない返事（AIの声を待たない）
+
+        async def main():
+            s = Session()
+            from live_util import inbox_of
+            inbox_of(s).on_activity = lambda speaking, at=None: marks.append(speaking)
+            r = await collect_turn(s, started_at=asyncio.get_running_loop().time() * 0 + __import__("time").monotonic(),
+                                   on_tool_call=held, on_heard=seen.append, timeout_s=3)
+            return r, s
+        r, s = asyncio.run(main())
+        self.assertFalse(r.timed_out)
+        self.assertEqual((seen, marks, len(s.sent)), (["岡田ですね。", "少々お待ちください。"], [False], 1))
+        at = {e["kind"]: e["at_s"] for e in r.events}                       # 待たせている間に届いた知らせも、届いた時刻で記録する
+        self.assertEqual([e["text"] for e in r.events if e["kind"] == "heard"], ["岡田ですね。", "少々お待ちください。"])
+        self.assertGreaterEqual(at["tool_response_sent"], at["activity"])
+
+    def test_replaced_connection_stops_passing_words(self):
+        # 張り替えた古いつなぎは、閉じ終わるまで知らせが届き続ける：流れの制御へは渡さない（いまの相手の発話の言葉に混ざる）
+        import asyncio
+        from types import SimpleNamespace
+
+        from live_util import inbox_of, open_session
+        heard, marks = [], []
+
+        class Session:
+            async def receive(self):
+                await asyncio.sleep(0.1)
+                yield SimpleNamespace(server_content=SimpleNamespace(input_transcription=SimpleNamespace(text="古い言葉")),
+                                      voice_activity=None)
+                await asyncio.sleep(3600)
+
+        class Connect:
+            async def __aenter__(self):
+                return Session()
+
+            async def __aexit__(self, *exc):
+                await asyncio.sleep(0.3)  # 閉じるのに時間がかかる
+                return False
+
+        async def main():
+            closing = []
+            client = SimpleNamespace(aio=SimpleNamespace(live=SimpleNamespace(connect=lambda **kw: Connect())))
+            async with open_session(client, "m", None, closing) as s:
+                inbox_of(s).on_heard, inbox_of(s).on_activity = heard.append, marks.append
+            await asyncio.sleep(0.2)
+            await asyncio.gather(*closing)
+        asyncio.run(main())
+        self.assertEqual(heard, [])
+
+    def test_speech_while_a_report_is_held_is_not_played(self):
+        # 報告の返事を待たせている間にAIが話し始めた声は、相手に流さない（その声は、返事を知らずに作られている）
+        import asyncio
+        import time
+        from types import SimpleNamespace
+
+        from live_util import collect_turn
+
+        def msg(**kw):
+            base = dict(usage_metadata=None, go_away=None, session_resumption_update=None, tool_call=None, server_content=None,
+                        tool_call_cancellation=None, voice_activity=None)
+            base.update(kw)
+            return SimpleNamespace(**base)
+        fc = SimpleNamespace(name="report_party", args={}, id="1")
+        blob = SimpleNamespace(data=b"\x00\x01" * 2400, mime_type="audio/pcm;rate=24000")
+        speech = msg(server_content=SimpleNamespace(interrupted=False, input_transcription=None, turn_complete=False,
+                                                    output_transcription=SimpleNamespace(text="かしこまりました。"),
+                                                    model_turn=SimpleNamespace(parts=[SimpleNamespace(inline_data=blob)])))
+
+        class Session:
+            def __init__(self):
+                self.sent, self.calls = [], 0
+
+            async def send_tool_response(self, function_responses):
+                self.sent.append(function_responses)
+
+            async def receive(self):
+                self.calls += 1
+                if self.calls > 1:
+                    await asyncio.sleep(3600)
+                yield msg(tool_call=SimpleNamespace(function_calls=[fc]))
+                yield speech
+
+        async def held(fc):
+            await asyncio.sleep(0.2)
+            return {"result": "hold"}, True
+
+        r = asyncio.run(collect_turn(Session(), started_at=time.monotonic(), on_tool_call=held, timeout_s=2))
+        self.assertEqual((len(r.audio), r.first_audio_after_s, "".join(r.output_transcript)), (0, None, ""))
+        self.assertEqual("".join(r.held_text), "かしこまりました。")
+        self.assertGreater(r.held_audio_s, 0.09)
+
+    def test_withdrawn_report_is_not_applied(self):
+        # 会話AIが報告を取り消した（相手が話し続けた）：まだ返事を作っている報告は、流れの制御へ渡さず、返事も送らない
+        import asyncio
+        import time
+        from types import SimpleNamespace
+
+        from live_util import collect_turn
+
+        def msg(**kw):
+            base = dict(usage_metadata=None, go_away=None, session_resumption_update=None, tool_call=None, server_content=None,
+                        tool_call_cancellation=None, voice_activity=None)
+            base.update(kw)
+            return SimpleNamespace(**base)
+        fc = SimpleNamespace(name="report_party", args={"相手": "目的の人"}, id="7")
+        applied = []
+
+        class Session:
+            def __init__(self):
+                self.sent, self.calls = [], 0
+
+            async def send_tool_response(self, function_responses):
+                self.sent.append(function_responses)
+
+            async def receive(self):
+                self.calls += 1
+                if self.calls > 1:
+                    await asyncio.sleep(3600)
+                yield msg(tool_call=SimpleNamespace(function_calls=[fc]))
+                await asyncio.sleep(0.05)
+                yield msg(tool_call_cancellation=SimpleNamespace(ids=["7"]))
+
+        async def held(fc):
+            await asyncio.sleep(1.0)            # 確かめを待っている間に取り消される
+            applied.append(fc.name)
+            return {"result": "ok"}, True
+
+        s = Session()
+        r = asyncio.run(collect_turn(s, started_at=time.monotonic(), on_tool_call=held, timeout_s=3))
+        self.assertEqual((applied, s.sent, r.timed_out), ([], [], False))
+        self.assertIn("tool_call_cancelled", [e["kind"] for e in r.events])
 
 
 class SilentAfterReplyTest(unittest.TestCase):

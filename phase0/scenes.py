@@ -95,8 +95,11 @@ def played_parts(reply: dict) -> list[str]:
 
 
 def connect_reply(call: dict) -> dict:
-    """目的の人に繋がったときの返事（流れの制御が、名乗り・用件・最初の質問を流した返事）。"""
-    return next((x["reply"] for x in ops(call) if x["op"] == "report_party" and x["args"].get("party") == "target"
+    """目的の人に繋がったときの返事（流れの制御が、名乗り・用件・最初の質問を流した返事）。繋ぐのは、AIの「目的の人」の報告か、代わった方への
+    名乗りの流し直しの頼み（判定が「ご本人」。Flow._target_reported の1か所）の、どちらか。"""
+    return next((x["reply"] for x in ops(call)
+                 if ((x["op"] == "report_party" and x["args"].get("party") == "target")
+                     or (x["op"] == "replay_opening" and x["args"].get("part") == "handover"))
                  and x["reply"]["result"] in ("next", "confirm_required")), {})
 
 
@@ -201,7 +204,15 @@ SCENES = {
         # ⛔ 1回目は数えていなかった：取り次ぎを待つ間に、AIが相手の言葉を真似た・ありもしない用件を7秒話した（3本中2本）
         "取り次ぎの間は話さない": plain(said_to(c, "hold_target")) == "",
         "取り次ぐ方には流さない": not any(x["op"] == "report_party" and x["args"].get("party") == "target"
-                                       and x["callee_turns"] == 1 and x["reply"]["result"] != "hold" for x in ops(c)),
+                                       and x["callee_turns"] == 1 and x["reply"]["result"] not in ("hold", "wait") for x in ops(c)),
+        "答えが取れた": got(c, "Q1", "はい")}),
+    # 受付の方が、名前を確かめてから間を置いて「少々お待ちください。」（⛔ G-57：その間でAIが報告し、判定は「岡田ですね。」だけを見て、
+    # 取り次ぎの最中の方に目的の人かを聞いた。間0.6秒の台詞では18本中1本ほどなので、間を1.5秒にして毎回その形を作る）
+    "目的の人_取り次ぎの前の間": Scene(TARGET_BUSINESS, [W("hold_target_pause"), W("taken_over_okada")] + FULL, lambda c: {
+        "代わった方に全部": played_parts(connect_reply(c))[:3] == ["greeting", "intro", "purpose"],
+        "取り次ぎの間は話さない": plain(said_to(c, "hold_target_pause")) == "",
+        "取り次ぐ方には流さない": not any(x["op"] == "report_party" and x["args"].get("party") == "target"
+                                       and x["callee_turns"] == 1 and x["reply"]["result"] not in ("hold", "wait") for x in ops(c)),
         "答えが取れた": got(c, "Q1", "はい")}),
     "目的の人_名乗らない方": Scene(TARGET_BUSINESS, [W("hold_target"), W("taken_over_unnamed"), W("affirm")] + FULL, lambda c: {
         "確かめた": any(x["reply"]["result"] == "confirm_target" for x in ops(c)),
