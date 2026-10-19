@@ -230,6 +230,9 @@ MAX_ST, MIN_CLARITY = 3.0, 0.84  # 全体の高さは半音3つ以内（4回目�
 # 継ぎ目の直前の声の高さを、02 の同じ所の高さにそろえる（半音1つ以内）。⛔ 4回目の1回目：全体の高さだけで選んだら、継ぎ目で声が跳んだ
 #   （もとの録音の続き方より 2〜7半音。続く言葉の頭＝02 の「しゃ」は高めの声で始まるので、名前の部分の最後の高さが違うと跳ぶ）
 SEAM_S, MAX_SEAM_ST = 0.35, 1.0
+# 継ぎ目の直前の声の大きさも、02 の同じ所にそろえる（3dB 以内）。⛔ 2026-10-19：2回目の ◎01 の名前の部分は、高さは合ったのに 6.2dB 小さく、
+#   継ぎ目で声の大きさが跳んだ（音は加工しない＝合う録音を選ぶ）。4回目の 01・02（2.4〜2.5dB）は ○・◎ をいただいた
+MAX_SEAM_DB = 3.0
 ODD_GAP_S = 0.08   # 名前の部分の中で、これより長い間は不自然（「様でっ、」＝3回目の 08 は 0.16秒）。呼ぶ一言の「の｜」の所は、もとの声の間なので除く
 
 
@@ -266,7 +269,7 @@ def odd_gaps(pcm: bytes, rate: int, end: int, times, before: str) -> list[float]
 async def run4(args) -> dict:
     from common import load_secret
     from ears import soniox_word_times
-    from voice_features import features, read_wav, semitones
+    from voice_features import features, loudness_db, read_wav, semitones
     client = make_client(pick_key(args))
     key = load_secret("SONIOX_API_KEY", args.env)
     out = OUT / "round4"
@@ -277,7 +280,8 @@ async def run4(args) -> dict:
     assert tail_cut is not None, "02 の「っ」の所が見つからない"
     tail = tail_pcm[tail_cut * 2:]
     tail_rate_s = tail_cut / tail_rate
-    seam_base = features(tail_pcm[int((tail_rate_s - SEAM_S) * tail_rate) * 2:tail_cut * 2], tail_rate)["pitch_hz"]
+    seam_part = tail_pcm[int((tail_rate_s - SEAM_S) * tail_rate) * 2:tail_cut * 2]
+    seam_base, seam_base_db = features(seam_part, tail_rate)["pitch_hz"], loudness_db(seam_part)
     items, notes = [], []
     for form, (before, mid) in ROUND4_FORMS.items():
         for name in ROUND3_NAMES:
@@ -292,13 +296,15 @@ async def run4(args) -> dict:
                 f = features(pcm, rate)
                 st = abs(semitones(f["pitch_hz"], base["pitch_hz"])) if f else 99
                 gaps = odd_gaps(pcm, rate, cut, times, before) if cut else None
-                fs = features(pcm[max(0, cut - int(SEAM_S * rate)) * 2:cut * 2], rate) if cut else None
+                before_seam = pcm[max(0, cut - int(SEAM_S * rate)) * 2:cut * 2] if cut else b""
+                fs = features(before_seam, rate) if cut else None
                 seam = abs(semitones(fs["pitch_hz"], seam_base)) if fs else 99
+                seam_db = abs(loudness_db(before_seam) - seam_base_db) if cut else 99
                 note = {"text": text, "try": n + 1, "切れ目": cut is not None, "高さの差（半音）": round(st, 2),
-                        "継ぎ目の前の高さの差（半音）": round(seam, 2), "澄み具合": f and round(f["clarity"], 3), "不自然な間": gaps}
+                        "継ぎ目の前の高さの差（半音）": round(seam, 2), "継ぎ目の前の大きさの差（dB）": round(seam_db, 1), "澄み具合": f and round(f["clarity"], 3), "不自然な間": gaps}
                 notes.append(note)
                 say(form, name, note)
-                if cut is None or gaps or st > MAX_ST or seam > MAX_SEAM_ST or not f or f["clarity"] < MIN_CLARITY:
+                if cut is None or gaps or st > MAX_ST or seam > MAX_SEAM_ST or seam_db > MAX_SEAM_DB or not f or f["clarity"] < MIN_CLARITY:
                     continue
                 if best is None or seam < best[0]:
                     best = (seam, pcm, rate, cut, row, note)

@@ -1486,11 +1486,14 @@ class Flow:
         self._note("ai_question")
         if self.ai_asks == 2:
             self.ai_pending = False
+            # ⛔ 2026-10-19 G-57（三度聞かれる）：3回目に、AIが操作を呼ばずに、この言い方をまねて自分で答えた（6本中6本）⇒ 毎回呼ぶことを添える
+            again = f"また聞かれたら、自分では答えずに、もう一度 replay_opening を「{PART_LABEL['ai']}」で呼びます。"
             if self.play_recordings:
-                return self._continue([{"kind": "recorded", "id": "ai_again", "text": AI_ASKED_AGAIN}], AI_ASKED_AGAIN)
+                r = self._continue([{"kind": "recorded", "id": "ai_again", "text": AI_ASKED_AGAIN}], AI_ASKED_AGAIN)
+                return {**r, "message": f"{r['message']}{again}"}
             r = self._continue([], "")
             return {**r, "say": AI_ASKED_AGAIN, "speak": True,
-                    "message": f"「{AI_ASKED_AGAIN}」とだけ言い（言葉を足しません）、続けて、{r['message']}"}
+                    "message": f"「{AI_ASKED_AGAIN}」とだけ言い（言葉を足しません）、続けて、{r['message']}{again}"}
         self.ai_pending = True
         if self.ai_asks == 1:
             text = self.opening.get("ai") or AI_ANSWER

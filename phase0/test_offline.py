@@ -4072,6 +4072,37 @@ class CallbackTest(unittest.TestCase):
         self.assertIn("request_callback", text)
 
 
+class VoiceFeaturesTest(unittest.TestCase):
+    """名前の録音を継ぐ位置と、名前の部分を選ぶ条件に使う声の数（voice_features。G-58 の4回目）。"""
+
+    @staticmethod
+    def pcm(x):
+        import numpy as np
+        return (np.clip(x, -1, 1) * 32767).astype("<i2").tobytes()
+
+    def test_unvoiced_span_is_found_between_voiced_parts(self):
+        # 声（150Hz の音）・息の音（雑音）・声 ⇒ 息の音の区間だけが、声帯の震えの無い区間（「っし」の「シ」で継ぐため）
+        import numpy as np
+        from voice_features import unvoiced_spans
+        rate = 24000
+        t = np.arange(int(0.4 * rate)) / rate
+        voiced = 0.5 * np.sin(2 * np.pi * 150 * t)
+        noise = 0.2 * np.random.default_rng(0).standard_normal(int(0.15 * rate))
+        spans = unvoiced_spans(self.pcm(np.concatenate([voiced, noise, voiced])), rate)
+        self.assertEqual(len(spans), 1, spans)
+        self.assertAlmostEqual(spans[0][0], 0.4, delta=0.04)
+        self.assertAlmostEqual(spans[0][1], 0.55, delta=0.04)
+
+    def test_loudness_difference_in_db(self):
+        # 同じ音の振幅が半分なら、約6dB 小さい（継ぎ目の前の大きさの差＝g58_name_splice.MAX_SEAM_DB で比べる）
+        import numpy as np
+        from voice_features import loudness_db
+        t = np.arange(24000) / 24000
+        a, b = loudness_db(self.pcm(0.5 * np.sin(2 * np.pi * 150 * t))), loudness_db(self.pcm(0.25 * np.sin(2 * np.pi * 150 * t)))
+        self.assertAlmostEqual(a - b, 6.02, delta=0.05)
+        self.assertEqual(loudness_db(b""), -999.0)
+
+
 class ClipTablesTest(unittest.TestCase):
     """録音を作る表（make_ack_clips）に、どの録音にも読み方と長さの上限がある（⛔ 2026-10-19 の見直しで見つけた漏れ：かけ直しの質問を
     契約者の単位の録音に足したとき、読み方も上限も無く、作ると止まった）。依頼主の単位の録音には「AIですか」への言い方と伝言も入る。"""
