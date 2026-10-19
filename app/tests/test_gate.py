@@ -746,6 +746,45 @@ class CallerNumberAndVoice(Base):
         cur = self.tx(s, lambda tx: recordings.current_sets(tx, s["version"], "Leda"))
         self.assertEqual(cur["business"], sid)
 
+    def test_a_reading_chosen_by_listening_to_recordings_becomes_the_name_reading(self):
+        """読みが決まらない名前は、読みの候補ごとの録音から契約者が聞いて選んだ読みが、その名前の読みになる。同じ名前を別の録音で
+        別の読みに選んだら、承認しない（Intent.md 6-2。CL-2 の連絡帳 4-66 で約束して作っていなかった＝計画書の読み直しで見つけた）。"""
+        from salescall.core import business_settings
+        s = self.ready()
+        vid = support.full_version(self.w, s, content_too=False)
+        raw = support.content()
+        raw["names"].append({"text": "中島", "reading": None, "source": "script", "reading_by": None,
+                             "candidates": ["なかじま", "なかしま"], "likely": "なかじま"})
+        self.tx(s, lambda tx: tx.execute(
+            "INSERT INTO salescall.business_contents (tenant_id, client_id, version_id, content, saved_by)"
+            " VALUES (%s, %s, %s, %s, %s)", (s["tenant"], s["client"], vid, json.dumps(raw, ensure_ascii=False), OPERATOR.name)))
+        name = lambda: next(n for n in self.tx(s, lambda tx: business_settings.load(tx, vid)).names   # noqa: E731
+                            if n.text == "中島")
+        self.assertEqual((name().reading, name().reading_by), (None, None))          # 選ぶまでは、会話の中で確かめる名前
+        part = lambda v, r, p="Q1": recordings.Part(p, f"「{r}」様のご紹介でお電話いたしました。", f"test://{v}/{p}", "4" * 64,   # noqa: E731
+                                                     readings={"中島": r})
+        leda = self.tx(s, lambda tx: recordings.create_set(tx, unit="business", voice_name="Leda", version_id=vid,
+                                                           parts=[part("Leda", "なかしま")]))
+        self.tx(s, lambda tx: recordings.approve(tx, leda), OPERATOR)
+        self.assertEqual((name().reading, name().reading_by, name().candidates), ("なかしま", "recording", ()))
+        other = self.tx(s, lambda tx: recordings.create_set(tx, unit="business", voice_name="Sadachbia", version_id=vid,
+                                                            parts=[part("Sadachbia", "なかじま")]))
+        with self.assertRaises(Rejected) as e:                                     # ほかの声の録音で別の読みに選んだ
+            self.tx(s, lambda tx: recordings.approve(tx, other), OPERATOR)
+        self.assertEqual(e.exception.constraint, "recording_reading_same_across_voices")
+        with self.assertRaises(Rejected) as e:                                     # 同じ組の中で別の読み
+            self.tx(s, lambda tx: recordings.create_set(tx, unit="business", voice_name="Sadachbia", version_id=vid,
+                                                        parts=[part("Sadachbia", "なかじま"), part("Sadachbia", "なかしま", "Q2")]))
+        self.assertEqual(e.exception.constraint, "recording_reading_one_per_name")
+        for bad in ({"田中": "たなか"}, {"株式会社テスト": "てすと"}):           # 版に無い名前・入っている読みと違う読み
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                self.tx(s, lambda tx, bad=bad: recordings.create_set(
+                    tx, unit="business", voice_name="Leda", version_id=vid,
+                    parts=[recordings.Part("Q1", "x", "test://x", "5" * 64, readings=bad)]))
+        with self.assertRaises(ValueError):                                        # 契約者の単位の録音には付けない
+            self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: recordings.create_set(
+                tx, unit="contractor", voice_name="Leda", parts=[part("Leda", "なかしま")]))
+
     def test_caller_number_changes_with_the_client(self):
         self.override("gate.cross_client_interval", 1)
         a = self.ready()

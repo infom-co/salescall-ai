@@ -27,7 +27,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 from uuid import UUID
 
@@ -158,7 +158,8 @@ def _text(v: Any, where: str, problems: list[str], *, optional: bool = False) ->
 
 
 NAME_KEYS = {"text", "reading", "source", "reading_by", "candidates", "likely"}
-NAME_BY = tuple(b for b in READING_BY if b != "conversation")   # 業務設定の名前の読みを決めるもの（会話で確かめるのは発信対象の名前）
+NAME_BY = tuple(b for b in READING_BY if b not in ("conversation", "recording"))   # 業務設定の中身に書く名前の読みを決めるもの
+#   （会話で確かめるのは発信対象の名前。録音で選んだ読みは版の中身に書かず、読むときに `load` が重ねる）
 
 
 def _kana(v: Any) -> bool:
@@ -509,7 +510,13 @@ def load(tx: Tx, version_id: UUID) -> Settings:
     rules = business_rules.load(tx, version_id)
     raw = dict(row["content"], rules=_rules_raw(tx, version_id))
     s = check(raw, field_types=_field_types(tx), ai_reading_needs_person=False)   # 置いた時に確かめ済み（読み・声の型）
-    return Settings(**{**s.__dict__, "rules": rules})
+    # 契約者が録音を聞いて選んだ読み（いま使う録音の組のもの。承認のときに、どの声でも同じ読みと確かめ済み）を重ねる（1か所）
+    chosen = {r["name_text"]: r["reading"] for r in tx.all(
+        "SELECT name_text, reading FROM salescall.version_recording_readings WHERE version_id = %s", (version_id,))}
+    def heard(n: Name) -> Name:
+        r = readings.with_recording(readings.Reading(n.reading, n.reading_by, n.candidates, n.likely), chosen.get(n.text))
+        return replace(n, reading=r.reading, reading_by=r.by, candidates=r.candidates, likely=r.likely)
+    return replace(s, rules=rules, names=tuple(heard(n) for n in s.names), company=heard(s.company), person=heard(s.person))
 
 
 def _rules_raw(tx: Tx, version_id: UUID) -> dict[str, Any]:

@@ -785,6 +785,12 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      " ALTER TABLE salescall.error_events ADD CONSTRAINT error_events_source_check"
      " CHECK (source IN ('ai', 'ear', 'line', 'storage', 'delivery', 'recording', 'supervisor'))",
      ("tests.test_watch.TenantAiStopsAndChecks.test_a_meaning_judge_failure_never_stops_and_is_split_by_what_failed",)),
+    ("同じ名前を、ほかの声の録音で別の読みに選んでも承認する（0099）",
+     "DROP TRIGGER recording_approval_readings ON salescall.recording_approvals",
+     ("tests.test_gate.CallerNumberAndVoice.test_a_reading_chosen_by_listening_to_recordings_becomes_the_name_reading",)),
+    ("同じ録音の組の中で、同じ名前に別の読みを選べる（0099）",
+     "DROP TRIGGER recording_reading_before_insert ON salescall.recording_readings",
+     ("tests.test_gate.CallerNumberAndVoice.test_a_reading_chosen_by_listening_to_recordings_becomes_the_name_reading",)),
     ("行のいちばん古い結果を、いまの結果として読む（0097 で書き直した見方）",
      "CREATE OR REPLACE VIEW salescall.latest_task_results WITH (security_invoker = true) AS"
      " SELECT r.* FROM salescall.task_results r"

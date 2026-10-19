@@ -15,10 +15,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 from uuid import UUID
 
+from salescall.core import business_settings, readings as readings_mod
 from salescall.core.access import Tx
 
 
@@ -29,6 +30,9 @@ class Part:
     spoken_text: str     # 録音の文
     audio_ref: str       # 音声のファイルの置き場の参照
     audio_sha256: str    # 中身の指紋
+    # この録音で選んだ名前の読み（名前の表記 → ひらがな）。読みが決まらない名前を、読みの候補ごとの録音から契約者が聞いて選んだもの
+    # （Intent.md 6-2。依頼者の単位の組だけ）。選んだ読みが、その版の名前の読みになる（business_settings.load が重ねる）
+    readings: dict[str, str] = field(default_factory=dict)
 
 
 HOLD_REASONS = ("verification", "sample")   # 検証モードの通話・誤判定率を測るために抜き取った通話
@@ -82,6 +86,7 @@ def create_set(tx: Tx, *, unit: Literal["contractor", "business"], voice_name: s
         raise ValueError("同じ名前の部分が2つあります")
     if (unit == "business") != (version_id is not None):
         raise ValueError("依頼者の単位の組には業務設定の版を、契約者の単位の組には版を渡しません")
+    chosen = _chosen_readings(tx, parts, version_id)
     set_id = tx.one(
         "INSERT INTO salescall.recording_sets (tenant_id, unit, voice_name, client_id, version_id)"
         " VALUES (salescall.cur_tenant(), %s, %s, CASE WHEN %s = 'business' THEN salescall.cur_client() END, %s)"
@@ -90,7 +95,30 @@ def create_set(tx: Tx, *, unit: Literal["contractor", "business"], voice_name: s
         tx.execute("INSERT INTO salescall.recordings (tenant_id, client_id, set_id, part, spoken_text, audio_ref, audio_sha256)"
                    " SELECT tenant_id, client_id, set_id, %s, %s, %s, %s FROM salescall.recording_sets WHERE set_id = %s",
                    (p.part, p.spoken_text, p.audio_ref, p.audio_sha256, set_id))
+    for part, name, reading in chosen:
+        tx.execute("INSERT INTO salescall.recording_readings (tenant_id, client_id, set_id, part, name_text, reading)"
+                   " SELECT tenant_id, client_id, set_id, %s, %s, %s FROM salescall.recording_sets WHERE set_id = %s",
+                   (part, name, reading, set_id))
     return set_id
+
+
+def _chosen_readings(tx: Tx, parts: list[Part], version_id: UUID | None) -> list[tuple[str, str, str]]:
+    """録音で選んだ読みの確かめ（1か所）：依頼者の単位の組だけ・その版の業務設定にある名前だけ・ひらがな・入口の読み（担当者名など）
+    のある名前は、その読みと同じものだけ（入口の読みがいちばん強い）。(部分, 名前, 読み) の並び。同じ名前を別の読みに選んだかは、
+    データベースが組の中と、ほかの声のいま使う組とで確かめる（0099）。"""
+    out = [(p.part, name, readings_mod.required(r, f"録音「{p.part}」の名前「{name}」の読み「{r}」"))
+           for p in parts for name, r in p.readings.items()]
+    if not out:
+        return out
+    if version_id is None:
+        raise ValueError("録音で選んだ読みは、依頼者の単位（業務設定の版）の録音だけに付けます")
+    names = {n.text: n for n in business_settings.load(tx, version_id).names}
+    for part, name, reading in out:
+        if name not in names:
+            raise ValueError(f"録音「{part}」の名前「{name}」は、この版の業務設定の名前にありません")
+        if names[name].reading_by == "given" and names[name].reading != reading:
+            raise ValueError(f"録音「{part}」の名前「{name}」の読み「{reading}」は、入っている読み「{names[name].reading}」と違います")
+    return out
 
 
 def approve(tx: Tx, set_id: UUID) -> None:
@@ -118,14 +146,12 @@ def ready_voices(tx: Tx, version_id: UUID) -> list[str]:
 
 
 def current_sets(tx: Tx, version_id: UUID, voice_name: str) -> dict[str, UUID | None]:
-    """流すときに使う組（それぞれの単位で、いちばん新しく承認した組）。無ければ None。"""
-    def latest(where: str, args: tuple) -> UUID | None:
-        row = tx.one("SELECT s.set_id FROM salescall.recording_sets s JOIN salescall.recording_approvals p USING (set_id)"
-                     f" WHERE s.voice_name = %s AND s.tenant_id = salescall.cur_tenant() AND {where}"
-                     " ORDER BY p.approved_at DESC, s.created_at DESC LIMIT 1", (voice_name, *args))
-        return None if row is None else row["set_id"]
-    return {"contractor": latest("s.unit = 'contractor'", ()),
-            "business": latest("s.unit = 'business' AND s.version_id = %s", (version_id,))}
+    """流すときに使う組（それぞれの単位で、いちばん新しく承認した組＝データベースの見方 current_recording_sets の1か所。承認のときの
+    読みの確かめも同じ見方）。無ければ None。"""
+    rows = {r["unit"]: r["set_id"] for r in tx.all(
+        "SELECT unit, set_id FROM salescall.current_recording_sets WHERE tenant_id = salescall.cur_tenant() AND voice_name = %s"
+        " AND (unit = 'contractor' OR version_id = %s)", (voice_name, version_id))}
+    return {"contractor": rows.get("contractor"), "business": rows.get("business")}
 
 
 def parts(tx: Tx, set_id: UUID) -> dict[str, Part]:
