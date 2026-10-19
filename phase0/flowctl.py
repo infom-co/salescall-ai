@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 
 from names import hira, quote, unvoiced
 from phrases import AI_ANSWER, AI_ASKED_AGAIN, AMPM_ASK, CALLBACK_ASK, CLOSE_DECLINED, CLOSING, LEAD_IN, NAME_READING_ASK
+from phrases import SILENCE_PROMPT, SILENCE_PROMPT_IDS
 from phrases import ask_again as ask_again_phrase
 from phrases import confirm as confirm_phrase, restate_words
 from phrases import lead_in as lead_in_phrase
@@ -691,6 +692,7 @@ class Flow:
         self.replays = 0
         # 「AIですか？」と聞かれた回数と、決まった言い方（「何か問題でもございましたでしょうか？」）への相手の返事を待っているか（_ai_question）
         self.ai_asks = 0
+        self.ai_said = ""  # エーアイかと聞かれて、いま返事を待っている言い方（_ai_question。_now が見せる）
         self.ai_pending = False
         # 名乗りの録音のうち、相手にまだ届いていない部分（on_opening_cut。録音が最後まで流れたら空）
         self.opening_unheard: list[str] = []
@@ -1469,20 +1471,19 @@ class Flow:
                 "message": f"{done}何も言わずに、相手が話すのを待ちます。相手が話したら、それに答えます（名乗りは繰り返しません）。"}
 
     def _ai_question(self) -> dict:
-        """「AIですか？」「機械ですか？」「人間ですか？」と聞かれたとき（Intent.md 原則8・9-4。唯一の場所）。
-        ✅ 2026-10-19 ユーザー：AIだとは伝えない。人だと言い切るのも問題がある ⇒ 決まった言い方「何か問題でもございましたでしょうか？」
-           （業務設定 ai_answer。無ければ phrases.AI_ANSWER）を流し、相手の返事を待つ。⛔ 打ち消しの「いえ、」は付けない（人だと答えたことになる。
-           Intent.md 9-4）。相手が問題は無いと答えたら、お詫びの相づちのあと、いまの位置へ戻る（_resume）。
+        """「AIですか？」「機械ですか？」「人間ですか？」と聞かれたとき（Intent.md 9-4。唯一の場所）。
+        ✅ 2026-10-19 ユーザー：AIだとは伝えない ⇒ 決まった言い方「何か問題でもございましたでしょうか？」（業務設定 ai_answer。無ければ
+           phrases.AI_ANSWER）を流し、相手の返事を待つ。打ち消しの「いえ、」は付けない。相手が問題は無いと答えたら、お詫びの相づちのあと、
+           いまの位置へ戻る（_resume）。
         重ねて聞かれた（2回目）：✅ 2026-10-19 ユーザー：終えるのは「あまりにも失礼だし、AIだと認めているのと同じ」⇒ 終えずに、決まった言い方
            （phrases.AI_ASKED_AGAIN＝不安にさせたお詫びと、最後まで正確に案内する約束。録音）を言って、いまの位置へ戻る（_continue）。
-           ⛔ 「違います」「人です」は言わない（CL-1 は作らない＝聞いた方に偽りを答えることになる）。
-        3回目：それでも聞かれたら、丁寧に終える（通話の事実の end＝ai_question。同じ問いに3回答えずに続けない）。
-        前の形（「はいエーアイの音声でお電話しております。」のあと、いまの質問の録音）は、この決定でやめた。"""
+        3回目から：✅ 2026-10-19 ユーザー：「2回目だろうと、3回目だろうと、相手に不信感を与えることに変わりないでしょ」⇒ 何回聞かれても終えない。
+           「いかがなさいましたか？」と聞いて、1回目と同じく相手の返事を待つ（DESIGN.md 6-2）。4回目からは「どうなさいましたか？」と交互に
+           （phrases.SILENCE_PROMPT。考えている相手に聞く一言と同じ、承認済みの言い方。同じ言い方を続けない）。
+        ⛔ 前の形（3回目は丁寧に終える）は、この決定でやめた。その前の形（「はいエーアイの音声でお電話しております。」のあと、いまの質問の
+           録音）も、10-19 の決定でやめた。"""
         self.ai_asks += 1
         self._note("ai_question")
-        if self.ai_asks > 2:
-            self.ai_pending = False
-            return self._close("ai_question")
         if self.ai_asks == 2:
             self.ai_pending = False
             if self.play_recordings:
@@ -1491,10 +1492,17 @@ class Flow:
             return {**r, "say": AI_ASKED_AGAIN, "speak": True,
                     "message": f"「{AI_ASKED_AGAIN}」とだけ言い（言葉を足しません）、続けて、{r['message']}"}
         self.ai_pending = True
-        text = self.opening.get("ai") or AI_ANSWER
+        if self.ai_asks == 1:
+            text = self.opening.get("ai") or AI_ANSWER
+            play = {"kind": "opening", "part": "ai", "text": text}
+        else:
+            k = (self.ai_asks - 3) % len(SILENCE_PROMPT)
+            text = SILENCE_PROMPT[k]
+            play = {"kind": "recorded", "id": SILENCE_PROMPT_IDS[k], "text": text}
+        self.ai_said = text
         then = self._now()
         if self.play_recordings:
-            return {"result": "ai_question", "play": [{"kind": "opening", "part": "ai", "text": text}],
+            return {"result": "ai_question", "play": [play],
                     "message": f"「{text}」は、プログラムが録音で流しました（相手にもう聞こえています）。{then}"}
         return {"result": "ai_question", "say": text, "message": f"「{text}」とだけ言います（言葉を足しません）。そのあと、{then}"}
 
@@ -1935,7 +1943,7 @@ class Flow:
         ⛔ 2026-10-13 G-16 の2回目：Q2 の言い直しの返事を待っている間に Q3 を報告され、「いまの質問は Q2 です」とだけ返したため、
            AIは Q2 を最初から聞き直した（言い直しの返事を待っていることが、伝わっていなかった）。"""
         if self.ai_pending:
-            return (f"いまは、エーアイかと聞かれて流した「{self.opening.get('ai') or AI_ANSWER}」への、相手の返事を待っています。何も言わずに"
+            return (f"いまは、エーアイかと聞かれて流した「{self.ai_said}」への、相手の返事を待っています。何も言わずに"
                     f"待ちます。相手が、問題は無いと言ったら（「いえ」「別に」「機械みたいだったので」など）、replay_opening を「{PART_LABEL['resume']}」"
                     f"で呼びます。重ねて聞かれたら（「本当に人ですか」など）、もう一度「{PART_LABEL['ai']}」で呼びます。相手がいまの質問に答えたら、"
                     "その答えを報告します。")
