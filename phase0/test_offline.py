@@ -1948,6 +1948,22 @@ class MeaningJudgeTest(unittest.TestCase):
         self.report(f, "Q1", "はい、予約しています。", "はい", "はい")
         self.assertEqual(f.current, "Q2")
 
+    def test_dont_know_but_judge_cannot_decide_asks_again(self):
+        # ⛔ 2026-10-19 G-55：「10名未満ではないです」（3択）をAIは「わからない」、判定は「決められない」＝答えの一部を言っている ⇒ 聞き直す
+        f = self.flow()
+        self.to_q2(f)
+        r = self.report(f, "Q2", "振込じゃないほうがいいかなとは思いますけど", "unknown", "決められない")
+        self.assertEqual(r["result"], "ask_back")
+        self.assertEqual(f.items["Q2"].state, "unclear")
+        f = self.flow()
+        self.to_q2(f)
+        self.report(f, "Q2", "ちょっと分からないです。", "unknown", "unknown")       # 判定もわからない ⇒ そのまま受け取る
+        self.assertEqual(f.items["Q2"].state, "dont_know")
+        f = self.flow()
+        self.to_q2(f)
+        self.report(f, "Q2", "それはちょっと言えないです。", "refused", "決められない")  # 答えたくない ⇒ 二度と聞かない（当てない）
+        self.assertEqual(f.items["Q2"].state, "refused")
+
     def test_agree_is_taken(self):
         f = self.flow()
         self.report(f, "Q1", "はい、予約しています。", "はい", "はい")
@@ -1986,9 +2002,11 @@ class MeaningJudgeTest(unittest.TestCase):
         self.assertIn("ご予約はお済みということ", r["say"])
 
     def test_no_choice_on_both_sides_is_not_a_clash(self):
-        # どちらも選択肢を選んでいない（わからない と 決められない）：言い直す答えが無い ⇒ AIの答えのまま
+        # どちらも選択肢を選んでいない（わからない と 決められない）：言い直す答えは無いが、⛔ 2026-10-19 G-55 から、最初の答えだけは
+        # 質問から聞き直す（「10名未満ではないです」＝答えの一部を言っている）。2回目の「わからない」は受け取る（何度も聞かない）
         from flowctl import UNDECIDED
         f = self.flow()
+        self.assertEqual(self.report(f, "Q1", "ちょっとわからないです。", "unknown", UNDECIDED)["result"], "ask_back")
         self.report(f, "Q1", "ちょっとわからないです。", "unknown", UNDECIDED)
         self.assertEqual(f.items["Q1"].state, "dont_know")
 

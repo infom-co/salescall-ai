@@ -979,8 +979,10 @@ class Flow:
             if why and q.required and q.type in CHOICE_TYPES and back in q.conditions + (ANY,):
                 # ⛔ 2026-10-17：「いや、これからなんです」「家まだです」（聞き取りは正しい）を、AIが「わからない」と報告し、確かめずに受け取っていた
                 return self._check_again(qid, why, cond, back)
-            if why and q.required:
-                # 言い直す選択肢が無い（聞き取りが食い違う・値を聞く型で答えがあったと判定した）：質問から聞き直す（6-11 の回数の中で）
+            if why and q.required and not (back == cond and it.ask_backs):
+                # 言い直す選択肢が無い（聞き取りが食い違う・値を聞く型で答えがあったと判定した）：質問から聞き直す（6-11 の回数の中で）。
+                # 「わからない」と判定の「決められない」の食い違い（back＝報告のまま）は、最初の答えだけ（2回目の「わからない」は受け取る＝
+                # 本当にわからない方に、何度も聞かない）
                 return self._ask_again(qid, "unclear", f"{why}（AIは「{label(cond)}」と受け取った）")
             return self._take_system(qid, cond)
         after = self.unreported_correction[1] if self.unreported_correction and self.unreported_correction[0] == qid else None
@@ -1070,7 +1072,12 @@ class Flow:
             return reported if reported == "affirmed" else None
         named = meaning in q.conditions or meaning == ANY
         if not named and reported in SYSTEM_CONDITIONS:
-            return None
+            # 「わからない」の報告に、判定が「決められない」（どの選択肢かは決まらないが、わからないとも言っていない）：食い違い＝聞き直す。
+            # ⛔ 2026-10-19 G-55：「10名未満ではないです」（従業員数の3択）を、AIは「わからない」と報告し、2つの判定は「決められない」と読んだのに、
+            #    確かめずに「わからない」で受け取った（相手は答えの一部を言っていた＝依頼主へ「-」）。G-55 で、AIの「わからない」57回のうち、
+            #    判定が「決められない」だったのは2回（これと、本当にわからない1回＝聞き直しが1回増えるだけ）。「答えたくない」には当てない
+            #    （二度と聞かない決まり）
+            return reported if reported == "unknown" and meaning == UNDECIDED and q.type in CHOICE_TYPES else None
         return meaning if named else reported
 
     def _checks(self, q: "Question", reported: str | None, policy: bool = True, confirming: bool = False,
