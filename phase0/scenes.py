@@ -163,7 +163,7 @@ SCENES = {
         "取れた答えは残る": got(c, "Q1", "はい")}),
     "忙しい": Scene(BUSINESS, [W("busy")], lambda c: {
         "急いでいるで締めた": end_reason(c) == "callee_hurry", "締め": closing_of(c) == CLOSE_DECLINED, "約束しない": no_promise(c)}),
-    # ── 「AIですか」・範囲外の質問（原則8・Intent.md 9-4）
+    # ── 「AIですか」・範囲外の質問（Intent.md 9-4）
     "AIですか": Scene(BUSINESS, [W("ai_q"), W("ai_fine")] + FULL, lambda c: {
         # ✅ 2026-10-19 ユーザー：決まった言い方「何か問題でもございましたでしょうか？」の録音だけを流して返事を待ち、問題は無いと言われたら
         # 「失礼いたしました。」のあと、いまの質問の録音（⛔ 前の1回目：AIに答えさせると、3本とも答えたあとに質問に戻らなかった）
@@ -177,6 +177,15 @@ SCENES = {
         # ✅ 2026-10-19 ユーザー：終えるのは失礼 ⇒ お詫びと約束の録音（phrases.AI_ASKED_AGAIN）のあと、いまの質問の録音で続ける。人ともAIとも言わない
         "お詫びと約束のあと質問": any([p.get("id") for p in x["reply"].get("play") or []] == ["ai_again", "Q1"] for x in ops(c)
                                   if x["op"] == "replay_opening"),
+        "終えない": end_reason(c) != "ai_question",
+        "人ともAIとも言わない": not any(HUMAN.search(said(t)) or "AI" in plain(said(t)) for t in c["turns"]), "約束しない": no_promise(c),
+        "続けて答えが取れた": got(c, "Q1", "はい")}),
+    "三度聞かれる": Scene(BUSINESS, [W("ai_q"), W("ai_again"), W("ai_again"), W("ai_fine")] + FULL, lambda c: {
+        # ✅ 2026-10-19 ユーザー：「2回目だろうと、3回目だろうと、相手に不信感を与えることに変わりないでしょ」⇒ 3回目も終えない。
+        # 「いかがなさいましたか？」の録音だけを流して返事を待ち、問題は無いと言われたら、いまの質問の録音で続ける
+        "3回目は聞いて待つ": any([p.get("id") for p in x["reply"].get("play") or []] == ["ikaga"] for x in ops(c) if x["op"] == "replay_opening"),
+        "質問に戻った": any(x["args"].get("part") == "resume" and played_parts(x["reply"]) == ["question"] for x in ops(c)
+                         if x["op"] == "replay_opening"),
         "終えない": end_reason(c) != "ai_question",
         "人ともAIとも言わない": not any(HUMAN.search(said(t)) or "AI" in plain(said(t)) for t in c["turns"]), "約束しない": no_promise(c),
         "続けて答えが取れた": got(c, "Q1", "はい")}),

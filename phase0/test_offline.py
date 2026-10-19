@@ -4171,10 +4171,11 @@ class AIQuestionTest(unittest.TestCase):
         self.assertFalse(f.ai_pending)
         self.assertEqual(f.apply("replay_opening", {"part": "resume"})["result"], "rejected")
 
-    def test_asked_again_continues_then_third_time_closes(self):
+    def test_asked_again_never_closes(self):
         # ✅ 2026-10-19 ユーザー：重ねて聞かれて終えるのは「あまりにも失礼だし、AIだと認めているのと同じ」⇒ お詫びと約束の録音のあと、いまの質問へ。
-        # ⛔「違います」「人です」は言わない。3回目は丁寧に終える
-        from phrases import AI_ASKED_AGAIN, CLOSE_DECLINED
+        # ✅ 同日：「2回目だろうと、3回目だろうと、相手に不信感を与えることに変わりないでしょ」⇒ 3回目からも終えない。「いかがなさいましたか？」
+        #    「どうなさいましたか？」を交互に聞いて、相手の返事を待つ（1回目と同じ）
+        from phrases import AI_ASKED_AGAIN, SILENCE_PROMPT
         f = self.flow()
         f.on_callee(); f.apply("replay_opening", {"part": "ai"})
         f.on_callee(); r = f.apply("replay_opening", {"part": "ai"})               # 「本当に人ですか？」
@@ -4182,9 +4183,14 @@ class AIQuestionTest(unittest.TestCase):
         self.assertEqual((r["play"][0]["text"], f.end_reason, f.current), (AI_ASKED_AGAIN, None, "Q1"))
         for w in ("違います", "人です", "人間", "エーアイ"):
             self.assertNotIn(w, AI_ASKED_AGAIN)
-        f.on_callee(); r = f.apply("replay_opening", {"part": "ai"})               # 3回目
-        self.assertEqual((r["result"], r["play"][0]["text"], f.end_reason), ("end", CLOSE_DECLINED, "ai_question"))
-        self.assertEqual([x["turn"] for x in f.facts["ai_question"]], [1, 2, 3])
+        for n, (rid, text) in enumerate([("ikaga", SILENCE_PROMPT[0]), ("dou", SILENCE_PROMPT[1]), ("ikaga", SILENCE_PROMPT[0])], 3):
+            f.on_callee(); r = f.apply("replay_opening", {"part": "ai"})           # 3回目・4回目・5回目
+            self.assertEqual((r["result"], [(p["kind"], p.get("id"), p["text"]) for p in r["play"]]), ("ai_question", [("recorded", rid, text)]), n)
+            self.assertEqual((f.end_reason, f.ai_pending, f.current), (None, True, "Q1"), n)
+            self.assertIn(f"「{text}」への、相手の返事を待っています", r["message"])
+        f.on_callee(); r = f.apply("replay_opening", {"part": "resume"})           # 「いや、ちょっと気になっただけです。」
+        self.assertEqual((f.end_reason, f.ai_pending, f.current), (None, False, "Q1"))
+        self.assertEqual([x["turn"] for x in f.facts["ai_question"]], [1, 2, 3, 4, 5])
 
     def test_ai_speaking_mode_says_the_same_words(self):
         # AIが話す形（名乗りの録音が無い）でも、言い方はプログラムが渡す（AIに自分で答えさせない）
