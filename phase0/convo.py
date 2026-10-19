@@ -260,6 +260,18 @@ def last_reply(entries: list[dict]) -> str | None:
 ANSWER_AGAIN = {"ask_back": "again", "confirm_target": "if_asked_target"}
 
 
+def answer_again(line, entries: list[dict], n: int) -> tuple[dict | None, int]:
+    """試験の相手役が、次の台詞へ進まずに答え直すか（唯一の場所）：そのターンで受け付けた最後の報告への返事が、聞き返し・目的の人かの確かめで、
+    台詞がその答え直しを持てば、(答え直す台詞, 回数)。そうでなければ (None, 0)＝次の台詞へ。AIの声を止めて言い直させたときも同じ（言い直しを
+    聞いた相手は、聞かれたことに答える。⛔ 2026-10-19 G-62：止めたあとは必ず次の台詞へ進めていたので、言い直した確かめに相手が答えなかった）。
+    ⛔ 本物の相手は、次の台詞へは進まず、聞かれたことに答え直す（2026-10-14 G-36：台本の相手が聞き返しのあとも次の台詞「はい、そうです」
+    「3人です」へ進み、それが日時の答えとして報告された＝試験の作りの誤り）"""
+    key = ANSWER_AGAIN.get(last_reply(entries))
+    if isinstance(line, dict) and key in line and n < MAX_AGAIN:
+        return {"wav": line[key], key: line[key]}, n + 1
+    return None, 0
+
+
 def followup_reason(turn) -> str | None:
     """相手の続きの言葉への返事を、次の台詞を送る前に、もう1回ぶん待つ理由（待たなくてよいなら None）。
     - "cut_in"：相手の言葉の途中で、AIが話し出していた（G-31）
@@ -480,7 +492,8 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                         if ear_info is not None:
                             turns[-1]["ear_check"] = ear_info
                         stop_off_script(log_start, i, turn)
-                        i += 1
+                        again, again_n = answer_again(line, flow.log[log_start:], again_n)
+                        i += again is None
                         break
                     if ear_info is not None:
                         turns[-1]["ear_check"] = ear_info
@@ -497,7 +510,8 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                         await add_turn(follow, {"followup_of": line, "reason": reason}, log_start, i, voice)
                         if follow.off_script:
                             stop_off_script(turn_log_start, i, follow)
-                            i += 1
+                            again, again_n = answer_again(line, flow.log[turn_log_start:], again_n)
+                            i += again is None
                             break
                     spoke = any(t.get("audio_seconds") for t in turns if t["index"] == i and t["session"] == sessions)
                     ops = flow.log[turn_log_start:]
@@ -517,13 +531,9 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                         nudge = await collect_turn(s, started_at=time.monotonic(), on_tool_call=on_tool, timeout_s=followup_wait_s or 8.0,
                                                    on_heard=None)
                         await add_turn(nudge, {"nudge_of": line, "note": note}, log_start, i, voice)
-                    key = ANSWER_AGAIN.get(last_reply(flow.log[turn_log_start:]))
-                    if isinstance(line, dict) and key in line and again_n < MAX_AGAIN:
-                        # 聞き返された・目的の人かを聞かれた：本物の相手は、次の台詞へは進まず、聞かれたことに答え直す（⛔ 2026-10-14 G-36：
-                        # 台本の相手が聞き返しのあとも次の台詞「はい、そうです」「3人です」へ進み、それが日時の答えとして報告された＝試験の作りの誤り）
-                        again, again_n = {"wav": line[key], key: line[key]}, again_n + 1
+                    again, again_n = answer_again(line, flow.log[turn_log_start:], again_n)
+                    if again is not None:
                         continue
-                    again, again_n = None, 0
                     i += 1
     # 通話は終わった：まだ走っている確かめは、届くまで待って同じ決まりで当てる（通話後の検証＝DESIGN.md 6-12 と同じ判定・同じ決まり。
     # Flow.on_check ⇒ _late）。LATE_CHECK_S まで待っても届かないものは止める（届かなかった＝unchecked。通話後の検証でやり直す）。
