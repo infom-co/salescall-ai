@@ -564,8 +564,8 @@ def target_of(tx: Tx, task_id: UUID) -> dict[str, Any]:
 def _open_tasks_missing(tx: Tx, run_id: UUID, needs: TargetNeeds) -> int:
     """その実施回の、まだ終えていない行のうち、目的のお客様を呼ぶ材料が足りない行の数。"""
     rows = tx.all("SELECT t.target_name, t.target_role FROM salescall.tasks t WHERE t.run_id = %s"
-                  " AND coalesce((SELECT n.kind FROM salescall.task_next_actions n WHERE n.task_id = t.task_id"
-                  "               ORDER BY n.seq DESC LIMIT 1) <> 'end', true)", (run_id,))
+                  " AND coalesce((SELECT n.kind FROM salescall.current_next_actions n WHERE n.task_id = t.task_id) <> 'end', true)",
+                  (run_id,))
     return sum(1 for r in rows if needs.missing(name=r["target_name"], role=r["target_role"]) is not None)
 
 

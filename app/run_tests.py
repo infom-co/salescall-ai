@@ -739,6 +739,15 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("時刻ちょうどの約束の回数・日数に0を入れられる（約束を一度もかけずに終える）",
      "ALTER TABLE salescall.setting_values DROP CONSTRAINT setting_values_exact_promise_at_least_one",
      ("tests.test_settle.CallbackWindow.test_exact_promise_counts_cannot_be_zero",)),
+    # 行のいまの予定・回線でかけてよい依頼者を、データベースの1か所で（0094）
+    ("行のいまの予定に、いちばん古い記録を選ぶ",
+     "CREATE OR REPLACE VIEW salescall.current_next_actions WITH (security_invoker = true) AS"
+     " SELECT DISTINCT ON (n.task_id) n.* FROM salescall.task_next_actions n ORDER BY n.task_id, n.seq",
+     ("tests.test_settle.Settle.test_callback_is_a_promised_schedule",)),
+    ("専用の回線で、ほかの依頼者の行もかける",
+     "CREATE OR REPLACE FUNCTION salescall.line_serves(p_line_client uuid, p_client uuid) RETURNS boolean"
+     " LANGUAGE sql IMMUTABLE AS $$ SELECT true $$",
+     ("tests.test_gate.CallerNumberAndVoice.test_caller_number_changes_with_the_client",)),
     ("次の回の決め方に、知らない書き方を入れられる",
      "ALTER TABLE salescall.task_next_actions DROP CONSTRAINT task_next_actions_window_repeat",
      ("tests.test_settle.CallbackWindow.test_a_wrong_repeat_cannot_be_written",)),

@@ -183,8 +183,7 @@ def rejudge(tx: Tx, attempt_id: UUID) -> dict[str, Any] | None:
     作り直した会話の報告・行の項目のどれかが、前の判定と違う）だけ判定する。何も変わっていなければ何もしない（None）。
     判定し直した結果は、結果の版 rejudged として足し、ふつうの締めと同じ道で次の動きを書く。"""
     a = _attempt(tx, attempt_id)
-    held = tx.one("SELECT 1 FROM salescall.task_next_actions n WHERE n.task_id = %s AND n.kind = 'hold'"
-                  " AND n.seq = (SELECT max(m.seq) FROM salescall.task_next_actions m WHERE m.task_id = n.task_id)",
+    held = tx.one("SELECT 1 FROM salescall.current_next_actions WHERE task_id = %s AND kind = 'hold'",
                   (a["task_id"],)) is not None
     last = tx.one("SELECT judge_version, snapshot FROM salescall.task_results WHERE attempt_id = %s"
                   " AND kind IN ('judged', 'rejudged') ORDER BY version_no DESC LIMIT 1", (attempt_id,))
@@ -209,8 +208,7 @@ def rejudge_held(tx: Tx) -> list[dict[str, Any]]:
     for row in tx.all(
             "SELECT (SELECT a.attempt_id FROM salescall.attempts a WHERE a.task_id = n.task_id"
             "        AND a.state NOT IN ('claimed', 'released') ORDER BY a.claimed_at DESC LIMIT 1) AS attempt_id"
-            " FROM salescall.task_next_actions n WHERE n.kind = 'hold'"
-            " AND n.seq = (SELECT max(m.seq) FROM salescall.task_next_actions m WHERE m.task_id = n.task_id)"):
+            " FROM salescall.current_next_actions n WHERE n.kind = 'hold'"):
         got = rejudge(tx, row["attempt_id"])
         if got is not None:
             done.append(got)

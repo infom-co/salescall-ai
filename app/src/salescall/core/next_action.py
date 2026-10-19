@@ -41,8 +41,7 @@ def current(tx: Tx, task_id: UUID) -> dict[str, Any] | None:
     return tx.one(
         "SELECT task_id, seq, kind, call_at, end_reason, cause, promised, contact_id, purpose, wrong_contact_id, callee_at,"
         "       window_until, window_daily, window_days, window_from, window_repeat, window_round, apology_owed, decided_at"
-        " FROM salescall.task_next_actions"
-        " WHERE task_id = %s ORDER BY seq DESC LIMIT 1",
+        " FROM salescall.current_next_actions WHERE task_id = %s",   # いまの予定を選ぶのはデータベースの見方の1か所（0094）
         (task_id,),
     )
 
@@ -121,8 +120,7 @@ def _append(tx: Tx, task_id: UUID, *, call_at: datetime | None, end_reason: str 
         window = replace(window, repeat=None, since=None)
     lock(tx, task_id)  # 同じタスクへの追記を1つずつ順にする（tasks.py の説明）
     if apology is None:   # 約束の日にかけられなかったお詫び：決めなければ、前の予定から引き継ぐ（外すのは、お客様と話せた締めだけ）
-        prev = tx.one("SELECT apology_owed FROM salescall.task_next_actions WHERE task_id = %s ORDER BY seq DESC LIMIT 1",
-                      (task_id,))
+        prev = current(tx, task_id)
         apology = bool(prev and prev["apology_owed"])
     row = tx.one(
         "INSERT INTO salescall.task_next_actions (tenant_id, client_id, task_id, seq, kind, call_at, end_reason, cause,"
@@ -505,16 +503,17 @@ def _retry_at(tx: Tx, task_id: UUID, interval: tuple[str, int], now: datetime, d
 
 
 def _window_opening(tx: Tx, task_id: UUID, after: datetime, window: Window, *,
-                    now: datetime) -> tuple[datetime | None, Window | None]:
+                    now: datetime, exact: bool = False) -> tuple[datetime | None, Window | None]:
     """お客様が言った時間の幅の中で、after（いまより前なら、いま）以降にかけられる最も早い時刻と、そのときの幅（1か所。DESIGN.md
     7-2）。かけてよい時間帯から NG時間を引いた残りを、1日の中の幅・日の種類に絞って探す（幅はお客様が時刻を指定したものでは
     ないので、NG時間は守る）。いまの回 [since, until) の中に無ければ、お客様がその日を選んだ理由（window.repeat）で次の回へ移る。
     回の数（round）は、過ぎた回をすべて数える（話せないまま過ぎた回。かけられる時刻の無い回＝店休日などは数えない）。
     終わりの無い幅（「平日なら」「すぐ」）は、かけられる日の1日を、いまの回にする（話せなければ、次の日の同じ幅）。
     答え：(時刻, その回の幅)／(None, 幅)＝これから先、かけてよい時間帯そのものが無い（設定のその時の形。幅を保ち、確かめ直す）／
-    (None, None)＝約束の回がもう無い（理由の分からない日だけの約束が過ぎた・お客様の幅が、かけてよい時間帯と重ならない）。"""
+    (None, None)＝約束の回がもう無い（理由の分からない日だけの約束が過ぎた・お客様の幅が、かけてよい時間帯と重ならない）。
+    exact＝時刻ちょうどの約束の回（お客様が指定した時刻なので、NG時間を引かない時間帯で探す＝門の callee_at と同じ決まり）。"""
     scope = _scope(tx, task_id)
-    all_hours = gate.calling_hours_for(tx, **scope)
+    all_hours = gate.calling_hours_for(tx, **scope, callee_time=exact)
     hours = calling_hours.restrict(all_hours, window.daily, window.days)
     length = timedelta(seconds=int(settings.resolve(tx, "gate.claim_lifetime", **scope)))
     holiday = holiday_checker(tx)
@@ -573,7 +572,7 @@ def _keep_promise(tx: Tx, task_id: UUID, after: datetime, window: Window, target
     (4) 次の回が無い（理由の分からない日だけの約束が過ぎた・幅がかけてよい時間帯と重ならない）⇒ 日が過ぎてから、時刻の決まって
         いない約束の方針の間隔で（`_window_over`）。かけてよい時間帯そのものが無い ⇒ 幅を保って1日後に確かめ直す（`_no_opening`）。
     (5) 過ぎた回に、一度もかけられなかった ⇒ 次にお客様につながったときに、お詫びから始める（印 apology）。"""
-    at, w2 = _window_opening(tx, task_id, after, window, now=now)
+    at, w2 = _window_opening(tx, task_id, after, window, now=now, exact=exact)
     moved = w2 is None or w2.round > window.round
     skipped = w2 is not None and w2.round > window.round + 1   # 間の回が、かけないまま過ぎた
     apology = True if moved and (skipped or _missed(tx, task_id, window)) else None

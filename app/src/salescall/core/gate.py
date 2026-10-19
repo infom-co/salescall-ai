@@ -141,7 +141,7 @@ def _task(tx: Tx, task_id: UUID, contact_id: UUID | None = None) -> dict[str, An
         " FROM salescall.tasks t"
         " JOIN salescall.runs r ON r.client_id = t.client_id AND r.run_id = t.run_id"
         " JOIN salescall.task_numbers n ON n.task_id = t.task_id AND n.contact_id = coalesce(%s,"
-        "   (SELECT x.contact_id FROM salescall.task_next_actions x WHERE x.task_id = t.task_id ORDER BY x.seq DESC LIMIT 1),"
+        "   (SELECT x.contact_id FROM salescall.current_next_actions x WHERE x.task_id = t.task_id),"
         "   t.contact_id)"
         " WHERE t.task_id = %s", (contact_id, task_id))
     if row is None:
@@ -190,8 +190,7 @@ def _pacing(tx: Tx, task: dict[str, Any], now: datetime, assume_promised: bool |
                      (task["task_id"],))["n"]
     remaining = max(0, int(_setting(tx, "retry.max_attempts_per_task", task)) - counted)
     if assume_promised is None:
-        nxt = tx.one("SELECT promised FROM salescall.task_next_actions WHERE task_id = %s ORDER BY seq DESC LIMIT 1",
-                     (task["task_id"],))
+        nxt = tx.one("SELECT promised FROM salescall.current_next_actions WHERE task_id = %s", (task["task_id"],))
         promised = bool(nxt and nxt["promised"])
     else:
         promised = assume_promised
@@ -339,7 +338,7 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
     # (1) 次の予定（Q4 の記録を読むだけ）
     nxt = tx.one("SELECT kind, call_at, decided_at, purpose, wrong_contact_id, promised, salescall.jst(callee_at) AS callee_at,"
                  "       salescall.jst(window_until) AS window_until, window_daily, window_days, apology_owed"
-                 " FROM salescall.task_next_actions WHERE task_id = %s ORDER BY seq DESC LIMIT 1", (task["task_id"],))
+                 " FROM salescall.current_next_actions WHERE task_id = %s", (task["task_id"],))
     if nxt is None:
         return _deny("no_schedule")
     if nxt["kind"] == "end":
@@ -463,8 +462,8 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
     # ユーザー：「依頼者が違うと、期間に関係なく、声と発信番号は変えた方がいい」「依頼者ごとに発信番号があることがデフォルト。
     # ただし、検証時は発信番号は1つでOK」）。替えられる回線が無いときは、ほかの回線が空くのを待つ（契約者に、依頼者ごとの
     # 発信番号が無いことを知らせる。設定の抜けは注意だけ）
-    if line["client_id"] is not None and line["client_id"] != task["client_id"]:
-        return _deny("line_other_client")
+    if not tx.one("SELECT salescall.line_serves(%s, %s) AS ok", (line["client_id"], task["client_id"]))["ok"]:
+        return _deny("line_other_client")   # 決まりはデータベースの1か所 line_serves（0094）
     if not approval.human_for_business(tx, task["business_id"]) and tx.one(
             "SELECT salescall.line_called_number_elsewhere(%s, %s) AS hit", (line_id, task["phone_e164"]))["hit"]:
         if tx.one("SELECT 1 FROM salescall.lines WHERE client_id = %s LIMIT 1", (task["client_id"],)) is None:

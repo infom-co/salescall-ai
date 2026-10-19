@@ -25,8 +25,8 @@ def clients_for_line(tx: Tx, line_id: UUID) -> list[UUID]:
     if line is None:
         return []
     return [r["client_id"] for r in tx.all(
-        "SELECT client_id FROM salescall.clients WHERE tenant_id = %s AND (%s::uuid IS NULL OR client_id = %s)"
-        " AND salescall.client_active(client_id) ORDER BY created_at", (line["tenant_id"], line["client_id"], line["client_id"]))]
+        "SELECT client_id FROM salescall.clients WHERE tenant_id = %s AND salescall.line_serves(%s, client_id)"
+        " AND salescall.client_active(client_id) ORDER BY created_at", (line["tenant_id"], line["client_id"]))]
 
 
 def due_tasks(tx: Tx, limit: int, *, skip_businesses: set[UUID] | frozenset[UUID] = frozenset(),
@@ -40,8 +40,8 @@ def due_tasks(tx: Tx, limit: int, *, skip_businesses: set[UUID] | frozenset[UUID
     return tx.all(
         "SELECT t.task_id, r.business_id FROM salescall.tasks t"
         " JOIN salescall.runs r ON r.client_id = t.client_id AND r.run_id = t.run_id"
-        " JOIN LATERAL (SELECT n.kind, n.call_at, n.promised FROM salescall.task_next_actions n WHERE n.task_id = t.task_id"
-        "               ORDER BY n.seq DESC LIMIT 1) n ON true"
+        " JOIN LATERAL (SELECT c.kind, c.call_at, c.promised FROM salescall.current_next_actions c WHERE c.task_id = t.task_id) n"
+        "   ON true"   # 行ごとに索引で読む（いまの予定を選ぶのはデータベースの見方の1か所＝0094）
         " WHERE n.kind = 'call' AND n.call_at <= now()"
         "   AND NOT salescall.task_awaiting_decision(t.task_id) AND NOT salescall.task_excluded_now(t.task_id)"
         "   AND NOT EXISTS (SELECT 1 FROM salescall.attempts a WHERE a.task_id = t.task_id AND salescall.is_active(a.state))"

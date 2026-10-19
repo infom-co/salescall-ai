@@ -557,6 +557,17 @@ class CallbackWindow(SettleBase):
         over = self.tx(s, lambda tx: next_action._keep_promise(tx, s["task"], last.until, last, target, now=now, exact=True))
         self.assertEqual((over.kind, over.end_reason), ("end", "callback_exact_unreached"))   # 3日目にも話せなければ打ち止め
 
+    def test_an_exact_time_promise_in_the_ng_hours_keeps_its_time(self):
+        """お客様がNG時間の中の時刻（「12時に」）を指定した約束：回の中のかけられる時刻を、NG時間を引かずに探す（お客様が指定した
+        時刻はNG時間でもかけてよい＝2026-10-15 ユーザー。⚠️ 引いて探すと「かけられる時刻が無い」と読んだ＝2026-10-19 の見直し）。"""
+        s = self.ready()
+        self.put_client(s, "calling.ng_hours", {k: [["00:00", "24:00"]] for k in KEYS})   # どの時刻もNG時間
+        t = self.tx(s, lambda tx: tx.one("SELECT date_trunc('minute', now()) + interval '2 hours' AS t")["t"])
+        now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
+        d = self.tx(s, lambda tx: next_action._keep_promise(
+            tx, s["task"], t, next_action._exact_window(tx, s["task"], t), next_action.Target(s["contact"]), now=now, exact=True))
+        self.assertEqual((d.kind, d.at, d.callee_at), ("call", t, t))
+
     def test_exact_promise_counts_cannot_be_zero(self):
         """時刻ちょうどの約束の回数・日数・時間は1以上（0なら約束を一度もかけずに終えてしまう。データベースが守る＝0093）。"""
         s = self.ready()
