@@ -105,6 +105,12 @@ def unvoiced_spans(pcm16: bytes, rate: int, min_s: float = 0.03) -> list[tuple[f
     return spans
 
 
+def loudness_db(pcm16: bytes) -> float:
+    """声の大きさ（全体の2乗平均の dB。もとの音の数のまま＝比べるのは、同じ録音の仕組みで作った録音どうし）。"""
+    x = np.frombuffer(pcm16, dtype="<i2").astype(np.float64)
+    return float(20 * np.log10(np.sqrt((x ** 2).mean()) + 1e-9)) if len(x) else -999.0
+
+
 def semitones(a_hz: float, b_hz: float) -> float:
     """a が b より何半音高いか。"""
     return 12 * math.log2(a_hz / b_hz)
