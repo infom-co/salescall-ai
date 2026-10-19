@@ -69,7 +69,7 @@ class Windows(unittest.TestCase):
 
     def test_days_without_a_time(self):
         """日だけの約束（「明日ならいつでも」「13日であれば、そちらのご都合で」「来週」「月末」など）は、その日のいつでも
-        （daily は無い＝時間の言葉が無い。日が過ぎたら契約者の間隔＝案A）。"""
+        （daily は無い＝時間の言葉が無い。理由の分からない日は、日が過ぎたら時刻の決まっていない約束の方針）。"""
         cases = {
             "明日ならいつでも": (at(2026, 10, 15), at(2026, 10, 16)),
             "13日であれば、そちらのご都合で": (at(2026, 11, 13), at(2026, 11, 14)),
@@ -301,7 +301,7 @@ class NotGuessed(unittest.TestCase):
             with self.subTest(text=text):
                 r = read(text, NOW)
                 self.assertEqual((r.kind, r.start, r.end), two_three)
-        for text in ("1・2時", "明日の1.2時", "1,2時間後", "明日の一二時", "二四日後"):
+        for text in ("1・2時", "明日の1.2時", "1,2時間後", "明日の一二時", "二四日後", "十十日", "二十十日"):   # 読めない書き方で落ちない
             with self.subTest(text=text):
                 r = read(text, NOW)
                 self.assertIn(r.kind, (UNREADABLE, CONFIRM))

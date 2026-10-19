@@ -42,7 +42,6 @@ from salescall.core.access import Tx
 # 材料（録音の印の理由と同じ名前）。本番で契約者が気づいて直したもの（correction）は、気づいたものだけ＝偏った材料なので、記録は
 # するが誤判定率には混ぜない。
 SOURCES = ("verification", "sample", "correction")
-MEASURED = ("verification", "sample")
 DRAW_AFTER = timedelta(days=1)          # 週の終わりから、これだけあけて選ぶ（その週の通話の締めが済むのを待つ）
 METHOD = "前の週（日本時間の月曜〜日曜）の、お客様と話せた本番の通話（会話に入った・お詫びの電話でない・検証モードでない・判定した版がある）から、乱数の種で無作為に選んだ"
 SYSTEM_KINDS = ("judged", "rejudged")   # システムが判定した版（正解を付ける相手）

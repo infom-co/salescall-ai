@@ -274,8 +274,8 @@ class Rounds(SupervisorBase):
         u = self.ready(tenant=s["tenant"])                                     # 共有の回線が3本
         now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
         for x in (t, u):
-            self.tx(x, lambda tx, x=x: next_action.schedule_call(tx, x["task"], now + timedelta(hours=1),
-                                                                 contact_id=x["contact"], cause="試験", promised=True))
+            self.tx(x, lambda tx, x=x: next_action.schedule_call(tx, x["task"], now, contact_id=x["contact"], cause="試験",
+                                                                 promised=True))   # 今日の約束（夜中でも日をまたがない）
         self.put_client(s, "line.max_dials_per_day", 2)
         c = self.claim(s)
         self.assertIsInstance(c, gate.Claim)                                   # 約束2つを3本で分ける：この回線の分は1

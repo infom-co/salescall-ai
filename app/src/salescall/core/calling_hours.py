@@ -24,13 +24,14 @@ def day_key(d: date, is_holiday: Callable[[date], bool]) -> str:
     return "holiday" if is_holiday(d) else DAY_KEYS[d.weekday()]
 
 
-def _seconds(hhmm: str) -> int:
+def clock_seconds(hhmm: str) -> int:
+    """設定の時刻（"HH:MM"。24:00 まで）を、0時からの秒にする（1か所。時間帯・お客様の営業時間・言葉ごとの幅が使う）。"""
     h, m = hhmm.split(":")
     return int(h) * 3600 + int(m) * 60
 
 
 def _ranges(hours: dict, key: str) -> list[tuple[int, int]]:
-    return [(_seconds(a), _seconds(b)) for a, b in hours[key]]
+    return [(clock_seconds(a), clock_seconds(b)) for a, b in hours[key]]
 
 
 def _of_day(t: datetime) -> float:

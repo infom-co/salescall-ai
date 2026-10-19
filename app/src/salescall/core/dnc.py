@@ -137,6 +137,14 @@ def register_declared(tx: Tx, attempt_id: UUID) -> dict[str, Any]:
     return register(tx, a["phone_e164"], "refused_in_call", source_attempt_id=attempt_id, in_call=True)
 
 
+def refused_in(tx: Tx, attempt_id: UUID, reason: Reason) -> bool:
+    """その通話の拒否が、台帳に入っているか（1か所。refused_in_call＝通話の途中の申告／refused_found_after＝通話後の検証が
+    聞き逃しを見つけた）。取り消した登録は数えない（取り消し＝契約者が誤りと確かめた。数えると、判定し直しで「発信の拒否」に
+    戻り、取り消した番号を締めがまた止めた）。"""
+    return tx.one("SELECT 1 FROM salescall.dnc_entries WHERE source_attempt_id = %s AND reason = %s"
+                  " AND revoked_at IS NULL LIMIT 1", (attempt_id, reason)) is not None
+
+
 def active(tx: Tx, numbers: list[str], refs: list[str], *, contractor: bool = False) -> tuple[set[str], set[str]]:
     """そのうち、もう止まっている（取り消されていない登録がある）番号と管理番号。contractor＝契約者の共通の台帳で見る
     （依頼者の台帳と契約者の台帳は別の登録。片方にあっても、もう片方の登録は要る）。"""

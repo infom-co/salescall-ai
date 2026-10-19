@@ -46,7 +46,7 @@ from salescall.core.business_rules import Rules
 from salescall.core.call_report import CallReport
 
 # 判定の決まりの版（変えたら上げる）。かけ直しの時刻の読み方の版も入れる（読み方を直すと、判定待ちの行が判定し直される＝settle.rejudge）
-JUDGE_VERSION = f"judge-2026-10-19.7+time-{spoken_time.VERSION}"
+JUDGE_VERSION = f"judge-2026-10-19.8+time-{spoken_time.VERSION}"
 # 「判定できない」の原因の名前（同じ原因かを数える単位）と意味。プログラムの誤りか（直す担当へ修正依頼を出し、管理者にも
 # 知らせる＝確かめ・承認のため。2026-10-16・10-17 ユーザー）も、ここで決まる（1か所）。業務設定の抜けは契約者が直す（いまは無い：業務の決まりは、必須の質問ごとに、
 # 決まった理由のすべてに扱いが無いと保存できない＝business_rules。2026-10-16 見直し：前は「理由×扱いが決まらない」を業務設定の
@@ -267,7 +267,7 @@ def _business(inp: JudgeInput) -> Judgement:
     human = bool(r and any(p in HUMAN_PARTIES for p in r.parties))
     conversation = inp.facts.reached_answer and human
     # (8) お客様と話したが、目的のお客様に繋がらなかった
-    if conversation and "target" not in r.parties:
+    if conversation and not r.reached_target:
         if r.not_reached is None:
             return unknown("not_reached_reason_missing", "目的のお客様に繋がらなかった理由がありません")
         return done("not_reached", not_reached=r.not_reached, policy_key="not_reached_" + r.not_reached)

@@ -387,7 +387,6 @@ BASE = "salescall-backup"
 AI, SUBMISSION, RECORDING = "AI", "submission", "recording"
 WHOLE = "system"                                                    # データベース全体の控えのフォルダ（依頼者のフォルダには使えない名前）
 _DATED = re.compile(r"^salescall-(\d{8})-(\d{6})[.-].*\.enc$")      # 控えのファイルの名前（日時つき。消す決まりはこの名前だけを見る）
-_UNSAFE = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
 # 会社の種類の言葉（フォルダの名前には入れない。2026-10-17 ユーザー：「架空商事-本社」だけでいい）。文字の形をそろえた（NFKC）あとの形で書く
 _COMPANY_KINDS = re.compile(
     r"(株式|有限|合同|合資|合名)会社|(一般|公益)(社団|財団)法人|特定非営利活動法人|NPO法人"

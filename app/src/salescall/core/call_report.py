@@ -131,6 +131,11 @@ class CallReport:
         return tuple(p.party for p in self.party_reports)
 
     @property
+    def reached_target(self) -> bool:
+        """目的のお客様と話せたか（1か所。判定の「目的のお客様に繋がらなかった」と、約束の日のお詫びの印を外す締めが読む）。"""
+        return "target" in self.parties
+
+    @property
     def callback(self) -> Callback | None:
         return self.callbacks[-1] if self.callbacks else None
 

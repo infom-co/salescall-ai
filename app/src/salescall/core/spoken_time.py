@@ -7,9 +7,9 @@
 **読み方（2026-10-19 ユーザー決定）**：時刻の言葉は「かけてよい時間の幅」として読む（「夕方」「3時まで」も、それに合わせてかける。
 「明日なら、いつでも」「13日であれば、そちらのご都合で」「来週」「月末」「週中」「しあさって」なども読む）。答えは5つ：
 - `AT`（ちょうどの時刻）：「明日の午後3時」「正午」「30分後」。お客様が自分で指定した時刻なので、その時刻を含むNG時間の枠でもかけてよい。
-- `WINDOW`（幅）：start〜end（end＝その時刻より前。None＝終わり無し）、1日の中の幅 daily（時間の言葉があるときだけ。次の日の
-  同じ幅にかけ直すのに使う＝案A）、日の種類 days（「平日」「土日祝」などのときだけ。かけてよい日の鍵＝calling_hours の曜日・
-  祝日の鍵）。幅の中でも、かけてよい時間帯・NG時間は守る（お客様は時刻を指定していない）。「すぐ」「なるべく早く」は、いまから
+- `WINDOW`（幅）：start〜end（end＝その時刻より前。None＝終わり無し）、1日の中の幅 daily（時間の言葉があるときだけ）、
+  話せなかったときの次の回の決め方 repeat（お客様がその日を選んだ理由。下の DAY_REPEAT ほか）、日の種類 days（「平日」
+  「土日祝」などのときだけ。かけてよい日の鍵＝calling_hours の曜日・祝日の鍵）。幅の中でも、かけてよい時間帯・NG時間は守る（お客様は時刻を指定していない）。「すぐ」「なるべく早く」は、いまから
   終わり無しの幅（2026-10-14 ユーザー「『なるべく早く』は『即』」）。
 - `UNSPECIFIED`：時刻をこちらに任せる答え（「いつでも」「そちらのご都合で」「あとで」「後ほど」だけ）・時刻を聞けなかった ⇒
   時刻の決まっていない約束（契約者が決めた再発信の方針の間隔。⚠️「あとで」と言われたお客様に、すぐかけ直さない）。
@@ -36,12 +36,14 @@ import unicodedata
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 
+from salescall.core.calling_hours import clock_seconds
+
 # 読み方の版（読み方を変えたら上げる）。判定の版（judge.JUDGE_VERSION）に入る＝上げると、読めなかった「判定待ち」の行が判定し直される
 VERSION = "7"
 JST = timezone(timedelta(hours=9))
 AT, WINDOW, UNSPECIFIED, CONFIRM, UNREADABLE = "at", "window", "unspecified", "confirm", "unreadable"
 # 幅の中でお客様と話せなかったときの、次の回（お客様がその日を選んだ理由に合わせる。2026-10-19 ユーザー決定）：
-# DAY＝時間の言葉（「夕方」「3時以降」）・日の種類だけ（「平日なら」）・「すぐ」⇒ 次の日の同じ幅（案A）／WEEK＝曜日・週末・週中・
+# DAY＝時間の言葉（「夕方」「3時以降」）・日の種類だけ（「平日なら」）・「すぐ」⇒ 次の日の同じ幅／WEEK＝曜日・週末・週中・
 # 週明け（「金曜なら」「週末なら」）⇒ 次の週の同じ日／"month:..."＝月の中の日・頃は、月の理由（月ぎめの業務・入金の間隔など。
 # 会話の報告の callback.cycle＝month）があるときだけ ⇒ 次の月の同じ日・頃（ユーザー：「たまたま希望日が月末・月の初め・上旬に
 # あたった場合が多い」）／None＝理由の分からない日（「13日」「明日」「3日後」「来週」）⇒ 時刻の決まっていない約束の方針
@@ -70,7 +72,7 @@ def periods_from(ranges: dict[str, tuple[int, int]]) -> dict[str, tuple[int, int
 
 def range_seconds(value: list[str]) -> tuple[int, int]:
     """設定の時刻の範囲（["16:00", "18:00"]）を秒にする。終わりが始まり以前なら、その日の終わりまで（日をまたいでは読まない）。"""
-    s0, s1 = (int(v[:2]) * H + int(v[3:]) * 60 for v in value)
+    s0, s1 = (clock_seconds(v) for v in value)
     return s0, s1 if s1 > s0 else DAY
 
 
@@ -186,8 +188,8 @@ def _kanji_number(m: re.Match) -> str:
             return f"{digits[0]}〜{digits[1]}"
         return s
     tens, _, ones = s.partition("十")
-    if len(tens) > 1 or len(ones) > 1:
-        return s                                   # 決まりに無い書き方：そのまま残す（読めない）
+    if len(tens) > 1 or len(ones) > 1 or "十" in ones:
+        return s                                   # 決まりに無い書き方（「十十」など）：そのまま残す（読めない）
     return str((_KANJI[tens] if tens else 1) * 10 + (_KANJI[ones] if ones else 0))
 
 

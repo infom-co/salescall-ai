@@ -21,9 +21,9 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from salescall.core import (apology, approval, attempts, business_rules, call_report, dnc, fix_requests, next_action, notify,
-                            number_recheck, quality_stage, results, settings, spoken_time, target_policy, tasks,
-                            usage)
+from salescall.core import (apology, approval, attempts, business_rules, call_report, calling_hours, dnc, fix_requests,
+                            next_action, notify, number_recheck, quality_stage, results, settings, spoken_time, target_policy,
+                            tasks, usage)
 from salescall.core.access import Tx
 from salescall.core.judge import (JUDGE_VERSION, UNKNOWN_CAUSE_FIXERS, UNKNOWN_CAUSES, Facts, Item, JudgeInput, Judgement,
                                   cut_off as judge_cut_off, judge, refusal)
@@ -47,6 +47,9 @@ def unsettled(tx: Tx) -> list[dict[str, Any]]:
 _ATTEMPT = (
     "SELECT a.attempt_id, a.task_id, a.tenant_id, a.client_id, a.state, a.hangup_side, a.verification, a.disconnect,"
     "       a.version_id, a.contact_id, a.phone_e164, a.purpose, a.wrong_contact_id, a.claimed_at, a.ended_at,"
+    # お客様が言った「明日」「30分後」の起点＝通話の終わり。会話の処理が報告をしまった時刻のほうが早ければ、そちら（途中の誤りで
+    # 終わった通話は、見守り役が後始末した時刻が終わりになり、何時間もずれる＝2026-10-19 の見直し）
+    "       least(a.ended_at, (SELECT c.saved_at FROM salescall.call_reports c WHERE c.attempt_id = a.attempt_id)) AS spoken_at,"
     "       salescall.reached_answer(a.attempt_id) AS reached_answer,"
     "       t.client_ref, t.run_id, r.business_id"
     " FROM salescall.attempts a"
@@ -116,7 +119,8 @@ def _settle_apology(tx: Tx, a: dict[str, Any]) -> dict[str, Any]:
     stop_reason = f"apology_{j.dnc_reason}" if j is not None and j.dnc_reason in ("wrong_party", "fax_line") else None
     _notice_forbidden(tx, a, prepare=False)
     decision = next_action.after_apology(tx, a["task_id"], delivered=delivered, refused=refused, stop_reason=stop_reason,
-                                         dialed=next_action.Target(a["contact_id"], None, "apology", None))
+                                         dialed=next_action.Target(a["contact_id"], None, "apology", None),
+                                         reached_target=report is not None and report.reached_target)
     if decision.kind == "end":
         notify.emit(tx, "apology", key=f"apology:{attempt_id}",
                     summary={"apology_done": "お詫びを伝えました。",
@@ -170,8 +174,8 @@ def _inputs_now(tx: Tx, a: dict[str, Any]) -> dict[str, Any]:
     return {"judge_version": JUDGE_VERSION, "rules_version": str(version),
             "report_source": call_report.load_with_source(tx, a["attempt_id"])[1],
             "items": _items_snapshot(_items(tx, a["task_id"])),
-            "refused_after": _refused_after(tx, a["attempt_id"]),   # 検証があとで拒否を見つけた（2026-10-17 の見直し）
-            "declared_in_call": _declared_in_call(tx, a["attempt_id"])}   # 通話の途中の申告（2026-10-19 の見直し）
+            "refused_after": dnc.refused_in(tx, a["attempt_id"], "refused_found_after"),   # 検証があとで拒否を見つけた（2026-10-17 の見直し）
+            "declared_in_call": dnc.refused_in(tx, a["attempt_id"], "refused_in_call")}   # 通話の途中の申告（2026-10-19 の見直し）
 
 
 def rejudge(tx: Tx, attempt_id: UUID) -> dict[str, Any] | None:
@@ -213,40 +217,23 @@ def rejudge_held(tx: Tx) -> list[dict[str, Any]]:
     return done
 
 
-def _refusal_in_ledger(tx: Tx, attempt_id: UUID, reason: str) -> bool:
-    """その通話の拒否が、発信禁止の台帳に入っているか（1か所）。取り消した登録は数えない（取り消し＝契約者が誤りと確かめた。
-    数えると、判定し直しで「発信の拒否」に戻り、取り消した番号を締めがまた止めた）。"""
-    return tx.one("SELECT 1 FROM salescall.dnc_entries WHERE source_attempt_id = %s AND reason = %s"
-                  " AND revoked_at IS NULL LIMIT 1", (attempt_id, reason)) is not None
-
-
-def _refused_after(tx: Tx, attempt_id: UUID) -> bool:
-    """通話後の検証が、その通話の拒否の聞き逃しを見つけて登録したか。"""
-    return _refusal_in_ledger(tx, attempt_id, "refused_found_after")
-
-
-def _declared_in_call(tx: Tx, attempt_id: UUID) -> bool:
-    """その通話の途中で「もうかけないで」と申告され、その場で台帳に入れたか（dnc.register_declared）。"""
-    return _refusal_in_ledger(tx, attempt_id, "refused_in_call")
-
-
 def _judge_input(tx: Tx, a: dict[str, Any], rules_version: Any) -> tuple[JudgeInput, str | None, dict[str, Any]]:
     """判定の入力を集める1か所（ふつうの締め・判定し直し・お詫びの電話の締め）。"""
     attempt_id = a["attempt_id"]
     report, report_source = call_report.load_with_source(tx, attempt_id)
-    refused_after = _refused_after(tx, attempt_id)
+    refused_after = dnc.refused_in(tx, attempt_id, "refused_found_after")
     unclear_is_refusal = bool(settings.resolve(tx, "judge.unclear_disconnect_is_refusal", tenant_id=a["tenant_id"],
                                                client_id=a["client_id"], business_id=a["business_id"]))
     dialed = number_recheck.dialed(tx, attempt_id)
     get = lambda key: settings.resolve(tx, key, tenant_id=a["tenant_id"], client_id=a["client_id"],   # noqa: E731
                                        business_id=a["business_id"])
-    seconds = lambda hhmm: int(hhmm[:2]) * 3600 + int(hhmm[3:]) * 60   # noqa: E731
     open_, close = get("callee.business_hours")   # お客様の営業時間（午前・午後を決める。日をまたいでよい）
     periods = spoken_time.periods_from({k: spoken_time.range_seconds(get(key))     # 言葉ごとの幅（依頼者ごとの設定。0088）
                                         for k, key in spoken_time.PERIOD_SETTINGS.items()})
-    inp = JudgeInput(Facts(a["state"], a["hangup_side"], a["reached_answer"], dialed["source"] == "callee", a["ended_at"]),
+    inp = JudgeInput(Facts(a["state"], a["hangup_side"], a["reached_answer"], dialed["source"] == "callee", a["spoken_at"]),
                      report, _items(tx, a["task_id"]), business_rules.load(tx, rules_version), refused_after,
-                     unclear_is_refusal, (seconds(open_), seconds(close)), periods, _declared_in_call(tx, attempt_id))
+                     unclear_is_refusal, (calling_hours.clock_seconds(open_), calling_hours.clock_seconds(close)), periods,
+                     dnc.refused_in(tx, attempt_id, "refused_in_call"))
     return inp, report_source, dialed
 
 
@@ -294,7 +281,7 @@ def _judge_and_write(tx: Tx, a: dict[str, Any], *, kind: str, rules_version: Any
         tx, a["task_id"], j, rules=rules,
         dialed=next_action.Target(a["contact_id"], None, a["purpose"], a["wrong_contact_id"]), dialed_at=a["claimed_at"],
         alternate=alternate, recheck=recheck, forbidden=forbidden, cut_off=cut_off,
-        reached_target=report is not None and "target" in report.parties)   # 目的のお客様と話せた（約束の日のお詫びは済んだ）
+        reached_target=report is not None and report.reached_target)   # 目的のお客様と話せた（約束の日のお詫びは済んだ）
     return {"version_no": version_no, "state": j.state, "decision": decision, "already": False}
 
 

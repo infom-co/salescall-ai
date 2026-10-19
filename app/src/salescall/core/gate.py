@@ -83,10 +83,10 @@ REASONS: dict[str, tuple[str, str]] = {
     "setting_missing": ("設定の値が決まっていません", "cannot_judge"),
 }
 
-_DIALED = "state NOT IN ('claimed', 'released')"   # 発信まで進んだ試行（回数・間隔に数えるのは、これだけ。5-2-1 の8）
+DIALED = "state NOT IN ('claimed', 'released')"   # 発信まで進んだ試行（回数・間隔に数えるのは、これだけ。5-2-1 の8）
 # 同じお客様への最小の間隔・1日の回数に数える発信：お客様の意思と関係なく繋がらなかった・切れたものは数えない（2026-10-14 ユーザー決定。
 # 決まりはデータベースの1か所 salescall.not_by_callee）
-_COUNTED = _DIALED + " AND NOT salescall.not_by_callee(state, disconnect, attempt_id)"
+_COUNTED = DIALED + " AND NOT salescall.not_by_callee(state, disconnect, attempt_id)"
 # 行の回数の上限・1日の回数に数える発信：上に加えて、お客様と約束したかけ直しは数えない（2026-10-14 ユーザー：「かけ直しの約束を
 # 相手側にした場合やかけ直しを依頼された場合は対象外」。2026-10-17 の計画書との突き合わせ：前は約束したかけ直しを止めないだけで、
 # かけたあとは回数に数えていたので、そのあとのふつうのかけ直しが減った）。最小の間隔は、約束したかけ直しも起点に数える（歯止め）
@@ -245,7 +245,7 @@ def purpose_dials(tx: Tx, task_id: UUID, *, purpose: str) -> list[PurposeDial]:
     return [PurposeDial(r["t"], r["e"], r["counted"]) for r in tx.all(
         f"SELECT salescall.jst(claimed_at) AS t, salescall.jst(coalesce(ended_at, claimed_at)) AS e, ({_COUNTED}) AS counted"
         f" FROM salescall.attempts"
-        f" WHERE task_id = %s AND purpose = %s AND {_DIALED} ORDER BY claimed_at", (task_id, purpose))]
+        f" WHERE task_id = %s AND purpose = %s AND {DIALED} ORDER BY claimed_at", (task_id, purpose))]
 
 
 # 依頼者専用の発信番号が無いときの注意（2026-10-17 ユーザー決定の文。設定する場所は、画面の依頼者タブの「回線（発信番号）」＝CL-3）。
@@ -267,7 +267,7 @@ def choose_voice(tx: Tx, task: dict[str, Any], version_id: UUID, business_voice:
     話してよい声が無い・別の声が無いときは、通さずに待つ（発信番号を替えられないときと同じ）。契約者に知らせる（止めない）。"""
     ready = recordings.ready_voices(tx, version_id)
     types = {r["code"]: r for r in tx.all("SELECT code, voice_name, default_for_voice FROM salescall.voice_types")}
-    mine = tx.one(f"SELECT voice_type FROM salescall.attempts WHERE task_id = %s AND voice_type IS NOT NULL AND {_DIALED}"
+    mine = tx.one(f"SELECT voice_type FROM salescall.attempts WHERE task_id = %s AND voice_type IS NOT NULL AND {DIALED}"
                   " ORDER BY claimed_at DESC LIMIT 1", (task["task_id"],))   # お客様が聞いた声だけ（発信しなかった予約は数えない）
     if mine is not None and types[mine["voice_type"]]["voice_name"] in ready:
         return mine["voice_type"]
@@ -418,7 +418,7 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
     if not calling_hours.allowed(hours, ng, holiday_checker(tx), local, local + lifetime, callee_at=nxt["callee_at"]):
         return _deny("outside_hours")
     # (6b) お客様が言ったかけ直しの時間の幅（「夕方」「3時まで」など。2026-10-19 ユーザー。表の作り 0086）：幅の外ではかけない。
-    #      幅の決まりは calling_hours.in_window の1か所。次の幅（次の日の同じ幅＝案A）は次の動きが決める
+    #      幅の決まりは calling_hours.in_window の1か所。話せなかったときの次の回（お客様がその日を選んだ理由に合わせる）は次の動き（`_keep_promise`）が決める
     if not calling_hours.in_window(local, nxt["window_until"],
                                    None if nxt["window_daily"] is None else tuple(nxt["window_daily"]),
                                    None if nxt["window_days"] is None else tuple(nxt["window_days"]), holiday_checker(tx)):

@@ -20,6 +20,7 @@ import json
 from typing import Any, Literal
 from uuid import UUID
 
+from salescall.core import calling_hours
 from salescall.core.access import Tx
 
 _DAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun", "holiday")
@@ -153,8 +154,7 @@ def _layers(tx: Tx, key: str, tenant_id: UUID | None, client_id: UUID | None,
 
 
 def _minutes(hhmm: str) -> int:
-    h, m = hhmm.split(":")
-    return int(h) * 60 + int(m)
+    return calling_hours.clock_seconds(hhmm) // 60
 
 
 def _hhmm(minutes: int) -> str:
