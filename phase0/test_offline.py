@@ -1031,6 +1031,37 @@ class FormCheckTest(unittest.TestCase):
         self.do(f, "confirm_field", question_id="Q2", result="affirmed")
         self.assertEqual((f.items["Q2"].state, f.items["Q2"].value), ("confirmed", "15日の午後2時"))
 
+    def test_kana_number_rule(self):
+        # 決まった数がかなで書かれた語（辞書が数と読み、もとの字が漢数字かゼロ）だけを、書き違いとする（日時・数・金額の型だけ）
+        from flowctl import kana_number
+        for t, v, bad in [("time", "夕方のご時頃", "ご"), ("datetime", "じゅうごにちの午後2時", "じゅう"), ("time", "よ時半", "よ"), ("number", "はち人", "はち")]:
+            self.assertEqual(kana_number(t, v), bad, v)
+        for t, v in [("time", "夕方の5時頃"), ("datetime", "十五日の午後二時"), ("time", "何時でも"), ("number", "いくつか"), ("number", "ご人数3名"),
+                     ("number", "ひとり"), ("number", "さんにん"), ("datetime", "一番早い日"), ("time", "その時"), ("datetime", "いつでも大丈夫"),
+                     ("name", "ご時"), ("yes_no", "はい")]:
+            self.assertIsNone(kana_number(t, v), v)
+
+    def test_kana_number_is_sent_back_to_the_ai_without_asking_again(self):
+        """⛔ 2026-10-19 G-62：AIは声では「夕方の5時頃」と言ったのに、報告の値は「夕方のご時頃」で確認済みになった。✅ 同日ユーザー：「『ご時』なんて、
+        漢字の組み合わせの日本語ないでしょ！『ご時』と表示されてる時点でおかしいと判断しないと」⇒ AIの書き間違いなので、お客様に聞き返さずに、
+        AIへ差し戻して書き直させる（記録も言い直しもしない）。言い直しへの返事の訂正の値も同じ。"""
+        f = self.flow()
+        self.do(f, "record_answer", question_id="Q1", condition_id="はい")
+        r = self.do(f, "record_answer", question_id="Q2", condition_id="答えた", value="夕方のご時頃")
+        self.assertEqual(r["result"], "rejected")
+        self.assertIn("「ご」は、数がかなで書かれていて", r["message"])
+        self.assertNotIn("say", r)                                                     # お客様には何も言わない
+        self.assertEqual((f.items["Q2"].state, f.items["Q2"].value, f.items["Q2"].ask_backs), ("empty", None, 0))
+        r = f.apply("record_answer", {"question_id": "Q2", "condition_id": "答えた", "value": "夕方の5時頃"})
+        self.assertEqual(r["result"], "confirm_required")
+        r = self.do(f, "confirm_field", question_id="Q2", result="corrected", correction="夕方のろく時頃")
+        self.assertEqual(r["result"], "rejected")
+        self.assertIn("「ろく」", r["message"])
+        self.assertIsNotNone(f.awaiting_confirm)                                       # 言い直しの返事待ちのまま
+        r = f.apply("confirm_field", {"question_id": "Q2", "result": "corrected", "correction": "夕方の6時頃"})
+        self.assertEqual(r["result"], "confirm_required")
+        self.assertIn("6時", r["say"])
+
     def test_any_time_is_a_good_answer(self):
         """「いつでも」「なるべく早く」は「即」＝こちら次第。日時よりよい答え。「-」はありえない（✅ 2026-10-14 ユーザー）。"""
         f = self.flow()

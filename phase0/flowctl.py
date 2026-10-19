@@ -161,6 +161,34 @@ def form_problem(qtype: str, value: str | None) -> str | None:
     return None  # 「いつでも」「なるべく早く」「そちらのご都合で」など：日時を決めない答え（こちら次第＝営業にはよい答え）
 
 
+# 値の中の数の書き違い（✅ 2026-10-19 ユーザー：「『ご時』なんて、漢字の組み合わせの日本語ないでしょ！『ご時』と表示されてる時点でおかしいと
+# 判断しないと」）。⛔ 2026-10-19 G-62：AIは声では「夕方の5時頃」と言ったのに、報告の値は「夕方のご時頃」で、確認済みになった（会話AIは声で
+# 考えるので、報告の文字に、同じ音の別の書き方を書くことがある）。値の形の確かめ（form_problem）は「時」「夕方」があるので通していた。
+# ⇒ 数かどうかは、単語分けの辞書が決める（jtext.words の数詞。「夕方のご時頃」の「ご」を、辞書は「五」の数と読む）。もとの字が漢数字かゼロの
+#    数（決まった数）が、かなで書かれていたら、書き間違い＝AIに差し戻して書き直させる（お客様は正しく答えているので、聞き返さない）。
+#    「何時でも」の何・「いくつか」の幾は決まった数ではないので当たらない。「ご人数」「お時間」の「ご」「お」は、辞書が頭に付く言葉と読む。
+#    これまでの試験の報告の値 20,777個（210種類）に当てて、当たったのは「夕方のご時頃」だけ（PHASE0 G-62）
+_KANA = re.compile(r"[ぁ-ゖァ-ヺー]")
+_DIGIT_LEMMA = re.compile(r"[〇零一二三四五六七八九十百千万億兆]+|ゼロ")
+
+
+def kana_number(qtype: str, value: str | None) -> str | None:
+    """日時・数・金額の型の値の中で、決まった数がかなで書かれている語（「夕方のご時頃」の「ご」）。無ければ None。"""
+    if not value or qtype not in NO_SPACE_TYPES:
+        return None
+    from jtext import words
+    for w in words(value):
+        f = w.feature
+        if getattr(f, "pos2", "") == "数詞" and _KANA.search(w.surface) and _DIGIT_LEMMA.fullmatch(str(getattr(f, "lemma", "")).split("-")[0]):
+            return w.surface
+    return None
+
+
+def kana_number_note(value: str, bad: str) -> str:
+    """数の書き違いの差し戻しの言葉（記録と訂正の両方で使う）。"""
+    return f"値「{value}」の「{bad}」は、数がかなで書かれていて、日本語の言葉になっていません。数は数字で書いて（例：「5時」）、もう一度報告してください。"
+
+
 # 午前・午後（✅ 2026-10-15 ユーザー：AIからプログラムへ移す。「例えば、1時と言われた場合に、『午前と午後、どちらになりますでしょうか？』は、
 # 深夜営業でもしていない限りおかしい。依頼者ごとに『営業時間』を入れる形にして、その時間外の時間だと、午前と午後の確認はしない。会社の場合は
 # 9:00〜19:00 がデフォルト、店舗や深夜営業店などは営業時間を入れる形式」）。⛔ G-37：AIが「32 です」を時刻と思い込み、報告せずに自分で
@@ -1049,6 +1077,8 @@ class Flow:
             shown = label(cond)
             return self._reject(f"{ARG_LABEL['condition_id']}「{shown}」は、この質問の選択肢にありません（選べるのは {'、'.join(q.labels)}）。")
         value = normalize_value(q.type, a.get("value"), q.unit)
+        if cond not in SYSTEM_CONDITIONS and (bad := kana_number(q.type, value)):
+            return self._reject(kana_number_note(value, bad))  # お客様は正しく答えている＝AIの書き間違いなので、聞き返さずに書き直させる
         if cond not in SYSTEM_CONDITIONS and (why := form_problem(q.type, value)):
             # 値を聞く質問に「結構です」だけ：答えの値ではないので聞き返す（そのあとにまた言われたら、断りとして締めてよい＝_op_request_end）
             it.ambiguous_asked = it.ambiguous_asked or bool(ambiguous_word(self.callee_said or value))
@@ -1316,6 +1346,8 @@ class Flow:
             correction = chosen
         if result == "corrected" and correction is None:  # 訂正の値の無い報告は、記録を書き換える前に差し戻す（上と同じ漏れ）
             return self._reject(f"訂正された値がありません。相手が言い直した値を「{ARG_LABEL['correction']}」に入れて、もう一度報告してください。")
+        if result == "corrected" and not q.reading_of and (bad := kana_number(q.type, correction)):
+            return self._reject(kana_number_note(correction, bad))  # 言い直しの返事待ちのまま、書き直させる
         # 名前の読みの訂正は、候補から選んだ読み（next_reading）なので、値の形の確かめに当てない（「井伊（いい）」を返事の言葉と取り違えない）
         if result == "corrected" and not q.reading_of and (why := form_problem(self.questions[qid].type, correction)):
             self.awaiting_confirm = None  # 言い直しの返事待ちをやめて、質問から聞き直す（6-2）
