@@ -169,6 +169,20 @@ def _setting(tx: Tx, key: str, task: dict[str, Any]) -> Any:
                             business_id=task["business_id"])
 
 
+CALL_LENGTH_DAYS = 30   # 業務の平均通話時間を測る期間（直近の日数）
+
+
+def promise_guard_seconds(tx: Tx, task: dict[str, Any]) -> int:
+    """時刻を指定された約束の前に回線を空ける長さ（秒。1か所）：これから始めるふつうの電話の業務の平均通話時間（お客様が出た
+    通話の、予約から終わりまで。直近 CALL_LENGTH_DAYS 日）。数が設定 gate.exact_promise_guard_samples より少ないうちは、設定
+    gate.exact_promise_guard（初め5分）。2026-10-19 ユーザー：「業務ごとに平均通話時間を測って、それを利用するといいでしょう。
+    30分かかる業務と1分で終わる業務では、同じにできないからです」。"""
+    got = tx.one("SELECT seconds, calls FROM salescall.business_call_seconds(%s, %s)", (task["business_id"], CALL_LENGTH_DAYS))
+    if got["calls"] >= int(_setting(tx, "gate.exact_promise_guard_samples", task)):
+        return got["seconds"]
+    return int(_setting(tx, "gate.exact_promise_guard", task))
+
+
 def _pacing(tx: Tx, task: dict[str, Any], now: datetime, assume_promised: bool | None = None) -> Pacing:
     # 「かけた回数」の数え方は1つ（行の回数の上限・1日の回数・最小の間隔のどれも）：お客様の意思と関係なく繋がらなかった・
     # 切れた発信は数えない。お客様と約束したかけ直しは、どの上限でも止めない（2026-10-14 ユーザー：「ほぼ同じことでしょ。統一」）
@@ -465,11 +479,12 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
         dials += tx.one("SELECT salescall.line_promised_due(%s, %s, %s) AS n", (line_id, local.date(), task["task_id"]))["n"]
     if dials >= int(_setting(tx, "line.max_dials_per_day", task)):
         return _deny("line_daily_limit")
-    # お客様が時刻を指定した約束（時刻ちょうど・幅の無い指定）が近ければ、その回線ではふつうの電話を始めない（約束の時刻に回線を
-    # ふさがない。2026-10-19 ユーザー：「約束の数分前からふつうの電話を始めない形がいいでしょう」。0090）
+    # お客様が時刻を指定した約束（時刻ちょうど・幅の無い指定）が、これから始めるふつうの電話が終わるより前に来るなら、約束の数
+    # だけの回線を空けておく（約束の時刻に回線をふさがない。2026-10-19 ユーザー：「約束の数分前からふつうの電話を始めない」
+    # 「1本は通常業務に使っていいでしょ…該当の回線を空けておくだけでいい」。決めるのは line_kept_for_promise の1か所＝0091）
     if not nxt["promised"] and tx.one(
-            "SELECT salescall.line_exact_promise_soon(%s, now() + make_interval(secs => %s), %s) AS soon",
-            (line_id, int(_setting(tx, "gate.exact_promise_guard", task)), task["task_id"]))["soon"]:
+            "SELECT salescall.line_kept_for_promise(%s, now() + make_interval(secs => %s), %s) AS keep",
+            (line_id, promise_guard_seconds(tx, task), task["task_id"]))["keep"]:
         return _deny("line_promise_soon")
 
     # (9) 同時の本数：依頼者ごとの上限。会話AIの1分の上限では待たせない（2026-10-17 ユーザー：「1分制限を超えそうになったら、

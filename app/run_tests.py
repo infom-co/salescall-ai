@@ -692,9 +692,13 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      " LANGUAGE sql STABLE AS $$ SELECT 0 $$",
      ("tests.test_supervisor.Rounds.test_promised_calls_go_first_across_clients_and_keep_their_share_of_the_line",)),
     ("時刻を指定した約束の前でも、回線でふつうの電話を始める",
-     "CREATE OR REPLACE FUNCTION salescall.line_exact_promise_soon(p_line uuid, p_until timestamptz, p_except uuid)"
+     "CREATE OR REPLACE FUNCTION salescall.line_kept_for_promise(p_line uuid, p_until timestamptz, p_except uuid)"
      " RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT false $$",
-     ("tests.test_supervisor.Rounds.test_an_exact_time_promise_keeps_the_line_free_shortly_before",)),
+     ("tests.test_supervisor.Rounds.test_an_exact_time_promise_keeps_one_line_free_shortly_before",)),
+    ("業務の平均通話時間を数えない（いつも初めの値）",
+     "CREATE OR REPLACE FUNCTION salescall.business_call_seconds(p_business uuid, p_days integer)"
+     " RETURNS TABLE (seconds integer, calls integer) LANGUAGE sql STABLE AS $$ SELECT 0, 0 $$",
+     ("tests.test_supervisor.Rounds.test_the_guard_is_the_average_call_length_of_the_business_once_measured",)),
     ("次の回の決め方に、知らない書き方を入れられる",
      "ALTER TABLE salescall.task_next_actions DROP CONSTRAINT task_next_actions_window_repeat",
      ("tests.test_settle.CallbackWindow.test_a_wrong_repeat_cannot_be_written",)),

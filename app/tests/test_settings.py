@@ -305,7 +305,7 @@ class ScopesDecidedByUser(unittest.TestCase):
               "measure.sample_per_week",   # 抜き取る本数は依頼者ごと（2026-10-18 ユーザー）
               "callback.period_morning", "callback.period_forenoon", "callback.period_afternoon", "callback.period_evening",
               "callback.period_night",     # かけ直しの言葉ごとの幅は依頼者ごと（2026-10-19。0088）
-              "gate.exact_promise_guard")  # 時刻を指定した約束の前の空け（2026-10-19。0090）
+              "gate.exact_promise_guard", "gate.exact_promise_guard_samples")  # 時刻を指定した約束の前の空け（0090・0091）
     TENANT = ("gate.cross_client_interval", "stop.ai.stop_after_failures", "stop.ai.probe_interval",
               "stop.ai.resume_after_successes", "stop.line.stop_after_failures", "stop.line.probe_interval",
               "stop.line.resume_after_successes", "stop.flapping.window", "stop.flapping.wait_multiplier",

@@ -210,18 +210,41 @@ class Rounds(SupervisorBase):
         self.assertEqual(self.tx(t, lambda tx: tx.one("SELECT task_id FROM salescall.attempts WHERE attempt_id = %s",
                                                       (got.called,)))["task_id"], t["task"])   # あとの依頼者の約束が先
 
-    def test_an_exact_time_promise_keeps_the_line_free_shortly_before(self):
-        """お客様が時刻を指定した約束（時刻ちょうど・幅の無い指定）の数分前（設定。初め5分）からは、その約束をかけられる回線で
-        ふつうの電話を始めない（2026-10-19 ユーザー）。約束の電話そのものは止めない。時刻が遠ければ、ふつうにかける。"""
+    def test_an_exact_time_promise_keeps_one_line_free_shortly_before(self):
+        """お客様が時刻を指定した約束（時刻ちょうど・幅の無い指定）が、これから始めるふつうの電話が終わるより前に来るなら、約束の
+        数だけの回線を空けておく（ほかに空いている回線があれば、この回線はふつうの電話に使う）。2026-10-19 ユーザー：「1本は通常業務に
+        使っていいでしょ！無駄なことするな。該当の回線を空けておくだけでいいじゃない」。約束が遠ければ、ふつうにかける。"""
         s = self.ready()
-        t = self.ready(tenant=s["tenant"])
+        t = self.ready(tenant=s["tenant"])                                     # 回線は2本（どちらも共有・空いている）
         now = self.tx(t, lambda tx: tx.one("SELECT now() AS t")["t"])
         promise = lambda at: self.tx(t, lambda tx: next_action.schedule_call(   # noqa: E731
             tx, t["task"], at, contact_id=t["contact"], cause="試験", promised=True, callee_at=at))
         promise(now + timedelta(minutes=3))
-        self.assertEqual(self.reason(s), "line_promise_soon")                 # ふつうの電話：始めない
+        c = self.claim(s)
+        self.assertIsInstance(c, gate.Claim)                                   # もう1本が空いている：この回線はかける
+        self.tx(s, lambda tx: attempts.release(tx, [c.attempt_id]))
+        self.lease(t, seconds=-60)                                             # もう1本が使えない（借りられていない）
+        self.assertEqual(self.reason(s), "line_promise_soon")                 # この回線を約束のために空けておく
+        self.lease(t)
+        busy = self.w.insert_claim(t, line=t["line"])                         # もう1本が通話中
+        self.assertEqual(self.reason(s), "line_promise_soon")
+        self.tx(t, lambda tx: attempts.release(tx, [busy]))
+        self.lease(t, seconds=-60)
         promise(now + timedelta(minutes=30))
-        self.assertIsInstance(self.claim(s), gate.Claim)                       # 遠い：かける
+        self.assertIsInstance(self.claim(s), gate.Claim)                       # 約束が遠い：かける
+
+    def test_the_guard_is_the_average_call_length_of_the_business_once_measured(self):
+        """空ける時間は、これから始めるふつうの電話の業務の平均通話時間（お客様が出た通話。2026-10-19 ユーザー：「30分かかる業務と
+        1分で終わる業務では、同じにできない」）。数が少ないうちは設定の初めの値（5分）。"""
+        s = self.ready()
+        task = {"tenant_id": s["tenant"], "client_id": s["client"], "business_id": s["business"]}
+        guard = lambda: self.tx(s, lambda tx: gate.promise_guard_seconds(tx, task))   # noqa: E731
+        self.assertEqual(guard(), 300)                                         # まだ測っていない：初めの値
+        aid = self.w.insert_claim(s)
+        for st in ("dialing", "answered", "in_conversation", "ending", "ended"):
+            self.w.move(s, aid, st)
+        self.put_client(s, "gate.exact_promise_guard_samples", 1)
+        self.assertLess(guard(), 60)                                           # 測った平均（試験の通話はすぐ終わる）
 
     def test_a_capped_business_does_not_keep_the_other_businesses_of_the_client_out(self):
         """上限に達した業務の行が候補の先頭を埋めても、その業務を除いて読み直し、同じ依頼者のほかの業務の行をかける。"""
