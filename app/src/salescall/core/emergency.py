@@ -15,10 +15,11 @@
 - **release**：データベースの、この道で記録した緊急停止（押した範囲のもの）を解いてから、印を消す。データベースへ届かなければ、
   印は消さない（解いたことを記録できないまま、かけ始めない）。印が別の範囲で押されたものなら、解かない（その範囲の管理者か
   契約者が解く）。
-- 押すのは、そのPCを使う管理者か契約者。環境変数：SALESCALL_ACTOR_NAME（名前）・SALESCALL_ACTOR_KIND（admin＝管理者／
-  operator＝契約者。決め打ちしない：前は誰が押しても管理者として記録していた）・SALESCALL_TENANT_ID（契約者のとき）。
-  データベースへのつなぎ方は SALESCALL_DATABASE_URL（APIキーと同じく、値を画面・記録に出さない）。
-  名前・種類が無くても、印は残す（止めることは、いつでもできる）。
+- 押すのは、そのPCを使う管理者か契約者。**データベースへのつなぎ方と、押したのが誰かは、見守り役と同じ1か所**
+  （`supervisor.config.load`）：管理者の PC＝SALESCALL_DSN と SALESCALL_TENANT_ID（管理者として全体を止める）／契約者の PC＝
+  ログインでしまった PC の鍵（その契約者として、その契約者を止める）。⚠️ 前は SALESCALL_DATABASE_URL・SALESCALL_ACTOR_NAME・
+  SALESCALL_ACTOR_KIND という、PC の準備（docs/PC_SETUP.md）に無い名前を読んでいたので、契約者の PC では印だけで止まり、
+  解くこともできなかった（2026-10-19 の見直し）。つなげなくても・誰か分からなくても、印は残す（止めることは、いつでもできる）。
 """
 
 from __future__ import annotations
@@ -99,7 +100,7 @@ def stop_all(access: Access | None, actor: Actor | None, reason: str, *, tenant_
     path = _write_flag(flag)
     if access is None or actor is None:
         return {"flag": str(path), "db_event": None,
-                "db_error": no_actor if actor is None else "つなぎ先（SALESCALL_DATABASE_URL）がありません"}
+                "db_error": no_actor if actor is None else "データベースへのつなぎ先がありません（PC の準備：docs/PC_SETUP.md）"}
     scope = "system" if actor.kind == "admin" else "tenant"
     try:
         event = _in_scope(access, actor, tenant_id, lambda tx: stops.stop(
@@ -126,7 +127,7 @@ def release_all(access: Access | None, actor: Actor, reason: str, *, tenant_id: 
     if not reason.strip():
         raise ValueError("解く理由を書いてください")
     if access is None:
-        return {"released": False, "resumed": [], "db_error": "つなぎ先（SALESCALL_DATABASE_URL）がありません"}
+        return {"released": False, "resumed": [], "db_error": "データベースへのつなぎ先がありません（PC の準備：docs/PC_SETUP.md）"}
     flag = _read_flag()
     if flag is not None and flag.get("db_event") is not None and (flag.get("kind"), str(flag.get("tenant_id"))) != (
             actor.kind, str(tenant_id if actor.kind == "operator" else None)):
@@ -140,29 +141,24 @@ def release_all(access: Access | None, actor: Actor, reason: str, *, tenant_id: 
     return {"released": True, "resumed": resumed, "db_error": None}
 
 
-def _actor_from_env() -> tuple[Actor | None, UUID | None, str | None]:
-    """押した管理者か契約者（環境変数）。分からなければ (None, None, 理由)。"""
-    name = os.environ.get("SALESCALL_ACTOR_NAME", "").strip()
-    kind = os.environ.get("SALESCALL_ACTOR_KIND", "")
-    tenant = os.environ.get("SALESCALL_TENANT_ID", "").strip()
-    if not name or kind not in ("admin", "operator"):
-        return None, None, "SALESCALL_ACTOR_NAME と SALESCALL_ACTOR_KIND（admin か operator）がありません"
+def _who_and_where() -> tuple[Access | None, Actor | None, UUID | None, str | None]:
+    """つなぎ先と、押した管理者か契約者（見守り役と同じ `supervisor.config.load` の1か所）。分からなければ (None, None, None, 理由)。"""
+    import socket
+    from salescall.supervisor import config
     try:
-        tenant_id = UUID(tenant) if tenant else None
-    except ValueError:
-        return None, None, "SALESCALL_TENANT_ID の形が違います"
-    if kind == "operator" and tenant_id is None:
-        return None, None, "契約者（operator）は SALESCALL_TENANT_ID が要ります"
-    return Actor(name, kind), tenant_id, None
+        cfg = config.load()
+    except config.ConfigMissing as e:
+        return None, None, None, str(e)
+    admin = bool(cfg.environ.get("SALESCALL_DSN", "").strip())   # 管理者の PC（システムの接続）／契約者の PC（PC の鍵）
+    who = Actor(f"{'管理者' if admin else '契約者'}の PC の緊急停止（{socket.gethostname()}）", "admin" if admin else "operator")
+    return Access(cfg.dsn), who, None if admin else cfg.tenant_id, None
 
 
 def main(argv: list[str]) -> int:
     if not argv or argv[0] not in ("stop", "status", "release"):
         print('使い方：python -m salescall.core.emergency stop "理由" | status | release "理由"')
         return 2
-    url = os.environ.get("SALESCALL_DATABASE_URL")
-    access = Access(url) if url else None             # つなぎ先が無くても、止める（印を残す）ことはできる
-    actor, tenant_id, missing = _actor_from_env()
+    access, actor, tenant_id, missing = _who_and_where()   # つなぎ先が無くても、止める（印を残す）ことはできる
     reason = " ".join(argv[1:])
     if argv[0] == "status":
         got = engaged()

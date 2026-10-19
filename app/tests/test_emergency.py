@@ -112,15 +112,37 @@ class Emergency(Base):
         self.assertEqual((done["released"], len(done["resumed"])), (True, 1))
         self.assertIsNone(emergency.engaged())
 
-    def test_without_who_pressed_the_flag_is_kept_but_not_recorded(self):
-        for k in ("SALESCALL_ACTOR_KIND", "SALESCALL_ACTOR_NAME", "SALESCALL_DATABASE_URL"):
+    def env(self, **values):
+        """見守り役と同じ設定の名前だけを入れる（ほかは消す）。PC の鍵は無いものとする。"""
+        from salescall.supervisor import config, pc_login
+        for k in config.NAMES:
             self.addCleanup(os.environ.__setitem__, k, os.environ[k]) if k in os.environ else None
             os.environ.pop(k, None)
+        os.environ.update(values)
+        original = pc_login.load
+        pc_login.load = lambda: None
+        self.addCleanup(setattr, pc_login, "load", original)
+
+    def test_the_admin_pc_stops_with_the_same_connection_as_the_supervisor(self):
+        """管理者の PC：見守り役と同じ設定（SALESCALL_DSN・SALESCALL_TENANT_ID）で、管理者として全体を止め、解ける。⚠️ 前は
+        PC の準備に無い名前（SALESCALL_DATABASE_URL など）を読み、印だけで止まって解けなかった（2026-10-19 の見直し）。"""
+        s = self.ready()
+        self.env(SALESCALL_DSN=self.w.a._conninfo, SALESCALL_TENANT_ID=str(s["tenant"]))
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(emergency.main(["stop", "試験：管理者の PC"]), 0)
+        self.assertEqual(len(self.system_stops()), 1)
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(emergency.main(["release", "試験：直った"]), 0)
+        self.assertIsNone(emergency.engaged())
+        self.assertEqual(self.system_stops(), [])
+
+    def test_without_who_pressed_the_flag_is_kept_but_not_recorded(self):
+        self.env()                                                     # つなぎ先も PC の鍵も無い
         with redirect_stdout(io.StringIO()) as out:
             self.assertEqual(emergency.main(["stop", "試験：誰か分からない"]), 0)
         self.assertIsNotNone(emergency.engaged())                      # 止めることは、いつでもできる
         self.assertIsNone(emergency.engaged()["kind"])
-        self.assertIn("SALESCALL_ACTOR_KIND", out.getvalue())
+        self.assertIn("ログイン", out.getvalue())
         self.assertEqual(self.system_stops(), [])                      # 決め打ちで管理者として記録しない
         with redirect_stdout(io.StringIO()):
             self.assertEqual(emergency.main(["release", "試験"]), 1)  # 誰か分からなければ解かない
