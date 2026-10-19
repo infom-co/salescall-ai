@@ -399,6 +399,25 @@ class TenantAiStopsAndChecks(unittest.TestCase):
         got = self.a.in_system(SYSTEM, lambda tx: fix_requests.open_requests(tx, "CL-2"))
         self.assertIn("recording", [r["kind"] for r in got])
 
+    def test_a_meaning_judge_failure_never_stops_and_is_split_by_what_failed(self):
+        """意味の判定が答えなかった（CL-1 の連絡帳 4-24）：止まっている（時間切れ・つながらない・上限・キーが止められた・混雑）と、
+        問い合わせの中身が断られた（400 など）に分ける。どちらも発信は止めない（代わりの判定と通話後の検証がある）。分け方は表の1か所。"""
+        kinds = {(code, unreachable): errors.classify(ErrorReport("judge", code, None, unreachable=unreachable))
+                 for code, unreachable in ((None, True), (None, False), (500, False), (503, False), (401, False),
+                                           (403, False), (408, False), (429, False), (400, False), (404, False), (422, False))}
+        self.assertEqual({k for k, v in kinds.items() if v == "judge_rejected"}, {(400, False), (404, False), (422, False)})
+        self.assertTrue(all(v in ("judge_outage", "judge_rejected") for v in kinds.values()))
+        for kind in ("judge_outage", "judge_rejected"):
+            a = errors.ACTIONS[kind]
+            self.assertEqual((a.stop_cause, a.fundamental, a.lasting_fixer), (None, False, "CL-1"))
+        s = World().setup()
+        got = watch.after_error(self.a, SYSTEM, ErrorReport("judge", 503, "試験：混雑"), tenant_id=s["tenant"],
+                                client_id=s["client"])
+        self.assertEqual(got, "judge_outage")
+        self.assertEqual(self.a.in_tenant(SYSTEM, s["tenant"], lambda tx: stops.open_stops(
+            tx, tenant_id=s["tenant"], client_id=s["client"], business_id=None)), [])
+        self.assertEqual(owner_access().in_system(SYSTEM, lambda tx: settings.initial_value(tx, "judge.outage_bypass")), 60)
+
     def test_a_lasting_temporary_error_becomes_a_fix_request(self):
         """一時的なもの（別の耳につながらない）でも、1時間以上続いたら担当（CL-1）へ修正依頼を出す。続いていなければ出さない
         （2026-10-18 の見直し：前は何日続いても修正依頼にならず、その間お客様の行が待ち続けた）。"""

@@ -23,8 +23,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import timedelta
 
-SOURCES = ("ai", "ear", "line", "storage", "delivery", "recording", "supervisor")   # 会話AI／別の耳（通話後の検証）／回線／保存／
-#   連携／録音（通話の録音が残っていない・壊れている）／見守り役（決まった間隔の仕事・回線ごとの発信の繰り返しの処理の誤り。0063）
+SOURCES = ("ai", "ear", "line", "storage", "delivery", "recording", "supervisor", "judge")   # 会話AI／別の耳（通話後の検証）／
+#   回線／保存／連携／録音（通話の録音が残っていない・壊れている）／見守り役（決まった間隔の仕事・回線ごとの発信の繰り返しの処理の
+#   誤り。0063）／意味の判定（会話AIとは別の会社の、答えの意味の判定。DESIGN.md 6-10 の (6)。0098）
+
+# 意味の判定の失敗のうち、問い合わせの中身が断られた（その発話だけ代わりへ）とみなす番号の外：これら以外の 400 番台の番号だけが
+# 「中身が断られた」。番号の無い失敗・500 番台・この4つ（キーが無効・権限が無い・時間切れ・上限）は「止まっている」
+# （CL-1 の連絡帳 4-24。試作 meaning_judge.outage と同じ分け方）
+_JUDGE_OUTAGE_4XX = (401, 403, 408, 429)
 
 @dataclass(frozen=True)
 class CatalogEntry:
@@ -128,6 +134,8 @@ LABELS: dict[str, str] = {
     "ai_server_error": "会話AIの側の誤り・混雑です", "session_drop": "通話中に会話AIが切れました",
     "line": "回線の異常です", "storage": "保存に失敗しました", "delivery": "結果の書き戻しに失敗しました",
     "recording": "通話の録音が残っていません", "supervisor": "見守り役の処理の誤りです",
+    "judge_outage": "意味の判定が止まっています",
+    "judge_rejected": "意味の判定が問い合わせを断りました",
     "unknown_ai": "原因の分からない会話AIの誤りです", "unknown_line": "原因の分からない回線の誤りです",
 }
 
@@ -178,6 +186,15 @@ ACTIONS: dict[str, Action] = {
                          "見守り役の処理の誤り（決まった間隔の仕事・回線ごとの発信の繰り返しが落ちた）：止めない。CL-2 に修正依頼を"
                          "出し、ほかの仕事は続ける（落ちた回線の処理は、その回線の進行中の通話を後始末してから立ち上げ直す。DESIGN.md 5-4）",
                          fixer="CL-2"),
+    "judge_outage": Action("keep", "none", None, None, None, False,
+                           "意味の判定が止まっている（時間切れ・つながらない・上限・キーが止められた・混雑。一時的）：発信は止めない"
+                           "（代わりの判定 Jev と、通話後の検証がある）。設定 judge.outage_bypass の秒のあいだ、その判定に問い合わせず"
+                           "代わりへ回す（毎回の発話で、止まった判定の答えを待たない）。1時間以上続いたら CL-1 に修正依頼を出す"
+                           "（CL-1 の連絡帳 4-24）", lasting_fixer="CL-1"),
+    "judge_rejected": Action("keep", "none", None, None, None, False,
+                             "意味の判定が問い合わせの中身を断った（400 など）：発信は止めない。その発話だけ代わりの判定へ回す"
+                             "（判定は止まっていない）。1時間以上続いたら（問い合わせの作り方の誤り）CL-1 に修正依頼を出す"
+                             "（CL-1 の連絡帳 4-24）", lasting_fixer="CL-1"),
     "delivery": Action("keep", "backoff", None, None, None, False,
                        "連携（書き戻し）の失敗：連携だけ再送する（通話の結果は失わない。4-5）。1時間以上続いたら CL-3 に修正依頼を出す",
                        lasting_fixer="CL-3"),
@@ -250,4 +267,7 @@ def classify(e: ErrorReport) -> str:
         return "storage"
     if e.source in ("recording", "supervisor"):
         return e.source
+    if e.source == "judge":
+        rejected = e.code is not None and 400 <= e.code < 500 and e.code not in _JUDGE_OUTAGE_4XX and not e.unreachable
+        return "judge_rejected" if rejected else "judge_outage"
     return "delivery"

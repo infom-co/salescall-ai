@@ -780,6 +780,11 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      "  count(*) OVER (PARTITION BY d.task_id) AS n FROM due d JOIN serving s ON salescall.line_serves(s.client_id, d.client_id))"
      " SELECT count(*)::integer FROM cand WHERE line_id = p_line AND k = r % n $$",
      ("tests.test_supervisor.Rounds.test_a_promise_is_reserved_on_its_clients_dedicated_line_first",)),
+    ("意味の判定のエラーを記録できない（0098 の出どころ）",
+     "ALTER TABLE salescall.error_events DROP CONSTRAINT error_events_source_check;"
+     " ALTER TABLE salescall.error_events ADD CONSTRAINT error_events_source_check"
+     " CHECK (source IN ('ai', 'ear', 'line', 'storage', 'delivery', 'recording', 'supervisor'))",
+     ("tests.test_watch.TenantAiStopsAndChecks.test_a_meaning_judge_failure_never_stops_and_is_split_by_what_failed",)),
     ("行のいちばん古い結果を、いまの結果として読む（0097 で書き直した見方）",
      "CREATE OR REPLACE VIEW salescall.latest_task_results WITH (security_invoker = true) AS"
      " SELECT r.* FROM salescall.task_results r"
