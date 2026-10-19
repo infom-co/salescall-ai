@@ -174,6 +174,44 @@ class FrozenRecords(unittest.TestCase):
                     base, (s["tenant"], s["client"], s["task"], no, kind, jv)))
 
 
+class DefinerFunctions(unittest.TestCase):
+    """3-0：読める範囲の決まりを越えて読む関数（SECURITY DEFINER）は、アプリの役だけが呼べる（誰でも呼べると、取引の契約者を好きに
+    置いて、ほかの契約者の様子が分かる。見直し7：error_lasting だけ外し忘れていた）。"""
+
+    def test_no_definer_function_is_open_to_everyone(self):
+        w = World(); s = w.setup()
+        open_ = w.a.in_client(OPERATOR, s["tenant"], s["client"], lambda tx: tx.all(
+            "SELECT p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace"
+            " WHERE n.nspname = 'salescall' AND p.prosecdef"
+            "   AND (p.proacl IS NULL OR EXISTS (SELECT 1 FROM aclexplode(p.proacl) a"
+            "                                    WHERE a.grantee = 0 AND a.privilege_type = 'EXECUTE'))"
+            " ORDER BY 1"))
+        self.assertEqual([r["proname"] for r in open_], [])
+
+    def test_lists_of_other_clients_promises_are_used_only_inside(self):
+        """約束の一覧・回線の一覧は、ほかの依頼者の行も返すので、関数の中だけで使う（門は、いちばん近い時刻だけを受け取る）。"""
+        w = World(); s = w.setup()
+        can = w.a.in_client(OPERATOR, s["tenant"], s["client"], lambda tx: tx.one(
+            "SELECT has_function_privilege('salescall_app', 'salescall.promises_waiting()', 'EXECUTE') AS p,"
+            "       has_function_privilege('salescall_app', 'salescall.lines_serving()', 'EXECUTE') AS l,"
+            "       has_function_privilege('salescall_app', 'salescall.next_customer_promise_at(uuid)', 'EXECUTE') AS n"))
+        self.assertEqual((can["p"], can["l"], can["n"]), (False, False, True))
+
+    def test_only_the_provisioner_makes_and_stops_pc_logins(self):
+        """⛔ PC の鍵を作る・止めるのは払い出し専用の役だけ（見直し7：アプリの役から、ほかの契約者の名前の形の鍵を好きな合言葉で
+        作れた＝その契約者としてログインできた。持ち主を移したあとの「誰でも」からの外しを、データベースが何もせずに通していた）。"""
+        w = World(); s = w.setup()
+        name = f"salescall_t_{uuid.uuid4()}_deadbeef"
+        for sql, params in [("SELECT salescall.make_pc_login(%s, %s)", (name, "SCRAM-SHA-256$4096:c2FsdA==$c3RvcmVk:c2VydmVy")),
+                            ("SELECT salescall.stop_pc_logins(%s)", (name,))]:
+            with self.subTest(sql=sql), self.assertRaises(Rejected):
+                w.a.in_client(OPERATOR, s["tenant"], s["client"], lambda tx: tx.execute(sql, params))
+        can = w.a.in_client(OPERATOR, s["tenant"], s["client"], lambda tx: tx.one(
+            "SELECT has_function_privilege('salescall_provisioner', 'salescall.make_pc_login(text, text)', 'EXECUTE') AS m,"
+            "       has_function_privilege('salescall_provisioner', 'salescall.stop_pc_logins(text)', 'EXECUTE') AS s"))
+        self.assertEqual((can["m"], can["s"]), (True, True))
+
+
 class OnlyCorporateForNow(unittest.TestCase):
     """Intent.md 3-1：個人を対象にした業務は、13章の確かめが済むまで作れない。"""
 

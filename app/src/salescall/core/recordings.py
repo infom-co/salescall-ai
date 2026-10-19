@@ -7,7 +7,8 @@
 - **話してよい声は `ready_voices` の1か所で決める**：使う声（使わない印の無い声）のうち、承認した録音が、契約者の単位と、その版の
   依頼者の単位の両方にあり、初めの声の型を持つもの（2026-10-17 ユーザー：「事前の録音チェックになる方向性」「新しい声が増える
   かもしれません」＝声を足しても処理は変えない）。門（core/gate.py の `choose_voice`）だけが使う。
-- 流すときに使う組は `current_sets`（それぞれの単位で、いちばん新しく承認した組）。
+- 流すときに使う組は `current_sets`（それぞれの単位で、いちばん新しく承認した組のうち、名前の読みがその版のいまの読みと合うもの＝
+  見方 current_recording_sets）。
 - **測り終わるまで消さない録音**（`hold`・`release`。表の作り 0056。2026-10-17 ユーザー 案A。Intent.md 11-4 第2版）：検証モードの通話
   （締めのときに付ける）と、誤判定率を測るために抜き取った通話（抜き取る処理が付ける）は、測り終わって外すまで、古い録音を消す処理
   （core/backup.py の `prune`）が消さない。外すのは測定を記録する処理（16-3）が、使い終えた通話について1回だけ。
@@ -15,6 +16,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Literal
 from uuid import UUID
@@ -30,8 +32,8 @@ class Part:
     spoken_text: str     # 録音の文
     audio_ref: str       # 音声のファイルの置き場の参照
     audio_sha256: str    # 中身の指紋
-    # この録音が話す名前の読み（名前の表記 → ひらがな）。入口の読みの無い名前を読みで話す部分は、必ず書く（依頼者の単位の組だけ）。
-    # その版でいま選んでいる読み（choose_reading。Intent.md 6-2）と同じでないと、組を作れない・承認できない
+    # この録音が話す名前の読み（名前の表記 → ひらがな）。入口の読みの無い名前を話す部分は、必ず書く（依頼者の単位の組だけ）。
+    # その版のいまの読み（版の読み・録音を聞いて選んだ読み。Intent.md 6-2）と同じでないと、組を作れない・承認できない・流さない
     readings: dict[str, str] = field(default_factory=dict)
 
 
@@ -119,34 +121,37 @@ def choose_reading(tx: Tx, version_id: UUID, name_text: str, reading: str) -> No
 
 
 def _chosen_readings(tx: Tx, parts: list[Part], version_id: UUID | None) -> list[tuple[str, str, str]]:
-    """録音の名前の読みの確かめ（1か所）：(部分, 名前, 読み) の並び。依頼者の単位の組だけ・その版の業務設定にある名前だけ・入口の読みの
-    ある名前はその読みと同じものだけ・ほかの名前は、その版でいま選んでいる読みと同じものだけ（データベースも守る＝0100）。
-    ⚠️ 入口の読みの無い名前の読み（考えられる読み・まず言ってみる読み・AI の読み・選んだ読み）を「」でくくって話す部分は、その名前の読みを
-    必ず書く（前は書かずに組を作れば、確かめを素通りできた＝見直し6）。録音の文は、読みをひらがなで「」にくくった形（0047）。"""
+    """録音の名前の読みの確かめ（1か所）：(部分, 名前, 読み) の並び。依頼者の単位の組だけ・その版の業務設定にある名前だけ・その版の
+    いまの読み（見方 current_name_readings の1か所：入口の読み・契約者が確かめた読み・AI の読み・録音を聞いて選んだ読み）と同じものだけ
+    （データベースも守る＝0101）。読みが決まらない名前は、先に録音を聞いて選ぶ（choose_reading）。
+    ⚠️ 入口の読みの無い名前（読みを選び直せる名前）を話す部分は、その名前の読みを必ず書く（書かない組は、読みを選び直したあとも
+    「合う」として流れてしまう＝見直し6・7）。話しているかは、録音の文の「」の中（ひらがなにそろえて）が、その名前の読み・考えられる
+    読み・まず言ってみる読みのどれかで、その部分に書いた読みで説明できないとき、または名前の表記がそのまま文にあるとき。録音の文は、
+    読みをひらがなで「」にくくった形（0047）。"""
     out = [(p.part, name, readings_mod.required(r, f"録音「{p.part}」の名前「{name}」の読み「{r}」"))
            for p in parts for name, r in p.readings.items()]
     if version_id is None:
         if out:
-            raise ValueError("録音で選んだ読みは、依頼者の単位（業務設定の版）の録音だけに付けます")
+            raise ValueError("録音の名前の読みは、依頼者の単位（業務設定の版）の録音だけに付けます")
         return out
     stored = {n.text: n for n in business_settings.stored_names(tx, version_id)}
-    chosen = {r["name_text"]: r["reading"] for r in tx.all(
-        "SELECT name_text, reading FROM salescall.current_name_readings WHERE version_id = %s", (version_id,))}
+    now = {r["name_text"]: r for r in tx.all(
+        "SELECT name_text, reading, reading_by FROM salescall.current_name_readings WHERE version_id = %s", (version_id,))}
     for part, name, reading in out:
         if name not in stored:
             raise ValueError(f"録音「{part}」の名前「{name}」は、この版の業務設定の名前にありません")
-        want = stored[name].reading if stored[name].reading_by == "given" else chosen.get(name)
+        want = now[name]["reading"] if name in now else None
         if want != reading:
-            raise ValueError(f"録音「{part}」の名前「{name}」の読み「{reading}」は、"
-                             + (f"入っている読み「{want}」と違います" if stored[name].reading_by == "given" else
-                                f"この版で選んだ読み（{want or 'まだ選んでいない'}）と違います（先に読みを選ぶ＝choose_reading）"))
+            raise ValueError(f"録音「{part}」の名前「{name}」の読み「{reading}」は、この版のいまの読み（"
+                             + (f"「{want}」" if want else "まだ決まっていない。先に録音を聞いて選ぶ＝choose_reading") + "）と違います")
     for p in parts:
+        quoted = {readings_mod.normalize(q) for q in re.findall(r"「([^「」]+)」", p.spoken_text)} - {None} - set(p.readings.values())
         for n in stored.values():
-            if n.reading_by == "given" or n.text in p.readings:
+            if n.text in p.readings or (n.text in now and now[n.text]["reading_by"] == "given"):
                 continue
-            spoken = {x for x in (*n.candidates, n.likely, n.reading, chosen.get(n.text)) if x}
-            if any(f"「{x}」" in p.spoken_text for x in spoken):
-                raise ValueError(f"録音「{p.part}」は名前「{n.text}」を読みで話しています。その読みを書いてください（Part.readings）")
+            heard = {x for x in (*n.candidates, n.likely, n.reading, now[n.text]["reading"] if n.text in now else None) if x}
+            if quoted & heard or n.text in p.spoken_text:
+                raise ValueError(f"録音「{p.part}」は名前「{n.text}」を話しています。その読みを書いてください（Part.readings）")
     return out
 
 

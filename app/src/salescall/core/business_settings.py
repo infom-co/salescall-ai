@@ -471,8 +471,10 @@ def ai_reading_needs_person(tx: Tx, business_id: UUID) -> bool:
 
 
 def _content(s: Settings) -> dict[str, Any]:
-    """中身の表に置く形（業務の決まりは business_rules に置くので入れない）。"""
-    return {k: v for k, v in s.raw.items() if k != "rules"}
+    """中身の表に置く形（業務の決まりは business_rules に置くので入れない）。名前の表記は、確かめと同じく前後の空白を除いて置く
+    （データベースが、この表記で名前の読みの表に入れる＝0101）。"""
+    content = {k: v for k, v in s.raw.items() if k != "rules"}
+    return dict(content, names=[dict(x, text=x["text"].strip()) for x in content.get("names", [])])
 
 
 def save_version(tx: Tx, business_id: UUID, raw: dict[str, Any]) -> UUID:
@@ -516,19 +518,19 @@ def stored_names(tx: Tx, version_id: UUID) -> tuple[Name, ...]:
 
 
 def load(tx: Tx, version_id: UUID) -> Settings:
-    """その版の業務設定（中身・質問・業務の決まりを、置いたときと同じ確かめで読む）。契約者が録音を聞いて選んだ名前の読み（その版の
-    いまの読み＝見方 current_name_readings。Intent.md 6-2）を重ねる（1か所）。"""
+    """その版の業務設定（中身・質問・業務の決まりを、置いたときと同じ確かめで読む）。名前の読みは、その版のいまの読み（見方
+    current_name_readings の1か所。版の中身に書いた決まった読みに、契約者が録音を聞いて選んだ読みが重なる。Intent.md 6-2）。"""
     row = tx.one("SELECT content FROM salescall.business_contents WHERE version_id = %s", (version_id,))
     if row is None:
         raise LookupError(f"その版の業務設定の中身がありません：{version_id}")
     raw = dict(row["content"], rules=_rules_raw(tx, version_id))
     s = check(raw, field_types=_field_types(tx), ai_reading_needs_person=False)   # 置いた時に確かめ済み（読み・声の型）
     s = replace(s, rules=business_rules.load(tx, version_id))
-    chosen = {r["name_text"]: r["reading"] for r in tx.all(
-        "SELECT name_text, reading FROM salescall.current_name_readings WHERE version_id = %s", (version_id,))}
+    now = {r["name_text"]: r for r in tx.all(
+        "SELECT name_text, reading, reading_by FROM salescall.current_name_readings WHERE version_id = %s", (version_id,))}
     def heard(n: Name) -> Name:
-        r = readings.with_recording(readings.Reading(n.reading, n.reading_by, n.candidates, n.likely), chosen.get(n.text))
-        return replace(n, reading=r.reading, reading_by=r.by, candidates=r.candidates, likely=r.likely)
+        r = now.get(n.text)
+        return n if r is None else replace(n, reading=r["reading"], reading_by=r["reading_by"], candidates=(), likely=None)
     return replace(s, names=tuple(heard(n) for n in s.names), company=heard(s.company), person=heard(s.person))
 
 

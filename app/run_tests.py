@@ -700,7 +700,8 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     # 約束の電話の取り置きと空けを、契約者の回線全体で数える（0092。2026-10-19 の見直し）
     ("回線の1日の上限で、どの回線も同じ約束をまるごと取り置く（回線の数で分けない）",
      "CREATE OR REPLACE FUNCTION salescall.line_promised_due(p_line uuid, p_day date, p_except uuid) RETURNS integer"
-     " LANGUAGE sql STABLE AS $$ SELECT count(*)::integer FROM salescall.promises_waiting() w"
+     " LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$"
+     " SELECT count(*)::integer FROM salescall.promises_waiting() w"
      " WHERE w.task_id <> p_except AND salescall.jst(w.call_at)::date <= p_day $$",
      ("tests.test_supervisor.Rounds.test_the_daily_reservation_is_shared_by_the_lines_and_skips_promises_that_will_not_be_called_now",)),
     ("これからかける約束に、止まっている依頼者の約束・通話中の約束も入れる",
@@ -797,6 +798,36 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("名前の読みを、システムの処理が選べる（0100）",
      "DROP TRIGGER version_name_reading_by_person ON salescall.version_name_readings",
      ("tests.test_gate.CallerNumberAndVoice.test_a_reading_chosen_by_listening_to_recordings_becomes_the_name_reading",)),
+    # 名前のいまの読みに、版の読みも入れる（0101。見直し7）
+    ("版の中身を置いても、名前の決まった読みを読みの表に入れない",
+     "DROP TRIGGER business_content_readings ON salescall.business_contents",
+     ("tests.test_gate.CallerNumberAndVoice.test_a_reading_chosen_by_listening_to_recordings_becomes_the_name_reading",)),
+    ("名前のいまの読みを、録音で選んだ読みだけにする（0100 の形）",
+     "CREATE OR REPLACE VIEW salescall.current_name_readings WITH (security_invoker = true) AS"
+     " SELECT n.version_id, n.name_text, n.reading, n.reading_by FROM salescall.version_name_readings n"
+     " WHERE n.reading_by = 'recording' AND n.seq = (SELECT max(m.seq) FROM salescall.version_name_readings m"
+     " WHERE m.version_id = n.version_id AND m.name_text = n.name_text)",
+     ("tests.test_gate.CallerNumberAndVoice.test_a_reading_chosen_by_listening_to_recordings_becomes_the_name_reading",)),
+    ("入口の読みのある名前も、録音で選べる",
+     "CREATE OR REPLACE FUNCTION salescall.version_name_reading_by_person() RETURNS trigger LANGUAGE plpgsql AS $$"
+     " BEGIN IF NEW.reading_by <> 'recording' THEN RETURN NEW; END IF;"
+     " IF coalesce(salescall.cur_actor_kind()::text, '') NOT IN ('operator', 'admin') THEN"
+     " RAISE EXCEPTION 'x' USING ERRCODE = 'insufficient_privilege', CONSTRAINT = 'version_name_reading_by_person'; END IF;"
+     " RETURN NEW; END $$",
+     ("tests.test_gate.CallerNumberAndVoice.test_a_reading_chosen_by_listening_to_recordings_becomes_the_name_reading",)),
+    ("続いたエラーを数える関数を、誰でも呼べる（0100 の穴）",
+     "GRANT EXECUTE ON FUNCTION salescall.error_lasting(text, interval) TO PUBLIC",
+     ("tests.test_foundation.DefinerFunctions.test_no_definer_function_is_open_to_everyone",)),
+    ("PC の鍵を作る関数を、誰でも呼べる（0084 の穴）",
+     "SET ROLE salescall_login_maker; GRANT EXECUTE ON FUNCTION salescall.make_pc_login(text, text) TO PUBLIC; RESET ROLE",
+     ("tests.test_foundation.DefinerFunctions.test_only_the_provisioner_makes_and_stops_pc_logins",)),
+    ("アプリの役が、ほかの依頼者の約束の一覧を読める",
+     "GRANT EXECUTE ON FUNCTION salescall.promises_waiting() TO salescall_app",
+     ("tests.test_foundation.DefinerFunctions.test_lists_of_other_clients_promises_are_used_only_inside",)),
+    ("門が、お客様の指定した約束の時刻を見ない",
+     "CREATE OR REPLACE FUNCTION salescall.next_customer_promise_at(p_except uuid) RETURNS timestamptz"
+     " LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ SELECT NULL::timestamptz $$",
+     ("tests.test_supervisor.Rounds.test_an_exact_time_promise_keeps_one_line_free_shortly_before",)),
     ("一時的なエラーの続きを、記録した依頼者のエラーだけで数える（0100）",
      "CREATE OR REPLACE FUNCTION salescall.error_lasting(p_kind text, p_lasting interval) RETURNS boolean"
      " LANGUAGE sql STABLE SECURITY INVOKER SET search_path = salescall, pg_temp AS $$"

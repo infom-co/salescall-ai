@@ -29,7 +29,8 @@ from dataclasses import dataclass
 from typing import Any
 
 BY = ("given", "ai", "person", "conversation", "recording")   # 入口が持ってきた／AI が決めた／契約者が確かめた／会話でお客様に確かめた／
-#   契約者が録音を聞いて選んだ（読みの候補ごとの録音から。Intent.md 6-2・CL-1 の連絡帳 4-16）
+#   契約者が録音を聞いて選んだ（読みの候補ごとの録音から。Intent.md 6-2・CL-1 の連絡帳 4-16。入口の読みのある名前は選べない。業務設定の
+#   版の名前のいまの読みは、見方 salescall.current_name_readings の1か所＝0101）
 _HIRA = re.compile(r"^[ぁ-ゖー・]+$")
 
 Suggester = Callable[[list[str]], dict[str, dict[str, Any]]]
@@ -136,12 +137,6 @@ def resolve(text: str, given: Any, *, confirmed: Mapping[str, str], ai: Mapping[
     if confirmed.get(text) and normalize(confirmed[text]):
         return Reading(normalize(confirmed[text]), "person")
     return ai.get(text, UNDECIDED)
-
-
-def with_recording(r: Reading, chosen: str | None) -> Reading:
-    """契約者が録音を聞いて選んだ読みがあれば、入口の読みのほかより強い（決め方の順：入口の読み ＞ 録音で選んだ読み ＞ 契約者が確かめた
-    読み ＞ AI が決めた読み ＞ 決まらない。CL-2 の連絡帳 4-66）。入口の読みと違う読みを選んだ録音は、作るときに断る（recordings）。"""
-    return r if chosen is None or r.by == "given" else Reading(chosen, "recording")
 
 
 def with_confirmed(r: Reading, said: str | None) -> Reading:

@@ -754,8 +754,12 @@ class CallerNumberAndVoice(Base):
         s = self.ready()
         vid = support.full_version(self.w, s, content_too=False)
         raw = support.content()
-        raw["names"].append({"text": "中島", "reading": None, "source": "script", "reading_by": None,
-                             "candidates": ["なかじま", "なかしま"], "likely": "なかじま"})
+        raw["names"] += [{"text": "中島", "reading": None, "source": "script", "reading_by": None,
+                          "candidates": ["なかじま", "なかしま"], "likely": "なかじま"},
+                         {"text": "中嶋", "reading": None, "source": "script", "reading_by": None,   # 読みの候補が重なる名前
+                          "candidates": ["なかじま", "なかしま"], "likely": "なかじま"},
+                         {"text": "青葉物流", "reading": "あおばぶつりゅう", "source": "script", "reading_by": "ai",
+                          "candidates": [], "likely": None}]
         self.tx(s, lambda tx: tx.execute(
             "INSERT INTO salescall.business_contents (tenant_id, client_id, version_id, content, saved_by)"
             " VALUES (%s, %s, %s, %s, %s)", (s["tenant"], s["client"], vid, json.dumps(raw, ensure_ascii=False), OPERATOR.name)))
@@ -796,11 +800,28 @@ class CallerNumberAndVoice(Base):
                 "INSERT INTO salescall.recording_readings (tenant_id, client_id, set_id, part, name_text, reading)"
                 " VALUES (%s, %s, %s, 'Q1', '中島', 'なかしま')", (s["tenant"], s["client"], sada)))
         self.assertIn(e.exception.constraint, ("recording_reading_as_chosen", None))
-        for bad in ({"田中": "たなか"}, {"株式会社テスト": "てすと"}):           # 版に無い名前・入っている読みと違う読み
+        for bad in ({"佐藤": "さとう"}, {"株式会社テスト": "てすと"}):           # 版に無い名前・入っている読みと違う読み
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 make("Leda", recordings.Part("Q1", "x", "test://x", "5" * 64, readings=bad))
         with self.assertRaises(ValueError):                                        # 入口の読みのある名前は選べない
             self.tx(s, lambda tx: recordings.choose_reading(tx, vid, "株式会社テスト", "てすと"), OPERATOR)
+        with self.assertRaises(Rejected) as e:                                     # データベースも選ばせない
+            self.tx(s, lambda tx: tx.execute(
+                "INSERT INTO salescall.version_name_readings (tenant_id, client_id, version_id, name_text, seq, reading)"
+                " VALUES (%s, %s, %s, '株式会社テスト', 1, 'てすと')", (s["tenant"], s["client"], vid)), OPERATOR)
+        self.assertEqual(e.exception.constraint, "version_name_reading_given")
+        # 読みの決まった名前（入口の読み・AI の読み）は、選ばずに、その読みのまま録音を作れる（見直し7：前は、データベースが断った・
+        # 管理者か契約者が選ぶまで作れなかった＝フルオートでも人の手作業）
+        fixed = recordings.Part("Q3", "「かぶしきがいしゃてすと」の「あおばぶつりゅう」の件でお電話いたしました。", "test://Leda/Q3",
+                                "6" * 64, readings={"株式会社テスト": "かぶしきがいしゃてすと", "青葉物流": "あおばぶつりゅう"})
+        approve(make("Leda", part("Leda", "なかじま"), fixed))
+        self.assertEqual({n.text: (n.reading, n.reading_by) for n in self.tx(s, lambda tx: business_settings.load(tx, vid)).names
+                          if n.text in ("株式会社テスト", "青葉物流")},
+                         {"株式会社テスト": ("かぶしきがいしゃてすと", "given"), "青葉物流": ("あおばぶつりゅう", "ai")})
+        for said in ("「アオバブツリュウ」の件です。", "青葉物流の件です。"):                 # カタカナでも表記のままでも、話していれば書く
+            with self.subTest(said=said), self.assertRaises(ValueError):
+                make("Leda", recordings.Part("Q3", said, "test://x", "7" * 64))
+        make("Leda", part("Leda", "なかじま"))                                     # 読みの重なる「中嶋」の読みは求めない
         with self.assertRaises(ValueError):                                        # 契約者の単位の録音には付けない
             self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: recordings.create_set(
                 tx, unit="contractor", voice_name="Leda", parts=[part("Leda", "なかじま")]))

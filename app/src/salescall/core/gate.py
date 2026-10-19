@@ -487,8 +487,7 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
     # （幅の約束・お詫び・続き・聞き直しも、約束の時刻に回線をふさぐのは同じ）。長さは業務の平均通話時間なので、業務の理由
     # （短い業務の電話なら始められる）。決めるのは line_kept_for_promise の1か所（契約者の回線全体の割り当て＝0092）
     if not (nxt["promised"] and nxt["callee_at"] is not None):
-        soonest = tx.one("SELECT min(callee_at) AS at FROM salescall.promises_waiting() WHERE callee_at > now() AND task_id <> %s",
-                         (task["task_id"],))["at"]
+        soonest = tx.one("SELECT salescall.next_customer_promise_at(%s) AS at", (task["task_id"],))["at"]
         if soonest is not None:   # 時刻を指定された約束が無ければ、平均通話時間を測らない
             until = now + timedelta(seconds=promise_guard_seconds(tx, task))
             if soonest <= until and tx.one("SELECT salescall.line_kept_for_promise(%s, %s, %s) AS keep",

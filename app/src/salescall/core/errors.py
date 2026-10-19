@@ -193,7 +193,7 @@ ACTIONS: dict[str, Action] = {
                            "（代わりの判定 Jev と、通話後の検証がある）。設定 judge.outage_bypass の秒のあいだ、その判定に問い合わせず"
                            "代わりへ回す（毎回の発話で、止まった判定の答えを待たない）。1時間以上続いたら CL-1 に修正依頼を出す"
                            "（CL-1 の連絡帳 4-24）", lasting_fixer="CL-1"),
-    "judge_key": Action("mark_key_unusable", "none", None, None, None, True,
+    "judge_key": Action("mark_key_unusable", "none", None, None, None, False,
                         "意味の判定のキーが使えない（無効・権限が無い。待っても直らない）：発信は止めない。そのキーを使わない印を付け、"
                         "ほかのキーで続ける（使えるキーが無ければ、その判定は止まっているとみなして代わりの判定へ）。会話AIのキーの誤り"
                         "（key_specific）と同じ決まり。キーを入れ直すのは管理者"),

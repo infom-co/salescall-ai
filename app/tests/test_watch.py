@@ -409,7 +409,8 @@ class TenantAiStopsAndChecks(unittest.TestCase):
         self.assertEqual({k for k, v in kinds.items() if v == "judge_key"}, {(401, False), (403, False)})
         self.assertEqual(errors.classify(ErrorReport("judge", 400, "API key not valid. Please pass a valid API key.")),
                          "judge_key")                                   # Google のキーの誤りは 400（会話AIと同じ決まり。見直し6）
-        self.assertEqual((errors.ACTIONS["judge_key"].key, errors.ACTIONS["judge_key"].stop_cause), ("mark_key_unusable", None))
+        same = lambda a: (a.key, a.retry, a.stop_cause, a.stop_scope, a.notify)   # noqa: E731
+        self.assertEqual(same(errors.ACTIONS["judge_key"]), same(errors.ACTIONS["key_specific"]))   # 会話AIのキーの誤りと同じ
         for kind in ("judge_outage", "judge_rejected"):
             a = errors.ACTIONS[kind]
             self.assertEqual((a.stop_cause, a.fundamental, a.lasting_fixer), (None, False, "CL-1"))
