@@ -33,7 +33,7 @@ FULL = [W("yes_reserved"), W("datetime_pm"), W("affirm"), W("three_people"), W("
 def T(name: str) -> dict:
     """目的の人ご本人の台詞：目的の人かを聞かれたら（Flow._ask_target）、本物の方と同じく「はい、そうです。」と答える（convo.ANSWER_AGAIN）。"""
     return W(name) | {"if_asked_target": W("affirm")["wav"]}
-# AIが言ってはいけない約束（かけ直す・連絡する。Intent.md 9-4「勝手に約束しない」・G-22）と、人間だという答え（原則8）
+# AIが言ってはいけない約束（かけ直す・連絡する。Intent.md 9-4「勝手に約束しない」・G-22）と、人間だという答え（Intent.md 9-4）
 PROMISE = re.compile(r"改めて|折り返し|(?:お電話|ご連絡|連絡)(?:いたします|します|させていただきます|差し上げます)|担当(?:の者)?から")
 HUMAN = re.compile(r"人間です|人間でございます|私は人|生身")
 _PUNCT = re.compile(r"[\s、。，．,.!！?？「」]")
