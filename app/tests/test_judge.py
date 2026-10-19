@@ -205,24 +205,21 @@ class AfterCall(unittest.TestCase):
         self.assertEqual((d.kind, d.end_reason, d.at), ("hold", None, None))
 
     def test_callback(self):
-        at = NOW + timedelta(hours=3)
-        d = after_call(dict(items={}, rep=report(callback=callback("later", at))),
+        """時刻を言われていない約束：契約者の再発信の方針の間隔で、約束したかけ直し（回数の上限でも止めない）。時刻・幅を言われた
+        約束は、約束を守る次の動き（next_action._keep_promise の1か所。試験は test_settle）が無ければ決めない。"""
+        d = after_call(dict(items={}, rep=report(callback=callback("ask_who", person="岡田"))),
                        normal=gate.Pacing(0, NOW, None, False))
-        self.assertEqual((d.kind, d.at, d.promised), ("call", at, True))      # 約束したかけ直しは回数の上限でも止めない
+        self.assertEqual((d.kind, d.at, d.promised, d.callee_at), ("call", NOW + HOUR, True, None))
         later = NOW + timedelta(hours=5)
-        d = after_call(dict(items={}, rep=report(callback=callback("later", at))),
+        d = after_call(dict(items={}, rep=report(callback=callback("ask_who", person="岡田"))),
                        promised=gate.Pacing(3, later, "cross_client_interval_other_tenant", True))
         self.assertEqual(d.at, later)                                          # 門の最も早い時刻より前にしない
-        d = after_call(dict(items={}, rep=report(callback=callback("ask_who", person="岡田"))))
-        self.assertEqual((d.kind, d.at, d.promised), ("call", NOW + HOUR, True))
+        with self.assertRaises(ValueError):
+            after_call(dict(items={}, rep=report(callback=callback("later", NOW + timedelta(hours=3)))))
 
-    def test_callee_named_time_is_kept_on_the_schedule(self):
-        """お客様が言った時刻は予定に残る（NG時間でもかけてよい根拠）。門で止められても引き継ぐ。"""
+    def test_callee_named_time_is_kept_when_the_gate_denies(self):
+        """お客様が言った時刻は、門で止められても予定に引き継ぐ（NG時間でもかけてよい根拠）。"""
         at = NOW + timedelta(hours=3)
-        d = after_call(dict(items={}, rep=report(callback=callback("later", at))))
-        self.assertEqual((d.at, d.callee_at), (at, at))
-        d = after_call(dict(items={}, rep=report(callback=callback("ask_who", person="岡田"))))
-        self.assertIsNone(d.callee_at)                                         # 時刻を言われていない
         self.assertIsNone(after_call(dict(items={"Q1": TAKEN["Q1"]})).callee_at)
         d = decide_after_denial(gate.Denied("line_busy", *gate.REASONS["line_busy"]), current_promised=True,
                                 current=Target(MAIN), pacing=P_NONE, now=NOW, opening=None, retry_wait=300,
@@ -260,9 +257,9 @@ class AlternateNumber(unittest.TestCase):
     OTHER = report(callback=callback("other_number", NOW + timedelta(hours=1), "03-0000-0002"))
 
     def test_goes_to_the_number_the_callee_gave(self):
-        d = after_call(dict(items={}, rep=self.OTHER), alternate=Alternate(ALT, True, None),
-                       normal=gate.Pacing(0, NOW, None, False))
-        self.assertEqual((d.kind, d.contact_id, d.promised, d.at), ("call", ALT, True, NOW + timedelta(hours=1)))
+        untimed = report(callback=callback("other_number", None, "03-0000-0002"))   # 時刻のある約束は _keep_promise（test_settle）
+        d = after_call(dict(items={}, rep=untimed), alternate=Alternate(ALT, True, None), normal=gate.Pacing(0, NOW, None, False))
+        self.assertEqual((d.kind, d.contact_id, d.promised, d.at), ("call", ALT, True, NOW + HOUR))
 
     def test_records_only_when_not_called(self):
         for alt, reason in [(Alternate(ALT, False, None), "alternate_not_called"),

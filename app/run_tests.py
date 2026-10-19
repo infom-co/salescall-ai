@@ -736,6 +736,9 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      " WHERE v.business_id = p_business AND a.tenant_id = salescall.cur_tenant() AND a.ended_at IS NOT NULL"
      " AND salescall.reached_answer(a.attempt_id) $$",
      ("tests.test_supervisor.Rounds.test_the_guard_is_the_average_call_length_of_the_business_once_measured",)),
+    ("時刻ちょうどの約束の回数・日数に0を入れられる（約束を一度もかけずに終える）",
+     "ALTER TABLE salescall.setting_values DROP CONSTRAINT setting_values_exact_promise_at_least_one",
+     ("tests.test_settle.CallbackWindow.test_exact_promise_counts_cannot_be_zero",)),
     ("次の回の決め方に、知らない書き方を入れられる",
      "ALTER TABLE salescall.task_next_actions DROP CONSTRAINT task_next_actions_window_repeat",
      ("tests.test_settle.CallbackWindow.test_a_wrong_repeat_cannot_be_written",)),
