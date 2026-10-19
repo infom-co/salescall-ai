@@ -57,9 +57,12 @@ class Rejected(Exception):
         self.message = message
 
 
-class LoginRefused(Exception):
+class LoginRefused(BaseException):
     """データベースが、この接続の合言葉（PC の鍵）を断った（合言葉が違う・止められた・役が無い）。判断は `_login_refused` の1か所。
-    契約者の PC の見守り役は、これを受けたらログインし直す（supervisor）。"""
+    契約者の PC の見守り役は、これを受けたらログインし直す（supervisor の __main__）。
+    ⚠️ ふつうの誤り（Exception）ではなく BaseException にしてある：見守り役の各段は「どの誤りでも止めない（次の回にまた試す）」ために
+    Exception を受け止めて記録するので、ふつうの誤りにすると、鍵が止められても、ログインし直す所まで届かず、かけないまま回り続けた
+    （2026-10-19 の見直しで見つけた）。受け止めてよいのは、ログインし直す所だけ。"""
 
 
 # 合言葉を断られたときは、つなぐ段の誤りで、誤りの種類の番号が付かない（psycopg の OperationalError の文だけ）。データベースの

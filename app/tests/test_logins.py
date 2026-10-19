@@ -134,11 +134,11 @@ class Issue(Base):
         with self.assertRaises(LoginRefused):                                # 前の鍵は断られる（見守り役はログインし直す）
             ok(first)
         self.assertEqual(logins.revoke(self.w.a, ADMIN, self.prov, self.s["tenant"], pc=second.pc), 1)
-        with self.assertRaises(Exception):
+        with self.assertRaises(LoginRefused):
             ok(second)
         self.assertEqual(ok(again)["x"], 1)                                  # ほかの PC は使える
         self.assertEqual(logins.revoke(self.w.a, SYSTEM, self.prov, self.s["tenant"]), 3)   # 契約が終わった：すべて（止まった鍵も数える）
-        with self.assertRaises(Exception):
+        with self.assertRaises(LoginRefused):
             ok(again)
 
 

@@ -292,6 +292,28 @@ class Main(SupervisorBase):
         self.assertEqual(sup.workers[s["line"]].fails, 1)
         sup.shutdown(0)
 
+    def test_a_refused_key_reaches_the_login_again_from_every_step(self):
+        """PC の鍵が止められた（データベースが断った）：どの段で受けても、本体を止めてログインし直す所（__main__）まで届く。
+        ⚠️ 前は各段が「どの誤りでも止めない」ためにふつうの誤りとして受け止め、ログインし直さず、かけないまま回り続けた
+        （2026-10-19 の見直し）。後始末（shutdown）は、断られても止まらずに終わる。"""
+        from salescall.core.access import LoginRefused
+        s = self.ready()
+        sup = Supervisor(self.cfg(s), start_worker=lambda *a: (FakeProcess(), threading.Event()), holder=HOLDER)
+        sup.start()
+        real = sup.access
+        class Refusing:
+            def __getattr__(self, name):
+                def refuse(*a, **k):
+                    raise LoginRefused("試験：この PC の鍵は止められています")
+                return refuse
+        sup.access = Refusing()
+        for step in (sup.check_version, lambda: sup.renew(1.0), lambda: sup._launch(s["line"], fails=0, now=1.0),
+                     lambda: sup.tick(10_000.0)):
+            with self.subTest(step=step), self.assertRaises(LoginRefused):
+                step()
+        sup.shutdown(0)                                                          # 断られても、後始末は止まらずに終わる
+        sup.access = real
+
     def test_a_program_out_of_step_with_the_database_makes_no_new_calls_and_asks_for_an_update(self):
         """プログラムとデータベースの版がずれていれば、回線ごとの処理を止め（いまの通話は最後まで）、立ち上げない。プログラムが古ければ
         契約者へ「更新」の知らせ（自動か手動かで文が違う）。版が合ったら、またかける。"""

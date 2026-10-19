@@ -258,8 +258,8 @@ class Supervisor:
         for what, step in steps:
             try:
                 step()
-            except LoginRefused:   # この PC の鍵が止められた・替えられた：本体を止めて、ログインし直す（__main__）
-                raise
+            except LoginRefused:   # この PC の鍵が止められた・替えられた：本体を止めて、ログインし直す（__main__）。どの段の中で
+                raise              # 受けても、ふつうの誤りとしては受け止められない（LoginRefused は BaseException）
             except Exception as e:  # noqa: BLE001 どの段の誤りでも本体は止めない（次の回にまた試す）
                 report(self.access, self.cfg.tenant_id, what, e)
                 if what == "回線の借用":
@@ -282,7 +282,7 @@ class Supervisor:
                 leases.return_line(tx, l, self.holder)
             try:
                 self.access.in_tenant(ACTOR, self.cfg.tenant_id, back)
-            except Exception:  # noqa: BLE001 返せなくても、期限で次が後始末する
+            except (Exception, LoginRefused):  # noqa: BLE001 返せなくても（鍵が止められても）、期限で次が後始末する
                 pass
         self.pool.shutdown(wait=True)
 
