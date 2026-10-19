@@ -37,7 +37,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 
 # 読み方の版（読み方を変えたら上げる）。判定の版（judge.JUDGE_VERSION）に入る＝上げると、読めなかった「判定待ち」の行が判定し直される
-VERSION = "5"
+VERSION = "6"
 JST = timezone(timedelta(hours=9))
 AT, WINDOW, UNSPECIFIED, CONFIRM, UNREADABLE = "at", "window", "unspecified", "confirm", "unreadable"
 DAY = 24 * 3600
@@ -318,9 +318,9 @@ def _day_part(t: str, today: date) -> tuple[tuple[date, date] | None, str | None
             try:
                 c = date(y, mo, dom)
             except ValueError:
-                if mon is not None:
-                    raise _Ambiguous("その月に無い日です") from None
-                continue
+                # その月に無い日（11月の「31日」・2月の「30日」）：次の月へ送らない（⚠️ 前は11月を飛ばして12月31日と読んだ＝
+                # 2026-10-19 の見直し）。月の終わりのつもりか、決まらない
+                raise _Ambiguous("その月に無い日です") from None
             if c >= today:
                 found = c
                 break
@@ -504,6 +504,9 @@ def read(text: str | None, now: datetime, business_hours: tuple[int, int] = DEFA
         if at <= local:
             return _confirm("通話の時刻より前の時刻です（今日のことか、明日以降か決まりません）")
         return Reading(AT, at)
+    if kind == "window" and s0 >= s1:
+        # 「午前0時まで」など、幅が空になる言い方（⚠️ 前は始まりと終わりが同じ幅を返し、次の予定の決まり＝0086 に当たりえた）
+        return _confirm("幅が空になる言い方です（いつまでか決まりません）")
     daily = (s0, s1) if kind == "window" else None
     if days is None:                                  # 「平日の夕方」「土日祝ならいつでも」：日の種類だけ（終わり無し）
         return Reading(WINDOW, local, None, daily, days=kinds)

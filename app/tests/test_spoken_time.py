@@ -191,6 +191,10 @@ class MoreWords(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertEqual(read(text, NOW).kind, CONFIRM)
         self.assertEqual(read("13日", NOW).start, at(2026, 11, 13))           # 日だけは今月か来月
+        for now, text in ((at(2026, 11, 5, 10), "31日"), (at(2027, 2, 3, 10), "30日"),   # その月に無い日：次の月へ送らない
+                          (NOW, "明日の午前0時まで")):                                  # 幅が空になる
+            with self.subTest(text=text):
+                self.assertEqual(read(text, now).kind, CONFIRM)
         self.assertEqual(read("明日の3時前", NOW).end, at(2026, 10, 15, 15))   # 分の無い「前」はこれまでどおり
 
     def test_am_or_pm_from_business_hours(self):
