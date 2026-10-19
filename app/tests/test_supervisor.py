@@ -366,6 +366,18 @@ class Main(SupervisorBase):
         self.assertEqual(updates.gap(("0080_b.sql", "f" * 64), None), updates.UNKNOWN)   # 表の作りのファイルが無い＝分からない
         live = self.w.a.in_tenant(SYSTEM, s["tenant"], updates.current)
         self.assertEqual(live, updates.SAME)                                     # プログラムとデータベースの指紋は同じ決まり
+        # Windows の PC で行の終わりが CRLF で取り出されても、指紋は同じ（⚠️ 前は「途中が違う」と読み、かけなくなった）
+        import shutil
+        import tempfile
+        from pathlib import Path
+        from salescall.core import migrate
+        crlf = Path(tempfile.mkdtemp(prefix="salescall-test-crlf-"))
+        try:
+            for f in migrate.migration_files():
+                (crlf / f.name).write_bytes(f.read_bytes().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n"))
+            self.assertEqual(migrate.fingerprint(crlf), migrate.fingerprint())
+        finally:
+            shutil.rmtree(crlf)
 
     def test_the_supervisor_calls_through_a_separate_line_process_and_returns_the_line(self):
         """本物の立ち上げ方（回線ごとに別の処理）で1本かけ、決まった間隔の仕事が締め、止めると回線を返す。"""

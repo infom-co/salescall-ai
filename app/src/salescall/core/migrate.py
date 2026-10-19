@@ -27,13 +27,21 @@ def migration_files(directory: Path = MIGRATIONS_DIR) -> list[Path]:
     return sorted(directory.glob("[0-9][0-9][0-9][0-9]_*.sql"))
 
 
+def _body(path: Path) -> bytes:
+    """表の作りのファイルの中身（行の終わりを LF にそろえる。指紋と流す中身の1か所）。⚠️ Windows の PC で git が行の終わりを
+    CRLF に変えて取り出すと、そろえなければ指紋が変わり、データベースと同じ版なのに「途中が違う」と読んで、その PC から
+    かけなくなった（2026-10-19 の見直し。db/migrations/.gitattributes でも LF のまま取り出す）。そろえた指紋は、LF の
+    ファイルの指紋と同じ（流したあとの記録はそのまま使える）。"""
+    return path.read_bytes().replace(b"\r\n", b"\n")
+
+
 def fingerprint(directory: Path = MIGRATIONS_DIR) -> tuple[str, str] | None:
     """このプログラムが持つ表の作りの版：いちばん新しい名前と、すべての「名前:中身の指紋」を名前の順に並べた指紋（データベースの
     側は salescall.schema_fingerprint＝同じ決まり。0083）。表の作りのファイルが無ければ None（版が分からない）。"""
     files = migration_files(directory)
     if not files:
         return None
-    text = "".join(f"{p.name}:{hashlib.sha256(p.read_bytes()).hexdigest()}\n" for p in files)
+    text = "".join(f"{p.name}:{hashlib.sha256(_body(p)).hexdigest()}\n" for p in files)
     return files[-1].name, hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
@@ -47,7 +55,7 @@ def apply(owner_conninfo: str, directory: Path = MIGRATIONS_DIR) -> list[str]:
         )
         applied = dict(conn.execute("SELECT name, sha256 FROM public.salescall_migrations").fetchall())
         for path in migration_files(directory):
-            body = path.read_bytes()
+            body = _body(path)
             digest = hashlib.sha256(body).hexdigest()
             if path.name in applied:
                 if applied[path.name] != digest:

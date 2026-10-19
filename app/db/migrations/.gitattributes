@@ -1,0 +1,2 @@
+# 表の作りのファイルは、どの PC でも行の終わりを LF のまま取り出す（指紋をそろえる。core/migrate.py の _body）
+*.sql text eol=lf
