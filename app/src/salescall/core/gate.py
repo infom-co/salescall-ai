@@ -65,6 +65,7 @@ REASONS: dict[str, tuple[str, str]] = {
     "line_unknown": ("その回線はありません", "cannot_judge"),
     "line_not_leased": ("回線を借りていません（または、借用の期限が予約証より先に切れます）", "wait"),
     "line_daily_limit": ("この回線の、今日の発信の上限に達しました", "wait"),
+    "line_promise_soon": ("お客様が時刻を指定した約束が近いので、この回線ではふつうの電話を始めません", "wait"),
     "excluded": ("「かけない」か「強制かけない」にしている行です（依頼者・契約者の都合。ダッシュボードで戻せます）", "wait"),
     "business_daily_limit": ("この業務の、今日の発信の上限に達しました（業務ごとの設定）", "wait"),
     "line_other_client": ("この回線は、ほかの依頼者に割り当てた発信番号です", "wait"),
@@ -302,7 +303,8 @@ def claim(tx: Tx, *, task_id: UUID, line_id: UUID, lease_holder: str) -> Claim |
 # 行のせいではない理由（候補を出す処理が、行の予定を書き直さずに扱う。DESIGN.md 5-4）：回線の理由＝その回線でしばらくかけない
 # （ほかの回線は、その行をかけられる）／依頼者の理由＝その依頼者の行を、この回だけ飛ばす／業務の理由＝その業務の行を、この回だけ
 # 飛ばす。それ以外は、次の動き（after_denial）へ渡す
-LINE_REASONS = frozenset({"line_unknown", "line_not_leased", "line_retired", "line_daily_limit", "line_other_client", "line_busy"})
+LINE_REASONS = frozenset({"line_unknown", "line_not_leased", "line_retired", "line_daily_limit", "line_promise_soon",
+                          "line_other_client", "line_busy"})
 CLIENT_REASONS = frozenset({"client_concurrency", "client_inactive"})
 BUSINESS_REASONS = frozenset({"business_daily_limit"})   # 業務の理由＝その業務の行を、この回だけ飛ばす（ほかの業務の行はかける）
 
@@ -463,6 +465,12 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
         dials += tx.one("SELECT salescall.line_promised_due(%s, %s, %s) AS n", (line_id, local.date(), task["task_id"]))["n"]
     if dials >= int(_setting(tx, "line.max_dials_per_day", task)):
         return _deny("line_daily_limit")
+    # お客様が時刻を指定した約束（時刻ちょうど・幅の無い指定）が近ければ、その回線ではふつうの電話を始めない（約束の時刻に回線を
+    # ふさがない。2026-10-19 ユーザー：「約束の数分前からふつうの電話を始めない形がいいでしょう」。0090）
+    if not nxt["promised"] and tx.one(
+            "SELECT salescall.line_exact_promise_soon(%s, now() + make_interval(secs => %s), %s) AS soon",
+            (line_id, int(_setting(tx, "gate.exact_promise_guard", task)), task["task_id"]))["soon"]:
+        return _deny("line_promise_soon")
 
     # (9) 同時の本数：依頼者ごとの上限。会話AIの1分の上限では待たせない（2026-10-17 ユーザー：「1分制限を超えそうになったら、
     #     きりのいいところで、次のキーと併用して進んだらいい」＝キーの選択 Q15 が次のキーを併せて使う。5-2 の9）

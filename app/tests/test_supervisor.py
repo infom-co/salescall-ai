@@ -7,9 +7,10 @@ import threading
 import time
 import unittest
 import uuid
+from datetime import timedelta
 from pathlib import Path
 
-from salescall.core import (attempts, backup, business_rules, call_report, fix_requests, leases, next_action, quality_stage,
+from salescall.core import (attempts, backup, business_rules, call_report, fix_requests, gate, leases, next_action, quality_stage,
                             registry, scheduler, stops)
 from salescall.core.phone import normalize
 from salescall.core.access import Rejected
@@ -208,6 +209,19 @@ class Rounds(SupervisorBase):
         got = line.one_round(self.w.a, SYSTEM, s["tenant"], s["line"], HOLDER, FakeDriver(), Runner())
         self.assertEqual(self.tx(t, lambda tx: tx.one("SELECT task_id FROM salescall.attempts WHERE attempt_id = %s",
                                                       (got.called,)))["task_id"], t["task"])   # あとの依頼者の約束が先
+
+    def test_an_exact_time_promise_keeps_the_line_free_shortly_before(self):
+        """お客様が時刻を指定した約束（時刻ちょうど・幅の無い指定）の数分前（設定。初め5分）からは、その約束をかけられる回線で
+        ふつうの電話を始めない（2026-10-19 ユーザー）。約束の電話そのものは止めない。時刻が遠ければ、ふつうにかける。"""
+        s = self.ready()
+        t = self.ready(tenant=s["tenant"])
+        now = self.tx(t, lambda tx: tx.one("SELECT now() AS t")["t"])
+        promise = lambda at: self.tx(t, lambda tx: next_action.schedule_call(   # noqa: E731
+            tx, t["task"], at, contact_id=t["contact"], cause="試験", promised=True, callee_at=at))
+        promise(now + timedelta(minutes=3))
+        self.assertEqual(self.reason(s), "line_promise_soon")                 # ふつうの電話：始めない
+        promise(now + timedelta(minutes=30))
+        self.assertIsInstance(self.claim(s), gate.Claim)                       # 遠い：かける
 
     def test_a_capped_business_does_not_keep_the_other_businesses_of_the_client_out(self):
         """上限に達した業務の行が候補の先頭を埋めても、その業務を除いて読み直し、同じ依頼者のほかの業務の行をかける。"""
