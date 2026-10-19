@@ -29,7 +29,11 @@ from salescall.core.phone import normalize
 VERSION = 3
 FACT_KINDS = ("do_not_call", "complaint", "out_of_scope", "party", "callback", "ai_question", "end")
 # ai_question：「AIですか？」「人間ですか？」と聞かれた（聞かれるたびに1つ。CL-1 の 2-2 の版 0.5＝2026-10-19。判定には使わない。記録だけ）
-PARTY_KINDS = ("reception", "target", "voicemail", "ivr", "fax", "wrong_party")   # 4-3（区間ごと）
+PARTY_KINDS = ("reception", "target", "voicemail", "ivr", "fax", "wrong_party", "person")   # 4-3（区間ごと）
+# person＝お客様が出て話したが、役（受付か目的のお客様か）はまだ分からない（2026-10-19 の見直しで足した。CL-1 の連絡帳への頼み
+# ＝CL-2 の 4-105）。⚠️ 版3の事実には「お客様が出た」が無く、目的の人のある業務で役が分かる前に切られた区間と、「誰でも」の業務
+# （最初に出たお客様が目的のお客様＝相手を報告しない）の区間は、相手が空になり、判定が「会話に至らなかった」と読んで、黙って切った
+# お客様の拒否を登録しなかった（原則14）
 PARTY_SOURCES = ("report", "signal")                     # 会話AIの報告で分かった／音・回線の信号で分かった
 CALLBACK_REASONS = ("absent", "other_number", "later", "ask_who", "ask_when", "our_promise")
 # 不在・別の番号・あとで（お客様に頼まれた。6-2）／分かるお客様・分かる時を聞いた（15-2-3 の a1・a2）／こちらが約束した

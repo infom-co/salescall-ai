@@ -164,6 +164,18 @@ class CutTable(unittest.TestCase):
         j = run(facts=Facts("dropped", "callee", True, False, NOW), rep=report(cut=Cut("ai", False, False)), items={})
         self.assertEqual((j.state, j.dnc_reason, j.disconnect), ("do_not_call", "refused_in_call", "refused"))
 
+    def test_a_callee_whose_role_is_not_known_yet_is_a_conversation(self):
+        """役が分かる前のお客様（person）：お客様と話した区間として扱う。AIが話している途中に黙って切った ⇒ 拒否（原則14）。
+        役が分からないまま締めた ⇒ 目的のお客様に繋がらなかった理由が要る（無ければ判定待ち）。⚠️ 前は相手が空になり、
+        「会話に至らなかった」と読んで拒否を登録しなかった（2026-10-19 の見直し）。"""
+        cut_by_callee = Facts("dropped", "callee", True, False, NOW)
+        j = run(facts=cut_by_callee, rep=report(("person",), cut=Cut("ai", False, False)), items={})
+        self.assertEqual((j.state, j.dnc_reason, j.disconnect), ("do_not_call", "refused_in_call", "refused"))
+        self.assertEqual(run(rep=report(("person",)), items={}).detail["unknown_cause"], "not_reached_reason_missing")
+        self.assertEqual(run(rep=report(("person",), not_reached="absent"), items={}).state, "not_reached")
+        self.assertEqual(run(rep=report(("person", "target")), items={}).state, "incomplete")
+        self.assertEqual(run(facts=cut_by_callee, rep=report((), cut=Cut("ai", False, False)), items={}).state, "open")
+
 
 P_NONE = gate.Pacing(3, NOW, None, False)
 HOUR = timedelta(hours=1)        # 試験の業務の決まりの間隔（1時間おき）が指す時刻は NOW + HOUR（_retry_at の答えとして渡す）
