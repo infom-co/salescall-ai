@@ -203,9 +203,10 @@ class Flow(Base):
         stopped = {r["phone_e164"]: (r["reason"], r["source_attempt_id"]) for r in self.tx(s, lambda tx: tx.all(
             "SELECT phone_e164, reason::text AS reason, source_attempt_id FROM salescall.dnc_entries"
             " WHERE revoked_at IS NULL AND phone_e164 IS NOT NULL"))}
-        for st in ("ending", "ended"):
+        for st in (("ending", "ended") if report is not None else ("technical_error",)):   # 報告が無い＝会話の処理が落ちた
             self.tx(s, lambda tx: attempts.move(tx, c.attempt_id, st))
-        self.tx(s, lambda tx: call_report.save(tx, c.attempt_id, report))
+        if report is not None:
+            self.tx(s, lambda tx: call_report.save(tx, c.attempt_id, report))
         if recheck is not None:
             self.tx(s, lambda tx: number_recheck.record(tx, c.attempt_id, recheck, corrected=None,
                                                         evidence="試験：別の耳の文字と付け合わせた", checked_by="試験"))
@@ -222,6 +223,18 @@ class Flow(Base):
         for phone in (s["phone"], said):                                    # 締めで、行の番号すべてへ
             self.assertEqual(self.tx(s, lambda tx: dnc.lookup(tx, normalize(phone).e164)),
                              {"ledger": "client", "reason": "refused_in_call"})
+
+    def test_a_declaration_survives_a_crash_before_the_report(self):
+        """申告をその場で台帳へ入れたあと、会話の処理が報告を書く前に落ちた：締めは、台帳の申告から「発信の拒否」と判定し、
+        行の番号すべてへ広げる（お詫びしてかけ直さない）。⚠️ 前は報告だけを見て、断りを見落とし、途中で切れた通話として
+        お詫びのかけ直しを決めた（2026-10-19 の見直し）。"""
+        s = self.ready_jp()
+        said, _, _ = self.redirect(s)
+        _, _, got = self.declared_call(s, None)
+        self.assertEqual(got["state"], "do_not_call")
+        for phone in (s["phone"], said):
+            self.assertEqual(self.tx(s, lambda tx: dnc.lookup(tx, normalize(phone).e164))["ledger"], "client")
+        self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["kind"], "end")
 
     def test_a_wrong_party_declaration_stops_only_that_number(self):
         """申告した相手が番号違いの方だった：その番号の持ち主の断りなので、その番号だけ（行のお客様の番号へ広げない）。"""

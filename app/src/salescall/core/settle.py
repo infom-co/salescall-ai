@@ -170,7 +170,8 @@ def _inputs_now(tx: Tx, a: dict[str, Any]) -> dict[str, Any]:
     return {"judge_version": JUDGE_VERSION, "rules_version": str(version),
             "report_source": call_report.load_with_source(tx, a["attempt_id"])[1],
             "items": _items_snapshot(_items(tx, a["task_id"])),
-            "refused_after": _refused_after(tx, a["attempt_id"])}   # 検証があとで拒否を見つけた（2026-10-17 の見直し）
+            "refused_after": _refused_after(tx, a["attempt_id"]),   # 検証があとで拒否を見つけた（2026-10-17 の見直し）
+            "declared_in_call": _declared_in_call(tx, a["attempt_id"])}   # 通話の途中の申告（2026-10-19 の見直し）
 
 
 def rejudge(tx: Tx, attempt_id: UUID) -> dict[str, Any] | None:
@@ -190,7 +191,8 @@ def rejudge(tx: Tx, attempt_id: UUID) -> dict[str, Any] | None:
     now = _inputs_now(tx, a)
     before = {"judge_version": last["judge_version"], "rules_version": last["snapshot"].get("rules_version"),
               "report_source": last["snapshot"].get("report_source"), "items": last["snapshot"].get("items"),
-              "refused_after": bool(last["snapshot"].get("refused_after"))}
+              "refused_after": bool(last["snapshot"].get("refused_after")),
+              "declared_in_call": bool(last["snapshot"].get("declared_in_call"))}
     if now == before:
         return None                                # 何も直っていない：同じ入力で判定し直しても同じ結果
     out = _judge_and_write(tx, a, kind="rejudged", rules_version=now["rules_version"])
@@ -211,10 +213,21 @@ def rejudge_held(tx: Tx) -> list[dict[str, Any]]:
     return done
 
 
+def _refusal_in_ledger(tx: Tx, attempt_id: UUID, reason: str) -> bool:
+    """その通話の拒否が、発信禁止の台帳に入っているか（1か所）。取り消した登録は数えない（取り消し＝契約者が誤りと確かめた。
+    数えると、判定し直しで「発信の拒否」に戻り、取り消した番号を締めがまた止めた）。"""
+    return tx.one("SELECT 1 FROM salescall.dnc_entries WHERE source_attempt_id = %s AND reason = %s"
+                  " AND revoked_at IS NULL LIMIT 1", (attempt_id, reason)) is not None
+
+
 def _refused_after(tx: Tx, attempt_id: UUID) -> bool:
-    """通話後の検証が、その通話の拒否の聞き逃しを見つけて登録したか（1か所）。"""
-    return tx.one("SELECT 1 FROM salescall.dnc_entries WHERE source_attempt_id = %s"
-                  " AND reason = 'refused_found_after' LIMIT 1", (attempt_id,)) is not None
+    """通話後の検証が、その通話の拒否の聞き逃しを見つけて登録したか。"""
+    return _refusal_in_ledger(tx, attempt_id, "refused_found_after")
+
+
+def _declared_in_call(tx: Tx, attempt_id: UUID) -> bool:
+    """その通話の途中で「もうかけないで」と申告され、その場で台帳に入れたか（dnc.register_declared）。"""
+    return _refusal_in_ledger(tx, attempt_id, "refused_in_call")
 
 
 def _judge_input(tx: Tx, a: dict[str, Any], rules_version: Any) -> tuple[JudgeInput, str | None, dict[str, Any]]:
@@ -233,7 +246,7 @@ def _judge_input(tx: Tx, a: dict[str, Any], rules_version: Any) -> tuple[JudgeIn
                                         for k, key in spoken_time.PERIOD_SETTINGS.items()})
     inp = JudgeInput(Facts(a["state"], a["hangup_side"], a["reached_answer"], dialed["source"] == "callee", a["ended_at"]),
                      report, _items(tx, a["task_id"]), business_rules.load(tx, rules_version), refused_after,
-                     unclear_is_refusal, (seconds(open_), seconds(close)), periods)
+                     unclear_is_refusal, (seconds(open_), seconds(close)), periods, _declared_in_call(tx, attempt_id))
     return inp, report_source, dialed
 
 
@@ -259,6 +272,7 @@ def _judge_and_write(tx: Tx, a: dict[str, Any], *, kind: str, rules_version: Any
         "report": None if report is None else report.to_json(), "report_source": report_source,
         "items": _items_snapshot(items),
         "rules_version": str(rules.version_id), "refused_after": refused_after, "unclear_is_refusal": unclear_is_refusal,
+        "declared_in_call": inp.declared_in_call,
     }
     version_no = results.append(tx, a["task_id"], kind=kind, business_state=j.state, attempt_id=attempt_id,
                                 judge_version=JUDGE_VERSION, complaint=j.complaint, snapshot=snapshot, detail=j.detail,

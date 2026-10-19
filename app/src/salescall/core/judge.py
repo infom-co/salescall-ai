@@ -46,7 +46,7 @@ from salescall.core.business_rules import Rules
 from salescall.core.call_report import CallReport
 
 # 判定の決まりの版（変えたら上げる）。かけ直しの時刻の読み方の版も入れる（読み方を直すと、判定待ちの行が判定し直される＝settle.rejudge）
-JUDGE_VERSION = f"judge-2026-10-19.4+time-{spoken_time.VERSION}"
+JUDGE_VERSION = f"judge-2026-10-19.5+time-{spoken_time.VERSION}"
 # 「判定できない」の原因の名前（同じ原因かを数える単位）と意味。プログラムの誤りか（直す担当へ修正依頼を出し、管理者にも
 # 知らせる＝確かめ・承認のため。2026-10-16・10-17 ユーザー）も、ここで決まる（1か所）。業務設定の抜けは契約者が直す（いまは無い：業務の決まりは、必須の質問ごとに、
 # 決まった理由のすべてに扱いが無いと保存できない＝business_rules。2026-10-16 見直し：前は「理由×扱いが決まらない」を業務設定の
@@ -98,6 +98,10 @@ class JudgeInput:
     unclear_is_refusal: bool     # 切れ方を決められないとき、営業拒否として扱うか（設定 judge.unclear_disconnect_is_refusal）
     callee_hours: tuple[int, int] = spoken_time.DEFAULT_BUSINESS_HOURS   # お客様の営業時間（設定 callee.business_hours。午前・午後を決める）
     periods: dict[str, tuple[int, int]] = field(default_factory=lambda: spoken_time.PERIODS)   # 言葉ごとの幅（依頼者ごとの設定）
+    # 通話の途中の「もうかけないで」が、その場で台帳に入っている（dnc.register_declared）。⚠️ 会話の処理が報告を書く前に
+    # 落ちても、申告は台帳にある：報告だけを見ると、断りを見落として、行のほかの番号へ広げず、お詫びしてかけ直そうとした
+    # （2026-10-19 の見直し）
+    declared_in_call: bool = False
 
 
 @dataclass(frozen=True)
@@ -173,6 +177,8 @@ def refusal(inp: JudgeInput) -> Judgement | None:
     # お詫びとともにすぐかけ直す＝`cut_off`。2026-10-17 ユーザー）。
     # それ以外は入力の誤り（報告を書き損ねた）。決めつけない
     if inp.facts.reached_answer and r is None and inp.facts.end_state != "technical_error":
+        if inp.declared_in_call:   # 報告は無くても、通話の途中の申告が台帳にある：はっきりした拒否が勝つ（2026-10-19 の見直し）
+            return done("do_not_call", dnc="refused_in_call", refusal="in_call")
         if inp.refused_after:   # 報告は無くても、通話後の検証が録音から拒否を見つけた：はっきりした拒否が勝つ（2026-10-17 の見直し）
             return done("do_not_call", dnc="refused_found_after", refusal="found_after")
         return unknown("report_missing", "お客様が出た通話なのに、会話の報告がありません")
@@ -183,12 +189,13 @@ def refusal(inp: JudgeInput) -> Judgement | None:
         return done("out_of_scope", dnc="fax_line", out_of_scope="fax_line")
     # (1) 番号違い（その番号の持ち主の断りも、その番号だけを止める）
     if r and "wrong_party" in r.parties:
-        refused = {"wrong_party_refused": True} if r.do_not_call or cut == "refused" or inp.refused_after else {}
+        refused = {"wrong_party_refused": True} if r.do_not_call or inp.declared_in_call or cut == "refused" \
+            or inp.refused_after else {}
         if inp.facts.dialed_callee_number:   # 言われた番号が違った：その番号だけ止め、番号を確かめて聞き直す（次の動き）
             return done("not_reached", dnc="wrong_party", not_reached="wrong_alternate", **refused)
         return done("out_of_scope", dnc="wrong_party", out_of_scope="wrong_party", **refused)
     # (2) 発信の拒否（原則14）：はっきりした拒否が先、切れ方はそのあと
-    if r and r.do_not_call:
+    if (r and r.do_not_call) or inp.declared_in_call:   # 申告の台帳も見る（報告が無い・報告から抜けた＝結果不明の通話も）
         return done("do_not_call", dnc="refused_in_call", refusal="in_call")
     if inp.refused_after:
         return done("do_not_call", dnc="refused_found_after", refusal="found_after")
