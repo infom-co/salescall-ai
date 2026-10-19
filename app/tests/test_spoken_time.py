@@ -159,6 +159,40 @@ class MoreWords(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertEqual(read(text, NOW).kind, CONFIRM)                 # 幅が1つに決まらない（月初＝今月は過ぎた）
 
+    def test_words_added_in_the_review(self):
+        """2026-10-19 の見直しで足した言い方（前は読めず、判定待ちになっていた）と、年の付いた日・過ぎた日・遠い日。"""
+        cases = {
+            "来月3日": (WINDOW, at(2026, 11, 3), at(2026, 11, 4), None),
+            "来月の3日の午後2時": (AT, at(2026, 11, 3, 14), None, None),
+            "今月の20日": (WINDOW, at(2026, 10, 20), at(2026, 10, 21), None),
+            "来月の初め": (WINDOW, at(2026, 11, 1), at(2026, 11, 4), None),
+            "来月の月の頭": (WINDOW, at(2026, 11, 1), at(2026, 11, 4), None),
+            "月の終わり": (WINDOW, at(2026, 10, 29), at(2026, 11, 1), None),
+            "来年の1月5日": (WINDOW, at(2027, 1, 5), at(2027, 1, 6), None),
+            "2027年1月5日なら": (WINDOW, at(2027, 1, 5), at(2027, 1, 6), None),
+            "来年の9月中": (WINDOW, at(2027, 9, 1), at(2027, 10, 1), None),
+            "4月10日": (WINDOW, at(2027, 4, 10), at(2027, 4, 11), None),          # 半年の内なら来年
+            "3時がいいです": (AT, at(2026, 10, 14, 15), None, None),
+            "明日の夕方ごろ": (WINDOW, at(2026, 10, 15, 16), at(2026, 10, 15, 18), (16 * H, 18 * H)),
+            "明日の正午ごろ": (AT, at(2026, 10, 15, 12), None, None),
+            "30分後くらい": (AT, at(2026, 10, 14, 10, 30), None, None),
+            "1時間後ぐらい": (AT, at(2026, 10, 14, 11), None, None),
+            "明日の午前中ならいつでも": (WINDOW, at(2026, 10, 15), at(2026, 10, 15, 12), (0, 12 * H)),
+        }
+        for text, want in cases.items():
+            with self.subTest(text=text):
+                r = read(text, NOW)
+                self.assertEqual((r.kind, r.start, r.end, r.daily), want)
+        for text in ("明日の3時10分前",     # 2時50分とも、3時10分より前とも取れる
+                     "10月13日",            # 昨日：言い違いか来年か決まらない（前は1年後の同じ日と読んだ）
+                     "5月10日", "9月中",    # 半年より先：同上
+                     "今月13日", "来月31日", "2025年1月5日",
+                     "月の初め"):           # 今月の初めは過ぎた
+            with self.subTest(text=text):
+                self.assertEqual(read(text, NOW).kind, CONFIRM)
+        self.assertEqual(read("13日", NOW).start, at(2026, 11, 13))           # 日だけは今月か来月
+        self.assertEqual(read("明日の3時前", NOW).end, at(2026, 10, 15, 15))   # 分の無い「前」はこれまでどおり
+
     def test_am_or_pm_from_business_hours(self):
         """午前・午後の無い時刻は、お客様の営業時間に入るほう（2026-10-19 ユーザー：「通常午前3時に電話をかけてほしい人はいない
         ので、営業時間の範囲だけ」。CL-1 の fill_ampm と同じ決まり：時の単位で、終わりの時も含む）。"""
@@ -218,6 +252,23 @@ class NotGuessed(unittest.TestCase):
                 self.assertIn(r.kind, (UNREADABLE, CONFIRM))
                 self.assertIsNone(r.start)
         self.assertEqual(read("そのへんで", NOW).kind, UNREADABLE)
+
+    def test_separators_and_kanji_runs_are_not_joined(self):
+        """区切り（・ , .）を消して数をつなげない・十の無い漢数字をつなげない（⚠️ 前は「1・2時間後」を12時間後、「二三日後」を
+        23日後と読んだ＝2026-10-19 の見直し）。続いた2つの数は範囲（二三日後＝2〜3日後）。区切りの残る時刻は読まない。"""
+        two_three = (WINDOW, at(2026, 10, 16), at(2026, 10, 18))
+        for text in ("二三日後", "2・3日後", "2、3日後", "2,3日後"):
+            with self.subTest(text=text):
+                r = read(text, NOW)
+                self.assertEqual((r.kind, r.start, r.end), two_three)
+        for text in ("1・2時", "明日の1.2時", "1,2時間後", "明日の一二時", "二四日後"):
+            with self.subTest(text=text):
+                r = read(text, NOW)
+                self.assertIn(r.kind, (UNREADABLE, CONFIRM))
+                self.assertIsNone(r.start)
+        self.assertEqual(read("十二日", NOW).start, at(2026, 11, 12))           # 十のある漢数字はこれまでどおり
+        self.assertEqual(read("二〇二七年一月五日なら", NOW), read("2027年1月5日なら", NOW))   # 〇を含む位取り
+        self.assertEqual(read("2027年1月5日なら", NOW).start, at(2027, 1, 5))
 
     def test_past_windows_need_confirming(self):
         evening = datetime(2026, 10, 14, 19, 0, tzinfo=JST)

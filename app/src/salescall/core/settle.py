@@ -46,7 +46,7 @@ def unsettled(tx: Tx) -> list[dict[str, Any]]:
 
 _ATTEMPT = (
     "SELECT a.attempt_id, a.task_id, a.tenant_id, a.client_id, a.state, a.hangup_side, a.verification, a.disconnect,"
-    "       a.version_id, a.contact_id, a.phone_e164, a.purpose, a.wrong_contact_id, a.claimed_at,"
+    "       a.version_id, a.contact_id, a.phone_e164, a.purpose, a.wrong_contact_id, a.claimed_at, a.ended_at,"
     "       salescall.reached_answer(a.attempt_id) AS reached_answer,"
     "       t.client_ref, t.run_id, r.business_id"
     " FROM salescall.attempts a"
@@ -231,7 +231,7 @@ def _judge_input(tx: Tx, a: dict[str, Any], rules_version: Any) -> tuple[JudgeIn
     open_, close = get("callee.business_hours")   # お客様の営業時間（午前・午後を決める。日をまたいでよい）
     periods = spoken_time.periods_from({k: spoken_time.range_seconds(get(key))     # 言葉ごとの幅（依頼者ごとの設定。0088）
                                         for k, key in spoken_time.PERIOD_SETTINGS.items()})
-    inp = JudgeInput(Facts(a["state"], a["hangup_side"], a["reached_answer"], dialed["source"] == "callee", a["claimed_at"]),
+    inp = JudgeInput(Facts(a["state"], a["hangup_side"], a["reached_answer"], dialed["source"] == "callee", a["ended_at"]),
                      report, _items(tx, a["task_id"]), business_rules.load(tx, rules_version), refused_after,
                      unclear_is_refusal, (seconds(open_), seconds(close)), periods)
     return inp, report_source, dialed

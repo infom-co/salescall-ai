@@ -37,7 +37,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 
 # 読み方の版（読み方を変えたら上げる）。判定の版（judge.JUDGE_VERSION）に入る＝上げると、読めなかった「判定待ち」の行が判定し直される
-VERSION = "4"
+VERSION = "5"
 JST = timezone(timedelta(hours=9))
 AT, WINDOW, UNSPECIFIED, CONFIRM, UNREADABLE = "at", "window", "unspecified", "confirm", "unreadable"
 DAY = 24 * 3600
@@ -85,8 +85,12 @@ _UNSPECIFIED = re.compile(r"(?:" + _ANY_WORDS + "|" + _LATER_WORDS + ")" + _OK_T
 _WHOLE = re.compile(r"(?:" + _ANY_WORDS + "|" + _ASAP_WORDS + ")" + _OK_TAIL)   # 日のあとの「いつでも」など＝その日のいつでも
 _JOIN = re.compile(r"(?:の|なら|であれば|でしたら|だったら|でも|は|、)*")
 # うしろに付いてよい言葉（「でしたら大丈夫です」なども。条件の言葉＋受け入れの言葉）
-_TAIL = re.compile(r"(?:に|で|には|お願いします|でお願いします)*"
-                   r"(?:(?:なら|であれば|でしたら|だったら)?(?:大丈夫|いつでも大丈夫|結構|OK|構いません|かまいません|いい)?(?:です)?)")
+# （「3時がいいです」「午前中ならいつでも」も＝2026-10-19 の見直しで足した）
+_TAIL = re.compile(r"(?:に|で|が|には|お願いします|でお願いします)*"
+                   r"(?:(?:なら|であれば|でしたら|だったら)?(?:大丈夫|いつでも大丈夫|いつでも|結構|OK|構いません|かまいません|"
+                   r"いい|よろしい)?(?:です)?)")
+# 時間の言葉のあとの「ごろ」「くらい」（「夕方ごろ」＝夕方、「正午ごろ」＝正午。「30分後くらい」は _LATER_CLOCK の中）
+_ABOUT = re.compile(r"頃|ごろ|くらい|ぐらい|位")
 
 _REL_DAYS = {"今日": 0, "本日": 0, "きょう": 0, "明日": 1, "あした": 1, "あす": 1, "明後日": 2, "あさって": 2,
              "明々後日": 3, "明明後日": 3, "しあさって": 3}
@@ -96,18 +100,25 @@ _MONTH_OFFSET = {"今月": 0, "来月": 1, "再来月": 2}
 _REL = re.compile(r"今日中|本日中|今日|本日|きょう|明々後日|明明後日|しあさって|明後日|あさって|明日中|明日|あした|あす")
 _REL_PERIOD = {"今朝": (0, "朝"), "今晩": (0, "夜"), "今夜": (0, "夜"), "明朝": (1, "朝"), "明晩": (1, "夜")}
 _AFTER = re.compile(r"(?P<n>\d{1,2})(?P<unit>日|週間|か月|ヶ月|ヵ月|カ月|箇月)後")
-_RANGE_AFTER = re.compile(r"(?P<a>\d{1,2})(?:〜|～|-|か|から)(?P<b>\d{1,2})(?P<unit>日|週間)後")
-_LATER_CLOCK = re.compile(r"(?P<n>\d{1,3})(?P<unit>分|時間)(?P<half>半)?後")
+_RANGE_AFTER = re.compile(r"(?P<a>\d{1,2})(?:〜|～|-|か|から|、|,|・)(?P<b>\d{1,2})(?P<unit>日|週間)後")
+_LATER_CLOCK = re.compile(r"(?P<n>\d{1,3})(?P<unit>分|時間)(?P<half>半)?後(?:頃|ごろ|くらい|ぐらい|位)?")
 _MONTH_PART = re.compile(r"(?:(?P<mrel>今月|来月|再来月)|(?P<mon>\d{1,2})月)?の?"
-                         r"(?P<part>上旬|中旬|下旬|中頃|中ごろ|半ば|初め|はじめ|頭|月初め|月初|月末|末)")
-_MONTH = re.compile(r"(?:(?P<mrel>今月|来月|再来月)|(?P<mon>\d{1,2})月)(?P<within>中|いっぱい)?(?!\d)")
+                         r"(?P<part>上旬|中旬|下旬|中頃|中ごろ|半ば|初め|はじめ|頭|月初め|月初|月末|末|月の初め|月のはじめ|月の頭|"
+                         r"月の終わり|月終わり)")
+_MONTH = re.compile(r"(?:(?P<mrel>今月|来月|再来月)|(?P<mon>\d{1,2})月)(?P<within>中|いっぱい)?(?!\d)(?!の\d{1,2}日)")
 _YEAR = re.compile(r"(?P<y>年内|今年中|今年いっぱい|来年)")
+# 月の前に付いた年（「来年の1月5日」「2027年1月」）。年があれば、その年の中だけで探す
+_YEAR_OF = re.compile(r"(?:(?P<y>\d{4})年|(?P<rel>今年|来年|再来年))の?(?=\d{1,2}月)")
+_YEAR_OFFSET = {"今年": 0, "来年": 1, "再来年": 2}
+# 年の無い「○月」「○月○日」を来年と読むのは、今日から半年の内だけ。それより先は、過ぎた日の言い違いか来年のことかが決まらない
+# ⇒ 確かめる（⚠️ 前は昨日の日付を、1年後の同じ日と読んだ＝2026-10-19 の見直し）。日だけ（「13日」）は、今月か来月だけ
+_FAR = timedelta(days=183)
 _WEEKEND = re.compile(r"(?:(?P<week>今週|来週|再来週)(?:の?週末|の?土日|末)|週末|土日)(?!祝)")
 _MIDWEEK = re.compile(r"(?:(?P<week>今週|来週|再来週)の?(?:週中|週の半ば|週半ば|週の中ごろ|週の中頃|半ば|中ごろ|中頃)"
                       r"|週中|週の半ば|週半ば|週の中ごろ|週の中頃)")
 _WEEK_START = re.compile(r"週明け|週初め|週のはじめ|週の初め")
 _WEEK = re.compile(r"(?P<week>今週|来週|再来週)(?P<within>中|いっぱい)?(?!の?[月火水木金土日]曜)(?!の?週)(?!末)(?!半ば)")
-_DATE = re.compile(r"(?:(?P<mon>\d{1,2})月)?(?P<dom>\d{1,2})日")
+_DATE = re.compile(r"(?:(?P<mrel>今月|来月|再来月)の?|(?P<mon>\d{1,2})月)?(?P<dom>\d{1,2})日")
 _WDAY = re.compile(r"(?P<week>今週|来週|再来週)?の?(?P<wday>[月火水木金土日])曜日?")
 _WDAY_CHECK = re.compile(r"\((?P<p>[月火水木金土日])(?:曜日?)?\)|の?(?P<w>[月火水木金土日])曜日?")
 # 日の種類（その中の日だけ。calling_hours の曜日・祝日の鍵）
@@ -154,10 +165,17 @@ def _unreadable(why: str) -> Reading:
 
 
 def _kanji_number(m: re.Match) -> str:
-    """「十五」「二十」「三十一」のような漢数字（99まで）を数字にする。"""
+    """「十五」「二十」「三十一」のような漢数字（99まで）を数字にする。十の無い2文字以上は、〇を含む位取り（「二〇二七年」）だけ
+    並べて数字にし、続いた2つの数（「二三日」「四五日」＝2〜3日・4〜5日）は範囲にする。ほかはそのまま残す（読めない）。
+    ⚠️ 前は十の無い漢数字を全部つなげ、「二三日後」を23日後と読んだ（2026-10-19 の見直し）。"""
     s = m.group()
     if "十" not in s:
-        return "".join(str(_KANJI[c]) for c in s)
+        digits = [_KANJI[c] for c in s]
+        if len(digits) == 1 or any(c in "〇零" for c in s):
+            return "".join(map(str, digits))
+        if len(digits) == 2 and digits[1] == digits[0] + 1:
+            return f"{digits[0]}〜{digits[1]}"
+        return s
     tens, _, ones = s.partition("十")
     if len(tens) > 1 or len(ones) > 1:
         return s                                   # 決まりに無い書き方：そのまま残す（読めない）
@@ -166,7 +184,9 @@ def _kanji_number(m: re.Match) -> str:
 
 def _clean(text: str) -> str:
     t = unicodedata.normalize("NFKC", text)
-    t = re.sub(r"[\s。,.・!！]", "", t).replace("ケ月", "ヶ月")
+    # 消すのは、空白・文の終わりだけ。区切り（, . ・）は残す：消すと「1・2時間後」が12時間後、「1,2日」が12日になる
+    # （2026-10-19 の見直し）。区切りの残った言い方は読めない（勝手に決めない）。範囲の区切りとして読むのは、決まった言い方の中だけ
+    t = re.sub(r"[\s。!！]", "", t).replace("ケ月", "ヶ月")
     # 漢数字は、数を表すところ（うしろに日・時・分・月・週・か月・年・〜・台・半が続く）だけ数字にする（「朝一」「午後一」は残す）
     return re.sub(r"[〇零一二三四五六七八九十]+(?=[日時分月週かヶヵカ箇年〜～\-台半])", _kanji_number, t)
 
@@ -181,22 +201,31 @@ def _month_range(year: int, month: int, part: str | None) -> tuple[date, date]:
     # 2026-10-19 ユーザー：月末＝月の最後の3日・月の初め／頭＝1〜3日。上旬・中旬・下旬はふつうの意味
     lo, hi = {None: (1, last), "上旬": (1, 10), "中旬": (11, 20), "中頃": (11, 20), "中ごろ": (11, 20), "半ば": (11, 20),
               "下旬": (21, last), "初め": (1, 3), "はじめ": (1, 3), "頭": (1, 3), "月初め": (1, 3), "月初": (1, 3),
-              "月末": (last - 2, last), "末": (last - 2, last)}[part]
+              "月の初め": (1, 3), "月のはじめ": (1, 3), "月の頭": (1, 3),
+              "月末": (last - 2, last), "末": (last - 2, last), "月の終わり": (last - 2, last), "月終わり": (last - 2, last)}[part]
     return date(year, month, lo), date(year, month, hi)
 
 
-def _named_month(today: date, mrel: str | None, mon: str | None, part: str | None) -> tuple[date, date]:
-    """月の言葉の日の範囲（今日以後。「11月」は今日以後でいちばん近いその月）。"""
+def _years(today: date, year: int | None) -> tuple[int, ...]:
+    return (today.year, today.year + 1) if year is None else (year,)
+
+
+def _named_month(today: date, mrel: str | None, mon: str | None, part: str | None,
+                 year: int | None = None) -> tuple[date, date]:
+    """月の言葉の日の範囲（今日以後。「11月」は今日以後でいちばん近いその月。年が付いていれば、その年）。"""
     if mrel is not None:
         return _month_range(*_month_add(today, _MONTH_OFFSET[mrel]), part)
     if mon is not None:
         m = int(mon)
         if not 1 <= m <= 12:
             raise _Ambiguous("月が読めません")
-        for year in (today.year, today.year + 1):
-            r = _month_range(year, m, part)
+        for y in _years(today, year):
+            r = _month_range(y, m, part)
             if r[1] >= today:
+                if year is None and r[0] > today + _FAR:
+                    raise _Ambiguous("過ぎた月の言い違いか、来年のことか決まりません")
                 return r
+        raise _Ambiguous("過ぎた月です")
     lo, hi = _month_range(today.year, today.month, part)   # 月の無い「上旬」「月末」＝今月
     if hi < today:
         raise _Ambiguous("今月のその頃はもう過ぎています（来月のことか、決まりません）")
@@ -240,14 +269,19 @@ def _day_part(t: str, today: date) -> tuple[tuple[date, date] | None, str | None
         d = today + timedelta(days=n) if unit == "日" else today + timedelta(weeks=n) if unit == "週間" \
             else _months_later(today, n)
         return (d, d), None, m.end()
-    if m := _YEAR.match(t):
+    year, pos = None, 0
+    if m := _YEAR_OF.match(t):
+        year = int(m.group("y")) if m.group("y") else today.year + _YEAR_OFFSET[m.group("rel")]
+        pos = m.end()
+    elif m := _YEAR.match(t):
         if m.group("y") == "来年":
             return (date(today.year + 1, 1, 1), date(today.year + 1, 12, 31)), None, m.end()
         return (today, date(today.year, 12, 31)), None, m.end()
-    if m := _MONTH_PART.match(t):
-        return _named_month(today, m.group("mrel"), m.group("mon"), m.group("part")), None, m.end()
-    if m := _MONTH.match(t):
-        return _named_month(today, m.group("mrel"), m.group("mon"), None), None, m.end()
+    if m := _MONTH_PART.match(t, pos):
+        return _named_month(today, m.group("mrel"), m.group("mon"), m.group("part"), year), None, m.end()
+    if m := _MONTH.match(t, pos):
+        if m.group("mon") is not None or year is None:   # 年のあとは、数の月だけ（「来年の来月」は読まない）
+            return _named_month(today, m.group("mrel"), m.group("mon"), None, year), None, m.end()
     if m := _MIDWEEK.match(t):   # 週中・週の半ば＝火〜木（✅ 2026-10-19 ユーザー「OK」）
         monday = _week_monday(today, m.group("week") or "今週")
         lo, hi = monday + timedelta(days=1), monday + timedelta(days=3)
@@ -265,11 +299,22 @@ def _day_part(t: str, today: date) -> tuple[tuple[date, date] | None, str | None
     if m := _WEEK.match(t):
         monday = _week_monday(today, m.group("week"))
         return (max(monday, today), monday + timedelta(days=6)), None, m.end()
-    if m := _DATE.match(t):
+    if (m := _DATE.match(t, pos)) and (m.group("mon") is not None or year is None):
         dom, mon = int(m.group("dom")), m.group("mon")
+        if m.group("mrel") is not None:   # 「来月3日」「今月の20日」
+            y, mo = _month_add(today, _MONTH_OFFSET[m.group("mrel")])
+            try:
+                c = date(y, mo, dom)
+            except ValueError:
+                raise _Ambiguous("その月に無い日です") from None
+            if c < today:
+                raise _Ambiguous("過ぎた日です")
+            days, end = _check_wday(t, m.end(), (c, c))
+            return days, None, end
         found = None
-        for k in range(0, 13 if mon is None else 2):   # 今日以後でいちばん近いその日（月が無ければ月を、あれば年を進める）
-            y, mo = _month_add(today, k) if mon is None else (today.year + k, int(mon))
+        # 今日以後でいちばん近いその日（月が無ければ今月か来月、あれば今年か来年。年が付いていれば、その年）
+        for y, mo in ([_month_add(today, k) for k in range(2)] if mon is None
+                      else [(y, int(mon)) for y in _years(today, year)]):
             try:
                 c = date(y, mo, dom)
             except ValueError:
@@ -280,9 +325,13 @@ def _day_part(t: str, today: date) -> tuple[tuple[date, date] | None, str | None
                 found = c
                 break
         if found is None:
-            raise _Ambiguous("日が読めません")
+            raise _Ambiguous("その日は、今月・来月に無いか、過ぎています" if mon is None else "過ぎた日です")
+        if mon is not None and year is None and found > today + _FAR:
+            raise _Ambiguous("過ぎた日の言い違いか、来年のことか決まりません")
         days, end = _check_wday(t, m.end(), (found, found))
         return days, None, end
+    if year is not None:
+        raise _Ambiguous("年のあとの月日が読めません")
     if m := _WDAY.match(t):
         week, target = m.group("week"), _WEEKDAYS.index(m.group("wday"))
         if week is None:
@@ -358,7 +407,10 @@ def _time_part(t: str, pos: int, business: tuple[int, int],
             raise _Ambiguous(f"「{word}」は、いつのことか1つに決まりません（昼は、12時〜13時ごろとも午後とも取れます。"
                              "法人には12時〜13時は避けるのがマナー）")
     if rest.startswith("正午"):
-        return "point", 12 * H, 12 * H, pos + 2
+        end = pos + 2
+        if a := _ABOUT.match(t, end):
+            end = a.end()
+        return "point", 12 * H, 12 * H, end
     m = _HOUR.match(t, pos)
     if m is None:
         for word in sorted(periods, key=len, reverse=True):
@@ -373,6 +425,8 @@ def _time_part(t: str, pos: int, business: tuple[int, int],
                     return "window", s0, DAY, f.end()
                 if _UNTIL_TAIL.match(t, end):
                     raise _Ambiguous(f"「{word}まで」は、その初めまでか終わりまでか決まりません")
+                if a := _ABOUT.match(t, end):
+                    end = a.end()
                 return "window", s0, s1, end
         raise ValueError(f"時刻がありません（「{rest}」）")
     sec, end = _hour(m, business), m.end()
@@ -388,6 +442,9 @@ def _time_part(t: str, pos: int, business: tuple[int, int],
     if m2 := _FROM_TAIL.match(t, end):
         return "window", sec, DAY, m2.end()
     if m2 := _UNTIL_TAIL.match(t, end):
+        if m2.group() == "前" and m.group("min"):
+            # 「3時10分前」は、2時50分（3時の10分前）とも、3時10分より前とも取れる（2026-10-19 の見直し）
+            raise _Ambiguous("「〜時〜分前」は、その時刻の〜分前か、その時刻より前か決まりません")
         return "window", 0, sec, m2.end()
     return "point", sec, sec, end
 

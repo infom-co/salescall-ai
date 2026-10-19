@@ -46,7 +46,7 @@ from salescall.core.business_rules import Rules
 from salescall.core.call_report import CallReport
 
 # 判定の決まりの版（変えたら上げる）。かけ直しの時刻の読み方の版も入れる（読み方を直すと、判定待ちの行が判定し直される＝settle.rejudge）
-JUDGE_VERSION = f"judge-2026-10-19.3+time-{spoken_time.VERSION}"
+JUDGE_VERSION = f"judge-2026-10-19.4+time-{spoken_time.VERSION}"
 # 「判定できない」の原因の名前（同じ原因かを数える単位）と意味。プログラムの誤りか（直す担当へ修正依頼を出し、管理者にも
 # 知らせる＝確かめ・承認のため。2026-10-16・10-17 ユーザー）も、ここで決まる（1か所）。業務設定の抜けは契約者が直す（いまは無い：業務の決まりは、必須の質問ごとに、
 # 決まった理由のすべてに扱いが無いと保存できない＝business_rules。2026-10-16 見直し：前は「理由×扱いが決まらない」を業務設定の
@@ -84,7 +84,8 @@ class Facts:
     hangup_side: str | None      # 回線の信号（dropped のときだけ。callee / line / unknown）
     reached_answer: bool         # お客様が出た（応答まで進んだ）ことがあるか
     dialed_callee_number: bool   # かけた番号が、お客様が言った別の番号か（行の番号の表で callee。3-5）
-    called_at: datetime          # 発信の時刻（お客様が言った「明日」などの起点）
+    called_at: datetime          # 通話の終わりの時刻（お客様が言った「明日」「30分後」などの起点。お客様が言った時刻にいちばん
+                                 # 近い。⚠️ 前は発信の時刻で、長い通話では「30分後」が言った時から早まった＝2026-10-19 の見直し）
 
 
 @dataclass(frozen=True)
