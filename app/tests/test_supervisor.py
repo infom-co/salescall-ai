@@ -224,14 +224,71 @@ class Rounds(SupervisorBase):
         self.assertIsInstance(c, gate.Claim)                                   # もう1本が空いている：この回線はかける
         self.tx(s, lambda tx: attempts.release(tx, [c.attempt_id]))
         self.lease(t, seconds=-60)                                             # もう1本が使えない（借りられていない）
-        self.assertEqual(self.reason(s), "line_promise_soon")                 # この回線を約束のために空けておく
+        self.assertEqual(self.reason(s), "promise_soon")                 # この回線を約束のために空けておく
         self.lease(t)
-        busy = self.w.insert_claim(t, line=t["line"])                         # もう1本が通話中
-        self.assertEqual(self.reason(s), "line_promise_soon")
-        self.tx(t, lambda tx: attempts.release(tx, [busy]))
+        u = self.ready(tenant=s["tenant"])
+        self.lease(u, seconds=-60)
+        busy = self.w.insert_claim(u, line=t["line"])                         # もう1本がほかのお客様と通話中
+        self.assertEqual(self.reason(s), "promise_soon")
+        self.tx(u, lambda tx: attempts.release(tx, [busy]))
         self.lease(t, seconds=-60)
+        self.tx(s, lambda tx: next_action.schedule_call(tx, s["task"], now, contact_id=s["contact"], cause="試験", promised=True))
+        self.assertEqual(self.reason(s), "promise_soon")                       # 時刻の決まっていない約束も、約束の時刻をふさぐ
+        self.tx(s, lambda tx: next_action.schedule_call(tx, s["task"], now, contact_id=s["contact"], cause="試験", promised=True,
+                                                        callee_at=now))
+        c = self.claim(s)
+        self.assertIsInstance(c, gate.Claim)                                   # 時刻を指定された約束どうしは、来た順にかける
+        self.tx(s, lambda tx: attempts.release(tx, [c.attempt_id]))
+        self.tx(s, lambda tx: next_action.schedule_now(tx, s["task"], cause="試験"))
         promise(now + timedelta(minutes=30))
         self.assertIsInstance(self.claim(s), gate.Claim)                       # 約束が遠い：かける
+
+    def test_a_dedicated_line_is_kept_when_the_shared_line_is_needed_for_another_client(self):
+        """専用の回線と共有の回線が混ざっても、約束と空いている回線の割り当てで決める（2026-10-19 の見直し：前は、依頼者Aの
+        専用の回線から見ると「共有の回線が空いている」ので空けず、依頼者Bの約束をかける回線が無くなった）。"""
+        s = self.ready()                                                       # この回線＝依頼者Aの専用（ふつうの電話）
+        t = self.ready(tenant=s["tenant"])                                     # 共有の回線（空いている）
+        u = self.ready(tenant=s["tenant"])                                     # 依頼者Bの約束
+        self.lease(u, seconds=-60)                                             # 依頼者Bの回線は使えない
+        self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: tx.execute(
+            "UPDATE salescall.lines SET client_id = %s WHERE line_id = %s", (s["client"], s["line"])))
+        phone = normalize(fictional_jp_fixed()).e164
+        k = self.w.contact(s["tenant"], s["client"], phone)
+        mine = self.w.task(s["tenant"], s["client"], s["run"], k)             # 依頼者Aの約束
+        now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
+        at = now + timedelta(minutes=3)
+        self.tx(s, lambda tx: next_action.schedule_call(tx, mine, at, contact_id=k, cause="試験", promised=True, callee_at=at))
+        c = self.claim(s)
+        self.assertIsInstance(c, gate.Claim)                                   # Aの約束は共有の回線でかけられる
+        self.tx(s, lambda tx: attempts.release(tx, [c.attempt_id]))
+        self.tx(u, lambda tx: next_action.schedule_call(tx, u["task"], at, contact_id=u["contact"], cause="試験", promised=True,
+                                                        callee_at=at))
+        self.assertEqual(self.reason(s), "promise_soon")                       # 共有の回線はBの約束に要る：この回線はAの約束に
+        self.assertIn("promise_soon", gate.BUSINESS_REASONS)                   # 平均の短い業務の電話なら始められる
+
+    def test_the_daily_reservation_is_shared_by_the_lines_and_skips_promises_that_will_not_be_called_now(self):
+        """回線の1日の上限の取り置きは、約束をかけられる回線で等しく分けた、この回線の分（前は、どの回線も同じ約束をまるごと
+        取り置いた）。止まっている依頼者の約束・いま通話中の約束は取り置かない。"""
+        s = self.ready()
+        t = self.ready(tenant=s["tenant"])
+        u = self.ready(tenant=s["tenant"])                                     # 共有の回線が3本
+        now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
+        for x in (t, u):
+            self.tx(x, lambda tx, x=x: next_action.schedule_call(tx, x["task"], now + timedelta(hours=1),
+                                                                 contact_id=x["contact"], cause="試験", promised=True))
+        self.put_client(s, "line.max_dials_per_day", 2)
+        c = self.claim(s)
+        self.assertIsInstance(c, gate.Claim)                                   # 約束2つを3本で分ける：この回線の分は1
+        self.tx(s, lambda tx: attempts.release(tx, [c.attempt_id]))
+        self.tx(s, lambda tx: next_action.schedule_now(tx, s["task"], cause="試験"))
+        self.put_client(s, "line.max_dials_per_day", 1)
+        self.assertEqual(self.reason(s), "line_daily_limit")
+        self.tx(u, lambda tx: stops.stop(tx, cause="budget", reason="試験", tenant_id=u["tenant"], scope="client",
+                                         client_id=u["client"]))
+        self.tx(t, lambda tx: next_action.schedule_call(tx, t["task"], now, contact_id=t["contact"], cause="試験", promised=True))
+        busy = self.w.insert_claim(t, line=t["line"])                         # Tの約束はいま通話中
+        self.assertIsInstance(self.claim(s), gate.Claim)                       # 取り置く約束が無い
+        self.tx(t, lambda tx: attempts.release(tx, [busy]))
 
     def test_the_guard_is_the_average_call_length_of_the_business_once_measured(self):
         """空ける時間は、これから始めるふつうの電話の業務の平均通話時間（お客様が出た通話。2026-10-19 ユーザー：「30分かかる業務と
@@ -240,10 +297,16 @@ class Rounds(SupervisorBase):
         task = {"tenant_id": s["tenant"], "client_id": s["client"], "business_id": s["business"]}
         guard = lambda: self.tx(s, lambda tx: gate.promise_guard_seconds(tx, task))   # noqa: E731
         self.assertEqual(guard(), 300)                                         # まだ測っていない：初めの値
+        self.put_client(s, "gate.exact_promise_guard_samples", 0)
+        self.assertEqual(guard(), 300)                                         # 0本と決めても、測った通話が無ければ初めの値
+        self.put_client(s, "gate.exact_promise_guard_samples", 1)
+        broken = self.w.insert_claim(s)
+        for st in ("dialing", "answered", "technical_error"):                  # 途中の誤りで終わった通話は数えない
+            self.w.move(s, broken, st)
+        self.assertEqual(guard(), 300)
         aid = self.w.insert_claim(s)
         for st in ("dialing", "answered", "in_conversation", "ending", "ended"):
             self.w.move(s, aid, st)
-        self.put_client(s, "gate.exact_promise_guard_samples", 1)
         self.assertLess(guard(), 60)                                           # 測った平均（試験の通話はすぐ終わる）
 
     def test_a_capped_business_does_not_keep_the_other_businesses_of_the_client_out(self):

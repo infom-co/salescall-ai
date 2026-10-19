@@ -65,7 +65,7 @@ REASONS: dict[str, tuple[str, str]] = {
     "line_unknown": ("その回線はありません", "cannot_judge"),
     "line_not_leased": ("回線を借りていません（または、借用の期限が予約証より先に切れます）", "wait"),
     "line_daily_limit": ("この回線の、今日の発信の上限に達しました", "wait"),
-    "line_promise_soon": ("お客様が時刻を指定した約束が近いので、この回線ではふつうの電話を始めません", "wait"),
+    "promise_soon": ("お客様が時刻を指定した約束が近いので、この回線では、この業務の電話（平均の長さでは約束までに終わらない）を始めません", "wait"),
     "excluded": ("「かけない」か「強制かけない」にしている行です（依頼者・契約者の都合。ダッシュボードで戻せます）", "wait"),
     "business_daily_limit": ("この業務の、今日の発信の上限に達しました（業務ごとの設定）", "wait"),
     "line_other_client": ("この回線は、ほかの依頼者に割り当てた発信番号です", "wait"),
@@ -178,7 +178,7 @@ def promise_guard_seconds(tx: Tx, task: dict[str, Any]) -> int:
     gate.exact_promise_guard（初め5分）。2026-10-19 ユーザー：「業務ごとに平均通話時間を測って、それを利用するといいでしょう。
     30分かかる業務と1分で終わる業務では、同じにできないからです」。"""
     got = tx.one("SELECT seconds, calls FROM salescall.business_call_seconds(%s, %s)", (task["business_id"], CALL_LENGTH_DAYS))
-    if got["calls"] >= int(_setting(tx, "gate.exact_promise_guard_samples", task)):
+    if got["calls"] > 0 and got["calls"] >= int(_setting(tx, "gate.exact_promise_guard_samples", task)):   # 0本なら初めの値
         return got["seconds"]
     return int(_setting(tx, "gate.exact_promise_guard", task))
 
@@ -317,10 +317,10 @@ def claim(tx: Tx, *, task_id: UUID, line_id: UUID, lease_holder: str) -> Claim |
 # 行のせいではない理由（候補を出す処理が、行の予定を書き直さずに扱う。DESIGN.md 5-4）：回線の理由＝その回線でしばらくかけない
 # （ほかの回線は、その行をかけられる）／依頼者の理由＝その依頼者の行を、この回だけ飛ばす／業務の理由＝その業務の行を、この回だけ
 # 飛ばす。それ以外は、次の動き（after_denial）へ渡す
-LINE_REASONS = frozenset({"line_unknown", "line_not_leased", "line_retired", "line_daily_limit", "line_promise_soon",
+LINE_REASONS = frozenset({"line_unknown", "line_not_leased", "line_retired", "line_daily_limit",
                           "line_other_client", "line_busy"})
 CLIENT_REASONS = frozenset({"client_concurrency", "client_inactive"})
-BUSINESS_REASONS = frozenset({"business_daily_limit"})   # 業務の理由＝その業務の行を、この回だけ飛ばす（ほかの業務の行はかける）
+BUSINESS_REASONS = frozenset({"business_daily_limit", "promise_soon"})   # 業務の理由＝その業務の行を、この回だけ飛ばす（ほかの業務の行はかける）
 
 
 # 門が設定の抜けで待たせる理由と、契約者への注意の短い文（2026-10-17 の見直し：前は黙って待たせていた）
@@ -479,13 +479,19 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
         dials += tx.one("SELECT salescall.line_promised_due(%s, %s, %s) AS n", (line_id, local.date(), task["task_id"]))["n"]
     if dials >= int(_setting(tx, "line.max_dials_per_day", task)):
         return _deny("line_daily_limit")
-    # お客様が時刻を指定した約束（時刻ちょうど・幅の無い指定）が、これから始めるふつうの電話が終わるより前に来るなら、約束の数
-    # だけの回線を空けておく（約束の時刻に回線をふさがない。2026-10-19 ユーザー：「約束の数分前からふつうの電話を始めない」
-    # 「1本は通常業務に使っていいでしょ…該当の回線を空けておくだけでいい」。決めるのは line_kept_for_promise の1か所＝0091）
-    if not nxt["promised"] and tx.one(
-            "SELECT salescall.line_kept_for_promise(%s, now() + make_interval(secs => %s), %s) AS keep",
-            (line_id, promise_guard_seconds(tx, task), task["task_id"]))["keep"]:
-        return _deny("line_promise_soon")
+    # お客様が時刻を指定した約束（時刻ちょうど・幅の無い指定）が、これから始める電話が終わるより前に来るなら、約束の数だけの
+    # 回線を空けておく（約束の時刻に回線をふさがない。2026-10-19 ユーザー：「約束の数分前からふつうの電話を始めない」「1本は
+    # 通常業務に使っていいでしょ…該当の回線を空けておくだけでいい」）。空けるのは、時刻を指定された約束の電話のほかのすべて
+    # （幅の約束・お詫び・続き・聞き直しも、約束の時刻に回線をふさぐのは同じ）。長さは業務の平均通話時間なので、業務の理由
+    # （短い業務の電話なら始められる）。決めるのは line_kept_for_promise の1か所（契約者の回線全体の割り当て＝0092）
+    if not (nxt["promised"] and nxt["callee_at"] is not None):
+        soonest = tx.one("SELECT min(callee_at) AS at FROM salescall.promises_waiting() WHERE callee_at > now() AND task_id <> %s",
+                         (task["task_id"],))["at"]
+        if soonest is not None:   # 時刻を指定された約束が無ければ、平均通話時間を測らない
+            until = now + timedelta(seconds=promise_guard_seconds(tx, task))
+            if soonest <= until and tx.one("SELECT salescall.line_kept_for_promise(%s, %s, %s) AS keep",
+                                           (line_id, until, task["task_id"]))["keep"]:
+                return _deny("promise_soon")
 
     # (9) 同時の本数：依頼者ごとの上限。会話AIの1分の上限では待たせない（2026-10-17 ユーザー：「1分制限を超えそうになったら、
     #     きりのいいところで、次のキーと併用して進んだらいい」＝キーの選択 Q15 が次のキーを併せて使う。5-2 の9）

@@ -697,6 +697,45 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      "CREATE OR REPLACE FUNCTION salescall.business_call_seconds(p_business uuid, p_days integer)"
      " RETURNS TABLE (seconds integer, calls integer) LANGUAGE sql STABLE AS $$ SELECT 0, 0 $$",
      ("tests.test_supervisor.Rounds.test_the_guard_is_the_average_call_length_of_the_business_once_measured",)),
+    # 約束の電話の取り置きと空けを、契約者の回線全体で数える（0092。2026-10-19 の見直し）
+    ("回線の1日の上限で、どの回線も同じ約束をまるごと取り置く（回線の数で分けない）",
+     "CREATE OR REPLACE FUNCTION salescall.line_promised_due(p_line uuid, p_day date, p_except uuid) RETURNS integer"
+     " LANGUAGE sql STABLE AS $$ SELECT count(*)::integer FROM salescall.promises_waiting() w"
+     " WHERE w.task_id <> p_except AND salescall.jst(w.call_at)::date <= p_day $$",
+     ("tests.test_supervisor.Rounds.test_the_daily_reservation_is_shared_by_the_lines_and_skips_promises_that_will_not_be_called_now",)),
+    ("これからかける約束に、止まっている依頼者の約束・通話中の約束も入れる",
+     "CREATE OR REPLACE FUNCTION salescall.promises_waiting()"
+     " RETURNS TABLE (task_id uuid, client_id uuid, call_at timestamptz, callee_at timestamptz)"
+     " LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$"
+     " SELECT n.task_id, n.client_id, n.call_at, n.callee_at FROM salescall.task_next_actions n"
+     " WHERE n.tenant_id = salescall.cur_tenant() AND n.promised AND n.kind = 'call'"
+     " AND NOT EXISTS (SELECT 1 FROM salescall.task_next_actions m WHERE m.task_id = n.task_id AND m.seq > n.seq) $$",
+     ("tests.test_supervisor.Rounds.test_the_daily_reservation_is_shared_by_the_lines_and_skips_promises_that_will_not_be_called_now",)),
+    ("約束の前の空けを、この回線でかけられる約束の数と、ほかに空いている回線の数だけで決める（専用と共有を突き合わせない）",
+     "CREATE OR REPLACE FUNCTION salescall.line_kept_for_promise(p_line uuid, p_until timestamptz, p_except uuid)"
+     " RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$"
+     " WITH me AS (SELECT client_id FROM salescall.lines WHERE line_id = p_line),"
+     " soon AS (SELECT w.client_id FROM salescall.promises_waiting() w, me WHERE w.task_id <> p_except"
+     " AND w.callee_at > now() AND w.callee_at <= p_until AND (me.client_id IS NULL OR me.client_id = w.client_id)),"
+     " free AS (SELECT i.line_id FROM salescall.lines_serving() i WHERE i.idle AND i.line_id <> p_line"
+     " AND EXISTS (SELECT 1 FROM soon s WHERE i.client_id IS NULL OR i.client_id = s.client_id))"
+     " SELECT (SELECT count(*) FROM soon) > (SELECT count(*) FROM free) $$",
+     ("tests.test_supervisor.Rounds.test_a_dedicated_line_is_kept_when_the_shared_line_is_needed_for_another_client",)),
+    ("空いている回線に、通話中の回線も数える",
+     "CREATE OR REPLACE FUNCTION salescall.lines_serving() RETURNS TABLE (line_id uuid, client_id uuid, idle boolean)"
+     " LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$"
+     " SELECT o.line_id, o.client_id, true FROM salescall.lines o WHERE o.tenant_id = salescall.cur_tenant()"
+     " AND o.retired_at IS NULL AND o.lease_expires_at > now() $$",
+     ("tests.test_supervisor.Rounds.test_an_exact_time_promise_keeps_one_line_free_shortly_before",)),
+    ("業務の平均通話時間に、途中の誤りで終わった通話も入れる",
+     "CREATE OR REPLACE FUNCTION salescall.business_call_seconds(p_business uuid, p_days integer)"
+     " RETURNS TABLE (seconds integer, calls integer) LANGUAGE sql STABLE SECURITY DEFINER"
+     " SET search_path = salescall, pg_temp AS $$"
+     " SELECT coalesce(round(avg(extract(epoch FROM a.ended_at - a.claimed_at)))::integer, 0), count(*)::integer"
+     " FROM salescall.attempts a JOIN salescall.business_versions v ON v.version_id = a.version_id"
+     " WHERE v.business_id = p_business AND a.tenant_id = salescall.cur_tenant() AND a.ended_at IS NOT NULL"
+     " AND salescall.reached_answer(a.attempt_id) $$",
+     ("tests.test_supervisor.Rounds.test_the_guard_is_the_average_call_length_of_the_business_once_measured",)),
     ("次の回の決め方に、知らない書き方を入れられる",
      "ALTER TABLE salescall.task_next_actions DROP CONSTRAINT task_next_actions_window_repeat",
      ("tests.test_settle.CallbackWindow.test_a_wrong_repeat_cannot_be_written",)),

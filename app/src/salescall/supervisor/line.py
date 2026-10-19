@@ -12,7 +12,8 @@
    - 行のせいの不許可は、次の動き（next_action.after_denial）へ渡す（次にいつ候補に出すかを決めるのは次の動きだけ＝Q4）。
    - 回線の理由（gate.LINE_REASONS）なら、行の予定は書き直さず、この回線はしばらく休む（ほかの回線は、その行をかけられる）。
    - 依頼者の理由（gate.CLIENT_REASONS）なら、その依頼者の行は、この回だけ飛ばす。業務の理由（gate.BUSINESS_REASONS：その業務の
-     今日の上限）なら、その業務の行は、この回だけ飛ばす（同じ依頼者のほかの業務の行はかける）。
+     今日の上限・時刻を指定された約束が、その業務の平均の長さのうちに来る）なら、その業務の行は、この回だけ飛ばす（同じ依頼者の
+     ほかの業務の行はかける）。
 3. 予約証で発信の出口（dial_exit.dial）がかけ、通話を進める部品（CL-1）が最後まで進める。外へ出た誤りは、その試行を結果不明に
    して「見守り役の誤り」として記録する（止めない）。回線がまだ前の通話の途中・回線の部品がかけられなかったときは、その回線を
    休ませる（かけられなかったことは、回線の異常として数える＝続けば、エラーの処置の表のとおり、その回線を止める）。
@@ -62,7 +63,7 @@ def _end_unknown(access: Access, actor: Actor, tenant_id: UUID, client_id: UUID,
 def one_round(access: Access, actor: Actor, tenant_id: UUID, line_id: UUID, holder: str, driver: dial_exit.LineDriver,
               runner: plugins.CallRunner) -> Round:
     clients = access.in_tenant(actor, tenant_id, lambda tx: scheduler.clients_for_line(tx, line_id))
-    for promised_only in (True, False):   # 約束したかけ直しを、すべての依頼者について先に（並べ方はここと due_tasks の1か所）
+    for promised_only in (True, False):   # 約束したかけ直しを、すべての依頼者について先に（目印で分けるのは due_tasks の1か所）
         for client_id in clients:
             got = _client_round(access, actor, tenant_id, client_id, line_id, holder, driver, runner, promised_only)
             if got is not None:
