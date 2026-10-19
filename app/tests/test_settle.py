@@ -427,6 +427,28 @@ class CallbackWindow(SettleBase):
         self.assertIn(key, others)
         self.assertEqual((nxt["at"].hour, nxt["at"].minute, sorted(nxt["window_days"])), (0, 0, sorted(others)))
 
+    def test_a_day_with_no_calling_time_is_retried_after_the_day_not_before(self):
+        """日だけの約束（「（d4）なら」）で、その日にかけられる時刻が無い（その曜日は時間帯が無い）：その日が過ぎてから、契約者の
+        間隔で（案A）。お客様と約束したかけ直しのまま。⚠️ 前は、いまから間隔を数え、お客様が言った日より前にかけた（2026-10-19 の見直し）。
+        門で幅が過ぎたと分かったとき（_window_over）も同じ。"""
+        from salescall.core.calendar import holiday_checker
+        s = self.ready()
+        d4 = self.local_now(s).date() + timedelta(days=4)
+        key = self.tx(s, lambda tx: calling_hours.day_key(d4, holiday_checker(tx)))
+        self.put_client(s, "calling.hours", {k: ([] if k == key else [["00:00", "24:00"]]) for k in KEYS})
+        aid = self.call(s, report=rep(callback=callback("later", time=f"{d4.month}月{d4.day}日なら")))
+        self.assertEqual(self.settle(s, aid)["state"], "callback_scheduled")
+        after_day = datetime.combine(d4 + timedelta(days=1), datetime.min.time())
+        nxt = self.latest(s)
+        self.assertEqual((nxt["kind"], nxt["promised"], nxt["until"]), ("call", True, None))
+        self.assertGreaterEqual(nxt["at"], after_day + timedelta(hours=1))   # 試験の方針の間隔＝1時間
+        target = next_action.Target(s["contact"])
+        now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
+        d = self.tx(s, lambda tx: next_action._window_over(
+            tx, s["task"], now, target, next_action.Window(self.from_jst(s, after_day), None)))
+        self.assertEqual((d.kind, d.promised), ("call", True))
+        self.assertGreaterEqual(d.at, self.from_jst(s, after_day + timedelta(hours=1)))
+
     def test_after_no_answer_the_next_call_keeps_the_window(self):
         """幅の中でかけて出なかった：次のかけ直し（契約者の再発信の方針）も、同じ幅の中で（次の日の同じ幅＝案A）。"""
         s = self.ready()
