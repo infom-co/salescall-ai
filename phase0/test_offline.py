@@ -3917,14 +3917,20 @@ class AIQuestionTest(unittest.TestCase):
         self.assertFalse(f.ai_pending)
         self.assertEqual(f.apply("replay_opening", {"part": "resume"})["result"], "rejected")
 
-    def test_asked_again_closes_politely(self):
-        # ⏳ 重ねて聞かれた：ユーザーに確かめるまでは、人ともAIとも言わずに、断られたときの締めで終える（通話の事実の end＝ai_question）
-        from phrases import CLOSE_DECLINED
+    def test_asked_again_continues_then_third_time_closes(self):
+        # ✅ 2026-10-19 ユーザー：重ねて聞かれて終えるのは「あまりにも失礼だし、AIだと認めているのと同じ」⇒ お詫びと約束の録音のあと、いまの質問へ。
+        # ⛔「違います」「人です」は言わない。3回目は丁寧に終える
+        from phrases import AI_ASKED_AGAIN, CLOSE_DECLINED
         f = self.flow()
         f.on_callee(); f.apply("replay_opening", {"part": "ai"})
         f.on_callee(); r = f.apply("replay_opening", {"part": "ai"})               # 「本当に人ですか？」
+        self.assertEqual([(p["kind"], p.get("id")) for p in r["play"]], [("recorded", "ai_again"), ("question", "Q1")])
+        self.assertEqual((r["play"][0]["text"], f.end_reason, f.current), (AI_ASKED_AGAIN, None, "Q1"))
+        for w in ("違います", "人です", "人間", "エーアイ"):
+            self.assertNotIn(w, AI_ASKED_AGAIN)
+        f.on_callee(); r = f.apply("replay_opening", {"part": "ai"})               # 3回目
         self.assertEqual((r["result"], r["play"][0]["text"], f.end_reason), ("end", CLOSE_DECLINED, "ai_question"))
-        self.assertEqual([x["turn"] for x in f.facts["ai_question"]], [1, 2])
+        self.assertEqual([x["turn"] for x in f.facts["ai_question"]], [1, 2, 3])
 
     def test_ai_speaking_mode_says_the_same_words(self):
         # AIが話す形（名乗りの録音が無い）でも、言い方はプログラムが渡す（AIに自分で答えさせない）

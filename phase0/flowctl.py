@@ -18,7 +18,7 @@ import re
 from dataclasses import dataclass, field
 
 from names import hira, quote, unvoiced
-from phrases import AI_ANSWER, AMPM_ASK, CALLBACK_ASK, CLOSE_DECLINED, CLOSING, LEAD_IN, NAME_READING_ASK
+from phrases import AI_ANSWER, AI_ASKED_AGAIN, AMPM_ASK, CALLBACK_ASK, CLOSE_DECLINED, CLOSING, LEAD_IN, NAME_READING_ASK
 from phrases import ask_again as ask_again_phrase
 from phrases import confirm as confirm_phrase, restate_words
 from phrases import lead_in as lead_in_phrase
@@ -1380,14 +1380,23 @@ class Flow:
         ✅ 2026-10-19 ユーザー：AIだとは伝えない。人だと言い切るのも問題がある ⇒ 決まった言い方「何か問題でもございましたでしょうか？」
            （業務設定 ai_answer。無ければ phrases.AI_ANSWER）を流し、相手の返事を待つ。⛔ 打ち消しの「いえ、」は付けない（原則8「人間だとは
            偽らない」＝2026-10-12 ユーザー確定）。相手が問題は無いと答えたら、お詫びの相づちのあと、いまの位置へ戻る（_resume）。
-        重ねて聞かれた（2回目）：⏳ ユーザーに確かめる（正直に答えるか、丁寧に終えるか）。決まるまでは、人だともAIだとも言わずに、断られた
-           ときの締めで丁寧に終える（通話の事実の end＝ai_question。どちらの答えにしても偽りにはならない側）。
+        重ねて聞かれた（2回目）：✅ 2026-10-19 ユーザー：終えるのは「あまりにも失礼だし、AIだと認めているのと同じ」⇒ 終えずに、決まった言い方
+           （phrases.AI_ASKED_AGAIN＝不安にさせたお詫びと、最後まで正確に案内する約束。録音）を言って、いまの位置へ戻る（_continue）。
+           ⛔ 「違います」「人です」は言わない（CL-1 は作らない＝聞いた方に偽りを答えることになる）。
+        3回目：それでも聞かれたら、丁寧に終える（通話の事実の end＝ai_question。同じ問いに3回答えずに続けない）。
         前の形（「はいエーアイの音声でお電話しております。」のあと、いまの質問の録音）は、この決定でやめた。"""
         self.ai_asks += 1
         self._note("ai_question")
-        if self.ai_asks > 1:
+        if self.ai_asks > 2:
             self.ai_pending = False
             return self._close("ai_question")
+        if self.ai_asks == 2:
+            self.ai_pending = False
+            if self.play_recordings:
+                return self._continue([{"kind": "recorded", "id": "ai_again", "text": AI_ASKED_AGAIN}], AI_ASKED_AGAIN)
+            r = self._continue([], "")
+            return {**r, "say": AI_ASKED_AGAIN, "speak": True,
+                    "message": f"「{AI_ASKED_AGAIN}」とだけ言い（言葉を足しません）、続けて、{r['message']}"}
         self.ai_pending = True
         text = self.opening.get("ai") or AI_ANSWER
         then = self._now()

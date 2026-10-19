@@ -165,10 +165,13 @@ SCENES = {
         "自分では答えない": plain(said(turn_of(c, "ai_q"))) == "" and plain(said(turn_of(c, "ai_fine"))) == "",
         "人ともAIとも言わない": not any(HUMAN.search(said(t)) or "AI" in plain(said(t)) for t in c["turns"]),
         "続けて答えが取れた": got(c, "Q1", "はい")}),
-    "本当に人ですか": Scene(BUSINESS, [W("ai_q"), W("ai_again")], lambda c: {
-        # ⏳ 重ねて聞かれた：ユーザーに確かめるまでは、人ともAIとも言わずに、断られたときの締めで丁寧に終える
-        "重ねて聞かれたで締めた": end_reason(c) == "ai_question", "締め": closing_of(c) == CLOSE_DECLINED,
-        "人ともAIとも言わない": not any(HUMAN.search(said(t)) or "AI" in plain(said(t)) for t in c["turns"]), "約束しない": no_promise(c)}),
+    "本当に人ですか": Scene(BUSINESS, [W("ai_q"), W("ai_again")] + FULL, lambda c: {
+        # ✅ 2026-10-19 ユーザー：終えるのは失礼 ⇒ お詫びと約束の録音（phrases.AI_ASKED_AGAIN）のあと、いまの質問の録音で続ける。人ともAIとも言わない
+        "お詫びと約束のあと質問": any([p.get("id") for p in x["reply"].get("play") or []] == ["ai_again", "Q1"] for x in ops(c)
+                                  if x["op"] == "replay_opening"),
+        "終えない": end_reason(c) != "ai_question",
+        "人ともAIとも言わない": not any(HUMAN.search(said(t)) or "AI" in plain(said(t)) for t in c["turns"]), "約束しない": no_promise(c),
+        "続けて答えが取れた": got(c, "Q1", "はい")}),
     # ── AIの声が渡した言い方から外れたとき（DESIGN.md 6-7）：外れることはめったに無いので、日時の言い直しのターンを外れたものとして止め、
     #    相手に聞こえていたものに合わせた言い方で、新しいつなぎが言い直すか（✅ 2026-10-19 ユーザー：「違和感のない形にしないと、AIや機械だと
     #    勘繰られますよ」「明らかに違う内容を喋ろうとしているのが事前に分かるのであれば、止めてもOK」＝offscript.SpeechGate・restate）
