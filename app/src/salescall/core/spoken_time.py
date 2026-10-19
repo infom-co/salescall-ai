@@ -6,7 +6,7 @@
 
 **読み方（2026-10-19 ユーザー決定）**：時刻の言葉は「かけてよい時間の幅」として読む（「夕方」「3時まで」も、それに合わせてかける。
 「明日なら、いつでも」「13日であれば、そちらのご都合で」「来週」「月末」「週中」「しあさって」なども読む）。答えは5つ：
-- `AT`（ちょうどの時刻）：「明日の午後3時」「正午」「30分後」。お客様が自分で指定した時刻なので、その時刻を含むNG時間の枠でもかけてよい。
+- `AT`（ちょうどの時刻）：「明日の午後3時」「正午」。お客様が自分で指定した時刻なので、その時刻を含むNG時間の枠でもかけてよい。
 - `WINDOW`（幅）：start〜end（end＝その時刻より前。None＝終わり無し）、1日の中の幅 daily（時間の言葉があるときだけ）、
   話せなかったときの次の回の決め方 repeat（お客様がその日を選んだ理由。下の DAY_REPEAT ほか）、日の種類 days（「平日」
   「土日祝」などのときだけ。かけてよい日の鍵＝calling_hours の曜日・祝日の鍵）。幅の中でも、かけてよい時間帯・NG時間は守る（お客様は時刻を指定していない）。「すぐ」「なるべく早く」は、いまから
@@ -39,7 +39,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from salescall.core.calling_hours import clock_seconds
 
 # 読み方の版（読み方を変えたら上げる）。判定の版（judge.JUDGE_VERSION）に入る＝上げると、読めなかった「判定待ち」の行が判定し直される
-VERSION = "7"
+VERSION = "8"
 JST = timezone(timedelta(hours=9))
 AT, WINDOW, UNSPECIFIED, CONFIRM, UNREADABLE = "at", "window", "unspecified", "confirm", "unreadable"
 # 幅の中でお客様と話せなかったときの、次の回（お客様がその日を選んだ理由に合わせる。2026-10-19 ユーザー決定）：
@@ -487,7 +487,9 @@ def read(text: str | None, now: datetime, business_hours: tuple[int, int] = DEFA
         minutes = n if m.group("unit") == "分" else n * 60 + (30 if m.group("half") else 0)
         if minutes < 1:
             return _confirm("「〜後」が読めません")
-        return Reading(AT, local + timedelta(minutes=minutes))
+        # 「いまは忙しいが、できるだけ早くかけ直して」（2026-10-19 ユーザー）：時刻ちょうどの約束ではなく、その時からの「すぐ」と
+        # 同じ（終わり無しの幅。話せなければ「すぐ」と同じ決まりでかけ直す。NG時間は守る）
+        return Reading(WINDOW, local + timedelta(minutes=minutes), None, repeat=DAY_REPEAT)
     try:
         days, period, pos, cycle = _day_part(t, local.date())
         pos = _JOIN.match(t, pos).end()

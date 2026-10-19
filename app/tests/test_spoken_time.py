@@ -145,8 +145,8 @@ class MoreWords(unittest.TestCase):
             "来週の平日の午前中": (WINDOW, at(2026, 10, 19), at(2026, 10, 25, 12), (0, 12 * H), ("mon", "tue", "wed", "thu", "fri")),
             "今晩8時": (AT, at(2026, 10, 14, 20), None, None, None),
             "明朝9時": (AT, at(2026, 10, 15, 9), None, None, None),
-            "30分後": (AT, at(2026, 10, 14, 10, 30), None, None, None),
-            "1時間半後": (AT, at(2026, 10, 14, 11, 30), None, None, None),
+            "30分後": (WINDOW, at(2026, 10, 14, 10, 30), None, None, None),   # できるだけ早く（「すぐ」と同じ。2026-10-19 ユーザー）
+            "1時間半後": (WINDOW, at(2026, 10, 14, 11, 30), None, None, None),
             "4時前後": (AT, at(2026, 10, 14, 16), None, None, None),
             "あとで": (UNSPECIFIED, None, None, None, None),
             "後ほどお願いします": (UNSPECIFIED, None, None, None, None),
@@ -175,8 +175,8 @@ class MoreWords(unittest.TestCase):
             "3時がいいです": (AT, at(2026, 10, 14, 15), None, None),
             "明日の夕方ごろ": (WINDOW, at(2026, 10, 15, 16), at(2026, 10, 15, 18), (16 * H, 18 * H)),
             "明日の正午ごろ": (AT, at(2026, 10, 15, 12), None, None),
-            "30分後くらい": (AT, at(2026, 10, 14, 10, 30), None, None),
-            "1時間後ぐらい": (AT, at(2026, 10, 14, 11), None, None),
+            "30分後くらい": (WINDOW, at(2026, 10, 14, 10, 30), None, None),
+            "1時間後ぐらい": (WINDOW, at(2026, 10, 14, 11), None, None),
             "明日の午前中ならいつでも": (WINDOW, at(2026, 10, 15), at(2026, 10, 15, 12), (0, 12 * H)),
         }
         for text, want in cases.items():
