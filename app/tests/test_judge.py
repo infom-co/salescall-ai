@@ -7,11 +7,12 @@ from __future__ import annotations
 
 import unittest
 import uuid
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
 from salescall.core import gate
 from salescall.core.business_rules import RulesInvalid, check
-from salescall.core.call_report import CallReport, Cut, ReportInvalid, from_json
+from salescall.core.call_report import CallReport, Cut, ReportInvalid, Said, from_json
 from salescall.core.judge import Facts, Item, JudgeInput, classify_cut, judge
 from salescall.core.next_action import Alternate, AskAgain, Recheck, Target, choose_number, decide_after_call, decide_after_denial
 from tests.support import callback, make_report, rules_raw
@@ -412,6 +413,10 @@ class Shapes(unittest.TestCase):
     def test_report_rejects_wrong_shapes(self):
         good = report(callback=callback("later", LATER), dnc=True, complaint=True).to_json()
         self.assertEqual(from_json(good), report(callback=callback("later", LATER), dnc=True, complaint=True))
+        monthly = replace(callback("later", time="月末なら"), cycle="month")   # 月の理由（月ぎめ・入金の間隔など）
+        self.assertEqual(from_json(report(callback=monthly).to_json()).callback, monthly)
+        vm = replace(report(("voicemail",)), voicemail_messages=(Said(0, ""),))   # 留守番電話に伝言を残した
+        self.assertEqual(from_json(vm.to_json()).voicemail_messages, (Said(0, ""),))
         for cb in (callback("other_number", None, "ゼロサン、ゼロゼロゼロゼロの…"),     # そろえられない番号も受ける
                    callback("other_number", LATER, "03-0000-0001"), callback("other_number"),   # 番号を聞けずに終わった
                    callback("later", time="いつでも")):
@@ -437,7 +442,10 @@ class Shapes(unittest.TestCase):
                              ("時刻の言葉が文字でない", {"facts": {"callback": [
                                  {**rec, "why": "later", "time": 15, "number": None, "person": None}]}}),
                              ("知らないかけ直しの理由", {"facts": {"callback": [
-                                 {**rec, "why": "soon", "time": None, "number": None, "person": None}]}})]:
+                                 {**rec, "why": "soon", "time": None, "number": None, "person": None}]}}),
+                             ("知らない周期", {"facts": {"callback": [
+                                 {**rec, "why": "later", "time": "月末", "number": None, "person": None, "cycle": "week"}]}}),
+                             ("留守番電話でないのに伝言", {"facts": {"voicemail_message": [rec]}})]:
             with self.subTest(name), self.assertRaises(ReportInvalid):
                 from_json({**good, **change})
 

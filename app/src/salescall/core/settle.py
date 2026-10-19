@@ -293,7 +293,8 @@ def _judge_and_write(tx: Tx, a: dict[str, Any], *, kind: str, rules_version: Any
     decision = next_action.after_call(
         tx, a["task_id"], j, rules=rules,
         dialed=next_action.Target(a["contact_id"], None, a["purpose"], a["wrong_contact_id"]), dialed_at=a["claimed_at"],
-        alternate=alternate, recheck=recheck, forbidden=forbidden, cut_off=cut_off)
+        alternate=alternate, recheck=recheck, forbidden=forbidden, cut_off=cut_off,
+        reached_target=report is not None and "target" in report.parties)   # 目的のお客様と話せた（約束の日のお詫びは済んだ）
     return {"version_no": version_no, "state": j.state, "decision": decision, "already": False}
 
 

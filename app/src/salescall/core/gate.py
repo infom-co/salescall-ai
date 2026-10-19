@@ -105,6 +105,9 @@ class Claim:
     purpose: str                 # 発信の目的（normal / ask_number_again / apology。会話の処理が読んで話す。DESIGN.md 3-5・10-1-2）
     wrong_phone_e164: str | None   # 番号の聞き直しのとき：番号違いだった番号（「お聞きした番号が…」と告げる）
     voice_type: str              # この通話で話す声の型（`choose_voice` の1か所で決めた。会話の処理は、この声の型で話す）
+    missed_promise: bool = False   # お客様と約束した日（回）に一度もかけられなかった：お客様につながったら、まずお詫びする
+    #                                （2026-10-19 ユーザー：「お約束の日にかけることができなかったことを深くお詫びする必要」。
+    #                                印は次の予定 apology_owed。目的のお客様と話せた締めで外れる＝core/next_action）
 
 
 @dataclass(frozen=True)
@@ -319,7 +322,7 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
 
     # (1) 次の予定（Q4 の記録を読むだけ）
     nxt = tx.one("SELECT kind, call_at, decided_at, purpose, wrong_contact_id, promised, salescall.jst(callee_at) AS callee_at,"
-                 "       salescall.jst(window_until) AS window_until, window_daily, window_days"
+                 "       salescall.jst(window_until) AS window_until, window_daily, window_days, apology_owed"
                  " FROM salescall.task_next_actions WHERE task_id = %s ORDER BY seq DESC LIMIT 1", (task["task_id"],))
     if nxt is None:
         return _deny("no_schedule")
@@ -453,7 +456,11 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
             notify.emit(tx, "setting_missing", key=f"own_line:{task['client_id']}:{local.date()}",
                         summary=OWN_LINE_MISSING, refs={"client_id": task["client_id"], "line_id": line_id})
         return _deny("line_used_by_other_client")
+    # 回線の1日の上限：今日の約束の電話の分は取り置く（ふつうの電話は使わない。2026-10-19 ユーザー：「その日の約束の電話には
+    # 目印が付き、それを処理してから、通常の順序の電話を始めた方がいい」。数えるのは salescall.line_promised_due の1か所＝0089）
     dials = tx.one("SELECT salescall.line_dials_on(%s, %s) AS n", (line_id, local.date()))["n"]
+    if not nxt["promised"]:
+        dials += tx.one("SELECT salescall.line_promised_due(%s, %s, %s) AS n", (line_id, local.date(), task["task_id"]))["n"]
     if dials >= int(_setting(tx, "line.max_dials_per_day", task)):
         return _deny("line_daily_limit")
 
@@ -499,4 +506,4 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
     if approval.human_for_business(tx, task["business_id"]):
         recordings.hold(tx, row["attempt_id"], "verification")
     return Claim(row["attempt_id"], task["task_id"], line_id, task["phone_e164"], version, row["claim_expires_at"],
-                 nxt["purpose"], row["wrong_phone"], voice)
+                 nxt["purpose"], row["wrong_phone"], voice, bool(nxt["apology_owed"]))

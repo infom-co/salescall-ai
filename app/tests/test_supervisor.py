@@ -195,6 +195,20 @@ class Rounds(SupervisorBase):
         self.assertEqual(self.state(s, got.called), "technical_error")
         self.assertTrue(self.asked_supervisor(s))
 
+    def test_promised_calls_go_first_across_clients_and_keep_their_share_of_the_line(self):
+        """お客様と約束したかけ直しは、すべての依頼者について先に（共有の回線で、先の依頼者のふつうの電話より、あとの依頼者の
+        約束が先）。回線の1日の上限は、今日の約束の分を取り置く（ふつうの電話は使わない）。2026-10-19 ユーザー：「その日の約束の
+        電話には目印が付き、それを処理してから、通常の順序の電話を始めた方がいい」「（取り置き）OK」。"""
+        s = self.ready()                                                       # 先に作った依頼者：ふつうの電話（いまかけてよい）
+        t = self.ready(tenant=s["tenant"])                                     # あとの依頼者：約束したかけ直し
+        now = self.tx(t, lambda tx: tx.one("SELECT now() AS t")["t"])
+        self.tx(t, lambda tx: next_action.schedule_call(tx, t["task"], now, contact_id=t["contact"], cause="試験", promised=True))
+        self.put_client(s, "line.max_dials_per_day", 1)
+        self.assertEqual(self.reason(s), "line_daily_limit")                   # ふつうの電話：約束の1本分を取り置く
+        got = line.one_round(self.w.a, SYSTEM, s["tenant"], s["line"], HOLDER, FakeDriver(), Runner())
+        self.assertEqual(self.tx(t, lambda tx: tx.one("SELECT task_id FROM salescall.attempts WHERE attempt_id = %s",
+                                                      (got.called,)))["task_id"], t["task"])   # あとの依頼者の約束が先
+
     def test_a_capped_business_does_not_keep_the_other_businesses_of_the_client_out(self):
         """上限に達した業務の行が候補の先頭を埋めても、その業務を除いて読み直し、同じ依頼者のほかの業務の行をかける。"""
         s = self.ready()

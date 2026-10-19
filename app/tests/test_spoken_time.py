@@ -6,7 +6,7 @@ from __future__ import annotations
 import unittest
 from datetime import datetime, timezone
 
-from salescall.core.spoken_time import AT, CONFIRM, DAY, JST, UNREADABLE, UNSPECIFIED, WINDOW, read
+from salescall.core.spoken_time import AT, CONFIRM, DAY, JST, UNREADABLE, UNSPECIFIED, WINDOW, next_occurrence, read
 
 # 2026-10-14（水）10:00 の通話
 NOW = datetime(2026, 10, 14, 10, 0, tzinfo=JST)
@@ -215,6 +215,42 @@ class MoreWords(unittest.TestCase):
         for hours in ((0, 23 * H), (13 * H, 14 * H)):                                 # 両方入る・どちらも入らない ⇒ 確かめる
             with self.subTest(hours=hours):
                 self.assertEqual(read("明日の3時", NOW, hours).kind, CONFIRM)
+
+
+class Repeat(unittest.TestCase):
+    """幅の中で話せなかったときの次の回は、お客様がその日を選んだ理由に合わせる（2026-10-19 ユーザー決定）。"""
+
+    def test_the_reason_decides_the_next_round(self):
+        cases = {   # 通話は 2026-10-14（水）10:00
+            "金曜なら": ("week", at(2026, 10, 16), (at(2026, 10, 23), at(2026, 10, 24))),
+            "金曜日の夕方": ("week", at(2026, 10, 16, 16), (at(2026, 10, 23, 16), at(2026, 10, 23, 18))),
+            "週末なら": ("week", at(2026, 10, 17), (at(2026, 10, 24), at(2026, 10, 26))),
+            "週中": ("week", at(2026, 10, 13), (at(2026, 10, 20), at(2026, 10, 23))),   # 水曜に言われても、次の回は火曜から
+            "週明け": ("week", at(2026, 10, 19), (at(2026, 10, 26), at(2026, 10, 27))),
+            "明日の夕方": ("day", at(2026, 10, 15, 16), (at(2026, 10, 16), at(2026, 10, 17))),   # 1日の中の幅は予定が絞る
+            "3時以降": ("day", at(2026, 10, 14, 15), (at(2026, 10, 15), at(2026, 10, 16))),
+        }
+        for text, (repeat, since, nxt) in cases.items():
+            with self.subTest(text=text):
+                r = read(text, NOW)
+                self.assertEqual((r.repeat, r.since), (repeat, since))
+                self.assertEqual(next_occurrence(r.repeat, r.since, r.end), nxt)
+        for text in ("13日なら", "明日なら", "3日後", "来週", "月末なら", "11月なら"):   # 理由の分からない日
+            with self.subTest(text=text):
+                self.assertIsNone(read(text, NOW).repeat)
+        self.assertEqual(read("平日ならいつでも", NOW).repeat, "day")                  # 日の種類だけ：かけられる日の1日が1回
+        self.assertEqual(read("すぐ", NOW).repeat, "day")
+
+    def test_month_rounds_only_with_a_monthly_reason(self):
+        """月の中の日・頃は、たまたまのことが多い。月の理由（月ぎめの業務・入金の間隔など。会話の報告の cycle＝month）が
+        あるときだけ、次の月の同じ日・頃（ユーザー）。"""
+        r = read("月末なら", NOW, monthly=True)
+        self.assertEqual(r.repeat, "month:part:月末")
+        self.assertEqual(next_occurrence(r.repeat, r.since, r.end), (at(2026, 11, 28), at(2026, 12, 1)))
+        r = read("31日なら", at(2026, 10, 14, 10), monthly=True)
+        self.assertEqual(next_occurrence(r.repeat, r.since, r.end), (at(2026, 11, 30), at(2026, 12, 1)))   # その月の終わりの日
+        r = read("11月なら", NOW, monthly=True)
+        self.assertEqual(next_occurrence(r.repeat, r.since, r.end), (at(2026, 12, 1), at(2027, 1, 1)))
 
 
 class PeriodsBySetting(unittest.TestCase):

@@ -686,6 +686,14 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("別の番号を言われた通話は同じ行の通話、の参照を外す",
      "ALTER TABLE salescall.task_numbers DROP CONSTRAINT task_numbers_client_id_source_attempt_id_task_id_fkey",
      ("tests.test_alternate.DatabasePromises.test_callee_number_needs_a_call_of_the_same_row",)),
+    # 約束したかけ直しの取り置き・次の回（0089。2026-10-19 ユーザー決定）
+    ("回線の1日の上限で、今日の約束の電話の分を取り置かない",
+     "CREATE OR REPLACE FUNCTION salescall.line_promised_due(p_line uuid, p_day date, p_except uuid) RETURNS integer"
+     " LANGUAGE sql STABLE AS $$ SELECT 0 $$",
+     ("tests.test_supervisor.Rounds.test_promised_calls_go_first_across_clients_and_keep_their_share_of_the_line",)),
+    ("次の回の決め方に、知らない書き方を入れられる",
+     "ALTER TABLE salescall.task_next_actions DROP CONSTRAINT task_next_actions_window_repeat",
+     ("tests.test_settle.CallbackWindow.test_a_wrong_repeat_cannot_be_written",)),
 )
 
 

@@ -5,7 +5,9 @@
 
 1回分（`one_round`）：
 1. その回線でかけてよい依頼者を並べ（scheduler.clients_for_line）、依頼者ごとに、いまかけてよさそうな行を門に渡す順に出す
-   （scheduler.due_tasks。判定はしない）。
+   （scheduler.due_tasks。判定はしない）。**お客様と約束したかけ直しを、すべての依頼者について先に出し、それが済んでから
+   ふつうの電話を始める**（2026-10-19 ユーザー：「その日の約束の電話には目印が付き、それを処理してから、通常の順序の電話を
+   始めた方がいい」。約束の時刻・幅が来ていない約束は、来るまで出ない＝その時間の中で最優先になる）。
 2. 門（gate.claim）に渡す。通れば予約証が出る。
    - 行のせいの不許可は、次の動き（next_action.after_denial）へ渡す（次にいつ候補に出すかを決めるのは次の動きだけ＝Q4）。
    - 回線の理由（gate.LINE_REASONS）なら、行の予定は書き直さず、この回線はしばらく休む（ほかの回線は、その行をかけられる）。
@@ -59,22 +61,25 @@ def _end_unknown(access: Access, actor: Actor, tenant_id: UUID, client_id: UUID,
 
 def one_round(access: Access, actor: Actor, tenant_id: UUID, line_id: UUID, holder: str, driver: dial_exit.LineDriver,
               runner: plugins.CallRunner) -> Round:
-    for client_id in access.in_tenant(actor, tenant_id, lambda tx: scheduler.clients_for_line(tx, line_id)):
-        got = _client_round(access, actor, tenant_id, client_id, line_id, holder, driver, runner)
-        if got is not None:
-            return got
+    clients = access.in_tenant(actor, tenant_id, lambda tx: scheduler.clients_for_line(tx, line_id))
+    for promised_only in (True, False):   # 約束したかけ直しを、すべての依頼者について先に（並べ方はここと due_tasks の1か所）
+        for client_id in clients:
+            got = _client_round(access, actor, tenant_id, client_id, line_id, holder, driver, runner, promised_only)
+            if got is not None:
+                return got
     return Round()
 
 
 def _client_round(access: Access, actor: Actor, tenant_id: UUID, client_id: UUID, line_id: UUID, holder: str,
-                  driver: dial_exit.LineDriver, runner: plugins.CallRunner) -> Round | None:
+                  driver: dial_exit.LineDriver, runner: plugins.CallRunner, promised_only: bool = False) -> Round | None:
     """1つの依頼者の行を、門に渡す。かけたか回線を休むなら Round、この依頼者でかけられる行が無ければ None。
     業務の理由で断られた業務は、この回だけ飛ばし、その業務を除いて候補を読み直す（前は読み直さなかったので、上限に達した業務の
     行が候補の先頭を埋めると、同じ依頼者のほかの業務の行が1日じゅう候補に入らなかった＝2026-10-18 の見直し）。"""
     capped: set[UUID] = set()
     while True:
         tasks = access.in_client(actor, tenant_id, client_id,
-                                 lambda tx: scheduler.due_tasks(tx, CANDIDATES_PER_CLIENT, skip_businesses=capped))
+                                 lambda tx: scheduler.due_tasks(tx, CANDIDATES_PER_CLIENT, skip_businesses=capped,
+                                                                promised_only=promised_only))
         newly = False
         for task in tasks:
             if task["business_id"] in capped:

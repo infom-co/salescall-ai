@@ -148,9 +148,9 @@ class Flow(Base):
     def test_retries_stay_on_the_number_the_callee_gave(self):
         s = self.ready_jp()
         said, _, _ = self.redirect(s)
-        self.settle(s, self.call(s, NO_ANSWER))                            # 別の番号で出なかった
+        self.settle(s, self.call(s, NO_ANSWER))                            # 別の番号で出なかった（「すぐ」の約束のまま＝2026-10-19）
         nxt = self.current(s)
-        self.assertEqual((nxt["kind"], nxt["promised"], nxt["contact_id"]), ("call", False, self.numbers(s)[1]["contact_id"]))
+        self.assertEqual((nxt["kind"], nxt["promised"], nxt["contact_id"]), ("call", True, self.numbers(s)[1]["contact_id"]))
 
     def test_records_only_when_the_business_does_not_call_other_numbers(self):
         s = self.ready_jp()

@@ -27,7 +27,9 @@ from salescall.core.access import Tx
 from salescall.core.phone import normalize
 
 VERSION = 3
-FACT_KINDS = ("do_not_call", "complaint", "out_of_scope", "party", "callback", "ai_question", "end")
+FACT_KINDS = ("do_not_call", "complaint", "out_of_scope", "party", "callback", "ai_question", "voicemail_message", "end")
+# voicemail_message：留守番電話に伝言を残した（2026-10-19 ユーザー：「留守番電話に入れるのは最初の1回だけ」。同じ依頼者の同じ番号へは
+# 2回目を残さない＝`voicemail_left` の1か所。CL-2 の連絡帳 4-106）
 # ai_question：「AIですか？」「人間ですか？」と聞かれた（聞かれるたびに1つ。CL-1 の 2-2 の版 0.5＝2026-10-19。判定には使わない。記録だけ）
 PARTY_KINDS = ("reception", "target", "voicemail", "ivr", "fax", "wrong_party", "person")   # 4-3（区間ごと）
 # person＝お客様が出て話したが、役（受付か目的のお客様か）はまだ分からない（2026-10-19 の見直しで足した。CL-1 の連絡帳への頼み
@@ -36,6 +38,9 @@ PARTY_KINDS = ("reception", "target", "voicemail", "ivr", "fax", "wrong_party", 
 # お客様の拒否を登録しなかった（原則14）
 PARTY_SOURCES = ("report", "signal")                     # 会話AIの報告で分かった／音・回線の信号で分かった
 CALLBACK_REASONS = ("absent", "other_number", "later", "ask_who", "ask_when", "our_promise")
+# かけ直しの日を選んだ理由の周期（お客様が言ったときだけ）：month＝月ぎめの業務・締め・振り込みなど月単位の理由（2026-10-19 ユーザー：
+# 「月ぎめの業務の都合や振り込みなどの入金の間隔などの話の場合は、月単位で考えた方がいい」）。無ければ、言葉だけで読む（spoken_time）
+CALLBACK_CYCLES = ("month",)
 # 不在・別の番号・あとで（お客様に頼まれた。6-2）／分かるお客様・分かる時を聞いた（15-2-3 の a1・a2）／こちらが約束した
 END_REASONS = ("done", "callee_hurry", "callee_refused_call", "callee_complaint", "wrong_party", "voicemail", "ivr", "fax",
                "callback", "ai_question")                # 締めた理由（CL-1 の END_LABEL の名前。ai_question＝AIかを重ねて聞かれて終えた）
@@ -70,6 +75,7 @@ class Callback:
     number_said: str | None      # 別の番号：お客様が言ったまま（確かめ済み。取れなかったら None。reason = other_number のときだけ）
     person: str | None           # 分かるお客様（a1）
     evidence: Said
+    cycle: str | None = None     # その日を選んだ理由の周期（CALLBACK_CYCLES。お客様が言ったときだけ）
 
     @property
     def number_e164(self) -> str | None:
@@ -105,6 +111,7 @@ class CallReport:
     cut: Cut | None                      # 切れ方の材料（お客様が出なかった通話は None）
     apology_delivered: bool | None = None   # お詫びの電話だけ：その通話で話したお客様に、文面を伝えられたか（10-1-2）
     ai_questions: tuple[Said, ...] = ()  # 事実 ai_question：「AIですか？」と聞かれた（記録だけ。CL-1 の版 0.5）
+    voicemail_messages: tuple[Said, ...] = ()   # 事実 voicemail_message：留守番電話に伝言を残した
 
     # ── 判定が読むもの（どれも事実から読む。ここの1か所）
     @property
@@ -145,8 +152,9 @@ class CallReport:
             "out_of_scope": [said(s) for s in self.out_of_scope_requests],
             "party": [{**said(p.evidence), "party": p.party, "by": p.by} for p in self.party_reports],
             "callback": [{**said(c.evidence), "why": c.reason, "time": c.time_said, "number": c.number_said,
-                          "person": c.person} for c in self.callbacks],
+                          "person": c.person, **({"cycle": c.cycle} if c.cycle else {})} for c in self.callbacks],
             "ai_question": [said(q) for q in self.ai_questions],
+            "voicemail_message": [said(v) for v in self.voicemail_messages],
             "end": [{**said(e.evidence), "reason": e.reason} for e in self.ends]}
         return {"version": VERSION, "facts": {k: v for k, v in facts.items() if v}, "not_reached": self.not_reached,
                 "cut": None if self.cut is None else {"speaker": self.cut.speaker, "in_closing": self.cut.in_closing,
@@ -216,13 +224,14 @@ def from_json(raw: Any) -> CallReport:
                           _choice(r.get("by"), PARTY_SOURCES, "facts.party.by"), s)
                     for r, s in _records(facts, "party", {"party", "by"}))
     callbacks = []
-    for r, s in _records(facts, "callback", {"why", "time", "number", "person"}):
+    for r, s in _records(facts, "callback", {"why", "time", "number", "person", "cycle"}):
         reason = _choice(r.get("why"), CALLBACK_REASONS, "facts.callback.why")
         number = _text(r.get("number"), "facts.callback.number")
         if number is not None and reason != "other_number":
             raise ReportInvalid("番号を持つのは、別の番号のかけ直しだけです")
         callbacks.append(Callback(reason, _text(r.get("time"), "facts.callback.time"), number,
-                                  _text(r.get("person"), "facts.callback.person"), s))
+                                  _text(r.get("person"), "facts.callback.person"), s,
+                                  _choice(r.get("cycle"), CALLBACK_CYCLES, "facts.callback.cycle", optional=True)))
     ends = tuple(End(_choice(r.get("reason"), END_REASONS, "facts.end.reason"), s)
                  for r, s in _records(facts, "end", {"reason"}))
     not_reached = _choice(d.get("not_reached"), NOT_REACHED_REASONS, "not_reached", optional=True)
@@ -237,7 +246,11 @@ def from_json(raw: Any) -> CallReport:
     if delivered is not None and not isinstance(delivered, bool):
         raise ReportInvalid("apology_delivered は true / false です")
     ai_questions = tuple(s for _, s in _records(facts, "ai_question", set()))
-    return CallReport(refusals, complaints, oos, parties, tuple(callbacks), ends, not_reached, cut, delivered, ai_questions)
+    voicemail = tuple(s for _, s in _records(facts, "voicemail_message", set()))
+    if voicemail and "voicemail" not in (p.party for p in parties):
+        raise ReportInvalid("留守番電話の伝言は、電話口の種別が留守番電話の通話だけです")
+    return CallReport(refusals, complaints, oos, parties, tuple(callbacks), ends, not_reached, cut, delivered, ai_questions,
+                      voicemail)
 
 
 def save(tx: Tx, attempt_id: UUID, report: CallReport) -> None:
@@ -269,3 +282,16 @@ def load_with_source(tx: Tx, attempt_id: UUID) -> tuple[CallReport | None, str |
 
 def load(tx: Tx, attempt_id: UUID) -> CallReport | None:
     return load_with_source(tx, attempt_id)[0]
+
+
+def voicemail_left(tx: Tx, phone_e164: str) -> bool:
+    """同じ依頼者（取引の依頼者）の、その番号へ、もう留守番電話の伝言を残したか（1か所。2026-10-19 ユーザー：「留守番電話に入れるのは
+    最初の1回だけ」・数える単位は「同じ依頼者のすべての一覧で、同じお客様（同じ番号）」）。会話の処理は、伝言を残す前にこれを読み、
+    残していれば何も言わずに切る（依頼者をまたいでは数えない＝サービスが別）。作り直した報告（call_report_rebuilds）も見る。"""
+    return tx.one(
+        "SELECT EXISTS (SELECT 1 FROM salescall.attempts a WHERE a.phone_e164 = %s AND ("
+        "  EXISTS (SELECT 1 FROM salescall.call_reports r WHERE r.attempt_id = a.attempt_id"
+        "          AND jsonb_array_length(coalesce(r.report -> 'facts' -> 'voicemail_message', '[]'::jsonb)) > 0)"
+        "  OR EXISTS (SELECT 1 FROM salescall.call_report_rebuilds b WHERE b.attempt_id = a.attempt_id"
+        "          AND jsonb_array_length(coalesce(b.report -> 'facts' -> 'voicemail_message', '[]'::jsonb)) > 0))) AS left",
+        (phone_e164,))["left"]

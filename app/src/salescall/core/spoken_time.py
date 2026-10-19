@@ -37,9 +37,15 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 
 # 読み方の版（読み方を変えたら上げる）。判定の版（judge.JUDGE_VERSION）に入る＝上げると、読めなかった「判定待ち」の行が判定し直される
-VERSION = "6"
+VERSION = "7"
 JST = timezone(timedelta(hours=9))
 AT, WINDOW, UNSPECIFIED, CONFIRM, UNREADABLE = "at", "window", "unspecified", "confirm", "unreadable"
+# 幅の中でお客様と話せなかったときの、次の回（お客様がその日を選んだ理由に合わせる。2026-10-19 ユーザー決定）：
+# DAY＝時間の言葉（「夕方」「3時以降」）・日の種類だけ（「平日なら」）・「すぐ」⇒ 次の日の同じ幅（案A）／WEEK＝曜日・週末・週中・
+# 週明け（「金曜なら」「週末なら」）⇒ 次の週の同じ日／"month:..."＝月の中の日・頃は、月の理由（月ぎめの業務・入金の間隔など。
+# 会話の報告の callback.cycle＝month）があるときだけ ⇒ 次の月の同じ日・頃（ユーザー：「たまたま希望日が月末・月の初め・上旬に
+# あたった場合が多い」）／None＝理由の分からない日（「13日」「明日」「3日後」「来週」）⇒ 時刻の決まっていない約束の方針
+DAY_REPEAT, WEEK = "day", "week"
 DAY = 24 * 3600
 H = 3600
 DEFAULT_BUSINESS_HOURS = (9 * H, 19 * H)   # 設定 callee.business_hours の初めの値（会社 9:00〜19:00）
@@ -145,6 +151,9 @@ class Reading:
     daily: tuple[int, int] | None = None  # WINDOW：1日の中の幅（秒）。時間の言葉があるときだけ（次の日の同じ幅＝案A）
     why: str | None = None               # CONFIRM・UNREADABLE の理由（日本語）
     days: tuple[str, ...] | None = None  # WINDOW：かけてよい日の種類（「平日」「土日祝」など。曜日・祝日の鍵）
+    repeat: str | None = None            # WINDOW：話せなかったときの次の回（DAY_REPEAT・WEEK・"month:..."・None。`next_occurrence`）
+    since: datetime | None = None        # WINDOW：その回の本当の始まり（start は、いまより前にしないので、回の途中で言われると遅い。
+    #                                      次の回は、ここから数える＝「週中」を水曜に言われても、次の回は火曜から）
 
     @property
     def exact(self) -> bool:
@@ -243,62 +252,65 @@ def _months_later(today: date, n: int) -> date:
     return date(y, m, min(today.day, _cal.monthrange(y, m)[1]))
 
 
-def _day_part(t: str, today: date) -> tuple[tuple[date, date] | None, str | None, int]:
-    """頭の日の言葉を読む：（日の範囲〔両端を含む〕, その日に付いた時間の言葉〔「今晩」の「夜」など〕, 読んだ長さ）。
-    日の言葉が無ければ (None, None, 0)。"""
+def _day_part(t: str, today: date) -> tuple[tuple[date, date] | None, str | None, int, str | None]:
+    """頭の日の言葉を読む：（日の範囲〔両端を含む〕, その日に付いた時間の言葉〔「今晩」の「夜」など〕, 読んだ長さ, 日の選び方）。
+    日の選び方（`_repeat` が、話せなかったときの次の回を決めるのに使う）：WEEK＝曜日・週末・週中・週明け（その曜日なら出られる）／
+    "month:..."＝月の中の日・頃（月の理由があるときだけ次の月）／None＝理由の分からない日（「13日」「明日」「3日後」「来週」）。
+    日の言葉が無ければ (None, None, 0, None)。"""
     for word in _AMBIGUOUS_DAY:
         if t.startswith(word):
             raise _Ambiguous(f"「{word}」は、いつのことか1つに決まりません")
     for word, (n, period) in _REL_PERIOD.items():
         if t.startswith(word):
             d = today + timedelta(days=n)
-            return (d, d), period, len(word)
+            return (d, d), period, len(word), None
     if m := _REL.match(t):
         d = today + timedelta(days=_REL_DAYS[m.group().removesuffix("中")])
         days, end = _check_wday(t, m.end(), (d, d))
-        return days, None, end
+        return days, None, end, None
     if m := _RANGE_AFTER.match(t):
         a, b, per = int(m.group("a")), int(m.group("b")), 7 if m.group("unit") == "週間" else 1
         if not 1 <= a < b:
             raise _Ambiguous("「〜日後」の範囲が読めません")
-        return (today + timedelta(days=a * per), today + timedelta(days=b * per)), None, m.end()
+        return (today + timedelta(days=a * per), today + timedelta(days=b * per)), None, m.end(), None
     if m := _AFTER.match(t):
         n, unit = int(m.group("n")), m.group("unit")
         if n < 1:
             raise _Ambiguous("「〜後」が読めません")
         d = today + timedelta(days=n) if unit == "日" else today + timedelta(weeks=n) if unit == "週間" \
             else _months_later(today, n)
-        return (d, d), None, m.end()
+        return (d, d), None, m.end(), None
     year, pos = None, 0
     if m := _YEAR_OF.match(t):
         year = int(m.group("y")) if m.group("y") else today.year + _YEAR_OFFSET[m.group("rel")]
         pos = m.end()
     elif m := _YEAR.match(t):
         if m.group("y") == "来年":
-            return (date(today.year + 1, 1, 1), date(today.year + 1, 12, 31)), None, m.end()
-        return (today, date(today.year, 12, 31)), None, m.end()
+            return (date(today.year + 1, 1, 1), date(today.year + 1, 12, 31)), None, m.end(), None
+        return (today, date(today.year, 12, 31)), None, m.end(), None
     if m := _MONTH_PART.match(t, pos):
-        return _named_month(today, m.group("mrel"), m.group("mon"), m.group("part"), year), None, m.end()
+        return (_named_month(today, m.group("mrel"), m.group("mon"), m.group("part"), year), None, m.end(),
+                f"month:part:{m.group('part')}")
     if m := _MONTH.match(t, pos):
         if m.group("mon") is not None or year is None:   # 年のあとは、数の月だけ（「来年の来月」は読まない）
-            return _named_month(today, m.group("mrel"), m.group("mon"), None, year), None, m.end()
+            return _named_month(today, m.group("mrel"), m.group("mon"), None, year), None, m.end(), "month:all"
     if m := _MIDWEEK.match(t):   # 週中・週の半ば＝火〜木（✅ 2026-10-19 ユーザー「OK」）
         monday = _week_monday(today, m.group("week") or "今週")
         lo, hi = monday + timedelta(days=1), monday + timedelta(days=3)
         if hi < today:
             raise _Ambiguous("今週の半ばはもう過ぎています（来週のことか、決まりません）")
-        return (max(lo, today), hi), None, m.end()
+        return (lo, hi), None, m.end(), WEEK   # 始まりは読みの本体が、いまより前にしない（回の本当の始まりは残す）
     if m := _WEEK_START.match(t):  # 週明け＝明日以後でいちばん近い月曜日の1日（✅ 2026-10-19 ユーザー「OK」）
         d = today + timedelta(days=(7 - today.weekday()) % 7 or 7)
-        return (d, d), None, m.end()
+        return (d, d), None, m.end(), WEEK
     if m := _WEEKEND.match(t):
         if m.group("week") is None and today.weekday() == 6:
             raise _Ambiguous("今日は日曜日なので、今日のことか来週末か決まりません")
         monday = _week_monday(today, m.group("week") or "今週")
-        return (max(monday + timedelta(days=5), today), monday + timedelta(days=6)), None, m.end()
+        return (monday + timedelta(days=5), monday + timedelta(days=6)), None, m.end(), WEEK   # 同上
     if m := _WEEK.match(t):
         monday = _week_monday(today, m.group("week"))
-        return (max(monday, today), monday + timedelta(days=6)), None, m.end()
+        return (max(monday, today), monday + timedelta(days=6)), None, m.end(), None
     if (m := _DATE.match(t, pos)) and (m.group("mon") is not None or year is None):
         dom, mon = int(m.group("dom")), m.group("mon")
         if m.group("mrel") is not None:   # 「来月3日」「今月の20日」
@@ -310,7 +322,7 @@ def _day_part(t: str, today: date) -> tuple[tuple[date, date] | None, str | None
             if c < today:
                 raise _Ambiguous("過ぎた日です")
             days, end = _check_wday(t, m.end(), (c, c))
-            return days, None, end
+            return days, None, end, f"month:day:{dom}"
         found = None
         # 今日以後でいちばん近いその日（月が無ければ今月か来月、あれば今年か来年。年が付いていれば、その年）
         for y, mo in ([_month_add(today, k) for k in range(2)] if mon is None
@@ -329,7 +341,7 @@ def _day_part(t: str, today: date) -> tuple[tuple[date, date] | None, str | None
         if mon is not None and year is None and found > today + _FAR:
             raise _Ambiguous("過ぎた日の言い違いか、来年のことか決まりません")
         days, end = _check_wday(t, m.end(), (found, found))
-        return days, None, end
+        return days, None, end, f"month:day:{dom}"
     if year is not None:
         raise _Ambiguous("年のあとの月日が読めません")
     if m := _WDAY.match(t):
@@ -344,8 +356,8 @@ def _day_part(t: str, today: date) -> tuple[tuple[date, date] | None, str | None
             d = _week_monday(today, week) + timedelta(days=target)
             if d < today:
                 raise _Ambiguous("過ぎた曜日です")
-        return (d, d), None, m.end()
-    return None, None, 0
+        return (d, d), None, m.end(), WEEK
+    return None, None, 0, None
 
 
 def _day_kinds(t: str, pos: int) -> tuple[tuple[str, ...] | None, int]:
@@ -454,10 +466,11 @@ def _at(d: date, sec: int) -> datetime:
 
 
 def read(text: str | None, now: datetime, business_hours: tuple[int, int] = DEFAULT_BUSINESS_HOURS,
-         periods: dict[str, tuple[int, int]] = PERIODS) -> Reading:
+         periods: dict[str, tuple[int, int]] = PERIODS, monthly: bool = False) -> Reading:
     """お客様が言った時刻の言葉を読む。now＝その通話の時刻（「明日」などの起点。過ぎた時刻は確かめが要る）。
     business_hours＝お客様の営業時間（0時からの秒の (始まり, 終わり)。設定 callee.business_hours。午前・午後を決める）。
     periods＝言葉ごとの幅（依頼者ごとの設定 callback.period_* を `periods_from` で表にしたもの）。
+    monthly＝お客様が月の理由（月ぎめの業務・入金の間隔など）を言った（会話の報告の callback.cycle＝month）。
     言葉が無い（時刻を聞けなかった）ときは UNSPECIFIED。"""
     if text is None or not text.strip():
         return Reading(UNSPECIFIED)
@@ -466,7 +479,7 @@ def read(text: str | None, now: datetime, business_hours: tuple[int, int] = DEFA
     if _UNSPECIFIED.fullmatch(t):
         return Reading(UNSPECIFIED)
     if _ASAP.fullmatch(t):
-        return Reading(WINDOW, local, None)
+        return Reading(WINDOW, local, None, repeat=DAY_REPEAT)
     if (m := _LATER_CLOCK.match(t)) and _TAIL.fullmatch(t[m.end():]):   # 「30分後」「1時間後」「1時間半後」
         n = int(m.group("n"))
         minutes = n if m.group("unit") == "分" else n * 60 + (30 if m.group("half") else 0)
@@ -474,7 +487,7 @@ def read(text: str | None, now: datetime, business_hours: tuple[int, int] = DEFA
             return _confirm("「〜後」が読めません")
         return Reading(AT, local + timedelta(minutes=minutes))
     try:
-        days, period, pos = _day_part(t, local.date())
+        days, period, pos, cycle = _day_part(t, local.date())
         pos = _JOIN.match(t, pos).end()
         kinds, pos = _day_kinds(t, pos)
         pos = _JOIN.match(t, pos).end()
@@ -509,8 +522,40 @@ def read(text: str | None, now: datetime, business_hours: tuple[int, int] = DEFA
         return _confirm("幅が空になる言い方です（いつまでか決まりません）")
     daily = (s0, s1) if kind == "window" else None
     if days is None:                                  # 「平日の夕方」「土日祝ならいつでも」：日の種類だけ（終わり無し）
-        return Reading(WINDOW, local, None, daily, days=kinds)
+        return Reading(WINDOW, local, None, daily, days=kinds, repeat=DAY_REPEAT)
     start, end_at = _at(days[0], s0), _at(days[1], s1)
     if end_at <= local:
         return _confirm("その頃はもう過ぎています（今日のことか、明日以降か決まりません）")
-    return Reading(WINDOW, max(start, local), end_at, daily, days=kinds)
+    return Reading(WINDOW, max(start, local), end_at, daily, days=kinds, repeat=_repeat(cycle, daily, monthly), since=start)
+
+
+def _repeat(cycle: str | None, daily: tuple[int, int] | None, monthly: bool) -> str | None:
+    """話せなかったときの次の回の決め方（1か所。お客様がその日を選んだ理由に合わせる＝DAY_REPEAT の上の説明）。
+    曜日・週末は時間の言葉より強い（「金曜の夕方」＝次の金曜の夕方）。"""
+    if cycle == WEEK:
+        return WEEK
+    if cycle is not None and cycle.startswith("month:") and monthly:
+        return cycle
+    return DAY_REPEAT if daily is not None else None
+
+
+def next_occurrence(repeat: str, start: datetime, end: datetime) -> tuple[datetime, datetime]:
+    """幅の次の回（[始まり, 終わり)。日本の時刻）。repeat は `Reading.repeat`（None の幅に次の回は無い）。
+    DAY_REPEAT＝いまの回の最後の日の次の1日（1日の中の幅は、次の予定の daily が絞る）／WEEK＝7日あと／
+    "month:part:頃"・"month:all"・"month:day:日"＝次の月の同じ頃・まるごと・同じ日（その月に無い日は、その月の終わりの日）。"""
+    start, end = start.astimezone(JST), end.astimezone(JST)
+    if repeat == DAY_REPEAT:
+        d = (end - timedelta(microseconds=1)).date() + timedelta(days=1)
+        return _at(d, 0), _at(d + timedelta(days=1), 0)
+    if repeat == WEEK:
+        return start + timedelta(days=7), end + timedelta(days=7)
+    if repeat.startswith("month:"):
+        y, m = _month_add(start.date(), 1)
+        kind, _, arg = repeat.removeprefix("month:").partition(":")
+        if kind == "day":
+            d = date(y, m, min(int(arg), _cal.monthrange(y, m)[1]))
+            lo, hi = d, d
+        else:
+            lo, hi = _month_range(y, m, None if kind == "all" else arg)
+        return _at(lo, 0), _at(hi + timedelta(days=1), 0)
+    raise ValueError(f"次の回の決め方が読めません：{repeat!r}")
