@@ -406,7 +406,10 @@ class TenantAiStopsAndChecks(unittest.TestCase):
                  for code, unreachable in ((None, True), (None, False), (500, False), (503, False), (401, False),
                                            (403, False), (408, False), (429, False), (400, False), (404, False), (422, False))}
         self.assertEqual({k for k, v in kinds.items() if v == "judge_rejected"}, {(400, False), (404, False), (422, False)})
-        self.assertTrue(all(v in ("judge_outage", "judge_rejected") for v in kinds.values()))
+        self.assertEqual({k for k, v in kinds.items() if v == "judge_key"}, {(401, False), (403, False)})
+        self.assertEqual(errors.classify(ErrorReport("judge", 400, "API key not valid. Please pass a valid API key.")),
+                         "judge_key")                                   # Google のキーの誤りは 400（会話AIと同じ決まり。見直し6）
+        self.assertEqual((errors.ACTIONS["judge_key"].key, errors.ACTIONS["judge_key"].stop_cause), ("mark_key_unusable", None))
         for kind in ("judge_outage", "judge_rejected"):
             a = errors.ACTIONS[kind]
             self.assertEqual((a.stop_cause, a.fundamental, a.lasting_fixer), (None, False, "CL-1"))
@@ -436,6 +439,26 @@ class TenantAiStopsAndChecks(unittest.TestCase):
                 (timedelta(minutes=minutes),)))
         watch.after_error(self.a, SYSTEM, ear, tenant_id=long["tenant"], client_id=long["client"])
         self.assertEqual(len(asked(long["tenant"])), 1)
+
+    def test_a_lasting_error_is_counted_across_the_clients_of_the_contractor(self):
+        """「1時間以上続いた」は、契約者のすべての依頼者のエラーで数える（修正依頼の重なりを防ぐ鍵と同じ範囲。⚠️ 前は記録した依頼者の
+        取引のまま数え、ほかの依頼者のエラーが見えず、契約者全体で続いていても修正依頼が出なかった＝見直し6）。"""
+        w = World()
+        a = w.setup()
+        b = w.setup(tenant=a["tenant"])                                 # 同じ契約者のほかの依頼者
+        for minutes in (110, 70):                                       # 依頼者A で、2時間近く前から
+            self.a.in_client(SYSTEM, a["tenant"], a["client"], lambda tx: tx.execute(
+                "INSERT INTO salescall.error_events (tenant_id, client_id, source, kind, occurred_at)"
+                " VALUES (salescall.cur_tenant(), salescall.cur_client(), 'ear', 'ear_unreachable', now() - %s)",
+                (timedelta(minutes=minutes),)))
+        self.a.in_client(SYSTEM, b["tenant"], b["client"], lambda tx: tx.execute(
+            "INSERT INTO salescall.error_events (tenant_id, client_id, source, kind, occurred_at)"
+            " VALUES (salescall.cur_tenant(), salescall.cur_client(), 'ear', 'ear_unreachable', now() - interval '30 minutes')"))
+        watch.after_error(self.a, SYSTEM, ErrorReport("ear", None, None, unreachable=True), tenant_id=b["tenant"],
+                          client_id=b["client"])                        # 依頼者B の取引で記録する
+        asked = [r for r in self.a.in_system(SYSTEM, lambda tx: fix_requests.open_requests(tx, "CL-1"))
+                 if r["kind"] == "ear_unreachable" and r["refs"].get("tenant_id") == str(a["tenant"])]
+        self.assertEqual(len(asked), 1)
 
     def test_the_assignee_reports_the_fix_and_only_the_admin_approves(self):
         """担当が「直した」を書き、管理者が確かめて承認する（人は承認だけ）。契約者には修正依頼は見えない。"""

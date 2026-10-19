@@ -75,7 +75,7 @@ def make_report(parties=("target",), *, dnc: bool = False, oos: bool = False, co
     from salescall.core.call_report import CallReport, Cut, End, Party, Said
     ev = Said(2, "試験の発話")
     return CallReport((ev,) if dnc else (), (ev,) if complaint else (), (ev,) if oos else (),
-                      tuple(Party(p, "report", Said(i, "試験の発話")) for i, p in enumerate(parties)),
+                      tuple(Party(p, "ai", Said(i, "試験の発話")) for i, p in enumerate(parties)),
                       () if callback is None else (callback,), () if end is None else (End(end, ev),), not_reached,
                       Cut("ai", True, False) if cut == "normal" else cut, apology_delivered)
 

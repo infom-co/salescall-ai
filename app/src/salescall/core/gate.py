@@ -102,7 +102,8 @@ class Claim:
     phone_e164: str
     version_id: UUID
     expires_at: datetime
-    purpose: str                 # 発信の目的（normal / ask_number_again / apology。会話の処理が読んで話す。DESIGN.md 3-5・10-1-2）
+    purpose: str                 # 発信の目的（normal / ask_number_again / apology / resume＝途中で切れた通話のかけ直し。会話の処理が
+    #                              読んで話す。DESIGN.md 3-5・10-1-2・7-2）
     wrong_phone_e164: str | None   # 番号の聞き直しのとき：番号違いだった番号（「お聞きした番号が…」と告げる）
     voice_type: str              # この通話で話す声の型（`choose_voice` の1か所で決めた。会話の処理は、この声の型で話す）
     missed_promise: bool = False   # お客様と約束した日（回）に一度もかけられなかった：お客様につながったら、まずお詫びする

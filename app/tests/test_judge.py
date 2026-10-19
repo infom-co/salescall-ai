@@ -416,7 +416,7 @@ class Shapes(unittest.TestCase):
         rec = {"turn": 1, "said": "あとでかけて"}
         for name, change in [("知らない項目", {"extra": 1}), ("事実が無い", {"facts": None}),
                              ("知らない事実の種類", {"facts": {**facts, "praise": [rec]}}),
-                             ("知らない電話口の種別", {"facts": {"party": [{**rec, "party": "boss", "by": "report"}]}}),
+                             ("知らない電話口の種別", {"facts": {"party": [{**rec, "party": "boss", "by": "ai"}]}}),
                              ("種別の出どころが無い", {"facts": {"party": [{**rec, "party": "target"}]}}),
                              ("版が違う", {"version": 2}), ("並びでない", {"facts": {"do_not_call": rec}}),
                              ("根拠の発話の番号が無い", {"facts": {"do_not_call": [{"said": "もうかけないで"}]}}),
@@ -443,8 +443,8 @@ class Shapes(unittest.TestCase):
     def test_facts_are_read_in_one_place(self):
         """判定が読むもの（申告・苦情・電話口の種別・かけ直し・急いでいたか）は、通話の事実から読む。そろえた番号は言ったままの番号から。"""
         r = from_json({"version": 3, "not_reached": None, "cut": None, "apology_delivered": None, "facts": {
-            "party": [{"turn": 0, "said": "はい、山田商事です", "party": "reception", "by": "report"},
-                      {"turn": 2, "said": "お電話代わりました", "party": "target", "by": "report"}],
+            "party": [{"turn": 0, "said": "はい、山田商事です", "party": "reception", "by": "ai"},
+                      {"turn": 2, "said": "お電話代わりました", "party": "target", "by": "ai"}],
             "callback": [{"turn": 4, "said": "携帯にお願いします", "why": "other_number", "time": None,
                           "number": "ゼロキュウゼロのゼロゼロゼロゼロのゼロゼロゼロイチ", "person": None}],
             "end": [{"turn": 5, "said": "急いでるので", "reason": "callee_hurry"}]}})

@@ -27,10 +27,12 @@ SOURCES = ("ai", "ear", "line", "storage", "delivery", "recording", "supervisor"
 #   回線／保存／連携／録音（通話の録音が残っていない・壊れている）／見守り役（決まった間隔の仕事・回線ごとの発信の繰り返しの処理の
 #   誤り。0063）／意味の判定（会話AIとは別の会社の、答えの意味の判定。DESIGN.md 6-10 の (6)。0098）
 
-# 意味の判定の失敗のうち、問い合わせの中身が断られた（その発話だけ代わりへ）とみなす番号の外：これら以外の 400 番台の番号だけが
-# 「中身が断られた」。番号の無い失敗・500 番台・この4つ（キーが無効・権限が無い・時間切れ・上限）は「止まっている」
-# （CL-1 の連絡帳 4-24。試作 meaning_judge.outage と同じ分け方）
-_JUDGE_OUTAGE_4XX = (401, 403, 408, 429)
+# 意味の判定の失敗の分け方（CL-1 の連絡帳 4-24）：キーが使えない（無効・権限が無い＝401・403、一覧のキーの行＝Google の
+# 「400 API key not valid」）は、会話AIと同じくキーの誤り（judge_key。⚠️ 試作 meaning_judge.outage は「止まっている」・Google の
+# 400 は「中身が断られた」に分けていた＝同じ判断が会話AIと食い違っていた。見直し6）。ほかの 400 番台（時間切れ 408・上限 429 を除く）
+# だけが「中身が断られた」。番号の無い失敗・つながらない・500 番台・408・429 は「止まっている」
+_JUDGE_KEY_CODES = (401, 403)
+_JUDGE_OUTAGE_4XX = (408, 429)
 
 @dataclass(frozen=True)
 class CatalogEntry:
@@ -89,7 +91,7 @@ CATALOG: tuple[CatalogEntry, ...] = (
 class ErrorReport:
     """起きたエラー（呼び出し元が、分かったことをそのまま渡す。推測で埋めない）。"""
     source: str                    # SOURCES のどれか
-    code: int | None               # 閉じる番号など（無ければ None）
+    code: int | None               # 閉じる番号・HTTP の番号など（無ければ None）
     message: str | None            # 文面（お客様の発話・番号を入れない。エラーの文面だけ）
     unreachable: bool = False      # つながらなかった（接続を開けない・応答が無い・時間切れ）と、呼び出し元が確かに言える
 
@@ -134,7 +136,7 @@ LABELS: dict[str, str] = {
     "ai_server_error": "会話AIの側の誤り・混雑です", "session_drop": "通話中に会話AIが切れました",
     "line": "回線の異常です", "storage": "保存に失敗しました", "delivery": "結果の書き戻しに失敗しました",
     "recording": "通話の録音が残っていません", "supervisor": "見守り役の処理の誤りです",
-    "judge_outage": "意味の判定が止まっています",
+    "judge_outage": "意味の判定が止まっています", "judge_key": "意味の判定のキーが使えません",
     "judge_rejected": "意味の判定が問い合わせを断りました",
     "unknown_ai": "原因の分からない会話AIの誤りです", "unknown_line": "原因の分からない回線の誤りです",
 }
@@ -191,6 +193,10 @@ ACTIONS: dict[str, Action] = {
                            "（代わりの判定 Jev と、通話後の検証がある）。設定 judge.outage_bypass の秒のあいだ、その判定に問い合わせず"
                            "代わりへ回す（毎回の発話で、止まった判定の答えを待たない）。1時間以上続いたら CL-1 に修正依頼を出す"
                            "（CL-1 の連絡帳 4-24）", lasting_fixer="CL-1"),
+    "judge_key": Action("mark_key_unusable", "none", None, None, None, True,
+                        "意味の判定のキーが使えない（無効・権限が無い。待っても直らない）：発信は止めない。そのキーを使わない印を付け、"
+                        "ほかのキーで続ける（使えるキーが無ければ、その判定は止まっているとみなして代わりの判定へ）。会話AIのキーの誤り"
+                        "（key_specific）と同じ決まり。キーを入れ直すのは管理者"),
     "judge_rejected": Action("keep", "none", None, None, None, False,
                              "意味の判定が問い合わせの中身を断った（400 など）：発信は止めない。その発話だけ代わりの判定へ回す"
                              "（判定は止まっていない）。1時間以上続いたら（問い合わせの作り方の誤り）CL-1 に修正依頼を出す"
@@ -268,6 +274,11 @@ def classify(e: ErrorReport) -> str:
     if e.source in ("recording", "supervisor"):
         return e.source
     if e.source == "judge":
-        rejected = e.code is not None and 400 <= e.code < 500 and e.code not in _JUDGE_OUTAGE_4XX and not e.unreachable
+        if e.unreachable:
+            return "judge_outage"
+        entry = lookup(e)
+        if e.code in _JUDGE_KEY_CODES or (entry is not None and entry.kind == "key_specific"):
+            return "judge_key"
+        rejected = e.code is not None and 400 <= e.code < 500 and e.code not in _JUDGE_OUTAGE_4XX
         return "judge_rejected" if rejected else "judge_outage"
     return "delivery"

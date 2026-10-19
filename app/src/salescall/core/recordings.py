@@ -30,8 +30,8 @@ class Part:
     spoken_text: str     # 録音の文
     audio_ref: str       # 音声のファイルの置き場の参照
     audio_sha256: str    # 中身の指紋
-    # この録音で選んだ名前の読み（名前の表記 → ひらがな）。読みが決まらない名前を、読みの候補ごとの録音から契約者が聞いて選んだもの
-    # （Intent.md 6-2。依頼者の単位の組だけ）。選んだ読みが、その版の名前の読みになる（business_settings.load が重ねる）
+    # この録音が話す名前の読み（名前の表記 → ひらがな）。入口の読みの無い名前を読みで話す部分は、必ず書く（依頼者の単位の組だけ）。
+    # その版でいま選んでいる読み（choose_reading。Intent.md 6-2）と同じでないと、組を作れない・承認できない
     readings: dict[str, str] = field(default_factory=dict)
 
 
@@ -102,22 +102,51 @@ def create_set(tx: Tx, *, unit: Literal["contractor", "business"], voice_name: s
     return set_id
 
 
+def choose_reading(tx: Tx, version_id: UUID, name_text: str, reading: str) -> None:
+    """その版の名前の読みを、契約者が録音を聞いて選ぶ（1か所。Intent.md 6-2）。選び直しは記録を足すだけ（いまの読みは見方
+    current_name_readings）。選び直したら、合わない声の録音は使われず（recording_set_fits）、その読みで録り直した声から話す。
+    入口の読み（担当者名など）のある名前は選べない（入口の読みがいちばん強い）。選べるのは管理者か契約者だけ（データベースが守る）。"""
+    names = {n.text: n for n in business_settings.stored_names(tx, version_id)}
+    if name_text not in names:
+        raise ValueError(f"名前「{name_text}」は、この版の業務設定の名前にありません")
+    if names[name_text].reading_by == "given":
+        raise ValueError(f"名前「{name_text}」の読みは入っています（「{names[name_text].reading}」。録音では選びません）")
+    r = readings_mod.required(reading, f"名前「{name_text}」の読み「{reading}」")
+    tx.execute("INSERT INTO salescall.version_name_readings (tenant_id, client_id, version_id, name_text, seq, reading)"
+               " SELECT salescall.cur_tenant(), salescall.cur_client(), %s, %s,"
+               "        coalesce((SELECT max(seq) FROM salescall.version_name_readings WHERE version_id = %s AND name_text = %s), 0) + 1,"
+               "        %s", (version_id, name_text, version_id, name_text, r))
+
+
 def _chosen_readings(tx: Tx, parts: list[Part], version_id: UUID | None) -> list[tuple[str, str, str]]:
-    """録音で選んだ読みの確かめ（1か所）：依頼者の単位の組だけ・その版の業務設定にある名前だけ・ひらがな・入口の読み（担当者名など）
-    のある名前は、その読みと同じものだけ（入口の読みがいちばん強い）。(部分, 名前, 読み) の並び。同じ名前を別の読みに選んだかは、
-    データベースが組の中と、ほかの声のいま使う組とで確かめる（0099）。"""
+    """録音の名前の読みの確かめ（1か所）：(部分, 名前, 読み) の並び。依頼者の単位の組だけ・その版の業務設定にある名前だけ・入口の読みの
+    ある名前はその読みと同じものだけ・ほかの名前は、その版でいま選んでいる読みと同じものだけ（データベースも守る＝0100）。
+    ⚠️ 入口の読みの無い名前の読み（考えられる読み・まず言ってみる読み・AI の読み・選んだ読み）を「」でくくって話す部分は、その名前の読みを
+    必ず書く（前は書かずに組を作れば、確かめを素通りできた＝見直し6）。録音の文は、読みをひらがなで「」にくくった形（0047）。"""
     out = [(p.part, name, readings_mod.required(r, f"録音「{p.part}」の名前「{name}」の読み「{r}」"))
            for p in parts for name, r in p.readings.items()]
-    if not out:
-        return out
     if version_id is None:
-        raise ValueError("録音で選んだ読みは、依頼者の単位（業務設定の版）の録音だけに付けます")
-    names = {n.text: n for n in business_settings.load(tx, version_id).names}
+        if out:
+            raise ValueError("録音で選んだ読みは、依頼者の単位（業務設定の版）の録音だけに付けます")
+        return out
+    stored = {n.text: n for n in business_settings.stored_names(tx, version_id)}
+    chosen = {r["name_text"]: r["reading"] for r in tx.all(
+        "SELECT name_text, reading FROM salescall.current_name_readings WHERE version_id = %s", (version_id,))}
     for part, name, reading in out:
-        if name not in names:
+        if name not in stored:
             raise ValueError(f"録音「{part}」の名前「{name}」は、この版の業務設定の名前にありません")
-        if names[name].reading_by == "given" and names[name].reading != reading:
-            raise ValueError(f"録音「{part}」の名前「{name}」の読み「{reading}」は、入っている読み「{names[name].reading}」と違います")
+        want = stored[name].reading if stored[name].reading_by == "given" else chosen.get(name)
+        if want != reading:
+            raise ValueError(f"録音「{part}」の名前「{name}」の読み「{reading}」は、"
+                             + (f"入っている読み「{want}」と違います" if stored[name].reading_by == "given" else
+                                f"この版で選んだ読み（{want or 'まだ選んでいない'}）と違います（先に読みを選ぶ＝choose_reading）"))
+    for p in parts:
+        for n in stored.values():
+            if n.reading_by == "given" or n.text in p.readings:
+                continue
+            spoken = {x for x in (*n.candidates, n.likely, n.reading, chosen.get(n.text)) if x}
+            if any(f"「{x}」" in p.spoken_text for x in spoken):
+                raise ValueError(f"録音「{p.part}」は名前「{n.text}」を読みで話しています。その読みを書いてください（Part.readings）")
     return out
 
 
@@ -130,18 +159,19 @@ def approve(tx: Tx, set_id: UUID) -> None:
         raise LookupError(f"録音の組がありません（または、取引の範囲の外）：{set_id}")
 
 
-_APPROVED = ("EXISTS (SELECT 1 FROM salescall.recording_sets s JOIN salescall.recording_approvals p USING (set_id)"
-             " WHERE s.voice_name = v.voice_name AND s.tenant_id = salescall.cur_tenant() AND {where})")
+_CURRENT = ("EXISTS (SELECT 1 FROM salescall.current_recording_sets s"
+            " WHERE s.voice_name = v.voice_name AND s.tenant_id = salescall.cur_tenant() AND {where})")
 
 
 def ready_voices(tx: Tx, version_id: UUID) -> list[str]:
-    """その版で話してよい声の名前（名前の順）。決まりはここだけ（上の説明）。"""
+    """その版で話してよい声の名前（名前の順）。決まりはここだけ（上の説明）。使う組は、流す組と同じ見方 current_recording_sets
+    （承認した組のうち、その版のいまの名前の読みと合うもの）。"""
     return [r["voice_name"] for r in tx.all(
         "SELECT v.voice_name FROM salescall.voices v"
         " WHERE v.retired_at IS NULL"
         "   AND EXISTS (SELECT 1 FROM salescall.voice_types t WHERE t.voice_name = v.voice_name AND t.default_for_voice)"
-        "  AND " + _APPROVED.format(where="s.unit = 'contractor'") +
-        "  AND " + _APPROVED.format(where="s.unit = 'business' AND s.version_id = %s") +
+        "  AND " + _CURRENT.format(where="s.unit = 'contractor'") +
+        "  AND " + _CURRENT.format(where="s.unit = 'business' AND s.version_id = %s") +
         " ORDER BY v.voice_name", (version_id,))]
 
 

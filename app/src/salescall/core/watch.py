@@ -68,12 +68,10 @@ def record_error(tx: Tx, report: errors.ErrorReport, *, line_id: UUID | None = N
 
 
 def _lasting(tx: Tx, kind: str) -> bool:
-    """その契約者で、その種類が errors.LASTING 以上続いているか（その長さより長くあかずに起き続けている）。"""
-    return tx.one(
-        "WITH e AS (SELECT occurred_at, lag(occurred_at) OVER (ORDER BY occurred_at) AS prev FROM salescall.error_events"
-        "           WHERE kind = %s AND tenant_id = salescall.cur_tenant() AND occurred_at > now() - interval '7 days')"
-        " SELECT coalesce(now() - max(occurred_at) FILTER (WHERE prev IS NULL OR occurred_at - prev > %s) >= %s, false) AS lasting"
-        " FROM e", (kind, errors.LASTING, errors.LASTING))["lasting"]
+    """その契約者で、その種類が errors.LASTING 以上続いているか（その長さより長くあかずに起き続けている）。数えるのはデータベースの
+    salescall.error_lasting の1か所（契約者のすべての依頼者のエラーを数える。⚠️ 前は記録した取引のまま数えたので、依頼者の取引では
+    その依頼者のエラーしか見えず、契約者全体で続いていても修正依頼が出なかった＝見直し6）。"""
+    return tx.one("SELECT salescall.error_lasting(%s, %s) AS lasting", (kind, errors.LASTING))["lasting"]
 
 
 def decide_stop(tx: Tx, kind: str, *, line_id: UUID | None = None) -> dict[str, Any] | None:

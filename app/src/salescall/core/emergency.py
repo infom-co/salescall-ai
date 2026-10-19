@@ -94,6 +94,12 @@ def _in_scope(access: Access, actor: Actor, tenant_id: UUID | None, work):
     raise PermissionError("押せるのは管理者（admin）か、契約者（operator。契約者の番号つき）です")
 
 
+def _db_error(e: Exception) -> str:
+    """データベースへ届かなかったときに見せる理由（1か所。止める・解くの両方）。権限の誤り（PC の鍵が断られた・押せない者）は文も
+    見せる（「ログインし直してください」など）。ほかは種類の名前だけ（つなぎ先の中身を出さない）。"""
+    return f"{type(e).__name__}：{e}" if isinstance(e, PermissionError) else type(e).__name__
+
+
 def stop_all(access: Access | None, actor: Actor | None, reason: str, *, tenant_id: UUID | None = None,
              no_actor: str = "押した管理者か契約者が分かりません") -> dict[str, Any]:
     """止める：印を残し、データベースへ届けば、押した範囲の緊急停止を記録して、印に停止の番号を書く
@@ -113,8 +119,7 @@ def stop_all(access: Access | None, actor: Actor | None, reason: str, *, tenant_
             tx, scope=scope, cause="manual", reason=reason, evidence=EVIDENCE,
             tenant_id=None if scope == "system" else tenant_id)["event_id"])
     except Exception as e:  # noqa: BLE001  データベースへ届かなくても、印で止まっている（そのことを返す）
-        return {"flag": str(path), "db_event": None, "db_error": f"{type(e).__name__}：{e}" if isinstance(e, PermissionError)
-                else type(e).__name__}
+        return {"flag": str(path), "db_event": None, "db_error": _db_error(e)}
     _write_flag(dict(flag, db_event=event))
     return {"flag": str(path), "db_event": event, "db_error": None}
 
@@ -142,7 +147,7 @@ def release_all(access: Access | None, actor: Actor, reason: str, *, tenant_id: 
         resumed = _in_scope(access, actor, tenant_id, lambda tx: [stops.resume(tx, e, reason=reason, evidence=EVIDENCE)
                                                                   for e in _open_by_this_switch(tx)])
     except Exception as e:  # noqa: BLE001
-        return {"released": False, "resumed": [], "db_error": type(e).__name__}
+        return {"released": False, "resumed": [], "db_error": _db_error(e)}
     flag_path().unlink(missing_ok=True)
     return {"released": True, "resumed": resumed, "db_error": None}
 

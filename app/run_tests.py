@@ -785,12 +785,26 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      " ALTER TABLE salescall.error_events ADD CONSTRAINT error_events_source_check"
      " CHECK (source IN ('ai', 'ear', 'line', 'storage', 'delivery', 'recording', 'supervisor'))",
      ("tests.test_watch.TenantAiStopsAndChecks.test_a_meaning_judge_failure_never_stops_and_is_split_by_what_failed",)),
-    ("同じ名前を、ほかの声の録音で別の読みに選んでも承認する（0099）",
-     "DROP TRIGGER recording_approval_readings ON salescall.recording_approvals",
+    ("その版で選んだ読みと合わない録音の組を承認する（0100）",
+     "DROP TRIGGER recording_approval_fits ON salescall.recording_approvals",
      ("tests.test_gate.CallerNumberAndVoice.test_a_reading_chosen_by_listening_to_recordings_becomes_the_name_reading",)),
-    ("同じ録音の組の中で、同じ名前に別の読みを選べる（0099）",
+    ("その版で選んだ読みと合わない読みを、録音に書ける（0100）",
      "DROP TRIGGER recording_reading_before_insert ON salescall.recording_readings",
      ("tests.test_gate.CallerNumberAndVoice.test_a_reading_chosen_by_listening_to_recordings_becomes_the_name_reading",)),
+    ("読みを選び直しても、前の読みの録音の組を流す（0100）",
+     "CREATE OR REPLACE FUNCTION salescall.recording_set_fits(p_set uuid) RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT true $$",
+     ("tests.test_gate.CallerNumberAndVoice.test_a_reading_chosen_by_listening_to_recordings_becomes_the_name_reading",)),
+    ("名前の読みを、システムの処理が選べる（0100）",
+     "DROP TRIGGER version_name_reading_by_person ON salescall.version_name_readings",
+     ("tests.test_gate.CallerNumberAndVoice.test_a_reading_chosen_by_listening_to_recordings_becomes_the_name_reading",)),
+    ("一時的なエラーの続きを、記録した依頼者のエラーだけで数える（0100）",
+     "CREATE OR REPLACE FUNCTION salescall.error_lasting(p_kind text, p_lasting interval) RETURNS boolean"
+     " LANGUAGE sql STABLE SECURITY INVOKER SET search_path = salescall, pg_temp AS $$"
+     " WITH e AS (SELECT occurred_at, lag(occurred_at) OVER (ORDER BY occurred_at) AS prev FROM salescall.error_events"
+     " WHERE kind = p_kind AND tenant_id IS NOT DISTINCT FROM salescall.cur_tenant() AND occurred_at > now() - interval '7 days')"
+     " SELECT coalesce(now() - max(occurred_at) FILTER (WHERE prev IS NULL OR occurred_at - prev > p_lasting) >= p_lasting, false)"
+     " FROM e $$",
+     ("tests.test_watch.TenantAiStopsAndChecks.test_a_lasting_error_is_counted_across_the_clients_of_the_contractor",)),
     ("行のいちばん古い結果を、いまの結果として読む（0097 で書き直した見方）",
      "CREATE OR REPLACE VIEW salescall.latest_task_results WITH (security_invoker = true) AS"
      " SELECT r.* FROM salescall.task_results r"

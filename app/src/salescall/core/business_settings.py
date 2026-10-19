@@ -502,21 +502,34 @@ def save_version(tx: Tx, business_id: UUID, raw: dict[str, Any]) -> UUID:
     return vid
 
 
+def stored_names(tx: Tx, version_id: UUID) -> tuple[Name, ...]:
+    """その版に置いた名前の一覧そのもの（録音で選んだ読みを重ねる前。中身が無ければ空）。録音の確かめ＝core/recordings が、入口の
+    読み・考えられる読みを見るのに使う。ふつうは `load` を使う。"""
+    row = tx.one("SELECT content FROM salescall.business_contents WHERE version_id = %s", (version_id,))
+    if row is None:
+        return ()
+    problems: list[str] = []
+    names = [_names_entry(x, "名前", problems, ai_reading_needs_person=False) for x in row["content"].get("names", [])]
+    if problems:   # 置いた時に確かめ済み。ここで落ちるのは、表の中身を直に書き換えたとき
+        raise SettingsInvalid(problems)
+    return tuple(n for n in names if n is not None)
+
+
 def load(tx: Tx, version_id: UUID) -> Settings:
-    """その版の業務設定（中身・質問・業務の決まりを、置いたときと同じ確かめで読む）。"""
+    """その版の業務設定（中身・質問・業務の決まりを、置いたときと同じ確かめで読む）。契約者が録音を聞いて選んだ名前の読み（その版の
+    いまの読み＝見方 current_name_readings。Intent.md 6-2）を重ねる（1か所）。"""
     row = tx.one("SELECT content FROM salescall.business_contents WHERE version_id = %s", (version_id,))
     if row is None:
         raise LookupError(f"その版の業務設定の中身がありません：{version_id}")
-    rules = business_rules.load(tx, version_id)
     raw = dict(row["content"], rules=_rules_raw(tx, version_id))
     s = check(raw, field_types=_field_types(tx), ai_reading_needs_person=False)   # 置いた時に確かめ済み（読み・声の型）
-    # 契約者が録音を聞いて選んだ読み（いま使う録音の組のもの。承認のときに、どの声でも同じ読みと確かめ済み）を重ねる（1か所）
+    s = replace(s, rules=business_rules.load(tx, version_id))
     chosen = {r["name_text"]: r["reading"] for r in tx.all(
-        "SELECT name_text, reading FROM salescall.version_recording_readings WHERE version_id = %s", (version_id,))}
+        "SELECT name_text, reading FROM salescall.current_name_readings WHERE version_id = %s", (version_id,))}
     def heard(n: Name) -> Name:
         r = readings.with_recording(readings.Reading(n.reading, n.reading_by, n.candidates, n.likely), chosen.get(n.text))
         return replace(n, reading=r.reading, reading_by=r.by, candidates=r.candidates, likely=r.likely)
-    return replace(s, rules=rules, names=tuple(heard(n) for n in s.names), company=heard(s.company), person=heard(s.person))
+    return replace(s, names=tuple(heard(n) for n in s.names), company=heard(s.company), person=heard(s.person))
 
 
 def _rules_raw(tx: Tx, version_id: UUID) -> dict[str, Any]:
