@@ -886,6 +886,15 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      " SELECT r.* FROM salescall.task_results r"
      " WHERE r.version_no = (SELECT min(m.version_no) FROM salescall.task_results m WHERE m.task_id = r.task_id)",
      ("tests.test_state.ResultVersions.test_open_until_first_result_then_latest",)),
+    ("意味の判定の単価に、枠を求めない（0102 の前の守り）",
+     "ALTER TABLE salescall.price_versions DROP CONSTRAINT price_versions_tier;"
+     " ALTER TABLE salescall.price_versions ADD CONSTRAINT price_versions_tier CHECK ((source IN ('ai', 'ear')) = (tier IS NOT NULL)"
+     " OR source = 'judge')",
+     ("tests.test_usage.PricesPerContractor.test_the_judge_ai_has_its_own_source_and_tier",)),
+    ("全体の取引から、最初の契約者を作った時刻を読めない（0102 の前：契約者の表は見えない）",
+     "CREATE OR REPLACE FUNCTION salescall.first_tenant_at() RETURNS timestamptz LANGUAGE sql STABLE SECURITY INVOKER"
+     " SET search_path = salescall, pg_temp AS $$ SELECT min(created_at) FROM salescall.tenants $$",
+     ("tests.test_backup.PerClient.test_backups_not_taken_are_noticed_even_without_any_backup_settings",)),
 )
 
 

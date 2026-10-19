@@ -543,7 +543,17 @@ def restore(tx: Tx, version_id: UUID) -> UUID:
     v = tx.one("SELECT business_id FROM salescall.business_versions WHERE version_id = %s", (version_id,))
     if v is None:
         raise LookupError(f"その版は無い（または、取引の範囲の外）：{version_id}")
-    return save_version(tx, v["business_id"], load(tx, version_id).raw)
+    return save_from(tx, v["business_id"], version_id)
+
+
+def save_from(tx: Tx, business_id: UUID, version_id: UUID) -> UUID:
+    """いまある版から、その業務の新しい版を作る（以前の版へ戻す・業務を複製する、の1か所）。中身は置いたときと同じ確かめで読み直し、
+    契約者が録音を聞いて選んだ名前の読みも引き継ぐ（読みは版ごとの表にあり、版の中身には入っていない。⚠️ 前は中身だけを写したので、
+    戻した版・複製した版では読みが決まらない名前に戻り、契約者が選び直すまで、その名前を話す録音が使えなかった＝見直し8）。"""
+    new = save_version(tx, business_id, load(tx, version_id).raw)
+    from salescall.core import recordings   # 録音の部品が業務設定を読むので、ここで読む（読み合いにしない）
+    recordings.carry_readings(tx, version_id, new)
+    return new
 
 
 def target_of(tx: Tx, task_id: UUID) -> dict[str, Any]:

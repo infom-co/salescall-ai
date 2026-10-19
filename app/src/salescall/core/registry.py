@@ -75,9 +75,8 @@ def rename_business(tx: Tx, business_id: UUID, name: str) -> None:
 def copy_business(tx: Tx, version_id: UUID, name: str) -> tuple[UUID, UUID]:
     """その版の業務設定（中身・質問・業務の決まり）から、新しい業務と、その最初の版を作る（同じ依頼者の中で）。
     （新しい業務, 新しい版）を返す。もとの業務は変えない。"""
-    raw = business_settings.load(tx, version_id).raw     # 置いたときと同じ確かめで読む
-    business_id = create_business(tx, name)
-    return business_id, business_settings.save_version(tx, business_id, raw)
+    business_id = create_business(tx, name)               # 写す版が読めなければ、同じ取引なので業務も残らない
+    return business_id, business_settings.save_from(tx, business_id, version_id)
 
 
 def create_run(tx: Tx, business_id: UUID, name: str, version_id: UUID, *, reason: str) -> UUID:

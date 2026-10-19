@@ -96,7 +96,7 @@ def decide_stop(tx: Tx, kind: str, *, line_id: UUID | None = None) -> dict[str, 
     how = (f"根源的なもの：{action.fixer} に修正依頼を出しました。直るまで新しい発信を待ちます" if action.fundamental
            else "一時的なもの：直ったら自動で続けます")
     return stops.stop(tx, scope=action.stop_scope, cause=action.stop_cause,
-                      reason=f"{action.meaning}（続けて {n} 回。基準 {need} 回。{how}）", evidence=f"エラーの種類：{kind}",
+                      reason=f"{action.meaning}（続けて {n} 回。基準 {need} 回。{how}）", evidence=STOPPED_BY + kind,
                       tenant_id=tenant, line_id=line, admin=action.fundamental)
 
 
@@ -135,10 +135,16 @@ def _flapping_wait(tx: Tx, stop: dict[str, Any], interval: int) -> timedelta:
     return timedelta(seconds=min(wait, int(_tenant_setting(tx, "stop.flapping.max_wait", stop["tenant_id"]))))
 
 
+STOPPED_BY = "エラーの種類："   # エラーで止めた停止の根拠の頭（そのあとにエラーの種類。書くのは decide_stop、読むのは record_check）
+
+
 def record_check(tx: Tx, stop_event_id: int, ok: bool, *, evidence: str) -> dict[str, Any]:
-    """停止を解く確かめの結果を記録し、決めた回数続けて成功したら解く（同じ取引）。記録を返す（resumed＝解いたか）。"""
+    """停止を解く確かめの結果を記録し、決めた回数続けて成功したら解く（同じ取引）。記録を返す（resumed＝解いたか）。
+    止まったまま errors.LASTING 以上たっても確かめが通らなければ、止めたエラーの種類の担当へ修正依頼を出す（一時的な異常も1時間以上
+    続けば修正依頼＝Intent.md 10-3。⚠️ 前は、止まると新しいエラーが起きないので、続いているかを数えられず、何時間止まっても修正依頼が
+    出なかった＝見直し8。鍵はエラーで数えるときと同じ＝同じ不具合の依頼は1つ）。"""
     s = tx.one(
-        "SELECT event_id, scope, cause::text AS cause, tenant_id, line_id, actor_kind::text AS actor_kind, at"
+        "SELECT event_id, scope, cause::text AS cause, tenant_id, line_id, actor_kind::text AS actor_kind, at, evidence"
         " FROM salescall.open_stop_events s WHERE s.event_id = %s", (stop_event_id,))
     if s is None:
         raise LookupError(f"まだ解かれていない停止ではありません（または、取引の範囲の外）：{stop_event_id}")
@@ -156,6 +162,12 @@ def record_check(tx: Tx, stop_event_id: int, ok: bool, *, evidence: str) -> dict
     next_at = now + _flapping_wait(tx, s, interval)
     tx.execute("INSERT INTO salescall.stop_checks (stop_event_id, ok, streak, checked_at, next_check_at, evidence)"
                " VALUES (%s, %s, %s, %s, %s, %s)", (stop_event_id, ok, streak, now, next_at, evidence))
+    kind = s["evidence"][len(STOPPED_BY):] if (s["evidence"] or "").startswith(STOPPED_BY) else None
+    fixer = errors.ACTIONS[kind].lasting_fixer if kind in errors.ACTIONS else None
+    if not ok and fixer is not None and now - s["at"] >= errors.LASTING:
+        fix_requests.request(tx, fixer, kind, key=f"error:{kind}:{s['tenant_id']}",
+                             summary=errors.LABELS[kind] + "（止まったまま1時間以上、確かめが通らない）",
+                             refs={"stop_event_id": stop_event_id, "kind": kind})
     resumed = None
     if ok and streak >= need:
         resumed = stops.resume(tx, stop_event_id, reason=f"確かめが続けて {streak} 回成功（基準 {need} 回）", evidence=evidence)

@@ -380,6 +380,57 @@ def latest(app: Access) -> dict[str, Any] | None:
         " FROM salescall.backup_runs ORDER BY run_id DESC LIMIT 1"))
 
 
+# ═════════ 控えが取れているかの見張り（取る側の設定が無くても気づく。見直し8。DESIGN.md 3-10） ═════════
+# 控えを取る仕事は、取る PC に控え用のハードディスク（と、全体の控えなら接続の設定）があるときだけ動く。どの PC にも設定が無いと、
+# 失敗の記録も知らせも出ないまま、控えが1つも無くなる（Intent.md 14-1「取れなかったら知らせる」と食い違い）。⇒ 取れたかを、取る仕事と
+# 別に、記録（backup_runs）だけから見る。見るのは設定に関係なく、どの PC でも動く見守り役の仕事。
+OVERDUE = timedelta(hours=26)   # 1日1回の控えが「取れていない」とみなす長さ（1日に、取る時刻のずれの余裕を足した長さ）
+OVERDUE_CLIENT = ("依頼者ごとの AI用の控えが1日以上取れていません。控え用のハードディスクと鍵の設定（SALESCALL_BACKUP_DRIVE・"
+                  "SALESCALL_BACKUP_KEY）を、この契約者の PC で確かめてください（手順：docs/PC_SETUP.md）。")
+OVERDUE_WHOLE = ("データベース全体の控えが1日以上取れていません。管理者の PC の設定（SALESCALL_OWNER_DSN・SALESCALL_RESTORE_DSN・"
+                 "SALESCALL_BACKUP_DRIVE・SALESCALL_BACKUP_KEY）を確かめてください（手順：docs/PC_SETUP.md）。")
+
+
+def _overdue(tx: Tx, part: str, since: Any) -> bool:
+    """その種類の、戻せることまで確かめた控えが、OVERDUE のあいだ1つも無いか（since＝見張りを始めてよい時刻。依頼者を作った
+    ばかり・初めて動かしたばかりは数えない）。どの依頼者の分かは取引で決まる（依頼者の取引からは、その依頼者の記録だけが見える。0064）。"""
+    return tx.one(
+        "SELECT %(since)s < now() - %(late)s AND NOT EXISTS (SELECT 1 FROM salescall.backup_runs WHERE restore_ok"
+        "   AND kind = %(part)s AND started_at > now() - %(late)s) AS late",
+        {"since": since, "late": OVERDUE, "part": part})["late"]
+
+
+def watch_contractor(app: Access, tenant_id: UUID) -> list[UUID]:
+    """その契約者の依頼者ごとの AI用の控えが取れているか（見守り役が、設定に関係なく呼ぶ）。取れていない依頼者を返し、その依頼者の
+    取引で、契約者と管理者に1日1回知らせる（止めない）。"""
+    late = []
+    for c in _clients(app, tenant_id):
+        def work(tx: Tx, c: UUID = c) -> bool:
+            since = tx.one("SELECT created_at FROM salescall.clients WHERE client_id = %s", (c,))["created_at"]
+            if not _overdue(tx, "client_ai", since):
+                return False
+            day = tx.one("SELECT salescall.jst(now())::date AS d")["d"]
+            notify.emit(tx, "backup_failed", key=f"backup_overdue:{day}:client_ai:{c}", summary=OVERDUE_CLIENT,
+                        refs={"client_id": c}, admin=True, contractor=True)
+            return True
+        if _in(app, tenant_id, c, work):
+            late.append(c)
+    return late
+
+
+def watch_whole(app: Access) -> bool:
+    """データベース全体の控えが取れているか（管理者の PC の見守り役が、設定に関係なく呼ぶ。見張るのは、最初の契約者を作ってから）。
+    取れていなければ、管理者に1日1回知らせる（止めない）。"""
+    def work(tx: Tx) -> bool:
+        since = tx.one("SELECT salescall.first_tenant_at() AS t")["t"]   # 全体の取引からは契約者の表を読めない（0102）
+        if since is None or not _overdue(tx, "system", since):
+            return False
+        day = tx.one("SELECT salescall.jst(now())::date AS d")["d"]
+        notify.emit(tx, "backup_failed", key=f"backup_overdue:{day}:system", summary=OVERDUE_WHOLE, admin=True, contractor=False)
+        return True
+    return app.in_system(SYSTEM, work)
+
+
 # ═════════ 依頼者ごとの控え（2026-10-17 ユーザー決定。表の作り 0054） ═════════
 # ハードディスクの中の形：<ハードディスク>\salescall-backup\<依頼者のフォルダ>\AI・submission・recording ／ データベース全体は
 # <ハードディスク>\salescall-backup\system\AI。ユーザー：「E:\salescall-backup\client1\AI」「…\client1\submission」。

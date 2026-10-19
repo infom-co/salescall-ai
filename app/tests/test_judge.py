@@ -452,10 +452,13 @@ class Shapes(unittest.TestCase):
                          (("reception", "target"), False, False, False, True, "callee_hurry"))
         self.assertEqual((r.callback.reason, r.callback.number_e164), ("other_number", "+819000000001"))
         self.assertFalse(from_json({**r.to_json(), "facts": {"end": [{"turn": 5, "said": "", "reason": "done"}]}}).hurried)
-        asked = from_json({**r.to_json(), "facts": {"ai_question": [{"turn": 3, "said": "これ機械ですか？"}],
-                                                     "end": [{"turn": 6, "said": "AIなの？", "reason": "ai_question"}]}})
-        self.assertEqual((len(asked.ai_questions), asked.end_reason, asked.hurried), (1, "ai_question", False))   # 版 0.5
+        asked = from_json({**r.to_json(), "facts": {"ai_question": [{"turn": 3, "said": "これ機械ですか？"},
+                                                                     {"turn": 6, "said": "AIなの？"}],
+                                                     "end": [{"turn": 9, "said": "", "reason": "done"}]}})
+        self.assertEqual((len(asked.ai_questions), asked.end_reason, asked.hurried), (2, "done", False))   # 版 0.5
         self.assertEqual(from_json(asked.to_json()), asked)
+        with self.assertRaises(ReportInvalid):                     # 「AIですか」では終えない（2026-10-19 夜 ユーザー。CL-1 が外した）
+            from_json({**r.to_json(), "facts": {"end": [{"turn": 6, "said": "AIなの？", "reason": "ai_question"}]}})
 
     def test_callback_time_is_read_from_the_words(self):
         """かけ直しの時刻は、お客様が言ったままの言葉を通話の時刻から「かけてよい時間の幅」として読む（spoken_time の1か所。

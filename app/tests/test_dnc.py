@@ -215,6 +215,22 @@ class RefusalScope(unittest.TestCase):
         hit = in_client(self.w, other, lambda tx: dnc.lookup(tx, b.e164))
         self.assertIsNone(hit)                                               # 別の依頼者には効かない
 
+    def test_refusal_in_one_business_stops_every_business_of_that_client(self):
+        """ある業務の通話で断られた番号には、同じ依頼者のどの業務からもかけない（Intent.md 16-1。断りの台帳は依頼者ごとで、業務を
+        持たない＝門・取込が同じ1か所 dnc.lookup を見る）。ほかの依頼者の業務は止めない。"""
+        number = fictional_jp_fixed()
+        r = import_rows(self.w, self.s, self.s["run"], [("A-1", "架空商事", number)])
+        self.refuse_on(r["rows"][0]["task_id"])
+        business, version = self.w.business_with_version(self.s["tenant"], self.s["client"])   # 同じ依頼者の別の業務
+        run = self.w.run(self.s["tenant"], self.s["client"], business, version)
+        got = import_rows(self.w, self.s, run, [("B-1", "架空商事", number)])
+        self.assertEqual([r["outcome"] for r in got["rows"]], ["stopped"])
+        hit = lambda s, b: in_client(self.w, s, lambda tx: target_policy.block_reason(   # noqa: E731
+            tx, normalize(number), client_ref=None, tenant_id=s["tenant"], client_id=s["client"], business_id=b))
+        self.assertEqual(hit(self.s, business)[0], "dnc_client")
+        other = World().setup(tenant=self.s["tenant"])                       # 同じ契約者のほかの依頼者は止めない
+        self.assertIsNone(hit(other, other["business"]))
+
     def test_stable_ref_stops_the_same_party_with_another_number(self):
         set_client(self.w, self.s, "dnc.client_ref_is_stable_id", True)
         r1 = import_rows(self.w, self.s, self.s["run"], [("A-1", "架空商事", fictional_jp_fixed())])

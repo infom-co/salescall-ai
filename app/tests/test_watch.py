@@ -6,6 +6,7 @@ import json
 import time
 import unittest
 from datetime import timedelta
+from unittest import mock
 
 from salescall.core import errors, fix_requests, settings, stops, watch
 from salescall.core.access import Rejected
@@ -66,6 +67,14 @@ class Classify(unittest.TestCase):
             with self.subTest(k):
                 self.assertTrue(all(errors.ACTIONS[x].stop_scope == errors.ACTIONS[k].stop_scope
                                     for x in errors.counted_with(k)))
+
+    def test_every_temporary_stop_has_someone_to_fix_it_when_it_lasts(self):
+        # 一時的なもので止める種類は、止まったまま続いたら修正依頼を出す担当がある（見直し8：前は、止まると新しいエラーが起きないので、
+        # 何時間止まっても修正依頼が出なかった）。根源的なもの（fixer）は、起きたときに出している
+        for k, a in errors.ACTIONS.items():
+            if a.stop_cause is not None:
+                with self.subTest(k):
+                    self.assertIsNotNone(a.fixer or a.lasting_fixer)
 
     def test_every_kind_has_a_short_label(self):
         self.assertEqual(set(errors.LABELS), set(errors.ACTIONS))           # 知らせは短い名前（2026-10-17）
@@ -448,6 +457,26 @@ class TenantAiStopsAndChecks(unittest.TestCase):
                 (timedelta(minutes=minutes),)))
         watch.after_error(self.a, SYSTEM, ear, tenant_id=apart["tenant"], client_id=apart["client"])
         self.assertEqual(asked(apart["tenant"]), [])
+
+    def test_a_stop_that_lasts_with_failing_checks_becomes_a_fix_request(self):
+        """一時的なもので止めたまま、1時間以上たっても確かめが通らなければ、担当（会話AI＝CL-1）へ修正依頼を出す（Intent.md 10-3。
+        同じ不具合は1つ。確かめが通ったときは出さない）。見張りの長さを短くして確かめる（試験で1時間待たない）。"""
+        override(self, "stop.ai.stop_after_failures", 2)
+        for _ in range(2):
+            self.ai_error(ErrorReport("ai", 503, "UNAVAILABLE: The model is overloaded."))
+        sid = self.ai_stops()[0]["event_id"]
+        asked = lambda: [r for r in self.a.in_system(SYSTEM, lambda tx: fix_requests.open_requests(tx, "CL-1"))   # noqa: E731
+                         if r["kind"] == "ai_server_error" and r["refs"].get("stop_event_id") == sid]
+        got = self.check(sid, False)
+        self.assertEqual(asked(), [])                                   # 止めたばかり
+        with mock.patch.object(errors, "LASTING", timedelta(0)):
+            self.wait_until_due(got)
+            got = self.check(sid, True)
+            self.assertEqual(asked(), [])                               # 確かめが通った
+            for _ in range(2):
+                self.wait_until_due(got)
+                got = self.check(sid, False)
+                self.assertEqual(len(asked()), 1)                       # 通らない：1つだけ（同じ不具合は直すまで1つ）
 
     def test_a_lasting_error_is_counted_across_the_clients_of_the_contractor(self):
         """「1時間以上続いた」は、契約者のすべての依頼者のエラーで数える（修正依頼の重なりを防ぐ鍵と同じ範囲。⚠️ 前は記録した依頼者の

@@ -570,6 +570,15 @@ class Main(SupervisorBase):
                 with _SingleInstance(path):
                     pass
 
+    def test_backups_are_watched_even_on_a_pc_without_backup_settings(self):
+        """控えを取る仕事は、控えの設定のある PC だけ。取れているかの見張りは、設定に関係なく動く（どの PC にも設定が無いと、取る仕事が
+        1つも動かず、失敗の記録も出ないので、見張りを分けた＝見直し8）。データベース全体の見張りは管理者の PC だけ。"""
+        s = self.ready()
+        here = lambda cfg: {j.name for j in jobs.JOBS if j.runs_here(cfg)}   # noqa: E731
+        contractor, admin = here(self.cfg(s)), here(self.cfg(s, SALESCALL_SYSTEM_JOBS="1"))
+        self.assertTrue({"backup_watch"} <= contractor and not {"backups", "whole_backup", "whole_backup_watch"} & contractor)
+        self.assertTrue({"backup_watch", "whole_backup_watch"} <= admin and not {"backups", "whole_backup"} & admin)
+
     def test_settings_are_reported_without_values_and_the_key_check_compares_only(self):
         lines = config.status({"SALESCALL_DSN": "postgresql://架空の接続", "GEMINI_KEY_1": "架空のキー"})
         self.assertIn("SALESCALL_DSN：入っています", lines)

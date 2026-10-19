@@ -88,6 +88,23 @@ class PricesPerContractor(Priced):
         self.assertEqual(seen, 0)                                         # ほかの契約者の単価は、データベースが見せない
 
 
+    def test_the_judge_ai_has_its_own_source_and_tier(self):
+        """意味の判定に使う AI（judge.models）の費用は、出どころ「意味の判定」として、枠（無料・有料）ごとの単価で記録する（見直し8：
+        前は出どころが会話AI・別の耳・回線だけで、判定の費用を書く場所が無く、費用の見張り・赤字の判断から抜けた）。"""
+        s = self.ready()
+        put = lambda tier, actor=OPERATOR: self.w.a.in_tenant(actor, s["tenant"], lambda tx: usage.set_price(   # noqa: E731
+            tx, source="judge", service="試験の判定AI", tier=tier, unit="input_tokens", yen_per_unit=Decimal("0.2"),
+            valid_from=tx.one("SELECT clock_timestamp() AS t")["t"], note="試験"))
+        put("paid")
+        with self.assertRaises(Rejected):                                 # 判定の AI にも枠がある（回線とちがう）
+            put(None)
+        got = self.tx(s, lambda tx: usage.record(tx, source="judge", service="試験の判定AI", tier="paid", kind="measured",
+                                                 quantity=10, unit="input_tokens"))
+        self.assertEqual(got["amount_yen"], Decimal("2.0"))
+        self.assertEqual(self.tx(s, lambda tx: tx.one("SELECT source FROM salescall.usage_entries WHERE entry_id = %s",
+                                                      (got["entry_id"],)))["source"], "judge")
+
+
 class Budget(Priced):
     def ample(self, s):
         """赤字で止まらないよう、十分な月額の報酬を入れる（1日の上限だけを確かめる）。"""

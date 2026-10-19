@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import tempfile
 import unittest
+from unittest import mock
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -295,6 +296,41 @@ class PerClient(unittest.TestCase):
             with self.subTest(tenant=x["tenant"]):
                 self.assertEqual(len(self.notices(x["tenant"])), 1)
                 self.assertIn(x["tenant"], [r["origin_tenant"] for r in self.notices()])
+
+    def test_backups_not_taken_are_noticed_even_without_any_backup_settings(self):
+        """控えを取る PC に設定が無く、取る仕事が1度も動かなくても、取れていないことに気づいて知らせる（記録だけを見る見守り。
+        依頼者ごと＝その契約者と管理者・データベース全体＝管理者。1日1回。止めない）。⚠️ 前は、失敗の記録も知らせも出ないまま、
+        控えが1つも無くなった（見直し8。Intent.md 14-1「取れなかったら知らせる」）。見張りの長さを短くし、記録の時刻を少し先にして
+        確かめる（試験で1日待たない）。"""
+        s = World().setup()
+        second = self.named_client(s["tenant"], "架空の依頼者（2）")
+        soon = datetime.now().astimezone() + timedelta(seconds=30)
+        ok = lambda c, error=None: backup._record(   # noqa: E731
+            self.app, soon, "x.ai.enc", b"x", {"tasks": 1}, ["試験の場所1", "試験の場所2"], error, person=None, part="client_ai",
+            tenant_id=s["tenant"], client_id=c)
+        mine = lambda: [r["summary"] for r in self.notices(s["tenant"]) if r["summary"] == backup.OVERDUE_CLIENT]   # noqa: E731
+        with mock.patch.object(backup, "OVERDUE", timedelta(days=1)):          # 作ったばかりの依頼者は数えない
+            self.assertEqual(backup.watch_contractor(self.app, s["tenant"]), [])
+        with mock.patch.object(backup, "OVERDUE", timedelta(microseconds=1)):
+            self.assertEqual(sorted(backup.watch_contractor(self.app, s["tenant"])), sorted([s["client"], second]))
+            self.assertEqual(len(mine()), 2)                                   # 依頼者ごとに、その契約者へ
+            backup.watch_contractor(self.app, s["tenant"])
+            self.assertEqual(len(mine()), 2)                                   # 知らせは1日1回
+            self.assertEqual([r["origin_tenant"] for r in self.notices() if r["summary"] == backup.OVERDUE_CLIENT
+                              ].count(s["tenant"]), 2)                         # 管理者へも
+            ok(s["client"], error="試験：戻せなかった")                       # 戻せなかった控えは、取れたうちに入らない
+            ok(second)                                                         # ほかの依頼者の控えも入らない
+            self.assertEqual(backup.watch_contractor(self.app, s["tenant"]), [s["client"]])
+            ok(s["client"])
+            self.assertEqual(backup.watch_contractor(self.app, s["tenant"]), [])
+            self.assertTrue(backup.watch_whole(self.app))                      # データベース全体は管理者へ（1日1回）
+            whole = lambda: [r for r in self.notices() if r["summary"] == backup.OVERDUE_WHOLE]   # noqa: E731
+            self.assertEqual([r["origin_tenant"] for r in whole()], [None])
+            backup.watch_whole(self.app)
+            self.assertEqual(len(whole()), 1)
+            backup._record(self.app, soon, "x.dump.enc", b"x", {"tasks": 1}, ["試験の場所1", "試験の場所2"], None, person=None)
+            self.assertFalse(backup.watch_whole(self.app))
+        self.assertNotIn(backup.OVERDUE_WHOLE, [r["summary"] for r in self.notices(s["tenant"])])   # 全体の控えは契約者へ知らせない
 
     def test_folder_names_do_not_show_other_contractors_clients(self):
         """フォルダの名前の重なりは、契約者の中だけで見る（ほかの契約者に同じ名前の依頼者がいても、名前はずれない＝いるかが分からない。

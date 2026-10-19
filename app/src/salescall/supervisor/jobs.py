@@ -155,6 +155,16 @@ def backups(ctx: Context) -> None:
     backup.run_contractor(ctx.access, ctx.cfg.tenant_id, ctx.cfg.backup_drive, ctx.cfg.environ)
 
 
+def backup_watch(ctx: Context) -> None:
+    """この契約者の控えが取れているか（控え用のハードディスクの設定が無い PC でも動く＝取る仕事が動かないことに気づく）。"""
+    backup.watch_contractor(ctx.access, ctx.cfg.tenant_id)
+
+
+def whole_backup_watch(ctx: Context) -> None:
+    """データベース全体の控えが取れているか（管理者の PC。接続の設定が欠けて取る仕事が動かないことに気づく）。"""
+    backup.watch_whole(ctx.access)
+
+
 def whole_backup(ctx: Context) -> None:
     """データベース全体の控え（管理者の PC。1日1回、戻せるかまで確かめる）。"""
     cfg = ctx.cfg
@@ -174,6 +184,8 @@ def whole_backup(ctx: Context) -> None:
 # - answer_rates：応答率の低下は、その日のうちに気づけばよい（1回線1日1回知らせる）。30分の遅れは問題にならない
 # - backups：提出用を数分ごとに写す（2026-10-17 ユーザー：Fly.io に残さない）。AI用は backup が1日1回にする
 # - whole_backup：数分ごとに見て、backup が1日1回にする（失敗したら1時間あけてやり直す）
+# - backup_watch・whole_backup_watch：控えが1日以上取れていないことに気づく（取る仕事は設定が無いと動かないので、別の仕事にする）。
+#   1時間に1回で足りる（知らせは1日1回）
 JOBS: tuple[Job, ...] = (
     Job("recover", 60, "tenant", 300, recover_expired),
     Job("recover_stale", 300, "system", 600, recover_stale),
@@ -188,6 +200,8 @@ JOBS: tuple[Job, ...] = (
     Job("holidays", 3600, "system", 600, holidays),
     Job("backups", 300, "tenant", 4 * 3600, backups, wanted=lambda cfg: cfg.backup_drive is not None),
     Job("whole_backup", 300, "system", 4 * 3600, whole_backup, wanted=lambda cfg: cfg.whole_backup),
+    Job("backup_watch", 3600, "tenant", 600, backup_watch),
+    Job("whole_backup_watch", 3600, "system", 600, whole_backup_watch),
 )
 
 

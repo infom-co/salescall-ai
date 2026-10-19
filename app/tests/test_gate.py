@@ -826,6 +826,36 @@ class CallerNumberAndVoice(Base):
             self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: recordings.create_set(
                 tx, unit="contractor", voice_name="Leda", parts=[part("Leda", "なかじま")]))
 
+    def test_a_chosen_reading_is_carried_to_a_restored_or_copied_version(self):
+        """以前の版へ戻した版・業務を複製した版にも、契約者が録音を聞いて選んだ名前の読みが引き継がれる（1か所＝
+        business_settings.save_from）。⚠️ 前は中身だけを写したので、読みが決まらない名前に戻り、選び直すまで、その名前を話す録音が
+        使えなかった（見直し8）。"""
+        from salescall.core import business_settings, registry
+        s = self.ready()
+        vid = support.full_version(self.w, s, content_too=False)
+        raw = support.content()
+        raw["names"] += [{"text": "中島", "reading": None, "source": "script", "reading_by": None,
+                          "candidates": ["なかじま", "なかしま"], "likely": "なかじま"}]
+        self.tx(s, lambda tx: tx.execute(
+            "INSERT INTO salescall.business_contents (tenant_id, client_id, version_id, content, saved_by)"
+            " VALUES (%s, %s, %s, %s, %s)", (s["tenant"], s["client"], vid, json.dumps(raw, ensure_ascii=False), OPERATOR.name)))
+        reading = lambda v: next((n.reading, n.reading_by) for n in self.tx(   # noqa: E731
+            s, lambda tx: business_settings.load(tx, v)).names if n.text == "中島")
+        self.assertEqual(reading(self.tx(s, lambda tx: business_settings.restore(tx, vid), OPERATOR)), (None, None))
+        self.tx(s, lambda tx: recordings.choose_reading(tx, vid, "中島", "なかしま"), OPERATOR)
+        self.tx(s, lambda tx: recordings.choose_reading(tx, vid, "中島", "なかじま"), OPERATOR)   # いまの読み（選び直した後）
+        back = self.tx(s, lambda tx: business_settings.restore(tx, vid), OPERATOR)
+        _, copied = self.tx(s, lambda tx: registry.copy_business(tx, vid, "架空の業務（複製）"), OPERATOR)
+        for v in (back, copied):
+            with self.subTest(v=v):
+                self.assertEqual(reading(v), ("なかじま", "recording"))
+                self.assertEqual(reading(v), reading(vid))
+                self.assertEqual(self.tx(s, lambda tx: recordings.choose_reading(tx, v, "中島", "なかしま"), OPERATOR), None)
+                self.assertEqual(reading(v), ("なかしま", "recording"))        # 引き継いだ版でも選び直せる
+        self.assertEqual(reading(vid), ("なかじま", "recording"))                # もとの版は変えない
+        with self.assertRaises(Rejected):                                      # 引き継ぐのも、管理者か契約者（選ぶのと同じ）
+            self.tx(s, lambda tx: business_settings.restore(tx, vid))
+
     def test_caller_number_changes_with_the_client(self):
         self.override("gate.cross_client_interval", 1)
         a = self.ready()

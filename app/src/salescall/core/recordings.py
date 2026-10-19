@@ -120,6 +120,17 @@ def choose_reading(tx: Tx, version_id: UUID, name_text: str, reading: str) -> No
                "        %s", (version_id, name_text, version_id, name_text, r))
 
 
+def carry_readings(tx: Tx, from_version: UUID, to_version: UUID) -> None:
+    """ある版で契約者が録音を聞いて選んだ名前の読みを、その版の中身から作った新しい版へ引き継ぐ（以前の版へ戻す・業務を複製する＝
+    business_settings.save_from だけが呼ぶ。中身が同じなので、名前も入口の読みも同じ）。引き継ぐのも選ぶのと同じく、戻す・複製する
+    管理者か契約者の名で記録する（データベースが守る。選んだ読みが無ければ何も書かない）。"""
+    tx.execute(
+        "INSERT INTO salescall.version_name_readings (tenant_id, client_id, version_id, name_text, seq, reading)"
+        " SELECT v.tenant_id, v.client_id, v.version_id, c.name_text, 1, c.reading"
+        " FROM salescall.current_name_readings c, salescall.business_versions v"
+        " WHERE c.version_id = %s AND c.reading_by = 'recording' AND v.version_id = %s", (from_version, to_version))
+
+
 def _chosen_readings(tx: Tx, parts: list[Part], version_id: UUID | None) -> list[tuple[str, str, str]]:
     """録音の名前の読みの確かめ（1か所）：(部分, 名前, 読み) の並び。依頼者の単位の組だけ・その版の業務設定にある名前だけ・その版の
     いまの読み（見方 current_name_readings の1か所：入口の読み・契約者が確かめた読み・AI の読み・録音を聞いて選んだ読み）と同じものだけ
