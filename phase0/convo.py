@@ -90,8 +90,10 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
         info["voice_end_at"] = round(audio_at + len(pcm) / 2 / rate - tail, 3)  # 声の終わりの位置（送った音の上の秒）
         flow.on_voice(info["voice_end_at"])
     turn = flow.callee_turns
-    q, asked = flow.judge_context()  # 判定の質問（目的の人を呼んでいる段では、呼ぶ一言）
+    q, asked, before = flow.judge_context()  # 判定の質問（目的の人を呼んでいる段では、呼ぶ一言と、その前に相手が言ったこと）
     runs = {k: r for k, r in (("judge", judge), ("judge2", judge2)) if r is not None and q}
+    if before and runs:
+        info["judge_before"] = before
 
     def started(coro) -> asyncio.Task:
         t = asyncio.create_task(coro)
@@ -141,7 +143,7 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
             t0 = loop.time()
             judging_text[kind] = text
             try:
-                got = await asyncio.wait_for(runs[kind](q, text, asked), LATE_CHECK_S)
+                got = await asyncio.wait_for(runs[kind](q, text, asked, before=before), LATE_CHECK_S)
             except Exception as exc:  # 判定が落ちても通話は止めない（届かなかった＝通話後の検証へ）
                 info[f"{kind}_error"] = repr(exc)[:200]
                 if getattr(exc, "tried", None):  # 受け持ちの判定・代わりの、答えが無かった理由（meaning_judge.NoJudgment）

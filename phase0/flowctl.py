@@ -411,7 +411,12 @@ CALLBACK_IDS = {"time": "C1", "number": "C2"}
 # 目的の人を呼んでいる段（calling）の、意味の判定の「質問」（呼ぶ一言）の選択肢と意味の言葉（DESIGN.md 1-1：AIの報告「目的の人」を、
 # 独立した判定とそろったときだけ受け取る。取り次ぎ＝HOLD・代わった人＝HANDOVER は、判定のほうの答えでない言葉）
 TARGET_IS_THERE, TARGET_IS_AWAY = "ご本人", "不在"
-TARGET_MEANINGS = {TARGET_IS_THERE: "お呼びした方ご本人が電話に出ているということ（電話を代わった方が、お呼びした方の名前を名乗ったときも）",
+# ご本人の意味（判定の決まりの1か所。meaning_judge.KIND_DESC の「代わった人」は、ここに当たるときは選ばない）。
+# ✅ 2026-10-19 ユーザー：「受付が『それでは岡田にお繋ぎします。』のような後に、『はい、お電話代わりました。』と言われれば、『ご本人』になりますよね」
+#    ⛔ 直す前は、判定に、その前の取り次いだ方の言葉を渡しておらず、名乗らない「はい、お電話代わりました。」を「代わった人」と読んでいた（G-62）
+TARGET_MEANINGS = {TARGET_IS_THERE: "お呼びした方ご本人が電話に出ているということ（電話を代わった方が、お呼びした方の名前を名乗ったときも・"
+                                    "その前に取り次いだ方が、お呼びした方に取り次いだ（お名前を確かめて待つように言った・お繋ぎしますと言った）あとに、"
+                                    "代わった方が話し始めたときも）",
                    TARGET_IS_AWAY: "お呼びした方はいらっしゃらないということ"}
 # hang_up＝話さずに切る（電話接続側が読む）・silent＝AIに話させない返事（取り次ぎを待つ間など。handle_call）
 INTERNAL_KEYS = {"ack", "ask_n", "ask_reason", "ask_last", "after", "play", "speak", "hang_up", "silent"}  # 中で使うだけの項目（電話接続側・数え方が読む）。AIへの返事には入れない
@@ -690,6 +695,7 @@ class Flow:
         self.target_asks = 0                     # 代わった方に目的の人かを確かめた回数
         # 呼んだあとに取り次がれた（受付の方の報告・取り次ぎを待つ・代わった人）＝目的の人は、まだ名乗りを聞いていない別の方
         self.passed_on = False
+        self.calling_heard: list[str] = []      # 呼んでいる段の、相手の言葉（発話ごと。判定に「その前に相手が言ったこと」として渡す＝judge_context）
         # 呼んでいる段の判定の質問（judge_context）と、代わった方に目的の人かを確かめたときの言い方（その返事の判定に添える）
         self.calling_question = (Question("T1", target["target"], "yes_no", required=False, conditions=tuple(TARGET_MEANINGS),
                                           meanings=dict(TARGET_MEANINGS)) if target else None)
@@ -709,6 +715,8 @@ class Flow:
 
     # ── 相手の発話が届いた（本番では、相手の音声の発話の検出で数える）
     def on_callee(self) -> None:
+        if self.phase == "calling" and self.callee_said.strip():
+            self.calling_heard.append(self.callee_said.strip())
         self.callee_turns += 1
         self.callee_said = ""
         self.callee_ended, self.callee_end_at, self.callee_voice_end = False, None, None
@@ -804,15 +812,18 @@ class Flow:
                 t["check"][kind] = value
                 self._late(qid)
 
-    def judge_context(self) -> tuple["Question | None", str | None]:
-        """意味の判定に渡すもの（相手の発話の始めに決める）：いまの質問と、こちらが言い直して確かめた言葉（言い直しの返事を待っているとき）。
-        目的の人を呼んでいる段（calling）では、呼ぶ一言を質問にする（目的の人かを確かめたあとは、その言い方を添える）。
+    def judge_context(self) -> tuple["Question | None", str | None, str | None]:
+        """意味の判定に渡すもの（相手の発話の始めに決める）：いまの質問と、こちらが言い直して確かめた言葉（言い直しの返事を待っているとき）と、
+        その前に相手が言ったこと。目的の人を呼んでいる段（calling）では、呼ぶ一言を質問にし（目的の人かを確かめたあとは、その言い方を添える）、
+        その段の相手の言葉（直前の3つまで）を添える（取り次いだ方の言葉で、代わった方が誰かが決まる＝TARGET_MEANINGS）。
+        ⛔ 2026-10-19 G-62：その前の言葉を渡しておらず、受付の方「岡田ですね。少々お待ちください。」のあとの「はい、お電話代わりました。」を、
+           判定の片方が「代わった人」と読んだ（ユーザー：「『ご本人』になりますよね」）
         ⛔ 2026-10-18 の見直しで見つけた漏れ：いまの質問が無い段では判定が走らず、取り次ぎ（「少々お待ちください」）を見分ける独立した確かめも、
            AIの「目的の人」の報告を確かめる手立ても無かった"""
         if self.phase == "calling":
-            return self.calling_question, self.asked_target
+            return self.calling_question, self.asked_target, "／".join(self.calling_heard[-3:]) or None
         q = self.questions.get(self.current) if self.current else None
-        return q, (self.awaiting_say if self.awaiting_confirm is not None else None)
+        return q, (self.awaiting_say if self.awaiting_confirm is not None else None), None
 
     # ── AIのターンが、声は出したのに報告なしで終わった（電話接続側が呼ぶ）：報告を促す知らせ（出さないなら None）。
     def unreported_note(self) -> str | None:
@@ -878,8 +889,8 @@ class Flow:
     # ── この報告で決めることは、取り消せないか（電話接続側が、報告を待たせる間に判定を全部待つか＝早く届いたほうで決めないか）。
     #    目的の人に繋ぐ（呼んでいる段の「目的の人」の報告・代わった方への名乗りの流し直し）は、繋いだら戻せない（名乗り・用件・質問が流れる）。
     #    答えの報告は、遅れて届いた判定で当て直せる（Flow._late）ので、早く届いたほうで決める
-    #    ⛔ 2026-10-19 G-62：代わった方の「はい、お電話代わりました。」を、先に届いた 3.5 Flash Lite が「ご本人」と誤って読み、0.01秒あとに
-    #       届いた Sonnet 5.5 の「代わった人」を待たずに繋いだ（目的の人かを確かめなかった）
+    #    （2026-10-19 G-62。⛔ 訂正：最初に例に挙げた「はい、お電話代わりました。」は、受付の方が岡田様に取り次いだあとなので「ご本人」が
+    #     正しかった＝ユーザー。食い違いの真因は、判定に前の言葉を渡していなかったこと＝judge_context。全部を待つ決まりは残す）
     def binding(self, name: str, args: dict | None = None) -> bool:
         a = self._args_in(dict(args or {}))
         return self.phase == "calling" and ((name == "report_party" and a.get("party") == "target")

@@ -131,6 +131,89 @@ async def run2(args) -> dict:
             "takes": index}
 
 
+# 3回目（✅ 2026-10-19 ユーザー：「名前+続く言葉を別に保存して、それぞれをシステムにできるだけ置いておく録音にしたらどうですか？同じ録音だと
+#   永遠に録音し続けなくてはならないので、実運用的ではありません。というか無駄」）：名前の部分（「岡田様で」「岡田様は」）と、続く言葉
+#   （「いらっしゃいますでしょうか？」＝確かめる一言・呼ぶ一言で同じ）を別に持ち、組み合わせる。部署・役職も別の部分にする。
+#   ⚠️ 2回目の継ぎ合わせ（05・07 ✕）は、部署と役職の間に空白を置いた形（それ自体が「間が空きすぎ」で ✕）で作っていた＝継ぎ合わせの
+#      良し悪しは公平に確かめていない ⇒ 3回目は、決まった渡し方（漢字・かぎかっこなし・空白なし）の文から切り出す。
+#   継ぎ目には無音を足さない（文の途中の 0.12秒より長い無音は「、」に聞こえる＝10-15）：切り出した所の、もとの文の声の間をそのまま使う。
+ROUND3_NAMES = ("岡田", "中島")
+ROUND3_FORMS = {  # 形 → (前, 名前のあとの言葉の頭, 続く言葉)。名前の部分＝前＋名前＋頭
+    "確かめる一言": ("", "様で", "いらっしゃいますでしょうか？"),
+    "呼ぶ一言": ("営業部部長の", "様は", "いらっしゃいますでしょうか？"),
+}
+
+
+def cut_by_words(pcm: bytes, rate: int, head: str, times: list[tuple[str, float, float]]) -> tuple[bytes, bytes, float] | None:
+    """文まるごとの録音を、頭（head＝名前の部分「中島様で」）の最後の言葉が終わった所で切る（言葉ごとの時刻＝ears.soniox_word_times）。
+    (前, 後ろ, もとの間の秒)。頭の文字と、聞き取った言葉の並びの頭が合わなければ None（その録音は継ぎ合わせの材料にしない）。
+    ⛔ 2026-10-19 の1回目：声の中の短い間を目安に切ったら、言葉の切れ目でない所（「なか｜じま」の中・「営業部部長の｜」）で切り、組み合わせた
+       4本とも言葉どおりに聞こえなかった（「中」で切れた・名前が入れ替わった・2回くり返した）"""
+    # 文字そのもの（漢字のまま）で比べる（⛔ かけらごとに読みに直すと、「様」が1字だけで「よう」と読まれて合わなかった）
+    want, got = head.replace(" ", ""), ""
+    for k, (text, _, end) in enumerate(times):
+        got += text.strip()
+        if got == want and k + 1 < len(times):
+            nxt = times[k + 1][1]
+            return pcm[:int(end * rate) * 2], pcm[int(nxt * rate) * 2:], round(max(0.0, nxt - end), 3)
+        if not want.startswith(got):
+            return None
+    return None
+
+
+async def aligned_take(client, args, text: str, head: str, key: str):
+    """確かめに通り、言葉ごとの時刻で頭の所が見つかる録音（見つからなければ録り直す）。"""
+    from ears import soniox_word_times
+    for _ in range(args.tries):
+        pcm, rate, row = await good_take(client, args, args.type, "whole", text)
+        pcm = trim(pcm, rate)
+        times = await soniox_word_times(key, pcm, rate)
+        cut = cut_by_words(pcm, rate, head, times)
+        row["words"] = [(t, round(a, 3), round(b, 3)) for t, a, b in times]
+        if cut is not None:
+            return pcm, rate, row, cut
+        say("頭の所が見つからなかった：", text, [t for t, _, _ in times])
+    raise RuntimeError(f"継ぎ目の所が見つかる録音が作れなかった：{text}")
+
+
+async def run3(args) -> dict:
+    client = make_client(pick_key(args))
+    out = OUT / "round3"
+    out.mkdir(parents=True, exist_ok=True)
+    items, parts = [], {}
+    from common import load_secret
+    key = load_secret("SONIOX_API_KEY", args.env)
+    for form, (before, mid, tail) in ROUND3_FORMS.items():
+        for name in ROUND3_NAMES:
+            text = f"{before}{name}{mid}{tail}"
+            pcm, rate, row, cut = await aligned_take(client, args, text, f"{before}{name}{mid}", key)
+            items.append({"kind": f"{form}・まるごと", "text": text, "pcm": pcm, "rate": rate, "rows": [row]})
+            parts[(form, name)] = (cut, rate, row)
+    # 継ぎ合わせ：名前の部分は、その名前の文から・続く言葉は、もう1つの名前の文から（別の録音どうしを組み合わせる）
+    for form in ROUND3_FORMS:
+        for name, other in (("岡田", "中島"), ("中島", "岡田")):
+            (mine, rate, _), (theirs, _, _) = parts[(form, name)], parts[(form, other)]
+            if mine is None or theirs is None:
+                say("切れ目が見つからなかった：", form, name)
+                continue
+            gap = theirs[2]  # 続く言葉の前の間は、続く言葉を切り出した文のもとの間
+            joined = mine[0] + bytes(int(gap * rate) * 2) + theirs[1]
+            before, mid, tail = ROUND3_FORMS[form]
+            items.append({"kind": f"{form}・継ぎ合わせ（続く言葉は「{other}」の文から・継ぎ目の間 {gap}秒）",
+                          "text": f"{before}{name}{mid}｜{tail}", "pcm": joined, "rate": rate, "rows": [],
+                          "gaps": {"名前の文": mine[2], "続く言葉の文": gap}})
+    random.Random(args.seed).shuffle(items)
+    index = []
+    for k, it in enumerate(items, 1):
+        wav = f"{k:02d}.wav"
+        write_wav(out / wav, it["pcm"], it["rate"])
+        index.append({"wav": wav, "kind": it["kind"], "text": it["text"], "takes": it["rows"], **({"gaps": it["gaps"]} if "gaps" in it else {})})
+    (out / "index.json").write_text(json.dumps(index, ensure_ascii=False, indent=2), encoding="utf-8")
+    say("作った：", ", ".join(x["wav"] for x in index))
+    return {"model": args.model, "type": args.type, "round": 3, "items": [{k: v for k, v in x.items() if k != "takes"} for x in index],
+            "takes": index}
+
+
 def main() -> None:
     require_python()
     p = base_parser(__doc__)
@@ -140,7 +223,8 @@ def main() -> None:
     p.add_argument("--seed", type=int, default=19)
     p.add_argument("--round", type=int, default=1)
     args = p.parse_args()
-    save_result("G-58" if args.round == 1 else "G-58-2", asyncio.run(run(args) if args.round == 1 else run2(args)))
+    runs = {1: run, 2: run2, 3: run3}
+    save_result({1: "G-58", 2: "G-58-2", 3: "G-58-3"}[args.round], asyncio.run(runs[args.round](args)))
 
 
 if __name__ == "__main__":

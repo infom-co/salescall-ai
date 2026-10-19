@@ -28,8 +28,10 @@ SYSTEM_DESC = {ANY: "どれでもよいと、こちらに任された（「ど�
                "refused": "答えたくないと、答えを拒んだ"}
 KIND_DESC = {HOLD: "ほかの人に電話を代わる・取り次ぐので、待つように言った（答えではない）",
              # ⛔ 2026-10-19 G-57・G-59：「お電話代わりました。岡田です。」（お呼びした方の名前を名乗った）を、いまの判定は6回とも、こちらに読んだ
-             HANDOVER: "電話を代わった別の人が、話し始めた（「お電話代わりました」など。答えではない）。名乗った名前で答えが決まるとき"
-                       "（お呼びした方の名前を名乗った）は、こちらではなく、その答えを選ぶ",
+             # ✅ 2026-10-19 ユーザー：「受付が『それでは岡田にお繋ぎします。』のような後に、『はい、お電話代わりました。』と言われれば、
+             #    『ご本人』になりますよね」⇒ お呼びした方に取り次いだあとなら、名乗らなくても答えが決まる（その前に相手が言ったこと＝BEFORE）
+             HANDOVER: "電話を代わった別の人が、話し始めた（「お電話代わりました」など。答えではない）。代わった方が誰かで答えが決まるとき"
+                       "（お呼びした方の名前を名乗った・その前に取り次いだ方が、お呼びした方に取り次いだ）は、こちらではなく、その答えを選ぶ",
              UNDECIDED: "受け入れにも断りにも取れて、この言葉だけでは決められない（「大丈夫です」「結構です」だけなど）・どの答えにも寄っていない"
                         "（迷っている・どちらとも言っていない）・答えになっていない"}
 CONFIRM_DESC = {"affirmed": "こちらが言い直した値で合っていると認めた", "corrected": "違う・直した（別の値を言った）"}
@@ -82,6 +84,7 @@ RULES = (
 )
 PROMPT = RULES + (
     "質問：「{question}」\n"
+    "{before}"
     "{asked}"
     "選べるもの（名前：説明）：\n{choices}\n"
     "お客様の言葉：「{text}」\n"
@@ -114,14 +117,18 @@ def options(q, asked: str | None = None) -> list[tuple[str, str, str]]:
     return head + [(k, d, k) for k, d in KIND_DESC.items()]
 
 
-def scene(q, text: str, asked: str | None = None) -> dict:
-    """判定に渡す場面（質問の文・こちらが言い直して確かめた言葉・お客様の言葉）。prompt はこれを文にしたもの。"""
-    return {"質問": q.text} | ({"こちらが言い直して確かめた言葉": asked} if asked else {}) | {"お客様の言葉": text}
+BEFORE = "その前に相手が言ったこと"  # 目的の人を呼んでいる段だけ（Flow.judge_context。取り次いだ方の言葉で、代わった方が誰かが決まる）
 
 
-def prompt(q, text: str, asked: str | None = None) -> str:
+def scene(q, text: str, asked: str | None = None, before: str | None = None) -> dict:
+    """判定に渡す場面（質問の文・その前に相手が言ったこと・こちらが言い直して確かめた言葉・お客様の言葉）。prompt はこれを文にしたもの。"""
+    return ({"質問": q.text} | ({BEFORE: before} if before else {}) | ({"こちらが言い直して確かめた言葉": asked} if asked else {})
+            | {"お客様の言葉": text})
+
+
+def prompt(q, text: str, asked: str | None = None, before: str | None = None) -> str:
     said = f"こちらが言い直して確かめた言葉：「{asked}」\n" if asked else ""
-    return PROMPT.format(question=q.text, asked=said, text=text,
+    return PROMPT.format(question=q.text, asked=said, text=text, before=f"{BEFORE}：「{before}」\n" if before else "",
                          choices="\n".join(f"- {n}：{d}" for n, d, _ in options(q, asked)))
 
 
@@ -154,15 +161,15 @@ def _schema(q, asked: str | None) -> dict:
             "required": ["choice", FIRM], "additionalProperties": False}
 
 
-def judge(client, model: str, q, text: str, asked: str | None = None) -> str | None:
-    """相手の言葉 text が、質問 q（asked＝こちらが言い直した言葉）のどれに当たるか。読めなければ None。"""
-    r = client.models.generate_content(model=model, contents=prompt(q, text, asked), config=_config(q, asked))
+def judge(client, model: str, q, text: str, asked: str | None = None, before: str | None = None) -> str | None:
+    """相手の言葉 text が、質問 q（asked＝こちらが言い直した言葉・before＝その前に相手が言ったこと）のどれに当たるか。読めなければ None。"""
+    r = client.models.generate_content(model=model, contents=prompt(q, text, asked, before), config=_config(q, asked))
     return read(q, r.text, asked)
 
 
-async def ajudge(client, model: str, q, text: str, asked: str | None = None) -> str | None:
+async def ajudge(client, model: str, q, text: str, asked: str | None = None, before: str | None = None) -> str | None:
     """judge と同じ（通話の中で、会話のAIの報告を待つ間に走らせる形）。"""
-    r = await client.aio.models.generate_content(model=model, contents=prompt(q, text, asked), config=_config(q, asked))
+    r = await client.aio.models.generate_content(model=model, contents=prompt(q, text, asked, before), config=_config(q, asked))
     return read(q, r.text, asked)
 
 
@@ -208,9 +215,9 @@ class OtherJudgeError(RuntimeError):
         self.status, self.retry = status, retry
 
 
-def other_request(name: str, q, text: str, asked: str | None) -> dict:
+def other_request(name: str, q, text: str, asked: str | None, before: str | None = None) -> dict:
     """Google 以外の判定への問い合わせの中身（会社ごとの形。問い合わせの文と選べるものは Gemini と同じ）。"""
-    j, p = OTHER_JUDGES[name], prompt(q, text, asked)
+    j, p = OTHER_JUDGES[name], prompt(q, text, asked, before)
     if j["maker"] == "anthropic":
         # ⚠️ Claude Haiku 5.5 は temperature などを送ると断る（1以外は400＝2026-10-18 に当たった）。名前を指定した道具の呼び出しは、
         #    考える段を飛ばして道具の呼び出しから返す（いちばん速い形）。strict＝選べるもの以外の名前を返させない
@@ -228,7 +235,7 @@ def other_request(name: str, q, text: str, asked: str | None) -> dict:
                     "output_config": {"effort": j["effort"], "format": {"type": "json_schema", "schema": _schema(q, asked)}}}
         return body
     if j["maker"] == "typesafe":
-        return jev_request(j["model"], q, text, asked)
+        return jev_request(j["model"], q, text, asked, before)
     return {"model": j["model"], "input": p, "reasoning": {"effort": OPENAI_EFFORT}, "max_output_tokens": 2000,
             "text": {"format": {"type": "json_schema", "name": "answer", "schema": _schema(q, asked), "strict": True}}}
 
@@ -255,9 +262,9 @@ def jev_criteria(q, asked: str | None = None) -> dict:
     return out
 
 
-def jev_request(model: str, q, text: str, asked: str | None = None) -> dict:
+def jev_request(model: str, q, text: str, asked: str | None = None, before: str | None = None) -> dict:
     """Jev への問い合わせ：どの答えか（choice・確からしさ付き）と、言い切っているか（noul）。"""
-    return {"model": model, "state": scene(q, text, asked),
+    return {"model": model, "state": scene(q, text, asked, before),
             "questions": {"choice": {"type": "choice", "instructions": JEV_ASK_REPLY if asked else JEV_ASK, "criteria": jev_criteria(q, asked)},
                           FIRM: {"type": "noul", "instructions": "お客様は、その答えを言い切っていますか？", "criteria": JEV_FIRM}}}
 
@@ -305,9 +312,9 @@ def _other_error(exc: BaseException) -> OtherJudgeError | None:
     return None
 
 
-def judge_other(client, name: str, q, text: str, asked: str | None = None) -> str | None:
+def judge_other(client, name: str, q, text: str, asked: str | None = None, before: str | None = None) -> str | None:
     """judge と同じ（Google 以外の判定。client は other_client で作る）。失敗は OtherJudgeError。"""
-    body = other_request(name, q, text, asked)
+    body = other_request(name, q, text, asked, before)
     try:
         if OTHER_JUDGES[name]["maker"] == "anthropic":
             data = client.messages.create(**body).to_dict()
@@ -323,9 +330,9 @@ def judge_other(client, name: str, q, text: str, asked: str | None = None) -> st
     return read(q, other_text(name, data), asked)
 
 
-async def ajudge_other(client, name: str, q, text: str, asked: str | None = None) -> str | None:
+async def ajudge_other(client, name: str, q, text: str, asked: str | None = None, before: str | None = None) -> str | None:
     """judge_other と同じ（通話の中の形。client は other_client(…, aio=True) で作る）。"""
-    body = other_request(name, q, text, asked)
+    body = other_request(name, q, text, asked, before)
     try:
         if OTHER_JUDGES[name]["maker"] == "anthropic":
             data = (await client.messages.create(**body)).to_dict()
@@ -405,23 +412,23 @@ class JudgePanel:
 
     def slot(self, kind: str):
         """受け持ち kind の判定（convo.check_handler に渡す形）。"""
-        async def run(q, text, asked=None):
-            return await self.ask(kind, q, text, asked)
+        async def run(q, text, asked=None, before=None):
+            return await self.ask(kind, q, text, asked, before)
         return run
 
-    async def _one(self, name: str, fn, q, text: str, asked: str | None):
+    async def _one(self, name: str, fn, q, text: str, asked: str | None, before: str | None):
         import asyncio
 
         if name in self.forced_down:
             raise OtherJudgeError(503, "試験：止まっているものとして扱う")
-        return await asyncio.wait_for(fn(q, text, asked), DOWN_AFTER_S)
+        return await asyncio.wait_for(fn(q, text, asked, before=before), DOWN_AFTER_S)
 
-    async def _try(self, name: str, fn, q, text: str, asked: str | None, tried: list[dict]) -> Reading | None:
+    async def _try(self, name: str, fn, q, text: str, asked: str | None, before: str | None, tried: list[dict]) -> Reading | None:
         from common import redact
 
         t0 = self.clock()
         try:
-            got = await self._one(name, fn, q, text, asked)
+            got = await self._one(name, fn, q, text, asked, before)
         except Exception as exc:
             if outage(exc):
                 self.down_until[name] = self.clock() + DOWN_S
@@ -436,12 +443,12 @@ class JudgePanel:
             return None
         return got
 
-    async def ask(self, kind: str, q, text: str, asked: str | None = None) -> Reading:
+    async def ask(self, kind: str, q, text: str, asked: str | None = None, before: str | None = None) -> Reading:
         tried: list[dict] = []
         name, fn = self.judges[kind]
         if self.down_until.get(name, 0.0) > self.clock():
             tried.append({"model": name, "error": "止まっている（前の問い合わせ）"})
-        elif (got := await self._try(name, fn, q, text, asked, tried)) is not None:
+        elif (got := await self._try(name, fn, q, text, asked, before, tried)) is not None:
             if self.holder == kind:
                 self.holder = None
             return self._mark(got, name, tried)
@@ -449,7 +456,7 @@ class JudgePanel:
             raise NoJudgment(tried)
         self.holder = kind
         sname, sfn = self.standin
-        got = await self._try(sname, sfn, q, text, asked, tried)
+        got = await self._try(sname, sfn, q, text, asked, before, tried)
         if got is None:
             raise NoJudgment(tried)
         return self._mark(got, sname, tried)
@@ -487,14 +494,14 @@ def make_judge(args, model_name: str):
     if model_name in OTHER_JUDGES:
         client = other_client(model_name, load_secret(OTHER_JUDGES[model_name]["key"], args.env), aio=True)
 
-        async def other(q, text, asked=None):
-            return await ajudge_other(client, model_name, q, text, asked)
+        async def other(q, text, asked=None, before=None):
+            return await ajudge_other(client, model_name, q, text, asked, before)
         return other
     ring = KeyRing(args)
     model = find_models(ring.client())[0][model_name]
 
-    async def run(q, text, asked=None):
+    async def run(q, text, asked=None, before=None):
         # どのキーも上限で休み中なら、待たずに失敗にする（通話の中では待っても間に合わない＝JudgePanel が代わりへ回す）
-        got, _ = await ring.acall(model, lambda client: ajudge(client, model, q, text, asked), max_wait_s=0.0)
+        got, _ = await ring.acall(model, lambda client: ajudge(client, model, q, text, asked, before), max_wait_s=0.0)
         return got
     return run

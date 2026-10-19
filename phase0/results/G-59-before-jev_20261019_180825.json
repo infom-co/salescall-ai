@@ -1,0 +1,860 @@
+{
+  "item": "G-59-before-jev",
+  "saved_at": "2026-10-19T18:08:25",
+  "question": "営業部部長の「おかだ」様はいらっしゃいますでしょうか？",
+  "summary": {
+    "judge2": "23/54",
+    "judge2（前の言葉つき）": "6/24"
+  },
+  "rows": [
+    {
+      "text": "お電話代わりました。岡田です。",
+      "accept": [
+        "ご本人"
+      ],
+      "before": null,
+      "rep": 0,
+      "judge2": "ご本人",
+      "judge2_by": "Jev 1.14",
+      "judge2_sure": 0.96,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。岡田です。",
+      "accept": [
+        "ご本人"
+      ],
+      "before": null,
+      "rep": 1,
+      "judge2": "ご本人",
+      "judge2_by": "Jev 1.14",
+      "judge2_sure": 0.98,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。岡田です。",
+      "accept": [
+        "ご本人"
+      ],
+      "before": null,
+      "rep": 2,
+      "judge2": "ご本人",
+      "judge2_by": "Jev 1.14",
+      "judge2_sure": 0.98,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました、営業部の岡田です。",
+      "accept": [
+        "ご本人"
+      ],
+      "before": null,
+      "rep": 0,
+      "judge2": "ご本人",
+      "judge2_by": "Jev 1.14",
+      "judge2_sure": 0.99,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました、営業部の岡田です。",
+      "accept": [
+        "ご本人"
+      ],
+      "before": null,
+      "rep": 1,
+      "judge2": "ご本人",
+      "judge2_by": "Jev 1.14",
+      "judge2_sure": 0.99,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました、営業部の岡田です。",
+      "accept": [
+        "ご本人"
+      ],
+      "before": null,
+      "rep": 2,
+      "judge2": "ご本人",
+      "judge2_by": "Jev 1.14",
+      "judge2_sure": 0.98,
+      "ok": true
+    },
+    {
+      "text": "はい、岡田です。",
+      "accept": [
+        "ご本人"
+      ],
+      "before": null,
+      "rep": 0,
+      "judge2": "ご本人",
+      "judge2_by": "Jev 1.14",
+      "judge2_sure": 1,
+      "ok": true
+    },
+    {
+      "text": "はい、岡田です。",
+      "accept": [
+        "ご本人"
+      ],
+      "before": null,
+      "rep": 1,
+      "judge2": "ご本人",
+      "judge2_by": "Jev 1.14",
+      "judge2_sure": 1,
+      "ok": true
+    },
+    {
+      "text": "はい、岡田です。",
+      "accept": [
+        "ご本人"
+      ],
+      "before": null,
+      "rep": 2,
+      "judge2": "ご本人",
+      "judge2_by": "Jev 1.14",
+      "judge2_sure": 1,
+      "ok": true
+    },
+    {
+      "text": "岡田は私ですが。",
+      "accept": [
+        "ご本人"
+      ],
+      "before": null,
+      "rep": 0,
+      "judge2": "ご本人",
+      "judge2_by": "Jev 1.14",
+      "judge2_sure": 1,
+      "ok": true
+    },
+    {
+      "text": "岡田は私ですが。",
+      "accept": [
+        "ご本人"
+      ],
+      "before": null,
+      "rep": 1,
+      "judge2": "ご本人",
+      "judge2_by": "Jev 1.14",
+      "judge2_sure": 1,
+      "ok": true
+    },
+    {
+      "text": "岡田は私ですが。",
+      "accept": [
+        "ご本人"
+      ],
+      "before": null,
+      "rep": 2,
+      "judge2": "ご本人",
+      "judge2_by": "Jev 1.14",
+      "judge2_sure": 1,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。",
+      "accept": [
+        "代わった人が話し始めた"
+      ],
+      "before": null,
+      "rep": 0,
+      "judge2": "代わった人が話し始めた",
+      "judge2_by": "Jev 1.14",
+      "judge2_sure": 0.95,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。",
+      "accept": [
+        "代わった人が話し始めた"
+      ],
+      "before": null,
+      "rep": 1,
+      "judge2": "代わった人が話し始めた",
+      "judge2_by": "Jev 1.14",
+      "judge2_sure": 0.95,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。",
+      "accept": [
+        "代わった人が話し始めた"
+      ],
+      "before": null,
+      "rep": 2,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.94,
+          "s": 0.197
+        }
+      ],
+      "judge2": null,
+      "ok": false
+    },
+    {
+      "text": "お電話代わりました。山本です。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "before": null,
+      "rep": 0,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.89,
+          "s": 0.265
+        }
+      ],
+      "judge2": null,
+      "ok": false
+    },
+    {
+      "text": "お電話代わりました。山本です。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "before": null,
+      "rep": 1,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.93,
+          "s": 0.306
+        }
+      ],
+      "judge2": null,
+      "ok": false
+    },
+    {
+      "text": "お電話代わりました。山本です。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "before": null,
+      "rep": 2,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.87,
+          "s": 0.28
+        }
+      ],
+      "judge2": null,
+      "ok": false
+    },
+    {
+      "text": "岡田ですね。少々お待ちください。",
+      "accept": [
+        "取り次ぎを待つ"
+      ],
+      "before": null,
+      "rep": 0,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "取り次ぎを待つ",
+          "sure": 0.72,
+          "s": 0.269
+        }
+      ],
+      "judge2": null,
+      "ok": false
+    },
+    {
+      "text": "岡田ですね。少々お待ちください。",
+      "accept": [
+        "取り次ぎを待つ"
+      ],
+      "before": null,
+      "rep": 1,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "取り次ぎを待つ",
+          "sure": 0.73,
+          "s": 0.2
+        }
+      ],
+      "judge2": null,
+      "ok": false
+    },
+    {
+      "text": "岡田ですね。少々お待ちください。",
+      "accept": [
+        "取り次ぎを待つ"
+      ],
+      "before": null,
+      "rep": 2,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "取り次ぎを待つ",
+          "sure": 0.74,
+          "s": 0.244
+        }
+      ],
+      "judge2": null,
+      "ok": false
+    },
+    {
+      "text": "少々お待ちください。",
+      "accept": [
+        "取り次ぎを待つ"
+      ],
+      "before": null,
+      "rep": 0,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "取り次ぎを待つ",
+          "sure": 0.65,
+          "s": 0.261
+        }
+      ],
+      "judge2": null,
+      "ok": false
+    },
+    {
+      "text": "少々お待ちください。",
+      "accept": [
+        "取り次ぎを待つ"
+      ],
+      "before": null,
+      "rep": 1,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "取り次ぎを待つ",
+          "sure": 0.74,
+          "s": 0.186
+        }
+      ],
+      "judge2": null,
+      "ok": false
+    },
+    {
+      "text": "少々お待ちください。",
+      "accept": [
+        "取り次ぎを待つ"
+      ],
+      "before": null,
+      "rep": 2,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "取り次ぎを待つ",
+          "sure": 0.65,
+          "s": 0.181
+        }
+      ],
+      "judge2": null,
+      "ok": false
+    },
+    {
+      "text": "岡田は本日休みをいただいております。",
+      "accept": [
+        "不在"
+      ],
+      "before": null,
+      "rep": 0,
+      "judge2": "不在",
+      "judge2_by": "Jev 1.14",
+      "judge2_sure": 0.99,
+      "ok": true
+    },
+    {
+      "text": "岡田は本日休みをいただいております。",
+      "accept": [
+        "不在"
+      ],
+      "before": null,
+      "rep": 1,
+      "judge2": "不在",
+      "judge2_by": "Jev 1.14",
+      "judge2_sure": 0.99,
+      "ok": true
+    },
+    {
+      "text": "岡田は本日休みをいただいております。",
+      "accept": [
+        "不在"
+      ],
+      "before": null,
+      "rep": 2,
+      "judge2": "不在",
+      "judge2_by": "Jev 1.14",
+      "judge2_sure": 0.99,
+      "ok": true
+    },
+    {
+      "text": "岡田ですね。",
+      "accept": [
+        "決められない",
+        "取り次ぎを待つ"
+      ],
+      "before": null,
+      "rep": 0,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "決められない",
+          "sure": 0.42,
+          "s": 0.245
+        }
+      ],
+      "judge2": null,
+      "ok": false
+    },
+    {
+      "text": "岡田ですね。",
+      "accept": [
+        "決められない",
+        "取り次ぎを待つ"
+      ],
+      "before": null,
+      "rep": 1,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "決められない",
+          "sure": 0.43,
+          "s": 0.175
+        }
+      ],
+      "judge2": null,
+      "ok": false
+    },
+    {
+      "text": "岡田ですね。",
+      "accept": [
+        "決められない",
+        "取り次ぎを待つ"
+      ],
+      "before": null,
+      "rep": 2,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "決められない",
+          "sure": 0.46,
+          "s": 0.196
+        }
+      ],
+      "judge2": null,
+      "ok": false
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "accept": [
+        "ご本人"
+      ],
+      "before": "岡田ですね。少々お待ちください。",
+      "rep": 0,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.67,
+          "s": 0.256
+        }
+      ],
+      "judge2": null,
+      "ok": false
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "accept": [
+        "ご本人"
+      ],
+      "before": "岡田ですね。少々お待ちください。",
+      "rep": 1,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.7,
+          "s": 0.287
+        }
+      ],
+      "judge2": null,
+      "ok": false
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "accept": [
+        "ご本人"
+      ],
+      "before": "岡田ですね。少々お待ちください。",
+      "rep": 2,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.71,
+          "s": 0.19
+        }
+      ],
+      "judge2": null,
+      "ok": false
+    },
+    {
+      "text": "お電話代わりました。",
+      "accept": [
+        "ご本人"
+      ],
+      "before": "岡田ですね。少々お待ちください。",
+      "rep": 0,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.81,
+          "s": 0.229
+        }
+      ],
+      "judge2": null,
+      "ok": false
+    },
+    {
+      "text": "お電話代わりました。",
+      "accept": [
+        "ご本人"
+      ],
+      "before": "岡田ですね。少々お待ちください。",
+      "rep": 1,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.74,
+          "s": 0.239
+        }
+      ],
+      "judge2": null,
+      "ok": false
+    },
+    {
+      "text": "お電話代わりました。",
+      "accept": [
+        "ご本人"
+      ],
+      "before": "岡田ですね。少々お待ちください。",
+      "rep": 2,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.76,
+          "s": 0.219
+        }
+      ],
+      "judge2": null,
+      "ok": false
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "accept": [
+        "ご本人"
+      ],
+      "before": "それでは岡田にお繋ぎします。",
+      "rep": 0,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.54,
+          "s": 0.224
+        }
+      ],
+      "judge2": null,
+      "ok": false
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "accept": [
+        "ご本人"
+      ],
+      "before": "それでは岡田にお繋ぎします。",
+      "rep": 1,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.6,
+          "s": 0.231
+        }
+      ],
+      "judge2": null,
+      "ok": false
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "accept": [
+        "ご本人"
+      ],
+      "before": "それでは岡田にお繋ぎします。",
+      "rep": 2,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.49,
+          "s": 0.168
+        }
+      ],
+      "judge2": null,
+      "ok": false
+    },
+    {
+      "text": "お電話代わりました。岡田です。",
+      "accept": [
+        "ご本人"
+      ],
+      "before": "岡田ですね。少々お待ちください。",
+      "rep": 0,
+      "judge2": "ご本人",
+      "judge2_by": "Jev 1.14",
+      "judge2_sure": 0.99,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。岡田です。",
+      "accept": [
+        "ご本人"
+      ],
+      "before": "岡田ですね。少々お待ちください。",
+      "rep": 1,
+      "judge2": "ご本人",
+      "judge2_by": "Jev 1.14",
+      "judge2_sure": 0.99,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。岡田です。",
+      "accept": [
+        "ご本人"
+      ],
+      "before": "岡田ですね。少々お待ちください。",
+      "rep": 2,
+      "judge2": "ご本人",
+      "judge2_by": "Jev 1.14",
+      "judge2_sure": 0.98,
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。山本です。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "before": "岡田ですね。少々お待ちください。",
+      "rep": 0,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.82,
+          "s": 0.216
+        }
+      ],
+      "judge2": null,
+      "ok": false
+    },
+    {
+      "text": "お電話代わりました。山本です。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "before": "岡田ですね。少々お待ちください。",
+      "rep": 1,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.85,
+          "s": 0.189
+        }
+      ],
+      "judge2": null,
+      "ok": false
+    },
+    {
+      "text": "お電話代わりました。山本です。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "before": "岡田ですね。少々お待ちください。",
+      "rep": 2,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.86,
+          "s": 0.224
+        }
+      ],
+      "judge2": null,
+      "ok": false
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "before": "担当の者に代わりますので、少々お待ちください。",
+      "rep": 0,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.84,
+          "s": 0.241
+        }
+      ],
+      "judge2": null,
+      "ok": false
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "before": "担当の者に代わりますので、少々お待ちください。",
+      "rep": 1,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.85,
+          "s": 0.235
+        }
+      ],
+      "judge2": null,
+      "ok": false
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "before": "担当の者に代わりますので、少々お待ちください。",
+      "rep": 2,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.87,
+          "s": 0.188
+        }
+      ],
+      "judge2": null,
+      "ok": false
+    },
+    {
+      "text": "お電話代わりました。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "before": "岡田は外出しておりますので、別の者に代わります。",
+      "rep": 0,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.84,
+          "s": 0.178
+        }
+      ],
+      "judge2": null,
+      "ok": false
+    },
+    {
+      "text": "お電話代わりました。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "before": "岡田は外出しておりますので、別の者に代わります。",
+      "rep": 1,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.79,
+          "s": 0.241
+        }
+      ],
+      "judge2": null,
+      "ok": false
+    },
+    {
+      "text": "お電話代わりました。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "before": "岡田は外出しておりますので、別の者に代わります。",
+      "rep": 2,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.8,
+          "s": 0.291
+        }
+      ],
+      "judge2": null,
+      "ok": false
+    },
+    {
+      "text": "岡田は本日休みをいただいております。",
+      "accept": [
+        "不在"
+      ],
+      "before": "岡田ですね。少々お待ちください。",
+      "rep": 0,
+      "judge2": "不在",
+      "judge2_by": "Jev 1.14",
+      "judge2_sure": 0.96,
+      "ok": true
+    },
+    {
+      "text": "岡田は本日休みをいただいております。",
+      "accept": [
+        "不在"
+      ],
+      "before": "岡田ですね。少々お待ちください。",
+      "rep": 1,
+      "judge2": "不在",
+      "judge2_by": "Jev 1.14",
+      "judge2_sure": 0.98,
+      "ok": true
+    },
+    {
+      "text": "岡田は本日休みをいただいております。",
+      "accept": [
+        "不在"
+      ],
+      "before": "岡田ですね。少々お待ちください。",
+      "rep": 2,
+      "judge2": "不在",
+      "judge2_by": "Jev 1.14",
+      "judge2_sure": 0.99,
+      "ok": true
+    }
+  ]
+}

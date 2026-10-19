@@ -219,9 +219,12 @@ SCENES = {
         "取り次ぐ方には流さない": not any(x["op"] == "report_party" and x["args"].get("party") == "target"
                                        and x["callee_turns"] == 1 and x["reply"]["result"] not in ("hold", "wait") for x in ops(c)),
         "答えが取れた": got(c, "Q1", "はい")}),
+    # 受付の方が岡田様に取り次いだあと、代わった方が名乗らずに「はい、お電話代わりました。」：ご本人として繋ぐ（確かめない）。
+    # ✅ 2026-10-19 ユーザー：「受付が『それでは岡田にお繋ぎします。』のような後に、『はい、お電話代わりました。』と言われれば、『ご本人』に
+    #    なりますよね」⛔ 直す前は「確かめた」を正しい形にしていた（判定に、その前の受付の方の言葉を渡していなかった）。
     # ⛔ 2026-10-19 の見直し：前は代わった方の台詞のあとに「はい、そうです。」を台本で置いていた＝確かめなかった回は、それが最初の質問への答えになっていた
     "目的の人_名乗らない方": Scene(TARGET_BUSINESS, [W("hold_target"), T("taken_over_unnamed")] + FULL, lambda c: {
-        "確かめた": any(x["reply"]["result"] == "confirm_target" for x in ops(c)),
+        "確かめない": not any(x["reply"]["result"] == "confirm_target" for x in ops(c)),
         "取り次ぎの間は話さない": plain(said_to(c, "hold_target")) == "",
         "代わった方に全部": played_parts(connect_reply(c))[:3] == ["greeting", "intro", "purpose"], "答えが取れた": got(c, "Q1", "はい")}),
     "目的の人_用件を聞かれる": Scene(TARGET_BUSINESS, [W("what_for"), W("hold_target"), T("taken_over_okada")] + FULL, lambda c: {

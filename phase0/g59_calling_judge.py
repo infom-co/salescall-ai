@@ -23,6 +23,19 @@ LINES = [
     ("岡田は本日休みをいただいております。", ["不在"]),
     ("岡田ですね。", ["決められない", "取り次ぎを待つ"]),
 ]
+# その前に相手が言ったこと（取り次いだ方の言葉）と、そのあとの言葉 ⇒ 受け取ってよい読み（Flow.judge_context の before）
+# ✅ 2026-10-19 ユーザー：「受付が『それでは岡田にお繋ぎします。』のような後に、『はい、お電話代わりました。』と言われれば、『ご本人』になりますよね」
+TO_TARGET, TO_OTHER = "岡田ですね。少々お待ちください。", "担当の者に代わりますので、少々お待ちください。"
+LINES_AFTER = [
+    ("はい、お電話代わりました。", ["ご本人"], TO_TARGET),
+    ("お電話代わりました。", ["ご本人"], TO_TARGET),
+    ("はい、お電話代わりました。", ["ご本人"], "それでは岡田にお繋ぎします。"),
+    ("お電話代わりました。岡田です。", ["ご本人"], TO_TARGET),
+    ("お電話代わりました。山本です。", ["代わった人が話し始めた", "決められない"], TO_TARGET),
+    ("はい、お電話代わりました。", ["代わった人が話し始めた", "決められない"], TO_OTHER),
+    ("お電話代わりました。", ["代わった人が話し始めた", "決められない"], "岡田は外出しておりますので、別の者に代わります。"),
+    ("岡田は本日休みをいただいております。", ["不在"], TO_TARGET),
+]
 
 
 async def run(args) -> dict:
@@ -33,16 +46,16 @@ async def run(args) -> dict:
     import dataclasses
     b = dataclasses.replace(BUSINESS, target=target)
     f = Flow(b.questions, opening=b.replay_parts(), target=b.replay_parts(), play_recordings=True)
-    q, asked = f.judge_context()
+    q, asked, _ = f.judge_context()
     judges = make_judges(args)
     rows = []
-    for text, ok in LINES:
+    for text, ok, before in [(t, o, None) for t, o in LINES] + LINES_AFTER:
         for rep in range(args.repeat):
-            row = {"text": text, "accept": ok, "rep": rep}
+            row = {"text": text, "accept": ok, "before": before, "rep": rep}
             for k, j in judges.items():
                 if j is not None:
                     try:
-                        got = await j(q, text, asked)
+                        got = await j(q, text, asked, before=before)
                     except NoJudgment as exc:  # 答えにならなかった（Jev の確からしさが線より下・止まっている）：どれも選ばなかったと数える
                         got, row[f"{k}_tried"] = None, exc.tried
                     row[k] = label(got) if got else None
@@ -50,8 +63,10 @@ async def run(args) -> dict:
                         row[f"{k}_by"], row[f"{k}_sure"] = got.by, got.sure
             row["ok"] = all(row.get(k) in ok for k in judges if judges[k] is not None)
             rows.append(row)
-            say(text, {k: row.get(k) for k in judges}, "OK" if row["ok"] else "×")
+            say(f"（前：{before}）" if before else "", text, {k: row.get(k) for k in judges}, "OK" if row["ok"] else "×")
     summary = {k: f"{sum(1 for r in rows if r.get(k) in r['accept'])}/{len(rows)}" for k in judges if judges[k] is not None}
+    summary |= {f"{k}（前の言葉つき）": f"{sum(1 for r in rows if r['before'] and r.get(k) in r['accept'])}/{sum(1 for r in rows if r['before'])}"
+                for k in judges if judges[k] is not None}
     say("数え：", json.dumps(summary, ensure_ascii=False))
     return {"question": q.text, "summary": summary, "rows": rows}
 

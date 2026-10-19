@@ -1436,15 +1436,25 @@ class KeyRingTest(unittest.TestCase):
             keys = [common.ApiKey("K0", "a" * 39), common.ApiKey("K1", "b" * 39)]
             with unittest.mock.patch.object(common, "load_keys", return_value=keys):
                 ring = common.KeyRing(ns, min_interval_s=0, state_path=path)
-                ring.spent["m"] = {0}; ring.denied = {1}; ring._save()
+                ring.rest(0, "m"); ring.denied = {1}; ring._save()
                 again = common.KeyRing(ns, min_interval_s=0, state_path=path)
                 # 同じファイルに書くほかの KeyRing（同じ実行の会話のモデルと意味の判定）の記録を消さない（⛔ 後から書いたほうが消していた）
                 other = common.KeyRing(ns, min_interval_s=0, state_path=path)
-                other.spent, other.denied = {"text": {1}}, set()
-                other._save()
+                other.spent, other.denied = {}, set()
+                other.rest(1, "text")
                 merged = common.KeyRing(ns, min_interval_s=0, state_path=path)
-            self.assertEqual((again.spent, again.denied), ({"m": {0}}, {1}))
-            self.assertEqual((merged.spent, merged.denied), ({"m": {0}, "text": {1}}, {1}))
+                # 1日の上限の休みは、期限まで（⛔ その日いっぱいにしたら、2時間後に戻ったキーまで止めていた）。前の形（その日いっぱい）は読まない
+                import json as _json
+                import time as _time
+                with unittest.mock.patch("time.time", return_value=_time.time() + common.KeyRing.DAILY_REST_S + 1):
+                    later = common.KeyRing(ns, min_interval_s=0, state_path=path)
+                    self.assertFalse(later.resting(0, "m"))
+                path.write_text(_json.dumps({"day": common.KeyRing._today(), "denied": [], "spent": {"m": [keys[0].fingerprint]}}))
+                old_form = common.KeyRing(ns, min_interval_s=0, state_path=path)
+            self.assertEqual(({m: set(v) for m, v in again.spent.items()}, again.denied), ({"m": {0}}, {1}))
+            self.assertEqual(({m: set(v) for m, v in merged.spent.items()}, merged.denied), ({"m": {0}, "text": {1}}, {1}))
+            self.assertTrue(merged.resting(0, "m") and merged.resting(1, "text") and not merged.resting(1, "m"))
+            self.assertEqual(old_form.spent, {})
             self.assertNotIn("a" * 39, path.read_text(encoding="utf-8"))   # キーの値は書かない
 
     def test_live_calls_move_to_next_key(self):
@@ -1506,7 +1516,7 @@ class KeyRingTest(unittest.TestCase):
         self.assertEqual(asyncio.run(ring.acall("text", minute_no_secs)), ("ok", 0))
         self.assertLess(ring._cool[(2, "text")] - time.monotonic(), 40)
 
-        # 1日の上限と書いてある（文字のモデル）：その日はそのキーを使わない（⛔ 2026-10-19：10分休ませるだけで、休み明けのたびに
+        # 1日の上限と書いてある（文字のモデル）：DAILY_REST_S 秒休ませて記録する（⛔ 2026-10-19：10分休ませるだけで、休み明けのたびに
         # 上限のキーへ順に問い合わせ直し、1回の判定に7.9秒かかった）
         async def daily(client):
             calls.append(client)
@@ -1515,7 +1525,7 @@ class KeyRingTest(unittest.TestCase):
             return "ok"
         ring._cool, calls[:] = {}, []
         self.assertEqual(asyncio.run(ring.acall("text", daily)), ("ok", 0))
-        self.assertEqual((ring.spent.get("text"), (2, "text") in ring._cool), ({2}, False))
+        self.assertEqual((set(ring.spent.get("text", {})), (2, "text") in ring._cool), ({2}, False))
         self.assertEqual(asyncio.run(ring.acall("text", daily)), ("ok", 0))
         self.assertEqual(calls, ["c2", "c0", "c0"])
 
@@ -3596,7 +3606,7 @@ class JudgePanelTest(unittest.TestCase):
         fail, took = fail or {}, took or {}
 
         def judge(name, answer):
-            async def run(q, text, asked=None):
+            async def run(q, text, asked=None, before=None):
                 calls.append(name)
                 if name in took:
                     await asyncio.sleep(took[name])
@@ -3745,7 +3755,7 @@ class FirstJudgmentTest(unittest.TestCase):
         f, out = self.flow(), {}
 
         def judge(kind):
-            async def run(q, text, asked=None):
+            async def run(q, text, asked=None, before=None):
                 await asyncio.sleep(took[kind])
                 if kind in fail:
                     raise RuntimeError("止まっている")
@@ -4372,7 +4382,7 @@ class TargetTest(unittest.TestCase):
         #    取り次ぎ（「少々お待ちください」）を見分ける独立した確かめが無かった
         from flowctl import TARGET_IS_THERE, TARGET_IS_AWAY
         f, b = self.checked()
-        q, asked = f.judge_context()
+        q, asked, before = f.judge_context()
         self.assertEqual((q.text, asked), (b.target.call(), None))
         self.assertEqual(set(q.conditions), {TARGET_IS_THERE, TARGET_IS_AWAY})
         g, _ = self.flow()
@@ -4440,6 +4450,30 @@ class TargetTest(unittest.TestCase):
         f.on_check("judge", HOLD, said="岡田ですね。少々お待ちください。")
         self.assertEqual(f.handle_call(fc, midway=True)[0]["結果"], "取り次ぎを待つ")
 
+    def test_judge_sees_what_the_callee_said_before(self):
+        # ✅ 2026-10-19 ユーザー：「受付が『それでは岡田にお繋ぎします。』のような後に、『はい、お電話代わりました。』と言われれば、『ご本人』に
+        # なりますよね」⇒ 呼んでいる段では、その前に相手が言ったことを判定に渡す（直前の3つまで）。繋いだあとは渡さない
+        from flowctl import TARGET_IS_THERE, TARGET_MEANINGS
+        from meaning_judge import BEFORE, KIND_DESC, jev_request, prompt, scene
+        f, b = self.checked()
+        f.on_callee()
+        self.assertIsNone(f.judge_context()[2])
+        f.on_heard("岡田ですね。少々お待ちください。")
+        f.on_callee(); f.on_heard("はい、お電話代わりました。")
+        q, asked, before = f.judge_context()
+        self.assertEqual(before, "岡田ですね。少々お待ちください。")
+        self.assertIn(f"{BEFORE}：「岡田ですね。少々お待ちください。」", prompt(q, "はい、お電話代わりました。", asked, before))
+        self.assertEqual(scene(q, "x", None, before)[BEFORE], before)
+        self.assertEqual(jev_request("m", q, "x", None, before)["state"][BEFORE], before)
+        self.assertNotIn(BEFORE, prompt(q, "はい、お電話代わりました。"))       # 渡さなければ、これまでと同じ文
+        self.assertIn("お呼びした方に取り次いだ", TARGET_MEANINGS[TARGET_IS_THERE])  # 決まりは意味の説明の1か所（代わった人の説明は、そこを指す）
+        from flowctl import HANDOVER
+        self.assertIn("お呼びした方に取り次いだ", KIND_DESC[HANDOVER])
+        f.on_check("judge", TARGET_IS_THERE)
+        f.apply("report_party", {"party": "target"})
+        f.on_callee(); f.on_heard("はい、予約しています。")
+        self.assertIsNone(f.judge_context()[2])
+
     def test_late_hold_judgment_still_marks_passed_on(self):
         # 受付の方の「少々お待ちください。」の判定が、代わった方が話し始めたあとに届いても、取り次がれたことは残る ⇒ 代わった方に全部を流す
         # ⛔ 2026-10-19 G-62：いまの発話の判定だけで決めていたので、遅れて届くと、あいさつと名乗りを流さずに用件から始めた
@@ -4496,7 +4530,7 @@ class TargetTest(unittest.TestCase):
         import inspect
         import convo
         src = inspect.getsource(convo.check_handler)
-        self.assertIn("q, asked = flow.judge_context()", src)
+        self.assertIn("q, asked, before = flow.judge_context()", src)
         self.assertNotIn("flow.questions[qid]", src)
 
 
@@ -4551,7 +4585,7 @@ class JudgeWordsTest(unittest.TestCase):
     def judge(self, seen, took=0.2):
         import asyncio
 
-        async def judge(q, text, asked=None):
+        async def judge(q, text, asked=None, before=None):
             seen.append(text)
             await asyncio.sleep(took)
             return "取り次ぎ" if "お待ち" in text else "決められない"
