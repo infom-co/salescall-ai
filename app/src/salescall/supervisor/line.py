@@ -54,8 +54,8 @@ def _claim(tx: Any, task: dict[str, Any], line_id: UUID, holder: str, tenant_id:
 def _end_unknown(access: Access, actor: Actor, tenant_id: UUID, client_id: UUID, attempt_id: UUID) -> None:
     """通話を進める部品から誤りが外へ出た：まだ進行中なら結果不明にする（お客様が出ていれば、締めがお詫びしてかけ直す）。"""
     def work(tx: Any) -> None:
-        state = tx.one("SELECT state::text AS s FROM salescall.attempts WHERE attempt_id = %s", (attempt_id,))["s"]
-        if state in attempts.ACTIVE_STATES and state != "claimed":
+        if tx.one("SELECT salescall.is_active(state) AND salescall.is_dialed(state) AS live FROM salescall.attempts"
+                  " WHERE attempt_id = %s", (attempt_id,))["live"]:   # 発信まで進み、まだ進行中
             attempts.move(tx, attempt_id, "technical_error")
     access.in_client(actor, tenant_id, client_id, work)
 

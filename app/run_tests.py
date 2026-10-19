@@ -759,6 +759,32 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("次の回の決め方に、知らない書き方を入れられる",
      "ALTER TABLE salescall.task_next_actions DROP CONSTRAINT task_next_actions_window_repeat",
      ("tests.test_settle.CallbackWindow.test_a_wrong_repeat_cannot_be_written",)),
+    ("かけずに取り消した予約も、発信まで進んだ電話に数える（発信まで進んだかの1か所＝0097）",
+     "CREATE OR REPLACE FUNCTION salescall.is_dialed(s salescall.attempt_state) RETURNS boolean LANGUAGE sql IMMUTABLE AS"
+     " $$ SELECT s <> 'claimed' $$",
+     ("tests.test_gate.DataReasons.test_max_attempts_counts_only_dialed",)),
+    ("通話の判定し直しより前の判定を読む（通話ごとの最新の判定の1か所＝0097）",
+     "CREATE OR REPLACE VIEW salescall.call_judgements WITH (security_invoker = true) AS"
+     " SELECT r.* FROM salescall.task_results r WHERE r.kind IN ('judged', 'rejudged')"
+     " AND r.version_no = (SELECT min(m.version_no) FROM salescall.task_results m"
+     " WHERE m.attempt_id = r.attempt_id AND m.kind IN ('judged', 'rejudged'))",
+     ("tests.test_measure.Verification.test_the_truth_goes_on_the_latest_judgement_of_the_call",)),
+    ("約束の取り置きを、専用の回線より先に共有の回線へ割り当てる（0097）",
+     "CREATE OR REPLACE FUNCTION salescall.line_promised_due(p_line uuid, p_day date, p_except uuid) RETURNS integer"
+     " LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$"
+     " WITH me AS (SELECT l.client_id FROM salescall.lines l WHERE l.line_id = p_line AND l.tenant_id = salescall.cur_tenant()),"
+     " serving AS (SELECT s.line_id, s.client_id FROM salescall.lines_serving() s UNION SELECT p_line, me.client_id FROM me),"
+     " due AS (SELECT w.task_id, w.client_id, dense_rank() OVER (ORDER BY w.task_id) - 1 AS r"
+     "  FROM salescall.promises_waiting() w WHERE w.task_id <> p_except AND salescall.jst(w.call_at)::date <= p_day),"
+     " cand AS (SELECT d.task_id, d.r, s.line_id, row_number() OVER (PARTITION BY d.task_id ORDER BY s.line_id) - 1 AS k,"
+     "  count(*) OVER (PARTITION BY d.task_id) AS n FROM due d JOIN serving s ON salescall.line_serves(s.client_id, d.client_id))"
+     " SELECT count(*)::integer FROM cand WHERE line_id = p_line AND k = r % n $$",
+     ("tests.test_supervisor.Rounds.test_a_promise_is_reserved_on_its_clients_dedicated_line_first",)),
+    ("行のいちばん古い結果を、いまの結果として読む（0097 で書き直した見方）",
+     "CREATE OR REPLACE VIEW salescall.latest_task_results WITH (security_invoker = true) AS"
+     " SELECT r.* FROM salescall.task_results r"
+     " WHERE r.version_no = (SELECT min(m.version_no) FROM salescall.task_results m WHERE m.task_id = r.task_id)",
+     ("tests.test_state.ResultVersions.test_open_until_first_result_then_latest",)),
 )
 
 

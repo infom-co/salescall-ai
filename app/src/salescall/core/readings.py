@@ -61,9 +61,12 @@ def normalize(reading: Any) -> str | None:
     return s if _HIRA.match(s) else None
 
 
-def problem(reading: Any) -> str | None:
-    """入口が持ってきた読みとして使えるか（使えなければ理由）。"""
-    return None if normalize(reading) is not None else "読みは、ひらがなかカタカナで書きます"
+def required(reading: Any, label: str) -> str:
+    """読みとして使える形にした読み（1か所）。使えなければ ValueError（label＝どの読みか。理由の頭に付ける）。"""
+    r = normalize(reading)
+    if r is None:
+        raise ValueError(f"{label}：読みは、ひらがなかカタカナで書きます")
+    return r
 
 
 def _from_ai(got: Any) -> Reading:
@@ -128,10 +131,7 @@ def resolve(text: str, given: Any, *, confirmed: Mapping[str, str], ai: Mapping[
     """その名前の読み（決め方はここだけ）。入口の読み ＞ 契約者が確かめた読み ＞ AI が決めた読み ＞ 決まらない（AI の候補つき）。
     入口の読みが読みとして使えないときは ValueError（入口のデータの誤り。呼ぶ側が、その行・その名前の問題として出す）。"""
     if isinstance(given, str) and given.strip():
-        g = normalize(given)
-        if g is None:
-            raise ValueError(f"名前「{text}」の読み「{given.strip()}」：読みは、ひらがなかカタカナで書きます")
-        return Reading(g, "given")
+        return Reading(required(given, f"名前「{text}」の読み「{given.strip()}」"), "given")
     if confirmed.get(text) and normalize(confirmed[text]):
         return Reading(normalize(confirmed[text]), "person")
     return ai.get(text, UNDECIDED)

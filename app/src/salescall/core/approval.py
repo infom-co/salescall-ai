@@ -26,7 +26,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from salescall.core import measure, results, settings
+from salescall.core import measure, results, settings, tasks
 from salescall.core.access import Tx
 
 
@@ -43,9 +43,7 @@ def human_for_business(tx: Tx, business_id: UUID) -> bool:
 
 
 def _human(tx: Tx, task_id: UUID) -> bool:
-    s = tx.one("SELECT r.business_id FROM salescall.tasks t"
-               " JOIN salescall.runs r ON r.client_id = t.client_id AND r.run_id = t.run_id WHERE t.task_id = %s", (task_id,))
-    return human_for_business(tx, s["business_id"])
+    return human_for_business(tx, tasks.scope(tx, task_id)["business_id"])
 
 
 def task_cleared(tx: Tx, task_id: UUID) -> bool:

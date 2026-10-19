@@ -23,7 +23,6 @@ from uuid import UUID
 from salescall.core import calling_hours
 from salescall.core.access import Tx
 
-_DAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun", "holiday")
 _SCOPE_NAME = {"system": "システム", "tenant": "契約者", "client": "依頼者", "business": "業務"}
 
 
@@ -120,7 +119,7 @@ def resolve_detail(tx: Tx, key: str, *, tenant_id: UUID | None, client_id: UUID 
         elif kind == "max":
             value = max(values)
         elif kind == "intersect":
-            value = _intersect_hours(values)
+            value = calling_hours.intersect(values)
         elif kind == "union":
             value = sorted(set().union(*[set(v) for v in values]))
         else:
@@ -132,7 +131,7 @@ def resolve_detail(tx: Tx, key: str, *, tenant_id: UUID | None, client_id: UUID 
         bound = resolve(tx, d["bound_key"], tenant_id=tenant_id, client_id=client_id, business_id=business_id)
         side = d["bound_side"]
         limited = (min(value, bound) if side == "upper" else max(value, bound) if side == "lower"
-                   else _intersect_hours([value, bound]))
+                   else calling_hours.intersect([value, bound]))
         if limited != value:
             bounded_by = d["bound_key"]
         value = limited
@@ -151,23 +150,3 @@ def _layers(tx: Tx, key: str, tenant_id: UUID | None, client_id: UUID | None,
         (key, tenant_id, tenant_id, client_id, tenant_id, client_id, business_id),
     )
     return {r["scope"]: r["value"] for r in rows}
-
-
-def _minutes(hhmm: str) -> int:
-    return calling_hours.clock_seconds(hhmm) // 60
-
-
-def _hhmm(minutes: int) -> str:
-    return f"{minutes // 60:02d}:{minutes % 60:02d}"
-
-
-def _intersect_hours(values: list[dict[str, list[list[str]]]]) -> dict[str, list[list[str]]]:
-    """曜日ごとの時間帯の重なり。どこかの階層でかけない曜日は、かけない。"""
-    out: dict[str, list[list[str]]] = {}
-    for day in _DAYS:
-        ranges = [(_minutes(a), _minutes(b)) for a, b in values[0][day]]
-        for v in values[1:]:
-            other = [(_minutes(a), _minutes(b)) for a, b in v[day]]
-            ranges = [(max(a1, a2), min(b1, b2)) for a1, b1 in ranges for a2, b2 in other if max(a1, a2) < min(b1, b2)]
-        out[day] = [[_hhmm(a), _hhmm(b)] for a, b in sorted(ranges)]
-    return out

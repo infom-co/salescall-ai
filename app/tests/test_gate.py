@@ -21,6 +21,7 @@ from salescall.core.call_report import Cut
 from salescall.core.access import Rejected
 from salescall.core.calendar import CalendarOutOfRange, CalendarRejected
 from salescall.core.phone import normalize
+from tests import support
 from tests.support import ADMIN, CLEAN, OPERATOR, SYSTEM, World, fictional_jp_fixed, make_report, owner_access, rules_raw
 
 KEYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun", "holiday")
@@ -168,7 +169,7 @@ class Schedule(Base):
         t2 = self.w.task(s["tenant"], s["client"], self.w.run(s["tenant"], s["client"], s["business"], s["version"]),
                          s["contact"])
         self.assertEqual(self.reason(s, task=t2), "no_schedule")
-        self.tx(s, lambda tx: next_action.schedule_call(tx, s["task"], tx.one("SELECT now() + interval '1 hour' AS t")["t"],
+        self.tx(s, lambda tx: support.schedule_call(tx, s["task"], tx.one("SELECT now() + interval '1 hour' AS t")["t"],
                                                         contact_id=s["contact"], cause="試験", promised=False))
         self.assertEqual(self.reason(s), "not_due")
 
@@ -284,7 +285,7 @@ class Hours(Base):
         now = self.tx(s, lambda tx: tx.one("SELECT now() AS t, salescall.jst(now()) AS local"))
         if now["local"].hour == 23 and now["local"].minute == 59:
             self.skipTest("日付の変わり目（予約の期限が翌日の枠にかかる）")
-        sched = lambda callee_at: self.tx(s, lambda tx: next_action.schedule_call(
+        sched = lambda callee_at: self.tx(s, lambda tx: support.schedule_call(
             tx, s["task"], now["t"], contact_id=s["contact"], cause="試験", promised=True, callee_at=callee_at))
         sched(None)
         self.assertEqual(self.reason(s), "outside_hours")                    # こちらからは控える
@@ -437,7 +438,7 @@ class NotByCallee(Base):
         self.put_client(s, "gate.max_dials_per_contact_per_day", 1)
         self.past_attempt(s, ["dialing", "no_answer"])
         self.assertIn(self.reason(s), ("same_contact_interval", "daily_attempts"))   # ふつうの予定なら、どちらも止める
-        self.tx(s, lambda tx: next_action.schedule_call(tx, s["task"], tx.one("SELECT now() AS t")["t"],
+        self.tx(s, lambda tx: support.schedule_call(tx, s["task"], tx.one("SELECT now() AS t")["t"],
                                                         contact_id=s["contact"], cause="お客様に頼まれた折り返し", promised=True))
         self.assertIsInstance(self.claim(s), gate.Claim)
 
@@ -452,7 +453,7 @@ class NotByCallee(Base):
         self.put_client(s2, "retry.max_attempts_per_task", 1)
         self.past_attempt(s2, ["dialing", "no_answer"])             # 出なかった：数える
         self.assertEqual(self.reason(s2), "max_attempts")
-        self.tx(s2, lambda tx: next_action.schedule_call(tx, s2["task"], tx.one("SELECT now() AS t")["t"],
+        self.tx(s2, lambda tx: support.schedule_call(tx, s2["task"], tx.one("SELECT now() AS t")["t"],
                                                          contact_id=s2["contact"], cause="お客様に頼まれた折り返し", promised=True))
         self.assertIsInstance(self.claim(s2), gate.Claim)           # 約束したかけ直しは、回数の上限でも止めない
 
@@ -465,7 +466,7 @@ class NotByCallee(Base):
         self.put_client(s, "gate.max_dials_per_contact_per_day", 1)
         self.put_client(s, "retry.max_attempts_per_task", 1)
         now = lambda tx: tx.one("SELECT now() AS t")["t"]
-        self.tx(s, lambda tx: next_action.schedule_call(tx, s["task"], now(tx), contact_id=s["contact"],
+        self.tx(s, lambda tx: support.schedule_call(tx, s["task"], now(tx), contact_id=s["contact"],
                                                         cause="お客様に頼まれた折り返し", promised=True))
         c = self.claim(s)
         self.assertIsInstance(c, gate.Claim)
@@ -474,7 +475,7 @@ class NotByCallee(Base):
         self.tx(s, lambda tx: settle.settle(tx, c.attempt_id))
         self.assertTrue(self.tx(s, lambda tx: tx.one("SELECT promised FROM salescall.attempts WHERE attempt_id = %s",
                                                      (c.attempt_id,))["promised"]))
-        self.tx(s, lambda tx: next_action.schedule_call(tx, s["task"], now(tx), contact_id=s["contact"], cause="ふつうの予定",
+        self.tx(s, lambda tx: support.schedule_call(tx, s["task"], now(tx), contact_id=s["contact"], cause="ふつうの予定",
                                                         promised=False))
         time.sleep(1.1)
         self.assertIsInstance(self.claim(s), gate.Claim)           # 1日1回・行1回の上限でも、ふつうのかけ直しができる
@@ -485,7 +486,7 @@ class NotByCallee(Base):
     def test_promised_callback_still_respects_other_rules(self):
         s = self.ready()
         self.tx(s, lambda tx: dnc.register(tx, s["phone"], "manual"))
-        self.tx(s, lambda tx: next_action.schedule_call(tx, s["task"], tx.one("SELECT now() AS t")["t"],
+        self.tx(s, lambda tx: support.schedule_call(tx, s["task"], tx.one("SELECT now() AS t")["t"],
                                                         contact_id=s["contact"], cause="約束", promised=True))
         self.assertEqual(self.reason(s), "dnc_client")
 
@@ -557,7 +558,7 @@ class ActiveConflicts(Base):
         self.tx(x, lambda tx: next_action.schedule_now(tx, y, cause="試験"))
         b = self.tx(x, lambda tx: tx.one("SELECT contact_id FROM salescall.task_numbers WHERE task_id = %s AND phone_e164 = %s",
                                          (x["task"], other)))["contact_id"]
-        self.tx(x, lambda tx: next_action.schedule_call(tx, x["task"], tx.one("SELECT now() AS n")["n"], contact_id=b,
+        self.tx(x, lambda tx: support.schedule_call(tx, x["task"], tx.one("SELECT now() AS n")["n"], contact_id=b,
                                                         cause="試験", promised=False))
         line2 = self.w.line(x["tenant"])
         self.lease(x, line=line2)
@@ -576,7 +577,7 @@ class ActiveConflicts(Base):
         self.tx(x, lambda tx: next_action.schedule_now(tx, y, cause="試験"))
         b = self.tx(x, lambda tx: tx.one("SELECT contact_id FROM salescall.task_numbers WHERE task_id = %s AND phone_e164 = %s",
                                          (x["task"], other.e164)))["contact_id"]
-        self.tx(x, lambda tx: next_action.schedule_call(tx, x["task"], tx.one("SELECT now() AS n")["n"], contact_id=b,
+        self.tx(x, lambda tx: support.schedule_call(tx, x["task"], tx.one("SELECT now() AS n")["n"], contact_id=b,
                                                         cause="試験", promised=False))
         line2 = self.w.line(x["tenant"])
         self.lease(x, line=line2)
@@ -1038,7 +1039,7 @@ class BusinessDailyLimit(Base):
         self.other_row_dialed(s)
         self.assertEqual(self.reason(s), "business_daily_limit")
         self.assertIn("business_daily_limit", gate.BUSINESS_REASONS)        # 見守り役は、その業務の行をこの回だけ飛ばす
-        self.tx(s, lambda tx: next_action.schedule_call(tx, s["task"], tx.one("SELECT now() AS t")["t"],
+        self.tx(s, lambda tx: support.schedule_call(tx, s["task"], tx.one("SELECT now() AS t")["t"],
                                                         contact_id=s["contact"], cause="試験", promised=True))
         self.assertIsInstance(self.claim(s), gate.Claim)                    # お客様と約束したかけ直しは止めない
 

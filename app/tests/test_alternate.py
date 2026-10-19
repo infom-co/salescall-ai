@@ -15,6 +15,7 @@ from datetime import timedelta
 from salescall.core import attempts, call_report, calling_hours, dnc, gate, next_action, number_recheck, results, tasks
 from salescall.core.access import Rejected
 from salescall.core.phone import normalize
+from tests import support
 from tests.support import CLEAN, OPERATOR, SYSTEM, callback, fictional_jp_fixed, owner_access
 from tests.test_settle import FakeDriver, SettleBase, dial_exit, rep
 
@@ -97,7 +98,7 @@ class DatabasePromises(Base):
             self.w.insert_claim(dict(s, contact=k2, phone=phone2["phone_e164"]))
         self.assertEqual(e.exception.constraint, "attempts_number_of_task")
         with self.assertRaises(Rejected) as e:
-            self.tx(s, lambda tx: next_action.schedule_call(tx, s["task"], self.now(s), contact_id=k2, cause="試験",
+            self.tx(s, lambda tx: support.schedule_call(tx, s["task"], self.now(s), contact_id=k2, cause="試験",
                                                             promised=False))
         self.assertEqual(e.exception.constraint, "task_next_actions_number_of_task")
         with self.assertRaises(Rejected) as e:   # かけ直す予定は、必ず番号を持つ（処理を通らずに書いても）
@@ -124,7 +125,7 @@ class DatabasePromises(Base):
         alt = self.numbers(s)[1]["contact_id"]
         stale = self.w.insert_claim(s, line=self.w.line(s["tenant"]), expires_in=timedelta(seconds=1))   # 一覧の番号
         time.sleep(1.5)
-        self.tx(s, lambda tx: next_action.schedule_call(tx, s["task"], self.now(s), contact_id=alt, cause="試験",
+        self.tx(s, lambda tx: support.schedule_call(tx, s["task"], self.now(s), contact_id=alt, cause="試験",
                                                         promised=True))
         self.assertIsInstance(self.claim(s), gate.Claim)
         self.assertEqual(self.state(s, stale), "released")
@@ -273,10 +274,10 @@ class SameParty(Base):
         self.put_client(s, "gate.max_dials_per_contact_per_day", 1)
         said, _, _ = self.redirect(s)
         alt = self.numbers(s)[1]["contact_id"]
-        self.tx(s, lambda tx: next_action.schedule_call(tx, s["task"], self.now(s), contact_id=alt, cause="試験：約束でない",
+        self.tx(s, lambda tx: support.schedule_call(tx, s["task"], self.now(s), contact_id=alt, cause="試験：約束でない",
                                                         promised=False))
         self.assertIn(self.reason(s), ("daily_attempts", "same_contact_interval"))   # 一覧の番号へかけた1回を数える
-        self.tx(s, lambda tx: next_action.schedule_call(tx, s["task"], self.now(s), contact_id=alt, cause="試験：約束",
+        self.tx(s, lambda tx: support.schedule_call(tx, s["task"], self.now(s), contact_id=alt, cause="試験：約束",
                                                         promised=True))
         self.assertIsInstance(self.claim(s), gate.Claim)                  # 約束したかけ直しは止めない
 
@@ -287,7 +288,7 @@ class SameParty(Base):
         b = dict(s, run=other_run, contact=self.numbers(s)[1]["contact_id"], phone=normalize(said).e164)
         b["task"] = self.w.task(s["tenant"], s["client"], other_run, b["contact"])     # 行 B：一覧の番号が Y
         self.tx(b, lambda tx: next_action.schedule_now(tx, b["task"], cause="試験"))
-        self.tx(s, lambda tx: next_action.schedule_call(tx, s["task"], self.now(s), contact_id=s["contact"], cause="試験",
+        self.tx(s, lambda tx: support.schedule_call(tx, s["task"], self.now(s), contact_id=s["contact"], cause="試験",
                                                         promised=True))
         self.call(s, NO_ANSWER[:1])                                         # 行 A が X にかけている（締めはまだ）
         self.assertEqual(self.reason(b), "related_unsettled")              # A が断られたら Y も止まる ⇒ 締めまで待つ
@@ -344,6 +345,8 @@ class WrongNumber(Base):
         self.assertEqual(nums[normalize(right).e164]["source_attempt_id"], first)   # 正しい番号も、聞いた通話の番号として残す
         nxt = self.current(s)
         self.assertEqual((nxt["contact_id"], nxt["purpose"]), (nums[normalize(right).e164]["contact_id"], "normal"))
+        # 確かめた番号へは、元の約束（「すぐ」＝その日の幅）のまま（⚠️ 前は幅を失い、時刻の決まっていない約束になった＝見直し5）
+        self.assertEqual((nxt["promised"], nxt["window_until"] is not None, nxt["window_repeat"]), (True, True, "day"))
         self.assertEqual(self.claim(s).phone_e164, normalize(right).e164)
 
     def test_second_wrong_number_after_asking_again_ends_the_row(self):
@@ -390,7 +393,7 @@ class WrongNumber(Base):
                     " WHERE attempt_id = %s", (nxt["call_at"], aid)))
                 self.assertNotEqual(calling_hours.band_of(bands["next"], boundaries),
                                     calling_hours.band_of(bands["tried"], boundaries))   # 前と別の時間帯
-                self.tx(s, lambda tx: next_action.schedule_call(          # 試験：その時刻が来たことにする
+                self.tx(s, lambda tx: support.schedule_call(          # 試験：その時刻が来たことにする
                     tx, s["task"], self.now(s), contact_id=nxt["contact_id"], cause="試験", promised=True,
                     purpose="ask_number_again", wrong_contact_id=nxt["wrong_contact_id"]))
         self.assertEqual((got["decision"].kind, got["decision"].end_reason), ("end", "ask_number_again_unanswered"))
@@ -410,7 +413,7 @@ class WrongNumber(Base):
                 gap = self.tx(s, lambda tx: tx.one(
                     "SELECT %s - ended_at AS g FROM salescall.attempts WHERE attempt_id = %s", (nxt["call_at"], aid)))["g"]
                 self.assertGreaterEqual(gap, timedelta(minutes=5))
-                self.tx(s, lambda tx: next_action.schedule_call(          # 試験：その時刻が来たことにする
+                self.tx(s, lambda tx: support.schedule_call(          # 試験：その時刻が来たことにする
                     tx, s["task"], self.now(s), contact_id=nxt["contact_id"], cause="試験", promised=True,
                     purpose="ask_number_again", wrong_contact_id=nxt["wrong_contact_id"]))
         self.assertEqual((got["decision"].kind, got["decision"].end_reason), ("end", "ask_number_again_unanswered"))

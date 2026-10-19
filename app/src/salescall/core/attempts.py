@@ -19,16 +19,20 @@ from salescall.core import business_rules, number_recheck, settings, watch
 from salescall.core.access import Tx
 from salescall.core.errors import ErrorReport
 
-ACTIVE_STATES = ("claimed", "dialing", "ringing", "answered", "in_conversation", "ending")
-
-
 def dialed(table: str = "") -> str:
-    """発信まで進んだ試行の条件（SQL。1か所。予約のまま・かけずに取り消した予約は入れない）。table＝表の別名（無ければ state）。
-    回数・間隔・「その回にかけたか」・続けて何回かけたか などは、どれもこれを使う。"""
-    return f"{table + '.' if table else ''}state NOT IN ('claimed', 'released')"
+    """発信まで進んだ試行の条件（SQL。予約のまま・かけずに取り消した予約は入れない）。決まりはデータベースの salescall.is_dialed の
+    1か所（データベースの関数も同じものを使う）。table＝表の別名（無ければ state）。回数・間隔・「その回にかけたか」・続けて何回
+    かけたか などは、どれもこれを使う。"""
+    return f"salescall.is_dialed({table + '.' if table else ''}state)"
 
 
 DIALED = dialed()
+
+
+def placed(table: str = "") -> str:
+    """発信まで進み、回線の側でかけられなかった（call_failed）ものを除いた試行の条件（SQL。1か所）。お客様のところで電話が
+    鳴った（鳴りえた）電話：約束の回に「かけたか」・その回にかけた数・時刻の決まっていない約束の電話の数は、どれもこれを使う。"""
+    return f"{dialed(table)} AND {table + '.' if table else ''}state <> 'call_failed'"
 
 # 回線の部品と復旧が移してよい先（予約 → 発信・予約の取り消しは、それぞれ専用の処理だけ）
 LineState = Literal["ringing", "answered", "in_conversation", "ending", "ended",

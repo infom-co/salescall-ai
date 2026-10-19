@@ -12,6 +12,7 @@ import unittest
 from salescall.core import attempts, exclusions, gate, importer, next_action, scheduler
 from salescall.core.access import Rejected
 from salescall.core.import_files import Cell, read
+from tests import support
 from tests.support import OPERATOR, SYSTEM, fictional_jp_fixed, owner_access
 from tests.test_gate import Base
 from tests.test_import import ai, csv_file
@@ -68,7 +69,7 @@ class Marks(Base):
         （2026-10-18 ユーザー：「かけないことを除外ということなので、その3つは途中でかけないに切り替えてもかけるという意味ですよ」）。
         まだ発信していない、その予約も取り消さない。"""
         s = self.ready()
-        self.tx(s, lambda tx: next_action.schedule_call(tx, s["task"], tx.one("SELECT now() AS t")["t"],
+        self.tx(s, lambda tx: support.schedule_call(tx, s["task"], tx.one("SELECT now() AS t")["t"],
                                                         contact_id=s["contact"], cause="試験", promised=True))
         promised = self.claim(s)
         self.assertIsInstance(promised, gate.Claim)
@@ -89,7 +90,7 @@ class Marks(Base):
         （2026-10-19 ユーザー：「強制かけないは、すべての電話をぜったいにかけないにしてください」）。まだ発信していない予約も取り消す。
         「かけない」から「強制かけない」へ、強制から「かけない」へも変えられ、戻せばふつうにかける。"""
         s = self.ready()
-        self.tx(s, lambda tx: next_action.schedule_call(tx, s["task"], tx.one("SELECT now() AS t")["t"],
+        self.tx(s, lambda tx: support.schedule_call(tx, s["task"], tx.one("SELECT now() AS t")["t"],
                                                         contact_id=s["contact"], cause="試験", promised=True))
         promised = self.claim(s)
         self.assertIsInstance(promised, gate.Claim)

@@ -95,6 +95,17 @@ def stop(tx: Tx, *, scope: Scope, cause: Cause, reason: str, evidence: str | Non
     return {"event_id": row["event_id"], "released_claims": released}
 
 
+def open_same(tx: Tx, *, scope: Scope, cause: Cause, tenant_id: UUID | None = None, client_id: UUID | None = None,
+              business_id: UUID | None = None, line_id: UUID | None = None) -> int | None:
+    """同じ原因・同じ範囲の、まだ解かれていない停止（あればその番号。1か所。止める側は、あれば重ねて止めない）。"""
+    row = tx.one(
+        "SELECT event_id FROM salescall.open_stop_events WHERE cause::text = %s AND scope = %s"
+        " AND tenant_id IS NOT DISTINCT FROM %s AND client_id IS NOT DISTINCT FROM %s"
+        " AND business_id IS NOT DISTINCT FROM %s AND line_id IS NOT DISTINCT FROM %s ORDER BY event_id LIMIT 1",
+        (cause, scope, tenant_id, client_id, business_id, line_id))
+    return None if row is None else row["event_id"]
+
+
 def resume(tx: Tx, stop_event_id: int, *, reason: str, evidence: str | None = None) -> int:
     """その停止を解く（範囲は停止と同じ）。解いた記録の番号を返す。"""
     row = tx.one(

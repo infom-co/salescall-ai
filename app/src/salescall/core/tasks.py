@@ -42,6 +42,15 @@ def lock(tx: Tx, task_id: UUID) -> dict[str, Any]:
     return row
 
 
+def scope(tx: Tx, task_id: UUID) -> dict[str, Any]:
+    """その行の契約者・依頼者・業務（設定を読む範囲。1か所）。無ければ TaskNotFound。"""
+    row = tx.one("SELECT t.tenant_id, t.client_id, r.business_id FROM salescall.tasks t"
+                 " JOIN salescall.runs r ON r.client_id = t.client_id AND r.run_id = t.run_id WHERE t.task_id = %s", (task_id,))
+    if row is None:
+        raise TaskNotFound(str(task_id))
+    return row
+
+
 def numbers(tx: Tx, task_id: UUID) -> list[str]:
     """そのタスク（依頼者の一覧の1行）の番号すべて（そろえた番号。一覧の番号が先、あとは足した順）。
     行ごとに番号を数える処理（発信禁止を行ごとに広げる dnc など）は、必ずこれを呼ぶ。"""
@@ -83,9 +92,7 @@ def record_confirmed_reading(tx: Tx, task_id: UUID, which: str, reading: str, *,
     （データベースが守る）。"""
     if which not in ("source", "target"):
         raise ValueError(f"どの名前か（which）は source か target です：{which!r}")
-    r = readings.normalize(reading)
-    if r is None:
-        raise ValueError(f"読み「{reading}」：読みは、ひらがなかカタカナで書きます")
+    r = readings.required(reading, f"読み「{reading}」")
     tx.execute("INSERT INTO salescall.task_confirmed_readings (tenant_id, client_id, task_id, which, reading, attempt_id,"
                " confirmed_by) SELECT t.tenant_id, t.client_id, t.task_id, %s, %s, %s, salescall.cur_actor()"
                " FROM salescall.tasks t WHERE t.task_id = %s", (which, r, attempt_id, task_id))

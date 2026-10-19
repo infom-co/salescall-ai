@@ -13,9 +13,23 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
+
+JST = timezone(timedelta(hours=9))   # 日本時間（夏時間は無い。データベースの salescall.jst・from_jst と同じ答え）
+
+
+def local(t: datetime) -> datetime:
+    """時刻を、日本時間の時差を持たない日時にする（Python の側の1か所。SQL の中では salescall.jst）。"""
+    return t.astimezone(JST).replace(tzinfo=None)
+
+
+def from_local(t: datetime) -> datetime:
+    """日本時間の時差を持たない日時を、時刻に戻す（Python の側の1か所。SQL の中では salescall.from_jst）。"""
+    return t.replace(tzinfo=JST)
+
 
 DAY_KEYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+HOURS_KEYS = DAY_KEYS + ("holiday",)   # 時間帯の値の鍵（曜日ごと＋祝日）
 _DAY = 24 * 3600
 
 
@@ -84,7 +98,7 @@ def restrict(hours: dict, daily: tuple[int, int] | None, days: tuple[str, ...] |
             continue
         lo, hi = daily if daily is not None else (0, _DAY)
         kept = [(max(a, lo), min(b, hi)) for a, b in _ranges(hours, key) if max(a, lo) < min(b, hi)]
-        out[key] = [[_hhmm(a), _hhmm(b) if b < _DAY else "24:00"] for a, b in kept]
+        out[key] = [[_hhmm(a), _hhmm(b)] for a, b in kept]
     return out
 
 
@@ -138,6 +152,18 @@ def subtract(hours: dict, ng: dict) -> dict:
                 pieces = [q for a, b in pieces for q in ((a, min(b, c0)), (max(a, c1), b)) if q[0] < q[1]]
             kept += pieces
         out[key] = [[_hhmm(a), _hhmm(b)] for a, b in kept]
+    return out
+
+
+def intersect(values: list[dict]) -> dict:
+    """曜日・祝日ごとの時間帯の重なり（1か所。設定の合成の「厳しいほう（範囲）」と、依頼者の歯止めの内側に収めるときに使う）。
+    どこかの階層でかけない曜日は、かけない。"""
+    out = {}
+    for key in HOURS_KEYS:
+        ranges = _ranges(values[0], key)
+        for v in values[1:]:
+            ranges = [(max(a1, a2), min(b1, b2)) for a1, b1 in ranges for a2, b2 in _ranges(v, key) if max(a1, a2) < min(b1, b2)]
+        out[key] = [[_hhmm(a), _hhmm(b)] for a, b in sorted(ranges)]
     return out
 
 

@@ -50,7 +50,7 @@ _ATTEMPT = (
     # お客様が言った「明日」「30分後」の起点＝通話の終わり。会話の処理が報告をしまった時刻のほうが早ければ、そちら（途中の誤りで
     # 終わった通話は、見守り役が後始末した時刻が終わりになり、何時間もずれる＝2026-10-19 の見直し）
     "       least(a.ended_at, (SELECT c.saved_at FROM salescall.call_reports c WHERE c.attempt_id = a.attempt_id)) AS spoken_at,"
-    "       salescall.reached_answer(a.attempt_id) AS reached_answer,"
+    "       salescall.reached_answer(a.attempt_id) AS reached_answer, salescall.is_dialed(a.state) AS dialed,"
     "       t.client_ref, t.run_id, r.business_id"
     " FROM salescall.attempts a"
     " JOIN salescall.tasks t ON t.client_id = a.client_id AND t.task_id = a.task_id"
@@ -72,7 +72,7 @@ def settle(tx: Tx, attempt_id: UUID) -> dict[str, Any]:
                   (attempt_id,))
     if done is not None:
         return {"version_no": done["version_no"], "state": done["business_state"], "already": True}
-    if a["state"] in ("claimed", "released") or a["verification"] is None:
+    if not a["dialed"] or a["verification"] is None:
         raise NotReady("発信していない・まだ終わっていない試行です")
     if a["verification"] == "pending":
         raise NotReady("通話後の検証が済んでいません")
@@ -185,8 +185,7 @@ def rejudge(tx: Tx, attempt_id: UUID) -> dict[str, Any] | None:
     a = _attempt(tx, attempt_id)
     held = tx.one("SELECT 1 FROM salescall.current_next_actions WHERE task_id = %s AND kind = 'hold'",
                   (a["task_id"],)) is not None
-    last = tx.one("SELECT judge_version, snapshot FROM salescall.task_results WHERE attempt_id = %s"
-                  " AND kind IN ('judged', 'rejudged') ORDER BY version_no DESC LIMIT 1", (attempt_id,))
+    last = tx.one("SELECT judge_version, snapshot FROM salescall.call_judgements WHERE attempt_id = %s", (attempt_id,))
     latest_attempt = tx.one(f"SELECT attempt_id FROM salescall.attempts WHERE task_id = %s AND {attempts.DIALED}"
                             " ORDER BY claimed_at DESC LIMIT 1", (a["task_id"],))["attempt_id"]
     if not held or last is None or latest_attempt != attempt_id:

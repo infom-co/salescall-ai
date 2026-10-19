@@ -156,6 +156,28 @@ class Emergency(Base):
             self.assertEqual(emergency.main(["release", "試験：直った"]), 0)
         self.assertEqual((opened(), emergency.engaged()), ([], None))
 
+    def test_a_revoked_pc_key_still_places_the_flag_and_tells_to_log_in_again(self):
+        """契約者の PC の鍵が止められていても（データベースが断る＝LoginRefused）、止める印は残し、ログインし直すよう知らせる。
+        状態の確かめ・解くも落ちない（⚠️ 前は受け止めず、印を置いたあと誤りの表示で落ちた＝見直し5）。"""
+        from salescall.core import logins
+        from salescall.core.access import Provisioner
+        from salescall.supervisor import pc_login
+        s = self.ready()
+        self.env()
+        provisioner = Provisioner(os.environ["SALESCALL_TEST_PROVISIONER_DSN"])
+        key = logins.issue(self.w.a, SYSTEM, provisioner, s["tenant"], pc_label="試験のPC",
+                           base_conninfo=os.environ["SALESCALL_TEST_APP_DSN"], replaces=None)
+        logins.revoke(self.w.a, SYSTEM, provisioner, s["tenant"], pc=key.pc)
+        pc_login.load = lambda: pc_login.PcKey(key.tenant_id, key.pc, key.conninfo)
+        with redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(emergency.main(["stop", "試験：止められた鍵"]), 0)
+        self.assertIsNotNone(emergency.engaged())
+        self.assertIn("ログインし直して", out.getvalue())
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(emergency.main(["status"]), 0)
+            self.assertEqual(emergency.main(["release", "試験：解けない"]), 1)
+        self.assertIsNotNone(emergency.engaged())                      # 解いたことを記録できないまま、かけ始めない
+
     def test_a_broken_pc_key_still_places_the_flag(self):
         """PC の鍵のファイルが壊れていても、止める印は残す（止めることは、いつでもできる。⚠️ 前は印を書く前に落ちた）。"""
         from salescall.supervisor import pc_login

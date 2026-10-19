@@ -96,11 +96,6 @@ def spent_today(tx: Tx) -> Decimal:
                   " WHERE salescall.jst(occurred_at)::date = salescall.jst(now())::date")["y"]
 
 
-def _open_stop(tx: Tx, scope: str, cause: str) -> bool:
-    return tx.one("SELECT 1 FROM salescall.open_stop_events s WHERE s.cause::text = %s AND s.scope = %s LIMIT 1",
-                  (cause, scope)) is not None
-
-
 def _check_client_budget(tx: Tx, tenant_id: UUID, client_id: UUID) -> None:
     """依頼者の今日の費用が上限を超えたら、注意を知らせる（1日1回。止めない＝2026-10-16 ユーザー：「注意喚起のみ」）。"""
     limit = Decimal(settings.resolve(tx, "budget.client_daily_yen", tenant_id=tenant_id, client_id=client_id,
@@ -143,7 +138,7 @@ def _deficit_step(tx: Tx, tenant_id: UUID, client_id: UUID) -> int | None:
             tx.execute("UPDATE salescall.deficit_warnings SET closed_at = now(), closed_why = 'not_deficit'"
                        " WHERE warning_id = %s", (w["warning_id"],))
         return None
-    if _open_stop(tx, "client", "deficit"):
+    if stops.open_same(tx, scope="client", cause="deficit", tenant_id=tenant_id, client_id=client_id) is not None:
         return None
     if w is not None and w["confirmed_at"] is not None:
         valid = timedelta(seconds=int(_setting(tx, "budget.deficit_confirm_valid", tenant_id, client_id)))

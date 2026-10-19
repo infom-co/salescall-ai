@@ -80,11 +80,17 @@ def _write_flag(content: dict[str, Any]) -> Path:
 
 
 def _in_scope(access: Access, actor: Actor, tenant_id: UUID | None, work):
-    """押した管理者か契約者の範囲の取引（管理者＝全体／契約者＝その契約者）。"""
-    if actor.kind == "admin":
-        return access.in_system(actor, work)
-    if actor.kind == "operator" and tenant_id is not None:
-        return access.in_tenant(actor, tenant_id, work)
+    """押した管理者か契約者の範囲の取引（管理者＝全体／契約者＝その契約者）。データベースが PC の鍵を断ったとき（LoginRefused。
+    見守り役がログインし直すための BaseException）も、ここで、ふつうの誤り（PermissionError）にして返す（1か所。止める・解く・
+    状態の確かめは、どれも「届かなかった」として印のとおりに扱う。⚠️ 前は受け止めず、印を置いたあと誤りの表示で落ちた＝見直し5）。"""
+    from salescall.core.access import LoginRefused
+    try:
+        if actor.kind == "admin":
+            return access.in_system(actor, work)
+        if actor.kind == "operator" and tenant_id is not None:
+            return access.in_tenant(actor, tenant_id, work)
+    except LoginRefused as e:
+        raise PermissionError(f"データベースが PC の鍵を断りました（{e}）。PC でログインし直してください（docs/PC_SETUP.md）") from None
     raise PermissionError("押せるのは管理者（admin）か、契約者（operator。契約者の番号つき）です")
 
 
@@ -143,16 +149,16 @@ def release_all(access: Access | None, actor: Actor, reason: str, *, tenant_id: 
 
 def _who_and_where() -> tuple[Access | None, Actor | None, UUID | None, str | None]:
     """つなぎ先と、押した管理者か契約者（見守り役と同じ `supervisor.config.load` の1か所）。分からなければ (None, None, None, 理由)。
-    どんな誤り（設定の抜け・PC の鍵のファイルが壊れている・鍵が止められた など）でも、止める印を残せるように、ここで受ける
-    （止めることは、いつでもできる。⚠️ 前は設定の抜けだけを受け、鍵のファイルが壊れていると印を書く前に落ちた＝見直し4）。"""
+    どんな誤り（設定の抜け・PC の鍵のファイルが壊れている など）でも、止める印を残せるように、ここで受ける（止めることは、いつでも
+    できる。⚠️ 前は設定の抜けだけを受け、鍵のファイルが壊れていると印を書く前に落ちた＝見直し4）。ここはファイルを読むだけで、
+    データベースにはつながない（鍵が止められたことが分かるのは、つないだとき＝`_in_scope`）。"""
     import socket
-    from salescall.core.access import LoginRefused
     from salescall.supervisor import config
     try:
         cfg = config.load()
     except config.ConfigMissing as e:
         return None, None, None, str(e)
-    except (Exception, LoginRefused) as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
         return None, None, None, f"つなぎ先を読めません（{type(e).__name__}）。PC でログインし直してください（docs/PC_SETUP.md）"
     admin = bool(cfg.environ.get("SALESCALL_DSN", "").strip())   # 管理者の PC（システムの接続）／契約者の PC（PC の鍵）
     who = Actor(f"{'管理者' if admin else '契約者'}の PC の緊急停止（{socket.gethostname()}）", "admin" if admin else "operator")

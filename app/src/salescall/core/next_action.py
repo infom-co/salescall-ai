@@ -144,18 +144,6 @@ def _append(tx: Tx, task_id: UUID, *, call_at: datetime | None, end_reason: str 
     return row["seq"]
 
 
-def schedule_call(tx: Tx, task_id: UUID, call_at: datetime, *, contact_id: UUID, cause: str, promised: bool,
-                  purpose: str = "normal", wrong_contact_id: UUID | None = None, callee_at: datetime | None = None,
-                  window: Window | None = None) -> int:
-    """かけ直す（日時・かける先）を記録する。promised＝お客様と約束したかけ直し（お客様に頼まれた・こちらが約束した）か。
-    約束したかけ直しは、門の「同じお客様への最小の間隔・1日の回数」の対象外（2026-10-14 ユーザー決定）。
-    contact_id：かける番号（その行の番号の表にある番号だけ。データベースも守る）。purpose：発信の目的（PURPOSES）。
-    callee_at：お客様が自分で指定した時刻（その時刻を含むその日のNG時間の枠の中は、NG時間でもかけてよい）。
-    window：お客様が言ったかけ直しの時間の幅（門が、幅の外ではかけない）。"""
-    return _append(tx, task_id, call_at=call_at, end_reason=None, cause=cause, promised=promised,
-                   target=Target(contact_id, None, purpose, wrong_contact_id), callee_at=callee_at, window=window)
-
-
 def schedule_now(tx: Tx, task_id: UUID, *, cause: str) -> int:
     """いまから、一覧の番号へかけてよい（日時はデータベースの時刻。取込で登録したタスクの最初の予定）。
     実際にかけるか・いつかけるかは門が決める（時間帯・間隔・停止など）。"""
@@ -315,7 +303,10 @@ def decide_after_call(j: Judgement, *, cut_off: bool = False, normal: gate.Pacin
         return _end(target.end_reason, "お客様が言った番号へは、かけない（番号は記録して依頼者へ渡す）")
     key = j.detail.get("policy_key")
     if j.state == "not_reached" and j.detail.get("not_reached") == "wrong_alternate":
-        # お客様に頼まれたかけ直しが、まだ果たせていない（番号違い）：約束したかけ直しのまま、すぐ（門の最も早い時刻）
+        # お客様に頼まれたかけ直しが、まだ果たせていない（番号違い）：約束したかけ直しのまま、すぐ（門の最も早い時刻）。
+        # 元の約束に時刻・幅があれば、その約束のまま（kept＝`_keep_promise`）
+        if kept is not None:
+            return kept
         return _call(promised.earliest or now, True, "言われた番号が番号違い：番号の確かめのとおり", target)
     # 途中で切れた（お客様が出たあと、こちらの仕組みが止まった・回線が切れた＝お客様の意思ではない）：復旧次第、お詫びとともに
     # すぐかけ直す（2026-10-17 ユーザー：「復旧次第、お詫びとともにすぐかけ直さないといけないでしょ！」）。目的「続き」で、会話は
@@ -407,10 +398,7 @@ def after_call(tx: Tx, task_id: UUID, j: Judgement, *, rules: Rules, dialed: Tar
     now = tx.one("SELECT now() AS now")["now"]
     # かけた予定（発信のときに効いていた次の予定）が持っていた、お客様が言った時間の幅。いまの予定ではなく、発信の時刻までに
     # 決めた予定から読む（判定し直しのときは、いまの予定が判定待ちになっていて、幅を失うため）
-    dialed_row = tx.one(
-        "SELECT window_until, window_daily, window_days, window_from, window_repeat, window_round, callee_at, promised"
-        " FROM salescall.task_next_actions WHERE task_id = %s AND decided_at <= %s ORDER BY seq DESC LIMIT 1",
-        (task_id, dialed_at))
+    dialed_row = _plan_at(tx, task_id, dialed_at)
     dialed_window = window_of(dialed_row)
     dialed_exact = dialed_window is not None and dialed_row["callee_at"] is not None   # 時刻ちょうどの約束の回
     key = j.detail.get("policy_key")
@@ -435,18 +423,26 @@ def after_call(tx: Tx, task_id: UUID, j: Judgement, *, rules: Rules, dialed: Tar
             kept = _keep_promise(tx, task_id, said, _exact_window(tx, task_id, said), target, now=now, exact=True)
         else:
             kept = _keep_promise(tx, task_id, max(now, datetime.fromisoformat(cb["at"])), window_said(cb), target, now=now)
+    elif target.contact_id is not None and j.state == "not_reached" and j.detail.get("not_reached") == "wrong_alternate":
+        # お客様に頼まれた番号が番号違いだった：確かめた番号へは、元の約束の幅・時刻のまま、すぐ（幅の外なら次の回へ）。
+        # 番号を聞き直す電話（ask_number_again）は約束の電話ではない（すぐ。そのあとは別の時間帯に決めた回数まで＝`_new_band_retry`）
+        if target.purpose == "normal" and dialed_window is not None:
+            kept = _keep_promise(tx, task_id, now, dialed_window, target, now=now, exact=dialed_exact)
     elif target.contact_id is not None and dialed_window is not None and j.state in ("open", "not_reached"):
         # 約束の電話で話せなかった：同じ回の中でもう一度か、次の回か。時刻ちょうどの約束は、前の電話から決めた間をあけて
         # （`_exact_next_try`）。幅の約束は、この結果の再発信の方針の間隔で（方針の回数の中・回の終わりより前だけ）
         if dialed_exact:
             after = _exact_next_try(tx, task_id, dialed_window, now)
         else:
-            within = retry_at is not None and times <= policy.max_times and retry_at < dialed_window.until
-            after = retry_at if within else dialed_window.until
+            # 回の終わりが無い幅（かけてよい時間帯が無いあいだ・暦の外で、幅をそのまま保った予定）は、方針の間隔だけで見る
+            within = (retry_at is not None and times <= policy.max_times
+                      and (dialed_window.until is None or retry_at < dialed_window.until))
+            after = retry_at if within else (dialed_window.until or now)
         kept = _keep_promise(tx, task_id, after, dialed_window, target, now=now, exact=dialed_exact)
-    elif (target.contact_id is not None and dialed_row is not None and dialed_row["promised"] and dialed.purpose == "normal"
-          and j.state in ("open", "not_reached")):
-        # 時刻の決まっていない約束の電話（「あとで」・日だけの約束が過ぎたあと など）で話せなかった：約束のまま（回数の上限の外）
+    elif (target.contact_id is not None and j.state in ("open", "not_reached")
+          and _served_unspecified(tx, task_id, dialed_at, dialed.purpose)):
+        # 時刻の決まっていない約束の電話（「あとで」・日だけの約束が過ぎたあと・その途中で切れたあとの続き など）で話せなかった：
+        # 約束のまま（回数の上限の外）
         kept = _unspecified_next(tx, task_id, target, now=now, base=now, tried=dialed_at)
     if cut_off:   # すでに続けて何回、お詫びしてすぐかけ直したか（今回を含む）
         resumed = tx.one(
@@ -470,17 +466,11 @@ def _apologised(d: Decision, reached_target: bool) -> Decision:
 
 
 def _times(tx: Tx, task_id: UUID, key: str) -> int:
-    """この行で、その再発信の方針の鍵の結果が出た通話の数（1か所。通話ごとに最新の判定の版で数える＝判定し直しを二重に数えない）。"""
+    """この行で、その再発信の方針の鍵の結果が出た通話の数（1か所。通話ごとに最新の判定の版＝見方 call_judgements で数える＝
+    判定し直しを二重に数えない）。"""
     return tx.one(
-        "SELECT count(*) AS n FROM (SELECT DISTINCT ON (attempt_id) detail FROM salescall.task_results"
-        "  WHERE task_id = %s AND kind IN ('judged', 'rejudged') ORDER BY attempt_id, version_no DESC) x"
-        " WHERE detail ->> 'policy_key' = %s", (task_id, key))["n"]
-
-
-def _scope(tx: Tx, task_id: UUID) -> dict[str, Any]:
-    return tx.one("SELECT t.tenant_id, t.client_id, r.business_id FROM salescall.tasks t"
-                  " JOIN salescall.runs r ON r.client_id = t.client_id AND r.run_id = t.run_id WHERE t.task_id = %s",
-                  (task_id,))
+        "SELECT count(*) AS n FROM salescall.call_judgements WHERE task_id = %s AND detail ->> 'policy_key' = %s",
+        (task_id, key))["n"]
 
 
 def _retry_at(tx: Tx, task_id: UUID, interval: tuple[str, int], now: datetime, dialed_at: datetime) -> datetime | None:
@@ -491,19 +481,18 @@ def _retry_at(tx: Tx, task_id: UUID, interval: tuple[str, int], now: datetime, d
     unit, n = interval
     if unit == "hours":
         return now + timedelta(hours=n)
-    scope = _scope(tx, task_id)
+    scope = tasks.scope(tx, task_id)
     get = lambda key: settings.resolve(tx, key, **scope)   # noqa: E731
     boundaries = list(get("retry.time_band_boundaries"))
     hours, length = gate.calling_hours_for(tx, **scope), timedelta(seconds=int(get("gate.claim_lifetime")))
-    clock = tx.one("SELECT salescall.jst(%s) AS now, salescall.jst(%s) AS tried", (now, dialed_at))
-    day = datetime.combine(clock["now"].date() + timedelta(days=n), datetime.min.time())
+    day = datetime.combine(calling_hours.local(now).date() + timedelta(days=n), datetime.min.time())
     try:
         found = (calling_hours.next_opening_in_new_band(hours, holiday_checker(tx), day, length, boundaries,
-                                                        {calling_hours.band_of(clock["tried"], boundaries)}, horizon_days=0)
+                                                        {calling_hours.band_of(calling_hours.local(dialed_at), boundaries)}, horizon_days=0)
                  or calling_hours.next_opening(hours, holiday_checker(tx), day, length))
     except CalendarOutOfRange:   # 暦の無い日に当たる：決めつけず、その日の始まりにして、門にもう一度確かめさせる
         found = day
-    return None if found is None else tx.one("SELECT salescall.from_jst(%s) AS t", (found,))["t"]
+    return None if found is None else calling_hours.from_local(found)
 
 
 def _window_opening(tx: Tx, task_id: UUID, after: datetime, window: Window, *,
@@ -517,13 +506,13 @@ def _window_opening(tx: Tx, task_id: UUID, after: datetime, window: Window, *,
     (None, None)＝約束の回がもう無い（理由の分からない日だけの約束が過ぎた・お客様の幅が、かけてよい時間帯と重ならない）。
     exact＝時刻ちょうどの約束の回（お客様が指定した時刻を含むNG時間の枠は引かずに探す＝門の callee_at と同じ決まり
     `calling_hours.excuse_ng`。ほかのNG時間の枠は控える）。"""
-    scope = _scope(tx, task_id)
+    scope = tasks.scope(tx, task_id)
     all_hours = gate.calling_hours_for(tx, **scope, callee_of_day=window.daily[0] if exact else None)
     hours = calling_hours.restrict(all_hours, window.daily, window.days)
     length = timedelta(seconds=int(settings.resolve(tx, "gate.claim_lifetime", **scope)))
     holiday = holiday_checker(tx)
-    to_jst = lambda t: None if t is None else tx.one("SELECT salescall.jst(%s) AS t", (t,))["t"]   # noqa: E731
-    from_jst = lambda t: tx.one("SELECT salescall.from_jst(%s) AS t", (t,))["t"]   # noqa: E731
+    to_jst = lambda t: None if t is None else calling_hours.local(t)   # noqa: E731
+    from_jst = calling_hours.from_local
     local, until, since = to_jst(max(after, now)), to_jst(window.until), to_jst(window.since)
 
     def none_left(at: datetime) -> tuple[None, Window | None]:   # 幅の中に無い：時間帯そのものが無いのか、幅が重ならないのか
@@ -543,8 +532,8 @@ def _window_opening(tx: Tx, task_id: UUID, after: datetime, window: Window, *,
             return None, None   # 理由の分からない日だけの約束が過ぎた（時刻の決まっていない約束へ）
         start, end, rounds = since or (until - timedelta(days=1)), until, window.round
         for _ in range(_MAX_ROUNDS_SEARCHED):
-            start, end = (t.replace(tzinfo=None) for t in spoken_time.next_occurrence(
-                window.repeat, start.replace(tzinfo=spoken_time.JST), end.replace(tzinfo=spoken_time.JST)))
+            start, end = (calling_hours.local(t) for t in spoken_time.next_occurrence(
+                window.repeat, from_jst(start), from_jst(end)))
             first = calling_hours.next_opening(hours, holiday, start, length)
             if first is None:
                 return none_left(start)
@@ -585,7 +574,7 @@ def _keep_promise(tx: Tx, task_id: UUID, after: datetime, window: Window, target
         return _window_over(tx, task_id, now, target, window, apology=apology)
     if w2.round > window.round:
         if exact:
-            days = int(settings.resolve(tx, "callback.exact_days", **_scope(tx, task_id)))
+            days = int(settings.resolve(tx, "callback.exact_days", **tasks.scope(tx, task_id)))
             if w2.round >= days:
                 return replace(_end("callback_exact_unreached",
                                     f"時刻ちょうどの約束：{days} 日続けて、その時刻に話せなかった（打ち止め）"), apology=apology)
@@ -612,8 +601,8 @@ def _keep_promise(tx: Tx, task_id: UUID, after: datetime, window: Window, target
 def _exact_window(tx: Tx, task_id: UUID, at: datetime) -> Window:
     """時刻ちょうどの約束（「明日の15時」）の最初の回（1か所）：約束の時刻から、設定 callback.exact_slot の長さ（その日の中まで）。
     話せなければ、次の日の同じ時刻の回へ（repeat＝次の日）。"""
-    slot = int(settings.resolve(tx, "callback.exact_slot", **_scope(tx, task_id)))
-    local = at.astimezone(spoken_time.JST)
+    slot = int(settings.resolve(tx, "callback.exact_slot", **tasks.scope(tx, task_id)))
+    local = at.astimezone(calling_hours.JST)
     midnight = local.replace(hour=0, minute=0, second=0, microsecond=0)
     start = int((local - midnight).total_seconds())
     end = min(start + slot, 24 * 3600)
@@ -622,7 +611,7 @@ def _exact_window(tx: Tx, task_id: UUID, at: datetime) -> Window:
 
 def _slot_of(window: Window) -> tuple[datetime, datetime]:
     """時刻ちょうどの約束の、その回の時間（約束の時刻から callback.exact_slot。1か所）。"""
-    day = window.since.astimezone(spoken_time.JST).replace(hour=0, minute=0, second=0, microsecond=0)
+    day = window.since.astimezone(calling_hours.JST).replace(hour=0, minute=0, second=0, microsecond=0)
     return day + timedelta(seconds=window.daily[0]), day + timedelta(seconds=window.daily[1])
 
 
@@ -632,9 +621,9 @@ def _exact_next_try(tx: Tx, task_id: UUID, window: Window, now: datetime) -> dat
     2026-10-19 ユーザー）。その回にかけた電話（発信まで進んだもの。回線の側でかけられなかった電話は数えない）が、約束の時刻の
     1回＋並びの数に届いた・時間が過ぎた ⇒ 回の終わり（次の回へ）。"""
     start, end = _slot_of(window)
-    gaps = [int(g) for g in settings.resolve(tx, "callback.exact_retry_gaps", **_scope(tx, task_id))]
-    dialed = tx.all(f"SELECT claimed_at FROM salescall.attempts WHERE task_id = %s AND {attempts.DIALED}"
-                    " AND state <> 'call_failed' AND claimed_at >= %s AND claimed_at < %s ORDER BY claimed_at",
+    gaps = [int(g) for g in settings.resolve(tx, "callback.exact_retry_gaps", **tasks.scope(tx, task_id))]
+    dialed = tx.all(f"SELECT claimed_at FROM salescall.attempts WHERE task_id = %s AND {attempts.placed()}"
+                    " AND claimed_at >= %s AND claimed_at < %s ORDER BY claimed_at",
                     (task_id, start, end))
     if len(dialed) > len(gaps):
         return window.until
@@ -650,7 +639,7 @@ def _missed(tx: Tx, task_id: UUID, window: Window) -> bool:
     if window.since is None or window.until is None:
         return False
     return tx.one(
-        f"SELECT NOT EXISTS (SELECT 1 FROM salescall.attempts WHERE task_id = %s AND {attempts.DIALED} AND state <> 'call_failed'"
+        f"SELECT NOT EXISTS (SELECT 1 FROM salescall.attempts WHERE task_id = %s AND {attempts.placed()}"
         "   AND claimed_at < %s AND claimed_at >= greatest(%s::timestamptz, (SELECT min(decided_at)"
         "     FROM salescall.task_next_actions WHERE task_id = %s AND window_from = %s AND window_until = %s))) AS m",
         (task_id, window.until, window.since, task_id, window.since, window.until))["m"]
@@ -668,7 +657,7 @@ _BAND_RETRY_LIMITS = {"ask_number_again": "retry.ask_number_again_max", "apology
 def _new_band_retry(tx: Tx, task_id: UUID, after: datetime, *, purpose: str) -> AskAgain:
     """別の時間帯にかけ直す電話（番号の聞き直し・お詫び）で出なかったときの材料：その目的でかけた回数と試した時間帯
     （門の数え方）・まだ試していない時間帯の次にかけられる時刻。"""
-    scope = _scope(tx, task_id)
+    scope = tasks.scope(tx, task_id)
     get = lambda key: settings.resolve(tx, key, **scope)   # noqa: E731
     boundaries = list(get("retry.time_band_boundaries"))
     dials = gate.purpose_dials(tx, task_id, purpose=purpose)
@@ -676,7 +665,7 @@ def _new_band_retry(tx: Tx, task_id: UUID, after: datetime, *, purpose: str) -> 
     # 2026-10-16 の見直しで見つけた穴。ふつうの再発信も、再発信の方針の回数は結果ごとに全部数える）。
     # 試した時間帯：お客様が出られた発信だけ（回線の都合で繋がらなかった時間帯は、まだ試していない）。
     # 最小の間隔：お客様と約束したかけ直しは門の最小の間隔の対象外なので、この電話は、ここで前の発信から間を空ける。
-    local = tx.one("SELECT salescall.jst(%s) AS t", (after,))["t"]
+    local = calling_hours.local(after)
     if dials:
         local = max(local, max(d.ended for d in dials) + timedelta(seconds=int(get("gate.same_contact_min_interval"))))
     hours, length = gate.calling_hours_for(tx, **scope), timedelta(seconds=int(get("gate.claim_lifetime")))
@@ -685,7 +674,7 @@ def _new_band_retry(tx: Tx, task_id: UUID, after: datetime, *, purpose: str) -> 
                                                        {calling_hours.band_of(d.at, boundaries) for d in dials if d.counted})
         if found is None:   # 試していない時間帯が無い（夜だけ開くお店など）：直後にかけ直さず、翌日以降の同じ頃から
             found = calling_hours.next_opening(hours, holiday_checker(tx), local + timedelta(days=1), length)
-        at = None if found is None else tx.one("SELECT salescall.from_jst(%s) AS t", (found,))["t"]
+        at = None if found is None else calling_hours.from_local(found)
     except CalendarOutOfRange:   # 暦の無い日に当たる：決めつけず、待ってから門にもう一度確かめさせる
         at = after + timedelta(seconds=int(get("gate.denied_retry_wait")))
     return AskAgain(len(dials), int(get(_BAND_RETRY_LIMITS[purpose])), at)
@@ -749,13 +738,13 @@ def after_denial(tx: Tx, task_id: UUID, denied: gate.Denied, *, tenant_id: UUID,
         lifetime = timedelta(seconds=int(settings.resolve(tx, "gate.claim_lifetime", tenant_id=tenant_id,
                                                           client_id=client_id, business_id=business_id)))
         hours = gate.calling_hours_for(tx, tenant_id=tenant_id, client_id=client_id, business_id=business_id)
-        local = tx.one("SELECT salescall.jst(now()) AS t")["t"]
+        local = calling_hours.local(now)
         try:
             found = calling_hours.next_opening(hours, holiday_checker(tx), local, lifetime)
         except CalendarOutOfRange:   # 次の時間帯を探す途中に暦の無い日がある ⇒ 決めつけず、待ってからもう一度
             found = None
             denied = gate.Denied("calendar_out_of_range", *gate.REASONS["calendar_out_of_range"])
-        opening = None if found is None else tx.one("SELECT salescall.from_jst(%s) AS t", (found,))["t"]
+        opening = None if found is None else calling_hours.from_local(found)
     d = decide_after_denial(denied, current_promised=bool(cur and cur["promised"]), current=now_target,
                             pacing=gate.pacing(tx, task_id), now=now, opening=opening, retry_wait=retry_wait,
                             current_callee_at=cur["callee_at"] if cur else None, current_window=window)
@@ -788,12 +777,13 @@ def _unspecified_next(tx: Tx, task_id: UUID, target: Target, *, now: datetime, b
     """時刻の決まっていない約束の次の動き（1か所。2026-10-19 の見直し）：お客様が時刻を言わずに約束した通話のあと・その約束の電話で
     話せなかったあと・理由の分からない日だけの約束が過ぎたあと。契約者の再発信の方針（callback_unspecified_time。実施回のいまの版
     ＝`_unspecified_policy`）の間隔で、約束したかけ直しのまま（行の回数の上限・1日の回数の外）。終えるのは、方針が「終える」・
-    「あとで」と言われた回数が方針の回数を超えた・約束をした通話のあとにかけた電話の数が方針の回数に届いたとき。
+    「あとで」と言われた回数が方針の回数を超えた・約束をした通話のあとにかけた、時刻の決まっていない約束の電話の数が方針の
+    回数に届いたとき（`_unspecified_calls`）。
     base＝間隔を数え始める時刻、tried＝前にかけた時刻（「n 日後」は別の時間帯にする）。⚠️ 前は、約束の電話に出ないと、約束でない
     ふつうのかけ直しになり、行の回数の上限で終わった。"""
     p = _unspecified_policy(tx, task_id)
     said = _times(tx, task_id, "callback_unspecified_time")
-    calls = _calls_since_promise(tx, task_id)
+    calls = _unspecified_calls(tx, task_id)
     if p.action == "end" or said > p.max_times or calls >= p.max_times:
         return replace(_end("callback_unspecified_time",
                             f"時刻の決まっていない約束：再発信の方針（{p.max_times} 回まで）で終える"), apology=apology)
@@ -805,15 +795,47 @@ def _unspecified_next(tx: Tx, task_id: UUID, target: Target, *, now: datetime, b
                  target, None, None, apology)
 
 
-def _calls_since_promise(tx: Tx, task_id: UUID) -> int:
-    """お客様がかけ直しを約束した、いちばん新しい通話のあとに、この行でかけた電話の数（発信まで進んだもの。回線の側でかけられな
-    かった電話は数えない。1か所）。"""
+def _plan_at(tx: Tx, task_id: UUID, at: datetime) -> dict[str, Any] | None:
+    """その時刻に効いていた次の予定（その時刻までに決めた、いちばん新しい予定。1か所）。かけた電話が守っていた予定を読むのに使う
+    （いまの予定ではない：判定し直しのときは、いまの予定が判定待ちになっていて、幅を失うため）。"""
     return tx.one(
-        f"SELECT count(*) AS n FROM salescall.attempts WHERE task_id = %s AND {attempts.DIALED} AND state <> 'call_failed'"
-        " AND claimed_at > coalesce((SELECT max(a.claimed_at) FROM salescall.attempts a"
-        "   JOIN (SELECT DISTINCT ON (attempt_id) attempt_id, business_state FROM salescall.task_results"
-        "         WHERE task_id = %s AND kind IN ('judged', 'rejudged') ORDER BY attempt_id, version_no DESC) r"
-        "     ON r.attempt_id = a.attempt_id WHERE r.business_state = 'callback_scheduled'), '-infinity')",
-        (task_id, task_id))["n"]
+        "SELECT kind, window_until, window_daily, window_days, window_from, window_repeat, window_round, callee_at, promised"
+        " FROM salescall.task_next_actions WHERE task_id = %s AND decided_at <= %s ORDER BY seq DESC LIMIT 1",
+        (task_id, at))
 
 
+def _served_unspecified(tx: Tx, task_id: UUID, at: datetime, purpose: str) -> bool:
+    """その電話（at にかけた・目的 purpose）が守っていたのが、時刻の決まっていない約束だったか（1か所）。
+    - ふつうの電話：かけた時点の予定が、約束したかけ直しで、時刻も幅も無い（「あとで」・日だけの約束が過ぎたあと・時刻の無い約束で
+      番号違いを直した番号への電話）。
+    - 続き（途中で切れた通話のすぐのかけ直し）：切れた通話（その前の、続きでない電話）で、お客様が時刻を言わずに約束した、または
+      その通話が時刻の決まっていない約束を守っていた（⚠️ 前は「ふつうの電話」だけを見ていて、続きの電話に出ないと約束が消えた）。
+    - 番号の聞き直し・お詫び：約束を守る電話ではない（それぞれの回数の決まり）。"""
+    if purpose == "resume":
+        cut = tx.one(f"SELECT attempt_id, claimed_at, purpose FROM salescall.attempts WHERE task_id = %s AND {attempts.DIALED}"
+                     " AND purpose <> 'resume' AND claimed_at < %s ORDER BY claimed_at DESC LIMIT 1", (task_id, at))
+        if cut is None:
+            return False
+        said = tx.one("SELECT business_state::text AS state, detail -> 'callback' ->> 'at' AS at, detail ? 'callback' AS cb"
+                      " FROM salescall.call_judgements WHERE attempt_id = %s", (cut["attempt_id"],))
+        if said is not None and said["state"] == "callback_scheduled" and said["cb"] and said["at"] is None:
+            return True
+        return _served_unspecified(tx, task_id, cut["claimed_at"], cut["purpose"])
+    if purpose != "normal":
+        return False
+    plan = _plan_at(tx, task_id, at)
+    return (plan is not None and plan["kind"] == "call" and plan["promised"] and window_of(plan) is None
+            and plan["callee_at"] is None)
+
+
+def _unspecified_calls(tx: Tx, task_id: UUID) -> int:
+    """お客様がかけ直しを約束した、いちばん新しい通話のあとに、この行でかけた、時刻の決まっていない約束の電話の数（1か所。
+    回線の側でかけられなかった電話は数えない）。⚠️ 前は約束のあとの電話をすべて数えたので、日だけの約束の日にかけた分まで入り、
+    日が過ぎて時刻の決まっていない約束に移ったとたん、1回もかけずに終えた。"""
+    rows = tx.all(
+        f"SELECT a.claimed_at, a.purpose FROM salescall.attempts a WHERE a.task_id = %s AND {attempts.placed('a')}"
+        " AND a.claimed_at > coalesce((SELECT max(c.claimed_at) FROM salescall.attempts c"
+        "   JOIN salescall.call_judgements r ON r.attempt_id = c.attempt_id"
+        "   WHERE c.task_id = %s AND r.business_state = 'callback_scheduled'), '-infinity')",
+        (task_id, task_id))
+    return sum(_served_unspecified(tx, task_id, r["claimed_at"], r["purpose"]) for r in rows)

@@ -60,11 +60,6 @@ def set_client_active(tx: Tx, active: bool, *, reason: str) -> None:
         tx.one("SELECT salescall.release_claims_in_scope('client', %s, %s, NULL)", (c["t"], c["c"]))
 
 
-def client_active(tx: Tx, client_id: UUID) -> bool:
-    """その依頼者が、いま有効か（判断はデータベースの1か所 salescall.client_active）。"""
-    return tx.one("SELECT salescall.client_active(%s) AS a", (client_id,))["a"]
-
-
 # ═════════ 業務・実施回（依頼者の取引で） ═════════
 def create_business(tx: Tx, name: str) -> UUID:
     """取引の依頼者に、業務を作る（版は、業務設定を置いて作る＝business_settings.save_version・取込）。"""

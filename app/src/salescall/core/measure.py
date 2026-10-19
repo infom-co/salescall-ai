@@ -59,8 +59,7 @@ def record_check(tx: Tx, task_id: UUID, version_no: int, *, truth_state: str,
         raise LookupError(f"結果の版がありません：{task_id} の版 {version_no}")
     if v["kind"] not in SYSTEM_KINDS or v["attempt_id"] is None or not v["measured"]:
         return None
-    if tx.one("SELECT 1 FROM salescall.task_results WHERE task_id = %s AND attempt_id = %s AND kind IN ('judged', 'rejudged')"
-              " AND version_no > %s", (task_id, v["attempt_id"], version_no)) is not None:
+    if tx.one("SELECT version_no FROM salescall.call_judgements WHERE attempt_id = %s", (v["attempt_id"],))["version_no"] != version_no:
         raise LookupError(f"その通話には、新しい判定の版があります（正解は、その通話の最新の判定の版に付けます）：{task_id} の版 {version_no}")
     got = tx.one(
         "INSERT INTO salescall.judgement_checks (tenant_id, client_id, task_id, version_no, attempt_id, source, truth_state,"
@@ -108,8 +107,7 @@ def draw(tx: Tx, *, now: datetime | None = None) -> list[UUID]:
             "   AND salescall.jst(a.claimed_at) >= %(from)s AND salescall.jst(a.claimed_at) < %(to)s"
             "   AND NOT EXISTS (SELECT 1 FROM salescall.recording_holds k WHERE k.attempt_id = a.attempt_id"
             "                   AND k.reason = 'verification')"
-            "   AND EXISTS (SELECT 1 FROM salescall.task_results v WHERE v.task_id = a.task_id AND v.attempt_id = a.attempt_id"
-            "               AND v.kind IN ('judged', 'rejudged'))"
+            "   AND EXISTS (SELECT 1 FROM salescall.call_judgements v WHERE v.attempt_id = a.attempt_id)"
             " ORDER BY a.attempt_id",
             {"b": b["business_id"], "from": _jst_midnight(week), "to": _jst_midnight(week + timedelta(days=7))})]
         seed = random.SystemRandom().getrandbits(62)

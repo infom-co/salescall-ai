@@ -85,17 +85,13 @@ def decide_stop(tx: Tx, kind: str, *, line_id: UUID | None = None) -> dict[str, 
     if action.stop_scope == "line" and line_id is None:
         raise ValueError("回線を止める種類なのに、回線がありません")
     line = line_id if action.stop_scope == "line" else None
-    open_same = tx.one(
-        "SELECT event_id FROM salescall.open_stop_events s WHERE s.cause = %s AND s.scope = %s"
-        " AND s.tenant_id = salescall.cur_tenant() AND s.line_id IS NOT DISTINCT FROM %s LIMIT 1",
-        (action.stop_cause, action.stop_scope, line))
-    if open_same is not None:
+    tenant = tx.one("SELECT salescall.cur_tenant() AS t")["t"]
+    if stops.open_same(tx, scope=action.stop_scope, cause=action.stop_cause, tenant_id=tenant, line_id=line) is not None:
         return None                                  # もう止まっている（重ねて止めない）
     n = tx.one("SELECT salescall.consecutive_errors(%s, %s, %s, %s) AS n",
                (list(errors.counted_with(kind)), action.stop_cause, errors.EVIDENCE[kind], line))["n"]
     if n is None:
         raise PermissionError("この取引では、その範囲のエラーを数えられません（契約者の取引で数える。回線は、その回線の契約者の取引）")
-    tenant = tx.one("SELECT salescall.cur_tenant() AS t")["t"]
     need = 1 if action.stop_after is None else int(_tenant_setting(tx, action.stop_after, tenant))
     if n < need:
         return None
