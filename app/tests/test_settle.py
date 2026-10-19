@@ -522,9 +522,10 @@ class CallbackWindow(SettleBase):
         self.assertEqual(kept.at, now + next_action.NO_OPENING_RECHECK)
 
     def test_an_exact_time_promise_is_called_a_few_times_in_its_hour_then_on_the_next_days(self):
-        """時刻ちょうどの約束（「明日の15時」）に出なければ、その時刻からの時間（初め1時間）の中で決めた回数（初め3回）かけ、それでも
-        出なければ次の日の同じ時刻の回へ。約束の日を含めて3日で打ち止め（2026-10-19 ユーザー：「「明日の15時」ちょうどに出られ
-        なければ、15時から16時に数回かける。出なければ、翌日の15時、翌々日の15時で打ち止め」）。"""
+        """時刻ちょうどの約束（「明日の15時」）に出なければ、その時刻からの時間（初め1時間）の中で、前の電話から5分後・さらに10分後・
+        さらに20分後にかけ、それでも出なければ次の日の同じ時刻の回へ。約束の日を含めて3日で打ち止め（2026-10-19 ユーザー：「「明日の
+        15時」ちょうどに出られなければ、15時から16時に数回かける。出なければ、翌日の15時、翌々日の15時で打ち止め」「5分後→さらに
+        10分後→さらに20分後くらいがいいんじゃない？」）。"""
         s = self.ready()
         self.put_client(s, "calling.ng_hours", {k: [] for k in KEYS})
         clock = self.tx(s, lambda tx: tx.one(
@@ -532,7 +533,7 @@ class CallbackWindow(SettleBase):
             " extract(epoch FROM date_trunc('day', salescall.jst(now())) + interval '1 day' - salescall.jst(now())) AS left"))
         now, t = clock["now"], clock["t"]
         slot = min(3600, int(clock["left"]) - 120)            # 試験の回が日をまたがない長さ（夜中に流しても同じ確かめ）
-        if slot < 600:
+        if slot < 1800:
             self.skipTest("日本時間の0時の直前：回の時間が短すぎる")
         self.put_client(s, "callback.exact_slot", slot)
         target = next_action.Target(s["contact"])
@@ -543,16 +544,19 @@ class CallbackWindow(SettleBase):
         due_now = lambda: self.tx(s, lambda tx: next_action.schedule_call(   # noqa: E731
             tx, s["task"], now, contact_id=s["contact"], cause="試験：次の1回をいまかける", promised=True, callee_at=t,
             window=next_action.window_of(next_action.current(tx, s["task"]))))
-        self.settle(s, self.call(s, ["dialing", "no_answer"]))
-        cur = self.tx(s, lambda tx: next_action.current(tx, s["task"]))
-        self.assertLess(abs((cur["call_at"] - (t + timedelta(seconds=slot / 3))).total_seconds()), 1)   # 時間を3つに分けた2回目
-        self.assertEqual((cur["promised"], cur["callee_at"], cur["window_round"]), (True, t, 0))
-        for _ in range(2):
+        claimed = lambda aid: self.tx(s, lambda tx: tx.one(   # noqa: E731
+            "SELECT claimed_at FROM salescall.attempts WHERE attempt_id = %s", (aid,))["claimed_at"])
+        for gap in (300, 600, 1200):                           # 前の電話から5分後・さらに10分後・さらに20分後
+            aid = self.call(s, ["dialing", "no_answer"])
+            self.settle(s, aid)
+            cur = self.tx(s, lambda tx: next_action.current(tx, s["task"]))
+            self.assertLess(abs((cur["call_at"] - (claimed(aid) + timedelta(seconds=gap))).total_seconds()), 2)
+            self.assertEqual((cur["promised"], cur["callee_at"], cur["window_round"]), (True, t, 0))
             due_now()
-            self.settle(s, self.call(s, ["dialing", "no_answer"]))
+        self.settle(s, self.call(s, ["dialing", "no_answer"]))   # 4本目にも出ない
         cur = self.tx(s, lambda tx: next_action.current(tx, s["task"]))
         self.assertEqual((cur["call_at"], cur["callee_at"], cur["window_round"], cur["apology_owed"]),
-                         (t + timedelta(days=1), t + timedelta(days=1), 1, False))   # 3回で次の日の同じ時刻（かけたのでお詫びは無い）
+                         (t + timedelta(days=1), t + timedelta(days=1), 1, False))   # 4本で次の日の同じ時刻（かけたのでお詫びは無い）
         last = replace(next_action.window_of(cur), round=2)
         over = self.tx(s, lambda tx: next_action._keep_promise(tx, s["task"], last.until, last, target, now=now, exact=True))
         self.assertEqual((over.kind, over.end_reason), ("end", "callback_exact_unreached"))   # 3日目にも話せなければ打ち止め
@@ -571,9 +575,10 @@ class CallbackWindow(SettleBase):
     def test_exact_promise_counts_cannot_be_zero(self):
         """時刻ちょうどの約束の回数・日数・時間は1以上（0なら約束を一度もかけずに終えてしまう。データベースが守る＝0093）。"""
         s = self.ready()
-        for key in ("callback.exact_slot", "callback.exact_tries", "callback.exact_days"):
-            with self.subTest(key=key), self.assertRaises(Rejected):
-                self.put_client(s, key, 0)
+        for key, value in (("callback.exact_slot", 0), ("callback.exact_days", 0), ("callback.exact_retry_gaps", [300, 0]),
+                           ("callback.exact_retry_gaps", [])):
+            with self.subTest(key=key, value=value), self.assertRaises(Rejected):
+                self.put_client(s, key, value)
 
     def test_the_call_that_made_the_promise_is_not_a_call_in_its_round(self):
         """約束の回にかけたか（お詫びの印）は、その回の予定を決めたあとの電話で見る（「今日の夕方」と約束した通話そのものを、

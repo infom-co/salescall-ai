@@ -567,8 +567,8 @@ def _keep_promise(tx: Tx, task_id: UUID, after: datetime, window: Window, target
         （ユーザー「OK」）。時刻ちょうどの約束（exact）は設定 callback.exact_days の日数（ユーザー：「翌日の15時、翌々日の15時で
         打ち止め」）。
     (3) 時刻ちょうどの約束は、回ごとにその日の約束の時刻にかけ（お客様が指定した時刻＝NG時間の枠でもかけてよい。callee_at）、
-        話せなければ、その日の時間（callback.exact_slot）の中で決めた回数まで（`_exact_next_try`。ユーザー：「15時から16時に
-        数回かける」）。
+        話せなければ、その日の時間（callback.exact_slot）の中で、前の電話から決めた間をあけて（`_exact_next_try`。ユーザー：
+        「15時から16時に数回かける」「5分後→さらに10分後→さらに20分後」）。
     (4) 次の回が無い（理由の分からない日だけの約束が過ぎた・幅がかけてよい時間帯と重ならない）⇒ 日が過ぎてから、時刻の決まって
         いない約束の方針の間隔で（`_window_over`）。かけてよい時間帯そのものが無い ⇒ 幅を保って1日後に確かめ直す（`_no_opening`）。
     (5) 過ぎた回に、一度もかけられなかった ⇒ 次にお客様につながったときに、お詫びから始める（印 apology）。"""
@@ -622,15 +622,20 @@ def _slot_of(window: Window) -> tuple[datetime, datetime]:
 
 
 def _exact_next_try(tx: Tx, task_id: UUID, window: Window, now: datetime) -> datetime:
-    """時刻ちょうどの約束の電話で話せなかった：その回の時間の中の、次にかける時刻（1か所）。時間を、設定 callback.exact_tries の
-    回数で等しく分けた時刻にかける（初め：15時・15時20分・15時40分）。その回にかけた電話（発信まで進んだもの。回線の側で
-    かけられなかった電話は数えない）が回数に届いた・時間が過ぎた ⇒ 回の終わり（次の回へ）。"""
+    """時刻ちょうどの約束の電話で話せなかった：その回の時間の中の、次にかける時刻（1か所）。前の電話から、設定
+    callback.exact_retry_gaps の間を順にあける（初め：5分後・さらに10分後・さらに20分後＝15時・15時05分・15時15分・15時35分。
+    2026-10-19 ユーザー）。その回にかけた電話（発信まで進んだもの。回線の側でかけられなかった電話は数えない）が、約束の時刻の
+    1回＋並びの数に届いた・時間が過ぎた ⇒ 回の終わり（次の回へ）。"""
     start, end = _slot_of(window)
-    tries = int(settings.resolve(tx, "callback.exact_tries", **_scope(tx, task_id)))
-    done = tx.one(f"SELECT count(*) AS n FROM salescall.attempts WHERE task_id = %s AND {gate.DIALED}"
-                  " AND state <> 'call_failed' AND claimed_at >= %s AND claimed_at < %s", (task_id, start, end))["n"]
-    nxt = max(start + (end - start) * done / tries, now)
-    return window.until if done >= tries or nxt >= end else nxt
+    gaps = [int(g) for g in settings.resolve(tx, "callback.exact_retry_gaps", **_scope(tx, task_id))]
+    dialed = tx.all(f"SELECT claimed_at FROM salescall.attempts WHERE task_id = %s AND {gate.DIALED}"
+                    " AND state <> 'call_failed' AND claimed_at >= %s AND claimed_at < %s ORDER BY claimed_at",
+                    (task_id, start, end))
+    if len(dialed) > len(gaps):
+        return window.until
+    nxt = start if not dialed else dialed[-1]["claimed_at"] + timedelta(seconds=gaps[len(dialed) - 1])
+    nxt = max(nxt, now)
+    return window.until if nxt >= end else nxt
 
 
 def _missed(tx: Tx, task_id: UUID, window: Window) -> bool:

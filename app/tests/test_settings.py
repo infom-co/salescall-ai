@@ -306,7 +306,7 @@ class ScopesDecidedByUser(unittest.TestCase):
               "callback.period_morning", "callback.period_forenoon", "callback.period_afternoon", "callback.period_evening",
               "callback.period_night",     # かけ直しの言葉ごとの幅は依頼者ごと（2026-10-19。0088）
               "gate.exact_promise_guard", "gate.exact_promise_guard_samples",  # 時刻を指定した約束の前の空け（0090・0091）
-              "callback.exact_slot", "callback.exact_tries", "callback.exact_days")   # 時刻ちょうどの約束の回（0093）
+              "callback.exact_slot", "callback.exact_retry_gaps", "callback.exact_days")   # 時刻ちょうどの約束の回（0093）
     TENANT = ("gate.cross_client_interval", "stop.ai.stop_after_failures", "stop.ai.probe_interval",
               "stop.ai.resume_after_successes", "stop.line.stop_after_failures", "stop.line.probe_interval",
               "stop.line.resume_after_successes", "stop.flapping.window", "stop.flapping.wait_multiplier",
