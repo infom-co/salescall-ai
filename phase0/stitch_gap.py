@@ -84,6 +84,19 @@ def join_with_pause(first_wav: str, pause_s: float, second_wav: str, out_wav: st
     write_wav(CALLEE_DIR / out_wav, np.concatenate([xa, gap, np.frombuffer(b, dtype=np.int16)]).tobytes(), ra)
 
 
+def widen_pause(wav: str, pause_s: float, out_wav: str) -> None:
+    """相手役の声の、最初の文と次の文の間（声の終わりから次の声の始まりまで）を pause_s にする。声も言葉もそのまま（言葉の間を長くあける
+    相手。make_callee_samples.PAUSED）。間の前後 0.05秒は、もとの声のまま残す（語尾と出だしを切らない）。"""
+    pcm, rate, _ = callee_speech(wav)
+    runs = voice_runs(voiced(pcm, rate), 0.15)
+    assert len(runs) >= 2, f"{wav} に文と文の間が無い"
+    keep = 0.05
+    x = np.frombuffer(pcm, dtype=np.int16)
+    head, rest = x[: int((runs[0][1] + keep) * rate)], x[int((runs[1][0] - keep) * rate):]
+    gap = np.zeros(int(max(0.0, pause_s - 2 * keep) * rate), dtype=np.int16)
+    write_wav(CALLEE_DIR / out_wav, np.concatenate([head, gap, rest]).tobytes(), rate)
+
+
 def stitch(callee_wav: str, ai_file: str, gap_s: float, out: Path) -> None:
     ai_pcm, ai_rate = read_wav_pcm16_mono(AUDIO_DIR / ai_file)
     a, keep = callee_audio(callee_wav, ai_rate)            # 声のあとの無音を切る（弱い語尾は残す）

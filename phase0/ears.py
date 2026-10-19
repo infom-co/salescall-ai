@@ -267,6 +267,32 @@ class SonioxEar(Ear):
                 self._final(text)
 
 
+async def soniox_word_times(key: str, pcm: bytes, rate: int, model: str = SONIOX_MODEL) -> list[tuple[str, float, float]]:
+    """録音1本を Soniox で聞き取り、確定した言葉のかけらごとに (文字, 始まりの秒, 終わりの秒) を返す（録音の継ぎ目の位置を決めるため＝
+    g58_name_splice の3回目。通話の中の別の耳＝SonioxEar は文字だけを使う）。"""
+    import websockets
+
+    out: list[tuple[str, float, float]] = []
+    async with websockets.connect(SONIOX_URL, max_size=None) as ws:
+        await ws.send(json.dumps({"api_key": key, "model": model, "audio_format": "pcm_s16le", "sample_rate": rate, "num_channels": 1,
+                                  "language_hints": ["ja"], "enable_endpoint_detection": False}))
+        step = rate // 10 * 2
+        for i in range(0, len(pcm), step):
+            await ws.send(pcm[i:i + step])
+        await ws.send(json.dumps({"type": "finalize"}))
+        await ws.send("")
+        async for msg in ws:
+            d = json.loads(msg)
+            if d.get("error_code") or d.get("error_message"):
+                raise RuntimeError(f"Soniox の誤り：{d.get('error_code')} {str(d.get('error_message'))[:120]}")
+            for t in d.get("tokens") or []:
+                if t.get("is_final") and t.get("text") not in ("<end>", "<fin>") and t.get("start_ms") is not None:
+                    out.append((t["text"], t["start_ms"] / 1000, t["end_ms"] / 1000))
+            if d.get("finished"):
+                break
+    return out
+
+
 def reazon_files(d: Path = REAZON_DIR) -> dict:
     """ReazonSpeech のモデルのファイル（エンコーダ・デコーダ・ジョイナ・言葉の一覧）。無ければ、取り方を書いた誤りを上げる。"""
     def one(kind: str) -> str:

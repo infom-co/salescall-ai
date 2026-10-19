@@ -1,0 +1,507 @@
+{
+  "item": "G-59-before-lite",
+  "saved_at": "2026-10-19T18:18:34",
+  "rows": [
+    {
+      "text": "お電話代わりました。岡田です。",
+      "before": null,
+      "accept": [
+        "ご本人"
+      ],
+      "got": "誤り:RuntimeError",
+      "ok": false
+    },
+    {
+      "text": "お電話代わりました。岡田です。",
+      "before": null,
+      "accept": [
+        "ご本人"
+      ],
+      "got": "誤り:RuntimeError",
+      "ok": false
+    },
+    {
+      "text": "お電話代わりました。岡田です。",
+      "before": null,
+      "accept": [
+        "ご本人"
+      ],
+      "got": "誤り:RuntimeError",
+      "ok": false
+    },
+    {
+      "text": "お電話代わりました、営業部の岡田です。",
+      "before": null,
+      "accept": [
+        "ご本人"
+      ],
+      "got": "誤り:RuntimeError",
+      "ok": false
+    },
+    {
+      "text": "お電話代わりました、営業部の岡田です。",
+      "before": null,
+      "accept": [
+        "ご本人"
+      ],
+      "got": "誤り:RuntimeError",
+      "ok": false
+    },
+    {
+      "text": "お電話代わりました、営業部の岡田です。",
+      "before": null,
+      "accept": [
+        "ご本人"
+      ],
+      "got": "誤り:RuntimeError",
+      "ok": false
+    },
+    {
+      "text": "はい、岡田です。",
+      "before": null,
+      "accept": [
+        "ご本人"
+      ],
+      "got": "誤り:RuntimeError",
+      "ok": false
+    },
+    {
+      "text": "はい、岡田です。",
+      "before": null,
+      "accept": [
+        "ご本人"
+      ],
+      "got": "誤り:RuntimeError",
+      "ok": false
+    },
+    {
+      "text": "はい、岡田です。",
+      "before": null,
+      "accept": [
+        "ご本人"
+      ],
+      "got": "誤り:RuntimeError",
+      "ok": false
+    },
+    {
+      "text": "岡田は私ですが。",
+      "before": null,
+      "accept": [
+        "ご本人"
+      ],
+      "got": "誤り:RuntimeError",
+      "ok": false
+    },
+    {
+      "text": "岡田は私ですが。",
+      "before": null,
+      "accept": [
+        "ご本人"
+      ],
+      "got": "誤り:RuntimeError",
+      "ok": false
+    },
+    {
+      "text": "岡田は私ですが。",
+      "before": null,
+      "accept": [
+        "ご本人"
+      ],
+      "got": "誤り:RuntimeError",
+      "ok": false
+    },
+    {
+      "text": "お電話代わりました。",
+      "before": null,
+      "accept": [
+        "代わった人が話し始めた"
+      ],
+      "got": "誤り:RuntimeError",
+      "ok": false
+    },
+    {
+      "text": "お電話代わりました。",
+      "before": null,
+      "accept": [
+        "代わった人が話し始めた"
+      ],
+      "got": "誤り:RuntimeError",
+      "ok": false
+    },
+    {
+      "text": "お電話代わりました。",
+      "before": null,
+      "accept": [
+        "代わった人が話し始めた"
+      ],
+      "got": "誤り:RuntimeError",
+      "ok": false
+    },
+    {
+      "text": "お電話代わりました。山本です。",
+      "before": null,
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "got": "誤り:RuntimeError",
+      "ok": false
+    },
+    {
+      "text": "お電話代わりました。山本です。",
+      "before": null,
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "got": "誤り:RuntimeError",
+      "ok": false
+    },
+    {
+      "text": "お電話代わりました。山本です。",
+      "before": null,
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "got": "誤り:RuntimeError",
+      "ok": false
+    },
+    {
+      "text": "岡田ですね。少々お待ちください。",
+      "before": null,
+      "accept": [
+        "取り次ぎを待つ"
+      ],
+      "got": "誤り:RuntimeError",
+      "ok": false
+    },
+    {
+      "text": "岡田ですね。少々お待ちください。",
+      "before": null,
+      "accept": [
+        "取り次ぎを待つ"
+      ],
+      "got": "誤り:RuntimeError",
+      "ok": false
+    },
+    {
+      "text": "岡田ですね。少々お待ちください。",
+      "before": null,
+      "accept": [
+        "取り次ぎを待つ"
+      ],
+      "got": "誤り:RuntimeError",
+      "ok": false
+    },
+    {
+      "text": "少々お待ちください。",
+      "before": null,
+      "accept": [
+        "取り次ぎを待つ"
+      ],
+      "got": "誤り:RuntimeError",
+      "ok": false
+    },
+    {
+      "text": "少々お待ちください。",
+      "before": null,
+      "accept": [
+        "取り次ぎを待つ"
+      ],
+      "got": "誤り:RuntimeError",
+      "ok": false
+    },
+    {
+      "text": "少々お待ちください。",
+      "before": null,
+      "accept": [
+        "取り次ぎを待つ"
+      ],
+      "got": "誤り:RuntimeError",
+      "ok": false
+    },
+    {
+      "text": "岡田は本日休みをいただいております。",
+      "before": null,
+      "accept": [
+        "不在"
+      ],
+      "got": "誤り:RuntimeError",
+      "ok": false
+    },
+    {
+      "text": "岡田は本日休みをいただいております。",
+      "before": null,
+      "accept": [
+        "不在"
+      ],
+      "got": "誤り:RuntimeError",
+      "ok": false
+    },
+    {
+      "text": "岡田は本日休みをいただいております。",
+      "before": null,
+      "accept": [
+        "不在"
+      ],
+      "got": "誤り:RuntimeError",
+      "ok": false
+    },
+    {
+      "text": "岡田ですね。",
+      "before": null,
+      "accept": [
+        "決められない",
+        "取り次ぎを待つ"
+      ],
+      "got": "誤り:RuntimeError",
+      "ok": false
+    },
+    {
+      "text": "岡田ですね。",
+      "before": null,
+      "accept": [
+        "決められない",
+        "取り次ぎを待つ"
+      ],
+      "got": "誤り:RuntimeError",
+      "ok": false
+    },
+    {
+      "text": "岡田ですね。",
+      "before": null,
+      "accept": [
+        "決められない",
+        "取り次ぎを待つ"
+      ],
+      "got": "誤り:RuntimeError",
+      "ok": false
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "before": "岡田ですね。少々お待ちください。",
+      "accept": [
+        "ご本人"
+      ],
+      "got": "誤り:RuntimeError",
+      "ok": false
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "before": "岡田ですね。少々お待ちください。",
+      "accept": [
+        "ご本人"
+      ],
+      "got": "誤り:RuntimeError",
+      "ok": false
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "before": "岡田ですね。少々お待ちください。",
+      "accept": [
+        "ご本人"
+      ],
+      "got": "誤り:RuntimeError",
+      "ok": false
+    },
+    {
+      "text": "お電話代わりました。",
+      "before": "岡田ですね。少々お待ちください。",
+      "accept": [
+        "ご本人"
+      ],
+      "got": "誤り:RuntimeError",
+      "ok": false
+    },
+    {
+      "text": "お電話代わりました。",
+      "before": "岡田ですね。少々お待ちください。",
+      "accept": [
+        "ご本人"
+      ],
+      "got": "誤り:RuntimeError",
+      "ok": false
+    },
+    {
+      "text": "お電話代わりました。",
+      "before": "岡田ですね。少々お待ちください。",
+      "accept": [
+        "ご本人"
+      ],
+      "got": "誤り:RuntimeError",
+      "ok": false
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "before": "それでは岡田にお繋ぎします。",
+      "accept": [
+        "ご本人"
+      ],
+      "got": "誤り:RuntimeError",
+      "ok": false
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "before": "それでは岡田にお繋ぎします。",
+      "accept": [
+        "ご本人"
+      ],
+      "got": "誤り:RuntimeError",
+      "ok": false
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "before": "それでは岡田にお繋ぎします。",
+      "accept": [
+        "ご本人"
+      ],
+      "got": "誤り:RuntimeError",
+      "ok": false
+    },
+    {
+      "text": "お電話代わりました。岡田です。",
+      "before": "岡田ですね。少々お待ちください。",
+      "accept": [
+        "ご本人"
+      ],
+      "got": "誤り:RuntimeError",
+      "ok": false
+    },
+    {
+      "text": "お電話代わりました。岡田です。",
+      "before": "岡田ですね。少々お待ちください。",
+      "accept": [
+        "ご本人"
+      ],
+      "got": "誤り:RuntimeError",
+      "ok": false
+    },
+    {
+      "text": "お電話代わりました。岡田です。",
+      "before": "岡田ですね。少々お待ちください。",
+      "accept": [
+        "ご本人"
+      ],
+      "got": "誤り:RuntimeError",
+      "ok": false
+    },
+    {
+      "text": "お電話代わりました。山本です。",
+      "before": "岡田ですね。少々お待ちください。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "got": "誤り:RuntimeError",
+      "ok": false
+    },
+    {
+      "text": "お電話代わりました。山本です。",
+      "before": "岡田ですね。少々お待ちください。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "got": "誤り:RuntimeError",
+      "ok": false
+    },
+    {
+      "text": "お電話代わりました。山本です。",
+      "before": "岡田ですね。少々お待ちください。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "got": "誤り:RuntimeError",
+      "ok": false
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "before": "担当の者に代わりますので、少々お待ちください。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "got": "誤り:RuntimeError",
+      "ok": false
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "before": "担当の者に代わりますので、少々お待ちください。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "got": "誤り:RuntimeError",
+      "ok": false
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "before": "担当の者に代わりますので、少々お待ちください。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "got": "誤り:RuntimeError",
+      "ok": false
+    },
+    {
+      "text": "お電話代わりました。",
+      "before": "岡田は外出しておりますので、別の者に代わります。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "got": "誤り:RuntimeError",
+      "ok": false
+    },
+    {
+      "text": "お電話代わりました。",
+      "before": "岡田は外出しておりますので、別の者に代わります。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "got": "誤り:RuntimeError",
+      "ok": false
+    },
+    {
+      "text": "お電話代わりました。",
+      "before": "岡田は外出しておりますので、別の者に代わります。",
+      "accept": [
+        "代わった人が話し始めた",
+        "決められない"
+      ],
+      "got": "誤り:RuntimeError",
+      "ok": false
+    },
+    {
+      "text": "岡田は本日休みをいただいております。",
+      "before": "岡田ですね。少々お待ちください。",
+      "accept": [
+        "不在"
+      ],
+      "got": "誤り:RuntimeError",
+      "ok": false
+    },
+    {
+      "text": "岡田は本日休みをいただいております。",
+      "before": "岡田ですね。少々お待ちください。",
+      "accept": [
+        "不在"
+      ],
+      "got": "誤り:RuntimeError",
+      "ok": false
+    },
+    {
+      "text": "岡田は本日休みをいただいております。",
+      "before": "岡田ですね。少々お待ちください。",
+      "accept": [
+        "不在"
+      ],
+      "got": "誤り:RuntimeError",
+      "ok": false
+    }
+  ]
+}

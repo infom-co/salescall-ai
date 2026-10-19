@@ -1,0 +1,13 @@
+{
+  "item": "G-60",
+  "saved_at": "2026-10-19T12:54:08",
+  "model": "gemini-3.8-live",
+  "vad_signal": true,
+  "rows": [
+    {
+      "wav": "Sadachbia_hold_target.wav",
+      "error": "ValueError('explicit_vad_signal parameter is only supported in Gemini Enterprise Agent Platform mode, not in Gemini Developer API mode.')",
+      "rep": 0
+    }
+  ]
+}

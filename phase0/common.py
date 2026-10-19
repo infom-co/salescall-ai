@@ -228,7 +228,9 @@ class KeyRing:
     - 1分の上限（429。あと数十秒で使える）：同じキーで、言われた秒数だけ待ってから続ける。そもそも当たらないように、同じキー・同じモデルの
       問い合わせは min_interval_s 秒あける（無料枠の文字のモデルは1分に5回まで＝ユーザーが管理画面で確かめた表）。
       ⛔ 2026-10-16：3秒おきに聞いて1分の上限に当たり、1日の上限と取り違えて次のキーへ進んでいた
-    - 1日の上限（429。あと数時間）：そのモデルでは、そのキーを飛ばして次のキーで続ける
+    - 1日の上限（429。上限の名前に PerDay）：そのモデルでは、そのキーを DAILY_REST_S 秒休ませて、次のキーで続ける（休み明けに1回問い合わせ直す）。
+      ⛔ 2026-10-19：その日いっぱい使わない形にしたら、16時15分（世界標準時）に「1日の上限」と答えたキーのうち5本が、2時間後には使えたのに、
+      使わないままだった（その日の記録で、使えるキー11本がすべて止まり、意味の判定が1つも答えなかった）
     - プロジェクトが止められている（403）：そのキーを、どのモデルでも飛ばす
     ⚠️ 上限はプロジェクトごとに数えられる。同じプロジェクトのキーなら、次のキーもすぐ上限に当たる。"""
 
@@ -236,13 +238,13 @@ class KeyRing:
         self.keys = [PROXY_PLACEHOLDER] if getattr(args, "proxy_key", False) else load_keys(args.env, args.key_name)
         self.start = getattr(args, "key_index", 0)
         self.min_interval_s = min_interval_s
-        self.spent: dict[str, set[int]] = {}   # モデル ⇒ 1日の上限に当たったキーの番号
+        self.spent: dict[str, dict[int, float]] = {}  # モデル ⇒ 1日の上限に当たったキーの番号 ⇒ 休み明けの時刻（time.time）
         self.denied: set[int] = set()          # プロジェクトが止められているキーの番号
         self._clients: dict[int, object] = {}
         self._last: dict[tuple[int, str], float] = {}
         self._cool: dict[tuple[int, str], float] = {}  # 会話のモデルで上限に当たったキーの、休み明けの時刻（acall）
-        # その日の状態を覚えておく（上限に当たったキーに、次の実行でまた問い合わせない）。キーの値は書かない（指紋だけ）。
-        # 1日の上限は、太平洋時間の0時に戻る（Google の決まり）ので、その日付で分ける
+        # 状態を覚えておく（休み中のキーに、次の実行でまた問い合わせない）。キーの値は書かない（指紋だけ）。止められたキーは日付で分け
+        # （日が替われば確かめ直す）、1日の上限のキーは休み明けの時刻で分ける
         self.state_path = state_path if state_path is not None else (None if getattr(args, "dry_run", False) else RESULTS_DIR / "keyring_state.json")
         self._load()
 
@@ -261,16 +263,45 @@ class KeyRing:
         fp = {k.fingerprint: i for i, k in enumerate(self.keys)}
         if st.get("day") == self._today():  # 止められたキーも、日が替われば確かめ直す（ユーザーが管理画面で直すことがある）
             self.denied = {fp[f] for f in st.get("denied", []) if f in fp}
-            self.spent = {m: {fp[f] for f in fs if f in fp} for m, fs in st.get("spent", {}).items()}
+        # 前の形（その日いっぱい＝指紋の並び）は読まない（⛔ 戻ったキーまで止めていた）
+        self.spent = {m: {fp[f]: t for f, t in fs.items() if f in fp} for m, fs in st.get("spent", {}).items() if isinstance(fs, dict)}
 
     def _save(self) -> None:
+        """その日の状態を書く。同じファイルに書くほかの KeyRing（同じ実行の会話のモデルと意味の判定・同時に流すほかの試験）の記録とは、
+        合わせて書く（⛔ 2026-10-19 の見直し：後から書いたほうが、先に書いたほうの「上限」「止められた」を消していた）。"""
         if not self.state_path:
             return
         RESULTS_DIR.mkdir(exist_ok=True)
-        Path(self.state_path).write_text(json.dumps({
-            "day": self._today(), "denied": sorted(self.keys[i].fingerprint for i in self.denied),
-            "spent": {m: sorted(self.keys[i].fingerprint for i in v) for m, v in self.spent.items()}}, ensure_ascii=False, indent=2),
-            encoding="utf-8")
+        import time
+        day, denied = self._today(), {self.keys[i].fingerprint for i in self.denied}
+        spent = {m: {self.keys[i].fingerprint: t for i, t in v.items()} for m, v in self.spent.items()}
+        try:
+            old = json.loads(Path(self.state_path).read_text(encoding="utf-8"))
+        except Exception:
+            old = {}
+        if old.get("day") == day:
+            denied |= set(old.get("denied", []))
+        for m, fs in old.get("spent", {}).items():
+            if isinstance(fs, dict):
+                for f, t in fs.items():
+                    spent.setdefault(m, {})[f] = max(t, spent.get(m, {}).get(f, 0))
+        now = time.time()  # 休み明けを過ぎたものは残さない
+        spent = {m: {f: t for f, t in v.items() if t > now} for m, v in spent.items()}
+        Path(self.state_path).write_text(json.dumps({"day": day, "denied": sorted(denied), "spent": {m: v for m, v in spent.items() if v}},
+                                                    ensure_ascii=False, indent=2), encoding="utf-8")
+
+    DAILY_REST_S = 1800.0  # 1日の上限に当たったキーを休ませる秒（休み明けに1回問い合わせ直す）
+
+    def resting(self, i: int, model: str) -> bool:
+        """そのキーが、そのモデルで1日の上限の休み中か。"""
+        import time
+        return self.spent.get(model, {}).get(i, 0.0) > time.time()
+
+    def rest(self, i: int, model: str) -> None:
+        """1日の上限に当たったキーを DAILY_REST_S 秒休ませる（記録して、ほかの実行とも分け合う）。"""
+        import time
+        self.spent.setdefault(model, {})[i] = time.time() + self.DAILY_REST_S
+        self._save()
 
     def client(self, i: int | None = None):
         i = self.start if i is None else i
@@ -285,7 +316,7 @@ class KeyRing:
         import time
         for k in range(len(self.keys) if rotate else 1):
             i = (self.start + k) % len(self.keys)
-            if i in self.denied or i in self.spent.get(model, set()):
+            if i in self.denied or self.resting(i, model):
                 continue
             # 1分の上限で待つのは3回まで（次のキーへ進めるとき）。自分のキーだけで流すとき（rotate=False）は、1分の上限なら待ち続ける
             # （⛔ 2026-10-18：3回続いたらその流れを抜けさせていて、全部の流れが抜け、判定が1,105件残った。1日の上限ではなかった）
@@ -310,9 +341,8 @@ class KeyRing:
                         say(f"{self.keys[i].label} は {model} の1分の上限に当たりました ⇒ {wait:.0f}秒待って続けます")
                         time.sleep(min(wait, 90.0) + 1)
                         continue
-                    self.spent.setdefault(model, set()).add(i)
-                    self._save()
-                    say(f"{self.keys[i].label} は {model} の1日の上限に当たりました ⇒ 次のキーで続けます")
+                    self.rest(i, model)
+                    say(f"{self.keys[i].label} は {model} の1日の上限に当たりました ⇒ {self.DAILY_REST_S / 60:.0f}分休ませて、次のキーで続けます")
                     break
         if not rotate:
             raise KeyUnusable(f"{self.keys[self.start].label} では {model} を使えません")
@@ -321,13 +351,14 @@ class KeyRing:
     LIVE_COOL_S = 600.0     # 会話のモデルで上限に当たったキーを休ませる秒（この実行の中だけ）
     LIVE_MAX_WAIT_S = 1800.0
 
-    async def acall(self, model: str, fn):
+    async def acall(self, model: str, fn, max_wait_s: float | None = None):
         """会話のモデル（つなぎっぱなしの接続。通話の試験）の call：await fn(client) を、使えるキーで呼ぶ。戻り値＝(結果, キーの番号)。
         ⛔ 2026-10-17：通話の試験（g14_listen）は1つのキーだけでつないでいて、6つの声を同時に流すと上限に当たり、153本のうち104本が止まった。
         - プロジェクトが止められている ⇒ call と同じく、そのキーは使わない（記録する）
         - 上限 ⇒ そのキーを、この実行の中で LIVE_COOL_S 秒休ませて、次のキーで fn を初めからやり直す（会話のモデルの上限の答えには、
-          あと何秒かが書かれておらず、1分の上限か1日の上限かを見分けられないので、1日ぶん止める記録はしない）
-        - どのキーも休み中なら、いちばん早く空くまで待つ（合わせて LIVE_MAX_WAIT_S 秒まで）"""
+          あと何秒かが書かれておらず、1分の上限か1日の上限かを見分けられないので、記録はしない）。1日の上限と書いてある
+          （文字のモデル）ときだけ、call と同じく DAILY_REST_S 秒休ませて記録する（rest）
+        - どのキーも休み中なら、いちばん早く空くまで待つ（合わせて max_wait_s 秒まで。既定 LIVE_MAX_WAIT_S。通話の中の判定は待たない＝0）"""
         import asyncio
         import time
         cool = self._cool
@@ -335,7 +366,7 @@ class KeyRing:
         while True:
             for k in range(len(self.keys)):
                 i = (self.start + k) % len(self.keys)
-                if i in self.denied or i in self.spent.get(model, set()) or cool.get((i, model), 0) > time.monotonic():
+                if i in self.denied or self.resting(i, model) or cool.get((i, model), 0) > time.monotonic():
                     continue
                 try:
                     return await fn(self.client(i)), i
@@ -351,14 +382,21 @@ class KeyRing:
                     # 通話の試験の153本で判定が1つも間に合わなかった）。書いていなければ、会話のモデルと同じく LIVE_COOL_S
                     # 待つ秒が無くても、1分の上限と書いてあれば（上限の名前に PerMinute）、call と同じく30秒（⛔ 2026-10-18：判定の測り直しと
                     # 同時に流した通話の中の判定が、1分の上限のたびにキーを10分休ませ、判定が通話の中に届かなかった）
+                    if is_daily(exc):
+                        # 1日の上限と書いてある（文字のモデル＝意味の判定）：call と同じく DAILY_REST_S 秒休ませる（記録して、ほかの実行とも
+                        # 分け合う）。⛔ 2026-10-19：10分休ませるだけで記録もしなかったので、休み明けのたびに、また実行が替わるたびに、上限の
+                        # キーへ順に問い合わせ直し、1回の判定に7.9秒かかった。⛔ その次に「その日は使わない」にしたら、戻ったキーまで止めた
+                        self.rest(i, model)
+                        say(f"{self.keys[i].label} は {model} の1日の上限に当たりました ⇒ {self.DAILY_REST_S / 60:.0f}分休ませて、次のキーで初めからやり直します")
+                        continue
                     after = retry_after_s(exc)
                     if after is None and "PerMinute" in str(exc):
                         after = 30.0
-                    rest = after + 1 if (after is not None and not is_daily(exc)) else self.LIVE_COOL_S
+                    rest = after + 1 if after is not None else self.LIVE_COOL_S
                     cool[(i, model)] = time.monotonic() + rest
                     say(f"{self.keys[i].label} は {model} の上限に当たりました ⇒ {rest:.0f}秒休ませて、次のキーで初めからやり直します")
             ends = [t for (i, m), t in cool.items() if m == model and i not in self.denied]
-            if not ends or waited >= self.LIVE_MAX_WAIT_S:
+            if not ends or waited >= (self.LIVE_MAX_WAIT_S if max_wait_s is None else max_wait_s):
                 raise RuntimeError(f"どのキーでも {model} を使えません（上限・プロジェクトが止められている）")
             pause = max(1.0, min(ends) - time.monotonic() + 1)
             say(f"どのキーも {model} の上限で休み中 ⇒ {pause:.0f}秒待ちます")

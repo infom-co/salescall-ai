@@ -65,11 +65,13 @@ HOW = {"moushiwake": "電話で、相手に聞き取れなかったことを申�
        "purpose": "電話で、お客様にお電話の用件を伝えるように、丁寧に、柔らかく",
        # 「AIですか？」への決まった言い方（✅ 2026-10-19 ユーザー「何か問題でもございましたでしょうか？」）：問い詰める・身構える調子にしない
        "ai": "電話で、お客様に、何か気になる点があったかを、心配するように、丁寧に、柔らかくお聞きするように",
-       "voicemail": "留守番電話に伝言を残すように、丁寧に、落ち着いた調子で、はっきりと"}
+       "voicemail": "留守番電話に伝言を残すように、丁寧に、落ち着いた調子で、はっきりと",
+       # 重ねて「人ですか」と聞かれたとき（phrases.AI_ASKED_AGAIN）：身構えず、誠実に、落ち着いて（言い訳のような早口にしない）
+       "ai_again": "電話で、不安にさせてしまったお客様に、心から申し訳なく思いながら、誠実に、落ち着いた調子で、言葉の途中で区切らずに"}
 DEFAULT_HOW = "電話で、相手の話に相づちを打つように、短く"
 MAX_S = {"hai": 1.0, "shouchi": 1.4, "arigatou": 1.6, "shitsurei": 1.6, "moushiwake": 1.6, "moushiwake_heavy": 1.8, "lead_soredeha": 1.0,
          "lead_tsuzukimashite": 1.2, "lead_deha": 0.8, "closing": 8.0, "closing_declined": 7.0, "wait": 3.5, "wait_heavy": 3.8, "question": 5.0,
-         "greeting": 2.5, "intro": 4.5, "purpose": 4.5, "ai": 3.0, "voicemail": 12.0}
+         "greeting": 2.5, "intro": 4.5, "purpose": 4.5, "ai": 3.0, "voicemail": 12.0, "ai_again": 7.0}
 # 録音の中の名前ごとの読み方の鍵（無ければ中の名前のまま）。かけ直しで足す質問は、質問の読み方（⛔ 2026-10-19 の見直しで見つけた漏れ：
 # 足す質問を契約者の単位の録音に入れたとき、読み方も長さの上限も無く、作ると止まった＝ClipTablesTest で、表の漏れを見る）
 HOW_OF = {f"callback_{k}": "question" for k in CALLBACK_ASK}

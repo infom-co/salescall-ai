@@ -1,0 +1,1837 @@
+{
+  "item": "G-60",
+  "saved_at": "2026-10-19T13:05:11",
+  "model": "gemini-3.8-live",
+  "vad_signal": false,
+  "rows": [
+    {
+      "wav": "Sadachbia_hold_target.wav",
+      "tail_s": 0.36,
+      "events": [
+        [
+          -2.298,
+          "activity",
+          "ACTIVITY_START@0.160s"
+        ],
+        [
+          1.153,
+          "heard",
+          "岡田ですね。少々お待ちください。"
+        ],
+        [
+          1.153,
+          "activity",
+          "ACTIVITY_END@3.520s"
+        ],
+        [
+          1.154,
+          "ai_said",
+          "かしこまりました。お待ちしております。"
+        ],
+        [
+          1.154,
+          "audio",
+          null
+        ],
+        [
+          3.298,
+          "turn_complete",
+          null
+        ]
+      ],
+      "rep": 0
+    },
+    {
+      "wav": "Sadachbia_taken_over_okada.wav",
+      "tail_s": 0.39,
+      "events": [
+        [
+          -1.804,
+          "activity",
+          "ACTIVITY_START@0.160s"
+        ],
+        [
+          1.512,
+          "heard",
+          "お電話変わりました。岡田です。"
+        ],
+        [
+          1.512,
+          "activity",
+          "ACTIVITY_END@3.360s"
+        ],
+        [
+          1.519,
+          "ai_said",
+          "岡田様、お世話になっております。"
+        ],
+        [
+          1.519,
+          "audio",
+          null
+        ],
+        [
+          3.588,
+          "turn_complete",
+          null
+        ]
+      ],
+      "rep": 0
+    },
+    {
+      "wav": "Sadachbia_taken_over.wav",
+      "tail_s": 0.42,
+      "events": [
+        [
+          -2.064,
+          "activity",
+          "ACTIVITY_START@0.160s"
+        ],
+        [
+          1.256,
+          "heard",
+          "お電話代わりました。担当の山田です。"
+        ],
+        [
+          1.256,
+          "activity",
+          "ACTIVITY_END@3.440s"
+        ],
+        [
+          1.256,
+          "ai_said",
+          "お世話になっております。山田様、"
+        ],
+        [
+          1.256,
+          "audio",
+          null
+        ],
+        [
+          1.493,
+          "ai_said",
+          "お電話ありがとうございます。"
+        ],
+        [
+          5.359,
+          "turn_complete",
+          null
+        ]
+      ],
+      "rep": 0
+    },
+    {
+      "wav": "Puck_pause1500_three.wav",
+      "tail_s": 0.47,
+      "events": [
+        [
+          -0.565,
+          "activity",
+          "ACTIVITY_START@0.440s"
+        ]
+      ],
+      "rep": 0
+    },
+    {
+      "wav": "Puck_pause700_datetime.wav",
+      "tail_s": 0.46,
+      "events": [
+        [
+          -3.687,
+          "activity",
+          "ACTIVITY_START@0.440s"
+        ],
+        [
+          1.362,
+          "heard",
+          "ええとですね、15日の午後2時でお願いします。"
+        ],
+        [
+          1.362,
+          "activity",
+          "ACTIVITY_END@5.400s"
+        ],
+        [
+          1.514,
+          "ai_said",
+          "かしこまりました。15日"
+        ],
+        [
+          1.514,
+          "audio",
+          null
+        ],
+        [
+          1.855,
+          "ai_said",
+          "の午後2時で"
+        ],
+        [
+          1.998,
+          "ai_said",
+          "承知いたしました。"
+        ],
+        [
+          5.671,
+          "turn_complete",
+          null
+        ]
+      ],
+      "rep": 0
+    },
+    {
+      "wav": "Sadachbia_voicemail.wav",
+      "tail_s": 0.26,
+      "events": [
+        [
+          -7.13,
+          "activity",
+          "ACTIVITY_START@0.200s"
+        ],
+        [
+          2.053,
+          "heard",
+          "ただいま。電話に出ることができません。ピーッという発信音の後に、お名前とご用件をお話しください。"
+        ],
+        [
+          2.053,
+          "activity",
+          "ACTIVITY_END@8.440s"
+        ],
+        [
+          2.822,
+          "ai_said",
+          "承知いたしました。発信音の"
+        ],
+        [
+          2.822,
+          "audio",
+          null
+        ],
+        [
+          3.203,
+          "ai_said",
+          "後にお話しいたします。"
+        ]
+      ],
+      "rep": 0
+    },
+    {
+      "wav": "Sadachbia_ivr.wav",
+      "tail_s": 0.33,
+      "events": [
+        [
+          -6.313,
+          "activity",
+          "ACTIVITY_START@0.160s"
+        ],
+        [
+          1.255,
+          "heard",
+          "お電話ありがとうございます。ご予約の方は1番を、その他のお問い合わせの方は2番を押してください。"
+        ],
+        [
+          1.255,
+          "activity",
+          "ACTIVITY_END@7.560s"
+        ],
+        [
+          1.825,
+          "ai_said",
+          "かしこまりました。"
+        ],
+        [
+          1.825,
+          "audio",
+          null
+        ],
+        [
+          3.0,
+          "turn_complete",
+          null
+        ]
+      ],
+      "rep": 0
+    },
+    {
+      "wav": "Leda_affirm.wav",
+      "tail_s": 0.39,
+      "events": [],
+      "rep": 0
+    },
+    {
+      "wav": "Leda_datetime_pm.wav",
+      "tail_s": 0.41,
+      "events": [
+        [
+          -2.204,
+          "activity",
+          "ACTIVITY_START@0.200s"
+        ],
+        [
+          1.418,
+          "heard",
+          "15 日の午後 2 時でお願いします。"
+        ],
+        [
+          1.418,
+          "activity",
+          "ACTIVITY_END@3.640s"
+        ],
+        [
+          1.431,
+          "ai_said",
+          "承知いたしました。十五日の"
+        ],
+        [
+          1.431,
+          "audio",
+          null
+        ],
+        [
+          1.637,
+          "ai_said",
+          "午後二時でお"
+        ],
+        [
+          5.555,
+          "ai_said",
+          "受けいたします。"
+        ],
+        [
+          6.403,
+          "turn_complete",
+          null
+        ]
+      ],
+      "rep": 0
+    },
+    {
+      "wav": "Sadachbia_hold_target.wav",
+      "tail_s": 0.36,
+      "events": [
+        [
+          -2.156,
+          "activity",
+          "ACTIVITY_START@0.160s"
+        ],
+        [
+          1.154,
+          "heard",
+          "岡田ですね。少々お待ちください。"
+        ],
+        [
+          1.154,
+          "activity",
+          "ACTIVITY_END@3.520s"
+        ],
+        [
+          1.154,
+          "ai_said",
+          "かしこまりました。お待ちしております。"
+        ],
+        [
+          1.154,
+          "audio",
+          null
+        ],
+        [
+          3.212,
+          "turn_complete",
+          null
+        ]
+      ],
+      "rep": 1
+    },
+    {
+      "wav": "Sadachbia_taken_over_okada.wav",
+      "tail_s": 0.39,
+      "events": [
+        [
+          -1.772,
+          "activity",
+          "ACTIVITY_START@0.160s"
+        ],
+        [
+          1.468,
+          "heard",
+          "お電話変わりました。岡田です。"
+        ],
+        [
+          1.468,
+          "activity",
+          "ACTIVITY_END@3.360s"
+        ],
+        [
+          1.468,
+          "ai_said",
+          "岡田様、お世話になっております。"
+        ],
+        [
+          1.468,
+          "audio",
+          null
+        ],
+        [
+          3.65,
+          "turn_complete",
+          null
+        ]
+      ],
+      "rep": 1
+    },
+    {
+      "wav": "Sadachbia_taken_over.wav",
+      "tail_s": 0.42,
+      "events": [
+        [
+          -2.089,
+          "activity",
+          "ACTIVITY_START@0.160s"
+        ],
+        [
+          1.233,
+          "heard",
+          "お電話変わりました。担当の山田です。"
+        ],
+        [
+          1.233,
+          "activity",
+          "ACTIVITY_END@3.440s"
+        ],
+        [
+          1.252,
+          "ai_said",
+          "山田様、お世話になっております。"
+        ],
+        [
+          1.252,
+          "audio",
+          null
+        ],
+        [
+          3.12,
+          "turn_complete",
+          null
+        ]
+      ],
+      "rep": 1
+    },
+    {
+      "wav": "Puck_pause1500_three.wav",
+      "tail_s": 0.47,
+      "events": [
+        [
+          -2.589,
+          "activity",
+          "ACTIVITY_START@0.440s"
+        ],
+        [
+          -0.475,
+          "heard",
+          "ええとですね。"
+        ],
+        [
+          -0.475,
+          "activity",
+          "ACTIVITY_END@2.520s"
+        ],
+        [
+          -0.475,
+          "ai_said",
+          "はい、承知いたしました。"
+        ],
+        [
+          -0.475,
+          "audio",
+          null
+        ],
+        [
+          -0.091,
+          "activity",
+          "ACTIVITY_START@2.920s"
+        ],
+        [
+          -0.091,
+          "interrupted",
+          null
+        ],
+        [
+          -0.062,
+          "turn_complete",
+          null
+        ],
+        [
+          1.731,
+          "heard",
+          "3 人です。"
+        ],
+        [
+          1.732,
+          "activity",
+          "ACTIVITY_END@4.680s"
+        ],
+        [
+          1.747,
+          "ai_said",
+          "3人ですね、かしこまりました。"
+        ],
+        [
+          1.747,
+          "audio",
+          null
+        ],
+        [
+          3.751,
+          "turn_complete",
+          null
+        ]
+      ],
+      "rep": 1
+    },
+    {
+      "wav": "Puck_pause700_datetime.wav",
+      "tail_s": 0.46,
+      "events": [
+        [
+          -3.722,
+          "activity",
+          "ACTIVITY_START@0.440s"
+        ],
+        [
+          1.334,
+          "heard",
+          "ええとですね。15 日の午後 2 時でお願いします。"
+        ],
+        [
+          1.334,
+          "activity",
+          "ACTIVITY_END@5.400s"
+        ],
+        [
+          1.334,
+          "ai_said",
+          "承知いたしました。15"
+        ],
+        [
+          1.334,
+          "audio",
+          null
+        ],
+        [
+          1.509,
+          "ai_said",
+          "日の午後2時で"
+        ],
+        [
+          1.618,
+          "ai_said",
+          "承ります。"
+        ],
+        [
+          5.082,
+          "turn_complete",
+          null
+        ]
+      ],
+      "rep": 1
+    },
+    {
+      "wav": "Sadachbia_voicemail.wav",
+      "tail_s": 0.26,
+      "events": [
+        [
+          -5.128,
+          "activity",
+          "ACTIVITY_START@0.200s"
+        ],
+        [
+          1.374,
+          "heard",
+          "ただいま。電話に出ることができません。ピーッという発信音の後に、お名前とご用件をお話しください。"
+        ],
+        [
+          1.375,
+          "activity",
+          "ACTIVITY_END@8.440s"
+        ],
+        [
+          2.78,
+          "ai_said",
+          "承知いたしました。また後ほど"
+        ],
+        [
+          2.78,
+          "audio",
+          null
+        ],
+        [
+          2.981,
+          "ai_said",
+          "お電話いたします。"
+        ],
+        [
+          6.014,
+          "turn_complete",
+          null
+        ]
+      ],
+      "rep": 1
+    },
+    {
+      "wav": "Sadachbia_ivr.wav",
+      "tail_s": 0.33,
+      "events": [
+        [
+          -6.307,
+          "activity",
+          "ACTIVITY_START@0.160s"
+        ],
+        [
+          1.254,
+          "heard",
+          "お電話ありがとうございます。ご予約の方は1番を、その他のお問い合わせの方は2番を押してください。"
+        ],
+        [
+          1.254,
+          "activity",
+          "ACTIVITY_END@7.560s"
+        ],
+        [
+          1.433,
+          "ai_said",
+          "はい、承知いたしました。"
+        ],
+        [
+          1.433,
+          "audio",
+          null
+        ],
+        [
+          3.175,
+          "turn_complete",
+          null
+        ]
+      ],
+      "rep": 1
+    },
+    {
+      "wav": "Leda_affirm.wav",
+      "tail_s": 0.39,
+      "events": [
+        [
+          -0.96,
+          "activity",
+          "ACTIVITY_START@0.320s"
+        ],
+        [
+          1.263,
+          "heard",
+          "はい、そうです。"
+        ],
+        [
+          1.264,
+          "activity",
+          "ACTIVITY_END@2.480s"
+        ],
+        [
+          1.278,
+          "ai_said",
+          "承知いたしました。"
+        ],
+        [
+          1.278,
+          "audio",
+          null
+        ],
+        [
+          2.538,
+          "turn_complete",
+          null
+        ]
+      ],
+      "rep": 1
+    },
+    {
+      "wav": "Leda_datetime_pm.wav",
+      "tail_s": 0.41,
+      "events": [
+        [
+          -2.092,
+          "activity",
+          "ACTIVITY_START@0.200s"
+        ],
+        [
+          1.476,
+          "heard",
+          "15 日の午後 2 時でお願いします。"
+        ],
+        [
+          1.476,
+          "activity",
+          "ACTIVITY_END@3.640s"
+        ],
+        [
+          1.505,
+          "ai_said",
+          "承知いたしました、15日の"
+        ],
+        [
+          1.505,
+          "audio",
+          null
+        ],
+        [
+          1.93,
+          "ai_said",
+          "午後2時ですね。"
+        ],
+        [
+          4.578,
+          "turn_complete",
+          null
+        ]
+      ],
+      "rep": 1
+    },
+    {
+      "wav": "Sadachbia_hold_target.wav",
+      "tail_s": 0.36,
+      "events": [
+        [
+          -2.277,
+          "activity",
+          "ACTIVITY_START@0.160s"
+        ],
+        [
+          1.156,
+          "heard",
+          "岡田ですね。少々お待ちください。"
+        ],
+        [
+          1.157,
+          "activity",
+          "ACTIVITY_END@3.520s"
+        ],
+        [
+          1.277,
+          "ai_said",
+          "かしこしました。お待ちしております。"
+        ],
+        [
+          1.277,
+          "audio",
+          null
+        ],
+        [
+          3.49,
+          "turn_complete",
+          null
+        ]
+      ],
+      "rep": 2
+    },
+    {
+      "wav": "Sadachbia_taken_over_okada.wav",
+      "tail_s": 0.39,
+      "events": [
+        [
+          -1.821,
+          "activity",
+          "ACTIVITY_START@0.160s"
+        ],
+        [
+          1.485,
+          "heard",
+          "お電話変わりました。岡田です。"
+        ],
+        [
+          1.485,
+          "activity",
+          "ACTIVITY_END@3.360s"
+        ],
+        [
+          2.125,
+          "ai_said",
+          "お世話になっております。岡田様で"
+        ],
+        [
+          2.125,
+          "audio",
+          null
+        ],
+        [
+          2.433,
+          "ai_said",
+          "いらっしゃいますね。"
+        ],
+        [
+          4.973,
+          "turn_complete",
+          null
+        ]
+      ],
+      "rep": 2
+    },
+    {
+      "wav": "Sadachbia_taken_over.wav",
+      "tail_s": 0.42,
+      "events": [
+        [
+          -1.997,
+          "activity",
+          "ACTIVITY_START@0.160s"
+        ],
+        [
+          1.32,
+          "heard",
+          "お電話代わりました。担当の山田です。"
+        ],
+        [
+          1.32,
+          "activity",
+          "ACTIVITY_END@3.440s"
+        ],
+        [
+          1.392,
+          "ai_said",
+          "お世話になっております。"
+        ],
+        [
+          1.392,
+          "audio",
+          null
+        ],
+        [
+          2.824,
+          "turn_complete",
+          null
+        ]
+      ],
+      "rep": 2
+    },
+    {
+      "wav": "Puck_pause1500_three.wav",
+      "tail_s": 0.47,
+      "events": [
+        [
+          -2.701,
+          "activity",
+          "ACTIVITY_START@0.440s"
+        ],
+        [
+          -0.595,
+          "heard",
+          "ええとですね。"
+        ],
+        [
+          -0.595,
+          "activity",
+          "ACTIVITY_END@2.520s"
+        ],
+        [
+          -0.169,
+          "activity",
+          "ACTIVITY_START@2.920s"
+        ],
+        [
+          1.652,
+          "heard",
+          "3 人です。"
+        ],
+        [
+          1.652,
+          "activity",
+          "ACTIVITY_END@4.680s"
+        ],
+        [
+          4.916,
+          "ai_said",
+          "承知いたしました。ご協力"
+        ],
+        [
+          4.916,
+          "audio",
+          null
+        ],
+        [
+          5.156,
+          "ai_said",
+          "ありがとうございます。"
+        ]
+      ],
+      "rep": 2
+    },
+    {
+      "wav": "Puck_pause700_datetime.wav",
+      "tail_s": 0.46,
+      "events": [
+        [
+          -3.69,
+          "activity",
+          "ACTIVITY_START@0.440s"
+        ],
+        [
+          1.359,
+          "heard",
+          "ええとですね。15 日の午後 2 時でお願いします。"
+        ],
+        [
+          1.359,
+          "activity",
+          "ACTIVITY_END@5.400s"
+        ],
+        [
+          1.369,
+          "ai_said",
+          "承知いたしました。15"
+        ],
+        [
+          1.369,
+          "audio",
+          null
+        ],
+        [
+          2.177,
+          "ai_said",
+          "日の午後2時で"
+        ],
+        [
+          2.736,
+          "ai_said",
+          "承ります。"
+        ],
+        [
+          5.636,
+          "turn_complete",
+          null
+        ]
+      ],
+      "rep": 2
+    },
+    {
+      "wav": "Sadachbia_voicemail.wav",
+      "tail_s": 0.26,
+      "events": [
+        [
+          -7.044,
+          "activity",
+          "ACTIVITY_START@0.200s"
+        ],
+        [
+          1.589,
+          "heard",
+          "ただいま。電話に出ることができません。ピーッという発信音の後に、お名前とご用件をお話しください。"
+        ],
+        [
+          1.589,
+          "activity",
+          "ACTIVITY_END@8.440s"
+        ],
+        [
+          2.737,
+          "ai_said",
+          "承知いたしました。折り返し"
+        ],
+        [
+          2.737,
+          "audio",
+          null
+        ],
+        [
+          2.919,
+          "ai_said",
+          "ご連絡いたします。"
+        ],
+        [
+          5.558,
+          "turn_complete",
+          null
+        ]
+      ],
+      "rep": 2
+    },
+    {
+      "wav": "Sadachbia_ivr.wav",
+      "tail_s": 0.33,
+      "events": [
+        [
+          -6.071,
+          "activity",
+          "ACTIVITY_START@0.160s"
+        ],
+        [
+          1.288,
+          "heard",
+          "お電話ありがとうございます。ご予約の方は1番を、その他のお問い合わせの方は2番を押してください。"
+        ],
+        [
+          1.288,
+          "activity",
+          "ACTIVITY_END@7.560s"
+        ],
+        [
+          1.899,
+          "ai_said",
+          "はい、承知いたしました。"
+        ],
+        [
+          1.899,
+          "audio",
+          null
+        ],
+        [
+          3.367,
+          "turn_complete",
+          null
+        ]
+      ],
+      "rep": 2
+    },
+    {
+      "wav": "Leda_affirm.wav",
+      "tail_s": 0.39,
+      "events": [
+        [
+          -0.95,
+          "activity",
+          "ACTIVITY_START@0.320s"
+        ],
+        [
+          1.278,
+          "heard",
+          "はい、そうです。"
+        ],
+        [
+          1.278,
+          "activity",
+          "ACTIVITY_END@2.480s"
+        ],
+        [
+          1.278,
+          "ai_said",
+          "承知いたしました。"
+        ],
+        [
+          1.278,
+          "audio",
+          null
+        ],
+        [
+          2.636,
+          "turn_complete",
+          null
+        ]
+      ],
+      "rep": 2
+    },
+    {
+      "wav": "Leda_datetime_pm.wav",
+      "tail_s": 0.41,
+      "events": [
+        [
+          -2.017,
+          "activity",
+          "ACTIVITY_START@0.200s"
+        ],
+        [
+          1.437,
+          "heard",
+          "15 日の午後 2 時でお願いします。"
+        ],
+        [
+          1.437,
+          "activity",
+          "ACTIVITY_END@3.640s"
+        ],
+        [
+          1.438,
+          "ai_said",
+          "承知いたしました。15日"
+        ],
+        [
+          1.438,
+          "audio",
+          null
+        ],
+        [
+          1.573,
+          "ai_said",
+          "の午後2時"
+        ],
+        [
+          1.592,
+          "ai_said",
+          "ですね。どうぞよろ"
+        ],
+        [
+          1.83,
+          "ai_said",
+          "しくお願いいたします。"
+        ]
+      ],
+      "rep": 2
+    },
+    {
+      "wav": "Sadachbia_hold_target.wav",
+      "tail_s": 0.36,
+      "events": [
+        [
+          -2.296,
+          "activity",
+          "ACTIVITY_START@0.160s"
+        ],
+        [
+          1.138,
+          "heard",
+          "岡田ですね。少々お待ちください。"
+        ],
+        [
+          1.138,
+          "activity",
+          "ACTIVITY_END@3.520s"
+        ],
+        [
+          1.702,
+          "ai_said",
+          "かしこまりました。少々"
+        ],
+        [
+          1.702,
+          "audio",
+          null
+        ],
+        [
+          1.934,
+          "ai_said",
+          "お待ちください。"
+        ],
+        [
+          4.125,
+          "turn_complete",
+          null
+        ]
+      ],
+      "rep": 3
+    },
+    {
+      "wav": "Sadachbia_taken_over_okada.wav",
+      "tail_s": 0.39,
+      "events": [
+        [
+          -1.871,
+          "activity",
+          "ACTIVITY_START@0.160s"
+        ],
+        [
+          1.446,
+          "heard",
+          "お電話変わりました。岡田です。"
+        ],
+        [
+          1.446,
+          "activity",
+          "ACTIVITY_END@3.360s"
+        ],
+        [
+          1.466,
+          "ai_said",
+          "岡田様、お電話ありがとうございます。"
+        ],
+        [
+          1.466,
+          "audio",
+          null
+        ],
+        [
+          3.887,
+          "turn_complete",
+          null
+        ]
+      ],
+      "rep": 3
+    },
+    {
+      "wav": "Sadachbia_taken_over.wav",
+      "tail_s": 0.42,
+      "events": [
+        [
+          -1.928,
+          "activity",
+          "ACTIVITY_START@0.160s"
+        ],
+        [
+          1.386,
+          "heard",
+          "お電話代わりました。担当の山田です。"
+        ],
+        [
+          1.386,
+          "activity",
+          "ACTIVITY_END@3.440s"
+        ],
+        [
+          1.386,
+          "ai_said",
+          "山田さん、お世話になっております。"
+        ],
+        [
+          1.386,
+          "audio",
+          null
+        ],
+        [
+          3.652,
+          "turn_complete",
+          null
+        ]
+      ],
+      "rep": 3
+    },
+    {
+      "wav": "Puck_pause1500_three.wav",
+      "tail_s": 0.47,
+      "events": [
+        [
+          -2.82,
+          "activity",
+          "ACTIVITY_START@0.440s"
+        ],
+        [
+          -0.696,
+          "heard",
+          "ええとですね。"
+        ],
+        [
+          -0.696,
+          "activity",
+          "ACTIVITY_END@2.520s"
+        ],
+        [
+          -0.696,
+          "ai_said",
+          "..."
+        ],
+        [
+          -0.696,
+          "audio",
+          null
+        ],
+        [
+          -0.279,
+          "activity",
+          "ACTIVITY_START@2.920s"
+        ],
+        [
+          -0.278,
+          "interrupted",
+          null
+        ],
+        [
+          -0.253,
+          "turn_complete",
+          null
+        ],
+        [
+          1.531,
+          "heard",
+          "3 人です。"
+        ],
+        [
+          1.532,
+          "activity",
+          "ACTIVITY_END@4.680s"
+        ],
+        [
+          1.939,
+          "ai_said",
+          "かしこまりました。"
+        ],
+        [
+          1.939,
+          "audio",
+          null
+        ],
+        [
+          3.125,
+          "turn_complete",
+          null
+        ]
+      ],
+      "rep": 3
+    },
+    {
+      "wav": "Puck_pause700_datetime.wav",
+      "tail_s": 0.46,
+      "events": [
+        [
+          -3.705,
+          "activity",
+          "ACTIVITY_START@0.440s"
+        ],
+        [
+          1.401,
+          "heard",
+          "ええとですね。15 日の午後 2 時でお願いします。"
+        ],
+        [
+          1.401,
+          "activity",
+          "ACTIVITY_END@5.400s"
+        ],
+        [
+          3.238,
+          "ai_said",
+          "承知いたしました。 "
+        ],
+        [
+          3.238,
+          "audio",
+          null
+        ],
+        [
+          3.286,
+          "ai_said",
+          "15"
+        ],
+        [
+          3.297,
+          "ai_said",
+          "日の午後2時ですね。"
+        ]
+      ],
+      "rep": 3
+    },
+    {
+      "wav": "Sadachbia_voicemail.wav",
+      "tail_s": 0.26,
+      "events": [
+        [
+          -7.062,
+          "activity",
+          "ACTIVITY_START@0.200s"
+        ],
+        [
+          1.592,
+          "heard",
+          "ただいま。電話に出ることができません。ピーッという発信音の後に、お名前とご用件をお話しください。"
+        ],
+        [
+          1.592,
+          "activity",
+          "ACTIVITY_END@8.440s"
+        ],
+        [
+          2.296,
+          "ai_said",
+          "承知いたしました。折り返しのご連絡をお待ちしております。"
+        ],
+        [
+          2.296,
+          "audio",
+          null
+        ],
+        [
+          6.022,
+          "turn_complete",
+          null
+        ]
+      ],
+      "rep": 3
+    },
+    {
+      "wav": "Sadachbia_ivr.wav",
+      "tail_s": 0.33,
+      "events": [
+        [
+          -6.243,
+          "activity",
+          "ACTIVITY_START@0.160s"
+        ],
+        [
+          1.281,
+          "heard",
+          "お電話ありがとうございます。ご予約の方は1番を、その他のお問い合わせの方は2番を押してください。"
+        ],
+        [
+          1.282,
+          "activity",
+          "ACTIVITY_END@7.560s"
+        ],
+        [
+          1.52,
+          "ai_said",
+          "承知いたしました。"
+        ],
+        [
+          1.52,
+          "audio",
+          null
+        ],
+        [
+          2.611,
+          "turn_complete",
+          null
+        ]
+      ],
+      "rep": 3
+    },
+    {
+      "wav": "Leda_affirm.wav",
+      "tail_s": 0.39,
+      "events": [
+        [
+          -0.952,
+          "activity",
+          "ACTIVITY_START@0.320s"
+        ],
+        [
+          1.279,
+          "heard",
+          "はい、そうです。"
+        ],
+        [
+          1.279,
+          "activity",
+          "ACTIVITY_END@2.480s"
+        ],
+        [
+          1.279,
+          "ai_said",
+          "かしこまりました。"
+        ],
+        [
+          1.279,
+          "audio",
+          null
+        ],
+        [
+          2.423,
+          "turn_complete",
+          null
+        ]
+      ],
+      "rep": 3
+    },
+    {
+      "wav": "Leda_datetime_pm.wav",
+      "tail_s": 0.41,
+      "events": [
+        [
+          -2.161,
+          "activity",
+          "ACTIVITY_START@0.200s"
+        ],
+        [
+          1.439,
+          "heard",
+          "15 日の午後 2 時でお願いします。"
+        ],
+        [
+          1.439,
+          "activity",
+          "ACTIVITY_END@3.640s"
+        ],
+        [
+          1.439,
+          "ai_said",
+          "かしこまりました。15日"
+        ],
+        [
+          1.439,
+          "audio",
+          null
+        ],
+        [
+          1.522,
+          "ai_said",
+          "午後2時で承知"
+        ],
+        [
+          1.675,
+          "ai_said",
+          "いたしました。"
+        ],
+        [
+          5.203,
+          "turn_complete",
+          null
+        ]
+      ],
+      "rep": 3
+    },
+    {
+      "wav": "Sadachbia_hold_target.wav",
+      "tail_s": 0.36,
+      "events": [
+        [
+          -2.309,
+          "activity",
+          "ACTIVITY_START@0.160s"
+        ],
+        [
+          1.122,
+          "heard",
+          "岡田ですね。少々お待ちください。"
+        ],
+        [
+          1.122,
+          "activity",
+          "ACTIVITY_END@3.520s"
+        ],
+        [
+          1.142,
+          "ai_said",
+          "承知いたしました。お待ちしております。"
+        ],
+        [
+          1.142,
+          "audio",
+          null
+        ],
+        [
+          3.504,
+          "turn_complete",
+          null
+        ]
+      ],
+      "rep": 4
+    },
+    {
+      "wav": "Sadachbia_taken_over_okada.wav",
+      "tail_s": 0.39,
+      "events": [
+        [
+          -1.804,
+          "activity",
+          "ACTIVITY_START@0.160s"
+        ],
+        [
+          1.462,
+          "heard",
+          "お電話変わりました。岡田です。"
+        ],
+        [
+          1.462,
+          "activity",
+          "ACTIVITY_END@3.360s"
+        ],
+        [
+          1.482,
+          "ai_said",
+          "お世話になっております。岡田様"
+        ],
+        [
+          1.482,
+          "audio",
+          null
+        ],
+        [
+          1.682,
+          "ai_said",
+          "ですね。"
+        ],
+        [
+          3.749,
+          "turn_complete",
+          null
+        ]
+      ],
+      "rep": 4
+    },
+    {
+      "wav": "Sadachbia_taken_over.wav",
+      "tail_s": 0.42,
+      "events": [
+        [
+          -2.079,
+          "activity",
+          "ACTIVITY_START@0.160s"
+        ],
+        [
+          1.231,
+          "heard",
+          "お電話変わりました。担当の山田です。"
+        ],
+        [
+          1.231,
+          "activity",
+          "ACTIVITY_END@3.440s"
+        ],
+        [
+          1.231,
+          "ai_said",
+          "山田様、お世話になっております。"
+        ],
+        [
+          1.231,
+          "audio",
+          null
+        ],
+        [
+          3.374,
+          "turn_complete",
+          null
+        ]
+      ],
+      "rep": 4
+    },
+    {
+      "wav": "Puck_pause1500_three.wav",
+      "tail_s": 0.47,
+      "events": [
+        [
+          -2.802,
+          "activity",
+          "ACTIVITY_START@0.440s"
+        ],
+        [
+          -0.65,
+          "heard",
+          "ええとですね。"
+        ],
+        [
+          -0.65,
+          "activity",
+          "ACTIVITY_END@2.520s"
+        ],
+        [
+          -0.643,
+          "ai_said",
+          "はい。"
+        ],
+        [
+          -0.643,
+          "audio",
+          null
+        ],
+        [
+          -0.296,
+          "activity",
+          "ACTIVITY_START@2.920s"
+        ],
+        [
+          -0.296,
+          "interrupted",
+          null
+        ],
+        [
+          -0.29,
+          "turn_complete",
+          null
+        ],
+        [
+          1.527,
+          "heard",
+          "3 人です。"
+        ],
+        [
+          1.527,
+          "activity",
+          "ACTIVITY_END@4.680s"
+        ],
+        [
+          1.527,
+          "ai_said",
+          "かしこまりました。"
+        ],
+        [
+          1.527,
+          "audio",
+          null
+        ],
+        [
+          2.286,
+          "turn_complete",
+          null
+        ]
+      ],
+      "rep": 4
+    },
+    {
+      "wav": "Puck_pause700_datetime.wav",
+      "tail_s": 0.46,
+      "events": [
+        [
+          -3.629,
+          "activity",
+          "ACTIVITY_START@0.440s"
+        ],
+        [
+          1.425,
+          "heard",
+          "ええとですね。15 日の午後 2 時でお願いします。"
+        ],
+        [
+          1.425,
+          "activity",
+          "ACTIVITY_END@5.400s"
+        ],
+        [
+          1.426,
+          "ai_said",
+          "承知いたしました。15"
+        ],
+        [
+          1.426,
+          "audio",
+          null
+        ],
+        [
+          1.515,
+          "ai_said",
+          "日の午後2時で"
+        ],
+        [
+          1.631,
+          "ai_said",
+          "予約を承ります。"
+        ],
+        [
+          5.817,
+          "turn_complete",
+          null
+        ]
+      ],
+      "rep": 4
+    },
+    {
+      "wav": "Sadachbia_voicemail.wav",
+      "tail_s": 0.26,
+      "events": [
+        [
+          -7.136,
+          "activity",
+          "ACTIVITY_START@0.200s"
+        ],
+        [
+          1.587,
+          "heard",
+          "ただいま。電話に出ることができません。ピーッという発信音の後に、お名前とご用件をお話しください。"
+        ],
+        [
+          1.587,
+          "activity",
+          "ACTIVITY_END@8.440s"
+        ]
+      ],
+      "rep": 4
+    },
+    {
+      "wav": "Sadachbia_ivr.wav",
+      "tail_s": 0.33,
+      "events": [
+        [
+          -6.171,
+          "activity",
+          "ACTIVITY_START@0.160s"
+        ],
+        [
+          1.539,
+          "heard",
+          "お電話ありがとうございます。ご予約の方は1番を、その他のお問い合わせの方は2番を押してください。"
+        ],
+        [
+          1.539,
+          "activity",
+          "ACTIVITY_END@7.560s"
+        ],
+        [
+          1.54,
+          "ai_said",
+          "はい、承知いたしました。"
+        ],
+        [
+          1.54,
+          "audio",
+          null
+        ],
+        [
+          3.052,
+          "turn_complete",
+          null
+        ]
+      ],
+      "rep": 4
+    },
+    {
+      "wav": "Leda_affirm.wav",
+      "tail_s": 0.39,
+      "events": [
+        [
+          -0.95,
+          "activity",
+          "ACTIVITY_START@0.320s"
+        ],
+        [
+          1.286,
+          "heard",
+          "はい、そうです。"
+        ],
+        [
+          1.286,
+          "activity",
+          "ACTIVITY_END@2.480s"
+        ],
+        [
+          1.305,
+          "ai_said",
+          "かしこまりました。"
+        ],
+        [
+          1.305,
+          "audio",
+          null
+        ],
+        [
+          2.393,
+          "turn_complete",
+          null
+        ]
+      ],
+      "rep": 4
+    },
+    {
+      "wav": "Leda_datetime_pm.wav",
+      "tail_s": 0.41,
+      "events": [
+        [
+          -1.99,
+          "activity",
+          "ACTIVITY_START@0.200s"
+        ],
+        [
+          1.422,
+          "heard",
+          "15 日の午後 2 時でお願いします。"
+        ],
+        [
+          1.422,
+          "activity",
+          "ACTIVITY_END@3.640s"
+        ],
+        [
+          1.451,
+          "ai_said",
+          "承知いたしました。15日の"
+        ],
+        [
+          1.451,
+          "audio",
+          null
+        ],
+        [
+          1.516,
+          "ai_said",
+          "午後2時で承ります。"
+        ],
+        [
+          5.073,
+          "turn_complete",
+          null
+        ]
+      ],
+      "rep": 4
+    }
+  ]
+}
