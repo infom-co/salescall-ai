@@ -440,6 +440,14 @@ class TenantAiStopsAndChecks(unittest.TestCase):
                 (timedelta(minutes=minutes),)))
         watch.after_error(self.a, SYSTEM, ear, tenant_id=long["tenant"], client_id=long["client"])
         self.assertEqual(len(asked(long["tenant"])), 1)
+        apart = World().setup()
+        for minutes in (180, 10):                                       # 3時間前と10分前：間が1時間より空いたら数え直す
+            self.a.in_client(SYSTEM, apart["tenant"], apart["client"], lambda tx: tx.execute(
+                "INSERT INTO salescall.error_events (tenant_id, client_id, source, kind, occurred_at)"
+                " VALUES (salescall.cur_tenant(), salescall.cur_client(), 'ear', 'ear_unreachable', now() - %s)",
+                (timedelta(minutes=minutes),)))
+        watch.after_error(self.a, SYSTEM, ear, tenant_id=apart["tenant"], client_id=apart["client"])
+        self.assertEqual(asked(apart["tenant"]), [])
 
     def test_a_lasting_error_is_counted_across_the_clients_of_the_contractor(self):
         """「1時間以上続いた」は、契約者のすべての依頼者のエラーで数える（修正依頼の重なりを防ぐ鍵と同じ範囲。⚠️ 前は記録した依頼者の

@@ -123,6 +123,12 @@ class CalleeTime(unittest.TestCase):
         self.assertFalse(self.ok(at(MON, 19), at(MON, 19)))                            # かけてよい時間帯はいつも守る
         self.assertFalse(self.ok(at(MON, 12, 30), at(MON, 10)))                        # 指定がNG時間の外：例外にならない
 
+    def test_only_the_frame_with_the_named_time_is_excused(self):
+        """NG時間の枠が2つあるとき、お客様が指定した時刻を含む枠だけかけてよい（ほかの枠は控える。見直し7で試験を足した）。"""
+        ng = {k: [["12:00", "13:00"], ["15:00", "16:00"]] for k in KEYS}
+        ok = lambda start: allowed(WEEKDAY_9_18, ng, no_holiday, start, start + self.L, callee_at=at(MON, 12, 30))   # noqa: E731
+        self.assertEqual((ok(at(MON, 12, 40)), ok(at(MON, 15, 30))), (True, False))
+
 
 class Subtract(unittest.TestCase):
     def test_cuts(self):

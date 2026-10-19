@@ -342,6 +342,18 @@ class CutOffCalls(SettleBase):
         self.resumed(got)
         self.assertEqual(got["decision"].window, window)
 
+    def test_a_call_back_keeps_the_promised_exact_time(self):
+        """時刻ちょうどの約束の電話が途中で切れた：すぐのかけ直しも、お客様が指定した時刻を持つ（NG時間の枠の中の約束でも、門が
+        止めない。見直し7で試験を足した）。"""
+        s = self.ready()
+        t = self.tx(s, lambda tx: tx.one("SELECT date_trunc('minute', now()) AS t")["t"])
+        window = self.tx(s, lambda tx: next_action._exact_window(tx, s["task"], t))
+        self.tx(s, lambda tx: support.schedule_call(tx, s["task"], t, contact_id=s["contact"], cause="試験", promised=True,
+                                                       callee_at=t, window=window))
+        got = self.settle(s, self.call(s, ("dialing", "ringing", "answered", "in_conversation", "technical_error")))
+        self.resumed(got)
+        self.assertEqual((got["decision"].callee_at, got["decision"].window), (t, window))
+
     def test_a_call_back_after_an_untimed_promise_keeps_the_promise(self):
         """時刻の決まっていない約束（「あとで」）をした通話・その約束を守っていた電話が途中で切れ、お詫びのすぐのかけ直しに出なかった：
         約束したかけ直しのまま（時刻の決まっていない約束の方針。⚠️ 前は、ふつうのかけ直しになり、行の回数の上限で終わった＝見直し5）。"""
@@ -582,7 +594,18 @@ class CallbackWindow(SettleBase):
         cur = self.tx(s, lambda tx: next_action.current(tx, s["task"]))
         self.assertEqual((cur["call_at"], cur["callee_at"], cur["window_round"], cur["apology_owed"]),
                          (t + timedelta(days=1), t + timedelta(days=1), 1, False))   # 4本で次の日の同じ時刻（かけたのでお詫びは無い）
-        last = replace(next_action.window_of(cur), round=2)
+        denied = self.tx(s, lambda tx: next_action.after_denial(   # 門で止められた（時間帯の外など）：時刻ちょうどの約束のまま
+            tx, s["task"], gate.Denied("outside_hours", *gate.REASONS["outside_hours"]),
+            tenant_id=s["tenant"], client_id=s["client"], business_id=s["business"]))
+        self.assertEqual((denied.callee_at, denied.window.round), (t + timedelta(days=1), 1))   # 約束の時刻を捨てない（見直し7）
+        second = next_action.window_of(cur)
+        third = self.tx(s, lambda tx: next_action._keep_promise(tx, s["task"], second.until, second, target, now=now, exact=True))
+        self.assertEqual((third.kind, third.at, third.callee_at, third.window.round, third.apology),
+                         ("call", t + timedelta(days=2), t + timedelta(days=2), 2, True))   # 2日目に話せなければ3日目（その日にかけていない）
+        skipped = self.tx(s, lambda tx: next_action._keep_promise(   # 見守り役が止まって2日目を飛ばした：その前の回にはかけていても、
+            tx, s["task"], first.window.until, first.window, target, now=t + timedelta(days=2, minutes=1), exact=True))
+        self.assertEqual((skipped.window.round, skipped.apology), (2, True))   # 飛んだ回があればお詫びから
+        last = replace(second, round=2)
         over = self.tx(s, lambda tx: next_action._keep_promise(tx, s["task"], last.until, last, target, now=now, exact=True))
         self.assertEqual((over.kind, over.end_reason), ("end", "callback_exact_unreached"))   # 3日目にも話せなければ打ち止め
 
@@ -635,6 +658,34 @@ class CallbackWindow(SettleBase):
         cur = self.tx(s, lambda tx: next_action.current(tx, s["task"]))
         self.assertEqual((cur["promised"], cur["window_round"], cur["window_from"], cur["apology_owed"]),
                          (True, 1, midnight(local.date() + timedelta(days=1)), False))
+
+    def test_a_window_retry_within_the_round_counts_up_to_the_policy_times(self):
+        """幅の約束で出なかったとき、再発信の方針の回数（ここでは1回）の中なら、同じ回の中で方針の間隔でかけ直す（境目。見直し7で
+        試験を足した）。"""
+        keys = ("open", "incomplete", "not_reached_absent", "not_reached_not_transferred", "callback_unspecified_time")
+        s = self.ready(rules=rules_raw(retry={k: {"action": "call", "max_times": 1, "interval": {"hours": 1}} for k in keys}))
+        now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
+        w = next_action.Window(now + timedelta(days=2), (0, 24 * 3600), None, now - timedelta(hours=1), "week")
+        self.tx(s, lambda tx: support.schedule_call(tx, s["task"], now, contact_id=s["contact"], cause="試験", promised=True,
+                                                       window=w))
+        self.settle(s, self.call(s, ["dialing", "no_answer"]))
+        cur = self.tx(s, lambda tx: next_action.current(tx, s["task"]))
+        self.assertEqual((cur["promised"], cur["window_round"]), (True, 0))   # 1回目：同じ回の中
+        self.assertLess(cur["call_at"], now + timedelta(hours=2))
+
+    def test_an_untimed_promise_ends_when_later_is_said_more_than_the_policy_times(self):
+        """「あとで」と言われた回数が方針の回数（ここでは1回）を超えたら終える。言われた回数そのものは続ける（境目。見直し7で試験を
+        足した）。"""
+        keys = ("open", "incomplete", "not_reached_absent", "not_reached_not_transferred", "callback_unspecified_time")
+        s = self.ready(rules=rules_raw(retry={k: {"action": "call", "max_times": 1, "interval": {"hours": 1}} for k in keys}))
+        later = lambda: self.settle(s, self.call(s, report=rep(callback=callback("later", time="あとで"))))   # noqa: E731
+        first = later()["decision"]
+        self.assertEqual((first.kind, first.promised), ("call", True))           # 1回目は続ける
+        now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
+        self.tx(s, lambda tx: support.schedule_call(tx, s["task"], now, contact_id=s["contact"], cause="試験：いまかける",
+                                                       promised=True))
+        d = later()["decision"]
+        self.assertEqual((d.kind, d.end_reason), ("end", "callback_unspecified_time"))   # 2回目は方針の回数を超える
 
     def test_an_untimed_promise_stays_a_promise_when_not_answered(self):
         """時刻の決まっていない約束（「あとで」）の電話に出なかった：約束したかけ直しのまま（行の回数の上限で終えない）、契約者の

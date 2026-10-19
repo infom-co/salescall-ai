@@ -173,9 +173,10 @@ class Emergency(Base):
             self.assertEqual(emergency.main(["stop", "試験：止められた鍵"]), 0)
         self.assertIsNotNone(emergency.engaged())
         self.assertIn("ログインし直して", out.getvalue())
-        with redirect_stdout(io.StringIO()):
+        with redirect_stdout(io.StringIO()) as out:
             self.assertEqual(emergency.main(["status"]), 0)
             self.assertEqual(emergency.main(["release", "試験：解けない"]), 1)
+        self.assertIn("ログインし直して", out.getvalue())                 # 解けなかった理由も見せる（見直し7で確かめを足した）
         self.assertIsNotNone(emergency.engaged())                      # 解いたことを記録できないまま、かけ始めない
 
     def test_a_broken_pc_key_still_places_the_flag(self):

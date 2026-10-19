@@ -824,6 +824,51 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("アプリの役が、ほかの依頼者の約束の一覧を読める",
      "GRANT EXECUTE ON FUNCTION salescall.promises_waiting() TO salescall_app",
      ("tests.test_foundation.DefinerFunctions.test_lists_of_other_clients_promises_are_used_only_inside",)),
+    # 試験の強さの見直し（見直し7：壊しても落ちなかった所に試験を足した）
+    ("時刻を指定していない約束のためにも、約束の前に回線を空ける",
+     "CREATE OR REPLACE FUNCTION salescall.promises_waiting()"
+     " RETURNS TABLE (task_id uuid, client_id uuid, call_at timestamptz, callee_at timestamptz)"
+     " LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$"
+     " SELECT n.task_id, n.client_id, n.call_at, coalesce(n.callee_at, n.call_at)"
+     " FROM salescall.task_next_actions n"
+     " JOIN salescall.tasks t ON t.task_id = n.task_id"
+     " JOIN salescall.runs r ON r.run_id = t.run_id"
+     " WHERE n.tenant_id = salescall.cur_tenant() AND n.promised AND n.kind = 'call'"
+     " AND n.seq = (SELECT c.seq FROM salescall.current_next_actions c WHERE c.task_id = n.task_id)"
+     " AND salescall.client_active(n.client_id) AND NOT salescall.task_excluded_now(n.task_id)"
+     " AND NOT EXISTS (SELECT 1 FROM salescall.open_stops(n.tenant_id, n.client_id, r.business_id))"
+     " AND NOT EXISTS (SELECT 1 FROM salescall.attempts a"
+     " WHERE a.task_id = n.task_id AND salescall.is_live(a.state, a.claim_expires_at))"
+     " $$;",
+     ("tests.test_supervisor.Rounds.test_an_exact_time_promise_keeps_one_line_free_shortly_before",)),
+    ("回線の1日の上限で、前の日から残っている約束を取り置かない",
+     "CREATE OR REPLACE FUNCTION salescall.line_promised_due(p_line uuid, p_day date, p_except uuid) RETURNS integer"
+     " LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$"
+     " WITH me AS (SELECT l.client_id FROM salescall.lines l WHERE l.line_id = p_line AND l.tenant_id = salescall.cur_tenant()),"
+     " serving AS (SELECT s.line_id, s.client_id FROM salescall.lines_serving() s"
+     " UNION SELECT p_line, me.client_id FROM me),"
+     " due AS (SELECT w.task_id, w.client_id, dense_rank() OVER (ORDER BY w.task_id) - 1 AS r"
+     " FROM salescall.promises_waiting() w"
+     " WHERE w.task_id <> p_except AND salescall.jst(w.call_at)::date = p_day),"
+     " cand AS (SELECT d.task_id, d.r, s.line_id, s.client_id IS NOT NULL AS own,"
+     " count(*) FILTER (WHERE s.client_id IS NOT NULL) OVER (PARTITION BY d.task_id) AS owns"
+     " FROM due d JOIN serving s ON salescall.line_serves(s.client_id, d.client_id)),"
+     " pool AS (SELECT c.task_id, c.r, c.line_id,"
+     " row_number() OVER (PARTITION BY c.task_id ORDER BY c.line_id) - 1 AS k,"
+     " count(*) OVER (PARTITION BY c.task_id) AS n"
+     " FROM cand c WHERE c.own OR c.owns = 0)"
+     " SELECT count(*)::integer FROM pool WHERE line_id = p_line AND k = r % n"
+     " $$;",
+     ("tests.test_supervisor.Rounds.test_the_daily_reservation_is_shared_by_the_lines_and_skips_promises_that_will_not_be_called_now",)),
+    ("続いたエラーで、1時間より長く空いても続きとして数える",
+     "CREATE OR REPLACE FUNCTION salescall.error_lasting(p_kind text, p_lasting interval) RETURNS boolean"
+     " LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$"
+     " WITH e AS (SELECT occurred_at, lag(occurred_at) OVER (ORDER BY occurred_at) AS prev FROM salescall.error_events"
+     " WHERE kind = p_kind AND tenant_id IS NOT DISTINCT FROM salescall.cur_tenant()"
+     " AND occurred_at > now() - interval '7 days')"
+     " SELECT coalesce(now() - max(occurred_at) FILTER (WHERE prev IS NULL) >= p_lasting, false) FROM e"
+     " $$;",
+     ("tests.test_watch.TenantAiStopsAndChecks.test_a_lasting_temporary_error_becomes_a_fix_request",)),
     ("門が、お客様の指定した約束の時刻を見ない",
      "CREATE OR REPLACE FUNCTION salescall.next_customer_promise_at(p_except uuid) RETURNS timestamptz"
      " LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ SELECT NULL::timestamptz $$",

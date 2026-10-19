@@ -244,7 +244,13 @@ class Rounds(SupervisorBase):
         self.tx(s, lambda tx: attempts.release(tx, [c.attempt_id]))
         self.tx(s, lambda tx: next_action.schedule_now(tx, s["task"], cause="試験"))
         promise(now + timedelta(minutes=30))
-        self.assertIsInstance(self.claim(s), gate.Claim)                       # 約束が遠い：かける
+        c = self.claim(s)
+        self.assertIsInstance(c, gate.Claim)                                   # 約束が遠い：かける
+        self.tx(s, lambda tx: attempts.release(tx, [c.attempt_id]))
+        self.tx(s, lambda tx: next_action.schedule_now(tx, s["task"], cause="試験"))
+        self.tx(t, lambda tx: support.schedule_call(tx, t["task"], now + timedelta(minutes=3), contact_id=t["contact"],
+                                                        cause="試験：時刻の決まっていない約束", promised=True))
+        self.assertIsInstance(self.claim(s), gate.Claim)                       # 時刻を指定していない約束のためには空けない（見直し7）
 
     def test_a_dedicated_line_is_kept_when_the_shared_line_is_needed_for_another_client(self):
         """専用の回線と共有の回線が混ざっても、約束と空いている回線の割り当てで決める（2026-10-19 の見直し：前は、依頼者Aの
@@ -276,9 +282,9 @@ class Rounds(SupervisorBase):
         t = self.ready(tenant=s["tenant"])
         u = self.ready(tenant=s["tenant"])                                     # 共有の回線が3本
         now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
-        for x in (t, u):
-            self.tx(x, lambda tx, x=x: support.schedule_call(tx, x["task"], now, contact_id=x["contact"], cause="試験",
-                                                                 promised=True))   # 今日の約束（夜中でも日をまたがない）
+        for x, at in ((t, now), (u, now - timedelta(days=2))):   # 今日の約束と、前の日から残っている約束（どちらも今日かける）
+            self.tx(x, lambda tx, x=x, at=at: support.schedule_call(tx, x["task"], at, contact_id=x["contact"], cause="試験",
+                                                                        promised=True))
         reserved = lambda: [self.tx(s, lambda tx, x=x: tx.one(   # noqa: E731
             "SELECT salescall.line_promised_due(%s, salescall.jst(now())::date, %s) AS n", (x["line"], uuid.uuid4()))["n"])
             for x in (s, t, u)]
