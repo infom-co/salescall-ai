@@ -116,9 +116,16 @@ class Issue(Base):
         self.assertEqual(login.role, logins.role_name(self.s["tenant"], login.pc))
         with self.assertRaises(LookupError):
             logins.revoke(self.w.a, SYSTEM, self.prov, self.other["tenant"])   # 払い出していない契約者
+        with self.assertRaises(Rejected):                                   # 外してよい人でなければ、鍵を止める前に断る
+            logins.revoke(self.w.a, OPERATOR, self.prov, self.s["tenant"], pc=login.pc)
+        can_login = lambda: self.w.a.in_system(ADMIN, lambda tx: tx.one(   # noqa: E731
+            "SELECT rolcanlogin AS ok FROM pg_roles WHERE rolname = %s", (login.role,))["ok"])
+        self.assertTrue(can_login())                                        # 鍵は止まっていない
+        self.assertEqual(logins.revoke(self.w.a, ADMIN, self.prov, self.s["tenant"], pc=login.pc), 1)   # まだ止まっていなかった
+        self.assertFalse(can_login())
         kinds = self.w.a.in_system(ADMIN, lambda tx: [(r["kind"], r["pc"], r["pc_label"]) for r in tx.all(
             "SELECT kind, pc, pc_label FROM salescall.tenant_login_events WHERE tenant_id = %s ORDER BY event_id", (self.s["tenant"],))])
-        self.assertEqual(kinds, [("issued", login.pc, "試験のPC")])
+        self.assertEqual(kinds, [("issued", login.pc, "試験のPC"), ("revoked", login.pc, None)])   # 断ったもの・鍵の無いものは記録しない
         self.assertEqual(self.w.a.in_tenant(OPERATOR, self.s["tenant"], lambda tx: tx.all(
             "SELECT 1 FROM salescall.tenant_login_events")), [])                # 契約者の取引からは見えない
 

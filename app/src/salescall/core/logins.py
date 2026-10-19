@@ -87,14 +87,25 @@ def revoke(app: Access, actor: Actor, provisioner: Provisioner, tenant_id: UUID,
            missing_ok: bool = False) -> int:
     """鍵を使えなくする（つないだままの接続も切る。データは消さない）。pc＝その PC だけ（画面で「この PC のログインを外す」）／None＝
     その契約者のすべての PC（契約が終わったとき）。ある鍵の数を返す。止める鍵が無ければ LookupError（missing_ok なら 0。何も記録しない）。
-    止めてから記録する（止めるのはやり直しても同じ結果＝もう止まった鍵も数える。記録できなければ、呼び直せば記録が残る）。"""
-    n = provisioner.disable_logins(role_name(tenant_id, pc) if pc else f"{ROLE_PREFIX}{UUID(str(tenant_id))}_")
-    if n == 0:
+    記録の取引の中で止める：先に記録を書き、外してよい人か（全体の取引の管理者かシステムの処理）をデータベースに確かめさせてから
+    止める（⚠️ 前は止めてから記録したので、外してはいけない人が呼んでも、断られる前に鍵が止まった＝2026-10-19 の見直し）。
+    止めるのはやり直しても同じ結果（もう止まった鍵も数える）なので、取引がやり直しになっても、記録できずに終わっても、呼び直せばよい。"""
+    def work(tx: Any) -> int:
+        _record(tx, tenant_id, "revoked", pc=pc, pc_label=None)
+        n = provisioner.disable_logins(role_name(tenant_id, pc) if pc else f"{ROLE_PREFIX}{UUID(str(tenant_id))}_")
+        if n == 0:
+            raise _NothingToRevoke   # 記録を残さない（取引を戻す）
+        return n
+    try:
+        return app.in_system(actor, work)
+    except _NothingToRevoke:
         if missing_ok:
             return 0
-        raise LookupError(f"止める鍵がありません：{tenant_id}{'' if pc is None else ' の PC ' + pc}")
-    app.in_system(actor, lambda tx: _record(tx, tenant_id, "revoked", pc=pc, pc_label=None))
-    return n
+        raise LookupError(f"止める鍵がありません：{tenant_id}{'' if pc is None else ' の PC ' + pc}") from None
+
+
+class _NothingToRevoke(Exception):
+    """止める鍵が無かった（revoke の中だけで使う）。"""
 
 
 def _record(tx: Any, tenant_id: UUID, kind: str, *, pc: str | None, pc_label: str | None) -> None:
