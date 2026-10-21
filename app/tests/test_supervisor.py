@@ -119,12 +119,12 @@ class Recovery(SupervisorBase):
         self.assertEqual((got[0]["line_id"], got[0]["ended"]), (s["line"], 1))
         self.assertEqual(self.state(s, c.attempt_id), "technical_error")
 
-    def test_only_expired_lines_of_other_pcs_are_cleaned_up(self):
+    def test_only_expired_lines_of_a_former_hub_are_cleaned_up(self):
         s = self.ready()
         c = self.claim(s)
         self.assertEqual(self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: leases.recover(tx)), [])   # 生きている回線は触らない
         self.assertEqual(self.state(s, c.attempt_id), "claimed")
-        self.lease(s, seconds=-1)                                              # その PC が落ちて、借用の期限が切れた
+        self.lease(s, seconds=-1)                                              # 前の見守り役が落ちて、借用の期限が切れた
         got = self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: leases.recover(tx))
         self.assertEqual(got[0]["released"], 1)
         self.assertEqual(self.state(s, c.attempt_id), "released")
@@ -198,9 +198,11 @@ class Rounds(SupervisorBase):
 
     def test_a_failure_in_the_call_ends_only_that_call_and_asks_cl2(self):
         s = self.ready()
-        got = line.one_round(self.w.a, SYSTEM, s["tenant"], s["line"], HOLDER, FakeDriver(), Runner(RuntimeError("試験")))
+        driver = FakeDriver()
+        got = line.one_round(self.w.a, SYSTEM, s["tenant"], s["line"], HOLDER, driver, Runner(RuntimeError("試験")))
         self.assertEqual(self.state(s, got.called), "technical_error")
         self.assertTrue(self.asked_supervisor(s))
+        self.assertEqual(getattr(driver, "apologized", 0), 1)                 # 通話が残っていれば、おわびして切る
 
     def test_promised_calls_go_first_across_clients_and_keep_their_share_of_the_line(self):
         """お客様と約束したかけ直しは、すべての依頼者について先に（共有の回線で、先の依頼者のふつうの電話より、あとの依頼者の

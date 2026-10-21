@@ -223,9 +223,11 @@ class Connect(LinkBase):
             driver.start_call("+81300000002")
         driver.apologize_and_hang_up()                                       # サーバーの側の誤り：おわびして切る
         self.assertEqual(phone.apologies, 1)
-        self.assertTrue(self.hub.driver(uuid.uuid4(), at).in_call())         # つないでいない回線
+        with self.assertRaises(ConnectionError):                               # つないでいない回線（答えられない＝出口が「通話中」とみなす）
+            self.hub.driver(uuid.uuid4(), at).in_call()
         away = Attached(s["tenant"], uuid.uuid4(), at.conn)
-        self.assertTrue(self.hub.driver(s["line"], away).in_call())          # その回線をつないでいない PC
+        with self.assertRaises(ConnectionError):                               # その回線をつないでいない PC
+            self.hub.driver(s["line"], away).in_call()
         with self.assertRaises(CallWithheld):                                # つないでいない：かけていないと確かに言える（回線の異常ではない）
             self.hub.driver(s["line"], away).start_call("+81300000003")
 
@@ -315,7 +317,8 @@ class LostConnection(LinkBase):
         phone.busy = True
         self.hub.close()
         until(lambda: phone.apologies >= 1, "おわびを流して切る")
-        self.assertTrue(self.hub.driver(s["line"], Attached(s["tenant"], got.pc_id, 1)).in_call())
+        with self.assertRaises(ConnectionError):                               # 答えられない（出口が「通話中」とみなす）
+            self.hub.driver(s["line"], Attached(s["tenant"], got.pc_id, 1)).in_call()
 
     def test_a_call_that_finishes_after_the_line_drops_is_apologised_for(self):
         """「かける」の途中でつながりが切れ、そのあとで電話の部品がかけ終わったら、すぐおわびして切る（AI のいない電話にしない）。"""
@@ -349,7 +352,8 @@ class LostConnection(LinkBase):
         asyncio.run_coroutine_threadsafe(r.agent.ws.close(), r.loop)          # 一度切れて、すぐつなぎ直す
         after = until(lambda: (at := self.hub.lines().get(s["line"])) is not None and at.conn != before.conn and at, "つなぎ直した")
         self.assertEqual((after.tenant_id, after.pc_id), (before.tenant_id, before.pc_id))
-        self.assertTrue(self.hub.driver(s["line"], before).in_call())        # 前のつなぎには頼めない（かけない側）
+        with self.assertRaises(ConnectionError):                               # 前のつなぎには頼めない（出口が「通話中」とみなす）
+            self.hub.driver(s["line"], before).in_call()
 
 
 class Emergency(LinkBase):

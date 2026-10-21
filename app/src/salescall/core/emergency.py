@@ -20,9 +20,10 @@ from salescall.core.access import Access, Actor, Tx
 EVIDENCE = "本番のPCの緊急停止（PC の部品）"
 
 
-def evidence(pc_id: UUID) -> str:
-    """その PC で押した緊急停止の根拠の文（PC で解くとき、その PC の停止だけを見分ける。判断はこの1か所）。"""
-    return f"{EVIDENCE}：{pc_id}"
+def evidence(pc_id: UUID, pressed_at: str = "") -> str:
+    """その PC で押した緊急停止の根拠の文（判断はこの1か所）：PC の番号（PC で解くとき、その PC の停止だけを見分ける）と、押した時刻
+    （1回の押し。つなぎ直しても、同じ押しを二重に記録しない）。pressed_at を空にすると、その PC の停止の頭の文字（見分けに使う）。"""
+    return f"{EVIDENCE}：{pc_id}：{pressed_at}"
 
 
 def actor(pc_label: str) -> Actor:
@@ -30,12 +31,22 @@ def actor(pc_label: str) -> Actor:
     return Actor(f"契約者の PC の緊急停止（{pc_label}）", "operator")
 
 
-def stop(app: Access, tenant_id: UUID, pc_id: UUID, pc_label: str, reason: str) -> int:
-    """その契約者の緊急停止を記録する（PC の印がサーバーに届いたとき。止めた停止の番号を返す）。"""
+def stop(app: Access, tenant_id: UUID, pc_id: UUID, pc_label: str, reason: str, pressed_at: str) -> int:
+    """その契約者の緊急停止を記録する（PC の印がサーバーに届いたとき。停止の番号を返す）。**同じ押しは1回だけ記録する**：記録した
+    あと、PC が番号を書く前につながりが切れても、つなぎ直したときは前の番号を返す（もう画面から解かれていれば、その番号＝PC は
+    印を消す。解いたあとに止め直さない）。"""
     if not reason.strip():
         raise ValueError("止める理由を書いてください")
-    return app.in_tenant(actor(pc_label), tenant_id, lambda tx: stops.stop(
-        tx, scope="tenant", cause="manual", reason=reason, evidence=evidence(pc_id), tenant_id=tenant_id)["event_id"])
+    if not pressed_at.strip():
+        raise ValueError("押した時刻が要ります（1回の押しを見分ける）")
+    def work(tx: Tx) -> int:
+        done = tx.one("SELECT event_id FROM salescall.stop_events WHERE action = 'stop' AND evidence = %s"
+                      " ORDER BY event_id DESC LIMIT 1", (evidence(pc_id, pressed_at),))
+        if done is not None:
+            return done["event_id"]
+        return stops.stop(tx, scope="tenant", cause="manual", reason=reason, evidence=evidence(pc_id, pressed_at),
+                          tenant_id=tenant_id)["event_id"]
+    return app.in_tenant(actor(pc_label), tenant_id, work)
 
 
 def is_open(app: Access, tenant_id: UUID, event_id: int) -> bool:
@@ -53,7 +64,7 @@ def release(app: Access, tenant_id: UUID, pc_id: UUID, pc_label: str, reason: st
         raise ValueError("解く理由を書いてください")
     def work(tx: Tx) -> list[int]:
         opened = [r["event_id"] for r in tx.all(
-            "SELECT s.event_id FROM salescall.open_stop_events s WHERE s.cause = 'manual' AND s.evidence = %s"
+            "SELECT s.event_id FROM salescall.open_stop_events s WHERE s.cause = 'manual' AND starts_with(s.evidence, %s)"
             " AND s.scope = 'tenant' AND s.tenant_id = salescall.cur_tenant()", (evidence(pc_id),))]
         return [stops.resume(tx, e, reason=reason, evidence=evidence(pc_id)) for e in opened]
     return app.in_tenant(actor(pc_label), tenant_id, work)

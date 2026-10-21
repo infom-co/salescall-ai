@@ -916,9 +916,18 @@ class Exit(Base):
         self.assertEqual(self.state(s, c.attempt_id), "call_failed")
         s2 = self.ready()
         c2 = self.claim(s2)
+        unknown = FakeDriver(RuntimeError("切断"))
         with self.assertRaises(RuntimeError):
-            dial_exit.dial(self.w.a, SYSTEM, s2["tenant"], s2["client"], c2.attempt_id, FakeDriver(RuntimeError("切断")))
+            dial_exit.dial(self.w.a, SYSTEM, s2["tenant"], s2["client"], c2.attempt_id, unknown)
         self.assertEqual(self.state(s2, c2.attempt_id), "technical_error")   # かかったか分からない ⇒ 結果不明
+        self.assertEqual(getattr(unknown, "apologized", 0), 1)               # かかっていれば、おわびして切る（無言で放置しない）
+        s3 = self.ready()
+        c3 = self.claim(s3)
+        mute = FakeDriver()
+        mute.in_call = lambda: (_ for _ in ()).throw(ConnectionError("試験：答えない"))
+        self.assertIs(dial_exit.dial(self.w.a, SYSTEM, s3["tenant"], s3["client"], c3.attempt_id, mute),
+                      dial_exit.Outcome.LINE_IN_CALL)                        # 通話中か分からない ⇒ 通話中（かけない）
+        self.assertEqual(mute.calls, [])
 
     def test_a_line_still_in_a_call_is_not_dialed(self):
         """回線（スマホ）がまだ前の通話の途中なら、かけずに予約を戻す（処理が落ちて立ち上げ直しても、二重にかけない）。"""

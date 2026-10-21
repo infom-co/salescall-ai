@@ -435,14 +435,15 @@ def copy_submissions(app: Access, writer: Writer, tenant_id: UUID) -> list[Resul
 
 def _copy_submissions(app: Access, writer: Writer, tenant_id: UUID, client_id: UUID) -> int:
     """まだ写していない提出用のファイルを、PC へ写す（PC が暗号化して書き、読み戻して確かめてから、Fly.io の中身を消す）。"""
-    rows = app.in_client(SYSTEM, tenant_id, client_id, lambda tx: tx.all(
-        "SELECT submission_id, delivered_at, file_name, sha256, content FROM salescall.submission_files"
+    rows = app.in_client(SYSTEM, tenant_id, client_id, lambda tx: tx.all(   # 先に番号だけ（中身は1つずつ読む＝まとめてメモリに持たない）
+        "SELECT submission_id, delivered_at, file_name, sha256 FROM salescall.submission_files"
         " WHERE copied_at IS NULL ORDER BY submission_id"))
     if not rows:
         return 0
     folder = client_folder(app, tenant_id, client_id)
     for r in rows:
-        content = bytes(r["content"])
+        content = bytes(app.in_client(SYSTEM, tenant_id, client_id, lambda tx, r=r: tx.one(
+            "SELECT content FROM salescall.submission_files WHERE submission_id = %s", (r["submission_id"],)))["content"])
         if hashlib.sha256(content).hexdigest() != r["sha256"]:
             raise BackupFailed("提出用のファイルの中身が、置いたときと違います")
         name = _name(r["delivered_at"], f"-{r['submission_id']}-{_safe(r['file_name'])}.enc")

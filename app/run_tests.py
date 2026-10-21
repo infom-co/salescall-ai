@@ -406,14 +406,13 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      " WHERE line_id = p_line AND retired_at IS NULL RETURNING lease_expires_at $$",
      ("tests.test_supervisor.Leases.test_one_supervisor_holds_a_line_and_another_takes_it_only_after_it_expires",)),
     ("生きている回線の通話を、後始末で終わらせてしまう",
-     "CREATE OR REPLACE FUNCTION salescall.recover_lines(p_holder text, p_line uuid DEFAULT NULL, p_except text DEFAULT NULL,"
-     " p_expired_for interval DEFAULT '0 seconds')"
+     "CREATE OR REPLACE FUNCTION salescall.recover_lines(p_holder text, p_line uuid DEFAULT NULL, p_except text DEFAULT NULL)"
      " RETURNS TABLE (line_id uuid, released integer, ended integer) LANGUAGE plpgsql SECURITY DEFINER"
      " SET search_path = salescall, pg_temp AS $$ DECLARE l record; r integer; e integer; BEGIN"
      " FOR l IN SELECT x.line_id FROM salescall.lines x WHERE x.tenant_id = salescall.cur_tenant() LOOP"
      " UPDATE salescall.attempts SET state = 'released' WHERE attempts.line_id = l.line_id AND state = 'claimed';"
      " GET DIAGNOSTICS r = ROW_COUNT; line_id := l.line_id; released := r; ended := 0; RETURN NEXT; END LOOP; END $$",
-     ("tests.test_supervisor.Recovery.test_only_expired_lines_of_other_pcs_are_cleaned_up",)),
+     ("tests.test_supervisor.Recovery.test_only_expired_lines_of_a_former_hub_are_cleaned_up",)),
     # 落ちた試行の後始末（5-4・0076。2026-10-18 の見直し）
     ("決まった間隔の後始末が、自分の回線のまだ話している通話を終わらせる",
      "CREATE OR REPLACE FUNCTION salescall.recover_lines(p_holder text, p_line uuid DEFAULT NULL, p_except text DEFAULT NULL)"
@@ -977,11 +976,18 @@ def main() -> int:
             dbname, owner_dsn, app_dsn = _fresh_db(superuser_dsn)
             try:
                 with psycopg.connect(owner_dsn, autocommit=True) as conn:
+                    overloads = _overloads(conn)
                     conn.execute(sql)
-                caught = not _run_tests(owner_dsn, app_dsn, tests, 0)
+                    added = sorted(set(_overloads(conn).items()) - set(overloads.items()))
+                # 守りを「置き換え」ずに、同じ名前の関数を足してしまった壊し試しは、何も外していない（呼ぶ側が「関数が1つに決まらない」
+                # で落ち、見張れているように見える＝2026-10-21 の見直しで見つけた）。⇒ 試験を走らせずに、壊し試しの誤りとして止める
+                caught = not added and not _run_tests(owner_dsn, app_dsn, tests, 0)
             finally:
                 _drop_db(superuser_dsn, dbname)
-            print(f"守りを外す：{title} ⇒ {'試験が落ちた（見張れている）' if caught else '⛔ 試験が通ってしまった'}")
+            if added:
+                print(f"守りを外す：{title} ⇒ ⛔ 壊し試しが、今の関数を置き換えずに同じ名前の関数を足した（形がずれている：{added}）")
+            else:
+                print(f"守りを外す：{title} ⇒ {'試験が落ちた（見張れている）' if caught else '⛔ 試験が通ってしまった'}")
             if not caught:
                 weak.append(title)
         if weak:
@@ -989,6 +995,13 @@ def main() -> int:
             return 1
         print("守りをわざと外す確かめ：すべて、試験が落ちた")
         return 0
+
+
+def _overloads(conn: psycopg.Connection) -> dict[str, int]:
+    """表の作りの場所の関数の、名前ごとの数（壊し試しが関数を置き換えたか、足してしまったかを見分ける）。"""
+    return {r[0]: r[1] for r in conn.execute(
+        "SELECT p.proname, count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace"
+        " WHERE n.nspname = 'salescall' GROUP BY 1").fetchall()}
 
 
 @contextmanager

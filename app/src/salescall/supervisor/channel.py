@@ -60,7 +60,6 @@ class _Session:
     emergency: dict[str, Any] | None = None
     seen: float = 0.0
     pending: dict[UUID, asyncio.Future] = field(default_factory=dict)
-    recorded_press: str | None = None   # このつなぎで記録した、PC の押し（印の押した時刻）。同じ押しを二重に記録しない
     order: asyncio.Lock = field(default_factory=asyncio.Lock)   # 合図と緊急停止は、届いた順に1つずつ（データベースを待つあいだも声は止めない）
     tasks: set[asyncio.Task] = field(default_factory=set)
 
@@ -238,13 +237,12 @@ class Hub:
             if not await self._db(lambda: emergency.is_open(self.app, who.tenant_id, event)):
                 await session.ws.send(p.dumps("emergency_state", event=event, open=False))   # PC は、番号が同じなら印を消す
             return
-        press = str(flag.get("at") or "")
-        if session.recorded_press == press:   # この押しは、もう記録した（PC が番号を書くまでの合図）
-            return
+        press = str(flag.get("at") or "（押した時刻なし）")
         reason = str(flag.get("reason") or "（理由なし）")
-        event = await self._db(lambda: emergency.stop(self.app, who.tenant_id, who.pc_id, who.label, reason))
-        session.recorded_press = press        # 記録できたときだけ（失敗したら、次の合図でまた記録する）
-        await session.ws.send(p.dumps("emergency_state", event=event, open=True, at=press))
+        # 同じ押しは1回だけ記録する（判断は core.emergency.stop の1か所。PC が番号を書くまでの合図・つなぎ直しでも、前の番号が返る。
+        # 記録に失敗したら、次の合図でまた試す）
+        event = await self._db(lambda: emergency.stop(self.app, who.tenant_id, who.pc_id, who.label, reason, press))
+        await session.ws.send(p.dumps("emergency_state", event=event, open=True, at=flag.get("at")))
 
     # ── 頼む（中央の見守り役の流れから呼ぶ） ──
     def _session_of(self, at: Attached, line_id: UUID) -> _Session:
@@ -259,7 +257,7 @@ class Hub:
             **fields: Any) -> dict[str, Any]:
         """頼んで答えを待つ（中央の見守り役の流れから）。source＝続けて送るファイル（控えの中身。少しずつ読んで送る＝丸ごとメモリに
         持たない）。つなぎ口の流れ（声・出来事の受け口の中）からは呼べない（自分の流れを止めて、すべての PC のやり取りが固まるため）。"""
-        if self.loop is None:
+        if self.loop is None or not self.loop.is_running():   # 止めたつなぎ口に頼むと、答えが来ないまま待ち続ける
             raise ConnectionError("つなぎ口が動いていません")
         if threading.current_thread() is self._thread:
             raise RuntimeError("つなぎ口の流れ（声・出来事の受け口）から、PC の部品への頼みは呼べません（別の流れへ渡してください）")
@@ -279,7 +277,12 @@ class Hub:
                 return await asyncio.wait_for(f, wait)
             finally:
                 session.pending.pop(ident, None)
-        return asyncio.run_coroutine_threadsafe(go(), self.loop).result(wait + 10)
+        running = asyncio.run_coroutine_threadsafe(go(), self.loop)
+        try:
+            return running.result(wait + 10)
+        except BaseException:   # 待ち過ぎ・止める：送っている途中のもの（控えの中身）も止める（やり直しと重ねて送らない）
+            running.cancel()
+            raise
 
     # ── links.Links ──
     def lines(self) -> dict[UUID, Attached]:
@@ -319,11 +322,11 @@ class AgentDriver:
         return self.hub._session_of(self.at, self.line_id)
 
     def in_call(self) -> bool:
-        try:
-            got = self.hub.ask(self._session(), "request", op="in_call", line=self.line_id)
-        except Exception:  # noqa: BLE001 答えられない＝分からない：通話中とみなす（かけない側）
-            return True
-        return not got.get("ok") or bool(got.get("value"))
+        """答えられない（つながっていない・待ち過ぎ）ときは誤りを上げる（「分からない＝通話中」と決めるのは発信の出口の1か所）。"""
+        got = self.hub.ask(self._session(), "request", op="in_call", line=self.line_id)
+        if not got.get("ok"):
+            raise RuntimeError("電話の部品が、通話中か答えられませんでした")
+        return bool(got.get("value"))
 
     def start_call(self, phone_e164: str) -> None:
         try:
@@ -352,9 +355,10 @@ class AgentDriver:
 
     def send_audio(self, audio: bytes) -> None:
         """AI の声・録音を、通話へ流す（PC の部品が電話の部品の play へ渡す。待たずに返す）。"""
-        session = self._session()
-        if self.hub.loop is not None:
-            asyncio.run_coroutine_threadsafe(session.ws.send(p.frame(p.AUDIO, self.line_id, audio)), self.hub.loop)
+        session, loop = self._session(), self.hub.loop
+        if loop is None or not loop.is_running():
+            raise ConnectionError("つなぎ口が動いていません")
+        asyncio.run_coroutine_threadsafe(session.ws.send(p.frame(p.AUDIO, self.line_id, audio)), loop)
 
     def on_audio(self, sink: Callable[[bytes], None]) -> None:
         """お客様の声の受け口を決める（通話を進める部品＝CL-1）。つなぎ口の流れから呼ばれるので、待たずに返すこと（中から PC への

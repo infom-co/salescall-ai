@@ -34,26 +34,26 @@ class OnTheServer(Base):
         画面にも出る）。全体・ほかの契約者は止めない。"""
         s, t = self.ready(), self.ready()
         claim = self.claim(s)                                                    # 押す前に取った予約
-        event = emergency.stop(self.w.a, s["tenant"], PC, "架空の PC", "試験：画面が開けない")
+        event = emergency.stop(self.w.a, s["tenant"], PC, "架空の PC", "試験：画面が開けない", "2026-10-21T00:00:01Z")
         self.assertEqual((self.opened(s), self.opened(t), self.system_stops()), ([("tenant", "manual")], [], []))
         driver = FakeDriver()
         self.assertFalse(dial_exit.dial(self.w.a, SYSTEM, s["tenant"], s["client"], claim.attempt_id, driver))
         self.assertEqual((driver.calls, self.reason(s)), ([], "stopped"))
         who = self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: tx.one(
             "SELECT actor, evidence FROM salescall.stop_events WHERE event_id = %s", (event,)))
-        self.assertEqual((who["actor"], who["evidence"]), ("契約者の PC の緊急停止（架空の PC）", emergency.evidence(PC)))
+        self.assertEqual((who["actor"], who["evidence"]), ("契約者の PC の緊急停止（架空の PC）", emergency.evidence(PC, "2026-10-21T00:00:01Z")))
         with self.assertRaises(ValueError):
-            emergency.stop(self.w.a, s["tenant"], PC, "架空の PC", " ")
+            emergency.stop(self.w.a, s["tenant"], PC, "架空の PC", " ", "2026-10-21T00:00:02Z")
 
     def test_a_release_on_the_screen_is_seen_and_a_release_from_the_pc_frees_only_its_own_stops(self):
         """画面から解かれたら `is_open` が偽（PC は印を消す）。PC で解くのは、この道で記録した停止だけ（画面から押した停止は残す）。"""
         s = self.ready()
-        event = emergency.stop(self.w.a, s["tenant"], PC, "架空の PC", "試験")
+        event = emergency.stop(self.w.a, s["tenant"], PC, "架空の PC", "試験", "2026-10-21T00:00:03Z")
         self.assertTrue(emergency.is_open(self.w.a, s["tenant"], event))
         self.assertTrue(emergency.is_open(self.w.a, s["tenant"], 10 ** 12))      # 見えない停止は、解かれていないとみなす
         self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: stops.resume(tx, event, reason="試験：画面から解いた"))
         self.assertFalse(emergency.is_open(self.w.a, s["tenant"], event))
-        emergency.stop(self.w.a, s["tenant"], PC, "架空の PC", "試験：また押した")
+        emergency.stop(self.w.a, s["tenant"], PC, "架空の PC", "試験：また押した", "2026-10-21T00:00:04Z")
         screen = self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: stops.stop(
             tx, scope="tenant", cause="manual", reason="試験：画面から押した", tenant_id=s["tenant"]))["event_id"]
         self.assertEqual(len(emergency.release(self.w.a, s["tenant"], PC, "架空の PC", "試験：直った")), 1)
@@ -62,12 +62,25 @@ class OnTheServer(Base):
         with self.assertRaises(ValueError):
             emergency.release(self.w.a, s["tenant"], PC, "架空の PC", " ")
 
+    def test_the_same_press_is_recorded_once_even_after_reconnecting_or_a_release_on_the_screen(self):
+        """同じ押し（PC と押した時刻）は1回だけ記録する：PC が番号を書く前につながりが切れ、つなぎ直して同じ印が届いても、前の番号を
+        返す。画面から解かれたあとに届いても、止め直さない（その番号が解かれている＝PC は印を消す）。"""
+        s = self.ready()
+        first = emergency.stop(self.w.a, s["tenant"], PC, "架空の PC", "試験：押した", "2026-10-21T01:00:00Z")
+        self.assertEqual(emergency.stop(self.w.a, s["tenant"], PC, "架空の PC", "試験：押した", "2026-10-21T01:00:00Z"), first)
+        self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: stops.resume(tx, first, reason="試験：画面から解いた"))
+        self.assertEqual(emergency.stop(self.w.a, s["tenant"], PC, "架空の PC", "試験：押した", "2026-10-21T01:00:00Z"), first)
+        self.assertFalse(emergency.is_open(self.w.a, s["tenant"], first))
+        self.assertEqual(self.opened(s), [])
+        again = emergency.stop(self.w.a, s["tenant"], PC, "架空の PC", "試験：また押した", "2026-10-21T01:05:00Z")
+        self.assertNotEqual(again, first)                                     # 押し直しは新しい停止
+
     def test_a_release_from_one_pc_leaves_the_stop_pressed_on_another_pc(self):
         """同じ契約者の2台の PC が押したとき、1台で解いても、もう1台で押した停止は残る（前は、この道で記録した停止をすべて解き、
         もう1台が印を消してかけ始めた）。"""
         s = self.ready()
-        mine = emergency.stop(self.w.a, s["tenant"], PC, "架空の PC", "試験：1台目で押した")
-        theirs = emergency.stop(self.w.a, s["tenant"], OTHER_PC, "架空の2台目の PC", "試験：2台目で押した")
+        mine = emergency.stop(self.w.a, s["tenant"], PC, "架空の PC", "試験：1台目で押した", "2026-10-21T00:00:05Z")
+        theirs = emergency.stop(self.w.a, s["tenant"], OTHER_PC, "架空の2台目の PC", "試験：2台目で押した", "2026-10-21T00:00:06Z")
         self.assertEqual(len(emergency.release(self.w.a, s["tenant"], PC, "架空の PC", "試験：1台目で解いた")), 1)
         self.assertEqual((emergency.is_open(self.w.a, s["tenant"], mine), emergency.is_open(self.w.a, s["tenant"], theirs)),
                          (False, True))
