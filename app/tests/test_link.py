@@ -452,18 +452,34 @@ class Backups(LinkBase):
         writer = until(lambda: (w := self.hub.writer(s["tenant"])) and w.session.drive and w.session.key and w, "書ける PC")
         data = os.urandom(protocol.CHUNK * 2 + 123)
         name = "salescall-20991231-120000-test.enc"
-        sha, size = writer.write(self.folder(), name, data, hashlib.sha256(data).hexdigest())
+        source = self.dir / "plain"
+        source.write_bytes(data)
+        sha, size = writer.write(self.folder(), name, source, hashlib.sha256(data).hexdigest())
         path = drive / pc_backup.BASE / "架空の依頼者" / "AI" / name
         self.assertEqual((path.stat().st_size, hashlib.sha256(path.read_bytes()).hexdigest()), (size, sha))
         self.assertEqual(sealing.decrypt(path.read_bytes(), sealing.load_key({sealing.KEY_ENV: KEY}), name), data)
         with self.assertRaises(RemoteError):
-            writer.write(self.folder(), "salescall-20261021-120001-x.enc", data, "0" * 64)
+            writer.write(self.folder(), "salescall-20261021-120001-x.enc", source, "0" * 64)
         with self.assertRaises(RemoteError):
-            writer.write(["..", "AI"], "salescall-20261021-120002-x.enc", b"x", hashlib.sha256(b"x").hexdigest())
+            writer.write(["..", "AI"], "salescall-20261021-120002-x.enc", source, hashlib.sha256(data).hexdigest())
         old = "salescall-20200101-000000-old.enc"
-        writer.write(self.folder(), old, b"old", hashlib.sha256(b"old").hexdigest())
+        small = self.dir / "small"
+        small.write_bytes(b"old")
+        writer.write(self.folder(), old, small, hashlib.sha256(b"old").hexdigest())
         self.assertEqual(writer.prune({"架空の依頼者": {"days": {"AI": 30}, "verified": [], "held": []}}), 1)
-        self.assertEqual(sorted(f.name for f in path.parent.iterdir()), [name])   # 残す日数を過ぎたものだけ消す
+        self.assertEqual(sorted(f.name for f in path.parent.iterdir()), [name])   # 残す日数を過ぎたものだけ消す（書きかけも残らない）
+
+    def test_a_backup_cut_off_by_a_lost_connection_leaves_nothing(self):
+        """控えを受け取っている途中でつながりが切れたら、書きかけのファイルを消す（控えと取り違えない。サーバーは、書けなかったとして
+        記録し、あとでやり直す）。"""
+        values = {"SALESCALL_HUB_URL": "ws://127.0.0.1:1/link", "SALESCALL_BACKUP_DRIVE": str(drive_at(self.dir / "d2")),
+                  "SALESCALL_BACKUP_KEY": KEY}
+        a = agent_main.Agent(agent_config.load(values), PcPass(uuid.uuid4(), uuid.uuid4(), "架空の通行証"), {})
+        incoming = a.writer.begin(self.folder(), "salescall-20991231-000000-x.enc", "0" * 64)
+        incoming.feed(os.urandom(protocol.CHUNK + 1))
+        a._incoming[uuid.uuid4()] = incoming
+        a._lost()
+        self.assertEqual((list(incoming.place.iterdir()), a._incoming), ([], {}))
 
     def test_a_pc_without_the_drive_says_what_to_do_and_the_whole_backup_goes_only_to_the_set_pc(self):
         s = self.ready()
@@ -472,7 +488,9 @@ class Backups(LinkBase):
         self.attached(s, got)
         writer = self.hub.writer(s["tenant"])
         with self.assertRaises(RemoteError) as e:
-            writer.write(self.folder(), "salescall-20261021-120000-x.enc", b"x", hashlib.sha256(b"x").hexdigest())
+            small = self.dir / "small"
+            small.write_bytes(b"x")
+            writer.write(self.folder(), "salescall-20261021-120000-x.enc", small, hashlib.sha256(b"x").hexdigest())
         self.assertIn("SALESCALL_BACKUP_DRIVE", e.exception.ask or "")
         self.assertIsNone(self.hub.whole_writer())                             # 全体の控えを書く PC を決めていない
         self.assertIsNone(self.hub.writer(self.w.tenant()))                    # つないでいない契約者

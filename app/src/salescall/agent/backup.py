@@ -55,27 +55,63 @@ class Drive:
         return self.root.joinpath(BASE, *folder)
 
 
-def write(drive: Drive, key: bytes, folder: list[str], file_name: str, data: bytes, sha256: str) -> tuple[str, int]:
-    """中身を暗号化して書き、読み戻して確かめる。暗号化したファイルの（指紋, 大きさ）を返す。"""
-    if not drive.attached():
-        raise DriveMissing("控え用のハードディスクがつながっていません")
-    if not _NAME.match(file_name):
-        raise WriteFailed("控えのファイルの名前が決まりに合いません")
-    if hashlib.sha256(data).hexdigest() != sha256:
-        raise WriteFailed("受け取った中身が、サーバーが書き出したものと違います（途中で欠けた）")
-    blob = sealing.encrypt(data, key, file_name)
-    place = drive.place(folder)
-    place.mkdir(parents=True, exist_ok=True)
-    tmp = place / (file_name + ".part")
-    with open(tmp, "wb") as f:
-        f.write(blob)
-        f.flush()
-        os.fsync(f.fileno())                 # ディスクに書き終えてから（読み戻しが OS の一時記憶から読めても、書けた証明にならない）
-    tmp.replace(place / file_name)           # 書き終えてから名前を付ける（途中のファイルを控えと取り違えない）
-    back = (place / file_name).read_bytes()  # 読み戻して、復号して、元の中身と同じか（戻せるか）
-    if hashlib.sha256(sealing.decrypt(back, key, file_name)).hexdigest() != sha256:
-        raise WriteFailed("ハードディスクから読み戻した控えが、書いたものと違います")
-    return hashlib.sha256(back).hexdigest(), len(back)
+class Incoming:
+    """1つの控えを、受け取りながら暗号化して書く（丸ごとメモリに持たない。`link.sealing.Sealer`）。書きかけは「.part」の名前で書き、
+    `finish` で、受け取った中身がサーバーの書き出したものと同じか（指紋）を確かめ、ディスクに書き終えてから名前を付け、読み戻して復号し、
+    元の中身と同じかを確かめる。途中でやめるときは `abort`（書きかけを消す＝控えと取り違えない）。"""
+
+    def __init__(self, drive: Drive, key: bytes, folder: list[str], file_name: str, sha256: str) -> None:
+        if not drive.attached():
+            raise DriveMissing("控え用のハードディスクがつながっていません")
+        if not _NAME.match(file_name):
+            raise WriteFailed("控えのファイルの名前が決まりに合いません")
+        self.place, self.file_name, self.key, self.expected = drive.place(folder), file_name, key, sha256
+        self.place.mkdir(parents=True, exist_ok=True)
+        self.tmp = self.place / (file_name + ".part")
+        self._file = open(self.tmp, "wb")
+        self._sealer = sealing.Sealer(self._file, key, file_name)
+        self._plain = hashlib.sha256()
+
+    def feed(self, data: bytes | memoryview) -> None:
+        self._plain.update(data)
+        self._sealer.write(data)
+
+    def finish(self) -> tuple[str, int]:
+        """書き終える。暗号化したファイルの（指紋, 大きさ）を返す。"""
+        if self._plain.hexdigest() != self.expected:
+            self.abort()
+            raise WriteFailed("受け取った中身が、サーバーが書き出したものと違います（途中で欠けた）")
+        self._sealer.close()
+        self._file.flush()
+        os.fsync(self._file.fileno())        # ディスクに書き終えてから（読み戻しが OS の一時記憶から読めても、書けた証明にならない）
+        self._file.close()
+        final = self.place / self.file_name
+        self.tmp.replace(final)              # 書き終えてから名前を付ける（途中のファイルを控えと取り違えない）
+        enc, plain = hashlib.sha256(), hashlib.sha256()
+        with open(final, "rb") as raw:       # 読み戻して、少しずつ復号して、元の中身と同じか（戻せるか）
+            for piece in sealing.unseal(_Hashing(raw, enc), self.key, self.file_name):
+                plain.update(piece)
+        if plain.hexdigest() != self.expected:
+            final.unlink(missing_ok=True)    # 戻せない控えを残さない
+            raise WriteFailed("ハードディスクから読み戻した控えが、書いたものと違います")
+        return enc.hexdigest(), final.stat().st_size
+
+    def abort(self) -> None:
+        if not self._file.closed:
+            self._file.close()
+        self.tmp.unlink(missing_ok=True)
+
+
+class _Hashing:
+    """読んだバイトの指紋を取りながら読む（暗号化したファイルの指紋と復号を、1回の読みで）。"""
+
+    def __init__(self, raw: Any, digest: Any) -> None:
+        self.raw, self.digest = raw, digest
+
+    def read(self, n: int = -1) -> bytes:
+        got = self.raw.read(n)
+        self.digest.update(got)
+        return got
 
 
 def prune(drive: Drive, folders: dict[str, Any], now: datetime | None = None) -> int:
@@ -115,14 +151,28 @@ class LocalWriter:
     drive: Drive
     environ: dict[str, str]
 
-    def write(self, folder: list[str], file_name: str, data: bytes, sha256: str) -> tuple[str, int]:
-        return _remote(lambda: write(self.drive, sealing.load_key(self.environ), folder, file_name, data, sha256))
+    def begin(self, folder: list[str], file_name: str, sha256: str) -> Incoming:
+        """受け取りながら書き始める（PC の部品が、サーバーから届く中身を少しずつ渡す）。"""
+        return as_remote(lambda: Incoming(self.drive, sealing.load_key(self.environ), folder, file_name, sha256))
+
+    def write(self, folder: list[str], file_name: str, source: Path, sha256: str) -> tuple[str, int]:
+        """この PC の中のファイルを、少しずつ読んで書く（core.backup.Writer の形。試験・同じ PC の中で使う）。"""
+        incoming = self.begin(folder, file_name, sha256)
+        try:
+            with open(source, "rb") as f:
+                for piece in iter(lambda: f.read(sealing.SEGMENT), b""):
+                    as_remote(lambda piece=piece: incoming.feed(piece))
+            return as_remote(incoming.finish)
+        except BaseException:
+            incoming.abort()
+            raise
 
     def prune(self, folders: dict[str, Any]) -> int:
-        return _remote(lambda: prune(self.drive, folders))
+        return as_remote(lambda: prune(self.drive, folders))
 
 
-def _remote(work: Any) -> Any:
+def as_remote(work: Any) -> Any:
+    """控えを書く・片付ける処理の誤りを、サーバーへ返す形（RemoteError。PC の前の作業なら ask つき）にする（判断はこの1か所）。"""
     try:
         return work()
     except (DriveMissing, sealing.KeyMissing) as e:

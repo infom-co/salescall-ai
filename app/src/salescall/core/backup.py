@@ -44,8 +44,9 @@ SYSTEM = Actor("データベースの控え", "system")
 class Writer(Protocol):
     """控えを書く先（その PC の部品。中央の見守り役のつなぎ口が、つないでいる PC へ頼む）。誤りは RemoteError（ask があれば PC の前の作業）。"""
 
-    def write(self, folder: list[str], file_name: str, data: bytes, sha256: str) -> tuple[str, int]:
-        """暗号化してハードディスクに書き、読み戻して確かめる。暗号化したファイルの（指紋, 大きさ）を返す。"""
+    def write(self, folder: list[str], file_name: str, source: Path, sha256: str) -> tuple[str, int]:
+        """サーバーの中のファイル（暗号化する前の中身）を、少しずつ送って、PC が暗号化してハードディスクに書き、読み戻して確かめる。
+        暗号化したファイルの（指紋, 大きさ）を返す。中身を丸ごとメモリに持たない（どの控えも、この1つの形）。"""
         ...
 
     def prune(self, folders: dict[str, Any]) -> int: ...
@@ -75,6 +76,15 @@ def _counts(tx: Tx) -> dict[str, int]:
 def _quoted(qualified: str) -> str:
     schema, table = qualified.split(".", 1)
     return f'"{schema}"."{table}"'
+
+
+def _sha256_file(path: Path) -> str:
+    """ファイルの指紋（少しずつ読む）。"""
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        for piece in iter(lambda: f.read(1 << 20), b""):
+            digest.update(piece)
+    return digest.hexdigest()
 
 
 def _name(started: datetime, rest: str) -> str:
@@ -128,8 +138,7 @@ def take(app: Access, source_conninfo: str, restore_conninfo: str, writer: Write
                 _run(["pg_dump", "--format=custom", f"--snapshot={snap}", "--no-owner", "--no-acl", "-f", str(dump)],
                      source_conninfo, "書き出し（pg_dump）")
             _verify(dump, restore_conninfo, counts, source_identity=source_identity)   # 送る前に、戻せることを確かめる
-            data = dump.read_bytes()
-        written = writer.write([WHOLE, AI], file_name, data, hashlib.sha256(data).hexdigest())
+            written = writer.write([WHOLE, AI], file_name, dump, _sha256_file(dump))
     except Exception as e:  # noqa: BLE001 ここで受けて記録する（止めない）
         error = _why(e)
         _record(app, started, None, None, counts, error, person=_ask(e))
@@ -340,18 +349,21 @@ def _client_tables(tx: Tx) -> list[str]:
         " WHERE n.nspname = 'salescall' AND c.relkind IN ('r', 'p') ORDER BY 1")]
 
 
-def _client_export(tx: Tx, client_id: UUID) -> tuple[bytes, dict[str, int]]:
-    """その依頼者の行（依頼者を持つ表すべて）を、1行ずつの形で書き出す（AI用の控え。tx＝その依頼者の書かない取引＝1つの時点。ほかの依頼者・
-    ほかの契約者の行は、データベースが見せない。表の持ち主の接続は使わない＝契約者の PC に置かない）。"""
-    lines, counts = [], {}
-    for t in _client_tables(tx):
-        rows = tx.all(f'SELECT row_to_json(x)::text AS r FROM salescall."{t}" x WHERE x.client_id = %s ORDER BY 1', (client_id,))
-        counts[t] = len(rows)
-        lines += ['{"table": ' + json.dumps(t) + ', "row": ' + r["r"] + "}" for r in rows]
+def _client_export(tx: Tx, client_id: UUID, out: Path) -> dict[str, int]:
+    """その依頼者の行（依頼者を持つ表すべて）を、1行ずつの形でファイルに書き出す（AI用の控え。行は1つずつ受け取り、丸ごとメモリに
+    持たない。tx＝その依頼者の書かない取引＝1つの時点なので、先に数えた行の数と、書き出す行は同じ）。ほかの依頼者・ほかの契約者の行は、
+    データベースが見せない。表の持ち主の接続は使わない。表ごとの行の数を返す。"""
+    tables = _client_tables(tx)
+    counts = {t: tx.one(f'SELECT count(*) AS n FROM salescall."{t}" x WHERE x.client_id = %s', (client_id,))["n"] for t in tables}
     schema = tx.one("SELECT salescall.schema_version() AS n")["n"]
-    header = json.dumps({"format": "salescall-client-ai-1", "client_id": str(client_id), "schema": schema, "counts": counts},
-                        sort_keys=True)
-    return ("\n".join([header, *lines]) + "\n").encode(), counts
+    with open(out, "w", encoding="utf-8", newline="\n") as f:
+        f.write(json.dumps({"format": "salescall-client-ai-1", "client_id": str(client_id), "schema": schema, "counts": counts},
+                           sort_keys=True) + "\n")
+        for t in tables:
+            for r in tx.stream(f'SELECT row_to_json(x)::text AS r FROM salescall."{t}" x WHERE x.client_id = %s ORDER BY 1',
+                               (client_id,)):
+                f.write('{"table": ' + json.dumps(t) + ', "row": ' + r["r"] + "}\n")
+    return counts
 
 
 def read_client_export(data: bytes) -> tuple[dict[str, Any], dict[str, list[dict[str, Any]]]]:
@@ -372,8 +384,10 @@ def _client_ai(app: Access, writer: Writer, tenant_id: UUID, client_id: UUID) ->
     counts, written = None, None
     try:
         folder = client_folder(app, tenant_id, client_id)
-        data, counts = app.in_client(SYSTEM, tenant_id, client_id, lambda tx: _client_export(tx, client_id), read_only=True)
-        written = writer.write([folder, AI], file_name, data, hashlib.sha256(data).hexdigest())
+        with tempfile.TemporaryDirectory(prefix="salescall-backup-") as work:
+            export = Path(work) / "client.jsonl"
+            counts = app.in_client(SYSTEM, tenant_id, client_id, lambda tx: _client_export(tx, client_id, export), read_only=True)
+            written = writer.write([folder, AI], file_name, export, _sha256_file(export))
     except Exception as e:  # noqa: BLE001 ここで受けて記録する（止めない）
         error = _why(e)
         _record(app, started, None, None, counts, error, person=_ask(e), part="client_ai", tenant_id=tenant_id,
@@ -432,7 +446,10 @@ def _copy_submissions(app: Access, writer: Writer, tenant_id: UUID, client_id: U
         if hashlib.sha256(content).hexdigest() != r["sha256"]:
             raise BackupFailed("提出用のファイルの中身が、置いたときと違います")
         name = _name(r["delivered_at"], f"-{r['submission_id']}-{_safe(r['file_name'])}.enc")
-        writer.write([folder, SUBMISSION], name, content, r["sha256"])
+        with tempfile.TemporaryDirectory(prefix="salescall-backup-") as work:
+            source = Path(work) / "submission"
+            source.write_bytes(content)
+            writer.write([folder, SUBMISSION], name, source, r["sha256"])
         app.in_client(SYSTEM, tenant_id, client_id, lambda tx: tx.execute(
             "UPDATE salescall.submission_files SET content = NULL, copied_at = now(), copied_as = %s WHERE submission_id = %s",
             (name, r["submission_id"])))

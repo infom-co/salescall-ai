@@ -26,6 +26,7 @@ import itertools
 import threading
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable
 from uuid import UUID
 
@@ -254,10 +255,10 @@ class Hub:
             raise ConnectionError("その回線をつないでいる、そのつなぎがありません")
         return got
 
-    def ask(self, session: _Session, kind: str, *, wait: float = p.REPLY_WAIT, chunks: list[Any] | None = None,
+    def ask(self, session: _Session, kind: str, *, wait: float = p.REPLY_WAIT, source: Path | None = None,
             **fields: Any) -> dict[str, Any]:
-        """頼んで答えを待つ（中央の見守り役の流れから）。chunks＝続けて送るバイトのひと続き（控えの中身）。つなぎ口の流れ（声・
-        出来事の受け口の中）からは呼べない（自分の流れを止めて、すべての PC のやり取りが固まるため）。"""
+        """頼んで答えを待つ（中央の見守り役の流れから）。source＝続けて送るファイル（控えの中身。少しずつ読んで送る＝丸ごとメモリに
+        持たない）。つなぎ口の流れ（声・出来事の受け口の中）からは呼べない（自分の流れを止めて、すべての PC のやり取りが固まるため）。"""
         if self.loop is None:
             raise ConnectionError("つなぎ口が動いていません")
         if threading.current_thread() is self._thread:
@@ -269,9 +270,11 @@ class Hub:
             session.pending[ident] = f
             try:
                 await session.ws.send(p.dumps(kind, id=ident, **fields))
-                for c in chunks or []:
-                    await session.ws.send(p.frame(p.BACKUP, ident, c))
-                if chunks is not None:
+                if source is not None:
+                    loop = asyncio.get_running_loop()
+                    with open(source, "rb") as content:   # 読むのは別の流れで（そのあいだも、ほかの PC の声を止めない）
+                        while piece := await loop.run_in_executor(None, content.read, p.CHUNK):
+                            await session.ws.send(p.frame(p.BACKUP, ident, piece))
                     await session.ws.send(p.dumps("backup_end", id=ident))
                 return await asyncio.wait_for(f, wait)
             finally:
@@ -375,11 +378,10 @@ class RemoteWriter:
         except (ConnectionError, TimeoutError, asyncio.TimeoutError, ConnectionClosed):
             raise RemoteError("控えを書く PC の部品とのつながりが切れました", ask=AWAY) from None
 
-    def write(self, folder: list[str], file_name: str, data: bytes, sha256: str) -> tuple[str, int]:
-        view = memoryview(data)   # 写しを作らずに分ける
-        chunks = [view[i:i + p.CHUNK] for i in range(0, len(data), p.CHUNK)] or [b""]
-        got = self._ask("backup_begin", wait=60 + 5 * len(chunks), chunks=chunks, folder=folder, file_name=file_name,
-                        size=len(data), sha256=sha256)
+    def write(self, folder: list[str], file_name: str, source: Path, sha256: str) -> tuple[str, int]:
+        size = source.stat().st_size
+        got = self._ask("backup_begin", wait=60 + 5 * (size // p.CHUNK + 1), source=source, folder=folder, file_name=file_name,
+                        size=size, sha256=sha256)
         if not got.get("ok"):
             raise RemoteError(str(got.get("error") or "PC の部品が控えを書けませんでした"), ask=got.get("ask"))
         return str(got["sha256"]), int(got["size"])

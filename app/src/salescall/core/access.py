@@ -91,6 +91,16 @@ class Tx:
             diag = e.diag
             raise Rejected(e.sqlstate, diag.constraint_name, diag.message_primary or str(e)) from e
 
+    def stream(self, sql: str, params: tuple[Any, ...] | dict[str, Any] | None = None) -> Iterator[dict[str, Any]]:
+        """行を1つずつ受け取る（大きな書き出しを、丸ごとメモリに持たない。控えの書き出しが使う）。"""
+        try:
+            yield from self._conn.cursor().stream(sql, params)
+        except _CONFLICTS:
+            raise
+        except _REJECTIONS as e:
+            diag = e.diag
+            raise Rejected(e.sqlstate, diag.constraint_name, diag.message_primary or str(e)) from e
+
     def one(self, sql: str, params: tuple[Any, ...] | dict[str, Any] | None = None) -> dict[str, Any] | None:
         return self.execute(sql, params).fetchone()
 

@@ -61,7 +61,7 @@ class Backup(unittest.TestCase):
         self.assertTrue(got.ok, got.error)
         path = self.root / pc.BASE / backup.WHOLE / backup.AI / got.file_name
         blob = path.read_bytes()
-        self.assertTrue(blob.startswith(sealing.MAGIC))
+        self.assertTrue(blob.startswith(sealing.MAGIC2))
         self.assertNotIn("架空の依頼者".encode(), blob)             # 暗号化してある（中身が読めない）
         row = backup.latest(self.app)
         self.assertEqual((row["restore_ok"], row["error"], row["destinations"]), (True, None, [backup.PLACE]))
@@ -131,6 +131,28 @@ class OnThePc(unittest.TestCase):
         self.assertEqual(sealing.decrypt(blob, sealing.load_key({sealing.KEY_ENV: text}), "f"), b"data")
         self.assertTrue(sealing.key_matches(text + "\n", {sealing.KEY_ENV: text}))
         self.assertFalse(sealing.key_matches(text[:-1] + "J", {sealing.KEY_ENV: text}))
+
+    def test_sealed_pieces_cannot_be_cut_reordered_or_swapped_and_the_old_form_still_opens(self):
+        """分けて暗号化した控え（形2）は、途中で切る・順番を入れ替える・別のファイルの名前で開く、のどれも復号できない。前の形（形1・
+        丸ごと）で書いた控えも戻せる。"""
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+        key, seg = os.urandom(32), sealing.SEGMENT
+        data = os.urandom(3 * seg + 7)
+        blob = sealing.encrypt(data, key, "f")
+        self.assertEqual(sealing.decrypt(blob, key, "f"), data)
+        head, piece = sealing._HEAD2, seg + 16
+        cuts = {"最後の1つが無い": blob[:head + 3 * piece], "途中まで": blob[:head + piece + 10], "頭だけ": blob[:head]}
+        pieces = [blob[head + i * piece:head + (i + 1) * piece] for i in range(4)]
+        cuts["入れ替え"] = blob[:head] + pieces[1] + pieces[0] + pieces[2] + pieces[3]
+        for name, bad in cuts.items():
+            with self.subTest(name), self.assertRaises(sealing.SealError):
+                sealing.decrypt(bad, key, "f")
+        with self.assertRaises(sealing.SealError):
+            sealing.decrypt(blob, key, "g")                                   # 別のファイルと取り替えた
+        self.assertEqual(sealing.decrypt(sealing.encrypt(b"", key, "f"), key, "f"), b"")
+        nonce = os.urandom(12)
+        old = sealing.MAGIC + nonce + AESGCM(key).encrypt(nonce, b"old", b"f")
+        self.assertEqual(sealing.decrypt(old, key, "f"), b"old")
         for env, says in (({}, "入っていません"), ({sealing.KEY_ENV: "short-secret"}, "20文字以上")):
             with self.subTest(says=says), self.assertRaises(sealing.KeyMissing) as got:
                 sealing.load_key(env)
@@ -141,29 +163,37 @@ class OnThePc(unittest.TestCase):
         """書くのは、決まった名前・フォルダだけ（上のフォルダへ出ない）。受け取った中身が欠けていたら書かない。読み戻して違えば誤り。
         鍵・ハードディスクが無ければ、PC の前の作業として返す。"""
         import hashlib
-        w, data = writer(self.root), b"\x00\x01"
+        w, data = writer(self.root), os.urandom(3 * sealing.SEGMENT + 5)    # 分けて暗号化する大きさをまたぐ
         sha = hashlib.sha256(data).hexdigest()
-        sha_enc, size = w.write(["client1", "AI"], "salescall-20261021-120000.ai.enc", data, sha)
+        source = Path(tempfile.mkdtemp(prefix="salescall-src-")) / "plain"
+        source.write_bytes(data)
+        sha_enc, size = w.write(["client1", "AI"], "salescall-20261021-120000.ai.enc", source, sha)
         f = self.root / pc.BASE / "client1" / "AI" / "salescall-20261021-120000.ai.enc"
         self.assertEqual((hashlib.sha256(f.read_bytes()).hexdigest(), size), (sha_enc, f.stat().st_size))
         self.assertEqual(sealing.decrypt(f.read_bytes(), CKEY, f.name), data)
+        self.assertTrue(f.read_bytes().startswith(sealing.MAGIC2))
+        data = b"\x00\x01"
+        sha = hashlib.sha256(data).hexdigest()
+        source.write_bytes(data)
         for folder, name, says in ((["..", "AI"], "salescall-1.ai.enc", "フォルダ"), (["client1", "x"], "salescall-1.ai.enc", "フォルダ"),
                                    (["client1", "AI"], "../x.enc", "名前"), (["client1", "AI"], "メモ.txt", "名前")):
             with self.subTest(folder=folder, name=name), self.assertRaises(RemoteError) as got:
-                w.write(folder, name, data, sha)
+                w.write(folder, name, source, sha)
             self.assertIn(says, str(got.exception))
         with self.assertRaises(RemoteError) as got:
-            w.write(["client1", "AI"], "salescall-2.ai.enc", data, "0" * 64)
+            w.write(["client1", "AI"], "salescall-2.ai.enc", source, "0" * 64)
         self.assertIn("欠けた", str(got.exception))
-        with mock.patch.object(pc.sealing, "decrypt", return_value=b"x"), self.assertRaises(RemoteError) as got:
-            w.write(["client1", "AI"], "salescall-3.ai.enc", data, sha)
+        with mock.patch.object(pc.sealing, "unseal", return_value=iter([b"x"])), self.assertRaises(RemoteError) as got:
+            w.write(["client1", "AI"], "salescall-3.ai.enc", source, sha)
         self.assertIn("書いたものと違います", str(got.exception))
+        left = sorted(p.name for p in (self.root / pc.BASE / "client1" / "AI").iterdir())
+        self.assertEqual(left, ["salescall-20261021-120000.ai.enc"])          # 書きかけ・戻せない控えは残さない
         with self.assertRaises(RemoteError) as got:
-            writer(self.root, {}).write(["client1", "AI"], "salescall-4.ai.enc", data, sha)
+            writer(self.root, {}).write(["client1", "AI"], "salescall-4.ai.enc", source, sha)
         self.assertEqual(got.exception.ask, sealing.KeyMissing.ask)
         (self.root / pc.DRIVE_MARK).unlink()
         with self.assertRaises(RemoteError) as got:
-            w.write(["client1", "AI"], "salescall-5.ai.enc", data, sha)
+            w.write(["client1", "AI"], "salescall-5.ai.enc", source, sha)
         self.assertEqual(got.exception.ask, pc.DriveMissing.ask)
 
 

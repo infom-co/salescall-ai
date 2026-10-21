@@ -8,11 +8,14 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import os
+from collections.abc import Iterator
+from typing import BinaryIO
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-MAGIC = b"SALESCALL-BACKUP-1\n"    # 控えのファイルの頭（形が変わったら番号を上げる）
+MAGIC = b"SALESCALL-BACKUP-1\n"    # 形1の頭（読むだけ。下の「暗号化の形」）
 KEY_ENV = "SALESCALL_BACKUP_KEY"
 KEY_MIN_CHARS = 20
 _KEY_SALT = b"salescall-backup-key-1"     # 作り方を変えたら番号を上げる（前の控えは前の作り方でしか戻せない）
@@ -49,19 +52,93 @@ def key_matches(text: str, environ: dict[str, str] | None = None) -> bool:
     return key_from_text(text) == load_key(environ)
 
 
-def encrypt(data: bytes, key: bytes, file_name: str) -> bytes:
-    """控えを暗号化する（AES-GCM。ファイルの名前も合わせて守る＝別のファイルと取り替えられたら復号できない）。"""
+# ── 暗号化の形（判断はこの1か所） ──
+# 形2（2026-10-21〜。いま書く形）：控えを丸ごとメモリに持たないよう、決まった大きさ（SEGMENT）ずつ分けて暗号化する。
+#   頭＝MAGIC2 ＋ 分ける大きさ（4バイト）＋ でたらめな7バイト。分けた1つずつを AES-GCM で暗号化（守りの印16バイトつき）。
+#   使い捨ての番号＝でたらめな7バイト ＋ 何番目か（4バイト）＋ 最後か（1バイト）。ファイルの名前も合わせて守る。
+#   ⇒ 途中で切れた（最後の印が無い）・順番を入れ替えた・別のファイルと取り替えた、のどれも復号できない。
+# 形1（〜2026-10-21）：丸ごと1回で暗号化した形。前に書いた控えを戻せるよう、読むことだけはできる。
+MAGIC2 = b"SALESCALL-BACKUP-2\n"
+SEGMENT = 1 << 20
+_HEAD2 = len(MAGIC2) + 4 + 7
+_TAG = 16
+
+
+def _nonce(prefix: bytes, index: int, last: bool) -> bytes:
+    if index >= 2 ** 32:
+        raise SealError("控えが大きすぎます")
+    return prefix + index.to_bytes(4, "big") + (b"\x01" if last else b"\x00")
+
+
+class Sealer:
+    """少しずつ受け取って、少しずつ暗号化して書く（形2）。`write` で渡し、`close` で最後の1つを書く（close しないと、復号できない
+    ＝途中で切れた控えを、控えと取り違えない）。"""
+
+    def __init__(self, out: BinaryIO, key: bytes, file_name: str, segment: int = SEGMENT) -> None:
+        if len(key) != 32:
+            raise SealError("控えの鍵は32バイトです")
+        self._out, self._aead, self._aad, self._segment = out, AESGCM(key), file_name.encode(), segment
+        self._prefix, self._index, self._buffer = os.urandom(7), 0, bytearray()
+        out.write(MAGIC2 + segment.to_bytes(4, "big") + self._prefix)
+
+    def write(self, data: bytes | memoryview) -> None:
+        self._buffer += data
+        while len(self._buffer) > self._segment:   # 最後の1つは close まで持つ（最後かどうかは、終わってから分かる）
+            self._seal(bytes(self._buffer[:self._segment]), last=False)
+            del self._buffer[:self._segment]
+
+    def close(self) -> None:
+        self._seal(bytes(self._buffer), last=True)
+        self._buffer = bytearray()
+
+    def _seal(self, plain: bytes, *, last: bool) -> None:
+        self._out.write(self._aead.encrypt(_nonce(self._prefix, self._index, last), plain, self._aad))
+        self._index += 1
+
+
+def unseal(src: BinaryIO, key: bytes, file_name: str) -> Iterator[bytes]:
+    """暗号化した控えを、少しずつ復号して返す（形2。形1も読める）。守りの印が合わない・途中で切れていれば SealError（返した分は捨てる）。"""
     if len(key) != 32:
         raise SealError("控えの鍵は32バイトです")
-    nonce = os.urandom(12)
-    return MAGIC + nonce + AESGCM(key).encrypt(nonce, data, file_name.encode())
+    aad, aead = file_name.encode(), AESGCM(key)
+    head = src.read(len(MAGIC2))
+    if head == MAGIC:   # 形1：丸ごと（前に書いた控え）
+        nonce = src.read(12)
+        try:
+            yield aead.decrypt(nonce, src.read(), aad)
+        except Exception:
+            raise SealError("控えを復号できません（鍵が違う・ファイルが壊れている・取り替えられた）") from None
+        return
+    if head != MAGIC2:
+        raise SealError("控えのファイルの形が違います")
+    rest = src.read(_HEAD2 - len(MAGIC2))
+    if len(rest) != _HEAD2 - len(MAGIC2):
+        raise SealError("控えのファイルが途中で切れています")
+    segment, prefix = int.from_bytes(rest[:4], "big"), rest[4:]
+    if not 0 < segment <= 64 * SEGMENT:
+        raise SealError("控えのファイルの形が違います")
+    index, piece = 0, src.read(segment + _TAG)
+    while True:
+        after = src.read(segment + _TAG)
+        last = not after
+        try:
+            yield aead.decrypt(_nonce(prefix, index, last), piece, aad)
+        except Exception:
+            raise SealError("控えを復号できません（鍵が違う・ファイルが壊れている・途中で切れている・取り替えられた）") from None
+        if last:
+            return
+        index, piece = index + 1, after
+
+
+def encrypt(data: bytes, key: bytes, file_name: str) -> bytes:
+    """丸ごと渡す形（小さな中身・試験用。中は Sealer と同じ＝形2）。"""
+    out = io.BytesIO()
+    sealer = Sealer(out, key, file_name)
+    sealer.write(data)
+    sealer.close()
+    return out.getvalue()
 
 
 def decrypt(blob: bytes, key: bytes, file_name: str) -> bytes:
-    if not blob.startswith(MAGIC):
-        raise SealError("控えのファイルの形が違います")
-    nonce, body = blob[len(MAGIC):len(MAGIC) + 12], blob[len(MAGIC) + 12:]
-    try:
-        return AESGCM(key).decrypt(nonce, body, file_name.encode())
-    except Exception:
-        raise SealError("控えを復号できません（鍵が違う・ファイルが壊れている・取り替えられた）") from None
+    """丸ごと戻す形（小さな中身・試験用。中は unseal と同じ）。"""
+    return b"".join(unseal(io.BytesIO(blob), key, file_name))

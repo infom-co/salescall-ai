@@ -63,8 +63,7 @@ class Agent:
     ws: ClientConnection | None = None
     loop: asyncio.AbstractEventLoop | None = None
     generation: int = 0                                    # つなぎの番号（つなぎ直すたびに増える）
-    _incoming: dict[UUID, list[bytes]] = field(default_factory=dict)
-    _begun: dict[UUID, dict[str, Any]] = field(default_factory=dict)
+    _incoming: dict[UUID, Any] = field(default_factory=dict)   # 控えの番号 → 書いている途中（backup.Incoming）か、断った答え
     _tasks: set[asyncio.Task] = field(default_factory=set)
 
     def __post_init__(self) -> None:
@@ -162,8 +161,10 @@ class Agent:
         （サーバーは、書けなかったとして記録し、あとでやり直す）。"""
         self.ws = None
         self.generation += 1
+        for entry in self._incoming.values():   # 書きかけの控えを消す（控えと取り違えない）
+            if isinstance(entry, backup.Incoming):
+                entry.abort()
         self._incoming.clear()
-        self._begun.clear()
         for phone in self.phones.values():
             try:
                 busy = phone.in_call()
@@ -193,8 +194,11 @@ class Agent:
                     self.phones[ident].play(payload)
                 except Exception:  # noqa: BLE001 電話の部品の誤りで、ほかの回線の声を止めない
                     pass
-            elif kind == p.BACKUP and ident in self._incoming:
-                self._incoming[ident].append(payload)
+            elif kind == p.BACKUP and isinstance(entry := self._incoming.get(ident), backup.Incoming):
+                out = await self._write(lambda: backup.as_remote(lambda: entry.feed(payload)))   # 届いた順に、少しずつ暗号化して書く
+                if not out.get("ok"):
+                    entry.abort()
+                    self._incoming[ident] = out
             return
         msg = p.loads(message, p.SERVER_TO_PC - {"welcome"})
         kind = msg["t"]
@@ -202,7 +206,9 @@ class Agent:
             self._spawn(self._reply(msg))
         elif kind == "backup_begin":
             ident = UUID(str(msg["id"]))
-            self._incoming[ident], self._begun[ident] = [], msg
+            out = await self._write(lambda: self.writer.begin(list(msg.get("folder") or []), str(msg.get("file_name")),
+                                                              str(msg.get("sha256"))))
+            self._incoming[ident] = out["value"] if out.get("ok") else out
         elif kind == "backup_end":
             self._spawn(self._backup_end(UUID(str(msg["id"]))))
         elif kind == "prune":
@@ -259,11 +265,15 @@ class Agent:
             await self.ws.send(p.dumps("reply", id=ident, **out))
 
     async def _backup_end(self, ident: UUID) -> None:
-        begun, chunks = self._begun.pop(ident, None), self._incoming.pop(ident, [])
-        if begun is None:
+        entry = self._incoming.pop(ident, None)
+        if entry is None:
             return
-        out = await self._write(lambda: self.writer.write(list(begun.get("folder") or []), str(begun.get("file_name")),
-                                                          b"".join(chunks), str(begun.get("sha256"))))
+        if isinstance(entry, backup.Incoming):
+            out = await self._write(lambda: backup.as_remote(entry.finish))
+            if not out.get("ok"):
+                entry.abort()
+        else:
+            out = entry   # 始めるとき・途中で断った答え
         if self.ws is not None:
             if out.get("ok"):
                 out = {"ok": True, "sha256": out["value"][0], "size": out["value"][1]}
