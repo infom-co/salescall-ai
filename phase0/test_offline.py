@@ -4781,6 +4781,20 @@ class TargetTest(unittest.TestCase):
         self.assertFalse(f.passed_on)
         f.on_check("judge2", HANDOVER, old_turn, said="少々お待ちください。")
         self.assertFalse(f.passed_on)
+        # (4-h) 判定が届かない通話でも、AIの「受付の方」の報告のあとは新しい方：前の方に確かめたことで、取り次がれて出た方をAIの読みだけで
+        #     繋がない（その方にも確かめる）。確かめに「はい」と言われたら、AIの読みで繋ぐ
+        f, b = self.checked()
+        self.heard(f, "はい。", None)
+        f.apply("report_party", {"party": "target"})
+        self.heard(f, "いいえ、私は山田と申します。", None)
+        f.apply("replay_opening", {"part": "handover"})
+        self.heard(f, "少々お待ちください。", None)
+        self.assertEqual(f.apply("report_party", {"party": "reception"})["result"], "noted")
+        self.heard(f, "お電話代わりました。岡田です。", None)
+        self.assertEqual(f.apply("report_party", {"party": "target"})["result"], "confirm_target")
+        self.heard(f, "はい、そうです。", None)
+        r = f.apply("report_party", {"party": "target"})
+        self.assertEqual((r["result"], parts(r)[:3]), ("next", ["greeting", "intro", "purpose"]))
         # (5) 確かめは電話口の方ごとに1回：受付の方に確かめたあと、取り次ぎの判定のあとに出た方には、もう一度確かめる
         f, b = self.checked()
         self.heard(f, "岡田ですね。", None)

@@ -1707,7 +1707,11 @@ class Flow:
                 # AIは受付の方と言い、いまの言葉の判定は「ご本人」と読んだ：繋がずに確かめる（前の発話の読みでは決めない＝いまの言葉は
                 # 「お待ちください」かもしれない）
                 return self._ask_target(new_person=False)
-            self.passed_on = True  # 受付の方：目的の人は、このあと代わって出る別の方。お取り次ぎを待つ間は話させない
+            # 受付の方：目的の人は、このあと代わって出る別の方（次の発話から新しい方＝取り次ぎの判定と同じ区切り。判定が届かないときの手がかり）。
+            # ⛔ 2026-10-21 の見直し（判定を止めた形 G-57 tc8down）：区切りを動かさなかったので、山田様に確かめたことが、取り次がれて出た岡田様にも
+            #    「確かめ済み」と数えられ、岡田様をAIの読みだけで繋いだ（確かめていない方を、AIの読みだけで繋ぐ道）。お取り次ぎを待つ間は話させない
+            self._new_speaker(self.callee_turns, after=True)
+            self.passed_on = True
             return {"result": "noted", "silent": True, "message": f"受け付けました。{self._now()}"}
         if not asked and ai == "handover" and j == HANDOVER:
             self.passed_on = True
