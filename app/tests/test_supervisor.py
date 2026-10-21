@@ -315,7 +315,8 @@ class Rounds(SupervisorBase):
         self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: tx.execute(
             "UPDATE salescall.lines SET client_id = %s WHERE line_id = %s", (s["client"], s["line"])))
         now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
-        for _ in range(2):                                                     # Aの約束2つ
+        for _ in range(3):                                                     # Aの約束3つ（2つだと、守りを外しても約束の並びで
+                                                                               # 偶然そろうことがあった＝2026-10-21 の全部の試験で見つけた）
             k = self.w.contact(s["tenant"], s["client"], normalize(fictional_jp_fixed()).e164)
             mine = self.w.task(s["tenant"], s["client"], s["run"], k)
             self.tx(s, lambda tx, mine=mine, k=k: support.schedule_call(tx, mine, now, contact_id=k, cause="試験",
@@ -324,7 +325,7 @@ class Rounds(SupervisorBase):
         reserved = [self.tx(s, lambda tx, x=x: tx.one(
             "SELECT salescall.line_promised_due(%s, salescall.jst(now())::date, %s) AS n", (x["line"], uuid.uuid4()))["n"])
             for x in (s, t)]
-        self.assertEqual(reserved, [2, 1])                                     # Aの約束はAの専用の回線・Bの約束は共有の回線
+        self.assertEqual(reserved, [3, 1])                                     # Aの約束はAの専用の回線・Bの約束は共有の回線
 
     def test_the_guard_is_the_average_call_length_of_the_business_once_measured(self):
         """空ける時間は、これから始めるふつうの電話の業務の平均通話時間（お客様が出た通話。2026-10-19 ユーザー：「30分かかる業務と
