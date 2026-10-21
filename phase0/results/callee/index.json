@@ -2394,5 +2394,35 @@
     "tries": 1,
     "seconds": 7.4,
     "wav": "Sadachbia_busy_after_hold.wav"
+  },
+  {
+    "voice": "Leda",
+    "id": "not_okada",
+    "text": "いいえ、私は山田と申します。",
+    "how": null,
+    "said": "",
+    "heard": "いいえ、私は山田と申します。",
+    "diffs": [],
+    "question_needed": false,
+    "question_ok": true,
+    "ok": true,
+    "tries": 2,
+    "seconds": 2.88,
+    "wav": "Leda_not_okada.wav"
+  },
+  {
+    "voice": "Sadachbia",
+    "id": "not_okada",
+    "text": "いいえ、私は山田と申します。",
+    "how": null,
+    "said": "いいえ、私は山田と申します。",
+    "heard": "いいえ、私は山田と申します。",
+    "diffs": [],
+    "question_needed": false,
+    "question_ok": true,
+    "ok": true,
+    "tries": 1,
+    "seconds": 2.92,
+    "wav": "Sadachbia_not_okada.wav"
   }
 ]

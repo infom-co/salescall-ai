@@ -86,6 +86,28 @@ def said_to(call: dict, wav_name: str) -> str:
     return "".join(said(t) for t in call["turns"] if line_of(t).endswith(f"_{wav_name}.wav"))
 
 
+def replies_to(call: dict, *wav_names: str) -> list[str]:
+    """その台詞（続きの待ち・答え直しの台詞も）へのAIのターンで、流れの制御が返した返事の種類。"""
+    def line_of(t):
+        cl = t.get("callee")
+        cl = cl.get("followup_of", cl) if isinstance(cl, dict) else cl
+        return cl.get("wav", "") if isinstance(cl, dict) else ""
+    return [e["reply"] for t in call["turns"] if any(line_of(t).endswith(f"_{w}.wav") for w in wav_names) for e in t.get("tool_events") or []]
+
+
+def not_the_target(*wav_names: str):
+    """目的の人ではない方（wav_names の台詞の方）が出たあと、取り次がれて岡田様が出る場面の確かめ（DESIGN.md 4-3・Flow._calling_reported）。
+    ✅ 2026-10-21 ユーザー：「二つ以上揃わなかった場合に関しても正しく設計できているんですか？」⇒ 別の方には繋がない・同じ方を2回確かめない・
+    目的の人をお呼びし直す・取り次がれた岡田様には名乗りから全部"""
+    def check(c: dict) -> dict:
+        got_replies = replies_to(c, *wav_names)
+        return {"別の方には繋がない": not any(r in ("next", "confirm_required") for r in got_replies),
+                "お呼びし直した": "call_target" in got_replies, "確かめは1人に1回": got_replies.count("confirm_target") <= 1,
+                "番号違いにしない": end_reason(c) != "wrong_party",
+                "代わった方に全部": played_parts(connect_reply(c))[:3] == ["greeting", "intro", "purpose"], "答えが取れた": got(c, "Q1", "はい")}
+    return check
+
+
 def callback_recorded(call: dict) -> bool:
     """かけ直しで足す質問を、録音で流したか（AIに言わせない。⛔ 1回目・2回目：AIが言うと「折り返しのお電話はお約束できかねます」などを足した）。"""
     return any(x["op"] == "request_callback" and (x["reply"].get("play") or [{}])[0].get("kind") == "recorded" for x in ops(call))
@@ -101,7 +123,7 @@ def played_parts(reply: dict) -> list[str]:
 
 def connect_reply(call: dict) -> dict:
     """目的の人に繋がったときの返事（流れの制御が、名乗り・用件・最初の質問を流した返事）。繋ぐのは、AIの「目的の人」の報告か、代わった方への
-    名乗りの流し直しの頼み（判定が「ご本人」。Flow._target_reported の1か所）の、どちらか。"""
+    名乗りの流し直しの頼み（判定が「ご本人」。Flow._calling_reported の1か所）の、どちらか。"""
     return next((x["reply"] for x in ops(call)
                  if ((x["op"] == "report_party" and x["args"].get("party") == "target")
                      or (x["op"] == "replay_opening" and x["args"].get("part") == "handover"))
@@ -250,10 +272,21 @@ SCENES = {
         "理由": last_fact(c, "callback").get("why") == "absent", "取り次ぎの間は話さない": plain(said_to(c, "hold_target")) == "",
         "用件を受付に流さない": connect_reply(c) == {}, "締め": closing_of(c) == CLOSING, "足す質問は録音": callback_recorded(c)}),
     # 受付の方が「担当の者に代わります」と取り次ぎ、代わった方が名乗らずに出る：✅ 2026-10-21 ユーザー：「担当の者に代わりますの後に、はい、お電話変わりましたと出れば、ほぼ『本人』でしょう」（「代わった人」でも正しい）
-    # ⇒ 繋いで代わった方に全部を流し、答えを取る（2つの判定の読みが分かれたときは、目的の人かを1回確かめてから＝Flow._target_reported）
+    # ⇒ 繋いで代わった方に全部を流し、答えを取る（2つの判定の読みが分かれたときは、目的の人かを1回確かめてから＝Flow._calling_reported）
     "目的の人_担当の者に取り次がれる": Scene(TARGET_BUSINESS, [W("transfer"), T("taken_over_unnamed")] + FULL, lambda c: {
         "取り次ぎの間は話さない": plain(said_to(c, "transfer")) == "",
         "代わった方に全部": played_parts(connect_reply(c))[:3] == ["greeting", "intro", "purpose"], "答えが取れた": got(c, "Q1", "はい")}),
+    # 「担当の者に代わります」のあと、違うお名前の方が出る（お呼びした岡田様ではない）：確かめずに、名乗ってから岡田様をお呼びし直す（確かめた
+    # ときは、その方の「いいえ」のあとに）。その方が取り次いで、岡田様が出たら全部を流す
+    "目的の人_担当の別の方が出る": Scene(TARGET_BUSINESS, [W("transfer"), W("taken_over") | {"if_asked_target": W("not_okada")["wav"]},
+                                                     W("hold_target"), T("taken_over_okada")] + FULL,
+                                     lambda c: not_the_target("taken_over", "not_okada")(c) | {
+                                         "取り次ぎの間は話さない": plain(said_to(c, "transfer")) == ""}),
+    # 名乗らずに出た方が、目的の人かを聞かれて「いえ、私は山田と申します。」：同じ方にもう一度確かめず、お詫びのあと岡田様をお呼びし直す
+    # （判定が「代わった人」と読めば、確かめずにお呼びし直す）
+    "目的の人_確かめにいいえ": Scene(TARGET_BUSINESS, [W("taken_over_unnamed") | {"if_asked_target": W("not_okada")["wav"]},
+                                                W("hold_target"), T("taken_over_okada")] + FULL,
+                                  not_the_target("taken_over_unnamed", "not_okada")),
     "目的の人_受付で断られる": Scene(TARGET_BUSINESS, [W("reception_refuse")], lambda c: {
         "発信禁止の申告": bool(c.get("facts", {}).get("do_not_call")), "締め": closing_of(c) == CLOSE_DECLINED}),
 }
