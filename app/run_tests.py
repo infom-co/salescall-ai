@@ -916,6 +916,23 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("回線の単価を、一覧に無い方式にも入れられる（0104 の前：書き方が違うと単価が見つからない）",
      "DROP TRIGGER price_versions_line_method ON salescall.price_versions",
      ("tests.test_usage.PricesPerContractor.test_a_line_price_is_only_for_a_method_in_the_list",)),
+    ("PC の通行証を、誰でも払い出せる・書き換えられる（0105 の守り）",
+     "DROP TRIGGER pc_agents_guard ON salescall.pc_agents",
+     ("tests.test_agents.Passes.test_who_may_issue_stop_and_change",)),
+    ("止めた通行証でもサーバーにつなげる（0105）",
+     "CREATE OR REPLACE FUNCTION salescall.agent_by_token(p_sha text) RETURNS TABLE (pc_id uuid, tenant_id uuid)"
+     " LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ BEGIN PERFORM salescall.hub_only();"
+     " RETURN QUERY SELECT a.pc_id, a.tenant_id FROM salescall.pc_agents a WHERE a.token_sha256 = p_sha; END $$",
+     ("tests.test_agents.Passes.test_a_pass_is_given_once_kept_only_as_a_fingerprint_and_identifies_the_pc",)),
+    ("サーバーだけの関数を、契約者の取引・管理者からも呼べる（0105）",
+     "CREATE OR REPLACE FUNCTION salescall.hub_only() RETURNS void LANGUAGE plpgsql STABLE AS $$ BEGIN END $$",
+     ("tests.test_agents.Passes.test_who_may_issue_stop_and_change",)),
+    ("合図で、ほかの契約者の回線も名乗れる（0105）",
+     "CREATE OR REPLACE FUNCTION salescall.agent_beat(p_pc uuid, p_lines uuid[]) RETURNS uuid[]"
+     " LANGUAGE plpgsql SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ DECLARE kept uuid[]; BEGIN"
+     " PERFORM salescall.hub_only(); UPDATE salescall.pc_agents a SET last_seen_at = now(), lines = p_lines"
+     " WHERE a.pc_id = p_pc AND a.revoked_at IS NULL RETURNING a.lines INTO kept; RETURN kept; END $$",
+     ("tests.test_agents.Passes.test_a_beat_keeps_only_the_tenants_lines_in_use",)),
 )
 
 

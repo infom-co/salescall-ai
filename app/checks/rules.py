@@ -188,6 +188,8 @@ WRITERS: dict[str, dict[str, frozenset[str]]] = {
     "runs": {"INSERT": frozenset({_CORE + "registry.py"}), "UPDATE": frozenset({_CORE + "registry.py"})},
     "lines": {"INSERT": frozenset({_CORE + "registry.py"}), "UPDATE": frozenset({_CORE + "registry.py"})},
     "line_methods": {"INSERT": frozenset({_CORE + "registry.py"})},          # 回線の方式の一覧（管理者が足す。0104）
+    "pc_agents": {"INSERT": frozenset({_CORE + "agents.py"}),                # PC ごとの通行証（DESIGN.md 5-5。0105）
+                  "UPDATE": frozenset({_CORE + "agents.py"})},
     "voices": {"INSERT": frozenset({_CORE + "recordings.py"}), "UPDATE": frozenset({_CORE + "recordings.py"})},
     "voice_types": {"INSERT": frozenset({_CORE + "recordings.py"})},           # 声の型（管理者が足す。0059）
     "recording_sets": {"INSERT": frozenset({_CORE + "recordings.py"})},       # 録音の版と承認（6-13。0047）
