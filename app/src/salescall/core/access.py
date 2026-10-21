@@ -11,11 +11,18 @@
   読ませない・書かせない・作らせない（行ごとに読める範囲を制限する機能）。渡す場所は、この部品の1か所だけ。
 - データベースが拒んだ書き込み（一意の約束・組の参照・変えてはいけない記録・読める範囲の制限 など）は、
   `Rejected` にして返す。どの約束で拒まれたかは `constraint` に入る（門が不許可の理由に使う）。
+- **データベースへのつなぎは、接続先ごとに1つの共有のつなぎ（`_pool`。この処理の中で1つ）から借りて返す**（2026-10-21：取引のたびに
+  新しくつなぐと、すべての契約者の仕事・回線ごとの流れ・PC の合図が1つのサーバーに集まったとき、つなぐ手間とデータベースのつなぎの
+  上限で止まる）。借りるときに、つなぎが生きているかを確かめる（データベースが立ち上げ直しても、壊れたつなぎを使わない）。取引の
+  「誰が・どの契約者・どの依頼者か」は、その取引の中だけの値（`set_config(..., true)`）なので、返したつなぎに残らない。
+  空きが無いときは `POOL_WAIT` 秒まで待ち、データベースに届かないときも同じ長さで「届かない」（`psycopg.OperationalError`）。
 """
 
 from __future__ import annotations
 
+import atexit
 import random
+import threading
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -27,6 +34,7 @@ import psycopg
 import psycopg.conninfo
 from psycopg import IsolationLevel, errors
 from psycopg.rows import dict_row
+from psycopg_pool import ConnectionPool
 
 T = TypeVar("T")
 
@@ -116,6 +124,33 @@ def tool_connection(conninfo: str) -> tuple[str, dict[str, str]]:
     return psycopg.conninfo.make_conninfo(**d), ({"PGPASSWORD": str(password)} if password else {})
 
 
+POOL_MAX = 20     # 1つの接続先に、この処理が同時に持つつなぎの上限（多い分は、空くのを待つ。取引は短い）
+POOL_WAIT = 10.0  # つなぎの空きを待つ・データベースに届くのを待つ長さ（秒。過ぎたら「届かない」）
+_POOLS: dict[str, ConnectionPool] = {}
+_POOLS_LOCK = threading.Lock()
+
+
+def _pool(conninfo: str) -> ConnectionPool:
+    """その接続先の共有のつなぎ（この処理の中で1つ。初めて使うときに作る）。"""
+    with _POOLS_LOCK:
+        got = _POOLS.get(conninfo)
+        if got is None:
+            got = ConnectionPool(conninfo, min_size=0, max_size=POOL_MAX, timeout=POOL_WAIT, open=True,
+                                 check=ConnectionPool.check_connection, kwargs={"row_factory": dict_row},
+                                 name="salescall")
+            _POOLS[conninfo] = got
+        return got
+
+
+@atexit.register
+def _close_pools() -> None:
+    with _POOLS_LOCK:
+        pools = list(_POOLS.values())
+        _POOLS.clear()
+    for got in pools:
+        got.close(timeout=5)
+
+
 class Access:
     """読み書きの層。取引の始め方は3つだけ（依頼者の範囲・契約者の範囲・システム共通）。"""
 
@@ -148,7 +183,7 @@ class Access:
              read_only: bool = False) -> T:
         for attempt in range(self._max_attempts):
             try:
-                with psycopg.connect(self._conninfo, row_factory=dict_row) as conn:
+                with _pool(self._conninfo).connection() as conn:
                     conn.isolation_level = IsolationLevel.REPEATABLE_READ if read_only else IsolationLevel.SERIALIZABLE
                     conn.read_only = read_only
                     with conn.transaction():

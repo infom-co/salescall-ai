@@ -6,6 +6,7 @@ description = "SalesCall AI の本番のコード（設計：Intent.md・docs/DE
 requires-python = ">=3.13,<3.14"
 dependencies = [
     "psycopg[binary]==3.2.10",   # PostgreSQL へつなぐ部品（使ってよいのは読み書きの層だけ。DESIGN.md 11章・I-31）
+    "psycopg-pool==3.2.6",       # データベースへのつなぎを共有にする部品（psycopg の公式。使ってよいのは読み書きの層だけ）
     "openpyxl==3.1.5",           # xlsx（Excel）の読み込み（発信対象の取込。core/import_files.py だけが使う）
     "defusedxml==0.7.1",         # openpyxl が xlsx の中の XML を安全に読むために使う（悪意のある XML で止まらない）
     "cryptography==44.0.0",      # 控えの暗号化（PC の部品の salescall/link/sealing.py だけが使う。Intent.md 14-1。鍵はサーバーに置かない＝DESIGN.md 5-5）

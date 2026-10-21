@@ -349,7 +349,7 @@ def dial_only_through_exit(app_root: Path) -> list[Violation]:
 # ── 5-5：契約者の PC に置く部品（agent・link）は、データベースにも、サーバーの部品（core・supervisor）にも触れない（読み取られても、
 #    データベースへの道が無い＝2026-10-21 ユーザー承認）。PC とのつなぎ（websockets）を使うのは、つなぎ口と PC の部品だけ。
 PC_SIDE = ("src/salescall/agent/", "src/salescall/link/")
-PC_SIDE_BANNED = ("psycopg", "salescall.core", "salescall.supervisor", "salescall.web")
+PC_SIDE_BANNED = ("psycopg", "psycopg_pool", "salescall.core", "salescall.supervisor", "salescall.web")
 LINK_USERS = ("src/salescall/supervisor/channel.py", "src/salescall/agent/")
 
 

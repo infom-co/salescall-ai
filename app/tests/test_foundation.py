@@ -240,7 +240,6 @@ class ServerOnly(unittest.TestCase):
     def test_a_leftover_login_role_can_do_nothing(self):
         """消せずに残った前の PC の鍵の役（システムの役の権限を受け継ぐ）でつないでも、契約者のデータ・共通の表・関数のどれも使えない。"""
         import os
-        import psycopg.conninfo
         from salescall.core.access import Access
         w = World()
         s = w.setup()
@@ -249,10 +248,9 @@ class ServerOnly(unittest.TestCase):
             "SET LOCAL ROLE salescall_login_maker; " + sql))
         make(f'CREATE ROLE "{role}" LOGIN IN ROLE salescall_app')
         self.addCleanup(make, f'DROP ROLE "{role}"')
-        d = psycopg.conninfo.conninfo_to_dict(os.environ["SALESCALL_TEST_APP_DSN"])
+        d = dict(p.split("=", 1) for p in os.environ["SALESCALL_TEST_APP_DSN"].split())   # 試験の接続の文字は「名前=値」を空白で並べた形
         d.update(user=role)
-        d.pop("password", None)
-        left = Access(psycopg.conninfo.make_conninfo(**d), max_attempts=1)
+        left = Access(" ".join(f"{k}={v}" for k, v in d.items()), max_attempts=1)
         for name, work in (
                 ("契約者のデータ", lambda: left.in_client(OPERATOR, s["tenant"], s["client"], lambda tx: tx.all(
                     "SELECT 1 FROM salescall.tasks"))),
@@ -263,6 +261,49 @@ class ServerOnly(unittest.TestCase):
             with self.subTest(name), self.assertRaises(Rejected):
                 work()
         self.assertEqual(left.in_system(SYSTEM, lambda tx: tx.all("SELECT 1 FROM salescall.setting_definitions")), [])   # 見えない
+
+
+class SharedConnections(unittest.TestCase):
+    """データベースへのつなぎは、接続先ごとに1つの共有のつなぎから借りる（core/access.py の `_pool`）。取引の「どの契約者か」は返した
+    つなぎに残らない。データベースの側で切れたつなぎは使わない。届かないときは決めた長さで「届かない」。"""
+
+    def test_one_pool_per_place_and_nothing_is_left_on_a_returned_connection(self):
+        from salescall.core import access
+        w = World()
+        s = w.setup()
+        mine = access.Access(w.a._conninfo + " application_name=salescall-pool-test")   # この試験だけの接続先（ほかの試験と混ざらない）
+        self.assertIs(access._pool(mine._conninfo), access._pool(access.Access(mine._conninfo)._conninfo))   # 接続先ごとに1つ
+        pids = set()
+        for _ in range(5):   # 契約者の取引のあとに全体の取引：同じつなぎでも、前の契約者は見えない
+            pids.add(mine.in_tenant(SYSTEM, s["tenant"], lambda tx: tx.one("SELECT pg_backend_pid() AS p")["p"]))
+            left = mine.in_system(SYSTEM, lambda tx: tx.one(
+                "SELECT salescall.cur_tenant() AS t, salescall.cur_client() AS c, pg_backend_pid() AS p"))
+            self.assertEqual((left["t"], left["c"]), (None, None))
+            pids.add(left["p"])
+        self.assertEqual(len(pids), 1)                                        # つなぎ直していない（1本を借りて返している）
+
+    def test_a_connection_closed_by_the_database_is_not_used(self):
+        w = World()
+        pid = lambda tx: tx.one("SELECT pg_backend_pid() AS p")["p"]   # noqa: E731
+        held = w.a.in_system(SYSTEM, lambda tx: (pid(tx), w.a.in_system(SYSTEM, pid)))   # 2本を同時に借りて返す
+
+        def kill(tx):
+            me = pid(tx)
+            victim = held[0] if held[0] != me else held[1]
+            return tx.one("SELECT pg_terminate_backend(%s) AS ok", (victim,))["ok"]
+        self.assertTrue(w.a.in_system(SYSTEM, kill))                           # データベースの側で1本を切った
+        for _ in range(4):                                                     # どちらのつなぎを借りても、取引は通る
+            self.assertEqual(w.a.in_system(SYSTEM, lambda tx: w.a.in_system(SYSTEM, lambda t2: t2.one("SELECT 1 AS x")))["x"], 1)
+
+    def test_an_unreachable_database_is_reported_after_the_wait(self):
+        from unittest import mock
+        from salescall.core import access
+        with mock.patch.object(access, "POOL_WAIT", 1.0):
+            far = access.Access("host=127.0.0.1 port=1 dbname=none user=none connect_timeout=1", max_attempts=1)
+            started = time.monotonic()
+            with self.assertRaises(access.psycopg.OperationalError):   # 届かない（読み書きの層が使う種類）
+                far.in_system(SYSTEM, lambda tx: tx.one("SELECT 1"))
+        self.assertLess(time.monotonic() - started, 5)
 
 
 class TenantTransactions(unittest.TestCase):
