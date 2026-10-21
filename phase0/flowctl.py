@@ -439,7 +439,7 @@ CALLBACK_PLAN = {"absent": ("back_time",), "other_number": ("number", "reachable
 CALLBACK_IDS = {"time": "C1", "number": "C2"}
 # 目的の人を呼んでいる段（calling）の、意味の判定の「質問」（呼ぶ一言）の選択肢と意味の言葉（DESIGN.md 1-1：AIの報告「目的の人」を、
 # 独立した判定とそろったときだけ受け取る。取り次ぎ＝HOLD・代わった人＝HANDOVER は、判定のほうの答えでない言葉）
-TARGET_IS_THERE, TARGET_IS_AWAY = "ご本人", "不在"
+TARGET_IS_THERE, TARGET_IS_AWAY, TARGET_IS_NOT = "ご本人", "不在", "別の方"
 # ご本人の意味（判定の決まりの1か所。meaning_judge.KIND_DESC の「代わった人」は、ここに当たるときは選ばない）。
 # ✅ 2026-10-19 ユーザー：「受付が『それでは岡田にお繋ぎします。』のような後に、『はい、お電話代わりました。』と言われれば、『ご本人』になりますよね」
 #    ⛔ 直す前は、判定に、その前の取り次いだ方の言葉を渡しておらず、名乗らない「はい、お電話代わりました。」を「代わった人」と読んでいた（G-62）
@@ -453,6 +453,12 @@ TARGET_MEANINGS = {TARGET_IS_THERE: "お呼びした方ご本人が電話に出�
                                     "（「お待たせいたしました」だけなど）もこちらではない。お呼びした方がいないので別の者に代わると言ったあとに"
                                     "代わった方が出たとき・お呼びした方と違う名前を名乗ったときも、こちらではない",
                    TARGET_IS_AWAY: "お呼びした方はいらっしゃらない・電話に出られないということ（取り次いだあとに、取り次いだ方がまた出て、そう伝えたときも）"}
+# 目的の人かを確かめたあと（確かめる一言＝はい／いいえの問い）の選択肢と意味の言葉（Flow.judge_context が、確かめへの返事を待つ間の質問にする）。
+# ⛔ 2026-10-21 G-59：確かめたあとも呼ぶ一言の選択肢（ご本人・不在）だけを見せていたので、「いいえ」に当たる選択肢が無く、「いえ、違います。」を
+#    2社とも「不在」と読み（3回中3回）、3.5 Flash Lite は「いいえ、私は山田と申します。」を「ご本人」と読んだ（3回中2〜3回）
+CONFIRM_MEANINGS = {TARGET_IS_THERE: "電話に出ている方が、お呼びした方ご本人だということ（「はい」「そうです」「私です」と答えた）",
+                    TARGET_IS_NOT: "電話に出ている方は、お呼びした方ではないということ（「いいえ」「違います」と答えた・違うお名前を名乗った）",
+                    TARGET_IS_AWAY: TARGET_MEANINGS[TARGET_IS_AWAY]}
 # hang_up＝話さずに切る（電話接続側が読む）・silent＝AIに話させない返事（取り次ぎを待つ間など。handle_call）
 INTERNAL_KEYS = {"ack", "ask_n", "ask_reason", "ask_last", "after", "play", "speak", "hang_up", "silent", "sorry"}  # 中で使うだけの項目（電話接続側・数え方が読む）。AIへの返事には入れない
 # こちらが使う名前（AIに見せる日本語の名前）。値の欄に入っていたら、相手の答えではない（form_problem）
@@ -743,9 +749,11 @@ class Flow:
         # 届いた分も。出揃った言葉のものだけ。電話口の方の「ご本人」の読みを数える＝_target_readings）
         self.calling_words: dict[int, str] = {}
         self.calling_judged: dict[int, dict[str, str]] = {}
-        # 呼んでいる段の判定の質問（judge_context）
-        self.calling_question = (Question("T1", target["target"], "yes_no", required=False, conditions=tuple(TARGET_MEANINGS),
-                                          meanings=dict(TARGET_MEANINGS)) if target else None)
+        # 呼んでいる段の判定の質問（judge_context）：呼ぶ一言と、確かめる一言（確かめへの返事を待つ間は、こちらが実際に聞いた問いを質問にする）
+        self.calling_question, self.confirm_question = (
+            tuple(Question(qid, target[part], "yes_no", required=False, conditions=tuple(meanings), meanings=dict(meanings))
+                  for qid, part, meanings in (("T1", "target", TARGET_MEANINGS), ("T2", "target_confirm", CONFIRM_MEANINGS)))
+            if target else (None, None))
         self.target_claimed = False  # いまの目的の人の確かめが、AIの「目的の人」の報告から来たか（_now が「まだ受け付けていない」と伝える）
         if target:
             self.phase, self.current = "calling", None
@@ -879,7 +887,12 @@ class Flow:
         ⛔ 2026-10-18 の見直しで見つけた漏れ：いまの質問が無い段では判定が走らず、取り次ぎ（「少々お待ちください」）を見分ける独立した確かめも、
            AIの「目的の人」の報告を確かめる手立ても無かった"""
         if self.phase == "calling":
-            return self.calling_question, self.asked_target, "／".join(list(self.calling_words.values())[-3:]) or None
+            # 確かめへの返事を待つ間は、確かめる一言（「〇〇様でいらっしゃいますでしょうか？」）を質問にする。⛔ 2026-10-21 G-59：呼ぶ一言（「…様は
+            # いらっしゃいますでしょうか？」）を質問にし、確かめる一言を「言い直して確かめた言葉」として添えていたので、3.5 Flash Lite は
+            # 「お電話代わりました。担当の山田です。」のあとの「いいえ、私は山田と申します。」を3回中2回「ご本人」と読んだ（決まりの文を足す形は、
+            # 判定ごとに誤りの出方が入れ替わるだけだった＝Jev が「いえ、違います。」を「ご本人」と読んだ）
+            q = self.confirm_question if self.asked_target is not None and self.confirm_open else self.calling_question
+            return q, None, "／".join(list(self.calling_words.values())[-3:]) or None
         q = self.questions.get(self.current) if self.current else None
         return q, (self.awaiting_say if self.awaiting_confirm is not None else None), None
 

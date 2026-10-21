@@ -4544,7 +4544,11 @@ class TargetTest(unittest.TestCase):
             r = f.apply("report_party", {"party": "target"})
             self.assertEqual((r["result"], [p["text"] for p in r.get("play") or []] or [r.get("say")]), ("confirm_target", [b.target.confirm()]), judged)
             f.on_callee()
-            self.assertEqual(f.judge_context()[1], b.target.confirm())          # 確かめた言い方を添えて判定する
+            # 確かめへの返事は、確かめる一言を質問にして判定する（選択肢は ご本人・別の方・不在。⛔ G-59：呼ぶ一言の選択肢だけでは、
+            # 「いいえ」に当たる選択肢が無く、「いえ、違います。」を2社とも「不在」と読んだ）
+            from flowctl import CONFIRM_MEANINGS
+            q, asked, _ = f.judge_context()
+            self.assertEqual((q.text, asked, set(q.conditions)), (b.target.confirm(), None, set(CONFIRM_MEANINGS)))
             f.on_heard("はい、そうです。"); f.on_check("judge", TARGET_IS_THERE)
             r = f.apply("report_party", {"party": "target"})
             self.assertEqual([p.get("part", p["kind"]) for p in r["play"]], ["greeting", "intro", "purpose", "question"], judged)
@@ -4716,8 +4720,9 @@ class TargetTest(unittest.TestCase):
         self.heard(f, "お電話代わりました。岡田です。", TARGET_IS_THERE)
         r = f.apply("report_party", {"party": "target"})
         self.assertEqual(parts(r)[:3], ["greeting", "intro", "purpose"])
-        # (4) 確かめに、AIは「目的の人」と報告したが、判定は「はい」と読まない：繋がず・確かめ直さず、お呼びし直す
-        for judged in (UNDECIDED, HANDOVER):
+        # (4) 確かめに、AIは「目的の人」と報告したが、判定は「はい」と読まない（別の方・決められない・代わった人）：繋がず・確かめ直さず、お呼びし直す
+        from flowctl import TARGET_IS_NOT
+        for judged in (UNDECIDED, HANDOVER, TARGET_IS_NOT):
             f, b = self.checked()
             self.heard(f, "はい。", None)
             f.apply("report_party", {"party": "target"})
@@ -4747,8 +4752,10 @@ class TargetTest(unittest.TestCase):
         self.heard(f, "いや、ええと。", TARGET_IS_THERE); f.on_check("judge2", TARGET_IS_THERE)
         r = f.apply("replay_opening", {"part": "handover"})
         self.assertEqual((r["result"], f.phase), ("call_target", "calling"))
-        # (4-d) お呼びし直したあとは、AIに「確かめへの返事を待っている」とは伝えない・お詫びは同じ方に1回まで
+        # (4-d) お呼びし直したあとは、AIに「確かめへの返事を待っている」とは伝えない・判定の質問は呼ぶ一言に戻る・お詫びは同じ方に1回まで
         self.assertNotIn("返事を待っています", r["message"])
+        f.on_callee()
+        self.assertEqual(f.judge_context()[0].text, b.target.call())
         self.assertIn("お取り次ぎいただくのを待っています", r["message"])
         self.heard(f, "えっと。", UNDECIDED)
         self.assertIsNone(f.apply("replay_opening", {"part": "handover"})["ack"])

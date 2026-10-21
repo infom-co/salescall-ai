@@ -42,6 +42,26 @@ LINES_AFTER = [
     ("お待たせいたしました。岡田は会議中でして、本日は難しいようです。", ["不在"], TO_TARGET),
     ("お待たせいたしました。", ["決められない", "代わった人が話し始めた"], TO_TARGET),
 ]
+# 目的の人かを確かめたあとの返事（判定に、確かめた言い方を添える＝Flow.judge_context の asked）⇒ 受け取ってよい読み。
+# 2026-10-21 ユーザー：「二つ以上揃わなかった場合に関しても正しく設計できているんですか？」で足した（確かめに「いいえ」と答えた方を
+# 「ご本人」と読めば、AIの読み違いと重なったときに別の方に繋ぐ＝Flow._calling_reported）
+NOT_TARGET = ["別の方", "代わった人が話し始めた", "決められない"]  # どれでも繋がない（Flow._calling_reported）。⛔ 不在は誤り（かけ直しへ進む）
+LINES_CONFIRMED = [
+    ("はい、そうです。", ["ご本人"], None),
+    ("はい、私です。", ["ご本人"], None),
+    ("はい、そうです。", ["ご本人"], TO_TARGET),
+    ("いいえ、私は山田と申します。", NOT_TARGET, None),
+    ("いいえ、私は山田と申します。", NOT_TARGET, "お電話代わりました。担当の山田です。"),
+    ("いえ、違います。", NOT_TARGET, None),
+    ("いえ、受付の者です。少々お待ちください。", ["取り次ぎを待つ"], None),
+    ("いえ、岡田は席を外しております。", ["不在"], None),
+]
+
+
+def cases(confirm: str) -> list[tuple[str, list[str], str | None, str | None]]:
+    """測る言葉の全部：(相手の言葉, 受け取ってよい読み, その前に相手が言ったこと, 確かめた言い方)。"""
+    return ([(t, o, None, None) for t, o in LINES] + [(t, o, b, None) for t, o, b in LINES_AFTER]
+            + [(t, o, b, confirm) for t, o, b in LINES_CONFIRMED])
 
 
 async def run(args) -> dict:
@@ -52,16 +72,16 @@ async def run(args) -> dict:
     import dataclasses
     b = dataclasses.replace(BUSINESS, target=target)
     f = Flow(b.questions, opening=b.replay_parts(), target=b.replay_parts(), play_recordings=True)
-    q, asked, _ = f.judge_context()
     judges = make_judges(args)
     rows = []
-    for text, ok, before in [(t, o, None) for t, o in LINES] + LINES_AFTER:
+    for text, ok, before, asked in cases(b.target.confirm()):
+        q = f.confirm_question if asked else f.calling_question  # 確かめたあとの返事は、確かめる一言を質問にする（Flow.judge_context）
         for rep in range(args.repeat):
-            row = {"text": text, "accept": ok, "before": before, "rep": rep}
+            row = {"text": text, "accept": ok, "before": before, "asked": asked, "rep": rep}
             for k, j in judges.items():
                 if j is not None:
                     try:
-                        got = await j(q, text, asked, before=before)
+                        got = await j(q, text, None, before=before)
                     except NoJudgment as exc:  # 答えにならなかった（Jev の確からしさが線より下・止まっている）：どれも選ばなかったと数える
                         got, row[f"{k}_tried"] = None, exc.tried
                     row[k] = label(got) if got else None
