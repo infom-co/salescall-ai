@@ -54,13 +54,24 @@ def pc_out_of_date(tx: Tx, tenant_id: UUID, pc_id: UUID, *, can_replace: bool) -
     """その契約者の取引で、PC の部品のプログラムが古いことを知らせる（1日1回・PC ごと）。can_replace＝その PC に、自動で入れ替える
     部品があるか（⏳ インストーラーと一緒に作る）。自動で入れ替えるかを返す。"""
     auto = can_replace and bool(settings.resolve(tx, "pc.auto_update", tenant_id=tenant_id, client_id=None, business_id=None))
-    day = tx.one("SELECT salescall.jst(now())::date AS d")["d"]
+    day = tx.today()
     notify.emit(tx, "program_update", key=f"program_update:{day}:{pc_id}",
                 summary=("PC のプログラムの更新があります。空いているときに自動で入れ替えます（いまの通話は最後まで）。"
                          if auto else "PC のプログラムの更新があります。プログラムを更新してください。")
                         + "更新が済むまで、この PC からは新しい電話をかけません。",
                 refs={"auto": auto, "pc_id": pc_id}, admin=True, contractor=True)
     return auto
+
+
+def leftover_pc_roles(tx: Tx) -> int:
+    """前の「PC ごとのデータベースの鍵」の役（salescall_t_…）が、データベースに残っている数（表の作り 0107）。残っていても、
+    データベースはサーバーの役と表の持ち主しか受け付けない（何も読めず書けない）が、その鍵でつないで、サーバーのつなぎを切ることは
+    できる。表の作りを、管理者の接続（SALESCALL_ADMIN_DSN）つきで流し直すと消える（core/migrate.py）。"""
+    return int(tx.one("SELECT count(*) AS n FROM pg_roles WHERE rolname LIKE 'salescall\\_t\\_%'")["n"])
+
+
+LEFTOVER = ("前の PC のデータベースの鍵の役（salescall_t_…）が残っています。表の作りを、管理者の接続（SALESCALL_ADMIN_DSN）を"
+            "入れて流し直してください（python -m salescall.core.migrate。何度流しても同じ結果）")
 
 
 def describe(result: str) -> str:

@@ -26,19 +26,12 @@ from uuid import UUID
 
 from salescall.core import notify, settings
 from salescall.core.access import Access, Actor, Tx
+from salescall.link.basics import PcPass
 
 DOWN = "PC（電話をつなぐ部品）からの動いている合図が途切れました。その PC の回線では電話をかけていません。PC の電源・ネット・PC の部品が動いているかを確かめてください"
 
 
-@dataclass(frozen=True)
-class Pass:
-    """払い出した通行証（返すのは1回だけ。保存しない）。"""
-    tenant_id: UUID
-    pc_id: UUID
-    token: str
-
-    def __repr__(self) -> str:   # 記録や画面の誤りの表示に、通行証を出さない
-        return f"Pass(tenant_id={self.tenant_id!r}, pc_id={self.pc_id!r}, token=***)"
+Pass = PcPass   # 払い出した通行証（形は link.basics.PcPass の1か所＝PC がしまう形と同じ。返すのは1回だけ。保存しない）
 
 
 def fingerprint(token: str) -> str:

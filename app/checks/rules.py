@@ -308,11 +308,11 @@ DIAL_EXIT = "src/salescall/core/dial_exit.py"
 
 
 #    サーバーと PC の分け方（5-5）：発信の出口の「かける」は、PC の部品へ頼む形（supervisor/channel.py の AgentDriver.start_call）・
-#    やり取りの種類（link/protocol.py）・PC の部品が頼まれて電話の部品を呼ぶ所（agent/main.py の Agent._reply）を通って届く。
+#    やり取りの種類（link/protocol.py）・PC の部品が頼まれて電話の部品を呼ぶ所（agent/main.py の Agent._do）を通って届く。
 #    この3つは中継だけ（かけるかを決めない）なので、決めた場所でだけ許す。
 DIAL_RELAYS = {"src/salescall/supervisor/channel.py": {"AgentDriver.start_call"},
                "src/salescall/link/protocol.py": {"<module>"},
-               "src/salescall/agent/main.py": {"Agent._reply"}}
+               "src/salescall/agent/main.py": {"Agent._do"}}
 
 
 def _with_places(tree: ast.AST) -> Iterator[tuple[ast.AST, str]]:
@@ -348,6 +348,7 @@ def dial_only_through_exit(app_root: Path) -> list[Violation]:
 
 # ── 5-5：契約者の PC に置く部品（agent・link）は、データベースにも、サーバーの部品（core・supervisor）にも触れない（読み取られても、
 #    データベースへの道が無い＝2026-10-21 ユーザー承認）。PC とのつなぎ（websockets）を使うのは、つなぎ口と PC の部品だけ。
+#    サーバーの部品と共有の部品（link）は、PC の部品（agent）を読まない（両方が使う決まりは link に置く＝片方だけ直して食い違わない）。
 PC_SIDE = ("src/salescall/agent/", "src/salescall/link/")
 PC_SIDE_BANNED = ("psycopg", "psycopg_pool", "salescall.core", "salescall.supervisor", "salescall.web")
 LINK_USERS = ("src/salescall/supervisor/channel.py", "src/salescall/agent/")
@@ -367,6 +368,8 @@ def pc_side_stays_off_the_server(app_root: Path) -> list[Violation]:
         for module, line in _imported_modules(tree):
             if on_pc and any(module == b or module.startswith(b + ".") for b in PC_SIDE_BANNED):
                 out.append(Violation("5-5", rel, line, f"PC の部品は {module} を読みません（PC はデータベースにつながない）"))
+            if not rel.startswith("src/salescall/agent/") and (module == "salescall.agent" or module.startswith("salescall.agent.")):
+                out.append(Violation("5-5", rel, line, "サーバーの部品と共有の部品は、PC の部品を読みません（両方が使う決まりは link に置く）"))
             if (module == "websockets" or module.startswith("websockets.")) and not rel.startswith(LINK_USERS):
                 out.append(Violation("5-5", rel, line, "PC とのつなぎを使うのは、つなぎ口（supervisor/channel.py）と PC の部品だけです"))
     return out

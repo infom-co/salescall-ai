@@ -10,7 +10,7 @@
 
 from __future__ import annotations
 
-from salescall.core.access import Access, Actor
+from salescall.core.access import Access, Actor, unreachable
 from salescall.core.errors import ErrorReport
 
 ACTOR = Actor("見守り役", "system")
@@ -19,6 +19,8 @@ ACTOR = Actor("見守り役", "system")
 def report(access: Access, tenant_id: object, what: str, error: BaseException, *, line_id: object = None) -> None:
     """見守り役の処理の誤りを、エラーの入口へ渡す（止めずに CL-2 へ修正依頼。errors の「supervisor」）。**誤りの文は渡さない**
     （お客様の情報・接続先が入りうる。渡すのは、どの仕事か と誤りの種類の名前だけ＝控えと同じ決まり）。記録できなくても止めない。"""
+    if unreachable(error):   # データベースに届かない誤りは、データベースに記録できない（記録しに行って、さらに待たない）
+        return
     try:
         from salescall.core import watch   # 見守り役の部品を読むときに、watch の読み込みを先にしない
         watch.after_error(access, ACTOR, ErrorReport("supervisor", None, f"{what}：{type(error).__name__}"),

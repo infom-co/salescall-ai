@@ -164,7 +164,7 @@ class DialOnlyThroughExit(Planted):
 
     def test_the_relays_may_pass_it_on_only_in_their_own_place(self):
         """中継（5-5）は、決めた関数の中だけ（同じファイルのほかの所では、かけられない）。"""
-        root = self._app({"src/salescall/agent/main.py": "class Agent:\n    def _reply(self, p):\n        p.start_call('x')\n"
+        root = self._app({"src/salescall/agent/main.py": "class Agent:\n    def _do(self, p):\n        p.start_call('x')\n"
                                                         "    def other(self, p):\n        p.start_call('x')\n",
                           "src/salescall/supervisor/channel.py": "class AgentDriver:\n    def start_call(self, n):\n"
                                                                   "        self.ask(op='start_call')\n"
@@ -182,11 +182,15 @@ class PcSideStaysOffTheServer(Planted):
                           "src/salescall/link/b.py": "from salescall.supervisor.links import Attached\n",
                           "src/salescall/core/c.py": "import websockets\n",
                           "src/salescall/supervisor/channel.py": "import websockets\n",
-                          "src/salescall/agent/ok.py": "import websockets\nfrom salescall.link import protocol\n"})
+                          "src/salescall/agent/ok.py": "import websockets\nfrom salescall.link import protocol\n"
+                                                      "from salescall.agent import backup\n",
+                          "src/salescall/link/d.py": "\nfrom salescall.agent.pc_login import PcPass\n",
+                          "src/salescall/core/e.py": "\n\nimport salescall.agent.backup\n"})
         found = rules.pc_side_stays_off_the_server(root)
         self.assertEqual(sorted((v.path, v.line) for v in found),
                          [("src/salescall/agent/a.py", 1), ("src/salescall/agent/a.py", 2), ("src/salescall/agent/a.py", 3),
-                          ("src/salescall/core/c.py", 1), ("src/salescall/link/b.py", 1)])
+                          ("src/salescall/core/c.py", 1), ("src/salescall/core/e.py", 3), ("src/salescall/link/b.py", 1),
+                          ("src/salescall/link/d.py", 2)])
 
 
 class SettingsReadInOnePlace(Planted):

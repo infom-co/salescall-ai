@@ -34,7 +34,6 @@ sys.path[:0] = [str(APP / "src"), str(APP)]
 from checks.rules import run_all  # noqa: E402
 from salescall.core import migrate  # noqa: E402
 
-ROLES_SQL = APP / "db" / "setup_roles.sql"
 
 
 def _pg_bindir() -> Path:
@@ -908,8 +907,8 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
 
 def _fresh_db(superuser_dsn: str) -> tuple[str, str, str]:
     dbname = f"salescall_test_{uuid.uuid4().hex[:8]}"
+    migrate.setup_roles(superuser_dsn)
     with psycopg.connect(superuser_dsn, autocommit=True) as conn:
-        conn.execute(ROLES_SQL.read_text(encoding="utf-8"))
         conn.execute(f'CREATE DATABASE "{dbname}" OWNER salescall_owner')
         conn.execute(f'CREATE DATABASE "{dbname}_restore" OWNER salescall_owner')   # 控えを戻して確かめる空のデータベース
     owner_dsn = _with_db(superuser_dsn, dbname, "salescall_owner")

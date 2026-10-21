@@ -87,7 +87,7 @@ def record(tx: Tx, *, source: str, service: str, tier: str | None, kind: str, qu
         price = price_for(tx, source=source, service=service, tier=tier, unit=unit)
     except PriceMissing:
         price = {"price_id": None, "yen_per_unit": None}
-        day = tx.one("SELECT salescall.jst(now())::date AS d")["d"]
+        day = tx.today()
         notify.emit(tx, "setting_missing", key=f"price_missing:{source}:{service}:{tier}:{unit}:{day}",
                     summary=f"費用の単価が設定されていません（{source}・{service}・{tier or '-'}・{unit}）。費用は量だけ記録しています",
                     refs={"source": source, "service": service, "tier": tier, "unit": unit})
@@ -113,7 +113,7 @@ def _check_client_budget(tx: Tx, tenant_id: UUID, client_id: UUID) -> None:
                                      business_id=None))
     spent = spent_today(tx)
     if spent > limit:
-        day = tx.one("SELECT salescall.jst(now())::date AS d")["d"]
+        day = tx.today()
         notify.emit(tx, "budget", key=f"client_daily:{client_id}:{day}",
                     summary=f"今日の費用が上限を超えました（{spent}円 ＞ {limit}円）。発信は止めていません",
                     refs={"client_id": client_id, "spent": str(spent), "limit": str(limit)})
@@ -187,7 +187,7 @@ def confirm_deficit(tx: Tx, warning_id: int) -> None:
 def _check_cost_ratio(tx: Tx, tenant_id: UUID, client_id: UUID) -> int | None:
     state, m = _deficit(tx, tenant_id, client_id)
     figures = f"今月の費用 {m['cost']:.2f}円・報酬 {m['revenue']:.2f}円"
-    day = tx.one("SELECT salescall.jst(now())::date AS d")["d"]
+    day = tx.today()
     if state == UNKNOWN:
         # 報酬の決まりが無いのは設定の抜け（お客様には影響しない）：止めずに注意を知らせる（2026-10-16 ユーザー）
         notify.emit(tx, "setting_missing", key=f"reward_terms_missing:{client_id}:{day}",
@@ -228,7 +228,7 @@ def tick(access: Access, actor: Actor, tenant_id: UUID) -> dict[str, Any]:
         limit = Decimal(settings.resolve(tx, "budget.tenant_daily_yen", tenant_id=tenant_id, client_id=None, business_id=None))
         spent = tx.one("SELECT salescall.spent_today_tenant() AS y")["y"]
         if spent > limit:
-            day = tx.one("SELECT salescall.jst(now())::date AS d")["d"]
+            day = tx.today()
             notify.emit(tx, "budget", key=f"tenant_daily:{day}",
                         summary=f"今日の費用（すべての依頼者の合計）が上限を超えました（{spent}円 ＞ {limit}円）。発信は止めていません",
                         refs={"spent": str(spent), "limit": str(limit)})

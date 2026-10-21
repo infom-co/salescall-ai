@@ -18,9 +18,10 @@
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass, field
 from uuid import UUID
+
+from salescall.link.basics import Env
 
 NAMES = ("SALESCALL_DSN", "SALESCALL_LISTEN", "SALESCALL_CALL_RUNNER", "SALESCALL_VERIFIER", "SALESCALL_PROBER",
          "SALESCALL_OWNER_DSN", "SALESCALL_RESTORE_DSN", "SALESCALL_WHOLE_BACKUP_TENANT")
@@ -40,7 +41,6 @@ class Config:
     owner_dsn: str | None = field(repr=False)
     restore_dsn: str | None = field(repr=False)
     whole_backup_tenant: UUID | None = None
-    environ: dict[str, str] = field(repr=False, default_factory=dict)
 
     @property
     def calls(self) -> bool:
@@ -55,16 +55,11 @@ class Config:
 
 def gather(environ: dict[str, str] | None = None) -> dict[str, str]:
     """環境変数のうち、表の名前のものだけ（ほかの値は読まない）。"""
-    env = os.environ if environ is None else environ
-    return {name: env[name] for name in NAMES if env.get(name, "") != ""}
+    return Env(NAMES, environ).values
 
 
 def load(environ: dict[str, str] | None = None) -> Config:
-    env = gather(environ)
-
-    def maybe(name: str) -> str | None:
-        return env.get(name, "").strip() or None
-
+    maybe = Env(NAMES, environ).get
     dsn = maybe("SALESCALL_DSN")
     if dsn is None:
         raise ConfigMissing("設定 SALESCALL_DSN が入っていません（サーバーの環境変数に入れてください。手順：app/README.md）")
@@ -81,10 +76,9 @@ def load(environ: dict[str, str] | None = None) -> Config:
         raise ConfigMissing("SALESCALL_WHOLE_BACKUP_TENANT は契約者の番号（例 0a1b…）で書きます") from None
     return Config(dsn=dsn, listen=where, call_runner=maybe("SALESCALL_CALL_RUNNER"), verifier=maybe("SALESCALL_VERIFIER"),
                   prober=maybe("SALESCALL_PROBER"), owner_dsn=maybe("SALESCALL_OWNER_DSN"),
-                  restore_dsn=maybe("SALESCALL_RESTORE_DSN"), whole_backup_tenant=whole, environ=env)
+                  restore_dsn=maybe("SALESCALL_RESTORE_DSN"), whole_backup_tenant=whole)
 
 
 def status(environ: dict[str, str] | None = None) -> list[str]:
     """どの設定が入っているか（値は出さない）。"""
-    env = gather(environ)
-    return [f"{name}：{'入っています' if env.get(name, '').strip() else '入っていません'}" for name in NAMES]
+    return Env(NAMES, environ).status()

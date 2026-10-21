@@ -27,6 +27,7 @@ import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import date
 from typing import Any, TypeVar
 from uuid import UUID
 
@@ -107,6 +108,10 @@ class Tx:
     def all(self, sql: str, params: tuple[Any, ...] | dict[str, Any] | None = None) -> list[dict[str, Any]]:
         return self.execute(sql, params).fetchall()
 
+    def today(self) -> date:
+        """日本時間の今日（データベースの時計。日本時間の判断は salescall.jst の1か所）。"""
+        return self.one("SELECT salescall.jst(now())::date AS d")["d"]
+
     @contextmanager
     def savepoint(self) -> Iterator[None]:
         """取引の中の一部分だけを取り消せる区切り（拒まれたら、その部分だけ取り消して続ける）。"""
@@ -146,8 +151,12 @@ def _pool(conninfo: str) -> ConnectionPool:
         got = _POOLS.get(conninfo)
         if got is None:
             got = ConnectionPool(conninfo, min_size=0, max_size=POOL_MAX, timeout=POOL_WAIT, open=True,
-                                 check=ConnectionPool.check_connection, kwargs={"row_factory": dict_row},
-                                 name="salescall")
+                                 check=ConnectionPool.check_connection, name="salescall",
+                                 reconnect_timeout=POOL_WAIT, kwargs={
+                                     "row_factory": dict_row,
+                                     "connect_timeout": int(POOL_WAIT),   # 届かない相手を、OS の長い待ち（数分）まで待たない
+                                     # 黙って切れたつなぎ（相手の機械が落ちた・途中の機器が切った）に、数十秒で気づく
+                                     "keepalives": 1, "keepalives_idle": 30, "keepalives_interval": 10, "keepalives_count": 3})
             _POOLS[conninfo] = got
         return got
 
@@ -159,6 +168,12 @@ def _close_pools() -> None:
         _POOLS.clear()
     for got in pools:
         got.close(timeout=5)
+
+
+def unreachable(error: BaseException) -> bool:
+    """データベースに届かない誤りか（つなぎに行けない・待ち過ぎ・つなぎが切れた。判断はこの1か所）。届かない誤りは、データベースに記録
+    できないので、記録しに行って待たない（呼ぶ側）。"""
+    return isinstance(error, psycopg.OperationalError) and not isinstance(error, _CONFLICTS)
 
 
 class Access:

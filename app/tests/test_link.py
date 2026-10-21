@@ -112,6 +112,15 @@ def until(test, what, seconds=15.0):
     raise AssertionError(f"待っても、そうなりませんでした：{what}")
 
 
+async def until_async(test, seconds=15.0):
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if got := test():
+            return got
+        await asyncio.sleep(0.02)
+    raise AssertionError("待っても、そうなりませんでした")
+
+
 class LinkBase(Base):
     def setUp(self):
         super().setUp()
@@ -342,6 +351,85 @@ class LostConnection(LinkBase):
         until(lambda: phone.calls and phone.apologies >= 1, "かけ終わったら、すぐおわびして切る")
         caller.join(30)
 
+    def test_a_phone_that_cannot_say_whether_it_is_in_a_call_is_apologised_for_first(self):
+        """つながりが切れたとき、通話中か答えられない電話の部品は、通話中とみなしておわびして切る（控えの後始末より先）。"""
+        values = {"SALESCALL_HUB_URL": "ws://127.0.0.1:1/link", "SALESCALL_LINES": str(uuid.uuid4())}
+        order = []
+
+        class Mute(FakePhone):
+            def in_call(self):
+                raise RuntimeError("試験：答えない")
+
+            def play_apology_and_hang_up(self):
+                order.append("おわび")
+
+        class Receiving(agent_main._Receiving):
+            def drop(self):
+                order.append("控えをやめる")
+                super().drop()
+        a = agent_main.Agent(agent_config.load(values), PcPass(uuid.uuid4(), uuid.uuid4(), "架空の通行証"), {uuid.uuid4(): Mute()})
+
+        async def go():
+            a._incoming[uuid.uuid4()] = Receiving()
+            a._lost()
+        asyncio.run(go())
+        self.assertEqual(order, ["おわび", "控えをやめる"])
+
+    def test_requests_for_one_line_run_in_order_and_a_call_that_ends_too_late_is_apologised_for(self):
+        """1つの回線への頼みは、届いた順に1つずつ（「かけて」の途中に届いた「おわびして切って」は、かけ終わってから）。答えの期限を
+        過ぎて「かけた」が終わったら、PC が自分でおわびして切り、「分からない」と答える（サーバーはもう待っていない）。"""
+        s = self.ready()
+        got = self.pc(s)
+        order = []
+
+        class SlowPhone(FakePhone):
+            def start_call(self, phone):
+                time.sleep(1.0)
+                order.append("かけた")
+
+            def play_apology_and_hang_up(self):
+                order.append("おわび")
+        self.agent(got, [s["line"]], {s["line"]: SlowPhone()})
+        driver = self.hub.driver(s["line"], self.attached(s, got))
+        caller = threading.Thread(target=driver.start_call, args=("+81300000000",))
+        caller.start()
+        until(lambda: self.hub.sessions[got.pc_id].pending, "かけてと頼んだ")
+        driver.apologize_and_hang_up()
+        caller.join(10)
+        self.assertEqual(order, ["かけた", "おわび"])
+        order.clear()
+        with mock.patch.object(protocol, "ANSWER_BY", 0.5), self.assertRaises(RuntimeError):
+            driver.start_call("+81300000001")                                  # 答えは「分からない」（出口が結果不明にする）
+        self.assertEqual(order, ["かけた", "おわび"])
+
+    def test_a_call_that_was_surely_not_placed_is_not_apologised_for_even_when_late(self):
+        """電話の部品が「かけていない」と確かに言えるときは、期限を過ぎても、おわびしない（かかっていない電話へ、おわびを流さない）。"""
+        s = self.ready()
+        got = self.pc(s)
+
+        class Refusing(FakePhone):
+            def start_call(self, phone):
+                time.sleep(0.5)
+                raise CallNotPlaced("試験：アプリが受け付けない")
+        phone = Refusing()
+        self.agent(got, [s["line"]], {s["line"]: phone})
+        driver = self.hub.driver(s["line"], self.attached(s, got))
+        with mock.patch.object(protocol, "ANSWER_BY", 0.2), self.assertRaises(CallNotPlaced):
+            driver.start_call("+81300000002")
+        self.assertEqual(phone.apologies, 0)
+
+    def test_the_hub_refuses_a_request_from_its_own_thread(self):
+        """つなぎ口の流れ（声・出来事の受け口の中）から PC の部品へ頼むと、自分の流れを止めて、すべての PC のやり取りが固まる：断る。"""
+        s = self.ready()
+        got = self.pc(s)
+        self.agent(got, [s["line"]])
+        driver = self.hub.driver(s["line"], self.attached(s, got))
+
+        async def inside():
+            driver.in_call()
+        with self.assertRaises(RuntimeError):
+            asyncio.run_coroutine_threadsafe(inside(), self.hub.loop).result(10)
+
     def test_a_quick_reconnect_of_the_same_pc_is_a_new_connection(self):
         """同じ PC がすぐつなぎ直しても、新しいつなぎ（番号が違う）として見せる（中央の見守り役が回線の流れを立ち上げ直し、前の通話の
         頼み・声を新しいつなぎへ送らない）。"""
@@ -461,7 +549,7 @@ class Backups(LinkBase):
         sha, size = writer.write(self.folder(), name, source, hashlib.sha256(data).hexdigest())
         path = drive / pc_backup.BASE / "架空の依頼者" / "AI" / name
         self.assertEqual((path.stat().st_size, hashlib.sha256(path.read_bytes()).hexdigest()), (size, sha))
-        self.assertEqual(sealing.decrypt(path.read_bytes(), sealing.load_key({sealing.KEY_ENV: KEY}), name), data)
+        self.assertEqual(sealing.decrypt(path.read_bytes(), sealing.load_key({sealing.KEY_ENV: KEY}), sealing.label(self.folder(), name)), data)
         with self.assertRaises(RemoteError):
             writer.write(self.folder(), "salescall-20261021-120001-x.enc", source, "0" * 64)
         with self.assertRaises(RemoteError):
@@ -473,17 +561,104 @@ class Backups(LinkBase):
         self.assertEqual(writer.prune({"架空の依頼者": {"days": {"AI": 30}, "verified": [], "held": []}}), 1)
         self.assertEqual(sorted(f.name for f in path.parent.iterdir()), [name])   # 残す日数を過ぎたものだけ消す（書きかけも残らない）
 
+    def test_the_server_sends_no_further_ahead_than_the_window_and_one_at_a_time_during_a_call(self):
+        """控えの中身は、PC が書けた印を待ちながら送る（窓を超えて先へ送らない＝声がその後ろで長く待たない）。その PC で通話の声が
+        通ったら、1つずつ。PC が先に「書けない」と答えたら、送るのをやめる（終わりの印も送らない）。"""
+        s = self.ready()
+        got = self.pc(s)
+        source = self.dir / "plain"
+        source.write_bytes(os.urandom(protocol.CHUNK * (protocol.WINDOW + 5)))
+        with connect(f"ws://127.0.0.1:{self.hub.port}/link", max_size=protocol.MAX_FRAME, compression=None) as ws:
+            ws.send(protocol.dumps("hello", v=protocol.VERSION, token=got.token, updater=False, lines=[str(s["line"])],
+                                   drive=True, key=True, emergency=None))
+            self.assertEqual(json.loads(ws.recv(10))["t"], "welcome")
+            writer = until(lambda: self.hub.writer(s["tenant"]), "書ける PC")
+            result = {}
+
+            def write():
+                try:
+                    writer.write(self.folder(), "salescall-20991231-120000-x.enc", source, "0" * 64)
+                except Exception as e:  # noqa: BLE001
+                    result["error"] = e
+            t = threading.Thread(target=write)
+            t.start()
+            ident = json.loads(ws.recv(10))["id"]
+            self.assertEqual(len([ws.recv(10) for _ in range(protocol.WINDOW)]), protocol.WINDOW)
+            with self.assertRaises(TimeoutError):
+                ws.recv(timeout=1.5)                                           # 書けた印が来るまで、先へ送らない
+            writer.session.voice()                                             # 通話の声が通った
+            ws.send(protocol.dumps("backup_ack", id=ident, n=protocol.WINDOW))
+            self.assertIsInstance(ws.recv(10), bytes)
+            with self.assertRaises(TimeoutError):
+                ws.recv(timeout=1.5)                                           # 通話のあいだは1つずつ
+            ws.send(protocol.dumps("backup_done", id=ident, ok=False, error="試験：書けない"))
+            t.join(10)
+            self.assertIsInstance(result.get("error"), RemoteError)
+            with self.assertRaises(TimeoutError):
+                ws.recv(timeout=1.5)                                           # やめた（終わりの印も送らない）
+
+    def test_a_backup_stopped_by_shutting_the_server_down_is_not_a_failure(self):
+        """サーバーを止めるので取りやめた控えは、失敗ではない（Interrupted＝`except Exception` で失敗として記録・修正依頼しない。
+        次に動いたときにやり直す）。"""
+        s = self.ready()
+        got = self.pc(s)
+        source = self.dir / "plain"
+        source.write_bytes(os.urandom(protocol.CHUNK * (protocol.WINDOW + 5)))
+        with connect(f"ws://127.0.0.1:{self.hub.port}/link", max_size=protocol.MAX_FRAME, compression=None) as ws:
+            ws.send(protocol.dumps("hello", v=protocol.VERSION, token=got.token, updater=False, lines=[str(s["line"])],
+                                   drive=True, key=True, emergency=None))
+            ws.recv(10)
+            writer = until(lambda: self.hub.writer(s["tenant"]), "書ける PC")
+            result = {}
+
+            def write():
+                try:
+                    writer.write(self.folder(), "salescall-20991231-120000-x.enc", source, "0" * 64)
+                except BaseException as e:  # noqa: BLE001
+                    result["error"] = e
+            t = threading.Thread(target=write)
+            t.start()
+            ws.recv(10)                                                        # 控えを書き始めた（書けた印は返さない）
+            self.hub.close()
+            t.join(15)
+        self.assertIsInstance(result.get("error"), protocol.Interrupted)
+        self.assertNotIsInstance(result["error"], Exception)
+
     def test_a_backup_cut_off_by_a_lost_connection_leaves_nothing(self):
         """控えを受け取っている途中でつながりが切れたら、書きかけのファイルを消す（控えと取り違えない。サーバーは、書けなかったとして
         記録し、あとでやり直す）。"""
         values = {"SALESCALL_HUB_URL": "ws://127.0.0.1:1/link", "SALESCALL_BACKUP_DRIVE": str(drive_at(self.dir / "d2")),
                   "SALESCALL_BACKUP_KEY": KEY}
         a = agent_main.Agent(agent_config.load(values), PcPass(uuid.uuid4(), uuid.uuid4(), "架空の通行証"), {})
-        incoming = a.writer.begin(self.folder(), "salescall-20991231-000000-x.enc", "0" * 64)
-        incoming.feed(os.urandom(protocol.CHUNK + 1))
-        a._incoming[uuid.uuid4()] = incoming
-        a._lost()
-        self.assertEqual((list(incoming.place.iterdir()), a._incoming), ([], {}))
+        place = Path(values["SALESCALL_BACKUP_DRIVE"]) / pc_backup.BASE / "架空の依頼者" / "AI"
+
+        async def go():
+            ident = uuid.uuid4()
+            await a._receive(protocol.dumps("backup_begin", id=ident, folder=self.folder(),
+                                            file_name="salescall-20991231-000000-x.enc", sha256="0" * 64))
+            await a._receive(protocol.frame(protocol.BACKUP, ident, os.urandom(protocol.CHUNK)))
+            await until_async(lambda: any(place.glob("*.part")))
+            a._lost()
+            await asyncio.gather(*a._tasks)
+        asyncio.run(go())
+        self.assertEqual((list(place.iterdir()), a._incoming), ([], {}))
+
+    def test_a_piece_that_cannot_be_written_stops_the_backup_and_leaves_nothing(self):
+        """中身を書けなかったら（ディスクの誤り など）、終わりを待たずに書くのをやめ、書きかけを消す。"""
+        values = {"SALESCALL_HUB_URL": "ws://127.0.0.1:1/link", "SALESCALL_BACKUP_DRIVE": str(drive_at(self.dir / "d3")),
+                  "SALESCALL_BACKUP_KEY": KEY}
+        a = agent_main.Agent(agent_config.load(values), PcPass(uuid.uuid4(), uuid.uuid4(), "架空の通行証"), {})
+        place = Path(values["SALESCALL_BACKUP_DRIVE"]) / pc_backup.BASE / "架空の依頼者" / "AI"
+
+        async def go():
+            ident = uuid.uuid4()
+            await a._receive(protocol.dumps("backup_begin", id=ident, folder=self.folder(),
+                                            file_name="salescall-20991231-000000-y.enc", sha256="0" * 64))
+            await a._receive(protocol.frame(protocol.BACKUP, ident, b"x"))
+            await asyncio.gather(*a._tasks)
+        with mock.patch.object(pc_backup.Incoming, "feed", side_effect=OSError("試験：書けない")):
+            asyncio.run(go())
+        self.assertEqual((list(place.iterdir()), a._incoming), ([], {}))
 
     def test_a_pc_without_the_drive_says_what_to_do_and_the_whole_backup_goes_only_to_the_set_pc(self):
         s = self.ready()

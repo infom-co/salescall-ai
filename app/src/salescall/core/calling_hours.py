@@ -13,9 +13,9 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import date, datetime, time, timedelta
 
-JST = timezone(timedelta(hours=9))   # 日本時間（夏時間は無い。データベースの salescall.jst・from_jst と同じ答え）
+from salescall.link.jst import JST   # 日本時間（決まりは link.jst の1か所。ここから使う部品のために名前を残す）
 
 
 def local(t: datetime) -> datetime:

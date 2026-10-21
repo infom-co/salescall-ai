@@ -93,7 +93,7 @@ def dial(access: Access, actor: Actor, tenant_id: UUID, client_id: UUID, attempt
         access.in_client(actor, tenant_id, client_id, lambda tx: attempts.move(tx, attempt_id, "call_failed"))
         return Outcome.NOT_PLACED
     except BaseException:
+        abandon(driver)   # かけたか分からない：かかっていれば、AI のいない電話にしない（記録より先に＝データベースが止まっていても、お客様を待たせない）
         access.in_client(actor, tenant_id, client_id, lambda tx: attempts.move(tx, attempt_id, "technical_error"))
-        abandon(driver)   # かけたか分からない：かかっていれば、AI のいない電話にしない
         raise
     return Outcome.DIALED

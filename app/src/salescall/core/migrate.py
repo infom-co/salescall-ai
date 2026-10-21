@@ -6,17 +6,26 @@
 - ⚠️ 本番のデータベースへ初めて流すまでは、表の作りのファイルを直してよい（試験のデータベースは毎回作り直すため）。
   初めて流したあとは、足すことしかしない（2026-10-13 の時点で、本番のデータベースへはまだ流していない）。
 - 1つのファイルは1つの取引で流す（途中で失敗したら、そのファイルは何も入らない）。
+- **動いているサーバーを止めない**：表を変える取引は、その表を使う取引が終わるのを待つ。待つあいだ、あとから来たサーバーの取引も
+  すべて後ろに並ぶ（声・合図・発信が止まる）。そこで、待つのは `LOCK_WAIT` までにし、待てなければ取り消して、間をあけて流し直す
+  （`LOCK_TRIES` 回まで）。
+- **役の用意（db/setup_roles.sql）も、ここから流せる**：管理者の接続（環境変数 SALESCALL_ADMIN_DSN）を入れておくと、表の作りの前に
+  流す（何度流しても同じ結果。前の PC の鍵の役＝salescall_t_… が残っていれば消す＝人が手で消す手順は要らない）。
 """
 
 from __future__ import annotations
 
 import hashlib
 import os
+import time
 from pathlib import Path
 
 import psycopg
 
 MIGRATIONS_DIR = Path(__file__).resolve().parents[3] / "db" / "migrations"
+ROLES_SQL = MIGRATIONS_DIR.parent / "setup_roles.sql"
+LOCK_WAIT = "5s"   # 表を変える取引が、ほかの取引の終わりを待つ長さ（過ぎたら取り消して、間をあけて流し直す）
+LOCK_TRIES = 12
 
 
 class MigrationChanged(Exception):
@@ -61,11 +70,25 @@ def apply(owner_conninfo: str, directory: Path = MIGRATIONS_DIR) -> list[str]:
                 if applied[path.name] != digest:
                     raise MigrationChanged(f"{path.name} は流したあとに書き換えられています（新しい番号のファイルを足してください）")
                 continue
-            with conn.transaction():
-                conn.execute(body.decode("utf-8"))
-                conn.execute("INSERT INTO public.salescall_migrations (name, sha256) VALUES (%s, %s)", (path.name, digest))
+            for attempt in range(LOCK_TRIES):
+                try:
+                    with conn.transaction():
+                        conn.execute(f"SET LOCAL lock_timeout = '{LOCK_WAIT}'")
+                        conn.execute(body.decode("utf-8"))
+                        conn.execute("INSERT INTO public.salescall_migrations (name, sha256) VALUES (%s, %s)", (path.name, digest))
+                    break
+                except psycopg.errors.LockNotAvailable:
+                    if attempt == LOCK_TRIES - 1:
+                        raise
+                    time.sleep(min(2 ** attempt, 30))
             done.append(path.name)
     return done
+
+
+def setup_roles(admin_conninfo: str) -> None:
+    """役の用意（db/setup_roles.sql）を、データベースの管理者の接続で流す（何度流しても同じ結果）。"""
+    with psycopg.connect(admin_conninfo, autocommit=True) as conn:
+        conn.execute(_body(ROLES_SQL).decode("utf-8"))
 
 
 if __name__ == "__main__":
@@ -74,5 +97,8 @@ if __name__ == "__main__":
     if not dsn:
         print("環境変数 SALESCALL_OWNER_DSN に、表の持ち主の役でつなぐ接続文字列を入れてください")
         raise SystemExit(2)
+    if admin := os.environ.get("SALESCALL_ADMIN_DSN"):
+        setup_roles(admin)
+        print("役の用意を流した（db/setup_roles.sql）")
     for name in apply(dsn):
         print("流した：", name)

@@ -64,7 +64,7 @@ def judge(rows: list[dict[str, Any]], today: date, *, ratio: float, min_dials: i
 
 def check(tx: Tx, tenant_id: UUID, line_id: UUID, *, today: date | None = None) -> Drop | None:
     """その回線の今日（日本時間）を見る（契約者の取引）。"""
-    today = today or tx.one("SELECT salescall.jst(now())::date AS d")["d"]
+    today = today or tx.today()
     rows = tx.all("SELECT * FROM salescall.line_answer_counts(%s, %s, %s)",
                   (line_id, today - timedelta(days=BASELINE_DAYS), today))
     value = lambda key: settings.resolve(tx, key, tenant_id=tenant_id, client_id=None, business_id=None)   # noqa: E731
@@ -73,7 +73,7 @@ def check(tx: Tx, tenant_id: UUID, line_id: UUID, *, today: date | None = None) 
 
 def watch(tx: Tx, tenant_id: UUID, *, today: date | None = None) -> dict[UUID, Drop]:
     """その契約者の、使っている回線すべてを見て、落ちた回線を知らせる（見守り役が呼ぶ。1回線1日1回）。落ちた回線を返す。"""
-    today = today or tx.one("SELECT salescall.jst(now())::date AS d")["d"]
+    today = today or tx.today()
     dropped = {}
     for line in tx.all("SELECT line_id, name FROM salescall.lines WHERE retired_at IS NULL ORDER BY line_id"):
         got = check(tx, tenant_id, line["line_id"], today=today)

@@ -35,7 +35,9 @@ from uuid import UUID
 
 from salescall.core import fix_requests, notify, settings
 from salescall.core.access import Access, Actor, Tx, snapshot, tool_connection
-from salescall.link.protocol import JST, RemoteError
+from salescall.link.backup_files import AI, RECORDING, SUBMISSION, WHOLE, good_folder
+from salescall.link.backup_files import file_name as _name
+from salescall.link.protocol import RemoteError
 
 SCHEMAS = ("salescall", "public")   # 数える表の置き場（public には表の作りの記録がある）
 SYSTEM = Actor("データベースの控え", "system")
@@ -85,11 +87,6 @@ def _sha256_file(path: Path) -> str:
         for piece in iter(lambda: f.read(1 << 20), b""):
             digest.update(piece)
     return digest.hexdigest()
-
-
-def _name(started: datetime, rest: str) -> str:
-    """控えのファイルの名前（日本時間の日時つき。サーバーの置き場の時間帯に関係なく同じ＝PC の片付けが名前の日時で決める）。"""
-    return f"salescall-{started.astimezone(JST):%Y%m%d-%H%M%S}{rest}"
 
 
 # 道具（pg_dump など）の誤りの文は残さない（お客様の行の中身・接続先が入りうる。2026-10-18 の見直しで、pg_restore の誤りの文に
@@ -201,7 +198,7 @@ def _record(app: Access, started: datetime, file_name: str | None, written: tupl
                     None if counts is None else json.dumps(counts, sort_keys=True),
                     [] if written is None else [PLACE], error is None, error, part, tenant_id, client_id))
         if error is not None:
-            day = tx.one("SELECT salescall.jst(now())::date AS d")["d"]
+            day = tx.today()
             if person is not None:   # PC の前の作業（プログラムの直しではない）
                 summary = person
             else:
@@ -280,7 +277,7 @@ def watch_client(app: Access, tenant_id: UUID, client_id: UUID) -> bool:
         since = tx.one("SELECT created_at FROM salescall.clients WHERE client_id = %s", (client_id,))["created_at"]
         if not _overdue(tx, "client_ai", since):
             return False
-        day = tx.one("SELECT salescall.jst(now())::date AS d")["d"]
+        day = tx.today()
         notify.emit(tx, "backup_failed", key=f"backup_overdue:{day}:client_ai:{client_id}", summary=OVERDUE_CLIENT,
                     refs={"client_id": client_id}, admin=True, contractor=True)
         return True
@@ -294,7 +291,7 @@ def watch_whole(app: Access) -> bool:
         since = tx.one("SELECT salescall.first_tenant_at() AS t")["t"]   # 全体の取引からは契約者の表を読めない（0102）
         if since is None or not _overdue(tx, "system", since):
             return False
-        day = tx.one("SELECT salescall.jst(now())::date AS d")["d"]
+        day = tx.today()
         notify.emit(tx, "backup_failed", key=f"backup_overdue:{day}:system", summary=OVERDUE_WHOLE, admin=True, contractor=False)
         return True
     return app.in_system(SYSTEM, work)
@@ -303,8 +300,6 @@ def watch_whole(app: Access) -> bool:
 # ═════════ 依頼者ごとの控え（2026-10-17 ユーザー決定。表の作り 0054） ═════════
 # ハードディスクの中の形（書くのは PC の部品＝salescall/agent/backup.py）：<ハードディスク>\salescall-backup\<依頼者のフォルダ>\AI・
 # submission・recording ／ データベース全体は …\system\AI。ユーザー：「E:\salescall-backup\client1\AI」「…\client1\submission」。
-AI, SUBMISSION, RECORDING = "AI", "submission", "recording"
-WHOLE = "system"                                                    # データベース全体の控えのフォルダ（依頼者のフォルダには使えない名前）
 PLACE = "PC に接続したハードディスク"                                # 記録に残す置き場の名前（Fly.io とは別の場所）
 # 会社の種類の言葉（フォルダの名前には入れない。2026-10-17 ユーザー：「架空商事-本社」だけでいい）。文字の形をそろえた（NFKC）あとの形で書く
 _COMPANY_KINDS = re.compile(
@@ -321,7 +316,8 @@ def folder_name_from(name: str) -> str | None:
     使えない文字）を「-」にする（例「株式会社 架空商事:本社」⇒「架空商事-本社」。2026-10-17 ユーザー）。"""
     n = _COMPANY_KINDS.sub(" ", unicodedata.normalize("NFKC", name))
     n = _BREAKS.sub("-", n.strip()).strip("-. ")[:60].rstrip("-. ")
-    return None if not n or n.lower() in _RESERVED else n
+    # PC の部品が書いてよいフォルダか（決まりは link.backup_files の1か所。合わない名前は client1・client2…にする）
+    return None if not n or n.lower() in _RESERVED or not good_folder([n, AI]) else n
 
 
 def client_folder(app: Access, tenant_id: UUID, client_id: UUID) -> str:

@@ -4,8 +4,7 @@
 確かめる**（鍵はこの PC と Proton Pass だけ。サーバーは鍵を持たない）。古い控えの片付けも、サーバーが決めた決まり（残す日数・消さない
 もの）で、ここがする（ハードディスクの中を見られるのは PC だけ）。
 
-ハードディスクの中の形：<ハードディスク>\\salescall-backup\\<依頼者のフォルダ>\\AI・submission・recording ／ データベース全体は
-<ハードディスク>\\salescall-backup\\system\\AI（2026-10-17 ユーザー：「E:\\salescall-backup\\client1\\AI」）。
+ハードディスクの中の形・名前とフォルダの決まりは `salescall.link.backup_files` の1か所（サーバーと同じ）。
 ハードディスクの一番上に印のファイル（DRIVE_MARK）を置く。印が無ければ「つながっていない」として書かない（外れたときに、同じ名前の
 フォルダを PC の中に作って、そこへ書いてしまわない）。
 """
@@ -14,22 +13,15 @@ from __future__ import annotations
 
 import hashlib
 import os
-import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from salescall.link import sealing
-from salescall.link.protocol import JST, RemoteError
-
-BASE = "salescall-backup"
-DRIVE_MARK = "salescall-backup-drive.txt"
-KINDS = ("AI", "submission", "recording")
-_NAME = re.compile(r"^salescall-[0-9A-Za-z._-]{1,200}\.enc$")          # 控えのファイルの名前（サーバーが決める。ほかの名前は書かない）
-_FOLDER = re.compile(r"^[^\\/:*?\"<>|\x00-\x1f.][^\\/:*?\"<>|\x00-\x1f]{0,59}$")   # フォルダの名前（Windows で使える・上へ出ない）
-_DATED = re.compile(r"^salescall-(\d{8})-(\d{6})[.-].*\.enc$")          # 消す決まりは、名前の日時だけを見る
-_HELD_ID = re.compile(r"-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-")
+from salescall.link.backup_files import AI, BASE, DRIVE_MARK, PART, RECORDING, good_folder, good_name, held_call, taken_at
+from salescall.link.jst import JST
+from salescall.link.protocol import RemoteError
 
 
 class DriveMissing(Exception):
@@ -50,7 +42,7 @@ class Drive:
 
     def place(self, folder: list[str]) -> Path:
         """書く場所（名前を確かめる：上のフォルダへ出ない・決まった種類だけ）。"""
-        if len(folder) != 2 or not _FOLDER.match(folder[0]) or folder[1] not in KINDS:
+        if not good_folder(folder):
             raise WriteFailed("控えのフォルダの名前が決まりに合いません")
         return self.root.joinpath(BASE, *folder)
 
@@ -63,13 +55,14 @@ class Incoming:
     def __init__(self, drive: Drive, key: bytes, folder: list[str], file_name: str, sha256: str) -> None:
         if not drive.attached():
             raise DriveMissing("控え用のハードディスクがつながっていません")
-        if not _NAME.match(file_name):
+        if not good_name(file_name):
             raise WriteFailed("控えのファイルの名前が決まりに合いません")
         self.place, self.file_name, self.key, self.expected = drive.place(folder), file_name, key, sha256
+        self.where = sealing.label(folder, file_name)   # 置き場所も一緒に守る（別の依頼者のフォルダへ移した控えは開けない）
         self.place.mkdir(parents=True, exist_ok=True)
-        self.tmp = self.place / (file_name + ".part")
+        self.tmp = self.place / (file_name + PART)
         self._file = open(self.tmp, "wb")
-        self._sealer = sealing.Sealer(self._file, key, file_name)
+        self._sealer = sealing.Sealer(self._file, key, self.where)
         self._plain = hashlib.sha256()
 
     def feed(self, data: bytes | memoryview) -> None:
@@ -87,19 +80,33 @@ class Incoming:
         self._file.close()
         final = self.place / self.file_name
         self.tmp.replace(final)              # 書き終えてから名前を付ける（途中のファイルを控えと取り違えない）
-        enc, plain = hashlib.sha256(), hashlib.sha256()
-        with open(final, "rb") as raw:       # 読み戻して、少しずつ復号して、元の中身と同じか（戻せるか）
-            for piece in sealing.unseal(_Hashing(raw, enc), self.key, self.file_name):
-                plain.update(piece)
-        if plain.hexdigest() != self.expected:
-            final.unlink(missing_ok=True)    # 戻せない控えを残さない
-            raise WriteFailed("ハードディスクから読み戻した控えが、書いたものと違います")
-        return enc.hexdigest(), final.stat().st_size
+        try:
+            enc, plain = hashlib.sha256(), hashlib.sha256()
+            with open(final, "rb") as raw:   # 読み戻して、少しずつ復号して、元の中身と同じか（戻せるか）
+                for piece in sealing.unseal(_Hashing(raw, enc), self.key, self.where):
+                    plain.update(piece)
+            if plain.hexdigest() != self.expected:
+                raise WriteFailed("ハードディスクから読み戻した控えが、書いたものと違います")
+            return enc.hexdigest(), final.stat().st_size
+        except BaseException:
+            _remove(final)                   # 戻せると確かめられなかった控えを残さない（どんな誤りでも）
+            raise
 
     def abort(self) -> None:
-        if not self._file.closed:
-            self._file.close()
-        self.tmp.unlink(missing_ok=True)
+        """書きかけを消す（つながりが切れた・止める ときにも呼ぶので、誤りを上げない。消せなければ、古い書きかけとして prune が消す）。"""
+        try:
+            if not self._file.closed:
+                self._file.close()
+        except OSError:
+            pass
+        _remove(self.tmp)
+
+
+def _remove(path: Path) -> None:
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
 class _Hashing:
@@ -129,16 +136,18 @@ def prune(drive: Drive, folders: dict[str, Any], now: datetime | None = None) ->
             if not place.is_dir():
                 continue
             files = list(place.iterdir())
-            old = [f for f in files if (m := _DATED.match(f.name))
-                   and datetime.strptime(m.group(1) + m.group(2), "%Y%m%d%H%M%S").replace(tzinfo=JST)
-                   < now - timedelta(days=int(days))]
-            if kind == "AI" and old:
+            for f in files:   # 書いている途中で止まった書きかけ（1日より前）を消す（abort が消せなかったもの。書いている途中のものは消さない）
+                if f.name.endswith(PART) and datetime.fromtimestamp(f.stat().st_mtime, JST) < now - timedelta(days=1):
+                    f.unlink()
+                    removed += 1
+            old = [f for f in files if (at := taken_at(f.name)) is not None and at < now - timedelta(days=int(days))]
+            if kind == AI and old:
                 verified = set(rule.get("verified", []))
                 newest = max((f.name for f in files if f.name in verified), default=None)
                 old = [f for f in old if f.name != newest]
-            if kind == "recording" and old:
+            if kind == RECORDING and old:
                 held = set(rule.get("held", []))
-                old = [f for f in old if not ((m := _HELD_ID.search(f.name)) and m.group(1) in held)]
+                old = [f for f in old if held_call(f.name) not in held]
             for f in old:
                 f.unlink()
                 removed += 1
@@ -154,18 +163,6 @@ class LocalWriter:
     def begin(self, folder: list[str], file_name: str, sha256: str) -> Incoming:
         """受け取りながら書き始める（PC の部品が、サーバーから届く中身を少しずつ渡す）。"""
         return as_remote(lambda: Incoming(self.drive, sealing.load_key(self.environ), folder, file_name, sha256))
-
-    def write(self, folder: list[str], file_name: str, source: Path, sha256: str) -> tuple[str, int]:
-        """この PC の中のファイルを、少しずつ読んで書く（core.backup.Writer の形。試験・同じ PC の中で使う）。"""
-        incoming = self.begin(folder, file_name, sha256)
-        try:
-            with open(source, "rb") as f:
-                for piece in iter(lambda: f.read(sealing.SEGMENT), b""):
-                    as_remote(lambda piece=piece: incoming.feed(piece))
-            return as_remote(incoming.finish)
-        except BaseException:
-            incoming.abort()
-            raise
 
     def prune(self, folders: dict[str, Any]) -> int:
         return as_remote(lambda: prune(self.drive, folders))

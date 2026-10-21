@@ -13,7 +13,8 @@ from salescall.agent import backup as pc
 from salescall.core import backup, fix_requests, registry
 from salescall.core.access import Rejected
 from salescall.link import sealing
-from salescall.link.protocol import JST, RemoteError
+from salescall.link.jst import JST
+from salescall.link.protocol import RemoteError
 from tests.support import ADMIN, OPERATOR, SYSTEM, World, app_access, owner_access
 
 ENV = {sealing.KEY_ENV: "試験の控えの鍵の文字-0123456789abcdef"}   # 試験の PC の環境変数（架空の鍵の文字）
@@ -26,9 +27,23 @@ def drive_at(root: Path) -> Path:
     return root
 
 
-def writer(root: Path, environ: dict[str, str] = ENV) -> pc.LocalWriter:
-    """PC の部品が使う書く口（本物の暗号化・書き・読み戻しの道）。"""
-    return pc.LocalWriter(pc.Drive(root), environ)
+class DirectWriter(pc.LocalWriter):
+    """PC の部品が使う書く口（本物の暗号化・書き・読み戻しの道）を、つなぎ口を通さずに core.backup.Writer の形で使う（試験だけ）。"""
+
+    def write(self, folder: list[str], file_name: str, source: Path, sha256: str) -> tuple[str, int]:
+        incoming = self.begin(folder, file_name, sha256)
+        try:
+            with open(source, "rb") as f:
+                for piece in iter(lambda: f.read(sealing.SEGMENT), b""):
+                    pc.as_remote(lambda piece=piece: incoming.feed(piece))
+        except BaseException:
+            incoming.abort()
+            raise
+        return pc.as_remote(incoming.finish)
+
+
+def writer(root: Path, environ: dict[str, str] = ENV) -> DirectWriter:
+    return DirectWriter(pc.Drive(root), environ)
 
 
 class Failing:
@@ -66,8 +81,10 @@ class Backup(unittest.TestCase):
         row = backup.latest(self.app)
         self.assertEqual((row["restore_ok"], row["error"], row["destinations"]), (True, None, [backup.PLACE]))
         self.assertFalse(backup.due(self.app))                       # 今日の分は済んだ
+        where = sealing.label([backup.WHOLE, backup.AI], got.file_name)
+        self.assertTrue(sealing.decrypt(blob, CKEY, where))           # その PC の鍵と置き場所の名前で戻せる
         with self.assertRaises(sealing.SealError):                   # 違う鍵では戻せない
-            sealing.decrypt(blob, bytes(32), got.file_name)
+            sealing.decrypt(blob, bytes(32), where)
         self.assertRegex(got.file_name, r"^salescall-\d{8}-\d{6}\.dump\.enc$")
 
     def test_a_failure_does_not_stop_and_asks_cl2_to_fix_it(self):
@@ -152,7 +169,7 @@ class OnThePc(unittest.TestCase):
         self.assertEqual(sealing.decrypt(sealing.encrypt(b"", key, "f"), key, "f"), b"")
         nonce = os.urandom(12)
         old = sealing.MAGIC + nonce + AESGCM(key).encrypt(nonce, b"old", b"f")
-        self.assertEqual(sealing.decrypt(old, key, "f"), b"old")
+        self.assertEqual(sealing.decrypt(old, key, "client1/AI/f"), b"old")   # 形1は名前だけを守った（置き場所の名前の最後）
         for env, says in (({}, "入っていません"), ({sealing.KEY_ENV: "short-secret"}, "20文字以上")):
             with self.subTest(says=says), self.assertRaises(sealing.KeyMissing) as got:
                 sealing.load_key(env)
@@ -170,7 +187,9 @@ class OnThePc(unittest.TestCase):
         sha_enc, size = w.write(["client1", "AI"], "salescall-20261021-120000.ai.enc", source, sha)
         f = self.root / pc.BASE / "client1" / "AI" / "salescall-20261021-120000.ai.enc"
         self.assertEqual((hashlib.sha256(f.read_bytes()).hexdigest(), size), (sha_enc, f.stat().st_size))
-        self.assertEqual(sealing.decrypt(f.read_bytes(), CKEY, f.name), data)
+        self.assertEqual(sealing.decrypt(f.read_bytes(), CKEY, sealing.label(["client1", "AI"], f.name)), data)
+        with self.assertRaises(sealing.SealError):                         # 別の依頼者のフォルダへ移した控えは開けない
+            sealing.decrypt(f.read_bytes(), CKEY, sealing.label(["client2", "AI"], f.name))
         self.assertTrue(f.read_bytes().startswith(sealing.MAGIC2))
         data = b"\x00\x01"
         sha = hashlib.sha256(data).hexdigest()
@@ -186,6 +205,9 @@ class OnThePc(unittest.TestCase):
         with mock.patch.object(pc.sealing, "unseal", return_value=iter([b"x"])), self.assertRaises(RemoteError) as got:
             w.write(["client1", "AI"], "salescall-3.ai.enc", source, sha)
         self.assertIn("書いたものと違います", str(got.exception))
+        with mock.patch.object(pc.sealing, "unseal", side_effect=sealing.SealError("試験：読み戻せない")), \
+                self.assertRaises(RemoteError):
+            w.write(["client1", "AI"], "salescall-6.ai.enc", source, sha)   # 読み戻しのどんな誤りでも、控えを残さない
         left = sorted(p.name for p in (self.root / pc.BASE / "client1" / "AI").iterdir())
         self.assertEqual(left, ["salescall-20261021-120000.ai.enc"])          # 書きかけ・戻せない控えは残さない
         with self.assertRaises(RemoteError) as got:
@@ -195,6 +217,19 @@ class OnThePc(unittest.TestCase):
         with self.assertRaises(RemoteError) as got:
             w.write(["client1", "AI"], "salescall-5.ai.enc", source, sha)
         self.assertEqual(got.exception.ask, pc.DriveMissing.ask)
+
+
+    def test_a_stale_part_file_is_removed_by_pruning_but_one_being_written_is_kept(self):
+        """書きかけ（.part）が消せずに残っても（止めた・消せなかった）、1日より前のものは片付けで消す。書いている途中のものは消さない。"""
+        place = self.root / pc.BASE / "client1" / "AI"
+        place.mkdir(parents=True)
+        stale, fresh = place / ("salescall-1.ai.enc" + pc.PART), place / ("salescall-2.ai.enc" + pc.PART)
+        stale.write_bytes(b"x")
+        fresh.write_bytes(b"x")
+        old = (datetime.now(JST) - timedelta(days=2)).timestamp()
+        os.utime(stale, (old, old))
+        self.assertEqual(pc.prune(pc.Drive(self.root), {"client1": {"days": {"AI": 30}}}), 1)
+        self.assertEqual(sorted(p.name for p in place.iterdir()), [fresh.name])
 
 
 class PerClient(unittest.TestCase):
@@ -271,7 +306,7 @@ class PerClient(unittest.TestCase):
         again = self.run_contractor(s["tenant"])                          # 数分後にもう一度：今日の分は済んだので、重ねて取らない
         ai = list((base / folder / backup.AI).glob("salescall-*.ai.enc"))
         self.assertEqual((again, len(ai)), ([], 1))
-        head, tables = backup.read_client_export(sealing.decrypt(ai[0].read_bytes(), CKEY, ai[0].name))
+        head, tables = backup.read_client_export(sealing.decrypt(ai[0].read_bytes(), CKEY, sealing.label([folder, backup.AI], ai[0].name)))
         self.assertEqual(head["client_id"], str(s["client"]))
         self.assertTrue(tables["tasks"])                                  # その依頼者の行が入っている
         self.assertEqual({r["client_id"] for rows in tables.values() for r in rows}, {str(s["client"])})   # ほかの依頼者は入らない
@@ -280,7 +315,7 @@ class PerClient(unittest.TestCase):
         self.assertEqual({t: n for t, n in head["counts"].items() if t != "backup_runs"},
                          {t: n for t, n in own.items() if t != "backup_runs"})   # 契約者の取引からでも、その依頼者の行はすべて入る
         copied = list((base / folder / backup.SUBMISSION).glob("salescall-*.enc"))
-        self.assertEqual([sealing.decrypt(f.read_bytes(), CKEY, f.name) for f in copied], ["架空の結果".encode()])
+        self.assertEqual([sealing.decrypt(f.read_bytes(), CKEY, sealing.label([folder, backup.SUBMISSION], f.name)) for f in copied], ["架空の結果".encode()])
         row = self.w.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: tx.one(
             "SELECT content, copied_as FROM salescall.submission_files WHERE submission_id = %s", (sub,)))
         self.assertEqual((row["content"], row["copied_as"]), (None, copied[0].name))   # Fly.io には残さない

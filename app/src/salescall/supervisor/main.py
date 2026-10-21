@@ -30,7 +30,8 @@ from typing import Any, Callable
 from uuid import UUID
 
 from salescall.core import leases
-from salescall.core.access import Access
+from salescall.core.access import Access, unreachable
+from salescall.link.basics import backoff
 from salescall.link.locks import AlreadyRunning, SingleInstance, lock_dir, machine_id
 from salescall.supervisor import ACTOR, config, jobs, line, plugins, report, updates
 from salescall.supervisor.links import Attached, Links, NoLinks
@@ -71,8 +72,8 @@ def _start_thread(cfg: config.Config, access: Access, at: Attached, line_id: UUI
 
 
 def _backoff(fails: int) -> float:
-    """続けて失敗するほど、次に試すまでの間を延ばす（上限 RESTART_MAX）。"""
-    return min(RESTART_FIRST * 2 ** fails, RESTART_MAX)
+    """続けて失敗するほど、次に試すまでの間を延ばす（上限 RESTART_MAX。決まりは link.basics.backoff の1か所）。"""
+    return backoff(fails, RESTART_FIRST, RESTART_MAX)
 
 
 @dataclass
@@ -90,6 +91,7 @@ class Supervisor:
     _next_renew: float = 0.0
     _renew_every: float | None = None
     version_gap: str = updates.UNKNOWN   # プログラムとデータベースの版のずれ（確かめるまでは「分からない」）
+    leftover_roles: int = 0              # 前の PC の鍵の役が残っている数（残り始めたときだけ知らせる）
 
     def __post_init__(self) -> None:
         self.holder = self.holder or holder_name()
@@ -124,6 +126,12 @@ class Supervisor:
             return
         if self.version_gap != updates.SAME and before != self.version_gap:
             report(self.access, None, "版のずれ", RuntimeError(updates.describe(self.version_gap)))
+        try:   # 前の PC の鍵の役が残っていないか（残っていれば、CL-2 へ修正依頼。残り始めたときだけ）
+            left, self.leftover_roles = self.leftover_roles, self.access.in_system(ACTOR, updates.leftover_pc_roles)
+            if self.leftover_roles and not left:
+                report(self.access, None, "前の PC の鍵の役", RuntimeError(updates.LEFTOVER))
+        except Exception as e:  # noqa: BLE001
+            report(self.access, None, "前の PC の鍵の役の確かめ", e)
 
     # ── 回線の借用と、回線ごとの流れ ──
     def renew(self, now: float) -> None:
@@ -131,12 +139,15 @@ class Supervisor:
         後始末して返す。版がずれていれば、流れを止め（いまの通話は最後まで）、立ち上げない。"""
         self._load_tenants()
         attached = self.links.lines() if self.cfg.calls else {}
+        down = False   # データベースに届かないと分かったら、ほかの回線で待ち直さない（回線の数だけ待つと、この回りが止まる）
         for line_id, at in attached.items():
-            try:
-                until = self.access.in_tenant(ACTOR, at.tenant_id, lambda tx, l=line_id: leases.take_line(tx, l, self.holder))
-            except Exception as e:  # noqa: BLE001 データベースに届かない：延ばせない回線は期限で門が通さなくなる
-                report(self.access, at.tenant_id, "回線の借用", e, line_id=line_id)
-                until = None
+            until = None
+            if not down:
+                try:
+                    until = self.access.in_tenant(ACTOR, at.tenant_id, lambda tx, l=line_id: leases.take_line(tx, l, self.holder))
+                except Exception as e:  # noqa: BLE001 データベースに届かない：延ばせない回線は期限で門が通さなくなる
+                    down = unreachable(e)
+                    report(self.access, at.tenant_id, "回線の借用", e, line_id=line_id)
             if until is None:   # 借りられない（ほかの見守り役が生きて借りている）・届かない：流れを止める
                 self.leased.pop(line_id, None)
                 self._stop_worker(line_id)

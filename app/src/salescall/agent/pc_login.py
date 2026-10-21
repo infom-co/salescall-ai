@@ -27,10 +27,11 @@ import time
 import urllib.error
 import urllib.request
 import webbrowser
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 from uuid import UUID
+
+from salescall.link.basics import PcPass
 
 START = "/pc-login/start"    # 機器のログインを始める（返す：device_code・user_code・verification_uri(_complete)・interval・expires_in）
 TOKEN = "/pc-login/token"    # 通行証を受け取る（返す：待って authorization_pending／遅く slow_down／断られた access_denied／時間切れ
@@ -43,17 +44,6 @@ RETRY_AFTER = 60            # サーバーに届かない・断られたとき�
 
 class LoginFailed(Exception):
     """PC のログインができなかった（理由は日本語。通行証の値は書かない）。"""
-
-
-@dataclass(frozen=True)
-class PcPass:
-    """この PC の通行証。"""
-    tenant_id: UUID
-    pc_id: UUID
-    token: str
-
-    def __repr__(self) -> str:   # 記録や誤りの表示に、通行証を出さない
-        return f"PcPass(tenant_id={self.tenant_id!r}, pc_id={self.pc_id!r}, token=***)"
 
 
 def login(server_url: str, *, previous: PcPass | None = None, post: Callable[[str, dict[str, Any]], dict[str, Any]] | None = None,

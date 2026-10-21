@@ -27,7 +27,7 @@ app/.venv/bin/python app/run_tests.py
 ## データベースの用意（本番・Fly.io）
 1. 管理者で `db/setup_roles.sql` を流し、表の持ち主（`salescall_owner`）とシステムの処理（`salescall_app`）の2つの役に合言葉を付ける（合言葉は git に入れない。ほかの2つの役は、前の表の作りを流すためだけの、ログインできない役）。
 2. `CREATE DATABASE salescall OWNER salescall_owner;`
-3. 環境変数 `SALESCALL_OWNER_DSN` に表の持ち主の接続文字列を入れて、`python -m salescall.core.migrate`。
+3. 環境変数 `SALESCALL_OWNER_DSN` に表の持ち主の接続文字列を入れて、`python -m salescall.core.migrate`。管理者の接続文字列も `SALESCALL_ADMIN_DSN` に入れておくと、表の作りの前に 1. の役の準備も流す（何度流しても同じ結果。前の PC の鍵の役が残っていれば消す。新しい版を入れるときも、この1つの命令でよい）。動いているサーバーは止めなくてよい（表を変える取引は、待つのを5秒までにして、待てなければ間をあけて流し直す）。
 4. システムの処理は `salescall_app` の役でつなぐ（行ごとの制限を外せない役）。
 
 ## 中央の見守り役を動かす（サーバー。DESIGN.md 5-4・5-5）

@@ -16,11 +16,12 @@ PC の環境変数から、下の表の名前（SALESCALL_ で始まるもの）
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlsplit
 from uuid import UUID
+
+from salescall.link.basics import Env
 
 NAMES = ("SALESCALL_SERVER_URL", "SALESCALL_HUB_URL", "SALESCALL_LINES", "SALESCALL_PHONE", "SALESCALL_BACKUP_DRIVE",
          "SALESCALL_BACKUP_KEY", "SALESCALL_UPDATER")
@@ -43,16 +44,13 @@ class Config:
 
 
 def gather(environ: dict[str, str] | None = None) -> dict[str, str]:
-    env = os.environ if environ is None else environ
-    return {name: env[name] for name in NAMES if env.get(name, "") != ""}
+    """環境変数のうち、表の名前のものだけ（ほかの値は読まない）。"""
+    return Env(NAMES, environ).values
 
 
 def load(environ: dict[str, str] | None = None) -> Config:
-    env = gather(environ)
-
-    def maybe(name: str) -> str | None:
-        return env.get(name, "").strip() or None
-
+    env = Env(NAMES, environ)
+    maybe = env.get
     server, hub = maybe("SALESCALL_SERVER_URL"), maybe("SALESCALL_HUB_URL")
     if hub is None:
         if server is None or not server.startswith("https://"):
@@ -67,10 +65,9 @@ def load(environ: dict[str, str] | None = None) -> Config:
         raise ConfigMissing("SALESCALL_LINES は回線の ID（例 0a1b…）をカンマで区切って書きます") from None
     drive = maybe("SALESCALL_BACKUP_DRIVE")
     return Config(server_url=server, hub_url=hub, lines=lines, phone=maybe("SALESCALL_PHONE"),
-                  backup_drive=Path(drive) if drive else None, updater=maybe("SALESCALL_UPDATER"), environ=env)
+                  backup_drive=Path(drive) if drive else None, updater=maybe("SALESCALL_UPDATER"), environ=env.values)
 
 
 def status(environ: dict[str, str] | None = None) -> list[str]:
     """どの設定が入っているか（値は出さない）。"""
-    env = gather(environ)
-    return [f"{name}：{'入っています' if env.get(name, '').strip() else '入っていません'}" for name in NAMES]
+    return Env(NAMES, environ).status()

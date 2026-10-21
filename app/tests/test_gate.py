@@ -921,6 +921,13 @@ class Exit(Base):
             dial_exit.dial(self.w.a, SYSTEM, s2["tenant"], s2["client"], c2.attempt_id, unknown)
         self.assertEqual(self.state(s2, c2.attempt_id), "technical_error")   # かかったか分からない ⇒ 結果不明
         self.assertEqual(getattr(unknown, "apologized", 0), 1)               # かかっていれば、おわびして切る（無言で放置しない）
+        s4 = self.ready()
+        c4 = self.claim(s4)
+        cut = FakeDriver(RuntimeError("切断"))
+        with mock.patch.object(dial_exit.attempts, "move", side_effect=RuntimeError("試験：データベースが止まった")), \
+                self.assertRaises(RuntimeError):
+            dial_exit.dial(self.w.a, SYSTEM, s4["tenant"], s4["client"], c4.attempt_id, cut)
+        self.assertEqual(getattr(cut, "apologized", 0), 1)                   # 記録できなくても、おわびは先に（記録を待たせない）
         s3 = self.ready()
         c3 = self.claim(s3)
         mute = FakeDriver()

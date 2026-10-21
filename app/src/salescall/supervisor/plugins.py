@@ -7,12 +7,14 @@
 
 from __future__ import annotations
 
-import importlib
 from typing import Any, Protocol
 from uuid import UUID
 
 from salescall.core.access import Access, Actor
 from salescall.core.gate import Claim
+from salescall.link.basics import load   # 部品の作り方は link.basics の1か所（PC の部品と同じ）
+
+__all__ = ["CallRunner", "Prober", "Verifier", "load"]
 
 
 class CallRunner(Protocol):
@@ -36,10 +38,3 @@ class Prober(Protocol):
 
     def probe(self, stop: dict[str, Any]) -> tuple[bool, str]: ...
 
-
-def load(spec: str, *args: Any) -> Any:
-    """設定の `モジュール:名前` から部品を作る（名前は部品を返す関数。通話を進める部品には、回線の ID と、その回線の電話の部品を渡す）。"""
-    module, _, name = spec.partition(":")
-    if not module or not name:
-        raise ValueError(f"部品は「モジュール:名前」で書きます（{spec!r}）")
-    return getattr(importlib.import_module(module), name)(*args)
