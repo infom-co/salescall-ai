@@ -249,12 +249,11 @@ SCENES = {
     "目的の人_取り次いだあとに出られない": Scene(TARGET_BUSINESS, [W("hold_target"), W("busy_after_hold"), W("back_5pm"), W("affirm")], lambda c: {
         "理由": last_fact(c, "callback").get("why") == "absent", "取り次ぎの間は話さない": plain(said_to(c, "hold_target")) == "",
         "用件を受付に流さない": connect_reply(c) == {}, "締め": closing_of(c) == CLOSING, "足す質問は録音": callback_recorded(c)}),
-    # 受付の方が、お呼びした方ではない方（担当の者）に取り次ぐ：代わった方が名乗らなくても、ご本人とは決めない。別の方に、名乗り・用件・
-    # 最初の質問を流さない（繋ぐと取り消せない）。⛔ 2026-10-21 G-59：3.5 Flash Lite は「はい、お電話代わりました。」を3回とも「ご本人」と読んだ
-    "目的の人_別の方に取り次がれる": Scene(TARGET_BUSINESS, [W("hold_other"), W("taken_over_unnamed") | {"if_asked_target": W("not_target")["wav"]}],
-                                   lambda c: {"目的の人か確かめた": any(x["reply"]["result"] == "confirm_target" for x in ops(c)),
-                                              "別の方に繋がない": connect_reply(c) == {}, "取り次ぎの間は話さない": plain(said_to(c, "hold_other")) == "",
-                                              "最初の質問を流さない": not any("question" in played_parts(x["reply"]) for x in ops(c))}),
+    # 受付の方が「担当の者に代わります」と取り次ぎ、代わった方が名乗らずに出る：✅ 2026-10-21 ユーザー：「担当の者に代わりますの後に、はい、お電話変わりましたと出れば、ほぼ『本人』でしょう」（「代わった人」でも正しい）
+    # ⇒ 繋いで代わった方に全部を流し、答えを取る（2つの判定の読みが分かれたときは、目的の人かを1回確かめてから＝Flow._target_reported）
+    "目的の人_担当の者に取り次がれる": Scene(TARGET_BUSINESS, [W("transfer"), T("taken_over_unnamed")] + FULL, lambda c: {
+        "取り次ぎの間は話さない": plain(said_to(c, "transfer")) == "",
+        "代わった方に全部": played_parts(connect_reply(c))[:3] == ["greeting", "intro", "purpose"], "答えが取れた": got(c, "Q1", "はい")}),
     "目的の人_受付で断られる": Scene(TARGET_BUSINESS, [W("reception_refuse")], lambda c: {
         "発信禁止の申告": bool(c.get("facts", {}).get("do_not_call")), "締め": closing_of(c) == CLOSE_DECLINED}),
 }
