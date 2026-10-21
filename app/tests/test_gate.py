@@ -746,6 +746,19 @@ class CallerNumberAndVoice(Base):
         cur = self.tx(s, lambda tx: recordings.current_sets(tx, s["version"], "Leda"))
         self.assertEqual(cur["business"], sid)
 
+    def test_recording_part_names_take_the_same_letters_as_question_ids(self):
+        """質問の録音の部品の名前は、質問の番号。番号に使える「-」を、部品の名前も受け付ける（前は、「-」のある番号の質問の録音を
+        入れられなかった。0103。見直し9）。番号に使えない文字は、部品の名前にも使えない。"""
+        s = self.ready()
+        make = lambda name: self.tx(s, lambda tx: recordings.create_set(   # noqa: E731
+            tx, unit="business", voice_name="Leda", version_id=s["version"],
+            parts=[recordings.Part(name, "ご希望の日時をお聞かせください。", "test://Leda/x", "2" * 64)]))
+        sid = make("Q-1")
+        self.assertEqual(list(self.tx(s, lambda tx: recordings.parts(tx, sid))), ["Q-1"])
+        for bad in ("Q 1", "Q.1", ""):
+            with self.subTest(bad=bad), self.assertRaises(Rejected):
+                make(bad)
+
     def test_a_reading_chosen_by_listening_to_recordings_becomes_the_name_reading(self):
         """読みが決まらない名前は、契約者が録音を聞いて選んだ読みが、その版の名前の読みになる（版で1つ。選び直しは記録を足すだけ）。
         録音は、その読みと合う組だけを作れ・承認でき・流す（合わない声は、その読みで録り直すまで話さない）。Intent.md 6-2。

@@ -140,6 +140,16 @@ def system_stop_checks(ctx: Context) -> None:
     _probe(ctx, lambda work: ctx.access.in_system(ACTOR, work))
 
 
+def lasting_stops(ctx: Context) -> None:
+    """止まったまま1時間以上続いている停止の修正依頼（この PC の契約者の分。確かめの部品が無い PC でも動く）。"""
+    ctx.access.in_tenant(ACTOR, ctx.cfg.tenant_id, watch.lasting_stops)
+
+
+def system_lasting_stops(ctx: Context) -> None:
+    """全体の範囲の、止まったまま1時間以上続いている停止の修正依頼。"""
+    ctx.access.in_system(ACTOR, watch.lasting_stops)
+
+
 def budget(ctx: Context) -> None:
     """費用の見張り（この PC の契約者の分）：今日の費用の注意・赤字の警告の期限・赤字でなくなった停止を解く（12-1）。"""
     usage.tick(ctx.access, ACTOR, ctx.cfg.tenant_id)
@@ -157,7 +167,7 @@ def backups(ctx: Context) -> None:
 
 def backup_watch(ctx: Context) -> None:
     """この契約者の控えが取れているか（控え用のハードディスクの設定が無い PC でも動く＝取る仕事が動かないことに気づく）。"""
-    backup.watch_contractor(ctx.access, ctx.cfg.tenant_id)
+    _each(ctx, "控えの見張り", _clients(ctx), lambda c: backup.watch_client(ctx.access, ctx.cfg.tenant_id, c))
 
 
 def whole_backup_watch(ctx: Context) -> None:
@@ -184,6 +194,7 @@ def whole_backup(ctx: Context) -> None:
 # - answer_rates：応答率の低下は、その日のうちに気づけばよい（1回線1日1回知らせる）。30分の遅れは問題にならない
 # - backups：提出用を数分ごとに写す（2026-10-17 ユーザー：Fly.io に残さない）。AI用は backup が1日1回にする
 # - whole_backup：数分ごとに見て、backup が1日1回にする（失敗したら1時間あけてやり直す）
+# - lasting_stops・system_lasting_stops：止まったまま1時間続いた停止の修正依頼（確かめの部品が無くても動く。依頼は同じ不具合で1つ）
 # - backup_watch・whole_backup_watch：控えが1日以上取れていないことに気づく（取る仕事は設定が無いと動かないので、別の仕事にする）。
 #   1時間に1回で足りる（知らせは1日1回）
 JOBS: tuple[Job, ...] = (
@@ -201,6 +212,8 @@ JOBS: tuple[Job, ...] = (
     Job("backups", 300, "tenant", 4 * 3600, backups, wanted=lambda cfg: cfg.backup_drive is not None),
     Job("whole_backup", 300, "system", 4 * 3600, whole_backup, wanted=lambda cfg: cfg.whole_backup),
     Job("backup_watch", 3600, "tenant", 600, backup_watch),
+    Job("lasting_stops", 300, "tenant", 600, lasting_stops),
+    Job("system_lasting_stops", 300, "system", 600, system_lasting_stops),
     Job("whole_backup_watch", 3600, "system", 600, whole_backup_watch),
 )
 

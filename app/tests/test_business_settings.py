@@ -121,6 +121,16 @@ class Check(unittest.TestCase):
         r = raw(); r["questions"][1]["type"] = ["x"]
         self.assertTrue(any("型" in p for p in problems_of(r)))
 
+    def test_names_used_by_the_conversation_cannot_be_question_ids(self):
+        """会話の側で使う名前（かけ直しの質問 C1・C2、名乗りや締めの録音の名前）は、質問の番号に使えない（同じ名前だと、かけ直しの
+        答えや録音を取り違える。見直し9）。"""
+        for name in sorted(bs.RESERVED_IDS):
+            with self.subTest(name=name):
+                r = raw(); r["questions"][1]["id"] = name
+                self.assertTrue(any("会話の側で使う" in p for p in problems_of(r)), problems_of(r))
+        r = raw(); r["questions"][1]["id"] = "Q-2"; r["questions"][0]["next"] = {"しない": "END", "*": "Q-2"}
+        self.assertFalse(any("会話の側で使う" in p for p in problems_of(r)))
+
     def test_each_problem_is_found(self):
         cases = []
         r = raw(); r["questions"][0]["next"] = {"しない": "Q9", "*": "Q2"}; cases.append((r, "分岐先 Q9 がありません"))

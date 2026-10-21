@@ -7,6 +7,7 @@ import threading
 import time
 import unittest
 import uuid
+from unittest import mock
 from datetime import timedelta
 from pathlib import Path
 
@@ -578,6 +579,30 @@ class Main(SupervisorBase):
         contractor, admin = here(self.cfg(s)), here(self.cfg(s, SALESCALL_SYSTEM_JOBS="1"))
         self.assertTrue({"backup_watch"} <= contractor and not {"backups", "whole_backup", "whole_backup_watch"} & contractor)
         self.assertTrue({"backup_watch", "whole_backup_watch"} <= admin and not {"backups", "whole_backup"} & admin)
+
+    def test_lasting_stops_are_watched_even_on_a_pc_without_checks(self):
+        """止まったまま続く停止の修正依頼は、確かめの部品の有る無しに関係なく、契約者の PC は契約者の停止・管理者の PC は全体の停止を
+        見る（見直し9：前は確かめの中で出していたので、部品の無い PC では出なかった）。"""
+        s = self.ready()
+        here = lambda cfg: {j.name for j in jobs.JOBS if j.runs_here(cfg)}   # noqa: E731
+        contractor, admin = here(self.cfg(s)), here(self.cfg(s, SALESCALL_SYSTEM_JOBS="1"))
+        self.assertTrue("lasting_stops" in contractor and "system_lasting_stops" not in contractor)
+        self.assertTrue({"lasting_stops", "system_lasting_stops"} <= admin)
+
+    def test_one_client_failing_does_not_hide_the_backups_of_the_others(self):
+        """控えの見張りは依頼者ごと。1つの依頼者の見張りで誤りが出ても、ほかの依頼者を見張る（見直し9：前は最初の誤りで残りを見なかった）。"""
+        s = self.ready()
+        second = self.ready(tenant=s["tenant"])["client"]
+        seen = []
+
+        def watch_client(app, tenant_id, client_id):
+            seen.append(client_id)
+            if len(seen) == 1:
+                raise RuntimeError("試験：1つ目の依頼者で落ちる")
+            return False
+        with mock.patch.object(backup, "watch_client", watch_client), mock.patch.object(jobs, "report"):
+            jobs.backup_watch(jobs.Context(self.w.a, self.cfg(s), HOLDER))
+        self.assertEqual(sorted(seen), sorted([s["client"], second]))
 
     def test_settings_are_reported_without_values_and_the_key_check_compares_only(self):
         lines = config.status({"SALESCALL_DSN": "postgresql://架空の接続", "GEMINI_KEY_1": "架空のキー"})

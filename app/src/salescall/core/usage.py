@@ -48,8 +48,8 @@ def set_price(tx: Tx, *, source: str, service: str, tier: str | None, unit: str,
               note: str) -> int:
     """単価を足す。全体の取引なら、どの契約者にも効く初めの値（管理者だけ）。契約者の取引なら、その契約者の単価（契約者が自分の
     選んだサービスの単価を入れる。初めの値より強い）。あとから足した単価は、その時刻からの記録に使う。
-    service：会話AIの API・別の耳・回線の方式（例 gemini-3.8-live・rakuten_link）。tier：会話AI・別の耳の無料枠（free）か
-    有料枠（paid）。回線は None。"""
+    service：会話AIの API・別の耳・意味の判定の AI・回線の方式（例 gemini-3.8-live・rakuten_link）。tier：会話AI・別の耳・
+    意味の判定の無料枠（free）か有料枠（paid）。回線は None。"""
     return tx.one("INSERT INTO salescall.price_versions (tenant_id, source, service, tier, unit, yen_per_unit, valid_from, note,"
                   " set_by) VALUES (salescall.cur_tenant(), %s, %s, %s, %s, %s, %s, %s, salescall.cur_actor())"
                   " RETURNING price_id", (source, service, tier, unit, yen_per_unit, valid_from, note))["price_id"]

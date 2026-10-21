@@ -458,25 +458,21 @@ class TenantAiStopsAndChecks(unittest.TestCase):
         watch.after_error(self.a, SYSTEM, ear, tenant_id=apart["tenant"], client_id=apart["client"])
         self.assertEqual(asked(apart["tenant"]), [])
 
-    def test_a_stop_that_lasts_with_failing_checks_becomes_a_fix_request(self):
-        """一時的なもので止めたまま、1時間以上たっても確かめが通らなければ、担当（会話AI＝CL-1）へ修正依頼を出す（Intent.md 10-3。
-        同じ不具合は1つ。確かめが通ったときは出さない）。見張りの長さを短くして確かめる（試験で1時間待たない）。"""
+    def test_a_stop_that_lasts_becomes_a_fix_request_even_without_checks(self):
+        """一時的なもので止めたまま1時間以上たったら、担当（会話AI＝CL-1）へ修正依頼を出す（Intent.md 10-3。同じ不具合は1つ）。解く確かめ
+        の部品が無い PC でも出す（⚠️ 見直し8では確かめの中で出していたので、確かめが動かないと出なかった＝見直し9）。止めたばかりには
+        出さない。見張りの長さを短くして確かめる（試験で1時間待たない）。"""
         override(self, "stop.ai.stop_after_failures", 2)
         for _ in range(2):
             self.ai_error(ErrorReport("ai", 503, "UNAVAILABLE: The model is overloaded."))
         sid = self.ai_stops()[0]["event_id"]
+        lasting = lambda: self.a.in_tenant(SYSTEM, self.s["tenant"], watch.lasting_stops)   # noqa: E731
         asked = lambda: [r for r in self.a.in_system(SYSTEM, lambda tx: fix_requests.open_requests(tx, "CL-1"))   # noqa: E731
                          if r["kind"] == "ai_server_error" and r["refs"].get("stop_event_id") == sid]
-        got = self.check(sid, False)
-        self.assertEqual(asked(), [])                                   # 止めたばかり
+        self.assertEqual((lasting(), asked()), ([], []))                 # 止めたばかり
         with mock.patch.object(errors, "LASTING", timedelta(0)):
-            self.wait_until_due(got)
-            got = self.check(sid, True)
-            self.assertEqual(asked(), [])                               # 確かめが通った
-            for _ in range(2):
-                self.wait_until_due(got)
-                got = self.check(sid, False)
-                self.assertEqual(len(asked()), 1)                       # 通らない：1つだけ（同じ不具合は直すまで1つ）
+            self.assertEqual(lasting(), [sid])                          # 確かめを1度もしていなくても出す
+            self.assertEqual(len(asked()), 1)                           # 何度見ても1つ（同じ不具合は直すまで1つ）
 
     def test_a_lasting_error_is_counted_across_the_clients_of_the_contractor(self):
         """「1時間以上続いた」は、契約者のすべての依頼者のエラーで数える（修正依頼の重なりを防ぐ鍵と同じ範囲。⚠️ 前は記録した依頼者の

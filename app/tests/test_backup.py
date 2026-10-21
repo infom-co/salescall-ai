@@ -308,21 +308,22 @@ class PerClient(unittest.TestCase):
         ok = lambda c, error=None: backup._record(   # noqa: E731
             self.app, soon, "x.ai.enc", b"x", {"tasks": 1}, ["試験の場所1", "試験の場所2"], error, person=None, part="client_ai",
             tenant_id=s["tenant"], client_id=c)
+        watch = lambda: sorted(c for c in (s["client"], second) if backup.watch_client(self.app, s["tenant"], c))   # noqa: E731
         mine = lambda: [r["summary"] for r in self.notices(s["tenant"]) if r["summary"] == backup.OVERDUE_CLIENT]   # noqa: E731
         with mock.patch.object(backup, "OVERDUE", timedelta(days=1)):          # 作ったばかりの依頼者は数えない
-            self.assertEqual(backup.watch_contractor(self.app, s["tenant"]), [])
+            self.assertEqual(watch(), [])
         with mock.patch.object(backup, "OVERDUE", timedelta(microseconds=1)):
-            self.assertEqual(sorted(backup.watch_contractor(self.app, s["tenant"])), sorted([s["client"], second]))
+            self.assertEqual(watch(), sorted([s["client"], second]))
             self.assertEqual(len(mine()), 2)                                   # 依頼者ごとに、その契約者へ
-            backup.watch_contractor(self.app, s["tenant"])
+            watch()
             self.assertEqual(len(mine()), 2)                                   # 知らせは1日1回
             self.assertEqual([r["origin_tenant"] for r in self.notices() if r["summary"] == backup.OVERDUE_CLIENT
                               ].count(s["tenant"]), 2)                         # 管理者へも
             ok(s["client"], error="試験：戻せなかった")                       # 戻せなかった控えは、取れたうちに入らない
             ok(second)                                                         # ほかの依頼者の控えも入らない
-            self.assertEqual(backup.watch_contractor(self.app, s["tenant"]), [s["client"]])
+            self.assertEqual(watch(), [s["client"]])
             ok(s["client"])
-            self.assertEqual(backup.watch_contractor(self.app, s["tenant"]), [])
+            self.assertEqual(watch(), [])
             self.assertTrue(backup.watch_whole(self.app))                      # データベース全体は管理者へ（1日1回）
             whole = lambda: [r for r in self.notices() if r["summary"] == backup.OVERDUE_WHOLE]   # noqa: E731
             self.assertEqual([r["origin_tenant"] for r in whole()], [None])
@@ -331,6 +332,14 @@ class PerClient(unittest.TestCase):
             backup._record(self.app, soon, "x.dump.enc", b"x", {"tasks": 1}, ["試験の場所1", "試験の場所2"], None, person=None)
             self.assertFalse(backup.watch_whole(self.app))
         self.assertNotIn(backup.OVERDUE_WHOLE, [r["summary"] for r in self.notices(s["tenant"])])   # 全体の控えは契約者へ知らせない
+
+    def test_the_first_contractor_time_is_given_only_to_the_whole_database_watch(self):
+        """「最初の契約者を作った時刻」は、データベース全体の控えの見張り（全体の取引）だけが読める。契約者の取引からは何も返さない
+        （ほかの契約者がいつ始めたかを見せない。0103。見直し9）。"""
+        t = self.w.tenant()
+        ask = lambda tx: tx.one("SELECT salescall.first_tenant_at() AS t")["t"]   # noqa: E731
+        self.assertIsNotNone(self.app.in_system(SYSTEM, ask))
+        self.assertIsNone(self.app.in_tenant(SYSTEM, t, ask))
 
     def test_folder_names_do_not_show_other_contractors_clients(self):
         """フォルダの名前の重なりは、契約者の中だけで見る（ほかの契約者に同じ名前の依頼者がいても、名前はずれない＝いるかが分からない。

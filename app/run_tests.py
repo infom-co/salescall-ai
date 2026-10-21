@@ -895,6 +895,18 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      "CREATE OR REPLACE FUNCTION salescall.first_tenant_at() RETURNS timestamptz LANGUAGE sql STABLE SECURITY INVOKER"
      " SET search_path = salescall, pg_temp AS $$ SELECT min(created_at) FROM salescall.tenants $$",
      ("tests.test_backup.PerClient.test_backups_not_taken_are_noticed_even_without_any_backup_settings",)),
+    ("契約者の取引にも、最初の契約者を作った時刻を返す（0103 の前：ほかの契約者がいつ始めたかが分かる）",
+     "CREATE OR REPLACE FUNCTION salescall.first_tenant_at() RETURNS timestamptz LANGUAGE sql STABLE SECURITY DEFINER"
+     " SET search_path = salescall, pg_temp AS $$ SELECT min(created_at) FROM salescall.tenants $$",
+     ("tests.test_backup.PerClient.test_the_first_contractor_time_is_given_only_to_the_whole_database_watch",)),
+    ("録音の部品の名前に「-」を受け付けない（0103 の前：「-」のある番号の質問の録音を入れられない）",
+     "ALTER TABLE salescall.recordings DROP CONSTRAINT recordings_part_check;"
+     " ALTER TABLE salescall.recordings ADD CONSTRAINT recordings_part_check CHECK (part ~ '^[A-Za-z0-9_]{1,64}$')",
+     ("tests.test_gate.CallerNumberAndVoice.test_recording_part_names_take_the_same_letters_as_question_ids",)),
+    ("録音の部品の名前に、どの文字でも受け付ける",
+     "ALTER TABLE salescall.recordings DROP CONSTRAINT recordings_part_check;"
+     " ALTER TABLE salescall.recordings ADD CONSTRAINT recordings_part_check CHECK (part ~ '^.{0,64}$')",
+     ("tests.test_gate.CallerNumberAndVoice.test_recording_part_names_take_the_same_letters_as_question_ids",)),
 )
 
 

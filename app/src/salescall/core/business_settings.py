@@ -35,6 +35,11 @@ from salescall.core import approval, attempts, business_rules, quality_stage, re
 from salescall.core.access import Tx
 
 END = "END"                                       # 分岐の行き先「終わり」
+# 質問の番号に使えない名前（1か所）。質問の番号は、会話の側で、かけ直しの質問の番号（phase0/flowctl.py の CALLBACK_IDS）と同じ並びに
+# 入り、録音の部品の名前（質問の録音は質問の番号。名乗り・締めなどは instruction.Business.replay_parts と flowctl の締めの名前）にも
+# なるので、同じ名前だと取り違える（見直し9）。会話の側に名前が増えたら、ここに足す（CL-2.md 4-121 で CL-1 へ頼んだ）。
+RESERVED_IDS = frozenset({END, "C1", "C2", "greeting", "intro", "purpose", "ai", "target", "target_confirm", "voicemail",
+                          "closing", "closing_declined"})
 ANY = "*"                                         # 分岐の受け皿（ほかのどの答えでも）
 SYSTEM_CHOICES = ("わからない", "答えたくない")      # システムがどの質問にも足す答え（CL-1 の連絡帳 2-1。名前の正本はここ）
 ANY_CHOICE = "どちらでも"                          # 決まった選択肢（choice）の質問にだけシステムが足す答え：お客様がこちらに任せた
@@ -332,8 +337,9 @@ def check(raw: Any, *, field_types: frozenset[str], ai_reading_needs_person: boo
                 continue
             qid = q["id"]
             if not isinstance(qid, str) or not qid or len(qid) > 32 or not all(c.isascii() and (c.isalnum() or c in "_-")
-                                                                              for c in qid) or qid == END:
-                problems.append(f"{where}の番号 {qid!r} は、英数字・「_」「-」の 32 文字までです（END は使えません）")
+                                                                              for c in qid) or qid in RESERVED_IDS:
+                problems.append(f"{where}の番号 {qid!r} は、英数字・「_」「-」の 32 文字までです（{'・'.join(sorted(RESERVED_IDS))} は"
+                                "会話の側で使うので使えません）")
                 continue
             where = f"質問 {qid}"
             if qid in seen:

@@ -65,7 +65,7 @@ class Said:
 @dataclass(frozen=True)
 class Party:
     party: str                   # 電話口の種別
-    by: str                      # report（会話AIの報告）／signal（音・回線の信号）
+    by: str                      # ai（会話AIの報告）／signal（音・回線の信号）
     evidence: Said
 
 

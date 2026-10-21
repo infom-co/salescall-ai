@@ -30,9 +30,6 @@ from salescall.core import measure, results, settings, tasks
 from salescall.core.access import Tx
 
 
-SYSTEM_KINDS = measure.SYSTEM_KINDS      # システムが判定した版（直す相手・正解を付ける相手。決まりは measure の1か所）
-
-
 def human_for_business(tx: Tx, business_id: UUID) -> bool:
     """その業務が検証モード（契約者の承認を使う）か。"""
     b = tx.one("SELECT tenant_id, client_id FROM salescall.businesses WHERE business_id = %s", (business_id,))
@@ -96,7 +93,7 @@ def correct_result(tx: Tx, task_id: UUID, *, checked_version: int, business_stat
     残す）、その版を送ってよいにする。直した中身（正しい業務の状態・違っていた項目＝質問の番号）は、その版の正解になる。"""
     v = tx.one("SELECT kind::text AS kind FROM salescall.task_results WHERE task_id = %s AND version_no = %s",
                (task_id, checked_version))
-    if v is None or v["kind"] not in SYSTEM_KINDS:
+    if v is None or v["kind"] not in measure.SYSTEM_KINDS:   # システムが判定した版（決まりは measure の1か所）
         raise LookupError(f"直すのは、システムが判定した結果の版です：{task_id} の版 {checked_version}")
     version_no = results.append(tx, task_id, kind="human", business_state=business_state, attempt_id=None,
                                 judge_version=None, complaint=complaint, snapshot=snapshot, decided_by="契約者",

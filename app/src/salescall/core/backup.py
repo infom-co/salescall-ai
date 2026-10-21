@@ -400,22 +400,18 @@ def _overdue(tx: Tx, part: str, since: Any) -> bool:
         {"since": since, "late": OVERDUE, "part": part})["late"]
 
 
-def watch_contractor(app: Access, tenant_id: UUID) -> list[UUID]:
-    """その契約者の依頼者ごとの AI用の控えが取れているか（見守り役が、設定に関係なく呼ぶ）。取れていない依頼者を返し、その依頼者の
-    取引で、契約者と管理者に1日1回知らせる（止めない）。"""
-    late = []
-    for c in _clients(app, tenant_id):
-        def work(tx: Tx, c: UUID = c) -> bool:
-            since = tx.one("SELECT created_at FROM salescall.clients WHERE client_id = %s", (c,))["created_at"]
-            if not _overdue(tx, "client_ai", since):
-                return False
-            day = tx.one("SELECT salescall.jst(now())::date AS d")["d"]
-            notify.emit(tx, "backup_failed", key=f"backup_overdue:{day}:client_ai:{c}", summary=OVERDUE_CLIENT,
-                        refs={"client_id": c}, admin=True, contractor=True)
-            return True
-        if _in(app, tenant_id, c, work):
-            late.append(c)
-    return late
+def watch_client(app: Access, tenant_id: UUID, client_id: UUID) -> bool:
+    """その依頼者の AI用の控えが取れているか（見守り役が、設定に関係なく依頼者ごとに呼ぶ＝1つの依頼者の誤りで、ほかの依頼者を見落と
+    さない）。取れていなければ、その依頼者の取引で、契約者と管理者に1日1回知らせる（止めない）。知らせたかを返す。"""
+    def work(tx: Tx) -> bool:
+        since = tx.one("SELECT created_at FROM salescall.clients WHERE client_id = %s", (client_id,))["created_at"]
+        if not _overdue(tx, "client_ai", since):
+            return False
+        day = tx.one("SELECT salescall.jst(now())::date AS d")["d"]
+        notify.emit(tx, "backup_failed", key=f"backup_overdue:{day}:client_ai:{client_id}", summary=OVERDUE_CLIENT,
+                    refs={"client_id": client_id}, admin=True, contractor=True)
+        return True
+    return _in(app, tenant_id, client_id, work)
 
 
 def watch_whole(app: Access) -> bool:
