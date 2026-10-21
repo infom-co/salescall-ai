@@ -212,6 +212,59 @@ class DefinerFunctions(unittest.TestCase):
         self.assertEqual((left["m"], left["t"]), (None, None))
 
 
+class ServerOnly(unittest.TestCase):
+    """データベースが受け付けるのは、サーバーの役と表の持ち主だけ（0107。2026-10-21 ユーザー：「人に頼るシステムは極力作るな」）：
+    前の PC の鍵の役が消せずに残っても、つないで何もできない。守りの1か所は salescall.server_session。"""
+
+    GUARDS = ("cur_tenant", "cur_client", "cur_actor", "hub_only", "only_backup_system", "job_key_allowed", "server_only")
+    HARMLESS = {"schema_version", "schema_fingerprint"}   # 表の作りの版だけを返す（中身を返さない）
+
+    def test_every_table_and_every_definer_function_is_guarded(self):
+        """これから足す表・関数も漏れないよう、データベースの中を全部見る（行ごとの制限の無い表・守りを呼ばない関数を作らない）。"""
+        w = World()
+        bare = w.a.in_system(SYSTEM, lambda tx: [r["t"] for r in tx.all(
+            "SELECT c.relname AS t FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace"
+            " WHERE n.nspname = 'salescall' AND c.relkind IN ('r', 'p') AND NOT c.relrowsecurity ORDER BY 1")])
+        self.assertEqual(bare, [])
+        views = w.a.in_system(SYSTEM, lambda tx: [r["v"] for r in tx.all(
+            "SELECT c.relname AS v FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'salescall'"
+            " AND c.relkind = 'v' AND NOT coalesce('security_invoker=true' = ANY(c.reloptions), false) ORDER BY 1")])
+        self.assertEqual(views, [])                                           # 見え方は、呼んだ役の制限を通る
+        funcs = owner_access().in_system(SYSTEM, lambda tx: tx.all(
+            "SELECT p.proname AS name, pg_get_functiondef(p.oid) AS body FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace"
+            " WHERE n.nspname = 'salescall' AND p.prosecdef AND has_function_privilege('salescall_app', p.oid, 'EXECUTE')"))
+        unguarded = sorted(f["name"] for f in funcs if f["name"] not in self.HARMLESS
+                           and not any(g + "(" in f["body"] for g in self.GUARDS))
+        self.assertEqual(unguarded, [])
+
+    def test_a_leftover_login_role_can_do_nothing(self):
+        """消せずに残った前の PC の鍵の役（システムの役の権限を受け継ぐ）でつないでも、契約者のデータ・共通の表・関数のどれも使えない。"""
+        import os
+        import psycopg.conninfo
+        from salescall.core.access import Access
+        w = World()
+        s = w.setup()
+        role = f"salescall_t_{uuid.uuid4()}_deadbeef"
+        make = lambda sql: owner_access().in_system(SYSTEM, lambda tx: tx.execute(   # noqa: E731
+            "SET LOCAL ROLE salescall_login_maker; " + sql))
+        make(f'CREATE ROLE "{role}" LOGIN IN ROLE salescall_app')
+        self.addCleanup(make, f'DROP ROLE "{role}"')
+        d = psycopg.conninfo.conninfo_to_dict(os.environ["SALESCALL_TEST_APP_DSN"])
+        d.update(user=role)
+        d.pop("password", None)
+        left = Access(psycopg.conninfo.make_conninfo(**d), max_attempts=1)
+        for name, work in (
+                ("契約者のデータ", lambda: left.in_client(OPERATOR, s["tenant"], s["client"], lambda tx: tx.all(
+                    "SELECT 1 FROM salescall.tasks"))),
+                ("持ち主の権限で動く関数", lambda: left.in_client(OPERATOR, s["tenant"], s["client"], lambda tx: tx.one(
+                    "SELECT salescall.next_customer_promise_at(gen_random_uuid())"))),
+                ("共通の表に書く", lambda: left.in_system(SYSTEM, lambda tx: tx.execute(
+                    "INSERT INTO salescall.line_methods (method, label) VALUES ('試験の方式', '試験')")))):
+            with self.subTest(name), self.assertRaises(Rejected):
+                work()
+        self.assertEqual(left.in_system(SYSTEM, lambda tx: tx.all("SELECT 1 FROM salescall.setting_definitions")), [])   # 見えない
+
+
 class TenantTransactions(unittest.TestCase):
     """契約者の取引（種類が「システムの処理」でも）から、ほかの契約者・すべての契約者に効くものに触れない（0077・0084 で塞いだ所。
     サーバーだけがつなぐ形＝5-5 になっても、どの接続にも効く守りとして残す）。"""

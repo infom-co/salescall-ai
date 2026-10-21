@@ -886,6 +886,13 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("サーバーだけの関数を、契約者の取引・管理者からも呼べる（0105）",
      "CREATE OR REPLACE FUNCTION salescall.hub_only() RETURNS void LANGUAGE plpgsql STABLE AS $$ BEGIN END $$",
      ("tests.test_agents.Passes.test_who_may_issue_stop_and_change",)),
+    ("データベースが、サーバーの役でないつなぎも受け付ける（0107：前の PC の鍵の役が残ると、何でも読める）",
+     "CREATE OR REPLACE FUNCTION salescall.server_session() RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT true $$",
+     ("tests.test_foundation.ServerOnly.test_a_leftover_login_role_can_do_nothing",)),
+    ("共通の表の守りの決まりを外す（0107）",
+     "ALTER TABLE salescall.setting_definitions DISABLE ROW LEVEL SECURITY",
+     ("tests.test_foundation.ServerOnly.test_every_table_and_every_definer_function_is_guarded",
+      "tests.test_foundation.ServerOnly.test_a_leftover_login_role_can_do_nothing")),
     ("測り終わるまで消さない録音の一覧に、ほかの契約者の通話が混ざる（0106）",
      "CREATE OR REPLACE FUNCTION salescall.recordings_held() RETURNS SETOF uuid LANGUAGE plpgsql STABLE SECURITY DEFINER"
      " SET search_path = salescall, pg_temp AS $$ BEGIN PERFORM salescall.only_backup_system();"

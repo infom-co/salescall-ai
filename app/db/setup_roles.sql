@@ -7,9 +7,10 @@
 --                   2026-10-21 から PC はデータベースにつながない（DESIGN.md 5-5）ので、表の作り 0107 が、この2つの役の関数と
 --                   権限を外した。前の表の作りを流すために作り続けるだけ（**どちらもログインできない**）。鍵を作る役は、役を作る権限と
 --                   システムの役の管理権を持ち続けるが、なれるのは表の持ち主だけ（表の作りの中だけ）。
---                   ⚠️ 0107 は、残っている PC の鍵の役（salescall_t_…）を消す。0084 より前に作った役が残っていると、鍵を作る役は消せず、
---                   0107 が止まる（そのまま流すと、その役がシステムの役として何でも読めてしまうため、止まるのが正しい）。そのときは、
---                   データベースの管理者が DROP ROLE で消してから、流し直す。
+--                   0107 は、残っている PC の鍵の役（salescall_t_…）のうち消せるものを消す。消せないもの（0084 より前に払い出し専用の
+--                   役が作ったもの）が残っても、データベースが受け付けるのはサーバーの役と表の持ち主だけなので（0107 の
+--                   salescall.server_session）、つないでも何もできない。人が手で消す手順は要らない（このファイルを流し直したときは、
+--                   下で一緒に消す）。
 -- ⚠️ 合言葉はここに書かない（git に入れない）。作ったあとに、管理者が ALTER ROLE ... PASSWORD で付ける。
 DO $$
 BEGIN
@@ -28,7 +29,15 @@ BEGIN
 END $$;
 -- 前の決まり（払い出し専用の役が、ログインでき、役を作る権限とシステムの役の管理権を持っていた）を外す
 ALTER ROLE salescall_provisioner NOLOGIN NOCREATEROLE;
-REVOKE salescall_app FROM salescall_provisioner;
+REVOKE salescall_app FROM salescall_provisioner CASCADE;   -- 前に払い出し専用の役が作った PC の鍵の役の、システムの役の権限も一緒に外す
+DO $$
+DECLARE r record;
+BEGIN   -- 前の PC の鍵の役（管理者が流すので消せる。つないだままの接続も切る）
+  FOR r IN SELECT rolname FROM pg_roles WHERE rolname LIKE 'salescall\_t\_%' LOOP
+    PERFORM pg_terminate_backend(a.pid) FROM pg_stat_activity a WHERE a.usename = r.rolname;
+    EXECUTE format('DROP ROLE %I', r.rolname);
+  END LOOP;
+END $$;
 -- 前の表の作り（0084・0101）を流すための権限（0107 が、残っている PC の鍵の役を消すときにも使う）
 GRANT salescall_app TO salescall_login_maker WITH ADMIN TRUE, INHERIT FALSE, SET FALSE;
 GRANT pg_signal_backend TO salescall_login_maker;

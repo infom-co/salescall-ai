@@ -9,21 +9,83 @@
 --    0077・0084 で一緒に塞いだ、契約者をまたげた所（祝日の暦は全体の取引だけ・時給の数え方は契約者も見る・管理者あての知らせは全体の
 --    取引だけ・停止による予約の取り消しは見える停止だけ・控えのフォルダ名の重なりは契約者の中だけ）は、そのまま残す（どの接続にも効く守り）。
 --
--- (1) 契約者の決め方を、取引で渡された値だけに戻す（判断は cur_tenant・cur_actor_kind の1か所のまま）。
+-- (1) 契約者の決め方を、取引で渡された値だけに戻す（判断は cur_tenant・cur_actor_kind の1か所のまま）。そのうえで、**データベースは
+--     サーバーの役（salescall_app）と表の持ち主だけを受け付ける**（`salescall.server_session` の1か所。2026-10-21 ユーザー：「人に頼る
+--     システムは極力作るな」）：前の PC の鍵の役は、作った役（払い出し専用の役）の権限でしか消せず、表の作りの役では消せない
+--     （試して確かめた：消す・ログインを止める・システムの役の権限を外す、のどれも断られる）。消せずに残っても、この守りで、
+--     その役は何も読めず書けない（取引の値を読む関数が断る・行ごとの制限の無い表にも、同じ守りの決まりを付ける・持ち主の権限で
+--     動く関数も、取引の値を読むか、この守りを呼ぶ）。⇒ 人が手で消す手順は要らない。
 -- (2) 仕事の借用の確かめ（job_key_allowed）は「システムの処理だけ」に戻す。
--- (3) PC の鍵を作る・止める関数と、払い出しの記録の表を外す。もし PC の鍵の役が残っていれば、つなげなくして消す。
+-- (3) PC の鍵を作る・止める関数と、払い出しの記録の表を外す。PC の鍵の役が残っていれば、消せるものは消す（消せないものは (1) の守りで
+--     何もできない。表の作りは止めない）。
 -- (4) 落ちた PC の回線の後始末の契約者の探し方（tenants_with_stale_lines）と、その長さの引数を外す（回線を借りるのは中央の見守り役
 --     だけ＝前の自分・前の見守り役の回線は、起動のときと決まった間隔の後始末で足りる）。
 -- 払い出し専用の役（salescall_provisioner）と鍵を作る役（salescall_login_maker）は、前の表の作りを流すために setup_roles.sql が
 -- 作り続ける（どちらも、つなげない役。この表の作りのあとは、何の権限も持たない）。
 
--- ═════════ (1) 契約者の決め方 ═════════
+-- ═════════ (1) 契約者の決め方と、受け付ける役 ═════════
+-- つないだ役（session_user＝持ち主の権限で動く関数の中でも変わらない）が、サーバーの役か表の持ち主（か、データベースの管理者）か。
+CREATE FUNCTION salescall.server_session() RETURNS boolean LANGUAGE sql STABLE AS $$
+  SELECT CASE WHEN session_user::text IN ('salescall_app', 'salescall_owner') THEN true
+              ELSE coalesce((SELECT r.rolsuper FROM pg_roles r WHERE r.rolname = session_user), false) END
+$$;
+CREATE FUNCTION salescall.refuse_outsider() RETURNS text LANGUAGE plpgsql STABLE AS $$
+BEGIN
+  RAISE EXCEPTION 'このデータベースを使えるのは、SalesCall AI のサーバーだけです' USING ERRCODE = 'insufficient_privilege',
+    CONSTRAINT = 'server_only';
+END $$;
+CREATE FUNCTION salescall.server_only() RETURNS void LANGUAGE plpgsql STABLE AS $$
+BEGIN
+  IF NOT salescall.server_session() THEN
+    PERFORM salescall.refuse_outsider();
+  END IF;
+END $$;
+-- 取引の値を読む4つ（行ごとの制限・守りの仕掛け・持ち主の権限で動く関数は、どれもこれを読む）は、ほかの役には答えずに断る
 CREATE OR REPLACE FUNCTION salescall.cur_tenant() RETURNS uuid LANGUAGE sql STABLE AS $$
-  SELECT nullif(current_setting('salescall.tenant_id', true), '')::uuid
+  SELECT CASE WHEN salescall.server_session() THEN nullif(current_setting('salescall.tenant_id', true), '')::uuid
+              ELSE salescall.refuse_outsider()::uuid END
+$$;
+CREATE OR REPLACE FUNCTION salescall.cur_client() RETURNS uuid LANGUAGE sql STABLE AS $$
+  SELECT CASE WHEN salescall.server_session() THEN nullif(current_setting('salescall.client_id', true), '')::uuid
+              ELSE salescall.refuse_outsider()::uuid END
+$$;
+CREATE OR REPLACE FUNCTION salescall.cur_actor() RETURNS text LANGUAGE sql STABLE AS $$
+  SELECT CASE WHEN salescall.server_session() THEN nullif(current_setting('salescall.actor', true), '')
+              ELSE salescall.refuse_outsider() END
 $$;
 CREATE OR REPLACE FUNCTION salescall.cur_actor_kind() RETURNS text LANGUAGE sql STABLE AS $$
-  SELECT nullif(current_setting('salescall.actor_kind', true), '')
+  SELECT CASE WHEN salescall.server_session() THEN nullif(current_setting('salescall.actor_kind', true), '')
+              ELSE salescall.refuse_outsider() END
 $$;
+-- 行ごとの制限の無い表（すべての契約者に共通の決まり・暦・声 など）にも、同じ守りの決まりを付ける（表の持ち主は、決まりを通らない）
+DO $$
+DECLARE t text;
+BEGIN
+  FOR t IN SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+           WHERE n.nspname = 'salescall' AND c.relkind = 'r' AND NOT c.relrowsecurity LOOP
+    EXECUTE format('ALTER TABLE salescall.%I ENABLE ROW LEVEL SECURITY', t);
+    EXECUTE format('CREATE POLICY server_only ON salescall.%I USING (salescall.server_session())'
+                   ' WITH CHECK (salescall.server_session())', t);
+  END LOOP;
+END $$;
+-- 持ち主の権限で動く関数のうち、取引の値を読まない2つにも、守りを入れる（ほかは、取引の値を読む＝断る）
+CREATE OR REPLACE FUNCTION salescall.next_customer_promise_at(p_except uuid) RETURNS timestamptz
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$
+BEGIN
+  PERFORM salescall.server_only();
+  RETURN (SELECT min(w.callee_at) FROM salescall.promises_waiting() w WHERE w.callee_at > now() AND w.task_id <> p_except);
+END $$;
+CREATE OR REPLACE FUNCTION salescall.release_expired_claims(p_task uuid, p_contact uuid, p_phone text, p_line uuid)
+RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path = salescall, pg_temp AS $$
+DECLARE n integer;
+BEGIN
+  PERFORM salescall.server_only();
+  UPDATE salescall.attempts SET state = 'released'
+  WHERE state = 'claimed' AND claim_expires_at <= now()
+    AND (task_id = p_task OR contact_id = p_contact OR phone_e164 = p_phone OR line_id = p_line);
+  GET DIAGNOSTICS n = ROW_COUNT;
+  RETURN n;
+END $$;
 
 -- ═════════ (2) 仕事の借用 ═════════
 CREATE OR REPLACE FUNCTION salescall.job_key_allowed(p_key text) RETURNS void LANGUAGE plpgsql STABLE AS $$
@@ -42,9 +104,13 @@ DO $$
 DECLARE r record;
 BEGIN
   FOR r IN SELECT rolname FROM pg_roles WHERE rolname LIKE 'salescall\_t\_%' LOOP
-    EXECUTE format('ALTER ROLE %I NOLOGIN', r.rolname);
-    PERFORM pg_terminate_backend(a.pid) FROM pg_stat_activity a WHERE a.usename = r.rolname;
-    EXECUTE format('DROP ROLE %I', r.rolname);
+    BEGIN   -- 0084 からの役（この役が作った）は消せる。それより前の役（払い出し専用の役が作った）は消せないが、(1) の守りで何もできない
+      EXECUTE format('ALTER ROLE %I NOLOGIN', r.rolname);
+      PERFORM pg_terminate_backend(a.pid) FROM pg_stat_activity a WHERE a.usename = r.rolname;
+      EXECUTE format('DROP ROLE %I', r.rolname);
+    EXCEPTION WHEN insufficient_privilege THEN
+      RAISE NOTICE '前の PC の鍵の役 % は消せません（つないでも、データベースが断ります）', r.rolname;
+    END;
   END LOOP;
 END $$;
 DROP FUNCTION salescall.make_pc_login(text, text);
