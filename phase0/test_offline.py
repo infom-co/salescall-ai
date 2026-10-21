@@ -4670,7 +4670,7 @@ class TargetTest(unittest.TestCase):
     def test_every_path_when_the_readings_do_not_reach_two(self):
         # ✅ 2026-10-21 ユーザー：「二つ以上揃わなかった場合に関しても正しく設計できているんですか？そこをちゃんとしないと。結局中途半端で
         # 終わってしまいますよ。」⇒ 「ご本人」の読みが2つそろわないときの道を、1つずつ（Flow._calling_reported の決める順）
-        from flowctl import HANDOVER, HOLD, TARGET_IS_AWAY, TARGET_IS_THERE, UNDECIDED, Flow
+        from flowctl import HANDOVER, HOLD, TARGET_IS_AWAY, TARGET_IS_NOT, TARGET_IS_THERE, UNDECIDED, Flow
 
         def parts(r):
             return [p.get("part", p.get("kind")) for p in r.get("play") or []]
@@ -4695,6 +4695,16 @@ class TargetTest(unittest.TestCase):
                 self.assertEqual((r["result"], f.phase), (result, "calling"), judged)
             if judged == TARGET_IS_AWAY:
                 self.assertIn("request_callback", r["message"])
+        # (3-b) 確かめたあとのAIの「代わった方」で、判定が届かない（新しい方かもしれない）：名乗りから流す（⛔ G-57 tc11：取り次ぎの最中に
+        #     確かめが流れ、そのあと出た岡田様に名乗りを流さないまま質問へ進んだ）
+        f, b = self.checked()
+        self.heard(f, "岡田ですね。少々お待ちください。", None)
+        f.apply("report_party", {"party": "target"})
+        self.heard(f, "はい、お電話代わりました。", None)
+        r = f.apply("replay_opening", {"part": "handover"})
+        self.assertEqual((r["result"], parts(r)), ("call_target", ["greeting", "intro", "target"]))
+        self.heard(f, "はい、私が岡田です。", None)
+        self.assertEqual(parts(f.apply("report_party", {"party": "target"})), ["purpose", "question"])
         # (3) 確かめに「いいえ、山本です。」：同じ方には確かめ直さず、お詫びのあと、目的の人をお呼びし直す（呼ぶ一言は、この方に2回目）。
         #     最初に出た方（名乗りを聞いた方）なので、名乗りは流し直さない。判定が「決められない」と読んでいれば、新しい方かもしれないので
         #     名乗りから（取り次ぎの判定を取りこぼしたときに、代わった方が名乗りを聞かないまま話が進むのを防ぐ＝前からの決まり）
@@ -4706,7 +4716,7 @@ class TargetTest(unittest.TestCase):
         f, b = self.checked()
         self.heard(f, "はい、営業部ですが。", None)
         self.assertEqual(f.apply("report_party", {"party": "target"})["result"], "confirm_target")
-        self.heard(f, "いいえ、山本です。", HANDOVER)
+        self.heard(f, "いいえ、山本です。", TARGET_IS_NOT)
         r = f.apply("replay_opening", {"part": "handover"})
         self.assertEqual((r["result"], parts(r), r["ack"], f.phase), ("call_target", ["target"], "shitsurei", "calling"))
         self.assertTrue(f.handle_call(type("F", (), {"name": "replay_opening", "args": {"流し直す部分": "代わった方へ"}})())[1])  # 話させない
@@ -4827,7 +4837,7 @@ class TargetTest(unittest.TestCase):
         f.use_checks("judge")
         self.heard(f, "はい。", None)
         f.apply("report_party", {"party": "target"})
-        self.heard(f, "いいえ。", HANDOVER)
+        self.heard(f, "いいえ。", TARGET_IS_NOT)
         r = f.apply("replay_opening", {"part": "handover"})
         self.assertEqual((r["result"], r["say"]), ("call_target", b.target.call()))
         from flowctl import PART_LABEL, tool_declarations

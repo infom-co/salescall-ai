@@ -1748,7 +1748,10 @@ class Flow:
             return self._call_target(sorry=False)
         if not asked:
             return self._ask_target(new_person=ai == "handover" or j in (HANDOVER, UNDECIDED))
-        return self._call_target(sorry=True)
+        # 確かめたあとのAIの「代わった方」は、「いいえ」とも、新しい方が出たとも取れる：判定が「別の方」（いいえ）と読んだとき以外は、新しい方
+        # かもしれないので名乗りから流す（確かめへの返事のときだけ。同じ方なら名乗りが重なるだけ。⛔ G-57 tc11（判定を止めた形・名乗らない方）：確かめが取り次ぎの最中に
+        # 流れ、そのあと出た岡田様の「はい、お電話代わりました。」を「いいえ」と同じに扱って、名乗りを流さないまま質問へ進んだ）
+        return self._call_target(sorry=True, maybe_new=ai == "handover" and j != TARGET_IS_NOT and self.confirm_open)
 
     def _new_speaker(self, turn: int, after: bool) -> None:
         """呼んでいる段で、電話口の方が替わった（唯一の場所）：取り次ぎの判定（after＝その次の発話から）・代わった人の判定とAIの「代わった方」
@@ -1862,12 +1865,13 @@ class Flow:
                     "message": f"電話に出た方に「{text}」と聞く録音を、プログラムが流しました（相手にもう聞こえています）。何も言わずに、{then}"}
         return {"result": "confirm_target", "say": text, "message": f"電話に出た方に「{text}」とだけ聞きます（言葉を足しません）。そのあと、{then}"}
 
-    def _call_target(self, sorry: bool) -> dict:
+    def _call_target(self, sorry: bool, maybe_new: bool = False) -> dict:
         """電話口の方は目的の人ではない（確かめに「いいえ」と答えた・違うお名前を名乗った・確かめへの返事が「はい」とそろわなかった）：
         目的の人をお呼びし直す（DESIGN.md 4-3「受付・別の人 ⇒ 決まった言い方で取り次ぎを頼む」。唯一の場所）。
         - sorry：確かめたあと（頭にお詫びの相づち「失礼いたしました。」＝_ack）
         - その方にまだ名乗っていない（取り次がれて代わった方＝passed_on）⇒ あいさつ・名乗りから（DESIGN.md 4-3「相手が替わったら短く名乗り
           直す」）。流したら、その方は名乗りを聞いた方（passed_on を消す。用件はまだ＝繋いだら用件から）
+        - maybe_new：電話口の方が替わったかもしれない（確かめたあとのAIの「代わった方」）⇒ 名乗りから
         - 呼ぶ一言は、その方に2回まで（同じお願いを繰り返さない）。流すものが無ければ、お詫びだけで相手の言葉を待つ
         ⛔ 2026-10-21 の見直しで見つけた漏れ：確かめに「いいえ、山本です。」と言われたときの道が無く、AIは番号違いで締めた（G-62）・同じ方に
            もう一度確かめた・回数を使い切って繋いだ"""
@@ -1876,7 +1880,7 @@ class Flow:
             sorry = False  # お詫びは、同じ方に1回まで
         if sorry:
             self.target_sorry.append(self.callee_turns)
-        keys = [k for k in ("greeting", "intro") if self.passed_on and self.target.get(k)]
+        keys = [k for k in ("greeting", "intro") if (self.passed_on or maybe_new) and self.target.get(k)]
         if keys:
             self.passed_on = False
             self.opening_unheard = [k for k in OPENING_ORDER if k == "purpose" and self.target.get(k)]
