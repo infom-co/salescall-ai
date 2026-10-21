@@ -735,6 +735,7 @@ class Flow:
         self.calling_question = (Question("T1", target["target"], "yes_no", required=False, conditions=tuple(TARGET_MEANINGS),
                                           meanings=dict(TARGET_MEANINGS)) if target else None)
         self.asked_target: str | None = None
+        self.asked_target_turn = -1  # 確かめる一言を聞いたときの、相手の発話の数（その次の発話が、確かめへの返事）
         if target:
             self.phase, self.current = "calling", None
             self.opening_unheard = ["purpose"] if target.get("purpose") else []
@@ -1694,8 +1695,9 @@ class Flow:
                 "message": f"相手は{PARTY_LABEL[reason]}です（人ではありません）。何も言わずに終えます（言葉を言いません）。"}
 
     def _ask_target(self, new_person: bool = True) -> dict:
-        """取り次がれて代わった方が名乗らなかった：目的の人かを確かめる（DESIGN.md 4-3。言い方は phrases.target_confirm。相手ごとの名前なので
-        AIが言う）。1人に1回まで（limits.replays）。認めたら report_party（目的の人）＝_connect が、あいさつ・名乗り・用件・最初の質問を流す。
+        """取り次がれて代わった方が名乗らなかった：目的の人かを確かめる（DESIGN.md 4-3。言い方は phrases.target_confirm）。録音で流す通話では、
+        呼ぶ一言と同じく録音（名乗りの部分 target_confirm）を流す。⛔ 2026-10-19 G-62：AIに言わせていたので、名前を言い崩した（「小田原まで
+        いらっしゃいましたでしょうか？」）＝DESIGN.md 4-3「名前をAIに言わせる所を残さない」に、コードが届いていなかった。1人に1回まで（limits.replays）。認めたら report_party（目的の人）＝_connect が、あいさつ・名乗り・用件・最初の質問を流す。
         new_person：新しい方が出た印がある（判定が「代わった人」「決められない」と読んだ・AIが「代わった方」と報告した）＝取り次がれた
         （passed_on。繋いだら、あいさつ・名乗りから全部）。判定が届かずに確かめるとき（AIは「目的の人」と報告し、新しい方の印は無い）は付けない。
         ⛔ 2026-10-19 G-62：いつも付けていたので、判定が遅れて最初に出たご本人に確かめたとき、繋いだあとに名乗りをもう一度流した"""
@@ -1704,10 +1706,13 @@ class Flow:
         if self.target_asks >= self.limits.replays:
             return self._reject("代わった方には、もう目的の人かを確かめました。")
         self.target_asks += 1
-        say = self.asked_target = self.target["target_confirm"]
-        return {"result": "confirm_target", "say": say,
-                "message": f"代わった方に「{say}」とだけ聞いて、返事を待ちます（言葉を足しません）。目的の人だと分かったら report_party を"
-                           f"「{PARTY_LABEL['target']}」で呼びます（名乗り・用件・最初の質問は、プログラムが流します）。"}
+        text = self.asked_target = self.target["target_confirm"]
+        self.asked_target_turn = self.callee_turns
+        then = self._now()
+        if self.play_recordings and self.opening.get("target_confirm"):
+            return {"result": "confirm_target", "play": [{"kind": "opening", "part": "target_confirm", "text": text}],
+                    "message": f"代わった方に「{text}」と聞く録音を、プログラムが流しました（相手にもう聞こえています）。何も言わずに、{then}"}
+        return {"result": "confirm_target", "say": text, "message": f"代わった方に「{text}」とだけ聞きます（言葉を足しません）。そのあと、{then}"}
 
     def _op_request_end(self, a: dict) -> dict:
         reason = a.get("reason")
@@ -1996,6 +2001,12 @@ class Flow:
                     f"相手がまだ答えていなければ、「{say}」と、もう一度聞いてください。")
         if self.end_reason in NOT_A_PERSON:
             return "通話は終わりです。何も言いません。"
+        if self.phase == "calling" and self.asked_target and self.callee_turns <= self.asked_target_turn + 1:
+            # ⛔ 2026-10-19 G-57（目的の人_本人）：確かめる一言を録音で流したあと、相手の「はい、そうです。」を、AIが最初の質問の答えとして
+            #    報告し、差し戻しの「お取り次ぎいただくのを待っています」では、確かめへの返事を待っていることが伝わらなかった（3本中2本）
+            return (f"いまは、電話に出た方に「{self.asked_target}」と聞いて、返事を待っています。その方が認めたら（「はい」「そうです」など）、"
+                    f"report_party を「{PARTY_LABEL['target']}」で呼びます（名乗り・用件・最初の質問は、プログラムが流します）。まだ最初の質問は"
+                    "していないので、record_answer では報告しません。目的の人ではなかったら（席を外している・別の方など）、そのとおりに報告します。")
         if self.phase == "calling":
             return (f"いまは、目的の人（「{self.target['target']}」）にお取り次ぎいただくのを待っています。電話に出た方が目的の人だと分かったら、"
                     f"report_party を「{PARTY_LABEL['target']}」で呼びます（用件と最初の質問は、プログラムが返事で渡します）。"

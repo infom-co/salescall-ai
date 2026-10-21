@@ -4376,12 +4376,28 @@ class TargetTest(unittest.TestCase):
         self.assertEqual(r["result"], "noted")
 
     def test_unnamed_new_person_is_asked_once(self):
-        # 代わった方が名乗らなかった：「「おかだ」様でいらっしゃいますでしょうか？」と1回だけ聞く（AIが言う）。認めたら、全部流して質問へ
-        f, b = self.flow()
-        r = self.say(f, "はい、お電話代わりました。", "replay_opening", part="handover")
+        # 代わった方が名乗らなかった：「「おかだ」様でいらっしゃいますでしょうか？」と1回だけ聞く。認めたら、全部流して質問へ。
+        # 録音で流す通話では録音（呼ぶ一言と同じ。⛔ 2026-10-19 G-62：AIに言わせると名前を言い崩した）。AIが話す通話では、同じ文をAIが言う
+        from flowctl import HANDOVER
+        g, _ = self.flow(recorded=False)
+        g.use_checks("judge")
+        self.heard(g, "はい、お電話代わりました。", HANDOVER)
+        r = g.apply("report_party", {"party": "target"})
         self.assertEqual((r["result"], r["say"]), ("confirm_target", "「おかだ」様でいらっしゃいますでしょうか？"))
         self.assertNotIn("play", r)
-        r = self.say(f, "はい、そうです。", "report_party", party="target")
+        f, b = self.flow()
+        r = self.say(f, "はい、お電話代わりました。", "replay_opening", part="handover")
+        self.assertEqual((r["result"], [(p["part"], p["text"]) for p in r["play"]]),
+                         ("confirm_target", [("target_confirm", "「おかだ」様でいらっしゃいますでしょうか？")]))
+        self.assertNotIn("say", r)
+        self.assertIn("何も言わずに", r["message"])
+        # 確かめへの返事を、最初の質問の答えとして報告されたら：確かめへの返事を待っていることを伝えて差し戻す
+        # ⛔ 2026-10-19 G-57（目的の人_本人）：差し戻しが「お取り次ぎいただくのを待っています」のままで、AIは答えの報告を続けた
+        r = self.say(f, "はい、そうです。", "record_answer", question_id="Q1", condition_id="はい", value="はい")
+        self.assertEqual(r["result"], "rejected")
+        self.assertIn("「「おかだ」様でいらっしゃいますでしょうか？」と聞いて、返事を待っています", r["message"])
+        self.assertIn("record_answer では報告しません", r["message"])
+        r = f.apply("report_party", {"party": "target"})
         self.assertEqual([p.get("part", p["kind"]) for p in r["play"]], ["greeting", "intro", "purpose", "question"])
 
     def test_absent_target_goes_to_callback(self):
@@ -4488,7 +4504,7 @@ class TargetTest(unittest.TestCase):
             f, b = self.checked()
             self.heard(f, "はい、お電話代わりました。", judged)
             r = f.apply("report_party", {"party": "target"})
-            self.assertEqual((r["result"], r["say"]), ("confirm_target", b.target.confirm()), judged)
+            self.assertEqual((r["result"], [p["text"] for p in r.get("play") or []] or [r.get("say")]), ("confirm_target", [b.target.confirm()]), judged)
             f.on_callee()
             self.assertEqual(f.judge_context()[1], b.target.confirm())          # 確かめた言い方を添えて判定する
             f.on_heard("はい、そうです。"); f.on_check("judge", TARGET_IS_THERE)
