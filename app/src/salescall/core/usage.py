@@ -221,7 +221,7 @@ def record_line_estimate(tx: Tx, attempt_id: UUID) -> dict[str, Any] | None:
 
 
 def tick(access: Access, actor: Actor, tenant_id: UUID) -> dict[str, Any]:
-    """見守り役（その契約者の PC）が決まった間隔で呼ぶ、その契約者の費用の見張り：今日の費用が契約者の上限を超えたら、その契約者へ
+    """中央の見守り役（サーバー）が契約者ごとに決まった間隔で呼ぶ、その契約者の費用の見張り：今日の費用が契約者の上限を超えたら、その契約者へ
     注意を知らせる（止めない）。赤字の警告の期限を見て、確認されていなければ止める（利用量の記録が無いあいだも期限が来たら止めるため）。
     赤字の停止は、今月の数を見直して、赤字でなくなっていたら解く。読むのは、その契約者の取引から見えるその契約者の分だけ。"""
     def tenant(tx: Tx) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:

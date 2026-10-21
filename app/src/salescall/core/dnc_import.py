@@ -29,7 +29,6 @@ import hashlib
 import json
 from dataclasses import dataclass
 from typing import Any
-from uuid import UUID
 
 from salescall.core import dnc, import_columns
 from salescall.core.access import Tx

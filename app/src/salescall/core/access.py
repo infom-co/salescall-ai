@@ -128,7 +128,7 @@ def snapshot(conninfo: str) -> Iterator[tuple[str, Tx]]:
 
 def tool_connection(conninfo: str) -> tuple[str, dict[str, str]]:
     """データベースの控え（core/backup.py）だけが使う：道具（pg_dump など）に渡す接続先（パスワードを外したもの）と、パスワードを
-    入れた環境の追加分。パスワードを引数に入れると、PC のプロセスの一覧から見えるため（2026-10-18 の見直し）。"""
+    入れた環境の追加分。パスワードを引数に入れると、その機械のプロセスの一覧から見えるため（2026-10-18 の見直し）。"""
     d = psycopg.conninfo.conninfo_to_dict(conninfo)
     password = d.pop("password", None)
     return psycopg.conninfo.make_conninfo(**d), ({"PGPASSWORD": str(password)} if password else {})

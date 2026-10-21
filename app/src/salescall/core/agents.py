@@ -27,7 +27,7 @@ from uuid import UUID
 from salescall.core import notify, settings
 from salescall.core.access import Access, Actor, Tx
 
-DOWN = "PC（電話をつなぐ部品）からの動いている合図が途切れました。その PC の回線では電話をかけていません。PC の電源・ネット・見守り役を確かめてください"
+DOWN = "PC（電話をつなぐ部品）からの動いている合図が途切れました。その PC の回線では電話をかけていません。PC の電源・ネット・PC の部品が動いているかを確かめてください"
 
 
 @dataclass(frozen=True)

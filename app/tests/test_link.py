@@ -116,7 +116,7 @@ class LinkBase(Base):
     def setUp(self):
         super().setUp()
         self.dir = Path(tempfile.mkdtemp(prefix="salescall-link-"))
-        patcher = mock.patch.dict(os.environ, {"SALESCALL_EMERGENCY_FLAG": str(self.dir / "EMERGENCY_STOP")})
+        patcher = mock.patch.object(pc_emergency, "FLAG", self.dir / "EMERGENCY_STOP")
         patcher.start()
         self.addCleanup(patcher.stop)
         self.hub = self.start_hub()

@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import io
-import os
 import tempfile
 import uuid
 from contextlib import redirect_stdout
@@ -89,7 +88,7 @@ class OnTheServer(Base):
 class OnThePc(Base):
     def setUp(self):
         super().setUp()
-        patcher = mock.patch.dict(os.environ, {"SALESCALL_EMERGENCY_FLAG": str(Path(tempfile.mkdtemp()) / "EMERGENCY_STOP")})
+        patcher = mock.patch.object(pc, "FLAG", Path(tempfile.mkdtemp()) / "EMERGENCY_STOP")
         patcher.start()
         self.addCleanup(patcher.stop)
 

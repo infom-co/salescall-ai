@@ -18,7 +18,6 @@
 from __future__ import annotations
 
 import json
-import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -26,10 +25,12 @@ from typing import Any
 from salescall.link.locks import lock_dir
 
 
+FLAG: Path | None = None   # 印の置き場を替えるとき（試験だけ。設定の名前は増やさない＝PC の部品が読む値は agent.config の表だけ）
+
+
 def flag_path() -> Path:
-    """印の置き場（環境変数 SALESCALL_EMERGENCY_FLAG。無ければ、PC 全体で1つの場所の EMERGENCY_STOP）。"""
-    given = os.environ.get("SALESCALL_EMERGENCY_FLAG")
-    return Path(given) if given else lock_dir() / "EMERGENCY_STOP"
+    """印の置き場（PC 全体で1つの場所の EMERGENCY_STOP）。"""
+    return FLAG if FLAG is not None else lock_dir() / "EMERGENCY_STOP"
 
 
 def engaged() -> dict[str, Any] | None:

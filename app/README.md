@@ -31,7 +31,7 @@ app/.venv/bin/python app/run_tests.py
 4. システムの処理は `salescall_app` の役でつなぐ（行ごとの制限を外せない役）。
 
 ## 中央の見守り役を動かす（サーバー。DESIGN.md 5-4・5-5）
-サーバーができるまでは、管理者の PC で動かす（PC の部品も同じ PC で動かし、つなぎ口は `ws://127.0.0.1:…` にする）。
+サーバーができるまでは、管理者の PC で動かす（PC の部品も同じ PC で動かす。PC の部品の設定 `SALESCALL_HUB_URL` に `ws://127.0.0.1:<SALESCALL_LISTEN の番号>/link` を入れる。暗号化しない `ws://` は、同じ PC の中だけ使える）。
 1. 環境変数を入れる（値は git に入れない。`python -m salescall.supervisor status` で「入っているか」だけを確かめられる）。
    | 名前 | 中身 | 要るとき |
    |---|---|---|

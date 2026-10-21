@@ -316,7 +316,6 @@ def decide_after_call(j: Judgement, *, cut_off: bool = False, normal: gate.Pacin
         return _call(promised.earliest or now, True, "途中で切れた：復旧次第、お詫びとともにすぐかけ直す",
                      Target(target.contact_id, purpose="resume"), resume_callee_at if resume_window else None, resume_window)
     if j.state == "callback_scheduled":
-        cb = j.detail["callback"]
         # お客様と約束したかけ直し：次の動きは、時刻・幅を言った約束は `_keep_promise`、時刻の決まっていない約束は
         # `_unspecified_next` の1か所が決めたもの
         if kept is None:

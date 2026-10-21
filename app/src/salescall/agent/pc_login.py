@@ -65,7 +65,7 @@ def login(server_url: str, *, previous: PcPass | None = None, post: Callable[[st
         raise LoginFailed("SalesCall AI のサーバーの場所は https:// で始まるものだけです（通行証を運ぶため）")
     post = post or _post
     base = server_url.rstrip("/")
-    try:   # サーバーの答えの形が違えば、ログインできなかったとして扱う（見守り役を終わらせない）
+    try:   # サーバーの答えの形が違えば、ログインできなかったとして扱う（PC の部品を終わらせない）
         start = post(base + START, {"pc_label": socket.gethostname()})
         page = start.get("verification_uri_complete") or start["verification_uri"]
         code, device = str(start["user_code"]), str(start["device_code"])

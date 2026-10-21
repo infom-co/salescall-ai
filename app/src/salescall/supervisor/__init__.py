@@ -23,5 +23,5 @@ def report(access: Access, tenant_id: object, what: str, error: BaseException, *
         from salescall.core import watch   # 見守り役の部品を読むときに、watch の読み込みを先にしない
         watch.after_error(access, ACTOR, ErrorReport("supervisor", None, f"{what}：{type(error).__name__}"),
                           tenant_id=tenant_id, line_id=line_id)
-    except Exception:  # noqa: BLE001 データベースに届かないときも、見守り役は止めない（PC の記録には残る）
+    except Exception:  # noqa: BLE001 データベースに届かないときも、見守り役は止めない（サーバーの記録には残る）
         pass

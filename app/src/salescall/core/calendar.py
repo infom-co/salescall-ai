@@ -79,12 +79,14 @@ def sync_official(access: Access, actor: Actor, *, fetch: Callable[[], bytes] = 
     try:
         return _sync(access, actor, fetch)
     except Exception as e:
+        kind = type(e).__name__   # 知らせに入れるのは種類の名前だけ
+
         def record(tx: Tx) -> None:
             today = tx.one("SELECT salescall.jst(now())::date AS d")["d"]
             # 祝日の暦は管理者の持ち物（Intent.md 1-4）：管理者にだけ知らせる（2026-10-17 の計画書との突き合わせ：前は全体の行で、
             # どの契約者にも見えた）
             notify.emit(tx, "calendar_sync_failed", key=f"calendar_sync_failed:{today}", admin=True, contractor=False,
-                        summary=f"祝日の暦を取りに行けませんでした（{type(e).__name__}）。前の暦のまま動き、明日また試します。")
+                        summary=f"祝日の暦を取りに行けませんでした（{kind}）。前の暦のまま動き、明日また試します。")
         access.in_system(actor, record)
         raise
 

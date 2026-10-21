@@ -2,7 +2,7 @@
 
 印のファイルを、ほかに開けないように押さえる。押さえた処理が落ちれば、OS が外す（落ちたまま押さえ続けることは無い）。
 印のファイルは、PC 全体で1つの場所に置く（`lock_dir`。Windows はすべての利用者に共通の ProgramData の下。ユーザーごとの一時フォルダに
-置くと、1台の PC の2人の Windows の利用者が、それぞれ見守り役を動かせ、同じスマホで二重にかけうる＝2026-10-18 の見直し）。
+置くと、1台の PC の2人の Windows の利用者が、それぞれ PC の部品を動かせ、同じスマホで二重にかけうる＝2026-10-18 の見直し）。
 印のファイルを開けない（ほかの利用者が作り、開く権限が無い）ときも「もう動いている」とみなす（動かさない側に倒す）。
 - 中央の見守り役：その機械に1つ（`salescall-supervisor.lock`）。
 - PC の部品：その PC に1つ（`salescall-agent.lock`。同じ PC で2つ動くと、同じスマホで二重にかけうる）。
@@ -41,7 +41,7 @@ class SingleInstance:
         except OSError:
             self.file.close()
             self.file = None
-            raise AlreadyRunning(f"この PC で、もう動いています（印：{self.path}）") from None
+            raise AlreadyRunning(f"この機械で、もう動いています（印：{self.path}）") from None
         return self
 
     def __exit__(self, *exc: Any) -> None:
