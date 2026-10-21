@@ -14,7 +14,7 @@ class CallNotPlaced(Exception):
 
 
 class CallWithheld(CallNotPlaced):
-    """かけなかった（PC の上で緊急停止が押されている）。回線の異常ではないので、数えない。"""
+    """かけなかった（PC の上で緊急停止が押されている・PC の部品がつながっていない）。回線の異常ではないので、数えない。"""
 
 
 class Phone(Protocol):
@@ -27,7 +27,8 @@ class Phone(Protocol):
     def hang_up(self) -> None: ...
 
     def play_apology_and_hang_up(self) -> None:
-        """サーバーとのつながりが通話の途中で切れたとき：あらかじめ持っている、おわびの録音を流して切る（お客様を無言で放置しない）。"""
+        """あらかじめ持っている、おわびの録音を流して切る（お客様を無言で放置しない）。サーバーとのつながりが通話の途中で切れたとき・
+        サーバーの側の誤りで頼まれたとき。通話中でなければ、何もしない。"""
         ...
 
     def on_audio(self, send: Callable[[bytes], None]) -> None:

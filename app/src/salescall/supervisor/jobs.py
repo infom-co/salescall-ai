@@ -54,17 +54,14 @@ class Job:
     lease: int                      # 借りる期限（秒）。仕事が終わるより長く（終われば返す）
     work: Callable[[Context], Any]
     wanted: Callable[[config.Config], bool] = lambda cfg: True   # する仕事か（ほかの担当の部品の設定があるか など）
+    heavy: bool = False             # 長い仕事（控えの書き込み＝PC を待つ）。別の流れの組で回す（締め・後始末の順番を塞がない）
 
     def key(self, tenant_id: UUID | None) -> str:
         return self.name if self.scope == "system" else f"{self.name}:{tenant_id}"
 
-    def runs_here(self, cfg: config.Config) -> bool:
-        return self.wanted(cfg)
-
 
 def _clients(ctx: Context) -> list[UUID]:
-    return ctx.access.in_tenant(ACTOR, ctx.tenant_id, lambda tx: [r["client_id"] for r in tx.all(
-        "SELECT client_id FROM salescall.clients WHERE tenant_id = %s ORDER BY created_at", (ctx.tenant_id,))])
+    return backup.clients(ctx.access, ctx.tenant_id)
 
 
 def _each(ctx: Context, what: str, items: list[Any], work: Callable[[Any], Any]) -> None:
@@ -212,8 +209,8 @@ JOBS: tuple[Job, ...] = (
     Job("budget", 60, "tenant", 600, budget),
     Job("system_stop_checks", 30, "system", 600, system_stop_checks, wanted=lambda cfg: cfg.prober is not None),
     Job("holidays", 3600, "system", 600, holidays),
-    Job("backups", 300, "tenant", 4 * 3600, backups),
-    Job("whole_backup", 300, "system", 4 * 3600, whole_backup, wanted=lambda cfg: cfg.whole_backup),
+    Job("backups", 300, "tenant", 4 * 3600, backups, heavy=True),
+    Job("whole_backup", 300, "system", 4 * 3600, whole_backup, wanted=lambda cfg: cfg.whole_backup, heavy=True),
     Job("backup_watch", 3600, "tenant", 600, backup_watch),
     Job("lasting_stops", 300, "tenant", 600, lasting_stops),
     Job("system_lasting_stops", 300, "system", 600, system_lasting_stops),

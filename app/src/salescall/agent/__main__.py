@@ -20,6 +20,7 @@ from salescall.link import sealing
 from salescall.link.locks import AlreadyRunning, SingleInstance, lock_dir
 
 UPDATE_WAIT = 30 * 60   # 版が違うと断られたら、つなぎ直すまで待つ長さ（秒。更新が済むのを待つ）
+RESTART_WAIT = 30       # 思いがけない誤りのあと、動き直すまでの長さ（秒）
 
 
 def run(argv: list[str]) -> int:
@@ -78,12 +79,16 @@ def _serve(cfg: config.Config) -> int:
             asyncio.run(main.Agent(cfg, got).run(asyncio.Event()))
             return 0
         except main.NeedLogin:
-            pc_login.logout()   # 止められた通行証を消して、ログインし直す
+            if pc_login.load() == got:   # 止められた通行証を消して、ログインし直す（管理者が新しく入れた通行証は消さない）
+                pc_login.logout()
         except main.NeedUpdate as e:
             print(f"{e}（更新が済むまで待ちます）")
             time.sleep(UPDATE_WAIT)
         except KeyboardInterrupt:
             return 0
+        except Exception as e:  # noqa: BLE001 思いがけない誤りでも、PC の部品を終わらせない（間をあけて動き直す）
+            print(f"思いがけない誤り（{type(e).__name__}）。しばらくして動き直します")
+            time.sleep(RESTART_WAIT)
 
 
 if __name__ == "__main__":

@@ -60,7 +60,10 @@ def lock_dir() -> Path:
 
 
 def machine_id() -> str:
-    """OS が PC ごとに持つ番号（見守り役の名前に使う。同じ名前の PC を見分ける）。読めなければ、ネットの機器の番号。"""
+    """機械ごとの番号（見守り役の名前に使う。起動し直しても同じであること＝前に落ちた自分の回線を後始末できる）。Fly.io の機械なら、
+    その機械の番号（入れ物には OS の番号が無いことがある）。次に OS が持つ番号。読めなければ、ネットの機器の番号。"""
+    if os.environ.get("FLY_MACHINE_ID"):
+        return os.environ["FLY_MACHINE_ID"]
     if os.name == "nt":
         try:
             import winreg

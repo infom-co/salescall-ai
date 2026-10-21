@@ -273,7 +273,7 @@ class PerClient(unittest.TestCase):
 
     def test_the_whole_database_is_backed_up_only_to_the_admin_pc(self):
         """データベース全体の控え（すべての契約者のデータが入る）は、管理者の PC へだけ（どの PC かはサーバーの設定＝
-        SALESCALL_WHOLE_BACKUP_PC。つなぎ口が、その PC にだけ書かせる）。記録は契約者を持たない。"""
+        SALESCALL_WHOLE_BACKUP_TENANT。つなぎ口が、その契約者の PC にだけ書かせる）。記録は契約者を持たない。"""
         World().setup()
         # 1日1回（ほかの試験が今日もう取っていれば取らない）。ほかの試験が1時間以内に失敗させていれば、やり直さない
         was_due = backup.due(self.app) and backup._may_try(self.app, "system")

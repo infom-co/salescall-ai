@@ -6,20 +6,25 @@
   かけない）。やり取りの形を変えたら番号を上げる。
 
 PC → サーバー：
-  hello {v, token, lines, drive, key, emergency}   つないだとき（通行証・つないでいる回線・控えのハードディスクと鍵があるか・緊急停止の印）
-  beat {lines, drive, key, emergency}              動いている合図（BEAT_EVERY 秒ごと）
-  reply {id, ok, value?, error?}                   頼まれたことの答え（error：not_placed＝かけていないと確かに言える・busy・failed）
-  phone_event {line, call, event, data}            電話の出来事（電話接続の担当が決める。サーバーは通話を進める部品へ渡す）
-  backup_done {id, ok, error?, ask?, size?, sha256?} 控えを書いた結果（sha256・size は暗号化したファイルのもの。ask＝PC の前の作業）
-  emergency {action: stop|release, reason, event?} PC の上で押した緊急停止（event＝サーバーが記録した停止の番号。解くとき）
+  hello {v, token, updater, lines, drive, key, emergency}  つないだとき（通行証・つないでいる回線・控えのハードディスクと鍵があるか・
+                                                   緊急停止の印 {reason, at, event}。at＝押した時刻＝1回の押しの印）
+  beat {lines, drive, key, emergency}              動いている合図（BEAT_EVERY 秒ごと。印が変わったら、すぐ）
+  reply {id, ok, value?, error?}                   頼まれたことの答え（error：not_placed＝かけていないと確かに言える・withheld＝PC の
+                                                   緊急停止でかけなかった・failed＝分からない）
+  phone_event {line, event}                        電話の出来事（中身は会話＝CL-1 と電話接続の担当が決める。サーバーは通話を進める部品へ渡す）
+  backup_done {id, ok, error?, ask?, size?, sha256?, removed?} 控えを書いた・片付けた結果（sha256・size は暗号化したファイルのもの。
+                                                   ask＝PC の前の作業）
+  emergency {action: release, reason, event}       PC で「解いてほしい」（event＝PC が知っている停止の番号）
 サーバー → PC：
   welcome {tenant, pc, lines}                      通った（lines＝その契約者の、使っている回線だけ）
   refuse {why, relogin, update}                    断った（relogin＝ログインし直す・update＝更新が要る）。サーバーは切る
-  request {id, op: in_call|start_call|hang_up, line, call?, phone?}
+  request {id, op: in_call|start_call|hang_up|apologize, line, phone?}   apologize＝おわびの録音を流して切る（サーバーの側の誤りで
+                                                   通話を続けられないとき。お客様を無言で放置しない）
   backup_begin {id, folder, file_name, size, sha256}  控えを書く（中身は CHUNK ずつのバイト。sha256＝暗号化する前の中身）
   backup_end {id}
   prune {id, folders}                              古い控えを消す（folders＝フォルダごとに、種類・残す日数・消さないもの）
-  emergency_state {event, open}                    PC の緊急停止の記録の状態（open=false＝解かれた：PC は印を消す）
+  emergency_state {event, open, at?}               PC の緊急停止の記録の状態（open=true＝記録した：at の押しに番号を書く／
+                                                   open=false＝その番号の停止が解かれた：印の番号が同じなら PC は印を消す）
 """
 
 from __future__ import annotations
@@ -42,7 +47,7 @@ JST = timezone(timedelta(hours=9))   # 控えのファイルの名前の日時�
 
 PC_TO_SERVER = frozenset({"hello", "beat", "reply", "phone_event", "backup_done", "emergency"})
 SERVER_TO_PC = frozenset({"welcome", "refuse", "request", "backup_begin", "backup_end", "prune", "emergency_state"})
-OPS = frozenset({"in_call", "start_call", "hang_up"})
+OPS = frozenset({"in_call", "start_call", "hang_up", "apologize"})
 
 
 class RemoteError(Exception):

@@ -6,6 +6,7 @@ from __future__ import annotations
 import io
 import os
 import tempfile
+import uuid
 from contextlib import redirect_stdout
 from pathlib import Path
 from unittest import mock
@@ -15,6 +16,8 @@ from salescall.core import dial_exit, emergency, stops
 from salescall.link.phone import CallWithheld
 from tests.support import ADMIN, OPERATOR, SYSTEM
 from tests.test_gate import Base, FakeDriver
+
+PC, OTHER_PC = uuid.UUID(int=11), uuid.UUID(int=12)
 
 
 class OnTheServer(Base):
@@ -32,33 +35,43 @@ class OnTheServer(Base):
         画面にも出る）。全体・ほかの契約者は止めない。"""
         s, t = self.ready(), self.ready()
         claim = self.claim(s)                                                    # 押す前に取った予約
-        event = emergency.stop(self.w.a, s["tenant"], "架空の PC", "試験：画面が開けない")
+        event = emergency.stop(self.w.a, s["tenant"], PC, "架空の PC", "試験：画面が開けない")
         self.assertEqual((self.opened(s), self.opened(t), self.system_stops()), ([("tenant", "manual")], [], []))
         driver = FakeDriver()
         self.assertFalse(dial_exit.dial(self.w.a, SYSTEM, s["tenant"], s["client"], claim.attempt_id, driver))
         self.assertEqual((driver.calls, self.reason(s)), ([], "stopped"))
         who = self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: tx.one(
             "SELECT actor, evidence FROM salescall.stop_events WHERE event_id = %s", (event,)))
-        self.assertEqual((who["actor"], who["evidence"]), ("契約者の PC の緊急停止（架空の PC）", emergency.EVIDENCE))
+        self.assertEqual((who["actor"], who["evidence"]), ("契約者の PC の緊急停止（架空の PC）", emergency.evidence(PC)))
         with self.assertRaises(ValueError):
-            emergency.stop(self.w.a, s["tenant"], "架空の PC", " ")
+            emergency.stop(self.w.a, s["tenant"], PC, "架空の PC", " ")
 
     def test_a_release_on_the_screen_is_seen_and_a_release_from_the_pc_frees_only_its_own_stops(self):
         """画面から解かれたら `is_open` が偽（PC は印を消す）。PC で解くのは、この道で記録した停止だけ（画面から押した停止は残す）。"""
         s = self.ready()
-        event = emergency.stop(self.w.a, s["tenant"], "架空の PC", "試験")
+        event = emergency.stop(self.w.a, s["tenant"], PC, "架空の PC", "試験")
         self.assertTrue(emergency.is_open(self.w.a, s["tenant"], event))
         self.assertTrue(emergency.is_open(self.w.a, s["tenant"], 10 ** 12))      # 見えない停止は、解かれていないとみなす
         self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: stops.resume(tx, event, reason="試験：画面から解いた"))
         self.assertFalse(emergency.is_open(self.w.a, s["tenant"], event))
-        emergency.stop(self.w.a, s["tenant"], "架空の PC", "試験：また押した")
+        emergency.stop(self.w.a, s["tenant"], PC, "架空の PC", "試験：また押した")
         screen = self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: stops.stop(
             tx, scope="tenant", cause="manual", reason="試験：画面から押した", tenant_id=s["tenant"]))["event_id"]
-        self.assertEqual(len(emergency.release(self.w.a, s["tenant"], "架空の PC", "試験：直った")), 1)
+        self.assertEqual(len(emergency.release(self.w.a, s["tenant"], PC, "架空の PC", "試験：直った")), 1)
         self.assertEqual(self.opened(s), [("tenant", "manual")])
         self.assertTrue(emergency.is_open(self.w.a, s["tenant"], screen))
         with self.assertRaises(ValueError):
-            emergency.release(self.w.a, s["tenant"], "架空の PC", " ")
+            emergency.release(self.w.a, s["tenant"], PC, "架空の PC", " ")
+
+    def test_a_release_from_one_pc_leaves_the_stop_pressed_on_another_pc(self):
+        """同じ契約者の2台の PC が押したとき、1台で解いても、もう1台で押した停止は残る（前は、この道で記録した停止をすべて解き、
+        もう1台が印を消してかけ始めた）。"""
+        s = self.ready()
+        mine = emergency.stop(self.w.a, s["tenant"], PC, "架空の PC", "試験：1台目で押した")
+        theirs = emergency.stop(self.w.a, s["tenant"], OTHER_PC, "架空の2台目の PC", "試験：2台目で押した")
+        self.assertEqual(emergency.release(self.w.a, s["tenant"], PC, "架空の PC", "試験：1台目で解いた"), [mine])
+        self.assertEqual((emergency.is_open(self.w.a, s["tenant"], mine), emergency.is_open(self.w.a, s["tenant"], theirs)),
+                         (False, True))
 
     def test_a_call_withheld_by_the_pc_is_not_dialed_and_not_a_line_fault(self):
         """PC の上で押されているあいだ、PC の部品は「かけて」を断る：試行は「発信に失敗」（声は届いていない）、回線の異常に数えない。"""

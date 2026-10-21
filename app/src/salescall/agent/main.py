@@ -8,7 +8,10 @@
    あれば、かけない**（「かけて」を断る。通話中かと聞かれたら「通話中」と答える）。控えを書く・片付ける（`backup.LocalWriter`）。
 5. **通話の声と電話の出来事**：電話の部品が受けたお客様の声と、電話の出来事（呼び出し・応答・切れた など）をサーバーへ送り、
    サーバーから届いた声を電話の部品へ渡す（中身は見ない）。電話の部品は、自分の流れ（音声の機器の流れ など）から送ってよい。
-6. **つながりが切れたら**：通話の途中の回線は、電話の部品が、おわびの録音を流して切る（お客様を無言で放置しない）。
+6. **つながりが切れたら**：通話の途中の回線は、電話の部品が、おわびの録音を流して切る（お客様を無言で放置しない）。切れたことには
+   数秒で気づく（`PING_EVERY`。通信の終わりの合図が来ない切れ方＝Wi-Fi が落ちた など、でも）。**切れたあとに「かける」が
+   終わったら、すぐおわびして切る**（つなぎの番号で見分ける。サーバーは、その試行を結果不明にしている）。
+7. 1つのやり取り・電話の部品の誤りで、つなぎを切らない・PC の部品を終わらせない（記録して続ける）。
 """
 
 from __future__ import annotations
@@ -32,6 +35,7 @@ from salescall.link import sealing
 from salescall.link.phone import CallNotPlaced, Phone
 
 RECONNECT_FIRST, RECONNECT_MAX = 1.0, 60.0
+PING_EVERY = 3.0   # つながりを確かめる間隔と、答えを待つ長さ（秒）。通話の途中で切れたら、これだけでおわびして切る
 
 
 class NeedLogin(Exception):
@@ -58,6 +62,7 @@ class Agent:
     lines: list[UUID] = field(default_factory=list)       # サーバーが確かめ直した回線
     ws: ClientConnection | None = None
     loop: asyncio.AbstractEventLoop | None = None
+    generation: int = 0                                    # つなぎの番号（つなぎ直すたびに増える）
     _incoming: dict[UUID, list[bytes]] = field(default_factory=dict)
     _begun: dict[UUID, dict[str, Any]] = field(default_factory=dict)
     _tasks: set[asyncio.Task] = field(default_factory=set)
@@ -66,17 +71,18 @@ class Agent:
         if self.cfg.phone and not self.phones:
             self.phones = {line: load_phone(self.cfg.phone, line) for line in self.cfg.lines}
         self.writer = backup.LocalWriter(backup.Drive(self.cfg.backup_drive), self.cfg.environ) if self.cfg.backup_drive else None
+        try:   # 鍵があるか（設定は動いているあいだ変わらないので、1回だけ確かめる。鍵の計算は重く、合図のたびにすると声が止まる）
+            self.key_ready = bool(sealing.load_key(self.cfg.environ))
+        except sealing.KeyMissing:
+            self.key_ready = False
 
     # ── 合図の中身 ──
     def _state(self) -> dict[str, Any]:
         drive = self.cfg.backup_drive is not None and backup.Drive(self.cfg.backup_drive).attached()
-        try:
-            key = bool(sealing.load_key(self.cfg.environ))
-        except sealing.KeyMissing:
-            key = False
         flag = emergency.engaged()
-        return {"lines": [str(x) for x in self.phones], "drive": drive, "key": key,
-                "emergency": None if flag is None else {"reason": flag.get("reason"), "event": flag.get("event")}}
+        return {"lines": [str(x) for x in self.phones], "drive": drive, "key": self.key_ready,
+                "emergency": None if flag is None else {"reason": flag.get("reason"), "at": flag.get("at"),
+                                                        "event": flag.get("event")}}
 
     # ── つなぐ ──
     async def run(self, stop: asyncio.Event) -> None:
@@ -99,8 +105,10 @@ class Agent:
             wait = min(wait * 2, RECONNECT_MAX)
 
     async def session(self, stop: asyncio.Event) -> None:
-        async with connect(self.cfg.hub_url, max_size=p.MAX_FRAME, open_timeout=20, compression=None) as ws:
+        async with connect(self.cfg.hub_url, max_size=p.MAX_FRAME, open_timeout=20, compression=None,
+                           ping_interval=PING_EVERY, ping_timeout=PING_EVERY) as ws:
             self.ws, self.loop = ws, asyncio.get_running_loop()
+            self.generation += 1
             await ws.send(p.dumps("hello", v=p.VERSION, token=self.pc_pass.token, updater=self.cfg.updater is not None,
                                   **self._state()))
             first = p.loads(await asyncio.wait_for(ws.recv(), 30), frozenset({"welcome", "refuse"}))
@@ -117,7 +125,12 @@ class Agent:
             beats = asyncio.create_task(self._beats(stop))
             try:
                 async for message in ws:
-                    await self._receive(message)
+                    try:
+                        await self._receive(message)
+                    except (NeedLogin, NeedUpdate, ConnectionClosed):
+                        raise
+                    except Exception:  # noqa: BLE001 1つのやり取り・電話の部品の誤りで、つなぎを切らない（その頼みには答えない＝サーバーは「分からない」）
+                        pass
                     if stop.is_set():
                         break
             finally:
@@ -145,14 +158,19 @@ class Agent:
             await self.ws.send(p.dumps("emergency", action="release", reason=flag["release"], event=flag.get("event")))
 
     def _lost(self) -> None:
-        """つながりが切れた：通話の途中の回線は、おわびの録音を流して切る（お客様を無言で放置しない）。"""
+        """つながりが切れた：通話の途中の回線は、おわびの録音を流して切る（お客様を無言で放置しない）。途中の控えの中身は捨てる
+        （サーバーは、書けなかったとして記録し、あとでやり直す）。"""
         self.ws = None
+        self.generation += 1
+        self._incoming.clear()
+        self._begun.clear()
         for phone in self.phones.values():
             try:
-                if phone.in_call():
-                    phone.play_apology_and_hang_up()
-            except Exception:  # noqa: BLE001 電話の部品の誤りで、つなぎ直しを止めない
-                pass
+                busy = phone.in_call()
+            except Exception:  # noqa: BLE001 答えられない＝分からない：通話中とみなす（おわびして切る側）
+                busy = True
+            if busy:
+                _apologize(phone)
 
     def _send(self, line: UUID, message: str | bytes) -> None:
         """電話の部品から（どの流れからでも）サーバーへ送る。つないでいない・サーバーが認めていない回線のものは送らない。"""
@@ -171,7 +189,10 @@ class Agent:
         if isinstance(message, bytes):
             kind, ident, payload = p.unframe(message)
             if kind == p.AUDIO and ident in self.lines and ident in self.phones:
-                self.phones[ident].play(payload)
+                try:
+                    self.phones[ident].play(payload)
+                except Exception:  # noqa: BLE001 電話の部品の誤りで、ほかの回線の声を止めない
+                    pass
             elif kind == p.BACKUP and ident in self._incoming:
                 self._incoming[ident].append(payload)
             return
@@ -187,10 +208,11 @@ class Agent:
         elif kind == "prune":
             self._spawn(self._prune(msg))
         elif kind == "emergency_state":
+            event = msg.get("event") if isinstance(msg.get("event"), int) else None
             if msg.get("open") is False:
-                emergency.clear()
-            elif isinstance(msg.get("event"), int):
-                emergency.recorded(msg["event"])
+                emergency.clear(event)            # 印の番号が同じときだけ消す（押し直した印は消さない）
+            elif event is not None:
+                emergency.recorded(event, msg.get("at"))
         elif kind == "refuse":
             if msg.get("relogin"):
                 raise NeedLogin(str(msg.get("why")))
@@ -214,6 +236,7 @@ class Agent:
             if emergency.engaged() is not None:   # かける直前にもう一度見る（印があれば、かけない）
                 out = {"ok": False, "error": "withheld"}
             else:
+                generation = self.generation
                 try:
                     await loop.run_in_executor(None, phone.start_call, str(msg.get("phone")))
                     out = {"ok": True}
@@ -221,9 +244,14 @@ class Agent:
                     out = {"ok": False, "error": "not_placed"}
                 except Exception:  # noqa: BLE001 かけたか分からない
                     out = {"ok": False, "error": "failed"}
+                if self.generation != generation and out.get("error") != "not_placed":
+                    # かけているあいだにつながりが切れた：サーバーは結果不明にしている。AI のいない電話にしない
+                    await loop.run_in_executor(None, _apologize, phone)
+                    return
         else:
+            work = phone.hang_up if op == "hang_up" else phone.play_apology_and_hang_up
             try:
-                await loop.run_in_executor(None, phone.hang_up)
+                await loop.run_in_executor(None, work)
                 out = {"ok": True}
             except Exception:  # noqa: BLE001
                 out = {"ok": False, "error": "failed"}
@@ -258,3 +286,10 @@ class Agent:
             return {"ok": False, "error": str(e), "ask": e.ask}
         except Exception as e:  # noqa: BLE001 中身は書かない（種類の名前だけ）
             return {"ok": False, "error": f"思いがけない誤り（{type(e).__name__}）"}
+
+
+def _apologize(phone: Phone) -> None:
+    try:
+        phone.play_apology_and_hang_up()
+    except Exception:  # noqa: BLE001 電話の部品の誤りで、PC の部品を止めない
+        pass

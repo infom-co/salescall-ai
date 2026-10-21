@@ -15,9 +15,11 @@ from salescall.core.dial_exit import LineDriver
 
 @dataclass(frozen=True)
 class Attached:
-    """いまつないでいる回線（その契約者の、使っている回線だけ＝データベースが確かめたもの）と、つないでいる PC。"""
+    """いまつないでいる回線（その契約者の、使っている回線だけ＝データベースが確かめたもの）と、つないでいる PC・そのつなぎの番号
+    （つなぎ直せば変わる＝中央の見守り役は、替わったら回線の流れを止めて立ち上げ直す）。"""
     tenant_id: UUID
     pc_id: UUID
+    conn: int = 0
 
 
 class Links(Protocol):
@@ -25,17 +27,17 @@ class Links(Protocol):
         """いま、どの回線が、どの契約者のどの PC につながっているか（かけてよい PC の部品の版のものだけ）。"""
         ...
 
-    def driver(self, line_id: UUID, pc_id: UUID) -> LineDriver:
-        """その PC の、その回線の電話の部品（PC の部品へ頼む形。通話の声も、これを通る）。**作ったときの PC に決まる**（同じ回線を
-        別の PC がつなぎ直しても、通話の途中の頼み・声を、新しい PC へ送らない）。"""
+    def driver(self, line_id: UUID, at: Attached) -> LineDriver:
+        """そのつなぎの、その回線の電話の部品（PC の部品へ頼む形。通話の声も、これを通る）。**作ったときのつなぎに決まる**（別の PC・
+        つなぎ直した新しいつなぎへ、通話の途中の頼み・声を送らない）。"""
         ...
 
     def writer(self, tenant_id: UUID) -> Writer | None:
-        """その契約者の控えを書く PC の部品（つないでいて、控え用のハードディスクと鍵があるもの。無ければ None）。"""
+        """その契約者の控えを書く PC の部品（つないでいる PC。ハードディスクと鍵がある PC を先に。つないでいる PC が無ければ None）。"""
         ...
 
     def whole_writer(self) -> Writer | None:
-        """データベース全体の控えを書く、管理者の PC の部品（サーバーの設定で決めた PC。つないでいなければ None）。"""
+        """データベース全体の控えを書く PC の部品（サーバーの設定で決めた、管理者自身の契約者の PC。つないでいなければ None）。"""
         ...
 
 
@@ -45,7 +47,7 @@ class NoLinks:
     def lines(self) -> dict[UUID, Attached]:
         return {}
 
-    def driver(self, line_id: UUID, pc_id: UUID) -> LineDriver:
+    def driver(self, line_id: UUID, at: Attached) -> LineDriver:
         raise LookupError(f"その回線は、つないでいません：{line_id}")
 
     def writer(self, tenant_id: UUID) -> Writer | None:

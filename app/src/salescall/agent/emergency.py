@@ -9,7 +9,10 @@
 - 画面から解かれたら、サーバーが PC の部品に伝え、印を消す（解いた記録が正本）。
 - **release**：印に「解いてほしい」を書く。PC の部品がサーバーに届けて、サーバーが解いたら印を消す。届かないうちは消さない
   （解いたことを記録できないまま、かけ始めない）。
-- 印が読めないときは、効いているとみなす（止める側）。
+- **印を消すのは、サーバーが解いたと言った停止の番号が、いまの印の番号と同じときだけ**（`clear`。判断はここだけ）：解く頼みを
+  届けているあいだ・画面から解かれたことが届くまでのあいだに、もう一度押したら、その押しは新しい停止（番号を空に戻す・解いて
+  ほしいを外す）なので、前の停止が解けても消さない（2026-10-21 の見直し：前は、押し直しても黙って消え、かけ始めた）。
+- 印が読めないときは、効いているとみなす（止める側）。印の置き場は PC 全体で1つ（Windows の利用者が違っても同じ印＝`link.locks.lock_dir`）。
 """
 
 from __future__ import annotations
@@ -20,11 +23,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from salescall.link.locks import lock_dir
+
 
 def flag_path() -> Path:
-    """印の置き場（環境変数 SALESCALL_EMERGENCY_FLAG。無ければ、利用者のホームの .salescall/EMERGENCY_STOP）。"""
+    """印の置き場（環境変数 SALESCALL_EMERGENCY_FLAG。無ければ、PC 全体で1つの場所の EMERGENCY_STOP）。"""
     given = os.environ.get("SALESCALL_EMERGENCY_FLAG")
-    return Path(given) if given else Path.home() / ".salescall" / "EMERGENCY_STOP"
+    return Path(given) if given else lock_dir() / "EMERGENCY_STOP"
 
 
 def engaged() -> dict[str, Any] | None:
@@ -49,12 +54,10 @@ def _write(content: dict[str, Any]) -> Path:
 
 
 def stop(reason: str) -> Path:
-    """止める（印を残す）。もう止めていれば、前の印のまま（記録の番号を消さない）。"""
+    """止める（印を残す）。もう止めていれば、新しい押しとして書き直す（番号を空に＝サーバーが新しく記録する・解いてほしいを外す。
+    前の停止が解けても、この押しは消えない）。"""
     if not reason.strip():
         raise ValueError("止める理由を書いてください")
-    now = engaged()
-    if now is not None:
-        return flag_path()
     return _write({"reason": reason, "at": datetime.now(timezone.utc).isoformat(), "event": None, "release": None})
 
 
@@ -69,16 +72,26 @@ def ask_release(reason: str) -> bool:
     return True
 
 
-def recorded(event: int) -> None:
-    """サーバーが記録した停止の番号を、印に書く。"""
+def recorded(event: int, at: str | None) -> bool:
+    """サーバーが記録した停止の番号を、印に書く（記録した押しと、いまの印の押しが同じときだけ。押し直していれば書かない＝新しい押しは
+    サーバーがまた記録する）。書いたら True。"""
     now = engaged()
-    if now is not None:
-        _write(dict(now, event=event))
+    if now is None or now.get("event") is not None or str(now.get("at") or "") != str(at or ""):
+        return False
+    _write(dict(now, event=event))
+    return True
 
 
-def clear() -> None:
-    """印を消す（サーバーで解けたとき・画面から解かれたとき）。"""
+def clear(event: int | None) -> bool:
+    """サーバーが「その停止は解けた」と言ったとき、印の番号が同じなら印を消す（番号の無い印は、PC で解いてほしいと書いたもの
+    だけ。番号が違う・押し直した印は消さない）。消したら True。"""
+    now = engaged()
+    if now is None:
+        return False
+    if now.get("event") != event or (event is None and not now.get("release")):
+        return False
     flag_path().unlink(missing_ok=True)
+    return True
 
 
 def main(argv: list[str]) -> int:

@@ -251,7 +251,7 @@ OVERDUE = timedelta(hours=26)   # 1日1回の控えが「取れていない」�
 OVERDUE_CLIENT = ("依頼者ごとの AI用の控えが1日以上取れていません。この契約者の PC（PC の部品）が動いていて、控え用のハードディスクと"
                   "鍵の設定（SALESCALL_BACKUP_DRIVE・SALESCALL_BACKUP_KEY）が入っているかを確かめてください（手順：docs/PC_SETUP.md）。")
 OVERDUE_WHOLE = ("データベース全体の控えが1日以上取れていません。サーバーの設定（SALESCALL_OWNER_DSN・SALESCALL_RESTORE_DSN・"
-                 "SALESCALL_WHOLE_BACKUP_PC）と、管理者の PC（PC の部品・控え用のハードディスクと鍵）を確かめてください"
+                 "SALESCALL_WHOLE_BACKUP_TENANT）と、管理者の PC（PC の部品・控え用のハードディスクと鍵）を確かめてください"
                  "（手順：docs/PC_SETUP.md）。")
 
 
@@ -279,7 +279,7 @@ def watch_client(app: Access, tenant_id: UUID, client_id: UUID) -> bool:
 
 
 def watch_whole(app: Access) -> bool:
-    """データベース全体の控えが取れているか（管理者の PC の見守り役が、設定に関係なく呼ぶ。見張るのは、最初の契約者を作ってから）。
+    """データベース全体の控えが取れているか（中央の見守り役が、設定に関係なく呼ぶ。見張るのは、最初の契約者を作ってから）。
     取れていなければ、管理者に1日1回知らせる（止めない）。"""
     def work(tx: Tx) -> bool:
         since = tx.one("SELECT salescall.first_tenant_at() AS t")["t"]   # 全体の取引からは契約者の表を読めない（0102）
@@ -392,7 +392,8 @@ def record_submission(tx: Tx, file_name: str, data: bytes) -> int:
                   (file_name, hashlib.sha256(data).hexdigest(), data))["submission_id"]
 
 
-def _clients(app: Access, tenant_id: UUID) -> list[UUID]:
+def clients(app: Access, tenant_id: UUID) -> list[UUID]:
+    """その契約者の依頼者（作った順。控えと中央の見守り役の契約者ごとの仕事が読む1か所）。"""
     return app.in_tenant(SYSTEM, tenant_id, lambda tx: [r["client_id"] for r in tx.all(
         "SELECT client_id FROM salescall.clients ORDER BY created_at, client_id")])
 
@@ -411,7 +412,7 @@ def copy_submissions(app: Access, writer: Writer, tenant_id: UUID) -> list[Resul
             failed.append(Result(False, None, _why(e)))
     clients: list[UUID] = []
     if _may_try(app, "submission", tenant_id):
-        step(None, lambda: clients.extend(_clients(app, tenant_id)))
+        step(None, lambda: clients.extend(clients(app, tenant_id)))
     for c in clients:
         if _may_try(app, "submission", tenant_id, c):
             step(c, lambda c=c: _copy_submissions(app, writer, tenant_id, c))
@@ -448,7 +449,7 @@ def recording_file_name(attempt_id: UUID, started: datetime, part: str) -> str:
     （古い録音を消す処理が、日時と「測り終わるまで消さない」印を見るため）。part＝その通話の中の録音の名前（例 call）。"""
     if not re.fullmatch(r"[a-z0-9_]{1,30}", part):
         raise ValueError(f"録音の名前は英小文字・数字・_ で書きます（{part!r}）")
-    return f"salescall-{started.astimezone():%Y%m%d-%H%M%S}-{attempt_id}-{part}.enc"
+    return _name(started, f"-{attempt_id}-{part}.enc")
 
 
 def prune_rules(app: Access, tenant_id: UUID | None) -> dict[str, Any]:
@@ -477,6 +478,8 @@ def prune_rules(app: Access, tenant_id: UUID | None) -> dict[str, Any]:
         for r in rows:
             if r["folder"] in rules:
                 rules[r["folder"]]["verified"].append(r["f"])
+        for rule in rules.values():   # PC が残すのは一番新しいもの1つだけ：それだけを渡す（全部を渡すと、日がたつほどやり取りが大きくなる）
+            rule["verified"] = [max(rule["verified"])] if rule["verified"] else []
         return rules
     return _in(app, tenant_id, None, look)
 
@@ -501,7 +504,7 @@ def run_contractor(app: Access, tenant_id: UUID, writer: Writer) -> list[Result]
     その契約者の取引から見えるその契約者の行だけ。書くのは、その契約者の PC（その PC のハードディスク・その PC の鍵）。"""
     results = []
     try:
-        clients = _clients(app, tenant_id) if _may_try(app, "client_ai", tenant_id) else []
+        clients = clients(app, tenant_id) if _may_try(app, "client_ai", tenant_id) else []
     except Exception as e:  # noqa: BLE001 依頼者の一覧が読めない：記録して続ける（止めない）
         _record(app, datetime.now().astimezone(), None, None, None, _why(e), person=None, part="client_ai", tenant_id=tenant_id)
         results.append(Result(False, None, _why(e)))

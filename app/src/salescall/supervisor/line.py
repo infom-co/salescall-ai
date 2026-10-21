@@ -94,6 +94,7 @@ def _client_round(access: Access, actor: Actor, tenant_id: UUID, client_id: UUID
                     try:
                         runner.run(access, actor, got, tenant_id=tenant_id, client_id=client_id)
                     except Exception as e:  # noqa: BLE001 その通話だけを結果不明にして、次へ進む（止めない）
+                        dial_exit.abandon(driver)   # 通話が残っていれば、おわびして切る（お客様を無言で放置しない）
                         _end_unknown(access, actor, tenant_id, client_id, got.attempt_id)
                         report(access, tenant_id, "通話を進める部品", e, line_id=line_id)
                     return Round(called=got.attempt_id)

@@ -6,8 +6,13 @@
   つなぎは切る（1つの PC は1本だけ）。
 - **動いている合図**：データベースへ書き（`agents.beat`。名乗った回線は、その契約者の使っている回線だけが残る）、つないでいる回線・
   控え用のハードディスクと鍵があるか・緊急停止の印を覚える。緊急停止の印がある PC の回線は、中央の見守り役に見せない（かけない）。
-- **同じ回線を2つの PC が名乗ったら**、合図の新しいほうを中央の見守り役に見せる。電話の部品（`AgentDriver`）は、作ったときの PC に
-  決まる（通話の途中で、頼み・声が別の PC へ行かない。PC が替われば、中央の見守り役が回線の流れを止めて立ち上げ直す）。
+- **同じ回線を2つの PC が名乗ったら**、先につないだほうを中央の見守り役に見せ（入れ替わり続けない）、その契約者へ知らせる
+  （`pc_line_conflict`。もう一方の PC の設定を直してもらう）。先につないだ PC が緊急停止を押していれば、その回線ではかけない。
+- 中央の見守り役に見せる回線（`links.Attached`）は、**つなぎ（1本ごとの番号）**まで持つ。電話の部品（`AgentDriver`）は、作ったときの
+  つなぎに決まる（通話の途中で、頼み・声が別の PC・つなぎ直した新しいつなぎへ行かない。替われば、中央の見守り役が回線の流れを止めて
+  立ち上げ直し、止まった試行を後始末する）。
+- 1つのやり取りの誤り（形の違い・受け口の誤り）では、つなぎを切らない（記録して続ける。切ると、その PC のすべての通話が切れる）。
+- 切れたことに数秒で気づく（`PING_EVERY`）。
 - **頼む**（電話の部品＝`AgentDriver`・控え＝`RemoteWriter`）：中央の見守り役の流れから頼み、答えを待つ（待ち過ぎたら「分からない」＝
   かけない側）。つながりが切れたら、待っている頼みは誤りで返す。
 - **PC の上の緊急停止**：PC から届いたら、その契約者の緊急停止を記録し（`core.emergency`）、記録の番号を PC へ返す。画面から解かれて
@@ -17,6 +22,7 @@
 from __future__ import annotations
 
 import asyncio
+import itertools
 import threading
 import time
 from dataclasses import dataclass, field
@@ -26,7 +32,7 @@ from uuid import UUID
 from websockets.asyncio.server import ServerConnection, serve
 from websockets.exceptions import ConnectionClosed
 
-from salescall.core import agents, emergency
+from salescall.core import agents, emergency, notify
 from salescall.core.access import Access
 from salescall.link import protocol as p
 from salescall.link.phone import CallNotPlaced, CallWithheld
@@ -35,19 +41,25 @@ from salescall.supervisor import ACTOR, config, report, updates
 from salescall.supervisor.links import Attached
 
 HELLO_WAIT = 10   # つないでから、最初のやり取り（hello）を待つ長さ（秒）
+PING_EVERY = 3.0  # つながりを確かめる間隔と、答えを待つ長さ（秒）
+_SERIAL = itertools.count(1)
+AWAY = "控えを書く PC が、サーバーとのつながりを失いました。PC の電源・ネット・PC の部品が動いているかを確かめてください"
+LINE_CONFLICT = ("同じ回線（スマホ）を、2台の PC がつないでいます。先につないだ PC でかけています。もう一方の PC の設定"
+                 "（SALESCALL_LINES）から、その回線を外してください")
 
 
 @dataclass
 class _Session:
     ws: ServerConnection
     who: agents.Who
+    conn: int = field(default_factory=lambda: next(_SERIAL))   # つなぎの番号（つなぎ直せば変わる）
     lines: list[UUID] = field(default_factory=list)
     drive: bool = False
     key: bool = False
     emergency: dict[str, Any] | None = None
     seen: float = 0.0
     pending: dict[UUID, asyncio.Future] = field(default_factory=dict)
-    recording_emergency: bool = False
+    recorded_press: str | None = None   # このつなぎで記録した、PC の押し（印の押した時刻）。同じ押しを二重に記録しない
     order: asyncio.Lock = field(default_factory=asyncio.Lock)   # 合図と緊急停止は、届いた順に1つずつ（データベースを待つあいだも声は止めない）
     tasks: set[asyncio.Task] = field(default_factory=set)
 
@@ -58,8 +70,8 @@ class Hub:
     def __init__(self, app: Access, cfg: config.Config) -> None:
         self.app, self.cfg = app, cfg
         self.sessions: dict[UUID, _Session] = {}       # PC → つなぎ
-        self.sinks: dict[UUID, tuple[UUID, Callable[[bytes], None]]] = {}   # 回線 → (PC, 届いた声の受け口＝通話を進める部品)
-        self.events: dict[UUID, tuple[UUID, Callable[[dict[str, Any]], None]]] = {}   # 回線 → (PC, 電話の出来事の受け口)
+        self.sinks: dict[UUID, tuple[int, Callable[[bytes], None]]] = {}   # 回線 → (つなぎ, 届いた声の受け口＝通話を進める部品)
+        self.events: dict[UUID, tuple[int, Callable[[dict[str, Any]], None]]] = {}   # 回線 → (つなぎ, 電話の出来事の受け口)
         self.lock = threading.Lock()
         self.loop: asyncio.AbstractEventLoop | None = None
         self.port: int | None = None
@@ -80,7 +92,8 @@ class Hub:
     async def _serve(self) -> None:
         host, port = self.cfg.listen or ("127.0.0.1", 0)
         self._stop = asyncio.Event()
-        async with serve(self._handle, host, port, max_size=p.MAX_FRAME, compression=None) as server:
+        async with serve(self._handle, host, port, max_size=p.MAX_FRAME, compression=None,
+                         ping_interval=PING_EVERY, ping_timeout=PING_EVERY) as server:
             self.port = server.sockets[0].getsockname()[1]
             self._ready.set()
             await self._stop.wait()
@@ -117,19 +130,22 @@ class Hub:
             kept = await self._beat(session, hello)
             if kept is None:
                 return
+            await ws.send(p.dumps("welcome", tenant=who.tenant_id, pc=who.pc_id, lines=kept))   # 頼みより先に届ける
             with self.lock:
                 old = self.sessions.get(who.pc_id)
                 self.sessions[who.pc_id] = session
-            if old is not None:   # 同じ PC の前のつなぎ（1つの PC は1本だけ）
-                await old.ws.close()
-            await ws.send(p.dumps("welcome", tenant=who.tenant_id, pc=who.pc_id, lines=kept))
+            if old is not None:   # 同じ PC の前のつなぎ（1つの PC は1本だけ。待たずに閉じる）
+                asyncio.get_running_loop().create_task(old.ws.close())
             await self._emergency_state(session)
             async for message in ws:
-                await self._receive(session, message)
+                try:
+                    await self._receive(session, message)
+                except ConnectionClosed:
+                    raise
+                except Exception as e:  # noqa: BLE001 1つのやり取りの誤りで、つなぎを切らない（切ると、その PC のすべての通話が切れる）
+                    report(self.app, who.tenant_id, "つなぎ口のやり取り", e)
         except (ConnectionClosed, asyncio.TimeoutError):
             pass
-        except p.BadMessage as e:
-            report(self.app, None if session is None else session.who.tenant_id, "つなぎ口のやり取り", e)
         except Exception as e:  # noqa: BLE001 1本のつなぎの誤りで、つなぎ口を止めない
             report(self.app, None if session is None else session.who.tenant_id, "つなぎ口", e)
         finally:
@@ -153,6 +169,13 @@ class Hub:
         session.lines, session.seen = list(kept), time.monotonic()
         session.drive, session.key = bool(msg.get("drive")), bool(msg.get("key"))
         session.emergency = msg.get("emergency") if isinstance(msg.get("emergency"), dict) else None
+        with self.lock:
+            shared = sorted({line for o in self.sessions.values() if o is not session and o.who.tenant_id == session.who.tenant_id
+                             for line in o.lines if line in session.lines}, key=str)
+        if shared:
+            await self._db(lambda: self.app.in_tenant(ACTOR, session.who.tenant_id, lambda tx: [notify.emit(
+                tx, "pc_line_conflict", key=f"pc_line_conflict:{line}:{tx.one('SELECT salescall.jst(now())::date AS d')['d']}",
+                summary=LINE_CONFLICT, refs={"line_id": line}) for line in shared]))
         return session.lines
 
     async def _receive(self, session: _Session, message: str | bytes) -> None:
@@ -177,10 +200,10 @@ class Hub:
                 sink(msg["event"])
 
     @staticmethod
-    def _sink(sinks: dict[UUID, tuple[UUID, Any]], session: _Session, line: UUID | None) -> Any:
-        """届いた声・出来事の受け口（その回線の電話の部品を作った PC から届いたものだけ）。"""
+    def _sink(sinks: dict[UUID, tuple[int, Any]], session: _Session, line: UUID | None) -> Any:
+        """届いた声・出来事の受け口（その回線の電話の部品を作った、そのつなぎから届いたものだけ）。"""
         got = sinks.get(line) if line is not None and line in session.lines else None
-        return got[1] if got is not None and got[0] == session.who.pc_id else None
+        return got[1] if got is not None and got[0] == session.conn else None
 
     async def _in_order(self, session: _Session, msg: dict[str, Any]) -> None:
         try:
@@ -197,13 +220,11 @@ class Hub:
     # ── PC の上の緊急停止 ──
     async def _emergency(self, session: _Session, msg: dict[str, Any]) -> None:
         who, reason = session.who, str(msg.get("reason") or "")
-        if msg.get("action") == "release":
-            await self._db(lambda: emergency.release(self.app, who.tenant_id, who.label, reason))
-            session.emergency, session.recording_emergency = None, False
-            await session.ws.send(p.dumps("emergency_state", event=None, open=False))
+        if msg.get("action") == "release":   # その PC が押した停止だけを解き、PC が知っている番号で伝える（押し直していれば PC は消さない）
+            await self._db(lambda: emergency.release(self.app, who.tenant_id, who.pc_id, who.label, reason))
+            event = msg.get("event") if isinstance(msg.get("event"), int) else None
+            await session.ws.send(p.dumps("emergency_state", event=event, open=False))
             return
-        if session.emergency is None:
-            session.emergency = {"reason": reason, "event": None}
         await self._emergency_state(session)
 
     async def _emergency_state(self, session: _Session) -> None:
@@ -214,31 +235,33 @@ class Hub:
         event = flag.get("event")
         if isinstance(event, int):
             if not await self._db(lambda: emergency.is_open(self.app, who.tenant_id, event)):
-                session.emergency, session.recording_emergency = None, False
-                await session.ws.send(p.dumps("emergency_state", event=event, open=False))
+                await session.ws.send(p.dumps("emergency_state", event=event, open=False))   # PC は、番号が同じなら印を消す
             return
-        if session.recording_emergency:   # 同じつなぎで二重に記録しない（PC が番号を書くまでの合図）
+        press = str(flag.get("at") or "")
+        if session.recorded_press == press:   # この押しは、もう記録した（PC が番号を書くまでの合図）
             return
-        session.recording_emergency = True
         reason = str(flag.get("reason") or "（理由なし）")
-        event = await self._db(lambda: emergency.stop(self.app, who.tenant_id, who.label, reason))
-        flag["event"] = event
-        await session.ws.send(p.dumps("emergency_state", event=event, open=True))
+        event = await self._db(lambda: emergency.stop(self.app, who.tenant_id, who.pc_id, who.label, reason))
+        session.recorded_press = press        # 記録できたときだけ（失敗したら、次の合図でまた記録する）
+        await session.ws.send(p.dumps("emergency_state", event=event, open=True, at=press))
 
     # ── 頼む（中央の見守り役の流れから呼ぶ） ──
-    def _session_of(self, pc_id: UUID, line_id: UUID) -> _Session:
-        """その PC の、いまのつなぎ（その回線をつないでいるときだけ）。"""
+    def _session_of(self, at: Attached, line_id: UUID) -> _Session:
+        """そのつなぎ（その回線をつないでいるときだけ）。つなぎ直していれば、無いものとする（新しいつなぎへ、前の通話の頼みを送らない）。"""
         with self.lock:
-            got = self.sessions.get(pc_id)
-        if got is None or line_id not in got.lines:
-            raise ConnectionError("その回線をつないでいる、その PC の部品がありません")
+            got = self.sessions.get(at.pc_id)
+        if got is None or got.conn != at.conn or line_id not in got.lines:
+            raise ConnectionError("その回線をつないでいる、そのつなぎがありません")
         return got
 
-    def ask(self, session: _Session, kind: str, *, wait: float = p.REPLY_WAIT, chunks: list[bytes] | None = None,
+    def ask(self, session: _Session, kind: str, *, wait: float = p.REPLY_WAIT, chunks: list[Any] | None = None,
             **fields: Any) -> dict[str, Any]:
-        """頼んで答えを待つ（中央の見守り役の流れから）。chunks＝続けて送るバイトのひと続き（控えの中身）。"""
+        """頼んで答えを待つ（中央の見守り役の流れから）。chunks＝続けて送るバイトのひと続き（控えの中身）。つなぎ口の流れ（声・
+        出来事の受け口の中）からは呼べない（自分の流れを止めて、すべての PC のやり取りが固まるため）。"""
         if self.loop is None:
             raise ConnectionError("つなぎ口が動いていません")
+        if threading.current_thread() is self._thread:
+            raise RuntimeError("つなぎ口の流れ（声・出来事の受け口）から、PC の部品への頼みは呼べません（別の流れへ渡してください）")
         ident = p.new_id()
 
         async def go() -> dict[str, Any]:
@@ -255,43 +278,42 @@ class Hub:
                 session.pending.pop(ident, None)
         return asyncio.run_coroutine_threadsafe(go(), self.loop).result(wait + 10)
 
-
     # ── links.Links ──
     def lines(self) -> dict[UUID, Attached]:
+        """回線ごとに、先につないだつなぎ（入れ替わり続けない）。そのつなぎの PC で緊急停止が押されていれば、その回線は見せない。"""
         with self.lock:
-            sessions = sorted(self.sessions.values(), key=lambda s: s.seen)
-        out: dict[UUID, Attached] = {}
-        for s in sessions:   # 合図の新しいほうが残る
-            if s.emergency is not None:   # PC の上で緊急停止が押されている：その PC の回線ではかけない
-                continue
+            sessions = sorted(self.sessions.values(), key=lambda s: s.conn)
+        owner: dict[UUID, _Session] = {}
+        for s in sessions:
             for line_id in s.lines:
-                out[line_id] = Attached(s.who.tenant_id, s.who.pc_id)
-        return out
+                owner.setdefault(line_id, s)
+        return {line_id: Attached(s.who.tenant_id, s.who.pc_id, s.conn) for line_id, s in owner.items() if s.emergency is None}
 
-    def driver(self, line_id: UUID, pc_id: UUID) -> "AgentDriver":
-        return AgentDriver(self, line_id, pc_id)
+    def driver(self, line_id: UUID, at: Attached) -> "AgentDriver":
+        return AgentDriver(self, line_id, at)
 
     def writer(self, tenant_id: UUID) -> "RemoteWriter | None":
+        """その契約者の控えを書く PC（ハードディスクと鍵がある PC。無ければ、つないでいる PC に頼む＝PC が直す人あての文を返し、
+        その契約者に「つないでください」「鍵を入れてください」が届く）。つないでいる PC が無ければ None。"""
         with self.lock:
-            got = sorted((s for s in self.sessions.values() if s.who.tenant_id == tenant_id), key=lambda s: str(s.who.pc_id))
-        ready = [s for s in got if s.drive and s.key] or got   # 書ける PC が無ければ、つないでいる PC に頼む（PC が「つないで」を返す）
+            got = sorted((s for s in self.sessions.values() if s.who.tenant_id == tenant_id), key=lambda s: s.conn)
+        ready = [s for s in got if s.drive and s.key] or got
         return RemoteWriter(self, ready[0]) if ready else None
 
     def whole_writer(self) -> "RemoteWriter | None":
-        with self.lock:
-            s = self.sessions.get(self.cfg.whole_backup_pc) if self.cfg.whole_backup_pc else None
-        return RemoteWriter(self, s) if s is not None else None
+        """データベース全体の控えを書く PC：サーバーの設定で決めた契約者（管理者自身の契約者）の PC だけ（すべての契約者のデータが入る）。"""
+        return self.writer(self.cfg.whole_backup_tenant) if self.cfg.whole_backup_tenant else None
 
 
 @dataclass
 class AgentDriver:
-    """その PC の、その回線の電話の部品（PC の部品へ頼む形。dial_exit.LineDriver）。通話の声もここを通る。作ったときの PC だけに頼む。"""
+    """そのつなぎの、その回線の電話の部品（PC の部品へ頼む形。dial_exit.LineDriver）。通話の声もここを通る。作ったときのつなぎだけに頼む。"""
     hub: Hub
     line_id: UUID
-    pc_id: UUID
+    at: Attached
 
     def _session(self) -> _Session:
-        return self.hub._session_of(self.pc_id, self.line_id)
+        return self.hub._session_of(self.at, self.line_id)
 
     def in_call(self) -> bool:
         try:
@@ -301,7 +323,11 @@ class AgentDriver:
         return not got.get("ok") or bool(got.get("value"))
 
     def start_call(self, phone_e164: str) -> None:
-        got = self.hub.ask(self._session(), "request", op="start_call", line=self.line_id, phone=phone_e164)
+        try:
+            session = self._session()
+        except ConnectionError:   # 頼む前に、つなぎが無いと分かった：かけていないと確かに言える（回線の異常ではない）
+            raise CallWithheld("PC の部品がつながっていません") from None
+        got = self.hub.ask(session, "request", op="start_call", line=self.line_id, phone=phone_e164)
         if got.get("ok"):
             return
         if got.get("error") == "withheld":
@@ -315,6 +341,12 @@ class AgentDriver:
         if not got.get("ok"):
             raise RuntimeError("電話の部品が、切れたか分からない誤りを返しました")
 
+    def apologize_and_hang_up(self) -> None:
+        """おわびの録音を流して切る（サーバーの側の誤りで通話を続けられないとき。PC の電話の部品が持っている録音）。"""
+        got = self.hub.ask(self._session(), "request", op="apologize", line=self.line_id)
+        if not got.get("ok"):
+            raise RuntimeError("電話の部品が、おわびして切れたか分からない誤りを返しました")
+
     def send_audio(self, audio: bytes) -> None:
         """AI の声・録音を、通話へ流す（PC の部品が電話の部品の play へ渡す。待たずに返す）。"""
         session = self._session()
@@ -322,30 +354,38 @@ class AgentDriver:
             asyncio.run_coroutine_threadsafe(session.ws.send(p.frame(p.AUDIO, self.line_id, audio)), self.hub.loop)
 
     def on_audio(self, sink: Callable[[bytes], None]) -> None:
-        """お客様の声の受け口を決める（通話を進める部品＝CL-1。つなぎ口の流れから呼ばれるので、待たずに返すこと）。"""
-        self.hub.sinks[self.line_id] = (self.pc_id, sink)
+        """お客様の声の受け口を決める（通話を進める部品＝CL-1）。つなぎ口の流れから呼ばれるので、待たずに返すこと（中から PC への
+        頼みは呼べない＝別の流れへ渡す）。"""
+        self.hub.sinks[self.line_id] = (self.at.conn, sink)
 
     def on_event(self, sink: Callable[[dict[str, Any]], None]) -> None:
-        """電話の出来事（呼び出し・応答・切れた など。中身は電話接続の担当が決める）の受け口を決める。"""
-        self.hub.events[self.line_id] = (self.pc_id, sink)
+        """電話の出来事（呼び出し・応答・切れた など。中身は電話接続の担当が決める）の受け口を決める（待たずに返すこと。上と同じ）。"""
+        self.hub.events[self.line_id] = (self.at.conn, sink)
 
 
 @dataclass
 class RemoteWriter:
-    """控えを、その PC の部品に書かせる（core.backup.Writer）。"""
+    """控えを、その PC の部品に書かせる（core.backup.Writer）。つながりが切れたら、直す人あての文つきの誤り（PC の電源・ネット）。"""
     hub: Hub
     session: _Session
 
+    def _ask(self, kind: str, **fields: Any) -> dict[str, Any]:
+        try:
+            return self.hub.ask(self.session, kind, **fields)
+        except (ConnectionError, TimeoutError, asyncio.TimeoutError, ConnectionClosed):
+            raise RemoteError("控えを書く PC の部品とのつながりが切れました", ask=AWAY) from None
+
     def write(self, folder: list[str], file_name: str, data: bytes, sha256: str) -> tuple[str, int]:
-        chunks = [data[i:i + p.CHUNK] for i in range(0, len(data), p.CHUNK)] or [b""]
-        got = self.hub.ask(self.session, "backup_begin", wait=60 + 5 * len(chunks), chunks=chunks, folder=folder,
-                           file_name=file_name, size=len(data), sha256=sha256)
+        view = memoryview(data)   # 写しを作らずに分ける
+        chunks = [view[i:i + p.CHUNK] for i in range(0, len(data), p.CHUNK)] or [b""]
+        got = self._ask("backup_begin", wait=60 + 5 * len(chunks), chunks=chunks, folder=folder, file_name=file_name,
+                        size=len(data), sha256=sha256)
         if not got.get("ok"):
             raise RemoteError(str(got.get("error") or "PC の部品が控えを書けませんでした"), ask=got.get("ask"))
         return str(got["sha256"]), int(got["size"])
 
     def prune(self, folders: dict[str, Any]) -> int:
-        got = self.hub.ask(self.session, "prune", wait=300, folders=folders)
+        got = self._ask("prune", wait=300, folders=folders)
         if not got.get("ok"):
             raise RemoteError(str(got.get("error") or "PC の部品が古い控えを片付けられませんでした"), ask=got.get("ask"))
         return int(got.get("removed") or 0)

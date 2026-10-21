@@ -59,7 +59,7 @@ class FakeLinks(NoLinks):
     def lines(self):
         return dict(self.attached)
 
-    def driver(self, line_id, pc_id):
+    def driver(self, line_id, at):
         return FakeDriver()
 
 
@@ -466,13 +466,23 @@ class Main(SupervisorBase):
         sup.watch_workers(13.0)
         sup.renew(14.0)
         self.assertEqual((len(started), started[1][1]), (2, uuid.UUID(int=2)))  # 新しい PC で始めた
+        links.attached[s["line"]] = Attached(s["tenant"], uuid.UUID(int=2), 7)  # 同じ PC が、すぐつなぎ直した（新しいつなぎ）
+        sup.renew(15.0)
+        self.assertTrue(started[1][2].stop.is_set())                           # 前のつなぎの流れは止める
+        sup.watch_workers(16.0)
+        sup.renew(17.0)
+        self.assertEqual((len(started), started[2][1]), (3, uuid.UUID(int=2)))  # 新しいつなぎで立ち上げ直した
         c = self.claim(s)
         links.attached.clear()                                                  # PC がつながりを切った
-        started[1][2].stop.set = lambda: None                                   # まだ通話の途中
+        started[2][2].stop.set = lambda: None                                   # まだ通話の途中
+        self.lease(s, seconds=-1)                                               # 借用の期限が切れかけていても
         sup.renew(20.0)
+        alive = self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: tx.one(
+            "SELECT lease_expires_at > now() AS ok FROM salescall.lines WHERE line_id = %s", (s["line"],)))["ok"]
+        self.assertTrue(alive)                                                  # 流れが動いているあいだは延ばし続ける（ほかの見守り役に後始末させない）
         sup.watch_workers(21.0)
         self.assertEqual((self.state(s, c.attempt_id), self.holder_of(s)), ("claimed", HOLDER))   # 通話の途中は返さない
-        started[1][2].died = True
+        started[2][2].died = True
         sup.watch_workers(22.0)
         self.assertEqual((self.state(s, c.attempt_id), self.holder_of(s), sup.leased, sup.workers),
                          ("released", None, {}, {}))                            # 止まってから後始末して返す
@@ -599,12 +609,12 @@ class Main(SupervisorBase):
         要る仕事は、その設定があるときだけ。データベース全体の控えは、書く管理者の PC と接続の設定があるときだけ。控えの見張り・
         止まったまま続く停止の修正依頼・PC の合図の見張りは、いつも動く（取る仕事が動かないことに気づく）。"""
         s = self.ready()
-        here = lambda cfg: {j.name for j in jobs.JOBS if j.runs_here(cfg)}   # noqa: E731
+        here = lambda cfg: {j.name for j in jobs.JOBS if j.wanted(cfg)}   # noqa: E731
         bare = here(self.cfg(s))
         self.assertTrue({"recover", "settle", "backups", "backup_watch", "whole_backup_watch", "lasting_stops",
                          "system_lasting_stops", "pc_watch", "budget", "holidays"} <= bare)
         self.assertFalse({"whole_backup", "verify", "stop_checks", "system_stop_checks"} & bare)
-        full = here(self.cfg(s, SALESCALL_OWNER_DSN="x", SALESCALL_RESTORE_DSN="y", SALESCALL_WHOLE_BACKUP_PC=str(uuid.uuid4()),
+        full = here(self.cfg(s, SALESCALL_OWNER_DSN="x", SALESCALL_RESTORE_DSN="y", SALESCALL_WHOLE_BACKUP_TENANT=str(uuid.uuid4()),
                              SALESCALL_VERIFIER="m:v", SALESCALL_PROBER="m:p"))
         self.assertEqual(full, {j.name for j in jobs.JOBS})
 
@@ -652,6 +662,8 @@ class Main(SupervisorBase):
         cfg = config.load({"SALESCALL_DSN": "x", "SALESCALL_LISTEN": "0.0.0.0:8765"})
         self.assertEqual((cfg.listen, cfg.calls, cfg.whole_backup), (("0.0.0.0", 8765), False, False))
         self.assertNotIn("x", repr(cfg).replace("0.0.0.0", ""))                  # 接続は表示に出さない
+        with self.assertRaises(config.ConfigMissing):                          # つなぎ口の場所が無ければ動かない（黙って電話をかけない）
+            main_mod.serve(config.load({"SALESCALL_DSN": "x"}))
 
 
 if __name__ == "__main__":

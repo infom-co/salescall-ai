@@ -131,6 +131,9 @@ class FakeDriver:
         if self.fail:
             raise self.fail
 
+    def apologize_and_hang_up(self):
+        self.apologized = getattr(self, "apologized", 0) + 1
+
 
 class ClaimAndDial(Base):
     def test_claim_then_dial_once(self):

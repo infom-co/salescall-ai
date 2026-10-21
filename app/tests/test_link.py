@@ -144,8 +144,10 @@ class LinkBase(Base):
         return r
 
     def attached(self, s, got, hub=None):
+        """その PC のつなぎで、回線がつながるまで待ち、つなぎ（Attached）を返す。"""
         hub = hub or self.hub
-        return until(lambda: hub.lines().get(s["line"]) == Attached(s["tenant"], got.pc_id), "回線がつながる")
+        return until(lambda: (at := hub.lines().get(s["line"])) is not None and (at.tenant_id, at.pc_id) == (s["tenant"], got.pc_id)
+                     and at, "回線がつながる")
 
     def open_manual(self, s):
         return self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: [
@@ -186,8 +188,7 @@ class Connect(LinkBase):
         got = self.pc(s)
         phone = FakePhone()
         self.agent(got, [s["line"]], {s["line"]: phone})
-        self.attached(s, got)
-        driver = self.hub.driver(s["line"], got.pc_id)
+        driver = self.hub.driver(s["line"], self.attached(s, got))
         heard, events = [], []
         driver.on_audio(heard.append)
         driver.on_event(events.append)
@@ -205,8 +206,8 @@ class Connect(LinkBase):
         got = self.pc(s)
         phone = FakePhone(busy=True)
         self.agent(got, [s["line"]], {s["line"]: phone})
-        self.attached(s, got)
-        driver = self.hub.driver(s["line"], got.pc_id)
+        at = self.attached(s, got)
+        driver = self.hub.driver(s["line"], at)
         self.assertTrue(driver.in_call())
         phone.busy = False
         self.assertFalse(driver.in_call())
@@ -220,26 +221,34 @@ class Connect(LinkBase):
         phone.fail = RuntimeError("試験：分からない")
         with self.assertRaises(RuntimeError):
             driver.start_call("+81300000002")
-        self.assertTrue(self.hub.driver(uuid.uuid4(), got.pc_id).in_call())   # つないでいない回線
-        self.assertTrue(self.hub.driver(s["line"], uuid.uuid4()).in_call())   # その回線をつないでいない PC
+        driver.apologize_and_hang_up()                                       # サーバーの側の誤り：おわびして切る
+        self.assertEqual(phone.apologies, 1)
+        self.assertTrue(self.hub.driver(uuid.uuid4(), at).in_call())         # つないでいない回線
+        away = Attached(s["tenant"], uuid.uuid4(), at.conn)
+        self.assertTrue(self.hub.driver(s["line"], away).in_call())          # その回線をつないでいない PC
+        with self.assertRaises(CallWithheld):                                # つないでいない：かけていないと確かに言える（回線の異常ではない）
+            self.hub.driver(s["line"], away).start_call("+81300000003")
 
-    def test_lines_of_another_tenant_are_dropped_and_two_pcs_on_one_line_use_the_latest(self):
+    def test_lines_of_another_tenant_are_dropped_and_two_pcs_on_one_line_keep_the_first(self):
         """名乗った回線は、その契約者の使っている回線だけが残る（ほかの契約者の回線の電話をかけさせない）。同じ回線を2つの PC が
-        名乗ったら、合図の新しいほう。"""
+        名乗ったら、先につないだほう（入れ替わり続けない）で、その契約者に知らせる。通話の途中の頼み・声は、作ったときのつなぎだけ。"""
         s = self.ready()
         other = self.ready()
         got = self.pc(s)
         first = self.agent(got, [s["line"], other["line"]])
-        self.attached(s, got)
+        at = self.attached(s, got)
         self.assertNotIn(other["line"], self.hub.lines())
         self.assertEqual(first.agent.lines, [s["line"]])                    # PC の部品も、確かめ直した回線だけを使う
-        driver = self.hub.driver(s["line"], got.pc_id)                       # 1台目の PC で動いている回線の流れ
+        driver = self.hub.driver(s["line"], at)                              # 1台目の PC で動いている回線の流れ
         heard = []
         driver.on_audio(heard.append)
         second = self.pc(s, "架空の2台目の PC")
         phone2 = FakePhone()
-        r2 = self.agent(second, [s["line"]], {s["line"]: phone2})
-        until(lambda: self.hub.lines().get(s["line"]) == Attached(s["tenant"], second.pc_id), "新しい PC の回線")
+        self.agent(second, [s["line"]], {s["line"]: phone2})
+        until(lambda: second.pc_id in self.hub.sessions, "2台目の PC")
+        notes = lambda: self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: tx.all(   # noqa: E731
+            "SELECT 1 FROM salescall.notification_events WHERE kind = 'pc_line_conflict'"))
+        until(notes, "同じ回線を2台の PC がつないでいると知らせる")
         driver.start_call("+81300000000")                                   # 通話の途中の頼み・声は、前の PC のまま
         driver.send_audio(b"\x09")
         until(lambda: first.agent.phones[s["line"]].played == [b"\x09"], "前の PC へ届く")
@@ -249,7 +258,9 @@ class Connect(LinkBase):
         self.assertEqual((first.agent.phones[s["line"]].calls, phone2.calls, phone2.played, heard),
                          (["+81300000000"], [], [], []))
         first.beat()
-        until(lambda: self.hub.lines().get(s["line"]) == Attached(s["tenant"], got.pc_id), "合図の新しいほう")
+        time.sleep(0.5)
+        self.assertEqual(self.hub.lines()[s["line"]], at)                   # 先につないだほうのまま（合図で入れ替わらない）
+        self.assertEqual(len(notes()), 1)                                    # 知らせは1日1回
 
 
 class Refusals(LinkBase):
@@ -304,7 +315,41 @@ class LostConnection(LinkBase):
         phone.busy = True
         self.hub.close()
         until(lambda: phone.apologies >= 1, "おわびを流して切る")
-        self.assertTrue(self.hub.driver(s["line"], got.pc_id).in_call())
+        self.assertTrue(self.hub.driver(s["line"], Attached(s["tenant"], got.pc_id, 1)).in_call())
+
+    def test_a_call_that_finishes_after_the_line_drops_is_apologised_for(self):
+        """「かける」の途中でつながりが切れ、そのあとで電話の部品がかけ終わったら、すぐおわびして切る（AI のいない電話にしない）。"""
+        s = self.ready()
+        got = self.pc(s)
+        release = threading.Event()
+
+        class SlowPhone(FakePhone):
+            def start_call(self, phone):
+                release.wait(10)
+                super().start_call(phone)
+        phone = SlowPhone()
+        self.agent(got, [s["line"]], {s["line"]: phone})
+        driver = self.hub.driver(s["line"], self.attached(s, got))
+        caller = threading.Thread(target=lambda: self.assertRaises(Exception, driver.start_call, "+81300000000"))
+        caller.start()
+        until(lambda: self.hub.sessions[got.pc_id].pending, "かけてと頼んだ")
+        self.hub.close()                                                     # かけている途中で切れた
+        time.sleep(0.5)
+        release.set()
+        until(lambda: phone.calls and phone.apologies >= 1, "かけ終わったら、すぐおわびして切る")
+        caller.join(30)
+
+    def test_a_quick_reconnect_of_the_same_pc_is_a_new_connection(self):
+        """同じ PC がすぐつなぎ直しても、新しいつなぎ（番号が違う）として見せる（中央の見守り役が回線の流れを立ち上げ直し、前の通話の
+        頼み・声を新しいつなぎへ送らない）。"""
+        s = self.ready()
+        got = self.pc(s)
+        r = self.agent(got, [s["line"]])
+        before = self.attached(s, got)
+        asyncio.run_coroutine_threadsafe(r.agent.ws.close(), r.loop)          # 一度切れて、すぐつなぎ直す
+        after = until(lambda: (at := self.hub.lines().get(s["line"])) is not None and at.conn != before.conn and at, "つなぎ直した")
+        self.assertEqual((after.tenant_id, after.pc_id), (before.tenant_id, before.pc_id))
+        self.assertTrue(self.hub.driver(s["line"], before).in_call())        # 前のつなぎには頼めない（かけない側）
 
 
 class Emergency(LinkBase):
@@ -319,7 +364,8 @@ class Emergency(LinkBase):
         flag = until(lambda: (pc_emergency.engaged() or {}).get("event"), "記録の番号が印に書かれる")
         self.assertEqual(self.open_manual(s), [flag])
         self.assertEqual(self.hub.lines(), {})                                  # かけない
-        driver = self.hub.driver(s["line"], got.pc_id)
+        session = self.hub.sessions[got.pc_id]
+        driver = self.hub.driver(s["line"], Attached(s["tenant"], got.pc_id, session.conn))
         self.assertTrue(driver.in_call())
         with self.assertRaises(CallWithheld):
             driver.start_call("+81300000000")
@@ -346,15 +392,46 @@ class Emergency(LinkBase):
         self.assertEqual(self.open_manual(s), [])
         self.attached(s, got)
 
+    def test_a_stop_that_could_not_be_recorded_is_recorded_on_the_next_beat(self):
+        """記録に一度失敗しても（データベースに届かない など）、次の合図でまた記録する（前は、そのつなぎのあいだ二度と記録しなかった）。"""
+        s = self.ready()
+        got = self.pc(s)
+        r = self.agent(got, [s["line"]])
+        self.attached(s, got)
+        real, calls = channel.emergency.stop, []
+
+        def flaky(*a, **k):
+            calls.append(1)
+            if len(calls) == 1:
+                raise ConnectionError("試験：データベースに届かない")
+            return real(*a, **k)
+        with mock.patch.object(channel.emergency, "stop", flaky), mock.patch.object(channel, "report"):
+            pc_emergency.stop("試験：押した")
+            until(lambda: calls, "1回目の記録（失敗）")
+            r.beat()
+            event = until(lambda: (pc_emergency.engaged() or {}).get("event"), "次の合図で記録")
+        self.assertEqual(self.open_manual(s), [event])
+
     def test_a_release_asked_while_the_server_is_away_keeps_the_flag(self):
         """解いてほしいと書いても、サーバーに届かないうちは印を消さない（解いたことを記録できないまま、かけ始めない）。"""
         pc_emergency.stop("試験：押した")
         self.assertTrue(pc_emergency.ask_release("試験：直った"))
         self.assertEqual(pc_emergency.engaged()["release"], "試験：直った")
         self.assertFalse(pc_emergency.ask_release("試験：2回目") and pc_emergency.engaged() is None)
+        self.assertFalse(pc_emergency.clear(5))                                  # 番号の違う停止が解けても消さない
+        self.assertTrue(pc_emergency.clear(None))                                # 記録の前に、PC で解いてほしいと書いた押し
+        pc_emergency.stop("試験：押した")
+        self.assertFalse(pc_emergency.clear(None))                               # 解いてほしいと書いていない押しは消さない
+        self.assertTrue(pc_emergency.recorded(7, pc_emergency.engaged()["at"]))
+        self.assertTrue(pc_emergency.ask_release("試験：直った"))
+        pc_emergency.stop("試験：やっぱり止める")                                # 届く前に押し直した：新しい押し
+        self.assertEqual((pc_emergency.engaged()["event"], pc_emergency.engaged()["release"]), (None, None))
+        self.assertFalse(pc_emergency.clear(7))                                  # 前の停止が解けても、押し直した印は消えない
+        self.assertFalse(pc_emergency.recorded(8, "前の押しの時刻"))            # 前の押しの番号は、新しい押しに書かない
         (self.dir / "EMERGENCY_STOP").write_text("壊れた中身", encoding="utf-8")
         self.assertIsNotNone(pc_emergency.engaged())                             # 読めない印は、効いているとみなす
-        pc_emergency.clear()
+        self.assertFalse(pc_emergency.clear(None))
+        (self.dir / "EMERGENCY_STOP").unlink()
         self.assertIsNone(pc_emergency.engaged())
         self.assertFalse(pc_emergency.ask_release("試験：止めていない"))
         with self.assertRaises(ValueError):
@@ -399,13 +476,15 @@ class Backups(LinkBase):
         self.assertIn("SALESCALL_BACKUP_DRIVE", e.exception.ask or "")
         self.assertIsNone(self.hub.whole_writer())                             # 全体の控えを書く PC を決めていない
         self.assertIsNone(self.hub.writer(self.w.tenant()))                    # つないでいない契約者
-        admin = self.start_hub(SALESCALL_WHOLE_BACKUP_PC=str(got.pc_id))
+        t = self.ready()
+        stranger = self.pc(t, "架空のほかの契約者の PC")
+        admin = self.start_hub(SALESCALL_WHOLE_BACKUP_TENANT=str(s["tenant"]))
+        self.agent(stranger, [], hub=admin)
+        until(lambda: stranger.pc_id in admin.sessions, "ほかの契約者の PC")
+        self.assertIsNone(admin.whole_writer())                                # 決めた契約者の PC がつないでいない：ほかの契約者には送らない
         self.agent(got, [s["line"]], hub=admin)
-        until(lambda: admin.whole_writer() is not None, "決めた PC にだけ全体の控えを頼む")
-        other = self.pc(s, "架空のほかの PC")
-        self.agent(other, [], hub=admin)
-        until(lambda: other.pc_id in admin.sessions, "ほかの PC")
-        self.assertEqual(admin.whole_writer().session.who.pc_id, got.pc_id)
+        until(lambda: admin.whole_writer() is not None, "決めた契約者の PC にだけ全体の控えを頼む")
+        self.assertEqual(admin.whole_writer().session.who.tenant_id, s["tenant"])
 
 
 class Settings(LinkBase):

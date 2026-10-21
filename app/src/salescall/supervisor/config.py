@@ -7,13 +7,13 @@
 | 名前 | 中身 | 要るとき |
 |---|---|---|
 | SALESCALL_DSN | データベースへの接続（システムの役） | いつも |
-| SALESCALL_LISTEN | PC の部品からのつなぎを待つ場所（例 0.0.0.0:8765。暗号化はサーバーの入口がする） | いつも |
+| SALESCALL_LISTEN | PC の部品からのつなぎを待つ場所（例 0.0.0.0:8765。暗号化はサーバーの入口がする） | いつも（無ければ動かない） |
 | SALESCALL_CALL_RUNNER | 通話を最後まで進める部品を作る関数（`モジュール:名前`。会話＝CL-1。回線の ID と、その回線の電話の部品を受け取る） | 電話をかけるとき |
 | SALESCALL_VERIFIER | 通話後の検証の部品を作る関数（CL-1） | 検証をするとき |
 | SALESCALL_PROBER | 停止を解く確かめの部品を作る関数（CL-1・電話接続） | 確かめをするとき |
 | SALESCALL_OWNER_DSN | データベースへの接続（表の持ち主。データベース全体の控えの中身を書き出す） | 全体の控え |
 | SALESCALL_RESTORE_DSN | 戻せるかを確かめる、空のデータベース（本番と別） | 全体の控え |
-| SALESCALL_WHOLE_BACKUP_PC | データベース全体の控えを書く、管理者の PC の番号（すべての契約者のデータが入るので、この PC にだけ送る） | 全体の控え |
+| SALESCALL_WHOLE_BACKUP_TENANT | データベース全体の控えを書く PC の契約者（管理者自身の契約者の番号。すべての契約者のデータが入るので、この契約者の PC にだけ送る。PC で決めないのは、ログインし直すと PC の番号が変わるため） | 全体の控え |
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from typing import Any
 from uuid import UUID
 
 NAMES = ("SALESCALL_DSN", "SALESCALL_LISTEN", "SALESCALL_CALL_RUNNER", "SALESCALL_VERIFIER", "SALESCALL_PROBER",
-         "SALESCALL_OWNER_DSN", "SALESCALL_RESTORE_DSN", "SALESCALL_WHOLE_BACKUP_PC")
+         "SALESCALL_OWNER_DSN", "SALESCALL_RESTORE_DSN", "SALESCALL_WHOLE_BACKUP_TENANT")
 
 
 class ConfigMissing(Exception):
@@ -40,7 +40,7 @@ class Config:
     prober: str | None
     owner_dsn: str | None = field(repr=False)
     restore_dsn: str | None = field(repr=False)
-    whole_backup_pc: UUID | None = None
+    whole_backup_tenant: UUID | None = None
     environ: dict[str, str] = field(repr=False, default_factory=dict)
 
     @property
@@ -51,7 +51,7 @@ class Config:
     @property
     def whole_backup(self) -> bool:
         """データベース全体の控えを取るか（表の持ち主の接続・戻せるかを確かめるデータベース・書く管理者の PC があるとき）。"""
-        return bool(self.owner_dsn and self.restore_dsn and self.whole_backup_pc)
+        return bool(self.owner_dsn and self.restore_dsn and self.whole_backup_tenant)
 
 
 def gather(environ: dict[str, str] | None = None) -> dict[str, str]:
@@ -77,12 +77,12 @@ def load(environ: dict[str, str] | None = None) -> Config:
             raise ConfigMissing("SALESCALL_LISTEN は「場所:番号」で書きます（例 0.0.0.0:8765）")
         where = (host, int(port))
     try:
-        pc = UUID(maybe("SALESCALL_WHOLE_BACKUP_PC")) if maybe("SALESCALL_WHOLE_BACKUP_PC") else None
+        whole = UUID(maybe("SALESCALL_WHOLE_BACKUP_TENANT")) if maybe("SALESCALL_WHOLE_BACKUP_TENANT") else None
     except ValueError:
-        raise ConfigMissing("SALESCALL_WHOLE_BACKUP_PC は PC の番号（例 0a1b…）で書きます") from None
+        raise ConfigMissing("SALESCALL_WHOLE_BACKUP_TENANT は契約者の番号（例 0a1b…）で書きます") from None
     return Config(dsn=dsn, listen=where, call_runner=maybe("SALESCALL_CALL_RUNNER"), verifier=maybe("SALESCALL_VERIFIER"),
                   prober=maybe("SALESCALL_PROBER"), owner_dsn=maybe("SALESCALL_OWNER_DSN"),
-                  restore_dsn=maybe("SALESCALL_RESTORE_DSN"), whole_backup_pc=pc, environ=env)
+                  restore_dsn=maybe("SALESCALL_RESTORE_DSN"), whole_backup_tenant=whole, environ=env)
 
 
 def status(environ: dict[str, str] | None = None) -> list[str]:

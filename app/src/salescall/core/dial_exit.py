@@ -12,7 +12,8 @@
   知っているのは回線の部品だけなので、かける直前に必ず聞く＝決まりはこの1か所）。
 - 結果は `Outcome`（かけた・予約証が使えない・回線が通話中・かけられなかった）。かけたときだけ真。回線ごとの処理は、回線が通話中・
   かけられなかったときは、その回線を休ませる（かけられなかったことは回線の異常として数える＝続けば回線を止める）。
-- 本番の PC の上で緊急停止が押されているあいだは、PC の部品が「かけて」を断る（`CallWithheld`。DESIGN.md 5-5・9-2）：試行は
+- **かけたか分からないとき・通話を進める部品が落ちたときは、おわびの録音を流して切ってもらう**（`abandon`。お客様を無言で放置しない）。
+- 本番の PC の上で緊急停止が押されている・PC の部品がつながっていないあいだは、かけない（`CallWithheld`。DESIGN.md 5-5・9-2）：試行は
   「発信に失敗」（声は届いていない）にし、回線の異常には数えない。かけてよいかの判断（門）は増やさない：発信の出口の物理的な止め
   （ネットが切れているあいだに押した停止を、ネットが戻っても守るため）。
 """
@@ -27,7 +28,7 @@ from salescall.core import attempts
 from salescall.core.access import Access, Actor
 from salescall.link.phone import CallNotPlaced, CallWithheld
 
-__all__ = ["CallNotPlaced", "CallWithheld", "LineDriver", "Outcome", "dial"]
+__all__ = ["CallNotPlaced", "CallWithheld", "LineDriver", "Outcome", "abandon", "dial"]
 
 
 class LineDriver(Protocol):
@@ -38,6 +39,20 @@ class LineDriver(Protocol):
         ...
 
     def start_call(self, phone_e164: str) -> None: ...
+
+    def apologize_and_hang_up(self) -> None:
+        """おわびの録音を流して切る（通話中でなければ、何もしない）。"""
+        ...
+
+
+def abandon(driver: LineDriver) -> None:
+    """サーバーの側の誤りで、通話を続けられない（かけたか分からない・通話を進める部品が落ちた）：お客様を無言で放置しないよう、
+    おわびの録音を流して切ってもらう（**この判断はこの1か所**。PC とのつながりが切れたときは、PC の部品が自分で同じことをする）。
+    頼めなくても止めない（つながりが無ければ、PC の部品の側でおわびして切る）。"""
+    try:
+        driver.apologize_and_hang_up()
+    except Exception:  # noqa: BLE001
+        pass
 
 
 class Outcome(Enum):
@@ -79,5 +94,6 @@ def dial(access: Access, actor: Actor, tenant_id: UUID, client_id: UUID, attempt
         return Outcome.NOT_PLACED
     except BaseException:
         access.in_client(actor, tenant_id, client_id, lambda tx: attempts.move(tx, attempt_id, "technical_error"))
+        abandon(driver)   # かけたか分からない：かかっていれば、AI のいない電話にしない
         raise
     return Outcome.DIALED
