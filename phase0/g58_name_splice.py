@@ -12,7 +12,6 @@ import asyncio
 import json
 import random
 
-import numpy as np
 
 from barge import voice_runs, voiced
 from common import HERE, base_parser, make_client, pick_key, require_python, save_result, say, write_wav
@@ -226,62 +225,22 @@ async def run3(args) -> dict:
 ROUND4_TAIL = "round3/02.wav"   # ◎（2026-10-19 ユーザー）。文＝営業部部長の岡田様はいらっしゃいますでしょうか？
 ROUND4_FORMS = {"確かめる一言": ("", "様で"), "呼ぶ一言": ("営業部部長の", "様は")}
 ROUND4_TAIL_TEXT = "いらっしゃいますでしょうか？"
-MAX_ST, MIN_CLARITY = 3.0, 0.84  # 全体の高さは半音3つ以内（4回目の1回目は2つ以内で、14本ずつ録って4つ中3つ見つからなかった）
-# 継ぎ目の直前の声の高さを、02 の同じ所の高さにそろえる（半音1つ以内）。⛔ 4回目の1回目：全体の高さだけで選んだら、継ぎ目で声が跳んだ
-#   （もとの録音の続き方より 2〜7半音。続く言葉の頭＝02 の「しゃ」は高めの声で始まるので、名前の部分の最後の高さが違うと跳ぶ）
-SEAM_S, MAX_SEAM_ST = 0.35, 1.0
-# 継ぎ目の直前の声の大きさも、02 の同じ所にそろえる（3dB 以内）。⛔ 2026-10-19：2回目の ◎01 の名前の部分は、高さは合ったのに 6.2dB 小さく、
-#   継ぎ目で声の大きさが跳んだ（音は加工しない＝合う録音を選ぶ）。4回目の 01・02（2.4〜2.5dB）は ○・◎ をいただいた
-MAX_SEAM_DB = 3.0
-ODD_GAP_S = 0.08   # 名前の部分の中で、これより長い間は不自然（「様でっ、」＝3回目の 08 は 0.16秒）。呼ぶ一言の「の｜」の所は、もとの声の間なので除く
-
-
-def closure_cut(pcm: bytes, rate: int, times: list[tuple[str, float, float]]) -> int | None:
-    """「いらっしゃいます」の「っし」で、声帯の震えが止まる区間（「シ」の息の音）の真ん中の位置（標本の番号。音の波が0をまたぐ所に合わせる）。
-    言葉ごとの時刻の「っ」に最も近い、声帯の震えの無い区間（voice_features.unvoiced_spans）。⛔ 4回目の1回目：無音を探したら見つからなかった
-    （「っし」は声が止まらず、息の音が長く続く）"""
-    from voice_features import unvoiced_spans
-    tsu = [(a + b) / 2 for t, a, b in times if t == "っ"]
-    if not tsu:
-        return None
-    near = [(abs((a + b) / 2 - tsu[0]), (a + b) / 2) for a, b in unvoiced_spans(pcm, rate) if a - 0.15 <= tsu[0] <= b + 0.15]
-    if not near:
-        return None
-    i = int(min(near)[1] * rate)
-    x = np.frombuffer(pcm, dtype="<i2")
-    lo, hi = max(1, i - int(0.003 * rate)), min(len(x) - 1, i + int(0.003 * rate))
-    cross = [j for j in range(lo, hi) if (x[j - 1] <= 0 < x[j]) or (x[j - 1] >= 0 > x[j])]
-    return min(cross, key=lambda j: abs(j - i)) if cross else i
-
-
-def odd_gaps(pcm: bytes, rate: int, end: int, times, before: str) -> list[float]:
-    """名前の部分（頭から end まで）の中の、不自然な間（ODD_GAP_S より長い）。呼ぶ一言の「の」のあとの間は除く。"""
-    runs = voice_runs(voiced(pcm[:end * 2], rate), 0.01)
-    no_end = next((b for t, a, b in times if t == "の"), None) if before else None
-    out = []
-    for a, b in zip(runs, runs[1:]):
-        g = b[0] - a[1]
-        if g > ODD_GAP_S and not (no_end is not None and abs(a[1] - no_end) <= 0.15):
-            out.append(round(g, 3))
-    return out
+# 名前の部分を選ぶ条件・継ぎ目・組み合わせ方は、名前の録音の台帳の1か所（name_clips）。⛔ 2026-10-19：ここに「っ」の近くで切る形を持っていたが、
+#   「っ」の無い言い方（個人の呼ぶ一言）で使えず、3本で息の音ではない所（かすれた声）で切っていた ⇒ name_clips.seam_cut に一本化
 
 
 async def run4(args) -> dict:
     from common import load_secret
     from ears import soniox_word_times
-    from voice_features import features, loudness_db, read_wav, semitones
+    from name_clips import head_ok, join, measure_head, tail_from
+    from voice_features import read_wav
     client = make_client(pick_key(args))
     key = load_secret("SONIOX_API_KEY", args.env)
     out = OUT / "round4"
     out.mkdir(parents=True, exist_ok=True)
     tail_pcm, tail_rate = read_wav(OUT / ROUND4_TAIL)
-    base = features(tail_pcm, tail_rate)
-    tail_cut = closure_cut(tail_pcm, tail_rate, await soniox_word_times(key, tail_pcm, tail_rate))
-    assert tail_cut is not None, "02 の「っ」の所が見つからない"
-    tail = tail_pcm[tail_cut * 2:]
-    tail_rate_s = tail_cut / tail_rate
-    seam_part = tail_pcm[int((tail_rate_s - SEAM_S) * tail_rate) * 2:tail_cut * 2]
-    seam_base, seam_base_db = features(seam_part, tail_rate)["pitch_hz"], loudness_db(seam_part)
+    tail = tail_from(tail_pcm, tail_rate, await soniox_word_times(key, tail_pcm, tail_rate))
+    assert tail is not None, "02 の継ぎ目が見つからない"
     items, notes = [], []
     for form, (before, mid) in ROUND4_FORMS.items():
         for name in ROUND3_NAMES:
@@ -291,23 +250,15 @@ async def run4(args) -> dict:
                 pcm, rate, row = await good_take(client, args, args.type, "whole", text)
                 pcm = trim(pcm, rate)
                 assert rate == tail_rate, (rate, tail_rate)
-                times = await soniox_word_times(key, pcm, rate)
-                cut = closure_cut(pcm, rate, times)
-                f = features(pcm, rate)
-                st = abs(semitones(f["pitch_hz"], base["pitch_hz"])) if f else 99
-                gaps = odd_gaps(pcm, rate, cut, times, before) if cut else None
-                before_seam = pcm[max(0, cut - int(SEAM_S * rate)) * 2:cut * 2] if cut else b""
-                fs = features(before_seam, rate) if cut else None
-                seam = abs(semitones(fs["pitch_hz"], seam_base)) if fs else 99
-                seam_db = abs(loudness_db(before_seam) - seam_base_db) if cut else 99
-                note = {"text": text, "try": n + 1, "切れ目": cut is not None, "高さの差（半音）": round(st, 2),
-                        "継ぎ目の前の高さの差（半音）": round(seam, 2), "継ぎ目の前の大きさの差（dB）": round(seam_db, 1), "澄み具合": f and round(f["clarity"], 3), "不自然な間": gaps}
+                m = measure_head(pcm, rate, await soniox_word_times(key, pcm, rate), tail, before)
+                note = {"text": text, "try": n + 1, **{k: v for k, v in m.items() if k != "cut"}, "切れ目": m["cut"] is not None}
                 notes.append(note)
                 say(form, name, note)
-                if cut is None or gaps or st > MAX_ST or seam > MAX_SEAM_ST or seam_db > MAX_SEAM_DB or not f or f["clarity"] < MIN_CLARITY:
+                if not head_ok(m):
                     continue
+                seam = m["継ぎ目の前の高さの差（半音）"]
                 if best is None or seam < best[0]:
-                    best = (seam, pcm, rate, cut, row, note)
+                    best = (seam, pcm, rate, m["cut"], row, note)
                 if seam <= 0.5:
                     break
             if best is None:
@@ -316,7 +267,7 @@ async def run4(args) -> dict:
             _, pcm, rate, cut, row, note = best
             items.append({"kind": f"{form}・まるごと", "text": text, "pcm": pcm, "rate": rate, "rows": [row], "note": note})
             items.append({"kind": f"{form}・組み合わせ（続く言葉は 3回目の 02 から）", "text": f"{before}{name}{mid}いらっ｜しゃいますでしょうか？",
-                          "pcm": pcm[:cut * 2] + tail, "rate": rate, "rows": [], "note": note})
+                          "pcm": join(pcm, cut, tail), "rate": rate, "rows": [], "note": note})
     random.Random(args.seed).shuffle(items)
     index = []
     for k, it in enumerate(items, 1):
@@ -325,7 +276,7 @@ async def run4(args) -> dict:
         index.append({"wav": wav, "kind": it["kind"], "text": it["text"], "takes": it["rows"], "note": it["note"]})
     (out / "index.json").write_text(json.dumps(index, ensure_ascii=False, indent=2), encoding="utf-8")
     say("作った：", ", ".join(x["wav"] for x in index))
-    return {"model": args.model, "type": args.type, "round": 4, "base": base, "items": [{k: v for k, v in x.items() if k != "takes"} for x in index],
+    return {"model": args.model, "type": args.type, "round": 4, "items": [{k: v for k, v in x.items() if k != "takes"} for x in index],
             "takes": index, "tries": notes}
 
 

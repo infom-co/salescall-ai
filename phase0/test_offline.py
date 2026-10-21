@@ -1031,6 +1031,37 @@ class FormCheckTest(unittest.TestCase):
         self.do(f, "confirm_field", question_id="Q2", result="affirmed")
         self.assertEqual((f.items["Q2"].state, f.items["Q2"].value), ("confirmed", "15日の午後2時"))
 
+    def test_kana_number_rule(self):
+        # 決まった数がかなで書かれた語（辞書が数と読み、もとの字が漢数字かゼロ）だけを、書き違いとする（日時・数・金額の型だけ）
+        from flowctl import kana_number
+        for t, v, bad in [("time", "夕方のご時頃", "ご"), ("datetime", "じゅうごにちの午後2時", "じゅう"), ("time", "よ時半", "よ"), ("number", "はち人", "はち")]:
+            self.assertEqual(kana_number(t, v), bad, v)
+        for t, v in [("time", "夕方の5時頃"), ("datetime", "十五日の午後二時"), ("time", "何時でも"), ("number", "いくつか"), ("number", "ご人数3名"),
+                     ("number", "ひとり"), ("number", "さんにん"), ("datetime", "一番早い日"), ("time", "その時"), ("datetime", "いつでも大丈夫"),
+                     ("name", "ご時"), ("yes_no", "はい")]:
+            self.assertIsNone(kana_number(t, v), v)
+
+    def test_kana_number_is_sent_back_to_the_ai_without_asking_again(self):
+        """⛔ 2026-10-19 G-62：AIは声では「夕方の5時頃」と言ったのに、報告の値は「夕方のご時頃」で確認済みになった。✅ 同日ユーザー：「『ご時』なんて、
+        漢字の組み合わせの日本語ないでしょ！『ご時』と表示されてる時点でおかしいと判断しないと」⇒ AIの書き間違いなので、お客様に聞き返さずに、
+        AIへ差し戻して書き直させる（記録も言い直しもしない）。言い直しへの返事の訂正の値も同じ。"""
+        f = self.flow()
+        self.do(f, "record_answer", question_id="Q1", condition_id="はい")
+        r = self.do(f, "record_answer", question_id="Q2", condition_id="答えた", value="夕方のご時頃")
+        self.assertEqual(r["result"], "rejected")
+        self.assertIn("「ご」は、数がかなで書かれていて", r["message"])
+        self.assertNotIn("say", r)                                                     # お客様には何も言わない
+        self.assertEqual((f.items["Q2"].state, f.items["Q2"].value, f.items["Q2"].ask_backs), ("empty", None, 0))
+        r = f.apply("record_answer", {"question_id": "Q2", "condition_id": "答えた", "value": "夕方の5時頃"})
+        self.assertEqual(r["result"], "confirm_required")
+        r = self.do(f, "confirm_field", question_id="Q2", result="corrected", correction="夕方のろく時頃")
+        self.assertEqual(r["result"], "rejected")
+        self.assertIn("「ろく」", r["message"])
+        self.assertIsNotNone(f.awaiting_confirm)                                       # 言い直しの返事待ちのまま
+        r = f.apply("confirm_field", {"question_id": "Q2", "result": "corrected", "correction": "夕方の6時頃"})
+        self.assertEqual(r["result"], "confirm_required")
+        self.assertIn("6時", r["say"])
+
     def test_any_time_is_a_good_answer(self):
         """「いつでも」「なるべく早く」は「即」＝こちら次第。日時よりよい答え。「-」はありえない（✅ 2026-10-14 ユーザー）。"""
         f = self.flow()
@@ -4093,6 +4124,29 @@ class VoiceFeaturesTest(unittest.TestCase):
         self.assertAlmostEqual(spans[0][0], 0.4, delta=0.04)
         self.assertAlmostEqual(spans[0][1], 0.55, delta=0.04)
 
+    def test_seam_is_in_the_breath_after_the_particle(self):
+        # 名前の録音の継ぎ目（name_clips.seam_cut）：「様」の次の言葉（で）より後ろの、最初の息の音（音の重心が高い＝「し」の息）。
+        # その前の、かすれた声のような低い音（⛔ 2026-10-19：「様は｜いら」の間で、音の重心 1,400〜2,600Hz）は継ぎ目にしない
+        import numpy as np
+        from name_clips import join, seam_cut
+        rate, rng = 24000, np.random.default_rng(1)
+
+        def tone(s):
+            t = np.arange(int(s * rate)) / rate
+            return 0.5 * np.sin(2 * np.pi * 150 * t)
+
+        def noise(s, high):
+            x = rng.standard_normal(int(s * rate))
+            return 0.2 * (np.diff(x, prepend=0) if high else np.convolve(x, np.ones(12) / 12, "same"))
+        pcm = self.pcm(np.concatenate([tone(0.6), noise(0.08, False), tone(0.25), noise(0.12, True), tone(0.4)]))
+        times = [("岡田", 0.0, 0.3), ("様", 0.3, 0.45), ("で", 0.45, 0.6), ("いら", 0.68, 0.93), ("っし", 0.93, 1.05), ("ゃいます", 1.05, 1.45)]
+        cut = seam_cut(pcm, rate, times)
+        self.assertIsNotNone(cut)
+        self.assertTrue(0.93 <= cut / rate <= 1.05, cut / rate)
+        self.assertIsNone(seam_cut(pcm, rate, [("岡田", 0.0, 0.3), ("さん", 0.3, 0.6)]))   # 「様」の無い文には継ぎ目が無い
+        tail = {"pcm": pcm[cut * 2:]}
+        self.assertEqual(join(pcm, cut, tail), pcm)                                    # 組み合わせは、そのまま並べるだけ
+
     def test_loudness_difference_in_db(self):
         # 同じ音の振幅が半分なら、約6dB 小さい（継ぎ目の前の大きさの差＝g58_name_splice.MAX_SEAM_DB で比べる）
         import numpy as np
@@ -4345,12 +4399,28 @@ class TargetTest(unittest.TestCase):
         self.assertEqual(r["result"], "noted")
 
     def test_unnamed_new_person_is_asked_once(self):
-        # 代わった方が名乗らなかった：「「おかだ」様でいらっしゃいますでしょうか？」と1回だけ聞く（AIが言う）。認めたら、全部流して質問へ
-        f, b = self.flow()
-        r = self.say(f, "はい、お電話代わりました。", "replay_opening", part="handover")
+        # 代わった方が名乗らなかった：「「おかだ」様でいらっしゃいますでしょうか？」と1回だけ聞く。認めたら、全部流して質問へ。
+        # 録音で流す通話では録音（呼ぶ一言と同じ。⛔ 2026-10-19 G-62：AIに言わせると名前を言い崩した）。AIが話す通話では、同じ文をAIが言う
+        from flowctl import HANDOVER
+        g, _ = self.flow(recorded=False)
+        g.use_checks("judge")
+        self.heard(g, "はい、お電話代わりました。", HANDOVER)
+        r = g.apply("report_party", {"party": "target"})
         self.assertEqual((r["result"], r["say"]), ("confirm_target", "「おかだ」様でいらっしゃいますでしょうか？"))
         self.assertNotIn("play", r)
-        r = self.say(f, "はい、そうです。", "report_party", party="target")
+        f, b = self.flow()
+        r = self.say(f, "はい、お電話代わりました。", "replay_opening", part="handover")
+        self.assertEqual((r["result"], [(p["part"], p["text"]) for p in r["play"]]),
+                         ("confirm_target", [("target_confirm", "「おかだ」様でいらっしゃいますでしょうか？")]))
+        self.assertNotIn("say", r)
+        self.assertIn("何も言わずに", r["message"])
+        # 確かめへの返事を、最初の質問の答えとして報告されたら：確かめへの返事を待っていることを伝えて差し戻す
+        # ⛔ 2026-10-19 G-57（目的の人_本人）：差し戻しが「お取り次ぎいただくのを待っています」のままで、AIは答えの報告を続けた
+        r = self.say(f, "はい、そうです。", "record_answer", question_id="Q1", condition_id="はい", value="はい")
+        self.assertEqual(r["result"], "rejected")
+        self.assertIn("「「おかだ」様でいらっしゃいますでしょうか？」と聞いて、返事を待っています", r["message"])
+        self.assertIn("record_answer では報告しません", r["message"])
+        r = f.apply("report_party", {"party": "target"})
         self.assertEqual([p.get("part", p["kind"]) for p in r["play"]], ["greeting", "intro", "purpose", "question"])
 
     def test_absent_target_goes_to_callback(self):
@@ -4457,7 +4527,7 @@ class TargetTest(unittest.TestCase):
             f, b = self.checked()
             self.heard(f, "はい、お電話代わりました。", judged)
             r = f.apply("report_party", {"party": "target"})
-            self.assertEqual((r["result"], r["say"]), ("confirm_target", b.target.confirm()), judged)
+            self.assertEqual((r["result"], [p["text"] for p in r.get("play") or []] or [r.get("say")]), ("confirm_target", [b.target.confirm()]), judged)
             f.on_callee()
             self.assertEqual(f.judge_context()[1], b.target.confirm())          # 確かめた言い方を添えて判定する
             f.on_heard("はい、そうです。"); f.on_check("judge", TARGET_IS_THERE)
