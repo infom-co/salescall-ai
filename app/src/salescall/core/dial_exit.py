@@ -12,9 +12,9 @@
   知っているのは回線の部品だけなので、かける直前に必ず聞く＝決まりはこの1か所）。
 - 結果は `Outcome`（かけた・予約証が使えない・回線が通話中・かけられなかった）。かけたときだけ真。回線ごとの処理は、回線が通話中・
   かけられなかったときは、その回線を休ませる（かけられなかったことは回線の異常として数える＝続けば回線を止める）。
-- 本番のPCの緊急停止の印（core/emergency.py）が効いているあいだは、かけない（予約を戻す）。かけてよいかの判断（門）は増やさない：
-  発信の出口の物理的な止め（ネットが切れているあいだに押した停止を、ネットが戻っても守るため）。印が効いているかは
-  `emergency.engaged` の1か所が、発信中にする同じ取引の中で決める（画面から解かれた停止の印は、そこで消える）。
+- 本番の PC の上で緊急停止が押されているあいだは、PC の部品が「かけて」を断る（`CallWithheld`。DESIGN.md 5-5・9-2）：試行は
+  「発信に失敗」（声は届いていない）にし、回線の異常には数えない。かけてよいかの判断（門）は増やさない：発信の出口の物理的な止め
+  （ネットが切れているあいだに押した停止を、ネットが戻っても守るため）。
 """
 
 from __future__ import annotations
@@ -23,16 +23,15 @@ from enum import Enum
 from typing import Protocol
 from uuid import UUID
 
-from salescall.core import attempts, emergency
+from salescall.core import attempts
 from salescall.core.access import Access, Actor
+from salescall.link.phone import CallNotPlaced, CallWithheld
 
-
-class CallNotPlaced(Exception):
-    """回線の部品が、電話をかけていないと確かに言える失敗（例：アプリが番号を受け付けなかった）。"""
+__all__ = ["CallNotPlaced", "CallWithheld", "LineDriver", "Outcome", "dial"]
 
 
 class LineDriver(Protocol):
-    """回線の部品（電話接続。担当はまだ振られていない）が持つ形。"""
+    """回線の部品の形（中央の見守り役では、PC の部品へ頼む形＝supervisor.channel。PC の側の電話の部品は salescall.link.phone）。"""
 
     def in_call(self) -> bool:
         """回線（スマホ）が、いま通話の途中か（呼び出し中を含む）。分からなければ True を返す（かけない側に倒す）。"""
@@ -44,7 +43,7 @@ class LineDriver(Protocol):
 class Outcome(Enum):
     """発信の出口の結果。かけたときだけ真。"""
     DIALED = "dialed"               # かけた
-    UNUSABLE = "unusable"           # 予約証が使えない（期限切れ・取り消し済み）・緊急停止：かけていない
+    UNUSABLE = "unusable"           # 予約証が使えない（期限切れ・取り消し済み）・PC の緊急停止：かけていない
     LINE_IN_CALL = "line_in_call"   # 回線がまだ前の通話の途中：かけずに予約を戻した
     NOT_PLACED = "not_placed"       # 回線の部品がかけられなかった（CallNotPlaced）：試行は「発信に失敗」
 
@@ -63,9 +62,6 @@ def dial(access: Access, actor: Actor, tenant_id: UUID, client_id: UUID, attempt
         return Outcome.LINE_IN_CALL
 
     def begin(tx):
-        if emergency.engaged(tx) is not None:   # 本番のPCの緊急停止：かけずに予約を戻す（発信中にする直前に見る）
-            attempts.release(tx, [attempt_id])
-            return None
         if not attempts.start_dialing(tx, attempt_id):
             return None
         return tx.one("SELECT phone_e164 FROM salescall.attempts WHERE attempt_id = %s", (attempt_id,))["phone_e164"]
@@ -73,11 +69,11 @@ def dial(access: Access, actor: Actor, tenant_id: UUID, client_id: UUID, attempt
     phone = access.in_client(actor, tenant_id, client_id, begin)
     if phone is None:
         return Outcome.UNUSABLE
-    if emergency.engaged() is not None:   # 発信中にした取引のあいだに押された緊急停止：回線に渡す直前にもう一度見る（かけていない）
-        access.in_client(actor, tenant_id, client_id, lambda tx: attempts.move(tx, attempt_id, "call_failed"))
-        return Outcome.UNUSABLE
     try:
         driver.start_call(phone)
+    except CallWithheld:   # PC の上で緊急停止が押されている：かけていない（回線の異常ではない）
+        access.in_client(actor, tenant_id, client_id, lambda tx: attempts.move(tx, attempt_id, "call_failed"))
+        return Outcome.UNUSABLE
     except CallNotPlaced:
         access.in_client(actor, tenant_id, client_id, lambda tx: attempts.move(tx, attempt_id, "call_failed"))
         return Outcome.NOT_PLACED

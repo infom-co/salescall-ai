@@ -1,4 +1,5 @@
-"""見守り役の試験（DESIGN.md 5-4。supervisor/・core/leases.py・core/scheduler.py・表の作り 0063）。"""
+"""中央の見守り役の試験（DESIGN.md 5-4・5-5。supervisor/・core/leases.py・core/scheduler.py・表の作り 0063）。PC の部品とのつなぎは
+tests/test_link.py。"""
 
 from __future__ import annotations
 
@@ -17,6 +18,7 @@ from salescall.core.phone import normalize
 from salescall.core.access import Rejected
 from salescall.supervisor import config, jobs, line, updates
 from salescall.supervisor import main as main_mod
+from salescall.supervisor.links import Attached, NoLinks
 from salescall.supervisor.main import Supervisor
 from tests import support
 from tests.support import ADMIN, CLEAN, OPERATOR, SYSTEM, fictional_jp_fixed, rules_raw
@@ -44,20 +46,33 @@ class Runner:
         access.in_client(actor, tenant_id, client_id, work)
 
 
-def make_driver(line_id):
-    return FakeDriver()
-
-
-def make_runner(line_id):
+def make_runner(line_id, driver):
     return Runner()
 
 
+class FakeLinks(NoLinks):
+    """PC の部品のつなぎの代わり（どの回線が、どの契約者のどの PC につながっているか）。"""
+
+    def __init__(self, attached=None):
+        self.attached = dict(attached or {})
+
+    def lines(self):
+        return dict(self.attached)
+
+    def driver(self, line_id, pc_id):
+        return FakeDriver()
+
+
 class SupervisorBase(Base):
-    def cfg(self, s, **more):
-        values = {"SALESCALL_DSN": self.w.a._conninfo, "SALESCALL_TENANT_ID": str(s["tenant"]),
-                  "SALESCALL_LINES": str(s["line"]), "SALESCALL_LINE_DRIVER": "tests.test_supervisor:make_driver",
-                  "SALESCALL_CALL_RUNNER": "tests.test_supervisor:make_runner", **more}
+    def cfg(self, s=None, **more):
+        values = {"SALESCALL_DSN": self.w.a._conninfo, "SALESCALL_CALL_RUNNER": "tests.test_supervisor:make_runner", **more}
         return config.load(values)
+
+    def links(self, *xs, pc=None):
+        return FakeLinks({x["line"]: Attached(x["tenant"], pc or uuid.UUID(int=1)) for x in xs})
+
+    def ctx(self, s, links=None):
+        return jobs.Context(self.w.a, self.cfg(s), HOLDER, links or NoLinks(), s["tenant"])
 
     def take(self, s, holder=HOLDER, line_id=None):
         return self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: leases.take_line(tx, line_id or s["line"], holder))
@@ -89,8 +104,9 @@ class Leases(SupervisorBase):
         self.assertEqual([take("A"), take("B"), take("A")], [True, False, True])
         self.w.a.in_system(SYSTEM, lambda tx: leases.return_job(tx, key, "A"))
         self.assertTrue(take("B"))
-        with self.assertRaises(Rejected):
-            self.w.a.in_tenant(OPERATOR, self.w.tenant(), lambda tx: leases.take_job(tx, key, "C", 60))
+        for step in (lambda tx: leases.take_job(tx, key, "C", 60), lambda tx: leases.return_job(tx, key, "B")):
+            with self.assertRaises(Rejected):                                  # 契約者・管理者は、借りる・返すをできない
+                self.w.a.in_tenant(OPERATOR, self.w.tenant(), step)
 
 
 class Recovery(SupervisorBase):
@@ -114,25 +130,17 @@ class Recovery(SupervisorBase):
         self.assertEqual(self.state(s, c.attempt_id), "released")
 
 
-    def test_the_periodic_cleanup_leaves_its_own_lines_and_the_admin_pc_cleans_stale_ones(self):
+    def test_the_periodic_cleanup_leaves_its_own_lines_and_cleans_those_of_a_former_hub(self):
         """決まった間隔の後始末は、自分が借りている回線を、期限が切れていても終わらせない（データベースに届かないあいだに期限が
-        切れても、まだ話している自分の通話を結果不明にしない）。契約者の PC が落ちたまま戻らない回線は、管理者の PC が後始末する
-        （ふつうの通話の長さより十分長く期限が切れたままのものだけ）。"""
+        切れても、まだ話している自分の通話を結果不明にしない）。前に動いていた中央の見守り役（名前が違う）の回線は、期限が切れたら
+        後始末する（回線を借りるのは中央の見守り役だけ＝5-5。前の「落ちたままの PC の回線の後始末」は要らなくなった）。"""
         s = self.ready()
         c = self.claim(s)
         self.lease(s, seconds=-1)                                              # 自分の借用の期限が切れた（データベースに届かなかった）
-        jobs.recover_expired(jobs.Context(self.w.a, self.cfg(s), HOLDER))
+        jobs.recover_expired(self.ctx(s))
         self.assertEqual(self.state(s, c.attempt_id), "claimed")
-        admin = jobs.Context(self.w.a, self.cfg(s, SALESCALL_SYSTEM_JOBS="1"), "管理者のPC#y")
-        jobs.recover_stale(admin)
-        self.assertEqual(self.state(s, c.attempt_id), "claimed")               # 切れてすぐは、その契約者の PC に任せる
-        self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: tx.execute(
-            "UPDATE salescall.lines SET lease_expires_at = now() - %s - interval '1 minute' WHERE line_id = %s",
-            (jobs.STALE_AFTER, s["line"])))
-        jobs.recover_stale(admin)
+        jobs.recover_expired(jobs.Context(self.w.a, self.cfg(s), "新しい中央の見守り役#z", NoLinks(), s["tenant"]))
         self.assertEqual(self.state(s, c.attempt_id), "released")
-        with self.assertRaises(Rejected):                                      # 契約者の取引からは、ほかの契約者を探せない
-            self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: leases.tenants_with_stale_lines(tx, jobs.STALE_AFTER))
 
 
 class Candidates(SupervisorBase):
@@ -156,10 +164,6 @@ class Candidates(SupervisorBase):
 
 
 class Rounds(SupervisorBase):
-    def ctx(self, s):
-        cfg = self.cfg(s)
-        return jobs.Context(self.w.a, cfg, HOLDER)
-
     def test_a_round_calls_one_row_and_the_settle_job_settles_it(self):
         s = self.ready()
         got = line.one_round(self.w.a, SYSTEM, s["tenant"], s["line"], HOLDER, FakeDriver(), Runner())
@@ -383,33 +387,50 @@ class Rounds(SupervisorBase):
         bad = jobs.Job(f"試験の壊れた仕事{uuid.uuid4().hex[:6]}", 60, "tenant", 60, lambda c: 1 / 0)
         self.assertTrue(jobs.run_job(ctx, bad))
         self.assertTrue(self.asked_supervisor(s))
-        self.assertTrue(self.w.a.in_system(SYSTEM, lambda tx: leases.take_job(tx, bad.key(ctx.cfg), "ほかのPC#x", 60)))
+        self.assertTrue(self.w.a.in_system(SYSTEM, lambda tx: leases.take_job(tx, bad.key(ctx.tenant_id), "ほかのPC#x", 60)))
 
 
-class FakeProcess:
-    def __init__(self):
-        self.alive, self.exitcode = True, None
+class FakeThread:
+    """回線ごとの流れの代わり：止める印が立てば止まる（died＝思いがけず止まった）。"""
+
+    def __init__(self, stop):
+        self.stop, self.died = stop, False
 
     def is_alive(self):
-        return self.alive
+        return not (self.died or self.stop.is_set())
 
     def join(self, timeout=None):
         pass
 
 
 class Main(SupervisorBase):
-    def test_a_dead_line_process_is_cleaned_up_and_started_again(self):
-        s = self.ready()
+    def starter(self):
         started = []
-        def start(cfg, line_id, holder):
-            started.append(FakeProcess())
-            return started[-1], threading.Event()
-        sup = Supervisor(self.cfg(s), start_worker=start, holder=HOLDER)
+
+        def start(cfg, access, at, line_id, holder, links):
+            started.append((line_id, at.pc_id, FakeThread(threading.Event())))
+            return started[-1][2], started[-1][2].stop
+        return started, start
+
+    def supervisor(self, s, links=None, **kw):
+        """試験の契約者だけを見る中央の見守り役（試験のデータベースのほかの契約者の仕事をしない）。"""
+        sup = Supervisor(self.cfg(s), links if links is not None else self.links(s), holder=HOLDER, **kw)
+        sup._load_tenants = lambda: setattr(sup, "tenants", [s["tenant"]])
+        return sup
+
+    def holder_of(self, s):
+        return self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: tx.one(
+            "SELECT lease_holder FROM salescall.lines WHERE line_id = %s", (s["line"],)))["lease_holder"]
+
+    def test_a_line_flow_that_stops_is_cleaned_up_and_started_again(self):
+        s = self.ready()
+        started, start = self.starter()
+        sup = self.supervisor(s, start_worker=start)
         sup.start()
-        self.assertEqual((len(started), sup.leased), (1, {s["line"]}))
+        self.assertEqual((len(started), sup.leased), (1, {s["line"]: s["tenant"]}))
         c = self.claim(s)
         line.dial_exit.dial(self.w.a, SYSTEM, s["tenant"], s["client"], c.attempt_id, FakeDriver())
-        started[0].alive, started[0].exitcode = False, 1                        # 回線ごとの処理が落ちた
+        started[0][2].died = True                                              # 回線ごとの流れが思いがけず止まった
         sup.watch_workers(0.0)
         self.assertEqual(self.state(s, c.attempt_id), "technical_error")        # その回線の通話を後始末
         self.assertTrue(self.asked_supervisor(s))
@@ -417,63 +438,72 @@ class Main(SupervisorBase):
         self.assertEqual(len(started), 1)                                       # すぐには立ち上げ直さない
         sup.watch_workers(1000.0)
         self.assertEqual(len(started), 2)                                       # 間をあけて立ち上げ直す
-        self.lease(s, holder="ほかのPC#x")                                     # 回線をほかに取られた（期限切れのあと）
+        self.lease(s, holder="ほかの見守り役#x")                               # 回線をほかに取られた（期限切れのあと）
         sup.renew(2000.0)
-        self.assertEqual(sup.leased, set())
-        self.assertNotIn(s["line"], sup.workers)                                # その回線の処理は止める
+        self.assertEqual((sup.leased, started[1][2].stop.is_set()), ({}, True))  # その回線の流れは止める
+        sup.watch_workers(2001.0)
+        self.assertNotIn(s["line"], sup.workers)
+        self.assertEqual(self.holder_of(s), "ほかの見守り役#x")                  # ほかの見守り役の回線は返さない
+        sup.shutdown(0)
+
+    def test_a_line_the_pc_lets_go_is_returned_and_a_line_moved_to_another_pc_starts_there_after_the_old_flow_ends(self):
+        """PC がつながりを切った回線は、流れを止め、止まってから後始末して返す（通話の途中では返さない）。同じ回線を別の PC が
+        つなぎ直したら、前の流れが止まってから、新しい PC で始める（同じスマホで二重にかけない）。"""
+        s = self.ready()
+        started, start = self.starter()
+        links = self.links(s)
+        sup = self.supervisor(s, links, start_worker=start)
+        sup.start()
+        first = started[0][2]
+        links.attached[s["line"]] = Attached(s["tenant"], uuid.UUID(int=2))     # 別の PC がつなぎ直した
+        first.stop.set = lambda: None                                           # 前の流れは、まだ通話の途中（止まらない）
+        sup.renew(10.0)
+        self.assertEqual(len(started), 1)                                       # 前の流れが止まるまで始めない
+        sup.watch_workers(11.0)
+        sup.renew(12.0)
+        self.assertEqual(len(started), 1)
+        first.died = True                                                       # 前の流れが止まった
+        sup.watch_workers(13.0)
+        sup.renew(14.0)
+        self.assertEqual((len(started), started[1][1]), (2, uuid.UUID(int=2)))  # 新しい PC で始めた
+        c = self.claim(s)
+        links.attached.clear()                                                  # PC がつながりを切った
+        started[1][2].stop.set = lambda: None                                   # まだ通話の途中
+        sup.renew(20.0)
+        sup.watch_workers(21.0)
+        self.assertEqual((self.state(s, c.attempt_id), self.holder_of(s)), ("claimed", HOLDER))   # 通話の途中は返さない
+        started[1][2].died = True
+        sup.watch_workers(22.0)
+        self.assertEqual((self.state(s, c.attempt_id), self.holder_of(s), sup.leased, sup.workers),
+                         ("released", None, {}, {}))                            # 止まってから後始末して返す
         sup.shutdown(0)
 
     def test_the_supervisor_keeps_going_when_the_database_is_unreachable(self):
-        """データベースに届かない・回線ごとの処理を立ち上げられない、のどれでも本体は止まらない（次の回にまた試す。続けば間を延ばす）。"""
+        """データベースに届かない・回線ごとの流れを立ち上げられない、のどれでも本体は止まらない（次の回にまた試す。続けば間を延ばす）。"""
         s = self.ready()
         class Unreachable:
             def __getattr__(self, name):
                 def fail(*a, **k):
                     raise ConnectionError("試験：データベースに届かない")
                 return fail
-        sup = Supervisor(self.cfg(s), start_worker=lambda *a: (_ for _ in ()).throw(OSError("試験")), holder=HOLDER)
+        sup = self.supervisor(s, start_worker=lambda *a: (_ for _ in ()).throw(OSError("試験")))
         real, sup.access = sup.access, Unreachable()
         sup.tick(0.0)                                                          # 止まらない
         self.assertEqual(sup._next_renew, main_mod.RENEW_FALLBACK)
         sup.access = real
         sup.tick(100.0)                                                        # 届いた：借りられたが、立ち上げられない
         w = sup.workers[s["line"]]
-        self.assertEqual((w.process, w.fails, w.restart_at), (None, 1, 100.0 + main_mod.RESTART_FIRST))
+        self.assertEqual((w.thread, w.fails, w.restart_at), (None, 1, 100.0 + main_mod.RESTART_FIRST))
         sup.tick(101.0)                                                        # 間をあけるまでは試さない
         self.assertEqual(sup.workers[s["line"]].fails, 1)
         sup.shutdown(0)
 
-    def test_a_refused_key_reaches_the_login_again_from_every_step(self):
-        """PC の鍵が止められた（データベースが断った）：どの段で受けても、本体を止めてログインし直す所（__main__）まで届く。
-        ⚠️ 前は各段が「どの誤りでも止めない」ためにふつうの誤りとして受け止め、ログインし直さず、かけないまま回り続けた
-        （2026-10-19 の見直し）。後始末（shutdown）は、断られても止まらずに終わる。"""
-        from salescall.core.access import LoginRefused
+    def test_a_server_program_out_of_step_with_the_database_makes_no_new_calls_and_does_no_jobs(self):
+        """サーバーのプログラムとデータベースの版がずれていれば、回線ごとの流れを止め（いまの通話は最後まで）、立ち上げず、決まった
+        間隔の仕事もしない。ずれは CL-2 へ。版が合ったら、またかける。"""
         s = self.ready()
-        sup = Supervisor(self.cfg(s), start_worker=lambda *a: (FakeProcess(), threading.Event()), holder=HOLDER)
-        sup.start()
-        real = sup.access
-        class Refusing:
-            def __getattr__(self, name):
-                def refuse(*a, **k):
-                    raise LoginRefused("試験：この PC の鍵は止められています")
-                return refuse
-        sup.access = Refusing()
-        for step in (sup.check_version, lambda: sup.renew(1.0), lambda: sup._launch(s["line"], fails=0, now=1.0),
-                     lambda: sup.tick(10_000.0)):
-            with self.subTest(step=step), self.assertRaises(LoginRefused):
-                step()
-        sup.shutdown(0)                                                          # 断られても、後始末は止まらずに終わる
-        sup.access = real
-
-    def test_a_program_out_of_step_with_the_database_makes_no_new_calls_and_asks_for_an_update(self):
-        """プログラムとデータベースの版がずれていれば、回線ごとの処理を止め（いまの通話は最後まで）、立ち上げない。プログラムが古ければ
-        契約者へ「更新」の知らせ（自動か手動かで文が違う）。版が合ったら、またかける。"""
-        s = self.ready()
-        started = []
-        def start(cfg, line_id, holder):
-            started.append(FakeProcess())
-            return started[-1], threading.Event()
-        sup = Supervisor(self.cfg(s), start_worker=start, holder=HOLDER)
+        started, start = self.starter()
+        sup = self.supervisor(s, start_worker=start)
         sup.start()
         self.assertEqual(len(started), 1)
         real = updates.PROGRAM
@@ -481,32 +511,23 @@ class Main(SupervisorBase):
         try:
             sup.check_version()
             sup.renew(100.0)
-            self.assertEqual((sup.version_gap, s["line"] in sup.workers, sup.leased), (updates.PROGRAM_OLD, False, {s["line"]}))
+            self.assertEqual((sup.version_gap, started[0][2].stop.is_set(), sup.leased),
+                             (updates.PROGRAM_OLD, True, {s["line"]: s["tenant"]}))
             sup.watch_workers(10_000.0)
-            self.assertEqual(len(started), 1)                                     # 立ち上げない
+            self.assertEqual((len(started), s["line"] in sup.workers), (1, False))   # 立ち上げない
             sup._running.clear()
             sup.run_jobs(10_000.0)
             self.assertEqual(sup._running, {})                                    # 決まった間隔の仕事もしない
-            c = self.claim(s)                                                     # 止めた処理が残した試行（落ちた）は、後始末する
+            c = self.claim(s)                                                     # 止めた流れが残した試行（落ちた）は、後始末する
             sup.renew(300.0)
             self.assertEqual(self.state(s, c.attempt_id), "released")
-            notes = self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: tx.all(
-                "SELECT summary FROM salescall.notification_events WHERE kind = 'program_update'"))
-            self.assertEqual(len(notes), 1)
-            self.assertIn("プログラムを更新してください", notes[0]["summary"])     # 入れ替えの部品が無い PC：自動とは言わない
-            admin = self.w.a.in_system(ADMIN, lambda tx: tx.all(
-                "SELECT 1 FROM salescall.notification_events WHERE kind = 'program_update' AND origin_tenant = %s", (s["tenant"],)))
-            self.assertEqual(len(admin), 1)                                       # 管理者にも写し
-            t = self.ready()                                                      # 入れ替えの部品があり、自動の契約者
-            self.assertEqual(self.w.a.in_tenant(SYSTEM, t["tenant"], lambda tx: updates.check(tx, t["tenant"], can_replace=True)),
-                             updates.PROGRAM_OLD)
-            auto = self.w.a.in_tenant(OPERATOR, t["tenant"], lambda tx: tx.one(
-                "SELECT summary FROM salescall.notification_events WHERE kind = 'program_update'"))["summary"]
-            self.assertIn("自動で入れ替えます", auto)
+            logged = self.w.a.in_system(SYSTEM, lambda tx: tx.all(
+                "SELECT 1 FROM salescall.error_events WHERE source = 'supervisor' AND message = '版のずれ：RuntimeError'"))
+            self.assertTrue(logged)                                               # ずれは「見守り役の誤り」＝CL-2 へ修正依頼
         finally:
             updates.PROGRAM = real
         sup.check_version()
-        sup.renew(200.0)                                                          # 版が合った：またかける
+        sup.renew(400.0)                                                          # 版が合った：またかける
         self.assertEqual((sup.version_gap, len(started)), (updates.SAME, 2))
         sup.shutdown(0)
         program = ("0080_b.sql", "f" * 64)
@@ -517,10 +538,8 @@ class Main(SupervisorBase):
         self.assertEqual(updates.gap(("0080_b.sql", "f" * 64), None), updates.UNKNOWN)   # 表の作りのファイルが無い＝分からない
         live = self.w.a.in_tenant(SYSTEM, s["tenant"], updates.current)
         self.assertEqual(live, updates.SAME)                                     # プログラムとデータベースの指紋は同じ決まり
-        # Windows の PC で行の終わりが CRLF で取り出されても、指紋は同じ（⚠️ 前は「途中が違う」と読み、かけなくなった）
+        # Windows で行の終わりが CRLF で取り出されても、指紋は同じ（⚠️ 前は「途中が違う」と読み、かけなくなった）
         import shutil
-        import tempfile
-        from pathlib import Path
         from salescall.core import migrate
         crlf = Path(tempfile.mkdtemp(prefix="salescall-test-crlf-"))
         try:
@@ -530,10 +549,31 @@ class Main(SupervisorBase):
         finally:
             shutil.rmtree(crlf)
 
-    def test_the_supervisor_calls_through_a_separate_line_process_and_returns_the_line(self):
-        """本物の立ち上げ方（回線ごとに別の処理）で1本かけ、決まった間隔の仕事が締め、止めると回線を返す。"""
+    def test_an_old_pc_program_is_told_to_update_once_a_day_per_pc(self):
+        """PC の部品のプログラムが古い：その契約者と管理者へ知らせる（自動で入れ替える部品があり、設定が自動なら「自動で入れ替えます」。
+        無ければ「更新してください」）。同じ PC は1日1回。"""
+        s, t = self.ready(), self.ready()
+        pc = uuid.uuid4()
+        for _ in range(2):
+            self.assertFalse(self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: updates.pc_out_of_date(tx, s["tenant"], pc,
+                                                                                                     can_replace=False)))
+        notes = self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: tx.all(
+            "SELECT summary FROM salescall.notification_events WHERE kind = 'program_update'"))
+        self.assertEqual(len(notes), 1)
+        self.assertIn("プログラムを更新してください", notes[0]["summary"])
+        admin = self.w.a.in_system(ADMIN, lambda tx: tx.all(
+            "SELECT 1 FROM salescall.notification_events WHERE kind = 'program_update' AND origin_tenant = %s", (s["tenant"],)))
+        self.assertEqual(len(admin), 1)                                           # 管理者にも写し
+        self.assertTrue(self.w.a.in_tenant(SYSTEM, t["tenant"], lambda tx: updates.pc_out_of_date(tx, t["tenant"], pc,
+                                                                                                can_replace=True)))
+        auto = self.w.a.in_tenant(OPERATOR, t["tenant"], lambda tx: tx.one(
+            "SELECT summary FROM salescall.notification_events WHERE kind = 'program_update'"))["summary"]
+        self.assertIn("自動で入れ替えます", auto)
+
+    def test_the_supervisor_calls_through_a_line_flow_and_returns_the_line(self):
+        """本物の立ち上げ方（回線ごとに別の流れ）で1本かけ、決まった間隔の仕事が締め、止めると回線を返す。"""
         s = self.ready()
-        sup = Supervisor(self.cfg(s), holder=HOLDER)
+        sup = self.supervisor(s)
         sup.start()
         done = None
         deadline = time.monotonic() + 60
@@ -544,51 +584,46 @@ class Main(SupervisorBase):
                                                 (s["task"],)))
         sup.shutdown(30)
         self.assertEqual(done and done["business_state"], "completed")
-        held = self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: tx.one(
-            "SELECT lease_holder FROM salescall.lines WHERE line_id = %s", (s["line"],)))["lease_holder"]
-        self.assertIsNone(held)                                                 # 止めたら回線を返す
+        self.assertIsNone(self.holder_of(s))                                     # 止めたら回線を返す
 
-    def test_a_line_still_in_a_call_from_before_is_left_alone(self):
-        """本体が落ちて立ち上げ直したとき、前の回線ごとの処理がまだ通話の途中なら、その回線は後始末も立ち上げ直しもしない。"""
-        from salescall.supervisor.locks import SingleInstance, line_lock
-        s = self.ready()
-        c = self.claim(s)
-        line.dial_exit.dial(self.w.a, SYSTEM, s["tenant"], s["client"], c.attempt_id, FakeDriver())
-        started = []
-        sup = Supervisor(self.cfg(s), start_worker=lambda cfg, l, h: started.append(l) or (FakeProcess(), threading.Event()),
-                         holder=HOLDER)
-        with SingleInstance(line_lock(s["line"])):                             # 前の回線ごとの処理が、まだ動いている
-            sup.start()
-            self.assertEqual((self.state(s, c.attempt_id), started), ("dialing", []))
-        sup.renew(100.0)                                                        # 終わって印が外れたら、後始末して立ち上げる
-        self.assertEqual((self.state(s, c.attempt_id), started), ("technical_error", [s["line"]]))
-        sup.shutdown(0)
-
-    def test_only_one_supervisor_per_pc(self):
-        from salescall.supervisor.locks import AlreadyRunning, SingleInstance as _SingleInstance
+    def test_only_one_supervisor_per_machine(self):
+        from salescall.link.locks import AlreadyRunning, SingleInstance
         path = Path(tempfile.mkdtemp()) / "lock"
-        with _SingleInstance(path):
+        with SingleInstance(path):
             with self.assertRaises(AlreadyRunning):
-                with _SingleInstance(path):
+                with SingleInstance(path):
                     pass
 
-    def test_backups_are_watched_even_on_a_pc_without_backup_settings(self):
-        """控えを取る仕事は、控えの設定のある PC だけ。取れているかの見張りは、設定に関係なく動く（どの PC にも設定が無いと、取る仕事が
-        1つも動かず、失敗の記録も出ないので、見張りを分けた＝見直し8）。データベース全体の見張りは管理者の PC だけ。"""
+    def test_which_jobs_run(self):
+        """仕事は、すべて中央の見守り役がする（5-5。前の「契約者の PC だけ・管理者の PC だけ」の分け方は無い）。ほかの担当の部品が
+        要る仕事は、その設定があるときだけ。データベース全体の控えは、書く管理者の PC と接続の設定があるときだけ。控えの見張り・
+        止まったまま続く停止の修正依頼・PC の合図の見張りは、いつも動く（取る仕事が動かないことに気づく）。"""
         s = self.ready()
         here = lambda cfg: {j.name for j in jobs.JOBS if j.runs_here(cfg)}   # noqa: E731
-        contractor, admin = here(self.cfg(s)), here(self.cfg(s, SALESCALL_SYSTEM_JOBS="1"))
-        self.assertTrue({"backup_watch"} <= contractor and not {"backups", "whole_backup", "whole_backup_watch"} & contractor)
-        self.assertTrue({"backup_watch", "whole_backup_watch"} <= admin and not {"backups", "whole_backup"} & admin)
+        bare = here(self.cfg(s))
+        self.assertTrue({"recover", "settle", "backups", "backup_watch", "whole_backup_watch", "lasting_stops",
+                         "system_lasting_stops", "pc_watch", "budget", "holidays"} <= bare)
+        self.assertFalse({"whole_backup", "verify", "stop_checks", "system_stop_checks"} & bare)
+        full = here(self.cfg(s, SALESCALL_OWNER_DSN="x", SALESCALL_RESTORE_DSN="y", SALESCALL_WHOLE_BACKUP_PC=str(uuid.uuid4()),
+                             SALESCALL_VERIFIER="m:v", SALESCALL_PROBER="m:p"))
+        self.assertEqual(full, {j.name for j in jobs.JOBS})
 
-    def test_lasting_stops_are_watched_even_on_a_pc_without_checks(self):
-        """止まったまま続く停止の修正依頼は、確かめの部品の有る無しに関係なく、契約者の PC は契約者の停止・管理者の PC は全体の停止を
-        見る（見直し9：前は確かめの中で出していたので、部品の無い PC では出なかった）。"""
-        s = self.ready()
-        here = lambda cfg: {j.name for j in jobs.JOBS if j.runs_here(cfg)}   # noqa: E731
-        contractor, admin = here(self.cfg(s)), here(self.cfg(s, SALESCALL_SYSTEM_JOBS="1"))
-        self.assertTrue("lasting_stops" in contractor and "system_lasting_stops" not in contractor)
-        self.assertTrue({"lasting_stops", "system_lasting_stops"} <= admin)
+    def test_tenant_jobs_run_once_for_every_tenant_and_system_jobs_once(self):
+        """契約者ごとの仕事は、すべての契約者について1つずつ（その契約者の取引で）。共通の仕事は1つ。"""
+        s, t = self.ready(), self.ready()
+        seen = []
+        fake = (jobs.Job("試験の契約者ごと", 60, "tenant", 60, lambda c: seen.append(("tenant", c.tenant_id))),
+                jobs.Job("試験の共通", 60, "system", 60, lambda c: seen.append(("system", c.tenant_id))))
+        sup = Supervisor(self.cfg(s), holder=f"試験#{uuid.uuid4().hex[:6]}")
+        sup.check_version()
+        sup._load_tenants()
+        with mock.patch.object(jobs, "JOBS", fake):
+            sup.run_jobs(0.0)
+            sup.pool.shutdown(wait=True)
+        self.assertIn(("tenant", s["tenant"]), seen)
+        self.assertIn(("tenant", t["tenant"]), seen)
+        self.assertEqual(seen.count(("system", None)), 1)
+        self.assertEqual(len([x for x in seen if x[0] == "tenant"]), len(sup.tenants))
 
     def test_one_client_failing_does_not_hide_the_backups_of_the_others(self):
         """控えの見張りは依頼者ごと。1つの依頼者の見張りで誤りが出ても、ほかの依頼者を見張る（見直し9：前は最初の誤りで残りを見なかった）。"""
@@ -602,17 +637,21 @@ class Main(SupervisorBase):
                 raise RuntimeError("試験：1つ目の依頼者で落ちる")
             return False
         with mock.patch.object(backup, "watch_client", watch_client), mock.patch.object(jobs, "report"):
-            jobs.backup_watch(jobs.Context(self.w.a, self.cfg(s), HOLDER))
+            jobs.backup_watch(self.ctx(s))
         self.assertEqual(sorted(seen), sorted([s["client"], second]))
 
-    def test_settings_are_reported_without_values_and_the_key_check_compares_only(self):
+    def test_settings_are_reported_without_values(self):
         lines = config.status({"SALESCALL_DSN": "postgresql://架空の接続", "GEMINI_KEY_1": "架空のキー"})
         self.assertIn("SALESCALL_DSN：入っています", lines)
         self.assertNotIn("架空の接続", "\n".join(lines))
         self.assertEqual(config.gather({"SALESCALL_DSN": "x", "GEMINI_KEY_1": "架空のキー"}), {"SALESCALL_DSN": "x"})   # ほかの値は読まない
-        env = {backup.KEY_ENV: "架空の鍵の元-0123456789-abcdefghij"}
-        self.assertTrue(backup.key_matches("架空の鍵の元-0123456789-abcdefghij\n", env))
-        self.assertFalse(backup.key_matches("架空の鍵の元-0123456789-abcdefghiJ", env))
+        with self.assertRaises(config.ConfigMissing):
+            config.load({"SALESCALL_LISTEN": "0.0.0.0:1"})                     # データベースの接続が無い
+        with self.assertRaises(config.ConfigMissing):
+            config.load({"SALESCALL_DSN": "x", "SALESCALL_LISTEN": "番号なし"})
+        cfg = config.load({"SALESCALL_DSN": "x", "SALESCALL_LISTEN": "0.0.0.0:8765"})
+        self.assertEqual((cfg.listen, cfg.calls, cfg.whole_backup), (("0.0.0.0", 8765), False, False))
+        self.assertNotIn("x", repr(cfg).replace("0.0.0.0", ""))                  # 接続は表示に出さない
 
 
 if __name__ == "__main__":

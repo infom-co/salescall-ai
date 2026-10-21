@@ -8,7 +8,8 @@ dependencies = [
     "psycopg[binary]==3.2.10",   # PostgreSQL へつなぐ部品（使ってよいのは読み書きの層だけ。DESIGN.md 11章・I-31）
     "openpyxl==3.1.5",           # xlsx（Excel）の読み込み（発信対象の取込。core/import_files.py だけが使う）
     "defusedxml==0.7.1",         # openpyxl が xlsx の中の XML を安全に読むために使う（悪意のある XML で止まらない）
-    "cryptography==44.0.0",      # データベースの控えの暗号化（core/backup.py だけが使う。Intent.md 14-1 の「バックアップの暗号化」）
+    "cryptography==44.0.0",      # 控えの暗号化（PC の部品の salescall/link/sealing.py だけが使う。Intent.md 14-1。鍵はサーバーに置かない＝DESIGN.md 5-5）
+    "websockets==15.0.1",        # サーバーと PC の部品のつなぎ口（salescall/supervisor/channel.py と salescall/agent/ だけが使う。DESIGN.md 5-5。2025-03）
     # 画面（持ち主 CL-3。CL-3 の連絡帳 4-1d の1。使ってよいのは src/salescall/web/ だけ＝機械が見張る）。版は出てから2週間より前のもの
     "fastapi==0.142.2",          # 画面の裏側（2026-09-30）
     "jinja2==3.1.6",             # 画面のひな形

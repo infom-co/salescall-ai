@@ -26,7 +26,7 @@ class Passes(unittest.TestCase):
         rows = self.a.in_tenant(OPERATOR, t, lambda tx: tx.all("SELECT token_sha256 FROM salescall.pc_agents"))
         self.assertEqual(rows, [{"token_sha256": agents.fingerprint(p.token)}])
         who = lambda tok: self.a.in_system(SYSTEM, lambda tx: agents.identify(tx, tok))   # noqa: E731
-        self.assertEqual(who(p.token), (t, p.pc_id))
+        self.assertEqual(who(p.token), agents.Who(t, p.pc_id, "架空の PC"))
         self.assertIsNone(who("知らない通行証"))
         self.assertTrue(self.a.in_tenant(OPERATOR, t, lambda tx: agents.revoke(tx, p.pc_id)))   # 契約者が「この PC のログインを外す」
         self.assertIsNone(who(p.token))
@@ -38,7 +38,7 @@ class Passes(unittest.TestCase):
         new = agents.issue(self.a, SYSTEM, t, label="架空の PC", replaces=old.pc_id)
         who = lambda tok: self.a.in_system(SYSTEM, lambda tx: agents.identify(tx, tok))   # noqa: E731
         self.assertIsNone(who(old.token))
-        self.assertEqual(who(new.token), (t, new.pc_id))
+        self.assertEqual(who(new.token), agents.Who(t, new.pc_id, "架空の PC"))
 
     def test_who_may_issue_stop_and_change(self):
         """払い出すのはシステムの処理か管理者だけ。止めるのは管理者・契約者・システムの処理。通行証・合図は書き換えられない。消せない。

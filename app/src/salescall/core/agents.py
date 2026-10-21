@@ -74,10 +74,17 @@ def pcs(tx: Tx) -> list[dict[str, Any]]:
                   " ORDER BY issued_at, pc_id")
 
 
-def identify(tx: Tx, token: str) -> tuple[UUID, UUID] | None:
-    """通行証から（契約者, PC）を決める（サーバーの全体の取引だけ）。止めた・知らない通行証なら None。"""
-    row = tx.one("SELECT pc_id, tenant_id FROM salescall.agent_by_token(%s)", (fingerprint(token),))
-    return None if row is None else (row["tenant_id"], row["pc_id"])
+@dataclass(frozen=True)
+class Who:
+    tenant_id: UUID
+    pc_id: UUID
+    label: str
+
+
+def identify(tx: Tx, token: str) -> Who | None:
+    """通行証から、どの契約者のどの PC かを決める（サーバーの全体の取引だけ）。止めた・知らない通行証なら None。"""
+    row = tx.one("SELECT pc_id, tenant_id, label FROM salescall.agent_by_token(%s)", (fingerprint(token),))
+    return None if row is None else Who(row["tenant_id"], row["pc_id"], row["label"])
 
 
 def beat(tx: Tx, pc_id: UUID, lines: list[UUID]) -> list[UUID] | None:

@@ -883,26 +883,30 @@ class RecordingHolds(SettleBase):
         self.assertEqual((held(s), held(t)), ([], ["verification"]))
         self.tx(s, lambda tx: recordings.hold(tx, normal, "sample"))    # 誤判定率の抜き取り（抜き取る処理が付ける）
 
-        root = Path(tempfile.mkdtemp(prefix="salescall-test-rec-"))
-        (root / backup.DRIVE_MARK).write_text("控え用")
-        drive = backup.Drive(root)
+        from salescall.agent import backup as pc
+        roots = {x["tenant"]: Path(tempfile.mkdtemp(prefix="salescall-test-rec-")) for x in (s, t)}   # 契約者ごとの PC
+        for root in roots.values():
+            (root / pc.DRIVE_MARK).write_text("控え用")
         long_ago = datetime.now().astimezone() - timedelta(days=200)    # 2か月（60日）より古い
         files = {}
         for x, aid in ((s, normal), (t, checked), (s, uuid.uuid4())):
-            d = drive.folder(backup.client_folder(self.w.a, x["tenant"], x["client"]), backup.RECORDING).path
+            d = pc.Drive(roots[x["tenant"]]).place([backup.client_folder(self.w.a, x["tenant"], x["client"]), backup.RECORDING])
             d.mkdir(parents=True, exist_ok=True)
             files[aid] = d / backup.recording_file_name(aid, long_ago, "call")
             files[aid].write_bytes(b"x")
-        for x in (s, t):                                                 # 片付けは契約者ごと（その契約者の PC）
-            backup.prune(self.w.a, drive, x["tenant"])
+        prune = lambda x: pc.prune(pc.Drive(roots[x["tenant"]]), backup.prune_rules(self.w.a, x["tenant"]))   # noqa: E731
+        held = lambda x: {h for r in backup.prune_rules(self.w.a, x["tenant"]).values() for h in r["held"]}   # noqa: E731
+        self.assertEqual((str(normal) in held(s), str(checked) in held(s)), (True, False))   # ほかの契約者の通話は渡さない
+        for x in (s, t):                                                 # 片付けは契約者ごと（決まりはサーバー・消すのはその契約者の PC）
+            prune(x)
         self.assertEqual([f.exists() for f in files.values()], [True, True, False])   # 印の無い古い録音だけ消す
 
         self.assertEqual(self.tx(s, lambda tx: recordings.release(tx, [normal], "sample", measurement="試験の誤判定率 第1回")), 1)
         self.tx(t, lambda tx: recordings.release(tx, [checked], "verification", measurement="試験の検証の期間"))
         with self.assertRaises(Rejected):                                # 外した印は戻せない
             self.tx(t, lambda tx: tx.execute("UPDATE salescall.recording_holds SET released_at = NULL, released_for = NULL"))
-        for x in (s, t):                                                 # 片付けは契約者ごと（その契約者の PC）
-            backup.prune(self.w.a, drive, x["tenant"])
+        for x in (s, t):
+            prune(x)
         self.assertEqual([f.exists() for f in files.values()], [False, False, False])  # 測り終わったら、ふつうの決まり
 
 

@@ -1,7 +1,9 @@
-"""回線ごとの処理（DESIGN.md 5-4）。持ち主 CL-2。
+"""回線ごとの処理（DESIGN.md 5-4・5-5）。持ち主 CL-2。
 
-見守り役の本体が、回線1本ごとに別の処理（プロセス）で `run` を動かす。1本の通話の処理が落ちても、ほかの回線を巻き込まない
-（CL-1 の 2026-10-13 の (c)）。1回線（スマホ1台）で同時に1本なので、この処理は1本ずつ順にかける（Intent.md 8-3）。
+中央の見守り役（サーバー）が、PC の部品がつないでいる回線1本ごとに、別の流れ（スレッド）で `loop` を動かす。電話の操作と通話の
+声は、その回線の電話の部品（`links.Links.driver`＝PC の部品へ頼む形）を通る。1本の通話の処理の誤りは、その通話だけを結果不明にして
+次へ進む（ほかの回線を巻き込まない＝CL-1 の 2026-10-13 の (c)。スマホのアプリ・音声の機器を扱う部分は PC の部品の側で回線ごとに分ける）。
+1回線（スマホ1台）で同時に1本なので、この処理は1本ずつ順にかける（Intent.md 8-3）。
 
 1回分（`one_round`）：
 1. その回線でかけてよい依頼者を並べ（scheduler.clients_for_line）、依頼者ごとに、いまかけてよさそうな行を門に渡す順に出す
@@ -26,14 +28,13 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
-from salescall.core import attempts, dial_exit, emergency, gate, next_action, scheduler, settings, watch
+from salescall.core import attempts, dial_exit, gate, next_action, scheduler, settings, watch
 from salescall.core.access import Access, Actor
 from salescall.core.errors import ErrorReport
-from salescall.supervisor import ACTOR, config, plugins, report, updates
-from salescall.supervisor.locks import SingleInstance, line_lock
+from salescall.supervisor import ACTOR, plugins, report, updates
 
 CANDIDATES_PER_CLIENT = 20   # 1回に門へ渡す行の数の上限（依頼者ごと）。通れば1本かけて、また初めから並べ直す
-IDLE_SECONDS = 5             # かける行が無いとき・緊急停止の印があるときの待ち
+IDLE_SECONDS = 5             # かける行が無いとき・版が合わないときの待ち
 
 
 @dataclass(frozen=True)
@@ -115,31 +116,20 @@ def _client_round(access: Access, actor: Actor, tenant_id: UUID, client_id: UUID
             return None
 
 
-def run(environ: dict[str, str], line_id: str, holder: str, stop: Any) -> None:
-    """回線ごとの処理の入口（別の処理として動く）。stop が立つまで繰り返す（いまの通話は最後まで進めてから止まる）。"""
-    cfg = config.load(environ)
-    access, line = Access(cfg.dsn), UUID(line_id)
-    with SingleInstance(line_lock(line)):   # 同じ回線の処理は、PC の中で1つだけ（取れなければ AlreadyRunning で終わる）
-        _loop(cfg, access, line, holder, stop)
-
-
-def _loop(cfg: config.Config, access: Access, line: UUID, holder: str, stop: Any) -> None:
-    driver = plugins.load(cfg.line_driver, line)
-    runner = plugins.load(cfg.call_runner, line)
-    pause = int(access.in_tenant(ACTOR, cfg.tenant_id, lambda tx: settings.system_value(tx, "gate.denied_retry_wait")))
+def loop(access: Access, tenant_id: UUID, line: UUID, holder: str, driver: dial_exit.LineDriver, runner: plugins.CallRunner,
+         stop: Any) -> None:
+    """回線ごとの処理（中央の見守り役が、別の流れで動かす）。stop が立つまで繰り返す（いまの通話は最後まで進めてから止まる）。"""
+    pause = int(access.in_tenant(ACTOR, tenant_id, lambda tx: settings.system_value(tx, "gate.denied_retry_wait")))
     while not stop.is_set():
         try:
-            if emergency.engaged() is not None:   # 本番の PC の緊急停止の印（出口も見るが、候補を出す前に休む）
+            # プログラムとデータベースの版が合わなければ、新しい電話をかけない（中央の見守り役が立ち上げたあとでデータベースが
+            # 新しくなった、でも、かける処理が自分の版で確かめる。supervisor.updates）
+            if access.in_tenant(ACTOR, tenant_id, updates.current) != updates.SAME:
                 stop.wait(IDLE_SECONDS)
                 continue
-            # この処理のプログラムとデータベースの版が合わなければ、新しい電話をかけない（本体が立ち上げたあとでデータベースが
-            # 新しくなった・本体と違う版のファイルで立ち上がった、でも、かける処理が自分の版で確かめる。supervisor.updates）
-            if access.in_tenant(ACTOR, cfg.tenant_id, updates.current) != updates.SAME:
-                stop.wait(IDLE_SECONDS)
-                continue
-            got = one_round(access, ACTOR, cfg.tenant_id, line, holder, driver, runner)
+            got = one_round(access, ACTOR, tenant_id, line, holder, driver, runner)
             if got.called is None:
                 stop.wait(pause if got.pause else IDLE_SECONDS)
         except Exception as e:  # noqa: BLE001 記録して、少し待ってから続ける（止めない）
-            report(access, cfg.tenant_id, "回線ごとの処理", e, line_id=line)
+            report(access, tenant_id, "回線ごとの処理", e, line_id=line)
             stop.wait(IDLE_SECONDS)

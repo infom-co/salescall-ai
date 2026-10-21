@@ -63,9 +63,6 @@ def _throwaway_cluster() -> Iterator[str]:
     port = "54329"
     subprocess.run(prefix + [str(bindir / "initdb"), "-D", str(data), "-U", "postgres", "--auth=trust",
                              "--encoding=UTF8", "--locale=C", "-N"], check=True, capture_output=True)
-    # 契約者の合言葉（salescall_t_…）だけは、合言葉を本当に確かめる（払い出した合言葉でつなげることを試す。core/logins.py）
-    hba = data / "pg_hba.conf"
-    hba.write_text("local all /^salescall_t_ scram-sha-256\n" + hba.read_text())
     subprocess.run(prefix + [str(bindir / "pg_ctl"), "-D", str(data), "-w", "-l", str(tmp / "log"), "-o",
                              f"-c listen_addresses='' -k {sock} -p {port} -c fsync=off", "start"],
                    check=True, capture_output=True)
@@ -419,46 +416,25 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      ("tests.test_supervisor.Recovery.test_only_expired_lines_of_other_pcs_are_cleaned_up",)),
     # 落ちた試行の後始末（5-4・0076。2026-10-18 の見直し）
     ("決まった間隔の後始末が、自分の回線のまだ話している通話を終わらせる",
-     "CREATE OR REPLACE FUNCTION salescall.recover_lines(p_holder text, p_line uuid DEFAULT NULL, p_except text DEFAULT NULL,"
-     " p_expired_for interval DEFAULT '0 seconds')"
+     "CREATE OR REPLACE FUNCTION salescall.recover_lines(p_holder text, p_line uuid DEFAULT NULL, p_except text DEFAULT NULL)"
      " RETURNS TABLE (line_id uuid, released integer, ended integer) LANGUAGE plpgsql SECURITY DEFINER"
      " SET search_path = salescall, pg_temp AS $$ DECLARE l record; r integer; BEGIN"
      " FOR l IN SELECT x.line_id FROM salescall.lines x WHERE x.tenant_id = salescall.cur_tenant()"
-     " AND x.lease_holder IS NOT NULL AND (CASE WHEN p_holder IS NULL THEN x.lease_expires_at < now() - p_expired_for"
+     " AND x.lease_holder IS NOT NULL AND (CASE WHEN p_holder IS NULL THEN x.lease_expires_at < now()"
      " ELSE x.lease_holder = p_holder END) LOOP"
      " UPDATE salescall.attempts SET state = 'released' WHERE attempts.line_id = l.line_id AND state = 'claimed';"
      " GET DIAGNOSTICS r = ROW_COUNT; line_id := l.line_id; released := r; ended := 0; RETURN NEXT; END LOOP; END $$",
-     ("tests.test_supervisor.Recovery.test_the_periodic_cleanup_leaves_its_own_lines_and_the_admin_pc_cleans_stale_ones",)),
-    ("契約者の取引から、ほかの契約者の落ちた回線を探せる",
-     "CREATE OR REPLACE FUNCTION salescall.tenants_with_stale_lines(p_expired_for interval) RETURNS SETOF uuid"
-     " LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$"
-     " SELECT DISTINCT x.tenant_id FROM salescall.lines x WHERE x.lease_holder IS NOT NULL"
-     " AND x.lease_expires_at < now() - p_expired_for $$",
-     ("tests.test_supervisor.Recovery.test_the_periodic_cleanup_leaves_its_own_lines_and_the_admin_pc_cleans_stale_ones",)),
-    # 契約者ごとの合言葉（11章・0077。2026-10-18 ユーザー決定）
-    ("契約者の合言葉を、データベースが見分けない（ほかの契約者・全体の取引を開ける・管理者として動ける）",
-     "CREATE OR REPLACE FUNCTION salescall.login_tenant() RETURNS uuid LANGUAGE sql STABLE AS $$ SELECT NULL::uuid $$",
-     ("tests.test_logins.Scope.test_a_contractor_login_reaches_only_that_contractor",)),
+     ("tests.test_supervisor.Recovery.test_the_periodic_cleanup_leaves_its_own_lines_and_cleans_those_of_a_former_hub",)),
+    # 契約者をまたげた所（11章・0077。PC の鍵の仕組みは 0107 で外した。守りは残す）
     ("契約者の取引から、祝日の暦を書ける",
      "DROP TRIGGER calendar_loads_by_system ON salescall.calendar_loads",
-     ("tests.test_logins.Scope.test_a_contractor_login_reaches_only_that_contractor",)),
-    ("契約者の合言葉で、全体の仕事・ほかの契約者の仕事を借りられる",
-     "CREATE OR REPLACE FUNCTION salescall.take_job(p_key text, p_holder text, p_seconds integer) RETURNS boolean"
-     " LANGUAGE plpgsql SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ DECLARE got text; BEGIN"
-     " INSERT INTO salescall.job_leases AS j (job_key, holder, expires_at) VALUES (p_key, p_holder,"
-     " now() + make_interval(secs => p_seconds)) ON CONFLICT (job_key) DO UPDATE SET holder = EXCLUDED.holder,"
-     " expires_at = EXCLUDED.expires_at WHERE j.expires_at < now() OR j.holder = EXCLUDED.holder RETURNING holder INTO got;"
-     " RETURN got IS NOT NULL; END $$",
-     ("tests.test_logins.Scope.test_a_contractor_login_reaches_only_that_contractor",)),
+     ("tests.test_foundation.TenantTransactions.test_other_contractors_and_shared_things_are_out_of_reach",)),
     ("時給の数え方で、ほかの契約者の依頼者の通話を数える",
      "CREATE OR REPLACE FUNCTION salescall.work_seconds(p_from timestamptz, p_to timestamptz)"
      " RETURNS TABLE (at timestamptz, seconds numeric) LANGUAGE sql STABLE SECURITY DEFINER"
      " SET search_path = salescall, pg_temp AS $$ SELECT a.claimed_at, extract(epoch FROM a.ended_at - a.claimed_at)"
      " FROM salescall.attempts a WHERE a.client_id = salescall.cur_client() AND a.ended_at IS NOT NULL $$",
-     ("tests.test_logins.Scope.test_a_contractor_login_reaches_only_that_contractor",)),
-    ("契約者が、合言葉を払い出せる",
-     "DROP TRIGGER tenant_login_event_guard ON salescall.tenant_login_events",
-     ("tests.test_logins.Issue.test_only_the_admin_or_the_system_issues_and_the_password_is_never_shown",)),
+     ("tests.test_foundation.TenantTransactions.test_other_contractors_and_shared_things_are_out_of_reach",)),
     # 「かけない」の例外と、営業として新しくかける電話か（3-4-2・5-2 の7b・0078。2026-10-18 ユーザー）
     ("「かけない」の行の、お客様と約束したかけ直しを止める",
      "CREATE OR REPLACE FUNCTION salescall.task_excluded_now(p_task uuid) RETURNS boolean LANGUAGE sql STABLE AS"
@@ -476,7 +452,7 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      " $$ SELECT coalesce((SELECT e.excluded FROM salescall.task_exclusions e WHERE e.task_id = p_task"
      " ORDER BY e.seq DESC LIMIT 1), false) $$",
      ("tests.test_exclusions.Marks.test_force_stops_every_call_of_the_row",)),
-    # 契約者の鍵の見直し（11章・0084。2026-10-18）
+    # 契約者をまたげた所の見直し（11章・0084。2026-10-18）
     ("契約者の取引から、ほかの契約者の管理者あての知らせが読める",
      "DROP POLICY notice_scope ON salescall.notification_events; CREATE POLICY notice_scope ON salescall.notification_events"
      " USING ((tenant_id IS NULL AND (NOT for_admin OR salescall.cur_actor_kind() IN ('admin', 'system')))"
@@ -484,31 +460,17 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      " OR client_id = salescall.cur_client())))"
      " WITH CHECK ((tenant_id IS NULL AND salescall.cur_tenant() IS NULL AND NOT for_admin)"
      " OR (tenant_id = salescall.cur_tenant() AND client_id IS NOT DISTINCT FROM salescall.cur_client()))",
-     ("tests.test_logins.Scope.test_admin_notices_jobs_and_stops_of_others_are_out_of_reach",)),
-    ("PC の鍵を、形の違う名前・合言葉の平文で作れる",
-     "GRANT CREATE ON SCHEMA salescall TO salescall_login_maker; SET ROLE salescall_login_maker; CREATE OR REPLACE FUNCTION salescall.make_pc_login(p_role text, p_verifier text) RETURNS void LANGUAGE plpgsql"
-     " SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ BEGIN"
-     " IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = p_role) THEN"
-     " EXECUTE format('ALTER ROLE %I LOGIN PASSWORD %L', p_role, p_verifier); ELSE"
-     " EXECUTE format('CREATE ROLE %I LOGIN PASSWORD %L IN ROLE salescall_app', p_role, p_verifier); END IF; END $$; RESET ROLE",
-     ("tests.test_logins.Scope.test_the_issuing_login_can_only_make_and_stop_pc_keys",)),
-    ("PC の鍵を止めても、つないだままの接続が残る",
-     "GRANT CREATE ON SCHEMA salescall TO salescall_login_maker; SET ROLE salescall_login_maker; CREATE OR REPLACE FUNCTION salescall.stop_pc_logins(p_name text) RETURNS integer LANGUAGE plpgsql"
-     " SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ DECLARE r record; n integer := 0; BEGIN"
-     " FOR r IN SELECT rolname FROM pg_roles WHERE CASE WHEN p_name LIKE '%\\_' THEN starts_with(rolname, p_name)"
-     " ELSE rolname = p_name END LOOP EXECUTE format('ALTER ROLE %I NOLOGIN', r.rolname); n := n + 1; END LOOP;"
-     " RETURN n; END $$; RESET ROLE",
-     ("tests.test_logins.Scope.test_the_issuing_login_can_only_make_and_stop_pc_keys",)),
+     ("tests.test_foundation.TenantTransactions.test_other_contractors_and_shared_things_are_out_of_reach",)),
     ("控えのフォルダの名前から、ほかの契約者の依頼者が分かる",
      "CREATE OR REPLACE FUNCTION salescall.backup_folder_taken(p_name text) RETURNS boolean LANGUAGE plpgsql STABLE"
      " SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ BEGIN PERFORM salescall.only_backup_system();"
      " RETURN EXISTS (SELECT 1 FROM salescall.client_backup_folders WHERE lower(folder_name) = lower(p_name)); END $$",
      ("tests.test_backup.PerClient.test_folder_names_do_not_show_other_contractors_clients",)),
-    ("ほかの契約者・全体の仕事の借用を返せる",
+    ("システムの処理でなくても、仕事の借用を返せる",
      "CREATE OR REPLACE FUNCTION salescall.return_job(p_key text, p_holder text) RETURNS boolean LANGUAGE sql"
      " SECURITY DEFINER SET search_path = salescall, pg_temp AS $$"
      " UPDATE salescall.job_leases SET expires_at = now() WHERE job_key = p_key AND holder = p_holder RETURNING true $$",
-     ("tests.test_logins.Scope.test_admin_notices_jobs_and_stops_of_others_are_out_of_reach",)),
+     ("tests.test_supervisor.Leases.test_jobs_are_taken_by_one_supervisor_and_only_by_the_system",)),
     # 誤判定率を通話ごとに（10-3・0074。2026-10-18 の見直し）
     ("誤判定率の正解の出どころを、呼ぶ側が偽れる",
      "CREATE OR REPLACE FUNCTION salescall.judgement_check_guard() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN"
@@ -586,7 +548,7 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      ("tests.test_backup.PerClient.test_a_contractor_backs_up_only_its_own_clients_and_copies_submissions",)),
     ("データベース全体の控え（すべての契約者のデータ）の記録に、契約者を付けられる",
      "ALTER TABLE salescall.backup_runs DROP CONSTRAINT backup_runs_whole_has_no_tenant",
-     ("tests.test_backup.PerClient.test_the_whole_database_is_backed_up_only_by_the_admin_pc",)),
+     ("tests.test_backup.PerClient.test_the_whole_database_is_backed_up_only_to_the_admin_pc",)),
     ("契約者の今日の費用に、ほかの契約者の費用が入る",
      "CREATE OR REPLACE FUNCTION salescall.spent_today_tenant() RETURNS numeric LANGUAGE sql STABLE SECURITY DEFINER"
      " SET search_path = salescall, pg_temp AS $$ SELECT CASE WHEN salescall.cur_client() IS NOT NULL THEN NULL ELSE"
@@ -647,7 +609,7 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("解いた停止も、まだ止まっているとみなす",
      "CREATE OR REPLACE VIEW salescall.open_stop_events WITH (security_invoker = true) AS"
      " SELECT s.* FROM salescall.stop_events s WHERE s.action = 'stop'",
-     ("tests.test_emergency.Emergency.test_a_resume_on_the_screen_clears_the_flag",
+     ("tests.test_emergency.OnTheServer.test_a_release_on_the_screen_is_seen_and_a_release_from_the_pc_frees_only_its_own_stops",
       "tests.test_watch.TenantAiStopsAndChecks.test_an_ai_stop_resumes_after_successful_checks")),
     ("止めた理由の説明に、数えたエラーを出さない",
      "CREATE OR REPLACE FUNCTION salescall.errors_for_stop(p_stop bigint, p_kinds text[], p_limit integer)"
@@ -818,9 +780,6 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("続いたエラーを数える関数を、誰でも呼べる（0100 の穴）",
      "GRANT EXECUTE ON FUNCTION salescall.error_lasting(text, interval) TO PUBLIC",
      ("tests.test_foundation.DefinerFunctions.test_no_definer_function_is_open_to_everyone",)),
-    ("PC の鍵を作る関数を、誰でも呼べる（0084 の穴）",
-     "SET ROLE salescall_login_maker; GRANT EXECUTE ON FUNCTION salescall.make_pc_login(text, text) TO PUBLIC; RESET ROLE",
-     ("tests.test_foundation.DefinerFunctions.test_only_the_provisioner_makes_and_stops_pc_logins",)),
     ("アプリの役が、ほかの依頼者の約束の一覧を読める",
      "GRANT EXECUTE ON FUNCTION salescall.promises_waiting() TO salescall_app",
      ("tests.test_foundation.DefinerFunctions.test_lists_of_other_clients_promises_are_used_only_inside",)),
@@ -919,14 +878,19 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("PC の通行証を、誰でも払い出せる・書き換えられる（0105 の守り）",
      "DROP TRIGGER pc_agents_guard ON salescall.pc_agents",
      ("tests.test_agents.Passes.test_who_may_issue_stop_and_change",)),
-    ("止めた通行証でもサーバーにつなげる（0105）",
-     "CREATE OR REPLACE FUNCTION salescall.agent_by_token(p_sha text) RETURNS TABLE (pc_id uuid, tenant_id uuid)"
+    ("止めた通行証でもサーバーにつなげる（0105・0106）",
+     "CREATE OR REPLACE FUNCTION salescall.agent_by_token(p_sha text) RETURNS TABLE (pc_id uuid, tenant_id uuid, label text)"
      " LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ BEGIN PERFORM salescall.hub_only();"
-     " RETURN QUERY SELECT a.pc_id, a.tenant_id FROM salescall.pc_agents a WHERE a.token_sha256 = p_sha; END $$",
+     " RETURN QUERY SELECT a.pc_id, a.tenant_id, a.label FROM salescall.pc_agents a WHERE a.token_sha256 = p_sha; END $$",
      ("tests.test_agents.Passes.test_a_pass_is_given_once_kept_only_as_a_fingerprint_and_identifies_the_pc",)),
     ("サーバーだけの関数を、契約者の取引・管理者からも呼べる（0105）",
      "CREATE OR REPLACE FUNCTION salescall.hub_only() RETURNS void LANGUAGE plpgsql STABLE AS $$ BEGIN END $$",
      ("tests.test_agents.Passes.test_who_may_issue_stop_and_change",)),
+    ("測り終わるまで消さない録音の一覧に、ほかの契約者の通話が混ざる（0106）",
+     "CREATE OR REPLACE FUNCTION salescall.recordings_held() RETURNS SETOF uuid LANGUAGE plpgsql STABLE SECURITY DEFINER"
+     " SET search_path = salescall, pg_temp AS $$ BEGIN PERFORM salescall.only_backup_system();"
+     " RETURN QUERY SELECT DISTINCT h.attempt_id FROM salescall.recording_holds h WHERE h.released_at IS NULL ORDER BY 1; END $$",
+     ("tests.test_settle.RecordingHolds.test_verification_calls_keep_their_recordings_until_measured",)),
     ("合図で、ほかの契約者の回線も名乗れる（0105）",
      "CREATE OR REPLACE FUNCTION salescall.agent_beat(p_pc uuid, p_lines uuid[]) RETURNS uuid[]"
      " LANGUAGE plpgsql SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ DECLARE kept uuid[]; BEGIN"
@@ -944,7 +908,6 @@ def _fresh_db(superuser_dsn: str) -> tuple[str, str, str]:
         conn.execute(f'CREATE DATABASE "{dbname}_restore" OWNER salescall_owner')   # 控えを戻して確かめる空のデータベース
     owner_dsn = _with_db(superuser_dsn, dbname, "salescall_owner")
     os.environ["SALESCALL_TEST_RESTORE_DSN"] = _with_db(superuser_dsn, f"{dbname}_restore", "salescall_owner")
-    os.environ["SALESCALL_TEST_PROVISIONER_DSN"] = _with_db(superuser_dsn, dbname, "salescall_provisioner")
     migrate.apply(owner_dsn)
     return dbname, owner_dsn, _with_db(superuser_dsn, dbname, "salescall_app")
 

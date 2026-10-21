@@ -1,11 +1,11 @@
-"""PC の中の印（同じ PC で、同じものが2つ動かないように。DESIGN.md 5-4）。持ち主 CL-2。
+"""機械の中の印（同じ機械で、同じものが2つ動かないように。DESIGN.md 5-4・5-5）。持ち主 CL-2。
 
 印のファイルを、ほかに開けないように押さえる。押さえた処理が落ちれば、OS が外す（落ちたまま押さえ続けることは無い）。
 印のファイルは、PC 全体で1つの場所に置く（`lock_dir`。Windows はすべての利用者に共通の ProgramData の下。ユーザーごとの一時フォルダに
 置くと、1台の PC の2人の Windows の利用者が、それぞれ見守り役を動かせ、同じスマホで二重にかけうる＝2026-10-18 の見直し）。
 印のファイルを開けない（ほかの利用者が作り、開く権限が無い）ときも「もう動いている」とみなす（動かさない側に倒す）。
-- 見守り役の本体：契約者ごとに1つ（`salescall-supervisor-<契約者>.lock`）。
-- 回線ごとの処理：回線ごとに1つ（`salescall-line-<回線>.lock`）。本体は、押さえられているかを `line_in_use_here` で見る。
+- 中央の見守り役：その機械に1つ（`salescall-supervisor.lock`）。
+- PC の部品：その PC に1つ（`salescall-agent.lock`。同じ PC で2つ動くと、同じスマホで二重にかけうる）。
 """
 
 from __future__ import annotations
@@ -15,7 +15,6 @@ import tempfile
 import uuid
 from pathlib import Path
 from typing import Any
-from uuid import UUID
 
 
 class AlreadyRunning(Exception):
@@ -77,16 +76,3 @@ def machine_id() -> str:
         except OSError:
             pass
     return f"{uuid.getnode():012x}"
-
-
-def line_lock(line_id: UUID) -> Path:
-    return lock_dir() / f"salescall-line-{line_id}.lock"
-
-
-def line_in_use_here(line_id: UUID) -> bool:
-    """この PC で、その回線の処理が動いているか（印が押さえられているか）。"""
-    try:
-        with SingleInstance(line_lock(line_id)):
-            return False
-    except AlreadyRunning:
-        return True

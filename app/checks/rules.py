@@ -230,7 +230,6 @@ WRITERS: dict[str, dict[str, frozenset[str]]] = {
     "dnc_import_rows": {"INSERT": frozenset({_CORE + "dnc_import.py"})},
     "judgement_checks": {"INSERT": frozenset({_CORE + "measure.py"})},       # 誤判定率の正解（16-3）
     "task_exclusions": {"INSERT": frozenset({_CORE + "exclusions.py"})},     # 行ごとの「かけない」（3-4-2）
-    "tenant_login_events": {"INSERT": frozenset({_CORE + "logins.py"})},     # 契約者の合言葉の払い出しの記録（11章・0077）
     "sample_draws": {"INSERT": frozenset({_CORE + "measure.py"})},           # 誤判定率の抜き取り（16-3）
     "sample_draw_calls": {"INSERT": frozenset({_CORE + "measure.py"})},
     "deliveries": {"INSERT": frozenset({"src/salescall/output/"}),           # 連携の台帳（Q17。持ち主 CL-3）
@@ -308,18 +307,68 @@ def value_types_stays_pure(app_root: Path) -> list[Violation]:
 DIAL_EXIT = "src/salescall/core/dial_exit.py"
 
 
+#    サーバーと PC の分け方（5-5）：発信の出口の「かける」は、PC の部品へ頼む形（supervisor/channel.py の AgentDriver.start_call）・
+#    やり取りの種類（link/protocol.py）・PC の部品が頼まれて電話の部品を呼ぶ所（agent/main.py の Agent._reply）を通って届く。
+#    この3つは中継だけ（かけるかを決めない）なので、決めた場所でだけ許す。
+DIAL_RELAYS = {"src/salescall/supervisor/channel.py": {"AgentDriver.start_call"},
+               "src/salescall/link/protocol.py": {"<module>"},
+               "src/salescall/agent/main.py": {"Agent._reply"}}
+
+
+def _with_places(tree: ast.AST) -> Iterator[tuple[ast.AST, str]]:
+    """木の節と、それを囲む関数の名前（クラス名.関数名。外なら <module>）。"""
+    def walk(node: ast.AST, place: str, cls: str | None) -> Iterator[tuple[ast.AST, str]]:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, ast.ClassDef):
+                yield child, place
+                yield from walk(child, place, child.name)
+            elif isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                yield child, place
+                yield from walk(child, f"{cls}.{child.name}" if cls and place == "<module>" else
+                                (child.name if place == "<module>" else place), None)
+            else:
+                yield child, place
+                yield from walk(child, place, cls)
+    yield from walk(tree, "<module>", None)
+
+
 def dial_only_through_exit(app_root: Path) -> list[Violation]:
     out: list[Violation] = []
     for path in _python_files(app_root):
         rel = _rel(app_root, path)
         if rel == DIAL_EXIT or rel.startswith("tests/") or rel == "run_tests.py":
             continue
-        tree = _parse(path)
-        for node in ast.walk(tree):
+        for node, place in _with_places(_parse(path)):
             called = (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "start_call")
             named = isinstance(node, ast.Constant) and node.value == "start_call"   # getattr(x, "start_call") の抜け道
-            if called or named:
+            if (called or named) and place not in DIAL_RELAYS.get(rel, set()):
                 out.append(Violation("I-1", rel, node.lineno, "電話をかけてよいのは、発信の出口（core/dial_exit.py）だけです"))
+    return out
+
+
+# ── 5-5：契約者の PC に置く部品（agent・link）は、データベースにも、サーバーの部品（core・supervisor）にも触れない（読み取られても、
+#    データベースへの道が無い＝2026-10-21 ユーザー承認）。PC とのつなぎ（websockets）を使うのは、つなぎ口と PC の部品だけ。
+PC_SIDE = ("src/salescall/agent/", "src/salescall/link/")
+PC_SIDE_BANNED = ("psycopg", "salescall.core", "salescall.supervisor", "salescall.web")
+LINK_USERS = ("src/salescall/supervisor/channel.py", "src/salescall/agent/")
+
+
+def pc_side_stays_off_the_server(app_root: Path) -> list[Violation]:
+    out: list[Violation] = []
+    for path in _python_files(app_root):
+        rel = _rel(app_root, path)
+        if rel.startswith("tests/") or rel == "run_tests.py":
+            continue
+        tree = _parse(path)
+        on_pc = rel.startswith(PC_SIDE)
+        for node in ast.walk(tree):
+            if on_pc and isinstance(node, ast.ImportFrom) and node.level > 0:
+                out.append(Violation("5-5", rel, node.lineno, "PC の部品は、相対の読み込みを使いません（読む部品を見張るため）"))
+        for module, line in _imported_modules(tree):
+            if on_pc and any(module == b or module.startswith(b + ".") for b in PC_SIDE_BANNED):
+                out.append(Violation("5-5", rel, line, f"PC の部品は {module} を読みません（PC はデータベースにつながない）"))
+            if (module == "websockets" or module.startswith("websockets.")) and not rel.startswith(LINK_USERS):
+                out.append(Violation("5-5", rel, line, "PC とのつなぎを使うのは、つなぎ口（supervisor/channel.py）と PC の部品だけです"))
     return out
 
 
@@ -355,6 +404,7 @@ ALL_RULES: tuple[Callable[[Path], list[Violation]], ...] = (
     scope_settings_only_in_layer,
     key_values_only_in_key_selection,
     dial_only_through_exit,
+    pc_side_stays_off_the_server,
     settings_read_in_one_place,
     web_parts_only_in_web,
 )

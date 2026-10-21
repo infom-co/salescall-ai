@@ -1,23 +1,20 @@
-"""データベースの控え（Intent.md 14-1。表の作り 0052）。持ち主 CL-2。
+"""データベースの控え（Intent.md 14-1。表の作り 0052）。持ち主 CL-2。**サーバーの側**（いつ取るか・中身の書き出し・記録・見張り）。
 
 Intent.md 14-1：「毎日自動で取り、Fly.io とは別の場所にも置き、戻せることを試験で確かめ、取れなかったら知らせる（発信禁止の台帳を
 失うと、断ったお客様にまたかけるため）」。CL-1 の条件：控えも暗号化する。
-- 取る（`take`）：ある時点の見え方を固定し（`access.snapshot`）、その時点の表ごとの行の数を数え、同じ時点を pg_dump で書き出す。
-  書き出したものは暗号化する（AES-GCM。鍵は呼ぶ側が渡す＝鍵の値をこの部品は読まない・残さない・出さない）。
-- 置く：Fly.io とは別の場所を必ず含む置き場（`Destination`）に置く。**サブスク契約までは、PC に接続したハードディスク**
-  （`AttachedDrive`。2026-10-17 ユーザー：「クラウドだけでなく、暫定的にPCに接続のハードディスクに保存してください。サブスク契約まで」）。
-  クラウド（Fly.io）の側は、データベースの置き場を Fly.io が毎日自動で写す（ボリュームのスナップショット。残す日数は Fly.io の設定）。
-  ⇒ この処理は PC で動く（見守り役。**控えは契約者ごと**＝2026-10-18 ユーザー：「費用の見張りと控えは、契約者ごとですよ」）：
-  - 契約者の控え（`run_contractor`）：その契約者の PC が、その契約者の依頼者ごとの AI用・提出用を、その PC のハードディスクに置く。
-    読むのは、その契約者の取引から見える行だけ（表の持ち主の接続を契約者の PC に置かない）。知らせは、その契約者へ。
-  - データベース全体の控え（`run_whole`・`take`）：すべての契約者のデータが入るので、管理者の PC だけ（表の持ち主の接続で読む）。
-    データベースを契約者ごとに分けたら（Intent.md 1-4）、その契約者のデータベースの控えとして、その契約者の PC で取る。
-- 戻せるかを確かめる：置いた控えのうち、Fly.io とは別の場所のものを読み戻し、指紋を比べ、復号して、確かめ用の空のデータベースに
-  pg_restore で戻し、表ごとの行の数が取ったときと同じかを比べる。
+- **サーバーと PC の分け方**（2026-10-21 ユーザー承認。DESIGN.md 5-5）：サーバー（中央の見守り役）は中身を書き出し、その契約者の PC の
+  部品（`Writer`）へ送る。PC が自分の鍵で暗号化して、PC に接続したハードディスクに書き、読み戻して元と同じかを確かめて返す。
+  **サーバーは鍵を持たない**（鍵は、その PC と、その持ち主の Proton Pass の写しだけ＝2026-10-17 ユーザー 案A）。
+  サブスク契約までは、PC に接続したハードディスクに置く（2026-10-17 ユーザー：「クラウドだけでなく、暫定的にPCに接続のハードディスクに
+  保存してください。サブスク契約まで」）。クラウド（Fly.io）の側は、データベースの置き場を Fly.io が毎日自動で写す。
+  - 契約者の控え（`run_contractor`）：その契約者の依頼者ごとの AI用（1日1回）・提出用（数分ごと）を、その契約者の PC へ。読むのは、
+    その契約者の取引から見える行だけ。**控えは契約者ごと**（2026-10-18 ユーザー：「費用の見張りと控えは、契約者ごとですよ」）。
+  - データベース全体の控え（`run_whole`・`take`）：すべての契約者のデータが入るので、管理者の PC へだけ。サーバーが、確かめ用の空の
+    データベースへ戻して、表ごとの行の数が同じか（戻せるか）を確かめてから送る。
 - 記録（backup_runs）：うまくいっても、いかなくても1回ずつ残す（契約者の控えは、その契約者の記録）。いかなければ、止めずに CL-2 へ
-  修正依頼を出し、管理者（契約者の控えなら、その契約者にも）に知らせる
-  （2026-10-17 ユーザー：「止めずに CL1 か CL2 に修正依頼を出さないといけないだろ。人はそのプロセスをチェックもしくは承認するだけ」）。
-- 毎日1回（`due`）：今日（日本時間）の、戻せることまで確かめた控えが無ければ取る。呼ぶのは見守り役（常駐の処理）。
+  修正依頼を出し、管理者（契約者の控えなら、その契約者にも）に知らせる。直すのが PC の前の作業（ハードディスクをつなぐ・鍵を入れる）
+  なら、その PC の持ち主へそれを知らせる（PC の部品が `RemoteError.ask` で返す）。
+- 毎日1回（`due`）：今日（日本時間）の、戻せることまで確かめた控えが無ければ取る。
 - 記録・知らせ・修正依頼には、お客様の情報・鍵・接続文字列を入れない（行の数と指紋と、エラーの種類だけ）。
 """
 
@@ -36,66 +33,22 @@ from pathlib import Path
 from typing import Any, Protocol
 from uuid import UUID
 
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-
 from salescall.core import fix_requests, notify, settings
 from salescall.core.access import Access, Actor, Tx, snapshot, tool_connection
+from salescall.link.protocol import JST, RemoteError
 
-MAGIC = b"SALESCALL-BACKUP-1\n"    # 控えのファイルの頭（形が変わったら番号を上げる）
 SCHEMAS = ("salescall", "public")   # 数える表の置き場（public には表の作りの記録がある）
 SYSTEM = Actor("データベースの控え", "system")
 
 
-class Destination(Protocol):
-    """控えの置き場。name は記録に残す置き場の名前（場所の中身・鍵は入れない）。offsite＝Fly.io とは別の場所か。"""
-    name: str
-    offsite: bool
+class Writer(Protocol):
+    """控えを書く先（その PC の部品。中央の見守り役のつなぎ口が、つないでいる PC へ頼む）。誤りは RemoteError（ask があれば PC の前の作業）。"""
 
-    def put(self, file_name: str, data: bytes) -> None: ...
-    def get(self, file_name: str) -> bytes: ...
+    def write(self, folder: list[str], file_name: str, data: bytes, sha256: str) -> tuple[str, int]:
+        """暗号化してハードディスクに書き、読み戻して確かめる。暗号化したファイルの（指紋, 大きさ）を返す。"""
+        ...
 
-
-@dataclass(frozen=True)
-class LocalDirectory:
-    """手元の置き場（Fly.io の置き場の中のフォルダ・試験の一時フォルダ）。"""
-    name: str
-    path: Path
-    offsite: bool = False
-
-    def put(self, file_name: str, data: bytes) -> None:
-        self.path.mkdir(parents=True, exist_ok=True)
-        tmp = self.path / (file_name + ".part")
-        with open(tmp, "wb") as f:
-            f.write(data)
-            f.flush()
-            os.fsync(f.fileno())                    # ディスクに書き終えてから（読み戻しが OS の一時記憶から読めても、書けた証明にならない）
-        tmp.replace(self.path / file_name)          # 書き終えてから名前を付ける（途中のファイルを控えと取り違えない）
-
-    def get(self, file_name: str) -> bytes:
-        return (self.path / file_name).read_bytes()
-
-
-DRIVE_MARK = "salescall-backup-drive.txt"   # 控え用のハードディスクの一番上に置く印（中身は問わない）
-
-
-@dataclass(frozen=True)
-class AttachedDrive(LocalDirectory):
-    """PC に接続したハードディスク（Fly.io とは別の場所）。ハードディスクの一番上に印のファイル（DRIVE_MARK）を置いておく。
-    印が無ければ、つながっていないとみなして置かない（外れたときに、同じ名前のフォルダを PC の中に作って、そこへ置いてしまわない）。"""
-    drive_root: Path = Path("/")
-    offsite: bool = True
-
-    def put(self, file_name: str, data: bytes) -> None:
-        self._attached()
-        super().put(file_name, data)
-
-    def get(self, file_name: str) -> bytes:
-        self._attached()
-        return super().get(file_name)
-
-    def _attached(self) -> None:
-        if not (self.drive_root / DRIVE_MARK).is_file():
-            raise DriveMissing(f"控え用のハードディスク（{self.name}）がつながっていません")
+    def prune(self, folders: dict[str, Any]) -> int: ...
 
 
 @dataclass(frozen=True)
@@ -109,23 +62,8 @@ class BackupFailed(Exception):
     """控えが取れなかった・置けなかった・戻せなかった（中身は、鍵・接続文字列・お客様の情報を含まない短い説明）。"""
 
 
-class PersonNeeded(BackupFailed):
-    """直すのが管理者の作業のもの（プログラムの直しではない）：修正依頼ではなく、管理者に `ask` を知らせる。"""
-    ask = ""
-
-
-class DriveMissing(PersonNeeded):
-    """控え用のハードディスクがつながっていない。"""
-    ask = "控え用のハードディスクがつながっていません。PC にハードディスクをつないでください。"
-
-
-class KeyMissing(PersonNeeded):
-    """控えの鍵が PC に入っていない・短すぎる。"""
-    ask = "控えの鍵が PC に入っていません（または短すぎます）。手順書 docs/PC_SETUP.md のとおり、Proton Pass の文字を入れてください。"
-
-
 def _ask(e: BaseException) -> str | None:
-    return e.ask if isinstance(e, PersonNeeded) else None
+    return e.ask if isinstance(e, RemoteError) else None
 
 
 def _counts(tx: Tx) -> dict[str, int]:
@@ -139,49 +77,9 @@ def _quoted(qualified: str) -> str:
     return f'"{schema}"."{table}"'
 
 
-# 控えの鍵（2026-10-17 ユーザー決定 案A：PC と管理者の写しの2か所。写しは Proton Pass で作った＝ユーザー）。
-# 鍵の元は Proton Pass で作った文字（20文字以上）。PC の環境変数に入れ、そこから32バイトの鍵を作る（読むのは load_key の1か所）。
-KEY_ENV = "SALESCALL_BACKUP_KEY"
-KEY_MIN_CHARS = 20
-_KEY_SALT = b"salescall-backup-key-1"     # 作り方を変えたら番号を上げる（前の控えは前の作り方でしか戻せない）
-
-
-def key_from_text(text: str) -> bytes:
-    """Proton Pass で作った文字から、控えの鍵（32バイト）を作る。前後の空白・改行は外す（写し間違いを防ぐ）。値は出さない。"""
-    text = text.strip()
-    if len(text) < KEY_MIN_CHARS:
-        raise KeyMissing(f"控えの鍵の元は{KEY_MIN_CHARS}文字以上です（Proton Pass で作った文字を、そのまま写してください）")
-    return hashlib.scrypt(text.encode(), salt=_KEY_SALT, n=2 ** 14, r=8, p=1, dklen=32)
-
-
-def load_key(environ: dict[str, str] | None = None) -> bytes:
-    """PC の環境変数から控えの鍵を読む（見守り役が呼ぶ）。無ければ、入れ方を書いた KeyMissing（値は書かない）。"""
-    text = (os.environ if environ is None else environ).get(KEY_ENV, "")
-    if not text.strip():
-        raise KeyMissing(f"控えの鍵が入っていません。PC の環境変数 {KEY_ENV} に、Proton Pass に置いた文字をそのまま入れてください")
-    return key_from_text(text)
-
-
-def key_matches(text: str, environ: dict[str, str] | None = None) -> bool:
-    """PC の持ち主（契約者・管理者）が貼った Proton Pass の文字と、PC に入っている文字が、同じ鍵になるか（PC の文字が1文字でも違うと、確かめは通るのに
-    Proton Pass の文字では控えを戻せない。見守り役の check-key が呼ぶ。どちらの値も出さない）。"""
-    return key_from_text(text) == load_key(environ)
-
-
-def encrypt(data: bytes, key: bytes, file_name: str) -> bytes:
-    """控えを暗号化する（AES-GCM。ファイルの名前も合わせて守る＝別のファイルと取り替えられたら復号できない）。"""
-    nonce = os.urandom(12)
-    return MAGIC + nonce + AESGCM(key).encrypt(nonce, data, file_name.encode())
-
-
-def decrypt(blob: bytes, key: bytes, file_name: str) -> bytes:
-    if not blob.startswith(MAGIC):
-        raise BackupFailed("控えのファイルの形が違います")
-    nonce, body = blob[len(MAGIC):len(MAGIC) + 12], blob[len(MAGIC) + 12:]
-    try:
-        return AESGCM(key).decrypt(nonce, body, file_name.encode())
-    except Exception:
-        raise BackupFailed("控えを復号できません（鍵が違う・ファイルが壊れている・取り替えられた）") from None
+def _name(started: datetime, rest: str) -> str:
+    """控えのファイルの名前（日本時間の日時つき。サーバーの置き場の時間帯に関係なく同じ＝PC の片付けが名前の日時で決める）。"""
+    return f"salescall-{started.astimezone(JST):%Y%m%d-%H%M%S}{rest}"
 
 
 # 道具（pg_dump など）の誤りの文は残さない（お客様の行の中身・接続先が入りうる。2026-10-18 の見直しで、pg_restore の誤りの文に
@@ -209,24 +107,19 @@ def _identity(tx: Tx) -> tuple[Any, ...]:
 
 
 def _why(e: Exception) -> str:
-    """記録に残す誤りの説明（控えの部品が書いた説明だけ。思いがけない誤りは種類の名前だけ＝中身を残さない）。"""
-    return str(e) if isinstance(e, BackupFailed) else f"思いがけない誤り（{type(e).__name__}）"
+    """記録に残す誤りの説明（控えの部品・PC の部品が書いた説明だけ。思いがけない誤りは種類の名前だけ＝中身を残さない）。"""
+    return str(e) if isinstance(e, (BackupFailed, RemoteError)) else f"思いがけない誤り（{type(e).__name__}）"
 
 
-def take(app: Access, source_conninfo: str, restore_conninfo: str, destinations: list[Destination], *, key: bytes,
-         now: datetime | None = None) -> Result:
-    """控えを1回取り、置き、戻せるかを確かめ、記録する。うまくいかなければ、修正依頼と知らせを出して Result(ok=False)。
-    source_conninfo＝表の持ち主の接続（すべての行を読む）。restore_conninfo＝確かめ用の空のデータベース（毎回、中身を消して戻す）。"""
+def take(app: Access, source_conninfo: str, restore_conninfo: str, writer: Writer, *, now: datetime | None = None) -> Result:
+    """データベース全体の控えを1回取り、戻せるかを確かめ、管理者の PC へ書かせ、記録する。うまくいかなければ、修正依頼と知らせを出して
+    Result(ok=False)。source_conninfo＝表の持ち主の接続（すべての行を読む）。restore_conninfo＝確かめ用の空のデータベース（毎回、中身を
+    消して戻す）。writer＝管理者の PC の部品。"""
     started = datetime.now().astimezone() if now is None else now
-    file_name = f"salescall-{started:%Y%m%d-%H%M%S}.dump.enc"
+    file_name = _name(started, ".dump.enc")
     counts: dict[str, int] | None = None
-    blob: bytes | None = None
-    placed: list[str] = []
+    written: tuple[str, int] | None = None
     try:
-        if len(key) != 32:
-            raise BackupFailed("控えの鍵は32バイトです")
-        if not any(d.offsite for d in destinations):
-            raise BackupFailed("置き場に、Fly.io とは別の場所（PC に接続したハードディスクなど）が要ります")
         with tempfile.TemporaryDirectory(prefix="salescall-backup-") as work:
             dump = Path(work) / "db.dump"
             with snapshot(source_conninfo) as (snap, tx):
@@ -234,41 +127,32 @@ def take(app: Access, source_conninfo: str, restore_conninfo: str, destinations:
                 source_identity = _identity(tx)
                 _run(["pg_dump", "--format=custom", f"--snapshot={snap}", "--no-owner", "--no-acl", "-f", str(dump)],
                      source_conninfo, "書き出し（pg_dump）")
-            blob = encrypt(dump.read_bytes(), key, file_name)
-        for d in destinations:
-            d.put(file_name, blob)
-            placed.append(d.name)
-        _verify(blob, file_name, [d for d in destinations if d.offsite][0], restore_conninfo, counts, key=key,
-                source_identity=source_identity)
+            _verify(dump, restore_conninfo, counts, source_identity=source_identity)   # 送る前に、戻せることを確かめる
+            data = dump.read_bytes()
+        written = writer.write([WHOLE, AI], file_name, data, hashlib.sha256(data).hexdigest())
     except Exception as e:  # noqa: BLE001 ここで受けて記録する（止めない）
         error = _why(e)
-        _record(app, started, file_name if blob else None, blob, counts, placed, error, person=_ask(e))
+        _record(app, started, None, None, counts, error, person=_ask(e))
         return Result(False, None, error)
-    _record(app, started, file_name, blob, counts, placed, None, person=None)
+    _record(app, started, file_name, written, counts, None, person=None)
     return Result(True, file_name, None)
 
 
-def _verify(blob: bytes, file_name: str, offsite: Destination, restore_conninfo: str, counts: dict[str, int], *,
-            key: bytes, source_identity: tuple[Any, ...]) -> None:
-    """Fly.io とは別の場所から読み戻し、指紋を比べ、復号し、確かめ用のデータベースに戻して、行の数を比べる。"""
-    back = offsite.get(file_name)
-    if hashlib.sha256(back).hexdigest() != hashlib.sha256(blob).hexdigest():
-        raise BackupFailed(f"置き場「{offsite.name}」から読み戻した控えが、置いたものと違います")
-    with tempfile.TemporaryDirectory(prefix="salescall-restore-") as work:
-        dump = Path(work) / "db.dump"
-        dump.write_bytes(decrypt(back, key, file_name))
-        with snapshot(restore_conninfo) as (_, tx):   # 確かめ用のデータベースの、いまある表を消す（前の確かめの残り）
-            # ⚠️ 消す前に、確かめ用が本番のデータベースでないことを確かめる（接続先の書き間違いで、発信禁止の台帳を含む本番の表を
-            # 控えの処理が消さないように。2026-10-18 の見直し）
-            if _identity(tx) == source_identity:
-                raise BackupFailed("確かめ用のデータベースが、本番のデータベースと同じです。消さずに止めました（接続先の設定を直す）")
-            drops = [_quoted(f"{r['schemaname']}.{r['tablename']}") for r in tx.all(
-                "SELECT schemaname, tablename FROM pg_tables WHERE schemaname = ANY(%s)", (list(SCHEMAS),))]
-        _run(["psql", "-q", "-v", "ON_ERROR_STOP=1", "-c",
-              "DROP SCHEMA IF EXISTS salescall CASCADE; " + "".join(f"DROP TABLE IF EXISTS {t} CASCADE; " for t in drops
-                                                                    if t.startswith('"public"'))],
-             restore_conninfo, "確かめ用のデータベースの片付け")
-        _run(["pg_restore", "--no-owner", "--no-acl", "--exit-on-error", str(dump)], restore_conninfo, "戻す（pg_restore）")
+def _verify(dump: Path, restore_conninfo: str, counts: dict[str, int], *, source_identity: tuple[Any, ...]) -> None:
+    """書き出したものを、確かめ用のデータベースに戻して、行の数を比べる（戻せるか）。PC に書いた控えが、この中身と同じかは、PC が
+    読み戻して確かめる（指紋）。"""
+    with snapshot(restore_conninfo) as (_, tx):   # 確かめ用のデータベースの、いまある表を消す（前の確かめの残り）
+        # ⚠️ 消す前に、確かめ用が本番のデータベースでないことを確かめる（接続先の書き間違いで、発信禁止の台帳を含む本番の表を
+        # 控えの処理が消さないように。2026-10-18 の見直し）
+        if _identity(tx) == source_identity:
+            raise BackupFailed("確かめ用のデータベースが、本番のデータベースと同じです。消さずに止めました（接続先の設定を直す）")
+        drops = [_quoted(f"{r['schemaname']}.{r['tablename']}") for r in tx.all(
+            "SELECT schemaname, tablename FROM pg_tables WHERE schemaname = ANY(%s)", (list(SCHEMAS),))]
+    _run(["psql", "-q", "-v", "ON_ERROR_STOP=1", "-c",
+          "DROP SCHEMA IF EXISTS salescall CASCADE; " + "".join(f"DROP TABLE IF EXISTS {t} CASCADE; " for t in drops
+                                                                if t.startswith('"public"'))],
+         restore_conninfo, "確かめ用のデータベースの片付け")
+    _run(["pg_restore", "--no-owner", "--no-acl", "--exit-on-error", str(dump)], restore_conninfo, "戻す（pg_restore）")
     with snapshot(restore_conninfo) as (_, tx):
         got = _counts(tx)
     if got != counts:
@@ -278,10 +162,9 @@ def _verify(blob: bytes, file_name: str, offsite: Destination, restore_conninfo:
 
 # 控えの種類（記録の kind）と、知らせ・修正依頼に書く名前（1か所）
 PARTS = {"system": "データベース全体の控え", "client_ai": "依頼者ごとの AI用の控え", "submission": "提出用の控え",
-         "prune": "古い控えの片付け", "drive": "控え用のハードディスクの確かめ", "key": "控えの鍵の確かめ"}
+         "prune": "古い控えの片付け"}
 _DAILY = ("system", "client_ai", "prune")   # 1日1回でよい種類（今日うまくいったら、もうしない）
 RETRY_AFTER = timedelta(hours=1)            # 失敗したら、同じ種類（・同じ契約者・同じ依頼者）は1時間あけてやり直す
-DRIVE_MISSING = "控え用のハードディスクがつながっていません"
 
 
 def _in(app: Access, tenant_id: UUID | None, client_id: UUID | None, work: Any) -> Any:
@@ -293,21 +176,21 @@ def _in(app: Access, tenant_id: UUID | None, client_id: UUID | None, work: Any) 
     return app.in_system(SYSTEM, work)
 
 
-def _record(app: Access, started: datetime, file_name: str | None, blob: bytes | None, counts: dict[str, int] | None,
-            placed: list[str], error: str | None, *, person: str | None, part: str = "system",
+def _record(app: Access, started: datetime, file_name: str | None, written: tuple[str, int] | None,
+            counts: dict[str, int] | None, error: str | None, *, person: str | None, part: str = "system",
             tenant_id: UUID | None = None, client_id: UUID | None = None) -> None:
     """1回ずつ記録する（やり直しは `_may_try` が1時間あけるので、失敗の行は種類・契約者・依頼者ごとに1日24行まで）。
     失敗の知らせのあて先（決めるのはここだけ）：
-    - 直すのが PC の前の作業（person＝ハードディスクをつなぐ・鍵を入れる）なら、その PC の持ち主へそれを知らせる（契約者の控え＝
-      その契約者・データベース全体の控え＝管理者）。
+    - 直すのが PC の前の作業（person＝ハードディスクをつなぐ・鍵を入れる。PC の部品が返す）なら、その PC の持ち主へそれを知らせる
+      （契約者の控え＝その契約者・データベース全体の控え＝管理者）。written＝PC が書いた暗号化したファイルの（指紋, 大きさ）。
     - ほかは種類ごとに CL-2 へ修正依頼（同じ不具合は、直したと報告するまで1つ）を出し、管理者へ知らせる（契約者の控えなら、
       その契約者にも。プログラムの誤りは直せるのが管理者だけ＝Intent.md 1-4）。"""
     def work(tx: Tx) -> None:
         tx.execute("INSERT INTO salescall.backup_runs (started_at, file_name, sha256, size_bytes, table_counts, destinations,"
                    " restore_ok, error, kind, tenant_id, client_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-                   (started, file_name, None if blob is None else hashlib.sha256(blob).hexdigest(),
-                    None if blob is None else len(blob), None if counts is None else json.dumps(counts, sort_keys=True), placed,
-                    error is None, error, part, tenant_id, client_id))
+                   (started, file_name, None if written is None else written[0], None if written is None else written[1],
+                    None if counts is None else json.dumps(counts, sort_keys=True),
+                    [] if written is None else [PLACE], error is None, error, part, tenant_id, client_id))
         if error is not None:
             day = tx.one("SELECT salescall.jst(now())::date AS d")["d"]
             if person is not None:   # PC の前の作業（プログラムの直しではない）
@@ -353,26 +236,6 @@ def due(app: Access) -> bool:
     return not app.in_system(SYSTEM, lambda tx: _done_today(tx, "system", None, None))
 
 
-def _drive_ready(app: Access, drive: "Drive", tenant_id: UUID | None) -> bool:
-    """ハードディスクがつながっているか。外れていれば、何も置かずに PC の持ち主へ「つないでください」（1時間に1回まで記録）。"""
-    if drive.attached():
-        return True
-    if _may_try(app, "drive", tenant_id):
-        _record(app, datetime.now().astimezone(), None, None, None, [], DRIVE_MISSING, person=DriveMissing.ask, part="drive",
-                tenant_id=tenant_id)
-    return False
-
-
-def _key(app: Access, environ: dict[str, str], tenant_id: UUID | None) -> bytes | None:
-    """PC の鍵を読む。無ければ PC の持ち主へ「鍵を入れてください」（1時間に1回まで記録）。"""
-    try:
-        return load_key(environ)
-    except KeyMissing as e:
-        if _may_try(app, "key", tenant_id):
-            _record(app, datetime.now().astimezone(), None, None, None, [], str(e), person=e.ask, part="key", tenant_id=tenant_id)
-        return None
-
-
 def latest(app: Access) -> dict[str, Any] | None:
     """いちばん新しい記録（管理者の画面が、控えが取れているかを見る）。"""
     return app.in_system(SYSTEM, lambda tx: tx.one(
@@ -381,14 +244,15 @@ def latest(app: Access) -> dict[str, Any] | None:
 
 
 # ═════════ 控えが取れているかの見張り（取る側の設定が無くても気づく。見直し8。DESIGN.md 3-10） ═════════
-# 控えを取る仕事は、取る PC に控え用のハードディスク（と、全体の控えなら接続の設定）があるときだけ動く。どの PC にも設定が無いと、
+# 控えは、その契約者の PC（控え用のハードディスクと鍵のあるもの）がつながっているときだけ書ける。PC が止まっている・設定が無いと、
 # 失敗の記録も知らせも出ないまま、控えが1つも無くなる（Intent.md 14-1「取れなかったら知らせる」と食い違い）。⇒ 取れたかを、取る仕事と
-# 別に、記録（backup_runs）だけから見る。見るのは設定に関係なく、どの PC でも動く見守り役の仕事。
+# 別に、記録（backup_runs）だけから見る。見るのは中央の見守り役で、すべての契約者の分（どの PC が止まっていても見落とさない＝5-5）。
 OVERDUE = timedelta(hours=26)   # 1日1回の控えが「取れていない」とみなす長さ（1日に、取る時刻のずれの余裕を足した長さ）
-OVERDUE_CLIENT = ("依頼者ごとの AI用の控えが1日以上取れていません。控え用のハードディスクと鍵の設定（SALESCALL_BACKUP_DRIVE・"
-                  "SALESCALL_BACKUP_KEY）を、この契約者の PC で確かめてください（手順：docs/PC_SETUP.md）。")
-OVERDUE_WHOLE = ("データベース全体の控えが1日以上取れていません。管理者の PC の設定（SALESCALL_OWNER_DSN・SALESCALL_RESTORE_DSN・"
-                 "SALESCALL_BACKUP_DRIVE・SALESCALL_BACKUP_KEY）を確かめてください（手順：docs/PC_SETUP.md）。")
+OVERDUE_CLIENT = ("依頼者ごとの AI用の控えが1日以上取れていません。この契約者の PC（PC の部品）が動いていて、控え用のハードディスクと"
+                  "鍵の設定（SALESCALL_BACKUP_DRIVE・SALESCALL_BACKUP_KEY）が入っているかを確かめてください（手順：docs/PC_SETUP.md）。")
+OVERDUE_WHOLE = ("データベース全体の控えが1日以上取れていません。サーバーの設定（SALESCALL_OWNER_DSN・SALESCALL_RESTORE_DSN・"
+                 "SALESCALL_WHOLE_BACKUP_PC）と、管理者の PC（PC の部品・控え用のハードディスクと鍵）を確かめてください"
+                 "（手順：docs/PC_SETUP.md）。")
 
 
 def _overdue(tx: Tx, part: str, since: Any) -> bool:
@@ -428,12 +292,11 @@ def watch_whole(app: Access) -> bool:
 
 
 # ═════════ 依頼者ごとの控え（2026-10-17 ユーザー決定。表の作り 0054） ═════════
-# ハードディスクの中の形：<ハードディスク>\salescall-backup\<依頼者のフォルダ>\AI・submission・recording ／ データベース全体は
-# <ハードディスク>\salescall-backup\system\AI。ユーザー：「E:\salescall-backup\client1\AI」「…\client1\submission」。
-BASE = "salescall-backup"
+# ハードディスクの中の形（書くのは PC の部品＝salescall/agent/backup.py）：<ハードディスク>\salescall-backup\<依頼者のフォルダ>\AI・
+# submission・recording ／ データベース全体は …\system\AI。ユーザー：「E:\salescall-backup\client1\AI」「…\client1\submission」。
 AI, SUBMISSION, RECORDING = "AI", "submission", "recording"
 WHOLE = "system"                                                    # データベース全体の控えのフォルダ（依頼者のフォルダには使えない名前）
-_DATED = re.compile(r"^salescall-(\d{8})-(\d{6})[.-].*\.enc$")      # 控えのファイルの名前（日時つき。消す決まりはこの名前だけを見る）
+PLACE = "PC に接続したハードディスク"                                # 記録に残す置き場の名前（Fly.io とは別の場所）
 # 会社の種類の言葉（フォルダの名前には入れない。2026-10-17 ユーザー：「架空商事-本社」だけでいい）。文字の形をそろえた（NFKC）あとの形で書く
 _COMPANY_KINDS = re.compile(
     r"(株式|有限|合同|合資|合名)会社|(一般|公益)(社団|財団)法人|特定非営利活動法人|NPO法人"
@@ -441,19 +304,6 @@ _COMPANY_KINDS = re.compile(
     r"|\((株|有|同|資|名|社|財|医|福|学|宗)\)")
 _BREAKS = re.compile(r'(\s|[\\/:*?"<>|\x00-\x1f])+')    # 区切り（空白・Windows で使えない文字）は「-」1つにする
 _RESERVED = {"con", "prn", "aux", "nul", WHOLE} | {f"com{i}" for i in range(1, 10)} | {f"lpt{i}" for i in range(1, 10)}
-
-
-@dataclass(frozen=True)
-class Drive:
-    """PC に接続したハードディスク（root＝その一番上。例 E:\\）。一番上の印のファイルで、つながっているかを見る。"""
-    root: Path
-
-    def attached(self) -> bool:
-        return (self.root / DRIVE_MARK).is_file()
-
-    def folder(self, *parts: str) -> AttachedDrive:
-        return AttachedDrive("PC に接続したハードディスク（" + "\\".join((BASE, *parts)) + "）", self.root.joinpath(BASE, *parts),
-                             drive_root=self.root)
 
 
 def folder_name_from(name: str) -> str | None:
@@ -515,29 +365,21 @@ def read_client_export(data: bytes) -> tuple[dict[str, Any], dict[str, list[dict
     return head, tables
 
 
-def _client_ai(app: Access, drive: Drive, tenant_id: UUID, client_id: UUID, *, key: bytes) -> Result:
-    """その依頼者の AI用の控え（その依頼者の取引で、1つの時点の行を書き出す）。"""
+def _client_ai(app: Access, writer: Writer, tenant_id: UUID, client_id: UUID) -> Result:
+    """その依頼者の AI用の控え（その依頼者の書かない取引で、1つの時点の行を書き出し、その契約者の PC へ書かせる）。"""
     started = datetime.now().astimezone()
-    file_name = f"salescall-{started:%Y%m%d-%H%M%S}.ai.enc"
-    blob, counts, placed = None, None, []
+    file_name = _name(started, ".ai.enc")
+    counts, written = None, None
     try:
-        dest = drive.folder(client_folder(app, tenant_id, client_id), AI)
+        folder = client_folder(app, tenant_id, client_id)
         data, counts = app.in_client(SYSTEM, tenant_id, client_id, lambda tx: _client_export(tx, client_id), read_only=True)
-        blob = encrypt(data, key, file_name)
-        dest.put(file_name, blob)
-        placed.append(dest.name)
-        back = dest.get(file_name)          # 読み戻して、指紋・復号・行の数を確かめる（戻せるか）
-        if hashlib.sha256(back).hexdigest() != hashlib.sha256(blob).hexdigest():
-            raise BackupFailed(f"置き場「{dest.name}」から読み戻した控えが、置いたものと違います")
-        head, tables = read_client_export(decrypt(back, key, file_name))
-        if head["counts"] != counts or {t: len(r) for t, r in tables.items()} != counts:
-            raise BackupFailed("読み戻した AI用の控えの行の数が、取ったときと違います")
+        written = writer.write([folder, AI], file_name, data, hashlib.sha256(data).hexdigest())
     except Exception as e:  # noqa: BLE001 ここで受けて記録する（止めない）
         error = _why(e)
-        _record(app, started, file_name if blob else None, blob, counts, placed, error, person=_ask(e),
-                part="client_ai", tenant_id=tenant_id, client_id=client_id)
+        _record(app, started, None, None, counts, error, person=_ask(e), part="client_ai", tenant_id=tenant_id,
+                client_id=client_id)
         return Result(False, None, error)
-    _record(app, started, file_name, blob, counts, placed, None, person=None, part="client_ai", tenant_id=tenant_id,
+    _record(app, started, file_name, written, counts, None, person=None, part="client_ai", tenant_id=tenant_id,
             client_id=client_id)
     return Result(True, file_name, None)
 
@@ -555,18 +397,16 @@ def _clients(app: Access, tenant_id: UUID) -> list[UUID]:
         "SELECT client_id FROM salescall.clients ORDER BY created_at, client_id")])
 
 
-def copy_submissions(app: Access, drive: Drive, tenant_id: UUID, *, key: bytes) -> list[Result]:
-    """その契約者の依頼者の、まだ写していない提出用のファイルを、ハードディスクへ写す。**見守り役が数分ごとに呼ぶ**（「提出用は
-    Fly.io には保存しない」＝2026-10-17 ユーザー。毎日1回だと最長1日 Fly.io に残るため）。ハードディスクが外れていれば写さずに残し
-    （消すと失う）、契約者に「つないでください」と知らせる。うまく写せた依頼者の分は返さない（失敗だけを返す）。"""
-    if not _drive_ready(app, drive, tenant_id):
-        return [Result(False, None, DRIVE_MISSING)]
+def copy_submissions(app: Access, writer: Writer, tenant_id: UUID) -> list[Result]:
+    """その契約者の依頼者の、まだ写していない提出用のファイルを、その契約者の PC へ写す。**中央の見守り役が数分ごとに呼ぶ**（「提出用は
+    Fly.io には保存しない」＝2026-10-17 ユーザー。毎日1回だと最長1日 Fly.io に残るため）。PC が書けなければ（ハードディスクが外れて
+    いる など）写さずに残し（消すと失う）、その PC の持ち主へ知らせる。うまく写せた依頼者の分は返さない（失敗だけを返す）。"""
     failed = []
     def step(client_id: UUID | None, work: Any) -> None:
         try:
             work()
         except Exception as e:  # noqa: BLE001 記録して続ける（止めない）
-            _record(app, datetime.now().astimezone(), None, None, None, [], _why(e), person=_ask(e),
+            _record(app, datetime.now().astimezone(), None, None, None, _why(e), person=_ask(e),
                     part="submission", tenant_id=tenant_id, client_id=client_id)
             failed.append(Result(False, None, _why(e)))
     clients: list[UUID] = []
@@ -574,36 +414,33 @@ def copy_submissions(app: Access, drive: Drive, tenant_id: UUID, *, key: bytes) 
         step(None, lambda: clients.extend(_clients(app, tenant_id)))
     for c in clients:
         if _may_try(app, "submission", tenant_id, c):
-            step(c, lambda c=c: _copy_submissions(app, drive, tenant_id, c, key=key))
+            step(c, lambda c=c: _copy_submissions(app, writer, tenant_id, c))
     return failed
 
 
-def _copy_submissions(app: Access, drive: Drive, tenant_id: UUID, client_id: UUID, *, key: bytes) -> int:
-    """まだ写していない提出用のファイルを、ハードディスクへ写す（暗号化・読み戻して確かめてから、Fly.io の中身を消す）。"""
+def _copy_submissions(app: Access, writer: Writer, tenant_id: UUID, client_id: UUID) -> int:
+    """まだ写していない提出用のファイルを、PC へ写す（PC が暗号化して書き、読み戻して確かめてから、Fly.io の中身を消す）。"""
     rows = app.in_client(SYSTEM, tenant_id, client_id, lambda tx: tx.all(
         "SELECT submission_id, delivered_at, file_name, sha256, content FROM salescall.submission_files"
         " WHERE copied_at IS NULL ORDER BY submission_id"))
     if not rows:
         return 0
-    dest = drive.folder(client_folder(app, tenant_id, client_id), SUBMISSION)
+    folder = client_folder(app, tenant_id, client_id)
     for r in rows:
         content = bytes(r["content"])
         if hashlib.sha256(content).hexdigest() != r["sha256"]:
             raise BackupFailed("提出用のファイルの中身が、置いたときと違います")
-        name = f"salescall-{r['delivered_at'].astimezone():%Y%m%d-%H%M%S}-{r['submission_id']}-{r['file_name']}.enc"
-        blob = encrypt(content, key, name)
-        dest.put(name, blob)
-        if decrypt(dest.get(name), key, name) != content:
-            raise BackupFailed(f"置き場「{dest.name}」から読み戻した提出用の控えが、置いたものと違います")
+        name = _name(r["delivered_at"], f"-{r['submission_id']}-{_safe(r['file_name'])}.enc")
+        writer.write([folder, SUBMISSION], name, content, r["sha256"])
         app.in_client(SYSTEM, tenant_id, client_id, lambda tx: tx.execute(
             "UPDATE salescall.submission_files SET content = NULL, copied_at = now(), copied_as = %s WHERE submission_id = %s",
             (name, r["submission_id"])))
     return len(rows)
 
 
-def open_file(path: Path, key: bytes) -> bytes:
-    """ハードディスクの控えのファイルを開く（復号する。問い合わせに答えるときなど）。"""
-    return decrypt(path.read_bytes(), key, path.name)
+def _safe(file_name: str) -> str:
+    """提出用のファイルの名前を、控えのファイルの名前に入れられる形に（英数字と「._-」だけ。ほかは「_」）。"""
+    return re.sub(r"[^0-9A-Za-z._-]", "_", file_name)[:80] or "file"
 
 
 def recording_file_name(attempt_id: UUID, started: datetime, part: str) -> str:
@@ -614,111 +451,72 @@ def recording_file_name(attempt_id: UUID, started: datetime, part: str) -> str:
     return f"salescall-{started.astimezone():%Y%m%d-%H%M%S}-{attempt_id}-{part}.enc"
 
 
-_HELD_ID = re.compile(r"-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-")
-
-
-def prune(app: Access, drive: Drive, tenant_id: UUID | None, *, now: datetime | None = None) -> int:
-    """残す日数を過ぎた控えを消す（名前に日時のある控えのファイルだけ）。tenant_id＝その契約者の依頼者のフォルダ（AI用・提出用＝
-    システムの設定、録音＝その契約者の設定）。None＝データベース全体のフォルダ（管理者の PC）。ほかの契約者のフォルダには触れない。
-    戻せることまで確かめた控えのうち、フォルダごとに一番新しいものは消さない（控えの失敗が長く続いても、1つは残る）。
-    録音は、測り終わるまで消さない印（`recordings.hold`）の付いた通話のものを消さない（2026-10-17 ユーザー 案A）。"""
-    now = datetime.now().astimezone() if now is None else now
-    def look(tx: Tx) -> tuple[dict[str, dict[str, int]], dict[str, set[str]]]:
+def prune_rules(app: Access, tenant_id: UUID | None) -> dict[str, Any]:
+    """古い控えを消す決まり（PC の部品が、この決まりでハードディスクの中を片付ける）：フォルダごとに、種類ごとの残す日数と、消さない
+    もの（戻せることまで確かめた AI用のファイルの名前＝一番新しいものを残す・測り終わるまで消さない通話の番号＝2026-10-17 ユーザー 案A）。
+    tenant_id＝その契約者の依頼者のフォルダ（AI用・提出用＝システムの設定、録音＝その契約者の設定）。None＝データベース全体のフォルダ。"""
+    def look(tx: Tx) -> dict[str, Any]:
         days = {AI: int(settings.system_value(tx, "backup.ai.keep_days_drive")),
                 SUBMISSION: int(settings.system_value(tx, "backup.submission.keep_days_drive"))}
         if tenant_id is None:
-            folders = {WHOLE: {AI: days[AI]}}
+            rows = tx.all("SELECT %s AS folder, file_name AS f FROM salescall.backup_runs WHERE restore_ok AND kind = 'system'"
+                          " AND file_name IS NOT NULL", (WHOLE,))
+            rules: dict[str, Any] = {WHOLE: {"days": {AI: days[AI]}, "verified": [], "held": []}}
         else:
             days[RECORDING] = int(settings.resolve(tx, "recording.keep_days_drive", tenant_id=tenant_id, client_id=None,
                                                    business_id=None))
-            folders = {r["f"]: days for r in tx.all("SELECT folder_name AS f FROM salescall.client_backup_folders")}
-        # 戻せることまで確かめた控え（フォルダとファイルの名前の組。ファイルの名前は時刻だけなので、依頼者が違えば同じ名前もある
-        # ＝フォルダごとに見る。2026-10-18 の見直し）
-        if tenant_id is None:
-            rows = tx.all("SELECT %s AS folder, file_name AS f FROM salescall.backup_runs WHERE restore_ok AND kind = 'system'",
-                          (WHOLE,))
-        else:
+            held = [str(r["h"]) for r in tx.all("SELECT salescall.recordings_held() AS h")]
+            rules = {r["f"]: {"days": dict(days), "verified": [], "held": held}
+                     for r in tx.all("SELECT folder_name AS f FROM salescall.client_backup_folders")}
+            # 戻せることまで確かめた控え（フォルダとファイルの名前の組。ファイルの名前は時刻だけなので、依頼者が違えば同じ名前もある
+            # ＝フォルダごとに見る。2026-10-18 の見直し）
             rows = tx.all("SELECT b.folder_name AS folder, r.file_name AS f FROM salescall.backup_runs r"
                           " JOIN salescall.client_backup_folders b ON b.client_id = r.client_id"
-                          " WHERE r.restore_ok AND r.kind = 'client_ai' AND r.tenant_id = %s", (tenant_id,))
-        verified: dict[str, set[str]] = {}
+                          " WHERE r.restore_ok AND r.kind = 'client_ai' AND r.tenant_id = %s AND r.file_name IS NOT NULL",
+                          (tenant_id,))
         for r in rows:
-            verified.setdefault(r["folder"], set()).add(r["f"])
-        return folders, verified
-    folders, verified = _in(app, tenant_id, None, look)
-    removed = 0
-    for name, keep in folders.items():
-        folder = drive.root / BASE / name
-        for kind, n in keep.items():
-            old = [f for f in ((folder / kind).iterdir() if (folder / kind).is_dir() else ())
-                   if (m := _DATED.match(f.name))
-                   and datetime.strptime(m.group(1) + m.group(2), "%Y%m%d%H%M%S").replace(tzinfo=now.tzinfo)
-                   < now - timedelta(days=n)]
-            if kind == AI and old:   # 消すものがあるときだけ（old があればフォルダはある）
-                newest = max((f.name for f in (folder / kind).iterdir() if f.name in verified.get(name, set())), default=None)
-                old = [f for f in old if f.name != newest]
-            if kind == RECORDING and old:
-                ids = {f: m.group(1) for f in old if (m := _HELD_ID.search(f.name))}
-                held = set(_in(app, tenant_id, None, lambda tx: [str(r["h"]) for r in tx.all(
-                    "SELECT salescall.recordings_held(%s::uuid[]) AS h", (sorted(set(ids.values())),))]))
-                old = [f for f in old if ids.get(f) not in held]
-            for f in old:
-                f.unlink()
-                removed += 1
-    return removed
+            if r["folder"] in rules:
+                rules[r["folder"]]["verified"].append(r["f"])
+        return rules
+    return _in(app, tenant_id, None, look)
 
 
-def _prune_step(app: Access, drive: Drive, tenant_id: UUID | None) -> list[Result]:
+def _prune_step(app: Access, writer: Writer, tenant_id: UUID | None) -> list[Result]:
     if not _may_try(app, "prune", tenant_id):
         return []
     started = datetime.now().astimezone()
     try:
-        prune(app, drive, tenant_id)
+        writer.prune(prune_rules(app, tenant_id))
     except Exception as e:  # noqa: BLE001 片付けが落ちても（ファイルが使用中など）、記録して続ける
-        _record(app, started, None, None, None, [], _why(e), person=_ask(e), part="prune", tenant_id=tenant_id)
+        _record(app, started, None, None, None, _why(e), person=_ask(e), part="prune", tenant_id=tenant_id)
         return [Result(False, None, _why(e))]
-    _record(app, started, None, None, None, [], None, person=None, part="prune", tenant_id=tenant_id)
+    _record(app, started, None, None, None, None, person=None, part="prune", tenant_id=tenant_id)
     return []
 
 
-# ═════════ 見守り役が呼ぶ入口（2つ。2026-10-18 ユーザー：「費用の見張りと控えは、契約者ごとですよ」） ═════════
-def run_contractor(app: Access, tenant_id: UUID, drive_root: Path, environ: dict[str, str]) -> list[Result]:
-    """契約者の控え（その契約者の PC の見守り役が数分ごとに呼んでよい。やるかは種類ごとに `_may_try`）：その契約者の依頼者ごとの
-    AI用（1日1回）→ 提出用を写す（数分ごと）→ その契約者のフォルダの古いものを消す（1日1回）。読むのは、その契約者の取引から見える
-    その契約者の行だけ（表の持ち主の接続は使わない）。置くのは、その PC のハードディスク・その PC の鍵（契約者が自分の Proton Pass に
-    置いた文字）。ハードディスク・鍵が無ければ、何も置かずに契約者へ知らせる。"""
-    key = _key(app, environ, tenant_id)
-    if key is None:
-        return [Result(False, None, PARTS["key"])]
-    drive = Drive(drive_root)
-    if not _drive_ready(app, drive, tenant_id):
-        return [Result(False, None, DRIVE_MISSING)]
+# ═════════ 中央の見守り役が呼ぶ入口（2つ。2026-10-18 ユーザー：「費用の見張りと控えは、契約者ごとですよ」） ═════════
+def run_contractor(app: Access, tenant_id: UUID, writer: Writer) -> list[Result]:
+    """契約者の控え（中央の見守り役が、その契約者の PC がつながっているあいだ数分ごとに呼んでよい。やるかは種類ごとに `_may_try`）：
+    その契約者の依頼者ごとの AI用（1日1回）→ 提出用を写す（数分ごと）→ その契約者のフォルダの古いものを消す（1日1回）。読むのは、
+    その契約者の取引から見えるその契約者の行だけ。書くのは、その契約者の PC（その PC のハードディスク・その PC の鍵）。"""
     results = []
     try:
         clients = _clients(app, tenant_id) if _may_try(app, "client_ai", tenant_id) else []
     except Exception as e:  # noqa: BLE001 依頼者の一覧が読めない：記録して続ける（止めない）
-        _record(app, datetime.now().astimezone(), None, None, None, [], _why(e), person=None, part="client_ai", tenant_id=tenant_id)
+        _record(app, datetime.now().astimezone(), None, None, None, _why(e), person=None, part="client_ai", tenant_id=tenant_id)
         results.append(Result(False, None, _why(e)))
         clients = []
     for c in clients:
         if _may_try(app, "client_ai", tenant_id, c):
-            results.append(_client_ai(app, drive, tenant_id, c, key=key))
-    results += copy_submissions(app, drive, tenant_id, key=key)
-    return results + _prune_step(app, drive, tenant_id)
+            results.append(_client_ai(app, writer, tenant_id, c))
+    results += copy_submissions(app, writer, tenant_id)
+    return results + _prune_step(app, writer, tenant_id)
 
 
-def run_whole(app: Access, source_conninfo: str, restore_conninfo: str, drive_root: Path,
-              environ: dict[str, str]) -> list[Result]:
-    """データベース全体の控え（管理者の PC の見守り役が呼ぶ。1日1回、戻せるかまで確かめる）と、そのフォルダの古いものを消す。
-    データベース全体には、すべての契約者のデータが入るので、管理者のハードディスクにだけ置く（契約者の PC には置かない。データベースを
-    契約者ごとに分けたら、その契約者のデータベースの控えとして、その契約者の PC で取る＝Intent.md 1-4）。"""
-    key = _key(app, environ, None)
-    if key is None:
-        return [Result(False, None, PARTS["key"])]
-    drive = Drive(drive_root)
-    if not _drive_ready(app, drive, None):
-        return [Result(False, None, DRIVE_MISSING)]
+def run_whole(app: Access, source_conninfo: str, restore_conninfo: str, writer: Writer) -> list[Result]:
+    """データベース全体の控え（中央の見守り役が呼ぶ。1日1回、戻せるかまで確かめる）と、そのフォルダの古いものを消す。すべての
+    契約者のデータが入るので、管理者の PC にだけ書く（writer＝管理者の PC の部品）。"""
     results = []
     if _may_try(app, "system"):
-        results.append(take(app, source_conninfo, restore_conninfo, [drive.folder(WHOLE, AI)], key=key))
-    return results + _prune_step(app, drive, None)
+        results.append(take(app, source_conninfo, restore_conninfo, writer))
+    return results + _prune_step(app, writer, None)

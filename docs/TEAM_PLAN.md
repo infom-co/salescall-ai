@@ -74,7 +74,7 @@
 |---|---|
 | `phase0/`（フェーズ0の確かめと、会話の試作） | CL-1 |
 | `app/`（本番のコード。2026-10-13 ユーザー決定。案と条件：`docs/TECH_CHOICE_CL-2.md` 9章） | 下の表のとおり、持ち場ごとに分ける |
-| `app/src/salescall/core/`・`app/db/`・`app/checks/`・`app/src/salescall/supervisor/` | CL-2（データの形・読み書きの層・門・発信の出口・判定・次の動き・取込・控え・機械の見張り・見守り役） |
+| `app/src/salescall/core/`・`app/db/`・`app/checks/`・`app/src/salescall/supervisor/`・`app/src/salescall/agent/`・`app/src/salescall/link/` | CL-2（データの形・読み書きの層・門・発信の出口・判定・次の動き・取込・控え・機械の見張り・中央の見守り役とつなぎ口・PC の部品の土台。2026-10-21 ユーザー承認：サーバーと PC に分ける＝DESIGN.md 5-5。PC の部品の中の電話の部品は電話接続の担当） |
 | `app/src/salescall/conversation/` | CL-1（会話AI接続・流れの制御・指示文・通話後の検証・キーの選択） |
 | `app/src/salescall/core/value_types.py`（⏳ 2026-10-21：まだ作られていない。いまの会話の値の確かめは CL-1 の試作 `phase0/` の中） | CL-1（型の一覧 Q19 と、型ごとの値の決まり・確かめ。会話の処理と CL-2 の書き込む入口の両方が呼ぶので core に置く。2026-10-13 CL-1 の案・CL-2 賛成。**2026-10-14 ユーザー承認**。このファイルは答えの形の確かめだけを持ち、データベースの読み書きはしない＝機械が見張る） |
 | `app/src/salescall/web/` | CL-3（ダッシュボード・検証モードの画面） |

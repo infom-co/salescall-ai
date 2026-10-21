@@ -1,4 +1,4 @@
-"""データベースの控えの試験（Intent.md 14-1。core/backup.py・表の作り 0052）。"""
+"""データベースの控えの試験（Intent.md 14-1。core/backup.py＝サーバーの側・agent/backup.py＝PC の側・表の作り 0052。DESIGN.md 5-5）。"""
 
 from __future__ import annotations
 
@@ -6,68 +6,76 @@ import os
 import tempfile
 import unittest
 from unittest import mock
-from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from salescall.agent import backup as pc
 from salescall.core import backup, fix_requests, registry
 from salescall.core.access import Rejected
+from salescall.link import sealing
+from salescall.link.protocol import JST, RemoteError
 from tests.support import ADMIN, OPERATOR, SYSTEM, World, app_access, owner_access
 
-KEY = bytes(range(32))   # 試験の鍵（本番の鍵は呼ぶ側が渡す）
-ENV = {backup.KEY_ENV: "試験の控えの鍵の文字-0123456789abcdef"}   # 試験の PC の環境変数（架空の鍵の文字）
-CKEY = backup.load_key(ENV)
+ENV = {sealing.KEY_ENV: "試験の控えの鍵の文字-0123456789abcdef"}   # 試験の PC の環境変数（架空の鍵の文字）
+CKEY = sealing.load_key(ENV)
 
 
-@dataclass(frozen=True)
-class Tampered(backup.LocalDirectory):
-    """読み戻すと中身が変わっている置き場（置いた控えが壊れた・取り替えられた）。"""
-    def get(self, file_name: str) -> bytes:
-        data = bytearray(super().get(file_name))
-        data[-1] ^= 0xFF
-        return bytes(data)
+def drive_at(root: Path) -> Path:
+    root.mkdir(parents=True, exist_ok=True)
+    (root / pc.DRIVE_MARK).write_text("控え用")
+    return root
+
+
+def writer(root: Path, environ: dict[str, str] = ENV) -> pc.LocalWriter:
+    """PC の部品が使う書く口（本物の暗号化・書き・読み戻しの道）。"""
+    return pc.LocalWriter(pc.Drive(root), environ)
+
+
+class Failing:
+    """書けない PC（PC の部品が誤りを返す）。"""
+
+    def __init__(self, message: str, ask: str | None = None) -> None:
+        self.message, self.ask = message, ask
+
+    def write(self, *a, **k):
+        raise RemoteError(self.message, ask=self.ask)
+
+    def prune(self, *a, **k):
+        raise RemoteError(self.message, ask=self.ask)
 
 
 class Backup(unittest.TestCase):
     def setUp(self):
         self.app = app_access()
         self.tmp = Path(tempfile.mkdtemp(prefix="salescall-test-backup-"))
-        self.here = backup.LocalDirectory("PC の中（試験）", self.tmp / "pc")
-        self.drive_root = self.tmp / "hdd"
-        self.drive_root.mkdir()
-        (self.drive_root / backup.DRIVE_MARK).write_text("控え用")
-        self.away = backup.AttachedDrive("PC に接続したハードディスク（試験）", self.drive_root / "salescall", drive_root=self.drive_root)
+        self.root = drive_at(self.tmp / "hdd")
         World().setup()                                             # 控えに入る行を作っておく
 
-    def take(self, destinations, key=KEY):
-        return backup.take(self.app, os.environ["SALESCALL_TEST_OWNER_DSN"], os.environ["SALESCALL_TEST_RESTORE_DSN"],
-                           destinations, key=key)
+    def take(self, w, *, restore=None):
+        return backup.take(self.app, os.environ["SALESCALL_TEST_OWNER_DSN"], restore or os.environ["SALESCALL_TEST_RESTORE_DSN"], w)
 
-    def test_take_place_on_the_attached_drive_and_restore_with_the_same_counts(self):
-        got = self.take([self.here, self.away])
+    def test_take_restore_on_the_server_then_the_pc_writes_it_encrypted(self):
+        """サーバーが書き出して戻せることを確かめてから、管理者の PC が自分の鍵で暗号化して書き、読み戻して確かめる（サーバーは鍵を
+        持たない＝2026-10-21 ユーザー承認の分け方）。"""
+        got = self.take(writer(self.root))
         self.assertTrue(got.ok, got.error)
-        for d in (self.here, self.away):
-            blob = (d.path / got.file_name).read_bytes()
-            self.assertTrue(blob.startswith(backup.MAGIC))
-            self.assertNotIn("架空の依頼者".encode(), blob)             # 暗号化してある（中身が読めない）
+        path = self.root / pc.BASE / backup.WHOLE / backup.AI / got.file_name
+        blob = path.read_bytes()
+        self.assertTrue(blob.startswith(sealing.MAGIC))
+        self.assertNotIn("架空の依頼者".encode(), blob)             # 暗号化してある（中身が読めない）
         row = backup.latest(self.app)
-        self.assertEqual((row["restore_ok"], row["error"], sorted(row["destinations"])),
-                         (True, None, sorted([self.here.name, self.away.name])))
+        self.assertEqual((row["restore_ok"], row["error"], row["destinations"]), (True, None, [backup.PLACE]))
         self.assertFalse(backup.due(self.app))                       # 今日の分は済んだ
-        with self.assertRaises(backup.BackupFailed):                  # 違う鍵では戻せない
-            backup.decrypt((self.away.path / got.file_name).read_bytes(), bytes(32), got.file_name)
+        with self.assertRaises(sealing.SealError):                   # 違う鍵では戻せない
+            sealing.decrypt(blob, bytes(32), got.file_name)
+        self.assertRegex(got.file_name, r"^salescall-\d{8}-\d{6}\.dump\.enc$")
 
     def test_a_failure_does_not_stop_and_asks_cl2_to_fix_it(self):
-        """取れない・戻せないときは、止めずに CL-2 へ修正依頼を出し、管理者に知らせる（2026-10-17 ユーザー）。"""
-        for destinations, key, says in (([self.here], KEY, "Fly.io とは別の場所"),
-                                        ([self.here, self.away], b"short", "32バイト"),
-                                        ([self.here, Tampered("壊れた置き場", self.tmp / "bad", offsite=True)], KEY,
-                                         "置いたものと違います")):
-            with self.subTest(says=says):
-                got = self.take(destinations, key=key)
-                self.assertFalse(got.ok)
-                self.assertIn(says, got.error)
-                self.assertFalse(backup.latest(self.app)["restore_ok"])
+        """取れない・書けない・戻せないときは、止めずに CL-2 へ修正依頼を出し、管理者に知らせる（2026-10-17 ユーザー）。"""
+        got = self.take(Failing("ハードディスクから読み戻した控えが、書いたものと違います"))
+        self.assertFalse(got.ok)
+        self.assertIn("書いたものと違います", got.error)
+        self.assertFalse(backup.latest(self.app)["restore_ok"])
         asked = self.app.in_system(SYSTEM, lambda tx: fix_requests.open_requests(tx, "CL-2"))
         self.assertIn("backup_failed", [r["kind"] for r in asked])
         told = self.app.in_system(ADMIN, lambda tx: tx.all(
@@ -78,12 +86,12 @@ class Backup(unittest.TestCase):
 
     def test_the_check_never_wipes_the_real_database(self):
         """確かめ用の接続先を本番と書き間違えても、消さずに止める（2026-10-18 の見直し）。"""
-        got = backup.take(
-            self.app, os.environ["SALESCALL_TEST_OWNER_DSN"], os.environ["SALESCALL_TEST_OWNER_DSN"], [self.away], key=KEY)
+        got = self.take(writer(self.root), restore=os.environ["SALESCALL_TEST_OWNER_DSN"])
         self.assertFalse(got.ok)
         self.assertIn("本番のデータベースと同じ", got.error)
         n = owner_access().in_system(SYSTEM, lambda tx: tx.one("SELECT count(*) AS n FROM salescall.clients"))["n"]
         self.assertGreater(n, 0)                                        # 本番の表は残っている
+        self.assertFalse((self.root / pc.BASE).exists())               # 戻せることを確かめる前に PC へ送らない
 
     def test_tool_errors_do_not_carry_customer_data(self):
         """道具の誤りの文（お客様の行の中身が入りうる）は残さず、段と種類だけを残す。パスワードは引数に入れない。"""
@@ -96,33 +104,67 @@ class Backup(unittest.TestCase):
         self.assertEqual(secret, {"PGPASSWORD": "架空のパスワード"})
 
     def test_a_missing_drive_is_not_written_inside_the_pc_and_asks_a_person_to_attach_it(self):
-        """ハードディスクが外れていたら置かない（PC の中に同じ名前のフォルダを作って置いてしまわない）。つなぐのは人なので、
-        修正依頼ではなく、管理者に「つないでください」と知らせる。"""
-        (self.drive_root / backup.DRIVE_MARK).unlink()
-        got = self.take([self.away])
+        """ハードディスクが外れていたら書かない（PC の中に同じ名前のフォルダを作って書いてしまわない）。つなぐのは PC の持ち主なので、
+        修正依頼ではなく「つないでください」と知らせる（全体の控え＝管理者）。"""
+        (self.root / pc.DRIVE_MARK).unlink()
+        got = self.take(writer(self.root))
         self.assertFalse(got.ok)
         self.assertIn("つながっていません", got.error)
-        self.assertFalse((self.drive_root / "salescall").exists())
+        self.assertFalse((self.root / pc.BASE).exists())
         told = self.app.in_system(ADMIN, lambda tx: [r["summary"] for r in tx.all(
             "SELECT summary FROM salescall.notification_events WHERE kind = 'backup_failed' AND for_admin")])
-        self.assertIn("控え用のハードディスクがつながっていません。PC にハードディスクをつないでください。", told)
+        self.assertIn(pc.DriveMissing.ask, told)
 
 
-class Key(unittest.TestCase):
-    """控えの鍵：Proton Pass で作った文字を PC の環境変数に入れ、そこから作る（2026-10-17 ユーザー）。"""
+class OnThePc(unittest.TestCase):
+    """PC の部品の、控えを書く所（agent/backup.py）。鍵は PC と Proton Pass だけ（2026-10-17 ユーザー 案A・10-21 の分け方）。"""
+
+    def setUp(self):
+        self.root = drive_at(Path(tempfile.mkdtemp(prefix="salescall-test-pc-")))
 
     def test_the_same_text_makes_the_same_key_and_the_value_is_never_shown(self):
         text = "架空の鍵の元-0123456789-abcdefghij"
-        key = backup.load_key({backup.KEY_ENV: text + "\n"})            # 写したときの改行は外す
-        self.assertEqual((len(key), key), (32, backup.key_from_text(text)))
-        self.assertNotEqual(key, backup.key_from_text(text + "x"))
-        blob = backup.encrypt(b"data", key, "f")
-        self.assertEqual(backup.decrypt(blob, backup.load_key({backup.KEY_ENV: text}), "f"), b"data")
-        for env, says in (({}, "入っていません"), ({backup.KEY_ENV: "short-secret"}, "20文字以上")):
-            with self.subTest(says=says), self.assertRaises(backup.BackupFailed) as got:
-                backup.load_key(env)
+        key = sealing.load_key({sealing.KEY_ENV: text + "\n"})          # 写したときの改行は外す
+        self.assertEqual((len(key), key), (32, sealing.key_from_text(text)))
+        self.assertNotEqual(key, sealing.key_from_text(text + "x"))
+        blob = sealing.encrypt(b"data", key, "f")
+        self.assertEqual(sealing.decrypt(blob, sealing.load_key({sealing.KEY_ENV: text}), "f"), b"data")
+        self.assertTrue(sealing.key_matches(text + "\n", {sealing.KEY_ENV: text}))
+        self.assertFalse(sealing.key_matches(text[:-1] + "J", {sealing.KEY_ENV: text}))
+        for env, says in (({}, "入っていません"), ({sealing.KEY_ENV: "short-secret"}, "20文字以上")):
+            with self.subTest(says=says), self.assertRaises(sealing.KeyMissing) as got:
+                sealing.load_key(env)
             self.assertIn(says, str(got.exception))
             self.assertNotIn("short-secret", str(got.exception))
+
+    def test_writes_only_good_names_and_checks_what_it_reads_back(self):
+        """書くのは、決まった名前・フォルダだけ（上のフォルダへ出ない）。受け取った中身が欠けていたら書かない。読み戻して違えば誤り。
+        鍵・ハードディスクが無ければ、PC の前の作業として返す。"""
+        import hashlib
+        w, data = writer(self.root), b"\x00\x01"
+        sha = hashlib.sha256(data).hexdigest()
+        sha_enc, size = w.write(["client1", "AI"], "salescall-20261021-120000.ai.enc", data, sha)
+        f = self.root / pc.BASE / "client1" / "AI" / "salescall-20261021-120000.ai.enc"
+        self.assertEqual((hashlib.sha256(f.read_bytes()).hexdigest(), size), (sha_enc, f.stat().st_size))
+        self.assertEqual(sealing.decrypt(f.read_bytes(), CKEY, f.name), data)
+        for folder, name, says in ((["..", "AI"], "salescall-1.ai.enc", "フォルダ"), (["client1", "x"], "salescall-1.ai.enc", "フォルダ"),
+                                   (["client1", "AI"], "../x.enc", "名前"), (["client1", "AI"], "メモ.txt", "名前")):
+            with self.subTest(folder=folder, name=name), self.assertRaises(RemoteError) as got:
+                w.write(folder, name, data, sha)
+            self.assertIn(says, str(got.exception))
+        with self.assertRaises(RemoteError) as got:
+            w.write(["client1", "AI"], "salescall-2.ai.enc", data, "0" * 64)
+        self.assertIn("欠けた", str(got.exception))
+        with mock.patch.object(pc.sealing, "decrypt", return_value=b"x"), self.assertRaises(RemoteError) as got:
+            w.write(["client1", "AI"], "salescall-3.ai.enc", data, sha)
+        self.assertIn("書いたものと違います", str(got.exception))
+        with self.assertRaises(RemoteError) as got:
+            writer(self.root, {}).write(["client1", "AI"], "salescall-4.ai.enc", data, sha)
+        self.assertEqual(got.exception.ask, sealing.KeyMissing.ask)
+        (self.root / pc.DRIVE_MARK).unlink()
+        with self.assertRaises(RemoteError) as got:
+            w.write(["client1", "AI"], "salescall-5.ai.enc", data, sha)
+        self.assertEqual(got.exception.ask, pc.DriveMissing.ask)
 
 
 class PerClient(unittest.TestCase):
@@ -134,16 +176,14 @@ class PerClient(unittest.TestCase):
     def setUp(self):
         self.app = app_access()
         self.w = World()
-        self.root = Path(tempfile.mkdtemp(prefix="salescall-test-hdd-"))
-        (self.root / backup.DRIVE_MARK).write_text("控え用")
-        self.drive = backup.Drive(self.root)
+        self.root = drive_at(Path(tempfile.mkdtemp(prefix="salescall-test-hdd-")))
 
     def run_contractor(self, tenant, environ=ENV):
-        return backup.run_contractor(self.app, tenant, self.root, environ)
+        return backup.run_contractor(self.app, tenant, writer(self.root, environ))
 
     def run_whole(self, environ=ENV):
         return backup.run_whole(self.app, os.environ["SALESCALL_TEST_OWNER_DSN"], os.environ["SALESCALL_TEST_RESTORE_DSN"],
-                                self.root, environ)
+                                writer(self.root, environ))
 
     def named_client(self, t, name):
         return self.w.a.in_tenant(OPERATOR, t, lambda tx: registry.create_client(tx, name))
@@ -195,13 +235,13 @@ class PerClient(unittest.TestCase):
             tx, "よその結果.csv", "よその結果".encode()))
         results = self.run_contractor(s["tenant"])
         self.assertTrue(all(r.ok for r in results), [r.error for r in results if not r.ok])
-        base = self.root / backup.BASE
+        base = self.root / pc.BASE
         folder = backup.client_folder(self.app, s["tenant"], s["client"])
         self.assertEqual(sorted(p.name for p in base.iterdir()), [folder])   # ほかの契約者の依頼者・データベース全体は置かない
         again = self.run_contractor(s["tenant"])                          # 数分後にもう一度：今日の分は済んだので、重ねて取らない
         ai = list((base / folder / backup.AI).glob("salescall-*.ai.enc"))
         self.assertEqual((again, len(ai)), ([], 1))
-        head, tables = backup.read_client_export(backup.open_file(ai[0], CKEY))
+        head, tables = backup.read_client_export(sealing.decrypt(ai[0].read_bytes(), CKEY, ai[0].name))
         self.assertEqual(head["client_id"], str(s["client"]))
         self.assertTrue(tables["tasks"])                                  # その依頼者の行が入っている
         self.assertEqual({r["client_id"] for rows in tables.values() for r in rows}, {str(s["client"])})   # ほかの依頼者は入らない
@@ -210,13 +250,13 @@ class PerClient(unittest.TestCase):
         self.assertEqual({t: n for t, n in head["counts"].items() if t != "backup_runs"},
                          {t: n for t, n in own.items() if t != "backup_runs"})   # 契約者の取引からでも、その依頼者の行はすべて入る
         copied = list((base / folder / backup.SUBMISSION).glob("salescall-*.enc"))
-        self.assertEqual([backup.open_file(f, CKEY) for f in copied], ["架空の結果".encode()])
+        self.assertEqual([sealing.decrypt(f.read_bytes(), CKEY, f.name) for f in copied], ["架空の結果".encode()])
         row = self.w.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: tx.one(
             "SELECT content, copied_as FROM salescall.submission_files WHERE submission_id = %s", (sub,)))
         self.assertEqual((row["content"], row["copied_as"]), (None, copied[0].name))   # Fly.io には残さない
         left = self.w.a.in_client(SYSTEM, other["tenant"], other["client"], lambda tx: tx.one(
             "SELECT content FROM salescall.submission_files WHERE submission_id = %s", (theirs,)))["content"]
-        self.assertIsNotNone(left)                                        # ほかの契約者の提出用は、その契約者の PC が写す
+        self.assertIsNotNone(left)                                        # ほかの契約者の提出用は、その契約者の PC へ写す
         with self.assertRaises(Rejected):                                 # 写した記録は変えられない
             self.w.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: tx.execute(
                 "UPDATE salescall.submission_files SET copied_as = 'x' WHERE submission_id = %s", (sub,)))
@@ -228,17 +268,18 @@ class PerClient(unittest.TestCase):
                                read_only=True)
         with self.assertRaises(Rejected):                                 # 記録を書けるのはシステムの処理だけ
             self.app.in_tenant(OPERATOR, s["tenant"], lambda tx: tx.execute(
-                "INSERT INTO salescall.backup_runs (kind, tenant_id, restore_ok, error) VALUES ('drive', %s, false, '試験')",
+                "INSERT INTO salescall.backup_runs (kind, tenant_id, restore_ok, error) VALUES ('prune', %s, false, '試験')",
                 (s["tenant"],)))
 
-    def test_the_whole_database_is_backed_up_only_by_the_admin_pc(self):
-        """データベース全体の控え（すべての契約者のデータが入る）は、管理者の PC だけ。記録は契約者を持たない。"""
+    def test_the_whole_database_is_backed_up_only_to_the_admin_pc(self):
+        """データベース全体の控え（すべての契約者のデータが入る）は、管理者の PC へだけ（どの PC かはサーバーの設定＝
+        SALESCALL_WHOLE_BACKUP_PC。つなぎ口が、その PC にだけ書かせる）。記録は契約者を持たない。"""
         World().setup()
         # 1日1回（ほかの試験が今日もう取っていれば取らない）。ほかの試験が1時間以内に失敗させていれば、やり直さない
         was_due = backup.due(self.app) and backup._may_try(self.app, "system")
         results = self.run_whole()
         self.assertTrue(all(r.ok for r in results), [r.error for r in results if not r.ok])
-        base = self.root / backup.BASE
+        base = self.root / pc.BASE
         self.assertEqual(bool(list((base / backup.WHOLE / backup.AI).glob("salescall-*.dump.enc"))), was_due)
         self.assertFalse(was_due and backup.due(self.app))
         self.assertEqual([p.name for p in (base.iterdir() if base.exists() else ()) if p.name != backup.WHOLE], [])   # 依頼者のフォルダは作らない
@@ -248,44 +289,45 @@ class PerClient(unittest.TestCase):
                 " VALUES ('system', salescall.cur_tenant(), false, '試験')"))
 
     def test_submissions_are_copied_right_away_and_kept_while_the_drive_is_missing(self):
-        """見守り役が数分ごとに写す（Fly.io に残る時間を短く）。ハードディスクが外れていれば写さずに残し（消すと失う）、つないだら写す。
-        つなぐのは契約者（その PC の持ち主）なので、修正依頼ではなく、その契約者に「つないでください」と知らせる。"""
+        """中央の見守り役が数分ごとに写す（Fly.io に残る時間を短く）。ハードディスクが外れていれば写さずに残し（消すと失う）、つないだら
+        写す。つなぐのは契約者（その PC の持ち主）なので、修正依頼ではなく、その契約者に「つないでください」と知らせる。"""
         s = World().setup()
         sub = self.w.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: backup.record_submission(
             tx, "結果.csv", "架空の結果".encode()))
         content = lambda: self.w.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: tx.one(   # noqa: E731
             "SELECT content FROM salescall.submission_files WHERE submission_id = %s", (sub,)))["content"]
-        (self.root / backup.DRIVE_MARK).unlink()
+        (self.root / pc.DRIVE_MARK).unlink()
         for _ in range(3):                                               # 数分ごとに呼ばれても（まだ外れている）
-            self.assertEqual([r.error for r in backup.copy_submissions(self.app, self.drive, s["tenant"], key=CKEY)],
-                             [backup.DRIVE_MISSING])
-        self.assertEqual([r["kind"] for r in self.runs(s["tenant"])], ["drive"])   # 記録は1時間に1行まで
-        self.assertEqual([r["summary"] for r in self.notices(s["tenant"])], [backup.DriveMissing.ask])
+            got = backup.copy_submissions(self.app, writer(self.root), s["tenant"])
+            self.assertTrue(all("つながっていません" in r.error for r in got), got)
+        self.assertEqual([r["kind"] for r in self.runs(s["tenant"])], ["submission"])   # 記録は1時間に1行まで
+        self.assertEqual([r["summary"] for r in self.notices(s["tenant"])], [pc.DriveMissing.ask])
         self.assertNotIn(s["tenant"], [r["origin_tenant"] for r in self.notices()])   # 管理者の作業ではない
         self.assertIsNotNone(content())                                   # 外れている間は残す
-        (self.root / backup.DRIVE_MARK).write_text("控え用")
-        self.assertEqual(backup.copy_submissions(self.app, self.drive, s["tenant"], key=CKEY), [])
-        self.assertIsNone(content())
-        self.assertEqual(backup.copy_submissions(self.app, self.drive, s["tenant"], key=CKEY), [])   # 写すものが無ければ何もしない
+        (self.root / pc.DRIVE_MARK).write_text("控え用")
+        with mock.patch.object(backup, "RETRY_AFTER", timedelta(0)):    # 1時間あけるのを待たない
+            self.assertEqual(backup.copy_submissions(self.app, writer(self.root), s["tenant"]), [])
+            self.assertIsNone(content())
+            self.assertEqual(backup.copy_submissions(self.app, writer(self.root), s["tenant"]), [])   # 写すものが無ければ何もしない
 
     def test_a_missing_key_is_asked_to_that_contractor(self):
         """鍵が無ければ、その契約者に「鍵を入れてください」。2人の契約者が同じ日に同じ知らせ（同じ鍵の出来事）になっても、
         それぞれに届く（知らせの「同じ出来事」は契約者ごと＝0064）。"""
         s, other = World().setup(), World().setup()
         for x in (s, other):
-            self.assertEqual([r.ok for r in self.run_contractor(x["tenant"], environ={})], [False])
-            self.assertEqual([r["kind"] for r in self.runs(x["tenant"])], ["key"])
-            self.assertEqual([r["summary"] for r in self.notices(x["tenant"])], [backup.KeyMissing.ask])
-        self.assertFalse((self.root / backup.BASE).exists())
+            self.assertFalse(any(r.ok for r in self.run_contractor(x["tenant"], environ={})))
+            self.assertIn("client_ai", [r["kind"] for r in self.runs(x["tenant"])])
+            self.assertEqual({r["summary"] for r in self.notices(x["tenant"])}, {sealing.KeyMissing.ask})
+        self.assertFalse((self.root / pc.BASE).exists())
 
     def test_failures_are_asked_to_fix_by_kind_and_told_to_the_admin_and_that_contractor(self):
         """同じ日に、データベース全体と依頼者ごとの控えが両方失敗したら、修正依頼も種類ごとに出る（片方が埋もれない）。
         プログラムの誤りは、管理者へ（直せるのは管理者だけ）と、契約者の控えならその契約者へも知らせる。2人の契約者の知らせは、
         同じ日の同じ種類でも、それぞれに届く（0064）。"""
         s, other = World().setup(), World().setup()
-        got = [backup._client_ai(self.app, self.drive, x["tenant"], x["client"], key=b"short") for x in (s, other)]
-        got.append(backup.take(self.app, os.environ["SALESCALL_TEST_OWNER_DSN"], os.environ["SALESCALL_TEST_RESTORE_DSN"],
-                               [self.drive.folder(backup.WHOLE, backup.AI)], key=b"short"))
+        broken = Failing("ハードディスクに書けません（OSError）")
+        got = [backup._client_ai(self.app, broken, x["tenant"], x["client"]) for x in (s, other)]
+        got.append(backup.take(self.app, os.environ["SALESCALL_TEST_OWNER_DSN"], os.environ["SALESCALL_TEST_RESTORE_DSN"], broken))
         self.assertFalse(any(r.ok for r in got))
         asked = self.app.in_system(SYSTEM, lambda tx: [r["summary"] for r in fix_requests.open_requests(tx, "CL-2")
                                                        if r["kind"] == "backup_failed"])
@@ -306,7 +348,7 @@ class PerClient(unittest.TestCase):
         second = self.named_client(s["tenant"], "架空の依頼者（2）")
         soon = datetime.now().astimezone() + timedelta(seconds=30)
         ok = lambda c, error=None: backup._record(   # noqa: E731
-            self.app, soon, "x.ai.enc", b"x", {"tasks": 1}, ["試験の場所1", "試験の場所2"], error, person=None, part="client_ai",
+            self.app, soon, "x.ai.enc", ("0" * 64, 1), {"tasks": 1}, error, person=None, part="client_ai",
             tenant_id=s["tenant"], client_id=c)
         watch = lambda: sorted(c for c in (s["client"], second) if backup.watch_client(self.app, s["tenant"], c))   # noqa: E731
         mine = lambda: [r["summary"] for r in self.notices(s["tenant"]) if r["summary"] == backup.OVERDUE_CLIENT]   # noqa: E731
@@ -329,7 +371,7 @@ class PerClient(unittest.TestCase):
             self.assertEqual([r["origin_tenant"] for r in whole()], [None])
             backup.watch_whole(self.app)
             self.assertEqual(len(whole()), 1)
-            backup._record(self.app, soon, "x.dump.enc", b"x", {"tasks": 1}, ["試験の場所1", "試験の場所2"], None, person=None)
+            backup._record(self.app, soon, "x.dump.enc", ("0" * 64, 1), {"tasks": 1}, None, person=None)
             self.assertFalse(backup.watch_whole(self.app))
         self.assertNotIn(backup.OVERDUE_WHOLE, [r["summary"] for r in self.notices(s["tenant"])])   # 全体の控えは契約者へ知らせない
 
@@ -356,18 +398,19 @@ class PerClient(unittest.TestCase):
         s = World().setup()
         other = World().setup(tenant=s["tenant"])
         for x in (s, other):
-            self.assertFalse(backup._client_ai(self.app, self.drive, x["tenant"], x["client"], key=b"short").ok)
+            self.assertFalse(backup._client_ai(self.app, Failing("ハードディスクに書けません（OSError）"), x["tenant"], x["client"]).ok)
         self.assertEqual(len(self.notices(s["tenant"])), 2)
 
     def test_old_backups_are_removed_by_kind_only_in_that_contractors_folders(self):
-        """AI用は1年、提出用は3年（ハードディスク）。名前に日時のある控えのファイルだけを消す。ほかの契約者のフォルダには触れない
-        （ハードディスクは PC＝契約者ごと。フォルダの名前は契約者の中で重ならない＝ほかの契約者と同じ名前でもよい。0084）。"""
+        """AI用は1年、提出用は3年（ハードディスク）。名前に日時のある控えのファイルだけを消す。決まり（残す日数・消さないもの）は
+        サーバーが決め（`prune_rules`）、ハードディスクの中を消すのは PC（`agent.backup.prune`）。ほかの契約者のフォルダには触れない
+        （ハードディスクは PC＝契約者ごと。決まりは、その契約者のフォルダだけ）。"""
         s, other = World().setup(), World().setup()
-        theirs_root = Path(tempfile.mkdtemp(prefix="salescall-test-hdd-"))   # ほかの契約者の PC のハードディスク
-        now = datetime.now().astimezone()
-        def put(x, kind, days_ago, tail):
-            root = self.root if x is s else theirs_root
-            d = root / backup.BASE / backup.client_folder(self.app, x["tenant"], x["client"]) / kind
+        theirs_root = drive_at(Path(tempfile.mkdtemp(prefix="salescall-test-hdd-")))   # ほかの契約者の PC のハードディスク
+        now = datetime.now(JST)
+        def put(x, kind, days_ago, tail, root=None):
+            root = root or (self.root if x is s else theirs_root)
+            d = root / pc.BASE / backup.client_folder(self.app, x["tenant"], x["client"]) / kind
             d.mkdir(parents=True, exist_ok=True)
             f = d / f"salescall-{now - timedelta(days=days_ago):%Y%m%d-%H%M%S}{tail}"
             f.write_bytes(b"x")
@@ -377,20 +420,22 @@ class PerClient(unittest.TestCase):
         theirs = put(other, backup.AI, 400, ".ai.enc")
         memo = new_ai.parent / "人が置いたメモ.txt"
         memo.write_text("消さない")
-        backup.prune(self.app, self.drive, s["tenant"], now=now)
+        rules = backup.prune_rules(self.app, s["tenant"])
+        self.assertNotIn(backup.client_folder(self.app, other["tenant"], other["client"]) + "x", rules)
+        pc.prune(pc.Drive(self.root), rules, now=now)
         self.assertEqual([f.exists() for f in (old_ai, new_ai, mid_sub, old_sub, memo, theirs)],
                          [False, True, True, False, True, True])
 
     def test_the_newest_verified_backup_is_kept_even_if_old(self):
         """控えの失敗が長く続いても、戻せることまで確かめた一番新しい控えは消さない。"""
-        now = datetime.now().astimezone()
-        dest = [self.drive.folder(backup.WHOLE, backup.AI)]
+        now = datetime.now(JST)
         take = lambda days: backup.take(self.app, os.environ["SALESCALL_TEST_OWNER_DSN"],   # noqa: E731
-                                        os.environ["SALESCALL_TEST_RESTORE_DSN"], dest, key=KEY, now=now - timedelta(days=days))
+                                        os.environ["SALESCALL_TEST_RESTORE_DSN"], writer(self.root), now=now - timedelta(days=days))
         oldest, older = take(500), take(400)
-        self.assertTrue(oldest.ok and older.ok)
-        backup.prune(self.app, self.drive, None, now=now)
-        self.assertEqual([(dest[0].path / r.file_name).exists() for r in (oldest, older)], [False, True])
+        self.assertTrue(oldest.ok and older.ok, (oldest.error, older.error))
+        pc.prune(pc.Drive(self.root), backup.prune_rules(self.app, None), now=now)
+        where = self.root / pc.BASE / backup.WHOLE / backup.AI
+        self.assertEqual([(where / r.file_name).exists() for r in (oldest, older)], [False, True])
 
     def test_keep_days_are_at_least_one_and_backup_lookups_are_for_the_backup_only(self):
         with self.assertRaises(Rejected):
@@ -398,7 +443,7 @@ class PerClient(unittest.TestCase):
                 "INSERT INTO salescall.setting_values (key, scope, value, status, rationale, review_when, set_by)"
                 " VALUES ('backup.ai.keep_days_drive', 'system', '0', 'decided', '試験', '試験', '試験')"))
         t = self.w.tenant()
-        for sql in ("SELECT salescall.backup_folder_taken('client1')", "SELECT salescall.recordings_held(ARRAY[]::uuid[])"):
+        for sql in ("SELECT salescall.backup_folder_taken('client1')", "SELECT salescall.recordings_held()"):
             with self.subTest(sql=sql), self.assertRaises(Rejected):   # ほかの契約者の情報は、控えの処理だけが読める
                 self.w.a.in_tenant(OPERATOR, t, lambda tx: tx.execute(sql))
 
@@ -414,10 +459,10 @@ class PerClient(unittest.TestCase):
 
     def test_nothing_is_written_when_the_drive_is_not_attached(self):
         s = World().setup()
-        (self.root / backup.DRIVE_MARK).unlink()
-        self.assertEqual([r.ok for r in self.run_contractor(s["tenant"])], [False])
-        self.assertEqual([r.ok for r in self.run_whole()], [False])
-        self.assertFalse((self.root / backup.BASE).exists())
+        (self.root / pc.DRIVE_MARK).unlink()
+        self.assertFalse(any(r.ok for r in self.run_contractor(s["tenant"])))
+        self.assertFalse(any(r.ok for r in self.run_whole()))
+        self.assertFalse((self.root / pc.BASE).exists())
 
 
 if __name__ == "__main__":

@@ -197,19 +197,50 @@ class DefinerFunctions(unittest.TestCase):
             "       has_function_privilege('salescall_app', 'salescall.next_customer_promise_at(uuid)', 'EXECUTE') AS n"))
         self.assertEqual((can["p"], can["l"], can["n"]), (False, False, True))
 
-    def test_only_the_provisioner_makes_and_stops_pc_logins(self):
-        """⛔ PC の鍵を作る・止めるのは払い出し専用の役だけ（見直し7：アプリの役から、ほかの契約者の名前の形の鍵を好きな合言葉で
-        作れた＝その契約者としてログインできた。持ち主を移したあとの「誰でも」からの外しを、データベースが何もせずに通していた）。"""
-        w = World(); s = w.setup()
-        name = f"salescall_t_{uuid.uuid4()}_deadbeef"
-        for sql, params in [("SELECT salescall.make_pc_login(%s, %s)", (name, "SCRAM-SHA-256$4096:c2FsdA==$c3RvcmVk:c2VydmVy")),
-                            ("SELECT salescall.stop_pc_logins(%s)", (name,))]:
-            with self.subTest(sql=sql), self.assertRaises(Rejected):
-                w.a.in_client(OPERATOR, s["tenant"], s["client"], lambda tx: tx.execute(sql, params))
-        can = w.a.in_client(OPERATOR, s["tenant"], s["client"], lambda tx: tx.one(
-            "SELECT has_function_privilege('salescall_provisioner', 'salescall.make_pc_login(text, text)', 'EXECUTE') AS m,"
-            "       has_function_privilege('salescall_provisioner', 'salescall.stop_pc_logins(text)', 'EXECUTE') AS s"))
-        self.assertEqual((can["m"], can["s"]), (True, True))
+    def test_the_old_pc_key_roles_hold_nothing(self):
+        """PC はデータベースにつながない（5-5・0107）：前の PC の鍵の仕組みの役（払い出し専用の役・鍵を作る役）は、つなげず、
+        何の権限も持たない。鍵を作る関数・払い出しの記録の表も無い。"""
+        w = World()
+        got = w.a.in_system(SYSTEM, lambda tx: tx.all(
+            "SELECT r.rolname, r.rolcanlogin, has_schema_privilege(r.rolname, 'salescall', 'USAGE') AS usage"
+            " FROM pg_roles r WHERE r.rolname IN ('salescall_provisioner', 'salescall_login_maker')"
+            "    OR r.rolname LIKE 'salescall\\_t\\_%' ORDER BY 1"))
+        self.assertEqual([(r["rolname"], r["rolcanlogin"], r["usage"]) for r in got],
+                         [("salescall_login_maker", False, False), ("salescall_provisioner", False, False)])
+        left = w.a.in_system(SYSTEM, lambda tx: tx.one(
+            "SELECT to_regprocedure('salescall.make_pc_login(text, text)') AS m, to_regclass('salescall.tenant_login_events') AS t"))
+        self.assertEqual((left["m"], left["t"]), (None, None))
+
+
+class TenantTransactions(unittest.TestCase):
+    """契約者の取引（種類が「システムの処理」でも）から、ほかの契約者・すべての契約者に効くものに触れない（0077・0084 で塞いだ所。
+    サーバーだけがつなぐ形＝5-5 になっても、どの接続にも効く守りとして残す）。"""
+
+    def setUp(self):
+        self.w = World()
+        self.s, self.other = self.w.setup(), World().setup()
+
+    def test_other_contractors_and_shared_things_are_out_of_reach(self):
+        a, s, o = self.w.a, self.s, self.other
+        theirs = self.w.insert_claim(o)                                      # ほかの契約者の、終わった通話
+        for state in ("dialing", "no_answer"):
+            self.w.move(o, theirs, state)
+        self.assertEqual(a.in_client(OPERATOR, s["tenant"], o["client"], lambda tx: tx.all(
+            "SELECT * FROM salescall.work_seconds(now() - interval '1 day', now())")), [])   # 時給の数え方は契約者も見る
+        with self.assertRaises(Rejected):                                    # 祝日の暦は全体の取引だけ
+            a.in_tenant(SYSTEM, s["tenant"], lambda tx: tx.execute(
+                "INSERT INTO salescall.calendar_loads (file_sha256, first_year, last_year, loaded_by)"
+                " VALUES (repeat('0', 64), 2026, 2026, 'x')"))
+        from salescall.core import notify, stops
+        a.in_tenant(SYSTEM, o["tenant"], lambda tx: notify.emit(tx, "backup_failed", key="試験:管理者あて", summary="試験",
+                                                                admin=True, contractor=False))
+        self.assertEqual(a.in_tenant(SYSTEM, s["tenant"], lambda tx: tx.all(
+            "SELECT 1 FROM salescall.notification_events WHERE for_admin")), [])   # 管理者あての知らせは全体の取引だけ
+        stop = a.in_tenant(SYSTEM, o["tenant"], lambda tx: stops.stop(tx, cause="budget", reason="試験", tenant_id=o["tenant"],
+                                                                      scope="tenant"))
+        with self.assertRaises(Rejected):                                    # ほかの契約者の停止で、予約を取り消せない
+            a.in_tenant(SYSTEM, s["tenant"], lambda tx: tx.one("SELECT salescall.release_claims_for_stop(%s)",
+                                                                (stop["event_id"],)))
 
 
 class OnlyCorporateForNow(unittest.TestCase):

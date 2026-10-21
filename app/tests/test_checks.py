@@ -162,6 +162,32 @@ class DialOnlyThroughExit(Planted):
         found = rules.dial_only_through_exit(root)
         self.assertEqual(sorted(v.path for v in found), ["src/salescall/supervisor/y.py", "src/salescall/telephony/x.py"])
 
+    def test_the_relays_may_pass_it_on_only_in_their_own_place(self):
+        """中継（5-5）は、決めた関数の中だけ（同じファイルのほかの所では、かけられない）。"""
+        root = self._app({"src/salescall/agent/main.py": "class Agent:\n    def _reply(self, p):\n        p.start_call('x')\n"
+                                                        "    def other(self, p):\n        p.start_call('x')\n",
+                          "src/salescall/supervisor/channel.py": "class AgentDriver:\n    def start_call(self, n):\n"
+                                                                  "        self.ask(op='start_call')\n"
+                                                                  "def side(d):\n    d.start_call('x')\n"})
+        found = rules.dial_only_through_exit(root)
+        self.assertEqual(sorted((v.path, v.line) for v in found),
+                         [("src/salescall/agent/main.py", 5), ("src/salescall/supervisor/channel.py", 5)])
+
+
+class PcSideStaysOffTheServer(Planted):
+    """5-5：PC の部品（agent・link）は、データベースにも、サーバーの部品にも触れない。PC とのつなぎを使うのは、つなぎ口と PC の部品だけ。"""
+
+    def test_the_pc_side_reaching_the_server(self):
+        root = self._app({"src/salescall/agent/a.py": "import psycopg\nfrom salescall.core import gate\nfrom ..core import x\n",
+                          "src/salescall/link/b.py": "from salescall.supervisor.links import Attached\n",
+                          "src/salescall/core/c.py": "import websockets\n",
+                          "src/salescall/supervisor/channel.py": "import websockets\n",
+                          "src/salescall/agent/ok.py": "import websockets\nfrom salescall.link import protocol\n"})
+        found = rules.pc_side_stays_off_the_server(root)
+        self.assertEqual(sorted((v.path, v.line) for v in found),
+                         [("src/salescall/agent/a.py", 1), ("src/salescall/agent/a.py", 2), ("src/salescall/agent/a.py", 3),
+                          ("src/salescall/core/c.py", 1), ("src/salescall/link/b.py", 1)])
+
 
 class SettingsReadInOnePlace(Planted):
     """決まった設定は1か所からしか読まない：時間帯は gate（NG時間を引く。5-2-2）、契約者の承認のモードは承認の部分（I-13）。"""

@@ -1,8 +1,8 @@
-"""PC のログインの試験（DESIGN.md 5-4・11章。supervisor/pc_login.py・config）。
+"""PC のログインの試験（DESIGN.md 5-5・11章。agent/pc_login.py）。
 
-- PC はパスワードに触れない：ブラウザでログインしてもらい（ID とパスワード・Google・パスキー）、サーバーから PC の鍵を受け取る。
-- 受け取った鍵は PC の中にしまい、見守り役は SALESCALL_DSN が無ければ、それでつなぐ。鍵は画面・表示に出さない。
-⚠️ サーバーは試験の中の代わり（本物のサーバーは CL-3）。鍵は試験の中で作って使うだけ。
+- PC はパスワードに触れない：ブラウザでログインしてもらい（ID とパスワード・Google・パスキー）、サーバーから PC の通行証を受け取る。
+- 受け取った通行証は PC の中にしまい、PC の部品は、それでサーバーにつなぐ（PC はデータベースにつながない）。通行証は画面・表示に出さない。
+⚠️ サーバーは試験の中の代わり（本物のサーバーは CL-3。払い出しは core.agents.issue）。通行証は試験の中で作って使うだけ。
 """
 
 from __future__ import annotations
@@ -14,16 +14,15 @@ import unittest
 import uuid
 from pathlib import Path
 
-from salescall.core import logins
-from salescall.core.access import Access, Provisioner
-from salescall.supervisor import config, pc_login
-from tests.support import OPERATOR, SYSTEM, World
+from salescall.agent import pc_login
+from salescall.core import agents
+from tests.support import SYSTEM, World, app_access
 
 SERVER = "https://salescall.example.invalid"
 
 
 class FakeServer:
-    """サーバーの代わり：始めると確かめのコードを返し、決めた回数「待って」を返したあと、ログインした契約者の鍵を払い出す。"""
+    """サーバーの代わり：始めると確かめのコードを返し、決めた回数「待って」を返したあと、ログインした契約者の PC に通行証を払い出す。"""
 
     def __init__(self, issue, *, waits=("authorization_pending", "slow_down"), final=None):
         self.issue, self.waits, self.final, self.calls = issue, list(waits), final, []
@@ -37,8 +36,8 @@ class FakeServer:
             return {"error": self.waits.pop(0)}
         if self.final:
             return {"error": self.final}
-        login = self.issue(body.get("replaces"))
-        return {"tenant_id": str(login.tenant_id), "pc": login.pc, "conninfo": login.conninfo}
+        got = self.issue(uuid.UUID(body["replaces"]) if body.get("replaces") else None)
+        return {"tenant_id": str(got.tenant_id), "pc": str(got.pc_id), "token": got.token}
 
 
 class Clock:
@@ -56,38 +55,38 @@ class Clock:
 class Login(unittest.TestCase):
     def setUp(self):
         self.w = World()
-        self.s = self.w.setup()
-        prov = Provisioner(os.environ["SALESCALL_TEST_PROVISIONER_DSN"])
-        self.issue = lambda replaces: logins.issue(self.w.a, SYSTEM, prov, self.s["tenant"], pc_label="試験のPC",
-                                                   base_conninfo=os.environ["SALESCALL_TEST_APP_DSN"], replaces=replaces)
+        self.a = app_access()
+        self.t = self.w.tenant()
+        self.issue = lambda replaces: agents.issue(self.a, SYSTEM, self.t, label="試験のPC", replaces=replaces)
         self.dir = Path(tempfile.mkdtemp(prefix="salescall-pc-"))
 
     def run_login(self, server, previous=None):
         said, opened, clock = [], [], Clock()
-        key = pc_login.login(SERVER, previous=previous, post=server, open_browser=opened.append, say=said.append,
+        got = pc_login.login(SERVER, previous=previous, post=server, open_browser=opened.append, say=said.append,
                              sleep=clock.sleep, now=clock.now)
-        return key, said, opened, clock
+        return got, said, opened, clock
 
-    def test_the_pc_logs_in_through_the_browser_and_keeps_the_key(self):
+    def who(self, token):
+        return self.a.in_system(SYSTEM, lambda tx: agents.identify(tx, token))
+
+    def test_the_pc_logs_in_through_the_browser_and_keeps_the_pass(self):
         server = FakeServer(self.issue)
-        key, said, opened, clock = self.run_login(server)
+        got, said, opened, clock = self.run_login(server)
         self.assertEqual(opened, [SERVER + "/pc?code=ABCD-1234"])                 # ブラウザでログインのページを開く
         self.assertIn("ABCD-1234", said[0])                                       # 確かめのコードを見せる
         self.assertEqual(clock.slept, [5, 5, 10])                                 # 「遅く」と言われたら間を延ばす
-        self.assertEqual(key.tenant_id, self.s["tenant"])
-        self.assertNotIn(key.conninfo, repr(key) + "".join(said))                # 鍵は見せない
-        path = self.dir / "pc-key.bin"
-        pc_login.save(key, path)
+        self.assertEqual(got.tenant_id, self.t)
+        self.assertNotIn(got.token, repr(got) + "".join(said))                   # 通行証は見せない
+        path = self.dir / "pc-pass.bin"
+        pc_login.save(got, path)
         if os.name != "nt":
             self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)          # 本人だけが読める
-        got = pc_login.load(path)
-        cfg = config.load({}, pc_key=got)                                         # SALESCALL_DSN が無ければ、しまった鍵でつなぐ
-        self.assertEqual((cfg.tenant_id, cfg.dsn), (self.s["tenant"], key.conninfo))
-        rows = Access(cfg.dsn).in_client(OPERATOR, cfg.tenant_id, self.s["client"], lambda tx: tx.all(
-            "SELECT task_id FROM salescall.tasks"))
-        self.assertEqual([r["task_id"] for r in rows], [self.s["task"]])
-        again, *_ = self.run_login(FakeServer(self.issue, waits=()), previous=got)   # ログインし直す：前の PC の番号を渡す
-        self.assertNotEqual(again.pc, got.pc)
+        kept = pc_login.load(path)
+        self.assertEqual(kept, got)
+        self.assertEqual(self.who(kept.token), agents.Who(self.t, kept.pc_id, "試験のPC"))   # サーバーが PC を決められる
+        again, *_ = self.run_login(FakeServer(self.issue, waits=()), previous=kept)   # ログインし直す：前の PC の番号を渡す
+        self.assertNotEqual(again.pc_id, kept.pc_id)
+        self.assertIsNone(self.who(kept.token))                                  # 前の通行証は止まる
         self.assertTrue(pc_login.logout(path))
         self.assertIsNone(pc_login.load(path))
 
@@ -97,23 +96,22 @@ class Login(unittest.TestCase):
         with self.assertRaises(pc_login.LoginFailed):                            # 期限まで待っても済まない
             self.run_login(FakeServer(self.issue, waits=["authorization_pending"] * 500))
         broken = lambda url, body: {"error": "server_error"} if url.endswith(pc_login.START) else {}   # noqa: E731
-        with self.assertRaises(pc_login.LoginFailed):                            # 答えの形が違っても、見守り役を終わらせない
+        with self.assertRaises(pc_login.LoginFailed):                            # 答えの形が違っても、PC の部品を終わらせない
             self.run_login(broken)
         half = FakeServer(self.issue, waits=())
-        half.issue = lambda replaces: None
         with self.assertRaises(pc_login.LoginFailed):
             self.run_login(lambda url, body: half(url, body) if url.endswith(pc_login.START) else {"pc": "x"})
-        with self.assertRaises(pc_login.LoginFailed):                            # 鍵を運ぶので https だけ
+        with self.assertRaises(pc_login.LoginFailed):                            # 通行証を運ぶので https だけ
             pc_login.login("http://salescall.example.invalid", post=FakeServer(self.issue))
 
 
 class Automatic(unittest.TestCase):
-    def test_the_supervisor_opens_the_login_page_by_itself_and_waits(self):
-        """契約者は命令を打たない：見守り役が、まだログインしていなければ自動でログインのページを開き、済むまで待つ。期限が切れたら
+    def test_the_agent_opens_the_login_page_by_itself_and_waits(self):
+        """契約者は命令を打たない：PC の部品が、まだログインしていなければ自動でログインのページを開き、済むまで待つ。期限が切れたら
         新しいコードで待ち直すが、ブラウザを開き直すのは REOPEN_AFTER ごとまで。ネットに届かないあいだも待ち直す。"""
-        path = Path(tempfile.mkdtemp(prefix="salescall-pc-")) / "pc-key.bin"
+        path = Path(tempfile.mkdtemp(prefix="salescall-pc-")) / "pc-pass.bin"
         clock, opened, tries = Clock(), [], []
-        key = pc_login.PcKey(uuid.uuid4(), "0a1b2c3d", "host=z")
+        got = pc_login.PcPass(uuid.uuid4(), uuid.uuid4(), "架空の通行証")
 
         def login_once(server, *, previous, open_browser, say):   # 1回分のログイン（10分待って期限切れ、を4回のあとに済む）
             tries.append(previous)
@@ -123,24 +121,12 @@ class Automatic(unittest.TestCase):
                 raise OSError("試験：まだネットにつながっていない")
             if len(tries) < 5:
                 raise pc_login.LoginFailed("時間切れです")
-            return key
+            return got
 
-        got = pc_login.until_logged_in(SERVER, login_once=login_once, open_browser=opened.append, say=lambda t: None,
-                                       sleep=clock.sleep, now=clock.now, path=path)
-        self.assertEqual((got, pc_login.load(path), len(tries)), (key, key, 5))  # しまってから返す
+        kept = pc_login.until_logged_in(SERVER, login_once=login_once, open_browser=opened.append, say=lambda t: None,
+                                        sleep=clock.sleep, now=clock.now, path=path)
+        self.assertEqual((kept, pc_login.load(path), len(tries)), (got, got, 5))  # しまってから返す
         self.assertEqual(len(opened), 2)                                         # 初めてと、30分たったときだけ開く
-
-
-class Config(unittest.TestCase):
-    def test_the_admin_pc_uses_its_settings_and_a_contractor_pc_needs_a_login(self):
-        tenant = uuid.uuid4()
-        cfg = config.load({"SALESCALL_DSN": "host=x", "SALESCALL_TENANT_ID": str(tenant)}, pc_key=None)
-        self.assertEqual((cfg.dsn, cfg.tenant_id), ("host=x", tenant))           # 管理者の PC は、前と同じ
-        with self.assertRaises(config.ConfigMissing):                            # 契約者の PC で、まだログインしていない
-            config.load({}, pc_key=None)
-        key = pc_login.PcKey(tenant, "0a1b2c3d", "host=y")
-        with self.assertRaises(config.ConfigMissing):                            # ログインした契約者と違う契約者の番号
-            config.load({"SALESCALL_TENANT_ID": str(uuid.uuid4())}, pc_key=key)
 
 
 if __name__ == "__main__":
