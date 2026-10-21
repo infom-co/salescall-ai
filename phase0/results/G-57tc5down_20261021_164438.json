@@ -1,0 +1,5380 @@
+{
+  "item": "G-57tc5down",
+  "saved_at": "2026-10-21T16:44:38",
+  "model": "gemini-3.8-live",
+  "judges": {
+    "judge": "3.5 Flash Lite",
+    "judge2": "Claude Sonnet 5.5（考える）",
+    "standin": null,
+    "down": [
+      "3.5 Flash Lite",
+      "Claude Sonnet 5.5（考える）"
+    ]
+  },
+  "summary": {
+    "目的の人_取り次ぎ": {
+      "合格": "2/2",
+      "外れた決まり": {}
+    },
+    "目的の人_取り次ぎの前の間": {
+      "合格": "0/2",
+      "外れた決まり": {
+        "代わった方に全部": 2
+      }
+    },
+    "全体": "2/4",
+    "誤り・動かさなかった": []
+  },
+  "rows": [
+    {
+      "rep": 0,
+      "scene": "目的の人_取り次ぎ",
+      "type": "S4",
+      "note": "",
+      "voice_type": "S4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_hold_target.wav"
+          },
+          "heard": "岡田ですね。少々お待ちください。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.548,
+              "answered_s": 0.549,
+              "name": "report_party",
+              "args": {
+                "party": "reception"
+              },
+              "reply": "noted",
+              "ack": null,
+              "say": null,
+              "play": null
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.569,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.458,
+              "text": "岡田ですね。少々お待ちください。",
+              "finished": null
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": -2.493,
+              "kind": "activity",
+              "speaking": true,
+              "offset_s": 0.2
+            },
+            {
+              "at_s": 0.459,
+              "kind": "activity",
+              "speaking": false,
+              "offset_s": 2.96
+            },
+            {
+              "at_s": 0.551,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.568,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "calling",
+          "current_after": null,
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          },
+          "ear_check": {
+            "voice_end_at": 2.32,
+            "judge_error": "NoJudgment(\"判定が届かなかった：3.5 Flash Lite（OtherJudgeError('503 試験：止まっているものとして扱う')）\")",
+            "judge_tried": [
+              {
+                "model": "3.5 Flash Lite",
+                "error": "OtherJudgeError('503 試験：止まっているものとして扱う')",
+                "s": 0.0
+              }
+            ],
+            "judge2_error": "NoJudgment(\"判定が届かなかった：Claude Sonnet 5.5（考える）（OtherJudgeError('503 試験：止まっているものとして扱う')）\")",
+            "judge2_tried": [
+              {
+                "model": "Claude Sonnet 5.5（考える）",
+                "error": "OtherJudgeError('503 試験：止まっているものとして扱う')",
+                "s": 0.0
+              }
+            ]
+          }
+        },
+        {
+          "index": 1,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_taken_over_okada.wav",
+            "if_asked_target": "Leda_affirm.wav"
+          },
+          "heard": "お電話代わりました。岡田です。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.78,
+              "answered_s": 0.781,
+              "name": "report_party",
+              "args": {
+                "party": "target"
+              },
+              "reply": "confirm_target",
+              "ack": null,
+              "say": null,
+              "play": [
+                {
+                  "kind": "opening",
+                  "part": "target_confirm",
+                  "text": "「おかだ」様でいらっしゃいますでしょうか？"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.804,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.338,
+              "text": "お電話代わりました。岡田です。",
+              "finished": null
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": -2.489,
+              "kind": "activity",
+              "speaking": true,
+              "offset_s": 3.4
+            },
+            {
+              "at_s": 0.338,
+              "kind": "activity",
+              "speaking": false,
+              "offset_s": 6.16
+            },
+            {
+              "at_s": 0.781,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.804,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "calling",
+          "current_after": null,
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          },
+          "ear_check": {
+            "voice_end_at": 5.43,
+            "judge_before": "岡田ですね。少々お待ちください。",
+            "judge_error": "NoJudgment('判定が届かなかった：3.5 Flash Lite（止まっている（前の問い合わせ））')",
+            "judge_tried": [
+              {
+                "model": "3.5 Flash Lite",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ],
+            "judge2_error": "NoJudgment('判定が届かなかった：Claude Sonnet 5.5（考える）（止まっている（前の問い合わせ））')",
+            "judge2_tried": [
+              {
+                "model": "Claude Sonnet 5.5（考える）",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ],
+            "rejudged": [
+              "judge",
+              "judge2"
+            ],
+            "held_ack": "hai",
+            "waits": [
+              {
+                "for": "report",
+                "every": true,
+                "speaking_s": 0.0,
+                "waited_s": 0.0,
+                "judged": [],
+                "late": []
+              }
+            ],
+            "waited_s": 0.0,
+            "late": []
+          }
+        },
+        {
+          "index": 1,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_affirm.wav",
+            "if_asked_target": "Leda_affirm.wav"
+          },
+          "heard": "はい、そうです。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 1.039,
+              "answered_s": 1.04,
+              "name": "report_party",
+              "args": {
+                "party": "target"
+              },
+              "reply": "confirm_target",
+              "ack": null,
+              "say": null,
+              "play": [
+                {
+                  "kind": "opening",
+                  "part": "target_confirm",
+                  "text": "「おかだ」様でいらっしゃいますでしょうか？"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 1.061,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.29,
+              "text": "はい、そうです。",
+              "finished": null
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": -1.545,
+              "kind": "activity",
+              "speaking": true,
+              "offset_s": 6.96
+            },
+            {
+              "at_s": 0.29,
+              "kind": "activity",
+              "speaking": false,
+              "offset_s": 8.64
+            },
+            {
+              "at_s": 1.04,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 1.061,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "calling",
+          "current_after": null,
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          },
+          "ear_check": {
+            "voice_end_at": 8.04,
+            "judge_before": "岡田ですね。少々お待ちください。／お電話代わりました。岡田です。",
+            "judge_error": "NoJudgment('判定が届かなかった：3.5 Flash Lite（止まっている（前の問い合わせ））')",
+            "judge_tried": [
+              {
+                "model": "3.5 Flash Lite",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ],
+            "judge2_error": "NoJudgment('判定が届かなかった：Claude Sonnet 5.5（考える）（止まっている（前の問い合わせ））')",
+            "judge2_tried": [
+              {
+                "model": "Claude Sonnet 5.5（考える）",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ],
+            "rejudged": [
+              "judge",
+              "judge2"
+            ],
+            "held_ack": "hai",
+            "waits": [
+              {
+                "for": "report",
+                "every": true,
+                "speaking_s": 0.0,
+                "waited_s": 0.001,
+                "judged": [],
+                "late": []
+              }
+            ],
+            "waited_s": 0.001,
+            "late": []
+          }
+        },
+        {
+          "index": 1,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_affirm.wav",
+            "if_asked_target": "Leda_affirm.wav"
+          },
+          "heard": "はい、そうです。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.507,
+              "answered_s": 0.508,
+              "name": "report_party",
+              "args": {
+                "party": "target"
+              },
+              "reply": "next",
+              "ack": null,
+              "say": null,
+              "play": [
+                {
+                  "kind": "opening",
+                  "part": "greeting",
+                  "text": "お忙しいところ恐れ入ります。"
+                },
+                {
+                  "kind": "opening",
+                  "part": "intro",
+                  "text": "株式会社「アオバ物流」の「佐藤」と申します。"
+                },
+                {
+                  "kind": "opening",
+                  "part": "purpose",
+                  "text": "ご予約の確認でお電話いたしました。"
+                },
+                {
+                  "kind": "question",
+                  "id": "Q1",
+                  "text": "ご予約はされていますでしょうか？",
+                  "lead": ""
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.52,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.288,
+              "text": "はい、そうです。",
+              "finished": null
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": -1.521,
+              "kind": "activity",
+              "speaking": true,
+              "offset_s": 9.8
+            },
+            {
+              "at_s": 0.288,
+              "kind": "activity",
+              "speaking": false,
+              "offset_s": 11.48
+            },
+            {
+              "at_s": 0.509,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.519,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q1",
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          },
+          "ear_check": {
+            "voice_end_at": 10.87,
+            "judge_before": "岡田ですね。少々お待ちください。／お電話代わりました。岡田です。／はい、そうです。",
+            "judge_error": "NoJudgment('判定が届かなかった：3.5 Flash Lite（止まっている（前の問い合わせ））')",
+            "judge_tried": [
+              {
+                "model": "3.5 Flash Lite",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ],
+            "judge2_error": "NoJudgment('判定が届かなかった：Claude Sonnet 5.5（考える）（止まっている（前の問い合わせ））')",
+            "judge2_tried": [
+              {
+                "model": "Claude Sonnet 5.5（考える）",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ],
+            "rejudged": [
+              "judge",
+              "judge2"
+            ],
+            "held_ack": "hai",
+            "waits": [
+              {
+                "for": "report",
+                "every": true,
+                "speaking_s": 0.0,
+                "waited_s": 0.0,
+                "judged": [],
+                "late": []
+              }
+            ],
+            "waited_s": 0.0,
+            "late": []
+          }
+        },
+        {
+          "index": 2,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_yes_reserved.wav"
+          },
+          "heard": "はい、予約しています。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.535,
+              "answered_s": 0.536,
+              "name": "record_answer",
+              "args": {
+                "value": "はい、予約しています",
+                "condition_id": "はい",
+                "question_id": "Q1"
+              },
+              "reply": "next",
+              "ack": "shouchi",
+              "say": null,
+              "play": [
+                {
+                  "kind": "question",
+                  "id": "Q2",
+                  "text": "それではご希望の日時をお聞かせいただけますでしょうか？",
+                  "lead": "それでは"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.553,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.285,
+              "text": "はい、予約しています。",
+              "finished": null
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": -1.745,
+              "kind": "activity",
+              "speaking": true,
+              "offset_s": 12.12
+            },
+            {
+              "at_s": 0.285,
+              "kind": "activity",
+              "speaking": false,
+              "offset_s": 14.0
+            },
+            {
+              "at_s": 0.537,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.553,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          },
+          "ear_check": {
+            "voice_end_at": 13.3,
+            "judge_error": "NoJudgment('判定が届かなかった：3.5 Flash Lite（止まっている（前の問い合わせ））')",
+            "judge_tried": [
+              {
+                "model": "3.5 Flash Lite",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ],
+            "judge2_error": "NoJudgment('判定が届かなかった：Claude Sonnet 5.5（考える）（止まっている（前の問い合わせ））')",
+            "judge2_tried": [
+              {
+                "model": "Claude Sonnet 5.5（考える）",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ],
+            "rejudged": [
+              "judge",
+              "judge2"
+            ],
+            "held_ack": "hai",
+            "waits": [
+              {
+                "for": "report",
+                "every": false,
+                "speaking_s": 0.0,
+                "waited_s": 0.0,
+                "judged": [],
+                "late": []
+              }
+            ],
+            "waited_s": 0.0,
+            "late": []
+          }
+        },
+        {
+          "index": 3,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_datetime_pm.wav"
+          },
+          "heard": "15 日の午後 2 時でお願いします。",
+          "intended": "ありがとうございます。15日の午後2時でよろしいでしょうか？",
+          "tool_events": [
+            {
+              "at_s": 0.663,
+              "answered_s": 0.663,
+              "name": "record_answer",
+              "args": {
+                "question_id": "Q2",
+                "value": "15日の午後2時",
+                "condition_id": "答えた"
+              },
+              "reply": "confirm_required",
+              "ack": "hai",
+              "say": "ありがとうございます。15日の午後2時でよろしいでしょうか？",
+              "play": null
+            }
+          ],
+          "first_audio_after_s": 1.198,
+          "finished_after_s": 5.826,
+          "audio_seconds": 4.04,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.198,
+              "audio_s": 0.0,
+              "text": "ありがとうございます。15"
+            },
+            {
+              "at_s": 2.644,
+              "audio_s": 1.76,
+              "text": "日の午後2時で"
+            },
+            {
+              "at_s": 2.659,
+              "audio_s": 2.96,
+              "text": "よろしいでしょうか？"
+            }
+          ],
+          "heard_events": [
+            {
+              "at_s": 0.305,
+              "text": "15 日の午後 2 時でお願いします。",
+              "finished": null
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": -2.761,
+              "kind": "activity",
+              "speaking": true,
+              "offset_s": 14.56
+            },
+            {
+              "at_s": 0.305,
+              "kind": "activity",
+              "speaking": false,
+              "offset_s": 17.48
+            },
+            {
+              "at_s": 0.664,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.689,
+              "kind": "turn_complete"
+            },
+            {
+              "at_s": 1.198,
+              "kind": "audio_start",
+              "chunk": 1
+            },
+            {
+              "at_s": 5.826,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "ear": "ありがとうございます。15日の午後2時でよろしいでしょうか？",
+          "check": {
+            "voiced_s": 3.71,
+            "compared_with": "heard",
+            "morae": 32,
+            "expected_s": 3.56,
+            "ratio": 1.04,
+            "kind": "ok"
+          },
+          "ear_check": {
+            "voice_end_at": 16.79,
+            "judge_error": "NoJudgment('判定が届かなかった：3.5 Flash Lite（止まっている（前の問い合わせ））')",
+            "judge_tried": [
+              {
+                "model": "3.5 Flash Lite",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ],
+            "judge2_error": "NoJudgment('判定が届かなかった：Claude Sonnet 5.5（考える）（止まっている（前の問い合わせ））')",
+            "judge2_tried": [
+              {
+                "model": "Claude Sonnet 5.5（考える）",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ]
+          }
+        },
+        {
+          "index": 4,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_affirm.wav"
+          },
+          "heard": "はい、そうです。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 1.292,
+              "answered_s": 1.294,
+              "name": "confirm_field",
+              "args": {
+                "result": "affirmed",
+                "question_id": "Q2",
+                "correction": "15日の午後2時"
+              },
+              "reply": "next",
+              "ack": "arigatou",
+              "say": null,
+              "play": [
+                {
+                  "kind": "question",
+                  "id": "Q3",
+                  "text": "続きましてご来店の人数をお伺いしてもよろしいでしょうか？",
+                  "lead": "続きまして"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 1.31,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.202,
+              "text": "はい、そうです。",
+              "finished": null
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": -1.553,
+              "kind": "activity",
+              "speaking": true,
+              "offset_s": 23.24
+            },
+            {
+              "at_s": 0.202,
+              "kind": "activity",
+              "speaking": false,
+              "offset_s": 24.92
+            },
+            {
+              "at_s": 1.295,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 1.31,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q3",
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          },
+          "ear_check": {
+            "voice_end_at": 24.34,
+            "judge_error": "NoJudgment('判定が届かなかった：3.5 Flash Lite（止まっている（前の問い合わせ））')",
+            "judge_tried": [
+              {
+                "model": "3.5 Flash Lite",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ],
+            "judge2_error": "NoJudgment('判定が届かなかった：Claude Sonnet 5.5（考える）（止まっている（前の問い合わせ））')",
+            "judge2_tried": [
+              {
+                "model": "Claude Sonnet 5.5（考える）",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ],
+            "rejudged": [
+              "judge",
+              "judge2"
+            ],
+            "held_ack": "hai",
+            "waits": [
+              {
+                "for": "report",
+                "every": false,
+                "speaking_s": 0.0,
+                "waited_s": 0.0,
+                "judged": [],
+                "late": []
+              }
+            ],
+            "waited_s": 0.0,
+            "late": []
+          }
+        },
+        {
+          "index": 5,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_three_people.wav"
+          },
+          "heard": "3 人です。",
+          "intended": "かしこまりました。3人で大丈夫でしょうか？",
+          "tool_events": [
+            {
+              "at_s": 0.957,
+              "answered_s": 0.958,
+              "name": "record_answer",
+              "args": {
+                "condition_id": "答えた",
+                "value": "3人",
+                "question_id": "Q3"
+              },
+              "reply": "confirm_required",
+              "ack": "hai",
+              "say": "かしこまりました。3人で大丈夫でしょうか？",
+              "play": null
+            }
+          ],
+          "first_audio_after_s": 1.503,
+          "finished_after_s": 4.423,
+          "audio_seconds": 2.92,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.503,
+              "audio_s": 0.0,
+              "text": "かしこまりました。3人で大丈夫"
+            },
+            {
+              "at_s": 1.807,
+              "audio_s": 1.76,
+              "text": "でしょうか？"
+            }
+          ],
+          "heard_events": [
+            {
+              "at_s": 0.703,
+              "text": "3 人です。",
+              "finished": null
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": -0.531,
+              "kind": "activity",
+              "speaking": true,
+              "offset_s": 26.24
+            },
+            {
+              "at_s": 0.704,
+              "kind": "activity",
+              "speaking": false,
+              "offset_s": 27.4
+            },
+            {
+              "at_s": 0.958,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.974,
+              "kind": "turn_complete"
+            },
+            {
+              "at_s": 1.503,
+              "kind": "audio_start",
+              "chunk": 1
+            },
+            {
+              "at_s": 4.423,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q3",
+          "ear": "かしこまりました。3人で大丈夫でしょうか？",
+          "check": {
+            "voiced_s": 2.66,
+            "compared_with": "heard",
+            "morae": 22,
+            "expected_s": 2.44,
+            "ratio": 1.09,
+            "kind": "ok"
+          },
+          "ear_check": {
+            "voice_end_at": 26.73,
+            "judge_error": "NoJudgment('判定が届かなかった：3.5 Flash Lite（止まっている（前の問い合わせ））')",
+            "judge_tried": [
+              {
+                "model": "3.5 Flash Lite",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ],
+            "judge2_error": "NoJudgment('判定が届かなかった：Claude Sonnet 5.5（考える）（止まっている（前の問い合わせ））')",
+            "judge2_tried": [
+              {
+                "model": "Claude Sonnet 5.5（考える）",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ]
+          }
+        },
+        {
+          "index": 6,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_affirm.wav"
+          },
+          "heard": "はい。そうです。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.368,
+              "answered_s": 0.369,
+              "name": "confirm_field",
+              "args": {
+                "result": "affirmed",
+                "question_id": "Q3",
+                "correction": "3人"
+              },
+              "reply": "end",
+              "ack": "hai",
+              "say": null,
+              "play": [
+                {
+                  "kind": "closing",
+                  "id": "closing",
+                  "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.382,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.296,
+              "text": "はい。そうです。",
+              "finished": null
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": -1.534,
+              "kind": "activity",
+              "speaking": true,
+              "offset_s": 31.52
+            },
+            {
+              "at_s": 0.297,
+              "kind": "activity",
+              "speaking": false,
+              "offset_s": 33.16
+            },
+            {
+              "at_s": 0.37,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.382,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "closing",
+          "current_after": null,
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          },
+          "ear_check": {
+            "voice_end_at": 32.56,
+            "judge_error": "NoJudgment('判定が届かなかった：3.5 Flash Lite（止まっている（前の問い合わせ））')",
+            "judge_tried": [
+              {
+                "model": "3.5 Flash Lite",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ],
+            "judge2_error": "NoJudgment('判定が届かなかった：Claude Sonnet 5.5（考える）（止まっている（前の問い合わせ））')",
+            "judge2_tried": [
+              {
+                "model": "Claude Sonnet 5.5（考える）",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ],
+            "rejudged": [
+              "judge",
+              "judge2"
+            ],
+            "held_ack": "hai",
+            "waits": [
+              {
+                "for": "report",
+                "every": false,
+                "speaking_s": 0.0,
+                "waited_s": 0.001,
+                "judged": [],
+                "late": []
+              }
+            ],
+            "waited_s": 0.001,
+            "late": []
+          }
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "report_party",
+          "args": {
+            "party": "reception"
+          },
+          "reply": {
+            "result": "noted",
+            "silent": true,
+            "message": "受け付けました。いまは、目的の人（「営業部部長の「おかだ」様はいらっしゃいますでしょうか？」）にお取り次ぎいただくのを待っています。電話に出た方が目的の人だと分かったら、report_party を「目的の人」で呼びます（用件と最初の質問は、プログラムが返事で渡します）。お取り次ぎいただく間は、何も言わずに待ちます。",
+            "ack": null
+          },
+          "callee_turns": 1
+        },
+        {
+          "op": "report_party",
+          "args": {
+            "party": "target"
+          },
+          "reply": {
+            "result": "confirm_target",
+            "play": [
+              {
+                "kind": "opening",
+                "part": "target_confirm",
+                "text": "「おかだ」様でいらっしゃいますでしょうか？"
+              }
+            ],
+            "message": "電話に出た方に「「おかだ」様でいらっしゃいますでしょうか？」と聞く録音を、プログラムが流しました（相手にもう聞こえています）。何も言わずに、いまは、まだ目的の人に繋いでいません（さきほどの「目的の人」の報告は、まだ受け付けていません）。電話に出た方に「「おかだ」様でいらっしゃいますでしょうか？」と聞いて、返事を待っています。その方が認めたら（「はい」「そうです」など）、もう一度 report_party を「目的の人」で呼びます（名乗り・用件・最初の質問は、プログラムが流します）。まだ最初の質問はしていないので、用件を話したり、record_answer で報告したりしません。目的の人ではなかったら（席を外している・別の方など）、そのとおりに報告します。",
+            "ack": null
+          },
+          "callee_turns": 2
+        },
+        {
+          "op": "report_party",
+          "args": {
+            "party": "target"
+          },
+          "reply": {
+            "result": "confirm_target",
+            "play": [
+              {
+                "kind": "opening",
+                "part": "target_confirm",
+                "text": "「おかだ」様でいらっしゃいますでしょうか？"
+              }
+            ],
+            "message": "電話に出た方に「「おかだ」様でいらっしゃいますでしょうか？」と聞く録音を、プログラムが流しました（相手にもう聞こえています）。何も言わずに、いまは、まだ目的の人に繋いでいません（さきほどの「目的の人」の報告は、まだ受け付けていません）。電話に出た方に「「おかだ」様でいらっしゃいますでしょうか？」と聞いて、返事を待っています。その方が認めたら（「はい」「そうです」など）、もう一度 report_party を「目的の人」で呼びます（名乗り・用件・最初の質問は、プログラムが流します）。まだ最初の質問はしていないので、用件を話したり、record_answer で報告したりしません。目的の人ではなかったら（席を外している・別の方など）、そのとおりに報告します。",
+            "ack": null
+          },
+          "callee_turns": 3
+        },
+        {
+          "op": "report_party",
+          "args": {
+            "party": "target"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q1",
+            "question": "ご予約はされていますでしょうか？",
+            "play": [
+              {
+                "kind": "opening",
+                "part": "greeting",
+                "text": "お忙しいところ恐れ入ります。"
+              },
+              {
+                "kind": "opening",
+                "part": "intro",
+                "text": "株式会社「アオバ物流」の「佐藤」と申します。"
+              },
+              {
+                "kind": "opening",
+                "part": "purpose",
+                "text": "ご予約の確認でお電話いたしました。"
+              },
+              {
+                "kind": "question",
+                "id": "Q1",
+                "text": "ご予約はされていますでしょうか？",
+                "lead": ""
+              }
+            ],
+            "message": "目的の人に繋がりました。「お忙しいところ恐れ入ります。株式会社「アオバ物流」の「佐藤」と申します。ご予約の確認でお電話いたしました。」は、プログラムが録音で流しました（相手にもう聞こえています）。続けて、次の質問 Q1「ご予約はされていますでしょうか？」は、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、相手の答えを待ってください。相手が答えたら record_answer で報告します。",
+            "ack": null
+          },
+          "callee_turns": 4
+        },
+        {
+          "op": "record_answer",
+          "args": {
+            "value": "はい、予約しています",
+            "condition_id": "はい",
+            "question_id": "Q1"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q2",
+            "question": "ご希望の日時をお聞かせいただけますでしょうか？",
+            "play": [
+              {
+                "kind": "question",
+                "id": "Q2",
+                "text": "それではご希望の日時をお聞かせいただけますでしょうか？",
+                "lead": "それでは"
+              }
+            ],
+            "message": "受け付けました。次の質問 Q2「それではご希望の日時をお聞かせいただけますでしょうか？」は、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、相手の答えを待ってください。相手が答えたら record_answer で報告します。",
+            "ack": "shouchi"
+          },
+          "callee_turns": 5
+        },
+        {
+          "op": "record_answer",
+          "args": {
+            "question_id": "Q2",
+            "value": "15日の午後2時",
+            "condition_id": "答えた"
+          },
+          "reply": {
+            "result": "confirm_required",
+            "value": "15日の午後2時",
+            "say": "ありがとうございます。15日の午後2時でよろしいでしょうか？",
+            "after": null,
+            "message": "言い直して確かめます。「ありがとうございます。15日の午後2時でよろしいでしょうか？」と言って、相手の返事を待ってください。",
+            "ack": "hai"
+          },
+          "callee_turns": 6
+        },
+        {
+          "op": "confirm_field",
+          "args": {
+            "result": "affirmed",
+            "question_id": "Q2",
+            "correction": "15日の午後2時"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q3",
+            "question": "ご来店の人数をお伺いしてもよろしいでしょうか？",
+            "play": [
+              {
+                "kind": "question",
+                "id": "Q3",
+                "text": "続きましてご来店の人数をお伺いしてもよろしいでしょうか？",
+                "lead": "続きまして"
+              }
+            ],
+            "message": "確認できました。次の質問 Q3「続きましてご来店の人数をお伺いしてもよろしいでしょうか？」は、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、相手の答えを待ってください。相手が答えたら record_answer で報告します。",
+            "ack": "arigatou"
+          },
+          "callee_turns": 7
+        },
+        {
+          "op": "record_answer",
+          "args": {
+            "condition_id": "答えた",
+            "value": "3人",
+            "question_id": "Q3"
+          },
+          "reply": {
+            "result": "confirm_required",
+            "value": "3人",
+            "say": "かしこまりました。3人で大丈夫でしょうか？",
+            "after": null,
+            "message": "言い直して確かめます。「かしこまりました。3人で大丈夫でしょうか？」と言って、相手の返事を待ってください。",
+            "ack": "hai"
+          },
+          "callee_turns": 8
+        },
+        {
+          "op": "confirm_field",
+          "args": {
+            "result": "affirmed",
+            "question_id": "Q3",
+            "correction": "3人"
+          },
+          "reply": {
+            "result": "end",
+            "play": [
+              {
+                "kind": "closing",
+                "id": "closing",
+                "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+              }
+            ],
+            "message": "確認できました。質問は終わりです。締めの言葉「お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。」は、プログラムが録音で流しました。何も言わずに終えます。",
+            "ack": "hai"
+          },
+          "callee_turns": 9
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "accepted",
+          "value": "はい、予約しています",
+          "condition": "はい",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0,
+          "hedged": null,
+          "history": [
+            [
+              "empty",
+              "heard",
+              "聞き取れた"
+            ],
+            [
+              "heard",
+              "accepted",
+              "確かめない型で、はっきり聞き取れた"
+            ]
+          ]
+        },
+        "Q2": {
+          "state": "confirmed",
+          "value": "15日の午後2時",
+          "condition": "答えた",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0,
+          "hedged": null,
+          "history": [
+            [
+              "empty",
+              "heard",
+              "聞き取れた"
+            ],
+            [
+              "heard",
+              "checking",
+              "言い直して確かめる"
+            ],
+            [
+              "checking",
+              "confirmed",
+              "相手が肯定した"
+            ]
+          ]
+        },
+        "Q3": {
+          "state": "confirmed",
+          "value": "3人",
+          "condition": "答えた",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0,
+          "hedged": null,
+          "history": [
+            [
+              "empty",
+              "heard",
+              "聞き取れた"
+            ],
+            [
+              "heard",
+              "checking",
+              "言い直して確かめる"
+            ],
+            [
+              "checking",
+              "confirmed",
+              "相手が肯定した"
+            ]
+          ]
+        }
+      },
+      "export": {
+        "Q1": "はい",
+        "Q2": "15日の午後2時",
+        "Q3": "3人"
+      },
+      "hedged_words": {},
+      "final_phase": "closing",
+      "hurried": false,
+      "facts": {
+        "party": [
+          {
+            "turn": 1,
+            "said": "岡田ですね。少々お待ちください。",
+            "party": "reception",
+            "by": "ai"
+          },
+          {
+            "turn": 2,
+            "said": "お電話代わりました。岡田です。",
+            "party": "target",
+            "by": "ai"
+          },
+          {
+            "turn": 3,
+            "said": "はい、そうです。",
+            "party": "target",
+            "by": "ai"
+          },
+          {
+            "turn": 4,
+            "said": "はい、そうです。",
+            "party": "target",
+            "by": "ai"
+          }
+        ],
+        "end": [
+          {
+            "turn": 9,
+            "said": "はい。そうです。",
+            "reason": "done"
+          }
+        ]
+      },
+      "checked_after_call": 0,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "ear_errors": null,
+      "unchecked": {
+        "Q1": [
+          "judge",
+          "judge2"
+        ],
+        "Q2": [
+          "judge",
+          "judge2"
+        ],
+        "Q3": [
+          "judge",
+          "judge2"
+        ]
+      },
+      "checks": {
+        "代わった方に全部": true,
+        "取り次ぎの間は話さない": true,
+        "取り次ぐ方には流さない": true,
+        "答えが取れた": true
+      },
+      "pass": true,
+      "failed": [],
+      "said": [
+        "",
+        "",
+        "",
+        "",
+        "",
+        "ありがとうございます。15日の午後2時でよろしいでしょうか？",
+        "",
+        "かしこまりました。3人で大丈夫でしょうか？",
+        ""
+      ],
+      "restate_gap_s": [],
+      "ops": [
+        "report_party(party=reception)→noted",
+        "report_party(party=target)→confirm_target",
+        "report_party(party=target)→confirm_target",
+        "report_party(party=target)→next",
+        "record_answer(value=はい、予約しています,condition_id=はい,question_id=Q1)→next",
+        "record_answer(question_id=Q2,value=15日の午後2時,condition_id=答えた)→confirm_required",
+        "confirm_field(result=affirmed,question_id=Q2,correction=15日の午後2時)→next",
+        "record_answer(condition_id=答えた,value=3人,question_id=Q3)→confirm_required",
+        "confirm_field(result=affirmed,question_id=Q3,correction=3人)→end"
+      ]
+    },
+    {
+      "rep": 0,
+      "scene": "目的の人_取り次ぎの前の間",
+      "type": "S4",
+      "note": "",
+      "voice_type": "S4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_hold_target_pause.wav"
+          },
+          "heard": "岡田ですね。少々お待ちください。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": -1.998,
+              "answered_s": 0.33,
+              "name": "report_party",
+              "args": {
+                "party": "target"
+              },
+              "reply": "wait",
+              "ack": null,
+              "say": null,
+              "play": null
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.331,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": -2.33,
+              "text": "岡田ですね。",
+              "finished": null
+            },
+            {
+              "at_s": 0.31,
+              "text": "少々お待ちください。",
+              "finished": null
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": -3.707,
+              "kind": "activity",
+              "speaking": true,
+              "offset_s": 0.2
+            },
+            {
+              "at_s": -2.33,
+              "kind": "activity",
+              "speaking": false,
+              "offset_s": 1.56
+            },
+            {
+              "at_s": -1.438,
+              "kind": "activity",
+              "speaking": true,
+              "offset_s": 2.48
+            },
+            {
+              "at_s": 0.31,
+              "kind": "activity",
+              "speaking": false,
+              "offset_s": 4.08
+            },
+            {
+              "at_s": 0.331,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": -1.998,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "calling",
+          "current_after": null,
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          },
+          "ear_check": {
+            "voice_end_at": 3.48,
+            "held_ack": "hai",
+            "judge_error": "NoJudgment(\"判定が届かなかった：3.5 Flash Lite（OtherJudgeError('503 試験：止まっているものとして扱う')）\")",
+            "judge_tried": [
+              {
+                "model": "3.5 Flash Lite",
+                "error": "OtherJudgeError('503 試験：止まっているものとして扱う')",
+                "s": 0.0
+              }
+            ],
+            "judge2_error": "NoJudgment(\"判定が届かなかった：Claude Sonnet 5.5（考える）（OtherJudgeError('503 試験：止まっているものとして扱う')）\")",
+            "judge2_tried": [
+              {
+                "model": "Claude Sonnet 5.5（考える）",
+                "error": "OtherJudgeError('503 試験：止まっているものとして扱う')",
+                "s": 0.0
+              }
+            ],
+            "waits": [
+              {
+                "for": "report",
+                "every": true,
+                "speaking_s": 0.329,
+                "waited_s": 0.329,
+                "judged": [],
+                "late": []
+              }
+            ],
+            "waited_s": 0.329,
+            "late": []
+          }
+        },
+        {
+          "index": 1,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_taken_over_okada.wav",
+            "if_asked_target": "Leda_affirm.wav"
+          },
+          "heard": "お電話代わりました。岡田です。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.296,
+              "answered_s": 0.307,
+              "name": "report_party",
+              "args": {
+                "party": "target"
+              },
+              "reply": "confirm_target",
+              "ack": null,
+              "say": null,
+              "play": [
+                {
+                  "kind": "opening",
+                  "part": "target_confirm",
+                  "text": "「おかだ」様でいらっしゃいますでしょうか？"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.324,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.287,
+              "text": "お電話代わりました。岡田です。",
+              "finished": null
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": -2.554,
+              "kind": "activity",
+              "speaking": true,
+              "offset_s": 4.4
+            },
+            {
+              "at_s": 0.287,
+              "kind": "activity",
+              "speaking": false,
+              "offset_s": 7.12
+            },
+            {
+              "at_s": 0.308,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.323,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "calling",
+          "current_after": null,
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          },
+          "ear_check": {
+            "voice_end_at": 6.39,
+            "judge_before": "岡田ですね。少々お待ちください。",
+            "held_ack": "hai",
+            "judge_error": "NoJudgment('判定が届かなかった：3.5 Flash Lite（止まっている（前の問い合わせ））')",
+            "judge_tried": [
+              {
+                "model": "3.5 Flash Lite",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ],
+            "judge2_error": "NoJudgment('判定が届かなかった：Claude Sonnet 5.5（考える）（止まっている（前の問い合わせ））')",
+            "judge2_tried": [
+              {
+                "model": "Claude Sonnet 5.5（考える）",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ],
+            "waits": [
+              {
+                "for": "report",
+                "every": true,
+                "speaking_s": 0.0,
+                "waited_s": 0.011,
+                "judged": [],
+                "late": []
+              }
+            ],
+            "waited_s": 0.011,
+            "late": []
+          }
+        },
+        {
+          "index": 1,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_affirm.wav",
+            "if_asked_target": "Leda_affirm.wav"
+          },
+          "heard": "はい、そうです。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.299,
+              "answered_s": 0.308,
+              "name": "report_party",
+              "args": {
+                "party": "target"
+              },
+              "reply": "confirm_target",
+              "ack": null,
+              "say": null,
+              "play": [
+                {
+                  "kind": "opening",
+                  "part": "target_confirm",
+                  "text": "「おかだ」様でいらっしゃいますでしょうか？"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.308,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.298,
+              "text": "はい、そうです。",
+              "finished": null
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": -1.527,
+              "kind": "activity",
+              "speaking": true,
+              "offset_s": 7.56
+            },
+            {
+              "at_s": 0.298,
+              "kind": "activity",
+              "speaking": false,
+              "offset_s": 9.24
+            },
+            {
+              "at_s": 0.308,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.299,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "calling",
+          "current_after": null,
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          },
+          "ear_check": {
+            "voice_end_at": 8.6,
+            "judge_before": "岡田ですね。少々お待ちください。／お電話代わりました。岡田です。",
+            "held_ack": "hai",
+            "judge_error": "NoJudgment('判定が届かなかった：3.5 Flash Lite（止まっている（前の問い合わせ））')",
+            "judge_tried": [
+              {
+                "model": "3.5 Flash Lite",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ],
+            "judge2_error": "NoJudgment('判定が届かなかった：Claude Sonnet 5.5（考える）（止まっている（前の問い合わせ））')",
+            "judge2_tried": [
+              {
+                "model": "Claude Sonnet 5.5（考える）",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ],
+            "waits": [
+              {
+                "for": "report",
+                "every": true,
+                "speaking_s": 0.0,
+                "waited_s": 0.009,
+                "judged": [],
+                "late": []
+              }
+            ],
+            "waited_s": 0.009,
+            "late": []
+          }
+        },
+        {
+          "index": 1,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_affirm.wav",
+            "if_asked_target": "Leda_affirm.wav"
+          },
+          "heard": "はい、そうです。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.604,
+              "answered_s": 0.605,
+              "name": "report_party",
+              "args": {
+                "party": "target"
+              },
+              "reply": "next",
+              "ack": null,
+              "say": null,
+              "play": [
+                {
+                  "kind": "opening",
+                  "part": "purpose",
+                  "text": "ご予約の確認でお電話いたしました。"
+                },
+                {
+                  "kind": "question",
+                  "id": "Q1",
+                  "text": "ご予約はされていますでしょうか？",
+                  "lead": ""
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.623,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.336,
+              "text": "はい、そうです。",
+              "finished": null
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": -1.535,
+              "kind": "activity",
+              "speaking": true,
+              "offset_s": 9.68
+            },
+            {
+              "at_s": 0.336,
+              "kind": "activity",
+              "speaking": false,
+              "offset_s": 11.32
+            },
+            {
+              "at_s": 0.605,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.622,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q1",
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          },
+          "ear_check": {
+            "voice_end_at": 10.73,
+            "judge_before": "岡田ですね。少々お待ちください。／お電話代わりました。岡田です。／はい、そうです。",
+            "judge_error": "NoJudgment('判定が届かなかった：3.5 Flash Lite（止まっている（前の問い合わせ））')",
+            "judge_tried": [
+              {
+                "model": "3.5 Flash Lite",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ],
+            "judge2_error": "NoJudgment('判定が届かなかった：Claude Sonnet 5.5（考える）（止まっている（前の問い合わせ））')",
+            "judge2_tried": [
+              {
+                "model": "Claude Sonnet 5.5（考える）",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ],
+            "rejudged": [
+              "judge",
+              "judge2"
+            ],
+            "held_ack": "hai",
+            "waits": [
+              {
+                "for": "report",
+                "every": true,
+                "speaking_s": 0.0,
+                "waited_s": 0.0,
+                "judged": [],
+                "late": []
+              }
+            ],
+            "waited_s": 0.0,
+            "late": []
+          }
+        },
+        {
+          "index": 2,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_yes_reserved.wav"
+          },
+          "heard": "はい、予約しています。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.934,
+              "answered_s": 0.935,
+              "name": "record_answer",
+              "args": {
+                "question_id": "Q1",
+                "condition_id": "はい",
+                "value": "はい"
+              },
+              "reply": "next",
+              "ack": "shouchi",
+              "say": null,
+              "play": [
+                {
+                  "kind": "question",
+                  "id": "Q2",
+                  "text": "それではご希望の日時をお聞かせいただけますでしょうか？",
+                  "lead": "それでは"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.935,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.293,
+              "text": "はい、予約しています。",
+              "finished": null
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": -1.745,
+              "kind": "activity",
+              "speaking": true,
+              "offset_s": 12.08
+            },
+            {
+              "at_s": 0.293,
+              "kind": "activity",
+              "speaking": false,
+              "offset_s": 14.0
+            },
+            {
+              "at_s": 0.935,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.934,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          },
+          "ear_check": {
+            "voice_end_at": 13.26,
+            "judge_error": "NoJudgment('判定が届かなかった：3.5 Flash Lite（止まっている（前の問い合わせ））')",
+            "judge_tried": [
+              {
+                "model": "3.5 Flash Lite",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ],
+            "judge2_error": "NoJudgment('判定が届かなかった：Claude Sonnet 5.5（考える）（止まっている（前の問い合わせ））')",
+            "judge2_tried": [
+              {
+                "model": "Claude Sonnet 5.5（考える）",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ],
+            "rejudged": [
+              "judge",
+              "judge2"
+            ],
+            "held_ack": "hai",
+            "waits": [
+              {
+                "for": "report",
+                "every": false,
+                "speaking_s": 0.0,
+                "waited_s": 0.001,
+                "judged": [],
+                "late": []
+              }
+            ],
+            "waited_s": 0.001,
+            "late": []
+          }
+        },
+        {
+          "index": 3,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_datetime_pm.wav"
+          },
+          "heard": "15 日の午後 2 時でお願いします。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.478,
+              "answered_s": 0.479,
+              "name": "record_answer",
+              "args": {
+                "value": "15日の午後2時",
+                "condition_id": "答えた",
+                "question_id": "Q2"
+              },
+              "reply": "confirm_required",
+              "ack": "hai",
+              "say": "ありがとうございます。15日の午後2時でよろしいでしょうか？",
+              "play": null
+            }
+          ],
+          "first_audio_after_s": 0.871,
+          "finished_after_s": 4.954,
+          "audio_seconds": 4.0,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.291,
+              "text": "15 日の午後 2 時でお願いします。",
+              "finished": null
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": -2.768,
+              "kind": "activity",
+              "speaking": true,
+              "offset_s": 14.92
+            },
+            {
+              "at_s": 0.292,
+              "kind": "activity",
+              "speaking": false,
+              "offset_s": 17.84
+            },
+            {
+              "at_s": 0.48,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.479,
+              "kind": "turn_complete"
+            },
+            {
+              "at_s": 0.871,
+              "kind": "audio_start",
+              "chunk": 1
+            },
+            {
+              "at_s": 4.953,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "ear": "ありがとうございます。15日の午後2時でよろしいでしょうか？",
+          "check": {
+            "voiced_s": 3.67,
+            "compared_with": null,
+            "kind": "unknown"
+          },
+          "audio_file": "20261021_164233_G57_目的の人_取り次ぎの前の間_S4_0_S4_3_unknown.wav",
+          "ear_check": {
+            "voice_end_at": 17.15,
+            "judge_error": "NoJudgment('判定が届かなかった：3.5 Flash Lite（止まっている（前の問い合わせ））')",
+            "judge_tried": [
+              {
+                "model": "3.5 Flash Lite",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ],
+            "judge2_error": "NoJudgment('判定が届かなかった：Claude Sonnet 5.5（考える）（止まっている（前の問い合わせ））')",
+            "judge2_tried": [
+              {
+                "model": "Claude Sonnet 5.5（考える）",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ]
+          }
+        },
+        {
+          "index": 4,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_affirm.wav"
+          },
+          "heard": "はい、そうです。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.944,
+              "answered_s": 0.945,
+              "name": "confirm_field",
+              "args": {
+                "correction": "15日の午後2時",
+                "result": "affirmed",
+                "question_id": "Q2"
+              },
+              "reply": "next",
+              "ack": "arigatou",
+              "say": null,
+              "play": [
+                {
+                  "kind": "question",
+                  "id": "Q3",
+                  "text": "続きましてご来店の人数をお伺いしてもよろしいでしょうか？",
+                  "lead": "続きまして"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.961,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.285,
+              "text": "はい、そうです。",
+              "finished": null
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": -1.519,
+              "kind": "activity",
+              "speaking": true,
+              "offset_s": 22.76
+            },
+            {
+              "at_s": 0.285,
+              "kind": "activity",
+              "speaking": false,
+              "offset_s": 24.4
+            },
+            {
+              "at_s": 0.946,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.961,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q3",
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          },
+          "ear_check": {
+            "voice_end_at": 23.8,
+            "judge_error": "NoJudgment('判定が届かなかった：3.5 Flash Lite（止まっている（前の問い合わせ））')",
+            "judge_tried": [
+              {
+                "model": "3.5 Flash Lite",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ],
+            "judge2_error": "NoJudgment('判定が届かなかった：Claude Sonnet 5.5（考える）（止まっている（前の問い合わせ））')",
+            "judge2_tried": [
+              {
+                "model": "Claude Sonnet 5.5（考える）",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ],
+            "rejudged": [
+              "judge",
+              "judge2"
+            ],
+            "held_ack": "hai",
+            "waits": [
+              {
+                "for": "report",
+                "every": false,
+                "speaking_s": 0.0,
+                "waited_s": 0.0,
+                "judged": [],
+                "late": []
+              }
+            ],
+            "waited_s": 0.0,
+            "late": []
+          }
+        },
+        {
+          "index": 5,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_three_people.wav"
+          },
+          "heard": "3 人です。",
+          "intended": "かしこまりました。3人で大丈夫でしょうか?",
+          "tool_events": [
+            {
+              "at_s": 0.814,
+              "answered_s": 0.815,
+              "name": "record_answer",
+              "args": {
+                "value": "3人",
+                "question_id": "Q3",
+                "condition_id": "答えた"
+              },
+              "reply": "confirm_required",
+              "ack": "hai",
+              "say": "かしこまりました。3人で大丈夫でしょうか？",
+              "play": null
+            }
+          ],
+          "first_audio_after_s": 1.784,
+          "finished_after_s": 4.847,
+          "audio_seconds": 3.06,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.784,
+              "audio_s": 0.0,
+              "text": "かしこまりました。3人で大丈夫"
+            },
+            {
+              "at_s": 2.102,
+              "audio_s": 1.98,
+              "text": "でしょうか?"
+            }
+          ],
+          "heard_events": [
+            {
+              "at_s": 0.601,
+              "text": "3 人です。",
+              "finished": null
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": -0.542,
+              "kind": "activity",
+              "speaking": true,
+              "offset_s": 25.4
+            },
+            {
+              "at_s": 0.601,
+              "kind": "activity",
+              "speaking": false,
+              "offset_s": 26.56
+            },
+            {
+              "at_s": 0.815,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.837,
+              "kind": "turn_complete"
+            },
+            {
+              "at_s": 1.784,
+              "kind": "audio_start",
+              "chunk": 1
+            },
+            {
+              "at_s": 4.846,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q3",
+          "ear": "承りました。3人で大丈夫でしょうか？",
+          "check": {
+            "voiced_s": 2.63,
+            "compared_with": "intended",
+            "morae": 22,
+            "expected_s": 2.44,
+            "ratio": 1.08,
+            "kind": "ok"
+          },
+          "ear_check": {
+            "voice_end_at": 25.89,
+            "judge_error": "NoJudgment('判定が届かなかった：3.5 Flash Lite（止まっている（前の問い合わせ））')",
+            "judge_tried": [
+              {
+                "model": "3.5 Flash Lite",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ],
+            "judge2_error": "NoJudgment('判定が届かなかった：Claude Sonnet 5.5（考える）（止まっている（前の問い合わせ））')",
+            "judge2_tried": [
+              {
+                "model": "Claude Sonnet 5.5（考える）",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ]
+          }
+        },
+        {
+          "index": 6,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_affirm.wav"
+          },
+          "heard": "はい、そうです。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.288,
+              "answered_s": 0.289,
+              "name": "confirm_field",
+              "args": {
+                "question_id": "Q3",
+                "result": "affirmed",
+                "correction": "3人"
+              },
+              "reply": "end",
+              "ack": "hai",
+              "say": null,
+              "play": [
+                {
+                  "kind": "closing",
+                  "id": "closing",
+                  "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.29,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.279,
+              "text": "はい、そうです。",
+              "finished": null
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": -1.541,
+              "kind": "activity",
+              "speaking": true,
+              "offset_s": 31.08
+            },
+            {
+              "at_s": 0.287,
+              "kind": "activity",
+              "speaking": false,
+              "offset_s": 32.72
+            },
+            {
+              "at_s": 0.29,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.288,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "closing",
+          "current_after": null,
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          },
+          "ear_check": {
+            "voice_end_at": 32.12,
+            "judge_error": "NoJudgment('判定が届かなかった：3.5 Flash Lite（止まっている（前の問い合わせ））')",
+            "judge_tried": [
+              {
+                "model": "3.5 Flash Lite",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ],
+            "judge2_error": "NoJudgment('判定が届かなかった：Claude Sonnet 5.5（考える）（止まっている（前の問い合わせ））')",
+            "judge2_tried": [
+              {
+                "model": "Claude Sonnet 5.5（考える）",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ],
+            "rejudged": [
+              "judge",
+              "judge2"
+            ],
+            "held_ack": "hai",
+            "waits": [
+              {
+                "for": "report",
+                "every": false,
+                "speaking_s": 0.0,
+                "waited_s": 0.0,
+                "judged": [],
+                "late": []
+              }
+            ],
+            "waited_s": 0.0,
+            "late": []
+          }
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "report_party",
+          "args": {
+            "party": "target"
+          },
+          "reply": {
+            "result": "wait",
+            "silent": true,
+            "message": "相手の方は、まだ話している途中でした。何も言わずに、相手の言葉を最後まで聞いてから、もう一度報告してください。",
+            "ack": null
+          },
+          "callee_turns": 1
+        },
+        {
+          "op": "report_party",
+          "args": {
+            "party": "target"
+          },
+          "reply": {
+            "result": "confirm_target",
+            "play": [
+              {
+                "kind": "opening",
+                "part": "target_confirm",
+                "text": "「おかだ」様でいらっしゃいますでしょうか？"
+              }
+            ],
+            "message": "電話に出た方に「「おかだ」様でいらっしゃいますでしょうか？」と聞く録音を、プログラムが流しました（相手にもう聞こえています）。何も言わずに、いまは、まだ目的の人に繋いでいません（さきほどの「目的の人」の報告は、まだ受け付けていません）。電話に出た方に「「おかだ」様でいらっしゃいますでしょうか？」と聞いて、返事を待っています。その方が認めたら（「はい」「そうです」など）、もう一度 report_party を「目的の人」で呼びます（名乗り・用件・最初の質問は、プログラムが流します）。まだ最初の質問はしていないので、用件を話したり、record_answer で報告したりしません。目的の人ではなかったら（席を外している・別の方など）、そのとおりに報告します。",
+            "ack": null
+          },
+          "callee_turns": 2
+        },
+        {
+          "op": "report_party",
+          "args": {
+            "party": "target"
+          },
+          "reply": {
+            "result": "confirm_target",
+            "play": [
+              {
+                "kind": "opening",
+                "part": "target_confirm",
+                "text": "「おかだ」様でいらっしゃいますでしょうか？"
+              }
+            ],
+            "message": "電話に出た方に「「おかだ」様でいらっしゃいますでしょうか？」と聞く録音を、プログラムが流しました（相手にもう聞こえています）。何も言わずに、いまは、まだ目的の人に繋いでいません（さきほどの「目的の人」の報告は、まだ受け付けていません）。電話に出た方に「「おかだ」様でいらっしゃいますでしょうか？」と聞いて、返事を待っています。その方が認めたら（「はい」「そうです」など）、もう一度 report_party を「目的の人」で呼びます（名乗り・用件・最初の質問は、プログラムが流します）。まだ最初の質問はしていないので、用件を話したり、record_answer で報告したりしません。目的の人ではなかったら（席を外している・別の方など）、そのとおりに報告します。",
+            "ack": null
+          },
+          "callee_turns": 3
+        },
+        {
+          "op": "report_party",
+          "args": {
+            "party": "target"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q1",
+            "question": "ご予約はされていますでしょうか？",
+            "play": [
+              {
+                "kind": "opening",
+                "part": "purpose",
+                "text": "ご予約の確認でお電話いたしました。"
+              },
+              {
+                "kind": "question",
+                "id": "Q1",
+                "text": "ご予約はされていますでしょうか？",
+                "lead": ""
+              }
+            ],
+            "message": "目的の人に繋がりました。「ご予約の確認でお電話いたしました。」は、プログラムが録音で流しました（相手にもう聞こえています）。続けて、次の質問 Q1「ご予約はされていますでしょうか？」は、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、相手の答えを待ってください。相手が答えたら record_answer で報告します。",
+            "ack": null
+          },
+          "callee_turns": 4
+        },
+        {
+          "op": "record_answer",
+          "args": {
+            "question_id": "Q1",
+            "condition_id": "はい",
+            "value": "はい"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q2",
+            "question": "ご希望の日時をお聞かせいただけますでしょうか？",
+            "play": [
+              {
+                "kind": "question",
+                "id": "Q2",
+                "text": "それではご希望の日時をお聞かせいただけますでしょうか？",
+                "lead": "それでは"
+              }
+            ],
+            "message": "受け付けました。次の質問 Q2「それではご希望の日時をお聞かせいただけますでしょうか？」は、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、相手の答えを待ってください。相手が答えたら record_answer で報告します。",
+            "ack": "shouchi"
+          },
+          "callee_turns": 5
+        },
+        {
+          "op": "record_answer",
+          "args": {
+            "value": "15日の午後2時",
+            "condition_id": "答えた",
+            "question_id": "Q2"
+          },
+          "reply": {
+            "result": "confirm_required",
+            "value": "15日の午後2時",
+            "say": "ありがとうございます。15日の午後2時でよろしいでしょうか？",
+            "after": null,
+            "message": "言い直して確かめます。「ありがとうございます。15日の午後2時でよろしいでしょうか？」と言って、相手の返事を待ってください。",
+            "ack": "hai"
+          },
+          "callee_turns": 6
+        },
+        {
+          "op": "confirm_field",
+          "args": {
+            "correction": "15日の午後2時",
+            "result": "affirmed",
+            "question_id": "Q2"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q3",
+            "question": "ご来店の人数をお伺いしてもよろしいでしょうか？",
+            "play": [
+              {
+                "kind": "question",
+                "id": "Q3",
+                "text": "続きましてご来店の人数をお伺いしてもよろしいでしょうか？",
+                "lead": "続きまして"
+              }
+            ],
+            "message": "確認できました。次の質問 Q3「続きましてご来店の人数をお伺いしてもよろしいでしょうか？」は、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、相手の答えを待ってください。相手が答えたら record_answer で報告します。",
+            "ack": "arigatou"
+          },
+          "callee_turns": 7
+        },
+        {
+          "op": "record_answer",
+          "args": {
+            "value": "3人",
+            "question_id": "Q3",
+            "condition_id": "答えた"
+          },
+          "reply": {
+            "result": "confirm_required",
+            "value": "3人",
+            "say": "かしこまりました。3人で大丈夫でしょうか？",
+            "after": null,
+            "message": "言い直して確かめます。「かしこまりました。3人で大丈夫でしょうか？」と言って、相手の返事を待ってください。",
+            "ack": "hai"
+          },
+          "callee_turns": 8
+        },
+        {
+          "op": "confirm_field",
+          "args": {
+            "question_id": "Q3",
+            "result": "affirmed",
+            "correction": "3人"
+          },
+          "reply": {
+            "result": "end",
+            "play": [
+              {
+                "kind": "closing",
+                "id": "closing",
+                "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+              }
+            ],
+            "message": "確認できました。質問は終わりです。締めの言葉「お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。」は、プログラムが録音で流しました。何も言わずに終えます。",
+            "ack": "hai"
+          },
+          "callee_turns": 9
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "accepted",
+          "value": "はい",
+          "condition": "はい",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0,
+          "hedged": null,
+          "history": [
+            [
+              "empty",
+              "heard",
+              "聞き取れた"
+            ],
+            [
+              "heard",
+              "accepted",
+              "確かめない型で、はっきり聞き取れた"
+            ]
+          ]
+        },
+        "Q2": {
+          "state": "confirmed",
+          "value": "15日の午後2時",
+          "condition": "答えた",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0,
+          "hedged": null,
+          "history": [
+            [
+              "empty",
+              "heard",
+              "聞き取れた"
+            ],
+            [
+              "heard",
+              "checking",
+              "言い直して確かめる"
+            ],
+            [
+              "checking",
+              "confirmed",
+              "相手が肯定した"
+            ]
+          ]
+        },
+        "Q3": {
+          "state": "confirmed",
+          "value": "3人",
+          "condition": "答えた",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0,
+          "hedged": null,
+          "history": [
+            [
+              "empty",
+              "heard",
+              "聞き取れた"
+            ],
+            [
+              "heard",
+              "checking",
+              "言い直して確かめる"
+            ],
+            [
+              "checking",
+              "confirmed",
+              "相手が肯定した"
+            ]
+          ]
+        }
+      },
+      "export": {
+        "Q1": "はい",
+        "Q2": "15日の午後2時",
+        "Q3": "3人"
+      },
+      "hedged_words": {},
+      "final_phase": "closing",
+      "hurried": false,
+      "facts": {
+        "party": [
+          {
+            "turn": 1,
+            "said": "岡田ですね。少々お待ちください。",
+            "party": "target",
+            "by": "ai"
+          },
+          {
+            "turn": 2,
+            "said": "お電話代わりました。岡田です。",
+            "party": "target",
+            "by": "ai"
+          },
+          {
+            "turn": 3,
+            "said": "はい、そうです。",
+            "party": "target",
+            "by": "ai"
+          },
+          {
+            "turn": 4,
+            "said": "はい、そうです。",
+            "party": "target",
+            "by": "ai"
+          }
+        ],
+        "end": [
+          {
+            "turn": 9,
+            "said": "はい、そうです。",
+            "reason": "done"
+          }
+        ]
+      },
+      "checked_after_call": 0,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "ear_errors": null,
+      "unchecked": {
+        "Q1": [
+          "judge",
+          "judge2"
+        ],
+        "Q2": [
+          "judge",
+          "judge2"
+        ],
+        "Q3": [
+          "judge",
+          "judge2"
+        ]
+      },
+      "checks": {
+        "代わった方に全部": false,
+        "取り次ぎの間は話さない": true,
+        "取り次ぐ方には流さない": true,
+        "答えが取れた": true
+      },
+      "pass": false,
+      "failed": [
+        "代わった方に全部"
+      ],
+      "said": [
+        "",
+        "",
+        "",
+        "",
+        "",
+        "ありがとうございます。15日の午後2時でよろしいでしょうか？",
+        "",
+        "承りました。3人で大丈夫でしょうか？",
+        ""
+      ],
+      "restate_gap_s": [],
+      "ops": [
+        "report_party(party=target)→wait",
+        "report_party(party=target)→confirm_target",
+        "report_party(party=target)→confirm_target",
+        "report_party(party=target)→next",
+        "record_answer(question_id=Q1,condition_id=はい,value=はい)→next",
+        "record_answer(value=15日の午後2時,condition_id=答えた,question_id=Q2)→confirm_required",
+        "confirm_field(correction=15日の午後2時,result=affirmed,question_id=Q2)→next",
+        "record_answer(value=3人,question_id=Q3,condition_id=答えた)→confirm_required",
+        "confirm_field(question_id=Q3,result=affirmed,correction=3人)→end"
+      ]
+    },
+    {
+      "rep": 1,
+      "scene": "目的の人_取り次ぎ",
+      "type": "S4",
+      "note": "",
+      "voice_type": "S4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_hold_target.wav"
+          },
+          "heard": "岡田ですね。少々お待ちください。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.39,
+              "answered_s": 0.391,
+              "name": "report_party",
+              "args": {
+                "party": "reception"
+              },
+              "reply": "noted",
+              "ack": null,
+              "say": null,
+              "play": null
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.392,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.39,
+              "text": "岡田ですね。少々お待ちください。",
+              "finished": null
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": -2.387,
+              "kind": "activity",
+              "speaking": true,
+              "offset_s": 0.2
+            },
+            {
+              "at_s": 0.39,
+              "kind": "activity",
+              "speaking": false,
+              "offset_s": 2.96
+            },
+            {
+              "at_s": 0.391,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.391,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "calling",
+          "current_after": null,
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          },
+          "ear_check": {
+            "voice_end_at": 2.32
+          }
+        },
+        {
+          "index": 1,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_taken_over_okada.wav",
+            "if_asked_target": "Leda_affirm.wav"
+          },
+          "heard": "お電話代わりました。岡田です。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.431,
+              "answered_s": 0.432,
+              "name": "report_party",
+              "args": {
+                "party": "target"
+              },
+              "reply": "confirm_target",
+              "ack": null,
+              "say": null,
+              "play": [
+                {
+                  "kind": "opening",
+                  "part": "target_confirm",
+                  "text": "「おかだ」様でいらっしゃいますでしょうか？"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.449,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.298,
+              "text": "お電話代わりました。岡田です。",
+              "finished": null
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": -2.463,
+              "kind": "activity",
+              "speaking": true,
+              "offset_s": 3.28
+            },
+            {
+              "at_s": 0.298,
+              "kind": "activity",
+              "speaking": false,
+              "offset_s": 5.96
+            },
+            {
+              "at_s": 0.432,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.448,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "calling",
+          "current_after": null,
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          },
+          "ear_check": {
+            "voice_end_at": 5.23,
+            "judge_before": "岡田ですね。少々お待ちください。",
+            "judge_error": "NoJudgment('判定が届かなかった：3.5 Flash Lite（止まっている（前の問い合わせ））')",
+            "judge_tried": [
+              {
+                "model": "3.5 Flash Lite",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ],
+            "judge2_error": "NoJudgment('判定が届かなかった：Claude Sonnet 5.5（考える）（止まっている（前の問い合わせ））')",
+            "judge2_tried": [
+              {
+                "model": "Claude Sonnet 5.5（考える）",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ],
+            "rejudged": [
+              "judge",
+              "judge2"
+            ],
+            "held_ack": "hai",
+            "waits": [
+              {
+                "for": "report",
+                "every": true,
+                "speaking_s": 0.0,
+                "waited_s": 0.001,
+                "judged": [],
+                "late": []
+              }
+            ],
+            "waited_s": 0.001,
+            "late": []
+          }
+        },
+        {
+          "index": 1,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_affirm.wav",
+            "if_asked_target": "Leda_affirm.wav"
+          },
+          "heard": "はい、そうです。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.204,
+              "answered_s": 0.21,
+              "name": "report_party",
+              "args": {
+                "party": "target"
+              },
+              "reply": "confirm_target",
+              "ack": null,
+              "say": null,
+              "play": [
+                {
+                  "kind": "opening",
+                  "part": "target_confirm",
+                  "text": "「おかだ」様でいらっしゃいますでしょうか？"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.213,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.203,
+              "text": "はい、そうです。",
+              "finished": null
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": -1.548,
+              "kind": "activity",
+              "speaking": true,
+              "offset_s": 6.48
+            },
+            {
+              "at_s": 0.204,
+              "kind": "activity",
+              "speaking": false,
+              "offset_s": 8.12
+            },
+            {
+              "at_s": 0.213,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.204,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "calling",
+          "current_after": null,
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          },
+          "ear_check": {
+            "voice_end_at": 7.54,
+            "judge_before": "岡田ですね。少々お待ちください。／お電話代わりました。岡田です。",
+            "held_ack": "hai",
+            "judge_error": "NoJudgment('判定が届かなかった：3.5 Flash Lite（止まっている（前の問い合わせ））')",
+            "judge_tried": [
+              {
+                "model": "3.5 Flash Lite",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ],
+            "judge2_error": "NoJudgment('判定が届かなかった：Claude Sonnet 5.5（考える）（止まっている（前の問い合わせ））')",
+            "judge2_tried": [
+              {
+                "model": "Claude Sonnet 5.5（考える）",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ],
+            "waits": [
+              {
+                "for": "report",
+                "every": true,
+                "speaking_s": 0.0,
+                "waited_s": 0.005,
+                "judged": [],
+                "late": []
+              }
+            ],
+            "waited_s": 0.005,
+            "late": []
+          }
+        },
+        {
+          "index": 1,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_affirm.wav",
+            "if_asked_target": "Leda_affirm.wav"
+          },
+          "heard": "はい、そうです。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.38,
+              "answered_s": 0.381,
+              "name": "report_party",
+              "args": {
+                "party": "target"
+              },
+              "reply": "next",
+              "ack": null,
+              "say": null,
+              "play": [
+                {
+                  "kind": "opening",
+                  "part": "greeting",
+                  "text": "お忙しいところ恐れ入ります。"
+                },
+                {
+                  "kind": "opening",
+                  "part": "intro",
+                  "text": "株式会社「アオバ物流」の「佐藤」と申します。"
+                },
+                {
+                  "kind": "opening",
+                  "part": "purpose",
+                  "text": "ご予約の確認でお電話いたしました。"
+                },
+                {
+                  "kind": "question",
+                  "id": "Q1",
+                  "text": "ご予約はされていますでしょうか？",
+                  "lead": ""
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.398,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.205,
+              "text": "はい、そうです。",
+              "finished": null
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": -1.537,
+              "kind": "activity",
+              "speaking": true,
+              "offset_s": 8.52
+            },
+            {
+              "at_s": 0.205,
+              "kind": "activity",
+              "speaking": false,
+              "offset_s": 10.16
+            },
+            {
+              "at_s": 0.381,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.398,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q1",
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          },
+          "ear_check": {
+            "voice_end_at": 9.57,
+            "judge_before": "岡田ですね。少々お待ちください。／お電話代わりました。岡田です。／はい、そうです。",
+            "judge_error": "NoJudgment('判定が届かなかった：3.5 Flash Lite（止まっている（前の問い合わせ））')",
+            "judge_tried": [
+              {
+                "model": "3.5 Flash Lite",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ],
+            "judge2_error": "NoJudgment('判定が届かなかった：Claude Sonnet 5.5（考える）（止まっている（前の問い合わせ））')",
+            "judge2_tried": [
+              {
+                "model": "Claude Sonnet 5.5（考える）",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ],
+            "rejudged": [
+              "judge",
+              "judge2"
+            ],
+            "held_ack": "hai",
+            "waits": [
+              {
+                "for": "report",
+                "every": true,
+                "speaking_s": 0.0,
+                "waited_s": 0.0,
+                "judged": [],
+                "late": []
+              }
+            ],
+            "waited_s": 0.0,
+            "late": []
+          }
+        },
+        {
+          "index": 2,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_yes_reserved.wav"
+          },
+          "heard": "はい、予約しています。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.291,
+              "answered_s": 0.303,
+              "name": "record_answer",
+              "args": {
+                "value": "はい、予約しています",
+                "condition_id": "はい",
+                "question_id": "Q1"
+              },
+              "reply": "next",
+              "ack": "shouchi",
+              "say": null,
+              "play": [
+                {
+                  "kind": "question",
+                  "id": "Q2",
+                  "text": "それではご希望の日時をお聞かせいただけますでしょうか？",
+                  "lead": "それでは"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.304,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.29,
+              "text": "はい、予約しています。",
+              "finished": null
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": -1.747,
+              "kind": "activity",
+              "speaking": true,
+              "offset_s": 10.6
+            },
+            {
+              "at_s": 0.29,
+              "kind": "activity",
+              "speaking": false,
+              "offset_s": 12.52
+            },
+            {
+              "at_s": 0.304,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.291,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          },
+          "ear_check": {
+            "voice_end_at": 11.8,
+            "held_ack": "hai",
+            "judge_error": "NoJudgment(\"判定が届かなかった：3.5 Flash Lite（OtherJudgeError('503 試験：止まっているものとして扱う')）\")",
+            "judge_tried": [
+              {
+                "model": "3.5 Flash Lite",
+                "error": "OtherJudgeError('503 試験：止まっているものとして扱う')",
+                "s": 0.0
+              }
+            ],
+            "judge2_error": "NoJudgment(\"判定が届かなかった：Claude Sonnet 5.5（考える）（OtherJudgeError('503 試験：止まっているものとして扱う')）\")",
+            "judge2_tried": [
+              {
+                "model": "Claude Sonnet 5.5（考える）",
+                "error": "OtherJudgeError('503 試験：止まっているものとして扱う')",
+                "s": 0.0
+              }
+            ],
+            "waits": [
+              {
+                "for": "report",
+                "every": false,
+                "speaking_s": 0.0,
+                "waited_s": 0.012,
+                "judged": [],
+                "late": []
+              }
+            ],
+            "waited_s": 0.012,
+            "late": []
+          }
+        },
+        {
+          "index": 3,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_datetime_pm.wav"
+          },
+          "heard": "15 日の午後 2 時でお願いします。",
+          "intended": "ありがとうございます。15日の午後2時でよろしいでしょうか？",
+          "tool_events": [
+            {
+              "at_s": 0.555,
+              "answered_s": 0.555,
+              "name": "record_answer",
+              "args": {
+                "value": "15日の午後2時",
+                "question_id": "Q2",
+                "condition_id": "答えた"
+              },
+              "reply": "confirm_required",
+              "ack": "hai",
+              "say": "ありがとうございます。15日の午後2時でよろしいでしょうか？",
+              "play": null
+            }
+          ],
+          "first_audio_after_s": 1.354,
+          "finished_after_s": 5.093,
+          "audio_seconds": 3.72,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.354,
+              "audio_s": 0.0,
+              "text": "ありがとうございます。15日の午後2時でよろしいでしょうか？"
+            }
+          ],
+          "heard_events": [
+            {
+              "at_s": 0.296,
+              "text": "15 日の午後 2 時でお願いします。",
+              "finished": null
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": -2.66,
+              "kind": "activity",
+              "speaking": true,
+              "offset_s": 12.84
+            },
+            {
+              "at_s": 0.296,
+              "kind": "activity",
+              "speaking": false,
+              "offset_s": 15.68
+            },
+            {
+              "at_s": 0.556,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.572,
+              "kind": "turn_complete"
+            },
+            {
+              "at_s": 1.354,
+              "kind": "audio_start",
+              "chunk": 1
+            },
+            {
+              "at_s": 5.093,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "ear": "ありがとうございます。15日の午後2時でよろしいでしょうか？",
+          "check": {
+            "voiced_s": 3.38,
+            "compared_with": "heard",
+            "morae": 32,
+            "expected_s": 3.56,
+            "ratio": 0.95,
+            "kind": "ok"
+          },
+          "ear_check": {
+            "voice_end_at": 14.99,
+            "judge_error": "NoJudgment('判定が届かなかった：3.5 Flash Lite（止まっている（前の問い合わせ））')",
+            "judge_tried": [
+              {
+                "model": "3.5 Flash Lite",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ],
+            "judge2_error": "NoJudgment('判定が届かなかった：Claude Sonnet 5.5（考える）（止まっている（前の問い合わせ））')",
+            "judge2_tried": [
+              {
+                "model": "Claude Sonnet 5.5（考える）",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ]
+          }
+        },
+        {
+          "index": 4,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_affirm.wav"
+          },
+          "heard": "はい、そうです。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.627,
+              "answered_s": 0.628,
+              "name": "confirm_field",
+              "args": {
+                "question_id": "Q2",
+                "result": "affirmed",
+                "correction": "15日の午後2時"
+              },
+              "reply": "next",
+              "ack": "arigatou",
+              "say": null,
+              "play": [
+                {
+                  "kind": "question",
+                  "id": "Q3",
+                  "text": "続きましてご来店の人数をお伺いしてもよろしいでしょうか？",
+                  "lead": "続きまして"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.649,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.322,
+              "text": "はい、そうです。",
+              "finished": null
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": -1.493,
+              "kind": "activity",
+              "speaking": true,
+              "offset_s": 20.8
+            },
+            {
+              "at_s": 0.322,
+              "kind": "activity",
+              "speaking": false,
+              "offset_s": 22.44
+            },
+            {
+              "at_s": 0.629,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.649,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q3",
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          },
+          "ear_check": {
+            "voice_end_at": 21.84,
+            "judge_error": "NoJudgment('判定が届かなかった：3.5 Flash Lite（止まっている（前の問い合わせ））')",
+            "judge_tried": [
+              {
+                "model": "3.5 Flash Lite",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ],
+            "judge2_error": "NoJudgment('判定が届かなかった：Claude Sonnet 5.5（考える）（止まっている（前の問い合わせ））')",
+            "judge2_tried": [
+              {
+                "model": "Claude Sonnet 5.5（考える）",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ],
+            "rejudged": [
+              "judge",
+              "judge2"
+            ],
+            "held_ack": "hai",
+            "waits": [
+              {
+                "for": "report",
+                "every": false,
+                "speaking_s": 0.0,
+                "waited_s": 0.001,
+                "judged": [],
+                "late": []
+              }
+            ],
+            "waited_s": 0.001,
+            "late": []
+          }
+        },
+        {
+          "index": 5,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_three_people.wav"
+          },
+          "heard": "3人です。",
+          "intended": "かしこまりました。3人で大丈夫でしょうか？",
+          "tool_events": [
+            {
+              "at_s": 0.692,
+              "answered_s": 0.693,
+              "name": "record_answer",
+              "args": {
+                "condition_id": "答えた",
+                "value": "3人",
+                "question_id": "Q3"
+              },
+              "reply": "confirm_required",
+              "ack": "hai",
+              "say": "かしこまりました。3人で大丈夫でしょうか？",
+              "play": null
+            }
+          ],
+          "first_audio_after_s": 1.577,
+          "finished_after_s": 4.029,
+          "audio_seconds": 2.42,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.577,
+              "audio_s": 0.0,
+              "text": "かしこまりました。3人で大丈夫でしょうか？"
+            }
+          ],
+          "heard_events": [
+            {
+              "at_s": 0.617,
+              "text": "3人です。",
+              "finished": null
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": -0.512,
+              "kind": "activity",
+              "speaking": true,
+              "offset_s": 23.2
+            },
+            {
+              "at_s": 0.617,
+              "kind": "activity",
+              "speaking": false,
+              "offset_s": 24.32
+            },
+            {
+              "at_s": 0.694,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.693,
+              "kind": "turn_complete"
+            },
+            {
+              "at_s": 1.577,
+              "kind": "audio_start",
+              "chunk": 1
+            },
+            {
+              "at_s": 4.029,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q3",
+          "ear": "かしこまりました。3人で大丈夫でしょうか？",
+          "check": {
+            "voiced_s": 2.27,
+            "compared_with": "heard",
+            "morae": 22,
+            "expected_s": 2.44,
+            "ratio": 0.93,
+            "kind": "ok"
+          },
+          "ear_check": {
+            "voice_end_at": 23.63,
+            "judge_error": "NoJudgment('判定が届かなかった：3.5 Flash Lite（止まっている（前の問い合わせ））')",
+            "judge_tried": [
+              {
+                "model": "3.5 Flash Lite",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ],
+            "judge2_error": "NoJudgment('判定が届かなかった：Claude Sonnet 5.5（考える）（止まっている（前の問い合わせ））')",
+            "judge2_tried": [
+              {
+                "model": "Claude Sonnet 5.5（考える）",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ]
+          }
+        },
+        {
+          "index": 6,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_affirm.wav"
+          },
+          "heard": "はい、そうです。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.219,
+              "answered_s": 0.226,
+              "name": "confirm_field",
+              "args": {
+                "question_id": "Q3",
+                "correction": "3人",
+                "result": "affirmed"
+              },
+              "reply": "end",
+              "ack": "hai",
+              "say": null,
+              "play": [
+                {
+                  "kind": "closing",
+                  "id": "closing",
+                  "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.234,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.206,
+              "text": "はい、そうです。",
+              "finished": null
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": -1.54,
+              "kind": "activity",
+              "speaking": true,
+              "offset_s": 27.96
+            },
+            {
+              "at_s": 0.206,
+              "kind": "activity",
+              "speaking": false,
+              "offset_s": 29.64
+            },
+            {
+              "at_s": 0.226,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.234,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "closing",
+          "current_after": null,
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          },
+          "ear_check": {
+            "voice_end_at": 29.06,
+            "held_ack": "hai",
+            "judge_error": "NoJudgment('判定が届かなかった：3.5 Flash Lite（止まっている（前の問い合わせ））')",
+            "judge_tried": [
+              {
+                "model": "3.5 Flash Lite",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ],
+            "judge2_error": "NoJudgment('判定が届かなかった：Claude Sonnet 5.5（考える）（止まっている（前の問い合わせ））')",
+            "judge2_tried": [
+              {
+                "model": "Claude Sonnet 5.5（考える）",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ],
+            "waits": [
+              {
+                "for": "report",
+                "every": false,
+                "speaking_s": 0.0,
+                "waited_s": 0.006,
+                "judged": [],
+                "late": []
+              }
+            ],
+            "waited_s": 0.006,
+            "late": []
+          }
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "report_party",
+          "args": {
+            "party": "reception"
+          },
+          "reply": {
+            "result": "noted",
+            "silent": true,
+            "message": "受け付けました。いまは、目的の人（「営業部部長の「おかだ」様はいらっしゃいますでしょうか？」）にお取り次ぎいただくのを待っています。電話に出た方が目的の人だと分かったら、report_party を「目的の人」で呼びます（用件と最初の質問は、プログラムが返事で渡します）。お取り次ぎいただく間は、何も言わずに待ちます。",
+            "ack": null
+          },
+          "callee_turns": 1
+        },
+        {
+          "op": "report_party",
+          "args": {
+            "party": "target"
+          },
+          "reply": {
+            "result": "confirm_target",
+            "play": [
+              {
+                "kind": "opening",
+                "part": "target_confirm",
+                "text": "「おかだ」様でいらっしゃいますでしょうか？"
+              }
+            ],
+            "message": "電話に出た方に「「おかだ」様でいらっしゃいますでしょうか？」と聞く録音を、プログラムが流しました（相手にもう聞こえています）。何も言わずに、いまは、まだ目的の人に繋いでいません（さきほどの「目的の人」の報告は、まだ受け付けていません）。電話に出た方に「「おかだ」様でいらっしゃいますでしょうか？」と聞いて、返事を待っています。その方が認めたら（「はい」「そうです」など）、もう一度 report_party を「目的の人」で呼びます（名乗り・用件・最初の質問は、プログラムが流します）。まだ最初の質問はしていないので、用件を話したり、record_answer で報告したりしません。目的の人ではなかったら（席を外している・別の方など）、そのとおりに報告します。",
+            "ack": null
+          },
+          "callee_turns": 2
+        },
+        {
+          "op": "report_party",
+          "args": {
+            "party": "target"
+          },
+          "reply": {
+            "result": "confirm_target",
+            "play": [
+              {
+                "kind": "opening",
+                "part": "target_confirm",
+                "text": "「おかだ」様でいらっしゃいますでしょうか？"
+              }
+            ],
+            "message": "電話に出た方に「「おかだ」様でいらっしゃいますでしょうか？」と聞く録音を、プログラムが流しました（相手にもう聞こえています）。何も言わずに、いまは、まだ目的の人に繋いでいません（さきほどの「目的の人」の報告は、まだ受け付けていません）。電話に出た方に「「おかだ」様でいらっしゃいますでしょうか？」と聞いて、返事を待っています。その方が認めたら（「はい」「そうです」など）、もう一度 report_party を「目的の人」で呼びます（名乗り・用件・最初の質問は、プログラムが流します）。まだ最初の質問はしていないので、用件を話したり、record_answer で報告したりしません。目的の人ではなかったら（席を外している・別の方など）、そのとおりに報告します。",
+            "ack": null
+          },
+          "callee_turns": 3
+        },
+        {
+          "op": "report_party",
+          "args": {
+            "party": "target"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q1",
+            "question": "ご予約はされていますでしょうか？",
+            "play": [
+              {
+                "kind": "opening",
+                "part": "greeting",
+                "text": "お忙しいところ恐れ入ります。"
+              },
+              {
+                "kind": "opening",
+                "part": "intro",
+                "text": "株式会社「アオバ物流」の「佐藤」と申します。"
+              },
+              {
+                "kind": "opening",
+                "part": "purpose",
+                "text": "ご予約の確認でお電話いたしました。"
+              },
+              {
+                "kind": "question",
+                "id": "Q1",
+                "text": "ご予約はされていますでしょうか？",
+                "lead": ""
+              }
+            ],
+            "message": "目的の人に繋がりました。「お忙しいところ恐れ入ります。株式会社「アオバ物流」の「佐藤」と申します。ご予約の確認でお電話いたしました。」は、プログラムが録音で流しました（相手にもう聞こえています）。続けて、次の質問 Q1「ご予約はされていますでしょうか？」は、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、相手の答えを待ってください。相手が答えたら record_answer で報告します。",
+            "ack": null
+          },
+          "callee_turns": 4
+        },
+        {
+          "op": "record_answer",
+          "args": {
+            "value": "はい、予約しています",
+            "condition_id": "はい",
+            "question_id": "Q1"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q2",
+            "question": "ご希望の日時をお聞かせいただけますでしょうか？",
+            "play": [
+              {
+                "kind": "question",
+                "id": "Q2",
+                "text": "それではご希望の日時をお聞かせいただけますでしょうか？",
+                "lead": "それでは"
+              }
+            ],
+            "message": "受け付けました。次の質問 Q2「それではご希望の日時をお聞かせいただけますでしょうか？」は、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、相手の答えを待ってください。相手が答えたら record_answer で報告します。",
+            "ack": "shouchi"
+          },
+          "callee_turns": 5
+        },
+        {
+          "op": "record_answer",
+          "args": {
+            "value": "15日の午後2時",
+            "question_id": "Q2",
+            "condition_id": "答えた"
+          },
+          "reply": {
+            "result": "confirm_required",
+            "value": "15日の午後2時",
+            "say": "ありがとうございます。15日の午後2時でよろしいでしょうか？",
+            "after": null,
+            "message": "言い直して確かめます。「ありがとうございます。15日の午後2時でよろしいでしょうか？」と言って、相手の返事を待ってください。",
+            "ack": "hai"
+          },
+          "callee_turns": 6
+        },
+        {
+          "op": "confirm_field",
+          "args": {
+            "question_id": "Q2",
+            "result": "affirmed",
+            "correction": "15日の午後2時"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q3",
+            "question": "ご来店の人数をお伺いしてもよろしいでしょうか？",
+            "play": [
+              {
+                "kind": "question",
+                "id": "Q3",
+                "text": "続きましてご来店の人数をお伺いしてもよろしいでしょうか？",
+                "lead": "続きまして"
+              }
+            ],
+            "message": "確認できました。次の質問 Q3「続きましてご来店の人数をお伺いしてもよろしいでしょうか？」は、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、相手の答えを待ってください。相手が答えたら record_answer で報告します。",
+            "ack": "arigatou"
+          },
+          "callee_turns": 7
+        },
+        {
+          "op": "record_answer",
+          "args": {
+            "condition_id": "答えた",
+            "value": "3人",
+            "question_id": "Q3"
+          },
+          "reply": {
+            "result": "confirm_required",
+            "value": "3人",
+            "say": "かしこまりました。3人で大丈夫でしょうか？",
+            "after": null,
+            "message": "言い直して確かめます。「かしこまりました。3人で大丈夫でしょうか？」と言って、相手の返事を待ってください。",
+            "ack": "hai"
+          },
+          "callee_turns": 8
+        },
+        {
+          "op": "confirm_field",
+          "args": {
+            "question_id": "Q3",
+            "correction": "3人",
+            "result": "affirmed"
+          },
+          "reply": {
+            "result": "end",
+            "play": [
+              {
+                "kind": "closing",
+                "id": "closing",
+                "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+              }
+            ],
+            "message": "確認できました。質問は終わりです。締めの言葉「お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。」は、プログラムが録音で流しました。何も言わずに終えます。",
+            "ack": "hai"
+          },
+          "callee_turns": 9
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "accepted",
+          "value": "はい、予約しています",
+          "condition": "はい",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0,
+          "hedged": null,
+          "history": [
+            [
+              "empty",
+              "heard",
+              "聞き取れた"
+            ],
+            [
+              "heard",
+              "accepted",
+              "確かめない型で、はっきり聞き取れた"
+            ]
+          ]
+        },
+        "Q2": {
+          "state": "confirmed",
+          "value": "15日の午後2時",
+          "condition": "答えた",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0,
+          "hedged": null,
+          "history": [
+            [
+              "empty",
+              "heard",
+              "聞き取れた"
+            ],
+            [
+              "heard",
+              "checking",
+              "言い直して確かめる"
+            ],
+            [
+              "checking",
+              "confirmed",
+              "相手が肯定した"
+            ]
+          ]
+        },
+        "Q3": {
+          "state": "confirmed",
+          "value": "3人",
+          "condition": "答えた",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0,
+          "hedged": null,
+          "history": [
+            [
+              "empty",
+              "heard",
+              "聞き取れた"
+            ],
+            [
+              "heard",
+              "checking",
+              "言い直して確かめる"
+            ],
+            [
+              "checking",
+              "confirmed",
+              "相手が肯定した"
+            ]
+          ]
+        }
+      },
+      "export": {
+        "Q1": "はい",
+        "Q2": "15日の午後2時",
+        "Q3": "3人"
+      },
+      "hedged_words": {},
+      "final_phase": "closing",
+      "hurried": false,
+      "facts": {
+        "party": [
+          {
+            "turn": 1,
+            "said": "岡田ですね。少々お待ちください。",
+            "party": "reception",
+            "by": "ai"
+          },
+          {
+            "turn": 2,
+            "said": "お電話代わりました。岡田です。",
+            "party": "target",
+            "by": "ai"
+          },
+          {
+            "turn": 3,
+            "said": "はい、そうです。",
+            "party": "target",
+            "by": "ai"
+          },
+          {
+            "turn": 4,
+            "said": "はい、そうです。",
+            "party": "target",
+            "by": "ai"
+          }
+        ],
+        "end": [
+          {
+            "turn": 9,
+            "said": "はい、そうです。",
+            "reason": "done"
+          }
+        ]
+      },
+      "checked_after_call": 0,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "ear_errors": null,
+      "unchecked": {
+        "Q1": [
+          "judge",
+          "judge2"
+        ],
+        "Q2": [
+          "judge",
+          "judge2"
+        ],
+        "Q3": [
+          "judge",
+          "judge2"
+        ]
+      },
+      "checks": {
+        "代わった方に全部": true,
+        "取り次ぎの間は話さない": true,
+        "取り次ぐ方には流さない": true,
+        "答えが取れた": true
+      },
+      "pass": true,
+      "failed": [],
+      "said": [
+        "",
+        "",
+        "",
+        "",
+        "",
+        "ありがとうございます。15日の午後2時でよろしいでしょうか？",
+        "",
+        "かしこまりました。3人で大丈夫でしょうか？",
+        ""
+      ],
+      "restate_gap_s": [],
+      "ops": [
+        "report_party(party=reception)→noted",
+        "report_party(party=target)→confirm_target",
+        "report_party(party=target)→confirm_target",
+        "report_party(party=target)→next",
+        "record_answer(value=はい、予約しています,condition_id=はい,question_id=Q1)→next",
+        "record_answer(value=15日の午後2時,question_id=Q2,condition_id=答えた)→confirm_required",
+        "confirm_field(question_id=Q2,result=affirmed,correction=15日の午後2時)→next",
+        "record_answer(condition_id=答えた,value=3人,question_id=Q3)→confirm_required",
+        "confirm_field(question_id=Q3,correction=3人,result=affirmed)→end"
+      ]
+    },
+    {
+      "rep": 1,
+      "scene": "目的の人_取り次ぎの前の間",
+      "type": "S4",
+      "note": "",
+      "voice_type": "S4",
+      "sessions": 1,
+      "turns": [
+        {
+          "index": 0,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_hold_target_pause.wav"
+          },
+          "heard": "岡田ですね。少々お待ちください。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": -2.24,
+              "answered_s": 0.279,
+              "name": "report_party",
+              "args": {
+                "party": "target"
+              },
+              "reply": "wait",
+              "ack": null,
+              "say": null,
+              "play": null
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.279,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": -2.382,
+              "text": "岡田ですね。",
+              "finished": null
+            },
+            {
+              "at_s": 0.265,
+              "text": "少々お待ちください。",
+              "finished": null
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": -3.802,
+              "kind": "activity",
+              "speaking": true,
+              "offset_s": 0.2
+            },
+            {
+              "at_s": -2.382,
+              "kind": "activity",
+              "speaking": false,
+              "offset_s": 1.56
+            },
+            {
+              "at_s": -1.445,
+              "kind": "activity",
+              "speaking": true,
+              "offset_s": 2.48
+            },
+            {
+              "at_s": 0.265,
+              "kind": "activity",
+              "speaking": false,
+              "offset_s": 4.08
+            },
+            {
+              "at_s": 0.279,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": -2.239,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "calling",
+          "current_after": null,
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          },
+          "ear_check": {
+            "voice_end_at": 3.48,
+            "held_ack": "hai",
+            "judge_error": "NoJudgment('判定が届かなかった：3.5 Flash Lite（止まっている（前の問い合わせ））')",
+            "judge_tried": [
+              {
+                "model": "3.5 Flash Lite",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ],
+            "judge2_error": "NoJudgment('判定が届かなかった：Claude Sonnet 5.5（考える）（止まっている（前の問い合わせ））')",
+            "judge2_tried": [
+              {
+                "model": "Claude Sonnet 5.5（考える）",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ],
+            "waits": [
+              {
+                "for": "report",
+                "every": true,
+                "speaking_s": 0.27,
+                "waited_s": 0.277,
+                "judged": [],
+                "late": []
+              }
+            ],
+            "waited_s": 0.277,
+            "late": []
+          }
+        },
+        {
+          "index": 1,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_taken_over_okada.wav",
+            "if_asked_target": "Leda_affirm.wav"
+          },
+          "heard": "",
+          "intended": "申し訳ございません。お電話が少々",
+          "tool_events": [],
+          "first_audio_after_s": -2.571,
+          "finished_after_s": 0.001,
+          "audio_seconds": 0.97,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": -2.571,
+              "audio_s": 0.0,
+              "text": "申し訳ございません。お電話が少々"
+            }
+          ],
+          "heard_events": [],
+          "timeline": [
+            {
+              "at_s": -2.571,
+              "kind": "audio_start",
+              "chunk": 0
+            },
+            {
+              "at_s": -2.466,
+              "kind": "interrupted"
+            },
+            {
+              "at_s": -2.466,
+              "kind": "activity",
+              "speaking": true,
+              "offset_s": 4.4
+            },
+            {
+              "at_s": -2.43,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "calling",
+          "current_after": null,
+          "ear": "申し訳ございません。",
+          "check": {
+            "voiced_s": 0.93,
+            "compared_with": "intended",
+            "morae": 20,
+            "expected_s": 2.22,
+            "ratio": 0.42,
+            "kind": "cut_off"
+          },
+          "audio_file": "20261021_164358_G57_目的の人_取り次ぎの前の間_S4_1_S4_1_cut_off.wav",
+          "ear_check": {
+            "voice_end_at": 6.29,
+            "judge_before": "岡田ですね。少々お待ちください。",
+            "held_ack": "hai",
+            "judge_error": "NoJudgment('判定が届かなかった：3.5 Flash Lite（止まっている（前の問い合わせ））')",
+            "judge_tried": [
+              {
+                "model": "3.5 Flash Lite",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ],
+            "judge2_error": "NoJudgment('判定が届かなかった：Claude Sonnet 5.5（考える）（止まっている（前の問い合わせ））')",
+            "judge2_tried": [
+              {
+                "model": "Claude Sonnet 5.5（考える）",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ],
+            "waits": [
+              {
+                "for": "report",
+                "every": true,
+                "speaking_s": 0.0,
+                "waited_s": 0.007,
+                "judged": [],
+                "late": []
+              }
+            ],
+            "waited_s": 0.007,
+            "late": []
+          }
+        },
+        {
+          "index": 1,
+          "session": 1,
+          "callee": {
+            "followup_of": {
+              "wav": "Leda_taken_over_okada.wav",
+              "if_asked_target": "Leda_affirm.wav"
+            },
+            "reason": "cut_in"
+          },
+          "heard": "お電話代わりました。岡田です。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.168,
+              "answered_s": 0.176,
+              "name": "report_party",
+              "args": {
+                "party": "target"
+              },
+              "reply": "confirm_target",
+              "ack": null,
+              "say": null,
+              "play": [
+                {
+                  "kind": "opening",
+                  "part": "target_confirm",
+                  "text": "「おかだ」様でいらっしゃいますでしょうか？"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.176,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.168,
+              "text": "お電話代わりました。岡田です。",
+              "finished": null
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": 0.168,
+              "kind": "activity",
+              "speaking": false,
+              "offset_s": 7.04
+            },
+            {
+              "at_s": 0.176,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.169,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "calling",
+          "current_after": null,
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          }
+        },
+        {
+          "index": 1,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_affirm.wav",
+            "if_asked_target": "Leda_affirm.wav"
+          },
+          "heard": "はい、そうです。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.281,
+              "answered_s": 0.286,
+              "name": "report_party",
+              "args": {
+                "party": "target"
+              },
+              "reply": "confirm_target",
+              "ack": null,
+              "say": null,
+              "play": [
+                {
+                  "kind": "opening",
+                  "part": "target_confirm",
+                  "text": "「おかだ」様でいらっしゃいますでしょうか？"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.286,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.272,
+              "text": "はい、そうです。",
+              "finished": null
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": -1.552,
+              "kind": "activity",
+              "speaking": true,
+              "offset_s": 7.36
+            },
+            {
+              "at_s": 0.272,
+              "kind": "activity",
+              "speaking": false,
+              "offset_s": 9.04
+            },
+            {
+              "at_s": 0.286,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.282,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "calling",
+          "current_after": null,
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          },
+          "ear_check": {
+            "voice_end_at": 8.4,
+            "judge_before": "岡田ですね。少々お待ちください。／お電話代わりました。岡田です。",
+            "held_ack": "hai",
+            "judge_error": "NoJudgment('判定が届かなかった：3.5 Flash Lite（止まっている（前の問い合わせ））')",
+            "judge_tried": [
+              {
+                "model": "3.5 Flash Lite",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ],
+            "judge2_error": "NoJudgment('判定が届かなかった：Claude Sonnet 5.5（考える）（止まっている（前の問い合わせ））')",
+            "judge2_tried": [
+              {
+                "model": "Claude Sonnet 5.5（考える）",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ],
+            "waits": [
+              {
+                "for": "report",
+                "every": true,
+                "speaking_s": 0.0,
+                "waited_s": 0.004,
+                "judged": [],
+                "late": []
+              }
+            ],
+            "waited_s": 0.004,
+            "late": []
+          }
+        },
+        {
+          "index": 1,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_affirm.wav",
+            "if_asked_target": "Leda_affirm.wav"
+          },
+          "heard": "はい、そうです。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.31,
+              "answered_s": 0.318,
+              "name": "report_party",
+              "args": {
+                "party": "target"
+              },
+              "reply": "next",
+              "ack": null,
+              "say": null,
+              "play": [
+                {
+                  "kind": "opening",
+                  "part": "purpose",
+                  "text": "ご予約の確認でお電話いたしました。"
+                },
+                {
+                  "kind": "question",
+                  "id": "Q1",
+                  "text": "ご予約はされていますでしょうか？",
+                  "lead": ""
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.319,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.31,
+              "text": "はい、そうです。",
+              "finished": null
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": -1.427,
+              "kind": "activity",
+              "speaking": true,
+              "offset_s": 9.4
+            },
+            {
+              "at_s": 0.31,
+              "kind": "activity",
+              "speaking": false,
+              "offset_s": 11.04
+            },
+            {
+              "at_s": 0.319,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.311,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q1",
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          },
+          "ear_check": {
+            "voice_end_at": 10.43,
+            "judge_before": "岡田ですね。少々お待ちください。／お電話代わりました。岡田です。／はい、そうです。",
+            "held_ack": "hai",
+            "judge_error": "NoJudgment('判定が届かなかった：3.5 Flash Lite（止まっている（前の問い合わせ））')",
+            "judge_tried": [
+              {
+                "model": "3.5 Flash Lite",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ],
+            "judge2_error": "NoJudgment('判定が届かなかった：Claude Sonnet 5.5（考える）（止まっている（前の問い合わせ））')",
+            "judge2_tried": [
+              {
+                "model": "Claude Sonnet 5.5（考える）",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ],
+            "waits": [
+              {
+                "for": "report",
+                "every": true,
+                "speaking_s": 0.0,
+                "waited_s": 0.007,
+                "judged": [],
+                "late": []
+              }
+            ],
+            "waited_s": 0.007,
+            "late": []
+          }
+        },
+        {
+          "index": 2,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_yes_reserved.wav"
+          },
+          "heard": "はい、予約しています。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.354,
+              "answered_s": 0.355,
+              "name": "record_answer",
+              "args": {
+                "question_id": "Q1",
+                "condition_id": "はい",
+                "value": "はい、予約しています。"
+              },
+              "reply": "next",
+              "ack": "shouchi",
+              "say": null,
+              "play": [
+                {
+                  "kind": "question",
+                  "id": "Q2",
+                  "text": "それではご希望の日時をお聞かせいただけますでしょうか？",
+                  "lead": "それでは"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.356,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.266,
+              "text": "はい、予約しています。",
+              "finished": null
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": -1.774,
+              "kind": "activity",
+              "speaking": true,
+              "offset_s": 11.48
+            },
+            {
+              "at_s": 0.266,
+              "kind": "activity",
+              "speaking": false,
+              "offset_s": 13.4
+            },
+            {
+              "at_s": 0.356,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.354,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          },
+          "ear_check": {
+            "voice_end_at": 12.66,
+            "judge_error": "NoJudgment('判定が届かなかった：3.5 Flash Lite（止まっている（前の問い合わせ））')",
+            "judge_tried": [
+              {
+                "model": "3.5 Flash Lite",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ],
+            "judge2_error": "NoJudgment('判定が届かなかった：Claude Sonnet 5.5（考える）（止まっている（前の問い合わせ））')",
+            "judge2_tried": [
+              {
+                "model": "Claude Sonnet 5.5（考える）",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ],
+            "rejudged": [
+              "judge",
+              "judge2"
+            ],
+            "held_ack": "hai",
+            "waits": [
+              {
+                "for": "report",
+                "every": false,
+                "speaking_s": 0.0,
+                "waited_s": 0.0,
+                "judged": [],
+                "late": []
+              }
+            ],
+            "waited_s": 0.0,
+            "late": []
+          }
+        },
+        {
+          "index": 3,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_datetime_pm.wav"
+          },
+          "heard": "15 日の午後 2 時でお願いします。",
+          "intended": "ありがとうございます。15日の午後2時でよろしいでしょうか？",
+          "tool_events": [
+            {
+              "at_s": 0.375,
+              "answered_s": 0.376,
+              "name": "record_answer",
+              "args": {
+                "question_id": "Q2",
+                "value": "15日の午後2時",
+                "condition_id": "答えた"
+              },
+              "reply": "confirm_required",
+              "ack": "hai",
+              "say": "ありがとうございます。15日の午後2時でよろしいでしょうか？",
+              "play": null
+            }
+          ],
+          "first_audio_after_s": 0.847,
+          "finished_after_s": 4.552,
+          "audio_seconds": 3.7,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 0.847,
+              "audio_s": 0.0,
+              "text": "ありがとうございます。15日の午後"
+            },
+            {
+              "at_s": 1.119,
+              "audio_s": 1.9,
+              "text": "2時でよろしいでしょうか？"
+            }
+          ],
+          "heard_events": [
+            {
+              "at_s": 0.287,
+              "text": "15 日の午後 2 時でお願いします。",
+              "finished": null
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": -2.772,
+              "kind": "activity",
+              "speaking": true,
+              "offset_s": 13.72
+            },
+            {
+              "at_s": 0.289,
+              "kind": "activity",
+              "speaking": false,
+              "offset_s": 16.64
+            },
+            {
+              "at_s": 0.376,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.379,
+              "kind": "turn_complete"
+            },
+            {
+              "at_s": 0.847,
+              "kind": "audio_start",
+              "chunk": 1
+            },
+            {
+              "at_s": 4.552,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q2",
+          "ear": "ありがとうございます。15日の午後2時でよろしいでしょうか？",
+          "check": {
+            "voiced_s": 3.43,
+            "compared_with": "heard",
+            "morae": 32,
+            "expected_s": 3.56,
+            "ratio": 0.96,
+            "kind": "ok"
+          },
+          "ear_check": {
+            "voice_end_at": 15.95,
+            "judge_error": "NoJudgment(\"判定が届かなかった：3.5 Flash Lite（OtherJudgeError('503 試験：止まっているものとして扱う')）\")",
+            "judge_tried": [
+              {
+                "model": "3.5 Flash Lite",
+                "error": "OtherJudgeError('503 試験：止まっているものとして扱う')",
+                "s": 0.0
+              }
+            ],
+            "judge2_error": "NoJudgment(\"判定が届かなかった：Claude Sonnet 5.5（考える）（OtherJudgeError('503 試験：止まっているものとして扱う')）\")",
+            "judge2_tried": [
+              {
+                "model": "Claude Sonnet 5.5（考える）",
+                "error": "OtherJudgeError('503 試験：止まっているものとして扱う')",
+                "s": 0.0
+              }
+            ]
+          }
+        },
+        {
+          "index": 4,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_affirm.wav"
+          },
+          "heard": "はい、そうです。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.26,
+              "answered_s": 0.276,
+              "name": "confirm_field",
+              "args": {
+                "result": "affirmed",
+                "question_id": "Q2"
+              },
+              "reply": "next",
+              "ack": "arigatou",
+              "say": null,
+              "play": [
+                {
+                  "kind": "question",
+                  "id": "Q3",
+                  "text": "続きましてご来店の人数をお伺いしてもよろしいでしょうか？",
+                  "lead": "続きまして"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.277,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.26,
+              "text": "はい、そうです。",
+              "finished": null
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": -1.557,
+              "kind": "activity",
+              "speaking": true,
+              "offset_s": 21.16
+            },
+            {
+              "at_s": 0.26,
+              "kind": "activity",
+              "speaking": false,
+              "offset_s": 22.8
+            },
+            {
+              "at_s": 0.277,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.26,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q3",
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          },
+          "ear_check": {
+            "voice_end_at": 22.2,
+            "held_ack": "hai",
+            "judge_error": "NoJudgment('判定が届かなかった：3.5 Flash Lite（止まっている（前の問い合わせ））')",
+            "judge_tried": [
+              {
+                "model": "3.5 Flash Lite",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ],
+            "judge2_error": "NoJudgment('判定が届かなかった：Claude Sonnet 5.5（考える）（止まっている（前の問い合わせ））')",
+            "judge2_tried": [
+              {
+                "model": "Claude Sonnet 5.5（考える）",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ],
+            "waits": [
+              {
+                "for": "report",
+                "every": false,
+                "speaking_s": 0.0,
+                "waited_s": 0.015,
+                "judged": [],
+                "late": []
+              }
+            ],
+            "waited_s": 0.015,
+            "late": []
+          }
+        },
+        {
+          "index": 5,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_three_people.wav"
+          },
+          "heard": "3 人です。",
+          "intended": "かしこまりました。3人で大丈夫でしょうか？",
+          "tool_events": [
+            {
+              "at_s": 0.897,
+              "answered_s": 0.898,
+              "name": "record_answer",
+              "args": {
+                "question_id": "Q3",
+                "condition_id": "答えた",
+                "value": "3人"
+              },
+              "reply": "confirm_required",
+              "ack": "hai",
+              "say": "かしこまりました。3人で大丈夫でしょうか？",
+              "play": null
+            }
+          ],
+          "first_audio_after_s": 1.43,
+          "finished_after_s": 3.889,
+          "audio_seconds": 2.5,
+          "timed_out": false,
+          "said_events": [
+            {
+              "at_s": 1.43,
+              "audio_s": 0.0,
+              "text": "かしこまりました。3"
+            },
+            {
+              "at_s": 2.552,
+              "audio_s": 1.94,
+              "text": "人で大丈夫でしょうか？"
+            }
+          ],
+          "heard_events": [
+            {
+              "at_s": 0.607,
+              "text": "3 人です。",
+              "finished": null
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": -0.512,
+              "kind": "activity",
+              "speaking": true,
+              "offset_s": 23.16
+            },
+            {
+              "at_s": 0.607,
+              "kind": "activity",
+              "speaking": false,
+              "offset_s": 24.28
+            },
+            {
+              "at_s": 0.899,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.898,
+              "kind": "turn_complete"
+            },
+            {
+              "at_s": 1.43,
+              "kind": "audio_start",
+              "chunk": 1
+            },
+            {
+              "at_s": 3.889,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "asking",
+          "current_after": "Q3",
+          "ear": "かしこまりました。3人で大丈夫でしょうか？",
+          "check": {
+            "voiced_s": 2.34,
+            "compared_with": "heard",
+            "morae": 22,
+            "expected_s": 2.44,
+            "ratio": 0.96,
+            "kind": "ok"
+          },
+          "ear_check": {
+            "voice_end_at": 23.59,
+            "judge_error": "NoJudgment('判定が届かなかった：3.5 Flash Lite（止まっている（前の問い合わせ））')",
+            "judge_tried": [
+              {
+                "model": "3.5 Flash Lite",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ],
+            "judge2_error": "NoJudgment('判定が届かなかった：Claude Sonnet 5.5（考える）（止まっている（前の問い合わせ））')",
+            "judge2_tried": [
+              {
+                "model": "Claude Sonnet 5.5（考える）",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ]
+          }
+        },
+        {
+          "index": 6,
+          "session": 1,
+          "callee": {
+            "wav": "Leda_affirm.wav"
+          },
+          "heard": "はい、そうです。",
+          "intended": "",
+          "tool_events": [
+            {
+              "at_s": 0.275,
+              "answered_s": 0.287,
+              "name": "confirm_field",
+              "args": {
+                "result": "affirmed",
+                "question_id": "Q3"
+              },
+              "reply": "end",
+              "ack": "hai",
+              "say": null,
+              "play": [
+                {
+                  "kind": "closing",
+                  "id": "closing",
+                  "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+                }
+              ]
+            }
+          ],
+          "first_audio_after_s": null,
+          "finished_after_s": 0.287,
+          "audio_seconds": null,
+          "timed_out": false,
+          "said_events": [],
+          "heard_events": [
+            {
+              "at_s": 0.275,
+              "text": "はい、そうです。",
+              "finished": null
+            }
+          ],
+          "timeline": [
+            {
+              "at_s": -1.559,
+              "kind": "activity",
+              "speaking": true,
+              "offset_s": 27.88
+            },
+            {
+              "at_s": 0.275,
+              "kind": "activity",
+              "speaking": false,
+              "offset_s": 29.52
+            },
+            {
+              "at_s": 0.287,
+              "kind": "tool_response_sent",
+              "chunk": 0
+            },
+            {
+              "at_s": 0.276,
+              "kind": "turn_complete"
+            }
+          ],
+          "phase_after": "closing",
+          "current_after": null,
+          "check": {
+            "voiced_s": 0.0,
+            "compared_with": null,
+            "kind": "silent",
+            "timed_out": false
+          },
+          "ear_check": {
+            "voice_end_at": 28.92,
+            "held_ack": "hai",
+            "judge_error": "NoJudgment('判定が届かなかった：3.5 Flash Lite（止まっている（前の問い合わせ））')",
+            "judge_tried": [
+              {
+                "model": "3.5 Flash Lite",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ],
+            "judge2_error": "NoJudgment('判定が届かなかった：Claude Sonnet 5.5（考える）（止まっている（前の問い合わせ））')",
+            "judge2_tried": [
+              {
+                "model": "Claude Sonnet 5.5（考える）",
+                "error": "止まっている（前の問い合わせ）"
+              }
+            ],
+            "waits": [
+              {
+                "for": "report",
+                "every": false,
+                "speaking_s": 0.0,
+                "waited_s": 0.011,
+                "judged": [],
+                "late": []
+              }
+            ],
+            "waited_s": 0.011,
+            "late": []
+          }
+        }
+      ],
+      "flow_log": [
+        {
+          "op": "report_party",
+          "args": {
+            "party": "target"
+          },
+          "reply": {
+            "result": "wait",
+            "silent": true,
+            "message": "相手の方は、まだ話している途中でした。何も言わずに、相手の言葉を最後まで聞いてから、もう一度報告してください。",
+            "ack": null
+          },
+          "callee_turns": 1
+        },
+        {
+          "op": "report_party",
+          "args": {
+            "party": "target"
+          },
+          "reply": {
+            "result": "confirm_target",
+            "play": [
+              {
+                "kind": "opening",
+                "part": "target_confirm",
+                "text": "「おかだ」様でいらっしゃいますでしょうか？"
+              }
+            ],
+            "message": "電話に出た方に「「おかだ」様でいらっしゃいますでしょうか？」と聞く録音を、プログラムが流しました（相手にもう聞こえています）。何も言わずに、いまは、まだ目的の人に繋いでいません（さきほどの「目的の人」の報告は、まだ受け付けていません）。電話に出た方に「「おかだ」様でいらっしゃいますでしょうか？」と聞いて、返事を待っています。その方が認めたら（「はい」「そうです」など）、もう一度 report_party を「目的の人」で呼びます（名乗り・用件・最初の質問は、プログラムが流します）。まだ最初の質問はしていないので、用件を話したり、record_answer で報告したりしません。目的の人ではなかったら（席を外している・別の方など）、そのとおりに報告します。",
+            "ack": null
+          },
+          "callee_turns": 2
+        },
+        {
+          "op": "report_party",
+          "args": {
+            "party": "target"
+          },
+          "reply": {
+            "result": "confirm_target",
+            "play": [
+              {
+                "kind": "opening",
+                "part": "target_confirm",
+                "text": "「おかだ」様でいらっしゃいますでしょうか？"
+              }
+            ],
+            "message": "電話に出た方に「「おかだ」様でいらっしゃいますでしょうか？」と聞く録音を、プログラムが流しました（相手にもう聞こえています）。何も言わずに、いまは、まだ目的の人に繋いでいません（さきほどの「目的の人」の報告は、まだ受け付けていません）。電話に出た方に「「おかだ」様でいらっしゃいますでしょうか？」と聞いて、返事を待っています。その方が認めたら（「はい」「そうです」など）、もう一度 report_party を「目的の人」で呼びます（名乗り・用件・最初の質問は、プログラムが流します）。まだ最初の質問はしていないので、用件を話したり、record_answer で報告したりしません。目的の人ではなかったら（席を外している・別の方など）、そのとおりに報告します。",
+            "ack": null
+          },
+          "callee_turns": 3
+        },
+        {
+          "op": "report_party",
+          "args": {
+            "party": "target"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q1",
+            "question": "ご予約はされていますでしょうか？",
+            "play": [
+              {
+                "kind": "opening",
+                "part": "purpose",
+                "text": "ご予約の確認でお電話いたしました。"
+              },
+              {
+                "kind": "question",
+                "id": "Q1",
+                "text": "ご予約はされていますでしょうか？",
+                "lead": ""
+              }
+            ],
+            "message": "目的の人に繋がりました。「ご予約の確認でお電話いたしました。」は、プログラムが録音で流しました（相手にもう聞こえています）。続けて、次の質問 Q1「ご予約はされていますでしょうか？」は、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、相手の答えを待ってください。相手が答えたら record_answer で報告します。",
+            "ack": null
+          },
+          "callee_turns": 4
+        },
+        {
+          "op": "record_answer",
+          "args": {
+            "question_id": "Q1",
+            "condition_id": "はい",
+            "value": "はい、予約しています。"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q2",
+            "question": "ご希望の日時をお聞かせいただけますでしょうか？",
+            "play": [
+              {
+                "kind": "question",
+                "id": "Q2",
+                "text": "それではご希望の日時をお聞かせいただけますでしょうか？",
+                "lead": "それでは"
+              }
+            ],
+            "message": "受け付けました。次の質問 Q2「それではご希望の日時をお聞かせいただけますでしょうか？」は、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、相手の答えを待ってください。相手が答えたら record_answer で報告します。",
+            "ack": "shouchi"
+          },
+          "callee_turns": 5
+        },
+        {
+          "op": "record_answer",
+          "args": {
+            "question_id": "Q2",
+            "value": "15日の午後2時",
+            "condition_id": "答えた"
+          },
+          "reply": {
+            "result": "confirm_required",
+            "value": "15日の午後2時",
+            "say": "ありがとうございます。15日の午後2時でよろしいでしょうか？",
+            "after": null,
+            "message": "言い直して確かめます。「ありがとうございます。15日の午後2時でよろしいでしょうか？」と言って、相手の返事を待ってください。",
+            "ack": "hai"
+          },
+          "callee_turns": 6
+        },
+        {
+          "op": "confirm_field",
+          "args": {
+            "result": "affirmed",
+            "question_id": "Q2"
+          },
+          "reply": {
+            "result": "next",
+            "question_id": "Q3",
+            "question": "ご来店の人数をお伺いしてもよろしいでしょうか？",
+            "play": [
+              {
+                "kind": "question",
+                "id": "Q3",
+                "text": "続きましてご来店の人数をお伺いしてもよろしいでしょうか？",
+                "lead": "続きまして"
+              }
+            ],
+            "message": "確認できました。次の質問 Q3「続きましてご来店の人数をお伺いしてもよろしいでしょうか？」は、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、相手の答えを待ってください。相手が答えたら record_answer で報告します。",
+            "ack": "arigatou"
+          },
+          "callee_turns": 7
+        },
+        {
+          "op": "record_answer",
+          "args": {
+            "question_id": "Q3",
+            "condition_id": "答えた",
+            "value": "3人"
+          },
+          "reply": {
+            "result": "confirm_required",
+            "value": "3人",
+            "say": "かしこまりました。3人で大丈夫でしょうか？",
+            "after": null,
+            "message": "言い直して確かめます。「かしこまりました。3人で大丈夫でしょうか？」と言って、相手の返事を待ってください。",
+            "ack": "hai"
+          },
+          "callee_turns": 8
+        },
+        {
+          "op": "confirm_field",
+          "args": {
+            "result": "affirmed",
+            "question_id": "Q3"
+          },
+          "reply": {
+            "result": "end",
+            "play": [
+              {
+                "kind": "closing",
+                "id": "closing",
+                "text": "お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。"
+              }
+            ],
+            "message": "確認できました。質問は終わりです。締めの言葉「お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。」は、プログラムが録音で流しました。何も言わずに終えます。",
+            "ack": "hai"
+          },
+          "callee_turns": 9
+        }
+      ],
+      "items": {
+        "Q1": {
+          "state": "accepted",
+          "value": "はい、予約しています。",
+          "condition": "はい",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0,
+          "hedged": null,
+          "history": [
+            [
+              "empty",
+              "heard",
+              "聞き取れた"
+            ],
+            [
+              "heard",
+              "accepted",
+              "確かめない型で、はっきり聞き取れた"
+            ]
+          ]
+        },
+        "Q2": {
+          "state": "confirmed",
+          "value": "15日の午後2時",
+          "condition": "答えた",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0,
+          "hedged": null,
+          "history": [
+            [
+              "empty",
+              "heard",
+              "聞き取れた"
+            ],
+            [
+              "heard",
+              "checking",
+              "言い直して確かめる"
+            ],
+            [
+              "checking",
+              "confirmed",
+              "相手が肯定した"
+            ]
+          ]
+        },
+        "Q3": {
+          "state": "confirmed",
+          "value": "3人",
+          "condition": "答えた",
+          "ask_backs": 0,
+          "rechecks": 0,
+          "corrections": 0,
+          "hedged": null,
+          "history": [
+            [
+              "empty",
+              "heard",
+              "聞き取れた"
+            ],
+            [
+              "heard",
+              "checking",
+              "言い直して確かめる"
+            ],
+            [
+              "checking",
+              "confirmed",
+              "相手が肯定した"
+            ]
+          ]
+        }
+      },
+      "export": {
+        "Q1": "はい",
+        "Q2": "15日の午後2時",
+        "Q3": "3人"
+      },
+      "hedged_words": {},
+      "final_phase": "closing",
+      "hurried": false,
+      "facts": {
+        "party": [
+          {
+            "turn": 1,
+            "said": "岡田ですね。少々お待ちください。",
+            "party": "target",
+            "by": "ai"
+          },
+          {
+            "turn": 2,
+            "said": "お電話代わりました。岡田です。",
+            "party": "target",
+            "by": "ai"
+          },
+          {
+            "turn": 3,
+            "said": "はい、そうです。",
+            "party": "target",
+            "by": "ai"
+          },
+          {
+            "turn": 4,
+            "said": "はい、そうです。",
+            "party": "target",
+            "by": "ai"
+          }
+        ],
+        "end": [
+          {
+            "turn": 9,
+            "said": "はい、そうです。",
+            "reason": "done"
+          }
+        ]
+      },
+      "checked_after_call": 0,
+      "opening_mode": "recorded",
+      "barge_in": null,
+      "ear_errors": null,
+      "unchecked": {
+        "Q1": [
+          "judge",
+          "judge2"
+        ],
+        "Q2": [
+          "judge",
+          "judge2"
+        ],
+        "Q3": [
+          "judge",
+          "judge2"
+        ]
+      },
+      "checks": {
+        "代わった方に全部": false,
+        "取り次ぎの間は話さない": true,
+        "取り次ぐ方には流さない": true,
+        "答えが取れた": true
+      },
+      "pass": false,
+      "failed": [
+        "代わった方に全部"
+      ],
+      "said": [
+        "",
+        "申し訳ございません。",
+        "",
+        "",
+        "",
+        "",
+        "ありがとうございます。15日の午後2時でよろしいでしょうか？",
+        "",
+        "かしこまりました。3人で大丈夫でしょうか？",
+        ""
+      ],
+      "restate_gap_s": [],
+      "ops": [
+        "report_party(party=target)→wait",
+        "report_party(party=target)→confirm_target",
+        "report_party(party=target)→confirm_target",
+        "report_party(party=target)→next",
+        "record_answer(question_id=Q1,condition_id=はい,value=はい、予約しています。)→next",
+        "record_answer(question_id=Q2,value=15日の午後2時,condition_id=答えた)→confirm_required",
+        "confirm_field(result=affirmed,question_id=Q2)→next",
+        "record_answer(question_id=Q3,condition_id=答えた,value=3人)→confirm_required",
+        "confirm_field(result=affirmed,question_id=Q3)→end"
+      ]
+    }
+  ]
+}
