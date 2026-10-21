@@ -4124,6 +4124,29 @@ class VoiceFeaturesTest(unittest.TestCase):
         self.assertAlmostEqual(spans[0][0], 0.4, delta=0.04)
         self.assertAlmostEqual(spans[0][1], 0.55, delta=0.04)
 
+    def test_seam_is_in_the_breath_after_the_particle(self):
+        # 名前の録音の継ぎ目（name_clips.seam_cut）：「様」の次の言葉（で）より後ろの、最初の息の音（音の重心が高い＝「し」の息）。
+        # その前の、かすれた声のような低い音（⛔ 2026-10-19：「様は｜いら」の間で、音の重心 1,400〜2,600Hz）は継ぎ目にしない
+        import numpy as np
+        from name_clips import join, seam_cut
+        rate, rng = 24000, np.random.default_rng(1)
+
+        def tone(s):
+            t = np.arange(int(s * rate)) / rate
+            return 0.5 * np.sin(2 * np.pi * 150 * t)
+
+        def noise(s, high):
+            x = rng.standard_normal(int(s * rate))
+            return 0.2 * (np.diff(x, prepend=0) if high else np.convolve(x, np.ones(12) / 12, "same"))
+        pcm = self.pcm(np.concatenate([tone(0.6), noise(0.08, False), tone(0.25), noise(0.12, True), tone(0.4)]))
+        times = [("岡田", 0.0, 0.3), ("様", 0.3, 0.45), ("で", 0.45, 0.6), ("いら", 0.68, 0.93), ("っし", 0.93, 1.05), ("ゃいます", 1.05, 1.45)]
+        cut = seam_cut(pcm, rate, times)
+        self.assertIsNotNone(cut)
+        self.assertTrue(0.93 <= cut / rate <= 1.05, cut / rate)
+        self.assertIsNone(seam_cut(pcm, rate, [("岡田", 0.0, 0.3), ("さん", 0.3, 0.6)]))   # 「様」の無い文には継ぎ目が無い
+        tail = {"pcm": pcm[cut * 2:]}
+        self.assertEqual(join(pcm, cut, tail), pcm)                                    # 組み合わせは、そのまま並べるだけ
+
     def test_loudness_difference_in_db(self):
         # 同じ音の振幅が半分なら、約6dB 小さい（継ぎ目の前の大きさの差＝g58_name_splice.MAX_SEAM_DB で比べる）
         import numpy as np

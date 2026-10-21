@@ -23,6 +23,9 @@ F0_MIN, F0_MAX = 70.0, 450.0
 FLOOR_DB = -35.0  # 声の出ている区間とみなす大きさ（最も大きい区間から）
 YIN_THRESHOLD = 0.15  # 周期のずれがこれより小さい最初の谷を、声の周期とする（1オクターブの取り違えを避ける）
 APERIODIC_MAX = 0.35  # 周期のずれがこれより大きい区間は、高さを数えない（子音・息・かすれ）
+# 息の音（「し」「ち」の息）の音の重心の下限。⛔ 2026-10-19 G-58：周期が無いだけで探すと、「様は｜いら」の間のかすれた声（音の重心 1,400〜2,600Hz）
+# を息の音と取り違えた（本物の息の音は 5,400〜7,300Hz）
+NOISE_MIN_HZ = 4000.0
 LOW_ST = 7.0  # 中央の高さより、これだけ（半音）低い区間を「低く沈む」とする
 
 
@@ -80,9 +83,11 @@ def features(pcm16: bytes, rate: int) -> dict | None:
             "low_ratio": round(float((st <= -LOW_ST).mean()), 3), "frames": len(pitches)}
 
 
-def unvoiced_spans(pcm16: bytes, rate: int, min_s: float = 0.03) -> list[tuple[float, float]]:
+def unvoiced_spans(pcm16: bytes, rate: int, min_s: float = 0.03, noise_only: bool = False) -> list[tuple[float, float]]:
     """声帯の震えの無い区間（無音・息の音＝「っし」の「シ」など。周期のずれが APERIODIC_MAX より大きいか、小さすぎる音）の (始まり, 終わり) の秒。
-    録音を継ぐ位置を決めるため（声の高さの継ぎ目が出ない所。g58_name_splice の4回目）。min_s より短い区間は除く。"""
+    録音を継ぐ位置を決めるため（声の高さの継ぎ目が出ない所。g58_name_splice の4回目）。min_s より短い区間は除く。
+    noise_only：無音は数えず、音のある息の音（周期のずれが大きく、音の重心が NOISE_MIN_HZ より高い音）だけ（name_clips.seam_cut。
+    ⛔ 無音を数えると、「様で」のあとの間＝言葉の間で切っていた）。"""
     x = np.frombuffer(pcm16, dtype="<i2").astype(np.float64) / 32768.0
     lag_lo, lag_hi = int(rate / F0_MAX), int(rate / F0_MIN)
     w, hop = int(rate * FRAME_S), int(rate * HOP_S)
@@ -92,7 +97,15 @@ def unvoiced_spans(pcm16: bytes, rate: int, min_s: float = 0.03) -> list[tuple[f
     frames = np.lib.stride_tricks.sliding_window_view(x, n)[::hop]
     rms = np.sqrt((frames[:, :w] ** 2).mean(axis=1)) + 1e-12
     db = 20 * np.log10(rms / rms.max())
-    voiceless = [d <= FLOOR_DB or _yin(f, w, lag_lo, lag_hi)[1] > APERIODIC_MAX for f, d in zip(frames, db)]
+    if noise_only:
+        freqs, win = np.fft.rfftfreq(w, 1 / rate), np.hanning(w)
+
+        def bright(f):
+            mag = np.abs(np.fft.rfft((f[:w] - f[:w].mean()) * win))
+            return float((freqs * mag).sum() / (mag.sum() + 1e-12))
+        voiceless = [d > FLOOR_DB and _yin(f, w, lag_lo, lag_hi)[1] > APERIODIC_MAX and bright(f) >= NOISE_MIN_HZ for f, d in zip(frames, db)]
+    else:
+        voiceless = [d <= FLOOR_DB or _yin(f, w, lag_lo, lag_hi)[1] > APERIODIC_MAX for f, d in zip(frames, db)]
     spans, start = [], None
     for i, v in enumerate(voiceless + [False]):
         t = (i * hop + w / 2) / rate
