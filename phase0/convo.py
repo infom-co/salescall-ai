@@ -149,7 +149,8 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
                 if getattr(exc, "tried", None):  # 受け持ちの判定・代わりの、答えが無かった理由（meaning_judge.NoJudgment）
                     info[f"{kind}_tried"] = list(exc.tried)
                     if any("unsure" in t for t in exc.tried):
-                        flow.on_unsure(kind, turn, said)  # 確からしさが線より下の読みだけが届いた：どう数えるかは流れの制御が決める
+                        # 確からしさが線より下の読みだけが届いた：どう数えるかは流れの制御が決める
+                        flow.on_unsure(kind, next(t["unsure"] for t in exc.tried if "unsure" in t), turn, said)
                 return None
             info.setdefault(f"{kind}_calls_s", []).append(round(loop.time() - t0, 3))  # 判定そのものにかかった秒（待つ長さを決めるため）
             # 判定の間に相手がまた話し始めたら、話し終わるのを待ってから、言葉が増えたかを見る（増えていれば、この判定は渡さない）

@@ -4853,18 +4853,24 @@ class TargetTest(unittest.TestCase):
         f, b = self.checked()
         f.use_checks("judge", "judge2")
         self.heard(f, "はい、お電話変わりました。", TARGET_IS_THERE)
-        f.on_unsure("judge2")
+        f.on_unsure("judge2", "代わった人が話し始めた")
         self.assertEqual(f.check["judge2"], UNDECIDED)
         self.assertEqual((f.apply("report_party", {"party": "target"})["result"], f.phase), ("confirm_target", "calling"))
+        # 弱い「ご本人」は、繋ぐ側には使わない（読みに数えない）が、止めもしない（⛔ G-57 tc11：止めて、確かめに「はい」と答えた岡田様に
+        # お呼びし直した）。確かめへの返事に、ほかの判定が届いていなければ、AIの読みで繋ぐ
+        self.heard(f, "はい、そうです。", None)
+        f.on_unsure("judge", TARGET_IS_THERE)
+        self.assertNotIn("judge", f.check)
+        self.assertEqual((f.apply("report_party", {"party": "target"})["result"], f.phase), ("next", "asking"))
         g, _ = self.flow()
         g.use_checks("judge", "judge2")
         g.on_callee(); g.on_heard("岡田は私です。"); g.on_check("judge", TARGET_IS_THERE); g.on_check("judge2", TARGET_IS_THERE)
         g.apply("report_party", {"party": "target"})
         self.assertEqual(g.phase, "asking")
         g.on_callee(); g.on_heard("はい、予約しています。")
-        g.on_unsure("judge2")
+        g.on_unsure("judge2", "決められない")
         self.assertNotIn("judge2", g.check)
-        self.assertIn("flow.on_unsure(kind, turn, said)", inspect.getsource(convo.check_handler))
+        self.assertIn("flow.on_unsure(kind, next(", inspect.getsource(convo.check_handler))
 
     def test_waited_report_is_asked_again_once_the_words_are_complete(self):
         # 言葉の途中の報告を決めずに待たせたまま、AIが報告し直さない：言葉が出揃ったら、報告し直すように1回だけ知らせる（呼んでいる段）
@@ -4883,6 +4889,15 @@ class TargetTest(unittest.TestCase):
         self.assertIn("もう一度報告してください", note)
         self.assertIn("担当の山田です", note)
         self.assertIsNone(f.unreported_note())                                   # 1つの発話に1回まで
+        # 確かめる一言への返事に、AIが報告しなかった（声を出して自分で名乗り始めた）：報告するように1回知らせる
+        g, b = self.checked()
+        self.heard(g, "はい。", None)
+        g.apply("report_party", {"party": "target"})
+        g.on_callee(); g.on_heard("はい、そうです。")
+        note = g.unreported_note()
+        self.assertIn("目的の人かを聞いた返事です", note)
+        self.assertIn("まだ目的の人に繋いでいません", note)
+        self.assertIsNone(g.unreported_note())
         self.assertIn("waited = bool(ops) and ops[-1][\"reply\"].get(\"result\") == \"wait\"", inspect.getsource(convo.run_call))
 
     def test_late_judgment_after_connecting_is_kept_for_the_check_after_the_call(self):

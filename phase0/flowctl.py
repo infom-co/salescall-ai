@@ -878,14 +878,16 @@ class Flow:
                 t["check"][kind] = value
                 self._late(qid)
 
-    def on_unsure(self, kind: str, turn: int | None = None, said: str | None = None) -> None:
-        """判定の受け持ちが、確からしさが線より下の読みしか返さなかった（meaning_judge.NoJudgment の unsure＝代わりの Jev）。
-        目的の人を呼んでいる段（繋ぐのは取り消せない）では「決められない」として数える（疑いを捨てない＝確かめる側）。答えの段では数えない
-        （届かなかった確かめ＝通話後の検証。答えは遅れて届いた判定でも当て直せる）。
+    def on_unsure(self, kind: str, value: str, turn: int | None = None, said: str | None = None) -> None:
+        """判定の受け持ちが、確からしさが線より下の読み（value）しか返さなかった（meaning_judge.NoJudgment の unsure＝代わりの Jev）。
+        目的の人を呼んでいる段（繋ぐのは取り消せない）では、「ご本人」ではない読みだけを「決められない」として数える（弱い読みは、繋ぐのを
+        止める側にだけ使い、繋ぐ側には使わない）。答えの段では数えない（届かなかった確かめ＝通話後の検証。答えは遅れて届いた判定でも当て直せる）。
+        ⛔ 2026-10-21 G-57 tc11（確かめにいいえ・L4）：中身を見ずに「決められない」と数えたので、確かめへの「はい、そうです。」を Jev が
+           「ご本人」（確からしさ 0.94）と読んだのに繋がず、岡田様にお呼びし直した
         ⛔ 2026-10-21 G-57 tc10（確かめにいいえ・L4）：最初の方の「はい、お電話変わりました。」（前の言葉なし）を、AIは決まりに反して「目的の人」と
            報告し、3.5 Flash Lite も「ご本人」と読んだ。もう1つの受け持ちは Sonnet が止まっていて、代わりの Jev は「代わった人が話し始めた」と
            読んだが確からしさ 0.89 で線より下＝捨てて「答えなし」と同じに数え、読みが2つそろったとして別の方（山田様）に繋いだ"""
-        if self.phase == "calling" and kind in JUDGMENTS:
+        if self.phase == "calling" and kind in JUDGMENTS and value != TARGET_IS_THERE:
             self.on_check(kind, UNDECIDED, turn, said)
 
     def judge_context(self) -> tuple["Question | None", str | None, str | None]:
@@ -922,13 +924,18 @@ class Flow:
             # AIが報告し直さない ⇒ 出揃った言葉で報告し直すように知らせる（1つの相手の発話に1回まで）。
             # ⛔ 2026-10-21 G-57 tc10（判定を止めた形・L4）：AIが言葉の途中で報告し、待たせたあと報告し直さなかったので、その方に何も流れず
             #    （「お電話代わりました。担当の山田です。」に岡田様をお呼びし直さなかった）、3回続けて止まった通話もあった
+            # 確かめる一言への返事に、AIが報告しなかった（⛔ G-57 tc11：157回中3回。2回は繋がったと思い込んで自分で名乗り始めた）も同じ
             last = self.log[-1] if self.log else None
-            if (last is None or last["reply"].get("result") != "wait" or last["callee_turns"] != self.callee_turns
-                    or not self.words_complete or self.nudged_turn == self.callee_turns):
+            waited = last is not None and last["reply"].get("result") == "wait" and last["callee_turns"] == self.callee_turns
+            replied = (self.asked_target is not None and self.confirm_open and self.callee_turns == self.asked_target_turn + 1
+                       and (last is None or last["callee_turns"] != self.callee_turns))
+            if not (waited or replied) or not self.words_complete or self.nudged_turn == self.callee_turns:
                 return None
             self.nudged_turn = self.callee_turns
-            return (f"［プログラムからのお知らせ］相手の言葉は、最後まで届きました（「{self.callee_said.strip()[:40]}」）。何も言わずに、この言葉で、"
-                    "もう一度報告してください（report_party か replay_opening）。このお知らせには、声で返事をしません。")
+            what = "は、目的の人かを聞いた返事です" if replied else "は、最後まで届きました"
+            again = "" if replied else "もう一度"
+            return (f"［プログラムからのお知らせ］相手の言葉（「{self.callee_said.strip()[:40]}」）{what}。何も言わずに、この言葉で、{again}"
+                    "報告してください（report_party か replay_opening）。まだ目的の人に繋いでいません。このお知らせには、声で返事をしません。")
         if self.phase == "closing" or self.current is None or self.awaiting_confirm is not None:
             return None
         q = self.questions[self.current]
