@@ -878,6 +878,16 @@ class Flow:
                 t["check"][kind] = value
                 self._late(qid)
 
+    def on_unsure(self, kind: str, turn: int | None = None, said: str | None = None) -> None:
+        """判定の受け持ちが、確からしさが線より下の読みしか返さなかった（meaning_judge.NoJudgment の unsure＝代わりの Jev）。
+        目的の人を呼んでいる段（繋ぐのは取り消せない）では「決められない」として数える（疑いを捨てない＝確かめる側）。答えの段では数えない
+        （届かなかった確かめ＝通話後の検証。答えは遅れて届いた判定でも当て直せる）。
+        ⛔ 2026-10-21 G-57 tc10（確かめにいいえ・L4）：最初の方の「はい、お電話変わりました。」（前の言葉なし）を、AIは決まりに反して「目的の人」と
+           報告し、3.5 Flash Lite も「ご本人」と読んだ。もう1つの受け持ちは Sonnet が止まっていて、代わりの Jev は「代わった人が話し始めた」と
+           読んだが確からしさ 0.89 で線より下＝捨てて「答えなし」と同じに数え、読みが2つそろったとして別の方（山田様）に繋いだ"""
+        if self.phase == "calling" and kind in JUDGMENTS:
+            self.on_check(kind, UNDECIDED, turn, said)
+
     def judge_context(self) -> tuple["Question | None", str | None, str | None]:
         """意味の判定に渡すもの（相手の発話の始めに決める）：いまの質問と、こちらが言い直して確かめた言葉（言い直しの返事を待っているとき）と、
         その前に相手が言ったこと。目的の人を呼んでいる段（calling）では、呼ぶ一言を質問にし（目的の人かを確かめたあとは、その言い方を添える）、
@@ -896,7 +906,8 @@ class Flow:
         q = self.questions.get(self.current) if self.current else None
         return q, (self.awaiting_say if self.awaiting_confirm is not None else None), None
 
-    # ── AIのターンが、声は出したのに報告なしで終わった（電話接続側が呼ぶ）：報告を促す知らせ（出さないなら None）。
+    # ── AIのターンが、声は出したのに報告なしで終わった・呼んでいる段で決めずに待たせたまま終わった（電話接続側が呼ぶ）：報告を促す知らせ
+    #    （出さないなら None）。
     def unreported_note(self) -> str | None:
         """いまの質問の答えだと、意味の判定が決めた相手の言葉（on_check の judge が選択肢・どちらでも・わからない・答えたくないのどれか）に、
         AIが報告しなかったときだけ、1つの相手の発話に1回まで。知らせには、いまの質問の文を入れない（報告することだけ）。
@@ -906,6 +917,18 @@ class Flow:
         ⛔ 2026-10-17 の1回目：判定を見ずに、相手の言葉があれば出し、知らせに「いまの質問は…」を入れた ⇒ 取り次ぎ（「代わりますので少々
            お待ちください」）のあとにも出て、声の型 S4 の3本中2本で、代わった方にAIが自分で名乗って質問した・流し直しを頼まなかった
            （6-7 の G-19 と同じ形：AIへの文字の合図が会話を乱す）。答えの3本では、AIは3本とも黙って正しく報告した。"""
+        if self.phase == "calling":
+            # 目的の人を呼んでいる段：AIの報告を、相手の言葉が出揃う前のものとして決めずに待たせた（_wait_for_words）のに、言葉が出揃っても
+            # AIが報告し直さない ⇒ 出揃った言葉で報告し直すように知らせる（1つの相手の発話に1回まで）。
+            # ⛔ 2026-10-21 G-57 tc10（判定を止めた形・L4）：AIが言葉の途中で報告し、待たせたあと報告し直さなかったので、その方に何も流れず
+            #    （「お電話代わりました。担当の山田です。」に岡田様をお呼びし直さなかった）、3回続けて止まった通話もあった
+            last = self.log[-1] if self.log else None
+            if (last is None or last["reply"].get("result") != "wait" or last["callee_turns"] != self.callee_turns
+                    or not self.words_complete or self.nudged_turn == self.callee_turns):
+                return None
+            self.nudged_turn = self.callee_turns
+            return (f"［プログラムからのお知らせ］相手の言葉は、最後まで届きました（「{self.callee_said.strip()[:40]}」）。何も言わずに、この言葉で、"
+                    "もう一度報告してください（report_party か replay_opening）。このお知らせには、声で返事をしません。")
         if self.phase == "closing" or self.current is None or self.awaiting_confirm is not None:
             return None
         q = self.questions[self.current]

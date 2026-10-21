@@ -4844,6 +4844,47 @@ class TargetTest(unittest.TestCase):
         self.assertIn("番号違いではありません", now)
         self.assertIn("request_callback を「不在」", now)
 
+    def test_unsure_standin_counts_as_doubt_only_while_calling(self):
+        # 代わりの判定が確からしさの線より下の読みしか返さなかった：呼んでいる段では「決められない」（繋がずに確かめる）。答えの段では数えない
+        # ⛔ 2026-10-21 G-57 tc10：捨てて「答えなし」と数えたので、AIの報告と 3.5 Flash Lite の読み違いの2つで、別の方に繋いだ
+        import inspect
+        import convo
+        from flowctl import TARGET_IS_THERE, UNDECIDED
+        f, b = self.checked()
+        f.use_checks("judge", "judge2")
+        self.heard(f, "はい、お電話変わりました。", TARGET_IS_THERE)
+        f.on_unsure("judge2")
+        self.assertEqual(f.check["judge2"], UNDECIDED)
+        self.assertEqual((f.apply("report_party", {"party": "target"})["result"], f.phase), ("confirm_target", "calling"))
+        g, _ = self.flow()
+        g.use_checks("judge", "judge2")
+        g.on_callee(); g.on_heard("岡田は私です。"); g.on_check("judge", TARGET_IS_THERE); g.on_check("judge2", TARGET_IS_THERE)
+        g.apply("report_party", {"party": "target"})
+        self.assertEqual(g.phase, "asking")
+        g.on_callee(); g.on_heard("はい、予約しています。")
+        g.on_unsure("judge2")
+        self.assertNotIn("judge2", g.check)
+        self.assertIn("flow.on_unsure(kind, turn, said)", inspect.getsource(convo.check_handler))
+
+    def test_waited_report_is_asked_again_once_the_words_are_complete(self):
+        # 言葉の途中の報告を決めずに待たせたまま、AIが報告し直さない：言葉が出揃ったら、報告し直すように1回だけ知らせる（呼んでいる段）
+        # ⛔ 2026-10-21 G-57 tc10（判定を止めた形）：待たせたあとAIが報告し直さず、代わった山田様に何も流れなかった
+        import inspect
+        import convo
+        from types import SimpleNamespace
+        f, b = self.checked()
+        f.on_callee(); f.on_voice(2.0); f.on_activity(True, 0.1); f.on_heard("お電話代わりました。")
+        fc = SimpleNamespace(name="replay_opening", args={"流し直す部分": "代わった方へ"})
+        self.assertEqual(f.handle_call(fc, midway=True)[0]["結果"], "最後まで聞く")
+        self.assertIsNone(f.unreported_note())                                   # まだ出揃っていない
+        f.on_heard("担当の山田です。"); f.on_activity(False, 2.5)
+        self.assertTrue(f.words_complete)
+        note = f.unreported_note()
+        self.assertIn("もう一度報告してください", note)
+        self.assertIn("担当の山田です", note)
+        self.assertIsNone(f.unreported_note())                                   # 1つの発話に1回まで
+        self.assertIn("waited = bool(ops) and ops[-1][\"reply\"].get(\"result\") == \"wait\"", inspect.getsource(convo.run_call))
+
     def test_late_judgment_after_connecting_is_kept_for_the_check_after_the_call(self):
         # 判定なしで繋いだあとに、その発話の判定が届いた：通話の事実に残す（通話後の検証が確かめる。DESIGN.md 6-12）
         from flowctl import HANDOVER

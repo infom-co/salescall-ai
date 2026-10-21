@@ -148,6 +148,8 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
                 info[f"{kind}_error"] = repr(exc)[:200]
                 if getattr(exc, "tried", None):  # 受け持ちの判定・代わりの、答えが無かった理由（meaning_judge.NoJudgment）
                     info[f"{kind}_tried"] = list(exc.tried)
+                    if any("unsure" in t for t in exc.tried):
+                        flow.on_unsure(kind, turn, said)  # 確からしさが線より下の読みだけが届いた：どう数えるかは流れの制御が決める
                 return None
             info.setdefault(f"{kind}_calls_s", []).append(round(loop.time() - t0, 3))  # 判定そのものにかかった秒（待つ長さを決めるため）
             # 判定の間に相手がまた話し始めたら、話し終わるのを待ってから、言葉が増えたかを見る（増えていれば、この判定は渡さない）
@@ -523,9 +525,12 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                         #    通話が止まった。張り替えは「声も操作も無い」ときだけだった
                         replay = swapped = i
                         break
-                    if spoke and not flow.log[turn_log_start:] and settle is not None:
+                    # 呼んでいる段で、報告を決めずに待たせたまま（相手の言葉の途中の報告）AIのターンが終わった：言葉が出揃ったら報告し直すように
+                    # 知らせる（知らせるかは流れの制御が決める＝Flow.unreported_note の1か所）
+                    waited = bool(ops) and ops[-1]["reply"].get("result") == "wait"
+                    if (spoke and not ops or waited) and settle is not None:
                         await settle()  # 判定が「答え」と決めたときだけ知らせる（Flow.unreported_note）
-                    if spoke and not flow.log[turn_log_start:] and (note := flow.unreported_note()):
+                    if (spoke and not ops or waited) and (note := flow.unreported_note()):
                         # AIが声は出したのに、報告なしでターンを終えた：報告を促す（流れの制御が決める。1つの相手の発話に1回まで）。
                         # 本番では、この知らせへのAIの声のうち、報告より前のものは相手に流さない（電話接続側）。試験では記録だけする
                         log_start = len(flow.log)
