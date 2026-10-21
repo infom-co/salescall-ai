@@ -320,7 +320,9 @@ class PerClient(unittest.TestCase):
             self.assertEqual({r["summary"] for r in self.notices(x["tenant"])}, {sealing.KeyMissing.ask})
         self.assertFalse((self.root / pc.BASE).exists())
         drive = "試験：控え用のハードディスクをつないでください"
-        pair = (World().setup(), World().setup())                          # 今日まだ片付けていない2人の契約者
+        pair = (World().setup(), World().setup())                          # 今日まだ片付けていない2人の契約者（フォルダはある）
+        for x in pair:
+            backup.client_folder(self.app, x["tenant"], x["client"])
         for x in pair:
             self.assertFalse(any(r.ok for r in backup._prune_step(self.app, Failing("試験：外れている", ask=drive), x["tenant"])))
         for x in pair:

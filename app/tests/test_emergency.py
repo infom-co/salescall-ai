@@ -69,7 +69,7 @@ class OnTheServer(Base):
         s = self.ready()
         mine = emergency.stop(self.w.a, s["tenant"], PC, "架空の PC", "試験：1台目で押した")
         theirs = emergency.stop(self.w.a, s["tenant"], OTHER_PC, "架空の2台目の PC", "試験：2台目で押した")
-        self.assertEqual(emergency.release(self.w.a, s["tenant"], PC, "架空の PC", "試験：1台目で解いた"), [mine])
+        self.assertEqual(len(emergency.release(self.w.a, s["tenant"], PC, "架空の PC", "試験：1台目で解いた")), 1)
         self.assertEqual((emergency.is_open(self.w.a, s["tenant"], mine), emergency.is_open(self.w.a, s["tenant"], theirs)),
                          (False, True))
 
@@ -106,10 +106,10 @@ class OnThePc(Base):
         self.assertEqual(code, 0)
         self.assertEqual(pc.engaged()["reason"], "試験：ネットが切れた")
         self.run_cli("stop", "試験：2回目")
-        self.assertEqual(pc.engaged()["reason"], "試験：ネットが切れた")          # 前の印のまま（記録の番号を消さない）
-        pc.recorded(7)
+        self.assertEqual((pc.engaged()["reason"], pc.engaged()["event"]), ("試験：2回目", None))   # 押し直しは新しい押し
+        self.assertTrue(pc.recorded(7, pc.engaged()["at"]))
         self.assertEqual(self.run_cli("release", "試験：直った")[0], 0)
         self.assertEqual((pc.engaged()["event"], pc.engaged()["release"]), (7, "試験：直った"))   # まだ止めたまま
         self.assertIn("止めています", self.run_cli("status")[1])
-        pc.clear()
+        self.assertTrue(pc.clear(7))                                            # サーバーで解けた番号と同じ：印を消す
         self.assertIn("止めていません", self.run_cli("status")[1])

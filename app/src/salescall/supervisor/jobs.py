@@ -61,7 +61,7 @@ class Job:
 
 
 def _clients(ctx: Context) -> list[UUID]:
-    return backup.clients(ctx.access, ctx.tenant_id)
+    return backup.client_ids(ctx.access, ctx.tenant_id)
 
 
 def _each(ctx: Context, what: str, items: list[Any], work: Callable[[Any], Any]) -> None:
