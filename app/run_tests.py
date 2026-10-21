@@ -377,7 +377,7 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      "DROP INDEX salescall.client_backup_folders_one_name",
      ("tests.test_backup.PerClient.test_folders_follow_the_client_name_and_fall_back_to_client_numbers",)),
     ("測り終わる前の録音を消せる（印を見ない）",
-     "CREATE OR REPLACE FUNCTION salescall.recordings_held(p_attempts uuid[]) RETURNS SETOF uuid LANGUAGE sql STABLE"
+     "CREATE OR REPLACE FUNCTION salescall.recordings_held() RETURNS SETOF uuid LANGUAGE sql STABLE"
      " SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ SELECT NULL::uuid WHERE false $$",
      ("tests.test_settle.RecordingHolds.test_verification_calls_keep_their_recordings_until_measured",)),
     ("外した録音の印を戻せる",

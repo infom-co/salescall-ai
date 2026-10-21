@@ -311,14 +311,20 @@ class PerClient(unittest.TestCase):
             self.assertEqual(backup.copy_submissions(self.app, writer(self.root), s["tenant"]), [])   # 写すものが無ければ何もしない
 
     def test_a_missing_key_is_asked_to_that_contractor(self):
-        """鍵が無ければ、その契約者に「鍵を入れてください」。2人の契約者が同じ日に同じ知らせ（同じ鍵の出来事）になっても、
-        それぞれに届く（知らせの「同じ出来事」は契約者ごと＝0064）。"""
+        """鍵が無ければ、その契約者に「鍵を入れてください」。2人の契約者が同じ日に同じ知らせ（依頼者を持たない、古い控えの片付けの
+        同じ出来事）になっても、それぞれに届く（知らせの「同じ出来事」は契約者ごと＝0064）。"""
         s, other = World().setup(), World().setup()
         for x in (s, other):
             self.assertFalse(any(r.ok for r in self.run_contractor(x["tenant"], environ={})))
             self.assertIn("client_ai", [r["kind"] for r in self.runs(x["tenant"])])
             self.assertEqual({r["summary"] for r in self.notices(x["tenant"])}, {sealing.KeyMissing.ask})
         self.assertFalse((self.root / pc.BASE).exists())
+        drive = "試験：控え用のハードディスクをつないでください"
+        pair = (World().setup(), World().setup())                          # 今日まだ片付けていない2人の契約者
+        for x in pair:
+            self.assertFalse(any(r.ok for r in backup._prune_step(self.app, Failing("試験：外れている", ask=drive), x["tenant"])))
+        for x in pair:
+            self.assertEqual({r["summary"] for r in self.notices(x["tenant"])}, {drive})
 
     def test_failures_are_asked_to_fix_by_kind_and_told_to_the_admin_and_that_contractor(self):
         """同じ日に、データベース全体と依頼者ごとの控えが両方失敗したら、修正依頼も種類ごとに出る（片方が埋もれない）。
