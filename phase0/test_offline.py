@@ -4352,13 +4352,27 @@ class TargetTest(unittest.TestCase):
     def test_handover_replay_uses_the_same_target_decision(self):
         # AIが「代わった方」として名乗りの流し直しを頼んだ：目的の人かは、目的の人の報告と同じ1か所で決める（判定が「ご本人」なら繋いで
         # 全部を流す・判定が無ければ目的の人かを確かめる）。⛔ 2026-10-19 G-57：判定が「ご本人」でも、目的の人かを聞き直していた
+        # ⛔ 2026-10-21：繋ぐのは「ご本人」の読みが2つ以上そろったときだけ（読み＝AIの「目的の人」の報告・届いた判定の1つずつ）。AIが「代わった方」
+        #    と報告していて、届いた判定が1つだけなら、目的の人かを確かめる（G-59：3.5 Flash Lite は、担当の者に取り次いだあとの「はい、お電話
+        #    代わりました。」を6回中6回「ご本人」と読んだ）
         from flowctl import HOLD, TARGET_IS_THERE
-        f, b = self.flow()
-        f.use_checks("judge")
-        f.on_callee(); f.on_heard("少々お待ちください。"); f.on_check("judge", HOLD)
-        f.on_callee(); f.on_heard("お電話変わりました。岡田です。"); f.on_check("judge", TARGET_IS_THERE)
-        r = f.apply("replay_opening", {"part": "handover"})
-        self.assertEqual([p.get("part", p["kind"]) for p in r["play"]], ["greeting", "intro", "purpose", "question"])
+        for both in (True, False):
+            f, b = self.flow()
+            f.use_checks("judge", "judge2")
+            f.on_callee(); f.on_heard("少々お待ちください。"); f.on_check("judge", HOLD)
+            f.on_callee(); f.on_heard("お電話変わりました。岡田です。"); f.on_check("judge", TARGET_IS_THERE)
+            if both:
+                f.on_check("judge2", TARGET_IS_THERE)
+            r = f.apply("replay_opening", {"part": "handover"})
+            if both:
+                self.assertEqual([p.get("part", p["kind"]) for p in r["play"]], ["greeting", "intro", "purpose", "question"])
+                self.assertEqual(f.phase, "asking")
+            else:
+                self.assertEqual((r["result"], f.phase), ("confirm_target", "calling"))
+        f, b = self.flow()                                           # AIの「目的の人」の報告＋判定1つ＝読みが2つ ⇒ 繋ぐ
+        f.use_checks("judge", "judge2")
+        f.on_callee(); f.on_heard("岡田は私ですが。"); f.on_check("judge", TARGET_IS_THERE)
+        self.assertEqual(f.apply("report_party", {"party": "target"})["result"] != "confirm_target", True)
         self.assertEqual(f.phase, "asking")
         f, b = self.flow()
         f.on_callee(); f.on_heard("お電話変わりました。")
@@ -4419,7 +4433,8 @@ class TargetTest(unittest.TestCase):
         r = self.say(f, "はい、そうです。", "record_answer", question_id="Q1", condition_id="はい", value="はい")
         self.assertEqual(r["result"], "rejected")
         self.assertIn("「「おかだ」様でいらっしゃいますでしょうか？」と聞いて、返事を待っています", r["message"])
-        self.assertIn("record_answer では報告しません", r["message"])
+        self.assertIn("record_answer で報告したりしません", r["message"])
+        self.assertNotIn("まだ受け付けていません", r["message"])   # AIは「目的の人」と報告していない（代わった方として流し直しを頼んだ）
         r = f.apply("report_party", {"party": "target"})
         self.assertEqual([p.get("part", p["kind"]) for p in r["play"]], ["greeting", "intro", "purpose", "question"])
 
