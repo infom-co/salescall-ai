@@ -907,6 +907,15 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      "ALTER TABLE salescall.recordings DROP CONSTRAINT recordings_part_check;"
      " ALTER TABLE salescall.recordings ADD CONSTRAINT recordings_part_check CHECK (part ~ '^.{0,64}$')",
      ("tests.test_gate.CallerNumberAndVoice.test_recording_part_names_take_the_same_letters_as_question_ids",)),
+    ("回線を、一覧に無い方式でも作れる（0104 の前）",
+     "ALTER TABLE salescall.lines DROP CONSTRAINT lines_method",
+     ("tests.test_registry.Lines.test_the_line_method_is_chosen_from_the_list",)),
+    ("回線の方式の一覧を、契約者も足せる・変えられる",
+     "DROP TRIGGER line_methods_guard ON salescall.line_methods",
+     ("tests.test_registry.Lines.test_the_line_method_is_chosen_from_the_list",)),
+    ("回線の単価を、一覧に無い方式にも入れられる（0104 の前：書き方が違うと単価が見つからない）",
+     "DROP TRIGGER price_versions_line_method ON salescall.price_versions",
+     ("tests.test_usage.PricesPerContractor.test_a_line_price_is_only_for_a_method_in_the_list",)),
 )
 
 

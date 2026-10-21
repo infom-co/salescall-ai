@@ -87,6 +87,25 @@ class Lines(Base):
             self.w.a.in_tenant(OPERATOR, t, lambda tx: tx.execute(
                 "INSERT INTO salescall.lines (tenant_id, name, method) VALUES (%s, 'x', 'rakuten_link')", (t,)))
 
+    def test_the_line_method_is_chosen_from_the_list(self):
+        """回線の方式は一覧から選ぶ（初めは楽天リンク。足すのは管理者だけ。変えられない・消せない。0104。2026-10-21 ユーザー：
+        「楽天リンクは楽天リンクでいいんじゃないんですか？」）。一覧に無い方式の回線は作れない。"""
+        t = self.w.tenant()
+        self.assertIn({"method": "rakuten_link", "label": "楽天リンク"},
+                      self.w.a.in_tenant(OPERATOR, t, registry.line_methods))
+        mk = lambda m: self.w.a.in_tenant(OPERATOR, t, lambda tx: registry.create_line(   # noqa: E731
+            tx, "架空の回線", method=m, caller=fictional_caller()))
+        with self.assertRaises(Rejected):
+            mk("楽天link")
+        with self.assertRaises(Rejected):                                  # 足せるのは管理者だけ
+            self.w.a.in_tenant(OPERATOR, t, lambda tx: registry.add_line_method(tx, "test_sip", "試験の回線"))
+        self.w.a.in_system(ADMIN, lambda tx: registry.add_line_method(tx, "test_sip", "試験の回線"))
+        mk("test_sip")
+        for sql in ("UPDATE salescall.line_methods SET label = 'x' WHERE method = 'test_sip'",
+                    "DELETE FROM salescall.line_methods WHERE method = 'test_sip'"):
+            with self.subTest(sql=sql), self.assertRaises(Rejected):
+                self.w.a.in_system(ADMIN, lambda tx: tx.execute(sql))
+
     def test_a_retired_line_is_not_used_and_its_claims_are_released(self):
         s = self.ready()
         c = self.claim(s)

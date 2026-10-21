@@ -55,6 +55,17 @@ def set_price(tx: Tx, *, source: str, service: str, tier: str | None, unit: str,
                   " RETURNING price_id", (source, service, tier, unit, yen_per_unit, valid_from, note))["price_id"]
 
 
+def price_table(tx: Tx) -> list[dict[str, Any]]:
+    """画面の単価の表（2026-10-21 ユーザー：「ダッシュボードでも変更や保存ができるようにしておいてください」）：出どころ・サービス・
+    枠・単位ごとに、いま使う単価（決め方は `price_for` と同じ）と、それが契約者の入れた値か初めの値か。変えるときは `set_price`
+    で足す（前の値は消さずに残る）。全体の取引なら初めの値だけ。"""
+    return tx.all(
+        "SELECT DISTINCT ON (source, service, tier, unit) source, service, tier, unit, yen_per_unit, valid_from,"
+        " tenant_id IS NOT NULL AS by_contractor, note FROM salescall.price_versions"
+        " WHERE valid_from <= now() AND (tenant_id IS NULL OR tenant_id = salescall.cur_tenant())"
+        " ORDER BY source, service, tier NULLS FIRST, unit, tenant_id IS NULL, valid_from DESC")
+
+
 def price_for(tx: Tx, *, source: str, service: str, tier: str | None, unit: str) -> dict[str, Any]:
     """いま使う単価（決め方はここだけ）：取引の契約者が入れた単価 ＞ 管理者が入れた初めの値。無ければ PriceMissing
     （推測で 0円にしない）。"""
@@ -82,10 +93,10 @@ def record(tx: Tx, *, source: str, service: str, tier: str | None, kind: str, qu
                     refs={"source": source, "service": service, "tier": tier, "unit": unit})
     amount = None if price["yen_per_unit"] is None else Decimal(quantity) * Decimal(price["yen_per_unit"])
     row = tx.one(
-        "INSERT INTO salescall.usage_entries (tenant_id, client_id, attempt_id, source, kind, quantity, unit, price_id,"
-        " amount_yen) VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s, %s, %s, %s)"
+        "INSERT INTO salescall.usage_entries (tenant_id, client_id, attempt_id, source, service, tier, kind, quantity, unit,"
+        " price_id, amount_yen) VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s, %s, %s, %s, %s, %s)"
         " RETURNING entry_id, tenant_id, client_id",
-        (attempt_id, source, kind, quantity, unit, price["price_id"], amount))
+        (attempt_id, source, service, tier, kind, quantity, unit, price["price_id"], amount))
     _check_client_budget(tx, row["tenant_id"], row["client_id"])
     return {"entry_id": row["entry_id"], "amount_yen": amount, "stopped": _check_cost_ratio(tx, row["tenant_id"], row["client_id"])}
 

@@ -39,6 +39,8 @@ class Ledger(SettleBase):
                                                                  " WHERE event_key LIKE 'price_missing:%'")])
         self.assertEqual(kinds, ["setting_missing"])
         self.assertEqual(self.tx(s, lambda tx: reward.month(tx))["unpriced_entries"], 1)
+        self.assertEqual(self.tx(s, lambda tx: tx.one("SELECT service, tier FROM salescall.usage_entries")),
+                         {"service": "gemini-3.8-live", "tier": "free"})    # 単価が無くても、何の分かは残す（0104）
 
     def test_frozen(self):
         s = self.ready()
@@ -103,6 +105,36 @@ class PricesPerContractor(Priced):
         self.assertEqual(got["amount_yen"], Decimal("2.0"))
         self.assertEqual(self.tx(s, lambda tx: tx.one("SELECT source FROM salescall.usage_entries WHERE entry_id = %s",
                                                       (got["entry_id"],)))["source"], "judge")
+
+
+    def test_the_price_table_shows_what_is_used_now_and_by_whom(self):
+        """画面の単価の表（2026-10-21 ユーザー：「ダッシュボードでも変更や保存ができるようにしておいてください」）：組ごとに、いま
+        使う単価と、契約者の値か初めの値か。変えると、新しい値が表に出る（前の値は残る）。ほかの契約者の値は出ない。"""
+        s, other = self.ready(), self.ready()
+        table = lambda t: {(r["source"], r["service"], r["tier"], r["unit"]): (r["yen_per_unit"], r["by_contractor"])   # noqa: E731
+                           for r in self.w.a.in_tenant(OPERATOR, t, usage.price_table)}
+        key = ("ai", "gemini-3.8-live", "paid", "input_tokens")
+        self.assertNotIn(key, table(s["tenant"]))
+        self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: usage.set_price(
+            tx, source="ai", service="gemini-3.8-live", tier="paid", unit="input_tokens", yen_per_unit=Decimal("0.5"),
+            valid_from=tx.one("SELECT clock_timestamp() AS t")["t"], note="試験"))
+        self.assertEqual(table(s["tenant"])[key], (Decimal("0.5"), True))
+        self.assertEqual(table(s["tenant"])[("ai", "gemini-3.8-live", "free", "input_tokens")][1], False)   # 初めの値
+        self.assertNotIn(key, table(other["tenant"]))
+        self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: usage.set_price(
+            tx, source="ai", service="gemini-3.8-live", tier="paid", unit="input_tokens", yen_per_unit=Decimal("0.7"),
+            valid_from=tx.one("SELECT clock_timestamp() AS t")["t"], note="試験"))
+        self.assertEqual(table(s["tenant"])[key], (Decimal("0.7"), True))   # 変えた値
+
+    def test_a_line_price_is_only_for_a_method_in_the_list(self):
+        """回線の単価は、回線の方式の一覧にある方式だけ（書き方が少し違うと単価が見つからず費用が空になった。0104）。"""
+        s = self.ready()
+        put = lambda m: self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: usage.set_price(   # noqa: E731
+            tx, source="line", service=m, tier=None, unit="seconds", yen_per_unit=Decimal("0.1"),
+            valid_from=tx.one("SELECT clock_timestamp() AS t")["t"], note="試験"))
+        with self.assertRaises(Rejected):
+            put("楽天link")
+        put("rakuten_link")
 
 
 class Budget(Priced):

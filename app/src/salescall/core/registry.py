@@ -103,8 +103,19 @@ def caller_number(said: str) -> str:
     return n.e164
 
 
+def line_methods(tx: Tx) -> list[dict[str, Any]]:
+    """回線の方式の一覧（画面で選ぶ。中の名前 method と画面の名前 label。0104）。回線を作るときも、回線の単価を入れるときも、
+    この一覧の方式だけ（データベースが守る）。"""
+    return tx.all("SELECT method, label FROM salescall.line_methods ORDER BY added_at, method")
+
+
+def add_line_method(tx: Tx, method: str, label: str) -> None:
+    """回線の方式を一覧に足す（新しい回線の方式を作って確かめたとき。管理者だけ＝データベースが守る）。"""
+    tx.execute("INSERT INTO salescall.line_methods (method, label) VALUES (%s, %s)", (method, _name(label)))
+
+
 def create_line(tx: Tx, name: str, *, method: str, caller: str, client_id: UUID | None = None) -> UUID:
-    """取引の契約者に、回線を作る（発信番号は必ず。client_id＝その依頼者の専用。None＝共有）。"""
+    """取引の契約者に、回線を作る（発信番号は必ず。client_id＝その依頼者の専用。None＝共有）。方式は `line_methods` から選ぶ。"""
     return tx.one("INSERT INTO salescall.lines (tenant_id, name, method, caller_e164, client_id)"
                   " VALUES (salescall.cur_tenant(), %s, %s, %s, %s) RETURNING line_id",
                   (_name(name), _name(method), caller_number(caller), client_id))["line_id"]
