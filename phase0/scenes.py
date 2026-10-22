@@ -358,13 +358,18 @@ SCENES = {
         "理由": last_fact(c, "callback").get("why") == "absent", "戻る時刻": "5時" in (last_fact(c, "callback").get("time") or ""),
         "お呼びし直さない": not any(r in ("call_target", "confirm_target") for r in replies_to(c, "taken_over_absent")),
         "用件を流さない": connect_reply(c) == {}, "締め": closing_of(c) == CLOSING, "足す質問は録音": callback_recorded(c)}),
-    # 受付の方が不在を伝えてから、別の方に取り次ぐ：取り次ぎの間は話さず、代わった方には岡田様をお呼びし直さずに、かけ直しの申し出
-    # （⛔ 2026-10-22 の見直し：不在の読みを電話口の方ごとに数えていたので、代わった方に岡田様をお呼びし直していた）
-    "目的の人_不在で別の方に代わる": Scene(TARGET_BUSINESS, [W("away_to_other"), W("taken_over_yamada"), W("back_5pm"), W("affirm")], lambda c: {
+    # 受付の方が不在を伝えてから、別の方に取り次ぐ：取り次ぎの間は話さず、代わった方には岡田様をお呼びし直さずに、代わりの方として応じる
+    # （業務設定の既定＝お立場を伺う。判断いただけないと言われたら、お礼を言って戻る時刻を聞く）。⛔ 2026-10-22 の見直し：不在の読みを電話口の
+    # 方ごとに数えていたので、代わった方に岡田様をお呼びし直していた。⛔ G-57 tc33：代わった山田様に、声の型によってお立場を伺ったり、いきなり
+    # 岡田様の戻る時刻を聞いたりした（✅ 2026-10-22 ユーザー：「代わりの方が聞いてくれると言っているのに、それを無下にするんですか？」）
+    "目的の人_不在で別の方に代わる": Scene(TARGET_BUSINESS, [W("away_to_other"), W("taken_over_yamada"), W("authority_no"), W("back_5pm"),
+                                                    W("affirm")], lambda c: {
         "取り次ぎの間は話さない": plain(said_to(c, "away_to_other")) == "",
+        "お立場を伺った": "callback_authority" in played_ids(c), "お礼の録音": "offer_thanks" in played_ids(c),
         "理由": last_fact(c, "callback").get("why") == "absent", "戻る時刻": "5時" in (last_fact(c, "callback").get("time") or ""),
         "お呼びし直さない": not any(r in ("call_target", "confirm_target") for r in replies_to(c, "taken_over_yamada")),
-        "用件を流さない": connect_reply(c) == {}, "締め": closing_of(c) == CLOSING, "足す質問は録音": callback_recorded(c)}),
+        "繋がない": not c.get("facts", {}).get("connect"), "締め": closing_of(c) == CLOSING, "足す質問は録音": callback_recorded(c),
+        "約束しない": no_promise(c)}),
     # かけ直しの質問の途中で、お呼びした方が戻って代わる（2026-10-22 の見直しで見つけた形。⛔ G-57 tc24：代わって出た岡田様に「恐れ入りますが
     # 何時ごろお戻りになられますでしょうか？」を流し、業務の質問を聞かずに締めた）：1回確かめて繋ぎ、業務の質問を聞いて、ふつうに締める
     "目的の人_かけ直しの途中で戻る": Scene(TARGET_BUSINESS, [W("absent_okada"), W("just_back"), T("taken_over_okada")] + FULL, lambda c: {

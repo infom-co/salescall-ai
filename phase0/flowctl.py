@@ -588,8 +588,10 @@ def offers_rule(target: bool = True) -> str:
             f"折り返し・伝言を申し出たら、{A['offer']}に「{O['callback']}」「{O['message']}」を、ほかの手段なら「{O['email']}」「{O['fax']}」"
             f"「{O['post']}」を付けます（どれでもなければ付けません）。")
     if target:
-        text += (f"電話口の方が、お呼びした方の代わりにご用件を伺うと言ったら（上司の方・同じ部署の方など）report_party を「{PARTY_LABEL['substitute']}」、"
-                 f"自分が後任・いまの担当だと言ったら「{PARTY_LABEL['successor']}」で呼びます。")
+        text += (f"電話口の方ご自身が、お呼びした方の代わりにご用件を伺うと言ったら（「代わりに私がお聞きします」・上司の方・同じ部署の方など）"
+                 f"report_party を「{PARTY_LABEL['substitute']}」、自分が後任・いまの担当だと言ったら「{PARTY_LABEL['successor']}」で呼びます。"
+                 f"電話を別の方に代わる（「別の者に代わります」「少々お待ちください」）のは、お呼びした方がいないと言っていても、お取り次ぎです"
+                 f"（「{PARTY_LABEL['reception']}」で呼び、何も言わずに待ちます。代わって出た方への応じ方は、プログラムが決めます）。")
     return text + "何と言うか（お礼・お詫び・聞くこと）は、プログラムが流します。自分では言いません。"
 
 
@@ -849,6 +851,7 @@ class Flow:
         self.message_text = (target or {}).get("message") or (opening or {}).get("message")  # 伝言の文（伝言を残す業務。依頼主の単位の録音）
         check_policies(self.policies, self.message_text)
         self.substitute_q: str | None = None  # 代わりの方に、判断いただけるお立場かを聞いている（その答えで決める＝_advance の入口）
+        self.substitute_why = "absent"  # 代わりの方とお話しできなかったときに聞くかけ直しの理由（お呼びした方の事情＝不在・長期の不在）
         # 相手の質問に、AIが自分の言葉で答えた（_own_answer）：相手の返事のあとに「質問に戻る」で戻る（_resume）。同じ発話には1回だけ答える
         self.own_pending = False
         self.own_turn = -1
@@ -2226,10 +2229,17 @@ class Flow:
             # 「取り次ぎを待つ」・もう1つが別の読みのとき、受付の方へ確かめる一言を流した（区切りは取り次ぎで次の発話へ動き、確かめは誰にも
             # 数えられず、知らせの文が「None」になった）
             return self._hold()
-        if self._away_now():
-            return self._away(ai, why, offer)
         if ai == "handover":
             self._new_speaker(self.callee_turns, after=False)  # 代わった方が話し始めた（確かめを聞いた方の返事なら、替わった印にしない）
+        if (handed := self._handed()) and j != TARGET_IS_THERE and ai not in ("target", "successor") and not offer \
+                and why in (None, "absent", "long_absent"):
+            # 前の方が「お呼びした方は出られない」と伝えたうえで、電話を代わった方：お呼びした方の代わりにお話を伺う方（代わりの方。応じ方は
+            # 業務設定）。代わった方ご自身の申し出（折り返し・伝言・ほかの手段・あとで・別の番号へ・在籍していない）は、その申し出で決める。
+            # ✅ 2026-10-22 ユーザー：「代わりの方が聞いてくれると言っているのに、それを無下にするんですか？」。⛔ G-57 tc33（不在で別の方に代わる）：
+            #    代わって出た山田様に、声の型によってお立場を伺ったり、いきなり岡田様の戻る時刻を聞いたりした（AIの報告で道が分かれていた）
+            return self._not_available("substitute", why, None, handed | ({"ai"} if ai == "substitute" else set()))
+        if self._away_now():
+            return self._away(ai, why, offer)
         asked = self.asked_target is not None
         read, answered, away = self._target_readings()
         doubt = self._doubted()
@@ -2304,7 +2314,7 @@ class Flow:
 
     def _hold_now(self) -> bool:
         """いまの相手の言葉（出揃ったもの）を、届いた読みのどれか1つでも「取り次ぎを待つ」と読んだか（呼んでいる段の、黙って待つ側）。
-        読み＝目的の人の判定と、尋ねているかの問い合わせ（判定の仕組みは、どの問いにも「取り次ぎを待つ」を選択肢として添える＝meaning_judge.KIND_DESC）。
+        読み＝目的の人の判定と、尋ねているかの問い合わせ（判定の仕組みは、どの問いにも「取り次ぎを待つ」を選択肢として添える＝meaning_judge.KIND_DESC）と。
         ⛔ 2026-10-22 G-57 tc21：受付の方の「岡田は外出しておりますので、別の者に代わります。少々お待ちください。」（不在と取り次ぎの2つの意味）を、
            目的の人の判定は2つとも「不在」と読み、取り次ぎの最中に、かけ直しの質問へ進んだ（3本中2本）。尋ねているかの問い合わせは「取り次ぎを待つ」と
            読んでいた（G-59：この問い合わせの「取り次ぎを待つ」は、答えた335回で、取り次ぎではない言葉に0回）"""
@@ -2429,6 +2439,16 @@ class Flow:
                 any(v for t, v in seen.items() if t > after),
                 {k for t, v in every.items() if t >= since for k, x in v.items() if x == TARGET_IS_AWAY})
 
+    def _handed(self) -> set[str]:
+        """いま電話口にいる方は、前の方が「お呼びした方は出られない」と伝えたうえで代わった方か（唯一の場所）：前の方の言葉（いまの方に替わる前・
+        お呼びし直したあとの発話）を「不在」と読んだ判定の名前（無ければ空＝代わった方ではない）。AIの読みだけでは決めない（代わりの方として
+        用件を流すのは、取り消せない側）。"""
+        # お呼びし直したあとの言葉から（呼ぶ一言を流した発話の読みは、お呼びし直す前のもの）
+        since = max(self.back_turn if self.back_turn is not None else -1, self.target_from, max(self.target_called, default=-1) + 1)
+        if self.speaker_from <= since:
+            return set()
+        return {k for t, v in self.calling_judged.items() if since <= t < self.speaker_from for k, x in v.items() if x == TARGET_IS_AWAY}
+
     def _doubted(self) -> bool:
         """いま電話口にいる方に、繋ぐのを止める弱い読みがあるか（on_unsure）：いまの言葉（出揃ったもの）の分と、確かめたあとの発話の分
         （遅れて届いた分も）。確かめる前の弱い読みは、確かめた理由なので数えない（_target_readings の「確かめのあと」と同じ区切り）。"""
@@ -2517,12 +2537,12 @@ class Flow:
         if offer in MEANS:
             why = "other_means"
         if ai == "substitute":
-            return self._substitute(read)
+            return self._substitute(read, why)
         if ai == "successor" or why == "departed":
             return self._departed(confirm=ai == "successor", read=read)
         return self._callback(why or "absent", read, offer=offer)
 
-    def _substitute(self, read: set[str]) -> dict:
+    def _substitute(self, read: set[str], why: str | None = None) -> dict:
         """電話口の方が、お呼びした方の代わりにご用件を伺うと申し出た（代わりの方。上司の方・同じ部署の方など）：業務設定で決める（唯一の場所）。
         ✅ 2026-10-22 ユーザー：「代わりの方が聞いてくれると言っているのに、それを無下にするんですか？単なる引き継ぎなら問題ないかもしれないが、
         代わりの人が同等の決定権者や上司なら、完全に失礼なふるまいです」「代わりになる決定権者なのかの判断が必要。判断可能な人なら、話す。
@@ -2533,9 +2553,10 @@ class Flow:
         - 目的の人だけと話す（target_only）：お礼を言い、こちらからかけ直す形にして、戻る時刻を聞く（_callback）
         - どなたでも話す（anyone）：代わりの方として繋ぐ（_connect）"""
         policy = self.policies["substitute"]
+        self.substitute_why = why if why in ("absent", "long_absent") else "absent"  # お話しできなかったときに聞くこと（長期の不在なら戻る日）
         self._note("substitute", policy=policy, read=sorted(read))
         if policy == "target_only":
-            return self._callback("absent", read, thanks=True)
+            return self._callback(self.substitute_why, read, thanks=True)
         if policy == "anyone":
             self.order = list(self.business_ids)
             return self._connect(read, who="substitute") | {"thanks": True}
@@ -2562,7 +2583,7 @@ class Flow:
         if yes:
             return self._connect({"ai"} | {k for k in JUDGMENTS if self.taken.get(qid, {}).get("check", {}).get(k) == "はい"},
                                  who="substitute", prefix=prefix)
-        return self._callback("absent", {"ai"}, prefix=prefix, thanks=True)
+        return self._callback(self.substitute_why, {"ai"}, prefix=prefix, thanks=True)
 
     def _departed(self, confirm: bool, read: set[str]) -> dict:
         """お呼びした方が在籍していない（退職・異動・担当が変わった）：業務設定で決める（唯一の場所）。

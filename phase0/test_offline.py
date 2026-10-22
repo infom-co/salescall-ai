@@ -5088,7 +5088,7 @@ class TargetTest(unittest.TestCase):
         r = x.apply("report_party", {"party": "target"})
         self.assertEqual((r["result"], [p.get("part") for p in r["play"]][:3]), ("next", ["greeting", "intro", "purpose"]))
         # 受付の方が不在を伝えてから別の方へ取り次いだ：取り次ぎの最中は黙って待ち、代わった方（違うお名前）には岡田様をお呼びし直さずに、
-        # かけ直しへ（不在の読みは呼んでいる段の全体に残る＝お呼びした方の事実）。そのあとに岡田様が名乗って出れば繋ぐ
+        # 代わりの方として応じる（業務設定の既定＝お立場を伺う。Flow._handed）。そのあと取り次ぎがあって岡田様が名乗って出れば、1回確かめる
         # ⛔ 2026-10-22 G-59：受付の方の言葉を Sonnet は3回とも「不在」、代わった方の「お電話代わりました。山田です。」は3回とも「代わった人」
         from flowctl import HANDOVER
         y, _ = self.checked()
@@ -5100,11 +5100,12 @@ class TargetTest(unittest.TestCase):
         y.on_callee(); y.on_heard("お電話代わりました。山田です。")
         y.on_check("judge", HANDOVER); y.on_check("judge2", HANDOVER)
         r = y.apply("replay_opening", {"part": "handover"})
-        self.assertEqual((r["result"], y.target_called), ("rejected", [0]))
-        self.assertIn("request_callback", r["message"])
+        self.assertEqual((r["result"], y.target_called, [p.get("part", p.get("id")) for p in r["play"]][-1]), ("next", [0], "callback_authority"))
+        y.on_callee(); y.on_heard("あ、ちょうど岡田が戻ってまいりました。少々お待ちください。"); y.on_check("judge", HOLD); y.on_check("judge2", HOLD)
+        self.assertEqual(y.apply("record_answer", {"question_id": "S1", "condition_id": "いいえ"})["result"], "hold")
         y.on_callee(); y.on_heard("お電話代わりました。岡田です。")
         y.on_check("judge", TARGET_IS_THERE); y.on_check("judge2", TARGET_IS_THERE)
-        self.assertEqual(y.apply("report_party", {"party": "target"})["result"], "next")
+        self.assertEqual(y.apply("report_party", {"party": "target"})["result"], "confirm_target")
         # 1つの言葉に「不在」と「取り次ぎ」の2つの意味：目的の人の判定が2つとも「不在」でも、尋ねているかの問い合わせが「取り次ぎを待つ」なら
         # 黙って待ち、区切りも動かす（⛔ 2026-10-22 G-57 tc21：取り次ぎの最中に、かけ直しの質問へ進んだ）
         z, _ = self.checked()
@@ -5116,8 +5117,7 @@ class TargetTest(unittest.TestCase):
         z.on_callee(); z.on_heard("お電話代わりました。山田です。")
         z.on_check("judge", HANDOVER); z.on_check("judge2", HANDOVER)
         r = z.apply("replay_opening", {"part": "handover"})
-        self.assertEqual(r["result"], "rejected")
-        self.assertIn("request_callback", r["message"])
+        self.assertEqual((r["result"], z.current), ("next", "S1"))                 # 代わった方＝代わりの方（Flow._handed）
         # かけ直しへ進むように伝えたあと：(1) 取り次ぎの読みが遅れて届いたら、黙って待つように知らせ、かけ直しの申し出も待たせる
         # (2) 取り次ぎの読みが無いのにAIが進まずにターンを終えたら、1回だけ知らせる（⛔ 2026-10-22 G-57 tc22）
         a, _ = self.checked()
@@ -5376,7 +5376,7 @@ class TargetTest(unittest.TestCase):
     def test_away_text_quotes_the_words_read_as_away(self):
         # 不在と読まれた言葉を伝える（⛔ 2026-10-22 G-57 tc24（不在で別の方に代わる・S4）：代わった山田様の「お電話代わりました。山田です。」を
         # 「お呼びした方がいま電話に出られないという意味です」と伝えていた）
-        from flowctl import HANDOVER, TARGET_IS_AWAY
+        from flowctl import HANDOVER, HOLD, TARGET_IS_AWAY, Flow
         f, b = self.flow()
         f.use_checks("judge", "judge2")
         f.on_callee(); f.on_heard("岡田は外出しておりますので、別の者に代わります。"); f.on_check("judge", TARGET_IS_AWAY); f.on_check("judge2", TARGET_IS_AWAY)
@@ -5384,22 +5384,45 @@ class TargetTest(unittest.TestCase):
         self.assertEqual(f.apply("report_party", {"party": "reception"})["result"], "rejected")   # 同じ発話の報告し直しでは進めない（取り次ぎの最中かもしれない）
         f.on_callee(); f.on_heard("お電話代わりました。山田です。"); f.on_check("judge", HANDOVER); f.on_check("judge2", HANDOVER)
         r = f.apply("replay_opening", {"part": "handover"})
-        # 前に伝えたのに、AIはかけ直しを申し出なかった ⇒ プログラムが「不在」として進める。代わった方は、まだこちらの名乗りを聞いていない
-        # ので、あいさつ・名乗りから（Intent.md 9-4「相手が替わったら短く名乗り直す」）。相づち「承知しました、」は流さない
-        self.assertEqual((r["result"], r["ack"]), ("next", None))
-        self.assertEqual([p.get("part", p.get("id")) for p in r["play"]], ["greeting", "intro", "callback_back_time"])
-        self.assertIn("「岡田は外出しておりますので", r["message"])
-        self.assertNotIn("山田です", r["message"])
-        self.assertEqual((f.callback_why, f.facts["callback"][-1]["read"], f.passed_on), ("absent", ["judge", "judge2"], False))
-        # AIが自分で申し出たときも同じ（代わった方へは名乗りから・相づちなし）
-        f, b = self.flow()
-        f.use_checks("judge", "judge2")
-        f.on_callee(); f.on_heard("岡田は外出しておりますので、別の者に代わります。"); f.on_check("judge", TARGET_IS_AWAY); f.on_check("judge2", TARGET_IS_AWAY)
-        f.apply("report_party", {"party": "reception"})
-        f.on_callee(); f.on_heard("お電話代わりました。山田です。"); f.on_check("judge", HANDOVER); f.on_check("judge2", HANDOVER)
-        r = f.apply("request_callback", {"why": "absent"})
-        self.assertEqual(([p.get("part", p.get("id")) for p in r["play"]], r["ack"], f.facts["callback"][-1]["read"]),
-                         (["greeting", "intro", "callback_back_time"], None, ["ai", "judge", "judge2"]))
+        # 前の方が「お呼びした方は出られない」と伝えたうえで代わった方＝代わりの方（Flow._handed）。業務設定の既定は、お立場を伺う。代わった方は、
+        # まだこちらの名乗りを聞いていないので、あいさつ・名乗り・用件から（Intent.md 9-4「相手が替わったら短く名乗り直す」）。相づちは流さない
+        # ✅ 2026-10-22 ユーザー：「代わりの方が聞いてくれると言っているのに、それを無下にするんですか？」⛔ G-57 tc33：声の型によって、お立場を伺ったり、
+        #    いきなり岡田様の戻る時刻を聞いたりした（前は、代わった方に必ず戻る時刻を聞いていた）
+        self.assertEqual((r["result"], r["ack"], f.current), ("next", None, "S1"))
+        self.assertEqual([p.get("part", p.get("id")) for p in r["play"]], ["greeting", "intro", "purpose", "callback_authority"])
+        self.assertEqual((f.facts["substitute"][-1]["read"], f.passed_on), (["judge", "judge2"], False))
+        # AIがかけ直しを申し出たとき（理由「不在」・申し出なし）も同じ。業務設定が「目的の人だけ」なら、お礼を言って戻る時刻を聞く。
+        # 代わった方ご自身の申し出（あとで・折り返し など）は、その申し出で決める
+        def handed(**policies):
+            g = Flow(b.questions, play_recordings=True, opening=b.replay_parts(), target=b.replay_parts(), policies=policies or None)
+            g.use_checks("judge", "judge2")
+            g.on_callee(); g.on_heard("岡田は外出しておりますので、別の者に代わります。")
+            g.on_check("judge", TARGET_IS_AWAY); g.on_check("judge2", TARGET_IS_AWAY)
+            g.apply("report_party", {"party": "reception"})
+            g.on_callee(); g.on_heard("お電話代わりました。山田です。"); g.on_check("judge", HANDOVER); g.on_check("judge2", HANDOVER)
+            return g
+        for policies, op, args, plays, why in (
+                ({}, "request_callback", {"why": "absent"}, ["greeting", "intro", "purpose", "callback_authority"], None),
+                ({"substitute": "target_only"}, "replay_opening", {"part": "handover"}, ["greeting", "intro", "offer_thanks", "callback_back_time"], "absent"),
+                ({}, "request_callback", {"why": "later"}, ["greeting", "intro", "callback_later_time"], "later"),
+                ({}, "request_callback", {"why": "absent", "offer": "callback"}, ["greeting", "intro", "offer_thanks", "callback_back_time"], "absent")):
+            g = handed(**policies)
+            r = g.apply(op, args)
+            self.assertEqual(([p.get("part", p.get("id")) for p in r["play"]], r["ack"], g.callback_why), (plays, None, why), (policies, args))
+        # お呼びした方へ取り次がれたあと、代わって出た方が不在を伝えた（前の方は不在を伝えていない）＝お呼びした方の事情を伝える方：かけ直し
+        g = Flow(b.questions, play_recordings=True, opening=b.replay_parts(), target=b.replay_parts())
+        g.use_checks("judge", "judge2")
+        g.on_callee(); g.on_heard("岡田ですね。少々お待ちください。"); g.on_check("judge", HOLD); g.on_check("judge2", HOLD)
+        self.assertEqual(g.apply("report_party", {"party": "reception"})["result"], "hold")
+        g.on_callee(); g.on_heard("お電話代わりました。担当の山田です。あいにく岡田は本日不在にしております。")
+        g.on_check("judge", TARGET_IS_AWAY); g.on_check("judge2", TARGET_IS_AWAY)
+        r = g.apply("request_callback", {"why": "absent"})
+        self.assertEqual(([p.get("part", p.get("id")) for p in r["play"]], g.facts.get("substitute")), (["greeting", "intro", "callback_back_time"], None))
+        # AIへの説明：電話を別の方に代わるのはお取り次ぎ（代わりの方は、電話口の方ご自身が代わりに伺うと言ったときだけ）
+        from flowctl import offers_rule
+        for word in ("電話口の方ご自身が", "「別の者に代わります」", "お取り次ぎです"):
+            self.assertIn(word, offers_rule())
+        # 取り次ぎではなく、受付の方ご自身が不在を伝えたあとの同じ方への報告は、かけ直し（代わりの方ではない）
         # 最初に出た受付の方（名乗りを聞いている）には、かけ直しの質問だけ（相づち「承知しました、」）
         f, b = self.flow()
         f.use_checks("judge", "judge2")
