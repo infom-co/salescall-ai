@@ -1333,7 +1333,8 @@ class Flow:
     def wants_checks(self, name: str, args: dict | None = None) -> bool:
         a = self._args_in(dict(args or {}))
         if name == "replay_opening":
-            return a.get("part") == "handover"
+            # 代わった方への流し直し（繋ぐ）・相手の質問への答え方（いまの質問の答えも入っているかもしれない間＝_answer_first）
+            return a.get("part") == "handover" or (a.get("part") not in ("resume", "handover") and self._answer_may_come_first())
         if name == "report_party":
             # 呼んでいる段の「目的の人」「受付の方」の報告は、判定に当ててから決める（_calling_reported。⛔ 2026-10-21 の見直し：受付の方の報告は
             # 判定を待たずに黙って待たせていたので、「席を外しております」「私が岡田です」を受付の方と報告されると、そのまま黙っていた）
@@ -1459,6 +1460,10 @@ class Flow:
         名乗りを録音で流さない通話（AIが話す形）は、AIが名乗るので流す。電話接続側は、ターンの途中でも声が届くたびに聞き、真になってからの声だけを
         流す（それより前の声は流さない）。流さなかった声があれば、unreported_note(muted=True) の知らせで答え直させる。"""
         ops = self.log[since:]
+        if since > 0 and self.log[since - 1]["reply"].get("result") == "restate" and self.log[since - 1]["callee_turns"] == self.callee_turns:
+            # 外れた言葉を止めたあとの言い直し（on_off_script）：返事は止めたターンで作り、新しいつなぎのターンで言わせる＝そのターンの言い方
+            # （⛔ 2026-10-22 の4回目の流し G-57 tc37：答えの段に広げたら、言い間違えの直しの3場面で、言い直しの声を流さなかった）
+            ops = self.log[since - 1:]
         start = ops[0].get("phase_before", self.phase) if ops else self.phase
         if not (self.opening if start == "calling" else self.play_recordings):
             return True
@@ -2028,6 +2033,13 @@ class Flow:
         play = [{"kind": "opening", "part": k, "text": self.opening[k]} for k in keys]
         return self._continue(play, "".join(self.opening[k] for k in keys))
 
+    def _answer_may_come_first(self) -> bool:
+        """いまの相手の言葉に、まだ答えをもらっていないいまの質問の答えが入っているかもしれない（_answer_first が判定を見る場面）。答え方の操作も、
+        この間は判定を待つ（wants_checks。⛔ 2026-10-22 の4回目の流し G-57 tc37：AIが判定の届く前に答え方の操作を呼び、差し戻せなかった）。"""
+        q = self.questions.get(self.current) if self.current else None
+        return (self.phase in ("asking", "rechecking") and q is not None and not q.reading_of and self.awaiting_confirm is None
+                and self.after_answer is None and self.items[q.id].state not in GOT and self.answer_first_turn != self.callee_turns)
+
     def _answer_first(self) -> str | None:
         """相手の言葉が、いまの質問への答えと質問を一緒に言ったもの（「はい、予約しています。当日はどなたが担当されるんですか？」）で、AIが答えの
         報告より先に、質問への答え方（replay_opening）を呼んだ：独立した意味の判定が、この発話をいまの質問の答えと読んでいれば、1回だけ差し戻して
@@ -2036,9 +2048,7 @@ class Flow:
         ⛔ 2026-10-22 の4回目の流し（G-57 tc36・答えに添えられた質問の S2・L4）：AIが先に「用件」の流し直しを選んだので、相手がもう答えた
            いまの質問（「ご予約はされていますでしょうか？」）の録音が、もう一度流れた"""
         q = self.questions.get(self.current) if self.current else None
-        if (self.phase not in ("asking", "rechecking") or q is None or q.reading_of or self.awaiting_confirm is not None
-                or self.after_answer is not None or self.items[q.id].state in GOT or self.answer_first_turn == self.callee_turns
-                or self.meaning_said not in q.conditions):
+        if not self._answer_may_come_first() or self.meaning_said not in q.conditions:
             return None
         self.answer_first_turn = self.callee_turns
         return (f"相手の言葉は、いまの質問 {q.id} への答えでもあります（意味の判定：「{self.meaning_said}」）。先に record_answer で答えを"

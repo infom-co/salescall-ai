@@ -1671,6 +1671,20 @@ class AskingMuteTest(unittest.TestCase):
         h.on_callee(); h.on_heard("キャンセル料っていくらかかりますか？")
         self.assertTrue(h.speech_allowed(len(h.log)))
 
+    def test_restatement_after_a_stop_is_sent(self):
+        # 外れた言葉を止めたあとの言い直しは、止めたターンで返事を作り、新しいつなぎのターンで言わせる＝そのターンの言い方として流す
+        # （⛔ G-57 tc37：答えの段に広げたら、言い間違えの直しの3場面で、言い直しの声を流さなかった）。次の相手の言葉のターンは、また決まりどおり
+        f = self.flow()
+        f.on_callee(); f.on_heard("はい、予約しています。"); f.on_check("judge", "はい")
+        f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい"})
+        f.on_callee(); f.on_heard("15日の午後2時でお願いします。")
+        r = f.apply("record_answer", {"question_id": "Q2", "condition_id": "答えた", "value": "15日の午後2時"})
+        self.assertEqual(r["result"], "confirm_required")
+        self.assertEqual(f.on_off_script(r["say"], "opener")["result"], "restate")
+        self.assertTrue(f.speech_allowed(len(f.log)))
+        f.on_callee(); f.on_heard("はい。")
+        self.assertFalse(f.speech_allowed(len(f.log)))
+
     def test_answer_is_reported_before_the_question_is_answered(self):
         # 相手が答えと質問を一緒に言い、AIが先に答え方の操作を呼んだ：判定がいまの質問の答えと読んでいれば、1回だけ差し戻して答えを先に報告させる
         # （答えに添えられた質問の1つの道に入る）。⛔ G-57 tc36：先に「用件」を選び、相手がもう答えた質問の録音が、もう一度流れた
@@ -1691,6 +1705,15 @@ class AskingMuteTest(unittest.TestCase):
         r = g.apply("record_answer", {"question_id": "Q1", "condition_id": "はい"})
         self.assertNotEqual(r["result"], "callee_asked")
         self.assertEqual(g.current, "Q2")
+        # 答え方の操作も、いまの質問がまだ答えをもらっていない間は判定を待つ（⛔ G-57 tc37：判定の届く前に呼ばれ、差し戻せなかった）。
+        # 答えを受け取ったあと・呼んでいる段・質問に戻るは待たない
+        k = self.flow()
+        k.on_callee(); k.on_heard("はい、予約しています。当日はどなたが担当されるんですか？")
+        self.assertTrue(k.wants_checks("replay_opening", {"part": "no_answer"}))
+        self.assertFalse(k.wants_checks("replay_opening", {"part": "resume"}))
+        k.on_check("judge", "はい")
+        k.apply("record_answer", {"question_id": "Q1", "condition_id": "はい"})
+        self.assertFalse(k.wants_checks("replay_opening", {"part": "no_answer"}))
         # 判定が答えと読んでいない（質問だけ）なら、差し戻さない
         h = self.flow()
         h.on_callee(); h.on_heard("キャンセル料っていくらかかりますか？"); h.on_check("judge", "決められない")
