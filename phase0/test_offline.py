@@ -5039,6 +5039,7 @@ class TargetTest(unittest.TestCase):
         # (6) 試作は流さなかった声に印を付け、場面の数えは、その声を相手に聞こえた言葉に入れない
         self.assertIn("flow.speech_allowed(log_start)", inspect.getsource(convo.run_call))
         self.assertIn("unreported_note(muted=muted)", inspect.getsource(convo.run_call))
+        self.assertIn('if (muted and turns[-1].get("muted")', inspect.getsource(convo.run_call))   # 知らせのあとも流せなければ張り替える（6-7）
         self.assertEqual(scenes.said({"audio_seconds": 1.2, "ear": "弊社は東京目黒にございます。", "muted": True}), "")
         self.assertEqual(scenes.said({"audio_seconds": 1.2, "ear": "弊社の本社は東京都港区にございます。"}), "弊社の本社は東京都港区にございます。")
 
