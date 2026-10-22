@@ -100,7 +100,7 @@ async def run(args) -> dict:
     judges = make_judges(args)
     rows = []
     for text, ok, before, asked in cases(b.target.confirm()):
-        q = f.confirm_question if asked else f.calling_question  # 確かめたあとの返事は、確かめる一言を質問にする（Flow.judge_context）
+        q = f.confirm_questions["target_confirm"] if asked else f.calling_question  # 確かめたあとの返事は、確かめる一言を質問にする（Flow.judge_context）
         for rep in range(args.repeat):
             for j in {j.panel for j in judges.values() if j is not None}:
                 j.reset()  # 言葉ごとに測る（前の言葉の時間切れで、この言葉の問い合わせを飛ばさない）

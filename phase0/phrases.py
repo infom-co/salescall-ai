@@ -109,6 +109,16 @@ def target_confirm(name: str, role: str = "") -> str:
     return TARGET_CONFIRM.format(who=f"{name}様" if name else role_honorific(role))
 
 
+# 確かめへの返事がはっきりしないときの、1回だけの聞き返し（DESIGN.md 4-3。お呼びし直さない＝本当はご本人かもしれない）。
+# ✅ 2026-10-22 ユーザー：「「おかだ様でお間違えなかったでしょうか？」のような形の方がよくないですか？」（前は「申し訳ございません、」＋確かめる一言。
+#    「お間違えない」はユーザーの言い方のまま＝10-16 の決まり）
+TARGET_RECONFIRM = "{who}でお間違えなかったでしょうか？"
+
+
+def target_reconfirm(name: str, role: str = "") -> str:
+    return TARGET_RECONFIRM.format(who=f"{name}様" if name else role_honorific(role))
+
+
 # 読みが決まらない相手の名前を、会話の中で確かめる言い方（流れの制御の reading_question の質問の文と、直していただいたあとの言い直し）。
 # ✅ 2026-10-16 ユーザー：「なかじまとなかしまなどは人が見ても判断できません。それは会話の中で失礼のないように語るか、場合によっては
 #    聞き出す」。言い方（2回目の指示）：法人「お名前の読みの方は、（相手の名前）様で、よろしかったでしょうか？」・個人「お名前の方は、
@@ -225,7 +235,12 @@ assert set(LEAD_RECORDED) == set(LEAD_IN["次の質問"])
 # 名乗りの頭のあいさつも、どの依頼主にも同じ言葉なので、契約者の単位で録音する（名乗りの残り＝自社名・担当者名・用件は、依頼主の単位）
 # 締めは2つとも録音（毎回同じ文。DESIGN.md 6-13・6-14。flowctl.Flow._close）。断られたときの締めは 2026-10-17 に足した（前はAIが言っていた）
 # かけ直しで足す質問も、どの依頼主にも同じ文なので、契約者の単位で録音する（flowctl.question_play。⛔ 2026-10-19 G-57：AIに言わせると言葉を足した）
-RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait": WAIT, "wait_heavy": WAIT, "greeting": GREETING,
+# 相手の質問に、こちらが答えを持っていないとき（業務設定の想定問答にも、名乗り・用件にも無い）の一言。どの業務でも同じ文なので、契約者の単位の
+# 録音（頭に「申し訳ございません、」の相づち）。作らない・約束しない（Intent.md 9-4「範囲外の質問」）。✅ 2026-10-22 ユーザー：「必ずどんな営業トークにも
+# 出てくるパターンはシステム側に録音しておいた方がよくない？」⛔ 前はAIが自分の言葉で答えていた（G-57 tc18：「ご関係」に「分かりかねます」・
+# 呼んでいる段では「営業部部長の岡田様をお呼び…」と名前をAIの声で言った）
+UNKNOWN_ANSWER = "私の方では分かりかねます。"
+RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait": WAIT, "wait_heavy": WAIT, "greeting": GREETING, "unknown": UNKNOWN_ANSWER,
             "ai_again": AI_ASKED_AGAIN, **dict(zip(SILENCE_PROMPT_IDS, SILENCE_PROMPT)),
             **{f"callback_{k}": v for k, v in CALLBACK_ASK.items()}}
 

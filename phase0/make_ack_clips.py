@@ -67,11 +67,15 @@ HOW = {"moushiwake": "電話で、相手に聞き取れなかったことを申�
        "ai": "電話で、お客様に、何か気になる点があったかを、心配するように、丁寧に、柔らかくお聞きするように",
        "voicemail": "留守番電話に伝言を残すように、丁寧に、落ち着いた調子で、はっきりと",
        # 重ねて「人ですか」と聞かれたとき（phrases.AI_ASKED_AGAIN）：身構えず、誠実に、落ち着いて（言い訳のような早口にしない）
-       "ai_again": "電話で、不安にさせてしまったお客様に、心から申し訳なく思いながら、誠実に、落ち着いた調子で、言葉の途中で区切らずに"}
+       "ai_again": "電話で、不安にさせてしまったお客様に、心から申し訳なく思いながら、誠実に、落ち着いた調子で、言葉の途中で区切らずに",
+       # 相手の質問に答える（✅ 2026-10-22 ユーザー：「必ずどんな営業トークにも出てくるパターンはシステム側に録音しておいた方がよくない？」）：
+       # 想定問答の答え（依頼主の単位）と、答えを持っていない問いへの一言（契約者の単位。頭に「申し訳ございません、」の相づち）
+       "answer": "電話で、お客様のご質問に、丁寧に、落ち着いた調子でお答えするように",
+       "unknown": "電話で、お客様のご質問にお答えできないことを、申し訳なく思いながら、丁寧に、柔らかく"}
 DEFAULT_HOW = "電話で、相手の話に相づちを打つように、短く"
 MAX_S = {"hai": 1.0, "shouchi": 1.4, "arigatou": 1.6, "shitsurei": 1.6, "moushiwake": 1.6, "moushiwake_heavy": 1.8, "lead_soredeha": 1.0,
          "lead_tsuzukimashite": 1.2, "lead_deha": 0.8, "closing": 8.0, "closing_declined": 7.0, "wait": 3.5, "wait_heavy": 3.8, "question": 5.0,
-         "greeting": 2.5, "intro": 4.5, "purpose": 4.5, "ai": 3.0, "voicemail": 12.0, "ai_again": 7.0}
+         "greeting": 2.5, "intro": 4.5, "purpose": 4.5, "ai": 3.0, "voicemail": 12.0, "ai_again": 7.0, "answer": 8.0, "unknown": 2.5}
 # 録音の中の名前ごとの読み方の鍵（無ければ中の名前のまま）。かけ直しで足す質問は、質問の読み方（⛔ 2026-10-19 の見直しで見つけた漏れ：
 # 足す質問を契約者の単位の録音に入れたとき、読み方も長さの上限も無く、作ると止まった＝ClipTablesTest で、表の漏れを見る）
 HOW_OF = {f"callback_{k}": "question" for k in CALLBACK_ASK}
@@ -163,6 +167,7 @@ def script_table(business) -> tuple[dict, dict]:
     # 目的の人を呼ぶ一言・確かめる一言は、電話をかける相手ごとに名前が変わるので、ここではなく名前の録音の台帳（DESIGN.md 4-3）
     parts = business.replay_parts()
     items += [(k, parts[k], k) for k in ("ai", "voicemail") if parts.get(k)]
+    items += [(k, text, "answer") for k, text in parts.items() if k.startswith("answer_")]  # 想定問答の答え（Business.answers）
     for q in business.questions:  # つなぎの言葉と質問を1本で録音する（順番で決まるつなぎの言葉。flowctl.spoken_question）
         if q.reading_of:
             continue  # 名前の読みの確かめは、まず言ってみる読みが相手ごとに変わるので、AIが言う（録音にしない）

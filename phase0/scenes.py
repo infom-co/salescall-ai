@@ -27,6 +27,8 @@ from phrases import CLOSE_DECLINED, CLOSING
 
 # 目的の人のある業務（DESIGN.md 4-3）：営業部部長の岡田様
 TARGET_BUSINESS = dataclasses.replace(BUSINESS, target=Target(name="岡田", reading="おかだ", role="営業部部長"))
+# 想定問答のある業務（Intent.md 5-3 (2)「AIが答えてよいこと」。instruction.Business.answers）
+TARGET_FAQ = dataclasses.replace(TARGET_BUSINESS, answers=[("番号の出どころ", "以前ご予約の際にいただいたお電話番号にお掛けしております。")])
 FULL = [W("yes_reserved"), W("datetime_pm"), W("affirm"), W("three_people"), W("affirm")]
 
 
@@ -77,13 +79,33 @@ def turn_of(call: dict, wav_name: str) -> dict:
     return next((t for t in call["turns"] if isinstance(t.get("callee"), dict) and t["callee"].get("wav", "").endswith(f"_{wav_name}.wav")), {})
 
 
+def _line_of(t: dict) -> str:
+    """そのターンの相手の台詞の録音（続きの待ち＝followup のターンは、もとの台詞）。"""
+    cl = t.get("callee")
+    cl = cl.get("followup_of", cl) if isinstance(cl, dict) else cl
+    return cl.get("wav", "") if isinstance(cl, dict) else ""
+
+
+def turns_to(call: dict, wav_name: str) -> list[dict]:
+    """その台詞へのAIのターンの全部（続きの待ち＝followup の分も）。"""
+    return [t for t in call["turns"] if _line_of(t).endswith(f"_{wav_name}.wav")]
+
+
 def said_to(call: dict, wav_name: str) -> str:
     """その台詞へのAIの声の全部（続きの待ち＝followup の分も）。"""
-    def line_of(t):
-        cl = t.get("callee")
-        cl = cl.get("followup_of", cl) if isinstance(cl, dict) else cl
-        return cl.get("wav", "") if isinstance(cl, dict) else ""
-    return "".join(said(t) for t in call["turns"] if line_of(t).endswith(f"_{wav_name}.wav"))
+    return "".join(said(t) for t in turns_to(call, wav_name))
+
+
+def answered_with(call: dict, wav_name: str, *parts: str) -> bool:
+    """その台詞へのAIのターンで、決まった答えの録音（流し直しの操作の部分）を選び、流れの制御が流したか（Flow._answer・_op_replay_opening）。"""
+    return any(e["name"] == "replay_opening" and e["args"].get("part") in parts and e["reply"] == "replayed"
+               for t in turns_to(call, wav_name) for e in t.get("tool_events") or [])
+
+
+def own_words(call: dict, wav_name: str) -> str:
+    """その台詞へのAIのターンで、AIが自分の声で話した言葉（会話AIの文字。録音は入らない）。⛔ G-57 tc18：声の長さが記録されないターンでも、
+    AIは「営業部部長の岡田様をお呼び…」と話していた（said は声の長さで見るので拾えなかった）＝会話AIの文字を見る。"""
+    return re.sub(r"[…・.。、\s]", "", "".join(e.get("text") or "" for t in turns_to(call, wav_name) for e in t.get("said_events") or []))
 
 
 def full_opening(call: dict) -> bool:
@@ -225,7 +247,8 @@ SCENES = {
        for kind, label, head in (("none", "聞こえる前", "ありがとうございます"), ("opener", "受けの言葉だけ", "それでは"),
                                  ("content", "中身まで", "失礼いたしました改めまして"))},
     "範囲外の質問": Scene(BUSINESS, [W("yes_reserved"), W("out_of_scope")] + FULL[1:], lambda c: {
-        "答えた（聞き流さない）": said(turn_of(c, "out_of_scope")) != "", "金額を作らない": "円" not in said(turn_of(c, "out_of_scope")),
+        "決まった答えで答えた": answered_with(c, "out_of_scope", "unknown"), "自分の言葉で話さない": own_words(c, "out_of_scope") == "",
+        "金額を作らない": "円" not in said(turn_of(c, "out_of_scope")),
         "約束しない": no_promise(c), "続けて答えが取れた": got(c, "Q2", "15日")}),
     # ── かけ直しの申し出（DESIGN.md 6-2）
     "不在": Scene(BUSINESS, [W("absent_family"), W("back_5pm"), W("affirm")], lambda c: {
@@ -314,6 +337,19 @@ SCENES = {
         "理由": last_fact(c, "callback").get("why") == "absent", "戻る時刻": "5時" in (last_fact(c, "callback").get("time") or ""),
         "お呼びし直さない": not any(r in ("call_target", "confirm_target") for r in replies_to(c, "taken_over_yamada")),
         "用件を流さない": connect_reply(c) == {}, "締め": closing_of(c) == CLOSING, "足す質問は録音": callback_recorded(c)}),
+    # 受付の方が、名乗り・用件のほかのことを聞く（✅ 2026-10-22 ユーザー：「想定の質問ならそれでいいけど、録音や想定にない質問だった場合は？」）：
+    # 聞き流さず、目的の人かを確かめずに答え、作らず約束せず、取り次がれた岡田様には全部を流す
+    # 答えは決まった答えの録音から選ぶ（✅ 2026-10-22 ユーザー：「必ずどんな営業トークにも出てくるパターンはシステム側に録音しておいた方がよくない？」。
+    # Flow._answer）。⛔ tc18（直す前）：「答えた」をAIの声の有無で見ていたので、聞き流した2本と、AIが自分の言葉で目的の人の名前を言った1本を合格にしていた
+    **{f"目的の人_{label}": Scene(business, [W(line), W("hold_target"), T("taken_over_okada")] + FULL, lambda c, line=line, parts=parts: {
+        "決まった答えで答えた": answered_with(c, line, *parts), "自分の言葉で話さない": own_words(c, line) == "",
+        "確かめない": not any(r in ("confirm_target", "call_target") for r in replies_to(c, line)),
+        "取り次ぎの間は話さない": plain(said_to(c, "hold_target")) == "", "約束しない": no_promise(c),
+        "代わった方に全部": full_opening(c), "答えが取れた": got(c, "Q1", "はい")})
+       for label, business, line, parts in (
+           ("関係を聞かれる", TARGET_BUSINESS, "relation_ask", ("purpose", "intro", "all")),
+           ("番号の出どころを聞かれる", TARGET_BUSINESS, "number_from", ("unknown",)),
+           ("番号の出どころを聞かれる_想定問答あり", TARGET_FAQ, "number_from", ("番号の出どころ", "answer_番号の出どころ")))},
     "目的の人_受付で断られる": Scene(TARGET_BUSINESS, [W("reception_refuse")], lambda c: {
         "発信禁止の申告": bool(c.get("facts", {}).get("do_not_call")), "締め": closing_of(c) == CLOSE_DECLINED}),
 }

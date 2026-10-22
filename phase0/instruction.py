@@ -15,7 +15,7 @@ from flowctl import (ANY_LABEL, ARG_LABEL, CALLBACK_LABEL, CONFIRM_LABEL, END_LA
                      choices_note)
 from names import hira, quote  # noqa: F401（名前を「」でくくる唯一の場所。ここからも読める）
 
-from phrases import AI_ANSWER, APOLOGY, ASK_BACK, GREETING, target_call, target_confirm, target_who  # noqa: F401（決まった言い方は phrases.py の1か所。試験からも、ここ経由で読める）
+from phrases import AI_ANSWER, APOLOGY, ASK_BACK, GREETING, target_call, target_confirm, target_reconfirm, target_who  # noqa: F401（決まった言い方は phrases.py の1か所。試験からも、ここ経由で読める）
 # プログラムから会話AIへ送る合図の文面（文字で送る。相手には聞こえない）。合図の文面はここだけに置く（DESIGN.md 6-7）
 CUES = {
     # AIが黙ったとき：1回だけ返事を促す
@@ -68,6 +68,9 @@ class Target:
     def confirm(self) -> str:
         return target_confirm(self._name(), self.role)
 
+    def reconfirm(self) -> str:
+        return target_reconfirm(self._name(), self.role)
+
 
 @dataclass
 class Business:
@@ -83,6 +86,10 @@ class Business:
     # 留守番電話に残す伝言（Intent.md 9-4「伝言を残すか残さないかを設定で選ぶ。残す場合の文面も設定で持つ」。⏳ 残すかは 18-2 の14 で
     # ユーザーが決める）。空なら残さずに切る（安全側）
     voicemail_message: str | None = None
+    # 想定問答（Intent.md 5-3 (2)「AIが答えてよいこと」）：(問いの名前, 答えの文)。答えは名乗りと同じく依頼主の単位の録音（replay_parts の
+    # 「answer_問いの名前」）。AIは問いの名前を選ぶだけ（自分の言葉で答えない＝flowctl.Flow._op_replay_opening）。無ければ、名乗り・用件・
+    # 「分かりかねます」の録音で答える
+    answers: list = field(default_factory=list)
     # 「AIですか？」と聞かれたときの答え（Intent.md 9-4「答える文面は業務設定で持つ」）。空なら既定の文（phrases.AI_ANSWER）
     ai_answer: str | None = None
     # 目的の人（DESIGN.md 4-3）。None＝「誰でも」（最初に出た人が目的の人）。目的の人のある業務では、名乗りの終わりは目的の人を呼ぶ一言で、
@@ -140,14 +147,16 @@ class Business:
 
     def replay_parts(self) -> dict:
         """名乗りの部分（flowctl.Flow の opening。部分 → 文）：流し直す録音と、目的の人に繋がったときに流す名乗り・用件の両方に使う。
-        文は opening_parts と同じもの（録音も同じ）。目的の人のある業務では、呼ぶ一言（target）と、代わった方を確かめる一言（target_confirm）も。"""
+        文は opening_parts と同じもの（録音も同じ）。目的の人のある業務では、呼ぶ一言（target）と、代わった方を確かめる一言（target_confirm）と、
+        その返事がはっきりしないときの聞き返し（target_reconfirm）も。"""
         company, caller = self._said()
         parts = {"greeting": GREETING, "intro": f"株式会社{company}の{caller}と申します。", "purpose": self.purpose_line or "",
                  "ai": self.ai_answer or AI_ANSWER}  # 「AIですか？」への決まった答え（録音で流す。⛔ G-57：AIに言わせると質問に戻らなかった）
         if self.target is not None:
-            parts.update(target=self.target.call(), target_confirm=self.target.confirm())
+            parts.update(target=self.target.call(), target_confirm=self.target.confirm(), target_reconfirm=self.target.reconfirm())
         if self.voicemail_message:
-            parts["voicemail"] = self.voicemail_message  # 留守番電話の伝言（依頼主ごとの設定。✅ 2026-10-19 ユーザー：必要なら録音）
+            parts["voicemail"] = self.voicemail_message
+        parts.update({f"answer_{name}": text for name, text in self.answers})  # 想定問答の答え（依頼主の単位の録音。flowctl.ANSWER_PREFIX）  # 留守番電話の伝言（依頼主ごとの設定。✅ 2026-10-19 ユーザー：必要なら録音）
         return parts
 
 
@@ -337,8 +346,13 @@ def system_rules(play_recordings: bool = False) -> str:
         #    ✅ 2026-10-15 ユーザー：「『少々お待ちください。』は、電話での接客では強制的で不向き」）。間のつなぎはプログラムの仕事（DESIGN.md 6-15）
         "- 相手にお待ちいただく言葉（「少々お待ちください」など）は、自分では言いません。間があいたときのつなぎの言葉は、プログラムが録音で流します。\n"
         # ⛔ G-47：相手の質問（「当日はどなたが担当されるんですか？」）が、10本中10本聞き流された（Intent.md 9-4「範囲外の質問」）
-        "- 相手から質問されたら、聞き流さずに、目的と業務のことで分かる範囲だけを短く答えます。分からないことは作らず、"
-        "「申し訳ございません、私の方では分かりかねます」のように答えます。\n"
+        # ✅ 2026-10-22 ユーザー：「録音や想定にない質問だった場合は？」「必ずどんな営業トークにも出てくるパターンはシステム側に録音しておいた方が
+        #    よくない？」⇒ 答えは決まった答え（録音）から選ぶ。⛔ 前は「分かる範囲だけを短く答えます」＝AIが自分の言葉で答え、G-57 tc18 では
+        #    「ご関係」に「分かりかねます」と答えた・呼んでいる段で目的の人の名前をAIの声で言った
+        f"- 相手から質問されたら、聞き流さずに、自分の言葉では答えずに replay_opening で答えを選びます（誰からの電話か＝「{PART_LABEL['intro']}」・"
+        f"何の用件か・こちらとの関係・営業の電話か＝「{PART_LABEL['purpose']}」・想定問答にある問い＝その問いの名前・それ以外の問い（こちらが"
+        f"答えを持っていない問い。番号をどこで知ったか・金額・社内のことなど。用件では答えません）＝「{PART_LABEL['unknown']}」）。"
+        "プログラムが決まった答えを流します。答えを作ったり、約束したりしません。\n"
         "- 「またお電話します」「改めてご連絡します」など、かけ直すことや連絡することを約束してはいけません（かけ直すかは、プログラムが決めます）。\n"
         f"- 相手が聞き取れなかったとき（「もう一度」「え？」「はい？」など）や、相手に不快な思いをさせたかもしれないとき（話がかぶった・待たせた・相手が困っている）は、"
         f"話し始めに「{APOLOGY[0]}」か「{APOLOGY[1]}」を付けてから話します。\n"
@@ -380,6 +394,9 @@ def build(business: Business, voice_type: str, resume=None, opening_mode: str = 
     else:
         parts.append(position_text(business, resume))
     parts.append(system_rules(play_recordings) + ai_rule(business, recorded=opening_mode == "recorded" or bool(resume and resume.opening)))
+    if business.answers:
+        parts.append("想定問答にある問い（相手に聞かれたら、replay_opening でこの名前を選びます。答えはプログラムが流します）："
+                     + "・".join(f"「{n}」" for n, _ in business.answers))
     if business.unread_names:
         parts.append(unread_rule(business.unread_names))
     if business.forbidden:
