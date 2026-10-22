@@ -5420,7 +5420,8 @@ class TargetTest(unittest.TestCase):
         self.assertEqual(([p.get("part", p.get("id")) for p in r["play"]], g.facts.get("substitute")), (["greeting", "intro", "callback_back_time"], None))
         # AIへの説明：電話を別の方に代わるのはお取り次ぎ（代わりの方は、電話口の方ご自身が代わりに伺うと言ったときだけ）
         from flowctl import offers_rule
-        for word in ("電話口の方ご自身が", "「別の者に代わります」", "お取り次ぎです"):
+        for word in ("お呼びした方ではない方が", "「別の者に代わります」", "お取り次ぎです"):
+            self.assertNotIn("岡田", offers_rule())                                  # どの業務にも使う文（目的の人の名前は入れない）
             self.assertIn(word, offers_rule())
         # 取り次ぎではなく、受付の方ご自身が不在を伝えたあとの同じ方への報告は、かけ直し（代わりの方ではない）
         # 最初に出た受付の方（名乗りを聞いている）には、かけ直しの質問だけ（相づち「承知しました、」）
@@ -6242,6 +6243,33 @@ class OfferTest(unittest.TestCase):
         self.heard(f, "岡田はおりませんので代わりにお話をお聞きします。", TARGET_IS_AWAY)
         r = f.apply("report_party", {"party": "substitute"})
         self.assertEqual((r["question_id"], "R1" in f.order), ("Q1", False))
+
+    def test_standin_report_waits_for_a_reading(self):
+        # 代わりの方・後任の方の報告に、判定が1つも届いていない：用件や確かめを流すのは取り消せない側 ⇒ 黙って待ち、判定が届いたら報告し直させる。
+        # 同じ発話で2回目も判定が無ければ、AIの読みだけで受け取る（通話を止めない）。⛔ 2026-10-22 G-57 tc34（確かめにいいえ・L4）：代わって出た
+        # 岡田様の「お電話代わりました。岡田です。」をAIが「代わりの方」と報告し、判定（2つとも「ご本人」）が間に合わず、岡田様にお立場の質問を流した
+        from flowctl import HOLD, TARGET_IS_AWAY, TARGET_IS_THERE
+        f, b = self.flow()
+        self.heard(f, "お待たせいたしました。岡田はおりませんので、代わりにお話をお聞きします。")
+        r = f.apply("report_party", {"party": "substitute"})
+        self.assertEqual((r["result"], r.get("silent"), f.phase), ("wait", True, "calling"))
+        f.on_check("judge", TARGET_IS_AWAY)
+        self.assertIn("もう一度報告してください", f.unreported_note())
+        r = f.apply("report_party", {"party": "substitute"})
+        self.assertEqual((r["result"], self.played(r), f.facts["substitute"][-1]["read"]), ("next", ["purpose", "callback_authority"], ["ai", "judge"]))
+        g, b = self.flow()
+        self.heard(g, "お待たせいたしました。岡田はおりませんので、代わりにお話をお聞きします。")
+        self.assertEqual([g.apply("report_party", {"party": "substitute"})["result"] for _ in range(2)], ["wait", "next"])
+        self.assertEqual(g.facts["substitute"][-1]["read"], ["ai"])                        # AIの読みだけ＝通話後の検証が確かめる
+        h, b = self.flow()
+        self.heard(h, "岡田ですね。少々お待ちください。", HOLD)
+        h.apply("report_party", {"party": "reception"})
+        self.heard(h, "お電話代わりました。岡田です。")
+        self.assertEqual(h.apply("report_party", {"party": "substitute"})["result"], "wait")
+        h.on_check("judge", TARGET_IS_THERE)
+        self.assertIn("もう一度報告してください", h.unreported_note())
+        r = h.apply("report_party", {"party": "target"})
+        self.assertEqual((r["result"], h.facts["connect"][0]["who"], h.facts.get("substitute")), ("next", "target", None))
 
     def test_substitute_policies_and_disagreement(self):
         from flowctl import TARGET_IS_AWAY, TARGET_IS_THERE

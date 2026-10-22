@@ -591,10 +591,10 @@ def offers_rule(target: bool = True) -> str:
             f"折り返し・伝言を申し出たら、{A['offer']}に「{O['callback']}」「{O['message']}」を、ほかの手段なら「{O['email']}」「{O['fax']}」"
             f"「{O['post']}」を付けます（どれでもなければ付けません）。")
     if target:
-        text += (f"電話口の方ご自身が、お呼びした方の代わりにご用件を伺うと言ったら（「代わりに私がお聞きします」・上司の方・同じ部署の方など）"
-                 f"report_party を「{PARTY_LABEL['substitute']}」、自分が後任・いまの担当だと言ったら「{PARTY_LABEL['successor']}」で呼びます。"
-                 f"電話を別の方に代わる（「別の者に代わります」「少々お待ちください」）のは、お呼びした方がいないと言っていても、お取り次ぎです"
-                 f"（「{PARTY_LABEL['reception']}」で呼び、何も言わずに待ちます。代わって出た方への応じ方は、プログラムが決めます）。")
+        text += (f"お呼びした方ではない方が、お呼びした方の代わりに、ご自身がご用件を伺うと言ったら（「〇〇はおりませんので、代わりに私がお聞きします」"
+                 f"・上司の方・同じ部署の方など）report_party を「{PARTY_LABEL['substitute']}」、自分が後任・いまの担当だと言ったら"
+                 f"「{PARTY_LABEL['successor']}」で呼びます。電話を別の方に代わる（「別の者に代わります」「少々お待ちください」）のは、お呼びした方が"
+                 f"いないと言っていても、お取り次ぎです（「{PARTY_LABEL['reception']}」で呼び、何も言わずに待ちます）。")
     return text + "何と言うか（お礼・お詫び・聞くこと）は、プログラムが流します。自分では言いません。"
 
 
@@ -855,6 +855,7 @@ class Flow:
         check_policies(self.policies, self.message_text)
         self.substitute_q: str | None = None  # 代わりの方に、判断いただけるお立場かを聞いている（その答えで決める＝_advance の入口）
         self.substitute_why = "absent"  # 代わりの方とお話しできなかったときに聞くかけ直しの理由（お呼びした方の事情＝不在・長期の不在）
+        self.standin_wait = -1  # 代わりの方・後任の方の報告を、判定が届くまで待たせた相手の発話の番号（_calling_reported。同じ発話で2回は待たない）
         # 相手の質問に、AIが自分の言葉で答えた（_own_answer）：相手の返事のあとに「質問に戻る」で戻る（_resume）。同じ発話には1回だけ答える
         self.own_pending = False
         self.own_turn = -1
@@ -2258,6 +2259,15 @@ class Flow:
         if ai in STANDIN_PARTIES or why in ("departed", "other_means") or offer in ("callback", "message"):
             # 折り返し・伝言の申し出も同じ：申し出た方は、お呼びした方の代わりに伝える側（電話口の方は目的の人ではない）
             if j != TARGET_IS_THERE or why == "other_means":
+                if j is None and self.judging and ai in STANDIN_PARTIES and self.standin_wait != self.callee_turns:
+                    # 判定が1つも届いていない：代わりの方・後任の方として用件や確かめを流すのは、取り消せない側（目的の人の報告を読み1つで
+                    # 繋がないのと同じ）⇒ 黙って待ち、判定が届いたら報告し直させる（unreported_note）。同じ発話で2回目も判定が無ければ、
+                    # AIの読みだけで受け取る（判定が止まっていても通話を止めない。通話の事実の read が「ai」だけ＝通話後の検証が確かめる）。
+                    # ⛔ 2026-10-22 G-57 tc34（確かめにいいえ・L4）：代わって出た岡田様の「お電話代わりました。岡田です。」をAIが「代わりの方」と
+                    #    報告し、判定（2つとも「ご本人」）が待つ長さに間に合わず、岡田様にお立場の質問とかけ直しの質問を流した
+                    self.standin_wait = self.callee_turns
+                    return {"result": "wait", "silent": True,
+                            "message": "相手の言葉の読みがそろうまで、何も言わずに待ちます（このあと知らせがあったら、もう一度報告します）。"}
                 # 判定が「ご本人」ではない（別の方・代わった人・決められない・届いていない）：電話口の方は目的の人ではない、とそろう（上の (6)）。
                 # ほかの手段は、電話口のご本人の申し出でもよい
                 return self._not_available(ai, why, offer, {"ai"} | {k for k in JUDGMENTS if self.check.get(k) not in (None, HOLD)})
