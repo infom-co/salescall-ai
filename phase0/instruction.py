@@ -142,6 +142,13 @@ class Business:
         self.purpose_line = quote_in_text(self.purpose_line, self.names) if self.purpose_line else self.purpose_line
         self.busy_ask = quote_in_text(self.busy_ask, self.names) if self.busy_ask else self.busy_ask
 
+    def spoken_names(self) -> list[str]:
+        """声に出す名前（表記と読み）：社名・担当者名・お呼びした方の名前・読みの決まらない名前。名前は録音だけで言い、AIの自分の言葉には入れない
+        （flowctl.own_answer_problem。⛔ G-57 tc18：AIの声で目的の人の名前を言い崩した）。"""
+        t = self.target
+        return [x for x in (self.company, self.company_reading, self.caller, self.caller_reading, *(self.unread_names or []),
+                            *((t.name, t.reading) if t is not None else ())) if x]
+
     def policies(self) -> dict:
         """相手の申し出への応じ方（流れの制御 Flow の policies。中の名前は flowctl.POLICIES）。"""
         return {"substitute": self.substitute_policy, "message": self.message_policy, "departed": self.departed_policy,
@@ -378,7 +385,8 @@ def system_rules(play_recordings: bool = False, target: bool = False, follow_up:
         f"流します）。用件の録音で答えるのは、何の用件か・こちらとの関係・営業の電話かを聞かれたときだけです（番号をどこで知ったか・金額・"
         "会社のことなどは、用件では答えません）。"
         f"それ以外の問いは、業務の情報にあることなら「{PART_LABEL['own']}」、業務の情報にも無いことなら「{PART_LABEL['no_answer']}」を"
-        "選び、返事のとおりに自分の言葉で短く答えます。業務の情報に無いことは、答えを作りません。社名・人の名前は声に出さずに「弊社」「こちら」"
+        f"選び、自分の言葉で短く（1〜2文）答える文を「{ARG_LABEL['answer']}」に書いて呼びます。声に出すのは、プログラムの返事のあとです"
+        "（返事の言い方のとおりに言います）。業務の情報に無いことは、答えを作りません。社名・人の名前は入れずに「弊社」「こちら」"
         "「担当の者」のように言い換えます。\n"
         + ("- 業務の情報に無い問いには、その点は確認のうえ担当の者から改めてご連絡させていただく形でよろしいかを伺ってかまいません。それ以外の"
            "約束（またお電話します、など）はしません（かけ直すかは、プログラムが決めます）。\n" if follow_up else

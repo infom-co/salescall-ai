@@ -350,6 +350,7 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                     if isinstance(x, dict) and "if_value" in x else x for x in callee_lines]
     flow = Flow(business.questions, busy_ask=business.busy_ask, lead_ins=lead_ins, play_recordings=play_recordings,
                 voicemail_message=business.voicemail_message, answers=dict(business.answers), policies=business.policies(),
+                info=business.info, names=business.spoken_names(),
                 # 目的の人のある業務：繋がるまで最初の質問を渡さない（DESIGN.md 4-3）。名乗り・用件の文は、AIが話す形でも流れの制御が持つ
                 target=business.replay_parts() if business.target is not None else None,
                 opening=business.replay_parts() if opening_mode == "recorded" else None,  # 名乗りを録音で流す形なら、流し直しもできる（6-13）
@@ -395,6 +396,8 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
         r = turn.summary()
         audio, rate = bytes(turn.audio), turn.audio_rate or 24000
         row = {"index": i, "session": sessions, "callee": line, "heard": r["input_transcript"], "intended": r["output_transcript"],
+               # 呼んでいる段で、話させる返事の無いAIの声は相手に流さない（Flow.speech_allowed。試作では流さなかった印を付け、数え方が除く）
+               "muted": not flow.speech_allowed(log_start),
                # 操作の記録は、流れの制御の記録（中の名前）から取る。時刻はAIからの届いた順に合わせる。
                # ack：その報告が届いた瞬間に、電話接続側が流す相づち（flowctl.Flow._ack。試験では流さず、時刻と中身だけを記録する）
                "tool_events": [{"at_s": live.get("at_s"), "answered_s": live.get("answered_s"), "name": log["op"], "args": log["args"],
@@ -561,9 +564,11 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                     # 呼んでいる段で、報告を決めずに待たせたまま（相手の言葉の途中の報告）AIのターンが終わった：言葉が出揃ったら報告し直すように
                     # 知らせる（知らせるかは流れの制御が決める＝Flow.unreported_note の1か所）
                     waited = bool(ops) and ops[-1]["reply"].get("result") in ("wait", "noted", "hold")
-                    if (spoke and not ops or waited) and settle is not None:
+                    # 流さなかったAIの声（Flow.speech_allowed）：受け付けた報告が無ければ、報告し直すように知らせる（決めるのは Flow.unreported_note）
+                    muted = any(t.get("muted") and t.get("audio_seconds") for t in turns if t["index"] == i and t["session"] == sessions)
+                    if (spoke and not ops or waited or muted) and settle is not None:
                         await settle()  # 判定が「答え」と決めたときだけ知らせる（Flow.unreported_note）
-                    if (spoke and not ops or waited) and (note := flow.unreported_note()):
+                    if (spoke and not ops or waited or muted) and (note := flow.unreported_note(muted=muted)):
                         # AIが声は出したのに、報告なしでターンを終えた：報告を促す（流れの制御が決める。1つの相手の発話に1回まで）。
                         # 本番では、この知らせへのAIの声のうち、報告より前のものは相手に流さない（電話接続側）。試験では記録だけする
                         log_start = len(flow.log)

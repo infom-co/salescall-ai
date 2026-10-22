@@ -52,8 +52,8 @@ def plain(s: str) -> str:
 def said(t: dict) -> str:
     """AIのそのターンの声の文字（別の耳の文字があればそれ。無ければAI自身の文字）。声の無いターンは空（⛔ 1回目：声が0秒なのに、AI自身の文字
     「<no speech>{pause}」「…」を話したと数えていた）。"""
-    if not t.get("audio_seconds"):
-        return ""
+    if not t.get("audio_seconds") or t.get("muted"):
+        return ""  # 呼んでいる段で、話させる返事の無いAIの声は、電話接続側が相手に流さない（Flow.speech_allowed）
     return (t.get("ear") or t.get("intended") or "").strip()
 
 
@@ -124,7 +124,8 @@ def ai_said_all(call: dict) -> str:
 def own_words(call: dict, wav_name: str) -> str:
     """その台詞へのAIのターンで、AIが自分の声で話した言葉（会話AIの文字。録音は入らない）。⛔ G-57 tc18：声の長さが記録されないターンでも、
     AIは「営業部部長の岡田様をお呼び…」と話していた（said は声の長さで見るので拾えなかった）＝会話AIの文字を見る。"""
-    return re.sub(r"[…・.。、\s]", "", "".join(e.get("text") or "" for t in turns_to(call, wav_name) for e in t.get("said_events") or []))
+    return re.sub(r"[…・.。、\s]", "", "".join(e.get("text") or "" for t in turns_to(call, wav_name) if not t.get("muted")
+                                              for e in t.get("said_events") or []))
 
 
 def full_opening(call: dict) -> bool:

@@ -204,6 +204,16 @@ def write_tones() -> list[str]:
     return out
 
 
+def matches_script(m: dict) -> bool:
+    """作ってある声が、いまの台詞の文で作ったものか。文を直したあとの古い声は、作ってある声として数えず、試験にも使わない。
+    読み方（how）は作るときの手がかりで、声が文どおりかは別の耳の確かめが見るので、比べない。
+    ⛔ 2026-10-22：伝言の申し出・お立場への「いいえ」・メールアドレス・帰社日の文を直したのに、作り直しが「作ってある」と飛ばし、
+       古い文の声（「いえ」のまま通っていた声も）が残っていた。"""
+    if m.get("id") not in UTTERANCES:
+        return True  # 一覧から外した台詞：比べる文が無い
+    return m.get("text") == text_and_how(UTTERANCES[m["id"]])[0]
+
+
 def verified(wav: str) -> bool:
     """その声が、確かめ（sample_ok）に通っているか。試験は、通っていない声を使わない。"""
     if any(wav.endswith(f"_{uid}.wav") for uid in TONES):
@@ -218,7 +228,7 @@ def verified(wav: str) -> bool:
             return True
     index = OUT / "index.json"
     made = json.loads(index.read_text(encoding="utf-8")) if index.exists() else []
-    return any(m.get("wav") == wav and m.get("ok") is True for m in made)
+    return any(m.get("wav") == wav and m.get("ok") is True and matches_script(m) for m in made)
 
 
 # 日本語の言葉の種類として範囲が決まっている一覧（業務や場面ごとの一覧ではない）
@@ -281,12 +291,12 @@ async def run(args) -> dict:
             say(f"{m['voice']} {m['id']}：聞こえた「{m['heard']}」 合格={m['ok']}")
         index.write_text(json.dumps(made, ensure_ascii=False, indent=2), encoding="utf-8")
         return {"model": args.model, "verified": made}
-    have = {(m.get("voice"), m.get("id")) for m in made if "error" not in m}
+    have = {(m.get("voice"), m.get("id")) for m in made if "error" not in m and matches_script(m)}
     for voice in args.voice or CALLEE_VOICES:
         for uid, value in UTTERANCES.items():
             text, how = text_and_how(value)
             if uid not in (args.redo or []) and (voice, uid) in have and (OUT / f"{voice}_{uid}.wav").exists():
-                continue  # 作ってある声は作り直さない（ほかの確かめの材料が変わらないように）。作り直すのは --redo で名指ししたものだけ
+                continue  # 作ってある声は作り直さない（ほかの確かめの材料が変わらないように）。作り直すのは --redo で名指ししたものと、文を直したものだけ
             made = [m for m in made if (m.get("voice"), m.get("id")) != (voice, uid)]
             tries = []
             for n in range(args.tries):

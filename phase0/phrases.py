@@ -260,6 +260,10 @@ SUCCESSOR = {"target": "恐れ入りますが後任のご担当者様はいら�
              "target_confirm": "後任のご担当者様でいらっしゃいますでしょうか？",
              "target_reconfirm": "後任のご担当者様でお間違えなかったでしょうか？"}
 SUCCESSOR_IDS = {"target": "successor_call", "target_confirm": "successor_confirm", "target_reconfirm": "successor_reconfirm"}
+# AIが自分の言葉で答える文（flowctl.Flow._own_answer）が、声に出す前の確かめ（flowctl.own_answer_problem）に通らなかったときだけ流す、答えられない
+# ことを伝える一言（契約者の単位の録音。頭に「申し訳ございません、」の相づち。⏳ 2026-10-22 の案）。⛔ G-57 tc31：AIが業務の情報と違う場所
+# （港区を「目黒」）を自分の言葉で言った・返事の注意書きを声に出して約束した ⇒ 答える文は声に出す前に確かめ、通らなければ作らずにこの一言
+OWN_FALLBACK = "そちらにつきましてはこの場ではお答えいたしかねます。"
 # ⛔ 2026-10-22 の形（想定問答に無い問いには、どれも「申し訳ございません、」＋「私の方では分かりかねます。」の録音）は取り下げた。
 #    ✅ 2026-10-22 ユーザー：「『只今、岡田は会議中ですので、折り返し電話するようにお伝えしましょうか？』のような質問に、『申し訳ございません、』＋
 #    『私の方では分かりかねます。』と答えるんですか？…人以上の仕組みを作ることが私たちの目的ではないのですか？」
@@ -267,7 +271,8 @@ SUCCESSOR_IDS = {"target": "successor_call", "target_confirm": "successor_confir
 RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait": WAIT, "wait_heavy": WAIT, "greeting": GREETING,
             "ai_again": AI_ASKED_AGAIN, **dict(zip(SILENCE_PROMPT_IDS, SILENCE_PROMPT)),
             **{f"callback_{k}": v for k, v in CALLBACK_ASK.items()},
-            "offer_thanks": OFFER_THANKS, "departed": DEPARTED_ACK, **{SUCCESSOR_IDS[k]: v for k, v in SUCCESSOR.items()}}
+            "offer_thanks": OFFER_THANKS, "departed": DEPARTED_ACK, **{SUCCESSOR_IDS[k]: v for k, v in SUCCESSOR.items()},
+            "own_fallback": OWN_FALLBACK}
 
 
 def lead_in(kind: str, n: int) -> str:
