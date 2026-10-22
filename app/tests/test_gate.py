@@ -16,7 +16,7 @@ from datetime import date, timedelta
 from unittest import mock
 
 from salescall.core import (approval, attempts, business_rules, calendar, call_report, dial_exit, dnc, fix_requests, gate,
-                            next_action, quality_stage, recordings, settings, settle, stops, target_policy, tasks)
+                            next_action, quality_stage, recordings, scheduler, settings, settle, stops, target_policy, tasks)
 from salescall.core.call_report import Cut
 from salescall.core.access import Rejected
 from salescall.core.calendar import CalendarOutOfRange, CalendarRejected
@@ -274,6 +274,49 @@ class Stops(Base):
         self.lease(s, line=other_line)
         self.assertIsInstance(self.claim(s, line=other_line), gate.Claim)   # ほかの回線は止まっていない
         self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: stops.resume(tx, e["event_id"], reason="試験"))
+
+    def test_a_deficit_stop_still_lets_promises_and_resumes_through_but_a_quality_stop_does_not(self):
+        """止めているあいだのお客様との約束を果たす電話（2026-10-22 ユーザー：赤字では、約束の電話・途中で切れたお客様へのお詫びの
+        かけ直し・お詫びの電話の3つだけはかける。緊急停止・回線や会話AIの異常・品質では、かけない）。決まりは停止の原因の表の1か所
+        （stops.CAUSES の lets_through）と、電話の種類のデータベースの1か所（salescall.keeping_kind）。候補を出す処理も同じ決まり。"""
+        cases = [("normal", False, False), ("normal", True, True), ("resume", False, True)]   # (目的, 約束か, 赤字で通るか)
+        for purpose, promised, passes in cases:
+            with self.subTest(purpose=purpose, promised=promised):
+                s = self.ready()
+                now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
+                self.tx(s, lambda tx: support.schedule_call(tx, s["task"], now, contact_id=s["contact"], cause="試験",
+                                                               promised=promised, purpose=purpose))
+                d = self.w.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: stops.stop(
+                    tx, scope="client", cause="deficit", reason="試験：赤字", tenant_id=s["tenant"], client_id=s["client"]))
+                listed = self.tx(s, lambda tx: [r["task_id"] for r in scheduler.due_tasks(tx, 10)])
+                self.assertEqual(listed, [s["task"]] if passes else [])   # 候補を出す処理も同じ決まり
+                if passes:
+                    got = self.claim(s)
+                    self.assertIsInstance(got, gate.Claim, got)
+                    self.tx(s, lambda tx: attempts.release(tx, [got.attempt_id]))
+                else:
+                    self.assertEqual(self.reason(s), "stopped")
+                q = self.tx(s, lambda tx: stops.stop(tx, scope="business", cause="forbidden_speech", reason="試験：品質",
+                                                     tenant_id=s["tenant"], client_id=s["client"], business_id=s["business"]))
+                self.assertEqual(self.reason(s), "stopped")              # 品質の停止：約束も続きも止める（お詫びの電話だけ通す）
+                self.tx(s, lambda tx: stops.resume(tx, q["event_id"], reason="試験"))
+                self.tx(s, lambda tx: stops.resume(tx, d["event_id"], reason="試験"), OPERATOR)
+
+    def test_the_kinds_of_promise_keeping_calls_are_decided_in_one_place(self):
+        """約束を果たす電話の種類は、データベースの salescall.keeping_kind の1か所。「新しくかける電話」（is_new_call）はその裏返しで、
+        名前は stops.KEEPING_KINDS とそろう。"""
+        s = self.ready()
+        rows = self.tx(s, lambda tx: tx.all(
+            "SELECT p, q, salescall.keeping_kind(p, q) AS k, salescall.is_new_call(p, q) AS n"
+            " FROM unnest(ARRAY['normal','resume','apology','ask_number_again']) p, unnest(ARRAY[false, true]) q"))
+        for r in rows:
+            self.assertEqual(r["n"], r["k"] is None, r)
+        self.assertEqual({r["k"] for r in rows} - {None}, set(stops.KEEPING_KINDS))
+        self.assertEqual(stops.CAUSES["deficit"].lets_through, frozenset(stops.KEEPING_KINDS))
+        for c in quality_stage.STOP_CAUSES:
+            self.assertEqual(stops.CAUSES[c].lets_through, frozenset({"apology"}))
+        for c in ("manual", "line_failure", "ai_connection"):
+            self.assertEqual(stops.CAUSES[c].lets_through, frozenset())
 
     def test_line_stop_releases_claims_on_that_line(self):
         s = self.ready()

@@ -463,6 +463,12 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      " LANGUAGE sql IMMUTABLE AS $$ SELECT true $$",
      ("tests.test_gate.BusinessDailyLimit.test_the_limit_counts_the_business_dials_of_today_and_skips_promised_calls",
       "tests.test_exclusions.Marks.test_apologies_resumes_and_promised_calls_are_made_even_on_a_row_set_to_do_not_call")),
+    # 止めているあいだの、お客様との約束を果たす電話の種類（0115。2026-10-22 ユーザー：赤字の停止でも3つはかける）
+    ("途中で切れたお客様へのお詫びのかけ直しを、約束を果たす電話とみなさない（赤字の停止で止まる）",
+     "CREATE OR REPLACE FUNCTION salescall.keeping_kind(p_purpose text, p_promised boolean) RETURNS text"
+     " LANGUAGE sql IMMUTABLE AS $$ SELECT CASE WHEN p_purpose = 'apology' THEN 'apology'"
+     " WHEN coalesce(p_promised, false) THEN 'promised' END $$",
+     ("tests.test_gate.Stops.test_a_deficit_stop_still_lets_promises_and_resumes_through_but_a_quality_stop_does_not",)),
     ("「強制かけない」の行でも、お客様と約束したかけ直しをかける",
      "CREATE OR REPLACE FUNCTION salescall.task_exclusion_level(p_task uuid) RETURNS text LANGUAGE sql STABLE AS"
      " $$ SELECT CASE WHEN salescall.task_excluded(p_task) THEN 'exclude' ELSE 'call' END $$;"
@@ -1064,7 +1070,9 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      ("tests.test_settle.DatabaseGuards.test_apology_reasons_and_missed_rounds_are_kept_consistent",)),
     ("かけられなかった回の数が、過ぎた回の数を超えてよい（0113：約束の打ち止めの数がずれる）",
      "ALTER TABLE salescall.task_next_actions DROP CONSTRAINT task_next_actions_window_missed",
-     ("tests.test_settle.DatabaseGuards.test_apology_reasons_and_missed_rounds_are_kept_consistent",)),
+     ("tests.test_settle.DatabaseGuards.test_apology_reasons_and_missed_rounds_are_kept_consistent",)),    ("後任の方をお呼びする印が、終わる予定に付いてよい（0114：会話の処理に、かけない予定の印が渡りうる）",
+     "ALTER TABLE salescall.task_next_actions DROP CONSTRAINT task_next_actions_successor_calls",
+     ("tests.test_settle.DatabaseGuards.test_the_successor_mark_is_only_on_a_call",)),
 )
 
 

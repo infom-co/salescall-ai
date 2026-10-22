@@ -195,12 +195,8 @@ def rejudge(tx: Tx, attempt_id: UUID) -> dict[str, Any] | None:
     作り直した会話の報告・行の項目のどれかが、前の判定と違う）だけ判定する。何も変わっていなければ何もしない（None）。
     判定し直した結果は、結果の版 rejudged として足し、ふつうの締めと同じ道で次の動きを書く。"""
     a = _attempt(tx, attempt_id)
-    held = tx.one("SELECT 1 FROM salescall.current_next_actions WHERE task_id = %s AND kind = 'hold'",
-                  (a["task_id"],)) is not None
     last = tx.one("SELECT judge_version, snapshot FROM salescall.call_judgements WHERE attempt_id = %s", (attempt_id,))
-    latest_attempt = tx.one(f"SELECT attempt_id FROM salescall.attempts WHERE task_id = %s AND {attempts.DIALED}"
-                            " ORDER BY claimed_at DESC LIMIT 1", (a["task_id"],))["attempt_id"]
-    if not held or last is None or latest_attempt != attempt_id:
+    if last is None or awaiting_rejudge(tx, a["task_id"]) != attempt_id:
         return None
     if target_recheck.missing(tx, attempt_id):   # 確かめ直しを待つ行は、記録されてから判定し直す
         _recheck_missing_notice(tx, a)
@@ -217,14 +213,27 @@ def rejudge(tx: Tx, attempt_id: UUID) -> dict[str, Any] | None:
     return _after(tx, a, out)
 
 
+def awaiting_rejudge(tx: Tx, task_id: UUID) -> UUID | None:
+    """その行で判定し直しを待っている試行（1か所）：行のいちばん新しい発信の、いちばん新しい判定が「判定できない」。いまの予定が判定待ち
+    （hold）の行だけでなく、途中で切れて判定できなかったので、お詫びのかけ直しを予定した行も入る（2026-10-22 ユーザー：「通話のあとの
+    確かめで断りの言葉が見つからなければ、お詫びのかけ直しをします」）。そのかけ直しが発信まで進めば、いちばん新しい発信が替わるので、
+    前の通話は判定し直さない（あとの通話の結果が行の結果）。"""
+    row = tx.one(
+        "SELECT a.attempt_id,"
+        "       (SELECT j.business_state::text FROM salescall.call_judgements j WHERE j.attempt_id = a.attempt_id) AS state"
+        f" FROM salescall.attempts a WHERE a.task_id = %s AND {attempts.dialed('a')} ORDER BY a.claimed_at DESC LIMIT 1",
+        (task_id,))
+    return row["attempt_id"] if row is not None and row["state"] == "unknown" else None
+
+
 def rejudge_held(tx: Tx) -> list[dict[str, Any]]:
-    """取引の依頼者の、判定待ちの行をすべて見て、原因が直ったものを判定し直す（見守り役が決まった間隔で呼ぶ）。"""
+    """取引の依頼者の、判定し直しを待っている行（`awaiting_rejudge`）をすべて見て、原因が直ったものを判定し直す（見守り役が決まった
+    間隔で呼ぶ）。"""
     done = []
     for row in tx.all(
-            "SELECT (SELECT a.attempt_id FROM salescall.attempts a WHERE a.task_id = n.task_id"
-            f"        AND {attempts.dialed('a')} ORDER BY a.claimed_at DESC LIMIT 1) AS attempt_id"
-            " FROM salescall.current_next_actions n WHERE n.kind = 'hold'"):
-        got = rejudge(tx, row["attempt_id"])
+            "SELECT DISTINCT j.task_id FROM salescall.call_judgements j WHERE j.business_state = 'unknown'"):
+        attempt_id = awaiting_rejudge(tx, row["task_id"])
+        got = None if attempt_id is None else rejudge(tx, attempt_id)
         if got is not None:
             done.append(got)
     return done
@@ -303,7 +312,8 @@ def _judge_and_write(tx: Tx, a: dict[str, Any], *, kind: str, rules_version: Any
     if j.dnc_reason is not None:
         dnc.register(tx, a["phone_e164"], j.dnc_reason, source_attempt_id=attempt_id)
     # 途中で切れた（お客様の意思と関係なく）：決めるのは judge.cut_off の1か所
-    cut_off = decided and _cut_off(tx, a, j.detail.get("cut"), report)   # 判定できなかった通話は、判定し直すときに決める
+    # 判定できなかった通話も決める（途中で切れていれば、お詫びのかけ直しをする＝next_action。2026-10-22 ユーザー）
+    cut_off = _cut_off(tx, a, j.detail.get("cut"), report)
     decision = next_action.after_call(
         tx, a["task_id"], j, rules=rules,
         dialed=next_action.Target(a["contact_id"], None, a["purpose"], a["wrong_contact_id"]), dialed_at=a["claimed_at"],

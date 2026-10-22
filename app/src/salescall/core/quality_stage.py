@@ -8,7 +8,10 @@
 - 模擬通話（`record_mock`）：流すのは CL-1。本数・正解と一致した値と判定の割合・言ってはいけないことの数を、設定の基準と比べて
   合否を決めて記録する。合格なら、その業務の品質の停止を解き（止まった版とは違う版のときだけ）、最初の段を開く。
 - 段の評価（`evaluate`。締めの処理が通話ごとに呼ぶ）。**段・割合の基準・1件で止めるのは、検証モードの業務だけ**。本番は
-  `_evaluate_production`（その日のうちに同じ原因が設定の件数になったら止めて、管理者へ知らせる。2026-10-16 ユーザー決定）：
+  `_evaluate_production`（**止めない**。その日のうちに同じ原因が設定の件数になったら、管理者へ知らせる。担当への修正依頼は、締めの
+  処理が通話ごとに出している＝同じ不具合は1つ。2026-10-22 ユーザー：「前にも言ったはずで本番は止めない（担当への修正依頼と管理者への
+  知らせ）ただし、大問題は止める」。大問題＝このまま進めるとお客様に害が出るとき＝緊急停止・回線や会話AIの異常の停止。原則6。
+  ⛔ 前は、件数になったら業務を止めていた＝2026-10-16 の決定の読み違い）。検証モードの業務：
   - 数の基準は、毎回見る。超えたら、その場で業務を止める：言ってはいけないこと（0件まで。原因 forbidden_speech）・
     判定できない（**1件で止める**。原因 judge_unknown。止める理由に、判定できない原因の名前と意味を入れる。2026-10-16 ユーザー決定：
     (a)(c)(d)）。管理者にも知らせるかは `_stop` の1か所で決める（本番の停止と、プログラムの誤りの判定できない原因
@@ -287,8 +290,7 @@ def evaluate(tx: Tx, version_id: UUID) -> dict[str, Any] | None:
             reason = (f"判定できない通話がありました（原因：{unk['cause']}＝{UNKNOWN_CAUSES.get(unk['cause'], '不明')}。"
                       f"通話 {len(unk['attempts'])} 件）。その行は判定待ちで残しています。原因を直し、その場面を入れた模擬通話に"
                       "合格したら再開します")
-        stop_id = _stop(tx, v, version_id, cause, reason, production=False,
-                        unknown_cause=m["unknown_judgments"]["cause"])
+        stop_id = _stop(tx, v, version_id, cause, reason, unknown_cause=m["unknown_judgments"]["cause"])
         outcome = "stop"
     row = tx.one(
         "INSERT INTO salescall.quality_evaluations (tenant_id, client_id, version_id, stage_no, cap, used, metrics, outcome,"
@@ -298,11 +300,10 @@ def evaluate(tx: Tx, version_id: UUID) -> dict[str, Any] | None:
     return {"eval_id": row["eval_id"], "outcome": outcome, "metrics": m, "stop_event_id": stop_id}
 
 
-def _stop(tx: Tx, v: dict[str, Any], version_id: UUID, cause: str, reason: str, *, production: bool,
-          unknown_cause: str | None) -> int:
-    """品質で業務を止める（検証モードも本番も、ここだけ）。管理者にも知らせるか：本番の停止（2026-10-16 ユーザー決定：「業務を止め、
-    管理者へ知らせる」）と、判定できない原因がプログラムの誤り（`judge.PROGRAM_CAUSES`。直す担当へは締めの処理が修正依頼を出す。管理者は確かめ・承認）のとき。"""
-    admin = production or (cause == "judge_unknown" and unknown_cause in PROGRAM_CAUSES)
+def _stop(tx: Tx, v: dict[str, Any], version_id: UUID, cause: str, reason: str, *, unknown_cause: str | None) -> int:
+    """品質で業務を止める（検証モードの業務だけ。ここだけ）。管理者にも知らせるか：判定できない原因がプログラムの誤り
+    （`judge.PROGRAM_CAUSES`。直す担当へは締めの処理が修正依頼を出す。管理者は確かめ・承認）のとき。"""
+    admin = cause == "judge_unknown" and unknown_cause in PROGRAM_CAUSES
     return stops.stop(tx, scope="business", cause=cause, reason=reason, evidence=f"version_id={version_id}",
                       tenant_id=v["tenant_id"], client_id=v["client_id"], business_id=v["business_id"],
                       admin=admin)["event_id"]
@@ -333,30 +334,30 @@ def _production_counts(tx: Tx, business_id: UUID, day: Any = None) -> dict[str, 
 
 
 def _evaluate_production(tx: Tx, version_id: UUID, v: dict[str, Any], stage: dict[str, Any]) -> dict[str, Any]:
-    """本番の評価（2026-10-16 ユーザー決定）：1件だけなら止めずに次の行へ（その行は、言ってはいけないこと＝終えてお詫びの案、
-    判定できない＝判定待ち。どちらも知らせる＝締めの処理）。その日のうちに同じ原因が設定の件数
-    （quality.production_same_cause_per_day。初めは3）になったら、その業務を止め、管理者へ知らせる。割合の基準と段は見ない
-    （検証モードだけ）。"""
+    """本番の評価（**止めない**。2026-10-22 ユーザー：「本番は止めない（担当への修正依頼と管理者への知らせ）ただし、大問題は止める」）：
+    1件ごとの手当ては締めの処理がする（言ってはいけないこと＝その行を終えてお詫びの案・判定できない＝判定待ち。どちらも契約者へ
+    知らせ、直す担当へ修正依頼＝同じ不具合は1つ）。その日のうちに同じ原因が設定の件数（quality.production_same_cause_per_day。
+    初めは3）になったら、管理者へ知らせる（その日・その原因に1回）。割合の基準と段は見ない（検証モードだけ）。"""
     limit = int(_get(tx, v, "quality.production_same_cause_per_day"))
     c = _production_counts(tx, v["business_id"])
-    cause, reason = None, ""
-    worst = max(c["unknown_by_cause"], key=lambda k: (len(c["unknown_by_cause"][k]), k), default=None)
+    alerts: list[tuple[str, str]] = []
     if c["forbidden_speech"] >= limit:
-        cause = "forbidden_speech"
-        reason = f"今日、言ってはいけないことを言った通話が {c['forbidden_speech']} 件になりました（基準 {limit} 件）"
-    elif worst is not None and len(c["unknown_by_cause"][worst]) >= limit:
-        cause = "judge_unknown"
-        reason = (f"今日、同じ原因で判定できない通話が {len(c['unknown_by_cause'][worst])} 件になりました（原因：{worst}＝"
-                  f"{UNKNOWN_CAUSES.get(worst, '不明')}。基準 {limit} 件）。その行は判定待ちで残しています。原因を直し、その場面を"
-                  "入れた模擬通話に合格したら再開します")
-    stop_id = None
-    if cause is not None:
-        stop_id = _stop(tx, v, version_id, cause, reason, production=True, unknown_cause=worst)
-    m = {"production": {"limit": limit, **c}}
+        alerts.append(("forbidden_speech", f"今日、言ってはいけないことを言った通話が {c['forbidden_speech']} 件になりました（基準 {limit}"
+                                           " 件。業務は止めていません。会話の担当へ修正依頼を出しています）"))
+    for cause, hits in sorted(c["unknown_by_cause"].items()):
+        if len(hits) >= limit:
+            alerts.append((f"judge_unknown:{cause}",
+                           f"今日、同じ原因で判定できない通話が {len(hits)} 件になりました（原因：{cause}＝"
+                           f"{UNKNOWN_CAUSES.get(cause, '不明')}。基準 {limit} 件。業務は止めていません。その行は判定待ちで残し、"
+                           "原因が直れば自動で判定し直します）"))
+    day = tx.one("SELECT salescall.jst(now())::date AS d")["d"]
+    for key, summary in alerts:
+        notify.emit(tx, "quality_alert", key=f"quality_alert:{v['business_id']}:{day}:{key}", summary=summary, admin=True,
+                    refs={"version_id": version_id, "business_id": v["business_id"]})
+    m = {"production": {"limit": limit, **c, "alerts": [k for k, _ in alerts]}}
     row = tx.one(
         "INSERT INTO salescall.quality_evaluations (tenant_id, client_id, version_id, stage_no, cap, used, metrics, outcome,"
-        " stop_event_id) VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s, %s, %s, %s)"
+        " stop_event_id) VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s, %s, 'continue', NULL)"
         " RETURNING eval_id",
-        (version_id, stage["stage_no"], stage["cap"], used(tx, version_id), json.dumps(m, default=str),
-         "stop" if cause else "continue", stop_id))
-    return {"eval_id": row["eval_id"], "outcome": "stop" if cause else "continue", "metrics": m, "stop_event_id": stop_id}
+        (version_id, stage["stage_no"], stage["cap"], used(tx, version_id), json.dumps(m, default=str)))
+    return {"eval_id": row["eval_id"], "outcome": "continue", "metrics": m, "stop_event_id": None}

@@ -183,11 +183,40 @@ def _hhmm(sec: int) -> str:
     return f"{sec // 3600:02d}:{sec % 3600 // 60:02d}"
 
 
+def _union(ranges: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    out: list[tuple[int, int]] = []
+    for a, b in sorted(ranges):
+        if out and a <= out[-1][1]:
+            out[-1] = (out[-1][0], max(out[-1][1], b))
+        else:
+            out.append((a, b))
+    return out
+
+
+def callee_hours(hours: dict, ng: dict, daily: tuple[int, int] | None, days: tuple[str, ...] | None) -> dict:
+    """お客様が言った時刻・時間の幅（約束の幅）でかける電話の、かけてよい時間帯（曜日・祝日ごと。1か所。門の時刻の確かめ
+    `allowed` と、次の動きが幅の中を探す所が、同じものを使う）。
+    - 1日の中の時間を言った（daily。「15時」「夕方」「夜」など）：その幅の中なら、依頼者の時間帯・NG時間・深夜早朝の歯止めの外でも
+      かけてよい（2026-10-22 ユーザー：「お客様が指定した時刻ならNG時間でもかけてよい（歯止めなし、ただし、午前と午後を間違えない
+      ように）」。午前・午後の読みは core/spoken_time の1か所＝営業時間に入るほう・決まらなければ通話の中で確かめる）。
+    - 日・曜日だけを言った（「週末なら」「13日なら」。1日の中の時間は言っていない）：依頼者の1日の中の時間を、その日に当てる。
+      依頼者が休みの曜日・祝日でも、お客様が言った日にかける（休みの日に当てるのは、依頼者のほかの日の時間のあわせ）。NG時間は引く。
+    days＝日の種類（曜日・祝日の鍵）で絞る。"""
+    if daily is not None:
+        return restrict({key: [["00:00", "24:00"]] for key in HOURS_KEYS}, daily, days)
+    usual = [[_hhmm(a), _hhmm(b)] for a, b in _union([r for key in hours for r in _ranges(hours, key)])]
+    return restrict(subtract({key: hours.get(key) or usual for key in HOURS_KEYS}, ng), None, days)
+
+
 def allowed(hours: dict, ng: dict, is_holiday: Callable[[date], bool], start: datetime, end: datetime, *,
-            callee_at: datetime | None = None) -> bool:
+            callee_at: datetime | None = None,
+            window: tuple[tuple[int, int] | None, tuple[str, ...] | None] | None = None) -> bool:
     """start から end まで（日本時間）かけてよいか（門が使う1か所）：かけてよい時間帯から NG時間を引いた残りの内側。
-    ただしお客様が自分で指定した時刻（callee_at）があれば、その日は、その時刻を含むNG時間の枠の中もかけてよい（`excuse_ng`。
-    2026-10-15 ユーザー：「通常は控えるが、相手が自分で指定した時刻なら、かけてよい」）。かけてよい時間帯はいつも守る。"""
+    window＝お客様が言った幅の約束の電話（(1日の中の幅, 日の種類)）：`callee_hours` の内側（依頼者の時間帯・NG時間・歯止めの外でも、
+    お客様が言った時間ならかける＝2026-10-22 ユーザー）。幅の約束でない電話で、お客様が自分で指定した時刻（callee_at）があれば、
+    その日は、その時刻を含むNG時間の枠の中もかけてよい（`excuse_ng`。2026-10-15 ユーザー）。"""
+    if window is not None:
+        return covers(callee_hours(hours, ng, *window), is_holiday, start, end)
     if covers(subtract(hours, ng), is_holiday, start, end):
         return True
     if callee_at is None or start.date() != callee_at.date():

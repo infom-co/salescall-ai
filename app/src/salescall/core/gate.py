@@ -117,6 +117,9 @@ class Claim:
     promised: bool = False         # お客様と約束したかけ直しの電話か（試行の印 promised と同じ）。会話の処理は、約束の電話で受付の方に
     #                                事情で取り次げないと言われたら、締めの前に「後ほど改めてお掛けしてもよろしいでしょうか」と聞く
     #                                （答えで、当日の約束の幅の中でかけ直すかが決まる＝core/next_action。2026-10-22 ユーザー）
+    successor: bool = False        # 目的のお客様の代わりに、後任のご担当者様をお呼びする（前の電話で、お呼びした方が在籍しておらず、
+    #                                業務の応じ方が「後任の方をお呼びする」だった。次の予定の印 successor を写す。0114。2026-10-22
+    #                                ユーザー：「基本は後任へつないでもらう」）。会話の処理（CL-1）は、これを読んで後任の方をお呼びする
 
 
 @dataclass(frozen=True)
@@ -163,16 +166,19 @@ def _hours_settings(tx: Tx, scope: dict[str, Any]) -> tuple[dict, dict]:
     return settings.resolve(tx, "calling.hours", **scope), settings.resolve(tx, "calling.ng_hours", **scope)
 
 
-def calling_hours_for(tx: Tx, *, tenant_id: UUID, client_id: UUID, business_id: UUID | None,
-                      callee_of_day: int | None = None) -> dict:
-    """かけてよい時間帯（曜日・祝日ごと）。ふつうは、かけてよい時間帯から NG時間を引いた残り（次の始まりを探すのに使う）。
-    callee_of_day＝お客様が自分で指定した時刻（0時からの秒。会話の側の確かめ・時刻ちょうどの約束の回）：その時刻を含むNG時間の
-    枠は引かない（`calling_hours.excuse_ng` の1か所＝門と同じ決まり。2026-10-15 ユーザー：「NG時間は通常は控えるが、相手が自分で
-    指定した時刻なら、かけてよい」）。"""
+def calling_hours_for(tx: Tx, *, tenant_id: UUID, client_id: UUID, business_id: UUID | None) -> dict:
+    """かけてよい時間帯（曜日・祝日ごと）：かけてよい時間帯から NG時間を引いた残り（次の始まりを探すのに使う）。お客様が言った
+    幅の約束の電話は `window_hours`（依頼者の時間帯・NG時間の外でもかける）。"""
     hours, ng = _hours_settings(tx, dict(tenant_id=tenant_id, client_id=client_id, business_id=business_id))
-    if callee_of_day is not None:
-        ng = calling_hours.excuse_ng(ng, callee_of_day)
     return calling_hours.subtract(hours, ng)
+
+
+def window_hours(tx: Tx, *, tenant_id: UUID, client_id: UUID, business_id: UUID | None,
+                 daily: tuple[int, int] | None, days: tuple[str, ...] | None) -> dict:
+    """お客様が言った幅の約束でかける電話の、かけてよい時間帯（`calling_hours.callee_hours` の1か所＝門の時刻の確かめと同じ決まり。
+    次の動きが幅の中を探すのに使う）。"""
+    hours, ng = _hours_settings(tx, dict(tenant_id=tenant_id, client_id=client_id, business_id=business_id))
+    return calling_hours.callee_hours(hours, ng, daily, days)
 
 
 def _setting(tx: Tx, key: str, task: dict[str, Any]) -> Any:
@@ -367,8 +373,8 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
 
     # (1) 次の予定（Q4 の記録を読むだけ）
     nxt = tx.one("SELECT kind, call_at, decided_at, purpose, wrong_contact_id, promised, salescall.jst(callee_at) AS callee_at,"
-                 "       salescall.jst(window_until) AS window_until, window_daily, window_days, apology_reasons,"
-                 "       salescall.jst(window_from) AS window_from"
+                 "       salescall.jst(window_until) AS window_until, window_daily, window_days, apology_reasons, successor,"
+                 "       salescall.jst(window_from) AS window_from, salescall.keeping_kind(purpose, promised) AS keeping"
                  " FROM salescall.current_next_actions WHERE task_id = %s", (task["task_id"],))
     if nxt is None:
         return _deny("no_schedule")
@@ -421,8 +427,8 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
         return _deny("settings_missing")
     if content.voice not in business_settings.voice_types(tx):   # 声の型が一覧から外れた（置いた時は一覧にあった）
         return _deny("settings_missing")
-    # お詫びの電話（DESIGN.md 10-1-2）は、業務の話し方を使わない（決まった文面だけ）：品質の段の件数に数えず、業務の品質の停止
-    # （言ってはいけないこと・品質の基準・判定できない）では止めない。ほかの停止（全体・管理者か契約者が押した緊急停止・費用・回線など）では止める
+    # お詫びの電話（DESIGN.md 10-1-2）は、業務の話し方を使わない（決まった文面だけ）：品質の段の件数に数えない（どの停止で通すかは
+    # 下の (5)＝stops.blocking の1か所）
     apology = nxt["purpose"] == "apology"
     # 目的のお客様を呼ぶ材料が足りない行にかけない（足りるかの決まりは業務設定の1か所。取込・版の割り当てと同じ。お詫びは、
     # 前の通話で話したお客様に伝えるので、業務の呼び方を使わない）
@@ -434,29 +440,33 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
         return _deny(why)
 
     # (5) 止まっているか（全体・契約者・依頼者・業務・回線）
-    open_now = stops.open_stops(tx, tenant_id=task["tenant_id"], client_id=task["client_id"],
-                                business_id=task["business_id"], line_id=line_id)
-    if apology:
-        open_now = [s for s in open_now if not (s["scope"] == "business" and s["cause"] in quality_stage.STOP_CAUSES)]
+    #     止めているあいだも、お客様との約束を果たす電話（約束・途中で切れたあとのお詫びのかけ直し・お詫びの電話）を通すかは、
+    #     停止の原因ごとの決まり（stops.blocking の1か所。2026-10-22 ユーザー：赤字では3つともかける・品質ではお詫びの電話だけ）
+    open_now = stops.blocking(stops.open_stops(tx, tenant_id=task["tenant_id"], client_id=task["client_id"],
+                                               business_id=task["business_id"], line_id=line_id), nxt["keeping"])
     if open_now:
         # 止まっているのが、この回線だけ（回線の停止）なら、回線の理由：この回線は休み、行の予定は書き直さない（ほかの回線は、
         # その行をかけられる）。⛔ 2026-10-22 の見直し14：前は「止まっている」で断り、止まった回線が行の予定を5分ずつ先へ書き
         # 直し続け、約束の電話を先送りし、元気な回線もかけられなかった
         return _deny("line_stopped" if all(s["scope"] == "line" for s in open_now) else "stopped")
 
-    # (6) 時間帯：予約から予約証の期限まで、まるごと内側（5-2-1 の4）。祝日の暦の外は判断できない（5-2-1 の5）
+    # (6) お客様が言ったかけ直しの時間の幅（「夕方」「3時まで」など。2026-10-19 ユーザー。表の作り 0086）：幅の外ではかけない。
+    #      幅の決まりは calling_hours.in_window の1か所。話せなかったときの次の回（お客様がその日を選んだ理由に合わせる）は次の動き（`_keep_promise`）が決める
+    daily = None if nxt["window_daily"] is None else tuple(nxt["window_daily"])
+    days = None if nxt["window_days"] is None else tuple(nxt["window_days"])
+    if not calling_hours.in_window(local, nxt["window_until"], daily, days, holiday_checker(tx), since_local=nxt["window_from"]):
+        return _deny("callback_window")
+
+    # (6b) 時間帯：予約から予約証の期限まで、まるごと内側（5-2-1 の4）。祝日の暦の外は判断できない（5-2-1 の5）
+    #      お客様が言った幅の約束の電話（次の予定が幅を持つ）は、お客様が言った時間なら、依頼者の時間帯・NG時間・深夜早朝の歯止めの
+    #      外でもかける（`calling_hours.callee_hours` の1か所。2026-10-22 ユーザー）
     lifetime = timedelta(seconds=int(_setting(tx, "gate.claim_lifetime", task)))
     hours, ng = _hours_settings(tx, dict(tenant_id=task["tenant_id"], client_id=task["client_id"],
                                          business_id=task["business_id"]))
-    if not calling_hours.allowed(hours, ng, holiday_checker(tx), local, local + lifetime, callee_at=nxt["callee_at"]):
+    promised_window = any(nxt[k] is not None for k in ("window_until", "window_daily", "window_days", "window_from"))
+    if not calling_hours.allowed(hours, ng, holiday_checker(tx), local, local + lifetime, callee_at=nxt["callee_at"],
+                                 window=(daily, days) if promised_window else None):
         return _deny("outside_hours")
-    # (6b) お客様が言ったかけ直しの時間の幅（「夕方」「3時まで」など。2026-10-19 ユーザー。表の作り 0086）：幅の外ではかけない。
-    #      幅の決まりは calling_hours.in_window の1か所。話せなかったときの次の回（お客様がその日を選んだ理由に合わせる）は次の動き（`_keep_promise`）が決める
-    if not calling_hours.in_window(local, nxt["window_until"],
-                                   None if nxt["window_daily"] is None else tuple(nxt["window_daily"]),
-                                   None if nxt["window_days"] is None else tuple(nxt["window_days"]), holiday_checker(tx),
-                                   since_local=nxt["window_from"]):
-        return _deny("callback_window")
 
     # (7) 間隔の待ち
     if pace.earliest is None:
@@ -568,4 +578,5 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
     if approval.human_for_business(tx, task["business_id"]):
         recordings.hold(tx, row["attempt_id"], "verification")
     return Claim(row["attempt_id"], task["task_id"], line_id, task["phone_e164"], version, row["claim_expires_at"],
-                 nxt["purpose"], row["wrong_phone"], voice, tuple(nxt["apology_reasons"]), bool(nxt["promised"]))
+                 nxt["purpose"], row["wrong_phone"], voice, tuple(nxt["apology_reasons"]), bool(nxt["promised"]),
+                 bool(nxt["successor"]))

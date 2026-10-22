@@ -205,6 +205,17 @@ class Apology(Helpers):
                                          tenant_id=s["tenant"], client_id=s["client"], business_id=s["business"]), OPERATOR)
         self.assertEqual(self.reason(s), "stopped")                    # 管理者か契約者が押した緊急停止では止める
 
+    def test_a_deficit_stop_lets_the_apology_call_through(self):
+        """赤字（費用の理由）の停止でも、お詫びの電話はかける（2026-10-22 ユーザー：約束の電話・途中で切れたお客様へのお詫びの
+        かけ直し・お詫びの電話の3つだけはかける。決まりは stops.CAUSES の1か所）。"""
+        s = self.fresh(stage_cap=20)
+        self.order(s, self.incident(s))
+        self.w.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: stops.stop(
+            tx, scope="client", cause="deficit", reason="試験：赤字", tenant_id=s["tenant"], client_id=s["client"]))
+        claim = self.claim(s)
+        self.assertIsInstance(claim, gate.Claim, claim)
+        self.assertEqual(claim.purpose, "apology")
+
     def test_frozen(self):
         s = self.fresh(stage_cap=20)
         self.incident(s)                                               # 案だけ（承認していない）

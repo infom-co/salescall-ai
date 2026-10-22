@@ -75,7 +75,7 @@ CALLBACK_REASONS = ("absent", "long_absent", "other_number", "later", "departed"
 # long_absent＝長期の不在（出張・休職など）・departed＝在籍していない・other_means＝ほかの手段（電話ではない。CL-1 の CALLBACK_LABEL の
 # 版 0.5。2026-10-22 ユーザー決定）
 ABSENT_REASONS = ("absent", "long_absent")              # 不在の仲間（戻る時刻が取れなければ「不在」の方針。judge の順7 の1か所が読む）
-ENDING_CALLBACKS = ("other_means", "departed")           # 電話ではかけ直さない申し出（約束にしない。judge の順7 の1か所が読む）
+ENDING_CALLBACKS = ("other_means",)                      # 電話ではかけ直さない申し出（約束にしない。judge の順7 の1か所が読む）
 CALLBACK_OFFERS = ("callback", "message", "email", "fax", "post")   # お客様の申し出（CL-1 の OFFER_LABEL）：折り返し・伝言・メール・ファクス・郵送
 CALLBACK_MEANS = ("email", "fax", "address", "message")  # 申し出で聞いた宛先・伝言の答え（取れた値の文字か null。CL-1 の CALLBACK_IDS）
 CONNECT_WHO = ("target", "successor", "substitute")      # 繋いだ方：目的のお客様・後任の方・代わりの方（CL-1 の connect の who）
@@ -126,6 +126,9 @@ class Callback:
     offer: str | None = None     # お客様の申し出（CALLBACK_OFFERS。無ければ None）。記録だけ（折り返しの申し出も、こちらからかけ直す約束）
     means: tuple[tuple[str, str | None], ...] = ()   # 申し出で聞いた宛先・伝言の答え（CALLBACK_MEANS → 取れた値。依頼者へ渡す＝CL-3）
     message_left: bool = False   # 伝言を残す業務で、伝言をお願いした（記録だけ）
+    again: bool | None = None    # 不在で戻る時刻が分からなかったとき：今日戻る見込みがあり、後でかけてよいと言われたか（None＝聞いて
+    #                              いない）。同じ日のうちにかけ直すかを決める（may_call_again の1か所。2026-10-22 ユーザー）
+    back_today: bool | None = None   # 「本日お戻りのご予定は」への答え（記録だけ）
 
     @property
     def number_e164(self) -> str | None:
@@ -286,11 +289,28 @@ class CallReport:
 
     @property
     def may_call_again(self) -> bool:
-        """事情があり取り次げなかった通話で、あとでまたかけてよいと言われたか（1か所）：いちばん新しい「取り次げない」の答えが
-        よいと言われた（true）ときだけ。断られた・聞いていない・はっきりしないときは False（当日の約束の幅ではかけ直さない側＝
-        2026-10-22 ユーザー：「OKなら、当日の約束の時刻の幅の中かけ直してもいいと思うけど、そうでなければ、当日の幅はやめた
-        ほうがいい」）。"""
-        return bool(self.not_transferred) and self.not_transferred[-1].again is True
+        """目的のお客様に繋がらなかった通話で、同じ日のうちにまたかけてよいと言われたか（1か所）：その通話を締めた「不在」（戻る時刻の
+        無いかけ直しの申し出。理由が不在の仲間）・「取り次げない」の記録のうち、いちばん新しいものの again が true のときだけ。
+        断られた・はっきりしない・聞いていないときは False（同じ日にはかけ直さない側）。
+        2026-10-22 ユーザー：「本日、本人が戻られる可能性があるのかと、戻られる可能性があるのであれば後ほどおかけしてもよろしい
+        でしょうかというお尋ねが必要…同じ日に2回以上、その言葉がなくかけるのであれば煙たがられますよ。（営業拒否につながる。）」
+        「OKなら、当日の約束の時刻の幅の中かけ直してもいいと思うけど、そうでなければ、当日の幅はやめたほうがいい」"""
+        asked = [(n.evidence.turn, n.again) for n in self.not_transferred]
+        asked += [(c.evidence.turn, c.again) for c in self.callbacks if c.reason in ABSENT_REASONS and c.time_said is None]
+        return bool(asked) and max(asked, key=lambda x: x[0])[1] is True
+
+    @property
+    def departed_end(self) -> bool:
+        """お呼びした方が在籍していないので、行を終える通話か（1か所）：業務で「お礼を言って終える」を選んでいた、または後任の方へ
+        切り替えたあとに、また在籍していないと言われた（CL-1 の Flow._departed。お呼びできる方がもういない）。"""
+        return any(d.policy == "end" or d.successor for d in self.departures)
+
+    @property
+    def turned_to_successor(self) -> bool:
+        """この通話で、目的のお客様が後任の方に替わったか（1か所）：お呼びした方が在籍しておらず、業務の応じ方が「後任の方をお呼び
+        する」（既定）で、行を終えない（departed_end でない）。後任の方に繋がっても繋がらなくても、この行のこれからの電話は後任の
+        ご担当者様をお呼びする（2026-10-22 ユーザー：「基本は後任へつないでもらう。選択可能にしたはずです」）。"""
+        return bool(self.departures) and not self.departed_end
 
     @property
     def callback(self) -> Callback | None:
@@ -328,7 +348,9 @@ class CallReport:
                           **({"read": list(c.read)} if c.read is not None else {}),
                           **({"connected": True} if c.connected else {}),
                           **({"offer": c.offer} if c.offer else {}), **dict(c.means),
-                          **({"message_left": True} if c.message_left else {})} for c in self.callbacks],
+                          **({"message_left": True} if c.message_left else {}),
+                          **({} if c.again is None else {"again": c.again}),
+                          **({} if c.back_today is None else {"back_today": c.back_today})} for c in self.callbacks],
             "ai_question": [said(q) for q in self.ai_questions],
             "voicemail_message": [said(v) for v in self.voicemail_messages],
             "end": [{**said(e.evidence), "reason": e.reason} for e in self.ends],
@@ -435,7 +457,7 @@ def from_json(raw: Any) -> CallReport:
                     for r, s in _records(facts, "party", {"party", "by"}))
     callbacks = []
     for r, s in _records(facts, "callback", {"why", "time", "number", "person", "cycle", "read", "connected", "offer",
-                                             "message_left", *CALLBACK_MEANS}):
+                                             "message_left", "again", "back_today", *CALLBACK_MEANS}):
         reason = _choice(r.get("why"), CALLBACK_REASONS, "facts.callback.why")
         number = _text(r.get("number"), "facts.callback.number")
         if number is not None and reason != "other_number":
@@ -447,7 +469,9 @@ def from_json(raw: Any) -> CallReport:
                                   "connected" in r and _bool(r, "connected"),
                                   _choice(r.get("offer"), CALLBACK_OFFERS, "facts.callback.offer", optional=True),
                                   tuple((k, _value(r[k], f"facts.callback.{k}")) for k in CALLBACK_MEANS if k in r),
-                                  "message_left" in r and _true(r, "message_left")))
+                                  "message_left" in r and _true(r, "message_left"),
+                                  _bool(r, "again") if "again" in r else None,
+                                  _bool(r, "back_today") if "back_today" in r else None))
     ends = tuple(End(_choice(r.get("reason"), END_REASONS, "facts.end.reason"), s)
                  for r, s in _records(facts, "end", {"reason"}))
     # ⚠️ 電話口の種別の target（AIの報告）と not_reached は、両方あってよい（AIが「目的の人」と報告したが、判定と食い違って繋がずに

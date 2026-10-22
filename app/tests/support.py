@@ -277,9 +277,9 @@ def full_version(w: "World", s: dict, target_person: dict | None = None, *, cont
 
 
 def schedule_call(tx, task_id, call_at, *, contact_id, cause: str, promised: bool, purpose: str = "normal",
-                  wrong_contact_id=None, callee_at=None, window=None) -> int:
+                  wrong_contact_id=None, callee_at=None, window=None, successor: bool = False) -> int:
     """試験の場面を作る：次の動きの記録に、かける予定を直に書く（本番では、予定を書くのは次の動きの決め方だけ）。"""
     from salescall.core import next_action
     return next_action._append(tx, task_id, call_at=call_at, end_reason=None, cause=cause, promised=promised,
-                               target=next_action.Target(contact_id, None, purpose, wrong_contact_id), callee_at=callee_at,
+                               target=next_action.Target(contact_id, None, purpose, wrong_contact_id, successor=successor), callee_at=callee_at,
                                window=window)
