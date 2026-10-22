@@ -6175,6 +6175,18 @@ class OfferTest(unittest.TestCase):
         self.assertEqual((r["result"], self.played(r)[:3], f.facts["connect"][0]["who"]), ("next", ["greeting", "intro", "purpose"], "successor"))
         self.assertIsNone(f.not_reached)
 
+    def test_session_swap_after_the_successor_keeps_the_new_target(self):
+        # 張り替えのあとの「いまの位置」：後任の方を目的の人としてお呼びしていること（指示の「目的の人」は前にお呼びした方のまま）
+        from flowctl import TARGET_IS_AWAY
+        from instruction import position_text
+        from phrases import SUCCESSOR
+        f, b = self.flow()
+        self.heard(f, "岡田は先月退職いたしました。", TARGET_IS_AWAY)
+        f.apply("request_callback", {"why": "departed"})
+        text = position_text(b, f)
+        self.assertIn("後任のご担当者様を目的の人として", text)
+        self.assertIn(SUCCESSOR["target"], text)
+
     def test_departed_successor_on_the_phone_and_end_policy(self):
         from flowctl import CLOSING, TARGET_IS_AWAY, TARGET_IS_THERE
         from phrases import SUCCESSOR

@@ -2071,7 +2071,8 @@ class Flow:
             if not self.callback_held:
                 # かけ直しの質問のあとに取り次ぎが無い：電話口の方は、かけ直しの質問を聞いた方（目的の人ではない）。⛔ 2026-10-22 G-57 tc29
                 # （不在で別の方に代わる・S4）：山田様の言葉が送り直されたとき、AIが「目的の人」と報告し、山田様に岡田様かを確かめた
-                return self._reject("電話口の方は、かけ直しの質問を聞いた方です（そのあと、お取り次ぎはありませんでした）。目的の人ではありません。")
+                return self._reject("電話口の方は、こちらの質問（かけ直し・お立場）を聞いた方です（そのあと、お取り次ぎはありませんでした）。"
+                                    "目的の人ではありません。")
             return self._target_back()
         if (self.callback_why or self.substitute_q) and party == "reception":
             return self._hold()  # かけ直し・お立場の質問の途中で、取り次がれた・待つように言われた：答えではないので黙って待つ

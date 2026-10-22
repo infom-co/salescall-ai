@@ -510,6 +510,10 @@ def position_text(business: Business, flow) -> str:
     if flow.phase == "calling":
         # 目的の人に繋がる前（DESIGN.md 4-3）：いま求めていることは流れの制御の1か所（Flow._now）から
         lines.append(flow._now() + target_rule(business))
+        if flow.successor:
+            # 後任の方へ切り替えたあと（Flow._to_successor）：指示の「目的の人」（前にお呼びした方）は、もう在籍していない
+            lines.append("お呼びした方は在籍していないと伺い、いまは後任のご担当者様を目的の人としてお呼びしています（呼ぶ一言・確かめる一言は、"
+                         "プログラムが流します）。後任の方が電話に出たら、目的の人として報告します。")
     if done:
         lines.append("ここまでに聞けたこと：" + "／".join(done))
     if flow.awaiting_confirm:
