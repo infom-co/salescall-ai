@@ -5343,6 +5343,14 @@ class TargetTest(unittest.TestCase):
         f.on_callee(); f.on_heard("お電話代わりました。岡田です。"); f.on_check("judge", HANDOVER)
         r = f.apply("replay_opening", {"part": "handover"})
         self.assertEqual((r["result"], f.phase, [p["part"] for p in r["play"]]), ("confirm_target", "calling", ["target_confirm"]))
+        # 取り次ぎが無ければ（かけ直しの質問を聞いた方の言葉の続き）、確かめずに流し直す（⛔ G-57 tc28：山田様に岡田様かを確かめた）
+        f, b = self.flow()
+        f.use_checks("judge", "judge2")
+        f.on_callee(); f.on_heard("あいにく岡田は席を外しております。"); f.on_check("judge", TARGET_IS_AWAY); f.on_check("judge2", TARGET_IS_AWAY)
+        f.apply("request_callback", {"why": "absent"})
+        f.on_callee(); f.on_heard("お電話代わりました。山田です。"); f.on_check("judge", HANDOVER)
+        r = f.apply("replay_opening", {"part": "handover"})
+        self.assertEqual((r["result"], f.phase), ("replayed", "asking"))
         f, b = back()                                                        # 確かめのあと、相手がかけ直しの質問に答えた ⇒ 続きに戻して受け取る
         f.on_callee(); f.on_heard("夕方の5時頃には戻ると思います。"); f.on_check("judge", TARGET_IS_AWAY)
         r = f.apply("record_answer", {"question_id": "C1", "condition_id": "答えた", "value": "夕方の5時頃"})

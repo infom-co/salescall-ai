@@ -720,6 +720,7 @@ class Flow:
         self.callback_why: str | None = None  # かけ直しの申し出の理由（CALLBACK_LABEL の中の名前。1通話1回まで）
         self.callback_ids: list[str] = []      # かけ直しで足した質問（目的の人かを確かめに戻ったあと、続きから聞く＝_callback）
         self.back_turn: int | None = None      # かけ直しの質問の途中で、目的の人かを確かめに戻った発話の番号（_target_back。繋いだら None）
+        self.callback_held = False             # かけ直しの質問を始めて（続きに戻って）から、取り次ぎがあったか（このあと新しい方が出うる＝_op_replay_opening）
         self.busy_asked = False
         self.confirm_counts: dict[str, int] = {}   # 言い直しの場面ごとの回数（同じ言い方が続かないよう、順番に回す）
         self.awaiting_say: str | None = None       # いま返事を待っている言い直しの、言い方（差し戻しのときも同じ言い方を使う）
@@ -1493,6 +1494,8 @@ class Flow:
         then = (f"代わった方が話し始めたら、replay_opening を{ARG_LABEL['part']}「{PART_LABEL['handover']}」で呼びます。" if self.opening
                 else "代わった方が話し始めたら、名乗りと用件を短く伝えてから、いまの質問を聞きます。")
         self.holding = True
+        if self.callback_why and self.phase != "calling":
+            self.callback_held = True  # かけ直しの質問の途中の取り次ぎ：このあと出る方は、新しい方かもしれない（_op_replay_opening）
         return {"result": "hold", "silent": True, "message": f"相手は、ほかの人に取り次いでいます（「{said}」）。答えではありません。何も言わずに、"
                                              f"代わった方が話し始めるのを待ってください。{then}"}
 
@@ -1723,10 +1726,12 @@ class Flow:
             # 名乗りの録音が無い通話（AIが話す形）でも同じ（⛔ 2026-10-21 の見直しで見つけた漏れ：決まりの文は「代わった方へ」で呼ぶように
             # 言うのに、録音が無い通話ではその部分を宣言せず、呼ばれても差し戻していた＝代わった方の道が止まる）
             return self._calling_reported("handover")
-        if part == "handover" and self.callback_why and self.target:
-            # かけ直しの質問の途中で、代わった方が話し始めた：お呼びした方が戻ったのかもしれない（AIが「目的の人」と報告したときと同じ
-            # 1か所＝_target_back で、1回確かめる）。⛔ 2026-10-22 G-57 tc27（かけ直しの途中で戻る・S2）：代わって出た岡田様の「お電話
-            # 代わりました。岡田です。」を、AIは「代わった方」と報告し、あいさつ・名乗り・用件のあと「何時ごろお戻りに…」を流した
+        if part == "handover" and self.callback_why and self.target and (self.callback_held or self.meaning_said == HOLD):
+            # かけ直しの質問のあとに取り次ぎがあって、代わった方が話し始めた：お呼びした方が戻ったのかもしれない（AIが「目的の人」と報告した
+            # ときと同じ1か所＝_target_back で、1回確かめる）。⛔ 2026-10-22 G-57 tc27（かけ直しの途中で戻る・S2）：代わって出た岡田様の
+            # 「お電話代わりました。岡田です。」を、AIは「代わった方」と報告し、あいさつ・名乗り・用件のあと「何時ごろお戻りに…」を流した。
+            # 取り次ぎが無ければ、電話口の方は同じ方（かけ直しの質問を聞いた方）：確かめずに、下の流し直し。⛔ G-57 tc28（不在で別の方に
+            # 代わる・S4）：かけ直しの質問を聞いた山田様の言葉の続きに、AIがまた「代わった方」と報告し、山田様に岡田様かを確かめた
             return self._hold() if self.meaning_said == HOLD else self._target_back()
         if not self.opening:
             return self._reject("この通話では、名乗りの録音はありません。聞かれたことに、自分で短く答えてください。")
@@ -2234,7 +2239,7 @@ class Flow:
             for q in qs:
                 self.questions[q.id], self.items[q.id] = q, Item()
             self.order = self.callback_ids = [q.id for q in qs]
-        self.phase, self.recheck_queue = "asking", []
+        self.phase, self.recheck_queue, self.callback_held = "asking", [], False
         self.awaiting_confirm = self.awaiting_say = None
         if not intro:
             return self._advance(prefix, handled=True)
