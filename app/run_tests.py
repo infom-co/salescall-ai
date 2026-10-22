@@ -1040,6 +1040,31 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("約束の時刻を過ぎたら、まだかけていない約束でも待たない（0111：営業の電話が約束の電話より先に届く）",
      "CREATE OR REPLACE FUNCTION salescall.number_next_promise_elsewhere(p_phone text) RETURNS TABLE (relation text, wait_until timestamptz) LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ SELECT x.relation, CASE WHEN x.relation = 'same_tenant' THEN max(x.until) END FROM (SELECT CASE WHEN n.tenant_id = salescall.cur_tenant() THEN 'same_tenant' ELSE 'other_tenant' END AS relation, coalesce(n.window_until, greatest(n.callee_at, n.call_at)) AS until FROM salescall.current_next_actions n JOIN salescall.task_numbers k ON k.task_id = n.task_id AND k.contact_id = n.contact_id WHERE k.phone_e164 = p_phone AND n.client_id IS DISTINCT FROM salescall.cur_client() AND n.kind = 'call' AND n.promised AND coalesce(n.window_until, greatest(n.callee_at, n.call_at)) > now()) x GROUP BY x.relation $$",
      ("tests.test_gate.Pacing.test_a_promise_not_yet_called_keeps_others_waiting_even_after_its_time",)),
+    ("行の回数に、お客様と約束したかけ直しの電話も数える（0113：約束の電話で、行の回数と再発信の方針の回数が減る）",
+     "CREATE OR REPLACE FUNCTION salescall.counts_as_try(s salescall.attempt_state, disconnect text, promised boolean, p_attempt uuid)"
+     " RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT salescall.is_dialed(s) AND NOT salescall.not_by_callee(s, disconnect, p_attempt) $$",
+     ("tests.test_settle.CountedCalls.test_promised_calls_are_not_counted_like_the_gate",)),
+    ("行の回数に、回線の側の失敗・切れた発信も数える（0113：お客様に一度も繋がらないまま、再発信の方針の回数で行が終わる）",
+     "CREATE OR REPLACE FUNCTION salescall.counts_as_try(s salescall.attempt_state, disconnect text, promised boolean, p_attempt uuid)"
+     " RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT salescall.is_dialed(s) AND NOT promised $$",
+     ("tests.test_settle.CountedCalls.test_line_side_failures_do_not_use_up_the_policy",
+      "tests.test_settle.CountedCalls.test_line_cuts_in_a_row_do_not_end_the_row")),
+    ("PC の部品がかけなかった発信を、取り消しにできない（0113：発信の失敗として判定され、方針の回数と目的を失う）",
+     "ALTER TABLE salescall.attempt_transitions DISABLE TRIGGER attempt_transitions_frozen;"
+     " DELETE FROM salescall.attempt_transitions WHERE from_state = 'dialing' AND to_state = 'released'",
+     ("tests.test_emergency.OnTheServer.test_a_call_withheld_by_the_pc_is_not_dialed_and_not_a_line_fault",)),
+    ("途中で切れたかを、あとから書き換えられる（0113：続けて切れた数がずれる）",
+     "DROP TRIGGER attempt_cut_off_once ON salescall.attempts",
+     ("tests.test_settle.CutOffCalls.test_whether_a_call_was_cut_is_kept_once_on_the_attempt",)),
+    ("途中で切れたかを、終わる前の試行に書ける（0113）",
+     "ALTER TABLE salescall.attempts DROP CONSTRAINT attempts_cut_off_after_end",
+     ("tests.test_settle.CutOffCalls.test_whether_a_call_was_cut_is_kept_once_on_the_attempt",)),
+    ("お詫びの印と理由が食い違ってよい（0113：会話の処理が、理由の無いお詫び・決まっていない理由を受け取る）",
+     "ALTER TABLE salescall.task_next_actions DROP CONSTRAINT task_next_actions_apology_reasons",
+     ("tests.test_settle.DatabaseGuards.test_apology_reasons_and_missed_rounds_are_kept_consistent",)),
+    ("かけられなかった回の数が、過ぎた回の数を超えてよい（0113：約束の打ち止めの数がずれる）",
+     "ALTER TABLE salescall.task_next_actions DROP CONSTRAINT task_next_actions_window_missed",
+     ("tests.test_settle.DatabaseGuards.test_apology_reasons_and_missed_rounds_are_kept_consistent",)),
 )
 
 

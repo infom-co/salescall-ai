@@ -5,7 +5,8 @@
 - 発信の出口（予約 → 発信）                                              ⇒ `start_dialing`
 - 門（期限切れの予約を戻す・門の前提が変わった予約を取り消す）           ⇒ `release`
 - 通話後の検証（Q21。待ち → 済み）                                        ⇒ `record_verification`
-- 締めの処理（core/settle.py。判定が決めた切れ方を1回だけ）                ⇒ `record_disconnect`
+- 締めの処理（core/settle.py。判定が決めた切れ方・途中で切れたかを1回だけ）  ⇒ `record_disconnect`・`record_cut_off`
+- 発信の出口（PC の部品がかけなかった＝お客様の電話は鳴っていない）          ⇒ `withheld`
 移ってよい組・期限・時刻・検証の状態の決まりは、データベースが持つ（ここで2つ目の決まりを作らない）。
 """
 
@@ -34,6 +35,14 @@ def placed(table: str = "") -> str:
     """発信まで進み、回線の側でかけられなかった（call_failed）ものを除いた試行の条件（SQL。1か所）。お客様のところで電話が
     鳴った（鳴りえた）電話：約束の回に「かけたか」・その回にかけた数・時刻の決まっていない約束の電話の数は、どれもこれを使う。"""
     return f"salescall.is_placed({table + '.' if table else ''}state)"   # 決まりはデータベースの1か所（0109）
+
+def counts_as_try(table: str = "") -> str:
+    """行の回数に数える発信の条件（SQL。1か所）：発信まで進み、お客様の意思と関係なく繋がらなかった・切れた発信でなく、お客様と
+    約束したかけ直しでもない。門（行の回数の上限・1日の回数）と、次の動きの再発信の方針の回数の両方が読む（2026-10-14 ユーザー：
+    「統一した方がよくない？」）。決まりはデータベースの salescall.counts_as_try の1か所（0113）。"""
+    t = table + "." if table else ""
+    return f"salescall.counts_as_try({t}state, {t}disconnect, {t}promised, {t}attempt_id)"
+
 
 # 回線の部品と復旧が移してよい先（予約 → 発信・予約の取り消しは、それぞれ専用の処理だけ）
 LineState = Literal["ringing", "answered", "in_conversation", "ending", "ended",
@@ -81,6 +90,16 @@ def release(tx: Tx, attempt_ids: list[UUID]) -> int:
         "UPDATE salescall.attempts SET state = 'released' WHERE attempt_id = ANY(%s) AND state = 'claimed'",
         (list(attempt_ids),),
     ).rowcount
+
+
+def withheld(tx: Tx, attempt_id: UUID) -> None:
+    """発信の出口だけが呼ぶ。PC の部品が電話をかけなかった（PC の上の緊急停止・PC がつながっていない＝お客様の電話は鳴って
+    いない）：発信まで進まなかった予約と同じく取り消す（判定しない・どの数にも入らない。行の予定はそのまま＝いまの予定のまま、
+    ほかの回線か、少しあとにかけ直す）。⛔ 2026-10-22 の見直し14：前は「発信に失敗」にして、締めが「会話に至らなかった」と判定し、
+    再発信の方針の回数を使い、続き・番号の聞き直しの目的も消えた。"""
+    if tx.one("UPDATE salescall.attempts SET state = 'released' WHERE attempt_id = %s AND state = 'dialing'"
+              " RETURNING attempt_id", (attempt_id,)) is None:
+        raise AttemptNotFound(str(attempt_id))
 
 
 class RecheckMissing(Exception):
@@ -204,5 +223,13 @@ def record_disconnect(tx: Tx, attempt_id: UUID, disconnect: Literal["normal", "r
     """締めの処理（core/settle.py）だけが呼ぶ。判定が決めた切れ方（DESIGN.md 7-1c）を、終わった試行に1回だけ記録する。"""
     row = tx.one("UPDATE salescall.attempts SET disconnect = %s WHERE attempt_id = %s RETURNING attempt_id",
                  (disconnect, attempt_id))
+    if row is None:
+        raise AttemptNotFound(str(attempt_id))
+
+
+def record_cut_off(tx: Tx, attempt_id: UUID, cut_off: bool) -> None:
+    """締めの処理（core/settle.py）だけが呼ぶ。途中で切れたか（決めるのは judge.cut_off の1か所）を、終わった試行に1回だけ
+    記録する（続けて何回、途中で切れたかを数える＝core/next_action の _cut_in_a_row）。"""
+    row = tx.one("UPDATE salescall.attempts SET cut_off = %s WHERE attempt_id = %s RETURNING attempt_id", (cut_off, attempt_id))
     if row is None:
         raise AttemptNotFound(str(attempt_id))

@@ -32,6 +32,7 @@ from salescall.core import attempts, dial_exit, gate, next_action, scheduler, se
 from salescall.core.access import Access, Actor
 from salescall.core.errors import ErrorReport
 from salescall.supervisor import ACTOR, plugins, report, updates
+from salescall.supervisor.links import CallDriver
 
 CANDIDATES_PER_CLIENT = 20   # 1回に門へ渡す行の数の上限（依頼者ごと）。通れば1本かけて、また初めから並べ直す
 IDLE_SECONDS = 5             # かける行が無いとき・版が合わないときの待ち
@@ -64,7 +65,7 @@ def _end_unknown(access: Access, actor: Actor, tenant_id: UUID, client_id: UUID,
     return access.in_client(actor, tenant_id, client_id, work)
 
 
-def one_round(access: Access, actor: Actor, tenant_id: UUID, line_id: UUID, holder: str, driver: dial_exit.LineDriver,
+def one_round(access: Access, actor: Actor, tenant_id: UUID, line_id: UUID, holder: str, driver: CallDriver,
               runner: plugins.CallRunner) -> Round:
     clients = access.in_tenant(actor, tenant_id, lambda tx: scheduler.clients_for_line(tx, line_id))
     held: list[str] = []   # 依頼者の理由（同時の上限・無効）で断られた
@@ -79,7 +80,7 @@ def one_round(access: Access, actor: Actor, tenant_id: UUID, line_id: UUID, hold
 
 
 def _client_round(access: Access, actor: Actor, tenant_id: UUID, client_id: UUID, line_id: UUID, holder: str,
-                  driver: dial_exit.LineDriver, runner: plugins.CallRunner, promised_only: bool = False,
+                  driver: CallDriver, runner: plugins.CallRunner, promised_only: bool = False,
                   held: list[str] | None = None) -> Round | None:
     """1つの依頼者の行を、門に渡す。かけたか回線を休むなら Round、この依頼者でかけられる行が無ければ None。
     業務の理由で断られた業務は、この回だけ飛ばし、その業務を除いて候補を読み直す（前は読み直さなかったので、上限に達した業務の
@@ -97,6 +98,7 @@ def _client_round(access: Access, actor: Actor, tenant_id: UUID, client_id: UUID
             got = access.in_client(actor, tenant_id, client_id,
                                    lambda tx, task=task: _claim(tx, task, line_id, holder, tenant_id, client_id))
             if isinstance(got, gate.Claim):
+                driver.prepare_call(got.voice_type)   # この通話の声の型を電話の部品へ（おわびの録音も同じ声で）
                 done = dial_exit.dial(access, actor, tenant_id, client_id, got.attempt_id, driver)
                 if done is dial_exit.Outcome.DIALED:
                     try:
@@ -135,7 +137,7 @@ def _client_round(access: Access, actor: Actor, tenant_id: UUID, client_id: UUID
             return None
 
 
-def loop(access: Access, tenant_id: UUID, line: UUID, holder: str, driver: dial_exit.LineDriver, runner: plugins.CallRunner,
+def loop(access: Access, tenant_id: UUID, line: UUID, holder: str, driver: CallDriver, runner: plugins.CallRunner,
          stop: Any) -> None:
     """回線ごとの処理（中央の見守り役が、別の流れで動かす）。stop が立つまで繰り返す（いまの通話は最後まで進めてから止まる）。"""
     pause = int(access.in_tenant(ACTOR, tenant_id, lambda tx: settings.system_value(tx, "gate.denied_retry_wait")))

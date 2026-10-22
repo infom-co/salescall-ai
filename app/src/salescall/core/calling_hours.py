@@ -103,10 +103,14 @@ def restrict(hours: dict, daily: tuple[int, int] | None, days: tuple[str, ...] |
 
 
 def in_window(local: datetime, until_local: datetime | None, daily: tuple[int, int] | None,
-              days: tuple[str, ...] | None = None, is_holiday: Callable[[date], bool] | None = None) -> bool:
-    """その時刻（日本時間・時差なし）が、お客様が言った幅の中か（門が使う1か所）。until＝幅の終わり（含まない）。
-    days＝かけてよい日の種類（曜日・祝日の鍵。祝日かどうかは is_holiday で決める＝暦の外は例外のまま呼び出し元へ）。"""
+              days: tuple[str, ...] | None = None, is_holiday: Callable[[date], bool] | None = None, *,
+              since_local: datetime | None = None) -> bool:
+    """その時刻（日本時間・時差なし）が、お客様が言った幅の中か（門が使う1か所）。[since, until)＝いまの回（since は含む・until は
+    含まない）。days＝かけてよい日の種類（曜日・祝日の鍵。祝日かどうかは is_holiday で決める＝暦の外は例外のまま呼び出し元へ）。
+    ⛔ 2026-10-22 の見直し14：前は回の始まりを見ず、「週末なら」の約束を、お客様が言っていない金曜にかけえた。"""
     if until_local is not None and local >= until_local:
+        return False
+    if since_local is not None and local < since_local:
         return False
     if daily is not None and not daily[0] <= _of_day(local) < daily[1]:
         return False

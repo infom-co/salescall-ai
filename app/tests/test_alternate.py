@@ -14,6 +14,7 @@ from datetime import timedelta
 
 from salescall.core import attempts, call_report, calling_hours, dnc, gate, next_action, number_recheck, results, tasks
 from salescall.core.access import Rejected
+from salescall.core.call_report import Cut
 from salescall.core.phone import normalize
 from tests import support
 from tests.support import CLEAN, OPERATOR, SYSTEM, callback, fictional_jp_fixed, owner_access
@@ -397,6 +398,40 @@ class WrongNumber(Base):
                     tx, s["task"], self.now(s), contact_id=nxt["contact_id"], cause="試験", promised=True,
                     purpose="ask_number_again", wrong_contact_id=nxt["wrong_contact_id"]))
         self.assertEqual((got["decision"].kind, got["decision"].end_reason), ("end", "ask_number_again_unanswered"))
+
+    def test_ask_again_answered_by_reception_keeps_asking_up_to_the_limit(self):
+        """聞き直しの電話で、受付の方が出て不在・事情で取り次げない：番号の聞き直しの目的のまま、聞き直しの回数の上限まで（⛔
+        2026-10-22 の見直し14：前は、会話に至らなかったときだけ目的を引き継ぎ、受付が出たときは、番号を聞き直さずに用件から話す
+        ふつうの電話になった）。"""
+        for reason in ("absent", "not_transferred"):
+            with self.subTest(reason=reason):
+                s = self.ready_jp()
+                self.redirect(s)
+                self.wrong_call(s, "as_said")
+                for n in (1, 2, 3):
+                    got = self.settle(s, self.call(s, report=rep(("reception",), not_reached=reason)))
+                    if n < 3:
+                        nxt = self.current(s)
+                        self.assertEqual((nxt["kind"], nxt["purpose"], nxt["promised"]), ("call", "ask_number_again", True))
+                        self.tx(s, lambda tx: support.schedule_call(          # 試験：その時刻が来たことにする
+                            tx, s["task"], self.now(s), contact_id=nxt["contact_id"], cause="試験", promised=True,
+                            purpose="ask_number_again", wrong_contact_id=nxt["wrong_contact_id"]))
+                self.assertEqual((got["decision"].kind, got["decision"].end_reason), ("end", "ask_number_again_unanswered"))
+
+    def test_a_cut_ask_again_call_is_called_back_at_once_to_ask_again(self):
+        """聞き直しの電話が途中で切れた：聞き直しの目的のまま、お詫びとともにすぐかけ直す（印 cut_off）。"""
+        s = self.ready_jp()
+        self.redirect(s)
+        self.wrong_call(s, "as_said")
+        aid = self.call(s, ("dialing", "ringing", "answered", "in_conversation", "dropped"), side="line",
+                        report=rep(cut=Cut("callee", False, False)))
+        self.settle(s, aid)
+        nxt = self.current(s)
+        self.assertEqual((nxt["kind"], nxt["purpose"], nxt["promised"], nxt["apology_reasons"]),
+                         ("call", "ask_number_again", True, ["cut_off"]))
+        c = self.claim(s)
+        self.assertEqual((type(c).__name__, getattr(c, "purpose", None), getattr(c, "apology", None)),
+                         ("Claim", "ask_number_again", ("cut_off",)))
 
     def test_ask_again_that_never_connects_is_bounded_and_spaced(self):
         """回線の側で繋がらない聞き直しの電話も、回数に数える（数えないと上限なくかけ続けた＝2026-10-16 の見直し）。

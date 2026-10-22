@@ -13,6 +13,15 @@ from salescall.core.backup import Writer
 from salescall.core.dial_exit import LineDriver
 
 
+class CallDriver(LineDriver, Protocol):
+    """中央の見守り役が使う、回線の電話の部品（発信の出口の形に、通話ごとの支度を足したもの）。"""
+
+    def prepare_call(self, voice_type: str) -> None:
+        """次にかける通話の声の型を覚える（予約証の声の型。PC の電話の部品へ渡し、おわびの録音もこの声の型で流す）。
+        発信の出口へ渡す前に、回線ごとの処理が必ず呼ぶ（1か所＝supervisor.line）。"""
+        ...
+
+
 @dataclass(frozen=True)
 class Attached:
     """いまつないでいる回線（その契約者の、使っている回線だけ＝データベースが確かめたもの）と、つないでいる PC・そのつなぎの番号
@@ -27,7 +36,7 @@ class Links(Protocol):
         """いま、どの回線が、どの契約者のどの PC につながっているか（かけてよい PC の部品の版のものだけ）。"""
         ...
 
-    def driver(self, line_id: UUID, at: Attached) -> LineDriver:
+    def driver(self, line_id: UUID, at: Attached) -> CallDriver:
         """そのつなぎの、その回線の電話の部品（PC の部品へ頼む形。通話の声も、これを通る）。**作ったときのつなぎに決まる**（別の PC・
         つなぎ直した新しいつなぎへ、通話の途中の頼み・声を送らない）。"""
         ...
@@ -51,7 +60,7 @@ class NoLinks:
     def lines(self) -> dict[UUID, Attached]:
         return {}
 
-    def driver(self, line_id: UUID, at: Attached) -> LineDriver:
+    def driver(self, line_id: UUID, at: Attached) -> CallDriver:
         raise LookupError(f"その回線は、つないでいません：{line_id}")
 
     def writer(self, tenant_id: UUID) -> Writer | None:

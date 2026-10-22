@@ -46,6 +46,11 @@ HEAVY_THREADS = 4                          # 長い仕事（控えの書き込�
 __all__ = ["AlreadyRunning", "Supervisor", "serve", "holder_name"]
 
 
+# 止めるとき、いまの通話が終わるのを待つ長さ（秒）。動かす所の仕組みの「止めるまで待つ長さ」は、これより長くする（Fly.io の
+# kill_timeout など。app/README.md）。短いと、話している通話がいきなり切れる
+SHUTDOWN_WAIT = 600.0
+
+
 def holder_name() -> str:
     """この見守り役の名前（機械で決まる。起動し直しても同じ＝前に落ちた自分の回線を後始末できる）。"""
     return f"{socket.gethostname()}#{machine_id()}#hub"
@@ -327,7 +332,7 @@ class Supervisor:
                 if what == "回線の借用":
                     self._next_renew = now + (self._renew_every or RENEW_FALLBACK)
 
-    def shutdown(self, wait_seconds: float = 600.0) -> None:
+    def shutdown(self, wait_seconds: float = SHUTDOWN_WAIT) -> None:
         """回線ごとの流れを止め（いまの通話は最後まで）、終わったら、その回線の後始末をして返す。"""
         for line_id in list(self.workers):
             self._stop_worker(line_id)
@@ -363,6 +368,10 @@ def serve(cfg: config.Config, stop: threading.Event | None = None) -> None:
         raise config.ConfigMissing("設定 SALESCALL_LISTEN が入っていません（PC の部品からのつなぎを待つ場所。手順：app/README.md）")
     if cfg.call_runner and not cfg.verifier:   # 検証の部品が無いと、かけた電話を締められず、行もお客様も待ち続ける（2026-10-22 の見直し）
         raise config.ConfigMissing("設定 SALESCALL_VERIFIER が入っていません（電話をかけるときは、通話後の検証の部品も要ります。"
+                                   "手順：app/README.md）")
+    if cfg.call_runner and not cfg.prober:   # 停止を解く確かめの部品が無いと、回線・会話AIの停止が自動では解けず、管理者か契約者が
+        #   解くまで、約束のお客様も途中で切れたお客様も待ち続ける（管理者も契約者も確かめと承認だけ＝2026-10-17 ユーザー。⛔ 見直し14）
+        raise config.ConfigMissing("設定 SALESCALL_PROBER が入っていません（電話をかけるときは、停止を解く確かめの部品も要ります。"
                                    "手順：app/README.md）")
     if cfg.local_only and cfg.admin_tenant is None:   # 移る間の形は、この機械の PC の部品の通行証を自分で払い出す（local_pc）。
         #   どの契約者の分か無いと、通行証が無いまま黙って動き、電話もかけず控えも書かない（⛔ 2026-10-22 の見直し13）

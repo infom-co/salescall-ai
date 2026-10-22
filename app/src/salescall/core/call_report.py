@@ -256,6 +256,13 @@ class CallReport:
         return self.ends[-1].reason if self.ends else None
 
     @property
+    def closing_started(self) -> bool:
+        """締めに入っていたか（1か所）：締めた理由（end）がある、または切れた瞬間が締めの言葉の中・締めのあとだった。こちらの仕組みが
+        止まった通話でも、締めに入っていれば「途中で切れた」にしない（judge.cut_off。⛔ 2026-10-22 の見直し14：前は締めの言葉の
+        あとで止まった通話にも、すぐお詫びの電話をかけた）。"""
+        return bool(self.ends) or (self.cut is not None and self.cut.in_closing)
+
+    @property
     def hurried(self) -> bool:
         """お客様が急いでいる・通話を断られた・怒っている、で締めたか。"""
         return self.end_reason in HURRIED_ENDS

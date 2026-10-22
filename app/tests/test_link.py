@@ -47,10 +47,11 @@ class FakePhone:
     def in_call(self):
         return self.busy
 
-    def start_call(self, phone):
+    def start_call(self, phone, voice_type=None):
         if self.fail:
             raise self.fail
         self.calls.append(phone)
+        self.voice_type = voice_type
 
     def hang_up(self):
         self.hung += 1
@@ -195,6 +196,8 @@ class Connect(LinkBase):
                                                 (s["task"],)))
         sup.shutdown(30)
         self.assertEqual((done and done["business_state"], phone.calls), ("completed", [s["phone"]]))
+        voice = self.tx(s, lambda tx: tx.one("SELECT voice_type FROM salescall.attempts WHERE task_id = %s", (s["task"],)))
+        self.assertEqual(phone.voice_type, voice["voice_type"])   # 門が決めた声の型が電話の部品へ届く（おわびの録音も同じ声）
         held = self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: tx.one(
             "SELECT lease_holder FROM salescall.lines WHERE line_id = %s", (s["line"],)))["lease_holder"]
         self.assertIsNone(held)
@@ -388,7 +391,7 @@ class LostConnection(LinkBase):
         release = threading.Event()
 
         class SlowPhone(FakePhone):
-            def start_call(self, phone):
+            def start_call(self, phone, voice_type=None):
                 release.wait(10)
                 super().start_call(phone)
         phone = SlowPhone()
@@ -457,7 +460,7 @@ class LostConnection(LinkBase):
         order = []
 
         class SlowPhone(FakePhone):
-            def start_call(self, phone):
+            def start_call(self, phone, voice_type=None):
                 time.sleep(1.0)
                 order.append("かけた")
 
@@ -476,28 +479,48 @@ class LostConnection(LinkBase):
             driver.start_call("+81300000001")                                  # 答えは「分からない」（出口が結果不明にする）
         self.assertEqual(order, ["かけた", "おわび"])
 
-    def test_a_call_placed_while_the_pass_is_revoked_is_apologised_for(self):
-        """かけている途中で通行証が止められ、PC の部品が終わるときも、かけ終わった電話は自分でおわびして切る（途中の頼みを取り消さず、
-        済むまで待つ。⛔ 2026-10-22 の見直し：AI もおわびも無い電話が残った）。"""
+    def test_a_pass_revoked_during_a_call_waits_for_the_call_to_end(self):
+        """通話の途中で通行証が止められた（画面の「この PC のログインを外す」）：その PC の回線はすぐ見せなくし（新しくかけない）、
+        いまの通話は切らずに最後まで。終わってからの合図で断る（PC はログインし直す）。⛔ 2026-10-22 の見直し14：前はその場で
+        閉じ、話しているお客様をおわびの録音で切った（「本番でいきなり止めてはいけません」）。"""
         s = self.ready()
         got = self.pc(s)
-
-        class SlowDial(FakePhone):
-            def start_call(self, phone):
-                time.sleep(2.0)
-                super().start_call(phone)
-                self.busy = True
-        phone = SlowDial()
+        phone = FakePhone()
         r = self.agent(got, [s["line"]], {s["line"]: phone})
         driver = self.hub.driver(s["line"], self.attached(s, got))
-        caller = threading.Thread(target=lambda: self.assertRaises(Exception, driver.start_call, "+81300000009"))
-        caller.start()
-        until(lambda: self.hub.sessions[got.pc_id].pending, "かけてと頼んだ")
+        driver.start_call("+81300000009")
+        phone.busy = True
         self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: agents.revoke(tx, got.pc_id))
-        r.beat()                                                             # 合図でサーバーが断る（止めた通行証）
-        until(lambda: isinstance(r.error, agent_main.NeedLogin), "PC の部品がログインし直しで終わる")
-        self.assertEqual((phone.calls, phone.apologies, phone.busy), (["+81300000009"], 1, False))
-        caller.join(30)
+        r.beat()
+        until(lambda: s["line"] not in self.hub.lines(), "その PC の回線は、すぐ見せない（新しくかけない）")
+        time.sleep(0.5)
+        self.assertIsNone(r.error)                                           # 通話中は閉じない
+        self.assertEqual((phone.apologies, phone.hung), (0, 0))              # お客様を切らない
+        self.assertIsNone(self.hub.writer(s["tenant"]))                      # 控えも頼まない
+        driver.hang_up()                                                     # 通話が終わった
+        phone.busy = False
+        r.beat()
+        until(lambda: isinstance(r.error, agent_main.NeedLogin), "通話が終わってからの合図で断る")
+        self.assertEqual(phone.apologies, 0)
+
+    def test_a_call_that_does_not_end_after_the_pass_is_revoked_is_closed_with_an_apology(self):
+        """通行証が止められたあと、通話が待つ長さの上限を過ぎても終わらない：閉じる（止めた通行証でつなぎ続けない）。PC の部品は、
+        終わるときに、まだ話している回線をおわびして切る（AI もおわびも無い電話を残さない）。"""
+        s = self.ready()
+        got = self.pc(s)
+        phone = FakePhone()
+        r = self.agent(got, [s["line"]], {s["line"]: phone})
+        driver = self.hub.driver(s["line"], self.attached(s, got))
+        driver.start_call("+81300000009")
+        phone.busy = True
+        with mock.patch.object(channel, "REVOKED_WAIT", 0.3):
+            self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: agents.revoke(tx, got.pc_id))
+            r.beat()
+            until(lambda: s["line"] not in self.hub.lines(), "回線を見せない")
+            time.sleep(0.5)
+            r.beat()
+            until(lambda: isinstance(r.error, agent_main.NeedLogin), "上限を過ぎたら断る")
+        until(lambda: phone.apologies == 1, "まだ話している回線は、おわびして切る")
 
     def test_a_line_retired_during_a_call_keeps_its_voice_and_apology_until_the_call_ends(self):
         """通話の途中で回線に「使わない」の印を付けても、その通話が終わるまでは、つなぎに残す（声・おわびして切るが通る＝お客様を
@@ -527,7 +550,7 @@ class LostConnection(LinkBase):
         got = self.pc(s)
 
         class Refusing(FakePhone):
-            def start_call(self, phone):
+            def start_call(self, phone, voice_type=None):
                 time.sleep(0.5)
                 raise CallNotPlaced("試験：アプリが受け付けない")
         phone = Refusing()

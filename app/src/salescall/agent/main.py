@@ -297,7 +297,8 @@ class Agent:
                 return {"ok": False, "error": "not_placed"}
             generation = self.generation
             try:
-                await loop.run_in_executor(None, phone.start_call, str(msg.get("phone")))
+                voice = msg.get("voice") if isinstance(msg.get("voice"), str) else None   # この通話の声の型（おわびの録音も、この声）
+                await loop.run_in_executor(None, lambda: phone.start_call(str(msg.get("phone")), voice_type=voice))
                 out: dict[str, Any] = {"ok": True}
             except CallNotPlaced:
                 return {"ok": False, "error": "not_placed"}

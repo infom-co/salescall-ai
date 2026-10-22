@@ -134,6 +134,9 @@ class FakeDriver:
     def apologize_and_hang_up(self):
         self.apologized = getattr(self, "apologized", 0) + 1
 
+    def prepare_call(self, voice_type):
+        self.voice_type = voice_type
+
 
 class ClaimAndDial(Base):
     def test_claim_then_dial_once(self):
@@ -261,7 +264,12 @@ class Stops(Base):
                 self.tx(s, lambda tx: stops.resume(tx, e["event_id"], reason="試験"))
         e = self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: stops.stop(
             tx, scope="line", cause="line_failure", reason="試験", tenant_id=s["tenant"], line_id=s["line"]))
-        self.assertEqual(self.reason(s), "stopped")
+        self.assertEqual(self.reason(s), "line_stopped")       # 止まっているのが回線だけ：回線の理由（行の予定は書き直さない）
+        self.assertIn("line_stopped", gate.LINE_REASONS)
+        b = self.tx(s, lambda tx: stops.stop(tx, scope="client", cause="budget", reason="試験", tenant_id=s["tenant"],
+                                               client_id=s["client"]))
+        self.assertEqual(self.reason(s), "stopped")            # 回線のほかにも止まっていれば、ふつうの「止まっている」
+        self.tx(s, lambda tx: stops.resume(tx, b["event_id"], reason="試験"))
         other_line = self.w.line(s["tenant"])
         self.lease(s, line=other_line)
         self.assertIsInstance(self.claim(s, line=other_line), gate.Claim)   # ほかの回線は止まっていない

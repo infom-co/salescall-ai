@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import os
+import signal
 import sys
 import threading
 import time
@@ -35,15 +36,25 @@ def _end(code: int) -> int:
     return code
 
 
+def _stop_on_term() -> threading.Event:
+    """終わりの合図（SIGTERM。Fly.io の入れ替え・OS の終わり）を、Ctrl+C と同じ止め方にする（1か所）：新しい発信を止め、いまの
+    通話の終わりを待ってから、回線を返して止まる（`main.serve` の止める印）。⛔ 2026-10-22 の見直し14：前は受け取らず、入れ替えの
+    たびに、話している通話がいきなり切れうった（本番でいきなり止めない＝2026-10-22 ユーザー）。"""
+    stop = threading.Event()
+    signal.signal(signal.SIGTERM, lambda signum, frame: stop.set())
+    return stop
+
+
 def run(argv: list[str]) -> int:
     command = argv[0] if argv else "run"
     if command == "status":
         print("\n".join(config.status()))
         return 0
     if command == "run":
+        stop = _stop_on_term()
         while True:
             try:
-                main.serve(config.load())
+                main.serve(config.load(), stop)
                 return _end(0)
             except (config.ConfigMissing, main.AlreadyRunning) as e:
                 print(str(e))

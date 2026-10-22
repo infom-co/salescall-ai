@@ -159,6 +159,18 @@ class Apology(Helpers):
         got = self.apology_call(t)                                     # 報告に無い ⇒ 伝えていない側に倒す
         self.assertEqual((got["decision"].kind, got["decision"].end_reason), ("end", "apology_unreached"))
 
+    def test_a_cut_apology_call_is_called_back_at_once(self):
+        """お詫びの電話が途中で切れた：ふつうの電話と同じく、復旧次第すぐかけ直す（続けて2回まで。⛔ 2026-10-22 の見直し14：前は
+        お詫びの電話だけ、別の時間帯に回していた）。"""
+        s = self.fresh(stage_cap=20)
+        self.order(s, self.incident(s))
+        aid = self.call(s, ("dialing", "ringing", "answered", "in_conversation", "technical_error"),
+                        report=replace(rep(cut=None), apology_delivered=False))
+        d = self.settle(s, aid)["decision"]
+        self.assertEqual((d.kind, d.target.purpose, d.promised), ("call", "apology", True))
+        c = self.claim(s)                                                # すぐ（別の時間帯を待たない）
+        self.assertEqual((type(c).__name__, getattr(c, "purpose", None)), ("Claim", "apology"))
+
     def test_refusal_ends_and_registers_dnc(self):
         s = self.fresh(stage_cap=20)
         self.order(s, self.incident(s))

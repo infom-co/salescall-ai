@@ -189,6 +189,18 @@ class Rounds(SupervisorBase):
         self.assertEqual((got.called, got.pause), (None, "line_not_leased"))
         self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["seq"], before)
 
+    def test_a_stopped_line_rests_without_rewriting_the_row(self):
+        """回線が止まっている（回線の異常など）：その回線は休み、行の予定は書き直さない（ほかの回線がかけられる。⛔ 2026-10-22 の
+        見直し14：前は止まった回線が「止まっている」で断られるたびに、行の予定を5分ずつ先へ書き直し、約束の電話を先送りした）。"""
+        from salescall.core import stops
+        s = self.ready()
+        self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: stops.stop(
+            tx, scope="line", cause="line_failure", reason="試験", tenant_id=s["tenant"], line_id=s["line"]))
+        before = self.tx(s, lambda tx: next_action.current(tx, s["task"]))["seq"]
+        got = line.one_round(self.w.a, SYSTEM, s["tenant"], s["line"], HOLDER, FakeDriver(), Runner())
+        self.assertEqual((got.called, got.pause), (None, "line_stopped"))
+        self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["seq"], before)
+
     def test_a_line_that_cannot_place_calls_rests_and_counts_as_a_line_fault(self):
         """回線の部品がかけられなかった・スマホがまだ通話中なら、休まず次の行へ進まない（行の回数と回線の上限を使い切らない）。
         かけられなかったことは回線の異常として記録する（続けば、処置の表のとおり回線を止める）。"""
@@ -777,6 +789,10 @@ class Main(SupervisorBase):
         with self.assertRaises(config.ConfigMissing):                          # 電話をかけるなら、通話後の検証の部品も要る（2026-10-22 の見直し：
             main_mod.serve(config.load({"SALESCALL_DSN": "x", "SALESCALL_LISTEN": "127.0.0.1:1",   # 無いと、かけた電話を締められず、
                                         "SALESCALL_CALL_RUNNER": "m:r"}))                            # 行もお客様も待ち続ける）
+        with self.assertRaises(config.ConfigMissing) as got:                   # 電話をかけるなら、停止を解く確かめの部品も要る（見直し14：
+            main_mod.serve(config.load({"SALESCALL_DSN": "x", "SALESCALL_LISTEN": "127.0.0.1:1",   # 無いと、回線・会話AIの停止が自動
+                                        "SALESCALL_CALL_RUNNER": "m:r", "SALESCALL_VERIFIER": "m:v"}))   # では解けない）
+        self.assertIn("SALESCALL_PROBER", str(got.exception))
         with self.assertRaises(config.ConfigMissing):                          # 移る間の形（この機械の中だけで待つ）は、この機械の PC の
             main_mod.serve(config.load({"SALESCALL_DSN": "x", "SALESCALL_LISTEN": "127.0.0.1:1"}))   # 部品の契約者が要る（見直し13）
 
@@ -786,7 +802,7 @@ class Main(SupervisorBase):
         from salescall.supervisor import __main__ as entry
         calls = []
 
-        def serve(cfg):
+        def serve(cfg, stop=None):
             calls.append(cfg)
             if len(calls) == 1:
                 raise RuntimeError("試験：思いがけない誤り")
@@ -799,6 +815,27 @@ class Main(SupervisorBase):
         with mock.patch.object(entry.config, "load", side_effect=config.ConfigMissing("試験：設定の抜け")), \
                 mock.patch.object(entry, "left_over", lambda: []), mock.patch("builtins.print"):
             self.assertEqual(entry.run(["run"]), 1)
+
+    def test_the_end_signal_stops_like_ctrl_c(self):
+        """終わりの合図（SIGTERM。Fly.io の入れ替えなど）は、Ctrl+C と同じ止め方（止める印を立てる＝新しい発信を止め、いまの通話の
+        終わりを待ってから止まる）。⛔ 2026-10-22 の見直し14：前は受け取らず、話している通話がいきなり切れうった。"""
+        import signal
+        from salescall.supervisor import __main__ as entry
+        seen = []
+        before = signal.getsignal(signal.SIGTERM)
+
+        def serve(cfg, stop=None):
+            signal.getsignal(signal.SIGTERM)(signal.SIGTERM, None)             # 合図が届いた
+            seen.append(stop.is_set())
+        try:
+            with mock.patch.object(entry.main, "serve", serve), mock.patch.object(entry.config, "load", lambda: "試験の設定"), \
+                    mock.patch.object(entry, "left_over", lambda: []):
+                self.assertEqual(entry.run(["run"]), 0)
+        finally:
+            signal.signal(signal.SIGTERM, before)
+        self.assertEqual(seen, [True])
+        src = Path(main_mod.__file__).read_text(encoding="utf-8")
+        self.assertIn("while not stop.is_set():", src)                         # 本体は止める印で回るのをやめ、止め方（shutdown）へ
 
     def test_flows_left_from_the_previous_round_end_the_process_instead_of_restarting_inside_it(self):
         """前の回の見守り役の流れ（固まった仕事など）が残っていれば、同じ処理の中では動き直さず、処理を終える（動かす所の仕組みが
@@ -818,7 +855,7 @@ class Main(SupervisorBase):
                     entry.run(["run"])
             ended.assert_called_once_with(1)
             slept.assert_not_called()                                           # 同じ処理の中では動き直さない
-            with mock.patch.object(entry.main, "serve", lambda cfg: None), \
+            with mock.patch.object(entry.main, "serve", lambda cfg, stop=None: None), \
                     mock.patch.object(entry.config, "load", lambda: "試験の設定"), \
                     mock.patch.object(entry.os, "_exit", side_effect=SystemExit) as ended:
                 with self.assertRaises(SystemExit):

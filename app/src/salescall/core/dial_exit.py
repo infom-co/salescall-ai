@@ -14,7 +14,8 @@
   かけられなかったときは、その回線を休ませる（かけられなかったことは回線の異常として数える＝続けば回線を止める）。
 - **かけたか分からないとき・通話を進める部品が落ちたときは、おわびの録音を流して切ってもらう**（`abandon`。お客様を無言で放置しない）。
 - 本番の PC の上で緊急停止が押されている・PC の部品がつながっていないあいだは、かけない（`CallWithheld`。DESIGN.md 5-5・9-2）：試行は
-  「発信に失敗」（声は届いていない）にし、回線の異常には数えない。かけてよいかの判断（門）は増やさない：発信の出口の物理的な止め
+  発信まで進まなかった予約と同じく取り消す（`attempts.withheld`。お客様の電話は鳴っていないので、判定せず、どの数にも入れず、
+  行の予定はそのまま。⛔ 2026-10-22 の見直し14：前は「発信に失敗」にして、判定が回数を使い、目的も消えた）。回線の異常には数えない。かけてよいかの判断（門）は増やさない：発信の出口の物理的な止め
   （ネットが切れているあいだに押した停止を、ネットが戻っても守るため）。
 """
 
@@ -61,7 +62,7 @@ class Outcome(Enum):
     UNUSABLE = "unusable"           # 予約証が使えない（期限切れ・取り消し済み）：かけていない
     LINE_IN_CALL = "line_in_call"   # 回線がまだ前の通話の途中：かけずに予約を戻した
     NOT_PLACED = "not_placed"       # 回線の部品がかけられなかった（CallNotPlaced）：試行は「発信に失敗」
-    WITHHELD = "withheld"           # PC の部品がかけなかった（PC の上で緊急停止・PC がつながっていない）：試行は「発信に失敗」
+    WITHHELD = "withheld"           # PC の部品がかけなかった（PC の上で緊急停止・PC がつながっていない）：試行は取り消し
 
     def __bool__(self) -> bool:
         return self is Outcome.DIALED
@@ -88,8 +89,8 @@ def dial(access: Access, actor: Actor, tenant_id: UUID, client_id: UUID, attempt
     try:
         driver.start_call(phone)
     except CallWithheld:   # PC の上で緊急停止が押されている・つながっていない：かけていない（回線の異常ではない。鳴っていない
-        # ので、どの数にも入らない＝salescall.is_placed）
-        access.in_client(actor, tenant_id, client_id, lambda tx: attempts.move(tx, attempt_id, "call_failed"))
+        # ので、判定せず、どの数にも入れない＝発信まで進まなかった予約と同じ）
+        access.in_client(actor, tenant_id, client_id, lambda tx: attempts.withheld(tx, attempt_id))
         return Outcome.WITHHELD
     except CallNotPlaced:
         access.in_client(actor, tenant_id, client_id, lambda tx: attempts.move(tx, attempt_id, "call_failed"))

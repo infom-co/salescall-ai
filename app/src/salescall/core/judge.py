@@ -154,15 +154,18 @@ def classify_cut(facts: Facts, report: CallReport | None) -> str | None:
     return "unclear"
 
 
-def cut_off(*, reached_answer: bool, end_state: str, raw_cut: str | None, hangup_side: str | None) -> bool:
-    """途中で切れた＝お客様が出たあと、お客様の意思と関係なく切れた（こちらの仕組みが止まった／回線・言葉の途中で切れた）。復旧次第、
-    お詫びとともにすぐかけ直す（2026-10-17 ユーザー：「仕組みが途中で止まった通話や、回線が途中で切れた通話は復旧次第、お詫びと
-    ともにすぐかけ直さないといけないでしょ！」）。**決めるのはこの1か所**。入れないもの（2026-10-18 の見直し）：回線の信号が
-    「お客様が切った」もの（お客様が自分で切った）・切れ方を決められなかったもの（依頼者の設定で「断り」としない場合も、
-    途中で切れたとは分からない）。raw_cut＝依頼者の設定で写す前の切れ方（`classify_cut`）。"""
+def cut_off(*, reached_answer: bool, end_state: str, raw_cut: str | None, hangup_side: str | None,
+            closing_started: bool) -> bool:
+    """途中で切れた＝お客様が出たあと、お客様の意思と関係なく、話の途中で切れた（こちらの仕組みが止まった／回線・言葉の途中で
+    切れた）。復旧次第、お詫びとともにすぐかけ直す（2026-10-17 ユーザー：「仕組みが途中で止まった通話や、回線が途中で切れた通話は
+    復旧次第、お詫びとともにすぐかけ直さないといけないでしょ！」）。**決めるのはこの1か所**（締めの処理が試行に1回だけ残す＝
+    attempts.record_cut_off。続けて何回切れたかも、それを数える）。入れないもの：回線の信号が「お客様が切った」もの（お客様が自分で
+    切った）・切れ方を決められなかったもの（2026-10-18 の見直し）・締めに入っていた通話（closing_started＝会話の報告の
+    `CallReport.closing_started`。こちらの仕組みが締めの言葉のあとで止まっても、話の途中ではない。⛔ 2026-10-22 の見直し14）。
+    raw_cut＝依頼者の設定で写す前の切れ方（`classify_cut`。締めに入っていれば normal）。"""
     if not reached_answer:
         return False
-    return end_state == "technical_error" or (raw_cut == "interrupted" and hangup_side != "callee")
+    return (end_state == "technical_error" and not closing_started) or (raw_cut == "interrupted" and hangup_side != "callee")
 
 
 def judge(inp: JudgeInput) -> Judgement:

@@ -11,6 +11,10 @@
 - 中央の見守り役に見せる回線（`links.Attached`）は、**つなぎ（1本ごとの番号）**まで持つ。電話の部品（`AgentDriver`）は、作ったときの
   つなぎに決まる（通話の途中で、頼み・声が別の PC・つなぎ直した新しいつなぎへ行かない。替われば、中央の見守り役が回線の流れを止めて
   立ち上げ直し、止まった試行を後始末する）。
+- **通話の途中で通行証が止められたら**（画面の「この PC のログインを外す」・契約の終わり）、その PC の回線をすぐ見せなくし（新しい
+  電話をかけない）、いまの通話が終わってから断ってつながりを閉じる（PC はログインし直す）。いきなり閉じると、PC が話している
+  お客様をおわびの録音で切るため（2026-10-22 ユーザー：「本番でいきなり止めてはいけません」）。通話が `REVOKED_WAIT` を過ぎても
+  終わらなければ閉じる（止めた通行証で、いつまでもつなぎ続けない）。
 - 1つのやり取りの誤り（形の違い・受け口の誤り）では、つなぎを切らない（記録して続ける。切ると、その PC のすべての通話が切れる）。
 - 切れたことに数秒で気づく（`protocol.PING_EVERY`）。
 - **控えの中身は、通話の声を遅らせない速さで送る**（`protocol.window` の1か所。PC が書けた印を待ちながら送り、その PC で通話の声・
@@ -44,6 +48,7 @@ from salescall.supervisor import ACTOR, config, report, updates
 from salescall.supervisor.links import Attached
 
 HELLO_WAIT = 10   # つないでから、最初のやり取り（hello）を待つ長さ（秒）
+REVOKED_WAIT = 1200   # 通行証が止められたあと、いまの通話が終わるのを待つ長さの上限（秒。会話の1回の最長より長く）
 _SERIAL = itertools.count(1)
 AWAY = "控えを書く PC が、サーバーとのつながりを失いました。PC の電源・ネット・PC の部品が動いているかを確かめてください"
 LINE_CONFLICT = ("同じ回線（スマホ）を、2台の PC がつないでいます。先につないだ PC でかけています。もう一方の PC の設定"
@@ -69,6 +74,7 @@ class _Session:
     # ように声が流れなくても通話中とみなす（⛔ 2026-10-22 の見直し：声の有無だけで決めると、呼び出しが5秒を超えたあいだに控えを
     # まとめて送り、お客様が出た直後の AI の声がその後ろで待った）
     open_calls: set[UUID] = field(default_factory=set)
+    revoked_at: float | None = None                            # 通行証が止められたと分かった時刻（回線を見せず、通話が終わったら閉じる）
 
     def calling(self) -> bool:
         """通話中か（控えを送る速さを決める。判断はこの1か所）：かけてから切れるまでの回線があるか、声が少し前まで通っていた。"""
@@ -228,6 +234,12 @@ class Hub:
         kept = await self._db(lambda: self.app.in_system(
             ACTOR, lambda tx: agents.beat(tx, session.who.pc_id, p.uuids(msg.get("lines")))))
         if kept is None:
+            # 止められた通行証：回線はすぐ見せなくし（`lines`）、いまの通話が終わってから閉じる（判断はこの1か所。⛔ 2026-10-22 の
+            # 見直し14：前はその場で閉じ、PC が話しているお客様をおわびの録音で切った）
+            if session.revoked_at is None:
+                session.revoked_at = time.monotonic()
+            if session.open_calls and time.monotonic() - session.revoked_at < REVOKED_WAIT:
+                return None
             await session.ws.send(p.dumps("refuse", why="この PC のログインが止められました。ログインし直してください",
                                           relogin=True, update=False))
             await session.ws.close()
@@ -400,14 +412,16 @@ class Hub:
 
     # ── links.Links ──
     def lines(self) -> dict[UUID, Attached]:
-        """回線ごとに、先につないだつなぎ（入れ替わり続けない）。そのつなぎの PC で緊急停止が押されていれば、その回線は見せない。"""
+        """回線ごとに、先につないだつなぎ（入れ替わり続けない）。そのつなぎの PC で緊急停止が押されている・通行証が止められていれば、
+        その回線は見せない（中央の見守り役は、いまの通話が終わってから、その回線の流れを止める）。"""
         with self.lock:
             sessions = sorted(self.sessions.values(), key=lambda s: s.conn)
         owner: dict[UUID, _Session] = {}
         for s in sessions:
             for line_id in s.lines:
                 owner.setdefault(line_id, s)
-        return {line_id: Attached(s.who.tenant_id, s.who.pc_id, s.conn) for line_id, s in owner.items() if s.emergency is None}
+        return {line_id: Attached(s.who.tenant_id, s.who.pc_id, s.conn) for line_id, s in owner.items()
+                if s.emergency is None and s.revoked_at is None}
 
     def driver(self, line_id: UUID, at: Attached) -> "AgentDriver":
         return AgentDriver(self, line_id, at)
@@ -416,7 +430,8 @@ class Hub:
         """その契約者の控えを書く PC（ハードディスクと鍵がある PC。無ければ、つないでいる PC に頼む＝PC が直す人あての文を返し、
         その契約者に「つないでください」「鍵を入れてください」が届く）。つないでいる PC が無ければ None。"""
         with self.lock:
-            got = sorted((s for s in self.sessions.values() if s.who.tenant_id == tenant_id), key=lambda s: s.conn)
+            got = sorted((s for s in self.sessions.values() if s.who.tenant_id == tenant_id and s.revoked_at is None),
+                         key=lambda s: s.conn)
         ready = [s for s in got if s.drive and s.key] or got
         return RemoteWriter(self, ready[0]) if ready else None
 
@@ -438,6 +453,10 @@ class AgentDriver:
     hub: Hub
     line_id: UUID
     at: Attached
+    voice_type: str | None = None   # 次にかける通話の声の型（prepare_call。PC の電話の部品へ渡す＝おわびの録音もこの声）
+
+    def prepare_call(self, voice_type: str) -> None:
+        self.voice_type = voice_type
 
     def _session(self) -> _Session:
         return self.hub._session_of(self.at, self.line_id)
@@ -458,7 +477,7 @@ class AgentDriver:
         except ConnectionError:   # 頼む前に、つなぎが無いと分かった：かけていないと確かに言える（回線の異常ではない）
             raise CallWithheld("PC の部品がつながっていません") from None
         session.open_calls.add(self.line_id)
-        got = self.hub.ask(session, "request", op="start_call", line=self.line_id, phone=phone_e164)
+        got = self.hub.ask(session, "request", op="start_call", line=self.line_id, phone=phone_e164, voice=self.voice_type)
         if got.get("ok"):
             return
         if got.get("error") in ("withheld", "not_placed"):   # かけていない

@@ -22,13 +22,18 @@ class Phone(Protocol):
         """スマホが、いま通話の途中か（呼び出し中を含む）。分からなければ True（かけない側）。"""
         ...
 
-    def start_call(self, phone_e164: str) -> None: ...
+    def start_call(self, phone_e164: str, voice_type: str | None = None) -> None:
+        """かける。voice_type＝この通話で話す声の型（門が決めたもの）。通話の途中でおわびの録音を流すとき
+        （`play_apology_and_hang_up`）は、この声の型の録音を流す（AI の声と違う声にしない。2026-10-22 の見直し14）。"""
+        ...
 
     def hang_up(self) -> None: ...
 
     def play_apology_and_hang_up(self) -> None:
         """あらかじめ持っている、おわびの録音を流して切る（お客様を無言で放置しない）。サーバーとのつながりが通話の途中で切れたとき・
-        サーバーの側の誤りで頼まれたとき。通話中でなければ、何もしない。"""
+        サーバーの側の誤りで頼まれたとき。通話中でなければ、何もしない。録音は、いまの通話の声の型（`start_call` で受け取った）のもの。
+        ⏳ 録音の文面（お詫びと理由。2026-10-22 ユーザー：「お客様にお詫びと理由を告げる必要がある」）と作り方は、ユーザー・会話の
+        担当（CL-1）と決める。"""
         ...
 
     def on_audio(self, send: Callable[[bytes], None]) -> None:

@@ -26,7 +26,7 @@ from salescall.core import (apology, approval, attempts, business_rules, call_re
                             target_recheck, tasks, usage)
 from salescall.core.access import Tx
 from salescall.core.judge import (JUDGE_VERSION, UNKNOWN_CAUSE_FIXERS, UNKNOWN_CAUSES, Facts, Item, JudgeInput, Judgement,
-                                  cut_off as judge_cut_off, judge, refusal)
+                                  classify_cut, cut_off as judge_cut_off, judge, refusal)
 from salescall.core.phone import normalize
 
 
@@ -45,7 +45,7 @@ def unsettled(tx: Tx) -> list[dict[str, Any]]:
 
 
 _ATTEMPT = (
-    "SELECT a.attempt_id, a.task_id, a.tenant_id, a.client_id, a.state, a.hangup_side, a.verification, a.disconnect,"
+    "SELECT a.attempt_id, a.task_id, a.tenant_id, a.client_id, a.state, a.hangup_side, a.verification, a.disconnect, a.cut_off,"
     "       a.version_id, a.contact_id, a.phone_e164, a.purpose, a.wrong_contact_id, a.claimed_at, a.ended_at,"
     # お客様が言った「明日」「30分後」の起点＝通話の終わり。会話の処理が報告をしまった時刻のほうが早ければ、そちら（途中の誤りで
     # 終わった通話は、見守り役が後始末した時刻が終わりになり、何時間もずれる＝2026-10-19 の見直し）
@@ -122,9 +122,10 @@ def _settle_apology(tx: Tx, a: dict[str, Any]) -> dict[str, Any]:
     refused = j is not None and j.state == "do_not_call"
     stop_reason = f"apology_{j.dnc_reason}" if j is not None and j.dnc_reason in ("wrong_party", "fax_line") else None
     _notice_forbidden(tx, a, prepare=False)
+    cut = _cut_off(tx, a, classify_cut(inp.facts, report), report)   # 途中で切れたか（ふつうの通話と同じ1か所）
     decision = next_action.after_apology(tx, a["task_id"], delivered=delivered, refused=refused, stop_reason=stop_reason,
                                          dialed=next_action.Target(a["contact_id"], None, "apology", None),
-                                         reached_target=inp.reached_target)
+                                         reached_target=inp.reached_target, cut_off=cut)
     if decision.kind == "end":
         notify.emit(tx, "apology", key=f"apology:{attempt_id}",
                     summary={"apology_done": "お詫びを伝えました。",
@@ -302,8 +303,7 @@ def _judge_and_write(tx: Tx, a: dict[str, Any], *, kind: str, rules_version: Any
     if j.dnc_reason is not None:
         dnc.register(tx, a["phone_e164"], j.dnc_reason, source_attempt_id=attempt_id)
     # 途中で切れた（お客様の意思と関係なく）：決めるのは judge.cut_off の1か所
-    cut_off = judge_cut_off(reached_answer=bool(a["reached_answer"]), end_state=a["state"], raw_cut=j.detail.get("cut"),
-                            hangup_side=a["hangup_side"])
+    cut_off = decided and _cut_off(tx, a, j.detail.get("cut"), report)   # 判定できなかった通話は、判定し直すときに決める
     decision = next_action.after_call(
         tx, a["task_id"], j, rules=rules,
         dialed=next_action.Target(a["contact_id"], None, a["purpose"], a["wrong_contact_id"]), dialed_at=a["claimed_at"],
@@ -311,6 +311,17 @@ def _judge_and_write(tx: Tx, a: dict[str, Any], *, kind: str, rules_version: Any
         reached_target=inp.reached_target)   # 目的のお客様と話せた（約束の日のお詫びは済んだ）
     apology.schedule_if_ready(tx, a["task_id"])   # 締めの前に承認されていたお詫び：判定が決まったいま、予定を書く（apology の1か所）
     return {"version_no": version_no, "state": j.state, "decision": decision, "already": False}
+
+
+def _cut_off(tx: Tx, a: dict[str, Any], raw_cut: str | None, report: Any) -> bool:
+    """途中で切れたか（決めるのは judge.cut_off の1か所）を決め、試行に1回だけ残す（ふつうの通話・お詫びの電話の締めの両方。続けて
+    何回切れたかは、この記録を数える）。残してあれば、それを使う（判定し直しで変えない＝切れ方と同じ）。"""
+    if a["cut_off"] is not None:
+        return a["cut_off"]
+    cut = judge_cut_off(reached_answer=bool(a["reached_answer"]), end_state=a["state"], raw_cut=raw_cut,
+                        hangup_side=a["hangup_side"], closing_started=report is not None and report.closing_started)
+    attempts.record_cut_off(tx, a["attempt_id"], cut)
+    return cut
 
 
 def _notice_unknown(tx: Tx, a: dict[str, Any], j: Judgement, summary: str) -> None:

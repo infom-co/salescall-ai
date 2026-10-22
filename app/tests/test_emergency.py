@@ -11,7 +11,7 @@ from pathlib import Path
 from unittest import mock
 
 from salescall.agent import emergency as pc
-from salescall.core import dial_exit, emergency, stops
+from salescall.core import dial_exit, emergency, gate, stops
 from salescall.link.phone import CallWithheld
 from tests.support import ADMIN, OPERATOR, SYSTEM
 from tests.test_gate import Base, FakeDriver
@@ -86,13 +86,21 @@ class OnTheServer(Base):
                          (False, True))
 
     def test_a_call_withheld_by_the_pc_is_not_dialed_and_not_a_line_fault(self):
-        """PC の上で押されているあいだ、PC の部品は「かけて」を断る：試行は「発信に失敗」（声は届いていない）、回線の異常に数えない。"""
+        """PC の上で押されているあいだ、PC の部品は「かけて」を断る：試行は取り消し（お客様の電話は鳴っていない）。判定せず
+        （締めを待つ試行に入らない）、どの数にも入れず、行の予定はそのまま（すぐまた門を通る）。回線の異常に数えない
+        （⛔ 2026-10-22 の見直し14：前は「発信に失敗」にして、判定が再発信の方針の回数を使った）。"""
+        from salescall.core import next_action, settle
         s = self.ready()
         claim = self.claim(s)
+        before = self.w.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: next_action.current(tx, s["task"]))
         driver = FakeDriver(fail=CallWithheld("試験：PC で押されている"))
         self.assertIs(dial_exit.dial(self.w.a, SYSTEM, s["tenant"], s["client"], claim.attempt_id, driver),
                       dial_exit.Outcome.WITHHELD)
-        self.assertEqual(self.state(s, claim.attempt_id), "call_failed")
+        self.assertEqual(self.state(s, claim.attempt_id), "released")
+        self.assertEqual(self.w.a.in_client(SYSTEM, s["tenant"], s["client"], settle.unsettled), [])
+        after = self.w.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: next_action.current(tx, s["task"]))
+        self.assertEqual(after["seq"], before["seq"])                       # 予定は書き換えない
+        self.assertIsInstance(self.claim(s), gate.Claim)                     # すぐまた門を通る（回数・間隔に数えない）
         faults = self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: tx.all(
             "SELECT 1 FROM salescall.error_events WHERE source = 'line'"))
         self.assertEqual(faults, [])

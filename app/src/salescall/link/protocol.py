@@ -19,8 +19,9 @@ PC → サーバー：
 サーバー → PC：
   welcome {tenant, pc, lines}                      通った（lines＝その契約者の、使っている回線だけ）
   refuse {why, relogin, update}                    断った（relogin＝ログインし直す・update＝更新が要る）。サーバーは切る
-  request {id, op: in_call|start_call|hang_up|apologize, line, phone?}   apologize＝おわびの録音を流して切る（サーバーの側の誤りで
-                                                   通話を続けられないとき。お客様を無言で放置しない）
+  request {id, op: in_call|start_call|hang_up|apologize, line, phone?, voice?}   apologize＝おわびの録音を流して切る（サーバーの側の
+                                                   誤りで通話を続けられないとき。お客様を無言で放置しない）。voice＝start_call の通話で話す
+                                                   声の型（門が決めたもの。おわびの録音も、この声の型で流す）
   backup_begin {id, folder, file_name, sha256}     控えを書く（中身は CHUNK ずつのバイト。sha256＝暗号化する前の中身）
   backup_end {id}
   prune {id, folders}                              古い控えを消す（folders＝フォルダごとに、種類・残す日数・消さないもの）
