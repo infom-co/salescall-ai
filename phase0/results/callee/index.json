@@ -2604,5 +2604,35 @@
     "tries": 1,
     "seconds": 3.21,
     "wav": "Sadachbia_number_from.wav"
+  },
+  {
+    "voice": "Leda",
+    "id": "just_back",
+    "text": "あ、ちょうど戻ってまいりました。少々お待ちください。",
+    "how": null,
+    "said": " あ、ちょうど戻ってまいりました。少々お待ちください。",
+    "heard": "あ、ちょうど戻ってまいりました。少々お待ちください。",
+    "diffs": [],
+    "question_needed": false,
+    "question_ok": true,
+    "ok": true,
+    "tries": 1,
+    "seconds": 4.03,
+    "wav": "Leda_just_back.wav"
+  },
+  {
+    "voice": "Sadachbia",
+    "id": "just_back",
+    "text": "あ、ちょうど戻ってまいりました。少々お待ちください。",
+    "how": null,
+    "said": "あ、ちょうど戻ってまいりました。少々お待ちください。",
+    "heard": "あ、ちょうど戻ってまいりました。少々お待ちください。",
+    "diffs": [],
+    "question_needed": false,
+    "question_ok": true,
+    "ok": true,
+    "tries": 1,
+    "seconds": 4.1,
+    "wav": "Sadachbia_just_back.wav"
   }
 ]

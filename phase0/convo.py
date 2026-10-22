@@ -593,6 +593,7 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                       for k, v in flow.items.items()},
             "export": flow.export(), "hedged_words": flow.hedged_words(), "final_phase": flow.phase, "hurried": flow.hurried,
             "facts": flow.facts,
+            "not_reached": flow.not_reached,  # 目的の人に繋がらずに終わった理由（会話の報告の not_reached。Flow.not_reached の1か所）
             "checked_after_call": before_after - len(flow.unchecked()),
             "opening_mode": opening_mode, "barge_in": barge_in, "ear_errors": ear.errors if ear is not None else None,
             "unchecked": flow.unchecked()}

@@ -337,6 +337,12 @@ SCENES = {
         "理由": last_fact(c, "callback").get("why") == "absent", "戻る時刻": "5時" in (last_fact(c, "callback").get("time") or ""),
         "お呼びし直さない": not any(r in ("call_target", "confirm_target") for r in replies_to(c, "taken_over_yamada")),
         "用件を流さない": connect_reply(c) == {}, "締め": closing_of(c) == CLOSING, "足す質問は録音": callback_recorded(c)}),
+    # かけ直しの質問の途中で、お呼びした方が戻って代わる（2026-10-22 の見直しで見つけた形。⛔ G-57 tc24：代わって出た岡田様に「恐れ入りますが
+    # 何時ごろお戻りになられますでしょうか？」を流し、業務の質問を聞かずに締めた）：1回確かめて繋ぎ、業務の質問を聞いて、ふつうに締める
+    "目的の人_かけ直しの途中で戻る": Scene(TARGET_BUSINESS, [W("absent_okada"), W("just_back"), T("taken_over_okada")] + FULL, lambda c: {
+        "かけ直しへ": last_fact(c, "callback").get("why") == "absent", "取り次ぎの間は話さない": plain(said_to(c, "just_back")) == "",
+        "代わった方に全部": full_opening(c), "答えが取れた": got(c, "Q1", "はい"),
+        "かけ直しは要らない": last_fact(c, "callback").get("connected") is True, "締め": closing_of(c) == CLOSING}),
     # 受付の方が、名乗り・用件のほかのことを聞く（✅ 2026-10-22 ユーザー：「想定の質問ならそれでいいけど、録音や想定にない質問だった場合は？」）：
     # 聞き流さず、目的の人かを確かめずに答え、作らず約束せず、取り次がれた岡田様には全部を流す
     # 答えは決まった答えの録音から選ぶ（✅ 2026-10-22 ユーザー：「必ずどんな営業トークにも出てくるパターンはシステム側に録音しておいた方がよくない？」。

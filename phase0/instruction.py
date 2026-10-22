@@ -419,7 +419,10 @@ def target_rule(business: Business) -> str:
             f"「{PART_LABEL['handover']}」で呼びます（目的の人かを確かめる言い方・お呼びし直す言い方は、プログラムが流します）。"
             "お取り次ぎいただくとき（「少々お待ちください」"
             f"「代わります」）は、report_party を「{PARTY_LABEL['reception']}」で呼んで、何も言わずに待ちます。目的の人がいないとき（「席を外して"
-            f"おります」「本日は休みです」）は、request_callback を「{CALLBACK_LABEL['absent']}」で呼びます。")
+            f"おります」「本日は休みです」）は、request_callback を「{CALLBACK_LABEL['absent']}」で呼びます。"
+            f"営業のお断りではない事情で取り次げないと言われたとき（「担当が分からないのでお繋ぎできません」「個人宛のお電話はお繋ぎして"
+            f"おりません」など。戻る時刻やかけ直しの話が無い）は、request_end を「{END_LABEL['not_transferred']}」で呼びます。営業のお電話だから"
+            f"取り次がない（「営業のお電話はお繋ぎできない決まりです」も）は、「{END_LABEL['callee_refused_call']}」です。")
 
 
 def ai_rule(business: Business, recorded: bool = False) -> str:
