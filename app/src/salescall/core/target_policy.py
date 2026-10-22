@@ -9,6 +9,7 @@
   number_kind_not_allowed（業務の設定でかけない種類：フリーダイヤル・ナビダイヤル）／
   dnc_client（依頼者の発信禁止の番号）／dnc_contractor（契約者の共通の発信禁止。その契約者のすべての依頼者に効く）／
   other_contractor_called（ほかの契約者がかけた番号で、契約者の設定が「かけない」）／
+  other_client_promise_never（ほかの依頼者がお客様と約束している番号で、契約者の設定が「かけない」）／
   dnc_client_ref（断ったお客様の管理番号。依頼者ごとの設定で、管理番号を「お客様を表す変わらない番号」としたとき。DESIGN.md 3-6）
 """
 
@@ -42,6 +43,11 @@ def block_reason(tx: Tx, number: PhoneNumber, *, client_ref: str | None, tenant_
                             business_id=business_id) == "never" \
                 and tx.one("SELECT salescall.number_dialed_by_other_tenant(%s) AS d", (number.e164,))["d"]:
             return ("other_contractor_called", "ほかの契約者がかけた番号です（契約者の設定で、かけないことにしています）")
+        # ほかの依頼者がお客様と約束している番号に「かけない」と、契約者が決めていれば（2026-10-22 ユーザー。待つときは門が見る）
+        if settings.resolve(tx, "gate.before_other_promise", tenant_id=tenant_id, client_id=client_id,
+                            business_id=business_id) == "never" \
+                and tx.one("SELECT salescall.number_next_promise_elsewhere(%s) AS at", (number.e164,))["at"] is not None:
+            return ("other_client_promise_never", "ほかの約束の電話がかかる番号です（契約者の設定で、かけないことにしています）")
         return None
     return {
         "client": ("dnc_client", "発信禁止に登録されている番号です"),

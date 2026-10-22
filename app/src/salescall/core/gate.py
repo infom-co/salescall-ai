@@ -42,6 +42,7 @@ REASONS: dict[str, tuple[str, str]] = {
     "dnc_client": ("発信禁止です", "permanent"),
     "dnc_contractor": ("契約者の共通の発信禁止です", "permanent"),
     "other_contractor_called": ("ほかの契約者がかけた番号です（契約者の設定で、かけない）", "permanent"),
+    "other_client_promise_never": ("ほかの約束の電話がかかる番号です（契約者の設定で、かけない）", "permanent"),
     "dnc_client_ref": ("この管理番号のお客様は発信禁止です", "permanent"),
     "max_attempts": ("この行に発信してよい回数を使い切りました", "permanent"),
     "no_version": ("実施回に業務設定の版が割り当てられていません", "cannot_judge"),
@@ -62,6 +63,7 @@ REASONS: dict[str, tuple[str, str]] = {
     "daily_attempts": ("同じお客様へ、今日かけてよい回数を使い切りました", "wait"),
     "cross_client_interval_same_tenant": ("ほかの依頼者が同じ番号へかけたばかりです", "wait"),
     "cross_client_interval_other_tenant": ("同じ番号へかけたばかりです", "wait"),   # 契約者の外は、中身を出さない
+    "other_client_promise": ("同じ番号へ、これから約束の電話がかかります（契約者の設定で、その時刻が過ぎるまで待ちます）", "wait"),
     "line_unknown": ("その回線はありません", "cannot_judge"),
     "line_not_leased": ("回線を借りていません（または、借用の期限が予約証より先に切れます）", "wait"),
     "line_daily_limit": ("この回線の、今日の発信の上限に達しました", "wait"),
@@ -229,6 +231,13 @@ def _pacing(tx: Tx, task: dict[str, Any], now: datetime, assume_promised: bool |
                 continue
             gap = timedelta(hours=v["hours"]) if "hours" in v else timedelta(days=v["days"])
         limits.append((r["last_at"] + gap, "cross_client_interval_" + r["relation"]))
+    # ほかの依頼者がお客様と約束している番号：基本は声を替えてかける（choose_voice）。契約者が「待つ」を選んでいれば、約束の時刻が
+    # 過ぎるまで、約束でない電話をかけない（2026-10-22 ユーザー：「基本は声を変え、契約者ごとに設定で選べるといいですね」）。
+    # 「かけない」は target_policy が答える
+    if not promised and _setting(tx, "gate.before_other_promise", task) == "wait":
+        soonest = tx.one("SELECT salescall.number_next_promise_elsewhere(%s) AS at", (task["phone_e164"],))["at"]
+        if soonest is not None:
+            limits.append((soonest, "other_client_promise"))
     binding = [x for x in limits if x[0] > now]
     if not binding:
         return Pacing(remaining, now, None, promised)

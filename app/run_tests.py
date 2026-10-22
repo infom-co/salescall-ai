@@ -1026,6 +1026,11 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("書き換える関数を足しても、決まりの機械の表に載せずに済む（呼んでよい部品の見張りから漏れる）",
      "ALTER FUNCTION salescall.next_customer_promise_at(uuid) VOLATILE",   # 書き換えうる関数が1つ増えた形
      ("tests.test_foundation.ServerOnly.test_every_function_that_writes_has_its_place_in_the_rules",)),
+    ("ほかの依頼者の約束を、門が見ない（0111：契約者が「待つ」を選んでも、約束の直前にほかの依頼者の電話がかかる）",
+     "CREATE OR REPLACE FUNCTION salescall.number_next_promise_elsewhere(p_phone text) RETURNS timestamptz"
+     " LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ SELECT NULL::timestamptz"
+     " WHERE salescall.cur_client() IS NULL $$",
+     ("tests.test_gate.Pacing.test_before_another_clients_promise_the_contractor_chooses_to_call_or_wait",)),
 )
 
 

@@ -432,6 +432,30 @@ class Pacing(Base):
                                                         contact_id=a["contact"], cause="お客様に頼まれた折り返し", promised=True))
         self.assertIsInstance(self.claim(a), gate.Claim)
 
+    def test_before_another_clients_promise_the_contractor_chooses_to_call_or_wait(self):
+        """ほかの依頼者がお客様と約束している番号へ、約束の前にかけるか（2026-10-22 ユーザー：「基本は声を変え、契約者ごとに設定で
+        選べるといいですね」）。基本はかける（声は choose_voice が替える）。契約者が「待つ」を選べば、約束の時刻が過ぎるまで待つ。"""
+        a = self.ready()
+        b = self.ready(tenant=a["tenant"], phone=a["phone"])
+        promise = self.tx(a, lambda tx: tx.one("SELECT now() + interval '2 hours' AS t")["t"])
+        self.tx(a, lambda tx: support.schedule_call(tx, a["task"], promise, contact_id=a["contact"],
+                                                        cause="お客様に頼まれた折り返し", promised=True))
+        self.assertIsInstance(self.claim(b), gate.Claim)                       # 基本：かける
+        self.tx(b, lambda tx: attempts.release(tx, [tx.one("SELECT attempt_id FROM salescall.attempts WHERE task_id = %s",
+                                                           (b["task"],))["attempt_id"]]))
+        self.w.a.in_tenant(OPERATOR, b["tenant"], lambda tx: settings.set_value(
+            tx, "gate.before_other_promise", "wait", scope="tenant", status="decided", rationale="試験", review_when="試験",
+            tenant_id=b["tenant"]))
+        self.assertEqual(self.reason(b), "other_client_promise")             # 契約者が「待つ」を選んだ
+        p = self.tx(b, lambda tx: gate.pacing(tx, b["task"]))
+        self.assertEqual((p.binding, p.earliest), ("other_client_promise", promise))
+        self.assertNotEqual(self.tx(a, lambda tx: gate.pacing(tx, a["task"])).binding, "other_client_promise")   # 自分の約束では待たない
+        self.w.a.in_tenant(OPERATOR, b["tenant"], lambda tx: settings.set_value(
+            tx, "gate.before_other_promise", "never", scope="tenant", status="decided", rationale="試験", review_when="試験",
+            tenant_id=b["tenant"]))
+        self.assertEqual(self.reason(b), "other_client_promise_never")       # 「同じ番号にはかけない」：その行は終える側
+        self.assertEqual(gate.REASONS["other_client_promise_never"][1], "permanent")
+
     def test_own_retries_are_not_cross_client(self):
         s = self.ready()
         self.override("gate.same_contact_min_interval", 1)
