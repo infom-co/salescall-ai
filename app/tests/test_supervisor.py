@@ -617,7 +617,7 @@ class Main(SupervisorBase):
         self.assertTrue({"recover", "settle", "backups", "backup_watch", "whole_backup_watch", "lasting_stops",
                          "system_lasting_stops", "pc_watch", "budget", "holidays"} <= bare)
         self.assertFalse({"whole_backup", "verify", "stop_checks", "system_stop_checks"} & bare)
-        full = here(self.cfg(s, SALESCALL_OWNER_DSN="x", SALESCALL_RESTORE_DSN="y", SALESCALL_WHOLE_BACKUP_TENANT=str(uuid.uuid4()),
+        full = here(self.cfg(s, SALESCALL_OWNER_DSN="x", SALESCALL_RESTORE_DSN="y", SALESCALL_ADMIN_TENANT=str(uuid.uuid4()),
                              SALESCALL_VERIFIER="m:v", SALESCALL_PROBER="m:p"))
         self.assertEqual(full, {j.name for j in jobs.JOBS})
 

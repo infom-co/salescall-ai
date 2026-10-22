@@ -185,10 +185,13 @@ class PcSideStaysOffTheServer(Planted):
                           "src/salescall/agent/ok.py": "import websockets\nfrom salescall.link import protocol\n"
                                                       "from salescall.agent import backup\n",
                           "src/salescall/link/d.py": "\nfrom salescall.agent.pc_login import PcPass\n",
-                          "src/salescall/core/e.py": "\n\nimport salescall.agent.backup\n"})
+                          "src/salescall/core/e.py": "\n\nimport salescall.agent.backup\n",
+                          # 電話の部品の置き場（2026-10-22 ユーザー承認：PC の部品の側）も同じ見張りの中
+                          "src/salescall/agent/phones/rakuten.py": "from salescall.core import dial_exit\n"})
         found = rules.pc_side_stays_off_the_server(root)
         self.assertEqual(sorted((v.path, v.line) for v in found),
                          [("src/salescall/agent/a.py", 1), ("src/salescall/agent/a.py", 2), ("src/salescall/agent/a.py", 3),
+                          ("src/salescall/agent/phones/rakuten.py", 1),
                           ("src/salescall/core/c.py", 1), ("src/salescall/core/e.py", 3), ("src/salescall/link/b.py", 1),
                           ("src/salescall/link/d.py", 2)])
 

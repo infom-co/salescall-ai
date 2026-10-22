@@ -401,7 +401,7 @@ class Hub:
 
     def whole_writer(self) -> "RemoteWriter | None":
         """データベース全体の控えを書く PC：サーバーの設定で決めた契約者（管理者自身の契約者）の PC だけ（すべての契約者のデータが入る）。"""
-        return self.writer(self.cfg.whole_backup_tenant) if self.cfg.whole_backup_tenant else None
+        return self.writer(self.cfg.admin_tenant) if self.cfg.admin_tenant else None
 
 
 @dataclass

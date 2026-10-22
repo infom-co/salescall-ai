@@ -34,7 +34,7 @@ from salescall.core import leases
 from salescall.core.access import Access, unreachable
 from salescall.link.basics import backoff
 from salescall.link.locks import AlreadyRunning, SingleInstance, lock_dir, machine_id
-from salescall.supervisor import ACTOR, config, jobs, line, plugins, report, updates
+from salescall.supervisor import ACTOR, config, jobs, line, local_pc, plugins, report, updates
 from salescall.supervisor.links import Attached, Links, NoLinks
 
 RESTART_FIRST, RESTART_MAX = 5.0, 300.0   # 回線ごとの流れを立ち上げ直すまでの間（秒。続けて止まるほど倍に）
@@ -325,8 +325,15 @@ def serve(cfg: config.Config, stop: threading.Event | None = None) -> None:
             sup.start()
         except Exception as e:  # noqa: BLE001 起動のときに届かなくても止めない（tick がまた試す）
             report(sup.access, None, "起動", e)
+        next_pass = 0.0   # 移る間の形：この機械の PC の部品の通行証を確かめる時刻（local_pc の1か所）
         try:
             while not stop.is_set():
+                if time.monotonic() >= next_pass:
+                    try:
+                        local_pc.ensure(sup.access, cfg)
+                    except Exception as e:  # noqa: BLE001 データベースに届かないときも止めない（次の確かめでまた入れる）
+                        report(sup.access, None, "この機械の PC の部品の通行証", e)
+                    next_pass = time.monotonic() + local_pc.CHECK_EVERY
                 if not hub.running() and not stop.is_set():
                     # つなぎ口の流れが落ちた：記録して、動かし直す（どの PC ともやり取りできないまま、黙って動き続けない）。
                     # 動かし直せなければ ChannelDown で止まる（動かす仕組みが起こし直す）

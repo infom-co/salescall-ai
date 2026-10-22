@@ -79,7 +79,7 @@
 | `app/src/salescall/core/value_types.py`（⏳ 2026-10-21：まだ作られていない。いまの会話の値の確かめは CL-1 の試作 `phase0/` の中） | CL-1（型の一覧 Q19 と、型ごとの値の決まり・確かめ。会話の処理と CL-2 の書き込む入口の両方が呼ぶので core に置く。2026-10-13 CL-1 の案・CL-2 賛成。**2026-10-14 ユーザー承認**。このファイルは答えの形の確かめだけを持ち、データベースの読み書きはしない＝機械が見張る） |
 | `app/src/salescall/web/` | CL-3（ダッシュボード・検証モードの画面） |
 | `app/src/salescall/output/` | CL-3（出力の型・書き出し・送り方の部品・連携の台帳の処理。画面が開いていなくても動く。CL-3 の願いで `web/` と分けた） |
-| `app/src/salescall/telephony/` | まだ振らない（回線ごとの部品。発信は `core` の出口からしか呼べない） |
+| `app/src/salescall/agent/phones/`（~~`app/src/salescall/telephony/`~~ ⇒ 2026-10-22 ユーザー承認：電話の部品は契約者の PC の上で動くので、PC の部品の側に置く。PC の部品と同じく、データベース・サーバーの部品を読まないことを機械が見張る＝`app/checks/rules.py` の `PC_SIDE`） | 電話接続の担当（まだ振らない。回線ごとの電話の部品＝Rakuten Link など。形は `link.phone.Phone`。かけるのは、サーバーの発信の出口から PC の部品へ頼まれたときだけ） |
 | `app/` の共通のファイル（使う部品の一覧と版・Python の版・試験の動かし方・機械の見張りの設定） | CL-2。ほかの担当は、足したいものを連絡帳で頼む |
 | `docs/team/CL-n.md`（連絡帳） | それぞれの担当 |
 | `docs/TECH_CHOICE_CL-2.md` | CL-2 |

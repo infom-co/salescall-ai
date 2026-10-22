@@ -32,33 +32,39 @@ class Passes(unittest.TestCase):
         self.assertIsNone(who(p.token))
         self.assertFalse(self.a.in_tenant(OPERATOR, t, lambda tx: agents.revoke(tx, p.pc_id)))  # 止めた印は1回だけ
 
-    def test_the_interim_command_gives_this_pc_a_pass_without_showing_it(self):
-        """移る間の形（管理者の PC で中央の見守り役と PC の部品を両方動かす）：命令 pc-pass が、この PC の通行証を払い出してしまう
-        （値は出さない。同じ PC の前の通行証は止める）。PC の部品は、しまった通行証で動く（2026-10-22 の見直し：前は通行証を受け取る
-        道がログインの入口＝CL-3 だけで、移る間の形が動かなかった）。"""
-        import io
+    def test_in_the_interim_form_the_server_gives_this_pc_a_pass_by_itself(self):
+        """移る間の形（つなぎ口がこの機械の中だけ＝管理者の PC で中央の見守り役と PC の部品を両方動かす）：見守り役が、この機械の
+        PC の部品の通行証を自分で払い出してしまう（管理者は命令を打たない＝2026-10-22 ユーザー）。止められた・消えた通行証は
+        入れ直す（前の通行証は止める）。サーバーへ移ったあと（ほかの機械からつなぐ形）は何もしない。PC の部品は、ログインの入口が
+        無いあいだ、しまわれるのを待つ。"""
         import tempfile
-        import types
-        from contextlib import redirect_stdout
         from pathlib import Path
+        from salescall.agent import pc_login
         from salescall.link import pass_file
-        from salescall.supervisor import __main__ as cli
-        from salescall.supervisor import config as sup_config
+        from salescall.supervisor import config as sup_config, local_pc
         t = self.w.tenant()
         place = Path(tempfile.mkdtemp(prefix="salescall-pass-")) / "pc-pass.bin"
         who = lambda tok: self.a.in_system(SYSTEM, lambda tx: agents.identify(tx, tok))   # noqa: E731
-        with mock.patch.object(sup_config, "load", return_value=types.SimpleNamespace(dsn=self.a._conninfo)), \
-                mock.patch.object(pass_file, "pass_path", return_value=place):
-            shown = io.StringIO()
-            with redirect_stdout(shown):
-                self.assertEqual(cli.run(["pc-pass", str(t), "管理者の PC"]), 0)
+        base = {"SALESCALL_DSN": "x", "SALESCALL_ADMIN_TENANT": str(t)}
+        server = sup_config.load({**base, "SALESCALL_LISTEN": "0.0.0.0:8765"})
+        here = sup_config.load({**base, "SALESCALL_LISTEN": "127.0.0.1:8765"})
+        with mock.patch.object(pass_file, "pass_path", return_value=place):
+            self.assertFalse(local_pc.ensure(self.a, server))                   # サーバーへ移ったあと：何もしない
+            self.assertIsNone(pass_file.load())
+            self.assertTrue(local_pc.ensure(self.a, here))
             first = pass_file.load()
-            self.assertNotIn(first.token, shown.getvalue())
-            self.assertEqual(who(first.token), agents.Who(t, first.pc_id, "管理者の PC"))
-            with redirect_stdout(io.StringIO()):
-                cli.run(["pc-pass", str(t), "管理者の PC"])
-            self.assertIsNone(who(first.token))                                  # 前の通行証は止まる
-            self.assertIsNotNone(who(pass_file.load().token))
+            self.assertEqual((who(first.token).tenant_id, who(first.token).pc_id), (t, first.pc_id))   # 管理者自身の契約者の PC
+            self.assertFalse(local_pc.ensure(self.a, here))                     # 使える通行証があれば、そのまま
+            self.a.in_tenant(OPERATOR, t, lambda tx: agents.revoke(tx, first.pc_id))
+            self.assertTrue(local_pc.ensure(self.a, here))                      # 止められたら入れ直す
+            self.assertNotEqual(pass_file.load().pc_id, first.pc_id)
+            pass_file.logout()
+            self.assertTrue(local_pc.ensure(self.a, here))                      # 消えたら入れ直す
+            again = pass_file.load()
+            # PC の部品：ログインの入口が無いあいだは、しまわれた通行証を受け取る（ブラウザは開かない）
+            opened = []
+            got = pc_login.until_logged_in("", open_browser=opened.append, sleep=lambda _: None)
+            self.assertEqual((got, opened), (again, []))
 
     def test_logging_in_again_on_the_same_pc_stops_the_old_pass(self):
         t = self.w.tenant()

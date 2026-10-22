@@ -9,6 +9,9 @@
   「機器のログイン」）。ログインのページとサーバーは CL-3（サーバーの入口の形は、下の `START`・`TOKEN`）。
 - **受け取った通行証は、PC の中にしまう**（`save`。Windows は、その Windows の利用者だけが開ける形にしてから書く＝DPAPI。画面・記録に
   出さない）。PC の部品は、しまった通行証でサーバーにつなぐ（`load`。PC はデータベースにつながない＝2026-10-21 ユーザー承認の分け方）。
+- **移る間の形**（サーバーができるまで、管理者の PC で中央の見守り役と PC の部品を両方動かす。ログインの入口 `SALESCALL_SERVER_URL`
+  が無い）：同じ機械の見守り役が通行証を払い出してしまう（`supervisor.local_pc`）。PC の部品は、それを待つだけ（命令も
+  ブラウザも要らない）。
 - **契約者は命令を打たない**（2026-10-18 ユーザー：「普通はこんなこと一般の人がしないですよね。ふつうは、指定URLにとんでそこからログイン
   するだけでしょ」）：PC の部品が動き出したとき（ログオンで自動）、まだログインしていなければ、`until_logged_in` が自動でブラウザに
   ログインのページを開き、ログインが済むまで待つ（済んだら、そのまま動き出す）。ログインしないまま期限が切れたら、新しいコードで
@@ -40,6 +43,7 @@ TOKEN = "/pc-login/token"    # 通行証を受け取る（返す：待って aut
 
 REOPEN_AFTER = 30 * 60      # ログインしないまま期限が切れたとき、ブラウザを開き直すまでの秒数（その間は、開いたページで待つ）
 RETRY_AFTER = 60            # サーバーに届かない・断られたときに、待ち直すまでの秒数
+LOCAL_WAIT = 2              # 移る間の形（ログインの入口が無い）で、同じ機械の見守り役が通行証をしまうのを待つ間隔（秒）
 
 
 class LoginFailed(Exception):
@@ -99,6 +103,11 @@ def until_logged_in(server_url: str, *, stop: Any = None, login_once: Callable[.
     login_once = login_once or login
     opened_at: float | None = None
     while stop is None or not stop.is_set():
+        if (kept := load(path)) is not None:   # しまわれた（移る間の形：同じ機械の見守り役が入れた＝supervisor.local_pc）
+            return kept
+        if not server_url:   # ログインの入口が無い（移る間の形）：見守り役が入れるのを待つ（ブラウザは開かない）
+            sleep(LOCAL_WAIT)
+            continue
         reopen = opened_at is None or now() - opened_at >= REOPEN_AFTER
         try:
             got = login_once(server_url, previous=load(path), open_browser=open_browser if reopen else _quiet,

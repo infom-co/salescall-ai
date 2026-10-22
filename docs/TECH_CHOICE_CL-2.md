@@ -200,7 +200,7 @@ app/
     conversation/       CL-1：会話AI接続・流れの制御・指示文・通話後の検証
     web/                CL-3：ダッシュボード・検証モードの画面
     output/             CL-3：出力の型・書き出し・送り方の部品・連携の台帳の処理（2026-10-13 CL-3 の願いで分けた）
-    telephony/          まだ振らない：回線ごとの部品（Rakuten Link など）。発信は core の出口からしか呼べない
+    ~~telephony/~~      ⇒ agent/phones/（2026-10-22 ユーザー承認：電話の部品は PC の上で動く。PC の部品の側＝機械の見張りの中）
     supervisor/         CL-2：見守り役（作りは CL-1 と詰める）
   tests/                それぞれの持ち主が、自分の持ち場の試験を書く
   checks/               CL-2：決まりの見張り（DESIGN.md 14章の静的検査。I-1・I-7・I-12・I-13 など）

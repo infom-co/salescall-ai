@@ -257,7 +257,7 @@ OVERDUE = timedelta(hours=26)   # 1日1回の控えが「取れていない」�
 OVERDUE_CLIENT = ("依頼者ごとの AI用の控えが1日以上取れていません。この契約者の PC（PC の部品）が動いていて、控え用のハードディスクと"
                   "鍵の設定（SALESCALL_BACKUP_DRIVE・SALESCALL_BACKUP_KEY）が入っているかを確かめてください（手順：docs/PC_SETUP.md）。")
 OVERDUE_WHOLE = ("データベース全体の控えが1日以上取れていません。サーバーの設定（SALESCALL_OWNER_DSN・SALESCALL_RESTORE_DSN・"
-                 "SALESCALL_WHOLE_BACKUP_TENANT）と、管理者の PC（PC の部品・控え用のハードディスクと鍵）を確かめてください"
+                 "SALESCALL_ADMIN_TENANT）と、管理者の PC（PC の部品・控え用のハードディスクと鍵）を確かめてください"
                  "（手順：docs/PC_SETUP.md）。")
 
 

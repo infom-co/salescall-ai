@@ -7,13 +7,13 @@
 | 名前 | 中身 | 要るとき |
 |---|---|---|
 | SALESCALL_DSN | データベースへの接続（システムの役） | いつも |
-| SALESCALL_LISTEN | PC の部品からのつなぎを待つ場所（例 0.0.0.0:8765。暗号化はサーバーの入口がする） | いつも（無ければ動かない） |
+| SALESCALL_LISTEN | PC の部品からのつなぎを待つ場所（例 0.0.0.0:8765。暗号化はサーバーの入口がする）。**この機械の中だけ（127.0.0.1:番号）にすると、移る間の形**（サーバーができるまで、管理者の PC で中央の見守り役と PC の部品を両方動かす。この機械の PC の部品の通行証は、見守り役が自分で入れる＝`local_pc`） | いつも（無ければ動かない） |
 | SALESCALL_CALL_RUNNER | 通話を最後まで進める部品を作る関数（`モジュール:名前`。会話＝CL-1。回線の ID と、その回線の電話の部品を受け取る） | 電話をかけるとき |
 | SALESCALL_VERIFIER | 通話後の検証の部品を作る関数（CL-1） | 検証をするとき |
 | SALESCALL_PROBER | 停止を解く確かめの部品を作る関数（CL-1・電話接続） | 確かめをするとき |
 | SALESCALL_OWNER_DSN | データベースへの接続（表の持ち主。データベース全体の控えの中身を書き出す） | 全体の控え |
 | SALESCALL_RESTORE_DSN | 戻せるかを確かめる、空のデータベース（本番と別） | 全体の控え |
-| SALESCALL_WHOLE_BACKUP_TENANT | データベース全体の控えを書く PC の契約者（管理者自身の契約者の番号。すべての契約者のデータが入るので、この契約者の PC にだけ送る。PC で決めないのは、ログインし直すと PC の番号が変わるため） | 全体の控え |
+| SALESCALL_ADMIN_TENANT | 管理者自身の契約者の番号（データベース全体の控えを書く PC の契約者＝すべての契約者のデータが入るので、この契約者の PC にだけ送る。PC で決めないのは、ログインし直すと PC の番号が変わるため。移る間の形では、この機械の PC の部品の契約者） | 全体の控え・移る間の形 |
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from uuid import UUID
 from salescall.link.basics import Env
 
 NAMES = ("SALESCALL_DSN", "SALESCALL_LISTEN", "SALESCALL_CALL_RUNNER", "SALESCALL_VERIFIER", "SALESCALL_PROBER",
-         "SALESCALL_OWNER_DSN", "SALESCALL_RESTORE_DSN", "SALESCALL_WHOLE_BACKUP_TENANT")
+         "SALESCALL_OWNER_DSN", "SALESCALL_RESTORE_DSN", "SALESCALL_ADMIN_TENANT")
 
 
 class ConfigMissing(Exception):
@@ -40,7 +40,7 @@ class Config:
     prober: str | None
     owner_dsn: str | None = field(repr=False)
     restore_dsn: str | None = field(repr=False)
-    whole_backup_tenant: UUID | None = None
+    admin_tenant: UUID | None = None
 
     @property
     def calls(self) -> bool:
@@ -48,9 +48,14 @@ class Config:
         return self.call_runner is not None
 
     @property
+    def local_only(self) -> bool:
+        """移る間の形か（つなぎ口が、この機械の中だけで待つ＝ほかの機械の PC はつなげない。判断はこの1か所）。"""
+        return self.listen is not None and self.listen[0] in ("127.0.0.1", "localhost", "::1")
+
+    @property
     def whole_backup(self) -> bool:
         """データベース全体の控えを取るか（表の持ち主の接続・戻せるかを確かめるデータベース・書く管理者の PC があるとき）。"""
-        return bool(self.owner_dsn and self.restore_dsn and self.whole_backup_tenant)
+        return bool(self.owner_dsn and self.restore_dsn and self.admin_tenant)
 
 
 def gather(environ: dict[str, str] | None = None) -> dict[str, str]:
@@ -71,12 +76,12 @@ def load(environ: dict[str, str] | None = None) -> Config:
             raise ConfigMissing("SALESCALL_LISTEN は「場所:番号」で書きます（例 0.0.0.0:8765）")
         where = (host, int(port))
     try:
-        whole = UUID(maybe("SALESCALL_WHOLE_BACKUP_TENANT")) if maybe("SALESCALL_WHOLE_BACKUP_TENANT") else None
+        whole = UUID(maybe("SALESCALL_ADMIN_TENANT")) if maybe("SALESCALL_ADMIN_TENANT") else None
     except ValueError:
-        raise ConfigMissing("SALESCALL_WHOLE_BACKUP_TENANT は契約者の番号（例 0a1b…）で書きます") from None
+        raise ConfigMissing("SALESCALL_ADMIN_TENANT は契約者の番号（例 0a1b…）で書きます") from None
     return Config(dsn=dsn, listen=where, call_runner=maybe("SALESCALL_CALL_RUNNER"), verifier=maybe("SALESCALL_VERIFIER"),
                   prober=maybe("SALESCALL_PROBER"), owner_dsn=maybe("SALESCALL_OWNER_DSN"),
-                  restore_dsn=maybe("SALESCALL_RESTORE_DSN"), whole_backup_tenant=whole)
+                  restore_dsn=maybe("SALESCALL_RESTORE_DSN"), admin_tenant=whole)
 
 
 def status(environ: dict[str, str] | None = None) -> list[str]:

@@ -801,7 +801,7 @@ class Backups(LinkBase):
         self.assertIsNone(self.hub.writer(self.w.tenant()))                    # つないでいない契約者
         t = self.ready()
         stranger = self.pc(t, "架空のほかの契約者の PC")
-        admin = self.start_hub(SALESCALL_WHOLE_BACKUP_TENANT=str(s["tenant"]))
+        admin = self.start_hub(SALESCALL_ADMIN_TENANT=str(s["tenant"]))
         self.agent(stranger, [], hub=admin)
         until(lambda: stranger.pc_id in admin.sessions, "ほかの契約者の PC")
         self.assertIsNone(admin.whole_writer())                                # 決めた契約者の PC がつないでいない：ほかの契約者には送らない
