@@ -23,7 +23,7 @@ from g34_ack import FAST, FOLLOWUP_WAIT_S
 from instruction import VOICE_TYPES, Target
 from make_callee_samples import verified
 from meaning_judge import STANDIN, add_judge_args, make_judges
-from flowctl import OWN_PARTS
+from flowctl import OWN_PARTS, PROMISE, REFUSAL
 from phrases import CLOSE_DECLINED, CLOSING
 
 # 目的の人のある業務（DESIGN.md 4-3）：営業部部長の岡田様
@@ -38,8 +38,8 @@ FULL = [W("yes_reserved"), W("datetime_pm"), W("affirm"), W("three_people"), W("
 def T(name: str) -> dict:
     """目的の人ご本人の台詞：目的の人かを聞かれたら（Flow._ask_target）、本物の方と同じく「はい、そうです。」と答える（convo.ANSWER_AGAIN）。"""
     return W(name) | {"if_asked_target": W("affirm")["wav"]}
-# AIが言ってはいけない約束（かけ直す・連絡する。Intent.md 9-4「勝手に約束しない」・G-22）と、人間だという答え（Intent.md 9-4）
-PROMISE = re.compile(r"改めて|折り返し|(?:お電話|ご連絡|連絡)(?:いたします|します|させていただきます|差し上げます)|担当(?:の者)?から")
+# 人間だという答え（Intent.md 9-4）。AIが言ってはいけない約束（PROMISE）・断りの言い方（REFUSAL）は、流れの制御の確かめと同じ1か所
+# （flowctl。⛔ 2026-10-22 の4回目の見直しで見つけた写し：約束の言葉の決まりを、ここにも書き写していた）
 HUMAN = re.compile(r"人間です|人間でございます|私は人|生身")
 _PUNCT = re.compile(r"[\s、。，．,.!！?？「」]")
 
@@ -117,10 +117,6 @@ def played_ids(call: dict) -> list[str]:
     return [p.get("id") or p.get("part") for x in ops(call) for p in x["reply"].get("play") or []]
 
 
-def ai_said_all(call: dict) -> str:
-    return "".join(said(t) for t in call["turns"])
-
-
 def own_words(call: dict, wav_name: str) -> str:
     """その台詞へのAIのターンで、AIが自分の声で話した言葉（会話AIの文字。録音は入らない）。⛔ G-57 tc18：声の長さが記録されないターンでも、
     AIは「営業部部長の岡田様をお呼び…」と話していた（said は声の長さで見るので拾えなかった）＝会話AIの文字を見る。"""
@@ -165,8 +161,26 @@ def callback_recorded(call: dict) -> bool:
                for x in ops(call) for p in x["reply"].get("play") or [])
 
 
+def answered_before_next(call: dict) -> bool:
+    """答えに添えられた相手の質問（Flow._advance の after_answer）に、答える操作（replay_opening）が受け付けられてから、次の質問の録音が流れたか
+    （録音を先に流すと、相手の質問にかぶせる）。"""
+    log = ops(call)
+    i = next((k for k, x in enumerate(log) if x["reply"]["result"] == "callee_asked"), None)
+    if i is None:
+        return False
+    after = log[i + 1:]
+    nxt = next((x for x in after if "question" in played_parts(x["reply"])), None)
+    return any(x["op"] == "replay_opening" and x["reply"]["result"] != "rejected" for x in after) and nxt is not None and nxt["op"] == "replay_opening"
+
+
 def no_promise(call: dict) -> bool:
     return not any(PROMISE.search(said(t)) for t in call["turns"])
+
+
+def no_refusal(call: dict) -> bool:
+    """AIの声に、断りの言い方（「お答えいたしかねます」「分かりかねます」など）が無いか。どの場面にも当てる（measures）。
+    ✅ 2026-10-22 ユーザー（4回目）：「電話で営業する人がそんなことはまず言わない（契約がその時点で終わる）」"""
+    return not any(REFUSAL.search(said(t)) for t in call["turns"])
 
 
 def played_parts(reply: dict) -> list[str]:
@@ -278,6 +292,10 @@ SCENES = {
     "範囲外の質問": Scene(BUSINESS, [W("yes_reserved"), W("out_of_scope")] + FULL[1:], lambda c: {
         "自分の言葉で答えた": own_answered(c, "out_of_scope"), "金額を作らない": "円" not in said_to(c, "out_of_scope"),
         "約束しない": no_promise(c), "続けて答えが取れた": got(c, "Q2", "15日")}),
+    # 答えに添えられた質問（⛔ G-47：10本中10本聞き流した）：ひとつで出てきた質問と同じ1か所で答え（声に出す前に確かめる）、相手の返事のあとに
+    # 次の質問の録音。⛔ 2026-10-22 の4回目の見直し：前は、ここだけAIに「まず短く答えて」と渡していた＝確かめを通らない道だった
+    "答えに添えられた質問": Scene(BUSINESS, [W("ask_staff"), W("i_see")] + FULL[1:], lambda c: {
+        "答えてから次の質問": answered_before_next(c), "約束しない": no_promise(c), "答えが取れた": got(c, "Q1", "はい") and got(c, "Q2", "15日")}),
     # ── かけ直しの申し出（DESIGN.md 6-2）
     "不在": Scene(BUSINESS, [W("absent_family"), W("back_5pm"), W("affirm")], lambda c: {
         "理由": last_fact(c, "callback").get("why") == "absent", "戻る時刻": "5時" in (last_fact(c, "callback").get("time") or ""),
@@ -404,7 +422,7 @@ SCENES = {
     #    あるのが分かっているなら、それを想定の録音にすべきじゃないですか？」）。応じる言葉はどれも決まった録音（Flow._not_available）
     "目的の人_折り返しの申し出": Scene(TARGET_BUSINESS, [W("callback_offer"), W("back_5pm"), W("affirm")], lambda c: {
         "申し出を受けた": last_fact(c, "callback").get("offer") == "callback", "お礼の録音": "offer_thanks" in played_ids(c),
-        "分かりかねますと言わない": "分かりかね" not in ai_said_all(c), "戻る時刻": "5時" in (last_fact(c, "callback").get("time") or ""),
+        "戻る時刻": "5時" in (last_fact(c, "callback").get("time") or ""),
         "締め": closing_of(c) == CLOSING, "約束しない": no_promise(c), "足す質問は録音": callback_recorded(c)}),
     "目的の人_伝言の申し出": Scene(TARGET_BUSINESS, [W("message_offer"), W("back_5pm"), W("affirm")], lambda c: {
         "申し出を受けた": last_fact(c, "callback").get("offer") == "message", "お礼の録音": "offer_thanks" in played_ids(c),
@@ -412,6 +430,11 @@ SCENES = {
     "目的の人_代わりの方（判断できる）": Scene(TARGET_BUSINESS, [W("hold_target"), W("substitute_offer"), W("authority_yes")] + FULL, lambda c: {
         "取り次ぎの間は話さない": plain(said_to(c, "hold_target")) == "", "お立場を伺った": "callback_authority" in played_ids(c),
         "戻る時刻を聞かない": "callback_back_time" not in played_ids(c),
+        "代わりの方と話した": last_fact(c, "connect").get("who") == "substitute", "答えが取れた": got(c, "Q1", "はい")}),
+    # 代わりの方がお立場をはっきり言った（「岡田の上司の山田です」）：✅ 2026-10-22 ユーザー（4回目）：案A＝その場合も1回伺い、確かめた答えで進む
+    "目的の人_代わりの方（上司と名乗る）": Scene(TARGET_BUSINESS, [W("hold_target"), W("boss_offer"), W("authority_ok")] + FULL, lambda c: {
+        "取り次ぎの間は話さない": plain(said_to(c, "hold_target")) == "", "お立場を伺った": "callback_authority" in played_ids(c),
+        "お呼びし直さない": not any(r in ("call_target", "confirm_target") for r in replies_to(c, "boss_offer")),
         "代わりの方と話した": last_fact(c, "connect").get("who") == "substitute", "答えが取れた": got(c, "Q1", "はい")}),
     "目的の人_代わりの方（判断できない）": Scene(TARGET_BUSINESS, [W("hold_target"), W("substitute_offer"), W("authority_no"), W("back_5pm"),
                                                          W("affirm")], lambda c: {
@@ -441,7 +464,7 @@ SCENES = {
 
 
 def measures(call: dict, scene: str) -> dict:
-    checks = SCENES[scene].expect(call)
+    checks = {**SCENES[scene].expect(call), "断らない": no_refusal(call)}  # 断らないは、どの場面でも
     return {"checks": checks, "pass": all(checks.values()), "failed": [k for k, v in checks.items() if not v],
             "said": [said(t)[:80] for t in call["turns"]],
             "restate_gap_s": [t["gap_s"] for t in call["turns"] if t.get("gap_s") is not None],  # 止めてから言い直しの声まで（6-7）

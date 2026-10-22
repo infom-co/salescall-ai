@@ -8,6 +8,9 @@
   質問を1つにした業務）。(1)(2) は、AIが話す形と録音で流す形の両方。(3) は録音で流す形だけ（AIが答えてから締める）。
 - 見ること：締めのターンでAIが言った言葉（AI自身の文字）が、決まった言い方と同じか（句読点・空白は見ない）。録音で流す形では、AIが黙ったか。
   (3) では、相手の質問に答えたうえで、最後が決まった言い方か。命令の形（「〜ください」）を言わなかったか。
+⚠️ 2026-10-22 の4回目から (3) の形が変わった：答えに添えられた質問は、ひとつで出てきた質問と同じ1か所で答え（flowctl.Flow._own_answer＝
+  声に出す前に確かめる）、相手の返事（「そうなんですね。」）のあとに締めの録音を流す（前は、AIが答えと締めを続けて自分の声で言った＝答えの文の
+  確かめを通らない道だった）。⇒ (3) の相手の台詞に返事を足し、見ることを「答えてから、締めは録音・AIは黙る」に直した
 """
 from __future__ import annotations
 
@@ -33,7 +36,7 @@ SCENES = {
     "終わり_録音": (BUSINESS, FULL, True, CLOSING, False),
     "忙しい_AIが話す": (BUSINESS, [W("busy")], False, CLOSE_DECLINED, False),
     "忙しい_録音": (BUSINESS, [W("busy")], True, CLOSE_DECLINED, False),
-    "最後に質問_録音": (ONE_Q, [W("ask_staff")], True, CLOSING, True),
+    "最後に質問_録音": (ONE_Q, [W("ask_staff"), W("i_see")], True, CLOSING, True),
 }
 _PUNCT = re.compile(r"[\s、。，．,.!！?？「」]")
 
@@ -51,7 +54,9 @@ def measures(call: dict, scene: str) -> dict:
     if recorded and not answers:
         ok = played and plain(said) == ""                      # 録音を流し、AIは黙る
     elif answers:
-        ok = not played and plain(said).endswith(plain(phrase)) and len(plain(said)) > len(plain(phrase))  # 答えてから、決まった締め
+        # 相手の質問に答えてから（録音の答え・自分の言葉の答え）、相手の返事のあとに締めの録音を流し、AIは黙る
+        before = call["flow_log"][:call["flow_log"].index(end)] if end else []
+        ok = played and plain(said) == "" and any(e["reply"]["result"] in ("own_answer", "replayed") for e in before)
     else:
         ok = not played and plain(said) == plain(phrase)       # 決まった言い方のまま。言葉を足さない
     return {"checks": {"close_ok": ok, "ended": end is not None, "played": played,

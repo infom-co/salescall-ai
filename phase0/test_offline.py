@@ -1645,12 +1645,51 @@ class CalleeQuestionTest(unittest.TestCase):
                     play_recordings=play)
 
     def test_question_holds_the_recording(self):
+        # 答えに添えられた質問は、ひとつで出てきた質問と同じ1か所で答える（replay_opening：録音／自分の言葉＝声に出す前に確かめる）。
+        # 次の質問の録音は、答えたあとに流す。⛔ 2026-10-22 の4回目の見直しで見つけた漏れ：前は、ここだけAIに「まず短く答えて」と渡し、
+        #    答えの文の確かめ（作らない・断らない・名前・約束）を通らない、もう1つの道だった
         f = self.flow()
         f.on_callee(); f.on_heard("はい、予約しています。当日はどなたが担当されるんですか？")
         r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい"})
-        self.assertNotIn("play", r)                                    # 録音は流さない
-        self.assertIn("当日はどなたが担当されるんですか？", r["message"])   # まず答える
-        self.assertIn("「それでは」から話し始めて", r["message"])          # つなぎの言葉は録音と同じ並び
+        self.assertEqual((r["result"], r.get("play"), r["ack"]), ("callee_asked", None, None))   # 録音は流さない・相づちは答えるほうで
+        self.assertIn("当日はどなたが担当されるんですか？", r["message"])                         # まず答える
+        self.assertEqual(f.items["Q1"].condition, "はい")                                       # 答えは受け取った
+        # 答える文が確かめに通らなければ、声に出さずに書き直させる（次の質問はまだ流さない）
+        r = f.apply("replay_opening", {"part": "no_answer", "answer": "そちらにつきましてはこの場ではお答えいたしかねます。"})
+        self.assertEqual((r["result"], r.get("play")), ("rejected", None))
+        self.assertIn("お断りの言い方", r["message"])
+        r = f.apply("replay_opening", {"part": "no_answer", "answer": "いただいたご質問は担当の者に申し伝えます。"})
+        self.assertEqual((r["result"], r["say"], r["ack"], r.get("play")), ("own_answer", "いただいたご質問は担当の者に申し伝えます。", "hai", None))
+        self.assertEqual([(x["answered"], x["answer"], len(x["drafts"])) for x in f.facts["callee_question"]],
+                         [(False, "いただいたご質問は担当の者に申し伝えます。", 1)])                  # 1つの質問は1つの記録
+        # 相手の返事のあとに、先に作っておいた次の質問の録音（お礼の相づち）
+        f.on_callee(); f.on_heard("あ、そうですか。")
+        r = f.apply("replay_opening", {"part": "resume"})
+        self.assertEqual((r["result"], r["play"][0]["id"], r["ack"]), ("next", "Q2", "arigatou"))
+
+    def test_question_answered_by_a_recording_continues_at_once(self):
+        # 添えられた質問が名乗り・用件・想定問答なら、その録音のあとに続けて次の質問の録音（相手の返事を待たない）
+        from flowctl import Flow, Question
+        f = Flow([Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ")),
+                  Question("Q2", "ご希望の日時をお聞かせいただけますでしょうか？", "datetime", conditions=("答えた",))],
+                 play_recordings=True, opening={"greeting": "お忙しいところ恐れ入ります。", "intro": "株式会社アオバ物流の佐藤と申します。",
+                                                "purpose": "ご予約の確認でお電話いたしました。"})
+        f.on_callee(); f.on_heard("はい、予約しています。どちらさまでしたっけ？")
+        self.assertEqual(f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい"})["result"], "callee_asked")
+        r = f.apply("replay_opening", {"part": "intro"})
+        self.assertEqual([p.get("part") or p.get("id") for p in r["play"]], ["intro", "Q2"])
+        self.assertIsNone(f.after_answer)
+
+    def test_other_report_drops_the_held_reply(self):
+        # 添えられた質問に答えずに、AIが別の報告をした（次の質問の答え）：その報告で進む（先に作った返事は使わない）
+        f = self.flow()
+        f.on_callee(); f.on_heard("はい、予約しています。当日はどなたが担当されるんですか？")
+        f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい"})
+        self.assertEqual(f.current, "Q2")
+        f.on_callee(); f.on_heard("15日の午後2時でお願いします。")
+        r = f.apply("record_answer", {"question_id": "Q2", "condition_id": "答えた", "value": "15日の午後2時"})
+        self.assertNotEqual(r["result"], "rejected")
+        self.assertIsNone(f.after_answer)
 
     def test_plain_answer_plays(self):
         f = self.flow()
@@ -3223,7 +3262,8 @@ class PlayRecordingsTest(unittest.TestCase):
         self.assertEqual(RECORDED["closing_declined"], CLOSE_DECLINED)
 
     def test_close_after_callee_question_is_said(self):
-        # 相手が最後に質問をしていたら、AIが短く答えてから、決まった締めの言い方のまま言う（録音を流すと、相手の質問にかぶせる）
+        # 相手が最後に質問をしていたら、まずその質問に答え（ひとつで出てきた質問と同じ1か所）、相手の返事のあとに締めの録音を流す
+        # （録音を先に流すと、相手の質問にかぶせる）。締めの言い方はお礼から始まるので、相づちを重ねない
         from phrases import CLOSING
         f = self.flow()
         f.on_callee(); f.handle_call(fc("record_answer", 質問="Q1", 答えの種類="はい"))
@@ -3231,9 +3271,14 @@ class PlayRecordingsTest(unittest.TestCase):
         f.on_callee(); f.on_heard("はい。当日はどなたが担当されるんですか？")
         out, silent = f.handle_call(fc("confirm_field", 質問="Q2", 返事の種類="合っている"))
         r = f.log[-1]["reply"]
-        self.assertFalse(silent)
-        self.assertEqual((r["result"], r["say"], r.get("play")), ("end", CLOSING, None))
-        self.assertIn(CLOSING, out["次にすること"])
+        self.assertEqual((silent, r["result"], r.get("play")), (False, "callee_asked", None))
+        out, silent = f.handle_call(fc("replay_opening", 流し直す部分="答えを持っていない質問", 答えの文="当日の担当につきましては担当の者に申し伝えます。"))
+        self.assertEqual(f.log[-1]["reply"]["say"], "当日の担当につきましては担当の者に申し伝えます。")
+        f.on_callee(); f.on_heard("わかりました。")
+        out, silent = f.handle_call(fc("replay_opening", 流し直す部分="質問に戻る"))
+        r = f.log[-1]["reply"]
+        self.assertTrue(silent)
+        self.assertEqual((r["result"], r["play"], r["ack"]), ("end", [{"kind": "closing", "id": "closing", "text": CLOSING}], None))
 
     def test_rule_in_instruction_only_when_playing(self):
         from g22_opening import BUSINESS
@@ -3248,6 +3293,9 @@ class NeverStuckTest(unittest.TestCase):
     決まった回数で尽き、同じ報告をくり返されても、通話は必ず締めに着く。"""
 
     VALUES = ("15日の午後2時", "3人", "はい", "いつでも", "答えなかった", "違います", "", None, "16 日の午後 2 時", "x" * 3, "やまさき", "ヤマザキ様")
+    # 相手の言葉（答えだけ・答えに質問が添えられたもの・質問だけ）
+    HEARD = ("はい、予約しています。", "はい、予約しています。当日はどなたが担当されるんですか？", "料金はおいくらですか？", "15日の午後2時でお願いします。",
+             "そうなんですね。")
 
     def flow(self):
         from flowctl import Flow, Question, reading_question
@@ -3272,8 +3320,13 @@ class NeverStuckTest(unittest.TestCase):
             name, args = "record_answer", {"question_id": qid, "condition_id": cond, "value": rnd.choice(self.VALUES)}
         elif x < 0.85:
             name, args = "report_unclear", {"question_id": qid}
-        elif x < 0.92:
+        elif x < 0.9:
             name, args = "request_end", {"reason": rnd.choice(("done", "done", "callee_hurry", "callee_refused_call", "bad"))}
+        elif x < 0.97:
+            # 相手の質問への答え（自分の言葉＝断りの文・通る文・文なし／質問に戻る／録音の無い名乗り）。⛔ 2026-10-22 の4回目：答えに添えられた
+            # 質問は、答えるまで次へ進む返事を持っておく（after_answer）＝その間も止まらないこと
+            name, args = "replay_opening", {"part": rnd.choice(("own", "no_answer", "no_answer", "resume", "resume", "intro")),
+                                            "answer": rnd.choice(("いただいたご質問は担当の者に申し伝えます。", "この場ではお答えいたしかねます。", None))}
         else:
             name, args = "no_such", {}
         if rnd.random() < 0.05:
@@ -3292,6 +3345,8 @@ class NeverStuckTest(unittest.TestCase):
             for _ in range(60):
                 if rnd.random() < 0.8:
                     f.on_callee()
+                    if rnd.random() < 0.4:
+                        f.on_heard(rnd.choice(self.HEARD))
                 name, args = self.random_report(rnd, f)
                 r = f.apply(name, args)  # (1) 誤りで止まらない
                 seen[r["result"]] += 1
@@ -3302,7 +3357,7 @@ class NeverStuckTest(unittest.TestCase):
                     self.assertTrue(r.get("say"), r)       # 言い方が決まっている
                 if f.phase == "closing":
                     break
-        for result in ("rejected", "ask_back", "confirm_required", "next", "recheck", "end"):  # どの場面も十分に通った
+        for result in ("rejected", "ask_back", "confirm_required", "next", "recheck", "end", "callee_asked", "own_answer"):  # どの場面も十分に通った
             self.assertGreater(seen[result], 30, (result, seen))
 
     def test_same_bad_report_repeated_always_reaches_closing(self):
@@ -4182,9 +4237,13 @@ class ClipTablesTest(unittest.TestCase):
         from make_ack_clips import HOW, MAX_S, script_table, words
         table = {**words(False)[0], **script_table(dataclasses.replace(BUSINESS, voicemail_message="株式会社アオバ物流の佐藤でございます。",
                                                                         answers=[("番号の出どころ", "以前ご予約の際にいただいたお電話番号です。")]))[0]}
-        for aid, (_, how) in table.items():
+        from make_ack_clips import CHAR_S
+        for aid, (text, how) in table.items():
             self.assertIn(how, MAX_S, aid)
             self.assertTrue(how in HOW or aid in ("hai", "shouchi", "arigatou", "shitsurei", "moushiwake", "moushiwake_heavy"), aid)
+            # 長い文の上限が、文の長さの見込みに届いている（⛔ 2026-10-22 の4回目：言い方を長くしたのに上限がそのままだと、作っても全部落ちる）
+            if len(text) >= 15:
+                self.assertLessEqual(len(text) * CHAR_S * 1.15, MAX_S[how], aid)
         self.assertIn("ai", table)
         self.assertIn("voicemail", table)
         self.assertIn("callback_back_time", table)
@@ -4947,24 +5006,53 @@ class TargetTest(unittest.TestCase):
         self.heard(f, "ああ、そうなんですね。", None)
         r = f.apply("replay_opening", {"part": "resume"})
         self.assertEqual(([p.get("part") for p in r["play"]], r["ack"], f.own_pending), (["target"], "arigatou", False))
-        # (4) 確かめに通らない答えの文（業務の情報に無い言葉・名前・約束）は使わず、作らずに答えられない一言の録音（頭は「申し訳ございません、」）
-        #     ⛔ G-57 tc31：L4 は「港区」を「東京目黒」と言った・S2 は注意書きを声に出して約束した
+        # (4) 確かめに通らない答えの文（業務の情報に無い言葉・名前・断り・約束）は声に出さず、理由を添えて書き直させる（同じ発話で2回まで）。
+        #     それでも通らなければ、断らない一言の録音（相づちは重ねない）。⛔ G-57 tc31：L4 は「港区」を「東京目黒」と言った・S2 は注意書きを
+        #     声に出して約束した。✅ 2026-10-22 ユーザー（4回目）：断りの録音（「この場ではお答えいたしかねます。」）は使わない
+        from flowctl import OWN_REWRITES
         from phrases import OWN_FALLBACK
         for answer, why in (("弊社は東京目黒にございます。", "目黒"), ("担当の岡田からご連絡いたします。", "名前"),
+                            ("そちらにつきましてはこの場ではお答えいたしかねます。", "お断り"), ("私の方では分かりかねます。", "お断り"),
                             ("そちらにつきましては改めて担当の者からご連絡いたします。", "約束")):
             f = info_flow()
             self.heard(f, "御社の資本金はおいくらですか？", None); f.on_check("asks", ASKS_YES)
+            for _ in range(OWN_REWRITES):
+                r = f.apply("replay_opening", {"part": "no_answer", "answer": answer})
+                self.assertEqual((r["result"], r.get("play"), r.get("say"), r["ack"]), ("rejected", None, None, None), answer)
+                self.assertIn(why, r["message"])
+                self.assertIn("書き直す", r["message"])
+            self.assertNotIn("callee_question", f.facts)                                    # 決まるまでは記録しない
             r = f.apply("replay_opening", {"part": "no_answer", "answer": answer})
-            self.assertEqual((r["result"], r["play"][0]["text"], r["ack"]), ("own_answer", OWN_FALLBACK, "moushiwake"), answer)
+            self.assertEqual((r["result"], r["play"][0]["text"], r["ack"]), ("own_answer", OWN_FALLBACK, None), answer)
             self.assertIn(why, r["message"])
-            self.assertEqual((f.facts["callee_question"][-1]["answered"], f.facts["callee_question"][-1]["answer"]), (False, answer))
+            q = f.facts["callee_question"][-1]
+            self.assertEqual((q["answered"], q["answer"], [d["text"] for d in q["drafts"]]), (False, OWN_FALLBACK, [answer] * (OWN_REWRITES + 1)))
+        # 書き直した文が通れば、その文のとおりに言わせる（通らなかった文は、通話後の検証のために残す）
+        f = info_flow()
+        self.heard(f, "御社の資本金はおいくらですか？", None); f.on_check("asks", ASKS_YES)
+        f.apply("replay_opening", {"part": "no_answer", "answer": "資本金につきましてはこの場ではお答えいたしかねます。"})
+        self.assertIn("書き直す", f._now())
+        r = f.apply("replay_opening", {"part": "no_answer", "answer": "資本金につきましては担当の者に申し伝えます。"})
+        self.assertEqual((r["result"], r["say"], r["ack"]), ("own_answer", "資本金につきましては担当の者に申し伝えます。", "hai"))
+        self.assertEqual(len(f.facts["callee_question"][-1]["drafts"]), 1)
+        # 断らない一言の録音と、決まった言い方・録音のどれにも、断りの言い方は無い
+        from flowctl import REFUSAL
+        from phrases import RECORDED
+        self.assertEqual([k for k, v in RECORDED.items() if REFUSAL.search(v)], [])
+        # 断りでない言い方は止めない（「〜かねない」「ご遠慮なく」）
+        for text in ("どうぞご遠慮なくお申し付けいただけますと幸いです。", "誤解を招きかねない点はございません。", "いただいたご質問は担当の者に申し伝えます。"):
+            self.assertIsNone(REFUSAL.search(text), text)
+        for text in ("この場ではお答えいたしかねます。", "私の方では分かりかねます。", "お答えできません。", "回答は控えさせていただきます。",
+                     "お約束はできかねます。", "存じ上げません。", "ご遠慮ください。"):
+            self.assertTrue(REFUSAL.search(text), text)
         # 固有名詞と数は業務の情報にあるものだけ：相手が質問で言った地名を肯定しない。ふつうの名詞は相手の質問の言葉も使える。文字の幅はそろえる
         from flowctl import own_answer_problem
         info = "弊社の本社は東京都港区にございます。営業時間は９時から１８時です。"
         self.assertIn("目黒", own_answer_problem("はい、弊社は目黒にございます。", info, "御社は目黒ですよね？", [], False))
         self.assertIn("10", own_answer_problem("営業時間は10時からです。", info, "何時から営業されていますか？10時からですか？", [], False))
         self.assertIsNone(own_answer_problem("営業時間は9時から18時です。", info, "営業時間は何時から何時までですか？", [], False))
-        self.assertIsNone(own_answer_problem("番号の件につきましてはこの場ではお答えいたしかねます。", info, "この番号はどこで知ったんですか？", [], False))
+        self.assertIsNone(own_answer_problem("番号の件につきましては担当の者に申し伝えます。", info, "この番号はどこで知ったんですか？", [], False))
+        self.assertIn("お断り", own_answer_problem("番号の件につきましてはこの場ではお答えいたしかねます。", info, "この番号はどこで知ったんですか？", [], False))
         # 担当から改めて連絡すると申し出てよい業務：答えを持っていない問いへの申し出は通す（答えのある問いへの約束は通さない）
         f = info_flow(follow_up=True)
         self.heard(f, "御社の資本金はおいくらですか？", None); f.on_check("asks", ASKS_YES)
@@ -4975,8 +5063,8 @@ class TargetTest(unittest.TestCase):
         self.heard(f, "はい、岡田は私です。", TARGET_IS_THERE)
         f.apply("report_party", {"party": "target"})
         self.heard(f, "ところでキャンセル料はいくらですか？", None)
-        r = f.apply("replay_opening", {"part": "no_answer", "answer": "キャンセル料につきましてはこの場ではお答えいたしかねます。"})
-        self.assertEqual((r["result"], r["say"]), ("own_answer", "キャンセル料につきましてはこの場ではお答えいたしかねます。"))
+        r = f.apply("replay_opening", {"part": "no_answer", "answer": "キャンセル料につきましては担当の者に申し伝えます。"})
+        self.assertEqual((r["result"], r["say"]), ("own_answer", "キャンセル料につきましては担当の者に申し伝えます。"))
         self.heard(f, "わかりました。", None)
         r = f.apply("replay_opening", {"part": "resume"})
         self.assertEqual(([p.get("kind") for p in r["play"]], r["play"][-1].get("id")), (["question"], f.current))
@@ -5102,7 +5190,7 @@ class TargetTest(unittest.TestCase):
         r = y.apply("replay_opening", {"part": "handover"})
         self.assertEqual((r["result"], y.target_called, [p.get("part", p.get("id")) for p in r["play"]][-1]), ("next", [0], "callback_authority"))
         y.on_callee(); y.on_heard("あ、ちょうど岡田が戻ってまいりました。少々お待ちください。"); y.on_check("judge", HOLD); y.on_check("judge2", HOLD)
-        self.assertEqual(y.apply("record_answer", {"question_id": "S1", "condition_id": "いいえ"})["result"], "hold")
+        self.assertEqual(y.apply("record_answer", {"question_id": "S1", "condition_id": "取次ぎのみ"})["result"], "hold")
         y.on_callee(); y.on_heard("お電話代わりました。岡田です。")
         y.on_check("judge", TARGET_IS_THERE); y.on_check("judge2", TARGET_IS_THERE)
         self.assertEqual(y.apply("report_party", {"party": "target"})["result"], "confirm_target")
@@ -6206,17 +6294,19 @@ class OfferTest(unittest.TestCase):
         r = f.apply("report_party", {"party": "substitute"})
         self.assertEqual((self.played(r), r["ack"], f.phase, f.current), (["purpose", "callback_authority"], "arigatou", "asking", "S1"))
         self.assertEqual(f.facts["substitute"][0]["policy"], "decision_maker")
-        self.heard(f, "はい、私が営業の責任者ですので大丈夫です。", "はい")
-        r = f.apply("record_answer", {"question_id": "S1", "condition_id": "はい"})
+        # ✅ 2026-10-22 ユーザー（4回目）：お立場を伺う一言は、判断いただけるか・お取次ぎのみか、の2つから選んでいただく問い（答えも2つ）
+        self.assertEqual(f.questions["S1"].conditions, ("判断できる", "取次ぎのみ"))
+        self.heard(f, "はい、私が営業の責任者ですので大丈夫です。", "判断できる")
+        r = f.apply("record_answer", {"question_id": "S1", "condition_id": "判断できる"})
         self.assertEqual((r["result"], r["question_id"], self.played(r)), ("next", "Q1", ["Q1"]))  # 用件はもう流した＝最初の質問だけ
-        self.assertEqual((f.facts["connect"][0]["who"], f.facts["substitute"][0]["answer"], f.not_reached), ("substitute", "はい", None))
+        self.assertEqual((f.facts["connect"][0]["who"], f.facts["substitute"][0]["answer"], f.not_reached), ("substitute", "判断できる", None))
         self.assertNotIn("S1", f.export())                                                         # システムが足した質問は渡さない
-        # 「いいえ」（伝えるだけ）：お礼を言い、こちらからかけ直す形にして、お呼びした方の戻る時刻を聞く
+        # 「お取次ぎのみ」（伝えるだけ）：お礼を言い、こちらからかけ直す形にして、お呼びした方の戻る時刻を聞く
         f, b = self.flow()
         self.heard(f, "岡田は本日不在にしておりまして、代わりに私がご用件を伺います。", TARGET_IS_AWAY)
         f.apply("report_party", {"party": "substitute"})
-        self.heard(f, "いえ、私はお話を伺って伝えるだけになります。", "いいえ")
-        r = f.apply("record_answer", {"question_id": "S1", "condition_id": "いいえ"})
+        self.heard(f, "いえ、私はお話を伺って伝えるだけになります。", "取次ぎのみ")
+        r = f.apply("record_answer", {"question_id": "S1", "condition_id": "取次ぎのみ"})
         self.assertEqual((self.played(r), r["ack"], r["question_id"]), (["offer_thanks", "callback_back_time"], None, "C1"))
         self.assertIsNone(f.facts.get("connect"))
 
