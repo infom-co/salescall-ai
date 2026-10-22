@@ -6380,6 +6380,26 @@ class OfferTest(unittest.TestCase):
         r = f.apply("request_callback", {"why": "absent"})
         self.assertEqual((r["question_id"], f.not_reached, bool(f.facts.get("departed"))), ("C1", "absent", True))
 
+    def test_email_address_form(self):
+        # メールアドレスの型の値は、形（宛名@宛先。宛先はドットで区切る）を確かめ、半角・空白なしにそろえる（Intent.md 9-5「相手の肯定と形式の検査が
+        # そろったときだけ確認済み」）。⛔ G-57 tc34・tc35（メールで・S2）：報告の値「info@example」（宛先が途中まで）が、形の確かめなしに通っていた
+        from flowctl import UNDECIDED, form_problem, normalize_value
+        self.assertEqual(normalize_value("email", "info @ example.co.jp です。"), "info@example.co.jp")
+        self.assertEqual(normalize_value("email", "ｉｎｆｏ＠ｅｘａｍｐｌｅ．ｃｏ．ｊｐ"), "info@example.co.jp")
+        for v in ("info@example.co.jp", "yamada.t@abc-corp.com"):
+            self.assertIsNone(form_problem("email", v), v)
+        for v in ("info@example", "インフォアットマークイグザンプル", "example.co.jp"):
+            self.assertIn("メールアドレスの形", form_problem("email", v), v)
+        f, b = self.flow()
+        self.heard(f, "営業のお電話はすべてメールでお願いしております。", UNDECIDED)
+        f.apply("request_callback", {"why": "other_means", "offer": "email"})
+        self.heard(f, "info @ example.co.jp です。")
+        r = f.apply("record_answer", {"question_id": "C3", "condition_id": "答えた", "value": "info@example"})
+        self.assertEqual((r["result"], f.items["C3"].value), ("ask_back", None))            # 形が合わない値は受け取らず聞き返す
+        self.heard(f, "info @ example.co.jp です。")
+        r = f.apply("record_answer", {"question_id": "C3", "condition_id": "答えた", "value": "info @ example.co.jp"})
+        self.assertEqual((r["result"], f.items["C3"].value), ("confirm_required", "info@example.co.jp"))
+
     def test_other_means_records_the_address_and_closes(self):
         # ほかの手段（「メールで送って」）：✅ ユーザー「希望とメールアドレスを記録して、お礼を言って締める」
         from flowctl import TARGET_IS_THERE, UNDECIDED

@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass, field
 
 from names import hira, quote, unvoiced
@@ -94,6 +95,8 @@ def normalize_value(qtype: str, value: str | None, unit: str = "") -> str | None
         v = _TAIL.sub("", v).strip()
         if qtype in DATE_TIME_TYPES | NUMBER_TYPES:
             v = _REQUEST_TAIL.sub("", v).strip()
+    if qtype == "email":
+        v = re.sub(r"\s", "", unicodedata.normalize("NFKC", v))  # 「info @ example.co.jp」「ｉｎｆｏ＠…」⇒ 依頼主へ渡す形（半角・空白なし）
     if qtype in NO_SPACE_TYPES:
         v = _SPACE.sub("", v)
         if qtype == "number":
@@ -131,6 +134,9 @@ _NUMBER_WORDS = re.compile(r"ひとり|ひとつ|ふたり|ふたつ|みっつ|�
                            r"(?:いち|に|さん|ご|ろく|しち|なな|はち|きゅう|く|じゅう)(?:にん|めい)|数名|数人|何名|何人")
 
 
+_EMAIL = re.compile(r"[^@\s]+@[^@\s.]+(?:\.[^@\s.]+)+")  # メールアドレスの形（宛名@宛先。宛先はドットで区切る）
+
+
 def form_problem(qtype: str, value: str | None) -> str | None:
     """値の形が型に合わない理由（合っていれば None）。値の形をそろえた（normalize_value）あとの値に当てる。
     答えが質問に合うかは、ここ1か所で決める（✅ 2026-10-14 ユーザー承認。AIには聞いたとおりの値で報告させる）。"""
@@ -144,6 +150,11 @@ def form_problem(qtype: str, value: str | None) -> str | None:
         if _NUMERAL.search(value) or _NUMBER_WORDS.search(value):
             return None
         return "数がありません"
+    if qtype == "email" and not _EMAIL.fullmatch(re.sub(r"\s", "", unicodedata.normalize("NFKC", value))):
+        # メールアドレスの形（〇〇@〇〇.〇〇）でない：⛔ 2026-10-22 G-57 tc34・tc35（メールで・S2）：相手は「info @ example.co.jp」と言い、
+        # AIも声では言い直したのに、報告の値は「info@example」（宛先が途中まで）で、形の確かめが無かったので通っていた（Intent.md 9-5
+        # 「相手の肯定と形式の検査がそろったときだけ確認済み」の形式の検査が、メールには入っていなかった）
+        return "メールアドレスの形（英字などの宛名・@・ドットで区切った宛先）ではありません"
     if qtype in CONFIRM_TYPES - DATE_TIME_TYPES:
         # 名前・電話番号・メール・住所：返事の言葉だけの値は、答えの値ではない。⛔ 2026-10-17 の見直しで見つけた漏れ：名前を聞いて
         #    「結構です」「はい」とだけ言われると、「結構ということでよろしいでしょうか？」と言い直していた（日時・数は止めていた）
