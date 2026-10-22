@@ -1023,6 +1023,9 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      " UPDATE salescall.setting_definitions SET finest_scope = 'system' WHERE key = 'backup.ai.keep_days_drive';"
      " ALTER TABLE salescall.setting_definitions ENABLE TRIGGER setting_definitions_frozen",
      ("tests.test_backup.PerClient.test_a_contractor_sets_its_own_keep_days",)),
+    ("書き換える関数を足しても、決まりの機械の表に載せずに済む（呼んでよい部品の見張りから漏れる）",
+     "ALTER FUNCTION salescall.next_customer_promise_at(uuid) VOLATILE",   # 書き換えうる関数が1つ増えた形
+     ("tests.test_foundation.ServerOnly.test_every_function_that_writes_has_its_place_in_the_rules",)),
 )
 
 

@@ -122,6 +122,14 @@ class SingleWriters(Planted):
                           "src/salescall/output/y.py": 'SQL = "INSERT INTO salescall.notification_deliveries (a) VALUES (1)"\n'})
         self.assertEqual([v.path for v in rules.single_writers(root)], ["src/salescall/core/x.py"])
 
+    def test_write_functions_are_called_only_from_their_place(self):
+        """データベースの中で書き換える関数も、呼んでよい部品を決める（2026-10-22 の見直し：画面の部品からでも通った）。読むだけの
+        関数は、どこから呼んでもよい。"""
+        root = self._app({"src/salescall/web/x.py": 'SQL = "SELECT * FROM salescall.recover_lines(%s)"\n',
+                          "src/salescall/core/leases.py": 'SQL = "SELECT * FROM salescall.recover_lines(%s)"\n',
+                          "src/salescall/web/y.py": 'SQL = "SELECT salescall.jst(now())"\n'})
+        self.assertEqual([v.path for v in rules.single_writers(root)], ["src/salescall/web/x.py"])
+
     def test_writers_table_shape(self):
         # 書き手の表の1行は、書き方（INSERT・UPDATE）ごとの場所だけ（ほかの鍵が入っていたら、表の行がずれている）
         for table, verbs in rules.WRITERS.items():

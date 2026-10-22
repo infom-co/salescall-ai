@@ -243,6 +243,16 @@ class ServerOnly(unittest.TestCase):
                            and not any(g + "(" in f["body"] for g in self.GUARDS))
         self.assertEqual(unguarded, [])
 
+    def test_every_function_that_writes_has_its_place_in_the_rules(self):
+        """サーバーの役が呼べる、データベースの中で書き換える関数（volatile）は、すべて決まりの機械の表（checks/rules.py の
+        WRITE_FUNCTIONS）に、呼んでよい部品とともに載っている（新しく足した関数が見張りから漏れない）。"""
+        from checks import rules
+        writes = owner_access().in_system(SYSTEM, lambda tx: sorted(r["f"] for r in tx.all(
+            "SELECT p.proname AS f FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace"
+            " WHERE n.nspname = 'salescall' AND p.provolatile = 'v' AND pg_get_function_result(p.oid) <> 'trigger'"
+            " AND has_function_privilege('salescall_app', p.oid, 'EXECUTE')")))
+        self.assertEqual(writes, sorted(rules.WRITE_FUNCTIONS))
+
     def test_a_delivery_record_keeps_which_row_it_was_sent_for(self):
         """連携の台帳で書き換えられるのは、送った状態だけ（2026-10-22 の見直し：「送った」記録を、送っていない別のお客様の行へ
         付け替えられた）。"""

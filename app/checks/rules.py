@@ -246,6 +246,25 @@ WRITERS: dict[str, dict[str, frozenset[str]]] = {
     "notification_deliveries": {"INSERT": frozenset({"src/salescall/output/"})},   # 知らせの送信の記録（Q23。送るのは CL-3）
 }
 _WRITE = re.compile(r"\b(INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+salescall\.(\w+|\{\})", re.IGNORECASE)
+# データベースの中で書き換える関数（サーバーの役が呼べる・volatile）も、呼んでよい部品を決める（2026-10-22 の見直し：表への INSERT・
+# UPDATE だけを見ていて、関数の呼び出しは、画面の部品からでも落ちずに通った）。ここに無い関数は読むだけ（どこから呼んでもよい）。
+# 表と同じ1つの決まり（書く所は1か所）。データベースの関数がこの表とずれていないかは tests/test_foundation の試験が確かめる。
+WRITE_FUNCTIONS: dict[str, frozenset[str]] = {
+    "agent_beat": frozenset({_CORE + "agents.py"}),              # PC の合図（5-5）
+    "lease_line": frozenset({_CORE + "leases.py"}),              # 回線の借用（5-4）
+    "return_line": frozenset({_CORE + "leases.py"}),
+    "recover_lines": frozenset({_CORE + "leases.py"}),           # 落ちた試行の後始末
+    "take_job": frozenset({_CORE + "leases.py"}),                # 仕事の借用
+    "return_job": frozenset({_CORE + "leases.py"}),
+    "notify_admin": frozenset({_CORE + "notify.py"}),            # 管理者あての知らせ（Q23）
+    "request_fix": frozenset({_CORE + "fix_requests.py"}),       # 修正依頼
+    "release_expired_claims": frozenset({_CORE + "gate.py"}),    # 予約の取り消し（5-2-1 の2）
+    "release_claims_for_stop": frozenset({_CORE + "stops.py"}),
+    "release_claims_for_contractor_dnc": frozenset({_CORE + "dnc.py"}),
+    "release_claims_on_line": frozenset({_CORE + "registry.py"}),
+    "release_claims_in_scope": frozenset({_CORE + "calendar.py", _CORE + "settings.py", _CORE + "registry.py"}),
+}
+_CALL = re.compile(r"\bsalescall\.(\w+)\s*\(")
 
 
 def _allowed(rel: str, places: frozenset[str]) -> bool:
@@ -272,6 +291,11 @@ def single_writers(app_root: Path) -> list[Violation]:
                 if not _allowed(rel, places):
                     where = "、".join(sorted(places))
                     out.append(Violation("I-12", rel, line, f"salescall.{table} を {verb} してよいのは {where} だけです"))
+            for m in _CALL.finditer(text):
+                places = WRITE_FUNCTIONS.get(m.group(1))
+                if places is not None and not _allowed(rel, places):
+                    where = "、".join(sorted(places))
+                    out.append(Violation("I-12", rel, line, f"salescall.{m.group(1)}（書き換える関数）を呼んでよいのは {where} だけです"))
     return out
 
 
