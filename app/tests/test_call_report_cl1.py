@@ -151,19 +151,27 @@ class Judged(unittest.TestCase):
                                       retry_at=tomorrow, target=Target(uuid.UUID(int=1)))
                 self.assertEqual((d.kind, d.end_reason), ("end", "policy_max:not_reached_not_transferred"))
 
-    def test_absent_is_a_callback_and_the_promised_time_is_kept(self):
-        """不在のかけ直しの申し出：時刻が取れなかった ⇒ 時刻の決まっていない約束（DESIGN.md 7-1「時刻を聞けなかった」）。
-        時刻が取れた ⇒ 約束の時刻。確かめに戻って別の方だった通話も、同じかけ直し（電話口の種別に target があっても繋がっていない）。"""
+    def test_absent_without_a_time_is_absent_and_a_said_time_is_kept(self):
+        """不在のかけ直しの申し出：戻る時刻が取れなかった ⇒ 約束ではなく「不在」（再発信の方針 not_reached_absent＝かけ直しの回数の
+        上限まで。2026-10-13 ユーザー：「『不在』のときは、かけ直しの回数の上限までかけ直す案です。⇒OK」）。「いつでも」など時刻を任せる
+        言葉も同じ。時刻が取れた ⇒ 約束の時刻（「戻る時刻が聞けたときは『折り返し予定』…⇒はい」）。確かめに戻って別の方だった通話も、
+        同じ（電話口の種別に target があっても繋がっていない）。"""
         for name in ("不在・途中で切れた", "戻ったが別の方"):
             with self.subTest(name):
                 j = run(SCENES[name])
-                self.assertEqual((j.state, j.detail["callback"]["reason"], j.detail["callback"]["at"], j.detail["policy_key"]),
-                                 ("callback_scheduled", "absent", None, "callback_unspecified_time"))
+                self.assertEqual((j.state, j.detail.get("not_reached"), j.detail["policy_key"], j.detail.get("callback")),
+                                 ("not_reached", "absent", "not_reached_absent", None))
+        anytime = copy.deepcopy(ABSENT_CUT)
+        anytime["facts"]["callback"][0]["time"] = "いつでも大丈夫です"
+        self.assertEqual((run(anytime).state, run(anytime).detail["policy_key"]), ("not_reached", "not_reached_absent"))
         timed = copy.deepcopy(ABSENT_CUT)
         timed["facts"]["callback"][0]["time"] = "明日の午後3時"   # 受付の方が戻る時刻を言った（callback の time に入る。CL-1 の 4-27）
         j = run(timed)
         self.assertEqual((j.state, j.detail["callback"]["at"], j.detail["callback"]["exact"], j.detail["policy_key"]),
                          ("callback_scheduled", "2030-01-08T15:00:00+09:00", True, None))
+        later = copy.deepcopy(ABSENT_CUT)   # お客様ご自身の「あとで」（時刻なし）は、これまでどおり時刻の決まっていない約束
+        later["facts"]["callback"][0]["why"] = "later"
+        self.assertEqual((run(later).state, run(later).detail["policy_key"]), ("callback_scheduled", "callback_unspecified_time"))
 
     def test_a_callback_that_reached_the_target_is_not_used(self):
         """かけ直しの質問の途中で目的のお客様に繋がった（connected）：そのかけ直しは使わず、繋がった通話として業務の質問で決める。"""
@@ -173,12 +181,12 @@ class Judged(unittest.TestCase):
 
     def test_a_silent_hang_up_at_the_reception_is_a_refusal(self):
         """種別の報告が無い受付の方の通話も「話した」なので、切れ方を見る（7-1c。種別があった通話と同じ）：AIが話している途中に
-        黙って切った ⇒ 発信の拒否（原則14）。お客様の言葉の途中で切れた ⇒ 途中で切れた（かけ直しの約束のまま）。"""
+        黙って切った ⇒ 発信の拒否（原則14）。お客様の言葉の途中で切れた ⇒ 途中で切れた（戻る時刻が取れていないので不在のまま）。"""
         dropped = Facts("dropped", "callee", True, False, NOW)
         j = run(ABSENT_CUT, facts=dropped, cut=Cut("ai", False, False))
         self.assertEqual((j.state, j.dnc_reason, j.disconnect), ("do_not_call", "refused_in_call", "refused"))
         j = run(ABSENT_CUT, facts=dropped, cut=Cut("callee", False, False))
-        self.assertEqual((j.state, j.disconnect), ("callback_scheduled", "interrupted"))
+        self.assertEqual((j.state, j.disconnect), ("not_reached", "interrupted"))
         # 切れ方の材料が無い：話した通話なので、決めつけずに判定できない（直すのは電話接続の側＝CL-1）
         self.assertEqual(run(NOT_TRANSFERRED, cut=None).detail["unknown_cause"], "cut_missing")
 
