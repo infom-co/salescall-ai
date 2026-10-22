@@ -4994,6 +4994,37 @@ class TargetTest(unittest.TestCase):
         y.on_callee(); y.on_heard("お電話代わりました。岡田です。")
         y.on_check("judge", TARGET_IS_THERE); y.on_check("judge2", TARGET_IS_THERE)
         self.assertEqual(y.apply("report_party", {"party": "target"})["result"], "next")
+        # 1つの言葉に「不在」と「取り次ぎ」の2つの意味：目的の人の判定が2つとも「不在」でも、尋ねているかの問い合わせが「取り次ぎを待つ」なら
+        # 黙って待ち、区切りも動かす（⛔ 2026-10-22 G-57 tc21：取り次ぎの最中に、かけ直しの質問へ進んだ）
+        z, _ = self.checked()
+        z.use_checks("judge", "judge2")
+        z.on_callee(); z.on_heard("岡田は外出しておりますので、別の者に代わります。少々お待ちください。")
+        z.on_check("judge", TARGET_IS_AWAY); z.on_check("judge2", TARGET_IS_AWAY); z.on_check("asks", HOLD)
+        self.assertEqual((z.apply("report_party", {"party": "reception"})["result"], z.speaker_from), ("hold", 2))
+        self.assertIsNone(z.unreported_note())
+        z.on_callee(); z.on_heard("お電話代わりました。山田です。")
+        z.on_check("judge", HANDOVER); z.on_check("judge2", HANDOVER)
+        r = z.apply("replay_opening", {"part": "handover"})
+        self.assertEqual(r["result"], "rejected")
+        self.assertIn("request_callback", r["message"])
+        # かけ直しへ進むように伝えたあと：(1) 取り次ぎの読みが遅れて届いたら、黙って待つように知らせ、かけ直しの申し出も待たせる
+        # (2) 取り次ぎの読みが無いのにAIが進まずにターンを終えたら、1回だけ知らせる（⛔ 2026-10-22 G-57 tc22）
+        a, _ = self.checked()
+        a.use_checks("judge", "judge2")
+        a.on_callee(); a.on_heard("岡田は外出しておりますので、別の者に代わります。少々お待ちください。")
+        a.on_check("judge", TARGET_IS_AWAY); a.on_check("judge2", TARGET_IS_AWAY)
+        self.assertEqual(a.apply("report_party", {"party": "reception"})["result"], "rejected")
+        a.on_check("asks", HOLD)                                                 # 4.6秒で届いた
+        self.assertIn("取り次ぎを待つ言葉でもありました", a.unreported_note())
+        self.assertIsNone(a.unreported_note())                                   # 1つの発話に1回
+        self.assertEqual(a.apply("request_callback", {"why": "absent"})["result"], "hold")
+        a2, _ = self.checked()
+        a2.on_callee(); a2.on_heard("岡田は本日休みをいただいております。")
+        a2.on_check("judge", TARGET_IS_AWAY)
+        self.assertEqual(a2.apply("report_party", {"party": "reception"})["result"], "rejected")
+        self.assertIn("request_callback", a2.unreported_note())
+        self.assertIsNone(a2.unreported_note())
+        self.assertEqual(a2.apply("request_callback", {"why": "absent"})["result"], "next")
         # 相手が話し続けたら、前の言葉の弱い読みは消える（いまの言葉の判定だけを使う＝on_heard）
         v, _ = self.checked()
         v.on_callee(); v.on_heard("岡田ですね。"); v.on_unsure("judge", HOLD, said="岡田ですね。")

@@ -155,8 +155,8 @@ class Business:
         if self.target is not None:
             parts.update(target=self.target.call(), target_confirm=self.target.confirm(), target_reconfirm=self.target.reconfirm())
         if self.voicemail_message:
-            parts["voicemail"] = self.voicemail_message
-        parts.update({f"answer_{name}": text for name, text in self.answers})  # 想定問答の答え（依頼主の単位の録音。flowctl.ANSWER_PREFIX）  # 留守番電話の伝言（依頼主ごとの設定。✅ 2026-10-19 ユーザー：必要なら録音）
+            parts["voicemail"] = self.voicemail_message  # 留守番電話の伝言（依頼主ごとの設定。✅ 2026-10-19 ユーザー：必要なら録音）
+        parts.update({f"answer_{name}": text for name, text in self.answers})  # 想定問答の答え（依頼主の単位の録音。flowctl.ANSWER_PREFIX）
         return parts
 
 
