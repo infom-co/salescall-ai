@@ -24,6 +24,7 @@ import psycopg
 
 MIGRATIONS_DIR = Path(__file__).resolve().parents[3] / "db" / "migrations"
 ROLES_SQL = MIGRATIONS_DIR.parent / "setup_roles.sql"
+FINISH_SQL = MIGRATIONS_DIR.parent / "finish_roles.sql"   # 表の作りを全部流したあとの役の片付け
 LOCK_WAIT = "5s"   # 表を変える取引が、ほかの取引の終わりを待つ長さ（過ぎたら取り消して、間をあけて流し直す）
 LOCK_TRIES = 12
 
@@ -91,6 +92,12 @@ def setup_roles(admin_conninfo: str) -> None:
         conn.execute(_body(ROLES_SQL).decode("utf-8"))
 
 
+def finish_roles(admin_conninfo: str) -> None:
+    """表の作りを全部流したあとの役の片付け（db/finish_roles.sql。前の表の作りを流すためだけの権限を外す）。何度流しても同じ結果。"""
+    with psycopg.connect(admin_conninfo, autocommit=True) as conn:
+        conn.execute(_body(FINISH_SQL).decode("utf-8"))
+
+
 if __name__ == "__main__":
     # 接続文字列（合言葉を含みうる）は、命令の引数に書かず、環境変数で渡す（PC のほかの利用者から見える場所に出さない）
     dsn = os.environ.get("SALESCALL_OWNER_DSN")
@@ -102,3 +109,6 @@ if __name__ == "__main__":
         print("役の用意を流した（db/setup_roles.sql）")
     for name in apply(dsn):
         print("流した：", name)
+    if admin:
+        finish_roles(admin)
+        print("役の片付けを流した（db/finish_roles.sql）")

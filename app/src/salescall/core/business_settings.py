@@ -22,11 +22,16 @@
   その写し（同じでなければ通さない）。名前の洗い出しと読みの決め方は CL-1（`names.decide`。2つのモデルが合うときだけ決まる）。
 - 数の質問の単位（`unit`。CL-1 の連絡帳 4-14）：数の型の質問だけが持つ（空でもよい＝補わない）。決めるのは取込のときのプログラム
   （CL-1 の決め方。管理者も契約者も確かめない）。この部品は形を確かめるだけ。
+- 想定問答（`answers`。Intent.md 5-3 (2)「AIが答えてよいこと」・9-4「範囲外の質問」。CL-1 の連絡帳 4-26）：(問いの名前, 答えの文)
+  の並び（無くてもよい）。お客様に聞かれたら、AI は問いの名前を選ぶだけで、答えの文は依頼者の単位の録音で流す（録音の部分
+  `answer_問いの名前`。部分の一覧は会話の側＝CL-1 の `instruction.Business.replay_parts`）。問いの名前は録音のファイル名に入るので、
+  Windows で使えない文字を使わない。AI が選ぶ録音の部分の名前（`ANSWER_RESERVED`）と同じ名前にしない（取り違える）。
 """
 
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field, replace
 from typing import Any
 from uuid import UUID
@@ -62,6 +67,12 @@ NAME_SOURCES = ("caller", "script")               # 名乗り（自社名・担�
 READING_BY = readings.BY                          # 読みを決めたもの（正本は core/readings.py）
 UNIT_TYPE = "number"                              # 単位を持てる型（金額には補わない。DESIGN.md 6-2 の ⚠️）
 QUESTION_KEYS = {"id", "text", "ask_about", "type", "required", "choices", "next", "unit", "meanings", "replies"}
+ANSWER_KEYS = {"name", "text"}                    # 想定問答の1つ：問いの名前・答えの文
+# 想定問答の問いの名前に使えない名前（1か所）：AI が流し直しで選ぶ録音の部分の名前（正本は会話の側＝CL-1 の flowctl.PART_LABEL の鍵）。
+# 会話の側は、問いの名前を先に読むので、同じ名前だと名乗りなどの録音が流れなくなる。会話の側に名前が増えたら、ここに足す（CL-2.md 4-129）
+ANSWER_RESERVED = frozenset({"intro", "purpose", "all", "handover", "ai", "resume", "unknown"})
+ANSWER_NAME_MAX = 30                              # 問いの名前の長さの上限（録音のファイル名に入る）
+_FILE_UNSAFE = re.compile(r'[\\/:*?"<>|\x00-\x1f]')    # Windows のファイル名に使えない文字
 
 
 class SettingsInvalid(Exception):
@@ -125,6 +136,7 @@ class Settings:
     busy_line: str | None                         # 「忙しい」と言われたときの一言（空なら丁寧に終える）
     voicemail_message: str | None                 # 留守番電話に残す伝言（空なら残さない。CL-1 の 4-22・Intent.md 9-4）
     ai_answer: str | None                         # 「AIですか」と聞かれたときの答え（空なら会話の既定の文。CL-1 の 4-22）
+    answers: tuple[tuple[str, str], ...]          # 想定問答：(問いの名前, 答えの文) の並び（CL-1 の 4-26。無くてもよい）
     voice: str                                    # 声の型の名前（CL-1。Intent.md 9-8）
     questions: tuple[Question, ...]
     names: tuple[Name, ...]
@@ -149,8 +161,8 @@ class Settings:
         return ids[i + 1] if i + 1 < len(ids) else END
 
 
-KEYS = {"purpose", "target_class", "caller", "target_person", "busy_line", "voicemail_message", "ai_answer", "voice", "questions",
-        "names", "rules"}
+KEYS = {"purpose", "target_class", "caller", "target_person", "busy_line", "voicemail_message", "ai_answer", "answers", "voice",
+        "questions", "names", "rules"}
 
 
 def _text(v: Any, where: str, problems: list[str], *, optional: bool = False) -> str | None:
@@ -192,6 +204,34 @@ def _names_entry(x: Any, where: str, problems: list[str], *, ai_reading_needs_pe
         problems.append(f"名前「{x['text']}」の読み「{reading}」は AI が決めた読みです。検証モードでは、契約者が確かめてから使います"
                         "（Intent.md 6-8）")
     return None if text is None else Name(text, reading, x["source"], by, tuple(cands), likely)
+
+
+def _answers(v: Any, problems: list[str]) -> tuple[tuple[str, str], ...]:
+    """想定問答（形の確かめはここだけ）：問いの名前と答えの文の並び。問いの名前は重ならない・録音のファイル名に使える・AI が選ぶ
+    録音の部分の名前と同じでない。"""
+    if not isinstance(v, list):
+        problems.append("想定問答（answers）は並びです（無ければ空の並び）")
+        return ()
+    out: list[tuple[str, str]] = []
+    for n, x in enumerate(v, 1):
+        where = f"想定問答 {n} 番目"
+        if not isinstance(x, dict) or set(x) != ANSWER_KEYS:
+            problems.append(f"{where}は、問いの名前（name）と答えの文（text）です")
+            continue
+        name = _text(x["name"], f"{where}の問いの名前", problems)
+        text = _text(x["text"], f"{where}の答えの文", problems)
+        if name is None or text is None:
+            continue
+        if _FILE_UNSAFE.search(name) or len(name) > ANSWER_NAME_MAX:
+            problems.append(f"{where}の問いの名前「{name}」は、録音のファイル名に入るので、{ANSWER_NAME_MAX} 文字までで、"
+                            "\\ / : * ? \" < > | を使えません")
+        elif name in ANSWER_RESERVED:
+            problems.append(f"{where}の問いの名前「{name}」は、AI が選ぶ録音の部分の名前と同じなので使えません（{sorted(ANSWER_RESERVED)}）")
+        elif name in {a for a, _ in out}:
+            problems.append(f"想定問答に、同じ問いの名前「{name}」が2つあります（問いごとに1つ）")
+        else:
+            out.append((name, text))
+    return tuple(out)
 
 
 def _caller(v: Any, where: str, names: list[Name], problems: list[str], *, reading_required: bool) -> Name | None:
@@ -321,6 +361,7 @@ def check(raw: Any, *, field_types: frozenset[str], ai_reading_needs_person: boo
     busy_line = _text(raw["busy_line"], "忙しいと言われたときの一言", problems, optional=True)
     voicemail_message = _text(raw["voicemail_message"], "留守番電話に残す伝言", problems, optional=True)
     ai_answer = _text(raw["ai_answer"], "「AIですか」と聞かれたときの答え", problems, optional=True)
+    answers = _answers(raw["answers"], problems)
     voice = _text(raw["voice"], "声の型", problems)
     if voice is not None and voice_types is not None and voice not in voice_types:
         problems.append(f"声の型「{voice}」は、声の型の一覧にありません（{sorted(voice_types)}）")
@@ -370,7 +411,7 @@ def check(raw: Any, *, field_types: frozenset[str], ai_reading_needs_person: boo
     if questions and not any(q.required for q in questions):
         problems.append("必須の質問が1つもありません（どんな通話でも「すべて取れた」になる。Intent.md 6-4）")
     s = Settings(purpose or "", target_class if target_class in TARGET_CLASSES else "", company or Name("", None, "caller", None), person or Name("", None, "caller", None), purpose_line,
-                 dict(tp), busy_line, voicemail_message, ai_answer, voice or "", tuple(questions), tuple(names), None, raw)
+                 dict(tp), busy_line, voicemail_message, ai_answer, answers, voice or "", tuple(questions), tuple(names), None, raw)
     # 分岐は、すべての質問が読めたときだけ確かめる（読めなかった質問を除いて確かめると「分岐先がありません」などのうその理由が出る）
     if questions and len(questions) == len(raw["questions"]) and len({q.id for q in questions}) == len(questions):
         problems += _flow_problems(s, raw["rules"])

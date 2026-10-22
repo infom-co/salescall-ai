@@ -34,6 +34,7 @@ def book(*, sheets=None, drop=(), rename=None) -> bytes:
         + [("かけ直しの時刻が決まっていない", "かける", "2", "1日後")],
         "言ってはいけないこと": [("名前", "言ってはいけないこと", "正しい案内"), ("F1", "初月は無料です", "初月は半額です")],
         "名前": [("表記", "読み"), ("テスト便", "てすとびん")],
+        "想定問答": [("問いの名前", "答え"), ("番号の出どころ", "以前ご予約の際にいただいたお電話番号にお掛けしております。")],
     }
     content.update(sheets or {})
     wb = openpyxl.Workbook()
@@ -93,6 +94,7 @@ class Import(unittest.TestCase):
                          ("END", frozenset({"しない"}), ("days", 1)))
         self.assertEqual(got.rules.handling[("Q2", "refused", "policy")].conclusion, "回答不可")   # 「全部」の行が効く
         self.assertIn(bs.Name("テスト便", "てすとびん", "script", "given"), got.names)
+        self.assertEqual(got.answers, (("番号の出どころ", "以前ご予約の際にいただいたお電話番号にお掛けしております。"),))   # 想定問答
 
     def test_register_refuses_a_changed_preview(self):
         p = self.preview(book())
@@ -336,6 +338,13 @@ class Import(unittest.TestCase):
         names = {"名前": ["シート「基本」の自社名", "シート「基本」の担当者名", "シート「名前」の 2 行目"]}
         self.assertEqual(bi._placed(["名前 3 番目の表記 が空です", "名前 4 番目の読み"], names),
                          ["シート「名前」の 2 行目の表記 が空です", "名前 4 番目の読み"])   # ファイルに無い名前（AI が足した）はそのまま
+
+    def test_answer_problems_point_to_the_sheet_and_row(self):
+        """想定問答の問題も、シートと行で出す。想定問答のシートは無くてもよい（CL-1 の連絡帳 4-26）。"""
+        rows = book_rows("想定問答") + [("番号:出どころ", "以前お電話いただいた番号です。")]
+        p = self.preview(book(sheets={"想定問答": rows}))
+        self.assertTrue(any(x.startswith("シート「想定問答」の 3 行目の問いの名前") for x in p.problems), p.problems)
+        self.assertEqual(self.preview(book(drop=("想定問答",))).problems, [])
 
     def test_registration_recomputes_the_digest_and_includes_the_business(self):
         """登録は、プレビューの指紋を信じず中身から出し直す。別の業務の指紋では登録できない（2026-10-16 の見直し I8）。"""

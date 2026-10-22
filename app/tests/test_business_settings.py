@@ -31,6 +31,7 @@ def raw() -> dict:
         "busy_line": None,
         "voicemail_message": None,
         "ai_answer": None,
+        "answers": [],
         "voice": "S2",
         "questions": [
             {"id": "Q1", "text": "ご予約はなさいますか。", "ask_about": "ご予約", "type": "choice", "required": True,
@@ -56,6 +57,22 @@ class Check(unittest.TestCase):
         self.assertEqual(s.questions[1].choices, ("答えた",))            # 値を聞く質問の選択肢は型で決まる
         self.assertEqual((s.next_of("Q1", "しない"), s.next_of("Q1", "する"), s.next_of("Q1", "わからない"),
                           s.next_of("Q2", "答えた")), ("END", "Q2", "Q2", "END"))
+
+    def test_answers_the_ai_may_give(self):
+        """想定問答（お客様に聞かれたら答えてよいこと。CL-1 の連絡帳 4-26）：問いの名前と答えの文の並び。問いの名前は重ならず、
+        録音のファイル名に使え、AI が選ぶ録音の部分の名前と同じでない。"""
+        r = raw()
+        r["answers"] = [{"name": "番号の出どころ", "text": "以前ご予約の際にいただいたお電話番号にお掛けしております。"}]
+        self.assertEqual(bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True).answers,
+                         (("番号の出どころ", "以前ご予約の際にいただいたお電話番号にお掛けしております。"),))
+        for bad, word in (([{"name": "番号の出どころ", "text": "a"}, {"name": "番号の出どころ", "text": "b"}], "同じ問いの名前"),
+                          ([{"name": "番号:出どころ", "text": "a"}], "ファイル名"), ([{"name": "あ" * 31, "text": "a"}], "ファイル名"),
+                          ([{"name": "intro", "text": "a"}], "録音の部分の名前"), ([{"name": "関係", "text": " "}], "答えの文"),
+                          ([{"name": "関係"}], "問いの名前（name）と答えの文（text）"), ({"関係": "a"}, "並び")):
+            with self.subTest(bad=bad):
+                r = raw()
+                r["answers"] = bad
+                self.assertTrue(any(word in p for p in problems_of(r)), problems_of(r))
 
     def test_meanings_and_replies_of_choice_questions(self):
         """はい／いいえ・選択肢の質問は、意味の言葉（選択肢 → 言葉）と曖昧な言葉の意味（言葉 → 選択肢）を持てる。宣言した選択肢に

@@ -15,8 +15,8 @@ import uuid
 from datetime import date, timedelta
 from unittest import mock
 
-from salescall.core import (approval, attempts, business_rules, calendar, call_report, dial_exit, dnc, gate, next_action,
-                            quality_stage, recordings, settings, settle, stops, tasks)
+from salescall.core import (approval, attempts, business_rules, calendar, call_report, dial_exit, dnc, fix_requests, gate,
+                            next_action, quality_stage, recordings, settings, settle, stops, tasks)
 from salescall.core.call_report import Cut
 from salescall.core.access import Rejected
 from salescall.core.calendar import CalendarOutOfRange, CalendarRejected
@@ -161,6 +161,20 @@ class ClaimAndDial(Base):
         rows = self.tx(s, lambda tx: tx.all("SELECT reason, line_id FROM salescall.gate_denials WHERE task_id = %s",
                                             (s["task"],)))
         self.assertEqual(rows, [{"reason": "task_ended", "line_id": s["line"]}])
+
+    def test_the_same_denial_is_recorded_once_until_the_reason_changes(self):
+        """同じ理由で何度も門へ渡し直しても、記録は増やさない。理由が変われば足す（⛔ 2026-10-22 の見直し：同時の上限のあいだ、
+        数秒ごとに1行ずつ増え続けた）。"""
+        s = self.ready()
+        t2 = self.w.task(s["tenant"], s["client"], self.w.run(s["tenant"], s["client"], s["business"], s["version"]),
+                         s["contact"])
+        for _ in range(3):
+            self.assertEqual(self.reason(s, task=t2), "no_schedule")
+        self.tx(s, lambda tx: next_action.end(tx, t2, "試験", cause="試験"))
+        self.assertEqual(self.reason(s, task=t2), "task_ended")
+        rows = self.tx(s, lambda tx: [r["reason"] for r in tx.all(
+            "SELECT reason FROM salescall.gate_denials WHERE task_id = %s ORDER BY denial_id", (t2,))])
+        self.assertEqual(rows, ["no_schedule", "task_ended"])
 
     def test_every_reason_has_a_kind(self):
         self.assertTrue(all(kind in ("permanent", "wait", "cannot_judge") for _, kind in gate.REASONS.values()))
@@ -406,6 +420,17 @@ class Pacing(Base):
         self.assertEqual(self.reason(other), "other_contractor_called")   # かけない：その行は終える側（permanent）
         with self.assertRaises(Rejected):
             put_tenant({"weeks": 1})                                     # 形の違う値は、データベースが拒む
+
+    def test_a_promised_callback_is_not_moved_by_another_clients_call(self):
+        """お客様と約束したかけ直しは、ほかの依頼者が同じ番号へかけたあとでも止めない（お客様が頼んだ時刻を守る。⛔ 2026-10-22 の
+        見直し：前は約束の時刻を止めて、依頼者をまたいだ間隔＝約3日ずらした）。"""
+        a = self.ready()
+        b = self.ready(tenant=a["tenant"], phone=a["phone"])
+        self.past_attempt(b, ["dialing", "no_answer"])
+        self.assertEqual(self.reason(a), "cross_client_interval_same_tenant")   # ふつうの予定なら止める
+        self.tx(a, lambda tx: support.schedule_call(tx, a["task"], tx.one("SELECT now() AS t")["t"],
+                                                        contact_id=a["contact"], cause="お客様に頼まれた折り返し", promised=True))
+        self.assertIsInstance(self.claim(a), gate.Claim)
 
     def test_own_retries_are_not_cross_client(self):
         s = self.ready()
@@ -1078,6 +1103,23 @@ class Calendar(Base):
         self.assertTrue(calendar.needs_fetch(2030, datetime(2030, 2, 1), today, now))        # 翌年の分が無い
         self.assertFalse(calendar.needs_fetch(2031, datetime(2030, 2, 1), today, now))       # 翌年まである
         self.assertTrue(calendar.needs_fetch(2031, datetime(2029, 6, 1, 12), today, now))    # 1年たった（直しを拾う）
+
+    def test_a_missing_next_year_is_told_before_the_year_ends(self):
+        """11月になっても翌年の祝日の暦が無ければ、年が替わる前に管理者へ知らせ、CL-2 へ修正依頼を出す（⛔ 2026-10-22 の見直し：
+        前は、1月1日になって初めて、門がすべての電話を通さなくなった）。"""
+        from datetime import date
+        self.assertFalse(calendar.next_year_missing(2030, date(2030, 10, 31)))   # 11月より前は、まだ知らせない
+        self.assertTrue(calendar.next_year_missing(2030, date(2030, 11, 1)))
+        self.assertTrue(calendar.next_year_missing(None, date(2030, 12, 31)))
+        self.assertFalse(calendar.next_year_missing(2031, date(2030, 12, 31)))   # 翌年まである
+        with mock.patch.object(calendar, "next_year_missing", lambda covered, today: True):
+            owner_access().in_system(SYSTEM, calendar._warn_next_year)
+            owner_access().in_system(SYSTEM, calendar._warn_next_year)        # 同じ日に2回でも、知らせと依頼は1つ
+        told = owner_access().in_system(ADMIN, lambda tx: tx.all(
+            "SELECT summary FROM salescall.notification_events WHERE kind = 'calendar_next_year_missing' AND for_admin"))
+        asked = owner_access().in_system(SYSTEM, lambda tx: [r for r in fix_requests.open_requests(tx, "CL-2")
+                                                             if r["kind"] == "calendar_next_year_missing"])
+        self.assertEqual((len(told), len(asked)), (1, 1))
 
     def test_sync_does_not_fetch_when_not_needed(self):
         def must_not_fetch():

@@ -8,7 +8,7 @@ from unittest import mock
 
 from salescall.core import agents, settings
 from salescall.core.access import Rejected
-from tests.support import ADMIN, OPERATOR, SYSTEM, World, app_access, fictional_caller
+from tests.support import ADMIN, OPERATOR, SYSTEM, World, app_access, fictional_caller, owner_access
 from salescall.core import registry
 
 
@@ -133,11 +133,27 @@ class Down(unittest.TestCase):
             self.assertEqual(watch(), [p.pc_id])                          # 戻って、また途切れた
             self.assertEqual(len(self.notices(t)), 2)
             admin = self.a.in_system(ADMIN, lambda tx: tx.all(
-                "SELECT origin_tenant FROM salescall.notification_events WHERE kind = 'pc_down'"))
+                "SELECT origin_tenant FROM salescall.notification_events WHERE kind = 'pc_down' AND origin_tenant = %s", (t,)))
             self.assertEqual([r["origin_tenant"] for r in admin], [t, t])  # 管理者へも
             self.a.in_tenant(OPERATOR, t, lambda tx: agents.revoke(tx, p.pc_id))
             self.a.in_system(SYSTEM, lambda tx: tx.execute("SELECT pg_sleep(0.01)"))
             self.assertEqual(watch(), [])                                 # 止めた PC は知らせない
+
+
+    def test_a_connected_pc_and_the_time_right_after_a_restart_are_not_reported(self):
+        """いまつなぎ口につないでいる PC は、合図の記録が古くても（データベースが止まっていて書けなかった）途切れとしない。つなぎ口が
+        待ち受けを始めてから途切れの長さがたつまでは、だれも途切れとしない（⛔ 2026-10-22 の見直し：前は、見守り役を立ち上げ直した
+        直後に、元気な PC まで「止まった」とすべての契約者と管理者へ知らせた）。"""
+        t = self.w.tenant()
+        p = agents.issue(self.a, SYSTEM, t, label="架空の PC")
+        watch = lambda **kw: self.a.in_tenant(SYSTEM, t, lambda tx: agents.watch_down(tx, **kw))   # noqa: E731
+        with mock.patch.object(settings, "system_value", side_effect=lambda tx, key: 60 if key == "pc.down_after" else None):
+            owner_access().in_system(SYSTEM, lambda tx: tx.execute(   # 払い出したのは1時間前（合図は一度も無い）
+                "UPDATE salescall.pc_agents SET issued_at = now() - interval '1 hour' WHERE pc_id = %s", (p.pc_id,)))
+            self.assertEqual(watch(alive=frozenset({p.pc_id})), [])          # つないでいる
+            self.assertEqual(watch(listening_for=10.0), [])                  # 立ち上げ直した直後
+            self.assertEqual(watch(listening_for=120.0), [p.pc_id])          # 途切れの長さがたっても、つながってこない
+        self.assertEqual(len(self.notices(t)), 1)
 
 
 if __name__ == "__main__":

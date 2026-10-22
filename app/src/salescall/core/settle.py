@@ -140,7 +140,9 @@ def _settle_apology(tx: Tx, a: dict[str, Any]) -> dict[str, Any]:
 
 def _notice_forbidden(tx: Tx, a: dict[str, Any], *, prepare: bool = True) -> bool:
     """言ってはいけないことを言った通話なら、お詫びの電話の案を作り（prepare。お詫びの電話そのものでは作らない）、契約者
-    へ知らせる（その試行で1回。契約者は案を確認して承認するだけ）。言ったかを返す。"""
+    へ知らせる（その試行で1回。契約者は案を確認して承認するだけ）。言ったかを返す。
+    言ったのは会話の処理の不具合なので、止めずに会話の担当（CL-1）へ修正依頼を出し、管理者にも知らせる（確かめ・承認のため。
+    Intent.md 10-3「仕組みの不具合は、直す担当へ修正依頼を出し、管理者は確かめて承認するだけ」。2026-10-22 の見直し）。"""
     forbidden = attempts.forbidden_speech(tx, a["attempt_id"])
     if not forbidden:
         return False
@@ -150,7 +152,9 @@ def _notice_forbidden(tx: Tx, a: dict[str, Any], *, prepare: bool = True) -> boo
         draft = apology.prepare(tx, a["attempt_id"])
         summary += f"お詫びの電話の案：「{draft['text']}」承認すると、AI がこのお客様にかけて伝えます。"
         refs["apology_order_id"] = draft["order_id"]
-    notify.emit(tx, "forbidden_speech", key=f"forbidden_speech:{a['attempt_id']}", summary=summary, refs=refs)
+    fix_requests.request(tx, "CL-1", "forbidden_speech", key="forbidden_speech",
+                         summary="言ってはいけないことを言った通話がありました（会話の処理の不具合）", refs=refs)
+    notify.emit(tx, "forbidden_speech", key=f"forbidden_speech:{a['attempt_id']}", summary=summary, refs=refs, admin=True)
     return True
 
 

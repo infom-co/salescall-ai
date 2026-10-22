@@ -213,6 +213,12 @@ WRITERS: dict[str, dict[str, frozenset[str]]] = {
     # 目的のお客様の確かめ直し（6-12 の (e)。検証 Q21 が入口を呼ぶ。答えを「-」にするのは 0108 の仕掛けの1か所）
     "target_rechecks": {"INSERT": frozenset({_CORE + "target_recheck.py"})},
     "item_value_history": {"INSERT": frozenset()},   # 前の通話の答えを残すのは、データベースの仕掛けだけ（0108 の item_value_guard）
+    # 2026-10-22 の見直し：書く権限があるのに一覧に無く、core のどこからでも書けた表
+    "attempt_state_history": {"INSERT": frozenset()},   # 状態の移り変わりを残すのは、データベースの仕掛けだけ（attempt_after_write）
+    "name_changes": {"INSERT": frozenset()},            # 名前の変更を残すのは、データベースの仕掛けだけ（only_name_changes など）
+    "deficit_warnings": {"INSERT": frozenset({_CORE + "usage.py"}), "UPDATE": frozenset({_CORE + "usage.py"})},   # 赤字の警告（12-1-2）
+    "destinations": {"INSERT": frozenset(), "UPDATE": frozenset()},   # 送り先（4-5。⏳ CL-3 の出力の部品が書く。作るときに足す）
+    "tenants": {"INSERT": frozenset()},                 # 契約者を作るのは、まだどの部品も無い（⏳ サブスクの契約の入口）
     "notification_events": {"INSERT": frozenset({_CORE + "notify.py"})},      # 知らせの台帳（Q23。入れるのはここだけ）
     "error_events": {"INSERT": frozenset({_CORE + "watch.py"})},              # エラーの記録（Q9。分類は errors.py）
     "stop_checks": {"INSERT": frozenset({_CORE + "watch.py"})},               # 停止を解く確かめの記録（9-1）

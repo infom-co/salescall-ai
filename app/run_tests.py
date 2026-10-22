@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -86,7 +87,15 @@ def _edited(migration: str, start: str, old: str, new: str) -> str:
     body = text[begin:text.index("END $$", begin) + len("END $$")]
     if body.count(old) != 1:
         raise AssertionError(f"壊し試しの置き換え元が {migration} の関数に1つだけありません：{old!r}")
-    return body.replace(old, new).replace("CREATE FUNCTION", "CREATE OR REPLACE FUNCTION", 1)
+    edited = body.replace(old, new).replace("CREATE FUNCTION", "CREATE OR REPLACE FUNCTION", 1)
+    # 作り直すと、あとの表の作りで足した「持ち主の権限で動く」形が外れる（狙った守りでなく権限の誤りで試験が落ち、見張れていない
+    # のに「見張れている」と出る）。あとで足していれば、作り直したあとも同じ形に戻す
+    signature = re.match(r"CREATE FUNCTION (salescall\.\w+\([^)]*\))", body)
+    if signature:
+        definer = f"ALTER FUNCTION {signature.group(1)} SECURITY DEFINER SET search_path = salescall, pg_temp"
+        if any(definer in f.read_text() for f in sorted((APP / "db" / "migrations").glob("*.sql"))):
+            edited += "; " + definer
+    return edited
 
 
 # データベースの守りを、わざと1つずつ外す。外したら、その守りを試す試験が本当に落ちることを確かめる（DESIGN.md 14章：
@@ -943,6 +952,72 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      ("tests.test_settle.TargetRecheck.test_the_target_keeps_the_answers_and_a_later_call_by_another_person_gives_back_the_earlier_answers",)),
     ("目的のお客様の確かめ直しの変更の拒みを外す（0108）", "DROP TRIGGER target_rechecks_frozen ON salescall.target_rechecks",
      ("tests.test_settle.TargetRecheck.test_another_person_answers_become_dashes_and_the_call_does_not_count_as_reaching_the_target",)),
+    # ── 2026-10-22 の見直し（0109）の守り。試験は tests/test_guards_1022.py
+    ("かけられなかった発信（call_failed）も、お客様のところで鳴った発信に数える（0109：回線の1日の上限が減り、ほかの依頼者が"
+     "その番号へ3日かけられない）",
+     "CREATE OR REPLACE FUNCTION salescall.is_placed(s salescall.attempt_state) RETURNS boolean LANGUAGE sql IMMUTABLE AS"
+     " $$ SELECT salescall.is_dialed(s) $$",
+     ("tests.test_guards_1022.Guards.test_a_call_the_line_could_not_place_counts_nowhere",)),
+    ("録音の部分を、見えない組・依頼者の違う組に足せる（0109：依頼者Aの取引から依頼者Bの組に足して承認できる）",
+     _edited("0109_review_1022.sql", "CREATE OR REPLACE FUNCTION salescall.recording_before_insert()",
+             "s.client_id IS NOT DISTINCT FROM NEW.client_id) THEN", "true) AND false THEN"),
+     ("tests.test_guards_1022.Guards.test_a_recording_set_cannot_be_added_to_or_approved_from_another_client",)),
+    ("録音の組を、依頼者の違う名で承認できる（0109）",
+     _edited("0109_review_1022.sql", "CREATE OR REPLACE FUNCTION salescall.recording_approval_by_person()",
+             "s.client_id IS NOT DISTINCT FROM NEW.client_id) THEN", "true) AND false THEN"),
+     ("tests.test_guards_1022.Guards.test_a_recording_set_cannot_be_added_to_or_approved_from_another_client",)),
+    ("次の動きの記録の番号を、書く側が渡せる（0109：最大の番号を入れると、あとの「最大＋1」が桁あふれで失敗し続ける）",
+     "DROP TRIGGER next_seq ON salescall.task_next_actions",
+     ("tests.test_guards_1022.Guards.test_the_order_and_the_time_of_latest_wins_records_are_decided_by_the_database",)),
+    ("実施回の版の番号を、書く側が渡せる（0109）", "DROP TRIGGER next_seq ON salescall.run_versions",
+     ("tests.test_guards_1022.Guards.test_the_order_and_the_time_of_latest_wins_records_are_decided_by_the_database",)),
+    ("依頼者の有効・無効の番号を、書く側が渡せる（0109：依頼者を無効にできなくなる）", "DROP TRIGGER next_seq ON salescall.client_states",
+     ("tests.test_guards_1022.Guards.test_the_order_and_the_time_of_latest_wins_records_are_decided_by_the_database",)),
+    ("名前の読みの番号を、書く側が渡せる（0109）", "DROP TRIGGER next_seq ON salescall.version_name_readings",
+     ("tests.test_guards_1022.Guards.test_only_readings_chosen_by_listening_get_an_order_number",)),
+    ("名前の読みの番号を、版の中身に書いた読みにも振る（0109：業務設定の中身を置けない）",
+     "DROP TRIGGER next_seq ON salescall.version_name_readings; CREATE TRIGGER next_seq BEFORE INSERT ON"
+     " salescall.version_name_readings FOR EACH ROW EXECUTE FUNCTION salescall.next_seq('version_id', 'name_text')",
+     ("tests.test_guards_1022.Guards.test_only_readings_chosen_by_listening_get_an_order_number",)),
+    ("次の動きを決めた時刻を、書く側が渡せる（0109）", "DROP TRIGGER stamp_now ON salescall.task_next_actions",
+     ("tests.test_guards_1022.Guards.test_the_order_and_the_time_of_latest_wins_records_are_decided_by_the_database",)),
+    ("録音の承認の時刻を、書く側が渡せる（0109：未来の時刻で、あとの承認が「いまの組」にならない）",
+     "DROP TRIGGER stamp_now ON salescall.recording_approvals",
+     ("tests.test_guards_1022.Guards.test_the_order_and_the_time_of_latest_wins_records_are_decided_by_the_database",)),
+    ("お詫びの承認の時刻を、書く側が渡せる（0109）", "DROP TRIGGER stamp_now ON salescall.apology_approvals",
+     ("tests.test_guards_1022.Guards.test_an_apology_approval_cannot_point_at_another_contractors_order",)),
+    ("お詫びの承認が、ほかの契約者の案を指せる（0109：契約者Bの承認を「重複」で塞げる）",
+     "ALTER TABLE salescall.apology_approvals DROP CONSTRAINT apology_approvals_order_of_client",
+     ("tests.test_guards_1022.Guards.test_an_apology_approval_cannot_point_at_another_contractors_order",)),
+    ("品質の評価が、ほかの契約者の停止を指せる（0109）", "DROP TRIGGER stop_event_visible ON salescall.quality_evaluations",
+     ("tests.test_guards_1022.Guards.test_a_stop_or_a_price_of_another_contractor_cannot_be_pointed_at",)),
+    ("利用量が、ほかの契約者の単価を指せる（0109）", "DROP TRIGGER price_visible ON salescall.usage_entries",
+     ("tests.test_guards_1022.Guards.test_a_stop_or_a_price_of_another_contractor_cannot_be_pointed_at",)),
+    ("答えを、別のお客様の行へ付け替えられる（0108：中身が変わらなければ通す早道）",
+     _edited("0108_target_recheck.sql", "CREATE FUNCTION salescall.item_value_guard()",
+             "IF TG_OP = 'UPDATE' AND (NEW.tenant_id,", "IF false AND (NEW.tenant_id,"),
+     ("tests.test_guards_1022.Guards.test_an_answer_cannot_be_moved_to_another_customer",)),
+    ("サーバーの役が、状態の移り変わりの記録に直接書ける（0109：予約のままの試行が「お客様が出た」になる）",
+     "GRANT INSERT ON salescall.attempt_state_history TO salescall_app",
+     ("tests.test_guards_1022.Guards.test_records_written_only_by_the_database_cannot_be_written_directly",)),
+    ("サーバーの役が、前の答えの記録に直接書ける（0109：取っていない値が「確かめた答え」として戻る）",
+     "GRANT INSERT ON salescall.item_value_history TO salescall_app",
+     ("tests.test_guards_1022.Guards.test_records_written_only_by_the_database_cannot_be_written_directly",)),
+    ("サーバーの役が、名前の変更の記録に直接書ける（0109：ほかの依頼者の分も足せる）",
+     "GRANT INSERT ON salescall.name_changes TO salescall_app",
+     ("tests.test_guards_1022.Guards.test_records_written_only_by_the_database_cannot_be_written_directly",)),
+    ("状態の移り変わりを残す仕掛けを、呼んだ役の権限で動かす（0109：直接書けなくした記録を、仕掛けも書けない）",
+     "ALTER FUNCTION salescall.attempt_after_write() SECURITY INVOKER",
+     ("tests.test_guards_1022.Guards.test_records_written_only_by_the_database_cannot_be_written_directly",)),
+    ("前の答えを残す仕掛けを、呼んだ役の権限で動かす（0109）", "ALTER FUNCTION salescall.item_value_guard() SECURITY INVOKER",
+     ("tests.test_guards_1022.Guards.test_records_written_only_by_the_database_cannot_be_written_directly",)),
+    ("名前の変更を残す仕掛けを、呼んだ役の権限で動かす（0109）", "ALTER FUNCTION salescall.only_name_changes() SECURITY INVOKER",
+     ("tests.test_guards_1022.Guards.test_records_written_only_by_the_database_cannot_be_written_directly",)),
+    ("回線の名前の変更を残す仕掛けを、呼んだ役の権限で動かす（0109）", "ALTER FUNCTION salescall.line_before_update() SECURITY INVOKER",
+     ("tests.test_guards_1022.Guards.test_records_written_only_by_the_database_cannot_be_written_directly",)),
+    ("連携の台帳の、どの行・どの送り先・どの版かを書き換えられる（0109：「送った」記録を、送っていない別のお客様へ付け替える）",
+     "GRANT UPDATE ON salescall.deliveries TO salescall_app",
+     ("tests.test_foundation.ServerOnly.test_a_delivery_record_keeps_which_row_it_was_sent_for",)),
 )
 
 
@@ -955,6 +1030,8 @@ def _fresh_db(superuser_dsn: str) -> tuple[str, str, str]:
     owner_dsn = _with_db(superuser_dsn, dbname, "salescall_owner")
     os.environ["SALESCALL_TEST_RESTORE_DSN"] = _with_db(superuser_dsn, f"{dbname}_restore", "salescall_owner")
     migrate.apply(owner_dsn)
+    migrate.finish_roles(superuser_dsn)   # 本番と同じく、流し終えたら前の表の作りのための権限を外す
+    os.environ["SALESCALL_TEST_ADMIN_DSN"] = superuser_dsn
     return dbname, owner_dsn, _with_db(superuser_dsn, dbname, "salescall_app")
 
 

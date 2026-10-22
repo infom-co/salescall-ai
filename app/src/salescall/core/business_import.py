@@ -52,6 +52,7 @@ SHEETS: dict[str, tuple[str, dict[str, str], bool]] = {
     "retry": ("かけ直し", {"key": "結果", "action": "かけ直すか", "max_times": "回数", "interval": "間隔"}, True),
     "forbidden": ("言ってはいけないこと", {"key": "名前", "say_not": "言ってはいけないこと", "correct": "正しい案内"}, False),
     "names": ("名前", {"text": "表記", "reading": "読み"}, False),
+    "answers": ("想定問答", {"name": "問いの名前", "text": "答え"}, False),   # お客様に聞かれたら答えてよいこと（CL-1 の 4-26）
 }
 BASIC_ITEMS = {"業務の目的": "purpose", "お客様の区分": "target_class", "自社名": "company", "自社名の読み": "company_reading", "担当者名": "person",
                "担当者名の読み": "person_reading", "用件の一文": "purpose_line", "目的のお客様": "target_kind",
@@ -261,6 +262,11 @@ def _to_raw(sheets: dict[str, tuple[Sheet, dict[str, int]]], problems: list[str]
         seen_forbidden[key] = row_no
         forbidden[key] = {"say_not": v.get("say_not"), "correct": v.get("correct")}
 
+    answers, where_a = [], []
+    for row_no, v in _rows(sheets, "answers", problems):   # 形と重なりの確かめは業務設定の1か所（business_settings._answers）
+        answers.append({"name": v.get("name"), "text": v.get("text")})
+        where_a.append(f"シート「想定問答」の {row_no} 行目")
+
     names, where_n = [], []
     pairs = [(basic.get("company"), basic.get("company_reading"), "caller", "シート「基本」の自社名"),
              (basic.get("person"), basic.get("person_reading"), "caller", "シート「基本」の担当者名")]
@@ -278,14 +284,14 @@ def _to_raw(sheets: dict[str, tuple[Sheet, dict[str, int]]], problems: list[str]
                    "purpose_line": basic.get("purpose_line")},
         "target_person": {"kind": tkind, "role": basic.get("target_role")},
         "busy_line": basic.get("busy_line"), "voicemail_message": basic.get("voicemail_message"),
-        "ai_answer": basic.get("ai_answer"), "voice": basic.get("voice"),
+        "ai_answer": basic.get("ai_answer"), "answers": answers, "voice": basic.get("voice"),
         "questions": questions, "names": names,
         "rules": {"decline": decline, "handling": handling, "retry": retry, "forbidden": forbidden},
     }
-    return raw, problems, {"名前": where_n, "質問": where_q}
+    return raw, problems, {"名前": where_n, "質問": where_q, "想定問答": where_a}
 
 
-_POSITION = re.compile(r"(名前|質問) (\d+) 番目")
+_POSITION = re.compile(r"(名前|質問|想定問答) (\d+) 番目")
 
 
 def _placed(problems: list[str], where: dict[str, list[str]]) -> list[str]:
@@ -391,13 +397,14 @@ def _unit_questions(raw: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _script(raw: dict[str, Any]) -> str:
     """名前を洗い出す台本（業務設定の文をまとめたもの。名乗り・用件・目的・忙しいときの一言・留守番電話の伝言・「AIですか」への答え・
-    質問の文・入口の名前）。"""
+    想定問答の答え（録音で話すので、名前の読みが要る）・質問の文・入口の名前）。"""
     caller = raw.get("caller") if isinstance(raw.get("caller"), dict) else {}
     parts = [((caller.get("company") or {}).get("text") if isinstance(caller.get("company"), dict) else None),
              caller.get("purpose_line"), raw.get("purpose"), raw.get("busy_line"), raw.get("voicemail_message"),
              raw.get("ai_answer")]
     parts += [q.get("text") for q in (raw.get("questions") if isinstance(raw.get("questions"), list) else [])
               if isinstance(q, dict)]
+    parts += [a.get("text") for a in (raw.get("answers") if isinstance(raw.get("answers"), list) else []) if isinstance(a, dict)]
     parts += [n["text"] for n in _names(raw) if n.get("source") == "script"]
     return "\n".join(p for p in parts if isinstance(p, str) and p.strip())
 

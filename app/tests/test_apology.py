@@ -5,11 +5,11 @@ from __future__ import annotations
 import unittest
 from dataclasses import replace
 
-from salescall.core import apology, attempts, gate, next_action, quality_stage, reward, stops
+from salescall.core import apology, attempts, fix_requests, gate, next_action, quality_stage, reward, stops
 from salescall.core.access import Rejected
 from salescall.core.attempts import ForbiddenFinding, VerificationSummary
 from salescall.core.call_report import Cut
-from tests.support import OPERATOR, SYSTEM, owner_access, said
+from tests.support import ADMIN, OPERATOR, SYSTEM, owner_access, said
 from tests.test_approval import TAKEN, Helpers
 from tests.test_settle import rep
 
@@ -46,6 +46,14 @@ class Apology(Helpers):
         notice = self.tx(s, lambda tx: tx.one("SELECT summary, refs FROM salescall.notification_events"
                                               " WHERE event_key = %s", (f"forbidden_speech:{aid}",)))
         self.assertIn(TEXT, notice["summary"])                         # 案は、システムが作って知らせる
+        admin = self.w.a.in_system(ADMIN, lambda tx: tx.all(           # 管理者にも知らせる（確かめ・承認のため。全体の取引で読む）
+            "SELECT origin_tenant FROM salescall.notification_events WHERE event_key = %s AND for_admin",
+            (f"admin:forbidden_speech:{aid}",)))
+        self.assertEqual([r["origin_tenant"] for r in admin], [s["tenant"]])
+        asked = self.w.a.in_system(SYSTEM, lambda tx: [r for r in fix_requests.open_requests(tx, "CL-1")
+                                                        if r["kind"] == "forbidden_speech"])
+        self.assertTrue(asked)                                         # 会話の不具合：止めずに会話の担当へ修正依頼
+        self.assertNotIn(TEXT, asked[0]["summary"])                    # 修正依頼に、お客様あての文面を入れない
         self.assertEqual(int(notice["refs"]["apology_order_id"]), self.draft(s, aid)["order_id"])
         self.assertEqual(self.tx(s, lambda tx: apology.for_task(tx, s["task"])), None)   # 承認するまで、かけない
         self.assertEqual(self.reason(s), "task_ended")

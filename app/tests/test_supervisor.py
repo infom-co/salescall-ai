@@ -83,8 +83,14 @@ class SupervisorBase(Base):
                                             (attempt_id,)))["s"]
 
     def asked_supervisor(self, s):
-        return [r for r in self.w.a.in_system(SYSTEM, lambda tx: fix_requests.open_requests(tx, "CL-2"))
-                if r["kind"] == "supervisor" and r["refs"].get("tenant_id") == str(s["tenant"])]
+        """その契約者で見守り役の誤りを記録し、CL-2 へ修正依頼が出ているか（同じ不具合の修正依頼は契約者をまたいで1つ＝
+        2026-10-22 の見直しなので、依頼は種類で見て、どの契約者で起きたかは誤りの記録で見る）。返すのは、その契約者の誤りの文。"""
+        asked = [r for r in self.w.a.in_system(SYSTEM, lambda tx: fix_requests.open_requests(tx, "CL-2"))
+                 if r["kind"] == "supervisor"]
+        seen = self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: [r["message"] for r in tx.all(
+            "SELECT message FROM salescall.error_events WHERE source = 'supervisor' AND tenant_id = %s ORDER BY error_id",
+            (s["tenant"],))])
+        return seen if asked else []
 
 
 class Leases(SupervisorBase):
@@ -196,6 +202,21 @@ class Rounds(SupervisorBase):
         t = self.ready()
         got = line.one_round(self.w.a, SYSTEM, t["tenant"], t["line"], HOLDER, FakeDriver(busy=True), Runner())
         self.assertEqual((got.called, got.pause), (None, "line_in_call"))
+
+    def test_when_every_client_is_held_by_its_own_limit_the_line_rests(self):
+        """どの依頼者も、依頼者の理由（同時の本数の上限など）でかけられないときは、その回線を休ませる（⛔ 2026-10-22 の見直し：前は
+        休まずに門へ渡し直し続け、断りの記録が数秒ごとに増えた）。"""
+        s = self.ready()
+        self.put_client(s, "calling.max_concurrent_calls", 1)
+        t2 = self.w.task(s["tenant"], s["client"], s["run"], self.w.contact(s["tenant"], s["client"],
+                                                                           normalize(fictional_jp_fixed()).e164))
+        self.tx(s, lambda tx: next_action.schedule_now(tx, t2, cause="試験"))
+        busy = self.claim(s)                                                   # 同じ依頼者の1本が、ほかの回線で進行中
+        line2 = self.w.line(s["tenant"])
+        self.lease(s, line=line2)
+        got = line.one_round(self.w.a, SYSTEM, s["tenant"], line2, HOLDER, FakeDriver(), Runner())
+        self.tx(s, lambda tx: attempts.release(tx, [busy.attempt_id]))
+        self.assertEqual((got.called, got.pause), (None, "client_concurrency"))
 
     def test_a_failure_in_the_call_ends_only_that_call_and_asks_cl2(self):
         s = self.ready()
@@ -449,6 +470,81 @@ class Main(SupervisorBase):
         self.assertEqual(self.holder_of(s), "ほかの見守り役#x")                  # ほかの見守り役の回線は返さない
         sup.shutdown(0)
 
+    def test_a_line_flow_that_dies_during_a_call_hangs_up_with_an_apology(self):
+        """回線ごとの流れが思いがけず止まったとき、スマホがまだ通話中なら、おわびの録音を流して切ってもらう（データベースの後始末
+        だけでは、電話がつながったまま無言になる。⛔ 2026-10-22 の見直し）。通話中でなければ、何もしない。"""
+        s = self.ready()
+        started, start = self.starter()
+        links = self.links(s)
+        in_call = FakeDriver(busy=True)
+        links.driver = lambda line_id, at: in_call
+        sup = self.supervisor(s, links, start_worker=start)
+        sup.start()
+        started[0][2].died = True
+        sup.watch_workers(0.0)
+        self.assertEqual(getattr(in_call, "apologized", 0), 1)
+        idle = FakeDriver(busy=False)
+        links.driver = lambda line_id, at: idle
+        sup.watch_workers(1000.0)                                              # 間をあけて立ち上げ直した
+        started[1][2].died = True
+        sup.watch_workers(1001.0)
+        self.assertEqual(getattr(idle, "apologized", 0), 0)                    # 通話中でない回線には、おわびを流さない
+        sup.shutdown(0)
+
+    def test_a_busy_connection_pool_keeps_the_line_and_is_recorded_later_in_one_line(self):
+        """データベースのつなぎの混雑（共有のつなぎが全部使われている）は、届かないのとは分ける：借りている回線の流れは止めず、次の回に
+        延ばす。誤りは回数だけを数え、あとでまとめて1行に記録する（⛔ 2026-10-22 の見直し：前は回線を手放し、混雑のたびに記録を
+        書いて、さらに混ませた）。"""
+        from salescall import supervisor as package
+        from salescall.core.access import PoolBusy
+        s = self.ready()
+        started, start = self.starter()
+        sup = self.supervisor(s, start_worker=start)
+        sup.start()
+
+        class Busy:
+            def __getattr__(self, name):
+                def fail(*a, **k):
+                    raise PoolBusy("試験：つなぎの混雑")
+                return fail
+        before = package._BUSY["回線の借用"]
+        real, sup.access = sup.access, Busy()
+        sup.renew(10.0)
+        sup.access = real
+        self.assertEqual((sup.leased, started[0][2].stop.is_set()), ({s["line"]: s["tenant"]}, False))   # 流れは止めない
+        self.assertEqual(package._BUSY["回線の借用"], before + 1)                # 記録は書かず、数えるだけ
+        package.flush_busy(real)
+        self.assertEqual(package._BUSY["回線の借用"], 0)
+        noted = self.w.a.in_system(SYSTEM, lambda tx: tx.all(
+            "SELECT message FROM salescall.error_events WHERE source = 'supervisor' AND message LIKE %s",
+            ("回線の借用：共有のつなぎの混雑%",)))
+        self.assertTrue(noted)                                                 # 空いたときに、まとめて記録した
+        sup.shutdown(0)
+
+    def test_a_stuck_job_is_reported_once_and_does_not_hold_up_stopping(self):
+        """決まった間隔の仕事が、借りる長さを過ぎても終わらない（固まった）ときは、1回だけ記録する。止めるときは、決めた長さだけ
+        待って止まる（⛔ 2026-10-22 の見直し：前は誰も気づかず、止めるときも待ち続けた）。"""
+        s = self.ready()
+        release = threading.Event()
+        stuck = jobs.Job(f"試験の固まる仕事{uuid.uuid4().hex[:6]}", 60, "tenant", 5, lambda c: release.wait(30))
+        sup = self.supervisor(s)
+        sup.check_version()
+        sup._load_tenants()
+        try:
+            with mock.patch.object(jobs, "JOBS", (stuck,)), mock.patch.object(main_mod, "report") as reported:
+                sup.run_jobs(0.0)
+                sup.run_jobs(3.0)                                              # まだ借りる長さの内側
+                self.assertEqual(reported.call_count, 0)
+                sup.run_jobs(100.0)
+                sup.run_jobs(200.0)                                            # 1回だけ
+                self.assertEqual(reported.call_count, 1)
+                self.assertIsInstance(reported.call_args.args[3], TimeoutError)
+                began = time.monotonic()
+                sup.shutdown(0.5)
+                self.assertLess(time.monotonic() - began, 10)                 # 固まった仕事を待ち続けない
+        finally:
+            release.set()
+
     def test_a_line_the_pc_lets_go_is_returned_and_a_line_moved_to_another_pc_starts_there_after_the_old_flow_ends(self):
         """PC がつながりを切った回線は、流れを止め、止まってから後始末して返す（通話の途中では返さない）。同じ回線を別の PC が
         つなぎ直したら、前の流れが止まってから、新しい PC で始める（同じスマホで二重にかけない）。"""
@@ -667,6 +763,28 @@ class Main(SupervisorBase):
         self.assertNotIn("x", repr(cfg).replace("0.0.0.0", ""))                  # 接続は表示に出さない
         with self.assertRaises(config.ConfigMissing):                          # つなぎ口の場所が無ければ動かない（黙って電話をかけない）
             main_mod.serve(config.load({"SALESCALL_DSN": "x"}))
+        with self.assertRaises(config.ConfigMissing):                          # 電話をかけるなら、通話後の検証の部品も要る（2026-10-22 の見直し：
+            main_mod.serve(config.load({"SALESCALL_DSN": "x", "SALESCALL_LISTEN": "127.0.0.1:1",   # 無いと、かけた電話を締められず、
+                                        "SALESCALL_CALL_RUNNER": "m:r"}))                            # 行もお客様も待ち続ける）
+
+    def test_the_supervisor_starts_again_by_itself_after_an_unexpected_error(self):
+        """思いがけない誤りでは終わらず、間をあけて自分で動き直す（人が立ち上げ直さない。⛔ 2026-10-22 の見直し）。設定の抜けは、
+        直すまで動けないので終わる（終わった理由を出す）。"""
+        from salescall.supervisor import __main__ as entry
+        calls = []
+
+        def serve(cfg):
+            calls.append(cfg)
+            if len(calls) == 1:
+                raise RuntimeError("試験：思いがけない誤り")
+        with mock.patch.object(entry.main, "serve", serve), mock.patch.object(entry.config, "load", lambda: "試験の設定"), \
+                mock.patch.object(entry.time, "sleep") as slept, mock.patch("builtins.print"):
+            self.assertEqual(entry.run(["run"]), 0)
+        self.assertEqual(len(calls), 2)
+        slept.assert_called_once_with(entry.RESTART_WAIT)
+        with mock.patch.object(entry.config, "load", side_effect=config.ConfigMissing("試験：設定の抜け")), \
+                mock.patch("builtins.print"):
+            self.assertEqual(entry.run(["run"]), 1)
 
 
 if __name__ == "__main__":

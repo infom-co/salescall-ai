@@ -75,6 +75,12 @@ $$;
 
 CREATE FUNCTION salescall.item_value_guard() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
+  IF TG_OP = 'UPDATE' AND (NEW.tenant_id, NEW.client_id, NEW.task_id, NEW.question_id)
+                          IS DISTINCT FROM (OLD.tenant_id, OLD.client_id, OLD.task_id, OLD.question_id) THEN
+    -- どのお客様のどの質問の答えかは変えない（⛔ 2026-10-22 の見直し：中身が変わらなければ通す早道で、答えを別のお客様の行へ
+    -- 付け替えられた）
+    RAISE EXCEPTION '答えの、お客様の行・質問は変えられません' USING ERRCODE = 'check_violation';
+  END IF;
   IF pg_trigger_depth() > 1 THEN
     RETURN NEW;                     -- 確かめ直しが戻している（下の target_recheck_blanks の仕掛けの中から書くときだけ。見分けを
   END IF;                           -- 設定の値にすると、システムの処理の役が自分で立てて、前の通話の番号のまま書き換えられた＝見直し）

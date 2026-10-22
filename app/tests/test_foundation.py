@@ -210,6 +210,12 @@ class DefinerFunctions(unittest.TestCase):
         left = w.a.in_system(SYSTEM, lambda tx: tx.one(
             "SELECT to_regprocedure('salescall.make_pc_login(text, text)') AS m, to_regclass('salescall.tenant_login_events') AS t"))
         self.assertEqual((left["m"], left["t"]), (None, None))
+        powers = w.a.in_system(SYSTEM, lambda tx: tx.one(   # 表の作りを流し終えたあとは、役を作る・システムの役を配る・接続を切る力も無い
+            "SELECT r.rolcreaterole AS create_role, pg_has_role('salescall_login_maker', 'salescall_app', 'USAGE') AS app,"
+            "       pg_has_role('salescall_login_maker', 'pg_signal_backend', 'USAGE') AS signal,"
+            "       pg_has_role('salescall_owner', 'salescall_login_maker', 'SET') AS owner_can_become"
+            " FROM pg_roles r WHERE r.rolname = 'salescall_login_maker'"))
+        self.assertEqual(dict(powers), {"create_role": False, "app": False, "signal": False, "owner_can_become": False})
 
 
 class ServerOnly(unittest.TestCase):
@@ -237,6 +243,15 @@ class ServerOnly(unittest.TestCase):
                            and not any(g + "(" in f["body"] for g in self.GUARDS))
         self.assertEqual(unguarded, [])
 
+    def test_a_delivery_record_keeps_which_row_it_was_sent_for(self):
+        """連携の台帳で書き換えられるのは、送った状態だけ（2026-10-22 の見直し：「送った」記録を、送っていない別のお客様の行へ
+        付け替えられた）。"""
+        cols = owner_access().in_system(SYSTEM, lambda tx: {r["c"]: r["ok"] for r in tx.all(
+            "SELECT a.attname AS c, has_column_privilege('salescall_app', 'salescall.deliveries', a.attname, 'UPDATE') AS ok"
+            " FROM pg_attribute a WHERE a.attrelid = 'salescall.deliveries'::regclass AND a.attnum > 0 AND NOT a.attisdropped")})
+        self.assertEqual(sorted(c for c, ok in cols.items() if ok),
+                         ["last_error", "remote_ref", "send_count", "state", "updated_at"])
+
     def test_a_leftover_login_role_can_do_nothing(self):
         """消せずに残った前の PC の鍵の役（システムの役の権限を受け継ぐ）でつないでも、契約者のデータ・共通の表・関数のどれも使えない。"""
         import os
@@ -244,8 +259,10 @@ class ServerOnly(unittest.TestCase):
         w = World()
         s = w.setup()
         role = f"salescall_t_{uuid.uuid4()}_deadbeef"
-        make = lambda sql: owner_access().in_system(SYSTEM, lambda tx: tx.execute(   # noqa: E731
-            "SET LOCAL ROLE salescall_login_maker; " + sql))
+        admin = Access(os.environ["SALESCALL_TEST_ADMIN_DSN"], max_attempts=1)
+
+        def make(sql):   # 前の仕組みで作られて残った役を、データベースの管理者が作ったことにする（いまは表の持ち主からは作れない）
+            admin.in_system(SYSTEM, lambda tx: tx.execute(sql))
         make(f'CREATE ROLE "{role}" LOGIN IN ROLE salescall_app')
         self.addCleanup(make, f'DROP ROLE "{role}"')
         d = dict(p.split("=", 1) for p in os.environ["SALESCALL_TEST_APP_DSN"].split())   # 試験の接続の文字は「名前=値」を空白で並べた形

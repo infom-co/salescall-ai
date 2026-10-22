@@ -18,7 +18,8 @@ class Explain(unittest.TestCase):
                 self.assertTrue(got.strip())
         items = {"purpose": "business.purpose", "target_class": "business.target_class", "caller": "business.caller",
                  "target_person": "business.target_person", "busy_line": "business.busy_line",
-                 "voicemail_message": "business.voicemail_message", "ai_answer": "business.ai_answer", "voice": "business.voice",
+                 "voicemail_message": "business.voicemail_message", "ai_answer": "business.ai_answer", "answers": "business.answers",
+                 "voice": "business.voice",
                  "questions": "business.questions"}
         self.assertTrue(set(items) <= business_settings.KEYS)
         for name in [*items.values(), "business.handling", "business.retry", "business.forbidden", "line.client"]:
