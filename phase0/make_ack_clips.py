@@ -30,7 +30,7 @@ from instruction import VOICE_TYPES, voice_style
 from jtext import compare_reading
 from listen import hear_feeds
 from live_util import build_config, collect_turn, send_text
-from phrases import CALLBACK_ASK, RECORDED
+from phrases import CALLBACK_ASK, RECORDED, SUCCESSOR_IDS
 from voice_features import read_wav
 
 OUT = HERE / "results" / "ack"
@@ -69,16 +69,23 @@ HOW = {"moushiwake": "電話で、相手に聞き取れなかったことを申�
        # 重ねて「人ですか」と聞かれたとき（phrases.AI_ASKED_AGAIN）：身構えず、誠実に、落ち着いて（言い訳のような早口にしない）
        "ai_again": "電話で、不安にさせてしまったお客様に、心から申し訳なく思いながら、誠実に、落ち着いた調子で、言葉の途中で区切らずに",
        # 相手の質問に答える（✅ 2026-10-22 ユーザー：「必ずどんな営業トークにも出てくるパターンはシステム側に録音しておいた方がよくない？」）：
-       # 想定問答の答え（依頼主の単位）と、答えを持っていない問いへの一言（契約者の単位。頭に「申し訳ございません、」の相づち）
+       # 想定問答の答え（依頼主の単位）
        "answer": "電話で、お客様のご質問に、丁寧に、落ち着いた調子でお答えするように",
-       "unknown": "電話で、お客様のご質問にお答えできないことを、申し訳なく思いながら、丁寧に、柔らかく"}
+       # 相手の申し出に応じる一言（⏳ 2026-10-22 の案。phrases.OFFER_THANKS・DEPARTED_ACK）と、伝言を残す業務の伝言の文（依頼主の単位）
+       "offer_thanks": "電話で、お客様のお気遣いに心から感謝を伝えるように、前向きに、丁寧に、落ち着いた調子で。言葉の途中で区切らずに",
+       "departed": "電話で、お呼びした方がもういらっしゃらないと知って、失礼をお詫びするように、丁寧に、落ち着いた調子で",
+       "message": "電話で、お客様にご伝言をお願いするように、丁寧に、柔らかく、はっきりと",
+       "authority": "電話で、お客様に丁寧に、柔らかくお聞きするように。失礼のないように、へりくだって"}
 DEFAULT_HOW = "電話で、相手の話に相づちを打つように、短く"
 MAX_S = {"hai": 1.0, "shouchi": 1.4, "arigatou": 1.6, "shitsurei": 1.6, "moushiwake": 1.6, "moushiwake_heavy": 1.8, "lead_soredeha": 1.0,
          "lead_tsuzukimashite": 1.2, "lead_deha": 0.8, "closing": 8.0, "closing_declined": 7.0, "wait": 3.5, "wait_heavy": 3.8, "question": 5.0,
-         "greeting": 2.5, "intro": 4.5, "purpose": 4.5, "ai": 3.0, "voicemail": 12.0, "ai_again": 7.0, "answer": 8.0, "unknown": 2.5}
+         "greeting": 2.5, "intro": 4.5, "purpose": 4.5, "ai": 3.0, "voicemail": 12.0, "ai_again": 7.0, "answer": 8.0, "offer_thanks": 6.0,
+         "departed": 4.0, "message": 12.0, "authority": 7.0}
 # 録音の中の名前ごとの読み方の鍵（無ければ中の名前のまま）。かけ直しで足す質問は、質問の読み方（⛔ 2026-10-19 の見直しで見つけた漏れ：
 # 足す質問を契約者の単位の録音に入れたとき、読み方も長さの上限も無く、作ると止まった＝ClipTablesTest で、表の漏れを見る）
 HOW_OF = {f"callback_{k}": "question" for k in CALLBACK_ASK}
+HOW_OF.update({v: "question" for v in SUCCESSOR_IDS.values()})
+HOW_OF["callback_authority"] = "authority"  # 判断いただけるお立場かを聞く一言は長い（約46拍）ので、長さの上限だけ別  # 後任の方をお呼びする・確かめる一言（phrases.SUCCESSOR）も質問の読み方
 # 「いかがなさいましたか？」「どうなさいましたか？」（phrases.SILENCE_PROMPT）：考えている相手にも、「AIですか」と3回目から聞かれたときにも
 # 流す。どちらも、何か気になる点があったかを心配して聞く一言なので、「AIですか」への言い方と同じ読み方
 HOW_OF.update({"ikaga": "ai", "dou": "ai"})
@@ -166,7 +173,7 @@ def script_table(business) -> tuple[dict, dict]:
     # 相手に聞かれたことへの決まった言い方（「AIですか？」）と留守番電話の伝言（設定があれば）も、依頼主の単位（DESIGN.md 6-13 の3）。
     # 目的の人を呼ぶ一言・確かめる一言は、電話をかける相手ごとに名前が変わるので、ここではなく名前の録音の台帳（DESIGN.md 4-3）
     parts = business.replay_parts()
-    items += [(k, parts[k], k) for k in ("ai", "voicemail") if parts.get(k)]
+    items += [(k, parts[k], k) for k in ("ai", "voicemail", "message") if parts.get(k)]
     items += [(k, text, "answer") for k, text in parts.items() if k.startswith("answer_")]  # 想定問答の答え（Business.answers）
     for q in business.questions:  # つなぎの言葉と質問を1本で録音する（順番で決まるつなぎの言葉。flowctl.spoken_question）
         if q.reading_of:

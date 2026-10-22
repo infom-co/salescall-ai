@@ -349,7 +349,7 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                     {**x, "yes": callee_wav(x["yes"], callee_voice), "no": callee_wav(x["no"], callee_voice)}
                     if isinstance(x, dict) and "if_value" in x else x for x in callee_lines]
     flow = Flow(business.questions, busy_ask=business.busy_ask, lead_ins=lead_ins, play_recordings=play_recordings,
-                voicemail_message=business.voicemail_message, answers=dict(business.answers),
+                voicemail_message=business.voicemail_message, answers=dict(business.answers), policies=business.policies(),
                 # 目的の人のある業務：繋がるまで最初の質問を渡さない（DESIGN.md 4-3）。名乗り・用件の文は、AIが話す形でも流れの制御が持つ
                 target=business.replay_parts() if business.target is not None else None,
                 opening=business.replay_parts() if opening_mode == "recorded" else None,  # 名乗りを録音で流す形なら、流し直しもできる（6-13）
