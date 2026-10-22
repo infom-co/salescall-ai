@@ -4730,17 +4730,23 @@ class TargetTest(unittest.TestCase):
         self.heard(f, "お電話代わりました。岡田です。", TARGET_IS_THERE)
         r = f.apply("report_party", {"party": "target"})
         self.assertEqual(parts(r)[:3], ["greeting", "intro", "purpose"])
-        # (4) 確かめに、AIは「目的の人」と報告したが、判定は「はい」と読まない（別の方・決められない・代わった人）：繋がず・確かめ直さず、お呼びし直す
+        # (4) 確かめへの返事が、はっきりしない（AIは「はい」と読んだが、判定は「はい」と読まない）：お呼びし直さず（本当はご本人かもしれない）、
+        #     お詫び「申し訳ございません、」のあと1回だけ聞き返す。聞き返しへの返事で、AIがまた「はい」と読み、判定が「別の方」（いいえ）と読んで
+        #     いなければ繋ぐ。「別の方」と読めば、お呼びし直す（✅ 2026-10-22 ユーザー：「はいと揃わなかったけど、岡田様だった場合…」）
         from flowctl import TARGET_IS_NOT
-        for judged in (UNDECIDED, HANDOVER, TARGET_IS_NOT):
+        for judged, second, result in ((UNDECIDED, UNDECIDED, "next"), (HANDOVER, None, "next"), (TARGET_IS_NOT, TARGET_IS_NOT, "call_target")):
             f, b = self.checked()
             self.heard(f, "はい。", None)
             f.apply("report_party", {"party": "target"})
             self.heard(f, "はい？", judged)
             r = f.apply("report_party", {"party": "target"})
-            self.assertEqual((r["result"], f.phase), ("call_target", "calling"), judged)
+            self.assertEqual((r["result"], parts(r), r["ack"], f.phase), ("confirm_target", ["target_confirm"], "moushiwake", "calling"), judged)
+            self.heard(f, "はい、そうですけど。", second)
+            r = f.apply("report_party", {"party": "target"})
+            self.assertEqual(r["result"], result, (judged, second))
         # (4-b) 確かめる前の判定が「決められない」で、確かめへの「はい、そうです。」の判定が届かない（判定が止まった）：確かめた理由の判定は
-        #     数えず、AIの読みで繋ぐ（⛔ 直す前は、前の「決められない」で繋がず、ご本人にお呼びし直していた）。不在と読まれていたら繋がない
+        #     数えず、AIの読みで繋ぐ（⛔ 直す前は、前の「決められない」で繋がず、ご本人にお呼びし直していた）。その方が前の言葉で「不在」と
+        #     読まれていたら（遅れて届いた）、繋がず、お呼びし直しも聞き返しもせずに、かけ直しへ
         f, b = self.checked()
         self.heard(f, "はい、お電話代わりました。", UNDECIDED)
         f.apply("report_party", {"party": "target"})
@@ -4753,13 +4759,18 @@ class TargetTest(unittest.TestCase):
         f.apply("report_party", {"party": "target"})
         f.on_check("judge", TARGET_IS_AWAY, first, said="岡田は席を外しておりますが。")
         self.heard(f, "はい？", None)
-        self.assertEqual(f.apply("report_party", {"party": "target"})["result"], "call_target")
-        # (4-c) 確かめたあと、AIは「いいえ」と読んだ（代わった方）：判定2つが「ご本人」でも繋がない（AIの読みが食い違う）
+        r = f.apply("report_party", {"party": "target"})
+        self.assertEqual((r["result"], f.phase), ("rejected", "calling"))
+        self.assertIn("request_callback", r["message"])
+        # (4-c) 確かめたあと、AIは「いいえ」と読んだ（代わった方）が、判定2つは「ご本人」：はっきりしないので1回だけ聞き返す。聞き返しに
+        #     「いいえ、山田です。」（判定も「別の方」）なら、お詫びのあとお呼びし直す
         f, b = self.checked()
         f.use_checks("judge", "judge2")
         self.heard(f, "はい。", None)
         f.apply("report_party", {"party": "target"})
         self.heard(f, "いや、ええと。", TARGET_IS_THERE); f.on_check("judge2", TARGET_IS_THERE)
+        self.assertEqual(f.apply("replay_opening", {"part": "handover"})["result"], "confirm_target")
+        self.heard(f, "いいえ、山田です。", TARGET_IS_NOT); f.on_check("judge2", TARGET_IS_NOT)
         r = f.apply("replay_opening", {"part": "handover"})
         self.assertEqual((r["result"], f.phase), ("call_target", "calling"))
         # (4-d) お呼びし直したあとは、AIに「確かめへの返事を待っている」とは伝えない・判定の質問は呼ぶ一言に戻る・お詫びは同じ方に1回まで
@@ -4908,7 +4919,61 @@ class TargetTest(unittest.TestCase):
         self.assertIn("目的の人かを聞いた返事です", note)
         self.assertIn("まだ目的の人に繋いでいません", note)
         self.assertIsNone(g.unreported_note())
-        self.assertIn("waited = bool(ops) and ops[-1][\"reply\"].get(\"result\") == \"wait\"", inspect.getsource(convo.run_call))
+        self.assertIn("waited = bool(ops) and ops[-1][\"reply\"].get(\"result\") in (\"wait\", \"noted\", \"hold\")", inspect.getsource(convo.run_call))
+
+    def test_paths_asked_on_20261022(self):
+        # ✅ 2026-10-22 ユーザーのご質問から（Flow._calling_reported・unreported_note・hold_play）
+        from flowctl import HANDOVER, HOLD, TARGET_IS_AWAY, TARGET_IS_NOT, TARGET_IS_THERE
+
+        def parts(r):
+            return [p.get("part", p.get("kind")) for p in r.get("play") or []]
+
+        # (1) 判定のどれか1つでも「不在」：繋がず、お呼びし直さず、かけ直しへ。理由はAIが聞いた言葉で選ぶ（ご本人が今は話せない＝あとで）・断りは終える
+        f, b = self.checked()
+        f.use_checks("judge", "judge2")
+        self.heard(f, "お電話代わりました、山田です。岡田は本日おりません。", TARGET_IS_AWAY); f.on_check("judge2", HANDOVER)
+        r = f.apply("replay_opening", {"part": "handover"})
+        self.assertEqual((r["result"], f.phase), ("rejected", "calling"))
+        for word in ("request_callback", "「不在」", "「あとで」", "「別の番号へ」", "request_end", "お呼びし直しもしません"):
+            self.assertIn(word, r["message"])
+        g, _ = self.checked()
+        self.heard(g, "岡田は私ですが、いまちょっと手が離せなくて。", TARGET_IS_AWAY)
+        self.assertEqual(g.apply("report_party", {"party": "target"})["result"], "rejected")   # AIの「目的の人」でも繋がない（理由はAIが選ぶ）
+        # (2) 受付の方の報告で黙って待ったあと、その言葉を判定が「不在」と読んだ（遅れて届いた）：かけ直しへ進むように知らせる
+        f, b = self.checked()
+        self.heard(f, "お待たせいたしました。岡田はやはり手が離せないとのことで。", None)
+        self.assertEqual(f.apply("report_party", {"party": "reception"})["result"], "noted")
+        f.on_check("judge", TARGET_IS_AWAY)
+        note = f.unreported_note()
+        self.assertIn("request_callback", note)
+        self.assertIsNone(f.unreported_note())
+        # (3) 言葉の途中の報告を待たせたあとの知らせは、聞かれたことにも答えられる言い方（名乗り・用件を聞かれたら replay_opening）
+        f, b = self.checked()
+        f.on_callee(); f.on_voice(3.0); f.on_activity(True, 0.1); f.on_heard("岡田ですね。")
+        from types import SimpleNamespace
+        f.handle_call(SimpleNamespace(name="report_party", args={"相手": "目的の人"}), midway=True)
+        f.on_heard("失礼ですが、どちら様でしょうか？"); f.on_activity(False, 3.2)
+        self.assertIn("名乗り・用件などを聞かれたなら", f.unreported_note())
+        # (4) 新しい方（取り次ぎのあと・AIが「代わった方」と報告）の判定を待つ間は、あいさつの録音を流す（1人に1回）。繋いだら名乗り・用件から
+        f, b = self.checked()
+        self.heard(f, "少々お待ちください。", HOLD)
+        f.apply("report_party", {"party": "reception"})
+        self.heard(f, "はい、お電話代わりました。", None)
+        self.assertEqual(f.hold_play("replay_opening", {"part": "handover"})["part"], "greeting")
+        self.assertIsNone(f.hold_play("replay_opening", {"part": "handover"}))           # 同じ方に2回は流さない
+        r = f.apply("replay_opening", {"part": "handover"})
+        self.assertEqual((r["result"], parts(r)), ("confirm_target", ["target_confirm"]))
+        self.heard(f, "はい、そうです。", TARGET_IS_THERE)
+        r = f.apply("report_party", {"party": "target"})
+        self.assertEqual(parts(r)[:2], ["intro", "purpose"])
+        g, _ = self.checked()
+        self.heard(g, "はい、岡田は私ですが。", None)
+        self.assertIsNone(g.hold_play("report_party", {"party": "target"}))              # 最初に出た方（名乗りを聞いた方）には流さない
+        h, _ = self.checked()
+        self.heard(h, "お電話代わりました、山田です。", HANDOVER)
+        self.assertEqual(h.hold_play("replay_opening", {"part": "handover"})["part"], "greeting")
+        r = h.apply("replay_opening", {"part": "handover"})
+        self.assertEqual((r["result"], parts(r)), ("call_target", ["intro", "target"]))  # あいさつは流したので、名乗りから
 
     def test_late_judgment_after_connecting_is_kept_for_the_check_after_the_call(self):
         # 判定なしで繋いだあとに、その発話の判定が届いた：通話の事実に残す（通話後の検証が確かめる。DESIGN.md 6-12）

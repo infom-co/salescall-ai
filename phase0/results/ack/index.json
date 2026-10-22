@@ -568,5 +568,47 @@
     "made_as_id": "wait",
     "chosen_from": "S4_wait_3",
     "chosen_by": "人"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "greeting",
+    "text": "お忙しいところ恐れ入ります。",
+    "heard": {
+      "0.0": "お忙しいところ恐れ入ります。",
+      "1.0": "お忙しいところ恐れ入ります。"
+    },
+    "ok": true,
+    "seconds": 1.82,
+    "tries": 3,
+    "wav": "S2_greeting.wav"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "greeting",
+    "text": "お忙しいところ恐れ入ります。",
+    "heard": {
+      "0.0": "お忙しいところ恐れ入ります。",
+      "1.0": "お忙しいところ恐れ入ります。"
+    },
+    "ok": true,
+    "seconds": 1.78,
+    "tries": 3,
+    "wav": "S4_greeting.wav"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "greeting",
+    "text": "お忙しいところ恐れ入ります。",
+    "heard": {
+      "0.0": "お忙しいところ恐れ入ります。",
+      "1.0": "お忙しいところ恐れ入ります。"
+    },
+    "ok": true,
+    "seconds": 1.92,
+    "tries": 2,
+    "wav": "L4_greeting.wav"
   }
 ]

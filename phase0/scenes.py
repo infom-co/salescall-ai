@@ -86,6 +86,13 @@ def said_to(call: dict, wav_name: str) -> str:
     return "".join(said(t) for t in call["turns"] if line_of(t).endswith(f"_{wav_name}.wav"))
 
 
+def full_opening(call: dict) -> bool:
+    """繋いだ方に、あいさつ・名乗り・用件の全部が流れたか（あいさつは、判定を待つ間に流したもの＝Flow.hold_play・convo の held_play でもよい）。"""
+    parts = played_parts(connect_reply(call))
+    greeted = any((t.get("ear_check") or {}).get("held_play") == "greeting" for t in call["turns"])
+    return parts[:3] == ["greeting", "intro", "purpose"] or (greeted and parts[:2] == ["intro", "purpose"])
+
+
 def replies_to(call: dict, *wav_names: str) -> list[str]:
     """その台詞（続きの待ち・答え直しの台詞も）へのAIのターンで、流れの制御が返した返事の種類。"""
     def line_of(t):
@@ -104,7 +111,7 @@ def not_the_target(*wav_names: str):
         return {"別の方には繋がない": not any(r in ("next", "confirm_required") for r in got_replies),
                 "お呼びし直した": "call_target" in got_replies, "確かめは1人に1回": got_replies.count("confirm_target") <= 1,
                 "番号違いにしない": end_reason(c) != "wrong_party",
-                "代わった方に全部": played_parts(connect_reply(c))[:3] == ["greeting", "intro", "purpose"], "答えが取れた": got(c, "Q1", "はい")}
+                "代わった方に全部": full_opening(c), "答えが取れた": got(c, "Q1", "はい")}
     return check
 
 
@@ -236,7 +243,7 @@ SCENES = {
         "繋いだ": connect_reply(c) != {}, "用件を流した": "purpose" in played_parts(connect_reply(c)),
         "名乗り直さない": "intro" not in played_parts(connect_reply(c)), "答えが取れた": got(c, "Q1", "はい")}),
     "目的の人_取り次ぎ": Scene(TARGET_BUSINESS, [W("hold_target"), T("taken_over_okada")] + FULL, lambda c: {
-        "代わった方に全部": played_parts(connect_reply(c))[:3] == ["greeting", "intro", "purpose"],
+        "代わった方に全部": full_opening(c),
         # ⛔ 1回目は数えていなかった：取り次ぎを待つ間に、AIが相手の言葉を真似た・ありもしない用件を7秒話した（3本中2本）
         "取り次ぎの間は話さない": plain(said_to(c, "hold_target")) == "",
         "取り次ぐ方には流さない": not any(x["op"] == "report_party" and x["args"].get("party") == "target"
@@ -245,7 +252,7 @@ SCENES = {
     # 受付の方が、名前を確かめてから間を置いて「少々お待ちください。」（⛔ G-57：その間でAIが報告し、判定は「岡田ですね。」だけを見て、
     # 取り次ぎの最中の方に目的の人かを聞いた。間0.6秒の台詞では18本中1本ほどなので、間を1.5秒にして毎回その形を作る）
     "目的の人_取り次ぎの前の間": Scene(TARGET_BUSINESS, [W("hold_target_pause"), T("taken_over_okada")] + FULL, lambda c: {
-        "代わった方に全部": played_parts(connect_reply(c))[:3] == ["greeting", "intro", "purpose"],
+        "代わった方に全部": full_opening(c),
         "取り次ぎの間は話さない": plain(said_to(c, "hold_target_pause")) == "",
         "取り次ぐ方には流さない": not any(x["op"] == "report_party" and x["args"].get("party") == "target"
                                        and x["callee_turns"] == 1 and x["reply"]["result"] not in ("hold", "wait") for x in ops(c)),
@@ -257,11 +264,11 @@ SCENES = {
     "目的の人_名乗らない方": Scene(TARGET_BUSINESS, [W("hold_target"), T("taken_over_unnamed")] + FULL, lambda c: {
         "確かめない": not any(x["reply"]["result"] == "confirm_target" for x in ops(c)),
         "取り次ぎの間は話さない": plain(said_to(c, "hold_target")) == "",
-        "代わった方に全部": played_parts(connect_reply(c))[:3] == ["greeting", "intro", "purpose"], "答えが取れた": got(c, "Q1", "はい")}),
+        "代わった方に全部": full_opening(c), "答えが取れた": got(c, "Q1", "はい")}),
     "目的の人_用件を聞かれる": Scene(TARGET_BUSINESS, [W("what_for"), W("hold_target"), T("taken_over_okada")] + FULL, lambda c: {
         "用件と呼ぶ一言": any(played_parts(x["reply"]) == ["purpose", "target"] for x in ops(c) if x["op"] == "replay_opening"),
         "取り次ぎの間は話さない": plain(said_to(c, "hold_target")) == "",
-        "代わった方に全部": played_parts(connect_reply(c))[:3] == ["greeting", "intro", "purpose"], "答えが取れた": got(c, "Q1", "はい")}),
+        "代わった方に全部": full_opening(c), "答えが取れた": got(c, "Q1", "はい")}),
     "目的の人_不在": Scene(TARGET_BUSINESS, [W("absent_okada"), W("back_5pm"), W("affirm")], lambda c: {
         "理由": last_fact(c, "callback").get("why") == "absent", "戻る時刻": "5時" in (last_fact(c, "callback").get("time") or ""),
         "用件を受付に流さない": connect_reply(c) == {}, "締め": closing_of(c) == CLOSING, "足す質問は録音": callback_recorded(c)}),
@@ -275,7 +282,7 @@ SCENES = {
     # ⇒ 繋いで代わった方に全部を流し、答えを取る（2つの判定の読みが分かれたときは、目的の人かを1回確かめてから＝Flow._calling_reported）
     "目的の人_担当の者に取り次がれる": Scene(TARGET_BUSINESS, [W("transfer"), T("taken_over_unnamed")] + FULL, lambda c: {
         "取り次ぎの間は話さない": plain(said_to(c, "transfer")) == "",
-        "代わった方に全部": played_parts(connect_reply(c))[:3] == ["greeting", "intro", "purpose"], "答えが取れた": got(c, "Q1", "はい")}),
+        "代わった方に全部": full_opening(c), "答えが取れた": got(c, "Q1", "はい")}),
     # 「担当の者に代わります」のあと、違うお名前の方が出る（お呼びした岡田様ではない）：確かめずに、名乗ってから岡田様をお呼びし直す（確かめた
     # ときは、その方の「いいえ」のあとに）。その方が取り次いで、岡田様が出たら全部を流す
     "目的の人_担当の別の方が出る": Scene(TARGET_BUSINESS, [W("transfer"), W("taken_over") | {"if_asked_target": W("not_okada")["wav"]},
@@ -287,6 +294,19 @@ SCENES = {
     "目的の人_確かめにいいえ": Scene(TARGET_BUSINESS, [W("taken_over_unnamed") | {"if_asked_target": W("not_okada")["wav"]},
                                                 W("hold_target"), T("taken_over_okada")] + FULL,
                                   not_the_target("taken_over_unnamed", "not_okada")),
+    # 名前を確かめた方が、間を置いて名乗りを聞く（✅ 2026-10-22 ユーザー：「相手が喋っていても、それが質問だった場合の対処は？」）：言葉の途中で
+    # 決めず、言い終わってから、名乗りと呼ぶ一言を流す（用件は聞かれたときだけ）。目的の人かは聞かない
+    "目的の人_名前を確かめてから名乗りを聞かれる": Scene(TARGET_BUSINESS, [W("okada_whois_pause"), W("hold_target"), T("taken_over_okada")] + FULL,
+                                                lambda c: {
+        "名乗りと呼ぶ一言": any(played_parts(x["reply"]) == ["intro", "target"] for x in ops(c) if x["op"] == "replay_opening"),
+        "聞いた方には確かめも用件も流さない": not any(r in ("confirm_target", "call_target", "next") for r in replies_to(c, "okada_whois_pause")),
+        "取り次ぎの間は話さない": plain(said_to(c, "hold_target")) == "", "代わった方に全部": full_opening(c), "答えが取れた": got(c, "Q1", "はい")}),
+    # 違うお名前の方が出て、お呼びした方の不在を伝える（✅ 2026-10-22 ユーザー：「違う名乗りの方が、岡田はいないと言っても、また、岡田様を
+    # 呼ぶんですか？」）：お呼びし直さず・確かめず、戻る時刻を聞いて締める
+    "目的の人_担当の別の方が不在を伝える": Scene(TARGET_BUSINESS, [W("transfer"), W("taken_over_absent"), W("back_5pm"), W("affirm")], lambda c: {
+        "理由": last_fact(c, "callback").get("why") == "absent", "戻る時刻": "5時" in (last_fact(c, "callback").get("time") or ""),
+        "お呼びし直さない": not any(r in ("call_target", "confirm_target") for r in replies_to(c, "taken_over_absent")),
+        "用件を流さない": connect_reply(c) == {}, "締め": closing_of(c) == CLOSING, "足す質問は録音": callback_recorded(c)}),
     "目的の人_受付で断られる": Scene(TARGET_BUSINESS, [W("reception_refuse")], lambda c: {
         "発信禁止の申告": bool(c.get("facts", {}).get("do_not_call")), "締め": closing_of(c) == CLOSE_DECLINED}),
 }
