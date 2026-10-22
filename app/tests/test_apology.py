@@ -53,6 +53,10 @@ class Apology(Helpers):
         asked = self.w.a.in_system(SYSTEM, lambda tx: [r for r in fix_requests.open_requests(tx, "CL-1")
                                                         if r["kind"] == "forbidden_speech"])
         self.assertTrue(asked)                                         # 会話の不具合：止めずに会話の担当へ修正依頼
+        version = self.tx(s, lambda tx: tx.one("SELECT version_id FROM salescall.attempts WHERE attempt_id = %s", (aid,)))
+        keys = self.w.a.in_system(SYSTEM, lambda tx: [r["event_key"] for r in tx.all(
+            "SELECT event_key FROM salescall.fix_requests WHERE kind = 'forbidden_speech' AND refs->>'attempt_id' = %s", (str(aid),))])
+        self.assertEqual([k.split("#")[0] for k in keys], [f"fix:forbidden_speech:{version['version_id']}"])   # 同じ不具合は、業務設定の版ごとに1つ（見直し13）
         self.assertNotIn(TEXT, asked[0]["summary"])                    # 修正依頼に、お客様あての文面を入れない
         self.assertEqual(int(notice["refs"]["apology_order_id"]), self.draft(s, aid)["order_id"])
         self.assertEqual(self.tx(s, lambda tx: apology.for_task(tx, s["task"])), None)   # 承認するまで、かけない

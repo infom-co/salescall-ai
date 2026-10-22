@@ -245,7 +245,10 @@ WRITERS: dict[str, dict[str, frozenset[str]]] = {
                    "UPDATE": frozenset({"src/salescall/output/"})},
     "notification_deliveries": {"INSERT": frozenset({"src/salescall/output/"})},   # 知らせの送信の記録（Q23。送るのは CL-3）
 }
-_WRITE = re.compile(r"\b(INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+salescall\.(\w+|\{\})", re.IGNORECASE)
+# 名前は、そのままの書き方（大文字は小文字に読みかえる＝データベースと同じ）と、引用符でくくった書き方（"tasks"）の両方を読む
+# （⛔ 2026-10-22 の見直し13：引用符でくくった名前・差し込んだ関数の名前は、見張りを素通りしていた）
+_NAME = r'(?:"([^"]*)"|(\w+|\{\}))'
+_WRITE = re.compile(r"\b(INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+salescall\." + _NAME, re.IGNORECASE)
 # データベースの中で書き換える関数（サーバーの役が呼べる・volatile）も、呼んでよい部品を決める（2026-10-22 の見直し：表への INSERT・
 # UPDATE だけを見ていて、関数の呼び出しは、画面の部品からでも落ちずに通った）。ここに無い関数は読むだけ（どこから呼んでもよい）。
 # 表と同じ1つの決まり（書く所は1か所）。データベースの関数がこの表とずれていないかは tests/test_foundation の試験が確かめる。
@@ -264,7 +267,12 @@ WRITE_FUNCTIONS: dict[str, frozenset[str]] = {
     "release_claims_on_line": frozenset({_CORE + "registry.py"}),
     "release_claims_in_scope": frozenset({_CORE + "calendar.py", _CORE + "settings.py", _CORE + "registry.py"}),
 }
-_CALL = re.compile(r"\bsalescall\.(\w+)\s*\(")
+_CALL = re.compile(r"\bsalescall\." + _NAME + r"\s*\(")
+
+
+def _named(quoted: str | None, bare: str | None) -> str:
+    """書いた名前を、データベースが読む名前にする（引用符でくくった名前はそのまま、くくらない名前は小文字）。"""
+    return quoted if quoted is not None else bare.lower()
 
 
 def _allowed(rel: str, places: frozenset[str]) -> bool:
@@ -278,10 +286,12 @@ def single_writers(app_root: Path) -> list[Violation]:
         if rel.startswith("tests/") or rel == "run_tests.py":
             continue  # 試験と試験の土台は、約束を試すため・守りをわざと外すために、データを直接書く
         for text, line in _string_constants(_parse(path)):
+            written = set()   # 表に書く文の名前の場所（「INSERT INTO salescall.x (…)」を関数の呼び出しとして二重に数えない）
             for m in _WRITE.finditer(text):
+                written.add(m.start(2) if m.group(2) is not None else m.start(3))
                 verb = m.group(1).split()[0].upper()
-                table = m.group(2)
-                if table == "{}":
+                table = _named(m.group(2), m.group(3))
+                if "{}" in table:
                     out.append(Violation("I-12", rel, line, "書く表の名前を差し込みで作っています（書く場所を見張れない）"))
                     continue
                 if verb == "DELETE":
@@ -292,10 +302,16 @@ def single_writers(app_root: Path) -> list[Violation]:
                     where = "、".join(sorted(places))
                     out.append(Violation("I-12", rel, line, f"salescall.{table} を {verb} してよいのは {where} だけです"))
             for m in _CALL.finditer(text):
-                places = WRITE_FUNCTIONS.get(m.group(1))
+                if (m.start(1) if m.group(1) is not None else m.start(2)) in written:
+                    continue
+                function = _named(m.group(1), m.group(2))
+                if "{}" in function:
+                    out.append(Violation("I-12", rel, line, "呼ぶ関数の名前を差し込みで作っています（書く場所を見張れない）"))
+                    continue
+                places = WRITE_FUNCTIONS.get(function)
                 if places is not None and not _allowed(rel, places):
                     where = "、".join(sorted(places))
-                    out.append(Violation("I-12", rel, line, f"salescall.{m.group(1)}（書き換える関数）を呼んでよいのは {where} だけです"))
+                    out.append(Violation("I-12", rel, line, f"salescall.{function}（書き換える関数）を呼んでよいのは {where} だけです"))
     return out
 
 

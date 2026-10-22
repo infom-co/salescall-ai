@@ -16,7 +16,7 @@ from datetime import date, timedelta
 from unittest import mock
 
 from salescall.core import (approval, attempts, business_rules, calendar, call_report, dial_exit, dnc, fix_requests, gate,
-                            next_action, quality_stage, recordings, settings, settle, stops, tasks)
+                            next_action, quality_stage, recordings, settings, settle, stops, target_policy, tasks)
 from salescall.core.call_report import Cut
 from salescall.core.access import Rejected
 from salescall.core.calendar import CalendarOutOfRange, CalendarRejected
@@ -432,29 +432,80 @@ class Pacing(Base):
                                                         contact_id=a["contact"], cause="お客様に頼まれた折り返し", promised=True))
         self.assertIsInstance(self.claim(a), gate.Claim)
 
-    def test_before_another_clients_promise_the_contractor_chooses_to_call_or_wait(self):
-        """ほかの依頼者がお客様と約束している番号へ、約束の前にかけるか（2026-10-22 ユーザー：「基本は声を変え、契約者ごとに設定で
-        選べるといいですね」）。基本はかける（声は choose_voice が替える）。契約者が「待つ」を選べば、約束の時刻が過ぎるまで待つ。"""
+    def _choose(self, s, value):
+        self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: settings.set_value(
+            tx, "gate.before_other_promise", value, scope="tenant", status="decided", rationale="試験", review_when="試験",
+            tenant_id=s["tenant"]))
+
+    def _promise(self, s, *, minutes, purpose="normal"):
+        at = self.tx(s, lambda tx: tx.one("SELECT now() + make_interval(mins => %s) AS t", (minutes,))["t"])
+        self.tx(s, lambda tx: support.schedule_call(tx, s["task"], at, contact_id=s["contact"], cause="お客様に頼まれた折り返し",
+                                                        promised=True, purpose=purpose))
+        return at
+
+    def test_before_another_clients_promise_the_contractor_chooses_to_call_wait_or_not_call(self):
+        """ほかの依頼者がお客様と約束している番号へ、約束でない電話をかけるか（2026-10-22 ユーザー：「基本は声を変え、契約者ごとに
+        設定で選べるといいですね」「『約束のあとまで待つ』に加え、『同じ番号には送らない』も選べた方がいいんじゃない」）。基本は
+        かける（声は choose_voice が替える）。「待つ」は約束が済むまで待ち、「かけない」はその行を終える側。"""
         a = self.ready()
         b = self.ready(tenant=a["tenant"], phone=a["phone"])
-        promise = self.tx(a, lambda tx: tx.one("SELECT now() + interval '2 hours' AS t")["t"])
-        self.tx(a, lambda tx: support.schedule_call(tx, a["task"], promise, contact_id=a["contact"],
-                                                        cause="お客様に頼まれた折り返し", promised=True))
+        promise = self._promise(a, minutes=120)
         self.assertIsInstance(self.claim(b), gate.Claim)                       # 基本：かける
         self.tx(b, lambda tx: attempts.release(tx, [tx.one("SELECT attempt_id FROM salescall.attempts WHERE task_id = %s",
                                                            (b["task"],))["attempt_id"]]))
-        self.w.a.in_tenant(OPERATOR, b["tenant"], lambda tx: settings.set_value(
-            tx, "gate.before_other_promise", "wait", scope="tenant", status="decided", rationale="試験", review_when="試験",
-            tenant_id=b["tenant"]))
+        self._choose(b, "wait")
         self.assertEqual(self.reason(b), "other_client_promise")             # 契約者が「待つ」を選んだ
         p = self.tx(b, lambda tx: gate.pacing(tx, b["task"]))
-        self.assertEqual((p.binding, p.earliest), ("other_client_promise", promise))
+        self.assertEqual((p.binding, p.earliest), ("other_client_promise", promise))   # 同じ契約者の約束なら、その時刻まで
         self.assertNotEqual(self.tx(a, lambda tx: gate.pacing(tx, a["task"])).binding, "other_client_promise")   # 自分の約束では待たない
-        self.w.a.in_tenant(OPERATOR, b["tenant"], lambda tx: settings.set_value(
-            tx, "gate.before_other_promise", "never", scope="tenant", status="decided", rationale="試験", review_when="試験",
-            tenant_id=b["tenant"]))
+        self._choose(b, "never")
         self.assertEqual(self.reason(b), "other_client_promise_never")       # 「同じ番号にはかけない」：その行は終える側
         self.assertEqual(gate.REASONS["other_client_promise_never"][1], "permanent")
+
+    def test_a_promise_not_yet_called_keeps_others_waiting_even_after_its_time(self):
+        """約束の時刻を過ぎても、その約束の電話がまだかかっていなければ待つ（⛔ 2026-10-22 の見直し13：前は時刻を1秒でも過ぎると
+        待ちが外れ、こちらの営業の電話が約束の電話より先にお客様に届きえた）。見直すのは決まった間（gate.denied_retry_wait）のあと。"""
+        a = self.ready()
+        b = self.ready(tenant=a["tenant"], phone=a["phone"])
+        self._promise(a, minutes=-1)                                            # 1分前の約束が、まだかかっていない
+        self._choose(b, "wait")
+        p = self.tx(b, lambda tx: gate.pacing(tx, b["task"]))
+        now = self.tx(b, lambda tx: tx.one("SELECT now() AS t")["t"])
+        self.assertEqual(p.binding, "other_client_promise")
+        self.assertGreater(p.earliest, now)
+
+    def test_the_choice_never_stops_the_rows_own_promises_apologies_or_imports(self):
+        """「かけない」「待つ」は、約束でない電話だけ。その行自身の約束のかけ直し・お詫びの電話は止めない（お客様が頼んだ電話・
+        お詫びは届ける）。取込でも判断しない（約束は時間で済むので、取り込むときの事実で行を止めない。⛔ 2026-10-22 の見直し13：
+        前は約束の電話・お詫びまで止めて行を終え、取込でも止めた）。"""
+        a = self.ready()
+        b = self.ready(tenant=a["tenant"], phone=a["phone"])
+        self._promise(a, minutes=120)
+        self._choose(b, "never")
+        self._promise(b, minutes=0)                                             # B 自身がお客様と約束したかけ直し
+        c = self.claim(b)
+        self.assertIsInstance(c, gate.Claim)
+        self.tx(b, lambda tx: attempts.release(tx, [c.attempt_id]))
+        self._promise(b, minutes=0, purpose="apology")                         # お詫びの電話
+        self.assertIsInstance(self.claim(b), gate.Claim)
+        blocked = self.tx(b, lambda tx: target_policy.block_reason(tx, normalize(b["phone"]), client_ref=None,
+                                                                   tenant_id=b["tenant"], client_id=b["client"],
+                                                                   business_id=b["business"]))
+        self.assertIsNone(blocked)                                              # 取込（データで決まる理由）では止めない
+
+    def test_another_contractors_promise_time_is_not_shown(self):
+        """ほかの契約者の約束は、あることだけが分かり、時刻は渡らない（依頼者をまたいだ間隔の「契約者の外は中身を出さない」と同じ。
+        ⛔ 2026-10-22 の見直し13：前は約束の時刻がそのまま次の予定の時刻になった）。決まった間のあとに見直す。"""
+        a = self.ready()
+        b = self.ready(phone=a["phone"])                                        # ほかの契約者
+        promise = self._promise(a, minutes=317)
+        self._choose(b, "wait")
+        p = self.tx(b, lambda tx: gate.pacing(tx, b["task"]))
+        rows = self.tx(b, lambda tx: tx.all("SELECT relation, wait_until FROM salescall.number_next_promise_elsewhere(%s)",
+                                            (b["phone"],)))
+        self.assertEqual(rows, [{"relation": "other_tenant", "wait_until": None}])
+        self.assertEqual(p.binding, "other_client_promise")
+        self.assertNotEqual(p.earliest, promise)
 
     def test_own_retries_are_not_cross_client(self):
         s = self.ready()
@@ -808,6 +859,20 @@ class CallerNumberAndVoice(Base):
         sid = make("Q-1")
         self.assertEqual(list(self.tx(s, lambda tx: recordings.parts(tx, sid))), ["Q-1"])
         for bad in ("Q 1", "Q.1", ""):
+            with self.subTest(bad=bad), self.assertRaises(Rejected):
+                make(bad)
+
+    def test_an_answer_recording_keeps_the_japanese_question_name(self):
+        """想定問答の答えの録音の部分は「answer_ ＋ 問いの名前」（日本語のまま。会話の側＝instruction.Business.replay_parts）。
+        問いの名前の決まり（30文字まで・Windows のファイル名に使えない文字なし）は、業務設定の確かめと同じ（0112。2026-10-22 の
+        見直し13：前は英数字だけを受け付け、答えの録音を持つ業務の録音の組が丸ごと作れなかった）。"""
+        s = self.ready()
+        make = lambda name: self.tx(s, lambda tx: recordings.create_set(   # noqa: E731
+            tx, unit="business", voice_name="Leda", version_id=s["version"],
+            parts=[recordings.Part(name, "以前ご予約の際にいただいたお電話番号にお掛けしております。", "test://Leda/a", "2" * 64)]))
+        sid = make("answer_番号の出どころ")
+        self.assertEqual(list(self.tx(s, lambda tx: recordings.parts(tx, sid))), ["answer_番号の出どころ"])
+        for bad in ("answer_番号:出どころ", "answer_" + "あ" * 31, "番号の出どころ", "answer_番号\t"):
             with self.subTest(bad=bad), self.assertRaises(Rejected):
                 make(bad)
 

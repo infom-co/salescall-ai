@@ -250,6 +250,22 @@ class Import(unittest.TestCase):
         p = self.preview(book(sheets={"かけ直し": retry}))
         self.assertTrue(any("回数（1以上の数）" in x for x in p.problems), p.problems)
 
+    def test_the_old_not_transferred_retry_row_is_skipped_with_a_note(self):
+        """前のひな形の「取り次いでもらえなかった」の行は、システムが決める（日を改めて1回）ので、問題にせず読み飛ばして知らせる
+        （⛔ 2026-10-22 の見直し13：前は「使えない結果」として登録を止めた）。"""
+        from salescall.core import business_rules
+        retry = book_rows("かけ直し") + [("取り次いでもらえなかった", "かける", "5", "2時間おき")]
+        p = self.preview(book(sheets={"かけ直し": retry}))
+        self.assertEqual(p.problems, [])
+        self.assertTrue(any("取り次いでもらえなかった" in x and "システムが決めるので読み飛ばしました（日を改めて1回）" in x
+                            for x in p.notes), p.notes)
+        self.assertNotIn("not_reached_not_transferred", p.raw["rules"]["retry"])
+        self.assertEqual(business_rules.SYSTEM_POLICIES["not_reached_not_transferred"],
+                         business_rules.Policy("call", 1, ("days", 1)))        # 知らせの「日を改めて1回」と同じ
+        retry = book_rows("かけ直し") + [("取り次いでもらえない", "かける", "1", "1日後")]
+        p = self.preview(book(sheets={"かけ直し": retry}))
+        self.assertTrue(any("取り次いでもらえない" in x for x in p.problems), p.problems)   # 打ち違いは、これまでどおり問題
+
     def test_problems_found_outside_the_check_are_in_the_digest(self):
         """確かめ（check）の外で見つかった問題（重なった行など。中身には残らない）は指紋に入る：プレビューから問題を消しても
         登録できない（2026-10-17 の見直し）。"""

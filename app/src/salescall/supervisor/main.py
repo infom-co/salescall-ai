@@ -35,7 +35,7 @@ from salescall.core import dial_exit, leases
 from salescall.core.access import Access, busy, unreachable
 from salescall.link.basics import backoff
 from salescall.link.locks import AlreadyRunning, SingleInstance, lock_dir, machine_id
-from salescall.supervisor import ACTOR, config, flush_busy, jobs, line, local_pc, plugins, report, updates
+from salescall.supervisor import ACTOR, busy_seen, config, flush_busy, jobs, line, local_pc, plugins, report, updates
 from salescall.supervisor.links import Attached, Links, NoLinks
 
 RESTART_FIRST, RESTART_MAX = 5.0, 300.0   # 回線ごとの流れを立ち上げ直すまでの間（秒。続けて止まるほど倍に）
@@ -144,7 +144,11 @@ class Supervisor:
         self._load_tenants()
         attached = self.links.lines() if self.cfg.calls else {}
         down = False   # データベースに届かないと分かったら、ほかの回線で待ち直さない（回線の数だけ待つと、この回りが止まる）
+        crowded = False   # 混雑（共有のつなぎが全部使われている）と分かったら、この回はもう借りに行かない（さらに混ませない。
+        #                   ⛔ 2026-10-22 の見直し13：前は回線の数だけ空きを待ち、この回りが止まった）。流れはそのまま、次の回に延ばす
         for line_id, at in attached.items():
+            if crowded:
+                continue
             until = None
             if not down:
                 try:
@@ -153,6 +157,7 @@ class Supervisor:
                     down = unreachable(e)
                     report(self.access, at.tenant_id, "回線の借用", e, line_id=line_id)
                     if busy(e):   # 混雑：いまの流れはそのまま（借用の期限はまだ残っている）。次の回にまた延ばす
+                        crowded = True
                         continue
             if until is None:   # 借りられない（ほかの見守り役が生きて借りている）・届かない：流れを止める
                 self.leased.pop(line_id, None)
@@ -170,6 +175,8 @@ class Supervisor:
                 self._launch(line_id, at, fails=0, now=now)
         for line_id in [l for l in self.leased if l not in attached]:   # つながりが切れた回線
             self._stop_worker(line_id)
+            if crowded:   # 延ばす・後始末して返すのは、混雑が解けた次の回に（借りたままの印は残す）
+                continue
             w = self.workers.get(line_id)
             if w is not None and w.thread is not None and w.thread.is_alive():
                 self._extend(line_id)   # 流れがまだ止まっていない（通話の途中）：借用を延ばし続ける
@@ -177,7 +184,8 @@ class Supervisor:
                 self.workers.pop(line_id, None)
                 self._finish(line_id)
         try:
-            self._renew_every = float(self.access.in_system(ACTOR, leases.renew_every))
+            if not crowded:
+                self._renew_every = float(self.access.in_system(ACTOR, leases.renew_every))
         except Exception as e:  # noqa: BLE001 読めなければ、前に読めた値（無ければ短い間）で次に試す
             report(self.access, None, "延ばす間隔の読み出し", e)
         self._next_renew = now + (self._renew_every or RENEW_FALLBACK)
@@ -305,10 +313,12 @@ class Supervisor:
     # ── 1回分（本体の繰り返し） ──
     def tick(self, now: float | None = None) -> None:
         now = time.monotonic() if now is None else now
+        seen = busy_seen()
         steps: list[tuple[str, Callable[[], None]]] = (
             [("版の確かめ", self.check_version), ("回線の借用", lambda: self.renew(now))] if now >= self._next_renew else [])
         steps += [("回線ごとの流れの見張り", lambda: self.watch_workers(now)), ("決まった間隔の仕事", lambda: self.run_jobs(now)),
-                  ("混雑の記録", lambda: flush_busy(self.access))]
+                  # 混雑の記録は、この回に混雑が無かったときだけ（混んでいる最中に記録しに行くと、さらに混ませる。⛔ 見直し13）
+                  ("混雑の記録", lambda: flush_busy(self.access) if busy_seen() == seen else None)]
         for what, step in steps:
             try:
                 step()
@@ -354,6 +364,10 @@ def serve(cfg: config.Config, stop: threading.Event | None = None) -> None:
     if cfg.call_runner and not cfg.verifier:   # 検証の部品が無いと、かけた電話を締められず、行もお客様も待ち続ける（2026-10-22 の見直し）
         raise config.ConfigMissing("設定 SALESCALL_VERIFIER が入っていません（電話をかけるときは、通話後の検証の部品も要ります。"
                                    "手順：app/README.md）")
+    if cfg.local_only and cfg.admin_tenant is None:   # 移る間の形は、この機械の PC の部品の通行証を自分で払い出す（local_pc）。
+        #   どの契約者の分か無いと、通行証が無いまま黙って動き、電話もかけず控えも書かない（⛔ 2026-10-22 の見直し13）
+        raise config.ConfigMissing("設定 SALESCALL_ADMIN_TENANT が入っていません（つなぎ口がこの機械の中だけのときは、この機械の"
+                                   "PC の部品の契約者が要ります。手順：app/README.md）")
     with SingleInstance(lock_dir() / "salescall-supervisor.lock"):
         hub = channel.Hub(Access(cfg.dsn), cfg)
         sup = Supervisor(cfg, hub)

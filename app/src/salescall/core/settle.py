@@ -152,7 +152,9 @@ def _notice_forbidden(tx: Tx, a: dict[str, Any], *, prepare: bool = True) -> boo
         draft = apology.prepare(tx, a["attempt_id"])
         summary += f"お詫びの電話の案：「{draft['text']}」承認すると、AI がこのお客様にかけて伝えます。"
         refs["apology_order_id"] = draft["order_id"]
-    fix_requests.request(tx, "CL-1", "forbidden_speech", key="forbidden_speech",
+    # 同じ不具合は1つ＝業務設定の版ごと（台本が違えば原因も違いうる。⛔ 2026-10-22 の見直し13：前は版をまたいで1つにまとめ、
+    # 直したと報告するまで、ほかの業務の版で起きても依頼が出なかった）
+    fix_requests.request(tx, "CL-1", "forbidden_speech", key=f"forbidden_speech:{a['version_id']}",
                          summary="言ってはいけないことを言った通話がありました（会話の処理の不具合）", refs=refs)
     notify.emit(tx, "forbidden_speech", key=f"forbidden_speech:{a['attempt_id']}", summary=summary, refs=refs, admin=True)
     return True

@@ -68,9 +68,12 @@ READING_BY = readings.BY                          # 読みを決めたもの（�
 UNIT_TYPE = "number"                              # 単位を持てる型（金額には補わない。DESIGN.md 6-2 の ⚠️）
 QUESTION_KEYS = {"id", "text", "ask_about", "type", "required", "choices", "next", "unit", "meanings", "replies"}
 ANSWER_KEYS = {"name", "text"}                    # 想定問答の1つ：問いの名前・答えの文
-# 想定問答の問いの名前に使えない名前（1か所）：AI が流し直しで選ぶ録音の部分の名前（正本は会話の側＝CL-1 の flowctl.PART_LABEL の鍵）。
-# 会話の側は、問いの名前を先に読むので、同じ名前だと名乗りなどの録音が流れなくなる。会話の側に名前が増えたら、ここに足す（CL-2.md 4-129）
-ANSWER_RESERVED = frozenset({"intro", "purpose", "all", "handover", "ai", "resume", "unknown"})
+# 想定問答の問いの名前に使えない名前（1か所）：AI が流し直しで選ぶ録音の部分の、中の名前と AI に見せる名前の両方（正本は会話の側＝
+# CL-1 の flowctl.RESERVED_PART_NAMES＝PART_LABEL の鍵と値）。会話の側は、同じ名前の問いがあると通話を始めない（ValueError）ので、
+# 業務設定の確かめで先に断る（⛔ 2026-10-22 の見直し13：前は中の名前だけで、「用件」などが確かめを通り、その版の通話がすべて
+# 会話を始めるところで落ちた）。会話の側に名前が増えたら、ここに足す（CL-2.md 4-129）
+ANSWER_RESERVED = frozenset({"intro", "purpose", "all", "handover", "ai", "resume", "unknown",
+                             "名乗り", "用件", "最初から", "代わった方へ", "エーアイか聞かれた", "質問に戻る", "答えられない質問"})
 ANSWER_NAME_MAX = 30                              # 問いの名前の長さの上限（録音のファイル名に入る）
 _FILE_UNSAFE = re.compile(r'[\\/:*?"<>|\x00-\x1f]')    # Windows のファイル名に使えない文字
 

@@ -130,6 +130,20 @@ class SingleWriters(Planted):
                           "src/salescall/web/y.py": 'SQL = "SELECT salescall.jst(now())"\n'})
         self.assertEqual([v.path for v in rules.single_writers(root)], ["src/salescall/web/x.py"])
 
+    def test_quoted_capital_or_inserted_names_are_watched_too(self):
+        """引用符でくくった名前・大文字の名前・差し込んだ名前でも、書く表と書き換える関数を見張る（⛔ 2026-10-22 の見直し13：
+        salescall."recover_lines"( ・ salescall.{f}( は素通りしていた）。"""
+        root = self._app({"src/salescall/web/a.py": 'SQL = \'SELECT * FROM salescall."recover_lines"(%s)\'\n',
+                          "src/salescall/web/b.py": 'SQL = "SELECT * FROM salescall.RECOVER_LINES(%s)"\n',
+                          "src/salescall/web/c.py": 'f = "recover_lines"\nSQL = f"SELECT * FROM salescall.{f}(%s)"\n',
+                          "src/salescall/web/d.py": 'SQL = \'UPDATE salescall."contacts" SET phone_e164 = %s\'\n',
+                          "src/salescall/web/e.py": 'SQL = "UPDATE salescall.CONTACTS SET phone_e164 = %s"\n',
+                          "src/salescall/web/f.py": 't = "contacts"\nSQL = f\'UPDATE salescall."{t}" SET phone_e164 = %s\'\n',
+                          "src/salescall/core/leases.py": 'SQL = \'SELECT * FROM salescall."recover_lines"(%s)\'\n',
+                          "src/salescall/web/g.py": 'SQL = \'SELECT salescall."jst"(now()) FROM salescall."tasks" x\'\n'})
+        self.assertEqual(sorted(v.path for v in rules.single_writers(root)),
+                         [f"src/salescall/web/{c}.py" for c in "abcdef"])
+
     def test_writers_table_shape(self):
         # 書き手の表の1行は、書き方（INSERT・UPDATE）ごとの場所だけ（ほかの鍵が入っていたら、表の行がずれている）
         for table, verbs in rules.WRITERS.items():
@@ -164,11 +178,11 @@ class DialOnlyThroughExit(Planted):
     """I-1：電話をかけてよいのは、発信の出口だけ（門を通らない発信の道を作らない）。"""
 
     def test_start_call_outside_exit(self):
-        root = self._app({"src/salescall/telephony/x.py": "def go(d, p):\n    d.start_call(p)\n",
+        root = self._app({"src/salescall/agent/phones/x.py": "def go(d, p):\n    d.start_call(p)\n",
                           "src/salescall/supervisor/y.py": "def go(d, p):\n    getattr(d, 'start_call')(p)\n",
                           "src/salescall/core/dial_exit.py": "def dial(d, p):\n    d.start_call(p)\n"})
         found = rules.dial_only_through_exit(root)
-        self.assertEqual(sorted(v.path for v in found), ["src/salescall/supervisor/y.py", "src/salescall/telephony/x.py"])
+        self.assertEqual(sorted(v.path for v in found), ["src/salescall/agent/phones/x.py", "src/salescall/supervisor/y.py"])
 
     def test_the_relays_may_pass_it_on_only_in_their_own_place(self):
         """中継（5-5）は、決めた関数の中だけ（同じファイルのほかの所では、かけられない）。"""

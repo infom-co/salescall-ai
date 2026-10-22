@@ -513,6 +513,8 @@ class PerClient(unittest.TestCase):
         whole = backup.prune_rules(self.app, None)[backup.WHOLE]["days"]
         self.assertEqual((mine[backup.AI], mine[backup.SUBMISSION]), (30, 90))
         self.assertEqual((theirs[backup.AI], theirs[backup.SUBMISSION], whole[backup.AI]), (365, 1095, 365))
+        with self.assertRaises(Rejected):                                      # Fly.io の日数は置き場全体に1つ（システムだけ）
+            put("backup.ai.keep_days_cloud", 10)
         with self.assertRaises(Rejected):                                      # 依頼者ごとには変えない（契約者のハードディスク）
             self.app.in_client(OPERATOR, s["tenant"], s["client"], lambda tx: settings.set_value(
                 tx, "backup.ai.keep_days_drive", 10, scope="client", status="decided", rationale="試験", review_when="試験",

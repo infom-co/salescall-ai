@@ -294,7 +294,7 @@ def decide_after_call(j: Judgement, *, cut_off: bool = False, normal: gate.Pacin
     if j.state == "unknown":
         return _hold(f"判定できなかった（{j.detail.get('unknown_cause')}）：判定待ちで残す")
     if forbidden:   # 2026-10-15 ユーザー：「その行はひとまず終える。依頼主でなく、管理者へ報告。場合によっては、お詫びを入れる」
-        return _end("forbidden_speech", "言ってはいけないことを言った：その行はひとまず終える（契約者へ知らせた）")
+        return _end("forbidden_speech", "言ってはいけないことを言った：その行はひとまず終える（契約者と管理者へ知らせ、CL-1 へ修正依頼を出した）")
     if j.state in END_STATES:
         return _end(j.state, "目的を果たした・終わった結果")
     if j.complaint:

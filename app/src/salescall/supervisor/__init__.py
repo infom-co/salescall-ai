@@ -20,6 +20,7 @@ ACTOR = Actor("見守り役", "system")
 # 混雑（共有のつなぎの空き待ちの時間切れ）で記録できなかった誤り：仕事の名前 → 回数。空いたときに、まとめて記録する（flush_busy）
 _BUSY: Counter[str] = Counter()
 _BUSY_LOCK = threading.Lock()
+_BUSY_SEEN = [0]   # 混雑に出会った回数の通し（減らさない。この回に混雑があったかを、本体の繰り返しが見る＝busy_seen）
 
 
 def report(access: Access, tenant_id: object, what: str, error: BaseException, *, line_id: object = None) -> None:
@@ -30,6 +31,7 @@ def report(access: Access, tenant_id: object, what: str, error: BaseException, *
     if busy(error):   # 混雑：いまは記録しに行かない（さらに埋める）。数えておき、空いたときにまとめて記録する（消さない）
         with _BUSY_LOCK:
             _BUSY[what] += 1
+            _BUSY_SEEN[0] += 1
         return
     try:
         from salescall.core import watch   # 見守り役の部品を読むときに、watch の読み込みを先にしない
@@ -37,6 +39,12 @@ def report(access: Access, tenant_id: object, what: str, error: BaseException, *
                           tenant_id=tenant_id, line_id=line_id)
     except Exception:  # noqa: BLE001 データベースに届かないときも、見守り役は止めない（サーバーの記録には残る）
         pass
+
+
+def busy_seen() -> int:
+    """混雑に出会った回数の通し（前に見た数と比べて、そのあいだに混雑があったかを知る）。"""
+    with _BUSY_LOCK:
+        return _BUSY_SEEN[0]
 
 
 def flush_busy(access: Access) -> None:

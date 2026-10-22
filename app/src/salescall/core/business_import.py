@@ -73,6 +73,9 @@ LABELS: dict[str, dict[str, str]] = {
     "action": {"かける": "call", "終える": "end"},
     "required": {"はい": True, "○": True, "いいえ": False, "": False},
 }
+# かけ直しのシートで、システムが決める結果（業務では変えない＝business_rules.SYSTEM_POLICIES）。前のひな形にはこの行があったので、
+# 問題にせず読み飛ばし、知らせに出す（⛔ 2026-10-22 の見直し13：前は「使えない結果」として登録を止めていた）
+SYSTEM_RETRY_ROWS = {"取り次いでもらえなかった": "日を改めて1回"}
 ALL_QUESTIONS = "全部"            # 「わからない・答えたくない」の質問ID：必須の質問すべて
 OTHER_ANSWER = "その他"           # 分岐の回答条件：受け皿（その質問に「その他」という選択肢があれば、その選択肢＝下の ANY_LABEL で受け皿）
 ANY_LABEL = "＊"                  # 分岐の回答条件：いつでも受け皿
@@ -158,9 +161,11 @@ def _split(value: str | None) -> list[str] | None:
     return None if not value else [x.strip() for x in _SPLIT.split(value) if x.strip()]
 
 
-def _to_raw(sheets: dict[str, tuple[Sheet, dict[str, int]]], problems: list[str]
+def _to_raw(sheets: dict[str, tuple[Sheet, dict[str, int]]], problems: list[str], notes: list[str] | None = None
             ) -> tuple[dict[str, Any], list[str], dict[str, list[str]]]:
-    """シートを業務設定の形にする。3つ目は、形の並びの何番目が、どのシートの何行目か（問題の位置の書き換えに使う＝`_placed`）。"""
+    """シートを業務設定の形にする。3つ目は、形の並びの何番目が、どのシートの何行目か（問題の位置の書き換えに使う＝`_placed`）。
+    notes には、登録は止めない知らせを足す（システムが決めるので読み飛ばした行など）。"""
+    notes = [] if notes is None else notes
     basic: dict[str, str | None] = {}
     for row_no, v in _rows(sheets, "basic", problems):
         item = BASIC_ITEMS.get(v.get("item") or "")
@@ -233,6 +238,10 @@ def _to_raw(sheets: dict[str, tuple[Sheet, dict[str, int]]], problems: list[str]
     seen_retry: dict[str, int] = {}
     for row_no, v in _rows(sheets, "retry", problems):
         where = f"シート「かけ直し」の {row_no} 行目"
+        if v.get("key") in SYSTEM_RETRY_ROWS:
+            notes.append(f"{where}：結果「{v.get('key')}」は、システムが決めるので読み飛ばしました"
+                         f"（{SYSTEM_RETRY_ROWS[v.get('key')]}）")
+            continue
         key = _label("retry_key", v.get("key"), f"{where}の結果", problems)
         action = _label("action", v.get("action"), f"{where}のかけ直すか", problems)
         if key is None or action is None:
@@ -527,7 +536,7 @@ def preview(tx: Tx, business_id: UUID, file_name: str, data: bytes, *, mapping: 
     sheets, problems, notes = _sheets(file_name, data, mapping or {})
     if problems and not sheets:
         return Preview(None, problems, [], notes=notes)
-    raw, problems, where = _to_raw(sheets, problems)
+    raw, problems, where = _to_raw(sheets, problems, notes)
     ai = ask_ai(raw, find_names=find_names, decide_units=decide_units, decide_topics=decide_topics,
                 decide_meanings=decide_meanings, decide_replies=decide_replies)
     p = review(tx, business_id, raw, confirmed_names=confirmed_names, ai=ai, problems=problems, where=where)

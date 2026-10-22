@@ -883,7 +883,12 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("録音の部品の名前に、どの文字でも受け付ける",
      "ALTER TABLE salescall.recordings DROP CONSTRAINT recordings_part_check;"
      " ALTER TABLE salescall.recordings ADD CONSTRAINT recordings_part_check CHECK (part ~ '^.{0,64}$')",
-     ("tests.test_gate.CallerNumberAndVoice.test_recording_part_names_take_the_same_letters_as_question_ids",)),
+     ("tests.test_gate.CallerNumberAndVoice.test_recording_part_names_take_the_same_letters_as_question_ids",
+      "tests.test_gate.CallerNumberAndVoice.test_an_answer_recording_keeps_the_japanese_question_name")),
+    ("想定問答の答えの録音の部分の名前を、英数字だけにする（0112 の前：日本語の問いの名前の答えの録音を入れられない）",
+     "ALTER TABLE salescall.recordings DROP CONSTRAINT recordings_part_check;"
+     " ALTER TABLE salescall.recordings ADD CONSTRAINT recordings_part_check CHECK (part ~ '^[A-Za-z0-9_-]{1,64}$')",
+     ("tests.test_gate.CallerNumberAndVoice.test_an_answer_recording_keeps_the_japanese_question_name",)),
     ("回線を、一覧に無い方式でも作れる（0104 の前）",
      "ALTER TABLE salescall.lines DROP CONSTRAINT lines_method",
      ("tests.test_registry.Lines.test_the_line_method_is_chosen_from_the_list",)),
@@ -1026,11 +1031,15 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("書き換える関数を足しても、決まりの機械の表に載せずに済む（呼んでよい部品の見張りから漏れる）",
      "ALTER FUNCTION salescall.next_customer_promise_at(uuid) VOLATILE",   # 書き換えうる関数が1つ増えた形
      ("tests.test_foundation.ServerOnly.test_every_function_that_writes_has_its_place_in_the_rules",)),
-    ("ほかの依頼者の約束を、門が見ない（0111：契約者が「待つ」を選んでも、約束の直前にほかの依頼者の電話がかかる）",
-     "CREATE OR REPLACE FUNCTION salescall.number_next_promise_elsewhere(p_phone text) RETURNS timestamptz"
-     " LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ SELECT NULL::timestamptz"
-     " WHERE salescall.cur_client() IS NULL $$",
-     ("tests.test_gate.Pacing.test_before_another_clients_promise_the_contractor_chooses_to_call_or_wait",)),
+    ("ほかの依頼者の約束を、門が見ない（0111：契約者が「待つ」「かけない」を選んでも、約束の直前にほかの依頼者の電話がかかる）",
+     "CREATE OR REPLACE FUNCTION salescall.number_next_promise_elsewhere(p_phone text) RETURNS TABLE (relation text, wait_until timestamptz) LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ SELECT NULL::text, NULL::timestamptz WHERE salescall.cur_client() IS NULL $$",
+     ("tests.test_gate.Pacing.test_before_another_clients_promise_the_contractor_chooses_to_call_wait_or_not_call",)),
+    ("ほかの契約者の約束の時刻を渡す（0111：契約者の外の中身が出る）",
+     "CREATE OR REPLACE FUNCTION salescall.number_next_promise_elsewhere(p_phone text) RETURNS TABLE (relation text, wait_until timestamptz) LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ SELECT x.relation, max(x.until) FROM (SELECT CASE WHEN n.tenant_id = salescall.cur_tenant() THEN 'same_tenant' ELSE 'other_tenant' END AS relation, coalesce(n.window_until, greatest(n.callee_at, n.call_at)) AS until FROM salescall.current_next_actions n JOIN salescall.task_numbers k ON k.task_id = n.task_id AND k.contact_id = n.contact_id WHERE k.phone_e164 = p_phone AND n.client_id IS DISTINCT FROM salescall.cur_client() AND n.kind = 'call' AND n.promised) x GROUP BY x.relation $$",
+     ("tests.test_gate.Pacing.test_another_contractors_promise_time_is_not_shown",)),
+    ("約束の時刻を過ぎたら、まだかけていない約束でも待たない（0111：営業の電話が約束の電話より先に届く）",
+     "CREATE OR REPLACE FUNCTION salescall.number_next_promise_elsewhere(p_phone text) RETURNS TABLE (relation text, wait_until timestamptz) LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ SELECT x.relation, CASE WHEN x.relation = 'same_tenant' THEN max(x.until) END FROM (SELECT CASE WHEN n.tenant_id = salescall.cur_tenant() THEN 'same_tenant' ELSE 'other_tenant' END AS relation, coalesce(n.window_until, greatest(n.callee_at, n.call_at)) AS until FROM salescall.current_next_actions n JOIN salescall.task_numbers k ON k.task_id = n.task_id AND k.contact_id = n.contact_id WHERE k.phone_e164 = p_phone AND n.client_id IS DISTINCT FROM salescall.cur_client() AND n.kind = 'call' AND n.promised AND coalesce(n.window_until, greatest(n.callee_at, n.call_at)) > now()) x GROUP BY x.relation $$",
+     ("tests.test_gate.Pacing.test_a_promise_not_yet_called_keeps_others_waiting_even_after_its_time",)),
 )
 
 

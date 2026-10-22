@@ -502,17 +502,28 @@ class Main(SupervisorBase):
         sup = self.supervisor(s, start_worker=start)
         sup.start()
 
+        tried = []
+
         class Busy:
             def __getattr__(self, name):
                 def fail(*a, **k):
+                    tried.append(name)
                     raise PoolBusy("試験：つなぎの混雑")
                 return fail
         before = package._BUSY["回線の借用"]
+        sup.links.attached[uuid.uuid4()] = sup.links.attached[s["line"]]       # もう1本つながっている
         real, sup.access = sup.access, Busy()
         sup.renew(10.0)
-        sup.access = real
+        self.assertEqual(len(tried), 1)                                         # 混んでいると分かったら、この回はもう借りに行かない
+        with mock.patch.object(main_mod, "flush_busy") as flushed:
+            sup._next_renew = 0.0
+            sup.tick(11.0)                                                      # この回の借用も混んだ
+            flushed.assert_not_called()                                         # 混んだ回には、混雑の記録を書きに行かない
+            sup.access = real
+            sup.tick(12.0)
+            flushed.assert_called_once_with(real)                               # 混雑の無い回に、まとめて書く
         self.assertEqual((sup.leased, started[0][2].stop.is_set()), ({s["line"]: s["tenant"]}, False))   # 流れは止めない
-        self.assertEqual(package._BUSY["回線の借用"], before + 1)                # 記録は書かず、数えるだけ
+        self.assertGreaterEqual(package._BUSY["回線の借用"], before + 1)        # 記録は書かず、数えるだけ
         package.flush_busy(real)
         self.assertEqual(package._BUSY["回線の借用"], 0)
         noted = self.w.a.in_system(SYSTEM, lambda tx: tx.all(
@@ -766,6 +777,8 @@ class Main(SupervisorBase):
         with self.assertRaises(config.ConfigMissing):                          # 電話をかけるなら、通話後の検証の部品も要る（2026-10-22 の見直し：
             main_mod.serve(config.load({"SALESCALL_DSN": "x", "SALESCALL_LISTEN": "127.0.0.1:1",   # 無いと、かけた電話を締められず、
                                         "SALESCALL_CALL_RUNNER": "m:r"}))                            # 行もお客様も待ち続ける）
+        with self.assertRaises(config.ConfigMissing):                          # 移る間の形（この機械の中だけで待つ）は、この機械の PC の
+            main_mod.serve(config.load({"SALESCALL_DSN": "x", "SALESCALL_LISTEN": "127.0.0.1:1"}))   # 部品の契約者が要る（見直し13）
 
     def test_the_supervisor_starts_again_by_itself_after_an_unexpected_error(self):
         """思いがけない誤りでは終わらず、間をあけて自分で動き直す（人が立ち上げ直さない。⛔ 2026-10-22 の見直し）。設定の抜けは、
@@ -778,13 +791,44 @@ class Main(SupervisorBase):
             if len(calls) == 1:
                 raise RuntimeError("試験：思いがけない誤り")
         with mock.patch.object(entry.main, "serve", serve), mock.patch.object(entry.config, "load", lambda: "試験の設定"), \
+                mock.patch.object(entry, "left_over", lambda: []), \
                 mock.patch.object(entry.time, "sleep") as slept, mock.patch("builtins.print"):
             self.assertEqual(entry.run(["run"]), 0)
         self.assertEqual(len(calls), 2)
         slept.assert_called_once_with(entry.RESTART_WAIT)
         with mock.patch.object(entry.config, "load", side_effect=config.ConfigMissing("試験：設定の抜け")), \
-                mock.patch("builtins.print"):
+                mock.patch.object(entry, "left_over", lambda: []), mock.patch("builtins.print"):
             self.assertEqual(entry.run(["run"]), 1)
+
+    def test_flows_left_from_the_previous_round_end_the_process_instead_of_restarting_inside_it(self):
+        """前の回の見守り役の流れ（固まった仕事など）が残っていれば、同じ処理の中では動き直さず、処理を終える（動かす所の仕組みが
+        立ち上げ直す）。止めるときも、残った流れを待たずに終える（⛔ 2026-10-22 の見直し13：固まった仕事を Python が待ち続け、
+        処理が終わらなかった・まだ通話中の流れの回線を後始末して二重に立ち上げえた）。"""
+        from salescall.supervisor import __main__ as entry
+        release = threading.Event()
+        stuck = threading.Thread(target=release.wait, name="salescall-job_0", daemon=True)
+        stuck.start()
+        try:
+            self.assertIn("salescall-job_0", entry.left_over())
+            with mock.patch.object(entry.main, "serve", side_effect=RuntimeError("試験")), \
+                    mock.patch.object(entry.config, "load", lambda: "試験の設定"), \
+                    mock.patch.object(entry.os, "_exit", side_effect=SystemExit) as ended, \
+                    mock.patch.object(entry.time, "sleep") as slept, mock.patch("builtins.print"):
+                with self.assertRaises(SystemExit):
+                    entry.run(["run"])
+            ended.assert_called_once_with(1)
+            slept.assert_not_called()                                           # 同じ処理の中では動き直さない
+            with mock.patch.object(entry.main, "serve", lambda cfg: None), \
+                    mock.patch.object(entry.config, "load", lambda: "試験の設定"), \
+                    mock.patch.object(entry.os, "_exit", side_effect=SystemExit) as ended:
+                with self.assertRaises(SystemExit):
+                    entry.run(["run"])                                          # 止めたあとも、残った流れを待たない
+            ended.assert_called_once_with(0)
+        finally:
+            release.set()
+            stuck.join()
+        self.assertNotIn("salescall-job_0", entry.left_over())
+        self.assertNotIn("salescall-worker-0", entry.left_over())   # データベースのつなぎの流れは数えない
 
 
 if __name__ == "__main__":

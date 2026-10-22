@@ -430,6 +430,10 @@ class Shapes(unittest.TestCase):
                    callback("other_number", LATER, "03-0000-0001"), callback("other_number"),   # 番号を聞けずに終わった
                    callback("later", time="いつでも")):
             self.assertEqual(from_json(report(callback=cb).to_json()).callback, cb)
+        # AIが「目的の人」と報告したが、繋がずに終わった（判定と食い違った）：受け取り、繋がっていないと読む（繋がったかは繋いだ事実
+        # だけ＝CallReport.reached_target。2026-10-22 の確かめ：前は報告ごと断った）
+        unreached = from_json({**good, "not_reached": "absent"})
+        self.assertEqual((unreached.parties, unreached.reached_target), (("target",), False))
         facts = good["facts"]
         rec = {"turn": 1, "said": "あとでかけて"}
         for name, change in [("知らない項目", {"extra": 1}), ("事実が無い", {"facts": None}),
@@ -443,7 +447,6 @@ class Shapes(unittest.TestCase):
                              ("根拠の発話が長すぎる", {"facts": {"complaint": [{"turn": 1, "said": "あ" * 81}]}}),
                              ("記録に知らない項目", {"facts": {"complaint": [{**rec, "level": 3}]}}),
                              ("知らない締めた理由", {"facts": {"end": [{**rec, "reason": "bye"}]}}),
-                             ("目的のお客様に繋がったのに理由", {"not_reached": "absent"}),
                              ("別の番号でないのに番号がある", {"facts": {"callback": [
                                  {**rec, "why": "later", "time": None, "number": "03-0000-0001", "person": None}]}}),
                              ("言ったままの番号が空", {"facts": {"callback": [
