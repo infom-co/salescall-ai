@@ -3085,7 +3085,7 @@ def tool_declarations(questions: list[Question], replay: bool = False, target: b
            + f"エーアイか・人間かと聞かれた＝「{PART_LABEL['ai']}」（何と言うかはプログラムが決めます）。相手からそのほかの質問をされた＝"
            "想定問答にある問いならその名前" + "".join(f"（「{n}」）" for n in answers)
            + f"、無ければ、業務の情報にあることなら「{PART_LABEL['own']}」・業務の情報にも無いことなら「{PART_LABEL['no_answer']}」（この2つは、"
-           f"返事のとおりに自分の言葉で答えます）。エーアイかへの言い方・自分の言葉の答えに、相手が返事をした＝「{PART_LABEL['resume']}」",
+           f"返事のとおりに自分の言葉で答えます。番号をどこで知ったか・金額・会社のことなどは「{PART_LABEL['purpose']}」では答えません）。エーアイかへの言い方・自分の言葉の答えに、相手が返事をした＝「{PART_LABEL['resume']}」",
            {A["part"]: s([v for k, v in PART_LABEL.items() if replay or k in ("ai", "resume") + OWN_PARTS or (target and k == "handover")]
                          + list(answers))},
            [A["part"]]),
