@@ -2213,6 +2213,11 @@ class Flow:
             受け取る）＝「この方は目的の人ではない」として (3)(4) で決める。✅ 2026-10-22 ユーザー：「代わりの方が聞いてくれると言っているのに、
             それを無下にするんですか？」"""
         j = self.meaning_said if self.words_complete else None
+        if self.successor and ai == "successor":
+            # 後任の方へ切り替えたあと（_to_successor）は、後任の方が目的の人：AIの「後任の方」は「目的の人」の報告（⛔ 2026-10-22 G-57 tc33
+            # （在籍していない・S4）：お呼びした後任の田中様の「お電話代わりました。田中です。」を、AIが「後任の方」と報告し、在籍していないと
+            # 同じに扱って締めた）
+            ai = "target"
         self.target_claimed = ai == "target"
         if self.judging and j is None and (self.midway or not self.words_complete):
             return self._wait_for_words()

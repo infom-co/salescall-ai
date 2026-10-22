@@ -6289,6 +6289,26 @@ class OfferTest(unittest.TestCase):
         r = f.apply("report_party", {"party": "target"})
         self.assertEqual((r["result"], self.played(r)[:3], f.facts["connect"][0]["who"]), ("next", ["greeting", "intro", "purpose"], "successor"))
         self.assertIsNone(f.not_reached)
+        # 切り替えたあとのAIの「後任の方」は「目的の人」の報告（⛔ G-57 tc33（在籍していない・S4）：お呼びした田中様を「後任の方」と報告し、
+        # 在籍していないと同じに扱って締めた）。判定が遅れていても、2つ目の読みが届けば同じ道
+        g, _ = self.flow()
+        g.use_checks("judge", "judge2")
+        self.heard(g, "岡田は先月退職いたしました。", TARGET_IS_AWAY)
+        g.apply("request_callback", {"why": "departed"})
+        self.heard(g, "後任は田中になります。少々お待ちください。", HOLD)
+        g.apply("report_party", {"party": "reception"})
+        self.heard(g, "お電話代わりました。田中です。", TARGET_IS_THERE); g.on_check("judge2", TARGET_IS_THERE)
+        r = g.apply("report_party", {"party": "successor"})
+        self.assertEqual((r["result"], g.facts["connect"][0]["who"], g.phase), ("next", "successor", "asking"))
+        h, _ = self.flow()
+        h.use_checks("judge", "judge2")
+        self.heard(h, "岡田は先月退職いたしました。", TARGET_IS_AWAY)
+        h.apply("request_callback", {"why": "departed"})
+        self.heard(h, "後任は田中になります。少々お待ちください。", HOLD)
+        h.apply("report_party", {"party": "reception"})
+        h.on_callee(); h.on_heard("お電話代わりました。田中です。")                                # 判定がまだ届いていない
+        r = h.apply("report_party", {"party": "successor"})
+        self.assertEqual((r["result"], h.phase), ("confirm_target", "calling"))              # AIの読みだけでは繋がず、確かめる
 
     def test_session_swap_after_the_successor_keeps_the_new_target(self):
         # 張り替えのあとの「いまの位置」：後任の方を目的の人としてお呼びしていること（指示の「目的の人」は前にお呼びした方のまま）
