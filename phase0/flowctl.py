@@ -714,6 +714,7 @@ class Flow:
         self.party: str | None = None     # いまの相手の種別（PARTY_LABEL の中の名前。報告が無ければ None＝不明。DESIGN.md 4-3）
         self.callback_why: str | None = None  # かけ直しの申し出の理由（CALLBACK_LABEL の中の名前。1通話1回まで）
         self.callback_ids: list[str] = []      # かけ直しで足した質問（目的の人かを確かめに戻ったあと、続きから聞く＝_callback）
+        self.back_turn: int | None = None      # かけ直しの質問の途中で、目的の人かを確かめに戻った発話の番号（_target_back。繋いだら None）
         self.busy_asked = False
         self.confirm_counts: dict[str, int] = {}   # 言い直しの場面ごとの回数（同じ言い方が続かないよう、順番に回す）
         self.awaiting_say: str | None = None       # いま返事を待っている言い直しの、言い方（差し戻しのときも同じ言い方を使う）
@@ -1234,6 +1235,8 @@ class Flow:
             return AFTER[reply["after"]][2] if reply.get("after") else "hai"  # 何のあとの言い直しかは、言い直しを作る所（_ask_confirm）が決めたもの
         if name == "record_answer" and args.get("condition_id") in SYSTEM_CONDITIONS:
             return "shouchi"
+        if result == "next" and reply.get("sorry"):
+            return "shitsurei"  # 確かめに「いいえ」と言われたあと、かけ直しの質問の続きへ戻る（_call_target）
         if name == "request_callback" and result == "next":
             # 「本人は出かけております」「あとでかけて」に「ありがとうございます、」は合わない。代わった方へは、録音のあいさつ・名乗りから始まる
             # ので流さない（_callback の renamed）
@@ -2118,8 +2121,14 @@ class Flow:
         # 「岡田ですね。失礼ですが、どちら様でしょうか？」を3回とも「ご本人」と読んだ＝尋ねているかが先なので、その場では繋がないが、読みが
         # 残ると、答えたあとのAIの読み違いと2つそろう）。不在の読みは残す（お呼びした方の事実）
         asking = {t for t, v in self.calling_asks.items() if v == ASKS_YES}
+        # かけ直しの質問の途中で、目的の人かを確かめに戻ったあと（_target_back）は、戻る前の不在の読みで繋ぐのを止めない（お呼びした方が
+        # 戻ってきたかを確かめている。ご本人でなければ、お呼びし直さずにかけ直しの続きへ＝_call_target）。⛔ 2026-10-22 G-57 tc26（かけ直しの
+        # 途中で戻る・S2）：確かめへの「はい、そうです。」の判定が届かず（3.5 Flash Lite が止まっていた）、前の「席を外しておりまして」の
+        # 不在の読みで繋がずに、ご本人にかけ直しの質問を流した
+        since = self.back_turn if self.back_turn is not None else -1
         return ({k for t, v in seen.items() if t not in asking for k, x in v.items() if x == TARGET_IS_THERE},
-                any(v for t, v in seen.items() if t > after), {k for v in every.values() for k, x in v.items() if x == TARGET_IS_AWAY})
+                any(v for t, v in seen.items() if t > after),
+                {k for t, v in every.items() if t >= since for k, x in v.items() if x == TARGET_IS_AWAY})
 
     def _doubted(self) -> bool:
         """いま電話口にいる方に、繋ぐのを止める弱い読みがあるか（on_unsure）：いまの言葉（出揃ったもの）の分と、確かめたあとの発話の分
@@ -2151,7 +2160,7 @@ class Flow:
         if self.callback_why:
             # かけ直しの質問の途中で、目的の人に繋がった（_target_back）：かけ直しは要らない（聞いた答えは通話の事実に残したまま。締めはふつう）
             self.facts["callback"][-1]["connected"] = True
-            self.callback_why, self.callback_ids = None, []
+            self.callback_why, self.callback_ids, self.back_turn = None, [], None
         keys = [k for k in OPENING_ORDER if self.target.get(k) and (self.passed_on or k in self.opening_unheard)
                 and not (k == "greeting" and self._greeted())]  # 判定を待つ間に流したあいさつは、もう流さない（hold_play）
         self.phase, self.opening_unheard, self.passed_on = "asking", [], False
@@ -2226,6 +2235,7 @@ class Flow:
         ⛔ 2026-10-22 G-57 tc24（確かめにいいえ・L4）：かけ直しの質問の途中で代わって出た岡田様の「お電話代わりました。岡田です。」に、
            あいさつ・名乗り・用件のあと「恐れ入りますが何時ごろお戻りになられますでしょうか？」を流し、業務の質問を1つも聞かずに締めた"""
         self._note("target_back", why=self.callback_why)
+        self.back_turn = self.callee_turns
         self.order, self.phase, self.current, self.recheck_queue = list(self.business_ids), "calling", None, []
         self.awaiting_confirm = self.awaiting_say = None
         self._new_speaker(self.callee_turns, after=False, sure=True)
@@ -2271,6 +2281,10 @@ class Flow:
         ⛔ 2026-10-21 の見直しで見つけた漏れ：確かめに「いいえ、山本です。」と言われたときの道が無く、AIは番号違いで締めた（G-62）・同じ方に
            もう一度確かめた・回数を使い切って繋いだ"""
         self.confirm_open = False  # 確かめへの返事は、もう待っていない（_now）
+        if self.callback_why:
+            # かけ直しの質問の途中で確かめに戻った方は、目的の人ではなかった（_target_back）：お呼びした方は不在と分かっているので、お呼び
+            # し直さずに、お詫びのあと、かけ直しの質問の続きへ（聞いた分は残したまま）
+            return self._callback(self.callback_why, {k for k in JUDGMENTS if self.check.get(k) == TARGET_IS_NOT}) | {"sorry": sorry}
         if sorry and any(c >= self.speaker_from for c in self.target_sorry):
             sorry = False  # お詫びは、同じ方に1回まで
         if sorry:

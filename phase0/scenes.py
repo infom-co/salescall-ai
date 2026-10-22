@@ -139,7 +139,10 @@ def not_the_target(*wav_names: str):
 
 def callback_recorded(call: dict) -> bool:
     """かけ直しで足す質問を、録音で流したか（AIに言わせない。⛔ 1回目・2回目：AIが言うと「折り返しのお電話はお約束できかねます」などを足した）。"""
-    return any(x["op"] == "request_callback" and (x["reply"].get("play") or [{}])[0].get("kind") == "recorded" for x in ops(call))
+    # 代わった方へは、あいさつ・名乗りの録音が先に流れる（Flow._callback）＝並びの中のかけ直しの質問を見る（⛔ 2026-10-22 tc26：1つ目だけを見ていた）。
+    # プログラムが進めたかけ直し（AIが申し出ず、ほかの報告の返事で始まった）も数える
+    return any(p.get("kind") == "recorded" and str(p.get("id", "")).startswith("callback_")
+               for x in ops(call) for p in x["reply"].get("play") or [])
 
 
 def no_promise(call: dict) -> bool:

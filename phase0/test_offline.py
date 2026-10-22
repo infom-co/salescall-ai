@@ -5326,11 +5326,23 @@ class TargetTest(unittest.TestCase):
         for qid in ("Q1", "Q2", "Q3"):
             r = self.say(f, "わかりません。", "record_answer", question_id=qid, condition_id="unknown")
         self.assertEqual((r["result"], f.end_reason), ("end", "done"))       # かけ直しではない（ふつうの締め）
-        f, b = back()                                                        # 違う方だった ⇒ かけ直しの質問の続き
+        f, b = back()                                                        # 違う方だった ⇒ お呼びし直さず、お詫びのあと、かけ直しの質問の続き
         f.on_callee(); f.on_heard("いえ、山田です。"); f.on_check("judge", TARGET_IS_NOT); f.on_check("judge2", TARGET_IS_NOT)
         r = f.apply("request_callback", {"why": "absent"})
-        self.assertEqual((r["result"], r["question_id"], f.phase, len(f.facts["callback"])), ("next", "C1", "asking", 1))
+        self.assertEqual((r["result"], r["question_id"], f.phase, len(f.facts["callback"]), r["ack"]), ("next", "C1", "asking", 1, "shitsurei"))
+        self.assertEqual([p.get("part", p.get("id")) for p in r["play"]], ["greeting", "intro", "callback_back_time"])  # まだ名乗っていない方
         self.assertIn("callback_resume", f.facts)
+        f, b = back()                                                        # AIが「代わった方」と報告しても同じ（お呼びし直さない）
+        f.on_callee(); f.on_heard("いえ、山田です。"); f.on_check("judge", TARGET_IS_NOT); f.on_check("judge2", TARGET_IS_NOT)
+        r = f.apply("replay_opening", {"part": "handover"})
+        self.assertEqual((r["result"], r["question_id"], r["ack"]), ("next", "C1", "shitsurei"))
+        # 確かめへの「はい」の判定が届かない（判定が止まっている）：戻る前の不在の読みでは止めず、AIの読みで繋いで通話の事実に残す
+        # （⛔ 2026-10-22 G-57 tc26（かけ直しの途中で戻る・S2）：前の「席を外しておりまして」の不在の読みで繋がず、ご本人にかけ直しの質問を流した）
+        f, b = back()
+        f.on_callee(); f.on_heard("はい、そうです。")
+        r = f.apply("report_party", {"party": "target"})
+        self.assertEqual(([p.get("part", p["kind"]) for p in r["play"]], f.facts["connect"][-1]["read"], f.back_turn),
+                         (["greeting", "intro", "purpose", "question"], ["ai"], None))
 
 
     def test_answer_names_must_not_be_part_names(self):
