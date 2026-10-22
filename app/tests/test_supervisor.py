@@ -215,6 +215,46 @@ class Rounds(SupervisorBase):
         got = line.one_round(self.w.a, SYSTEM, t["tenant"], t["line"], HOLDER, FakeDriver(busy=True), Runner())
         self.assertEqual((got.called, got.pause), (None, "line_in_call"))
 
+    def test_a_line_stuck_in_a_call_counts_as_a_line_fault(self):
+        """回線が「通話中」のまま（電話の部品が答えない も）、かけられない状態が通話の最長より長く続いたら、回線の異常として数える
+        （続けば、処置の表のとおり、回線を止めて知らせる）。⛔ 2026-10-22 の見直し15：前は休み続けるだけで、だれにも知らされなかった。"""
+        stuck, in_call, free, unknown = line.Stuck(), line.Round(pause="line_in_call"), line.Round(free=True), line.Round()
+        self.assertFalse(stuck.seen(in_call, 0.0))
+        self.assertFalse(stuck.seen(unknown, line.STUCK_AFTER / 2))           # 分からない回（かける行が無い）は、そのまま
+        self.assertFalse(stuck.seen(in_call, line.STUCK_AFTER - 1))
+        self.assertTrue(stuck.seen(in_call, line.STUCK_AFTER))               # 続いた：数える
+        self.assertFalse(stuck.seen(in_call, line.STUCK_AFTER * 2 - 1))       # 数えたら、また初めから
+        self.assertTrue(stuck.seen(in_call, line.STUCK_AFTER * 2))
+        self.assertFalse(stuck.seen(free, line.STUCK_AFTER * 2 + 1))          # 「通話中ではない」と分かった：数え直す
+        self.assertFalse(stuck.seen(in_call, line.STUCK_AFTER * 3))
+        self.assertFalse(stuck.seen(in_call, line.STUCK_AFTER * 4 - 2))
+        self.assertGreaterEqual(line.STUCK_AFTER, main_mod.SHUTDOWN_WAIT)      # 通話の最長より短くしない（同じ1か所から決める）
+
+        s = self.ready()                                                       # 回線ごとの流れ：本物の数える入口を通る
+        got = line.one_round(self.w.a, SYSTEM, s["tenant"], s["line"], HOLDER, FakeDriver(busy=True), Runner())
+        self.assertEqual((got.pause, got.free), ("line_in_call", False))
+        got = line.one_round(self.w.a, SYSTEM, s["tenant"], s["line"], HOLDER, FakeDriver(), Runner())
+        self.assertTrue(got.free)
+        rounds = []
+
+        class Stop:                                                            # 3回まわったら止まる（休みの待ちは、待たずに返す）
+            def is_set(self):
+                return len(rounds) >= 3
+
+            def wait(self, seconds):
+                return self.is_set()
+        stop = Stop()
+
+        def one(*args):
+            rounds.append(1)
+            return line.Round(pause="line_in_call")
+        with mock.patch.object(line, "one_round", one), mock.patch.object(line, "STUCK_AFTER", 0.0):
+            line.loop(self.w.a, s["tenant"], s["line"], HOLDER, FakeDriver(busy=True), Runner(), stop)
+        faults = self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: tx.all(
+            "SELECT kind, message FROM salescall.error_events WHERE line_id = %s", (s["line"],)))
+        self.assertEqual([r["kind"] for r in faults], ["line", "line"])        # 2回目・3回目の「通話中」で数えた
+        self.assertIn("通話中", faults[0]["message"])
+
     def test_when_every_client_is_held_by_its_own_limit_the_line_rests(self):
         """どの依頼者も、依頼者の理由（同時の本数の上限など）でかけられないときは、その回線を休ませる（⛔ 2026-10-22 の見直し：前は
         休まずに門へ渡し直し続け、断りの記録が数秒ごとに増えた）。"""
@@ -866,6 +906,72 @@ class Main(SupervisorBase):
             stuck.join()
         self.assertNotIn("salescall-job_0", entry.left_over())
         self.assertNotIn("salescall-worker-0", entry.left_over())   # データベースのつなぎの流れは数えない
+
+
+class Drain(SupervisorBase):
+    """入れ替えの前の drain（新しい電話をかけず、いまの通話が終わったら止まる。⛔ 2026-10-22 の見直し15：前は、動かす所の仕組みの
+    待つ長さ（Fly.io の kill_timeout）だけに頼っていた）。"""
+
+    def setUp(self):
+        super().setUp()
+        self.dir = Path(tempfile.mkdtemp(prefix="salescall-drain-"))
+        patcher = mock.patch.object(main_mod, "lock_dir", lambda: self.dir)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_the_waits_come_from_the_longest_call(self):
+        from salescall import supervisor
+        from salescall.supervisor import channel
+        self.assertEqual(main_mod.SHUTDOWN_WAIT, supervisor.CALL_WAIT)
+        self.assertEqual(channel.REVOKED_WAIT, supervisor.CALL_WAIT)
+        self.assertGreater(supervisor.CALL_WAIT, supervisor.CALL_LONGEST)
+        self.assertGreater(main_mod.DRAIN_WAIT, main_mod.SHUTDOWN_WAIT)
+        readme = (Path(main_mod.__file__).parents[3] / "README.md").read_text(encoding="utf-8")
+        self.assertIn(f"`kill_timeout` を {int(main_mod.DRAIN_WAIT // 60)}分以上", readme)   # README の値も同じ所から
+
+    def test_drain_asks_the_running_supervisor_and_waits_until_it_stops(self):
+        flag = self.dir / main_mod.DRAIN_FLAG
+        self.assertIsNone(main_mod.ask_drain(wait_seconds=1, every=0.05))       # 動いていない：印は置かない
+        self.assertFalse(flag.exists())
+        since = time.time()
+        got = []
+        with main_mod.SingleInstance(self.dir / main_mod.LOCK_FILE):           # 見守り役が動いている
+            asker = threading.Thread(target=lambda: got.append(main_mod.ask_drain(wait_seconds=10, every=0.05)))
+            asker.start()
+            deadline = time.monotonic() + 5
+            while not flag.exists() and time.monotonic() < deadline:
+                time.sleep(0.02)
+            self.assertTrue(main_mod.drain_asked(since))                        # 見守り役が印を見た（見たら消す）
+            self.assertFalse(flag.exists())
+            time.sleep(0.2)
+            self.assertEqual(got, [])                                           # 止まるまで待つ
+        asker.join(5)
+        self.assertEqual(got, [True])                                          # 止まった
+        flag.write_text(repr(since - 60))                                      # 動き出す前の印（前の回の残り）：止まらない
+        self.assertFalse(main_mod.drain_asked(since))
+        self.assertFalse(flag.exists())
+        self.assertFalse(main_mod.drain_asked(since))                          # 印が無い
+
+    def test_the_supervisor_stops_like_ctrl_c_when_drain_is_asked(self):
+        cfg = config.load({"SALESCALL_DSN": self.w.a._conninfo, "SALESCALL_LISTEN": "0.0.0.0:0"})
+        stop, ended = threading.Event(), threading.Event()
+        shut = []
+        real = main_mod.Supervisor.shutdown
+
+        def shutdown(sup, *a, **k):
+            shut.append(stop.is_set())
+            return real(sup, *a, **k)
+        with mock.patch.object(main_mod.Supervisor, "shutdown", shutdown), mock.patch("builtins.print"):
+            runner = threading.Thread(target=lambda: (main_mod.serve(cfg, stop), ended.set()), daemon=True)
+            runner.start()
+            deadline = time.monotonic() + 10
+            while not (self.dir / main_mod.LOCK_FILE).exists() and time.monotonic() < deadline:
+                time.sleep(0.05)
+            time.sleep(0.5)
+            self.assertEqual(main_mod.ask_drain(wait_seconds=60, every=0.1), True)
+            runner.join(10)
+        self.assertTrue(ended.is_set())
+        self.assertEqual(shut, [True])                                          # 止める印を立ててから、ほかの止め方と同じ shutdown へ
 
 
 if __name__ == "__main__":

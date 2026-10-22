@@ -213,8 +213,9 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      "CREATE OR REPLACE FUNCTION salescall.is_live(s salescall.attempt_state, expires timestamptz) RETURNS boolean"
      " LANGUAGE sql STABLE AS $$ SELECT salescall.is_active(s) $$",
      ("tests.test_gate.ExpiredClaimsDoNotUseCapacity.test_expired_claims_elsewhere_do_not_block",)),
-    ("ほかの依頼者の発信の時刻を見ない",
-     "CREATE OR REPLACE FUNCTION salescall.number_last_dial_elsewhere(p_phone text) RETURNS TABLE (relation text, last_at timestamptz)"
+    ("ほかの依頼者の発信からの間隔を見ない",
+     "CREATE OR REPLACE FUNCTION salescall.number_dial_wait_elsewhere(p_phone text, p_same_gap interval, p_other_gap interval)"
+     " RETURNS TABLE (relation text, wait_until timestamptz)"
      " LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ SELECT NULL::text, NULL::timestamptz WHERE false $$",
      ("tests.test_gate.Pacing.test_cross_client_interval_tells_same_or_other_tenant_only",)),
     ("回線の停止を、止まっているかの判断から外す",
@@ -237,8 +238,8 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      " RETURNS integer LANGUAGE sql SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ SELECT 0 $$",
      ("tests.test_gate.ChangesReleaseClaims.test_setting_change", "tests.test_gate.ChangesReleaseClaims.test_calendar_load")),
     ("お客様の意思と関係ない発信も、間隔・1日の回数に数える",
-     "CREATE OR REPLACE FUNCTION salescall.not_by_callee(s salescall.attempt_state, disconnect text, p_attempt uuid)"
-     " RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT false $$",
+     "CREATE OR REPLACE FUNCTION salescall.dial_kind(s salescall.attempt_state, p_cut_off boolean, p_attempt uuid) RETURNS text"
+     " LANGUAGE sql STABLE AS $$ SELECT CASE WHEN salescall.is_dialed(s) THEN 'reached' END $$",
      ("tests.test_gate.NotByCallee.test_failed_or_interrupted_calls_do_not_count",
       "tests.test_gate.Pacing.test_a_call_cut_by_our_failure_is_like_a_line_drop")),
     ("お客様が出る前の結果不明も、検証待ちにする",
@@ -692,9 +693,10 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      ("tests.test_supervisor.Rounds.test_the_daily_reservation_is_shared_by_the_lines_and_skips_promises_that_will_not_be_called_now",)),
     ("これからかける約束に、止まっている依頼者の約束・通話中の約束も入れる",
      "CREATE OR REPLACE FUNCTION salescall.promises_waiting()"
-     " RETURNS TABLE (task_id uuid, client_id uuid, call_at timestamptz, callee_at timestamptz)"
+     " RETURNS TABLE (task_id uuid, client_id uuid, call_at timestamptz, callee_at timestamptz, phone_e164 text)"
      " LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$"
-     " SELECT n.task_id, n.client_id, n.call_at, n.callee_at FROM salescall.task_next_actions n"
+     " SELECT n.task_id, n.client_id, n.call_at, n.callee_at, k.phone_e164 FROM salescall.task_next_actions n"
+     " JOIN salescall.task_numbers k ON k.task_id = n.task_id AND k.contact_id = n.contact_id"
      " WHERE n.tenant_id = salescall.cur_tenant() AND n.promised AND n.kind = 'call'"
      " AND NOT EXISTS (SELECT 1 FROM salescall.task_next_actions m WHERE m.task_id = n.task_id AND m.seq > n.seq) $$",
      ("tests.test_supervisor.Rounds.test_the_daily_reservation_is_shared_by_the_lines_and_skips_promises_that_will_not_be_called_now",)),
@@ -810,16 +812,18 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     # 試験の強さの見直し（見直し7：壊しても落ちなかった所に試験を足した）
     ("時刻を指定していない約束のためにも、約束の前に回線を空ける",
      "CREATE OR REPLACE FUNCTION salescall.promises_waiting()"
-     " RETURNS TABLE (task_id uuid, client_id uuid, call_at timestamptz, callee_at timestamptz)"
+     " RETURNS TABLE (task_id uuid, client_id uuid, call_at timestamptz, callee_at timestamptz, phone_e164 text)"
      " LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$"
-     " SELECT n.task_id, n.client_id, n.call_at, coalesce(n.callee_at, n.call_at)"
+     " SELECT n.task_id, n.client_id, n.call_at, coalesce(n.callee_at, n.call_at), k.phone_e164"
      " FROM salescall.task_next_actions n"
      " JOIN salescall.tasks t ON t.task_id = n.task_id"
      " JOIN salescall.runs r ON r.run_id = t.run_id"
+     " JOIN salescall.task_numbers k ON k.task_id = n.task_id AND k.contact_id = n.contact_id"
      " WHERE n.tenant_id = salescall.cur_tenant() AND n.promised AND n.kind = 'call'"
      " AND n.seq = (SELECT c.seq FROM salescall.current_next_actions c WHERE c.task_id = n.task_id)"
      " AND salescall.client_active(n.client_id) AND NOT salescall.task_excluded_now(n.task_id)"
-     " AND NOT EXISTS (SELECT 1 FROM salescall.open_stops(n.tenant_id, n.client_id, r.business_id))"
+     " AND NOT EXISTS (SELECT 1 FROM salescall.blocking_stops(n.tenant_id, n.client_id, r.business_id, NULL,"
+     " salescall.keeping_kind(n.purpose, n.promised)))"
      " AND NOT EXISTS (SELECT 1 FROM salescall.attempts a"
      " WHERE a.task_id = n.task_id AND salescall.is_live(a.state, a.claim_expires_at))"
      " $$;",
@@ -1047,12 +1051,12 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      "CREATE OR REPLACE FUNCTION salescall.number_next_promise_elsewhere(p_phone text) RETURNS TABLE (relation text, wait_until timestamptz) LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ SELECT x.relation, CASE WHEN x.relation = 'same_tenant' THEN max(x.until) END FROM (SELECT CASE WHEN n.tenant_id = salescall.cur_tenant() THEN 'same_tenant' ELSE 'other_tenant' END AS relation, coalesce(n.window_until, greatest(n.callee_at, n.call_at)) AS until FROM salescall.current_next_actions n JOIN salescall.task_numbers k ON k.task_id = n.task_id AND k.contact_id = n.contact_id WHERE k.phone_e164 = p_phone AND n.client_id IS DISTINCT FROM salescall.cur_client() AND n.kind = 'call' AND n.promised AND coalesce(n.window_until, greatest(n.callee_at, n.call_at)) > now()) x GROUP BY x.relation $$",
      ("tests.test_gate.Pacing.test_a_promise_not_yet_called_keeps_others_waiting_even_after_its_time",)),
     ("行の回数に、お客様と約束したかけ直しの電話も数える（0113：約束の電話で、行の回数と再発信の方針の回数が減る）",
-     "CREATE OR REPLACE FUNCTION salescall.counts_as_try(s salescall.attempt_state, disconnect text, promised boolean, p_attempt uuid)"
-     " RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT salescall.is_dialed(s) AND NOT salescall.not_by_callee(s, disconnect, p_attempt) $$",
+     "CREATE OR REPLACE FUNCTION salescall.counts_as_try(s salescall.attempt_state, p_cut_off boolean, p_promised boolean,"
+     " p_attempt uuid) RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT salescall.dial_kind(s, p_cut_off, p_attempt) = 'reached' $$",
      ("tests.test_settle.CountedCalls.test_promised_calls_are_not_counted_like_the_gate",)),
     ("行の回数に、回線の側の失敗・切れた発信も数える（0113：お客様に一度も繋がらないまま、再発信の方針の回数で行が終わる）",
-     "CREATE OR REPLACE FUNCTION salescall.counts_as_try(s salescall.attempt_state, disconnect text, promised boolean, p_attempt uuid)"
-     " RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT salescall.is_dialed(s) AND NOT promised $$",
+     "CREATE OR REPLACE FUNCTION salescall.counts_as_try(s salescall.attempt_state, p_cut_off boolean, p_promised boolean,"
+     " p_attempt uuid) RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT salescall.is_dialed(s) AND NOT p_promised $$",
      ("tests.test_settle.CountedCalls.test_line_side_failures_do_not_use_up_the_policy",
       "tests.test_settle.CountedCalls.test_line_cuts_in_a_row_do_not_end_the_row")),
     ("PC の部品がかけなかった発信を、取り消しにできない（0113：発信の失敗として判定され、方針の回数と目的を失う）",
@@ -1070,9 +1074,125 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      ("tests.test_settle.DatabaseGuards.test_apology_reasons_and_missed_rounds_are_kept_consistent",)),
     ("かけられなかった回の数が、過ぎた回の数を超えてよい（0113：約束の打ち止めの数がずれる）",
      "ALTER TABLE salescall.task_next_actions DROP CONSTRAINT task_next_actions_window_missed",
-     ("tests.test_settle.DatabaseGuards.test_apology_reasons_and_missed_rounds_are_kept_consistent",)),    ("後任の方をお呼びする印が、終わる予定に付いてよい（0114：会話の処理に、かけない予定の印が渡りうる）",
+     ("tests.test_settle.DatabaseGuards.test_apology_reasons_and_missed_rounds_are_kept_consistent",)),
+    ("後任の方をお呼びする印が、終わる予定に付いてよい（0114：会話の処理に、かけない予定の印が渡りうる）",
      "ALTER TABLE salescall.task_next_actions DROP CONSTRAINT task_next_actions_successor_calls",
      ("tests.test_settle.DatabaseGuards.test_the_successor_mark_is_only_on_a_call",)),
+    ("お客様が言った端の回が、1日の中の幅の外に出てよい（0117：門が、お客様の言っていない深夜にかけうる）",
+     "ALTER TABLE salescall.task_next_actions DROP CONSTRAINT task_next_actions_window_free_check",
+     ("tests.test_settle.DatabaseGuards.test_the_said_part_is_inside_the_window",)),
+    ("同じ番号の発信の失敗の回数を0にできる（0117：番号を一度もかけずに終える）",
+     "ALTER TABLE salescall.setting_values DROP CONSTRAINT setting_values_failed_same_number_at_least_one",
+     ("tests.test_settle.UnusableNumber.test_the_limit_is_at_least_one",)),
+    # 見直し15（0116）：数え方・止めているあいだに通す電話・約束を果たす電話・判定できない通話の扱いを、それぞれ1か所に
+    ("数え方が、途中で切れたかの記録を見ずに、切れ方 interrupted と結果不明をすべて数えない（0116 の前の形：お客様が自分で切った"
+     "通話を数えず、終わりなくかけ続ける）",
+     "CREATE OR REPLACE FUNCTION salescall.dial_kind(s salescall.attempt_state, p_cut_off boolean, p_attempt uuid) RETURNS text"
+     " LANGUAGE sql STABLE AS $$ SELECT CASE WHEN NOT salescall.is_dialed(s) THEN NULL WHEN NOT salescall.is_placed(s) THEN"
+     " 'not_placed' WHEN s = 'technical_error' OR (SELECT a.disconnect FROM salescall.attempts a WHERE a.attempt_id = p_attempt)"
+     " = 'interrupted' THEN 'cut_off' ELSE 'reached' END $$",
+     ("tests.test_gate.NotByCallee.test_a_customer_hanging_up_in_the_middle_of_own_words_counts",
+      "tests.test_gate.Pacing.test_a_call_cut_by_our_failure_is_like_a_line_drop")),
+    ("発信に失敗（鳴っていない）も、お客様に届いた1回に数える（0116：業務の1日の上限・聞き直しの回数が減る）",
+     "CREATE OR REPLACE FUNCTION salescall.dial_kind(s salescall.attempt_state, p_cut_off boolean, p_attempt uuid) RETURNS text"
+     " LANGUAGE sql STABLE AS $$ SELECT CASE WHEN NOT salescall.is_dialed(s) THEN NULL WHEN coalesce(p_cut_off, false) THEN"
+     " 'cut_off' WHEN s = 'technical_error' AND NOT salescall.reached_answer(p_attempt) THEN 'line_failure' ELSE 'reached' END $$",
+     ("tests.test_gate.BusinessDailyLimit.test_a_failed_dial_does_not_use_up_the_business_limit",)),
+    ("赤字の停止でも通す電話の表を空にする（0116：赤字のあいだ、約束の電話もかけない）",
+     "ALTER TABLE salescall.stop_lets_through DISABLE TRIGGER stop_lets_through_frozen;"
+     " DELETE FROM salescall.stop_lets_through WHERE cause = 'deficit'",
+     ("tests.test_gate.Stops.test_a_deficit_stop_still_lets_promises_and_resumes_through_but_a_quality_stop_does_not",
+      "tests.test_gate.PromisesStopsAndConflicts.test_a_stop_keeps_the_claims_of_calls_it_lets_through",
+      "tests.test_gate.PromisesStopsAndConflicts.test_promises_kept_for_the_line_while_a_stop_lets_them_through")),
+    ("品質の停止でも通す電話の表から、お詫びの電話を外す（0116：お詫びの電話が品質の段で止まる）",
+     "ALTER TABLE salescall.stop_lets_through DISABLE TRIGGER stop_lets_through_frozen;"
+     " DELETE FROM salescall.stop_lets_through WHERE cause = 'quality_gate'",
+     ("tests.test_gate.VersionAndStage.test_only_fixed_text_calls_skip_the_stage",)),
+    ("止めているあいだに通す電話の表を、持ち主が書き換えられる（0116）", "DROP TRIGGER stop_lets_through_frozen ON salescall.stop_lets_through",
+     ("tests.test_gate.Stops.test_the_kinds_of_promise_keeping_calls_are_decided_in_one_place",)),
+    ("止めたとき、その停止でも通す電話の予約も取り消す（0116 の前の形）",
+     "CREATE OR REPLACE FUNCTION salescall.release_claims_for_stop(p_event_id bigint) RETURNS integer"
+     " LANGUAGE plpgsql SECURITY DEFINER SET search_path = salescall, pg_temp AS $$"
+     " DECLARE s salescall.stop_events; n integer;"
+     " BEGIN SELECT * INTO s FROM salescall.open_stop_events e WHERE e.event_id = p_event_id;"
+     " UPDATE salescall.attempts a SET state = 'released' WHERE a.state = 'claimed'"
+     " AND (s.scope = 'system' OR (s.scope = 'tenant' AND a.tenant_id = s.tenant_id) OR (s.scope = 'client' AND a.client_id = s.client_id)"
+     " OR (s.scope = 'business' AND a.client_id = s.client_id AND a.version_id IN (SELECT v.version_id FROM salescall.business_versions v"
+     " WHERE v.business_id = s.business_id)) OR (s.scope = 'line' AND a.line_id = s.line_id));"
+     " GET DIAGNOSTICS n = ROW_COUNT; RETURN n; END $$",
+     ("tests.test_gate.PromisesStopsAndConflicts.test_a_stop_keeps_the_claims_of_calls_it_lets_through",)),
+    ("番号の聞き直しを、約束を果たす電話に入れる（0116 の前の形：赤字の停止を通る）",
+     "CREATE OR REPLACE FUNCTION salescall.keeping_kind(p_purpose text, p_promised boolean) RETURNS text LANGUAGE sql IMMUTABLE AS"
+     " $$ SELECT CASE WHEN p_purpose = 'apology' THEN 'apology' WHEN p_purpose = 'resume' THEN 'resume'"
+     " WHEN coalesce(p_promised, false) THEN 'promised' END $$",
+     ("tests.test_gate.PromisesStopsAndConflicts.test_ask_number_again_is_not_a_promise_kept_while_stopped",)),
+    ("ほかの依頼者の約束を、印 promised で読み、止まっていても数える（0111 の形）",
+     "CREATE OR REPLACE FUNCTION salescall.number_next_promise_elsewhere(p_phone text) RETURNS TABLE (relation text, wait_until timestamptz)"
+     " LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$"
+     " SELECT x.relation, CASE WHEN x.relation = 'same_tenant' THEN max(x.until) END"
+     " FROM (SELECT CASE WHEN n.tenant_id = salescall.cur_tenant() THEN 'same_tenant' ELSE 'other_tenant' END AS relation,"
+     " coalesce(n.window_until, greatest(n.callee_at, n.call_at)) AS until FROM salescall.current_next_actions n"
+     " JOIN salescall.task_numbers k ON k.task_id = n.task_id AND k.contact_id = n.contact_id"
+     " WHERE k.phone_e164 = p_phone AND n.client_id IS DISTINCT FROM salescall.cur_client() AND n.kind = 'call' AND n.promised) x"
+     " GROUP BY x.relation $$",
+     ("tests.test_gate.PromisesStopsAndConflicts.test_only_promised_callbacks_of_another_client_are_waited_for",
+      "tests.test_gate.PromisesStopsAndConflicts.test_another_clients_promise_is_waited_for_only_while_that_stop_lets_it_through")),
+    ("ほかの依頼者の約束に、自分の依頼者の約束も入れる（0111 の条件を外す）",
+     "CREATE OR REPLACE FUNCTION salescall.number_next_promise_elsewhere(p_phone text) RETURNS TABLE (relation text, wait_until timestamptz)"
+     " LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$"
+     " SELECT x.relation, CASE WHEN x.relation = 'same_tenant' THEN max(x.until) END"
+     " FROM (SELECT CASE WHEN n.tenant_id = salescall.cur_tenant() THEN 'same_tenant' ELSE 'other_tenant' END AS relation,"
+     " coalesce(n.window_until, greatest(n.callee_at, n.call_at)) AS until FROM salescall.current_next_actions n"
+     " JOIN salescall.task_numbers k ON k.task_id = n.task_id AND k.contact_id = n.contact_id"
+     " WHERE k.phone_e164 = p_phone AND n.kind = 'call' AND salescall.keeping_kind(n.purpose, n.promised) = 'promised') x"
+     " GROUP BY x.relation $$",
+     ("tests.test_gate.PromisesStopsAndConflicts.test_own_clients_promises_are_not_another_clients",)),
+    ("これからかける約束の一覧が、その停止でも通す約束も外す（0116 の前の形）",
+     "CREATE OR REPLACE FUNCTION salescall.promises_waiting()"
+     " RETURNS TABLE (task_id uuid, client_id uuid, call_at timestamptz, callee_at timestamptz, phone_e164 text)"
+     " LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$"
+     " SELECT n.task_id, n.client_id, n.call_at, n.callee_at, k.phone_e164"
+     " FROM salescall.task_next_actions n"
+     " JOIN salescall.tasks t ON t.task_id = n.task_id"
+     " JOIN salescall.runs r ON r.run_id = t.run_id"
+     " JOIN salescall.task_numbers k ON k.task_id = n.task_id AND k.contact_id = n.contact_id"
+     " WHERE n.tenant_id = salescall.cur_tenant() AND n.promised AND n.kind = 'call'"
+     " AND n.seq = (SELECT c.seq FROM salescall.current_next_actions c WHERE c.task_id = n.task_id)"
+     " AND salescall.client_active(n.client_id) AND NOT salescall.task_excluded_now(n.task_id)"
+     " AND NOT EXISTS (SELECT 1 FROM salescall.open_stops(n.tenant_id, n.client_id, r.business_id))"
+     " AND NOT EXISTS (SELECT 1 FROM salescall.attempts a"
+     " WHERE a.task_id = n.task_id AND salescall.is_live(a.state, a.claim_expires_at)) $$",
+     ("tests.test_gate.PromisesStopsAndConflicts.test_promises_kept_for_the_line_while_a_stop_lets_them_through",)),
+    ("同じ番号の、時刻を指定した約束の前でも、約束でない電話を待たせない（0116 の前の形）",
+     "CREATE OR REPLACE FUNCTION salescall.number_promise_soon(p_phone text, p_until timestamptz, p_except uuid) RETURNS timestamptz"
+     " LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ BEGIN RETURN NULL; END $$",
+     ("tests.test_gate.PromisesStopsAndConflicts.test_a_normal_call_waits_for_an_exact_promise_coming_soon_on_the_same_number",)),
+    ("ほかの契約者の発信から待つ時刻を、正確な時刻で返す（0116 の前の形：ほかの契約者がかけた時刻が分かる）",
+     "CREATE OR REPLACE FUNCTION salescall.number_dial_wait_elsewhere(p_phone text, p_same_gap interval, p_other_gap interval)"
+     " RETURNS TABLE (relation text, wait_until timestamptz) LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp"
+     " AS $$ SELECT x.relation, x.until FROM (SELECT CASE WHEN a.tenant_id = salescall.cur_tenant() THEN 'same_tenant'"
+     " ELSE 'other_tenant' END AS relation, max(a.claimed_at + CASE WHEN a.tenant_id = salescall.cur_tenant() THEN p_same_gap"
+     " ELSE p_other_gap END) AS until FROM salescall.attempts a WHERE a.phone_e164 = p_phone"
+     " AND a.client_id IS DISTINCT FROM salescall.cur_client() AND salescall.is_placed(a.state) GROUP BY 1) x WHERE x.until > now() $$",
+     ("tests.test_gate.Pacing.test_the_interval_with_other_contractors_is_the_contractors_setting",)),
+    ("候補を出す処理が、ほかの依頼者・契約者の進行中の発信を見ない（0116 の前の形：門が断り、予定を書き直し続ける）",
+     "CREATE OR REPLACE FUNCTION salescall.number_live(p_phone text) RETURNS boolean"
+     " LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ BEGIN"
+     " PERFORM salescall.server_only(); RETURN false; END $$",
+     ("tests.test_gate.PromisesStopsAndConflicts.test_conflicts_with_a_call_in_progress_skip_only_this_round",)),
+    ("判定できない通話が、あとの通話で決まっても「まだ決まっていない」のまま（0116 の前の形：同じお客様のほかの行が永久にかからない）",
+     "CREATE OR REPLACE FUNCTION salescall.unknown_pending(p_attempt uuid) RETURNS boolean"
+     " LANGUAGE sql STABLE SET search_path = salescall, pg_temp AS $$ SELECT salescall.result_unknown(p_attempt) $$",
+     ("tests.test_undecided_unknown.UnknownPending.test_a_later_call_that_reaches_the_customer_and_is_decided_settles_it",)),
+    ("判定できない通話を、あとの通話がお客様につながらなくても決まったとみなす（0116）",
+     "CREATE OR REPLACE FUNCTION salescall.unknown_pending(p_attempt uuid) RETURNS boolean"
+     " LANGUAGE sql STABLE SET search_path = salescall, pg_temp AS $$ SELECT salescall.result_unknown(p_attempt)"
+     " AND NOT EXISTS (SELECT 1 FROM salescall.attempts a JOIN salescall.attempts b ON b.task_id = a.task_id"
+     " WHERE a.attempt_id = p_attempt AND b.claimed_at > a.claimed_at AND salescall.is_settled(b.attempt_id)"
+     " AND NOT salescall.result_unknown(b.attempt_id)) $$",
+     ("tests.test_undecided_unknown.UnknownPending.test_a_later_call_that_did_not_reach_the_customer_keeps_it_pending",)),
+    ("控えの記録の種類の決まりを外す（0109）", "ALTER TABLE salescall.backup_runs DROP CONSTRAINT backup_runs_kind_check",
+     ("tests.test_backup.PerClient.test_a_contractor_backs_up_only_its_own_clients_and_copies_submissions",)),
 )
 
 

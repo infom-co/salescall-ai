@@ -15,6 +15,11 @@
   電話をかけない）、いまの通話が終わってから断ってつながりを閉じる（PC はログインし直す）。いきなり閉じると、PC が話している
   お客様をおわびの録音で切るため（2026-10-22 ユーザー：「本番でいきなり止めてはいけません」）。通話が `REVOKED_WAIT` を過ぎても
   終わらなければ閉じる（止めた通行証で、いつまでもつなぎ続けない）。
+- **かけてから切れるまでの回線の印**（`_Session.open_calls`。控えを送る速さ・通行証が止められたあとに閉じる時を決める）：出し入れは
+  `_Session.call_began`・`call_over` の1か所。かけたら付け、切った・おわびして切った・電話の部品が「通話中ではない」と答えたら外す。
+  **お客様が自分で切ったとき**のように、サーバーが切っていない通話も、印が付いたまま声が `protocol.CALL_QUIET` 秒途切れたら、合図の
+  たびに電話の部品に「通話中か」を聞いて外す（`_refresh_calls`。通話中かを知っているのは電話の部品だけ＝決まりは同じ1か所。⛔ 2026-10-22
+  の見直し15：前は外れず、ログインを外した PC を20分つなぎ続け、控えをいつまでもゆっくり送った）。
 - 1つのやり取りの誤り（形の違い・受け口の誤り）では、つなぎを切らない（記録して続ける。切ると、その PC のすべての通話が切れる）。
 - 切れたことに数秒で気づく（`protocol.PING_EVERY`）。
 - **控えの中身は、通話の声を遅らせない速さで送る**（`protocol.window` の1か所。PC が書けた印を待ちながら送り、その PC で通話の声・
@@ -44,11 +49,11 @@ from salescall.core.access import Access
 from salescall.link import protocol as p
 from salescall.link.phone import CallNotPlaced, CallWithheld
 from salescall.link.protocol import RemoteError
-from salescall.supervisor import ACTOR, config, report, updates
+from salescall.supervisor import ACTOR, CALL_WAIT, config, report, updates
 from salescall.supervisor.links import Attached
 
 HELLO_WAIT = 10   # つないでから、最初のやり取り（hello）を待つ長さ（秒）
-REVOKED_WAIT = 1200   # 通行証が止められたあと、いまの通話が終わるのを待つ長さの上限（秒。会話の1回の最長より長く）
+REVOKED_WAIT = CALL_WAIT   # 通行証が止められたあと、いまの通話が終わるのを待つ長さの上限（秒。通話の最長から決める＝supervisor の1か所）
 _SERIAL = itertools.count(1)
 AWAY = "控えを書く PC が、サーバーとのつながりを失いました。PC の電源・ネット・PC の部品が動いているかを確かめてください"
 LINE_CONFLICT = ("同じ回線（スマホ）を、2台の PC がつないでいます。先につないだ PC でかけています。もう一方の PC の設定"
@@ -70,10 +75,12 @@ class _Session:
     order: asyncio.Lock = field(default_factory=asyncio.Lock)   # 合図と緊急停止は、届いた順に1つずつ（データベースを待つあいだも声は止めない）
     tasks: set[asyncio.Task] = field(default_factory=set)
     next_beat: dict[str, Any] | None = None                    # まだ扱っていない、いちばん新しい合図（溜めない）
-    # かけてから切れるまでの回線（「かけて」を頼んでから、切る・おわびして切る・「通話中ではない」の答えまで）。呼び出しのあいだの
-    # ように声が流れなくても通話中とみなす（⛔ 2026-10-22 の見直し：声の有無だけで決めると、呼び出しが5秒を超えたあいだに控えを
-    # まとめて送り、お客様が出た直後の AI の声がその後ろで待った）
-    open_calls: set[UUID] = field(default_factory=set)
+    # かけてから切れるまでの回線 → 付けた印の番号（「かけて」を頼んでから、切る・おわびして切る・「通話中ではない」の答えまで）。
+    # 呼び出しのあいだのように声が流れなくても通話中とみなす（⛔ 2026-10-22 の見直し：声の有無だけで決めると、呼び出しが5秒を超えた
+    # あいだに控えをまとめて送り、お客様が出た直後の AI の声がその後ろで待った）。出し入れは call_began・call_over だけ
+    open_calls: dict[UUID, int] = field(default_factory=dict)
+    marks: threading.Lock = field(default_factory=threading.Lock)
+    refreshing: bool = False                                   # 印の確かめ（_refresh_calls）の途中
     revoked_at: float | None = None                            # 通行証が止められたと分かった時刻（回線を見せず、通話が終わったら閉じる）
 
     def calling(self) -> bool:
@@ -82,6 +89,23 @@ class _Session:
 
     def voice(self) -> None:
         self.voice_at = time.monotonic()
+
+    def call_began(self, line: UUID) -> int:
+        """その回線で、かけ始めた（印を付ける）。付けた印の番号を返す。"""
+        with self.marks:
+            mark = self.open_calls[line] = next(_SERIAL)
+        return mark
+
+    def mark_of(self, line: UUID) -> int | None:
+        with self.marks:
+            return self.open_calls.get(line)
+
+    def call_over(self, line: UUID, mark: int | None = None) -> None:
+        """その回線の通話は終わった（印を外す）。mark＝「通話中か」を聞いたときの印：そのあいだに、かけ直していれば（印が替わって
+        いれば）外さない（聞いたのは前の通話のこと）。"""
+        with self.marks:
+            if mark is None or self.open_calls.get(line) == mark:
+                self.open_calls.pop(line, None)
 
 
 @dataclass
@@ -308,12 +332,44 @@ class Hub:
                         return
                 if msg["t"] == "emergency":
                     await self._emergency(session, msg)
-                elif await self._beat(session, msg) is not None:
+                    return
+                if await self._beat(session, msg) is not None:
                     await self._emergency_state(session)
+            self._refresh_calls(session)
         except ConnectionClosed:
             pass
         except Exception as e:  # noqa: BLE001 1つの合図の誤りで、つなぎを止めない（次の合図でまた合わせる）
             self._report(session.who.tenant_id, "つなぎ口の合図", e)
+
+    def _refresh_calls(self, session: _Session) -> None:
+        """印が付いたまま声が CALL_QUIET 秒途切れた回線は、電話の部品に「通話中か」を聞き、通話中でなければ印を外す（お客様が自分で
+        切った・電話が自分で終わった通話。上の説明）。別の流れで、待たずに（合図・緊急停止の順番を止めない）。重ねて聞かない。"""
+        if session.refreshing or not session.open_calls or time.monotonic() - session.voice_at < p.CALL_QUIET:
+            return
+        session.refreshing = True
+        with session.marks:
+            lines = list(session.open_calls)
+
+        def work() -> None:
+            for line in lines:
+                try:
+                    self.in_call(session, line, live=False)
+                except Exception:  # noqa: BLE001 答えられない：通話中のまま（印を残す＝控えはゆっくり。次の合図でまた聞く）
+                    pass
+        done = asyncio.get_running_loop().run_in_executor(None, work)
+        done.add_done_callback(lambda _: setattr(session, "refreshing", False))
+
+    def in_call(self, session: _Session, line: UUID, *, live: bool = True) -> bool:
+        """その回線が通話中かを、電話の部品に聞く（中央の見守り役の流れ・別の流れから）。通話中でなければ印を外す（聞いたあいだに
+        かけ直していれば外さない）。答えられなければ誤りを上げる（「分からない＝通話中」と決めるのは発信の出口の1か所）。
+        live＝この頼みを通話の動きとして数える（控えをゆっくり送る）。印の確かめ（_refresh_calls）は数えない。"""
+        mark = session.mark_of(line)
+        got = self.ask(session, "request", live=live, op="in_call", line=line)
+        if not got.get("ok"):
+            raise RuntimeError("電話の部品が、通話中か答えられませんでした")
+        if not got.get("value"):
+            session.call_over(line, mark)
+        return bool(got.get("value"))
 
     # ── PC の上の緊急停止 ──
     async def _emergency(self, session: _Session, msg: dict[str, Any]) -> None:
@@ -351,17 +407,18 @@ class Hub:
             raise ConnectionError("その回線をつないでいる、そのつなぎがありません")
         return got
 
-    def ask(self, session: _Session, kind: str, *, wait: float = p.REPLY_WAIT, source: Path | None = None,
+    def ask(self, session: _Session, kind: str, *, wait: float = p.REPLY_WAIT, source: Path | None = None, live: bool = True,
             **fields: Any) -> dict[str, Any]:
         """頼んで答えを待つ（中央の見守り役の流れから）。source＝続けて送るファイル（控えの中身。少しずつ読んで送る＝丸ごとメモリに
-        持たない。`_stream`）。wait＝答えを待つ長さ（source があれば、送り終えてから）。つなぎ口の流れ（声・出来事の受け口の中）からは
-        呼べない（自分の流れを止めて、すべての PC のやり取りが固まるため）。"""
+        持たない。`_stream`）。wait＝答えを待つ長さ（source があれば、送り終えてから）。live＝通話の頼みを通話の動きとして数える
+        （控えをゆっくり送る）。つなぎ口の流れ（声・出来事の受け口の中）からは呼べない（自分の流れを止めて、すべての PC のやり取りが
+        固まるため）。"""
         if self.loop is None or not self.loop.is_running():   # 止めたつなぎ口に頼むと、答えが来ないまま待ち続ける
             raise ConnectionError("つなぎ口が動いていません")
         if threading.current_thread() is self._thread:
             raise RuntimeError("つなぎ口の流れ（声・出来事の受け口）から、PC の部品への頼みは呼べません（別の流れへ渡してください）")
         ident = p.new_id()
-        if kind == "request":   # 通話の頼み：このつなぎで、控えの中身をゆっくり送る
+        if kind == "request" and live:   # 通話の頼み：このつなぎで、控えの中身をゆっくり送る
             session.voice()
 
         async def go() -> dict[str, Any]:
@@ -463,25 +520,19 @@ class AgentDriver:
 
     def in_call(self) -> bool:
         """答えられない（つながっていない・待ち過ぎ）ときは誤りを上げる（「分からない＝通話中」と決めるのは発信の出口の1か所）。"""
-        session = self._session()
-        got = self.hub.ask(session, "request", op="in_call", line=self.line_id)
-        if not got.get("ok"):
-            raise RuntimeError("電話の部品が、通話中か答えられませんでした")
-        if not got.get("value"):
-            session.open_calls.discard(self.line_id)
-        return bool(got.get("value"))
+        return self.hub.in_call(self._session(), self.line_id)
 
     def start_call(self, phone_e164: str) -> None:
         try:
             session = self._session()
         except ConnectionError:   # 頼む前に、つなぎが無いと分かった：かけていないと確かに言える（回線の異常ではない）
             raise CallWithheld("PC の部品がつながっていません") from None
-        session.open_calls.add(self.line_id)
+        mark = session.call_began(self.line_id)
         got = self.hub.ask(session, "request", op="start_call", line=self.line_id, phone=phone_e164, voice=self.voice_type)
         if got.get("ok"):
             return
         if got.get("error") in ("withheld", "not_placed"):   # かけていない
-            session.open_calls.discard(self.line_id)
+            session.call_over(self.line_id, mark)
         if got.get("error") == "withheld":
             raise CallWithheld("PC の上で緊急停止が押されています")
         if got.get("error") == "not_placed":
@@ -491,7 +542,7 @@ class AgentDriver:
     def hang_up(self) -> None:
         session = self._session()
         got = self.hub.ask(session, "request", op="hang_up", line=self.line_id)
-        session.open_calls.discard(self.line_id)
+        session.call_over(self.line_id)
         if not got.get("ok"):
             raise RuntimeError("電話の部品が、切れたか分からない誤りを返しました")
 
@@ -499,7 +550,7 @@ class AgentDriver:
         """おわびの録音を流して切る（サーバーの側の誤りで通話を続けられないとき。PC の電話の部品が持っている録音）。"""
         session = self._session()
         got = self.hub.ask(session, "request", op="apologize", line=self.line_id)
-        session.open_calls.discard(self.line_id)
+        session.call_over(self.line_id)
         if not got.get("ok"):
             raise RuntimeError("電話の部品が、おわびして切れたか分からない誤りを返しました")
 

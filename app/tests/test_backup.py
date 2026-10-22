@@ -335,6 +335,11 @@ class PerClient(unittest.TestCase):
             self.app.in_tenant(OPERATOR, s["tenant"], lambda tx: tx.execute(
                 "INSERT INTO salescall.backup_runs (kind, tenant_id, restore_ok, error) VALUES ('prune', %s, false, '試験')",
                 (s["tenant"],)))
+        with self.assertRaises(Rejected) as e:                            # 記録の種類は、控えの種類（core/backup.PARTS）だけ（0109）
+            self.app.in_tenant(SYSTEM, s["tenant"], lambda tx: tx.execute(
+                "INSERT INTO salescall.backup_runs (kind, tenant_id, restore_ok, error) VALUES ('drive', %s, false, '試験')",
+                (s["tenant"],)))
+        self.assertEqual(e.exception.constraint, "backup_runs_kind_check")
 
     def test_the_whole_database_is_backed_up_only_to_the_admin_pc(self):
         """データベース全体の控え（すべての契約者のデータが入る）は、管理者の PC へだけ（どの PC かはサーバーの設定＝

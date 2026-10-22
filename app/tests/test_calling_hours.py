@@ -6,7 +6,8 @@ import unittest
 from datetime import date, datetime, timedelta
 
 from salescall.core.calendar import CalendarOutOfRange
-from salescall.core.calling_hours import allowed, band_of, covers, day_key, next_opening, next_opening_in_new_band, subtract
+from salescall.core.calling_hours import (CalleeWindow, allowed, band_of, callee_hours, covers, day_key, next_opening,
+                                          next_opening_in_new_band, subtract)
 
 KEYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun", "holiday")
 WEEKDAY_9_18 = {k: ([["09:00", "18:00"]] if k in ("mon", "tue", "wed", "thu", "fri") else []) for k in KEYS}
@@ -128,6 +129,54 @@ class CalleeTime(unittest.TestCase):
         ng = {k: [["12:00", "13:00"], ["15:00", "16:00"]] for k in KEYS}
         ok = lambda start: allowed(WEEKDAY_9_18, ng, no_holiday, start, start + self.L, callee_at=at(MON, 12, 30))   # noqa: E731
         self.assertEqual((ok(at(MON, 12, 40)), ok(at(MON, 15, 30))), (True, False))
+
+
+class CalleeHours(unittest.TestCase):
+    """お客様が言った幅の約束でかける時間帯（`callee_hours` の1か所。門と次の動きが同じものを読む）。依頼者の時間帯・NG時間・深夜
+    早朝の歯止めの外でもかけてよいのは、お客様が実際に言った端の回だけ。言葉の表から来た端は、依頼者のいつもの時間と重なる所だけ
+    （⛔ 見直し15：前は幅の全部を外でもかけ、「朝なら」で0時、「午後なら」で23時にかけえた）。"""
+
+    NG = {k: [["12:00", "13:00"]] for k in KEYS}
+    GUARD = {k: [["07:00", "22:00"]] for k in KEYS}
+    H = 3600
+
+    def hours(self, daily, free=None, day_said=False, days=None, hours=WEEKDAY_9_18):
+        return callee_hours(hours, self.NG, self.GUARD, CalleeWindow(daily, days, free, day_said))
+
+    def test_words_from_the_table_stay_in_the_client_hours(self):
+        H = self.H
+        self.assertEqual(self.hours((0, 10 * H))["mon"], [["09:00", "10:00"]])                 # 「朝」：0時からでなく始業から
+        self.assertEqual(self.hours((13 * H, 24 * H))["mon"], [["13:00", "18:00"]])            # 「午後」：24時でなく終業まで
+        self.assertEqual(self.hours((0, 12 * H + 30 * 60))["mon"], [["09:00", "12:00"]])       # NG時間も引く
+
+    def test_only_the_said_edge_goes_outside(self):
+        H = self.H
+        self.assertEqual(self.hours((19 * H, 24 * H), free=(19 * H, 20 * H))["mon"], [["19:00", "20:00"]])   # 「7時以降」の19時から1回分
+        self.assertEqual(self.hours((7 * H, 24 * H), free=(7 * H, 8 * H))["mon"],
+                         [["07:00", "08:00"], ["09:00", "12:00"], ["13:00", "18:00"]])          # 「朝7時以降」：言った7時の回＋いつもの時間
+        self.assertEqual(self.hours((0, 8 * H), free=(7 * H, 8 * H))["mon"], [["07:00", "08:00"]])           # 「8時まで」の前1回分
+        self.assertEqual(self.hours((12 * H, 13 * H), free=(12 * H, 13 * H))["mon"], [["12:00", "13:00"]])   # 時刻ちょうど：NG時間でも
+        self.assertEqual(self.hours((3 * H, 4 * H), free=(3 * H, 4 * H))["mon"], [["03:00", "04:00"]])       # 歯止めなし（ユーザー）
+
+    def test_days_the_callee_did_not_name_follow_the_client(self):
+        H = self.H
+        self.assertEqual(self.hours((16 * H, 18 * H))["sat"], [])                                # 「夕方なら」の土曜：依頼者は休み
+        self.assertEqual(self.hours((16 * H, 18 * H), free=(16 * H, 17 * H))["sat"], [])          # 言った端も、その日でなければかけない
+        self.assertEqual(self.hours((16 * H, 18 * H), day_said=True)["sat"], [["16:00", "18:00"]])   # 「土曜の夕方」
+        self.assertEqual(self.hours(None, day_said=True, days=("sat",))["sat"], [["09:00", "12:00"], ["13:00", "18:00"]])
+        self.assertEqual(self.hours(None, day_said=True, days=("sat",))["mon"], [])
+
+    def test_without_client_hours_the_guard_is_the_usual_time(self):
+        H = self.H
+        closed = {k: [] for k in KEYS}
+        self.assertEqual(self.hours((0, 10 * H), hours=closed)["mon"], [["07:00", "10:00"]])    # 7〜22時の歯止めの内側
+        self.assertEqual(self.hours((20 * H, 24 * H), hours=closed)["sun"], [["20:00", "22:00"]])
+
+    def test_the_gate_reads_the_same_hours(self):
+        H = self.H
+        w = self.hours((13 * H, 24 * H))
+        ok = lambda h: allowed(WEEKDAY_9_18, self.NG, no_holiday, at(MON, h), at(MON, h, 1), window=w)   # noqa: E731
+        self.assertEqual((ok(14), ok(18), ok(23)), (True, False, False))
 
 
 class Subtract(unittest.TestCase):

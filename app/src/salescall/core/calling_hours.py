@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 
 from salescall.link.jst import JST   # 日本時間（決まりは link.jst の1か所。ここから使う部品のために名前を残す）
@@ -193,30 +194,67 @@ def _union(ranges: list[tuple[int, int]]) -> list[tuple[int, int]]:
     return out
 
 
-def callee_hours(hours: dict, ng: dict, daily: tuple[int, int] | None, days: tuple[str, ...] | None) -> dict:
+@dataclass(frozen=True)
+class CalleeWindow:
+    """お客様が言った時刻・時間の幅の約束（次の予定の幅）のうち、かけてよい時間帯を決める材料（1か所。門と次の動きが同じものを使う）。
+    daily＝1日の中の幅（0時からの秒の [始まり, 終わり)。時間の言葉があるときだけ）・days＝日の種類（曜日・祝日の鍵）・
+    free＝お客様が実際に言った端の回（依頼者の時間帯・NG時間・深夜早朝の歯止めの外でもかけてよい1日の中の幅。daily の内側。
+    時刻ちょうどの約束はその回の全部・「3時から5時」は全部・「4時以降」は4時から1回分・「3時まで」は3時の前の1回分・
+    言葉の表から来た端（「朝」の0時・「午後」の24時）は持たない）・day_said＝お客様がその日を言った（依頼者の休みの曜日・祝日
+    でもかける）。"""
+    daily: tuple[int, int] | None
+    days: tuple[str, ...] | None
+    free: tuple[int, int] | None
+    day_said: bool
+
+
+def callee_window(row: dict) -> CalleeWindow | None:
+    """次の予定の記録（列 window_*）の、かけてよい時間帯を決める材料。幅を持たない予定は None（1か所）。"""
+    if all(row.get(k) is None for k in ("window_until", "window_daily", "window_days", "window_from")):
+        return None
+    t = lambda v: None if v is None else tuple(v)   # noqa: E731
+    return CalleeWindow(t(row["window_daily"]), t(row["window_days"]), t(row.get("window_free")), bool(row.get("window_day_said")))
+
+
+def callee_hours(hours: dict, ng: dict, guard: dict, w: CalleeWindow) -> dict:
     """お客様が言った時刻・時間の幅（約束の幅）でかける電話の、かけてよい時間帯（曜日・祝日ごと。1か所。門の時刻の確かめ
-    `allowed` と、次の動きが幅の中を探す所が、同じものを使う）。
-    - 1日の中の時間を言った（daily。「15時」「夕方」「夜」など）：その幅の中なら、依頼者の時間帯・NG時間・深夜早朝の歯止めの外でも
-      かけてよい（2026-10-22 ユーザー：「お客様が指定した時刻ならNG時間でもかけてよい（歯止めなし、ただし、午前と午後を間違えない
-      ように）」。午前・午後の読みは core/spoken_time の1か所＝営業時間に入るほう・決まらなければ通話の中で確かめる）。
-    - 日・曜日だけを言った（「週末なら」「13日なら」。1日の中の時間は言っていない）：依頼者の1日の中の時間を、その日に当てる。
-      依頼者が休みの曜日・祝日でも、お客様が言った日にかける（休みの日に当てるのは、依頼者のほかの日の時間のあわせ）。NG時間は引く。
-    days＝日の種類（曜日・祝日の鍵）で絞る。"""
-    if daily is not None:
-        return restrict({key: [["00:00", "24:00"]] for key in HOURS_KEYS}, daily, days)
-    usual = [[_hhmm(a), _hhmm(b)] for a, b in _union([r for key in hours for r in _ranges(hours, key)])]
-    return restrict(subtract({key: hours.get(key) or usual for key in HOURS_KEYS}, ng), None, days)
+    `allowed` と、次の動きが幅の中を探す所が、同じもの＝gate.window_hours を使う）。
+    - 依頼者の時間帯・NG時間・深夜早朝の歯止めの外でもかけてよいのは、お客様が実際に言った端の回（w.free）だけ（2026-10-22
+      ユーザー：「お客様が指定した時刻ならNG時間でもかけてよい（歯止めなし、ただし、午前と午後を間違えないように）」）。
+    - 幅のほかの所（言葉の表から来た端：「朝」の0時・「午前中」の0時・「午後」の24時・「3時まで」の始まり・「4時以降」の終わり
+      など）は、依頼者のいつもの時間（その日の依頼者の時間帯からNG時間を引いたもの）と重なる所だけ（2026-10-19 ユーザー：
+      「言葉ごとの幅は、かけてよい時間帯と重なる所だけ使う」⇒ OK）。依頼者の時間帯が1日も無いときは、深夜早朝の歯止め guard
+      （calling.hours_limit）をいつもの時間にする。⛔ 2026-10-22 の見直し15：前は幅の全部を依頼者の時間の外でもかけ、「朝なら」の
+      約束に0時、「午後なら」の約束に23時にかけえた。
+    - お客様がその日を言った（w.day_said。「土曜の夕方」「週末なら」「13日なら」）：依頼者の休みの曜日・祝日でも、その日に
+      依頼者のほかの日の時間を当てる。言っていない（「夕方なら」の次の日の回・「すぐ」）：依頼者のかける日だけ（休みの日は
+      かけられる時刻の無い回＝数えずに飛ばす。次の動き `_window_opening`）。
+    w.days＝日の種類（曜日・祝日の鍵）で絞る。"""
+    lo, hi = w.daily if w.daily is not None else (0, _DAY)
+    base_all = hours if any(hours.get(k) for k in HOURS_KEYS) else guard
+    usual = [[_hhmm(a), _hhmm(b)] for a, b in _union([r for key in HOURS_KEYS for r in _ranges(base_all, key)])]
+    out = {}
+    for key in HOURS_KEYS:
+        own = base_all.get(key) or []
+        if (w.days is not None and key not in w.days) or not (own or w.day_said):
+            out[key] = []
+            continue
+        base = subtract({key: own or usual}, {key: ng.get(key) or []})
+        pieces = [(max(a, lo), min(b, hi)) for a, b in _ranges(base, key) if max(a, lo) < min(b, hi)]
+        if w.free is not None:
+            pieces.append(tuple(w.free))
+        out[key] = [[_hhmm(a), _hhmm(b)] for a, b in _union(pieces)]
+    return out
 
 
 def allowed(hours: dict, ng: dict, is_holiday: Callable[[date], bool], start: datetime, end: datetime, *,
-            callee_at: datetime | None = None,
-            window: tuple[tuple[int, int] | None, tuple[str, ...] | None] | None = None) -> bool:
+            callee_at: datetime | None = None, window: dict | None = None) -> bool:
     """start から end まで（日本時間）かけてよいか（門が使う1か所）：かけてよい時間帯から NG時間を引いた残りの内側。
-    window＝お客様が言った幅の約束の電話（(1日の中の幅, 日の種類)）：`callee_hours` の内側（依頼者の時間帯・NG時間・歯止めの外でも、
-    お客様が言った時間ならかける＝2026-10-22 ユーザー）。幅の約束でない電話で、お客様が自分で指定した時刻（callee_at）があれば、
+    window＝お客様が言った幅の約束の電話の、かけてよい時間帯（`callee_hours` の答え＝gate.window_hours）：その内側（お客様が
+    実際に言った端の回だけ、依頼者の時間帯・NG時間・歯止めの外でもかける＝2026-10-22 ユーザー）。幅の約束でない電話で、お客様が自分で指定した時刻（callee_at）があれば、
     その日は、その時刻を含むNG時間の枠の中もかけてよい（`excuse_ng`。2026-10-15 ユーザー）。"""
     if window is not None:
-        return covers(callee_hours(hours, ng, *window), is_holiday, start, end)
+        return covers(window, is_holiday, start, end)
     if covers(subtract(hours, ng), is_holiday, start, end):
         return True
     if callee_at is None or start.date() != callee_at.date():

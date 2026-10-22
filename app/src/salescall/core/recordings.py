@@ -114,10 +114,8 @@ def choose_reading(tx: Tx, version_id: UUID, name_text: str, reading: str) -> No
     if names[name_text].reading_by == "given":
         raise ValueError(f"名前「{name_text}」の読みは入っています（「{names[name_text].reading}」。録音では選びません）")
     r = readings_mod.required(reading, f"名前「{name_text}」の読み「{reading}」")
-    tx.execute("INSERT INTO salescall.version_name_readings (tenant_id, client_id, version_id, name_text, seq, reading)"
-               " SELECT salescall.cur_tenant(), salescall.cur_client(), %s, %s,"
-               "        coalesce((SELECT max(seq) FROM salescall.version_name_readings WHERE version_id = %s AND name_text = %s), 0) + 1,"
-               "        %s", (version_id, name_text, version_id, name_text, r))
+    tx.execute("INSERT INTO salescall.version_name_readings (tenant_id, client_id, version_id, name_text, reading)"   # 番号は
+               " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s)", (version_id, name_text, r))   # next_seq（0109）
 
 
 def carry_readings(tx: Tx, from_version: UUID, to_version: UUID) -> None:

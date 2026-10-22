@@ -22,10 +22,13 @@
 
 **午前・午後**（2026-10-19 ユーザー：「通常午前3時に電話をかけてほしい人はいないので、営業時間の範囲だけ」。CL-1 の fill_ampm と同じ決まり）：
 午前・午後の無い 1〜12時は、お客様の営業時間（設定 callee.business_hours。会社の初めは 9:00〜19:00。日をまたいでよい）に入るほうに
-する。両方入る・どちらも入らないときだけ確かめる。「12時」は昼の12時。
+する（営業時間は [始まり, 終わり)：終わりの時刻ちょうどは入らない＝営業時間 9〜19時の「7時」は確かめる。見直し15）。両方入る・
+どちらも入らないときだけ確かめる。「12時」は昼の12時。
 
 言葉ごとの幅（`PERIODS`。かけてよい時間帯と重なる所だけ使う。2026-10-19 ユーザー「OK」）：朝・朝一＝〜10時・午前（中）＝〜12時・
 午後一＝13〜14時・午後＝13時〜・夕方＝16〜18時・夜（晩）＝18〜20時。日の言葉の一覧は DESIGN.md 7-1d の表。
+幅の端のうち、お客様が実際に言った端（「4時以降」の4時・「3時まで」の3時）と、言葉の表から来た端（「朝」の0時・「午後」の24時）を
+分けて返す（`Reading.said`）。依頼者の時間帯の外でもかけてよいのは、言った端だけ（calling_hours.callee_hours の1か所）。
 - 時刻は日本の時刻（日本標準時）で読む。結果は時差つきの時刻。
 """
 
@@ -40,7 +43,7 @@ from datetime import date, datetime, time, timedelta
 from salescall.core.calling_hours import JST, clock_seconds
 
 # 読み方の版（読み方を変えたら上げる）。判定の版（judge.JUDGE_VERSION）に入る＝上げると、読めなかった「判定待ち」の行が判定し直される
-VERSION = "8"
+VERSION = "9"
 AT, WINDOW, UNSPECIFIED, CONFIRM, UNREADABLE = "at", "window", "unspecified", "confirm", "unreadable"
 # 幅の中でお客様と話せなかったときの、次の回（お客様がその日を選んだ理由に合わせる。2026-10-19 ユーザー決定）：
 # DAY＝時間の言葉（「夕方」「3時以降」）・日の種類だけ（「平日なら」）・「すぐ」⇒ 次の日の同じ幅／WEEK＝曜日・週末・週中・
@@ -156,6 +159,12 @@ class Reading:
     repeat: str | None = None            # WINDOW：話せなかったときの次の回（DAY_REPEAT・WEEK・"month:..."・None。`next_occurrence`）
     since: datetime | None = None        # WINDOW：その回の本当の始まり（start は、いまより前にしないので、回の途中で言われると遅い。
     #                                      次の回は、ここから数える＝「週中」を水曜に言われても、次の回は火曜から）
+    said: tuple[bool, bool] = (False, False)   # WINDOW：1日の中の幅（daily）の始まり・終わりを、お客様が実際に言ったか（「4時以降」＝
+    #                                      (True, False)・「3時まで」＝(False, True)・「3時から5時」「3時台」＝(True, True)・「夕方」「朝」など
+    #                                      言葉の表から来た端＝False）。言った端だけ、依頼者の時間帯・NG時間・深夜早朝の歯止めの外でもかける
+    #                                      （calling_hours.callee_hours の1か所。2026-10-22 ユーザー。⛔ 見直し15：前は「朝なら」で0時にかけえた）
+    day_said: bool = False               # AT・WINDOW：お客様がその日（日・曜日・日の種類）を言った（依頼者の休みの日でもかける根拠）。
+    #                                      日を言わない「3時なら」「夕方なら」「すぐ」は False（依頼者のかける日だけ）
 
     @property
     def exact(self) -> bool:
@@ -380,10 +389,13 @@ def _check_wday(t: str, pos: int, days: tuple[date, date]) -> tuple[tuple[date, 
     return days, m.end()
 
 
-def _in_hours(hour: int, hours: tuple[int, int]) -> bool:
-    """その時（0〜23）が営業時間に入るか（CL-1 の fill_ampm と同じ決まり：時の単位で、終わりの時も含む。日をまたいでよい）。"""
-    open_, close = hours[0] // H, hours[1] // H
-    return open_ <= hour <= close if open_ <= close else (hour >= open_ or hour <= close)
+def _in_hours(sec: int, hours: tuple[int, int]) -> bool:
+    """その時刻（0時からの秒）が営業時間 [始まり, 終わり) に入るか（1か所。日をまたいでよい）。終わりの時刻ちょうどは入らない：
+    営業時間 9〜19時で「7時」は、7時（始まりより前）も19時（終わりちょうど）も入らない ⇒ 午前・午後を決めずに通話の中で確かめる
+    （⛔ 2026-10-22 の見直し15：前は時の単位で終わりの時も含め、「明日の7時」を19時と読み、営業の終わった時刻に依頼者の時間帯の
+    外でもかけた。CL-1 の fill_ampm にも同じ直しを頼む）。"""
+    open_, close = hours
+    return open_ <= sec < close if open_ <= close else (sec >= open_ or sec < close)
 
 
 def _hour(m: re.Match, business: tuple[int, int]) -> int:
@@ -402,20 +414,21 @@ def _hour(m: re.Match, business: tuple[int, int]) -> int:
     if not 1 <= h <= 12:
         raise _Ambiguous("時刻が読めません")
     am, pm = (0, 12) if h == 12 else (h, h + 12)
-    am_in, pm_in = _in_hours(am, business), _in_hours(pm, business)
+    am_in, pm_in = _in_hours(am * H + minute * 60, business), _in_hours(pm * H + minute * 60, business)
     if am_in == pm_in:
         raise _Ambiguous("営業時間からは、午前か午後かが決まりません")
     return (am if am_in else pm) * H + minute * 60
 
 
 def _time_part(t: str, pos: int, business: tuple[int, int],
-               periods: dict[str, tuple[int, int]] = PERIODS) -> tuple[str, int, int, int]:
-    """時刻の言葉を読む：（種類 point／window／whole, 始まりの秒, 終わりの秒, 読んだ位置）。読めなければ _Ambiguous か ValueError。"""
+               periods: dict[str, tuple[int, int]] = PERIODS) -> tuple[str, int, int, int, tuple[bool, bool]]:
+    """時刻の言葉を読む：（種類 point／window／whole, 始まりの秒, 終わりの秒, 読んだ位置, 始まり・終わりをお客様が言ったか
+    ＝`Reading.said`）。読めなければ _Ambiguous か ValueError。"""
     rest = t[pos:]
     if _WHOLE.fullmatch(rest):
-        return "whole", 0, DAY, len(t)
+        return "whole", 0, DAY, len(t), NOT_SAID
     if _TAIL.fullmatch(rest):
-        return "whole", 0, DAY, pos
+        return "whole", 0, DAY, pos, NOT_SAID
     for word in _AMBIGUOUS_TIME:
         if rest.startswith(word):
             raise _Ambiguous(f"「{word}」は、いつのことか1つに決まりません（昼は、12時〜13時ごろとも午後とも取れます。"
@@ -424,7 +437,7 @@ def _time_part(t: str, pos: int, business: tuple[int, int],
         end = pos + 2
         if a := _ABOUT.match(t, end):
             end = a.end()
-        return "point", 12 * H, 12 * H, end
+        return "point", 12 * H, 12 * H, end, BOTH_SAID
     m = _HOUR.match(t, pos)
     if m is None:
         for word in sorted(periods, key=len, reverse=True):
@@ -436,31 +449,34 @@ def _time_part(t: str, pos: int, business: tuple[int, int],
                 if f := _FROM_TAIL.match(t, end):
                     if f.group() in ("過ぎ", "すぎ"):
                         raise _Ambiguous(f"「{word}過ぎ」は、いつからか1つに決まりません")
-                    return "window", s0, DAY, f.end()
+                    return "window", s0, DAY, f.end(), NOT_SAID
                 if _UNTIL_TAIL.match(t, end):
                     raise _Ambiguous(f"「{word}まで」は、その初めまでか終わりまでか決まりません")
                 if a := _ABOUT.match(t, end):
                     end = a.end()
-                return "window", s0, s1, end
+                return "window", s0, s1, end, NOT_SAID
         raise ValueError(f"時刻がありません（「{rest}」）")
     sec, end = _hour(m, business), m.end()
     if n := _HOUR_TO.match(t, end):
         until = _hour(n, business)
         if until <= sec:
             raise _Ambiguous("「〜から〜まで」の終わりが始まりより前です")
-        return "window", sec, until, n.end()
+        return "window", sec, until, n.end(), BOTH_SAID
     if m2 := _BAND_TAIL.match(t, end):
-        return "window", sec, min(sec + H, DAY), m2.end()
+        return "window", sec, min(sec + H, DAY), m2.end(), BOTH_SAID
     if m2 := _POINT_TAIL.match(t, end):
-        return "point", sec, sec, m2.end()
+        return "point", sec, sec, m2.end(), BOTH_SAID
     if m2 := _FROM_TAIL.match(t, end):
-        return "window", sec, DAY, m2.end()
+        return "window", sec, DAY, m2.end(), (True, False)
     if m2 := _UNTIL_TAIL.match(t, end):
         if m2.group() == "前" and m.group("min"):
             # 「3時10分前」は、2時50分（3時の10分前）とも、3時10分より前とも取れる（2026-10-19 の見直し）
             raise _Ambiguous("「〜時〜分前」は、その時刻の〜分前か、その時刻より前か決まりません")
-        return "window", 0, sec, m2.end()
-    return "point", sec, sec, end
+        return "window", 0, sec, m2.end(), (False, True)
+    return "point", sec, sec, end, BOTH_SAID
+
+
+NOT_SAID, BOTH_SAID = (False, False), (True, True)   # 1日の中の幅の端を、お客様が言ったか（`Reading.said`）
 
 
 def _at(d: date, sec: int) -> datetime:
@@ -497,18 +513,19 @@ def read(text: str | None, now: datetime, business_hours: tuple[int, int] = DEFA
         pos = _JOIN.match(t, pos).end()
         if period is not None and not _TAIL.fullmatch(t[pos:]):
             # 「今晩8時」「明朝9時」：日に付いた時間の言葉を、うしろの時刻の頭に付けて読む（「夜8時」＝20時）
-            kind, s0, s1, end = _time_part(period + t[pos:], 0, business_hours, periods)
+            kind, s0, s1, end, said = _time_part(period + t[pos:], 0, business_hours, periods)
             end += pos - len(period)
         elif period is not None:                      # 「今晩」「明朝」だけ
-            (s0, s1), kind, end = periods[period], "window", pos
+            (s0, s1), kind, end, said = periods[period], "window", pos, NOT_SAID
         else:
-            kind, s0, s1, end = _time_part(t, pos, business_hours, periods)
+            kind, s0, s1, end, said = _time_part(t, pos, business_hours, periods)
     except _Ambiguous as e:
         return _confirm(str(e))
     except ValueError as e:
         return _unreadable(str(e))
     if not _TAIL.fullmatch(t[end:]):
         return _unreadable(f"読めない言葉があります（「{t[end:]}」）")
+    day_said = days is not None or kinds is not None   # お客様がその日（日・曜日・日の種類）を言った
     if days is None:
         if kind == "whole" and kinds is None:
             return _unreadable("日も時刻もありません")
@@ -520,17 +537,19 @@ def read(text: str | None, now: datetime, business_hours: tuple[int, int] = DEFA
         at = _at(days[0], s0)
         if at <= local:
             return _confirm("通話の時刻より前の時刻です（今日のことか、明日以降か決まりません）")
-        return Reading(AT, at)
+        return Reading(AT, at, day_said=day_said)
     if kind == "window" and s0 >= s1:
         # 「午前0時まで」など、幅が空になる言い方（⚠️ 前は始まりと終わりが同じ幅を返し、次の予定の決まり＝0086 に当たりえた）
         return _confirm("幅が空になる言い方です（いつまでか決まりません）")
     daily = (s0, s1) if kind == "window" else None
+    said = said if daily is not None else NOT_SAID
     if days is None:                                  # 「平日の夕方」「土日祝ならいつでも」：日の種類だけ（終わり無し）
-        return Reading(WINDOW, local, None, daily, days=kinds, repeat=DAY_REPEAT)
+        return Reading(WINDOW, local, None, daily, days=kinds, repeat=DAY_REPEAT, said=said, day_said=day_said)
     start, end_at = _at(days[0], s0), _at(days[1], s1)
     if end_at <= local:
         return _confirm("その頃はもう過ぎています（今日のことか、明日以降か決まりません）")
-    return Reading(WINDOW, max(start, local), end_at, daily, days=kinds, repeat=_repeat(cycle, daily, monthly), since=start)
+    return Reading(WINDOW, max(start, local), end_at, daily, days=kinds, repeat=_repeat(cycle, daily, monthly), since=start,
+                   said=said, day_said=day_said)
 
 
 def _repeat(cycle: str | None, daily: tuple[int, int] | None, monthly: bool) -> str | None:

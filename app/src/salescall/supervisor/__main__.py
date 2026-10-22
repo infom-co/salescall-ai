@@ -2,6 +2,8 @@
 
 - `python -m salescall.supervisor run`：中央の見守り役を動かす（PC の部品のつなぎ口も開く＝SALESCALL_LISTEN）。
 - `python -m salescall.supervisor status`：どの設定が入っているか（値は出さない）。
+- `python -m salescall.supervisor drain`：同じ機械で動いている見守り役に「新しい電話をかけずに、いまの通話が終わったら止まって」と
+  頼み、止まるまで待って知らせる（入れ替えの前に使う。`main.ask_drain`）。
 契約者の PC で動かすのは、PC の部品（`python -m salescall.agent`）。
 """
 
@@ -50,6 +52,18 @@ def run(argv: list[str]) -> int:
     if command == "status":
         print("\n".join(config.status()))
         return 0
+    if command == "drain":
+        print("新しい電話を止めて、いまの通話の終わりを待っています（最長"
+              f" {int(main.DRAIN_WAIT // 60)} 分）…", flush=True)
+        done = main.ask_drain()
+        if done is None:
+            print("この機械では、見守り役は動いていません")
+            return 0
+        if done:
+            print("見守り役が止まりました。入れ替えてかまいません")
+            return 0
+        print("待っても止まりません（通話が終わらない・固まっている）。入れ替えると、まだ話している通話はおわびの録音で切れます")
+        return 1
     if command == "run":
         stop = _stop_on_term()
         while True:
@@ -69,7 +83,7 @@ def run(argv: list[str]) -> int:
                     return _end(1)
                 print(f"思いがけない誤り（{type(e).__name__}）。しばらくして動き直します")
                 time.sleep(RESTART_WAIT)
-    print("使い方：python -m salescall.supervisor [run | status]")
+    print("使い方：python -m salescall.supervisor [run | status | drain]")
     return 2
 
 

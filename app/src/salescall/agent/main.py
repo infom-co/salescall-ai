@@ -17,7 +17,10 @@
    終わったら、すぐおわびして切る**（つなぎの番号で見分ける。サーバーは、その試行を結果不明にしている）。
 7. 1つのやり取り・電話の部品の誤りで、つなぎを切らない・PC の部品を終わらせない（記録して続ける）。
 8. **サーバーに `UNREACHABLE_NOTICE` 秒続けてつながらなければ、この PC の画面に知らせる**（`notice.show`。サーバーそのものが止まると、
-   サーバーからの知らせも出せないため。2026-10-22 ユーザー承認）。1回切れるごとに1回だけ。つながり直したら、それも知らせる。
+   サーバーからの知らせも出せないため。2026-10-22 ユーザー承認）。1回の途切れに1回だけ。つながり直したら、それも知らせる。
+   **「つながった」とみなすのは、つなぎが `STABLE_AFTER` 秒続いたときだけ**（判断は `_watch_reach` の1か所）。それより短いつなぎ
+   （立ち上がってはすぐ落ちるサーバー）では、途切れの数えを始め直さない（⛔ 2026-10-22 の見直し15：前は、つながるたびに数え直し、
+   30秒ごとに落ちるサーバーでは、いつまでも知らせが出なかった）。
 """
 
 from __future__ import annotations
@@ -43,10 +46,12 @@ RECONNECT_FIRST, RECONNECT_MAX = 1.0, 60.0
 # PC の部品が終わるとき、途中の頼み（かけている途中の電話）が済むのを待つ長さ（秒）。かけ終わったあとの見張り（つながりが切れたら
 # おわびして切る）まで走らせる。電話の部品の「かける」は答えの期限で終わる（ANSWER_BY）。おわびの録音を流す時間をあける
 FINISH_WAIT = p.ANSWER_BY + 30
-STABLE_AFTER = 60.0   # これより長く続いたつなぎのあとは、すぐつなぎ直す（短く終わり続けるほど、間を延ばす）
+# つなぎがこれだけ続いたら「つながった」とみなす（秒）：途切れの数えを終え（画面の知らせ）、すぐつなぎ直す（短く終わり続けるほど、
+# 間を延ばす）。判断は `_stable` の1か所
+STABLE_AFTER = 60.0
 UNREACHABLE_NOTICE = 600.0   # サーバーに続けてつながらないと、この PC の画面に知らせるまでの長さ（秒。2026-10-22 ユーザー承認：10分）
-UNREACHABLE_TEXT = ("サーバーにつながりません（10分以上）。この PC からは電話をかけていません。つながれば自動で再開します。"
-                    "インターネットにつながっているかを確かめてください。")
+UNREACHABLE_TEXT = ("サーバーにつながりません（つながっても、すぐ切れます。10分以上）。そのあいだ、この PC からの電話は止まって"
+                    "います。つながれば自動で再開します。インターネットにつながっているかを確かめてください。")
 BACK_TEXT = "サーバーにつながりました。電話を再開します。"
 
 
@@ -71,8 +76,9 @@ class Agent:
     _tasks: set[asyncio.Task] = field(default_factory=set)
     _requests: set[asyncio.Future] = field(default_factory=set)          # 途中の頼み（かける・切る・おわび など）
     _line_order: dict[UUID, asyncio.Lock] = field(default_factory=dict)   # 回線ごとの頼みの順番
-    online: bool = False                                   # いまサーバーにつながっているか（迎えられたあと）
-    offline_since: float = field(default_factory=time.monotonic)   # つながっていない時間の始まり（動き出した時・切れた時）
+    connected_at: float | None = None                      # いまのつなぎがサーバーに迎えられた時刻（つないでいなければ None）
+    # 途切れの始まり（動き出した時・安定したつなぎが切れた時）。安定したつなぎ（`_stable`）のあいだは None
+    offline_since: float | None = field(default_factory=time.monotonic)
     told: bool = False                                     # この途切れを、画面に知らせたか
     tell: Callable[[str], None] = notice.show             # 画面に知らせる（試験で差し替える）
 
@@ -117,7 +123,7 @@ class Agent:
     async def _run(self, stop: asyncio.Event) -> None:
         fails = 0   # 続けて短く終わったつなぎの数（すぐ切られるサーバーへ、1秒ごとにつなぎ直し続けない）
         while not stop.is_set():
-            began = time.monotonic()
+            stable = False
             try:
                 await self.session(stop)
             except (NeedLogin, NeedUpdate):
@@ -125,27 +131,35 @@ class Agent:
             except (OSError, ConnectionClosed, asyncio.TimeoutError, p.BadMessage):
                 pass
             finally:
-                self._lost()
-            fails = 0 if time.monotonic() - began >= STABLE_AFTER else fails + 1
-            self._tell_if_unreachable()
+                stable = self._lost()
+            fails = 0 if stable else fails + 1
             try:
                 await asyncio.wait_for(stop.wait(), backoff(fails, RECONNECT_FIRST, RECONNECT_MAX))
             except asyncio.TimeoutError:
                 pass
 
-    def _tell_if_unreachable(self, now: float | None = None) -> None:
-        """続けてつながらない時間が UNREACHABLE_NOTICE を過ぎたら、この途切れについて1回だけ、画面に知らせる（1か所）。"""
+    def _stable(self, now: float) -> bool:
+        """いまのつなぎが「つながった」と言えるか（STABLE_AFTER 秒続いている。判断はこの1か所）。"""
+        return self.connected_at is not None and now - self.connected_at >= STABLE_AFTER
+
+    def _watch_reach(self, now: float | None = None) -> None:
+        """つながりの見張り（画面の知らせの判断はこの1か所。つないでいるあいだは毎秒、つなぎ直すたびにも呼ぶ）：
+        - 安定したつなぎ：途切れは終わり。知らせていたら、つながり直したことを知らせる。
+        - そうでない（つないでいない・つないでも STABLE_AFTER 秒続いていない）：途切れの始まりから UNREACHABLE_NOTICE を過ぎたら、
+          この途切れについて1回だけ知らせる。"""
         now = time.monotonic() if now is None else now
-        if not self.online and not self.told and now - self.offline_since >= UNREACHABLE_NOTICE:
+        if self._stable(now):
+            self.offline_since = None
+            if self.told:
+                self.told = False
+                self.tell(BACK_TEXT)
+        elif self.offline_since is not None and not self.told and now - self.offline_since >= UNREACHABLE_NOTICE:
             self.told = True
             self.tell(UNREACHABLE_TEXT)
 
-    def _welcomed(self) -> None:
-        """サーバーに迎えられた：つながっている。途切れを知らせていたら、つながり直したことも知らせる。"""
-        self.online = True
-        if self.told:
-            self.told = False
-            self.tell(BACK_TEXT)
+    def _welcomed(self, now: float | None = None) -> None:
+        """サーバーに迎えられた：つなぎの始まり（「つながった」とみなすのは、続いてから＝`_stable`）。"""
+        self.connected_at = time.monotonic() if now is None else now
 
     async def session(self, stop: asyncio.Event) -> None:
         async with connect(self.cfg.hub_url, max_size=p.MAX_FRAME, open_timeout=20, compression=None,
@@ -186,6 +200,7 @@ class Agent:
         while not stop.is_set():
             await asyncio.sleep(1)
             now, flag = time.monotonic(), json.dumps(emergency.engaged(), sort_keys=True, default=str)
+            self._watch_reach(now)
             if now - last >= p.BEAT_EVERY or flag != seen:
                 await self.beat()
                 last, seen = now, flag
@@ -204,15 +219,21 @@ class Agent:
         if flag is not None and flag.get("release"):
             await self.ws.send(p.dumps("emergency", action="release", reason=flag["release"], event=flag.get("event")))
 
-    def _lost(self) -> None:
-        """つながりが切れた：通話の途中の回線は、おわびの録音を流して切る（お客様を無言で放置しない。**ほかの後始末より先に**）。
+    def _lost(self, now: float | None = None) -> bool:
+        """つながりが切れた（つないだが迎えられなかった・つなげなかった、も）。切れる前のつなぎが安定していたかを返す。
+        通話の途中の回線は、おわびの録音を流して切る（お客様を無言で放置しない。**ほかの後始末より先に**）。
         回線ごとに別の流れで同時に流す（⛔ 2026-10-22 の見直し：前は流れの上で1本ずつ待ち、3本目のお客様は前の2本のおわびが
         終わるまで無言だった。合図・つなぎ直しも止まっていた）。PC の部品が終わるときも、流し終えるまで待つ（`_finish_requests`）。
         途中の控えは捨てる（書きかけを消す＝控えと取り違えない。サーバーは、書けなかったとして記録し、あとでやり直す）。"""
+        now = time.monotonic() if now is None else now
         self.ws = None
         self.generation += 1
-        if self.online:   # つながっていたのが切れた：ここから、つながっていない時間を数える
-            self.online, self.offline_since = False, time.monotonic()
+        stable = self._stable(now)
+        self._watch_reach(now)   # 切れる前に安定していたなら、途切れはいったん終わる（知らせていれば、つながり直したことも）
+        self.connected_at = None
+        if self.offline_since is None:   # 安定したつなぎが切れた：ここから、途切れを数える（短いつなぎでは数え直さない）
+            self.offline_since = now
+        self._watch_reach(now)
         loop = asyncio.get_running_loop()
         for phone in self.phones.values():
             done = loop.run_in_executor(None, _apologize_if_busy, phone)
@@ -221,6 +242,7 @@ class Agent:
         for receiving in self._incoming.values():
             receiving.drop()
         self._incoming.clear()
+        return stable
 
     def _send(self, line: UUID, message: str | bytes) -> None:
         """電話の部品から（どの流れからでも）サーバーへ送る。つないでいない・サーバーが認めていない回線のものは送らない。"""

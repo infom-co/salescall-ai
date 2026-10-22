@@ -46,7 +46,8 @@ class Guards(Base):
                 f"SELECT count(*) AS n FROM salescall.attempts a WHERE a.task_id = %s AND {attempts.placed('a')}",
                 (s["task"],)))["n"]
             elsewhere = self.tx(near, lambda tx: [r["relation"] for r in tx.all(
-                "SELECT relation FROM salescall.number_last_dial_elsewhere(%s)", (s["phone"],))])
+                "SELECT relation FROM salescall.number_dial_wait_elsewhere(%s, interval '1 day', interval '1 day')",
+                (s["phone"],))])
             other = self.tx(far, lambda tx: tx.one(
                 "SELECT salescall.number_dialed_by_other_tenant(%s) AS d", (s["phone"],)))["d"]
             return dials, placed, elsewhere, other

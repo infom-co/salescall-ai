@@ -36,12 +36,27 @@ def placed(table: str = "") -> str:
     鳴った（鳴りえた）電話：約束の回に「かけたか」・その回にかけた数・時刻の決まっていない約束の電話の数は、どれもこれを使う。"""
     return f"salescall.is_placed({table + '.' if table else ''}state)"   # 決まりはデータベースの1か所（0109）
 
-def counts_as_try(table: str = "") -> str:
-    """行の回数に数える発信の条件（SQL。1か所）：発信まで進み、お客様の意思と関係なく繋がらなかった・切れた発信でなく、お客様と
-    約束したかけ直しでもない。門（行の回数の上限・1日の回数）と、次の動きの再発信の方針の回数の両方が読む（2026-10-14 ユーザー：
-    「統一した方がよくない？」）。決まりはデータベースの salescall.counts_as_try の1か所（0113）。"""
+
+def kind(table: str = "") -> str:
+    """発信の数え方の種類（SQL。決まりはデータベースの salescall.dial_kind の1か所＝0116）：NULL＝発信まで進んでいない／
+    not_placed＝発信に失敗（鳴っていない）／line_failure＝お客様が出る前に回線・こちらの側で終わった／cut_off＝お客様が出たあと、
+    お客様の意思と関係なく途中で切れた／reached＝お客様に届いた1回。"""
     t = table + "." if table else ""
-    return f"salescall.counts_as_try({t}state, {t}disconnect, {t}promised, {t}attempt_id)"
+    return f"salescall.dial_kind({t}state, {t}cut_off, {t}attempt_id)"
+
+
+def reached(table: str = "") -> str:
+    """お客様に届いた1回の条件（SQL。1か所）：同じお客様への最小の間隔・番号の聞き直しとお詫びの電話の回数・業務ごとの1日の
+    上限が数える（お客様の意思と関係なく繋がらなかった・切れた発信と、発信に失敗は数えない）。"""
+    return f"{kind(table)} = 'reached'"
+
+
+def counts_as_try(table: str = "") -> str:
+    """行の回数に数える発信の条件（SQL。1か所）：お客様に届いた1回（`reached`）で、お客様と約束したかけ直しでないもの。門（行の
+    回数の上限・同じお客様の1日の回数）と、次の動きの再発信の方針の回数の両方が読む（2026-10-14 ユーザー：「統一した方がよくない？」）。
+    決まりはデータベースの salescall.counts_as_try の1か所（0116）。"""
+    t = table + "." if table else ""
+    return f"salescall.counts_as_try({t}state, {t}cut_off, {t}promised, {t}attempt_id)"
 
 
 # 回線の部品と復旧が移してよい先（予約 → 発信・予約の取り消しは、それぞれ専用の処理だけ）

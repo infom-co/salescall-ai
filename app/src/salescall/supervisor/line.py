@@ -12,6 +12,8 @@
    始めた方がいい」。約束の時刻・幅が来ていない約束は、来るまで出ない＝その時間の中で最優先になる）。
 2. 門（gate.claim）に渡す。通れば予約証が出る。
    - 行のせいの不許可は、次の動き（next_action.after_denial）へ渡す（次にいつ候補に出すかを決めるのは次の動きだけ＝Q4）。
+     ただし、すぐに変わる行の理由（gate.TASK_REASONS：同じ行・同じお客様・同じ番号の発信が進行中）は、この回だけその行を飛ばし、
+     予定は書き直さない（書き直さない理由のすべては gate.PLAN_KEPT の1か所）。
    - 回線の理由（gate.LINE_REASONS）なら、行の予定は書き直さず、この回線はしばらく休む（ほかの回線は、その行をかけられる）。
    - 依頼者の理由（gate.CLIENT_REASONS）なら、その依頼者の行は、この回だけ飛ばす。業務の理由（gate.BUSINESS_REASONS：その業務の
      今日の上限・時刻を指定された約束が、その業務の平均の長さのうちに来る）なら、その業務の行は、この回だけ飛ばす（同じ依頼者の
@@ -19,11 +21,15 @@
 3. 予約証で発信の出口（dial_exit.dial）がかけ、通話を進める部品（CL-1）が最後まで進める。外へ出た誤りは、その試行を結果不明に
    して「見守り役の誤り」として記録する（止めない）。回線がまだ前の通話の途中・回線の部品がかけられなかったときは、その回線を
    休ませる（かけられなかったことは、回線の異常として数える＝続けば、エラーの処置の表のとおり、その回線を止める）。
+4. **回線が「通話中」のまま（電話の部品が「通話中」と答え続ける・答えられない）で、かけられない状態が `STUCK_AFTER` 続いたら、
+   回線の異常として数える**（`Stuck` の1か所。数える入口は、かけられなかったときと同じ `_line_fault`＝続けば、処置の表のとおり、
+   その回線を止めて知らせる。⛔ 2026-10-22 の見直し15：前は、通話中を理由に休み続けるだけで、だれにも知らされなかった）。
 締め（判定・次の動き）は、見守り役の決まった間隔の仕事がする（jobs の settle）。
 """
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
@@ -31,23 +37,52 @@ from uuid import UUID
 from salescall.core import attempts, dial_exit, gate, next_action, scheduler, settings, watch
 from salescall.core.access import Access, Actor
 from salescall.core.errors import ErrorReport
-from salescall.supervisor import ACTOR, plugins, report, updates
+from salescall.supervisor import ACTOR, CALL_WAIT, plugins, report, updates
 from salescall.supervisor.links import CallDriver
 
 CANDIDATES_PER_CLIENT = 20   # 1回に門へ渡す行の数の上限（依頼者ごと）。通れば1本かけて、また初めから並べ直す
 IDLE_SECONDS = 5             # かける行が無いとき・版が合わないときの待ち
+# 回線が「通話中」のまま、かけられない状態がこれだけ続いたら、回線の異常として数える（秒。通話の最長から決める＝supervisor の1か所。
+# 最長の通話より長く「通話中」なら、通話ではなく、電話の部品か回線が動いていない）
+STUCK_AFTER = CALL_WAIT
 
 
 @dataclass(frozen=True)
 class Round:
-    """1回分の結果。called＝かけた試行、pause＝回線の理由（その回線をしばらく休む）。"""
+    """1回分の結果。called＝かけた試行、pause＝回線の理由（その回線をしばらく休む）。free＝電話の部品が「通話中ではない」と
+    答えた（発信の出口が、通話中かを聞いて先へ進んだ）。"""
     called: UUID | None = None
     pause: str | None = None
+    free: bool = False
+
+
+@dataclass
+class Stuck:
+    """回線が「通話中」のまま、かけられない状態の見張り（判断はこの1か所）。since＝続けて「通話中」と分かった始まり。"""
+    since: float | None = None
+
+    def seen(self, got: Round, now: float) -> bool:
+        """1回分の結果を見る。「通話中」が STUCK_AFTER 続いたら True（数えたら、また初めから数える＝続けば、また数える）。
+        「通話中ではない」と分かったら数え直す。どちらとも分からない回（かける行が無い・門が断った）は、そのまま。"""
+        if got.pause == dial_exit.Outcome.LINE_IN_CALL.value:
+            if self.since is None:
+                self.since = now
+            elif now - self.since >= STUCK_AFTER:
+                self.since = now
+                return True
+        elif got.free:
+            self.since = None
+        return False
+
+
+def _line_fault(access: Access, actor: Actor, tenant_id: UUID, line_id: UUID, what: str) -> None:
+    """回線の異常として数える（入口はこの1か所。続けば、エラーの処置の表のとおり、その回線を止めて知らせる）。"""
+    watch.after_error(access, actor, ErrorReport("line", None, what), tenant_id=tenant_id, line_id=line_id)
 
 
 def _claim(tx: Any, task: dict[str, Any], line_id: UUID, holder: str, tenant_id: UUID, client_id: UUID) -> Any:
     got = gate.claim(tx, task_id=task["task_id"], line_id=line_id, lease_holder=holder)
-    if isinstance(got, gate.Denied) and got.reason not in gate.LINE_REASONS | gate.CLIENT_REASONS | gate.BUSINESS_REASONS:
+    if isinstance(got, gate.Denied) and got.reason not in gate.PLAN_KEPT:   # 行の予定を書き直さない理由は gate の1か所
         next_action.after_denial(tx, task["task_id"], got, tenant_id=tenant_id, client_id=client_id,
                                  business_id=task["business_id"])
     return got
@@ -114,17 +149,16 @@ def _client_round(access: Access, actor: Actor, tenant_id: UUID, client_id: UUID
                             dial_exit.abandon(driver)
                             report(access, tenant_id, "通話を進める部品",
                                    RuntimeError("通話を終えないまま戻りました"), line_id=line_id)
-                    return Round(called=got.attempt_id)
+                    return Round(called=got.attempt_id, free=True)
                 if done is dial_exit.Outcome.NOT_PLACED:   # 回線の異常として数える（続けば、その回線を止める）
-                    watch.after_error(access, actor, ErrorReport("line", None, "回線の部品が電話をかけられなかった"),
-                                      tenant_id=tenant_id, line_id=line_id)
+                    _line_fault(access, actor, tenant_id, line_id, "回線の部品が電話をかけられなかった")
                 if done in (dial_exit.Outcome.NOT_PLACED, dial_exit.Outcome.LINE_IN_CALL, dial_exit.Outcome.WITHHELD):
                     # PC がかけなかった（緊急停止・つながっていない）も休む（⛔ 2026-10-22 の見直し：休まずに数秒ごとに次の行を
                     # 予約し、どの行も「発信に失敗」にしていった）
                     # かけられなかった・まだ前の通話の途中：その回線を休ませる（休まず次の行へ進むと、行の回数と回線の
                     # 1日の上限を数分で使い切りうる＝2026-10-18 の見直し）
-                    return Round(pause=done.value)
-                return Round()   # 予約証が使えなかった（緊急停止など）：次の回で、門から考え直す
+                    return Round(pause=done.value, free=done is not dial_exit.Outcome.LINE_IN_CALL)
+                return Round(free=True)   # 予約証が使えなかった（緊急停止など）：次の回で、門から考え直す
             if got.reason in gate.LINE_REASONS:
                 return Round(pause=got.reason)
             if got.reason in gate.CLIENT_REASONS:
@@ -141,6 +175,7 @@ def loop(access: Access, tenant_id: UUID, line: UUID, holder: str, driver: CallD
          stop: Any) -> None:
     """回線ごとの処理（中央の見守り役が、別の流れで動かす）。stop が立つまで繰り返す（いまの通話は最後まで進めてから止まる）。"""
     pause = int(access.in_tenant(ACTOR, tenant_id, lambda tx: settings.system_value(tx, "gate.denied_retry_wait")))
+    stuck = Stuck()
     while not stop.is_set():
         try:
             # プログラムとデータベースの版が合わなければ、新しい電話をかけない（中央の見守り役が立ち上げたあとでデータベースが
@@ -149,6 +184,9 @@ def loop(access: Access, tenant_id: UUID, line: UUID, holder: str, driver: CallD
                 stop.wait(IDLE_SECONDS)
                 continue
             got = one_round(access, ACTOR, tenant_id, line, holder, driver, runner)
+            if stuck.seen(got, time.monotonic()):
+                _line_fault(access, ACTOR, tenant_id, line,
+                            f"回線が「通話中」のまま、かけられません（{int(STUCK_AFTER // 60)}分以上。電話の部品が答えない場合も）")
             if got.called is None:
                 stop.wait(pause if got.pause else IDLE_SECONDS)
         except Exception as e:  # noqa: BLE001 記録して、少し待ってから続ける（止めない）

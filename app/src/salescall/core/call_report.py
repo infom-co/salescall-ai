@@ -79,8 +79,10 @@ ENDING_CALLBACKS = ("other_means",)                      # 電話ではかけ直
 CALLBACK_OFFERS = ("callback", "message", "email", "fax", "post")   # お客様の申し出（CL-1 の OFFER_LABEL）：折り返し・伝言・メール・ファクス・郵送
 CALLBACK_MEANS = ("email", "fax", "address", "message")  # 申し出で聞いた宛先・伝言の答え（取れた値の文字か null。CL-1 の CALLBACK_IDS）
 CONNECT_WHO = ("target", "successor", "substitute")      # 繋いだ方：目的のお客様・後任の方・代わりの方（CL-1 の connect の who）
-STANDIN_POLICIES = {"substitute": ("decision_maker", "target_only", "anyone"), "departed": ("successor", "end")}
-# 相手の申し出への応じ方（業務設定。CL-1 の flowctl.POLICIES の、事実に残るもの。業務設定の確かめは business_settings.POLICIES）
+# 相手の申し出への応じ方の選択肢（業務設定。CL-1 の flowctl.POLICIES と同じ値。最初が既定＝2026-10-22 ユーザー決定）。正本はここだけ：
+# 業務設定の確かめ（business_settings.POLICIES＝鍵に _policy を付けたもの）も、会話の報告の事実（代わりの方・在籍していない）も、これを読む
+RESPONSE_POLICIES = {"substitute": ("decision_maker", "target_only", "anyone"), "message": ("decline", "leave"),
+                     "departed": ("successor", "end")}
 # かけ直しの日を選んだ理由の周期（お客様が言ったときだけ）：month＝月ぎめの業務・締め・振り込みなど月単位の理由（2026-10-19 ユーザー：
 # 「月ぎめの業務の都合や振り込みなどの入金の間隔などの話の場合は、月単位で考えた方がいい」）。無ければ、言葉だけで読む（spoken_time）
 CALLBACK_CYCLES = ("month",)
@@ -155,7 +157,7 @@ class Back:
 @dataclass(frozen=True)
 class Substitute:
     """代わりの方の申し出（事実 substitute）。記録だけ。"""
-    policy: str                  # 業務設定の応じ方（STANDIN_POLICIES["substitute"]）
+    policy: str                  # 業務設定の応じ方（RESPONSE_POLICIES["substitute"]）
     read: tuple[str, ...]        # 受け取った読み
     answer: str | None           # 判断いただけるお立場かを伺った答え（伺っていなければ None）
     evidence: Said
@@ -164,7 +166,7 @@ class Substitute:
 @dataclass(frozen=True)
 class Departed:
     """お呼びした方が在籍していない（事実 departed）。記録だけ（判定は not_reached で読む）。"""
-    policy: str                  # 業務設定の応じ方（STANDIN_POLICIES["departed"]）
+    policy: str                  # 業務設定の応じ方（RESPONSE_POLICIES["departed"]）
     read: tuple[str, ...]
     successor: bool              # 後任の方へ切り替えたあとに言われたか
     evidence: Said
@@ -523,11 +525,11 @@ def from_json(raw: Any) -> CallReport:
                     for r, s in _records(facts, "callback_resume", {"why", "read"}))
     not_transferred = tuple(NotTransferred(s, _bool(r, "again") if "again" in r else None)
                             for r, s in _records(facts, "not_transferred", {"again"}))
-    substitutes = tuple(Substitute(_choice(r.get("policy"), STANDIN_POLICIES["substitute"], "facts.substitute.policy"),
+    substitutes = tuple(Substitute(_choice(r.get("policy"), RESPONSE_POLICIES["substitute"], "facts.substitute.policy"),
                                    _reads(r.get("read"), "facts.substitute.read"),
                                    _value(r.get("answer"), "facts.substitute.answer"), s)
                         for r, s in _records(facts, "substitute", {"policy", "read", "answer"}))
-    departures = tuple(Departed(_choice(r.get("policy"), STANDIN_POLICIES["departed"], "facts.departed.policy"),
+    departures = tuple(Departed(_choice(r.get("policy"), RESPONSE_POLICIES["departed"], "facts.departed.policy"),
                                 _reads(r.get("read"), "facts.departed.read"), _bool(r, "successor"), s)
                        for r, s in _records(facts, "departed", {"policy", "read", "successor"}))
     # 確かめに戻った（target_back）のは、かけ直しの申し出の途中か、代わりの方と話している途中（2026-10-22 の CL-1 の直し：代わりの方の

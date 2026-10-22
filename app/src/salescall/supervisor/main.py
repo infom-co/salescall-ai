@@ -18,6 +18,10 @@
 6. **版**：プログラムとデータベースの版がずれていれば、回線ごとの流れを止め（いまの通話は最後まで）、立ち上げず、決まった間隔の仕事も
    しない（`supervisor.updates`。合えば、またかける）。ずれは CL-2 へ（変わったときだけ）。
 7. **どの段の誤りでも、本体は止まらない**（データベースに届かない など）：記録して、次の回にまた試す。
+8. **止め方は1つ**（Ctrl+C・終わりの合図 SIGTERM・入れ替えの前の命令 `drain`）：新しい電話をかけず、いまの通話の終わりを最長
+   `SHUTDOWN_WAIT` 待ち、回線を返して止まる。`drain`（`ask_drain`）は、機械の中の印のファイル（`DRAIN_FLAG`）で、動いている見守り役に
+   頼み、止まるまで待って知らせる（入れ替えで通話をいきなり切らない。動かす所の仕組みの待つ長さの上限に頼らない＝⛔ 2026-10-22 の
+   見直し15）。動き出す前に置かれた印は、前の回の残りとして消す（次に動かしたとたんに止まらない）。
 """
 
 from __future__ import annotations
@@ -35,7 +39,8 @@ from salescall.core import dial_exit, leases
 from salescall.core.access import Access, busy, unreachable
 from salescall.link.basics import backoff
 from salescall.link.locks import AlreadyRunning, SingleInstance, lock_dir, machine_id
-from salescall.supervisor import ACTOR, busy_seen, config, flush_busy, jobs, line, local_pc, plugins, report, updates, watchdog
+from salescall.supervisor import (ACTOR, CALL_WAIT, busy_seen, config, flush_busy, jobs, line, local_pc, plugins, report,
+                                 updates, watchdog)
 from salescall.supervisor.links import Attached, Links, NoLinks
 
 RESTART_FIRST, RESTART_MAX = 5.0, 300.0   # 回線ごとの流れを立ち上げ直すまでの間（秒。続けて止まるほど倍に）
@@ -46,9 +51,58 @@ HEAVY_THREADS = 4                          # 長い仕事（控えの書き込�
 __all__ = ["AlreadyRunning", "Supervisor", "serve", "holder_name"]
 
 
-# 止めるとき、いまの通話が終わるのを待つ長さ（秒）。動かす所の仕組みの「止めるまで待つ長さ」は、これより長くする（Fly.io の
-# kill_timeout など。app/README.md）。短いと、話している通話がいきなり切れる
-SHUTDOWN_WAIT = 600.0
+# 止めるとき、いまの通話が終わるのを待つ長さ（秒。通話の最長から決める＝supervisor.CALL_WAIT）。動かす所の仕組みの「止めるまで
+# 待つ長さ」は、これより長くする（Fly.io の kill_timeout など。app/README.md）。短いと、話している通話がいきなり切れる。入れ替えの
+# ときは、先に `drain` で止めておく（動かす所の仕組みの待つ長さに頼らない）
+SHUTDOWN_WAIT = CALL_WAIT
+DRAIN_FLAG = "salescall-supervisor.drain"   # 「新しい電話をかけずに、いまの通話が終わったら終わって」の印（機械の中。lock_dir）
+DRAIN_WAIT = SHUTDOWN_WAIT + 120.0          # drain の命令が、止まるのを待つ長さ（止めるときの待ちに、仕事とつなぎ口の後始末の分を足す）
+
+
+LOCK_FILE = "salescall-supervisor.lock"   # 1つの機械に1つだけ（機械の中の印）
+
+
+def ask_drain(wait_seconds: float = DRAIN_WAIT, every: float = 1.0) -> bool | None:
+    """動いている見守り役に「新しい電話をかけずに、いまの通話が終わったら終わって」と頼み、止まるまで待つ（命令 `drain`。入れ替えの
+    前に使う）。止まったら True、待っても止まらなければ False、動いていなければ None（印は置かない）。"""
+    lock, flag = lock_dir() / LOCK_FILE, lock_dir() / DRAIN_FLAG
+    try:
+        with SingleInstance(lock):   # 押さえられた：動いていない
+            return None
+    except AlreadyRunning:
+        pass
+    flag.write_text(repr(time.time()))
+    deadline = time.monotonic() + wait_seconds
+    while time.monotonic() < deadline:
+        time.sleep(every)
+        try:
+            with SingleInstance(lock):   # 見守り役が止まって、印を放した
+                return True
+        except AlreadyRunning:
+            continue
+    return False
+
+
+def drain_asked(since: float) -> bool:
+    """drain の印があるか（見たら消す）。since＝この見守り役が動き出した時刻（time.time）：それより前に置かれた印は、前の回の残りと
+    して消すだけ（判断はこの1か所）。"""
+    flag = lock_dir() / DRAIN_FLAG
+    try:
+        text = flag.read_text()
+    except OSError:
+        return False
+    try:
+        at = float(text)
+    except ValueError:   # 読めない印：置かれた時刻で見る
+        try:
+            at = flag.stat().st_mtime
+        except OSError:
+            return False
+    try:
+        flag.unlink()
+    except OSError:
+        pass
+    return at >= since
 
 
 def holder_name() -> str:
@@ -377,7 +431,8 @@ def serve(cfg: config.Config, stop: threading.Event | None = None) -> None:
         #   どの契約者の分か無いと、通行証が無いまま黙って動き、電話もかけず控えも書かない（⛔ 2026-10-22 の見直し13）
         raise config.ConfigMissing("設定 SALESCALL_ADMIN_TENANT が入っていません（つなぎ口がこの機械の中だけのときは、この機械の"
                                    "PC の部品の契約者が要ります。手順：app/README.md）")
-    with SingleInstance(lock_dir() / "salescall-supervisor.lock"):
+    with SingleInstance(lock_dir() / LOCK_FILE):
+        started = time.time()   # これより前に置かれた drain の印は、前の回の残り
         hub = channel.Hub(Access(cfg.dsn), cfg)
         sup = Supervisor(cfg, hub)
         hub_fails, next_hub = 0, 0.0
@@ -397,6 +452,10 @@ def serve(cfg: config.Config, stop: threading.Event | None = None) -> None:
         try:
             while not stop.is_set():
                 dog.beat()
+                if drain_asked(started):   # 入れ替えの前の drain：ほかの止め方と同じに止める（新しい電話をかけず、いまの通話の終わりを待つ）
+                    print("入れ替えの準備（drain）：新しい電話をかけずに、いまの通話の終わりを待ってから止まります", flush=True)
+                    stop.set()
+                    break
                 if time.monotonic() >= next_pass:
                     try:
                         local_pc.ensure(sup.access, cfg)

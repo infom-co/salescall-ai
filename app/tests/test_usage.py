@@ -285,6 +285,24 @@ class CostRatio(Priced):
                                             " WHERE attempt_id IN (%s, %s)", (cut, again)))["t"]
         self.assertAlmostEqual(float(m["hourly"]["seconds"]), float(took) + 120, places=3)   # 2本の時間＋間は1回
 
+    def test_calls_never_placed_are_not_billed_as_dials(self):
+        """かけた1本の報酬は、お客様のところで鳴りえた発信だけ（salescall.is_placed の1か所）。PC がかけずに取り消した発信・回線の
+        部品が番号を受け付けなかった発信は数えない（⛔ 見直し15c：前は「発信中」に入った時刻をすべて数えた）。"""
+        from salescall.core import attempts, dial_exit, next_action
+        from tests.test_gate import FakeDriver
+        s = self.ready()
+        self.terms(s, per_dial_yen=50)
+        for end in ("withheld", "call_failed", "no_answer"):
+            c = self.claim(s)
+            self.assertTrue(dial_exit.dial(self.w.a, SYSTEM, s["tenant"], s["client"], c.attempt_id, FakeDriver()))
+            if end == "withheld":
+                self.tx(s, lambda tx: attempts.withheld(tx, c.attempt_id))
+            else:
+                self.tx(s, lambda tx: attempts.move(tx, c.attempt_id, end))
+                self.settle(s, c.attempt_id)
+                self.tx(s, lambda tx: next_action.schedule_now(tx, s["task"], cause="試験"))
+            self.assertEqual(self.month(s)["breakdown"]["dial"]["count"], 1 if end == "no_answer" else 0, end)
+
     def test_the_caution_of_the_deficit_notice_is_per_client_and_in_plain_words(self):
         """赤字の知らせの早さは依頼者ごと・3つの選び方（2026-10-17 ユーザー：案B「成果が0件のまま、使った費用が成果1件分の報酬の
         4分の1・半分・1件分を超えたら知らせる」）。画面の例の本数（成果1件 1,000円・電話1本 2円）が、中の計算と合っている。"""

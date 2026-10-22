@@ -52,10 +52,8 @@ def set_client_active(tx: Tx, active: bool, *, reason: str) -> None:
     c = tx.one("SELECT salescall.cur_tenant() AS t, salescall.cur_client() AS c")
     if c["c"] is None:
         raise ValueError("依頼者の取引で呼んでください")
-    tx.execute("INSERT INTO salescall.client_states (tenant_id, client_id, seq, active, reason, set_by)"
-               " SELECT %s, %s, coalesce(max(seq), 0) + 1, %s, %s, salescall.cur_actor()"
-               " FROM salescall.client_states WHERE client_id = %s",
-               (c["t"], c["c"], active, _name(reason), c["c"]))
+    tx.execute("INSERT INTO salescall.client_states (tenant_id, client_id, active, reason, set_by)"   # 番号は next_seq（0109）
+               " VALUES (%s, %s, %s, %s, salescall.cur_actor())", (c["t"], c["c"], active, _name(reason)))
     if not active:
         tx.one("SELECT salescall.release_claims_in_scope('client', %s, %s, NULL)", (c["t"], c["c"]))
 

@@ -199,10 +199,15 @@ class MoreWords(unittest.TestCase):
 
     def test_am_or_pm_from_business_hours(self):
         """午前・午後の無い時刻は、お客様の営業時間に入るほう（2026-10-19 ユーザー：「通常午前3時に電話をかけてほしい人はいない
-        ので、営業時間の範囲だけ」。CL-1 の fill_ampm と同じ決まり：時の単位で、終わりの時も含む）。"""
+        ので、営業時間の範囲だけ」）。営業時間は [始まり, 終わり)：終わりの時刻ちょうどは入らない（⛔ 見直し15：前は時の単位で
+        終わりの時も含め、「明日の7時」を19時＝営業の終わった時刻と読んで、依頼者の時間帯の外でもかけた）。"""
         company = (9 * H, 19 * H)
         self.assertEqual(read("3時", NOW, company).start, at(2026, 10, 14, 15))
-        self.assertEqual(read("7時", NOW, company).start, at(2026, 10, 14, 19))     # 19時は営業時間の終わりの時（含む）
+        self.assertEqual(read("6時半", NOW, company).start, at(2026, 10, 14, 18, 30))
+        for text in ("7時", "明日の7時", "7時以降", "明日の7時半"):   # 7時（始まりより前）も19時（終わりちょうど）も入らない ⇒ 確かめる
+            with self.subTest(text=text):
+                self.assertEqual(read(text, NOW, company).kind, CONFIRM)
+        self.assertEqual(read("明日の9時", NOW, (9 * H + 30 * 60, 19 * H)).kind, CONFIRM)   # 分まで見る（9時は9時半より前）
         self.assertEqual(read("明日の9時", NOW, company).start, at(2026, 10, 15, 9))
         self.assertEqual(read("12時", NOW, company).start, at(2026, 10, 14, 12))    # 12時は昼の12時
         r = read("3時まで", NOW, company)
@@ -211,10 +216,31 @@ class MoreWords(unittest.TestCase):
         self.assertEqual((r.start, r.end), (at(2026, 10, 15, 15), at(2026, 10, 15, 17)))
         night = (18 * H, 3 * H)                                                       # 夜のお店（日をまたぐ）
         self.assertEqual(read("明日の1時", NOW, night).start, at(2026, 10, 15, 1))
+        self.assertEqual(read("明日の3時", NOW, night).kind, CONFIRM)                 # 3時は終わりちょうど
         self.assertEqual(read("9時", NOW, night).start, at(2026, 10, 14, 21))
         for hours in ((0, 23 * H), (13 * H, 14 * H)):                                 # 両方入る・どちらも入らない ⇒ 確かめる
             with self.subTest(hours=hours):
                 self.assertEqual(read("明日の3時", NOW, hours).kind, CONFIRM)
+
+
+class SaidEdges(unittest.TestCase):
+    """幅の端のうち、お客様が実際に言った端（Reading.said）と、その日を言ったか（Reading.day_said）。依頼者の時間帯の外でもかけて
+    よいのは、言った端だけ（calling_hours.callee_hours。見直し15：前は「朝なら」で0時、「午後なら」で23時にかけえた）。"""
+
+    def test_which_edges_were_said(self):
+        cases = {"4時以降": (True, False), "3時まで": (False, True), "明日の3時から5時": (True, True), "3時台": (True, True),
+                 "夕方": (False, False), "朝": (False, False), "午後": (False, False), "夕方から": (False, False),
+                 "明日の午前中": (False, False), "明日ならいつでも": (False, False), "すぐ": (False, False)}
+        for text, said in cases.items():
+            with self.subTest(text=text):
+                self.assertEqual(read(text, NOW).said, said)
+
+    def test_whether_the_day_was_said(self):
+        for text, said in {"夕方なら": False, "3時なら": False, "すぐ": False, "30分後": False, "明日の夕方": True,
+                           "金曜なら": True, "13日なら": True, "平日の夕方": True, "土日祝ならいつでも": True,
+                           "明日の15時": True, "今晩": True}.items():
+            with self.subTest(text=text):
+                self.assertEqual(read(text, NOW).day_said, said)
 
 
 class Repeat(unittest.TestCase):

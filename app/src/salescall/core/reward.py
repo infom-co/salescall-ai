@@ -4,7 +4,8 @@
   成果1件あたり・かけた1本あたり・話せた1本あたり・月額・時給の組み合わせ（依頼者によって違う。2026-10-15 ユーザー）。
 - 今月（日本時間の月）の数を数えるのは `month` の1か所：報酬の内訳・費用・かけた本数。上限・赤字の判断は core/usage.py。
   - 成果1件＝いまの業務の状態（最新の結果の版）が「完了」の行を、はじめて「完了」になった時刻で数える（契約者が直した版も
-    含む。完了でないと直した行は数えない）。かけた1本＝発信した（dialing に入った）。
+    含む。完了でないと直した行は数えない）。かけた1本＝発信した（dialing に入った時刻で数える。お客様のところで鳴りえた発信だけ＝
+    salescall.is_placed の1か所：PC がかけずに取り消した発信・回線の部品が番号を受け付けなかった発信は数えない。⛔ 見直し15）。
     話せた1本＝会話に入った（in_conversation に入った）。どれも、その出来事の時刻に効いていた決まりの単価で数える
     （あとから決まりを変えても、過去の分は変わらない）。
   - 月額＝その月のうち、決まりが効いていた時間で日割り（月の途中の割合を、月末の見込みと比べられるように）。
@@ -31,6 +32,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
+from salescall.core import attempts
 from salescall.core.access import Tx
 
 
@@ -114,7 +116,8 @@ def month(tx: Tx) -> dict[str, Any]:
                                            " WHERE r.business_state = 'completed' AND l.business_state = 'completed'"
                                            " GROUP BY r.task_id"),
         "dial": ("per_dial_yen", "SELECT h.at FROM salescall.attempt_state_history h JOIN salescall.attempts a"
-                                 " ON a.attempt_id = h.attempt_id WHERE h.to_state = 'dialing' AND " + _BILLED_PER_CALL),
+                                 " ON a.attempt_id = h.attempt_id WHERE h.to_state = 'dialing' AND " + attempts.placed("a")
+                 + " AND " + _BILLED_PER_CALL),
         "talk": ("per_talk_yen", "SELECT h.at FROM salescall.attempt_state_history h JOIN salescall.attempts a"
                                  " ON a.attempt_id = h.attempt_id WHERE h.to_state = 'in_conversation' AND " + _BILLED_PER_CALL),
     }

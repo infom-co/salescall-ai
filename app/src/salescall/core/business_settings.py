@@ -36,7 +36,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 from uuid import UUID
 
-from salescall.core import approval, attempts, business_rules, quality_stage, readings
+from salescall.core import approval, attempts, business_rules, call_report, quality_stage, readings
 from salescall.core.access import Tx
 
 END = "END"                                       # 分岐の行き先「終わり」
@@ -178,10 +178,9 @@ class Settings:
 
 KEYS = {"purpose", "target_class", "caller", "target_person", "busy_line", "voicemail_message", "ai_answer", "answers", "voice",
         "questions", "names", "rules"}
-# 相手の申し出への応じ方（CL-1 の flowctl.POLICIES と同じ値。最初が既定＝2026-10-22 ユーザー決定）と、業務の情報（CL-1 の連絡帳 4-28）。
-# 書かなければ既定（ユーザー決定の既定。2026-10-22 より前に作った版にも無い）
-POLICIES = {"substitute_policy": ("decision_maker", "target_only", "anyone"), "message_policy": ("decline", "leave"),
-            "departed_policy": ("successor", "end")}
+# 相手の申し出への応じ方（選択肢の正本は call_report.RESPONSE_POLICIES の1か所。最初が既定＝2026-10-22 ユーザー決定）と、業務の情報
+# （CL-1 の連絡帳 4-28）。書かなければ既定（ユーザー決定の既定。2026-10-22 より前に作った版にも無い）
+POLICIES = {f"{k}_policy": v for k, v in call_report.RESPONSE_POLICIES.items()}
 RESPONSE_KEYS = {*POLICIES, "message", "info", "follow_up"}
 
 
@@ -709,9 +708,8 @@ def assign(tx: Tx, run_id: UUID, version_id: UUID, *, reason: str) -> str:
                                "この版は、その列のある一覧を取り込んだ新しい実施回に割り当ててください（取り込んだ行は変えないため、"
                                "同じ実施回に取り込み直しても足せません）"])
     row = tx.one(
-        "INSERT INTO salescall.run_versions (tenant_id, client_id, run_id, business_id, seq, version_id, assigned_by, reason)"
-        " SELECT r.tenant_id, r.client_id, r.run_id, r.business_id,"
-        "        coalesce((SELECT max(x.seq) FROM salescall.run_versions x WHERE x.run_id = r.run_id), 0) + 1,"
+        "INSERT INTO salescall.run_versions (tenant_id, client_id, run_id, business_id, version_id, assigned_by, reason)"   # 番号は
+        " SELECT r.tenant_id, r.client_id, r.run_id, r.business_id,"                                                     # next_seq（0109）
         "        %s, salescall.cur_actor(), %s FROM salescall.runs r WHERE r.run_id = %s RETURNING seq",
         (version_id, reason, run_id))
     if row is None:

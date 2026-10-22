@@ -125,7 +125,9 @@ def _settle_apology(tx: Tx, a: dict[str, Any]) -> dict[str, Any]:
     cut = _cut_off(tx, a, classify_cut(inp.facts, report), report)   # 途中で切れたか（ふつうの通話と同じ1か所）
     decision = next_action.after_apology(tx, a["task_id"], delivered=delivered, refused=refused, stop_reason=stop_reason,
                                          dialed=next_action.Target(a["contact_id"], None, "apology", None),
-                                         reached_target=inp.reached_target, cut_off=cut)
+                                         reached_target=inp.reached_target, cut_off=cut,
+                                         not_reached=None if report is None else report.not_reached,   # 同じ日にかけ直さないかは
+                                         again=bool(report and report.may_call_again))                 # ふつうの電話と同じ1か所
     if decision.kind == "end":
         notify.emit(tx, "apology", key=f"apology:{attempt_id}",
                     summary={"apology_done": "お詫びを伝えました。",
@@ -214,16 +216,19 @@ def rejudge(tx: Tx, attempt_id: UUID) -> dict[str, Any] | None:
 
 
 def awaiting_rejudge(tx: Tx, task_id: UUID) -> UUID | None:
-    """その行で判定し直しを待っている試行（1か所）：行のいちばん新しい発信の、いちばん新しい判定が「判定できない」。いまの予定が判定待ち
-    （hold）の行だけでなく、途中で切れて判定できなかったので、お詫びのかけ直しを予定した行も入る（2026-10-22 ユーザー：「通話のあとの
-    確かめで断りの言葉が見つからなければ、お詫びのかけ直しをします」）。そのかけ直しが発信まで進めば、いちばん新しい発信が替わるので、
-    前の通話は判定し直さない（あとの通話の結果が行の結果）。"""
+    """その行で判定し直しを待っている試行（1か所）：判定できない結果が、まだ決まっていない扱いの試行のうち、いちばん新しいもの
+    （決まりはデータベースの salescall.unknown_pending の1か所。断られたかがまだ決まっていない＝refusal_undecided も同じものを読む）。
+    いまの予定が判定待ち（hold）の行だけでなく、途中で切れて判定できなかったので、お詫びのかけ直しを予定した行も入る（2026-10-22
+    ユーザー：「通話のあとの確かめで断りの言葉が見つからなければ、お詫びのかけ直しをします」）。同じ行のあとの発信がお客様につながって
+    判定が決まったら、前の通話は決まったとみなし、判定し直さない（あとの通話の結果が行の結果。⛔ 見直し15：前は、あとの発信が
+    あれば判定し直しの対象から外すだけで、前の通話は「まだ決まっていない」のまま残り、同じお客様のほかの行が永久にかからなかった）。
+    あとの発信の締めがまだの行は、締めが済んでから（締めと判定し直しが、行の予定を同時に書かない）。"""
     row = tx.one(
-        "SELECT a.attempt_id,"
-        "       (SELECT j.business_state::text FROM salescall.call_judgements j WHERE j.attempt_id = a.attempt_id) AS state"
-        f" FROM salescall.attempts a WHERE a.task_id = %s AND {attempts.dialed('a')} ORDER BY a.claimed_at DESC LIMIT 1",
-        (task_id,))
-    return row["attempt_id"] if row is not None and row["state"] == "unknown" else None
+        "SELECT a.attempt_id FROM salescall.attempts a"
+        f" WHERE a.task_id = %s AND {attempts.dialed('a')} AND salescall.unknown_pending(a.attempt_id)"
+        "   AND NOT salescall.task_awaiting_decision(a.task_id)"
+        " ORDER BY a.claimed_at DESC LIMIT 1", (task_id,))
+    return None if row is None else row["attempt_id"]
 
 
 def rejudge_held(tx: Tx) -> list[dict[str, Any]]:

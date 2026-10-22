@@ -557,6 +557,15 @@ class Causes(unittest.TestCase):
                       {"Q1": Item("dont_know", None, "そのほか"), "Q2": TAKEN["Q2"]}):
             self.assertEqual(run(items=items).detail["unknown_cause"], "reason_missing")
 
+    def test_an_old_reasonless_answer_does_not_make_later_unanswered_calls_unknown(self):
+        """項目は行のこれまでの通話の答え。前の通話に残った理由の無い「わからない」は、その通話で結果不明にした。そのあとの
+        出なかった・留守電だけの電話は、ふつうに「まだ」（2026-10-22 の見直し15：前は毎回「判定できない」になった）。"""
+        old = {"Q1": Item("dont_know", None, None), "Q2": TAKEN["Q2"]}
+        self.assertEqual(run(facts=Facts("no_answer", None, False, False, NOW), rep=None, items=old).state, "open")
+        self.assertEqual(run(facts=Facts("ended", None, True, False, NOW), rep=report(("voicemail",), cut=None),
+                             items=old).state, "open")
+        self.assertEqual(run(items=old).detail["unknown_cause"], "reason_missing")   # 話した通話では、これまでどおり
+
 
 if __name__ == "__main__":
     unittest.main()

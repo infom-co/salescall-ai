@@ -304,6 +304,41 @@ class CallingState(LinkBase):
             self.assertFalse(session.calling())
 
 
+    def test_a_call_the_customer_ends_is_unmarked_by_asking_the_phone(self):
+        """お客様が自分で切った（サーバーは切っていない）通話も、声が途切れたら、合図のたびに電話の部品に「通話中か」を聞いて印を外す
+        （⛔ 2026-10-22 の見直し15：前は外れず、控えをいつまでもゆっくり送った）。通話中のあいだは外さない。"""
+        s = self.ready()
+        got = self.pc(s)
+        phone = FakePhone()
+        r = self.agent(got, [s["line"]], {s["line"]: phone})
+        driver = self.hub.driver(s["line"], self.attached(s, got))
+        session = self.hub.sessions[got.pc_id]
+        with mock.patch.object(protocol, "CALL_QUIET", 0.0):
+            driver.start_call("+81300000003")
+            phone.busy = True                                                   # 話している
+            self.beaten(r, got)
+            time.sleep(0.5)
+            self.assertTrue(session.calling())                                  # 通話中は外さない
+            phone.busy = False                                                  # お客様が切った（hang_up は呼ばれない）
+            self.beaten(r, got)
+            until(lambda: not session.calling(), "電話の部品に聞いて、印を外す")
+            self.assertEqual(phone.hung, 0)
+
+    def test_an_old_answer_does_not_unmark_a_new_call(self):
+        """「通話中ではない」の答えは、聞いたときの印にだけ効く（聞いているあいだに、かけ直していれば外さない）。"""
+        session = channel._Session(ws=None, who=None)
+        line_id = uuid.uuid4()
+        old = session.call_began(line_id)
+        new = session.call_began(line_id)                                      # 聞いているあいだに、かけ直した
+        session.call_over(line_id, old)
+        self.assertEqual(session.mark_of(line_id), new)
+        session.call_over(line_id, new)
+        self.assertIsNone(session.mark_of(line_id))
+        session.call_began(line_id)
+        session.call_over(line_id)                                             # 切った・おわびして切った：印を問わず外す
+        self.assertFalse(session.open_calls)
+
+
 class Refusals(LinkBase):
     def test_an_unknown_or_revoked_pass_makes_the_pc_log_in_again(self):
         s = self.ready()
@@ -359,30 +394,61 @@ class LostConnection(LinkBase):
         with self.assertRaises(ConnectionError):                               # 答えられない（出口が「通話中」とみなす）
             self.hub.driver(s["line"], Attached(s["tenant"], got.pc_id, 1)).in_call()
 
-    def test_a_long_outage_is_told_on_the_pc_screen_once_and_the_return_too(self):
-        """サーバーに10分続けてつながらなければ、この PC の画面に1回だけ知らせる。つながり直したら、それも知らせ、次の途切れは
-        切れた時から数え直す（サーバーそのものが止まると、サーバーからの知らせも出せないため。2026-10-22 ユーザー承認）。"""
+    def reachable(self):
+        """画面の知らせを受け取る PC の部品（つながらない所へつなぐ。時刻は試験が渡す＝時計に頼らない）。"""
         told = []
         values = {"SALESCALL_HUB_URL": "ws://127.0.0.1:1/link"}
         a = agent_main.Agent(agent_config.load(values), PcPass(uuid.uuid4(), uuid.uuid4(), "架空の通行証"), {}, tell=told.append)
-        t0 = a.offline_since
-        a._tell_if_unreachable(t0 + agent_main.UNREACHABLE_NOTICE - 1)
-        self.assertEqual(told, [])                                             # 10分たつまでは知らせない
-        a._tell_if_unreachable(t0 + agent_main.UNREACHABLE_NOTICE)
-        a._tell_if_unreachable(t0 + agent_main.UNREACHABLE_NOTICE * 3)
-        self.assertEqual(told, [agent_main.UNREACHABLE_TEXT])                  # 1回の途切れに1回だけ
-        a._welcomed()
-        self.assertEqual(told[-1], agent_main.BACK_TEXT)
-        a._tell_if_unreachable(time.monotonic() + agent_main.UNREACHABLE_NOTICE * 9)
-        self.assertEqual(len(told), 2)                                         # つながっているあいだは知らせない
+        return a, told
 
-        async def lose():
-            a._lost()
-        asyncio.run(lose())
-        a._tell_if_unreachable(a.offline_since + agent_main.UNREACHABLE_NOTICE - 1)
+    @staticmethod
+    def lose(a, now):
+        async def go():
+            return a._lost(now)
+        return asyncio.run(go())
+
+    def test_a_long_outage_is_told_on_the_pc_screen_once_and_the_return_too(self):
+        """サーバーに10分続けてつながらなければ、この PC の画面に1回だけ知らせる。つながり直したら（つなぎが続いたら）、それも知らせ、
+        次の途切れは切れた時から数え直す（サーバーそのものが止まると、サーバーからの知らせも出せないため。2026-10-22 ユーザー承認）。
+        時刻はすべて試験が渡す（⛔ 2026-10-22 の見直し15：前は本物の時計と混ぜていた）。"""
+        a, told = self.reachable()
+        t0, notice, stable = a.offline_since, agent_main.UNREACHABLE_NOTICE, agent_main.STABLE_AFTER
+        a._watch_reach(t0 + notice - 1)
+        self.assertEqual(told, [])                                             # 10分たつまでは知らせない
+        a._watch_reach(t0 + notice)
+        a._watch_reach(t0 + notice * 3)
+        self.assertEqual(told, [agent_main.UNREACHABLE_TEXT])                  # 1回の途切れに1回だけ
+        back = t0 + notice * 3
+        a._welcomed(back)
+        a._watch_reach(back + stable - 1)
+        self.assertEqual(len(told), 1)                                         # 迎えられただけでは、まだ「つながった」ではない
+        a._watch_reach(back + stable)
+        self.assertEqual(told[-1], agent_main.BACK_TEXT)                       # 続いたら、つながり直したと知らせる
+        a._watch_reach(back + notice * 9)
+        self.assertEqual(len(told), 2)                                         # つながっているあいだは知らせない
+        cut = back + notice * 9
+        self.assertTrue(self.lose(a, cut))                                     # 安定したつなぎが切れた
+        a._watch_reach(cut + notice - 1)
         self.assertEqual(len(told), 2)                                         # 切れた時から数え直す
-        a._tell_if_unreachable(a.offline_since + agent_main.UNREACHABLE_NOTICE)
+        a._watch_reach(cut + notice)
         self.assertEqual(told[-1], agent_main.UNREACHABLE_TEXT)
+
+    def test_a_server_that_keeps_falling_over_is_told_after_ten_minutes(self):
+        """立ち上がってはすぐ落ちるサーバー（30秒ごと）でも、10分で画面に知らせる。短いつなぎでは、途切れの数えを始め直さない
+        （⛔ 2026-10-22 の見直し15：前は、つながるたびに数え直し、いつまでも知らせが出なかった）。短いつなぎのあとは、つなぎ直す間を
+        延ばす（同じ「続いたか」の判断）。"""
+        a, told = self.reachable()
+        t0 = a.offline_since
+        t = t0
+        while t < t0 + agent_main.UNREACHABLE_NOTICE + 60:
+            a._welcomed(t)
+            a._watch_reach(t + 29)
+            self.assertFalse(self.lose(a, t + 30))                            # 30秒で落ちた：つながったとはみなさない
+            if t + 30 < t0 + agent_main.UNREACHABLE_NOTICE:
+                self.assertEqual(told, [], t - t0)
+            t += 31
+        self.assertEqual(told, [agent_main.UNREACHABLE_TEXT])                  # 10分で、1回だけ
+        self.assertEqual(a.offline_since, t0)                                  # 途切れの始まりは最初のまま
 
     def test_a_call_that_finishes_after_the_line_drops_is_apologised_for(self):
         """「かける」の途中でつながりが切れ、そのあとで電話の部品がかけ終わったら、すぐおわびして切る（AI のいない電話にしない）。"""
@@ -521,6 +587,30 @@ class LostConnection(LinkBase):
             r.beat()
             until(lambda: isinstance(r.error, agent_main.NeedLogin), "上限を過ぎたら断る")
         until(lambda: phone.apologies == 1, "まだ話している回線は、おわびして切る")
+
+    def test_a_pass_revoked_during_a_call_the_customer_ends_closes_without_waiting_the_limit(self):
+        """通行証が止められたあと、お客様が自分で切った（サーバーは切っていない）：上限まで待たず、電話の部品に聞いて通話の終わりを
+        知り、次の合図で閉じる（⛔ 2026-10-22 の見直し15：前は印が外れず、20分つなぎ続けた）。"""
+        s = self.ready()
+        got = self.pc(s)
+        phone = FakePhone()
+        r = self.agent(got, [s["line"]], {s["line"]: phone})
+        driver = self.hub.driver(s["line"], self.attached(s, got))
+        session = self.hub.sessions[got.pc_id]
+        with mock.patch.object(protocol, "CALL_QUIET", 0.0):
+            driver.start_call("+81300000009")
+            phone.busy = True
+            self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: agents.revoke(tx, got.pc_id))
+            r.beat()
+            until(lambda: s["line"] not in self.hub.lines(), "その PC の回線は、すぐ見せない")
+            time.sleep(0.5)
+            self.assertIsNone(r.error)                                       # 通話中は閉じない
+            phone.busy = False                                               # お客様が切った
+            r.beat()
+            until(lambda: not session.open_calls, "電話の部品に聞いて、通話の終わりを知る")
+            r.beat()
+            until(lambda: isinstance(r.error, agent_main.NeedLogin), "上限を待たずに断る")
+        self.assertEqual((phone.apologies, phone.hung), (0, 0))
 
     def test_a_line_retired_during_a_call_keeps_its_voice_and_apology_until_the_call_ends(self):
         """通話の途中で回線に「使わない」の印を付けても、その通話が終わるまでは、つなぎに残す（声・おわびして切るが通る＝お客様を

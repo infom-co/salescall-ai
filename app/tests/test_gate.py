@@ -252,6 +252,25 @@ class VersionAndStage(Base):
         self.past_attempt(other, ["dialing", "answered", "ending", "ended"], settled=False)   # 別の行が会話に至った（締めはまだ）
         self.assertEqual(self.reason(s), "stage_full")
 
+    def test_only_fixed_text_calls_skip_the_stage(self):
+        """業務の話し方を使わない、決まった文面だけの電話（お詫びの電話）だけが、品質の段を見ない。どれがそれかは、品質の理由の停止でも
+        通す電話と同じ表の1か所（salescall.stop_lets_through。見直し15：前は門に「お詫び」を直に書いていた）。"""
+        s = self.ready()
+        self.put_client(s, "approval.human", True)
+        self.tx(s, lambda tx: approval.approve_task(tx, s["task"]), OPERATOR)
+        self.tx(s, lambda tx: quality_stage.open_stage(tx, s["version"], 1, 1, evidence="試験：最初の段は1件"), OPERATOR)
+        phone2 = normalize(fictional_jp_fixed()).e164
+        k2 = self.w.contact(s["tenant"], s["client"], phone2)
+        other = dict(s, task=self.w.task(s["tenant"], s["client"], s["run"], k2), contact=k2, phone=phone2)
+        self.past_attempt(other, ["dialing", "answered", "ending", "ended"], settled=False)
+        for purpose, passes in (("resume", False), ("apology", True)):
+            with self.subTest(purpose=purpose):
+                self.tx(s, lambda tx: support.schedule_call(tx, s["task"], tx.one("SELECT now() AS t")["t"],
+                                                                contact_id=s["contact"], cause="試験", promised=True,
+                                                                purpose=purpose))
+                got = self.claim(s)
+                self.assertEqual(isinstance(got, gate.Claim), passes, got)
+
 
 class Stops(Base):
     def test_each_scope_stops_and_the_line_scope_only_its_line(self):
@@ -309,14 +328,23 @@ class Stops(Base):
         rows = self.tx(s, lambda tx: tx.all(
             "SELECT p, q, salescall.keeping_kind(p, q) AS k, salescall.is_new_call(p, q) AS n"
             " FROM unnest(ARRAY['normal','resume','apology','ask_number_again']) p, unnest(ARRAY[false, true]) q"))
-        for r in rows:
-            self.assertEqual(r["n"], r["k"] is None, r)
+        for r in rows:   # 新しくかける電話＝約束を果たす電話でなく、続きの印（promised）も無い電話
+            self.assertEqual(r["n"], r["k"] is None and not r["q"], r)
+            if r["p"] == "ask_number_again":   # 番号の聞き直しは、約束を果たす電話に入らない（見直し15。ユーザーが挙げた3つだけ）
+                self.assertIsNone(r["k"], r)
         self.assertEqual({r["k"] for r in rows} - {None}, set(stops.KEEPING_KINDS))
-        self.assertEqual(stops.CAUSES["deficit"].lets_through, frozenset(stops.KEEPING_KINDS))
+        # 止めているあいだに通す種類は、データベースの表の1か所（0116）。名前は stops.KEEPING_KINDS とそろう
+        through = lambda c: self.tx(s, lambda tx: stops.lets_through(tx, c))   # noqa: E731
+        self.assertEqual(through("deficit"), frozenset(stops.KEEPING_KINDS))
         for c in quality_stage.STOP_CAUSES:
-            self.assertEqual(stops.CAUSES[c].lets_through, frozenset({"apology"}))
-        for c in ("manual", "line_failure", "ai_connection"):
-            self.assertEqual(stops.CAUSES[c].lets_through, frozenset())
+            self.assertEqual(through(c), frozenset({"apology"}))
+        for c in ("manual", "line_failure", "ai_connection", "budget", "storage_failure", "project_denied"):
+            self.assertEqual(through(c), frozenset())
+        self.assertEqual(set(stops.CAUSES), {r["c"] for r in self.tx(s, lambda tx: tx.all(
+            "SELECT unnest(enum_range(NULL::salescall.stop_cause))::text AS c"))})
+        with self.assertRaises(Rejected):                                   # 表は流した表の作りでだけ変える（持ち主でも書けない）
+            owner_access().in_system(SYSTEM, lambda tx: tx.execute(
+                "INSERT INTO salescall.stop_lets_through (cause, kind) VALUES ('manual', 'promised')"))
 
     def test_line_stop_releases_claims_on_that_line(self):
         s = self.ready()
@@ -427,11 +455,16 @@ class Pacing(Base):
 
     def test_a_call_cut_by_our_failure_is_like_a_line_drop(self):
         """こちらの仕組みが通話の途中で落ちた（結果不明）は、お客様が切ったのではない：回線が途中で切れた通話と同じく、回数・間隔に
-        数えない（2026-10-17 ユーザー。前は1時間あけていた）。次は理由ごとの再発信の方針で決まる。"""
-        s = self.ready()
-        self.past_attempt(s, ["dialing", "answered", "technical_error"], verify="done")
-        self.assertEqual(self.tx(s, lambda tx: gate.pacing(tx, s["task"])).remaining, 3)
-        self.assertIsInstance(self.claim(s), gate.Claim)
+        数えない（2026-10-17 ユーザー。前は1時間あけていた）。次は理由ごとの再発信の方針で決まる。数えないかは、締めの処理が試行に
+        残す「途中で切れたか」（judge.cut_off）の1か所で決まる：締めの言葉に入ってから落ちた通話は、話し終えた通話と同じく数える
+        （見直し15：前は結果不明をすべて数えなかった）。"""
+        from salescall.core.call_report import Cut
+        for in_closing, remaining in ((False, 3), (True, 2)):
+            with self.subTest(in_closing=in_closing):
+                s = self.ready()
+                self.past_attempt(s, ["dialing", "answered", "technical_error"], verify="done",
+                                  report=make_report(cut=Cut("ai", in_closing, False)))
+                self.assertEqual(self.tx(s, lambda tx: gate.pacing(tx, s["task"])).remaining, remaining)
 
     def test_unknown_result_before_answer_needs_no_long_wait(self):
         """お客様が出る前の結果不明は、誰とも話していない：検証も長い間隔も要らない（通信の問題で繋がらなかった扱い）。"""
@@ -466,7 +499,10 @@ class Pacing(Base):
         put_tenant({"hours": 1})
         p = self.tx(other, lambda tx: gate.pacing(tx, other["task"]))
         self.assertEqual(p.binding, "cross_client_interval_other_tenant")
-        self.assertLess(p.earliest - self.tx(other, lambda tx: tx.one("SELECT now() AS t")["t"]), timedelta(hours=1, seconds=5))
+        now = self.tx(other, lambda tx: tx.one("SELECT now() AS t")["t"])
+        self.assertLess(p.earliest - now, timedelta(hours=2, seconds=5))          # 1時間＋時刻を出さないための切り上げ
+        self.assertGreaterEqual(p.earliest - now, timedelta(hours=1) - timedelta(seconds=5))
+        self.assertEqual((p.earliest.minute, p.earliest.second, p.earliest.microsecond), (0, 0, 0))   # 正確な時刻は出さない
         put_tenant("never")
         self.assertEqual(self.reason(other), "other_contractor_called")   # かけない：その行は終える側（permanent）
         with self.assertRaises(Rejected):
@@ -581,6 +617,15 @@ class NotByCallee(Base):
                 self.put_client(s, "gate.max_dials_per_contact_per_day", 1)
                 self.past_attempt(s, path, side=side, report=rep, verify="done" if rep else None)
                 self.assertIsInstance(self.claim(s), gate.Claim)
+
+    def test_a_customer_hanging_up_in_the_middle_of_own_words_counts(self):
+        """お客様が自分の言葉の途中で切った（回線の信号が「お客様が切った」）通話は、お客様の意思で切った通話：数える（決まりは
+        締めの処理が残す「途中で切れたか」＝judge.cut_off の1か所。⛔ 見直し15：前は切れ方 interrupted を数えず、終わりなくかけ続けた）。"""
+        s = self.ready()
+        self.past_attempt(s, ["dialing", "answered", "dropped"], side="callee", verify="done",
+                          report=make_report(cut=Cut("callee", False, False)))
+        self.assertEqual(self.reason(s), "same_contact_interval")
+        self.assertEqual(self.tx(s, lambda tx: gate.pacing(tx, s["task"])).remaining, 2)
 
     def test_normal_ends_still_count(self):
         s = self.ready()
@@ -1388,3 +1433,180 @@ class BusinessDailyLimit(Base):
         self.put_business(s, None)                                           # 上限なし
         self.other_row_dialed(s)
         self.assertIsInstance(self.claim(s), gate.Claim)
+
+    def test_a_failed_dial_does_not_use_up_the_business_limit(self):
+        """回線の部品が番号を受け付けなかった発信（発信に失敗＝お客様の電話は鳴っていない）は、業務の1日の上限に数えない（数え方の
+        1か所 salescall.dial_kind。⛔ 見直し15：前は発信まで進んだもの全部を数えた）。"""
+        s = self.ready()
+        self.put_business(s, 1)
+        phone = normalize(fictional_jp_fixed()).e164
+        k = self.w.contact(s["tenant"], s["client"], phone)
+        other = dict(s, task=self.w.task(s["tenant"], s["client"], s["run"], k), contact=k, phone=phone)
+        self.past_attempt(other, ["dialing", "call_failed"])
+        self.assertIsInstance(self.claim(s), gate.Claim)
+
+
+class PurposeDials(Base):
+    def test_band_retries_count_only_calls_that_reached_the_customer(self):
+        """番号の聞き直し・お詫びの電話の回数も、ふつうの電話と同じ数え方（お客様に届いた1回＝salescall.dial_kind の1か所。
+        gate.purpose_dials は目的ごとに同じ決まりで数える）。発信に失敗・お客様が出る前の回線の失敗は数えない（⛔ 見直し15b：
+        前は発信まで進んだもの全部を数えた）。"""
+        s = self.ready()
+        for path in (["dialing", "call_failed"], ["dialing", "technical_error"], ["dialing", "no_answer"]):
+            aid = self.w.insert_claim(s)
+            for st in path:
+                self.w.move(s, aid, st)
+        self.assertEqual(len(self.tx(s, lambda tx: gate.purpose_dials(tx, s["task"], purpose="normal"))), 1)
+
+
+class PromisesStopsAndConflicts(Base):
+    """見直し15：止めているあいだに通す電話・約束を果たす電話・時刻を指定した約束の前・進行中の発信とぶつかったときの決まり
+    （どれもデータベースの1か所。門・候補を出す処理・約束の一覧・止めたときの予約の取り消しが同じものを読む）。"""
+
+    def _promise(self, s, *, minutes, purpose="normal", exact=False):
+        at = self.tx(s, lambda tx: tx.one("SELECT now() + make_interval(mins => %s) AS t", (minutes,))["t"])
+        self.tx(s, lambda tx: support.schedule_call(tx, s["task"], at, contact_id=s["contact"], cause="お客様に頼まれた折り返し",
+                                                        promised=True, purpose=purpose, callee_at=at if exact else None))
+        return at
+
+    def _choose(self, s, value):
+        self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: settings.set_value(
+            tx, "gate.before_other_promise", value, scope="tenant", status="decided", rationale="試験", review_when="試験",
+            tenant_id=s["tenant"]))
+
+    def _stop(self, s, cause, scope="client"):
+        kw = {"client_id": s["client"]} | ({"business_id": s["business"]} if scope == "business" else {})
+        return self.w.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: stops.stop(
+            tx, scope=scope, cause=cause, reason="試験", tenant_id=s["tenant"], **kw))
+
+    def _resume(self, s, e):
+        self.tx(s, lambda tx: stops.resume(tx, e["event_id"], reason="試験"), OPERATOR)
+
+    def test_only_promised_callbacks_of_another_client_are_waited_for(self):
+        """ほかの依頼者の「約束」は、お客様と約束したかけ直しだけ（お詫び・途中で切れたあとの続きは入れない。⛔ 見直し15：前は印
+        promised を読み、契約者の設定「かけない」で、お詫びの電話が予定された番号の行まで終えた）。"""
+        a = self.ready()
+        b = self.ready(tenant=a["tenant"], phone=a["phone"])
+        self._choose(b, "never")
+        for purpose in ("apology", "resume"):
+            with self.subTest(purpose=purpose):
+                self._promise(a, minutes=120, purpose=purpose)
+                self.assertNotEqual(self.tx(b, lambda tx: gate.pacing(tx, b["task"])).binding, "other_client_promise_never")
+        self._promise(a, minutes=120)
+        self.assertEqual(self.tx(b, lambda tx: gate.pacing(tx, b["task"])).binding, "other_client_promise_never")
+
+    def test_own_clients_promises_are_not_another_clients(self):
+        """自分の依頼者の約束は「ほかの依頼者の約束」に入らない（0111 の条件。行どうしの間は、同じお客様の間隔が受け持つ）。"""
+        a = self.ready()
+        b = self.ready(tenant=a["tenant"], phone=a["phone"])
+        self._promise(a, minutes=120)
+        rows = lambda s: self.tx(s, lambda tx: tx.all(   # noqa: E731
+            "SELECT relation FROM salescall.number_next_promise_elsewhere(%s)", (s["phone"],)))
+        self.assertEqual(rows(a), [])
+        self.assertEqual(rows(b), [{"relation": "same_tenant"}])
+
+    def test_another_clients_promise_is_waited_for_only_while_that_stop_lets_it_through(self):
+        """ほかの依頼者が止まっていても、その停止でも通す約束（赤字）なら待つ。通さない停止（品質）なら、その約束は今はかからない
+        ので待たない（決まりは停止の原因の表の1か所＝門と同じ。⛔ 見直し15：前は止まっていれば約束が無いのと同じに読んだ）。"""
+        a = self.ready()
+        b = self.ready(tenant=a["tenant"], phone=a["phone"])
+        self._choose(b, "wait")
+        self._promise(a, minutes=120)
+        d = self._stop(a, "deficit")
+        self.assertEqual(self.tx(b, lambda tx: gate.pacing(tx, b["task"])).binding, "other_client_promise")
+        q = self._stop(a, "forbidden_speech", scope="business")
+        self.assertNotEqual(self.tx(b, lambda tx: gate.pacing(tx, b["task"])).binding, "other_client_promise")
+        self._resume(a, q)
+        self._resume(a, d)
+
+    def test_a_normal_call_waits_for_an_exact_promise_coming_soon_on_the_same_number(self):
+        """同じ番号へ、お客様が時刻を指定した約束の電話が、約束の前に空ける長さ（業務の平均通話時間・初め5分）のうちに来るなら、
+        約束でない電話は待つ（同じ依頼者のほかの行・同じ契約者のほかの依頼者とも。契約者の設定が「声を替えてかける」でも。⛔ 見直し
+        15c：前は回線を空けるだけで、約束の直前に、同じお客様へほかの電話がかかった）。遠い約束なら待たない。"""
+        a = self.ready()
+        b = self.ready(tenant=a["tenant"], phone=a["phone"])                     # 同じ契約者のほかの依頼者
+        same_run = self.w.run(a["tenant"], a["client"], a["business"], a["version"])
+        c = dict(a, task=self.w.task(a["tenant"], a["client"], same_run, a["contact"]), run=same_run)   # 同じ依頼者のほかの行
+        self.tx(c, lambda tx: next_action.schedule_now(tx, c["task"], cause="試験"))
+        promise = self._promise(a, minutes=3, exact=True)
+        for s in (b, c):
+            with self.subTest(other=s is b):
+                p = self.tx(s, lambda tx: gate.pacing(tx, s["task"]))
+                self.assertEqual((p.binding, p.earliest), ("number_promise_soon", promise))
+        self.assertEqual(self.reason(b), "number_promise_soon")
+        self.assertNotIn("number_promise_soon", gate.PLAN_KEPT)                # 待つ理由：次の動きが約束の時刻まで待つ
+        self._promise(a, minutes=180, exact=True)
+        self.assertIsInstance(self.claim(b), gate.Claim)                         # 遠い約束なら、待たない（声は替える）
+
+    def test_conflicts_with_a_call_in_progress_skip_only_this_round(self):
+        """同じ行・同じお客様・同じ番号に進行中の発信があるときは、その行をこの回だけ飛ばす（予定は書き直さない）。候補を出す処理は、
+        データベースの「進行中は1本」の守りと同じ条件で、そういう行を初めから出さない（ほかの契約者の発信も見る）。期限の切れた予約は、
+        門が取り消すので、出す（⛔ 見直し15c：前は約束の時刻を5分先へ書き直し、期限の切れた予約のある行は出し続けなかった）。"""
+        for r in ("task_active", "contact_active", "number_active_same_client", "number_active_same_tenant",
+                  "number_active_other_tenant"):
+            self.assertIn(r, gate.TASK_REASONS)
+            self.assertIn(r, gate.PLAN_KEPT)
+        a = self.ready()
+        other = self.ready(phone=a["phone"])                                    # ほかの契約者
+        listed = lambda s: self.tx(s, lambda tx: [r["task_id"] for r in scheduler.due_tasks(tx, 10)])   # noqa: E731
+        self.assertEqual(listed(other), [other["task"]])
+        c = self.claim(a)
+        self.assertEqual(listed(other), [])
+        self.assertEqual(self.reason(other), "number_active_other_tenant")
+        self.tx(a, lambda tx: attempts.release(tx, [c.attempt_id]))
+        self.w.insert_claim(a, expires_in=timedelta(microseconds=1))            # 期限の切れた予約
+        self.assertEqual(listed(a), [a["task"]])
+        self.assertEqual(listed(other), [other["task"]])
+
+    def test_a_business_stop_keeps_its_rows_out_of_the_candidates(self):
+        """業務の範囲の停止も、候補を出す処理の1か所で除く（その停止でも通す電話は出す。⛔ 見直し15c：前は門に任せ、止まった業務の
+        行の予定を、門が5分ごとに書き直し続けた）。"""
+        s = self.ready()
+        listed = lambda: self.tx(s, lambda tx: [r["task_id"] for r in scheduler.due_tasks(tx, 10)])   # noqa: E731
+        e = self._stop(s, "budget", scope="business")
+        self.assertEqual(listed(), [])
+        self._resume(s, e)
+        d = self._stop(s, "deficit", scope="business")
+        self.assertEqual(listed(), [])
+        self._promise(s, minutes=0)
+        self.assertEqual(listed(), [s["task"]])                                 # 赤字の停止でも、約束したかけ直しは出す
+        self._resume(s, d)
+
+    def test_a_stop_keeps_the_claims_of_calls_it_lets_through(self):
+        """止めたとき、同じ取引でまだ発信していない予約を取り消すが、その停止でも通す電話（赤字なら約束・続き・お詫び）の予約は
+        残す（決まりは停止の原因の表の1か所。⛔ 見直し15：前はすべて取り消した）。"""
+        for promised, kept in ((True, True), (False, False)):
+            with self.subTest(promised=promised):
+                s = self.ready()
+                if promised:
+                    self._promise(s, minutes=0)
+                c = self.claim(s)
+                self.assertIsInstance(c, gate.Claim, c)
+                d = self._stop(s, "deficit")
+                self.assertEqual(d["released_claims"], 0 if kept else 1)
+                self._resume(s, d)
+
+    def test_promises_kept_for_the_line_while_a_stop_lets_them_through(self):
+        """回線の1日の上限の取り置き（これからかける約束の一覧）も、その停止でも通す約束なら数える（赤字）。通さない停止（費用の上限）
+        では数えない（⛔ 見直し15：前は止まっていれば、通す約束も取り置かなかった）。"""
+        s = self.ready()
+        self._promise(s, minutes=60)
+        due = lambda: self.tx(s, lambda tx: tx.one(   # noqa: E731
+            "SELECT salescall.line_promised_due(%s, salescall.jst(now())::date + 1, %s) AS n", (s["line"], uuid.uuid4())))["n"]
+        self.assertEqual(due(), 1)
+        d = self._stop(s, "deficit")
+        self.assertEqual(due(), 1)
+        self._resume(s, d)
+        m = self._stop(s, "budget")
+        self.assertEqual(due(), 0)
+        self._resume(s, m)
+
+    def test_ask_number_again_is_not_a_promise_kept_while_stopped(self):
+        """番号の聞き直しは、約束を果たす電話に入らない（赤字の停止でもかけない。ユーザーが挙げた3つだけ＝見直し15）。"""
+        s = self.ready()
+        self.tx(s, lambda tx: support.schedule_call(tx, s["task"], tx.one("SELECT now() AS t")["t"], contact_id=s["contact"],
+                                                        cause="試験：番号の聞き直し", promised=True, purpose="ask_number_again",
+                                                        wrong_contact_id=s["contact"]))
+        d = self._stop(s, "deficit")
+        self.assertEqual(self.reason(s), "stopped")
+        self._resume(s, d)

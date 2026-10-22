@@ -9,9 +9,10 @@
 - 止まっているか＝「まだ解かれていない停止が1つでもあるか」（原因が重なれば、片方を解いても止まったまま）。
 - 止めるときは、同じ取引で、まだ発信していない予約を取り消す（DESIGN.md 5-2-1 の2）。
 - 止めた・解いたは、知らせの台帳に入れる（同じ取引。core/notify.py。送るのは CL-3）。
-- **止めているあいだも、お客様との約束を果たす電話を通すか**は、原因ごとに `CAUSES` の `lets_through` の1か所で決める
-  （約束を果たす電話の種類＝`KEEPING_KINDS`。電話がどの種類かは、データベースの1か所 `salescall.keeping_kind`）。門と候補を
-  出す処理は `blocking` だけを使う。2026-10-22 ユーザー：費用の理由（赤字）で止めたときは、約束の電話・途中で切れたお客様への
+- **止めているあいだも、お客様との約束を果たす電話を通すか**は、原因ごとに、データベースの表 `salescall.stop_lets_through` の
+  1か所で決める（0116。約束を果たす電話の種類＝`KEEPING_KINDS`。電話がどの種類かは、データベースの1か所 `salescall.keeping_kind`）。
+  門は `blocking`、候補を出す処理・これからかける約束の一覧・ほかの依頼者の約束・止めたときの予約の取り消しは、データベースの
+  同じ関数（salescall.blocking_stops・salescall.lets_through）を読む。2026-10-22 ユーザー：費用の理由（赤字）で止めたときは、約束の電話・途中で切れたお客様への
   お詫びのかけ直し・お詫びの電話の3つだけはかける。緊急停止・回線や会話AIの異常・品質の理由で止めたときは、かけない（品質の
   停止は、前から、お詫びの電話だけ通す＝業務の話し方を使わない決まった文面だけなので）。かけられなかった約束は、次につながったときに
   お詫びから始める（core/next_action）。
@@ -42,17 +43,15 @@ class CauseInfo:
     meaning: str          # 何が起きたか
     auto_resume: str      # 自動で解く決まり
     before_resume: str    # 管理者か契約者が解く前に確かめること（管理者か契約者が解いたら、どうなるか）
-    lets_through: frozenset[str] = frozenset()   # この停止でも通す、お客様との約束を果たす電話の種類（KEEPING_KINDS の名前）
 
 
-# お客様との約束を果たす電話の種類（名前の正本。電話がどれに当たるかは、データベースの salescall.keeping_kind の1か所）
+# お客様との約束を果たす電話の種類（名前と説明。電話がどれに当たるかは、データベースの salescall.keeping_kind の1か所。原因ごとに
+# 通す種類は、データベースの表 salescall.stop_lets_through の1か所）。番号の聞き直しは入らない（ユーザーが挙げたのは、この3つだけ）
 KEEPING_KINDS: dict[str, str] = {
     "apology": "お詫びの電話（言ってはいけないことを言ったあとの。決まった文面だけ）",
     "resume": "途中で切れた通話の、お詫びのかけ直し",
     "promised": "お客様と約束したかけ直し",
 }
-_ALL_KEEPING = frozenset(KEEPING_KINDS)
-_APOLOGY_ONLY = frozenset({"apology"})   # 品質の停止：業務の話し方を使わない、お詫びの電話だけ
 
 
 CAUSES: dict[str, CauseInfo] = {
@@ -73,25 +72,21 @@ CAUSES: dict[str, CauseInfo] = {
     "forbidden_speech": CauseInfo("言ってはいけないこと", "言ってはいけないことを言った（2つの耳で確かめた。検証モードの業務だけ"
                                   "1件で止める。本番は止めない＝2026-10-22 ユーザー）",
                                   "直した新しい版が模擬通話に合格したら解く",
-                                  "その通話の場面。管理者か契約者が解くと、その版をもう一度測り直す（段の件数を最初から数える）",
-                                  _APOLOGY_ONLY),
+                                  "その通話の場面。管理者か契約者が解くと、その版をもう一度測り直す（段の件数を最初から数える）"),
     "quality_gate": CauseInfo("品質の基準", "品質の基準を外れた（2つの耳の食い違い・苦情・技術的な失敗・検証できなかった の割合。"
                               "検証モードだけ）",
                               "直した新しい版が模擬通話に合格したら解く",
-                              "外れた指標。管理者か契約者が解くと、その版をもう一度測り直す（段の件数を最初から数える）",
-                              _APOLOGY_ONLY),
+                              "外れた指標。管理者か契約者が解くと、その版をもう一度測り直す（段の件数を最初から数える）"),
     "judge_unknown": CauseInfo("判定できない通話", "「判定できない」通話があった（会話の報告の書き漏れなど、こちらの誤り。検証モードの"
                                "業務だけ1件で止める。本番は止めない＝2026-10-22 ユーザー）",
                                "原因を直して、その場面を入れた模擬通話に合格したら解く（同じ版でもよい）",
-                               "評価の記録の原因と通話。判定待ちの行は、原因が直れば自動で判定し直す",
-                               _APOLOGY_ONLY),
+                               "評価の記録の原因と通話。判定待ちの行は、原因が直れば自動で判定し直す"),
     "budget": CauseInfo("費用の上限", "費用の1日の上限を超えた（いまは、この原因で止める処理は無い：注意を知らせるだけ。"
                         "2026-10-16 ユーザー：「注意喚起のみ」）",
                         "自動では解かない（この原因で止める処理が無い）", "上限の設定"),
     "deficit": CauseInfo("赤字", "赤字（今月の費用が、今月の報酬を超えた。警告から期限までに確認されなかった）",
                          "報酬の決まりを直した・月が替わった・月額の日割りが積み上がって、赤字でなくなったら解く（見守りが確かめる）",
-                         "その依頼者の報酬の決まりと、今月の費用の内訳。決まりを直さずに解くと、次の利用の記録でまた止まる",
-                         _ALL_KEEPING),   # お客様のせいではない費用の理由：お客様との約束は果たす（2026-10-22 ユーザー）
+                         "その依頼者の報酬の決まりと、今月の費用の内訳。決まりを直さずに解くと、次の利用の記録でまた止まる"),
 }
 
 
@@ -155,10 +150,21 @@ def open_stops(tx: Tx, *, tenant_id: UUID | None, client_id: UUID | None,
     )
 
 
-def blocking(open_now: list[dict[str, Any]], kind: str | None) -> list[dict[str, Any]]:
-    """まだ解かれていない停止（open_stops の答え）のうち、その種類の電話を止めるもの（1か所。門・候補を出す処理が使う）。
-    kind＝お客様との約束を果たす電話の種類（salescall.keeping_kind の答え。営業として新しくかける電話は None）。"""
-    return [s for s in open_now if kind is None or kind not in CAUSES[str(s["cause"])].lets_through]
+def blocking(tx: Tx, *, tenant_id: UUID | None, client_id: UUID | None, business_id: UUID | None,
+             line_id: UUID | None = None, kind: str | None) -> list[dict[str, Any]]:
+    """まだ解かれていない停止（`open_stops` と同じ範囲）のうち、その種類の電話を止めるもの（門が使う。決まりはデータベースの
+    salescall.blocking_stops の1か所＝候補を出す処理・約束の一覧と同じ）。kind＝お客様との約束を果たす電話の種類
+    （salescall.keeping_kind の答え。営業として新しくかける電話・番号の聞き直しは None＝どの停止でも止まる）。"""
+    return tx.all(
+        "SELECT event_id, scope::text AS scope, cause::text AS cause, reason, at"
+        " FROM salescall.blocking_stops(%s, %s, %s, %s, %s) ORDER BY event_id",
+        (tenant_id, client_id, business_id, line_id, kind),
+    )
+
+
+def lets_through(tx: Tx, cause: str) -> frozenset[str]:
+    """その原因の停止でも通す、お客様との約束を果たす電話の種類（データベースの表 salescall.stop_lets_through の1か所）。"""
+    return frozenset(r["kind"] for r in tx.all("SELECT kind FROM salescall.stop_lets_through WHERE cause::text = %s", (cause,)))
 
 
 def explain(tx: Tx, stop_event_id: int, *, error_limit: int = 20) -> dict[str, Any]:
@@ -196,6 +202,7 @@ def explain(tx: Tx, stop_event_id: int, *, error_limit: int = 20) -> dict[str, A
             "                 AND x.version_no = r.version_no) ORDER BY r.task_id, r.version_no", (quality["version_id"],))
     info = CAUSES[s["cause"]]
     return {"stop": s, "cause": {"label": info.label, "meaning": info.meaning, "auto_resume": info.auto_resume,
-                                 "before_resume": info.before_resume},
+                                 "before_resume": info.before_resume,
+                                 "lets_through": sorted(lets_through(tx, s["cause"]))},   # 止めているあいだも通す電話
             "who_can_resume": "管理者" if s["scope"] == "system" else "その契約者・管理者",
             "resolved": resolved, "errors": found, "checks": checks, "quality": quality, "held_results": held}
