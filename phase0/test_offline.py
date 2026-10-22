@@ -5121,6 +5121,17 @@ class TargetTest(unittest.TestCase):
         r = f.apply("replay_opening", {"part": "no_answer", "answer": "資本金につきましては担当の者に申し伝えます。"})
         self.assertEqual((r["result"], r["say"], r["ack"]), ("own_answer", "資本金につきましては担当の者に申し伝えます。", "hai"))
         self.assertEqual(len(f.facts["callee_question"][-1]["drafts"]), 1)
+        # 業務の情報・想定問答の答え・伝言などの、声に出す文も名前の読みへの置き換えを通す（Intent.md 6-8。⛔ 2026-10-22 の4回目の見直しで見つけた
+        # 漏れ：通っていなかった＝AIの声の「港区」が 3本中2本崩れた）。読みで渡した地名を漢字で書いた答えは、書き直しになる
+        import dataclasses
+        from flowctl import own_answer_problem
+        from scenes import TARGET_INFO
+        k = dataclasses.replace(self.business(), info=["弊社の本社は東京都港区にございます。"], answers=[("所在地", "本社は港区にございます。")],
+                                names=[{"surface": "港区", "reading": "みなとく"}])
+        self.assertEqual((k.info, k.answers), (["弊社の本社は東京都「みなとく」にございます。"], [("所在地", "本社は「みなとく」にございます。")]))
+        self.assertIn("「みなとく」", "".join(TARGET_INFO.info))
+        self.assertIsNone(own_answer_problem("弊社の本社は東京都みなとくにございます。", "".join(k.info), "御社はどちらですか？", k.spoken_names(), False))
+        self.assertIsNotNone(own_answer_problem("弊社の本社は東京都港区にございます。", "".join(k.info), "御社はどちらですか？", k.spoken_names(), False))
         # 断らない一言の録音と、決まった言い方・録音のどれにも、断りの言い方は無い
         from flowctl import REFUSAL
         from phrases import RECORDED

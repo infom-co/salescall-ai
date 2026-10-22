@@ -141,6 +141,15 @@ class Business:
         self.purpose = quote_in_text(self.purpose, self.names) if self.purpose else self.purpose  # AIに渡す目的の中の名前も（AIが口にしうる）
         self.purpose_line = quote_in_text(self.purpose_line, self.names) if self.purpose_line else self.purpose_line
         self.busy_ask = quote_in_text(self.busy_ask, self.names) if self.busy_ask else self.busy_ask
+        # ⛔ 2026-10-22 の4回目の見直しで見つけた漏れ：声に出す文・指示文のうち、下の項目は名前の読みへの置き換えを通っていなかった（6-8 の
+        #    「声に出す文は、すべてここを通す」に反する）。⛔ G-57 tc36〜tc38・OWN-ANSWER-EARS（10-22）：業務の情報の「東京都港区」をAIが自分の声で
+        #    言うと、独立した2つの耳とも 3本中1本しか「港区」と聞こえなかった（S2・L4 は「東京ま特に」「東京もきく」・港区が抜ける）。読み
+        #    （ひらがな）で渡すと 6本中6本
+        q = lambda x: quote_in_text(x, self.names) if x else x
+        self.info = [q(x) for x in self.info]
+        self.answers = [(n, q(t)) for n, t in self.answers]
+        self.forbidden = [q(x) for x in self.forbidden]
+        self.voicemail_message, self.message, self.ai_answer = q(self.voicemail_message), q(self.message), q(self.ai_answer)
 
     def spoken_names(self) -> list[str]:
         """声に出す名前（表記と読み）：社名・担当者名・お呼びした方の名前・読みの決まらない名前。名前は録音だけで言い、AIの自分の言葉には入れない

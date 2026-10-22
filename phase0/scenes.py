@@ -31,7 +31,10 @@ TARGET_BUSINESS = dataclasses.replace(BUSINESS, target=Target(name="岡田", rea
 # 想定問答のある業務（Intent.md 5-3 (2)「AIが答えてよいこと」。instruction.Business.answers）
 TARGET_FAQ = dataclasses.replace(TARGET_BUSINESS, answers=[("番号の出どころ", "以前ご予約の際にいただいたお電話番号にお掛けしております。")])
 # 業務の情報のある業務（Intent.md 5-3 (2)。instruction.Business.info）：想定問答に無い問いに、AIが自分の言葉で答える材料
-TARGET_INFO = dataclasses.replace(TARGET_BUSINESS, info=["弊社の本社は東京都港区にございます。", "営業時間は平日の9時から18時までです。"])
+# 業務の情報の地名にも、取込で読みを決める（names.decide の出す形。声に出す文と同じく、指示文ではひらがなに置き換える＝instruction.quote_in_text）。
+# ⛔ 2026-10-22 OWN-ANSWER-EARS：漢字のまま渡すと、AIの声の「港区」は独立した2つの耳とも 3本中1本しか正しく聞こえなかった（ひらがな 6本中6本）
+TARGET_INFO = dataclasses.replace(TARGET_BUSINESS, info=["弊社の本社は東京都港区にございます。", "営業時間は平日の9時から18時までです。"],
+                                  names=list(TARGET_BUSINESS.names) + [{"surface": "港区", "reading": "みなとく"}])
 FULL = [W("yes_reserved"), W("datetime_pm"), W("affirm"), W("three_people"), W("affirm")]
 
 
