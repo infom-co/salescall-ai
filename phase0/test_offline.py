@@ -4934,7 +4934,7 @@ class TargetTest(unittest.TestCase):
         r = f.apply("replay_opening", {"part": "own"})
         self.assertEqual((r["result"], r.get("play"), r["ack"], r.get("speak")), ("own_answer", None, "hai", True))
         self.assertIn("業務の情報", r["message"])
-        self.assertIn("「弊社」", r["message"])
+        self.assertNotIn("「弊社」", r["message"])  # 言い方の例は返事に入れない（⛔ tc31：AIが声に出した）。決まりは指示文の1か所
         self.assertEqual([(x["said"], x["answered"]) for x in f.facts["callee_question"]], [("御社はどちらにある会社ですか？", True)])
         self.assertEqual(f.apply("replay_opening", {"part": "own"})["result"], "rejected")
         self.assertIn(f"「{PART_LABEL['resume']}」で呼びます", f._now())
@@ -4946,10 +4946,10 @@ class TargetTest(unittest.TestCase):
         self.heard(f, "御社の資本金はおいくらですか？", None); f.on_check("asks", ASKS_YES)
         r = f.apply("replay_opening", {"part": "no_answer"})
         self.assertEqual((r["result"], f.facts["callee_question"][-1]["answered"]), ("own_answer", False))
-        self.assertIn("約束はしません", r["message"])
+        self.assertIn("この場ではお答えできないことだけ", r["message"])
         f = flow(follow_up=True)
         self.heard(f, "御社の資本金はおいくらですか？", None); f.on_check("asks", ASKS_YES)
-        self.assertIn("担当の者から改めてご連絡", f.apply("replay_opening", {"part": "no_answer"})["message"])
+        self.assertIn("確認のうえ改めてご連絡する形", f.apply("replay_opening", {"part": "no_answer"})["message"])
         # (5) 答えの段（繋いだあと）も同じ1か所：答えたあと、相手の返事で、いまの質問の録音へ戻る。ほかの報告が来たら、もう待っていない
         f = flow()
         self.heard(f, "はい、岡田は私です。", TARGET_IS_THERE)

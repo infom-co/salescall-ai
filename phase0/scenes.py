@@ -385,15 +385,15 @@ SCENES = {
            ("番号の出どころを聞かれる_想定問答あり", TARGET_FAQ, "number_from", ("番号の出どころ", "answer_番号の出どころ")))},
     # 録音の無い問い（✅ 2026-10-22 ユーザー：「想定外の時はどうするのかを聞いているんですよ」）：AIが業務の情報の範囲で自分の言葉で答える。
     # 情報に無いこと（番号の出どころ）は作らない。どちらも、名前を自分の声で言わず・約束せず・目的の人かを確かめず、返事のあともう一度だけお呼びする
-    **{f"目的の人_{label}": Scene(business, lines, lambda c, line=lines[0]["wav"], want=want: {
+    **{f"目的の人_{label}": Scene(business, [W(line)] + rest, lambda c, line=line, want=want: {
         "自分の言葉で答えた": own_answered(c, line), "情報で答えた": want in plain(said_to(c, line)) if want else True,
         "名前を言わない": not re.search(r"岡田|おかだ|アオバ|佐藤", own_words(c, line)),
         "確かめない": not any(r in ("confirm_target", "call_target") for r in replies_to(c, line)),
         "取り次ぎの間は話さない": plain(said_to(c, "hold_target")) == "", "約束しない": no_promise(c),
         "代わった方に全部": full_opening(c), "答えが取れた": got(c, "Q1", "はい")})
-       for label, business, lines, want in (
-           ("番号の出どころを聞かれる", TARGET_BUSINESS, [W("number_from"), W("hold_target"), T("taken_over_okada")] + FULL, ""),
-           ("会社の所在地を聞かれる", TARGET_INFO, [W("where_company"), W("i_see"), W("hold_target"), T("taken_over_okada")] + FULL, "港区"))},
+       for label, business, line, rest, want in (
+           ("番号の出どころを聞かれる", TARGET_BUSINESS, "number_from", [W("hold_target"), T("taken_over_okada")] + FULL, ""),
+           ("会社の所在地を聞かれる", TARGET_INFO, "where_company", [W("i_see"), W("hold_target"), T("taken_over_okada")] + FULL, "港区"))},
     # ── 相手の申し出・お呼びした方の事情（✅ 2026-10-22 ユーザー：「代わりの方・伝言・折り返し・在籍していない・ほかの手段・長期の不在が
     #    あるのが分かっているなら、それを想定の録音にすべきじゃないですか？」）。応じる言葉はどれも決まった録音（Flow._not_available）
     "目的の人_折り返しの申し出": Scene(TARGET_BUSINESS, [W("callback_offer"), W("back_5pm"), W("affirm")], lambda c: {
