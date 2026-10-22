@@ -579,11 +579,14 @@ def offers_rule(target: bool = True) -> str:
     長期の不在。何と言うか（お礼・お詫び・聞くこと）は、プログラムが決まった録音で流す（AIは報告するだけ）。target：目的の人のある業務か
     （代わりの方・後任の方・在籍していない は、目的の人のある業務だけ）。"""
     C, O, A = CALLBACK_LABEL, OFFER_LABEL, ARG_LABEL
-    whys = [f"いらっしゃらない＝「{C['absent']}」", f"出張・休職などで長く戻らない＝「{C['long_absent']}」",
+    whys = [f"いらっしゃらない（その日のうちに戻る・戻るかが分からない）＝「{C['absent']}」",
+            f"その日のうちには戻らない（出張・休暇・休職など。「今週いっぱい」「来週まで」も）＝「{C['long_absent']}」",
             f"いまは話せない・あとでかけてほしい＝「{C['later']}」", f"別の電話番号にかけてほしい＝「{C['other_number']}」"]
     if target:
         whys.append(f"退職・異動などでもういらっしゃらない＝「{C['departed']}」")
-    whys.append(f"メール・ファクス・郵送など、電話ではない手段で送ってほしい＝「{C['other_means']}」")
+    whys.append(f"メール・ファクス・郵送など、電話ではない手段で送ってほしい＝「{C['other_means']}」（メール・ファクス・郵送と言われたら、"
+                f"その手段を{A['offer']}に付けます。「営業のご案内はメールでお願いしております」のように、電話でのご案内はお断りでも、"
+                "ほかの手段を示されたらこちらです。通話を断られた、ではありません）")
     text = (f"相手と、いまは話を進められないときは request_callback を、聞いた言葉に合う{A['why']}で呼びます（{'・'.join(whys)}）。相手が"
             f"折り返し・伝言を申し出たら、{A['offer']}に「{O['callback']}」「{O['message']}」を、ほかの手段なら「{O['email']}」「{O['fax']}」"
             f"「{O['post']}」を付けます（どれでもなければ付けません）。")
@@ -3213,7 +3216,8 @@ def tool_declarations(questions: list[Question], replay: bool = False, target: b
            {A["why"]: s([v for k, v in CALLBACK_LABEL.items() if target or k != "departed"]),
             A["offer"]: s(list(OFFER_LABEL.values()), desc="相手の申し出（無ければ付けない）")}, [A["why"]]),
         fd("request_end", f"電話を終えたいときに呼ぶ。相手が急いでいる・切ろうとしているなら「{END_LABEL['callee_hurry']}」、"
-           f"通話自体を断られた（「営業はお断りしています」「もうかけないで」など）なら「{END_LABEL['callee_refused_call']}」、"
+           f"通話自体を断られた（「営業はお断りしています」「もうかけないで」など。メールなど、ほかの手段を示されたときは request_callback）なら"
+           f"「{END_LABEL['callee_refused_call']}」、"
            f"相手が怒っている・苦情を言っているなら「{END_LABEL['callee_complaint']}」、受付の方が営業のお断りではない事情で取り次げない"
            f"と言ったなら「{END_LABEL['not_transferred']}」、質問が全部終わったなら「{END_LABEL['done']}」",
            {A["reason"]: s(list(END_LABEL.values()))}, [A["reason"]]),
