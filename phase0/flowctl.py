@@ -499,9 +499,14 @@ def unsure_counts(kind: str, value: str) -> str | None:
     読みとは別に持つ＝ほかの判定と食い違いを作らない）／尋ねているかの問い合わせで「尋ねている」（目的の人かを決めずに、聞かれたことに
     答える側）。ほかは数えない（None）。
     ⛔ 2026-10-22 G-59：Jev は質問の言葉の「尋ねている」を、確からしさ 0.79〜0.92 で15回中9回返した（線より下で捨てると、質問に答えずに
-       目的の人かを確かめる。質問ではない言葉に、弱い「尋ねている」は0回）"""
+       目的の人かを確かめる。質問ではない言葉に、弱い「尋ねている」は0回）
+    目的の人の判定の弱い「取り次ぎを待つ」は、取り次ぎの読みとして数える（黙って待つ＝相手がまた話せば決め直せる側）。尋ねているかの問い合わせの
+    弱い「取り次ぎを待つ」は数えない。⛔ 2026-10-22 G-57 tc27（不在で別の方に代わる・L4）：「岡田は外出しておりますので、別の者に代わります。
+    少々お待ちください。」を、3.5 Flash Lite は止まっていて、Sonnet は「不在」だけ、Jev は弱く「取り次ぎを待つ」（0.59〜0.6）と読んだ＝捨てたので、
+    取り次ぎの最中にかけ直しの質問を流した。G-59 の Jev の5回分：目的の人の判定の弱い「取り次ぎを待つ」は、取り次ぎの言葉に48回・ほかの言葉に
+    0回／尋ねているかの問い合わせでは、ほかの言葉（「お待たせいたしました。」）に6回（0.37〜0.49）"""
     if kind in JUDGMENTS:
-        return UNDECIDED if value != TARGET_IS_THERE else None
+        return HOLD if value == HOLD else UNDECIDED if value != TARGET_IS_THERE else None
     if kind == "asks":
         return ASKS_YES if value == ASKS_YES else None
     return None
@@ -973,6 +978,10 @@ class Flow:
            報告し、3.5 Flash Lite も「ご本人」と読んだ。もう1つの受け持ちは Sonnet が止まっていて、代わりの Jev は「代わった人が話し始めた」と
            読んだが確からしさ 0.89 で線より下＝捨てて「答えなし」と同じに数え、読みが2つそろったとして別の方（山田様）に繋いだ"""
         if self.phase != "calling" or unsure_counts(kind, value) is None:
+            return
+        if kind in JUDGMENTS and unsure_counts(kind, value) == HOLD:
+            # 弱い「取り次ぎを待つ」：取り次ぎの読みとして数える（黙って待つ・このあと出る方は新しい方＝on_check の1か所。unsure_counts）
+            self.on_check(kind, HOLD, turn, said)
             return
         if kind in JUDGMENTS:
             # 繋ぐのを止める印だけ（判定の読みには入れない＝ほかの判定と食い違いを作らない＝_doubted）。⛔ 2026-10-22 G-57 tc15：受付の方の

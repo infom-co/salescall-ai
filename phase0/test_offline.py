@@ -5356,6 +5356,23 @@ class TargetTest(unittest.TestCase):
                          (["greeting", "intro", "purpose", "question"], ["ai"], None))
 
 
+    def test_weak_hold_of_the_target_judgment_waits(self):
+        # 目的の人の判定の弱い「取り次ぎを待つ」は、取り次ぎの読みとして数える（黙って待つ）。尋ねているかの問い合わせの弱い読みは数えない
+        # （⛔ G-57 tc27：捨てたので、取り次ぎの最中にかけ直しの質問を流した。G-59：判定の問いでは、ほかの言葉に0回）
+        from flowctl import HOLD, TARGET_IS_AWAY, unsure_counts
+        self.assertEqual((unsure_counts("judge", HOLD), unsure_counts("asks", HOLD)), (HOLD, None))
+        f, b = self.flow()
+        f.use_checks("judge", "judge2", "asks")
+        f.on_callee(); f.on_heard("岡田は外出しておりますので、別の者に代わります。少々お待ちください。")
+        f.on_check("judge2", TARGET_IS_AWAY); f.on_unsure("judge", HOLD)
+        r = f.apply("request_callback", {"why": "absent"})
+        self.assertEqual((r["result"], f.callback_why, f.passed_on), ("hold", None, True))
+        f, b = self.flow()
+        f.use_checks("judge", "judge2", "asks")
+        f.on_callee(); f.on_heard("あいにく岡田は席を外しております。")
+        f.on_check("judge2", TARGET_IS_AWAY); f.on_unsure("asks", HOLD)
+        self.assertEqual(f.apply("request_callback", {"why": "absent"})["result"], "next")
+
     def test_answer_names_must_not_be_part_names(self):
         # 想定問答の問いの名前が、AIが選ぶ部分の名前（中の名前・日本語の名前）と同じなら、会話の始めに断る（AIの報告は日本語の名前を
         # 中の名前に読み替えてから問いを探すので、「用件」という問いには届かない）
