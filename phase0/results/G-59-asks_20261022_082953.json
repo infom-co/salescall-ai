@@ -1,0 +1,895 @@
+{
+  "item": "G-59-asks",
+  "saved_at": "2026-10-22T08:29:53",
+  "model": "Claude Sonnet 5.5（考える）",
+  "rows": [
+    {
+      "text": "お電話代わりました。岡田です。",
+      "before": null,
+      "q": "T1",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。岡田です。",
+      "before": null,
+      "q": "T1",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。岡田です。",
+      "before": null,
+      "q": "T1",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました、営業部の岡田です。",
+      "before": null,
+      "q": "T1",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました、営業部の岡田です。",
+      "before": null,
+      "q": "T1",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました、営業部の岡田です。",
+      "before": null,
+      "q": "T1",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "はい、岡田です。",
+      "before": null,
+      "q": "T1",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "はい、岡田です。",
+      "before": null,
+      "q": "T1",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "はい、岡田です。",
+      "before": null,
+      "q": "T1",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "岡田は私ですが。",
+      "before": null,
+      "q": "T1",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "岡田は私ですが。",
+      "before": null,
+      "q": "T1",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "岡田は私ですが。",
+      "before": null,
+      "q": "T1",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。",
+      "before": null,
+      "q": "T1",
+      "want": false,
+      "got": "代わった人が話し始めた",
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。",
+      "before": null,
+      "q": "T1",
+      "want": false,
+      "got": "代わった人が話し始めた",
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。",
+      "before": null,
+      "q": "T1",
+      "want": false,
+      "got": "代わった人が話し始めた",
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。山本です。",
+      "before": null,
+      "q": "T1",
+      "want": false,
+      "got": "代わった人が話し始めた",
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。山本です。",
+      "before": null,
+      "q": "T1",
+      "want": false,
+      "got": "代わった人が話し始めた",
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。山本です。",
+      "before": null,
+      "q": "T1",
+      "want": false,
+      "got": "代わった人が話し始めた",
+      "ok": true
+    },
+    {
+      "text": "岡田ですね。少々お待ちください。",
+      "before": null,
+      "q": "T1",
+      "want": false,
+      "got": "取り次ぎを待つ",
+      "ok": true
+    },
+    {
+      "text": "岡田ですね。少々お待ちください。",
+      "before": null,
+      "q": "T1",
+      "want": false,
+      "got": "取り次ぎを待つ",
+      "ok": true
+    },
+    {
+      "text": "岡田ですね。少々お待ちください。",
+      "before": null,
+      "q": "T1",
+      "want": false,
+      "got": "取り次ぎを待つ",
+      "ok": true
+    },
+    {
+      "text": "少々お待ちください。",
+      "before": null,
+      "q": "T1",
+      "want": false,
+      "got": "取り次ぎを待つ",
+      "ok": true
+    },
+    {
+      "text": "少々お待ちください。",
+      "before": null,
+      "q": "T1",
+      "want": false,
+      "got": "取り次ぎを待つ",
+      "ok": true
+    },
+    {
+      "text": "少々お待ちください。",
+      "before": null,
+      "q": "T1",
+      "want": false,
+      "got": "取り次ぎを待つ",
+      "ok": true
+    },
+    {
+      "text": "岡田は本日休みをいただいております。",
+      "before": null,
+      "q": "T1",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "岡田は本日休みをいただいております。",
+      "before": null,
+      "q": "T1",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "岡田は本日休みをいただいております。",
+      "before": null,
+      "q": "T1",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "岡田ですね。",
+      "before": null,
+      "q": "T1",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "岡田ですね。",
+      "before": null,
+      "q": "T1",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "岡田ですね。",
+      "before": null,
+      "q": "T1",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "岡田ですね。失礼ですが、どちら様でしょうか？",
+      "before": null,
+      "q": "T1",
+      "want": true,
+      "got": "尋ねている",
+      "ok": true
+    },
+    {
+      "text": "岡田ですね。失礼ですが、どちら様でしょうか？",
+      "before": null,
+      "q": "T1",
+      "want": true,
+      "got": "尋ねている",
+      "ok": true
+    },
+    {
+      "text": "岡田ですね。失礼ですが、どちら様でしょうか？",
+      "before": null,
+      "q": "T1",
+      "want": true,
+      "got": "尋ねている",
+      "ok": true
+    },
+    {
+      "text": "どういったご用件でしょうか？",
+      "before": null,
+      "q": "T1",
+      "want": true,
+      "got": "尋ねている",
+      "ok": true
+    },
+    {
+      "text": "どういったご用件でしょうか？",
+      "before": null,
+      "q": "T1",
+      "want": true,
+      "got": "尋ねている",
+      "ok": true
+    },
+    {
+      "text": "どういったご用件でしょうか？",
+      "before": null,
+      "q": "T1",
+      "want": true,
+      "got": "尋ねている",
+      "ok": true
+    },
+    {
+      "text": "どちらの岡田でしょうか？",
+      "before": null,
+      "q": "T1",
+      "want": true,
+      "got": "尋ねている",
+      "ok": true
+    },
+    {
+      "text": "どちらの岡田でしょうか？",
+      "before": null,
+      "q": "T1",
+      "want": true,
+      "got": "尋ねている",
+      "ok": true
+    },
+    {
+      "text": "どちらの岡田でしょうか？",
+      "before": null,
+      "q": "T1",
+      "want": true,
+      "got": "尋ねている",
+      "ok": true
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "before": "岡田ですね。少々お待ちください。",
+      "q": "T1",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "before": "岡田ですね。少々お待ちください。",
+      "q": "T1",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "before": "岡田ですね。少々お待ちください。",
+      "q": "T1",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。",
+      "before": "岡田ですね。少々お待ちください。",
+      "q": "T1",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。",
+      "before": "岡田ですね。少々お待ちください。",
+      "q": "T1",
+      "want": false,
+      "got": "代わった人が話し始めた",
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。",
+      "before": "岡田ですね。少々お待ちください。",
+      "q": "T1",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "before": "それでは岡田にお繋ぎします。",
+      "q": "T1",
+      "want": false,
+      "got": "代わった人が話し始めた",
+      "ok": true
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "before": "それでは岡田にお繋ぎします。",
+      "q": "T1",
+      "want": false,
+      "got": "代わった人が話し始めた",
+      "ok": true
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "before": "それでは岡田にお繋ぎします。",
+      "q": "T1",
+      "want": false,
+      "got": "代わった人が話し始めた",
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。岡田です。",
+      "before": "岡田ですね。少々お待ちください。",
+      "q": "T1",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。岡田です。",
+      "before": "岡田ですね。少々お待ちください。",
+      "q": "T1",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。岡田です。",
+      "before": "岡田ですね。少々お待ちください。",
+      "q": "T1",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。山本です。",
+      "before": "岡田ですね。少々お待ちください。",
+      "q": "T1",
+      "want": false,
+      "got": "代わった人が話し始めた",
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。山本です。",
+      "before": "岡田ですね。少々お待ちください。",
+      "q": "T1",
+      "want": false,
+      "got": "代わった人が話し始めた",
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。山本です。",
+      "before": "岡田ですね。少々お待ちください。",
+      "q": "T1",
+      "want": false,
+      "got": "代わった人が話し始めた",
+      "ok": true
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "before": "担当の者に代わりますので、少々お待ちください。",
+      "q": "T1",
+      "want": false,
+      "got": "代わった人が話し始めた",
+      "ok": true
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "before": "担当の者に代わりますので、少々お待ちください。",
+      "q": "T1",
+      "want": false,
+      "got": "代わった人が話し始めた",
+      "ok": true
+    },
+    {
+      "text": "はい、お電話代わりました。",
+      "before": "担当の者に代わりますので、少々お待ちください。",
+      "q": "T1",
+      "want": false,
+      "got": "代わった人が話し始めた",
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。",
+      "before": "岡田は外出しておりますので、別の者に代わります。",
+      "q": "T1",
+      "want": false,
+      "got": "代わった人が話し始めた",
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。",
+      "before": "岡田は外出しておりますので、別の者に代わります。",
+      "q": "T1",
+      "want": false,
+      "got": "代わった人が話し始めた",
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。",
+      "before": "岡田は外出しておりますので、別の者に代わります。",
+      "q": "T1",
+      "want": false,
+      "got": "代わった人が話し始めた",
+      "ok": true
+    },
+    {
+      "text": "岡田は本日休みをいただいております。",
+      "before": "岡田ですね。少々お待ちください。",
+      "q": "T1",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "岡田は本日休みをいただいております。",
+      "before": "岡田ですね。少々お待ちください。",
+      "q": "T1",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "岡田は本日休みをいただいております。",
+      "before": "岡田ですね。少々お待ちください。",
+      "q": "T1",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "岡田は取り込んでおりまして、対応できかねます。",
+      "before": "岡田ですね。少々お待ちください。",
+      "q": "T1",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "岡田は取り込んでおりまして、対応できかねます。",
+      "before": "岡田ですね。少々お待ちください。",
+      "q": "T1",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "岡田は取り込んでおりまして、対応できかねます。",
+      "before": "岡田ですね。少々お待ちください。",
+      "q": "T1",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "申し訳ございません、岡田はただいま電話に出られないとのことです。",
+      "before": "岡田ですね。少々お待ちください。",
+      "q": "T1",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "申し訳ございません、岡田はただいま電話に出られないとのことです。",
+      "before": "岡田ですね。少々お待ちください。",
+      "q": "T1",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "申し訳ございません、岡田はただいま電話に出られないとのことです。",
+      "before": "岡田ですね。少々お待ちください。",
+      "q": "T1",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "お待たせいたしました。岡田は会議中でして、本日は難しいようです。",
+      "before": "岡田ですね。少々お待ちください。",
+      "q": "T1",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "お待たせいたしました。岡田は会議中でして、本日は難しいようです。",
+      "before": "岡田ですね。少々お待ちください。",
+      "q": "T1",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "お待たせいたしました。岡田は会議中でして、本日は難しいようです。",
+      "before": "岡田ですね。少々お待ちください。",
+      "q": "T1",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "お待たせいたしました。",
+      "before": "岡田ですね。少々お待ちください。",
+      "q": "T1",
+      "want": false,
+      "got": "決められない",
+      "ok": true
+    },
+    {
+      "text": "お待たせいたしました。",
+      "before": "岡田ですね。少々お待ちください。",
+      "q": "T1",
+      "want": false,
+      "got": "決められない",
+      "ok": true
+    },
+    {
+      "text": "お待たせいたしました。",
+      "before": "岡田ですね。少々お待ちください。",
+      "q": "T1",
+      "want": false,
+      "got": "決められない",
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。担当の山田です。岡田は本日不在にしております。",
+      "before": "担当の者に代わりますので、少々お待ちください。",
+      "q": "T1",
+      "want": false,
+      "got": "代わった人が話し始めた",
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。担当の山田です。岡田は本日不在にしております。",
+      "before": "担当の者に代わりますので、少々お待ちください。",
+      "q": "T1",
+      "want": false,
+      "got": "代わった人が話し始めた",
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました。担当の山田です。岡田は本日不在にしております。",
+      "before": "担当の者に代わりますので、少々お待ちください。",
+      "q": "T1",
+      "want": false,
+      "got": "代わった人が話し始めた",
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました、山田です。あいにく岡田は外出しておりまして。",
+      "before": null,
+      "q": "T1",
+      "want": false,
+      "got": "代わった人が話し始めた",
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました、山田です。あいにく岡田は外出しておりまして。",
+      "before": null,
+      "q": "T1",
+      "want": false,
+      "got": "代わった人が話し始めた",
+      "ok": true
+    },
+    {
+      "text": "お電話代わりました、山田です。あいにく岡田は外出しておりまして。",
+      "before": null,
+      "q": "T1",
+      "want": false,
+      "got": "代わった人が話し始めた",
+      "ok": true
+    },
+    {
+      "text": "はい、そうです。",
+      "before": null,
+      "q": "T2",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "はい、そうです。",
+      "before": null,
+      "q": "T2",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "はい、そうです。",
+      "before": null,
+      "q": "T2",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "はい、私です。",
+      "before": null,
+      "q": "T2",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "はい、私です。",
+      "before": null,
+      "q": "T2",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "はい、私です。",
+      "before": null,
+      "q": "T2",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "はい、そうです。",
+      "before": "岡田ですね。少々お待ちください。",
+      "q": "T2",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "はい、そうです。",
+      "before": "岡田ですね。少々お待ちください。",
+      "q": "T2",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "はい、そうです。",
+      "before": "岡田ですね。少々お待ちください。",
+      "q": "T2",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "いいえ、私は山田と申します。",
+      "before": null,
+      "q": "T2",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "いいえ、私は山田と申します。",
+      "before": null,
+      "q": "T2",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "いいえ、私は山田と申します。",
+      "before": null,
+      "q": "T2",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "いいえ、私は山田と申します。",
+      "before": "お電話代わりました。担当の山田です。",
+      "q": "T2",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "いいえ、私は山田と申します。",
+      "before": "お電話代わりました。担当の山田です。",
+      "q": "T2",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "いいえ、私は山田と申します。",
+      "before": "お電話代わりました。担当の山田です。",
+      "q": "T2",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "いえ、違います。",
+      "before": null,
+      "q": "T2",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "いえ、違います。",
+      "before": null,
+      "q": "T2",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "いえ、違います。",
+      "before": null,
+      "q": "T2",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "いえ、受付の者です。少々お待ちください。",
+      "before": null,
+      "q": "T2",
+      "want": false,
+      "got": "取り次ぎを待つ",
+      "ok": true
+    },
+    {
+      "text": "いえ、受付の者です。少々お待ちください。",
+      "before": null,
+      "q": "T2",
+      "want": false,
+      "got": "取り次ぎを待つ",
+      "ok": true
+    },
+    {
+      "text": "いえ、受付の者です。少々お待ちください。",
+      "before": null,
+      "q": "T2",
+      "want": false,
+      "got": "取り次ぎを待つ",
+      "ok": true
+    },
+    {
+      "text": "いえ、岡田は席を外しております。",
+      "before": null,
+      "q": "T2",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "いえ、岡田は席を外しております。",
+      "before": null,
+      "q": "T2",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "いえ、岡田は席を外しております。",
+      "before": null,
+      "q": "T2",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "いいえ、山田と申します。岡田は本日おりません。",
+      "before": null,
+      "q": "T2",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "いいえ、山田と申します。岡田は本日おりません。",
+      "before": null,
+      "q": "T2",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "いいえ、山田と申します。岡田は本日おりません。",
+      "before": null,
+      "q": "T2",
+      "want": false,
+      "got": "尋ねていない",
+      "ok": true
+    },
+    {
+      "text": "えっと、どちら様でしょうか？",
+      "before": null,
+      "q": "T2",
+      "want": true,
+      "got": "尋ねている",
+      "ok": true
+    },
+    {
+      "text": "えっと、どちら様でしょうか？",
+      "before": null,
+      "q": "T2",
+      "want": true,
+      "got": "尋ねている",
+      "ok": true
+    },
+    {
+      "text": "えっと、どちら様でしょうか？",
+      "before": null,
+      "q": "T2",
+      "want": true,
+      "got": "尋ねている",
+      "ok": true
+    }
+  ]
+}

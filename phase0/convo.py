@@ -106,6 +106,11 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
     runs = {k: r for k, r in (("judge", judge), ("judge2", judge2)) if r is not None and q}
     if before and runs:
         info["judge_before"] = before
+    # 呼んでいる段だけ：こちらに尋ねているかを、目的の人の判定とは別の問い合わせとして同時に出す（受け持ちは1つ目の判定＝止まれば代わりが入る。
+    # Flow.asks_context。✅ 2026-10-22 ユーザー：「相手が喋っていても、それが質問だった場合の対処は？」）
+    questions = {k: (q, asked, before) for k in runs}
+    if (ac := flow.asks_context()) is not None and judge is not None:
+        runs["asks"], questions["asks"] = judge, (ac[0], None, ac[1])
 
     def started(coro) -> asyncio.Task:
         t = asyncio.create_task(coro)
@@ -155,7 +160,8 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
             t0 = loop.time()
             judging_text[kind] = text
             try:
-                got = await asyncio.wait_for(runs[kind](q, text, asked, before=before), LATE_CHECK_S)
+                kq, kasked, kbefore = questions[kind]
+                got = await asyncio.wait_for(runs[kind](kq, text, kasked, before=kbefore), LATE_CHECK_S)
             except Exception as exc:  # 判定が落ちても通話は止めない（届かなかった＝通話後の検証へ）
                 info[f"{kind}_error"] = repr(exc)[:200]
                 if getattr(exc, "tried", None):  # 受け持ちの判定・代わりの、答えが無かった理由（meaning_judge.NoJudgment）
@@ -183,7 +189,9 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
     jobs = {kind: started(judging(kind)) for kind in runs}
 
     def judged() -> bool:
-        return any(k in flow.check for k in runs)  # いまの言葉の判定が、1つでも届いた（Flow.check はいまの言葉のものだけ）
+        # いまの言葉の判定が、1つでも届いた（Flow.check はいまの言葉のものだけ）。尋ねているかの問い合わせ（asks）を出していれば、それも届いた
+        return (any(k in flow.check for k in runs if k != "asks")
+                and ("asks" not in runs or "asks" in flow.check))
 
     async def judgments(every: bool) -> None:
         """いまの言葉の判定を待つ：1つ届くまで（every＝全部が終わるまで）。答えずに終わった判定は待たない（もう1つを待つ）。"""

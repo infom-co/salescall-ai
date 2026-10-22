@@ -417,10 +417,17 @@ class JudgePanel:
         self.clock = clock or time.monotonic
 
     def slot(self, kind: str):
-        """受け持ち kind の判定（convo.check_handler に渡す形）。"""
+        """受け持ち kind の判定（convo.check_handler に渡す形。panel＝この受け持ちの仕組み）。"""
         async def run(q, text, asked=None, before=None):
             return await self.ask(kind, q, text, asked, before)
+        run.panel = self
         return run
+
+    def reset(self) -> None:
+        """止まっているとみなした印と、代わりが入っている受け持ちを消す（判定の読みを言葉ごとに測る試験だけ：1つの言葉の時間切れで、
+        次の言葉からの問い合わせを飛ばさない。⛔ 2026-10-22 G-59：3.5 Flash Lite の時間切れ1回のあと、残りの言葉を全部飛ばして数えた）。"""
+        self.down_until.clear()
+        self.holder = None
 
     async def _one(self, name: str, fn, q, text: str, asked: str | None, before: str | None):
         import asyncio

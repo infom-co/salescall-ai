@@ -307,6 +307,13 @@ SCENES = {
         "理由": last_fact(c, "callback").get("why") == "absent", "戻る時刻": "5時" in (last_fact(c, "callback").get("time") or ""),
         "お呼びし直さない": not any(r in ("call_target", "confirm_target") for r in replies_to(c, "taken_over_absent")),
         "用件を流さない": connect_reply(c) == {}, "締め": closing_of(c) == CLOSING, "足す質問は録音": callback_recorded(c)}),
+    # 受付の方が不在を伝えてから、別の方に取り次ぐ：取り次ぎの間は話さず、代わった方には岡田様をお呼びし直さずに、かけ直しの申し出
+    # （⛔ 2026-10-22 の見直し：不在の読みを電話口の方ごとに数えていたので、代わった方に岡田様をお呼びし直していた）
+    "目的の人_不在で別の方に代わる": Scene(TARGET_BUSINESS, [W("away_to_other"), W("taken_over_yamada"), W("back_5pm"), W("affirm")], lambda c: {
+        "取り次ぎの間は話さない": plain(said_to(c, "away_to_other")) == "",
+        "理由": last_fact(c, "callback").get("why") == "absent", "戻る時刻": "5時" in (last_fact(c, "callback").get("time") or ""),
+        "お呼びし直さない": not any(r in ("call_target", "confirm_target") for r in replies_to(c, "taken_over_yamada")),
+        "用件を流さない": connect_reply(c) == {}, "締め": closing_of(c) == CLOSING, "足す質問は録音": callback_recorded(c)}),
     "目的の人_受付で断られる": Scene(TARGET_BUSINESS, [W("reception_refuse")], lambda c: {
         "発信禁止の申告": bool(c.get("facts", {}).get("do_not_call")), "締め": closing_of(c) == CLOSE_DECLINED}),
 }
