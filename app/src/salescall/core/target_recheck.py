@@ -32,9 +32,15 @@ class RecheckInvalid(Exception):
 
 
 def needed(tx: Tx, attempt_id: UUID) -> bool:
-    """確かめ直しが要る通話か（判定を使う通話で、判定なしで繋いだ・繋いだあとの判定が「ご本人」でない）。"""
+    """確かめ直しが要る通話か（判定はこの1か所）：
+    - 会話の報告がある：判定を使う通話で、判定なしで繋いだ・繋いだあとの判定が「ご本人」でない（`CallReport.target_unverified`）
+    - 会話の報告が無い（会話の処理が報告を書く前に落ちた）のに、その通話で取った答えがある：どう目的のお客様だと決めたかの材料が
+      無いので、確かめ直す（⛔ 2026-10-22 の見直し：前は繋いだ記録ごと消え、確かめていない答えが「完了」で依頼者へ渡りえた）"""
     report = call_report.load(tx, attempt_id)
-    return report is not None and report.target_unverified
+    if report is not None:
+        return report.target_unverified
+    return tx.one("SELECT EXISTS (SELECT 1 FROM salescall.item_values WHERE attempt_id = %s) AS taken",
+                  (attempt_id,))["taken"]
 
 
 def missing(tx: Tx, attempt_id: UUID) -> bool:

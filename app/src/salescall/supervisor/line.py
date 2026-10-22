@@ -52,32 +52,40 @@ def _claim(tx: Any, task: dict[str, Any], line_id: UUID, holder: str, tenant_id:
     return got
 
 
-def _end_unknown(access: Access, actor: Actor, tenant_id: UUID, client_id: UUID, attempt_id: UUID) -> None:
-    """通話を進める部品から誤りが外へ出た：まだ進行中なら結果不明にする（お客様が出ていれば、締めがお詫びしてかけ直す）。"""
-    def work(tx: Any) -> None:
+def _end_unknown(access: Access, actor: Actor, tenant_id: UUID, client_id: UUID, attempt_id: UUID) -> bool:
+    """通話を進める部品から誤りが外へ出た・通話を終えずに戻った：まだ進行中なら結果不明にする（お客様が出ていれば、締めがお詫び
+    してかけ直す）。結果不明にしたら True。"""
+    def work(tx: Any) -> bool:
         if tx.one("SELECT salescall.is_active(state) AND salescall.is_dialed(state) AS live FROM salescall.attempts"
                   " WHERE attempt_id = %s", (attempt_id,))["live"]:   # 発信まで進み、まだ進行中
             attempts.move(tx, attempt_id, "technical_error")
-    access.in_client(actor, tenant_id, client_id, work)
+            return True
+        return False
+    return access.in_client(actor, tenant_id, client_id, work)
 
 
 def one_round(access: Access, actor: Actor, tenant_id: UUID, line_id: UUID, holder: str, driver: dial_exit.LineDriver,
               runner: plugins.CallRunner) -> Round:
     clients = access.in_tenant(actor, tenant_id, lambda tx: scheduler.clients_for_line(tx, line_id))
+    held: list[str] = []   # 依頼者の理由（同時の上限・無効）で断られた
     for promised_only in (True, False):   # 約束したかけ直しを、すべての依頼者について先に（目印で分けるのは due_tasks の1か所）
         for client_id in clients:
-            got = _client_round(access, actor, tenant_id, client_id, line_id, holder, driver, runner, promised_only)
+            got = _client_round(access, actor, tenant_id, client_id, line_id, holder, driver, runner, promised_only, held)
             if got is not None:
                 return got
-    return Round()
+    # どこもかけられず、依頼者の理由で断られていた：回線の理由と同じく休む（⛔ 2026-10-22 の見直し：休まずに数秒ごとに門へ渡し
+    # 直し、同時の上限のあいだ、断られた記録を増やし続けた）
+    return Round(pause=held[0]) if held else Round()
 
 
 def _client_round(access: Access, actor: Actor, tenant_id: UUID, client_id: UUID, line_id: UUID, holder: str,
-                  driver: dial_exit.LineDriver, runner: plugins.CallRunner, promised_only: bool = False) -> Round | None:
+                  driver: dial_exit.LineDriver, runner: plugins.CallRunner, promised_only: bool = False,
+                  held: list[str] | None = None) -> Round | None:
     """1つの依頼者の行を、門に渡す。かけたか回線を休むなら Round、この依頼者でかけられる行が無ければ None。
     業務の理由で断られた業務は、この回だけ飛ばし、その業務を除いて候補を読み直す（前は読み直さなかったので、上限に達した業務の
     行が候補の先頭を埋めると、同じ依頼者のほかの業務の行が1日じゅう候補に入らなかった＝2026-10-18 の見直し）。"""
     capped: set[UUID] = set()
+    held = [] if held is None else held
     while True:
         tasks = access.in_client(actor, tenant_id, client_id,
                                  lambda tx: scheduler.due_tasks(tx, CANDIDATES_PER_CLIENT, skip_businesses=capped,
@@ -97,11 +105,20 @@ def _client_round(access: Access, actor: Actor, tenant_id: UUID, client_id: UUID
                         dial_exit.abandon(driver)   # 通話が残っていれば、おわびして切る（お客様を無言で放置しない）
                         _end_unknown(access, actor, tenant_id, client_id, got.attempt_id)
                         report(access, tenant_id, "通話を進める部品", e, line_id=line_id)
+                    else:
+                        # 通話を終えずに戻った（試行がまだ進行中）：誤りのときと同じに扱う（⛔ 2026-10-22 の見直し：電話はつながった
+                        # まま無言になり、回線は「通話中」で止まり続け、だれにも知らされなかった）
+                        if _end_unknown(access, actor, tenant_id, client_id, got.attempt_id):
+                            dial_exit.abandon(driver)
+                            report(access, tenant_id, "通話を進める部品",
+                                   RuntimeError("通話を終えないまま戻りました"), line_id=line_id)
                     return Round(called=got.attempt_id)
                 if done is dial_exit.Outcome.NOT_PLACED:   # 回線の異常として数える（続けば、その回線を止める）
                     watch.after_error(access, actor, ErrorReport("line", None, "回線の部品が電話をかけられなかった"),
                                       tenant_id=tenant_id, line_id=line_id)
-                if done in (dial_exit.Outcome.NOT_PLACED, dial_exit.Outcome.LINE_IN_CALL):
+                if done in (dial_exit.Outcome.NOT_PLACED, dial_exit.Outcome.LINE_IN_CALL, dial_exit.Outcome.WITHHELD):
+                    # PC がかけなかった（緊急停止・つながっていない）も休む（⛔ 2026-10-22 の見直し：休まずに数秒ごとに次の行を
+                    # 予約し、どの行も「発信に失敗」にしていった）
                     # かけられなかった・まだ前の通話の途中：その回線を休ませる（休まず次の行へ進むと、行の回数と回線の
                     # 1日の上限を数分で使い切りうる＝2026-10-18 の見直し）
                     return Round(pause=done.value)
@@ -109,6 +126,7 @@ def _client_round(access: Access, actor: Actor, tenant_id: UUID, client_id: UUID
             if got.reason in gate.LINE_REASONS:
                 return Round(pause=got.reason)
             if got.reason in gate.CLIENT_REASONS:
+                held.append(got.reason)   # この依頼者は、いまかけられない（ほかの依頼者を見る。どこもかけなければ休む）
                 return None
             if got.reason in gate.BUSINESS_REASONS:
                 capped.add(task["business_id"])

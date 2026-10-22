@@ -435,9 +435,11 @@ class TenantAiStopsAndChecks(unittest.TestCase):
         """一時的なもの（別の耳につながらない）でも、1時間以上続いたら担当（CL-1）へ修正依頼を出す。続いていなければ出さない
         （2026-10-18 の見直し：前は何日続いても修正依頼にならず、その間お客様の行が待ち続けた）。"""
         ear = ErrorReport("ear", None, None, unreachable=True)
-        def asked(t):
+        def asked(t=None):
             return [r for r in self.a.in_system(SYSTEM, lambda tx: fix_requests.open_requests(tx, "CL-1"))
-                    if r["kind"] == "ear_unreachable" and r["refs"].get("tenant_id") == str(t)]
+                    if r["kind"] == "ear_unreachable"]
+        for r in asked():   # 同じ不具合は契約者をまたいで1つ（2026-10-22 の見直し）：ほかの試験が出した依頼を、直したことにしておく
+            self.a.in_system(SYSTEM, lambda tx, r=r: fix_requests.report_fixed(tx, r["request_id"], "試験：前の依頼を閉じる"))
         short = World().setup()
         watch.after_error(self.a, SYSTEM, ear, tenant_id=short["tenant"], client_id=short["client"])
         self.assertEqual(asked(short["tenant"]), [])
@@ -449,6 +451,8 @@ class TenantAiStopsAndChecks(unittest.TestCase):
                 (timedelta(minutes=minutes),)))
         watch.after_error(self.a, SYSTEM, ear, tenant_id=long["tenant"], client_id=long["client"])
         self.assertEqual(len(asked(long["tenant"])), 1)
+        for r in asked():
+            self.a.in_system(SYSTEM, lambda tx, r=r: fix_requests.report_fixed(tx, r["request_id"], "試験：直した"))
         apart = World().setup()
         for minutes in (180, 10):                                       # 3時間前と10分前：間が1時間より空いたら数え直す
             self.a.in_client(SYSTEM, apart["tenant"], apart["client"], lambda tx: tx.execute(
@@ -497,8 +501,8 @@ class TenantAiStopsAndChecks(unittest.TestCase):
     def test_the_assignee_reports_the_fix_and_only_the_admin_approves(self):
         """担当が「直した」を書き、管理者が確かめて承認する（人は承認だけ）。契約者には修正依頼は見えない。"""
         w = World(); s = w.setup()
-        watch.after_error(self.a, SYSTEM, ErrorReport("storage", None, "試験：書き込めない"),
-                          tenant_id=s["tenant"], client_id=s["client"])
+        watch.after_error(self.a, SYSTEM, ErrorReport("storage", None, f"試験：書き込めない（{s['tenant']}）"),
+                          tenant_id=s["tenant"], client_id=s["client"])   # 不具合ごとに1つ（試験ごとに別の不具合にする）
         rid = [r for r in self.a.in_system(SYSTEM, lambda tx: fix_requests.open_requests(tx, "CL-2"))
                if r["refs"].get("tenant_id") == str(s["tenant"])][0]["request_id"]
         self.assertEqual(self.a.in_tenant(OPERATOR, s["tenant"], lambda tx: tx.all(

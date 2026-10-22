@@ -89,6 +89,8 @@ class Login(unittest.TestCase):
         self.assertIsNone(self.who(kept.token))                                  # 前の通行証は止まる
         self.assertTrue(pc_login.logout(path))
         self.assertIsNone(pc_login.load(path))
+        path.write_bytes(b"\x00\x01 broken")                              # 読めない通行証は無いもの（PC の部品を終わらせない）
+        self.assertIsNone(pc_login.load(path))
 
     def test_refusals_timeouts_and_plain_http_are_failures(self):
         with self.assertRaises(pc_login.LoginFailed):

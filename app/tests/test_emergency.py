@@ -91,7 +91,7 @@ class OnTheServer(Base):
         claim = self.claim(s)
         driver = FakeDriver(fail=CallWithheld("試験：PC で押されている"))
         self.assertIs(dial_exit.dial(self.w.a, SYSTEM, s["tenant"], s["client"], claim.attempt_id, driver),
-                      dial_exit.Outcome.UNUSABLE)
+                      dial_exit.Outcome.WITHHELD)
         self.assertEqual(self.state(s, claim.attempt_id), "call_failed")
         faults = self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: tx.all(
             "SELECT 1 FROM salescall.error_events WHERE source = 'line'"))

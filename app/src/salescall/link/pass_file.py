@@ -39,12 +39,17 @@ def save(got: PcPass, path: Path | None = None) -> None:
 
 
 def load(path: Path | None = None) -> PcPass | None:
-    """しまった通行証（無ければ None）。"""
+    """しまった通行証（無ければ None）。読めない通行証（壊れた・Windows の利用者が違う）も、無いものとする＝ログインし直しの道へ
+    （判断はこの1か所。⛔ 2026-10-22 の見直し：前は誤りが外へ出て PC の部品が終わり、次にログオンするまで止まったままだった）。
+    新しい通行証をしまえば、上書きされる。"""
     path = path or pass_path()
     if not path.exists():
         return None
-    d = json.loads(_unprotect(path.read_bytes()).decode("utf-8"))
-    return PcPass(UUID(d["tenant_id"]), UUID(d["pc"]), d["token"])
+    try:
+        d = json.loads(_unprotect(path.read_bytes()).decode("utf-8"))
+        return PcPass(UUID(d["tenant_id"]), UUID(d["pc"]), str(d["token"]))
+    except (PassUnreadable, OSError, ValueError, KeyError, TypeError):
+        return None
 
 
 def logout(path: Path | None = None) -> bool:

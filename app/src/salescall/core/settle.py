@@ -76,6 +76,9 @@ def settle(tx: Tx, attempt_id: UUID) -> dict[str, Any]:
         raise NotReady("発信していない・まだ終わっていない試行です")
     if a["verification"] == "pending":
         raise NotReady("通話後の検証が済んでいません")
+    if target_recheck.missing(tx, attempt_id):   # 確かめ直しを待つ（締めない）。待つだけにせず、促す所が無ければ CL-1 へ修正依頼
+        _recheck_missing_notice(tx, a)            # （この取引に残す＝断らずに返す）
+        return {"version_no": None, "state": None, "already": False, "waiting": "target_recheck"}
     if a["purpose"] == "apology":
         return _settle_apology(tx, a)
     out = _judge_and_write(tx, a, kind="judged", rules_version=a["version_id"])
@@ -192,14 +195,8 @@ def rejudge(tx: Tx, attempt_id: UUID) -> dict[str, Any] | None:
                             " ORDER BY claimed_at DESC LIMIT 1", (a["task_id"],))["attempt_id"]
     if not held or last is None or latest_attempt != attempt_id:
         return None
-    if target_recheck.missing(tx, attempt_id):
-        # 確かめ直しを待つ行は、記録されてから判定し直す。録音から作り直した報告（検証のあと）に判定なしの繋ぎが入ったときは、
-        # 通話後の検証がもう済んでいて、ほかに促す所が無い：止めずに CL-1 へ修正依頼を出す（行とお客様が待ち続けないように。
-        # 2026-10-22 の見直し）。同じ不具合は、直したと報告するまで1つ
-        fix_requests.request(tx, "CL-1", "target_recheck_missing", key="target_recheck_missing",
-                             summary="録音から作り直した会話の報告に、判定なしで繋いだ通話がありますが、目的のお客様の確かめ直し"
-                                     "（target_recheck.record）が記録されていません（判定し直しを待っています）",
-                             refs={"attempt_id": attempt_id, "task_id": a["task_id"]})
+    if target_recheck.missing(tx, attempt_id):   # 確かめ直しを待つ行は、記録されてから判定し直す
+        _recheck_missing_notice(tx, a)
         return None
     now = _inputs_now(tx, a)
     before = {"judge_version": last["judge_version"], "rules_version": last["snapshot"].get("rules_version"),
@@ -224,6 +221,19 @@ def rejudge_held(tx: Tx) -> list[dict[str, Any]]:
         if got is not None:
             done.append(got)
     return done
+
+
+def _recheck_missing_notice(tx: Tx, a: dict[str, Any]) -> None:
+    """確かめ直しが要るのに記録が無く、通話後の検証がもう済んでいる（録音から作り直した報告・検証のあとに届いた報告に、判定なしの
+    繋ぎが入った）：ほかに促す所が無いので、止めずに CL-1 へ修正依頼を出す（行とお客様が待ち続けないように。同じ不具合は、直したと
+    報告するまで1つ。2026-10-22 の見直し）。検証がまだなら、検証の入口（attempts.record_verification）が記録を求める。"""
+    if tx.one("SELECT verification::text AS v FROM salescall.attempts WHERE attempt_id = %s", (a["attempt_id"],))["v"] != "done":
+        return
+    fix_requests.request(tx, "CL-1", "target_recheck_missing", key="target_recheck_missing",
+                         summary="通話後の検証が済んだあとの会話の報告（録音から作り直した・あとから届いた）に、判定なしで繋いだ"
+                                 "通話がありますが、目的のお客様の確かめ直し（target_recheck.record）が記録されていません（締め・判定"
+                                 "し直しを待っています）",
+                         refs={"attempt_id": a["attempt_id"], "task_id": a["task_id"]})
 
 
 def _judge_input(tx: Tx, a: dict[str, Any], rules_version: Any) -> tuple[JudgeInput, str | None, dict[str, Any]]:
@@ -293,6 +303,7 @@ def _judge_and_write(tx: Tx, a: dict[str, Any], *, kind: str, rules_version: Any
         dialed=next_action.Target(a["contact_id"], None, a["purpose"], a["wrong_contact_id"]), dialed_at=a["claimed_at"],
         alternate=alternate, recheck=recheck, forbidden=forbidden, cut_off=cut_off,
         reached_target=inp.reached_target)   # 目的のお客様と話せた（約束の日のお詫びは済んだ）
+    apology.schedule_if_ready(tx, a["task_id"])   # 締めの前に承認されていたお詫び：判定が決まったいま、予定を書く（apology の1か所）
     return {"version_no": version_no, "state": j.state, "decision": decision, "already": False}
 
 

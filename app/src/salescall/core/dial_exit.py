@@ -58,9 +58,10 @@ def abandon(driver: LineDriver) -> None:
 class Outcome(Enum):
     """発信の出口の結果。かけたときだけ真。"""
     DIALED = "dialed"               # かけた
-    UNUSABLE = "unusable"           # 予約証が使えない（期限切れ・取り消し済み）・PC の緊急停止：かけていない
+    UNUSABLE = "unusable"           # 予約証が使えない（期限切れ・取り消し済み）：かけていない
     LINE_IN_CALL = "line_in_call"   # 回線がまだ前の通話の途中：かけずに予約を戻した
     NOT_PLACED = "not_placed"       # 回線の部品がかけられなかった（CallNotPlaced）：試行は「発信に失敗」
+    WITHHELD = "withheld"           # PC の部品がかけなかった（PC の上で緊急停止・PC がつながっていない）：試行は「発信に失敗」
 
     def __bool__(self) -> bool:
         return self is Outcome.DIALED
@@ -86,9 +87,10 @@ def dial(access: Access, actor: Actor, tenant_id: UUID, client_id: UUID, attempt
         return Outcome.UNUSABLE
     try:
         driver.start_call(phone)
-    except CallWithheld:   # PC の上で緊急停止が押されている：かけていない（回線の異常ではない）
+    except CallWithheld:   # PC の上で緊急停止が押されている・つながっていない：かけていない（回線の異常ではない。鳴っていない
+        # ので、どの数にも入らない＝salescall.is_placed）
         access.in_client(actor, tenant_id, client_id, lambda tx: attempts.move(tx, attempt_id, "call_failed"))
-        return Outcome.UNUSABLE
+        return Outcome.WITHHELD
     except CallNotPlaced:
         access.in_client(actor, tenant_id, client_id, lambda tx: attempts.move(tx, attempt_id, "call_failed"))
         return Outcome.NOT_PLACED

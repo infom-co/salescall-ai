@@ -439,6 +439,35 @@ class TargetRecheck(SettleBase):
         self.assertEqual((got["state"], got["decision"].promised, got["decision"].window.until), ("not_reached", True,
                                                                                                     window.until))
 
+    def test_answers_from_a_call_whose_report_was_never_written_are_rechecked(self):
+        """会話の処理が報告を書く前に落ちた通話で答えを取っていた：どう目的のお客様だと決めたかが分からないので、確かめ直すまで検証を
+        済ませない。確かめられなければ答えは「-」（⛔ 2026-10-22 の見直し：前は確かめていない答えが「完了」で渡りえた）。"""
+        s = self.ready()
+        aid = self.call(s, ("dialing", "ringing"), verify=None)
+        for st in ("answered", "in_conversation", "technical_error"):
+            self.tx(s, lambda tx, st=st: attempts.move(tx, aid, st))
+        self.tx(s, lambda tx: tx.execute(
+            "INSERT INTO salescall.item_values (tenant_id, client_id, task_id, version_id, question_id, state, attempt_id)"
+            " VALUES (%s, %s, %s, %s, 'Q1', 'confirmed', %s)", (s["tenant"], s["client"], s["task"], s["version"], aid)))
+        with self.assertRaises(attempts.RecheckMissing):
+            self.tx(s, lambda tx: attempts.record_verification(tx, aid, summary=CLEAN))
+        self.tx(s, lambda tx: target_recheck.record(tx, aid, "cannot_check", evidence="試験：録音で確かめられない", checked_by="試験"))
+        self.assertEqual(self.item(s)["state"], "unresolved")
+
+    def test_a_report_with_an_unchecked_connect_arriving_after_verification_asks_cl1(self):
+        """会話の報告が通話後の検証より後に届き、判定なしの繋ぎが入っていた：締めずに待ち、CL-1 へ修正依頼を出す（待つだけにしない。
+        2026-10-22 の見直し）。"""
+        s = self.ready()
+        aid = self.call(s, ("dialing", "ringing"), verify=None)
+        for st in ("answered", "in_conversation", "ending", "ended"):
+            self.tx(s, lambda tx, st=st: attempts.move(tx, aid, st))
+        self.tx(s, lambda tx: attempts.record_verification(tx, aid, summary=CLEAN))   # 報告より先に検証が済んだ
+        self.tx(s, lambda tx: call_report.save(tx, aid, self.connected_report()))
+        self.assertEqual(self.settle(s, aid).get("waiting"), "target_recheck")
+        asked = self.w.a.in_system(SYSTEM, lambda tx: [r for r in fix_requests.open_requests(tx, "CL-1")
+                                                       if r["kind"] == "target_recheck_missing"])
+        self.assertTrue(asked)
+
     def test_a_connect_without_a_party_still_counts_as_talking_with_the_customer(self):
         """電話口の種別を残さずに繋いだ通話（AIの「代わった方へ」のあと、判定の「ご本人」2つで繋いだ）も、お客様と話した通話：
         お客様が断りの言葉のあとに切れば、発信の拒否（会話に至らなかった、にしない）。"""
@@ -447,6 +476,21 @@ class TargetRecheck(SettleBase):
         r = replace(make_report((), cut=Cut("callee", False, True)), connects=(Connect(Said(3, "はい"), ("judge", "judge2"), True),))
         aid = self.call(s, report=r, items=())
         self.assertEqual(self.settle(s, aid)["state"], "do_not_call")
+
+
+class StuckVerification(SettleBase):
+    def test_a_verification_that_never_finishes_becomes_a_fix_request(self):
+        """通話後の検証が、録音を待つ時間＋1時間たっても終わらない：CL-1 へ修正依頼（検証の部品が動かないと、行もお客様も待ち
+        続けるため。2026-10-22 の見直し）。"""
+        s = self.ready()
+        aid = self.call(s, verify=None)
+        self.assertEqual(self.tx(s, attempts.watch_stuck_verifications), 0)        # 終わったばかり：まだ
+        from unittest import mock
+        with mock.patch.object(attempts, "STUCK_AFTER", timedelta(days=-1)):    # 時間がたったことにする（試験で待たない）
+            self.assertGreaterEqual(self.tx(s, attempts.watch_stuck_verifications), 1)
+        asked = self.w.a.in_system(SYSTEM, lambda tx: [r for r in fix_requests.open_requests(tx, "CL-1")
+                                                       if r["kind"] == "verification_stuck"])
+        self.assertTrue(asked)
 
 
 class CutOffCalls(SettleBase):

@@ -26,15 +26,16 @@ import socket
 import threading
 import time
 from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import wait as futures_wait
 from dataclasses import dataclass, field
 from typing import Any, Callable
 from uuid import UUID
 
-from salescall.core import leases
-from salescall.core.access import Access, unreachable
+from salescall.core import dial_exit, leases
+from salescall.core.access import Access, busy, unreachable
 from salescall.link.basics import backoff
 from salescall.link.locks import AlreadyRunning, SingleInstance, lock_dir, machine_id
-from salescall.supervisor import ACTOR, config, jobs, line, local_pc, plugins, report, updates
+from salescall.supervisor import ACTOR, config, flush_busy, jobs, line, local_pc, plugins, report, updates
 from salescall.supervisor.links import Attached, Links, NoLinks
 
 RESTART_FIRST, RESTART_MAX = 5.0, 300.0   # 回線ごとの流れを立ち上げ直すまでの間（秒。続けて止まるほど倍に）
@@ -89,6 +90,8 @@ class Supervisor:
     tenants: list[UUID] = field(default_factory=list)
     _next_job: dict[str, float] = field(default_factory=dict)
     _running: dict[str, Future] = field(default_factory=dict)
+    _started: dict[str, float] = field(default_factory=dict)      # 仕事 → 始めた時刻（固まった仕事に気づくため）
+    _stuck: set[str] = field(default_factory=set)                  # 固まったと知らせた仕事（終わるまで1回だけ）
     _next_renew: float = 0.0
     _renew_every: float | None = None
     version_gap: str = updates.UNKNOWN   # プログラムとデータベースの版のずれ（確かめるまでは「分からない」）
@@ -149,6 +152,8 @@ class Supervisor:
                 except Exception as e:  # noqa: BLE001 データベースに届かない：延ばせない回線は期限で門が通さなくなる
                     down = unreachable(e)
                     report(self.access, at.tenant_id, "回線の借用", e, line_id=line_id)
+                    if busy(e):   # 混雑：いまの流れはそのまま（借用の期限はまだ残っている）。次の回にまた延ばす
+                        continue
             if until is None:   # 借りられない（ほかの見守り役が生きて借りている）・届かない：流れを止める
                 self.leased.pop(line_id, None)
                 self._stop_worker(line_id)
@@ -244,6 +249,8 @@ class Supervisor:
                 if w.fails and now - w.started_at >= STABLE_AFTER:   # しばらく続けて動いた：止まった回数を数え直す
                     w.fails = 0
                 continue
+            if not w.stopping:   # 思いがけず止まった：通話の途中なら、おわびして切ってもらう（データベースの後始末だけでは、
+                self._hang_up_left(line_id, w.at)   # 電話がつながったまま無言になる＝⛔ 2026-10-22 の見直し）
             self._recover(line_id, w.at.tenant_id)   # 止まった流れの通話を、すぐ後始末する（お客様が出ていれば、締めがお詫びしてかけ直す）
             if w.stopping:
                 self.workers.pop(line_id, None)
@@ -252,6 +259,21 @@ class Supervisor:
                 continue
             report(self.access, w.at.tenant_id, "回線ごとの流れが止まった", RuntimeError("思いがけない終わり"), line_id=line_id)
             self.workers[line_id] = _Worker(line_id, w.at, None, None, w.fails + 1, now + _backoff(w.fails))
+
+    def _hang_up_left(self, line_id: UUID, at: Attached) -> None:
+        """回線ごとの流れが思いがけず止まった：その回線が通話中（か分からない）なら、おわびして切ってもらう（判断は発信の出口の
+        dial_exit.abandon の1か所。つないでいなければ、PC の部品の側でおわびして切る）。"""
+        try:
+            driver = self.links.driver(line_id, at)
+            busy_line = True
+            try:
+                busy_line = bool(driver.in_call())
+            except Exception:  # noqa: BLE001 答えられない＝通話中とみなす
+                pass
+            if busy_line:
+                dial_exit.abandon(driver)
+        except Exception as e:  # noqa: BLE001 頼めなくても止めない
+            report(self.access, at.tenant_id, "止まった流れの通話を切る", e, line_id=line_id)
 
     # ── 決まった間隔の仕事 ──
     def run_jobs(self, now: float) -> None:
@@ -268,7 +290,14 @@ class Supervisor:
                     continue
                 running = self._running.get(key)
                 if running is not None and not running.done():   # 前の回がまだ終わっていない：重ねない
+                    if now - self._started.get(key, now) > job.lease and key not in self._stuck:
+                        # 借りる期限を過ぎても終わらない（固まった）：止めずに CL-2 へ修正依頼（1回だけ。⛔ 2026-10-22 の見直し：
+                        # だれも気づかず、二度と出し直されなかった）
+                        self._stuck.add(key)
+                        report(self.access, tenant_id, job.name, TimeoutError(f"{job.lease} 秒たっても終わりません（固まった）"))
                     continue
+                self._stuck.discard(key)
+                self._started[key] = now
                 ctx = self.context if tenant_id is None else self.context.for_tenant(tenant_id)
                 self._running[key] = (self.heavy_pool if job.heavy else self.pool).submit(jobs.run_job, ctx, job)
                 self._next_job[key] = now + job.every
@@ -278,7 +307,8 @@ class Supervisor:
         now = time.monotonic() if now is None else now
         steps: list[tuple[str, Callable[[], None]]] = (
             [("版の確かめ", self.check_version), ("回線の借用", lambda: self.renew(now))] if now >= self._next_renew else [])
-        steps += [("回線ごとの流れの見張り", lambda: self.watch_workers(now)), ("決まった間隔の仕事", lambda: self.run_jobs(now))]
+        steps += [("回線ごとの流れの見張り", lambda: self.watch_workers(now)), ("決まった間隔の仕事", lambda: self.run_jobs(now)),
+                  ("混雑の記録", lambda: flush_busy(self.access))]
         for what, step in steps:
             try:
                 step()
@@ -307,7 +337,11 @@ class Supervisor:
             if w is not None and w.thread is not None and w.thread.is_alive():   # まだ通話の途中：返さない（期限で次が後始末する）
                 continue
             self._finish(line_id)
-        self.pool.shutdown(wait=True)
+        # 決まった間隔の仕事は、残りの待ち時間まで待つ（固まった仕事を待ち続けて終われない、にしない。借用の期限で次が引き継ぐ）
+        rest = [f for f in self._running.values() if not f.done()]
+        if rest:
+            futures_wait(rest, timeout=max(1.0, deadline - time.monotonic()))
+        self.pool.shutdown(wait=False, cancel_futures=True)
         self.heavy_pool.shutdown(wait=False, cancel_futures=True)   # 控えの書き込みは待たない（借用の期限で、次が引き継ぐ）
 
 
@@ -317,10 +351,18 @@ def serve(cfg: config.Config, stop: threading.Event | None = None) -> None:
     stop = stop or threading.Event()
     if cfg.listen is None:   # 無いと、PC がつながらず、電話もかけず、控えも書かないまま黙って動く
         raise config.ConfigMissing("設定 SALESCALL_LISTEN が入っていません（PC の部品からのつなぎを待つ場所。手順：app/README.md）")
+    if cfg.call_runner and not cfg.verifier:   # 検証の部品が無いと、かけた電話を締められず、行もお客様も待ち続ける（2026-10-22 の見直し）
+        raise config.ConfigMissing("設定 SALESCALL_VERIFIER が入っていません（電話をかけるときは、通話後の検証の部品も要ります。"
+                                   "手順：app/README.md）")
     with SingleInstance(lock_dir() / "salescall-supervisor.lock"):
         hub = channel.Hub(Access(cfg.dsn), cfg)
-        hub.start()
         sup = Supervisor(cfg, hub)
+        hub_fails, next_hub = 0, 0.0
+        try:
+            hub.start()
+        except channel.ChannelDown as e:   # 待ち受けを始められない（前の自分がまだ場所を放していない など）：止めずに、間をあけて試し直す
+            report(sup.access, None, "PC の部品のつなぎ口", e)
+            hub_fails, next_hub = 1, time.monotonic() + _backoff(0)
         try:
             sup.start()
         except Exception as e:  # noqa: BLE001 起動のときに届かなくても止めない（tick がまた試す）
@@ -334,11 +376,19 @@ def serve(cfg: config.Config, stop: threading.Event | None = None) -> None:
                     except Exception as e:  # noqa: BLE001 データベースに届かないときも止めない（次の確かめでまた入れる）
                         report(sup.access, None, "この機械の PC の部品の通行証", e)
                     next_pass = time.monotonic() + local_pc.CHECK_EVERY
-                if not hub.running() and not stop.is_set():
-                    # つなぎ口の流れが落ちた：記録して、動かし直す（どの PC ともやり取りできないまま、黙って動き続けない）。
-                    # 動かし直せなければ ChannelDown で止まる（動かす仕組みが起こし直す）
-                    report(sup.access, None, "PC の部品のつなぎ口", hub.error or RuntimeError("つなぎ口の流れが終わりました"))
-                    hub.start()
+                if not hub.running() and not stop.is_set() and time.monotonic() >= next_hub:
+                    # つなぎ口の流れが落ちた・始められなかった：記録して、動かし直す（どの PC ともやり取りできないまま、黙って
+                    # 動き続けない）。動かし直せなくても見守り役は終わらない（⛔ 2026-10-22 の見直し：前は ChannelDown で処理が
+                    # まるごと終わり、だれも起こさず、PC の途切れの知らせも出なかった）。続けて失敗するほど間を延ばす（上限5分）
+                    if hub.error is not None:
+                        report(sup.access, None, "PC の部品のつなぎ口", hub.error)
+                    try:
+                        hub.start()
+                        hub_fails = 0
+                    except channel.ChannelDown as e:
+                        report(sup.access, None, "PC の部品のつなぎ口", e)
+                        next_hub = time.monotonic() + _backoff(hub_fails)
+                        hub_fails += 1
                 sup.tick()
                 stop.wait(1.0)
         except KeyboardInterrupt:

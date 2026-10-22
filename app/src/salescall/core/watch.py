@@ -19,6 +19,8 @@
 
 from __future__ import annotations
 
+import hashlib
+
 from datetime import timedelta
 from typing import Any
 from uuid import UUID
@@ -58,12 +60,21 @@ def record_error(tx: Tx, report: errors.ErrorReport, *, line_id: UUID | None = N
     # 根源的なもの（待っても直らない）は、止めずに直す担当へ修正依頼を出す（2026-10-17 ユーザー：「人はそのプロセスをチェック
     # もしくは承認するだけ」）。管理者には、どの種類も知らせる（確かめ・承認のため）。契約者には、処置の表が「知らせる」とした種類だけ
     fixer = action.fixer or (action.lasting_fixer if action.lasting_fixer and _lasting(tx, kind) else None)
+    new_request = False
     if fixer is not None:
-        fix_requests.request(tx, fixer, kind, key=f"error:{kind}:{row['tenant']}", refs=refs,
-                             summary=errors.LABELS[kind] + ("" if action.fixer else "（1時間以上続いている）"))
-    notify.emit(tx, "error_notice", key=f"error:{key}",
-                summary=(f"{fixer} に修正依頼：" if fixer else "エラー：") + errors.LABELS[kind],
-                refs={**refs, "fixer": fixer}, admin=True, contractor=action.notify)
+        # 同じ不具合は、契約者をまたいでも修正依頼1つ（直すのは同じプログラム）。別の不具合（どこで・何が起きたか）は別の依頼
+        # （⛔ 2026-10-22 の見直し：前は契約者ごとに1つで、同じ不具合が契約者の数だけ出て、同じ契約者の別の不具合は最初の依頼に
+        # まとめられて隠れた）
+        what = hashlib.sha256(f"{report.source}\n{report.code}\n{report.message}".encode("utf-8")).hexdigest()[:16]
+        new_request = fix_requests.request(tx, fixer, kind, key=f"error:{kind}:{what}", refs=refs,
+                                           summary=errors.LABELS[kind] + ("" if action.fixer else "（1時間以上続いている）"))
+    # 管理者へは、修正依頼を新しく出したとき（同じ不具合を契約者の数だけ・1時間ごとに知らせない）と、直す担当の無い種類のとき。
+    # 契約者へは、処置の表が「知らせる」とした種類を、その契約者の範囲で1時間に1回
+    admin = new_request or fixer is None
+    if admin or action.notify:
+        notify.emit(tx, "error_notice", key=f"error:{key}",
+                    summary=(f"{fixer} に修正依頼：" if fixer else "エラー：") + errors.LABELS[kind],
+                    refs={**refs, "fixer": fixer}, admin=admin, contractor=action.notify)
     return kind
 
 

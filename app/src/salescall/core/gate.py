@@ -217,8 +217,10 @@ def _pacing(tx: Tx, task: dict[str, Any], now: datetime, assume_promised: bool |
     # 出たあとなら1時間あけていた（2026-10-17 ユーザー：「たどり着いていない場合は、その理由で違うよね」＝次は理由ごとの再発信の
     # 方針で決める。断っていたかもしれないことは、通話後の確かめが受け持つ）
     # 同じ番号へ、ほかの依頼者がかけたとき：同じ契約者の中＝システムの間隔／ほかの契約者＝契約者の設定（2026-10-16 ユーザー。
-    # 「かけない」は target_policy が答える）
-    for r in tx.all("SELECT relation, last_at FROM salescall.number_last_dial_elsewhere(%s)", (task["phone_e164"],)):
+    # 「かけない」は target_policy が答える）。お客様と約束したかけ直し・途中で切れたあとのかけ直し（promised）は止めない（お客様が
+    # 頼んだ時刻を守る。⛔ 2026-10-22 の見直し：前は、ほかの依頼者がかけたあとだと、約束の「15時」を止めて約3日後にずらした）
+    for r in ([] if promised else tx.all("SELECT relation, last_at FROM salescall.number_last_dial_elsewhere(%s)",
+                                         (task["phone_e164"],))):
         if r["relation"] == "same_tenant":
             gap = timedelta(seconds=int(_setting(tx, "gate.cross_client_interval", task)))
         else:
@@ -306,9 +308,14 @@ def claim(tx: Tx, *, task_id: UUID, line_id: UUID, lease_holder: str) -> Claim |
     except CalendarOutOfRange:
         outcome = _deny("calendar_out_of_range")
     if isinstance(outcome, Denied):
+        # 記録は、その行の断られた理由が変わったときだけ（同じ理由で何度も門へ渡し直しても、行を増やし続けない。⛔ 2026-10-22 の
+        # 見直し：同時の上限のあいだ、数秒ごとに1行ずつ増え、回線100本なら1日に百万行を超えた。理由ごとの数は、断られ始めた回で数える）
+        denied_line = None if outcome.reason == "line_unknown" else line_id
         tx.execute("INSERT INTO salescall.gate_denials (tenant_id, client_id, task_id, line_id, reason)"
-                   " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s)",
-                   (task_id, None if outcome.reason == "line_unknown" else line_id, outcome.reason))
+                   " SELECT salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s"
+                   " WHERE (SELECT d.reason FROM salescall.gate_denials d WHERE d.task_id = %s"
+                   "        ORDER BY d.denial_id DESC LIMIT 1) IS DISTINCT FROM %s",
+                   (task_id, denied_line, outcome.reason, task_id, outcome.reason))
         if outcome.reason in SETTING_GAPS:   # 設定の抜けで待っている：黙って待たせず、契約者に知らせる（止めない。原則6）
             notify.emit(tx, "setting_missing", key=f"gate:{outcome.reason}:{task['client_id']}:{task['run_id']}",
                         summary=SETTING_GAPS[outcome.reason], refs={"client_id": task["client_id"], "run_id": task["run_id"],

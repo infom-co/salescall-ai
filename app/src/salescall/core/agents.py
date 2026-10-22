@@ -85,13 +85,21 @@ def beat(tx: Tx, pc_id: UUID, lines: list[UUID]) -> list[UUID] | None:
     return tx.one("SELECT salescall.agent_beat(%s, %s::uuid[]) AS kept", (pc_id, list(lines)))["kept"]
 
 
-def watch_down(tx: Tx) -> list[UUID]:
+def watch_down(tx: Tx, *, alive: frozenset[UUID] = frozenset(), listening_for: float | None = None) -> list[UUID]:
     """取引の契約者の PC のうち、合図が途切れたものを、その契約者と管理者へ知らせる（1回の途切れに1回。合図が一度も無い PC は、
-    払い出してから同じ長さで数える）。知らせた PC を返す。"""
+    払い出してから同じ長さで数える）。知らせた PC を返す。判断はこの1か所：
+    - alive＝いまつなぎ口につないでいる PC（動いている。データベースが止まっていて合図を書けなかった間も、途切れとしない）
+    - listening_for＝つなぎ口が待ち受けを始めてからの秒数（その長さが途切れの長さに足りないあいだは、だれも途切れとしない＝見守り役
+      が立ち上がった直後は、PC がつなぎ直す前に「途切れた」と誤って知らせない）。None＝つなぎ口が無い（合図の記録だけで見る）
+    ⛔ 2026-10-22 の見直し：前は、見守り役やデータベースが数分止まったあと、元気な PC まで「途切れた」とすべての契約者と管理者へ
+    知らせた。"""
     after = timedelta(seconds=int(settings.system_value(tx, "pc.down_after")))
+    if listening_for is not None and listening_for < after.total_seconds():
+        return []
     down = []
     for pc in tx.all("SELECT pc_id, label, coalesce(last_seen_at, issued_at) AS since FROM salescall.pc_agents"
-                     " WHERE revoked_at IS NULL AND coalesce(last_seen_at, issued_at) < now() - %s ORDER BY pc_id", (after,)):
+                     " WHERE revoked_at IS NULL AND coalesce(last_seen_at, issued_at) < now() - %s AND NOT pc_id = ANY(%s::uuid[])"
+                     " ORDER BY pc_id", (after, list(alive))):
         if notify.emit(tx, "pc_down", key=f"pc_down:{pc['pc_id']}:{pc['since'].isoformat()}", summary=DOWN,
                        refs={"pc_id": pc["pc_id"], "pc": pc["label"], "since": pc["since"]}, admin=True, contractor=True):
             down.append(pc["pc_id"])

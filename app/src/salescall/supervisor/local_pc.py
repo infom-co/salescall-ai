@@ -28,10 +28,7 @@ def ensure(app: Access, cfg: Config) -> bool:
     """移る間の形なら、この機械の PC の部品に、使える通行証があるようにする。新しく入れたら True。"""
     if not cfg.local_only or cfg.admin_tenant is None:
         return False
-    try:
-        kept = pass_file.load()
-    except Exception:  # noqa: BLE001 読めない通行証（壊れた・Windows の利用者が違う）は、無いものとして入れ直す
-        kept = None
+    kept = pass_file.load()   # 読めない通行証は無いもの（pass_file の1か所）＝入れ直す
     mine = kept is not None and kept.tenant_id == cfg.admin_tenant
     if mine and app.in_system(ACTOR, lambda tx: agents.identify(tx, kept.token)) is not None:
         return False

@@ -83,7 +83,32 @@ def approve(tx: Tx, order_id: int) -> None:
         raise LookupError(f"そのお詫びの案は無い（または、取引の範囲の外）：{order_id}")
     tx.execute("INSERT INTO salescall.apology_approvals (tenant_id, client_id, order_id, approved_by)"
                " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, salescall.cur_actor())", (order_id,))
-    next_action.schedule_apology(tx, o["task_id"], o["contact_id"], cause=f"お詫びの電話の承認（案 {order_id}）")
+    schedule_if_ready(tx, o["task_id"])
+
+
+def schedule_if_ready(tx: Tx, task_id: UUID) -> bool:
+    """承認されたお詫びの案があれば、お詫びの電話の予定を書く（1回だけ。書いたら True）。予定を書くのはここの1か所：承認したとき
+    と、誤った通話の締め・判定し直しのあと（core/settle.py）。書かないのは次のとき（⛔ 2026-10-22 の見直し：前は承認したときに
+    すぐ書いていたので、判定待ち＝断ったかが決まっていない行の予定を「いまお詫び」に替え、断ったかもしれないお客様へかけ、
+    あとで判定し直す道も消していた）：
+    - 誤った通話の判定がまだ無い（締めが済んでいない）・その行が判定待ち（断ったかを決められない）
+    - 誤った通話でお客様が発信を断った（もうかけない）"""
+    row = tx.one("SELECT o.order_id, o.source_attempt_id, a.contact_id, p.approved_at"
+                 " FROM salescall.apology_orders o JOIN salescall.apology_approvals p ON p.order_id = o.order_id"
+                 " JOIN salescall.attempts a ON a.attempt_id = o.source_attempt_id"
+                 " WHERE o.task_id = %s ORDER BY o.order_id DESC LIMIT 1", (task_id,))
+    if row is None:
+        return False
+    if tx.one("SELECT 1 AS x FROM salescall.task_next_actions WHERE task_id = %s AND purpose = 'apology' AND decided_at >= %s",
+              (task_id, row["approved_at"])) is not None:
+        return False   # もう書いた（そのあとの動きは、お詫びの電話の締めが決める）
+    judged = tx.one("SELECT business_state::text AS state FROM salescall.call_judgements WHERE attempt_id = %s",
+                    (row["source_attempt_id"],))
+    current = next_action.current(tx, task_id)
+    if judged is None or judged["state"] in ("unknown", "do_not_call") or (current is not None and current["kind"] == "hold"):
+        return False
+    next_action.schedule_apology(tx, task_id, row["contact_id"], cause=f"お詫びの電話の承認（案 {row['order_id']}）")
+    return True
 
 
 def for_task(tx: Tx, task_id: UUID) -> dict[str, Any] | None:

@@ -10,10 +10,16 @@
 
 from __future__ import annotations
 
-from salescall.core.access import Access, Actor, unreachable
+import threading
+from collections import Counter
+
+from salescall.core.access import Access, Actor, busy, unreachable
 from salescall.core.errors import ErrorReport
 
 ACTOR = Actor("見守り役", "system")
+# 混雑（共有のつなぎの空き待ちの時間切れ）で記録できなかった誤り：仕事の名前 → 回数。空いたときに、まとめて記録する（flush_busy）
+_BUSY: Counter[str] = Counter()
+_BUSY_LOCK = threading.Lock()
 
 
 def report(access: Access, tenant_id: object, what: str, error: BaseException, *, line_id: object = None) -> None:
@@ -21,9 +27,29 @@ def report(access: Access, tenant_id: object, what: str, error: BaseException, *
     （お客様の情報・接続先が入りうる。渡すのは、どの仕事か と誤りの種類の名前だけ＝控えと同じ決まり）。記録できなくても止めない。"""
     if unreachable(error):   # データベースに届かない誤りは、データベースに記録できない（記録しに行って、さらに待たない）
         return
+    if busy(error):   # 混雑：いまは記録しに行かない（さらに埋める）。数えておき、空いたときにまとめて記録する（消さない）
+        with _BUSY_LOCK:
+            _BUSY[what] += 1
+        return
     try:
         from salescall.core import watch   # 見守り役の部品を読むときに、watch の読み込みを先にしない
         watch.after_error(access, ACTOR, ErrorReport("supervisor", None, f"{what}：{type(error).__name__}"),
                           tenant_id=tenant_id, line_id=line_id)
     except Exception:  # noqa: BLE001 データベースに届かないときも、見守り役は止めない（サーバーの記録には残る）
         pass
+
+
+def flush_busy(access: Access) -> None:
+    """混雑で記録できなかった誤りを、まとめて記録する（本体の繰り返しが呼ぶ。CL-2 へ修正依頼＝つなぎの数が足りない）。"""
+    with _BUSY_LOCK:
+        waiting = dict(_BUSY)
+        _BUSY.clear()
+    for what, n in waiting.items():
+        try:
+            from salescall.core import watch
+            watch.after_error(access, ACTOR, ErrorReport("supervisor", None, f"{what}：共有のつなぎの混雑（{n} 回）"),
+                              tenant_id=None, line_id=None)
+        except Exception as e:  # noqa: BLE001 まだ混んでいる・届かない：数を戻して、次の回にまた試す
+            if busy(e) or unreachable(e):
+                with _BUSY_LOCK:
+                    _BUSY[what] += n

@@ -8,8 +8,12 @@
 from __future__ import annotations
 
 import sys
+import time
 
 from salescall.supervisor import config, main
+
+
+RESTART_WAIT = 30   # 思いがけない誤りのあと、動き直すまでの長さ（秒）
 
 
 def run(argv: list[str]) -> int:
@@ -18,12 +22,18 @@ def run(argv: list[str]) -> int:
         print("\n".join(config.status()))
         return 0
     if command == "run":
-        try:
-            main.serve(config.load())
-        except (config.ConfigMissing, main.AlreadyRunning) as e:
-            print(str(e))
-            return 1
-        return 0
+        while True:
+            try:
+                main.serve(config.load())
+                return 0
+            except (config.ConfigMissing, main.AlreadyRunning) as e:
+                print(str(e))
+                return 1
+            except KeyboardInterrupt:
+                return 0
+            except Exception as e:  # noqa: BLE001 思いがけない誤りでも、見守り役を終わらせない（間をあけて動き直す＝PC の部品と同じ）
+                print(f"思いがけない誤り（{type(e).__name__}）。しばらくして動き直します")
+                time.sleep(RESTART_WAIT)
     print("使い方：python -m salescall.supervisor [run | status]")
     return 2
 

@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 from uuid import UUID
 
-from salescall.core import agents, answer_rate, backup, calendar, leases, measure, settle, usage, watch
+from salescall.core import agents, answer_rate, attempts, backup, calendar, leases, measure, settle, usage, watch
 from salescall.core.access import Access
 from salescall.supervisor import ACTOR, config, plugins, report
 from salescall.supervisor.links import Links
@@ -113,6 +113,12 @@ def verify_pending(ctx: Context) -> None:
     ctx.part(ctx.cfg.verifier).run_pending(ctx.access, ACTOR, tenant_id=ctx.tenant_id)
 
 
+def verify_watch(ctx: Context) -> None:
+    """通話後の検証が止まっている通話に気づく（検証の部品の有無に関係なく動く＝検証の仕事とは別の仕事。CL-1 へ修正依頼）。"""
+    _each(ctx, "通話後の検証の見張り", _clients(ctx),
+          lambda c: ctx.access.in_client(ACTOR, ctx.tenant_id, c, attempts.watch_stuck_verifications))
+
+
 def _probe(ctx: Context, run: Callable[[Callable[[Any], Any]], Any]) -> None:
     prober = ctx.part(ctx.cfg.prober)
     def one(stop: dict[str, Any]) -> None:
@@ -178,7 +184,8 @@ def whole_backup(ctx: Context) -> None:
 
 def pc_watch(ctx: Context) -> None:
     """その契約者の PC（PC の部品）からの合図が途切れたら、その契約者と管理者へ知らせる（DESIGN.md 5-5。止めない）。"""
-    ctx.access.in_tenant(ACTOR, ctx.tenant_id, agents.watch_down)
+    alive, listening_for = ctx.links.connected()
+    ctx.access.in_tenant(ACTOR, ctx.tenant_id, lambda tx: agents.watch_down(tx, alive=alive, listening_for=listening_for))
 
 
 # 仕事の表（1か所）。なぜその間隔か：
@@ -193,6 +200,7 @@ def pc_watch(ctx: Context) -> None:
 # - answer_rates：応答率の低下は、その日のうちに気づけばよい（1回線1日1回知らせる）。30分の遅れは問題にならない
 # - backups：提出用を数分ごとに写す（2026-10-17 ユーザー：Fly.io に残さない）。AI用は backup が1日1回にする
 # - pc_watch：PC の合図の途切れ（pc.down_after＝初め3分）に、1分の遅れで気づく
+# - verify_watch：通話後の検証が止まっている（録音を待つ時間＋1時間）ことに、10分の遅れで気づく（修正依頼は同じ不具合で1つ）
 # - whole_backup：数分ごとに見て、backup が1日1回にする（失敗したら1時間あけてやり直す）
 # - lasting_stops・system_lasting_stops：止まったまま1時間続いた停止の修正依頼（確かめの部品が無くても動く。依頼は同じ不具合で1つ）
 # - backup_watch・whole_backup_watch：控えが1日以上取れていないことに気づく（取る仕事は設定が無いと動かないので、別の仕事にする）。
@@ -207,7 +215,7 @@ JOBS: tuple[Job, ...] = (
     Job("answer_rates", 1800, "tenant", 600, answer_rates),
     Job("budget", 60, "tenant", 600, budget),
     Job("system_stop_checks", 30, "system", 600, system_stop_checks, wanted=lambda cfg: cfg.prober is not None),
-    Job("holidays", 3600, "system", 600, holidays),
+    Job("holidays", 86400, "system", 600, holidays),   # 1日1回（⛔ 2026-10-22 の見直し：1時間ごとで、翌年の分が載るまで毎時間取りに行った）
     Job("backups", 300, "tenant", 4 * 3600, backups, heavy=True),
     Job("whole_backup", 300, "system", 4 * 3600, whole_backup, wanted=lambda cfg: cfg.whole_backup, heavy=True),
     Job("backup_watch", 3600, "tenant", 600, backup_watch),
@@ -215,6 +223,7 @@ JOBS: tuple[Job, ...] = (
     Job("system_lasting_stops", 300, "system", 600, system_lasting_stops),
     Job("whole_backup_watch", 3600, "system", 600, whole_backup_watch),
     Job("pc_watch", 60, "tenant", 300, pc_watch),
+    Job("verify_watch", 600, "tenant", 300, verify_watch),
 )
 
 
@@ -228,7 +237,11 @@ def _in_scope(ctx: Context, job: Job, work: Callable[[Any], Any]) -> Any:
 def run_job(ctx: Context, job: Job) -> bool:
     """1つの仕事を1回する（契約者ごとの仕事は ctx の契約者の分。借りられなければ、しない）。したら True。"""
     key = job.key(ctx.tenant_id)
-    if not _in_scope(ctx, job, lambda tx: leases.take_job(tx, key, ctx.holder, job.lease)):
+    try:   # 借りる所の誤りも記録する（⛔ 2026-10-22 の見直し：外へ出て、だれも読まずに消えていた）
+        if not _in_scope(ctx, job, lambda tx: leases.take_job(tx, key, ctx.holder, job.lease)):
+            return False
+    except Exception as e:  # noqa: BLE001
+        report(ctx.access, ctx.tenant_id, job.name, e)
         return False
     try:
         job.work(ctx)

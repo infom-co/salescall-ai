@@ -103,6 +103,24 @@ class Apology(Helpers):
         m = self.tx(s, lambda tx: reward.month(tx))
         self.assertEqual(m["breakdown"]["dial"]["count"], 1)           # 報酬にも数えない（こちらの誤りのため）
 
+    def test_an_apology_waits_until_the_call_is_judged_and_is_not_made_if_the_customer_refused(self):
+        """言ってはいけないことを言い、しかも断ったかを決められない（判定待ち）通話：お詫びを承認しても、すぐかけない。録音から作り
+        直した報告で「断っていた」と分かれば、お詫びもかけず、発信禁止に入れる（⛔ 2026-10-22 の見直し：前は承認で判定待ちの予定を
+        「いまお詫び」に替え、断ったかもしれないお客様へかけ、判定し直す道も消していた）。"""
+        from salescall.core import call_report, dnc, next_action, settle
+        from tests.support import said
+        s = self.fresh(stage_cap=20)
+        aid = self.call(s, report=rep(cut=None), verify=None)                   # 切れ方の材料が無い＝断ったかを決められない
+        self.tx(s, lambda tx: attempts.record_verification(tx, aid, summary=said()))
+        self.assertEqual(self.settle(s, aid)["state"], "unknown")
+        self.order(s, aid)
+        self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["kind"], "hold")   # 判定待ちのまま
+        self.tx(s, lambda tx: call_report.save_rebuilt(tx, aid, rep(dnc_=True), evidence="試験：録音から"))
+        self.tx(s, settle.rejudge_held)
+        self.assertIsNotNone(self.tx(s, lambda tx: dnc.lookup(tx, s["phone"])))
+        cur = self.tx(s, lambda tx: next_action.current(tx, s["task"]))
+        self.assertEqual((cur["kind"], cur["purpose"]), ("end", None))       # 断った：お詫びもかけない
+
     def test_an_apology_to_another_person_is_not_delivered(self):
         """判定なしで繋いだ方に伝えたが、確かめ直しで別の方だった：伝えていない側に倒す（目的のお客様へは届いていない。
         2026-10-22 の見直しで、壊しても落ちる試験を足した）。"""

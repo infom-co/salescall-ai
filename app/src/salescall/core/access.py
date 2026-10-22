@@ -35,7 +35,7 @@ import psycopg
 import psycopg.conninfo
 from psycopg import IsolationLevel, errors
 from psycopg.rows import dict_row
-from psycopg_pool import ConnectionPool
+from psycopg_pool import ConnectionPool, PoolTimeout
 
 T = TypeVar("T")
 
@@ -161,6 +161,23 @@ def _pool(conninfo: str) -> ConnectionPool:
         return got
 
 
+@contextmanager
+def _connection(conninfo: str) -> Iterator[psycopg.Connection]:
+    """共有のつなぎを1本借りる。空き待ちの時間切れは、つなぎがすべて使われていれば混雑（PoolBusy）、そうでなければ届かない。"""
+    pool = _pool(conninfo)
+    try:
+        conn = pool.getconn()
+    except PoolTimeout as e:
+        stats = pool.get_stats()
+        if stats.get("pool_size", 0) >= POOL_MAX and stats.get("pool_available", 0) == 0:
+            raise PoolBusy(f"共有のつなぎ {POOL_MAX} 本がすべて使われていて、{POOL_WAIT:g} 秒で空きませんでした") from e
+        raise
+    try:
+        yield conn
+    finally:
+        pool.putconn(conn)
+
+
 @atexit.register
 def _close_pools() -> None:
     with _POOLS_LOCK:
@@ -170,10 +187,20 @@ def _close_pools() -> None:
         got.close(timeout=5)
 
 
+class PoolBusy(psycopg.OperationalError):
+    """データベースには届いているが、共有のつなぎがすべて使われていて、POOL_WAIT 秒待っても空かなかった（混雑）。"""
+
+
 def unreachable(error: BaseException) -> bool:
     """データベースに届かない誤りか（つなぎに行けない・待ち過ぎ・つなぎが切れた。判断はこの1か所）。届かない誤りは、データベースに記録
-    できないので、記録しに行って待たない（呼ぶ側）。"""
-    return isinstance(error, psycopg.OperationalError) and not isinstance(error, _CONFLICTS)
+    できないので、記録しに行って待たない（呼ぶ側）。つなぎの空き待ちの時間切れ（混雑＝`busy`）は届かないに入れない（⛔ 2026-10-22
+    の見直し：同じに扱っていたので、つなぎが一瞬埋まっただけで、すべての回線の流れを止め、記録も残さなかった）。"""
+    return isinstance(error, psycopg.OperationalError) and not isinstance(error, (_CONFLICTS, PoolBusy))
+
+
+def busy(error: BaseException) -> bool:
+    """共有のつなぎの空き待ちの時間切れか（混雑。データベースには届いている。判断はこの1か所）。"""
+    return isinstance(error, PoolBusy)
 
 
 class Access:
@@ -208,7 +235,7 @@ class Access:
              read_only: bool = False) -> T:
         for attempt in range(self._max_attempts):
             try:
-                with _pool(self._conninfo).connection() as conn:
+                with _connection(self._conninfo) as conn:
                     conn.isolation_level = IsolationLevel.REPEATABLE_READ if read_only else IsolationLevel.SERIALIZABLE
                     conn.read_only = read_only
                     with conn.transaction():

@@ -64,6 +64,7 @@ class _Session:
     flows: dict[UUID, "_Flow"] = field(default_factory=dict)  # 送っている控え → PC が書けた数
     order: asyncio.Lock = field(default_factory=asyncio.Lock)   # 合図と緊急停止は、届いた順に1つずつ（データベースを待つあいだも声は止めない）
     tasks: set[asyncio.Task] = field(default_factory=set)
+    next_beat: dict[str, Any] | None = None                    # まだ扱っていない、いちばん新しい合図（溜めない）
     # かけてから切れるまでの回線（「かけて」を頼んでから、切る・おわびして切る・「通話中ではない」の答えまで）。呼び出しのあいだの
     # ように声が流れなくても通話中とみなす（⛔ 2026-10-22 の見直し：声の有無だけで決めると、呼び出しが5秒を超えたあいだに控えを
     # まとめて送り、お客様が出た直後の AI の声がその後ろで待った）
@@ -138,6 +139,11 @@ class Hub:
             self.error = e
         finally:
             self._ready.set()
+            try:   # この流れのデータベースを待つ流れの組を片付ける（動かし直すたびに残さない）
+                self.loop.run_until_complete(self.loop.shutdown_default_executor())
+                self.loop.close()
+            except Exception:  # noqa: BLE001
+                pass
 
     async def _serve(self) -> None:
         host, port = self.cfg.listen or ("127.0.0.1", 0)
@@ -145,6 +151,7 @@ class Hub:
         async with serve(self._handle, host, port, max_size=p.MAX_FRAME, compression=None,
                          ping_interval=p.PING_EVERY, ping_timeout=p.PING_EVERY) as server:
             self.port = server.sockets[0].getsockname()[1]
+            self.listening_since = time.monotonic()
             self._ready.set()
             await self._stop.wait()
         rest = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
@@ -154,8 +161,11 @@ class Hub:
 
     def close(self) -> None:
         self.closing = True
-        if self.loop is not None and self._stop is not None:
-            self.loop.call_soon_threadsafe(self._stop.set)
+        if self.loop is not None and self._stop is not None and not self.loop.is_closed():
+            try:
+                self.loop.call_soon_threadsafe(self._stop.set)
+            except RuntimeError:   # ちょうど流れが終わって閉じた：もう止まっている
+                pass
         if self._thread is not None:
             self._thread.join(10)
 
@@ -246,8 +256,14 @@ class Hub:
             return
         msg = p.loads(message, p.PC_TO_SERVER - {"hello"})
         kind = msg["t"]
-        if kind in ("beat", "emergency"):   # データベースを待つ：別に動かす（届いた順に1つずつ）
-            task = asyncio.get_running_loop().create_task(self._in_order(session, msg))
+        if kind == "beat" and session.next_beat is not None:
+            # まだ扱っていない合図があれば、いちばん新しいものに置き換える（データベースが遅いあいだ、PC ごとに溜め続けない。
+            # 合図は、そのときの状態を丸ごと運ぶので、古いものは要らない＝⛔ 2026-10-22 の見直し）
+            session.next_beat = msg
+        elif kind in ("beat", "emergency"):   # データベースを待つ：別に動かす（届いた順に1つずつ）
+            if kind == "beat":
+                session.next_beat = msg
+            task = asyncio.get_running_loop().create_task(self._in_order(session, None if kind == "beat" else msg))
             session.tasks.add(task)
             task.add_done_callback(session.tasks.discard)
         elif kind in ("reply", "backup_done"):
@@ -270,9 +286,14 @@ class Hub:
         got = sinks.get(line) if line is not None and line in session.lines else None
         return got[1] if got is not None and got[0] == session.conn else None
 
-    async def _in_order(self, session: _Session, msg: dict[str, Any]) -> None:
+    async def _in_order(self, session: _Session, msg: dict[str, Any] | None) -> None:
+        """合図（msg=None＝その順番が来たときの、いちばん新しい合図）と緊急停止を、届いた順に1つずつ。"""
         try:
             async with session.order:
+                if msg is None:
+                    msg, session.next_beat = session.next_beat, None
+                    if msg is None:
+                        return
                 if msg["t"] == "emergency":
                     await self._emergency(session, msg)
                 elif await self._beat(session, msg) is not None:
@@ -398,6 +419,13 @@ class Hub:
             got = sorted((s for s in self.sessions.values() if s.who.tenant_id == tenant_id), key=lambda s: s.conn)
         ready = [s for s in got if s.drive and s.key] or got
         return RemoteWriter(self, ready[0]) if ready else None
+
+    def connected(self) -> tuple[frozenset[UUID], float | None]:
+        """いまつないでいる PC と、待ち受けを始めてからの秒数（待ち受けていなければ 0）。"""
+        with self.lock:
+            pcs = frozenset(self.sessions)
+        since = getattr(self, "listening_since", None)
+        return pcs, (0.0 if since is None or not self.running() else time.monotonic() - since)
 
     def whole_writer(self) -> "RemoteWriter | None":
         """データベース全体の控えを書く PC：サーバーの設定で決めた契約者（管理者自身の契約者）の PC だけ（すべての契約者のデータが入る）。"""

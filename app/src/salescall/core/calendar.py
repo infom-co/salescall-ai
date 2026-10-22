@@ -24,7 +24,7 @@ import urllib.request
 from collections.abc import Callable
 from datetime import date, datetime, timedelta
 
-from salescall.core import notify
+from salescall.core import fix_requests, notify
 from salescall.core.access import Access, Actor, Tx
 
 OFFICIAL_URL = "https://www8.cao.go.jp/chosei/shukujitsu/syukujitsu.csv"   # 内閣府「国民の祝日について」の公式の一覧
@@ -110,7 +110,27 @@ def _sync(access: Access, actor: Actor, fetch: Callable[[], bytes]) -> dict:
         except CalendarRejected as e:
             raise CalendarSyncFailed(f"公式の一覧として取り込めませんでした：{e}") from None
         return {"loaded": True, **result}
-    return access.in_system(actor, work)
+    out = access.in_system(actor, work)
+    access.in_system(actor, _warn_next_year)
+    return out
+
+
+WARN_FROM_MONTH = 11   # この月からも翌年の分が公式の一覧に無ければ、年が替わる前に知らせる（ふつうは年の初めに翌年の分が載る）
+
+
+def _warn_next_year(tx: Tx) -> None:
+    """翌年の分がまだ入っていない年末：管理者へ知らせ、CL-2 へ修正依頼を出す（1日1回・同じ不具合で1つ）。⛔ 2026-10-22 の見直し：
+    中身が前と同じだと何も出ず、1月1日になって初めて、門がすべての電話を通さなくなった。"""
+    row = tx.one("SELECT (SELECT max(last_year) FROM salescall.calendar_loads) AS covered, salescall.jst(now())::date AS today")
+    today = row["today"]
+    if today.month < WARN_FROM_MONTH or (row["covered"] is not None and row["covered"] >= today.year + 1):
+        return
+    summary = (f"祝日の公式の一覧に、まだ {today.year + 1} 年の分がありません。このまま年が替わると、祝日が分からないので"
+               "電話をかけません（毎日取りに行っています）。")
+    notify.emit(tx, "calendar_next_year_missing", key=f"calendar_next_year_missing:{today}", admin=True, contractor=False,
+                summary=summary)
+    fix_requests.request(tx, "CL-2", "calendar_next_year_missing", key=f"calendar_next_year_missing:{today.year + 1}",
+                         summary=summary)
 
 
 def load_official_csv(tx: Tx, data: bytes, *, must_cover: int | None = None) -> dict:

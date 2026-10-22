@@ -40,6 +40,10 @@ class Links(Protocol):
         """データベース全体の控えを書く PC の部品（サーバーの設定で決めた、管理者自身の契約者の PC。つないでいなければ None）。"""
         ...
 
+    def connected(self) -> tuple[frozenset[UUID], float]:
+        """いまつないでいる PC と、つなぎ口が待ち受けを始めてからの秒数（PC の合図の途切れの見張りが読む＝agents.watch_down）。"""
+        ...
+
 
 class NoLinks:
     """PC の部品がつながっていない（つなぎ口を開かない動かし方・試験）。"""
@@ -55,3 +59,6 @@ class NoLinks:
 
     def whole_writer(self) -> Writer | None:
         return None
+
+    def connected(self) -> tuple[frozenset[UUID], float | None]:
+        return frozenset(), None   # つなぎ口が無い：分からない（合図の記録だけで見る）

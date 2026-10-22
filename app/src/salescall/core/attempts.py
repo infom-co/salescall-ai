@@ -12,10 +12,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import Any, Literal
 from uuid import UUID
 
-from salescall.core import business_rules, number_recheck, settings, target_recheck, watch
+from salescall.core import business_rules, fix_requests, number_recheck, settings, target_recheck, watch
 from salescall.core.access import Tx
 from salescall.core.errors import ErrorReport
 
@@ -32,7 +33,7 @@ DIALED = dialed()
 def placed(table: str = "") -> str:
     """発信まで進み、回線の側でかけられなかった（call_failed）ものを除いた試行の条件（SQL。1か所）。お客様のところで電話が
     鳴った（鳴りえた）電話：約束の回に「かけたか」・その回にかけた数・時刻の決まっていない約束の電話の数は、どれもこれを使う。"""
-    return f"{dialed(table)} AND {table + '.' if table else ''}state <> 'call_failed'"
+    return f"salescall.is_placed({table + '.' if table else ''}state)"   # 決まりはデータベースの1か所（0109）
 
 # 回線の部品と復旧が移してよい先（予約 → 発信・予約の取り消しは、それぞれ専用の処理だけ）
 LineState = Literal["ringing", "answered", "in_conversation", "ending", "ended",
@@ -146,6 +147,23 @@ def record_verification(tx: Tx, attempt_id: UUID, *, summary: VerificationSummar
     )
     if row is None:
         raise AttemptNotFound(str(attempt_id))
+
+
+STUCK_AFTER = timedelta(hours=1)   # 通話の終わりから、録音を待つ時間にこれを足しても検証が済まなければ「止まっている」
+
+
+def watch_stuck_verifications(tx: Tx) -> int:
+    """取引の依頼者の通話で、通話後の検証が止まっているもの（録音を待つ時間＋1時間たっても「待ち」）を数え、あれば CL-1 へ修正依頼を
+    出す（同じ不具合は直したと報告するまで1つ。⛔ 2026-10-22 の見直し：検証の部品が動かないと、行もお客様も待ち続け、だれも
+    気づかなかった）。数を返す。"""
+    wait = timedelta(seconds=int(settings.system_value(tx, "verification.recording_wait"))) + STUCK_AFTER
+    row = tx.one("SELECT count(*) AS n, min(ended_at) AS oldest FROM salescall.attempts"
+                 " WHERE verification = 'pending' AND ended_at < now() - %s", (wait,))
+    if row["n"]:
+        fix_requests.request(tx, "CL-1", "verification_stuck", key="verification_stuck",
+                             summary="通話後の検証が終わらない通話があります。その行とお客様は、検証が済むまでかけられません",
+                             refs={"count": row["n"], "oldest_ended_at": row["oldest"]})
+    return row["n"]
 
 
 class RecordingWaitNotOver(Exception):
