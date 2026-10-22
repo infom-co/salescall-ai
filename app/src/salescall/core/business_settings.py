@@ -43,8 +43,10 @@ END = "END"                                       # 分岐の行き先「終わ�
 # 質問の番号に使えない名前（1か所）。質問の番号は、会話の側で、かけ直しの質問の番号（phase0/flowctl.py の CALLBACK_IDS）と同じ並びに
 # 入り、録音の部品の名前（質問の録音は質問の番号。名乗り・締めなどは instruction.Business.replay_parts と flowctl の締めの名前）にも
 # なるので、同じ名前だと取り違える（見直し9）。会話の側に名前が増えたら、ここに足す（CL-2.md 4-121 で CL-1 へ頼んだ）。
-RESERVED_IDS = frozenset({END, "C1", "C2", "greeting", "intro", "purpose", "ai", "target", "target_confirm", "voicemail",
-                          "closing", "closing_declined"})
+RESERVED_IDS = frozenset({END, "C1", "C2", "C3", "C4", "C5", "M1", "S1", "greeting", "intro", "purpose", "ai", "target",
+                          "target_confirm", "voicemail", "message", "closing", "closing_declined"})
+# C3〜C5・M1・S1＝かけ直しの申し出・代わりの方でシステムが足す質問の番号（メール・ファクス・住所・伝言・お立場）、message＝伝言の文の
+# 録音の部分（依頼者の単位）。2026-10-22 CL-1 の連絡帳 4-28 で増えた
 ANY = "*"                                         # 分岐の受け皿（ほかのどの答えでも）
 SYSTEM_CHOICES = ("わからない", "答えたくない")      # システムがどの質問にも足す答え（CL-1 の連絡帳 2-1。名前の正本はここ）
 ANY_CHOICE = "どちらでも"                          # 決まった選択肢（choice）の質問にだけシステムが足す答え：お客様がこちらに任せた
@@ -72,8 +74,11 @@ ANSWER_KEYS = {"name", "text"}                    # 想定問答の1つ：問い
 # CL-1 の flowctl.RESERVED_PART_NAMES＝PART_LABEL の鍵と値）。会話の側は、同じ名前の問いがあると通話を始めない（ValueError）ので、
 # 業務設定の確かめで先に断る（⛔ 2026-10-22 の見直し13：前は中の名前だけで、「用件」などが確かめを通り、その版の通話がすべて
 # 会話を始めるところで落ちた）。会話の側に名前が増えたら、ここに足す（CL-2.md 4-129）
-ANSWER_RESERVED = frozenset({"intro", "purpose", "all", "handover", "ai", "resume", "unknown",
-                             "名乗り", "用件", "最初から", "代わった方へ", "エーアイか聞かれた", "質問に戻る", "答えられない質問"})
+# ⇒ 2026-10-22 CL-1 の連絡帳 4-28：「答えられない質問」（unknown）は取り下げ、AI が自分の言葉で答える「自分で答える質問」（own）・
+# 「答えを持っていない質問」（no_answer）に替わった
+ANSWER_RESERVED = frozenset({"intro", "purpose", "all", "handover", "ai", "resume", "own", "no_answer",
+                             "名乗り", "用件", "最初から", "代わった方へ", "エーアイか聞かれた", "質問に戻る", "自分で答える質問",
+                             "答えを持っていない質問"})
 ANSWER_NAME_MAX = 30                              # 問いの名前の長さの上限（録音のファイル名に入る）
 _FILE_UNSAFE = re.compile(r'[\\/:*?"<>|\x00-\x1f]')    # Windows のファイル名に使えない文字
 
@@ -145,6 +150,13 @@ class Settings:
     names: tuple[Name, ...]
     rules: business_rules.Rules | None            # 業務の決まり（版を作るまでは None。版の番号が要るため）
     raw: dict[str, Any]                           # 受けた形のまま（新しい版を作る＝戻すときに使う）
+    # 相手の申し出への応じ方と業務の情報（CL-1 の連絡帳 4-28・2-1 の版 0.5。✅ 2026-10-22 ユーザー決定。書かなければ既定＝POLICIES の最初）
+    substitute_policy: str = "decision_maker"     # 代わりの方：判断いただけるお立場の方なら話す／目的のお客様だけ／どなたでも
+    message_policy: str = "decline"               # 伝言：お礼を言って断り、戻る時刻を聞く／伝言を残す
+    message: str | None = None                    # 伝言の文（伝言を残す業務は必ず要る。依頼者の単位の録音＝名乗りの部分 message）
+    departed_policy: str = "successor"            # 在籍していない：後任の方をお呼びする／お礼を言って終える
+    info: tuple[str, ...] = ()                    # 業務の情報（AI が自分の言葉で答える材料。1つに1文。無くてもよい）
+    follow_up: bool = False                       # 担当から改めて連絡すると申し出てよいか（既定はいいえ＝約束しない）
 
     def target_needs(self) -> TargetNeeds:
         """目的のお客様を呼ぶのに、発信対象の一覧から何が要るか（決め方はここだけ。取込・版の割り当て・門が使う）。
@@ -166,6 +178,11 @@ class Settings:
 
 KEYS = {"purpose", "target_class", "caller", "target_person", "busy_line", "voicemail_message", "ai_answer", "answers", "voice",
         "questions", "names", "rules"}
+# 相手の申し出への応じ方（CL-1 の flowctl.POLICIES と同じ値。最初が既定＝2026-10-22 ユーザー決定）と、業務の情報（CL-1 の連絡帳 4-28）。
+# 書かなければ既定（ユーザー決定の既定。2026-10-22 より前に作った版にも無い）
+POLICIES = {"substitute_policy": ("decision_maker", "target_only", "anyone"), "message_policy": ("decline", "leave"),
+            "departed_policy": ("successor", "end")}
+RESPONSE_KEYS = {*POLICIES, "message", "info", "follow_up"}
 
 
 def _text(v: Any, where: str, problems: list[str], *, optional: bool = False) -> str | None:
@@ -207,6 +224,32 @@ def _names_entry(x: Any, where: str, problems: list[str], *, ai_reading_needs_pe
         problems.append(f"名前「{x['text']}」の読み「{reading}」は AI が決めた読みです。検証モードでは、契約者が確かめてから使います"
                         "（Intent.md 6-8）")
     return None if text is None else Name(text, reading, x["source"], by, tuple(cands), likely)
+
+
+def _responses(raw: dict[str, Any], problems: list[str]) -> dict[str, Any]:
+    """相手の申し出への応じ方・伝言の文・業務の情報・改めて連絡すると申し出てよいか（確かめはここだけ。CL-1 の flowctl.check_policies と
+    同じ決まり＝選べない値・伝言を残すのに文が無い、を止める）。書かれていない項目は既定（Settings の既定値＝ユーザー決定）。"""
+    out: dict[str, Any] = {}
+    for key, allowed in POLICIES.items():
+        v = raw.get(key, allowed[0])
+        if v not in allowed:
+            problems.append(f"相手の申し出への応じ方「{key}」に「{v}」は選べません（選べるのは {'・'.join(allowed)}）")
+            v = allowed[0]
+        out[key] = v
+    out["message"] = _text(raw.get("message"), "伝言の文", problems, optional=True)
+    if out["message_policy"] == "leave" and out["message"] is None:
+        problems.append("伝言を残す業務（message_policy＝leave）には、伝言の文（message）が要ります")
+    info = raw.get("info", [])
+    if not isinstance(info, list) or not all(isinstance(x, str) and x.strip() for x in info):
+        problems.append("業務の情報（info）は、文の並び（1つに1文。空の文は書かない）です")
+        info = []
+    out["info"] = tuple(x.strip() for x in info)
+    follow_up = raw.get("follow_up", False)
+    if not isinstance(follow_up, bool):
+        problems.append("担当から改めて連絡すると申し出てよいか（follow_up）は true / false です")
+        follow_up = False
+    out["follow_up"] = follow_up
+    return out
 
 
 def _answers(v: Any, problems: list[str]) -> tuple[tuple[str, str], ...]:
@@ -323,8 +366,8 @@ def check(raw: Any, *, field_types: frozenset[str], ai_reading_needs_person: boo
     ai_reading_needs_person：AI の読みの案を、契約者が確かめていなければ通さないか（版を作るときは設定 `ai_reading_needs_person`
     の答え。置いた版を読むときは False＝置いた時に確かめ済み）。合わなければ SettingsInvalid（見つけた理由をすべて並べる）。"""
     problems: list[str] = []
-    if not isinstance(raw, dict) or set(raw) != KEYS:
-        raise SettingsInvalid([f"業務設定は {sorted(KEYS)} の {len(KEYS)} つです"])
+    if not isinstance(raw, dict) or not KEYS <= set(raw) <= KEYS | RESPONSE_KEYS:
+        raise SettingsInvalid([f"業務設定は {sorted(KEYS)} の {len(KEYS)} つと、無くてもよい {sorted(RESPONSE_KEYS)} です"])
     purpose = _text(raw["purpose"], "業務の目的", problems)
     target_class = raw["target_class"]
     if target_class not in TARGET_CLASSES:
@@ -365,6 +408,7 @@ def check(raw: Any, *, field_types: frozenset[str], ai_reading_needs_person: boo
     voicemail_message = _text(raw["voicemail_message"], "留守番電話に残す伝言", problems, optional=True)
     ai_answer = _text(raw["ai_answer"], "「AIですか」と聞かれたときの答え", problems, optional=True)
     answers = _answers(raw["answers"], problems)
+    responses = _responses(raw, problems)
     voice = _text(raw["voice"], "声の型", problems)
     if voice is not None and voice_types is not None and voice not in voice_types:
         problems.append(f"声の型「{voice}」は、声の型の一覧にありません（{sorted(voice_types)}）")
@@ -414,7 +458,8 @@ def check(raw: Any, *, field_types: frozenset[str], ai_reading_needs_person: boo
     if questions and not any(q.required for q in questions):
         problems.append("必須の質問が1つもありません（どんな通話でも「すべて取れた」になる。Intent.md 6-4）")
     s = Settings(purpose or "", target_class if target_class in TARGET_CLASSES else "", company or Name("", None, "caller", None), person or Name("", None, "caller", None), purpose_line,
-                 dict(tp), busy_line, voicemail_message, ai_answer, answers, voice or "", tuple(questions), tuple(names), None, raw)
+                 dict(tp), busy_line, voicemail_message, ai_answer, answers, voice or "", tuple(questions), tuple(names), None, raw,
+                 **responses)
     # 分岐は、すべての質問が読めたときだけ確かめる（読めなかった質問を除いて確かめると「分岐先がありません」などのうその理由が出る）
     if questions and len(questions) == len(raw["questions"]) and len({q.id for q in questions}) == len(questions):
         problems += _flow_problems(s, raw["rules"])

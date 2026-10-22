@@ -291,6 +291,28 @@ class Import(unittest.TestCase):
         self.assertTrue(any("回数（1以上の数）" in x for x in p.problems), p.problems)
         self.assertFalse(any("初めの値" in x for x in p.notes), p.notes)
 
+    def test_responses_to_callee_offers_are_read_from_the_basic_sheet(self):
+        """シート「基本」の、相手の申し出への応じ方・伝言の文・業務の情報（1行に1つ）・改めて連絡すると申し出てよいか（CL-1 の連絡帳
+        4-28）。書かなければ入れない（業務設定の確かめが既定にする）。選べない言葉は問題。伝言の文は、名前を洗い出す台本に入る。"""
+        p = self.preview(book())
+        self.assertEqual(p.problems, [])
+        self.assertFalse(set(p.raw) & {"substitute_policy", "message_policy", "message", "departed_policy", "info", "follow_up"})
+        basic = book_rows("基本") + [("代わりの方への応じ方", "目的のお客様だけと話す"), ("伝言への応じ方", "伝言を残す"),
+                                     ("伝言の文", "山田からお電話があったとお伝えいただけますでしょうか？"),
+                                     ("在籍していないときの応じ方", "お礼を言って終える"), ("業務の情報", "営業時間は9時から18時です\n所在地は東京都です"),
+                                     ("担当から改めて連絡すると申し出てよいか", "はい")]
+        p = self.preview(book(sheets={"基本": basic}))
+        self.assertEqual(p.problems, [])
+        self.assertEqual({k: p.raw[k] for k in ("substitute_policy", "message_policy", "message", "departed_policy", "info", "follow_up")},
+                         {"substitute_policy": "target_only", "message_policy": "leave",
+                          "message": "山田からお電話があったとお伝えいただけますでしょうか？", "departed_policy": "end",
+                          "info": ["営業時間は9時から18時です", "所在地は東京都です"], "follow_up": True})
+        self.assertIn("山田からお電話があった", bi._script(p.raw))
+        p = self.preview(book(sheets={"基本": book_rows("基本") + [("代わりの方への応じ方", "上司なら話す")]}))
+        self.assertTrue(any("代わりの方への応じ方" in x for x in p.problems), p.problems)
+        p = self.preview(book(sheets={"基本": book_rows("基本") + [("伝言への応じ方", "伝言を残す")]}))
+        self.assertTrue(any("伝言の文" in x for x in p.problems), p.problems)
+
     def test_problems_found_outside_the_check_are_in_the_digest(self):
         """確かめ（check）の外で見つかった問題（重なった行など。中身には残らない）は指紋に入る：プレビューから問題を消しても
         登録できない（2026-10-17 の見直し）。"""

@@ -222,3 +222,184 @@ class Rejected(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ── main の flowctl（2026-10-22 の3回目。CL-1 の連絡帳 4-28・2-2 の版 0.5）で通話を流して出た報告。相手の申し出（代わりの方・後任の方・
+# 在籍していない・ほかの手段・長期の不在・伝言）と、相手からの質問
+SCENES_428 = {'相手からの質問': {'version': 3,
+             'facts': {'callee_question': [{'turn': 1, 'said': 'はい、予約しています。当日はどなたが担当されるんですか？', 'answered': None}]},
+             'not_reached': None,
+             'cut': None,
+             'apology_delivered': None},
+ '後任の方に繋いだ': {'version': 3,
+              'facts': {'departed': [{'turn': 1,
+                                      'said': '岡田は先月退職いたしました。',
+                                      'policy': 'successor',
+                                      'read': ['ai', 'judge'],
+                                      'successor': False}],
+                        'party': [{'turn': 1, 'said': '岡田は先月退職いたしました。', 'party': 'target', 'by': 'ai'},
+                                  {'turn': 2, 'said': '後任は田中になります。少々お待ちください。', 'party': 'reception', 'by': 'ai'},
+                                  {'turn': 3, 'said': 'お電話代わりました。田中です。', 'party': 'target', 'by': 'ai'}],
+                        'connect': [{'turn': 3,
+                                     'said': 'お電話代わりました。田中です。',
+                                     'read': ['ai', 'judge', 'judge2'],
+                                     'judging': True,
+                                     'who': 'successor'}]},
+              'not_reached': None,
+              'cut': None,
+              'apology_delivered': None},
+ '在籍していない（終える）': {'version': 3,
+                  'facts': {'departed': [{'turn': 1,
+                                          'said': '岡田は退職いたしました。',
+                                          'policy': 'successor',
+                                          'read': ['ai', 'judge'],
+                                          'successor': False},
+                                         {'turn': 2,
+                                          'said': '後任はおりません。',
+                                          'policy': 'successor',
+                                          'read': ['ai', 'judge'],
+                                          'successor': True}],
+                            'end': [{'turn': 2, 'said': '後任はおりません。', 'reason': 'departed'}]},
+                  'not_reached': 'departed',
+                  'cut': None,
+                  'apology_delivered': None},
+ '長期の不在': {'version': 3,
+           'facts': {'callback': [{'turn': 1,
+                                   'said': '岡田は来週いっぱい出張で不在にしております。',
+                                   'why': 'long_absent',
+                                   'read': ['ai', 'judge'],
+                                   'time': '再来週の月曜',
+                                   'number': None}],
+                     'end': [{'turn': 3, 'said': 'はい。', 'reason': 'callback'}]},
+           'not_reached': 'absent',
+           'cut': None,
+           'apology_delivered': None},
+ '伝言を残した': {'version': 3,
+            'facts': {'callback': [{'turn': 1,
+                                    'said': '岡田はただいま外出しております。ご伝言を承りましょうか？',
+                                    'why': 'absent',
+                                    'read': ['ai', 'judge'],
+                                    'offer': 'message',
+                                    'message_left': True,
+                                    'time': None,
+                                    'number': None,
+                                    'message': 'はい'}]},
+            'not_reached': 'absent',
+            'cut': None,
+            'apology_delivered': None},
+ 'ほかの手段（メール）': {'version': 3,
+                'facts': {'callback': [{'turn': 1,
+                                        'said': '営業のお電話はすべてメールでお願いしております。',
+                                        'why': 'other_means',
+                                        'read': ['ai', 'judge'],
+                                        'offer': 'email',
+                                        'email': 'info@example.co.jp'}],
+                          'end': [{'turn': 3, 'said': 'はい。', 'reason': 'other_means'}]},
+                'not_reached': 'other_means',
+                'cut': None,
+                'apology_delivered': None},
+ '代わりの方（お立場を伺って繋いだ）': {'version': 3,
+                       'facts': {'party': [{'turn': 1,
+                                            'said': '岡田はおりませんので代わりにお話をお聞きします。',
+                                            'party': 'substitute',
+                                            'by': 'ai'}],
+                                 'substitute': [{'turn': 1,
+                                                 'said': '岡田はおりませんので代わりにお話をお聞きします。',
+                                                 'policy': 'anyone',
+                                                 'read': ['ai', 'judge']}],
+                                 'connect': [{'turn': 1,
+                                              'said': '岡田はおりませんので代わりにお話をお聞きします。',
+                                              'read': ['ai', 'judge'],
+                                              'judging': False,
+                                              'who': 'substitute'}]},
+                       'not_reached': None,
+                       'cut': None,
+                       'apology_delivered': None},
+ '代わりの方（目的のお客様だけ・戻る時刻）': {'version': 3,
+                          'facts': {'party': [{'turn': 1,
+                                               'said': '岡田はおりませんので代わりにお話をお聞きします。',
+                                               'party': 'substitute',
+                                               'by': 'ai'}],
+                                    'substitute': [{'turn': 1,
+                                                    'said': '岡田はおりませんので代わりにお話をお聞きします。',
+                                                    'policy': 'target_only',
+                                                    'read': ['ai', 'judge']}],
+                                    'callback': [{'turn': 1,
+                                                  'said': '岡田はおりませんので代わりにお話をお聞きします。',
+                                                  'why': 'absent',
+                                                  'read': ['ai', 'judge'],
+                                                  'time': None,
+                                                  'number': None}]},
+                          'not_reached': 'absent',
+                          'cut': None,
+                          'apology_delivered': None}}
+
+
+class Offers428(unittest.TestCase):
+    """CL-1 の連絡帳 4-28 の報告を受け取り、ユーザーの決定（2026-10-22）どおりに読む。"""
+
+    def test_every_report_is_accepted_and_kept(self):
+        for name, raw in SCENES_428.items():
+            with self.subTest(name):
+                r = from_json(raw)
+                self.assertEqual(from_json(r.to_json()), r)
+                kept = r.to_json()["facts"]                                    # 受けた事実の項目と値を落とさない
+                self.assertEqual(set(kept), set(raw["facts"]))
+                for kind, rows in raw["facts"].items():
+                    for got, sent in zip(kept[kind], rows, strict=True):
+                        self.assertEqual({k: got.get(k) for k in sent}, {k: sorted(v) if k == "read" else v for k, v in sent.items()})
+
+    def test_what_the_report_says(self):
+        r = from_json(SCENES_428["代わりの方（お立場を伺って繋いだ）"])
+        self.assertEqual((r.reached_target, r.talked, r.connects[0].who, r.substitutes[0].policy), (True, True, "substitute", "anyone"))
+        r = from_json(SCENES_428["後任の方に繋いだ"])
+        self.assertEqual((r.reached_target, r.connects[0].who, r.departures[0].successor), (True, "successor", False))
+        r = from_json(SCENES_428["ほかの手段（メール）"])
+        self.assertEqual((r.callback.reason, r.callback.offer, dict(r.callback.means)), ("other_means", "email", {"email": "info@example.co.jp"}))
+        r = from_json(SCENES_428["伝言を残した"])
+        self.assertEqual((r.callback.offer, r.callback.message_left, dict(r.callback.means)), ("message", True, {"message": "はい"}))
+        r = from_json(SCENES_428["相手からの質問"])
+        self.assertEqual([q.answered for q in r.callee_questions], [None])
+
+    def test_shapes_that_are_still_refused(self):
+        base = SCENES_428["ほかの手段（メール）"]
+        for name, change in (("申し出の名前が違う", lambda f: f["callback"][0].update(offer="sms")),
+                             ("宛先が文字でない", lambda f: f["callback"][0].update(email=1)),
+                             ("伝言の印が true でない", lambda f: f["callback"][0].update(message_left=False)),
+                             ("代わりの方の応じ方が違う", lambda f: f.update(substitute=[{"turn": 1, "said": "x", "policy": "boss", "read": ["ai"]}])),
+                             ("在籍していないの後任の印が無い", lambda f: f.update(departed=[{"turn": 1, "said": "x", "policy": "end", "read": ["ai"]}])),
+                             ("質問の答えた印が無い", lambda f: f.update(callee_question=[{"turn": 1, "said": "x"}])),
+                             ("繋いだ方の名前が違う", lambda f: f.update(connect=[{"turn": 1, "said": "x", "read": ["ai"], "judging": False,
+                                                                                  "who": "boss"}]))):
+            with self.subTest(name):
+                raw = copy.deepcopy(base)
+                change(raw["facts"])
+                with self.assertRaises(ReportInvalid):
+                    from_json(raw)
+
+    def test_judged_as_decided(self):
+        """長期の不在は不在の仲間（戻る日が取れたら約束・取れなければ不在の方針）。ほかの手段・在籍していないは、電話ではかけ直さず
+        終える（約束の電話でも先に終える）。代わりの方・後任の方に繋いだ通話は、繋がった通話として業務の質問で決める。"""
+        self.assertEqual(run(SCENES_428["長期の不在"]).state, "callback_scheduled")
+        j = run(SCENES_428["伝言を残した"])
+        self.assertEqual((j.state, j.detail["policy_key"]), ("not_reached", "not_reached_absent"))
+        j = run(SCENES_428["代わりの方（目的のお客様だけ・戻る時刻）"])
+        self.assertEqual((j.state, j.detail["policy_key"]), ("not_reached", "not_reached_absent"))
+        for name in ("代わりの方（お立場を伺って繋いだ）", "後任の方に繋いだ"):
+            with self.subTest(name):
+                self.assertEqual(run(SCENES_428[name]).state, "incomplete")
+        for name, key in (("ほかの手段（メール）", "other_means"), ("在籍していない（終える）", "not_reached_departed")):
+            with self.subTest(name):
+                j = run(SCENES_428[name])
+                self.assertEqual((j.state, j.detail["policy_key"]), ("not_reached", key))
+                promise = decide_after_call(run(SCENES_428["伝言を残した"]), normal=P_NONE, promised=P_NONE, rules=RULES,
+                                            times_with_key=1, now=NOW, retry_at=NOW, target=Target(uuid.UUID(int=1)))
+                for k in (None, promise):                                 # 約束の電話（約束を守る次の動きがある）でも先に終える
+                    d = decide_after_call(j, normal=P_NONE, promised=P_NONE, rules=RULES, times_with_key=1, now=NOW,
+                                          retry_at=NOW, target=Target(uuid.UUID(int=1)), kept=k)
+                    self.assertEqual((d.kind, d.end_reason), ("end", key))
+        # 目的のお客様に繋がっていて、ほかの手段を望まれた：取れていない質問があっても、電話ではかけ直さず終える
+        reached = copy.deepcopy(SCENES_428["代わりの方（お立場を伺って繋いだ）"])
+        reached["facts"]["callback"] = copy.deepcopy(SCENES_428["ほかの手段（メール）"]["facts"]["callback"])
+        j = run(reached)
+        self.assertEqual((j.state, j.detail["policy_key"]), ("incomplete", "other_means"))

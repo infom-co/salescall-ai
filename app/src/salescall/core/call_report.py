@@ -45,7 +45,12 @@ from salescall.core.phone import normalize
 
 VERSION = 3
 FACT_KINDS = ("do_not_call", "complaint", "out_of_scope", "party", "callback", "ai_question", "voicemail_message", "end",
-              "connect", "answered", "target_back", "callback_resume", "not_transferred")
+              "connect", "answered", "target_back", "callback_resume", "not_transferred", "substitute", "departed", "callee_question")
+# substitute・departed・callee_question（CL-1 の連絡帳 4-28・2-2 の版 0.5。2026-10-22 ユーザー決定の相手の申し出。どれも無くてもよい）：
+#   substitute＝電話口の方が、お呼びした方の代わりにご用件を伺うと申し出た（policy＝業務設定の応じ方・read・answer＝判断いただける
+#   お立場かを伺った答え）。departed＝お呼びした方が在籍していない（policy・read・successor＝後任の方へ切り替えたあとか）。
+#   callee_question＝お客様からの質問（answered＝業務の情報で答えた true／答えを持っていなかった false／答えに添えられた質問 null）。
+#   どれも記録だけ（判定は、繋いだ事実・繋がらなかった理由・かけ直しの申し出で読む。依頼者へ渡すのは CL-3）
 # answered：相手の質問に、決まった答えの録音を流した（CL-1 の連絡帳 4-26。part＝部分の名前。記録だけ）
 # target_back・callback_resume：かけ直しの質問の途中で目的のお客様かを確かめに戻った・違う方だったので続きへ戻った（4-27。記録だけ）
 # not_transferred：受付の方が、事情があり取り次げないと言った発話（締めた理由 not_transferred と同じ発話。判定は not_reached で読む）。
@@ -58,23 +63,34 @@ MEANING_MAX = 40                                         # 判定の読みの文
 # voicemail_message：留守番電話に伝言を残した（2026-10-19 ユーザー：「留守番電話に入れるのは最初の1回だけ」。同じ依頼者の同じ番号へは
 # 2回目を残さない＝`voicemail_left` の1か所。CL-2 の連絡帳 4-106）
 # ai_question：「AIですか？」「人間ですか？」と聞かれた（聞かれるたびに1つ。CL-1 の 2-2 の版 0.5＝2026-10-19。判定には使わない。記録だけ）
-PARTY_KINDS = ("reception", "target", "voicemail", "ivr", "fax", "wrong_party", "person")   # 4-3（区間ごと）
+PARTY_KINDS = ("reception", "target", "substitute", "successor", "voicemail", "ivr", "fax", "wrong_party", "person")   # 4-3（区間ごと）
+# substitute＝代わりの方・successor＝後任の方（CL-1 の PARTY_LABEL。2026-10-22 の版 0.5。どちらもお客様と話した区間）
 # person＝お客様が出て話したが、役（受付か目的のお客様か）はまだ分からない（2026-10-19 の見直しで足した。CL-1 の連絡帳への頼み
 # ＝CL-2 の 4-105）。⚠️ 版3の事実には「お客様が出た」が無く、目的の人のある業務で役が分かる前に切られた区間と、「誰でも」の業務
 # （最初に出たお客様が目的のお客様＝相手を報告しない）の区間は、相手が空になり、判定が「会話に至らなかった」と読んで、黙って切った
 # お客様の拒否を登録しなかった（原則14）
 PARTY_SOURCES = ("ai", "signal")                         # 会話AIの報告で分かった／音・回線の信号で分かった（CL-1 の `flowctl._party`
 #   の by と同じ値。⚠️ 前は "report" を受け、CL-1 の "ai" の報告をまるごと断っていた＝CL-2 の 4-101 の約束と食い違い。見直し6）
-CALLBACK_REASONS = ("absent", "other_number", "later", "ask_who", "ask_when", "our_promise")
+CALLBACK_REASONS = ("absent", "long_absent", "other_number", "later", "departed", "other_means", "ask_who", "ask_when", "our_promise")
+# long_absent＝長期の不在（出張・休職など）・departed＝在籍していない・other_means＝ほかの手段（電話ではない。CL-1 の CALLBACK_LABEL の
+# 版 0.5。2026-10-22 ユーザー決定）
+ABSENT_REASONS = ("absent", "long_absent")              # 不在の仲間（戻る時刻が取れなければ「不在」の方針。judge の順7 の1か所が読む）
+ENDING_CALLBACKS = ("other_means", "departed")           # 電話ではかけ直さない申し出（約束にしない。judge の順7 の1か所が読む）
+CALLBACK_OFFERS = ("callback", "message", "email", "fax", "post")   # お客様の申し出（CL-1 の OFFER_LABEL）：折り返し・伝言・メール・ファクス・郵送
+CALLBACK_MEANS = ("email", "fax", "address", "message")  # 申し出で聞いた宛先・伝言の答え（取れた値の文字か null。CL-1 の CALLBACK_IDS）
+CONNECT_WHO = ("target", "successor", "substitute")      # 繋いだ方：目的のお客様・後任の方・代わりの方（CL-1 の connect の who）
+STANDIN_POLICIES = {"substitute": ("decision_maker", "target_only", "anyone"), "departed": ("successor", "end")}
+# 相手の申し出への応じ方（業務設定。CL-1 の flowctl.POLICIES の、事実に残るもの。業務設定の確かめは business_settings.POLICIES）
 # かけ直しの日を選んだ理由の周期（お客様が言ったときだけ）：month＝月ぎめの業務・締め・振り込みなど月単位の理由（2026-10-19 ユーザー：
 # 「月ぎめの業務の都合や振り込みなどの入金の間隔などの話の場合は、月単位で考えた方がいい」）。無ければ、言葉だけで読む（spoken_time）
 CALLBACK_CYCLES = ("month",)
 # 不在・別の番号・あとで（お客様に頼まれた。6-2）／分かるお客様・分かる時を聞いた（15-2-3 の a1・a2）／こちらが約束した
 END_REASONS = ("done", "callee_hurry", "callee_refused_call", "callee_complaint", "wrong_party", "voicemail", "ivr", "fax",
-               "callback", "not_transferred")                               # 締めた理由（CL-1 の END_LABEL の名前。「AIですか」では終えない＝2026-10-19 夜 ユーザー）
+               "callback", "not_transferred", "departed", "other_means")                               # 締めた理由（CL-1 の END_LABEL の名前。「AIですか」では終えない＝2026-10-19 夜 ユーザー）
 HURRIED_ENDS = frozenset({"callee_hurry", "callee_refused_call", "callee_complaint"})   # 急いでいる・断られた・怒っている（CL-1 の Flow.hurried と同じ）
-NOT_REACHED_REASONS = ("absent", "not_transferred")      # 目的のお客様に繋がらなかった理由（7-1）
-HUMAN_PARTIES = frozenset({"reception", "target", "wrong_party", "person"})   # お客様と話した区間（person＝役がまだ分からない）
+NOT_REACHED_REASONS = ("absent", "not_transferred", "departed", "other_means")   # 目的のお客様に繋がらなかった理由（7-1。CL-1 の
+#   NOT_REACHED_LABEL：在籍していない＝後任の方にも繋がらなかった・終える業務／ほかの手段を望まれた。2026-10-22 の版 0.5）
+HUMAN_PARTIES = frozenset({"reception", "target", "substitute", "successor", "wrong_party", "person"})   # お客様と話した区間（person＝役がまだ分からない）
 SPEAKERS = ("callee", "ai", "none")                      # 切れた瞬間に話していた側（7-1c）
 SAID_MAX = 80                                            # 根拠の発話の文字の長さの上限（CL-1 の _note と同じ）
 
@@ -107,6 +123,9 @@ class Callback:
     cycle: str | None = None     # その日を選んだ理由の周期（CALLBACK_CYCLES。お客様が言ったときだけ）
     read: tuple[str, ...] | None = None   # 受け取った読み（CONNECT_READS のうち。空＝プログラムが進めた。無い＝前の形の報告）。記録だけ
     connected: bool = False      # かけ直しの質問の途中で、目的のお客様に繋がった（このかけ直しは要らない）
+    offer: str | None = None     # お客様の申し出（CALLBACK_OFFERS。無ければ None）。記録だけ（折り返しの申し出も、こちらからかけ直す約束）
+    means: tuple[tuple[str, str | None], ...] = ()   # 申し出で聞いた宛先・伝言の答え（CALLBACK_MEANS → 取れた値。依頼者へ渡す＝CL-3）
+    message_left: bool = False   # 伝言を残す業務で、伝言をお願いした（記録だけ）
 
     @property
     def number_e164(self) -> str | None:
@@ -127,6 +146,31 @@ class Back:
     """かけ直しの質問の途中の動き（事実 target_back・callback_resume）。"""
     reason: str                  # そのときのかけ直しの理由（CALLBACK_REASONS）
     read: tuple[str, ...] | None # 受け取った読み（callback_resume だけ。target_back は None）
+    evidence: Said
+
+
+@dataclass(frozen=True)
+class Substitute:
+    """代わりの方の申し出（事実 substitute）。記録だけ。"""
+    policy: str                  # 業務設定の応じ方（STANDIN_POLICIES["substitute"]）
+    read: tuple[str, ...]        # 受け取った読み
+    answer: str | None           # 判断いただけるお立場かを伺った答え（伺っていなければ None）
+    evidence: Said
+
+
+@dataclass(frozen=True)
+class Departed:
+    """お呼びした方が在籍していない（事実 departed）。記録だけ（判定は not_reached で読む）。"""
+    policy: str                  # 業務設定の応じ方（STANDIN_POLICIES["departed"]）
+    read: tuple[str, ...]
+    successor: bool              # 後任の方へ切り替えたあとに言われたか
+    evidence: Said
+
+
+@dataclass(frozen=True)
+class CalleeQuestion:
+    """お客様からの質問（事実 callee_question）。記録だけ（依頼者へ渡す＝CL-3）。"""
+    answered: bool | None        # 業務の情報で答えた／答えを持っていなかった／答えに添えられた質問（None）
     evidence: Said
 
 
@@ -157,6 +201,7 @@ class Connect:
     read: tuple[str, ...]        # 繋いだ読み（CONNECT_READS のうち）
     judging: bool                # 判定を使う通話か
     late: tuple[tuple[str, str], ...] = ()   # 繋いだあとに届いた、その発話の判定（受け持ちの名前, 読み）
+    who: str | None = None       # 繋いだ方（CONNECT_WHO。無い＝前の形の報告＝目的のお客様）。誰の答えかの記録（依頼者への見せ方は CL-3）
 
     @property
     def unverified(self) -> bool:
@@ -184,6 +229,9 @@ class CallReport:
     target_backs: tuple[Back, ...] = ()  # 事実 target_back：かけ直しの途中で、目的のお客様かを確かめに戻った（記録だけ）
     callback_resumes: tuple[Back, ...] = ()   # 事実 callback_resume：かけ直しの質問の続きへ戻った（記録だけ）
     not_transferred: tuple[NotTransferred, ...] = ()   # 事実 not_transferred：事情があり取り次げないと言われた発話
+    substitutes: tuple[Substitute, ...] = ()   # 事実 substitute：代わりの方の申し出（記録だけ）
+    departures: tuple[Departed, ...] = ()      # 事実 departed：お呼びした方が在籍していない（記録だけ）
+    callee_questions: tuple[CalleeQuestion, ...] = ()   # 事実 callee_question：お客様からの質問（記録だけ）
 
     # ── 判定が読むもの（どれも事実から読む。ここの1か所）
     @property
@@ -278,17 +326,25 @@ class CallReport:
             "callback": [{**said(c.evidence), "why": c.reason, "time": c.time_said, "number": c.number_said,
                           "person": c.person, **({"cycle": c.cycle} if c.cycle else {}),
                           **({"read": list(c.read)} if c.read is not None else {}),
-                          **({"connected": True} if c.connected else {})} for c in self.callbacks],
+                          **({"connected": True} if c.connected else {}),
+                          **({"offer": c.offer} if c.offer else {}), **dict(c.means),
+                          **({"message_left": True} if c.message_left else {})} for c in self.callbacks],
             "ai_question": [said(q) for q in self.ai_questions],
             "voicemail_message": [said(v) for v in self.voicemail_messages],
             "end": [{**said(e.evidence), "reason": e.reason} for e in self.ends],
             "connect": [{**said(c.evidence), "read": list(c.read), "judging": c.judging,
-                         **({"late": dict(c.late)} if c.late else {})} for c in self.connects],
+                         **({"late": dict(c.late)} if c.late else {}), **({"who": c.who} if c.who else {})}
+                        for c in self.connects],
             "answered": [{**said(a.evidence), "part": a.part} for a in self.answered],
             "target_back": [{**said(b.evidence), "why": b.reason} for b in self.target_backs],
             "callback_resume": [{**said(b.evidence), "why": b.reason, "read": list(b.read or ())} for b in self.callback_resumes],
             "not_transferred": [{**said(n.evidence), **({} if n.again is None else {"again": n.again})}
-                                for n in self.not_transferred]}
+                                for n in self.not_transferred],
+            "substitute": [{**said(x.evidence), "policy": x.policy, "read": list(x.read),
+                            **({} if x.answer is None else {"answer": x.answer})} for x in self.substitutes],
+            "departed": [{**said(x.evidence), "policy": x.policy, "read": list(x.read), "successor": x.successor}
+                         for x in self.departures],
+            "callee_question": [{**said(x.evidence), "answered": x.answered} for x in self.callee_questions]}
         return {"version": VERSION, "facts": {k: v for k, v in facts.items() if v}, "not_reached": self.not_reached,
                 "cut": None if self.cut is None else {"speaker": self.cut.speaker, "in_closing": self.cut.in_closing,
                                                       "callee_refused_last": self.cut.callee_refused_last},
@@ -324,6 +380,20 @@ def _text(v: Any, key: str) -> str | None:
     if v is not None and (not isinstance(v, str) or not v.strip()):
         raise ReportInvalid(f"{key} は、お客様が言ったままの言葉（文字）です")
     return v
+
+
+def _value(v: Any, key: str) -> str | None:
+    """申し出で取れた値（言い直して確かめた値の文字。取れなかったら None）。"""
+    if v is not None and (not isinstance(v, str) or not v.strip()):
+        raise ReportInvalid(f"{key} は、取れた値の文字か null です")
+    return v
+
+
+def _true(d: dict, key: str) -> bool:
+    """あるときは true だけの印。"""
+    if d.get(key) is not True:
+        raise ReportInvalid(f"{key} は、あるときは true です")
+    return True
 
 
 def _reads(v: Any, key: str) -> tuple[str, ...]:
@@ -364,7 +434,8 @@ def from_json(raw: Any) -> CallReport:
                           _choice(r.get("by"), PARTY_SOURCES, "facts.party.by"), s)
                     for r, s in _records(facts, "party", {"party", "by"}))
     callbacks = []
-    for r, s in _records(facts, "callback", {"why", "time", "number", "person", "cycle", "read", "connected"}):
+    for r, s in _records(facts, "callback", {"why", "time", "number", "person", "cycle", "read", "connected", "offer",
+                                             "message_left", *CALLBACK_MEANS}):
         reason = _choice(r.get("why"), CALLBACK_REASONS, "facts.callback.why")
         number = _text(r.get("number"), "facts.callback.number")
         if number is not None and reason != "other_number":
@@ -373,7 +444,10 @@ def from_json(raw: Any) -> CallReport:
                                   _text(r.get("person"), "facts.callback.person"), s,
                                   _choice(r.get("cycle"), CALLBACK_CYCLES, "facts.callback.cycle", optional=True),
                                   None if "read" not in r else _reads(r["read"], "facts.callback.read"),
-                                  "connected" in r and _bool(r, "connected")))
+                                  "connected" in r and _bool(r, "connected"),
+                                  _choice(r.get("offer"), CALLBACK_OFFERS, "facts.callback.offer", optional=True),
+                                  tuple((k, _value(r[k], f"facts.callback.{k}")) for k in CALLBACK_MEANS if k in r),
+                                  "message_left" in r and _true(r, "message_left")))
     ends = tuple(End(_choice(r.get("reason"), END_REASONS, "facts.end.reason"), s)
                  for r, s in _records(facts, "end", {"reason"}))
     # ⚠️ 電話口の種別の target（AIの報告）と not_reached は、両方あってよい（AIが「目的の人」と報告したが、判定と食い違って繋がずに
@@ -392,7 +466,7 @@ def from_json(raw: Any) -> CallReport:
     if voicemail and "voicemail" not in (p.party for p in parties):
         raise ReportInvalid("留守番電話の伝言は、電話口の種別が留守番電話の通話だけです")
     connects = []
-    for r, s in _records(facts, "connect", {"read", "judging", "late"}):
+    for r, s in _records(facts, "connect", {"read", "judging", "late", "who"}):
         read = r.get("read")
         if not isinstance(read, list) or not read or any(x not in CONNECT_READS for x in read) or len(set(read)) != len(read):
             raise ReportInvalid(f"facts.connect.read は {CONNECT_READS} のうちの並び（重ならず、1つ以上）です")
@@ -400,7 +474,8 @@ def from_json(raw: Any) -> CallReport:
         if not isinstance(late, dict) or any(k not in JUDGES or not isinstance(v, str) or not v.strip() or len(v) > MEANING_MAX
                                               for k, v in late.items()):
             raise ReportInvalid(f"facts.connect.late は、判定の受け持ち {JUDGES} → 読み（{MEANING_MAX} 字まで）です")
-        connects.append(Connect(s, tuple(sorted(read)), _bool(r, "judging"), tuple(sorted(late.items()))))
+        connects.append(Connect(s, tuple(sorted(read)), _bool(r, "judging"), tuple(sorted(late.items())),
+                                _choice(r.get("who"), CONNECT_WHO, "facts.connect.who", optional=True)))
     if connects and not_reached is not None:
         raise ReportInvalid("目的のお客様に繋いだのに、繋がらなかった理由があります")
     if any(c.connected for c in callbacks) and not connects:
@@ -420,8 +495,21 @@ def from_json(raw: Any) -> CallReport:
         raise ReportInvalid("かけ直しの申し出が無いのに、かけ直しの途中の記録（target_back・callback_resume）があります")
     not_transferred = tuple(NotTransferred(s, _bool(r, "again") if "again" in r else None)
                             for r, s in _records(facts, "not_transferred", {"again"}))
+    substitutes = tuple(Substitute(_choice(r.get("policy"), STANDIN_POLICIES["substitute"], "facts.substitute.policy"),
+                                   _reads(r.get("read"), "facts.substitute.read"),
+                                   _value(r.get("answer"), "facts.substitute.answer"), s)
+                        for r, s in _records(facts, "substitute", {"policy", "read", "answer"}))
+    departures = tuple(Departed(_choice(r.get("policy"), STANDIN_POLICIES["departed"], "facts.departed.policy"),
+                                _reads(r.get("read"), "facts.departed.read"), _bool(r, "successor"), s)
+                       for r, s in _records(facts, "departed", {"policy", "read", "successor"}))
+    questions = []
+    for r, s in _records(facts, "callee_question", {"answered"}):
+        if "answered" not in r or (r["answered"] is not None and not isinstance(r["answered"], bool)):
+            raise ReportInvalid("facts.callee_question.answered は true / false / null です")
+        questions.append(CalleeQuestion(r["answered"], s))
     return CallReport(refusals, complaints, oos, parties, tuple(callbacks), ends, not_reached, cut, delivered, ai_questions,
-                      voicemail, tuple(connects), tuple(answered), backs, resumes, not_transferred)
+                      voicemail, tuple(connects), tuple(answered), backs, resumes, not_transferred, substitutes, departures,
+                      tuple(questions))
 
 
 def save(tx: Tx, attempt_id: UUID, report: CallReport) -> None:

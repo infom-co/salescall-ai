@@ -78,6 +78,14 @@ class Rules:
 #   その方から目的のお客様へ届いていないので、ここに入る＝判定の (8)）。
 # - 約束した時刻のかけ直し（受付で「3時に戻ります」など）＝約束した時刻：かけ直しの約束（callback_scheduled）として判定が決める。
 SYSTEM_POLICIES["not_reached_not_transferred"] = Policy("call", 1, ("days", 1))
+# お客様の側の事情で、電話ではかけ直さない結果（2026-10-22 ユーザー決定。CL-1 の連絡帳 4-28）：
+# - ほかの手段を望まれた（「メールで送って」など）：「希望とメールアドレスを記録して、お礼を言って締める」＝電話ではかけ直さず、行を終える
+#   （宛先は通話の事実に残り、依頼者へ渡す＝CL-3）。目的のお客様に繋がっていた通話でも同じ（業務の判定の順7）。
+# - お呼びした方が在籍していない（後任の方にも繋がらなかった・終える業務）：その行のお客様はもういないので、行を終える。
+# どちらも約束したかけ直しより先に終える（next_action の1か所。SYSTEM_ENDS）。
+SYSTEM_POLICIES["other_means"] = Policy("end", None, None)
+SYSTEM_POLICIES["not_reached_departed"] = Policy("end", None, None)
+SYSTEM_ENDS = frozenset(k for k, p in SYSTEM_POLICIES.items() if p.action == "end")
 
 # 業務で決める再発信の方針の初めの値（業務設定に書かれていなければ、この値で入れる。入れたことはプレビューに出す＝契約者が見て
 # 直せる。画面の初めの値も、ここを読む＝CL-3）。決めていただいたものだけを置く（決まっていない結果は、これまでどおり書かないと

@@ -22,6 +22,8 @@ class Explain(unittest.TestCase):
                  "voice": "business.voice",
                  "questions": "business.questions"}
         self.assertTrue(set(items) <= business_settings.KEYS)
+        responses = {k: f"business.{k}" for k in business_settings.RESPONSE_KEYS}   # 相手の申し出への応じ方（CL-1 の 4-28）
+        items.update(responses)
         for name in [*items.values(), "business.handling", "business.retry", "business.forbidden", "line.client"]:
             with self.subTest(name):
                 self.assertTrue(owner_access().in_system(SYSTEM, lambda tx: help_texts.explain(tx, name)).strip())

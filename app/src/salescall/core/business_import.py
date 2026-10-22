@@ -57,7 +57,11 @@ SHEETS: dict[str, tuple[str, dict[str, str], bool]] = {
 BASIC_ITEMS = {"業務の目的": "purpose", "お客様の区分": "target_class", "自社名": "company", "自社名の読み": "company_reading", "担当者名": "person",
                "担当者名の読み": "person_reading", "用件の一文": "purpose_line", "目的のお客様": "target_kind",
                "目的のお客様の役職": "target_role", "忙しいと言われたときの一言": "busy_line",
-               "留守番電話に残す伝言": "voicemail_message", "「AIですか」への答え": "ai_answer", "声の型": "voice"}
+               "留守番電話に残す伝言": "voicemail_message", "「AIですか」への答え": "ai_answer", "声の型": "voice",
+               # 相手の申し出への応じ方と業務の情報（CL-1 の連絡帳 4-28。書かなければ既定＝ユーザー決定）
+               "代わりの方への応じ方": "substitute_policy", "伝言への応じ方": "message_policy", "伝言の文": "message",
+               "在籍していないときの応じ方": "departed_policy", "業務の情報": "info",
+               "担当から改めて連絡すると申し出てよいか": "follow_up"}
 LABELS: dict[str, dict[str, str]] = {
     "type": {"日付": "date", "時刻": "time", "日時": "datetime", "数": "number", "金額": "amount", "名前": "name",
              "電話番号": "phone", "メール": "email", "住所": "address", "はい／いいえ": "yes_no", "選択肢": "choice",
@@ -71,6 +75,12 @@ LABELS: dict[str, dict[str, str]] = {
     "retry_key": {"会話に至らなかった": "open", "一部だけ取れた": "incomplete", "不在": "not_reached_absent",
                   "かけ直しの時刻が決まっていない": "callback_unspecified_time"},
     "action": {"かける": "call", "終える": "end"},
+    # 相手の申し出への応じ方（business_settings.POLICIES の値。空なら書かない＝既定）
+    "substitute_policy": {"判断いただけるお立場の方なら話す": "decision_maker", "目的のお客様だけと話す": "target_only",
+                          "どなたとでも話す": "anyone"},
+    "message_policy": {"お礼を言って断り戻る時刻を聞く": "decline", "伝言を残す": "leave"},
+    "departed_policy": {"後任の方をお呼びする": "successor", "お礼を言って終える": "end"},
+    "follow_up": {"はい": True, "いいえ": False},
     "required": {"はい": True, "○": True, "いいえ": False, "": False},
 }
 # かけ直しのシートで、システムが決める結果（業務では変えない＝business_rules.SYSTEM_POLICIES）。前のひな形にはこの行があったので、
@@ -146,6 +156,26 @@ def _rows(sheets: dict[str, tuple[Sheet, dict[str, int]]], role: str, problems: 
             values[col] = c.text.strip() if c.text else None
         out.append((r.row_no, values))
     return out
+
+
+def _responses(basic: dict[str, str | None], problems: list[str]) -> dict[str, Any]:
+    """シート「基本」の、相手の申し出への応じ方・伝言の文・業務の情報（1行に1つ）・改めて連絡すると申し出てよいか。書いていない
+    項目は入れない（業務設定の確かめが既定にする＝ユーザー決定の既定）。"""
+    out: dict[str, Any] = {}
+    for key in ("substitute_policy", "message_policy", "departed_policy", "follow_up"):
+        if basic.get(key):
+            v = _label(key, basic.get(key), f"シート「基本」の{_basic_name(key)}", problems)
+            if v is not None:
+                out[key] = v
+    if basic.get("message"):
+        out["message"] = basic["message"]
+    if basic.get("info"):
+        out["info"] = [x.strip() for x in basic["info"].split("\n") if x.strip()]
+    return out
+
+
+def _basic_name(key: str) -> str:
+    return next(k for k, v in BASIC_ITEMS.items() if v == key)
 
 
 def _policy_words(p: business_rules.Policy) -> str:
@@ -310,6 +340,7 @@ def _to_raw(sheets: dict[str, tuple[Sheet, dict[str, int]]], problems: list[str]
         "target_person": {"kind": tkind, "role": basic.get("target_role")},
         "busy_line": basic.get("busy_line"), "voicemail_message": basic.get("voicemail_message"),
         "ai_answer": basic.get("ai_answer"), "answers": answers, "voice": basic.get("voice"),
+        **_responses(basic, problems),
         "questions": questions, "names": names,
         "rules": {"decline": decline, "handling": handling, "retry": retry, "forbidden": forbidden},
     }
@@ -426,7 +457,7 @@ def _script(raw: dict[str, Any]) -> str:
     caller = raw.get("caller") if isinstance(raw.get("caller"), dict) else {}
     parts = [((caller.get("company") or {}).get("text") if isinstance(caller.get("company"), dict) else None),
              caller.get("purpose_line"), raw.get("purpose"), raw.get("busy_line"), raw.get("voicemail_message"),
-             raw.get("ai_answer")]
+             raw.get("ai_answer"), raw.get("message")]   # 伝言の文も録音で話す（CL-1 の連絡帳 4-28）
     parts += [q.get("text") for q in (raw.get("questions") if isinstance(raw.get("questions"), list) else [])
               if isinstance(q, dict)]
     parts += [a.get("text") for a in (raw.get("answers") if isinstance(raw.get("answers"), list) else []) if isinstance(a, dict)]

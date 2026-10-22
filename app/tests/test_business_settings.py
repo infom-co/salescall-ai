@@ -68,11 +68,44 @@ class Check(unittest.TestCase):
         for bad, word in (([{"name": "番号の出どころ", "text": "a"}, {"name": "番号の出どころ", "text": "b"}], "同じ問いの名前"),
                           ([{"name": "番号:出どころ", "text": "a"}], "ファイル名"), ([{"name": "あ" * 31, "text": "a"}], "ファイル名"),
                           ([{"name": "intro", "text": "a"}], "録音の部分の名前"), ([{"name": "用件", "text": "a"}], "録音の部分の名前"),
-                          ([{"name": "答えられない質問", "text": "a"}], "録音の部分の名前"), ([{"name": "関係", "text": " "}], "答えの文"),
+                          ([{"name": "自分で答える質問", "text": "a"}], "録音の部分の名前"),
+                          ([{"name": "no_answer", "text": "a"}], "録音の部分の名前"), ([{"name": "関係", "text": " "}], "答えの文"),
                           ([{"name": "関係"}], "問いの名前（name）と答えの文（text）"), ({"関係": "a"}, "並び")):
             with self.subTest(bad=bad):
                 r = raw()
                 r["answers"] = bad
+                self.assertTrue(any(word in p for p in problems_of(r)), problems_of(r))
+
+    def test_reserved_answer_names_are_the_conversations_part_names(self):
+        """使えない問いの名前は、会話の側（main の会話の側の flowctl の RESERVED_PART_NAMES＝PART_LABEL の鍵と値。2026-10-22 の
+        CL-1 の連絡帳 4-28 の形）とまったく同じ。会話の側が変えたら、この写しと一緒に直す。「答えられない質問」は取り下げられたので、
+        問いの名前に使える。"""
+        part_label = {"intro": "名乗り", "purpose": "用件", "all": "最初から", "handover": "代わった方へ", "ai": "エーアイか聞かれた",
+                      "resume": "質問に戻る", "own": "自分で答える質問", "no_answer": "答えを持っていない質問"}
+        self.assertEqual(bs.ANSWER_RESERVED, frozenset(part_label) | frozenset(part_label.values()))
+        r = raw()
+        r["answers"] = [{"name": "答えられない質問", "text": "a"}]
+        self.assertEqual(bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True).answers, (("答えられない質問", "a"),))
+
+    def test_responses_to_callee_offers(self):
+        """相手の申し出への応じ方・伝言の文・業務の情報・改めて連絡すると申し出てよいか（CL-1 の連絡帳 4-28・2026-10-22 ユーザー決定）：
+        書かなければ既定（判断いただけるお立場の方なら話す・断って戻る時刻を聞く・後任の方をお呼びする・情報なし・いいえ）。選べない
+        値・伝言を残すのに文が無い・情報の形の誤りは止める（CL-1 の flowctl.check_policies と同じ決まり）。"""
+        s = bs.check(raw(), field_types=FIELD_TYPES, ai_reading_needs_person=True)
+        self.assertEqual((s.substitute_policy, s.message_policy, s.message, s.departed_policy, s.info, s.follow_up),
+                         ("decision_maker", "decline", None, "successor", (), False))
+        r = raw()
+        r.update(substitute_policy="anyone", message_policy="leave", message="お伝えいただけますでしょうか？",
+                 departed_policy="end", info=["営業時間は9時から18時です"], follow_up=True)
+        s = bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True)
+        self.assertEqual((s.substitute_policy, s.message_policy, s.message, s.departed_policy, s.info, s.follow_up),
+                         ("anyone", "leave", "お伝えいただけますでしょうか？", "end", ("営業時間は9時から18時です",), True))
+        for bad, word in (({"substitute_policy": "boss"}, "選べません"), ({"departed_policy": "x"}, "選べません"),
+                          ({"message_policy": "leave"}, "伝言の文"), ({"info": "営業時間"}, "業務の情報"),
+                          ({"info": [" "]}, "業務の情報"), ({"follow_up": "はい"}, "follow_up"), ({"unknown_key": 1}, "無くてもよい")):
+            with self.subTest(bad=bad):
+                r = raw()
+                r.update(bad)
                 self.assertTrue(any(word in p for p in problems_of(r)), problems_of(r))
 
     def test_meanings_and_replies_of_choice_questions(self):
@@ -241,6 +274,16 @@ class Versions(unittest.TestCase):
         self.assertEqual(outcome, "mock_needed")                       # 依頼者で最初の模擬通話を待つ
         self.assertEqual(self.tx(lambda tx: tx.one("SELECT salescall.run_current_version(%s) AS v",
                                                    (self.s["run"],))["v"]), back)
+
+    def test_responses_are_kept_in_the_version(self):
+        """相手の申し出への応じ方・伝言の文・業務の情報は版に残り、読み直しても同じ（前の版へ戻しても同じ）。"""
+        r = raw()
+        r.update(substitute_policy="target_only", message_policy="leave", message="お伝えいただけますでしょうか？",
+                 departed_policy="end", info=["営業時間は9時から18時です"], follow_up=True)
+        v = self.tx(lambda tx: bs.save_version(tx, self.s["business"], r))
+        got = self.tx(lambda tx: bs.load(tx, bs.restore(tx, v)))
+        self.assertEqual((got.substitute_policy, got.message_policy, got.message, got.departed_policy, got.info, got.follow_up),
+                         ("target_only", "leave", "お伝えいただけますでしょうか？", "end", ("営業時間は9時から18時です",), True))
 
     def test_assigning_a_new_version_releases_reservations_of_the_old_one(self):
         """版を替えたら、前の版で取ったまだ発信していない予約を取り消す（門の前提が変わったときの決まり。2026-10-16 の見直し G7）。"""

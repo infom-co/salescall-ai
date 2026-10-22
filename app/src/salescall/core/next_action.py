@@ -328,6 +328,10 @@ def decide_after_call(j: Judgement, *, cut_off: bool = False, normal: gate.Pacin
     if target.contact_id is None:
         return _end(target.end_reason, "お客様が言った番号へは、かけない（番号は記録して依頼者へ渡す）")
     key = j.detail.get("policy_key")
+    if key in business_rules.SYSTEM_ENDS:
+        # お客様の側の事情で、電話ではかけ直さない結果（ほかの手段を望まれた・在籍していない。2026-10-22 ユーザー決定）：約束した
+        # かけ直し・途中で切れたあとのかけ直しより先に終える（お客様が電話でないことを望んだ・お客様がもういない）
+        return _end(key, f"システムの方針：{key} は電話ではかけ直さずに終える")
     if j.state == "not_reached" and j.detail.get("not_reached") == "wrong_alternate":
         # お客様に頼まれたかけ直しが、まだ果たせていない（番号違い）：約束したかけ直しのまま、すぐ（門の最も早い時刻）。
         # 元の約束に時刻・幅があれば、その約束のまま（kept＝`_keep_promise`）

@@ -48,12 +48,12 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-from salescall.core import spoken_time
+from salescall.core import call_report, spoken_time
 from salescall.core.business_rules import Rules
 from salescall.core.call_report import CallReport
 
 # 判定の決まりの版（変えたら上げる）。かけ直しの時刻の読み方の版も入れる（読み方を直すと、判定待ちの行が判定し直される＝settle.rejudge）
-JUDGE_VERSION = f"judge-2026-10-22.5+time-{spoken_time.VERSION}"   # 2026-10-22.5：取り次げなかった通話に、あとでまたかけてよいと言われたか（again）を残す。.4：不在で戻る時刻が取れなかった申し出は「不在」（約束にしない）。.3：CL-1 の 10-22 の報告を受ける（目的のお客様のある通話は繋いだ事実だけで繋がった・繋がらなかった理由／かけ直しの申し出があれば話した・繋がって要らなくなったかけ直しは読まない。読み方は call_report の1か所）（.2：確かめ直しで目的のお客様だと確かめられなかった通話は「取り次いでもらえなかった」。.1：繋いだ事実で話した・繋がったと読む）
+JUDGE_VERSION = f"judge-2026-10-22.6+time-{spoken_time.VERSION}"   # 2026-10-22.6：CL-1 の 4-28（長期の不在は不在の仲間・ほかの手段と在籍していないは電話でかけ直さず終える）。.5：取り次げなかった通話に、あとでまたかけてよいと言われたか（again）を残す。.4：不在で戻る時刻が取れなかった申し出は「不在」（約束にしない）。.3：CL-1 の 10-22 の報告を受ける（目的のお客様のある通話は繋いだ事実だけで繋がった・繋がらなかった理由／かけ直しの申し出があれば話した・繋がって要らなくなったかけ直しは読まない。読み方は call_report の1か所）（.2：確かめ直しで目的のお客様だと確かめられなかった通話は「取り次いでもらえなかった」。.1：繋いだ事実で話した・繋がったと読む）
 # 「判定できない」の原因の名前（同じ原因かを数える単位）と意味。プログラムの誤りか（直す担当へ修正依頼を出し、管理者にも
 # 知らせる＝確かめ・承認のため。2026-10-16・10-17 ユーザー）も、ここで決まる（1か所）。業務設定の抜けは契約者が直す（いまは無い：業務の決まりは、必須の質問ごとに、
 # 決まった理由のすべてに扱いが無いと保存できない＝business_rules。2026-10-16 見直し：前は「理由×扱いが決まらない」を業務設定の
@@ -272,12 +272,20 @@ def _business(inp: JudgeInput) -> Judgement:
     # (7) かけ直しの約束
     if r and r.callback is not None:
         cb = r.callback
+        if cb.reason in call_report.ENDING_CALLBACKS:
+            # ほかの手段を望まれた・在籍していない（電話ではかけ直さない。2026-10-22 ユーザー決定。CL-1 の連絡帳 4-28）：約束にしない。
+            # ほかの手段は、目的のお客様に繋がっていても同じ（希望と宛先を記録して締めた）。方針はシステムが決める（業務では変えない）
+            if cb.reason == "other_means":
+                return done("not_reached" if not inp.reached_target else "incomplete",
+                            **({} if inp.reached_target else {"not_reached": "other_means"}),
+                            **({"missing": missing} if inp.reached_target else {}), policy_key="other_means")
+            return done("not_reached", not_reached="departed", policy_key="not_reached_departed")
         when = spoken_time.read(cb.time_said, inp.facts.called_at, inp.callee_hours, inp.periods, monthly=cb.cycle == "month")
         if when.kind == spoken_time.UNREADABLE:
             return unknown("callback_time_unreadable", f"かけ直しの時刻「{cb.time_said}」を読めません（{when.why}）")
         if when.kind == spoken_time.CONFIRM:
             return unknown("callback_time_unconfirmed", f"かけ直しの時刻「{cb.time_said}」が1つに決まりません（{when.why}）")
-        if cb.reason == "absent" and when.kind == spoken_time.UNSPECIFIED:
+        if cb.reason in call_report.ABSENT_REASONS and when.kind == spoken_time.UNSPECIFIED:
             # 不在で、戻る時刻が取れなかった：約束ではなく「不在」（再発信の方針 not_reached_absent＝かけ直しの回数の上限まで）。
             # 2026-10-13 ユーザー：「戻る時刻が聞けたときは『折り返し予定』…⇒はい」「『不在』のときは、かけ直しの回数の上限までかけ直す
             # 案です。⇒OK」。CL-1 は不在のとき、戻る時刻を聞けなくても、かけ直しの申し出（理由 absent）を残す。⛔ 2026-10-22 の見直し13：
@@ -307,7 +315,8 @@ def _business(inp: JudgeInput) -> Judgement:
         if r.not_reached is None:
             return unknown("not_reached_reason_missing", "目的のお客様に繋がらなかった理由がありません")
         more = {"again": r.may_call_again} if r.not_reached == "not_transferred" else {}
-        return done("not_reached", not_reached=r.not_reached, policy_key="not_reached_" + r.not_reached, **more)
+        key = "other_means" if r.not_reached == "other_means" else "not_reached_" + r.not_reached
+        return done("not_reached", not_reached=r.not_reached, policy_key=key, **more)
     # (9) 会話に至らなかった
     if not conversation:
         return done("open", policy_key="open")
