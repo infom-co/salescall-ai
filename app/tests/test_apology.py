@@ -74,8 +74,8 @@ class Apology(Helpers):
         aid = self.tx(s, lambda tx: tx.one("SELECT attempt_id FROM salescall.attempts WHERE task_id = %s", (s["task"],)))
         notice = self.tx(s, lambda tx: tx.one("SELECT summary FROM salescall.notification_events WHERE event_key = %s",
                                               (f"forbidden_speech:{aid['attempt_id']}",)))
-        self.assertIn("先ほどのお電話で、「失礼な言葉」といった不適切な発言をしてしまいました。大変失礼いたしました。"
-                      "誠に申し訳ございませんでした。", notice["summary"])                  # 何を言ってしまったかを伝える
+        self.assertIn("先ほどのお電話で、「失礼な言葉」といった不適切な発言をしてしまい、大変失礼いたしました。"
+                      "心よりお詫び申し上げます。誠に申し訳ございません！", notice["summary"])   # 何を言ってしまったかを伝える（2026-10-22 ユーザーの文）
         self.assertIsNotNone(self.draft(s, aid["attempt_id"]))
         with self.assertRaises(ValueError):                            # 数と中身が合わない検証の結果は作れない
             VerificationSummary(1, 0, 1, ())
