@@ -403,3 +403,36 @@ class Offers428(unittest.TestCase):
         reached["facts"]["callback"] = copy.deepcopy(SCENES_428["ほかの手段（メール）"]["facts"]["callback"])
         j = run(reached)
         self.assertEqual((j.state, j.detail["policy_key"]), ("incomplete", "other_means"))
+
+
+class Later1022(unittest.TestCase):
+    """main の会話の 10-22 夜の直し（自分の言葉で答えた文・代わりの方のあとの確かめ）を受け取る。"""
+
+    def raw(self, facts, not_reached="not_transferred"):
+        return {"version": 3, "facts": facts, "not_reached": not_reached, "cut": None, "apology_delivered": None}
+
+    def test_an_own_answer_and_its_problem_are_kept(self):
+        """お客様からの質問に、AI が自分の言葉で答えた文（answer）と、確かめに通らなかった理由（problem）を受け取り、落とさない。"""
+        rec = {"turn": 2, "said": "御社はどちらにあるんですか？"}
+        for extra in ({"answer": "東京の品川でございます。"}, {"answer": "東京目黒でございます。", "problem": "業務の情報に無い言葉"}, {}):
+            with self.subTest(extra=extra):
+                r = from_json(self.raw({"party": [{**rec, "party": "target", "by": "ai"}],
+                                        "callee_question": [{**rec, "answered": "problem" not in extra and bool(extra), **extra}]},
+                                       None))
+                self.assertEqual(from_json(r.to_json()), r)
+                self.assertEqual((r.callee_questions[0].answer, r.callee_questions[0].problem),
+                                 (extra.get("answer"), extra.get("problem")))
+        with self.assertRaises(ReportInvalid):
+            from_json(self.raw({"callee_question": [{**rec, "answered": True, "answer": ""}]}, None))
+
+    def test_a_check_after_a_substitute_is_accepted_but_not_without_one(self):
+        """代わりの方と話している途中にご本人が出て確かめに戻った（target_back。かけ直しの理由はまだ無い＝why が null）は受け取る。
+        かけ直しの申し出も代わりの方の申し出も無い確かめ・かけ直しの申し出の無い「続きへ戻った」は、これまでどおり断る。"""
+        sub = {"turn": 2, "said": "お電話代わりました。山田です。", "policy": "decision_maker", "read": ["judge2"]}
+        back = {"turn": 4, "said": "お電話代わりました。岡田です。", "why": None}
+        r = from_json(self.raw({"substitute": [sub], "target_back": [back]}))
+        self.assertEqual((r.target_backs[0].reason, from_json(r.to_json())), (None, r))
+        for facts in ({"target_back": [back]},
+                      {"substitute": [sub], "callback_resume": [{**back, "why": "absent", "read": []}]}):
+            with self.subTest(facts=list(facts)), self.assertRaises(ReportInvalid):
+                from_json(self.raw(facts))

@@ -147,7 +147,7 @@ class Answered:
 @dataclass(frozen=True)
 class Back:
     """かけ直しの質問の途中の動き（事実 target_back・callback_resume）。"""
-    reason: str                  # そのときのかけ直しの理由（CALLBACK_REASONS）
+    reason: str | None           # そのときのかけ直しの理由（CALLBACK_REASONS。target_back は、理由が決まる前の段なら None）
     read: tuple[str, ...] | None # 受け取った読み（callback_resume だけ。target_back は None）
     evidence: Said
 
@@ -175,6 +175,8 @@ class CalleeQuestion:
     """お客様からの質問（事実 callee_question）。記録だけ（依頼者へ渡す＝CL-3）。"""
     answered: bool | None        # 業務の情報で答えた／答えを持っていなかった／答えに添えられた質問（None）
     evidence: Said
+    answer: str | None = None    # AI が自分の言葉で答えた文（声に出す前にプログラムが確かめた文。記録だけ）
+    problem: str | None = None   # その文が確かめに通らなかった理由（通らなければ、作らずに決まった言い方で答えた。記録だけ）
 
 
 @dataclass(frozen=True)
@@ -366,7 +368,9 @@ class CallReport:
                             **({} if x.answer is None else {"answer": x.answer})} for x in self.substitutes],
             "departed": [{**said(x.evidence), "policy": x.policy, "read": list(x.read), "successor": x.successor}
                          for x in self.departures],
-            "callee_question": [{**said(x.evidence), "answered": x.answered} for x in self.callee_questions]}
+            "callee_question": [{**said(x.evidence), "answered": x.answered,
+                                 **({} if x.answer is None else {"answer": x.answer}),
+                                 **({} if x.problem is None else {"problem": x.problem})} for x in self.callee_questions]}
         return {"version": VERSION, "facts": {k: v for k, v in facts.items() if v}, "not_reached": self.not_reached,
                 "cut": None if self.cut is None else {"speaker": self.cut.speaker, "in_closing": self.cut.in_closing,
                                                       "callee_refused_last": self.cut.callee_refused_last},
@@ -510,13 +514,13 @@ def from_json(raw: Any) -> CallReport:
         if not isinstance(part, str) or not part.strip():
             raise ReportInvalid("facts.answered.part は、流した答えの部分の名前（文字）です")
         answered.append(Answered(part, s))
-    backs = tuple(Back(_choice(r.get("why"), CALLBACK_REASONS, "facts.target_back.why"), None, s)
+    # target_back の why は、かけ直しの理由がまだ決まっていない段で確かめに戻ったときは null（CL-1 の _target_back が、その時の
+    # かけ直しの理由をそのまま残す。記録だけ）
+    backs = tuple(Back(_choice(r.get("why"), CALLBACK_REASONS, "facts.target_back.why", optional=True), None, s)
                   for r, s in _records(facts, "target_back", {"why"}))
     resumes = tuple(Back(_choice(r.get("why"), CALLBACK_REASONS, "facts.callback_resume.why"),
                          _reads(r.get("read"), "facts.callback_resume.read"), s)
                     for r, s in _records(facts, "callback_resume", {"why", "read"}))
-    if (backs or resumes) and not callbacks:
-        raise ReportInvalid("かけ直しの申し出が無いのに、かけ直しの途中の記録（target_back・callback_resume）があります")
     not_transferred = tuple(NotTransferred(s, _bool(r, "again") if "again" in r else None)
                             for r, s in _records(facts, "not_transferred", {"again"}))
     substitutes = tuple(Substitute(_choice(r.get("policy"), STANDIN_POLICIES["substitute"], "facts.substitute.policy"),
@@ -526,11 +530,18 @@ def from_json(raw: Any) -> CallReport:
     departures = tuple(Departed(_choice(r.get("policy"), STANDIN_POLICIES["departed"], "facts.departed.policy"),
                                 _reads(r.get("read"), "facts.departed.read"), _bool(r, "successor"), s)
                        for r, s in _records(facts, "departed", {"policy", "read", "successor"}))
+    # 確かめに戻った（target_back）のは、かけ直しの申し出の途中か、代わりの方と話している途中（2026-10-22 の CL-1 の直し：代わりの方の
+    # あとにご本人が出た）。続きへ戻った（callback_resume）のは、かけ直しの申し出の途中だけ
+    if (backs and not (callbacks or substitutes)) or (resumes and not callbacks):
+        raise ReportInvalid("かけ直しの申し出・代わりの方の申し出が無いのに、確かめに戻った記録があります（または、かけ直しの申し出が"
+                            "無いのに、続きへ戻った記録があります）")
     questions = []
-    for r, s in _records(facts, "callee_question", {"answered"}):
+    for r, s in _records(facts, "callee_question", {"answered", "answer", "problem"}):
         if "answered" not in r or (r["answered"] is not None and not isinstance(r["answered"], bool)):
             raise ReportInvalid("facts.callee_question.answered は true / false / null です")
-        questions.append(CalleeQuestion(r["answered"], s))
+        # answer・problem（2026-10-22 の CL-1 の直し：AI が自分の言葉で答えた文と、確かめに通らなかった理由。無くてもよい）
+        questions.append(CalleeQuestion(r["answered"], s, _text(r.get("answer"), "facts.callee_question.answer"),
+                                        _text(r.get("problem"), "facts.callee_question.problem")))
     return CallReport(refusals, complaints, oos, parties, tuple(callbacks), ends, not_reached, cut, delivered, ai_questions,
                       voicemail, tuple(connects), tuple(answered), backs, resumes, not_transferred, substitutes, departures,
                       tuple(questions))
