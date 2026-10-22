@@ -25,8 +25,9 @@ DONT_KNOW_REASONS = ("not_in_charge", "undecided", "unknown_now", "unspecified")
 REFUSED_REASONS = ("policy", "unwilling")        # 決まりで言えない／答えたくない（受け皿）
 HANDLINGS = ("ask_who", "ask_when", "retry", "conclude")   # (a1) 分かるお客様 (a2) 分かる時 (b) 日を改める (d) 結論として終える
 REFUSED_HANDLINGS = ("conclude",)                # 「答えない」は二度と聞かない ⇒ (d) だけ（15-2-3）
-POLICY_KEYS = ("open", "incomplete", "not_reached_absent", "not_reached_not_transferred", "callback_unspecified_time")
-# 会話に至らなかった／一部だけ取れた／不在（戻る時刻は取れなかった）／取り次いでもらえなかった／かけ直しの時刻が決まっていない
+POLICY_KEYS = ("open", "incomplete", "not_reached_absent", "callback_unspecified_time")
+# 業務ごとに宣言する再発信の方針：会話に至らなかった／一部だけ取れた／不在（戻る時刻は取れなかった）／かけ直しの時刻が決まっていない
+SYSTEM_POLICIES: dict[str, "Policy"] = {}   # システムが決める再発信の方針（業務では変えない。下の Policy のあとで入れる）
 
 
 class RulesInvalid(Exception):
@@ -67,6 +68,16 @@ class Rules:
     handling: dict[tuple[str, str, str], Handling]     # (質問, dont_know / refused, 理由) → 扱い
     retry: dict[str, Policy]                           # 再発信の方針の鍵 → 方針
     forbidden: dict[str, "Forbidden"]                  # 言ってはいけないことの名前 → 中身
+
+
+# 目的のお客様に取り次いでもらえなかった（not_reached_not_transferred）は、2つに分けて決める（2026-10-22 ユーザー：「『取り次いで
+# もらえなかった』というのは、『営業拒否』のためと、『事情があり、取り次げなかった』の2つがありますよね。これを通常パターンでも分ける
+# 必要がある」）：
+# - 営業拒否（受付で「営業はお断り」）＝もうかけない：発信の拒否（do_not_call）として判定が終える（ここには来ない）。
+# - 事情があり取り次げなかった＝日を改めて1回：この方針（業務では変えない。確かめ直しで目的のお客様だと確かめられなかった通話も、
+#   その方から目的のお客様へ届いていないので、ここに入る＝判定の (8)）。
+# - 約束した時刻のかけ直し（受付で「3時に戻ります」など）＝約束した時刻：かけ直しの約束（callback_scheduled）として判定が決める。
+SYSTEM_POLICIES["not_reached_not_transferred"] = Policy("call", 1, ("days", 1))
 
 
 def _int(v: Any, where: str) -> int:
@@ -119,7 +130,8 @@ def check(version_id: UUID, required: tuple[str, ...], questions: tuple[str, ...
                     raise RulesInvalid(f"質問 {q} の {state}・{reason}：結論として終えるときだけ、結論の名前が要ります")
                 handling[(q, state, reason)] = Handling(h["kind"], conclusion)
     if set(raw["retry"]) != set(POLICY_KEYS):
-        raise RulesInvalid(f"再発信の方針は {list(POLICY_KEYS)} のすべてに要ります")
+        raise RulesInvalid(f"再発信の方針は {list(POLICY_KEYS)} のすべてに要ります（{list(SYSTEM_POLICIES)} はシステムが決めるので"
+                           "書きません）")
     retry: dict[str, Policy] = {}
     for key, p in raw["retry"].items():
         if not isinstance(p, dict) or p.get("action") not in ("call", "end"):
@@ -136,6 +148,7 @@ def check(version_id: UUID, required: tuple[str, ...], questions: tuple[str, ...
                 raise RulesInvalid(f"再発信の方針 {key} の間隔は {{\"hours\": n}}（n 時間おき）か {{\"days\": n}}（n 日後）の1つです")
             unit = next(iter(iv))
             retry[key] = Policy("call", _int(p["max_times"], f"{key}.max_times"), (unit, _int(iv[unit], f"{key}.interval.{unit}")))
+    retry.update(SYSTEM_POLICIES)
     return Rules(version_id, required, decline, handling, retry, forbidden)
 
 

@@ -11,7 +11,7 @@ from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
 from salescall.core import gate
-from salescall.core.business_rules import RulesInvalid, check
+from salescall.core.business_rules import Policy, RulesInvalid, check
 from salescall.core.call_report import CallReport, Cut, ReportInvalid, Said, from_json
 from salescall.core.judge import Facts, Item, JudgeInput, classify_cut, judge
 from salescall.core.next_action import Alternate, AskAgain, Recheck, Target, choose_number, decide_after_call, decide_after_denial
@@ -220,6 +220,25 @@ class AfterCall(unittest.TestCase):
                                 current_callee_at=at)
         self.assertEqual(d.callee_at, at)
 
+    def test_a_reception_that_could_not_put_us_through_means_one_more_call_on_another_day(self):
+        """受付が事情があり取り次げなかった（と、確かめ直しで目的のお客様だと確かめられなかった）通話は、日を改めて1回だけかけ直す。
+        システムが決め、業務では変えない（2026-10-22 ユーザー：「『事情があり、取り次げなかった』：日を改めて1回」。営業拒否は
+        発信の拒否＝もうかけない、約束した時刻は約束どおり＝どちらも判定が決める）。"""
+        self.assertEqual(RULES.retry["not_reached_not_transferred"], Policy("call", 1, ("days", 1)))
+        j = run(items={}, rep=report(("reception",), not_reached="not_transferred"))
+        tomorrow = NOW + timedelta(days=1, hours=2)                        # 翌日の、別の時間帯（_retry_at の答え）
+        d = decide_after_call(j, normal=P_NONE, promised=P_NONE, rules=RULES, times_with_key=1, now=NOW, retry_at=tomorrow,
+                              target=Target(MAIN))
+        self.assertEqual((d.kind, d.at), ("call", tomorrow))
+        d = decide_after_call(j, normal=P_NONE, promised=P_NONE, rules=RULES, times_with_key=2, now=NOW, retry_at=tomorrow,
+                              target=Target(MAIN))
+        self.assertEqual((d.kind, d.end_reason), ("end", "policy_max:not_reached_not_transferred"))   # 2回目のあとは終える
+        self.assertEqual(run(items={}, rep=report(("reception",), dnc=True)).state, "do_not_call")   # 受付の営業拒否：もうかけない
+        declared = rules_raw(("Q1", "Q2"))
+        declared["retry"]["not_reached_not_transferred"] = {"action": "end"}
+        with self.assertRaises(RulesInvalid):                               # 業務では書けない（システムが決める）
+            check(V, ("Q1", "Q2"), ("Q1", "Q2", "Q3"), declared)
+
     def test_policy(self):
         d = after_call(dict(items={"Q1": TAKEN["Q1"]}))
         self.assertEqual((d.kind, d.at, d.promised), ("call", NOW + HOUR, False))
@@ -239,8 +258,7 @@ class AfterCall(unittest.TestCase):
         d = after_call(dict(items={"Q1": TAKEN["Q1"]}), normal=gate.Pacing(2, late, "daily_attempts", False))
         self.assertEqual(d.at, late)
         ending = check(V, ("Q1", "Q2"), ("Q1", "Q2", "Q3"), rules_raw(("Q1", "Q2"), retry={
-            k: {"action": "end"} for k in ("open", "incomplete", "not_reached_absent", "not_reached_not_transferred",
-                                             "callback_unspecified_time")}))
+            k: {"action": "end"} for k in ("open", "incomplete", "not_reached_absent", "callback_unspecified_time")}))
         d = decide_after_call(run(items={"Q1": TAKEN["Q1"]}), normal=P_NONE, promised=P_NONE,
                               rules=ending, times_with_key=1, now=NOW, retry_at=NOW + HOUR, target=Target(MAIN))
         self.assertEqual((d.kind, d.end_reason), ("end", "incomplete"))

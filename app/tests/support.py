@@ -91,8 +91,7 @@ def rules_raw(required=("Q1",), *, decline=None, retry=None, handling=None) -> d
                           "F2": {"say_not": "失礼な言葉", "correct": None}},
             "handling": handling or {q: per_q() for q in required},
             "retry": retry or {k: {"action": "call", "max_times": 3, "interval": {"hours": 1}}
-                               for k in ("open", "incomplete", "not_reached_absent", "not_reached_not_transferred",
-                                         "callback_unspecified_time")}}
+                               for k in ("open", "incomplete", "not_reached_absent", "callback_unspecified_time")}}
 
 
 def app_access() -> Access:

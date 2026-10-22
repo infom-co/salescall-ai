@@ -69,7 +69,7 @@ LABELS: dict[str, dict[str, str]] = {
                "理由を言わなかった": "unspecified", "決まりで言えない": "policy", "答えたくない": "unwilling"},
     "kind": {"分かるお客様を聞く": "ask_who", "分かる時を聞く": "ask_when", "日を改める": "retry", "結論として終える": "conclude"},
     "retry_key": {"会話に至らなかった": "open", "一部だけ取れた": "incomplete", "不在": "not_reached_absent",
-                  "取り次いでもらえなかった": "not_reached_not_transferred", "かけ直しの時刻が決まっていない": "callback_unspecified_time"},
+                  "かけ直しの時刻が決まっていない": "callback_unspecified_time"},
     "action": {"かける": "call", "終える": "end"},
     "required": {"はい": True, "○": True, "いいえ": False, "": False},
 }

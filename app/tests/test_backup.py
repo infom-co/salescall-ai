@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from salescall.agent import backup as pc
-from salescall.core import backup, fix_requests, registry
+from salescall.core import backup, fix_requests, registry, settings
 from salescall.core.access import Rejected
 from salescall.link import sealing
 from salescall.link.jst import JST
@@ -498,6 +498,25 @@ class PerClient(unittest.TestCase):
         pc.prune(pc.Drive(self.root), rules, now=now)
         self.assertEqual([f.exists() for f in (old_ai, new_ai, mid_sub, old_sub, memo, theirs)],
                          [False, True, True, False, True, True])
+
+    def test_a_contractor_sets_its_own_keep_days(self):
+        """控えを残す日数は、契約者が設定で変える（2026-10-22 ユーザー：「設定で契約者が変えられるようにしてください」）。変えた
+        契約者のフォルダだけに効き、ほかの契約者とデータベース全体のフォルダはシステムの値のまま。依頼者・業務の値は入れられない。"""
+        s, other = World().setup(), World().setup()
+        put = lambda key, days: self.app.in_tenant(OPERATOR, s["tenant"], lambda tx: settings.set_value(   # noqa: E731
+            tx, key, days, scope="tenant", status="decided", rationale="試験", review_when="試験", tenant_id=s["tenant"]))
+        put("backup.ai.keep_days_drive", 30)
+        put("backup.submission.keep_days_drive", 90)
+        folder, their_folder = (backup.client_folder(self.app, x["tenant"], x["client"]) for x in (s, other))   # 最初の控えで作る
+        mine = backup.prune_rules(self.app, s["tenant"])[folder]["days"]
+        theirs = backup.prune_rules(self.app, other["tenant"])[their_folder]["days"]
+        whole = backup.prune_rules(self.app, None)[backup.WHOLE]["days"]
+        self.assertEqual((mine[backup.AI], mine[backup.SUBMISSION]), (30, 90))
+        self.assertEqual((theirs[backup.AI], theirs[backup.SUBMISSION], whole[backup.AI]), (365, 1095, 365))
+        with self.assertRaises(Rejected):                                      # 依頼者ごとには変えない（契約者のハードディスク）
+            self.app.in_client(OPERATOR, s["tenant"], s["client"], lambda tx: settings.set_value(
+                tx, "backup.ai.keep_days_drive", 10, scope="client", status="decided", rationale="試験", review_when="試験",
+                tenant_id=s["tenant"], client_id=s["client"]))
 
     def test_the_newest_verified_backup_is_kept_even_if_old(self):
         """控えの失敗が長く続いても、戻せることまで確かめた一番新しい控えは消さない。"""

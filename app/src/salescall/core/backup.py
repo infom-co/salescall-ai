@@ -472,17 +472,17 @@ VERIFIED_SENT = 400   # 片付けに渡す、戻せることまで確かめた�
 def prune_rules(app: Access, tenant_id: UUID | None) -> dict[str, Any]:
     """古い控えを消す決まり（PC の部品が、この決まりでハードディスクの中を片付ける）：フォルダごとに、種類ごとの残す日数と、消さない
     もの（戻せることまで確かめた AI用のファイルの名前＝一番新しいものを残す・測り終わるまで消さない通話の番号＝2026-10-17 ユーザー 案A）。
-    tenant_id＝その契約者の依頼者のフォルダ（AI用・提出用＝システムの設定、録音＝その契約者の設定）。None＝データベース全体のフォルダ。"""
+    tenant_id＝その契約者の依頼者のフォルダ（残す日数は、どの種類もその契約者の設定＝2026-10-22 ユーザー：「設定で契約者が変えられる
+    ようにしてください」。決めていなければシステムの値）。None＝データベース全体のフォルダ（システムの値）。"""
     def look(tx: Tx) -> dict[str, Any]:
-        days = {AI: int(settings.system_value(tx, "backup.ai.keep_days_drive")),
-                SUBMISSION: int(settings.system_value(tx, "backup.submission.keep_days_drive"))}
+        keep = lambda key: int(settings.resolve(tx, key, tenant_id=tenant_id, client_id=None, business_id=None))   # noqa: E731
+        days = {AI: keep("backup.ai.keep_days_drive"), SUBMISSION: keep("backup.submission.keep_days_drive")}
         if tenant_id is None:
             rows = tx.all("SELECT %s AS folder, file_name AS f FROM salescall.backup_runs WHERE restore_ok AND kind = 'system'"
                           " AND file_name IS NOT NULL", (WHOLE,))
             rules: dict[str, Any] = {WHOLE: {"days": {AI: days[AI]}, "verified": [], "held": []}}
         else:
-            days[RECORDING] = int(settings.resolve(tx, "recording.keep_days_drive", tenant_id=tenant_id, client_id=None,
-                                                   business_id=None))
+            days[RECORDING] = keep("recording.keep_days_drive")
             held = [str(r["h"]) for r in tx.all("SELECT salescall.recordings_held() AS h")]
             rules = {r["f"]: {"days": dict(days), "verified": [], "held": held}
                      for r in tx.all("SELECT folder_name AS f FROM salescall.client_backup_folders")}

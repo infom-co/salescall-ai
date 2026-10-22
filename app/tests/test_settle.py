@@ -842,7 +842,7 @@ class CallbackWindow(SettleBase):
     def test_a_window_retry_past_the_round_moves_to_the_next_round_without_an_apology(self):
         """幅の約束で出なかったとき、再発信の方針の間隔（「2日後」）が回の終わりを越えるなら、次の回へ（回を飛ばさない。その回には
         かけたので、お詫びの印は付けない。⚠️ 前は回を2つ飛ばし、お詫びの印も付けた＝2026-10-19 の見直し）。"""
-        keys = ("open", "incomplete", "not_reached_absent", "not_reached_not_transferred", "callback_unspecified_time")
+        keys = ("open", "incomplete", "not_reached_absent", "callback_unspecified_time")
         s = self.ready(rules=rules_raw(retry={k: {"action": "call", "max_times": 3, "interval": {"days": 2}} for k in keys}))
         local = self.local_now(s)
         midnight = lambda day: self.from_jst(s, datetime.combine(day, datetime.min.time()))   # noqa: E731
@@ -858,7 +858,7 @@ class CallbackWindow(SettleBase):
     def test_a_window_retry_within_the_round_counts_up_to_the_policy_times(self):
         """幅の約束で出なかったとき、再発信の方針の回数（ここでは1回）の中なら、同じ回の中で方針の間隔でかけ直す（境目。見直し7で
         試験を足した）。"""
-        keys = ("open", "incomplete", "not_reached_absent", "not_reached_not_transferred", "callback_unspecified_time")
+        keys = ("open", "incomplete", "not_reached_absent", "callback_unspecified_time")
         s = self.ready(rules=rules_raw(retry={k: {"action": "call", "max_times": 1, "interval": {"hours": 1}} for k in keys}))
         now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
         w = next_action.Window(now + timedelta(days=2), (0, 24 * 3600), None, now - timedelta(hours=1), "week")
@@ -872,7 +872,7 @@ class CallbackWindow(SettleBase):
     def test_an_untimed_promise_ends_when_later_is_said_more_than_the_policy_times(self):
         """「あとで」と言われた回数が方針の回数（ここでは1回）を超えたら終える。言われた回数そのものは続ける（境目。見直し7で試験を
         足した）。"""
-        keys = ("open", "incomplete", "not_reached_absent", "not_reached_not_transferred", "callback_unspecified_time")
+        keys = ("open", "incomplete", "not_reached_absent", "callback_unspecified_time")
         s = self.ready(rules=rules_raw(retry={k: {"action": "call", "max_times": 1, "interval": {"hours": 1}} for k in keys}))
         later = lambda: self.settle(s, self.call(s, report=rep(callback=callback("later", time="あとで"))))   # noqa: E731
         first = later()["decision"]

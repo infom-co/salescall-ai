@@ -1018,6 +1018,11 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("連携の台帳の、どの行・どの送り先・どの版かを書き換えられる（0109：「送った」記録を、送っていない別のお客様へ付け替える）",
      "GRANT UPDATE ON salescall.deliveries TO salescall_app",
      ("tests.test_foundation.ServerOnly.test_a_delivery_record_keeps_which_row_it_was_sent_for",)),
+    ("控えを残す日数を、契約者が設定で変えられない（0110：2026-10-22 ユーザー「設定で契約者が変えられるようにしてください」）",
+     "ALTER TABLE salescall.setting_definitions DISABLE TRIGGER setting_definitions_frozen;"
+     " UPDATE salescall.setting_definitions SET finest_scope = 'system' WHERE key = 'backup.ai.keep_days_drive';"
+     " ALTER TABLE salescall.setting_definitions ENABLE TRIGGER setting_definitions_frozen",
+     ("tests.test_backup.PerClient.test_a_contractor_sets_its_own_keep_days",)),
 )
 
 
