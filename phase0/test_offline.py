@@ -4958,6 +4958,13 @@ class TargetTest(unittest.TestCase):
             self.assertEqual((r["result"], r["play"][0]["text"], r["ack"]), ("own_answer", OWN_FALLBACK, "moushiwake"), answer)
             self.assertIn(why, r["message"])
             self.assertEqual((f.facts["callee_question"][-1]["answered"], f.facts["callee_question"][-1]["answer"]), (False, answer))
+        # 固有名詞と数は業務の情報にあるものだけ：相手が質問で言った地名を肯定しない。ふつうの名詞は相手の質問の言葉も使える。文字の幅はそろえる
+        from flowctl import own_answer_problem
+        info = "弊社の本社は東京都港区にございます。営業時間は９時から１８時です。"
+        self.assertIn("目黒", own_answer_problem("はい、弊社は目黒にございます。", info, "御社は目黒ですよね？", [], False))
+        self.assertIn("10", own_answer_problem("営業時間は10時からです。", info, "何時から営業されていますか？10時からですか？", [], False))
+        self.assertIsNone(own_answer_problem("営業時間は9時から18時です。", info, "営業時間は何時から何時までですか？", [], False))
+        self.assertIsNone(own_answer_problem("番号の件につきましてはこの場ではお答えいたしかねます。", info, "この番号はどこで知ったんですか？", [], False))
         # 担当から改めて連絡すると申し出てよい業務：答えを持っていない問いへの申し出は通す（答えのある問いへの約束は通さない）
         f = info_flow(follow_up=True)
         self.heard(f, "御社の資本金はおいくらですか？", None); f.on_check("asks", ASKS_YES)

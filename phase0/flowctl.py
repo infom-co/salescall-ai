@@ -605,17 +605,22 @@ _HIRAGANA = re.compile(r"[ぁ-ゖー]+")
 OWN_MAX_CHARS = 80  # 答えの文の長さの上限（短く1〜2文。長い答えは、そのぶん作る・外れる所が増える）
 
 
-def own_answer_problem(answer: str, grounds: str, names: list[str], may_follow_up: bool) -> str | None:
+def own_answer_problem(answer: str, info: str, asked: str, names: list[str], may_follow_up: bool) -> str | None:
     """AIが自分の言葉で答える文（Flow._own_answer）を、声に出す前に確かめる唯一の場所。問題が無ければ None、あれば理由（日本語）。
     ✅ 2026-10-22 ユーザー：「想定外の時はどうするのかを聞いているんですよ。…人以上の仕組みを作ることが私たちの目的ではないのですか？」⇒ AIが自分の
     言葉で答えるが、⛔ G-57 tc31：L4 は業務の情報（「東京都港区」）と違う「東京目黒」を言い、S2 は返事の注意書きを声に出して約束した。
-    - 名詞（固有名詞・数・ふつうの名詞）は、業務の情報か相手の質問にある言葉か、中身を足さない言葉（_PLAIN_NOUNS）だけ（作らない）
+    - 固有名詞（地名・社名など）と数は、業務の情報にあるものだけ（相手の質問にあるだけでは使わない：「目黒ですよね？」に「はい、目黒に
+      ございます」と、相手の言った事実を肯定しない）
+    - ふつうの名詞は、業務の情報か相手の質問にある言葉か、中身を足さない言葉（_PLAIN_NOUNS）だけ（作らない）
     - 名前（社名・担当者名・お呼びした方の名前と読み）は言わない（「弊社」「担当の者」。名前は録音だけ）
     - 約束の言葉は言わない（業務設定で許された、答えを持っていない問いへの「改めてご連絡」だけは使ってよい）
     - AIへの知らせの言葉を言わない・長すぎない
-    grounds＝業務の情報と相手の質問の文（つなげたもの）。"""
+    info＝業務の情報（つなげたもの）・asked＝相手の質問の文。文字の幅（９と9）はそろえて比べる。
+    ⚠️ 確かめるのは言葉で、意味ではない（業務の情報の言葉だけを使った、違う中身の文は通る。⏳ 意味で確かめるかは測ってから）。"""
+    import unicodedata
     from jtext import words
-    text = (answer or "").strip()
+    info, asked = unicodedata.normalize("NFKC", info or ""), unicodedata.normalize("NFKC", asked or "")
+    text = unicodedata.normalize("NFKC", (answer or "").strip())
     if not text:
         return "答えの文がありません"
     if len(text) > OWN_MAX_CHARS:
@@ -627,8 +632,11 @@ def own_answer_problem(answer: str, grounds: str, names: list[str], may_follow_u
     if not may_follow_up and (m := PROMISE.search(text)):
         return f"約束の言葉（「{m.group()}」）が入っています"
     # ひらがなだけの名詞（うえ・こと・ため・ほう など、形の上の言葉）は中身を足さないので見ない
-    new = [w.surface for w in words(text) if getattr(w.feature, "pos1", "") == "名詞" and w.surface not in _PLAIN_NOUNS
-           and not _HIRAGANA.fullmatch(w.surface) and w.surface not in grounds]
+    def grounded(w) -> bool:
+        if getattr(w.feature, "pos2", "") in ("固有名詞", "数詞"):
+            return w.surface in info
+        return w.surface in _PLAIN_NOUNS or bool(_HIRAGANA.fullmatch(w.surface)) or w.surface in info or w.surface in asked
+    new = [w.surface for w in words(text) if getattr(w.feature, "pos1", "") == "名詞" and not grounded(w)]
     if new:
         return f"業務の情報にも相手の質問にも無い言葉（「{'」「'.join(dict.fromkeys(new))}」）が入っています"
     return None
@@ -1987,7 +1995,7 @@ class Flow:
             return self._reject(f"答える文（自分の言葉で、短く1〜2文）を「{ARG_LABEL['answer']}」に書いて、もう一度呼んでください（声に出すのは、"
                                 "プログラムの返事のあとです）。")
         known = part == "own"
-        problem = own_answer_problem(answer, "".join(self.info) + (self.callee_said or ""), self.names,
+        problem = own_answer_problem(answer, "".join(self.info), self.callee_said or "", self.names,
                                      may_follow_up=not known and self.policies["follow_up"])
         self.own_turn, self.own_pending = self.callee_turns, True
         self._note("callee_question", answered=known and problem is None, answer=answer.strip(), **({"problem": problem} if problem else {}))
