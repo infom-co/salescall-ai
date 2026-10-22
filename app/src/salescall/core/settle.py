@@ -23,7 +23,7 @@ from uuid import UUID
 
 from salescall.core import (apology, approval, attempts, business_rules, call_report, calling_hours, dnc, fix_requests,
                             next_action, notify, number_recheck, quality_stage, results, settings, spoken_time, target_policy,
-                            tasks, usage)
+                            target_recheck, tasks, usage)
 from salescall.core.access import Tx
 from salescall.core.judge import (JUDGE_VERSION, UNKNOWN_CAUSE_FIXERS, UNKNOWN_CAUSES, Facts, Item, JudgeInput, Judgement,
                                   cut_off as judge_cut_off, judge, refusal)
@@ -94,7 +94,8 @@ def _settle_apology(tx: Tx, a: dict[str, Any]) -> dict[str, Any]:
         raise NotReady("承認されたお詫びの案が無いのに、お詫びの電話をかけています")
     inp, _, _ = _judge_input(tx, a, a["version_id"])
     report = inp.report
-    delivered = bool(report is not None and report.apology_delivered)
+    # 伝えたか：目的のお客様だと確かめられなかった通話（別の方に伝えた・確かめられなかった）は、伝えていない側に倒す
+    delivered = bool(report is not None and report.apology_delivered) and not inp.target_unconfirmed
     # 発信の拒否・番号違いは、判定と同じ1か所（judge.refusal）で決める（2026-10-16 の見直し J6：前は通話中の申告だけを見て、
     # 何も言わずに切った＝断った、を見落としていた）。断ったかを決められない（報告・切れ方の抜け）・通話後の検証で確かめられ
     # なかった ⇒ もうかけない（かけない側に倒す）
@@ -120,7 +121,7 @@ def _settle_apology(tx: Tx, a: dict[str, Any]) -> dict[str, Any]:
     _notice_forbidden(tx, a, prepare=False)
     decision = next_action.after_apology(tx, a["task_id"], delivered=delivered, refused=refused, stop_reason=stop_reason,
                                          dialed=next_action.Target(a["contact_id"], None, "apology", None),
-                                         reached_target=report is not None and report.reached_target)
+                                         reached_target=_reached_target(inp))
     if decision.kind == "end":
         notify.emit(tx, "apology", key=f"apology:{attempt_id}",
                     summary={"apology_done": "お詫びを伝えました。",
@@ -175,7 +176,8 @@ def _inputs_now(tx: Tx, a: dict[str, Any]) -> dict[str, Any]:
             "report_source": call_report.load_with_source(tx, a["attempt_id"])[1],
             "items": _items_snapshot(_items(tx, a["task_id"])),
             "refused_after": dnc.refused_in(tx, a["attempt_id"], "refused_found_after"),   # 検証があとで拒否を見つけた（2026-10-17 の見直し）
-            "declared_in_call": dnc.refused_in(tx, a["attempt_id"], "refused_in_call")}   # 通話の途中の申告（2026-10-19 の見直し）
+            "declared_in_call": dnc.refused_in(tx, a["attempt_id"], "refused_in_call"),   # 通話の途中の申告（2026-10-19 の見直し）
+            "target_recheck": target_recheck.load(tx, a["attempt_id"])}   # 目的のお客様の確かめ直し（0108）
 
 
 def rejudge(tx: Tx, attempt_id: UUID) -> dict[str, Any] | None:
@@ -188,13 +190,14 @@ def rejudge(tx: Tx, attempt_id: UUID) -> dict[str, Any] | None:
     last = tx.one("SELECT judge_version, snapshot FROM salescall.call_judgements WHERE attempt_id = %s", (attempt_id,))
     latest_attempt = tx.one(f"SELECT attempt_id FROM salescall.attempts WHERE task_id = %s AND {attempts.DIALED}"
                             " ORDER BY claimed_at DESC LIMIT 1", (a["task_id"],))["attempt_id"]
-    if not held or last is None or latest_attempt != attempt_id:
-        return None
+    if not held or last is None or latest_attempt != attempt_id or target_recheck.missing(tx, attempt_id):
+        return None                                # 確かめ直しを待つ行は、記録されてから判定し直す
     now = _inputs_now(tx, a)
     before = {"judge_version": last["judge_version"], "rules_version": last["snapshot"].get("rules_version"),
               "report_source": last["snapshot"].get("report_source"), "items": last["snapshot"].get("items"),
               "refused_after": bool(last["snapshot"].get("refused_after")),
-              "declared_in_call": bool(last["snapshot"].get("declared_in_call"))}
+              "declared_in_call": bool(last["snapshot"].get("declared_in_call")),
+              "target_recheck": last["snapshot"].get("target_recheck")}
     if now == before:
         return None                                # 何も直っていない：同じ入力で判定し直しても同じ結果
     out = _judge_and_write(tx, a, kind="rejudged", rules_version=now["rules_version"])
@@ -217,6 +220,8 @@ def rejudge_held(tx: Tx) -> list[dict[str, Any]]:
 def _judge_input(tx: Tx, a: dict[str, Any], rules_version: Any) -> tuple[JudgeInput, str | None, dict[str, Any]]:
     """判定の入力を集める1か所（ふつうの締め・判定し直し・お詫びの電話の締め）。"""
     attempt_id = a["attempt_id"]
+    if target_recheck.missing(tx, attempt_id):   # 録音から作り直した報告に、判定なしの繋ぎが入ったときも（検証は済んでいる）
+        raise NotReady("目的のお客様の確かめ直し（録音から）がありません。通話後の検証が記録するまで締めません")
     report, report_source = call_report.load_with_source(tx, attempt_id)
     refused_after = dnc.refused_in(tx, attempt_id, "refused_found_after")
     unclear_is_refusal = bool(settings.resolve(tx, "judge.unclear_disconnect_is_refusal", tenant_id=a["tenant_id"],
@@ -230,7 +235,7 @@ def _judge_input(tx: Tx, a: dict[str, Any], rules_version: Any) -> tuple[JudgeIn
     inp = JudgeInput(Facts(a["state"], a["hangup_side"], a["reached_answer"], dialed["source"] == "callee", a["spoken_at"]),
                      report, _items(tx, a["task_id"]), business_rules.load(tx, rules_version), refused_after,
                      unclear_is_refusal, (calling_hours.clock_seconds(open_), calling_hours.clock_seconds(close)), periods,
-                     dnc.refused_in(tx, attempt_id, "refused_in_call"))
+                     dnc.refused_in(tx, attempt_id, "refused_in_call"), target_recheck.unconfirmed(tx, attempt_id))
     return inp, report_source, dialed
 
 
@@ -256,7 +261,7 @@ def _judge_and_write(tx: Tx, a: dict[str, Any], *, kind: str, rules_version: Any
         "report": None if report is None else report.to_json(), "report_source": report_source,
         "items": _items_snapshot(items),
         "rules_version": str(rules.version_id), "refused_after": refused_after, "unclear_is_refusal": unclear_is_refusal,
-        "declared_in_call": inp.declared_in_call,
+        "declared_in_call": inp.declared_in_call, "target_recheck": target_recheck.load(tx, attempt_id),
     }
     version_no = results.append(tx, a["task_id"], kind=kind, business_state=j.state, attempt_id=attempt_id,
                                 judge_version=JUDGE_VERSION, complaint=j.complaint, snapshot=snapshot, detail=j.detail,
@@ -278,8 +283,14 @@ def _judge_and_write(tx: Tx, a: dict[str, Any], *, kind: str, rules_version: Any
         tx, a["task_id"], j, rules=rules,
         dialed=next_action.Target(a["contact_id"], None, a["purpose"], a["wrong_contact_id"]), dialed_at=a["claimed_at"],
         alternate=alternate, recheck=recheck, forbidden=forbidden, cut_off=cut_off,
-        reached_target=report is not None and report.reached_target)   # 目的のお客様と話せた（約束の日のお詫びは済んだ）
+        reached_target=_reached_target(inp))   # 目的のお客様と話せた（約束の日のお詫びは済んだ）
     return {"version_no": version_no, "state": j.state, "decision": decision, "already": False}
+
+
+def _reached_target(inp: JudgeInput) -> bool:
+    """目的のお客様と話せたか（締めの1か所）：会話の報告で繋がっていて、確かめ直しで目的のお客様だと確かめられなかった通話でない
+    （別の方だった・確かめられなかった通話は、話せたと数えない＝約束の日のお詫びの印を外さない。core/target_recheck.py）。"""
+    return inp.report is not None and inp.report.reached_target and not inp.target_unconfirmed
 
 
 def _notice_unknown(tx: Tx, a: dict[str, Any], j: Judgement, summary: str) -> None:

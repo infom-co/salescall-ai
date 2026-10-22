@@ -440,6 +440,41 @@ class Shapes(unittest.TestCase):
             with self.subTest(name), self.assertRaises(ReportInvalid):
                 from_json({**good, **change})
 
+    def test_a_connect_without_the_judges_is_marked_for_a_recheck(self):
+        """目的のお客様に繋いだ事実（connect。CL-1 の連絡帳 4-25）：判定を使う通話で、AIの読みだけで繋いだ・繋いだあとに届いた判定が
+        「ご本人」でないときだけ、確かめ直しが要る（判断は CallReport.target_unverified の1か所）。繋いだ事実があれば、電話口の種別に
+        目的のお客様が無くても「繋がった」（AIの報告が違っても、判定の「ご本人」が2つそろえば CL-1 は繋ぐ）。"""
+        base = report(("person",)).to_json()
+
+        def with_connect(*records):
+            return from_json({**base, "facts": {**base["facts"], "connect": [
+                {"turn": 3, "said": "はい、そうです", **r} for r in records]}})
+        cases = [({"read": ["ai", "judge"], "judging": True}, False),                  # AIと判定がそろった
+                 ({"read": ["judge", "judge2"], "judging": True}, False),              # 判定が2つそろった（AIは違う報告）
+                 ({"read": ["ai"], "judging": True}, True),                            # 判定が止まって、AIの読みだけ
+                 ({"read": ["ai"], "judging": False}, False),                          # 判定を使わない通話（報告のまま）
+                 ({"read": ["ai", "judge"], "judging": True, "late": {"judge2": "ご本人"}}, False),
+                 ({"read": ["ai", "judge"], "judging": True, "late": {"judge2": "別の方"}}, True)]   # あとの判定が食い違う
+        for record, unverified in cases:
+            with self.subTest(record):
+                got = with_connect(record)
+                self.assertEqual((got.target_unverified, got.reached_target), (unverified, True))
+                self.assertEqual(from_json(got.to_json()), got)
+        self.assertFalse(report(("person",)).reached_target)                          # 繋いだ事実も目的のお客様も無い
+        self.assertTrue(with_connect({"read": ["ai", "judge"], "judging": True},
+                                     {"read": ["ai"], "judging": True}).target_unverified)   # 1つでも確かめ直しの要る繋ぎ
+        rec = {"turn": 3, "said": "はい"}
+        for name, record in [("読みが空", {"read": [], "judging": True}), ("知らない読み", {"read": ["jev"], "judging": True}),
+                             ("読みが重なる", {"read": ["ai", "ai"], "judging": True}), ("判定を使うかが無い", {"read": ["ai"]}),
+                             ("あとの判定の名前が違う", {"read": ["ai"], "judging": True, "late": {"ai": "ご本人"}}),
+                             ("あとの判定の読みが空", {"read": ["ai"], "judging": True, "late": {"judge": " "}}),
+                             ("知らない項目", {"read": ["ai"], "judging": True, "why": 1})]:
+            with self.subTest(name), self.assertRaises(ReportInvalid):
+                from_json({**base, "facts": {**base["facts"], "connect": [{**rec, **record}]}})
+        with self.assertRaises(ReportInvalid):                                         # 繋いだのに、繋がらなかった理由
+            from_json({**base, "not_reached": "absent", "facts": {**base["facts"], "connect": [
+                {**rec, "read": ["ai"], "judging": True}]}})
+
     def test_facts_are_read_in_one_place(self):
         """判定が読むもの（申告・苦情・電話口の種別・かけ直し・急いでいたか）は、通話の事実から読む。そろえた番号は言ったままの番号から。"""
         r = from_json({"version": 3, "not_reached": None, "cut": None, "apology_delivered": None, "facts": {

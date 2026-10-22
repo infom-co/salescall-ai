@@ -46,7 +46,7 @@ from salescall.core.business_rules import Rules
 from salescall.core.call_report import CallReport
 
 # 判定の決まりの版（変えたら上げる）。かけ直しの時刻の読み方の版も入れる（読み方を直すと、判定待ちの行が判定し直される＝settle.rejudge）
-JUDGE_VERSION = f"judge-2026-10-19.8+time-{spoken_time.VERSION}"
+JUDGE_VERSION = f"judge-2026-10-22.1+time-{spoken_time.VERSION}"   # 2026-10-22.1：繋いだ事実（connect）で話した・繋がったと読む
 # 「判定できない」の原因の名前（同じ原因かを数える単位）と意味。プログラムの誤りか（直す担当へ修正依頼を出し、管理者にも
 # 知らせる＝確かめ・承認のため。2026-10-16・10-17 ユーザー）も、ここで決まる（1か所）。業務設定の抜けは契約者が直す（いまは無い：業務の決まりは、必須の質問ごとに、
 # 決まった理由のすべてに扱いが無いと保存できない＝business_rules。2026-10-16 見直し：前は「理由×扱いが決まらない」を業務設定の
@@ -67,7 +67,6 @@ UNKNOWN_CAUSE_FIXERS: dict[str, str] = {"report_missing": "CL-1", "cut_missing":
                                         "callback_time_unconfirmed": "CL-1"}
 PROGRAM_CAUSES = frozenset(UNKNOWN_CAUSE_FIXERS)
 TAKEN = frozenset({"confirmed", "accepted"})                  # 「取れた」の定義（4-4。ここで2つ目を作らない）
-HUMAN_PARTIES = frozenset({"reception", "target", "wrong_party", "person"})   # お客様と話した区間（person＝役がまだ分からない）
 
 
 @dataclass(frozen=True)
@@ -102,6 +101,9 @@ class JudgeInput:
     # 落ちても、申告は台帳にある：報告だけを見ると、断りを見落として、行のほかの番号へ広げず、お詫びしてかけ直そうとした
     # （2026-10-19 の見直し）
     declared_in_call: bool = False
+    # 目的のお客様に判定なしで繋いだ通話を確かめ直して、目的のお客様だと確かめられなかった（別の方・確かめられなかった。
+    # core/target_recheck.py）。その通話の答えは、もう戻されている・「-」になっている。結果の中身に残す
+    target_unconfirmed: bool = False
 
 
 @dataclass(frozen=True)
@@ -119,7 +121,7 @@ def classify_cut(facts: Facts, report: CallReport | None) -> str | None:
     対象でなければ None。⚠️ missing を unclear と同じに扱わない（報告の書き損じで、ふつうに終えたお客様を営業拒否にしない）。"""
     if not facts.reached_answer or facts.end_state not in ("ended", "dropped") or report is None:
         return None
-    if not any(p in HUMAN_PARTIES for p in report.parties):
+    if not report.talked:
         return None                              # 留守電・自動音声・FAX は、お客様の意思が無い
     cut = report.cut
     if cut is None:
@@ -165,7 +167,7 @@ def refusal(inp: JudgeInput) -> Judgement | None:
     r = inp.report
     raw_cut, cut = _cut(inp)
     complaint = bool(r and r.complaint)
-    detail: dict[str, Any] = {"cut": raw_cut, "cut_recorded": cut}
+    detail: dict[str, Any] = _detail(inp, raw_cut, cut)
 
     def done(state: str, *, dnc: str | None = None, **more: Any) -> Judgement:
         return Judgement(state, complaint, cut, dnc, {**detail, **more})
@@ -183,7 +185,7 @@ def refusal(inp: JudgeInput) -> Judgement | None:
             return done("do_not_call", dnc="refused_found_after", refusal="found_after")
         return unknown("report_missing", "お客様が出た通話なのに、会話の報告がありません")
     # (0) FAX の回線：お客様に届かない番号。その番号だけ止める（番号違いと同じ扱い。行のお客様が断ったのではない）
-    if r and "fax" in r.parties and not any(p in HUMAN_PARTIES for p in r.parties):
+    if r and "fax" in r.parties and not r.talked:
         if inp.facts.dialed_callee_number:   # 言われた番号が FAX だった：その番号だけ止め、番号を確かめて聞き直す（次の動き）
             return done("not_reached", dnc="fax_line", not_reached="wrong_alternate", fax_line=True)
         return done("out_of_scope", dnc="fax_line", out_of_scope="fax_line")
@@ -206,12 +208,17 @@ def refusal(inp: JudgeInput) -> Judgement | None:
     return None
 
 
+def _detail(inp: JudgeInput, raw_cut: str | None, cut: str | None) -> dict[str, Any]:
+    """判定の中身の初め（切れ方と、目的のお客様だと確かめられなかったか。1か所）。"""
+    return {"cut": raw_cut, "cut_recorded": cut, **({"target_unconfirmed": True} if inp.target_unconfirmed else {})}
+
+
 def _business(inp: JudgeInput) -> Judgement:
     """業務の中身の判定（(3) から。発信の拒否・番号違いが無かった通話）。"""
     r, rules = inp.report, inp.rules
     raw_cut, cut = _cut(inp)
     complaint = bool(r and r.complaint)
-    detail: dict[str, Any] = {"cut": raw_cut, "cut_recorded": cut}
+    detail: dict[str, Any] = _detail(inp, raw_cut, cut)
 
     def done(state: str, *, dnc: str | None = None, **more: Any) -> Judgement:
         return Judgement(state, complaint, cut, dnc, {**detail, **more})
@@ -264,7 +271,7 @@ def _business(inp: JudgeInput) -> Judgement:
                                                      "number_said": cb.number_said, "number_e164": cb.number_e164,
                                                      "person": cb.person},
                     policy_key=None if when.start else "callback_unspecified_time")
-    human = bool(r and any(p in HUMAN_PARTIES for p in r.parties))
+    human = bool(r and r.talked)
     conversation = inp.facts.reached_answer and human
     # (8) お客様と話したが、目的のお客様に繋がらなかった
     if conversation and not r.reached_target:

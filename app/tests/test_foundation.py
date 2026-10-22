@@ -375,9 +375,10 @@ class NamesMatchTheDesign(unittest.TestCase):
 
     def test_dont_know_can_be_stored(self):
         w = World(); s = w.setup()
+        aid = w.insert_claim(s)
         w.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: tx.execute(
-            "INSERT INTO salescall.item_values (tenant_id, client_id, task_id, version_id, question_id, state, condition)"
-            " VALUES (%s, %s, %s, %s, 'Q1', 'dont_know', 'unknown')", (s["tenant"], s["client"], s["task"], s["version"])))
+            "INSERT INTO salescall.item_values (tenant_id, client_id, task_id, version_id, question_id, state, condition, attempt_id)"
+            " VALUES (%s, %s, %s, %s, 'Q1', 'dont_know', 'unknown', %s)", (s["tenant"], s["client"], s["task"], s["version"], aid)))
 
 
 class UnknownFieldTypeIsRejected(unittest.TestCase):

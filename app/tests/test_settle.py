@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from salescall.core import (approval, attempts, backup, business_rules, calling_hours, call_report, dnc, fix_requests, gate,
-                            next_action, quality_stage, recordings, results, settle, stops, watch)
+                            next_action, quality_stage, recordings, results, settle, stops, target_recheck, watch)
 from salescall.core.errors import ErrorReport
 from salescall.core.access import Rejected
 from salescall.core.call_report import Cut
@@ -36,8 +36,9 @@ class SettleBase(Base):
             self.tx(s, lambda tx: attempts.move(tx, c.attempt_id, st, hangup_side=side if st == "dropped" else None))
         for q, state, cond in items:
             self.tx(s, lambda tx: tx.execute(
-                "INSERT INTO salescall.item_values (tenant_id, client_id, task_id, version_id, question_id, state, condition)"
-                " VALUES (%s, %s, %s, %s, %s, %s, %s)", (s["tenant"], s["client"], s["task"], s["version"], q, state, cond)))
+                "INSERT INTO salescall.item_values (tenant_id, client_id, task_id, version_id, question_id, state, condition,"
+                " attempt_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                (s["tenant"], s["client"], s["task"], s["version"], q, state, cond, c.attempt_id)))
         if "answered" in path:
             self.tx(s, lambda tx: call_report.save(tx, c.attempt_id, report or rep()))
             if verify:
@@ -295,6 +296,115 @@ class Settle(SettleBase):
         with self.assertRaises(business_rules.RulesMissing):
             self.settle(s, aid)
         self.assertIsNone(self.tx(s, lambda tx: results.latest(tx, s["task"])))
+
+
+class TargetRecheck(SettleBase):
+    """目的のお客様に、判定なしで繋いだ通話の確かめ直し（DESIGN.md 6-12 の (e)・7-1e・CL-1 の連絡帳 4-25・0108）。"""
+
+    def connected_report(self, read=("ai",)):
+        from salescall.core.call_report import Connect, Said
+        return replace(rep(), connects=(Connect(Said(3, "はい、そうです"), tuple(read), True),))
+
+    def connected(self, s, read=("ai",), *, items=(("Q1", "confirmed", None),)):
+        return self.call(s, report=self.connected_report(read), items=items, verify=None)
+
+    def item(self, s, q="Q1"):
+        return self.tx(s, lambda tx: tx.one("SELECT state::text AS state, condition, value, attempt_id FROM salescall.item_values"
+                                            " WHERE task_id = %s AND question_id = %s", (s["task"], q)))
+
+    def later_call(self, s, report):
+        """同じ行の、あとの通話（門を通らずに作る。データベースの守りを試すため）。"""
+        aid = self.w.insert_claim(s)
+        for st in TALK:
+            self.w.move(s, aid, st)
+        self.tx(s, lambda tx: call_report.save(tx, aid, report))
+        return aid
+
+    def test_another_person_answers_become_dashes_and_the_call_does_not_count_as_reaching_the_target(self):
+        """確かめ直すまで通話後の検証を済ませられない。別の方だったら、その通話の答えを「-」にし（前の答えが無いとき。別の方の答えを
+        依頼者へ渡さない）、目的のお客様と話せたと数えない（約束の日のお詫びの印を外さない）。結果の中身にも残す。"""
+        s = self.ready()
+        aid = self.connected(s, items=(("Q1", "confirmed", "はい"),))
+        with self.assertRaises(attempts.RecheckMissing):
+            self.tx(s, lambda tx: attempts.record_verification(tx, aid, summary=CLEAN))
+        with self.assertRaises(target_recheck.RecheckInvalid):                    # 何で確かめたかは必ず要る
+            self.tx(s, lambda tx: target_recheck.record(tx, aid, "not_target", evidence=" ", checked_by="試験"))
+        self.tx(s, lambda tx: target_recheck.record(tx, aid, "not_target", evidence="試験：別の耳で「いえ、山本です」",
+                                                    checked_by="試験"))
+        got = self.item(s)
+        self.assertEqual((got["state"], got["condition"], got["value"]), ("unresolved", None, None))
+        with self.assertRaises(Rejected):                                          # 記録は、表の持ち主でも変えられない
+            owner_access().in_system(OPERATOR, lambda tx: tx.execute(
+                "UPDATE salescall.target_rechecks SET outcome = 'target' WHERE attempt_id = %s", (aid,)))
+        self.tx(s, lambda tx: attempts.record_verification(tx, aid, summary=CLEAN))
+        self.assertEqual(self.settle(s, aid)["state"], "incomplete")               # 答えは取れていない（完了にしない）
+        r = self.tx(s, lambda tx: results.latest(tx, s["task"]))
+        self.assertEqual((r["detail"].get("target_unconfirmed"), r["snapshot"]["target_recheck"]), (True, "not_target"))
+        inp = self.tx(s, lambda tx: settle._judge_input(tx, settle._attempt(tx, aid), s["version"])[0])
+        self.assertEqual((inp.report.reached_target, settle._reached_target(inp)), (True, False))
+
+    def test_the_target_keeps_the_answers_and_a_later_call_by_another_person_gives_back_the_earlier_answers(self):
+        """目的のお客様だったら答えはそのまま。後の通話（判定なしで繋いだ）が上書きした答えは、その通話が別の方だったら、前の通話で
+        目的のお客様から取った答えに戻す（後の通話が上書きするとき、前の答えを残す）。前の通話の番号のまま上書きすることはできない
+        （戻す答えを取り違えるため）。"""
+        s = self.ready()
+        aid = self.connected(s, items=(("Q1", "confirmed", "はい"),))
+        self.tx(s, lambda tx: target_recheck.record(tx, aid, "target", evidence="試験：録音で「はい、岡田です」", checked_by="試験"))
+        self.assertEqual(self.item(s)["state"], "confirmed")
+        inp = self.tx(s, lambda tx: settle._judge_input(tx, settle._attempt(tx, aid), s["version"])[0])
+        self.assertTrue(settle._reached_target(inp))
+        later = self.later_call(s, self.connected_report())
+        with self.assertRaises(Rejected):                                          # 前の通話の番号のまま書き換えない
+            self.tx(s, lambda tx: tx.execute("UPDATE salescall.item_values SET condition = 'いいえ' WHERE task_id = %s",
+                                             (s["task"],)))
+        self.tx(s, lambda tx: tx.execute("UPDATE salescall.item_values SET condition = 'いいえ', attempt_id = %s WHERE task_id = %s",
+                                         (later, s["task"])))
+        self.tx(s, lambda tx: target_recheck.record(tx, later, "not_target", evidence="試験：別の方", checked_by="試験"))
+        got = self.item(s)
+        self.assertEqual((got["state"], got["condition"], got["attempt_id"]), ("confirmed", "はい", aid))   # 前の答えに戻る
+
+    def test_a_recheck_is_only_for_calls_connected_without_the_judges_and_a_missing_recording_blanks_the_answers(self):
+        """確かめ直しを記録できるのは、要る通話だけ。録音が届かずに済ませた通話は「確かめられなかった」＝答えは「-」で、目的の
+        お客様と話せたと数えない。"""
+        s = self.ready()
+        plain = self.call(s, items=(("Q1", "confirmed", None),), verify=None)
+        with self.assertRaises(target_recheck.RecheckInvalid):
+            self.tx(s, lambda tx: target_recheck.record(tx, plain, "target", evidence="試験", checked_by="試験"))
+        u = self.ready()
+        aid = self.connected(u)
+        with self.assertRaises(target_recheck.RecheckInvalid):
+            self.tx(u, lambda tx: target_recheck.record(tx, aid, "maybe", evidence="試験", checked_by="試験"))
+        self.override("verification.recording_wait", 1)
+        time.sleep(1.1)
+        self.tx(u, lambda tx: attempts.finish_without_recording(tx, aid))
+        self.assertEqual((self.tx(u, lambda tx: target_recheck.load(tx, aid)), self.item(u)["state"]),
+                         ("cannot_check", "unresolved"))
+        inp = self.tx(u, lambda tx: settle._judge_input(tx, settle._attempt(tx, aid), u["version"])[0])
+        self.assertFalse(settle._reached_target(inp))
+
+    def test_a_rebuilt_report_with_an_unchecked_connect_is_not_settled_or_rejudged_until_rechecked(self):
+        """録音から作り直した報告（判定できない行のため）に判定なしの繋ぎが入ったら、検証が済んでいても、確かめ直しが記録される
+        まで締めない・判定し直さない（確かめていない答えで決めない）。"""
+        s = self.ready()
+        aid = self.call(s, report=rep(cut=None), items=(("Q1", "confirmed", None),))   # 切れ方の材料が無い＝判定できない
+        first = self.settle(s, aid)
+        self.assertEqual(first["state"], "unknown")
+        self.tx(s, lambda tx: call_report.save_rebuilt(tx, aid, self.connected_report(), evidence="試験：録音から"))
+        self.assertIsNone(self.tx(s, lambda tx: settle.rejudge(tx, aid)))         # 確かめ直しを待つ
+        with self.assertRaises(settle.NotReady):
+            self.tx(s, lambda tx: settle._judge_input(tx, settle._attempt(tx, aid), s["version"]))
+        self.tx(s, lambda tx: target_recheck.record(tx, aid, "not_target", evidence="試験", checked_by="試験"))
+        again = self.tx(s, lambda tx: settle.rejudge(tx, aid))
+        self.assertEqual(again["state"], "incomplete")
+
+    def test_a_connect_without_a_party_still_counts_as_talking_with_the_customer(self):
+        """電話口の種別を残さずに繋いだ通話（AIの「代わった方へ」のあと、判定の「ご本人」2つで繋いだ）も、お客様と話した通話：
+        お客様が断りの言葉のあとに切れば、発信の拒否（会話に至らなかった、にしない）。"""
+        from salescall.core.call_report import Connect, Said
+        s = self.ready()
+        r = replace(make_report((), cut=Cut("callee", False, True)), connects=(Connect(Said(3, "はい"), ("judge", "judge2"), True),))
+        aid = self.call(s, report=r, items=())
+        self.assertEqual(self.settle(s, aid)["state"], "do_not_call")
 
 
 class CutOffCalls(SettleBase):
@@ -941,11 +1051,14 @@ class DatabaseGuards(Base):
 
     def test_item_reason_only_when_not_answered(self):
         s = self.ready()
+        aid = self.w.insert_claim(s)
+        sql = ("INSERT INTO salescall.item_values (tenant_id, client_id, task_id, version_id, question_id, state, reason, attempt_id)"
+               " VALUES (%s, %s, %s, %s, 'Q1', %s, %s, %s)")
         with self.assertRaises(Rejected):
-            self.tx(s, lambda tx: tx.execute(
-                "INSERT INTO salescall.item_values (tenant_id, client_id, task_id, version_id, question_id, state, reason)"
-                " VALUES (%s, %s, %s, %s, 'Q1', 'confirmed', 'undecided')",
-                (s["tenant"], s["client"], s["task"], s["version"])))
+            self.tx(s, lambda tx: tx.execute(sql, (s["tenant"], s["client"], s["task"], s["version"], "confirmed", "undecided", aid)))
+        with self.assertRaises(Rejected):                                          # どの通話で取ったかは必ず要る（0108）
+            self.tx(s, lambda tx: tx.execute(sql, (s["tenant"], s["client"], s["task"], s["version"], "confirmed", None, None)))
+        self.tx(s, lambda tx: tx.execute(sql, (s["tenant"], s["client"], s["task"], s["version"], "dont_know", "undecided", aid)))
 
 
 class AfterDenial(Base):

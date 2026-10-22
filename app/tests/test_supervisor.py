@@ -39,8 +39,9 @@ class Runner:
         def work(tx):
             for st in ("ringing", "answered", "in_conversation", "ending", "ended"):
                 attempts.move(tx, claim.attempt_id, st)
-            tx.execute("INSERT INTO salescall.item_values (tenant_id, client_id, task_id, version_id, question_id, state)"
-                       " VALUES (%s, %s, %s, %s, 'Q1', 'confirmed')", (tenant_id, client_id, claim.task_id, claim.version_id))
+            tx.execute("INSERT INTO salescall.item_values (tenant_id, client_id, task_id, version_id, question_id, state, attempt_id)"
+                       " VALUES (%s, %s, %s, %s, 'Q1', 'confirmed', %s)",
+                       (tenant_id, client_id, claim.task_id, claim.version_id, claim.attempt_id))
             call_report.save(tx, claim.attempt_id, rep())
             attempts.record_verification(tx, claim.attempt_id, summary=CLEAN)
         access.in_client(actor, tenant_id, client_id, work)

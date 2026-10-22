@@ -14,6 +14,10 @@
   - 版 2 から外したもの：急いでいて終えたか（締めた理由 `end` から読む＝`hurried`）・そろえた番号（言ったままの番号から読む）・
     かけ直しの時刻（言ったままの言葉から読む）。
 - お詫びの電話で、文面を伝えられたか（apology_delivered。無ければ None。版 2 から）。
+- **事実 connect（2026-10-22 足した。CL-1 の連絡帳 4-25。無くてもよい＝版は3のまま）**：目的のお客様に繋いだ発話と、繋いだ読み
+  （`read`＝"ai"（会話AIの報告）と、「ご本人」と読んだ判定の名前）・判定を使う通話か（`judging`）・繋いだあとに届いた、その発話の
+  判定（`late`＝判定の名前 → 読み）。判定なしで繋いだ・あとの判定が「ご本人」でない通話は、通話後の検証が録音で確かめ直す
+  （`target_unverified`。判断はこの1か所。記録は core/target_recheck.py。DESIGN.md 6-12 の (e)）。
 """
 
 from __future__ import annotations
@@ -27,7 +31,12 @@ from salescall.core.access import Tx
 from salescall.core.phone import normalize
 
 VERSION = 3
-FACT_KINDS = ("do_not_call", "complaint", "out_of_scope", "party", "callback", "ai_question", "voicemail_message", "end")
+FACT_KINDS = ("do_not_call", "complaint", "out_of_scope", "party", "callback", "ai_question", "voicemail_message", "end",
+              "connect")
+JUDGES = ("judge", "judge2")                             # 意味の判定の受け持ちの名前（CL-1 の flowctl.JUDGMENTS。代わりの Jev も、この名前で入る）
+CONNECT_READS = ("ai",) + JUDGES                         # 繋いだ読み：会話AIの報告と、判定の受け持ち
+TARGET_IS_THERE = "ご本人"                               # 判定の「目的のお客様ご本人」の読み（CL-1 の flowctl.TARGET_IS_THERE）
+MEANING_MAX = 40                                         # 判定の読みの文字の長さの上限
 # voicemail_message：留守番電話に伝言を残した（2026-10-19 ユーザー：「留守番電話に入れるのは最初の1回だけ」。同じ依頼者の同じ番号へは
 # 2回目を残さない＝`voicemail_left` の1か所。CL-2 の連絡帳 4-106）
 # ai_question：「AIですか？」「人間ですか？」と聞かれた（聞かれるたびに1つ。CL-1 の 2-2 の版 0.5＝2026-10-19。判定には使わない。記録だけ）
@@ -47,6 +56,7 @@ END_REASONS = ("done", "callee_hurry", "callee_refused_call", "callee_complaint"
                "callback")                               # 締めた理由（CL-1 の END_LABEL の名前。「AIですか」では終えない＝2026-10-19 夜 ユーザー）
 HURRIED_ENDS = frozenset({"callee_hurry", "callee_refused_call", "callee_complaint"})   # 急いでいる・断られた・怒っている（CL-1 の Flow.hurried と同じ）
 NOT_REACHED_REASONS = ("absent", "not_transferred")      # 目的のお客様に繋がらなかった理由（7-1）
+HUMAN_PARTIES = frozenset({"reception", "target", "wrong_party", "person"})   # お客様と話した区間（person＝役がまだ分からない）
 SPEAKERS = ("callee", "ai", "none")                      # 切れた瞬間に話していた側（7-1c）
 SAID_MAX = 80                                            # 根拠の発話の文字の長さの上限（CL-1 の _note と同じ）
 
@@ -99,6 +109,20 @@ class Cut:
 
 
 @dataclass(frozen=True)
+class Connect:
+    """目的のお客様に繋いだ（事実 connect）。"""
+    evidence: Said               # 繋いだ発話
+    read: tuple[str, ...]        # 繋いだ読み（CONNECT_READS のうち）
+    judging: bool                # 判定を使う通話か
+    late: tuple[tuple[str, str], ...] = ()   # 繋いだあとに届いた、その発話の判定（受け持ちの名前, 読み）
+
+    @property
+    def unverified(self) -> bool:
+        """判定を使う通話で、判定の読み無しで繋いだ（AIの読みだけ）・繋いだあとに届いた判定が「ご本人」でない。"""
+        return self.judging and (not set(self.read) & set(JUDGES) or any(v != TARGET_IS_THERE for _, v in self.late))
+
+
+@dataclass(frozen=True)
 class CallReport:
     # 通話の事実（CL-1 の facts。種類ごとに、起きた順の記録）
     refusals: tuple[Said, ...]           # do_not_call：発信の拒否（営業拒否）の申告（原則14）
@@ -113,6 +137,7 @@ class CallReport:
     apology_delivered: bool | None = None   # お詫びの電話だけ：その通話で話したお客様に、文面を伝えられたか（10-1-2）
     ai_questions: tuple[Said, ...] = ()  # 事実 ai_question：「AIですか？」と聞かれた（記録だけ。CL-1 の版 0.5）
     voicemail_messages: tuple[Said, ...] = ()   # 事実 voicemail_message：留守番電話に伝言を残した
+    connects: tuple[Connect, ...] = ()   # 事実 connect：目的のお客様に繋いだ（繋いだ読み）
 
     # ── 判定が読むもの（どれも事実から読む。ここの1か所）
     @property
@@ -133,8 +158,23 @@ class CallReport:
 
     @property
     def reached_target(self) -> bool:
-        """目的のお客様と話せたか（1か所。判定の「目的のお客様に繋がらなかった」と、約束の日のお詫びの印を外す締めが読む）。"""
-        return "target" in self.parties
+        """目的のお客様と話せたか（1か所。判定の「目的のお客様に繋がらなかった」と、約束の日のお詫びの印を外す締めが読む）。
+        繋いだ事実（connect）があれば繋がった（CL-1 は、AIの報告が「目的の人」でなくても、判定の「ご本人」の読みが2つそろえば繋ぐ＝
+        電話口の種別だけを見ると、繋いだ通話を「繋がらなかった」と読む）。connect の無い報告は、電話口の種別の目的のお客様で見る。
+        ⚠️ 確かめ直しで目的のお客様ではなかった通話は、締めの処理が別に見る（core/target_recheck.py）。"""
+        return bool(self.connects) or "target" in self.parties
+
+    @property
+    def talked(self) -> bool:
+        """お客様と話したか（1か所。判定の切れ方・会話に至ったか・FAX の見分けが読む）：お客様の電話口の種別があるか、目的のお客様に
+        繋いだ事実がある（CL-1 は、AIの「代わった方へ」のあと、電話口の種別を残さずに、判定の「ご本人」2つで繋ぐことがある）。"""
+        return bool(self.connects) or any(p in HUMAN_PARTIES for p in self.parties)
+
+    @property
+    def target_unverified(self) -> bool:
+        """目的のお客様だと確かめ直しが要る通話か（判断はこの1か所。CL-1 の連絡帳 4-25・DESIGN.md 6-12 の (e)）：判定を使う通話で、
+        判定の読み無しで繋いだ、または繋いだあとに届いた判定が「ご本人」でない繋ぎが1つでもある。"""
+        return any(c.unverified for c in self.connects)
 
     @property
     def callback(self) -> Callback | None:
@@ -161,7 +201,9 @@ class CallReport:
                           "person": c.person, **({"cycle": c.cycle} if c.cycle else {})} for c in self.callbacks],
             "ai_question": [said(q) for q in self.ai_questions],
             "voicemail_message": [said(v) for v in self.voicemail_messages],
-            "end": [{**said(e.evidence), "reason": e.reason} for e in self.ends]}
+            "end": [{**said(e.evidence), "reason": e.reason} for e in self.ends],
+            "connect": [{**said(c.evidence), "read": list(c.read), "judging": c.judging,
+                         **({"late": dict(c.late)} if c.late else {})} for c in self.connects]}
         return {"version": VERSION, "facts": {k: v for k, v in facts.items() if v}, "not_reached": self.not_reached,
                 "cut": None if self.cut is None else {"speaker": self.cut.speaker, "in_closing": self.cut.in_closing,
                                                       "callee_refused_last": self.cut.callee_refused_last},
@@ -255,8 +297,20 @@ def from_json(raw: Any) -> CallReport:
     voicemail = tuple(s for _, s in _records(facts, "voicemail_message", set()))
     if voicemail and "voicemail" not in (p.party for p in parties):
         raise ReportInvalid("留守番電話の伝言は、電話口の種別が留守番電話の通話だけです")
+    connects = []
+    for r, s in _records(facts, "connect", {"read", "judging", "late"}):
+        read = r.get("read")
+        if not isinstance(read, list) or not read or any(x not in CONNECT_READS for x in read) or len(set(read)) != len(read):
+            raise ReportInvalid(f"facts.connect.read は {CONNECT_READS} のうちの並び（重ならず、1つ以上）です")
+        late = r.get("late") or {}
+        if not isinstance(late, dict) or any(k not in JUDGES or not isinstance(v, str) or not v.strip() or len(v) > MEANING_MAX
+                                              for k, v in late.items()):
+            raise ReportInvalid(f"facts.connect.late は、判定の受け持ち {JUDGES} → 読み（{MEANING_MAX} 字まで）です")
+        connects.append(Connect(s, tuple(sorted(read)), _bool(r, "judging"), tuple(sorted(late.items()))))
+    if connects and not_reached is not None:
+        raise ReportInvalid("目的のお客様に繋いだのに、繋がらなかった理由があります")
     return CallReport(refusals, complaints, oos, parties, tuple(callbacks), ends, not_reached, cut, delivered, ai_questions,
-                      voicemail)
+                      voicemail, tuple(connects))
 
 
 def save(tx: Tx, attempt_id: UUID, report: CallReport) -> None:

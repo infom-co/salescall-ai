@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 from uuid import UUID
 
-from salescall.core import business_rules, number_recheck, settings, watch
+from salescall.core import business_rules, number_recheck, settings, target_recheck, watch
 from salescall.core.access import Tx
 from salescall.core.errors import ErrorReport
 
@@ -83,7 +83,7 @@ def release(tx: Tx, attempt_ids: list[UUID]) -> int:
 
 
 class RecheckMissing(Exception):
-    """番号の確かめ（DESIGN.md 3-5）が要る通話なのに、記録が無い。"""
+    """番号の確かめ（DESIGN.md 3-5）・目的のお客様の確かめ直し（6-12 の (e)）が要る通話なのに、記録が無い。"""
 
 
 @dataclass(frozen=True)
@@ -115,11 +115,15 @@ def record_verification(tx: Tx, attempt_id: UUID, *, summary: VerificationSummar
       無い）なので、エラーの入口（core/watch.py の `after_error`）に渡し、直ってからやり直す（2026-10-17 ユーザー：「そんな状態自体が
       問題では？」。前は「確かめられなかった」で、その行を終えていた）。
     - お客様が言った番号へかけて番号違いだった通話は、番号の確かめ（core/number_recheck.py）を記録してからでないと済ませられない
-      （付け合わせられなかったときも cannot_check として記録する）。"""
+      （付け合わせられなかったときも cannot_check として記録する）。
+    - 判定なしで目的のお客様に繋いだ通話は、目的のお客様の確かめ直し（core/target_recheck.py）を記録してからでないと済ませられない
+      （確かめられなかったときも cannot_check。どちらも、その通話の答えは「-」になる）。"""
     if summary is None:
         raise ValueError("検証の結果の数を、必ず渡します")
     if number_recheck.needed(tx, attempt_id) and number_recheck.load(tx, attempt_id) is None:
         raise RecheckMissing("番号違いだった番号の確かめ（証拠との付け合わせ）を、先に記録してください")
+    if target_recheck.missing(tx, attempt_id):
+        raise RecheckMissing("判定なしで繋いだ目的のお客様の確かめ直し（録音から）を、先に記録してください")
     tx.execute(
         "INSERT INTO salescall.verification_summaries (tenant_id, client_id, attempt_id, items_checked, items_disagreed,"
         " forbidden_speech, recording_missing) SELECT tenant_id, client_id, attempt_id, %s, %s, %s, %s FROM salescall.attempts"
@@ -165,6 +169,9 @@ def finish_without_recording(tx: Tx, attempt_id: UUID) -> None:
         raise RecordingWaitNotOver(f"通話の終わりから {wait} 秒たっていません（録音を待ちます）")
     if number_recheck.needed(tx, attempt_id) and number_recheck.load(tx, attempt_id) is None:
         number_recheck.record(tx, attempt_id, "cannot_check", corrected=None, evidence="録音が届かなかった（付け合わせられない）",
+                              checked_by="通話後の検証（録音なし）")
+    if target_recheck.missing(tx, attempt_id):   # 確かめられない＝その通話の答えは戻す・「-」
+        target_recheck.record(tx, attempt_id, "cannot_check", evidence="録音が届かなかった（確かめ直せない）",
                               checked_by="通話後の検証（録音なし）")
     watch.record_error(tx, ErrorReport("recording", None, "録音が届かないまま、待つ時間を過ぎた"), attempt_id=attempt_id)
     record_verification(tx, attempt_id, summary=VerificationSummary(0, 0, 0, recording_missing=True))

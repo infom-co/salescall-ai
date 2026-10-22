@@ -902,6 +902,20 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      " PERFORM salescall.hub_only(); UPDATE salescall.pc_agents a SET last_seen_at = now(), lines = p_lines"
      " WHERE a.pc_id = p_pc AND a.revoked_at IS NULL RETURNING a.lines INTO kept; RETURN kept; END $$",
      ("tests.test_agents.Passes.test_a_beat_keeps_only_the_tenants_lines_in_use",)),
+    ("目的のお客様だと確かめられなかった通話の答えを戻さない・「-」にしない（0108：別の方の答えが依頼者へ渡る）",
+     "DROP TRIGGER target_recheck_blanks ON salescall.target_rechecks",
+     ("tests.test_settle.TargetRecheck.test_another_person_answers_become_dashes_and_the_call_does_not_count_as_reaching_the_target",
+      "tests.test_settle.TargetRecheck.test_a_recheck_is_only_for_calls_connected_without_the_judges_and_a_missing_recording_blanks_the_answers")),
+    ("確かめられなかった通話の答えを、前の通話の答えに戻さず「-」にするだけ（0108：目的のお客様から取った答えまで消す）",
+     "CREATE OR REPLACE FUNCTION salescall.target_recheck_blanks() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN"
+     " IF NEW.outcome <> 'target' THEN UPDATE salescall.item_values v SET state = 'unresolved', value = NULL, condition = NULL,"
+     " reason = NULL, hedged = NULL WHERE v.attempt_id = NEW.attempt_id; END IF; RETURN NEW; END $$",
+     ("tests.test_settle.TargetRecheck.test_the_target_keeps_the_answers_and_a_later_call_by_another_person_gives_back_the_earlier_answers",)),
+    ("前の通話の番号のまま答えを書き換えられる（0108：戻す答えを取り違え、別の方の答えが残る）",
+     "DROP TRIGGER item_value_guard ON salescall.item_values",
+     ("tests.test_settle.TargetRecheck.test_the_target_keeps_the_answers_and_a_later_call_by_another_person_gives_back_the_earlier_answers",)),
+    ("目的のお客様の確かめ直しの変更の拒みを外す（0108）", "DROP TRIGGER target_rechecks_frozen ON salescall.target_rechecks",
+     ("tests.test_settle.TargetRecheck.test_another_person_answers_become_dashes_and_the_call_does_not_count_as_reaching_the_target",)),
 )
 
 
