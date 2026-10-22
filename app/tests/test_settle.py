@@ -478,6 +478,90 @@ class TargetRecheck(SettleBase):
         self.assertEqual(self.settle(s, aid)["state"], "do_not_call")
 
 
+class PromiseNotTransferred(SettleBase):
+    """約束の電話で、受付の方に事情で取り次げないと言われた（2026-10-22 ユーザー：「また事情で取り次いでもらえなかったときの
+    最後に、『後でまたおかけしてもよろしいでしょうか』のような形で括り、OKなら、当日の約束の時刻の幅の中かけ直してもいいと
+    思うけど、そうでなければ、当日の幅はやめたほうがいい」）。"""
+
+    def promised(self, s, window_hours=30):
+        now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
+        window = next_action.Window(now + timedelta(hours=window_hours), (0, 24 * 3600), None, now - timedelta(hours=1), "day")
+        self.tx(s, lambda tx: support.schedule_call(tx, s["task"], now, contact_id=s["contact"], cause="試験", promised=True,
+                                                       window=window))
+        return now, window
+
+    def report(self, again):
+        from salescall.core.call_report import NotTransferred, Said
+        said = Said(1, "担当が分からないのでお繋ぎできかねます。")
+        return replace(rep(("reception",), not_reached="not_transferred"), not_transferred=(NotTransferred(said, again),))
+
+    def test_ok_to_call_again_keeps_today_in_the_window(self):
+        """「またおかけしてよい」と言われた：当日の約束の幅の中で、不在の方針の間隔（試験の業務は1時間おき）でかけ直す。"""
+        s = self.ready()
+        now, window = self.promised(s)
+        got = self.settle(s, self.call(s, report=self.report(True)))
+        d = got["decision"]
+        self.assertEqual((got["state"], d.promised, d.window.until), ("not_reached", True, window.until))
+        self.assertLess(d.at, now + timedelta(hours=2))
+        self.assertGreaterEqual(d.at, now + timedelta(hours=1))
+
+    def test_not_ok_or_not_asked_moves_past_today(self):
+        """断られた・聞いていない：当日の幅ではかけ直さず、次の日へ（約束のまま。幅が当日を越えて続いても、当日の分はやめる）。"""
+        for again in (False, None):
+            with self.subTest(again=again):
+                s = self.ready()
+                self.promised(s)
+                got = self.settle(s, self.call(s, report=self.report(again)))
+                d = got["decision"]
+                tomorrow = self.tx(s, lambda tx: tx.one(
+                    "SELECT (date_trunc('day', salescall.jst(now())) + interval '1 day') AT TIME ZONE 'Asia/Tokyo' AS t")["t"])
+                self.assertEqual((got["state"], d.promised), ("not_reached", True))
+                self.assertGreaterEqual(d.at, tomorrow)
+
+    def test_an_exact_time_promise_moves_to_the_next_day_unless_ok(self):
+        """時刻ちょうどの約束（「明日の15時」）：またかけてよいと言われれば、その時刻の時間の中で5分後に。そうでなければ、その日の
+        時間の中ではかけ直さず、次の日の同じ時刻へ（前は、言われなくても5分後・10分後・20分後とかけ直していた）。"""
+        for again, same_day in ((True, True), (None, False), (False, False)):
+            with self.subTest(again=again):
+                s = self.ready()
+                self.put_client(s, "calling.ng_hours", {k: [] for k in KEYS})
+                clock = self.tx(s, lambda tx: tx.one(
+                    "SELECT now() AS now, date_trunc('minute', now()) - interval '1 minute' AS t, extract(epoch FROM"
+                    " date_trunc('day', salescall.jst(now())) + interval '1 day' - salescall.jst(now())) AS left"))
+                t, left = clock["t"], int(clock["left"])
+                if left < 1800:
+                    self.skipTest("日本時間の0時の直前：回の時間が短すぎる")
+                self.put_client(s, "callback.exact_slot", min(3600, left - 120))
+                window = self.tx(s, lambda tx: next_action._exact_window(tx, s["task"], t))
+                self.tx(s, lambda tx: support.schedule_call(tx, s["task"], clock["now"], contact_id=s["contact"], cause="試験",
+                                                               promised=True, callee_at=t, window=window))
+                self.settle(s, self.call(s, report=self.report(again)))
+                cur = self.tx(s, lambda tx: next_action.current(tx, s["task"]))
+                if same_day:
+                    self.assertEqual((cur["window_round"], cur["callee_at"]), (0, t))
+                    self.assertLess(cur["call_at"], t + timedelta(minutes=10))
+                else:
+                    self.assertEqual((cur["window_round"], cur["call_at"], cur["callee_at"]),
+                                     (1, t + timedelta(days=1), t + timedelta(days=1)))
+
+    def test_the_claim_tells_the_conversation_whether_it_is_a_promised_call(self):
+        """予約証が、約束の電話かを会話の処理へ渡す（約束の電話のときだけ、締めの前に「後ほど改めてお掛けしても」と聞く）。"""
+        s = self.ready()
+        self.assertFalse(self.claim(s).promised)
+        s = self.ready()
+        self.promised(s)
+        self.assertTrue(self.claim(s).promised)
+
+    def test_the_answer_is_kept_in_the_report(self):
+        """答えは報告に残り、置いて読み直しても同じ（聞いていないときは項目が無い）。"""
+        from salescall.core.call_report import from_json
+        for again in (True, False, None):
+            r = self.report(again)
+            self.assertEqual(from_json(r.to_json()), r)
+            self.assertEqual(r.may_call_again, again is True)
+            self.assertEqual("again" in r.to_json()["facts"]["not_transferred"][0], again is not None)
+
+
 class StuckVerification(SettleBase):
     def test_a_verification_that_never_finishes_becomes_a_fix_request(self):
         """通話後の検証が、録音を待つ時間＋1時間たっても終わらない：CL-1 へ修正依頼（検証の部品が動かないと、行もお客様も待ち

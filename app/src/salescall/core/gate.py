@@ -111,6 +111,9 @@ class Claim:
     missed_promise: bool = False   # お客様と約束した日（回）に一度もかけられなかった：お客様につながったら、まずお詫びする
     #                                （2026-10-19 ユーザー：「お約束の日にかけることができなかったことを深くお詫びする必要」。
     #                                印は次の予定 apology_owed。目的のお客様と話せた締めで外れる＝core/next_action）
+    promised: bool = False         # お客様と約束したかけ直しの電話か（試行の印 promised と同じ）。会話の処理は、約束の電話で受付の方に
+    #                                事情で取り次げないと言われたら、締めの前に「後ほど改めてお掛けしてもよろしいでしょうか」と聞く
+    #                                （答えで、当日の約束の幅の中でかけ直すかが決まる＝core/next_action。2026-10-22 ユーザー）
 
 
 @dataclass(frozen=True)
@@ -557,4 +560,4 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
     if approval.human_for_business(tx, task["business_id"]):
         recordings.hold(tx, row["attempt_id"], "verification")
     return Claim(row["attempt_id"], task["task_id"], line_id, task["phone_e164"], version, row["claim_expires_at"],
-                 nxt["purpose"], row["wrong_phone"], voice, bool(nxt["apology_owed"]))
+                 nxt["purpose"], row["wrong_phone"], voice, bool(nxt["apology_owed"]), bool(nxt["promised"]))

@@ -356,6 +356,31 @@ class LostConnection(LinkBase):
         with self.assertRaises(ConnectionError):                               # 答えられない（出口が「通話中」とみなす）
             self.hub.driver(s["line"], Attached(s["tenant"], got.pc_id, 1)).in_call()
 
+    def test_a_long_outage_is_told_on_the_pc_screen_once_and_the_return_too(self):
+        """サーバーに10分続けてつながらなければ、この PC の画面に1回だけ知らせる。つながり直したら、それも知らせ、次の途切れは
+        切れた時から数え直す（サーバーそのものが止まると、サーバーからの知らせも出せないため。2026-10-22 ユーザー承認）。"""
+        told = []
+        values = {"SALESCALL_HUB_URL": "ws://127.0.0.1:1/link"}
+        a = agent_main.Agent(agent_config.load(values), PcPass(uuid.uuid4(), uuid.uuid4(), "架空の通行証"), {}, tell=told.append)
+        t0 = a.offline_since
+        a._tell_if_unreachable(t0 + agent_main.UNREACHABLE_NOTICE - 1)
+        self.assertEqual(told, [])                                             # 10分たつまでは知らせない
+        a._tell_if_unreachable(t0 + agent_main.UNREACHABLE_NOTICE)
+        a._tell_if_unreachable(t0 + agent_main.UNREACHABLE_NOTICE * 3)
+        self.assertEqual(told, [agent_main.UNREACHABLE_TEXT])                  # 1回の途切れに1回だけ
+        a._welcomed()
+        self.assertEqual(told[-1], agent_main.BACK_TEXT)
+        a._tell_if_unreachable(time.monotonic() + agent_main.UNREACHABLE_NOTICE * 9)
+        self.assertEqual(len(told), 2)                                         # つながっているあいだは知らせない
+
+        async def lose():
+            a._lost()
+        asyncio.run(lose())
+        a._tell_if_unreachable(a.offline_since + agent_main.UNREACHABLE_NOTICE - 1)
+        self.assertEqual(len(told), 2)                                         # 切れた時から数え直す
+        a._tell_if_unreachable(a.offline_since + agent_main.UNREACHABLE_NOTICE)
+        self.assertEqual(told[-1], agent_main.UNREACHABLE_TEXT)
+
     def test_a_call_that_finishes_after_the_line_drops_is_apologised_for(self):
         """「かける」の途中でつながりが切れ、そのあとで電話の部品がかけ終わったら、すぐおわびして切る（AI のいない電話にしない）。"""
         s = self.ready()

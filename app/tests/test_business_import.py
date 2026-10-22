@@ -266,6 +266,31 @@ class Import(unittest.TestCase):
         p = self.preview(book(sheets={"かけ直し": retry}))
         self.assertTrue(any("取り次いでもらえない" in x for x in p.problems), p.problems)   # 打ち違いは、これまでどおり問題
 
+    def test_a_missing_absent_row_takes_the_first_value(self):
+        """「不在」（つながったが目的のお客様が不在で、戻る時刻が取れなかった）の行が無ければ、初めの値（かける・3回）で入れ、
+        知らせに出す（2026-10-22 ユーザー：「つながったけど不在だった場合は、依頼者ごとに選択できるようにしておき、デフォルトは
+        3回ぐらい」）。書いてあれば、その値。初めの値の無い結果（会話に至らなかった＝電話がつながらなかった など）は、これまで
+        どおり書かないと問題になる。行があって形が違えば、初めの値で埋めずに問題に出す。"""
+        from salescall.core import business_rules
+        rows = [r for r in book_rows("かけ直し") if r[0] != "不在"]
+        p = self.preview(book(sheets={"かけ直し": rows}))
+        self.assertEqual(p.problems, [])
+        self.assertEqual(p.raw["rules"]["retry"]["not_reached_absent"],
+                         business_rules.policy_raw(business_rules.DEFAULT_POLICIES["not_reached_absent"]))
+        self.assertEqual(business_rules.DEFAULT_POLICIES["not_reached_absent"].max_times, 3)
+        self.assertTrue(any("「不在」の行が無いので、初めの値（かける・3回・3時間おき）で入れました" in x for x in p.notes), p.notes)
+        p = self.preview(book())                                   # 書いてあればその値（3回・2時間おき）で、知らせも出さない
+        self.assertEqual(p.raw["rules"]["retry"]["not_reached_absent"],
+                         {"action": "call", "max_times": 3, "interval": {"hours": 2}})
+        self.assertFalse(any("初めの値" in x for x in p.notes), p.notes)
+        rows = [r for r in book_rows("かけ直し") if r[0] != "会話に至らなかった"]
+        p = self.preview(book(sheets={"かけ直し": rows}))
+        self.assertTrue(any("再発信の方針" in x for x in p.problems), p.problems)
+        rows = [r if r[0] != "不在" else ("不在", "かける", "x", "2時間おき") for r in book_rows("かけ直し")]
+        p = self.preview(book(sheets={"かけ直し": rows}))
+        self.assertTrue(any("回数（1以上の数）" in x for x in p.problems), p.problems)
+        self.assertFalse(any("初めの値" in x for x in p.notes), p.notes)
+
     def test_problems_found_outside_the_check_are_in_the_digest(self):
         """確かめ（check）の外で見つかった問題（重なった行など。中身には残らない）は指紋に入る：プレビューから問題を消しても
         登録できない（2026-10-17 の見直し）。"""

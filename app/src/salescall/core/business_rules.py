@@ -79,6 +79,24 @@ class Rules:
 # - 約束した時刻のかけ直し（受付で「3時に戻ります」など）＝約束した時刻：かけ直しの約束（callback_scheduled）として判定が決める。
 SYSTEM_POLICIES["not_reached_not_transferred"] = Policy("call", 1, ("days", 1))
 
+# 業務で決める再発信の方針の初めの値（業務設定に書かれていなければ、この値で入れる。入れたことはプレビューに出す＝契約者が見て
+# 直せる。画面の初めの値も、ここを読む＝CL-3）。決めていただいたものだけを置く（決まっていない結果は、これまでどおり書かないと
+# 登録できない）。
+# - 不在（目的のお客様のいる所につながったが、目的のお客様が不在で、戻る時刻が取れなかった）：2026-10-22 ユーザー：「電話が
+#   つながらなかった不在と、つながったけど不在だった場合は分けた方がいい…つながったけど不在だった場合は、依頼者ごとに選択できる
+#   ようにしておき、デフォルトは3回ぐらい」。⏳ 間隔の3時間おきは仮（時間帯をずらすため。2026-10-15 ユーザー：「時間帯により、
+#   出られないことはよくある」）。電話がつながらなかった（お客様が出なかった）のは「会話に至らなかった」（open）の行で、これまで
+#   どおり業務ごとに書く。
+DEFAULT_POLICIES: dict[str, Policy] = {"not_reached_absent": Policy("call", 3, ("hours", 3))}
+
+
+def policy_raw(p: Policy) -> dict[str, Any]:
+    """方針を、業務設定に置く形（check が読む形）にする（1か所）。"""
+    if p.action == "end":
+        return {"action": "end"}
+    unit, n = p.interval
+    return {"action": "call", "max_times": p.max_times, "interval": {unit: n}}
+
 
 def _int(v: Any, where: str) -> int:
     if not isinstance(v, int) or isinstance(v, bool) or v < 1:

@@ -430,13 +430,24 @@ def after_call(tx: Tx, task_id: UUID, j: Judgement, *, rules: Rules, dialed: Tar
     elif target.contact_id is not None and dialed_window is not None and j.state in ("open", "not_reached"):
         # 約束の電話で話せなかった：同じ回の中でもう一度か、次の回か。時刻ちょうどの約束は、前の電話から決めた間をあけて
         # （`_exact_next_try`）。幅の約束は、この結果の再発信の方針の間隔で（方針の回数の中・回の終わりより前だけ）
-        if dialed_exact:
+        not_transferred = j.state == "not_reached" and j.detail.get("not_reached") == "not_transferred"
+        if not_transferred and not j.detail.get("again"):
+            # 事情があり取り次げず、あとでまたかけてよいとは言われなかった：当日の約束の幅ではかけ直さず、次の回へ（幅が当日を
+            # 越えて続くときも、当日の分はやめる。2026-10-22 ユーザー：「OKなら、当日の約束の時刻の幅の中かけ直してもいいと思う
+            # けど、そうでなければ、当日の幅はやめたほうがいい」）
+            after = min(dialed_window.until or _next_day(now), _next_day(now))
+        elif dialed_exact:
             after = _exact_next_try(tx, task_id, dialed_window, now)
         else:
-            # 回の終わりが無い幅（かけてよい時間帯が無いあいだ・暦の外で、幅をそのまま保った予定）は、方針の間隔だけで見る
-            within = (retry_at is not None and times <= policy.max_times
-                      and (dialed_window.until is None or retry_at < dialed_window.until))
-            after = retry_at if within else (dialed_window.until or now)
+            # 回の終わりが無い幅（かけてよい時間帯が無いあいだ・暦の外で、幅をそのまま保った予定）は、方針の間隔だけで見る。
+            # 取り次げなかったが、あとでまたかけてよいと言われた ⇒ 目的のお客様がいま出られない＝「不在」の方針の間隔で、
+            # 当日の幅の中（「取り次げなかった」の方針＝日を改めて1回は、約束の電話には使わない＝約束の時刻が先）
+            p = rules.retry["not_reached_absent"] if not_transferred else policy
+            at = (_retry_at(tx, task_id, p.interval, now, dialed_at) if p.action == "call" else None) \
+                if not_transferred else retry_at
+            within = (at is not None and times <= p.max_times
+                      and (dialed_window.until is None or at < dialed_window.until))
+            after = at if within else (dialed_window.until or now)
         kept = _keep_promise(tx, task_id, after, dialed_window, target, now=now, exact=dialed_exact)
     elif (target.contact_id is not None and j.state in ("open", "not_reached")
           and _served_unspecified(tx, task_id, dialed_at, dialed.purpose)):
@@ -595,6 +606,12 @@ def _keep_promise(tx: Tx, task_id: UUID, after: datetime, window: Window, target
     else:
         rule = f"お客様と約束したかけ直し（話せなかった：お客様が選んだ日の理由に合わせて次の回＝{w2.round} 回目）"
     return _call(max(at, earliest or at), True, rule, target, callee, w2, apology)
+
+
+def _next_day(now: datetime) -> datetime:
+    """日本時間の次の日の0時（当日の終わり。1か所）。"""
+    local = now.astimezone(calling_hours.JST)
+    return local.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
 
 
 def _exact_window(tx: Tx, task_id: UUID, at: datetime) -> Window:

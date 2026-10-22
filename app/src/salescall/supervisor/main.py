@@ -35,7 +35,7 @@ from salescall.core import dial_exit, leases
 from salescall.core.access import Access, busy, unreachable
 from salescall.link.basics import backoff
 from salescall.link.locks import AlreadyRunning, SingleInstance, lock_dir, machine_id
-from salescall.supervisor import ACTOR, busy_seen, config, flush_busy, jobs, line, local_pc, plugins, report, updates
+from salescall.supervisor import ACTOR, busy_seen, config, flush_busy, jobs, line, local_pc, plugins, report, updates, watchdog
 from salescall.supervisor.links import Attached, Links, NoLinks
 
 RESTART_FIRST, RESTART_MAX = 5.0, 300.0   # 回線ごとの流れを立ち上げ直すまでの間（秒。続けて止まるほど倍に）
@@ -382,8 +382,12 @@ def serve(cfg: config.Config, stop: threading.Event | None = None) -> None:
         except Exception as e:  # noqa: BLE001 起動のときに届かなくても止めない（tick がまた試す）
             report(sup.access, None, "起動", e)
         next_pass = 0.0   # 移る間の形：この機械の PC の部品の通行証を確かめる時刻（local_pc の1か所）
+        dog = watchdog.Watchdog(watchdog.end_process(lambda: report(
+            sup.access, None, "見守り役の本体", RuntimeError(f"本体が {int(watchdog.STALL_LIMIT)} 秒まわらなかったので終えた"))))
+        dog.start()
         try:
             while not stop.is_set():
+                dog.beat()
                 if time.monotonic() >= next_pass:
                     try:
                         local_pc.ensure(sup.access, cfg)
@@ -408,5 +412,6 @@ def serve(cfg: config.Config, stop: threading.Event | None = None) -> None:
         except KeyboardInterrupt:
             pass
         finally:
+            dog.stop()   # 止めるとき（いまの通話の終わりを待つあいだ）は見張らない
             sup.shutdown()
             hub.close()

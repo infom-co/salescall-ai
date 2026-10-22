@@ -833,3 +833,42 @@ class Main(SupervisorBase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Watchdog(unittest.TestCase):
+    """見守り役の本体が固まったら、自分で気づいて処理を終える（動かす所の仕組みが立ち上げ直す。2026-10-22 ユーザー承認）。"""
+
+    def test_a_body_that_stops_turning_is_noticed_once_and_not_while_stopping(self):
+        from salescall.supervisor import watchdog
+        dog = watchdog.Watchdog(lambda quiet: None, limit=100.0)
+        now = time.monotonic()
+        self.assertIsNone(dog.stalled(now + 99))                       # 限度まではまだ
+        self.assertGreaterEqual(dog.stalled(now + 101), 100)
+        dog.beat()
+        self.assertIsNone(dog.stalled(time.monotonic() + 50))           # まわれば数え直す
+        dog.stop()
+        self.assertIsNone(dog.stalled(time.monotonic() + 10_000))       # 止めるあいだは見張らない
+        seen = []
+        with mock.patch.object(watchdog, "CHECK_EVERY", 0.02):
+            dog = watchdog.Watchdog(seen.append, limit=0.05)
+            dog.start()
+            deadline = time.monotonic() + 5
+            while not seen and time.monotonic() < deadline:
+                time.sleep(0.02)
+            time.sleep(0.1)
+        self.assertEqual(len(seen), 1)                                   # 1回だけ（その始末で処理が終わる）
+
+    def test_the_end_tries_to_record_without_waiting_long_and_ends_the_process(self):
+        from salescall.supervisor import watchdog
+        recorded, ended = [], []
+        with mock.patch.object(watchdog.os, "_exit", ended.append):
+            watchdog.end_process(lambda: recorded.append(True))(700.0)
+            watchdog.end_process(lambda: time.sleep(60))(700.0)          # 記録が固まっても、待たずに終える
+        self.assertEqual((recorded, ended), ([True], [1, 1]))
+
+    def test_serve_beats_the_watchdog_and_stops_watching_when_stopping(self):
+        """本体の1回ごとに beat し、止めるとき（いまの通話の終わりを待つ前）に見張りをやめる。"""
+        src = Path(main_mod.__file__).read_text(encoding="utf-8")
+        loop = src[src.index("while not stop.is_set():", src.index("dog.start()")):]
+        self.assertTrue(loop.split("\n")[1].strip() == "dog.beat()")
+        self.assertLess(src.index("dog.stop()"), src.index("sup.shutdown()", src.index("dog.stop()")))

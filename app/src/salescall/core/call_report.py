@@ -48,7 +48,9 @@ FACT_KINDS = ("do_not_call", "complaint", "out_of_scope", "party", "callback", "
               "connect", "answered", "target_back", "callback_resume", "not_transferred")
 # answered：相手の質問に、決まった答えの録音を流した（CL-1 の連絡帳 4-26。part＝部分の名前。記録だけ）
 # target_back・callback_resume：かけ直しの質問の途中で目的のお客様かを確かめに戻った・違う方だったので続きへ戻った（4-27。記録だけ）
-# not_transferred：受付の方が、事情があり取り次げないと言った発話（締めた理由 not_transferred と同じ発話。判定は not_reached で読む）
+# not_transferred：受付の方が、事情があり取り次げないと言った発話（締めた理由 not_transferred と同じ発話。判定は not_reached で読む）。
+#   again＝締めの前に「後ほど改めてお掛けしてもよろしいでしょうか」と聞いた答え（true＝よいと言われた／false＝断られた・はっきり
+#   しなかった／無い＝聞いていない）。約束の電話で、当日の約束の幅の中でかけ直すかを決める（2026-10-22 ユーザー。DESIGN.md 7-2）
 JUDGES = ("judge", "judge2")                             # 意味の判定の受け持ちの名前（CL-1 の flowctl.JUDGMENTS。代わりの Jev も、この名前で入る）
 CONNECT_READS = ("ai",) + JUDGES                         # 繋いだ読み：会話AIの報告と、判定の受け持ち
 TARGET_IS_THERE = "ご本人"                               # 判定の「目的のお客様ご本人」の読み（CL-1 の flowctl.TARGET_IS_THERE）
@@ -129,6 +131,13 @@ class Back:
 
 
 @dataclass(frozen=True)
+class NotTransferred:
+    """事情があり取り次げないと言われた（事実 not_transferred）。"""
+    evidence: Said
+    again: bool | None = None    # あとでまたかけてよいと言われたか（None＝聞いていない）
+
+
+@dataclass(frozen=True)
 class End:
     reason: str
     evidence: Said
@@ -174,7 +183,7 @@ class CallReport:
     answered: tuple[Answered, ...] = ()  # 事実 answered：決まった答えの録音を流した（記録だけ）
     target_backs: tuple[Back, ...] = ()  # 事実 target_back：かけ直しの途中で、目的のお客様かを確かめに戻った（記録だけ）
     callback_resumes: tuple[Back, ...] = ()   # 事実 callback_resume：かけ直しの質問の続きへ戻った（記録だけ）
-    not_transferred: tuple[Said, ...] = ()    # 事実 not_transferred：事情があり取り次げないと言われた発話（記録だけ）
+    not_transferred: tuple[NotTransferred, ...] = ()   # 事実 not_transferred：事情があり取り次げないと言われた発話
 
     # ── 判定が読むもの（どれも事実から読む。ここの1か所）
     @property
@@ -228,6 +237,14 @@ class CallReport:
         return any(c.unverified for c in self.connects)
 
     @property
+    def may_call_again(self) -> bool:
+        """事情があり取り次げなかった通話で、あとでまたかけてよいと言われたか（1か所）：いちばん新しい「取り次げない」の答えが
+        よいと言われた（true）ときだけ。断られた・聞いていない・はっきりしないときは False（当日の約束の幅ではかけ直さない側＝
+        2026-10-22 ユーザー：「OKなら、当日の約束の時刻の幅の中かけ直してもいいと思うけど、そうでなければ、当日の幅はやめた
+        ほうがいい」）。"""
+        return bool(self.not_transferred) and self.not_transferred[-1].again is True
+
+    @property
     def callback(self) -> Callback | None:
         """判定が読むかけ直し（1か所）：いちばん新しい申し出。ただし、その質問の途中で目的のお客様に繋がった申し出（connected）は、
         もう要らないので None（CL-1 の連絡帳 4-27）。"""
@@ -263,7 +280,8 @@ class CallReport:
             "answered": [{**said(a.evidence), "part": a.part} for a in self.answered],
             "target_back": [{**said(b.evidence), "why": b.reason} for b in self.target_backs],
             "callback_resume": [{**said(b.evidence), "why": b.reason, "read": list(b.read or ())} for b in self.callback_resumes],
-            "not_transferred": [said(s) for s in self.not_transferred]}
+            "not_transferred": [{**said(n.evidence), **({} if n.again is None else {"again": n.again})}
+                                for n in self.not_transferred]}
         return {"version": VERSION, "facts": {k: v for k, v in facts.items() if v}, "not_reached": self.not_reached,
                 "cut": None if self.cut is None else {"speaker": self.cut.speaker, "in_closing": self.cut.in_closing,
                                                       "callee_refused_last": self.cut.callee_refused_last},
@@ -393,7 +411,8 @@ def from_json(raw: Any) -> CallReport:
                     for r, s in _records(facts, "callback_resume", {"why", "read"}))
     if (backs or resumes) and not callbacks:
         raise ReportInvalid("かけ直しの申し出が無いのに、かけ直しの途中の記録（target_back・callback_resume）があります")
-    not_transferred = tuple(s for _, s in _records(facts, "not_transferred", set()))
+    not_transferred = tuple(NotTransferred(s, _bool(r, "again") if "again" in r else None)
+                            for r, s in _records(facts, "not_transferred", {"again"}))
     return CallReport(refusals, complaints, oos, parties, tuple(callbacks), ends, not_reached, cut, delivered, ai_questions,
                       voicemail, tuple(connects), tuple(answered), backs, resumes, not_transferred)
 

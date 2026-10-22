@@ -16,6 +16,8 @@
    数秒で気づく（`protocol.PING_EVERY`。通信の終わりの合図が来ない切れ方＝Wi-Fi が落ちた など、でも）。**切れたあとに「かける」が
    終わったら、すぐおわびして切る**（つなぎの番号で見分ける。サーバーは、その試行を結果不明にしている）。
 7. 1つのやり取り・電話の部品の誤りで、つなぎを切らない・PC の部品を終わらせない（記録して続ける）。
+8. **サーバーに `UNREACHABLE_NOTICE` 秒続けてつながらなければ、この PC の画面に知らせる**（`notice.show`。サーバーそのものが止まると、
+   サーバーからの知らせも出せないため。2026-10-22 ユーザー承認）。1回切れるごとに1回だけ。つながり直したら、それも知らせる。
 """
 
 from __future__ import annotations
@@ -24,13 +26,13 @@ import asyncio
 import json
 import time
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable
 from uuid import UUID
 
 from websockets.asyncio.client import ClientConnection, connect
 from websockets.exceptions import ConnectionClosed
 
-from salescall.agent import backup, emergency
+from salescall.agent import backup, emergency, notice
 from salescall.agent.config import Config
 from salescall.link import protocol as p
 from salescall.link import sealing
@@ -42,6 +44,10 @@ RECONNECT_FIRST, RECONNECT_MAX = 1.0, 60.0
 # おわびして切る）まで走らせる。電話の部品の「かける」は答えの期限で終わる（ANSWER_BY）。おわびの録音を流す時間をあける
 FINISH_WAIT = p.ANSWER_BY + 30
 STABLE_AFTER = 60.0   # これより長く続いたつなぎのあとは、すぐつなぎ直す（短く終わり続けるほど、間を延ばす）
+UNREACHABLE_NOTICE = 600.0   # サーバーに続けてつながらないと、この PC の画面に知らせるまでの長さ（秒。2026-10-22 ユーザー承認：10分）
+UNREACHABLE_TEXT = ("サーバーにつながりません（10分以上）。この PC からは電話をかけていません。つながれば自動で再開します。"
+                    "インターネットにつながっているかを確かめてください。")
+BACK_TEXT = "サーバーにつながりました。電話を再開します。"
 
 
 class NeedLogin(Exception):
@@ -65,6 +71,10 @@ class Agent:
     _tasks: set[asyncio.Task] = field(default_factory=set)
     _requests: set[asyncio.Future] = field(default_factory=set)          # 途中の頼み（かける・切る・おわび など）
     _line_order: dict[UUID, asyncio.Lock] = field(default_factory=dict)   # 回線ごとの頼みの順番
+    online: bool = False                                   # いまサーバーにつながっているか（迎えられたあと）
+    offline_since: float = field(default_factory=time.monotonic)   # つながっていない時間の始まり（動き出した時・切れた時）
+    told: bool = False                                     # この途切れを、画面に知らせたか
+    tell: Callable[[str], None] = notice.show             # 画面に知らせる（試験で差し替える）
 
     def __post_init__(self) -> None:
         if self.cfg.phone and not self.phones:
@@ -117,10 +127,25 @@ class Agent:
             finally:
                 self._lost()
             fails = 0 if time.monotonic() - began >= STABLE_AFTER else fails + 1
+            self._tell_if_unreachable()
             try:
                 await asyncio.wait_for(stop.wait(), backoff(fails, RECONNECT_FIRST, RECONNECT_MAX))
             except asyncio.TimeoutError:
                 pass
+
+    def _tell_if_unreachable(self, now: float | None = None) -> None:
+        """続けてつながらない時間が UNREACHABLE_NOTICE を過ぎたら、この途切れについて1回だけ、画面に知らせる（1か所）。"""
+        now = time.monotonic() if now is None else now
+        if not self.online and not self.told and now - self.offline_since >= UNREACHABLE_NOTICE:
+            self.told = True
+            self.tell(UNREACHABLE_TEXT)
+
+    def _welcomed(self) -> None:
+        """サーバーに迎えられた：つながっている。途切れを知らせていたら、つながり直したことも知らせる。"""
+        self.online = True
+        if self.told:
+            self.told = False
+            self.tell(BACK_TEXT)
 
     async def session(self, stop: asyncio.Event) -> None:
         async with connect(self.cfg.hub_url, max_size=p.MAX_FRAME, open_timeout=20, compression=None,
@@ -136,6 +161,7 @@ class Agent:
                 if first.get("update"):
                     raise NeedUpdate(str(first.get("why")))
                 return
+            self._welcomed()
             self.lines = p.uuids(first.get("lines"))
             for line, phone in self.phones.items():
                 phone.on_audio(lambda audio, line=line: self._send(line, p.frame(p.AUDIO, line, audio)))
@@ -185,6 +211,8 @@ class Agent:
         途中の控えは捨てる（書きかけを消す＝控えと取り違えない。サーバーは、書けなかったとして記録し、あとでやり直す）。"""
         self.ws = None
         self.generation += 1
+        if self.online:   # つながっていたのが切れた：ここから、つながっていない時間を数える
+            self.online, self.offline_since = False, time.monotonic()
         loop = asyncio.get_running_loop()
         for phone in self.phones.values():
             done = loop.run_in_executor(None, _apologize_if_busy, phone)

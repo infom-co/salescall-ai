@@ -37,7 +37,7 @@ from dataclasses import dataclass, field
 from typing import Any
 from uuid import UUID
 
-from salescall.core import business_settings, readings
+from salescall.core import business_rules, business_settings, readings
 from salescall.core.access import Tx
 from salescall.core.import_files import FileRejected, Sheet, read
 
@@ -148,6 +148,14 @@ def _rows(sheets: dict[str, tuple[Sheet, dict[str, int]]], role: str, problems: 
     return out
 
 
+def _policy_words(p: business_rules.Policy) -> str:
+    """方針を、ひな形の言葉で書く（知らせの文）。"""
+    if p.action == "end":
+        return "終える"
+    unit, n = p.interval
+    return f"かける・{p.max_times}回・{n}{'時間おき' if unit == 'hours' else '日後'}"
+
+
 def _label(kind: str, value: str | None, where: str, problems: list[str]) -> Any:
     table = LABELS[kind]
     v = "" if value is None else value
@@ -236,6 +244,7 @@ def _to_raw(sheets: dict[str, tuple[Sheet, dict[str, int]]], problems: list[str]
 
     retry: dict[str, Any] = {}
     seen_retry: dict[str, int] = {}
+    named_retry: set[str] = set()                  # 行のある結果（形の誤りがあっても）
     for row_no, v in _rows(sheets, "retry", problems):
         where = f"シート「かけ直し」の {row_no} 行目"
         if v.get("key") in SYSTEM_RETRY_ROWS:
@@ -244,6 +253,8 @@ def _to_raw(sheets: dict[str, tuple[Sheet, dict[str, int]]], problems: list[str]
             continue
         key = _label("retry_key", v.get("key"), f"{where}の結果", problems)
         action = _label("action", v.get("action"), f"{where}のかけ直すか", problems)
+        if key is not None:
+            named_retry.add(key)
         if key is None or action is None:
             continue
         if key in seen_retry:
@@ -260,6 +271,11 @@ def _to_raw(sheets: dict[str, tuple[Sheet, dict[str, int]]], problems: list[str]
             continue
         retry[key] = {"action": "call", "max_times": int(times),
                       "interval": {"hours" if m.group(2) == "時間おき" else "days": int(m.group(1))}}
+    for key, p in business_rules.DEFAULT_POLICIES.items():
+        if key not in named_retry:         # 行が無いときだけ（行があって形が違えば、上で問題に出している）
+            retry[key] = business_rules.policy_raw(p)
+            name = next(k for k, v in LABELS["retry_key"].items() if v == key)
+            notes.append(f"シート「かけ直し」：結果「{name}」の行が無いので、初めの値（{_policy_words(p)}）で入れました")
 
     forbidden: dict[str, Any] = {}
     seen_forbidden: dict[str, int] = {}
