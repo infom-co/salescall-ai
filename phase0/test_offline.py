@@ -1635,6 +1635,69 @@ class ScriptRecordingTest(unittest.TestCase):
         self.assertEqual(table["greeting"][0], "お忙しいところ恐れ入ります。")
 
 
+class AskingMuteTest(unittest.TestCase):
+    """答えの段でも、録音で流す通話では、AIの声で言ってよいのは返事で渡した言い方（say）か話させる返事（speak）のあとだけ（Flow.speech_allowed の
+    1か所）。⛔ 2026-10-22 の4回目の流し（G-57 tc36）：範囲外の質問の S2 は、断らない一言の録音のあとに自分の声で「…改めてご連絡差し上げます。」
+    （約束）と言い、答えに添えられた質問の S2・L4 は「何も言わずに」の返事のあとに「…後ほどご連絡させていただきます。」と言った。"""
+
+    def flow(self, play=True):
+        from flowctl import Flow, Question
+        f = Flow([Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ")),
+                  Question("Q2", "ご希望の日時をお聞かせいただけますでしょうか？", "datetime", conditions=("答えた",))], play_recordings=play)
+        f.use_checks("judge")
+        return f
+
+    def test_unchecked_voice_is_not_sent_while_asking(self):
+        f = self.flow()
+        f.on_callee(); f.on_heard("キャンセル料っていくらかかりますか？")
+        start = len(f.log)
+        self.assertFalse(f.speech_allowed(start))                                   # 操作の前の声は流さない
+        note = f.unreported_note(muted=True)
+        self.assertIn("相手に流していません", note)                                  # 流していないことと、いま求めていること
+        self.assertIsNone(f.unreported_note(muted=True))                            # 1つの発話に1回
+        r = f.apply("replay_opening", {"part": "no_answer", "answer": "キャンセル料につきましては担当の者に申し伝えます。"})
+        self.assertEqual(r["result"], "own_answer")
+        self.assertTrue(f.speech_allowed(start))                                    # 確かめた文を渡したターンは流す
+        # 断らない一言の録音を流したターン（言い方を渡していない）は、AIの声を流さない
+        g = self.flow()
+        g.on_callee(); g.on_heard("キャンセル料っていくらかかりますか？")
+        start = len(g.log)
+        for _ in range(3):
+            r = g.apply("replay_opening", {"part": "no_answer", "answer": "改めてご連絡いたします。"})
+        self.assertEqual((r["result"], r.get("fallback"), r.get("say")), ("own_answer", True, None))
+        self.assertFalse(g.speech_allowed(start))
+        # 録音で流さない通話（AIが質問を話す）は、これまでどおり流す
+        h = self.flow(play=False)
+        h.on_callee(); h.on_heard("キャンセル料っていくらかかりますか？")
+        self.assertTrue(h.speech_allowed(len(h.log)))
+
+    def test_answer_is_reported_before_the_question_is_answered(self):
+        # 相手が答えと質問を一緒に言い、AIが先に答え方の操作を呼んだ：判定がいまの質問の答えと読んでいれば、1回だけ差し戻して答えを先に報告させる
+        # （答えに添えられた質問の1つの道に入る）。⛔ G-57 tc36：先に「用件」を選び、相手がもう答えた質問の録音が、もう一度流れた
+        f = self.flow()
+        f.on_callee(); f.on_heard("はい、予約しています。当日はどなたが担当されるんですか？"); f.on_check("judge", "はい")
+        r = f.apply("replay_opening", {"part": "no_answer", "answer": "当日の担当につきましては担当の者に申し伝えます。"})
+        self.assertEqual(r["result"], "rejected")
+        self.assertIn("先に record_answer", r["message"])
+        self.assertEqual(f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい"})["result"], "callee_asked")
+        r = f.apply("replay_opening", {"part": "no_answer", "answer": "当日の担当につきましては担当の者に申し伝えます。"})
+        self.assertEqual(r["result"], "own_answer")                                 # 答えを受け取ったあとは通す
+        # 同じ発話の2回目は通す（判定の読み違いで、質問に答えられなくならないように）。そのあと答えを報告しても、同じ質問にもう一度答えさせない
+        g = self.flow()
+        g.on_callee(); g.on_heard("はい、予約しています。当日はどなたが担当されるんですか？"); g.on_check("judge", "はい")
+        g.apply("replay_opening", {"part": "no_answer", "answer": "当日の担当につきましては担当の者に申し伝えます。"})
+        r = g.apply("replay_opening", {"part": "no_answer", "answer": "当日の担当につきましては担当の者に申し伝えます。"})
+        self.assertEqual(r["result"], "own_answer")
+        r = g.apply("record_answer", {"question_id": "Q1", "condition_id": "はい"})
+        self.assertNotEqual(r["result"], "callee_asked")
+        self.assertEqual(g.current, "Q2")
+        # 判定が答えと読んでいない（質問だけ）なら、差し戻さない
+        h = self.flow()
+        h.on_callee(); h.on_heard("キャンセル料っていくらかかりますか？"); h.on_check("judge", "決められない")
+        self.assertEqual(h.apply("replay_opening", {"part": "no_answer", "answer": "キャンセル料につきましては担当の者に申し伝えます。"})["result"],
+                         "own_answer")
+
+
 class CalleeQuestionTest(unittest.TestCase):
     """⛔ G-47：相手が答えと一緒に質問をしたのに、すぐ次の質問の録音を流し、相手の質問を聞き流した（10本中10本）。"""
 
@@ -5121,8 +5184,16 @@ class TargetTest(unittest.TestCase):
         note = h.unreported_note(muted=True)
         self.assertIn("相手に流していません", note)
         self.assertIn("まだ目的の人に繋いでいません", note)
-        # (5) 繋いで答えの段へ進んだターンは流す（呼んでいる段の決まり）・名乗りをAIが話す通話は流す（AIが名乗る）
+        # (5) 繋いで答えの段へ進んだターン：質問も録音で流す通話は、繋いだ返事が最初の質問の録音まで流す＝AIの声は流さない（⛔ 2026-10-22 の
+        #     4回目の流し：答えの段では見ていなかった＝下の AskingMuteTest）。質問をAIが話す通話は流す・名乗りをAIが話す通話は流す（AIが名乗る）
         k = flow()
+        self.heard(k, "はい、岡田は私ですが。", TARGET_IS_THERE)
+        start = len(k.log)
+        k.apply("report_party", {"party": "target"})
+        self.assertEqual(k.phase, "asking")
+        self.assertFalse(k.speech_allowed(start))
+        k = Flow(b.questions, play_recordings=False, opening=b.replay_parts(), target=b.replay_parts(), names=b.spoken_names())
+        k.use_checks("judge")
         self.heard(k, "はい、岡田は私ですが。", TARGET_IS_THERE)
         start = len(k.log)
         k.apply("report_party", {"party": "target"})
@@ -6297,6 +6368,10 @@ class OfferTest(unittest.TestCase):
         # ✅ 2026-10-22 ユーザー（4回目）：お立場を伺う一言は、判断いただけるか・お取次ぎのみか、の2つから選んでいただく問い（答えも2つ）
         self.assertEqual(f.questions["S1"].conditions, ("判断できる", "取次ぎのみ"))
         self.heard(f, "はい、私が営業の責任者ですので大丈夫です。", "判断できる")
+        # 選択肢に無い「はい」で報告されたら、差し戻しに選択肢の意味も添える（⛔ G-57 tc36：名前だけでは、AIは「答えた」などを試した）
+        r = f.apply("record_answer", {"question_id": "S1", "condition_id": "はい"})
+        self.assertEqual(r["result"], "rejected")
+        self.assertIn("「判断できる」＝この件についてご判断いただけるお立場の方ということ", r["message"])
         r = f.apply("record_answer", {"question_id": "S1", "condition_id": "判断できる"})
         self.assertEqual((r["result"], r["question_id"], self.played(r)), ("next", "Q1", ["Q1"]))  # 用件はもう流した＝最初の質問だけ
         self.assertEqual((f.facts["connect"][0]["who"], f.facts["substitute"][0]["answer"], f.not_reached), ("substitute", "判断できる", None))

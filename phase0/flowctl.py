@@ -660,7 +660,9 @@ def own_answer_problem(answer: str, info: str, asked: str, names: list[str], may
     if m := REFUSAL.search(text):
         return f"お断りの言い方（「{m.group()}」）が入っています。断らずに、いただいた質問を担当の者に申し伝える形にします"
     if not may_follow_up and (m := PROMISE.search(text)):
-        return f"約束の言葉（「{m.group()}」）が入っています"
+        # どうするかも添える（⛔ 2026-10-22 の4回目の流し G-57 tc36・範囲外の質問の S2：約束の言葉の名前だけを返したので、書き直すたびに
+        # 「改めて折り返し」⇒「折り返し」⇒「後ほど」と、約束の言い方だけを替えた）
+        return f"約束の言葉（「{m.group()}」）が入っています。連絡やかけ直しは約束せずに、いただいた質問を担当の者に申し伝える、までにします"
     # ひらがなだけの名詞（うえ・こと・ため・ほう など、形の上の言葉）は中身を足さないので見ない
     def grounded(w) -> bool:
         if getattr(w.feature, "pos2", "") in ("固有名詞", "数詞"):
@@ -891,6 +893,8 @@ class Flow:
         self.own_tried: tuple[int, list] = (-1, [])  # 確かめに通らなかった答えの文（相手の発話の番号, [(文, 理由)]）。書き直させた回数を数える
         # 答えに添えられた相手の質問（_advance）：次へ進む返事は先に作っておき、AIがその質問に答えてから流す（_continue）。(相手の質問, 返事)
         self.after_answer: tuple[str, dict] | None = None
+        self.answer_first_turn = -1     # 答えを先に報告するよう差し戻した相手の発話の番号（_answer_first。同じ発話で1回まで）
+        self.question_answered_turn = -1  # 相手の質問に答えた相手の発話の番号（同じ発話の質問に、もう一度答えさせない＝_advance）
         self.info = list(info or [])
         self.names = [n for n in (names or []) if n]
         self.party: str | None = None     # いまの相手の種別（PARTY_LABEL の中の名前。報告が無ければ None＝不明。DESIGN.md 4-3）
@@ -1248,9 +1252,7 @@ class Flow:
             if not self.words_complete or self.nudged_turn == self.callee_turns:
                 return None
             said = self.callee_said.strip()[:40]
-            accepted = any(x["callee_turns"] == self.callee_turns and x["reply"].get("result") != "rejected" for x in self.log)
-            unsent = ("さきほどのあなたの声は、相手に流していません（目的の人を呼んでいる段では、録音と、操作の返事で渡した言い方だけを"
-                      "流します）。") if muted and not accepted else ""
+            unsent = self._unsent(muted)
             if unsent and not replied:
                 # 操作を呼ばずに（または差し戻されたあとに）話した：その声は流していない＝相手には無言（⛔ 2026-10-22 G-57 tc31：所在地を聞かれた
                 # L4 が、操作を呼ばずに業務の情報に無い地名で答えた。声を止めるだけでは相手が待ち続けるので、報告し直させる）
@@ -1284,10 +1286,16 @@ class Flow:
             return (f"［プログラムからのお知らせ］{unsent}相手の言葉（「{said}」）{what}。何も言わずに、この言葉で、{again}報告してください"
                     f"（{self._report_hint()}）。"
                     "まだ目的の人に繋いでいません。このお知らせには、声で返事をしません。")
-        if self.phase == "closing" or self.current is None or self.awaiting_confirm is not None:
+        if self.phase == "closing" or self.nudged_turn == self.callee_turns:
+            return None
+        if unsent := self._unsent(muted):
+            # 答えの段で、操作を呼ばずに（または差し戻されたあとに）話した：その声は流していない＝相手には無言 ⇒ いま求めていることで報告し直させる
+            self.nudged_turn = self.callee_turns
+            return f"［プログラムからのお知らせ］{unsent}{self._now()}このお知らせには、声で返事をしません。"
+        if self.current is None or self.awaiting_confirm is not None:
             return None
         q = self.questions[self.current]
-        if self.meaning_said not in q.all_conditions or self.nudged_turn == self.callee_turns:
+        if self.meaning_said not in q.all_conditions:
             return None
         self.nudged_turn = self.callee_turns
         return (f"［プログラムからのお知らせ］相手の言葉（「{self.callee_said.strip()[:40]}」）は、{q.id} への答えです。"
@@ -1429,6 +1437,8 @@ class Flow:
         if not (name == "replay_opening" and args.get("part") in ("ai", "resume") + OWN_PARTS):
             # 決まった言い方・自分の言葉の答えへの返事を待つのは、その次の報告まで（答え・ほかの報告が来たら、もう待っていない）
             self.ai_pending = self.own_pending = False
+        if name == "replay_opening" and args.get("part") not in ("resume", "handover") and reply["result"] != "rejected":
+            self.question_answered_turn = self.callee_turns  # この発話の相手の質問には、もう答えた（_advance）
         if name != "replay_opening" and reply["result"] not in ("callee_asked", "rejected"):
             # 答えに添えられた質問に答えずに、AIが別の報告をした（次の質問の答えなど）：その報告で進む（先に作った返事は使わない）
             self.after_answer = None
@@ -1438,17 +1448,29 @@ class Flow:
         return reply
 
     def speech_allowed(self, since: int) -> bool:
-        """AIが話した声を、相手に流してよいか（電話接続側が決める唯一の場所。since＝このターンの記録の始まり）。目的の人を呼んでいる段で、名乗りを
-        録音で流す通話では、この段の言葉は全部、録音か、返事で渡した言い方（say）か、話させる返事（speak）＝それ以外の声は流さない。
+        """AIが話した声を、相手に流してよいか（電話接続側が決める唯一の場所。since＝このターンの記録の始まり）。録音で流す通話では、AIの声で
+        言ってよいのは、返事で渡した言い方（say＝確かめた答えの文・言い直し・聞き返し）か、話させる返事（speak）のあとだけ＝それ以外の声は流さない。
+        録音で流すかは段で決まる：目的の人を呼んでいる段＝名乗りの録音（opening）、そのあと＝質問の録音（play_recordings）。
+        ⛔ 2026-10-22 の4回目の流し（G-57 tc36）：答えの段では見ていなかった＝範囲外の質問の S2 は、答えの文が確かめに3回通らず断らない一言の録音が
+           流れたあとに、自分の声で「…担当の者に申し伝えまして、改めてご連絡差し上げます。」（約束）と言い、答えに添えられた質問の S2・L4 は、
+           録音の返事（「何も言わずに」）のあとに「…担当の者より後ほどご連絡させていただきます。」と言った（確かめていない約束が相手に流れた）
         ⛔ 2026-10-22 G-57 tc31（会社の所在地を聞かれる・L4）：AIが操作を呼ばずに自分から「弊社は東京目黒にございます。」（業務の情報は港区）と答え、
            続けて「申し訳ございません。岡田様は」と名前をAIの声で言った。⛔ G-57 tc25：AIが自分の声で「奥田様はいらっしゃいますでしょうか？」
         名乗りを録音で流さない通話（AIが話す形）は、AIが名乗るので流す。電話接続側は、ターンの途中でも声が届くたびに聞き、真になってからの声だけを
         流す（それより前の声は流さない）。流さなかった声があれば、unreported_note(muted=True) の知らせで答え直させる。"""
         ops = self.log[since:]
         start = ops[0].get("phase_before", self.phase) if ops else self.phase
-        if start != "calling" or not self.opening:
+        if not (self.opening if start == "calling" else self.play_recordings):
             return True
-        return any(x["reply"].get("say") or x["reply"].get("speak") or x.get("phase", "calling") != "calling" for x in ops)
+        # 呼んでいる段を出て、質問をAIが話す通話（質問の録音が無い）なら、そこからはAIが話す
+        return any(x["reply"].get("say") or x["reply"].get("speak") or (x.get("phase", "calling") != "calling" and not self.play_recordings)
+                   for x in ops)
+
+    def _unsent(self, muted: bool) -> str:
+        """流さなかった声の知らせの頭（unreported_note の1か所）。そのターンに受け付けた報告があれば、言わない（そのあとの声は流れている）。"""
+        accepted = any(x["callee_turns"] == self.callee_turns and x["reply"].get("result") != "rejected" for x in self.log)
+        return ("さきほどのあなたの声は、相手に流していません（録音と、操作の返事で渡した言い方だけを流します）。"
+                if muted and not accepted else "")
 
     def _ack(self, name: str, args: dict, reply: dict) -> str | None:
         """報告が届いた瞬間に、電話接続側が流す相づち（phrases.ACK の中の名前。流さないなら None）。DESIGN.md 6-15。
@@ -1580,7 +1602,11 @@ class Flow:
         cond = a.get("condition_id")
         if cond not in q.all_conditions:
             shown = label(cond)
-            return self._reject(f"{ARG_LABEL['condition_id']}「{shown}」は、この質問の選択肢にありません（選べるのは {'、'.join(q.labels)}）。")
+            # 選択肢の意味も添える（choices_note の1か所。⛔ 2026-10-22 の4回目の流し G-57 tc36・上司と名乗る方の L4：2つから選んでいただく問いの
+            # 答え「はい、問題ございません。」を「はい」で報告し、差し戻しには選択肢の名前しか無かったので、AIは「答えた」などを試したあと、
+            # 問いを自分の声で3回言い直した）
+            return self._reject(f"{ARG_LABEL['condition_id']}「{shown}」は、この質問の選択肢にありません（選べるのは {'、'.join(q.labels)}）。"
+                                + choices_note(q))
         value = normalize_value(q.type, a.get("value"), q.unit)
         if cond not in SYSTEM_CONDITIONS and (bad := kana_number(q.type, value)):
             return self._reject(kana_number_note(value, bad))  # お客様は正しく答えている＝AIの書き間違いなので、聞き返さずに書き直させる
@@ -1958,6 +1984,8 @@ class Flow:
         流すもの：相づち「失礼いたしました。」（_ack）→ 選んだ部分の録音 → いまの質問の録音（答えを待っている質問があれば）。
         言い直しの返事待ちのときは、録音のあとにAIが言い直しをもう一度言う（その言い方は値で変わるので録音にできない）。"""
         part = a.get("part")
+        if part not in ("resume", "handover") and (why := self._answer_first()):
+            return self._reject(why)
         if part.startswith(ANSWER_PREFIX):
             return self._answer(part)
         if part in OWN_PARTS:
@@ -1999,6 +2027,22 @@ class Flow:
         self.opening_unheard = [k for k in self.opening_unheard if k not in keys]
         play = [{"kind": "opening", "part": k, "text": self.opening[k]} for k in keys]
         return self._continue(play, "".join(self.opening[k] for k in keys))
+
+    def _answer_first(self) -> str | None:
+        """相手の言葉が、いまの質問への答えと質問を一緒に言ったもの（「はい、予約しています。当日はどなたが担当されるんですか？」）で、AIが答えの
+        報告より先に、質問への答え方（replay_opening）を呼んだ：独立した意味の判定が、この発話をいまの質問の答えと読んでいれば、1回だけ差し戻して
+        答えを先に報告させる（答えに添えられた質問の1つの道＝_advance の after_answer に入る）。同じ発話の2回目は通す（判定の読み違いで、質問に
+        答えられなくならないように）。差し戻さないときは None。
+        ⛔ 2026-10-22 の4回目の流し（G-57 tc36・答えに添えられた質問の S2・L4）：AIが先に「用件」の流し直しを選んだので、相手がもう答えた
+           いまの質問（「ご予約はされていますでしょうか？」）の録音が、もう一度流れた"""
+        q = self.questions.get(self.current) if self.current else None
+        if (self.phase not in ("asking", "rechecking") or q is None or q.reading_of or self.awaiting_confirm is not None
+                or self.after_answer is not None or self.items[q.id].state in GOT or self.answer_first_turn == self.callee_turns
+                or self.meaning_said not in q.conditions):
+            return None
+        self.answer_first_turn = self.callee_turns
+        return (f"相手の言葉は、いまの質問 {q.id} への答えでもあります（意味の判定：「{self.meaning_said}」）。先に record_answer で答えを"
+                "報告してください（相手の質問に答える番は、そのあとプログラムが伝えます）。")
 
     def _answer(self, part: str) -> dict:
         """相手の質問に、想定問答の答え（業務設定。Intent.md 5-3 (2)。依頼主の単位の録音）で答える（唯一の場所。呼んでいる段でも、答えの段でも）。
@@ -3050,7 +3094,7 @@ class Flow:
         # handled＝相手の言葉そのものを、いまの操作が受けた（かけ直しの申し出「あとでかけてもらえますか？」・目的の人の名乗り）＝答えに添えた
         # 質問ではないので、答えさせない。⛔ 2026-10-19 G-57 の2回目：かけ直しの申し出の「〜もらえますか？」を相手からの質問として扱い、
         #    AIに「まず答えて」と渡したので、AIが「私の方では折り返しのお電話はお約束できかねます」と言い、足す質問も録音でなくAIが言った（6本中2本）
-        asked = None if handled else self._callee_question()
+        asked = None if handled or self.question_answered_turn == self.callee_turns else self._callee_question()
         if asked:
             # 答えに添えられた相手の質問：次へ進む返事は先に作っておき、AIが相手の質問に答えてから流す（_continue）。答え方は、ひとつで出てきた
             # 質問と同じ1か所（replay_opening：名乗り・用件・想定問答は録音、それ以外は自分の言葉＝声に出す前に確かめる _own_answer）。
