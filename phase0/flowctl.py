@@ -483,7 +483,7 @@ CONFIRM_MEANINGS = {TARGET_IS_THERE: "電話に出ている方が、お呼びし
                     TARGET_IS_NOT: "電話に出ている方は、お呼びした方ではないということ（「いいえ」「違います」と答えた・違うお名前を名乗った）",
                     TARGET_IS_AWAY: TARGET_MEANINGS[TARGET_IS_AWAY]}
 # hang_up＝話さずに切る（電話接続側が読む）・silent＝AIに話させない返事（取り次ぎを待つ間など。handle_call）
-INTERNAL_KEYS = {"ack", "ask_n", "ask_reason", "ask_last", "after", "play", "speak", "hang_up", "silent", "sorry", "again", "away"}  # 中で使うだけの項目（電話接続側・数え方が読む）。AIへの返事には入れない
+INTERNAL_KEYS = {"ack", "ask_n", "ask_reason", "ask_last", "after", "play", "speak", "hang_up", "silent", "sorry", "again", "away", "renamed"}  # 中で使うだけの項目（電話接続側・数え方が読む）。AIへの返事には入れない
 # こちらが使う名前（AIに見せる日本語の名前）。値の欄に入っていたら、相手の答えではない（form_problem）
 _LABELS = (set(SYSTEM_LABEL.values()) | set(CONFIRM_LABEL.values()) | set(END_LABEL.values()) | set(PARTY_LABEL.values())
            | set(CALLBACK_LABEL.values()) | {"答えた"})
@@ -1235,7 +1235,9 @@ class Flow:
         if name == "record_answer" and args.get("condition_id") in SYSTEM_CONDITIONS:
             return "shouchi"
         if name == "request_callback" and result == "next":
-            return "shouchi"  # 「本人は出かけております」「あとでかけて」に「ありがとうございます、」は合わない
+            # 「本人は出かけております」「あとでかけて」に「ありがとうございます、」は合わない。代わった方へは、録音のあいさつ・名乗りから始まる
+            # ので流さない（_callback の renamed）
+            return None if reply.get("renamed") else "shouchi"
         if result == "call_target":
             # 目的の人をお呼びし直す（_call_target）：確かめに「いいえ」と言われたあとは「失礼いたしました。」。まだ確かめていない方（違うお名前を
             # 名乗った方）には、録音のあいさつから始まるので流さない
@@ -2036,6 +2038,14 @@ class Flow:
         ⛔ 2026-10-22 ユーザー：「AIが何と報告していてもの中に、重要な報告はないんですか？」＝前は理由を「不在」に決めつけていた"""
         if why:
             return self._callback(why, {"ai"} | self._target_readings()[2])
+        if any(x["reply"].get("away") for x in self.log):
+            # 前にかけ直しへ進むように伝えたのに、AIはまた別の報告をした：プログラムが「不在」として進める（判定が不在と読んだ＝お呼びした方は
+            # いらっしゃらない・電話に出られない。理由が「別の番号へ」なら、AIはその操作を呼んでいる）。⛔ 2026-10-22 G-57 tc25（不在で別の方に
+            # 代わる・L4）：伝えたあともAIは「代わった方へ」「目的の人」を4回くり返し、代わった山田様に自分の声で「失礼いたしました。
+            # 奥田様はいらっしゃいますでしょうか？」と言い、かけ直しの質問は山田様が戻る時刻を言ったあとに流れた（AIが従うかに頼っていた）
+            return self._callback("absent", self._target_readings()[2],
+                                  prefix=f"お呼びした方は、いま電話に出られません（「{self._away_words().strip()[:30]}」・意味の判定）。"
+                                         f"かけ直しの申し出（{CALLBACK_LABEL['absent']}）として、プログラムが進めました。")
         # away：かけ直しへ進むように伝えた印（AIが進まずにターンを終えたら、1回だけ知らせる＝unreported_note）
         return self._reject(self._away_text()) | {"away": True}
 
@@ -2171,26 +2181,41 @@ class Flow:
             return self._reject(f"かけ直しの申し出（{CALLBACK_LABEL[self.callback_why]}）は、もう受け付けています。")
         return self._callback(a["why"], {"ai"})  # 繋いだあと：目的の人ご本人の申し出（電話口の方が誰かは、もう決まっている）
 
-    def _callback(self, why: str, read: set[str]) -> dict:
-        """かけ直しの質問を始める（唯一の場所）。read＝受け取った読み（「ai」＝AIの申し出・不在／ご本人と読んだ判定の名前）を通話の事実に残す
-        （AIの読みだけで受け取ったかを、通話後の検証が見る＝DESIGN.md 6-12。繋ぐときの connect と同じ形）。
-        目的の人かを確かめに戻ったあと（_target_back）に、同じ理由でまた申し出られたら、聞いた分は残したまま続きから聞く。"""
+    def _callback(self, why: str, read: set[str], prefix: str = "") -> dict:
+        """かけ直しの質問を始める（唯一の場所）。read＝受け取った読み（「ai」＝AIの申し出・不在／ご本人と読んだ判定の名前。「ai」が無ければ
+        プログラムが進めた）を通話の事実に残す（AIの読みだけで受け取ったかを、通話後の検証が見る＝DESIGN.md 6-12。繋ぐときの connect と同じ形）。
+        目的の人かを確かめに戻ったあと（_target_back）に、同じ理由でまた申し出られたら、聞いた分は残したまま続きから聞く。
+        電話口の方が、まだこちらの名乗りを聞いていない方（取り次がれて代わった方）なら、先にあいさつ・名乗りを流す（Intent.md 9-4「相手が
+        替わったら短く名乗り直す」。_call_target と同じ決まり）。⛔ 2026-10-22 の見直しで見つけた漏れ：代わった山田様に、名乗らずに
+        「承知しました、恐れ入りますが何時ごろお戻りに…」を流していた"""
+        intro = [k for k in ("greeting", "intro") if self.phase == "calling" and self.passed_on and self.target.get(k)
+                 and not (k == "greeting" and self._greeted())]
         if self.phase == "calling":
             self._keep_calling_turn()  # かけ直しを決めた発話の読み（不在）を残す：確かめに戻ったとき（_target_back）も、お呼びし直さない
+            self.passed_on = False if intro else self.passed_on
         if why == self.callback_why and self.callback_ids:
             self._note("callback_resume", why=why, read=sorted(read))
-            self.order, self.phase, self.recheck_queue = list(self.callback_ids), "asking", []
-            self.awaiting_confirm = self.awaiting_say = None
-            return self._advance("", handled=True)
-        self.callback_why = why
-        self._note("callback", why=why, read=sorted(read))
-        qs = [callback_question(r) for r in CALLBACK_PLAN[why]]
-        for q in qs:
-            self.questions[q.id], self.items[q.id] = q, Item()
-        self.order = self.callback_ids = [q.id for q in qs]
+            self.order = list(self.callback_ids)
+        else:
+            self.callback_why = why
+            self._note("callback", why=why, read=sorted(read))
+            qs = [callback_question(r) for r in CALLBACK_PLAN[why]]
+            for q in qs:
+                self.questions[q.id], self.items[q.id] = q, Item()
+            self.order = self.callback_ids = [q.id for q in qs]
         self.phase, self.recheck_queue = "asking", []
         self.awaiting_confirm = self.awaiting_say = None
-        return self._advance("", handled=True)
+        if not intro:
+            return self._advance(prefix, handled=True)
+        texts = "".join(self.target[k] for k in intro)
+        if not self.opening:
+            return self._advance(f"{prefix}電話口の方は、まだこちらの名乗りを聞いていません。まず「{texts}」と言ってから、", handled=True) | {"renamed": True}
+        r = self._advance(f"{prefix}電話口の方は、まだこちらの名乗りを聞いていません。「{texts}」は、プログラムが録音で流しました（相手にもう"
+                          "聞こえています）。続けて、", handled=True)
+        if "play" not in r:
+            r["speak"] = True
+        r["play"] = [{"kind": "opening", "part": k, "text": self.opening[k]} for k in intro] + r.get("play", [])
+        return r | {"renamed": True}
 
     def _target_back(self) -> dict:
         """かけ直しの質問の途中で、AIが「目的の人」と報告した（お呼びした方が戻って電話口に出た・AIの聞き違い）：呼んでいる段に戻り、

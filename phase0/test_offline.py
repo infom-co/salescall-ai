@@ -4704,12 +4704,16 @@ class TargetTest(unittest.TestCase):
             f, b = self.checked()
             self.heard(f, "はい。", None)
             self.assertEqual(f.apply("report_party", {"party": "target"})["result"], "confirm_target")
-            for _ in range(3):
+            for n in range(3):
                 self.heard(f, "いえ、岡田は本日おりませんで。" if judged == TARGET_IS_AWAY else "少々お待ちください。", judged)
                 r = f.apply("report_party", {"party": "target"})
+                if judged == TARGET_IS_AWAY and n > 0:
+                    # 不在と伝えたのに、AIがまた別の報告をした ⇒ プログラムが「不在」としてかけ直しへ進める（⛔ G-57 tc25：AIが従うかに頼っていた）
+                    self.assertEqual((r["result"], r["question_id"], f.callback_why, f.facts["callback"][-1]["read"]), ("next", "C1", "absent", ["judge"]))
+                    break
                 self.assertEqual((r["result"], f.phase), (result, "calling"), judged)
-            if judged == TARGET_IS_AWAY:
-                self.assertIn("request_callback", r["message"])
+                if judged == TARGET_IS_AWAY:
+                    self.assertIn("request_callback", r["message"])
         # (3-b) 確かめたあとのAIの「代わった方」で、判定が届かない（新しい方かもしれない）：名乗りから流す（⛔ G-57 tc11：取り次ぎの最中に
         #     確かめが流れ、そのあと出た岡田様に名乗りを流さないまま質問へ進んだ）
         f, b = self.checked()
@@ -5272,11 +5276,28 @@ class TargetTest(unittest.TestCase):
         self.assertIn("「岡田は外出しておりますので", f.apply("report_party", {"party": "reception"})["message"])
         f.on_callee(); f.on_heard("お電話代わりました。山田です。"); f.on_check("judge", HANDOVER); f.on_check("judge2", HANDOVER)
         r = f.apply("replay_opening", {"part": "handover"})
-        self.assertEqual(r["result"], "rejected")
+        # 前に伝えたのに、AIはかけ直しを申し出なかった ⇒ プログラムが「不在」として進める。代わった方は、まだこちらの名乗りを聞いていない
+        # ので、あいさつ・名乗りから（Intent.md 9-4「相手が替わったら短く名乗り直す」）。相づち「承知しました、」は流さない
+        self.assertEqual((r["result"], r["ack"]), ("next", None))
+        self.assertEqual([p.get("part", p.get("id")) for p in r["play"]], ["greeting", "intro", "callback_back_time"])
         self.assertIn("「岡田は外出しておりますので", r["message"])
         self.assertNotIn("山田です", r["message"])
-        r = f.apply("request_callback", {"why": "absent"})                 # 代わった方にも、お呼びし直さずに、かけ直しへ
-        self.assertEqual((r["result"], f.facts["callback"][-1]["read"]), ("next", ["ai", "judge", "judge2"]))
+        self.assertEqual((f.callback_why, f.facts["callback"][-1]["read"], f.passed_on), ("absent", ["judge", "judge2"], False))
+        # AIが自分で申し出たときも同じ（代わった方へは名乗りから・相づちなし）
+        f, b = self.flow()
+        f.use_checks("judge", "judge2")
+        f.on_callee(); f.on_heard("岡田は外出しておりますので、別の者に代わります。"); f.on_check("judge", TARGET_IS_AWAY); f.on_check("judge2", TARGET_IS_AWAY)
+        f.apply("report_party", {"party": "reception"})
+        f.on_callee(); f.on_heard("お電話代わりました。山田です。"); f.on_check("judge", HANDOVER); f.on_check("judge2", HANDOVER)
+        r = f.apply("request_callback", {"why": "absent"})
+        self.assertEqual(([p.get("part", p.get("id")) for p in r["play"]], r["ack"], f.facts["callback"][-1]["read"]),
+                         (["greeting", "intro", "callback_back_time"], None, ["ai", "judge", "judge2"]))
+        # 最初に出た受付の方（名乗りを聞いている）には、かけ直しの質問だけ（相づち「承知しました、」）
+        f, b = self.flow()
+        f.use_checks("judge", "judge2")
+        f.on_callee(); f.on_heard("あいにく岡田は席を外しております。"); f.on_check("judge", TARGET_IS_AWAY); f.on_check("judge2", TARGET_IS_AWAY)
+        r = f.apply("request_callback", {"why": "absent"})
+        self.assertEqual(([p.get("part", p.get("id")) for p in r["play"]], r["ack"]), (["callback_back_time"], "shouchi"))
 
     def test_target_comes_back_during_callback(self):
         # かけ直しの質問の途中で、目的の人が代わって出た：呼んでいる段に戻って1回確かめ、「はい」なら繋いで業務の質問を聞く（ふつうの締め）。
