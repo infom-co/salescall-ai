@@ -5047,6 +5047,15 @@ class TargetTest(unittest.TestCase):
         h, _ = self.flow()                                                          # 繋いだあと（答えの段）は、尋ねているかを問い合わせない
         h.on_callee(); h.on_heard("岡田は私です。"); h.apply("report_party", {"party": "target"})
         self.assertIsNone(h.asks_context())
+        # (3-b2) 尋ねた発話の「ご本人」は、答えたあとの読みに数えない（AIの読み違いと2つそろわない）。答えたあとの言葉の読みで決める
+        f, b = self.checked()
+        f.use_checks("judge", "judge2")
+        self.heard(f, "岡田ですね。失礼ですが、どちら様でしょうか？", TARGET_IS_THERE); f.on_check("asks", ASKS_YES)
+        f.apply("report_party", {"party": "target"})
+        f.apply("replay_opening", {"part": "intro"})
+        self.heard(f, "かしこまりました。", None)
+        r = f.apply("report_party", {"party": "target"})
+        self.assertEqual((r["result"], f.phase), ("confirm_target", "calling"))
         # (3-c) 尋ねている読みは、取り次ぎ・不在の読みより先（聞かれたことに答えるのが先）。⛔ G-59 10-22：Sonnet は「岡田ですね。失礼ですが、
         #     どちら様でしょうか？」を3回とも「取り次ぎを待つ」と読んだ（取り次ぎを先に見ると、質問に答えずに黙って待つ）
         for first in ("judge", "asks"):                                             # どちらが先に届いても同じ

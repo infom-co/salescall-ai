@@ -1968,7 +1968,11 @@ class Flow:
             every[self.callee_turns] = {k: self.check[k] for k in JUDGMENTS if k in self.check}
         seen = {t: v for t, v in every.items() if t >= self.speaker_from}
         after = self.asked_target_turn if self.asked_target is not None else self.callee_turns
-        return ({k for v in seen.values() for k, x in v.items() if x == TARGET_IS_THERE},
+        # こちらに尋ねた発話の「ご本人」は数えない（答えを待つ発話で、誰かを決める材料にしない。⛔ 2026-10-22 G-59：3.5 Flash Lite は
+        # 「岡田ですね。失礼ですが、どちら様でしょうか？」を3回とも「ご本人」と読んだ＝尋ねているかが先なので、その場では繋がないが、読みが
+        # 残ると、答えたあとのAIの読み違いと2つそろう）。不在の読みは残す（お呼びした方の事実）
+        asking = {t for t, v in self.calling_asks.items() if v == ASKS_YES}
+        return ({k for t, v in seen.items() if t not in asking for k, x in v.items() if x == TARGET_IS_THERE},
                 any(v for t, v in seen.items() if t > after), any(TARGET_IS_AWAY in v.values() for v in every.values()))
 
     def _doubted(self) -> bool:
