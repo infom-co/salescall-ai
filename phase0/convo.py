@@ -576,10 +576,10 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                         nudge = await collect_turn(s, started_at=time.monotonic(), on_tool_call=on_tool, timeout_s=followup_wait_s or 8.0,
                                                    on_heard=None)
                         await add_turn(nudge, {"nudge_of": line, "note": note}, log_start, i, voice)
-                        if (muted and turns[-1].get("muted") and turns[-1].get("audio_seconds") and swapped != i
-                                and all(e["reply"].get("result") == "rejected" for e in flow.log[turn_log_start:])):
-                            # 流さなかった声のあと、知らせにも流せない声だけで答え、報告を受け付けていない：相手には無言が続く＝黙ったのと同じ
-                            # （DESIGN.md 6-7）⇒ 張り替えて、相手の同じ発話を送り直す
+                        if muted and swapped != i and all(e["reply"].get("result") == "rejected" for e in flow.log[turn_log_start:]):
+                            # 流さなかった声のあと、知らせのあとも報告を受け付けていない（黙った・流せない声だけ）：相手には無言が続く＝黙ったのと
+                            # 同じ（DESIGN.md 6-7）⇒ 張り替えて、相手の同じ発話を送り直す。⛔ 2026-10-22 G-57 tc34（名乗らない方・L4）：知らせのあと
+                            # AIは黙ったまま報告せず、試作は次の台詞へ進んだ（流せない声のときだけ張り替えていた）
                             replay = swapped = i
                             break
                     again, again_n = answer_again(line, flow.log[turn_log_start:], again_n)
