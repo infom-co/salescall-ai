@@ -309,7 +309,7 @@ class TargetRecheck(SettleBase):
         return self.call(s, report=self.connected_report(read), items=items, verify=None)
 
     def item(self, s, q="Q1"):
-        return self.tx(s, lambda tx: tx.one("SELECT state::text AS state, condition, value, attempt_id FROM salescall.item_values"
+        return self.tx(s, lambda tx: tx.one("SELECT state::text AS state, condition, value, attempt_id, version_id FROM salescall.item_values"
                                             " WHERE task_id = %s AND question_id = %s", (s["task"], q)))
 
     def later_call(self, s, report):
@@ -337,11 +337,13 @@ class TargetRecheck(SettleBase):
             owner_access().in_system(OPERATOR, lambda tx: tx.execute(
                 "UPDATE salescall.target_rechecks SET outcome = 'target' WHERE attempt_id = %s", (aid,)))
         self.tx(s, lambda tx: attempts.record_verification(tx, aid, summary=CLEAN))
-        self.assertEqual(self.settle(s, aid)["state"], "incomplete")               # 答えは取れていない（完了にしない）
+        # 目的のお客様に取り次いでもらえなかったのと同じ（「一部だけ取れた」にしない＝判定と締めで「繋がった」を分けない）
+        self.assertEqual(self.settle(s, aid)["state"], "not_reached")
         r = self.tx(s, lambda tx: results.latest(tx, s["task"]))
-        self.assertEqual((r["detail"].get("target_unconfirmed"), r["snapshot"]["target_recheck"]), (True, "not_target"))
+        self.assertEqual((r["detail"].get("target_unconfirmed"), r["detail"].get("not_reached"), r["detail"].get("policy_key"),
+                          r["snapshot"]["target_recheck"]), (True, "not_transferred", "not_reached_not_transferred", "not_target"))
         inp = self.tx(s, lambda tx: settle._judge_input(tx, settle._attempt(tx, aid), s["version"])[0])
-        self.assertEqual((inp.report.reached_target, settle._reached_target(inp)), (True, False))
+        self.assertEqual((inp.report.reached_target, inp.reached_target), (True, False))
 
     def test_the_target_keeps_the_answers_and_a_later_call_by_another_person_gives_back_the_earlier_answers(self):
         """目的のお客様だったら答えはそのまま。後の通話（判定なしで繋いだ）が上書きした答えは、その通話が別の方だったら、前の通話で
@@ -352,16 +354,38 @@ class TargetRecheck(SettleBase):
         self.tx(s, lambda tx: target_recheck.record(tx, aid, "target", evidence="試験：録音で「はい、岡田です」", checked_by="試験"))
         self.assertEqual(self.item(s)["state"], "confirmed")
         inp = self.tx(s, lambda tx: settle._judge_input(tx, settle._attempt(tx, aid), s["version"])[0])
-        self.assertTrue(settle._reached_target(inp))
+        self.assertTrue(inp.reached_target)
         later = self.later_call(s, self.connected_report())
         with self.assertRaises(Rejected):                                          # 前の通話の番号のまま書き換えない
             self.tx(s, lambda tx: tx.execute("UPDATE salescall.item_values SET condition = 'いいえ' WHERE task_id = %s",
                                              (s["task"],)))
-        self.tx(s, lambda tx: tx.execute("UPDATE salescall.item_values SET condition = 'いいえ', attempt_id = %s WHERE task_id = %s",
-                                         (later, s["task"])))
+        newer = support.full_version(self.w, s)                                  # 後の通話は、新しい業務設定の版で書く
+        self.tx(s, lambda tx: tx.execute("UPDATE salescall.item_values SET condition = 'いいえ', attempt_id = %s, version_id = %s"
+                                         " WHERE task_id = %s", (later, newer, s["task"])))
         self.tx(s, lambda tx: target_recheck.record(tx, later, "not_target", evidence="試験：別の方", checked_by="試験"))
         got = self.item(s)
-        self.assertEqual((got["state"], got["condition"], got["attempt_id"]), ("confirmed", "はい", aid))   # 前の答えに戻る
+        self.assertEqual((got["state"], got["condition"], got["attempt_id"], got["version_id"]),
+                         ("confirmed", "はい", aid, s["version"]))                 # 前の答えに戻る（その答えを取った版も）
+
+    def test_the_guard_cannot_be_switched_off_by_a_setting_and_unconfirmed_answers_are_never_given_back(self):
+        """答えの守りは、戻す仕掛けの中からの書き込みだけを通す（設定の値を自分で立てても通さない＝2026-10-22 の見直し）。戻すのは、
+        目的のお客様だと確かめられなかった通話の答え以外（その通話のあとの通話も確かめられなかったら「-」のまま）。"""
+        s = self.ready()
+        first = self.connected(s, items=(("Q1", "confirmed", "はい"),))
+        self.tx(s, lambda tx: target_recheck.record(tx, first, "not_target", evidence="試験：別の方", checked_by="試験"))
+        self.assertEqual((self.item(s)["state"], self.item(s)["attempt_id"]), ("unresolved", first))
+        later = self.later_call(s, self.connected_report())
+
+        def sneak(tx):
+            tx.execute("SET LOCAL salescall.item_restore = 'x'")             # 前の形の見分け（設定の値）を自分で立てる
+            tx.execute("UPDATE salescall.item_values SET state = 'confirmed', condition = 'いいえ' WHERE task_id = %s", (s["task"],))
+        with self.assertRaises(Rejected):                                          # 前の通話の番号のまま書き換えない
+            self.tx(s, sneak)
+        self.tx(s, lambda tx: tx.execute("UPDATE salescall.item_values SET state = 'confirmed', condition = 'いいえ', attempt_id = %s"
+                                         " WHERE task_id = %s", (later, s["task"])))
+        self.tx(s, lambda tx: target_recheck.record(tx, later, "cannot_check", evidence="試験：録音が無い", checked_by="試験"))
+        got = self.item(s)
+        self.assertEqual((got["state"], got["condition"], got["attempt_id"]), ("unresolved", None, later))   # 別の方の「-」に戻さない
 
     def test_a_recheck_is_only_for_calls_connected_without_the_judges_and_a_missing_recording_blanks_the_answers(self):
         """確かめ直しを記録できるのは、要る通話だけ。録音が届かずに済ませた通話は「確かめられなかった」＝答えは「-」で、目的の
@@ -380,7 +404,7 @@ class TargetRecheck(SettleBase):
         self.assertEqual((self.tx(u, lambda tx: target_recheck.load(tx, aid)), self.item(u)["state"]),
                          ("cannot_check", "unresolved"))
         inp = self.tx(u, lambda tx: settle._judge_input(tx, settle._attempt(tx, aid), u["version"])[0])
-        self.assertFalse(settle._reached_target(inp))
+        self.assertFalse(inp.reached_target)
 
     def test_a_rebuilt_report_with_an_unchecked_connect_is_not_settled_or_rejudged_until_rechecked(self):
         """録音から作り直した報告（判定できない行のため）に判定なしの繋ぎが入ったら、検証が済んでいても、確かめ直しが記録される
@@ -391,11 +415,29 @@ class TargetRecheck(SettleBase):
         self.assertEqual(first["state"], "unknown")
         self.tx(s, lambda tx: call_report.save_rebuilt(tx, aid, self.connected_report(), evidence="試験：録音から"))
         self.assertIsNone(self.tx(s, lambda tx: settle.rejudge(tx, aid)))         # 確かめ直しを待つ
+        asked = self.w.a.in_system(SYSTEM, lambda tx: [r["refs"] for r in fix_requests.open_requests(tx, "CL-1")
+                                                       if r["kind"] == "target_recheck_missing"])
+        self.assertEqual([r["attempt_id"] for r in asked], [str(aid)])            # 待つだけにせず、CL-1 へ修正依頼
         with self.assertRaises(settle.NotReady):
             self.tx(s, lambda tx: settle._judge_input(tx, settle._attempt(tx, aid), s["version"]))
         self.tx(s, lambda tx: target_recheck.record(tx, aid, "not_target", evidence="試験", checked_by="試験"))
         again = self.tx(s, lambda tx: settle.rejudge(tx, aid))
-        self.assertEqual(again["state"], "incomplete")
+        self.assertEqual(again["state"], "not_reached")
+
+    def test_a_promised_call_answered_by_another_person_keeps_the_promise(self):
+        """約束の幅の中でかけた電話で、判定なしで繋いだ方が別の方だった：目的のお客様と話せていないので、約束の幅のまま次へ
+        （2026-10-22 の見直し：前は判定が「一部だけ取れた」にして、約束の幅を外し、ふつうの再発信にしていた）。"""
+        s = self.ready()
+        now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
+        window = next_action.Window(now + timedelta(days=1), (0, 24 * 3600), None, now - timedelta(hours=1), "day")
+        self.tx(s, lambda tx: support.schedule_call(tx, s["task"], now, contact_id=s["contact"], cause="試験", promised=True,
+                                                       window=window))
+        aid = self.connected(s, items=(("Q1", "confirmed", "はい"),))
+        self.tx(s, lambda tx: target_recheck.record(tx, aid, "not_target", evidence="試験：別の方", checked_by="試験"))
+        self.tx(s, lambda tx: attempts.record_verification(tx, aid, summary=CLEAN))
+        got = self.settle(s, aid)
+        self.assertEqual((got["state"], got["decision"].promised, got["decision"].window.until), ("not_reached", True,
+                                                                                                    window.until))
 
     def test_a_connect_without_a_party_still_counts_as_talking_with_the_customer(self):
         """電話口の種別を残さずに繋いだ通話（AIの「代わった方へ」のあと、判定の「ご本人」2つで繋いだ）も、お客様と話した通話：

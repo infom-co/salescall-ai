@@ -161,7 +161,7 @@ class CallReport:
         """目的のお客様と話せたか（1か所。判定の「目的のお客様に繋がらなかった」と、約束の日のお詫びの印を外す締めが読む）。
         繋いだ事実（connect）があれば繋がった（CL-1 は、AIの報告が「目的の人」でなくても、判定の「ご本人」の読みが2つそろえば繋ぐ＝
         電話口の種別だけを見ると、繋いだ通話を「繋がらなかった」と読む）。connect の無い報告は、電話口の種別の目的のお客様で見る。
-        ⚠️ 確かめ直しで目的のお客様ではなかった通話は、締めの処理が別に見る（core/target_recheck.py）。"""
+        ⚠️ 確かめ直し（core/target_recheck.py）まで入れた判断は judge.JudgeInput.reached_target の1か所（判定も締めもそれを読む）。"""
         return bool(self.connects) or "target" in self.parties
 
     @property

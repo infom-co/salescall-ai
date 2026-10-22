@@ -21,7 +21,6 @@
 from __future__ import annotations
 
 import json
-import os
 import socket
 import time
 import urllib.error
@@ -32,6 +31,7 @@ from typing import Any, Callable
 from uuid import UUID
 
 from salescall.link.basics import PcPass
+from salescall.link.pass_file import load, logout, pass_path, save  # noqa: F401（しまう場所の決まりは link の1か所）
 
 START = "/pc-login/start"    # 機器のログインを始める（返す：device_code・user_code・verification_uri(_complete)・interval・expires_in）
 TOKEN = "/pc-login/token"    # 通行証を受け取る（返す：待って authorization_pending／遅く slow_down／断られた access_denied／時間切れ
@@ -121,43 +121,6 @@ def _quiet(_: str) -> None:
     """開き直さない回は、ブラウザも案内も出さない（前に開いたページで待っている）。"""
 
 
-def pass_path() -> Path:
-    """しまう場所（その Windows の利用者のフォルダ。ほかの OS は利用者のフォルダ）。"""
-    if os.name == "nt":
-        return Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local")) / "SalesCall" / "pc-pass.bin"
-    return Path.home() / ".config" / "salescall" / "pc-pass.bin"
-
-
-def save(got: PcPass, path: Path | None = None) -> None:
-    """通行証をしまう（書きかけを残さない。Windows はその利用者だけが開ける形にして、ほかの OS は本人だけが読める許しで）。"""
-    path = path or pass_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    data = _protect(json.dumps({"tenant_id": str(got.tenant_id), "pc": str(got.pc_id), "token": got.token}).encode("utf-8"))
-    tmp = path.with_suffix(".tmp")
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "wb") as f:
-        f.write(data)
-    tmp.replace(path)
-
-
-def load(path: Path | None = None) -> PcPass | None:
-    """しまった通行証（無ければ None）。"""
-    path = path or pass_path()
-    if not path.exists():
-        return None
-    d = json.loads(_unprotect(path.read_bytes()).decode("utf-8"))
-    return PcPass(UUID(d["tenant_id"]), UUID(d["pc"]), d["token"])
-
-
-def logout(path: Path | None = None) -> bool:
-    """しまった通行証を消す。消したら True。"""
-    path = path or pass_path()
-    if not path.exists():
-        return False
-    path.unlink()
-    return True
-
-
 def _post(url: str, body: dict[str, Any]) -> dict[str, Any]:
     """JSON を送り、JSON を受け取る（断り＝400 の答えも、中身の error を返す）。"""
     req = urllib.request.Request(url, data=json.dumps(body).encode("utf-8"), method="POST",
@@ -172,31 +135,3 @@ def _post(url: str, body: dict[str, Any]) -> dict[str, Any]:
             raise LoginFailed(f"サーバーの答えが読めません（{e.code}）") from None
     except ValueError:   # 答えが JSON でない
         raise LoginFailed("サーバーの答えが読めません") from None
-
-
-def _protect(data: bytes) -> bytes:
-    """Windows：その利用者だけが開ける形にする（DPAPI）。ほかの OS：そのまま（ファイルの許しで守る）。"""
-    return _dpapi(data, protect=True) if os.name == "nt" else data
-
-
-def _unprotect(data: bytes) -> bytes:
-    return _dpapi(data, protect=False) if os.name == "nt" else data
-
-
-def _dpapi(data: bytes, *, protect: bool) -> bytes:   # pragma: no cover（Windows だけ）
-    import ctypes
-    from ctypes import wintypes
-
-    class Blob(ctypes.Structure):
-        _fields_ = [("cbData", wintypes.DWORD), ("pbData", ctypes.POINTER(ctypes.c_char))]
-
-    buf = ctypes.create_string_buffer(data, len(data))
-    src, dst = Blob(len(data), ctypes.cast(buf, ctypes.POINTER(ctypes.c_char))), Blob()
-    crypt32, kernel32 = ctypes.windll.crypt32, ctypes.windll.kernel32
-    fn = crypt32.CryptProtectData if protect else crypt32.CryptUnprotectData
-    if not fn(ctypes.byref(src), None, None, None, None, 0, ctypes.byref(dst)):
-        raise LoginFailed("PC の通行証をしまう・読むことができませんでした（Windows の利用者が違う恐れ）")
-    try:
-        return ctypes.string_at(dst.pbData, dst.cbData)
-    finally:
-        kernel32.LocalFree(dst.pbData)

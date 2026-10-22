@@ -46,7 +46,7 @@ from salescall.core.business_rules import Rules
 from salescall.core.call_report import CallReport
 
 # 判定の決まりの版（変えたら上げる）。かけ直しの時刻の読み方の版も入れる（読み方を直すと、判定待ちの行が判定し直される＝settle.rejudge）
-JUDGE_VERSION = f"judge-2026-10-22.1+time-{spoken_time.VERSION}"   # 2026-10-22.1：繋いだ事実（connect）で話した・繋がったと読む
+JUDGE_VERSION = f"judge-2026-10-22.2+time-{spoken_time.VERSION}"   # 2026-10-22.2：確かめ直しで目的のお客様だと確かめられなかった通話は「取り次いでもらえなかった」（.1：繋いだ事実で話した・繋がったと読む）
 # 「判定できない」の原因の名前（同じ原因かを数える単位）と意味。プログラムの誤りか（直す担当へ修正依頼を出し、管理者にも
 # 知らせる＝確かめ・承認のため。2026-10-16・10-17 ユーザー）も、ここで決まる（1か所）。業務設定の抜けは契約者が直す（いまは無い：業務の決まりは、必須の質問ごとに、
 # 決まった理由のすべてに扱いが無いと保存できない＝business_rules。2026-10-16 見直し：前は「理由×扱いが決まらない」を業務設定の
@@ -104,6 +104,14 @@ class JudgeInput:
     # 目的のお客様に判定なしで繋いだ通話を確かめ直して、目的のお客様だと確かめられなかった（別の方・確かめられなかった。
     # core/target_recheck.py）。その通話の答えは、もう戻されている・「-」になっている。結果の中身に残す
     target_unconfirmed: bool = False
+
+    @property
+    def reached_target(self) -> bool:
+        """目的のお客様と話せたか（判定の (8)「目的のお客様に繋がらなかった」と、締めの約束の日のお詫びの印を外す所が読む1か所）：
+        会話の報告で繋がっていて（call_report.CallReport.reached_target）、確かめ直しで目的のお客様だと確かめられなかった通話でない
+        （2026-10-22 の見直し：前は判定が「繋がった」、締めが「繋がらなかった」と別々に読み、別の方だった約束の電話を「一部だけ取れた」
+        にして、約束の幅を外していた）。"""
+        return self.report is not None and self.report.reached_target and not self.target_unconfirmed
 
 
 @dataclass(frozen=True)
@@ -273,8 +281,11 @@ def _business(inp: JudgeInput) -> Judgement:
                     policy_key=None if when.start else "callback_unspecified_time")
     human = bool(r and r.talked)
     conversation = inp.facts.reached_answer and human
-    # (8) お客様と話したが、目的のお客様に繋がらなかった
-    if conversation and not r.reached_target:
+    # (8) お客様と話したが、目的のお客様に繋がらなかった。確かめ直しで目的のお客様だと確かめられなかった通話（別の方が「はい」と
+    #     答えた・確かめられなかった）は、目的のお客様に取り次いでもらえなかったのと同じに扱う（その方から目的のお客様へは届いていない）
+    if conversation and not inp.reached_target:
+        if inp.target_unconfirmed:
+            return done("not_reached", not_reached="not_transferred", policy_key="not_reached_not_transferred")
         if r.not_reached is None:
             return unknown("not_reached_reason_missing", "目的のお客様に繋がらなかった理由がありません")
         return done("not_reached", not_reached=r.not_reached, policy_key="not_reached_" + r.not_reached)

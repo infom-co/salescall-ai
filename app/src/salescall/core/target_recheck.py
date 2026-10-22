@@ -24,7 +24,7 @@ from salescall.core.access import Tx
 
 Outcome = Literal["target", "not_target", "cannot_check"]
 OUTCOMES = ("target", "not_target", "cannot_check")
-UNCONFIRMED = ("not_target", "cannot_check")   # 目的のお客様だと確かめられなかった
+UNCONFIRMED = tuple(o for o in OUTCOMES if o != "target")   # 目的のお客様だと確かめられなかった（target 以外。0108 の仕掛けも同じ見方）
 
 
 class RecheckInvalid(Exception):

@@ -38,6 +38,9 @@ from salescall.link.basics import PcPass, backoff, load
 from salescall.link.phone import CallNotPlaced, Phone
 
 RECONNECT_FIRST, RECONNECT_MAX = 1.0, 60.0
+# PC の部品が終わるとき、途中の頼み（かけている途中の電話）が済むのを待つ長さ（秒）。かけ終わったあとの見張り（つながりが切れたら
+# おわびして切る）まで走らせる。電話の部品の「かける」は答えの期限で終わる（ANSWER_BY）。おわびの録音を流す時間をあける
+FINISH_WAIT = p.ANSWER_BY + 30
 STABLE_AFTER = 60.0   # これより長く続いたつなぎのあとは、すぐつなぎ直す（短く終わり続けるほど、間を延ばす）
 
 
@@ -60,6 +63,7 @@ class Agent:
     generation: int = 0                                    # つなぎの番号（つなぎ直すたびに増える）
     _incoming: dict[UUID, "_Receiving"] = field(default_factory=dict)   # 控えの番号 → 受け取っている途中の控え
     _tasks: set[asyncio.Task] = field(default_factory=set)
+    _requests: set[asyncio.Future] = field(default_factory=set)          # 途中の頼み（かける・切る・おわび など）
     _line_order: dict[UUID, asyncio.Lock] = field(default_factory=dict)   # 回線ごとの頼みの順番
 
     def __post_init__(self) -> None:
@@ -85,7 +89,22 @@ class Agent:
 
     # ── つなぐ ──
     async def run(self, stop: asyncio.Event) -> None:
-        """止める印が立つまで、つなぎ直しながら動く（ログインし直す・更新が要るときは NeedLogin・NeedUpdate を上へ）。"""
+        """止める印が立つまで、つなぎ直しながら動く（ログインし直す・更新が要るときは NeedLogin・NeedUpdate を上へ）。
+        終わるときは（どの終わり方でも）、途中の頼みが済むまで待つ（`_finish_requests`）。"""
+        try:
+            await self._run(stop)
+        finally:
+            await self._finish_requests()
+
+    async def _finish_requests(self) -> None:
+        """途中の頼みが済むのを待つ（上限 FINISH_WAIT）。⛔ 2026-10-22 の見直し：通行証が止められて終わるとき、かけている途中の頼みを
+        取り消していた ⇒ 電話の部品は別の流れでかけ終え、かけ終わったあとの見張り（切れていたら、おわびして切る）が動かず、AI も
+        おわびも無い電話が残った。つながりは切れている（つなぎの番号が進んでいる）ので、かけ終えた頼みは自分でおわびして切る。"""
+        waiting = [t for t in self._requests if not t.done()]
+        if waiting:
+            await asyncio.wait(waiting, timeout=FINISH_WAIT)
+
+    async def _run(self, stop: asyncio.Event) -> None:
         fails = 0   # 続けて短く終わったつなぎの数（すぐ切られるサーバーへ、1秒ごとにつなぎ直し続けない）
         while not stop.is_set():
             began = time.monotonic()
@@ -161,12 +180,16 @@ class Agent:
 
     def _lost(self) -> None:
         """つながりが切れた：通話の途中の回線は、おわびの録音を流して切る（お客様を無言で放置しない。**ほかの後始末より先に**）。
+        回線ごとに別の流れで同時に流す（⛔ 2026-10-22 の見直し：前は流れの上で1本ずつ待ち、3本目のお客様は前の2本のおわびが
+        終わるまで無言だった。合図・つなぎ直しも止まっていた）。PC の部品が終わるときも、流し終えるまで待つ（`_finish_requests`）。
         途中の控えは捨てる（書きかけを消す＝控えと取り違えない。サーバーは、書けなかったとして記録し、あとでやり直す）。"""
         self.ws = None
         self.generation += 1
+        loop = asyncio.get_running_loop()
         for phone in self.phones.values():
-            if _busy(phone):
-                _apologize(phone)
+            done = loop.run_in_executor(None, _apologize_if_busy, phone)
+            self._requests.add(done)
+            done.add_done_callback(self._requests.discard)
         for receiving in self._incoming.values():
             receiving.drop()
         self._incoming.clear()
@@ -178,11 +201,13 @@ class Agent:
             asyncio.run_coroutine_threadsafe(ws.send(message), loop)
 
     # ── 頼まれたこと ──
-    def _spawn(self, work: Any) -> None:
-        """頼まれたこと（かける・控えを書く など）は、別に動かす（そのあいだも、ほかの回線の声を止めない）。"""
+    def _spawn(self, work: Any, *, request: bool = False) -> None:
+        """頼まれたこと（かける・控えを書く など）は、別に動かす（そのあいだも、ほかの回線の声を止めない）。request＝回線への頼み
+        （PC の部品が終わるときも、済むまで待つ）。"""
         task = asyncio.get_running_loop().create_task(work)
-        self._tasks.add(task)
-        task.add_done_callback(self._tasks.discard)
+        kept = self._requests if request else self._tasks
+        kept.add(task)
+        task.add_done_callback(kept.discard)
 
     async def _receive(self, message: str | bytes) -> None:
         if isinstance(message, bytes):
@@ -198,7 +223,7 @@ class Agent:
         msg = p.loads(message, p.SERVER_TO_PC - {"welcome"})
         kind = msg["t"]
         if kind == "request":
-            self._spawn(self._reply(msg))
+            self._spawn(self._reply(msg), request=True)
         elif kind == "backup_begin":
             if (ident := p.uuid_of(msg.get("id"))) is not None and ident not in self._incoming:
                 receiving = self._incoming[ident] = _Receiving()
@@ -282,7 +307,12 @@ class Agent:
             incoming = out.pop("value", None)
             written = 0
             while out["ok"]:
-                piece = await receiving.queue.get()
+                try:   # 続きが届かない：サーバーが送るのをやめた（書けた印を待つ長さは、両方とも PROGRESS_WAIT）。書きかけを開いたまま
+                    # 待ち続けない（⛔ 2026-10-22 の見直し：次につなぎ直すまで、書きかけのファイルを開いたままにした）
+                    piece = await asyncio.wait_for(receiving.queue.get(), p.PROGRESS_WAIT + p.PING_EVERY)
+                except asyncio.TimeoutError:
+                    out = {"ok": False, "error": "サーバーから控えの続きが届きません"}
+                    break
                 if receiving.dropped:
                     return
                 if receiving.overflow:
@@ -354,6 +384,11 @@ def _busy(phone: Phone) -> bool:
         return bool(phone.in_call())
     except Exception:  # noqa: BLE001
         return True
+
+
+def _apologize_if_busy(phone: Phone) -> None:
+    if _busy(phone):
+        _apologize(phone)
 
 
 def _apologize(phone: Phone) -> None:

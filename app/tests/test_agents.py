@@ -32,6 +32,34 @@ class Passes(unittest.TestCase):
         self.assertIsNone(who(p.token))
         self.assertFalse(self.a.in_tenant(OPERATOR, t, lambda tx: agents.revoke(tx, p.pc_id)))  # 止めた印は1回だけ
 
+    def test_the_interim_command_gives_this_pc_a_pass_without_showing_it(self):
+        """移る間の形（管理者の PC で中央の見守り役と PC の部品を両方動かす）：命令 pc-pass が、この PC の通行証を払い出してしまう
+        （値は出さない。同じ PC の前の通行証は止める）。PC の部品は、しまった通行証で動く（2026-10-22 の見直し：前は通行証を受け取る
+        道がログインの入口＝CL-3 だけで、移る間の形が動かなかった）。"""
+        import io
+        import tempfile
+        import types
+        from contextlib import redirect_stdout
+        from pathlib import Path
+        from salescall.link import pass_file
+        from salescall.supervisor import __main__ as cli
+        from salescall.supervisor import config as sup_config
+        t = self.w.tenant()
+        place = Path(tempfile.mkdtemp(prefix="salescall-pass-")) / "pc-pass.bin"
+        who = lambda tok: self.a.in_system(SYSTEM, lambda tx: agents.identify(tx, tok))   # noqa: E731
+        with mock.patch.object(sup_config, "load", return_value=types.SimpleNamespace(dsn=self.a._conninfo)), \
+                mock.patch.object(pass_file, "pass_path", return_value=place):
+            shown = io.StringIO()
+            with redirect_stdout(shown):
+                self.assertEqual(cli.run(["pc-pass", str(t), "管理者の PC"]), 0)
+            first = pass_file.load()
+            self.assertNotIn(first.token, shown.getvalue())
+            self.assertEqual(who(first.token), agents.Who(t, first.pc_id, "管理者の PC"))
+            with redirect_stdout(io.StringIO()):
+                cli.run(["pc-pass", str(t), "管理者の PC"])
+            self.assertIsNone(who(first.token))                                  # 前の通行証は止まる
+            self.assertIsNotNone(who(pass_file.load().token))
+
     def test_logging_in_again_on_the_same_pc_stops_the_old_pass(self):
         t = self.w.tenant()
         old = agents.issue(self.a, SYSTEM, t, label="架空の PC")

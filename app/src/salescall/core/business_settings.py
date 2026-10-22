@@ -333,7 +333,7 @@ def check(raw: Any, *, field_types: frozenset[str], ai_reading_needs_person: boo
         for n, q in enumerate(raw["questions"], 1):
             where = f"質問 {n} 番目"
             if not isinstance(q, dict) or set(q) != QUESTION_KEYS:
-                problems.append(f"{where}は id・text・ask_about・type・required・choices・next・unit です")
+                problems.append(f"{where}は {sorted(QUESTION_KEYS)} です")   # 項目の名前は QUESTION_KEYS の1か所から（2026-10-22 の見直し）
                 continue
             qid = q["id"]
             if not isinstance(qid, str) or not qid or len(qid) > 32 or not all(c.isascii() and (c.isalnum() or c in "_-")

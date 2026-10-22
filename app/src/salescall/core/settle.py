@@ -121,7 +121,7 @@ def _settle_apology(tx: Tx, a: dict[str, Any]) -> dict[str, Any]:
     _notice_forbidden(tx, a, prepare=False)
     decision = next_action.after_apology(tx, a["task_id"], delivered=delivered, refused=refused, stop_reason=stop_reason,
                                          dialed=next_action.Target(a["contact_id"], None, "apology", None),
-                                         reached_target=_reached_target(inp))
+                                         reached_target=inp.reached_target)
     if decision.kind == "end":
         notify.emit(tx, "apology", key=f"apology:{attempt_id}",
                     summary={"apology_done": "お詫びを伝えました。",
@@ -190,8 +190,17 @@ def rejudge(tx: Tx, attempt_id: UUID) -> dict[str, Any] | None:
     last = tx.one("SELECT judge_version, snapshot FROM salescall.call_judgements WHERE attempt_id = %s", (attempt_id,))
     latest_attempt = tx.one(f"SELECT attempt_id FROM salescall.attempts WHERE task_id = %s AND {attempts.DIALED}"
                             " ORDER BY claimed_at DESC LIMIT 1", (a["task_id"],))["attempt_id"]
-    if not held or last is None or latest_attempt != attempt_id or target_recheck.missing(tx, attempt_id):
-        return None                                # 確かめ直しを待つ行は、記録されてから判定し直す
+    if not held or last is None or latest_attempt != attempt_id:
+        return None
+    if target_recheck.missing(tx, attempt_id):
+        # 確かめ直しを待つ行は、記録されてから判定し直す。録音から作り直した報告（検証のあと）に判定なしの繋ぎが入ったときは、
+        # 通話後の検証がもう済んでいて、ほかに促す所が無い：止めずに CL-1 へ修正依頼を出す（行とお客様が待ち続けないように。
+        # 2026-10-22 の見直し）。同じ不具合は、直したと報告するまで1つ
+        fix_requests.request(tx, "CL-1", "target_recheck_missing", key="target_recheck_missing",
+                             summary="録音から作り直した会話の報告に、判定なしで繋いだ通話がありますが、目的のお客様の確かめ直し"
+                                     "（target_recheck.record）が記録されていません（判定し直しを待っています）",
+                             refs={"attempt_id": attempt_id, "task_id": a["task_id"]})
+        return None
     now = _inputs_now(tx, a)
     before = {"judge_version": last["judge_version"], "rules_version": last["snapshot"].get("rules_version"),
               "report_source": last["snapshot"].get("report_source"), "items": last["snapshot"].get("items"),
@@ -283,14 +292,8 @@ def _judge_and_write(tx: Tx, a: dict[str, Any], *, kind: str, rules_version: Any
         tx, a["task_id"], j, rules=rules,
         dialed=next_action.Target(a["contact_id"], None, a["purpose"], a["wrong_contact_id"]), dialed_at=a["claimed_at"],
         alternate=alternate, recheck=recheck, forbidden=forbidden, cut_off=cut_off,
-        reached_target=_reached_target(inp))   # 目的のお客様と話せた（約束の日のお詫びは済んだ）
+        reached_target=inp.reached_target)   # 目的のお客様と話せた（約束の日のお詫びは済んだ）
     return {"version_no": version_no, "state": j.state, "decision": decision, "already": False}
-
-
-def _reached_target(inp: JudgeInput) -> bool:
-    """目的のお客様と話せたか（締めの1か所）：会話の報告で繋がっていて、確かめ直しで目的のお客様だと確かめられなかった通話でない
-    （別の方だった・確かめられなかった通話は、話せたと数えない＝約束の日のお詫びの印を外さない。core/target_recheck.py）。"""
-    return inp.report is not None and inp.report.reached_target and not inp.target_unconfirmed
 
 
 def _notice_unknown(tx: Tx, a: dict[str, Any], j: Judgement, summary: str) -> None:

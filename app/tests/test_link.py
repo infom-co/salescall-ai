@@ -12,6 +12,7 @@ import threading
 import time
 import types
 import uuid
+from datetime import timedelta
 from pathlib import Path
 from unittest import mock
 
@@ -152,6 +153,16 @@ class LinkBase(Base):
         self.addCleanup(r.close)
         return r
 
+    def beaten(self, r, got):
+        """すぐ合図を送らせ、サーバーが受け取って記録し終えるまで待つ。"""
+        from tests.support import owner_access
+        seen = lambda: owner_access().in_system(SYSTEM, lambda tx: tx.one(   # noqa: E731
+            "SELECT last_seen_at FROM salescall.pc_agents WHERE pc_id = %s", (got.pc_id,))["last_seen_at"])
+        before = seen()
+        r.beat()
+        until(lambda: seen() != before, "合図を記録する")
+        time.sleep(0.2)                                                      # 記録のあと、つなぎの回線を入れ替える
+
     def attached(self, s, got, hub=None):
         """その PC のつなぎで、回線がつながるまで待ち、つなぎ（Attached）を返す。"""
         hub = hub or self.hub
@@ -274,6 +285,22 @@ class Connect(LinkBase):
         self.assertEqual(len(notes()), 1)                                    # 知らせは1日1回
 
 
+class CallingState(LinkBase):
+    def test_a_line_counts_as_in_a_call_from_dialing_until_it_is_hung_up_even_without_voice(self):
+        """控えを送る速さの「通話中」は、かけてから切れるまで（呼び出しのあいだのように声が流れなくても。2026-10-22 の見直し）。"""
+        s = self.ready()
+        got = self.pc(s)
+        self.agent(got, [s["line"]])
+        driver = self.hub.driver(s["line"], self.attached(s, got))
+        session = self.hub.sessions[got.pc_id]
+        with mock.patch.object(protocol, "CALL_QUIET", 0.0):                    # 声だけでは通話中にならない
+            self.assertFalse(session.calling())
+            driver.start_call("+81300000003")
+            self.assertTrue(session.calling())
+            driver.hang_up()
+            self.assertFalse(session.calling())
+
+
 class Refusals(LinkBase):
     def test_an_unknown_or_revoked_pass_makes_the_pc_log_in_again(self):
         s = self.ready()
@@ -351,8 +378,8 @@ class LostConnection(LinkBase):
         until(lambda: phone.calls and phone.apologies >= 1, "かけ終わったら、すぐおわびして切る")
         caller.join(30)
 
-    def test_a_phone_that_cannot_say_whether_it_is_in_a_call_is_apologised_for_first(self):
-        """つながりが切れたとき、通話中か答えられない電話の部品は、通話中とみなしておわびして切る（控えの後始末より先）。"""
+    def test_a_phone_that_cannot_say_whether_it_is_in_a_call_is_apologised_for(self):
+        """つながりが切れたとき、通話中か答えられない電話の部品は、通話中とみなしておわびして切る（控えの後始末を待たずに始める）。"""
         values = {"SALESCALL_HUB_URL": "ws://127.0.0.1:1/link", "SALESCALL_LINES": str(uuid.uuid4())}
         order = []
 
@@ -372,8 +399,30 @@ class LostConnection(LinkBase):
         async def go():
             a._incoming[uuid.uuid4()] = Receiving()
             a._lost()
+            await a._finish_requests()
         asyncio.run(go())
-        self.assertEqual(order, ["おわび", "控えをやめる"])
+        self.assertEqual(sorted(order), sorted(["おわび", "控えをやめる"]))
+
+    def test_apologies_after_a_lost_connection_run_on_all_lines_at_once(self):
+        """つながりが切れたとき、通話の途中の回線のおわびは同時に流す（1本ずつ待たない＝3本目のお客様を、前の2本のおわびのあいだ
+        無言にしない。2026-10-22 の見直し）。"""
+        values = {"SALESCALL_HUB_URL": "ws://127.0.0.1:1/link", "SALESCALL_LINES": str(uuid.uuid4())}
+        began = []
+
+        class Talking(FakePhone):
+            def play_apology_and_hang_up(self):
+                began.append(time.monotonic())
+                time.sleep(1.0)
+                super().play_apology_and_hang_up()
+        phones = {uuid.uuid4(): Talking(busy=True) for _ in range(3)}
+        a = agent_main.Agent(agent_config.load(values), PcPass(uuid.uuid4(), uuid.uuid4(), "架空の通行証"), phones)
+
+        async def go():
+            a._lost()
+            await a._finish_requests()
+        asyncio.run(go())
+        self.assertEqual([x.apologies for x in phones.values()], [1, 1, 1])
+        self.assertLess(max(began) - min(began), 0.5)
 
     def test_requests_for_one_line_run_in_order_and_a_call_that_ends_too_late_is_apologised_for(self):
         """1つの回線への頼みは、届いた順に1つずつ（「かけて」の途中に届いた「おわびして切って」は、かけ終わってから）。答えの期限を
@@ -401,6 +450,51 @@ class LostConnection(LinkBase):
         with mock.patch.object(protocol, "ANSWER_BY", 0.5), self.assertRaises(RuntimeError):
             driver.start_call("+81300000001")                                  # 答えは「分からない」（出口が結果不明にする）
         self.assertEqual(order, ["かけた", "おわび"])
+
+    def test_a_call_placed_while_the_pass_is_revoked_is_apologised_for(self):
+        """かけている途中で通行証が止められ、PC の部品が終わるときも、かけ終わった電話は自分でおわびして切る（途中の頼みを取り消さず、
+        済むまで待つ。⛔ 2026-10-22 の見直し：AI もおわびも無い電話が残った）。"""
+        s = self.ready()
+        got = self.pc(s)
+
+        class SlowDial(FakePhone):
+            def start_call(self, phone):
+                time.sleep(2.0)
+                super().start_call(phone)
+                self.busy = True
+        phone = SlowDial()
+        r = self.agent(got, [s["line"]], {s["line"]: phone})
+        driver = self.hub.driver(s["line"], self.attached(s, got))
+        caller = threading.Thread(target=lambda: self.assertRaises(Exception, driver.start_call, "+81300000009"))
+        caller.start()
+        until(lambda: self.hub.sessions[got.pc_id].pending, "かけてと頼んだ")
+        self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: agents.revoke(tx, got.pc_id))
+        r.beat()                                                             # 合図でサーバーが断る（止めた通行証）
+        until(lambda: isinstance(r.error, agent_main.NeedLogin), "PC の部品がログインし直しで終わる")
+        self.assertEqual((phone.calls, phone.apologies, phone.busy), (["+81300000009"], 1, False))
+        caller.join(30)
+
+    def test_a_line_retired_during_a_call_keeps_its_voice_and_apology_until_the_call_ends(self):
+        """通話の途中で回線に「使わない」の印を付けても、その通話が終わるまでは、つなぎに残す（声・おわびして切るが通る＝お客様を
+        無言にしない）。通話が終わったら外れる（新しくかけないのは門が守る）。⛔ 2026-10-22 の見直し（0109）。"""
+        from salescall.core import registry
+        s = self.ready()
+        got = self.pc(s)
+        phone = FakePhone(busy=True)
+        r = self.agent(got, [s["line"]], {s["line"]: phone})
+        driver = self.hub.driver(s["line"], self.attached(s, got))
+        aid = self.w.insert_claim(s, expires_in=timedelta(minutes=5))
+        for state in ("dialing", "ringing", "answered", "in_conversation"):    # 通話の途中
+            self.w.move(s, aid, state)
+        self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: registry.retire_line(tx, s["line"], reason="試験：端末を返した"))
+        self.beaten(r, got)
+        self.assertIn(s["line"], self.hub.sessions[got.pc_id].lines)
+        driver.apologize_and_hang_up()
+        self.assertEqual(phone.apologies, 1)
+        for state in ("ending", "ended"):
+            self.w.move(s, aid, state)
+        self.beaten(r, got)
+        self.assertNotIn(s["line"], self.hub.sessions[got.pc_id].lines)       # 通話が終われば外れる
 
     def test_a_call_that_was_surely_not_placed_is_not_apologised_for_even_when_late(self):
         """電話の部品が「かけていない」と確かに言えるときは、期限を過ぎても、おわびしない（かかっていない電話へ、おわびを流さない）。"""
@@ -442,6 +536,19 @@ class LostConnection(LinkBase):
         self.assertEqual((after.tenant_id, after.pc_id), (before.tenant_id, before.pc_id))
         with self.assertRaises(ConnectionError):                               # 前のつなぎには頼めない（出口が「通話中」とみなす）
             self.hub.driver(s["line"], before).in_call()
+
+    def test_the_same_pc_opening_a_new_connection_before_the_old_one_is_noticed_is_not_a_second_pc(self):
+        """同じ PC が、サーバーが前のつなぎの切れに気づく前につなぎ直しても、「2台の PC が同じ回線を使っている」と知らせない
+        （2026-10-22 の見直し）。"""
+        s = self.ready()
+        got = self.pc(s)
+        self.agent(got, [s["line"]])
+        self.attached(s, got)
+        r = self.agent(got, [s["line"]])                                       # 同じ通行証で2本目を開く
+        self.beaten(r, got)
+        conflicts = self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: tx.one(
+            "SELECT count(*) AS n FROM salescall.notification_events WHERE kind = 'pc_line_conflict'")["n"])
+        self.assertEqual(conflicts, 0)
 
 
 class Emergency(LinkBase):
@@ -643,6 +750,25 @@ class Backups(LinkBase):
         asyncio.run(go())
         self.assertEqual((list(place.iterdir()), a._incoming), ([], {}))
 
+    def test_a_backup_the_server_stops_sending_is_given_up_and_leaves_nothing(self):
+        """サーバーが送るのをやめた（続きが PROGRESS_WAIT 届かない）控えは、PC も書くのをやめ、書きかけを消す（開いたまま待ち続けない。
+        2026-10-22 の見直し）。"""
+        values = {"SALESCALL_HUB_URL": "ws://127.0.0.1:1/link", "SALESCALL_BACKUP_DRIVE": str(drive_at(self.dir / "d4")),
+                  "SALESCALL_BACKUP_KEY": KEY}
+        a = agent_main.Agent(agent_config.load(values), PcPass(uuid.uuid4(), uuid.uuid4(), "架空の通行証"), {})
+        place = Path(values["SALESCALL_BACKUP_DRIVE"]) / pc_backup.BASE / "架空の依頼者" / "AI"
+
+        async def go():
+            ident = uuid.uuid4()
+            await a._receive(protocol.dumps("backup_begin", id=ident, folder=self.folder(),
+                                            file_name="salescall-20991231-000000-y.enc", sha256="0" * 64))
+            await a._receive(protocol.frame(protocol.BACKUP, ident, os.urandom(protocol.CHUNK)))
+            await until_async(lambda: any(place.glob("*.part")))
+            await asyncio.wait_for(asyncio.gather(*a._tasks), 10)                # このあと何も届かない
+        with mock.patch.object(protocol, "PROGRESS_WAIT", 0.5), mock.patch.object(protocol, "PING_EVERY", 0.1):
+            asyncio.run(go())
+        self.assertEqual((list(place.iterdir()), a._incoming), ([], {}))
+
     def test_a_piece_that_cannot_be_written_stops_the_backup_and_leaves_nothing(self):
         """中身を書けなかったら（ディスクの誤り など）、終わりを待たずに書くのをやめ、書きかけを消す。"""
         values = {"SALESCALL_HUB_URL": "ws://127.0.0.1:1/link", "SALESCALL_BACKUP_DRIVE": str(drive_at(self.dir / "d3")),
@@ -685,6 +811,19 @@ class Backups(LinkBase):
 
 
 class Settings(LinkBase):
+    def test_a_hub_that_cannot_listen_says_so_and_a_stopped_hub_can_be_started_again(self):
+        """つなぎ口が待ち受けを始められなければ、黙って動き続けずに知らせる（2026-10-22 の見直し）。止まったつなぎ口は、動かし直せる
+        （中央の見守り役が、落ちていれば動かし直す）。"""
+        taken = self.hub.port
+        with self.assertRaises(channel.ChannelDown):
+            self.start_hub(SALESCALL_LISTEN=f"127.0.0.1:{taken}")                # 同じ場所はもう使われている
+        other = self.start_hub()
+        self.assertTrue(other.running())
+        other.close()
+        self.assertFalse(other.running())
+        other.start()
+        self.assertTrue(other.running())
+
     def test_the_hub_url_must_be_encrypted_except_on_the_same_machine(self):
         with self.assertRaises(agent_config.ConfigMissing):
             agent_config.load({"SALESCALL_HUB_URL": "ws://salescall.example.invalid/link"})

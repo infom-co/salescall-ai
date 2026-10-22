@@ -64,9 +64,14 @@ class _Session:
     flows: dict[UUID, "_Flow"] = field(default_factory=dict)  # 送っている控え → PC が書けた数
     order: asyncio.Lock = field(default_factory=asyncio.Lock)   # 合図と緊急停止は、届いた順に1つずつ（データベースを待つあいだも声は止めない）
     tasks: set[asyncio.Task] = field(default_factory=set)
+    # かけてから切れるまでの回線（「かけて」を頼んでから、切る・おわびして切る・「通話中ではない」の答えまで）。呼び出しのあいだの
+    # ように声が流れなくても通話中とみなす（⛔ 2026-10-22 の見直し：声の有無だけで決めると、呼び出しが5秒を超えたあいだに控えを
+    # まとめて送り、お客様が出た直後の AI の声がその後ろで待った）
+    open_calls: set[UUID] = field(default_factory=set)
 
     def calling(self) -> bool:
-        return time.monotonic() - self.voice_at < p.CALL_QUIET
+        """通話中か（控えを送る速さを決める。判断はこの1か所）：かけてから切れるまでの回線があるか、声が少し前まで通っていた。"""
+        return bool(self.open_calls) or time.monotonic() - self.voice_at < p.CALL_QUIET
 
     def voice(self) -> None:
         self.voice_at = time.monotonic()
@@ -85,6 +90,10 @@ class _Flow:
         self.moved.set()
 
 
+class ChannelDown(Exception):
+    """PC の部品のつなぎ口が、待ち受けを始められない。"""
+
+
 class Hub:
     """つなぎ口（中央の見守り役と同じ処理の中で、別の流れの中で動く）。"""
 
@@ -100,16 +109,35 @@ class Hub:
         self.closing = False                           # 止め始めた（取りやめた頼みを、失敗として記録しない）
         self._stop: asyncio.Event | None = None
         self._thread: threading.Thread | None = None
+        self.error: BaseException | None = None        # つなぎ口の流れが終わった誤り（待ち受けを始められなかった など）
 
     # ── 動かす・止める ──
     def start(self) -> None:
+        """待ち受けを始める（止まったあとに呼べば、動かし直す）。始められなければ ChannelDown（⛔ 2026-10-22 の見直し：前は、待ち受けに
+        失敗しても黙って動き続け、どの PC もつながらないのに、契約者に「あなたの PC が止まった」と誤って知らせた）。"""
+        self._ready.clear()
+        self.loop, self.port, self.error, self.closing = None, None, None, False
+        with self.lock:   # 前の流れのつなぎは、もう無い（落ちた流れが片付けられなかった分も）
+            self.sessions.clear()
         self._thread = threading.Thread(target=self._run, name="salescall-channel", daemon=True)
         self._thread.start()
         self._ready.wait(30)
+        if self.port is None:
+            raise ChannelDown(f"PC の部品のつなぎ口が、待ち受けを始められません（設定 SALESCALL_LISTEN を確かめてください。"
+                              f"{type(self.error).__name__ if self.error else '30秒で始まらない'}）")
+
+    def running(self) -> bool:
+        """つなぎ口の流れが動いているか（中央の見守り役が、止まっていれば動かし直す）。"""
+        return self._thread is not None and self._thread.is_alive() and self.error is None
 
     def _run(self) -> None:
         self.loop = asyncio.new_event_loop()
-        self.loop.run_until_complete(self._serve())
+        try:
+            self.loop.run_until_complete(self._serve())
+        except BaseException as e:  # noqa: BLE001 待ち受けを始められない・流れが落ちた：記録して、始める側・見守り役に知らせる
+            self.error = e
+        finally:
+            self._ready.set()
 
     async def _serve(self) -> None:
         host, port = self.cfg.listen or ("127.0.0.1", 0)
@@ -198,7 +226,10 @@ class Hub:
         session.drive, session.key = bool(msg.get("drive")), bool(msg.get("key"))
         session.emergency = msg.get("emergency") if isinstance(msg.get("emergency"), dict) else None
         with self.lock:
-            shared = sorted({line for o in self.sessions.values() if o is not session and o.who.tenant_id == session.who.tenant_id
+            # 同じ PC の前のつなぎ（すぐつなぎ直して、サーバーがまだ前のつなぎを持っている）は数えない（2026-10-22 の見直し：
+            # 「2台の PC が同じ回線を使っている」と誤って知らせた）
+            shared = sorted({line for o in self.sessions.values()
+                             if o.who.pc_id != session.who.pc_id and o.who.tenant_id == session.who.tenant_id
                              for line in o.lines if line in session.lines}, key=str)
         if shared:
             await self._db(lambda: self.app.in_tenant(ACTOR, session.who.tenant_id, lambda tx: [notify.emit(
@@ -385,9 +416,12 @@ class AgentDriver:
 
     def in_call(self) -> bool:
         """答えられない（つながっていない・待ち過ぎ）ときは誤りを上げる（「分からない＝通話中」と決めるのは発信の出口の1か所）。"""
-        got = self.hub.ask(self._session(), "request", op="in_call", line=self.line_id)
+        session = self._session()
+        got = self.hub.ask(session, "request", op="in_call", line=self.line_id)
         if not got.get("ok"):
             raise RuntimeError("電話の部品が、通話中か答えられませんでした")
+        if not got.get("value"):
+            session.open_calls.discard(self.line_id)
         return bool(got.get("value"))
 
     def start_call(self, phone_e164: str) -> None:
@@ -395,9 +429,12 @@ class AgentDriver:
             session = self._session()
         except ConnectionError:   # 頼む前に、つなぎが無いと分かった：かけていないと確かに言える（回線の異常ではない）
             raise CallWithheld("PC の部品がつながっていません") from None
+        session.open_calls.add(self.line_id)
         got = self.hub.ask(session, "request", op="start_call", line=self.line_id, phone=phone_e164)
         if got.get("ok"):
             return
+        if got.get("error") in ("withheld", "not_placed"):   # かけていない
+            session.open_calls.discard(self.line_id)
         if got.get("error") == "withheld":
             raise CallWithheld("PC の上で緊急停止が押されています")
         if got.get("error") == "not_placed":
@@ -405,13 +442,17 @@ class AgentDriver:
         raise RuntimeError("電話の部品が、かけたか分からない誤りを返しました")
 
     def hang_up(self) -> None:
-        got = self.hub.ask(self._session(), "request", op="hang_up", line=self.line_id)
+        session = self._session()
+        got = self.hub.ask(session, "request", op="hang_up", line=self.line_id)
+        session.open_calls.discard(self.line_id)
         if not got.get("ok"):
             raise RuntimeError("電話の部品が、切れたか分からない誤りを返しました")
 
     def apologize_and_hang_up(self) -> None:
         """おわびの録音を流して切る（サーバーの側の誤りで通話を続けられないとき。PC の電話の部品が持っている録音）。"""
-        got = self.hub.ask(self._session(), "request", op="apologize", line=self.line_id)
+        session = self._session()
+        got = self.hub.ask(session, "request", op="apologize", line=self.line_id)
+        session.open_calls.discard(self.line_id)
         if not got.get("ok"):
             raise RuntimeError("電話の部品が、おわびして切れたか分からない誤りを返しました")
 

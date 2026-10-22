@@ -10,7 +10,7 @@
 --   無ければ「-」（unresolved）にする**（別の方の答え・確かめていない答えを依頼者へ渡さない。依頼者へ渡るのは、確かめた値か「-」だけ
 --   ＝Intent.md 9-5 の7）。するのは、この表に記録したときの1か所（下の仕掛け）。
 --   どの答えがその通話のものかは、項目の値に足した attempt_id（必ず入る）で見る（ほかの通話で目的のお客様から取った答えは残す）。
--- - 締めの処理は、target 以外の通話を「目的のお客様と話せた」と数えない（約束の日のお詫びの印を外さない。core/settle.py）。
+-- - 判定と締めは、target 以外の通話を「目的のお客様と話せた」と数えない（約束の日のお詫びの印を外さない。core/judge.py の JudgeInput.reached_target）。
 
 CREATE TABLE salescall.target_rechecks (    -- 目的のお客様の確かめ直し（確かめ直しが要る通話ごとに1つ。変更不可）
   tenant_id   uuid NOT NULL,
@@ -47,6 +47,7 @@ CREATE TABLE salescall.item_value_history (   -- 後の通話に上書きされ�
   task_id     uuid NOT NULL,
   question_id text NOT NULL,
   attempt_id  uuid NOT NULL,
+  version_id  uuid NOT NULL,             -- その答えを取ったときの業務設定の版（戻すときに版も戻す）
   state       salescall.item_state NOT NULL,
   value       jsonb,
   condition   text,
@@ -56,7 +57,8 @@ CREATE TABLE salescall.item_value_history (   -- 後の通話に上書きされ�
   PRIMARY KEY (task_id, question_id, attempt_id),
   FOREIGN KEY (tenant_id, client_id) REFERENCES salescall.clients (tenant_id, client_id),
   FOREIGN KEY (client_id, task_id) REFERENCES salescall.tasks (client_id, task_id),
-  FOREIGN KEY (client_id, attempt_id) REFERENCES salescall.attempts (client_id, attempt_id)
+  FOREIGN KEY (client_id, attempt_id) REFERENCES salescall.attempts (client_id, attempt_id),
+  FOREIGN KEY (client_id, version_id, question_id) REFERENCES salescall.questions (client_id, version_id, question_id)
 );
 CREATE TRIGGER item_value_history_frozen BEFORE UPDATE OR DELETE ON salescall.item_value_history
   FOR EACH ROW EXECUTE FUNCTION salescall.forbid_change();
@@ -73,12 +75,12 @@ $$;
 
 CREATE FUNCTION salescall.item_value_guard() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
-  IF coalesce(current_setting('salescall.item_restore', true), '') <> '' THEN
-    RETURN NEW;                     -- 確かめ直しが戻している（下の target_recheck_blanks の中だけ）
-  END IF;
+  IF pg_trigger_depth() > 1 THEN
+    RETURN NEW;                     -- 確かめ直しが戻している（下の target_recheck_blanks の仕掛けの中から書くときだけ。見分けを
+  END IF;                           -- 設定の値にすると、システムの処理の役が自分で立てて、前の通話の番号のまま書き換えられた＝見直し）
   IF TG_OP = 'UPDATE' AND NEW.attempt_id IS NOT DISTINCT FROM OLD.attempt_id
-     AND (NEW.state, NEW.value, NEW.condition, NEW.reason, NEW.hedged)
-         IS NOT DISTINCT FROM (OLD.state, OLD.value, OLD.condition, OLD.reason, OLD.hedged) THEN
+     AND (NEW.version_id, NEW.state, NEW.value, NEW.condition, NEW.reason, NEW.hedged)
+         IS NOT DISTINCT FROM (OLD.version_id, OLD.state, OLD.value, OLD.condition, OLD.reason, OLD.hedged) THEN
     RETURN NEW;                     -- 中身が変わらない
   END IF;
   IF NEW.attempt_id IS DISTINCT FROM salescall.newest_attempt(NEW.task_id) THEN
@@ -86,10 +88,10 @@ BEGIN
       USING ERRCODE = 'check_violation', CONSTRAINT = 'item_values_from_newest_call';
   END IF;
   IF TG_OP = 'UPDATE' AND NEW.attempt_id IS DISTINCT FROM OLD.attempt_id THEN   -- 後の通話が上書きする：前の通話の答えを残す
-    INSERT INTO salescall.item_value_history (tenant_id, client_id, task_id, question_id, attempt_id, state, value, condition,
-                                              reason, hedged)
-    VALUES (OLD.tenant_id, OLD.client_id, OLD.task_id, OLD.question_id, OLD.attempt_id, OLD.state, OLD.value, OLD.condition,
-            OLD.reason, OLD.hedged)
+    INSERT INTO salescall.item_value_history (tenant_id, client_id, task_id, question_id, attempt_id, version_id, state, value,
+                                              condition, reason, hedged)
+    VALUES (OLD.tenant_id, OLD.client_id, OLD.task_id, OLD.question_id, OLD.attempt_id, OLD.version_id, OLD.state, OLD.value,
+            OLD.condition, OLD.reason, OLD.hedged)
     ON CONFLICT DO NOTHING;
   END IF;
   RETURN NEW;
@@ -97,7 +99,8 @@ END $$;
 CREATE TRIGGER item_value_guard BEFORE INSERT OR UPDATE ON salescall.item_values
   FOR EACH ROW EXECUTE FUNCTION salescall.item_value_guard();
 
--- 目的のお客様だと確かめられなかった通話の答えを戻す・「-」にする（ここだけ。記録と同じ取引の中で必ず起きる）
+-- 目的のお客様だと確かめられなかった通話の答えを戻す・「-」にする（ここだけ。記録と同じ取引の中で必ず起きる。ここから書く値は、
+-- 上の守りを通らない＝仕掛けの中からの書き込み）。目的のお客様だと確かめられなかったのは、target 以外の結果（target_recheck.UNCONFIRMED）
 CREATE FUNCTION salescall.target_recheck_blanks() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE v record; prev record; t uuid;
 BEGIN
@@ -105,7 +108,6 @@ BEGIN
     RETURN NEW;
   END IF;
   t := (SELECT a.task_id FROM salescall.attempts a WHERE a.attempt_id = NEW.attempt_id);
-  PERFORM set_config('salescall.item_restore', NEW.attempt_id::text, true);
   FOR v IN SELECT i.question_id FROM salescall.item_values i WHERE i.task_id = t AND i.attempt_id = NEW.attempt_id LOOP
     SELECT h.* INTO prev FROM salescall.item_value_history h
      WHERE h.task_id = t AND h.question_id = v.question_id AND h.attempt_id <> NEW.attempt_id
@@ -113,7 +115,7 @@ BEGIN
      ORDER BY h.replaced_at DESC LIMIT 1;
     IF FOUND THEN                   -- 前の通話で取った答え（目的のお客様だと確かめられなかった通話のもの以外）に戻す
       UPDATE salescall.item_values i
-         SET state = prev.state, value = prev.value, condition = prev.condition, reason = prev.reason, hedged = prev.hedged,
+         SET version_id = prev.version_id, state = prev.state, value = prev.value, condition = prev.condition, reason = prev.reason, hedged = prev.hedged,
              attempt_id = prev.attempt_id, updated_at = now()
        WHERE i.task_id = t AND i.question_id = v.question_id;
     ELSE                            -- 前の答えが無い：「-」
@@ -122,7 +124,6 @@ BEGIN
        WHERE i.task_id = t AND i.question_id = v.question_id;
     END IF;
   END LOOP;
-  PERFORM set_config('salescall.item_restore', '', true);
   RETURN NEW;
 END $$;
 CREATE TRIGGER target_recheck_blanks AFTER INSERT ON salescall.target_rechecks

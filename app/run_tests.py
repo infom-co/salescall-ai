@@ -78,6 +78,17 @@ def _with_db(dsn: str, dbname: str, user: str) -> str:
     return " ".join(f"{k}={v}" for k, v in params.items())
 
 
+def _edited(migration: str, start: str, old: str, new: str) -> str:
+    """壊し試し用に、表の作りの1つの関数（start から `END $$` まで）の old を new に替えた形を返す（いまの形からずらす。
+    関数を写して持たない＝関数を直しても、壊し試しが古い形に戻さない）。"""
+    text = (APP / "db" / "migrations" / migration).read_text()
+    begin = text.index(start)
+    body = text[begin:text.index("END $$", begin) + len("END $$")]
+    if body.count(old) != 1:
+        raise AssertionError(f"壊し試しの置き換え元が {migration} の関数に1つだけありません：{old!r}")
+    return body.replace(old, new).replace("CREATE FUNCTION", "CREATE OR REPLACE FUNCTION", 1)
+
+
 # データベースの守りを、わざと1つずつ外す。外したら、その守りを試す試験が本当に落ちることを確かめる（DESIGN.md 14章：
 # 落ちることを確かめていない見張りは、見張っていないのと同じ）。守りを足したら、ここにも足す。
 MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
@@ -902,6 +913,10 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      " PERFORM salescall.hub_only(); UPDATE salescall.pc_agents a SET last_seen_at = now(), lines = p_lines"
      " WHERE a.pc_id = p_pc AND a.revoked_at IS NULL RETURNING a.lines INTO kept; RETURN kept; END $$",
      ("tests.test_agents.Passes.test_a_beat_keeps_only_the_tenants_lines_in_use",)),
+    ("通話の途中で使わない印を付けた回線を、合図がすぐ外す（0109：声もおわびも通らず、お客様を無言で放置する）",
+     _edited("0109_review_1022.sql", "CREATE OR REPLACE FUNCTION salescall.agent_beat(",
+             "OR EXISTS (SELECT 1 FROM salescall.attempts t", "AND EXISTS (SELECT 1 FROM salescall.attempts t"),
+     ("tests.test_link.LostConnection.test_a_line_retired_during_a_call_keeps_its_voice_and_apology_until_the_call_ends",)),
     ("目的のお客様だと確かめられなかった通話の答えを戻さない・「-」にしない（0108：別の方の答えが依頼者へ渡る）",
      "DROP TRIGGER target_recheck_blanks ON salescall.target_rechecks",
      ("tests.test_settle.TargetRecheck.test_another_person_answers_become_dashes_and_the_call_does_not_count_as_reaching_the_target",
@@ -913,6 +928,18 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      ("tests.test_settle.TargetRecheck.test_the_target_keeps_the_answers_and_a_later_call_by_another_person_gives_back_the_earlier_answers",)),
     ("前の通話の番号のまま答えを書き換えられる（0108：戻す答えを取り違え、別の方の答えが残る）",
      "DROP TRIGGER item_value_guard ON salescall.item_values",
+     ("tests.test_settle.TargetRecheck.test_the_target_keeps_the_answers_and_a_later_call_by_another_person_gives_back_the_earlier_answers",)),
+    ("答えの守りを、設定の値で外せる形に戻す（0108：システムの処理の役が自分で立てて、前の通話の番号のまま書き換えられる）",
+     _edited("0108_target_recheck.sql", "CREATE FUNCTION salescall.item_value_guard()", "IF pg_trigger_depth() > 1 THEN",
+             "IF pg_trigger_depth() > 1 OR coalesce(current_setting('salescall.item_restore', true), '') <> '' THEN"),
+     ("tests.test_settle.TargetRecheck.test_the_guard_cannot_be_switched_off_by_a_setting_and_unconfirmed_answers_are_never_given_back",)),
+    ("戻すとき、目的のお客様だと確かめられなかった通話の答えも選ぶ（0108：別の方の答え・確かめていない答えに戻す）",
+     _edited("0108_target_recheck.sql", "CREATE FUNCTION salescall.target_recheck_blanks()",
+             "AND NOT EXISTS (SELECT 1 FROM salescall.target_rechecks x WHERE x.attempt_id = h.attempt_id AND x.outcome <> 'target')",
+             ""),
+     ("tests.test_settle.TargetRecheck.test_the_guard_cannot_be_switched_off_by_a_setting_and_unconfirmed_answers_are_never_given_back",)),
+    ("戻すとき、業務設定の版を戻さない（0108：古い版の答えが新しい版の印のまま残る）",
+     _edited("0108_target_recheck.sql", "CREATE FUNCTION salescall.target_recheck_blanks()", "SET version_id = prev.version_id, ", "SET "),
      ("tests.test_settle.TargetRecheck.test_the_target_keeps_the_answers_and_a_later_call_by_another_person_gives_back_the_earlier_answers",)),
     ("目的のお客様の確かめ直しの変更の拒みを外す（0108）", "DROP TRIGGER target_rechecks_frozen ON salescall.target_rechecks",
      ("tests.test_settle.TargetRecheck.test_another_person_answers_become_dashes_and_the_call_does_not_count_as_reaching_the_target",)),

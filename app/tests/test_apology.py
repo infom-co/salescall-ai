@@ -103,6 +103,21 @@ class Apology(Helpers):
         m = self.tx(s, lambda tx: reward.month(tx))
         self.assertEqual(m["breakdown"]["dial"]["count"], 1)           # 報酬にも数えない（こちらの誤りのため）
 
+    def test_an_apology_to_another_person_is_not_delivered(self):
+        """判定なしで繋いだ方に伝えたが、確かめ直しで別の方だった：伝えていない側に倒す（目的のお客様へは届いていない。
+        2026-10-22 の見直しで、壊しても落ちる試験を足した）。"""
+        from salescall.core import target_recheck
+        from salescall.core.call_report import Connect, Said
+        from tests.test_settle import CLEAN
+        s = self.fresh(stage_cap=20)
+        self.order(s, self.incident(s))
+        report = replace(rep(), apology_delivered=True, connects=(Connect(Said(3, "はい、そうです"), ("ai",), True),))
+        aid = self.call(s, report=report, verify=None)
+        self.tx(s, lambda tx: target_recheck.record(tx, aid, "not_target", evidence="試験：別の方", checked_by="試験"))
+        self.tx(s, lambda tx: attempts.record_verification(tx, aid, summary=CLEAN))
+        got = self.settle(s, aid)
+        self.assertEqual((got["delivered"], got["decision"].kind, got["decision"].target.purpose), (False, "call", "apology"))
+
     def test_not_delivered_tries_another_band_up_to_the_limit(self):
         s = self.fresh(stage_cap=20)
         self.order(s, self.incident(s))
