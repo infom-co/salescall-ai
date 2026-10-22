@@ -293,7 +293,8 @@ class Import(unittest.TestCase):
 
     def test_responses_to_callee_offers_are_read_from_the_basic_sheet(self):
         """シート「基本」の、相手の申し出への応じ方・伝言の文・業務の情報（1行に1つ）・改めて連絡すると申し出てよいか（CL-1 の連絡帳
-        4-28）。書かなければ入れない（業務設定の確かめが既定にする）。選べない言葉は問題。伝言の文は、名前を洗い出す台本に入る。"""
+        4-28）。書かなければ入れない（業務設定の確かめが既定にする）。選べない言葉は問題。伝言の文と業務の情報は、名前を洗い出す
+        台本に入る（地名・商品名の読みを決める。CL-1 の連絡帳 4-29）。"""
         p = self.preview(book())
         self.assertEqual(p.problems, [])
         self.assertFalse(set(p.raw) & {"substitute_policy", "message_policy", "message", "departed_policy", "info", "follow_up"})
@@ -308,6 +309,7 @@ class Import(unittest.TestCase):
                           "message": "山田からお電話があったとお伝えいただけますでしょうか？", "departed_policy": "end",
                           "info": ["営業時間は9時から18時です", "所在地は東京都です"], "follow_up": True})
         self.assertIn("山田からお電話があった", bi._script(p.raw))
+        self.assertIn("所在地は東京都です", bi._script(p.raw))
         p = self.preview(book(sheets={"基本": book_rows("基本") + [("代わりの方への応じ方", "上司なら話す")]}))
         self.assertTrue(any("代わりの方への応じ方" in x for x in p.problems), p.problems)
         p = self.preview(book(sheets={"基本": book_rows("基本") + [("伝言への応じ方", "伝言を残す")]}))

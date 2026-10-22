@@ -453,7 +453,8 @@ def _unit_questions(raw: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _script(raw: dict[str, Any]) -> str:
     """名前を洗い出す台本（業務設定の文をまとめたもの。名乗り・用件・目的・忙しいときの一言・留守番電話の伝言・「AIですか」への答え・
-    想定問答の答え（録音で話すので、名前の読みが要る）・質問の文・入口の名前）。"""
+    想定問答の答え（録音で話すので、名前の読みが要る）・業務の情報（AI が自分の言葉で答える材料。会話の側も名前の読みへ置き換えて
+    渡す＝CL-1 の連絡帳 4-29：「港区」をAIの声で言うと3本中1本しか聞き取れず、ひらがなの読みで渡すと6本中6本）・質問の文・入口の名前）。"""
     caller = raw.get("caller") if isinstance(raw.get("caller"), dict) else {}
     parts = [((caller.get("company") or {}).get("text") if isinstance(caller.get("company"), dict) else None),
              caller.get("purpose_line"), raw.get("purpose"), raw.get("busy_line"), raw.get("voicemail_message"),
@@ -461,6 +462,7 @@ def _script(raw: dict[str, Any]) -> str:
     parts += [q.get("text") for q in (raw.get("questions") if isinstance(raw.get("questions"), list) else [])
               if isinstance(q, dict)]
     parts += [a.get("text") for a in (raw.get("answers") if isinstance(raw.get("answers"), list) else []) if isinstance(a, dict)]
+    parts += raw.get("info") if isinstance(raw.get("info"), list) else []
     parts += [n["text"] for n in _names(raw) if n.get("source") == "script"]
     return "\n".join(p for p in parts if isinstance(p, str) and p.strip())
 
