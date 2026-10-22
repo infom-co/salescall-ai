@@ -5343,6 +5343,10 @@ class TargetTest(unittest.TestCase):
         f.on_callee(); f.on_heard("お電話代わりました。岡田です。"); f.on_check("judge", HANDOVER)
         r = f.apply("replay_opening", {"part": "handover"})
         self.assertEqual((r["result"], f.phase, [p["part"] for p in r["play"]]), ("confirm_target", "calling", ["target_confirm"]))
+        f, b = back()                                                        # 確かめのあと、相手がかけ直しの質問に答えた ⇒ 続きに戻して受け取る
+        f.on_callee(); f.on_heard("夕方の5時頃には戻ると思います。"); f.on_check("judge", TARGET_IS_AWAY)
+        r = f.apply("record_answer", {"question_id": "C1", "condition_id": "答えた", "value": "夕方の5時頃"})
+        self.assertEqual((r["result"], f.phase, f.current), ("confirm_required", "asking", "C1"))
         f, b = back()                                                        # AIが「代わった方」と報告しても同じ（お呼びし直さない）
         f.on_callee(); f.on_heard("いえ、山田です。"); f.on_check("judge", TARGET_IS_NOT); f.on_check("judge2", TARGET_IS_NOT)
         r = f.apply("replay_opening", {"part": "handover"})

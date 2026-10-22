@@ -1320,6 +1320,13 @@ class Flow:
             # 2026-10-13 G-16：言い直した値に相手が「はい」と答えたのに、AIが record_answer を呼び、言い直しが繰り返された
             # 2026-10-13 G-16 の2回目：Q2 の言い直しの返事を待っている間に、Q3 の答えとして報告された（同じ扱いにする）
             return self._reject("いまは record_answer では受け付けません。")
+        if self.phase == "calling" and self.callback_why and qid in self.callback_ids:
+            # かけ直しの質問の途中で目的の人かを確かめに戻ったあと（_target_back）、相手がかけ直しの質問に答えた（戻る時刻などを伝えた＝
+            # 目的の人ではない）：お呼びし直さずに、かけ直しの質問の続きに戻して受け取る。⛔ 2026-10-22 G-57 tc28（不在で別の方に代わる・S4）：
+            # 代わった山田様の「夕方の5時頃には戻ると思います」を、確かめへの返事を待っているとして差し戻した
+            self._keep_calling_turn()
+            self._note("callback_resume", why=self.callback_why, read=[])
+            self.order, self.phase, self.recheck_queue, self.current = list(self.callback_ids), "asking", [], qid
         if qid != self.current:
             return self._reject(f"{qid} は、いまの質問ではありません。")
         q, it = self.questions[qid], self.items[qid]

@@ -156,10 +156,13 @@ def played_parts(reply: dict) -> list[str]:
 def connect_reply(call: dict) -> dict:
     """目的の人に繋がったときの返事（流れの制御が、名乗り・用件・最初の質問を流した返事）。繋ぐのは、AIの「目的の人」の報告か、代わった方への
     名乗りの流し直しの頼み（判定が「ご本人」。Flow._calling_reported の1か所）の、どちらか。"""
+    # かけ直しの質問（C1・C2）が始まった返事は、繋いだ返事ではない（プログラムがかけ直しへ進めた・確かめのあと続きへ戻った＝Flow._callback。
+    # ⛔ 2026-10-22 tc28：代わった山田様へのかけ直しの質問を、繋いだ返事と取り違えて「用件を流さない」を外していた）
     return next((x["reply"] for x in ops(call)
                  if ((x["op"] == "report_party" and x["args"].get("party") == "target")
                      or (x["op"] == "replay_opening" and x["args"].get("part") == "handover"))
-                 and x["reply"]["result"] in ("next", "confirm_required")), {})
+                 and x["reply"]["result"] in ("next", "confirm_required")
+                 and not str(x["reply"].get("question_id", "")).startswith("C")), {})
 
 
 def got(call: dict, qid: str, want: str) -> bool:
