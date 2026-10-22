@@ -5351,6 +5351,12 @@ class TargetTest(unittest.TestCase):
         f.on_callee(); f.on_heard("お電話代わりました。山田です。"); f.on_check("judge", HANDOVER)
         r = f.apply("replay_opening", {"part": "handover"})
         self.assertEqual((r["result"], f.phase), ("replayed", "asking"))
+        r = f.apply("report_party", {"party": "target"})                     # 「目的の人」と報告されても同じ方（⛔ G-57 tc29）
+        self.assertEqual((r["result"], f.phase), ("rejected", "asking"))
+        # 取り次ぎは、AIが報告しなくても判定の「取り次ぎを待つ」で数える
+        f.on_callee(); f.on_heard("あ、ちょうど戻ってまいりました。少々お待ちください。"); f.on_check("judge", HOLD)
+        f.on_callee(); f.on_heard("お電話代わりました。岡田です。")
+        self.assertEqual(f.apply("report_party", {"party": "target"})["result"], "confirm_target")
         f, b = back()                                                        # 確かめのあと、相手がかけ直しの質問に答えた ⇒ 続きに戻して受け取る
         f.on_callee(); f.on_heard("夕方の5時頃には戻ると思います。"); f.on_check("judge", TARGET_IS_AWAY)
         r = f.apply("record_answer", {"question_id": "C1", "condition_id": "答えた", "value": "夕方の5時頃"})

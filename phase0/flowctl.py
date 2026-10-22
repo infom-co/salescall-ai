@@ -961,6 +961,8 @@ class Flow:
             self._new_speaker(turn, after=value == HOLD)
             if value == HOLD and self.speaker_from != before[0]:
                 self.hold_moved.setdefault(turn, before)
+        if self.phase != "calling" and self.callback_why and kind in JUDGMENTS and value == HOLD and current:
+            self.callback_held = True  # かけ直しの質問の途中の取り次ぎ（AIが報告しなくても。_op_replay_opening・_party）
         if self.phase != "calling" and kind in JUDGMENTS and (c := (self.facts.get("connect") or [None])[-1]) and c["turn"] == turn:
             # 繋いだ発話の判定が、繋いだあとに届いた：通話の事実に残す（通話後の検証が、判定なしで繋いだ通話を確かめる。DESIGN.md 6-12）
             c.setdefault("late", {})[kind] = value
@@ -1915,7 +1917,13 @@ class Flow:
         if self.phase == "calling":
             return self._calling_reported(party)
         if self.callback_why and self.target and party == "target":
-            return self._hold() if self.meaning_said == HOLD else self._target_back()  # 取り次ぎの読み（「少々お待ちください」）なら黙って待つ
+            if self.meaning_said == HOLD:
+                return self._hold()  # 取り次ぎの読み（「少々お待ちください」）なら黙って待つ
+            if not self.callback_held:
+                # かけ直しの質問のあとに取り次ぎが無い：電話口の方は、かけ直しの質問を聞いた方（目的の人ではない）。⛔ 2026-10-22 G-57 tc29
+                # （不在で別の方に代わる・S4）：山田様の言葉が送り直されたとき、AIが「目的の人」と報告し、山田様に岡田様かを確かめた
+                return self._reject("電話口の方は、かけ直しの質問を聞いた方です（そのあと、お取り次ぎはありませんでした）。目的の人ではありません。")
+            return self._target_back()
         if self.callback_why and party == "reception":
             return self._hold()  # かけ直しの質問の途中で、取り次がれた・待つように言われた：答えではないので黙って待つ
         if party == "target" and self.target and self.opening and all(it.state == "empty" for it in self.items.values()):
@@ -2254,8 +2262,8 @@ class Flow:
         return r | {"renamed": True}
 
     def _target_back(self) -> dict:
-        """かけ直しの質問の途中で、AIが「目的の人」「代わった方」と報告した（お呼びした方が戻って電話口に出た・ほかの方に代わった・AIの
-        聞き違い）：呼んでいる段に戻り、
+        """かけ直しの質問のあとに取り次ぎがあって、AIが「目的の人」「代わった方」と報告した（お呼びした方が戻って電話口に出た・ほかの方に
+        代わった・AIの聞き違い）：呼んでいる段に戻り、
         その方に目的の人かを1回確かめる（唯一の場所。判定はかけ直しの質問の答えとして読んでいて、電話口の方が誰かは読んでいない＝
         確かめの返事を、呼んでいる段の決め方 _calling_reported で決める）。「はい」なら繋ぎ（あいさつ・名乗り・用件・最初の質問）、
         違えば（前に不在と読まれているので）かけ直しの質問の続きへ戻る（_callback）。聞いたかけ直しの答えは通話の事実に残したまま。
