@@ -5304,7 +5304,7 @@ class TargetTest(unittest.TestCase):
         # かけ直しの質問の途中で、目的の人が代わって出た：呼んでいる段に戻って1回確かめ、「はい」なら繋いで業務の質問を聞く（ふつうの締め）。
         # 違えば、かけ直しの質問の続きへ戻る。⛔ 2026-10-22 G-57 tc24（確かめにいいえ・L4）：代わって出た岡田様の「お電話代わりました。岡田です。」
         # に、あいさつ・名乗り・用件のあと「恐れ入りますが何時ごろお戻りになられますでしょうか？」を流し、業務の質問を聞かずに締めた
-        from flowctl import TARGET_IS_AWAY, TARGET_IS_NOT, TARGET_IS_THERE
+        from flowctl import HANDOVER, HOLD, TARGET_IS_AWAY, TARGET_IS_NOT, TARGET_IS_THERE
 
         def back():
             f, b = self.flow()
@@ -5332,6 +5332,17 @@ class TargetTest(unittest.TestCase):
         self.assertEqual((r["result"], r["question_id"], f.phase, len(f.facts["callback"]), r["ack"]), ("next", "C1", "asking", 1, "shitsurei"))
         self.assertEqual([p.get("part", p.get("id")) for p in r["play"]], ["greeting", "intro", "callback_back_time"])  # まだ名乗っていない方
         self.assertIn("callback_resume", f.facts)
+        # AIが、戻って代わった岡田様を「代わった方」と報告した（⛔ G-57 tc27：あいさつ・名乗り・用件のあと「何時ごろお戻りに…」を流した）：
+        # 「目的の人」の報告と同じく1回確かめる。取り次ぎの読みなら黙って待つ
+        f, b = self.flow()
+        f.use_checks("judge", "judge2")
+        f.on_callee(); f.on_heard("あいにく岡田は席を外しております。"); f.on_check("judge", TARGET_IS_AWAY); f.on_check("judge2", TARGET_IS_AWAY)
+        f.apply("request_callback", {"why": "absent"})
+        f.on_callee(); f.on_heard("あ、ちょうど戻ってまいりました。少々お待ちください。"); f.on_check("judge", HOLD)
+        self.assertEqual(f.apply("replay_opening", {"part": "handover"})["result"], "hold")
+        f.on_callee(); f.on_heard("お電話代わりました。岡田です。"); f.on_check("judge", HANDOVER)
+        r = f.apply("replay_opening", {"part": "handover"})
+        self.assertEqual((r["result"], f.phase, [p["part"] for p in r["play"]]), ("confirm_target", "calling", ["target_confirm"]))
         f, b = back()                                                        # AIが「代わった方」と報告しても同じ（お呼びし直さない）
         f.on_callee(); f.on_heard("いえ、山田です。"); f.on_check("judge", TARGET_IS_NOT); f.on_check("judge2", TARGET_IS_NOT)
         r = f.apply("replay_opening", {"part": "handover"})

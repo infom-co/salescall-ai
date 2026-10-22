@@ -1707,6 +1707,11 @@ class Flow:
             # 名乗りの録音が無い通話（AIが話す形）でも同じ（⛔ 2026-10-21 の見直しで見つけた漏れ：決まりの文は「代わった方へ」で呼ぶように
             # 言うのに、録音が無い通話ではその部分を宣言せず、呼ばれても差し戻していた＝代わった方の道が止まる）
             return self._calling_reported("handover")
+        if part == "handover" and self.callback_why and self.target:
+            # かけ直しの質問の途中で、代わった方が話し始めた：お呼びした方が戻ったのかもしれない（AIが「目的の人」と報告したときと同じ
+            # 1か所＝_target_back で、1回確かめる）。⛔ 2026-10-22 G-57 tc27（かけ直しの途中で戻る・S2）：代わって出た岡田様の「お電話
+            # 代わりました。岡田です。」を、AIは「代わった方」と報告し、あいさつ・名乗り・用件のあと「何時ごろお戻りに…」を流した
+            return self._hold() if self.meaning_said == HOLD else self._target_back()
         if not self.opening:
             return self._reject("この通話では、名乗りの録音はありません。聞かれたことに、自分で短く答えてください。")
         if part == "handover" and self.meaning_said == HOLD:
@@ -1889,7 +1894,7 @@ class Flow:
         if self.phase == "calling":
             return self._calling_reported(party)
         if self.callback_why and self.target and party == "target":
-            return self._target_back()
+            return self._hold() if self.meaning_said == HOLD else self._target_back()  # 取り次ぎの読み（「少々お待ちください」）なら黙って待つ
         if self.callback_why and party == "reception":
             return self._hold()  # かけ直しの質問の途中で、取り次がれた・待つように言われた：答えではないので黙って待つ
         if party == "target" and self.target and self.opening and all(it.state == "empty" for it in self.items.values()):
@@ -2228,7 +2233,8 @@ class Flow:
         return r | {"renamed": True}
 
     def _target_back(self) -> dict:
-        """かけ直しの質問の途中で、AIが「目的の人」と報告した（お呼びした方が戻って電話口に出た・AIの聞き違い）：呼んでいる段に戻り、
+        """かけ直しの質問の途中で、AIが「目的の人」「代わった方」と報告した（お呼びした方が戻って電話口に出た・ほかの方に代わった・AIの
+        聞き違い）：呼んでいる段に戻り、
         その方に目的の人かを1回確かめる（唯一の場所。判定はかけ直しの質問の答えとして読んでいて、電話口の方が誰かは読んでいない＝
         確かめの返事を、呼んでいる段の決め方 _calling_reported で決める）。「はい」なら繋ぎ（あいさつ・名乗り・用件・最初の質問）、
         違えば（前に不在と読まれているので）かけ直しの質問の続きへ戻る（_callback）。聞いたかけ直しの答えは通話の事実に残したまま。
