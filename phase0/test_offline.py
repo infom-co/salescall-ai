@@ -5274,6 +5274,7 @@ class TargetTest(unittest.TestCase):
         f.use_checks("judge", "judge2")
         f.on_callee(); f.on_heard("岡田は外出しておりますので、別の者に代わります。"); f.on_check("judge", TARGET_IS_AWAY); f.on_check("judge2", TARGET_IS_AWAY)
         self.assertIn("「岡田は外出しておりますので", f.apply("report_party", {"party": "reception"})["message"])
+        self.assertEqual(f.apply("report_party", {"party": "reception"})["result"], "rejected")   # 同じ発話の報告し直しでは進めない（取り次ぎの最中かもしれない）
         f.on_callee(); f.on_heard("お電話代わりました。山田です。"); f.on_check("judge", HANDOVER); f.on_check("judge2", HANDOVER)
         r = f.apply("replay_opening", {"part": "handover"})
         # 前に伝えたのに、AIはかけ直しを申し出なかった ⇒ プログラムが「不在」として進める。代わった方は、まだこちらの名乗りを聞いていない
