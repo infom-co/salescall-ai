@@ -216,7 +216,7 @@ def callee_window(row: dict) -> CalleeWindow | None:
 
 
 def callee_range(daily: tuple[int, int], said: tuple[bool, bool] | None,
-                 limit: tuple[int, int]) -> tuple[int, int] | None:
+                 limit: tuple[int, int], beyond_slot: int | None = None) -> tuple[int, int] | None:
     """お客様が言った1日の中の幅から、かけてよい [始まり, 終わり)（1か所。2026-10-23 ユーザー：「『朝』も時間帯が決まっているでしょ」
     「お客様の日時指定の場合は、『お客様指定の歯止め時間』で見るようにしないといけない」）：
     - 幅はすべてお客様の指定（言葉の表の幅：朝〜10時・午前中〜12時・午後一13〜14時・午後13時〜・夕方16〜18時・夜18〜20時、数の幅：
@@ -228,12 +228,20 @@ def callee_range(daily: tuple[int, int], said: tuple[bool, bool] | None,
       使わない（⛔ 2026-10-23 ユーザー：営業時間で埋めると、営業時間が12時からのお店で「朝」にかからなくなる）。
     - お客様が実際に口にした端（時刻ちょうど・「6時以降」の6時など）は、limit の外でも切らない（2026-10-22 ユーザー：「お客様が
       指定した時刻ならNG時間でもかけてよい（歯止めなし、ただし、午前と午後を間違えないように）」。2026-10-23 ユーザー「OK」）。
+    - 口にした端が limit の外で、反対の端を limit で埋めると空になるとき（「23時以降なら」「明日の朝6時まで」）：通話の中で確かめて
+      「はい」と言われたときだけ（beyond_slot＝1回分の長さ。設定 callback.exact_slot＝時刻ちょうどの約束と同じ）、口にした端から
+      1回分（「23時以降」＝23時から・「6時まで」＝6時の前の1回分）。確かめていなければ None（2026-10-23 ユーザー：「案B＆案A
+      (確かめたうえで案A)」）。
     空なら None。"""
     lo, hi = daily
     said_lo, said_hi = said or (False, False)
     a = lo if said_lo else max(lo, limit[0])
     b = hi if said_hi else min(hi, limit[1])
-    return (a, b) if a < b else None
+    if a < b:
+        return a, b
+    if beyond_slot is None or said_lo == said_hi:   # 確かめていない・口にした端が1つでない（両方口にした幅は空にならない）
+        return None
+    return (lo, min(lo + beyond_slot, _DAY)) if said_lo else (max(hi - beyond_slot, 0), hi)
 
 
 def callee_hours(hours: dict, ng: dict, guard: dict, limit: tuple[int, int], w: CalleeWindow) -> dict:

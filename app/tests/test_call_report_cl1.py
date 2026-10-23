@@ -411,19 +411,40 @@ class Later1022(unittest.TestCase):
     def raw(self, facts, not_reached="not_transferred"):
         return {"version": 3, "facts": facts, "not_reached": not_reached, "cut": None, "apology_delivered": None}
 
-    def test_an_own_answer_and_its_problem_are_kept(self):
-        """お客様からの質問に、AI が自分の言葉で答えた文（answer）と、確かめに通らなかった理由（problem）を受け取り、落とさない。"""
+    def test_own_words_are_kept_in_one_shape(self):
+        """お客様からの質問（callee_question）と受け答えの一言（talk。CL-1 の 4-30）の、AI の自分の言葉（相手に言った文 answer・
+        確かめに通らなかった文と理由 drafts・中身を確かめた判定 checked）を、同じ1つの形で受け取り、落とさない。"""
         rec = {"turn": 2, "said": "御社はどちらにあるんですか？"}
-        for extra in ({"answer": "東京の品川でございます。"}, {"answer": "東京目黒でございます。", "problem": "業務の情報に無い言葉"}, {}):
+        draft = [{"text": "東京目黒でございます。", "problem": "業務の情報に無い言葉"}]
+        for extra in ({"answer": "東京の品川でございます。", "checked": "Claude Sonnet 5.5（考える）"},
+                      {"answer": "かしこまりました。いただいたご質問は担当の者に申し伝えます。", "drafts": draft, "checked": None},
+                      {"checked": None}, {}):
             with self.subTest(extra=extra):
                 r = from_json(self.raw({"party": [{**rec, "party": "target", "by": "ai"}],
-                                        "callee_question": [{**rec, "answered": "problem" not in extra and bool(extra), **extra}]},
-                                       None))
+                                        "callee_question": [{**rec, "answered": "drafts" not in extra and "answer" in extra, **extra}],
+                                        "talk": [{**rec, **extra}]}, None))
                 self.assertEqual(from_json(r.to_json()), r)
-                self.assertEqual((r.callee_questions[0].answer, r.callee_questions[0].problem),
-                                 (extra.get("answer"), extra.get("problem")))
+                for own in (r.callee_questions[0].own, r.talks[0].own):
+                    self.assertEqual((own.answer, [(d.text, d.problem) for d in own.drafts], own.checked),
+                                     (extra.get("answer"), [(d["text"], d["problem"]) for d in extra.get("drafts", [])],
+                                      extra.get("checked")))
+        for bad in ({"answer": ""}, {"problem": "前の形"}, {"drafts": [{"text": "文"}]}, {"drafts": "文"}, {"checked": ""}):
+            with self.subTest(bad=bad), self.assertRaises(ReportInvalid):
+                from_json(self.raw({"callee_question": [{**rec, "answered": True, **bad}]}, None))
+            with self.subTest(bad=bad, kind="talk"), self.assertRaises(ReportInvalid):
+                from_json(self.raw({"talk": [{**rec, **bad}]}, None))
+
+    def test_a_time_beyond_the_limit_agreed_in_the_call_is_kept(self):
+        """お客様指定の歯止め時間の外の時刻（「23時以降なら」）を通話の中で確かめて「はい」と言われた印 callback.beyond_limit_ok（2026-10-23
+        ユーザー：「案B＆案A(確かめたうえで案A)」）。受け取って書き戻しても落とさない。無ければ確かめていない。真偽でなければ断る。"""
+        rec = {"turn": 2, "said": "今日の23時以降なら大丈夫です。", "why": "later", "time": "今日の23時以降"}
+        for given, expected in (({}, False), ({"beyond_limit_ok": True}, True), ({"beyond_limit_ok": False}, False)):
+            with self.subTest(given=given):
+                r = from_json(self.raw({"callback": [{**rec, **given}]}, None))
+                self.assertEqual(r.callbacks[0].beyond_limit_ok, expected)
+                self.assertEqual(from_json(r.to_json()), r)
         with self.assertRaises(ReportInvalid):
-            from_json(self.raw({"callee_question": [{**rec, "answered": True, "answer": ""}]}, None))
+            from_json(self.raw({"callback": [{**rec, "beyond_limit_ok": "はい"}]}, None))
 
     def test_a_check_after_a_substitute_is_accepted_but_not_without_one(self):
         """代わりの方と話している途中にご本人が出て確かめに戻った（target_back。かけ直しの理由はまだ無い＝why が null）は受け取る。

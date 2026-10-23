@@ -310,6 +310,10 @@ class Import(unittest.TestCase):
                           "info": ["営業時間は9時から18時です", "所在地は東京都です"], "follow_up": True})
         self.assertIn("山田からお電話があった", bi._script(p.raw))
         self.assertIn("所在地は東京都です", bi._script(p.raw))
+        # 業務の情報が無ければ知らせる（登録は止めない）。書けば知らせない（CL-1 の連絡帳 4-30：業務設定に無いこちらの事実は AI が言わない）
+        self.assertFalse(any("業務の情報がありません" in x for x in p.notes), p.notes)
+        self.assertTrue(any("業務の情報がありません" in x for x in self.preview(book()).notes))
+        self.assertEqual(self.preview(book()).problems, [])
         p = self.preview(book(sheets={"基本": book_rows("基本") + [("代わりの方への応じ方", "上司なら話す")]}))
         self.assertTrue(any("代わりの方への応じ方" in x for x in p.problems), p.problems)
         p = self.preview(book(sheets={"基本": book_rows("基本") + [("伝言への応じ方", "伝言を残す")]}))

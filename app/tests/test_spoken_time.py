@@ -258,6 +258,20 @@ class SaidEdges(unittest.TestCase):
         self.assertEqual(read("今日の23時から23時半", NOW).kind, WINDOW)
         self.assertEqual(read("今日の21時以降", NOW, limit=(8 * H, 21 * H)).kind, CONFIRM)   # 歯止め時間は業務ごと
 
+    def test_a_confirmed_time_beyond_the_limit_is_one_slot_from_the_said_edge(self):
+        """確かめて「はい」と言われた（beyond_ok）ら、口にした端から1回分（slot＝callback.exact_slot。時刻ちょうどの約束と同じ）の幅で、
+        歯止め時間の外でもかける（2026-10-23 ユーザー：「案B＆案A(確かめたうえで案A)」。決めるのは calling_hours.callee_range）。
+        確かめていない言い方は確かめのまま。歯止めの内に収まる言い方は、確かめ済みでも今までどおり。"""
+        late = read("今日の23時以降", NOW, beyond_ok=True, slot=H)
+        self.assertEqual((late.kind, late.daily, late.said), (WINDOW, (23 * H, 24 * H), (True, True)))
+        self.assertEqual((late.start, late.end), (at(2026, 10, 14, 23), at(2026, 10, 15)))
+        early = read("明日の朝6時まで", NOW, beyond_ok=True, slot=30 * 60)
+        self.assertEqual((early.kind, early.daily), (WINDOW, (5 * H + 30 * 60, 6 * H)))
+        self.assertEqual((early.start, early.end), (at(2026, 10, 15, 5, 30), at(2026, 10, 15, 6)))
+        self.assertEqual(read("今日の23時以降", NOW, slot=H).kind, CONFIRM)          # 確かめていない
+        inside = read("今日の21時以降", NOW, beyond_ok=True, slot=H)
+        self.assertEqual((inside.daily, inside.said), ((21 * H, 24 * H), (True, False)))   # 歯止めの内：今どおり（22時で切る＝callee_range）
+
 
 class Repeat(unittest.TestCase):
     """幅の中で話せなかったときの次の回は、お客様がその日を選んだ理由に合わせる（2026-10-19 ユーザー決定）。"""

@@ -1251,6 +1251,7 @@ class CallbackWindow(SettleBase):
         # 前は「午後なら」で23時にかけえた。依頼者の時間帯では切らない）。決まりは calling_hours.callee_range の1か所
         late = next_action.Window(at(d2, 23), (22 * 3600, 23 * 3600), None, at(d2, 22), "day", said=(True, True))
         self.put_client(s, "calling.hours", {k: [["09:00", "18:00"]] for k in KEYS})
+        self.put_client(s, "callee.designated_limit", ["07:00", "22:00"])   # 初めの値（試験の土台は1日じゅうに替えている）
         self.assertEqual(self.opening(s, at(d2, 9), late), (at(d2, 22), late))   # 依頼者の時間帯（〜18時）・歯止め（〜22時）の外
         afternoon = next_action.Window(at(d2 + timedelta(days=1), 0), (13 * 3600, 24 * 3600), None, at(d2, 0), "day")   # 「午後」
         self.assertEqual(self.opening(s, at(d2, 19), afternoon), (at(d2, 19), afternoon))   # 依頼者の18時を越えて22時まで
@@ -1280,9 +1281,15 @@ class CallbackWindow(SettleBase):
         with self.assertRaises(Rejected) as e:
             self.put_client(s, "callee.designated_limit", ["22:00", "07:00"])   # 日をまたぐ（設定の型では、日をまたいでよい）
         self.assertEqual(e.exception.constraint, "setting_values_designated_limit_order", e.exception)
-        got = self.tx(s, lambda tx: settings.resolve(tx, "callee.designated_limit", tenant_id=s["tenant"], client_id=s["client"],
-                                                     business_id=s["business"]))
-        self.assertEqual(got, ["07:00", "22:00"])   # 初めの値（2026-10-23 ユーザー OK）
+        got = self.tx(s, lambda tx: tx.one("SELECT value FROM salescall.setting_values WHERE key = 'callee.designated_limit'"
+                                           " AND scope = 'system' AND set_by = 'ユーザー' ORDER BY value_id DESC LIMIT 1"))["value"]
+        self.assertEqual(got, ["07:00", "22:00"])   # 初めの値（2026-10-23 ユーザー OK。試験の土台は1日じゅうに替えている）
+        # 終わりだけ 24:00（1日の終わり）を書ける（0121）。始まりの 24:00 は書けない
+        self.put_client(s, "callee.designated_limit", ["00:00", "24:00"])
+        self.assertEqual(self.tx(s, lambda tx: settings.resolve(tx, "callee.designated_limit", tenant_id=s["tenant"],
+                                                                client_id=s["client"], business_id=s["business"])), ["00:00", "24:00"])
+        with self.assertRaises(Rejected):
+            self.put_client(s, "callee.designated_limit", ["24:00", "24:00"])
 
     def test_the_next_day_round_of_a_window_without_a_day_skips_the_clients_closed_days(self):
         """日を言っていない幅（「夕方なら」）・お客様が言った日の次の日の回は、依頼者のかける日だけ（休みの日の回は、かけられる時刻の

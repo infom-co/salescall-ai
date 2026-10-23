@@ -158,9 +158,11 @@ def _rows(sheets: dict[str, tuple[Sheet, dict[str, int]]], role: str, problems: 
     return out
 
 
-def _responses(basic: dict[str, str | None], problems: list[str]) -> dict[str, Any]:
+def _responses(basic: dict[str, str | None], problems: list[str], notes: list[str]) -> dict[str, Any]:
     """シート「基本」の、相手の申し出への応じ方・伝言の文・業務の情報（1行に1つ）・改めて連絡すると申し出てよいか。書いていない
-    項目は入れない（業務設定の確かめが既定にする＝ユーザー決定の既定）。"""
+    項目は入れない（業務設定の確かめが既定にする＝ユーザー決定の既定）。業務の情報が無ければ、知らせる（登録は止めない）：会話の側は、
+    業務の情報・想定問答の答えなど業務設定に無い、こちらの会社・業務の事実を AI が言うと止める（CL-1 の連絡帳 4-30＝中身の判定）ので、
+    無いと、所在地・営業時間などを聞かれても「担当の者に申し伝えます」で受けるだけになる。"""
     out: dict[str, Any] = {}
     for key in ("substitute_policy", "message_policy", "departed_policy", "follow_up"):
         if basic.get(key):
@@ -171,6 +173,9 @@ def _responses(basic: dict[str, str | None], problems: list[str]) -> dict[str, A
         out["message"] = basic["message"]
     if basic.get("info"):
         out["info"] = [x.strip() for x in basic["info"].split("\n") if x.strip()]
+    if not out.get("info"):
+        notes.append("シート「基本」の業務の情報がありません：所在地・営業時間など、お客様に聞かれたら答えてよいことを1行に1つ"
+                     "書いてください。ここに無いこちらの会社・業務のことは、AI は答えません（「担当の者に申し伝えます」で受けます）")
     return out
 
 
@@ -340,7 +345,7 @@ def _to_raw(sheets: dict[str, tuple[Sheet, dict[str, int]]], problems: list[str]
         "target_person": {"kind": tkind, "role": basic.get("target_role")},
         "busy_line": basic.get("busy_line"), "voicemail_message": basic.get("voicemail_message"),
         "ai_answer": basic.get("ai_answer"), "answers": answers, "voice": basic.get("voice"),
-        **_responses(basic, problems),
+        **_responses(basic, problems, notes),
         "questions": questions, "names": names,
         "rules": {"decline": decline, "handling": handling, "retry": retry, "forbidden": forbidden},
     }

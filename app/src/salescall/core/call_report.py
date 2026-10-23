@@ -45,12 +45,17 @@ from salescall.core.phone import normalize
 
 VERSION = 3
 FACT_KINDS = ("do_not_call", "complaint", "out_of_scope", "party", "callback", "ai_question", "voicemail_message", "end",
-              "connect", "answered", "target_back", "callback_resume", "not_transferred", "substitute", "departed", "callee_question")
+              "connect", "answered", "target_back", "callback_resume", "not_transferred", "substitute", "departed", "callee_question",
+              "talk")
 # substitute・departed・callee_question（CL-1 の連絡帳 4-28・2-2 の版 0.5。2026-10-22 ユーザー決定の相手の申し出。どれも無くてもよい）：
 #   substitute＝電話口の方が、お呼びした方の代わりにご用件を伺うと申し出た（policy＝業務設定の応じ方・read・answer＝判断いただける
 #   お立場かを伺った答え）。departed＝お呼びした方が在籍していない（policy・read・successor＝後任の方へ切り替えたあとか）。
 #   callee_question＝お客様からの質問（answered＝業務の情報で答えた true／答えを持っていなかった false／答えに添えられた質問 null）。
 #   どれも記録だけ（判定は、繋いだ事実・繋がらなかった理由・かけ直しの申し出で読む。依頼者へ渡すのは CL-3）
+# talk：世間話・お礼・気遣いへの AI の一言（受け答え。CL-1 の連絡帳 4-30。記録だけ。依頼者へは渡さない）。
+# callee_question と talk の AI の自分の言葉は同じ形（`_own_words` の1か所）：answer＝相手に言った文（確かめた文か、断らない一言の
+#   録音の文。受け答えで通らなかったときは null）・drafts＝確かめに通らなかった文と理由の並び（通話後の検証用）・checked＝中身を
+#   確かめた判定の名前（判定が届かなければ null）。⛔ 2026-10-23：前の problem（理由1つ）は drafts に置き換わった（CL-1 の 4-30）
 # answered：相手の質問に、決まった答えの録音を流した（CL-1 の連絡帳 4-26。part＝部分の名前。記録だけ）
 # target_back・callback_resume：かけ直しの質問の途中で目的のお客様かを確かめに戻った・違う方だったので続きへ戻った（4-27。記録だけ）
 # not_transferred：受付の方が、事情があり取り次げないと言った発話（締めた理由 not_transferred と同じ発話。判定は not_reached で読む）。
@@ -131,6 +136,8 @@ class Callback:
     again: bool | None = None    # 不在で戻る時刻が分からなかったとき：今日戻る見込みがあり、後でかけてよいと言われたか（None＝聞いて
     #                              いない）。同じ日のうちにかけ直すかを決める（may_call_again の1か所。2026-10-22 ユーザー）
     back_today: bool | None = None   # 「本日お戻りのご予定は」への答え（記録だけ）
+    beyond_limit_ok: bool = False    # お客様指定の歯止め時間の外の時刻（「23時以降なら」）を通話の中で確かめ、「はい」と言われた（2026-10-23
+    #                                  ユーザー：「案B＆案A(確かめたうえで案A)」。読むのは時刻の読み spoken_time.read の1か所＝judge._when）
 
     @property
     def number_e164(self) -> str | None:
@@ -173,12 +180,38 @@ class Departed:
 
 
 @dataclass(frozen=True)
+class Draft:
+    """AI が書いたが、中身の確かめに通らなかった文（声に出していない。通話後の検証用。記録だけ）。"""
+    text: str
+    problem: str                 # 通らなかった理由（「中身を確かめられませんでした」＝判定が2秒に届かなかった文）
+
+
+@dataclass(frozen=True)
+class OwnWords:
+    """AI の自分の言葉（お客様からの質問への答え・受け答えの一言。形は `_own_words` の1か所）。記録だけ。"""
+    answer: str | None = None            # 相手に言った文（無ければ None）
+    drafts: tuple[Draft, ...] = ()       # 確かめに通らなかった文
+    checked: str | None = None           # 中身を確かめた判定の名前（届かなければ None）
+
+    def to_json(self) -> dict[str, Any]:
+        return {**({} if self.answer is None else {"answer": self.answer}),
+                **({"drafts": [{"text": d.text, "problem": d.problem} for d in self.drafts]} if self.drafts else {}),
+                "checked": self.checked}
+
+
+@dataclass(frozen=True)
 class CalleeQuestion:
     """お客様からの質問（事実 callee_question）。記録だけ（依頼者へ渡す＝CL-3）。"""
     answered: bool | None        # 業務の情報で答えた／答えを持っていなかった／答えに添えられた質問（None）
     evidence: Said
-    answer: str | None = None    # AI が自分の言葉で答えた文（声に出す前にプログラムが確かめた文。記録だけ）
-    problem: str | None = None   # その文が確かめに通らなかった理由（通らなければ、作らずに決まった言い方で答えた。記録だけ）
+    own: OwnWords = OwnWords()   # AI の自分の言葉（答えに添えられた質問で、まだ答えていなければ空）
+
+
+@dataclass(frozen=True)
+class Talk:
+    """世間話・お礼・気遣いへの AI の一言（事実 talk。CL-1 の 4-30）。記録だけ（依頼者へは渡さない）。"""
+    evidence: Said
+    own: OwnWords
 
 
 @dataclass(frozen=True)
@@ -239,6 +272,7 @@ class CallReport:
     substitutes: tuple[Substitute, ...] = ()   # 事実 substitute：代わりの方の申し出（記録だけ）
     departures: tuple[Departed, ...] = ()      # 事実 departed：お呼びした方が在籍していない（記録だけ）
     callee_questions: tuple[CalleeQuestion, ...] = ()   # 事実 callee_question：お客様からの質問（記録だけ）
+    talks: tuple[Talk, ...] = ()         # 事実 talk：受け答えの一言（記録だけ）
 
     # ── 判定が読むもの（どれも事実から読む。ここの1か所）
     @property
@@ -354,7 +388,8 @@ class CallReport:
                           **({"offer": c.offer} if c.offer else {}), **dict(c.means),
                           **({"message_left": True} if c.message_left else {}),
                           **({} if c.again is None else {"again": c.again}),
-                          **({} if c.back_today is None else {"back_today": c.back_today})} for c in self.callbacks],
+                          **({} if c.back_today is None else {"back_today": c.back_today}),
+                          **({"beyond_limit_ok": True} if c.beyond_limit_ok else {})} for c in self.callbacks],
             "ai_question": [said(q) for q in self.ai_questions],
             "voicemail_message": [said(v) for v in self.voicemail_messages],
             "end": [{**said(e.evidence), "reason": e.reason} for e in self.ends],
@@ -370,9 +405,8 @@ class CallReport:
                             **({} if x.answer is None else {"answer": x.answer})} for x in self.substitutes],
             "departed": [{**said(x.evidence), "policy": x.policy, "read": list(x.read), "successor": x.successor}
                          for x in self.departures],
-            "callee_question": [{**said(x.evidence), "answered": x.answered,
-                                 **({} if x.answer is None else {"answer": x.answer}),
-                                 **({} if x.problem is None else {"problem": x.problem})} for x in self.callee_questions]}
+            "callee_question": [{**said(x.evidence), "answered": x.answered, **x.own.to_json()} for x in self.callee_questions],
+            "talk": [{**said(t.evidence), **t.own.to_json()} for t in self.talks]}
         return {"version": VERSION, "facts": {k: v for k, v in facts.items() if v}, "not_reached": self.not_reached,
                 "cut": None if self.cut is None else {"speaker": self.cut.speaker, "in_closing": self.cut.in_closing,
                                                       "callee_refused_last": self.cut.callee_refused_last},
@@ -463,7 +497,7 @@ def from_json(raw: Any) -> CallReport:
                     for r, s in _records(facts, "party", {"party", "by"}))
     callbacks = []
     for r, s in _records(facts, "callback", {"why", "time", "number", "person", "cycle", "read", "connected", "offer",
-                                             "message_left", "again", "back_today", *CALLBACK_MEANS}):
+                                             "message_left", "again", "back_today", "beyond_limit_ok", *CALLBACK_MEANS}):
         reason = _choice(r.get("why"), CALLBACK_REASONS, "facts.callback.why")
         number = _text(r.get("number"), "facts.callback.number")
         if number is not None and reason != "other_number":
@@ -477,7 +511,8 @@ def from_json(raw: Any) -> CallReport:
                                   tuple((k, _value(r[k], f"facts.callback.{k}")) for k in CALLBACK_MEANS if k in r),
                                   "message_left" in r and _true(r, "message_left"),
                                   _bool(r, "again") if "again" in r else None,
-                                  _bool(r, "back_today") if "back_today" in r else None))
+                                  _bool(r, "back_today") if "back_today" in r else None,
+                                  "beyond_limit_ok" in r and _bool(r, "beyond_limit_ok")))
     ends = tuple(End(_choice(r.get("reason"), END_REASONS, "facts.end.reason"), s)
                  for r, s in _records(facts, "end", {"reason"}))
     # ⚠️ 電話口の種別の target（AIの報告）と not_reached は、両方あってよい（AIが「目的の人」と報告したが、判定と食い違って繋がずに
@@ -538,15 +573,32 @@ def from_json(raw: Any) -> CallReport:
         raise ReportInvalid("かけ直しの申し出・代わりの方の申し出が無いのに、確かめに戻った記録があります（または、かけ直しの申し出が"
                             "無いのに、続きへ戻った記録があります）")
     questions = []
-    for r, s in _records(facts, "callee_question", {"answered", "answer", "problem"}):
+    for r, s in _records(facts, "callee_question", {"answered"} | OWN_WORDS_KEYS):
         if "answered" not in r or (r["answered"] is not None and not isinstance(r["answered"], bool)):
             raise ReportInvalid("facts.callee_question.answered は true / false / null です")
-        # answer・problem（2026-10-22 の CL-1 の直し：AI が自分の言葉で答えた文と、確かめに通らなかった理由。無くてもよい）
-        questions.append(CalleeQuestion(r["answered"], s, _text(r.get("answer"), "facts.callee_question.answer"),
-                                        _text(r.get("problem"), "facts.callee_question.problem")))
+        questions.append(CalleeQuestion(r["answered"], s, _own_words(r, "facts.callee_question")))
+    talks = tuple(Talk(s, _own_words(r, "facts.talk")) for r, s in _records(facts, "talk", OWN_WORDS_KEYS))
     return CallReport(refusals, complaints, oos, parties, tuple(callbacks), ends, not_reached, cut, delivered, ai_questions,
                       voicemail, tuple(connects), tuple(answered), backs, resumes, not_transferred, substitutes, departures,
-                      tuple(questions))
+                      tuple(questions), talks)
+
+
+OWN_WORDS_KEYS = {"answer", "drafts", "checked"}
+
+
+def _own_words(r: dict[str, Any], where: str) -> OwnWords:
+    """AI の自分の言葉（callee_question・talk で同じ形。読むのはここだけ）。"""
+    drafts = r.get("drafts", [])
+    if not isinstance(drafts, list):
+        raise ReportInvalid(f"{where}.drafts は、確かめに通らなかった文の並びです")
+    out = []
+    for i, d in enumerate(drafts):
+        d = _keys(d, {"text", "problem"}, f"{where}.drafts[{i}]")
+        text, problem = _text(d.get("text"), f"{where}.drafts[{i}].text"), _text(d.get("problem"), f"{where}.drafts[{i}].problem")
+        if text is None or problem is None:
+            raise ReportInvalid(f"{where}.drafts[{i}] には、文（text）と通らなかった理由（problem）が要ります")
+        out.append(Draft(text, problem))
+    return OwnWords(_text(r.get("answer"), f"{where}.answer"), tuple(out), _text(r.get("checked"), f"{where}.checked"))
 
 
 def save(tx: Tx, attempt_id: UUID, report: CallReport) -> None:

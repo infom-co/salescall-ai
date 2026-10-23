@@ -113,6 +113,8 @@ class JudgeInput:
     target_unconfirmed: bool = False
     # お客様指定の歯止め時間（設定 callee.designated_limit。業務ごと。時刻の読みが、幅の端の決まっていない側を埋めて切る）
     designated_limit: tuple[int, int] = spoken_time.DEFAULT_DESIGNATED_LIMIT
+    # 時刻ちょうどの約束のその日の時間（設定 callback.exact_slot）。歯止め時間の外の時刻を確かめて「はい」と言われたときの1回分にも使う
+    exact_slot: int = spoken_time.DEFAULT_EXACT_SLOT
 
     @property
     def reached_target(self) -> bool:
@@ -253,8 +255,11 @@ def unreached_today(inp: JudgeInput) -> tuple[str | None, bool]:
 
 def _when(inp: JudgeInput, cb: Any) -> spoken_time.Reading:
     """かけ直しの申し出の時刻の言葉の読み（1か所。core/spoken_time.read）。"""
+    # beyond_ok＝お客様指定の歯止め時間の外の時刻（「23時以降なら」）を、通話の中で確かめて「はい」と言われた（会話の報告の
+    # callback.beyond_limit_ok。無い＝確かめていない＝今までどおり判定できない）
     return spoken_time.read(cb.time_said, inp.facts.called_at, inp.callee_hours, inp.periods, monthly=cb.cycle == "month",
-                            limit=inp.designated_limit)
+                            limit=inp.designated_limit, beyond_ok=cb.beyond_limit_ok,
+                            slot=inp.exact_slot)
 
 
 def _callback(cb: Any, when: spoken_time.Reading) -> dict[str, Any]:

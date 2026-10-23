@@ -66,7 +66,7 @@ class Shapes(unittest.TestCase):
                            ("calling.hours", {d: "09:00" for d in
                                               ("mon", "tue", "wed", "thu", "fri", "sat", "sun", "holiday")}),
                            ("callee.business_hours", ["09:00"]), ("callee.business_hours", ["09:00", "09:00"]),
-                           ("callee.business_hours", ["9:00", "19:00"]), ("callee.business_hours", ["09:00", "24:00"]),
+                           ("callee.business_hours", ["9:00", "19:00"]), ("callee.business_hours", ["24:00", "09:00"]),
                            ("callee.business_hours", "09:00-19:00"), ("callee.business_hours", [9, 19]),
                            ("retry.time_band_boundaries", []), ("retry.time_band_boundaries", [15, 12]),
                            ("retry.time_band_boundaries", [12, 12]), ("retry.time_band_boundaries", [0, 12]),

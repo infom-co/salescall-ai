@@ -545,6 +545,20 @@ class Shapes(unittest.TestCase):
         # 拒否は、読めない時刻より先（発信禁止を、時刻の読み方の抜けで遅らせない）
         self.assertEqual(run(items={}, rep=report(dnc=True, callback=callback("later", time="そのへんで"))).state, "do_not_call")
 
+    def test_a_time_beyond_the_limit_is_kept_only_after_the_customer_agreed(self):
+        """お客様指定の歯止め時間（7〜22時）の外の「23時以降なら」：確かめずに終われば判定できない（確かめは CL-1）。確かめて「はい」と
+        言われた（会話の報告の callback.beyond_limit_ok）なら、口にした端から1回分（callback.exact_slot）の幅で約束する（2026-10-23
+        ユーザー：「案B＆案A(確かめたうえで案A)」）。"""
+        said = callback("later", time="今日の23時以降")     # 通話は 19時（日本時間）
+        j = run(items={}, rep=report(callback=said))
+        self.assertEqual((j.state, j.detail["unknown_cause"]), ("unknown", "callback_time_unconfirmed"))
+        agreed = replace(said, beyond_limit_ok=True)
+        j = judge(JudgeInput(TALKED, report(callback=agreed), {}, RULES, False, True, exact_slot=1800))
+        cb = j.detail["callback"]
+        self.assertEqual((j.state, cb["at"], cb["until"], cb["daily"], cb["said"]),
+                         ("callback_scheduled", "2030-01-07T23:00:00+09:00", "2030-01-07T23:30:00+09:00",
+                          [23 * 3600, 23 * 3600 + 1800], [True, True]))
+
 
 class Causes(unittest.TestCase):
     def test_program_causes_go_to_the_admin(self):

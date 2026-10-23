@@ -52,6 +52,9 @@ class Base(unittest.TestCase):
         self.w = World()
         self.override("calling.hours_limit", ALL_DAY)
         self.override("calling.ng_hours", NO_NG)        # 試験の時刻（昼休みなど）に左右されない。NG時間は専用の試験で確かめる
+        # お客様指定の歯止め時間（初め 7〜22時）も、試験を流す時刻（夜22時すぎなど）に左右されないように1日じゅうにする。
+        # 歯止めで埋めて切る決まりは、値を決めた専用の試験（test_calling_hours.CalleeRange・test_settle.CallbackWindow）で確かめる
+        self.override("callee.designated_limit", ["00:00", "24:00"])   # 終わりの 24:00 は1日の終わり（0121）
         load_calendar()
 
     # ── 試験のあいだだけ、システムの値を変える（終わったら、元の行の写しを足して戻す）

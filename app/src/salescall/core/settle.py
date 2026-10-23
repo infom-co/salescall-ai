@@ -281,7 +281,7 @@ def _judge_input(tx: Tx, a: dict[str, Any], rules_version: Any) -> tuple[JudgeIn
                      report, _items(tx, a["task_id"]), business_rules.load(tx, rules_version), refused_after,
                      unclear_is_refusal, (calling_hours.clock_seconds(open_), calling_hours.clock_seconds(close)), periods,
                      dnc.refused_in(tx, attempt_id, "refused_in_call"), target_recheck.unconfirmed(tx, attempt_id),
-                     (calling_hours.clock_seconds(lo), calling_hours.clock_seconds(hi)))
+                     (calling_hours.clock_seconds(lo), calling_hours.clock_seconds(hi)), int(get("callback.exact_slot")))
     return inp, report_source, dialed
 
 
