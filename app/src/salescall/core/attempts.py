@@ -33,7 +33,7 @@ DIALED = dialed()
 
 def placed(table: str = "") -> str:
     """発信まで進み、回線の部品が番号を受け付けなかった（call_failed）ものを除いた試行の条件（SQL。1か所）。回線を使った電話：
-    回線の1日の上限・報酬の「かけた1本」・発信に失敗の続き（salescall.failed_run）が使う。約束の回に「かけたか」・その回にかけた数は
+    回線の1日の上限・報酬の「かけた1本」が使う。番号の続き（salescall.failed_run）・約束の回に「かけたか」・その回にかけた数は
     これでなく、数え方の種類（`reached`・`rang`）で決める（⛔ 見直し17c）。"""
     return f"salescall.is_placed({table + '.' if table else ''}state)"   # 決まりはデータベースの1か所（0109）
 
@@ -61,9 +61,10 @@ def resume_allowed(tx: Tx, task_id: UUID) -> bool:
 
 
 def failed_run(tx: Tx, contact_id: UUID) -> dict[str, Any]:
-    """その番号（依頼者の連絡先。どの行・どの回線でも）への、いちばん新しい発信から続けて、発信に失敗した（回線の部品が受け付け
-    なかった＝お客様のところで鳴っていない）発信の続き（決まりはデータベースの1か所 salescall.failed_run＝0120）：n＝続いた数・
-    first_day＝続いた最初の失敗の日（日本時間）・last_end＝いちばん新しい失敗の終わり（続いていなければ None）。"""
+    """その番号（依頼者の連絡先。どの行・どの回線でも）への、いちばん新しい発信から続けて、お客様のところで電話が鳴らなかった
+    （回線の部品が番号を受け付けなかった・お客様が出る前に回線やこちらの側で終わった＝`rang` でない）発信の続き（決まりはデータベースの
+    1か所 salescall.failed_run＝0124。2026-10-23 ユーザー：「番号を受け付けないときと同じ」）：n＝続いた数・first_day＝続いた最初の日
+    （日本時間）・last_end＝いちばん新しい発信の終わり（続いていなければ None）。"""
     return tx.one("SELECT n, first_day, last_end FROM salescall.failed_run(%s)", (contact_id,))
 
 
@@ -74,9 +75,10 @@ def failed_retry_days(tx: Tx, **scope: Any) -> list[int]:
 
 
 def number_unusable(tx: Tx, contact_id: UUID, **scope: Any) -> bool:
-    """その番号へは、もうかけないか（1か所。門と次の動きの両方が読む）：発信に失敗が、並び（`failed_retry_days`）の数だけ続いた
-    （2026-10-22 深夜 ユーザー：「同じ番号で続けて当日2回＆翌日1回、さらに2日後1回の計4回受け付けられなかったら、その番号へは
-    かけない」）。"""
+    """その番号へは、もうかけないか（1か所。門と次の動きの両方が読む）：お客様のところで鳴らなかった発信（`failed_run`）が、並び
+    （`failed_retry_days`）の数だけ続いた（2026-10-22 深夜 ユーザー：「同じ番号で続けて当日2回＆翌日1回、さらに2日後1回の計4回
+    受け付けられなかったら、その番号へはかけない」。2026-10-23 ユーザー：お客様が出る前に毎回終わる番号も「番号を受け付けないときと
+    同じ」）。"""
     return failed_run(tx, contact_id)["n"] >= len(failed_retry_days(tx, **scope))
 
 
@@ -90,7 +92,8 @@ def rang(table: str = "") -> str:
     """お客様のところで電話が鳴った試行の条件（SQL。1か所）：数え方の種類 dial_kind が「お客様に届いた1回」か「途中で切れた」
     （発信に失敗・お客様が出る前の回線の失敗は、かけられなかったのと同じ）。約束の回に、一度もかけられなかったか（お詫びの印）を
     決めるのに使う（next_action._missed）。本数を方針と比べる所は `reached`（同じ決まりの、数える側）。"""
-    return f"{kind(table)} IN ('reached', 'cut_off')"
+    t = table + "." if table else ""
+    return f"salescall.rang({t}state, {t}cut_off, {t}attempt_id)"   # 決まりはデータベースの1か所（0124）。番号の続き・回線の証拠も同じ
 
 
 def counts_as_try(table: str = "") -> str:

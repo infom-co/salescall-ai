@@ -21,9 +21,10 @@
   日でもかけ、日を言っていない次の日の回は依頼者のかける日だけ（門と同じ `calling_hours.callee_hours` の1か所。2026-10-22・10-23
   ユーザー・見直し16）。
 - **同じ日にかけ直さないか**は `not_today` の1か所（ふつうの電話・約束の電話・番号の聞き直し・お詫びの電話）。
-- **回線の部品が続けて受け付けなかった番号**へはかけない（`usable`。決まりは attempts.number_unusable の1か所＝門も同じ）。発信に失敗
-  （お客様の電話は鳴っていない）のあとは、決まった順（設定 dial.failed_retry_days。初めは、その日にもう1回・次の日に1回・そのさらに
-  2日後に1回）で同じ番号へかけ直す（`_failed_retry_at`。2026-10-22 深夜 ユーザー）。
+- **お客様のところで電話が鳴らない電話が続いた番号**（回線の部品が番号を受け付けない・お客様が出る前に回線やこちらの側で終わる）
+  へはかけない（`usable`。決まりは attempts.number_unusable の1か所＝門も同じ）。鳴らなかった電話のあとは、決まった順（設定
+  dial.failed_retry_days。初めは、その日にもう1回・次の日に1回・そのさらに2日後に1回）で同じ番号へかけ直す（`_failed_retry_at`。
+  2026-10-22 深夜 ユーザー。お客様が出る前に終わる番号も同じ＝2026-10-23 ユーザー）。
 - **どの番号へかけるかも、ここだけが決める**（`choose_number`。DESIGN.md 3-5）。予定（かけ直す）は必ず番号を持ち、門はその番号へ
   かける。決め方：お客様が「別の番号にかけ直して」と言った ⇒ その番号（業務の設定で「かけない」・かけない理由がある ⇒ 終える。
   番号は記録して依頼者へ渡す）／それ以外 ⇒ いまかけた番号のまま（門で止められたあとは、いまの予定の番号のまま）。
@@ -325,7 +326,7 @@ def choose_number(j: Judgement, *, dialed: Target, alternate: Alternate | None, 
 
 
 def usable(t: Target, numbers: Numbers) -> Target:
-    """かける番号が、回線の部品に続けて受け付けられなかった番号（attempts.number_unusable：設定 dial.failed_retry_days の並びの数
+    """かける番号が、お客様のところで鳴らない電話が続いた番号（attempts.number_unusable：設定 dial.failed_retry_days の並びの数
     だけ続いた）なら、その番号へはかけない（1か所。計画書 10-3「無限に再試行しない」。⛔ 見直し15：発信に失敗した電話は行の回数に
     数えないので、前は行が終わらず、同じ番号へかけ続けた）：お客様が言った別の番号（かけない理由の無いもの）があれば、そちらへ（ふつうの電話・続きの電話だけ。
     番号の聞き直し・お詫びは、その番号のお客様へかける電話なので替えない）。無ければ行を終える（number_unusable。番号は記録に
@@ -386,7 +387,7 @@ def decide_after_call(j: Judgement, *, cut_off: bool = False, normal: gate.Pacin
     つながったときにお詫びから始める（印 cut_off を付けるのは、ここの1か所。すぐにかけ直すか＝resume とは別に決める。⛔ 見直し15：
     前は続けて3回切れると、すぐのかけ直しをやめるのと一緒にお詫びの印も外れ、次の電話でお詫びしなかった）。
     resume＝すぐにかけ直してよいか（続けて切れた数で after_call が決める。None＝cut_off と同じ）。
-    failed_at＝かける番号へ、発信に失敗が続いているときの次の時刻（`_failed_retry_at`。続いていなければ None）。"""
+    failed_at＝かける番号へ、鳴らない電話が続いているときの次の時刻（`_failed_retry_at`。続いていなければ None）。"""
     d = _decide(j, cut_off=cut_off, normal=normal, promised=promised, rules=rules, times_with_key=times_with_key, now=now,
                 target=target, retry_at=retry_at, ask=ask, forbidden=forbidden, kept=kept, resume_window=resume_window,
                 resume_callee_at=resume_callee_at, resume=cut_off if resume is None else resume, failed_at=failed_at)
@@ -473,21 +474,21 @@ def _decide(j: Judgement, *, cut_off: bool, normal: gate.Pacing, promised: gate.
             raise ValueError("番号の聞き直しで出なかったのに、その材料がありません")
         if ask.tries >= ask.limit:
             return _end("ask_number_again_unanswered", f"番号の聞き直し：{ask.limit} 回かけても出なかった（番号は依頼者へ渡す）")
-        at = ask.at if failed_at is None else failed_at   # 発信に失敗（鳴っていない）のあとは、決まった順で同じ番号へ
+        at = ask.at if failed_at is None else failed_at   # 鳴らなかった電話のあとは、決まった順で同じ番号へ
         if at is None:
             return _no_opening(now, True, target)
         return _call(max(at, promised.earliest or at), True,
                      f"番号の聞き直し：出なかった ⇒ 別の時間帯に（{ask.tries + 1} 回目）" if failed_at is None else
-                     "番号の聞き直し：発信に失敗（お客様の電話は鳴っていない）⇒ 決まった順で同じ番号へ（dial.failed_retry_days）",
+                     "番号の聞き直し：お客様のところで鳴らなかった ⇒ 決まった順で同じ番号へ（dial.failed_retry_days）",
                      target)
     if normal.remaining <= 0:
         return _end("max_attempts", "この行にかけてよい回数を使い切った")
     if failed_at is not None:
-        # 発信に失敗（回線の部品が番号を受け付けなかった＝お客様の電話は鳴っていない。お客様の結果ではない）：結果ごとの再発信の
-        # 方針でなく、決まった順で同じ番号へ（2026-10-22 深夜 ユーザー：「当日2回＆翌日1回、さらに2日後1回の計4回」。順を
-        # 使い切った番号へは、もうかけない＝`usable`）
+        # お客様のところで鳴らなかった（回線の部品が番号を受け付けなかった・お客様が出る前に終わった。お客様の結果ではない）：
+        # 結果ごとの再発信の方針でなく、決まった順で同じ番号へ（2026-10-22 深夜 ユーザー：「当日2回＆翌日1回、さらに2日後1回の計4回」。
+        # 2026-10-23 ユーザー：お客様が出る前に終わる番号も「番号を受け付けないときと同じ」。順を使い切った番号へは、もうかけない＝`usable`）
         return _call(max(failed_at, normal.earliest or failed_at), False,
-                     "発信に失敗（お客様の電話は鳴っていない）：決まった順で同じ番号へかけ直す（dial.failed_retry_days）", target)
+                     "お客様のところで鳴らなかった（発信に失敗・お客様が出る前に終わった）：決まった順で同じ番号へかけ直す（dial.failed_retry_days）", target)
     if key is None:
         return _hold("再発信の方針の鍵が無い（判定の処理の誤り）：判定待ちで残す")
     p = rules.retry[key]
@@ -622,7 +623,7 @@ def after_call(tx: Tx, task_id: UUID, j: Judgement, *, rules: Rules, dialed: Tar
         # 時刻の決まっていない約束の電話（「あとで」・日だけの約束が過ぎたあと・その途中で切れたあとの続き など）で話せなかった：
         # 約束のまま（回数の上限の外）。取り次げず、またかけてよいと言われなければ、当日はかけない（方針の時刻が今日なら次の日へ）
         kept = _unspecified_next(tx, task_id, target, now=now, base=now, tried=dialed_at, not_today=no_today)
-    # 発信に失敗（回線の部品が番号を受け付けない＝お客様の電話は鳴っていない）が続いている番号へは、約束の電話・お詫び・続きを含めて、
+    # お客様のところで鳴らない電話（番号を受け付けない・お客様が出る前に終わる）が続いている番号へは、約束の電話・お詫び・続きを含めて、
     # 決まった順（`_failed_retry_at`）より前にはかけない（`_not_before_failed` の1か所。ふつうの電話・番号の聞き直しは `_decide` が
     # 同じ時刻を使う）。⛔ 見直し17a：前は約束を守る次の動きを先に返し、時刻ちょうどの約束の電話で 15:00・15:05・15:10・15:15 と
     # 4回失敗して、その日のうちに番号も行も終えた（2026-10-22 深夜 ユーザー：「同じ番号で続けて当日2回＆翌日1回、さらに2日後1回の
@@ -672,7 +673,8 @@ def numbers_of(tx: Tx, task_id: UUID) -> Numbers:
 
 
 def _failed_retry_at(tx: Tx, task_id: UUID, contact_id: UUID | None, now: datetime, dialed_at: datetime) -> datetime | None:
-    """その番号へ、発信に失敗（回線の部品が受け付けなかった＝お客様の電話は鳴っていない）が続いているとき、次にかける時刻（1か所）。
+    """その番号へ、お客様のところで鳴らない電話（回線の部品が受け付けなかった・お客様が出る前に終わった＝attempts.failed_run）が
+    続いているとき、次にかける時刻（1か所）。
     続いていない・並びを使い切った（その番号へはかけない＝`usable`）ときは None。並び（設定 dial.failed_retry_days。1＝最初に失敗
     した日）の次の日が今日（か、もう過ぎた）なら、最後の失敗から同じお客様への最短の間隔をあけて。先の日なら、その日の、前と別の
     時間帯で（`_retry_at`）。2026-10-22 深夜 ユーザー：「同じ番号で続けて当日2回＆翌日1回、さらに2日後1回の計4回受け付けられ
@@ -695,7 +697,7 @@ def _failed_retry_at(tx: Tx, task_id: UUID, contact_id: UUID | None, now: dateti
 
 def _not_before_failed(tx: Tx, task_id: UUID, d: Decision | None, failed_at: datetime | None, *,
                        now: datetime) -> Decision | None:
-    """発信に失敗が続く番号へ、次にかける時刻の下限（1か所。`_failed_retry_at` の時刻より前にはかけない）。お客様が言った時刻・幅の
+    """鳴らない電話が続く番号へ、次にかける時刻の下限（1か所。`_failed_retry_at` の時刻より前にはかけない）。お客様が言った時刻・幅の
     約束は、その時刻から約束を守り直す（`_keep_promise`。同じ回の中か、次の回か。かけられなかった回のお詫びも、そこで決まる）。"""
     if d is None or failed_at is None or d.kind != "call" or d.at >= failed_at:
         return d
@@ -706,7 +708,7 @@ def _not_before_failed(tx: Tx, task_id: UUID, d: Decision | None, failed_at: dat
             datetime.combine(day, datetime.min.time(), tzinfo=calling_hours.JST)
         again = _keep_promise(tx, task_id, after, d.window, d.target, now=now, exact=d.callee_at is not None)
         return again if again.apology is not None else replace(again, apology=d.apology)
-    return replace(d, at=failed_at, rule=d.rule + "（発信に失敗が続く番号：決まった順 dial.failed_retry_days より前にはかけない）")
+    return replace(d, at=failed_at, rule=d.rule + "（鳴らない電話が続く番号：決まった順 dial.failed_retry_days より前にはかけない）")
 
 
 def _round_calls(tx: Tx, task_id: UUID, window: Window, fallback: int) -> int:
@@ -1023,7 +1025,7 @@ def _new_band_retry(tx: Tx, task_id: UUID, after: datetime, *, purpose: str, not
     boundaries = list(get("retry.time_band_boundaries"))
     dials = gate.purpose_dials(tx, task_id, purpose=purpose)
     # 回数・試した時間帯：お客様に届いた発信だけ（gate.purpose_dials＝ふつうの電話の回数と同じ決まり salescall.dial_kind の1か所。
-    # 回線の都合で繋がらなかった時間帯は、まだ試していない）。発信に失敗が続く番号は、ここで数えず、番号ごとの歯止めで止める
+    # 回線の都合で繋がらなかった時間帯は、まだ試していない）。鳴らない電話が続く番号は、ここで数えず、番号ごとの歯止めで止める
     # （`usable`。⛔ 見直し15：前は発信まで進んだもの全部を数え、ふつうの電話と決まりが違った）。
     # 最小の間隔：お客様と約束したかけ直しは門の最小の間隔の対象外なので、この電話は、ここで前の発信から間を空ける。
     local = calling_hours.local(after)
@@ -1069,9 +1071,9 @@ def decide_after_apology(*, delivered: bool, refused: bool, retry: AskAgain, pro
         return _end("apology_unreached", f"お詫びの電話：{retry.limit} 回かけても、お客様に届かなかった")
     if cut_off:
         return _call(promised.earliest or now, True, "お詫びの電話が途中で切れた：復旧次第、すぐかけ直す", target)
-    if failed_at is not None:   # 発信に失敗（鳴っていない）：決まった順で同じ番号へ（ふつうの電話と同じ＝`_failed_retry_at`）
+    if failed_at is not None:   # お客様のところで鳴らなかった：決まった順で同じ番号へ（ふつうの電話と同じ＝`_failed_retry_at`）
         return _call(max(failed_at, promised.earliest or failed_at), True,
-                     "お詫びの電話：発信に失敗（お客様の電話は鳴っていない）⇒ 決まった順で同じ番号へ（dial.failed_retry_days）", target)
+                     "お詫びの電話：お客様のところで鳴らなかった ⇒ 決まった順で同じ番号へ（dial.failed_retry_days）", target)
     if retry.at is None:
         return _no_opening(now, True, target)
     return _call(max(retry.at, promised.earliest or retry.at), True,
@@ -1111,11 +1113,11 @@ def after_denial(tx: Tx, task_id: UUID, denied: gate.Denied, *, tenant_id: UUID,
     now_target = None if cur is None or cur["kind"] != "call" else Target(cur["contact_id"], None, cur["purpose"],
                                                                             cur["wrong_contact_id"], bool(cur["successor"]))
     if denied.reason == "number_unusable" and now_target is not None:
-        # その番号は、発信に失敗が決まった数だけ続いた（門と同じ attempts.number_unusable）：お客様が言った別の番号へ替えるか、行を
+        # その番号は、鳴らない電話が決まった数だけ続いた（門と同じ attempts.number_unusable）：お客様が言った別の番号へ替えるか、行を
         # 終える（通話のあとと同じ `usable` の1か所）
         t = usable(now_target, numbers_of(tx, task_id))
-        d = _end(t.end_reason, "門：その番号は、発信に失敗が続いた（もうかけない）") if t.contact_id is None else \
-            _call(now, bool(cur["promised"]), "門：その番号は、発信に失敗が続いた ⇒ お客様が言った別の番号へ", t,
+        d = _end(t.end_reason, "門：その番号は、鳴らない電話が続いた（もうかけない）") if t.contact_id is None else \
+            _call(now, bool(cur["promised"]), "門：その番号は、鳴らない電話が続いた ⇒ お客様が言った別の番号へ", t,
                   cur["callee_at"], window)
         _write(tx, task_id, d)
         return d

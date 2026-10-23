@@ -1284,6 +1284,20 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      'e.occurred_at > since.t AND e.tenant_id = salescall.cur_tenant() AND (p_line IS NULL OR e.line_id = p_line)) '
      'END $$;',
      ("tests.test_watch.LineStops.test_only_a_call_that_rang_and_ended_resets_the_count",)),
+    # 2026-10-23 ユーザー：お客様が出る前に毎回終わる番号も「番号を受け付けないときと同じ」（0124）
+    ("番号の続きが、発信に失敗だけを数える（0124 の前の形：お客様が出る前に終わる番号へ、方針の間隔で終わりなくかける）",
+     "CREATE OR REPLACE FUNCTION salescall.failed_run(p_contact uuid) RETURNS TABLE (n integer, first_day date, last_end timestamptz)"
+     " LANGUAGE sql STABLE SET search_path = salescall, pg_temp AS $$ WITH x AS (SELECT a.claimed_at,"
+     " coalesce(a.ended_at, a.claimed_at) AS e, salescall.is_placed(a.state) AS rang, row_number() OVER (ORDER BY a.claimed_at DESC)"
+     " AS rn FROM salescall.attempts a WHERE a.contact_id = p_contact AND salescall.is_dialed(a.state)),"
+     " k AS (SELECT coalesce(min(x.rn) FILTER (WHERE x.rang) - 1, count(*))::integer AS n FROM x)"
+     " SELECT k.n, (SELECT salescall.jst(x.claimed_at)::date FROM x WHERE x.rn = k.n), (SELECT x.e FROM x WHERE x.rn = 1 AND k.n > 0)"
+     " FROM k $$",
+     ("tests.test_settle.UnusableNumber.test_calls_ending_before_the_callee_answers_follow_the_same_order",)),
+    ("お客様のところで鳴ったか（rang）が、お客様が出る前に終わった電話も鳴ったとみなす",
+     "CREATE OR REPLACE FUNCTION salescall.rang(s salescall.attempt_state, p_cut_off boolean, p_attempt uuid) RETURNS boolean"
+     " LANGUAGE sql STABLE AS $$ SELECT salescall.is_placed(s) $$",
+     ("tests.test_settle.UnusableNumber.test_a_call_that_rang_restarts_the_run",)),
     # 見直し17b（全部の試験でも落ちなかった壊し方に、試験を足した）
     ("発信に失敗の続きの「最後の失敗の終わり」を、続いた最初の失敗の終わりにする（次にかける時刻を取り違える）",
      'CREATE OR REPLACE FUNCTION salescall.failed_run(p_contact uuid)\nRETURNS TABLE (n integer, first_day date, last_end timestamptz)\nLANGUAGE sql STABLE SET search_path = salescall, pg_temp AS $$\n  WITH x AS (SELECT a.claimed_at, coalesce(a.ended_at, a.claimed_at) AS e, salescall.is_placed(a.state) AS placed,\n                    row_number() OVER (ORDER BY a.claimed_at DESC) AS rn\n             FROM salescall.attempts a WHERE a.contact_id = p_contact AND salescall.is_dialed(a.state)),\n       k AS (SELECT coalesce(min(x.rn) FILTER (WHERE x.placed) - 1, count(*))::integer AS n FROM x)\n  SELECT k.n, (SELECT salescall.jst(x.claimed_at)::date FROM x WHERE x.rn = k.n),\n         (SELECT x.e FROM x WHERE x.rn = k.n AND k.n > 0)\n  FROM k\n$$;',

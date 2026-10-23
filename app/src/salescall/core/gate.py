@@ -60,7 +60,7 @@ REASONS: dict[str, Reason] = {
     "number_unknown": Reason("番号が不明です", "permanent", "plan"),
     "number_kind_forbidden": Reason("かけない種類の番号です", "permanent", "plan"),
     "number_kind_not_allowed": Reason("この業務の設定でかけない種類の番号です", "permanent", "plan"),
-    "number_unusable": Reason("この番号は、回線の部品が続けて受け付けませんでした（発信に失敗が決まった数だけ続いた）", "permanent", "plan"),
+    "number_unusable": Reason("この番号は、お客様のところで電話が鳴らない電話が続きました（番号を受け付けない・お客様が出る前に終わる、が決まった数だけ続いた）", "permanent", "plan"),
     "dnc_client": Reason("発信禁止です", "permanent", "plan"),
     "dnc_contractor": Reason("契約者の共通の発信禁止です", "permanent", "plan"),
     "other_contractor_called": Reason("ほかの契約者がかけた番号です（契約者の設定で、かけない）", "permanent", "plan"),
