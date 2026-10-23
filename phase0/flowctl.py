@@ -2161,13 +2161,20 @@ class Flow:
         - 相手の質問は通話の事実 callee_question に残す（依頼主へ渡す）。受け答えは talk に残す（依頼主へは渡さない）。同じ発話には1回だけ。"""
         if self.own_turn == self.callee_turns:
             return self._reject("この言葉には、もう答えています（同じ言葉に2回答えません）。")
+        # 使えないときの一言（受け答え＝決まった一言・自分で答える質問＝答えのもとにした知っていることの文）。要るのは、答えの文が使えないとき
+        # だけ（⛔ 2026-10-23 tc46：選んでいない報告をはじめから差し戻したので、AIが「答えの文」と「使えないときの一言」の片方を付け忘れるたびに
+        # 相手を待たせた＝お礼の S4 で11回）
+        kind = part
+        pick = fallback if fallback is not None and not self._fallback_missing(kind, fallback) else None
         if not (answer or "").strip():
+            if pick is not None:
+                # 一言だけを選んだ：その一言で応える（決まった言い方・知っていることの文そのまま＝確かめなくてよい。AIの選んだ言い方）
+                self.own_turn = self.callee_turns
+                return self._own_fallback(kind, pick, None, {}, {"checked": "fallback"})
             return self._reject(f"言う文（自分の言葉で、短く1〜2文）を「{ARG_LABEL['answer']}」に書いて、もう一度呼んでください（声に出すのは、"
                                 "プログラムの返事のあとです）。")
-        if why := self._fallback_missing(part, fallback):
-            return self._reject(why)
         from grounding import GROUNDED, Verdict, verbatim
-        kind, answer = part, answer.strip()
+        answer = answer.strip()
         verdict = Verdict(GROUNDED) if verbatim(answer, self.knowledge) else self._grounded(answer)
         problem = own_answer_problem(answer, self.names, may_follow_up=self._may_follow_up(kind), verdict=verdict,
                                      name_readings=self.name_readings)
@@ -2177,49 +2184,55 @@ class Flow:
             # 知っていることの文をそのまま使うように言う（そのままなら中身の判定に聞かない＝必ず通る）
             self.own_tried = (self.callee_turns, tried + [(answer, problem)])
             last = "" if kind != "own" or len(tried) + 1 < OWN_REWRITES else "次で最後です。こちらが知っていることの文を、そのまま使って書きます。"
-            return self._reject(f"この文は声に出しません（{problem}）。{last}")
+            need = "" if pick is not None else (self._fallback_missing(kind, None) or "")
+            return self._reject(f"この文は声に出しません（{problem}）。{last}{need}")
         if problem is None and verdict is None:
             # 中身を確かめられなかった（判定が待つ長さに届かなかった・止まっている・判定を使わない通話）：声に出さない。書き直しても判定は
             # 速くならないので、そのまま受け皿へ（✅ 2026-10-19 ユーザー：「明らかに違う内容を喋ろうとしているのが事前に分かるのであれば、
             # 止めてもOK」＝分からない文は流さない。⛔ G-63：判定の無いときの足場は、危ない文を 82文中18文通した）
             problem = UNCHECKED
+        if problem and pick is None and (need := self._fallback_missing(kind, None)):
+            # 使えない文で、使えないときの一言を選んでいない：選ばせる（書き直しには数えない。この1回だけ、相手をもう少し待たせる）
+            return self._reject(f"この文は声に出しません（{problem}）。{need}")
         tried = tried + ([(answer, problem)] if problem else [])
         self.own_turn = self.callee_turns
         checked = {"checked": getattr(verdict, "by", None) or ("knowledge" if verdict is not None else None)}
         drafts = {"drafts": [{"text": t, "problem": p} for t, p in tried]} if tried else {}
-        if kind == "talk":
-            words = TALK_FALLBACK[fallback][0]
-            self._note("talk", answer=words if problem else answer, **({"fallback": fallback} if problem else {}), **drafts, **checked)
-            self.own_pending = kind
-            if problem:
-                # 受け答えの受け皿：AIが選んだ一言（こちらについての事実を言わない決まった言い方＝録音）で、お客様の言葉に応えてから、相手の返事を待つ
-                if self.play_recordings:
-                    return {"result": "own_answer", "fallback": True, "play": [{"kind": "recorded", "id": fallback, "text": words}],
-                            "message": f"受け答えの文は使いません（{problem}）。かわりに選んだ一言「{words}」を、プログラムが録音で流しました"
-                                       f"（相手にもう聞こえています）。何も言わずに、{self._own_then()}"}
-                return {"result": "own_answer", "fallback": True, "say": words,
-                        "message": f"受け答えの文は使いません（{problem}）。かわりに「{words}」とだけ言います（言葉を足しません）。{self._own_then()}"}
-            return {"result": "own_answer", "say": answer, "message": f"「{answer}」とだけ言います（言葉を足しません）。{self._own_then()}"}
-        said, play = answer, None
         if problem:
-            # 自分で答える質問＝AIが選んだ、答えのもとにした知っていることの文そのまま（確かめなくてよい）／答えを持っていない質問＝断らない一言の録音
-            said, play = (fallback, None) if kind == "own" else (OWN_FALLBACK, {"kind": "recorded", "id": "own_fallback", "text": OWN_FALLBACK})
+            return self._own_fallback(kind, pick, problem, drafts, checked)
         self.own_pending = kind
-        # 答えに添えられた質問は、もう記録してある（_advance）＝同じ発話の記録に書き足す
-        entry = {"answered": kind == "own" and (not problem or said != OWN_FALLBACK), "answer": said, **drafts, **checked}
+        if kind == "talk":
+            self._note("talk", answer=answer, **drafts, **checked)
+        else:
+            self._question_note({"answered": kind == "own", "answer": answer, **drafts, **checked})
+        return {"result": "own_answer", "say": answer, "message": f"「{answer}」とだけ言います（言葉を足しません）。{self._own_then()}"}
+
+    def _question_note(self, entry: dict) -> None:
+        """相手の質問の記録（callee_question）に、答えを書く（答えに添えられた質問は、もう記録してある＝_advance。同じ発話の記録に書き足す）。"""
         same = [x for x in self.facts.get("callee_question", []) if x["turn"] == self.callee_turns]
         if same:
             same[-1].update(entry)
         else:
             self._note("callee_question", **entry)
+
+    def _own_fallback(self, kind: str, pick: str | None, problem: str | None, drafts: dict, checked: dict) -> dict:
+        """答えの文を使わずに、受け皿で応える返事（唯一の場所。_own_answer）：受け答え＝AIが選んだ一言の録音（phrases.TALK_FALLBACK。こちらに
+        ついての事実を言わない決まった言い方）／自分で答える質問＝AIが選んだ、答えのもとにした知っていることの文そのまま／答えを持っていない
+        質問＝断らない一言の録音（phrases.OWN_FALLBACK）。どれも確かめなくてよい。そのあと相手の返事を待つ（own_pending）。
+        problem＝答えの文が使えなかった理由（None＝AIが一言だけを選んだ）。"""
+        self.own_pending = kind
+        why = f"答えの文は使いません（{problem}）。かわりに" if problem else ""
+        if kind == "talk":
+            said, play = TALK_FALLBACK[pick][0], {"kind": "recorded", "id": pick, "text": TALK_FALLBACK[pick][0]}
+            self._note("talk", answer=said, fallback=pick, **drafts, **checked)
+        else:
+            said, play = (pick, None) if kind == "own" else (OWN_FALLBACK, {"kind": "recorded", "id": "own_fallback", "text": OWN_FALLBACK})
+            self._question_note({"answered": kind == "own", "answer": said, **drafts, **checked})
         if play is not None and self.play_recordings:
             return {"result": "own_answer", "fallback": True, "play": [play],
-                    "message": f"答えの文は使いません（{problem}）。かわりに「{OWN_FALLBACK}」を、プログラムが録音で流しました（相手にもう"
-                               f"聞こえています）。何も言わずに、{self._own_then()}"}
-        if problem:
-            return {"result": "own_answer", "fallback": True, "say": said,
-                    "message": f"答えの文は使いません（{problem}）。かわりに「{said}」とだけ言います（言葉を足しません）。{self._own_then()}"}
-        return {"result": "own_answer", "say": answer, "message": f"「{answer}」とだけ言います（言葉を足しません）。{self._own_then()}"}
+                    "message": f"{why}「{said}」を、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、{self._own_then()}"}
+        return {"result": "own_answer", "fallback": True, "say": said,
+                "message": f"{why}「{said}」とだけ言います（言葉を足しません）。{self._own_then()}"}
 
     def _may_follow_up(self, part: str | None) -> bool:
         """答えの文に「担当から改めてご連絡」を入れてよいか（業務設定で許された、答えを持っていない質問だけ。_own_answer・grounding_job の1か所）。"""
@@ -2240,8 +2253,6 @@ class Flow:
         answer = (a.get("answer") or "").strip()
         if name != "replay_opening" or a.get("part") not in OWN_PARTS or not answer or self.own_turn == self.callee_turns:
             return None
-        if self._fallback_missing(a.get("part"), a.get("fallback")):
-            return None  # 使えないときの一言が無い受け答え・自分で答える質問は差し戻す（_own_answer）＝判定に聞かない
         from grounding import verbatim
         if verbatim(answer, self.knowledge) or self._grounded(answer) is not None:
             return None

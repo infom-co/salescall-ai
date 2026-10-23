@@ -6826,18 +6826,18 @@ class OwnWordsTest(unittest.TestCase):
         f, b = self.flow()
         self.heard(f, "いつもお世話になってます。")
         line = "こちらこそ、先日はご来店いただきありがとうございました。"
-        # 一言を選んでいない受け答えは、確かめる前に差し戻す（判定にも聞かない）
-        r = f.apply("replay_opening", {"part": "talk", "answer": line})
-        self.assertEqual(r["result"], "rejected")
-        self.assertIn("こちらこそお世話になっております。", r["message"])
-        self.assertIsNone(f.grounding_job("replay_opening", {"part": "talk", "answer": line}))
+        # 一言を選んでいなくても、はじめからは差し戻さない（答えの文が通れば要らない。⛔ tc46：はじめから差し戻すと、付け忘れのたびに相手を
+        # 待たせた）。書き直させるときに、選べる一言も添える。書き直しを使い切っても選んでいなければ、その1回だけ選ばせる
+        self.assertIsNotNone(f.grounding_job("replay_opening", {"part": "talk", "answer": line}))
         for i in range(OWN_REWRITES + 1):
             f.on_grounded(line, self.verdict(UNGROUNDED, "先日はご来店いただき"))
-            r = f.apply("replay_opening", {"part": "talk", "answer": line, "fallback": "talk_osewa"})
-            if i < OWN_REWRITES:
-                self.assertEqual((r["result"], r.get("say"), r["ack"]), ("rejected", None, None))
-                self.assertIn("「先日はご来店いただき」", r["message"])
-                self.assertNotIn("次で最後です", r["message"])   # 受け答えには、知っていることの文をそのまま言う道は勧めない
+            r = f.apply("replay_opening", {"part": "talk", "answer": line})
+            self.assertEqual((r["result"], r.get("say"), r["ack"]), ("rejected", None, None))
+            self.assertIn("「先日はご来店いただき」", r["message"])
+            self.assertIn("こちらこそお世話になっております。", r["message"])
+            self.assertNotIn("次で最後です", r["message"])   # 受け答えには、知っていることの文をそのまま言う道は勧めない
+        f.on_grounded(line, self.verdict(UNGROUNDED, "先日はご来店いただき"))
+        r = f.apply("replay_opening", {"part": "talk", "answer": line, "fallback": "talk_osewa"})
         words = TALK_FALLBACK["talk_osewa"][0]
         self.assertEqual((r["result"], r.get("say"), r["ack"], [(p.get("kind"), p.get("id"), p.get("text")) for p in r["play"]]),
                          ("own_answer", None, None, [("recorded", "talk_osewa", words)]))   # 頭に「はい、」を重ねない
@@ -6849,6 +6849,12 @@ class OwnWordsTest(unittest.TestCase):
         self.heard(f, "いえいえ。")
         r = f.apply("replay_opening", {"part": "resume"})
         self.assertEqual((r["ack"], [(p.get("kind"), p.get("id")) for p in r["play"]]), ("hai", [("question", "Q1")]))
+        # 一言だけを選んだ報告（答えの文が無い）：その一言で応える（AIの選んだ言い方。確かめなくてよい）
+        f, b = self.flow()
+        self.heard(f, "いつもお世話になってます。")
+        r = f.apply("replay_opening", {"part": "talk", "fallback": "talk_osewa"})
+        self.assertEqual((r["result"], [p.get("id") for p in r["play"]], r["ack"]), ("own_answer", ["talk_osewa"], None))
+        self.assertEqual(f.facts["talk"][-1]["answer"], words)
         # 録音を流さない通話では、AIがその一言だけを言う（頭は「はい、」）
         f, b = self.flow()
         f.play_recordings = False
