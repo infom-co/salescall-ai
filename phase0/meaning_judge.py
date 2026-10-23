@@ -211,7 +211,7 @@ OTHER_JUDGES = {
     # sure_min＝答えにする確からしさ（Jev が受け持って誤った数が 0.95 から0。下は答えにしない＝もう1つの判定で決める）・
     # firm_min＝言い切っているとする確からしさ（0.5 では要らない「曖昧」の印が53個、0.2 では5個）
     # ground_min＝中身の判定（grounding）で読みにする確からしさ（2026-10-23 G-63：Jev が外したのは5回とも 0.48 以下・正しく通したのは 0.51 以上
-    # ＝線 0.8 で危ない文 0・Jev が決めるのは 76%。⏳ 中身の判定に Jev を入れるか（GROUNDERS）は、ユーザーのご判断を待つ）
+    # ＝線 0.8 で危ない文 0・Jev が決めるのは 76%。✅ 2026-10-23 の2回目・ユーザー承認で、中身の判定にも毎回入れた＝grounding.GROUNDERS）
     "Jev 1.14": {"maker": "typesafe", "model": "typesafe/jev-1.14", "key": "OPENROUTER_JUDGE_KEY", "host": "openrouter.ai",
                  "sure_min": 0.95, "firm_min": 0.2, "ground_min": 0.8},
 }

@@ -1490,5 +1490,89 @@
       ]
     ],
     "note": "読み・長さ・終わりの無音は合格。文の途中の間（「ので」のあと・「そのご質問は」のあと）で、間の確かめには落ちた＝人が聞いて決める"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "talk_agree",
+    "text": "本当にそうですよね！",
+    "heard": {
+      "0.0": "本当にそうですよね。",
+      "1.0": "本当にそうですよね。"
+    },
+    "ok": true,
+    "seconds": 1.64,
+    "wav": "S2_talk_agree_ふつう1.wav",
+    "how": "ふつうの調子（2026-10-23）"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "talk_agree",
+    "text": "本当にそうですよね！",
+    "heard": {
+      "0.0": "本当にそうですよね。",
+      "1.0": "本当にそうですよね。"
+    },
+    "ok": true,
+    "seconds": 1.44,
+    "wav": "S2_talk_agree_ふつう2.wav",
+    "how": "ふつうの調子（2026-10-23）"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "talk_heard",
+    "text": "そうでしたか！",
+    "heard": {
+      "0.0": "そうでしたか。",
+      "1.0": "そうでしたか。"
+    },
+    "ok": true,
+    "seconds": 0.78,
+    "wav": "S2_talk_heard_ふつう1.wav",
+    "how": "ふつうの調子（2026-10-23）"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "talk_heard",
+    "text": "そうでしたか！",
+    "heard": {
+      "0.0": "そうでしたか。",
+      "1.0": "そうでしたか。"
+    },
+    "ok": true,
+    "seconds": 0.96,
+    "wav": "S2_talk_heard_ふつう2.wav",
+    "how": "ふつうの調子（2026-10-23）"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "talk_hard",
+    "text": "それは大変でしたね。",
+    "heard": {
+      "0.0": "それは大変でしたね。",
+      "1.0": "それは大変でしたね。"
+    },
+    "ok": true,
+    "seconds": 1.58,
+    "wav": "S2_talk_hard_ふつう1.wav",
+    "how": "ふつうの調子（2026-10-23）"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "talk_hard",
+    "text": "それは大変でしたね。",
+    "heard": {
+      "0.0": "それは大変でしたね。",
+      "1.0": "それは大変でしたね。"
+    },
+    "ok": true,
+    "seconds": 1.58,
+    "wav": "S2_talk_hard_ふつう2.wav",
+    "how": "ふつうの調子（2026-10-23）"
   }
 ]

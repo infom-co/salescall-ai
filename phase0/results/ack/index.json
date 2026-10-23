@@ -833,7 +833,8 @@
     "ok": true,
     "seconds": 1.36,
     "tries": 1,
-    "wav": "S2_talk_agree.wav"
+    "wav": "S2_talk_agree.wav",
+    "pending": "⏳ 2026-10-23 ユーザー：場面によって調子が合わない（「本当にそうですよね」は大袈裟なことも・「そうでしたか」「それは大変でしたね」は低すぎることも）"
   },
   {
     "type": "S2",
@@ -847,7 +848,8 @@
     "ok": true,
     "seconds": 1.02,
     "tries": 1,
-    "wav": "S2_talk_heard.wav"
+    "wav": "S2_talk_heard.wav",
+    "pending": "⏳ 2026-10-23 ユーザー：場面によって調子が合わない（「本当にそうですよね」は大袈裟なことも・「そうでしたか」「それは大変でしたね」は低すぎることも）"
   },
   {
     "type": "S2",
@@ -861,7 +863,8 @@
     "ok": true,
     "seconds": 1.48,
     "tries": 1,
-    "wav": "S2_talk_hard.wav"
+    "wav": "S2_talk_hard.wav",
+    "pending": "⏳ 2026-10-23 ユーザー：場面によって調子が合わない（「本当にそうですよね」は大袈裟なことも・「そうでしたか」「それは大変でしたね」は低すぎることも）"
   },
   {
     "type": "S2",
@@ -875,7 +878,9 @@
     "ok": true,
     "seconds": 4.0,
     "tries": 1,
-    "wav": "S2_departed.wav"
+    "wav": "S2_departed.wav",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-23 ユーザーが聞いて承認（S2：ほぼ良い）"
   },
   {
     "type": "S2",
@@ -889,77 +894,9 @@
     "ok": true,
     "seconds": 1.86,
     "tries": 1,
-    "wav": "S2_back.wav"
-  },
-  {
-    "type": "S4",
-    "voice": "Sadachbia",
-    "id": "talk_agree",
-    "text": "本当にそうですよね！",
-    "heard": {
-      "0.0": "本当にそうですよね。",
-      "1.0": "本当にそうですよね。"
-    },
-    "ok": true,
-    "seconds": 1.8,
-    "tries": 2,
-    "wav": "S4_talk_agree.wav"
-  },
-  {
-    "type": "S4",
-    "voice": "Sadachbia",
-    "id": "talk_heard",
-    "text": "そうでしたか！",
-    "heard": {
-      "0.0": "そうでしたか。",
-      "1.0": "そうでしたか。"
-    },
-    "ok": true,
-    "seconds": 1.1,
-    "tries": 1,
-    "wav": "S4_talk_heard.wav"
-  },
-  {
-    "type": "S4",
-    "voice": "Sadachbia",
-    "id": "talk_hard",
-    "text": "それは大変でしたね。",
-    "heard": {
-      "0.0": "それは大変でしたね。",
-      "1.0": "それは大変でしたね。"
-    },
-    "ok": true,
-    "seconds": 1.94,
-    "tries": 1,
-    "wav": "S4_talk_hard.wav"
-  },
-  {
-    "type": "S4",
-    "voice": "Sadachbia",
-    "id": "departed",
-    "text": "そうでしたか。大変失礼いたしました。",
-    "heard": {
-      "0.0": "そうでしたか。大変失礼いたしました。",
-      "1.0": "そうでしたか。大変失礼いたしました。"
-    },
-    "ok": true,
-    "seconds": 2.52,
-    "tries": 1,
-    "wav": "S4_departed.wav"
-  },
-  {
-    "type": "S4",
-    "voice": "Sadachbia",
-    "id": "back",
-    "text": "話を戻させていただきますね。",
-    "heard": {
-      "0.0": "話を戻させていただきますね。",
-      "1.0": "話を戻させていただきますね。"
-    },
-    "ok": true,
-    "seconds": 1.84,
-    "tries": 1,
-    "wav": "S4_back.wav"
+    "wav": "S2_back.wav",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-23 ユーザーが聞いて承認（S2：ほぼ良い）"
   },
   {
     "type": "L4",
@@ -973,7 +910,9 @@
     "ok": true,
     "seconds": 1.48,
     "tries": 1,
-    "wav": "L4_talk_agree.wav"
+    "wav": "L4_talk_agree.wav",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-23 ユーザーが聞いて承認（L4：全てOK）"
   },
   {
     "type": "L4",
@@ -987,7 +926,9 @@
     "ok": true,
     "seconds": 1.12,
     "tries": 1,
-    "wav": "L4_talk_heard.wav"
+    "wav": "L4_talk_heard.wav",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-23 ユーザーが聞いて承認（L4：全てOK）"
   },
   {
     "type": "L4",
@@ -1001,7 +942,9 @@
     "ok": true,
     "seconds": 1.74,
     "tries": 1,
-    "wav": "L4_talk_hard.wav"
+    "wav": "L4_talk_hard.wav",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-23 ユーザーが聞いて承認（L4：全てOK）"
   },
   {
     "type": "L4",
@@ -1015,7 +958,9 @@
     "ok": true,
     "seconds": 3.36,
     "tries": 1,
-    "wav": "L4_departed.wav"
+    "wav": "L4_departed.wav",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-23 ユーザーが聞いて承認（L4：全てOK）"
   },
   {
     "type": "L4",
@@ -1029,14 +974,16 @@
     "ok": true,
     "seconds": 1.92,
     "tries": 1,
-    "wav": "L4_back.wav"
+    "wav": "L4_back.wav",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-23 ユーザーが聞いて承認（L4：全てOK）"
   },
   {
     "type": "S2",
     "id": "own_fallback",
     "text": "恐れ入ります。そのご質問は私では正確にお答えできませんので担当の者に申し伝えさせていただきますね。",
     "wav": "S2_own_fallback.wav",
-    "ok": false,
+    "ok": true,
     "seconds": 7.2,
     "gaps": [
       [
@@ -1049,34 +996,17 @@
       ]
     ],
     "note": "仮（2026-10-23）：候補1。読み・長さ・終わりの無音は合格、「ので」のあとの間（0.4秒前後）で間の確かめに落ちた。ユーザーが聞いて選ぶまでの仮",
-    "provisional_from": "S2_own_fallback_1.wav"
-  },
-  {
-    "type": "S4",
-    "id": "own_fallback",
-    "text": "恐れ入ります。そのご質問は私では正確にお答えできませんので担当の者に申し伝えさせていただきますね。",
-    "wav": "S4_own_fallback.wav",
-    "ok": false,
-    "seconds": 7.92,
-    "gaps": [
-      [
-        0.78,
-        0.5
-      ],
-      [
-        5.0,
-        0.44
-      ]
-    ],
-    "note": "仮（2026-10-23）：候補1。読み・長さ・終わりの無音は合格、「ので」のあとの間（0.4秒前後）で間の確かめに落ちた。ユーザーが聞いて選ぶまでの仮",
-    "provisional_from": "S4_own_fallback_1.wav"
+    "provisional_from": "S2_own_fallback_1.wav",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-23 ユーザーが聞いて承認（S2：ほぼ良い）",
+    "auto_ok": false
   },
   {
     "type": "L4",
     "id": "own_fallback",
     "text": "恐れ入ります。そのご質問は私では正確にお答えできませんので担当の者に申し伝えさせていただきますね。",
     "wav": "L4_own_fallback.wav",
-    "ok": false,
+    "ok": true,
     "seconds": 8.02,
     "gaps": [
       [
@@ -1089,6 +1019,121 @@
       ]
     ],
     "note": "仮（2026-10-23）：候補1。読み・長さ・終わりの無音は合格、「ので」のあとの間（0.4秒前後）で間の確かめに落ちた。ユーザーが聞いて選ぶまでの仮",
-    "provisional_from": "L4_own_fallback_1.wav"
+    "provisional_from": "L4_own_fallback_1.wav",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-23 ユーザーが聞いて承認（L4：全てOK）",
+    "auto_ok": false
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "talk_agree",
+    "text": "本当にそうですよね！",
+    "heard": {
+      "0.0": "本当にそうですよね。",
+      "1.0": "本当にそうですよね。"
+    },
+    "ok": true,
+    "seconds": 1.36,
+    "tries": 1,
+    "wav": "S4_talk_agree.wav",
+    "pending": "⏳ 2026-10-23 ユーザー：場面によって調子が合わない（「本当にそうですよね」は大袈裟なことも・「そうでしたか」「それは大変でしたね」は低すぎることも）",
+    "made_as": "S2",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-23 ユーザー：「S4：全体的にS2の方がいい」⇒ S2 の録音を使う"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "talk_heard",
+    "text": "そうでしたか！",
+    "heard": {
+      "0.0": "そうでしたか。",
+      "1.0": "そうでしたか。"
+    },
+    "ok": true,
+    "seconds": 1.02,
+    "tries": 1,
+    "wav": "S4_talk_heard.wav",
+    "pending": "⏳ 2026-10-23 ユーザー：場面によって調子が合わない（「本当にそうですよね」は大袈裟なことも・「そうでしたか」「それは大変でしたね」は低すぎることも）",
+    "made_as": "S2",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-23 ユーザー：「S4：全体的にS2の方がいい」⇒ S2 の録音を使う"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "talk_hard",
+    "text": "それは大変でしたね。",
+    "heard": {
+      "0.0": "それは大変でしたね。",
+      "1.0": "それは大変でしたね。"
+    },
+    "ok": true,
+    "seconds": 1.48,
+    "tries": 1,
+    "wav": "S4_talk_hard.wav",
+    "pending": "⏳ 2026-10-23 ユーザー：場面によって調子が合わない（「本当にそうですよね」は大袈裟なことも・「そうでしたか」「それは大変でしたね」は低すぎることも）",
+    "made_as": "S2",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-23 ユーザー：「S4：全体的にS2の方がいい」⇒ S2 の録音を使う"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "departed",
+    "text": "そうでしたか。大変失礼いたしました。",
+    "heard": {
+      "0.0": "そうでしたか。大変失礼いたしました。",
+      "1.0": "そうでしたか。大変失礼いたしました。"
+    },
+    "ok": true,
+    "seconds": 4.0,
+    "tries": 1,
+    "wav": "S4_departed.wav",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-23 ユーザー：「S4：全体的にS2の方がいい」⇒ S2 の録音を使う",
+    "made_as": "S2"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "back",
+    "text": "話を戻させていただきますね。",
+    "heard": {
+      "0.0": "話を戻させていただきますね。",
+      "1.0": "話を戻させていただきますね。"
+    },
+    "ok": true,
+    "seconds": 1.86,
+    "tries": 1,
+    "wav": "S4_back.wav",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-23 ユーザー：「S4：全体的にS2の方がいい」⇒ S2 の録音を使う",
+    "made_as": "S2"
+  },
+  {
+    "type": "S4",
+    "id": "own_fallback",
+    "text": "恐れ入ります。そのご質問は私では正確にお答えできませんので担当の者に申し伝えさせていただきますね。",
+    "wav": "S4_own_fallback.wav",
+    "ok": true,
+    "seconds": 7.2,
+    "gaps": [
+      [
+        0.62,
+        0.34
+      ],
+      [
+        4.4,
+        0.4
+      ]
+    ],
+    "note": "仮（2026-10-23）：候補1。読み・長さ・終わりの無音は合格、「ので」のあとの間（0.4秒前後）で間の確かめに落ちた。ユーザーが聞いて選ぶまでの仮",
+    "provisional_from": "S2_own_fallback_1.wav",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-23 ユーザー：「S4：全体的にS2の方がいい」⇒ S2 の録音を使う",
+    "auto_ok": false,
+    "made_as": "S2"
   }
 ]
