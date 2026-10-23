@@ -1,0 +1,87 @@
+[
+  {
+    "family": "本当にそうですよね",
+    "no": 1,
+    "take": "talk_agree_light_2"
+  },
+  {
+    "family": "本当にそうですよね",
+    "no": 2,
+    "take": "talk_agree_deep_2"
+  },
+  {
+    "family": "本当にそうですよね",
+    "no": 3,
+    "take": "talk_agree_high_2"
+  },
+  {
+    "family": "本当にそうですよね",
+    "no": 4,
+    "take": "いまの1本（L4：全てOK）"
+  },
+  {
+    "family": "本当にそうですよね",
+    "no": 5,
+    "take": "talk_agree_high_1"
+  },
+  {
+    "family": "本当にそうですよね",
+    "no": 6,
+    "take": "talk_agree_light_1"
+  },
+  {
+    "family": "本当にそうですよね",
+    "no": 7,
+    "take": "talk_agree_deep_1"
+  },
+  {
+    "family": "そうでしたか",
+    "no": 1,
+    "take": "talk_heard_sad_1"
+  },
+  {
+    "family": "そうでしたか",
+    "no": 2,
+    "take": "いまの1本（L4：全てOK）"
+  },
+  {
+    "family": "そうでしたか",
+    "no": 3,
+    "take": "talk_heard_glad_1"
+  },
+  {
+    "family": "そうでしたか",
+    "no": 4,
+    "take": "talk_heard_sad_2"
+  },
+  {
+    "family": "そうでしたか",
+    "no": 5,
+    "take": "talk_heard_glad_2"
+  },
+  {
+    "family": "それは大変でしたね",
+    "no": 1,
+    "take": "talk_hard_bright_2"
+  },
+  {
+    "family": "それは大変でしたね",
+    "no": 2,
+    "take": "いまの1本（L4：全てOK）"
+  },
+  {
+    "family": "それは大変でしたね",
+    "no": 3,
+    "take": "talk_hard_bright_1"
+  },
+  {
+    "family": "それは大変でしたね",
+    "no": 4,
+    "take": "talk_hard_sad_1"
+  },
+  {
+    "family": "それは大変でしたね",
+    "no": 5,
+    "take": "talk_hard_sad_2"
+  }
+]

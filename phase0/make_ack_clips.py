@@ -81,6 +81,14 @@ HOW = {"moushiwake": "電話で、相手に聞き取れなかったことを申�
        "own_fallback": "電話で、お客様のご質問をしっかり受け止めて、確かにお伝えすることを、前向きに、丁寧に、落ち着いた調子で。言葉の途中で区切らずに",
        # 受け答えの受け皿の一言（phrases.TALK_FALLBACK）：お客様のお話に、気持ちをこめて応える（決まり文句を読み上げる調子にしない）
        "talk": "電話で、お客様のお話に、気持ちをこめて自然に応えるように、丁寧に、柔らかく、落ち着いた調子で",
+       # 同じ言葉の調子ごとの録音（phrases.TALK_FALLBACK の調子。✅ 2026-10-23 ユーザーが S2 の聞き比べで調子を聞き分けた）
+       "talk_agree_high": "電話で、弾んだ調子で楽しそうに話すお客様に、こちらも元気よく、気持ちを込めて同意するように",
+       "talk_agree_deep": "電話で、お客様のお話に、深くうなずきながら、心から同意するように、気持ちを込めて、落ち着いた調子で",
+       "talk_agree_light": "電話で、軽い世間話に、さらっと軽く同意するように、柔らかく、自然に",
+       "talk_heard_sad": "電話で、お客様の残念なお話を伺って、しんみりと、思いやりを込めて応えるように、静かに、丁寧に",
+       "talk_heard_glad": "電話で、お客様のお話を伺って、少し嬉しそうに、柔らかく応えるように",
+       "talk_hard_sad": "電話で、お客様のつらいお話を伺って、しんみりと、心から気づかうように、静かに、丁寧に",
+       "talk_hard_bright": "電話で、大変だったけれど今は落ち着いたというお客様のお話に、前向きに、ねぎらうように共感して応えるように",
        # もう伺った質問へ戻る前の一言（phrases.BACK_TO）：お客様のお話を受けたあと、柔らかく本題へ戻る
        "back": "電話で、お客様のお話を受けたあとに、柔らかく自然に本題へ戻るように、丁寧に、落ち着いた調子で"}
 DEFAULT_HOW = "電話で、相手の話に相づちを打つように、短く"
@@ -89,6 +97,7 @@ MAX_S = {"hai": 1.0, "shouchi": 1.4, "arigatou": 1.6, "shitsurei": 1.6, "moushiw
          "greeting": 2.5, "intro": 4.5, "purpose": 4.5, "ai": 3.0, "voicemail": 12.0, "ai_again": 8.0, "answer": 8.0, "offer_thanks": 7.5,
          "departed": 4.0, "message": 12.0, "authority": 13.0, "own_fallback": 8.5, "back": 3.0,
          "talk": 3.5}
+MAX_S.update({k: MAX_S["talk"] for k, (_, tone, _) in TALK_FALLBACK.items() if tone})
 # 長い文の上限は、文の長さの見込み（L4 の締めの実測：42字・5.92秒＝1字0.141秒）の1.15倍より短くしない（ClipTablesTest が見る）。
 # ✅ 2026-10-22 ユーザー（4回目）の言い方で、ほかの手段の質問（「それでは恐れ入りますが…」）・お立場を伺う一言（2つから選んでいただく形）・
 # 申し出へのお礼・断らない一言が長くなった ⇒ 質問 5.0→6.0・お立場 7.0→13.0・お礼 6.0→7.5・一言 4.0→5.5（10-23 のユーザーの言い方で 5.5→8.5）。「AIですか」と重ねて聞かれた
@@ -102,7 +111,7 @@ HOW_OF["callback_authority"] = "authority"  # 判断いただけるお立場か�
 # 「いかがなさいましたか？」「どうなさいましたか？」（phrases.SILENCE_PROMPT）：考えている相手にも、「AIですか」と3回目から聞かれたときにも
 # 流す。どちらも、何か気になる点があったかを心配して聞く一言なので、「AIですか」への言い方と同じ読み方
 HOW_OF.update({"ikaga": "ai", "dou": "ai"})
-HOW_OF.update({k: "talk" for k in TALK_FALLBACK})
+HOW_OF.update({k: "talk" for k, (_, tone, _) in TALK_FALLBACK.items() if tone is None})  # 調子ごとの録音は、名前そのものが読み方の鍵
 
 
 END_SILENCE_S = 0.1  # 声のあとに、これだけの無音が無ければ、声の途中で切れた録音として落とす
@@ -225,6 +234,8 @@ def adopt(names: list[str], script: bool, as_type: str | None = None, as_id: str
     # 候補の置き場所：この単位の candidates/ と、G-38 の録音（results/voice_match/。✅ 2026-10-15 ユーザーが 06＝A5 を選んだ）
     cands = {r["wav"][:-4]: (out / "candidates", r) for r in json.loads((out / "candidates" / "index.json").read_text(encoding="utf-8"))
              if r.get("wav")} if (out / "candidates" / "index.json").exists() else {}
+    # 使っている録音も選べる（✅ 2026-10-23：S2 の「本当にそうですよね！」を、ユーザーが聞き分けた調子の録音＝talk_agree_high として使う）
+    cands.update({m["wav"][:-4]: (out, m) for m in made if m.get("wav") and m["wav"][:-4] not in cands})
     for g in sorted(HERE.glob("results/G-38_*.json")):
         cands.update({r["wav"][:-4]: (HERE / "results" / "voice_match", r) for r in json.loads(g.read_text(encoding="utf-8"))["rows"]
                       if r.get("wav") and r.get("ok") and r["id"] in table})
@@ -232,10 +243,10 @@ def adopt(names: list[str], script: bool, as_type: str | None = None, as_id: str
     for name in names:
         where, row = cands[name]
         row = {k: v for k, v in row.items() if k not in ("features", "st_from_ref", "cond", "take")}
-        assert row["text"] == table[row["id"]][0], (name, row["text"])  # 文が変わったあとの古い候補は使わない
-        if as_id and as_id != row["id"]:
-            assert table[as_id][0] == row["text"], (name, as_id)  # 言葉が違う録音は使わない
-            row.update({"made_as_id": row["id"], "id": as_id})
+        target = as_id or row["id"]
+        assert target in table and table[target][0] == row["text"], (name, target, row["text"])  # 言葉が違う録音・文が変わったあとの古い候補は使わない
+        if target != row["id"]:
+            row.update({"made_as_id": row["id"], "id": target})
         if as_type and as_type != row["type"]:
             assert voice_style(as_type)[0] == voice_style(row["type"])[0], (name, as_type)  # 声の名前が違う録音は使わない
             row.update({"made_as": row["type"], "type": as_type})

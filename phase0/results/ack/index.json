@@ -824,51 +824,6 @@
   {
     "type": "S2",
     "voice": "Sadachbia",
-    "id": "talk_agree",
-    "text": "本当にそうですよね！",
-    "heard": {
-      "0.0": "本当にそうですよね。",
-      "1.0": "本当にそうですよね。"
-    },
-    "ok": true,
-    "seconds": 1.36,
-    "tries": 1,
-    "wav": "S2_talk_agree.wav",
-    "pending": "⏳ 2026-10-23 ユーザー：場面によって調子が合わない（「本当にそうですよね」は大袈裟なことも・「そうでしたか」「それは大変でしたね」は低すぎることも）"
-  },
-  {
-    "type": "S2",
-    "voice": "Sadachbia",
-    "id": "talk_heard",
-    "text": "そうでしたか！",
-    "heard": {
-      "0.0": "そうでしたか。",
-      "1.0": "そうでしたか。"
-    },
-    "ok": true,
-    "seconds": 1.02,
-    "tries": 1,
-    "wav": "S2_talk_heard.wav",
-    "pending": "⏳ 2026-10-23 ユーザー：場面によって調子が合わない（「本当にそうですよね」は大袈裟なことも・「そうでしたか」「それは大変でしたね」は低すぎることも）"
-  },
-  {
-    "type": "S2",
-    "voice": "Sadachbia",
-    "id": "talk_hard",
-    "text": "それは大変でしたね。",
-    "heard": {
-      "0.0": "それは大変でしたね。",
-      "1.0": "それは大変でしたね。"
-    },
-    "ok": true,
-    "seconds": 1.48,
-    "tries": 1,
-    "wav": "S2_talk_hard.wav",
-    "pending": "⏳ 2026-10-23 ユーザー：場面によって調子が合わない（「本当にそうですよね」は大袈裟なことも・「そうでしたか」「それは大変でしたね」は低すぎることも）"
-  },
-  {
-    "type": "S2",
-    "voice": "Sadachbia",
     "id": "departed",
     "text": "そうでしたか。大変失礼いたしました。",
     "heard": {
@@ -897,54 +852,6 @@
     "wav": "S2_back.wav",
     "chosen_by": "人",
     "approved": "✅ 2026-10-23 ユーザーが聞いて承認（S2：ほぼ良い）"
-  },
-  {
-    "type": "L4",
-    "voice": "Leda",
-    "id": "talk_agree",
-    "text": "本当にそうですよね！",
-    "heard": {
-      "0.0": "本当にそうですよね。",
-      "1.0": "本当にそうですよね。"
-    },
-    "ok": true,
-    "seconds": 1.48,
-    "tries": 1,
-    "wav": "L4_talk_agree.wav",
-    "chosen_by": "人",
-    "approved": "✅ 2026-10-23 ユーザーが聞いて承認（L4：全てOK）"
-  },
-  {
-    "type": "L4",
-    "voice": "Leda",
-    "id": "talk_heard",
-    "text": "そうでしたか！",
-    "heard": {
-      "0.0": "そうでしたか。",
-      "1.0": "そうでしたか。"
-    },
-    "ok": true,
-    "seconds": 1.12,
-    "tries": 1,
-    "wav": "L4_talk_heard.wav",
-    "chosen_by": "人",
-    "approved": "✅ 2026-10-23 ユーザーが聞いて承認（L4：全てOK）"
-  },
-  {
-    "type": "L4",
-    "voice": "Leda",
-    "id": "talk_hard",
-    "text": "それは大変でしたね。",
-    "heard": {
-      "0.0": "それは大変でしたね。",
-      "1.0": "それは大変でしたね。"
-    },
-    "ok": true,
-    "seconds": 1.74,
-    "tries": 1,
-    "wav": "L4_talk_hard.wav",
-    "chosen_by": "人",
-    "approved": "✅ 2026-10-23 ユーザーが聞いて承認（L4：全てOK）"
   },
   {
     "type": "L4",
@@ -1027,60 +934,6 @@
   {
     "type": "S4",
     "voice": "Sadachbia",
-    "id": "talk_agree",
-    "text": "本当にそうですよね！",
-    "heard": {
-      "0.0": "本当にそうですよね。",
-      "1.0": "本当にそうですよね。"
-    },
-    "ok": true,
-    "seconds": 1.36,
-    "tries": 1,
-    "wav": "S4_talk_agree.wav",
-    "pending": "⏳ 2026-10-23 ユーザー：場面によって調子が合わない（「本当にそうですよね」は大袈裟なことも・「そうでしたか」「それは大変でしたね」は低すぎることも）",
-    "made_as": "S2",
-    "chosen_by": "人",
-    "approved": "✅ 2026-10-23 ユーザー：「S4：全体的にS2の方がいい」⇒ S2 の録音を使う"
-  },
-  {
-    "type": "S4",
-    "voice": "Sadachbia",
-    "id": "talk_heard",
-    "text": "そうでしたか！",
-    "heard": {
-      "0.0": "そうでしたか。",
-      "1.0": "そうでしたか。"
-    },
-    "ok": true,
-    "seconds": 1.02,
-    "tries": 1,
-    "wav": "S4_talk_heard.wav",
-    "pending": "⏳ 2026-10-23 ユーザー：場面によって調子が合わない（「本当にそうですよね」は大袈裟なことも・「そうでしたか」「それは大変でしたね」は低すぎることも）",
-    "made_as": "S2",
-    "chosen_by": "人",
-    "approved": "✅ 2026-10-23 ユーザー：「S4：全体的にS2の方がいい」⇒ S2 の録音を使う"
-  },
-  {
-    "type": "S4",
-    "voice": "Sadachbia",
-    "id": "talk_hard",
-    "text": "それは大変でしたね。",
-    "heard": {
-      "0.0": "それは大変でしたね。",
-      "1.0": "それは大変でしたね。"
-    },
-    "ok": true,
-    "seconds": 1.48,
-    "tries": 1,
-    "wav": "S4_talk_hard.wav",
-    "pending": "⏳ 2026-10-23 ユーザー：場面によって調子が合わない（「本当にそうですよね」は大袈裟なことも・「そうでしたか」「それは大変でしたね」は低すぎることも）",
-    "made_as": "S2",
-    "chosen_by": "人",
-    "approved": "✅ 2026-10-23 ユーザー：「S4：全体的にS2の方がいい」⇒ S2 の録音を使う"
-  },
-  {
-    "type": "S4",
-    "voice": "Sadachbia",
     "id": "departed",
     "text": "そうでしたか。大変失礼いたしました。",
     "heard": {
@@ -1135,5 +988,390 @@
     "approved": "✅ 2026-10-23 ユーザー：「S4：全体的にS2の方がいい」⇒ S2 の録音を使う",
     "auto_ok": false,
     "made_as": "S2"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "talk_agree_high",
+    "text": "本当にそうですよね！",
+    "heard": {
+      "0.0": "本当にそうですよね。",
+      "1.0": "本当にそうですよね。"
+    },
+    "ok": true,
+    "seconds": 1.36,
+    "tries": 1,
+    "wav": "S2_talk_agree_high.wav",
+    "made_as_id": "talk_agree",
+    "chosen_from": "S2_talk_agree",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-23 ユーザーが S2 の聞き比べで聞き分けた調子：「ハイテンション」（使える）"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "talk_agree_high",
+    "text": "本当にそうですよね！",
+    "heard": {
+      "0.0": "本当にそうですよね。",
+      "1.0": "本当にそうですよね。"
+    },
+    "ok": true,
+    "seconds": 1.36,
+    "tries": 1,
+    "wav": "S4_talk_agree_high.wav",
+    "made_as_id": "talk_agree",
+    "made_as": "S2",
+    "chosen_from": "S2_talk_agree",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-23 ユーザーが S2 の聞き比べで聞き分けた調子：「ハイテンション」（使える）・S4 は S2 の録音を使う"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "talk_agree_deep",
+    "text": "本当にそうですよね！",
+    "heard": {
+      "0.0": "本当にそうですよね。",
+      "1.0": "本当にそうですよね。"
+    },
+    "ok": true,
+    "seconds": 1.64,
+    "wav": "S2_talk_agree_deep.wav",
+    "how": "ふつうの調子（2026-10-23）",
+    "made_as_id": "talk_agree",
+    "chosen_from": "S2_talk_agree_ふつう1",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-23 ユーザーが S2 の聞き比べで聞き分けた調子：「かなり共感」（使える）"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "talk_agree_deep",
+    "text": "本当にそうですよね！",
+    "heard": {
+      "0.0": "本当にそうですよね。",
+      "1.0": "本当にそうですよね。"
+    },
+    "ok": true,
+    "seconds": 1.64,
+    "wav": "S4_talk_agree_deep.wav",
+    "how": "ふつうの調子（2026-10-23）",
+    "made_as_id": "talk_agree",
+    "made_as": "S2",
+    "chosen_from": "S2_talk_agree_ふつう1",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-23 ユーザーが S2 の聞き比べで聞き分けた調子：「かなり共感」（使える）・S4 は S2 の録音を使う"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "talk_agree_light",
+    "text": "本当にそうですよね！",
+    "heard": {
+      "0.0": "本当にそうですよね。",
+      "1.0": "本当にそうですよね。"
+    },
+    "ok": true,
+    "seconds": 1.44,
+    "wav": "S2_talk_agree_light.wav",
+    "how": "ふつうの調子（2026-10-23）",
+    "made_as_id": "talk_agree",
+    "chosen_from": "S2_talk_agree_ふつう2",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-23 ユーザーが S2 の聞き比べで聞き分けた調子：「少し共感」（使える）"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "talk_agree_light",
+    "text": "本当にそうですよね！",
+    "heard": {
+      "0.0": "本当にそうですよね。",
+      "1.0": "本当にそうですよね。"
+    },
+    "ok": true,
+    "seconds": 1.44,
+    "wav": "S4_talk_agree_light.wav",
+    "how": "ふつうの調子（2026-10-23）",
+    "made_as_id": "talk_agree",
+    "made_as": "S2",
+    "chosen_from": "S2_talk_agree_ふつう2",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-23 ユーザーが S2 の聞き比べで聞き分けた調子：「少し共感」（使える）・S4 は S2 の録音を使う"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "talk_heard_sad",
+    "text": "そうでしたか！",
+    "heard": {
+      "0.0": "そうでしたか。",
+      "1.0": "そうでしたか。"
+    },
+    "ok": true,
+    "seconds": 1.02,
+    "tries": 1,
+    "wav": "S2_talk_heard_sad.wav",
+    "made_as_id": "talk_heard",
+    "chosen_from": "S2_talk_heard",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-23 ユーザーが S2 の聞き比べで聞き分けた調子：「しんみり」（使える）"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "talk_heard_sad",
+    "text": "そうでしたか！",
+    "heard": {
+      "0.0": "そうでしたか。",
+      "1.0": "そうでしたか。"
+    },
+    "ok": true,
+    "seconds": 1.02,
+    "tries": 1,
+    "wav": "S4_talk_heard_sad.wav",
+    "made_as_id": "talk_heard",
+    "made_as": "S2",
+    "chosen_from": "S2_talk_heard",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-23 ユーザーが S2 の聞き比べで聞き分けた調子：「しんみり」（使える）・S4 は S2 の録音を使う"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "talk_heard_glad",
+    "text": "そうでしたか！",
+    "heard": {
+      "0.0": "そうでしたか。",
+      "1.0": "そうでしたか。"
+    },
+    "ok": true,
+    "seconds": 0.96,
+    "wav": "S2_talk_heard_glad.wav",
+    "how": "ふつうの調子（2026-10-23）",
+    "made_as_id": "talk_heard",
+    "chosen_from": "S2_talk_heard_ふつう2",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-23 ユーザーが S2 の聞き比べで聞き分けた調子：「少し嬉しそう」（使える）"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "talk_heard_glad",
+    "text": "そうでしたか！",
+    "heard": {
+      "0.0": "そうでしたか。",
+      "1.0": "そうでしたか。"
+    },
+    "ok": true,
+    "seconds": 0.96,
+    "wav": "S4_talk_heard_glad.wav",
+    "how": "ふつうの調子（2026-10-23）",
+    "made_as_id": "talk_heard",
+    "made_as": "S2",
+    "chosen_from": "S2_talk_heard_ふつう2",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-23 ユーザーが S2 の聞き比べで聞き分けた調子：「少し嬉しそう」（使える）・S4 は S2 の録音を使う"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "talk_hard_sad",
+    "text": "それは大変でしたね。",
+    "heard": {
+      "0.0": "それは大変でしたね。",
+      "1.0": "それは大変でしたね。"
+    },
+    "ok": true,
+    "seconds": 1.48,
+    "tries": 1,
+    "wav": "S2_talk_hard_sad.wav",
+    "made_as_id": "talk_hard",
+    "chosen_from": "S2_talk_hard",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-23 ユーザーが S2 の聞き比べで聞き分けた調子：「しんみり共感」（使える）"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "talk_hard_sad",
+    "text": "それは大変でしたね。",
+    "heard": {
+      "0.0": "それは大変でしたね。",
+      "1.0": "それは大変でしたね。"
+    },
+    "ok": true,
+    "seconds": 1.48,
+    "tries": 1,
+    "wav": "S4_talk_hard_sad.wav",
+    "made_as_id": "talk_hard",
+    "made_as": "S2",
+    "chosen_from": "S2_talk_hard",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-23 ユーザーが S2 の聞き比べで聞き分けた調子：「しんみり共感」（使える）・S4 は S2 の録音を使う"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "talk_hard_bright",
+    "text": "それは大変でしたね。",
+    "heard": {
+      "0.0": "それは大変でしたね。",
+      "1.0": "それは大変でしたね。"
+    },
+    "ok": true,
+    "seconds": 1.58,
+    "wav": "S2_talk_hard_bright.wav",
+    "how": "ふつうの調子（2026-10-23）",
+    "made_as_id": "talk_hard",
+    "chosen_from": "S2_talk_hard_ふつう2",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-23 ユーザーが S2 の聞き比べで聞き分けた調子：「明るく共感」（使える）"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "talk_hard_bright",
+    "text": "それは大変でしたね。",
+    "heard": {
+      "0.0": "それは大変でしたね。",
+      "1.0": "それは大変でしたね。"
+    },
+    "ok": true,
+    "seconds": 1.58,
+    "wav": "S4_talk_hard_bright.wav",
+    "how": "ふつうの調子（2026-10-23）",
+    "made_as_id": "talk_hard",
+    "made_as": "S2",
+    "chosen_from": "S2_talk_hard_ふつう2",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-23 ユーザーが S2 の聞き比べで聞き分けた調子：「明るく共感」（使える）・S4 は S2 の録音を使う"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "talk_agree_high",
+    "text": "本当にそうですよね！",
+    "heard": {
+      "0.0": "本当にそうですよね。",
+      "1.0": "本当にそうですよね。"
+    },
+    "ok": true,
+    "seconds": 1.48,
+    "tries": 1,
+    "wav": "L4_talk_agree_high.wav",
+    "chosen_by": "人",
+    "made_as_id": "talk_agree",
+    "chosen_from": "L4_talk_agree",
+    "pending": "⏳ 2026-10-23：L4 の調子ごとの録音はまだ選んでいない。それまで、承認済みの1本（L4：全てOK）を同じ言葉の調子すべてに仮に使う"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "talk_agree_deep",
+    "text": "本当にそうですよね！",
+    "heard": {
+      "0.0": "本当にそうですよね。",
+      "1.0": "本当にそうですよね。"
+    },
+    "ok": true,
+    "seconds": 1.48,
+    "tries": 1,
+    "wav": "L4_talk_agree_deep.wav",
+    "chosen_by": "人",
+    "made_as_id": "talk_agree",
+    "chosen_from": "L4_talk_agree",
+    "pending": "⏳ 2026-10-23：L4 の調子ごとの録音はまだ選んでいない。それまで、承認済みの1本（L4：全てOK）を同じ言葉の調子すべてに仮に使う"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "talk_agree_light",
+    "text": "本当にそうですよね！",
+    "heard": {
+      "0.0": "本当にそうですよね。",
+      "1.0": "本当にそうですよね。"
+    },
+    "ok": true,
+    "seconds": 1.48,
+    "tries": 1,
+    "wav": "L4_talk_agree_light.wav",
+    "chosen_by": "人",
+    "made_as_id": "talk_agree",
+    "chosen_from": "L4_talk_agree",
+    "pending": "⏳ 2026-10-23：L4 の調子ごとの録音はまだ選んでいない。それまで、承認済みの1本（L4：全てOK）を同じ言葉の調子すべてに仮に使う"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "talk_heard_sad",
+    "text": "そうでしたか！",
+    "heard": {
+      "0.0": "そうでしたか。",
+      "1.0": "そうでしたか。"
+    },
+    "ok": true,
+    "seconds": 1.12,
+    "tries": 1,
+    "wav": "L4_talk_heard_sad.wav",
+    "chosen_by": "人",
+    "made_as_id": "talk_heard",
+    "chosen_from": "L4_talk_heard",
+    "pending": "⏳ 2026-10-23：L4 の調子ごとの録音はまだ選んでいない。それまで、承認済みの1本（L4：全てOK）を同じ言葉の調子すべてに仮に使う"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "talk_heard_glad",
+    "text": "そうでしたか！",
+    "heard": {
+      "0.0": "そうでしたか。",
+      "1.0": "そうでしたか。"
+    },
+    "ok": true,
+    "seconds": 1.12,
+    "tries": 1,
+    "wav": "L4_talk_heard_glad.wav",
+    "chosen_by": "人",
+    "made_as_id": "talk_heard",
+    "chosen_from": "L4_talk_heard",
+    "pending": "⏳ 2026-10-23：L4 の調子ごとの録音はまだ選んでいない。それまで、承認済みの1本（L4：全てOK）を同じ言葉の調子すべてに仮に使う"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "talk_hard_sad",
+    "text": "それは大変でしたね。",
+    "heard": {
+      "0.0": "それは大変でしたね。",
+      "1.0": "それは大変でしたね。"
+    },
+    "ok": true,
+    "seconds": 1.74,
+    "tries": 1,
+    "wav": "L4_talk_hard_sad.wav",
+    "chosen_by": "人",
+    "made_as_id": "talk_hard",
+    "chosen_from": "L4_talk_hard",
+    "pending": "⏳ 2026-10-23：L4 の調子ごとの録音はまだ選んでいない。それまで、承認済みの1本（L4：全てOK）を同じ言葉の調子すべてに仮に使う"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "talk_hard_bright",
+    "text": "それは大変でしたね。",
+    "heard": {
+      "0.0": "それは大変でしたね。",
+      "1.0": "それは大変でしたね。"
+    },
+    "ok": true,
+    "seconds": 1.74,
+    "tries": 1,
+    "wav": "L4_talk_hard_bright.wav",
+    "chosen_by": "人",
+    "made_as_id": "talk_hard",
+    "chosen_from": "L4_talk_hard",
+    "pending": "⏳ 2026-10-23：L4 の調子ごとの録音はまだ選んでいない。それまで、承認済みの1本（L4：全てOK）を同じ言葉の調子すべてに仮に使う"
   }
 ]

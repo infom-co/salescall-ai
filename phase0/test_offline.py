@@ -1753,7 +1753,7 @@ class AskingMuteTest(unittest.TestCase):
         # （意味の言葉があれば言い直し・無ければ聞き返し）。報告しなければ、質問を流す
         for meanings in ({}, {"はい": "ご予約はお済みということ", "いいえ": "ご予約はまだということ"}):
             f = flow(meanings)
-            replied(f, "Ja. それにしても今日は暑いですね。", part="talk", answer="本当に暑い日が続いておりますね。", fallback="talk_agree")
+            replied(f, "Ja. それにしても今日は暑いですね。", part="talk", answer="本当に暑い日が続いておりますね。", fallback="talk_agree_light")
             f.on_callee(); f.on_heard("そうですよね。")
             r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "いいえ"})
             self.assertIn(r["result"], ("confirm_required", "ask_back"), meanings)
@@ -6871,12 +6871,12 @@ class OwnWordsTest(unittest.TestCase):
         f, b = self.flow()
         said, line = "いやあ、今日は本当に暑いですねえ。", "本当に暑い日が続いておりますね。"
         self.heard(f, said)
-        args = {ARG_LABEL["part"]: PART_LABEL["talk"], ARG_LABEL["answer"]: line, ARG_LABEL["fallback"]: TALK_LABEL["talk_agree"]}
+        args = {ARG_LABEL["part"]: PART_LABEL["talk"], ARG_LABEL["answer"]: line, ARG_LABEL["fallback"]: TALK_LABEL["talk_agree_light"]}
         job = f.grounding_job("replay_opening", args)
         self.assertEqual(job, (f.knowledge, said, line))
         f.on_grounded(line, self.verdict(NO_FACT))
         self.assertIsNone(f.grounding_job("replay_opening", args))   # もう読みがある＝聞き直さない
-        r = f.apply("replay_opening", {"part": "talk", "answer": line, "fallback": "talk_agree"})
+        r = f.apply("replay_opening", {"part": "talk", "answer": line, "fallback": "talk_agree_light"})
         self.assertEqual((r["result"], r["say"], r["ack"]), ("own_answer", line, "hai"))
         self.assertEqual([(x["answer"], x["checked"]) for x in f.facts["talk"]], [(line, "test")])
         self.assertNotIn("callee_question", f.facts)
@@ -6934,6 +6934,37 @@ class OwnWordsTest(unittest.TestCase):
         self.heard(f, "いつもお世話になってます。")
         r = f.apply("replay_opening", {"part": "talk", "answer": line, "fallback": "talk_osewa"})   # 判定が届かなかった
         self.assertEqual((r["result"], r["say"], r.get("play"), r["ack"]), ("own_answer", words, None, "hai"))
+
+    def test_same_words_in_another_tone_are_another_recording(self):
+        # ✅ 2026-10-23 ユーザー：「使うシーンが全く違うので、1つに統一は難しいでしょう。事故に遭ったときに、嬉しそうな表現だと気分を害される」
+        # ⇒ 同じ言葉の調子ごとの録音を、AIに見せる名前（言葉＋調子）で選ばせ、流すのは選んだ調子の録音。相手に言った言葉は、言葉だけ
+        import json
+        from flowctl import ARG_LABEL, PART_LABEL, TALK_CHOICES, TALK_LABEL
+        from phrases import RECORDED, TALK_FALLBACK
+        self.assertEqual(len(set(TALK_LABEL.values())), len(TALK_LABEL))   # どの調子も、AIに見せる名前で見分けられる
+        self.assertEqual(TALK_LABEL["talk_hard_sad"], "それは大変でしたね。（しんみりと）")
+        self.assertEqual(TALK_LABEL["talk_welcome"], "とんでもございません。")      # 1つしかない言葉は、言葉だけ
+        for k, (words, tone, scene) in TALK_FALLBACK.items():
+            self.assertEqual(RECORDED[k], words, k)
+            self.assertIn(f"{TALK_LABEL[k]}＝{scene}", TALK_CHOICES)
+        f, b = self.flow()
+        self.heard(f, "実は先週、事故に遭いまして。")
+        r = f.apply("replay_opening", f._args_in({ARG_LABEL["part"]: PART_LABEL["talk"], ARG_LABEL["fallback"]: TALK_LABEL["talk_hard_sad"]}))
+        self.assertEqual((r["result"], [(p.get("id"), p.get("text")) for p in r["play"]]),
+                         ("own_answer", [("talk_hard_sad", "それは大変でしたね。")]))
+        self.assertEqual((f.facts["talk"][-1]["answer"], f.facts["talk"][-1]["fallback"]), ("それは大変でしたね。", "talk_hard_sad"))
+        # 調子の無い言葉だけ（どの調子か分からない）は選んだことにならない：選び直させる（選べるものを添える）
+        f, b = self.flow()
+        self.heard(f, "実は先週、事故に遭いまして。")
+        r = f.apply("replay_opening", f._args_in({ARG_LABEL["part"]: PART_LABEL["talk"], ARG_LABEL["fallback"]: "それは大変でしたね。"}))
+        self.assertEqual(r["result"], "rejected")
+        self.assertIn(TALK_LABEL["talk_hard_bright"], r["message"])
+        self.assertNotIn("talk", f.facts)
+        # どの声にも、どの調子の録音もある（録音の無い調子をAIが選ぶと、流すものが無い）
+        index = json.loads((Path(__file__).parent / "results" / "ack" / "index.json").read_text(encoding="utf-8"))
+        have = {(m["type"], m["id"]) for m in index if m.get("ok") and (Path(__file__).parent / "results" / "ack" / m["wav"]).exists()}
+        for vt in ("S2", "S4", "L4"):
+            self.assertEqual([k for k in TALK_FALLBACK if (vt, k) not in have], [], vt)
 
     def test_answerable_question_falls_back_to_what_we_know(self):
         # 自分で答える質問（知っていることにある問い）で、答えの文が3回とも通らない：断らない一言ではなく、知っていることの文のうち、
@@ -7076,7 +7107,7 @@ class OwnWordsTest(unittest.TestCase):
         from grounding import NO_FACT, UNGROUNDED
         from flowctl import TALK_LABEL
         args = {ARG_LABEL["part"]: PART_LABEL["talk"], ARG_LABEL["answer"]: "本当に暑い日が続いておりますね。",
-                ARG_LABEL["fallback"]: TALK_LABEL["talk_agree"]}
+                ARG_LABEL["fallback"]: TALK_LABEL["talk_agree_light"]}
 
         def run(delay, choice):
             f, b = self.flow()
@@ -7103,7 +7134,7 @@ class OwnWordsTest(unittest.TestCase):
         from flowctl import UNCHECKED
         r, info = run(0.3, UNGROUNDED)
         self.assertEqual((r["result"], r.get("say"), [p.get("id") for p in r.get("play") or []], info["grounding"][0].get("late"),
-                          info["grounding"][0].get("late_verdict")), ("own_answer", None, ["talk_agree"], True, UNGROUNDED))
+                          info["grounding"][0].get("late_verdict")), ("own_answer", None, ["talk_agree_light"], True, UNGROUNDED))
         self.assertIn(UNCHECKED, r["message"])
 
 

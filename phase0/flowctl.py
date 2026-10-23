@@ -486,8 +486,9 @@ CALLBACK_LABEL = {"absent": "不在", "long_absent": "長期の不在", "other_n
 # 送ってほしい）。✅ 2026-10-22 ユーザー：折り返し＝「お礼を言い、こちらからかけ直す形にして戻る時刻を聞く」・伝言＝「業務ごとに選べるようにし、
 # 選んでいなければ (a)」（お礼を言って断り、戻る時刻を聞く）
 OFFER_LABEL = {"callback": "折り返し", "message": "伝言", "email": "メール", "fax": "ファクス", "post": "郵送"}
-# 受け答えの文が使えないときに流す一言（phrases.TALK_FALLBACK の録音。AIは言い方そのものを選ぶ）
-TALK_LABEL = {k: v for k, (v, _) in TALK_FALLBACK.items()}
+# 受け答えの文が使えないときに流す一言（phrases.TALK_FALLBACK の録音。AIは言い方そのものを選ぶ。同じ言葉の別の調子は、名前に調子を添えて分ける）
+TALK_LABEL = {k: f"{w}（{tone}）" if tone else w for k, (w, tone, _) in TALK_FALLBACK.items()}
+TALK_CHOICES = "、".join(f"{TALK_LABEL[k]}＝{scene}" for k, (_, _, scene) in TALK_FALLBACK.items())  # AIに見せる、選び方の説明（1か所）
 MEANS = ("email", "fax", "post")
 CALLBACK_PLAN = {"absent": ("back_time",), "long_absent": ("back_date",), "other_number": ("number", "reachable_time"), "later": ("later_time",),
                  "other_means": ()}
@@ -2307,7 +2308,8 @@ class Flow:
         self.own_pending = kind
         why = f"答えの文は使いません（{problem}）。かわりに" if problem else ""
         if kind == "talk":
-            said, play = TALK_FALLBACK[pick][0], {"kind": "recorded", "id": pick, "text": TALK_FALLBACK[pick][0]}
+            said = TALK_FALLBACK[pick][0]
+            play = {"kind": "recorded", "id": pick, "text": said}
             self._note("talk", answer=said, fallback=pick, **drafts, **checked)
         else:
             said, play = (pick, None) if kind == "own" else (OWN_FALLBACK, {"kind": "recorded", "id": "own_fallback", "text": OWN_FALLBACK})
@@ -2368,7 +2370,7 @@ class Flow:
         何年ですか？」に「弊社」の重なりで本社の所在地の文を選んだ ⇒ 言葉の重なりで選ぶ形は撤去し、意味の分かる会話AIに選ばせる"""
         if part == "talk" and fallback not in TALK_FALLBACK:
             return (f"「{PART_LABEL['talk']}」では、返す文が使えないときに流す一言も「{ARG_LABEL['fallback']}」で選んで、もう一度呼んでください（"
-                    + "、".join(f"{t}＝{w}" for t, w in TALK_FALLBACK.values()) + "）。")
+                    + TALK_CHOICES + "）。")
         if part == "own" and fallback not in self.known_lines():
             return (f"「{PART_LABEL['own']}」では、答えのもとにした業務の情報の文を「{ARG_LABEL['fallback']}」で選んで、もう一度呼んでください"
                     f"（業務の情報に答えが無ければ「{PART_LABEL['no_answer']}」です）。")
@@ -3611,7 +3613,7 @@ def tool_declarations(questions: list[Question], replay: bool = False, target: b
            f"「{ARG_LABEL['fallback']}」で選びます＝答えの文が使えないとき、その文をそのまま言います。声に出すのは返事のあと。番号をどこで知ったか・金額・会社のことなどは"
            f"「{PART_LABEL['purpose']}」では答えません）。質問ではない言葉（あいさつ・お礼・気遣い・世間話・お客様のお話）に、ひとこと返したい＝"
            f"「{PART_LABEL['talk']}」（返す文を「{ARG_LABEL['answer']}」に書き、返す文が使えないときに流す一言を「{ARG_LABEL['fallback']}」から、"
-           "お客様の言葉にいちばん合うものを選びます：" + "、".join(f"{t}＝{w}" for t, w in TALK_FALLBACK.values())
+           "お客様のお話と調子にいちばん合うものを選びます：" + TALK_CHOICES
            + f"）。エーアイかへの言い方・自分の言葉の答え・受け答えに、相手が返事をした"
            f"＝「{PART_LABEL['resume']}」",
            {A["part"]: s([v for k, v in PART_LABEL.items() if replay or k in ("ai", "resume") + OWN_PARTS or (target and k == "handover")]
