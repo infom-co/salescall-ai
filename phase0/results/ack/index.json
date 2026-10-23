@@ -610,5 +610,383 @@
     "seconds": 1.92,
     "tries": 2,
     "wav": "L4_greeting.wav"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "talk_agree",
+    "text": "本当にそうですね。",
+    "heard": {
+      "0.0": "本当にそうですね。",
+      "1.0": "本当にそうですね。"
+    },
+    "ok": true,
+    "seconds": 1.32,
+    "tries": 3,
+    "wav": "S2_talk_agree.wav"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "talk_heard",
+    "text": "さようでございましたか。",
+    "heard": {
+      "0.0": "左様でございましたか。",
+      "1.0": "左様でございましたか。"
+    },
+    "ok": true,
+    "seconds": 1.46,
+    "tries": 2,
+    "wav": "S2_talk_heard.wav"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "talk_hard",
+    "text": "それは大変でございましたね。",
+    "heard": {
+      "0.0": "それは大変でございましたね。",
+      "1.0": "それは大変でございましたね。"
+    },
+    "ok": true,
+    "seconds": 2.12,
+    "tries": 2,
+    "wav": "S2_talk_hard.wav"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "talk_welcome",
+    "text": "とんでもございません。",
+    "heard": {
+      "0.0": "とんでもございません。",
+      "1.0": "とんでもございません。"
+    },
+    "ok": true,
+    "seconds": 0.98,
+    "tries": 1,
+    "wav": "S2_talk_welcome.wav"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "talk_praised",
+    "text": "恐れ入ります。",
+    "heard": {
+      "0.0": "おそれいります。",
+      "1.0": "おそれいります。"
+    },
+    "ok": true,
+    "seconds": 0.94,
+    "tries": 2,
+    "wav": "S2_talk_praised.wav"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "talk_osewa",
+    "text": "こちらこそお世話になっております。",
+    "heard": {
+      "0.0": "こちらこそお世話になっております。",
+      "1.0": "こちらこそお世話になっております。"
+    },
+    "ok": true,
+    "seconds": 1.78,
+    "tries": 3,
+    "wav": "S2_talk_osewa.wav"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "talk_yoroshiku",
+    "text": "こちらこそよろしくお願いいたします。",
+    "heard": {
+      "0.0": "こちらこそよろしくお願いいたします。",
+      "1.0": "こちらこそよろしくお願いいたします。"
+    },
+    "ok": true,
+    "seconds": 1.94,
+    "tries": 2,
+    "wav": "S2_talk_yoroshiku.wav"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "talk_agree",
+    "text": "本当にそうですね。",
+    "heard": {
+      "0.0": "本当にそうですね。",
+      "1.0": "本当にそうですね。"
+    },
+    "ok": true,
+    "seconds": 1.44,
+    "tries": 1,
+    "wav": "S4_talk_agree.wav"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "talk_hard",
+    "text": "それは大変でございましたね。",
+    "heard": {
+      "0.0": "それは大変でございましたね。",
+      "1.0": "それは大変でございましたね。"
+    },
+    "ok": true,
+    "seconds": 1.94,
+    "tries": 1,
+    "wav": "S4_talk_hard.wav"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "talk_welcome",
+    "text": "とんでもございません。",
+    "heard": {
+      "0.0": "とんでもございません。",
+      "1.0": "とんでもございません。"
+    },
+    "ok": true,
+    "seconds": 1.02,
+    "tries": 1,
+    "wav": "S4_talk_welcome.wav"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "talk_praised",
+    "text": "恐れ入ります。",
+    "heard": {
+      "0.0": "恐れ入ります。",
+      "1.0": "恐れ入ります。"
+    },
+    "ok": true,
+    "seconds": 0.6,
+    "tries": 1,
+    "wav": "S4_talk_praised.wav"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "talk_osewa",
+    "text": "こちらこそお世話になっております。",
+    "heard": {
+      "0.0": "こちらこそお世話になっております。",
+      "1.0": "こちらこそお世話になっております。"
+    },
+    "ok": true,
+    "seconds": 1.86,
+    "tries": 1,
+    "wav": "S4_talk_osewa.wav"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "talk_agree",
+    "text": "本当にそうですね。",
+    "heard": {
+      "0.0": "本当にそうですね。",
+      "1.0": "本当にそうですね。"
+    },
+    "ok": true,
+    "seconds": 1.4,
+    "tries": 1,
+    "wav": "L4_talk_agree.wav"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "talk_heard",
+    "text": "さようでございましたか。",
+    "heard": {
+      "0.0": "左様でございましたか。",
+      "1.0": "左様でございましたか。"
+    },
+    "ok": true,
+    "seconds": 1.42,
+    "tries": 1,
+    "wav": "L4_talk_heard.wav"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "talk_hard",
+    "text": "それは大変でございましたね。",
+    "heard": {
+      "0.0": "それは大変でございましたね。",
+      "1.0": "それは大変でございましたね。"
+    },
+    "ok": true,
+    "seconds": 2.04,
+    "tries": 1,
+    "wav": "L4_talk_hard.wav"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "talk_welcome",
+    "text": "とんでもございません。",
+    "heard": {
+      "0.0": "とんでもございません。",
+      "1.0": "とんでもございません。"
+    },
+    "ok": true,
+    "seconds": 1.16,
+    "tries": 1,
+    "wav": "L4_talk_welcome.wav"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "talk_praised",
+    "text": "恐れ入ります。",
+    "heard": {
+      "0.0": "おそれいります。",
+      "1.0": "おそれいります。"
+    },
+    "ok": true,
+    "seconds": 0.82,
+    "tries": 1,
+    "wav": "L4_talk_praised.wav"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "talk_osewa",
+    "text": "こちらこそお世話になっております。",
+    "heard": {
+      "0.0": "こちらこそお世話になっております。",
+      "1.0": "こちらこそお世話になっております。"
+    },
+    "ok": true,
+    "seconds": 1.8,
+    "tries": 1,
+    "wav": "L4_talk_osewa.wav"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "talk_yoroshiku",
+    "text": "こちらこそよろしくお願いいたします。",
+    "heard": {
+      "0.0": "こちらこそよろしくお願いいたします。",
+      "1.0": "こちらこそよろしくお願いいたします。"
+    },
+    "ok": true,
+    "seconds": 2.14,
+    "tries": 1,
+    "wav": "L4_talk_yoroshiku.wav"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "own_fallback",
+    "text": "恐れ入ります。そのご質問は担当の者に申し伝えます。",
+    "heard": {
+      "0.0": "恐れ入ります。そのご質問は担当のものに申し伝えます。",
+      "1.0": "恐れ入ります。そのご質問は担当の者に申し伝えます。"
+    },
+    "ok": true,
+    "seconds": 4.02,
+    "tries": 1,
+    "wav": "L4_own_fallback.wav"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "talk_heard",
+    "text": "さようでございましたか。",
+    "heard": {
+      "0.0": "左様でございましたか。",
+      "1.0": "左様でございましたか。"
+    },
+    "ok": true,
+    "seconds": 1.5,
+    "tries": 2,
+    "wav": "S4_talk_heard.wav"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "talk_yoroshiku",
+    "text": "こちらこそよろしくお願いいたします。",
+    "heard": {
+      "0.0": "こちらこそよろしくお願いいたします。",
+      "1.0": "こちらこそよろしくお願いいたします。"
+    },
+    "ok": true,
+    "seconds": 2.0,
+    "tries": 1,
+    "wav": "S4_talk_yoroshiku.wav"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "talk_cared",
+    "text": "お気遣いありがとうございます。",
+    "heard": {
+      "0.0": "お気遣いありがとうございます。",
+      "1.0": "お気遣いありがとうございます。"
+    },
+    "ok": true,
+    "seconds": 1.92,
+    "tries": 2,
+    "wav": "S2_talk_cared.wav"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "own_fallback",
+    "text": "恐れ入ります。そのご質問は担当の者に申し伝えます。",
+    "heard": {
+      "0.0": "恐れ入ります。そのご質問は担当のものに申し伝えます。",
+      "1.0": "恐れ入ります。そのご質問は担当のものに申し伝えます。"
+    },
+    "ok": true,
+    "seconds": 3.48,
+    "tries": 12,
+    "wav": "S2_own_fallback.wav"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "talk_cared",
+    "text": "お気遣いありがとうございます。",
+    "heard": {
+      "0.0": "お気遣いありがとうございます。",
+      "1.0": "お気遣いありがとうございます。"
+    },
+    "ok": true,
+    "seconds": 1.6,
+    "tries": 5,
+    "wav": "S4_talk_cared.wav"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "own_fallback",
+    "text": "恐れ入ります。そのご質問は担当の者に申し伝えます。",
+    "heard": {
+      "0.0": "恐れ入ります。そのご質問は担当の者に申し伝えます。",
+      "1.0": "恐れ入ります。そのご質問は担当のものに申し伝えます。"
+    },
+    "ok": true,
+    "seconds": 3.42,
+    "tries": 4,
+    "wav": "S4_own_fallback.wav"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "talk_cared",
+    "text": "お気遣いありがとうございます。",
+    "heard": {
+      "0.0": "お気遣いありがとうございます。",
+      "1.0": "お気遣いありがとうございます。"
+    },
+    "ok": true,
+    "seconds": 1.9,
+    "tries": 1,
+    "wav": "L4_talk_cared.wav"
   }
 ]
