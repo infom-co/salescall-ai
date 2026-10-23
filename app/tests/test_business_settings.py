@@ -76,13 +76,20 @@ class Check(unittest.TestCase):
                 r["answers"] = bad
                 self.assertTrue(any(word in p for p in problems_of(r)), problems_of(r))
 
-    def test_reserved_answer_names_are_the_conversations_part_names(self):
-        """使えない問いの名前は、会話の側（main の会話の側の flowctl の RESERVED_PART_NAMES＝PART_LABEL の鍵と値。2026-10-22 の
-        CL-1 の連絡帳 4-28 の形）とまったく同じ。会話の側が変えたら、この写しと一緒に直す。「答えられない質問」は取り下げられたので、
-        問いの名前に使える。"""
-        part_label = {"intro": "名乗り", "purpose": "用件", "all": "最初から", "handover": "代わった方へ", "ai": "エーアイか聞かれた",
-                      "resume": "質問に戻る", "own": "自分で答える質問", "no_answer": "答えを持っていない質問"}
-        self.assertEqual(bs.ANSWER_RESERVED, frozenset(part_label) | frozenset(part_label.values()))
+    def test_reserved_answer_names_are_one_literal_the_conversation_side_can_read(self):
+        """使えない問いの名前の正本は会話の側（CL-1 の RESERVED_PART_NAMES＝PART_LABEL の鍵と値）。突き合わせる試験は、両方を読んでよい
+        会話の側の試験に置く（app/ の試験は試作を読まない＝14章 I-30。CL-2.md 4-144 で CL-1 に頼んだ）。こちらは、会話の側の試験が
+        読み込まずに読めるよう、ANSWER_RESERVED・ANSWER_PART_PREFIX を1つの書き下しの値で持つことを見張る（写しの一覧は持たない）。
+        ⛔ 見直し17d：前はこの試験の中に写しを持っていたので、会話の側が「受け答え」（talk）を足しても気づかなかった。"""
+        import ast
+        from pathlib import Path
+        tree = ast.parse(Path(bs.__file__).read_text(encoding="utf-8"))
+        assigned = {t.id: node.value for node in tree.body if isinstance(node, ast.Assign) for t in node.targets
+                    if isinstance(t, ast.Name)}
+        reserved = assigned["ANSWER_RESERVED"]
+        self.assertEqual(ast.unparse(reserved.func), "frozenset")
+        self.assertEqual(frozenset(ast.literal_eval(reserved.args[0])), bs.ANSWER_RESERVED)
+        self.assertEqual(ast.literal_eval(assigned["ANSWER_PART_PREFIX"]), bs.ANSWER_PART_PREFIX)
         r = raw()
         r["answers"] = [{"name": "答えられない質問", "text": "a"}]
         self.assertEqual(bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True).answers, (("答えられない質問", "a"),))
@@ -179,6 +186,14 @@ class Check(unittest.TestCase):
             with self.subTest(name=name):
                 r = raw(); r["questions"][1]["id"] = name
                 self.assertTrue(any("会話の側で使う" in p for p in problems_of(r)), problems_of(r))
+        # 想定問答の答えの録音の部分（answer_ で始まる名前）と同じ依頼者の単位の組に入るので、その頭の名前も使えない（見直し17d）
+        r = raw(); r["questions"][1]["id"] = "answer_Q2"
+        self.assertTrue(any("会話の側で使う" in p for p in problems_of(r)), problems_of(r))
+        # 契約者の単位の録音の名前（締め closing など）は別の組なので、ぶつからない＝使える（見直し17d）
+        for name in ("closing", "closing_declined", "talk_osewa"):
+            with self.subTest(name=name):
+                r = raw(); r["questions"][1]["id"] = name; r["questions"][0]["next"] = {"しない": "END", "*": name}
+                self.assertFalse(any("会話の側で使う" in p for p in problems_of(r)), problems_of(r))
         r = raw(); r["questions"][1]["id"] = "Q-2"; r["questions"][0]["next"] = {"しない": "END", "*": "Q-2"}
         self.assertFalse(any("会話の側で使う" in p for p in problems_of(r)))
 

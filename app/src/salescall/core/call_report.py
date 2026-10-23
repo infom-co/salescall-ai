@@ -212,6 +212,8 @@ class Talk:
     """世間話・お礼・気遣いへの AI の一言（事実 talk。CL-1 の 4-30）。記録だけ（依頼者へは渡さない）。"""
     evidence: Said
     own: OwnWords
+    fallback: str | None = None  # AI の文が使えず、AI が選んだ一言の録音を流したとき、その録音の名前（CL-1 の phrases.TALK_FALLBACK。
+    #                              例 talk_osewa。main の fda54b8 から。記録だけ。answer はその録音の文）
 
 
 @dataclass(frozen=True)
@@ -406,7 +408,8 @@ class CallReport:
             "departed": [{**said(x.evidence), "policy": x.policy, "read": list(x.read), "successor": x.successor}
                          for x in self.departures],
             "callee_question": [{**said(x.evidence), "answered": x.answered, **x.own.to_json()} for x in self.callee_questions],
-            "talk": [{**said(t.evidence), **t.own.to_json()} for t in self.talks]}
+            "talk": [{**said(t.evidence), **t.own.to_json(), **({} if t.fallback is None else {"fallback": t.fallback})}
+                     for t in self.talks]}
         return {"version": VERSION, "facts": {k: v for k, v in facts.items() if v}, "not_reached": self.not_reached,
                 "cut": None if self.cut is None else {"speaker": self.cut.speaker, "in_closing": self.cut.in_closing,
                                                       "callee_refused_last": self.cut.callee_refused_last},
@@ -577,7 +580,8 @@ def from_json(raw: Any) -> CallReport:
         if "answered" not in r or (r["answered"] is not None and not isinstance(r["answered"], bool)):
             raise ReportInvalid("facts.callee_question.answered は true / false / null です")
         questions.append(CalleeQuestion(r["answered"], s, _own_words(r, "facts.callee_question")))
-    talks = tuple(Talk(s, _own_words(r, "facts.talk")) for r, s in _records(facts, "talk", OWN_WORDS_KEYS))
+    talks = tuple(Talk(s, _own_words(r, "facts.talk"), _text(r.get("fallback"), "facts.talk.fallback"))
+                  for r, s in _records(facts, "talk", OWN_WORDS_KEYS | {"fallback"}))
     return CallReport(refusals, complaints, oos, parties, tuple(callbacks), ends, not_reached, cut, delivered, ai_questions,
                       voicemail, tuple(connects), tuple(answered), backs, resumes, not_transferred, substitutes, departures,
                       tuple(questions), talks)

@@ -9,8 +9,9 @@ PC → サーバー：
   hello {v, token, updater, lines, drive, key, emergency}  つないだとき（通行証・つないでいる回線・控えのハードディスクと鍵があるか・
                                                    緊急停止の印 {reason, at, event}。at＝押した時刻＝1回の押しの印）
   beat {lines, drive, key, emergency}              動いている合図（BEAT_EVERY 秒ごと。印が変わったら、すぐ）
-  reply {id, ok, value?, error?}                   頼まれたことの答え（error：not_placed＝かけていないと確かに言える・withheld＝PC の
-                                                   緊急停止でかけなかった・failed＝分からない）
+  reply {id, ok, value?, error?}                   頼まれたことの答え（error：かけていないと確かに言える＝number_rejected（アプリが番号を
+                                                   受け付けなかった＝番号のせい）・not_placed（回線のせい、または、どちらのせいか分からない）・
+                                                   withheld（PC の緊急停止でかけなかった）／failed＝かけたか分からない。分け方は link/phone.py）
   phone_event {line, event}                        電話の出来事（中身は会話＝CL-1 と電話接続の担当が決める。サーバーは通話を進める部品へ渡す）
   backup_ack {id, n}                               控えの中身を n 個目まで書いた（サーバーは、書けた分だけ先へ送る＝下の「送る速さ」）
   backup_done {id, ok, error?, ask?, size?, sha256?, removed?} 控えを書いた・片付けた結果（sha256・size は暗号化したファイルのもの。
@@ -41,7 +42,7 @@ import uuid
 from typing import Any
 from uuid import UUID
 
-VERSION = 2                  # やり取りの形の版（変えたら上げる。2＝控えの書けた印と送る速さ）
+VERSION = 3                  # やり取りの形の版（変えたら上げる。2＝控えの書けた印と送る速さ。3＝番号を受け付けなかった number_rejected）
 BEAT_EVERY = 15              # 動いている合図の間隔（秒）
 REPLY_WAIT = 20              # 頼んだことの答えを待つ長さ（秒。過ぎたら「分からない」＝かけない側）
 ANSWER_BY = REPLY_WAIT - 5   # PC が答える期限（受け取ってから。行き帰りの時間をあけて、サーバーが待つのをやめる前に届ける）。過ぎて

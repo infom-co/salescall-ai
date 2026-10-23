@@ -35,22 +35,24 @@ def clients_for_line(tx: Tx, line_id: UUID) -> list[UUID]:
 
 def due_tasks(tx: Tx, limit: int, *, skip_businesses: set[UUID] | frozenset[UUID] = frozenset(),
               skip_runs: set[UUID] | frozenset[UUID] = frozenset(), skip_stage: set[UUID] | frozenset[UUID] = frozenset(),
-              promised_only: bool = False) -> list[dict[str, Any]]:
+              promised_only: bool = False, line_id: UUID | None = None) -> list[dict[str, Any]]:
     """取引の依頼者の、いまかけてよさそうな行（門に渡す順）。
     skip_businesses＝この回、門が業務の理由（gate.BUSINESS_REASONS）で断った業務（その業務の行を出さない。判断は門がしたもの）。
     skip_runs＝この回、門が実施回の版の理由（gate.RUN_REASONS）で断った実施回（その実施回の行を出さない）。skip_stage＝門が品質の段の
     理由（gate.STAGE_REASONS）で断った実施回（決まった文面だけの電話＝品質の段を見ない電話のほかを出さない。どの電話がそれに当たるかは
     門と同じ salescall.fixed_text_kind の1か所）。
     promised_only＝お客様と約束したかけ直しだけ（回線ごとの処理が、すべての依頼者の約束を先に済ませるのに使う）。
-    門が「待つ」で必ず断り、いつまで待てば変わるか分からない行（gate.waits_unknown の1か所＝門と同じ関数：契約者の承認待ち・
-    同じお客様の発信で断られたかが未決・ほかの依頼者の約束の時刻が分からない）も出さない（予定は書き直さない。変われば、また出る。
-    ⛔ 見直し16：前は門が断るたびに、次の動きが予定を5分先へ書き直し、行ごとに記録が1日288ずつ増えた）。"""
+    門が必ず断り、いつまで待てば変わるか分からない行（門の理由の表で扱いが「候補に出さない」の理由。gate.waits_unknown の1か所＝
+    門と同じ関数：契約者の承認待ち・同じお客様の発信で断られたかが未決・目的のお客様を呼ぶ材料が無い・話してよい別の声が無い・
+    待つ時刻の分からない約束。line_id＝その回線で探す回線ごとの処理なら、その回線の発信番号でほかの依頼者がかけた番号も）も出さない
+    （予定は書き直さない。変われば、また出る。⛔ 見直し16・17a：前は門が断るたびに、次の動きが予定を5分先へ書き直し、行ごとに記録が
+    1日288ずつ増えた）。"""
     out: list[dict[str, Any]] = []
     page = max(limit, 50)
     offset = 0
     while len(out) < limit:
         rows = _candidates(tx, page, offset, skip_businesses, skip_runs, skip_stage, promised_only)
-        out += [r for r in rows if gate.waits_unknown(tx, r["task_id"]) is None][:limit - len(out)]
+        out += [r for r in rows if gate.waits_unknown(tx, r["task_id"], line_id) is None][:limit - len(out)]
         if len(rows) < page:
             break
         offset += page

@@ -227,14 +227,16 @@ COUNTED_FOR: dict[str, tuple[str, ...]] = {
 # salescall.consecutive_errors がこの名前で読む）。2026-10-16 見直し：前は会話AIと別の耳を「どこかの通話が会話に入った」で
 # まとめて数え直していたので、別の耳だけつながらないとき、ほかの通話が会話に入るたびに数え直し、止まらなかった。
 #   in_conversation＝どこかの通話が会話に入った（会話AIが動いた）／verified＝どこかの通話の検証が済んだ（別の耳が動いた）／
-#   ringing＝その回線でお客様を呼び出せた（回線が動いた）／none＝証拠を持たない（1回で止める種類）
+#   line_ok＝その回線で、お客様のところで電話が鳴って終わった（回線の部品が番号を受け付けなかった・お客様が出る前に回線の側で
+#   終わったではない電話。⛔ 見直し17a：前は「その回線でお客様を呼び出せた」で、失敗した電話そのものの呼び出しで数え直し、回線の
+#   失敗が続いても止まらなかった＝0122）／none＝証拠を持たない（1回で止める種類）
 EVIDENCE: dict[str, str] = {
     "config_error": "in_conversation",
     "ai_unreachable": "in_conversation",
     "ai_server_error": "in_conversation",
     "unknown_ai": "in_conversation",
-    "line": "ringing",
-    "unknown_line": "ringing",
+    "line": "line_ok",
+    "unknown_line": "line_ok",
 }
 
 

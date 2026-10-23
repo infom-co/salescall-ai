@@ -40,13 +40,17 @@ from salescall.core import approval, attempts, business_rules, call_report, qual
 from salescall.core.access import Tx
 
 END = "END"                                       # 分岐の行き先「終わり」
-# 質問の番号に使えない名前（1か所）。質問の番号は、会話の側で、かけ直しの質問の番号（phase0/flowctl.py の CALLBACK_IDS）と同じ並びに
-# 入り、録音の部品の名前（質問の録音は質問の番号。名乗り・締めなどは instruction.Business.replay_parts と flowctl の締めの名前）にも
-# なるので、同じ名前だと取り違える（見直し9）。会話の側に名前が増えたら、ここに足す（CL-2.md 4-121 で CL-1 へ頼んだ）。
+# 質問の番号に使えない名前（1か所）。質問の番号は、会話の側で、システムが足す質問の番号（phase0/flowctl.py の CALLBACK_IDS・
+# SUBSTITUTE_ID＝C1〜C5・M1・S1。メール・ファクス・住所・伝言・お立場）と同じ並びに入り、録音の部分の名前にもなる（業務の質問の録音
+# ＝依頼者の単位の組の、質問の番号の部分）。同じ依頼者の単位の組には名乗りの部分（instruction.Business.replay_parts の鍵＝greeting・
+# intro・purpose・ai・target・target_confirm・target_reconfirm・voicemail・message、想定問答の答え＝ANSWER_PART_PREFIX で始まる名前）が
+# 入るので、同じ名前だと取り違える（見直し9）。契約者の単位の組（締め closing・closing_declined・相づち・申し出に応じる一言など
+# ＝phrases.RECORDED）は別の組で、流すときも別の種類（会話の側の play の kind が recorded・closing）なので、ぶつからない＝ここに入れない
+# （⛔ 見直し17d：前は closing・closing_declined の2つだけを入れ、ほかの契約者の単位の名前は入れていなかった＝半端。逆に、依頼者の
+# 単位の target_reconfirm と、想定問答の answer_ で始まる名前が抜けていた）。会話の側に名前が増えたら、ここに足す（CL-2.md 4-121）。
 RESERVED_IDS = frozenset({END, "C1", "C2", "C3", "C4", "C5", "M1", "S1", "greeting", "intro", "purpose", "ai", "target",
-                          "target_confirm", "voicemail", "message", "closing", "closing_declined"})
-# C3〜C5・M1・S1＝かけ直しの申し出・代わりの方でシステムが足す質問の番号（メール・ファクス・住所・伝言・お立場）、message＝伝言の文の
-# 録音の部分（依頼者の単位）。2026-10-22 CL-1 の連絡帳 4-28 で増えた
+                          "target_confirm", "target_reconfirm", "voicemail", "message"})
+ANSWER_PART_PREFIX = "answer_"                    # 想定問答の答えの録音の部分の名前の頭（会話の側の flowctl.ANSWER_PREFIX と同じ）
 ANY = "*"                                         # 分岐の受け皿（ほかのどの答えでも）
 SYSTEM_CHOICES = ("わからない", "答えたくない")      # システムがどの質問にも足す答え（CL-1 の連絡帳 2-1。名前の正本はここ）
 ANY_CHOICE = "どちらでも"                          # 決まった選択肢（choice）の質問にだけシステムが足す答え：お客様がこちらに任せた
@@ -75,10 +79,13 @@ ANSWER_KEYS = {"name", "text"}                    # 想定問答の1つ：問い
 # 業務設定の確かめで先に断る（⛔ 2026-10-22 の見直し13：前は中の名前だけで、「用件」などが確かめを通り、その版の通話がすべて
 # 会話を始めるところで落ちた）。会話の側に名前が増えたら、ここに足す（CL-2.md 4-129）
 # ⇒ 2026-10-22 CL-1 の連絡帳 4-28：「答えられない質問」（unknown）は取り下げ、AI が自分の言葉で答える「自分で答える質問」（own）・
-# 「答えを持っていない質問」（no_answer）に替わった
-ANSWER_RESERVED = frozenset({"intro", "purpose", "all", "handover", "ai", "resume", "own", "no_answer",
+# 「答えを持っていない質問」（no_answer）に替わった。⇒ CL-1 の連絡帳 4-30：「受け答え」（talk）が増えた（⛔ 見直し17d：知らせが無く、
+# 抜けていた＝「受け答え」と書いた業務設定が通り、その版の通話が始まりで落ちた）。会話の側の一覧と同じかは、会話の側の試験が
+# この値を読み込まずに読んで突き合わせる（app/ の試験は試作を読まない＝14章 I-30。CL-2.md 4-144 で CL-1 に頼んだ）。そのため、この値は
+# 1つの書き下しの値で持つ（tests/test_business_settings が見張る）
+ANSWER_RESERVED = frozenset({"intro", "purpose", "all", "handover", "ai", "resume", "own", "no_answer", "talk",
                              "名乗り", "用件", "最初から", "代わった方へ", "エーアイか聞かれた", "質問に戻る", "自分で答える質問",
-                             "答えを持っていない質問"})
+                             "答えを持っていない質問", "受け答え"})
 ANSWER_NAME_MAX = 30                              # 問いの名前の長さの上限（録音のファイル名に入る）
 _FILE_UNSAFE = re.compile(r'[\\/:*?"<>|\x00-\x1f]')    # Windows のファイル名に使えない文字
 
@@ -424,9 +431,10 @@ def check(raw: Any, *, field_types: frozenset[str], ai_reading_needs_person: boo
                 continue
             qid = q["id"]
             if not isinstance(qid, str) or not qid or len(qid) > 32 or not all(c.isascii() and (c.isalnum() or c in "_-")
-                                                                              for c in qid) or qid in RESERVED_IDS:
-                problems.append(f"{where}の番号 {qid!r} は、英数字・「_」「-」の 32 文字までです（{'・'.join(sorted(RESERVED_IDS))} は"
-                                "会話の側で使うので使えません）")
+                                                                              for c in qid) or qid in RESERVED_IDS \
+                    or qid.startswith(ANSWER_PART_PREFIX):
+                problems.append(f"{where}の番号 {qid!r} は、英数字・「_」「-」の 32 文字までです（{'・'.join(sorted(RESERVED_IDS))} と、"
+                                f"「{ANSWER_PART_PREFIX}」で始まる名前は、会話の側で使うので使えません）")
                 continue
             where = f"質問 {qid}"
             if qid in seen:

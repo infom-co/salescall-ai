@@ -434,6 +434,21 @@ class Later1022(unittest.TestCase):
             with self.subTest(bad=bad, kind="talk"), self.assertRaises(ReportInvalid):
                 from_json(self.raw({"talk": [{**rec, **bad}]}, None))
 
+    def test_a_talk_answered_with_a_recorded_line_keeps_its_name(self):
+        """受け答えの一言で AI の文が使えず、AI が選んだ録音の一言を流した（talk の fallback＝録音の名前。main の fda54b8。記録だけ）。
+        受け取って書き戻しても落とさない。無くてもよい。文字でなければ断る。前は「知らない項目」として報告ごと断り、取れた答えも発信禁止の
+        申告も読めなかった（見直し17d）。"""
+        rec = {"turn": 1, "said": "いつもお世話になってます。", "answer": "こちらこそお世話になっております。", "checked": None,
+               "drafts": [{"text": "こちらこそ、先日はご来店いただきありがとうございました。", "problem": "知らない事実"}]}
+        for given, expected in (({"fallback": "talk_osewa"}, "talk_osewa"), ({}, None)):
+            with self.subTest(given=given):
+                r = from_json(self.raw({"talk": [{**rec, **given}]}, None))
+                self.assertEqual(r.talks[0].fallback, expected)
+                self.assertEqual(from_json(r.to_json()), r)
+        for bad in ("", 1):
+            with self.subTest(bad=bad), self.assertRaises(ReportInvalid):
+                from_json(self.raw({"talk": [{**rec, "fallback": bad}]}, None))
+
     def test_a_time_beyond_the_limit_agreed_in_the_call_is_kept(self):
         """お客様指定の歯止め時間の外の時刻（「23時以降なら」）を通話の中で確かめて「はい」と言われた印 callback.beyond_limit_ok（2026-10-23
         ユーザー：「案B＆案A(確かめたうえで案A)」）。受け取って書き戻しても落とさない。無ければ確かめていない。真偽でなければ断る。"""

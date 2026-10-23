@@ -61,7 +61,7 @@ class Classify(unittest.TestCase):
         # 続いた回数を数え直す「直った証拠」は、止める種類すべてにあり、データベースが知っている名前だけ
         stopping = {k for k, a in errors.ACTIONS.items() if a.stop_cause is not None}
         self.assertEqual(set(errors.EVIDENCE), stopping)
-        self.assertTrue(set(errors.EVIDENCE.values()) <= {"in_conversation", "verified", "ringing", "none"})
+        self.assertTrue(set(errors.EVIDENCE.values()) <= {"in_conversation", "verified", "line_ok", "none"})
         self.assertNotIn("ear_unreachable", errors.counted_with("ai_unreachable"))
         for k in stopping:
             with self.subTest(k):
@@ -149,13 +149,28 @@ class LineStops(unittest.TestCase):
         self.line_error()
         self.assertEqual([r["cause"] for r in self.line_stops()], ["line_failure"])
 
-    def test_a_call_that_rang_resets_the_count(self):
+    def test_only_a_call_that_rang_and_ended_resets_the_count(self):
+        """回線が直った証拠は、その回線で、お客様のところで電話が鳴って終わった電話（0122）。⛔ 見直し17a：前は呼び出し中に移っただけで
+        数え直したので、お客様が出る前に回線の側で終わる電話（それ自身が呼び出し中を通る）が続いても、回線は止まらなかった。"""
+        need = owner_access().in_system(SYSTEM, lambda tx: settings.initial_value(tx, "stop.line.stop_after_failures"))
+        for _ in range(need - 1):
+            self.line_error()
+        failed = self.w.insert_claim(self.s)
+        for st in ("dialing", "ringing", "technical_error"):
+            self.w.move(self.s, failed, st)                          # お客様が出る前に回線の側で終わった：証拠にならない
+        ringing = self.w.insert_claim(self.s)
+        for st in ("dialing", "ringing"):
+            self.w.move(self.s, ringing, st)                         # まだ鳴っているだけ：終わっていないので証拠にならない
+        self.line_error()
+        self.assertEqual([r["cause"] for r in self.line_stops()], ["line_failure"])
+
+    def test_a_call_that_rang_and_ended_resets_the_count(self):
         need = owner_access().in_system(SYSTEM, lambda tx: settings.initial_value(tx, "stop.line.stop_after_failures"))
         for _ in range(need - 1):
             self.line_error()
         aid = self.w.insert_claim(self.s)
-        for st in ("dialing", "ringing"):
-            self.w.move(self.s, aid, st)                             # 回線は動いている
+        for st in ("dialing", "ringing", "no_answer"):
+            self.w.move(self.s, aid, st)                             # 鳴って出なかった：回線は動いている
         for _ in range(need - 1):
             self.line_error()
         self.assertEqual(self.line_stops(), [])

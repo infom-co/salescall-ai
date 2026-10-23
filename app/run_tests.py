@@ -597,19 +597,19 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      " p_line uuid DEFAULT NULL) RETURNS integer LANGUAGE sql STABLE SECURITY DEFINER"
      " SET search_path = salescall, pg_temp AS $$ SELECT 0 $$",
      ("tests.test_watch.LineStops.test_consecutive_line_errors_stop_only_that_line",)),
-    ("呼び出せた発信で数え直さない",
+    ("鳴って終わった発信で数え直さない",
      "CREATE OR REPLACE FUNCTION salescall.consecutive_errors(p_kinds text[], p_cause text, p_evidence text,"
      " p_line uuid DEFAULT NULL) RETURNS integer LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$"
      " SELECT count(*)::integer FROM salescall.error_events e WHERE e.kind = ANY(p_kinds)"
      " AND (p_line IS NULL OR e.line_id = p_line) $$",
-     ("tests.test_watch.LineStops.test_a_call_that_rang_resets_the_count",
+     ("tests.test_watch.LineStops.test_a_call_that_rang_and_ended_resets_the_count",
       "tests.test_watch.LineStops.test_a_person_resume_restarts_the_count_and_explain_shows_why")),
-    ("続いたエラーを、直った証拠（呼び出せた発信など）で数え直さない",
+    ("続いたエラーを、直った証拠（鳴って終わった発信など）で数え直さない",
      "CREATE OR REPLACE FUNCTION salescall.consecutive_errors(p_kinds text[], p_cause text, p_evidence text,"
      " p_line uuid DEFAULT NULL) RETURNS integer LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$"
      " SELECT count(*)::integer FROM salescall.error_events e WHERE e.kind = ANY(p_kinds)"
      " AND e.tenant_id = salescall.cur_tenant() AND (p_line IS NULL OR e.line_id = p_line) $$",
-     ("tests.test_watch.LineStops.test_a_call_that_rang_resets_the_count",)),
+     ("tests.test_watch.LineStops.test_a_call_that_rang_and_ended_resets_the_count",)),
     ("エラーの数を、範囲の外の取引にも見せる",
      "CREATE OR REPLACE FUNCTION salescall.consecutive_errors(p_kinds text[], p_cause text, p_evidence text,"
      " p_line uuid DEFAULT NULL) RETURNS integer LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$"
@@ -1261,6 +1261,28 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      " SELECT k.n, (SELECT salescall.jst(x.claimed_at)::date FROM x WHERE x.rn = 1), (SELECT x.e FROM x WHERE x.rn = 1 AND k.n > 0)"
      " FROM k $$",
      ("tests.test_settle.UnusableNumber.test_the_run_of_failures_starts_on_its_first_day",)),
+    # 見直し17a（0122）：回線が直った証拠
+    ("回線が直った証拠を、前の「その回線で呼び出し中に移った」に戻す（お客様が出る前に回線の側で終わる電話が続いても、回線が止まらない）",
+     'CREATE OR REPLACE FUNCTION salescall.consecutive_errors(p_kinds text[], p_cause text, p_evidence text, p_line '
+     'uuid DEFAULT NULL) RETURNS integer LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp '
+     'AS $$ WITH allowed AS ( SELECT salescall.cur_tenant() IS NOT NULL AND (p_line IS NULL OR EXISTS (SELECT 1 FROM '
+     'salescall.lines l WHERE l.line_id = p_line AND l.tenant_id = salescall.cur_tenant())) AS ok ), since AS ( '
+     "SELECT greatest( CASE p_evidence WHEN 'in_conversation' THEN (SELECT coalesce(max(h.at), "
+     "'-infinity'::timestamptz) FROM salescall.attempt_state_history h JOIN salescall.attempts a ON a.attempt_id = "
+     "h.attempt_id WHERE h.to_state = 'in_conversation' AND a.tenant_id = salescall.cur_tenant()) WHEN 'verified' "
+     "THEN (SELECT coalesce(max(v.recorded_at), '-infinity'::timestamptz) FROM salescall.verification_summaries v "
+     "WHERE v.tenant_id = salescall.cur_tenant()) WHEN 'line_ok' THEN (SELECT coalesce(max(h.at), "
+     "'-infinity'::timestamptz) FROM salescall.attempt_state_history h JOIN salescall.attempts a ON a.attempt_id = "
+     "h.attempt_id WHERE h.to_state = 'ringing' AND a.line_id = p_line) WHEN 'none' THEN '-infinity'::timestamptz "
+     "END, (SELECT coalesce(max(r.at), '-infinity'::timestamptz) FROM salescall.stop_events r JOIN "
+     'salescall.stop_events s ON s.event_id = r.resolves_event_id WHERE s.cause::text = p_cause AND s.tenant_id = '
+     "salescall.cur_tenant() AND CASE WHEN p_line IS NULL THEN s.scope = 'tenant' ELSE s.scope = 'line' AND "
+     's.line_id = p_line END)) AS t ) SELECT CASE WHEN NOT (SELECT ok FROM allowed) OR p_evidence NOT IN '
+     "('in_conversation', 'verified', 'line_ok', 'none') OR (p_evidence = 'line_ok' AND p_line IS NULL) THEN NULL "
+     'ELSE (SELECT count(*)::integer FROM salescall.error_events e, since WHERE e.kind = ANY(p_kinds) AND '
+     'e.occurred_at > since.t AND e.tenant_id = salescall.cur_tenant() AND (p_line IS NULL OR e.line_id = p_line)) '
+     'END $$;',
+     ("tests.test_watch.LineStops.test_only_a_call_that_rang_and_ended_resets_the_count",)),
 )
 
 

@@ -215,7 +215,7 @@ class AfterCall(unittest.TestCase):
         """お客様が言った時刻は、門で止められても予定に引き継ぐ（NG時間でもかけてよい根拠）。"""
         at = NOW + timedelta(hours=3)
         self.assertIsNone(after_call(dict(items={"Q1": TAKEN["Q1"]})).callee_at)
-        d = decide_after_denial(gate.Denied("line_busy", *gate.REASONS["line_busy"]), current_promised=True,
+        d = decide_after_denial(gate.denied("same_contact_interval"), current_promised=True,
                                 current=Target(MAIN), pacing=P_NONE, now=NOW, opening=None, retry_wait=300,
                                 current_callee_at=at)
         self.assertEqual(d.callee_at, at)
@@ -364,7 +364,7 @@ class WrongNumberTheCalleeGave(unittest.TestCase):
 
 class AfterDenial(unittest.TestCase):
     def deny(self, reason):
-        return gate.Denied(reason, *gate.REASONS[reason])
+        return gate.denied(reason)
 
     def test_each_kind(self):
         self.assertIsNone(decide_after_denial(self.deny("awaiting_decision"), current_promised=False, current=Target(MAIN), pacing=P_NONE,
@@ -383,12 +383,36 @@ class AfterDenial(unittest.TestCase):
         d = decide_after_denial(self.deny("outside_hours"), current_promised=False, current=Target(MAIN), pacing=P_NONE, now=NOW,
                                 opening=None, retry_wait=300)
         self.assertEqual((d.kind, d.at, d.promised), ("call", NOW + timedelta(days=1), False))   # 行を終えない
-        for reason in ("line_busy", "setting_missing"):
-            d = decide_after_denial(self.deny(reason), current_promised=False, current=Target(ALT), pacing=P_NONE, now=NOW,
-                                    opening=None, retry_wait=300)
-            self.assertEqual((d.kind, d.at, d.contact_id), ("call", NOW + timedelta(seconds=300), ALT))   # 番号はいまの予定のまま
+        later = NOW + timedelta(hours=2)
+        d = decide_after_denial(self.deny("same_contact_interval"), current_promised=False, current=Target(ALT),
+                                pacing=gate.Pacing(3, later, "same_contact_interval", False), now=NOW, opening=None, retry_wait=300)
+        self.assertEqual((d.kind, d.at, d.contact_id), ("call", later, ALT))   # 間隔が空く時刻へ1回。番号はいまの予定のまま
         self.assertIsNone(decide_after_denial(self.deny("task_ended"), current_promised=False, current=None,
                                               pacing=P_NONE, now=NOW, opening=None, retry_wait=300))   # 終えた行に書かない
+
+    def test_no_reason_rewrites_the_plan_to_a_short_wait_again_and_again(self):
+        """理由の表のどの理由でも、行の予定を「決まった間のあと」へ書き直さない（門が断り続けても、次の動きの記録が増えない）。
+        扱いが plan・plan_if_known の理由は、終える・何も書かない・分かっている時刻（間隔が空く時刻・次の時間帯の始まり）へ1回書く。
+        ほかの理由は、次の動きへ渡すこと自体が誤り（行の予定を書き直さない＝gate.PLAN_KEPT）。⛔ 見直し17a：前は、ほかの依頼者がかけた
+        番号・目的のお客様の名前の無い行・暦の無い日・設定の値の無い行などを、5分ごとに書き直し続けた（1行あたり1日288）。"""
+        known = NOW + timedelta(hours=5)
+        opening = NOW + timedelta(hours=14)
+        # 間隔の待ち（門の pacing が、待つ時刻とともに答える理由）。ほかの理由では pacing は待つ時刻を持たない（いまかけられる）
+        paced = {"same_contact_interval", "daily_attempts", "cross_client_interval_same_tenant", "cross_client_interval_other_tenant",
+                 "other_client_promise", "number_promise_soon"}
+        for reason, r in gate.REASONS.items():
+            with self.subTest(reason):
+                pace = gate.Pacing(3, known, reason, False) if reason in paced else P_NONE
+                decide = lambda: decide_after_denial(   # noqa: E731
+                    self.deny(reason), current_promised=False, current=Target(MAIN),
+                    pacing=pace, now=NOW, opening=opening, retry_wait=300)
+                if reason in gate.PLAN_KEPT or reason == "callback_window":   # 幅の外の次の回は _keep_promise（test_settle）
+                    self.assertTrue(reason == "callback_window" or r.handling not in ("plan", "plan_if_known"))
+                    with self.assertRaises(ValueError):
+                        decide()
+                    continue
+                d = decide()
+                self.assertTrue(d is None or d.kind == "end" or d.at in (known, opening), (d,))
 
 
 class Shapes(unittest.TestCase):

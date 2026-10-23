@@ -12,10 +12,11 @@ import threading
 import time
 import unittest
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from unittest import mock
 
-from salescall.core import (approval, attempts, business_rules, calendar, call_report, dial_exit, dnc, fix_requests, gate,
+from salescall.core import (approval, attempts, business_rules, calendar, call_report, calling_hours, dial_exit, dnc, fix_requests,
+                            gate,
                             next_action, quality_stage, recordings, scheduler, settings, settle, stops, target_policy, tasks)
 from salescall.core.call_report import Cut
 from salescall.core.access import Rejected
@@ -182,8 +183,21 @@ class ClaimAndDial(Base):
             "SELECT reason FROM salescall.gate_denials WHERE task_id = %s ORDER BY denial_id", (t2,))])
         self.assertEqual(rows, ["no_schedule", "task_ended"])
 
-    def test_every_reason_has_a_kind(self):
-        self.assertTrue(all(kind in ("permanent", "wait", "cannot_judge") for _, kind in gate.REASONS.values()))
+    def test_every_reason_has_a_kind_and_a_handling(self):
+        """理由の表の1か所が、種類と扱い（断られた行の予定をどうするか）を持つ。扱いごとの集まりは、表から作る（⛔ 見直し17a：前は
+        集まりを別々に書き、どれにも入らない理由は、次の動きが予定を書き直し続けた）。"""
+        for name, r in gate.REASONS.items():
+            with self.subTest(name):
+                self.assertIn(r.kind, ("permanent", "wait", "cannot_judge"))
+                self.assertIn(r.handling, gate.HANDLINGS)
+                self.assertTrue(r.kind != "permanent" or r.handling == "plan")   # 待っても変わらない理由は、次の動きが終える
+        groups = {"line": gate.LINE_REASONS, "client": gate.CLIENT_REASONS, "business": gate.BUSINESS_REASONS,
+                  "run": gate.RUN_REASONS, "stage": gate.STAGE_REASONS, "task": gate.TASK_REASONS,
+                  "unoffered": gate.UNOFFERED_REASONS, "plan_if_known": gate.PLAN_IF_KNOWN}
+        for handling, names in groups.items():
+            self.assertEqual(names, {n for n, r in gate.REASONS.items() if r.handling == handling})
+        self.assertEqual(gate.PLAN_KEPT, frozenset().union(*(v for k, v in groups.items() if k != "plan_if_known")))
+        self.assertLessEqual(gate.UNOFFERED_IN_CANDIDATES, gate.UNOFFERED_REASONS)
 
 
 class Schedule(Base):
@@ -514,6 +528,20 @@ class Pacing(Base):
         time.sleep(1.1)
         self.assertEqual(self.reason(s), "daily_attempts")
 
+    def test_the_daily_limit_waits_until_the_next_opening_not_midnight(self):
+        """今日かけてよい回数を使い切ったら、次の日の、かけてよい時間帯の始まりまで待つ（gate.next_opening の1か所＝次の動きの
+        「時間帯の外」と同じ）。⛔ 見直し17a：前は次の日の0時にし、0時に門へ渡して時間帯の外で断られ、次の動きがもう一度書き直した。"""
+        s = self.ready()
+        self.override("gate.same_contact_min_interval", 1)
+        self.put_client(s, "gate.max_dials_per_contact_per_day", 1)
+        self.put_client(s, "calling.hours", {k: [["09:00", "11:00"]] for k in KEYS})
+        self.past_attempt(s, ["dialing", "busy"])
+        time.sleep(1.1)
+        p = self.tx(s, lambda tx: gate.pacing(tx, s["task"]))
+        today = self.tx(s, lambda tx: tx.one("SELECT salescall.jst(now())::date AS d")["d"])
+        nine = calling_hours.from_local(datetime.combine(today + timedelta(days=1), datetime.min.time()) + timedelta(hours=9))
+        self.assertEqual((p.binding, p.earliest), ("daily_attempts", nine))
+
     def test_cross_client_interval_tells_same_or_other_tenant_only(self):
         a = self.ready()
         b = self.ready(tenant=a["tenant"], phone=a["phone"])
@@ -581,7 +609,7 @@ class Pacing(Base):
         self.assertNotEqual(self.tx(a, lambda tx: gate.pacing(tx, a["task"])).binding, "other_client_promise")   # 自分の約束では待たない
         self._choose(b, "never")
         self.assertEqual(self.reason(b), "other_client_promise_never")       # 「同じ番号にはかけない」：その行は終える側
-        self.assertEqual(gate.REASONS["other_client_promise_never"][1], "permanent")
+        self.assertEqual(gate.REASONS["other_client_promise_never"].kind, "permanent")
 
     def test_a_promise_not_yet_called_keeps_others_waiting_even_after_its_time(self):
         """約束の時刻を過ぎても、その約束の電話がまだかかっていなければ待つ（⛔ 2026-10-22 の見直し13：前は時刻を1秒でも過ぎると
@@ -910,6 +938,10 @@ class CallerNumberAndVoice(Base):
         self.assertEqual(self.tx(b, lambda tx: self.voice(tx, b, "S2")), "S2")   # 声は替えない
         self.lease(b, line=a["line"])
         self.assertEqual(self.reason(b, line=a["line"]), "line_used_by_other_client")   # 番号は着信の履歴に残る
+        # その回線の候補には出さない（予定を書き直し続けない）。ほかの回線（依頼者の回線）には出す（⛔ 見直し17a）
+        offered = lambda line: self.tx(b, lambda tx: [r["task_id"] for r in scheduler.due_tasks(tx, 10, line_id=line)])  # noqa: E731
+        self.assertEqual(offered(a["line"]), [])
+        self.assertEqual(offered(b["line"]), [b["task"]])
         c = self.ready()
         self.dialed(c, path=("call_failed",))                                       # 発信に失敗した（鳴っていない）
         time.sleep(1.1)
@@ -948,6 +980,7 @@ class CallerNumberAndVoice(Base):
         time.sleep(1.1)
         b = self.ready(tenant=only_s, phone=a["phone"])                            # ほかの依頼者：別の声の録音が無い
         self.assertEqual(self.reason(b), "voice_used_by_other_client")
+        self.assertEqual(self.tx(b, lambda tx: scheduler.due_tasks(tx, 10)), [])    # 候補に出さない（予定を書き直し続けない）
 
     def test_a_new_voice_is_used_without_changing_the_code_and_a_retired_voice_is_not(self):
         """会話AIのモデルが進化して声が増えたら、声の一覧に足すだけ（2026-10-17 ユーザー）。使えなくなった声は印を付ける。"""
@@ -1192,8 +1225,14 @@ class Exit(Base):
         s = self.ready()
         c = self.claim(s)
         self.assertIs(dial_exit.dial(self.w.a, SYSTEM, s["tenant"], s["client"], c.attempt_id,
-                                     FakeDriver(dial_exit.CallNotPlaced("番号を受け付けなかった"))), dial_exit.Outcome.NOT_PLACED)
-        self.assertEqual(self.state(s, c.attempt_id), "call_failed")
+                                     FakeDriver(dial_exit.NumberRejected("番号を受け付けなかった"))),
+                      dial_exit.Outcome.NUMBER_REJECTED)
+        self.assertEqual(self.state(s, c.attempt_id), "call_failed")              # 番号のせい：番号の歯止めで数える
+        s5 = self.ready()
+        c5 = self.claim(s5)
+        self.assertIs(dial_exit.dial(self.w.a, SYSTEM, s5["tenant"], s5["client"], c5.attempt_id,
+                                     FakeDriver(dial_exit.CallNotPlaced("回線のせいか分からない"))), dial_exit.Outcome.NOT_PLACED)
+        self.assertEqual(self.state(s5, c5.attempt_id), "released")              # 回線のせい・分からない：番号には数えない
         s2 = self.ready()
         c2 = self.claim(s2)
         unknown = FakeDriver(RuntimeError("切断"))
@@ -1446,6 +1485,8 @@ class Content(Base):
         self.assertEqual(self.reason(s2), "target_role_missing")
         s3 = self.ready()
         self.switch_to(s3, {"kind": "role", "role": "社長"})                # 業務で役職を書いていれば、行の役職は要らない
+        offered = lambda x: self.tx(x, lambda tx: [r["task_id"] for r in scheduler.due_tasks(tx, 10)])   # noqa: E731
+        self.assertEqual((offered(s), offered(s2), offered(s3)), ([], [], [s3["task"]]))   # 足りない行は候補に出さない（17a）
         self.assertIsInstance(self.claim(s3), gate.Claim)
 
 if __name__ == "__main__":

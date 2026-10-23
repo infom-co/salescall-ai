@@ -13,7 +13,7 @@ from datetime import timedelta
 from pathlib import Path
 
 from salescall.core import (attempts, backup, business_rules, call_report, fix_requests, gate, leases, next_action, quality_stage,
-                            registry, scheduler, stops)
+                            registry, scheduler, settings, stops)
 from salescall.core.phone import normalize
 from salescall.core.access import Rejected
 from salescall.supervisor import config, jobs, line, updates
@@ -205,15 +205,33 @@ class Rounds(SupervisorBase):
         """回線の部品がかけられなかった・スマホがまだ通話中なら、休まず次の行へ進まない（行の回数と回線の上限を使い切らない）。
         かけられなかったことは回線の異常として記録する（続けば、処置の表のとおり回線を止める）。"""
         s = self.ready()
+        before = self.tx(s, lambda tx: next_action.current(tx, s["task"]))["seq"]
         got = line.one_round(self.w.a, SYSTEM, s["tenant"], s["line"], HOLDER,
-                             FakeDriver(line.dial_exit.CallNotPlaced("アプリが受け付けなかった")), Runner())
+                             FakeDriver(line.dial_exit.CallNotPlaced("回線のせいか分からない")), Runner())
         self.assertEqual((got.called, got.pause), (None, "not_placed"))
         faults = self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: tx.all(
             "SELECT kind FROM salescall.error_events WHERE line_id = %s", (s["line"],)))
         self.assertEqual([r["kind"] for r in faults], ["line"])
+        self.assertEqual(self.tx(s, lambda tx: tx.all(
+            "SELECT state::text AS s FROM salescall.attempts WHERE task_id = %s", (s["task"],))), [{"s": "released"}])
+        self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["seq"], before)   # 番号には数えず、予定はそのまま
         t = self.ready()
         got = line.one_round(self.w.a, SYSTEM, t["tenant"], t["line"], HOLDER, FakeDriver(busy=True), Runner())
         self.assertEqual((got.called, got.pause), (None, "line_in_call"))
+
+    def test_a_number_the_app_rejects_counts_only_for_the_number_and_does_not_rest_the_line(self):
+        """アプリが番号を受け付けなかった（番号のせい）：番号の歯止めでだけ数える（試行は「発信に失敗」）。回線の異常には数えず、
+        回線も休ませない（⛔ 見直し17c：前は1つにまとめ、回線の異常にも数え、回線を休ませた＝1回の失敗を2か所で数えた）。"""
+        s = self.ready()
+        got = line.one_round(self.w.a, SYSTEM, s["tenant"], s["line"], HOLDER,
+                             FakeDriver(line.dial_exit.NumberRejected("試験：番号を受け付けない")), Runner())
+        self.assertEqual((got.called, got.pause, got.free), (None, None, True))
+        faults = self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: tx.all(
+            "SELECT kind FROM salescall.error_events WHERE line_id = %s", (s["line"],)))
+        self.assertEqual(faults, [])
+        self.assertEqual(self.tx(s, lambda tx: [r["k"] for r in tx.all(
+            "SELECT salescall.dial_kind(state, cut_off, attempt_id) AS k FROM salescall.attempts WHERE task_id = %s",
+            (s["task"],))]), ["not_placed"])
 
     def test_a_call_that_ends_before_the_answer_on_the_line_side_counts_as_a_line_fault(self):
         """お客様が出る前に、回線の側で終わった通話（結果不明。どの回数にも数えない）は、回線の異常として数える（続けば、その回線を
@@ -232,6 +250,29 @@ class Rounds(SupervisorBase):
         t = self.ready()
         line.one_round(self.w.a, SYSTEM, t["tenant"], t["line"], HOLDER, FakeDriver(), Runner())
         self.assertEqual(faults(t), [])
+
+    def test_calls_that_keep_ending_before_the_answer_stop_the_line_whatever_ended_them(self):
+        """お客様が出る前に終わる電話が続けば、その回線を止める。通話を進める部品が呼び出しのあとで落ちた電話も、同じ1か所で数える
+        （⛔ 見直し17a：前は、その電話自身の呼び出しで回線が直ったとみなして数え直し、また部品が落ちた電話は数えなかったので、3日で
+        12本かけても回線は止まらなかった）。"""
+        s = self.ready()
+        need = self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: settings.resolve(
+            tx, "stop.line.stop_after_failures", tenant_id=s["tenant"], client_id=None, business_id=None))
+        for i in range(need):
+            if i:                                                              # 別のお客様（同じ番号の空けに当たらない）
+                task = self.w.task(s["tenant"], s["client"], s["run"], self.w.contact(
+                    s["tenant"], s["client"], normalize(fictional_jp_fixed()).e164))
+                self.tx(s, lambda tx: next_action.schedule_now(tx, task, cause="試験"))
+            got = line.one_round(self.w.a, SYSTEM, s["tenant"], s["line"], HOLDER, FakeDriver(), Runner(RuntimeError("試験")))
+            self.assertEqual(self.state(s, got.called), "technical_error")
+        stopped = self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: stops.open_stops(
+            tx, tenant_id=s["tenant"], client_id=None, business_id=None, line_id=s["line"]))
+        self.assertEqual([(r["scope"], r["cause"]) for r in stopped], [("line", "line_failure")])
+        task = self.w.task(s["tenant"], s["client"], s["run"], self.w.contact(
+            s["tenant"], s["client"], normalize(fictional_jp_fixed()).e164))
+        self.tx(s, lambda tx: next_action.schedule_now(tx, task, cause="試験"))
+        got = line.one_round(self.w.a, SYSTEM, s["tenant"], s["line"], HOLDER, FakeDriver(), Runner())
+        self.assertEqual((got.called, got.pause), (None, "line_stopped"))
 
     def test_a_line_stuck_in_a_call_counts_as_a_line_fault(self):
         """回線が「通話中」のまま（電話の部品が答えない も）、かけられない状態が通話の最長より長く続いたら、回線の異常として数える
@@ -497,6 +538,22 @@ class Rounds(SupervisorBase):
         self.assertEqual(self.tx(s, lambda tx: tx.one("SELECT task_id FROM salescall.attempts WHERE attempt_id = %s",
                                                       (got.called,)))["task_id"], s["task"])
         self.assertEqual(count(), before)                                      # 待つ行の予定は書き直さない
+
+    def test_no_reason_from_the_gate_keeps_adding_plans_while_the_line_goes_round(self):
+        """理由の表で、行の予定を書き直さない扱いの理由（gate.PLAN_KEPT）のどれで門が断り続けても、回線がまわるあいだ、行の予定の
+        記録は増えない（表で回す。扱いが plan・plan_if_known の理由は、次の動きが分かっている時刻へ1回だけ書く＝test_judge の
+        AfterDenial）。⛔ 見直し17a：前は、どの集まりにも入らない理由（ほかの依頼者がかけた番号・名前の無い行・暦の無い日・設定の値の
+        無い行など）を、回るたびに5分先へ書き直した。"""
+        s = self.ready()
+        self.tx(s, lambda tx: next_action.schedule_now(tx, s["task"], cause="試験"))
+        plans = lambda: self.tx(s, lambda tx: tx.one(   # noqa: E731
+            "SELECT count(*) AS n FROM salescall.task_next_actions WHERE task_id = %s", (s["task"],))["n"])
+        before = plans()
+        for reason in sorted(gate.PLAN_KEPT):
+            with self.subTest(reason), mock.patch.object(gate, "claim", lambda tx, reason=reason, **kw: gate.denied(reason)):
+                for _ in range(3):
+                    line.one_round(self.w.a, SYSTEM, s["tenant"], s["line"], HOLDER, FakeDriver(), Runner())
+                self.assertEqual(plans(), before)
 
     def test_a_failing_job_is_recorded_and_returned(self):
         s = self.ready()

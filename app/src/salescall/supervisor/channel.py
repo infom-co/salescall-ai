@@ -47,7 +47,7 @@ from websockets.exceptions import ConnectionClosed
 from salescall.core import agents, emergency, notify
 from salescall.core.access import Access
 from salescall.link import protocol as p
-from salescall.link.phone import CallNotPlaced, CallWithheld
+from salescall.link.phone import CallNotPlaced, CallWithheld, NumberRejected
 from salescall.link.protocol import RemoteError
 from salescall.supervisor import ACTOR, CALL_WAIT, config, report, updates
 from salescall.supervisor.links import Attached
@@ -58,6 +58,14 @@ _SERIAL = itertools.count(1)
 AWAY = "控えを書く PC が、サーバーとのつながりを失いました。PC の電源・ネット・PC の部品が動いているかを確かめてください"
 LINE_CONFLICT = ("同じ回線（スマホ）を、2台の PC がつないでいます。先につないだ PC でかけています。もう一方の PC の設定"
                  "（SALESCALL_LINES）から、その回線を外してください")
+
+# PC の部品が「かけていない」と答えたときの誤りの名前と、発信の出口へ上げる形（名前と形の対応はこの1か所。どちらのせいかの分け方は
+# link/phone.py の形）
+NOT_PLACED: dict[str, tuple[type[CallNotPlaced], str]] = {
+    "withheld": (CallWithheld, "PC の上で緊急停止が押されています"),
+    "number_rejected": (NumberRejected, "電話の部品（アプリ）が番号を受け付けませんでした"),
+    "not_placed": (CallNotPlaced, "電話の部品がかけられませんでした（回線のせい、または、どちらのせいか分からない）"),
+}
 
 
 @dataclass
@@ -531,12 +539,10 @@ class AgentDriver:
         got = self.hub.ask(session, "request", op="start_call", line=self.line_id, phone=phone_e164, voice=self.voice_type)
         if got.get("ok"):
             return
-        if got.get("error") in ("withheld", "not_placed"):   # かけていない
+        if got.get("error") in NOT_PLACED:   # かけていない
             session.call_over(self.line_id, mark)
-        if got.get("error") == "withheld":
-            raise CallWithheld("PC の上で緊急停止が押されています")
-        if got.get("error") == "not_placed":
-            raise CallNotPlaced("電話の部品がかけられませんでした")
+            kind, why = NOT_PLACED[got["error"]]
+            raise kind(why)
         raise RuntimeError("電話の部品が、かけたか分からない誤りを返しました")
 
     def hang_up(self) -> None:
