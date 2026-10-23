@@ -559,6 +559,8 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                     await add_turn(turn, line, log_start, i, voice)
                     if turn.silent:
                         # AIが黙った（6-7）：このつなぎを閉じ、いまの位置を渡して開き直し、相手の同じ発話を送り直す（相手は1回しか話していない）
+                        if ear_info is not None:
+                            turns[-1]["ear_check"] = ear_info  # 張り替えたターンの確かめも残す（中身の判定の待ち・遅れを数えるため）
                         replay = swapped = i
                         break
                     if turn.off_script:

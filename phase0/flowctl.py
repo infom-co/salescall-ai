@@ -2110,7 +2110,7 @@ class Flow:
         from grounding import GROUNDED, Verdict, verbatim
         kind, answer = part, answer.strip()
         verdict = Verdict(GROUNDED) if verbatim(answer, self.knowledge) else self._grounded(answer)
-        problem = own_answer_problem(answer, self.names, may_follow_up=kind == "no_answer" and self.policies["follow_up"], verdict=verdict,
+        problem = own_answer_problem(answer, self.names, may_follow_up=self._may_follow_up(kind), verdict=verdict,
                                      name_readings=self.name_readings)
         tried = self.own_tried[1] if self.own_tried[0] == self.callee_turns else []
         if problem and len(tried) < OWN_REWRITES:
@@ -2158,6 +2158,10 @@ class Flow:
                     "message": f"答えの文は使いません（{problem}）。かわりに「{said}」とだけ言います（言葉を足しません）。{self._own_then()}"}
         return {"result": "own_answer", "say": answer, "message": f"「{answer}」とだけ言います（言葉を足しません）。{self._own_then()}"}
 
+    def _may_follow_up(self, part: str | None) -> bool:
+        """答えの文に「担当から改めてご連絡」を入れてよいか（業務設定で許された、答えを持っていない質問だけ。_own_answer・grounding_job の1か所）。"""
+        return part == "no_answer" and bool(self.policies["follow_up"])
+
     def _own_then(self) -> str:
         return f"そのあと相手の返事を待ち、返事があったら replay_opening を「{PART_LABEL['resume']}」で呼びます。"
 
@@ -2176,8 +2180,10 @@ class Flow:
         from grounding import verbatim
         if verbatim(answer, self.knowledge) or self._grounded(answer) is not None:
             return None
-        if own_answer_problem(answer, self.names, may_follow_up=True, name_readings=self.name_readings) is not None:
-            return None  # 機械の確かめで止まる（名前・断り・知らせの言葉・長すぎる）：判定に聞かずに書き直させる（約束は業務設定で決まるので、ここでは見ない）
+        if own_answer_problem(answer, self.names, may_follow_up=self._may_follow_up(a.get("part")), name_readings=self.name_readings) is not None:
+            # 機械の確かめで止まる（名前・断り・許されていない約束・読みで渡した地名の漢字・知らせの言葉・長すぎる）：判定に聞かずに書き直させる
+            # （⛔ 2026-10-23 G-57 tc40：約束を見ていなかったので、約束で止まる文まで判定を待ち、相手を約1.5秒余計に待たせた）
+            return None
         return self.knowledge, self.callee_said or "", answer
 
     def on_grounded(self, answer: str, verdict) -> None:

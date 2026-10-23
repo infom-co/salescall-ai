@@ -6180,7 +6180,7 @@ class SilentAfterReplyTest(unittest.TestCase):
     """AIが黙った（DESIGN.md 6-7）の見張り：話させる形の返事を送ったのに声が来ないときも、黙ったと見なす。
     ⛔ G-57 の3回目：言い直しを求める返事のあと、AIが声を出さずに英語の文字だけを返し、操作があったので黙ったと見なさずに90秒待った。"""
 
-    def run_turn(self, messages, silent_reply: bool):
+    def run_turn(self, messages, silent_reply, calls=("record_answer",)):
         import asyncio
         from types import SimpleNamespace
         from live_util import collect_turn
@@ -6197,12 +6197,13 @@ class SilentAfterReplyTest(unittest.TestCase):
                     yield m
                 await asyncio.sleep(3600)
 
-        fc = SimpleNamespace(name="record_answer", args={}, id="1")
-        msgs_tool = SimpleNamespace(tool_call=SimpleNamespace(function_calls=[fc]), server_content=None, usage_metadata=None,
-                                    go_away=None, session_resumption_update=None)
-        messages.insert(0, msgs_tool)
+        for k, name in reversed(list(enumerate(calls))):
+            fc = SimpleNamespace(name=name, args={}, id=str(k + 1))
+            messages.insert(0, SimpleNamespace(tool_call=SimpleNamespace(function_calls=[fc]), server_content=None, usage_metadata=None,
+                                               go_away=None, session_resumption_update=None))
         s = Session()
-        return asyncio.run(collect_turn(s, started_at=0.0, on_tool_call=lambda f: ({"result": "x"}, silent_reply), timeout_s=5,
+        quiet = silent_reply if callable(silent_reply) else (lambda f: silent_reply)
+        return asyncio.run(collect_turn(s, started_at=0.0, on_tool_call=lambda f: ({"result": "x"}, quiet(f)), timeout_s=5,
                                         silent_after_s=0.3))
 
     def test_reply_that_wants_speech_but_none_comes(self):
@@ -6212,6 +6213,14 @@ class SilentAfterReplyTest(unittest.TestCase):
     def test_silent_reply_is_not_silence(self):
         r = self.run_turn([], silent_reply=True)       # 録音を流した：AIが黙るのは正しい
         self.assertFalse(r.silent)
+
+    def test_the_last_reply_decides(self):
+        # 書き直しの返事（話させる形）のあと、次の報告に録音を流した（話させない形）：黙るのは正しい（⛔ 2026-10-23 G-57 tc40：1つ目の返事の
+        # 印が残り、張り替えていた）。逆に、話させない返事のあとに話させる返事なら、声を待つ
+        r = self.run_turn([], silent_reply=lambda f: f.name == "second", calls=("first", "second"))
+        self.assertFalse(r.silent)
+        r = self.run_turn([], silent_reply=lambda f: f.name == "first", calls=("first", "second"))
+        self.assertTrue(r.silent)
 
 
 class OffScriptTest(unittest.TestCase):
@@ -6811,7 +6820,7 @@ class OwnWordsTest(unittest.TestCase):
         f, b = self.flow()
         self.heard(f, "営業時間を教えてください。")
         for text in ("営業時間は平日の9時から18時です。", "アオバ物流の営業時間は平日の9時から18時です。", "弊社は港区にございます。",
-                     "そちらはお答えいたしかねます。"):
+                     "そちらはお答えいたしかねます。", "担当の者から改めてご連絡いたします。"):
             self.assertIsNone(f.grounding_job("replay_opening", {"part": "own", "answer": text}), text)
         self.assertIsNone(f.grounding_job("record_answer", {"question_id": "Q1", "condition_id": "答えた"}))
         r = f.apply("replay_opening", {"part": "own", "answer": "営業時間は、平日の9時から18時です"})
