@@ -17,7 +17,7 @@ import asyncio
 import statistics
 import time
 
-from common import base_parser, require_python, save_result, say
+from common import base_parser, drop_partial, require_python, save_partial, save_result, say
 from grounding import PASSES, make_reader
 
 OK, NG = "通す", "止める"
@@ -184,12 +184,15 @@ async def run(args) -> dict:
                 except Exception as exc:
                     rows.append({"judge": name, "rep": rep, "said": said, "draft": draft, "want": want, "error": repr(exc)[:200], "set": kind})
                     say(f"{name} {rep} 誤り {draft[:20]} {repr(exc)[:120]}")
+                    save_partial("G-63", {"rows": rows})
                     continue
                 got = None if v is None else (OK if v in PASSES else NG)
                 rows.append({"judge": name, "rep": rep, "said": said, "draft": draft, "want": want, "choice": v, "part": getattr(v, "part", ""),
                              "seconds": getattr(v, "seconds", None), "got": got, "set": kind, "by": getattr(v, "by", None)})
                 if got != want:
                     say(f"[{name} {rep}] 外れ：正解{want}・読み{v}（{getattr(v, 'part', '')}）「{draft}」")
+                # ⛔ 2026-10-23：3.8 Flash の測りが途中で処理ごと消え、それまでの読みが残らなかった ⇒ 1文ごとに途中の結果を残す
+                save_partial("G-63", {"rows": rows})
     summary = {}
     for name, kind in dict.fromkeys((r["judge"], r.get("set")) for r in rows):
         rs = [r for r in rows if r["judge"] == name and r.get("set") == kind]
@@ -225,6 +228,7 @@ def main() -> None:
     import json
     say("数え：" + json.dumps(out["summary"], ensure_ascii=False))
     save_result("G-63", out)
+    drop_partial("G-63")
 
 
 if __name__ == "__main__":
