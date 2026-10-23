@@ -921,8 +921,9 @@ class Flow:
         self.own_tried: tuple[int, list] = (-1, [])  # 確かめに通らなかった答えの文（相手の発話の番号, [(文, 理由)]）。書き直させた回数を数える
         # 答えに添えられた相手の質問（_advance）：次へ進む返事は先に作っておき、AIがその質問に答えてから流す（_continue）。(相手の質問, 返事)
         self.after_answer: tuple[str, dict] | None = None
-        self.answer_first_turn = -1     # 答えを先に報告するよう差し戻した相手の発話の番号（_answer_first。同じ発話で1回まで）
-        self.answer_first_held: tuple[int, dict] | None = None  # そのとき差し戻した答え方の操作（相手の発話の番号, 項目）。答えのあとに当てる（apply）
+        # 答え方の操作を受けたとき、意味の判定がそろって、いまの質問の答えとも読んだ相手の言葉（相手の発話の番号, 質問, 選択肢）。AIに答えを
+        # 報告させずに覚えておき、答えたあと、いまの質問へ戻るときに「念のため」で確かめる（_keep_answer_reading・_continue）
+        self.answer_reading: tuple[int, str, str] | None = None
         self.question_answered_turn = -1  # 相手の質問に答えた相手の発話の番号（同じ発話の質問に、もう一度答えさせない＝_advance）
         self.knowledge = list(knowledge or [])
         # AIが自分の言葉で言う文の中身の判定の読み（grounding。電話接続側が on_grounded で渡す）：文 → 読み（相手の発話ごとに入れ替える）
@@ -1365,7 +1366,7 @@ class Flow:
     def wants_checks(self, name: str, args: dict | None = None) -> bool:
         a = self._args_in(dict(args or {}))
         if name == "replay_opening":
-            # 代わった方への流し直し（繋ぐ）・相手の質問への答え方（いまの質問の答えも入っているかもしれない間＝_answer_first）
+            # 代わった方への流し直し（繋ぐ）・相手の質問への答え方（いまの質問の答えも入っているかもしれない間＝_keep_answer_reading）
             return a.get("part") == "handover" or (a.get("part") not in ("resume", "handover") and self._answer_may_come_first())
         if name == "report_party":
             # 呼んでいる段の「目的の人」「受付の方」の報告は、判定に当ててから決める（_calling_reported。⛔ 2026-10-21 の見直し：受付の方の報告は
@@ -1440,20 +1441,8 @@ class Flow:
 
     # ── 中の名前での入口（handle と試験は、ここを通す）。記録（log）は中の名前で残す
     def apply(self, name: str, args: dict) -> dict:
-        """中の名前の操作を1つ受ける。答えに添えられた相手の質問（callee_asked）のとき、同じ相手の発話で答えを先に報告させるために差し戻した
-        答え方の操作（_answer_first）があれば、その操作をそのまま続けて当てる（AIに同じ答えを書き直させない。中身の判定の読みも、その操作のときに
-        届いている）。⛔ 2026-10-23 G-57 tc41・tc42（答えに添えられた質問）：「先に相手の質問に答える番です」と頼み直すと、AIは操作を呼ばずに声で
-        答えた（流していない）＝4本中3本。相手の質問に答えないまま、次の言葉に進んだ"""
-        reply = self._apply_one(name, args)
-        held = self.answer_first_held
-        if reply["result"] != "rejected":
-            self.answer_first_held = None  # 受け付けた操作のあとは持たない（差し戻しの間だけ持つ）
-        if reply["result"] == "callee_asked" and held is not None and held[0] == self.callee_turns:
-            r = self._apply_one("replay_opening", held[1])
-            r["message"] = f"答えを受け付けました。さきほどの答え方で、相手の質問（「{self.after_answer[0][:40] if self.after_answer else ''}」）に答えます。" \
-                           + r.get("message", "")
-            return r
-        return reply
+        """中の名前の操作を1つ受ける。"""
+        return self._apply_one(name, args)
 
     def _apply_one(self, name: str, args: dict) -> dict:
         before = {qid: it.state for qid, it in self.items.items()}
@@ -2051,9 +2040,8 @@ class Flow:
         流すもの：相づち「失礼いたしました。」（_ack）→ 選んだ部分の録音 → いまの質問の録音（答えを待っている質問があれば）。
         言い直しの返事待ちのときは、録音のあとにAIが言い直しをもう一度言う（その言い方は値で変わるので録音にできない）。"""
         part = a.get("part")
-        if part not in ("resume", "handover") and (why := self._answer_first()):
-            self.answer_first_held = (self.callee_turns, dict(a))  # 答えを受け付けたら、この答え方のまま相手の質問に答える（apply）
-            return self._reject(why)
+        if part not in ("resume", "handover"):
+            self._keep_answer_reading()
         if part.startswith(ANSWER_PREFIX):
             return self._answer(part)
         if part == "talk" and self.after_answer is not None and not (self.own_pending or self.ai_pending):
@@ -2101,28 +2089,28 @@ class Flow:
         return self._continue(play, "".join(self.opening[k] for k in keys))
 
     def _answer_may_come_first(self) -> bool:
-        """いまの相手の言葉に、まだ答えをもらっていないいまの質問の答えが入っているかもしれない（_answer_first が判定を見る場面）。答え方の操作も、
+        """いまの相手の言葉に、まだ答えをもらっていないいまの質問の答えが入っているかもしれない（_keep_answer_reading が判定を見る場面）。答え方の操作も、
         この間は判定を待つ（wants_checks。⛔ 2026-10-22 の4回目の流し G-57 tc37：AIが判定の届く前に答え方の操作を呼び、差し戻せなかった）。"""
         q = self.questions.get(self.current) if self.current else None
         return (self.phase in ("asking", "rechecking") and q is not None and not q.reading_of and self.awaiting_confirm is None
-                and self.after_answer is None and self.items[q.id].state not in GOT and self.answer_first_turn != self.callee_turns)
+                and self.after_answer is None and self.items[q.id].state not in GOT)
 
-    def _answer_first(self) -> str | None:
-        """相手の言葉が、いまの質問への答えと質問を一緒に言ったもの（「はい、予約しています。当日はどなたが担当されるんですか？」）で、AIが答えの
-        報告より先に、質問への答え方（replay_opening）を呼んだ：独立した意味の判定が、この発話をいまの質問の答えと読んでいれば、1回だけ差し戻して
-        答えを先に報告させる（答えに添えられた質問の1つの道＝_advance の after_answer に入る）。同じ発話の2回目は通す（判定の読み違いで、質問に
-        答えられなくならないように）。差し戻さないときは None。
-        ⛔ 2026-10-22 の4回目の流し（G-57 tc36・答えに添えられた質問の S2・L4）：AIが先に「用件」の流し直しを選んだので、相手がもう答えた
-           いまの質問（「ご予約はされていますでしょうか？」）の録音が、もう一度流れた"""
+    def _keep_answer_reading(self) -> None:
+        """相手の言葉に、いまの質問への答えが入っているかもしれないのに、AIが答えの報告ではなく答え方（replay_opening）を呼んだ（答えと質問を一緒に
+        言われた・世間話をされた）：独立した意味の判定がそろって、いまの質問の答えと読んでいれば、その読みを覚えておく（答えたあと、いまの質問へ
+        戻るとき＝_continue に、聞き直さずに「念のため」で確かめる）。AIには答えを報告させない。
+        ⛔ 2026-10-22 の4回目の流し（G-57 tc36・答えに添えられた質問）：AIが先に「用件」の流し直しを選び、相手がもう答えた質問の録音がもう一度流れた
+        ⛔ 2026-10-23 の失敗（2回）：その手当てとして、AIを差し戻して答えを先に報告させていた（_answer_first）。会話AIが世間話の「いや、」を
+           「Ja.」と聞き取ると、その文字を読んだ判定2つがそろって「はい」と読み、AIは世間話に返す番を失って、判定の読みどおり「はい」と報告し、
+           その報告が判定とそろったことになって依頼主へ渡る答えになった（G-57 tc44・tc45：世間話 L4 の2本とも。AIは音声を聞いて、正しく
+           世間話と分かっていた）＝判定の読みからAIの報告を作ると、その報告は判定と独立でない（判定2つも、同じ聞き取りの文字を読んでいる）。
+           お客様の世間話にも、何も返さなかった（✅ 2026-10-23 ユーザー：「お客様の気分を害する返答」）"""
         q = self.questions.get(self.current) if self.current else None
-        if not self._answer_may_come_first() or self._judged_answer(q) is None:
-            return None
-        self.answer_first_turn = self.callee_turns
-        return (f"相手の言葉は、いまの質問 {q.id} への答えでもあります（意味の判定：「{self.meaning_said}」）。先に record_answer で答えを"
-                "報告してください（相手の質問に答える番は、そのあとプログラムが伝えます）。")
+        if self._answer_may_come_first() and (cond := self._judged_answer(q)) is not None:
+            self.answer_reading = (self.callee_turns, q.id, cond)
 
     def _judged_answer(self, q: "Question") -> str | None:
-        """いまの相手の言葉を、使っている意味の判定が全部届いて、どれもいまの質問の同じ選択肢と読んだ：その選択肢（_answer_first の1か所）。
+        """いまの相手の言葉を、使っている意味の判定が全部届いて、どれもいまの質問の同じ選択肢と読んだ：その選択肢（_keep_answer_reading の1か所）。
         判定が2つ未満・届いていない判定がある・食い違う ⇒ None（答えを先に報告させない）。
         ⛔ 2026-10-23 G-57 tc40（世間話・L4）：会話AIが「いや、」を「Ja.」と聞き取り、早く届いた判定1つがそれを予約の質問への「はい」と読んだ。
            答えを先に報告させたので、AIは自分の受け答えの文を値にして「はい」と報告し、その報告と同じ判定の読みが「そろった」ことになって
@@ -2325,6 +2313,20 @@ class Flow:
             return {"result": "replayed", "play": play, "speak": True, "say": self.awaiting_say,
                     "message": f"{done}続けて、言い直し「{self.awaiting_say}」をもう一度言って、相手の返事を待ってください（前に言葉を足しません）。"}
         q = self.questions.get(self.current) if self.current else None
+        reading, self.answer_reading = self.answer_reading, None
+        if (q is not None and reading is not None and reading[1] == q.id and self.items[q.id].state not in GOT and q.type in CHOICE_TYPES
+                and choice_words(q, reading[2]) is not None):
+            # （値の要る型・意味の言葉の無い選択肢は、読みだけでは言い直せないので、いまの質問を聞く＝下）
+            # 答える前の相手の言葉を、判定がそろっていまの質問の答えと読んだ（_keep_answer_reading）：質問を聞き直さずに、その読みを「念のため」で
+            # 確かめる（受け取るのは、相手が確かめに「はい」と言い、確かめがそろったときだけ＝言い直しへの返事の決まり）
+            it = self.items[q.id]
+            it.set("heard", f"答える前の相手の言葉（「{(self.callee_said or '')[:20]}」の前）を、判定がそろって「{label(reading[2])}」と読んだ（AIの報告ではない）")
+            it.condition, it.ambiguous_asked = reading[2], True
+            r = self._ask_confirm(q.id, after="ambiguous")
+            if r["result"] == "confirm_required":
+                return {"result": "replayed", "play": play, "speak": True, "say": r["say"], "after": "ambiguous",
+                        "message": f"{done}続けて「{r['say']}」と言って、相手の返事を待ってください（前に言葉を足しません）。" + self._confirm_how(q.id)}
+            return r
         if q is not None and self.play_recordings and not q.reading_of:
             play.append(question_play(list(self.questions.values()), q.id))
             return {"result": "replayed", "play": play,
