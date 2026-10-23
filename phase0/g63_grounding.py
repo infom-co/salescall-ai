@@ -176,7 +176,7 @@ async def run(args) -> dict:
     else:
         readers = {}
     for name in names:
-        reader = readers.get(name) or make_reader(args, name, wait_s=args.wait)
+        reader = readers.get(name) or make_reader(args, name, wait_s=args.wait, attempt_s=args.attempt)
         for rep in range(args.repeat):
             for know, said, draft, want, kind in cases:
                 try:
@@ -184,7 +184,7 @@ async def run(args) -> dict:
                 except Exception as exc:
                     rows.append({"judge": name, "rep": rep, "said": said, "draft": draft, "want": want, "error": repr(exc)[:200], "set": kind})
                     say(f"{name} {rep} 誤り {draft[:20]} {repr(exc)[:120]}")
-                    save_partial("G-63", {"rows": rows})
+                    save_partial(f"G-63{args.tag}", {"rows": rows})
                     continue
                 got = None if v is None else (OK if v in PASSES else NG)
                 rows.append({"judge": name, "rep": rep, "said": said, "draft": draft, "want": want, "choice": v, "part": getattr(v, "part", ""),
@@ -192,7 +192,7 @@ async def run(args) -> dict:
                 if got != want:
                     say(f"[{name} {rep}] 外れ：正解{want}・読み{v}（{getattr(v, 'part', '')}）「{draft}」")
                 # ⛔ 2026-10-23：3.8 Flash の測りが途中で処理ごと消え、それまでの読みが残らなかった ⇒ 1文ごとに途中の結果を残す
-                save_partial("G-63", {"rows": rows})
+                save_partial(f"G-63{args.tag}", {"rows": rows})
     summary = {}
     for name, kind in dict.fromkeys((r["judge"], r.get("set")) for r in rows):
         rs = [r for r in rows if r["judge"] == name and r.get("set") == kind]
@@ -214,6 +214,8 @@ def main() -> None:
     p.add_argument("--judge", action="append", help="測る判定の名前（無ければ 3.5 Flash Lite・Sonnet 5.5（考える）・Sonnet 5.5）")
     p.add_argument("--repeat", type=int, default=2)
     p.add_argument("--wait", type=float, default=0.0, help="Gemini のどのキーも1分の上限のとき待つ秒（測るときだけ）")
+    p.add_argument("--attempt", type=float, default=None, help="1回の問い合わせの上限の秒（Gemini。超えたら時間切れの誤りとして数える）")
+    p.add_argument("--tag", default="", help="結果のファイル名に足す印（同時に流す回を分けるため）")
     p.add_argument("--race", action="store_true", help="選んだ判定を同時に出し、先に届いた読みで決める形（通話と同じ make_grounder）で測る")
     p.add_argument("--tally", nargs="+", help="保存した記録を、問い合わせずに、いまの決まりで数え直す（確かめ全体）")
     args = p.parse_args()
@@ -227,8 +229,8 @@ def main() -> None:
     out = asyncio.run(run(args))
     import json
     say("数え：" + json.dumps(out["summary"], ensure_ascii=False))
-    save_result("G-63", out)
-    drop_partial("G-63")
+    save_result(f"G-63{args.tag}", out)
+    drop_partial(f"G-63{args.tag}")
 
 
 if __name__ == "__main__":

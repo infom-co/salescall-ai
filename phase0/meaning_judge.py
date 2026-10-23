@@ -198,6 +198,13 @@ OTHER_JUDGES = {
     "Claude Sonnet 5.5（考える）": {"maker": "anthropic", "model": "claude-sonnet-5-5", "key": "ANTHROPIC_JUDGE_KEY",
                                   "host": "api.anthropic.com", "form": "json", "effort": "low", "thinking": {"type": "adaptive"}},
     "GPT-6 Luna": {"maker": "openai", "model": "gpt-6-luna", "key": "OPENAI_JUDGE_KEY", "host": "api.openai.com"},
+    # 同じ GPT-6 Luna を、設定済みの OpenRouter のキーで（2026-10-23。OpenAI のキーが作業環境に無いため）。送り方は OpenAI と同じ形
+    # （OpenRouter の Responses の窓口）。⚠️ 文の行き先は OpenRouter（米国）を通って OpenAI（米国）。考える量は「なし」（中身の判定の
+    # 3文で、low は 3.3〜4.4秒・minimal は 3.0〜3.8秒＝2秒の待ちに入らない。none は 1.1〜1.6秒）。⛔ G-63（`G-63-luna_20261023_094345.json`）：
+    # 機械の確かめと合わせても危ない文を通した（「当日の担当者につきましては、担当の者よりお話しさせていただきます。」）＝中身の判定に使わない。
+    # 新しいアカウントは1分に20回まで（答えが返ったのは168回中40回）
+    "GPT-6 Luna（OpenRouter・考えない）": {"maker": "openai", "model": "openai/gpt-6-luna", "key": "OPENROUTER_JUDGE_KEY",
+                                       "host": "openrouter.ai", "path": "/api/v1/responses", "effort": "none"},
     # Jev（TypeSafe の、選ぶ・分けるだけの専用モデル。2026-10-18 ユーザー：「判断のみなら、Jevが安くて優秀だと聞きましたが、使えないんですか？」）。
     # 直接の窓口は順番待ちなので OpenRouter を通す。最新の版を名前で決めて測る（「最新」の別名だと、測ったあとに中身が替わる）
     # 線（2026-10-18 G-53 の「曖昧の印と Jev」。線は正解の付いた答えの半分で決め、残りの半分で数えた）：
@@ -210,6 +217,12 @@ OTHER_JUDGES = {
 #    Sonnetだけを使いましょう。Jev検証時を除く」（Max の月の API の分は繰り越さない）⇒ Jev との振り分け（jev_try.py）は検証のときだけ
 JUDGE2 = "Claude Sonnet 5.5（考える）"
 OTHER_PATH = {"openai": "/v1/responses", "typesafe": "/api/v1/systemone"}  # 部品を使わず httpx で送る会社の窓口
+
+
+def other_path(name: str) -> str:
+    """httpx で送る判定の窓口（同じ会社の形を、別の接続先から使うときは、その判定の path）。"""
+    j = OTHER_JUDGES[name]
+    return j.get("path") or OTHER_PATH[j["maker"]]
 OPENAI_EFFORT = "low"  # 考える量（速さの公開の数字は low で約1.5秒。高くすると十数秒〜）
 
 
@@ -242,7 +255,7 @@ def other_request(name: str, q, text: str, asked: str | None, before: str | None
         return body
     if j["maker"] == "typesafe":
         return jev_request(j["model"], q, text, asked, before)
-    return {"model": j["model"], "input": p, "reasoning": {"effort": OPENAI_EFFORT}, "max_output_tokens": 2000,
+    return {"model": j["model"], "input": p, "reasoning": {"effort": j.get("effort", OPENAI_EFFORT)}, "max_output_tokens": 2000,
             "text": {"format": {"type": "json_schema", "name": "answer", "schema": _schema(q, asked), "strict": True}}}
 
 
@@ -325,7 +338,7 @@ def judge_other(client, name: str, q, text: str, asked: str | None = None, befor
         if OTHER_JUDGES[name]["maker"] == "anthropic":
             data = client.messages.create(**body).to_dict()
         else:
-            r = client.post(OTHER_PATH[OTHER_JUDGES[name]["maker"]], json=body)
+            r = client.post(other_path(name), json=body)
             r.raise_for_status()
             data = r.json()
     except Exception as exc:
@@ -343,7 +356,7 @@ async def ajudge_other(client, name: str, q, text: str, asked: str | None = None
         if OTHER_JUDGES[name]["maker"] == "anthropic":
             data = (await client.messages.create(**body)).to_dict()
         else:
-            r = await client.post(OTHER_PATH[OTHER_JUDGES[name]["maker"]], json=body)
+            r = await client.post(other_path(name), json=body)
             r.raise_for_status()
             data = r.json()
     except Exception as exc:

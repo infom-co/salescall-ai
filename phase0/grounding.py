@@ -17,12 +17,15 @@
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 
 # 中身の判定に使う判定（違う会社のものを足すときは、G-63 で危ない文を通さないことを測ってから）。⛔ 2026-10-23 G-63：3.5 Flash Lite は、機械の
 # 確かめと合わせても、本物の文で危ない文を2文通した（「当日の担当者につきましては、担当の者よりお話しさせていただきます」）。考える Sonnet 5.5 は
-# 2回で 328文中、危ない文を通した 0（通すべきを止めたのは、漢字の地名＝機械の確かめの4文だけ）。判定が止まっていれば、文は声に出さずに受け皿へ
+# 2回で 328文中、危ない文を通した 0（通すべきを止めたのは、漢字の地名＝機械の確かめの4文だけ）。判定が止まっていれば、文は声に出さずに受け皿へ。
+# ⛔ 2026-10-23（違う会社の候補）：Haiku 5.5 と GPT-6 Luna（考えない）は危ない文を通した・GPT-6 Luna（考える）は1回3〜4秒・3.8 Flash は混雑で
+# 答えが返らない（503 と15秒の時間切れ）＝2秒の待ちに入って、危ない文を通さない違う会社の判定は、まだ無い
 GROUNDERS = ("Claude Sonnet 5.5（考える）",)
 GROUNDED = "知っていることだけ"
 NO_FACT = "事実を言っていない"
@@ -106,14 +109,15 @@ async def ask_gemini(client, model: str, knowledge: list[str], said: str, draft:
 async def ask_other(client, name: str, knowledge: list[str], said: str, draft: str) -> Verdict | None:
     """Google 以外の判定（meaning_judge.OTHER_JUDGES の Anthropic・OpenAI）。送り方は意味の判定と同じ形（meaning_judge.other_request）：返事の形を
     決める形（form json＝Sonnet 5.5・OpenAI）か、道具で答えさせる形（Haiku 5.5。考える段を入れる形は、道具を任せて考える量を決める）。失敗の形も同じ。"""
-    from meaning_judge import OPENAI_EFFORT, OTHER_JUDGES, OTHER_PATH, _other_error, other_text
+    from meaning_judge import OPENAI_EFFORT, OTHER_JUDGES, _other_error, other_path, other_text
 
     j = OTHER_JUDGES[name]
     if j["maker"] == "openai":  # 意味の判定と同じ窓口・同じ形（返事の形を決める。meaning_judge.other_request）
-        body = {"model": j["model"], "input": prompt(knowledge, said, draft), "reasoning": {"effort": OPENAI_EFFORT}, "max_output_tokens": 2000,
+        body = {"model": j["model"], "input": prompt(knowledge, said, draft), "reasoning": {"effort": j.get("effort", OPENAI_EFFORT)},
+                "max_output_tokens": 2000,
                 "text": {"format": {"type": "json_schema", "name": "answer", "schema": SCHEMA, "strict": True}}}
         try:
-            r = await client.post(OTHER_PATH["openai"], json=body)
+            r = await client.post(other_path(name), json=body)
             r.raise_for_status()
             data = r.json()
         except Exception as exc:
@@ -146,10 +150,11 @@ async def ask_other(client, name: str, knowledge: list[str], said: str, draft: s
     return read(json.dumps(used) if used is not None else next((c.get("text") for c in blocks if c.get("type") == "text"), None))
 
 
-def make_reader(args, name: str, wait_s: float = 0.0):
+def make_reader(args, name: str, wait_s: float = 0.0, attempt_s: float | None = None):
     """通話の中・測る道具で使う形：async (知っていること, お客様の言葉, 返す文) -> Verdict（by・seconds 付き）。
     キーは会話と同じく、上限・止められたキーを飛ばす（Gemini＝common.KeyRing）。wait_s：どのキーも1分の上限のとき待つ秒（通話の中は待たない＝0。
-    測る道具だけが待つ。秒は待った分を含めない＝問い合わせた時からの秒）。"""
+    測る道具だけが待つ。秒は待った分を含めない＝問い合わせた時からの秒）。attempt_s：1回の問い合わせの上限の秒（測る道具だけ。超えたら
+    時間切れの誤り。⛔ 2026-10-23：3.8 Flash は1回に182秒かかり、測りが進まなかった。通話の中は待つ長さで打ち切る＝None）。"""
     from common import KeyRing, load_secret
     from meaning_judge import OTHER_JUDGES, other_client
 
@@ -170,7 +175,7 @@ def make_reader(args, name: str, wait_s: float = 0.0):
             async def once(client):  # 答えた問い合わせの秒（上限で次のキーへ回した分・待った分は入れない）
                 t = time.monotonic()
                 try:
-                    return await ask_gemini(client, model, knowledge, said, draft)
+                    return await asyncio.wait_for(ask_gemini(client, model, knowledge, said, draft), attempt_s)
                 finally:
                     spent["s"] = time.monotonic() - t
             got, _ = await ring.acall(model, once, max_wait_s=wait_s)
@@ -202,8 +207,6 @@ def make_grounder(args, names: tuple[str, ...]):
     """通話の中で使う形：async (知っていること, お客様の言葉, 返す文) -> Verdict | None。names の判定（ふだんは GROUNDERS）を同時に出し、
     先に届いた読みで決める（届かなかった・読めなかった判定は待たない）。どれも届かなければ None（呼ぶ側が待つ長さで打ち切り、文は声に出さない）。
     ⚠️ 遅れて届いた読みは使わない（声はもう出ている）＝呼ぶ側が通話の事実に残し、通話後の検証が見る。"""
-    import asyncio
-
     readers = [make_reader(args, n) for n in names if n]
 
     async def ground(knowledge, said, draft):
