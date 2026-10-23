@@ -272,6 +272,19 @@ class VersionAndStage(Base):
                 self.assertEqual(isinstance(got, gate.Claim), passes, got)
 
 
+    def test_a_run_skipped_for_its_stage_still_offers_fixed_text_calls(self):
+        """門が品質の段の理由で断った実施回（scheduler.due_tasks の skip_stage）でも、決まった文面だけの電話（お詫び）は候補に出す
+        （門と同じ salescall.fixed_text_kind の1か所。見直し16b：この場面の試験が無かった）。"""
+        s = self.ready()
+        now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
+        for purpose, offered in (("apology", True), ("resume", False), ("normal", False)):
+            with self.subTest(purpose=purpose):
+                self.tx(s, lambda tx: support.schedule_call(tx, s["task"], now, contact_id=s["contact"], cause="試験",
+                                                               promised=purpose != "normal", purpose=purpose))
+                got = self.tx(s, lambda tx: [r["task_id"] for r in scheduler.due_tasks(tx, 10, skip_stage={s["run"]})])
+                self.assertEqual(got, [s["task"]] if offered else [])
+
+
 class Stops(Base):
     def test_each_scope_stops_and_the_line_scope_only_its_line(self):
         s = self.ready()
@@ -452,6 +465,24 @@ class Pacing(Base):
         self.assertEqual(self.reason(s), "same_contact_interval")
         p = self.tx(s, lambda tx: gate.pacing(tx, s["task"]))
         self.assertEqual((p.remaining, p.binding), (2, "same_contact_interval"))
+
+    def test_the_interval_also_starts_from_a_promised_call(self):
+        """約束したかけ直しは最小の間隔に縛られないが、約束の電話のあとのふつうの電話は、その約束の電話（お客様に届いた1回）の
+        終わりから間隔をあける（数えるのは attempts.reached の1か所。行の回数＝counts_as_try とは別。見直し16b：この場面の試験が
+        無かった）。"""
+        s = self.ready()
+        aid = uuid.uuid4()   # 約束したかけ直しの試行（予約の時に決まり、あとから変えられない）
+        self.tx(s, lambda tx: tx.execute(
+            "INSERT INTO salescall.attempts (tenant_id, client_id, attempt_id, task_id, contact_id, phone_e164, line_id, version_id,"
+            " state, claimed_at, claim_expires_at, purpose, promised) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'claimed', now(),"
+            " now() + interval '1 minute', 'normal', true)",
+            (s["tenant"], s["client"], aid, s["task"], s["contact"], s["phone"], s["line"], s["version"])))
+        for state in ("dialing", "no_answer"):
+            self.w.move(s, aid, state)
+        self.tx(s, lambda tx: settle.settle(tx, aid))
+        self.tx(s, lambda tx: next_action.schedule_now(tx, s["task"], cause="試験：ふつうの電話を、いまに"))
+        p = self.tx(s, lambda tx: gate.pacing(tx, s["task"]))
+        self.assertEqual((p.promised, p.remaining, p.binding), (False, 3, "same_contact_interval"))
 
     def test_a_call_cut_by_our_failure_is_like_a_line_drop(self):
         """こちらの仕組みが通話の途中で落ちた（結果不明）は、お客様が切ったのではない：回線が途中で切れた通話と同じく、回数・間隔に
@@ -1531,6 +1562,16 @@ class PromisesStopsAndConflicts(Base):
                 self.assertNotEqual(self.tx(b, lambda tx: gate.pacing(tx, b["task"])).binding, "other_client_promise_never")
         self._promise(a, minutes=120)
         self.assertEqual(self.tx(b, lambda tx: gate.pacing(tx, b["task"])).binding, "other_client_promise_never")
+
+    def test_a_row_waiting_for_another_clients_promise_of_unknown_end_is_not_offered(self):
+        """ほかの依頼者の約束を待つ設定で、その約束の時刻を過ぎてもまだかかっていない（いつまで待てばよいか分からない）行は、候補を
+        出す処理が門に渡さない（門と同じ gate.waits_unknown の1か所。予定は書き直さない。見直し16b：この場面の試験が無かった）。"""
+        a = self.ready()
+        b = self.ready(tenant=a["tenant"], phone=a["phone"])
+        self._choose(b, "wait")
+        self._promise(a, minutes=-5)                                           # 約束の時刻を過ぎたが、まだかかっていない
+        self.assertEqual(self.tx(b, lambda tx: gate.waits_unknown(tx, b["task"])), "other_client_promise")
+        self.assertEqual(self.tx(b, lambda tx: [r["task_id"] for r in scheduler.due_tasks(tx, 10)]), [])
 
     def test_own_clients_promises_are_not_another_clients(self):
         """自分の依頼者の約束は「ほかの依頼者の約束」に入らない（0111 の条件。行どうしの間は、同じお客様の間隔が受け持つ）。"""

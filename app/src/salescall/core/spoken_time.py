@@ -42,10 +42,10 @@ import unicodedata
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 
-from salescall.core.calling_hours import JST, clock_seconds
+from salescall.core.calling_hours import JST, callee_range, clock_seconds
 
 # 読み方の版（読み方を変えたら上げる）。判定の版（judge.JUDGE_VERSION）に入る＝上げると、読めなかった「判定待ち」の行が判定し直される
-VERSION = "10"   # 10：日を言わない約束の今日の回は、お客様が言った日（day_said。見直し16）
+VERSION = "11"   # 11：お客様が口にした端の反対側を「お客様指定の歯止め時間」で埋めると空になる幅（「23時以降なら」「朝6時まで」）は、通話の中で確かめる（見直し16b）。10：日を言わない約束の今日の回は、お客様が言った日（day_said。見直し16）
 AT, WINDOW, UNSPECIFIED, CONFIRM, UNREADABLE = "at", "window", "unspecified", "confirm", "unreadable"
 # 幅の中でお客様と話せなかったときの、次の回（お客様がその日を選んだ理由に合わせる。2026-10-19 ユーザー決定）：
 # DAY＝時間の言葉（「夕方」「3時以降」）・日の種類だけ（「平日なら」）・「すぐ」⇒ 次の日の同じ幅／WEEK＝曜日・週末・週中・
@@ -56,6 +56,7 @@ DAY_REPEAT, WEEK = "day", "week"
 DAY = 24 * 3600
 H = 3600
 DEFAULT_BUSINESS_HOURS = (9 * H, 19 * H)   # 設定 callee.business_hours の初めの値（会社 9:00〜19:00）
+DEFAULT_DESIGNATED_LIMIT = (7 * H, 22 * H)   # 設定 callee.designated_limit の初めの値（お客様指定の歯止め時間 7:00〜22:00）
 
 # 言葉ごとの1日の中の幅（秒。終わりは含まない）。端の決まっていない側（朝・午前の始まり＝0時、午後の終わり＝24時）は、かける所が
 # お客様指定の歯止め時間で埋める（calling_hours.callee_range）。
@@ -489,12 +490,16 @@ def _at(d: date, sec: int) -> datetime:
 
 
 def read(text: str | None, now: datetime, business_hours: tuple[int, int] = DEFAULT_BUSINESS_HOURS,
-         periods: dict[str, tuple[int, int]] = PERIODS, monthly: bool = False) -> Reading:
+         periods: dict[str, tuple[int, int]] = PERIODS, monthly: bool = False,
+         limit: tuple[int, int] = DEFAULT_DESIGNATED_LIMIT) -> Reading:
     """お客様が言った時刻の言葉を読む。now＝その通話の時刻（「明日」などの起点。過ぎた時刻は確かめが要る）。
     business_hours＝お客様の営業時間（0時からの秒の (始まり, 終わり)。設定 callee.business_hours。午前・午後を決める）。
     periods＝言葉ごとの幅（依頼者ごとの設定 callback.period_* を `periods_from` で表にしたもの）。
     monthly＝お客様が月の理由（月ぎめの業務・入金の間隔など）を言った（会話の報告の callback.cycle＝month）。
-    言葉が無い（時刻を聞けなかった）ときは UNSPECIFIED。"""
+    limit＝お客様指定の歯止め時間（設定 callee.designated_limit。幅の端の決まっていない側を埋めて切る＝calling_hours.callee_range）。
+    埋めると幅が空になる言い方（口にした端が歯止め時間の外：「23時以降なら」「明日の朝6時まで」）は、通話の中で確かめる（CONFIRM。
+    ⏳ どう埋めるかをユーザーに伺うまでの形。⛔ 見直し16b：前は空の幅が時刻の決まっていない約束になり、お客様の言ったことと反対の
+    時刻＝依頼者のいつもの時間にかけた）。言葉が無い（時刻を聞けなかった）ときは UNSPECIFIED。"""
     if text is None or not text.strip():
         return Reading(UNSPECIFIED)
     t = _clean(text)
@@ -549,6 +554,8 @@ def read(text: str | None, now: datetime, business_hours: tuple[int, int] = DEFA
         return _confirm("幅が空になる言い方です（いつまでか決まりません）")
     daily = (s0, s1) if kind == "window" else None
     said = said if daily is not None else NOT_SAID
+    if daily is not None and callee_range(daily, said, limit) is None:   # かけてよい時間が空になる（判断は callee_range の1か所）
+        return _confirm("お客様が言った時刻が、お客様指定の歯止め時間の外で、かけてよい幅が決まりません")
     if days is None:                                  # 「平日の夕方」「土日祝ならいつでも」：日の種類だけ（終わり無し）
         return Reading(WINDOW, local, None, daily, days=kinds, repeat=DAY_REPEAT, said=said, day_said=day_said)
     start, end_at = _at(days[0], s0), _at(days[1], s1)

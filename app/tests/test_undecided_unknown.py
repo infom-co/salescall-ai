@@ -69,3 +69,22 @@ class UnknownPending(SettleBase):
         self.assertEqual(self.settle(s, a)["state"], "unknown")
         self.assertTrue(self.undecided(s, a))
         self.assertEqual(self.tx(o, lambda tx: gate.pacing(tx, o["task"])).binding, "related_unsettled")
+
+    def test_a_later_call_whose_result_is_also_unknown_keeps_it_pending(self):
+        """あとの発信がお客様につながっても、その結果も判定できなければ、前の通話はまだ判定し直しの対象（決まったとみなすのは、あとの
+        結果が決まったときだけ＝salescall.unknown_pending の1か所。見直し16b：この場面の試験が無かった）。"""
+        s = self.ready()
+        a = self.cut_unknown(s)
+        b = self.call(s, report=rep())                                       # つながったが、理由の無い「わからない」のまま
+        self.assertEqual(self.settle(s, b)["state"], "unknown")
+        self.assertTrue(self.tx(s, lambda tx: tx.one("SELECT salescall.unknown_pending(%s) AS p", (a,)))["p"])
+
+    def test_no_rejudging_while_a_later_call_waits_to_be_settled(self):
+        """あとの発信の締めがまだ（通話後の検証待ちなど）の行は、判定し直しの対象に出さない（締めと判定し直しが、行の予定を同時に
+        書かない＝settle.awaiting_rejudge の1か所。締めが済めば、また出る。見直し16b：この場面の試験が無かった）。"""
+        s = self.ready()
+        a = self.cut_unknown(s)
+        b = self.call(s, ["dialing", "no_answer"])                            # 発信したが、まだ締めていない
+        self.assertIsNone(self.tx(s, lambda tx: settle.awaiting_rejudge(tx, s["task"])))
+        self.settle(s, b)
+        self.assertEqual(self.tx(s, lambda tx: settle.awaiting_rejudge(tx, s["task"])), a)

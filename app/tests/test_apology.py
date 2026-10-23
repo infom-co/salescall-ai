@@ -159,6 +159,28 @@ class Apology(Helpers):
         got = self.apology_call(t)                                     # 報告に無い ⇒ 伝えていない側に倒す
         self.assertEqual((got["decision"].kind, got["decision"].end_reason), ("end", "apology_unreached"))
 
+    def test_an_apology_call_not_passed_on_is_not_tried_again_the_same_day(self):
+        """お詫びの電話で、受付の方に「席を外しております」と言われ、また掛けてよいとは言われなかった：ふつうの電話と同じく、同じ日には
+        かけ直さない（材料は判定の中身から＝next_action.unreached_of の1か所。2026-10-22 ユーザー：「同じ日に2回以上、その言葉がなく
+        かけるのであれば煙たがられますよ」。見直し16b：前は、お詫びの電話の締めだけ会話の報告から直に読み、この場面の試験が無かった）。"""
+        for again, same_day in ((True, True), (None, False)):
+            with self.subTest(again=again):
+                s = self.fresh(stage_cap=20)
+                hour = self.tx(s, lambda tx: tx.one("SELECT extract(hour FROM salescall.jst(now()))::int AS h")["h"])
+                if not 7 <= hour <= 20:
+                    self.skipTest("日本時間の夜・早朝：今日のうちに別の時間帯が無い")
+                self.put_client(s, "calling.ng_hours", {k: [] for k in ("mon", "tue", "wed", "thu", "fri", "sat", "sun", "holiday")})
+                self.put_client(s, "retry.time_band_boundaries", [hour + 1])   # 今日のうちに、まだ試していない時間帯がある
+                self.order(s, self.incident(s))
+                from salescall.core.call_report import Callback, Said
+                cb = Callback("absent", None, None, None, Said(1, "あいにく岡田は席を外しております。"), again=again, back_today=again)
+                report = replace(rep(("reception",), callback=cb, not_reached="absent"), apology_delivered=False)
+                d = self.settle(s, self.call(s, report=report))["decision"]
+                tomorrow = self.tx(s, lambda tx: tx.one(
+                    "SELECT (date_trunc('day', salescall.jst(now())) + interval '1 day') AT TIME ZONE 'Asia/Tokyo' AS t")["t"])
+                self.assertEqual((d.kind, d.target.purpose), ("call", "apology"))
+                self.assertEqual(d.at < tomorrow, same_day, d.at)
+
     def test_a_cut_apology_call_is_called_back_at_once(self):
         """お詫びの電話が途中で切れた：ふつうの電話と同じく、復旧次第すぐかけ直す（続けて2回まで。⛔ 2026-10-22 の見直し14：前は
         お詫びの電話だけ、別の時間帯に回していた）。"""

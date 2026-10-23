@@ -982,6 +982,9 @@ class Drain(SupervisorBase):
             deadline = time.monotonic() + 5
             while not flag.exists() and time.monotonic() < deadline:
                 time.sleep(0.02)
+            main_mod.drained("前の回の番号")   # 前の回の見守り役が遅れて書いた「止まった」の印：止まったとは受け取らない（見直し16b）
+            time.sleep(0.2)
+            self.assertEqual(got, [])
             token = main_mod.drain_asked(since)
             self.assertTrue(token)                                              # 見守り役が印を見た（見たら消す）
             self.assertFalse(flag.exists())

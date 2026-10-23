@@ -40,7 +40,7 @@ def due_tasks(tx: Tx, limit: int, *, skip_businesses: set[UUID] | frozenset[UUID
     skip_businesses＝この回、門が業務の理由（gate.BUSINESS_REASONS）で断った業務（その業務の行を出さない。判断は門がしたもの）。
     skip_runs＝この回、門が実施回の版の理由（gate.RUN_REASONS）で断った実施回（その実施回の行を出さない）。skip_stage＝門が品質の段の
     理由（gate.STAGE_REASONS）で断った実施回（決まった文面だけの電話＝品質の段を見ない電話のほかを出さない。どの電話がそれに当たるかは
-    門と同じ salescall.lets_through('quality_gate', …) の1か所）。
+    門と同じ salescall.fixed_text_kind の1か所）。
     promised_only＝お客様と約束したかけ直しだけ（回線ごとの処理が、すべての依頼者の約束を先に済ませるのに使う）。
     門が「待つ」で必ず断り、いつまで待てば変わるか分からない行（gate.waits_unknown の1か所＝門と同じ関数：契約者の承認待ち・
     同じお客様の発信で断られたかが未決・ほかの依頼者の約束の時刻が分からない）も出さない（予定は書き直さない。変われば、また出る。
@@ -76,7 +76,7 @@ def _candidates(tx: Tx, page: int, offset: int, skip_businesses: set[UUID] | fro
         "   AND NOT EXISTS (SELECT 1 FROM salescall.blocking_stops(t.tenant_id, t.client_id, r.business_id, NULL,"
         "                                                          salescall.keeping_kind(n.purpose, n.promised)))"
         "   AND r.business_id <> ALL(%s::uuid[]) AND t.run_id <> ALL(%s::uuid[])"
-        "   AND (t.run_id <> ALL(%s::uuid[]) OR salescall.lets_through('quality_gate', salescall.keeping_kind(n.purpose, n.promised)))"
+        "   AND (t.run_id <> ALL(%s::uuid[]) OR salescall.fixed_text_kind(salescall.keeping_kind(n.purpose, n.promised)))"
         "   AND (n.promised OR NOT %s)"
         " ORDER BY n.promised DESC, n.call_at, t.task_id LIMIT %s OFFSET %s",
         (list(skip_businesses), list(skip_runs), list(skip_stage), promised_only, page, offset))

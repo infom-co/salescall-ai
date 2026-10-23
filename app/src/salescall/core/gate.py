@@ -252,8 +252,7 @@ def _pacing(tx: Tx, task: dict[str, Any], now: datetime, assume_promised: bool |
     # ほかの電話が届かない。⛔ 見直し15：前は回線の取り置きだけで、同じ番号へのふつうの電話は約束の直前でもかかった）。約束の時刻を
     # 過ぎても、まだかけていなければ待つ（決まった間 gate.denied_retry_wait で見直す）。ほかの契約者の約束は、下の 0111 の形
     if not promised:
-        soon = tx.one("SELECT salescall.number_promise_soon(%s, 'infinity', %s) AS at",
-                      (task["phone_e164"], task["task_id"]))["at"]
+        soon = tx.one("SELECT salescall.number_promise_soon(%s) AS at", (task["phone_e164"],))["at"]   # 約束でない電話の行は入らない
         if soon is not None and soon <= now + timedelta(seconds=promise_guard_seconds(tx, task)):   # 約束が無ければ測らない
             limits.append((soon if soon > now else now + timedelta(seconds=int(_setting(tx, "gate.denied_retry_wait", task))),
                            "number_promise_soon"))
@@ -498,8 +497,9 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
         return _deny("settings_missing")
     # 業務の話し方を使わない電話（決まった文面だけ＝お詫びの電話。DESIGN.md 10-1-2）は、品質の段（段の件数・まだかけられる段に
     # 入っていない）と、目的のお客様を呼ぶ材料を見ない（前の通話で話したお客様に、決まった文面を伝える）。どの電話がそれに当たるかは、
-    # 品質の理由の停止でも通す電話と同じ表の1か所（salescall.stop_lets_through の quality_gate。前はここに「お詫び」を直に書いていた）
-    fixed_text = tx.one("SELECT salescall.lets_through('quality_gate', %s) AS p", (nxt["keeping"],))["p"]
+    # データベースの1か所 salescall.fixed_text_kind（0120。⛔ 見直し16b：前は「品質の停止でも通す電話」の表の行で決めていて、2つの
+    # 別の問いがつながっていた。見直し15の前は、ここに「お詫び」を直に書いていた）
+    fixed_text = tx.one("SELECT salescall.fixed_text_kind(%s) AS p", (nxt["keeping"],))["p"]
     # 目的のお客様を呼ぶ材料が足りない行にかけない（足りるかの決まりは業務設定の1か所。取込・版の割り当てと同じ）
     short = None if fixed_text else content.target_needs().missing(name=task["target_name"], role=task["target_role"])
     if short is not None:

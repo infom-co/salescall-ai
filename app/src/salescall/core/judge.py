@@ -111,6 +111,8 @@ class JudgeInput:
     # 目的のお客様に判定なしで繋いだ通話を確かめ直して、目的のお客様だと確かめられなかった（別の方・確かめられなかった。
     # core/target_recheck.py）。その通話の答えは、もう戻されている・「-」になっている。結果の中身に残す
     target_unconfirmed: bool = False
+    # お客様指定の歯止め時間（設定 callee.designated_limit。業務ごと。時刻の読みが、幅の端の決まっていない側を埋めて切る）
+    designated_limit: tuple[int, int] = spoken_time.DEFAULT_DESIGNATED_LIMIT
 
     @property
     def reached_target(self) -> bool:
@@ -226,9 +228,33 @@ def refusal(inp: JudgeInput) -> Judgement | None:
     return None
 
 
+def unreached_today(inp: JudgeInput) -> tuple[str | None, bool]:
+    """目的のお客様に繋がらなかった理由と、同じ日にまたかけてよいと言われたか（同じ日にかけ直さないかの材料。1か所：業務の判定の
+    (7) の不在・(8) と、お詫びの電話の締め＝業務の判定を書かない電話が、同じものを読む。⛔ 見直し16b：前はお詫びの電話の締めだけ
+    会話の報告から直に読み、確かめ直しで目的のお客様だと確かめられなかった通話を「また掛けてよい」と読みえた。業務の判定を通すと、
+    お詫びの電話は行の答えがもうそろっているので「完了」になり、材料が消えた）。
+    - 不在で戻る時刻が取れなかった（かけ直しの申し出の理由が不在の仲間で、時刻が無い）⇒（不在, 会話の報告の may_call_again）
+    - お客様と話したが目的のお客様に繋がらなかった ⇒ 確かめ直しで目的のお客様だと確かめられなかった通話は（取り次げなかった, いいえ）
+      ＝聞いていない。それ以外は（会話の報告の理由, may_call_again）
+    - どれでもない ⇒（None, いいえ）"""
+    r = inp.report
+    if r is None:
+        return None, False
+    cb = r.callback
+    if (cb is not None and cb.reason in call_report.ABSENT_REASONS
+            and _when(inp, cb).kind == spoken_time.UNSPECIFIED):
+        return "absent", r.may_call_again
+    if inp.facts.reached_answer and r.talked and not inp.reached_target:
+        if inp.target_unconfirmed:
+            return "not_transferred", False
+        return r.not_reached, r.may_call_again
+    return None, False
+
+
 def _when(inp: JudgeInput, cb: Any) -> spoken_time.Reading:
     """かけ直しの申し出の時刻の言葉の読み（1か所。core/spoken_time.read）。"""
-    return spoken_time.read(cb.time_said, inp.facts.called_at, inp.callee_hours, inp.periods, monthly=cb.cycle == "month")
+    return spoken_time.read(cb.time_said, inp.facts.called_at, inp.callee_hours, inp.periods, monthly=cb.cycle == "month",
+                            limit=inp.designated_limit)
 
 
 def _callback(cb: Any, when: spoken_time.Reading) -> dict[str, Any]:
@@ -356,7 +382,8 @@ def _business(inp: JudgeInput) -> Judgement:
             # 2026-10-13 ユーザー：「戻る時刻が聞けたときは『折り返し予定』…⇒はい」「『不在』のときは、かけ直しの回数の上限までかけ直す
             # 案です。⇒OK」。CL-1 は不在のとき、戻る時刻を聞けなくても、かけ直しの申し出（理由 absent）を残す。⛔ 2026-10-22 の見直し13：
             # 前は時刻の決まっていない約束（callback_unspecified_time）にして、回数の上限の外でかけ続けえた
-            return done("not_reached", not_reached="absent", policy_key="not_reached_absent", again=r.may_call_again)
+            nr, again = unreached_today(inp)
+            return done("not_reached", not_reached=nr, policy_key="not_reached_absent", again=again)
         return done("callback_scheduled", callback=_callback(cb, when),
                     policy_key=None if when.start else "callback_unspecified_time")
     # (8) お客様と話したが、目的のお客様に繋がらなかった。確かめ直しで目的のお客様だと確かめられなかった通話（別の方が「はい」と
@@ -364,11 +391,11 @@ def _business(inp: JudgeInput) -> Judgement:
     if conversation and not inp.reached_target:
         # again＝あとでまたかけてよいと言われたか（取り次げなかったときだけ。読むのは call_report の1か所。確かめ直しで目的の
         #   お客様だと確かめられなかった通話は、聞いていないので False）。約束の電話で当日の幅の中でかけ直すかを、次の動きが決める
-        if inp.target_unconfirmed:
-            return done("not_reached", not_reached="not_transferred", policy_key="not_reached_not_transferred", again=False)
-        if r.not_reached is None:
+        nr, again = unreached_today(inp)
+        if nr is None:
             return unknown("not_reached_reason_missing", "目的のお客様に繋がらなかった理由がありません")
-        return done("not_reached", not_reached=r.not_reached, policy_key=_unreached_key(r), again=r.may_call_again)
+        key = "not_reached_not_transferred" if inp.target_unconfirmed else _unreached_key(r)
+        return done("not_reached", not_reached=nr, policy_key=key, again=again)
     # (9) 会話に至らなかった
     if not conversation:
         return done("open", policy_key="open")

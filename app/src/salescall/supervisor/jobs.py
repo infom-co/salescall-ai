@@ -148,7 +148,8 @@ def system_lasting_stops(ctx: Context) -> None:
 
 
 def budget(ctx: Context) -> None:
-    """費用の見張り（その契約者の分）：今日の費用の注意・赤字の警告の期限・赤字でなくなった停止を解く（12-1）。"""
+    """費用の見張り（その契約者の分）：今日の費用の注意・赤字の警告と、期限までに確認されなければもう一度の知らせ（赤字では止めない＝
+    2026-10-22 深夜 ユーザー。12-1）。"""
     usage.tick(ctx.access, ACTOR, ctx.tenant_id)
 
 

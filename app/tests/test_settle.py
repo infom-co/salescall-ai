@@ -199,6 +199,32 @@ class Settle(SettleBase):
         self.assertGreaterEqual(nxt["call_at"], at)
         self.assertEqual(nxt["callee_at"], at)                          # お客様が言った時刻（NG時間でもかけてよい根拠）
 
+    def test_an_exact_time_on_a_named_day_is_called_even_on_the_clients_day_off(self):
+        """「（土曜）の15時」：お客様がその日を言った時刻ちょうどの約束は、依頼者の休みの日でもかける（最初の回に「その日を言った」を
+        持たせる＝next_action._exact_window の1か所。見直し16b：この場面の試験が無かった）。"""
+        s = self.ready()
+        day = self.tx(s, lambda tx: tx.one(
+            "SELECT (salescall.jst(now())::date + ((6 - extract(isodow FROM salescall.jst(now()))::int + 7) % 7 + 7)) AS d")["d"])
+        self.assertEqual(day.isoweekday(), 6)                                  # 次の次の土曜（依頼者の初めの値は平日だけ）
+        got = self.settle(s, self.call(s, report=rep(callback=callback("later", time=f"{day.month}月{day.day}日の15時"))))
+        nxt = self.tx(s, lambda tx: next_action.current(tx, s["task"]))
+        self.assertEqual((got["state"], nxt["window_day_said"]), ("callback_scheduled", True))
+        hours = self.tx(s, lambda tx: gate.window_hours(tx, tenant_id=s["tenant"], client_id=s["client"], business_id=s["business"],
+                                                        window=calling_hours.callee_window(nxt)))
+        self.assertTrue(any(hours.values()))                                    # 土曜でも、その時刻はかけてよい
+
+    def test_calls_in_a_promised_round_are_counted_like_the_policy(self):
+        """約束の回にかけた数は、比べる相手の再発信の方針の回数と同じ数え方（お客様に届いた1回＝attempts.reached）で数える（発信に
+        失敗・お客様が出る前の回線の失敗は数えない）。回の始まりが分からない幅は、方針の回数をそのまま使う（next_action._round_calls
+        の1か所。見直し16b：前は鳴った電話で数え、方針の回数と数え方が混ざっていた。回の始まりが分からないときの試験も無かった）。"""
+        s = self.ready()
+        since = self.tx(s, lambda tx: tx.one("SELECT now() - interval '1 minute' AS t")["t"])
+        for path in (["dialing", "no_answer"], ["dialing", "call_failed"], ["dialing", "ringing", "technical_error"]):
+            self.past_attempt(s, path)
+        w = next_action.Window(None, None, None, since, None)
+        self.assertEqual(self.tx(s, lambda tx: next_action._round_calls(tx, s["task"], w, 9)), 1)
+        self.assertEqual(self.tx(s, lambda tx: next_action._round_calls(tx, s["task"], replace(w, since=None), 2)), 2)
+
     def test_a_window_callback_is_called_inside_the_window(self):
         """「（日）の夕方」：幅の始まり（16時）にかけ、幅（〜18時・1日の中の16〜18時）を次の予定に持たせる。NG時間の根拠
         （お客様が指定したちょうどの時刻）は持たない（2026-10-19 ユーザー：「それに合わせてかけるべき」）。"""
@@ -682,6 +708,25 @@ class UnusableNumber(SettleBase):
         self.assertEqual((d4.kind, d4.end_reason), ("end", "number_unusable"))
         self.assertEqual(self.tx(s, lambda tx: gate.pacing(tx, s["task"]).remaining), 3)   # 行の回数には数えない
 
+    def test_the_run_of_failures_starts_on_its_first_day(self):
+        """続いた失敗の数・続いた最初の日・最後の失敗の終わりは、データベースの1か所 salescall.failed_run（次にかける日は最初の日から
+        数える。見直し16b：前は最初の日を別の問い合わせで求め直し、日をまたいで続いた場面の試験が無かった）。"""
+        s = self.ready()
+        for days_ago in (2, 1):   # 2日前と1日前に、受け付けられなかった
+            aid = self.w.insert_claim(s)
+            for state in ("dialing", "call_failed"):
+                self.w.move(s, aid, state)
+
+            def back(tx):   # 試験：時刻はデータベースが決めるので、持ち主の取引の中だけ仕掛けを外して、その日へ戻す
+                tx.execute("ALTER TABLE salescall.attempts DISABLE TRIGGER USER")
+                tx.execute("UPDATE salescall.attempts SET claimed_at = claimed_at - make_interval(days => %s),"
+                           " ended_at = ended_at - make_interval(days => %s) WHERE attempt_id = %s", (days_ago, days_ago, aid))
+                tx.execute("ALTER TABLE salescall.attempts ENABLE TRIGGER USER")
+            owner_access().in_system(SYSTEM, back)
+        run = self.tx(s, lambda tx: attempts.failed_run(tx, s["contact"]))
+        today = self.tx(s, lambda tx: tx.one("SELECT salescall.jst(now())::date AS d")["d"])
+        self.assertEqual((run["n"], run["first_day"]), (2, today - timedelta(days=2)))
+
     def test_the_order_is_per_client(self):
         """並びは依頼者ごとに変えられる（[1]＝最初の失敗で、その番号へはかけない）。並びは1日目から始まり、小さくならない。"""
         s = self.ready()
@@ -709,6 +754,17 @@ class UnusableNumber(SettleBase):
         for _ in range(4):
             d = self.settle(s, self.past_attempt(s, ["dialing", "call_failed"], settled=False))["decision"]
         self.assertEqual((d.kind, d.contact_id), ("call", other))
+
+    def test_only_calls_to_whoever_answers_move_to_another_number(self):
+        """使えない番号のとき、お客様が言った別の番号へ替えるのは、ふつうの電話・続きの電話（行のお客様へかける電話）だけ。番号の
+        聞き直し・お詫びの電話は、その番号のお客様へかける電話なので替えずに行を終える（next_action.usable の1か所。見直し16b：
+        この場面の試験が無かった）。"""
+        bad, other = uuid.uuid4(), uuid.uuid4()
+        numbers = next_action.Numbers(unusable=frozenset({bad}), said=(other,))
+        for purpose, to in (("normal", other), ("resume", other), ("ask_number_again", None), ("apology", None)):
+            with self.subTest(purpose=purpose):
+                got = next_action.usable(next_action.Target(bad, None, purpose), numbers)
+                self.assertEqual((got.contact_id, got.end_reason), (to, None if to else "number_unusable"))
 
     def test_other_rows_of_the_same_number_do_not_dial_it_again(self):
         """同じ番号のほかの行も、その番号へはかけない（門が「番号が使えない」で断り、次の動きが行を終える。決まりは
@@ -919,6 +975,28 @@ class CutOffCalls(SettleBase):
         self.assertNotEqual(got[2], "resume")                                  # 3回目に続けて切れたら、ふつうのかけ直し
         self.assertLess(len(got), 10)
         self.assertTrue(got[-1] == "max_attempts" or got[-1].startswith("policy_max:"), got)
+
+    def test_only_a_reached_call_restarts_the_count_of_cuts_in_a_row(self):
+        """続けて切れた数（salescall.cuts_in_a_row。すぐのお詫びのかけ直しを何回までするか・回数に数え始めるかの1か所）を0に戻すのは、
+        お客様に届いて途中で切れなかった発信だけ。発信に失敗（鳴っていない）・お客様が出る前の回線の失敗は、はさまっても数え直さない
+        （⛔ 見直し16b：前は、どの発信がはさまっても数え直し、「切れた → 回線の失敗 → 切れた」が交互に続くと、どの回数にも数えない
+        まま、すぐのかけ直しを続けえた）。"""
+        cut = ("dialing", "ringing", "answered", "in_conversation", "dropped")
+        between = {"回線の失敗": ("dialing", "ringing", "technical_error"), "発信に失敗": ("dialing", "call_failed"),
+                   "話せた": ("dialing", "ringing", "answered", "in_conversation", "ending", "ended")}
+        for name, expect in (("回線の失敗", 2), ("発信に失敗", 2), ("話せた", 1)):
+            with self.subTest(between=name):
+                s = self.ready()
+
+                def one(path):
+                    aid = self.past_attempt(s, path, side="line", verify="answered" in path, settled=False,
+                                            report=rep(cut=Cut("callee", False, False)) if path is cut else None)
+                    self.settle(s, aid)
+                    return aid
+                one(cut)
+                one(between[name])
+                last = one(cut)
+                self.assertEqual(self.tx(s, lambda tx: tx.one("SELECT salescall.cuts_in_a_row(%s) AS n", (last,)))["n"], expect)
 
     def test_rejudging_an_old_cut_call_does_not_revive_the_ended_row_nor_hold_the_customer(self):
         """途中で切れて判定できなかった通話A（お詫びのかけ直しを予定）のあと、かけ直しにも、そのあとの電話にも出ないまま行が終わった。

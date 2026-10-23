@@ -564,7 +564,7 @@ def after_call(tx: Tx, task_id: UUID, j: Judgement, *, rules: Rules, dialed: Tar
     # 目的のお客様に繋がらなかった（不在・取り次げない・在籍していないで後任の方を追う）通話で、同じ日にまたかけてよいとは言われ
     # なかった：同じ日にはかけ直さない（`not_today` の1か所。ふつうの電話・時刻の決まっていない約束は方針の時刻が今日なら次の日へ
     # ＝`_policy_at`。約束の幅の電話は当日の幅をやめて次の回へ。番号の聞き直しは次の日から探す＝`_new_band_retry`）
-    no_today = not_today(j.detail.get("not_reached") if j.state == "not_reached" else None, bool(j.detail.get("again")))
+    no_today = not_today(*unreached_of(j))
     ask = None
     if target.purpose == "ask_number_again" and not cut_off:
         ask = _new_band_retry(tx, task_id, max(now, promised.earliest or now), purpose="ask_number_again",
@@ -630,6 +630,12 @@ def after_call(tx: Tx, task_id: UUID, j: Judgement, *, rules: Rules, dialed: Tar
     return d
 
 
+def unreached_of(j: Judgement) -> tuple[str | None, bool]:
+    """同じ日にかけ直さないかの材料（目的のお客様に繋がらなかった理由・同じ日にまたかけてよいと言われたか）を、判定の中身から読む
+    （値を決めるのは judge.unreached_today の1か所。お詫びの電話の締めは、業務の判定を書かないので、そちらを直に読む）。"""
+    return (j.detail.get("not_reached") if j.state == "not_reached" else None), bool(j.detail.get("again"))
+
+
 def not_today(not_reached: str | None, again: bool) -> bool:
     """同じ日にはかけ直さないか（1か所）：目的のお客様に繋がらなかった（不在・取り次げない・在籍していないで後任の方を追う）通話で、
     同じ日にまたかけてよいとは言われなかった。ふつうの電話・約束の電話・番号の聞き直し・お詫びの電話のどれも、これで決める。
@@ -661,27 +667,28 @@ def _failed_retry_at(tx: Tx, task_id: UUID, contact_id: UUID | None, now: dateti
     なかったら、その番号へはかけない」。"""
     if contact_id is None:
         return None
-    k = attempts.failed_in_a_row(tx, contact_id)
+    run = attempts.failed_run(tx, contact_id)   # 続いた数・最初の日・最後の終わり（データベースの1か所。⛔ 見直し16b：前は最初の日を
+    k = run["n"]                                # 別の問い合わせで求め直していた）
     scope = tasks.scope(tx, task_id)
     days = attempts.failed_retry_days(tx, **scope)
     if k == 0 or k >= len(days):
         return None
-    rows = tx.all(f"SELECT salescall.jst(claimed_at)::date AS d, coalesce(ended_at, claimed_at) AS e FROM salescall.attempts"
-                  f" WHERE contact_id = %s AND {attempts.DIALED} ORDER BY claimed_at DESC LIMIT %s", (contact_id, k))
-    day = rows[-1]["d"] + timedelta(days=days[k] - 1)   # 続いた失敗の最初の日から数える
+    day = run["first_day"] + timedelta(days=days[k] - 1)   # 続いた失敗の最初の日から数える
     today = calling_hours.local(now).date()
     if day <= today:
         gap = timedelta(seconds=int(settings.resolve(tx, "gate.same_contact_min_interval", **scope)))
-        return max(now, rows[0]["e"] + gap)
+        return max(now, run["last_end"] + gap)
     return _retry_at(tx, task_id, ("days", (day - today).days), now, dialed_at)
 
 
 def _round_calls(tx: Tx, task_id: UUID, window: Window, fallback: int) -> int:
-    """約束の回 [since, until) に、この行でかけた電話の数（鳴った・鳴りえた電話。今回を含む。1か所）。回の始まりの分からない幅は
-    fallback（その結果の方針の回数）。"""
+    """約束の回 [since, until) に、この行でかけた電話のうち、お客様に届いた1回の数（今回を含む。1か所）。比べる相手の再発信の方針の
+    回数（`_times`）と同じ数え方＝数え方の種類 dial_kind の 'reached'（`attempts.reached`。約束の電話なので約束かどうかは見ない。
+    ⛔ 見直し16b：前は「鳴った・鳴りえた電話」で数え、方針の回数と数え方が混ざっていた）。回の始まりの分からない幅は fallback
+    （その結果の方針の回数）。"""
     if window.since is None:
         return fallback
-    return tx.one(f"SELECT count(*) AS n FROM salescall.attempts WHERE task_id = %s AND {attempts.placed()}"
+    return tx.one(f"SELECT count(*) AS n FROM salescall.attempts WHERE task_id = %s AND {attempts.reached()}"
                   " AND claimed_at >= %s AND (%s::timestamptz IS NULL OR claimed_at < %s)",
                   (task_id, window.since, window.until, window.until))["n"]
 

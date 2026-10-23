@@ -26,7 +26,7 @@ from salescall.core import (apology, approval, attempts, business_rules, call_re
                             target_recheck, tasks, usage)
 from salescall.core.access import Tx
 from salescall.core.judge import (JUDGE_VERSION, UNKNOWN_CAUSE_FIXERS, UNKNOWN_CAUSES, Facts, Item, JudgeInput, Judgement,
-                                  classify_cut, cut_off as judge_cut_off, judge, refusal)
+                                  classify_cut, cut_off as judge_cut_off, judge, refusal, unreached_today)
 from salescall.core.phone import normalize
 
 
@@ -123,11 +123,12 @@ def _settle_apology(tx: Tx, a: dict[str, Any]) -> dict[str, Any]:
     stop_reason = f"apology_{j.dnc_reason}" if j is not None and j.dnc_reason in ("wrong_party", "fax_line") else None
     _notice_forbidden(tx, a, prepare=False)
     cut = _cut_off(tx, a, classify_cut(inp.facts, report), report)   # 途中で切れたか（ふつうの通話と同じ1か所）
+    # 同じ日にかけ直さないかの材料は、ふつうの電話の判定と同じ1か所（judge.unreached_today）から（お詫びの電話は業務の判定を書かない。
+    # ⛔ 見直し16b：前は会話の報告から直に読み、確かめ直しで目的のお客様だと確かめられなかった通話の扱いが、ふつうの電話と違いえた）
+    not_reached, again = unreached_today(inp)
     decision = next_action.after_apology(tx, a["task_id"], delivered=delivered, refused=refused, stop_reason=stop_reason,
                                          dialed=next_action.Target(a["contact_id"], None, "apology", None),
-                                         reached_target=inp.reached_target, cut_off=cut,
-                                         not_reached=None if report is None else report.not_reached,   # 同じ日にかけ直さないかは
-                                         again=bool(report and report.may_call_again))                 # ふつうの電話と同じ1か所
+                                         reached_target=inp.reached_target, cut_off=cut, not_reached=not_reached, again=again)
     if decision.kind == "end":
         notify.emit(tx, "apology", key=f"apology:{attempt_id}",
                     summary={"apology_done": "お詫びを伝えました。",
@@ -275,10 +276,12 @@ def _judge_input(tx: Tx, a: dict[str, Any], rules_version: Any) -> tuple[JudgeIn
     open_, close = get("callee.business_hours")   # お客様の営業時間（午前・午後を決める。日をまたいでよい）
     periods = spoken_time.periods_from({k: spoken_time.range_seconds(get(key))     # 言葉ごとの幅（依頼者ごとの設定。0088）
                                         for k, key in spoken_time.PERIOD_SETTINGS.items()})
+    lo, hi = get("callee.designated_limit")       # お客様指定の歯止め時間（業務ごと。0118）
     inp = JudgeInput(Facts(a["state"], a["hangup_side"], a["reached_answer"], dialed["source"] == "callee", a["spoken_at"]),
                      report, _items(tx, a["task_id"]), business_rules.load(tx, rules_version), refused_after,
                      unclear_is_refusal, (calling_hours.clock_seconds(open_), calling_hours.clock_seconds(close)), periods,
-                     dnc.refused_in(tx, attempt_id, "refused_in_call"), target_recheck.unconfirmed(tx, attempt_id))
+                     dnc.refused_in(tx, attempt_id, "refused_in_call"), target_recheck.unconfirmed(tx, attempt_id),
+                     (calling_hours.clock_seconds(lo), calling_hours.clock_seconds(hi)))
     return inp, report_source, dialed
 
 

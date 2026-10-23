@@ -59,10 +59,11 @@ def resume_allowed(tx: Tx, task_id: UUID) -> bool:
     return bool(row and row["ok"])
 
 
-def failed_in_a_row(tx: Tx, contact_id: UUID) -> int:
+def failed_run(tx: Tx, contact_id: UUID) -> dict[str, Any]:
     """その番号（依頼者の連絡先。どの行・どの回線でも）への、いちばん新しい発信から続けて、発信に失敗した（回線の部品が受け付け
-    なかった＝お客様のところで鳴っていない）発信の数（決まりはデータベースの1か所 salescall.failed_in_a_row）。"""
-    return tx.one("SELECT salescall.failed_in_a_row(%s) AS n", (contact_id,))["n"]
+    なかった＝お客様のところで鳴っていない）発信の続き（決まりはデータベースの1か所 salescall.failed_run＝0120）：n＝続いた数・
+    first_day＝続いた最初の失敗の日（日本時間）・last_end＝いちばん新しい失敗の終わり（続いていなければ None）。"""
+    return tx.one("SELECT n, first_day, last_end FROM salescall.failed_run(%s)", (contact_id,))
 
 
 def failed_retry_days(tx: Tx, **scope: Any) -> list[int]:
@@ -75,7 +76,7 @@ def number_unusable(tx: Tx, contact_id: UUID, **scope: Any) -> bool:
     """その番号へは、もうかけないか（1か所。門と次の動きの両方が読む）：発信に失敗が、並び（`failed_retry_days`）の数だけ続いた
     （2026-10-22 深夜 ユーザー：「同じ番号で続けて当日2回＆翌日1回、さらに2日後1回の計4回受け付けられなかったら、その番号へは
     かけない」）。"""
-    return failed_in_a_row(tx, contact_id) >= len(failed_retry_days(tx, **scope))
+    return failed_run(tx, contact_id)["n"] >= len(failed_retry_days(tx, **scope))
 
 
 def reached(table: str = "") -> str:

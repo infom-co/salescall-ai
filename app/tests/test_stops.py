@@ -36,6 +36,25 @@ class SystemStops(unittest.TestCase):
             tx, r["event_id"], reason="回線の確かめが3回続けて正常", evidence="確かめ 3/3"))
         self.assertEqual(open_for(w, s1), [])
 
+    def test_0120_resumes_the_deficit_stops_left_open(self):
+        """赤字では止めない（2026-10-22 深夜 ユーザー：「止めない。知らせるだけでいい」）。0118 より前に開いていた赤字の停止は、表の作り
+        0120 がシステムとして理由を付けて解き、「解いた」を知らせる（解く処理も通す電話の表の行も無いので、残ると約束・お詫びの電話も
+        含めて、その依頼者の電話がすべて止まったままになった＝見直し16b）。0120 の (1) の文そのものを流して確かめる。"""
+        from pathlib import Path
+        from tests.support import owner_access
+        w = World(); s = w.setup()
+        e = w.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: stops.stop(
+            tx, scope="client", cause="deficit", reason="試験：0118 より前の赤字の停止", tenant_id=s["tenant"], client_id=s["client"]))
+        sql = (Path(__file__).resolve().parents[1] / "db" / "migrations" / "0120_review16b_fixes.sql").read_text(encoding="utf-8")
+        part = sql.split("-- ═════════ (1) ═════════")[1].split("-- ═════════ (2) ═════════")[0]
+        owner_access().in_system(SYSTEM, lambda tx: tx.execute(part))
+        self.assertEqual(open_for(w, s), [])
+        row = w.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: tx.one(
+            "SELECT r.actor_kind::text AS k, (SELECT count(*) FROM salescall.notification_events n"
+            "  WHERE n.event_key = 'resume:' || r.event_id AND n.kind = 'resumed') AS told"
+            " FROM salescall.stop_events r WHERE r.resolves_event_id = %s", (e["event_id"],)))
+        self.assertEqual((row["k"], row["told"]), ("system", 1))
+
     def test_dialing_attempts_are_not_released(self):
         w = World(); s = w.setup()
         aid = w.insert_claim(s)

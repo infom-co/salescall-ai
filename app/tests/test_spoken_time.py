@@ -245,6 +245,20 @@ class SaidEdges(unittest.TestCase):
                 self.assertEqual(read(text, NOW).day_said, said)
 
 
+    def test_a_said_edge_beyond_the_designated_limit_is_confirmed(self):
+        """お客様が口にした端が「お客様指定の歯止め時間」（初め 7〜22時）の外で、反対の端を歯止めで埋めると幅が空になる言い方は、
+        通話の中で確かめる（判断は calling_hours.callee_range の1か所。⏳ どう埋めるかはユーザーに伺うまでの形。見直し16b：前は空の
+        幅が時刻の決まっていない約束になり、お客様の言ったことと反対の時刻＝依頼者のいつもの時間にかけた）。口にした時刻そのもの
+        （「明日の朝6時」）や、両端を口にした幅は、歯止めの外でもそのまま（2026-10-22・10-23 ユーザー）。"""
+        for text in ("今日の23時以降", "明日の朝6時まで", "明日の朝6時半まで"):
+            with self.subTest(text=text):
+                self.assertEqual(read(text, NOW).kind, CONFIRM)
+        self.assertEqual(read("明日の朝6時", NOW).kind, AT)
+        self.assertEqual(read("今日の21時以降", NOW).kind, WINDOW)
+        self.assertEqual(read("今日の23時から23時半", NOW).kind, WINDOW)
+        self.assertEqual(read("今日の21時以降", NOW, limit=(8 * H, 21 * H)).kind, CONFIRM)   # 歯止め時間は業務ごと
+
+
 class Repeat(unittest.TestCase):
     """幅の中で話せなかったときの次の回は、お客様がその日を選んだ理由に合わせる（2026-10-19 ユーザー決定）。"""
 
