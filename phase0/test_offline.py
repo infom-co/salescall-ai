@@ -1712,12 +1712,34 @@ class AskingMuteTest(unittest.TestCase):
         f = two(); f.on_check("judge", "はい"); f.on_check("judge2", UNDECIDED)
         self.assertNotIn("先に record_answer", f.apply("replay_opening", {"part": "no_answer", "answer": "x"})["message"])   # 食い違う
         f = two(); f.on_check("judge", "はい"); f.on_check("judge2", "はい")
+        grounded(f, "当日の担当につきましては担当の者に申し伝えます。")             # 中身の判定は、差し戻した操作のときに届いている
         r = f.apply("replay_opening", {"part": "no_answer", "answer": "当日の担当につきましては担当の者に申し伝えます。"})
         self.assertEqual(r["result"], "rejected")
         self.assertIn("先に record_answer", r["message"])
-        self.assertEqual(f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい"})["result"], "callee_asked")
-        r = f.apply("replay_opening", {"part": "no_answer", "answer": "当日の担当につきましては担当の者に申し伝えます。"})
-        self.assertEqual(r["result"], "own_answer")                                 # 答えを受け取ったあとは通す
+        # 答えを受け付けたら、差し戻した答え方のまま相手の質問に答える（AIに書き直させない。⛔ 2026-10-23 tc41・tc42：頼み直すと、AIは操作を
+        # 呼ばずに声で答えた＝4本中3本）。そのあと相手の返事で次の質問へ
+        r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい"})
+        self.assertEqual((r["result"], r["say"], r["ack"]), ("own_answer", "当日の担当につきましては担当の者に申し伝えます。", "hai"))
+        self.assertIn("答えを受け付けました", r["message"])
+        self.assertEqual([x["op"] for x in f.log[-2:]], ["record_answer", "replay_opening"])          # 記録は操作ごと
+        self.assertEqual(f.items["Q1"].condition, "はい")
+        f.on_callee(); f.on_heard("そうなんですね。")
+        r = f.apply("replay_opening", {"part": "resume"})
+        self.assertEqual([p.get("id") for p in r["play"]], ["Q2"])
+        # 答えに添えられた質問に答える前の受け答えは、答えたことにならない（⛔ 2026-10-23 tc42：答えないまま次の質問へ進んだ）
+        g2 = self.flow()
+        g2.on_callee(); g2.on_heard("はい、予約しています。当日はどなたが担当されるんですか？")
+        self.assertEqual(g2.apply("record_answer", {"question_id": "Q1", "condition_id": "はい"})["result"], "callee_asked")
+        r = g2.apply("replay_opening", {"part": "talk", "answer": "よろしくお願いいたします。"})
+        self.assertEqual(r["result"], "rejected")
+        self.assertIn("先に相手の質問に答えます", r["message"])
+        # 差し戻したあと、AIが答え方を書き直して呼んだ（同じ発話の2回目は通す）：持っていた操作は使わない
+        f = two(); f.on_check("judge", "はい"); f.on_check("judge2", "はい")
+        f.apply("replay_opening", {"part": "no_answer", "answer": "x"})
+        grounded(f, "当日の担当につきましては担当の者に申し伝えます。")
+        self.assertEqual(f.apply("replay_opening", {"part": "no_answer", "answer": "当日の担当につきましては担当の者に申し伝えます。"})["result"],
+                         "own_answer")
+        self.assertIsNone(f.answer_first_held)
         # 同じ発話の2回目は通す（判定の読み違いで、質問に答えられなくならないように）。そのあと答えを報告しても、同じ質問にもう一度答えさせない
         g = two(); g.on_check("judge", "はい"); g.on_check("judge2", "はい")
         g.apply("replay_opening", {"part": "no_answer", "answer": "当日の担当につきましては担当の者に申し伝えます。"})

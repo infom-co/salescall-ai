@@ -901,6 +901,7 @@ class Flow:
         # 答えに添えられた相手の質問（_advance）：次へ進む返事は先に作っておき、AIがその質問に答えてから流す（_continue）。(相手の質問, 返事)
         self.after_answer: tuple[str, dict] | None = None
         self.answer_first_turn = -1     # 答えを先に報告するよう差し戻した相手の発話の番号（_answer_first。同じ発話で1回まで）
+        self.answer_first_held: tuple[int, dict] | None = None  # そのとき差し戻した答え方の操作（相手の発話の番号, 項目）。答えのあとに当てる（apply）
         self.question_answered_turn = -1  # 相手の質問に答えた相手の発話の番号（同じ発話の質問に、もう一度答えさせない＝_advance）
         self.knowledge = list(knowledge or [])
         # AIが自分の言葉で言う文の中身の判定の読み（grounding。電話接続側が on_grounded で渡す）：文 → 読み（相手の発話ごとに入れ替える）
@@ -1418,6 +1419,22 @@ class Flow:
 
     # ── 中の名前での入口（handle と試験は、ここを通す）。記録（log）は中の名前で残す
     def apply(self, name: str, args: dict) -> dict:
+        """中の名前の操作を1つ受ける。答えに添えられた相手の質問（callee_asked）のとき、同じ相手の発話で答えを先に報告させるために差し戻した
+        答え方の操作（_answer_first）があれば、その操作をそのまま続けて当てる（AIに同じ答えを書き直させない。中身の判定の読みも、その操作のときに
+        届いている）。⛔ 2026-10-23 G-57 tc41・tc42（答えに添えられた質問）：「先に相手の質問に答える番です」と頼み直すと、AIは操作を呼ばずに声で
+        答えた（流していない）＝4本中3本。相手の質問に答えないまま、次の言葉に進んだ"""
+        reply = self._apply_one(name, args)
+        held = self.answer_first_held
+        if reply["result"] != "rejected":
+            self.answer_first_held = None  # 受け付けた操作のあとは持たない（差し戻しの間だけ持つ）
+        if reply["result"] == "callee_asked" and held is not None and held[0] == self.callee_turns:
+            r = self._apply_one("replay_opening", held[1])
+            r["message"] = f"答えを受け付けました。さきほどの答え方で、相手の質問（「{self.after_answer[0][:40] if self.after_answer else ''}」）に答えます。" \
+                           + r.get("message", "")
+            return r
+        return reply
+
+    def _apply_one(self, name: str, args: dict) -> dict:
         before = {qid: it.state for qid, it in self.items.items()}
         phase_before = self.phase
         if name == "replay_opening" and args.get("part") in self.answers:
@@ -2014,9 +2031,14 @@ class Flow:
         言い直しの返事待ちのときは、録音のあとにAIが言い直しをもう一度言う（その言い方は値で変わるので録音にできない）。"""
         part = a.get("part")
         if part not in ("resume", "handover") and (why := self._answer_first()):
+            self.answer_first_held = (self.callee_turns, dict(a))  # 答えを受け付けたら、この答え方のまま相手の質問に答える（apply）
             return self._reject(why)
         if part.startswith(ANSWER_PREFIX):
             return self._answer(part)
+        if part == "talk" and self.after_answer is not None and not (self.own_pending or self.ai_pending):
+            # 答えに添えられた相手の質問に、まだ答えていない：受け答えでは答えたことにならない（⛔ 2026-10-23 G-57 tc42：AIが質問に答えないまま、
+            # 相手の次の言葉に受け答えし、プログラムが次の質問へ進んだ＝相手の質問が答えられずに残った）
+            return self._reject(f"先に相手の質問に答えます。{self._now()}")
         if part in OWN_PARTS:
             return self._own_answer(part, a.get("answer"))
         if part == "ai":
