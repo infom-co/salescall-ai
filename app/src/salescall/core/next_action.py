@@ -11,7 +11,7 @@
   - 門で止められた理由が「前の発信の締めがまだ」「予定の時刻より前」なら、何も書かない（締めより先に予定を書き直さない）。
 - **お客様と約束したかけ直し**（2026-10-19 ユーザー決定。表の作り 0086・0089・0093・0095）：時刻ちょうど（「明日の15時」）・
   時間の幅（「夕方」「3時まで」「金曜なら」「13日なら」など）の約束の次の動きは `_keep_promise` の1か所（時刻ちょうどの約束は、
-  その時刻から1時間の中で5分後・さらに10分後・さらに20分後＝`_exact_next_try`、話せなければ次の日の同じ時刻、3日で打ち止め）。
+  その時刻から1回分（初め30分）の中で5分後・さらに10分後・そして1回分の終わり＝`_exact_next_try`、話せなければ次の日の同じ時刻、3日で打ち止め）。
   時刻の決まっていない約束（「あとで」・日だけの約束が過ぎたあと）は `_unspecified_next` の1か所。幅の中でかけられる最も早い
   時刻と、話せなかったときの次の回（お客様がその日を選んだ理由に合わせる：曜日・週末など＝翌週の同じ日／時間の言葉＝次の日の
   同じ幅／月ぎめの理由＝翌月）を探すのは `_window_opening` の1か所。理由の分からない日だけの約束が過ぎたら、時刻の決まっていない約束の方針（`_window_over`）。
@@ -899,8 +899,9 @@ def _keep_promise(tx: Tx, task_id: UUID, after: datetime, window: Window, target
         （ユーザー：「翌日の15時、翌々日の15時で打ち止め」）。⛔ 2026-10-22 の見直し14：前は、こちらが止まっていた間に過ぎた回も
         数え、約束したお客様に一度もかけずに打ち切った（2026-10-19 ユーザー：「約束を入れた電話は優先枠」）。
     (3) 時刻ちょうどの約束は、回ごとにその日の約束の時刻にかけ（お客様が指定した時刻＝NG時間の枠でもかけてよい。callee_at）、
-        話せなければ、その日の時間（callback.exact_slot）の中で、前の電話から決めた間をあけて（`_exact_next_try`。ユーザー：
-        「15時から16時に数回かける」「5分後→さらに10分後→さらに20分後」）。
+        話せなければ、その日の時間（callback.exact_slot＝1回分。初め30分）の中で、前の電話から決めた間をあけ、最後の1本は1回分の
+        終わりに（`_exact_next_try`。ユーザー：「15時から16時に数回かける」「5分後→さらに10分後→さらに20分後」⇒ 2026-10-23
+        「時刻ちょうどの約束も含めて、30分」・案A＝15:00・15:05・15:15・15:30）。
     (4) 次の回が無い（理由の分からない日だけの約束が過ぎた・幅がかけてよい時間帯と重ならない）⇒ 日が過ぎてから、時刻の決まって
         いない約束の方針の間隔で（`_window_over`）。かけてよい時間帯そのものが無い ⇒ 幅を保って1日後に確かめ直す（`_no_opening`）。
     (5) 過ぎた回に、一度もかけられなかった ⇒ 次にお客様につながったときに、お詫びから始める（印 apology）。"""
@@ -946,15 +947,23 @@ def _next_day(now: datetime) -> datetime:
     return local.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
 
 
+def _exact_gaps(tx: Tx, task_id: UUID) -> list[int]:
+    """時刻ちょうどの約束の1日目の、前の電話からあける間の並び（秒。設定 callback.exact_retry_gaps。初め 5分・10分）。"""
+    return [int(g) for g in settings.resolve(tx, "callback.exact_retry_gaps", **tasks.scope(tx, task_id))]
+
+
 def _exact_window(tx: Tx, task_id: UUID, at: datetime, *, day_said: bool) -> Window:
-    """時刻ちょうどの約束（「明日の15時」）の最初の回（1か所）：約束の時刻から、設定 callback.exact_slot の長さ（その日の中まで）。
+    """時刻ちょうどの約束（「明日の15時」）の最初の回（1か所）：約束の時刻から、設定 callback.exact_slot（1回分。初め30分）の長さ。
+    最後の1本は1回分の終わりに置く（`_exact_next_try`）ので、それが回線のふさがり・見守り役の回りで少し遅れてもかけられるように、門が
+    見る回の幅は、1回分の終わりから並びの最初の間（callback.exact_retry_gaps の初め＝5分）だけ長い（その日の中まで。2026-10-23
+    ユーザー：「時刻ちょうどの約束も含めて、30分」・案A＝15:00・15:05・15:15・15:30）。
     回の両端をお客様が口にした（said。依頼者の時間帯・NG時間・歯止めの外でもかける）。day_said＝お客様がその日を言った（「土曜の15時」）。
     話せなければ、次の日の同じ時刻の回へ（repeat＝次の日。次の日はお客様が言った日ではない＝`Window.later`）。"""
     slot = gate.callee_settings(tx, **tasks.scope(tx, task_id)).exact_slot
     local = at.astimezone(calling_hours.JST)
     midnight = local.replace(hour=0, minute=0, second=0, microsecond=0)
     start = int((local - midnight).total_seconds())
-    end = min(start + slot, 24 * 3600)
+    end = min(start + slot + _exact_gaps(tx, task_id)[0], 24 * 3600)
     return Window(midnight + timedelta(seconds=end), (start, end), None, at, spoken_time.DAY_REPEAT, said=(True, True),
                   day_said=day_said)
 
@@ -965,28 +974,44 @@ def _slot_of(window: Window) -> tuple[datetime, datetime]:
     return day + timedelta(seconds=window.daily[0]), day + timedelta(seconds=window.daily[1])
 
 
+def _exact_plan(start: datetime, final: datetime, gaps: list[int], round_: int) -> list[datetime]:
+    """時刻ちょうどの約束の、その回にかける時刻の並び（1か所）。1日目（回0）は、約束の時刻から間の並び（callback.exact_retry_gaps。
+    初め 5分・10分）を順に足した時刻のうち1回分の終わり（final）より前のものと、最後の1本＝1回分の終わり（初め30分）：15時の約束なら
+    15:00・15:05・15:15・15:30（2026-10-19 ユーザー：「5分後→さらに10分後→さらに20分後」⇒ 2026-10-23 ユーザー：「時刻ちょうどの約束も
+    含めて、30分」・案A「4本目を30分の終わりに合わせる」）。1回分を短くしても、最後の1本は必ず1回分の終わりに来る（間の並びの
+    うち、そこを越えるものは使わない）。2日目・3日目（回1以上）は、その日の約束の時刻の1本だけ（2026-10-22 ユーザー）。"""
+    if round_ != 0:
+        return [start]
+    plan, t = [start], start
+    for g in gaps:
+        t += timedelta(seconds=g)
+        if t >= final:
+            break
+        plan.append(t)
+    return plan + [final]
+
+
 def _exact_next_try(tx: Tx, task_id: UUID, window: Window, now: datetime) -> datetime:
-    """時刻ちょうどの約束の電話で話せなかった：その回の時間の中の、次にかける時刻（1か所）。1日目（回0）は、前の電話から、設定
-    callback.exact_retry_gaps の間を順にあける（初め：5分後・さらに10分後・さらに20分後＝15時・15時05分・15時15分・15時35分。
-    2026-10-19 ユーザー）。2日目・3日目は、その時刻の1本だけ（2026-10-22 ユーザー）。本数は、その回にかけた電話のうち、お客様に届いた1回（`attempts.reached`＝ふつうの電話の方針の回数と同じ
-    数え方 salescall.dial_kind の 'reached'。発信に失敗・お客様が出る前の回線の失敗・すぐのお詫びのかけ直しの内の途中の切れは数えない。
-    ⛔ 見直し17c：前は「鳴りえた電話」で数え、お客様が出る前の回線の失敗が続くだけで、その回を使い切った）で数え、それが約束の時刻の
-    1回＋並びの数に届いた・時間が過ぎた ⇒ 回の終わり（次の回へ）。間は、発信まで
-    進んだ電話すべての、いちばん新しいものから数える（⛔ 2026-10-22 の見直し14：前は鳴った電話だけから数え、回線の側で
-    かけられなかった電話のあとは、すぐかけ直し続けた）。"""
+    """時刻ちょうどの約束の電話で話せなかった：その回の時間の中の、次にかける時刻（1か所）。かける時刻の並びは `_exact_plan`。
+    本数は、その回にかけた電話のうち、お客様に届いた1回（`attempts.reached`＝ふつうの電話の方針の回数と同じ数え方 salescall.dial_kind の
+    'reached'。発信に失敗・お客様が出る前の回線の失敗・すぐのお詫びのかけ直しの内の途中の切れは数えない。⛔ 見直し17c：前は「鳴りえた
+    電話」で数え、お客様が出る前の回線の失敗が続くだけで、その回を使い切った）で数え、それが並びの数に届いた・回の時間が過ぎた ⇒
+    回の終わり（次の回へ）。前の電話（発信まで進んだ電話すべての、いちばん新しいもの）が遅れたときも、そこから並びの最初の間（5分）は
+    あける（⛔ 2026-10-22 の見直し14：前は鳴った電話だけから数え、回線の側でかけられなかった電話のあとは、すぐかけ直し続けた）。
+    ⛔ 2026-10-23：前は前の電話からの間だけで決め（15:00・15:05・15:15・15:35）、4本目が30分の外に出た。"""
     start, end = _slot_of(window)
-    gaps = [int(g) for g in settings.resolve(tx, "callback.exact_retry_gaps", **tasks.scope(tx, task_id))]
-    # 2日目・3日目（回が1以上）は、その日の約束の時刻に1本だけ（2026-10-22 ユーザー：「2日目・3日目は、その時刻に1本ずつ」）。
-    # 回線の側でかけられなかった電話のあとの間は、並びの初めの間をあける
-    tries = gaps if window.round == 0 else []
+    gaps = _exact_gaps(tx, task_id)
+    final = start + timedelta(seconds=gate.callee_settings(tx, **tasks.scope(tx, task_id)).exact_slot)   # 1回分の終わり
+    plan = _exact_plan(start, final, gaps, window.round)
     dialed = tx.all(f"SELECT claimed_at, {attempts.reached()} AS rang FROM salescall.attempts WHERE task_id = %s AND"
                     f" {attempts.DIALED} AND claimed_at >= %s AND claimed_at < %s ORDER BY claimed_at",
                     (task_id, start, end))
     rang = sum(1 for d in dialed if d["rang"])
-    if rang > len(tries):
+    if rang >= len(plan):
         return window.until
-    gap = tries[rang - 1] if rang >= 1 else gaps[0]
-    nxt = start if not dialed else dialed[-1]["claimed_at"] + timedelta(seconds=gap)
+    nxt = plan[rang]
+    if dialed:
+        nxt = max(nxt, dialed[-1]["claimed_at"] + timedelta(seconds=gaps[0]))
     nxt = max(nxt, now)
     return window.until if nxt >= end else nxt
 

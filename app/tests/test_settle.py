@@ -7,7 +7,7 @@ import time
 import unittest
 import uuid
 from dataclasses import replace
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from salescall.core import (approval, attempts, backup, business_rules, calling_hours, call_report, dnc, fix_requests, gate,
@@ -1543,11 +1543,12 @@ class CallbackWindow(SettleBase):
         self.assertEqual((kept.kind, kept.promised, kept.window), ("call", True, first))   # 時間帯が無い：約束の幅のまま確かめ直す
         self.assertEqual(kept.at, now + next_action.NO_OPENING_RECHECK)
 
-    def test_an_exact_time_promise_is_called_a_few_times_in_its_hour_then_on_the_next_days(self):
-        """時刻ちょうどの約束（「明日の15時」）に出なければ、その時刻からの時間（初め1時間）の中で、前の電話から5分後・さらに10分後・
-        さらに20分後にかけ、それでも出なければ次の日の同じ時刻の回へ。約束の日を含めて3日で打ち止め（2026-10-19 ユーザー：「「明日の
-        15時」ちょうどに出られなければ、15時から16時に数回かける。出なければ、翌日の15時、翌々日の15時で打ち止め」「5分後→さらに
-        10分後→さらに20分後くらいがいいんじゃない？」）。"""
+    def test_an_exact_time_promise_is_called_a_few_times_in_its_slot_then_on_the_next_days(self):
+        """時刻ちょうどの約束（「明日の15時」）に出なければ、その時刻からの1回分（callback.exact_slot）の中で、前の電話から5分後・
+        さらに10分後にかけ、最後の1本は1回分の終わりにかけ、それでも出なければ次の日の同じ時刻の回へ。約束の日を含めて3日で打ち止め
+        （2026-10-19 ユーザー：「「明日の15時」ちょうどに出られなければ、15時から16時に数回かける。出なければ、翌日の15時、翌々日の15時で
+        打ち止め」「5分後→さらに10分後→さらに20分後くらいがいいんじゃない？」⇒ 2026-10-23 ユーザー：「時刻ちょうどの約束も含めて、
+        30分」・案A「4本目を30分の終わりに合わせる」＝15:00・15:05・15:15・15:30）。"""
         s = self.ready()
         self.put_client(s, "calling.ng_hours", {k: [] for k in KEYS})
         clock = self.tx(s, lambda tx: tx.one(
@@ -1568,11 +1569,12 @@ class CallbackWindow(SettleBase):
             window=next_action.window_of(next_action.current(tx, s["task"]))))
         claimed = lambda aid: self.tx(s, lambda tx: tx.one(   # noqa: E731
             "SELECT claimed_at FROM salescall.attempts WHERE attempt_id = %s", (aid,))["claimed_at"])
-        for gap in (300, 600, 1200):                           # 前の電話から5分後・さらに10分後・さらに20分後
+        for planned in (300, 900, slot):                       # 約束の時刻から5分後・15分後・1回分の終わり（前の電話から5分はあける）
             aid = self.call(s, ["dialing", "no_answer"])
             self.settle(s, aid)
             cur = self.tx(s, lambda tx: next_action.current(tx, s["task"]))
-            self.assertLess(abs((cur["call_at"] - (claimed(aid) + timedelta(seconds=gap))).total_seconds()), 2)
+            want = max(t + timedelta(seconds=planned), claimed(aid) + timedelta(seconds=300))
+            self.assertLess(abs((cur["call_at"] - want).total_seconds()), 2)
             self.assertEqual((cur["promised"], cur["callee_at"], cur["window_round"]), (True, t, 0))
             due_now()
         self.settle(s, self.call(s, ["dialing", "no_answer"]))   # 4本目にも出ない
@@ -1706,7 +1708,8 @@ class CallbackWindow(SettleBase):
             t_local + timedelta(minutes=m), t_local + timedelta(minutes=m, seconds=60), callee_at=t_local,
             window=window and gate.window_hours(tx, tenant_id=s["tenant"], client_id=s["client"], business_id=s["business"],
                                                 window=window)))
-        self.assertEqual((allowed(5, w.callee), allowed(50, w.callee)), (True, True))   # 門も同じ答え（gate.window_hours）
+        self.assertEqual((allowed(5, w.callee), allowed(30, w.callee)), (True, True))   # 門も同じ答え（gate.window_hours。30分＝最後の1本）
+        self.assertFalse(allowed(50, w.callee))   # 1回分（初め30分）と遅れの許し（5分）の外
         self.assertEqual((allowed(5, None), allowed(50, None)), (False, True))   # 幅を持たない時刻の指定
 
     def test_a_window_retry_past_the_round_moves_to_the_next_round_without_an_apology(self):
@@ -1837,6 +1840,52 @@ class CallbackWindow(SettleBase):
         d = self.tx(s, lambda tx: next_action._keep_promise(tx, s["task"], w.until, w, next_action.Target(s["contact"]),
                                                             now=now))
         self.assertEqual((d.kind, d.window.round, d.window.since, d.at), ("call", 1, midnight(nxt), midnight(nxt)))
+
+    def test_the_plan_of_an_exact_promise_ends_at_the_end_of_its_slot(self):
+        """時刻ちょうどの約束の1日目にかける時刻の並び（`_exact_plan` の1か所）：約束の時刻・5分後・15分後・そして1回分の終わり
+        （2026-10-23 ユーザー：「時刻ちょうどの約束も含めて、30分」・案A＝15:00・15:05・15:15・15:30）。1回分を短くしても、最後の
+        1本は必ず1回分の終わりに来る（間の並びのうち越えるものは使わない）。2日目・3日目は約束の時刻の1本だけ。"""
+        at = datetime(2030, 1, 7, 15, 0, tzinfo=timezone.utc)
+        plan = lambda minutes, round_=0: [   # noqa: E731
+            int((x - at).total_seconds() // 60)
+            for x in next_action._exact_plan(at, at + timedelta(minutes=minutes), [300, 600], round_)]
+        self.assertEqual(plan(30), [0, 5, 15, 30])
+        self.assertEqual(plan(20), [0, 5, 15, 20])
+        self.assertEqual(plan(15), [0, 5, 15])          # 15分ちょうどの並びは使わず、1回分の終わりの1本にする
+        self.assertEqual(plan(10), [0, 5, 10])
+        self.assertEqual(plan(60), [0, 5, 15, 60])
+        self.assertEqual(plan(30, 1), [0])
+
+    def test_the_slot_of_an_exact_promise_is_thirty_minutes_and_its_last_call_passes_the_gate(self):
+        """1回分（callback.exact_slot）の初めの値は30分、間の並びの初めは 5分・10分（2026-10-23 ユーザー。0125）。最後の1本（30分の
+        終わり）は、門の幅の確かめ（calling_hours.in_window）と時間帯の確かめ（allowed）を通る：門が見る回の幅は、1回分の終わりから
+        最初の間（5分）だけ長い（`_exact_window`）。"""
+        from salescall.core.calendar import holiday_checker
+        s = self.ready()
+        self.put_client(s, "calling.ng_hours", {k: [] for k in KEYS})
+        clock = self.tx(s, lambda tx: tx.one(
+            "SELECT now() AS now, date_trunc('minute', now()) AS t, salescall.jst(date_trunc('minute', now())) AS t_local"))
+        now, t, t_local = clock["now"], clock["t"], clock["t_local"]
+        if t_local.hour == 23 and t_local.minute >= 20:
+            self.skipTest("日本時間の0時の直前：試験の回が日をまたぐ")
+        cs = self.tx(s, lambda tx: gate.callee_settings(tx, tenant_id=s["tenant"], client_id=s["client"], business_id=s["business"]))
+        gaps = self.tx(s, lambda tx: next_action._exact_gaps(tx, s["task"]))
+        self.assertEqual((cs.exact_slot, gaps), (1800, [300, 600]))
+        w = self.tx(s, lambda tx: next_action._exact_window(tx, s["task"], t, day_said=True))
+        self.assertEqual(w.until, t + timedelta(minutes=35))
+        final_local = t_local + timedelta(minutes=30)
+        start_local, until_local = next_action._slot_of(w)
+        self.assertTrue(calling_hours.in_window(final_local, until_local.astimezone(calling_hours.JST).replace(tzinfo=None),
+                                                w.daily, w.days, None,
+                                                since_local=start_local.astimezone(calling_hours.JST).replace(tzinfo=None)))
+        hours = {k: [["00:00", "24:00"]] for k in KEYS}
+        callee = self.tx(s, lambda tx: gate.window_hours(tx, tenant_id=s["tenant"], client_id=s["client"],
+                                                         business_id=s["business"], window=w.callee))
+        lifetime = timedelta(seconds=30)
+        ok = lambda local: self.tx(s, lambda tx: calling_hours.allowed(   # noqa: E731
+            hours, {k: [] for k in KEYS}, holiday_checker(tx), local, local + lifetime, callee_at=t_local, window=callee))
+        self.assertEqual((ok(final_local), ok(final_local + timedelta(minutes=3)), ok(t_local + timedelta(minutes=36))),
+                         (True, True, False))
 
     def test_exact_promise_counts_cannot_be_zero(self):
         """時刻ちょうどの約束の時間・日数・かけ直しの間は1以上（0なら約束を一度もかけずに終えてしまう。データベースが守る＝0093）。"""
