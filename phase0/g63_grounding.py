@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import statistics
+import time
 
 from common import base_parser, require_python, save_result, say
 from grounding import PASSES, make_reader
@@ -156,8 +157,23 @@ async def run(args) -> dict:
     # (業務の知っていること, お客様の言葉, 返す文, 正解, 一覧の名前)
     cases = [(b.knowledge(), s, d, w, k) for b, s, d, w, k in all_cases()]
     rows = []
-    for name in args.judge or ("3.5 Flash Lite", "Claude Sonnet 5.5（考える）", "Claude Sonnet 5.5"):
-        reader = make_reader(args, name)
+    names = args.judge or ("3.5 Flash Lite", "Claude Sonnet 5.5（考える）", "Claude Sonnet 5.5")
+    if args.race:
+        # 通話と同じ形（grounding.make_grounder）：選んだ判定を同時に出し、先に届いた読みで決める。秒は、出してから決まるまで
+        from grounding import make_grounder
+        race, label = make_grounder(args, tuple(names)), "同時に出して早いほう（" + "・".join(names) + "）"
+
+        async def timed_race(know, said, draft):
+            t = time.monotonic()
+            v = await race(know, said, draft)
+            if v is not None:
+                v.seconds = round(time.monotonic() - t, 2)
+            return v
+        names, readers = [label], {label: timed_race}
+    else:
+        readers = {}
+    for name in names:
+        reader = readers.get(name) or make_reader(args, name)
         for rep in range(args.repeat):
             for know, said, draft, want, kind in cases:
                 try:
@@ -168,7 +184,7 @@ async def run(args) -> dict:
                     continue
                 got = None if v is None else (OK if v in PASSES else NG)
                 rows.append({"judge": name, "rep": rep, "said": said, "draft": draft, "want": want, "choice": v, "part": getattr(v, "part", ""),
-                             "seconds": getattr(v, "seconds", None), "got": got, "set": kind})
+                             "seconds": getattr(v, "seconds", None), "got": got, "set": kind, "by": getattr(v, "by", None)})
                 if got != want:
                     say(f"[{name} {rep}] 外れ：正解{want}・読み{v}（{getattr(v, 'part', '')}）「{draft}」")
     summary = {}
@@ -191,6 +207,7 @@ def main() -> None:
     p = base_parser(__doc__)
     p.add_argument("--judge", action="append", help="測る判定の名前（無ければ 3.5 Flash Lite・Sonnet 5.5（考える）・Sonnet 5.5）")
     p.add_argument("--repeat", type=int, default=2)
+    p.add_argument("--race", action="store_true", help="選んだ判定を同時に出し、先に届いた読みで決める形（通話と同じ make_grounder）で測る")
     p.add_argument("--tally", nargs="+", help="保存した記録を、問い合わせずに、いまの決まりで数え直す（確かめ全体）")
     args = p.parse_args()
     if args.tally:

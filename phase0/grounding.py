@@ -102,11 +102,24 @@ async def ask_gemini(client, model: str, knowledge: list[str], said: str, draft:
 
 
 async def ask_other(client, name: str, knowledge: list[str], said: str, draft: str) -> Verdict | None:
-    """Google 以外の判定（meaning_judge.OTHER_JUDGES の Anthropic）。送り方は意味の判定と同じ形（meaning_judge.other_request）：返事の形を決める形
-    （form json＝Sonnet 5.5）か、道具で答えさせる形（Haiku 5.5。考える段を入れる形は、道具を任せて考える量を決める）。失敗の形も同じ。"""
-    from meaning_judge import OTHER_JUDGES, _other_error
+    """Google 以外の判定（meaning_judge.OTHER_JUDGES の Anthropic・OpenAI）。送り方は意味の判定と同じ形（meaning_judge.other_request）：返事の形を
+    決める形（form json＝Sonnet 5.5・OpenAI）か、道具で答えさせる形（Haiku 5.5。考える段を入れる形は、道具を任せて考える量を決める）。失敗の形も同じ。"""
+    from meaning_judge import OPENAI_EFFORT, OTHER_JUDGES, OTHER_PATH, _other_error, other_text
 
     j = OTHER_JUDGES[name]
+    if j["maker"] == "openai":  # 意味の判定と同じ窓口・同じ形（返事の形を決める。meaning_judge.other_request）
+        body = {"model": j["model"], "input": prompt(knowledge, said, draft), "reasoning": {"effort": OPENAI_EFFORT}, "max_output_tokens": 2000,
+                "text": {"format": {"type": "json_schema", "name": "answer", "schema": SCHEMA, "strict": True}}}
+        try:
+            r = await client.post(OTHER_PATH["openai"], json=body)
+            r.raise_for_status()
+            data = r.json()
+        except Exception as exc:
+            err = _other_error(exc)
+            if err is None:
+                raise
+            raise err from exc
+        return read(other_text(name, data))
     assert j["maker"] == "anthropic", name
     messages = [{"role": "user", "content": prompt(knowledge, said, draft)}]
     if j.get("form") == "json":
