@@ -89,7 +89,7 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
     clip_s：判定を待つ間に流す録音（Flow.hold_play）の長さを返す（録音の部分の名前 -> 秒）。流したら、その長さだけ待つ長さを延ばす。
     grounder：AIが自分の言葉で言う文の中身の判定（grounding.make_grounder。async (知っていること, お客様の言葉, 返す文) -> 読み）。聞くべき操作
     （Flow.grounding_job）が来たら、返事を作る前に flow.limits.hold_s 秒まで待ち、届いた読みを flow.on_grounded へ渡す（待つ間は「はい、」の相づち。
-    届かなければ渡さない＝流れの制御は足場の決まりで確かめる。遅れて届いた読みは記録だけ＝声はもう出ている・通話後の検証が見る）。"""
+    届かなければ渡さない＝流れの制御は、その文を声に出さずに受け皿へ回す。遅れて届いた読みは記録だけ＝通話後の検証が見る）。"""
     loop = asyncio.get_running_loop()
     if pcm is not None:
         from stitch_gap import callee_speech
@@ -261,14 +261,11 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
             info.setdefault("waited_s", info["waits"][-1]["waited_s"])
             info.setdefault("late", info["waits"][-1]["late"])
 
-    async def ground(job) -> None:
-        """答えの文の中身の判定を、待つ長さまで待つ（Flow.grounding_job・on_grounded）。⛔ 2026-10-22 の5回目：言葉で見る確かめは、世間話・お礼まで
-        止め、作り話を通していた（G-63）⇒ 中身で読む。待つ間は「はい、」（報告を待たせるときと同じ相づち）。"""
-        knowledge, said, draft = job
-        t0 = loop.time()
-        task = asyncio.create_task(grounder(knowledge, said, draft))
+    async def ground(draft: str, task, t0: float) -> None:
+        """答えの文の中身の判定（t0 に出した task）を、出してから待つ長さまで待つ（Flow.grounding_job・on_grounded）。⛔ 2026-10-22 の5回目：
+        言葉で見る確かめは、世間話・お礼まで止め、作り話を通していた（G-63）⇒ 中身で読む。待つ間は「はい、」（報告を待たせるときと同じ相づち）。"""
         info.setdefault("held_ack", "hai")
-        done, _ = await asyncio.wait([task], timeout=flow.limits.hold_s)
+        done, _ = await asyncio.wait([task], timeout=max(0.0, t0 + flow.limits.hold_s - loop.time()))
         row = {"draft": draft, "waited_s": round(loop.time() - t0, 3)}
         if task in done and task.exception() is None and task.result() is not None:
             v = task.result()
@@ -288,11 +285,14 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
 
     async def handle(fc):
         midway = not complete()  # AIが、相手の言葉が出揃う前に報告した（Flow.handle の midway）
+        # 答えの文の中身の判定は、相手の言葉の確かめ（hold）と同時に出す（順に待つと、待たせる長さが足し算になる）
+        job = flow.grounding_job(fc.name, fc.args) if grounder is not None else None
+        grounding = (asyncio.create_task(grounder(*job)), loop.time()) if job is not None else None
         if flow.wants_checks(fc.name, fc.args):
             binding = flow.binding(fc.name, fc.args)
             await hold(ear_too=True, every=binding, play_for=(lambda: flow.hold_play(fc.name, fc.args)) if binding else None)
-        if grounder is not None and (job := flow.grounding_job(fc.name, fc.args)) is not None:
-            await ground(job)
+        if grounding is not None:
+            await ground(job[2], *grounding)
         return flow.handle_call(fc, midway)
 
     async def settle() -> None:

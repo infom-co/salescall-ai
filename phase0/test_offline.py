@@ -1655,6 +1655,7 @@ class AskingMuteTest(unittest.TestCase):
         note = f.unreported_note(muted=True)
         self.assertIn("相手に流していません", note)                                  # 流していないことと、いま求めていること
         self.assertIsNone(f.unreported_note(muted=True))                            # 1つの発話に1回
+        grounded(f, "キャンセル料につきましては担当の者に申し伝えます。")
         r = f.apply("replay_opening", {"part": "no_answer", "answer": "キャンセル料につきましては担当の者に申し伝えます。"})
         self.assertEqual(r["result"], "own_answer")
         self.assertTrue(f.speech_allowed(start))                                    # 確かめた文を渡したターンは流す
@@ -1744,6 +1745,7 @@ class CalleeQuestionTest(unittest.TestCase):
         r = f.apply("replay_opening", {"part": "no_answer", "answer": "そちらにつきましてはこの場ではお答えいたしかねます。"})
         self.assertEqual((r["result"], r.get("play")), ("rejected", None))
         self.assertIn("お断りの言い方", r["message"])
+        grounded(f, "いただいたご質問は担当の者に申し伝えます。")
         r = f.apply("replay_opening", {"part": "no_answer", "answer": "いただいたご質問は担当の者に申し伝えます。"})
         self.assertEqual((r["result"], r["say"], r["ack"], r.get("play")), ("own_answer", "いただいたご質問は担当の者に申し伝えます。", "hai", None))
         self.assertEqual([(x["answered"], x["answer"], len(x["drafts"])) for x in f.facts["callee_question"]],
@@ -3358,6 +3360,7 @@ class PlayRecordingsTest(unittest.TestCase):
         out, silent = f.handle_call(fc("confirm_field", 質問="Q2", 返事の種類="合っている"))
         r = f.log[-1]["reply"]
         self.assertEqual((silent, r["result"], r.get("play")), (False, "callee_asked", None))
+        grounded(f, "当日の担当につきましては担当の者に申し伝えます。")
         out, silent = f.handle_call(fc("replay_opening", 流し直す部分="答えを持っていない質問", 答えの文="当日の担当につきましては担当の者に申し伝えます。"))
         self.assertEqual(f.log[-1]["reply"]["say"], "当日の担当につきましては担当の者に申し伝えます。")
         f.on_callee(); f.on_heard("わかりました。")
@@ -5102,12 +5105,16 @@ class TargetTest(unittest.TestCase):
                             ("そちらにつきましては改めて担当の者からご連絡いたします。", "約束")):
             f = info_flow()
             self.heard(f, "御社の資本金はおいくらですか？", None); f.on_check("asks", ASKS_YES)
+            # 中身の判定は「知らない事実がある」と読んだ（機械の確かめで止まる文は、判定より先に機械の理由で止まる）
+            from grounding import UNGROUNDED
             for _ in range(OWN_REWRITES):
+                grounded(f, answer, UNGROUNDED, answer)
                 r = f.apply("replay_opening", {"part": "no_answer", "answer": answer})
                 self.assertEqual((r["result"], r.get("play"), r.get("say"), r["ack"]), ("rejected", None, None, None), answer)
                 self.assertIn(why, r["message"])
                 self.assertIn("書き直す", r["message"])
             self.assertNotIn("callee_question", f.facts)                                    # 決まるまでは記録しない
+            grounded(f, answer, UNGROUNDED, answer)
             r = f.apply("replay_opening", {"part": "no_answer", "answer": answer})
             self.assertEqual((r["result"], r["play"][0]["text"], r["ack"]), ("own_answer", OWN_FALLBACK, None), answer)
             self.assertIn(why, r["message"])
@@ -5118,6 +5125,7 @@ class TargetTest(unittest.TestCase):
         self.heard(f, "御社の資本金はおいくらですか？", None); f.on_check("asks", ASKS_YES)
         f.apply("replay_opening", {"part": "no_answer", "answer": "資本金につきましてはこの場ではお答えいたしかねます。"})
         self.assertIn("書き直す", f._now())
+        grounded(f, "資本金につきましては担当の者に申し伝えます。")
         r = f.apply("replay_opening", {"part": "no_answer", "answer": "資本金につきましては担当の者に申し伝えます。"})
         self.assertEqual((r["result"], r["say"], r["ack"]), ("own_answer", "資本金につきましては担当の者に申し伝えます。", "hai"))
         self.assertEqual(len(f.facts["callee_question"][-1]["drafts"]), 1)
@@ -5130,13 +5138,13 @@ class TargetTest(unittest.TestCase):
                                 names=[{"surface": "港区", "reading": "みなとく"}])
         self.assertEqual((k.info, k.answers), (["弊社の本社は東京都「みなとく」にございます。"], [("所在地", "本社は「みなとく」にございます。")]))
         self.assertIn("「みなとく」", "".join(TARGET_INFO.info))
-        self.assertIsNone(own_answer_problem("弊社の本社は東京都みなとくにございます。", "".join(k.info), "御社はどちらですか？", k.spoken_names(), False))
-        self.assertIsNotNone(own_answer_problem("弊社の本社は東京都港区にございます。", "".join(k.info), "御社はどちらですか？", k.spoken_names(), False))
         # 中身の判定が「知っていることだけ」と読んでも（言い換えとして通る）、読みで渡した地名を漢字で書いた文は、機械で書き直しになる（声で崩れる）
         from grounding import GROUNDED, Verdict
         self.assertEqual(k.name_readings(), {"港区": "みなとく"})
-        why = own_answer_problem("弊社の本社は東京都港区にございます。", "".join(k.knowledge()), "御社はどちらですか？", k.spoken_names(), False,
-                                 verdict=Verdict(GROUNDED), name_readings=k.name_readings())
+        self.assertIsNone(own_answer_problem("弊社の本社は東京都みなとくにございます。", k.spoken_names(), False, verdict=Verdict(GROUNDED),
+                                             name_readings=k.name_readings()))
+        why = own_answer_problem("弊社の本社は東京都港区にございます。", k.spoken_names(), False, verdict=Verdict(GROUNDED),
+                                 name_readings=k.name_readings())
         self.assertIn("「みなとく」", why)
         # 断らない一言の録音と、決まった言い方・録音のどれにも、断りの言い方は無い
         from flowctl import REFUSAL
@@ -5148,17 +5156,21 @@ class TargetTest(unittest.TestCase):
         for text in ("この場ではお答えいたしかねます。", "私の方では分かりかねます。", "お答えできません。", "回答は控えさせていただきます。",
                      "お約束はできかねます。", "存じ上げません。", "ご遠慮ください。"):
             self.assertTrue(REFUSAL.search(text), text)
-        # 固有名詞と数は業務の情報にあるものだけ：相手が質問で言った地名を肯定しない。ふつうの名詞は相手の質問の言葉も使える。文字の幅はそろえる
+        # 中身の判定の読み：知らない事実（お客様の言ったこちらの事実を根拠なく認める、も）・断り＝その部分を添えて書き直し。通す読みは通す。
+        # 読みが無ければ、機械の確かめだけ（声に出してよいという意味ではない＝Flow._own_answer が受け皿へ回す）
         from flowctl import own_answer_problem
-        info = "弊社の本社は東京都港区にございます。営業時間は９時から１８時です。"
-        self.assertIn("目黒", own_answer_problem("はい、弊社は目黒にございます。", info, "御社は目黒ですよね？", [], False))
-        self.assertIn("10", own_answer_problem("営業時間は10時からです。", info, "何時から営業されていますか？10時からですか？", [], False))
-        self.assertIsNone(own_answer_problem("営業時間は9時から18時です。", info, "営業時間は何時から何時までですか？", [], False))
-        self.assertIsNone(own_answer_problem("番号の件につきましては担当の者に申し伝えます。", info, "この番号はどこで知ったんですか？", [], False))
-        self.assertIn("お断り", own_answer_problem("番号の件につきましてはこの場ではお答えいたしかねます。", info, "この番号はどこで知ったんですか？", [], False))
+        from grounding import NO_FACT, REFUSED, UNGROUNDED
+        self.assertIn("「はい、弊社は目黒にございます」", own_answer_problem("はい、弊社は目黒にございます。", [], False,
+                                                                       verdict=Verdict(UNGROUNDED, "はい、弊社は目黒にございます")))
+        self.assertIn("お断り", own_answer_problem("詳しい料金が手元になく、ご案内が難しいです。", [], False, verdict=Verdict(REFUSED, "ご案内が難しい")))
+        self.assertIsNone(own_answer_problem("番号の件につきましては担当の者に申し伝えます。", [], False, verdict=Verdict(NO_FACT)))
+        self.assertIsNone(own_answer_problem("番号の件につきましては担当の者に申し伝えます。", [], False))
+        self.assertIn("お断り", own_answer_problem("番号の件につきましてはこの場ではお答えいたしかねます。", [], False, verdict=Verdict(NO_FACT)))
         # 担当から改めて連絡すると申し出てよい業務：答えを持っていない問いへの申し出は通す（答えのある問いへの約束は通さない）
         f = info_flow(follow_up=True)
         self.heard(f, "御社の資本金はおいくらですか？", None); f.on_check("asks", ASKS_YES)
+        self.assertIn("確認のうえ担当の者から改めてご連絡", "".join(dataclasses.replace(b, follow_up=True).knowledge()))  # 判定にも、してよいことを渡す
+        grounded(f, "そちらにつきましては確認のうえ改めてご連絡させていただいてもよろしいでしょうか？", GROUNDED)
         r = f.apply("replay_opening", {"part": "no_answer", "answer": "そちらにつきましては確認のうえ改めてご連絡させていただいてもよろしいでしょうか？"})
         self.assertEqual((r["result"], r.get("fallback")), ("own_answer", None))
         # (5) 答えの段（繋いだあと）も同じ1か所：答えたあと、相手の返事で、いまの質問の録音へ戻る。ほかの報告が来たら、もう待っていない
@@ -5166,6 +5178,7 @@ class TargetTest(unittest.TestCase):
         self.heard(f, "はい、岡田は私です。", TARGET_IS_THERE)
         f.apply("report_party", {"party": "target"})
         self.heard(f, "ところでキャンセル料はいくらですか？", None)
+        grounded(f, "キャンセル料につきましては担当の者に申し伝えます。")
         r = f.apply("replay_opening", {"part": "no_answer", "answer": "キャンセル料につきましては担当の者に申し伝えます。"})
         self.assertEqual((r["result"], r["say"]), ("own_answer", "キャンセル料につきましては担当の者に申し伝えます。"))
         self.heard(f, "わかりました。", None)
@@ -6677,6 +6690,14 @@ class OfferTest(unittest.TestCase):
 
 
 
+def grounded(f, text: str, choice: str | None = None, part: str = ""):
+    """答えの文の中身の判定の読みを渡す（電話接続側が操作を渡す前に呼ぶ Flow.on_grounded と同じ）。既定は「事実を言っていない」。"""
+    from grounding import NO_FACT, Verdict
+    v = Verdict(choice or NO_FACT, part)
+    v.by = "test"
+    f.on_grounded(text, v)
+
+
 class OwnWordsTest(unittest.TestCase):
     """AIが自分の言葉で言う文（Flow._own_answer の1か所）：止めるのは明らかに違う中身だけ。✅ 2026-10-22 ユーザー（5回目）：「明らかに違う内容を
     喋ろうとしているのが事前に分かれば止めるべき。しかし、AIの能力をそぐような制御はしないように！世間話のような対応や設定にない無難な対応は
@@ -6769,6 +6790,21 @@ class OwnWordsTest(unittest.TestCase):
             r = f.apply("replay_opening", {"part": "own", "answer": "弊社の創業は昭和50年でございます。"})
         self.assertEqual((r["play"][0]["text"], r["ack"], f.facts["callee_question"][-1]["answered"]), (OWN_FALLBACK, None, False))
 
+    def test_unchecked_words_are_not_spoken(self):
+        # 中身の判定の読みが届かなかった（待つ長さを過ぎた・止まっている）文は、声に出さない。書き直させても判定は速くならないので、1回目で
+        # 受け皿へ（⛔ G-63：判定の無いときの足場＝地名と数だけを見る形は、危ない文を 82文中18文通した）
+        from flowctl import UNCHECKED
+        from phrases import OWN_FALLBACK
+        f, b = self.flow()
+        self.heard(f, "キャンセル料はかかりますか？")
+        r = f.apply("replay_opening", {"part": "no_answer", "answer": "キャンセル料はかかりませんので、ご安心ください。"})
+        self.assertEqual((r["result"], r["play"][0]["text"], r["ack"]), ("own_answer", OWN_FALLBACK, None))
+        self.assertEqual(f.facts["callee_question"][-1]["drafts"], [{"text": "キャンセル料はかかりませんので、ご安心ください。", "problem": UNCHECKED}])
+        f, b = self.flow()
+        self.heard(f, "営業時間は何時までですか？")
+        r = f.apply("replay_opening", {"part": "own", "answer": "営業時間は夜8時までです。"})
+        self.assertEqual((r["result"], r["say"], r["ack"]), ("own_answer", "営業時間は平日の9時から18時です。", "hai"))
+
     def test_what_is_not_sent_to_the_judge(self):
         # 中身の判定に聞かない文：知っていることの文をそのまま言った文（通る）・機械の確かめで止まる文（名前・漢字の地名・断り・知らせの言葉）
         from grounding import GROUNDED, verbatim
@@ -6848,10 +6884,12 @@ class OwnWordsTest(unittest.TestCase):
         self.assertEqual((r["result"], info["held_ack"], info["grounding"][0]["verdict"]), ("own_answer", "hai", NO_FACT))
         r, info = run(0.01, UNGROUNDED)
         self.assertEqual(r["result"], "rejected")
-        # 待つ長さに届かない：足場の決まり（固有名詞と数）で確かめる＝世間話は通る。遅れて届いた読みは記録に残す
+        # 待つ長さに届かない：確かめられなかった文は声に出さずに受け皿へ（受け答えは言葉を足さずに戻る・書き直させない）。遅れて届いた読みは記録に残す
+        from flowctl import UNCHECKED
         r, info = run(0.3, UNGROUNDED)
-        self.assertEqual((r["result"], info["grounding"][0].get("late"), info["grounding"][0].get("late_verdict")),
-                         ("own_answer", True, UNGROUNDED))
+        self.assertEqual((r["result"] != "own_answer", r.get("say"), info["grounding"][0].get("late"), info["grounding"][0].get("late_verdict")),
+                         (True, None, True, UNGROUNDED))
+        self.assertIn(UNCHECKED, r["message"])
 
 
 if __name__ == "__main__":

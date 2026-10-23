@@ -160,7 +160,10 @@ class Business:
                 + ([f"電話の用件の一文：{self.purpose_line}"] if self.purpose_line else [])
                 + ([f"お呼びする方：{t.who()}"] if t is not None else [])
                 + [f"お客様に伺うこと（{len(self.questions)}つ）：" + "／".join(q.text for q in self.questions)]
-                + [f"業務の情報：{x}" for x in self.info] + [f"想定問答の答え（{n}）：{a}" for n, a in self.answers])
+                + [f"業務の情報：{x}" for x in self.info] + [f"想定問答の答え（{n}）：{a}" for n, a in self.answers]
+                # 業務設定で許された申し出（flowctl.own_answer_problem の may_follow_up）も、こちらがしてよいことの事実（無いと、判定が止める）
+                + (["こちらがしてよいこと：業務の情報に無いご質問には、確認のうえ担当の者から改めてご連絡させていただく形でよろしいかを伺ってよい"]
+                   if self.follow_up else []))
 
     def name_readings(self) -> dict[str, str]:
         """読みの決まった名前（台本の名前 names）の表記 -> 読み。声に出す文では読みに置き換えてある（quote_in_text）＝AIが自分の言葉の文に

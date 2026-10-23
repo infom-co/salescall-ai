@@ -629,17 +629,11 @@ OWN_MAX_CHARS = 80  # 答えの文の長さの上限（短く1〜2文。長い�
 # 答えの文が確かめに通らないとき、理由を添えてAIに書き直させる回数（同じ相手の発話で）。尽きたら録音の一言（phrases.OWN_FALLBACK）。
 # ✅ 2026-10-22 ユーザー（4回目）：断りの録音は使わない ⇒ 通らなかった文は、まずAIに直させる（書き直しの間、相手は待つ＝1回1秒ほど）
 OWN_REWRITES = 2
+UNCHECKED = "中身を確かめられませんでした"  # 答えの文の中身の判定が届かなかった（Flow._own_answer：書き直させずに受け皿へ）
 
 
-class _Pass(str):
-    part = ""
-
-
-_PASS = _Pass("通す")  # grounding_job：中身の判定の前に、機械の確かめだけを当てる（own_answer_problem の verdict に渡すと、中身は見ない）
-
-
-def own_answer_problem(answer: str, knowledge: str, asked: str, names: list[str], may_follow_up: bool, verdict=None,
-                       talk: bool = False, name_readings: dict[str, str] | None = None) -> str | None:
+def own_answer_problem(answer: str, names: list[str], may_follow_up: bool, verdict=None,
+                       name_readings: dict[str, str] | None = None) -> str | None:
     """AIが自分の言葉で言う文（Flow._own_answer）を、声に出す前に確かめる唯一の場所。問題が無ければ None、あれば理由（日本語）。
     止めるのは「明らかに違う中身」だけ（✅ 2026-10-22 ユーザー（5回目）：「明らかに違う内容を喋ろうとしているのが事前に分かれば止めるべき。
     しかし、AIの能力をそぐような制御はしないように！世間話のような対応や設定にない無難な対応はライブAIにしかできないよ！」）：
@@ -649,15 +643,14 @@ def own_answer_problem(answer: str, knowledge: str, asked: str, names: list[str]
       許されていない約束（PROMISE。業務設定で許された、答えを持っていない問いへの「改めてご連絡」だけは使ってよい）・AIへの知らせの言葉・長すぎる
     - 中身で（verdict＝grounding の判定の読み）：こちらについて知らない事実を言う・お客様の言ったこちらの事実を根拠なく認める・断る
       （言葉の形では拾いきれない断り）。世間話・お礼・気遣いなど、こちらについての事実を言わない受け答えは通す
-    - 判定の読みが無いとき（判定を使わない通話・待つ長さに届かなかった）だけ：地名などの固有名詞と数は、知っていること（受け答え＝talk なら
-      お客様の言葉も）にあるものだけ（「目黒ですよね？」に「はい、目黒にございます」と、お客様の言ったこちらの事実を肯定しないための足場）
-    knowledge＝こちらが知っていること（instruction.Business.knowledge をつなげたもの）・asked＝お客様の言葉。文字の幅（９と9）はそろえて比べる。
+    verdict が None（判定の読みが届いていない）なら、機械の確かめだけ（None でも、声に出してよいという意味ではない＝呼ぶ側が受け皿へ回す。
+    Flow._own_answer）。文字の幅（９と9）はそろえて比べる。
     ⛔ 前の形（ふつうの名詞は、業務の情報かお客様の言葉にある言葉か、中身を足さない言葉の一覧にあるものだけ）は撤去した：言葉で見ていたので、
        G-63 の文の一覧で、通すべき世間話・お礼・用件の答えを12文止め（「本当に暑い日が続いておりますね」「お食事中に大変失礼いたしました」）、
-       作り話を2文通していた（「はい、土日も営業しております」・渋谷かと聞かれての「はい、さようでございます」）"""
+       作り話を2文通していた（「はい、土日も営業しております」・渋谷かと聞かれての「はい、さようでございます」）。
+    ⛔ 判定の読みが無いときの足場（地名などの固有名詞と数は、知っていることにあるものだけ）も撤去した：G-63（2026-10-23）で、足場だけの
+       判断は、危ない文を 82文中18文通した（「キャンセル料はかかりませんので、ご安心ください」「当日は担当の者がご案内いたします」）"""
     import unicodedata
-    from jtext import words
-    knowledge, asked = unicodedata.normalize("NFKC", knowledge or ""), unicodedata.normalize("NFKC", asked or "")
     text = unicodedata.normalize("NFKC", (answer or "").strip())
     if not text:
         return "答えの文がありません"
@@ -682,12 +675,6 @@ def own_answer_problem(answer: str, knowledge: str, asked: str, names: list[str]
                     "申し伝える文にします")
         if verdict == REFUSED:
             return f"お断りの言い方（「{verdict.part or text}」）が入っています。断らずに、いただいた質問を担当の者に申し伝える形にします"
-        return None
-    allowed = knowledge + (asked if talk else "")
-    new = [w.surface for w in words(text) if getattr(w.feature, "pos1", "") == "名詞"
-           and getattr(w.feature, "pos2", "") in ("固有名詞", "数詞") and w.surface not in allowed]
-    if new:
-        return f"こちらが知っていることに無い言葉（「{'」「'.join(dict.fromkeys(new))}」）が入っています（地名・数は、知っていることにあるものだけ）"
     return None
 
 
@@ -2108,7 +2095,7 @@ class Flow:
         - 答える文（answer）は、AIが声に出す前に操作の中に書き、プログラムが確かめる（own_answer_problem＝明らかに違う中身だけ。中身の判定＝grounding
           の読みは、電話接続側が on_grounded で先に渡す）。通れば、その文のとおりに言わせる（外れたら止める見張り offscript の対象）。通らなければ、
           理由を添えて書き直させる（同じ相手の発話で OWN_REWRITES 回まで。その間は声に出さない）。知っていることの文をそのまま言った文は、中身の
-          判定に聞かない（grounding.verbatim）。
+          判定に聞かない（grounding.verbatim）。中身の判定が届かなかった文は、声に出さず、書き直させずに受け皿へ（UNCHECKED）。
         - それでも通らなければ、問いの種類で受け皿を分ける（✅ 2026-10-22 ユーザー（5回目）：「お客様から見ても、それは答えられないだろうなと思う
           ような質問ならそれでよいが、それは答えられなかったらおかしいだろうと思われる内容や、世間話に近いような…では、別の対処が必要」）：
           答えを持っていない質問＝断らない一言の録音（phrases.OWN_FALLBACK）／自分で答える質問＝知っていることの文のうち、お客様の言葉に
@@ -2123,8 +2110,7 @@ class Flow:
         from grounding import GROUNDED, Verdict, verbatim
         kind, answer = part, answer.strip()
         verdict = Verdict(GROUNDED) if verbatim(answer, self.knowledge) else self._grounded(answer)
-        problem = own_answer_problem(answer, "".join(self.knowledge), self.callee_said or "", self.names,
-                                     may_follow_up=kind == "no_answer" and self.policies["follow_up"], verdict=verdict, talk=kind == "talk",
+        problem = own_answer_problem(answer, self.names, may_follow_up=kind == "no_answer" and self.policies["follow_up"], verdict=verdict,
                                      name_readings=self.name_readings)
         tried = self.own_tried[1] if self.own_tried[0] == self.callee_turns else []
         if problem and len(tried) < OWN_REWRITES:
@@ -2133,6 +2119,11 @@ class Flow:
             self.own_tried = (self.callee_turns, tried + [(answer, problem)])
             last = "" if kind != "own" or len(tried) + 1 < OWN_REWRITES else "次で最後です。こちらが知っていることの文を、そのまま使って書きます。"
             return self._reject(f"この文は声に出しません（{problem}）。{last}")
+        if problem is None and verdict is None:
+            # 中身を確かめられなかった（判定が待つ長さに届かなかった・止まっている・判定を使わない通話）：声に出さない。書き直しても判定は
+            # 速くならないので、そのまま受け皿へ（✅ 2026-10-19 ユーザー：「明らかに違う内容を喋ろうとしているのが事前に分かるのであれば、
+            # 止めてもOK」＝分からない文は流さない。⛔ G-63：判定の無いときの足場は、危ない文を 82文中18文通した）
+            problem = UNCHECKED
         tried = tried + ([(answer, problem)] if problem else [])
         self.own_turn = self.callee_turns
         checked = {"checked": getattr(verdict, "by", None) or ("knowledge" if verdict is not None else None)}
@@ -2185,7 +2176,7 @@ class Flow:
         from grounding import verbatim
         if verbatim(answer, self.knowledge) or self._grounded(answer) is not None:
             return None
-        if own_answer_problem(answer, "", "", self.names, may_follow_up=True, verdict=_PASS, name_readings=self.name_readings) is not None:
+        if own_answer_problem(answer, self.names, may_follow_up=True, name_readings=self.name_readings) is not None:
             return None  # 機械の確かめで止まる（名前・断り・知らせの言葉・長すぎる）：判定に聞かずに書き直させる（約束は業務設定で決まるので、ここでは見ない）
         return self.knowledge, self.callee_said or "", answer
 

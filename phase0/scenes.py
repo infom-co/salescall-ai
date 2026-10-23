@@ -33,8 +33,10 @@ TARGET_FAQ = dataclasses.replace(TARGET_BUSINESS, answers=[("番号の出どこ�
 # 業務の情報のある業務（Intent.md 5-3 (2)。instruction.Business.info）：想定問答に無い問いに、AIが自分の言葉で答える材料
 # 業務の情報の地名にも、取込で読みを決める（names.decide の出す形。声に出す文と同じく、指示文ではひらがなに置き換える＝instruction.quote_in_text）。
 # ⛔ 2026-10-22 OWN-ANSWER-EARS：漢字のまま渡すと、AIの声の「港区」は独立した2つの耳とも 3本中1本しか正しく聞こえなかった（ひらがな 6本中6本）
-TARGET_INFO = dataclasses.replace(TARGET_BUSINESS, info=["弊社の本社は東京都港区にございます。", "営業時間は平日の9時から18時までです。"],
-                                  names=list(TARGET_BUSINESS.names) + [{"surface": "港区", "reading": "みなとく"}])
+INFO = ["弊社の本社は東京都港区にございます。", "営業時間は平日の9時から18時までです。"]
+INFO_NAMES = [{"surface": "港区", "reading": "みなとく"}]
+TARGET_INFO = dataclasses.replace(TARGET_BUSINESS, info=INFO, names=list(TARGET_BUSINESS.names) + INFO_NAMES)
+INFO_BUSINESS = dataclasses.replace(BUSINESS, info=INFO, names=list(BUSINESS.names) + INFO_NAMES)  # 目的の人のない業務（答えの段で聞かれる）
 FULL = [W("yes_reserved"), W("datetime_pm"), W("affirm"), W("three_people"), W("affirm")]
 
 
@@ -108,10 +110,16 @@ def answered_with(call: dict, wav_name: str, *parts: str) -> bool:
                for t in turns_to(call, wav_name) for e in t.get("tool_events") or [])
 
 
-def own_answered(call: dict, wav_name: str) -> bool:
-    """その台詞へのAIのターンで、録音の無い問いに自分の言葉で答える部分（自分で答える質問・答えを持っていない質問）を選び、流れの制御が
-    受け付けたか（Flow._own_answer）。"""
-    return any(e["name"] == "replay_opening" and e["args"].get("part") in OWN_PARTS and e["reply"] == "own_answer"
+def own_answered(call: dict, wav_name: str, *parts: str) -> bool:
+    """その台詞へのAIのターンで、自分の言葉で言う部分（parts。無ければ OWN_PARTS＝自分で答える質問・答えを持っていない質問・受け答え）を選び、
+    流れの制御が受け付けたか（Flow._own_answer）。"""
+    return any(e["name"] == "replay_opening" and e["args"].get("part") in (parts or OWN_PARTS) and e["reply"] == "own_answer"
+               for t in turns_to(call, wav_name) for e in t.get("tool_events") or [])
+
+
+def went_back(call: dict, wav_name: str) -> bool:
+    """その台詞へのAIのターンで、「質問に戻る」を流れの制御が受け付けたか（Flow._resume：自分の言葉で返したあとの、相手の返事）。"""
+    return any(e["name"] == "replay_opening" and e["args"].get("part") == "resume" and e["reply"] != "rejected"
                for t in turns_to(call, wav_name) for e in t.get("tool_events") or [])
 
 
@@ -295,6 +303,22 @@ SCENES = {
     "範囲外の質問": Scene(BUSINESS, [W("yes_reserved"), W("out_of_scope")] + FULL[1:], lambda c: {
         "自分の言葉で答えた": own_answered(c, "out_of_scope"), "金額を作らない": "円" not in said_to(c, "out_of_scope"),
         "約束しない": no_promise(c), "続けて答えが取れた": got(c, "Q2", "15日")}),
+    # 質問ではない言葉・答えられて当たり前の問い（✅ 2026-10-22 ユーザー（5回目）：「世間話のような対応や設定にない無難な対応はライブAIにしか
+    # できないよ！」・「それは答えられなかったらおかしいだろうと思われる内容や、世間話に近いような…では、別の対処が必要」）：AIが自分の言葉で
+    # 返す（受け答え・自分で答える質問）。中身は判定が確かめる（grounding）。世間話・お礼に「申し伝えます」は合わない
+    "世間話": Scene(INFO_BUSINESS, [W("small_talk_heat"), W("small_talk_agree"), W("yes_reserved")] + FULL[1:], lambda c: {
+        "受け答えした": own_answered(c, "small_talk_heat", "talk"), "申し伝えない": "申し伝え" not in said_to(c, "small_talk_heat"),
+        "質問に戻った": went_back(c, "small_talk_agree"), "答えが取れた": got(c, "Q1", "はい") and got(c, "Q2", "15日")}),
+    "お礼": Scene(INFO_BUSINESS, [W("thanks_for_call"), W("yes_reserved")] + FULL[1:], lambda c: {
+        "受け答えした": own_answered(c, "thanks_for_call", "talk"), "申し伝えない": "申し伝え" not in said_to(c, "thanks_for_call"),
+        "答えが取れた": got(c, "Q1", "はい") and got(c, "Q2", "15日")}),
+    "気遣い": Scene(INFO_BUSINESS, [W("yes_reserved"), W("small_talk_busy"), W("datetime_pm")] + FULL[2:], lambda c: {
+        "受け答えした": own_answered(c, "small_talk_busy", "talk"), "申し伝えない": "申し伝え" not in said_to(c, "small_talk_busy"),
+        "答えが取れた": got(c, "Q1", "はい") and got(c, "Q2", "15日")}),
+    "答えられる問い": Scene(INFO_BUSINESS, [W("yes_reserved"), W("business_hours_q"), W("i_see"), W("datetime_pm")] + FULL[2:], lambda c: {
+        "自分の言葉で答えた": own_answered(c, "business_hours_q", "own"),
+        "業務の情報の時刻": any(x in plain(said_to(c, "business_hours_q")) for x in ("18", "十八", "6時", "六時")),
+        "申し伝えない": "申し伝え" not in said_to(c, "business_hours_q"), "約束しない": no_promise(c), "答えが取れた": got(c, "Q2", "15日")}),
     # 答えに添えられた質問（⛔ G-47：10本中10本聞き流した）：ひとつで出てきた質問と同じ1か所で答え（声に出す前に確かめる）、相手の返事のあとに
     # 次の質問の録音。⛔ 2026-10-22 の4回目の見直し：前は、ここだけAIに「まず短く答えて」と渡していた＝確かめを通らない道だった
     "答えに添えられた質問": Scene(BUSINESS, [W("ask_staff"), W("i_see")] + FULL[1:], lambda c: {

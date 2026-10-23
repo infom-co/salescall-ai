@@ -7,7 +7,9 @@
   (c) 世間話・お礼・気遣い・質問を預かるだけの受け答え（こちらについての事実を言っていない）。正解は (a)(c)＝通す・(b)＝止める。
   ⚠️ どちらとも言える文（「物流の会社です」＝社名から言えるか、など）は入れない（正解が決まらない文で測らない）。
 - 比べる：判定ごと（3.5 Flash Lite・Sonnet 5.5（考える）・Haiku 5.5）の正しさ・止めるべきを通した数（危ない側）・通すべきを止めた数（能力を
-  そぐ側）・かかった秒。あわせて、いまの言葉の確かめ（flowctl.own_answer_problem）が同じ文をどう扱うか。
+  そぐ側）・かかった秒。
+- 声に出る判断（「確かめ全体」）：判定の読みを、通話と同じ1か所（flowctl.own_answer_problem＝機械の確かめ＋判定の読み）に通した結果。
+  判定が届かなかった文は声に出さない（Flow._own_answer）。--tally：保存した記録を、問い合わせずに、いまの決まりで数え直す。
 """
 from __future__ import annotations
 
@@ -118,20 +120,41 @@ REAL = [
 ]
 
 
-async def run(args) -> dict:
-    from flowctl import own_answer_problem
-    from scenes import TARGET_INFO
-
+def all_cases() -> list[tuple]:
+    """(業務設定, お客様の言葉, 返す文, 正解, 一覧の名前)。"""
     import scenes
-    knowledge = TARGET_INFO.knowledge()
-    info = "".join(TARGET_INFO.info)
+    from scenes import TARGET_INFO
+    return ([(TARGET_INFO, s, d, w, "作った文") for s, d, w in CASES]
+            + [(getattr(scenes, SCENE_SAID[key][0]), SCENE_SAID[key][1], d, w, "本物の文") for key, d, w in REAL])
+
+
+def decide(biz, said: str, draft: str, choice: str | None, part: str = "") -> str:
+    """通話と同じ1か所（flowctl.own_answer_problem）で、この文を声に出すか（通す・止める）。choice＝判定の読み（None＝届かなかった＝声に
+    出さない＝Flow._own_answer の UNCHECKED）。約束は、許されていない業務の形（may_follow_up＝False）で見る。"""
+    from flowctl import own_answer_problem
+    from grounding import Verdict
+    if choice is None:
+        return NG
+    problem = own_answer_problem(draft, biz.spoken_names(), False, verdict=Verdict(choice, part), name_readings=biz.name_readings())
+    return OK if problem is None else NG
+
+
+def overall(rows: list[dict]) -> dict:
+    """判定ごと・一覧ごとの、声に出る判断の数（判定の読みが無い行＝誤り・上限は外す）。あわせて、判定が届かなかったとき（足場だけ）。"""
+    biz_of = {(d, s): b for b, s, d, _, _ in all_cases()}
+    out = {}
+    for name, kind in dict.fromkeys((r["judge"], r.get("set")) for r in rows):
+        rs = [r for r in rows if r["judge"] == name and r.get("set") == kind and r.get("choice") and (r["draft"], r["said"]) in biz_of]
+        got = [(r, decide(biz_of[(r["draft"], r["said"])], r["said"], r["draft"], r["choice"], r.get("part") or "")) for r in rs]
+        out[f"{name}・{kind}"] = {"正しい": f"{sum(g == r['want'] for r, g in got)}/{len(got)}",
+                                 "止めるべきを通した": [r["draft"] for r, g in got if r["want"] == NG and g == OK],
+                                 "通すべきを止めた": sum(r["want"] == OK and g == NG for r, g in got)}
+    return out
+
+
+async def run(args) -> dict:
     # (業務の知っていること, お客様の言葉, 返す文, 正解, 一覧の名前)
-    cases = [(knowledge, s, d, w, "作った文") for s, d, w in CASES]
-    for key, d, w in REAL:
-        biz, said = SCENE_SAID[key]
-        cases.append((getattr(scenes, biz).knowledge(), said, d, w, "本物の文"))
-    lexical = [{"said": s, "draft": d, "want": w, "set": k,
-                "problem": own_answer_problem(d, info, s, TARGET_INFO.spoken_names(), False)} for _, s, d, w, k in cases]
+    cases = [(b.knowledge(), s, d, w, k) for b, s, d, w, k in all_cases()]
     rows = []
     for name in args.judge or ("3.5 Flash Lite", "Claude Sonnet 5.5（考える）", "Claude Haiku 5.5"):
         if name == "Claude Haiku 5.5":
@@ -160,11 +183,9 @@ async def run(args) -> dict:
                          "通すべきを止めた": sum(r["want"] == OK and r.get("got") == NG for r in rs),
                          "答えなし・誤り": sum(r.get("got") is None for r in rs),
                          "秒（中央・遅いほうから1割）": [statistics.median(secs), secs[int(len(secs) * 0.9)]] if secs else None}
-    summary["いまの言葉の確かめ（作った文）"] = {"止めるべきを通した": sum(x["want"] == NG and x["problem"] is None for x in lexical if x["set"] == "作った文"),
-                             "通すべきを止めた": sum(x["want"] == OK and x["problem"] is not None for x in lexical if x["set"] == "作った文"),
-                             "止めた文": [(x["draft"], x["problem"]) for x in lexical if x["want"] == OK and x["problem"]],
-                             "通した危ない文": [x["draft"] for x in lexical if x["want"] == NG and x["problem"] is None]}
-    return {"summary": summary, "rows": rows, "lexical": lexical}
+    # ⛔ 言葉で見る確かめ（撤去した形）との比べは、2026-10-22 の記録（G-63_20261022_*）の lexical に残っている
+    summary["確かめ全体（声に出る判断）"] = overall(rows)
+    return {"summary": summary, "rows": rows}
 
 
 def main() -> None:
@@ -172,7 +193,15 @@ def main() -> None:
     p = base_parser(__doc__)
     p.add_argument("--judge", action="append", help="測る判定の名前（無ければ 3.5 Flash Lite・Sonnet 5.5（考える）・Sonnet 5.5）")
     p.add_argument("--repeat", type=int, default=2)
+    p.add_argument("--tally", nargs="+", help="保存した記録を、問い合わせずに、いまの決まりで数え直す（確かめ全体）")
     args = p.parse_args()
+    if args.tally:
+        import json
+        rows = [r for path in args.tally for r in json.load(open(path, encoding="utf-8"))["rows"]]
+        out = {"merged_from": args.tally, "summary": overall(rows)}
+        say("数え：" + json.dumps(out["summary"], ensure_ascii=False, indent=1))
+        save_result("G-63-TALLY", out)
+        return
     out = asyncio.run(run(args))
     import json
     say("数え：" + json.dumps(out["summary"], ensure_ascii=False))
