@@ -1692,72 +1692,137 @@ class AskingMuteTest(unittest.TestCase):
         f.on_callee(); f.on_heard("はい。")
         self.assertFalse(f.speech_allowed(len(f.log)))
 
-    def test_answer_in_the_words_is_confirmed_after_answering(self):
-        # 相手が答えと質問を一緒に言い（または世間話をし）、AIが答えの報告ではなく答え方の操作を呼んだ：AIを差し戻さずに答えさせ、判定がそろって
-        # いまの質問の答えと読んだ読みを覚えておき、いまの質問へ戻るときに、聞き直さずに「念のため」で確かめる（⛔ G-57 tc36：相手がもう答えた
-        # 質問の録音が、もう一度流れた。⛔ 2026-10-23 tc44・tc45：前の形＝差し戻して判定の読みどおりに報告させる形は、「いや、」の聞き違い「Ja.」
-        # を判定2つが「はい」と読むと、世間話に返さないまま、依頼主へ渡す答えを「はい」にした＝判定の読みから作った報告は、判定と独立でない）
-        from flowctl import UNDECIDED
+    def test_answer_in_the_words_is_reported_after_answering(self):
+        # 相手が答えと質問を一緒に言い（または世間話をし）、AIが答えの報告ではなく答え方の操作を呼んだ：AIを差し戻さずに答えさせ、判定のどれかが
+        # いまの質問の答えと読んだ言葉を覚えておく。AIは応えたあと、いまの質問へ戻る前に、その言葉の答えを音声から報告できる（判定の読みは
+        # 見せない）。報告は、覚えておいた言葉と確かめに当てて、ふつうの答えと同じ決まりで決める（⛔ G-57 tc36：相手がもう答えた質問の録音が、
+        # もう一度流れた。⛔ 2026-10-23 tc44・tc45：差し戻して判定の読みどおりに報告させる形は、「いや、」の聞き違い「Ja.」を判定2つが「はい」と
+        # 読むと、世間話に返さないまま答えを「はい」にした。⛔ tc48：「念のため（意味の言葉）」で確かめる形は、意味の言葉の無い選択肢・値を聞く
+        # 質問では確かめが作れず、答えてもらった質問をもう一度流した）
+        from flowctl import Flow, Question, UNDECIDED
+        STAFF = "はい、予約しています。当日はどなたが担当されるんですか？"
+        LINE = "当日の担当につきましては担当の者に申し伝えます。"
 
-        def meant():
-            from flowctl import Flow, Question
-            f = Flow([Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"),
-                               meanings={"はい": "ご予約はお済みということ", "いいえ": "ご予約はまだということ"}),
-                      Question("Q2", "ご希望の日時をお聞かせいただけますでしょうか？", "datetime", conditions=("答えた",))], play_recordings=True)
+        def flow(meanings=None, opening=None):
+            f = Flow([Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"), meanings=meanings or {}),
+                      Question("Q2", "ご希望の日時をお聞かせいただけますでしょうか？", "datetime", conditions=("答えた",))],
+                     play_recordings=True, opening=opening)
             f.use_checks("judge", "judge2")
             return f
 
-        def two():
-            f = meant()
-            f.on_callee(); f.on_heard("はい、予約しています。当日はどなたが担当されるんですか？")
-            return f
-        # 判定を全部待つ（読みを覚えるかは、判定がそろったときだけ）
-        f = two()
+        def replied(f, words=STAFF, readings=("はい", "はい"), part="no_answer", answer=LINE, **kw):
+            f.on_callee(); f.on_heard(words)
+            for k, v in zip(("judge", "judge2"), readings):
+                if v is not None:
+                    f.on_check(k, v)
+            grounded(f, answer)
+            return f.apply("replay_opening", {"part": part, "answer": answer, **kw})
+
+        # 判定を全部待つ（覚えるかは、判定が全部届いてから）
+        f = flow(); f.on_callee(); f.on_heard(STAFF)
         self.assertTrue(f.waits_every("replay_opening", {"part": "talk"}))
         self.assertFalse(f.waits_every("replay_opening", {"part": "resume"}))
-        # そろった：差し戻さずに答え、相手の返事のあと、質問を聞き直さずに念のため確かめる（AIは答えを報告していない＝受け取っていない）
-        f.on_check("judge", "はい"); f.on_check("judge2", "はい")
-        grounded(f, "当日の担当につきましては担当の者に申し伝えます。")
-        r = f.apply("replay_opening", {"part": "no_answer", "answer": "当日の担当につきましては担当の者に申し伝えます。"})
-        self.assertEqual((r["result"], r["say"]), ("own_answer", "当日の担当につきましては担当の者に申し伝えます。"))
-        self.assertNotIn(f.items["Q1"].state, ("accepted", "confirmed"))
+        # 意味の言葉の無い選択肢（tc48 の形）：応えたあと、相手の返事のあとに、AIが聞いた答えを報告する＝聞き直さずに次の質問へ
+        f = flow()
+        r = replied(f)
+        self.assertEqual((r["result"], r["say"]), ("own_answer", LINE))
+        self.assertIn("record_answer", r["message"]); self.assertIn("Q1", r["message"])
+        self.assertNotIn("「はい」", r["message"])                                  # 判定の読みは見せない
+        self.assertNotIn(f.items["Q1"].state, ("accepted", "confirmed"))            # AIが報告するまで受け取らない
+        before = f.callee_turns
+        f.on_callee(); f.on_heard("そうなんですね。")
+        r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい"})
+        self.assertEqual((r["result"], f.current, f.items["Q1"].condition), ("next", "Q2", "はい"))
+        self.assertEqual((f.taken["Q1"]["turn"], f.log[-1]["words_turn"], f.answer_held), (before, before, None))
+        # 応えたあとの相手の言葉で、答えを言い直された：新しいほうの言葉に当てる（判定が答えと読んだ、いちばん新しい言葉）
+        f = flow(); replied(f)
+        f.on_callee(); f.on_heard("あ、すみません、予約はまだでした。"); f.on_check("judge", "いいえ"); f.on_check("judge2", "いいえ")
+        r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "いいえ"})
+        self.assertEqual((r["result"], f.items["Q1"].condition, f.taken["Q1"]["turn"]), ("next", "いいえ", f.callee_turns))
+        self.assertNotIn("words_turn", f.log[-1])
+        # 応えたあとの相手の言葉に、別の質問があった：その質問に答える番（相手の質問は、いまの言葉で見る）
+        f = flow(); replied(f)
+        f.on_callee(); f.on_heard("そうなんですね。駐車場はありますか？")
+        self.assertEqual(f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい"})["result"], "callee_asked")
+        # AIが「入っていない」と選んだ（質問に戻る）：いまの質問を流す（もう覚えておかない）
+        f = flow(); replied(f)
         f.on_callee(); f.on_heard("そうなんですね。")
         r = f.apply("replay_opening", {"part": "resume"})
-        self.assertEqual((r["result"], r.get("play"), f.awaiting_confirm), ("replayed", [], "Q1"))
+        self.assertEqual(([p.get("id") for p in r["play"]], f.answer_held), (["Q1"], None))
+        # 世間話の聞き違い（「いや、」が「Ja.」）を判定2つが「はい」と読んだ：AIが音声から違う答えを報告すれば、そのままは受け取らず確かめる
+        # （意味の言葉があれば言い直し・無ければ聞き返し）。報告しなければ、質問を流す
+        for meanings in ({}, {"はい": "ご予約はお済みということ", "いいえ": "ご予約はまだということ"}):
+            f = flow(meanings)
+            replied(f, "Ja. それにしても今日は暑いですね。", part="talk", answer="本当に暑い日が続いておりますね。", fallback="talk_agree")
+            f.on_callee(); f.on_heard("そうですよね。")
+            r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "いいえ"})
+            self.assertIn(r["result"], ("confirm_required", "ask_back"), meanings)
+            self.assertNotIn(f.items["Q1"].state, ("accepted", "confirmed"), meanings)
+        # 判定の1つだけが答えと読んだ：覚えて、報告はふつうの答えと同じ決まり（食い違うので、そのまま受け取らずに確かめる）
+        f = flow({"はい": "ご予約はお済みということ", "いいえ": "ご予約はまだということ"})
+        r = replied(f, readings=("はい", UNDECIDED))
+        self.assertIn("record_answer", r["message"])
+        f.on_callee(); f.on_heard("そうなんですね。")
+        r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい"})
+        self.assertEqual((r["result"], f.awaiting_confirm), ("confirm_required", "Q1"))
         self.assertIn("念のため", r["say"])
-        self.assertNotIn("Q1", [p.get("id") for p in r["play"]])          # 質問の録音は流さない
+        # 覚えておいた言葉の判定が、次の発話のあとに届いた：その言葉の答えの報告に当てる（いまの発話の判定にはしない）
+        f = flow({"はい": "ご予約はお済みということ", "いいえ": "ご予約はまだということ"})
+        replied(f, readings=("はい", None))
+        turn = f.callee_turns
+        f.on_callee(); f.on_heard("そうなんですね。")
+        f.on_check("judge2", "いいえ", turn=turn, said=STAFF)
+        self.assertNotIn("judge2", f.check)
+        r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい"})
+        self.assertEqual((r["result"], f.awaiting_confirm), ("confirm_required", "Q1"))
+        # 「AIですか」と一緒に答えた：決まった言い方への返事のあとも、同じく報告か質問に戻るかを選ぶ
+        f = flow()
+        f.on_callee(); f.on_heard("はい、予約しています。というか、これってAIですか？"); f.on_check("judge", "はい"); f.on_check("judge2", "はい")
+        self.assertIn("record_answer", f.apply("replay_opening", {"part": "ai"})["message"])
+        f.on_callee(); f.on_heard("いえ、別にいいんですけど。")
+        self.assertEqual(f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい"})["result"], "next")
+        # どの判定も答えと読まない：覚えない（そのまま答え、相手の返事のあとは質問に戻る）
+        for readings in ((UNDECIDED, UNDECIDED), (None, None)):
+            f = flow()
+            r = replied(f, "当日はどなたが担当されるんですか？", readings=readings)
+            self.assertNotIn("record_answer", r["message"], readings)
+            self.assertIsNone(f.answer_held, readings)
+        # 値を聞く質問（日時）：答えを報告すれば、ふつうの答えと同じく言い直して確かめる
+        f = flow()
         f.on_callee(); f.on_heard("はい。"); f.on_check("judge", "はい"); f.on_check("judge2", "はい")
-        r = f.apply("confirm_field", {"question_id": "Q1", "result": "affirmed"})
-        self.assertEqual((f.items["Q1"].condition, f.current), ("はい", "Q2"))
-        # 世間話の聞き違い（「いや、」が「Ja.」）を判定2つが「はい」と読んだ：世間話に返し、念のための確かめで、お客様が正しく答え直せる
-        f = meant()
-        f.on_callee(); f.on_heard("Ja. それにしても今日は暑いですね。"); f.on_check("judge", "はい"); f.on_check("judge2", "はい")
-        grounded(f, "本当に暑い日が続いておりますね。")
-        r = f.apply("replay_opening", {"part": "talk", "answer": "本当に暑い日が続いておりますね。", "fallback": "talk_agree"})
-        self.assertEqual((r["result"], r["say"]), ("own_answer", "本当に暑い日が続いておりますね。"))
-        f.on_callee(); f.on_heard("そうですよね。")
-        r = f.apply("replay_opening", {"part": "resume"})
-        self.assertIn("念のため", r["say"])
-        f.on_callee(); f.on_heard("いえ、まだ予約はしていないんです。"); f.on_check("judge", "いいえ"); f.on_check("judge2", "いいえ")
-        f.apply("confirm_field", {"question_id": "Q1", "result": "corrected", "correction": "いいえ"})
-        self.assertNotEqual(f.items["Q1"].condition, "はい")
-        # 意味の言葉の無い選択肢（「はい」だけ）：読みだけでは言い直せないので、いまの質問を聞く
-        f = self.flow(); f.use_checks("judge", "judge2")
-        f.on_callee(); f.on_heard("はい、予約しています。当日はどなたが担当されるんですか？"); f.on_check("judge", "はい"); f.on_check("judge2", "はい")
-        grounded(f, "当日の担当につきましては担当の者に申し伝えます。")
-        f.apply("replay_opening", {"part": "no_answer", "answer": "当日の担当につきましては担当の者に申し伝えます。"})
-        f.on_callee(); f.on_heard("そうなんですね。")
-        self.assertEqual([p.get("id") for p in f.apply("replay_opening", {"part": "resume"})["play"]], ["Q1"])
-        # 判定が1つだけ・食い違う：覚えない（質問へ戻るときは、いまの質問の録音）
-        for second in (None, UNDECIDED):
-            f = two(); f.on_check("judge", "はい")
-            if second:
-                f.on_check("judge2", second)
-            grounded(f, "当日の担当につきましては担当の者に申し伝えます。")
-            f.apply("replay_opening", {"part": "no_answer", "answer": "当日の担当につきましては担当の者に申し伝えます。"})
-            f.on_callee(); f.on_heard("そうなんですね。")
-            r = f.apply("replay_opening", {"part": "resume"})
-            self.assertEqual(([p.get("id") for p in r["play"]], f.awaiting_confirm), (["Q1"], None), second)
+        f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい"})
+        replied(f, "15日の午後2時でお願いします。駐車場はありますか？", readings=("答えた", "答えた"), answer="駐車場につきましては担当の者に申し伝えます。")
+        f.on_callee(); f.on_heard("わかりました。")
+        r = f.apply("record_answer", {"question_id": "Q2", "condition_id": "答えた", "value": "15日の午後2時"})
+        self.assertEqual((r["result"], f.awaiting_confirm), ("confirm_required", "Q2"))
+        self.assertIn("15日", r["say"])
+        # 「答えたくない」も答え：二度と聞かない
+        f = flow()
+        replied(f, "それは言いたくないです。当日はどなたが担当ですか？", readings=("refused", "refused"))
+        f.on_callee(); f.on_heard("そうですか。")
+        f.apply("record_answer", {"question_id": "Q1", "condition_id": "refused"})
+        self.assertEqual((f.items["Q1"].state, f.current), ("refused", "Q2"))
+        # 録音で応えた（用件）：相手はまだ話していないので、録音のあとすぐ、報告か質問に戻るかを選ぶ（質問は流さない）。その場の報告は、
+        # いまの言葉のまま。質問に戻るときは、録音の続きなので相づちを重ねない
+        opening = {"greeting": "お世話になっております。", "intro": "青葉物産の佐藤です。", "purpose": "ご予約の確認です。"}
+        for then in ("record", "resume"):
+            f = flow(opening=opening)
+            f.on_callee(); f.on_heard("はい、予約しています。どういったご用件でしたっけ？"); f.on_check("judge", "はい"); f.on_check("judge2", "はい")
+            r = f.apply("replay_opening", {"part": "purpose"})
+            self.assertEqual((r["result"], r.get("silent")), ("replayed", True), then)
+            self.assertNotIn("Q1", [p.get("id") for p in r["play"]], then)
+            self.assertIn("record_answer", r["message"], then)
+            if then == "record":
+                r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい"})
+                self.assertEqual((r["result"], f.current), ("next", "Q2"))
+                self.assertNotIn("words_turn", f.log[-1])
+            else:
+                r = f.apply("replay_opening", {"part": "resume"})
+                self.assertEqual(([p.get("id") for p in r["play"]], r["ack"]), (["Q1"], None))
+        # 判定を使わない通話：読みが無いので覚えない（質問に戻る）
+        f = Flow([Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"))], play_recordings=True)
+        f.on_callee(); f.on_heard(STAFF); grounded(f, LINE)
+        self.assertNotIn("record_answer", f.apply("replay_opening", {"part": "no_answer", "answer": LINE})["message"])
         # AIが答えを先に報告した（答えに添えられた質問）：その道のまま。答える前の受け答えは、答えたことにならない（⛔ 2026-10-23 tc42）
         g2 = self.flow()
         g2.on_callee(); g2.on_heard("はい、予約しています。当日はどなたが担当されるんですか？")

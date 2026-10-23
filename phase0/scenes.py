@@ -172,16 +172,18 @@ def callback_recorded(call: dict) -> bool:
                for x in ops(call) for p in x["reply"].get("play") or [])
 
 
-def answered_before_next(call: dict) -> bool:
-    """答えに添えられた相手の質問（Flow._advance の after_answer）に、答える操作（replay_opening）が受け付けられてから、次の質問の録音が流れたか
-    （録音を先に流すと、相手の質問にかぶせる）。"""
+def answered_before_next(call: dict, then: str = "Q2") -> bool:
+    """答えに添えられた相手の質問に、答える操作（replay_opening）が受け付けられてから、質問の録音が流れ、その録音が次の質問（then）だったか
+    （録音を先に流すと、相手の質問にかぶせる・いまの質問を流し直すと、もう答えた質問を聞き直す）。答えの報告が先（Flow._advance の
+    after_answer）でも、答えたあと（Flow._held_words）でも同じに数える。
+    ⛔ 2026-10-23 tc48 のあとの見直し：前は答えの報告が先の道（callee_asked）だけを数えていた＝答えたあとに報告する道を外れと数える"""
     log = ops(call)
-    i = next((k for k, x in enumerate(log) if x["reply"]["result"] == "callee_asked"), None)
-    if i is None:
+    i = next((k for k, x in enumerate(log) if x["op"] == "replay_opening" and x["args"].get("part") not in ("resume", "handover")
+              and x["reply"]["result"] != "rejected"), None)
+    if i is None or any("question" in played_parts(x["reply"]) for x in log[:i]):
         return False
-    after = log[i + 1:]
-    nxt = next((x for x in after if "question" in played_parts(x["reply"])), None)
-    return any(x["op"] == "replay_opening" and x["reply"]["result"] != "rejected" for x in after) and nxt is not None and nxt["op"] == "replay_opening"
+    nxt = next((x for x in log[i:] if "question" in played_parts(x["reply"])), None)
+    return nxt is not None and [p.get("id") for p in nxt["reply"]["play"] if p.get("kind") == "question"][0] == then
 
 
 def no_promise(call: dict) -> bool:
