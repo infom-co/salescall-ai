@@ -125,8 +125,8 @@ DEFICIT, NOT_DEFICIT, UNKNOWN = "deficit", "not_deficit", "unknown"
 
 def _deficit(tx: Tx, tenant_id: UUID, client_id: UUID) -> tuple[str, dict[str, Any]]:
     """取引の依頼者が、いま赤字か（**判断は1か所**：費用 ＞ 多めに見込んだ報酬）と、今月の数。いま効いている報酬の決まりが無ければ
-    判断できない（UNKNOWN）：警告も停止も新しくはしない・今ある赤字の停止も解かない（解く根拠も無い）。設定の抜けとして知らせる
-    （`_check_cost_ratio`）。2026-10-18 の見直し：前は、決まりが無いときの扱いが3か所で違った。"""
+    判断できない（UNKNOWN）：警告を新しくはしない（赤字では止めない＝2026-10-22 ユーザー「止めない。知らせるだけでいい」）。設定の
+    抜けとして知らせる（`_check_cost_ratio`）。2026-10-18 の見直し：前は、決まりが無いときの扱いが3か所で違った。"""
     m = reward.month(tx)
     if not m["has_terms"]:
         return UNKNOWN, m
@@ -177,7 +177,9 @@ def _deficit_step(tx: Tx, tenant_id: UUID, client_id: UUID) -> int | None:
 
 
 def confirm_deficit(tx: Tx, warning_id: int) -> None:
-    """赤字の警告を確認する（管理者か契約者だけ。データベースが守る）。確認したら、確認が効いているあいだは止めない。"""
+    """赤字の警告を確認する（管理者か契約者だけ。データベースが守る）。確認したら、確認が効いているあいだ（設定
+    budget.deficit_confirm_valid）は新しく警告しない（赤字では止めない＝2026-10-22 ユーザー「止めない。知らせるだけでいい」。
+    確認されないまま期限を過ぎたら、契約者と管理者へもう一度だけ知らせる）。"""
     row = tx.one("UPDATE salescall.deficit_warnings SET confirmed_at = now(), confirmed_by = salescall.cur_actor()"
                  " WHERE warning_id = %s AND closed_at IS NULL AND confirmed_at IS NULL RETURNING warning_id", (warning_id,))
     if row is None:
