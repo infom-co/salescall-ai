@@ -23,7 +23,7 @@ from g34_ack import FAST, FOLLOWUP_WAIT_S
 from instruction import VOICE_TYPES, Target
 from make_callee_samples import verified
 from meaning_judge import STANDIN, add_judge_args, make_judges
-from flowctl import OWN_PARTS, PROMISE, REFUSAL
+from flowctl import OWN_PARTS, PROMISE, refusal_in
 from phrases import CLOSE_DECLINED, CLOSING
 
 # 目的の人のある業務（DESIGN.md 4-3）：営業部部長の岡田様
@@ -43,7 +43,7 @@ FULL = [W("yes_reserved"), W("datetime_pm"), W("affirm"), W("three_people"), W("
 def T(name: str) -> dict:
     """目的の人ご本人の台詞：目的の人かを聞かれたら（Flow._ask_target）、本物の方と同じく「はい、そうです。」と答える（convo.ANSWER_AGAIN）。"""
     return W(name) | {"if_asked_target": W("affirm")["wav"]}
-# 人間だという答え（Intent.md 9-4）。AIが言ってはいけない約束（PROMISE）・断りの言い方（REFUSAL）は、流れの制御の確かめと同じ1か所
+# 人間だという答え（Intent.md 9-4）。AIが言ってはいけない約束（PROMISE）・断りの言い方（refusal_in）は、流れの制御の確かめと同じ1か所
 # （flowctl。⛔ 2026-10-22 の4回目の見直しで見つけた写し：約束の言葉の決まりを、ここにも書き写していた）
 HUMAN = re.compile(r"人間です|人間でございます|私は人|生身")
 _PUNCT = re.compile(r"[\s、。，．,.!！?？「」]")
@@ -193,7 +193,7 @@ def no_promise(call: dict) -> bool:
 def no_refusal(call: dict) -> bool:
     """AIの声に、断りの言い方（「お答えいたしかねます」「分かりかねます」など）が無いか。どの場面にも当てる（measures）。
     ✅ 2026-10-22 ユーザー（4回目）：「電話で営業する人がそんなことはまず言わない（契約がその時点で終わる）」"""
-    return not any(REFUSAL.search(said(t)) for t in call["turns"])
+    return not any(refusal_in(said(t)) for t in call["turns"])
 
 
 def played_parts(reply: dict) -> list[str]:

@@ -1732,7 +1732,7 @@ class AskingMuteTest(unittest.TestCase):
         before = f.callee_turns
         f.on_callee(); f.on_heard("そうなんですね。")
         r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい"})
-        self.assertEqual((r["result"], f.current, f.items["Q1"].condition), ("next", "Q2", "はい"))
+        self.assertEqual((r["result"], f.current, f.items["Q1"].condition, r["ack"]), ("next", "Q2", "はい", "hai"))  # 相手の返事を「はい、」で受ける
         self.assertEqual((f.taken["Q1"]["turn"], f.log[-1]["words_turn"], f.answer_held), (before, before, None))
         # 応えたあとの相手の言葉で、答えを言い直された：新しいほうの言葉に当てる（判定が答えと読んだ、いちばん新しい言葉）
         f = flow(); replied(f)
@@ -1748,7 +1748,7 @@ class AskingMuteTest(unittest.TestCase):
         f = flow(); replied(f)
         f.on_callee(); f.on_heard("そうなんですね。")
         r = f.apply("replay_opening", {"part": "resume"})
-        self.assertEqual(([p.get("id") for p in r["play"]], f.answer_held), (["Q1"], None))
+        self.assertEqual(([p.get("id") for p in r["play"]], f.answer_held, r["ack"]), (["back", "Q1"], None, None))
         # 世間話の聞き違い（「いや、」が「Ja.」）を判定2つが「はい」と読んだ：AIが音声から違う答えを報告すれば、そのままは受け取らず確かめる
         # （意味の言葉があれば言い直し・無ければ聞き返し）。報告しなければ、質問を流す
         for meanings in ({}, {"はい": "ご予約はお済みということ", "いいえ": "ご予約はまだということ"}):
@@ -1874,10 +1874,11 @@ class CalleeQuestionTest(unittest.TestCase):
         self.assertEqual((r["result"], r["say"], r["ack"], r.get("play")), ("own_answer", "いただいたご質問は担当の者に申し伝えます。", "hai", None))
         self.assertEqual([(x["answered"], x["answer"], len(x["drafts"])) for x in f.facts["callee_question"]],
                          [(False, "いただいたご質問は担当の者に申し伝えます。", 1)])                  # 1つの質問は1つの記録
-        # 相手の返事のあとに、先に作っておいた次の質問の録音（お礼の相づち）
+        # 相手の返事のあとに、先に作っておいた次の質問の録音（相手の返事は「はい、」で受ける。⛔ 前はお礼の相づち＝✅ 2026-10-23 ユーザー：
+        # 「そうなんですね。」のあとの「ありがとうございます、それでは…」は会話が繋がっていない）
         f.on_callee(); f.on_heard("あ、そうですか。")
         r = f.apply("replay_opening", {"part": "resume"})
-        self.assertEqual((r["result"], r["play"][0]["id"], r["ack"]), ("next", "Q2", "arigatou"))
+        self.assertEqual((r["result"], r["play"][0]["id"], r["ack"]), ("next", "Q2", "hai"))
 
     def test_question_answered_by_a_recording_continues_at_once(self):
         # 添えられた質問が名乗り・用件・想定問答なら、その録音のあとに続けて次の質問の録音（相手の返事を待たない）
@@ -5198,7 +5199,7 @@ class TargetTest(unittest.TestCase):
         self.heard(f, "この番号はどちらでお知りになりましたか？", None); f.on_check("asks", ASKS_YES)
         r = f.apply("replay_opening", {"part": "番号の出どころ"})
         self.assertEqual((r["result"], [p.get("part") or p.get("id") for p in r["play"]], r["ack"]),
-                         ("replayed", ["answer_番号の出どころ", "target"], "hai"))
+                         ("replayed", ["answer_番号の出どころ", "back", "target"], "hai"))   # 答えたあと、話を戻す一言からお呼びし直す
         # (3) 録音の無い問い：AIが答える文を操作の中に書き、プログラムが声に出す前に確かめてから、その文のとおりに言わせる（頭は「はい、」）。
         #     相手の質問は通話の事実に残す。同じ発話には1回だけ。相手の返事のあとに「質問に戻る」で、もう一度だけお呼びする（相づちはお礼）
         def info_flow(**policies):
@@ -5219,7 +5220,7 @@ class TargetTest(unittest.TestCase):
         self.assertIn(f"「{PART_LABEL['resume']}」で呼びます", f._now())
         self.heard(f, "ああ、そうなんですね。", None)
         r = f.apply("replay_opening", {"part": "resume"})
-        self.assertEqual(([p.get("part") for p in r["play"]], r["ack"], f.own_pending), (["target"], "arigatou", False))
+        self.assertEqual(([p.get("part") or p.get("id") for p in r["play"]], r["ack"], f.own_pending), (["back", "target"], None, False))
         # (4) 確かめに通らない答えの文（業務の情報に無い言葉・名前・断り・約束）は声に出さず、理由を添えて書き直させる（同じ発話で2回まで）。
         #     それでも通らなければ、断らない一言の録音（相づちは重ねない）。⛔ G-57 tc31：L4 は「港区」を「東京目黒」と言った・S2 は注意書きを
         #     声に出して約束した。✅ 2026-10-22 ユーザー（4回目）：断りの録音（「この場ではお答えいたしかねます。」）は使わない
@@ -5272,15 +5273,18 @@ class TargetTest(unittest.TestCase):
                                  name_readings=k.name_readings())
         self.assertIn("「みなとく」", why)
         # 断らない一言の録音と、決まった言い方・録音のどれにも、断りの言い方は無い
-        from flowctl import REFUSAL
-        from phrases import RECORDED
-        self.assertEqual([k for k, v in RECORDED.items() if REFUSAL.search(v)], [])
-        # 断りでない言い方は止めない（「〜かねない」「ご遠慮なく」）
-        for text in ("どうぞご遠慮なくお申し付けいただけますと幸いです。", "誤解を招きかねない点はございません。", "いただいたご質問は担当の者に申し伝えます。"):
-            self.assertIsNone(REFUSAL.search(text), text)
+        from flowctl import refusal_in
+        from phrases import OWN_FALLBACK, RECORDED
+        self.assertEqual([k for k, v in RECORDED.items() if refusal_in(v)], [])
+        # 断りでない言い方は止めない（「〜かねない」「ご遠慮なく」・答えられないことを、申し伝える理由として言う＝✅ 2026-10-23 ユーザーの言い方）
+        for text in ("どうぞご遠慮なくお申し付けいただけますと幸いです。", "誤解を招きかねない点はございません。", "いただいたご質問は担当の者に申し伝えます。",
+                     OWN_FALLBACK, "こちらでは詳しい内容が分かりかねますので、担当の者へ申し伝えます。", "手元で分かりかねるため、担当の者に申し伝えます。"):
+            self.assertIsNone(refusal_in(text), text)
+        # 断り：言い切る・申し伝えにつながらない・別の文で申し伝える（理由として言っていない）
         for text in ("この場ではお答えいたしかねます。", "私の方では分かりかねます。", "お答えできません。", "回答は控えさせていただきます。",
-                     "お約束はできかねます。", "存じ上げません。", "ご遠慮ください。"):
-            self.assertTrue(REFUSAL.search(text), text)
+                     "お約束はできかねます。", "存じ上げません。", "ご遠慮ください。", "お答えできませんので、ご了承ください。",
+                     "お答えできません。担当の者に申し伝えます。", "お答えいたしかねますが、担当の者に申し伝えます。"):
+            self.assertTrue(refusal_in(text), text)
         # 中身の判定の読み：知らない事実（お客様の言ったこちらの事実を根拠なく認める、も）・断り＝その部分を添えて書き直し。通す読みは通す。
         # 読みが無ければ、機械の確かめだけ（声に出してよいという意味ではない＝Flow._own_answer が受け皿へ回す）
         from flowctl import own_answer_problem
@@ -5308,7 +5312,7 @@ class TargetTest(unittest.TestCase):
         self.assertEqual((r["result"], r["say"]), ("own_answer", "キャンセル料につきましては担当の者に申し伝えます。"))
         self.heard(f, "わかりました。", None)
         r = f.apply("replay_opening", {"part": "resume"})
-        self.assertEqual(([p.get("kind") for p in r["play"]], r["play"][-1].get("id")), (["question"], f.current))
+        self.assertEqual(([p.get("id") for p in r["play"]], r["play"][-1].get("id")), (["back", f.current], f.current))  # 話を戻す一言から
         self.assertEqual(f.apply("replay_opening", {"part": "resume"})["result"], "rejected")
         # (6) 名乗りを録音で流さない通話（AIが話す形）：想定問答は決まった文のとおりに言わせる（言葉を足させない）
         f = flow(play=False)
@@ -6879,7 +6883,9 @@ class OwnWordsTest(unittest.TestCase):
         self.assertIn("受け答えした", f._now())
         self.heard(f, "ほんとにねえ。")
         r = f.apply("replay_opening", {"part": "resume"})
-        self.assertEqual((r["ack"], [(p.get("kind"), p.get("id")) for p in r["play"]]), ("hai", [("question", "Q1")]))
+        # もう伺った質問へ戻る前に、話を戻す一言（相づちは重ねない＝一言が相手の返事を受ける。✅ 2026-10-23 ユーザー：「そうですよね。」のあとの
+        # 「はい、ご予約は…」は会話が繋がっていない）
+        self.assertEqual((r["ack"], [(p.get("kind"), p.get("id")) for p in r["play"]]), (None, [("recorded", "back"), ("question", "Q1")]))
 
     def test_small_talk_that_cannot_be_used_is_still_answered(self):
         # 受け答えの文に、こちらについて知らない事実（「先日はご来店いただき」）：書き直させ、それでも通らなければ、AIが返す文と一緒に選んだ一言の
@@ -6913,7 +6919,9 @@ class OwnWordsTest(unittest.TestCase):
         # 相手の返事のあと、いまの質問へ戻る
         self.heard(f, "いえいえ。")
         r = f.apply("replay_opening", {"part": "resume"})
-        self.assertEqual((r["ack"], [(p.get("kind"), p.get("id")) for p in r["play"]]), ("hai", [("question", "Q1")]))
+        # もう伺った質問へ戻る前に、話を戻す一言（相づちは重ねない＝一言が相手の返事を受ける。✅ 2026-10-23 ユーザー：「そうですよね。」のあとの
+        # 「はい、ご予約は…」は会話が繋がっていない）
+        self.assertEqual((r["ack"], [(p.get("kind"), p.get("id")) for p in r["play"]]), (None, [("recorded", "back"), ("question", "Q1")]))
         # 一言だけを選んだ報告（答えの文が無い）：その一言で応える（AIの選んだ言い方。確かめなくてよい）
         f, b = self.flow()
         self.heard(f, "いつもお世話になってます。")

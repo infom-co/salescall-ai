@@ -614,48 +614,6 @@
   {
     "type": "S2",
     "voice": "Sadachbia",
-    "id": "talk_agree",
-    "text": "本当にそうですね。",
-    "heard": {
-      "0.0": "本当にそうですね。",
-      "1.0": "本当にそうですね。"
-    },
-    "ok": true,
-    "seconds": 1.32,
-    "tries": 3,
-    "wav": "S2_talk_agree.wav"
-  },
-  {
-    "type": "S2",
-    "voice": "Sadachbia",
-    "id": "talk_heard",
-    "text": "さようでございましたか。",
-    "heard": {
-      "0.0": "左様でございましたか。",
-      "1.0": "左様でございましたか。"
-    },
-    "ok": true,
-    "seconds": 1.46,
-    "tries": 2,
-    "wav": "S2_talk_heard.wav"
-  },
-  {
-    "type": "S2",
-    "voice": "Sadachbia",
-    "id": "talk_hard",
-    "text": "それは大変でございましたね。",
-    "heard": {
-      "0.0": "それは大変でございましたね。",
-      "1.0": "それは大変でございましたね。"
-    },
-    "ok": true,
-    "seconds": 2.12,
-    "tries": 2,
-    "wav": "S2_talk_hard.wav"
-  },
-  {
-    "type": "S2",
-    "voice": "Sadachbia",
     "id": "talk_welcome",
     "text": "とんでもございません。",
     "heard": {
@@ -712,34 +670,6 @@
   {
     "type": "S4",
     "voice": "Sadachbia",
-    "id": "talk_agree",
-    "text": "本当にそうですね。",
-    "heard": {
-      "0.0": "本当にそうですね。",
-      "1.0": "本当にそうですね。"
-    },
-    "ok": true,
-    "seconds": 1.44,
-    "tries": 1,
-    "wav": "S4_talk_agree.wav"
-  },
-  {
-    "type": "S4",
-    "voice": "Sadachbia",
-    "id": "talk_hard",
-    "text": "それは大変でございましたね。",
-    "heard": {
-      "0.0": "それは大変でございましたね。",
-      "1.0": "それは大変でございましたね。"
-    },
-    "ok": true,
-    "seconds": 1.94,
-    "tries": 1,
-    "wav": "S4_talk_hard.wav"
-  },
-  {
-    "type": "S4",
-    "voice": "Sadachbia",
     "id": "talk_welcome",
     "text": "とんでもございません。",
     "heard": {
@@ -778,48 +708,6 @@
     "seconds": 1.86,
     "tries": 1,
     "wav": "S4_talk_osewa.wav"
-  },
-  {
-    "type": "L4",
-    "voice": "Leda",
-    "id": "talk_agree",
-    "text": "本当にそうですね。",
-    "heard": {
-      "0.0": "本当にそうですね。",
-      "1.0": "本当にそうですね。"
-    },
-    "ok": true,
-    "seconds": 1.4,
-    "tries": 1,
-    "wav": "L4_talk_agree.wav"
-  },
-  {
-    "type": "L4",
-    "voice": "Leda",
-    "id": "talk_heard",
-    "text": "さようでございましたか。",
-    "heard": {
-      "0.0": "左様でございましたか。",
-      "1.0": "左様でございましたか。"
-    },
-    "ok": true,
-    "seconds": 1.42,
-    "tries": 1,
-    "wav": "L4_talk_heard.wav"
-  },
-  {
-    "type": "L4",
-    "voice": "Leda",
-    "id": "talk_hard",
-    "text": "それは大変でございましたね。",
-    "heard": {
-      "0.0": "それは大変でございましたね。",
-      "1.0": "それは大変でございましたね。"
-    },
-    "ok": true,
-    "seconds": 2.04,
-    "tries": 1,
-    "wav": "L4_talk_hard.wav"
   },
   {
     "type": "L4",
@@ -878,34 +766,6 @@
     "wav": "L4_talk_yoroshiku.wav"
   },
   {
-    "type": "L4",
-    "voice": "Leda",
-    "id": "own_fallback",
-    "text": "恐れ入ります。そのご質問は担当の者に申し伝えます。",
-    "heard": {
-      "0.0": "恐れ入ります。そのご質問は担当のものに申し伝えます。",
-      "1.0": "恐れ入ります。そのご質問は担当の者に申し伝えます。"
-    },
-    "ok": true,
-    "seconds": 4.02,
-    "tries": 1,
-    "wav": "L4_own_fallback.wav"
-  },
-  {
-    "type": "S4",
-    "voice": "Sadachbia",
-    "id": "talk_heard",
-    "text": "さようでございましたか。",
-    "heard": {
-      "0.0": "左様でございましたか。",
-      "1.0": "左様でございましたか。"
-    },
-    "ok": true,
-    "seconds": 1.5,
-    "tries": 2,
-    "wav": "S4_talk_heard.wav"
-  },
-  {
     "type": "S4",
     "voice": "Sadachbia",
     "id": "talk_yoroshiku",
@@ -934,20 +794,6 @@
     "wav": "S2_talk_cared.wav"
   },
   {
-    "type": "S2",
-    "voice": "Sadachbia",
-    "id": "own_fallback",
-    "text": "恐れ入ります。そのご質問は担当の者に申し伝えます。",
-    "heard": {
-      "0.0": "恐れ入ります。そのご質問は担当のものに申し伝えます。",
-      "1.0": "恐れ入ります。そのご質問は担当のものに申し伝えます。"
-    },
-    "ok": true,
-    "seconds": 3.48,
-    "tries": 12,
-    "wav": "S2_own_fallback.wav"
-  },
-  {
     "type": "S4",
     "voice": "Sadachbia",
     "id": "talk_cared",
@@ -962,20 +808,6 @@
     "wav": "S4_talk_cared.wav"
   },
   {
-    "type": "S4",
-    "voice": "Sadachbia",
-    "id": "own_fallback",
-    "text": "恐れ入ります。そのご質問は担当の者に申し伝えます。",
-    "heard": {
-      "0.0": "恐れ入ります。そのご質問は担当の者に申し伝えます。",
-      "1.0": "恐れ入ります。そのご質問は担当のものに申し伝えます。"
-    },
-    "ok": true,
-    "seconds": 3.42,
-    "tries": 4,
-    "wav": "S4_own_fallback.wav"
-  },
-  {
     "type": "L4",
     "voice": "Leda",
     "id": "talk_cared",
@@ -988,5 +820,275 @@
     "seconds": 1.9,
     "tries": 1,
     "wav": "L4_talk_cared.wav"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "talk_agree",
+    "text": "本当にそうですよね！",
+    "heard": {
+      "0.0": "本当にそうですよね。",
+      "1.0": "本当にそうですよね。"
+    },
+    "ok": true,
+    "seconds": 1.36,
+    "tries": 1,
+    "wav": "S2_talk_agree.wav"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "talk_heard",
+    "text": "そうでしたか！",
+    "heard": {
+      "0.0": "そうでしたか。",
+      "1.0": "そうでしたか。"
+    },
+    "ok": true,
+    "seconds": 1.02,
+    "tries": 1,
+    "wav": "S2_talk_heard.wav"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "talk_hard",
+    "text": "それは大変でしたね。",
+    "heard": {
+      "0.0": "それは大変でしたね。",
+      "1.0": "それは大変でしたね。"
+    },
+    "ok": true,
+    "seconds": 1.48,
+    "tries": 1,
+    "wav": "S2_talk_hard.wav"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "departed",
+    "text": "そうでしたか。大変失礼いたしました。",
+    "heard": {
+      "0.0": "そうでしたか。大変失礼いたしました。",
+      "1.0": "そうでしたか。大変失礼いたしました。"
+    },
+    "ok": true,
+    "seconds": 4.0,
+    "tries": 1,
+    "wav": "S2_departed.wav"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "back",
+    "text": "話を戻させていただきますね。",
+    "heard": {
+      "0.0": "話を戻させていただきますね。",
+      "1.0": "話を戻させていただきますね。"
+    },
+    "ok": true,
+    "seconds": 1.86,
+    "tries": 1,
+    "wav": "S2_back.wav"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "talk_agree",
+    "text": "本当にそうですよね！",
+    "heard": {
+      "0.0": "本当にそうですよね。",
+      "1.0": "本当にそうですよね。"
+    },
+    "ok": true,
+    "seconds": 1.8,
+    "tries": 2,
+    "wav": "S4_talk_agree.wav"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "talk_heard",
+    "text": "そうでしたか！",
+    "heard": {
+      "0.0": "そうでしたか。",
+      "1.0": "そうでしたか。"
+    },
+    "ok": true,
+    "seconds": 1.1,
+    "tries": 1,
+    "wav": "S4_talk_heard.wav"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "talk_hard",
+    "text": "それは大変でしたね。",
+    "heard": {
+      "0.0": "それは大変でしたね。",
+      "1.0": "それは大変でしたね。"
+    },
+    "ok": true,
+    "seconds": 1.94,
+    "tries": 1,
+    "wav": "S4_talk_hard.wav"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "departed",
+    "text": "そうでしたか。大変失礼いたしました。",
+    "heard": {
+      "0.0": "そうでしたか。大変失礼いたしました。",
+      "1.0": "そうでしたか。大変失礼いたしました。"
+    },
+    "ok": true,
+    "seconds": 2.52,
+    "tries": 1,
+    "wav": "S4_departed.wav"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "back",
+    "text": "話を戻させていただきますね。",
+    "heard": {
+      "0.0": "話を戻させていただきますね。",
+      "1.0": "話を戻させていただきますね。"
+    },
+    "ok": true,
+    "seconds": 1.84,
+    "tries": 1,
+    "wav": "S4_back.wav"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "talk_agree",
+    "text": "本当にそうですよね！",
+    "heard": {
+      "0.0": "本当にそうですよね。",
+      "1.0": "本当にそうですよね。"
+    },
+    "ok": true,
+    "seconds": 1.48,
+    "tries": 1,
+    "wav": "L4_talk_agree.wav"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "talk_heard",
+    "text": "そうでしたか！",
+    "heard": {
+      "0.0": "そうでしたか。",
+      "1.0": "そうでしたか。"
+    },
+    "ok": true,
+    "seconds": 1.12,
+    "tries": 1,
+    "wav": "L4_talk_heard.wav"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "talk_hard",
+    "text": "それは大変でしたね。",
+    "heard": {
+      "0.0": "それは大変でしたね。",
+      "1.0": "それは大変でしたね。"
+    },
+    "ok": true,
+    "seconds": 1.74,
+    "tries": 1,
+    "wav": "L4_talk_hard.wav"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "departed",
+    "text": "そうでしたか。大変失礼いたしました。",
+    "heard": {
+      "0.0": "そうでしたか。大変失礼いたしました。",
+      "1.0": "そうでしたか。大変失礼いたしました。"
+    },
+    "ok": true,
+    "seconds": 3.36,
+    "tries": 1,
+    "wav": "L4_departed.wav"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "back",
+    "text": "話を戻させていただきますね。",
+    "heard": {
+      "0.0": "話を戻させていただきますね。",
+      "1.0": "話を戻させていただきますね。"
+    },
+    "ok": true,
+    "seconds": 1.92,
+    "tries": 1,
+    "wav": "L4_back.wav"
+  },
+  {
+    "type": "S2",
+    "id": "own_fallback",
+    "text": "恐れ入ります。そのご質問は私では正確にお答えできませんので担当の者に申し伝えさせていただきますね。",
+    "wav": "S2_own_fallback.wav",
+    "ok": false,
+    "seconds": 7.2,
+    "gaps": [
+      [
+        0.62,
+        0.34
+      ],
+      [
+        4.4,
+        0.4
+      ]
+    ],
+    "note": "仮（2026-10-23）：候補1。読み・長さ・終わりの無音は合格、「ので」のあとの間（0.4秒前後）で間の確かめに落ちた。ユーザーが聞いて選ぶまでの仮",
+    "provisional_from": "S2_own_fallback_1.wav"
+  },
+  {
+    "type": "S4",
+    "id": "own_fallback",
+    "text": "恐れ入ります。そのご質問は私では正確にお答えできませんので担当の者に申し伝えさせていただきますね。",
+    "wav": "S4_own_fallback.wav",
+    "ok": false,
+    "seconds": 7.92,
+    "gaps": [
+      [
+        0.78,
+        0.5
+      ],
+      [
+        5.0,
+        0.44
+      ]
+    ],
+    "note": "仮（2026-10-23）：候補1。読み・長さ・終わりの無音は合格、「ので」のあとの間（0.4秒前後）で間の確かめに落ちた。ユーザーが聞いて選ぶまでの仮",
+    "provisional_from": "S4_own_fallback_1.wav"
+  },
+  {
+    "type": "L4",
+    "id": "own_fallback",
+    "text": "恐れ入ります。そのご質問は私では正確にお答えできませんので担当の者に申し伝えさせていただきますね。",
+    "wav": "L4_own_fallback.wav",
+    "ok": false,
+    "seconds": 8.02,
+    "gaps": [
+      [
+        0.9,
+        0.54
+      ],
+      [
+        4.96,
+        0.36
+      ]
+    ],
+    "note": "仮（2026-10-23）：候補1。読み・長さ・終わりの無音は合格、「ので」のあとの間（0.4秒前後）で間の確かめに落ちた。ユーザーが聞いて選ぶまでの仮",
+    "provisional_from": "L4_own_fallback_1.wav"
   }
 ]
