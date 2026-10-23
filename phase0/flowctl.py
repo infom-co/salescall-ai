@@ -637,7 +637,8 @@ def own_answer_problem(answer: str, names: list[str], may_follow_up: bool, verdi
     """AIが自分の言葉で言う文（Flow._own_answer）を、声に出す前に確かめる唯一の場所。問題が無ければ None、あれば理由（日本語）。
     止めるのは「明らかに違う中身」だけ（✅ 2026-10-22 ユーザー（5回目）：「明らかに違う内容を喋ろうとしているのが事前に分かれば止めるべき。
     しかし、AIの能力をそぐような制御はしないように！世間話のような対応や設定にない無難な対応はライブAIにしかできないよ！」）：
-    - 機械で（その場で・確かに）：名前（社名・担当者名・お呼びした方の名前と読み＝AIの声で崩れる。名前は録音だけ）・読みの決まった名前
+    - 機械で（その場で・確かに）：名前（社名・担当者名・お呼びした方の名前と読み＝AIの声で崩れる。名前は録音だけ）・お客様への問いかけ（伺うことは
+      プログラムが録音で流す。question_in）・読みの決まった名前
       （地名など。name_readings＝表記 -> 読み）を漢字のまま書いた（AIの声で崩れる。⛔ OWN-ANSWER-EARS：漢字の「港区」は 3本中1本・ひらがなは 6本中6本。
       中身の判定は言い換えとして通すので、機械で見る）・断りの言い方（REFUSAL）・
       許されていない約束（PROMISE。業務設定で許された、答えを持っていない問いへの「改めてご連絡」だけは使ってよい）・AIへの知らせの言葉・長すぎる
@@ -668,6 +669,11 @@ def own_answer_problem(answer: str, names: list[str], may_follow_up: bool, verdi
         # どうするかも添える（⛔ 2026-10-22 の4回目の流し G-57 tc36・範囲外の質問の S2：約束の言葉の名前だけを返したので、書き直すたびに
         # 「改めて折り返し」⇒「折り返し」⇒「後ほど」と、約束の言い方だけを替えた）
         return f"約束の言葉（「{m.group()}」）が入っています。連絡やかけ直しは約束せずに、いただいた質問を担当の者に申し伝える、までにします"
+    if not may_follow_up and (asked := question_in(text, written=True)):
+        # お客様に伺うことは、プログラムが録音で流す（Intent.md 9-3：次にどの質問へ進むか・取得済みのことを重ねて聞かないは、ルールが決める）。
+        # ⛔ 2026-10-23 G-57 tc43（世間話・S4）：AIが受け答えの文に「それでは、ご予約はすでにされておりますでしょうか？」を入れ、そのあと
+        #    プログラムも同じ質問の録音を流した＝2回聞いた（業務設定で許された「改めてご連絡…よろしいでしょうか？」の申し出は除く）
+        return f"問いかけ（「{asked}」）が入っています。お客様に伺うことは、プログラムが流します（問いかけを入れずに書きます）"
     if verdict is not None:
         from grounding import REFUSED, UNGROUNDED
         if verdict == UNGROUNDED:
@@ -767,6 +773,17 @@ _KANA = re.compile(r"[ぁ-ゖー]+")
 # 相手からの質問（文の終わりが「？」か、問いかけの言い終わり）。⚠️「はい？」（聞き返し）も当たるが、次の質問へ進む所（_advance）でしか見ないので、
 # 当たっても、AIが自分で次の質問を言う（録音を流さない）だけ
 _CALLEE_ASKS = re.compile(r"(?:[？?]|(?:です|ます|でしょう|ません|んです|ない|でした|ました)か[。]?)$")
+
+
+def question_in(text: str | None, written: bool = False) -> str | None:
+    """文の中の問いかけの文（文の終わりが問いかけのもの。無ければ None）。相手の言葉の中の質問（Flow._callee_question）と、AIの自分の言葉の中の
+    問いかけ（own_answer_problem）を見分ける唯一の場所。written＝AIが書いた文（書き言葉なので、問いかけは「？」で終える＝「？」の文だけを見る。
+    「さようでございましたか。」は相づち。聞き取りの文字は「？」が抜けうるので、語尾でも見る）。"""
+    for sent in re.findall(r"[^。！!？?]+[。！!？?]?", text or ""):
+        t = sent.strip()
+        if re.search(r"[？?]$", t) if written else _CALLEE_ASKS.search(t):
+            return t
+    return None
 
 
 def next_reading(heard: str | None, readings: tuple | list, tried: list[str]) -> str | None:
@@ -3223,11 +3240,7 @@ class Flow:
         """いまの相手の発話の中の、相手からの質問（無ければ None）。相手の言葉の文字（会話AIの聞き取り）で、文の終わりが問いかけのもの。
         ⛔ G-47：相手が「はい、予約しています。当日はどなたが担当されるんですか？」と答えたのに、プログラムはすぐ次の質問の録音を流し、
            AIには「何も言わずに待って」と伝えた＝相手の質問が10本中10本、聞き流された。"""
-        for sent in re.findall(r"[^。！!？?]+[。！!？?]?", self.callee_said or ""):
-            t = sent.strip()
-            if _CALLEE_ASKS.search(t):
-                return t
-        return None
+        return question_in(self.callee_said)
 
     def _advance(self, prefix: str, handled: bool = False) -> dict:
         if self.substitute_q and self.items[self.substitute_q].state in TAKEN + ("unresolved",):

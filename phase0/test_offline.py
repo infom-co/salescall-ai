@@ -6856,6 +6856,28 @@ class OwnWordsTest(unittest.TestCase):
         r = f.apply("replay_opening", {"part": "own", "answer": "営業時間は夜8時までです。"})
         self.assertEqual((r["result"], r["say"], r["ack"]), ("own_answer", "営業時間は平日の9時から18時です。", "hai"))
 
+    def test_no_questions_in_own_words_and_no_names_to_the_judge(self):
+        # お客様に伺うことはプログラムが録音で流す（Intent.md 9-3）：AIの自分の言葉の文に問いかけ（「？」で終わる文）があれば書き直し。
+        # 相づちの「さようでございましたか。」は問いかけではない。業務設定で許された申し出（改めてご連絡…よろしいでしょうか？）は除く。
+        # ⛔ 2026-10-23 tc43：受け答えの文に予約の質問を入れ、そのあとプログラムも同じ質問の録音を流した（2回聞いた）
+        from flowctl import own_answer_problem, question_in
+        from grounding import NO_FACT, Verdict
+        self.assertIn("問いかけ", own_answer_problem("お気遣いありがとうございます。それでは、ご予約はされておりますでしょうか？", [], False,
+                                                    verdict=Verdict(NO_FACT)))
+        self.assertIsNone(own_answer_problem("さようでございましたか。それは大変でしたね。", [], False, verdict=Verdict(NO_FACT)))
+        self.assertIsNone(own_answer_problem("確認のうえ改めてご連絡させていただいてもよろしいでしょうか？", [], True, verdict=Verdict(NO_FACT)))
+        self.assertEqual(question_in("あ、そうなんですか"), "あ、そうなんですか")          # 聞き取りの文字は語尾でも見る（「？」が抜けうる）
+        self.assertIsNone(question_in("あ、そうなんですか", written=True))
+        # 中身の判定へ送る「知っていること」に、人の名前（こちらの担当者名・お呼びする方の名前と読み）は入れない（Intent.md 13章）
+        import dataclasses
+        from g22_opening import BUSINESS
+        from instruction import Target
+        b = dataclasses.replace(BUSINESS, target=Target(name="岡田", reading="おかだ", role="営業部部長"))
+        text = "".join(b.knowledge())
+        for name in [n for n in ("岡田", "おかだ", b.caller, b.caller_reading) if n]:
+            self.assertNotIn(name, text, name)
+        self.assertIn("お呼びする方：営業部部長の（お名前）様", b.knowledge())
+
     def test_what_is_not_sent_to_the_judge(self):
         # 中身の判定に聞かない文：知っていることの文をそのまま言った文（通る）・機械の確かめで止まる文（名前・漢字の地名・断り・知らせの言葉）
         from grounding import GROUNDED, verbatim

@@ -154,16 +154,26 @@ class Business:
     def knowledge(self) -> list[str]:
         """こちらが知っていること（AIに渡した事実の全部。1行に1つ）：AIが自分の言葉で言う文の中身を確かめる材料（grounding の1か所。
         ここに無い、こちらの会社・業務・用件・担当者についての事実は、言えば作り話）。名前は名乗りの録音と同じ書き方（読み）。"""
-        company, caller = self._said()
+        # 人の名前（こちらの担当者名・お呼びする方の名前と読み・読みの決まらない名前）は入れない（判定の会社へ送らない＝Intent.md 13章。
+        # AIの文の名前は、判定より先に機械の確かめが止める＝flowctl.own_answer_problem）
+        company, _ = self._said()
         t = self.target
-        return ([f"こちらの会社：株式会社{company}", f"電話をかけている者：{caller}", f"電話の用件：{self.purpose}"]
+        people = sorted({x for x in (self.caller, self.caller_reading, *(self.unread_names or []),
+                                     *((t.name, t.reading) if t is not None else ())) if x}, key=len, reverse=True)
+
+        def masked(line: str) -> str:
+            for n in people:
+                line = line.replace(f"「{n}」", "（お名前）").replace(n, "（お名前）")
+            return line
+        return [masked(x) for x in
+                [f"こちらの会社：株式会社{company}", f"電話の用件：{self.purpose}"]
                 + ([f"電話の用件の一文：{self.purpose_line}"] if self.purpose_line else [])
                 + ([f"お呼びする方：{t.who()}"] if t is not None else [])
                 + [f"お客様に伺うこと（{len(self.questions)}つ）：" + "／".join(q.text for q in self.questions)]
                 + [f"業務の情報：{x}" for x in self.info] + [f"想定問答の答え（{n}）：{a}" for n, a in self.answers]
                 # 業務設定で許された申し出（flowctl.own_answer_problem の may_follow_up）も、こちらがしてよいことの事実（無いと、判定が止める）
                 + (["こちらがしてよいこと：業務の情報に無いご質問には、確認のうえ担当の者から改めてご連絡させていただく形でよろしいかを伺ってよい"]
-                   if self.follow_up else []))
+                   if self.follow_up else [])]
 
     def name_readings(self) -> dict[str, str]:
         """読みの決まった名前（台本の名前 names）の表記 -> 読み。声に出す文では読みに置き換えてある（quote_in_text）＝AIが自分の言葉の文に
