@@ -1659,6 +1659,12 @@ class AskingMuteTest(unittest.TestCase):
         r = f.apply("replay_opening", {"part": "no_answer", "answer": "キャンセル料につきましては担当の者に申し伝えます。"})
         self.assertEqual(r["result"], "own_answer")
         self.assertTrue(f.speech_allowed(start))                                    # 確かめた文を渡したターンは流す
+        # 受け付けたが、相手に何も聞こえない返事（先に相手の質問に答える番＝callee_asked）のあとの声：流していないと知らせる（⛔ 2026-10-23 tc41：
+        # 知らせが出ず、AIは声で答えたつもりで「質問に戻る」を9回呼んだ）
+        m = self.flow()
+        m.on_callee(); m.on_heard("はい、予約しています。当日はどなたが担当されるんですか？")
+        self.assertEqual(m.apply("record_answer", {"question_id": "Q1", "condition_id": "はい"})["result"], "callee_asked")
+        self.assertIn("相手に流していません", m.unreported_note(muted=True))
         # 断らない一言の録音を流したターン（言い方を渡していない）は、AIの声を流さない
         g = self.flow()
         g.on_callee(); g.on_heard("キャンセル料っていくらかかりますか？")

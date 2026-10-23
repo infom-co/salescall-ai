@@ -156,9 +156,7 @@ async def run(args) -> dict:
     # (業務の知っていること, お客様の言葉, 返す文, 正解, 一覧の名前)
     cases = [(b.knowledge(), s, d, w, k) for b, s, d, w, k in all_cases()]
     rows = []
-    for name in args.judge or ("3.5 Flash Lite", "Claude Sonnet 5.5（考える）", "Claude Haiku 5.5"):
-        if name == "Claude Haiku 5.5":
-            name = "Claude Sonnet 5.5"  # 返事の形を決める形（form json）があるのは Sonnet だけ。考えない Sonnet を3つ目に
+    for name in args.judge or ("3.5 Flash Lite", "Claude Sonnet 5.5（考える）", "Claude Sonnet 5.5"):
         reader = make_reader(args, name)
         for rep in range(args.repeat):
             for know, said, draft, want, kind in cases:

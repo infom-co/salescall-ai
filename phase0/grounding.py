@@ -102,13 +102,23 @@ async def ask_gemini(client, model: str, knowledge: list[str], said: str, draft:
 
 
 async def ask_other(client, name: str, knowledge: list[str], said: str, draft: str) -> Verdict | None:
-    """Google 以外の判定（meaning_judge.OTHER_JUDGES の Anthropic の、返事の形を決める形＝form json）。送り方と失敗の形は meaning_judge と同じ。"""
+    """Google 以外の判定（meaning_judge.OTHER_JUDGES の Anthropic）。送り方は意味の判定と同じ形（meaning_judge.other_request）：返事の形を決める形
+    （form json＝Sonnet 5.5）か、道具で答えさせる形（Haiku 5.5。考える段を入れる形は、道具を任せて考える量を決める）。失敗の形も同じ。"""
     from meaning_judge import OTHER_JUDGES, _other_error
 
     j = OTHER_JUDGES[name]
-    assert j["maker"] == "anthropic" and j.get("form") == "json", name
-    body = {"model": j["model"], "max_tokens": 4096, "messages": [{"role": "user", "content": prompt(knowledge, said, draft)}],
-            "thinking": j["thinking"], "output_config": {"effort": j["effort"], "format": {"type": "json_schema", "schema": SCHEMA}}}
+    assert j["maker"] == "anthropic", name
+    messages = [{"role": "user", "content": prompt(knowledge, said, draft)}]
+    if j.get("form") == "json":
+        body = {"model": j["model"], "max_tokens": 4096, "messages": messages, "thinking": j["thinking"],
+                "output_config": {"effort": j["effort"], "format": {"type": "json_schema", "schema": SCHEMA}}}
+    else:
+        body = {"model": j["model"], "max_tokens": 512, "messages": messages,
+                "tools": [{"name": "answer", "description": "選んだものの名前と、その部分", "input_schema": SCHEMA, "strict": True}],
+                "tool_choice": {"type": "tool", "name": "answer"}}
+        if j.get("think"):
+            body |= {"max_tokens": 4096, "tool_choice": {"type": "auto"}, "output_config": {"effort": j["think"]},
+                     "system": "選んだものは、必ず道具 answer で返してください。"}
     try:
         data = (await client.messages.create(**body)).to_dict()
     except Exception as exc:
@@ -116,7 +126,9 @@ async def ask_other(client, name: str, knowledge: list[str], said: str, draft: s
         if err is None:
             raise
         raise err from exc
-    return read(next((c.get("text") for c in data.get("content") or [] if c.get("type") == "text"), None))
+    blocks = data.get("content") or []
+    used = next((c.get("input") for c in blocks if c.get("type") == "tool_use"), None)
+    return read(json.dumps(used) if used is not None else next((c.get("text") for c in blocks if c.get("type") == "text"), None))
 
 
 def make_reader(args, name: str):

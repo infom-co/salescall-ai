@@ -1489,10 +1489,14 @@ class Flow:
                    for x in ops)
 
     def _unsent(self, muted: bool) -> str:
-        """流さなかった声の知らせの頭（unreported_note の1か所）。そのターンに受け付けた報告があれば、言わない（そのあとの声は流れている）。"""
-        accepted = any(x["callee_turns"] == self.callee_turns and x["reply"].get("result") != "rejected" for x in self.log)
-        return ("さきほどのあなたの声は、相手に流していません（録音と、操作の返事で渡した言い方だけを流します）。"
-                if muted and not accepted else "")
+        """流さなかった声の知らせの頭（unreported_note の1か所）。このターンの返事で、相手に何かが聞こえた（録音を流した・言い方を渡した・話させた）
+        なら、言わない（相手は待たされていない。報告し直させると重なる）。
+        ⛔ 2026-10-23 G-57 tc41（答えに添えられた質問・S2）：前は「受け付けた報告があれば言わない」で、相手に何も聞こえない返事（「先に相手の質問に
+        答える番です」＝callee_asked）も数えていた。AIは操作を呼ばずに声で答え（流していない）、知らせが出ないまま、相手の「そうなんですね。」に
+        「質問に戻る」を9回呼んだ（AIからは答えたつもり）"""
+        heard = any(x["callee_turns"] == self.callee_turns and x["reply"].get("result") != "rejected"
+                    and (x["reply"].get("play") or x["reply"].get("say") or x["reply"].get("speak")) for x in self.log)
+        return "さきほどのあなたの声は、相手に流していません（録音と、操作の返事で渡した言い方だけを流します）。" if muted and not heard else ""
 
     def _ack(self, name: str, args: dict, reply: dict) -> str | None:
         """報告が届いた瞬間に、電話接続側が流す相づち（phrases.ACK の中の名前。流さないなら None）。DESIGN.md 6-15。
