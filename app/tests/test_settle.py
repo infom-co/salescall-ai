@@ -2186,6 +2186,21 @@ class DatabaseGuards(Base):
         c = self.claim(s)
         self.assertEqual(c.apology, ("missed_promise", "cut_off"))
 
+    def test_fixed_purposes_always_carry_the_promise_mark(self):
+        """お詫びの電話・すぐのかけ直し（続き）・番号の聞き直しの予定は、必ず約束の印を持つ（先に出す・取り置く電話＝Q38。0126：
+        付け忘れると、お詫びの電話がふつうの電話の後ろに回され、取り置きもされない）。ふつうの電話は、印が無くても書ける。"""
+        s = self.ready()
+        sql = ("INSERT INTO salescall.task_next_actions (tenant_id, client_id, task_id, kind, call_at, cause, promised,"
+               " contact_id, purpose, wrong_contact_id)"
+               " SELECT tenant_id, client_id, task_id, 'call', now(), cause, %s, contact_id, %s,"
+               " CASE WHEN %s = 'ask_number_again' THEN contact_id END FROM salescall.current_next_actions WHERE task_id = %s")
+        for purpose in ("apology", "resume", "ask_number_again"):
+            with self.subTest(purpose=purpose), self.assertRaises(Rejected) as e:
+                self.tx(s, lambda tx: tx.execute(sql, (False, purpose, purpose, s["task"])))
+            self.assertEqual(e.exception.constraint, "task_next_actions_promise_mark")
+            self.tx(s, lambda tx: tx.execute(sql, (True, purpose, purpose, s["task"])))
+        self.tx(s, lambda tx: tx.execute(sql, (False, "normal", "normal", s["task"])))
+
     def test_the_successor_mark_is_only_on_a_call(self):
         """後任のご担当者様をお呼びする印は、かける予定にだけ付く（終わる予定には付かない。0114）。"""
         s = self.ready()

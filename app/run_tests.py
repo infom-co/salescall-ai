@@ -101,6 +101,13 @@ def _edited(migration: str, start: str, old: str, new: str) -> str:
 # データベースの守りを、わざと1つずつ外す。外したら、その守りを試す試験が本当に落ちることを確かめる（DESIGN.md 14章：
 # 落ちることを確かめていない見張りは、見張っていないのと同じ）。守りを足したら、ここにも足す。
 MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    ("お詫び・続き・番号の聞き直しの予定に約束の印を求める守りを外す（0126 の前の形：付け忘れると、お詫びの電話が後回しになる）",
+     "ALTER TABLE salescall.task_next_actions DROP CONSTRAINT task_next_actions_promise_mark",
+     ("tests.test_settle.DatabaseGuards.test_fixed_purposes_always_carry_the_promise_mark",)),
+    ("約束の印を必ず持つ目的から、番号の聞き直しを外す（0126 の1か所の決まりを狭める）",
+     "CREATE OR REPLACE FUNCTION salescall.needs_promise_mark(p_purpose text) RETURNS boolean LANGUAGE sql IMMUTABLE AS"
+     " $$ SELECT salescall.keeping_kind(p_purpose, false) IS NOT NULL $$",
+     ("tests.test_settle.DatabaseGuards.test_fixed_purposes_always_carry_the_promise_mark",)),
     ("個人の業務を作れない守りを外す",
      "ALTER TABLE salescall.business_contents DROP CONSTRAINT business_contents_corporate_only",
      ("tests.test_foundation.OnlyCorporateForNow.test_individual_target_is_rejected",)),
