@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 
 from names import hira, quote, unvoiced
 from phrases import AI_ANSWER, AI_ASKED_AGAIN, AMPM_ASK, CALLBACK_ASK, CLOSE_DECLINED, CLOSING, LEAD_IN, NAME_READING_ASK
-from phrases import DEPARTED_ACK, OFFER_THANKS, OWN_FALLBACK, SILENCE_PROMPT, SILENCE_PROMPT_IDS, SUCCESSOR, SUCCESSOR_IDS
+from phrases import DEPARTED_ACK, OFFER_THANKS, OWN_FALLBACK, SILENCE_PROMPT, SILENCE_PROMPT_IDS, SUCCESSOR, SUCCESSOR_IDS, TALK_FALLBACK
 from phrases import ask_again as ask_again_phrase
 from phrases import confirm as confirm_phrase, restate_words
 from phrases import lead_in as lead_in_phrase
@@ -289,7 +289,8 @@ def other_value(qtype: str, pending: str | None, given: str | None) -> str | Non
 #    英字の「result」は 82回中0回。「答えの種類」は 89回中0回）。⇒ 「答えの種類」と同じ形の「返事の種類」にした。
 #    書き違えは名前を変えても0にはならない前提で、宣言に無い項目名・選択肢は、すべて差し戻す（Flow.apply の _check_args）。
 ARG_LABEL = {"question_id": "質問", "condition_id": "答えの種類", "value": "値", "result": "返事の種類", "correction": "訂正された値",
-             "reason": "理由", "part": "流し直す部分", "party": "相手", "why": "かけ直しの理由", "offer": "相手の申し出", "answer": "答えの文"}
+             "reason": "理由", "part": "流し直す部分", "party": "相手", "why": "かけ直しの理由", "offer": "相手の申し出", "answer": "答えの文",
+             "fallback": "使えないときの一言"}
 SYSTEM_LABEL = {"unknown": "わからない", "refused": "答えたくない"}
 ANY_LABEL = "どちらでも"
 # 意味の2つ目の判定（meaning_judge。DESIGN.md 6-10 の (6)）が、どの選択肢とも決められないと答えたときの名前（受け入れにも断りにも取れる・言い切っていない・答えになっていない）
@@ -485,6 +486,8 @@ CALLBACK_LABEL = {"absent": "不在", "long_absent": "長期の不在", "other_n
 # 送ってほしい）。✅ 2026-10-22 ユーザー：折り返し＝「お礼を言い、こちらからかけ直す形にして戻る時刻を聞く」・伝言＝「業務ごとに選べるようにし、
 # 選んでいなければ (a)」（お礼を言って断り、戻る時刻を聞く）
 OFFER_LABEL = {"callback": "折り返し", "message": "伝言", "email": "メール", "fax": "ファクス", "post": "郵送"}
+# 受け答えの文が使えないときに流す一言（phrases.TALK_FALLBACK の録音。AIは言い方そのものを選ぶ）
+TALK_LABEL = {k: v for k, (v, _) in TALK_FALLBACK.items()}
 MEANS = ("email", "fax", "post")
 CALLBACK_PLAN = {"absent": ("back_time",), "long_absent": ("back_date",), "other_number": ("number", "reachable_time"), "later": ("later_time",),
                  "other_means": ()}
@@ -536,7 +539,7 @@ _LABELS = (set(SYSTEM_LABEL.values()) | set(CONFIRM_LABEL.values()) | set(END_LA
 _FROM_LABEL = {"condition_id": {**{v: k for k, v in SYSTEM_LABEL.items()}, ANY_LABEL: ANY}, "result": {v: k for k, v in CONFIRM_LABEL.items()},
                "reason": {v: k for k, v in END_LABEL.items()}, "part": {v: k for k, v in PART_LABEL.items()},
                "party": {v: k for k, v in PARTY_LABEL.items()}, "why": {v: k for k, v in CALLBACK_LABEL.items()},
-               "offer": {v: k for k, v in OFFER_LABEL.items()}}
+               "offer": {v: k for k, v in OFFER_LABEL.items()}, "fallback": {v: k for k, v in TALK_LABEL.items()}}
 _ARG_FROM_LABEL = {v: k for k, v in ARG_LABEL.items()}
 
 
@@ -568,14 +571,15 @@ OP_ARGS = {"record_answer": (("question_id", "condition_id"), ("value",)),
            "report_unclear": (("question_id",), ()),
            "confirm_field": (("question_id", "result"), ("correction",)),
            "request_end": (("reason",), ()),
-           "replay_opening": (("part",), ("answer",)),
+           "replay_opening": (("part",), ("answer", "fallback")),
            "report_party": (("party",), ()),
            "request_callback": (("why",), ("offer",))}
 # ✅ 2026-10-14 ユーザー：考えている相手への「はい」は形 A（AIが自分で言う）。⇒ 比べた形 B（AIは黙って「相手が考えている」と報告し、
 #    相づちはプログラムが録音で流す。G-36）の操作は外した（B は、答えを考えている途中と読み違えて黙った回があった）
 OPS = tuple(OP_ARGS)
 # 選択肢が決まっている項目（中の名前 → その表）。答えの種類（condition_id）は質問ごとに違うので、record_answer の中で確かめる
-_ENUM_ARGS = {"result": CONFIRM_LABEL, "reason": END_LABEL, "part": PART_LABEL, "party": PARTY_LABEL, "why": CALLBACK_LABEL, "offer": OFFER_LABEL}
+_ENUM_ARGS = {"result": CONFIRM_LABEL, "reason": END_LABEL, "part": PART_LABEL, "party": PARTY_LABEL, "why": CALLBACK_LABEL, "offer": OFFER_LABEL,
+              "fallback": TALK_LABEL}
 
 
 def check_policies(policies: dict, message: str | None = None) -> None:
@@ -2057,7 +2061,7 @@ class Flow:
             # 相手の次の言葉に受け答えし、プログラムが次の質問へ進んだ＝相手の質問が答えられずに残った）
             return self._reject(f"先に相手の質問に答えます。{self._now()}")
         if part in OWN_PARTS:
-            return self._own_answer(part, a.get("answer"))
+            return self._own_answer(part, a.get("answer"), a.get("fallback"))
         if part == "ai":
             return self._ai_question()
         if part == "resume":
@@ -2150,7 +2154,7 @@ class Flow:
         return {"result": "replayed", "say": text, "speak": True,
                 "message": f"「{text}」とだけ言います（言葉を足しません）。そのあと、{self._now()}"}
 
-    def _own_answer(self, part: str, answer: str | None) -> dict:
+    def _own_answer(self, part: str, answer: str | None, fallback: str | None = None) -> dict:
         """AIが自分の言葉で言う（唯一の場所。呼んでいる段でも、答えの段でも、答えに添えられた質問でも）：相手の質問に録音の答えが無い（名乗り・
         用件・想定問答のどれでもない）とき＝自分で答える質問（知っていることにある問い）・答えを持っていない質問（無い問い）と、質問ではない言葉
         （世間話・お礼・気遣い・お客様の話）への受け答え。✅ 2026-10-22 ユーザー：「人以上の仕組みを作ることが私たちの目的ではないのですか？」・
@@ -2162,7 +2166,9 @@ class Flow:
         - それでも通らなければ、問いの種類で受け皿を分ける（✅ 2026-10-22 ユーザー（5回目）：「お客様から見ても、それは答えられないだろうなと思う
           ような質問ならそれでよいが、それは答えられなかったらおかしいだろうと思われる内容や、世間話に近いような…では、別の対処が必要」）：
           答えを持っていない質問＝断らない一言の録音（phrases.OWN_FALLBACK）／自分で答える質問＝知っていることの文のうち、お客様の言葉に
-          いちばん近い文をそのまま言わせる（無ければ一言の録音）／受け答え＝言葉を足さずに、いまの位置へ戻る
+          いちばん近い文をそのまま言わせる（無ければ一言の録音）／受け答え＝AIが返す文と一緒に選んだ一言（fallback＝phrases.TALK_FALLBACK）の録音
+          （✅ 2026-10-23 ユーザー：「（言葉を足さずに「はい、」で質問に戻るのは）お客様の気分を害する返答だということがわからないんですか？
+          前回も言ったことが全く理解できていないんじゃないですか？」⛔ 前は、受け答えの受け皿で何も返さずに、いまの質問へ戻っていた）
         - 答えたあと、相手の返事を聞いてから「質問に戻る」でいまの位置へ戻る（_resume・_continue）
         - 相手の質問は通話の事実 callee_question に残す（依頼主へ渡す）。受け答えは talk に残す（依頼主へは渡さない）。同じ発話には1回だけ。"""
         if self.own_turn == self.callee_turns:
@@ -2170,6 +2176,10 @@ class Flow:
         if not (answer or "").strip():
             return self._reject(f"言う文（自分の言葉で、短く1〜2文）を「{ARG_LABEL['answer']}」に書いて、もう一度呼んでください（声に出すのは、"
                                 "プログラムの返事のあとです）。")
+        if part == "talk" and fallback not in TALK_FALLBACK:
+            # 受け皿でも、お客様の言葉に応える一言が要る（返す文が使えないとわかってから選ばせると、相手をもう1回待たせる）
+            return self._reject(f"「{PART_LABEL['talk']}」では、返す文が使えないときに流す一言も「{ARG_LABEL['fallback']}」で選んで、"
+                                "もう一度呼んでください（" + "、".join(f"{t}＝{w}" for t, w in TALK_FALLBACK.values()) + "）。")
         from grounding import GROUNDED, Verdict, verbatim
         kind, answer = part, answer.strip()
         verdict = Verdict(GROUNDED) if verbatim(answer, self.knowledge) else self._grounded(answer)
@@ -2192,13 +2202,17 @@ class Flow:
         checked = {"checked": getattr(verdict, "by", None) or ("knowledge" if verdict is not None else None)}
         drafts = {"drafts": [{"text": t, "problem": p} for t, p in tried]} if tried else {}
         if kind == "talk":
-            self._note("talk", answer=None if problem else answer, **drafts, **checked)
-            if problem:
-                # 受け答えの受け皿：言葉を足さずに、いまの位置へ戻る（世間話への返事に「申し伝えます」は合わない。頭の相づちは「はい、」＝_ack）
-                r = self._continue([], "")
-                r["message"] = f"受け答えの文は使いません（{problem}）。言葉を足さずに戻ります。" + r["message"]
-                return r
+            words = TALK_FALLBACK[fallback][0]
+            self._note("talk", answer=words if problem else answer, **({"fallback": fallback} if problem else {}), **drafts, **checked)
             self.own_pending = kind
+            if problem:
+                # 受け答えの受け皿：AIが選んだ一言（こちらについての事実を言わない決まった言い方＝録音）で、お客様の言葉に応えてから、相手の返事を待つ
+                if self.play_recordings:
+                    return {"result": "own_answer", "fallback": True, "play": [{"kind": "recorded", "id": fallback, "text": words}],
+                            "message": f"受け答えの文は使いません（{problem}）。かわりに選んだ一言「{words}」を、プログラムが録音で流しました"
+                                       f"（相手にもう聞こえています）。何も言わずに、{self._own_then()}"}
+                return {"result": "own_answer", "fallback": True, "say": words,
+                        "message": f"受け答えの文は使いません（{problem}）。かわりに「{words}」とだけ言います（言葉を足しません）。{self._own_then()}"}
             return {"result": "own_answer", "say": answer, "message": f"「{answer}」とだけ言います（言葉を足しません）。{self._own_then()}"}
         said, play = answer, None
         if problem:
@@ -2240,6 +2254,8 @@ class Flow:
         answer = (a.get("answer") or "").strip()
         if name != "replay_opening" or a.get("part") not in OWN_PARTS or not answer or self.own_turn == self.callee_turns:
             return None
+        if a.get("part") == "talk" and a.get("fallback") not in TALK_FALLBACK:
+            return None  # 使えないときの一言が無い受け答えは差し戻す（_own_answer）＝判定に聞かない
         from grounding import verbatim
         if verbatim(answer, self.knowledge) or self._grounded(answer) is not None:
             return None
@@ -3473,11 +3489,14 @@ def tool_declarations(questions: list[Question], replay: bool = False, target: b
            + f"、無ければ、業務の情報にあることなら「{PART_LABEL['own']}」・業務の情報にも無いことなら「{PART_LABEL['no_answer']}」（この2つは、"
            f"自分の言葉で答える文を「{ARG_LABEL['answer']}」に書きます。声に出すのは返事のあと。番号をどこで知ったか・金額・会社のことなどは"
            f"「{PART_LABEL['purpose']}」では答えません）。質問ではない言葉（あいさつ・お礼・気遣い・世間話・お客様のお話）に、ひとこと返したい＝"
-           f"「{PART_LABEL['talk']}」（返す文を「{ARG_LABEL['answer']}」に書きます）。エーアイかへの言い方・自分の言葉の答え・受け答えに、相手が返事をした"
+           f"「{PART_LABEL['talk']}」（返す文を「{ARG_LABEL['answer']}」に書き、返す文が使えないときに流す一言を「{ARG_LABEL['fallback']}」から、"
+           "お客様の言葉にいちばん合うものを選びます：" + "、".join(f"{t}＝{w}" for t, w in TALK_FALLBACK.values())
+           + f"）。エーアイかへの言い方・自分の言葉の答え・受け答えに、相手が返事をした"
            f"＝「{PART_LABEL['resume']}」",
            {A["part"]: s([v for k, v in PART_LABEL.items() if replay or k in ("ai", "resume") + OWN_PARTS or (target and k == "handover")]
                          + list(answers)),
-            A["answer"]: s(desc="自分の言葉で言う文（短く1〜2文。こちらについての事実は業務の情報にあることだけ。名前・約束を入れない）")},
+            A["answer"]: s(desc="自分の言葉で言う文（短く1〜2文。こちらについての事実は業務の情報にあることだけ。名前・約束・お客様への問いかけを入れない）"),
+            A["fallback"]: s(list(TALK_LABEL.values()), desc=f"「{PART_LABEL['talk']}」のときだけ：返す文が使えないときに流す一言")},
            [A["part"]]),
         fd("report_party", "電話に出たのが人ではないとき（留守番電話の案内・自動音声の案内・ファクスの音）や、番号違い（かけた先とは別の人・別の会社）"
            "だったときに知らせる" + ("。受付の方が出た・目的の人に代わった・電話口の方が目的の人の代わりに伺うと言った（代わりの方）・"

@@ -30,7 +30,7 @@ from instruction import VOICE_TYPES, voice_style
 from jtext import compare_reading
 from listen import hear_feeds
 from live_util import build_config, collect_turn, send_text
-from phrases import CALLBACK_ASK, RECORDED, SUCCESSOR_IDS
+from phrases import CALLBACK_ASK, RECORDED, SUCCESSOR_IDS, TALK_FALLBACK
 from voice_features import read_wav
 
 OUT = HERE / "results" / "ack"
@@ -78,12 +78,15 @@ HOW = {"moushiwake": "電話で、相手に聞き取れなかったことを申�
        "authority": "電話で、お客様に丁寧に、柔らかくお聞きするように。失礼のないように、へりくだって",
        # 答えの文が確かめに通らなかったときの一言（phrases.OWN_FALLBACK）：断らない（✅ 2026-10-22 ユーザー（4回目）。⛔ 前は「お答えできないことを、
        # 申し訳なく思いながら」と読ませていた＝断りの調子）。ご質問を受け止めて、確かにお伝えすることを
-       "own_fallback": "電話で、お客様のご質問をしっかり受け止めて、確かにお伝えすることを、前向きに、丁寧に、落ち着いた調子で。言葉の途中で区切らずに"}
+       "own_fallback": "電話で、お客様のご質問をしっかり受け止めて、確かにお伝えすることを、前向きに、丁寧に、落ち着いた調子で。言葉の途中で区切らずに",
+       # 受け答えの受け皿の一言（phrases.TALK_FALLBACK）：お客様のお話に、気持ちをこめて応える（決まり文句を読み上げる調子にしない）
+       "talk": "電話で、お客様のお話に、気持ちをこめて自然に応えるように、丁寧に、柔らかく、落ち着いた調子で"}
 DEFAULT_HOW = "電話で、相手の話に相づちを打つように、短く"
 MAX_S = {"hai": 1.0, "shouchi": 1.4, "arigatou": 1.6, "shitsurei": 1.6, "moushiwake": 1.6, "moushiwake_heavy": 1.8, "lead_soredeha": 1.0,
          "lead_tsuzukimashite": 1.2, "lead_deha": 0.8, "closing": 8.0, "closing_declined": 7.0, "wait": 3.5, "wait_heavy": 3.8, "question": 6.0,
          "greeting": 2.5, "intro": 4.5, "purpose": 4.5, "ai": 3.0, "voicemail": 12.0, "ai_again": 8.0, "answer": 8.0, "offer_thanks": 7.5,
-         "departed": 4.0, "message": 12.0, "authority": 13.0, "own_fallback": 5.5}
+         "departed": 4.0, "message": 12.0, "authority": 13.0, "own_fallback": 5.5,
+         "talk": 3.5}
 # 長い文の上限は、文の長さの見込み（L4 の締めの実測：42字・5.92秒＝1字0.141秒）の1.15倍より短くしない（ClipTablesTest が見る）。
 # ✅ 2026-10-22 ユーザー（4回目）の言い方で、ほかの手段の質問（「それでは恐れ入りますが…」）・お立場を伺う一言（2つから選んでいただく形）・
 # 申し出へのお礼・断らない一言が長くなった ⇒ 質問 5.0→6.0・お立場 7.0→13.0・お礼 6.0→7.5・一言 4.0→5.5。「AIですか」と重ねて聞かれた
@@ -97,6 +100,7 @@ HOW_OF["callback_authority"] = "authority"  # 判断いただけるお立場か�
 # 「いかがなさいましたか？」「どうなさいましたか？」（phrases.SILENCE_PROMPT）：考えている相手にも、「AIですか」と3回目から聞かれたときにも
 # 流す。どちらも、何か気になる点があったかを心配して聞く一言なので、「AIですか」への言い方と同じ読み方
 HOW_OF.update({"ikaga": "ai", "dou": "ai"})
+HOW_OF.update({k: "talk" for k in TALK_FALLBACK})
 
 
 END_SILENCE_S = 0.1  # 声のあとに、これだけの無音が無ければ、声の途中で切れた録音として落とす

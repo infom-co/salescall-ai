@@ -18,7 +18,7 @@ import statistics
 import time
 
 from common import base_parser, drop_partial, require_python, save_partial, save_result, say
-from grounding import PASSES, make_reader
+from grounding import PASSES, make_reader, trusted
 
 OK, NG = "通す", "止める"
 # (お客様の言葉, こちらが返す文, 正解)
@@ -149,7 +149,9 @@ def overall(rows: list[dict]) -> dict:
     out = {}
     for name, kind in dict.fromkeys((r["judge"], r.get("set")) for r in rows):
         rs = [r for r in rows if r["judge"] == name and r.get("set") == kind and r.get("choice") and (r["draft"], r["said"]) in biz_of]
-        got = [(r, decide(biz_of[(r["draft"], r["said"])], r["said"], r["draft"], r["choice"], r.get("part") or "")) for r in rs]
+        # 確からしさが線より下の読み（Jev）は、通話と同じく読みにしない（grounding.trusted。⇒ 声に出さない）
+        got = [(r, decide(biz_of[(r["draft"], r["said"])], r["said"], r["draft"],
+                          r["choice"] if trusted(r.get("by") or r["judge"], r.get("sure")) else None, r.get("part") or "")) for r in rs]
         out[f"{name}・{kind}"] = {"正しい": f"{sum(g == r['want'] for r, g in got)}/{len(got)}",
                                  "止めるべきを通した": [r["draft"] for r, g in got if r["want"] == NG and g == OK],
                                  "通すべきを止めた": sum(r["want"] == OK and g == NG for r, g in got)}
@@ -188,7 +190,8 @@ async def run(args) -> dict:
                     continue
                 got = None if v is None else (OK if v in PASSES else NG)
                 rows.append({"judge": name, "rep": rep, "said": said, "draft": draft, "want": want, "choice": v, "part": getattr(v, "part", ""),
-                             "seconds": getattr(v, "seconds", None), "got": got, "set": kind, "by": getattr(v, "by", None)})
+                             "seconds": getattr(v, "seconds", None), "got": got, "set": kind, "by": getattr(v, "by", None),
+                             "sure": getattr(v, "sure", None)})
                 if got != want:
                     say(f"[{name} {rep}] 外れ：正解{want}・読み{v}（{getattr(v, 'part', '')}）「{draft}」")
                 # ⛔ 2026-10-23：3.8 Flash の測りが途中で処理ごと消え、それまでの読みが残らなかった ⇒ 1文ごとに途中の結果を残す

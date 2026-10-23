@@ -210,8 +210,10 @@ OTHER_JUDGES = {
     # 線（2026-10-18 G-53 の「曖昧の印と Jev」。線は正解の付いた答えの半分で決め、残りの半分で数えた）：
     # sure_min＝答えにする確からしさ（Jev が受け持って誤った数が 0.95 から0。下は答えにしない＝もう1つの判定で決める）・
     # firm_min＝言い切っているとする確からしさ（0.5 では要らない「曖昧」の印が53個、0.2 では5個）
+    # ground_min＝中身の判定（grounding）で読みにする確からしさ（2026-10-23 G-63：Jev が外したのは5回とも 0.48 以下・正しく通したのは 0.51 以上
+    # ＝線 0.8 で危ない文 0・Jev が決めるのは 76%。⏳ 中身の判定に Jev を入れるか（GROUNDERS）は、ユーザーのご判断を待つ）
     "Jev 1.14": {"maker": "typesafe", "model": "typesafe/jev-1.14", "key": "OPENROUTER_JUDGE_KEY", "host": "openrouter.ai",
-                 "sure_min": 0.95, "firm_min": 0.2},
+                 "sure_min": 0.95, "firm_min": 0.2, "ground_min": 0.8},
 }
 # 2つ目の判定（convo.check_handler の judge2。DESIGN.md 1-3 の (2)）：✅ 2026-10-18 ユーザー：「クレジットの使い残しはもったいないので、当面は、
 #    Sonnetだけを使いましょう。Jev検証時を除く」（Max の月の API の分は繰り越さない）⇒ Jev との振り分け（jev_try.py）は検証のときだけ
@@ -376,6 +378,9 @@ def add_judge_args(p) -> None:
     p.add_argument("--no-standin", action="store_true", help=f"止まった判定の代わり（{STANDIN}）を使わない（比べるときだけ）")
     p.add_argument("--judge-down", action="append", choices=tuple(OTHER_JUDGES) + JUDGE_MODELS,
                    help="試験だけ：この判定が止まっているものとして流す（代わりが受け持つかを確かめる。いくつでも）")
+    # 中身の判定（grounding）の顔ぶれ（既定 grounding.GROUNDERS）。「なし」＝中身を確かめられない通話（受け皿の道を通話で確かめる）
+    p.add_argument("--grounder", action="append", choices=tuple(OTHER_JUDGES) + JUDGE_MODELS + (NO_GROUNDER,),
+                   help="試験だけ：AIの自分の言葉の中身の判定の顔ぶれ（同時に出して早いほう。既定 grounding.GROUNDERS。「なし」で判定を使わない）")
 
 
 # ── 止まった判定の代わり（✅ 2026-10-19 ユーザー：「どれかがダウンしていたら、Jevも使ったらいいんじゃない」）。
@@ -383,6 +388,7 @@ def add_judge_args(p) -> None:
 #    2本は遅れが一緒に出て、ほとんど縮まなかった）。1社が止まると、残りの1社だけ＝その会社の遅れがそのまま出て、確かめも1つ減る
 #    ⇒ 3つ目の会社の判定（Jev）が、止まった判定の受け持ちに入る。ふだんは使わない（✅ 2026-10-18 ユーザー：「当面は、Sonnetだけを使いましょう」）
 STANDIN = "Jev 1.14"
+NO_GROUNDER = "なし"
 DOWN_AFTER_S = 10.0  # 1回の判定をこの秒で打ち切り、その判定は止まっているとみなす（報告を待たせるのは2秒まで。G-61：Sonnet 5.5 の最長 9.4秒）
 DOWN_S = 60.0        # 止まっているとみなした判定に、問い合わせずに代わりへ回す秒（毎回の発話で、止まった判定の答えを待たない）
 
@@ -511,7 +517,9 @@ def make_judges(args) -> dict:
     # AIが自分の言葉で言う文の中身の判定（grounding）も、判定を使う通話では一緒に作る（顔ぶれは grounding.GROUNDERS＝危ない文を通さないと
     # 測ったものだけ。意味の判定の顔ぶれとは別）。⛔ 2026-10-22 G-63：言葉で見る確かめは、通すべき世間話・お礼を12文止め、作り話を2文通した
     from grounding import GROUNDERS, make_grounder
-    return {k: panel.slot(k) if k in used else None for k in names} | {"grounder": make_grounder(args, GROUNDERS)}
+    chosen = tuple(getattr(args, "grounder", None) or GROUNDERS)
+    grounder = None if NO_GROUNDER in chosen else make_grounder(args, chosen)
+    return {k: panel.slot(k) if k in used else None for k in names} | {"grounder": grounder}
 
 
 def make_judge(args, model_name: str):
