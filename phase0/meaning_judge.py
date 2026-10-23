@@ -481,21 +481,24 @@ class JudgePanel:
 
 
 def make_judges(args) -> dict:
-    """add_judge_args で選んだ判定を、run_call にそのまま渡せる形で（{"judge": …, "judge2": …}。選ばれていなければ None）。
+    """add_judge_args で選んだ判定を、run_call にそのまま渡せる形で（{"judge": …, "judge2": …, "grounder": …}。選ばれていなければ None）。
     2つは1つの JudgePanel の受け持ち（止まった判定の代わりを、2つで分け合う）。"""
     from common import say
 
     names = {k: getattr(args, k, None) for k in ("judge", "judge2")}
     used = {k: n for k, n in names.items() if n}
     if not used:
-        return {k: None for k in names}
+        return {k: None for k in names} | {"grounder": None}
     standin = None if getattr(args, "no_standin", False) else STANDIN
     if standin and maker(standin) in {maker(n) for n in used.values()}:
         say(f"止まった判定の代わり（{standin}）は、ほかの判定と同じ会社なので使いません")
         standin = None
     panel = JudgePanel({k: (n, make_judge(args, n)) for k, n in used.items()},
                        standin=(standin, make_judge(args, standin)) if standin else None, down=getattr(args, "judge_down", None) or ())
-    return {k: panel.slot(k) if k in used else None for k in names}
+    # AIが自分の言葉で言う文の中身の判定（grounding）も、同じ顔ぶれ（違う会社の2つを同時に出し、先に届いた読みで決める）。⛔ 2026-10-22 G-63：
+    # 言葉で見る確かめは、通すべき世間話・お礼を12文止め、作り話を2文通した。3回目（問いの文を直したあと）：考える Sonnet 5.5 は 164文中164文
+    from grounding import make_grounder
+    return {k: panel.slot(k) if k in used else None for k in names} | {"grounder": make_grounder(args, tuple(used.values()))}
 
 
 def make_judge(args, model_name: str):

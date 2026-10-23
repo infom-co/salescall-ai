@@ -633,7 +633,7 @@ class AIToJapaneseTest(unittest.TestCase):
         plain = {d.name: d for d in tool_declarations(self.business().questions)[0].function_declarations}
         # 名乗りの録音が無い通話でも、相手の質問に自分の言葉で答える部分は選べる（Flow._own_answer）
         self.assertEqual(plain["replay_opening"].parameters.properties[ARG_LABEL["part"]].enum,
-                         ["エーアイか聞かれた", "質問に戻る", "自分で答える質問", "答えを持っていない質問"])
+                         ["エーアイか聞かれた", "質問に戻る", "自分で答える質問", "答えを持っていない質問", "受け答え"])
         self.assertFalse({n for n, d in decls.items() if d.behavior})  # 返事を待たない宣言は使わない（G-33・G-36 の形 B は外した）
         for name, (req, opt) in OP_ARGS.items():
             self.assertEqual(set(decls[name].parameters.properties), {ARG_LABEL[k] for k in req + opt}, name)
@@ -5076,7 +5076,7 @@ class TargetTest(unittest.TestCase):
         #     相手の質問は通話の事実に残す。同じ発話には1回だけ。相手の返事のあとに「質問に戻る」で、もう一度だけお呼びする（相づちはお礼）
         def info_flow(**policies):
             f = Flow(b.questions, play_recordings=True, opening=b.replay_parts(), target=b.replay_parts(), answers=dict(b.answers),
-                     policies=policies or None, info=["弊社の本社は東京都港区にございます。"], names=b.spoken_names())
+                     policies=policies or None, knowledge=["業務の情報：弊社の本社は東京都港区にございます。"], names=b.spoken_names())
             f.use_checks("judge")
             return f
         f = info_flow()
@@ -5132,6 +5132,12 @@ class TargetTest(unittest.TestCase):
         self.assertIn("「みなとく」", "".join(TARGET_INFO.info))
         self.assertIsNone(own_answer_problem("弊社の本社は東京都みなとくにございます。", "".join(k.info), "御社はどちらですか？", k.spoken_names(), False))
         self.assertIsNotNone(own_answer_problem("弊社の本社は東京都港区にございます。", "".join(k.info), "御社はどちらですか？", k.spoken_names(), False))
+        # 中身の判定が「知っていることだけ」と読んでも（言い換えとして通る）、読みで渡した地名を漢字で書いた文は、機械で書き直しになる（声で崩れる）
+        from grounding import GROUNDED, Verdict
+        self.assertEqual(k.name_readings(), {"港区": "みなとく"})
+        why = own_answer_problem("弊社の本社は東京都港区にございます。", "".join(k.knowledge()), "御社はどちらですか？", k.spoken_names(), False,
+                                 verdict=Verdict(GROUNDED), name_readings=k.name_readings())
+        self.assertIn("「みなとく」", why)
         # 断らない一言の録音と、決まった言い方・録音のどれにも、断りの言い方は無い
         from flowctl import REFUSAL
         from phrases import RECORDED
@@ -5185,7 +5191,7 @@ class TargetTest(unittest.TestCase):
         b = self.business()
         def flow(recorded=True):
             f = Flow(b.questions, play_recordings=True, opening=b.replay_parts() if recorded else None, target=b.replay_parts(),
-                     info=["弊社の本社は東京都港区にございます。"], names=b.spoken_names())
+                     knowledge=["業務の情報：弊社の本社は東京都港区にございます。"], names=b.spoken_names())
             f.use_checks("judge")
             return f
         # (1) 操作を呼ばずに話した：流さない ⇒ 流していないことと、聞かれたことに答えることを知らせる（1つの発話に1回）
@@ -6668,6 +6674,184 @@ class OfferTest(unittest.TestCase):
         text = build(b, "S2", opening_mode="recorded", play_recordings=True)[1]
         self.assertIn("担当の者から改めてご連絡", text)
         self.assertIn("業務の情報：ありません", text)
+
+
+
+class OwnWordsTest(unittest.TestCase):
+    """AIが自分の言葉で言う文（Flow._own_answer の1か所）：止めるのは明らかに違う中身だけ。✅ 2026-10-22 ユーザー（5回目）：「明らかに違う内容を
+    喋ろうとしているのが事前に分かれば止めるべき。しかし、AIの能力をそぐような制御はしないように！世間話のような対応や設定にない無難な対応は
+    ライブAIにしかできないよ！」・「それは答えられなかったらおかしいだろうと思われる内容や、世間話に近いような…では、別の対処が必要」
+    ⇒ 中身の判定（grounding）の読みは電話接続側が先に渡す（on_grounded）。世間話・お礼への受け答え（受け答え）の道。問いの種類ごとの受け皿。"""
+
+    def flow(self):
+        import dataclasses
+        from flowctl import Flow
+        from g22_opening import BUSINESS
+        b = dataclasses.replace(BUSINESS, info=["弊社の本社は東京都港区にございます。", "営業時間は平日の9時から18時です。"],
+                                names=[{"surface": "港区", "reading": "みなとく"}])
+        f = Flow(b.questions, play_recordings=True, opening=b.replay_parts(), answers=dict(b.answers), knowledge=b.knowledge(),
+                 names=b.spoken_names(), name_readings=b.name_readings(), policies=b.policies())
+        return f, b
+
+    @staticmethod
+    def heard(f, text):
+        f.on_callee(); f.on_heard(text)
+
+    @staticmethod
+    def verdict(choice, part="", by="test"):
+        from grounding import Verdict
+        v = Verdict(choice, part)
+        v.by = by
+        return v
+
+    def test_small_talk_is_answered_and_the_call_goes_back(self):
+        # 世間話には、AIが自分の言葉でひとこと返す（中身の判定が「事実を言っていない」と読んだ）。依頼主へ渡す質問としては残さない。
+        # 相手の返事のあと「質問に戻る」で、いまの質問の録音へ戻る（頭は「はい、」＝お礼もお詫びも合わない）
+        from flowctl import ARG_LABEL, PART_LABEL
+        from grounding import NO_FACT
+        f, b = self.flow()
+        said, line = "いやあ、今日は本当に暑いですねえ。", "本当に暑い日が続いておりますね。"
+        self.heard(f, said)
+        job = f.grounding_job("replay_opening", {ARG_LABEL["part"]: PART_LABEL["talk"], ARG_LABEL["answer"]: line})
+        self.assertEqual(job, (f.knowledge, said, line))
+        f.on_grounded(line, self.verdict(NO_FACT))
+        self.assertIsNone(f.grounding_job("replay_opening", {"part": "talk", "answer": line}))   # もう読みがある＝聞き直さない
+        r = f.apply("replay_opening", {"part": "talk", "answer": line})
+        self.assertEqual((r["result"], r["say"], r["ack"]), ("own_answer", line, "hai"))
+        self.assertEqual([(x["answer"], x["checked"]) for x in f.facts["talk"]], [(line, "test")])
+        self.assertNotIn("callee_question", f.facts)
+        self.assertIn("受け答えした", f._now())
+        self.heard(f, "ほんとにねえ。")
+        r = f.apply("replay_opening", {"part": "resume"})
+        self.assertEqual((r["ack"], [(p.get("kind"), p.get("id")) for p in r["play"]]), ("hai", [("question", "Q1")]))
+
+    def test_small_talk_with_a_made_up_fact_goes_back_without_words(self):
+        # 受け答えの文に、こちらについて知らない事実（「先日はご来店いただき」）：書き直させ、それでも通らなければ、言葉を足さずにいまの位置へ
+        # 戻る（世間話への返事に「担当の者に申し伝えます」は合わない）
+        from flowctl import OWN_REWRITES
+        from grounding import UNGROUNDED
+        f, b = self.flow()
+        self.heard(f, "いつもお世話になってます。")
+        line = "こちらこそ、先日はご来店いただきありがとうございました。"
+        for i in range(OWN_REWRITES + 1):
+            f.on_grounded(line, self.verdict(UNGROUNDED, "先日はご来店いただき"))
+            r = f.apply("replay_opening", {"part": "talk", "answer": line})
+            if i < OWN_REWRITES:
+                self.assertEqual((r["result"], r.get("say"), r["ack"]), ("rejected", None, None))
+                self.assertIn("「先日はご来店いただき」", r["message"])
+                self.assertNotIn("次で最後です", r["message"])   # 受け答えには、知っていることの文をそのまま言う道は勧めない
+        self.assertIn("言葉を足さずに戻ります", r["message"])
+        self.assertEqual((r.get("say"), r["ack"], [(p.get("kind"), p.get("id")) for p in r["play"]]), (None, "hai", [("question", "Q1")]))
+        self.assertEqual((f.facts["talk"][-1]["answer"], len(f.facts["talk"][-1]["drafts"])), (None, OWN_REWRITES + 1))
+
+    def test_answerable_question_falls_back_to_what_we_know(self):
+        # 自分で答える質問（知っていることにある問い）で、答えの文が3回とも通らない：断らない一言ではなく、知っていることの文のうち、
+        # お客様の言葉にいちばん近い文を、そのまま言う（頭は「はい、」）。最後の書き直しでは、その形を勧める
+        from flowctl import OWN_REWRITES
+        from grounding import UNGROUNDED
+        f, b = self.flow()
+        self.heard(f, "営業時間は何時までですか？")
+        line = "営業時間は平日の9時から20時までです。"
+        for i in range(OWN_REWRITES + 1):
+            f.on_grounded(line, self.verdict(UNGROUNDED, "20時"))
+            r = f.apply("replay_opening", {"part": "own", "answer": line})
+            if i == OWN_REWRITES - 1:
+                self.assertIn("次で最後です", r["message"])
+        self.assertEqual((r["result"], r["say"], r.get("play"), r["ack"]), ("own_answer", "営業時間は平日の9時から18時です。", None, "hai"))
+        q = f.facts["callee_question"][-1]
+        self.assertEqual((q["answered"], q["answer"]), (True, "営業時間は平日の9時から18時です。"))
+        # 近い文が無い（お客様の言葉と同じ名詞が1つも無い）：断らない一言の録音
+        from phrases import OWN_FALLBACK
+        f, b = self.flow()
+        self.heard(f, "御社の創業は何年ですか？")
+        for _ in range(OWN_REWRITES + 1):
+            f.on_grounded("弊社の創業は昭和50年でございます。", self.verdict(UNGROUNDED, "昭和50年"))
+            r = f.apply("replay_opening", {"part": "own", "answer": "弊社の創業は昭和50年でございます。"})
+        self.assertEqual((r["play"][0]["text"], r["ack"], f.facts["callee_question"][-1]["answered"]), (OWN_FALLBACK, None, False))
+
+    def test_what_is_not_sent_to_the_judge(self):
+        # 中身の判定に聞かない文：知っていることの文をそのまま言った文（通る）・機械の確かめで止まる文（名前・漢字の地名・断り・知らせの言葉）
+        from grounding import GROUNDED, verbatim
+        f, b = self.flow()
+        self.heard(f, "営業時間を教えてください。")
+        for text in ("営業時間は平日の9時から18時です。", "アオバ物流の営業時間は平日の9時から18時です。", "弊社は港区にございます。",
+                     "そちらはお答えいたしかねます。"):
+            self.assertIsNone(f.grounding_job("replay_opening", {"part": "own", "answer": text}), text)
+        self.assertIsNone(f.grounding_job("record_answer", {"question_id": "Q1", "condition_id": "答えた"}))
+        r = f.apply("replay_opening", {"part": "own", "answer": "営業時間は、平日の9時から18時です"})
+        self.assertEqual((r["result"], f.facts["callee_question"][-1]["checked"]), ("own_answer", "knowledge"))
+        self.assertIsNone(f.grounding_job("replay_opening", {"part": "own", "answer": "ほかの文です。"}))  # もう答えた発話
+        # そのままの文：かっこ・句読点は見ない。8字以上なら、知っていることの文の一部でもよい。短い相づちは、そのままの文ではない
+        know = b.knowledge()
+        self.assertTrue(verbatim("「平日の9時から18時です」", know))
+        self.assertFalse(verbatim("はい", know))
+        self.assertFalse(verbatim("営業時間は平日の9時から20時です。", know))
+        # 中身の判定が通しても、読みで渡した地名を漢字で書いた文は、機械で書き直し（声で崩れる）
+        f, b = self.flow()
+        self.heard(f, "御社はどちらにあるんですか？")
+        f.on_grounded("弊社の本社は東京都港区にございます。", self.verdict(GROUNDED))
+        r = f.apply("replay_opening", {"part": "own", "answer": "弊社の本社は東京都港区にございます。"})
+        self.assertEqual(r["result"], "rejected")
+        self.assertIn("「みなとく」", r["message"])
+
+    def test_grounder_takes_the_first_reading(self):
+        # 違う会社の2つの判定を同時に出し、先に届いた読みで決める（答えなかった・落ちた判定は待たない）。どれも答えなければ None
+        import asyncio
+        import unittest.mock as m
+        import grounding
+        from grounding import GROUNDED, UNGROUNDED
+
+        def reader(delay, result=None, fail=False):
+            async def call(knowledge, said, draft):
+                await asyncio.sleep(delay)
+                if fail:
+                    raise RuntimeError("止まった")
+                return None if result is None else self.verdict(result, by=f"{delay}")
+            return call
+        for readers, want in (([reader(0.01), reader(0.05, UNGROUNDED)], UNGROUNDED),
+                              ([reader(0.01, fail=True), reader(0.03, GROUNDED), reader(0.2, UNGROUNDED)], GROUNDED),
+                              ([reader(0.01), reader(0.02, fail=True)], None)):
+            it = iter(readers)
+            with m.patch.object(grounding, "make_reader", lambda args, name: next(it)):
+                ground = grounding.make_grounder(None, tuple(f"j{i}" for i in range(len(readers))))
+            self.assertEqual(asyncio.run(ground(["業務の情報：x"], "相手", "文")), want)
+
+    def test_the_call_waits_for_the_reading(self):
+        # 電話接続側（convo.check_handler）：答えの文の操作が来たら、返事を作る前に中身の判定を待つ長さまで待ち、届いた読みを渡す。
+        # 届かなければ渡さない（足場の決まりで確かめる）。遅れて届いた読みは記録だけ
+        import asyncio
+        import dataclasses
+        from types import SimpleNamespace
+        from convo import check_handler
+        from flowctl import ARG_LABEL, PART_LABEL
+        from grounding import NO_FACT, UNGROUNDED
+        args = {ARG_LABEL["part"]: PART_LABEL["talk"], ARG_LABEL["answer"]: "本当に暑い日が続いておりますね。"}
+
+        def run(delay, choice):
+            f, b = self.flow()
+            f.limits = dataclasses.replace(f.limits, hold_s=0.1)
+            self.heard(f, "今日は暑いですねえ。")
+
+            async def grounder(knowledge, said, draft):
+                await asyncio.sleep(delay)
+                return self.verdict(choice)
+
+            async def main():
+                pending = []
+                handle, _, info, _ = check_handler(f, tasks=pending, grounder=grounder)
+                await handle(SimpleNamespace(name="replay_opening", args=dict(args)))
+                if pending:
+                    await asyncio.wait(pending, timeout=1)
+                return f.log[-1]["reply"], info  # 中の名前の返事（記録）
+            return asyncio.run(main())
+        r, info = run(0.01, NO_FACT)
+        self.assertEqual((r["result"], info["held_ack"], info["grounding"][0]["verdict"]), ("own_answer", "hai", NO_FACT))
+        r, info = run(0.01, UNGROUNDED)
+        self.assertEqual(r["result"], "rejected")
+        # 待つ長さに届かない：足場の決まり（固有名詞と数）で確かめる＝世間話は通る。遅れて届いた読みは記録に残す
+        r, info = run(0.3, UNGROUNDED)
+        self.assertEqual((r["result"], info["grounding"][0].get("late"), info["grounding"][0].get("late_verdict")),
+                         ("own_answer", True, UNGROUNDED))
 
 
 if __name__ == "__main__":

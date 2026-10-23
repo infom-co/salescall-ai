@@ -151,6 +151,24 @@ class Business:
         self.forbidden = [q(x) for x in self.forbidden]
         self.voicemail_message, self.message, self.ai_answer = q(self.voicemail_message), q(self.message), q(self.ai_answer)
 
+    def knowledge(self) -> list[str]:
+        """こちらが知っていること（AIに渡した事実の全部。1行に1つ）：AIが自分の言葉で言う文の中身を確かめる材料（grounding の1か所。
+        ここに無い、こちらの会社・業務・用件・担当者についての事実は、言えば作り話）。名前は名乗りの録音と同じ書き方（読み）。"""
+        company, caller = self._said()
+        t = self.target
+        return ([f"こちらの会社：株式会社{company}", f"電話をかけている者：{caller}", f"電話の用件：{self.purpose}"]
+                + ([f"電話の用件の一文：{self.purpose_line}"] if self.purpose_line else [])
+                + ([f"お呼びする方：{t.who()}"] if t is not None else [])
+                + [f"お客様に伺うこと（{len(self.questions)}つ）：" + "／".join(q.text for q in self.questions)]
+                + [f"業務の情報：{x}" for x in self.info] + [f"想定問答の答え（{n}）：{a}" for n, a in self.answers])
+
+    def name_readings(self) -> dict[str, str]:
+        """読みの決まった名前（台本の名前 names）の表記 -> 読み。声に出す文では読みに置き換えてある（quote_in_text）＝AIが自分の言葉の文に
+        表記（漢字）のまま書いたら、書き直させる（flowctl.own_answer_problem。⛔ OWN-ANSWER-EARS：漢字の「港区」は3本中1本しか聞こえなかった）。"""
+        import unicodedata
+        return {unicodedata.normalize("NFKC", n["surface"]): n["reading"] for n in self.names  # 置き換えと同じ読み（quote_in_text）
+                if isinstance(n, dict) and n.get("surface") and n.get("reading")}
+
     def spoken_names(self) -> list[str]:
         """声に出す名前（表記と読み）：社名・担当者名・お呼びした方の名前・読みの決まらない名前。名前は録音だけで言い、AIの自分の言葉には入れない
         （flowctl.own_answer_problem。⛔ G-57 tc18：AIの声で目的の人の名前を言い崩した）。"""
@@ -403,6 +421,11 @@ def system_rules(play_recordings: bool = False, target: bool = False, follow_up:
         "- お客様の質問を断りません。「お答えできません」「お答えいたしかねます」「分かりかねます」「控えさせていただきます」のような"
         "断りの言い方は使いません。業務の情報に無いことを聞かれたら、そのご質問を受け止めて、担当の者に申し伝えることを伝えます"
         "（ご質問は、プログラムが依頼主へ渡します）。\n"
+        # ✅ 2026-10-22 ユーザー（5回目）：「世間話のような対応や設定にない無難な対応はライブAIにしかできないよ！」（Intent.md 9-3「AIが柔軟にやること：
+        #    …想定外の発話への受け答え」）⛔ 前は質問への答えの道しか無く、録音で流す通話の答えの段では、世間話・お礼に返す道が無かった
+        f"- 答え・申し出・質問ではない言葉（あいさつ・お礼・気遣い・世間話・お客様のお話）には、聞き流さずに、ひとこと受け答えします。"
+        f"replay_opening を「{PART_LABEL['talk']}」で選び、返す文（自分の言葉で、短く1〜2文）を「{ARG_LABEL['answer']}」に書いて呼びます。"
+        "言葉の選び方は自由ですが、こちらの会社・業務についての事実は、業務の情報にあることだけを言います。\n"
         + ("- 業務の情報に無い問いには、その点は確認のうえ担当の者から改めてご連絡させていただく形でよろしいかを伺ってかまいません。それ以外の"
            "約束（またお電話します、など）はしません（かけ直すかは、プログラムが決めます）。\n" if follow_up else
            "- 「またお電話します」「改めてご連絡します」など、かけ直すことや連絡することを約束してはいけません（かけ直すかは、プログラムが決めます）。\n") +

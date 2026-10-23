@@ -97,7 +97,7 @@ async def run(args) -> dict:
     import dataclasses
     b = dataclasses.replace(BUSINESS, target=target)
     f = Flow(b.questions, opening=b.replay_parts(), target=b.replay_parts(), play_recordings=True)
-    judges = make_judges(args)
+    judges = {k: j for k, j in make_judges(args).items() if k != "grounder"}  # 測るのは意味の判定だけ（中身の判定は g63_grounding）
     rows = []
     for text, ok, before, asked in cases(b.target.confirm()):
         q = f.confirm_questions["target_confirm"] if asked else f.calling_question  # 確かめたあとの返事は、確かめる一言を質問にする（Flow.judge_context）
