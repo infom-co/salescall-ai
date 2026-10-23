@@ -52,8 +52,8 @@ def kind_of(tx: Tx, attempt_id: UUID) -> str | None:
 
 
 def resume_allowed(tx: Tx, task_id: UUID) -> bool:
-    """その行のいちばん新しい発信（途中で切れた通話）のあと、お詫びしてすぐかけ直してよいか（決まりはデータベースの1か所
-    salescall.resume_allowed＝続けて切れた数が salescall.resume_in_a_row() 回まで。2026-10-18 ユーザー 案A。数え方の dial_kind も
+    """その行のいちばん新しい発信のあと、お詫びしてすぐかけ直してよいか（決まりはデータベースの1か所 salescall.resume_allowed＝
+    その発信が途中で切れた通話で、続けて切れた数が salescall.resume_in_a_row() 回まで。2026-10-18 ユーザー 案A。数え方の dial_kind も
     同じ数を読む＝すぐかけ直す回を超えて切れた通話は、ふつうの電話の回数に数える）。"""
     row = tx.one(f"SELECT salescall.resume_allowed(attempt_id) AS ok FROM salescall.attempts WHERE task_id = %s AND {DIALED}"
                  " ORDER BY claimed_at DESC LIMIT 1", (task_id,))

@@ -715,11 +715,16 @@ class Emergency(LinkBase):
         self.assertEqual(getattr(claim, "reason", None), "stopped")
 
     def test_a_release_on_the_screen_clears_the_flag_and_a_release_on_the_pc_is_recorded(self):
+        """押したら、すぐ合図を送らせる（PC の部品が1秒ごとに印を見る流れの速さに頼らない。⛔ 見直し17b：試験を並べて重く動かすと、
+        待ちの長さを超えて落ちた）。押した印の合図は何度届いても1回だけ記録する。解いてほしいと書いたあとは、ここから合図を送らない
+        （印を消す前に作った回線なしの合図が、消したあとの合図より遅れて届き、回線がつながらないままになる。PC の部品の合図は1つの
+        流れから順に送るので、本番では起きない）。"""
         s = self.ready()
         got = self.pc(s)
         r = self.agent(got, [s["line"]])
         self.attached(s, got)
         pc_emergency.stop("試験：押した")
+        r.beat()
         event = until(lambda: (pc_emergency.engaged() or {}).get("event"), "記録の番号")
         until(lambda: self.hub.lines() == {}, "押したら、その PC の回線ではかけない")
         self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: stops.resume(tx, event, reason="試験：画面から解いた"))
@@ -727,6 +732,7 @@ class Emergency(LinkBase):
         until(lambda: pc_emergency.engaged() is None, "画面から解かれたら印を消す")
         self.attached(s, got)                                                    # またかける
         pc_emergency.stop("試験：また押した")
+        r.beat()
         until(lambda: (pc_emergency.engaged() or {}).get("event"), "記録の番号")
         self.assertTrue(pc_emergency.ask_release("試験：直った"))
         until(lambda: pc_emergency.engaged() is None, "PC で解いたら、サーバーが解いてから印を消す")
@@ -748,6 +754,7 @@ class Emergency(LinkBase):
             return real(*a, **k)
         with mock.patch.object(channel.emergency, "stop", flaky), mock.patch.object(channel, "report"):
             pc_emergency.stop("試験：押した")
+            r.beat()
             until(lambda: calls, "1回目の記録（失敗）")
             r.beat()
             event = until(lambda: (pc_emergency.engaged() or {}).get("event"), "次の合図で記録")

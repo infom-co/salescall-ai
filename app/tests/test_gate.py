@@ -246,7 +246,7 @@ class VersionAndStage(Base):
 
     def test_version_without_stage_cannot_dial(self):
         s = self.ready()
-        v2 = self.w.add_version(s["tenant"], s["client"], s["business"], 2)
+        v2 = self.w.add_version(s["tenant"], s["client"], s["business"])
         self.tx(s, lambda tx: tx.execute(
             "INSERT INTO salescall.run_versions (tenant_id, client_id, run_id, business_id, seq, version_id, assigned_by, reason)"
             " VALUES (%s, %s, %s, %s, 2, %s, '試験', '新しい版')", (s["tenant"], s["client"], s["run"], s["business"], v2)),
@@ -664,9 +664,10 @@ class Pacing(Base):
         self.assertIsInstance(self.claim(s), gate.Claim)   # 同じ依頼者の再発信に、依頼者をまたいだ間隔はかからない
 
 
-class NotByCallee(Base):
+class UncountedDials(Base):
     """2026-10-14 ユーザー決定：最小の間隔（5分）・1日の回数（2回）の対象外。
-    お客様と約束したかけ直し／通信の問題などで繋がらなかった／お客様の意思と関係なく切れた発信。"""
+    お客様と約束したかけ直し／通信の問題などで繋がらなかった／お客様の意思と関係なく切れた発信。数え方の種類はデータベースの1か所
+    salescall.dial_kind（⛔ 見直し17b：組の名前が、もう無い関数 not_by_callee のままだった）。"""
 
     def test_failed_or_interrupted_calls_do_not_count(self):
         interrupted = make_report(cut=Cut("callee", False, False))
@@ -948,6 +949,14 @@ class CallerNumberAndVoice(Base):
         d = self.ready(tenant=c["tenant"], phone=c["phone"])
         self.lease(d, line=c["line"])
         self.assertIsInstance(self.claim(d, line=c["line"]), gate.Claim)            # 番号は出ていない：同じ回線でかけてよい
+        # 呼び出し中を知らせずに出た回線の発信も、番号は着信の履歴に残る（お客様のところで鳴った発信＝salescall.is_placed の
+        # 1か所。⛔ 見直し17b：前は「呼び出し中に入った」で見ていて、これを見落とした）
+        e = self.ready()
+        self.dialed(e, path=("answered", "ending", "ended"))
+        time.sleep(1.1)
+        f = self.ready(tenant=e["tenant"], phone=e["phone"])
+        self.lease(f, line=e["line"])
+        self.assertEqual(self.reason(f, line=e["line"]), "line_used_by_other_client")
 
     def test_the_same_row_keeps_its_voice(self):
         """同じ行（同じお客様へのかけ直し・お詫び）は、前に話した声のまま（業務の声の型をあとで替えても）。"""
@@ -1725,6 +1734,35 @@ class PromisesStopsAndConflicts(Base):
         self.assertEqual(due(), 0)
         self._resume(s, m)
         self._resume(s, q)
+
+    def test_a_promise_of_a_row_marked_never_call_is_not_kept_for(self):
+        """「強制かけない」の行の約束は、回線の1日の上限の取り置き（これからかける約束の一覧 promises_waiting）に入らない（その約束は
+        かからない）。「かけない」の行の約束は例外としてかけるので入る（決まりは task_excluded_now の1か所。⛔ 見直し17b：外しても
+        試験が気づかなかった）。"""
+        from salescall.core import exclusions
+        s = self.ready()
+        due = lambda: self.tx(s, lambda tx: tx.one(   # noqa: E731
+            "SELECT salescall.line_promised_due(%s, salescall.jst(now())::date + 1, %s) AS n", (s["line"], uuid.uuid4())))["n"]
+        self._promise(s, minutes=60)
+        self.assertEqual(due(), 1)
+        self.tx(s, lambda tx: exclusions.mark(tx, [s["task"]], "exclude", reason="依頼者の都合"), OPERATOR)
+        self.assertEqual(due(), 1)                                              # 約束は「かけない」の例外
+        self.tx(s, lambda tx: exclusions.mark(tx, [s["task"]], "force", reason="依頼者の都合"), OPERATOR)
+        self.assertEqual(due(), 0)
+
+    def test_lines_under_a_contractor_wide_stop_do_not_serve_promises(self):
+        """かけられる回線の一覧（約束の取り置きの割り当て）は、回線に効く停止を、停止の範囲の1か所（open_stops：全体・契約者・その
+        回線）で見る（⛔ 見直し17b：前は回線の停止だけを見て、契約者の緊急停止のあいだも、その回線に約束を割り当てていた）。"""
+        s = self.ready()
+        own = support.owner_access()
+        serving = lambda: own.in_tenant(SYSTEM, s["tenant"], lambda tx: [   # noqa: E731
+            r["line_id"] for r in tx.all("SELECT line_id FROM salescall.lines_serving()")])
+        self.assertIn(s["line"], serving())
+        e = self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: stops.stop(
+            tx, scope="tenant", cause="manual", reason="試験：画面から押した", tenant_id=s["tenant"]))
+        self.assertNotIn(s["line"], serving())
+        self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: stops.resume(tx, e["event_id"], reason="試験"))
+        self.assertIn(s["line"], serving())
 
     def test_ask_number_again_is_not_a_promise_kept_while_stopped(self):
         """番号の聞き直しは、約束を果たす電話に入らない（どの停止でもかけない。ユーザーが挙げた3つだけ＝見直し15）。"""

@@ -155,7 +155,7 @@ def _deficit_step(tx: Tx, tenant_id: UUID, client_id: UUID) -> int | None:
         valid = timedelta(seconds=int(_setting(tx, "budget.deficit_confirm_valid", tenant_id, client_id)))
         if w["now"] < w["confirmed_at"] + valid:
             return None                                  # 確認が効いている
-        tx.execute("UPDATE salescall.deficit_warnings SET closed_at = now(), closed_why = 'not_deficit'"
+        tx.execute("UPDATE salescall.deficit_warnings SET closed_at = now(), closed_why = 'confirm_expired'"
                    " WHERE warning_id = %s", (w["warning_id"],))   # 確認が切れた：まだ赤字なので、もう一度警告する
         w = None
     if w is None:

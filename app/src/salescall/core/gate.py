@@ -227,9 +227,16 @@ def window_hours(tx: Tx, *, tenant_id: UUID, client_id: UUID, business_id: UUID 
     とき）と、お客様指定の歯止め時間（設定 callee.designated_limit。業務ごと。お客様が言った時間の幅の端を埋めて切る）も読む。"""
     scope = dict(tenant_id=tenant_id, client_id=client_id, business_id=business_id)
     hours, ng = _hours_settings(tx, scope)
-    lo, hi = settings.resolve(tx, "callee.designated_limit", **scope)
     return calling_hours.callee_hours(hours, ng, settings.resolve(tx, "calling.hours_limit", **scope),
-                                      (calling_hours.clock_seconds(lo), calling_hours.clock_seconds(hi)), window)
+                                      callee_settings(tx, **scope).designated_limit, window)
+
+
+def callee_settings(tx: Tx, *, tenant_id: UUID, client_id: UUID, business_id: UUID | None) -> calling_hours.CalleeSettings:
+    """お客様の時間の設定（営業時間・お客様指定の歯止め時間・1回分の長さ）を読む1か所（門・締め＝判定・次の動きが使う）。"""
+    get = lambda key: settings.resolve(tx, key, tenant_id=tenant_id, client_id=client_id, business_id=business_id)   # noqa: E731
+    sec = lambda pair: (calling_hours.clock_seconds(pair[0]), calling_hours.clock_seconds(pair[1]))   # noqa: E731
+    return calling_hours.CalleeSettings(sec(get("callee.business_hours")), sec(get("callee.designated_limit")),
+                                        int(get("callback.exact_slot")))
 
 
 def _setting(tx: Tx, key: str, task: dict[str, Any]) -> Any:

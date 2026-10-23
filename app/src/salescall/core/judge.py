@@ -48,7 +48,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-from salescall.core import call_report, spoken_time
+from salescall.core import call_report, calling_hours, spoken_time
 from salescall.core.business_rules import Rules
 from salescall.core.call_report import CallReport
 
@@ -102,7 +102,6 @@ class JudgeInput:
     rules: Rules
     refused_after: bool          # 通話後の検証で、拒否の聞き逃しが見つかった（Q21 が発信禁止に登録した）
     unclear_is_refusal: bool     # 切れ方を決められないとき、営業拒否として扱うか（設定 judge.unclear_disconnect_is_refusal）
-    callee_hours: tuple[int, int] = spoken_time.DEFAULT_BUSINESS_HOURS   # お客様の営業時間（設定 callee.business_hours。午前・午後を決める）
     periods: dict[str, tuple[int, int]] = field(default_factory=lambda: spoken_time.PERIODS)   # 言葉ごとの幅（依頼者ごとの設定）
     # 通話の途中の「もうかけないで」が、その場で台帳に入っている（dnc.register_declared）。⚠️ 会話の処理が報告を書く前に
     # 落ちても、申告は台帳にある：報告だけを見ると、断りを見落として、行のほかの番号へ広げず、お詫びしてかけ直そうとした
@@ -111,10 +110,9 @@ class JudgeInput:
     # 目的のお客様に判定なしで繋いだ通話を確かめ直して、目的のお客様だと確かめられなかった（別の方・確かめられなかった。
     # core/target_recheck.py）。その通話の答えは、もう戻されている・「-」になっている。結果の中身に残す
     target_unconfirmed: bool = False
-    # お客様指定の歯止め時間（設定 callee.designated_limit。業務ごと。時刻の読みが、幅の端の決まっていない側を埋めて切る）
-    designated_limit: tuple[int, int] = spoken_time.DEFAULT_DESIGNATED_LIMIT
-    # 時刻ちょうどの約束のその日の時間（設定 callback.exact_slot）。歯止め時間の外の時刻を確かめて「はい」と言われたときの1回分にも使う
-    exact_slot: int = spoken_time.DEFAULT_EXACT_SLOT
+    # お客様の時間の設定（営業時間＝午前・午後・お客様指定の歯止め時間・1回分の長さ。読むのは gate.callee_settings の1か所。
+    # 初めの値の写しを持たない＝必ず渡す。⛔ 見直し17b：前は渡し忘れても黙って 7〜22時・1時間になった）
+    callee: calling_hours.CalleeSettings = field(kw_only=True)
 
     @property
     def reached_target(self) -> bool:
@@ -257,9 +255,10 @@ def _when(inp: JudgeInput, cb: Any) -> spoken_time.Reading:
     """かけ直しの申し出の時刻の言葉の読み（1か所。core/spoken_time.read）。"""
     # beyond_ok＝お客様指定の歯止め時間の外の時刻（「23時以降なら」）を、通話の中で確かめて「はい」と言われた（会話の報告の
     # callback.beyond_limit_ok。無い＝確かめていない＝今までどおり判定できない）
-    return spoken_time.read(cb.time_said, inp.facts.called_at, inp.callee_hours, inp.periods, monthly=cb.cycle == "month",
-                            limit=inp.designated_limit, beyond_ok=cb.beyond_limit_ok,
-                            slot=inp.exact_slot)
+    c = inp.callee
+    return spoken_time.read(cb.time_said, inp.facts.called_at, business_hours=c.business_hours, periods=inp.periods,
+                            monthly=cb.cycle == "month", limit=c.designated_limit, beyond_ok=cb.beyond_limit_ok,
+                            slot=c.exact_slot)
 
 
 def _callback(cb: Any, when: spoken_time.Reading) -> dict[str, Any]:

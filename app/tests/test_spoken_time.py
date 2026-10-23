@@ -6,7 +6,15 @@ from __future__ import annotations
 import unittest
 from datetime import datetime, timezone
 
-from salescall.core.spoken_time import AT, CONFIRM, DAY, JST, UNREADABLE, UNSPECIFIED, WINDOW, next_occurrence, read
+from salescall.core import spoken_time
+from salescall.core.spoken_time import AT, CONFIRM, DAY, JST, UNREADABLE, UNSPECIFIED, WINDOW, next_occurrence
+from tests.support import CALLEE
+
+
+def read(text, now, business_hours=CALLEE.business_hours, *, limit=CALLEE.designated_limit, slot=CALLEE.exact_slot, **more):
+    """試験の読み方：お客様の時間の設定は、試験が決めた値（tests.support.CALLEE）を渡す（本番の読み方は初めの値を持たない＝
+    必ず渡す。⛔ 見直し17b）。"""
+    return spoken_time.read(text, now, business_hours=business_hours, limit=limit, slot=slot, **more)
 
 # 2026-10-14（水）10:00 の通話
 NOW = datetime(2026, 10, 14, 10, 0, tzinfo=JST)

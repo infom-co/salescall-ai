@@ -23,7 +23,7 @@ class Base(SettleBase):
     def fresh(self, *, stage_cap=None):
         """段の無い版から始める行（模擬通話にまだ合格していない依頼者）。stage_cap を渡すと、その件数の最初の段を開く。"""
         s = self.ready()
-        own_version = self.w.add_version(s["tenant"], s["client"], s["business"], 2)
+        own_version = self.w.add_version(s["tenant"], s["client"], s["business"])
         self.tx(s, lambda tx: tx.execute(
             "INSERT INTO salescall.questions (tenant_id, client_id, version_id, question_id, position, type_name, required)"
             " VALUES (%s, %s, %s, 'Q1', 1, 'datetime', true)", (s["tenant"], s["client"], own_version)), OPERATOR)
@@ -37,15 +37,15 @@ class Base(SettleBase):
             self.tx(s, lambda tx: quality_stage.open_stage(tx, own_version, 1, stage_cap, evidence="試験"), OPERATOR)
         return s
 
-    def newer_version(self, s, seq):
-        v = self.w.add_version(s["tenant"], s["client"], s["business"], seq)
+    def newer_version(self, s):
+        v = self.w.add_version(s["tenant"], s["client"], s["business"])
         self.tx(s, lambda tx: tx.execute(
             "INSERT INTO salescall.questions (tenant_id, client_id, version_id, question_id, position, type_name, required)"
             " VALUES (%s, %s, %s, 'Q1', 1, 'datetime', true)", (s["tenant"], s["client"], v)), OPERATOR)
         self.tx(s, lambda tx: business_rules.save(tx, v, rules_raw()), OPERATOR)
         self.tx(s, lambda tx: tx.execute(
-            "INSERT INTO salescall.run_versions (tenant_id, client_id, run_id, business_id, seq, version_id, assigned_by, reason)"
-            " VALUES (%s, %s, %s, %s, %s, %s, '試験', '直した版')", (s["tenant"], s["client"], s["run"], s["business"], seq, v)),
+            "INSERT INTO salescall.run_versions (tenant_id, client_id, run_id, business_id, version_id, assigned_by, reason)"
+            " VALUES (%s, %s, %s, %s, %s, '試験', '直した版')", (s["tenant"], s["client"], s["run"], s["business"], v)),
             OPERATOR)
         return dict(s, version=v)
 
@@ -81,7 +81,7 @@ class Mock(Base):
         self.assertEqual((got["passed"], got["outcome"]), (True, "opened"))
         stage = self.tx(s, lambda tx: quality_stage.current(tx, s["version"]))
         self.assertEqual((stage["stage_no"], stage["cap"]), (1, 20))
-        newer = self.newer_version(s, 3)                                # 依頼者ごとに最初のみ：次の版はすぐ始める
+        newer = self.newer_version(s)                                # 依頼者ごとに最初のみ：次の版はすぐ始める
         self.assertEqual(self.tx(s, lambda tx: quality_stage.prepare(tx, newer["version"])), "opened")
 
 
@@ -108,7 +108,7 @@ class Stages(Base):
         again = self.tx(s, lambda tx: quality_stage.record_mock(tx, s["version"], GOOD))
         self.assertEqual(again["outcome"], "stopped_version")          # 止まった版そのものでは再開しない
         self.assertEqual(len(self.business_stops(s)), 1)
-        newer = self.newer_version(s, 3)
+        newer = self.newer_version(s)
         self.assertEqual(self.tx(s, lambda tx: quality_stage.prepare(tx, newer["version"])), "mock_needed")
         fixed = self.tx(s, lambda tx: quality_stage.record_mock(tx, newer["version"], GOOD))
         self.assertEqual(fixed["outcome"], "opened")
@@ -121,6 +121,7 @@ class Stages(Base):
         sid = self.business_stops(s)[0]["event_id"]
         why = self.tx(s, lambda tx: stops.explain(tx, sid))
         self.assertEqual(why["stop"]["cause"], "forbidden_speech")
+        self.assertEqual(why["cause"]["lets_through"], ["apology"])   # 止めているあいだも通す電話（画面に出す。表の1か所から）
         self.assertEqual(why["quality"]["metrics"]["forbidden_speech"]["hits"], 1)   # どの指標が外れたか
         self.assertEqual(len(why["held_results"]), 1)                 # 検証モード：契約者の確かめを待つ結果
         self.tx(s, lambda tx: stops.resume(tx, sid, reason="試験：場面を聞いて、言い方の問題ではないと判断"), OPERATOR)
@@ -174,7 +175,7 @@ class Stages(Base):
         self.verified_call(s, said(3))                                      # 言ってはいけないこと ⇒ 止まる
         self.tx(s, lambda tx: attempts.record_verification(tx, late, summary=VerificationSummary(1, 0, 0)))
         self.settle(s2, late)                                              # 止まったあとに締めた：判定できない
-        newer = self.newer_version(s, 3)
+        newer = self.newer_version(s)
         got = self.tx(s, lambda tx: quality_stage.record_mock(tx, newer["version"], GOOD))
         self.assertEqual(got["outcome"], "scenes_missing")
         with_scene = replace(GOOD, scenes=(late,), evidence="試験：判定できなかった場面を入れた")

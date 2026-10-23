@@ -15,6 +15,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
+from typing import Any
 
 from salescall.link.jst import JST   # 日本時間（決まりは link.jst の1か所。ここから使う部品のために名前を残す）
 
@@ -192,6 +193,23 @@ def _union(ranges: list[tuple[int, int]]) -> list[tuple[int, int]]:
         else:
             out.append((a, b))
     return out
+
+
+@dataclass(frozen=True)
+class CalleeSettings:
+    """お客様の時間の設定（読むのは gate.callee_settings の1か所。判定・門・次の動きが同じものを使う。0時からの秒）：
+    business_hours＝お客様の営業時間（設定 callee.business_hours。午前・午後の読み分けだけ）・designated_limit＝お客様指定の歯止め時間
+    （設定 callee.designated_limit。業務ごと。お客様が言った幅の、言葉で決まっていない端を埋めて切る）・exact_slot＝時刻ちょうどの
+    約束のその日の時間と、歯止め時間の外の時刻を確かめて「はい」と言われたときの1回分（設定 callback.exact_slot）。⛔ 見直し17b：前は
+    門と締めが別々に読み、時刻の読み・判定の引数に初めの値（7〜22時・1時間）の写しがあって、渡し忘れても黙って初めの値になった。"""
+    business_hours: tuple[int, int]
+    designated_limit: tuple[int, int]
+    exact_slot: int
+
+    def to_json(self) -> dict[str, Any]:
+        """判定の記録（snapshot）と、判定し直しの比べに使う形（設定を直したら判定し直す）。"""
+        return {"business_hours": list(self.business_hours), "designated_limit": list(self.designated_limit),
+                "exact_slot": self.exact_slot}
 
 
 @dataclass(frozen=True)

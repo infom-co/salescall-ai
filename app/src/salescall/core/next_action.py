@@ -628,10 +628,10 @@ def after_call(tx: Tx, task_id: UUID, j: Judgement, *, rules: Rules, dialed: Tar
     # 4回失敗して、その日のうちに番号も行も終えた（2026-10-22 深夜 ユーザー：「同じ番号で続けて当日2回＆翌日1回、さらに2日後1回の
     # 計4回」は、電話の種類によらない）
     kept = _not_before_failed(tx, task_id, kept, failed_at, now=now)
-    # すぐにかけ直してよいか：お詫びしてすぐかけ直すのは、同じ行で続けて2回まで（2026-10-18 ユーザー 案A。決まりはデータベースの
-    # 1か所 salescall.resume_allowed＝それを超えて切れた通話は、ふつうの電話の回数に数える＝dial_kind）。お詫びの印は、それと関係
-    # なく付ける＝decide_after_call
-    resume = cut_off and attempts.resume_allowed(tx, task_id)
+    # すぐにかけ直してよいか：途中で切れた通話のあと、お詫びしてすぐかけ直すのは、同じ行で続けて2回まで（2026-10-18 ユーザー 案A。
+    # 決まりはデータベースの1か所 salescall.resume_allowed＝その発信が切れたかも、そこで見る。それを超えて切れた通話は、ふつうの電話の
+    # 回数に数える＝dial_kind）。お詫びの印は、それと関係なく付ける＝decide_after_call
+    resume = attempts.resume_allowed(tx, task_id)
     d = decide_after_call(j, cut_off=cut_off, normal=normal,
                           promised=promised, rules=rules, times_with_key=times, now=now, target=target,
                           retry_at=retry_at, ask=ask, forbidden=forbidden, kept=kept, resume_window=dialed_window,
@@ -948,7 +948,7 @@ def _exact_window(tx: Tx, task_id: UUID, at: datetime, *, day_said: bool) -> Win
     """時刻ちょうどの約束（「明日の15時」）の最初の回（1か所）：約束の時刻から、設定 callback.exact_slot の長さ（その日の中まで）。
     回の両端をお客様が口にした（said。依頼者の時間帯・NG時間・歯止めの外でもかける）。day_said＝お客様がその日を言った（「土曜の15時」）。
     話せなければ、次の日の同じ時刻の回へ（repeat＝次の日。次の日はお客様が言った日ではない＝`Window.later`）。"""
-    slot = int(settings.resolve(tx, "callback.exact_slot", **tasks.scope(tx, task_id)))
+    slot = gate.callee_settings(tx, **tasks.scope(tx, task_id)).exact_slot
     local = at.astimezone(calling_hours.JST)
     midnight = local.replace(hour=0, minute=0, second=0, microsecond=0)
     start = int((local - midnight).total_seconds())
@@ -1079,11 +1079,11 @@ def decide_after_apology(*, delivered: bool, refused: bool, retry: AskAgain, pro
 
 
 def after_apology(tx: Tx, task_id: UUID, *, delivered: bool, refused: bool, dialed: Target,
-                  stop_reason: str | None = None, reached_target: bool = False, cut_off: bool = False,
+                  stop_reason: str | None = None, reached_target: bool = False,
                   not_reached: str | None = None, again: bool = False) -> Decision:
     """締めの処理（core/settle.py）だけが呼ぶ。お詫びの電話のあとの次の動きを決めて記録する（同じ取引）。
-    reached_target＝目的のお客様と話せた（約束の日にかけられなかったお詫びの印を外す＝`_apologised`）。cut_off＝途中で切れた
-    （judge.cut_off の1か所。締めの処理が試行に残したもの）。not_reached・again＝目的のお客様に繋がらなかった理由と、同じ日にまた
+    reached_target＝目的のお客様と話せた（約束の日にかけられなかったお詫びの印を外す＝`_apologised`）。途中で切れて、すぐかけ直して
+    よいかは、締めの処理が試行に残した「切れたか」を、データベースの resume_allowed の1か所が読む。not_reached・again＝目的のお客様に繋がらなかった理由と、同じ日にまた
     かけてよいと言われたか（会話の報告。同じ日にかけ直さないかは `not_today` の1か所＝ふつうの電話と同じ）。"""
     now = tx.one("SELECT now() AS now")["now"]
     promised = gate.pacing(tx, task_id, contact_id=dialed.contact_id, promised=True)
@@ -1092,7 +1092,7 @@ def after_apology(tx: Tx, task_id: UUID, *, delivered: bool, refused: bool, dial
     target = usable(dialed, numbers_of(tx, task_id))
     d = decide_after_apology(delivered=delivered, refused=refused, retry=retry,
                              promised=promised, target=target, now=now, stop_reason=stop_reason,
-                             cut_off=cut_off and attempts.resume_allowed(tx, task_id),
+                             cut_off=attempts.resume_allowed(tx, task_id),
                              failed_at=_failed_retry_at(tx, task_id, target.contact_id, now, now))
     d = _apologised(d, reached_target)
     _write(tx, task_id, d)

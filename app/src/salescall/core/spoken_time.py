@@ -55,9 +55,8 @@ AT, WINDOW, UNSPECIFIED, CONFIRM, UNREADABLE = "at", "window", "unspecified", "c
 DAY_REPEAT, WEEK = "day", "week"
 DAY = 24 * 3600
 H = 3600
-DEFAULT_BUSINESS_HOURS = (9 * H, 19 * H)   # 設定 callee.business_hours の初めの値（会社 9:00〜19:00）
-DEFAULT_EXACT_SLOT = 1 * H                     # 設定 callback.exact_slot の初めの値（時刻ちょうどの約束のその日の時間＝1時間。0093）
-DEFAULT_DESIGNATED_LIMIT = (7 * H, 22 * H)   # 設定 callee.designated_limit の初めの値（お客様指定の歯止め時間 7:00〜22:00）
+# お客様の営業時間・お客様指定の歯止め時間・1回分の長さの初めの値は、設定の1か所（データベース）にだけある（ここに写しを持たない。
+# 読むのは gate.callee_settings。⛔ 見直し17b）。
 
 # 言葉ごとの1日の中の幅（秒。終わりは含まない）。端の決まっていない側（朝・午前の始まり＝0時、午後の終わり＝24時）は、かける所が
 # お客様指定の歯止め時間で埋める（calling_hours.callee_range）。
@@ -490,10 +489,8 @@ def _at(d: date, sec: int) -> datetime:
     return datetime.combine(d, time(), tzinfo=JST) + timedelta(seconds=sec)
 
 
-def read(text: str | None, now: datetime, business_hours: tuple[int, int] = DEFAULT_BUSINESS_HOURS,
-         periods: dict[str, tuple[int, int]] = PERIODS, monthly: bool = False,
-         limit: tuple[int, int] = DEFAULT_DESIGNATED_LIMIT, beyond_ok: bool = False,
-         slot: int = DEFAULT_EXACT_SLOT) -> Reading:
+def read(text: str | None, now: datetime, *, business_hours: tuple[int, int], limit: tuple[int, int], slot: int,
+         periods: dict[str, tuple[int, int]] = PERIODS, monthly: bool = False, beyond_ok: bool = False) -> Reading:
     """お客様が言った時刻の言葉を読む。now＝その通話の時刻（「明日」などの起点。過ぎた時刻は確かめが要る）。
     business_hours＝お客様の営業時間（0時からの秒の (始まり, 終わり)。設定 callee.business_hours。午前・午後を決める）。
     periods＝言葉ごとの幅（依頼者ごとの設定 callback.period_* を `periods_from` で表にしたもの）。

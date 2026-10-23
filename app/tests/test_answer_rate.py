@@ -78,6 +78,7 @@ class Counts(unittest.TestCase):
         self.dial(["busy"])
         self.dial(["call_failed"])                         # 鳴らせなかった：番号の評判と関係ない
         self.dial(["answered", "in_conversation", "ending", "ended"])   # 呼び出し中を知らせずに出た回線も数える
+        self.dial(["ringing", "technical_error"])          # お客様が出る前の回線の失敗：どの数にも入れない（⛔ 見直し17b）
         self.dial(["ringing"])                             # まだ呼び出し中：結果が出ていないので数えない
         today = self.w.a.in_tenant(SYSTEM, self.s["tenant"], lambda tx: tx.one("SELECT salescall.jst(now())::date AS d")["d"])
         got = self.w.a.in_tenant(SYSTEM, self.s["tenant"], lambda tx: tx.all(

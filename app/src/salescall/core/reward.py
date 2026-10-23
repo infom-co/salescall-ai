@@ -94,8 +94,10 @@ def set_terms(tx: Tx, terms: Terms, *, valid_from: datetime, note: str) -> int:
 
 # 1本あたりの報酬（かけた1本・話せた1本）に数える電話：お詫びの電話（こちらの誤りのため）と、途中で切れたあとにお詫びして
 # すぐかけ直した電話は数えない（2026-10-18 ユーザー：「回線が切れてもシステムが途切れても、1人のお客さんに対して、50円ですよね」）。
-# 時給の時間は salescall.work_seconds（かけ直した電話の時間も入れる＝1人のお客様への総時間。電話と電話の間は足さない）
-_BILLED_PER_CALL = "a.purpose NOT IN ('apology', 'resume')"
+# 決まりはデータベースの1か所 salescall.counts_per_call（電話の種類 keeping_kind から。時給の「電話と電話の間」・回線の応答率も同じ。
+# ⛔ 見直し17b：前は目的の名前をここに直に書いていた）。時給の時間は salescall.work_seconds（かけ直した電話の時間も入れる＝1人の
+# お客様への総時間。電話と電話の間は足さない）
+_BILLED_PER_CALL = "salescall.counts_per_call(salescall.keeping_kind(a.purpose, a.promised))"
 
 
 # その時刻に効いていた決まりの、ある形の単価（無ければ 0）

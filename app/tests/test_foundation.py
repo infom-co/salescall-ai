@@ -155,14 +155,24 @@ class FrozenRecords(unittest.TestCase):
             with self.subTest(sql=sql), self.assertRaises(Rejected):
                 own.in_client(OPERATOR, s["tenant"], s["client"], lambda tx: tx.execute(sql, (s["task"],)))
 
-    def test_result_version_numbers_do_not_overlap(self):
+    def test_result_and_setting_version_numbers_are_decided_by_the_database(self):
+        """結果の版・業務設定の版の番号は、データベースが決める（最大＋1。渡した番号は使わない＝ほかの記録と同じ next_seq。⛔ 見直し
+        17b：前はこの2つだけ、書く側が「最大＋1」を書いていた。重なった番号・大きな番号を渡しても、番号は重ならず、桁あふれもしない）。"""
         w = World(); s = w.setup()
         sql = ("INSERT INTO salescall.task_results (tenant_id, client_id, task_id, version_no, kind, business_state,"
                " judge_version, complaint, detail, snapshot, decided_by)"
-               " VALUES (%s, %s, %s, 1, 'judged', 'open', 'judge-1', false, '{}', '{}', 'judge')")
-        w.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: tx.execute(sql, (s["tenant"], s["client"], s["task"])))
-        with self.assertRaises(Rejected):
-            w.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: tx.execute(sql, (s["tenant"], s["client"], s["task"])))
+               " VALUES (%s, %s, %s, %s, 'judged', 'open', 'judge-1', false, '{}', '{}', 'judge')")
+        for no in (2147483647, 1, 1):
+            w.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: tx.execute(sql, (s["tenant"], s["client"], s["task"], no)))
+        self.assertEqual(w.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: [r["version_no"] for r in tx.all(
+            "SELECT version_no FROM salescall.task_results WHERE task_id = %s ORDER BY version_no", (s["task"],))]), [1, 2, 3])
+        w.a.in_client(OPERATOR, s["tenant"], s["client"], lambda tx: tx.execute(
+            "INSERT INTO salescall.business_versions (tenant_id, client_id, business_id, version_no, created_by)"
+            " VALUES (%s, %s, %s, 2147483647, %s)", (s["tenant"], s["client"], s["business"], OPERATOR.name)))
+        w.add_version(s["tenant"], s["client"], s["business"])
+        self.assertEqual(w.a.in_client(OPERATOR, s["tenant"], s["client"], lambda tx: [r["version_no"] for r in tx.all(
+            "SELECT version_no FROM salescall.business_versions WHERE business_id = %s ORDER BY version_no", (s["business"],))]),
+            [1, 2, 3])
 
     def test_human_version_has_no_judge_version_and_judged_must_have_one(self):
         w = World(); s = w.setup()
@@ -530,7 +540,7 @@ class VersionMustBeRunsCurrent(unittest.TestCase):
 
     def test_old_version_after_switch(self):
         w = World(); s = w.setup()
-        v2 = w.add_version(s["tenant"], s["client"], s["business"], 2)
+        v2 = w.add_version(s["tenant"], s["client"], s["business"])
         w.a.in_client(OPERATOR, s["tenant"], s["client"], lambda tx: tx.execute(
             "INSERT INTO salescall.run_versions (tenant_id, client_id, run_id, business_id, seq, version_id, assigned_by, reason)"
             " VALUES (%s, %s, %s, %s, 2, %s, %s, '版2へ切り替え')",
@@ -614,18 +624,18 @@ class OneActiveAttempt(unittest.TestCase):
 class ConflictsAreRetried(unittest.TestCase):
     """5-2-1 の2：直列化の水準でぶつかった取引は、読み書きの層がやり直し、結果は1つずつ順に行ったのと同じになる。"""
 
-    def test_concurrent_append_gets_distinct_sequence_numbers(self):
+    def test_concurrent_appends_get_distinct_numbers_from_the_database(self):
+        """同時に足しても、番号（データベースが決める＝next_seq）は重ならない。ぶつかった取引は読み書きの層がやり直す。"""
         w = World(); s = w.setup()
-        versions = [w.add_version(s["tenant"], s["client"], s["business"], n) for n in range(2, 10)]
+        versions = [w.add_version(s["tenant"], s["client"], s["business"]) for _ in range(2, 10)]
         start = threading.Barrier(len(versions))
         errors = []
 
         def append(v):
             def work(tx):
-                nxt = tx.one("SELECT max(seq) + 1 AS n FROM salescall.run_versions WHERE run_id = %s", (s["run"],))["n"]
-                tx.execute("INSERT INTO salescall.run_versions (tenant_id, client_id, run_id, business_id, seq, version_id,"
-                           " assigned_by, reason) VALUES (%s, %s, %s, %s, %s, %s, %s, '切り替え')",
-                           (s["tenant"], s["client"], s["run"], s["business"], nxt, v, OPERATOR.name))
+                tx.execute("INSERT INTO salescall.run_versions (tenant_id, client_id, run_id, business_id, version_id,"
+                           " assigned_by, reason) VALUES (%s, %s, %s, %s, %s, %s, '切り替え')",
+                           (s["tenant"], s["client"], s["run"], s["business"], v, OPERATOR.name))
             start.wait()
             try:
                 w.a.in_client(OPERATOR, s["tenant"], s["client"], work)

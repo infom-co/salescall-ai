@@ -198,8 +198,8 @@ def undecided_reach_overlaps(tx: Tx, task_id: UUID) -> bool:
     near, _ = reach(tx, task_id)   # この行の番号と、番号を共有する行の番号（相手の範囲が、この行の番号に届きうる行の番号）
     for p in tx.all(
             "SELECT DISTINCT a.task_id FROM salescall.attempts a"
-            " WHERE a.task_id <> %s AND a.state <> 'released'"
-            "   AND NOT (a.state = 'claimed' AND a.claim_expires_at <= now())"
+            " WHERE a.task_id <> %s"
+            "   AND (salescall.is_dialed(a.state) OR salescall.is_live(a.state, a.claim_expires_at))"   # かけた・生きている予約
             "   AND (EXISTS (SELECT 1 FROM salescall.task_numbers n WHERE n.task_id = a.task_id AND n.phone_e164 = ANY(%s))"
             "        OR (%s::text IS NOT NULL AND EXISTS (SELECT 1 FROM salescall.tasks o WHERE o.task_id = a.task_id"
             "                                             AND o.client_ref = %s)))"

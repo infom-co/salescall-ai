@@ -41,14 +41,12 @@ def current_state(tx: Tx, task_id: UUID) -> str:
 def append(tx: Tx, task_id: UUID, *, kind: ResultKind, business_state: BusinessState, attempt_id: UUID | None,
            judge_version: str | None, complaint: bool, snapshot: dict[str, Any], decided_by: str,
            detail: dict[str, Any] | None = None) -> int:
-    """結果の版を1つ足し、その版の番号を返す。"""
+    """結果の版を1つ足し、その版の番号を返す（番号はデータベースが決める＝next_seq。0123）。"""
     lock(tx, task_id)  # 同じタスクへの追記を1つずつ順にする（tasks.py の説明）
     row = tx.one(
-        "INSERT INTO salescall.task_results (tenant_id, client_id, task_id, version_no, kind, business_state, attempt_id,"
+        "INSERT INTO salescall.task_results (tenant_id, client_id, task_id, kind, business_state, attempt_id,"
         " judge_version, complaint, detail, snapshot, decided_by)"
-        " SELECT t.tenant_id, t.client_id, t.task_id,"
-        "        coalesce((SELECT max(r.version_no) FROM salescall.task_results r WHERE r.task_id = t.task_id), 0) + 1,"
-        "        %s, %s, %s, %s, %s, %s, %s, %s"
+        " SELECT t.tenant_id, t.client_id, t.task_id, %s, %s, %s, %s, %s, %s, %s, %s"
         " FROM salescall.tasks t WHERE t.task_id = %s RETURNING version_no",
         (kind, business_state, attempt_id, judge_version, complaint, json.dumps(detail or {}, ensure_ascii=False),
          json.dumps(snapshot, ensure_ascii=False),

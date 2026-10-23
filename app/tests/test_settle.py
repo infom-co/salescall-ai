@@ -300,7 +300,7 @@ class Settle(SettleBase):
     def test_gate_does_not_dial_without_rules(self):
         """判定できない通話をしない：業務の決まりが無い版では、門が通さない。"""
         s = self.ready()
-        v2 = self.w.add_version(s["tenant"], s["client"], s["business"], 2)
+        v2 = self.w.add_version(s["tenant"], s["client"], s["business"])
         self.tx(s, lambda tx: tx.execute(
             "INSERT INTO salescall.run_versions (tenant_id, client_id, run_id, business_id, seq, version_id, assigned_by, reason)"
             " VALUES (%s, %s, %s, %s, 2, %s, '試験', '決まりの無い版')", (s["tenant"], s["client"], s["run"], s["business"], v2)),
@@ -311,7 +311,7 @@ class Settle(SettleBase):
     def test_missing_rules_are_not_guessed(self):
         """業務の決まりが無い版でかけた発信は、締めない（既定値で決めない）。何も書かない。"""
         s = self.ready()
-        v2 = self.w.add_version(s["tenant"], s["client"], s["business"], 2)
+        v2 = self.w.add_version(s["tenant"], s["client"], s["business"])
         self.tx(s, lambda tx: tx.execute(
             "INSERT INTO salescall.run_versions (tenant_id, client_id, run_id, business_id, seq, version_id, assigned_by, reason)"
             " VALUES (%s, %s, %s, %s, 2, %s, '試験', '決まりの無い版')", (s["tenant"], s["client"], s["run"], s["business"], v2)),
@@ -728,6 +728,11 @@ class UnusableNumber(SettleBase):
         run = self.tx(s, lambda tx: attempts.failed_run(tx, s["contact"]))
         today = self.tx(s, lambda tx: tx.one("SELECT salescall.jst(now())::date AS d")["d"])
         self.assertEqual((run["n"], run["first_day"]), (2, today - timedelta(days=2)))
+        # 最後の失敗の終わりは、いちばん新しい失敗（1日前）の終わり（次にかける時刻はここから数える。⛔ 見直し17b：取り違えても
+        # 試験が気づかなかった）
+        latest = self.tx(s, lambda tx: tx.one("SELECT max(ended_at) AS e FROM salescall.attempts WHERE contact_id = %s",
+                                             (s["contact"],))["e"])
+        self.assertEqual(run["last_end"], latest)
 
     def test_the_order_is_per_client(self):
         """並びは依頼者ごとに変えられる（[1]＝最初の失敗で、その番号へはかけない）。並びは1日目から始まり、小さくならない。"""
@@ -784,6 +789,27 @@ class UnusableNumber(SettleBase):
         d = self.tx(s, lambda tx: next_action.after_denial(tx, t2, got, tenant_id=s["tenant"], client_id=s["client"],
                                                          business_id=s["business"]))
         self.assertEqual((d.kind, d.end_reason), ("end", "number_unusable"))
+
+    def test_a_row_refused_for_an_unusable_number_moves_to_the_number_the_callee_gave(self):
+        """門が「番号が使えない」で断った行に、お客様が言った別の番号があれば、次の動きはそちらへかける（next_action.after_denial の
+        1か所。⛔ 見直し17b：外しても試験が気づかなかった＝別の番号があっても行が終わりえた）。"""
+        from salescall.core.phone import normalize
+        s = self.ready()
+        run2 = self.w.run(s["tenant"], s["client"], s["business"], s["version"])
+        t2 = self.w.task(s["tenant"], s["client"], run2, s["contact"])
+        s2 = {**s, "task": t2}   # 別の番号は、その行の通話で言われたもの
+        self.tx(s, lambda tx: next_action.schedule_now(tx, t2, cause="試験"))
+        first = self.call(s2, ["dialing", "no_answer"])
+        self.settle(s2, first)
+        other = self.tx(s, lambda tx: tasks.add_callee_number(tx, t2, normalize("0312345679"), source_attempt_id=first))
+        self.tx(s, lambda tx: next_action.schedule_now(tx, t2, cause="試験"))
+        for _ in range(4):
+            self.settle(s, self.past_attempt(s, ["dialing", "call_failed"], settled=False))
+        got = self.tx(s, lambda tx: gate.claim(tx, task_id=t2, line_id=s["line"], lease_holder=HOLDER))
+        self.assertEqual(got.reason, "number_unusable")
+        d = self.tx(s, lambda tx: next_action.after_denial(tx, t2, got, tenant_id=s["tenant"], client_id=s["client"],
+                                                         business_id=s["business"]))
+        self.assertEqual((d.kind, d.contact_id), ("call", other))
 
 
 class SameDayAndSuccessor(SettleBase):
@@ -996,9 +1022,13 @@ class CutOffCalls(SettleBase):
                     self.settle(s, aid)
                     return aid
                 one(cut)
-                one(between[name])
+                mid = one(between[name])
                 last = one(cut)
                 self.assertEqual(self.tx(s, lambda tx: tx.one("SELECT salescall.cuts_in_a_row(%s) AS n", (last,)))["n"], expect)
+                # すぐかけ直してよいかは、その発信が切れたときだけ（salescall.resume_allowed の1か所。⛔ 見直し17b：前は「続けて切れた
+                # 数が1以上」で代わりにしていて、間の回線の失敗・発信に失敗でも、前に切れた数が残れば真になった）
+                allowed = lambda aid: self.tx(s, lambda tx: tx.one("SELECT salescall.resume_allowed(%s) AS ok", (aid,)))["ok"]
+                self.assertEqual((allowed(mid), allowed(last)), (False, True))
 
     def test_rejudging_an_old_cut_call_does_not_revive_the_ended_row_nor_hold_the_customer(self):
         """途中で切れて判定できなかった通話A（お詫びのかけ直しを予定）のあと、かけ直しにも、そのあとの電話にも出ないまま行が終わった。
@@ -1276,6 +1306,41 @@ class CallbackWindow(SettleBase):
         self.assertEqual(self.opening(s, at(d2, 9), said)[0], at(d2, 16))
         self.assertEqual(self.opening(s, at(d2, 16), whole_day)[0], at(d2, 17))   # 日だけの幅は、NG時間を守る（時間を言っていない）
 
+    def test_the_business_limit_and_slot_reach_the_judgement_through_settle(self):
+        """締めは、業務ごとの「お客様指定の歯止め時間」と1回分の長さ（callback.exact_slot）を判定に渡す（読むのは1か所）。歯止め時間の
+        外の口にした時刻は、確かめていなければ判定できない・確かめて「はい」なら口にした端から1回分（2026-10-23 ユーザー：「案B＆案A
+        (確かめたうえで案A)」。⛔ 見直し17b：試験の土台が歯止め時間を1日じゅうにしていて、締めが渡し忘れても気づかなかった）。"""
+        s = self.ready()
+        self.tx(s, lambda tx: tx.execute(
+            "INSERT INTO salescall.setting_values (key, scope, tenant_id, client_id, business_id, value, status, rationale,"
+            " review_when, set_by) VALUES ('callee.designated_limit', 'business', %s, %s, %s, '[\"08:00\", \"21:00\"]', 'decided',"
+            " '試験', '試験', '試験')", (s["tenant"], s["client"], s["business"])), OPERATOR)
+        day = self.tx(s, lambda tx: tx.one("SELECT (salescall.jst(now()) + interval '2 days')::date AS d")["d"])
+        said = f"{day.month}月{day.day}日の21時半以降"                        # 業務の歯止め（〜21時）の外。初めの値（〜22時）なら内
+        got = self.settle(s, self.call(s, report=rep(callback=callback("later", time=said))))
+        r = self.tx(s, lambda tx: results.latest(tx, s["task"]))
+        self.assertEqual((got["state"], r["detail"]["unknown_cause"]), ("unknown", "callback_time_unconfirmed"))
+        t = self.ready()
+        self.put_client(t, "callback.exact_slot", 1800)                     # 1回分の長さは依頼者ごと（初めの値は1時間）
+        self.put_client(t, "callee.designated_limit", ["07:00", "22:00"])
+        agreed = replace(callback("later", time=f"{day.month}月{day.day}日の23時以降"), beyond_limit_ok=True)
+        got = self.settle(t, self.call(t, report=rep(callback=agreed)))
+        nxt = self.tx(t, lambda tx: next_action.current(tx, t["task"]))
+        self.assertEqual((got["state"], nxt["window_daily"]), ("callback_scheduled", [23 * 3600, 23 * 3600 + 1800]))   # 1回分＝30分
+
+    def test_changing_the_callee_settings_rejudges(self):
+        """お客様の時間の設定（歯止め時間・1回分・営業時間）は判定の入力なので、判定の記録に残し、直したら判定し直す（⛔ 見直し17b：
+        前は記録にも比べにも入っておらず、設定を直しても判定できないのまま残った）。"""
+        s = self.ready()
+        self.put_client(s, "callee.designated_limit", ["08:00", "21:00"])
+        day = self.tx(s, lambda tx: tx.one("SELECT (salescall.jst(now()) + interval '2 days')::date AS d")["d"])
+        aid = self.call(s, report=rep(callback=callback("later", time=f"{day.month}月{day.day}日の21時半以降")))
+        self.assertEqual(self.settle(s, aid)["state"], "unknown")
+        self.assertIsNone(self.tx(s, lambda tx: settle.rejudge(tx, aid)))      # 何も直していない：判定し直さない
+        self.put_client(s, "callee.designated_limit", ["07:00", "22:00"])
+        got = self.tx(s, lambda tx: settle.rejudge(tx, aid))
+        self.assertEqual(got["state"], "callback_scheduled")
+
     def test_the_designated_limit_is_one_day_and_per_business(self):
         """お客様指定の歯止め時間（callee.designated_limit）は、業務ごとに選べる1日の中の [始まり, 終わり)（日をまたがない。
         2026-10-23 ユーザー：「『営業時間』と『お客様指定の歯止め時間』も業務ごとに選択できるようにした方がいいね」）。"""
@@ -1326,7 +1391,8 @@ class CallbackWindow(SettleBase):
         from salescall.core import spoken_time
         for text in ("すぐ", "夕方なら"):
             with self.subTest(text=text):
-                self.assertTrue(spoken_time.read(text, at(saturday, 10)).day_said)
+                self.assertTrue(spoken_time.read(text, at(saturday, 10), business_hours=support.CALLEE.business_hours,
+                                                 limit=support.CALLEE.designated_limit, slot=support.CALLEE.exact_slot).day_said)
         asap = next_action.Window(None, None, None, at(saturday, 10), "day", day_said=True)
         self.assertEqual(self.opening(s, at(saturday, 10), asap, now=at(saturday, 10)),
                          (at(saturday, 10), replace(asap, until=at(saturday, 24), since=at(saturday, 0))))   # 休みの土曜でも今日

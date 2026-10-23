@@ -15,7 +15,7 @@ from salescall.core.business_rules import Policy, RulesInvalid, check
 from salescall.core.call_report import CallReport, Cut, ReportInvalid, Said, from_json
 from salescall.core.judge import Facts, Item, JudgeInput, classify_cut, judge
 from salescall.core.next_action import Alternate, AskAgain, Recheck, Target, choose_number, decide_after_call, decide_after_denial
-from tests.support import callback, make_report, rules_raw
+from tests.support import CALLEE, callback, make_report, rules_raw
 
 V = uuid.uuid4()
 RULES = check(V, ("Q1", "Q2"), ("Q1", "Q2", "Q3"), rules_raw(("Q1", "Q2"), decline={"Q3": ["いりません"]}))
@@ -33,7 +33,7 @@ def report(parties=("target",), *, dnc=False, oos=False, complaint=False, not_re
 
 
 def run(*, facts=TALKED, rep=report(), items=None, refused_after=False, unclear_is_refusal=True):
-    return judge(JudgeInput(facts, rep, TAKEN if items is None else items, RULES, refused_after, unclear_is_refusal))
+    return judge(JudgeInput(facts, rep, TAKEN if items is None else items, RULES, refused_after, unclear_is_refusal, callee=CALLEE))
 
 
 class Order(unittest.TestCase):
@@ -577,7 +577,7 @@ class Shapes(unittest.TestCase):
         j = run(items={}, rep=report(callback=said))
         self.assertEqual((j.state, j.detail["unknown_cause"]), ("unknown", "callback_time_unconfirmed"))
         agreed = replace(said, beyond_limit_ok=True)
-        j = judge(JudgeInput(TALKED, report(callback=agreed), {}, RULES, False, True, exact_slot=1800))
+        j = judge(JudgeInput(TALKED, report(callback=agreed), {}, RULES, False, True, callee=replace(CALLEE, exact_slot=1800)))
         cb = j.detail["callback"]
         self.assertEqual((j.state, cb["at"], cb["until"], cb["daily"], cb["said"]),
                          ("callback_scheduled", "2030-01-07T23:00:00+09:00", "2030-01-07T23:30:00+09:00",

@@ -52,10 +52,12 @@ METRICS: dict[str, tuple[str, str]] = {
 
 
 # 段と指標に数える通話（1か所）：その版の通話のうち、その版の品質の停止を管理者か契約者が最後に解いた時刻に、まだ締めていなかったもの。
-# お詫びの電話は数えない（業務の話し方を使わない。決まった文面だけ）。
+# 決まった文面だけの電話（いまはお詫びの電話）は数えない（業務の話し方を使わない。決めるのは salescall.fixed_text_kind の1か所＝
+# 門・候補を出す処理と同じ。⛔ 見直し17b：前は purpose を直書きしていた）。
 # 引数は (版, 版)。解いたことが無ければ、その版の通話すべて。
 _WINDOW = (
-    "SELECT a.* FROM salescall.attempts a WHERE a.version_id = %s AND a.purpose <> 'apology' AND NOT EXISTS ("
+    "SELECT a.* FROM salescall.attempts a WHERE a.version_id = %s"
+    " AND NOT salescall.fixed_text_kind(salescall.keeping_kind(a.purpose, a.promised)) AND NOT EXISTS ("
     " SELECT 1 FROM salescall.task_results r WHERE r.attempt_id = a.attempt_id AND r.kind = 'judged'"
     " AND r.decided_at <= (SELECT coalesce(max(z.at), '-infinity') FROM salescall.stop_events z"
     "                      JOIN salescall.quality_evaluations q ON q.stop_event_id = z.resolves_event_id"
@@ -320,7 +322,8 @@ def _production_counts(tx: Tx, business_id: UUID, day: Any = None) -> dict[str, 
         "               WHERE s.scope = 'business' AND s.business_id = %s AND s.cause::text = ANY(%s)),"
         " a AS (SELECT a.attempt_id FROM salescall.attempts a"
         "       JOIN salescall.business_versions bv ON bv.version_id = a.version_id, since"
-        "       WHERE bv.business_id = %s AND a.purpose <> 'apology' AND a.claimed_at > since.t"
+        "       WHERE bv.business_id = %s AND a.claimed_at > since.t"
+        "         AND NOT salescall.fixed_text_kind(salescall.keeping_kind(a.purpose, a.promised))"
         "         AND salescall.jst((SELECT min(r0.decided_at) FROM salescall.task_results r0"
         "                            WHERE r0.attempt_id = a.attempt_id AND r0.kind = 'judged'))::date"
         "             = coalesce(%s::date, salescall.jst(now())::date)) ")

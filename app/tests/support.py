@@ -13,9 +13,13 @@ import uuid
 from datetime import timedelta
 from uuid import UUID
 
-from salescall.core import recordings
+from salescall.core import calling_hours, recordings
 from salescall.core.access import Access, Actor
 from salescall.core.attempts import ForbiddenFinding, VerificationSummary
+
+# 試験の判定に渡す、お客様の時間の設定（本番は gate.callee_settings が設定から読む。試験は値を自分で決めて渡す＝初めの値と同じ形：
+# 営業時間 9〜19時・お客様指定の歯止め時間 7〜22時・1回分 1時間）
+CALLEE = calling_hours.CalleeSettings((9 * 3600, 19 * 3600), (7 * 3600, 22 * 3600), 3600)
 
 OPERATOR = Actor("試験の契約者", "operator")
 CLEAN = VerificationSummary(items_checked=1, items_disagreed=0, forbidden_speech=0)   # 検証で何も見つからなかった
@@ -149,8 +153,8 @@ class World:
         def work(tx):
             tx.execute("INSERT INTO salescall.businesses (tenant_id, client_id, business_id, name)"
                        " VALUES (%s, %s, %s, %s)", (tenant, client, bid, "架空の業務"))
-            tx.execute("INSERT INTO salescall.business_versions (tenant_id, client_id, business_id, version_id, version_no, created_by)"
-                       " VALUES (%s, %s, %s, %s, 1, %s)", (tenant, client, bid, vid, OPERATOR.name))
+            tx.execute("INSERT INTO salescall.business_versions (tenant_id, client_id, business_id, version_id, created_by)"
+                       " VALUES (%s, %s, %s, %s, %s)", (tenant, client, bid, vid, OPERATOR.name))   # 版の番号はデータベースが決める
             tx.execute("INSERT INTO salescall.questions (tenant_id, client_id, version_id, question_id, position, type_name, required)"
                        " VALUES (%s, %s, %s, 'Q1', 1, 'datetime', true)", (tenant, client, vid))
             put_content(tx, tenant, client, vid)
@@ -158,12 +162,13 @@ class World:
         self.approve_voices(tenant, client, vid)
         return bid, vid
 
-    def add_version(self, tenant: UUID, client: UUID, business: UUID, version_no: int) -> UUID:
+    def add_version(self, tenant: UUID, client: UUID, business: UUID) -> UUID:
+        """その業務に次の版を足す（版の番号はデータベースが決める＝next_seq。0123）。"""
         vid = uuid.uuid4()
 
         def work(tx):
-            tx.execute("INSERT INTO salescall.business_versions (tenant_id, client_id, business_id, version_id, version_no, created_by)"
-                       " VALUES (%s, %s, %s, %s, %s, %s)", (tenant, client, business, vid, version_no, OPERATOR.name))
+            tx.execute("INSERT INTO salescall.business_versions (tenant_id, client_id, business_id, version_id, created_by)"
+                       " VALUES (%s, %s, %s, %s, %s)", (tenant, client, business, vid, OPERATOR.name))
             put_content(tx, tenant, client, vid)
         self.a.in_client(OPERATOR, tenant, client, work)
         self.approve_voices(tenant, client, vid)
@@ -263,9 +268,8 @@ def full_version(w: "World", s: dict, target_person: dict | None = None, *, cont
     vid = uuid.uuid4()
 
     def work(tx):
-        tx.execute("INSERT INTO salescall.business_versions (tenant_id, client_id, business_id, version_id, version_no,"
-                   " created_by) SELECT %s, %s, %s, %s, max(version_no) + 1, %s FROM salescall.business_versions"
-                   " WHERE business_id = %s", (s["tenant"], s["client"], s["business"], vid, OPERATOR.name, s["business"]))
+        tx.execute("INSERT INTO salescall.business_versions (tenant_id, client_id, business_id, version_id, created_by)"
+                   " VALUES (%s, %s, %s, %s, %s)", (s["tenant"], s["client"], s["business"], vid, OPERATOR.name))
         tx.execute("INSERT INTO salescall.questions (tenant_id, client_id, version_id, question_id, position, type_name, required)"
                    " VALUES (%s, %s, %s, 'Q1', 1, 'datetime', true)", (s["tenant"], s["client"], vid))
         if content_too:

@@ -190,8 +190,23 @@ class Apology(Helpers):
                         report=replace(rep(cut=None), apology_delivered=False))
         d = self.settle(s, aid)["decision"]
         self.assertEqual((d.kind, d.target.purpose, d.promised), ("call", "apology", True))
+        # 決め手は「途中で切れた」の決まり（届かなかったときの「別の時間帯に」ではない。⛔ 見直し17b：かけてよい時間帯が1日じゅうの
+        # 試験では、別の時間帯もすぐになるので、決まりを取り違えても気づかなかった）
+        self.assertIn("途中で切れた", d.rule)
         c = self.claim(s)                                                # すぐ（別の時間帯を待たない）
         self.assertEqual((type(c).__name__, getattr(c, "purpose", None)), ("Claim", "apology"))
+
+    def test_an_apology_call_is_neither_counted_in_the_stage_nor_measured(self):
+        """お詫びの電話（決まった文面だけ）は、品質の段の件数にも、誤判定率の抜き取りで測る通話にも入れない（決めるのは
+        salescall.fixed_text_kind の1か所。門・候補を出す処理と同じ。⛔ 見直し17b：前は purpose を直書きしていた）。"""
+        s = self.fresh(stage_cap=20)
+        self.order(s, self.incident(s))
+        before = self.tx(s, lambda tx: quality_stage.used(tx, s["version"]))
+        aid = self.call(s, ("dialing", "ringing", "answered", "in_conversation", "ending", "ended"),
+                        report=replace(rep(), apology_delivered=True))
+        self.settle(s, aid)
+        self.assertEqual(self.tx(s, lambda tx: quality_stage.used(tx, s["version"])), before)
+        self.assertFalse(self.tx(s, lambda tx: tx.one("SELECT salescall.call_to_measure(%s) AS m", (aid,))["m"]))
 
     def test_refusal_ends_and_registers_dnc(self):
         s = self.fresh(stage_cap=20)

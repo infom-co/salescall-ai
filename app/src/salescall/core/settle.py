@@ -22,8 +22,8 @@ from typing import Any
 from uuid import UUID
 
 from salescall.core import (apology, approval, attempts, business_rules, call_report, calling_hours, dnc, fix_requests,
-                            next_action, notify, number_recheck, quality_stage, results, settings, spoken_time, target_policy,
-                            target_recheck, tasks, usage)
+                            gate, next_action, notify, number_recheck, quality_stage, results, settings, spoken_time,
+                            target_policy, target_recheck, tasks, usage)
 from salescall.core.access import Tx
 from salescall.core.judge import (JUDGE_VERSION, UNKNOWN_CAUSE_FIXERS, UNKNOWN_CAUSES, Facts, Item, JudgeInput, Judgement,
                                   classify_cut, cut_off as judge_cut_off, judge, refusal, unreached_today)
@@ -122,13 +122,14 @@ def _settle_apology(tx: Tx, a: dict[str, Any]) -> dict[str, Any]:
     refused = j is not None and j.state == "do_not_call"
     stop_reason = f"apology_{j.dnc_reason}" if j is not None and j.dnc_reason in ("wrong_party", "fax_line") else None
     _notice_forbidden(tx, a, prepare=False)
-    cut = _cut_off(tx, a, classify_cut(inp.facts, report), report)   # 途中で切れたか（ふつうの通話と同じ1か所）
+    # 途中で切れたかを試行に残す（ふつうの通話と同じ1か所。すぐかけ直してよいかは、残したものをデータベースの resume_allowed が読む）
+    _cut_off(tx, a, classify_cut(inp.facts, report), report)
     # 同じ日にかけ直さないかの材料は、ふつうの電話の判定と同じ1か所（judge.unreached_today）から（お詫びの電話は業務の判定を書かない。
     # ⛔ 見直し16b：前は会話の報告から直に読み、確かめ直しで目的のお客様だと確かめられなかった通話の扱いが、ふつうの電話と違いえた）
     not_reached, again = unreached_today(inp)
     decision = next_action.after_apology(tx, a["task_id"], delivered=delivered, refused=refused, stop_reason=stop_reason,
                                          dialed=next_action.Target(a["contact_id"], None, "apology", None),
-                                         reached_target=inp.reached_target, cut_off=cut, not_reached=not_reached, again=again)
+                                         reached_target=inp.reached_target, not_reached=not_reached, again=again)
     if decision.kind == "end":
         notify.emit(tx, "apology", key=f"apology:{attempt_id}",
                     summary={"apology_done": "お詫びを伝えました。",
@@ -181,6 +182,11 @@ def _items_snapshot(items: dict[str, Item]) -> dict[str, dict[str, Any]]:
     return {q: {"state": i.state, "condition": i.condition, "reason": i.reason} for q, i in sorted(items.items())}
 
 
+def _callee(tx: Tx, a: dict[str, Any]) -> calling_hours.CalleeSettings:
+    """その試行の業務の、お客様の時間の設定（判定の入力。読むのは gate.callee_settings の1か所）。"""
+    return gate.callee_settings(tx, tenant_id=a["tenant_id"], client_id=a["client_id"], business_id=a["business_id"])
+
+
 def _inputs_now(tx: Tx, a: dict[str, Any]) -> dict[str, Any]:
     """いま判定し直すなら使う入力：判定の処理の版・業務設定の版（実施回のいまの版）・会話の報告の出どころ・行の項目
     （2026-10-16 見直し：会話の処理を直して項目の値を作り直しても、前は項目を比べず、判定し直さなかった）。"""
@@ -190,7 +196,9 @@ def _inputs_now(tx: Tx, a: dict[str, Any]) -> dict[str, Any]:
             "items": _items_snapshot(_items(tx, a["task_id"])),
             "refused_after": dnc.refused_in(tx, a["attempt_id"], "refused_found_after"),   # 検証があとで拒否を見つけた（2026-10-17 の見直し）
             "declared_in_call": dnc.refused_in(tx, a["attempt_id"], "refused_in_call"),   # 通話の途中の申告（2026-10-19 の見直し）
-            "target_recheck": target_recheck.load(tx, a["attempt_id"])}   # 目的のお客様の確かめ直し（0108）
+            "target_recheck": target_recheck.load(tx, a["attempt_id"]),   # 目的のお客様の確かめ直し（0108）
+            # お客様の時間の設定（歯止め時間・1回分の長さ・営業時間。直したら判定し直す＝⛔ 見直し17b：前は比べていなかった）
+            "callee": _callee(tx, a).to_json()}
 
 
 def rejudge(tx: Tx, attempt_id: UUID) -> dict[str, Any] | None:
@@ -209,7 +217,7 @@ def rejudge(tx: Tx, attempt_id: UUID) -> dict[str, Any] | None:
               "report_source": last["snapshot"].get("report_source"), "items": last["snapshot"].get("items"),
               "refused_after": bool(last["snapshot"].get("refused_after")),
               "declared_in_call": bool(last["snapshot"].get("declared_in_call")),
-              "target_recheck": last["snapshot"].get("target_recheck")}
+              "target_recheck": last["snapshot"].get("target_recheck"), "callee": last["snapshot"].get("callee")}
     if now == before:
         return None                                # 何も直っていない：同じ入力で判定し直しても同じ結果
     out = _judge_and_write(tx, a, kind="rejudged", rules_version=now["rules_version"])
@@ -273,15 +281,13 @@ def _judge_input(tx: Tx, a: dict[str, Any], rules_version: Any) -> tuple[JudgeIn
     dialed = number_recheck.dialed(tx, attempt_id)
     get = lambda key: settings.resolve(tx, key, tenant_id=a["tenant_id"], client_id=a["client_id"],   # noqa: E731
                                        business_id=a["business_id"])
-    open_, close = get("callee.business_hours")   # お客様の営業時間（午前・午後を決める。日をまたいでよい）
     periods = spoken_time.periods_from({k: spoken_time.range_seconds(get(key))     # 言葉ごとの幅（依頼者ごとの設定。0088）
                                         for k, key in spoken_time.PERIOD_SETTINGS.items()})
-    lo, hi = get("callee.designated_limit")       # お客様指定の歯止め時間（業務ごと。0118）
     inp = JudgeInput(Facts(a["state"], a["hangup_side"], a["reached_answer"], dialed["source"] == "callee", a["spoken_at"]),
                      report, _items(tx, a["task_id"]), business_rules.load(tx, rules_version), refused_after,
-                     unclear_is_refusal, (calling_hours.clock_seconds(open_), calling_hours.clock_seconds(close)), periods,
+                     unclear_is_refusal, periods,
                      dnc.refused_in(tx, attempt_id, "refused_in_call"), target_recheck.unconfirmed(tx, attempt_id),
-                     (calling_hours.clock_seconds(lo), calling_hours.clock_seconds(hi)), int(get("callback.exact_slot")))
+                     callee=_callee(tx, a))   # お客様の時間の設定（読むのは gate.callee_settings の1か所）
     return inp, report_source, dialed
 
 
@@ -308,6 +314,7 @@ def _judge_and_write(tx: Tx, a: dict[str, Any], *, kind: str, rules_version: Any
         "items": _items_snapshot(items),
         "rules_version": str(rules.version_id), "refused_after": refused_after, "unclear_is_refusal": unclear_is_refusal,
         "declared_in_call": inp.declared_in_call, "target_recheck": target_recheck.load(tx, attempt_id),
+        "callee": inp.callee.to_json(),
     }
     version_no = results.append(tx, a["task_id"], kind=kind, business_state=j.state, attempt_id=attempt_id,
                                 judge_version=JUDGE_VERSION, complaint=j.complaint, snapshot=snapshot, detail=j.detail,

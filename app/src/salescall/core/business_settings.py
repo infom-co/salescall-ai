@@ -584,10 +584,8 @@ def save_version(tx: Tx, business_id: UUID, raw: dict[str, Any]) -> UUID:
     s = check(raw, field_types=_field_types(tx), ai_reading_needs_person=ai_reading_needs_person(tx, business_id),
               voice_types=voice_types(tx))
     version = tx.one(
-        "INSERT INTO salescall.business_versions (tenant_id, client_id, business_id, version_no, created_by)"
-        " SELECT b.tenant_id, b.client_id, b.business_id,"
-        "        coalesce((SELECT max(v.version_no) FROM salescall.business_versions v WHERE v.business_id = b.business_id), 0) + 1,"
-        "        salescall.cur_actor()"
+        "INSERT INTO salescall.business_versions (tenant_id, client_id, business_id, created_by)"   # 版の番号はデータベースが決める（next_seq。0123）
+        " SELECT b.tenant_id, b.client_id, b.business_id, salescall.cur_actor()"
         " FROM salescall.businesses b WHERE b.business_id = %s RETURNING version_id", (business_id,))
     if version is None:
         raise LookupError(f"その業務は無い（または、取引の範囲の外）：{business_id}")

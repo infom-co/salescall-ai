@@ -88,3 +88,15 @@ class UnknownPending(SettleBase):
         self.assertIsNone(self.tx(s, lambda tx: settle.awaiting_rejudge(tx, s["task"])))
         self.settle(s, b)
         self.assertEqual(self.tx(s, lambda tx: settle.awaiting_rejudge(tx, s["task"])), a)
+
+    def test_a_later_call_that_reached_the_customer_but_is_not_settled_keeps_it_pending(self):
+        """あとの発信がお客様につながっても、締めがまだなら（結果がまだ無い）、前の通話はまだ決まっていない（salescall.unknown_pending の
+        1か所だけで正しい答えにする。いまの読む所は締め待ちの行を先に外すが、それに頼らない。⛔ 見直し17b：この場面の試験が無かった）。"""
+        s = self.ready()
+        a = self.cut_unknown(s)
+        self.answered(s)
+        b = self.call(s, report=rep())                                       # お詫びのかけ直しでお客様と話せたが、まだ締めていない
+        pending = lambda: self.tx(s, lambda tx: tx.one("SELECT salescall.unknown_pending(%s) AS p", (a,)))["p"]
+        self.assertTrue(pending())
+        self.settle(s, b)
+        self.assertFalse(pending())

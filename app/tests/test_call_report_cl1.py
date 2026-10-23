@@ -20,7 +20,7 @@ from salescall.core.business_rules import check
 from salescall.core.call_report import Cut, ReportInvalid, from_json
 from salescall.core.judge import Facts, Item, JudgeInput, judge
 from salescall.core.next_action import Target, decide_after_call
-from tests.support import rules_raw
+from tests.support import CALLEE, rules_raw
 
 V = uuid.uuid4()
 RULES = check(V, ("Q1", "Q2"), ("Q1", "Q2"), rules_raw(("Q1", "Q2")))
@@ -83,7 +83,7 @@ SCENES = {"取り次げない": NOT_TRANSFERRED, "不在・途中で切れた": 
 
 def run(raw, *, items=None, facts=TALKED, cut=CLOSED):
     rep = replace(from_json(raw), cut=cut)
-    return judge(JudgeInput(facts, rep, items or {}, RULES, False, True))
+    return judge(JudgeInput(facts, rep, items or {}, RULES, False, True, callee=CALLEE))
 
 
 class Accepted(unittest.TestCase):

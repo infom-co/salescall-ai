@@ -394,6 +394,26 @@ class CostRatio(Priced):
         self.assertEqual(self.deficit_notices(s), [("deficit_warning", False)])   # 確認が効いているあいだは、もう一度知らせない
         self.assertEqual(self.client_stops(s), [])
 
+    def test_an_expired_confirmation_closes_with_its_own_reason_and_warns_again(self):
+        """確認の有効期間が切れて、まだ赤字なら、警告を「確認が切れた」で閉じて、新しく警告する（⛔ 見直し17b：前は「赤字でなく
+        なった」と書いていた）。赤字で止めた（'stopped'）は、もう書かせない（赤字では止めない＝2026-10-22 ユーザー）。"""
+        s = self.ready()
+        self.terms(s, per_dial_yen=10)
+        self.talked(s)
+        self.priced("0.01")
+        self.put_client(s, "budget.deficit_confirm_valid", 1)
+        self.spend(s, 15)
+        wid = self.warnings(s)[0]["warning_id"]
+        self.tx(s, lambda tx: usage.confirm_deficit(tx, wid), OPERATOR)
+        time.sleep(1.2)
+        usage.tick(self.w.a, SYSTEM, s["tenant"])
+        got = self.warnings(s)
+        self.assertEqual([w["closed_why"] for w in got], ["confirm_expired", None])   # 閉じて、新しく警告した
+        self.assertEqual(self.deficit_notices(s), [("deficit_warning", False), ("deficit_warning", False)])
+        with self.assertRaises(Rejected):
+            self.tx(s, lambda tx: tx.execute("UPDATE salescall.deficit_warnings SET closed_at = now(), closed_why = 'stopped'"
+                                             " WHERE warning_id = %s", (got[1]["warning_id"],)))
+
     def test_a_count_that_can_vary_is_judged_only_when_sure(self):
         s = self.ready()
         self.put_client(s, "budget.client_daily_yen", 100000)
