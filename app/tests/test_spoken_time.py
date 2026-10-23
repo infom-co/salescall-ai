@@ -11,10 +11,12 @@ from salescall.core.spoken_time import AT, CONFIRM, DAY, JST, UNREADABLE, UNSPEC
 from tests.support import CALLEE
 
 
-def read(text, now, business_hours=CALLEE.business_hours, *, limit=CALLEE.designated_limit, slot=CALLEE.exact_slot, **more):
+def read(text, now, business_hours=CALLEE.business_hours, *, limit=CALLEE.designated_limit, slot=CALLEE.exact_slot,
+         until="now", **more):
     """試験の読み方：お客様の時間の設定は、試験が決めた値（tests.support.CALLEE）を渡す（本番の読み方は初めの値を持たない＝
-    必ず渡す。⛔ 見直し17b）。"""
-    return spoken_time.read(text, now, business_hours=business_hours, limit=limit, slot=slot, **more)
+    必ず渡す。⛔ 見直し17b）。「〇時まで」の決め方は、ことわりの無い試験では now（今から〇時まで。別の番号・別の方へのとき）。
+    理由ごとの決め方は UntilByReason が確かめる。"""
+    return spoken_time.read(text, now, business_hours=business_hours, limit=limit, slot=slot, until=until, **more)
 
 # 2026-10-14（水）10:00 の通話
 NOW = datetime(2026, 10, 14, 10, 0, tzinfo=JST)
@@ -279,6 +281,45 @@ class SaidEdges(unittest.TestCase):
         self.assertEqual(read("今日の23時以降", NOW, slot=H).kind, CONFIRM)          # 確かめていない
         inside = read("今日の21時以降", NOW, beyond_ok=True, slot=H)
         self.assertEqual((inside.daily, inside.said), ((21 * H, 24 * H), (True, False)))   # 歯止めの内：今どおり（22時で切る＝callee_range）
+
+
+class UntilByReason(unittest.TestCase):
+    """「〇時まで」（終わりだけを口にした幅）は、いま電話を続けられなかった理由で、かけてよい時間を決める（2026-10-23 ユーザー：
+    「かけ直さないといけない理由によるでしょ」「電話を切った理由があるから、電話を続けられなかったと考えるべきでしょ。その理由を
+    確かめないと、何時から3時までの何時が決められないでしょ！」）。決め方（until）は理由からお客様の時間の設定が決める。"""
+
+    def test_each_way_of_deciding(self):
+        cases = {   # 決め方 → (始まり, 終わり, 1日の中の幅, 口にした端)
+            "now": (NOW, at(2026, 10, 14, 15), (0, 15 * H), (False, True)),                        # 別の番号・別の方へ：今から
+            "after": (at(2026, 10, 14, 15), at(2026, 10, 15, 0), (15 * H, DAY), (True, False)),    # それまでは出られない：3時から
+            "slot_after": (at(2026, 10, 14, 15), at(2026, 10, 14, 15, 30), (15 * H, 15 * H + 1800), (True, True)),   # 確認のあと
+        }
+        for until, (start, end, daily, said) in cases.items():
+            for text in ("3時まで", "午後3時までに", "3時より前"):
+                with self.subTest(until=until, text=text):
+                    r = read(text, NOW, until=until, slot=1800)
+                    self.assertEqual((r.kind, r.start, r.end, r.daily, r.said), (WINDOW, start, end, daily, said))
+
+    def test_an_unknown_reason_is_confirmed_in_the_call(self):
+        """理由が分からない（「3時までなら大丈夫です」だけ）：決めずに、通話の中で理由か「何時ごろでしたら」を伺う。"""
+        for text in ("3時まで", "明日の3時まで", "3時より前"):
+            with self.subTest(text=text):
+                r = read(text, NOW, until=None)
+                self.assertEqual(r.kind, CONFIRM)
+                self.assertIn("理由", r.why)
+
+    def test_other_ways_of_saying_are_not_touched(self):
+        """「〇時以降」「〇時から〇時」・言葉の幅・時刻ちょうどは、理由が分からなくてもこれまでどおり（終わりだけを口にした幅だけ）。"""
+        for text in ("4時以降", "明日の3時から5時", "3時台", "夕方", "明日の朝", "明日の午後3時", "明日なら"):
+            with self.subTest(text=text):
+                self.assertEqual(read(text, NOW, until=None), read(text, NOW, until="now"))
+
+    def test_a_said_time_beyond_the_limit(self):
+        """理由で決めた幅も、歯止め時間の決まり（calling_hours.callee_range の1か所）は同じ：「23時までには戻ります」（3時から＝
+        終わりは歯止めで埋める）は空なので確かめる。確認のあと1回分は、口にした時刻からなので歯止めの外でもかける。"""
+        self.assertEqual(read("23時まで", NOW, until="after").kind, CONFIRM)
+        r = read("23時まで", NOW, until="slot_after", slot=1800)
+        self.assertEqual((r.kind, r.daily), (WINDOW, (23 * H, 23 * H + 1800)))
 
 
 class Repeat(unittest.TestCase):

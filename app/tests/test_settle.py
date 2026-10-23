@@ -1395,6 +1395,33 @@ class CallbackWindow(SettleBase):
         got = self.tx(s, lambda tx: settle.rejudge(tx, aid))
         self.assertEqual(got["state"], "callback_scheduled")
 
+    def test_until_is_decided_by_the_business_setting_of_each_reason(self):
+        """「〇時まで」のかけてよい時間は、電話を続けられなかった理由ごとの業務の設定（0127）で決まり、設定を読むのはお客様の時間の
+        設定（gate.callee_settings）の1か所。選べる3つと理由の並びは、作りの表（calling_hours）とデータベースで食い違わない。
+        業務ごとに変えられる（2026-10-23 ユーザー：理由と決め方の表に「OK」。契約者が設定で変えられる）。"""
+        s = self.ready()
+        cs = self.tx(s, lambda tx: gate.callee_settings(tx, tenant_id=s["tenant"], client_id=s["client"], business_id=s["business"]))
+        self.assertEqual(cs.until_rules, (("other_party", "now"), ("unavailable", "after"), ("preparing", "slot_after")))
+        rows = self.tx(s, lambda tx: tx.all("SELECT key, choices FROM salescall.setting_definitions WHERE key LIKE 'callback.until\\_%%'"))
+        self.assertEqual({r["key"]: tuple(r["choices"]) for r in rows},
+                         {key: calling_hours.UNTIL_RULES for key in calling_hours.UNTIL_SETTINGS.values()})
+        with self.assertRaises(Rejected):
+            self.put_client(s, "callback.until_unavailable", "soon")   # 選べるのは3つだけ
+        day = self.tx(s, lambda tx: tx.one("SELECT (salescall.jst(now()) + interval '2 days')::date AS d")["d"])
+        back = callback("absent", time=f"{day.month}月{day.day}日の15時まで")   # 「15時までには戻ります」
+        t = self.ready()
+        self.tx(t, lambda tx: tx.execute(   # この業務だけ「今から15時まで」に変える
+            "INSERT INTO salescall.setting_values (key, scope, tenant_id, client_id, business_id, value, status, rationale,"
+            " review_when, set_by) VALUES ('callback.until_unavailable', 'business', %s, %s, %s, '\"now\"', 'decided',"
+            " '試験', '試験', '試験')", (t["tenant"], t["client"], t["business"])), OPERATOR)
+        for x, want in ((s, 15 * 3600), (t, None)):
+            self.assertEqual(self.settle(x, self.call(x, report=rep(callback=back)))["state"], "callback_scheduled")
+            daily = self.tx(x, lambda tx: next_action.current(tx, x["task"]))["window_daily"]
+            if want:
+                self.assertEqual(daily[0], want)                             # 既定：15時から（出られないのは15時まで）
+            else:
+                self.assertEqual(daily[1], 15 * 3600)                        # この業務：15時まで
+
     def test_the_designated_limit_is_one_day_and_per_business(self):
         """お客様指定の歯止め時間（callee.designated_limit）は、業務ごとに選べる1日の中の [始まり, 終わり)（日をまたがない。
         2026-10-23 ユーザー：「『営業時間』と『お客様指定の歯止め時間』も業務ごとに選択できるようにした方がいいね」）。"""
@@ -1446,7 +1473,8 @@ class CallbackWindow(SettleBase):
         for text in ("すぐ", "夕方なら"):
             with self.subTest(text=text):
                 self.assertTrue(spoken_time.read(text, at(saturday, 10), business_hours=support.CALLEE.business_hours,
-                                                 limit=support.CALLEE.designated_limit, slot=support.CALLEE.exact_slot).day_said)
+                                                 limit=support.CALLEE.designated_limit, slot=support.CALLEE.exact_slot,
+                                                 until=None).day_said)
         asap = next_action.Window(None, None, None, at(saturday, 10), "day", day_said=True)
         self.assertEqual(self.opening(s, at(saturday, 10), asap, now=at(saturday, 10)),
                          (at(saturday, 10), replace(asap, until=at(saturday, 24), since=at(saturday, 0))))   # 休みの土曜でも今日

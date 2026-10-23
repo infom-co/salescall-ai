@@ -18,8 +18,9 @@ from salescall.core.access import Access, Actor
 from salescall.core.attempts import ForbiddenFinding, VerificationSummary
 
 # 試験の判定に渡す、お客様の時間の設定（本番は gate.callee_settings が設定から読む。試験は値を自分で決めて渡す＝初めの値と同じ形：
-# 営業時間 9〜19時・お客様指定の歯止め時間 7〜22時・1回分 1時間）
-CALLEE = calling_hours.CalleeSettings((9 * 3600, 19 * 3600), (7 * 3600, 22 * 3600), 3600)
+# 営業時間 9〜19時・お客様指定の歯止め時間 7〜22時・1回分 1時間・「〇時まで」の理由ごとの決め方は初めの値＝0127）
+CALLEE = calling_hours.CalleeSettings((9 * 3600, 19 * 3600), (7 * 3600, 22 * 3600), 3600,
+                                      (("other_party", "now"), ("unavailable", "after"), ("preparing", "slot_after")))
 
 OPERATOR = Actor("試験の契約者", "operator")
 CLEAN = VerificationSummary(items_checked=1, items_disagreed=0, forbidden_speech=0)   # 検証で何も見つからなかった

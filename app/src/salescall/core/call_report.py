@@ -91,6 +91,16 @@ RESPONSE_POLICIES = {"substitute": ("decision_maker", "target_only", "anyone"), 
 # かけ直しの日を選んだ理由の周期（お客様が言ったときだけ）：month＝月ぎめの業務・締め・振り込みなど月単位の理由（2026-10-19 ユーザー：
 # 「月ぎめの業務の都合や振り込みなどの入金の間隔などの話の場合は、月単位で考えた方がいい」）。無ければ、言葉だけで読む（spoken_time）
 CALLBACK_CYCLES = ("month",)
+# 「〇時まで」の言い方の、いま電話を続けられなかった理由（2026-10-23 ユーザー：「かけ直さないといけない理由によるでしょ」「電話を切った
+# 理由があるから、電話を続けられなかったと考えるべきでしょ。その理由を確かめないと、何時から3時までの何時が決められないでしょ！」）：
+# other_party＝別の番号・別の方へ（「3時までにこちらの番号へ」）・unavailable＝それまでは出られない（「3時までには戻ります」「3時まで
+# 会議です」）・preparing＝それまでに確認・準備をしておく（「3時までに担当者に確認しておきます」）。理由ごとの、かけてよい時間の決め方は
+# お客様の時間の設定の1か所（calling_hours.CalleeSettings.until_rule。設定 callback.until_*）
+UNTIL_WHYS = ("other_party", "unavailable", "preparing")
+# かけ直しの理由（why）だけで決まる「〇時まで」の理由（同じことを2つの項目で表さない＝この理由には until_why を書かせない）：別の番号へ・
+# 分かるお客様（a1）＝別の方へ／不在・長期の不在＝それまでは出られない／分かる時（a2）＝それまでに確かめておく
+UNTIL_BY_REASON = {"other_number": "other_party", "ask_who": "other_party", "absent": "unavailable", "long_absent": "unavailable",
+                   "ask_when": "preparing"}
 # 不在・別の番号・あとで（お客様に頼まれた。6-2）／分かるお客様・分かる時を聞いた（15-2-3 の a1・a2）／こちらが約束した
 END_REASONS = ("done", "callee_hurry", "callee_refused_call", "callee_complaint", "wrong_party", "voicemail", "ivr", "fax",
                "callback", "not_transferred", "departed", "other_means")                               # 締めた理由（CL-1 の END_LABEL の名前。「AIですか」では終えない＝2026-10-19 夜 ユーザー）
@@ -138,6 +148,14 @@ class Callback:
     back_today: bool | None = None   # 「本日お戻りのご予定は」への答え（記録だけ）
     beyond_limit_ok: bool = False    # お客様指定の歯止め時間の外の時刻（「23時以降なら」）を通話の中で確かめ、「はい」と言われた（2026-10-23
     #                                  ユーザー：「案B＆案A(確かめたうえで案A)」。読むのは時刻の読み spoken_time.read の1か所＝judge._when）
+    until_why: str | None = None     # 「〇時まで」の言い方のときの、いま電話を続けられなかった理由（UNTIL_WHYS）。かけ直しの理由（reason）
+    #                                  だけで決まらないとき（あとで など）だけ書く（UNTIL_BY_REASON の理由に書けば報告の形の誤り）
+
+    @property
+    def until_reason(self) -> str | None:
+        """「〇時まで」の言い方のときの、いま電話を続けられなかった理由（1か所。UNTIL_WHYS のどれか。分からなければ None＝
+        かけてよい時間を決めず、通話の中で確かめる）。"""
+        return UNTIL_BY_REASON.get(self.reason, self.until_why)
 
     @property
     def number_e164(self) -> str | None:
@@ -391,7 +409,8 @@ class CallReport:
                           **({"message_left": True} if c.message_left else {}),
                           **({} if c.again is None else {"again": c.again}),
                           **({} if c.back_today is None else {"back_today": c.back_today}),
-                          **({"beyond_limit_ok": True} if c.beyond_limit_ok else {})} for c in self.callbacks],
+                          **({"beyond_limit_ok": True} if c.beyond_limit_ok else {}),
+                          **({} if c.until_why is None else {"until_why": c.until_why})} for c in self.callbacks],
             "ai_question": [said(q) for q in self.ai_questions],
             "voicemail_message": [said(v) for v in self.voicemail_messages],
             "end": [{**said(e.evidence), "reason": e.reason} for e in self.ends],
@@ -429,6 +448,17 @@ def _choice(v: Any, allowed: tuple[str, ...], key: str, *, optional: bool = Fals
     if v not in allowed:
         raise ReportInvalid(f"{key} は {allowed} のどれかです（{v!r}）")
     return v
+
+
+def _until_why(r: dict, reason: str) -> str | None:
+    """かけ直しの申し出の until_why（「〇時まで」の理由）。かけ直しの理由（why）だけで決まる理由（UNTIL_BY_REASON）に書いてあれば、
+    同じことを2つの項目で表しているので形の誤り（食い違えば、どちらが正しいか決められない）。"""
+    if "until_why" not in r:
+        return None
+    if reason in UNTIL_BY_REASON:
+        raise ReportInvalid(f"facts.callback.until_why は、かけ直しの理由が {reason} のときは書きません（理由だけで "
+                            f"{UNTIL_BY_REASON[reason]} と決まります）")
+    return _choice(r["until_why"], UNTIL_WHYS, "facts.callback.until_why")
 
 
 def _keys(d: Any, allowed: set[str], where: str) -> dict:
@@ -500,7 +530,8 @@ def from_json(raw: Any) -> CallReport:
                     for r, s in _records(facts, "party", {"party", "by"}))
     callbacks = []
     for r, s in _records(facts, "callback", {"why", "time", "number", "person", "cycle", "read", "connected", "offer",
-                                             "message_left", "again", "back_today", "beyond_limit_ok", *CALLBACK_MEANS}):
+                                             "message_left", "again", "back_today", "beyond_limit_ok", "until_why",
+                                             *CALLBACK_MEANS}):
         reason = _choice(r.get("why"), CALLBACK_REASONS, "facts.callback.why")
         number = _text(r.get("number"), "facts.callback.number")
         if number is not None and reason != "other_number":
@@ -515,7 +546,8 @@ def from_json(raw: Any) -> CallReport:
                                   "message_left" in r and _true(r, "message_left"),
                                   _bool(r, "again") if "again" in r else None,
                                   _bool(r, "back_today") if "back_today" in r else None,
-                                  "beyond_limit_ok" in r and _bool(r, "beyond_limit_ok")))
+                                  "beyond_limit_ok" in r and _bool(r, "beyond_limit_ok"),
+                                  _until_why(r, reason)))
     ends = tuple(End(_choice(r.get("reason"), END_REASONS, "facts.end.reason"), s)
                  for r, s in _records(facts, "end", {"reason"}))
     # ⚠️ 電話口の種別の target（AIの報告）と not_reached は、両方あってよい（AIが「目的の人」と報告したが、判定と食い違って繋がずに

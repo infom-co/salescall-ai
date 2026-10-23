@@ -195,21 +195,35 @@ def _union(ranges: list[tuple[int, int]]) -> list[tuple[int, int]]:
     return out
 
 
+# 「〇時まで」の言い方の、かけてよい時間の決め方（設定 callback.until_* の選択肢と同じ。決めた幅を作るのは spoken_time.read の1か所）：
+# now＝今から〇時まで／after＝〇時から（「〇時以降」と同じ）／slot_after＝〇時から1回分（exact_slot）
+UNTIL_RULES = ("now", "after", "slot_after")
+UNTIL_SETTINGS = {"other_party": "callback.until_other_party", "unavailable": "callback.until_unavailable",
+                  "preparing": "callback.until_preparing"}   # 「〇時まで」の理由（call_report.UNTIL_WHYS）→ その決め方の設定
+
+
 @dataclass(frozen=True)
 class CalleeSettings:
     """お客様の時間の設定（読むのは gate.callee_settings の1か所。判定・門・次の動きが同じものを使う。0時からの秒）：
     business_hours＝お客様の営業時間（設定 callee.business_hours。午前・午後の読み分けだけ）・designated_limit＝お客様指定の歯止め時間
     （設定 callee.designated_limit。業務ごと。お客様が言った幅の、言葉で決まっていない端を埋めて切る）・exact_slot＝時刻ちょうどの
     約束のその日の時間と、歯止め時間の外の時刻を確かめて「はい」と言われたときの1回分（設定 callback.exact_slot）。⛔ 見直し17b：前は
-    門と締めが別々に読み、時刻の読み・判定の引数に初めの値（7〜22時・1時間）の写しがあって、渡し忘れても黙って初めの値になった。"""
+    門と締めが別々に読み、時刻の読み・判定の引数に初めの値（7〜22時・1時間）の写しがあって、渡し忘れても黙って初めの値になった。
+    until_rules＝「〇時まで」の言い方の、いま電話を続けられなかった理由（call_report.UNTIL_WHYS）ごとの、かけてよい時間の決め方
+    （UNTIL_RULES。設定 callback.until_*。業務ごと。2026-10-23 ユーザー：「かけ直さないといけない理由によるでしょ」）。"""
     business_hours: tuple[int, int]
     designated_limit: tuple[int, int]
     exact_slot: int
+    until_rules: tuple[tuple[str, str], ...]
+
+    def until_rule(self, why: str | None) -> str | None:
+        """「〇時まで」の理由の、かけてよい時間の決め方（1か所）。理由が分からなければ None（決めない＝通話の中で確かめる）。"""
+        return None if why is None else dict(self.until_rules)[why]
 
     def to_json(self) -> dict[str, Any]:
         """判定の記録（snapshot）と、判定し直しの比べに使う形（設定を直したら判定し直す）。"""
         return {"business_hours": list(self.business_hours), "designated_limit": list(self.designated_limit),
-                "exact_slot": self.exact_slot}
+                "exact_slot": self.exact_slot, "until_rules": dict(self.until_rules)}
 
 
 @dataclass(frozen=True)

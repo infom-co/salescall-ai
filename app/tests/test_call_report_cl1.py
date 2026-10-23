@@ -461,6 +461,24 @@ class Later1022(unittest.TestCase):
         with self.assertRaises(ReportInvalid):
             from_json(self.raw({"callback": [{**rec, "beyond_limit_ok": "はい"}]}, None))
 
+    def test_the_reason_behind_until_is_kept_in_one_place(self):
+        """「〇時まで」の言い方の、いま電話を続けられなかった理由（2026-10-23 ユーザー）。かけ直しの理由だけで決まるもの（別の番号へ・
+        分かるお客様＝別の方へ／不在・長期の不在＝それまでは出られない／分かる時＝それまでに確かめておく）には until_why を書かせない
+        （同じことを2つの項目で表さない）。あとで などは until_why（無ければ分からない）。書き戻しても落とさない。"""
+        rec = {"turn": 2, "said": "3時までなら大丈夫です。", "time": "3時まで"}
+        for why, extra, expected in (("later", {"until_why": "unavailable"}, "unavailable"),
+                                     ("later", {"until_why": "preparing"}, "preparing"), ("later", {}, None),
+                                     ("other_number", {"number": "03-1234-5678"}, "other_party"), ("absent", {}, "unavailable"),
+                                     ("long_absent", {}, "unavailable"), ("ask_when", {}, "preparing")):
+            with self.subTest(why=why, extra=extra):
+                r = from_json(self.raw({"callback": [{**rec, "why": why, **extra}]}, None))
+                self.assertEqual(r.callbacks[0].until_reason, expected)
+                self.assertEqual(from_json(r.to_json()), r)
+        for why, bad in (("absent", "unavailable"), ("other_number", "other_party"), ("later", "soon"), ("later", None)):
+            with self.subTest(why=why, bad=bad), self.assertRaises(ReportInvalid):
+                extra = {"number": "03-1234-5678"} if why == "other_number" else {}
+                from_json(self.raw({"callback": [{**rec, "why": why, "until_why": bad, **extra}]}, None))
+
     def test_a_check_after_a_substitute_is_accepted_but_not_without_one(self):
         """代わりの方と話している途中にご本人が出て確かめに戻った（target_back。かけ直しの理由はまだ無い＝why が null）は受け取る。
         かけ直しの申し出も代わりの方の申し出も無い確かめ・かけ直しの申し出の無い「続きへ戻った」は、これまでどおり断る。"""

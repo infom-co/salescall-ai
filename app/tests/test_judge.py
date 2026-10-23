@@ -569,6 +569,29 @@ class Shapes(unittest.TestCase):
         # 拒否は、読めない時刻より先（発信禁止を、時刻の読み方の抜けで遅らせない）
         self.assertEqual(run(items={}, rep=report(dnc=True, callback=callback("later", time="そのへんで"))).state, "do_not_call")
 
+    def test_until_is_decided_by_why_the_call_could_not_go_on(self):
+        """「〇時まで」は、いま電話を続けられなかった理由で、かけてよい時間を決める（2026-10-23 ユーザー）。理由は、かけ直しの理由
+        だけで決まるもの（別の番号へ＝別の方へ・不在＝それまでは出られない・分かる時＝それまでに確かめておく）と、あとで の until_why。
+        決め方は、お客様の時間の設定（CALLEE の until_rules）の1か所。理由が分からなければ判定できない（通話の中で確かめていない）。"""
+        said = "明日の3時まで"   # 通話は 19時（日本時間）＝明日の15時まで
+        cases = [(callback("other_number", time=said, number="03-1234-5678"), [0, 15 * 3600], [False, True]),   # 今から
+                 (callback("absent", time=said), [15 * 3600, 24 * 3600], [True, False]),                        # 3時から
+                 (callback("ask_when", time=said), [15 * 3600, 16 * 3600], [True, True]),                       # 確認のあと1回分
+                 (replace(callback("later", time=said), until_why="unavailable"), [15 * 3600, 24 * 3600], [True, False]),
+                 (replace(callback("later", time=said), until_why="preparing"), [15 * 3600, 16 * 3600], [True, True]),
+                 (replace(callback("later", time=said), until_why="other_party"), [0, 15 * 3600], [False, True])]
+        for cb, daily, edges in cases:
+            with self.subTest(reason=cb.reason, until_why=cb.until_why):
+                j = run(items={}, rep=report(callback=cb))
+                self.assertEqual((j.state, j.detail["callback"]["daily"], j.detail["callback"]["said"],
+                                  j.detail["callback"]["until_why"]), ("callback_scheduled", daily, edges, cb.until_reason))
+        j = run(items={}, rep=report(callback=callback("later", time=said)))   # 理由が分からない（「3時までなら大丈夫です」だけ）
+        self.assertEqual((j.state, j.detail["unknown_cause"]), ("unknown", "callback_time_unconfirmed"))
+        # 決め方は設定から：それまでは出られない、を「今から」にした業務
+        other = replace(CALLEE, until_rules=(("other_party", "now"), ("unavailable", "now"), ("preparing", "slot_after")))
+        j = judge(JudgeInput(TALKED, report(callback=callback("absent", time=said)), {}, RULES, False, True, callee=other))
+        self.assertEqual(j.detail["callback"]["daily"], [0, 15 * 3600])
+
     def test_a_time_beyond_the_limit_is_kept_only_after_the_customer_agreed(self):
         """お客様指定の歯止め時間（7〜22時）の外の「23時以降なら」：確かめずに終われば判定できない（確かめは CL-1）。確かめて「はい」と
         言われた（会話の報告の callback.beyond_limit_ok）なら、口にした端から1回分（callback.exact_slot）の幅で約束する（2026-10-23

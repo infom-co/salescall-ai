@@ -254,11 +254,12 @@ def unreached_today(inp: JudgeInput) -> tuple[str | None, bool]:
 def _when(inp: JudgeInput, cb: Any) -> spoken_time.Reading:
     """かけ直しの申し出の時刻の言葉の読み（1か所。core/spoken_time.read）。"""
     # beyond_ok＝お客様指定の歯止め時間の外の時刻（「23時以降なら」）を、通話の中で確かめて「はい」と言われた（会話の報告の
-    # callback.beyond_limit_ok。無い＝確かめていない＝今までどおり判定できない）
+    # callback.beyond_limit_ok。無い＝確かめていない＝今までどおり判定できない）。until＝「〇時まで」の言い方のときの、かけてよい
+    # 時間の決め方（いま電話を続けられなかった理由＝Callback.until_reason から、お客様の時間の設定の1か所が決める）
     c = inp.callee
     return spoken_time.read(cb.time_said, inp.facts.called_at, business_hours=c.business_hours, periods=inp.periods,
                             monthly=cb.cycle == "month", limit=c.designated_limit, beyond_ok=cb.beyond_limit_ok,
-                            slot=c.exact_slot)
+                            slot=c.exact_slot, until=c.until_rule(cb.until_reason))
 
 
 def _callback(cb: Any, when: spoken_time.Reading) -> dict[str, Any]:
@@ -266,13 +267,14 @@ def _callback(cb: Any, when: spoken_time.Reading) -> dict[str, Any]:
     時刻を任された約束は None）・until＝幅の終わり（無ければ終わり無し）・daily＝1日の中の幅（秒）・exact＝お客様が時刻を指定した・
     since＝その回の本当の始まり・repeat＝話せなかったときの次の回（お客様がその日を選んだ理由。spoken_time.Reading.repeat）・
     said＝1日の中の幅の始まり・終わりをお客様が言ったか・day_said＝お客様がその日を言ったか（どちらも、依頼者の時間帯の外で
-    かけてよいかを決める材料＝calling_hours.callee_hours）。"""
+    かけてよいかを決める材料＝calling_hours.callee_hours）・until_why＝「〇時まで」の言い方のときの、いま電話を続けられなかった理由
+    （Callback.until_reason。記録だけ＝幅はもう決まっている）。"""
     iso = lambda t: None if t is None else t.isoformat()   # noqa: E731
     return {"reason": cb.reason, "at": iso(when.start), "until": iso(when.end), "since": iso(when.since), "repeat": when.repeat,
             "cycle": cb.cycle, "daily": None if when.daily is None else list(when.daily),
             "days": None if when.days is None else list(when.days), "exact": when.exact, "said": list(when.said),
             "day_said": when.day_said, "time_said": cb.time_said, "number_said": cb.number_said,
-            "number_e164": cb.number_e164, "person": cb.person}
+            "number_e164": cb.number_e164, "person": cb.person, "until_why": cb.until_reason}
 
 
 def _promise_offer(inp: JudgeInput) -> dict[str, Any] | None:

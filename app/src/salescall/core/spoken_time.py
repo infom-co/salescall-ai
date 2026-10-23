@@ -45,7 +45,7 @@ from datetime import date, datetime, time, timedelta
 from salescall.core.calling_hours import JST, callee_range, clock_seconds
 
 # 読み方の版（読み方を変えたら上げる）。判定の版（judge.JUDGE_VERSION）に入る＝上げると、読めなかった「判定待ち」の行が判定し直される
-VERSION = "12"   # 12：その「23時以降なら」「朝6時まで」を確かめて「はい」なら、口にした端から1回分（callback.exact_slot）の幅（2026-10-23 ユーザー：「案B＆案A(確かめたうえで案A)」）。11：お客様が口にした端の反対側を「お客様指定の歯止め時間」で埋めると空になる幅（「23時以降なら」「朝6時まで」）は、通話の中で確かめる（見直し16b）。10：日を言わない約束の今日の回は、お客様が言った日（day_said。見直し16）
+VERSION = "13"   # 13：「〇時まで」（終わりだけを口にした幅）は、いま電話を続けられなかった理由で、かけてよい時間を決める（理由が分からなければ確かめる。2026-10-23 ユーザー：「かけ直さないといけない理由によるでしょ」）。12：その「23時以降なら」「朝6時まで」を確かめて「はい」なら、口にした端から1回分（callback.exact_slot）の幅（2026-10-23 ユーザー：「案B＆案A(確かめたうえで案A)」）。11：お客様が口にした端の反対側を「お客様指定の歯止め時間」で埋めると空になる幅（「23時以降なら」「朝6時まで」）は、通話の中で確かめる（見直し16b）。10：日を言わない約束の今日の回は、お客様が言った日（day_said。見直し16）
 AT, WINDOW, UNSPECIFIED, CONFIRM, UNREADABLE = "at", "window", "unspecified", "confirm", "unreadable"
 # 幅の中でお客様と話せなかったときの、次の回（お客様がその日を選んだ理由に合わせる。2026-10-19 ユーザー決定）：
 # DAY＝時間の言葉（「夕方」「3時以降」）・日の種類だけ（「平日なら」）・「すぐ」⇒ 次の日の同じ幅／WEEK＝曜日・週末・週中・
@@ -483,6 +483,7 @@ def _time_part(t: str, pos: int, business: tuple[int, int],
 
 
 NOT_SAID, BOTH_SAID = (False, False), (True, True)   # 1日の中の幅の端を、お客様が言ったか（`Reading.said`）
+UNTIL_SAID = (False, True)                           # 終わりだけを口にした幅（「3時まで」「3時より前」）
 
 
 def _at(d: date, sec: int) -> datetime:
@@ -490,7 +491,8 @@ def _at(d: date, sec: int) -> datetime:
 
 
 def read(text: str | None, now: datetime, *, business_hours: tuple[int, int], limit: tuple[int, int], slot: int,
-         periods: dict[str, tuple[int, int]] = PERIODS, monthly: bool = False, beyond_ok: bool = False) -> Reading:
+         until: str | None, periods: dict[str, tuple[int, int]] = PERIODS, monthly: bool = False,
+         beyond_ok: bool = False) -> Reading:
     """お客様が言った時刻の言葉を読む。now＝その通話の時刻（「明日」などの起点。過ぎた時刻は確かめが要る）。
     business_hours＝お客様の営業時間（0時からの秒の (始まり, 終わり)。設定 callee.business_hours。午前・午後を決める）。
     periods＝言葉ごとの幅（依頼者ごとの設定 callback.period_* を `periods_from` で表にしたもの）。
@@ -500,7 +502,12 @@ def read(text: str | None, now: datetime, *, business_hours: tuple[int, int], li
     確かめて「はい」と言われた（会話の報告の callback.beyond_limit_ok＝beyond_ok）ときは、口にした端から1回分（slot＝設定
     callback.exact_slot。時刻ちょうどの約束と同じ）の幅（2026-10-23 ユーザー：「案B＆案A(確かめたうえで案A)」。決めるのは
     calling_hours.callee_range の1か所。⛔ 見直し16b：前は空の幅が時刻の決まっていない約束になり、お客様の言ったことと反対の
-    時刻＝依頼者のいつもの時間にかけた）。言葉が無い（時刻を聞けなかった）ときは UNSPECIFIED。"""
+    時刻＝依頼者のいつもの時間にかけた）。言葉が無い（時刻を聞けなかった）ときは UNSPECIFIED。
+    until＝「〇時まで」（終わりだけを口にした幅）のときの、かけてよい時間の決め方（calling_hours.UNTIL_RULES のどれか。いま電話を
+    続けられなかった理由から CalleeSettings.until_rule が決める。分からなければ None）。now＝今から〇時まで・after＝〇時から
+    （「〇時以降」と同じ）・slot_after＝〇時から1回分（slot）。None なら決めずに確かめる（CONFIRM。2026-10-23 ユーザー：「電話を
+    切った理由があるから、電話を続けられなかったと考えるべきでしょ。その理由を確かめないと、何時から3時までの何時が決められない
+    でしょ！」。⛔ 前は理由を見ずに、いつも「今から〇時まで」にしていた）。"""
     if text is None or not text.strip():
         return Reading(UNSPECIFIED)
     t = _clean(text)
@@ -555,6 +562,18 @@ def read(text: str | None, now: datetime, *, business_hours: tuple[int, int], li
         return _confirm("幅が空になる言い方です（いつまでか決まりません）")
     daily = (s0, s1) if kind == "window" else None
     said = said if daily is not None else NOT_SAID
+    if daily is not None and said == UNTIL_SAID:      # 「〇時まで」：いま電話を続けられなかった理由で、かけてよい時間を決める
+        if until is None:
+            return _confirm("「〇時まで」は、いま電話を続けられない理由で、かけてよい時間が変わります（別の番号・別の方へ＝今から・"
+                            "それまでは出られない＝その時刻から・それまでに確認しておく＝その時刻から1回分）。理由か「何時ごろでしたら"
+                            "よろしいでしょうか」を伺ってください")
+        if until == "after":                           # 口にした時刻から（終わりは言葉で決まっていない＝歯止め時間で埋める）
+            daily, said = (s1, DAY), (True, False)
+        elif until == "slot_after":                    # 口にした時刻から1回分（両方の端をお客様の言葉から決めた幅）
+            daily, said = (s1, min(s1 + slot, DAY)), BOTH_SAID
+        elif until != "now":
+            raise ValueError(f"「〇時まで」の決め方が違います：{until!r}")
+        s0, s1 = daily
     if daily is not None and callee_range(daily, said, limit) is None:   # かけてよい時間が空になる（判断は callee_range の1か所）
         slotted = callee_range(daily, said, limit, slot) if beyond_ok else None
         if slotted is None:
