@@ -420,7 +420,8 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                             play_recordings=play_recordings)
         return voice, build_config(voice=voice, system_instruction=text, tools=tool_declarations(business.questions, replay=bool(flow.opening),
                                                                                           target=business.target is not None,
-                                                                                          answers=tuple(n for n, _ in business.answers)),
+                                                                                          answers=tuple(n for n, _ in business.answers),
+                                                                                          known=tuple(flow.known_lines())),
                                    thinking_budget=thinking_budget, speech_end=speech_end)
 
     async def add_turn(turn, line, log_start: int, i: int, voice: str) -> None:

@@ -5128,12 +5128,13 @@ class TargetTest(unittest.TestCase):
         f = info_flow()
         self.heard(f, "御社はどちらにある会社ですか？", None); f.on_check("asks", ASKS_YES)
         self.assertEqual(f.apply("replay_opening", {"part": "own"})["result"], "rejected")       # 答えの文が無い ⇒ 書いてから
-        r = f.apply("replay_opening", {"part": "own", "answer": "弊社の本社は東京都港区にございます。"})
+        r = f.apply("replay_opening", {"part": "own", "answer": "弊社の本社は東京都港区にございます。", "fallback": "弊社の本社は東京都港区にございます。"})
         self.assertEqual((r["result"], r["say"], r.get("play"), r["ack"]), ("own_answer", "弊社の本社は東京都港区にございます。", None, "hai"))
         self.assertEqual(f.expected_say(), "弊社の本社は東京都港区にございます。")              # 外れたら止める見張りの対象
         self.assertNotIn("「弊社」", r["message"])  # 言い方の例は返事に入れない（⛔ tc31：AIが声に出した）。決まりは指示文の1か所
         self.assertEqual([(x["said"], x["answered"]) for x in f.facts["callee_question"]], [("御社はどちらにある会社ですか？", True)])
-        self.assertEqual(f.apply("replay_opening", {"part": "own", "answer": "弊社の本社は東京都港区にございます。"})["result"], "rejected")
+        self.assertEqual(f.apply("replay_opening", {"part": "own", "answer": "弊社の本社は東京都港区にございます。",
+                                                    "fallback": "弊社の本社は東京都港区にございます。"})["result"], "rejected")
         self.assertIn(f"「{PART_LABEL['resume']}」で呼びます", f._now())
         self.heard(f, "ああ、そうなんですね。", None)
         r = f.apply("replay_opening", {"part": "resume"})
@@ -5261,7 +5262,7 @@ class TargetTest(unittest.TestCase):
             self.assertIn(word, note)
         self.assertIsNone(f.unreported_note(muted=True))
         # (2) 確かめた答えの文（say）を渡したターンは流す（言い方の見張りが、外れた声を止める）
-        r = f.apply("replay_opening", {"part": "own", "answer": "弊社の本社は東京都港区にございます。"})
+        r = f.apply("replay_opening", {"part": "own", "answer": "弊社の本社は東京都港区にございます。", "fallback": "弊社の本社は東京都港区にございます。"})
         self.assertEqual(r["result"], "own_answer")
         self.assertTrue(f.speech_allowed(start))
         # (3) 録音だけを流す返事のターン：AIの声は流さない（録音は電話接続側が流す）
@@ -6849,20 +6850,39 @@ class OwnWordsTest(unittest.TestCase):
         line = "営業時間は平日の9時から20時までです。"
         for i in range(OWN_REWRITES + 1):
             f.on_grounded(line, self.verdict(UNGROUNDED, "20時"))
-            r = f.apply("replay_opening", {"part": "own", "answer": line})
+            r = f.apply("replay_opening", {"part": "own", "answer": line, "fallback": "営業時間は平日の9時から18時です。"})
             if i == OWN_REWRITES - 1:
                 self.assertIn("次で最後です", r["message"])
         self.assertEqual((r["result"], r["say"], r.get("play"), r["ack"]), ("own_answer", "営業時間は平日の9時から18時です。", None, "hai"))
         q = f.facts["callee_question"][-1]
         self.assertEqual((q["answered"], q["answer"]), (True, "営業時間は平日の9時から18時です。"))
-        # 近い文が無い（お客様の言葉と同じ名詞が1つも無い）：断らない一言の録音
+        # 答えのもとにした文を選んでいない・知っていることの文ではない ⇒ 差し戻す（業務の情報に答えが無ければ、答えを持っていない質問）
         from phrases import OWN_FALLBACK
         f, b = self.flow()
         self.heard(f, "御社の創業は何年ですか？")
+        r = f.apply("replay_opening", {"part": "own", "answer": "弊社の創業は昭和50年でございます。"})
+        self.assertEqual(r["result"], "rejected")
+        self.assertIn("答えを持っていない質問", r["message"])
+        self.assertEqual(f.apply("replay_opening", {"part": "own", "answer": "弊社の創業は昭和50年でございます。",
+                                                    "fallback": "弊社の創業は昭和50年でございます。"})["result"], "rejected")
         for _ in range(OWN_REWRITES + 1):
             f.on_grounded("弊社の創業は昭和50年でございます。", self.verdict(UNGROUNDED, "昭和50年"))
-            r = f.apply("replay_opening", {"part": "own", "answer": "弊社の創業は昭和50年でございます。"})
+            r = f.apply("replay_opening", {"part": "no_answer", "answer": "弊社の創業は昭和50年でございます。"})
         self.assertEqual((r["play"][0]["text"], r["ack"], f.facts["callee_question"][-1]["answered"]), (OWN_FALLBACK, None, False))
+
+    def test_answerable_question_without_the_same_words_gets_the_line_the_ai_chose(self):
+        # お客様の言葉に、業務の情報と同じ言葉が無い（「何時までやってます？」）：答えの文が使えなければ、AIが答えと一緒に選んだ、答えのもとにした
+        # 知っていることの文をそのまま言う（⛔ 前は言葉の重なりで選び「申し伝えます」の一言になった＝答えられて当たり前の問いに答えない）。
+        # 選べる文は操作の宣言にも並ぶ（声に出す形＝名前の読みに置き換えた形）
+        from flowctl import ARG_LABEL, TALK_LABEL, tool_declarations
+        f, b = self.flow()
+        self.assertEqual(f.known_lines(), ["弊社の本社は東京都「みなとく」にございます。", "営業時間は平日の9時から18時です。"])
+        self.heard(f, "そちらって何時までやってます？")
+        r = f.apply("replay_opening", {"part": "own", "answer": "平日でしたら18時まで営業しております。",
+                                       "fallback": "営業時間は平日の9時から18時です。"})   # 判定が届かなかった
+        self.assertEqual((r["result"], r["say"], r["ack"]), ("own_answer", "営業時間は平日の9時から18時です。", "hai"))
+        decl = {d.name: d for d in tool_declarations(b.questions, known=tuple(f.known_lines()))[0].function_declarations}["replay_opening"]
+        self.assertEqual(decl.parameters.properties[ARG_LABEL["fallback"]].enum, list(TALK_LABEL.values()) + f.known_lines())
 
     def test_unchecked_words_are_not_spoken(self):
         # 中身の判定の読みが届かなかった（待つ長さを過ぎた・止まっている）文は、声に出さない。書き直させても判定は速くならないので、1回目で
@@ -6876,7 +6896,7 @@ class OwnWordsTest(unittest.TestCase):
         self.assertEqual(f.facts["callee_question"][-1]["drafts"], [{"text": "キャンセル料はかかりませんので、ご安心ください。", "problem": UNCHECKED}])
         f, b = self.flow()
         self.heard(f, "営業時間は何時までですか？")
-        r = f.apply("replay_opening", {"part": "own", "answer": "営業時間は夜8時までです。"})
+        r = f.apply("replay_opening", {"part": "own", "answer": "営業時間は夜8時までです。", "fallback": "営業時間は平日の9時から18時です。"})
         self.assertEqual((r["result"], r["say"], r["ack"]), ("own_answer", "営業時間は平日の9時から18時です。", "hai"))
 
     def test_no_questions_in_own_words_and_no_names_to_the_judge(self):
@@ -6908,11 +6928,13 @@ class OwnWordsTest(unittest.TestCase):
         self.heard(f, "営業時間を教えてください。")
         for text in ("営業時間は平日の9時から18時です。", "アオバ物流の営業時間は平日の9時から18時です。", "弊社は港区にございます。",
                      "そちらはお答えいたしかねます。", "担当の者から改めてご連絡いたします。"):
-            self.assertIsNone(f.grounding_job("replay_opening", {"part": "own", "answer": text}), text)
+            self.assertIsNone(f.grounding_job("replay_opening", {"part": "own", "answer": text, "fallback": "営業時間は平日の9時から18時です。"}), text)
+        self.assertIsNotNone(f.grounding_job("replay_opening", {"part": "own", "answer": "平日でしたら18時まで営業しております。",
+                                                                "fallback": "営業時間は平日の9時から18時です。"}))   # 聞く文
         self.assertIsNone(f.grounding_job("record_answer", {"question_id": "Q1", "condition_id": "答えた"}))
-        r = f.apply("replay_opening", {"part": "own", "answer": "営業時間は、平日の9時から18時です"})
+        r = f.apply("replay_opening", {"part": "own", "answer": "営業時間は、平日の9時から18時です", "fallback": "営業時間は平日の9時から18時です。"})
         self.assertEqual((r["result"], f.facts["callee_question"][-1]["checked"]), ("own_answer", "knowledge"))
-        self.assertIsNone(f.grounding_job("replay_opening", {"part": "own", "answer": "ほかの文です。"}))  # もう答えた発話
+        self.assertIsNone(f.grounding_job("replay_opening", {"part": "own", "answer": "ほかの文です。", "fallback": "営業時間は平日の9時から18時です。"}))  # もう答えた発話
         # そのままの文：かっこ・句読点は見ない。8字以上なら、知っていることの文の一部でもよい。短い相づちは、そのままの文ではない
         know = b.knowledge()
         self.assertTrue(verbatim("「平日の9時から18時です」", know))
@@ -6922,7 +6944,7 @@ class OwnWordsTest(unittest.TestCase):
         f, b = self.flow()
         self.heard(f, "御社はどちらにあるんですか？")
         f.on_grounded("弊社の本社は東京都港区にございます。", self.verdict(GROUNDED))
-        r = f.apply("replay_opening", {"part": "own", "answer": "弊社の本社は東京都港区にございます。"})
+        r = f.apply("replay_opening", {"part": "own", "answer": "弊社の本社は東京都港区にございます。", "fallback": "弊社の本社は東京都「みなとく」にございます。"})
         self.assertEqual(r["result"], "rejected")
         self.assertIn("「みなとく」", r["message"])
 

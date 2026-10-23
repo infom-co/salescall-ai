@@ -1462,7 +1462,7 @@ class Flow:
             args = {**args, "part": ANSWER_PREFIX + args["part"]}  # 想定問答の問いの名前 ⇒ 録音の部分の名前
         if name not in OPS:
             reply = self._reject(f"その操作はありません（使える操作は {'・'.join(OPS)}）。")
-        elif why := self._check_args(name, args, {ANSWER_PREFIX + k for k in self.answers}):
+        elif why := self._check_args(name, args, {ANSWER_PREFIX + k for k in self.answers}, set(self.known_lines())):
             reply = self._reject(why)
         elif self._asking_now() and not (name == "request_end" or (name == "replay_opening" and args.get("part") != "handover")
                                          or self._offer_while_asking(name, args)):
@@ -1614,7 +1614,7 @@ class Flow:
         return "hai"
 
     @staticmethod
-    def _check_args(name: str, args: dict, answer_parts: set = frozenset()) -> str | None:
+    def _check_args(name: str, args: dict, answer_parts: set = frozenset(), known: set = frozenset()) -> str | None:
         """宣言（OP_ARGS）に合わない報告は、記録を書き換える前に、どこが違うかを言って差し戻す。合っていれば None。
         ⛔ 2026-10-13 G-26・G-28：AIが項目名を書き違えた報告（「与えの返事」）を、そのまま受け取っていた。返事の種類が無いので
            「相手が答えなかった」とされ、相手が「はい」と認めた値が「-」になった（4回。どれも黙って起きた）。
@@ -1630,7 +1630,7 @@ class Flow:
             if not (args.get(k) or "").strip():
                 return f"{name} には「{ARG_LABEL[k]}」が要ります（使える項目は {usable}）。"
         for k, table in _ENUM_ARGS.items():
-            if k in args and args[k] not in table and not (k == "part" and args[k] in answer_parts):
+            if k in args and args[k] not in table and not (k == "part" and args[k] in answer_parts) and not (k == "fallback" and args[k] in known):
                 return f"{ARG_LABEL[k]}「{table.get(args[k], args[k])}」は選べません（選べるのは {'、'.join(table.values())}）。"
         return None
 
@@ -2165,8 +2165,8 @@ class Flow:
           判定に聞かない（grounding.verbatim）。中身の判定が届かなかった文は、声に出さず、書き直させずに受け皿へ（UNCHECKED）。
         - それでも通らなければ、問いの種類で受け皿を分ける（✅ 2026-10-22 ユーザー（5回目）：「お客様から見ても、それは答えられないだろうなと思う
           ような質問ならそれでよいが、それは答えられなかったらおかしいだろうと思われる内容や、世間話に近いような…では、別の対処が必要」）：
-          答えを持っていない質問＝断らない一言の録音（phrases.OWN_FALLBACK）／自分で答える質問＝知っていることの文のうち、お客様の言葉に
-          いちばん近い文をそのまま言わせる（無ければ一言の録音）／受け答え＝AIが返す文と一緒に選んだ一言（fallback＝phrases.TALK_FALLBACK）の録音
+          答えを持っていない質問＝断らない一言の録音（phrases.OWN_FALLBACK）／自分で答える質問＝AIが答えの文と一緒に選んだ、答えのもとにした
+          知っていることの文（fallback）をそのまま言わせる／受け答え＝AIが返す文と一緒に選んだ一言（fallback＝phrases.TALK_FALLBACK）の録音
           （✅ 2026-10-23 ユーザー：「（言葉を足さずに「はい、」で質問に戻るのは）お客様の気分を害する返答だということがわからないんですか？
           前回も言ったことが全く理解できていないんじゃないですか？」⛔ 前は、受け答えの受け皿で何も返さずに、いまの質問へ戻っていた）
         - 答えたあと、相手の返事を聞いてから「質問に戻る」でいまの位置へ戻る（_resume・_continue）
@@ -2176,10 +2176,8 @@ class Flow:
         if not (answer or "").strip():
             return self._reject(f"言う文（自分の言葉で、短く1〜2文）を「{ARG_LABEL['answer']}」に書いて、もう一度呼んでください（声に出すのは、"
                                 "プログラムの返事のあとです）。")
-        if part == "talk" and fallback not in TALK_FALLBACK:
-            # 受け皿でも、お客様の言葉に応える一言が要る（返す文が使えないとわかってから選ばせると、相手をもう1回待たせる）
-            return self._reject(f"「{PART_LABEL['talk']}」では、返す文が使えないときに流す一言も「{ARG_LABEL['fallback']}」で選んで、"
-                                "もう一度呼んでください（" + "、".join(f"{t}＝{w}" for t, w in TALK_FALLBACK.values()) + "）。")
+        if why := self._fallback_missing(part, fallback):
+            return self._reject(why)
         from grounding import GROUNDED, Verdict, verbatim
         kind, answer = part, answer.strip()
         verdict = Verdict(GROUNDED) if verbatim(answer, self.knowledge) else self._grounded(answer)
@@ -2216,8 +2214,8 @@ class Flow:
             return {"result": "own_answer", "say": answer, "message": f"「{answer}」とだけ言います（言葉を足しません）。{self._own_then()}"}
         said, play = answer, None
         if problem:
-            line = self._known_line() if kind == "own" else None
-            said, play = (line, None) if line else (OWN_FALLBACK, {"kind": "recorded", "id": "own_fallback", "text": OWN_FALLBACK})
+            # 自分で答える質問＝AIが選んだ、答えのもとにした知っていることの文そのまま（確かめなくてよい）／答えを持っていない質問＝断らない一言の録音
+            said, play = (fallback, None) if kind == "own" else (OWN_FALLBACK, {"kind": "recorded", "id": "own_fallback", "text": OWN_FALLBACK})
         self.own_pending = kind
         # 答えに添えられた質問は、もう記録してある（_advance）＝同じ発話の記録に書き足す
         entry = {"answered": kind == "own" and (not problem or said != OWN_FALLBACK), "answer": said, **drafts, **checked}
@@ -2254,8 +2252,8 @@ class Flow:
         answer = (a.get("answer") or "").strip()
         if name != "replay_opening" or a.get("part") not in OWN_PARTS or not answer or self.own_turn == self.callee_turns:
             return None
-        if a.get("part") == "talk" and a.get("fallback") not in TALK_FALLBACK:
-            return None  # 使えないときの一言が無い受け答えは差し戻す（_own_answer）＝判定に聞かない
+        if self._fallback_missing(a.get("part"), a.get("fallback")):
+            return None  # 使えないときの一言が無い受け答え・自分で答える質問は差し戻す（_own_answer）＝判定に聞かない
         from grounding import verbatim
         if verbatim(answer, self.knowledge) or self._grounded(answer) is not None:
             return None
@@ -2273,14 +2271,25 @@ class Flow:
         got[answer.strip()] = verdict
         self.grounded = (self.callee_turns, got)
 
-    def _known_line(self) -> str | None:
-        """自分で答える質問の受け皿：知っていることの文（業務の情報・想定問答の答え）のうち、お客様の言葉と同じ名詞がいちばん多い文（無ければ None）。"""
-        from jtext import words
-        said = {w.surface for w in words(self.callee_said or "") if getattr(w.feature, "pos1", "") == "名詞" and len(w.surface) > 1}
-        lines = [k.split("：", 1)[1] for k in self.knowledge if k.startswith(("業務の情報：", "想定問答の答え"))]
-        scored = [(len(said & {w.surface for w in words(x) if getattr(w.feature, "pos1", "") == "名詞"}), x) for x in lines]
-        best = max(scored, default=(0, None))
-        return best[1] if best[0] > 0 else None
+    def known_lines(self) -> list[str]:
+        """自分で答える質問の受け皿に使える、知っていることの文（業務の情報・想定問答の答え。名前の読みに置き換えた、声に出す形）。AIは、答えのもとに
+        した文を、答えの文と一緒に「使えないときの一言」で選ぶ（操作の宣言＝tool_declarations の known）。"""
+        return [k.split("：", 1)[1] for k in self.knowledge if k.startswith(("業務の情報：", "想定問答の答え"))]
+
+    def _fallback_missing(self, part: str | None, fallback: str | None) -> str | None:
+        """受け答え・自分で答える質問で、返す文が使えないときの一言が選ばれていなければ、その差し戻しの理由（_own_answer・grounding_job の1か所）。
+        受け皿でも、お客様の言葉に応える（✅ 2026-10-23 ユーザー：言葉を足さずに「はい、」で質問に戻るのは「お客様の気分を害する返答」・答えられる問いは
+        答える＝例2「OK」）。どれで応えるかは、お客様の言葉を聞いた会話AIが、答えの文と一緒に選ぶ（使えないとわかってから選ばせると、相手をもう
+        1回待たせる）。⛔ 2026-10-23 の見直し：自分で答える質問の受け皿の文を、お客様の言葉と同じ名詞の数で選んでいた（`_known_line`）＝「何時まで
+        やってます？」では「営業時間」の言葉が無く、答えがあるのに「申し伝えます」の一言になった。AIの答えの文の名詞を足すと、「御社の創業は
+        何年ですか？」に「弊社」の重なりで本社の所在地の文を選んだ ⇒ 言葉の重なりで選ぶ形は撤去し、意味の分かる会話AIに選ばせる"""
+        if part == "talk" and fallback not in TALK_FALLBACK:
+            return (f"「{PART_LABEL['talk']}」では、返す文が使えないときに流す一言も「{ARG_LABEL['fallback']}」で選んで、もう一度呼んでください（"
+                    + "、".join(f"{t}＝{w}" for t, w in TALK_FALLBACK.values()) + "）。")
+        if part == "own" and fallback not in self.known_lines():
+            return (f"「{PART_LABEL['own']}」では、答えのもとにした業務の情報の文を「{ARG_LABEL['fallback']}」で選んで、もう一度呼んでください"
+                    f"（業務の情報に答えが無ければ「{PART_LABEL['no_answer']}」です）。")
+        return None
 
     def _answer_choices(self) -> str:
         """相手の質問に答える部分の一覧（AIへの知らせの文。_asking_note・_answer の1か所）。"""
@@ -3444,9 +3453,10 @@ class Flow:
         return {qid: it.hedged for qid, it in self.items.items() if it.state in GOT and it.hedged and not self.questions[qid].callback}
 
 
-def tool_declarations(questions: list[Question], replay: bool = False, target: bool = False, answers: tuple = ()):
+def tool_declarations(questions: list[Question], replay: bool = False, target: bool = False, answers: tuple = (), known: tuple = ()):
     """AIが呼べる操作（6-2）の宣言を作る唯一の場所。条件の選択肢は、質問の宣言＋システムの2つ。
-    target：目的の人のある業務か（相手の種別に、受付・目的の人を足す。DESIGN.md 4-3）。
+    target：目的の人のある業務か（相手の種別に、受付・目的の人を足す。DESIGN.md 4-3）。known：自分で答える質問の受け皿に選べる、知っていることの文
+    （Flow.known_lines）。
     ⛔ 2026-10-14 G-33：答えの報告を「返事を待たない」宣言にする形は採らない（AIが受けの言葉を先に言わなかった）。"""
     from google.genai import types
 
@@ -3487,7 +3497,8 @@ def tool_declarations(questions: list[Question], replay: bool = False, target: b
            + f"エーアイか・人間かと聞かれた＝「{PART_LABEL['ai']}」（何と言うかはプログラムが決めます）。相手からそのほかの質問をされた＝"
            "想定問答にある問いならその名前" + "".join(f"（「{n}」）" for n in answers)
            + f"、無ければ、業務の情報にあることなら「{PART_LABEL['own']}」・業務の情報にも無いことなら「{PART_LABEL['no_answer']}」（この2つは、"
-           f"自分の言葉で答える文を「{ARG_LABEL['answer']}」に書きます。声に出すのは返事のあと。番号をどこで知ったか・金額・会社のことなどは"
+           f"自分の言葉で答える文を「{ARG_LABEL['answer']}」に書きます。「{PART_LABEL['own']}」では、答えのもとにした業務の情報の文を"
+           f"「{ARG_LABEL['fallback']}」で選びます＝答えの文が使えないとき、その文をそのまま言います。声に出すのは返事のあと。番号をどこで知ったか・金額・会社のことなどは"
            f"「{PART_LABEL['purpose']}」では答えません）。質問ではない言葉（あいさつ・お礼・気遣い・世間話・お客様のお話）に、ひとこと返したい＝"
            f"「{PART_LABEL['talk']}」（返す文を「{ARG_LABEL['answer']}」に書き、返す文が使えないときに流す一言を「{ARG_LABEL['fallback']}」から、"
            "お客様の言葉にいちばん合うものを選びます：" + "、".join(f"{t}＝{w}" for t, w in TALK_FALLBACK.values())
@@ -3496,7 +3507,9 @@ def tool_declarations(questions: list[Question], replay: bool = False, target: b
            {A["part"]: s([v for k, v in PART_LABEL.items() if replay or k in ("ai", "resume") + OWN_PARTS or (target and k == "handover")]
                          + list(answers)),
             A["answer"]: s(desc="自分の言葉で言う文（短く1〜2文。こちらについての事実は業務の情報にあることだけ。名前・約束・お客様への問いかけを入れない）"),
-            A["fallback"]: s(list(TALK_LABEL.values()), desc=f"「{PART_LABEL['talk']}」のときだけ：返す文が使えないときに流す一言")},
+            A["fallback"]: s(list(TALK_LABEL.values()) + list(known),
+                             desc=f"「{PART_LABEL['talk']}」「{PART_LABEL['own']}」のときだけ：返す文が使えないときの一言（受け答えは決まった一言・"
+                                  "自分で答える質問は、答えのもとにした業務の情報の文）")},
            [A["part"]]),
         fd("report_party", "電話に出たのが人ではないとき（留守番電話の案内・自動音声の案内・ファクスの音）や、番号違い（かけた先とは別の人・別の会社）"
            "だったときに知らせる" + ("。受付の方が出た・目的の人に代わった・電話口の方が目的の人の代わりに伺うと言った（代わりの方）・"
