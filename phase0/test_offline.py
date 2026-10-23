@@ -1689,8 +1689,23 @@ class AskingMuteTest(unittest.TestCase):
     def test_answer_is_reported_before_the_question_is_answered(self):
         # 相手が答えと質問を一緒に言い、AIが先に答え方の操作を呼んだ：判定がいまの質問の答えと読んでいれば、1回だけ差し戻して答えを先に報告させる
         # （答えに添えられた質問の1つの道に入る）。⛔ G-57 tc36：先に「用件」を選び、相手がもう答えた質問の録音が、もう一度流れた
-        f = self.flow()
-        f.on_callee(); f.on_heard("はい、予約しています。当日はどなたが担当されるんですか？"); f.on_check("judge", "はい")
+        from flowctl import UNDECIDED
+
+        def two():
+            f = self.flow()
+            f.use_checks("judge", "judge2")
+            f.on_callee(); f.on_heard("はい、予約しています。当日はどなたが担当されるんですか？")
+            return f
+        # 使っている判定（違う会社の2つ）が全部届いて、どちらも同じ答えと読んだときだけ（⛔ 2026-10-23 tc40：判定1つの読み違い「Ja.」＝はい
+        # からAIに答えを報告させ、その報告と同じ判定の読みがそろったことになって受け取られた）。待つ間は判定を全部待つ
+        f = two()
+        self.assertTrue(f.waits_every("replay_opening", {"part": "talk"}))
+        self.assertFalse(f.waits_every("replay_opening", {"part": "resume"}))
+        f.on_check("judge", "はい")
+        self.assertNotEqual(f.apply("replay_opening", {"part": "talk", "answer": "本当に暑いですね。"})["result"], "rejected")  # 1つだけ
+        f = two(); f.on_check("judge", "はい"); f.on_check("judge2", UNDECIDED)
+        self.assertNotIn("先に record_answer", f.apply("replay_opening", {"part": "no_answer", "answer": "x"})["message"])   # 食い違う
+        f = two(); f.on_check("judge", "はい"); f.on_check("judge2", "はい")
         r = f.apply("replay_opening", {"part": "no_answer", "answer": "当日の担当につきましては担当の者に申し伝えます。"})
         self.assertEqual(r["result"], "rejected")
         self.assertIn("先に record_answer", r["message"])
@@ -1698,8 +1713,7 @@ class AskingMuteTest(unittest.TestCase):
         r = f.apply("replay_opening", {"part": "no_answer", "answer": "当日の担当につきましては担当の者に申し伝えます。"})
         self.assertEqual(r["result"], "own_answer")                                 # 答えを受け取ったあとは通す
         # 同じ発話の2回目は通す（判定の読み違いで、質問に答えられなくならないように）。そのあと答えを報告しても、同じ質問にもう一度答えさせない
-        g = self.flow()
-        g.on_callee(); g.on_heard("はい、予約しています。当日はどなたが担当されるんですか？"); g.on_check("judge", "はい")
+        g = two(); g.on_check("judge", "はい"); g.on_check("judge2", "はい")
         g.apply("replay_opening", {"part": "no_answer", "answer": "当日の担当につきましては担当の者に申し伝えます。"})
         r = g.apply("replay_opening", {"part": "no_answer", "answer": "当日の担当につきましては担当の者に申し伝えます。"})
         self.assertEqual(r["result"], "own_answer")

@@ -290,7 +290,8 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
         grounding = (asyncio.create_task(grounder(*job)), loop.time()) if job is not None else None
         if flow.wants_checks(fc.name, fc.args):
             binding = flow.binding(fc.name, fc.args)
-            await hold(ear_too=True, every=binding, play_for=(lambda: flow.hold_play(fc.name, fc.args)) if binding else None)
+            await hold(ear_too=True, every=flow.waits_every(fc.name, fc.args),
+                       play_for=(lambda: flow.hold_play(fc.name, fc.args)) if binding else None)
         if grounding is not None:
             await ground(job[2], *grounding)
         return flow.handle_call(fc, midway)

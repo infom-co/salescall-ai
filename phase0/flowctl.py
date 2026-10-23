@@ -1391,6 +1391,13 @@ class Flow:
                                             or (name == "replay_opening" and a.get("part") == "handover")
                                             or name == "request_callback")
 
+    def waits_every(self, name: str, args: dict | None = None) -> bool:
+        """報告を待たせる間に、意味の判定を全部待つか（電話接続側。早く届いたほうで決めない）：取り消せない報告（binding）と、いまの質問の答えが
+        入っているかもしれない間の答え方の操作（答えを先に報告させるかは、判定がそろったときだけ＝_judged_answer）。"""
+        a = self._args_in(dict(args or {}))
+        return self.binding(name, a) or (name == "replay_opening" and a.get("part") not in ("resume", "handover")
+                                          and self._answer_may_come_first())
+
     # ── AIの操作を受ける唯一の入口（AIに見せる言葉＝日本語）。ここで1回だけ中の名前に置き換え、返事を日本語に戻す。
     #    相づち（ack）は電話接続側が流すもので、AIには見せない（AIの返事から外す）
     def handle(self, fc, midway: bool = False) -> dict:
@@ -2061,11 +2068,24 @@ class Flow:
         ⛔ 2026-10-22 の4回目の流し（G-57 tc36・答えに添えられた質問の S2・L4）：AIが先に「用件」の流し直しを選んだので、相手がもう答えた
            いまの質問（「ご予約はされていますでしょうか？」）の録音が、もう一度流れた"""
         q = self.questions.get(self.current) if self.current else None
-        if not self._answer_may_come_first() or self.meaning_said not in q.conditions:
+        if not self._answer_may_come_first() or self._judged_answer(q) is None:
             return None
         self.answer_first_turn = self.callee_turns
         return (f"相手の言葉は、いまの質問 {q.id} への答えでもあります（意味の判定：「{self.meaning_said}」）。先に record_answer で答えを"
                 "報告してください（相手の質問に答える番は、そのあとプログラムが伝えます）。")
+
+    def _judged_answer(self, q: "Question") -> str | None:
+        """いまの相手の言葉を、使っている意味の判定が全部届いて、どれもいまの質問の同じ選択肢と読んだ：その選択肢（_answer_first の1か所）。
+        判定が2つ未満・届いていない判定がある・食い違う ⇒ None（答えを先に報告させない）。
+        ⛔ 2026-10-23 G-57 tc40（世間話・L4）：会話AIが「いや、」を「Ja.」と聞き取り、早く届いた判定1つがそれを予約の質問への「はい」と読んだ。
+           答えを先に報告させたので、AIは自分の受け答えの文を値にして「はい」と報告し、その報告と同じ判定の読みが「そろった」ことになって
+           受け取られた（もう1つの判定は、同じ言葉を「決められない」と読んだ）＝判定の読みからAIの報告を作ると、その報告は判定と独立でない
+           ⇒ 違う会社の判定がそろって読んだときだけにする（待つ間は判定を全部待つ＝waits_every）"""
+        used = [k for k in JUDGMENTS if k in self.checks_used]
+        got = [self.check.get(k) for k in used]
+        if len(used) < 2 or any(g is None for g in got) or len(set(got)) != 1 or got[0] not in q.conditions:
+            return None
+        return got[0]
 
     def _answer(self, part: str) -> dict:
         """相手の質問に、想定問答の答え（業務設定。Intent.md 5-3 (2)。依頼主の単位の録音）で答える（唯一の場所。呼んでいる段でも、答えの段でも）。
