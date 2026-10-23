@@ -45,6 +45,39 @@ def kind(table: str = "") -> str:
     return f"salescall.dial_kind({t}state, {t}cut_off, {t}attempt_id)"
 
 
+def kind_of(tx: Tx, attempt_id: UUID) -> str | None:
+    """その試行の数え方の種類（`kind` と同じ決まり＝salescall.dial_kind）。"""
+    return tx.one(f"SELECT {kind()} AS k FROM salescall.attempts WHERE attempt_id = %s", (attempt_id,))["k"]
+
+
+def resume_allowed(tx: Tx, task_id: UUID) -> bool:
+    """その行のいちばん新しい発信（途中で切れた通話）のあと、お詫びしてすぐかけ直してよいか（決まりはデータベースの1か所
+    salescall.resume_allowed＝続けて切れた数が salescall.resume_in_a_row() 回まで。2026-10-18 ユーザー 案A。数え方の dial_kind も
+    同じ数を読む＝すぐかけ直す回を超えて切れた通話は、ふつうの電話の回数に数える）。"""
+    row = tx.one(f"SELECT salescall.resume_allowed(attempt_id) AS ok FROM salescall.attempts WHERE task_id = %s AND {DIALED}"
+                 " ORDER BY claimed_at DESC LIMIT 1", (task_id,))
+    return bool(row and row["ok"])
+
+
+def failed_in_a_row(tx: Tx, contact_id: UUID) -> int:
+    """その番号（依頼者の連絡先。どの行・どの回線でも）への、いちばん新しい発信から続けて、発信に失敗した（回線の部品が受け付け
+    なかった＝お客様のところで鳴っていない）発信の数（決まりはデータベースの1か所 salescall.failed_in_a_row）。"""
+    return tx.one("SELECT salescall.failed_in_a_row(%s) AS n", (contact_id,))["n"]
+
+
+def failed_retry_days(tx: Tx, **scope: Any) -> list[int]:
+    """発信に失敗が続いたときに、同じ番号へ何日目にかけるかの並び（設定 dial.failed_retry_days。1＝最初に失敗した日。並びの数が、
+    続けて受け付けられなければその番号へかけない回数）。"""
+    return [int(d) for d in settings.resolve(tx, "dial.failed_retry_days", **scope)]
+
+
+def number_unusable(tx: Tx, contact_id: UUID, **scope: Any) -> bool:
+    """その番号へは、もうかけないか（1か所。門と次の動きの両方が読む）：発信に失敗が、並び（`failed_retry_days`）の数だけ続いた
+    （2026-10-22 深夜 ユーザー：「同じ番号で続けて当日2回＆翌日1回、さらに2日後1回の計4回受け付けられなかったら、その番号へは
+    かけない」）。"""
+    return failed_in_a_row(tx, contact_id) >= len(failed_retry_days(tx, **scope))
+
+
 def reached(table: str = "") -> str:
     """お客様に届いた1回の条件（SQL。1か所）：同じお客様への最小の間隔・番号の聞き直しとお詫びの電話の回数・業務ごとの1日の
     上限が数える（お客様の意思と関係なく繋がらなかった・切れた発信と、発信に失敗は数えない）。"""
@@ -244,7 +277,7 @@ def record_disconnect(tx: Tx, attempt_id: UUID, disconnect: Literal["normal", "r
 
 def record_cut_off(tx: Tx, attempt_id: UUID, cut_off: bool) -> None:
     """締めの処理（core/settle.py）だけが呼ぶ。途中で切れたか（決めるのは judge.cut_off の1か所）を、終わった試行に1回だけ
-    記録する（続けて何回、途中で切れたかを数える＝core/next_action の _cut_in_a_row）。"""
+    記録する（続けて何回、途中で切れたかを数える＝データベースの salescall.cuts_in_a_row）。"""
     row = tx.one("UPDATE salescall.attempts SET cut_off = %s WHERE attempt_id = %s RETURNING attempt_id", (cut_off, attempt_id))
     if row is None:
         raise AttemptNotFound(str(attempt_id))

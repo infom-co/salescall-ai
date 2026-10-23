@@ -215,6 +215,24 @@ class Rounds(SupervisorBase):
         got = line.one_round(self.w.a, SYSTEM, t["tenant"], t["line"], HOLDER, FakeDriver(busy=True), Runner())
         self.assertEqual((got.called, got.pause), (None, "line_in_call"))
 
+    def test_a_call_that_ends_before_the_answer_on_the_line_side_counts_as_a_line_fault(self):
+        """お客様が出る前に、回線の側で終わった通話（結果不明。どの回数にも数えない）は、回線の異常として数える（続けば、その回線を
+        止めて知らせる＝数えない電話の歯止め。2026-10-22 深夜 ユーザー「回線の異常が続いたら回線を止める仕組み：OK」。⛔ 見直し16：
+        前は数えず、知らせも無く続いた）。お客様が出たあとの結果不明・ふつうに終わった通話は数えない。"""
+        class Before(Runner):
+            def run(self, access, actor, claim, *, tenant_id, client_id):
+                access.in_client(actor, tenant_id, client_id, lambda tx: (attempts.move(tx, claim.attempt_id, "ringing"),
+                                                                          attempts.move(tx, claim.attempt_id, "technical_error")))
+        faults = lambda s: [r["kind"] for r in self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: tx.all(   # noqa: E731
+            "SELECT kind FROM salescall.error_events WHERE line_id = %s", (s["line"],)))]
+        s = self.ready()
+        got = line.one_round(self.w.a, SYSTEM, s["tenant"], s["line"], HOLDER, FakeDriver(), Before())
+        self.assertIsNotNone(got.called)
+        self.assertEqual(faults(s), ["line"])
+        t = self.ready()
+        line.one_round(self.w.a, SYSTEM, t["tenant"], t["line"], HOLDER, FakeDriver(), Runner())
+        self.assertEqual(faults(t), [])
+
     def test_a_line_stuck_in_a_call_counts_as_a_line_fault(self):
         """回線が「通話中」のまま（電話の部品が答えない も）、かけられない状態が通話の最長より長く続いたら、回線の異常として数える
         （続けば、処置の表のとおり、回線を止めて知らせる）。⛔ 2026-10-22 の見直し15：前は休み続けるだけで、だれにも知らされなかった。"""
@@ -456,6 +474,29 @@ class Rounds(SupervisorBase):
             line.CANDIDATES_PER_CLIENT = old
         self.assertEqual(self.tx(s, lambda tx: tx.one("SELECT task_id FROM salescall.attempts WHERE attempt_id = %s",
                                                       (got.called,)))["task_id"], task_b)
+
+    def test_a_run_whose_version_cannot_call_is_skipped_without_rewriting_its_rows(self):
+        """実施回の版の理由（ここでは、まだかけられる段の前＝version_not_ready）で門が断った行は、この回だけその実施回を飛ばし、
+        予定は書き直さない（gate.STAGE_REASONS・RUN_REASONS。⛔ 見直し16：前は断るたびに次の動きが予定を5分先へ書き直し、待つ
+        あいだ記録が増え続けた）。同じ依頼者のほかの実施回の行はかける。"""
+        s = self.ready()
+        b, v = self.w.business_with_version(s["tenant"], s["client"])   # 段を開いていない版＝まだかけられない
+        self.tx(s, lambda tx: business_rules.save(tx, v, rules_raw()), OPERATOR)
+        k = self.w.contact(s["tenant"], s["client"], normalize(fictional_jp_fixed()).e164)
+        waiting = self.w.task(s["tenant"], s["client"], self.w.run(s["tenant"], s["client"], b, v), k)
+        self.tx(s, lambda tx: next_action.schedule_now(tx, waiting, cause="試験：まだかけられない版の行を先頭に"))
+        self.tx(s, lambda tx: next_action.schedule_now(tx, s["task"], cause="試験"))
+        count = lambda: self.tx(s, lambda tx: tx.one(   # noqa: E731
+            "SELECT count(*) AS n FROM salescall.task_next_actions WHERE task_id = %s", (waiting,))["n"])
+        before = count()
+        old, line.CANDIDATES_PER_CLIENT = line.CANDIDATES_PER_CLIENT, 1
+        try:
+            got = line.one_round(self.w.a, SYSTEM, s["tenant"], s["line"], HOLDER, FakeDriver(), Runner())
+        finally:
+            line.CANDIDATES_PER_CLIENT = old
+        self.assertEqual(self.tx(s, lambda tx: tx.one("SELECT task_id FROM salescall.attempts WHERE attempt_id = %s",
+                                                      (got.called,)))["task_id"], s["task"])
+        self.assertEqual(count(), before)                                      # 待つ行の予定は書き直さない
 
     def test_a_failing_job_is_recorded_and_returned(self):
         s = self.ready()
@@ -941,10 +982,19 @@ class Drain(SupervisorBase):
             deadline = time.monotonic() + 5
             while not flag.exists() and time.monotonic() < deadline:
                 time.sleep(0.02)
-            self.assertTrue(main_mod.drain_asked(since))                        # 見守り役が印を見た（見たら消す）
+            token = main_mod.drain_asked(since)
+            self.assertTrue(token)                                              # 見守り役が印を見た（見たら消す）
             self.assertFalse(flag.exists())
             time.sleep(0.2)
             self.assertEqual(got, [])                                           # 止まるまで待つ
+        # 印のファイルを放したあと、止まり終えた印が書かれるまでのあいだも、命令は印のファイルを押さえない（その一瞬に動き出した
+        # 新しい見守り役が「もう動いている」と思って終わらない。⛔ 見直し16）
+        for _ in range(30):
+            with main_mod.SingleInstance(self.dir / main_mod.LOCK_FILE):
+                pass
+            time.sleep(0.01)
+        self.assertEqual(got, [])
+        main_mod.drained(token)                                                # 見守り役が止まり終えた
         asker.join(5)
         self.assertEqual(got, [True])                                          # 止まった
         flag.write_text(repr(since - 60))                                      # 動き出す前の印（前の回の残り）：止まらない

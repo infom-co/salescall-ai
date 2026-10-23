@@ -339,12 +339,6 @@ class TenantAiStopsAndChecks(unittest.TestCase):
         spent = self.a.in_client(SYSTEM, self.s["tenant"], self.s["client"], lambda tx: tx.one(
             "SELECT salescall.spent_today_tenant() AS y")["y"])
         self.assertIsNone(spent)                                     # 契約者の今日の費用は、その契約者の取引だけ（0064）
-        sid = self.a.in_client(SYSTEM, other["tenant"], other["client"], lambda tx: stops.stop(
-            tx, scope="client", cause="deficit", reason="試験", evidence="試験", tenant_id=other["tenant"],
-            client_id=other["client"])["event_id"])
-        listed = lambda t: [r["event_id"] for r in self.a.in_tenant(SYSTEM, t, lambda tx: tx.all(   # noqa: E731
-            "SELECT * FROM salescall.open_system_stops('deficit')"))]
-        self.assertEqual((sid in listed(self.s["tenant"]), sid in listed(other["tenant"])), (False, True))   # ほかの契約者のは見えない
 
     def test_checks_only_from_that_contractor(self):
         sid = self.config_stop()

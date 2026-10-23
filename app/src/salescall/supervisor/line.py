@@ -19,7 +19,8 @@
      今日の上限・時刻を指定された約束が、その業務の平均の長さのうちに来る）なら、その業務の行は、この回だけ飛ばす（同じ依頼者の
      ほかの業務の行はかける）。
 3. 予約証で発信の出口（dial_exit.dial）がかけ、通話を進める部品（CL-1）が最後まで進める。外へ出た誤りは、その試行を結果不明に
-   して「見守り役の誤り」として記録する（止めない）。回線がまだ前の通話の途中・回線の部品がかけられなかったときは、その回線を
+   して「見守り役の誤り」として記録する（止めない）。通話を進める部品が、お客様が出る前に回線の側で終わった（結果不明）として
+   戻ったときは、回線の異常として数える。回線がまだ前の通話の途中・回線の部品がかけられなかったときは、その回線を
    休ませる（かけられなかったことは、回線の異常として数える＝続けば、エラーの処置の表のとおり、その回線を止める）。
 4. **回線が「通話中」のまま（電話の部品が「通話中」と答え続ける・答えられない）で、かけられない状態が `STUCK_AFTER` 続いたら、
    回線の異常として数える**（`Stuck` の1か所。数える入口は、かけられなかったときと同じ `_line_fault`＝続けば、処置の表のとおり、
@@ -121,14 +122,17 @@ def _client_round(access: Access, actor: Actor, tenant_id: UUID, client_id: UUID
     業務の理由で断られた業務は、この回だけ飛ばし、その業務を除いて候補を読み直す（前は読み直さなかったので、上限に達した業務の
     行が候補の先頭を埋めると、同じ依頼者のほかの業務の行が1日じゅう候補に入らなかった＝2026-10-18 の見直し）。"""
     capped: set[UUID] = set()
+    runs: set[UUID] = set()      # 実施回の版の理由で断られた実施回（gate.RUN_REASONS）
+    staged: set[UUID] = set()    # 品質の段の理由で断られた実施回（gate.STAGE_REASONS。決まった文面だけの電話は出す）
     held = [] if held is None else held
     while True:
         tasks = access.in_client(actor, tenant_id, client_id,
                                  lambda tx: scheduler.due_tasks(tx, CANDIDATES_PER_CLIENT, skip_businesses=capped,
+                                                                skip_runs=runs, skip_stage=staged,
                                                                 promised_only=promised_only))
         newly = False
         for task in tasks:
-            if task["business_id"] in capped:
+            if task["business_id"] in capped or task["run_id"] in runs:
                 continue
             got = access.in_client(actor, tenant_id, client_id,
                                    lambda tx, task=task: _claim(tx, task, line_id, holder, tenant_id, client_id))
@@ -149,6 +153,12 @@ def _client_round(access: Access, actor: Actor, tenant_id: UUID, client_id: UUID
                             dial_exit.abandon(driver)
                             report(access, tenant_id, "通話を進める部品",
                                    RuntimeError("通話を終えないまま戻りました"), line_id=line_id)
+                        elif access.in_client(actor, tenant_id, client_id,
+                                              lambda tx: attempts.kind_of(tx, got.attempt_id)) == "line_failure":
+                            # お客様が出る前に、回線の側で終わった（結果不明。数え方の line_failure＝どの回数にも数えない）：回線の
+                            # 異常として数える（続けば、その回線を止めて知らせる。数えない電話の歯止め＝2026-10-22 深夜 ユーザー
+                            # 「回線の異常が続いたら回線を止める仕組み：OK」。⛔ 見直し16：前は数えず、知らせも無く続いた）
+                            _line_fault(access, actor, tenant_id, line_id, "お客様が出る前に、回線の側で通話が終わった（結果不明）")
                     return Round(called=got.attempt_id, free=True)
                 if done is dial_exit.Outcome.NOT_PLACED:   # 回線の異常として数える（続けば、その回線を止める）
                     _line_fault(access, actor, tenant_id, line_id, "回線の部品が電話をかけられなかった")
@@ -166,6 +176,12 @@ def _client_round(access: Access, actor: Actor, tenant_id: UUID, client_id: UUID
                 return None
             if got.reason in gate.BUSINESS_REASONS:
                 capped.add(task["business_id"])
+                newly = True
+            if got.reason in gate.RUN_REASONS:
+                runs.add(task["run_id"])
+                newly = True
+            if got.reason in gate.STAGE_REASONS and task["run_id"] not in staged:
+                staged.add(task["run_id"])
                 newly = True
         if not newly:
             return None

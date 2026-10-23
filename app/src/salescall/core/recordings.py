@@ -58,9 +58,12 @@ def release(tx: Tx, attempt_ids: list[UUID], reason: str, *, measurement: str) -
                       (measurement, list(attempt_ids), reason)))
 
 
-def add_voice(tx: Tx, voice_name: str, *, note: str) -> None:
-    """声の一覧に声を足す（会話AIのモデルが進化して声が増えたとき。管理者だけ＝データベースが守る）。話し方（声の型）は CL-1 が足す。"""
-    tx.execute("INSERT INTO salescall.voices (voice_name, note) VALUES (%s, %s)", (voice_name, note))
+def add_voice(tx: Tx, voice_name: str, *, note: str, display_gender: str | None) -> None:
+    """声の一覧に声を足す（会話AIのモデルが進化して声が増えたとき。管理者だけ＝データベースが守る）。話し方（声の型）は CL-1 が足す。
+    display_gender：画面に出す性別の表示名（「男性」「女性」。分からなければ None。あとから変えない。Intent.md 9-8）。門は、ほかの
+    依頼者がこの番号へかけた声と替えるとき、できれば別の性別の声にする（core/gate.choose_voice）。"""
+    tx.execute("INSERT INTO salescall.voices (voice_name, note, display_gender) VALUES (%s, %s, %s)",
+               (voice_name, note, display_gender))
 
 
 def add_voice_type(tx: Tx, code: str, voice_name: str, *, default_for_voice: bool, note: str) -> None:

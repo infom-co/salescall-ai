@@ -21,7 +21,9 @@
 8. **止め方は1つ**（Ctrl+C・終わりの合図 SIGTERM・入れ替えの前の命令 `drain`）：新しい電話をかけず、いまの通話の終わりを最長
    `SHUTDOWN_WAIT` 待ち、回線を返して止まる。`drain`（`ask_drain`）は、機械の中の印のファイル（`DRAIN_FLAG`）で、動いている見守り役に
    頼み、止まるまで待って知らせる（入れ替えで通話をいきなり切らない。動かす所の仕組みの待つ長さの上限に頼らない＝⛔ 2026-10-22 の
-   見直し15）。動き出す前に置かれた印は、前の回の残りとして消す（次に動かしたとたんに止まらない）。
+   見直し15）。動き出す前に置かれた印は、前の回の残りとして消す（次に動かしたとたんに止まらない）。止まったことは、見守り役が
+   止まり終えたときに書く「止まった」の印（`DRAIN_DONE`。頼んだ印と同じ番号）で知る（⛔ 見直し16：前は、止まったかを印のファイルを
+   一瞬押さえて確かめていたので、その一瞬に動き出した新しい見守り役が「もう動いている」と思って終わりえた）。
 """
 
 from __future__ import annotations
@@ -56,6 +58,7 @@ __all__ = ["AlreadyRunning", "Supervisor", "serve", "holder_name"]
 # ときは、先に `drain` で止めておく（動かす所の仕組みの待つ長さに頼らない）
 SHUTDOWN_WAIT = CALL_WAIT
 DRAIN_FLAG = "salescall-supervisor.drain"   # 「新しい電話をかけずに、いまの通話が終わったら終わって」の印（機械の中。lock_dir）
+DRAIN_DONE = "salescall-supervisor.drained"  # 頼まれて止まり終えた印（中身は頼んだ印と同じ番号）
 DRAIN_WAIT = SHUTDOWN_WAIT + 120.0          # drain の命令が、止まるのを待つ長さ（止めるときの待ちに、仕事とつなぎ口の後始末の分を足す）
 
 
@@ -65,44 +68,57 @@ LOCK_FILE = "salescall-supervisor.lock"   # 1つの機械に1つだけ（機械�
 def ask_drain(wait_seconds: float = DRAIN_WAIT, every: float = 1.0) -> bool | None:
     """動いている見守り役に「新しい電話をかけずに、いまの通話が終わったら終わって」と頼み、止まるまで待つ（命令 `drain`。入れ替えの
     前に使う）。止まったら True、待っても止まらなければ False、動いていなければ None（印は置かない）。"""
-    lock, flag = lock_dir() / LOCK_FILE, lock_dir() / DRAIN_FLAG
+    lock, flag, done = lock_dir() / LOCK_FILE, lock_dir() / DRAIN_FLAG, lock_dir() / DRAIN_DONE
     try:
         with SingleInstance(lock):   # 押さえられた：動いていない
             return None
     except AlreadyRunning:
         pass
-    flag.write_text(repr(time.time()))
+    token = repr(time.time())
+    try:
+        done.unlink()                # 前の回の「止まった」の印
+    except OSError:
+        pass
+    flag.write_text(token)
     deadline = time.monotonic() + wait_seconds
-    while time.monotonic() < deadline:
+    while time.monotonic() < deadline:   # 待つあいだは印のファイルを押さえない（動き出す見守り役の邪魔をしない）
         time.sleep(every)
         try:
-            with SingleInstance(lock):   # 見守り役が止まって、印を放した
+            if done.read_text() == token:   # 見守り役が止まり終えた
                 return True
-        except AlreadyRunning:
+        except OSError:
             continue
     return False
 
 
-def drain_asked(since: float) -> bool:
-    """drain の印があるか（見たら消す）。since＝この見守り役が動き出した時刻（time.time）：それより前に置かれた印は、前の回の残りと
-    して消すだけ（判断はこの1か所）。"""
+def drained(token: str) -> None:
+    """頼まれて止まり終えた印を書く（見守り役が、止まり終えたときに1回。drain の命令が、これを待つ）。"""
+    try:
+        (lock_dir() / DRAIN_DONE).write_text(token)
+    except OSError:
+        pass
+
+
+def drain_asked(since: float) -> str | None:
+    """drain の印があれば、その番号（見たら消す。止まり終えたら `drained` に渡す）。無ければ None。since＝この見守り役が動き出した
+    時刻（time.time）：それより前に置かれた印は、前の回の残りとして消すだけ（判断はこの1か所）。"""
     flag = lock_dir() / DRAIN_FLAG
     try:
         text = flag.read_text()
     except OSError:
-        return False
+        return None
     try:
         at = float(text)
     except ValueError:   # 読めない印：置かれた時刻で見る
         try:
             at = flag.stat().st_mtime
         except OSError:
-            return False
+            return None
     try:
         flag.unlink()
     except OSError:
         pass
-    return at >= since
+    return text if at >= since else None
 
 
 def holder_name() -> str:
@@ -449,10 +465,12 @@ def serve(cfg: config.Config, stop: threading.Event | None = None) -> None:
         dog = watchdog.Watchdog(watchdog.end_process(lambda: report(
             sup.access, None, "見守り役の本体", RuntimeError(f"本体が {int(watchdog.STALL_LIMIT)} 秒まわらなかったので終えた"))))
         dog.start()
+        asked: str | None = None   # drain で頼まれた（止まり終えたら、その番号で「止まった」の印を書く）
         try:
             while not stop.is_set():
                 dog.beat()
-                if drain_asked(started):   # 入れ替えの前の drain：ほかの止め方と同じに止める（新しい電話をかけず、いまの通話の終わりを待つ）
+                asked = drain_asked(started)
+                if asked:   # 入れ替えの前の drain：ほかの止め方と同じに止める（新しい電話をかけず、いまの通話の終わりを待つ）
                     print("入れ替えの準備（drain）：新しい電話をかけずに、いまの通話の終わりを待ってから止まります", flush=True)
                     stop.set()
                     break
@@ -483,3 +501,5 @@ def serve(cfg: config.Config, stop: threading.Event | None = None) -> None:
             dog.stop()   # 止めるとき（いまの通話の終わりを待つあいだ）は見張らない
             sup.shutdown()
             hub.close()
+            if asked:
+                drained(asked)

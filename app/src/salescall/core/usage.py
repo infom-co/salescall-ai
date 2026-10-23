@@ -17,15 +17,15 @@
   どちらの判断も、成果・話せた本数のぶれの余裕を足した報酬（`upper`。余裕は依頼者ごとの報酬の決まりの「赤字の知らせの早さ」）で行う
   ＝判断し始める本数を決め打ちにせず、報酬と費用から逆算される。
   - 赤字（今月の費用 ＞ 多めに見込んだ報酬）⇒ まず警告して契約者へ知らせる。期限（設定 budget.deficit_grace＝1時間）までに
-    管理者か契約者が確認ボタンを押さなければ、その依頼者を止める（原因 deficit。2026-10-16 ユーザー：「警告喚起後、確認ボタンを
-    1時間押さなければ止める」）。確認は設定 budget.deficit_confirm_valid の間だけ効き、そのあともまだ赤字なら、もう一度警告する。
-    進め方の判断は `_deficit_step` の1か所（利用量の記録のたびと、見守りの `tick` が呼ぶ＝記録が無くても期限が来たら止める）。
+    管理者か契約者が確認ボタンを押さなければ、もう一度、契約者と管理者へ知らせる（1回。**止めない**＝2026-10-22 深夜 ユーザー：
+    「赤字で、知らせてから1時間たっても確認ボタンが押されないとき：止めない。知らせるだけでいい」。⛔ 前は、その依頼者を止めていた
+    ＝2026-10-16 の「1時間押さなければ止める」を変えた）。確認は設定 budget.deficit_confirm_valid の間だけ効き、そのあともまだ赤字
+    なら、もう一度警告する。進め方の判断は `_deficit_step` の1か所（利用量の記録のたびと、見守りの `tick` が呼ぶ＝記録が無くても
+    期限が来たら知らせる）。
   - 報酬の決まりが無い依頼者は、赤字かを判断できないので、止めずに「設定がされていません」の注意を知らせる（1日1回。2026-10-16
     ユーザー：止めるのは、お客様に影響が出るときだけ。前は報酬 0円とみなして止めていた）。
   - 赤字でなく、割合（費用 ÷ 多めに見込んだ報酬）が上限（budget.max_cost_ratio。既定 30％。依頼者ごとに選べる）を超えた
     ⇒ 知らせるだけ（1日1回）。
-  - 赤字の停止は、見守りの `tick` が今月の数を見直し、赤字でなくなったら解く（報酬の決まりを直した・月が替わった・月額の日割りが
-    積み上がった）。
 - 画面は台帳を読み、実測と推定を分けて出す（通話時間から料金を計算し直さない）。
 """
 
@@ -36,7 +36,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from salescall.core import notify, reward, settings, stops
+from salescall.core import notify, reward, settings
 from salescall.core.access import Access, Actor, Tx
 
 
@@ -82,7 +82,7 @@ def record(tx: Tx, *, source: str, service: str, tier: str | None, kind: str, qu
            attempt_id: UUID | None = None) -> dict[str, Any]:
     """利用量を1行記録する（取引の依頼者の分）。使ったサービスと枠（無料・有料）の単価で金額を決める（price_for）。
     単価が入っていなければ、量だけ記録して金額は空にし、注意を知らせる（止めない）。依頼者の1日の上限を超えたら注意を知らせる
-    （止めない）。赤字なら警告し、確認されなければ期限のあとで止める（`_deficit_step`）。"""
+    （止めない）。赤字なら警告し、確認されなければ期限のあとで、もう一度知らせる（`_deficit_step`。止めない）。"""
     try:
         price = price_for(tx, source=source, service=service, tier=tier, unit=unit)
     except PriceMissing:
@@ -98,7 +98,8 @@ def record(tx: Tx, *, source: str, service: str, tier: str | None, kind: str, qu
         " RETURNING entry_id, tenant_id, client_id",
         (attempt_id, source, service, tier, kind, quantity, unit, price["price_id"], amount))
     _check_client_budget(tx, row["tenant_id"], row["client_id"])
-    return {"entry_id": row["entry_id"], "amount_yen": amount, "stopped": _check_cost_ratio(tx, row["tenant_id"], row["client_id"])}
+    _check_cost_ratio(tx, row["tenant_id"], row["client_id"])
+    return {"entry_id": row["entry_id"], "amount_yen": amount}
 
 
 def spent_today(tx: Tx) -> Decimal:
@@ -137,19 +138,18 @@ def _setting(tx: Tx, key: str, tenant_id: UUID, client_id: UUID) -> Any:
 
 
 def _deficit_step(tx: Tx, tenant_id: UUID, client_id: UUID) -> int | None:
-    """赤字の警告と停止の進め方（判断はここだけ。利用量の記録のたびと、見守りの tick が呼ぶ）。止めたら停止の番号を返す。
-    赤字でない ⇒ 開いている警告を閉じる／赤字で警告が無い・確認が切れた ⇒ 警告して知らせる／警告の期限までに確認されていない
-    ⇒ 止める（原因 deficit）／確認済みで確認が効いているあいだ ⇒ 何もしない。"""
+    """赤字の警告の進め方（判断はここだけ。利用量の記録のたびと、見守りの tick が呼ぶ）。期限が過ぎて、もう一度知らせたら、その
+    警告の番号を返す。赤字でない ⇒ 開いている警告を閉じる／赤字で警告が無い・確認が切れた ⇒ 警告して知らせる／警告の期限までに
+    確認されていない ⇒ もう一度、契約者と管理者へ知らせる（1回。止めない＝2026-10-22 深夜 ユーザー）／確認済みで確認が効いて
+    いるあいだ ⇒ 何もしない。"""
     state, m = _deficit(tx, tenant_id, client_id)
     figures = f"今月の費用 {m['cost']:.2f}円・報酬 {m['revenue']:.2f}円"
-    w = tx.one("SELECT warning_id, deadline, confirmed_at, now() AS now FROM salescall.deficit_warnings"
+    w = tx.one("SELECT warning_id, deadline, confirmed_at, reminded_at, now() AS now FROM salescall.deficit_warnings"
                " WHERE closed_at IS NULL")
     if state != DEFICIT:
         if w is not None:
             tx.execute("UPDATE salescall.deficit_warnings SET closed_at = now(), closed_why = 'not_deficit'"
                        " WHERE warning_id = %s", (w["warning_id"],))
-        return None
-    if stops.open_same(tx, scope="client", cause="deficit", tenant_id=tenant_id, client_id=client_id) is not None:
         return None
     if w is not None and w["confirmed_at"] is not None:
         valid = timedelta(seconds=int(_setting(tx, "budget.deficit_confirm_valid", tenant_id, client_id)))
@@ -164,16 +164,16 @@ def _deficit_step(tx: Tx, tenant_id: UUID, client_id: UUID) -> int | None:
                      " VALUES (salescall.cur_tenant(), salescall.cur_client(), now() + %s * interval '1 second', %s)"
                      " RETURNING warning_id, deadline", (grace, figures))
         notify.emit(tx, "deficit_warning", key=f"deficit_warning:{row['warning_id']}",
-                    summary=f"赤字です（{figures}）。{row['deadline']:%m-%d %H:%M} までに確認ボタンが押されなければ、"
-                            "この依頼者の発信を止めます",
+                    summary=f"赤字です（{figures}）。確認ボタンを押してください（発信は止めていません）",
                     refs={"client_id": client_id, "warning_id": row["warning_id"]})
         return None
-    if w["now"] < w["deadline"]:
-        return None                                      # 確認を待っている
-    tx.execute("UPDATE salescall.deficit_warnings SET closed_at = now(), closed_why = 'stopped' WHERE warning_id = %s",
-               (w["warning_id"],))
-    return stops.stop(tx, scope="client", cause="deficit", reason=f"赤字：{figures}（警告から期限までに確認されなかった）",
-                      evidence="利用量の台帳・報酬の決まり・赤字の警告", tenant_id=tenant_id, client_id=client_id)["event_id"]
+    if w["now"] < w["deadline"] or w["reminded_at"] is not None:
+        return None                                      # 確認を待っている・もう一度知らせた
+    tx.execute("UPDATE salescall.deficit_warnings SET reminded_at = now() WHERE warning_id = %s", (w["warning_id"],))
+    notify.emit(tx, "deficit_warning", key=f"deficit_reminder:{w['warning_id']}", admin=True,
+                summary=f"赤字の知らせが、期限までに確認されていません（{figures}。発信は止めていません）",
+                refs={"client_id": client_id, "warning_id": w["warning_id"]})
+    return w["warning_id"]
 
 
 def confirm_deficit(tx: Tx, warning_id: int) -> None:
@@ -184,7 +184,7 @@ def confirm_deficit(tx: Tx, warning_id: int) -> None:
         raise LookupError(f"確認できる赤字の警告がありません：{warning_id}")
 
 
-def _check_cost_ratio(tx: Tx, tenant_id: UUID, client_id: UUID) -> int | None:
+def _check_cost_ratio(tx: Tx, tenant_id: UUID, client_id: UUID) -> None:
     state, m = _deficit(tx, tenant_id, client_id)
     figures = f"今月の費用 {m['cost']:.2f}円・報酬 {m['revenue']:.2f}円"
     day = tx.today()
@@ -194,7 +194,8 @@ def _check_cost_ratio(tx: Tx, tenant_id: UUID, client_id: UUID) -> int | None:
                     summary=f"報酬の決まりが設定されていません（赤字かを判断できません。{figures}）", refs={"client_id": client_id})
         return None
     if state == DEFICIT:
-        return _deficit_step(tx, tenant_id, client_id)
+        _deficit_step(tx, tenant_id, client_id)
+        return None
     _deficit_step(tx, tenant_id, client_id)              # 赤字でなくなった：開いている警告を閉じる
     limit = Decimal(settings.resolve(tx, "budget.max_cost_ratio", tenant_id=tenant_id, client_id=client_id,
                                      business_id=None))
@@ -222,9 +223,9 @@ def record_line_estimate(tx: Tx, attempt_id: UUID) -> dict[str, Any] | None:
 
 def tick(access: Access, actor: Actor, tenant_id: UUID) -> dict[str, Any]:
     """中央の見守り役（サーバー）が契約者ごとに決まった間隔で呼ぶ、その契約者の費用の見張り：今日の費用が契約者の上限を超えたら、その契約者へ
-    注意を知らせる（止めない）。赤字の警告の期限を見て、確認されていなければ止める（利用量の記録が無いあいだも期限が来たら止めるため）。
-    赤字の停止は、今月の数を見直して、赤字でなくなっていたら解く。読むのは、その契約者の取引から見えるその契約者の分だけ。"""
-    def tenant(tx: Tx) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    注意を知らせる（止めない）。赤字の警告の期限を見て、確認されていなければ、もう一度知らせる（利用量の記録が無いあいだも期限が
+    来たら知らせるため。止めない）。読むのは、その契約者の取引から見えるその契約者の分だけ。"""
+    def tenant(tx: Tx) -> list[dict[str, Any]]:
         limit = Decimal(settings.resolve(tx, "budget.tenant_daily_yen", tenant_id=tenant_id, client_id=None, business_id=None))
         spent = tx.one("SELECT salescall.spent_today_tenant() AS y")["y"]
         if spent > limit:
@@ -232,30 +233,19 @@ def tick(access: Access, actor: Actor, tenant_id: UUID) -> dict[str, Any]:
             notify.emit(tx, "budget", key=f"tenant_daily:{day}",
                         summary=f"今日の費用（すべての依頼者の合計）が上限を超えました（{spent}円 ＞ {limit}円）。発信は止めていません",
                         refs={"spent": str(spent), "limit": str(limit)})
-        return (tx.all("SELECT * FROM salescall.open_deficit_warnings()"),
-                tx.all("SELECT * FROM salescall.open_system_stops('deficit')"))
-    warnings, deficit_stops = access.in_tenant(actor, tenant_id, tenant)
-    stopped, resumed, failed = [], [], []
-    def each(client_id: UUID, work: Any, into: list[Any]) -> None:
-        """依頼者ごとに別の取引。1つの依頼者の誤りで、ほかの依頼者の「期限が来たので止める」「赤字の停止を解く」を止めない
-        （2026-10-18 の見直し）。誤りは最後にまとめて外へ出す（見守り役が記録する）。"""
+        return tx.all("SELECT * FROM salescall.open_deficit_warnings()")
+    warnings = access.in_tenant(actor, tenant_id, tenant)
+    reminded, failed = [], []
+    for w in warnings:
+        # 依頼者ごとに別の取引。1つの依頼者の誤りで、ほかの依頼者の「期限が来たので知らせる」を止めない（2026-10-18 の見直し）。
+        # 誤りは最後にまとめて外へ出す（見守り役が記録する）
         try:
-            got = access.in_client(actor, tenant_id, client_id, work)
+            got = access.in_client(actor, tenant_id, w["client_id"], lambda tx, w=w: _deficit_step(tx, tenant_id, w["client_id"]))
         except Exception as e:  # noqa: BLE001
             failed.append(e)
-            return
+            continue
         if got is not None:
-            into.append(got)
-    for w in warnings:
-        each(w["client_id"], lambda tx, w=w: _deficit_step(tx, tenant_id, w["client_id"]), stopped)
-    for s in deficit_stops:
-        def check(tx: Tx, s=s) -> int | None:
-            state, m = _deficit(tx, tenant_id, s["client_id"])
-            if state != NOT_DEFICIT:   # 赤字のまま・判断できない：解かない
-                return None
-            return stops.resume(tx, s["event_id"], reason=f"赤字でなくなった（今月の費用 {m['cost']:.2f}円・報酬 {m['revenue']:.2f}円）",
-                                evidence="利用量の台帳・報酬の決まり")
-        each(s["client_id"], check, resumed)
+            reminded.append(got)
     if failed:
         raise ExceptionGroup("費用の見張りで、一部の依頼者の分ができませんでした", failed)
-    return {"stopped": stopped, "resumed": resumed}
+    return {"reminded": reminded}

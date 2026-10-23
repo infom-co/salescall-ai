@@ -132,51 +132,58 @@ class CalleeTime(unittest.TestCase):
 
 
 class CalleeHours(unittest.TestCase):
-    """お客様が言った幅の約束でかける時間帯（`callee_hours` の1か所。門と次の動きが同じものを読む）。依頼者の時間帯・NG時間・深夜
-    早朝の歯止めの外でもかけてよいのは、お客様が実際に言った端の回だけ。言葉の表から来た端は、依頼者のいつもの時間と重なる所だけ
-    （⛔ 見直し15：前は幅の全部を外でもかけ、「朝なら」で0時、「午後なら」で23時にかけえた）。"""
+    """お客様が言った幅の約束でかける時間帯（`callee_hours`・`callee_range` の1か所。門と次の動きが同じものを読む）。幅はすべてお客様の
+    指定で、依頼者の時間帯・NG時間・依頼者の深夜早朝の歯止めの外でもかける。端の決まっていない側は、お客様指定の歯止め時間
+    （callee.designated_limit）で埋めて切る（お客様が口にした端は切らない）。2026-10-23 ユーザー：「『朝』も時間帯が決まっているでしょ」
+    「お客様の日時指定の場合は、『お客様指定の歯止め時間』で見る」（⛔ 見直し15 の「言葉の表の端は依頼者の時間で切る」は、「夜なら」を
+    依頼者が18時までなら次の日の昼に回していた。お客様の営業時間で埋めると、営業時間が12時からのお店で「朝」にかからなかった）。"""
 
     NG = {k: [["12:00", "13:00"]] for k in KEYS}
     GUARD = {k: [["07:00", "22:00"]] for k in KEYS}
+    LIMIT = (7 * 3600, 22 * 3600)   # お客様指定の歯止め時間（callee.designated_limit の初めの値）
     H = 3600
 
-    def hours(self, daily, free=None, day_said=False, days=None, hours=WEEKDAY_9_18):
-        return callee_hours(hours, self.NG, self.GUARD, CalleeWindow(daily, days, free, day_said))
+    def hours(self, daily, said=None, day_said=False, days=None, hours=WEEKDAY_9_18, limit=None, guard=None):
+        return callee_hours(hours, self.NG, guard or self.GUARD, limit or self.LIMIT, CalleeWindow(daily, days, said, day_said))
 
-    def test_words_from_the_table_stay_in_the_client_hours(self):
+    def test_words_are_the_callees_own_hours(self):
         H = self.H
-        self.assertEqual(self.hours((0, 10 * H))["mon"], [["09:00", "10:00"]])                 # 「朝」：0時からでなく始業から
-        self.assertEqual(self.hours((13 * H, 24 * H))["mon"], [["13:00", "18:00"]])            # 「午後」：24時でなく終業まで
-        self.assertEqual(self.hours((0, 12 * H + 30 * 60))["mon"], [["09:00", "12:00"]])       # NG時間も引く
+        self.assertEqual(self.hours((18 * H, 20 * H))["mon"], [["18:00", "20:00"]])            # 「夜なら」：依頼者が18時までも
+        self.assertEqual(self.hours((16 * H, 18 * H))["mon"], [["16:00", "18:00"]])            # 「夕方」
+        self.assertEqual(self.hours((0, 12 * H + 30 * 60))["mon"], [["07:00", "12:30"]])       # NG時間でもかける・始まりは歯止め時間
+        self.assertEqual(self.hours((0, 10 * H))["mon"], [["07:00", "10:00"]])                 # 「朝」：お客様の営業時間が12時からでも
+        self.assertEqual(self.hours((0, 10 * H), hours={k: [["10:00", "19:00"]] for k in KEYS})["mon"],
+                         [["07:00", "10:00"]])                                                  # 依頼者が10時からでも
+        self.assertEqual(self.hours((13 * H, 24 * H))["mon"], [["13:00", "22:00"]])            # 「午後」：終わりは歯止め時間の22時
 
-    def test_only_the_said_edge_goes_outside(self):
+    def test_the_designated_limit_cuts_only_the_unsaid_edges(self):
         H = self.H
-        self.assertEqual(self.hours((19 * H, 24 * H), free=(19 * H, 20 * H))["mon"], [["19:00", "20:00"]])   # 「7時以降」の19時から1回分
-        self.assertEqual(self.hours((7 * H, 24 * H), free=(7 * H, 8 * H))["mon"],
-                         [["07:00", "08:00"], ["09:00", "12:00"], ["13:00", "18:00"]])          # 「朝7時以降」：言った7時の回＋いつもの時間
-        self.assertEqual(self.hours((0, 8 * H), free=(7 * H, 8 * H))["mon"], [["07:00", "08:00"]])           # 「8時まで」の前1回分
-        self.assertEqual(self.hours((12 * H, 13 * H), free=(12 * H, 13 * H))["mon"], [["12:00", "13:00"]])   # 時刻ちょうど：NG時間でも
-        self.assertEqual(self.hours((3 * H, 4 * H), free=(3 * H, 4 * H))["mon"], [["03:00", "04:00"]])       # 歯止めなし（ユーザー）
+        self.assertEqual(self.hours((0, 10 * H), limit=(8 * H, 21 * H))["mon"], [["08:00", "10:00"]])   # 業務ごとの歯止め時間
+        self.assertEqual(self.hours((13 * H, 24 * H), limit=(8 * H, 21 * H))["mon"], [["13:00", "21:00"]])
+        self.assertEqual(self.hours((0, 10 * H), guard={k: [] for k in KEYS})["mon"], [["07:00", "10:00"]])   # 依頼者の歯止めは見ない
+        self.assertEqual(self.hours((19 * H, 24 * H), said=(True, False))["mon"], [["19:00", "22:00"]])      # 「7時以降」の19時から
+        self.assertEqual(self.hours((0, 15 * H), said=(False, True))["mon"], [["07:00", "15:00"]])           # 「3時まで」
+        self.assertEqual(self.hours((6 * H, 24 * H), said=(True, False))["mon"], [["06:00", "22:00"]])       # 口にした6時：歯止め時間の外でも
+        self.assertEqual(self.hours((3 * H, 4 * H), said=(True, True))["mon"], [["03:00", "04:00"]])         # 時刻ちょうど：歯止めなし
+        self.assertEqual(self.hours((22 * H, 24 * H))["mon"], [])                                           # 口にしていない深夜は空
 
     def test_days_the_callee_did_not_name_follow_the_client(self):
         H = self.H
-        self.assertEqual(self.hours((16 * H, 18 * H))["sat"], [])                                # 「夕方なら」の土曜：依頼者は休み
-        self.assertEqual(self.hours((16 * H, 18 * H), free=(16 * H, 17 * H))["sat"], [])          # 言った端も、その日でなければかけない
-        self.assertEqual(self.hours((16 * H, 18 * H), day_said=True)["sat"], [["16:00", "18:00"]])   # 「土曜の夕方」
+        self.assertEqual(self.hours((16 * H, 18 * H))["sat"], [])                                # 「夕方なら」の次の日の土曜：依頼者は休み
+        self.assertEqual(self.hours((16 * H, 18 * H), said=(True, True))["sat"], [])             # 口にした時刻も、その日でなければかけない
+        self.assertEqual(self.hours((16 * H, 18 * H), day_said=True)["sat"], [["16:00", "18:00"]])   # 「土曜の夕方」・今日の回
         self.assertEqual(self.hours(None, day_said=True, days=("sat",))["sat"], [["09:00", "12:00"], ["13:00", "18:00"]])
         self.assertEqual(self.hours(None, day_said=True, days=("sat",))["mon"], [])
 
     def test_without_client_hours_the_guard_is_the_usual_time(self):
-        H = self.H
         closed = {k: [] for k in KEYS}
-        self.assertEqual(self.hours((0, 10 * H), hours=closed)["mon"], [["07:00", "10:00"]])    # 7〜22時の歯止めの内側
-        self.assertEqual(self.hours((20 * H, 24 * H), hours=closed)["sun"], [["20:00", "22:00"]])
+        self.assertEqual(self.hours(None, day_said=True, hours=closed)["sun"], [["07:00", "12:00"], ["13:00", "22:00"]])
 
     def test_the_gate_reads_the_same_hours(self):
         H = self.H
         w = self.hours((13 * H, 24 * H))
         ok = lambda h: allowed(WEEKDAY_9_18, self.NG, no_holiday, at(MON, h), at(MON, h, 1), window=w)   # noqa: E731
-        self.assertEqual((ok(14), ok(18), ok(23)), (True, False, False))
+        self.assertEqual((ok(14), ok(18), ok(21), ok(22), ok(23)), (True, True, True, False, False))   # 「午後」は 13〜22時（依頼者の18時を越えて）
 
 
 class Subtract(unittest.TestCase):

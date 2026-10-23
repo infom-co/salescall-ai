@@ -1,5 +1,8 @@
-"""判定できない結果が「まだ決まっていない」かの試験（データベースの1か所 salescall.unknown_pending＝0116。判定し直しの対象と、
-断られたかがまだ決まっていない＝refusal_undecided の両方が読む）。見直し15c。"""
+"""判定できない結果の試験。判定し直しが要るか（データベースの1か所 salescall.unknown_pending＝0116。settle.awaiting_rejudge が読む）と、
+断られたかがまだ決まっていないか（salescall.refusal_undecided＝0118。同じお客様のほかの行を止めるか）は別の問い。途中で切れた通話
+（お客様の意思と関係なく）は、通話のあとの確かめで断りの言葉が見つからなければ、断られていない（2026-10-22 ユーザー：「通話の
+あとの確かめで断りの言葉が見つからなければ、お詫びのかけ直しをします。断り（営業拒否）の言葉が見つかったときは、営業拒否」）。
+見直し15c・16。"""
 
 from __future__ import annotations
 
@@ -32,27 +35,37 @@ class UnknownPending(SettleBase):
         return o
 
     def test_a_later_call_that_reaches_the_customer_and_is_decided_settles_it(self):
-        """お詫びのかけ直しがお客様につながって判定が決まったら、前の通話は決まったとみなす（判定し直しもしない）。同じお客様の
-        ほかの行も、待たずにかけられる（⛔ 見直し15c：前は前の通話が「まだ決まっていない」のまま残り、永久にかからなかった）。"""
+        """途中で切れて判定できない通話は、判定し直しの対象だが、断られてはいない（同じお客様のほかの行は待たずにかけられる。
+        ⛔ 見直し16：前は判定し直しが済むまで止め、行が終わったあとも止め続けた）。お詫びのかけ直しがお客様につながって判定が
+        決まったら、前の通話は決まったとみなす（判定し直しもしない。⛔ 見直し15c）。"""
         s = self.ready()
         o = self.other_row(s)
         a = self.cut_unknown(s)
-        self.assertTrue(self.undecided(s, a))
+        self.assertFalse(self.undecided(s, a))
         self.assertEqual(self.tx(s, lambda tx: settle.awaiting_rejudge(tx, s["task"])), a)
-        self.assertEqual(self.tx(o, lambda tx: gate.pacing(tx, o["task"])).binding, "related_unsettled")
+        self.assertNotEqual(self.tx(o, lambda tx: gate.pacing(tx, o["task"])).binding, "related_unsettled")
         self.answered(s)
         b = self.call(s, report=rep())                                       # お詫びのかけ直し：お客様と話せた
         self.assertNotEqual(self.settle(s, b)["state"], "unknown")
         self.assertFalse(self.undecided(s, a))
         self.assertIsNone(self.tx(s, lambda tx: settle.awaiting_rejudge(tx, s["task"])))
-        self.assertNotEqual(self.tx(o, lambda tx: gate.pacing(tx, o["task"])).binding, "related_unsettled")
 
     def test_a_later_call_that_did_not_reach_the_customer_keeps_it_pending(self):
-        """お詫びのかけ直しに出なかった：前の通話は、まだ決まっていない（判定し直しの対象のまま。直れば判定し直す）。"""
+        """お詫びのかけ直しに出なかった：前の通話は、判定し直しの対象のまま（直れば判定し直す）。断られてはいない。"""
         s = self.ready()
         a = self.cut_unknown(s)
         self.answered(s)
         b = self.call(s, ["dialing", "no_answer"])
         self.assertNotEqual(self.settle(s, b)["state"], "unknown")
-        self.assertTrue(self.undecided(s, a))
+        self.assertFalse(self.undecided(s, a))
         self.assertEqual(self.tx(s, lambda tx: settle.awaiting_rejudge(tx, s["task"])), a)
+
+    def test_an_unknown_call_that_was_not_cut_still_holds_the_customer(self):
+        """途中で切れていない、判定できない通話（会話の処理の誤り）は、判定し直しまで、断られたかがまだ決まっていない（同じお客様の
+        ほかの行は待つ。判定し直しは、直す担当への修正依頼のあと）。"""
+        s = self.ready()
+        o = self.other_row(s)
+        a = self.call(s, report=rep(), items=(("Q1", "dont_know", None),))
+        self.assertEqual(self.settle(s, a)["state"], "unknown")
+        self.assertTrue(self.undecided(s, a))
+        self.assertEqual(self.tx(o, lambda tx: gate.pacing(tx, o["task"])).binding, "related_unsettled")

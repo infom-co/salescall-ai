@@ -435,15 +435,16 @@ class WrongNumber(Base):
 
     def test_ask_again_that_never_connects_is_bounded(self):
         """回線の部品が番号を受け付けない聞き直しの電話（発信に失敗＝お客様の電話は鳴っていない）は、聞き直しの回数には数えない
-        （ふつうの電話と同じ数え方＝salescall.dial_kind の1か所。見直し15）が、同じ番号で続けて dial.failed_same_number_max 回（初め
-        3回）になったら、その番号へはかけない（上限なくかけ続けない＝2026-10-16 の見直しの歯止めは、こちらに移った）。"""
+        （ふつうの電話と同じ数え方＝salescall.dial_kind の1か所。見直し15）が、決まった順（dial.failed_retry_days。初め4回）だけ同じ
+        番号で続けて受け付けられなければ、その番号へはかけない（上限なくかけ続けない＝2026-10-16 の見直しの歯止めは、こちらに移った。
+        2026-10-22 深夜 ユーザー：「計4回受け付けられなかったら、その番号へはかけない」）。"""
         s = self.ready_jp()
         self.redirect(s)
         self.wrong_call(s, "as_said")
-        for n in (1, 2, 3):
+        for n in (1, 2, 3, 4):
             aid = self.call(s, ["dialing", "call_failed"])
             got = self.settle(s, aid)
-            if n < 3:
+            if n < 4:
                 nxt = self.current(s)
                 self.assertEqual((nxt["kind"], nxt["purpose"]), ("call", "ask_number_again"))
                 self.tx(s, lambda tx: support.schedule_call(          # 試験：その時刻が来たことにする

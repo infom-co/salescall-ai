@@ -236,7 +236,9 @@ class SaidEdges(unittest.TestCase):
                 self.assertEqual(read(text, NOW).said, said)
 
     def test_whether_the_day_was_said(self):
-        for text, said in {"夕方なら": False, "3時なら": False, "すぐ": False, "30分後": False, "明日の夕方": True,
+        """日を言わない「夕方なら」「3時なら」「すぐ」も、いま話している今日の回は言った日（見直し16）。次の日からの回は、
+        言っていない（next_action の Window.later）。"""
+        for text, said in {"夕方なら": True, "3時なら": True, "すぐ": True, "30分後": True, "明日の夕方": True,
                            "金曜なら": True, "13日なら": True, "平日の夕方": True, "土日祝ならいつでも": True,
                            "明日の15時": True, "今晩": True}.items():
             with self.subTest(text=text):

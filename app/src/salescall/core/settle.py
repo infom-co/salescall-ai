@@ -219,7 +219,10 @@ def awaiting_rejudge(tx: Tx, task_id: UUID) -> UUID | None:
     """その行で判定し直しを待っている試行（1か所）：判定できない結果が、まだ決まっていない扱いの試行のうち、いちばん新しいもの
     （決まりはデータベースの salescall.unknown_pending の1か所。断られたかがまだ決まっていない＝refusal_undecided も同じものを読む）。
     いまの予定が判定待ち（hold）の行だけでなく、途中で切れて判定できなかったので、お詫びのかけ直しを予定した行も入る（2026-10-22
-    ユーザー：「通話のあとの確かめで断りの言葉が見つからなければ、お詫びのかけ直しをします」）。同じ行のあとの発信がお客様につながって
+    ユーザー：「通話のあとの確かめで断りの言葉が見つからなければ、お詫びのかけ直しをします」）。判定し直すのは、依頼者へ渡す結果を
+    直すため（判定し直した試行のあとに発信があれば、行の予定は書き直さない＝`_judge_and_write`）。断られたかがまだ決まっていないか
+    （同じお客様のほかの行を止めるか）は別の問い（データベースの salescall.refusal_undecided：途中で切れた通話は、通話のあとの確かめで
+    断りの言葉が見つからなければ、断られていない＝0118）。同じ行のあとの発信がお客様につながって
     判定が決まったら、前の通話は決まったとみなし、判定し直さない（あとの通話の結果が行の結果。⛔ 見直し15：前は、あとの発信が
     あれば判定し直しの対象から外すだけで、前の通話は「まだ決まっていない」のまま残り、同じお客様のほかの行が永久にかからなかった）。
     あとの発信の締めがまだの行は、締めが済んでから（締めと判定し直しが、行の予定を同時に書かない）。"""
@@ -319,6 +322,13 @@ def _judge_and_write(tx: Tx, a: dict[str, Any], *, kind: str, rules_version: Any
     # 途中で切れた（お客様の意思と関係なく）：決めるのは judge.cut_off の1か所
     # 判定できなかった通話も決める（途中で切れていれば、お詫びのかけ直しをする＝next_action。2026-10-22 ユーザー）
     cut_off = _cut_off(tx, a, j.detail.get("cut"), report)
+    if kind == "rejudged" and _later_dial(tx, a):
+        # 判定し直した通話のあとに、この行でもう発信している：行の予定は、あとの発信の締めが決めたもの（結果の版と発信禁止だけを
+        # 足し、予定は書き直さない＝判断はここの1か所）。⛔ 見直し16：前は、何日も前に途中で切れた通話を判定し直すと、終えた行が
+        # 生き返り「すぐお詫びのかけ直し」になった（続けて切れた数を、あとの発信から数えたため）。承認済みのお詫びは、判定が決まった
+        # いま書く（apology の1か所）
+        apology.schedule_if_ready(tx, a["task_id"])
+        return {"version_no": version_no, "state": j.state, "decision": None, "already": False}
     decision = next_action.after_call(
         tx, a["task_id"], j, rules=rules,
         dialed=next_action.Target(a["contact_id"], None, a["purpose"], a["wrong_contact_id"]), dialed_at=a["claimed_at"],
@@ -326,6 +336,12 @@ def _judge_and_write(tx: Tx, a: dict[str, Any], *, kind: str, rules_version: Any
         reached_target=inp.reached_target)   # 目的のお客様と話せた（約束の日のお詫びは済んだ）
     apology.schedule_if_ready(tx, a["task_id"])   # 締めの前に承認されていたお詫び：判定が決まったいま、予定を書く（apology の1か所）
     return {"version_no": version_no, "state": j.state, "decision": decision, "already": False}
+
+
+def _later_dial(tx: Tx, a: dict[str, Any]) -> bool:
+    """その試行のあとに、同じ行で発信まで進んだ試行があるか。"""
+    return tx.one(f"SELECT EXISTS (SELECT 1 FROM salescall.attempts WHERE task_id = %s AND {attempts.dialed()}"
+                  "  AND claimed_at > %s) AS later", (a["task_id"], a["claimed_at"]))["later"]
 
 
 def _cut_off(tx: Tx, a: dict[str, Any], raw_cut: str | None, report: Any) -> bool:

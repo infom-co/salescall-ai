@@ -25,10 +25,12 @@
 する（営業時間は [始まり, 終わり)：終わりの時刻ちょうどは入らない＝営業時間 9〜19時の「7時」は確かめる。見直し15）。両方入る・
 どちらも入らないときだけ確かめる。「12時」は昼の12時。
 
-言葉ごとの幅（`PERIODS`。かけてよい時間帯と重なる所だけ使う。2026-10-19 ユーザー「OK」）：朝・朝一＝〜10時・午前（中）＝〜12時・
+言葉ごとの幅（`PERIODS`。2026-10-19 ユーザー「OK」。幅はお客様の指定＝2026-10-23 ユーザー「『朝』も時間帯が決まっているでしょ」）：朝・朝一＝〜10時・午前（中）＝〜12時・
 午後一＝13〜14時・午後＝13時〜・夕方＝16〜18時・夜（晩）＝18〜20時。日の言葉の一覧は DESIGN.md 7-1d の表。
-幅の端のうち、お客様が実際に言った端（「4時以降」の4時・「3時まで」の3時）と、言葉の表から来た端（「朝」の0時・「午後」の24時）を
-分けて返す（`Reading.said`）。依頼者の時間帯の外でもかけてよいのは、言った端だけ（calling_hours.callee_hours の1か所）。
+幅の端のうち、お客様が実際に口にした端（「4時以降」の4時・「3時まで」の3時・時刻ちょうど）を返す（`Reading.said`）。端の決まって
+いない側（「朝」の0時・「午後」の24時）は、かける所（calling_hours.callee_range の1か所）がお客様指定の歯止め時間（設定
+callee.designated_limit）で埋めて切る（口にした端はその外でも切らない）。お客様の営業時間（callee.business_hours）は、午前・午後の
+読み分けだけに使う（2026-10-23 ユーザー）。
 - 時刻は日本の時刻（日本標準時）で読む。結果は時差つきの時刻。
 """
 
@@ -43,7 +45,7 @@ from datetime import date, datetime, time, timedelta
 from salescall.core.calling_hours import JST, clock_seconds
 
 # 読み方の版（読み方を変えたら上げる）。判定の版（judge.JUDGE_VERSION）に入る＝上げると、読めなかった「判定待ち」の行が判定し直される
-VERSION = "9"
+VERSION = "10"   # 10：日を言わない約束の今日の回は、お客様が言った日（day_said。見直し16）
 AT, WINDOW, UNSPECIFIED, CONFIRM, UNREADABLE = "at", "window", "unspecified", "confirm", "unreadable"
 # 幅の中でお客様と話せなかったときの、次の回（お客様がその日を選んだ理由に合わせる。2026-10-19 ユーザー決定）：
 # DAY＝時間の言葉（「夕方」「3時以降」）・日の種類だけ（「平日なら」）・「すぐ」⇒ 次の日の同じ幅／WEEK＝曜日・週末・週中・
@@ -55,7 +57,8 @@ DAY = 24 * 3600
 H = 3600
 DEFAULT_BUSINESS_HOURS = (9 * H, 19 * H)   # 設定 callee.business_hours の初めの値（会社 9:00〜19:00）
 
-# 言葉ごとの1日の中の幅（秒。終わりは含まない）。かけてよい時間帯と重なる所だけを使う（朝・午前の始まりは、その日の始業になる）。
+# 言葉ごとの1日の中の幅（秒。終わりは含まない）。端の決まっていない側（朝・午前の始まり＝0時、午後の終わり＝24時）は、かける所が
+# お客様指定の歯止め時間で埋める（calling_hours.callee_range）。
 # 依頼者ごとの設定（callback.period_*。表の作り 0088）を `periods_from` で、言葉の表にする（判定が設定を渡す）。下は初めの値
 PERIOD_SETTINGS = {"morning": "callback.period_morning", "forenoon": "callback.period_forenoon",
                    "afternoon": "callback.period_afternoon", "evening": "callback.period_evening", "night": "callback.period_night"}
@@ -161,10 +164,12 @@ class Reading:
     #                                      次の回は、ここから数える＝「週中」を水曜に言われても、次の回は火曜から）
     said: tuple[bool, bool] = (False, False)   # WINDOW：1日の中の幅（daily）の始まり・終わりを、お客様が実際に言ったか（「4時以降」＝
     #                                      (True, False)・「3時まで」＝(False, True)・「3時から5時」「3時台」＝(True, True)・「夕方」「朝」など
-    #                                      言葉の表から来た端＝False）。言った端だけ、依頼者の時間帯・NG時間・深夜早朝の歯止めの外でもかける
-    #                                      （calling_hours.callee_hours の1か所。2026-10-22 ユーザー。⛔ 見直し15：前は「朝なら」で0時にかけえた）
+    #                                      言葉の表から来た端＝False）。口にした端は、お客様指定の歯止め時間の外でも切らない（calling_hours.
+    #                                      callee_range の1か所。2026-10-22 ユーザー。⛔ 見直し15：前は「朝なら」で0時にかけえた）
     day_said: bool = False               # AT・WINDOW：お客様がその日（日・曜日・日の種類）を言った（依頼者の休みの日でもかける根拠）。
-    #                                      日を言わない「3時なら」「夕方なら」「すぐ」は False（依頼者のかける日だけ）
+    #                                      日を言わない「3時なら」「夕方なら」「すぐ」も、いま話している今日の回は言った日（見直し16：
+    #                                      依頼者の休みの日に約束の電話で話していても、お客様は今日のつもり）。次の日からの回は、
+    #                                      言っていない（依頼者のかける日だけ＝next_action の Window.later）
 
     @property
     def exact(self) -> bool:
@@ -497,7 +502,7 @@ def read(text: str | None, now: datetime, business_hours: tuple[int, int] = DEFA
     if _UNSPECIFIED.fullmatch(t):
         return Reading(UNSPECIFIED)
     if _ASAP.fullmatch(t):
-        return Reading(WINDOW, local, None, repeat=DAY_REPEAT)
+        return Reading(WINDOW, local, None, repeat=DAY_REPEAT, day_said=True)
     if (m := _LATER_CLOCK.match(t)) and _TAIL.fullmatch(t[m.end():]):   # 「30分後」「1時間後」「1時間半後」
         n = int(m.group("n"))
         minutes = n if m.group("unit") == "分" else n * 60 + (30 if m.group("half") else 0)
@@ -505,7 +510,7 @@ def read(text: str | None, now: datetime, business_hours: tuple[int, int] = DEFA
             return _confirm("「〜後」が読めません")
         # 「いまは忙しいが、できるだけ早くかけ直して」（2026-10-19 ユーザー）：時刻ちょうどの約束ではなく、その時からの「すぐ」と
         # 同じ（終わり無しの幅。話せなければ「すぐ」と同じ決まりでかけ直す。NG時間は守る）
-        return Reading(WINDOW, local + timedelta(minutes=minutes), None, repeat=DAY_REPEAT)
+        return Reading(WINDOW, local + timedelta(minutes=minutes), None, repeat=DAY_REPEAT, day_said=True)
     try:
         days, period, pos, cycle = _day_part(t, local.date())
         pos = _JOIN.match(t, pos).end()
@@ -525,7 +530,8 @@ def read(text: str | None, now: datetime, business_hours: tuple[int, int] = DEFA
         return _unreadable(str(e))
     if not _TAIL.fullmatch(t[end:]):
         return _unreadable(f"読めない言葉があります（「{t[end:]}」）")
-    day_said = days is not None or kinds is not None   # お客様がその日（日・曜日・日の種類）を言った
+    # お客様がその日（日・曜日・日の種類）を言った。日を言わなければ今日の回＝いま話している日なので、言った日（見直し16）
+    day_said = True
     if days is None:
         if kind == "whole" and kinds is None:
             return _unreadable("日も時刻もありません")

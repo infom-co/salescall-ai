@@ -34,7 +34,7 @@ class Ledger(SettleBase):
         s = self.ready()
         got = self.tx(s, lambda tx: usage.record(tx, source="ai", service="gemini-3.8-live", tier="free", kind="estimated",
                                                  quantity=10, unit="seconds"))
-        self.assertEqual((got["amount_yen"], got["stopped"]), (None, None))
+        self.assertEqual((got["amount_yen"], set(got)), (None, {"entry_id", "amount_yen"}))
         kinds = self.tx(s, lambda tx: [r["kind"] for r in tx.all("SELECT kind FROM salescall.notification_events"
                                                                  " WHERE event_key LIKE 'price_missing:%'")])
         self.assertEqual(kinds, ["setting_missing"])
@@ -160,7 +160,7 @@ class Budget(Priced):
                                                            kind="measured", quantity=q, unit="input_tokens"))
         rec(100)
         self.assertEqual(self.budget_notices(s, f"client_daily:{s['client']}:%"), [])   # 1円：上限の内側
-        self.assertIsNone(rec(500)["stopped"])                          # 6円 ＞ 5円：止めない
+        rec(500)                                                       # 6円 ＞ 5円：止めない
         rec(1)
         self.assertEqual(len(self.budget_notices(s, f"client_daily:{s['client']}:%")), 1)   # 1日1回
         self.assertIsInstance(self.claim(s), gate.Claim)                 # 発信は続く
@@ -180,7 +180,7 @@ class Budget(Priced):
         notices = lambda x: self.w.a.in_tenant(OPERATOR, x["tenant"], lambda tx: tx.all(   # noqa: E731
             "SELECT event_key FROM salescall.notification_events WHERE kind = 'budget' AND event_key LIKE 'tenant_daily:%'"))
         spend(other)                                                    # ほかの契約者だけが使った
-        self.assertEqual(usage.tick(self.w.a, SYSTEM, s["tenant"]), {"stopped": [], "resumed": []})
+        self.assertEqual(usage.tick(self.w.a, SYSTEM, s["tenant"]), {"reminded": []})
         self.assertEqual(notices(s), [])
         spend(s)
         usage.tick(self.w.a, SYSTEM, s["tenant"])
@@ -191,7 +191,8 @@ class Budget(Priced):
 
 
 class CostRatio(Priced):
-    """報酬に対する費用の割合（2026-10-15 ユーザー決定：既定 30％・依頼者ごとに選べる。超えたら知らせるだけ。赤字なら止める）。"""
+    """報酬に対する費用の割合（2026-10-15 ユーザー決定：既定 30％・依頼者ごとに選べる。超えたら知らせるだけ。赤字も知らせるだけ＝
+    2026-10-22 深夜 ユーザー：「止めない。知らせるだけでいい」）。"""
     def terms(self, s, *, days_ago=1, gap=None, caution="normal", **yen):
         return self.tx(s, lambda tx: reward.set_terms(
             tx, reward.Terms(**{k: Decimal(v) for k, v in yen.items()}, hourly_gap_seconds=gap,
@@ -328,8 +329,7 @@ class CostRatio(Priced):
         self.spend(s, 5)                                               # 50％：この依頼者の上限 60％ の内側
         self.assertEqual(self.notices(s), [])
         self.put_client(s, "budget.max_cost_ratio", 0.3)
-        got = self.spend(s, 0.01)
-        self.assertIsNone(got["stopped"])                              # 知らせるだけ
+        self.spend(s, 0.01)                                            # 知らせるだけ
         self.assertEqual(len(self.notices(s)), 1)
         self.spend(s, 0.01)
         self.assertEqual(len(self.notices(s)), 1)                      # 1日1回
@@ -339,32 +339,45 @@ class CostRatio(Priced):
         return self.tx(s, lambda tx: tx.all("SELECT warning_id, confirmed_at, closed_why FROM salescall.deficit_warnings"
                                             " ORDER BY warning_id"))
 
-    def test_deficit_warns_first_and_stops_if_not_confirmed_within_the_grace(self):
-        """赤字：まず警告して知らせ、期限（1時間）までに確認ボタンが押されなければ止める（2026-10-16 ユーザー）。止めるのは
-        見守りの tick でも（利用量の記録が無くても、期限が来たら止める）。赤字でなくなったら自動で解く。"""
+    def deficit_notices(self, s):
+        """赤字の知らせ（契約者あての鍵の頭と、管理者あての写しがあるか）。"""
+        mine = self.tx(s, lambda tx: [r["event_key"].split(":")[0] for r in tx.all(
+            "SELECT event_key FROM salescall.notification_events WHERE kind = 'deficit_warning' ORDER BY event_id")])
+        admin = self.w.a.in_system(ADMIN, lambda tx: {r["event_key"].split(":")[1] for r in tx.all(
+            "SELECT event_key FROM salescall.notification_events WHERE kind = 'deficit_warning' AND for_admin"
+            " AND origin_tenant = %s", (s["tenant"],))})
+        return [(k, k in admin) for k in mine]
+
+    def test_deficit_warns_and_reminds_once_but_never_stops(self):
+        """赤字：まず警告して知らせ、期限（1時間）までに確認ボタンが押されなければ、もう一度、契約者と管理者へ知らせる（1回）。止めない
+        （2026-10-22 深夜 ユーザー：「赤字で、知らせてから1時間たっても確認ボタンが押されないとき：止めない。知らせるだけでいい」。
+        ⛔ 前は、その依頼者を止めていた）。もう一度の知らせは見守りの tick でも（利用量の記録が無くても、期限が来たら知らせる）。"""
         s = self.ready()
         self.terms(s, per_dial_yen=10)
         self.talked(s)
         self.priced("0.01")
         self.put_client(s, "budget.deficit_grace", 1)
-        self.assertIsNone(self.spend(s, 15)["stopped"])                # 費用 15円 ＞ 報酬 10円：まず警告
+        self.spend(s, 15)                                              # 費用 15円 ＞ 報酬 10円：まず警告
         self.assertEqual(len(self.warnings(s)), 1)
-        self.assertEqual(self.client_stops(s), [])
-        notes = self.tx(s, lambda tx: tx.all("SELECT kind FROM salescall.notification_events WHERE kind = 'deficit_warning'"))
-        self.assertEqual(len(notes), 1)
+        self.assertEqual(self.deficit_notices(s), [("deficit_warning", False)])
         time.sleep(1.2)
-        usage.tick(self.w.a, SYSTEM, s["tenant"])                                   # 期限が過ぎても確認されていない
-        self.assertEqual(self.client_stops(s), ["deficit"])
-        sid = self.tx(s, lambda tx: stops.open_stops(tx, tenant_id=s["tenant"], client_id=s["client"],
-                                                     business_id=None))[0]["event_id"]
-        self.assertEqual(self.tx(s, lambda tx: stops.explain(tx, sid))["cause"]["meaning"], stops.CAUSES["deficit"].meaning)
+        got = usage.tick(self.w.a, SYSTEM, s["tenant"])                # 期限が過ぎても確認されていない
+        self.assertEqual(got, {"reminded": [self.warnings(s)[0]["warning_id"]]})
+        self.assertEqual(self.deficit_notices(s), [("deficit_warning", False), ("deficit_reminder", True)])   # 管理者へも
         usage.tick(self.w.a, SYSTEM, s["tenant"])
-        self.assertEqual(self.client_stops(s), ["deficit"])            # 見守りが見直しても、赤字のまま
+        self.spend(s, 1)
+        self.assertEqual(len(self.deficit_notices(s)), 2)              # もう一度は1回だけ
+        for again in ("now()", "NULL"):                                # データベースも、知らせた記録を書き換えさせない
+            with self.subTest(again=again), self.assertRaises(Rejected):
+                self.tx(s, lambda tx: tx.execute(f"UPDATE salescall.deficit_warnings SET reminded_at = {again}"))
+        self.assertEqual(self.client_stops(s), [])                     # 止めない
+        self.assertEqual(self.tx(s, lambda tx: stops.blocking(tx, tenant_id=s["tenant"], client_id=s["client"],
+                                                            business_id=s["business"], kind=None)), [])   # 発信は続く（門の止める決まり）
         self.terms(s, per_dial_yen=10, monthly_yen=10 ** 9)            # 報酬の決まりを直した
         usage.tick(self.w.a, SYSTEM, s["tenant"])
-        self.assertEqual(self.client_stops(s), [])                     # 赤字でなくなったので、自動で解く
+        self.assertEqual(self.warnings(s)[0]["closed_why"], "not_deficit")   # 赤字でなくなった：警告を閉じる
 
-    def test_a_confirmed_deficit_does_not_stop(self):
+    def test_a_confirmed_deficit_is_not_reminded(self):
         s = self.ready()
         self.terms(s, per_dial_yen=10)
         self.talked(s)
@@ -378,7 +391,8 @@ class CostRatio(Priced):
         time.sleep(1.2)
         usage.tick(self.w.a, SYSTEM, s["tenant"])
         self.spend(s, 1)
-        self.assertEqual(self.client_stops(s), [])                     # 確認が効いているあいだは止めない
+        self.assertEqual(self.deficit_notices(s), [("deficit_warning", False)])   # 確認が効いているあいだは、もう一度知らせない
+        self.assertEqual(self.client_stops(s), [])
 
     def test_a_count_that_can_vary_is_judged_only_when_sure(self):
         s = self.ready()

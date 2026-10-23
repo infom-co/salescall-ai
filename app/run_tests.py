@@ -319,19 +319,13 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      " IF NEW.revoked_at IS NOT NULL AND salescall.cur_actor_kind() IS DISTINCT FROM 'operator' THEN"
      " RAISE EXCEPTION 'x' USING ERRCODE = 'insufficient_privilege'; END IF; RETURN NEW; END $$",
      ("tests.test_dnc.Revoke.test_the_admin_can_revoke_too",)),
-    ("システムが止めた停止を、見守りに見せない",
-     "CREATE OR REPLACE FUNCTION salescall.open_system_stops(p_cause text) RETURNS TABLE (event_id bigint, scope text,"
-     " tenant_id uuid, client_id uuid, stopped_on date) LANGUAGE sql STABLE SECURITY DEFINER"
-     " SET search_path = salescall, pg_temp AS $$ SELECT NULL::bigint, NULL::text, NULL::uuid, NULL::uuid, NULL::date"
-     " WHERE false $$",
-     ("tests.test_usage.CostRatio.test_deficit_warns_first_and_stops_if_not_confirmed_within_the_grace",)),
     ("見守りに、期限の来た赤字の警告を見せない",
      "CREATE OR REPLACE FUNCTION salescall.open_deficit_warnings() RETURNS TABLE (tenant_id uuid, client_id uuid)"
      " LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$ SELECT NULL::uuid, NULL::uuid"
      " WHERE false $$",
-     ("tests.test_usage.CostRatio.test_deficit_warns_first_and_stops_if_not_confirmed_within_the_grace",)),
+     ("tests.test_usage.CostRatio.test_deficit_warns_and_reminds_once_but_never_stops",)),
     ("赤字の警告の確認を、システムの処理にもさせる", "DROP TRIGGER deficit_warning_guard ON salescall.deficit_warnings",
-     ("tests.test_usage.CostRatio.test_a_confirmed_deficit_does_not_stop",)),
+     ("tests.test_usage.CostRatio.test_a_confirmed_deficit_is_not_reminded",)),
     ("時給の時間を数えない",
      "CREATE OR REPLACE FUNCTION salescall.work_seconds(p_from timestamptz, p_to timestamptz)"
      " RETURNS TABLE (at timestamptz, seconds numeric) LANGUAGE sql STABLE SECURITY DEFINER"
@@ -464,12 +458,12 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      " LANGUAGE sql IMMUTABLE AS $$ SELECT true $$",
      ("tests.test_gate.BusinessDailyLimit.test_the_limit_counts_the_business_dials_of_today_and_skips_promised_calls",
       "tests.test_exclusions.Marks.test_apologies_resumes_and_promised_calls_are_made_even_on_a_row_set_to_do_not_call")),
-    # 止めているあいだの、お客様との約束を果たす電話の種類（0115。2026-10-22 ユーザー：赤字の停止でも3つはかける）
-    ("途中で切れたお客様へのお詫びのかけ直しを、約束を果たす電話とみなさない（赤字の停止で止まる）",
+    # お客様との約束を果たす電話の種類（0115。赤字では止めない＝0118 のあとは、新しい電話かどうかの決まりに使う）
+    ("途中で切れたお客様へのお詫びのかけ直しを、約束を果たす電話とみなさない（新しい電話として「強制かけない」の行で止まる）",
      "CREATE OR REPLACE FUNCTION salescall.keeping_kind(p_purpose text, p_promised boolean) RETURNS text"
      " LANGUAGE sql IMMUTABLE AS $$ SELECT CASE WHEN p_purpose = 'apology' THEN 'apology'"
      " WHEN coalesce(p_promised, false) THEN 'promised' END $$",
-     ("tests.test_gate.Stops.test_a_deficit_stop_still_lets_promises_and_resumes_through_but_a_quality_stop_does_not",)),
+     ("tests.test_exclusions.Marks.test_apologies_resumes_and_promised_calls_are_made_even_on_a_row_set_to_do_not_call",)),
     ("「強制かけない」の行でも、お客様と約束したかけ直しをかける",
      "CREATE OR REPLACE FUNCTION salescall.task_exclusion_level(p_task uuid) RETURNS text LANGUAGE sql STABLE AS"
      " $$ SELECT CASE WHEN salescall.task_excluded(p_task) THEN 'exclude' ELSE 'call' END $$;"
@@ -590,12 +584,6 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      " VALUES (NULL, NULL, p_kind, 'admin:' || p_key, p_summary, coalesce(p_refs, '{}'::jsonb), true, NULL)"
      " ON CONFLICT (event_key, tenant_id, origin_tenant) DO NOTHING RETURNING event_id INTO got; RETURN got IS NOT NULL; END $$",
      ("tests.test_backup.PerClient.test_failures_are_asked_to_fix_by_kind_and_told_to_the_admin_and_that_contractor",)),
-    ("契約者の取引から、ほかの契約者の止まっている依頼者が見える",
-     "CREATE OR REPLACE FUNCTION salescall.open_system_stops(p_cause text) RETURNS TABLE (event_id bigint, scope text,"
-     " tenant_id uuid, client_id uuid, stopped_on date) LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp"
-     " AS $$ SELECT s.event_id, s.scope::text, s.tenant_id, s.client_id, salescall.jst(s.at)::date FROM salescall.open_stop_events s"
-     " WHERE s.cause::text = p_cause AND s.actor_kind = 'system' $$",
-     ("tests.test_watch.TenantAiStopsAndChecks.test_counting_needs_the_transaction_of_that_scope",)),
     ("前の発信の締めが済んでいない行を、門が通す・候補に出す",
      "CREATE OR REPLACE FUNCTION salescall.task_awaiting_decision(p_task uuid) RETURNS boolean LANGUAGE sql AS $$ SELECT false $$",
      ("tests.test_gate.Pacing.test_unsettled_attempt_blocks_the_row",)),
@@ -1078,12 +1066,13 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("後任の方をお呼びする印が、終わる予定に付いてよい（0114：会話の処理に、かけない予定の印が渡りうる）",
      "ALTER TABLE salescall.task_next_actions DROP CONSTRAINT task_next_actions_successor_calls",
      ("tests.test_settle.DatabaseGuards.test_the_successor_mark_is_only_on_a_call",)),
-    ("お客様が言った端の回が、1日の中の幅の外に出てよい（0117：門が、お客様の言っていない深夜にかけうる）",
-     "ALTER TABLE salescall.task_next_actions DROP CONSTRAINT task_next_actions_window_free_check",
-     ("tests.test_settle.DatabaseGuards.test_the_said_part_is_inside_the_window",)),
-    ("同じ番号の発信の失敗の回数を0にできる（0117：番号を一度もかけずに終える）",
-     "ALTER TABLE salescall.setting_values DROP CONSTRAINT setting_values_failed_same_number_at_least_one",
-     ("tests.test_settle.UnusableNumber.test_the_limit_is_at_least_one",)),
+    ("お客様が口にした端の印が、1日の中の幅の無い予定に付いてよい・形が崩れてよい（0118：門が、お客様の言っていない端を"
+     "歯止めの外まで広げうる）",
+     "ALTER TABLE salescall.task_next_actions DROP CONSTRAINT task_next_actions_window_said_check",
+     ("tests.test_settle.DatabaseGuards.test_the_said_edges_belong_to_a_daily_window",)),
+    ("発信に失敗したときのかけ直しの並びが、1日目から始まらない・小さくなってよい（0118：番号を一度もかけずに終える・日が戻る）",
+     "ALTER TABLE salescall.setting_values DROP CONSTRAINT setting_values_failed_retry_days_order",
+     ("tests.test_settle.UnusableNumber.test_the_order_is_per_client",)),
     # 見直し15（0116）：数え方・止めているあいだに通す電話・約束を果たす電話・判定できない通話の扱いを、それぞれ1か所に
     ("数え方が、途中で切れたかの記録を見ずに、切れ方 interrupted と結果不明をすべて数えない（0116 の前の形：お客様が自分で切った"
      "通話を数えず、終わりなくかけ続ける）",
@@ -1098,16 +1087,60 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      " LANGUAGE sql STABLE AS $$ SELECT CASE WHEN NOT salescall.is_dialed(s) THEN NULL WHEN coalesce(p_cut_off, false) THEN"
      " 'cut_off' WHEN s = 'technical_error' AND NOT salescall.reached_answer(p_attempt) THEN 'line_failure' ELSE 'reached' END $$",
      ("tests.test_gate.BusinessDailyLimit.test_a_failed_dial_does_not_use_up_the_business_limit",)),
-    ("赤字の停止でも通す電話の表を空にする（0116：赤字のあいだ、約束の電話もかけない）",
-     "ALTER TABLE salescall.stop_lets_through DISABLE TRIGGER stop_lets_through_frozen;"
-     " DELETE FROM salescall.stop_lets_through WHERE cause = 'deficit'",
-     ("tests.test_gate.Stops.test_a_deficit_stop_still_lets_promises_and_resumes_through_but_a_quality_stop_does_not",
-      "tests.test_gate.PromisesStopsAndConflicts.test_a_stop_keeps_the_claims_of_calls_it_lets_through",
-      "tests.test_gate.PromisesStopsAndConflicts.test_promises_kept_for_the_line_while_a_stop_lets_them_through")),
     ("品質の停止でも通す電話の表から、お詫びの電話を外す（0116：お詫びの電話が品質の段で止まる）",
      "ALTER TABLE salescall.stop_lets_through DISABLE TRIGGER stop_lets_through_frozen;"
      " DELETE FROM salescall.stop_lets_through WHERE cause = 'quality_gate'",
      ("tests.test_gate.VersionAndStage.test_only_fixed_text_calls_skip_the_stage",)),
+    # 見直し16（0118）：続けて切れた数・発信に失敗した数・断られたかの決まり・赤字の知らせ・声の性別・お客様が口にした端
+    ("続けて何回切れても、お詫びしてすぐかけ直す（0118 の前の形：電波の悪いお客様へ終わりなくかけ続ける）",
+     "CREATE OR REPLACE FUNCTION salescall.dial_kind(s salescall.attempt_state, p_cut_off boolean, p_attempt uuid) RETURNS text"
+     " LANGUAGE sql STABLE AS $$ SELECT CASE WHEN NOT salescall.is_dialed(s) THEN NULL WHEN NOT salescall.is_placed(s) THEN"
+     " 'not_placed' WHEN coalesce(p_cut_off, false) THEN 'cut_off' WHEN s = 'technical_error' AND NOT"
+     " salescall.reached_answer(p_attempt) THEN 'line_failure' ELSE 'reached' END $$;"
+     " CREATE OR REPLACE FUNCTION salescall.resume_allowed(p_attempt uuid) RETURNS boolean LANGUAGE sql STABLE"
+     " AS $$ SELECT coalesce((SELECT a.cut_off FROM salescall.attempts a WHERE a.attempt_id = p_attempt), false) $$",
+     ("tests.test_settle.CutOffCalls.test_cuts_beyond_the_call_backs_count_and_the_row_ends",)),
+    ("続けて切れた数を、行の回数に数えるかの決まりと、すぐかけ直すかの決まりで別々に持つ（0118：数え方と予定が食い違う）",
+     "CREATE OR REPLACE FUNCTION salescall.resume_in_a_row() RETURNS integer LANGUAGE sql IMMUTABLE AS $$ SELECT 5 $$;"
+     " CREATE OR REPLACE FUNCTION salescall.dial_kind(s salescall.attempt_state, p_cut_off boolean, p_attempt uuid) RETURNS text"
+     " LANGUAGE sql STABLE AS $$ SELECT CASE WHEN NOT salescall.is_dialed(s) THEN NULL WHEN NOT salescall.is_placed(s) THEN"
+     " 'not_placed' WHEN coalesce(p_cut_off, false) AND salescall.cuts_in_a_row(p_attempt) <= 2 THEN 'cut_off'"
+     " WHEN s = 'technical_error' AND NOT salescall.reached_answer(p_attempt) THEN 'line_failure' ELSE 'reached' END $$",
+     ("tests.test_settle.CutOffCalls.test_cuts_beyond_the_call_backs_count_and_the_row_ends",)),
+    ("途中で切れて判定できなかった通話も、断られたかが決まっていないとみなす（0118 の前の形：同じお客様のほかの行を止め続ける）",
+     "CREATE OR REPLACE FUNCTION salescall.refusal_undecided(p_attempt uuid) RETURNS boolean LANGUAGE sql STABLE"
+     " SET search_path = salescall, pg_temp AS $$ SELECT NOT salescall.is_settled(p_attempt)"
+     " OR salescall.unknown_pending(p_attempt) $$",
+     ("tests.test_settle.CutOffCalls.test_rejudging_an_old_cut_call_does_not_revive_the_ended_row_nor_hold_the_customer",)),
+    ("同じ番号の、発信に失敗した数を数えない（0118：受け付けない番号へ、終わりなくかける）",
+     "CREATE OR REPLACE FUNCTION salescall.failed_in_a_row(p_contact uuid) RETURNS integer LANGUAGE sql STABLE"
+     " AS $$ SELECT 0 $$",
+     ("tests.test_settle.UnusableNumber.test_four_failures_follow_the_order_and_stop_the_number",
+      "tests.test_settle.UnusableNumber.test_other_rows_of_the_same_number_do_not_dial_it_again")),
+    ("同じ番号の、発信に失敗した数を、あいだにかけられた発信があっても数え続ける（0118：番号を早く捨てる）",
+     "CREATE OR REPLACE FUNCTION salescall.failed_in_a_row(p_contact uuid) RETURNS integer LANGUAGE sql STABLE"
+     " AS $$ SELECT count(*)::integer FROM salescall.attempts a WHERE a.contact_id = p_contact"
+     " AND salescall.is_dialed(a.state) AND NOT salescall.is_placed(a.state) $$",
+     ("tests.test_settle.UnusableNumber.test_a_placed_call_between_restarts_the_count",)),
+    ("声の性別の表示名を、あとから書き換えられる（0118：前の通話の声の性別の意味が変わる）",
+     "CREATE OR REPLACE FUNCTION salescall.voices_guard() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN"
+     " IF current_user <> 'salescall_owner' AND salescall.cur_actor_kind() IS DISTINCT FROM 'admin' THEN"
+     " RAISE EXCEPTION 'x' USING ERRCODE = 'insufficient_privilege'; END IF;"
+     " IF TG_OP = 'DELETE' THEN RAISE EXCEPTION 'x' USING ERRCODE = 'check_violation'; END IF;"
+     " IF TG_OP = 'UPDATE' AND ((NEW.voice_name, NEW.note, NEW.added_at) IS DISTINCT FROM (OLD.voice_name, OLD.note, OLD.added_at)"
+     " OR OLD.retired_at IS NOT NULL) THEN RAISE EXCEPTION 'x' USING ERRCODE = 'check_violation'; END IF;"
+     " RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END; END $$",
+     ("tests.test_gate.CallerNumberAndVoice.test_another_clients_voice_is_followed_by_the_other_gender_when_there_is_one",)),
+    ("赤字の警告の「もう一度の知らせ」を、何度でも書き換えられる（0118：期限を過ぎた赤字を、何度も知らせる・知らせた記録が消える）",
+     "CREATE OR REPLACE FUNCTION salescall.deficit_warning_guard() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN"
+     " IF TG_OP = 'DELETE' THEN RAISE EXCEPTION 'x' USING ERRCODE = 'integrity_constraint_violation'; END IF;"
+     " IF OLD.confirmed_at IS NULL AND NEW.confirmed_at IS NOT NULL AND salescall.cur_actor_kind() IS DISTINCT FROM 'operator'"
+     " AND salescall.cur_actor_kind() IS DISTINCT FROM 'admin' THEN RAISE EXCEPTION 'x' USING ERRCODE = 'insufficient_privilege',"
+     " CONSTRAINT = 'deficit_confirmed_by_person'; END IF; RETURN NEW; END $$",
+     ("tests.test_usage.CostRatio.test_deficit_warns_and_reminds_once_but_never_stops",)),
+    ("お客様指定の歯止め時間の始まりと終わりが逆でもよい（0118：お客様が言っていない深夜・早朝にかけうる・幅が空になる）",
+     "ALTER TABLE salescall.setting_values DROP CONSTRAINT setting_values_designated_limit_order",
+     ("tests.test_settle.CallbackWindow.test_the_designated_limit_is_one_day_and_per_business",)),
     ("止めているあいだに通す電話の表を、持ち主が書き換えられる（0116）", "DROP TRIGGER stop_lets_through_frozen ON salescall.stop_lets_through",
      ("tests.test_gate.Stops.test_the_kinds_of_promise_keeping_calls_are_decided_in_one_place",)),
     ("止めたとき、その停止でも通す電話の予約も取り消す（0116 の前の形）",
@@ -1121,11 +1154,11 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      " WHERE v.business_id = s.business_id)) OR (s.scope = 'line' AND a.line_id = s.line_id));"
      " GET DIAGNOSTICS n = ROW_COUNT; RETURN n; END $$",
      ("tests.test_gate.PromisesStopsAndConflicts.test_a_stop_keeps_the_claims_of_calls_it_lets_through",)),
-    ("番号の聞き直しを、約束を果たす電話に入れる（0116 の前の形：赤字の停止を通る）",
+    ("番号の聞き直しを、約束を果たす電話に入れる（0116 の前の形：ほかの依頼者の聞き直しの電話で、こちらの行を終える・待つ）",
      "CREATE OR REPLACE FUNCTION salescall.keeping_kind(p_purpose text, p_promised boolean) RETURNS text LANGUAGE sql IMMUTABLE AS"
      " $$ SELECT CASE WHEN p_purpose = 'apology' THEN 'apology' WHEN p_purpose = 'resume' THEN 'resume'"
      " WHEN coalesce(p_promised, false) THEN 'promised' END $$",
-     ("tests.test_gate.PromisesStopsAndConflicts.test_ask_number_again_is_not_a_promise_kept_while_stopped",)),
+     ("tests.test_gate.PromisesStopsAndConflicts.test_only_promised_callbacks_of_another_client_are_waited_for",)),
     ("ほかの依頼者の約束を、印 promised で読み、止まっていても数える（0111 の形）",
      "CREATE OR REPLACE FUNCTION salescall.number_next_promise_elsewhere(p_phone text) RETURNS TABLE (relation text, wait_until timestamptz)"
      " LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$"
