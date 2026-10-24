@@ -982,9 +982,9 @@ class AckChoiceTest(unittest.TestCase):
         from phrases import ACK, ACK_PAUSE_S, ack_pause_s
         from stitch_gap import ACK_TO_AI_S
         self.assertTrue(all(t[-1] in ACK_PAUSE_S for t in ACK.values()))
-        # 「。」のあとは 10-14 の 0.6秒（聞き比べの道具も同じ1か所を読む）。⏳「、」のあとは聞き比べで決める（それまで 0.6秒）
-        self.assertEqual((ACK_PAUSE_S["。"], ACK_TO_AI_S), (0.6, 0.6))
-        self.assertLessEqual(ACK_PAUSE_S["、"], ACK_PAUSE_S["。"])
+        # 「。」のあとは 10-14 の 0.6秒（聞き比べの道具も同じ1か所を読む）。「、」のあとは 10-25 の聞き比べで 0.5秒（「。」より短い）
+        self.assertEqual((ACK_PAUSE_S["。"], ACK_TO_AI_S, ACK_PAUSE_S["、"]), (0.6, 0.6, 0.5))
+        self.assertEqual((ack_pause_s("hai"), ack_pause_s("moushiwake_heavy"), ack_pause_s("arigatou")), (0.5, 0.5, 0.6))
         self.assertEqual([k for k in ACK if ACK[k].endswith("。")], ["shouchi", "arigatou", "shitsurei"])
         f = self.flow()
         f.on_callee()
