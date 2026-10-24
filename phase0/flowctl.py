@@ -1157,7 +1157,6 @@ class Flow:
         # 「わからない」のあとに足した聞き足しの質問（分かるお客様・分かる時）→ 元の質問（_take_system）。答えはかけ直しの記録に残す（noted＝残した分）
         self.follow_ups: dict[str, str] = {}
         self.follow_noted: set[str] = set()
-        self.follow_facts: dict[str, dict] = {}   # 聞き足しの答えを残した、かけ直しの記録（分かる方に繋がったら connected の印を付ける＝_who_took_over）
         self.follow_asked: set[str] = set()       # この通話で伺った聞き足しの役目（ask_who・ask_when。1通話1回＝_take_system）
         # lead_ins：プログラムの返事のあとに話す文の頭に、受けの言葉を置くか（DESIGN.md 6-11。✅ 2026-10-13 ユーザー承認＝既定で置く。
         # 置かない形は、過去の比べの試験（G-25・G-27 の W0）を同じ意味で動かすためだけに残す）
@@ -1789,7 +1788,6 @@ class Flow:
             # 分かるお客様・分かる時の答え：かけ直しの記録（理由＝扱いの名前。項目は同じ1か所＝分かるお客様は person・分かる時は time）
             self.follow_noted.add(fid)
             self._note("callback", why=self.questions[fid].callback, read=[], **self._callback_fields([fid], self.questions[fid].callback))
-            self.follow_facts[fid] = self.facts["callback"][-1]
         if (p1 := CALLBACK_IDS["promise_again"]) in self.items and self._asked(p1) and self.facts.get("not_transferred"):
             # 約束の電話で取り次げなかったときの一言への答え（伺ったら、「はい」のときだけ true＝CL-2 の 4-135。⛔ 2026-10-24 の見直し：
             # 「わからない」・伺う途中で切れたときに書いていなかった＝CL-2 は「聞いていない」と読んだ）
@@ -2503,15 +2501,15 @@ class Flow:
         """相手が替わった（代わった方が話し始めた）と決まったときの、分かるお客様の聞き足しの扱いの唯一の場所（AIの「代わった方へ」・判定の
         「代わった方」のどちらからも）：「分かる者に代わります」と取り次がれたなら、分かるお客様を伺った元の質問（答えがまだ取れていないもの）を、
         いま聞いている質問・言い直しの返事待ちによらず、代わった方に伺い直す（CL-2 の 15-2-3：「(a1) で取り次がれたら相手が替わる」）。
-        分かるお客様の聞き足しはもう伺わず、取れていたお名前のかけ直しの記録には「繋がった」印（connected）を付ける。当てはまらなければ False。
+        分かるお客様の聞き足しはもう伺わない（取れていたお名前のかけ直しの記録は、言われたことの記録として残す。⛔ 最初は「繋がった」印 connected を
+        付けたが、CL-2 ではその印は「目的のお客様に繋いだ」の意味で、繋いだ記録の無い報告を断る＝意味の違う印の流用。必要な質問が取れれば、CL-2 の
+        判定は、かけ直しより先に「取れた」で終える）。当てはまらなければ False。
         ⛔ 2026-10-24 の見直し（調べ役）で見つけた穴：聞き足しを伺っている最中だけ戻していた＝お名前の言い直しの返事待ちのまま取り次がれると、
         代わった方に言い直しを言わせて止まった／お名前を伺い終えて次の質問へ進んでいたら、元の質問を伺わず、繋がった方へのかけ直しを約束させた"""
         took = [(fid, orig) for fid, orig in self.follow_ups.items()
                 if self.questions[fid].callback == "ask_who" and self.items[orig].state not in GOT]
         for fid, orig in took:
             self.follow_ups.pop(fid)
-            if fid in self.follow_facts:
-                self.follow_facts[fid]["connected"] = True
             if self.awaiting_confirm == fid:
                 self.awaiting_confirm = None
             # いま聞いていた別の質問（お名前を伺い終えて進んでいた）は、元の質問のあとに伺う

@@ -4472,13 +4472,13 @@ class CallbackTest(unittest.TestCase):
         self.say(f, "分かる者に代わりますね。", "replay_opening", part="handover")
         r = self.say(f, "私も担当ではないので分からないですね。", "record_answer", question_id="Q1", condition_id="unknown", unknown_why="not_in_charge")
         self.assertEqual((r["result"], r["question_id"]), ("next", "Q2"))
-        # (3) お名前を伺い終えて次の質問へ進んでいた：元の質問へ戻り、いま聞いていた質問はそのあと。お名前の記録には「繋がった」印
+        # (3) お名前を伺い終えて次の質問へ進んでいた：元の質問へ戻り、いま聞いていた質問はそのあと（お名前の記録は、言われたことの記録として残す）
         f = Flow(qs(), opening=op, play_recordings=True)
         self.say(f, "担当じゃないので分からないです。", "record_answer", question_id="Q1", condition_id="unknown", unknown_why="not_in_charge")
         self.say(f, "経理の山田なら分かります。", "record_answer", question_id="C8", condition_id="答えた", value="経理の山田")
         self.assertEqual(self.say(f, "はい、いま代わりますね。", "confirm_field", question_id="C8", result="affirmed")["question_id"], "Q2")
         r = self.say(f, "お電話代わりました、山田です。", "replay_opening", part="handover")
-        self.assertEqual((f.current, f.order, played(r), f.facts["callback"][0].get("connected")), ("Q1", ["Q2"], ["greeting", "intro", "purpose", "Q1"], True))
+        self.assertEqual((f.current, f.order, played(r), "connected" in f.facts["callback"][0]), ("Q1", ["Q2"], ["greeting", "intro", "purpose", "Q1"], False))
         # (4) 名乗りの録音が無い通話：AIが短く名乗って、元の質問を聞く（⛔ 前は差し戻し、代わった方の答えも「いまの質問ではない」で差し戻した）
         f = Flow(qs())
         self.say(f, "担当じゃないので分からないです。", "record_answer", question_id="Q1", condition_id="unknown", unknown_why="not_in_charge")
