@@ -1304,6 +1304,11 @@ class Flow:
         self.check, self.check_said = {}, {}
         self.holding = False
 
+    def _judged_now(self) -> dict[str, str]:
+        """いまの発話の言葉の判定（受け持ち → 読み。判定のあとに相手が話し続けた分は除く）。呼んでいる段の記録（_keep_calling_turn）と、
+        繋いだ発話そのものの読み（通話の事実 connect の turn_reads＝_connect）の1か所。"""
+        return {k: v for k, v in self.check.items() if k in JUDGMENTS and self.check_said.get(k) in (None, self.callee_said)}
+
     def _keep_calling_turn(self) -> None:
         """いまの発話の言葉と、その言葉の判定（判定のあとに相手が話し続けた分は除く）を、呼んでいる段の記録に残す（唯一の場所）：発話が
         終わったとき（on_callee）と、その発話でかけ直しへ移るとき（_callback。⛔ 2026-10-22 の見直しで見つけた漏れ：移ったあとの on_callee は
@@ -1312,8 +1317,7 @@ class Flow:
         if not self.callee_said.strip():
             return
         self.calling_words[self.callee_turns] = self.callee_said.strip()
-        done = {k: v for k, v in self.check.items() if k in JUDGMENTS and self.check_said.get(k) in (None, self.callee_said)}
-        if done:
+        if done := self._judged_now():
             self.calling_judged.setdefault(self.callee_turns, {}).update(done)
         if doubted := {k for k, said in self.doubt.items() if said in (None, self.callee_said)}:
             self.calling_doubted.setdefault(self.callee_turns, set()).update(doubted)
@@ -3171,10 +3175,11 @@ class Flow:
         最初に出た方が目的の人なら、まだ届いていない分だけ（用件。録音の途中で止めて届いていない名乗りがあれば、それも）。
         録音で流す形では名乗り・用件を録音で流し、最初の質問は _advance が決める（録音か、AIが言うか）。AIが話す形では、AIが言う。
         read＝繋いだ読み（「ai」＝AIの報告・判定の名前）。通話の事実（connect）に残し、繋いだあとに届いた判定も足す（on_check。通話後の検証が、
-        判定なしで繋いだ通話を確かめる＝DESIGN.md 6-12）。who＝繋いだ方（目的の人 target・後任の方 successor・代わりの方 substitute。依頼主へ渡す
+        判定なしで繋いだ通話を確かめる＝DESIGN.md 6-12）。繋ぐときまでに届いていた、繋いだ発話そのものの判定は turn_reads に残す（「ご本人」以外の
+        読みがあれば、CL-2 が通話後に確かめ直す＝CL-1.md 4-34 の 4-127 (a)・CL-2 の 4-154。届いていなければ書かない）。who＝繋いだ方（目的の人 target・後任の方 successor・代わりの方 substitute。依頼主へ渡す
         答えが、誰の答えか＝✅ 2026-10-22 ユーザー：代わりの方とも話す）。"""
         who = "successor" if who == "target" and self.successor else who
-        self._note("connect", read=sorted(read), judging=self.judging, who=who)
+        self._note("connect", read=sorted(read), judging=self.judging, who=who, **({"turn_reads": r} if (r := self._judged_now()) else {}))
         if who != "target":
             # 代わりの方・後任の方には、お呼びした方のお名前の読みは聞かない（その方の名前ではない＝reading_question）
             self.order = [qid for qid in self.order if not self.questions[qid].reading_of]

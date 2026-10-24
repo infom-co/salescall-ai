@@ -6009,6 +6009,25 @@ class TargetTest(unittest.TestCase):
         f.apply("report_party", {"party": "target"})
         f.on_check("judge", HANDOVER, turn)
         self.assertEqual(f.facts["connect"][-1]["late"], {"judge": HANDOVER})
+        self.assertNotIn("turn_reads", f.facts["connect"][-1])   # 繋ぐときまでに、その発話の判定は届いていなかった
+
+    def test_judgments_of_the_connecting_words_are_kept(self):
+        # 繋いだ発話そのものに、繋ぐときまでに届いていた判定の読み（turn_reads）：「ご本人」以外の読みがあれば CL-2 が通話後に確かめ直す
+        # （CL-1.md 4-34 の 4-127 (a)・CL-2 の 4-154）。前の発話の読みは入れない（その発話の読みだけ）
+        from flowctl import TARGET_IS_THERE
+        f, b = self.checked()
+        self.heard(f, "はい、岡田は私ですが。", TARGET_IS_THERE)
+        r = f.apply("report_party", {"party": "target"})
+        c = f.facts["connect"][-1]
+        self.assertEqual((r["result"], c["read"], c["turn_reads"]), ("next", ["ai", "judge"], {"judge": TARGET_IS_THERE}))
+        g, _ = self.checked()
+        self.heard(g, "はい、岡田は私ですが。", None)
+        first = g.callee_turns
+        g.apply("report_party", {"party": "target"})
+        self.heard(g, "はい、そうです。", None)
+        g.on_check("judge", TARGET_IS_THERE, first, said="はい、岡田は私ですが。")
+        g.apply("report_party", {"party": "target"})
+        self.assertEqual((g.facts["connect"][-1]["read"], g.facts["connect"][-1].get("turn_reads")), (["ai", "judge"], None))
 
     def test_call_harness_judges_with_the_flow_question(self):
         import inspect
@@ -6209,6 +6228,23 @@ class TargetTest(unittest.TestCase):
         f.on_callee(); f.on_heard("あいにく岡田は席を外しております。")
         f.on_check("judge2", TARGET_IS_AWAY); f.on_unsure("asks", HOLD)
         self.assertEqual(f.apply("request_callback", {"why": "absent"})["result"], "next")
+
+    def test_recorded_names_match_cl2_contractor_parts(self):
+        # CL-2 の 4-154：契約者の組にそろっているかを確かめる一覧（CL-2 の recordings.CONTRACTOR_PARTS）が、契約者の単位の録音の名前の正本
+        # （phrases.RECORDED）と同じか。足りなければ、CL-2 はその声で話させない（待たせる）。名前を足したら CL-2 の連絡帳への返事で知らせる。
+        # CL-2 の部品（app/）が無い所では飛ばす。CL-2 の書き方を ast で読む（CL-2 の部品は読み込まない＝上の業務設定の名前と同じ）
+        import ast
+        import pathlib
+        from phrases import RECORDED
+        src = pathlib.Path(__file__).resolve().parent.parent / "app" / "src" / "salescall" / "core" / "recordings.py"
+        if not src.is_file():
+            self.skipTest("CL-2 の録音の部品（app/）がまだ無い")
+        tree = ast.parse(src.read_text(encoding="utf-8"))
+        node = next(n.value for n in tree.body if isinstance(n, (ast.Assign, ast.AnnAssign))
+                    and "CONTRACTOR_PARTS" in [getattr(t, "id", None) for t in (n.targets if isinstance(n, ast.Assign) else [n.target])])
+        parts = {x.value for x in ast.walk(node) if isinstance(x, ast.Constant) and isinstance(x.value, str)}
+        self.assertEqual((sorted(set(RECORDED) - parts), sorted(parts - set(RECORDED))), ([], []),
+                         "（こちらだけにある名前, CL-2 の一覧だけにある名前）")
 
     def test_names_match_cl2_business_settings(self):
         # CL-2 の 4-144 (a)・4-121：業務設定の確かめ（CL-2 の business_settings の ANSWER_RESERVED・RESERVED_IDS）が、会話の側の名前と
