@@ -976,6 +976,26 @@ class AckChoiceTest(unittest.TestCase):
         for ack in ("hai", "shouchi", "arigatou", "shitsurei", "moushiwake", "moushiwake_heavy"):
             self.assertIn(ack, ACK)
 
+    def test_pause_after_an_ack_follows_its_ending_mark(self):
+        # ✅ 2026-10-24 ユーザー：ふつう「。」が入る相づち（承知しました。・ありがとうございます。）のあとは、「、」の所より間を空ける（0.数秒）
+        # ⇒ 間は相づちの言葉の終わりの記号で決め（phrases.ACK_PAUSE_S の1か所）、返事に書く（電話接続モジュールが守る。AIには見せない）
+        from phrases import ACK, ACK_PAUSE_S, ack_pause_s
+        self.assertTrue(all(t[-1] in ACK_PAUSE_S for t in ACK.values()))
+        self.assertGreater(ACK_PAUSE_S["。"], ACK_PAUSE_S["、"])
+        self.assertEqual([k for k in ACK if ACK[k].endswith("。")], ["shouchi", "arigatou", "shitsurei"])
+        f = self.flow()
+        f.on_callee()
+        out = f.handle(fc("record_answer", 質問="Q1", 答えの種類="はい"))
+        self.assertEqual((f.log[-1]["reply"]["ack"], f.log[-1]["reply"]["ack_pause_s"]), ("shouchi", ack_pause_s("shouchi")))
+        self.assertNotIn("ack_pause_s", out)
+        # 台帳の録音の文も同じ記号（文が違うと、人が選んだ録音を「まだ無い」として作り直す＝make_ack_clips.usable）
+        from make_ack_clips import OUT, usable, words
+        table = words(False)[0]
+        index = json.loads((OUT / "index.json").read_text(encoding="utf-8"))
+        for vt in ("S2", "S4", "L4"):
+            for aid in ("shouchi", "arigatou"):
+                self.assertTrue(any(m.get("type") == vt and m.get("id") == aid and usable(m, table) for m in index), (vt, aid))
+
     def test_thinking_callee_gets_short_hai(self):
         from flowctl import Question
         from instruction import Business, build

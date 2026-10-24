@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 from names import hira, quote, unvoiced
 from phrases import AI_ANSWER, AI_ASKED_AGAIN, AMPM_ASK, CALLBACK_ASK, CLOSE_DECLINED, CLOSING, LEAD_IN, NAME_READING_ASK
 from phrases import APOLOGY_FIRST, APOLOGY_PURPOSE, BACK_TO, DEPARTED_ACK, HOLD_TIMEOUT, MOSHIMOSHI, NUMBER_AGAIN, OFFER_THANKS, OWN_FALLBACK, SILENCE_PROMPT, SILENCE_PROMPT_IDS, SUCCESSOR, SUCCESSOR_IDS, TALK_FALLBACK
-from phrases import ask_again as ask_again_phrase
+from phrases import ack_pause_s, ask_again as ask_again_phrase
 from phrases import confirm as confirm_phrase, restate_words
 from phrases import lead_in as lead_in_phrase
 from units import supply_unit
@@ -720,7 +720,7 @@ CONFIRM_MEANINGS = {TARGET_IS_THERE: "電話に出ている方が、お呼びし
                     TARGET_IS_NOT: "電話に出ている方は、お呼びした方ではないということ（「いいえ」「違います」と答えた・違うお名前を名乗った）",
                     TARGET_IS_AWAY: TARGET_MEANINGS[TARGET_IS_AWAY]}
 # hang_up＝話さずに切る（電話接続側が読む）・silent＝AIに話させない返事（取り次ぎを待つ間など。handle_call）
-INTERNAL_KEYS = {"ack", "ask_n", "ask_reason", "ask_last", "after", "play", "speak", "hang_up", "silent", "sorry", "again", "away", "renamed",
+INTERNAL_KEYS = {"ack", "ack_pause_s", "ask_n", "ask_reason", "ask_last", "after", "play", "speak", "hang_up", "silent", "sorry", "again", "away", "renamed",
                  "led", "thanks", "talked", "fallback", "quiet", "bridged", "hold_wait_s"}  # 中で使うだけの項目（電話接続側・数え方が読む）。AIへの返事には入れない
 # こちらが使う名前（AIに見せる日本語の名前）。値の欄に入っていたら、相手の答えではない（form_problem）
 _LABELS = (set(SYSTEM_LABEL.values()) | set(CONFIRM_LABEL.values()) | set(END_LABEL.values()) | set(PARTY_LABEL.values())
@@ -1995,6 +1995,8 @@ class Flow:
             # 前の言葉の答えを、相手の返事（「そうなんですね」）のあとに受け取った：その返事を「はい、」で受ける（答えへのお礼・承りは、もう遅い）
             reply["talked"] = True
         reply["ack"] = self._ack(name, args, reply)
+        if reply["ack"]:
+            reply["ack_pause_s"] = ack_pause_s(reply["ack"])  # 相づちのあとの間（phrases.ACK_PAUSE_S の1か所。電話接続モジュールが守る）
         self.log.append({"op": name, "args": args, "reply": reply, "callee_turns": self.callee_turns, "phase_before": phase_before,
                          "phase": self.phase} | ({"words_turn": words["turn"]} if words else {}) | ({"answering": True} if answering else {}))
         return reply
@@ -2041,9 +2043,9 @@ class Flow:
         """報告が届いた瞬間に、電話接続側が流す相づち（phrases.ACK の中の名前。流さないなら None）。DESIGN.md 6-15。
         ✅ 2026-10-14 ユーザー：基本は「はい、」。違和感のある場面や「はい」が続くときは、別の相づち。
         - 言い直し（AIの言葉は「ありがとうございます。」などの受けの言葉から始まる）・締め・引き止めの一言 ⇒「はい、」
-        - 次の質問・念のための確認 ⇒「承知しました、」「ありがとうございます、」を順番に（言い直しの「はい、」と交互になり、
+        - 次の質問・念のための確認 ⇒「承知しました。」「ありがとうございます。」を順番に（言い直しの「はい、」と交互になり、
           「はい」が続かない。AIの言葉は「それでは、」などのつなぎの言葉から始まるので、受けの言葉が2つ重ならない）
-        - 相手が「わからない」「答えたくない」と答えた・通話を断られた ⇒「承知しました、」（お礼は場面に合わない）
+        - 相手が「わからない」「答えたくない」と答えた・通話を断られた ⇒「承知しました。」（お礼は場面に合わない）
         - 聞き返しても聞き取れず、先へ進む ⇒「はい、」
         - 言い直した値が違っていた ⇒「失礼いたしました。」／聞き取れなかった ⇒「申し訳ございません、」（お詫びの決まり。6-11）
           「申し訳ございません、」は2本：1回目の聞き返し＝軽いお詫び（moushiwake）／同じ項目を2回目以降に聞く・最後の1回＝重いお詫び

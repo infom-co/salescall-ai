@@ -16,7 +16,7 @@
     "type": "L4",
     "voice": "Leda",
     "id": "shouchi",
-    "text": "承知しました、",
+    "text": "承知しました。",
     "heard": {
       "0.0": "承知しました。",
       "1.0": "承知しました。"
@@ -24,7 +24,8 @@
     "ok": true,
     "seconds": 1.33,
     "tries": 2,
-    "wav": "L4_shouchi.wav"
+    "wav": "L4_shouchi.wav",
+    "read_as": "承知しました、"
   },
   {
     "type": "L4",
@@ -100,7 +101,7 @@
     "type": "L4",
     "voice": "Leda",
     "id": "arigatou",
-    "text": "ありがとうございます、",
+    "text": "ありがとうございます。",
     "heard": {
       "0.0": "ありがとうございます。",
       "1.0": "ありがとうございます。"
@@ -108,7 +109,8 @@
     "ok": true,
     "seconds": 1.12,
     "tries": 1,
-    "wav": "L4_arigatou.wav"
+    "wav": "L4_arigatou.wav",
+    "read_as": "ありがとうございます、"
   },
   {
     "type": "S2",
@@ -268,7 +270,7 @@
     "type": "S2",
     "voice": "Sadachbia",
     "id": "shouchi",
-    "text": "承知しました、",
+    "text": "承知しました。",
     "heard": {
       "0.0": "承知しました。",
       "1.0": "承知しました。"
@@ -278,13 +280,14 @@
     "try": 4,
     "wav": "S2_shouchi.wav",
     "chosen_from": "S2_shouchi_3",
-    "chosen_by": "人"
+    "chosen_by": "人",
+    "read_as": "承知しました、"
   },
   {
     "type": "S4",
     "voice": "Sadachbia",
     "id": "shouchi",
-    "text": "承知しました、",
+    "text": "承知しました。",
     "heard": {
       "0.0": "承知しました。",
       "1.0": "承知しました。"
@@ -295,7 +298,8 @@
     "wav": "S4_shouchi.wav",
     "made_as": "S2",
     "chosen_from": "S2_shouchi_3",
-    "chosen_by": "人"
+    "chosen_by": "人",
+    "read_as": "承知しました、"
   },
   {
     "type": "S2",
@@ -334,7 +338,7 @@
     "type": "S2",
     "voice": "Sadachbia",
     "id": "arigatou",
-    "text": "ありがとうございます、",
+    "text": "ありがとうございます。",
     "heard": {
       "0.0": "ありがとうございます。",
       "1.0": "ありがとうございます。"
@@ -345,13 +349,14 @@
     "wav": "S2_arigatou.wav",
     "made_as": "S4",
     "chosen_from": "S4_arigatou_2",
-    "chosen_by": "人"
+    "chosen_by": "人",
+    "read_as": "ありがとうございます、"
   },
   {
     "type": "S4",
     "voice": "Sadachbia",
     "id": "arigatou",
-    "text": "ありがとうございます、",
+    "text": "ありがとうございます。",
     "heard": {
       "0.0": "ありがとうございます。",
       "1.0": "ありがとうございます。"
@@ -361,7 +366,8 @@
     "try": 2,
     "wav": "S4_arigatou.wav",
     "chosen_from": "S4_arigatou_2",
-    "chosen_by": "人"
+    "chosen_by": "人",
+    "read_as": "ありがとうございます、"
   },
   {
     "type": "S2",
