@@ -15,7 +15,7 @@ from flowctl import (ANY_LABEL, ARG_LABEL, CALLBACK_LABEL, CONFIRM_LABEL, END_LA
                      check_policies, choices_note, offers_rule)
 from names import hira, quote  # noqa: F401（名前を「」でくくる唯一の場所。ここからも読める）
 
-from phrases import AI_ANSWER, APOLOGY, ASK_BACK, GREETING, target_call, target_confirm, target_reconfirm, target_who  # noqa: F401（決まった言い方は phrases.py の1か所。試験からも、ここ経由で読める）
+from phrases import AI_ANSWER, APOLOGY, APOLOGY_FIRST, ASK_BACK, GREETING, PROMISE_AGAIN, SUCCESSOR, SUCCESSOR_OF, role_honorific, target_call, target_confirm, target_reconfirm, target_who  # noqa: F401（決まった言い方は phrases.py の1か所。試験からも、ここ経由で読める）
 # プログラムから会話AIへ送る合図の文面（文字で送る。相手には聞こえない）。合図の文面はここだけに置く（DESIGN.md 6-7）
 CUES = {
     # AIが黙ったとき：1回だけ返事を促す
@@ -50,9 +50,13 @@ class Target:
     name: str = ""       # 相手の名前の表記（役職のみなら空）
     reading: str = ""    # 名前の読み（ひらがな）。読みが決まらない名前は、まず言ってみる読み（確かめは業務の質問に reading_question を足す）
     role: str = ""       # 部署・役職（「営業部部長」「社長」）。名前のみなら空
+    # この方の後任のご担当者様をお呼びする（前の電話で、この方が在籍していないと言われた＝門の予約証 Claim.successor）。呼ぶ一言は
+    # 「（この方）様の後任のご担当者様はいらっしゃいますでしょうか？」、確かめる一言・聞き返しは後任の方の言い方（✅ 2026-10-24 ユーザー）
+    successor: bool = False
 
     def __post_init__(self):
         assert self.kind in ("法人", "個人"), self.kind
+        assert not (self.successor and self.kind != "法人"), "後任の方をお呼びするのは法人だけです"
         assert self.name or self.role, "目的の人には、名前か役職が要ります（どちらも無ければ「誰でも」＝Target を持たない）"
         assert not self.name or self.reading, f"目的の人「{self.name}」の読みが要ります（決まらなければ、まず言ってみる読み）"
 
@@ -60,16 +64,23 @@ class Target:
         return quote(hira(self.reading)) if self.name else ""
 
     def who(self) -> str:
-        return target_who(self.kind, self._name(), self.role)
+        who = target_who(self.kind, self._name(), self.role)
+        return f"{who}の後任のご担当者様" if self.successor else who
 
     def call(self) -> str:
+        if self.successor:
+            return SUCCESSOR_OF.format(who=target_who(self.kind, self._name(), self.role))
         return target_call(self.kind, self._name(), self.role)
 
     def confirm(self) -> str:
-        return target_confirm(self._name(), self.role)
+        return SUCCESSOR["target_confirm"] if self.successor else target_confirm(self._name(), self.role)
 
     def reconfirm(self) -> str:
-        return target_reconfirm(self._name(), self.role)
+        return SUCCESSOR["target_reconfirm"] if self.successor else target_reconfirm(self._name(), self.role)
+
+    def promise_again(self) -> str:
+        """約束の電話で取り次げないと言われたときに伺う一言（お名前は確かめる一言と同じ呼び方）。"""
+        return PROMISE_AGAIN.format(who=f"{self._name()}様" if self.name else role_honorific(self.role))
 
 
 @dataclass
@@ -110,6 +121,10 @@ class Business:
     # 目的の人（DESIGN.md 4-3）。None＝「誰でも」（最初に出た人が目的の人）。目的の人のある業務では、名乗りの終わりは目的の人を呼ぶ一言で、
     # 目的の人に繋がるまで最初の質問を聞かない（流れの制御 Flow の calling の段）
     target: Target | None = None
+    # この電話の門の予約証から（CL-2 の gate.Claim）：お客様と約束したかけ直しの電話か（promised）・まずお詫びすること（apology＝理由の並び
+    # missed_promise・cut_off）。どちらも会話の処理が読む（flowctl.Flow の promised・apology）
+    promised: bool = False
+    apology: tuple = ()
     # 自社名・担当者名の読み（ひらがな。空＝決まらない＝表記のまま渡す）。自社名は、設定に無ければ取込で names.decide が決める（Intent.md 6-8）。
     # ✅ 2026-10-16 ユーザー決定（案C）：担当者名の読みは、設定に必ず入れる（名乗りでは言い換えられない。個人向けでは名乗ることが法律の確認事項）。
     #    必須かどうかを確かめるのは設定の登録（CL-2）。ここは、担当者名を unread_names に入れた矛盾した設定を受け付けない。
@@ -207,7 +222,8 @@ class Business:
         company, caller = self._said()
         parts = [GREETING, f"株式会社{company}の{caller}と申します。"]
         if self.target is not None:
-            return parts + [self.target.call()]
+            return parts + [self.target.call()]   # お詫び（apology）は、目的の方に繋がってから（flowctl.Flow._connect）
+        parts += [APOLOGY_FIRST[k] for k in self.apology]   # 目的の人の無い業務：最初に出た方がお客様＝名乗りのあとにお詫び
         if self.purpose_line:
             parts.append(self.purpose_line)
         parts.append(self.questions[0].text)
@@ -222,6 +238,8 @@ class Business:
                  "ai": self.ai_answer or AI_ANSWER}  # 「AIですか？」への決まった答え（録音で流す。⛔ G-57：AIに言わせると質問に戻らなかった）
         if self.target is not None:
             parts.update(target=self.target.call(), target_confirm=self.target.confirm(), target_reconfirm=self.target.reconfirm())
+            if self.promised:
+                parts["promise_again"] = self.target.promise_again()  # 約束の電話で取り次げないと言われたとき（flowctl.Flow._not_transferred）
         if self.voicemail_message:
             parts["voicemail"] = self.voicemail_message  # 留守番電話の伝言（依頼主ごとの設定。✅ 2026-10-19 ユーザー：必要なら録音）
         if self.message:

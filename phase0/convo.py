@@ -383,6 +383,9 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
     flow = Flow(business.questions, busy_ask=business.busy_ask, lead_ins=lead_ins, play_recordings=play_recordings,
                 voicemail_message=business.voicemail_message, answers=dict(business.answers), policies=business.policies(),
                 knowledge=business.knowledge(), names=business.spoken_names(), name_readings=business.name_readings(),
+                # 門の予約証から（CL-2 の gate.Claim）：約束の電話か・まずお詫びすること・後任のご担当者様をお呼びする電話か
+                promised=business.promised, apology=tuple(business.apology),
+                successor=business.target is not None and business.target.successor,
                 # 目的の人のある業務：繋がるまで最初の質問を渡さない（DESIGN.md 4-3）。名乗り・用件の文は、AIが話す形でも流れの制御が持つ
                 target=business.replay_parts() if business.target is not None else None,
                 opening=business.replay_parts() if opening_mode == "recorded" else None,  # 名乗りを録音で流す形なら、流し直しもできる（6-13）

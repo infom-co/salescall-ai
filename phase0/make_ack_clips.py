@@ -30,7 +30,7 @@ from instruction import VOICE_TYPES, voice_style
 from jtext import compare_reading
 from listen import hear_feeds
 from live_util import build_config, collect_turn, send_text
-from phrases import CALLBACK_ASK, RECORDED, SUCCESSOR_IDS, TALK_FALLBACK
+from phrases import APOLOGY_FIRST, CALLBACK_ASK, RECORDED, SUCCESSOR_IDS, TALK_FALLBACK
 from voice_features import read_wav
 
 OUT = HERE / "results" / "ack"
@@ -81,6 +81,8 @@ HOW = {"moushiwake": "電話で、相手に聞き取れなかったことを申�
        "own_fallback": "電話で、お客様のご質問をしっかり受け止めて、確かにお伝えすることを、前向きに、丁寧に、落ち着いた調子で。言葉の途中で区切らずに",
        # 受け答えの受け皿の一言（phrases.TALK_FALLBACK）：お客様のお話に、気持ちをこめて応える（決まり文句を読み上げる調子にしない）
        "talk": "電話で、お客様のお話に、気持ちをこめて自然に応えるように、丁寧に、柔らかく、落ち着いた調子で",
+       # 前の電話の事情で、まずお詫びする一言（phrases.APOLOGY_FIRST）：重大なお詫びと同じ心で
+       "apology_first": "電話で、前回の電話でお客様にご迷惑をおかけしたことを、心から深くお詫びするように、誠実に、丁寧に、落ち着いた調子で。言葉の途中で区切らずに",
        # 同じ言葉の調子ごとの録音（phrases.TALK_FALLBACK の調子。✅ 2026-10-23 ユーザーが S2 の聞き比べで調子を聞き分けた）
        "talk_agree_high": "電話で、弾んだ調子で楽しそうに話すお客様に、こちらも元気よく、気持ちを込めて同意するように",
        "talk_agree_deep": "電話で、お客様のお話に、深くうなずきながら、心から同意するように、気持ちを込めて、落ち着いた調子で",
@@ -97,7 +99,7 @@ MAX_S = {"hai": 1.0, "shouchi": 1.4, "arigatou": 1.6, "shitsurei": 1.6, "moushiw
          "lead_tsuzukimashite": 1.2, "lead_deha": 0.8, "closing": 8.0, "closing_declined": 7.0, "wait": 3.5, "wait_heavy": 3.8, "question": 6.0,
          "greeting": 2.5, "intro": 4.5, "purpose": 4.5, "ai": 3.0, "voicemail": 12.0, "ai_again": 8.0, "answer": 8.0, "offer_thanks": 7.5,
          "departed": 4.0, "message": 12.0, "authority": 13.0, "own_fallback": 8.5, "back": 3.0,
-         "talk": 3.5}
+         "talk": 3.5, "apology_first": 6.5}
 MAX_S.update({k: MAX_S["talk"] for k, (_, tone, _) in TALK_FALLBACK.items() if tone})
 # 長い文の上限は、文の長さの見込み（L4 の締めの実測：42字・5.92秒＝1字0.141秒）の1.15倍より短くしない（ClipTablesTest が見る）。
 # ✅ 2026-10-22 ユーザー（4回目）の言い方で、ほかの手段の質問（「それでは恐れ入りますが…」）・お立場を伺う一言（2つから選んでいただく形）・
@@ -112,7 +114,8 @@ HOW_OF["callback_authority"] = "authority"  # 判断いただけるお立場か�
 # 「いかがなさいましたか？」「どうなさいましたか？」（phrases.SILENCE_PROMPT）：考えている相手にも、「AIですか」と3回目から聞かれたときにも
 # 流す。どちらも、何か気になる点があったかを心配して聞く一言なので、「AIですか」への言い方と同じ読み方
 HOW_OF.update({"ikaga": "ai", "dou": "ai"})
-HOW_OF.update({k: "talk" for k, (_, tone, _) in TALK_FALLBACK.items() if tone is None})  # 調子ごとの録音は、名前そのものが読み方の鍵
+HOW_OF.update({k: "talk" for k, (_, tone, _) in TALK_FALLBACK.items() if tone is None})
+HOW_OF.update({f"apology_{k}": "apology_first" for k in APOLOGY_FIRST})  # 調子ごとの録音は、名前そのものが読み方の鍵
 
 
 END_SILENCE_S = 0.1  # 声のあとに、これだけの無音が無ければ、声の途中で切れた録音として落とす

@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 
 from names import hira, quote, unvoiced
 from phrases import AI_ANSWER, AI_ASKED_AGAIN, AMPM_ASK, CALLBACK_ASK, CLOSE_DECLINED, CLOSING, LEAD_IN, NAME_READING_ASK
-from phrases import BACK_TO, DEPARTED_ACK, OFFER_THANKS, OWN_FALLBACK, SILENCE_PROMPT, SILENCE_PROMPT_IDS, SUCCESSOR, SUCCESSOR_IDS, TALK_FALLBACK
+from phrases import APOLOGY_FIRST, BACK_TO, DEPARTED_ACK, OFFER_THANKS, OWN_FALLBACK, SILENCE_PROMPT, SILENCE_PROMPT_IDS, SUCCESSOR, SUCCESSOR_IDS, TALK_FALLBACK
 from phrases import ask_again as ask_again_phrase
 from phrases import confirm as confirm_phrase, restate_words
 from phrases import lead_in as lead_in_phrase
@@ -326,8 +326,8 @@ def question_play(questions: list["Question"], qid: str) -> dict:
     """その質問を録音で流すときの1つ（電話接続側が流すもの）。業務の質問＝依頼主の単位の録音（つなぎの言葉＋質問の文）、かけ直しで足す質問＝
     契約者の単位の録音（phrases.RECORDED の callback_〜。どの業務でも同じ文）。読みの確かめは録音にしない（相手ごとの名前を含む＝AIが言う）。"""
     q = next(x for x in questions if x.id == qid)
-    if q.callback == "message":
-        return {"kind": "opening", "part": "message", "text": q.text}  # 伝言の文は依頼主の単位の録音（業務設定 message）
+    if q.callback in OPENING_ROLES:
+        return {"kind": "opening", "part": q.callback, "text": q.text}  # 伝言の文・約束の電話の一言は依頼主の単位の録音
     if q.callback:
         return {"kind": "recorded", "id": f"callback_{q.callback}", "text": q.text}
     text, lead = spoken_question(questions, qid)
@@ -575,9 +575,12 @@ CALLBACK_PLAN = {"absent": ("back_time",), "long_absent": ("back_date",), "other
                  "other_means": ()}
 MEANS_PLAN = {"email": ("email",), "fax": ("fax",), "post": ("address",)}  # ほかの手段で、聞くこと（手段の申し出が無ければ、聞かずに締める）
 # システムが足す質問の番号（どの業務でも同じ）と、通話の事実（callback）に残すときの名前
-CALLBACK_IDS = {"time": "C1", "number": "C2", "email": "C3", "fax": "C4", "address": "C5", "message": "M1"}
+CALLBACK_IDS = {"time": "C1", "number": "C2", "email": "C3", "fax": "C4", "address": "C5", "back_today": "C6", "again": "C7", "message": "M1",
+                "promise_again": "P1"}
 ROLE_KEY = {"back_time": "time", "later_time": "time", "back_date": "time", "reachable_time": "time", "number": "number", "email": "email",
-            "fax": "fax", "address": "address", "message": "message"}
+            "fax": "fax", "address": "address", "message": "message", "back_today": "back_today", "call_again": "again",
+            "promise_again": "promise_again"}
+YES_NO_FACT = ("back_today", "again")   # かけ直しの記録に、はい／いいえ（真偽）で入れる答え（CL-2 の call_report.Callback の back_today・again）
 # 相手の申し出への応じ方（業務設定。instruction.Business の substitute_policy・message_policy・departed_policy・follow_up）。最初が既定（ユーザーの決定）
 POLICIES = {"substitute": ("decision_maker", "target_only", "anyone"), "message": ("decline", "leave"), "departed": ("successor", "end")}
 SUBSTITUTE_ID = "S1"  # 代わりの方に、判断いただけるお立場かを聞く質問（Flow._substitute）
@@ -907,16 +910,23 @@ def next_reading(heard: str | None, readings: tuple | list, tried: list[str]) ->
 
 CALLBACK_TOPIC = {"back_time": "お戻りになるお時間", "later_time": "ご都合のよろしいお時間", "number": "お電話番号",
                   "reachable_time": "お電話に出られるお時間", "back_date": "お戻りのご予定", "email": "メールアドレス", "fax": "ファクス番号",
-                  "address": "ご住所", "authority": "ご判断いただけるお立場か", "message": "ご伝言"}
-SYSTEM_ROLES = set(CALLBACK_ASK) | {"message"}  # システムが足す質問の役目（伝言の文だけは依頼主の単位＝業務設定の message）
-_ROLE_TYPE = {"number": "phone", "fax": "phone", "email": "email", "address": "address", "authority": "choice", "message": "yes_no"}
+                  "address": "ご住所", "authority": "ご判断いただけるお立場か", "message": "ご伝言", "back_today": "本日のお戻りのご予定",
+                  "call_again": "改めてのお電話", "promise_again": "改めてのお電話"}
+# 文が依頼主の単位の録音のもの（伝言の文＝業務設定 message・約束の電話の一言＝お名前が入る＝instruction.Business.replay_parts の promise_again）
+OPENING_ROLES = ("message", "promise_again")
+SYSTEM_ROLES = set(CALLBACK_ASK) | set(OPENING_ROLES)  # システムが足す質問の役目
+_ROLE_TYPE = {"number": "phone", "fax": "phone", "email": "email", "address": "address", "authority": "choice", "message": "yes_no",
+              "back_today": "yes_no", "call_again": "yes_no", "promise_again": "yes_no"}
 # 代わりの方にお立場を伺った答えのうち、話を進めてよい答え（_substitute_decided の1か所）。✅ 2026-10-22 ユーザー（4回目）：問いは「ご判断いただける
 # お立場の方ということで問題ございませんでしょうか？それともお取次ぎのみいただけるということでしたでしょうか？」の2つから選んでいただく形
 AUTHORITY_YES = "判断できる"
 _ROLE_MEANINGS = {
     # 意味の言葉は、言い直しの言い方にもそのまま入る（choice_words：「念のため（意味の言葉）でよろしいでしょうか？」）ので、短く言い切る形にする
     "authority": {AUTHORITY_YES: "この件についてご判断いただけるお立場の方ということ", "取次ぎのみ": "お取次ぎのみいただけるということ"},
-    "message": {"はい": "伝言を伝えていただけるということ", "いいえ": "伝言は伝えられないということ"}}
+    "message": {"はい": "伝言を伝えていただけるということ", "いいえ": "伝言は伝えられないということ"},
+    "back_today": {"はい": "本日お戻りのご予定があるということ", "いいえ": "本日はお戻りにならないということ"},
+    "call_again": {"はい": "後ほど改めてお掛けしてよいということ", "いいえ": "本日は改めてお掛けしないほうがよいということ"},
+    "promise_again": {"はい": "後ほど改めてお掛けしてよいということ", "いいえ": "本日は改めてお掛けしないほうがよいということ"}}
 
 
 def callback_question(role: str, text: str | None = None) -> "Question":
@@ -980,7 +990,7 @@ class Flow:
                  opening: dict | None = None,
                  voicemail_message: str | None = None, target: dict | None = None, answers: dict | None = None,
                  policies: dict | None = None, knowledge: list[str] | None = None, names: list[str] | None = None,
-                 name_readings: dict[str, str] | None = None):
+                 name_readings: dict[str, str] | None = None, promised: bool = False, apology: tuple = (), successor: bool = False):
         """confirm：言い直しの言い方を作る関数 (値, 場面, 何回目) → 文（ふだんは phrases.confirm。言い方を比べる試験 G-25 だけが別のものを渡す）。
         busy_ask：相手が「忙しい」と言ったときに1回だけ言う一言（業務設定。None なら丁寧に終える＝既定。Intent.md 9-4）。
         target：目的の人のある業務の、名乗りの部分の文（instruction.Business.replay_parts。呼ぶ一言 target・確かめる一言 target_confirm を含む）。
@@ -988,7 +998,10 @@ class Flow:
         policies：相手の申し出への応じ方（instruction.Business.policies。無い項目は既定＝POLICIES の最初・follow_up は False）。
         knowledge：こちらが知っていること（instruction.Business.knowledge）・names：声に出さない名前（社名・担当者名・お呼びした方の名前と読み。
         instruction.Business.spoken_names）・name_readings：読みの決まった名前の表記 -> 読み（instruction.Business.name_readings）＝AIが自分の言葉で言う文の
-        確かめ（own_answer_problem・grounding）に使う。"""
+        確かめ（own_answer_problem・grounding）に使う。
+        promised・apology・successor：この電話の門の予約証（CL-2 の gate.Claim）から＝お客様と約束したかけ直しの電話か（取り次げないと言われたら、
+        締めの前に改めてお掛けしてよいかを伺う）・まずお詫びすること（理由の並び。目的の方に繋がったら最初に）・前任の方の後任のご担当者様を
+        お呼びする電話か（呼ぶ一言は instruction.Target の successor が作る）。"""
         self.confirm = confirm
         self.busy_ask = busy_ask
         # 留守番電話に残す伝言（業務設定。Intent.md 9-4・18-2 の14。None なら残さずに切る＝安全側）
@@ -1037,6 +1050,13 @@ class Flow:
         self.successor = False
         self.target_from = 0
         self.system_parts: dict[str, str] = {}  # 名乗りの部分のうち、契約者の単位の録音で流すもの（部分 → 録音の中の名前。_part_play）
+        self.promised = promised
+        self.apology_due = [k for k in apology if k in APOLOGY_FIRST]   # まだ言っていないお詫び（目的の方に繋がったら流す＝_connect）
+        self.close_after: str | None = None  # 締めの前に伺う一言のあとの、締めた理由（約束の電話で取り次げなかった＝_not_transferred）
+        if successor:
+            # 前任の方の後任のご担当者様をお呼びする電話：最初から後任の方が目的の人（確かめる一言・聞き返しは契約者の単位の録音＝_to_successor と同じ）
+            self.successor = True
+            self.system_parts.update({k: v for k, v in SUCCESSOR_IDS.items() if k != "target"})
         self.busy_asked = False
         self.confirm_counts: dict[str, int] = {}   # 言い直しの場面ごとの回数（同じ言い方が続かないよう、順番に回す）
         self.awaiting_say: str | None = None       # いま返事を待っている言い直しの、言い方（差し戻しのときも同じ言い方を使う）
@@ -1603,7 +1623,14 @@ class Flow:
             keys |= set() if self.callback_why == "other_means" else {"time", "number"}
             got = {k: self.answer_of(qid) if qid in self.items and self.items[qid].state in GOT else None
                    for k, qid in CALLBACK_IDS.items() if k in keys}
+            for k in set(YES_NO_FACT) & set(got):
+                got[k] = {"はい": True, "いいえ": False}.get(got[k])
+            if got.get("back_today") is False and "again" not in got:
+                got["again"] = False   # 本日はお戻りにならない＝その日は改めてお掛けしない
             self.facts["callback"][-1].update(got)
+        if (p1 := CALLBACK_IDS["promise_again"]) in self.items and self.items[p1].state in GOT + ("unresolved",) and self.facts.get("not_transferred"):
+            # 約束の電話で取り次げなかったときの一言への答え（はっきりしない・答えが取れないは「よいと言われていない」＝CL-2 の 4-135）
+            self.facts["not_transferred"][-1]["again"] = self.items[p1].state in GOT and self.items[p1].condition == "はい"
         if not (name == "replay_opening" and args.get("part") in ("ai", "resume") + OWN_PARTS):
             # 決まった言い方・自分の言葉の答えへの返事を待つのは、その次の報告まで（答え・ほかの報告が来たら、もう待っていない）
             self.ai_pending = self.own_pending = False
@@ -2988,15 +3015,21 @@ class Flow:
         keys = [k for k in OPENING_ORDER if self.target.get(k) and (self.passed_on or k in self.opening_unheard)
                 and not (k == "greeting" and self._greeted())]  # 判定を待つ間に流したあいさつは、もう流さない（hold_play）
         self.phase, self.opening_unheard, self.passed_on = "asking", [], False
-        texts = "".join(self.target[k] for k in keys)
-        if not keys:
+        # まずお詫び（前の電話の事情。予約証の apology）：お呼びした方ご本人にだけ。名乗りが要るなら名乗りのあと、用件・質問の前（契約者の単位の録音）
+        sorry = [{"kind": "recorded", "id": f"apology_{k}", "text": APOLOGY_FIRST[k]} for k in self.apology_due] if who != "substitute" else []
+        self.apology_due = [] if sorry else self.apology_due
+        at = next((i + 1 for i, k in enumerate(keys) if k == "intro"), 0)
+        lines = [{"kind": "opening", "part": k, "text": self.target[k]} for k in keys]
+        lines[at:at] = sorry
+        texts = "".join(x["text"] for x in lines)
+        if not lines:
             return self._advance(f"{prefix}{whom}に繋がりました。", handled=True)
         if not self.opening:
             return self._advance(f"{prefix}{whom}に繋がりました。まず「{texts}」と言ってから、", handled=True)
         r = self._advance(f"{prefix}{whom}に繋がりました。「{texts}」は、プログラムが録音で流しました（相手にもう聞こえています）。続けて、", handled=True)
         if "play" not in r:
             r["speak"] = True  # 最初の質問は AIが言う（読みの確かめ・相手の質問に答えてから聞くとき）：録音のあとに話させる
-        r["play"] = [{"kind": "opening", "part": k, "text": self.opening[k]} for k in keys] + r.get("play", [])
+        r["play"] = [x if x["kind"] == "recorded" else {**x, "text": self.opening[x["part"]]} for x in lines] + r.get("play", [])
         return r
 
     def _op_request_callback(self, a: dict) -> dict:
@@ -3303,6 +3336,12 @@ class Flow:
         if self._hold_now():
             return self._hold()
         self._note("not_transferred")
+        if self.promised and self.target.get("promise_again"):
+            # お客様と約束した電話：締めの前に「（お名前）様とお電話の約束をしておりましたので後ほど改めてお掛けしてもよろしいでしょうか？」を伺い、
+            # 答えを通話の事実に残してから、お礼の締め（✅ 2026-10-22 ユーザーの言い方・2026-10-24「5つOK」。CL-2 の連絡帳 4-135）
+            self.phase, self.order, self.recheck_queue, self.close_after = "asking", [], [], "not_transferred"
+            self._add_callback_question("promise_again", self.target["promise_again"])
+            return self._advance("", handled=True)
         return self._close("not_transferred")
 
     @property
@@ -3452,6 +3491,29 @@ class Flow:
                     f"相手の答えに合う選択肢の名前（{'、'.join(q.labels)}）を入れます。")
         return f"相手が肯定したら confirm_field を{ARG_LABEL['result']}「{ok}」で、違う値を言ったら「{ng}」と{corr}で報告してください。"
 
+    def _follow_ups(self) -> None:
+        """答えによって足す、システムの質問（唯一の場所。_advance が次の質問を決める前に呼ぶ）：不在で、戻る時刻を伺っても分からなかった ⇒
+        本日のお戻りのご予定を伺い、「いいえ」でなければ、改めてお掛けしてよいかを伺う（✅ 2026-10-24 ユーザー「まだ会話に入っていない言い方5つOK」。
+        CL-2 の連絡帳 4-140 (a)：「不在なら、出られる日時を聞き出す。聞き出せなかったら、その日はかけない」＝答えはかけ直しの記録の
+        back_today・again。同じ日にまたかけるかは CL-2 の次の動きが決める）。"""
+        if self.callback_why != "absent":
+            return
+        time_q, today_q = CALLBACK_IDS["time"], CALLBACK_IDS["back_today"]
+        if today_q not in self.items:
+            if time_q in self.items and self.items[time_q].state != "empty" and self.items[time_q].condition == "unknown":
+                self._add_callback_question("back_today")
+            return
+        if self.items[today_q].state != "empty" and self.items[today_q].condition != "いいえ" and CALLBACK_IDS["again"] not in self.items:
+            self._add_callback_question("call_again")
+
+    def _add_callback_question(self, role: str, text: str | None = None) -> None:
+        """システムの質問を、いま聞いている並びの終わりに足す（_follow_ups・_not_transferred）。"""
+        q = callback_question(role, text)
+        self.questions[q.id], self.items[q.id] = q, Item()
+        self.order = [*self.order, q.id]
+        if self.callback_why:
+            self.callback_ids = [*self.callback_ids, q.id]
+
     def _remaining(self) -> list[str]:
         return [qid for qid in self.order if self.items[qid].state == "empty"]
 
@@ -3479,6 +3541,7 @@ class Flow:
                 self._note("callee_question", answered=None)  # 同じ発話に報告が2回届いても、1つの質問は1つの記録
             self.after_answer = (asked, self._advance("", handled=True))
             return {"result": "callee_asked", "message": f"{prefix}相手が質問をしています。次へ進む前に、まずその質問に答えます。{self._now()}"}
+        self._follow_ups()
         rest = self._remaining()
         if self.phase == "asking" and rest:
             self.current = rest[0]
@@ -3512,7 +3575,7 @@ class Flow:
             return {"result": "recheck", "question_id": q.id, "question": q.text, "say": say,
                     "message": f"{prefix}念のための確認です。{q.id} を、もう1回だけ「{say}」と聞いて、相手の答えを待ってください。"
                                "相手が答えたら record_answer で報告します。"}
-        reason = ("other_means" if self.callback_why == "other_means" else "callback") if self.callback_why else "done"
+        reason = self.close_after or (("other_means" if self.callback_why == "other_means" else "callback") if self.callback_why else "done")
         return self._close(reason, prefix=f"{prefix}質問は終わりです。")
 
     @property

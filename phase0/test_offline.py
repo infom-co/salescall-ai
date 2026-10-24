@@ -4335,6 +4335,33 @@ class CallbackTest(unittest.TestCase):
                                                 "time": "午後3時ごろ", "number": None}])
         self.assertEqual(f.export(), {"Q1": "-", "Q2": "-"})                                  # 依頼主へ渡す項目には入れない
 
+    def test_absent_without_a_return_time_asks_about_today(self):
+        # ✅ 2026-10-24 ユーザー「まだ会話に入っていない言い方5つOK」（CL-2 の 4-140 (a)：「不在なら、出られる日時を聞き出す。聞き出せなかったら、
+        # その日はかけない」）：戻る時刻が分からなければ、本日のお戻りのご予定を伺い、「いいえ」でなければ改めてお掛けしてよいかを伺う
+        from phrases import CALLBACK_ASK
+        f = self.flow()
+        self.say(f, "あいにく本人は出かけておりまして。", "request_callback", why="absent")
+        r = self.say(f, "戻りの時間はちょっと分からないですね。", "record_answer", question_id="C1", condition_id="unknown")
+        self.assertEqual((r["result"], r["question_id"], r["question"]), ("next", "C6", CALLBACK_ASK["back_today"]))
+        r = self.say(f, "はい、今日中には戻ると思います。", "record_answer", question_id="C6", condition_id="はい")
+        self.assertEqual((r["result"], r["question_id"], r["question"]), ("next", "C7", CALLBACK_ASK["call_again"]))
+        r = self.say(f, "はい、お願いします。", "record_answer", question_id="C7", condition_id="はい")
+        self.assertEqual((r["result"], f.end_reason), ("end", "callback"))
+        self.assertEqual({k: f.facts["callback"][0].get(k) for k in ("time", "back_today", "again")}, {"time": None, "back_today": True, "again": True})
+        # 本日はお戻りにならない：改めてお掛けしてよいかは伺わない（その日は改めてお掛けしない）
+        f = self.flow()
+        self.say(f, "あいにく本人は出かけておりまして。", "request_callback", why="absent")
+        self.say(f, "戻りの時間はちょっと分からないですね。", "record_answer", question_id="C1", condition_id="unknown")
+        r = self.say(f, "いえ、今日はもう戻らないです。", "record_answer", question_id="C6", condition_id="いいえ")
+        self.assertEqual((r["result"], f.end_reason), ("end", "callback"))
+        self.assertEqual({k: f.facts["callback"][0].get(k) for k in ("back_today", "again")}, {"back_today": False, "again": False})
+        # 戻る時刻が分かれば、伺わない（今までどおり）
+        f = self.flow()
+        self.say(f, "あいにく本人は出かけておりまして。", "request_callback", why="absent")
+        self.say(f, "3時ごろには戻ると思います。", "record_answer", question_id="C1", condition_id="答えた", value="3時ごろ")
+        r = self.say(f, "はい。", "confirm_field", question_id="C1", result="affirmed")
+        self.assertEqual((r["result"], "back_today" in f.facts["callback"][0]), ("end", False))
+
     def test_other_number_asks_number_then_reachable_time(self):
         from phrases import CALLBACK_ASK
         f = self.flow()
@@ -4647,6 +4674,63 @@ class TargetTest(unittest.TestCase):
         self.assertEqual(r["result"], "rejected")
         self.assertIn("目的の人", r["message"])
         self.assertEqual(self.say(f, "はい。", "request_end", reason="done")["result"], "rejected")  # まだ終えられない（質問を始めていない）
+
+    def test_next_call_asks_for_the_successor(self):
+        # ✅ 2026-10-24 ユーザー「5つOK」（CL-2 の 4-140：予約証の successor）：前の電話でお呼びした方が在籍していないと言われた会社への次の電話は、
+        # 「（前任の方のお名前）様の後任のご担当者様」をお呼びする。確かめる一言は、通話の中で後任の方へ切り替えたときと同じ録音
+        from flowctl import Flow
+        from phrases import SUCCESSOR
+        b = self.business(successor=True)
+        self.assertEqual(b.opening_parts()[-1], "営業部部長の「おかだ」様の後任のご担当者様はいらっしゃいますでしょうか？")
+        self.assertEqual(b.replay_parts()["target_confirm"], SUCCESSOR["target_confirm"])
+        self.assertIn("お呼びする方：営業部部長の（お名前）様の後任のご担当者様", b.knowledge())
+        f = Flow(b.questions, play_recordings=True, opening=b.replay_parts(), target=b.replay_parts(), successor=True)
+        self.assertEqual((f.successor, f.system_parts.get("target_confirm"), "target" in f.system_parts), (True, "successor_confirm", False))
+        self.say(f, "はい、後任の山田ですが。", "report_party", party="target")
+        self.assertEqual((f.phase, f.facts["connect"][-1]["who"]), ("asking", "successor"))
+
+    def test_promised_call_asks_again_before_closing(self):
+        # ✅ 2026-10-22 ユーザーの言い方・2026-10-24「5つOK」（CL-2 の 4-135）：約束の電話で、受付の方に事情で取り次げないと言われたら、締めの前に伺い、
+        # 答えを通話の事実 not_transferred の again に残す（「OKなら、当日の約束の時刻の幅の中かけ直してもいい」）
+        import dataclasses
+        from flowctl import CLOSING, Flow
+        for said, cond, again in (("はい、お願いします。", "はい", True), ("いえ、今日はちょっと。", "いいえ", False)):
+            b = dataclasses.replace(self.business(), promised=True)
+            f = Flow(b.questions, play_recordings=True, opening=b.replay_parts(), target=b.replay_parts(), promised=True)
+            r = self.say(f, "申し訳ございません、担当が分からないのでお繋ぎできかねます。", "request_end", reason="not_transferred")
+            self.assertEqual((r["result"], r["question_id"], r["play"]), ("next", "P1", [
+                {"kind": "opening", "part": "promise_again", "text": "「おかだ」様とお電話の約束をしておりましたので後ほど改めてお掛けしてもよろしいでしょうか？"}]))
+            r = self.say(f, said, "record_answer", question_id="P1", condition_id=cond)
+            self.assertEqual((r["result"], f.end_reason, f.not_reached, f.facts["not_transferred"][-1].get("again")), ("end", "not_transferred", "not_transferred", again))
+            self.assertIn(CLOSING, r.get("say") or "".join(x["text"] for x in r.get("play", [])))   # お礼の締め
+            self.assertNotIn("P1", f.export())                                                      # 依頼主へ渡す項目には入れない
+        # 約束の電話でなければ、伺わずに締める（今までどおり）
+        f, b = self.flow()
+        r = self.say(f, "申し訳ございません、担当が分からないのでお繋ぎできかねます。", "request_end", reason="not_transferred")
+        self.assertEqual((r["result"], f.end_reason, "again" in f.facts["not_transferred"][-1]), ("end", "not_transferred", False))
+
+    def test_apology_comes_first_when_the_target_answers(self):
+        # ✅ 2026-10-24 ユーザー「5つOK」（CL-2 の 4-135：予約証の apology）：前の電話の事情（約束の時間にかけられなかった・途中で切れた）は、目的の方に
+        # 繋がったら、まずお詫び（名乗りが要るなら名乗りのあと、用件・質問の前）。⏳ 言い方は案
+        import dataclasses
+        from types import SimpleNamespace
+        from flowctl import Flow
+        from g22_opening import BUSINESS
+        from phrases import APOLOGY_FIRST
+        b = self.business()
+        f = Flow(b.questions, play_recordings=True, opening=b.replay_parts(), target=b.replay_parts(), apology=("cut_off",))
+        r = self.say(f, "はい、岡田は私ですが。", "report_party", party="target")
+        self.assertEqual([p.get("part") or p.get("id") or p["kind"] for p in r["play"]], ["apology_cut_off", "purpose", "Q1"])
+        self.assertEqual((r["play"][0]["text"], f.apology_due), (APOLOGY_FIRST["cut_off"], []))
+        # 取り次がれて代わった方がご本人：あいさつ・名乗りのあと、用件の前
+        f = Flow(b.questions, play_recordings=True, opening=b.replay_parts(), target=b.replay_parts(), apology=("missed_promise",))
+        f.on_callee(); f.on_heard("少々お待ちください。")
+        f.handle_call(SimpleNamespace(name="report_party", args={"相手": "受付の方"}))
+        r = self.say(f, "お電話代わりました、岡田です。", "report_party", party="target")
+        names = [p.get("part") or p.get("id") or p["kind"] for p in r["play"]]
+        self.assertEqual(names[names.index("intro") + 1], "apology_missed_promise")
+        # 目的の人の無い業務：最初に出た方がお客様＝名乗りのあとにお詫び
+        self.assertEqual(dataclasses.replace(BUSINESS, apology=("cut_off",)).opening_parts()[2], APOLOGY_FIRST["cut_off"])
 
     def test_first_person_is_the_target(self):
         # 最初に出た方が目的の人：まだ届いていない用件と、最初の質問を流す（名乗りはもう届いている）
