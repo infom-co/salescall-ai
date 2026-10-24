@@ -4459,6 +4459,62 @@ class CallbackTest(unittest.TestCase):
         self.assertEqual((f.facts["callback"][0]["number"], f.facts["callback"][0]["time"]), ("090-1234-5678", None))
         self.assertEqual(f.export(), {"Q1": "はい", "Q2": "-"})
 
+    def test_unknown_answer_follows_the_business_handling(self):
+        # CL-2 の 15-2-3（業務の決まり＝理由×扱い）・✅ 2026-10-24 ユーザー（伺い方「OK」）：「わからない」の理由に、業務が「分かるお客様を聞く」
+        # 「分かる時を聞く」を宣言していれば1通話1回だけ伺い、答えをかけ直しの記録（person・time）に残して残りの質問へ。「結論として終える」は丁寧に締める
+        from flowctl import CLOSING, Flow, Question
+        from phrases import CALLBACK_ASK
+        h = {("dont_know", "not_in_charge"): "ask_who", ("dont_know", "unknown_now"): "ask_when", ("dont_know", "unspecified"): "retry"}
+        qs = lambda: [Question("Q1", "ご予算はおいくらほどでしょうか？", "amount", conditions=("答えた",), handlings=h),
+                      Question("Q2", "ご導入の時期はお決まりでしょうか？", "yes_no", conditions=("はい", "いいえ"),
+                               handlings={("refused", "policy"): "conclude"})]
+        f = Flow(qs())
+        r = self.say(f, "予算は私の担当ではないので分からないですね。", "record_answer", question_id="Q1", condition_id="unknown", unknown_why="not_in_charge")
+        self.assertEqual((r["question_id"], r["question"]), ("C8", CALLBACK_ASK["ask_who"]))
+        self.say(f, "経理の山田なら分かると思います。", "record_answer", question_id="C8", condition_id="答えた", value="経理の山田")
+        r = self.say(f, "はい。", "confirm_field", question_id="C8", result="affirmed")
+        self.assertEqual(r["question_id"], "Q2")                                                    # 残りの質問へ進む
+        self.assertEqual({k: f.facts["callback"][0].get(k) for k in ("why", "person", "time", "number")},
+                         {"why": "ask_who", "person": "経理の山田", "time": None, "number": None})
+        # 分かる時を聞く
+        f = Flow(qs())
+        r = self.say(f, "まだ社内で調整中で、いまは分からないです。", "record_answer", question_id="Q1", condition_id="unknown", unknown_why="unknown_now")
+        self.assertEqual((r["question_id"], r["question"]), ("C9", CALLBACK_ASK["ask_when"]))
+        self.say(f, "来週の水曜には決まると思います。", "record_answer", question_id="C9", condition_id="答えた", value="来週の水曜")
+        self.say(f, "はい。", "confirm_field", question_id="C9", result="affirmed")
+        self.assertEqual((f.facts["callback"][0]["why"], f.facts["callback"][0]["time"]), ("ask_when", "来週の水曜"))
+        # 聞き足しにまた「わからない」なら重ねない・日を改める（retry）は伺わずに次へ
+        f = Flow(qs())
+        self.say(f, "担当じゃないので。", "record_answer", question_id="Q1", condition_id="unknown", unknown_why="not_in_charge")
+        r = self.say(f, "ちょっと分からないですね。", "record_answer", question_id="C8", condition_id="unknown")
+        self.assertEqual((r["question_id"], f.facts.get("callback")), ("Q2", None))
+        f = Flow(qs())
+        r = self.say(f, "うーん、分からないです。", "record_answer", question_id="Q1", condition_id="unknown")
+        self.assertEqual((r["question_id"], f.items["Q1"].reason), ("Q2", "unspecified"))
+        # 結論として終える：ほかの質問は伺わずに丁寧に締める
+        f = Flow(qs())
+        self.say(f, "50万円くらいです。", "record_answer", question_id="Q1", condition_id="答えた", value="50万円")
+        self.say(f, "はい。", "confirm_field", question_id="Q1", result="affirmed")
+        r = self.say(f, "社内の決まりでお答えできないんです。", "record_answer", question_id="Q2", condition_id="refused", unknown_why="policy")
+        self.assertEqual((r["result"], f.end_reason, f.items["Q2"].state), ("end", "done", "refused"))
+        self.assertIn(CLOSING, r.get("say") or "".join(x["text"] for x in r.get("play", [])))
+        with self.assertRaises(AssertionError):            # 「答えたくない」に使えるのは結論として終えるだけ
+            Question("Q3", "x", "yes_no", conditions=("はい",), handlings={("refused", "unwilling"): "ask_who"})
+
+    def test_ask_who_handover_reasks_the_question_to_the_new_person(self):
+        # 「分かる者に代わります」と取り次がれたら、代わった方に元の質問を伺い直す（CL-2 の 15-2-3：「(a1) で取り次がれたら相手が替わる」）
+        import dataclasses
+        from flowctl import Flow, Question
+        from g22_opening import BUSINESS
+        q1 = Question("Q1", "ご予算はおいくらほどでしょうか？", "amount", conditions=("答えた",), handlings={("dont_know", "not_in_charge"): "ask_who"})
+        b = dataclasses.replace(BUSINESS, questions=[q1])
+        f = Flow(b.questions, play_recordings=True, opening=b.replay_parts())
+        self.say(f, "私の担当ではないので。", "record_answer", question_id="Q1", condition_id="unknown", unknown_why="not_in_charge")
+        f.on_callee(); f.on_heard("少々お待ちください、分かる者に代わります。")   # 取り次ぎの言葉（AIは報告せずに待つ）
+        r = self.say(f, "お電話代わりました、経理の山田です。", "replay_opening", part="handover")
+        self.assertEqual((f.current, f.items["Q1"].state, "C8" in f.questions), ("Q1", "empty", False))
+        self.assertEqual(r["play"][-1].get("id") or r["play"][-1].get("part"), "Q1")
+
     def test_number_again_call_asks_the_number_after_the_introduction(self):
         # ✅ 2026-10-24 ユーザー（CL-2 の 4-42・4-153）：前の電話で伺った番号が別の方のお電話・繋がらなかったときは、名乗りのあとに伺い直す一言で
         # 番号を伺い直す（「前回お伺いしたお電話番号に…」）。答えはかけ直しの申し出（別の番号）として残す。目的のお客様のいる業務でも、電話に出た方に伺う
