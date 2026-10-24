@@ -122,6 +122,7 @@ HOW_OF.update({k: "talk" for k, (_, tone, _) in TALK_FALLBACK.items() if tone is
 HOW_OF.update({f"apology_{k}": "apology_first" for k in APOLOGY_FIRST})  # 調子ごとの録音は、名前そのものが読み方の鍵
 HOW_OF.update({f"line_trouble_{k}": "line_trouble" for k in LINE_TROUBLE})
 HOW_OF.update({f"number_again_{k}": "number_again" for k in NUMBER_AGAIN})
+HOW_OF["hold_timeout"] = "closing"   # 保留で待ちきったときの締め：締めの読み方
 
 
 END_SILENCE_S = 0.1  # 声のあとに、これだけの無音が無ければ、声の途中で切れた録音として落とす
@@ -346,6 +347,18 @@ def cut_after_context(pcm: bytes, rate: int) -> bytes | None:
     return None
 
 
+# 声のAIが読み違える言葉の読み（✅ 2026-10-24 ユーザー：番号違いの伺い直しの録音で「『前回』を『せんかい』と言っている」）。その言葉を含む
+# 録音の指示に、読みを添える（どの録音でも同じ1か所＝take）。⚠️ 耳の確かめでは見分けられない（聞き取りは、どちらの読みでも「前回」と書いた）
+# ので、人が聞いて選ぶ
+READ_AS = {"前回": "ぜんかい"}
+
+
+def read_as_note(text: str) -> str:
+    """その言葉の読みの指示（READ_AS の言葉を含まなければ空）。"""
+    hits = [f"「{w}」は「{r}」" for w, r in READ_AS.items() if w in text]
+    return f"{'、'.join(hits)}と読みます。" if hits else ""
+
+
 async def take(client, args, vt: str, aid: str, text: str, how: str, voice_note: str = "") -> tuple[dict, bytes, int]:
     """1回読ませて、確かめる（両方の耳で読みが合う・声だけの長さが上限以内・文の途中に長い無音が無い・声の途中で切れていない）。
     voice_note＝声そのものの指示（G-38 で比べる。空なら足さない）。
@@ -354,7 +367,7 @@ async def take(client, args, vt: str, aid: str, text: str, how: str, voice_note:
     context = CONTEXT.get(aid, "")
     try:
         inst = (f"{style}{voice_note}\nあなたは音声の材料を作る係です。渡された言葉だけを、{HOW.get(how, DEFAULT_HOW)}、そのまま読み上げます。"
-                "言葉を足しません。")
+                f"{read_as_note(text)}言葉を足しません。")
         async with client.aio.live.connect(model=args.model, config=build_config(voice=voice, system_instruction=inst)) as s:
             t = time.monotonic()
             await send_text(s, f"読み上げる言葉：{context}{text}")

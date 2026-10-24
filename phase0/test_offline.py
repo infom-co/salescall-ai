@@ -4663,6 +4663,15 @@ class ClipTablesTest(unittest.TestCase):
     """録音を作る表（make_ack_clips）に、どの録音にも読み方と長さの上限がある（⛔ 2026-10-19 の見直しで見つけた漏れ：かけ直しの質問を
     契約者の単位の録音に足したとき、読み方も上限も無く、作ると止まった）。依頼主の単位の録音には「AIですか」への言い方と伝言も入る。"""
 
+    def test_misread_words_get_their_reading(self):
+        # ✅ 2026-10-24 ユーザー：「『前回』を『せんかい』と言っている」＝その言葉を含むどの録音の指示にも、読みを添える（1か所）
+        from make_ack_clips import READ_AS, read_as_note
+        from phrases import APOLOGY_FIRST, NUMBER_AGAIN
+        for text in (*NUMBER_AGAIN.values(), APOLOGY_FIRST["cut_off"]):
+            self.assertIn("「前回」は「ぜんかい」", read_as_note(text))
+        self.assertEqual(read_as_note("恐れ入りますがいつ頃でしたらお分かりになりますでしょうか？"), "")
+        self.assertEqual(READ_AS["前回"], "ぜんかい")
+
     def test_every_recording_has_a_style_and_a_limit(self):
         import dataclasses
         from g22_opening import BUSINESS
@@ -6240,7 +6249,7 @@ class TargetTest(unittest.TestCase):
 
     def test_hold_waits_five_minutes_or_the_stated_length(self):
         # ✅ 2026-10-24 ユーザー：「業務ごとに選べる：デフォルト、相手から長く待つ必要がある理由がなければ5分、理由があればそれまで待つ」
-        from flowctl import CLOSING, Flow, HOLD, wait_seconds
+        from flowctl import Flow, HOLD, wait_seconds
         f, b = self.flow()
         f.use_checks("judge", "judge2")
         f.on_callee(); f.on_heard("少々お待ちください。")
@@ -6250,7 +6259,9 @@ class TargetTest(unittest.TestCase):
         self.assertNotIn("hold_wait_s", Flow._reply_out(r))                                      # 電話接続側だけが読む（AIには見せない）
         r = f.on_hold_timeout()
         self.assertEqual((r["result"], f.end_reason, f.not_reached), ("end", "not_transferred", "not_transferred"))
-        self.assertIn(CLOSING, r.get("say") or "".join(x["text"] for x in r.get("play", [])))   # ⏳ 終え方は案（お礼の締め）
+        from phrases import HOLD_TIMEOUT
+        self.assertEqual(r["play"], [{"kind": "closing", "id": "hold_timeout", "text": HOLD_TIMEOUT}])   # ✅ ユーザーの言い方の締め
+        self.assertEqual(f.facts["hold_timeout"], [{"turn": 1, "said": "少々お待ちください。", "waited_s": 300}])  # のちほどかけ直す印（CL-2 が時を決める）
         import dataclasses
         b2 = dataclasses.replace(b, hold_wait_s=120)
         f = Flow(b2.questions, play_recordings=True, opening=b2.replay_parts(), target=b2.replay_parts(), hold_wait_s=b2.hold_wait_s)

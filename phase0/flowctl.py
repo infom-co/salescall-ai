@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 
 from names import hira, quote, unvoiced
 from phrases import AI_ANSWER, AI_ASKED_AGAIN, AMPM_ASK, CALLBACK_ASK, CLOSE_DECLINED, CLOSING, LEAD_IN, NAME_READING_ASK
-from phrases import APOLOGY_FIRST, BACK_TO, DEPARTED_ACK, NUMBER_AGAIN, OFFER_THANKS, OWN_FALLBACK, SILENCE_PROMPT, SILENCE_PROMPT_IDS, SUCCESSOR, SUCCESSOR_IDS, TALK_FALLBACK
+from phrases import APOLOGY_FIRST, BACK_TO, DEPARTED_ACK, HOLD_TIMEOUT, NUMBER_AGAIN, OFFER_THANKS, OWN_FALLBACK, SILENCE_PROMPT, SILENCE_PROMPT_IDS, SUCCESSOR, SUCCESSOR_IDS, TALK_FALLBACK
 from phrases import ask_again as ask_again_phrase
 from phrases import confirm as confirm_phrase, restate_words
 from phrases import lead_in as lead_in_phrase
@@ -1162,6 +1162,7 @@ class Flow:
         # 相手が取り次いでいる最中か（意味の判定が HOLD と決め、AIに黙って待たせた。次の相手の発話で解く）。電話接続側は、この間、
         # 相手が黙っている秒を数える見張り（6-7・6-15 のつなぎの一言・張り替え）を止める（相手はいま電話口にいない。DESIGN.md 6-8）
         self.holding = False
+        self.hold_wait: int | None = None  # いまの保留で待つ長さ（秒。_hold が決め、待ちきったら通話の事実 hold_timeout の waited_s に残す）
         self.nudged_turn = -1            # 報告を促す知らせを出した相手の発話の番号（unreported_note。1つの発話に1回まで）
         # いちばん最近「合っている」で確かめが済んだ項目と、そのときの流れの位置（同じ相手の発話への報告を、AIが「違う値を言われた」に
         # 直したとき、その確かめを取り消して戻すため。_reopen）
@@ -2114,18 +2115,21 @@ class Flow:
             self.callback_held = True  # かけ直し・お立場の質問の途中の取り次ぎ：このあと出る方は、新しい方かもしれない（_op_replay_opening）
         # 待つ長さ：相手が言った長さ（「15分ほど」）があればそれ、無ければ業務設定（初め5分）。電話接続側は、この長さのあいだ黙って待ち、
         # 誰も話さなければ on_hold_timeout を呼ぶ（相手がまた話せば、その言葉で決め直す）
-        wait = wait_seconds(self.callee_said) or self.hold_wait_s
+        wait = self.hold_wait = wait_seconds(self.callee_said) or self.hold_wait_s
         return {"result": "hold", "silent": True, "hold_wait_s": wait,
                 "message": f"相手は、ほかの人に取り次いでいます（「{said}」）。答えではありません。何も言わずに、"
                            f"代わった方が話し始めるのを待ってください。{then}"}
 
     # ── 取り次ぎ・保留のあと、待つ長さ（_hold の返事の hold_wait_s）のあいだ誰も話さなかった（電話接続側が呼ぶ）
     def on_hold_timeout(self) -> dict | None:
-        """保留で待ちきった：お礼の締めで終える（締めた理由は取り次いでいただけなかった＝CL-2 が日を改めて1回かける。⏳ 終え方はユーザーに伺う＝
-        案）。保留でなければ None（何もしない）。"""
+        """保留で待ちきった：決まった締め（phrases.HOLD_TIMEOUT＝✅ 2026-10-24 ユーザーの言い方「お返事がないようですので…のちほど、かけ直させて
+        いただきます。それでは、いったん失礼いたします。」）で終える。締めた理由は取り次いでいただけなかった。のちほどかけ直すとお約束したので、
+        通話の事実 hold_timeout（根拠の発話＝保留を頼まれた発話・waited_s＝待った秒）を残す（⏳ かけ直しの時は CL-2 が決める＝CL-1.md 4-42）。
+        保留でなければ None（何もしない）。"""
         if not self.holding or self.phase == "closing":
             return None
-        return self._close("not_transferred", prefix="保留のまま、待つ長さが過ぎました。")
+        self._note("hold_timeout", waited_s=self.hold_wait)
+        return self._close("not_transferred", prefix="保留のまま、待つ長さが過ぎました。", text=(HOLD_TIMEOUT, "hold_timeout"))
 
     def _confirm_again(self, qid: str, why: str, reported: str | None, back: str | None) -> dict:
         """言い直しへの返事の確かめがそろわない：もう1回だけ言い直して確かめる（訂正のあとの復唱と同じ回数＝after_correction。選択肢の型は、

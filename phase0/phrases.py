@@ -294,8 +294,11 @@ LINE_TROUBLE = {"ask": "恐れ入ります。こちらの通信に不具合が�
                 "bye": "大変申し訳ございません。それではいったんお電話を失礼いたします。"}
 # 前の電話で伺った番号へかけたら、別の方のお電話だった・繋がらなかったときに、名乗りのあとで番号を伺い直す一言（予約証の目的 ask_number_again＝
 # CL-2 の 4-42・4-153。契約者の単位の録音＝お名前が入らない）。✅ 2026-10-24 ユーザー：番号違い「OK」（案の「先日」は、前の電話がいつか分からないので
-# 「前回」＝お詫びの言い方と同じ。言葉の途中の読点は外す）・「別の方のお電話よりも、繋がらない番号のパターンも必要じゃないですか？」⇒ 繋がらなかった
-# （⏳ 言い方は案。ユーザーに伺う）
+# 「前回」＝お詫びの言い方と同じ＝✅ 同日ユーザー「OK」。言葉の途中の読点は外す）・「別の方のお電話よりも、繋がらない番号のパターンも必要じゃないですか？」
+# ⇒ 繋がらなかった（✅ 同日ユーザー「OK」）
+# 取り次ぎ・保留で待つ長さ（flowctl.Flow の hold_wait_s）のあいだ誰も出なかったときの締め（契約者の単位の録音）。✅ 2026-10-24 ユーザーの言い方
+# 「お返事がないようですので、また、のちほど、かけ直させていただきます。それでは、いったん失礼いたします。」（言葉の途中の読点は外す＝10-15）
+HOLD_TIMEOUT = "お返事がないようですのでまたのちほどかけ直させていただきます。それではいったん失礼いたします。"
 NUMBER_AGAIN = {"wrong_party": "前回お伺いしたお電話番号にお掛けしたところ別の方のお電話でした。恐れ入りますがもう一度お電話番号をお伺いしてもよろしいでしょうか？",
                 "unreachable": "前回お伺いしたお電話番号にお掛けしたのですがつながりませんでした。恐れ入りますがもう一度お電話番号をお伺いしてもよろしいでしょうか？"}
 # AIが自分の言葉で答える文（flowctl.Flow._own_answer）が、声に出す前の確かめ（flowctl.own_answer_problem）に、書き直しても通らなかったときだけ
@@ -357,7 +360,7 @@ RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait
             "offer_thanks": OFFER_THANKS, "departed": DEPARTED_ACK, **{SUCCESSOR_IDS[k]: v for k, v in SUCCESSOR.items()},
             "own_fallback": OWN_FALLBACK, "back": BACK_TO, **{k: v for k, (v, _, _) in TALK_FALLBACK.items()},
             **{f"apology_{k}": v for k, v in APOLOGY_FIRST.items()}, **{f"line_trouble_{k}": v for k, v in LINE_TROUBLE.items()},
-            **{f"number_again_{k}": v for k, v in NUMBER_AGAIN.items()}}
+            **{f"number_again_{k}": v for k, v in NUMBER_AGAIN.items()}, "hold_timeout": HOLD_TIMEOUT}
 
 
 def lead_in(kind: str, n: int) -> str:
