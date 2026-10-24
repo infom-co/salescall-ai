@@ -2097,39 +2097,6 @@
     "chosen_by": "人"
   },
   {
-    "type": "S2",
-    "voice": "Sadachbia",
-    "id": "moshimoshi",
-    "text": "もしもし？",
-    "heard": {
-      "0.0": "もしもし",
-      "1.0": "もしもし。"
-    },
-    "ok": true,
-    "seconds": 0.54,
-    "try": 4,
-    "wav": "S2_moshimoshi.wav",
-    "chosen_from": "S2_moshimoshi_2",
-    "chosen_by": "人"
-  },
-  {
-    "type": "S4",
-    "voice": "Sadachbia",
-    "id": "moshimoshi",
-    "text": "もしもし？",
-    "heard": {
-      "0.0": "もしもし",
-      "1.0": "もしもし。"
-    },
-    "ok": true,
-    "seconds": 0.54,
-    "try": 4,
-    "wav": "S4_moshimoshi.wav",
-    "made_as": "S2",
-    "chosen_from": "S2_moshimoshi_2",
-    "chosen_by": "人"
-  },
-  {
     "type": "L4",
     "voice": "Leda",
     "id": "callback_call_again",
@@ -2143,6 +2110,43 @@
     "wav": "L4_callback_call_again.wav",
     "how": "電話で、お客様に、落ち着いて、自信を持って丁寧にお聞きするように。語尾を沈ませず、弱々しくならないように、自然に問いかける",
     "chosen_from": "L4_callback_call_again_別2",
+    "chosen_by": "人"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "moshimoshi",
+    "text": "もしもし？",
+    "heard": {
+      "0.0": "もしもし?",
+      "1.0": "もしもし。"
+    },
+    "ok": true,
+    "seconds": 0.6,
+    "wav": "S2_moshimoshi.wav",
+    "how": "電話で、相手の声が聞こえないときに、繋がっているかを確かめるように。誠実に、謙虚に、ビジネスの電話らしく、丁寧に",
+    "pauses": [],
+    "note": "間の確かめは通っていない（人が聞いて選ぶ）",
+    "chosen_from": "S2_moshimoshi_謙ビ4",
+    "chosen_by": "人"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "moshimoshi",
+    "text": "もしもし？",
+    "heard": {
+      "0.0": "もしもし?",
+      "1.0": "もしもし。"
+    },
+    "ok": true,
+    "seconds": 0.6,
+    "wav": "S4_moshimoshi.wav",
+    "how": "電話で、相手の声が聞こえないときに、繋がっているかを確かめるように。誠実に、謙虚に、ビジネスの電話らしく、丁寧に",
+    "pauses": [],
+    "note": "間の確かめは通っていない（人が聞いて選ぶ）",
+    "made_as": "S2",
+    "chosen_from": "S2_moshimoshi_謙ビ4",
     "chosen_by": "人"
   }
 ]

@@ -124,7 +124,11 @@ HOW_OF.update({f"line_trouble_{k}": "line_trouble" for k in LINE_TROUBLE})
 HOW_OF.update({f"number_again_{k}": "number_again" for k in NUMBER_AGAIN})
 HOW_OF["hold_timeout"] = "closing"   # 保留で待ちきったときの締め：締めの読み方
 HOW_OF.update({f"apology_purpose_{k}": "purpose" for k in APOLOGY_PURPOSE})  # お詫びの電話の用件の一言：用件の一文と同じ読み方
-HOW["moshimoshi"] = "電話で、相手の声が聞こえないときに、繋がっているかを穏やかに確かめるように、問いかけるように柔らかく"
+# ✅ 2026-10-24 ユーザー：「『もしもし』は誠実な感じを出してください」「誠実+謙虚、誠実+ビジネス、誠実＋謙虚＋ビジネスを試してください」⇒
+#    S2 で「誠実に、謙虚に、ビジネスの電話らしく、丁寧に」の4本目が ◎（S4 も同じ録音）。⛔ 前の読み方は S2 で通らなかった：「穏やかに確かめる・
+#    問いかけるように柔らかく」＝○「少し怪しむような」・○△「ちょっとイラついた感じ」／「心配して気づかうように」＝3本とも「威圧的」／
+#    「誠実に、丁寧に、落ち着いた声で」＝6本とも合格に届かない（L4 の ◎ は前の読み方で録ったもの＝そのまま使う）
+HOW["moshimoshi"] = "電話で、相手の声が聞こえないときに、繋がっているかを確かめるように。誠実に、謙虚に、ビジネスの電話らしく、丁寧に"
 MAX_S["moshimoshi"] = 1.5
 
 
