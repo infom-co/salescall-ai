@@ -527,9 +527,24 @@ SCENES = {
 }
 
 
+def unmeasured(call: dict, scene: str) -> str | None:
+    """場面が試すはずのことを試せなかった理由（無ければ None）。外れた言葉を起こす場面（off_script_at）で、そのターンにAIの声は出たが、
+    AI自身の文字が1つも届かず、止められなかった（offscript.SpeechGate は文字の届かないターンを見張らない＝333ターン中11。設計どおり）
+    ＝言い直しの仕組みを試していない。声が出なかった・文字が届いたのに止められなかったのは、外れのまま。
+    ⛔ 2026-10-24 J8a：これを外れと数えていた（言い間違えの直し_中身まで の S4。J の前の 10-19・J5 にも同じ形）"""
+    at = SCENES[scene].call()[1].get("off_script_at")
+    if at is None or any(t.get("off_script") for t in call["turns"]):
+        return None
+    ts = [t for t in call["turns"] if t.get("index") == at]
+    if ts and all(t.get("first_audio_after_s") is not None and not t.get("said_events") for t in ts):
+        return "外れた言葉を起こすターンで、AI自身の文字が届かなかった（見張れないターン。言い直しを試していない）"
+    return None
+
+
 def measures(call: dict, scene: str) -> dict:
     checks = {**SCENES[scene].expect(call), "断らない": no_refusal(call)}  # 断らないは、どの場面でも
     return {"checks": checks, "pass": all(checks.values()), "failed": [k for k, v in checks.items() if not v],
+            "unmeasured": unmeasured(call, scene),
             "said": [said(t)[:80] for t in call["turns"]],
             "restate_gap_s": [t["gap_s"] for t in call["turns"] if t.get("gap_s") is not None],  # 止めてから言い直しの声まで（6-7）
             "ops": [f"{x['op']}({','.join(f'{k}={v}' for k, v in x['args'].items())})→{x['reply']['result']}" for x in ops(call)]}
@@ -560,7 +575,8 @@ async def run(args) -> dict:
                 except Exception as exc:
                     row = {**head, "error": describe_error(exc)}
                 rows.append(row)
-                say(f"[{rep}] {name} {vt}：{'合格' if row.get('pass') else '不合格'} {row.get('failed', '')} {row.get('error', '')}")
+                verdict = "測れなかった" if row.get("unmeasured") else "合格" if row.get("pass") else "不合格"
+                say(f"[{rep}] {name} {vt}：{verdict} {row.get('unmeasured') or row.get('failed', '')} {row.get('error', '')}")
                 save_partial(f"G-57{args.tag}", {"rows": rows})
                 await asyncio.sleep(args.pause)
     judged = {k: getattr(args, k) for k in ("judge", "judge2")} | {"standin": None if args.no_standin else STANDIN, "down": args.judge_down}
@@ -568,7 +584,7 @@ async def run(args) -> dict:
 
 
 def summarize(rows: list[dict]) -> dict:
-    done = [r for r in rows if "checks" in r]
+    done = [r for r in rows if "checks" in r and not r.get("unmeasured")]
     s = {}
     for name in SCENES:
         mine = [r for r in done if r["scene"] == name]
@@ -577,6 +593,7 @@ def summarize(rows: list[dict]) -> dict:
         s[name] = {"合格": f"{sum(1 for r in mine if r['pass'])}/{len(mine)}",
                    "外れた決まり": {k: sum(1 for r in mine if k in r["failed"]) for k in mine[0]["checks"] if any(k in r["failed"] for r in mine)}}
     s["全体"] = f"{sum(1 for r in done if r['pass'])}/{len(done)}"
+    s["測れなかった"] = [f"{r['scene']} {r.get('type')}：{r['unmeasured']}" for r in rows if r.get("unmeasured")]
     s["誤り・動かさなかった"] = [f"{r['scene']} {r.get('type')}：{r.get('skipped') or r.get('error', {}).get('message', '')[:60]}"
                            for r in rows if "error" in r or "skipped" in r]
     say("数え：", json.dumps(s, ensure_ascii=False))

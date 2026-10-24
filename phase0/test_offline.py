@@ -6960,6 +6960,20 @@ class ScenesTest(unittest.TestCase):
         # 答えのあとの質問が、次の質問ではない（いまの質問を流し直した）なら外れ
         self.assertFalse(answered_before_next({"flow_log": [opening, answer, op("report_answer", "again", [q("Q1")])]}))
 
+    def test_a_turn_the_gate_cannot_watch_is_not_measured(self):
+        # 外れた言葉を起こすターンで、AIの声は出たが AI自身の文字が届かなかった＝見張れないターン（設計どおり流す）＝言い直しを試していない
+        # （⛔ 2026-10-24 J8a：外れと数えていた）。声が出なかった・文字が届いたのに止めなかったのは、外れのまま
+        from scenes import SCENES, unmeasured
+        name = "言い間違えの直し_中身まで"
+        at = SCENES[name].call()[1]["off_script_at"]
+        turn = lambda **kw: {"index": at, "first_audio_after_s": 1.2, "said_events": [], **kw}
+        self.assertIsNotNone(unmeasured({"turns": [turn()]}, name))
+        self.assertIsNotNone(unmeasured({"turns": [turn(), turn(session=2)]}, name))     # 張り替えのあとも届かなかった
+        self.assertIsNone(unmeasured({"turns": [turn(said_events=[{"text": "ありがとうございます。15"}])]}, name))
+        self.assertIsNone(unmeasured({"turns": [turn(first_audio_after_s=None)]}, name))  # 黙った＝外れのまま
+        self.assertIsNone(unmeasured({"turns": [turn(off_script={"result": "restate"})]}, name))
+        self.assertIsNone(unmeasured({"turns": [turn()]}, "忙しい"))                      # 外れた言葉を起こさない場面
+
     def test_widened_pause_keeps_the_voice(self):
         # 間を長くした台詞：文と文の間だけが変わり、声の長さ（間を除く）は同じ
         from barge import voice_runs, voiced
