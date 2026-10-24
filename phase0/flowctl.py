@@ -1150,6 +1150,8 @@ class Flow:
         # 「わからない」のあとに足した聞き足しの質問（分かるお客様・分かる時）→ 元の質問（_take_system）。答えはかけ直しの記録に残す（noted＝残した分）
         self.follow_ups: dict[str, str] = {}
         self.follow_noted: set[str] = set()
+        self.follow_facts: dict[str, dict] = {}   # 聞き足しの答えを残した、かけ直しの記録（分かる方に繋がったら connected の印を付ける＝_who_took_over）
+        self.follow_asked: set[str] = set()       # この通話で伺った聞き足しの役目（ask_who・ask_when。1通話1回＝_take_system）
         # lead_ins：プログラムの返事のあとに話す文の頭に、受けの言葉を置くか（DESIGN.md 6-11。✅ 2026-10-13 ユーザー承認＝既定で置く。
         # 置かない形は、過去の比べの試験（G-25・G-27 の W0）を同じ意味で動かすためだけに残す）
         self.lead_ins = lead_ins
@@ -1770,6 +1772,7 @@ class Flow:
             # 分かるお客様・分かる時の答え：かけ直しの記録（理由＝扱いの名前。項目は同じ1か所＝分かるお客様は person・分かる時は time）
             self.follow_noted.add(fid)
             self._note("callback", why=self.questions[fid].callback, read=[], **self._callback_fields([fid], self.questions[fid].callback))
+            self.follow_facts[fid] = self.facts["callback"][-1]
         if (p1 := CALLBACK_IDS["promise_again"]) in self.items and self._asked(p1) and self.facts.get("not_transferred"):
             # 約束の電話で取り次げなかったときの一言への答え（伺ったら、「はい」のときだけ true＝CL-2 の 4-135。⛔ 2026-10-24 の見直し：
             # 「わからない」・伺う途中で切れたときに書いていなかった＝CL-2 は「聞いていない」と読んだ）
@@ -2132,6 +2135,8 @@ class Flow:
         if meaning == HOLD:
             return self._hold()
         if meaning == HANDOVER:
+            if self.phase != "calling":
+                self._who_took_over()   # 分かる方に代わったなら、元の質問へ（AIが「代わった方へ」を呼ばない通話でも＝相手が替わったと決まった所）
             return self._reject(f"相手の言葉（「{said}」）は、代わった方が話し始めた言葉で、答えではありません。" + then.replace("代わった方が話し始めたら、", ""))
         return None
 
@@ -2201,8 +2206,11 @@ class Flow:
             it.set("refused" if cond == "refused" else "dont_know", "相手の答えが、業務の決まりで結論になった")
             return self._close("done", prefix="受け付けました。")
         role = {"ask_who": "ask_who", "ask_when": "ask_when"}.get(kind)
-        if role and CALLBACK_IDS[ROLE_KEY[role]] not in self.questions:
-            # 分かるお客様・分かる時を、1通話1回だけ伺う（CL-2 の 15-2-3 の (a1)(a2)）。いまの質問のすぐあとに伺い、答えのあと残りの質問へ進む
+        if role and role not in self.follow_asked:
+            # 分かるお客様・分かる時を、1通話1回だけ伺う（CL-2 の 15-2-3 の (a1)(a2)）。いまの質問のすぐあとに伺い、答えのあと残りの質問へ進む。
+            # 伺ったかは印で数える（⛔ 2026-10-24 の見直し：質問の有る無しで数えていたので、分かる方に代わったあと（聞き足しの質問を外した）、
+            # その方の「わからない」に、また分かる方を伺った）
+            self.follow_asked.add(role)
             fq = callback_question(role)
             self.questions[fq.id], self.items[fq.id] = fq, Item()
             at = self.order.index(qid) + 1 if qid in self.order else len(self.order)
@@ -2426,21 +2434,18 @@ class Flow:
             # 取り次ぎが無ければ、電話口の方は同じ方（かけ直しの質問を聞いた方）：確かめずに、下の流し直し。⛔ G-57 tc28（不在で別の方に
             # 代わる・S4）：かけ直しの質問を聞いた山田様の言葉の続きに、AIがまた「代わった方」と報告し、山田様に岡田様かを確かめた
             return self._hold() if self.meaning_said == HOLD else self._target_back()
+        if part == "handover" and self.meaning_said == HOLD:
+            return self._not_an_answer() if self.opening else self._hold()
+        if part == "handover":
+            # 相手が替わった：分かる方に代わったなら、元の質問へ（流れの決まり＝名乗りの録音の有る無し・流し直しの回数より先に。⛔ 2026-10-24 の
+            # 見直し：録音が無い・流し直しを使い切った通話では、ここまで来ずに差し戻し、代わった方の答えも「いまの質問ではない」で差し戻した）
+            self._who_took_over()
+            if not self.opening or self.replays >= self.limits.replays:
+                return self._new_person_unrecorded()
         if not self.opening:
             return self._reject("この通話では、名乗りの録音はありません。聞かれたことに、自分で短く答えてください。")
-        if part == "handover" and self.meaning_said == HOLD:
-            return self._not_an_answer()
         if self.replays >= self.limits.replays:
             return self._reject(f"名乗りの録音は、もう{self.replays}回流しました（同じ録音を何度も流しません）。聞かれたことに、自分の言葉で短く答えてください。")
-        if part == "handover" and self.current in self.follow_ups and self.questions[self.current].callback == "ask_who":
-            # 「分かる者に代わります」と取り次がれて、代わった方が話し始めた：代わった方に、元の質問を伺い直す（CL-2 の 15-2-3：「(a1) で取り次がれたら
-            # 相手が替わる」。聞き足しの質問はもう伺わない）
-            fid = self.current
-            orig = self.follow_ups.pop(fid)
-            self.order = [q for q in self.order if q != fid]
-            del self.questions[fid], self.items[fid]
-            self.items[orig] = Item()
-            self.current = orig
         keys = {"intro": ["intro"], "purpose": ["purpose"], "all": ["intro", "purpose"], "handover": ["greeting", "intro", "purpose"]}[part]
         # まだ届いていない名乗り・用件も一緒に流す（on_opening_cut）。あいさつは足さない（頭にお詫びの相づちが流れるので、重ねない）。
         # 目的の人に繋がる前（calling）は、用件は聞かれたときだけ流す（DESIGN.md 4-3：目的の人ではない方には、聞かれたら用件を言う）
@@ -2455,6 +2460,38 @@ class Flow:
         self.opening_unheard = [k for k in self.opening_unheard if k not in keys]
         play = [{"kind": "opening", "part": k, "text": self.opening[k]} for k in keys]
         return self._continue(play, "".join(self.opening[k] for k in keys))
+
+    def _who_took_over(self) -> bool:
+        """相手が替わった（代わった方が話し始めた）と決まったときの、分かるお客様の聞き足しの扱いの唯一の場所（AIの「代わった方へ」・判定の
+        「代わった方」のどちらからも）：「分かる者に代わります」と取り次がれたなら、分かるお客様を伺った元の質問（答えがまだ取れていないもの）を、
+        いま聞いている質問・言い直しの返事待ちによらず、代わった方に伺い直す（CL-2 の 15-2-3：「(a1) で取り次がれたら相手が替わる」）。
+        分かるお客様の聞き足しはもう伺わず、取れていたお名前のかけ直しの記録には「繋がった」印（connected）を付ける。当てはまらなければ False。
+        ⛔ 2026-10-24 の見直し（調べ役）で見つけた穴：聞き足しを伺っている最中だけ戻していた＝お名前の言い直しの返事待ちのまま取り次がれると、
+        代わった方に言い直しを言わせて止まった／お名前を伺い終えて次の質問へ進んでいたら、元の質問を伺わず、繋がった方へのかけ直しを約束させた"""
+        took = [(fid, orig) for fid, orig in self.follow_ups.items()
+                if self.questions[fid].callback == "ask_who" and self.items[orig].state not in GOT]
+        for fid, orig in took:
+            self.follow_ups.pop(fid)
+            if fid in self.follow_facts:
+                self.follow_facts[fid]["connected"] = True
+            if self.awaiting_confirm == fid:
+                self.awaiting_confirm = None
+            # いま聞いていた別の質問（お名前を伺い終えて進んでいた）は、元の質問のあとに伺う
+            back = [self.current] if self.current not in (None, fid, orig) and self.items[self.current].state not in GOT else []
+            self.order = [*back, *[q for q in self.order if q not in (fid, orig, *back)]]
+            del self.questions[fid], self.items[fid]
+            self.items[orig] = Item()
+            self.current = orig
+        return bool(took)
+
+    def _new_person_unrecorded(self) -> dict:
+        """代わった方に、名乗りの録音を流せない（録音の無い通話・流し直しを使い切った）：AIが短く名乗って用件を伝え、いまの質問を聞く。"""
+        q = self.questions.get(self.current) if self.current else None
+        ask = f"いまの質問 {q.id}「{q.text}」を聞いてください。" if q is not None else "相手の返事を待ってください。"
+        intro = (self.opening or self.target or {}).get("intro")
+        name = f"「{intro}」と" if intro else ""
+        return {"result": "replayed", "play": [], "speak": True,
+                "message": f"代わった方には、まだ名乗っていません。{name}短く名乗り、用件を伝えてから、{ask}"}
 
     def _answer_may_come_first(self) -> bool:
         """いまの相手の言葉に、まだ答えをもらっていないいまの質問の答えが入っているかもしれない（_keep_answer_reading が判定を見る場面）。答え方の操作も、

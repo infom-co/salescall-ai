@@ -4438,6 +4438,43 @@ class CallbackTest(unittest.TestCase):
         r = self.say(f, "3時までには戻ると思います。", "record_answer", question_id="C1", condition_id="答えた", value="3時まで")
         self.assertEqual(r["result"], "confirm_required")
 
+    def test_person_who_knows_gets_the_original_question(self):
+        # 「分かる者に代わります」と取り次がれたら、代わった方に元の質問を伺い直す（CL-2 の 15-2-3 の (a1)。Flow._who_took_over の1か所）。
+        # ⛔ 2026-10-24 の見直し（調べ役）で見つけた穴：聞き足しを伺っている最中で、名乗りの録音があり、流し直しが残っているときだけ戻していた
+        from flowctl import Flow, Question
+        h = {("dont_know", "not_in_charge"): "ask_who"}
+        qs = lambda: [Question("Q1", "ご予算はおいくらほどでしょうか？", "amount", conditions=("答えた",), handlings=h),
+                      Question("Q2", "ご導入の時期はお決まりでしょうか？", "yes_no", conditions=("はい", "いいえ"))]
+        op = {"greeting": "お忙しいところ恐れ入ります。", "intro": "株式会社アオバ物流の佐藤と申します。", "purpose": "ご予算の件でお電話いたしました。"}
+        played = lambda r: [p.get("part", p.get("id")) for p in r.get("play", [])]
+        # (1) お名前の言い直しの返事待ちのまま取り次がれた：言い直しを代わった方に言わせない（⛔ 前は、そのあとの報告で止まった）
+        f = Flow(qs(), opening=op, play_recordings=True)
+        self.say(f, "担当じゃないので分からないです。", "record_answer", question_id="Q1", condition_id="unknown", unknown_why="not_in_charge")
+        self.say(f, "経理の山田なら分かります。少々お待ちください、代わります。", "record_answer", question_id="C8", condition_id="答えた", value="経理の山田")
+        r = self.say(f, "お電話代わりました、山田です。", "replay_opening", part="handover")
+        self.assertEqual((r["result"], f.current, f.awaiting_confirm, played(r)), ("replayed", "Q1", None, ["greeting", "intro", "purpose", "Q1"]))
+        self.assertEqual(self.say(f, "50万円くらいですね。", "record_answer", question_id="Q1", condition_id="答えた", value="50万円")["result"],
+                         "confirm_required")
+        # (2) 代わった方も「わからない」：分かる方は、もう伺わない（1通話1回）
+        f = Flow(qs(), opening=op, play_recordings=True)
+        self.say(f, "担当じゃないので分からないです。", "record_answer", question_id="Q1", condition_id="unknown", unknown_why="not_in_charge")
+        self.say(f, "分かる者に代わりますね。", "replay_opening", part="handover")
+        r = self.say(f, "私も担当ではないので分からないですね。", "record_answer", question_id="Q1", condition_id="unknown", unknown_why="not_in_charge")
+        self.assertEqual((r["result"], r["question_id"]), ("next", "Q2"))
+        # (3) お名前を伺い終えて次の質問へ進んでいた：元の質問へ戻り、いま聞いていた質問はそのあと。お名前の記録には「繋がった」印
+        f = Flow(qs(), opening=op, play_recordings=True)
+        self.say(f, "担当じゃないので分からないです。", "record_answer", question_id="Q1", condition_id="unknown", unknown_why="not_in_charge")
+        self.say(f, "経理の山田なら分かります。", "record_answer", question_id="C8", condition_id="答えた", value="経理の山田")
+        self.assertEqual(self.say(f, "はい、いま代わりますね。", "confirm_field", question_id="C8", result="affirmed")["question_id"], "Q2")
+        r = self.say(f, "お電話代わりました、山田です。", "replay_opening", part="handover")
+        self.assertEqual((f.current, f.order, played(r), f.facts["callback"][0].get("connected")), ("Q1", ["Q2"], ["greeting", "intro", "purpose", "Q1"], True))
+        # (4) 名乗りの録音が無い通話：AIが短く名乗って、元の質問を聞く（⛔ 前は差し戻し、代わった方の答えも「いまの質問ではない」で差し戻した）
+        f = Flow(qs())
+        self.say(f, "担当じゃないので分からないです。", "record_answer", question_id="Q1", condition_id="unknown", unknown_why="not_in_charge")
+        r = self.say(f, "分かる者に代わりますね。", "replay_opening", part="handover")
+        self.assertEqual((r["result"], f.current), ("replayed", "Q1"))
+        self.assertIn("まだ名乗っていません", r["message"])
+
     def test_callback_record_is_built_in_one_place(self):
         # ⛔ 2026-10-24 の見直し（調べ役）で見つけた穴：かけ直しの記録の項目を、伺った質問の役目の名前から作っていた（Flow._callback_fields の1か所に）
         import dataclasses
