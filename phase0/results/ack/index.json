@@ -1398,13 +1398,12 @@
       "1.0": "そうでしたか。"
     },
     "ok": true,
-    "seconds": 0.96,
+    "seconds": 1.1,
+    "try": 3,
     "wav": "S2_talk_heard_nod.wav",
-    "how": "ふつうの調子（2026-10-23）",
-    "made_as_id": "talk_heard_glad",
-    "chosen_from": "S2_talk_heard_glad",
+    "chosen_from": "S2_talk_heard_nod_3",
     "chosen_by": "人",
-    "pending": "⏳ 2026-10-24 ユーザー：「Sでも納得が欲しいですね」。S2 の「納得して」の候補を聞いて選んでいただくまで、「少し嬉しそうに」の録音を仮に使う"
+    "approved": "✅ 2026-10-24 ユーザー：「S2 の『そうでしたか！（納得して）』：3」"
   },
   {
     "type": "S4",
@@ -1416,13 +1415,12 @@
       "1.0": "そうでしたか。"
     },
     "ok": true,
-    "seconds": 0.96,
+    "seconds": 1.1,
+    "try": 3,
     "wav": "S4_talk_heard_nod.wav",
-    "how": "ふつうの調子（2026-10-23）",
-    "made_as_id": "talk_heard_glad",
-    "chosen_from": "S2_talk_heard_glad",
-    "chosen_by": "人",
     "made_as": "S2",
-    "pending": "⏳ 2026-10-24 ユーザー：「Sでも納得が欲しいですね」。S2 の「納得して」の候補を聞いて選んでいただくまで、「少し嬉しそうに」の録音を仮に使う"
+    "chosen_from": "S2_talk_heard_nod_3",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-24 ユーザー：「S2 の『そうでしたか！（納得して）』：3」・S4 は S2 の録音を使う"
   }
 ]
