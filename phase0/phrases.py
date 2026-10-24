@@ -282,6 +282,12 @@ PROMISE_AGAIN = "{who}とお電話の約束をしておりましたので後ほ�
 # 「お約束の時間にお電話ができず誠に申し訳ございませんでした。」（「お」が多すぎのため修正＝案の「お時間」）・途中で切れたとき「OK」
 APOLOGY_FIRST = {"missed_promise": "お約束の時間にお電話ができず誠に申し訳ございませんでした。",
                  "cut_off": "前回はお電話が途中で切れてしまい大変失礼いたしました。"}
+# こちらの仕組みの都合で、通話をどうしても途中で切るときに流す2つ（契約者の単位の録音）。✅ 2026-10-22 夜 ユーザー決定（CL-2 の 4-137）：
+# 「恐れ入ります。こちらの通信に不具合が起きたようですので、改めてお電話させていただいてもよろしいでしょうか？」→ お客様の返事を待つ（AIはいないので
+# 中身は聞き分けない）→「大変申し訳ございません。それではいったんお電話を失礼いたします。」→ 切る。流すのは電話の部品（CL-2 の
+# link.phone.Phone.play_apology_and_hang_up）。言葉の途中の読点は外す（10-15 の決まり）
+LINE_TROUBLE = {"ask": "恐れ入ります。こちらの通信に不具合が起きたようですので改めてお電話させていただいてもよろしいでしょうか？",
+                "bye": "大変申し訳ございません。それではいったんお電話を失礼いたします。"}
 # AIが自分の言葉で答える文（flowctl.Flow._own_answer）が、声に出す前の確かめ（flowctl.own_answer_problem）に、書き直しても通らなかったときだけ
 # 流す一言（契約者の単位の録音。⏳ 言い方はユーザーに聞いていただく）。断らない（✅ 2026-10-22 ユーザー（4回目）：「『そちらにつきましてはこの場では
 # お答えいたしかねます。』こういう回答をするから、機械っぽいとかAIぽいと思われるんでしょ！電話で営業する人がそんなことはまず言わない（契約が
@@ -340,7 +346,7 @@ RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait
             **{f"callback_{k}": v for k, v in CALLBACK_ASK.items()},
             "offer_thanks": OFFER_THANKS, "departed": DEPARTED_ACK, **{SUCCESSOR_IDS[k]: v for k, v in SUCCESSOR.items()},
             "own_fallback": OWN_FALLBACK, "back": BACK_TO, **{k: v for k, (v, _, _) in TALK_FALLBACK.items()},
-            **{f"apology_{k}": v for k, v in APOLOGY_FIRST.items()}}
+            **{f"apology_{k}": v for k, v in APOLOGY_FIRST.items()}, **{f"line_trouble_{k}": v for k, v in LINE_TROUBLE.items()}}
 
 
 def lead_in(kind: str, n: int) -> str:

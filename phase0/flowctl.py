@@ -1003,7 +1003,7 @@ class Flow:
                  voicemail_message: str | None = None, target: dict | None = None, answers: dict | None = None,
                  policies: dict | None = None, knowledge: list[str] | None = None, names: list[str] | None = None,
                  name_readings: dict[str, str] | None = None, promised: bool = False, apology: tuple = (), successor: bool = False,
-                 voicemail_left: bool = False):
+                 voicemail_left: bool = False, earlier: dict | None = None):
         """confirm：言い直しの言い方を作る関数 (値, 場面, 何回目) → 文（ふだんは phrases.confirm。言い方を比べる試験 G-25 だけが別のものを渡す）。
         busy_ask：相手が「忙しい」と言ったときに1回だけ言う一言（業務設定。None なら丁寧に終える＝既定。Intent.md 9-4）。
         target：目的の人のある業務の、名乗りの部分の文（instruction.Business.replay_parts。呼ぶ一言 target・確かめる一言 target_confirm を含む）。
@@ -1122,7 +1122,14 @@ class Flow:
         self.business_ids = list(self.order)  # 業務の質問（かけ直しの質問の途中で目的の人が出たら、ここから聞く＝_target_back）
         self.limits = limits or Limits()
         self.items = {q.id: Item() for q in questions}
-        self.current: str | None = self.order[0]
+        # 前の通話で取れた答え（instruction.Business.earlier。途中で切れた通話のかけ直しなど＝CL-2 の 4-77）：もう伺わずに続きから聞く。
+        # この通話で取った答えではないので、依頼主へ渡す値（export）には入れない（記録は前の通話のもの＝CL-2 の行の項目の記録のまま）
+        self.earlier = {qid: dict(v) for qid, v in (earlier or {}).items() if qid in self.items and (v or {}).get("state") in TAKEN}
+        for qid, v in self.earlier.items():
+            it = self.items[qid]
+            it.value, it.condition = v.get("value"), v.get("condition")
+            it.set(v["state"], "前の通話で取れた答え（続きから聞く）")
+        self.current: str | None = next((qid for qid in self.order if qid not in self.earlier), None)
         self.phase = "asking"            # asking → rechecking → closing
         self.recheck_queue: list[str] = []
         self.awaiting_confirm: str | None = None
@@ -1179,7 +1186,7 @@ class Flow:
         if target:
             self.phase, self.current = "calling", None
             self.opening_unheard = ["purpose"] if target.get("purpose") else []
-        elif self.questions[self.current].reading_of:
+        elif self.current is not None and self.questions[self.current].reading_of:
             self._enter_reading(self.current)
 
     def _calling_questions(self) -> None:
@@ -3773,8 +3780,8 @@ class Flow:
         """依頼主へ渡す値（DESIGN.md 7-1b）。言い切っていない返事で受け取った値も、値はそのまま（お客様の言葉は hedged_words の別の欄）。"""
         out = {}
         for qid, it in self.items.items():
-            if self.questions[qid].callback:
-                continue  # かけ直しの申し出の答えは、通話の事実（facts の callback）で渡す
+            if self.questions[qid].callback or qid in self.earlier:
+                continue  # かけ直しの申し出の答えは、通話の事実（facts の callback）で渡す／前の通話で取れた答えは、この通話の答えではない
             if it.state == "refused":
                 out[qid] = refused_mark
             elif it.state in GOT:

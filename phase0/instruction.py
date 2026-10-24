@@ -12,8 +12,8 @@ from __future__ import annotations
 import dataclasses
 from dataclasses import dataclass, field
 
-from flowctl import (ANY_LABEL, ARG_LABEL, CALLBACK_LABEL, CONFIRM_LABEL, END_LABEL, GOT, PART_LABEL, PARTY_LABEL, SYSTEM_LABEL, Question,
-                     check_policies, choices_note, offers_rule)
+from flowctl import (ANY_LABEL, ARG_LABEL, CALLBACK_LABEL, CONFIRM_LABEL, END_LABEL, GOT, PART_LABEL, PARTY_LABEL, SYSTEM_LABEL, TAKEN, Question,
+                     check_policies, choices_note, offers_rule, spoken_question)
 from names import hira, legal_form_reading_off, legal_form_split, quote  # noqa: F401（名前を「」でくくる唯一の場所。ここからも読める）
 
 from phrases import AI_ANSWER, APOLOGY, APOLOGY_FIRST, ASK_BACK, GREETING, PROMISE_AGAIN, SUCCESSOR, SUCCESSOR_OF, role_honorific, target_call, target_confirm, target_reconfirm, target_who  # noqa: F401（決まった言い方は phrases.py の1か所。試験からも、ここ経由で読める）
@@ -128,6 +128,9 @@ class Business:
     # missed_promise・cut_off）。どちらも会話の処理が読む（flowctl.Flow の promised・apology）
     promised: bool = False
     apology: tuple = ()
+    # 前の通話で取れた答え（質問の番号 → {"state", "value", "condition"}。途中で切れた通話の、お詫びしてすぐのかけ直し＝予約証の目的 resume など。
+    # CL-2 の行の項目の記録から）。取れた答え（flowctl.TAKEN の状態）の質問は、もう伺わずに続きから聞く（CL-2 の 4-77）。流れの制御 Flow の earlier
+    earlier: dict = field(default_factory=dict)
     # 自社名・担当者名の読み（ひらがな。空＝決まらない＝表記のまま渡す）。自社名は、設定に無ければ取込で names.decide が決める（Intent.md 6-8）。
     # ✅ 2026-10-16 ユーザー決定（案C）：担当者名の読みは、設定に必ず入れる（名乗りでは言い換えられない。個人向けでは名乗ることが法律の確認事項）。
     #    必須かどうかを確かめるのは設定の登録（CL-2）。ここは、担当者名を unread_names に入れた矛盾した設定を受け付けない。
@@ -241,8 +244,13 @@ class Business:
         parts += [APOLOGY_FIRST[k] for k in self.apology]   # 目的の人の無い業務：最初に出た方がお客様＝名乗りのあとにお詫び
         if self.purpose_line:
             parts.append(self.purpose_line)
-        parts.append(self.questions[0].text)
+        if (first := self.first_question()) is not None:
+            parts.append(spoken_question(self.questions, first)[0])   # 前の通話の続きなら、まだ取れていない最初の質問（つなぎの言葉ごと）
         return parts
+
+    def first_question(self) -> str | None:
+        """この電話で最初に伺う質問（前の通話で取れた答えの質問は飛ばす＝earlier。無ければ None）。流れの制御 Flow の最初の質問と同じ決まり。"""
+        return next((q.id for q in self.questions if not q.callback and (self.earlier.get(q.id) or {}).get("state") not in TAKEN), None)
 
     def replay_parts(self) -> dict:
         """名乗りの部分（flowctl.Flow の opening。部分 → 文）：流し直す録音と、目的の人に繋がったときに流す名乗り・用件の両方に使う。

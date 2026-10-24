@@ -4784,6 +4784,30 @@ class TargetTest(unittest.TestCase):
         r = self.say(f, "申し訳ございません、担当が分からないのでお繋ぎできかねます。", "request_end", reason="not_transferred")
         self.assertEqual((r["result"], f.end_reason, "again" in f.facts["not_transferred"][-1]), ("end", "not_transferred", False))
 
+    def test_cut_off_call_continues_from_where_it_stopped(self):
+        # CL-2 の 4-77（✅ 2026-10-17 ユーザー：途中で切れた通話は、お詫びとともにすぐかけ直す）：前の通話で取れた答えの質問は、もう伺わずに続きから聞く。
+        # 前の通話の答えは、この通話の答えとして渡さない（記録は前の通話のもの）
+        import dataclasses
+        from flowctl import Flow, spoken_question
+        from g22_opening import BUSINESS
+        from phrases import APOLOGY_FIRST
+        earlier = {"Q1": {"state": "accepted", "value": "予約しています", "condition": "はい"}, "Q2": {"state": "unresolved"}}
+        b = dataclasses.replace(BUSINESS, earlier=earlier, apology=("cut_off",))
+        self.assertEqual(b.opening_parts()[-2:], [APOLOGY_FIRST["cut_off"], BUSINESS.purpose_line][-1:] + [spoken_question(b.questions, "Q2")[0]])
+        f = Flow(b.questions, earlier=b.earlier)
+        self.assertEqual((f.current, f.items["Q1"].state, f.items["Q2"].state), ("Q2", "accepted", "empty"))   # 取れなかった答えは伺い直す
+        self.assertNotIn("Q1", f.export())
+        # 目的の人のある業務：繋がったら、お詫びのあと続きの質問（つなぎの言葉ごとの録音）
+        t = dataclasses.replace(self.business(), earlier=earlier)
+        f = Flow(t.questions, play_recordings=True, opening=t.replay_parts(), target=t.replay_parts(), apology=("cut_off",), earlier=t.earlier)
+        r = self.say(f, "はい、岡田は私ですが。", "report_party", party="target")
+        self.assertEqual([p.get("part") or p.get("id") or p["kind"] for p in r["play"]][:2], ["apology_cut_off", "purpose"])
+        self.assertEqual(r["question_id"], "Q2")
+        # 全部取れていた：質問を伺わない
+        done = {q.id: {"state": "accepted", "value": "x", "condition": "はい"} for q in BUSINESS.questions}
+        self.assertIsNone(dataclasses.replace(BUSINESS, earlier=done).first_question())
+        self.assertIsNone(Flow(BUSINESS.questions, earlier=done).current)
+
     def test_apology_comes_first_when_the_target_answers(self):
         # ✅ 2026-10-24 ユーザー「5つOK」（CL-2 の 4-135：予約証の apology）：前の電話の事情（約束の時間にかけられなかった・途中で切れた）は、目的の方に
         # 繋がったら、まずお詫び（名乗りが要るなら名乗りのあと、用件・質問の前）。⏳ 言い方は案
