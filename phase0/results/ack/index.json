@@ -1881,5 +1881,21 @@
     "note": "間の確かめは通っていない（人が聞いて選ぶ）",
     "chosen_from": "L4_apology_cut_off_読2",
     "chosen_by": "人"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "apology_missed_promise",
+    "text": "お約束の時間にお電話ができず誠に申し訳ございませんでした。",
+    "heard": {
+      "0.0": "お約束の時間にお電話ができず、誠に申し訳ございませんでした。",
+      "1.0": "お約束の時間にお電話ができず、誠に申し訳ございませんでした。"
+    },
+    "ok": true,
+    "seconds": 4.3,
+    "try": 3,
+    "wav": "L4_apology_missed_promise.wav",
+    "chosen_from": "L4_apology_missed_promise_1",
+    "chosen_by": "人"
   }
 ]
