@@ -340,8 +340,12 @@ def answer_again(line, entries: list[dict], n: int) -> tuple[dict | None, int]:
     return None, 0
 
 
-def followup_reason(turn) -> str | None:
+def followup_reason(turn, words_complete: bool = True) -> str | None:
     """相手の続きの言葉への返事を、次の台詞を送る前に、もう1回ぶん待つ理由（待たなくてよいなら None）。
+    - "words"：AIが報告したのに、台詞の声がまだ出揃っていない（文と文の間でAIのターンが終わった。流れの制御の Flow.words_complete の1か所）。
+      ⛔ 2026-10-24 G-57 J2・J3（留守番電話のあとに人が出る・L4）：案内の文の間でAIが留守番電話と報告し、試験は次の台詞（人の「もしもし」）を
+         送った＝AIは案内の後ろ半分を聞いて、また留守番電話と報告し、台詞が1つずつずれた（試験の作りの誤り。本物の電話では、相手は言い終えて
+         から返事を待つ）
     - "cut_in"：相手の言葉の途中で、AIが話し出していた（G-31）
     - "waited"：AIが声も報告も出さずにターンを終えた（相手の「えーとですね、」のあと、黙って待った形）
       ⛔ 2026-10-14 G-34 の1回目：この空のターンを「AIの返事」と受け取って、すぐ次の台詞を送ったため、相手の続きへのAIの返事
@@ -353,6 +357,8 @@ def followup_reason(turn) -> str | None:
         return "cut_in"
     if turn.first_audio_after_s is None and not turn.tool_calls:
         return "waited"  # 声も報告も無い
+    if not words_complete:
+        return "words"
     return None
 
 
@@ -595,7 +601,7 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                     if ear_info is not None:
                         turns[-1]["ear_check"] = ear_info
                     turn_log_start = log_start
-                    reason = followup_reason(turn) if followup_wait_s else None
+                    reason = followup_reason(turn, flow.words_complete) if followup_wait_s else None
                     if reason:
                         log_start = len(flow.log)
                         # 待つ間も、電話と同じく無音を送り続ける（会話AIは、無音が続くことで相手の話し終わりを知る）

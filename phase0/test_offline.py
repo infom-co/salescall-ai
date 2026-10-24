@@ -3706,6 +3706,9 @@ class AckTimingTest(unittest.TestCase):
         self.assertIsNone(followup_reason(reported))
         self.assertIsNone(followup_reason(TurnResult(first_audio_after_s=1.0)))  # ふつうの返事
         self.assertIsNone(followup_reason(TurnResult(timed_out=True)))          # 時間切れ（黙っている間の確かめなど）
+        # 報告したのに台詞の声がまだ出揃っていない（文と文の間でターンが終わった）：続きを待つ（⛔ G-57 J2・J3：台詞が1つずつずれた）
+        self.assertEqual(followup_reason(reported, words_complete=False), "words")
+        self.assertEqual(followup_reason(waited, words_complete=False), "waited")
 
     def test_stitch_call_keeps_waited_turn(self):
         import numpy as np
