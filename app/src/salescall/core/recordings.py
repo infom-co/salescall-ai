@@ -8,6 +8,9 @@
   依頼者の単位の両方にあり、初めの声の型を持つもの（2026-10-17 ユーザー：「事前の録音チェックになる方向性」「新しい声が増える
   かもしれません」＝声を足しても処理は変えない）。門（core/gate.py の `choose_voice`）だけが使う。契約者の組には、契約者の単位の
   部分（`CONTRACTOR_PARTS`。名前の正本は CL-1 の phrases.RECORDED）がすべて要る（CL-1 の連絡帳 4-39）。
+- **名前の録音の台帳**（0132）：お名前の入る一言は、名前の部分（呼び方＋助詞）と続く言葉を組み合わせて流す。どちらも組の単位
+  （name・name_tail。契約者の持ち物）で、承認の仕組みは同じ。その行で要るものは `name_needs`、その声で足りないものは `name_missing`
+  の1か所（門の `choose_voice` が読む）。
 - 流すときに使う組は `current_sets`（それぞれの単位で、いちばん新しく承認した組のうち、名前の読みがその版のいまの読みと合うもの＝
   見方 current_recording_sets）。
 - **測り終わるまで消さない録音**（`hold`・`release`。表の作り 0056。2026-10-17 ユーザー 案A。Intent.md 11-4 第2版）：検証モードの通話
@@ -83,23 +86,29 @@ def retire_voice(tx: Tx, voice_name: str, *, reason: str) -> None:
         raise LookupError(f"使っている声ではありません：{voice_name}")
 
 
-def create_set(tx: Tx, *, unit: Literal["contractor", "business", "apology"], voice_name: str, parts: list[Part],
-               version_id: UUID | None = None, order_id: int | None = None) -> UUID:
+def create_set(tx: Tx, *, unit: Literal["contractor", "business", "apology", "name", "name_tail"], voice_name: str,
+               parts: list[Part], version_id: UUID | None = None, order_id: int | None = None,
+               name_key: NameKey | None = None, tail: str | None = None) -> UUID:
     """録音の組を作る（承認の前）。契約者の単位は取引の契約者、依頼者の単位は取引の依頼者の、その版。お詫びの単位（apology）は
     取引の依頼者の、そのお詫びの案（order_id。部分は apology.PARTS の2つで、文は案の文と同じ・声は誤った通話の声＝データベースが
-    守る。0131）。"""
+    守る。0131）。名前の録音の台帳（name＝名前の部分・name_tail＝続く言葉）は取引の契約者の持ち物で、鍵（name_key・tail）を渡す
+    （`add_name_part`・`add_name_tail` が呼ぶ。0132）。"""
     if not parts:
         raise ValueError("録音の部分がありません")
     if len({p.part for p in parts}) != len(parts):
         raise ValueError("同じ名前の部分が2つあります")
-    if (unit == "business") != (version_id is not None) or (unit == "apology") != (order_id is not None):
-        raise ValueError("依頼者の単位の組には業務設定の版を、お詫びの単位の組にはお詫びの案を渡します（契約者の単位の組には、どちらも"
-                         "渡しません）")
+    if (unit == "business") != (version_id is not None) or (unit == "apology") != (order_id is not None) \
+            or (unit == "name") != (name_key is not None) or (unit == "name_tail") != (tail is not None):
+        raise ValueError("依頼者の単位の組には業務設定の版を、お詫びの単位の組にはお詫びの案を、名前の録音の台帳には鍵を渡します"
+                         "（契約者の単位の組には、どれも渡しません）")
     chosen = _chosen_readings(tx, parts, version_id)
+    k = name_key or NameKey("", None, None)
     set_id = tx.one(
-        "INSERT INTO salescall.recording_sets (tenant_id, unit, voice_name, client_id, version_id, order_id)"
-        " VALUES (salescall.cur_tenant(), %s, %s, CASE WHEN %s <> 'contractor' THEN salescall.cur_client() END, %s, %s)"
-        " RETURNING set_id", (unit, voice_name, unit, version_id, order_id))["set_id"]
+        "INSERT INTO salescall.recording_sets (tenant_id, unit, voice_name, client_id, version_id, order_id, name_form,"
+        " name_role, name_reading, tail)"
+        " VALUES (salescall.cur_tenant(), %s, %s, CASE WHEN %s IN ('business', 'apology') THEN salescall.cur_client() END,"
+        " %s, %s, %s, %s, %s, %s) RETURNING set_id",
+        (unit, voice_name, unit, version_id, order_id, k.form or None, k.role, k.reading, tail))["set_id"]
     for p in parts:
         tx.execute("INSERT INTO salescall.recordings (tenant_id, client_id, set_id, part, spoken_text, audio_ref, audio_sha256)"
                    " SELECT tenant_id, client_id, set_id, %s, %s, %s, %s FROM salescall.recording_sets WHERE set_id = %s",
@@ -192,7 +201,8 @@ _CURRENT = ("EXISTS (SELECT 1 FROM salescall.current_recording_sets s"
 # promise_again を求めた。お名前の入る一言（target・target_confirm・target_reconfirm・promise_again・target_successor）は業務の組に入らず、
 # 名前の録音の台帳（CL-1 の DESIGN.md 4-3）から流すので、約束の電話が1本もかからなかった。契約者の組の部分はどの電話でも流れうる（相づち・
 # 締め・つなぎ・通話を途中で切るときの2つ・番号を伺い直す一言）ので、電話の種類で分けずに全部を見る。
-# ⏳ お名前の入る一言の確かめ（その行の名前の部分と、その声の続く言葉が承認されているか）は、名前の録音の台帳を作るときに入れる。
+# お名前の入る一言の確かめ（その行の名前の部分と、その声の続く言葉が承認されているか）は、名前の録音の台帳の1か所（`name_needs`・
+# `name_missing`。0132）。
 # 業務の組の部分（名乗り・質問など）は、組を作るときに CL-1 の一覧（make_ack_clips.script_table）から作られるので、ここでは見ない。
 CONTRACTOR_PARTS: tuple[str, ...] = (
     "ai_again", "apology_cut_off", "apology_missed_promise", "arigatou", "back", "callback_address", "callback_ask_when",
@@ -229,6 +239,129 @@ def missing_parts(tx: Tx) -> list[str]:
         " WHERE s.tenant_id = salescall.cur_tenant() AND s.unit = 'contractor'"
         "   AND NOT EXISTS (SELECT 1 FROM salescall.recordings r WHERE r.set_id = s.set_id AND r.part = p.part)"
         " ORDER BY p.part", (list(CONTRACTOR_PARTS),))]
+
+
+# ═════════ 名前の録音の台帳（0132。CL-1 の DESIGN.md 4-3 の「台帳の形」・CL-1 の連絡帳 4-34 の 4-122・4-39） ═════════
+# お名前の入る一言（呼ぶ一言 target・確かめる一言 target_confirm・聞き返し target_reconfirm・約束の一言 promise_again・後任の方をお呼び
+# する一言 target_successor）は、「名前の部分（呼び方＋助詞）」と「続く言葉」を組み合わせて流す（✅ 2026-10-19 ユーザー）。どちらも
+# 契約者が聞いて承認したものだけを使い、その行の名前の部分と続く言葉が、選んだ声で全部そろうまで、その行はその声ではかけない
+# （門の `gate.choose_voice` の1か所。どの声でもそろわなければ待たせて、契約者に知らせる）。台帳は契約者の単位（その契約者のどの
+# 依頼者の行でも使い回す。同じ読みなら漢字が違っても同じ録音＝鍵に表記を入れない）。
+# ⏳ システムの単位（すべての契約者で使い回す代表的な名字）は、ユーザーに伺ってから（0132 の頭）。
+NAME_FORMS: tuple[str, ...] = ("は", "で", "と", "の")   # 名前の部分の助詞（データベースの守り 0132 と同じ）
+# 続く言葉の名前（データベースの守り 0132 と同じ。名前の正本は CL-1 の Business.replay_parts の部分の名前。呼ぶ一言は法人と個人で続く
+# 言葉が違うので、個人は target_individual）
+NAME_TAILS: tuple[str, ...] = ("target", "target_individual", "target_confirm", "target_reconfirm", "promise_again",
+                               "target_successor")
+
+
+@dataclass(frozen=True)
+class NameKey:
+    """名前の部分の鍵（声の名前は別に渡す）。role＝部署と役職（法人の呼ぶ一言・後任の方の一言・役職のみの目的のお客様だけ）。
+    reading＝名前の読み（ひらがな。役職のみの目的のお客様は None）。"""
+    form: str
+    role: str | None
+    reading: str | None
+
+    def label(self) -> str:
+        """知らせに出す形（録音の文と同じ形。役職のみは役職の名前のまま）。"""
+        if self.reading is None:
+            return f"{self.role}（役職の呼び方）{self.form}"
+        return f"{self.role + 'の' if self.role else ''}「{self.reading}」様{self.form}"
+
+
+@dataclass(frozen=True)
+class NameNeeds:
+    """その行で使う名前の部分と続く言葉（`name_needs` の答え）。no_reading＝呼ぶ材料が無い（名前を呼ぶ業務なのに読みも言ってみる読みも
+    無い・役職で呼ぶ業務なのに役職が無い）。"""
+    parts: tuple[NameKey, ...]
+    tails: tuple[str, ...]
+    no_reading: bool = False
+
+
+def name_needs(tx: Tx, task_id: UUID) -> NameNeeds | None:
+    """その行で使う、お名前の入る一言の部分（決まりはここだけ。CL-1 の 4-3 の表と phrases.target_who・target_call・target_confirm・
+    target_reconfirm・Target.promise_again・successor_call の呼び方）。目的のお客様のいない業務（誰でも）は None。
+    約束の一言・後任の方の一言は、約束・後任の方があとの通話で決まるので、目的のお客様のいる業務ならどの行も初めから要る（CL-1 の 4-3。
+    承認を待つと約束の時刻に遅れる）。後任の方の一言は法人だけ。名前・読み・部署と役職は、会話が読む1か所
+    （`business_settings.target_of`。読みが決まらない名前は、まず言ってみる読み＝会話がそれで呼ぶ。会話で確かめた読みがあればそれ）。"""
+    target = business_settings.target_of(tx, task_id)["target"]
+    if target is None:
+        return None
+    corporate = target["kind"] == "法人"
+    role = target["role"] or None
+    named = bool(target["name"])
+    tails = ("target" if corporate or not named else "target_individual", "target_confirm", "target_reconfirm",
+             "promise_again") + (("target_successor",) if corporate else ())
+    if named:
+        reading = target["reading"] or None
+        if reading is None:
+            return NameNeeds((), tails, no_reading=True)
+        keys = (NameKey("は", role, reading) if corporate else NameKey("の", None, reading),
+                NameKey("で", None, reading), NameKey("と", None, reading)) \
+            + ((NameKey("の", role, reading),) if corporate else ())
+    elif role is None:   # 呼ぶ名前も役職も無い（門が target_name_missing・target_role_missing で先に断る）
+        return NameNeeds((), tails, no_reading=True)
+    else:   # 役職のみ：どの一言も役職の呼び方（「社長様は」「社長様で」）。呼ぶ一言は法人の形（phrases.target_call）
+        keys = (NameKey("は", role, None), NameKey("で", role, None), NameKey("と", role, None)) \
+            + ((NameKey("の", role, None),) if corporate else ())
+    return NameNeeds(tuple(dict.fromkeys(keys)), tails)
+
+
+def name_missing(tx: Tx, needs: NameNeeds, voice_name: str) -> list[str]:
+    """その声で、承認した台帳の録音が無い名前の部分・続く言葉（知らせに出す形。無ければ空＝その声で呼べる）。見るのは見方
+    current_name_recordings の1か所（承認した組のうち、鍵ごとにいちばん新しいもの）。"""
+    if needs.no_reading:
+        return ["お名前の読み・役職（呼ぶ材料がありません）"]
+    rows = tx.all(
+        "SELECT 'part' AS what, k.i FROM unnest(%s::text[], %s::text[], %s::text[]) WITH ORDINALITY k(form, role, reading, i)"
+        " WHERE NOT EXISTS (SELECT 1 FROM salescall.current_name_recordings c WHERE c.tenant_id = salescall.cur_tenant()"
+        "   AND c.unit = 'name' AND c.voice_name = %s AND c.name_form = k.form AND c.name_role IS NOT DISTINCT FROM k.role"
+        "   AND c.name_reading IS NOT DISTINCT FROM k.reading)"
+        " UNION ALL SELECT 'tail', t.i FROM unnest(%s::text[]) WITH ORDINALITY t(tail, i)"
+        " WHERE NOT EXISTS (SELECT 1 FROM salescall.current_name_recordings c WHERE c.tenant_id = salescall.cur_tenant()"
+        "   AND c.unit = 'name_tail' AND c.voice_name = %s AND c.tail = t.tail)"
+        " ORDER BY 1 DESC, 2",
+        ([k.form for k in needs.parts], [k.role for k in needs.parts], [k.reading for k in needs.parts], voice_name,
+         list(needs.tails), voice_name))
+    return [needs.parts[r["i"] - 1].label() if r["what"] == "part" else f"続く言葉 {needs.tails[r['i'] - 1]}" for r in rows]
+
+
+def add_name_part(tx: Tx, *, voice_name: str, key: NameKey, part: Part) -> UUID:
+    """台帳に名前の部分を1つ入れる（承認の前。部分の名前は name。文は鍵に合う形＝データベースが守る）。承認は `approve`。"""
+    if key.form not in NAME_FORMS:
+        raise ValueError(f"名前の部分の助詞は {NAME_FORMS} のどれかです（{key.form!r}）")
+    if part.part != "name":
+        raise ValueError("名前の部分の録音の部分の名前は name です")
+    return create_set(tx, unit="name", voice_name=voice_name, parts=[part], name_key=key)
+
+
+def add_name_tail(tx: Tx, *, voice_name: str, tail: str, part: Part) -> UUID:
+    """台帳に続く言葉を1つ入れる（承認の前。部分の名前は続く言葉の名前と同じ）。承認は `approve`。"""
+    if tail not in NAME_TAILS:
+        raise ValueError(f"続く言葉の名前は {NAME_TAILS} のどれかです（{tail!r}）")
+    return create_set(tx, unit="name_tail", voice_name=voice_name, parts=[part], tail=tail)
+
+
+def name_coverage(tx: Tx, run_id: UUID, voice_name: str) -> dict:
+    """その実施回のまだ終えていない行のうち、その声で台帳の録音が全部そろう行の数と、足りない名前の部分ごとの行の数（CL-1 が前もって
+    作る名字の数を決めるため。DESIGN.md 4-3「台帳で足りる行が何割か」）。rows＝目的のお客様を呼ぶ行の数・covered＝そろう行の数・
+    missing＝{知らせの形: 行の数}（多い順）。"""
+    tasks = tx.all("SELECT t.task_id FROM salescall.tasks t WHERE t.run_id = %s"
+                   " AND coalesce((SELECT n.kind FROM salescall.current_next_actions n WHERE n.task_id = t.task_id) <> 'end', true)"
+                   " ORDER BY t.task_id", (run_id,))
+    rows = covered = 0
+    missing: dict[str, int] = {}
+    for t in tasks:
+        needs = name_needs(tx, t["task_id"])
+        if needs is None:
+            continue
+        rows += 1
+        gone = name_missing(tx, needs, voice_name)
+        covered += not gone
+        for m in gone:
+            missing[m] = missing.get(m, 0) + 1
+    return {"rows": rows, "covered": covered, "missing": dict(sorted(missing.items(), key=lambda x: (-x[1], x[0])))}
 
 
 def current_sets(tx: Tx, version_id: UUID, voice_name: str) -> dict[str, UUID | None]:

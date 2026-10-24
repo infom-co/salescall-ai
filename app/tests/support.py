@@ -140,8 +140,25 @@ class World:
                 recordings.approve(tx, sid)
         if version is None:
             self.a.in_tenant(OPERATOR, tenant, work)
+            if parts is None:   # 名前の録音の台帳も、試験の業務の初めの目的のお客様（役職のみ「総務部長」）の分と続く言葉をそろえる
+                self.approve_names(tenant, [recordings.NameKey(f, DEFAULT_ROLE, None) for f in recordings.NAME_FORMS], voices)
         else:
             self.a.in_client(OPERATOR, tenant, client, work)
+
+    def approve_names(self, tenant: UUID, keys: list, voices: tuple[str, ...] = VOICES, *,
+                      tails: tuple[str, ...] | None = None) -> None:
+        """名前の録音の台帳に、名前の部分（keys＝recordings.NameKey の並び）と続く言葉（無ければ全部）を作って承認する（架空の録音）。"""
+        def work(tx):
+            for v in voices:
+                for k in keys:
+                    text = (f"{k.role}様{k.form}" if k.reading is None
+                            else f"{k.role + 'の' if k.role else ''}「{k.reading}」様{k.form}")
+                    recordings.approve(tx, recordings.add_name_part(
+                        tx, voice_name=v, key=k, part=recordings.Part("name", text, f"test://{v}/name", "0" * 64)))
+                for t in (recordings.NAME_TAILS if tails is None else tails):
+                    recordings.approve(tx, recordings.add_name_tail(
+                        tx, voice_name=v, tail=t, part=recordings.Part(t, f"架空の続く言葉（{t}）。", f"test://{v}/{t}", "0" * 64)))
+        self.a.in_tenant(OPERATOR, tenant, work)
 
     def client(self, tenant: UUID) -> UUID:
         cid = uuid.uuid4()
@@ -237,12 +254,15 @@ class World:
             (state, hangup_side, attempt)))
 
 
+DEFAULT_ROLE = "総務部長"   # 試験の業務の初めの目的のお客様（役職のみ）
+
+
 def content(target_person: dict | None = None) -> dict:
     """試験の業務設定の中身（架空。質問は Q1＝日時・必須の1つ。業務の決まりは試験ごとに business_rules.save で置く）。"""
     return {"purpose": "架空の業務の目的", "target_class": "corporate",
             "caller": {"company": {"text": "株式会社テスト", "reading": "かぶしきがいしゃてすと"},
                        "person": {"text": "山田", "reading": "やまだ"}, "purpose_line": None},
-            "target_person": target_person or {"kind": "role", "role": "総務部長"}, "busy_line": None, "voicemail_message": None,
+            "target_person": target_person or {"kind": "role", "role": DEFAULT_ROLE}, "busy_line": None, "voicemail_message": None,
             "ai_answer": None, "answers": [], "voice": "S2",
             "questions": [{"id": "Q1", "text": "ご希望の日時をお聞かせください。", "ask_about": None, "type": "datetime",
                            "required": True, "choices": None, "next": None, "unit": None, "meanings": None, "replies": None}],

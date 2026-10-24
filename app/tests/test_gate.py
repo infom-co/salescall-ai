@@ -946,7 +946,7 @@ class CallerNumberAndVoice(Base):
         self.assertEqual(self.tx(b, lambda tx: self.voice(tx, b, "S2")), "S2")
 
     def test_a_promised_call_needs_no_name_part_in_the_business_set(self):
-        """約束の電話も、お詫びの電話も、業務の組にお名前の入る一言が無くても予約できる（⛔ 2026-10-24 CL-1 の連絡帳 4-39。台帳は ⏳）。"""
+        """約束の電話も、お詫びの電話も、業務の組にお名前の入る一言が無くても予約できる（⛔ 2026-10-24 CL-1 の連絡帳 4-39。お名前の入る一言は名前の録音の台帳＝NameLedger）。"""
         a = self.ready()
         self.w.approve_voices(a["tenant"], a["client"], a["version"], parts=("intro",))
         self.tx(a, lambda tx: support.schedule_call(tx, a["task"], tx.one("SELECT now() AS t")["t"],
@@ -1545,9 +1545,133 @@ class Content(Base):
         self.assertEqual(self.reason(s2), "target_role_missing")
         s3 = self.ready()
         self.switch_to(s3, {"kind": "role", "role": "社長"})                # 業務で役職を書いていれば、行の役職は要らない
+        self.w.approve_names(s3["tenant"], [recordings.NameKey(f, "社長", None) for f in recordings.NAME_FORMS], tails=())
         offered = lambda x: self.tx(x, lambda tx: [r["task_id"] for r in scheduler.due_tasks(tx, 10)])   # noqa: E731
         self.assertEqual((offered(s), offered(s2), offered(s3)), ([], [], [s3["task"]]))   # 足りない行は候補に出さない（17a）
         self.assertIsInstance(self.claim(s3), gate.Claim)
+
+class NameLedger(Content):
+    """名前の録音の台帳（0132。CL-1 の DESIGN.md 4-3 の「台帳の形」・CL-1 の連絡帳 4-34 の 4-122・4-39）：お名前の入る一言は、名前の
+    部分（呼び方＋助詞）と続く言葉を組み合わせて流す。その行の分が、選んだ声で契約者が聞いて承認した録音でそろうまで、その声では
+    かけない。どの声でもそろわなければ待たせ、契約者に知らせる（止めない・行ごとに知らせを増やさない）。"""
+
+    def named(self, s, name, reading):
+        """同じ実施回に、目的のお客様の名前と読みのある行を1つ足す（版は名前で呼ぶ業務に替えておく）。"""
+        k = self.w.contact(s["tenant"], s["client"], normalize(fictional_jp_fixed()).e164)
+        tid = uuid.uuid4()
+        self.tx(s, lambda tx: tx.execute(
+            "INSERT INTO salescall.tasks (tenant_id, client_id, task_id, run_id, contact_id, target_name, target_name_reading,"
+            " target_name_reading_by) VALUES (%s, %s, %s, %s, %s, %s, %s, 'given')",
+            (s["tenant"], s["client"], tid, s["run"], k, name, reading)), OPERATOR)
+        self.tx(s, lambda tx: next_action.schedule_now(tx, tid, cause="試験"))
+        return dict(s, task=tid, contact=k)
+
+    def test_what_a_row_needs(self):
+        """その行で要るもの（name_needs の1か所）：法人の名前の行は、呼ぶ一言（部署・役職つき）・確かめる一言と聞き返し・約束の一言・
+        後任の方の一言（部署・役職つき）と、その続く言葉。役職のみは役職の呼び方。誰でもは何も要らない。個人は後任の方が無い。"""
+        s = self.ready()
+        self.switch_to(s, {"kind": "role_and_name", "role": "営業部部長"})
+        a = self.named(s, "岡田", "おかだ")
+        got = self.tx(a, lambda tx: recordings.name_needs(tx, a["task"]))
+        K = recordings.NameKey
+        self.assertEqual(got.parts, (K("は", "営業部部長", "おかだ"), K("で", None, "おかだ"), K("と", None, "おかだ"),
+                                     K("の", "営業部部長", "おかだ")))
+        self.assertEqual(got.tails, ("target", "target_confirm", "target_reconfirm", "promise_again", "target_successor"))
+        b = self.ready()
+        self.assertEqual(self.tx(b, lambda tx: recordings.name_needs(tx, b["task"])).parts,
+                         tuple(K(f, support.DEFAULT_ROLE, None) for f in recordings.NAME_FORMS))
+        c = self.ready()
+        self.switch_to(c, {"kind": "anyone", "role": None})
+        self.assertIsNone(self.tx(c, lambda tx: recordings.name_needs(tx, c["task"])))
+        person = {"target": {"kind": "個人", "name": "岡田", "reading": "おかだ", "role": ""}}
+        with mock.patch.object(recordings.business_settings, "target_of", return_value=person):
+            got = self.tx(a, lambda tx: recordings.name_needs(tx, a["task"]))
+        self.assertEqual(got.parts, (K("の", None, "おかだ"), K("で", None, "おかだ"), K("と", None, "おかだ")))
+        self.assertEqual(got.tails, ("target_individual", "target_confirm", "target_reconfirm", "promise_again"))
+
+    def test_a_row_is_called_only_in_a_voice_whose_name_recordings_are_all_approved(self):
+        """名前の部分が無い声では話さない・そろった声で話す・承認していない録音は使わない・同じ読みなら漢字が違っても同じ録音。
+        どの声でもそろわなければ name_recording_missing で待ち（その行を候補に出さない）、知らせは依頼者ごとに1日1つ。"""
+        s = self.ready()
+        self.switch_to(s, {"kind": "name", "role": None})
+        a, b = self.named(s, "岡田", "おかだ"), self.named(s, "丘田", "おかだ")
+        K = recordings.NameKey
+        keys = [K("は", None, "おかだ"), K("で", None, "おかだ"), K("と", None, "おかだ"), K("の", None, "おかだ")]
+        # 承認していない録音：作っただけでは使わない
+        self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: [recordings.add_name_part(
+            tx, voice_name="Leda", key=k, part=recordings.Part("name", f"「おかだ」様{k.form}", "test://x", "0" * 64))
+            for k in keys])
+        got = self.claim(a)
+        self.assertIsInstance(got, gate.Denied)
+        self.assertEqual((got.reason, gate.REASONS[got.reason].handling), ("name_recording_missing", "unoffered"))
+        self.assertEqual(self.reason(b), "name_recording_missing")
+        offered = self.tx(s, lambda tx: [r["task_id"] for r in scheduler.due_tasks(tx, 10)])
+        self.assertNotIn(a["task"], offered)
+        told = self.tx(s, lambda tx: tx.all("SELECT summary FROM salescall.notification_events WHERE kind = 'setting_missing'"
+                                           " AND event_key LIKE 'name_recording_missing:%%'"))
+        self.assertEqual(len(told), 1)                 # 2つの行・何度断っても、依頼者ごとに1日1つ
+        self.assertIn("「おかだ」様は", told[0]["summary"])
+        # Leda の分だけ承認する（3つの部分＋続く言葉。1つ欠ける）：まだかけない
+        self.w.approve_names(s["tenant"], keys[:3], ("Leda",))
+        self.assertEqual(self.reason(a), "name_recording_missing")
+        self.w.approve_names(s["tenant"], keys[3:], ("Leda",), tails=())
+        got = self.claim(a)                            # Leda はそろった：業務の声（Sadachbia）ではなく Leda で話す
+        self.assertIsInstance(got, gate.Claim, got)
+        self.assertEqual(got.voice_type, "L4")
+        self.tx(a, lambda tx: attempts.release(tx, [got.attempt_id]))
+        got = self.claim(b)                            # 漢字が違っても読みが同じなら、同じ録音で呼べる
+        self.assertIsInstance(got, gate.Claim, got)
+
+    def test_another_contractors_ledger_is_not_used(self):
+        """台帳は契約者の持ち物：ほかの契約者が承認した録音では呼ばない（見えもしない）。"""
+        s = self.ready()
+        self.switch_to(s, {"kind": "role", "role": "店長"})
+        other = self.w.tenant()
+        self.w.approve_names(other, [recordings.NameKey(f, "店長", None) for f in recordings.NAME_FORMS])
+        self.assertEqual(self.reason(s), "name_recording_missing")
+        self.assertEqual(self.tx(s, lambda tx: tx.one(
+            "SELECT count(*) AS n FROM salescall.recording_sets WHERE name_role = '店長'"))["n"], 0)
+        self.w.approve_names(s["tenant"], [recordings.NameKey(f, "店長", None) for f in recordings.NAME_FORMS], tails=())
+        self.assertIsInstance(self.claim(s), gate.Claim)
+
+    def test_the_database_keeps_the_ledger_in_shape(self):
+        """データベースの守り（0132）：名前の部分の文は鍵に合う形・部分の名前は決まり・鍵は単位に合うものだけ。"""
+        s = self.ready()
+        K, P = recordings.NameKey, recordings.Part
+        add = lambda key, text, part="name": self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: recordings.create_set(  # noqa: E731
+            tx, unit="name", voice_name="Leda", name_key=key, parts=[P(part, text, "test://x", "0" * 64)]))
+        add(K("は", "営業部部長", "おかだ"), "営業部部長の「おかだ」様は")
+        for key, text, part in ((K("は", None, "おかだ"), "「おかだ」様で", "name"),          # 助詞が鍵と違う
+                                (K("は", None, "おかだ"), "「おかざき」様は", "name"),        # 読みが鍵と違う
+                                (K("は", "営業部部長", "おかだ"), "「おかだ」様は", "name"),   # 部署・役職が鍵と違う
+                                (K("は", None, "おかだ"), "「おかだ」様は", "target")):     # 部分の名前が決まりと違う
+            with self.assertRaises(Rejected, msg=(key, text, part)):
+                add(key, text, part)
+        with self.assertRaises(Rejected):   # 鍵の無い名前の部分・助詞の一覧に無い形
+            self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: tx.execute(
+                "INSERT INTO salescall.recording_sets (tenant_id, unit, voice_name, name_form)"
+                " VALUES (salescall.cur_tenant(), 'name', 'Leda', 'を')"))
+        with self.assertRaises(Rejected):   # 続く言葉の組の部分は、続く言葉の名前1つ
+            self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: recordings.create_set(
+                tx, unit="name_tail", voice_name="Leda", tail="target", parts=[P("promise_again", "x", "test://x", "0" * 64)]))
+        with self.assertRaises(Rejected):   # 契約者の単位の組に、台帳の鍵は付けない
+            self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: tx.execute(
+                "INSERT INTO salescall.recording_sets (tenant_id, unit, voice_name, tail)"
+                " VALUES (salescall.cur_tenant(), 'contractor', 'Leda', 'target')"))
+
+    def test_coverage_counts_rows_the_ledger_already_covers(self):
+        """台帳で足りる行が何割か（name_coverage。CL-1 が前もって作る名字の数を決めるため）。"""
+        s = self.ready()
+        self.switch_to(s, {"kind": "name", "role": None})
+        self.named(s, "岡田", "おかだ")
+        self.named(s, "丘田", "おかだ")
+        self.named(s, "中島", "なかじま")
+        K = recordings.NameKey
+        self.w.approve_names(s["tenant"], [K(f, None, "おかだ") for f in recordings.NAME_FORMS], ("Leda",))
+        got = self.tx(s, lambda tx: recordings.name_coverage(tx, s["run"], "Leda"))
+        self.assertEqual((got["rows"], got["covered"]), (4, 2))   # 初めの行（名前が無い）と なかじま が足りない
+        self.assertEqual(got["missing"]["「なかじま」様は"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1446,6 +1446,24 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("お詫びの電話の承認に、承認した・その案の録音の組を求めない（0131：聞いていない録音・ほかの案の録音で承認しうる）",
      "DROP TRIGGER apology_approval_recording ON salescall.apology_approvals",
      ("tests.test_apology.Apology.test_the_apology_is_recorded_and_the_approval_binds_the_recording",)),
+    ("名前の録音の台帳の文を、鍵と突き合わせない（0132：別の読み・別の部署の録音で、お客様のお名前を呼びうる）",
+     _edited("0132_name_recording_ledger.sql", "CREATE FUNCTION salescall.name_recording_check()",
+             "IF NOT (right(NEW.spoken_text, 1) = s.name_form", "IF false AND (right(NEW.spoken_text, 1) = s.name_form"),
+     ("tests.test_gate.NameLedger.test_the_database_keeps_the_ledger_in_shape",)),
+    ("名前の録音の台帳の組の部分の名前を見ない（0132：名前の部分の組に別の一言を入れうる）",
+     _edited("0132_name_recording_ledger.sql", "CREATE FUNCTION salescall.name_recording_check()",
+             "IF NEW.part <> 'name' THEN", "IF false THEN"),
+     ("tests.test_gate.NameLedger.test_the_database_keeps_the_ledger_in_shape",)),
+    ("名前の録音の台帳の鍵の決まりを外す（0132：助詞の一覧に無い形・鍵の無い名前の部分・契約者の組に鍵）",
+     "ALTER TABLE salescall.recording_sets DROP CONSTRAINT recording_sets_name_key",
+     ("tests.test_gate.NameLedger.test_the_database_keeps_the_ledger_in_shape",)),
+    ("台帳のいまの録音に、承認していない組も入れる（0132：契約者が聞いていない録音で、お客様のお名前を呼ぶ）",
+     "CREATE OR REPLACE VIEW salescall.current_name_recordings WITH (security_invoker = true) AS"
+     " SELECT DISTINCT ON (s.tenant_id, s.unit, s.voice_name, s.name_form, s.name_role, s.name_reading, s.tail)"
+     " s.set_id, s.tenant_id, s.unit, s.voice_name, s.name_form, s.name_role, s.name_reading, s.tail"
+     " FROM salescall.recording_sets s WHERE s.unit IN ('name', 'name_tail')"
+     " ORDER BY s.tenant_id, s.unit, s.voice_name, s.name_form, s.name_role, s.name_reading, s.tail, s.created_at DESC",
+     ("tests.test_gate.NameLedger.test_a_row_is_called_only_in_a_voice_whose_name_recordings_are_all_approved",)),
 )
 
 
