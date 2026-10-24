@@ -24,7 +24,7 @@ from listen import differences, hear_feeds, in_all, in_any
 from phrases import confirm
 
 BUSINESS = Business(
-    company="アオバ物流", caller="佐藤", purpose="ご予約の確認", purpose_line="ご予約の確認でお電話いたしました。",
+    company="株式会社アオバ物流", caller="佐藤", purpose="ご予約の確認", purpose_line="ご予約の確認でお電話いたしました。",
     questions=[Question("Q1", "ご予約はされていますでしょうか。", "yes_no", conditions=("はい", "いいえ")),
                Question("Q2", "ご希望の日時をお聞かせください。", "datetime", conditions=("答えた",)),
                Question("Q3", "ご来店の人数をお聞かせください。", "number", conditions=("答えた",))],

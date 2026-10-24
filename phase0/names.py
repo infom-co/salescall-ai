@@ -109,6 +109,48 @@ def quote(name: str) -> str:
     return f"「{name}」"
 
 
+# 会社・法人の種類（法人格）と読み。自社名は書いてあるまま名乗り（前に付く・後ろに付く・株式会社でない会社も）、名前の印（「」）と読みへの
+# 置き換えは、種類を除いた名前の部分だけにする（G-17：「株式会社「アオバ物流」」の形で、名前の聞き違いが 12回中4回 → 13回中2回に減った）。
+# ⛔ 2026-10-21 CL-2 の 4-121 で見つけた誤り：名乗りが、いつも「株式会社」＋自社名だった（「大和ハウス工業」は「株式会社大和ハウス工業」と
+#    名乗り、合同会社・お店の名前でも株式会社と名乗っていた）。長いものを先に当てる（「医療法人社団」は「医療法人」より先）
+LEGAL_FORMS = {"株式会社": "かぶしきがいしゃ", "有限会社": "ゆうげんがいしゃ", "合同会社": "ごうどうがいしゃ", "合資会社": "ごうしがいしゃ",
+               "合名会社": "ごうめいがいしゃ", "一般社団法人": "いっぱんしゃだんほうじん", "一般財団法人": "いっぱんざいだんほうじん",
+               "公益社団法人": "こうえきしゃだんほうじん", "公益財団法人": "こうえきざいだんほうじん",
+               "特定非営利活動法人": "とくていひえいりかつどうほうじん", "医療法人社団": "いりょうほうじんしゃだん",
+               "医療法人財団": "いりょうほうじんざいだん", "医療法人": "いりょうほうじん", "社会福祉法人": "しゃかいふくしほうじん",
+               "学校法人": "がっこうほうじん", "税理士法人": "ぜいりしほうじん", "弁護士法人": "べんごしほうじん",
+               "司法書士法人": "しほうしょしほうじん", "行政書士法人": "ぎょうせいしょしほうじん",
+               "社会保険労務士法人": "しゃかいほけんろうむしほうじん", "監査法人": "かんさほうじん"}
+# 略した書き方（「(株)」「㈱」など）は、声に出すと読み違えるので、正式な書き方に直してから名乗る
+LEGAL_FORM_SHORT = {"(株)": "株式会社", "㈱": "株式会社", "(有)": "有限会社", "㈲": "有限会社", "(同)": "合同会社", "(資)": "合資会社",
+                    "(名)": "合名会社", "(一社)": "一般社団法人", "(一財)": "一般財団法人", "(公社)": "公益社団法人", "(公財)": "公益財団法人",
+                    "(医)": "医療法人", "(福)": "社会福祉法人", "(学)": "学校法人", "(税)": "税理士法人", "(弁)": "弁護士法人"}
+
+
+def legal_form_split(company: str) -> tuple[str, str, str]:
+    """自社名を（前に付く会社の種類, 名前の部分, 後ろに付く会社の種類）に分ける唯一の場所（Business._said・読みの探し方が使う）。
+    種類が無ければ ("", 自社名, "")。略した書き方は正式な書き方に直す。"""
+    s = unicodedata.normalize("NFKC", company).strip()
+    for short, full in LEGAL_FORM_SHORT.items():
+        s = s.replace(unicodedata.normalize("NFKC", short), full)
+    forms = sorted(LEGAL_FORMS, key=len, reverse=True)
+    head = next((f for f in forms if s.startswith(f) and len(s) > len(f)), "")
+    rest = s[len(head):].strip()
+    tail = next((f for f in forms if rest.endswith(f) and len(rest) > len(f)), "")
+    return head, rest[:len(rest) - len(tail)].strip(), tail
+
+
+def legal_form_reading_off(reading: str, company: str) -> str:
+    """名前の部分の読み：自社名の読みに会社の種類の読みが入っていたら外す（読みは名前の部分に当てる＝Business._said）。"""
+    head, _, tail = legal_form_split(company)
+    r = reading.strip()
+    if head and r.startswith(LEGAL_FORMS[head]):
+        r = r[len(LEGAL_FORMS[head]):]
+    if tail and r.endswith(LEGAL_FORMS[tail]):
+        r = r[:len(r) - len(LEGAL_FORMS[tail])]
+    return r
+
+
 def given_reading(text: str, surface: str) -> str:
     """台本の文の中で、名前のすぐあとに書いてある読みがな（「東海林（しょうじ）」「角田(つのだ)」）。無ければ空。"""
     import re

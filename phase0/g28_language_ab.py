@@ -24,7 +24,7 @@ _TABLES = ("ARG_LABEL", "SYSTEM_LABEL", "CONFIRM_LABEL", "END_LABEL", "REPLY_KEY
 
 def business(lang: str) -> Business:
     yes_no, answered = (("yes", "no"), ("answered",)) if lang == "EN" else (("はい", "いいえ"), ("答えた",))
-    return Business(company="アオバ物流", caller="佐藤", purpose="ご予約の確認", purpose_line="ご予約の確認でお電話いたしました。",
+    return Business(company="株式会社アオバ物流", caller="佐藤", purpose="ご予約の確認", purpose_line="ご予約の確認でお電話いたしました。",
                     questions=[Question("Q1", "ご予約はされていますでしょうか。", "yes_no", conditions=yes_no),
                                Question("Q2", "ご希望の日時をお聞かせください。", "datetime", conditions=answered),
                                Question("Q3", "ご来店の人数をお聞かせください。", "number", conditions=answered)])

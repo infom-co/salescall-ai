@@ -212,7 +212,7 @@ class FlowTest(unittest.TestCase):
         self.assertEqual((r["result"], r["say"]), ("end", CLOSING))
         self.assertIn("言葉を足しません", r["message"])
         from instruction import Business, build
-        b = Business(company="アオバ物流", caller="佐藤", purpose="ご予約の確認", questions=list(self.flow().questions.values()))
+        b = Business(company="株式会社アオバ物流", caller="佐藤", purpose="ご予約の確認", questions=list(self.flow().questions.values()))
         self.assertIn("約束してはいけません", build(b, "S2")[1])
 
     def test_hurry_skips_recheck(self):
@@ -355,7 +355,7 @@ class FlowTest(unittest.TestCase):
         # 2026-10-13 ユーザー：相手が聞き取れなかったとき・不快な思いをさせたときは、話し始めにお詫びの言葉を付ける
         from instruction import Business, barge_in_note, build
         from phrases import APOLOGY
-        b = Business(company="アオバ物流", caller="佐藤", purpose="ご予約の確認", questions=list(self.flow().questions.values()))
+        b = Business(company="株式会社アオバ物流", caller="佐藤", purpose="ご予約の確認", questions=list(self.flow().questions.values()))
         text = build(b, "S2")[1]
         self.assertTrue(all(a in text for a in APOLOGY))
         self.assertIn(APOLOGY[0], barge_in_note(b, ["お忙しいところ恐れ入ります。"], ["株式会社「アオバ物流」の「佐藤」と申します。"]))
@@ -388,7 +388,7 @@ class FlowTest(unittest.TestCase):
     def test_instruction_quotes_names_only_once(self):
         from flowctl import Question
         from instruction import Business, build
-        b = Business(company="アオバ物流", caller="佐藤", purpose="確認", questions=[Question("Q1", "質問", "yes_no", conditions=("yes",))])
+        b = Business(company="株式会社アオバ物流", caller="佐藤", purpose="確認", questions=[Question("Q1", "質問", "yes_no", conditions=("yes",))])
         _, text = build(b, "L4")
         self.assertIn("株式会社「アオバ物流」の「佐藤」と申します", text)
         self.assertNotIn("「「", text)
@@ -578,7 +578,7 @@ class AIToJapaneseTest(unittest.TestCase):
     def business(self):
         from flowctl import Question
         from instruction import Business
-        return Business(company="アオバ物流", caller="佐藤", purpose="ご予約の確認",
+        return Business(company="株式会社アオバ物流", caller="佐藤", purpose="ご予約の確認",
                         questions=[Question("Q1", "ご予約はされていますか。", "yes_no", conditions=("はい", "いいえ")),
                                    Question("Q2", "ご希望の日時をお聞かせください。", "datetime", conditions=("答えた",))])
 
@@ -971,7 +971,7 @@ class AckChoiceTest(unittest.TestCase):
     def test_thinking_callee_gets_short_hai(self):
         from flowctl import Question
         from instruction import Business, build
-        b = Business(company="アオバ物流", caller="佐藤", purpose="ご予約の確認", questions=[Question("Q1", "日時は。", "datetime", conditions=("答えた",))])
+        b = Business(company="株式会社アオバ物流", caller="佐藤", purpose="ご予約の確認", questions=[Question("Q1", "日時は。", "datetime", conditions=("答えた",))])
         text = build(b, "S2")[1]
         self.assertIn("「はい。」とだけ、軽い相づちとして", text)   # 形 A：言い方を足す（期待するような言い方にしない）
         self.assertNotIn("ごゆっくりどうぞ", text)  # ⛔ G-30〜G-32：相手の続きの言葉にかぶった
@@ -1311,10 +1311,10 @@ class SpokenNameTest(unittest.TestCase):
                  {"surface": "中島", "reading": ""}]
         q = [Question("Q1", "「大和ハウス工業」様と同じ形で、東海林（しょうじ）が中島の件で伺ってもよろしいでしょうか？", "yes_no",
                       conditions=("はい", "いいえ"))]
-        b = Business(company="アオバ物流", caller="佐藤", purpose="", questions=q, names=names, purpose_line="東海林（しょうじ）の件です。")
+        b = Business(company="株式会社アオバ物流", caller="佐藤", purpose="", questions=q, names=names, purpose_line="東海林（しょうじ）の件です。")
         self.assertEqual(b.questions[0].text, "「だいわはうすこうぎょう」様と同じ形で、「しょうじ」が「中島」の件で伺ってもよろしいでしょうか？")
         self.assertEqual(b.purpose_line, "「しょうじ」の件です。")
-        b = Business(company="アオバ物流", caller="佐藤", purpose="東海林（しょうじ）が担当する体験授業の案内", questions=q, names=names)
+        b = Business(company="株式会社アオバ物流", caller="佐藤", purpose="東海林（しょうじ）が担当する体験授業の案内", questions=q, names=names)
         self.assertEqual(b.purpose, "「しょうじ」が担当する体験授業の案内")   # AIに渡す目的の中の名前も、同じ1か所を通す
         self.assertEqual(b.opening_parts()[-1], b.questions[0].text)  # 名乗りに続く最初の質問も、同じ文
 
@@ -1333,9 +1333,9 @@ class SpokenNameTest(unittest.TestCase):
         from instruction import Business
         q = [Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"))]
         names = [{"surface": "アオバ物流", "reading": "あおばぶつりゅう"}, {"surface": "東海林", "reading": "しょうじ"}]
-        b = Business(company="アオバ物流", caller="東海林", purpose="", questions=q, names=names, caller_reading="とうかいりん")
+        b = Business(company="株式会社アオバ物流", caller="東海林", purpose="", questions=q, names=names, caller_reading="とうかいりん")
         self.assertEqual(b.opening(), "お忙しいところ恐れ入ります。株式会社「あおばぶつりゅう」の「とうかいりん」と申します。")
-        b = Business(company="アオバ物流", caller="東海林", purpose="", questions=q, names=names, company_reading="あおば")
+        b = Business(company="株式会社アオバ物流", caller="東海林", purpose="", questions=q, names=names, company_reading="あおば")
         self.assertEqual(b.opening(), "お忙しいところ恐れ入ります。株式会社「あおば」の「東海林」と申します。")
 
     def test_caller_cannot_be_unread(self):
@@ -1344,15 +1344,36 @@ class SpokenNameTest(unittest.TestCase):
         from instruction import Business
         q = [Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"))]
         with self.assertRaises(AssertionError):
-            Business(company="アオバ物流", caller="中島", purpose="", questions=q, unread_names=["中島"])
-        Business(company="アオバ物流", caller="佐藤", purpose="", questions=q, unread_names=["中島"])  # ほかの名前ならよい
+            Business(company="株式会社アオバ物流", caller="中島", purpose="", questions=q, unread_names=["中島"])
+        Business(company="株式会社アオバ物流", caller="佐藤", purpose="", questions=q, unread_names=["中島"])  # ほかの名前ならよい
 
     def test_business_uses_readings(self):
         from flowctl import Question
         from instruction import Business
         q = [Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"))]
-        b = Business(company="大和ハウス工業", caller="中島", purpose="", questions=q, company_reading="だいわはうすこうぎょう")
-        self.assertEqual(b.opening(), "お忙しいところ恐れ入ります。株式会社「だいわはうすこうぎょう」の「中島」と申します。")
+        b = Business(company="大和ハウス工業株式会社", caller="中島", purpose="", questions=q, company_reading="だいわはうすこうぎょう")
+        self.assertEqual(b.opening(), "お忙しいところ恐れ入ります。「だいわはうすこうぎょう」株式会社の「中島」と申します。")
+
+    def test_company_is_said_as_written(self):
+        # ⛔ 2026-10-21 CL-2 の 4-121：名乗りが、いつも「株式会社」＋自社名だった（後ろに付く会社・株式会社でない会社・お店の名前でも株式会社と
+        # 名乗り、自社名に種類が入っていれば2重になった）。自社名は書いてあるまま名乗り、名前の印と読みは、会社の種類を除いた名前の部分だけ
+        from flowctl import Question
+        from instruction import Business
+        from names import legal_form_split
+        q = [Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"))]
+        for company, reading, said in (("株式会社アオバ物流", "", "株式会社「アオバ物流」"),
+                                       ("大和ハウス工業株式会社", "だいわはうすこうぎょう", "「だいわはうすこうぎょう」株式会社"),
+                                       ("大和ハウス工業株式会社", "だいわはうすこうぎょうかぶしきがいしゃ", "「だいわはうすこうぎょう」株式会社"),
+                                       ("合同会社青葉", "", "合同会社「青葉」"),
+                                       ("(株)アオバ物流", "", "株式会社「アオバ物流」"),       # 略した書き方は正式に
+                                       ("㈲あおば商店", "", "有限会社「あおば商店」"),
+                                       ("医療法人社団あおば会", "", "医療法人社団「あおば会」"),  # 長い種類を先に当てる
+                                       ("あおば食堂", "", "「あおば食堂」")):                    # 種類の無いお店の名前
+            b = Business(company=company, caller="佐藤", purpose="", questions=q, company_reading=reading, caller_reading="さとう")
+            self.assertEqual(b.replay_parts()["intro"], f"{said}の「さとう」と申します。", company)
+            self.assertEqual(b.opening_parts()[1], b.replay_parts()["intro"])
+            self.assertIn(f"こちらの会社：{said}", b.knowledge())
+        self.assertEqual(legal_form_split("株式会社"), ("", "株式会社", ""))   # 種類だけの名前は、そのまま名前
 
 
 class KeyRingTest(unittest.TestCase):
@@ -1594,7 +1615,7 @@ class ScriptRecordingTest(unittest.TestCase):
                  {"surface": "東海林", "reading": "しょうじ"}]
         q = [Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ")),
              Question("Q2", "当日は講師の新垣がご案内いたしますがよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"))]
-        return Business(company="アオバ物流", caller="東海林", caller_reading="しょうじ", purpose="", questions=q, names=names,
+        return Business(company="株式会社アオバ物流", caller="東海林", caller_reading="しょうじ", purpose="", questions=q, names=names,
                         purpose_line="ご予約の確認でお電話いたしました。")
 
     def test_table_has_intro_and_variants(self):
@@ -2533,7 +2554,7 @@ class ChoicesNoteTest(unittest.TestCase):
             f.on_callee(); f.on_heard("はい、しています。")
             r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい", "value": "はい、しています。"})
             self.assertIn("ご不明な点はないということ", r["message"])               # 次の質問の知らせ（録音で流す形も）
-        b = Business(company="青葉物産", caller="佐藤", purpose="確認", questions=[q2, q1])
+        b = Business(company="株式会社青葉物産", caller="佐藤", purpose="確認", questions=[q2, q1])
         for mode in ("ai", "recorded"):
             _, text = build(b, "S4", opening_mode=mode)
             self.assertIn("ご不明な点はないということ", text)                       # 最初の質問
@@ -2788,7 +2809,7 @@ class AmbiguousAnswerTest(unittest.TestCase):
         r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい"})  # 確かめの返事待ちに、もう一度答えを報告した
         self.assertEqual(r["result"], "rejected")
         self.assertIn("選択肢の名前（はい、いいえ、わからない、答えたくない）", r["message"])
-        b = Business(company="アオバ物流", caller="佐藤", purpose="ご予約の確認", purpose_line="ご予約の確認でお電話いたしました。",
+        b = Business(company="株式会社アオバ物流", caller="佐藤", purpose="ご予約の確認", purpose_line="ご予約の確認でお電話いたしました。",
                      questions=list(f.questions.values()))
         text = position_text(b, f)
         self.assertIn("「念のためご予約はお済みということでよろしいでしょうか？」と確かめて", text)
@@ -3176,10 +3197,10 @@ class ReadingConfirmTest(unittest.TestCase):
         from flowctl import Question
         from instruction import Business, build
         q = [Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"))]
-        _, text = build(Business(company="アオバ物流", caller="佐藤", purpose="", questions=q, unread_names=["角田"]), "S4")
+        _, text = build(Business(company="株式会社アオバ物流", caller="佐藤", purpose="", questions=q, unread_names=["角田"]), "S4")
         self.assertIn("こちら側の人の名前のうち、「角田」は読み方が決まっていません。この名前は声に出さずに", text)
         self.assertNotIn("お客様側", text)  # お客様側の名前は、まず言ってみる読みで呼んで確かめる（使わない、とは言わない）
-        _, text = build(Business(company="アオバ物流", caller="佐藤", purpose="", questions=q), "S4")
+        _, text = build(Business(company="株式会社アオバ物流", caller="佐藤", purpose="", questions=q), "S4")
         self.assertNotIn("読み方が決まっていません", text)
 
 
@@ -3334,7 +3355,7 @@ class AskLadderTest(unittest.TestCase):
         """答えが質問に合うかは、プログラムの1か所で決める（✅ 2026-10-14 ユーザー承認）。AIには、聞いたとおりの値で報告させる。"""
         from flowctl import CONFIRM_LABEL, Question
         from instruction import Business, build
-        b = Business(company="アオバ物流", caller="佐藤", purpose="ご予約の確認", questions=[Question("Q1", "日時は。", "datetime", conditions=("答えた",))])
+        b = Business(company="株式会社アオバ物流", caller="佐藤", purpose="ご予約の確認", questions=[Question("Q1", "日時は。", "datetime", conditions=("答えた",))])
         text = build(b, "S2")[1]
         self.assertIn("合うかどうかはプログラムが決めて", text)
         self.assertIn("聞き取れない（何と言ったか分からない）ときだけ report_unclear", text)
@@ -4206,7 +4227,7 @@ class CallFactsTest(unittest.TestCase):
         end = next(d for d in decl if d.name == "request_end")
         self.assertIn(END_LABEL["callee_complaint"], end.parameters.properties["理由"].enum)
         self.assertIn(END_LABEL["callee_complaint"], end.description)
-        text = build(Business(company="アオバ物流", caller="佐藤", purpose="ご予約の確認", questions=list(self.flow().questions.values())), "S2")[1]
+        text = build(Business(company="株式会社アオバ物流", caller="佐藤", purpose="ご予約の確認", questions=list(self.flow().questions.values())), "S2")[1]
         self.assertIn(f"「{END_LABEL['callee_complaint']}」", text)
         self.assertIn("もうかけないで", text)
 
@@ -4271,10 +4292,10 @@ class PartyTest(unittest.TestCase):
         # 録音で流す形：設定の伝言は依頼主の単位の録音（名乗りの部分 voicemail。✅ 2026-10-19 ユーザー：「依頼者ごとに設定で選べる形にして、
         # 必要なら録音をしましょう」）を流し、AIは黙る
         from instruction import Business
-        b = Business(company="アオバ物流", caller="佐藤", purpose="ご予約の確認", questions=list(self.flow().questions.values()),
+        b = Business(company="株式会社アオバ物流", caller="佐藤", purpose="ご予約の確認", questions=list(self.flow().questions.values()),
                      voicemail_message=msg)
         self.assertEqual(b.replay_parts()["voicemail"], msg)
-        self.assertNotIn("voicemail", Business(company="アオバ物流", caller="佐藤", purpose="ご予約の確認",
+        self.assertNotIn("voicemail", Business(company="株式会社アオバ物流", caller="佐藤", purpose="ご予約の確認",
                                                questions=list(self.flow().questions.values())).replay_parts())  # 設定が無ければ録音も無い
         f = self.flow(voicemail_message=msg, play_recordings=True, opening=b.replay_parts())
         r = self.say(f, "ただいま電話に出ることができません。", "report_party", party="voicemail")
@@ -4302,7 +4323,7 @@ class PartyTest(unittest.TestCase):
         d = next(d for d in tool_declarations(qs)[0].function_declarations if d.name == "report_party")
         self.assertEqual(d.parameters.properties["相手"].enum,
                          [PARTY_LABEL[k] for k in ("voicemail", "ivr", "fax", "wrong_party")])  # 目的の人の無い業務では、受付・目的の人は見せない
-        text = build(Business(company="アオバ物流", caller="佐藤", purpose="ご予約の確認", questions=qs), "S2")[1]
+        text = build(Business(company="株式会社アオバ物流", caller="佐藤", purpose="ご予約の確認", questions=qs), "S2")[1]
         self.assertIn("report_party", text)
         self.assertIn("何も言わずに", text)
 
@@ -4417,7 +4438,7 @@ class CallbackTest(unittest.TestCase):
         from phrases import CALLBACK_ASK
         f = self.flow()
         self.say(f, "あいにく本人は出かけておりまして。", "request_callback", why="absent")
-        b = Business(company="アオバ物流", caller="佐藤", purpose="ご予約の確認", questions=[f.questions["Q1"], f.questions["Q2"]])
+        b = Business(company="株式会社アオバ物流", caller="佐藤", purpose="ご予約の確認", questions=[f.questions["Q1"], f.questions["Q2"]])
         self.assertIn(CALLBACK_ASK["back_time"], position_text(b, f))
 
     def test_only_one_callback_request(self):
@@ -4461,7 +4482,7 @@ class CallbackTest(unittest.TestCase):
         self.assertIn("S1", decl_t["record_answer"].parameters.properties["質問"].enum)
         self.assertIn("C1", decl["record_answer"].parameters.properties["質問"].enum)
         self.assertIn("C2", decl["confirm_field"].parameters.properties["質問"].enum)
-        text = build(Business(company="アオバ物流", caller="佐藤", purpose="ご予約の確認", questions=qs), "S2")[1]
+        text = build(Business(company="株式会社アオバ物流", caller="佐藤", purpose="ご予約の確認", questions=qs), "S2")[1]
         self.assertIn("request_callback", text)
 
 
@@ -4562,7 +4583,7 @@ class AIQuestionTest(unittest.TestCase):
     def business(self, **kw):
         from flowctl import Question
         from instruction import Business
-        return Business(company="アオバ物流", caller="佐藤", purpose="ご予約の確認",
+        return Business(company="株式会社アオバ物流", caller="佐藤", purpose="ご予約の確認",
                         questions=[Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ")),
                                    Question("Q2", "ご来店の日にちを教えていただけますでしょうか？", "date", conditions=("答えた",))], **kw)
 

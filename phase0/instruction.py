@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 
 from flowctl import (ANY_LABEL, ARG_LABEL, CALLBACK_LABEL, CONFIRM_LABEL, END_LABEL, GOT, PART_LABEL, PARTY_LABEL, SYSTEM_LABEL, Question,
                      check_policies, choices_note, offers_rule)
-from names import hira, quote  # noqa: F401（名前を「」でくくる唯一の場所。ここからも読める）
+from names import hira, legal_form_reading_off, legal_form_split, quote  # noqa: F401（名前を「」でくくる唯一の場所。ここからも読める）
 
 from phrases import AI_ANSWER, APOLOGY, APOLOGY_FIRST, ASK_BACK, GREETING, PROMISE_AGAIN, SUCCESSOR, SUCCESSOR_OF, role_honorific, target_call, target_confirm, target_reconfirm, target_who  # noqa: F401（決まった言い方は phrases.py の1か所。試験からも、ここ経由で読める）
 # プログラムから会話AIへ送る合図の文面（文字で送る。相手には聞こえない）。合図の文面はここだけに置く（DESIGN.md 6-7）
@@ -154,7 +154,8 @@ class Business:
         # ＝一覧に読みがあっても、名乗りは漢字・質問の文はひらがな、と食い違いうる形だった
         # ✅ 担当者名は一覧から取らない：読みは設定に必ず入れる（2026-10-16 ユーザー決定＝案C。取込で決める決め方は使わない）
         got = {unicodedata.normalize("NFKC", n["surface"]): n.get("reading") or "" for n in self.names if isinstance(n, dict) and n.get("surface")}
-        self.company_reading = self.company_reading or got.get(unicodedata.normalize("NFKC", self.company), "")
+        self.company_reading = self.company_reading or got.get(unicodedata.normalize("NFKC", self.company), "") \
+            or got.get(self.company_name, "")
         self.questions = [q if q.reading_of else dataclasses.replace(q, text=quote_in_text(q.text, self.names)) for q in self.questions]
         self.purpose = quote_in_text(self.purpose, self.names) if self.purpose else self.purpose  # AIに渡す目的の中の名前も（AIが口にしうる）
         self.purpose_line = quote_in_text(self.purpose_line, self.names) if self.purpose_line else self.purpose_line
@@ -184,7 +185,7 @@ class Business:
                 line = line.replace(f"「{n}」", "（お名前）").replace(n, "（お名前）")
             return line
         return [masked(x) for x in
-                [f"こちらの会社：株式会社{company}", f"電話の用件：{self.purpose}"]
+                [f"こちらの会社：{company}", f"電話の用件：{self.purpose}"]
                 + ([f"電話の用件の一文：{self.purpose_line}"] if self.purpose_line else [])
                 + ([f"お呼びする方：{t.who()}"] if t is not None else [])
                 + [f"お客様に伺うこと（{len(self.questions)}つ）：" + "／".join(q.text for q in self.questions)]
@@ -204,26 +205,37 @@ class Business:
         """声に出す名前（表記と読み）：社名・担当者名・お呼びした方の名前・読みの決まらない名前。名前は録音だけで言い、AIの自分の言葉には入れない
         （flowctl.own_answer_problem。⛔ G-57 tc18：AIの声で目的の人の名前を言い崩した）。"""
         t = self.target
-        return [x for x in (self.company, self.company_reading, self.caller, self.caller_reading, *(self.unread_names or []),
-                            *((t.name, t.reading) if t is not None else ())) if x]
+        return [x for x in (self.company, self.company_name, self.company_reading and self._company_reading(), self.caller, self.caller_reading,
+                            *(self.unread_names or []), *((t.name, t.reading) if t is not None else ())) if x]
 
     def policies(self) -> dict:
         """相手の申し出への応じ方（流れの制御 Flow の policies。中の名前は flowctl.POLICIES）。"""
         return {"substitute": self.substitute_policy, "message": self.message_policy, "departed": self.departed_policy,
                 "follow_up": self.follow_up}
 
+    @property
+    def company_name(self) -> str:
+        """自社名のうち、会社の種類（株式会社など）を除いた名前の部分（names.legal_form_split の1か所）。"""
+        return legal_form_split(self.company)[1]
+
+    def _company_reading(self) -> str:
+        return legal_form_reading_off(self.company_reading, self.company)
+
     def _said(self) -> tuple[str, str]:
-        return quote(self.company_reading or self.company), quote(self.caller_reading or self.caller)
+        """名乗りで言う自社名・担当者名（声に出す文の書き方）。自社名は書いてあるまま（会社の種類は前でも後ろでも書いてある所に。略した書き方は
+        正式に）、名前の印と読みへの置き換えは名前の部分だけ（names.legal_form_split）。"""
+        head, name, tail = legal_form_split(self.company)
+        return f"{head}{quote(self._company_reading() or name)}{tail}", quote(self.caller_reading or self.caller)
 
     def opening(self) -> str:
         company, caller = self._said()
-        return f"{GREETING}株式会社{company}の{caller}と申します。"
+        return f"{GREETING}{company}の{caller}と申します。"
 
     def opening_parts(self) -> list[str]:
         """名乗りの録音を、文ごとに分けたもの（DESIGN.md 6-13 の案）。最後は最初の質問。
         目的の人のある業務では、最後は目的の人を呼ぶ一言（用件と最初の質問は、目的の人に繋がってから＝DESIGN.md 4-3 の ⚠️）。"""
         company, caller = self._said()
-        parts = [GREETING, f"株式会社{company}の{caller}と申します。"]
+        parts = [GREETING, f"{company}の{caller}と申します。"]
         if self.target is not None:
             return parts + [self.target.call()]   # お詫び（apology）は、目的の方に繋がってから（flowctl.Flow._connect）
         parts += [APOLOGY_FIRST[k] for k in self.apology]   # 目的の人の無い業務：最初に出た方がお客様＝名乗りのあとにお詫び
@@ -242,7 +254,7 @@ class Business:
         分からないので、この電話が何の電話か（予約証の promised・successor）に関わらず、どの電話にも同じ部分を返す（CL-2 の 4-152）。
         この電話で流す部分を選ぶのは flowctl.Flow（後任の方の電話は target の代わりに target_successor を流す＝Flow._part_play）。"""
         company, caller = self._said()
-        parts = {"greeting": GREETING, "intro": f"株式会社{company}の{caller}と申します。", "purpose": self.purpose_line or "",
+        parts = {"greeting": GREETING, "intro": f"{company}の{caller}と申します。", "purpose": self.purpose_line or "",
                  "ai": self.ai_answer or AI_ANSWER}  # 「AIですか？」への決まった答え（録音で流す。⛔ G-57：AIに言わせると質問に戻らなかった）
         if self.target is not None:
             t = dataclasses.replace(self.target, successor=False)
@@ -490,7 +502,7 @@ def build(business: Business, voice_type: str, resume=None, opening_mode: str = 
     voice, style_text = voice_style(voice_type)
     first = business.questions[0]
     parts = [
-        "あなたは株式会社{}の{}として、電話をかけています。日本語で、丁寧に短く話します。".format(*business._said()),
+        "あなたは{}の{}として、電話をかけています。日本語で、丁寧に短く話します。".format(*business._said()),
         f"目的：{business.purpose}",
     ]
     if resume is None and business.target is not None and opening_mode == "recorded":

@@ -32,7 +32,7 @@ Q1_TEXT = "ご予約はされていますでしょうか？"
 Q2_TEXT = "ご希望の日時をお聞かせいただけますでしょうか？"
 Q3_TEXT = "ご来店の人数をお伺いしてもよろしいでしょうか？"
 BUSINESS = Business(
-    company="アオバ物流", caller="佐藤", purpose="ご予約の確認", purpose_line="ご予約の確認でお電話いたしました。",
+    company="株式会社アオバ物流", caller="佐藤", purpose="ご予約の確認", purpose_line="ご予約の確認でお電話いたしました。",
     # 聞くこと（topic）は取込と同じ決め方で（topics.decide。G-43）。試験の業務ではモデルを呼ばないので、決まりだけで決まる分になる
     # （Q1 は「（聞くこと）を＋聞く言葉」の形ではないので空＝聞くことを言わずに聞き返す。前は手で「ご予約の有無」と書いていた）
     questions=[Question("Q1", Q1_TEXT, "yes_no", conditions=("はい", "いいえ"), topic=decide_topic(Q1_TEXT, [])),
