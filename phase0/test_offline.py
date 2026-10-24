@@ -5804,7 +5804,7 @@ class TargetTest(unittest.TestCase):
         now = f._now()
         self.assertIn("replay_opening を「代わった方へ」", now)
         self.assertIn("番号違いではありません", now)
-        self.assertIn("request_callback を「不在」", now)
+        self.assertIn("request_callback を、聞いた言葉に合う理由で", now)   # 理由の分け方は offers_rule の1か所（J9a）
 
     def test_questions_are_answered_with_recordings_or_own_words(self):
         # 相手の質問への答え：決まった答えのある問い（名乗り・用件・想定問答）は録音、それ以外は、AIが業務の情報の範囲で自分の言葉で答える
@@ -7912,6 +7912,34 @@ class OfferTest(unittest.TestCase):
         text = build(b, "S2", opening_mode="recorded", play_recordings=True)[1]
         self.assertIn("担当の者から改めてご連絡", text)
         self.assertIn("業務の情報：ありません", text)
+
+    def test_callback_reasons_are_told_in_one_place(self):
+        # かけ直しの理由の分け方は offers_rule の1か所だけ。⛔ J9a（2026-10-25 日本時間の早朝）：目的の人の決まりが「本日は休みです」を
+        # 「不在」、確かめを待つ間の知らせが「出られない」を「不在」と書き直していて、分け方と食い違った（その日は戻らない方・席にいて
+        # 取り込んでいる方に「何時ごろお戻りに…」）
+        from flowctl import CALLBACK_LABEL, TARGET_IS_AWAY, offers_rule
+        from instruction import build
+        f, b = self.flow()
+        text = build(b, "S2", opening_mode="recorded", play_recordings=True)[1]
+        rest = text.replace(offers_rule(True), "").replace(offers_rule(False), "")
+        for why in CALLBACK_LABEL.values():
+            self.assertNotIn(f"「{why}」", rest)
+        rule = offers_rule()
+        for words, why in (("席を外している", "absent"), ("本日は休み", "long_absent"), ("取り込んでいる", "later")):
+            at = rule.index("＝「", rule.index(words))
+            self.assertTrue(rule.startswith(f"＝「{CALLBACK_LABEL[why]}」", at), words)
+        # 確かめを待つ間の知らせ（Flow._now）も、理由を決め打ちしない
+        # （J9a の S4 と同じ形：判定は「ご本人」、AIは「代わった方へ」＝読みがそろわず、1回確かめる）
+        from flowctl import HOLD, TARGET_IS_THERE
+        f, b = self.flow()
+        f.use_checks("judge")
+        f.on_callee(); f.on_heard("岡田ですね。少々お待ちください。"); f.on_check("judge", HOLD)
+        self.assertEqual(f.apply("report_party", {"party": "reception"})["result"], "hold")
+        f.on_callee(); f.on_heard("はい、お電話代わりました。"); f.on_check("judge", TARGET_IS_THERE)
+        self.assertEqual(f.apply("replay_opening", {"part": "handover"})["result"], "confirm_target")
+        note = f._now()
+        self.assertIn("request_callback", note)
+        self.assertNotIn(f"「{CALLBACK_LABEL['absent']}」", note)
 
 
 

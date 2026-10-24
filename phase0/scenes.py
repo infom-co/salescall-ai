@@ -397,11 +397,13 @@ SCENES = {
     "目的の人_不在": Scene(TARGET_BUSINESS, [W("absent_okada"), W("back_5pm"), W("affirm")], lambda c: {
         "理由": last_fact(c, "callback").get("why") == "absent", "戻る時刻": "5時" in (last_fact(c, "callback").get("time") or ""),
         "用件を受付に流さない": connect_reply(c) == {}, "締め": closing_of(c) == CLOSING, "足す質問は録音": callback_recorded(c)}),
-    # 受付の方が取り次いだあと、また出て「出られない」と伝える：取り次いだあとでも、ご本人とは決めない（不在として、戻る時刻を聞いて締める）
+    # 受付の方が取り次いだあと、また出て「出られない」と伝える：取り次いだあとでも、ご本人とは決めない（かけ直しの時刻を聞いて締める）
     # ⚠️ 2026-10-19 ユーザー：「取り次いだ後に、『岡田は取り込んでおり、対応できません』ともう一度受付が言うこともあるので、取次後は必ずしも、
     #    本人とは限らないので注意、見直しが必要」
+    # ⛔ 2026-10-25 日本時間の早朝（J9a）：前は正解を「不在」にしていた＝理由の分け方（flowctl.offers_rule：いらっしゃるが、いまは話せない＝
+    #    あとで）と食い違い、席にいて取り込んでいる方に「何時ごろお戻りに…」を聞く形を正解にしていた。AIは6本中3本「あとで」を選んでいた
     "目的の人_取り次いだあとに出られない": Scene(TARGET_BUSINESS, [W("hold_target"), W("busy_after_hold"), W("back_5pm"), W("affirm")], lambda c: {
-        "理由": last_fact(c, "callback").get("why") == "absent", "取り次ぎの間は話さない": plain(said_to(c, "hold_target")) == "",
+        "理由": last_fact(c, "callback").get("why") == "later", "取り次ぎの間は話さない": plain(said_to(c, "hold_target")) == "",
         "用件を受付に流さない": connect_reply(c) == {}, "締め": closing_of(c) == CLOSING, "足す質問は録音": callback_recorded(c)}),
     # 受付の方が「担当の者に代わります」と取り次ぎ、代わった方が名乗らずに出る：✅ 2026-10-21 ユーザー：「担当の者に代わりますの後に、はい、お電話変わりましたと出れば、ほぼ『本人』でしょう」（「代わった人」でも正しい）
     # ⇒ 繋いで代わった方に全部を流し、答えを取る（2つの判定の読みが分かれたときは、目的の人かを1回確かめてから＝Flow._calling_reported）
