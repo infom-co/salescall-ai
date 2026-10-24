@@ -208,29 +208,43 @@ class MoreWords(unittest.TestCase):
         self.assertEqual(read("明日の3時前", NOW).end, at(2026, 10, 15, 15))   # 分の無い「前」はこれまでどおり
 
     def test_am_or_pm_from_business_hours(self):
-        """午前・午後の無い時刻は、お客様の営業時間に入るほう（2026-10-19 ユーザー：「通常午前3時に電話をかけてほしい人はいない
-        ので、営業時間の範囲だけ」）。営業時間は [始まり, 終わり)：終わりの時刻ちょうどは入らない（⛔ 見直し15：前は時の単位で
-        終わりの時も含め、「明日の7時」を19時＝営業の終わった時刻と読んで、依頼者の時間帯の外でもかけた）。"""
+        """午前・午後の無い時刻（2026-10-24 ユーザー＝CL-1 の連絡帳 4-31：「営業時間+歯止め時間内に、午前と午後の両方が入っている場合は
+        午前か午後を必ず『伺う』…」「閉店ちょうどや開始ちょうどは時間内に含める」）：お客様の営業時間かお客様指定の歯止め時間の
+        どちらかに入れば時間内。片方だけが時間内ならその側・両方とも時間内・どちらも時間外なら確かめる。会話の側（CL-1 の fill_ampm。
+        試験 test_offline.AmPmTest）と同じ例で、同じ答えになる（⛔ 見直し19c：前は営業時間だけを [始まり, 終わり) で見て、「明日の9時」を
+        午前9時と読み、会話の側は確かめていた）。"""
+        def hm(h):
+            return h * H
+
+        cases = [   # (言葉, 営業時間, 歯止め時間, 午前・午後を決めた時刻の時（None＝確かめる）)。例は CL-1 の AmPmTest と同じ
+            ("明日の1時", (9, 19), (7, 22), 13), ("明日の11時", (9, 19), (7, 22), 11),
+            ("明日の10時", (9, 19), (7, 22), None),     # 午後10時は歯止め時間の終わりちょうど＝時間内 ⇒ 確かめる
+            ("明日の10時半", (9, 19), (7, 22), 10.5),   # 22時半は時間外（分まで見る）
+            ("明日の9時", (9, 19), (7, 22), None),      # 21時は歯止め時間の内 ⇒ 確かめる
+            ("明日の7時", (9, 19), (7, 22), None),
+            ("明日の1時", (18, 3), (7, 22), None),      # 夜のお店：午前1時は営業時間・13時は歯止め時間 ⇒ 確かめる
+            ("明日の3時", (18, 3), (7, 22), None),      # 閉店ちょうど（午前3時）も時間内
+            ("明日の5時", (18, 3), (7, 22), 17),
+            ("明日の7時", (9, 17), (9, 18), None),      # 午前7時も19時も時間外 ⇒ 確かめる
+            ("明日の7時", (9, 19), (9, 19), 19),        # 閉店ちょうどは時間内
+            ("明日の9時", (9, 19), (9, 19), 9),         # 開始ちょうども時間内
+            ("明日の12時", (9, 19), (7, 22), 12),       # 昼が時間内なら昼の12時
+            ("明日の12時", (18, 3), (13, 22), 0),       # 夜中だけが時間内なら午前0時
+        ]
+        for text, hours, limit, want in cases:
+            with self.subTest(text=text, hours=hours, limit=limit):
+                r = read(text, NOW, (hm(hours[0]), hm(hours[1])), limit=(hm(limit[0]), hm(limit[1])))
+                if want is None:
+                    self.assertEqual(r.kind, CONFIRM)
+                else:
+                    self.assertEqual(r.start, at(2026, 10, 15, int(want), int(want % 1 * 60)))
         company = (9 * H, 19 * H)
-        self.assertEqual(read("3時", NOW, company).start, at(2026, 10, 14, 15))
-        self.assertEqual(read("6時半", NOW, company).start, at(2026, 10, 14, 18, 30))
-        for text in ("7時", "明日の7時", "7時以降", "明日の7時半"):   # 7時（始まりより前）も19時（終わりちょうど）も入らない ⇒ 確かめる
-            with self.subTest(text=text):
-                self.assertEqual(read(text, NOW, company).kind, CONFIRM)
-        self.assertEqual(read("明日の9時", NOW, (9 * H + 30 * 60, 19 * H)).kind, CONFIRM)   # 分まで見る（9時は9時半より前）
-        self.assertEqual(read("明日の9時", NOW, company).start, at(2026, 10, 15, 9))
-        self.assertEqual(read("12時", NOW, company).start, at(2026, 10, 14, 12))    # 12時は昼の12時
         r = read("3時まで", NOW, company)
         self.assertEqual((r.kind, r.end), (WINDOW, at(2026, 10, 14, 15)))
         r = read("明日の3時から5時", NOW, company)
         self.assertEqual((r.start, r.end), (at(2026, 10, 15, 15), at(2026, 10, 15, 17)))
-        night = (18 * H, 3 * H)                                                       # 夜のお店（日をまたぐ）
-        self.assertEqual(read("明日の1時", NOW, night).start, at(2026, 10, 15, 1))
-        self.assertEqual(read("明日の3時", NOW, night).kind, CONFIRM)                 # 3時は終わりちょうど
-        self.assertEqual(read("9時", NOW, night).start, at(2026, 10, 14, 21))
-        for hours in ((0, 23 * H), (13 * H, 14 * H)):                                 # 両方入る・どちらも入らない ⇒ 確かめる
-            with self.subTest(hours=hours):
-                self.assertEqual(read("明日の3時", NOW, hours).kind, CONFIRM)
+        self.assertEqual(read("明日の9時", NOW, (9 * H + 30 * 60, 19 * H), limit=(9 * H + 30 * 60, 19 * H)).kind,
+                         CONFIRM)   # 分まで見る（9時は9時半より前・21時は19時より後 ⇒ どちらも時間外）
 
 
 class SaidEdges(unittest.TestCase):

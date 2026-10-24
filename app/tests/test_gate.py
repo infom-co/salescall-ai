@@ -1668,8 +1668,8 @@ class NameLedger(Content):
         self.assertIsInstance(self.claim(s), gate.Claim)
 
     def test_the_database_keeps_the_ledger_in_shape(self):
-        """データベースの守り（0134）：役職の部分は「部署と役職＋の」・名前の部分は「「読み」様」（役職のみの呼び方は助詞で終わらない）・
-        続く言葉は、その助詞から始まる。部分の名前は決まり・鍵は単位に合うものだけ。"""
+        """データベースの守り（0134・0137）：組の部分は1つで、部分の名前は決まり（役職の部分 role・名前の部分 name・続く言葉はその名前）・
+        文は鍵の言葉を含む（役職の部分＝その部署と役職・名前の部分＝「「読み」」か役職・続く言葉＝空でない）・鍵は単位に合うものだけ。"""
         s = self.ready()
         K, P = recordings.NameKey, recordings.Part
         run = lambda work: self.w.a.in_tenant(OPERATOR, s["tenant"], work)  # noqa: E731
@@ -1683,17 +1683,12 @@ class NameLedger(Content):
         name(K(role="社長"), "社長様")
         role("営業部部長", "営業部部長の")
         tail("target", "はいらっしゃいますでしょうか？")
-        tail("promise_again", "とお電話の約束をしておりましたので後ほど改めてお掛けしてもよろしいでしょうか？")
-        for bad in (lambda: name(K(reading="おかだ"), "「おかだ」様は"),               # 名前の部分に助詞は付けない
-                    lambda: name(K(reading="おかだ"), "「おかざき」様"),               # 読みが鍵と違う
+        for bad in (lambda: name(K(reading="おかだ"), "「おかざき」様"),               # 読みが鍵と違う
                     lambda: name(K(reading="おかだ"), "「おかだ」様", "target"),      # 部分の名前が決まりと違う
-                    lambda: name(K(role="社長"), "社長様は"),                         # 役職の呼び方も助詞で終わらない
+                    lambda: name(K(role="社長"), "院長先生"),                         # 役職の呼び方が鍵と違う
                     lambda: role("営業部部長", "総務課長の"),                           # 部署・役職が鍵と違う
-                    lambda: role("営業部部長", "営業部部長"),                           # 「の」で終わる
                     lambda: role("営業部部長", "営業部部長の", "name"),                 # 部分の名前が決まりと違う
-                    lambda: tail("target", "いらっしゃいますでしょうか？"),             # 助詞から始まらない
-                    lambda: tail("target_confirm", "はいらっしゃいますでしょうか？"),   # その続く言葉の助詞（で）と違う
-                    lambda: tail("target", "は"),                                       # 助詞だけ（単独では録らない）
+                    lambda: tail("target", " "),                                        # 続く言葉が空
                     lambda: tail("target", "はいらっしゃいますでしょうか？", "promise_again")):   # 部分の名前が続く言葉と違う
             with self.assertRaises(Rejected):
                 bad()
@@ -1705,6 +1700,20 @@ class NameLedger(Content):
                     " VALUES (salescall.cur_tenant(), 'contractor', 'Leda', 'target')"):
             with self.subTest(sql=sql), self.assertRaises(Rejected):
                 run(lambda tx, sql=sql: tx.execute(sql))
+
+    def test_the_ledger_does_not_fix_where_the_cuts_are(self):
+        """名前の録音の台帳の切れ目は決め打ちしない（0137。2026-10-24 ユーザー決定：「『営業部部長』『〇〇様』『は』に分けて」・CL-1 の
+        連絡帳 4-49・4-50：G-65 の結果まで「続く言葉は助詞から」「役職の部分の終わりの『の』」を決め打ちしない）：「の」を名前の側に
+        付けた形・助詞の無い続く言葉・助詞を名前の側に付けた形も、鍵が合えば入れられる（⛔ 0134 は CL-2 の未承認の案を守りにしていた）。"""
+        s = self.ready()
+        K, P = recordings.NameKey, recordings.Part
+        run = lambda work: self.w.a.in_tenant(OPERATOR, s["tenant"], work)  # noqa: E731
+        run(lambda tx: recordings.create_set(tx, unit="name_role", voice_name="Leda", name_role="営業部部長",
+                                             parts=[P("role", "営業部部長", "test://x", "0" * 64)]))          # 「の」は名前の側
+        run(lambda tx: recordings.create_set(tx, unit="name", voice_name="Leda", name_key=K(reading="おかだ"),
+                                             parts=[P("name", "の「おかだ」様は", "test://x", "0" * 64)]))     # 助詞を名前の側に
+        run(lambda tx: recordings.create_set(tx, unit="name_tail", voice_name="Leda", tail="target",
+                                             parts=[P("target", "いらっしゃいますでしょうか？", "test://x", "0" * 64)]))   # 助詞の無い続く言葉
 
     def test_coverage_counts_rows_the_ledger_already_covers(self):
         """台帳で足りる行が何割か（name_coverage。CL-1 が前もって作る名字・役職の数を決めるため）。"""

@@ -134,6 +134,10 @@ class Apology(Helpers):
         self.assertEqual(got["recording"]["part"], apology.PARTS[True])
         voice = self.tx(s, lambda tx: recordings.apology_voice(tx, s["task"]))
         self.assertEqual(voice, half["voice_name"])                   # お詫びの電話は、録音と同じ声で話す（門の choose_voice）
+        checked = self.w.a.in_system(SYSTEM, lambda tx: {r["conname"]: r["convalidated"] for r in tx.all(
+            "SELECT conname, convalidated FROM pg_constraint WHERE conname IN ('apology_orders_texts', 'apology_approvals_recorded')")})
+        self.assertEqual(checked, {"apology_orders_texts": True, "apology_approvals_recorded": True})   # 0131 より前の、文の無い案・
+        # 録音の無い承認は残っていない（0137 が確かめた）＝流す文も録音も空にならない
 
     def test_improper_speech_uses_the_other_script(self):
         """正しい案内の無いこと（失礼な言葉など）を言ったときは、別の文面（2026-10-16 ユーザー）。"""

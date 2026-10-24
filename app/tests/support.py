@@ -148,7 +148,7 @@ class World:
     def approve_names(self, tenant: UUID | None, keys: list, voices: tuple[str, ...] = VOICES, *, roles: tuple[str, ...] = (),
                       tails: tuple[str, ...] | None = None, audio: str = "test") -> None:
         """名前の録音の台帳に、名前の部分（keys＝recordings.NameKey の並び）・役職の部分（roles）・続く言葉（無ければ全部）を作って承認する
-        （架空の録音。続く言葉は、その助詞＝salescall.name_tail_particle から始まる文）。tenant が None なら、管理者がシステムの取引で
+        （架空の録音。切れ目＝助詞の置き場は決め打ちしない＝0137。CL-1 の G-65 とユーザーの判断待ち）。tenant が None なら、管理者がシステムの取引で
         作るシステムの単位（すべての契約者が読む。0134）。"""
         P = recordings.Part
 
@@ -162,9 +162,8 @@ class World:
                     recordings.approve(tx, recordings.add_name_part(
                         tx, voice_name=v, key=k, part=P("name", text, f"{audio}://{v}/name", "0" * 64)))
                 for t in (recordings.NAME_TAILS if tails is None else tails):
-                    head = tx.one("SELECT salescall.name_tail_particle(%s) AS p", (t,))["p"]
                     recordings.approve(tx, recordings.add_name_tail(
-                        tx, voice_name=v, tail=t, part=P(t, f"{head}架空の続く言葉（{t}）。", f"{audio}://{v}/{t}", "0" * 64)))
+                        tx, voice_name=v, tail=t, part=P(t, f"架空の続く言葉（{t}）。", f"{audio}://{v}/{t}", "0" * 64)))
         if tenant is None:
             self.a.in_system(ADMIN, work)
         else:

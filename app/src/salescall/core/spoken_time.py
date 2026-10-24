@@ -20,10 +20,15 @@
 - `UNREADABLE`：時刻の言葉として読めない（読み方の抜け）。
 ⇒ 判定は、確かめのないまま残った CONFIRM・UNREADABLE を推し量らずに「判定できない」にする（行は判定待ちで残し、直す担当へ修正依頼）。
 
-**午前・午後**（2026-10-19 ユーザー：「通常午前3時に電話をかけてほしい人はいないので、営業時間の範囲だけ」。CL-1 の fill_ampm と同じ決まり）：
-午前・午後の無い 1〜12時は、お客様の営業時間（設定 callee.business_hours。会社の初めは 9:00〜19:00。日をまたいでよい）に入るほうに
-する（営業時間は [始まり, 終わり)：終わりの時刻ちょうどは入らない＝営業時間 9〜19時の「7時」は確かめる。見直し15）。両方入る・
-どちらも入らないときだけ確かめる。「12時」は昼の12時。
+**午前・午後**（2026-10-24 ユーザー（CL-1 の連絡帳 4-31）：「営業時間+歯止め時間内に、午前と午後の両方が入っている場合は午前か
+午後を必ず『伺う』。営業時間+歯止め時間外がある時間は、時間内の時間を採用し…」「閉店ちょうどや開始ちょうどは時間内に含める」。
+CL-1 の fill_ampm と同じ決まり＝`_ampm` の1か所）：午前・午後の無い 1〜12時は、「時間内」＝お客様の営業時間（設定
+callee.business_hours。会社の初めは 9:00〜19:00。日をまたいでよい）か、お客様指定の歯止め時間（設定 callee.designated_limit。初め
+7:00〜22:00）の**どちらかに入る**時刻（始まりちょうど・終わりちょうども入る。分まで見る）で決める：片方だけが時間内ならその側、
+両方とも時間内・どちらも時間外なら確かめる（9〜19時の会社・歯止め 7〜22時で「10時」＝22時が歯止めの終わりちょうどなので確かめる・
+「10時半」＝午前・「9時」＝確かめる）。「12時」は、昼が時間内なら昼の12時、夜中だけが時間内なら午前0時、どちらも時間外なら確かめる。
+⛔ 2026-10-24（見直し19c）：前は営業時間だけを [始まり, 終わり) で見て、会話の側（CL-1 の fill_ampm＝ユーザーの決まり）と読みが
+分かれていた（「明日の9時」を CL-2 は午前9時、会話は確かめる）。
 
 言葉ごとの幅（`PERIODS`。2026-10-19 ユーザー「OK」。幅はお客様の指定＝2026-10-23 ユーザー「『朝』も時間帯が決まっているでしょ」）：朝・朝一＝〜10時・午前（中）＝〜12時・
 午後一＝13〜14時・午後＝13時〜・夕方＝16〜18時・夜（晩）＝18〜20時。日の言葉の一覧は DESIGN.md 7-1d の表。
@@ -45,7 +50,7 @@ from datetime import date, datetime, time, timedelta
 from salescall.core.calling_hours import JST, callee_range, clock_seconds
 
 # 読み方の版（読み方を変えたら上げる）。判定の版（judge.JUDGE_VERSION）に入る＝上げると、読めなかった「判定待ち」の行が判定し直される
-VERSION = "15"   # 15：日のすぐあとの「以降・から」（その日から終わり無し）・「ごろ」（その日）・「まで」（「〇時まで」と同じく、いま電話を続けられなかった理由で決める）を読む（2026-10-24。main の報告の「来月の5日以降」を読めず判定できないにしていた）。14：「〇時までに確認しておきます」の「〇時から1回分」・時刻ちょうどの約束の1回分の終わりは、こちらが作った端（口にした端に入れない。始まりが歯止め時間の外なら確かめが要る・中なら終わりを歯止め時間で切る＝callee_range の made）・「毎週月曜」を読む（見直し18）。13：「〇時まで」（終わりだけを口にした幅）は、いま電話を続けられなかった理由で、かけてよい時間を決める（理由が分からなければ確かめる。2026-10-23 ユーザー：「かけ直さないといけない理由によるでしょ」）。12：その「23時以降なら」「朝6時まで」を確かめて「はい」なら、口にした端から1回分（callback.exact_slot）の幅（2026-10-23 ユーザー：「案B＆案A(確かめたうえで案A)」）。11：お客様が口にした端の反対側を「お客様指定の歯止め時間」で埋めると空になる幅（「23時以降なら」「朝6時まで」）は、通話の中で確かめる（見直し16b）。10：日を言わない約束の今日の回は、お客様が言った日（day_said。見直し16）
+VERSION = "16"   # 16：午前・午後は、お客様の営業時間かお客様指定の歯止め時間のどちらかに入る時刻で決め、始まり・終わりちょうども入れる（2026-10-24 ユーザー＝CL-1 の連絡帳 4-31。会話の側の fill_ampm と1本化。見直し19c）。15：日のすぐあとの「以降・から」（その日から終わり無し）・「ごろ」（その日）・「まで」（「〇時まで」と同じく、いま電話を続けられなかった理由で決める）を読む（2026-10-24。main の報告の「来月の5日以降」を読めず判定できないにしていた）。14：「〇時までに確認しておきます」の「〇時から1回分」・時刻ちょうどの約束の1回分の終わりは、こちらが作った端（口にした端に入れない。始まりが歯止め時間の外なら確かめが要る・中なら終わりを歯止め時間で切る＝callee_range の made）・「毎週月曜」を読む（見直し18）。13：「〇時まで」（終わりだけを口にした幅）は、いま電話を続けられなかった理由で、かけてよい時間を決める（理由が分からなければ確かめる。2026-10-23 ユーザー：「かけ直さないといけない理由によるでしょ」）。12：その「23時以降なら」「朝6時まで」を確かめて「はい」なら、口にした端から1回分（callback.exact_slot）の幅（2026-10-23 ユーザー：「案B＆案A(確かめたうえで案A)」）。11：お客様が口にした端の反対側を「お客様指定の歯止め時間」で埋めると空になる幅（「23時以降なら」「朝6時まで」）は、通話の中で確かめる（見直し16b）。10：日を言わない約束の今日の回は、お客様が言った日（day_said。見直し16）
 AT, WINDOW, UNSPECIFIED, CONFIRM, UNREADABLE = "at", "window", "unspecified", "confirm", "unreadable"
 # 幅の中でお客様と話せなかったときの、次の回（お客様がその日を選んだ理由に合わせる。2026-10-19 ユーザー決定）：
 # DAY＝時間の言葉（「夕方」「3時以降」）・日の種類だけ（「平日なら」）・「すぐ」⇒ 次の日の同じ幅／WEEK＝曜日・週末・週中・
@@ -417,24 +422,37 @@ def _check_wday(t: str, pos: int, days: tuple[date, date]) -> tuple[tuple[date, 
     return days, m.end()
 
 
-def _in_hours(sec: int, hours: tuple[int, int]) -> bool:
-    """その時刻（0時からの秒）が営業時間 [始まり, 終わり) に入るか（1か所。日をまたいでよい）。終わりの時刻ちょうどは入らない：
-    営業時間 9〜19時で「7時」は、7時（始まりより前）も19時（終わりちょうど）も入らない ⇒ 午前・午後を決めずに通話の中で確かめる
-    （⛔ 2026-10-22 の見直し15：前は時の単位で終わりの時も含め、「明日の7時」を19時と読み、営業の終わった時刻に依頼者の時間帯の
-    外でもかけた。CL-1 の fill_ampm にも同じ直しを頼む）。"""
+def _within(sec: int, hours: tuple[int, int]) -> bool:
+    """その時刻（0時からの秒）が時間 [始まり, 終わり] に入るか（始まりちょうど・終わりちょうども入る＝2026-10-24 ユーザー：「閉店
+    ちょうどや開始ちょうどは時間内に含める」。日をまたいでよい：18:00〜翌3:00 の「3時」は入る）。"""
     open_, close = hours
-    return open_ <= sec < close if open_ <= close else (sec >= open_ or sec < close)
+    return open_ <= sec <= close if open_ <= close else (sec >= open_ or sec <= close)
 
 
-def _hour(m: re.Match, business: tuple[int, int]) -> int:
-    """何時何分（その日の0時からの秒）。午前か午後かが決まらなければ _Ambiguous。"""
+def _ampm(am: int, pm: int, hours: tuple[tuple[int, int], ...], noon: bool) -> int:
+    """午前・午後の無い時刻を決める1か所（午前の秒・午後の秒から、どちらか。決まらなければ _Ambiguous）。hours＝「時間内」の時間の
+    並び（お客様の営業時間と、お客様指定の歯止め時間＝どちらかに入れば時間内。上の「午前・午後」）。noon＝「12時」（am が午前0時・
+    pm が昼の12時）：昼が時間内なら昼、夜中だけが時間内なら午前0時。ほかの時刻は、片方だけが時間内ならその側、両方・どちらも
+    時間外なら確かめる。"""
+    am_in = any(_within(am, h) for h in hours)
+    pm_in = any(_within(pm, h) for h in hours)
+    if noon and pm_in:
+        return pm
+    if am_in != pm_in:
+        return am if am_in else pm
+    raise _Ambiguous("お客様の営業時間・お客様指定の歯止め時間からは、午前か午後かが決まりません" if am_in else
+                     "午前も午後も、お客様の営業時間・お客様指定の歯止め時間の外です")
+
+
+def _hour(m: re.Match, hours: tuple[tuple[int, int], ...]) -> int:
+    """何時何分（その日の0時からの秒）。午前か午後かが決まらなければ _Ambiguous。hours＝「時間内」の時間の並び（`_ampm`）。"""
     h, part = int(m.group("hour")), m.group("part")
     minute = 30 if m.group("half") else int(m.group("min") or 0)
     if minute > 59:
         raise _Ambiguous("分が読めません")
     if part is not None:
-        hours, add = _HOUR_PARTS[part]
-        if h not in hours:
+        hours_, add = _HOUR_PARTS[part]
+        if h not in hours_:
             raise _Ambiguous(f"「{part}」と{h}時が合いません（12時ちょうどは、午前・午後のどちらか決まりません）")
         return (h + add) * H + minute * 60
     if 13 <= h <= 23:
@@ -442,13 +460,10 @@ def _hour(m: re.Match, business: tuple[int, int]) -> int:
     if not 1 <= h <= 12:
         raise _Ambiguous("時刻が読めません")
     am, pm = (0, 12) if h == 12 else (h, h + 12)
-    am_in, pm_in = _in_hours(am * H + minute * 60, business), _in_hours(pm * H + minute * 60, business)
-    if am_in == pm_in:
-        raise _Ambiguous("営業時間からは、午前か午後かが決まりません")
-    return (am if am_in else pm) * H + minute * 60
+    return _ampm(am * H + minute * 60, pm * H + minute * 60, hours, h == 12)
 
 
-def _time_part(t: str, pos: int, business: tuple[int, int],
+def _time_part(t: str, pos: int, hours: tuple[tuple[int, int], ...],
                periods: dict[str, tuple[int, int]] = PERIODS) -> tuple[str, int, int, int, tuple[bool, bool]]:
     """時刻の言葉を読む：（種類 point／window／whole, 始まりの秒, 終わりの秒, 読んだ位置, 始まり・終わりをお客様が言ったか
     ＝`Reading.said`）。読めなければ _Ambiguous か ValueError。"""
@@ -484,9 +499,9 @@ def _time_part(t: str, pos: int, business: tuple[int, int],
                     end = a.end()
                 return "window", s0, s1, end, NOT_SAID
         raise ValueError(f"時刻がありません（「{rest}」）")
-    sec, end = _hour(m, business), m.end()
+    sec, end = _hour(m, hours), m.end()
     if n := _HOUR_TO.match(t, end):
-        until = _hour(n, business)
+        until = _hour(n, hours)
         if until <= sec:
             raise _Ambiguous("「〜から〜まで」の終わりが始まりより前です")
         return "window", sec, until, n.end(), BOTH_SAID
@@ -516,7 +531,8 @@ def read(text: str | None, now: datetime, *, business_hours: tuple[int, int], li
          until: str | None, periods: dict[str, tuple[int, int]] = PERIODS, monthly: bool = False,
          beyond_ok: bool = False) -> Reading:
     """お客様が言った時刻の言葉を読む。now＝その通話の時刻（「明日」などの起点。過ぎた時刻は確かめが要る）。
-    business_hours＝お客様の営業時間（0時からの秒の (始まり, 終わり)。設定 callee.business_hours。午前・午後を決める）。
+    business_hours＝お客様の営業時間（0時からの秒の (始まり, 終わり)。設定 callee.business_hours）。limit とあわせて午前・午後を
+    決める（どちらかに入れば時間内＝`_ampm`）。
     periods＝言葉ごとの幅（依頼者ごとの設定 callback.period_* を `periods_from` で表にしたもの）。
     monthly＝お客様が月の理由（月ぎめの業務・入金の間隔など）を言った（会話の報告の callback.cycle＝month）。
     limit＝お客様指定の歯止め時間（設定 callee.designated_limit。幅の端の決まっていない側を埋めて切る＝calling_hours.callee_range）。
@@ -553,12 +569,12 @@ def read(text: str | None, now: datetime, *, business_hours: tuple[int, int], li
         pos = _JOIN.match(t, pos).end()
         if period is not None and not _TAIL.fullmatch(t[pos:]):
             # 「今晩8時」「明朝9時」：日に付いた時間の言葉を、うしろの時刻の頭に付けて読む（「夜8時」＝20時）
-            kind, s0, s1, end, said = _time_part(period + t[pos:], 0, business_hours, periods)
+            kind, s0, s1, end, said = _time_part(period + t[pos:], 0, (business_hours, limit), periods)
             end += pos - len(period)
         elif period is not None:                      # 「今晩」「明朝」だけ
             (s0, s1), kind, end, said = periods[period], "window", pos, NOT_SAID
         else:
-            kind, s0, s1, end, said = _time_part(t, pos, business_hours, periods)
+            kind, s0, s1, end, said = _time_part(t, pos, (business_hours, limit), periods)
     except _Ambiguous as e:
         return _confirm(str(e))
     except ValueError as e:

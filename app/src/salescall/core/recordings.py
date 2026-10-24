@@ -8,8 +8,8 @@
   依頼者の単位の両方にあり、初めの声の型を持つもの（2026-10-17 ユーザー：「事前の録音チェックになる方向性」「新しい声が増える
   かもしれません」＝声を足しても処理は変えない）。門（core/gate.py の `choose_voice`）だけが使う。契約者の組には、契約者の単位の
   部分（`CONTRACTOR_PARTS`。名前の正本は CL-1 の phrases.RECORDED）がすべて要る（CL-1 の連絡帳 4-39）。
-- **名前の録音の台帳**（0132・0134）：お名前の入る一言は、役職の部分（「営業部部長の」）・名前の部分（「「おかだ」様」）・続く言葉
-  （助詞から始まる「はいらっしゃいますでしょうか？」）を組み合わせて流す。どれも組の単位（name_role・name・name_tail）で、承認の仕組みは同じ。持ち主は2つ：管理者が前もって用意した代表的な名前（システムの単位＝すべての契約者が
+- **名前の録音の台帳**（0132・0134・0137）：お名前の入る一言は、役職の部分（「営業部部長の」）・名前の部分（「「おかだ」様」）・続く言葉
+  （「はいらっしゃいますでしょうか？」）を組み合わせて流す（どこで切るか＝助詞・「の」の置き場は未決＝CL-1 の G-65 とユーザーの判断待ち）。どれも組の単位（name_role・name・name_tail）で、承認の仕組みは同じ。持ち主は2つ：管理者が前もって用意した代表的な名前（システムの単位＝すべての契約者が
   読む）と、それに無いものだけ契約者が録音したもの（その契約者の中だけ）。その行で要るものは `name_needs`、その声で足りないものは
   `name_missing` の1か所（門の `choose_voice` が読む）、流す録音は `name_recording`。
 - 流すときに使う組は `current_sets`（それぞれの単位で、いちばん新しく承認した組のうち、名前の読みがその版のいまの読みと合うもの＝
@@ -197,8 +197,9 @@ _CURRENT = ("EXISTS (SELECT 1 FROM salescall.current_recording_sets s"
 
 
 # 契約者の単位の録音の部分の名前（判断はここだけ。話してよい声＝`ready_voices` が、契約者の組にこれが全部そろっているかを見る）。
-# 名前の正本は CL-1 の phrases.RECORDED（origin/main 248d9d6 の55。CL-1 の連絡帳 4-34 の 4-83 (a)・4-37・4-41、4-42・4-43 の
-# hold_timeout＝保留で待ちきったときの締め、4-45 の moshimoshi＝電話に出た方が黙っているときの「もしもし？」）。CL-1 の試験 test_offline が
+# 名前の正本は CL-1 の phrases.RECORDED（origin/main 77ce59f の57。CL-1 の連絡帳 4-34 の 4-83 (a)・4-37・4-41、4-42・4-43 の
+# hold_timeout＝保留で待ちきったときの締め、4-45 の moshimoshi＝電話に出た方が黙っているときの「もしもし？」、4-49 の
+# apology_purpose_same_day・apology_purpose_later＝お詫びの電話で受付の方に用件を聞かれたときの一言）。CL-1 の試験 test_offline が
 # この一覧と同じかを確かめる（CL-2 の連絡帳で頼む）。CL-1 が部分を足したら、ここにも足す（足すと、足した部分の無い前の組の声では
 # 話さない＝足りない録音を契約者に知らせ、録音を入れた組の承認を待つ）。
 # ⛔ 2026-10-24（CL-1 の連絡帳 4-39）：前は、予約証の印ごとに一部の部分（お詫び・不在の伺い）だけを見て、約束の電話には業務の組の
@@ -209,7 +210,7 @@ _CURRENT = ("EXISTS (SELECT 1 FROM salescall.current_recording_sets s"
 # `name_missing`。0132）。
 # 業務の組の部分（名乗り・質問など）は、組を作るときに CL-1 の一覧（make_ack_clips.script_table）から作られるので、ここでは見ない。
 CONTRACTOR_PARTS: tuple[str, ...] = (
-    "ai_again", "apology_cut_off", "apology_missed_promise", "arigatou", "back", "callback_address", "callback_ask_when",
+    "ai_again", "apology_cut_off", "apology_missed_promise", "apology_purpose_later", "apology_purpose_same_day", "arigatou", "back", "callback_address", "callback_ask_when",
     "callback_ask_who", "callback_authority", "callback_back_date", "callback_back_time", "callback_back_today",
     "callback_call_again", "callback_email", "callback_fax", "callback_later_time", "callback_number",
     "callback_reachable_time", "closing", "closing_declined", "departed", "dou", "greeting", "hai", "hold_timeout", "ikaga",
@@ -252,9 +253,12 @@ def missing_parts(tx: Tx) -> list[str]:
 #   - 役職の部分「営業部部長の」（鍵＝部署と役職・声）。法人の名前の行で部署・役職があるときの呼ぶ一言・後任の方の一言の頭
 #   - 名前の部分「「おかだ」様」（鍵＝読み・声。同じ読みなら漢字が違っても同じ録音）。役職のみの目的のお客様は、役職の呼び方（「社長様」
 #     「院長先生」。CL-1 の phrases.ROLE_HONORIFIC）が名前と同じ所に入るので、名前の部分（鍵＝役職・声）
-#   - 続く言葉（鍵＝続く言葉の名前・声）。文は助詞から始まる（「はいらっしゃいますでしょうか？」）。助詞は単独で録らず、続く言葉の頭に
-#     付ける（どの続く言葉も助詞が1つに決まっているので汎用性は同じで、つなぎ目が1つ減る）。続く言葉ごとの助詞はデータベースの
-#     salescall.name_tail_particle の1か所（文がその助詞から始まることを、データベースが守る）
+#   - 続く言葉（鍵＝続く言葉の名前・声。例「はいらっしゃいますでしょうか？」）。
+#   ⏳ どこで切るか（助詞を続く言葉の頭に付けるか・名前の側か・単独で録るか。「の」を役職と名前のどちらに付けるか）は未決：ユーザーの
+#   決定の原文は「『営業部部長』『〇〇様』『は』に分けて」、CL-2 の「助詞を続く言葉の頭に付ける」は未承認の案。CL-1 のつなぎ目の聞き比べ
+#   （G-65。CL-1 の連絡帳 4-49・4-50）の結果を添えてユーザーに伺う。それまでデータベースは切れ目を決め打ちせず、文が鍵の言葉を含むか
+#   だけを見る（0137。⛔ 0134 は未承認の案を守りにしていた）。助詞を単独の部分にすると決まれば、続く言葉の名前（NAME_TAILS と
+#   データベースの tail の一覧）を足すだけで、組と鍵の作りは変えない
 # どれも人が聞いて承認したものだけを使い、その行の分が選んだ声で全部そろうまで、その行はその声ではかけない（門の `gate.choose_voice`
 # の1か所。どの声でもそろわなければ待たせて、契約者に知らせる）。持ち主は2つ（0134。2026-10-19 ユーザー：「代表的な名前を事前にシステム
 # 単位で用意しておき、それにない物だけ、録音すればいいんじゃないですか？」）：
@@ -263,7 +267,7 @@ def missing_parts(tx: Tx) -> list[str]:
 #   - 契約者の単位：それに無いものだけ、契約者が録音して承認する（その契約者の取引で。その契約者のどの依頼者の行でも使い回す）。
 #   使う録音は見方 current_name_recordings の1か所（同じ鍵なら契約者が承認したものを先に＝その契約者が聞いて選んだもの）。流す録音を
 #   読むのは `name_recording`。
-# 続く言葉の名前（データベースの守り 0132・0134 と同じ。名前の正本は CL-1 の Business.replay_parts の部分の名前。呼ぶ一言は法人と個人で
+# 続く言葉の名前（データベースの守り 0134 の recording_sets_name_key と同じ。名前の正本は CL-1 の Business.replay_parts の部分の名前。呼ぶ一言は法人と個人で
 # 続く言葉が違うので、個人は target_individual）
 NAME_TAILS: tuple[str, ...] = ("target", "target_individual", "target_confirm", "target_reconfirm", "promise_again",
                                "target_successor")
@@ -369,22 +373,24 @@ def name_recording(tx: Tx, voice_name: str, *, role: str | None = None, key: Nam
 
 
 def add_name_role(tx: Tx, *, voice_name: str, role: str, part: Part) -> UUID:
-    """台帳に役職の部分を1つ入れる（承認の前。部分の名前は role、文は「部署と役職＋の」＝データベースが守る）。承認は `approve`。"""
+    """台帳に役職の部分を1つ入れる（承認の前。部分の名前は role、文はその部署と役職を含む＝データベースが守る。「の」の置き場は未決）。
+    承認は `approve`。"""
     if part.part != "role":
         raise ValueError("役職の部分の録音の部分の名前は role です")
     return create_set(tx, unit="name_role", voice_name=voice_name, parts=[part], name_role=role)
 
 
 def add_name_part(tx: Tx, *, voice_name: str, key: NameKey, part: Part) -> UUID:
-    """台帳に名前の部分を1つ入れる（承認の前。部分の名前は name。文は「「読み」様」か役職の呼び方＝データベースが守る）。承認は `approve`。"""
+    """台帳に名前の部分を1つ入れる（承認の前。部分の名前は name。文は「「読み」」か役職を含む＝データベースが守る。切れ目は未決）。
+    承認は `approve`。"""
     if part.part != "name":
         raise ValueError("名前の部分の録音の部分の名前は name です")
     return create_set(tx, unit="name", voice_name=voice_name, parts=[part], name_key=key)
 
 
 def add_name_tail(tx: Tx, *, voice_name: str, tail: str, part: Part) -> UUID:
-    """台帳に続く言葉を1つ入れる（承認の前。部分の名前は続く言葉の名前と同じ。文は助詞から始まる＝データベースが守る）。承認は
-    `approve`。"""
+    """台帳に続く言葉を1つ入れる（承認の前。部分の名前は続く言葉の名前と同じ。文は空でない＝データベースが守る。助詞から始まるかは
+    未決）。承認は `approve`。"""
     if tail not in NAME_TAILS:
         raise ValueError(f"続く言葉の名前は {NAME_TAILS} のどれかです（{tail!r}）")
     return create_set(tx, unit="name_tail", voice_name=voice_name, parts=[part], tail=tail)
@@ -422,10 +428,10 @@ def current_sets(tx: Tx, version_id: UUID, voice_name: str) -> dict[str, UUID | 
 
 
 def apology_voice(tx: Tx, task_id: UUID) -> str | None:
-    """その行の、承認されたいちばん新しいお詫びの案に結んだ録音の声（無ければ None。0131 より前の録音の無い承認も None）。
+    """その行の、承認されたいちばん新しいお詫びの案に結んだ録音の声（承認が無ければ None。どの承認にも録音の組がある＝0131・0137）。
     お詫びの電話は、この声で話す（録音と同じ声。決めるのは門の gate.choose_voice）。"""
     row = tx.one("SELECT s.voice_name FROM salescall.apology_orders o JOIN salescall.apology_approvals p ON p.order_id = o.order_id"
-                 " LEFT JOIN salescall.recording_sets s ON s.set_id = p.set_id"
+                 " JOIN salescall.recording_sets s ON s.set_id = p.set_id"
                  " WHERE o.task_id = %s ORDER BY o.order_id DESC LIMIT 1", (task_id,))
     return None if row is None else row["voice_name"]
 

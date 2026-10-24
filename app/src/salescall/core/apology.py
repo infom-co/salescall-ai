@@ -129,7 +129,7 @@ def schedule_if_ready(tx: Tx, task_id: UUID) -> bool:
 def for_task(tx: Tx, task_id: UUID) -> dict[str, Any] | None:
     """その行の、承認されたいちばん新しいお詫びの案と、いま伝える文面・その録音（無ければ None。誤った通話と今日の日付で「先ほど」か
     「先日」かが決まる＝`PARTS`）。録音は、承認が結んだ組の、その日の文の部分（part・audio_ref・audio_sha256・voice_name）。
-    0131 より前に承認した案（録音の無い承認）は recording が None。"""
+    どの案にも文が2つ・どの承認にも2つの部分のそろった録音の組がある（データベースの守り 0131・0137）ので、文も録音も空にならない。"""
     row = tx.one("SELECT o.order_id, o.source_attempt_id, o.pairs, o.improper, o.text_same_day, o.text_later, p.set_id,"
                  "       salescall.jst(a.claimed_at)::date = salescall.jst(now())::date AS same_day"
                  " FROM salescall.apology_orders o JOIN salescall.apology_approvals p ON p.order_id = o.order_id"
@@ -137,10 +137,9 @@ def for_task(tx: Tx, task_id: UUID) -> dict[str, Any] | None:
                  " WHERE o.task_id = %s ORDER BY o.order_id DESC LIMIT 1", (task_id,))
     if row is None:
         return None
-    said = (row["text_same_day"] if row["same_day"] else row["text_later"]) or \
-        text(row["pairs"], improper=row["improper"], same_day=row["same_day"])
-    rec = None if row["set_id"] is None else tx.one(
+    said = row["text_same_day"] if row["same_day"] else row["text_later"]
+    rec = tx.one(
         "SELECT r.part, r.audio_ref, r.audio_sha256, s.voice_name FROM salescall.recordings r"
         " JOIN salescall.recording_sets s ON s.set_id = r.set_id WHERE r.set_id = %s AND r.part = %s",
         (row["set_id"], PARTS[row["same_day"]]))
-    return dict(row, text=said, recording=None if rec is None else dict(rec))
+    return dict(row, text=said, recording=dict(rec))
