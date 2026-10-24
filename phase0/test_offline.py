@@ -6802,6 +6802,7 @@ class FirstWordsTest(unittest.TestCase):
             f.on_connect()
             r = self.first_words(f, "ただいま電話に出ることができません。", "voicemail")
             self.assertEqual((r["result"], r["silent"], r.get("voicemail_wait_s"), f.end_reason), ("wait", True, VOICEMAIL_WAIT_S, None), after)
+            self.assertIn("電話に出た方（人）", r["message"])   # 案内のあとの人の声の知らせ方も渡す（⛔ G-57 J2）
             f.on_heard("発信音のあとに、お名前とご用件をお話しください。")
             r = f.apply("report_party", {"party": "voicemail"})
             self.assertNotIn("voicemail_wait_s", r)               # 聞き続ける長さは、最初の1回だけ渡す

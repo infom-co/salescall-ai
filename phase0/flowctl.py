@@ -3091,8 +3091,11 @@ class Flow:
             # いらっしゃいますよね。ちょっと待った方がいいんじゃないですか」）。人が出たら名乗る（on_first_words_end）。出なければ on_voicemail_wait_end
             first = not self.voicemail_waiting
             self.voicemail_waiting = True
+            # ⛔ 2026-10-24 G-57 J2（留守番電話のあとに人が出る・L4）：案内のあとに出た方の「あ、もしもし、すみません、お待たせしました。」を、
+            #    AIはまた留守番電話と報告した（前の文は「人が出ることがあります」だけで、人の声がしたらどう知らせるかを渡していなかった）
             return {"result": "wait", "silent": True, **({"voicemail_wait_s": VOICEMAIL_WAIT_S} if first else {}),
-                    "message": "留守番電話の案内のようです。何も言わずに聞き続けます（案内のあとに人が出ることがあります）。"}
+                    "message": "留守番電話の案内のようです。何も言わずに聞き続けます。案内のあとに人が出ることがあります：案内ではない人の声"
+                               f"（「もしもし」「お待たせしました」など）がしたら、report_party を「{PARTY_LABEL['person']}」で知らせます。"}
         if self.answering and party not in NOT_A_PERSON:
             # 人（受付の方・目的の人など）：名乗りは、第一声が終わってから（on_first_words_end）。留守番電話の案内のあとに人が出たら、聞き続けるのをやめる
             self.voicemail_waiting = False
