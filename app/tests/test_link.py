@@ -40,11 +40,15 @@ KEY = "架空の控えの鍵の元-0123456789-abcdefghij"
 
 
 class LiveCall:
-    """回線ごとの処理が進めている通話の代わり（supervisor.call_live の1か所に載せる。ended＝処理が終えた）。"""
+    """回線ごとの処理が進めている通話の代わり（supervisor.call_live の1か所に載せる。ended＝処理が終えた＝おわびして切り終えた）。"""
 
     def __init__(self, line_id):
         self.line_id, self.ended = line_id, False
         supervisor.call_began(line_id, self)
+
+    @property
+    def live(self):
+        return not self.ended
 
     def over(self):
         supervisor.call_over(self.line_id, self)

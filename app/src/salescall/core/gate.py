@@ -590,7 +590,7 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
     # (1) 次の予定（Q4 の記録を読むだけ）
     nxt = tx.one("SELECT kind, call_at, decided_at, purpose, wrong_contact_id, promised, salescall.jst(callee_at) AS callee_at,"
                  "       salescall.jst(window_until) AS window_until, window_daily, window_days, apology_reasons, successor,"
-                 "       number_again,"
+                 "       salescall.number_again_of(purpose, number_again) AS number_again,"   # 前の予定の読み替えは1か所（0136）
                  "       salescall.jst(window_from) AS window_from, window_said, window_day_said,"
                  "       salescall.keeping_kind(purpose, promised) AS keeping"
                  " FROM salescall.current_next_actions WHERE task_id = %s", (task["task_id"],))

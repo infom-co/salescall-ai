@@ -7,10 +7,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any, Protocol
 from uuid import UUID
 
-from salescall.core.access import Access, Actor
+from salescall.core.access import Access, Actor, Tx
 from salescall.core.gate import Claim
 from salescall.link.basics import load   # 部品の作り方は link.basics の1か所（PC の部品と同じ）
 
@@ -24,7 +25,8 @@ class CallControl(Protocol):
         """「動いています」の知らせ。通話のあいだ、**1秒より短い間隔で**呼び続ける（話している間も、お客様の返事を待つ間も、保留で黙って
         待つ間も止めない）。設定 call.frozen_after（初め3秒）途切れたら、こちらのプログラムが固まったとみなし、回線ごとの処理がお詫びの
         録音で終える（end_for_trouble の frozen と同じ道。2026-10-24 ユーザー：「20秒でも長すぎるでしょ」→ 3秒）。**通話を進める部品の、
-        通話を進める流れの中から呼ぶ**（別の流れの時計で呼ぶと、進める流れが固まっても知らせが続き、見張れない）。"""
+        通話を進める流れの中から呼ぶ**（別の流れの時計で呼ぶと、進める流れが固まっても知らせが続き、見張れない）。見張るのは試行が
+        進行中のあいだだけ（お客様が切ったあとの片付けでは、途切れても終えない）。"""
         ...
 
     def end_for_trouble(self, reason: str) -> None:
@@ -32,7 +34,20 @@ class CallControl(Protocol):
         相手がおかしいと思うような状況に陥った場合全般や、回線が悪く、声がお互いや片方がほとんど聞き取れない場合など規定通りの会話が
         進められない状態です。」）。reason＝core.attempts.TROUBLES のどれか（ai_malfunction・poor_audio・cannot_proceed。frozen は回線
         ごとの処理だけが使う）。通話を途中で切るときの2つの一言（line_trouble_ask→お客様の返事→line_trouble_bye）を流して切り、試行を
-        結果不明にして理由を残す（1回だけ。2回目からは何もしない）。呼んだら、通話を進める部品は、その通話の処理を終えて戻る。"""
+        結果不明にして理由を残す（1回だけ。2回目からは何もしない）。呼んだら、通話を進める部品は、その通話の処理を終えて戻る。
+        どの理由も、こちらのせい（番号にも回線にも数えない。お客様へは、同じお客様への最短の間隔のあとで、かけた予定のままかけ直す）。"""
+        ...
+
+    def write(self, work: Callable[[Tx], Any]) -> None:
+        """通話の途中のデータベースへの書き込み（work(tx)。その依頼者の取引。例：`lambda tx: conversation_io.write_item(tx, …)`・
+        状態の移り attempts.move）を、通話ごとの書き手に頼む（**待たずに戻る**。頼んだ順に書く。書けなければ見守り役の誤りとして記録）。
+        通話を進める流れが書き込みを待たないので、データベースが遅くても「動いています」の知らせが途切れない（0136）。結果を読む
+        必要のある読み書き（通話の前の材料を読む など）は、今まで通り access で行い、通話の途中では避ける。通話を進める部品が戻ると、
+        回線ごとの処理が書き終えるまで待ってから締める。"""
+        ...
+
+    def flush(self) -> None:
+        """頼んだ書き込みを、すべて書き終えるまで待つ（書いた結果を続けて読むとき）。"""
         ...
 
 

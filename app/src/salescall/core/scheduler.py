@@ -18,7 +18,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from salescall.core import attempts, gate
+from salescall.core import gate
 from salescall.core.access import Tx
 
 
@@ -33,26 +33,22 @@ def clients_for_line(tx: Tx, line_id: UUID) -> list[UUID]:
         " AND salescall.client_active(client_id) ORDER BY created_at", (line["tenant_id"], line["client_id"]))]
 
 
-def rows_left(tx: Tx) -> bool:
-    """取引の依頼者に、まだかける行が残っているか（1か所。回線ごとの処理が、番号のせいか回線のせいかがまだ分からない続きを閉じて
-    よいか＝その回線にかける行が残っていないか、を決めるのに読む）。残っている行＝終えていない（いまの予定が「終える」でない）・
-    いま「かけない」の印の無い行のうち、番号のせいか回線のせいかが分からないまま待つ行（attempts.number_unconfirmed）でないもの。
-    夜・時間帯の外・間隔・判定待ちなどで「今はかけられない」だけの行は、残っている行に数える（朝や時刻が来れば、かけて決まる）。"""
+def soon_left(tx: Tx, line_id: UUID, *, not_phone: str, within: float) -> bool:
+    """取引の依頼者に、その回線が within 秒のうちにかけられる行があるか（1か所。回線ごとの処理が、番号のせいか回線のせいかがまだ
+    分からない続きを、待たずに決めにいくかを決めるのに読む＝supervisor/line.py の `_decide_if_stuck`）。数える行は、門に渡す候補と
+    同じ決まり（`_candidates`・gate.waits_unknown の1か所）で、時刻だけを within 秒先まで広げたもの。数えない行：まだ分からない続きの
+    番号（not_phone）の行・番号のせいか回線のせいかが分からないまま待つ行（attempts.number_unconfirmed）・候補に出さない行・判定待ち・
+    止めた範囲の行・時刻が within より先の行（夜・時間帯の外で「今はかけられない」だけの行も、時刻が先なら数えない）。
+    ⛔ 0136：前は終えていない行が1つでも残っていれば決めにいかず（夜や翌週にかける行も数えた）、行が止まり続けた（見直し19a）。"""
+    rows = _candidates(tx, 50, 0, frozenset(), frozenset(), frozenset(), False, within=within, not_phone=not_phone)
     offset = 0
     while True:
-        rows = tx.all(
-            "SELECT n.contact_id, t.tenant_id, t.client_id, r.business_id FROM salescall.tasks t"
-            " JOIN salescall.runs r ON r.client_id = t.client_id AND r.run_id = t.run_id"
-            " JOIN LATERAL (SELECT c.kind, c.contact_id FROM salescall.current_next_actions c WHERE c.task_id = t.task_id) n ON true"
-            " WHERE n.kind <> 'end' AND NOT salescall.task_excluded_now(t.task_id)"
-            " ORDER BY t.task_id LIMIT 50 OFFSET %s", (offset,))
-        for r in rows:
-            if r["contact_id"] is None or not attempts.number_unconfirmed(
-                    tx, r["contact_id"], tenant_id=r["tenant_id"], client_id=r["client_id"], business_id=r["business_id"]):
-                return True
+        if any(gate.waits_unknown(tx, r["task_id"], line_id) is None for r in rows):
+            return True
         if len(rows) < 50:
             return False
         offset += 50
+        rows = _candidates(tx, 50, offset, frozenset(), frozenset(), frozenset(), False, within=within, not_phone=not_phone)
 
 
 def due_tasks(tx: Tx, limit: int, *, skip_businesses: set[UUID] | frozenset[UUID] = frozenset(),
@@ -83,8 +79,9 @@ def due_tasks(tx: Tx, limit: int, *, skip_businesses: set[UUID] | frozenset[UUID
 
 def _candidates(tx: Tx, page: int, offset: int, skip_businesses: set[UUID] | frozenset[UUID],
                 skip_runs: set[UUID] | frozenset[UUID], skip_stage: set[UUID] | frozenset[UUID],
-                promised_only: bool) -> list[dict[str, Any]]:
-    """データベースだけで決まる候補（門に渡す順。下の条件は門と同じ1か所の決まりを読む）。"""
+                promised_only: bool, *, within: float = 0, not_phone: str | None = None) -> list[dict[str, Any]]:
+    """データベースだけで決まる候補（門に渡す順。下の条件は門と同じ1か所の決まりを読む）。within＝予定の時刻を、いまからこの秒
+    先まで広げる（`soon_left`）。not_phone＝この番号へかける行を除く（`soon_left`）。"""
     return tx.all(
         "SELECT t.task_id, r.business_id, t.run_id FROM salescall.tasks t"
         " JOIN salescall.runs r ON r.client_id = t.client_id AND r.run_id = t.run_id"
@@ -92,7 +89,8 @@ def _candidates(tx: Tx, page: int, offset: int, skip_businesses: set[UUID] | fro
         "               WHERE c.task_id = t.task_id) n"
         "   ON true"   # 行ごとに索引で読む（いまの予定を選ぶのはデータベースの見方の1か所＝0094）
         " JOIN salescall.task_numbers k ON k.task_id = t.task_id AND k.contact_id = n.contact_id"
-        " WHERE n.kind = 'call' AND n.call_at <= now()"
+        " WHERE n.kind = 'call' AND n.call_at <= now() + make_interval(secs => %s)"
+        "   AND (%s::text IS NULL OR k.phone_e164 <> %s)"
         "   AND NOT salescall.task_awaiting_decision(t.task_id) AND NOT salescall.task_excluded_now(t.task_id)"
         "   AND NOT EXISTS (SELECT 1 FROM salescall.attempts a WHERE a.task_id = t.task_id"
         "                   AND salescall.is_live(a.state, a.claim_expires_at))"
@@ -103,4 +101,4 @@ def _candidates(tx: Tx, page: int, offset: int, skip_businesses: set[UUID] | fro
         "   AND (t.run_id <> ALL(%s::uuid[]) OR salescall.fixed_text_kind(salescall.keeping_kind(n.purpose, n.promised)))"
         "   AND (n.promised OR NOT %s)"
         " ORDER BY n.promised DESC, n.call_at, t.task_id LIMIT %s OFFSET %s",
-        (list(skip_businesses), list(skip_runs), list(skip_stage), promised_only, page, offset))
+        (within, not_phone, not_phone, list(skip_businesses), list(skip_runs), list(skip_stage), promised_only, page, offset))

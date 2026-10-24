@@ -75,24 +75,37 @@ def failed_run(tx: Tx, contact_id: UUID) -> dict[str, Any]:
 def blame(tx: Tx, attempt_id: UUID) -> str | None:
     """お客様のところで鳴らなかった発信が、だれのせいか（決まりはデータベースの1か所 salescall.unrung_blame＝0129。電話の部品の
     言い分では決めず、同じ回線の前後の電話の証拠で決める）：line＝鳴った電話を挟まずに、同じ回線で違う番号も続けて鳴らなかった
-    （回線のせい）／number＝同じ回線が、そのあとほかの電話を鳴らせた（番号のせい）／pending＝まだ分からない（その回線がつぎに
-    かければ決まる）。鳴った・終わっていない・発信まで進んでいない発信は None。"""
+    （回線のせい。使わなくした回線でかけている途中だった電話も＝0136）／number＝同じ回線が、そのあとほかの電話を鳴らせた（番号のせい）
+    ／ours＝こちらのせい（こちらのプログラムが固まった・甚大な問題で終えた・通話を進める部品が落ちた＝trouble。番号にも回線にも
+    数えない＝0136）／pending＝まだ分からない（その回線がつぎにかければ決まる）。鳴った・終わっていない・発信まで進んでいない発信は
+    None。"""
     return tx.one("SELECT salescall.unrung_blame(%s) AS b", (attempt_id,))["b"]
+
+
+# 番号のせいでないと分かった鳴らなかった発信（`blame` の値）：かけた予定のまま、どの数にも数えずにかけ直す（next_action の1か所）
+REDO_AS_PLANNED = ("line", "ours")
+
+
+def line_pending(tx: Tx, line_id: UUID) -> dict[str, Any] | None:
+    """その回線の、番号のせいか回線のせいかがまだ分からない続き（phone_e164＝その1つの番号・since＝続きの最初の電話の時刻）。
+    無ければ None（決まりはデータベースの1か所 salescall.line_pending＝0136。`line_run_pending` も同じものを読む）。"""
+    return tx.one("SELECT phone_e164, since FROM salescall.line_pending(%s)", (line_id,))
 
 
 def line_run_pending(tx: Tx, line_id: UUID) -> bool:
     """その回線に、番号のせいか回線のせいかがまだ分からない続き（鳴った電話・閉じた印のあと、1つの番号だけが鳴らなかった）があるか
-    （決まりはデータベースの1か所 salescall.line_run_pending＝0131・0134。区切りは鳴った電話・鳴ったテスト・閉じた印）。"""
+    （決まりはデータベースの1か所 salescall.line_pending＝0136。区切りは鳴った電話・鳴ったテスト・閉じた印。こちらのせいの電話は数えない）。"""
     return tx.one("SELECT salescall.line_run_pending(%s) AS p", (line_id,))["p"]
 
 
 def close_unrung_run(tx: Tx, line_id: UUID, reason: str) -> bool:
     """まだ分からない続きを閉じて、決着させる（1か所。2026-10-24 ユーザー：「一つの行で止まり続けることがないようにしてください」。
-    決め方はデータベースの1か所 salescall.close_unrung_run＝0131・0134）。reason＝no_rows（テスト番号の無い契約者で、その回線にかける
-    行が、分からないまま待つ行のほかに残っていない。呼ぶのは回線ごとの処理だけ。⏳ テスト番号が入るまでの形）・retired（その回線を
-    使わなくした）・test_silent（テスト番号が鳴らなかった。呼ぶのは core/ring_test の1か所）。閉じたら True。
-    no_rows：続きの前の区切りが鳴った電話・鳴ったテストなら番号のせい、閉じた印ならその決め方を引き継ぎ、無ければ回線のせい。
-    retired・test_silent：回線のせい。"""
+    決め方はデータベースの1か所 salescall.close_unrung_run＝0131・0134・0136）。reason＝no_rows（テスト番号で決められない＝テスト番号の
+    無い契約者・テスト番号が続けて「分からない」で、その回線にまもなくかけられる行が無い。呼ぶのは回線ごとの処理の1か所
+    （supervisor/line.py の `_decide_if_stuck`）だけ）・retired（その回線を使わなくした）・test_silent（テスト番号が鳴らなかった。
+    呼ぶのは core/ring_test の1か所）。閉じたら True。
+    no_rows：続きの前の区切りが鳴った電話・鳴ったテストなら番号のせい、閉じた印ならその決め方を引き継ぎ（前の版のデータに付けた区切り
+    （migration）は決め方を持たないので飛ばす）、無ければ回線のせい。retired・test_silent：回線のせい。"""
     return tx.one("SELECT salescall.close_unrung_run(%s, %s) AS c", (line_id, reason))["c"]
 
 
@@ -214,8 +227,9 @@ def record_keys(tx: Tx, attempt_id: UUID, keys: list[dict[str, str]]) -> None:
 
 # 甚大な問題で通話を終えた理由（データベースの守り 0134 と同じ）。frozen＝こちらのプログラム（通話を進める部品）が固まった（回線ごとの
 # 見張りが決める）／ai_malfunction＝AI・プログラムが意図しない状態（英語・関係のない文を話し続ける・声が出ない など）／poor_audio＝
-# 声がお互い・片方にほとんど聞き取れない／cannot_proceed＝そのほか、決まりどおりの会話が進められない（2026-10-24 ユーザー決定）
-TROUBLES = ("frozen", "ai_malfunction", "poor_audio", "cannot_proceed")
+# 声がお互い・片方にほとんど聞き取れない／cannot_proceed＝そのほか、決まりどおりの会話が進められない（2026-10-24 ユーザー決定）／
+# runner_error＝通話を進める部品が例外で落ちた（回線ごとの見張りが決める。0136）。どれも、こちらのせい（attempts.blame の ours）
+TROUBLES = ("frozen", "ai_malfunction", "poor_audio", "cannot_proceed", "runner_error")
 
 
 def end_for_trouble(tx: Tx, attempt_id: UUID, reason: str) -> bool:

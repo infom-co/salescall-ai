@@ -455,6 +455,41 @@ def settings_read_in_one_place(app_root: Path) -> list[Violation]:
     return out
 
 
+# ── 一本化：決める入口（Python の関数）を呼んでよい所（0136。⛔ 見直し19b：データベースの関数を呼ぶ場所は WRITE_FUNCTIONS で
+#    見張っていたが、それを包む Python の入口は、どこからでも呼べた＝2つ目の決め方を作れた）。（モジュール, 関数）→ 呼んでよい
+#    ファイル（そのモジュールの中は、いつでもよい）。入口を足したら、ここにも足す
+_SUP = "src/salescall/supervisor/"
+PY_ENTRY_CALLERS: dict[tuple[str, str], frozenset[str]] = {
+    # まだ分からない続きを閉じる：決めにいく1か所（回線ごとの処理）・テスト番号・回線を使わなくする所
+    ("attempts", "close_unrung_run"): frozenset({_SUP + "line.py", _CORE + "ring_test.py", _CORE + "registry.py"}),
+    ("attempts", "end_for_trouble"): frozenset({_SUP + "line.py"}),          # 甚大な問題で終える：通話ごとの口だけ
+    ("attempts", "line_faults_unrecorded"): frozenset({_SUP + "line.py"}),   # 回線の異常として数える：回線ごとの処理だけ
+    ("ring_test", "run"): frozenset({_SUP + "line.py"}),                     # テスト番号を鳴らす：電話の部品を持つ回線ごとの処理だけ
+    ("scheduler", "soon_left"): frozenset({_SUP + "line.py"}),               # 決めにいくかの判断：回線ごとの処理だけ
+    ("watch", "record_check"): frozenset({_SUP + "line.py", _SUP + "jobs.py"}),   # 止めた停止の確かめ：テスト番号・確かめの部品
+}
+
+
+def entries_called_from_their_places(app_root: Path) -> list[Violation]:
+    out: list[Violation] = []
+    for path in _python_files(app_root):
+        rel = _rel(app_root, path)
+        if rel.startswith("tests/") or rel == "run_tests.py":
+            continue
+        for node in ast.walk(_parse(path)):
+            hits: list[tuple[str, str]] = []
+            if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):   # attempts.close_unrung_run（呼ぶ・渡す）
+                hits.append((node.value.id, node.attr))
+            elif isinstance(node, ast.ImportFrom) and node.module:                    # from …attempts import close_unrung_run
+                hits += [(node.module.rsplit(".", 1)[-1], a.name) for a in node.names]
+            for module, function in hits:
+                places = PY_ENTRY_CALLERS.get((module, function))
+                if places is not None and rel != f"{_CORE}{module}.py" and not _allowed(rel, places):
+                    where = "、".join(sorted(places))
+                    out.append(Violation("一本化", rel, node.lineno, f"{module}.{function} を呼んでよいのは {where} だけです"))
+    return out
+
+
 ALL_RULES: tuple[Callable[[Path], list[Violation]], ...] = (
     value_types_stays_pure,
     phone_formatting_only_in_q1,
@@ -467,6 +502,7 @@ ALL_RULES: tuple[Callable[[Path], list[Violation]], ...] = (
     pc_side_stays_off_the_server,
     settings_read_in_one_place,
     web_parts_only_in_web,
+    entries_called_from_their_places,
 )
 
 

@@ -37,10 +37,11 @@ def call_over(line_id: object, call: object) -> None:
 
 
 def call_live(line_id: object) -> bool:
-    """その回線に、いま話している通話（固まって終えたものは入らない）があるか。"""
+    """その回線に、いま話している通話があるか（1か所。おわびして切っている途中も話している＝切り終えるまで待つ。おわびして切り
+    終えた通話＝固まって終えたものは入らない＝通話を進める部品が戻らなくても、止める処理が待ち続けない）。"""
     with _LIVE_LOCK:
         call = _LIVE.get(line_id)
-    return call is not None and not getattr(call, "ended", False)
+    return call is not None and bool(getattr(call, "live", True))
 
 
 # 混雑（共有のつなぎの空き待ちの時間切れ）で記録できなかった誤り：仕事の名前 → 回数。空いたときに、まとめて記録する（flush_busy）

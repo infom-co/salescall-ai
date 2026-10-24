@@ -559,32 +559,46 @@ def _write(tx: Tx, task_id: UUID, d: Decision) -> int:
 UNREACHED_REASONS = ("absent", "not_transferred", "departed")
 
 
-def _line_fault_again(tx: Tx, task_id: UUID, dialed: Target, dialed_at: datetime, now: datetime) -> Decision | None:
-    """回線のせいで、お客様のところで鳴らなかった（鳴った電話を挟まずに、同じ回線で違う番号も続けて鳴らなかった＝attempts.blame が
-    line）発信のあとの次の動き（1か所。ふつうの電話・約束の電話・お詫びの電話のどれも）：かけなかったのと同じに、かけた予定をそのまま
-    （かける先・約束・時刻・幅・お詫びの印）いまから。回数・番号の続き・約束の回の本数のどれにも数えない。回線はその回線ごとの処理が
-    休ませ、続けば止めて知らせる（ほかの回線は、すぐかけられる）。2026-10-24 ユーザー：「回線の問題が明らかな場合は行は取りやめで
-    なく一時中止だけ」。かけた予定が読めなければ None（ふつうの決め方で決める）。"""
+def _line_fault_again(tx: Tx, task_id: UUID, dialed: Target, dialed_at: datetime, now: datetime,
+                      blame: str | None) -> Decision | None:
+    """お客様のところで鳴らなかった発信のうち、番号のせいでないと分かったもの（`attempts.REDO_AS_PLANNED`＝回線のせい line・
+    こちらのせい ours）のあとの次の動き（1か所。ふつうの電話・約束の電話・お詫びの電話のどれも）：かけなかったのと同じに、かけた予定を
+    そのまま（かける先・約束・時刻・幅・お詫びの印）。回数・番号の続き・約束の回の本数のどれにも数えない。
+    - line（鳴った電話を挟まずに、同じ回線で違う番号も続けて鳴らなかった）：いまから。回線はその回線ごとの処理が休ませ、続けば止めて
+      知らせる（ほかの回線は、すぐかけられる）。2026-10-24 ユーザー：「回線の問題が明らかな場合は行は取りやめでなく一時中止だけ」。
+    - ours（こちらのプログラムが固まった・甚大な問題で終えた・通話を進める部品が落ちた＝試行の trouble。0136）：お客様の電話は鳴りえた
+      ので、同じお客様への最短の間隔（gate.same_contact_min_interval）をあけてから（こちらの不具合で同じお客様へ続けて鳴らさない。
+      修正依頼は見守り役の誤りとして出ている）。
+    それ以外（番号のせい・まだ分からない・鳴った）・かけた予定が読めなければ None（ふつうの決め方で決める）。"""
+    if blame not in attempts.REDO_AS_PLANNED:
+        return None
     row = _plan_at(tx, task_id, dialed_at)
     if row is None or row["kind"] != "call":
         return None
     target = _dialed_marks(dialed, row)
-    return _call(now, bool(row["promised"]), "回線のせいで鳴らなかった（同じ回線で違う番号も続けて鳴らなかった）：回線の一時中止"
-                 "だけで、かけた予定のまま（どの数にも数えない）", target,
-                 row["callee_at"] if row["promised"] else None, window_of(row))
+    at = now
+    if blame == "ours":
+        ended = tx.one("SELECT max(coalesce(ended_at, claimed_at)) AS e FROM salescall.attempts WHERE task_id = %s AND "
+                       + attempts.DIALED, (task_id,))["e"]
+        gap = timedelta(seconds=int(settings.resolve(tx, "gate.same_contact_min_interval", **tasks.scope(tx, task_id))))
+        at = max(now, ended + gap) if ended is not None else now
+    why = ("回線のせいで鳴らなかった（同じ回線で違う番号も続けて鳴らなかった）：回線の一時中止だけで、かけた予定のまま（どの数にも数えない）"
+           if blame == "line" else
+           "こちらのせいで鳴らなかった（こちらのプログラムの不具合）：かけた予定のまま、同じお客様への最短の間隔のあと（どの数にも数えない）")
+    return _call(at, bool(row["promised"]), why, target, row["callee_at"] if row["promised"] else None, window_of(row))
 
 
 def after_call(tx: Tx, task_id: UUID, j: Judgement, *, rules: Rules, dialed: Target,
                dialed_at: datetime, alternate: Alternate | None, recheck: Recheck | None, forbidden: bool,
-               cut_off: bool = False, reached_target: bool = False, line_fault: bool = False) -> Decision:
+               cut_off: bool = False, reached_target: bool = False, blame: str | None = None) -> Decision:
     """締めの処理（core/settle.py）だけが呼ぶ。判定の結果から次の動きを決めて記録する（同じ取引）。
     cut_off＝お客様が出たあと、お客様の意思と関係なく途中で切れた（決めるのは締めの処理の1か所）。
     dialed＝この通話でかけた先（番号・目的）、dialed_at＝かけた時刻。alternate＝お客様が言った別の番号の材料（言われたときだけ）。
     recheck＝言われた番号が番号違いだったときの番号の確かめ（そのときだけ）。reached_target＝目的のお客様と話せた（約束の日に
     かけられなかったお詫びは、ここで済んだものとして外す＝会話の処理が、予約証の印を見て最初にお詫びしている）。
-    line_fault＝回線のせいで鳴らなかった（attempts.blame。`_line_fault_again` の1か所で、かけた予定のまま）。"""
+    blame＝鳴らなかった発信のせい（attempts.blame。回線のせい・こちらのせいなら `_line_fault_again` の1か所で、かけた予定のまま）。"""
     now = tx.one("SELECT now() AS now")["now"]
-    again = _line_fault_again(tx, task_id, dialed, dialed_at, now) if line_fault else None
+    again = _line_fault_again(tx, task_id, dialed, dialed_at, now, blame)
     if again is not None:
         _write(tx, task_id, again)
         return again
@@ -1165,14 +1179,14 @@ def decide_after_apology(*, delivered: bool, refused: bool, retry: AskAgain, pro
 def after_apology(tx: Tx, task_id: UUID, *, delivered: bool, refused: bool, dialed: Target,
                   stop_reason: str | None = None, reached_target: bool = False,
                   not_reached: str | None = None, again: bool = False, dialed_at: datetime | None = None,
-                  line_fault: bool = False) -> Decision:
+                  blame: str | None = None) -> Decision:
     """締めの処理（core/settle.py）だけが呼ぶ。お詫びの電話のあとの次の動きを決めて記録する（同じ取引）。
     reached_target＝目的のお客様と話せた（約束の日にかけられなかったお詫びの印を外す＝`_apologised`）。途中で切れて、すぐかけ直して
     よいかは、締めの処理が試行に残した「切れたか」を、データベースの resume_allowed の1か所が読む。not_reached・again＝目的のお客様に繋がらなかった理由と、同じ日にまた
     かけてよいと言われたか（会話の報告。同じ日にかけ直さないかは `not_today` の1か所＝ふつうの電話と同じ）。
-    line_fault＝回線のせいで鳴らなかった（dialed_at＝かけた時刻。ふつうの電話と同じ `_line_fault_again` の1か所）。"""
+    blame＝鳴らなかった発信のせい（dialed_at＝かけた時刻。ふつうの電話と同じ `_line_fault_again` の1か所）。"""
     now = tx.one("SELECT now() AS now")["now"]
-    redo = _line_fault_again(tx, task_id, dialed, dialed_at, now) if line_fault and dialed_at is not None else None
+    redo = _line_fault_again(tx, task_id, dialed, dialed_at, now, blame) if dialed_at is not None else None
     if redo is not None:
         _write(tx, task_id, redo)
         return redo
@@ -1278,18 +1292,19 @@ def _plan_at(tx: Tx, task_id: UUID, at: datetime) -> dict[str, Any] | None:
     （いまの予定ではない：判定し直しのときは、いまの予定が判定待ちになっていて、幅を失うため）。"""
     return tx.one(
         "SELECT kind, window_until, window_daily, window_days, window_from, window_repeat, window_round, window_missed,"
-        "       window_said, window_day_said, callee_at, promised, successor, number_again"
+        "       window_said, window_day_said, callee_at, promised, successor,"
+        "       salescall.number_again_of(purpose, number_again) AS number_again"   # 前の予定の読み替えは1か所（0136）
         " FROM salescall.task_next_actions WHERE task_id = %s AND decided_at <= %s ORDER BY seq DESC LIMIT 1",
         (task_id, at))
 
 
 def _dialed_marks(dialed: Target, row: dict[str, Any] | None) -> Target:
     """かけた電話の印（後任の方を追う・番号を伺い直す理由）を、かけたときに効いていた予定から写す（1か所。試行には持たない印）。
-    番号を伺い直す理由の無い前の予定（0130 より前）は、番号違いの聞き直ししか無かったので wrong_party。"""
+    番号を伺い直す理由の無い前の予定（0130 より前）の読み替えは、データベースの salescall.number_again_of の1か所（`_plan_at`・門が読む）。"""
     if row is not None and row["successor"]:   # 後任の方を追う電話だった（印は行が終わるまで引き継ぐ＝choose_number）
         dialed = replace(dialed, successor=True)
     if dialed.purpose == "ask_number_again":
-        dialed = replace(dialed, number_again=(row or {}).get("number_again") or "wrong_party")
+        dialed = replace(dialed, number_again=(row or {}).get("number_again"))
     return dialed
 
 

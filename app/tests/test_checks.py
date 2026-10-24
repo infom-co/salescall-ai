@@ -205,6 +205,24 @@ class DialOnlyThroughExit(Planted):
                          [("src/salescall/agent/main.py", 5), ("src/salescall/supervisor/channel.py", 5)])
 
 
+class EntriesCalledFromTheirPlaces(Planted):
+    """一本化：決める入口（Python の関数）は、決めた所からだけ呼ぶ（0136。⛔ 見直し19b：データベースの関数を包む Python の入口は、
+    どこからでも呼べた）。呼ぶ・関数を渡す・名前で取り込む、のどれも見る。その入口のモジュールの中はよい。"""
+
+    def test_an_entry_outside_its_places_is_caught(self):
+        root = self._app({
+            "src/salescall/supervisor/line.py": "def go(tx, l):\n    attempts.close_unrung_run(tx, l, 'no_rows')\n",
+            "src/salescall/core/attempts.py": "def close_unrung_run(tx, l, r):\n    pass\ndef x(tx, l):\n    close_unrung_run(tx, l, 'r')\n",
+            "src/salescall/core/settle.py": "def go(tx, l):\n    attempts.close_unrung_run(tx, l, 'no_rows')\n",
+            "src/salescall/core/next_action.py": "from salescall.core.attempts import end_for_trouble\n",
+            "src/salescall/supervisor/jobs.py": "def go(a):\n    a.in_tenant(lambda tx: ring_test.run)\n",
+        })
+        found = rules.entries_called_from_their_places(root)
+        self.assertEqual(sorted((v.path, v.rule) for v in found),
+                         [("src/salescall/core/next_action.py", "一本化"), ("src/salescall/core/settle.py", "一本化"),
+                          ("src/salescall/supervisor/jobs.py", "一本化")])
+
+
 class PcSideStaysOffTheServer(Planted):
     """5-5：PC の部品（agent・link）は、データベースにも、サーバーの部品にも触れない。PC とのつなぎを使うのは、つなぎ口と PC の部品だけ。"""
 

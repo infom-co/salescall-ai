@@ -65,6 +65,40 @@ class Settle(SettleBase):
                                                       (aid,)))["disconnect"], "normal")
         self.assertEqual(self.reason(s), "task_ended")
 
+    def test_a_call_our_own_program_ended_is_made_again_as_planned_and_counts_nowhere(self):
+        """こちらのせい（こちらのプログラムが固まった・甚大な問題で終えた・通話を進める部品が落ちた＝試行の trouble）でお客様のところで
+        鳴らなかった電話は、番号にも回線にも数えない（attempts.blame の ours。0136）。次の動きは1か所（next_action._line_fault_again）
+        で、かけた予定のまま、同じお客様への最短の間隔のあと（⛔ 見直し19a：前は回線のせい・番号のせいの続きに入り、こちらの不具合で
+        番号を取りやめうる・回線を止めうる形だった）。"""
+        s = self.ready()
+        aid = self.call(s, ["dialing", "ringing"])
+        self.assertTrue(self.tx(s, lambda tx: attempts.end_for_trouble(tx, aid, "runner_error")))
+        self.assertEqual(self.tx(s, lambda tx: attempts.blame(tx, aid)), "ours")
+        d = self.settle(s, aid)["decision"]
+        self.assertEqual((d.kind, d.target.purpose), ("call", "normal"))
+        self.assertIn("こちらのせい", d.rule)
+        ended = self.tx(s, lambda tx: tx.one("SELECT ended_at FROM salescall.attempts WHERE attempt_id = %s", (aid,))["ended_at"])
+        interval = self.tx(s, lambda tx: int(settings.resolve(tx, "gate.same_contact_min_interval", tenant_id=s["tenant"],
+                                                                 client_id=s["client"], business_id=s["business"])))
+        self.assertGreaterEqual((d.at - ended).total_seconds(), interval - 1)
+        self.assertEqual(self.tx(s, lambda tx: attempts.failed_run(tx, s["contact"]))["n"], 0)       # 番号に数えない
+        self.assertFalse(self.tx(s, lambda tx: attempts.line_run_pending(tx, s["line"])))           # 回線の続きにも入らない
+        with self.assertRaises(ValueError):
+            self.tx(s, lambda tx: attempts.end_for_trouble(tx, aid, "who_knows"))
+        # 同じ行で、こちらのせいが続けて2回（resume_in_a_row）を超えたら、ふつうの鳴らなかった電話として証拠で決める（数えないまま
+        # お客様へ鳴らし続けない。salescall.is_ours の1か所。⛔ 見直しの一生の試験 1o：5日で 270 回かけ続けた）
+        self.override("gate.same_contact_min_interval", 1)
+        blames = []
+        for _ in range(2):
+            time.sleep(1.1)
+            self.tx(s, lambda tx: next_action.schedule_now(tx, s["task"], cause="試験：その時刻が来た"))
+            again = self.call(s, ["dialing", "ringing"])
+            self.tx(s, lambda tx: attempts.end_for_trouble(tx, again, "frozen"))
+            blames.append(self.tx(s, lambda tx: attempts.blame(tx, again)))
+            self.settle(s, again)
+        self.assertEqual(blames, ["ours", "pending"])
+        self.assertEqual(self.tx(s, lambda tx: attempts.failed_run(tx, s["contact"]))["n"], 1)
+
     def test_no_answer_is_open_and_scheduled_by_the_policy(self):
         s = self.ready()
         aid = self.call(s, ["dialing", "no_answer"])

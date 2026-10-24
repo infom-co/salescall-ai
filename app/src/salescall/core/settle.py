@@ -130,7 +130,7 @@ def _settle_apology(tx: Tx, a: dict[str, Any]) -> dict[str, Any]:
     decision = next_action.after_apology(tx, a["task_id"], delivered=delivered, refused=refused, stop_reason=stop_reason,
                                          dialed=next_action.Target(a["contact_id"], None, "apology", None),
                                          reached_target=inp.reached_target, not_reached=not_reached, again=again,
-                                         dialed_at=a["claimed_at"], line_fault=attempts.blame(tx, attempt_id) == "line")
+                                         dialed_at=a["claimed_at"], blame=attempts.blame(tx, attempt_id))
     if decision.kind == "end":
         notify.emit(tx, "apology", key=f"apology:{attempt_id}",
                     summary={"apology_done": "お詫びを伝えました。",
@@ -346,7 +346,7 @@ def _judge_and_write(tx: Tx, a: dict[str, Any], *, kind: str, rules_version: Any
         dialed=next_action.Target(a["contact_id"], None, a["purpose"], a["wrong_contact_id"]), dialed_at=a["claimed_at"],
         alternate=alternate, recheck=recheck, forbidden=forbidden, cut_off=cut_off,
         reached_target=inp.reached_target,   # 目的のお客様と話せた（約束の日のお詫びは済んだ）
-        line_fault=attempts.blame(tx, attempt_id) == "line")   # 回線のせいで鳴らなかった：かけた予定のまま（0129）
+        blame=attempts.blame(tx, attempt_id))   # 回線のせい・こちらのせいで鳴らなかった：かけた予定のまま（0129・0136）
     apology.schedule_if_ready(tx, a["task_id"])   # 締めの前に承認されていたお詫び：判定が決まったいま、予定を書く（apology の1か所）
     return {"version_no": version_no, "state": j.state, "decision": decision, "already": False}
 
