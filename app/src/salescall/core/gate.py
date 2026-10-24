@@ -461,8 +461,8 @@ def choose_voice(tx: Tx, task: dict[str, Any], version_id: UUID, business_voice:
     契約者の組に、契約者の単位の部分（`recordings.CONTRACTOR_PARTS`）がそろっている声だけで話す（話してよい声の1か所）。承認した
     契約者の組に足りない部分があれば、知らせに足りない部分の名前を並べる（⛔ 2026-10-24 CL-1 の連絡帳 4-39：前は予約証の印ごとに一部の
     部分を見て、約束の電話には業務の組に入らない promise_again を求めたので、約束の電話が1本もかからなかった）。
-    お名前の入る一言は、名前の録音の台帳の、その行の名前の部分と続く言葉が承認されている声だけで話す（`recordings.name_needs`・
-    `name_missing`。0132）。どの声でもそろわなければ name_recording_missing で待つ（行ごとに要るものが違うので、実施回をまとめて
+    お名前の入る一言は、名前の録音の台帳の、その行の役職の部分・名前の部分・続く言葉が承認されている声だけで話す
+    （`recordings.name_needs`・`name_missing`。0132・0134）。どの声でもそろわなければ name_recording_missing で待つ（行ごとに要るものが違うので、実施回をまとめて
     飛ばさず、その行を候補に出さない）。"""
     ready = recordings.ready_voices(tx, version_id)
     types = {r["code"]: r for r in tx.all("SELECT code, voice_name, default_for_voice FROM salescall.voice_types")}

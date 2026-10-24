@@ -26,9 +26,9 @@
 - **会話に渡す材料を読む**（2026-10-24 CL-1 の連絡帳 4-37・4-41 の (5)。どれも今ある正本を読むだけ）：前の通話で取れた答え
   （`earlier`。続きから聞く電話＝目的 resume で、取れた答えの質問を伺わない）・質問ごとの「理由×扱い」（`handlings`。業務の決まり
   business_rules の1か所）。
-- **通話が進んだ知らせ**（`progress`。通話を進める部品が、通話の途中でターンごとに・待つ間も決まった間ごとに呼ぶ）：待つ・見張る所は、
-  時間の上限ではなく「supervisor.CALL_STALL 進まない」で、こちらの仕組みが止まったとみなす（2026-10-24 ユーザー：時間で業務を打ち
-  切らない。CL-1 の連絡帳 4-41 の (1)）。
+- **データベースを通さないもの**（ここには無い）：通話の途中の「動いています」の知らせ（`beat`）と、甚大な問題でその電話をお詫びして
+  終えること（`end_for_trouble`）は、通話を進める部品が受け取る通話ごとの口（supervisor.plugins.CallControl）で行う（お詫びして
+  切るには、その回線の電話の部品が要るため。⛔ 0130 の「通話が進んだ知らせ」progress はデータベースに書いていた＝0134 で外した）。
 - **使ったキーの識別名**（`record_keys`。CL-1 の連絡帳 4-34 の 4-67）：[{"service": "live"|"judge"|"ear"|"own_check",
   "key": "名前#指紋8桁"}]。値は残さない（データベースが形を守る）。
 """
@@ -44,7 +44,7 @@ from salescall.core import attempts, business_rules, business_settings, call_rep
 from salescall.core.access import Tx
 from salescall.core.attempts import AttemptNotFound
 
-__all__ = ["ItemInvalid", "ItemValue", "call_setting", "declare_do_not_call", "earlier", "handlings", "progress", "record_keys",
+__all__ = ["ItemInvalid", "ItemValue", "call_setting", "declare_do_not_call", "earlier", "handlings", "record_keys",
            "save_rebuilt_report", "save_report", "write_item"]
 
 # 理由を持てる状態と、その理由の名前の一覧（正本は業務の決まり business_rules。ここは対応だけ）
@@ -150,11 +150,6 @@ def call_setting(tx: Tx, attempt_id: UUID, key: str) -> Any:
     if row is None:
         raise AttemptNotFound(str(attempt_id))
     return settings.resolve(tx, key, **tasks.scope(tx, row["task_id"]))
-
-
-def progress(tx: Tx, attempt_id: UUID) -> bool:
-    """通話が進んだ（ターンごと・待つ間も決まった間ごとに呼ぶ）。進行中の通話でなければ False（attempts.progress の1か所）。"""
-    return attempts.progress(tx, attempt_id)
 
 
 def record_keys(tx: Tx, attempt_id: UUID, keys: list[dict[str, str]]) -> None:

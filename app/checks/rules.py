@@ -160,6 +160,7 @@ WRITERS: dict[str, dict[str, frozenset[str]]] = {
     "attempts": {"INSERT": frozenset({_CORE + "gate.py"}),            # 予約を作るのは門だけ（Q2）
                  "UPDATE": frozenset({_CORE + "attempts.py"})},       # 状態を移すのは、試行の状態の部品だけ（4-2）
     "gate_denials": {"INSERT": frozenset({_CORE + "gate.py"})},              # 門の不許可の記録（Q2）
+    "line_ring_tests": {"INSERT": frozenset({_CORE + "ring_test.py"})},      # テスト番号で鳴るか試した記録（0134）
     "call_reports": {"INSERT": frozenset({_CORE + "call_report.py"})},       # 会話から返る報告（形は1か所）
     "call_report_rebuilds": {"INSERT": frozenset({_CORE + "call_report.py"})},   # 録音から作り直した報告（0021）
     "business_rules": {"INSERT": frozenset({_CORE + "business_rules.py"})},  # 業務の決まり（形は1か所）
@@ -353,14 +354,19 @@ def value_types_stays_pure(app_root: Path) -> list[Violation]:
     return out
 
 
-# ── I-1：回線の部品の「電話をかける」（start_call）を呼んでよいのは、発信の出口（core/dial_exit.py）だけ（DESIGN.md 5-3）
+# ── I-1：回線の部品の「電話をかける」（start_call）を呼んでよいのは、発信の出口（core/dial_exit.py）だけ（DESIGN.md 5-3）。
+#    テスト番号へ鳴るか試す（test_ring。門を通らない＝お客様の番号ではない）を呼んでよいのは core/ring_test.py だけ（0134。お客様の
+#    番号へ門を通らずにかける道にしない）
 DIAL_EXIT = "src/salescall/core/dial_exit.py"
+RING_TEST = "src/salescall/core/ring_test.py"
+PHONE_OPS = {"start_call": (DIAL_EXIT, "電話をかけてよいのは、発信の出口（core/dial_exit.py）だけです"),
+             "test_ring": (RING_TEST, "テスト番号へかけてよいのは、core/ring_test.py だけです")}
 
 
 #    サーバーと PC の分け方（5-5）：発信の出口の「かける」は、PC の部品へ頼む形（supervisor/channel.py の AgentDriver.start_call）・
 #    やり取りの種類（link/protocol.py）・PC の部品が頼まれて電話の部品を呼ぶ所（agent/main.py の Agent._do）を通って届く。
 #    この3つは中継だけ（かけるかを決めない）なので、決めた場所でだけ許す。
-DIAL_RELAYS = {"src/salescall/supervisor/channel.py": {"AgentDriver.start_call"},
+DIAL_RELAYS = {"src/salescall/supervisor/channel.py": {"AgentDriver.start_call", "AgentDriver.test_ring"},
                "src/salescall/link/protocol.py": {"<module>"},
                "src/salescall/agent/main.py": {"Agent._do"}}
 
@@ -386,13 +392,14 @@ def dial_only_through_exit(app_root: Path) -> list[Violation]:
     out: list[Violation] = []
     for path in _python_files(app_root):
         rel = _rel(app_root, path)
-        if rel == DIAL_EXIT or rel.startswith("tests/") or rel == "run_tests.py":
+        if rel.startswith("tests/") or rel == "run_tests.py":
             continue
         for node, place in _with_places(_parse(path)):
-            called = (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "start_call")
-            named = isinstance(node, ast.Constant) and node.value == "start_call"   # getattr(x, "start_call") の抜け道
-            if (called or named) and place not in DIAL_RELAYS.get(rel, set()):
-                out.append(Violation("I-1", rel, node.lineno, "電話をかけてよいのは、発信の出口（core/dial_exit.py）だけです"))
+            for op, (home, what) in PHONE_OPS.items():
+                called = (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == op)
+                named = isinstance(node, ast.Constant) and node.value == op   # getattr(x, "start_call") の抜け道
+                if (called or named) and rel != home and place not in DIAL_RELAYS.get(rel, set()):
+                    out.append(Violation("I-1", rel, node.lineno, what))
     return out
 
 

@@ -17,14 +17,32 @@ from salescall.core.access import Access, Actor, busy, unreachable
 from salescall.core.errors import ErrorReport
 
 ACTOR = Actor("見守り役", "system")
-# 通話が「進まない」とみなす長さ（秒。1か所）。通話の長さに上限は持たない（2026-10-24 ユーザー：時間で業務を打ち切らない＝
-# 「何を言っているの！？それだと業務を果たせずに終わることになるでしょ！」。CL-1 の連絡帳 4-41 の (1)）。通話を進める部品（CL-1）は、
-# 通話の途中でターンごと・待つ間も決まった間ごとに「進んだ」と知らせる（core/conversation_io.progress）。この長さ進まなければ、こちらの
-# 仕組みが止まったとみなし、おわびして切る（回線ごとの見張り＝line._Watch）。止めるとき（main.Supervisor.shutdown）・PC のログインを
-# 外したとき（channel の通行証の取り消し）は、進んでいる通話がある間は待つ（進んでいなければ、この長さのあとで止める・閉じる）。
-# 回線が「通話中」のまま、かけられない状態を異常とみなす長さ（line.STUCK_AFTER）も同じ。⛔ 2026-10-24：前は通話の最長（10分＋1分）を
-# 決めて、それを過ぎた通話は待たずに止め・閉じた（話している電話を時間で切りえた）
-CALL_STALL = 90.0
+# いま話している通話（回線 → 通話ごとの口。1か所＝回線ごとの処理 line._Call が出し入れし、止めるとき main.Supervisor.shutdown・PC の
+# ログインを外したとき channel が「その回線に、話している通話があるか」を読む）。データベースを通さない（2026-10-24 ユーザー：固まった
+# 見張りは3秒＝「20秒でも長すぎるでしょ」。通話の長さに上限は無い＝時間で業務を打ち切らない）。固まった通話は、回線ごとの処理が
+# 設定 call.frozen_after（初め3秒）でお詫びして終えるので、ここに残り続けない。⛔ 0130：前はデータベースの「進んだ時刻」で 90 秒見ていた
+_LIVE: dict[object, object] = {}
+_LIVE_LOCK = threading.Lock()
+
+
+def call_began(line_id: object, call: object) -> None:
+    with _LIVE_LOCK:
+        _LIVE[line_id] = call
+
+
+def call_over(line_id: object, call: object) -> None:
+    with _LIVE_LOCK:
+        if _LIVE.get(line_id) is call:
+            del _LIVE[line_id]
+
+
+def call_live(line_id: object) -> bool:
+    """その回線に、いま話している通話（固まって終えたものは入らない）があるか。"""
+    with _LIVE_LOCK:
+        call = _LIVE.get(line_id)
+    return call is not None and not getattr(call, "ended", False)
+
+
 # 混雑（共有のつなぎの空き待ちの時間切れ）で記録できなかった誤り：仕事の名前 → 回数。空いたときに、まとめて記録する（flush_busy）
 _BUSY: Counter[str] = Counter()
 _BUSY_LOCK = threading.Lock()

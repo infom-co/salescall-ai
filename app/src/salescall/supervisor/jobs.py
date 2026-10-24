@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 from uuid import UUID
 
-from salescall.core import agents, answer_rate, attempts, backup, calendar, leases, measure, settle, usage, watch
+from salescall.core import agents, answer_rate, attempts, backup, calendar, leases, measure, ring_test, settle, usage, watch
 from salescall.core.access import Access
 from salescall.supervisor import ACTOR, config, plugins, report
 from salescall.supervisor.links import Links
@@ -120,11 +120,14 @@ def verify_watch(ctx: Context) -> None:
 
 
 def _probe(ctx: Context, run: Callable[[Callable[[Any], Any]], Any]) -> None:
+    """確かめの部品で確かめる停止（テスト番号で確かめる回線の停止は、その回線の処理がする＝core/ring_test.checks_stop の1か所。
+    2026-10-24 ユーザー：再開の確かめもテスト番号で「OK」）。"""
     prober = ctx.part(ctx.cfg.prober)
     def one(stop: dict[str, Any]) -> None:
         ok, evidence = prober.probe(stop)
         run(lambda tx: watch.record_check(tx, stop["event_id"], ok, evidence=evidence))
-    _each(ctx, "停止を解く確かめ", run(watch.due_checks), one)
+    _each(ctx, "停止を解く確かめ",
+          run(lambda tx: [s for s in watch.due_checks(tx) if not ring_test.checks_stop(tx, s)]), one)
 
 
 def stop_checks(ctx: Context) -> None:

@@ -18,8 +18,9 @@
 6. **版**：プログラムとデータベースの版がずれていれば、回線ごとの流れを止め（いまの通話は最後まで）、立ち上げず、決まった間隔の仕事も
    しない（`supervisor.updates`。合えば、またかける）。ずれは CL-2 へ（変わったときだけ）。
 7. **どの段の誤りでも、本体は止まらない**（データベースに届かない など）：記録して、次の回にまた試す。
-8. **止め方は1つ**（Ctrl+C・終わりの合図 SIGTERM・入れ替えの前の命令 `drain`）：新しい電話をかけず、いまの通話が進んでいる間は
-   待ち（少なくとも `SHUTDOWN_WAIT`。通話の長さでは打ち切らない＝2026-10-24 ユーザー）、回線を返して止まる。`drain`（`ask_drain`）は、機械の中の印のファイル（`DRAIN_FLAG`）で、動いている見守り役に
+8. **止め方は1つ**（Ctrl+C・終わりの合図 SIGTERM・入れ替えの前の命令 `drain`）：新しい電話をかけず、話している通話がある間は
+   待ち（supervisor.call_live の1か所。通話の長さでは打ち切らない＝2026-10-24 ユーザー。固まった通話は回線ごとの処理が3秒でお詫びして
+   終える）、話していない回線の流れは `SHUTDOWN_WAIT` まで待って、回線を返して止まる。`drain`（`ask_drain`）は、機械の中の印のファイル（`DRAIN_FLAG`）で、動いている見守り役に
    頼み、止まるまで待って知らせる（入れ替えで通話をいきなり切らない。動かす所の仕組みの待つ長さの上限に頼らない＝⛔ 2026-10-22 の
    見直し15）。動き出す前に置かれた印は、前の回の残りとして消す（次に動かしたとたんに止まらない）。止まったことは、見守り役が
    止まり終えたときに書く「止まった」の印（`DRAIN_DONE`。頼んだ印と同じ番号）で知る（⛔ 見直し16：前は、止まったかを印のファイルを
@@ -37,11 +38,11 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 from uuid import UUID
 
-from salescall.core import attempts, dial_exit, leases
+from salescall.core import dial_exit, leases
 from salescall.core.access import Access, busy, unreachable
 from salescall.link.basics import backoff
 from salescall.link.locks import AlreadyRunning, SingleInstance, lock_dir, machine_id
-from salescall.supervisor import (ACTOR, CALL_STALL, busy_seen, config, flush_busy, jobs, line, local_pc, plugins, report,
+from salescall.supervisor import (ACTOR, busy_seen, call_live, config, flush_busy, jobs, line, local_pc, plugins, report,
                                  updates, watchdog)
 from salescall.supervisor.links import Attached, Links, NoLinks
 
@@ -53,11 +54,12 @@ HEAVY_THREADS = 4                          # 長い仕事（控えの書き込�
 __all__ = ["AlreadyRunning", "Supervisor", "serve", "holder_name"]
 
 
-# 止めるとき、いまの通話を待つ決まり（1か所＝`Supervisor.shutdown`）：少なくともこの長さは待ち、そのあとも、回線に進んでいる通話が
-# ある間は待つ（通話の長さに上限は無い＝2026-10-24 ユーザー：時間で業務を打ち切らない。進んでいるかは core/attempts.line_call_progressing
-# の1か所）。⛔ 2026-10-24：前は通話の最長（11分）で待つのをやめ、話している通話がいきなり切れえた。入れ替えのときは、先に `drain` で
-# 止めておく（動かす所の仕組みの待つ長さ＝Fly.io の kill_timeout には上限があるので頼らない）
-SHUTDOWN_WAIT = CALL_STALL
+# 止めるとき、いまの通話を待つ決まり（1か所＝`Supervisor.shutdown`）：話している通話（supervisor.call_live）がある回線の流れは、
+# 通話が終わるまで待つ（通話の長さに上限は無い＝2026-10-24 ユーザー：時間で業務を打ち切らない。固まった通話は、回線ごとの処理が
+# call.frozen_after＝3秒でお詫びして終える）。話していない回線の流れ（門・発信の出口の取引の途中など）は、この長さまで待つ。
+# ⛔ 0130：前はデータベースの「進んだ時刻」で 90 秒見ていた。入れ替えのときは、先に `drain` で止めておく（動かす所の仕組みの待つ長さ＝
+# Fly.io の kill_timeout には上限があるので頼らない）
+SHUTDOWN_WAIT = 30.0
 DRAIN_FLAG = "salescall-supervisor.drain"   # 「新しい電話をかけずに、いまの通話が終わったら終わって」の印（機械の中。lock_dir）
 DRAIN_DONE = "salescall-supervisor.drained"  # 頼まれて止まり終えた印（中身は頼んだ印と同じ番号）
 
@@ -409,28 +411,16 @@ class Supervisor:
                 if what == "回線の借用":
                     self._next_renew = now + (self._renew_every or RENEW_FALLBACK)
 
-    def _progressing(self, line_id: UUID) -> bool:
-        """その回線に、進んでいる通話があるか（core/attempts.line_call_progressing の1か所）。データベースに届かなければ、進んでいると
-        は言えない（待ち続けて止まれない、にしない。止まったあとの回線は、借用の期限で次が後始末する）。"""
-        w = self.workers.get(line_id)
-        if w is None:
-            return False
-        try:
-            return self.access.in_tenant(ACTOR, w.at.tenant_id,
-                                         lambda tx: attempts.line_call_progressing(tx, line_id, CALL_STALL))
-        except Exception:  # noqa: BLE001 データベースに届かない
-            return False
-
     def shutdown(self, wait_seconds: float = SHUTDOWN_WAIT) -> None:
-        """回線ごとの流れを止め（いまの通話は最後まで）、終わったら、その回線の後始末をして返す。少なくとも wait_seconds は待ち、
-        そのあとも、まだ動いている回線に進んでいる通話がある間は待つ（`_progressing`。通話の長さでは打ち切らない）。"""
+        """回線ごとの流れを止め（いまの通話は最後まで）、終わったら、その回線の後始末をして返す。話している通話がある回線
+        （supervisor.call_live の1か所）は終わるまで待ち（通話の長さでは打ち切らない）、話していない回線は wait_seconds まで待つ。"""
         for line_id in list(self.workers):
             self._stop_worker(line_id)
         deadline, next_extend = time.monotonic() + wait_seconds, 0.0
         while True:   # 通話が終わるのを待つあいだも、その回線の借用は延ばし続ける
             alive = [l for l, w in self.workers.items() if w.thread is not None and w.thread.is_alive()]
             left = deadline - time.monotonic()
-            if not alive or (left <= 0 and not any(self._progressing(l) for l in alive)):
+            if not alive or (left <= 0 and not any(call_live(l) for l in alive)):
                 break
             if time.monotonic() >= next_extend:
                 for line_id in alive:

@@ -199,13 +199,19 @@ def lasting_stops(tx: Tx) -> list[int]:
     return asked
 
 
-def due_checks(tx: Tx) -> list[dict[str, Any]]:
-    """いま確かめてよい停止（システムが止めた、確かめで解ける原因の、まだ解かれていない停止のうち、この取引が確かめを書ける
-    もの：全体の取引＝全体の停止／契約者の取引＝その契約者の停止）。"""
+def checkable(tx: Tx) -> list[dict[str, Any]]:
+    """確かめで解ける停止（システムが止めた、確かめで解ける原因の、まだ解かれていない停止のうち、この取引が確かめを書けるもの：
+    全体の取引＝全体の停止／契約者の取引＝その契約者の停止）と、次に確かめてよいまでの秒（wait。0＝いま）。1か所。"""
     return tx.all(
-        "SELECT s.event_id, s.scope, s.cause::text AS cause, s.line_id FROM salescall.open_stop_events s"
+        "SELECT s.event_id, s.scope, s.cause::text AS cause, s.line_id,"
+        " greatest(0, extract(epoch FROM coalesce((SELECT c.next_check_at FROM salescall.stop_checks c"
+        "   WHERE c.stop_event_id = s.event_id ORDER BY c.check_id DESC LIMIT 1), now()) - now()))::float AS wait"
+        " FROM salescall.open_stop_events s"
         " WHERE s.actor_kind = 'system' AND s.cause::text = ANY(%s)"
         " AND (s.scope = 'system') = (salescall.cur_tenant() IS NULL)"   # 確かめを書ける停止だけ（0029 の (3)）
-        " AND coalesce((SELECT c.next_check_at FROM salescall.stop_checks c WHERE c.stop_event_id = s.event_id"
-        "               ORDER BY c.check_id DESC LIMIT 1), '-infinity') <= now()"
         " ORDER BY s.event_id", (list(PROBE_SETTINGS),))
+
+
+def due_checks(tx: Tx) -> list[dict[str, Any]]:
+    """いま確かめてよい停止（`checkable` のうち、次に確かめてよい時刻が来たもの）。"""
+    return [s for s in checkable(tx) if s["wait"] <= 0]

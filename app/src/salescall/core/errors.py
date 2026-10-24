@@ -234,7 +234,8 @@ COUNTED_FOR: dict[str, tuple[str, ...]] = {
 #   in_conversation＝どこかの通話が会話に入った（会話AIが動いた）／verified＝どこかの通話の検証が済んだ（別の耳が動いた）／
 #   line_ok＝その回線で、お客様のところで電話が鳴って終わった（回線の部品が番号を受け付けなかった・お客様が出る前に回線の側で
 #   終わったではない電話。⛔ 見直し17a：前は「その回線でお客様を呼び出せた」で、失敗した電話そのものの呼び出しで数え直し、回線の
-#   失敗が続いても止まらなかった＝0122）／none＝証拠を持たない（1回で止める種類）
+#   失敗が続いても止まらなかった＝0122）か、その回線でテスト番号が鳴った（0134。どちらも salescall.line_rings の1か所）／none＝証拠を
+#   持たない（1回で止める種類）
 EVIDENCE: dict[str, str] = {
     "config_error": "in_conversation",
     "ai_unreachable": "in_conversation",

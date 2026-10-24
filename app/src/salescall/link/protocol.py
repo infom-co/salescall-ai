@@ -20,9 +20,11 @@ PC → サーバー：
 サーバー → PC：
   welcome {tenant, pc, lines}                      通った（lines＝その契約者の、使っている回線だけ）
   refuse {why, relogin, update}                    断った（relogin＝ログインし直す・update＝更新が要る）。サーバーは切る
-  request {id, op: in_call|start_call|hang_up|apologize, line, phone?, voice?}   apologize＝おわびの録音を流して切る（サーバーの側の
-                                                   誤りで通話を続けられないとき。お客様を無言で放置しない）。voice＝start_call の通話で話す
-                                                   声の型（門が決めたもの。おわびの録音も、この声の型で流す）
+  request {id, op: in_call|start_call|hang_up|apologize|test_ring, line, phone?, voice?}   apologize＝おわびの録音を流して切る（サーバーの
+                                                   側の誤りで通話を続けられないとき・その電話に甚大な問題があるとき。お客様を無言で放置しない）。
+                                                   voice＝start_call の通話で話す声の型（門が決めたもの。おわびの録音も、この声の型で流す）。
+                                                   test_ring＝テスト番号（phone）へかけ、鳴ったら出る前に切る（答えの value：true＝鳴った・false＝
+                                                   鳴らなかった・null＝分からない。話している回線・PC の緊急停止の印があれば試さない＝null。0134）
   backup_begin {id, folder, file_name, sha256}     控えを書く（中身は CHUNK ずつのバイト。sha256＝暗号化する前の中身）
   backup_end {id}
   prune {id, folders}                              古い控えを消す（folders＝フォルダごとに、種類・残す日数・消さないもの）
@@ -42,8 +44,9 @@ import uuid
 from typing import Any
 from uuid import UUID
 
-VERSION = 4                  # やり取りの形の版（変えたら上げる。2＝控えの書けた印と送る速さ。3＝番号を受け付けなかった number_rejected。
-                             # 4＝number_rejected をやめ not_placed の1つに（だれのせいかは証拠で決める＝0129）・期限切れは withheld）
+VERSION = 5                  # やり取りの形の版（変えたら上げる。2＝控えの書けた印と送る速さ。3＝番号を受け付けなかった number_rejected。
+                             # 4＝number_rejected をやめ not_placed の1つに（だれのせいかは証拠で決める＝0129）・期限切れは withheld。
+                             # 5＝テスト番号に鳴るか試す test_ring＝0134）
 BEAT_EVERY = 15              # 動いている合図の間隔（秒）
 REPLY_WAIT = 20              # 頼んだことの答えを待つ長さ（秒。過ぎたら「分からない」＝かけない側）
 ANSWER_BY = REPLY_WAIT - 5   # PC が答える期限（受け取ってから。行き帰りの時間をあけて、サーバーが待つのをやめる前に届ける）。過ぎて
@@ -60,7 +63,7 @@ AUDIO, BACKUP = 1, 2         # バイトのひと続きの種類
 
 PC_TO_SERVER = frozenset({"hello", "beat", "reply", "phone_event", "backup_ack", "backup_done", "emergency"})
 SERVER_TO_PC = frozenset({"welcome", "refuse", "request", "backup_begin", "backup_end", "prune", "emergency_state"})
-OPS = frozenset({"in_call", "start_call", "hang_up", "apologize"})
+OPS = frozenset({"in_call", "start_call", "hang_up", "apologize", "test_ring"})
 
 
 class RemoteError(Exception):

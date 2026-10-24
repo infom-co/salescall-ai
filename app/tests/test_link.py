@@ -27,6 +27,7 @@ from salescall.core import agents, stops
 from salescall.link import protocol, sealing
 from salescall.link.phone import CallNotPlaced, CallWithheld
 from salescall.link.protocol import RemoteError
+from salescall import supervisor
 from salescall.supervisor import channel, config
 from salescall.supervisor.links import Attached
 from salescall.supervisor.main import Supervisor
@@ -36,6 +37,17 @@ from tests.test_gate import HOLDER, Base
 
 KEY = "架空の控えの鍵の元-0123456789-abcdefghij"
 
+
+
+class LiveCall:
+    """回線ごとの処理が進めている通話の代わり（supervisor.call_live の1か所に載せる。ended＝処理が終えた）。"""
+
+    def __init__(self, line_id):
+        self.line_id, self.ended = line_id, False
+        supervisor.call_began(line_id, self)
+
+    def over(self):
+        supervisor.call_over(self.line_id, self)
 
 class FakePhone:
     """電話の部品の代わり（電話接続の担当の部品の形＝link.phone.Phone）。"""
@@ -578,6 +590,7 @@ class LostConnection(LinkBase):
         phone = FakePhone()
         r = self.agent(got, [s["line"]], {s["line"]: phone})
         driver = self.hub.driver(s["line"], self.attached(s, got))
+        live = LiveCall(s["line"])                                           # 回線ごとの処理が、この通話を進めている
         driver.start_call("+81300000009")
         phone.busy = True
         self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: agents.revoke(tx, got.pc_id))
@@ -589,38 +602,48 @@ class LostConnection(LinkBase):
         self.assertIsNone(self.hub.writer(s["tenant"]))                      # 控えも頼まない
         driver.hang_up()                                                     # 通話が終わった
         phone.busy = False
+        live.over()
         r.beat()
         until(lambda: isinstance(r.error, agent_main.NeedLogin), "通話が終わってからの合図で断る")
         self.assertEqual(phone.apologies, 0)
 
-    def test_a_call_that_does_not_end_after_the_pass_is_revoked_is_closed_with_an_apology(self):
-        """通行証が止められたあと、通話が待つ長さの上限を過ぎても終わらない：閉じる（止めた通行証でつなぎ続けない）。PC の部品は、
-        終わるときに、まだ話している回線をおわびして切る（AI もおわびも無い電話を残さない）。"""
+    def test_a_long_call_is_waited_for_and_a_call_no_line_flow_runs_is_closed_with_an_apology(self):
+        """通行証が止められたあと、回線ごとの処理が進めている通話は、どれだけ長くても待つ（時間で切らない＝2026-10-24 ユーザー）。
+        かけた直後（回線ごとの処理が、かける前から「話している」に載せる）も閉じない。進めている処理の無い通話（固まった通話は3秒で
+        お詫びして終える＝そのあとも PC が通話中と答える）だけになったら閉じ、PC の部品は終わるときに、まだ話している回線をおわびして
+        切る（AI もおわびも無い電話を残さない）。"""
         s = self.ready()
         got = self.pc(s)
         phone = FakePhone()
         r = self.agent(got, [s["line"]], {s["line"]: phone})
         driver = self.hub.driver(s["line"], self.attached(s, got))
+        live = LiveCall(s["line"])
         driver.start_call("+81300000009")
         phone.busy = True
-        with mock.patch.object(channel, "REVOKED_WAIT", 0.3):
-            self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: agents.revoke(tx, got.pc_id))
+        self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: agents.revoke(tx, got.pc_id))
+        r.beat()
+        until(lambda: s["line"] not in self.hub.lines(), "回線を見せない")
+        for _ in range(3):
+            time.sleep(0.4)
             r.beat()
-            until(lambda: s["line"] not in self.hub.lines(), "回線を見せない")
-            time.sleep(0.5)
-            r.beat()
-            until(lambda: isinstance(r.error, agent_main.NeedLogin), "上限を過ぎたら断る")
+        self.assertIsNone(r.error)                                           # 長い通話も待つ
+        live.ended = True                                                    # 回線ごとの処理が終えた（通話は PC に残った）
+        r.beat()
+        until(lambda: isinstance(r.error, agent_main.NeedLogin), "進めている処理が無くなったら断る")
         until(lambda: phone.apologies == 1, "まだ話している回線は、おわびして切る")
+        live.over()
 
-    def test_a_pass_revoked_during_a_call_the_customer_ends_closes_without_waiting_the_limit(self):
-        """通行証が止められたあと、お客様が自分で切った（サーバーは切っていない）：上限まで待たず、電話の部品に聞いて通話の終わりを
-        知り、次の合図で閉じる（⛔ 2026-10-22 の見直し15：前は印が外れず、20分つなぎ続けた）。"""
+    def test_a_pass_revoked_during_a_call_the_customer_ends_closes_without_waiting_for_the_line_flow(self):
+        """通行証が止められたあと、お客様が自分で切った（サーバーは切っていない）：回線ごとの処理が戻るのを待たず、電話の部品に聞いて
+        通話の終わりを知り、次の合図で閉じる（⛔ 2026-10-22 の見直し15：前は印が外れず、20分つなぎ続けた）。"""
         s = self.ready()
         got = self.pc(s)
         phone = FakePhone()
         r = self.agent(got, [s["line"]], {s["line"]: phone})
         driver = self.hub.driver(s["line"], self.attached(s, got))
         session = self.hub.sessions[got.pc_id]
+        live = LiveCall(s["line"])                                           # 回線ごとの処理は、まだ進めている（戻っていない）
+        self.addCleanup(live.over)
         with mock.patch.object(protocol, "CALL_QUIET", 0.0):
             driver.start_call("+81300000009")
             phone.busy = True
@@ -633,7 +656,7 @@ class LostConnection(LinkBase):
             r.beat()
             until(lambda: not session.open_calls, "電話の部品に聞いて、通話の終わりを知る")
             r.beat()
-            until(lambda: isinstance(r.error, agent_main.NeedLogin), "上限を待たずに断る")
+            until(lambda: isinstance(r.error, agent_main.NeedLogin), "回線ごとの処理を待たずに断る")
         self.assertEqual((phone.apologies, phone.hung), (0, 0))
 
     def test_a_line_retired_during_a_call_keeps_its_voice_and_apology_until_the_call_ends(self):

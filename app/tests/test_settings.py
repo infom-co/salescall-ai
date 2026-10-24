@@ -70,10 +70,21 @@ class Shapes(unittest.TestCase):
                            ("callee.business_hours", "09:00-19:00"), ("callee.business_hours", [9, 19]),
                            ("retry.time_band_boundaries", []), ("retry.time_band_boundaries", [15, 12]),
                            ("retry.time_band_boundaries", [12, 12]), ("retry.time_band_boundaries", [0, 12]),
-                           ("retry.time_band_boundaries", [12, 24]), ("retry.time_band_boundaries", [11.5])]:
+                           ("retry.time_band_boundaries", [12, 24]), ("retry.time_band_boundaries", [11.5]),
+                           ("line.test_number", "0312345678"), ("line.test_number", "+81-3-1234-5678"),
+                           ("line.test_number", "+0312345678"), ("line.test_number", 81312345678),
+                           ("line.test_number", "")]:
             with self.subTest(key=key, value=value), self.assertRaises(Rejected):
                 sys_tx(lambda tx: settings.set_system_value(tx, key, value, status="provisional",
                                                             rationale="試験", review_when="試験"))
+
+    def test_a_phone_is_the_normalized_number_or_none(self):
+        """テスト番号（0133・0134）：そろえた番号（E.164）か、まだ無い（null）。契約者ごとに入れる。"""
+        for value in ("+81312345678", None):
+            with self.subTest(value=value):
+                sys_tx(lambda tx: settings.set_system_value(tx, "line.test_number", value, status="provisional",
+                                                            rationale="試験", review_when="試験"))
+        self.assertIsNone(sys_tx(lambda tx: settings.initial_value(tx, "line.test_number")))
 
     def test_cannot_be_set_finer_than_declared(self):
         w = World(); t = w.tenant(); c = w.client(t)

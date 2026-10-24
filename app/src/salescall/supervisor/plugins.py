@@ -14,7 +14,26 @@ from salescall.core.access import Access, Actor
 from salescall.core.gate import Claim
 from salescall.link.basics import load   # 部品の作り方は link.basics の1か所（PC の部品と同じ）
 
-__all__ = ["CallRunner", "Prober", "Verifier", "load"]
+__all__ = ["CallControl", "CallRunner", "Prober", "Verifier", "load"]
+
+
+class CallControl(Protocol):
+    """通話ごとの口（回線ごとの処理が通話ごとに作って、通話を進める部品へ渡す。supervisor/line.py の `_Call`）。データベースを通さない。"""
+
+    def beat(self) -> None:
+        """「動いています」の知らせ。通話のあいだ、**1秒より短い間隔で**呼び続ける（話している間も、お客様の返事を待つ間も、保留で黙って
+        待つ間も止めない）。設定 call.frozen_after（初め3秒）途切れたら、こちらのプログラムが固まったとみなし、回線ごとの処理がお詫びの
+        録音で終える（end_for_trouble の frozen と同じ道。2026-10-24 ユーザー：「20秒でも長すぎるでしょ」→ 3秒）。**通話を進める部品の、
+        通話を進める流れの中から呼ぶ**（別の流れの時計で呼ぶと、進める流れが固まっても知らせが続き、見張れない）。"""
+        ...
+
+    def end_for_trouble(self, reason: str) -> None:
+        """その電話そのものに甚大な問題があるとき、その電話をお詫びして終える（2026-10-24 ユーザー決定：「プログラムやAIがこちらの意図しない
+        相手がおかしいと思うような状況に陥った場合全般や、回線が悪く、声がお互いや片方がほとんど聞き取れない場合など規定通りの会話が
+        進められない状態です。」）。reason＝core.attempts.TROUBLES のどれか（ai_malfunction・poor_audio・cannot_proceed。frozen は回線
+        ごとの処理だけが使う）。通話を途中で切るときの2つの一言（line_trouble_ask→お客様の返事→line_trouble_bye）を流して切り、試行を
+        結果不明にして理由を残す（1回だけ。2回目からは何もしない）。呼んだら、通話を進める部品は、その通話の処理を終えて戻る。"""
+        ...
 
 
 class CallRunner(Protocol):
@@ -23,9 +42,11 @@ class CallRunner(Protocol):
     試行の状態を終わりまで移し（attempts.move）、答え・報告・「もうかけないで」の申告は、書き込む入口（core/conversation_io.py）
     だけを通して書く：答えは決まるたびに `write_item`、報告は `save_report`（版3＝通話の事実の形）、申告はその場で
     `declare_do_not_call`（原則14）。エラーは自分でエラーの入口
-    （watch.after_error）へ渡す。外へ出た誤りは、見守り役が「見守り役の誤り」として記録し、その試行を結果不明にする。"""
+    （watch.after_error）へ渡す。外へ出た誤りは、見守り役が「見守り役の誤り」として記録し、その試行を結果不明にする。
+    通話ごとの口 `call`（`CallControl`）：通話のあいだ `call.beat()` を1秒より短い間隔で呼び続け、甚大な問題があれば
+    `call.end_for_trouble(理由)` を呼んで戻る。**通話の長さでは切らない**（2026-10-24 ユーザー：時間で業務を打ち切らない）。"""
 
-    def run(self, access: Access, actor: Actor, claim: Claim, *, tenant_id: UUID, client_id: UUID) -> None: ...
+    def run(self, access: Access, actor: Actor, claim: Claim, *, tenant_id: UUID, client_id: UUID, call: CallControl) -> None: ...
 
 
 class Verifier(Protocol):

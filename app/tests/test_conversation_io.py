@@ -137,31 +137,6 @@ class Materials(SettleBase):
         self.assertTrue(got)
         self.assertEqual(self.tx(s, lambda tx: conversation_io.handlings(tx, s["version"], "Q9")), {})
 
-    def test_progress_moves_forward_only_while_the_call_is_live(self):
-        """通話が進んだ知らせ（progress）：発信を始めたときにデータベースが時刻を入れ、進行中の通話でだけ前へ進む（0130）。
-        止まったか（attempts.stalled）は、決まった長さ進まないかで決める。"""
-        s = self.ready()
-        aid = self.answered(s)
-        at = lambda: self.tx(s, lambda tx: tx.one("SELECT progress_at FROM salescall.attempts WHERE attempt_id = %s",  # noqa: E731
-                                                  (aid,))["progress_at"])
-        first = at()
-        self.assertIsNotNone(first)                                            # 発信を始めた時刻
-        self.assertTrue(self.tx(s, lambda tx: conversation_io.progress(tx, aid)))
-        self.assertGreaterEqual(at(), first)
-        self.assertFalse(self.tx(s, lambda tx: attempts.stalled(tx, aid, 60)))
-        self.assertTrue(self.tx(s, lambda tx: attempts.stalled(tx, aid, -1)))   # 決まった長さを過ぎたことにする
-        self.assertTrue(self.tx(s, lambda tx: attempts.line_call_progressing(tx, s["line"], 60)))
-        self.assertFalse(self.tx(s, lambda tx: attempts.line_call_progressing(tx, s["line"], -1)))
-        with self.assertRaises(Rejected):                                      # 前へだけ
-            self.tx(s, lambda tx: tx.execute("UPDATE salescall.attempts SET progress_at = progress_at - interval '1 minute'"
-                                             " WHERE attempt_id = %s", (aid,)))
-        for st in ("ending", "ended"):
-            self.tx(s, lambda tx: attempts.move(tx, aid, st))
-        self.assertFalse(self.tx(s, lambda tx: conversation_io.progress(tx, aid)))   # 終わった通話は進まない
-        self.assertFalse(self.tx(s, lambda tx: attempts.stalled(tx, aid, -1)))
-        with self.assertRaises(Rejected):
-            self.tx(s, lambda tx: tx.execute("UPDATE salescall.attempts SET progress_at = now() WHERE attempt_id = %s", (aid,)))
-
     def test_keys_used_keep_only_names_and_fingerprints(self):
         """使ったキーの識別名（CL-1 の 4-67）：名前と値の指紋の頭8桁だけ。同じものは重ねず、前のものは消さない。キーの値らしいものは
         データベースが断る（0130）。"""

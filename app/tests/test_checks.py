@@ -184,6 +184,15 @@ class DialOnlyThroughExit(Planted):
         found = rules.dial_only_through_exit(root)
         self.assertEqual(sorted(v.path for v in found), ["src/salescall/agent/phones/x.py", "src/salescall/supervisor/y.py"])
 
+    def test_the_test_number_is_rung_only_from_its_one_place(self):
+        """テスト番号へ鳴るか試す（test_ring）は core/ring_test.py だけ（0134。門を通らない道を、お客様の番号へかける道にしない）。
+        発信の出口からも呼ばない（それぞれ自分の1か所だけ）。"""
+        root = self._app({"src/salescall/core/ring_test.py": "def run(d, p):\n    d.test_ring(p)\n",
+                          "src/salescall/core/dial_exit.py": "def dial(d, p):\n    d.test_ring(p)\n",
+                          "src/salescall/supervisor/line.py": "def go(d, p):\n    getattr(d, 'test_ring')(p)\n"})
+        found = rules.dial_only_through_exit(root)
+        self.assertEqual(sorted(v.path for v in found), ["src/salescall/core/dial_exit.py", "src/salescall/supervisor/line.py"])
+
     def test_the_relays_may_pass_it_on_only_in_their_own_place(self):
         """中継（5-5）は、決めた関数の中だけ（同じファイルのほかの所では、かけられない）。"""
         root = self._app({"src/salescall/agent/main.py": "class Agent:\n    def _do(self, p):\n        p.start_call('x')\n"

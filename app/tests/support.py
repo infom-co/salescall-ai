@@ -141,24 +141,34 @@ class World:
         if version is None:
             self.a.in_tenant(OPERATOR, tenant, work)
             if parts is None:   # 名前の録音の台帳も、試験の業務の初めの目的のお客様（役職のみ「総務部長」）の分と続く言葉をそろえる
-                self.approve_names(tenant, [recordings.NameKey(f, DEFAULT_ROLE, None) for f in recordings.NAME_FORMS], voices)
+                self.approve_names(tenant, [recordings.NameKey(role=DEFAULT_ROLE)], voices)
         else:
             self.a.in_client(OPERATOR, tenant, client, work)
 
-    def approve_names(self, tenant: UUID, keys: list, voices: tuple[str, ...] = VOICES, *,
-                      tails: tuple[str, ...] | None = None) -> None:
-        """名前の録音の台帳に、名前の部分（keys＝recordings.NameKey の並び）と続く言葉（無ければ全部）を作って承認する（架空の録音）。"""
+    def approve_names(self, tenant: UUID | None, keys: list, voices: tuple[str, ...] = VOICES, *, roles: tuple[str, ...] = (),
+                      tails: tuple[str, ...] | None = None, audio: str = "test") -> None:
+        """名前の録音の台帳に、名前の部分（keys＝recordings.NameKey の並び）・役職の部分（roles）・続く言葉（無ければ全部）を作って承認する
+        （架空の録音。続く言葉は、その助詞＝salescall.name_tail_particle から始まる文）。tenant が None なら、管理者がシステムの取引で
+        作るシステムの単位（すべての契約者が読む。0134）。"""
+        P = recordings.Part
+
         def work(tx):
             for v in voices:
+                for r in roles:
+                    recordings.approve(tx, recordings.add_name_role(
+                        tx, voice_name=v, role=r, part=P("role", f"{r}の", f"{audio}://{v}/role/{r}", "0" * 64)))
                 for k in keys:
-                    text = (f"{k.role}様{k.form}" if k.reading is None
-                            else f"{k.role + 'の' if k.role else ''}「{k.reading}」様{k.form}")
+                    text = f"{k.role}様" if k.reading is None else f"「{k.reading}」様"
                     recordings.approve(tx, recordings.add_name_part(
-                        tx, voice_name=v, key=k, part=recordings.Part("name", text, f"test://{v}/name", "0" * 64)))
+                        tx, voice_name=v, key=k, part=P("name", text, f"{audio}://{v}/name", "0" * 64)))
                 for t in (recordings.NAME_TAILS if tails is None else tails):
+                    head = tx.one("SELECT salescall.name_tail_particle(%s) AS p", (t,))["p"]
                     recordings.approve(tx, recordings.add_name_tail(
-                        tx, voice_name=v, tail=t, part=recordings.Part(t, f"架空の続く言葉（{t}）。", f"test://{v}/{t}", "0" * 64)))
-        self.a.in_tenant(OPERATOR, tenant, work)
+                        tx, voice_name=v, tail=t, part=P(t, f"{head}架空の続く言葉（{t}）。", f"{audio}://{v}/{t}", "0" * 64)))
+        if tenant is None:
+            self.a.in_system(ADMIN, work)
+        else:
+            self.a.in_tenant(OPERATOR, tenant, work)
 
     def client(self, tenant: UUID) -> UUID:
         cid = uuid.uuid4()

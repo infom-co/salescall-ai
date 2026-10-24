@@ -82,15 +82,17 @@ def blame(tx: Tx, attempt_id: UUID) -> str | None:
 
 def line_run_pending(tx: Tx, line_id: UUID) -> bool:
     """その回線に、番号のせいか回線のせいかがまだ分からない続き（鳴った電話・閉じた印のあと、1つの番号だけが鳴らなかった）があるか
-    （決まりはデータベースの1か所 salescall.line_run_pending＝0131）。"""
+    （決まりはデータベースの1か所 salescall.line_run_pending＝0131・0134。区切りは鳴った電話・鳴ったテスト・閉じた印）。"""
     return tx.one("SELECT salescall.line_run_pending(%s) AS p", (line_id,))["p"]
 
 
 def close_unrung_run(tx: Tx, line_id: UUID, reason: str) -> bool:
     """まだ分からない続きを閉じて、決着させる（1か所。2026-10-24 ユーザー：「一つの行で止まり続けることがないようにしてください」。
-    決め方はデータベースの1か所 salescall.close_unrung_run＝0131）。reason＝no_rows（その回線にかける行が、分からないまま待つ行の
-    ほかに残っていない。呼ぶのは回線ごとの処理だけ）・retired（その回線を使わなくした）。閉じたら True。
-    no_rows：続きの前の区切りが鳴った電話なら番号のせい、閉じた印ならその決め方を引き継ぎ、無ければ回線のせい。retired：回線のせい。"""
+    決め方はデータベースの1か所 salescall.close_unrung_run＝0131・0134）。reason＝no_rows（テスト番号の無い契約者で、その回線にかける
+    行が、分からないまま待つ行のほかに残っていない。呼ぶのは回線ごとの処理だけ。⏳ テスト番号が入るまでの形）・retired（その回線を
+    使わなくした）・test_silent（テスト番号が鳴らなかった。呼ぶのは core/ring_test の1か所）。閉じたら True。
+    no_rows：続きの前の区切りが鳴った電話・鳴ったテストなら番号のせい、閉じた印ならその決め方を引き継ぎ、無ければ回線のせい。
+    retired・test_silent：回線のせい。"""
     return tx.one("SELECT salescall.close_unrung_run(%s, %s) AS c", (line_id, reason))["c"]
 
 
@@ -210,23 +212,21 @@ def record_keys(tx: Tx, attempt_id: UUID, keys: list[dict[str, str]]) -> None:
         raise AttemptNotFound(str(attempt_id))
 
 
-def progress(tx: Tx, attempt_id: UUID) -> bool:
-    """通話が進んだ（通話を進める部品が、通話の途中で知らせる。書き込む入口 conversation_io.progress から）。進行中の試行の
-    「最後に進んだ時刻」をいまにする。進行中でなければ何もしない（False）。"""
-    return tx.one("UPDATE salescall.attempts SET progress_at = now() WHERE attempt_id = %s AND salescall.is_active(state)"
-                  " AND state <> 'claimed' RETURNING attempt_id", (attempt_id,)) is not None
+# 甚大な問題で通話を終えた理由（データベースの守り 0134 と同じ）。frozen＝こちらのプログラム（通話を進める部品）が固まった（回線ごとの
+# 見張りが決める）／ai_malfunction＝AI・プログラムが意図しない状態（英語・関係のない文を話し続ける・声が出ない など）／poor_audio＝
+# 声がお互い・片方にほとんど聞き取れない／cannot_proceed＝そのほか、決まりどおりの会話が進められない（2026-10-24 ユーザー決定）
+TROUBLES = ("frozen", "ai_malfunction", "poor_audio", "cannot_proceed")
 
 
-def stalled(tx: Tx, attempt_id: UUID, gap_seconds: float) -> bool:
-    """進行中の通話が、決まった長さより長く進んでいない＝こちらの仕組みが止まった（決まりはデータベースの salescall.call_stalled
-    の1か所）。"""
-    return bool(tx.one("SELECT salescall.call_stalled(%s, %s) AS s", (attempt_id, gap_seconds))["s"])
-
-
-def line_call_progressing(tx: Tx, line_id: UUID, gap_seconds: float) -> bool:
-    """その回線に、進んでいる通話があるか（決まりはデータベースの salescall.line_call_progressing の1か所。止めるとき・通行証が
-    止められたあとに、いまの通話を待つかを決める）。"""
-    return bool(tx.one("SELECT salescall.line_call_progressing(%s, %s) AS p", (line_id, gap_seconds))["p"])
+def end_for_trouble(tx: Tx, attempt_id: UUID, reason: str) -> bool:
+    """甚大な問題で、進行中の通話を「結果不明」（technical_error）にし、なぜ終えたかを残す（1か所。お詫びして切るのは回線ごとの処理＝
+    supervisor/line.py の `_Call.end_for_trouble`。お客様が出たあとなら、判定は「途中で切れた」と読み＝judge.cut_off、復旧次第お詫び
+    とともにかけ直す）。もう終わっていれば何もしない（False）。"""
+    if reason not in TROUBLES:
+        raise ValueError(f"通話を終えた理由は {TROUBLES} のどれかです：{reason!r}")
+    return tx.one("UPDATE salescall.attempts SET state = 'technical_error', trouble = %s"
+                  " WHERE attempt_id = %s AND salescall.is_active(state) AND salescall.is_dialed(state)"
+                  " RETURNING attempt_id", (reason, attempt_id)) is not None
 
 
 def withheld(tx: Tx, attempt_id: UUID) -> None:

@@ -17,6 +17,7 @@ from salescall.core import (attempts, backup, business_rules, conversation_io, f
                             registry, scheduler, settings, stops)
 from salescall.core.phone import normalize
 from salescall.core.access import Rejected
+from salescall import supervisor
 from salescall.supervisor import config, jobs, line, updates
 from salescall.supervisor import main as main_mod
 from salescall.supervisor.links import Attached, NoLinks
@@ -33,7 +34,9 @@ class Runner:
     def __init__(self, fail: BaseException | None = None) -> None:
         self.fail = fail
 
-    def run(self, access, actor, claim, *, tenant_id, client_id):
+    def run(self, access, actor, claim, *, tenant_id, client_id, call=None):
+        if call is not None:
+            call.beat()   # 「動いています」（通話を進める部品は、通話のあいだ1秒より短い間隔で知らせる）
         if self.fail:
             access.in_client(actor, tenant_id, client_id, lambda tx: attempts.move(tx, claim.attempt_id, "ringing"))
             raise self.fail
@@ -48,6 +51,19 @@ class Runner:
 
 def make_runner(line_id, driver):
     return Runner()
+
+
+PROBED: list = []   # 試験の確かめの部品が確かめた停止
+
+
+class Prober:
+    def probe(self, stop):
+        PROBED.append(stop["event_id"])
+        return True, "試験：確かめの部品"
+
+
+def make_prober():
+    return Prober()
 
 
 class FakeLinks(NoLinks):
@@ -185,30 +201,32 @@ class Rounds(SupervisorBase):
                                          (got.called,)))
         self.assertEqual(r["business_state"], "completed")
 
-    def test_a_call_that_stops_progressing_is_ended_with_the_apology_and_a_long_one_is_not(self):
-        """通話の長さでは切らない。通話が「進んだ」知らせ（conversation_io.progress）が CALL_STALL 届かないときだけ、こちらの仕組みが
-        止まったとして、おわびの2つの一言で終え、結果不明にする（line._Watch の1か所。2026-10-24 ユーザー：時間で業務を打ち切らない。
-        CL-1 の連絡帳 4-41 の (1)）。"""
+    def test_a_frozen_call_is_ended_with_the_apology_and_a_long_one_is_not(self):
+        """通話の長さでは切らない。通話を進める部品の「動いています」の知らせ（call.beat）が call.frozen_after（ユーザー：3秒。試験は
+        1秒）途切れたときだけ、こちらのプログラムが固まったとして、おわびの2つの一言で終え、結果不明にして理由 frozen を残す（line._Call
+        の1か所。データベースを通さない。2026-10-24 ユーザー：「20秒でも長すぎるでしょ」）。"""
         class Slow:
-            """話している間、決まった間ごとに「進んだ」と知らせる（talking＝知らせる回数）。0回なら、何も知らせずに固まる。"""
+            """話している間、0.3秒ごとに「動いています」と知らせる（talking＝知らせる回数）。0回なら、1回知らせたあと固まる。"""
             def __init__(self, talking: int) -> None:
                 self.talking, self.release = talking, threading.Event()
 
-            def run(self, access, actor, claim, *, tenant_id, client_id):
+            def run(self, access, actor, claim, *, tenant_id, client_id, call=None):
+                call.beat()
                 access.in_client(actor, tenant_id, client_id, lambda tx: attempts.move(tx, claim.attempt_id, "ringing"))
                 for _ in range(self.talking):
                     time.sleep(0.3)
-                    access.in_client(actor, tenant_id, client_id, lambda tx: conversation_io.progress(tx, claim.attempt_id))
+                    call.beat()
                 if not self.talking:
-                    self.release.wait(10)                                     # 固まった（見張りが切るまで戻らない）
+                    self.release.wait(10)                                     # 固まった（見張りが終えるまで戻らない）
                     raise RuntimeError("固まっていた")
-                Runner().run(access, actor, claim, tenant_id=tenant_id, client_id=client_id)
-        with mock.patch.object(line, "CALL_STALL", 1.0), mock.patch.object(line, "WATCH_EVERY", 0.2):
+                Runner().run(access, actor, claim, tenant_id=tenant_id, client_id=client_id, call=call)
+        with mock.patch.object(line, "frozen_after", lambda tx: 1.0), mock.patch.object(line, "WATCH_EVERY", 0.05):
             s = self.ready()
             long = FakeDriver()
             got = line.one_round(self.w.a, SYSTEM, s["tenant"], s["line"], HOLDER, long, Slow(talking=8))   # 2.4秒＞1秒
-            self.assertEqual(self.state(s, got.called), "ended")              # 進んでいる長い通話は切らない
+            self.assertEqual(self.state(s, got.called), "ended")              # 動いている長い通話は切らない
             self.assertEqual(getattr(long, "apologized", 0), 0)
+            self.assertFalse(supervisor.call_live(s["line"]))                # 終わった通話は「話している」に残らない
             t = self.ready()
             stuck, runner = FakeDriver(), Slow(talking=0)
             with mock.patch.object(line, "report") as reported:
@@ -216,9 +234,57 @@ class Rounds(SupervisorBase):
                 timer.start()
                 got = line.one_round(self.w.a, SYSTEM, t["tenant"], t["line"], HOLDER, stuck, runner)
                 timer.cancel()
-            self.assertEqual(self.state(t, got.called), "technical_error")    # 進まない通話は結果不明
-            self.assertGreaterEqual(stuck.apologized, 1)                      # おわびの2つの一言で終えた
-            self.assertIn("進みませんでした", str(reported.call_args_list[0].args[3]))
+            row = self.tx(t, lambda tx: tx.one("SELECT state::text AS st, trouble FROM salescall.attempts WHERE attempt_id = %s",
+                                               (got.called,)))
+            self.assertEqual((row["st"], row["trouble"]), ("technical_error", "frozen"))   # 固まった通話は結果不明・理由つき
+            self.assertEqual(stuck.apologized, 1)                             # おわびの2つの一言で、1回だけ終えた
+            self.assertIn("途切れました", str(reported.call_args_list[0].args[3]))
+
+    def test_a_call_with_a_grave_problem_is_ended_with_the_apology_and_called_back(self):
+        """その電話そのものに甚大な問題（2026-10-24 ユーザー決定：意図しない状態・声が聞き取れない・決まりどおり進められない）：
+        通話を進める部品が call.end_for_trouble(理由) を呼ぶと、おわびの2つの一言で終え、結果不明にして理由を残す（frozen と同じ道）。
+        お客様が出たあとなら、判定は「途中で切れた」と読み（judge.cut_off）、復旧次第お詫びとともにすぐかけ直す（目的 resume）。
+        2回目は何もしない。決まった理由のほか・frozen（見張りだけが使う）は断る。"""
+        seen = {}
+
+        class Troubled:
+            def run(self, access, actor, claim, *, tenant_id, client_id, call=None):
+                call.beat()
+                access.in_client(actor, tenant_id, client_id, lambda tx: [
+                    attempts.move(tx, claim.attempt_id, st) for st in ("ringing", "answered", "in_conversation")])
+                for bad in ("frozen", "rude"):
+                    with self.assertRaises(ValueError):
+                        call.end_for_trouble(bad)
+                try:                                                          # データベースも、決まった4つのほかは断る
+                    access.in_client(actor, tenant_id, client_id, lambda tx: tx.execute(
+                        "UPDATE salescall.attempts SET state = 'technical_error', trouble = 'rude' WHERE attempt_id = %s",
+                        (claim.attempt_id,)))
+                except Rejected as e:
+                    seen["rude"] = e.constraint
+                call.end_for_trouble("poor_audio")
+                call.end_for_trouble("poor_audio")                            # 2回目は何もしない
+                seen["ended"] = call.ended
+            assertRaises = self.assertRaises
+
+        s = self.ready()
+        d = FakeDriver()
+        got = line.one_round(self.w.a, SYSTEM, s["tenant"], s["line"], HOLDER, d, Troubled())
+        self.assertTrue(seen["ended"])
+        self.assertEqual(seen.get("rude"), "attempts_trouble_check")
+        self.assertEqual(d.apologized, 1)
+        row = self.tx(s, lambda tx: tx.one("SELECT state::text AS st, trouble FROM salescall.attempts WHERE attempt_id = %s",
+                                           (got.called,)))
+        self.assertEqual((row["st"], row["trouble"]), ("technical_error", "poor_audio"))
+        self.tx(s, lambda tx: attempts.record_verification(tx, got.called, summary=CLEAN))
+        jobs.settle_ready(self.ctx(s))
+        nxt = self.tx(s, lambda tx: next_action.current(tx, s["task"]))
+        self.assertEqual(nxt["purpose"], "resume")                           # お詫びとともにすぐかけ直す
+        # 終えた理由は、進行中の通話を結果不明にするときに1回だけ（あとで変えない・ほかの状態には付けない）
+        with self.assertRaises(Rejected) as e:
+            self.tx(s, lambda tx: tx.execute("UPDATE salescall.attempts SET trouble = 'cannot_proceed' WHERE attempt_id = %s",
+                                             (got.called,)))
+        self.assertEqual(e.exception.constraint, "attempt_trouble_fixed")
+        self.assertFalse(self.tx(s, lambda tx: attempts.end_for_trouble(tx, got.called, "poor_audio")))
 
     def test_a_line_reason_rests_the_line_without_rewriting_the_row(self):
         s = self.ready()
@@ -280,7 +346,7 @@ class Rounds(SupervisorBase):
         ユーザー「回線の異常が続いたら回線を止める仕組み：OK」）、回線を休ませる。1本だけ（まだ分からない）・ほかの番号が鳴った
         （番号のせい）ときは数えない。お客様が出たあとの結果不明・ふつうに終わった通話も数えない。"""
         class Before(Runner):
-            def run(self, access, actor, claim, *, tenant_id, client_id):
+            def run(self, access, actor, claim, *, tenant_id, client_id, call=None):
                 access.in_client(actor, tenant_id, client_id, lambda tx: (attempts.move(tx, claim.attempt_id, "ringing"),
                                                                           attempts.move(tx, claim.attempt_id, "technical_error")))
         s = self.ready()
@@ -335,7 +401,6 @@ class Rounds(SupervisorBase):
         self.assertFalse(stuck.seen(free, line.STUCK_AFTER * 2 + 1))          # 「通話中ではない」と分かった：数え直す
         self.assertFalse(stuck.seen(in_call, line.STUCK_AFTER * 3))
         self.assertFalse(stuck.seen(in_call, line.STUCK_AFTER * 4 - 2))
-        self.assertEqual(line.STUCK_AFTER, main_mod.SHUTDOWN_WAIT)             # 同じ1か所から決める（supervisor.CALL_STALL）
 
         s = self.ready()                                                       # 回線ごとの流れ：本物の数える入口を通る
         got = line.one_round(self.w.a, SYSTEM, s["tenant"], s["line"], HOLDER, FakeDriver(busy=True), Runner())
@@ -619,7 +684,7 @@ class Blame(SupervisorBase):
 
     class Before(Runner):
         """どの電話も、お客様が出る前に回線の側で終わる（結果不明）。"""
-        def run(self, access, actor, claim, *, tenant_id, client_id):
+        def run(self, access, actor, claim, *, tenant_id, client_id, call=None):
             access.in_client(actor, tenant_id, client_id, lambda tx: (attempts.move(tx, claim.attempt_id, "ringing"),
                                                                       attempts.move(tx, claim.attempt_id, "technical_error")))
 
@@ -803,6 +868,129 @@ class Blame(SupervisorBase):
         self.assertEqual(self.tx(s, lambda tx: attempts.failed_run(tx, s["contact"]))["n"], 0)
         self.assertFalse(self.tx(s, lambda tx: attempts.number_unconfirmed(tx, s["contact"], tenant_id=s["tenant"],
                                                                           client_id=s["client"], business_id=s["business"])))
+
+
+    # 2026-10-24 ユーザー決定：「その回線にかける行が残っていないときは、『テスト番号』で決めます。前に鳴った電話があれば番号のせい、
+    # 一度も鳴らせていなければ回線のせいです。」「回線が止まったあとの再開の確かめ：OK」（core/ring_test の1か所。0134）
+    def numbered(self, s):
+        """その契約者にテスト番号を入れる（架空の番号。返すのは、その番号）。"""
+        phone = normalize(fictional_jp_fixed()).e164
+        self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: settings.set_value(
+            tx, "line.test_number", phone, scope="tenant", tenant_id=s["tenant"], status="decided", rationale="試験",
+            review_when="試験"))
+        return phone
+
+    def bad_number(self, s):
+        return self.tx(s, lambda tx: tx.one("SELECT phone_e164 FROM salescall.contacts WHERE contact_id = %s",
+                                            (s["contact"],))["phone_e164"])
+
+    def ring_tests_of(self, s):
+        return self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: [(r["purpose"], r["rang"]) for r in tx.all(
+            "SELECT purpose, rang FROM salescall.line_ring_tests WHERE line_id = %s ORDER BY test_id", (s["line"],))])
+
+    def test_a_test_number_that_rings_makes_the_last_rows_run_the_numbers(self):
+        """かける行が残っていない回に、テスト番号が鳴った：回線は元気＝まだ分からなかった続きは番号のせい（鳴ったテストは、鳴った電話と
+        同じ区切り＝salescall.line_rings）。続きを閉じる印は作らない。その番号は決まった順の数で取りやめになり、回線の異常には数えない。
+        続きが決まったので、次の回は試さない（テスト番号を鳴らし続けない）。"""
+        s = self.ready()
+        phone = self.numbered(s)
+        bad = self.bad_number(s)
+        self.fail_until_unconfirmed(s, self.Refuses(bad))
+        d = self.Refuses(bad)
+        d.ring = True
+        got = line.one_round(self.w.a, SYSTEM, s["tenant"], s["line"], HOLDER, d, Runner())
+        self.assertEqual((got.called, got.pause), (None, None))
+        self.assertEqual(d.rings, [phone])                                    # テスト番号へ（お客様の番号ではない）
+        self.assertEqual(self.ring_tests_of(s), [("no_rows", True)])
+        self.assertEqual(self.closures(s), [])
+        self.assertTrue(self.tx(s, lambda tx: attempts.number_unusable(tx, s["contact"], tenant_id=s["tenant"],
+                                                                       client_id=s["client"], business_id=s["business"])))
+        self.assertEqual(self.faults(s), [])
+        line.one_round(self.w.a, SYSTEM, s["tenant"], s["line"], HOLDER, d, Runner())
+        self.assertEqual(d.rings, [phone])
+
+    def test_a_silent_test_number_makes_the_run_the_lines_even_after_an_earlier_ring(self):
+        """テスト番号が鳴らなかった：回線のせい（前に鳴った電話があっても＝いまの回線の証拠が先）。続きを閉じ（test_silent）、番号に
+        数えず、回線の異常として数えて回線を休ませる。行は続く。"""
+        s = self.ready()
+        self.numbered(s)
+        other = self.rows(s, 2)[1]
+        line.one_round(self.w.a, SYSTEM, s["tenant"], s["line"], HOLDER, FakeDriver(), Runner())   # 先頭の行が鳴った
+        jobs.settle_ready(self.ctx(s))
+        first = self.tx(s, lambda tx: tx.one("SELECT contact_id FROM salescall.attempts WHERE line_id = %s"
+                                             " ORDER BY claimed_at LIMIT 1", (s["line"],)))["contact_id"]
+        t = s if first == other["contact"] else other
+        rang = other if t is s else s
+        self.tx(s, lambda tx: next_action._append(tx, rang["task"], call_at=None, end_reason="completed", cause="試験：終えた"))
+        bad = self.bad_number(t)
+        need = self.fail_until_unconfirmed(t, self.Refuses(bad))
+        d = self.Refuses(bad)
+        d.ring = False
+        got = line.one_round(self.w.a, SYSTEM, s["tenant"], s["line"], HOLDER, d, Runner())
+        self.assertEqual(got.pause, line.UNRUNG_PAUSE)
+        self.assertEqual(self.closures(s), [("test_silent", "line")])
+        self.assertEqual(self.tx(t, lambda tx: attempts.failed_run(tx, t["contact"]))["n"], 0)   # 番号に数えない
+        self.assertFalse(self.tx(t, lambda tx: attempts.number_unusable(tx, t["contact"], tenant_id=t["tenant"],
+                                                                        client_id=t["client"], business_id=t["business"])))
+        self.assertEqual(self.faults(s), ["line"] * need)
+        self.assertEqual(self.tx(t, lambda tx: next_action.current(tx, t["task"]))["kind"], "call")   # 行は続く
+
+    def test_a_test_number_that_decides_nothing_is_tried_again_later(self):
+        """電話の部品が答えない（分からない）・回線が話している途中：どちらの証拠にもせず（記録だけ・話している途中は試さない）、休んで
+        から試し直す。鳴らなかった記録なしに「テストが鳴らなかった」で閉じられない。テストの記録は変えられない。"""
+        s = self.ready()
+        phone = self.numbered(s)
+        bad = self.bad_number(s)
+        self.fail_until_unconfirmed(s, self.Refuses(bad))
+        busy = FakeDriver(busy=True)
+        got = line.one_round(self.w.a, SYSTEM, s["tenant"], s["line"], HOLDER, busy, Runner())
+        self.assertEqual((got.pause, busy.rings), (line.RING_TEST_PAUSE, []))
+        d = self.Refuses(bad)                                                 # 答えない（None）
+        got = line.one_round(self.w.a, SYSTEM, s["tenant"], s["line"], HOLDER, d, Runner())
+        self.assertEqual((got.pause, d.rings), (line.RING_TEST_PAUSE, [phone]))
+        self.assertEqual(self.ring_tests_of(s), [("no_rows", None)])
+        self.assertEqual(self.closures(s), [])
+        self.assertTrue(self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: attempts.line_run_pending(tx, s["line"])))
+        with self.assertRaises(Rejected):
+            self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: attempts.close_unrung_run(tx, s["line"], "test_silent"))
+        with self.assertRaises(Rejected):
+            support.owner_access().in_tenant(SYSTEM, s["tenant"], lambda tx: tx.execute(
+                "UPDATE salescall.line_ring_tests SET rang = false WHERE line_id = %s", (s["line"],)))
+
+    def test_a_stopped_line_is_resumed_by_the_test_number(self):
+        """回線の異常で止めた回線の再開の確かめは、テスト番号があればテスト番号で（回線ごとの処理が、その回線の電話の部品で。確かめの
+        部品は使わない）：確かめの間隔ごとに試し、決めた回数続けて鳴れば解く。鳴ったテストは回線が直った証拠（数え直し）。"""
+        s = self.ready()
+        phone = self.numbered(s)
+        for key, value in (("stop.line.probe_interval", 1), ("stop.line.resume_after_successes", 2)):
+            self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx, key=key, value=value: settings.set_value(
+                tx, key, value, scope="tenant", tenant_id=s["tenant"], status="decided", rationale="試験", review_when="試験"))
+        self.rows(s, 4)
+        got, stopped = self.drive(s, FakeDriver(line.dial_exit.CallNotPlaced("試験：かけられない")), Runner(), 6)
+        self.assertEqual(stopped, 1)
+        self.assertEqual(line.one_round(self.w.a, SYSTEM, s["tenant"], s["line"], HOLDER, FakeDriver(), Runner()).pause,
+                         "line_stopped")
+        del PROBED[:]
+        jobs.stop_checks(jobs.Context(self.w.a, self.cfg(s, SALESCALL_PROBER="tests.test_supervisor:make_prober"), HOLDER,
+                                      NoLinks(), s["tenant"]))
+        self.assertEqual(PROBED, [])                                          # 確かめの部品は、この停止を確かめない
+        unknown = FakeDriver()                                                # 電話の部品が答えない：記録せず、いつもの休み
+        self.assertIsNone(line._check_stop(self.w.a, SYSTEM, s["tenant"], s["line"], unknown))   # （すぐ試し直さない）
+        self.assertEqual(unknown.rings, [phone])
+        d = FakeDriver(ring=True)
+        wait = line._check_stop(self.w.a, SYSTEM, s["tenant"], s["line"], d)
+        self.assertEqual(d.rings, [phone])
+        self.assertTrue(0 < wait <= 1)                                        # 次の確かめまで（回線の処理はそれより長く休まない）
+        errors = lambda: self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: tx.one(  # noqa: E731
+            "SELECT salescall.consecutive_errors(ARRAY['line'], 'line_failure', 'line_ok', %s) AS n", (s["line"],)))["n"]
+        self.assertEqual(errors(), 0)                                         # 鳴ったテストは、回線が直った証拠（数え直し）
+        self.assertEqual(line._check_stop(self.w.a, SYSTEM, s["tenant"], s["line"], d) > 0, True)
+        self.assertEqual(d.rings, [phone])                                    # 間隔の前は試さない
+        self.assertEqual(len(self.line_stops(s)), 1)
+        time.sleep(1.1)
+        self.assertIsNone(line._check_stop(self.w.a, SYSTEM, s["tenant"], s["line"], d))   # 2回続けて鳴った：解けた
+        self.assertEqual(self.line_stops(s), [])
+        self.assertEqual(self.ring_tests_of(s), [("resume_check", None)] + [("resume_check", True)] * 2)
 
 
 class FakeThread:
@@ -1258,18 +1446,28 @@ class Drain(SupervisorBase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def test_the_waits_come_from_one_stall_length_and_calls_have_no_length_limit(self):
-        """待つ・見張る長さは、通話が進まないとみなす長さ（supervisor.CALL_STALL）の1か所から決まる。通話の長さの上限は持たない
-        （2026-10-24 ユーザー：時間で業務を打ち切らない。CL-1 の連絡帳 4-41 の (1)）。drain の命令は、上限なしで待つ。"""
+    def test_calls_have_no_length_limit_and_waits_follow_the_live_calls(self):
+        """通話の長さの上限は持たない（2026-10-24 ユーザー：時間で業務を打ち切らない）。止めるとき・通行証を止めたときに待つかは、話して
+        いる通話の1か所（supervisor.call_live。固まった通話は回線ごとの処理が3秒で終える＝データベースを通さない）。drain の命令は、
+        上限なしで待つ。⛔ 0130 の「進んだ時刻」（CALL_STALL＝90秒）は外した。"""
         from salescall import supervisor
         from salescall.supervisor import channel
-        self.assertEqual(main_mod.SHUTDOWN_WAIT, supervisor.CALL_STALL)
-        self.assertEqual(channel.REVOKED_WAIT, supervisor.CALL_STALL)
-        self.assertEqual(line.STUCK_AFTER, supervisor.CALL_STALL)
-        self.assertFalse(hasattr(supervisor, "CALL_LONGEST"))
+        self.assertFalse(hasattr(supervisor, "CALL_STALL") or hasattr(supervisor, "CALL_LONGEST"))
+        self.assertFalse(hasattr(channel, "REVOKED_WAIT"))
         self.assertIsNone(inspect.signature(main_mod.ask_drain).parameters["wait_seconds"].default)
         readme = (Path(main_mod.__file__).parents[3] / "README.md").read_text(encoding="utf-8")
-        self.assertIn(f"`supervisor.CALL_STALL`（{int(supervisor.CALL_STALL)}秒）", readme)   # README の値も同じ所から
+        self.assertIn(f"`supervisor.main.SHUTDOWN_WAIT`（{int(main_mod.SHUTDOWN_WAIT)}秒）", readme)   # README の値も同じ所から
+        line_id, call = uuid.uuid4(), mock.Mock(ended=False)
+        self.assertFalse(supervisor.call_live(line_id))
+        supervisor.call_began(line_id, call)
+        self.assertTrue(supervisor.call_live(line_id))
+        call.ended = True                                                       # 固まって終えた通話は「話している」に入らない
+        self.assertFalse(supervisor.call_live(line_id))
+        supervisor.call_over(line_id, mock.Mock())                              # ほかの通話の口では外さない
+        call.ended = False
+        self.assertTrue(supervisor.call_live(line_id))
+        supervisor.call_over(line_id, call)
+        self.assertFalse(supervisor.call_live(line_id))
 
     def test_drain_asks_the_running_supervisor_and_waits_until_it_stops(self):
         flag = self.dir / main_mod.DRAIN_FLAG

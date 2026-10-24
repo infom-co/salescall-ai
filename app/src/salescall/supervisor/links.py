@@ -21,6 +21,10 @@ class CallDriver(LineDriver, Protocol):
         発信の出口へ渡す前に、回線ごとの処理が必ず呼ぶ（1か所＝supervisor.line）。"""
         ...
 
+    def test_ring(self, phone_e164: str) -> bool | None:
+        """テスト番号へ鳴るか試す（鳴った True・鳴らなかった False・分からない None。core/ring_test の1か所が呼ぶ）。"""
+        ...
+
 
 @dataclass(frozen=True)
 class Attached:
