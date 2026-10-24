@@ -1182,7 +1182,8 @@ class FormCheckTest(unittest.TestCase):
         out = f.handle(fc("record_answer", 質問="Q2", 答えの種類="答えた", 値="3人"))
         self.assertEqual(out["結果"], "聞き返す")
         text = " ".join(str(v) for v in out.values())
-        self.assertEqual(set(re.findall(r"[A-Za-z_][A-Za-z_0-9]*", text)) - {"Q2", "record_answer"}, set())  # 中の名前を見せない
+        # 中の名前を見せない（AIが呼ぶ操作の名前だけは見せる。答えではないことを言われたときの道＝flowctl.answer_wait）
+        self.assertEqual(set(re.findall(r"[A-Za-z_][A-Za-z_0-9]*", text)) - {"Q2", "record_answer", "request_callback"}, set())
 
 
 class UnitTest(unittest.TestCase):
@@ -6744,6 +6745,9 @@ class FirstWordsTest(unittest.TestCase):
                     self.assertEqual((f.target_called, f.phase), ([1], "calling"), name)   # 呼ぶ一言は、第一声（1つ目の発話）のあとに流した
                 else:
                     self.assertEqual(f.phase, "asking", name)
+                if f.current is not None and b.target is None:
+                    # 名乗りのすぐあとの言葉が答えではない（「本人は今ちょっと出かけてるんですけど」）ときの道も知らせる（⛔ 2026-10-24 J5＝flowctl.answer_wait）
+                    self.assertIn("request_callback", r["message"], name)
                 if b.apology_call:
                     self.assertTrue(f.apology_asked and f.apology_played, name)
 
@@ -6938,6 +6942,21 @@ class ScenesTest(unittest.TestCase):
         self.assertEqual(SCENES["目的の人_本人"].call()[0][0]["wav"], "Puck_greet_company.wav")   # 目的の人のある業務は、会社の受付の方
         self.assertEqual(SCENES["苦情"].call()[0][0]["wav"], "Puck_hello.wav")                    # ない業務は、お客様ご本人
         self.assertEqual(len(SCENES["留守番電話"].call()[0]), 1)                                     # 案内が第一声
+
+    def test_answered_before_next_counts_after_the_opening(self):
+        # 名乗り（最初の質問を含む）は第一声のあとに流れの記録の中で流れる＝その質問は「答えより先に流した質問」ではない（⛔ 2026-10-24 J5）
+        from scenes import answered_before_next
+
+        def op(name, result, play, part=None):
+            return {"op": name, "args": {"part": part} if part else {}, "reply": {"result": result, "play": play}}
+        q = lambda i: {"kind": "question", "id": i}
+        opening = op("signal", "opening", [{"kind": "recorded", "part": "intro"}, q("Q1")])
+        answer = op("replay_opening", "ok", [{"kind": "recorded", "part": "purpose"}], part="purpose")
+        self.assertTrue(answered_before_next({"flow_log": [opening, answer, op("report_answer", "next", [q("Q2")])]}))
+        # 名乗りのあとで、答えより先に質問を流したら外れ
+        self.assertFalse(answered_before_next({"flow_log": [opening, op("report_answer", "next", [q("Q2")]), answer]}))
+        # 答えのあとの質問が、次の質問ではない（いまの質問を流し直した）なら外れ
+        self.assertFalse(answered_before_next({"flow_log": [opening, answer, op("report_answer", "again", [q("Q1")])]}))
 
     def test_widened_pause_keeps_the_voice(self):
         # 間を長くした台詞：文と文の間だけが変わり、声の長さ（間を除く）は同じ

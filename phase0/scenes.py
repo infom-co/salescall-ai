@@ -176,8 +176,11 @@ def answered_before_next(call: dict, then: str = "Q2") -> bool:
     """答えに添えられた相手の質問に、答える操作（replay_opening）が受け付けられてから、質問の録音が流れ、その録音が次の質問（then）だったか
     （録音を先に流すと、相手の質問にかぶせる・いまの質問を流し直すと、もう答えた質問を聞き直す）。答えの報告が先（Flow._advance の
     after_answer）でも、答えたあと（Flow._held_words）でも同じに数える。
-    ⛔ 2026-10-23 tc48 のあとの見直し：前は答えの報告が先の道（callee_asked）だけを数えていた＝答えたあとに報告する道を外れと数える"""
+    ⛔ 2026-10-23 tc48 のあとの見直し：前は答えの報告が先の道（callee_asked）だけを数えていた＝答えたあとに報告する道を外れと数える
+    ⛔ 2026-10-24 J5：名乗り（最初の質問を含む）は、電話に出た方の第一声のあとに流れの記録の中で流れる（Flow._opening_reply）＝数えるのは名乗りより後ろ。
+       前は記録の頭から数えていたので、名乗りの最初の質問を「答えより先に流した質問」と数えて、3つの声とも外れにしていた"""
     log = ops(call)
+    log = log[next((k + 1 for k, x in enumerate(log) if x["reply"].get("result") == "opening"), 0):]
     i = next((k for k, x in enumerate(log) if x["op"] == "replay_opening" and x["args"].get("part") not in ("resume", "handover")
               and x["reply"]["result"] != "rejected"), None)
     if i is None or any("question" in played_parts(x["reply"]) for x in log[:i]):

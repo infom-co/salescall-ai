@@ -540,6 +540,15 @@ def choices_note(q: "Question") -> str:
     return f"{q.id} の選択肢の意味：" + "／".join(f"「{c}」＝{q.meanings[c]}" for c in q.conditions if q.meanings.get(c)) + "。"
 
 
+def answer_wait(how: str = "相手が答えたら record_answer で報告します。") -> str:
+    """質問を流した（聞いた）あと、相手の返事を待つときの知らせの唯一の場所：答えの報告の仕方（how）と、答えではないことを言われたときの道。
+    ⛔ 2026-10-24 J5：名乗りの返事が「相手が答えたら record_answer で報告します。」だけだったので、名乗りのすぐあとの「本人は今ちょっと
+       出かけてるんですけど」「あとでかけてもらえますか」「別の番号に…」を、AIが最初の質問の答えとして報告した（不在 S4・L4・あとで S4・
+       別の番号 S2）。J の前は名乗りのあとに返事が無く、指示文のとおり request_callback を呼んでいた＝直前の知らせが、指示文の道を狭めていた"""
+    return (how + "答えではないこと（いまは話を進められない＝request_callback・相手からの質問・通話のお断りなど）を言われたら、"
+            "それに合う報告をします。")
+
+
 def choice_words(q: "Question", cond: str | None) -> str | None:
     """選択肢の答えを言い直すときの言葉（「（言葉）でよろしいでしょうか？」の（言葉）。phrases.confirm の meaning）。取込で決めた意味の言葉
     （Question.meanings。「ご予約はお済みということ」）、無ければ選択肢の名前（「カード」）。名前が返事の言葉だけなら、言い直せないので None。
@@ -1484,7 +1493,7 @@ class Flow:
                     lines.append({"kind": "opening", "part": "purpose", "text": self.opening["purpose"]})
             if self.current is not None:
                 lines.append(question_play(list(self.questions.values()), self.current))
-            say, then = None, "相手の答えを待ってください。相手が答えたら record_answer で報告します。" if self.current else "相手のお返事を待ちます。"
+            say, then = None, "相手の答えを待ってください。" + answer_wait() if self.current else "相手のお返事を待ちます。"
         texts = "".join(x["text"] for x in lines)
         if say:
             # 確かめる一言の録音が無い（質問を録音で流さない通話）：名乗りの録音のあとに、AIが言う（_connect の最初の質問と同じ形）
@@ -2998,7 +3007,7 @@ class Flow:
             play += back + [question_play(list(self.questions.values()), q.id)]
             return {"result": "replayed", "play": play,
                     "message": f"「{shown}{''.join(p['text'] for p in back)}{play[-1]['text']}」は、プログラムが録音で流しました（相手にもう聞こえて"
-                               "います）。何も言わずに、相手の答えを待ってください。相手が答えたら record_answer で報告します。"} | bridged
+                               "います）。何も言わずに、相手の答えを待ってください。" + answer_wait()} | bridged
         if q is not None:
             then = f"「{BACK_TO}」と言ってから、" if back else ""
             return {"result": "replayed", "play": play, "speak": True,
@@ -3976,7 +3985,7 @@ class Flow:
                           f"歯止め時間 {self.designated_limit[0]}〜{self.designated_limit[1]}）")
         return {"result": "ask_back", "question_id": qid, "say": AMPM_ASK, "ask_n": 0, "ask_reason": "ampm",
                 "message": f"「{value}」の午前・午後が分かりません。「{AMPM_ASK}」と聞いて、相手の答えを待ってください。"
-                           "相手が答えたら、聞いたとおりの値で record_answer で報告します。"}
+                           + answer_wait("相手が答えたら、聞いたとおりの値で record_answer で報告します。")}
 
     def _ask_until(self, qid: str, value: str) -> dict:
         """「あとで」のかけ直しの「〇時まで」で、いま電話を続けられない理由が分からない：承認済みの時刻の問い（phrases.CALLBACK_ASK の later_time。
@@ -3989,9 +3998,9 @@ class Flow:
                 "聞いたとおりの値で record_answer で報告します。")
         if self.play_recordings:
             return {"result": "ask_back", "question_id": qid, "ask_n": 0, "ask_reason": "until", "play": [{"kind": "recorded", "id": "callback_later_time", "text": say}],
-                    "message": f"「{say}」を、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、相手の答えを待ってください。{hint}"}
+                    "message": f"「{say}」を、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、相手の答えを待ってください。{answer_wait(hint)}"}
         return {"result": "ask_back", "question_id": qid, "say": say, "ask_n": 0, "ask_reason": "until",
-                "message": f"「{value}」の、いま電話を続けられない理由が分かりません。「{say}」ともう一度だけ伺って、相手の答えを待ってください。{hint}"}
+                "message": f"「{value}」の、いま電話を続けられない理由が分かりません。「{say}」ともう一度だけ伺って、相手の答えを待ってください。{answer_wait(hint)}"}
 
     def _ask_again(self, qid: str, reason: str, why: str, shown: str = "") -> dict:
         """聞き返しの唯一の場所（DESIGN.md 6-11。聞き取れない・曖昧＝"unclear"／答えが質問に合わない＝"form"）。AIに選ばせず、ここで
@@ -4005,7 +4014,7 @@ class Flow:
             last = it.ask_backs == self.limits.ask_back and self.limits.recheck == 0
             say = ask_again_phrase(it.ask_backs, reason, q.topic, last=last)
             return {"result": "ask_back", "question_id": q.id, "say": say, "ask_n": it.ask_backs, "ask_reason": reason, "ask_last": last,
-                    "message": f"{shown}「{say}」と聞き返して、相手の答えを待ってください。相手が答えたら record_answer で報告します。"}
+                    "message": f"{shown}「{say}」と聞き返して、相手の答えを待ってください。" + answer_wait()}
         it.set("unresolved", f"{why}・聞き返しを使い切った" if self.phase == "asking" else f"{why}・念のための確認でも聞けなかった")
         return self._advance(f"{shown}「-」にします。" + self._reading_note(qid))
 
@@ -4141,7 +4150,7 @@ class Flow:
                 text = play["text"]
                 return {"result": "next", "question_id": q.id, "question": q.text, "play": [play],
                         "message": f"{prefix}次の質問 {q.id}「{text}」は、プログラムが録音で流しました（相手にもう聞こえています）。"
-                                   "何も言わずに、相手の答えを待ってください。相手が答えたら record_answer で報告します。" + choices_note(q)}
+                                   "何も言わずに、相手の答えを待ってください。" + answer_wait() + choices_note(q)}
             return {"result": "next", "question_id": q.id, "question": q.text,
                     "message": f"{prefix}次の質問は {q.id}「{q.text}」です。" + ("" if q.callback else self._lead_note("次の質問"))
                                + choices_note(q)}
@@ -4159,8 +4168,7 @@ class Flow:
             # 言い方は聞き返しと同じ表（phrases.ask_again）の、最後の1回の言い方。相づちは「申し訳ございません、」（_ack）
             say = ask_again_phrase(self.items[self.current].ask_backs + 1, "unclear", q.topic, last=True)
             return {"result": "recheck", "question_id": q.id, "question": q.text, "say": say,
-                    "message": f"{prefix}念のための確認です。{q.id} を、もう1回だけ「{say}」と聞いて、相手の答えを待ってください。"
-                               "相手が答えたら record_answer で報告します。"}
+                    "message": f"{prefix}念のための確認です。{q.id} を、もう1回だけ「{say}」と聞いて、相手の答えを待ってください。" + answer_wait()}
         reason = self.close_after or (("other_means" if self.callback_why == "other_means" else "callback") if self.callback_why else "done")
         return self._close(reason, prefix=f"{prefix}質問は終わりです。")
 
@@ -4318,8 +4326,7 @@ class Flow:
         q = self.questions[self.current]
         # ⛔ 2026-10-13 G-28：AIが答えを報告せずに言い直し、差し戻されたあと、「いまの質問は Q2 です」としか伝わらず、
         #    報告しないまま言い直しを繰り返した。⇒ いますることの操作まで書く
-        return (f"いまの質問は {q.id}「{q.text}」です。相手が答えたら record_answer で報告してください"
-                f"（聞き取れなかったら report_unclear）。")
+        return f"いまの質問は {q.id}「{q.text}」です。" + answer_wait("相手が答えたら record_answer で報告してください（聞き取れなかったら report_unclear）。")
 
     # ── 依頼主へ渡す書き方（7-1b。Q20 の唯一の場所）
     def answer_of(self, qid: str) -> str | None:
