@@ -1182,8 +1182,7 @@ class FormCheckTest(unittest.TestCase):
         out = f.handle(fc("record_answer", 質問="Q2", 答えの種類="答えた", 値="3人"))
         self.assertEqual(out["結果"], "聞き返す")
         text = " ".join(str(v) for v in out.values())
-        # 中の名前を見せない（AIが呼ぶ操作の名前だけは見せる。答えではないことを言われたときの道＝flowctl.answer_wait）
-        self.assertEqual(set(re.findall(r"[A-Za-z_][A-Za-z_0-9]*", text)) - {"Q2", "record_answer", "request_callback"}, set())
+        self.assertEqual(set(re.findall(r"[A-Za-z_][A-Za-z_0-9]*", text)) - {"Q2", "record_answer"}, set())  # 中の名前を見せない
 
 
 class UnitTest(unittest.TestCase):
@@ -6746,8 +6745,11 @@ class FirstWordsTest(unittest.TestCase):
                 else:
                     self.assertEqual(f.phase, "asking", name)
                 if f.current is not None and b.target is None:
-                    # 名乗りのすぐあとの言葉が答えではない（「本人は今ちょっと出かけてるんですけど」）ときの道も知らせる（⛔ 2026-10-24 J5＝flowctl.answer_wait）
-                    self.assertIn("request_callback", r["message"], name)
+                    # 名乗りのすぐあとの言葉が答えではない（「本人は今ちょっと出かけてるんですけど」）ときの道も知らせる（⛔ 2026-10-24 J5＝flowctl.answer_wait）。
+                    # どの操作かは指示文の1か所＝ここには操作の名前を書かない（⛔ 2026-10-24 J6：「忙しい」まで request_callback にした）
+                    from flowctl import answer_wait
+                    self.assertIn(answer_wait(), r["message"], name)
+                    self.assertNotIn("request_callback", r["message"], name)
                 if b.apology_call:
                     self.assertTrue(f.apology_asked and f.apology_played, name)
 
