@@ -977,11 +977,14 @@ class AckChoiceTest(unittest.TestCase):
             self.assertIn(ack, ACK)
 
     def test_pause_after_an_ack_follows_its_ending_mark(self):
-        # ✅ 2026-10-24 ユーザー：ふつう「。」が入る相づち（承知しました。・ありがとうございます。）のあとは、「、」の所より間を空ける（0.数秒）
-        # ⇒ 間は相づちの言葉の終わりの記号で決め（phrases.ACK_PAUSE_S の1か所）、返事に書く（電話接続モジュールが守る。AIには見せない）
+        # ✅ 2026-10-14 ユーザー：相づち「ありがとうございます。」と次の声の間は 0.6秒くらい／2026-10-24：ふつう「。」が入る相づちのあとは、
+        # 「、」の所より間を空ける ⇒ 間は相づちの言葉の終わりの記号で決め（phrases.ACK_PAUSE_S の1か所）、返事に書く（電話接続モジュールが守る）
         from phrases import ACK, ACK_PAUSE_S, ack_pause_s
+        from stitch_gap import ACK_TO_AI_S
         self.assertTrue(all(t[-1] in ACK_PAUSE_S for t in ACK.values()))
-        self.assertGreater(ACK_PAUSE_S["。"], ACK_PAUSE_S["、"])
+        # 「。」のあとは 10-14 の 0.6秒（聞き比べの道具も同じ1か所を読む）。⏳「、」のあとは聞き比べで決める（それまで 0.6秒）
+        self.assertEqual((ACK_PAUSE_S["。"], ACK_TO_AI_S), (0.6, 0.6))
+        self.assertLessEqual(ACK_PAUSE_S["、"], ACK_PAUSE_S["。"])
         self.assertEqual([k for k in ACK if ACK[k].endswith("。")], ["shouchi", "arigatou", "shitsurei"])
         f = self.flow()
         f.on_callee()
