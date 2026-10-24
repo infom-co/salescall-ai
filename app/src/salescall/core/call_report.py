@@ -48,7 +48,7 @@ from salescall.core.phone import normalize
 VERSION = 3
 FACT_KINDS = ("do_not_call", "complaint", "out_of_scope", "party", "callback", "ai_question", "voicemail_message", "end",
               "connect", "answered", "target_back", "callback_resume", "not_transferred", "substitute", "departed", "callee_question",
-              "talk")
+              "talk", "hold_timeout")
 # substitute・departed・callee_question（CL-1 の連絡帳 4-28・2-2 の版 0.5。2026-10-22 ユーザー決定の相手の申し出。どれも無くてもよい）：
 #   substitute＝電話口の方が、お呼びした方の代わりにご用件を伺うと申し出た（policy＝業務設定の応じ方・read・answer＝判断いただける
 #   お立場かを伺った答え）。departed＝お呼びした方が在籍していない（policy・read・successor＝後任の方へ切り替えたあとか）。
@@ -63,6 +63,11 @@ FACT_KINDS = ("do_not_call", "complaint", "out_of_scope", "party", "callback", "
 # not_transferred：受付の方が、事情があり取り次げないと言った発話（締めた理由 not_transferred と同じ発話。判定は not_reached で読む）。
 #   again＝締めの前に「後ほど改めてお掛けしてもよろしいでしょうか」と聞いた答え（true＝よいと言われた／false＝断られた・はっきり
 #   しなかった／無い＝聞いていない）。約束の電話で、当日の約束の幅の中でかけ直すかを決める（2026-10-22 ユーザー。DESIGN.md 7-2）
+# hold_timeout：保留を頼まれ（「少々お待ちください」）、業務の設定の長さ（call.hold_wait。お客様が長さを言えばその長さ）を待ちきった
+#   （CL-1 の連絡帳 4-42・4-44。2026-10-24 ユーザー：「業務ごとに選べる：デフォルト…5分、理由があればそれまで待つ。」）。根拠の発話＝
+#   保留を頼まれた発話・waited_s＝待った秒（0より大きい数）。締めた理由 hold_timeout と組で出る。記録だけ（判定は、目的のお客様に繋がる
+#   前の保留なら繋がらなかった理由 not_transferred＝日を改めて1回、繋がったあと・目的のお客様のいない業務なら「取れていない」のまま
+#   ＝どちらも今の判定の1か所が読む。取り次げないと言われた発話＝事実 not_transferred とは別のもの＝通話後の検証が見分ける）
 JUDGES = ("judge", "judge2")                             # 意味の判定の受け持ちの名前（CL-1 の flowctl.JUDGMENTS。代わりの Jev も、この名前で入る）
 CONNECT_READS = ("ai",) + JUDGES                         # 繋いだ読み：会話AIの報告と、判定の受け持ち
 TARGET_IS_THERE = "ご本人"                               # 判定の「目的のお客様ご本人」の読み（CL-1 の flowctl.TARGET_IS_THERE）
@@ -106,7 +111,7 @@ UNTIL_BY_REASON = {"other_number": "other_party", "ask_who": "other_party", "abs
                    "ask_when": "preparing"}
 # 不在・別の番号・あとで（お客様に頼まれた。6-2）／分かるお客様・分かる時を聞いた（15-2-3 の a1・a2）／こちらが約束した
 END_REASONS = ("done", "callee_hurry", "callee_refused_call", "callee_complaint", "wrong_party", "voicemail", "ivr", "fax",
-               "callback", "not_transferred", "departed", "other_means")                               # 締めた理由（CL-1 の END_LABEL の名前。「AIですか」では終えない＝2026-10-19 夜 ユーザー）
+               "callback", "not_transferred", "departed", "other_means", "hold_timeout")               # 締めた理由（CL-1 の END_LABEL の名前。「AIですか」では終えない＝2026-10-19 夜 ユーザー）
 HURRIED_ENDS = frozenset({"callee_hurry", "callee_refused_call", "callee_complaint"})   # 急いでいる・断られた・怒っている（CL-1 の Flow.hurried と同じ）
 NOT_REACHED_REASONS = ("absent", "not_transferred", "departed", "other_means")   # 目的のお客様に繋がらなかった理由（7-1。CL-1 の
 #   NOT_REACHED_LABEL：在籍していない＝後任の方にも繋がらなかった・終える業務／ほかの手段を望まれた。2026-10-22 の版 0.5）
@@ -116,18 +121,19 @@ HUMAN_PARTIES = frozenset({"reception", "target", "substitute", "successor", "wr
 #    お客様が目的のお客様）ので、質問に答えて「質問が終わった」で締めた通話も、断られて締めた通話も「会話に至らなかった」と読み、
 #    黙って切ったお客様の拒否（7-1c）も見なかった）
 # 締めた理由のうち、人の言葉でしか起きないもの（質問が終わった・急いでいる・通話を断られた・苦情・番号違い・かけ直し・取り次げない・
-# 在籍していない・ほかの手段）。入れないもの（MACHINE_ENDS）：留守番電話・自動音声・FAX。END_REASONS はこの2つにちょうど分かれる
+# 在籍していない・ほかの手段・保留で待ちきった＝保留を頼むのは人の言葉。CL-1 の 4-42）。入れないもの（MACHINE_ENDS）：留守番電話・
+# 自動音声・FAX。END_REASONS はこの2つにちょうど分かれる
 HUMAN_ENDS = frozenset({"done", "callee_hurry", "callee_refused_call", "callee_complaint", "wrong_party", "callback",
-                        "not_transferred", "departed", "other_means"})
+                        "not_transferred", "departed", "other_means", "hold_timeout"})
 MACHINE_ENDS = frozenset({"voicemail", "ivr", "fax"})
 # 相手が人でないと起きない事実（CallReport の欄の名前）：繋いだ・かけ直しの申し出・苦情・範囲外の求め・「AIですか」・お客様の質問に
-# 録音で答えた・確かめに戻った・続きへ戻った・取り次げない・代わりの方・在籍していない・お客様からの質問・受け答え。
+# 録音で答えた・確かめに戻った・続きへ戻った・取り次げない・代わりの方・在籍していない・お客様からの質問・受け答え・保留を頼まれた。
 # 入れないもの：発信の拒否の申告（自動音声の「営業のお電話はお断りしています」も申告になりうる。拒否は判定の (2) が先に決める）・
 # 留守番電話に伝言を残した・締めた理由（上の表で見る）・電話口の種別（HUMAN_PARTIES で見る）。
 # 取れた答え（項目の値）は会話の報告に入れ物が無い（行の項目は通話をまたいでたまる）ので、報告の中で人の答えと分かる事実
 # （お客様からの質問・受け答え・録音で答えた質問）で見る
 HUMAN_FACTS = ("connects", "callbacks", "complaints", "out_of_scope_requests", "ai_questions", "answered", "target_backs",
-               "callback_resumes", "not_transferred", "substitutes", "departures", "callee_questions", "talks")
+               "callback_resumes", "not_transferred", "substitutes", "departures", "callee_questions", "talks", "hold_timeouts")
 SPEAKERS = ("callee", "ai", "none")                      # 切れた瞬間に話していた側（7-1c）
 SAID_MAX = 80                                            # 根拠の発話の文字の長さの上限（CL-1 の _note と同じ）
 
@@ -262,6 +268,13 @@ class NotTransferred:
 
 
 @dataclass(frozen=True)
+class HoldTimeout:
+    """保留を頼まれ、待ちきった（事実 hold_timeout。CL-1 の 4-42）。記録だけ。"""
+    evidence: Said               # 保留を頼まれた発話
+    waited_s: float              # 待った秒（業務の設定 call.hold_wait か、お客様が言った長さ）
+
+
+@dataclass(frozen=True)
 class End:
     reason: str
     evidence: Said
@@ -318,6 +331,7 @@ class CallReport:
     departures: tuple[Departed, ...] = ()      # 事実 departed：お呼びした方が在籍していない（記録だけ）
     callee_questions: tuple[CalleeQuestion, ...] = ()   # 事実 callee_question：お客様からの質問（記録だけ）
     talks: tuple[Talk, ...] = ()         # 事実 talk：受け答えの一言（記録だけ）
+    hold_timeouts: tuple[HoldTimeout, ...] = ()   # 事実 hold_timeout：保留を頼まれ、待ちきった（記録だけ）
 
     # ── 判定が読むもの（どれも事実から読む。ここの1か所）
     @property
@@ -450,7 +464,8 @@ class CallReport:
                          for x in self.departures],
             "callee_question": [{**said(x.evidence), "answered": x.answered, **x.own.to_json()} for x in self.callee_questions],
             "talk": [{**said(t.evidence), **t.own.to_json(), **({} if t.fallback is None else {"fallback": t.fallback})}
-                     for t in self.talks]}
+                     for t in self.talks],
+            "hold_timeout": [{**said(h.evidence), "waited_s": h.waited_s} for h in self.hold_timeouts]}
         return {"version": VERSION, "facts": {k: v for k, v in facts.items() if v}, "not_reached": self.not_reached,
                 "cut": None if self.cut is None else {"speaker": self.cut.speaker, "in_closing": self.cut.in_closing,
                                                       "callee_refused_last": self.cut.callee_refused_last},
@@ -631,10 +646,12 @@ def from_json(raw: Any) -> CallReport:
                                 _reads(r.get("read"), "facts.departed.read"), _bool(r, "successor"), s)
                        for r, s in _records(facts, "departed", {"policy", "read", "successor"}))
     # 確かめに戻った（target_back）のは、かけ直しの申し出の途中か、代わりの方と話している途中（2026-10-22 の CL-1 の直し：代わりの方の
-    # あとにご本人が出た）。続きへ戻った（callback_resume）のは、かけ直しの申し出の途中だけ
-    if (backs and not (callbacks or substitutes)) or (resumes and not callbacks):
-        raise ReportInvalid("かけ直しの申し出・代わりの方の申し出が無いのに、確かめに戻った記録があります（または、かけ直しの申し出が"
-                            "無いのに、続きへ戻った記録があります）")
+    # あとにご本人が出た）か、約束の電話で「取り次げない」と言われ、約束の一言（P1）を伺っている間に取り次がれたとき（受付の方が
+    # 考えを変えた。CL-1 の連絡帳 4-47＝Flow.asking_reception。そのあと繋げば connect が続く）。続きへ戻った（callback_resume）のは、
+    # かけ直しの申し出の途中だけ
+    if (backs and not (callbacks or substitutes or not_transferred)) or (resumes and not callbacks):
+        raise ReportInvalid("かけ直しの申し出・代わりの方の申し出・取り次げなかった記録が無いのに、確かめに戻った記録があります（または、"
+                            "かけ直しの申し出が無いのに、続きへ戻った記録があります）")
     questions = []
     for r, s in _records(facts, "callee_question", {"answered"} | OWN_WORDS_KEYS):
         if "answered" not in r or (r["answered"] is not None and not isinstance(r["answered"], bool)):
@@ -642,9 +659,15 @@ def from_json(raw: Any) -> CallReport:
         questions.append(CalleeQuestion(r["answered"], s, _own_words(r, "facts.callee_question")))
     talks = tuple(Talk(s, _own_words(r, "facts.talk"), _text(r.get("fallback"), "facts.talk.fallback"))
                   for r, s in _records(facts, "talk", OWN_WORDS_KEYS | {"fallback"}))
+    holds = []
+    for r, s in _records(facts, "hold_timeout", {"waited_s"}):
+        w = r.get("waited_s")
+        if isinstance(w, bool) or not isinstance(w, (int, float)) or not w > 0:
+            raise ReportInvalid("facts.hold_timeout.waited_s は、待った秒（0より大きい数）です")
+        holds.append(HoldTimeout(s, float(w)))
     return CallReport(refusals, complaints, oos, parties, tuple(callbacks), ends, not_reached, cut, delivered, ai_questions,
                       voicemail, tuple(connects), tuple(answered), backs, resumes, not_transferred, substitutes, departures,
-                      tuple(questions), talks)
+                      tuple(questions), talks, tuple(holds))
 
 
 OWN_WORDS_KEYS = {"answer", "drafts", "checked"}

@@ -557,3 +557,44 @@ class Anyone18b(unittest.TestCase):
         raw["facts"]["party"] = [{"turn": 1, "said": "はい、テスト商店です。", "party": "person", "by": "ai"}]
         self.assertEqual(judged(raw, anyone=True, items={"Q1": Item("confirmed", None, None)}).state, "incomplete")
         self.assertEqual(judged(raw, anyone=False, items={"Q1": Item("confirmed", None, None)}).state, "unknown")
+
+
+# ── 保留で待ちきった（CL-1 の連絡帳 4-42・4-44）・取り次げなかったあとの確かめ（4-47）
+HOLD = {"turn": 2, "said": "少々お待ちください。", "waited_s": 300}
+HOLD_BEFORE_TARGET = {   # 目的のお客様に繋がる前の保留で待ちきった：繋がらなかった理由は「取り次げなかった」
+    "version": 3, "facts": {"hold_timeout": [HOLD], "end": [{"turn": 2, "said": "少々お待ちください。", "reason": "hold_timeout"}]},
+    "not_reached": "not_transferred", "cut": None, "apology_delivered": None}
+
+
+class Hold1024(unittest.TestCase):
+    def test_a_hold_timeout_is_accepted_and_read_by_the_judgement_already_there(self):
+        """保留で待ちきった（締めた理由・事実 hold_timeout）を受け取る。判定は今の1か所のまま：目的のお客様に繋がる前なら、繋がらなかった
+        理由 not_transferred（日を改めて1回）。繋がったあと・「誰でも」の業務なら「取れていない」（2026-10-24 CL-1 の 4-44）。
+        保留を頼むのは人の言葉なので「話した」（人の証の表）。"""
+        r = from_json(HOLD_BEFORE_TARGET)
+        self.assertEqual((r.end_reason, r.hold_timeouts[0].waited_s, r.talked, from_json(r.to_json())),
+                         ("hold_timeout", 300.0, True, r))
+        j = run(HOLD_BEFORE_TARGET)
+        self.assertEqual((j.state, j.detail["not_reached"], j.detail["policy_key"]),
+                         ("not_reached", "not_transferred", "not_reached_not_transferred"))
+        after = copy.deepcopy(HOLD_BEFORE_TARGET)   # 繋がったあとの「確認しますので少々お待ちください」
+        after["not_reached"] = None
+        after["facts"]["connect"] = [{"turn": 1, "said": "はい、岡田です。", "read": ["ai", "judge"], "judging": True}]
+        self.assertEqual(run(after).state, "incomplete")
+        anyone = copy.deepcopy(HOLD_BEFORE_TARGET)   # 目的のお客様のいない業務の保留
+        anyone["not_reached"] = None
+        self.assertEqual(judged(anyone, anyone=True).state, "incomplete")
+        for bad in (0, -5, "300", True, None):
+            with self.subTest(waited_s=bad), self.assertRaises(ReportInvalid):
+                from_json({**HOLD_BEFORE_TARGET, "facts": {"hold_timeout": [{**HOLD, "waited_s": bad}]}})
+
+    def test_a_check_after_could_not_be_put_through_is_accepted(self):
+        """約束の電話で「取り次げない」と言われ、約束の一言を伺っている間に取り次がれて確かめに戻った（target_back のあと connect）を
+        受け取り、繋いだ事実で「繋がった」と読む（CL-1 の連絡帳 4-47）。"""
+        raw = {"version": 3, "not_reached": None, "cut": None, "apology_delivered": None, "facts": {
+            "not_transferred": [{"turn": 2, "said": "あいにく本日はお繋ぎできかねます。"}],
+            "target_back": [{"turn": 4, "said": "あ、いま戻りました。代わります。", "why": None}],
+            "connect": [{"turn": 5, "said": "お電話代わりました。岡田です。", "read": ["ai", "judge"], "judging": True}]}}
+        r = from_json(raw)
+        self.assertEqual((r.reached(False), from_json(r.to_json())), (True, r))
+        self.assertEqual(run(raw).state, "incomplete")
