@@ -591,7 +591,8 @@ def after_call(tx: Tx, task_id: UUID, j: Judgement, *, rules: Rules, dialed: Tar
             kept = _unspecified_next(tx, task_id, target, now=now, base=now, tried=dialed_at)
         elif cb.get("exact", True):
             said = datetime.fromisoformat(cb["at"])
-            kept = _keep_promise(tx, task_id, said, _exact_window(tx, task_id, said, day_said=bool(cb.get("day_said"))),
+            kept = _keep_promise(tx, task_id, said, _exact_window(tx, task_id, said, day_said=bool(cb.get("day_said")),
+                                                                  beyond_ok=bool(cb.get("beyond_ok"))),
                                  target, now=now, exact=True)
         else:
             kept = _keep_promise(tx, task_id, max(now, datetime.fromisoformat(cb["at"])), window_said(cb), target, now=now)
@@ -676,7 +677,7 @@ def _failed_retry_at(tx: Tx, task_id: UUID, contact_id: UUID | None, now: dateti
     """その番号へ、お客様のところで鳴らない電話（回線の部品が受け付けなかった・お客様が出る前に終わった＝attempts.failed_run）が
     続いているとき、次にかける時刻（1か所）。
     続いていない・並びを使い切った（その番号へはかけない＝`usable`）ときは None。並び（設定 dial.failed_retry_days。1＝最初に失敗
-    した日）の次の日が今日（か、もう過ぎた）なら、最後の失敗から同じお客様への最短の間隔をあけて。先の日なら、その日の、前と別の
+    した日）の次の日（前の失敗の日から並びの差より前にはしない）が今日（か、もう過ぎた）なら、最後の失敗から同じお客様への最短の間隔をあけて。先の日なら、その日の、前と別の
     時間帯で（`_retry_at`）。2026-10-22 深夜 ユーザー：「同じ番号で続けて当日2回＆翌日1回、さらに2日後1回の計4回受け付けられ
     なかったら、その番号へはかけない」。"""
     if contact_id is None:
@@ -687,7 +688,10 @@ def _failed_retry_at(tx: Tx, task_id: UUID, contact_id: UUID | None, now: dateti
     days = attempts.failed_retry_days(tx, **scope)
     if k == 0 or k >= len(days):
         return None
-    day = run["first_day"] + timedelta(days=days[k] - 1)   # 続いた失敗の最初の日から数える
+    # 次の日：「最初の失敗の日＋並び」と「前の失敗の日＋並びの差」の遅いほう（⛔ 見直し18c の (1)：前は最初の日からだけ数え、前の分が
+    # 時間帯の外などで次の日にずれると、残りが同じ日に詰まった＝当日2回・翌日1回の「翌日」が、ずれた2回目と同じ日になった）
+    last_day = calling_hours.local(run["last_end"]).date()
+    day = max(run["first_day"] + timedelta(days=days[k] - 1), last_day + timedelta(days=days[k] - days[k - 1]))
     today = calling_hours.local(now).date()
     if day <= today:
         gap = timedelta(seconds=int(settings.resolve(tx, "gate.same_contact_min_interval", **scope)))
@@ -952,20 +956,31 @@ def _exact_gaps(tx: Tx, task_id: UUID) -> list[int]:
     return [int(g) for g in settings.resolve(tx, "callback.exact_retry_gaps", **tasks.scope(tx, task_id))]
 
 
-def _exact_window(tx: Tx, task_id: UUID, at: datetime, *, day_said: bool) -> Window:
+def _exact_window(tx: Tx, task_id: UUID, at: datetime, *, day_said: bool, beyond_ok: bool = False) -> Window:
     """時刻ちょうどの約束（「明日の15時」）の最初の回（1か所）：約束の時刻から、設定 callback.exact_slot（1回分。初め30分）の長さ。
     最後の1本は1回分の終わりに置く（`_exact_next_try`）ので、それが回線のふさがり・見守り役の回りで少し遅れてもかけられるように、門が
     見る回の幅は、1回分の終わりから並びの最初の間（callback.exact_retry_gaps の初め＝5分）だけ長い（その日の中まで。2026-10-23
     ユーザー：「時刻ちょうどの約束も含めて、30分」・案A＝15:00・15:05・15:15・15:30）。
-    回の両端をお客様が口にした（said。依頼者の時間帯・NG時間・歯止めの外でもかける）。day_said＝お客様がその日を言った（「土曜の15時」）。
+    お客様が口にしたのは約束の時刻だけ（依頼者の時間帯・NG時間の外でもかける）。回の終わりはこちらが作った端なので、お客様指定の
+    歯止め時間で切る（「21時45分」の約束は 21:45・21:50 だけ。22:00・22:15 にはかけない）。約束の時刻が歯止め時間の外なら、作った幅は
+    通話の中で確かめて「はい」と言われたとき（beyond_ok＝会話の報告の callback.beyond_limit_ok）だけ使い（口にした時刻から1回分）、
+    確かめていなければ、口にした時刻そのものの1本だけ（遅れの許し＝並びの最初の間を含む）。決めるのは `calling_hours.callee_range` の
+    made の1か所（⛔ 見直し18a の (4)・18c の (2)：前は回の両端を口にした端にし、歯止め時間の外の 22:00・22:15 にもかけた）。
+    day_said＝お客様がその日を言った（「土曜の15時」）。
     話せなければ、次の日の同じ時刻の回へ（repeat＝次の日。次の日はお客様が言った日ではない＝`Window.later`）。"""
-    slot = gate.callee_settings(tx, **tasks.scope(tx, task_id)).exact_slot
+    callee = gate.callee_settings(tx, **tasks.scope(tx, task_id))
     local = at.astimezone(calling_hours.JST)
     midnight = local.replace(hour=0, minute=0, second=0, microsecond=0)
     start = int((local - midnight).total_seconds())
-    end = min(start + slot + _exact_gaps(tx, task_id)[0], 24 * 3600)
-    return Window(midnight + timedelta(seconds=end), (start, end), None, at, spoken_time.DAY_REPEAT, said=(True, True),
-                  day_said=day_said)
+    late = _exact_gaps(tx, task_id)[0]
+    end = min(start + callee.exact_slot + late, 24 * 3600)
+    limit = callee.designated_limit
+    got = calling_hours.callee_range((start, end), (True, False), limit, end - start if beyond_ok else None, made=True)
+    daily = got or (start, min(start + late, 24 * 3600))   # 確かめていない歯止めの外：口にした時刻そのものの1本
+    # 門が同じ幅を読めるように（gate.window_hours も callee_range）：歯止め時間の中の約束は、終わりが作った端（歯止め時間で切った
+    # もの）。外の約束は、確かめた1回分・口にした時刻そのものなので、両端ともお客様が認めた端
+    said = (True, False) if limit[0] <= start < limit[1] else (True, True)
+    return Window(midnight + timedelta(seconds=daily[1]), daily, None, at, spoken_time.DAY_REPEAT, said=said, day_said=day_said)
 
 
 def _slot_of(window: Window) -> tuple[datetime, datetime]:

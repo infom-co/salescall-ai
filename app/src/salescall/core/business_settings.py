@@ -68,6 +68,7 @@ TARGET_CLASSES = ("corporate", "individual")      # お客様の区分：法人�
 TARGET_CLASSES_OPEN = ("corporate",)              # いま選べる区分：法人だけ（Intent.md 3-1・18-3）。個人は、13章の確かめが済み、
 #                                                   名乗りの法定事項と拒否の即時登録をシステムが強制する形を作ってから開く（設定では開けない）
 TARGET_PERSON_KINDS = ("role", "role_and_name", "name", "anyone")
+ANYONE = "anyone"                                  # 目的のお客様のいない業務（最初に出たお客様が目的のお客様）
 # 役職のみ（決裁権者を含む）／役職（部署）＋名前／名前のみ／その店・会社のお客様なら誰でも（Intent.md 6-2。2026-10-13 ユーザー）
 NAME_SOURCES = ("caller", "script")               # 名乗り（自社名・担当者名）／トークスクリプトの文章（商品名・地名など）
 READING_BY = readings.BY                          # 読みを決めたもの（正本は core/readings.py）
@@ -685,12 +686,22 @@ def target_of(tx: Tx, task_id: UUID) -> dict[str, Any]:
     role = (role or t["target_role"]) if uses_role else None
     # 会話の「目的の人」の形（CL-1 の 4-22・phase0 の instruction.Target：区分・名前・読み・部署と役職）。誰でもは None（最初に出た人が
     # 目的の人）。読みが決まらない名前は、まず言ってみる読み（確かめは会話の中で＝candidates・likely）
-    target = None if kind == "anyone" else {
+    target = None if kind == ANYONE else {
         "kind": "法人" if s.target_class == "corporate" else "個人",
         "name": person["text"] if person else "",
         "reading": (person["reading"] or person["likely"] or "") if person else "",
         "role": role or ""}
     return {"kind": kind, "role": role, "person": person, "company": name("source"), "target": target}
+
+
+def anyone_target(tx: Tx, version_id: UUID) -> bool:
+    """その版の業務が「誰でも」（目的のお客様のいない業務）か（判定の入力＝judge.JudgeInput.anyone_target。読むのはここだけ）。
+    「誰でも」の業務は、お客様と話した通話が目的のお客様に繋がった通話（見直し18b の (3)）。中身は置いた時に確かめ済み。"""
+    row = tx.one("SELECT content -> 'target_person' ->> 'kind' AS kind FROM salescall.business_contents WHERE version_id = %s",
+                 (version_id,))
+    if row is None:
+        raise LookupError(f"その版の業務設定の中身がありません：{version_id}")
+    return row["kind"] == ANYONE
 
 
 def _open_tasks_missing(tx: Tx, run_id: UUID, needs: TargetNeeds) -> int:

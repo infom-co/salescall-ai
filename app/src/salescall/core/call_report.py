@@ -28,9 +28,10 @@
   - かけ直しの記録の `read`（受け取った読み＝"ai" と判定の名前。空もある＝プログラムが進めた）と `connected`（かけ直しの質問の途中で
     目的のお客様に繋がった＝そのかけ直しは要らない）。`read` は記録だけ。`connected` のかけ直しは、判定が読むかけ直し（`callback`）に
     しない（1か所）。
-  - 目的のお客様のある通話の「繋がったか」は、繋いだ事実（connect）だけで決める（`reached_target` の1か所。CL-1 は繋ぐとき必ず connect を
-    残す。電話口の種別の target はAIの報告で、判定と食い違うと繋がずに終わることがある）。「お客様と話したか」には、繋がらなかった理由・
-    かけ直しの申し出がある報告も入れる（`talked` の1か所。受付の方が電話口の種別の報告なしに「取り次げない」「席を外しています」と言った通話）。
+  - 目的のお客様のいる業務の「繋がったか」は、繋いだ事実（connect）だけで決める（`reached`。CL-1 は繋ぐとき必ず connect を残す。
+    電話口の種別の target はAIの報告で、判定と食い違うと繋がずに終わることがある）。「誰でも」の業務は、お客様と話した＝繋がった
+    （業務設定から判定の入力に入れる。見直し18b の (3)）。「お客様と話したか」は、人の証の表（HUMAN_PARTIES・HUMAN_ENDS・
+    HUMAN_FACTS）で決める（`talked` の1か所。見直し18b の (2)）。
 """
 
 from __future__ import annotations
@@ -73,7 +74,8 @@ PARTY_KINDS = ("reception", "target", "substitute", "successor", "voicemail", "i
 # person＝お客様が出て話したが、役（受付か目的のお客様か）はまだ分からない（2026-10-19 の見直しで足した。CL-1 の連絡帳への頼み
 # ＝CL-2 の 4-105）。⚠️ 版3の事実には「お客様が出た」が無く、目的の人のある業務で役が分かる前に切られた区間と、「誰でも」の業務
 # （最初に出たお客様が目的のお客様＝相手を報告しない）の区間は、相手が空になり、判定が「会話に至らなかった」と読んで、黙って切った
-# お客様の拒否を登録しなかった（原則14）
+# お客様の拒否を登録しなかった（原則14）。⇒ 見直し18b：相手が空でも、人の証の表（下の HUMAN_ENDS・HUMAN_FACTS）で「話した」と
+# 読み、「誰でも」の業務は話した＝繋がった（業務設定から。judge.JudgeInput.reached_target）
 PARTY_SOURCES = ("ai", "signal")                         # 会話AIの報告で分かった／音・回線の信号で分かった（CL-1 の `flowctl._party`
 #   の by と同じ値。⚠️ 前は "report" を受け、CL-1 の "ai" の報告をまるごと断っていた＝CL-2 の 4-101 の約束と食い違い。見直し6）
 CALLBACK_REASONS = ("absent", "long_absent", "other_number", "later", "departed", "other_means", "ask_who", "ask_when", "our_promise")
@@ -108,6 +110,23 @@ HURRIED_ENDS = frozenset({"callee_hurry", "callee_refused_call", "callee_complai
 NOT_REACHED_REASONS = ("absent", "not_transferred", "departed", "other_means")   # 目的のお客様に繋がらなかった理由（7-1。CL-1 の
 #   NOT_REACHED_LABEL：在籍していない＝後任の方にも繋がらなかった・終える業務／ほかの手段を望まれた。2026-10-22 の版 0.5）
 HUMAN_PARTIES = frozenset({"reception", "target", "substitute", "successor", "wrong_party", "person"})   # お客様と話した区間（person＝役がまだ分からない）
+# ── 「お客様と話したか」（CallReport.talked）の材料の表（どの事実が人の証かは、ここだけで決める。⛔ 見直し18b の (2)：前は電話口の
+#    種別・繋いだ事実・繋がらなかった理由・かけ直しの申し出だけを見た。「誰でも」の業務では CL-1 は電話口の種別を残さない（最初に出た
+#    お客様が目的のお客様）ので、質問に答えて「質問が終わった」で締めた通話も、断られて締めた通話も「会話に至らなかった」と読み、
+#    黙って切ったお客様の拒否（7-1c）も見なかった）
+# 締めた理由のうち、人の言葉でしか起きないもの（質問が終わった・急いでいる・通話を断られた・苦情・番号違い・かけ直し・取り次げない・
+# 在籍していない・ほかの手段）。入れないもの（MACHINE_ENDS）：留守番電話・自動音声・FAX。END_REASONS はこの2つにちょうど分かれる
+HUMAN_ENDS = frozenset({"done", "callee_hurry", "callee_refused_call", "callee_complaint", "wrong_party", "callback",
+                        "not_transferred", "departed", "other_means"})
+MACHINE_ENDS = frozenset({"voicemail", "ivr", "fax"})
+# 相手が人でないと起きない事実（CallReport の欄の名前）：繋いだ・かけ直しの申し出・苦情・範囲外の求め・「AIですか」・お客様の質問に
+# 録音で答えた・確かめに戻った・続きへ戻った・取り次げない・代わりの方・在籍していない・お客様からの質問・受け答え。
+# 入れないもの：発信の拒否の申告（自動音声の「営業のお電話はお断りしています」も申告になりうる。拒否は判定の (2) が先に決める）・
+# 留守番電話に伝言を残した・締めた理由（上の表で見る）・電話口の種別（HUMAN_PARTIES で見る）。
+# 取れた答え（項目の値）は会話の報告に入れ物が無い（行の項目は通話をまたいでたまる）ので、報告の中で人の答えと分かる事実
+# （お客様からの質問・受け答え・録音で答えた質問）で見る
+HUMAN_FACTS = ("connects", "callbacks", "complaints", "out_of_scope_requests", "ai_questions", "answered", "target_backs",
+               "callback_resumes", "not_transferred", "substitutes", "departures", "callee_questions", "talks")
 SPEAKERS = ("callee", "ai", "none")                      # 切れた瞬間に話していた側（7-1c）
 SAID_MAX = 80                                            # 根拠の発話の文字の長さの上限（CL-1 の _note と同じ）
 
@@ -312,32 +331,28 @@ class CallReport:
         return tuple(p.party for p in self.party_reports)
 
     @property
-    def for_target(self) -> bool:
-        """目的のお客様のある通話だと、報告から分かるか：繋いだ事実（connect）・繋がらなかった理由（not_reached）・確かめに戻った
-        事実（target_back）のどれかがある（どれも、目的のお客様のある通話でだけ CL-1 が残す。flowctl の `_connect`・`Flow.not_reached`・
-        `_target_back`）。⚠️ 目的のお客様のある通話でも、発信の拒否・番号違い・人でない相手で終わった通話は、どれも無い（判定はその前の順で
-        決まる）。"""
-        return bool(self.connects) or self.not_reached is not None or bool(self.target_backs)
-
-    @property
-    def reached_target(self) -> bool:
-        """目的のお客様と話せたか（1か所。判定の「目的のお客様に繋がらなかった」と、約束の日のお詫びの印を外す締めが読む）。
-        目的のお客様のある通話は、繋いだ事実（connect）だけで決める（CL-1 は繋ぐとき必ず connect を残す。電話口の種別の target はAIの
-        報告で、判定と食い違うと繋がずに終わる＝2026-10-22 の確かめ：AIが「目的の人」と報告し、判定は別の方、そのまま「取り次げない」で
-        締めた通話を「繋がった」と読みえた。また、AIの報告が「目的の人」でなくても、判定の「ご本人」が2つそろえば繋ぐ）。
-        それ以外（目的のお客様の無い業務＝誰でも・前の形の報告）は、電話口の種別の目的のお客様で見る。
-        ⚠️ 確かめ直し（core/target_recheck.py）まで入れた判断は judge.JudgeInput.reached_target の1か所（判定も締めもそれを読む）。"""
-        return bool(self.connects) if self.for_target else "target" in self.parties
-
-    @property
     def talked(self) -> bool:
-        """お客様と話したか（1か所。判定の切れ方・会話に至ったか・FAX の見分けが読む）：お客様の電話口の種別がある・目的のお客様に
-        繋いだ事実がある（CL-1 は、AIの「代わった方へ」のあと、電話口の種別を残さずに、判定の「ご本人」2つで繋ぐことがある）・目的の
-        お客様に繋がらなかった理由がある・かけ直しの申し出がある（受付の方が、電話口の種別の報告なしに「取り次げない」「席を外して
-        います」と言った通話。CL-1 は、人と話していない通話には not_reached を入れない＝`Flow.not_reached`。2026-10-22 の確かめ：前は
-        「会話に至らなかった」と読み、黙って切ったお客様の拒否も見なかった）。"""
-        return (bool(self.connects) or any(p in HUMAN_PARTIES for p in self.parties) or self.not_reached is not None
-                or bool(self.callbacks))
+        """お客様と話したか（1か所。判定の切れ方・会話に至ったか・FAX の見分け・「誰でも」の業務の繋がったかが読む）：お客様の電話口の
+        種別がある・目的のお客様に繋がらなかった理由がある・人の言葉で締めた（HUMAN_ENDS）・相手が人でないと起きない事実がある
+        （HUMAN_FACTS）。どの事実が人の証かは、上の表だけで決める（見直し18b の (2)）。
+        2026-10-22 の確かめ：受付の方が電話口の種別の報告なしに「取り次げない」「席を外しています」と言った通話を「会話に至らなかった」
+        と読んでいた（繋がらなかった理由・かけ直しの申し出を足した）。⛔ 見直し18b：「誰でも」の業務の話した通話（電話口の種別が無い）も
+        同じだった（締めた理由・お客様からの質問・受け答えを足した）。"""
+        return (any(p in HUMAN_PARTIES for p in self.parties) or self.not_reached is not None
+                or any(e.reason in HUMAN_ENDS for e in self.ends) or any(getattr(self, f) for f in HUMAN_FACTS))
+
+    def reached(self, anyone: bool) -> bool:
+        """目的のお客様と話せたか（報告から読む所。業務に目的のお客様がいるか＝anyone は判定の入力から。確かめ直しまで入れた判断は
+        judge.JudgeInput.reached_target の1か所＝判定も締めもそれを読む）。
+        - 「誰でも」の業務（目的のお客様のいない業務）：お客様と話した＝繋がった（talked。最初に出たお客様が目的のお客様。CL-1 は
+          電話口の種別を残さない・役の分からないお客様＝person を残すこともある）
+        - 目的のお客様のいる業務：繋いだ事実（connect）だけで決める（CL-1 は繋ぐとき必ず connect を残す。電話口の種別の target は
+          AIの報告で、判定と食い違うと繋がずに終わる＝2026-10-22 の確かめ：AIが「目的の人」と報告し、判定は別の方、そのまま
+          「取り次げない」で締めた通話を「繋がった」と読みえた）
+        ⛔ 見直し18b の (3)：前は業務設定を見ず、報告に「目的のお客様のある通話」の印（繋いだ・繋がらなかった理由・確かめに戻った）が
+        無ければ電話口の種別の target で見た。「誰でも」の業務で CL-1 が person を出すと、話した通話がすべて「繋がらなかった」になり、
+        繋がらなかった理由が無いので判定待ちがあふれた。"""
+        return self.talked if anyone else bool(self.connects)
 
     @property
     def target_unverified(self) -> bool:
@@ -551,7 +566,7 @@ def from_json(raw: Any) -> CallReport:
     ends = tuple(End(_choice(r.get("reason"), END_REASONS, "facts.end.reason"), s)
                  for r, s in _records(facts, "end", {"reason"}))
     # ⚠️ 電話口の種別の target（AIの報告）と not_reached は、両方あってよい（AIが「目的の人」と報告したが、判定と食い違って繋がずに
-    # 終わった通話。繋がったかは繋いだ事実で決める＝reached_target）。前はここで報告ごと断っていた（2026-10-22 の確かめ）
+    # 終わった通話。繋がったかは繋いだ事実で決める＝reached）。前はここで報告ごと断っていた（2026-10-22 の確かめ）
     not_reached = _choice(d.get("not_reached"), NOT_REACHED_REASONS, "not_reached", optional=True)
     cut = None
     if d.get("cut") is not None:

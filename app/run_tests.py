@@ -79,12 +79,12 @@ def _with_db(dsn: str, dbname: str, user: str) -> str:
     return " ".join(f"{k}={v}" for k, v in params.items())
 
 
-def _edited(migration: str, start: str, old: str, new: str) -> str:
-    """壊し試し用に、表の作りの1つの関数（start から `END $$` まで）の old を new に替えた形を返す（いまの形からずらす。
-    関数を写して持たない＝関数を直しても、壊し試しが古い形に戻さない）。"""
+def _edited(migration: str, start: str, old: str, new: str, *, end: str = "END $$") -> str:
+    """壊し試し用に、表の作りの1つの関数（start から end＝`END $$`・言語 sql の関数は改行のあとの `$$` まで）の old を new に
+    替えた形を返す（いまの形からずらす。関数を写して持たない＝関数を直しても、壊し試しが古い形に戻さない）。"""
     text = (APP / "db" / "migrations" / migration).read_text()
     begin = text.index(start)
-    body = text[begin:text.index("END $$", begin) + len("END $$")]
+    body = text[begin:text.index(end, begin) + len(end)]
     if body.count(old) != 1:
         raise AssertionError(f"壊し試しの置き換え元が {migration} の関数に1つだけありません：{old!r}")
     edited = body.replace(old, new).replace("CREATE FUNCTION", "CREATE OR REPLACE FUNCTION", 1)
@@ -1372,6 +1372,21 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      " FROM salescall.lines o WHERE o.tenant_id = salescall.cur_tenant() AND o.retired_at IS NULL AND o.lease_expires_at > now()"
      " AND NOT EXISTS (SELECT 1 FROM salescall.open_stop_events s WHERE s.scope = 'line' AND s.line_id = o.line_id) $$",
      ("tests.test_gate.PromisesStopsAndConflicts.test_lines_under_a_contractor_wide_stop_do_not_serve_promises",)),
+    # 見直し18（0128）
+    ("回線が直った証拠に、ほかの回線で鳴って終わった電話も数える（見直し18a の (5)：壊しても試験が落ちなかった）",
+     _edited("0124_unrung_numbers.sql", "CREATE OR REPLACE FUNCTION salescall.consecutive_errors(",
+             "WHERE a.line_id = p_line AND a.ended_at IS NOT NULL", "WHERE a.ended_at IS NOT NULL", end="\n$$"),
+     ("tests.test_watch.LineStops.test_a_call_that_rang_on_another_line_is_not_evidence",)),
+    ("判定できない通話は、原因によらず、断られたかが決まっていないとみなす（0128 の前の形：時刻・理由の抜けで、同じお客様のほかの行を止める）",
+     "CREATE OR REPLACE FUNCTION salescall.refusal_undecided(p_attempt uuid) RETURNS boolean LANGUAGE sql STABLE"
+     " SET search_path = salescall, pg_temp AS $$ SELECT NOT salescall.is_settled(p_attempt)"
+     " OR (salescall.unknown_pending(p_attempt)"
+     " AND NOT coalesce((SELECT a.cut_off FROM salescall.attempts a WHERE a.attempt_id = p_attempt), false)) $$",
+     ("tests.test_undecided_unknown.UnknownPending.test_an_unknown_call_whose_refusal_is_known_does_not_hold_the_customer",)),
+    ("判定できない通話を、切れ方の材料が無いときも、断られたかが分かっているとみなす（原因ごとの印を読まない）",
+     "CREATE OR REPLACE FUNCTION salescall.refusal_undecided(p_attempt uuid) RETURNS boolean LANGUAGE sql STABLE"
+     " SET search_path = salescall, pg_temp AS $$ SELECT NOT salescall.is_settled(p_attempt) $$",
+     ("tests.test_undecided_unknown.UnknownPending.test_an_unknown_call_that_was_not_cut_still_holds_the_customer",)),
 )
 
 

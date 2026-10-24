@@ -34,8 +34,8 @@
       ただし、不在で戻る時刻が取れなかった申し出（理由 absent・時刻の言葉が無い／任せる）は約束にしない ⇒ not_reached（不在。2026-10-13
       ユーザー：「不在」はかけ直しの回数の上限までかけ直す）
   (8) お客様と話したが、目的のお客様に繋がらなかった                                          ⇒ not_reached（不在／取り次いでもらえなかった）
-      繋がったか・話したかは call_report の1か所（`reached_target`・`talked`）：目的のお客様のある通話は、繋いだ事実（connect）だけで
-      繋がったと読む。繋がらなかった理由・かけ直しの申し出がある報告は、電話口の種別が無くても「話した」。取り次いでもらえなかった
+      話したかは call_report の1か所（`talked`＝人の証の表）、繋がったかは `JudgeInput.reached_target` の1か所：目的のお客様のいる
+      業務は、繋いだ事実（connect）だけで繋がったと読む。「誰でも」の業務は、話した＝繋がった（業務設定から。見直し18b）。取り次いでもらえなかった
       （事情があり取り次げなかった）⇒ システムが日を改めて1回（business_rules.SYSTEM_POLICIES。2026-10-22 ユーザー）
   (9) 会話に至らなかった（お客様が出なかった・お客様の声でなかった）                              ⇒ open
   (10) 必須の質問が1つでも取れていない                                               ⇒ incomplete
@@ -53,7 +53,7 @@ from salescall.core.business_rules import Rules
 from salescall.core.call_report import CallReport
 
 # 判定の決まりの版（変えたら上げる）。かけ直しの時刻の読み方の版も入れる（読み方を直すと、判定待ちの行が判定し直される＝settle.rejudge）
-JUDGE_VERSION = f"judge-2026-10-22.8+time-{spoken_time.VERSION}"   # 2026-10-22.8：判定できなかった通話にも、会話の報告のかけ直しの申し出（約束）を残す（promise_offer。途中で切れたとき、すぐにかけず約束を守る＝見直し15）・約束の幅に、お客様が言った端とその日を言ったか（said・day_said）を残す・理由の無い「わからない」の確かめ（(6)）は、お客様と話した通話だけ（前の通話の答えで、出なかった電話まで判定できないにしない）。.7：目的のお客様に繋がらなかった結果に again（同じ日にまたかけてよいと言われたか）・在籍していないは業務の応じ方で（終える／後任の方を追う＝successor の印）。.6：CL-1 の 4-28（長期の不在は不在の仲間・ほかの手段と在籍していないは電話でかけ直さず終える）。.5：取り次げなかった通話に、あとでまたかけてよいと言われたか（again）を残す。.4：不在で戻る時刻が取れなかった申し出は「不在」（約束にしない）。.3：CL-1 の 10-22 の報告を受ける（目的のお客様のある通話は繋いだ事実だけで繋がった・繋がらなかった理由／かけ直しの申し出があれば話した・繋がって要らなくなったかけ直しは読まない。読み方は call_report の1か所）（.2：確かめ直しで目的のお客様だと確かめられなかった通話は「取り次いでもらえなかった」。.1：繋いだ事実で話した・繋がったと読む）
+JUDGE_VERSION = f"judge-2026-10-24.1+time-{spoken_time.VERSION}"   # 2026-10-24.1（見直し18b）：「お客様と話したか」を人の証の表で読む（人の言葉の締め・お客様からの質問・受け答えなど）・「誰でも」の業務は話した＝繋がった（業務設定から判定の入力に）・判定できない結果に、断られたかは分かっているか（refusal_known）を残す。2026-10-22.8：判定できなかった通話にも、会話の報告のかけ直しの申し出（約束）を残す（promise_offer。途中で切れたとき、すぐにかけず約束を守る＝見直し15）・約束の幅に、お客様が言った端とその日を言ったか（said・day_said）を残す・理由の無い「わからない」の確かめ（(6)）は、お客様と話した通話だけ（前の通話の答えで、出なかった電話まで判定できないにしない）。.7：目的のお客様に繋がらなかった結果に again（同じ日にまたかけてよいと言われたか）・在籍していないは業務の応じ方で（終える／後任の方を追う＝successor の印）。.6：CL-1 の 4-28（長期の不在は不在の仲間・ほかの手段と在籍していないは電話でかけ直さず終える）。.5：取り次げなかった通話に、あとでまたかけてよいと言われたか（again）を残す。.4：不在で戻る時刻が取れなかった申し出は「不在」（約束にしない）。.3：CL-1 の 10-22 の報告を受ける（目的のお客様のある通話は繋いだ事実だけで繋がった・繋がらなかった理由／かけ直しの申し出があれば話した・繋がって要らなくなったかけ直しは読まない。読み方は call_report の1か所）（.2：確かめ直しで目的のお客様だと確かめられなかった通話は「取り次いでもらえなかった」。.1：繋いだ事実で話した・繋がったと読む）
 # 「判定できない」の原因の名前（同じ原因かを数える単位）と意味。プログラムの誤りか（直す担当へ修正依頼を出し、管理者にも
 # 知らせる＝確かめ・承認のため。2026-10-16・10-17 ユーザー）も、ここで決まる（1か所）。業務設定の抜けは契約者が直す（いまは無い：業務の決まりは、必須の質問ごとに、
 # 決まった理由のすべてに扱いが無いと保存できない＝business_rules。2026-10-16 見直し：前は「理由×扱いが決まらない」を業務設定の
@@ -73,6 +73,15 @@ UNKNOWN_CAUSE_FIXERS: dict[str, str] = {"report_missing": "CL-1", "cut_missing":
                                         "not_reached_reason_missing": "CL-1", "callback_time_unreadable": "CL-2",
                                         "callback_time_unconfirmed": "CL-1"}
 PROGRAM_CAUSES = frozenset(UNKNOWN_CAUSE_FIXERS)
+# 原因ごとに、断られたか（発信の拒否）は分かっているか（判定できない結果の中身の refusal_known。同じお客様のほかの行を止めるかは、
+# データベースの salescall.refusal_undecided がこの印を読む＝決めるのはこの表だけ）。分からないのは、拒否を決める前に止まった原因
+# （報告が無い・切れ方の材料が無い）だけ。ほかの原因は、判定の (2) までの拒否の確かめを通ったあと（拒否は無かった）に起きる。
+# 途中で切れた通話は、原因によらず、通話のあとの確かめで断りの言葉が見つからなければ断られていない（データベースの側。0118）。
+# ⛔ 見直し18b の (5)：前は、どの原因の判定できないも同じお客様のほかの行を止め、時刻・理由の抜けで、断られていないお客様の
+# ほかの行まで、直して判定し直すまでかからなかった
+REFUSAL_KNOWN: dict[str, bool] = {"report_missing": False, "cut_missing": False, "reason_missing": True,
+                                  "not_reached_reason_missing": True, "callback_time_unreadable": True,
+                                  "callback_time_unconfirmed": True}
 TAKEN = frozenset({"confirmed", "accepted"})                  # 「取れた」の定義（4-4。ここで2つ目を作らない）
 
 
@@ -113,14 +122,17 @@ class JudgeInput:
     # お客様の時間の設定（営業時間＝午前・午後・お客様指定の歯止め時間・1回分の長さ。読むのは gate.callee_settings の1か所。
     # 初めの値の写しを持たない＝必ず渡す。⛔ 見直し17b：前は渡し忘れても黙って 7〜22時・1時間になった）
     callee: calling_hours.CalleeSettings = field(kw_only=True)
+    # 業務に目的のお客様がいないか（「誰でも」。業務設定の版から＝business_settings.anyone_target の1か所。初めの値を持たない＝必ず
+    # 渡す）。⛔ 見直し18b の (3)：前は判定の入力に無く、報告の印だけで「目的のお客様のある通話か」を推していた
+    anyone_target: bool = field(kw_only=True)
 
     @property
     def reached_target(self) -> bool:
         """目的のお客様と話せたか（判定の (8)「目的のお客様に繋がらなかった」と、締めの約束の日のお詫びの印を外す所が読む1か所）：
-        会話の報告で繋がっていて（call_report.CallReport.reached_target）、確かめ直しで目的のお客様だと確かめられなかった通話でない
-        （2026-10-22 の見直し：前は判定が「繋がった」、締めが「繋がらなかった」と別々に読み、別の方だった約束の電話を「一部だけ取れた」
-        にして、約束の幅を外していた）。"""
-        return self.report is not None and self.report.reached_target and not self.target_unconfirmed
+        会話の報告で繋がっていて（call_report.CallReport.reached＝「誰でも」の業務はお客様と話した、目的のお客様のいる業務は繋いだ
+        事実がある）、確かめ直しで目的のお客様だと確かめられなかった通話でない（2026-10-22 の見直し：前は判定が「繋がった」、締めが
+        「繋がらなかった」と別々に読み、別の方だった約束の電話を「一部だけ取れた」にして、約束の幅を外していた）。"""
+        return self.report is not None and self.report.reached(self.anyone_target) and not self.target_unconfirmed
 
 
 @dataclass(frozen=True)
@@ -268,13 +280,15 @@ def _callback(cb: Any, when: spoken_time.Reading) -> dict[str, Any]:
     since＝その回の本当の始まり・repeat＝話せなかったときの次の回（お客様がその日を選んだ理由。spoken_time.Reading.repeat）・
     said＝1日の中の幅の始まり・終わりをお客様が言ったか・day_said＝お客様がその日を言ったか（どちらも、依頼者の時間帯の外で
     かけてよいかを決める材料＝calling_hours.callee_hours）・until_why＝「〇時まで」の言い方のときの、いま電話を続けられなかった理由
-    （Callback.until_reason。記録だけ＝幅はもう決まっている）。"""
+    （Callback.until_reason。記録だけ＝幅はもう決まっている）・beyond_ok＝お客様指定の歯止め時間の外の時刻を通話の中で確かめた
+    （時刻ちょうどの約束の回を、歯止めの外で1回分使ってよいか＝next_action._exact_window が読む）。"""
     iso = lambda t: None if t is None else t.isoformat()   # noqa: E731
     return {"reason": cb.reason, "at": iso(when.start), "until": iso(when.end), "since": iso(when.since), "repeat": when.repeat,
             "cycle": cb.cycle, "daily": None if when.daily is None else list(when.daily),
             "days": None if when.days is None else list(when.days), "exact": when.exact, "said": list(when.said),
             "day_said": when.day_said, "time_said": cb.time_said, "number_said": cb.number_said,
-            "number_e164": cb.number_e164, "person": cb.person, "until_why": cb.until_reason}
+            "number_e164": cb.number_e164, "person": cb.person, "until_why": cb.until_reason,
+            "beyond_ok": cb.beyond_limit_ok}
 
 
 def _promise_offer(inp: JudgeInput) -> dict[str, Any] | None:
@@ -295,10 +309,12 @@ def _promise_offer(inp: JudgeInput) -> dict[str, Any] | None:
 
 
 def _unknown(inp: JudgeInput, complaint: bool, detail: dict[str, Any], cause: str, error: str) -> Judgement:
-    """判定できない（1か所）。会話の報告に約束の申し出があれば、中身に残す（`_promise_offer`）。"""
+    """判定できない（1か所）。会話の報告に約束の申し出があれば、中身に残す（`_promise_offer`）。断られたかは分かっているか
+    （refusal_known＝`REFUSAL_KNOWN` の1か所）も残す（データベースの salescall.refusal_undecided が読む）。"""
     offer = _promise_offer(inp)
     return Judgement("unknown", complaint, None, None,
-                     {**detail, "unknown_cause": cause, "error": error, **({"promise_offer": offer} if offer else {})})
+                     {**detail, "unknown_cause": cause, "error": error, "refusal_known": REFUSAL_KNOWN[cause],
+                      **({"promise_offer": offer} if offer else {})})
 
 
 def _unreached_key(r: CallReport) -> str:

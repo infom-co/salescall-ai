@@ -33,7 +33,8 @@ def report(parties=("target",), *, dnc=False, oos=False, complaint=False, not_re
 
 
 def run(*, facts=TALKED, rep=report(), items=None, refused_after=False, unclear_is_refusal=True):
-    return judge(JudgeInput(facts, rep, TAKEN if items is None else items, RULES, refused_after, unclear_is_refusal, callee=CALLEE))
+    return judge(JudgeInput(facts, rep, TAKEN if items is None else items, RULES, refused_after, unclear_is_refusal, callee=CALLEE,
+                            anyone_target=False))
 
 
 class Order(unittest.TestCase):
@@ -455,9 +456,9 @@ class Shapes(unittest.TestCase):
                    callback("later", time="いつでも")):
             self.assertEqual(from_json(report(callback=cb).to_json()).callback, cb)
         # AIが「目的の人」と報告したが、繋がずに終わった（判定と食い違った）：受け取り、繋がっていないと読む（繋がったかは繋いだ事実
-        # だけ＝CallReport.reached_target。2026-10-22 の確かめ：前は報告ごと断った）
-        unreached = from_json({**good, "not_reached": "absent"})
-        self.assertEqual((unreached.parties, unreached.reached_target), (("target",), False))
+        # だけ＝CallReport.reached。2026-10-22 の確かめ：前は報告ごと断った）
+        unreached = from_json(report(not_reached="absent").to_json())
+        self.assertEqual((unreached.parties, unreached.reached(False)), (("target",), False))
         facts = good["facts"]
         rec = {"turn": 1, "said": "あとでかけて"}
         for name, change in [("知らない項目", {"extra": 1}), ("事実が無い", {"facts": None}),
@@ -503,9 +504,10 @@ class Shapes(unittest.TestCase):
         for record, unverified in cases:
             with self.subTest(record):
                 got = with_connect(record)
-                self.assertEqual((got.target_unverified, got.reached_target), (unverified, True))
+                self.assertEqual((got.target_unverified, got.reached(False)), (unverified, True))
                 self.assertEqual(from_json(got.to_json()), got)
-        self.assertFalse(report(("person",)).reached_target)                          # 繋いだ事実も目的のお客様も無い
+        self.assertFalse(report(("person",)).reached(False))                          # 繋いだ事実が無い（目的のお客様のいる業務）
+        self.assertTrue(report(("person",)).reached(True))                            # 「誰でも」の業務：話した＝繋がった（見直し18b）
         self.assertTrue(with_connect({"read": ["ai", "judge"], "judging": True},
                                      {"read": ["ai"], "judging": True}).target_unverified)   # 1つでも確かめ直しの要る繋ぎ
         rec = {"turn": 3, "said": "はい"}
@@ -576,9 +578,10 @@ class Shapes(unittest.TestCase):
         said = "明日の3時まで"   # 通話は 19時（日本時間）＝明日の15時まで
         cases = [(callback("other_number", time=said, number="03-1234-5678"), [0, 15 * 3600], [False, True]),   # 今から
                  (callback("absent", time=said), [15 * 3600, 24 * 3600], [True, False]),                        # 3時から
-                 (callback("ask_when", time=said), [15 * 3600, 16 * 3600], [True, True]),                       # 確認のあと1回分
+                 (callback("ask_when", time=said), [15 * 3600, 15 * 3600 + 1800], [True, False]),               # 確認のあと1回分（30分）
+                 # （1回分の終わりはこちらが作った端＝口にした端ではない。見直し18c の (2)）
                  (replace(callback("later", time=said), until_why="unavailable"), [15 * 3600, 24 * 3600], [True, False]),
-                 (replace(callback("later", time=said), until_why="preparing"), [15 * 3600, 16 * 3600], [True, True]),
+                 (replace(callback("later", time=said), until_why="preparing"), [15 * 3600, 15 * 3600 + 1800], [True, False]),
                  (replace(callback("later", time=said), until_why="other_party"), [0, 15 * 3600], [False, True])]
         for cb, daily, edges in cases:
             with self.subTest(reason=cb.reason, until_why=cb.until_why):
@@ -589,7 +592,8 @@ class Shapes(unittest.TestCase):
         self.assertEqual((j.state, j.detail["unknown_cause"]), ("unknown", "callback_time_unconfirmed"))
         # 決め方は設定から：それまでは出られない、を「今から」にした業務
         other = replace(CALLEE, until_rules=(("other_party", "now"), ("unavailable", "now"), ("preparing", "slot_after")))
-        j = judge(JudgeInput(TALKED, report(callback=callback("absent", time=said)), {}, RULES, False, True, callee=other))
+        j = judge(JudgeInput(TALKED, report(callback=callback("absent", time=said)), {}, RULES, False, True, callee=other,
+                             anyone_target=False))
         self.assertEqual(j.detail["callback"]["daily"], [0, 15 * 3600])
 
     def test_a_time_beyond_the_limit_is_kept_only_after_the_customer_agreed(self):
@@ -600,7 +604,8 @@ class Shapes(unittest.TestCase):
         j = run(items={}, rep=report(callback=said))
         self.assertEqual((j.state, j.detail["unknown_cause"]), ("unknown", "callback_time_unconfirmed"))
         agreed = replace(said, beyond_limit_ok=True)
-        j = judge(JudgeInput(TALKED, report(callback=agreed), {}, RULES, False, True, callee=replace(CALLEE, exact_slot=1800)))
+        j = judge(JudgeInput(TALKED, report(callback=agreed), {}, RULES, False, True, callee=replace(CALLEE, exact_slot=1800),
+                             anyone_target=False))
         cb = j.detail["callback"]
         self.assertEqual((j.state, cb["at"], cb["until"], cb["daily"], cb["said"]),
                          ("callback_scheduled", "2030-01-07T23:00:00+09:00", "2030-01-07T23:30:00+09:00",
@@ -608,6 +613,16 @@ class Shapes(unittest.TestCase):
 
 
 class Causes(unittest.TestCase):
+    def test_every_cause_says_whether_the_refusal_is_known(self):
+        """判定できない原因は、どれも「断られたかは分かっているか」を持つ（judge.REFUSAL_KNOWN。結果の中身の refusal_known を
+        データベースの salescall.refusal_undecided が読む）。分からないのは、拒否を決める前に止まった原因だけ（見直し18b の (5)）。"""
+        from salescall.core.judge import REFUSAL_KNOWN, UNKNOWN_CAUSES
+        self.assertEqual(set(REFUSAL_KNOWN), set(UNKNOWN_CAUSES))
+        self.assertEqual({c for c, known in REFUSAL_KNOWN.items() if not known}, {"report_missing", "cut_missing"})
+        self.assertEqual(run(rep=report(cut=None)).detail["refusal_known"], False)            # 切れ方の材料が無い
+        got = run(items={"Q1": Item("refused", None, None), "Q2": TAKEN["Q2"]}).detail      # 理由の無い「答えない」
+        self.assertEqual((got["unknown_cause"], got["refusal_known"]), ("reason_missing", True))
+
     def test_program_causes_go_to_the_admin(self):
         """判定できない原因のうち、プログラムの誤り（会話の処理）は管理者が直す（2026-10-16 ユーザー承認）。理由の無い
         「わからない」「答えない」も会話の処理の誤り（業務の決まりは、決まった理由のすべてに扱いが無いと保存できない）。"""

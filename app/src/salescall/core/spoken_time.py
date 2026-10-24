@@ -45,7 +45,7 @@ from datetime import date, datetime, time, timedelta
 from salescall.core.calling_hours import JST, callee_range, clock_seconds
 
 # 読み方の版（読み方を変えたら上げる）。判定の版（judge.JUDGE_VERSION）に入る＝上げると、読めなかった「判定待ち」の行が判定し直される
-VERSION = "13"   # 13：「〇時まで」（終わりだけを口にした幅）は、いま電話を続けられなかった理由で、かけてよい時間を決める（理由が分からなければ確かめる。2026-10-23 ユーザー：「かけ直さないといけない理由によるでしょ」）。12：その「23時以降なら」「朝6時まで」を確かめて「はい」なら、口にした端から1回分（callback.exact_slot）の幅（2026-10-23 ユーザー：「案B＆案A(確かめたうえで案A)」）。11：お客様が口にした端の反対側を「お客様指定の歯止め時間」で埋めると空になる幅（「23時以降なら」「朝6時まで」）は、通話の中で確かめる（見直し16b）。10：日を言わない約束の今日の回は、お客様が言った日（day_said。見直し16）
+VERSION = "14"   # 14：「〇時までに確認しておきます」の「〇時から1回分」・時刻ちょうどの約束の1回分の終わりは、こちらが作った端（口にした端に入れない。始まりが歯止め時間の外なら確かめが要る・中なら終わりを歯止め時間で切る＝callee_range の made）・「毎週月曜」を読む（見直し18）。13：「〇時まで」（終わりだけを口にした幅）は、いま電話を続けられなかった理由で、かけてよい時間を決める（理由が分からなければ確かめる。2026-10-23 ユーザー：「かけ直さないといけない理由によるでしょ」）。12：その「23時以降なら」「朝6時まで」を確かめて「はい」なら、口にした端から1回分（callback.exact_slot）の幅（2026-10-23 ユーザー：「案B＆案A(確かめたうえで案A)」）。11：お客様が口にした端の反対側を「お客様指定の歯止め時間」で埋めると空になる幅（「23時以降なら」「朝6時まで」）は、通話の中で確かめる（見直し16b）。10：日を言わない約束の今日の回は、お客様が言った日（day_said。見直し16）
 AT, WINDOW, UNSPECIFIED, CONFIRM, UNREADABLE = "at", "window", "unspecified", "confirm", "unreadable"
 # 幅の中でお客様と話せなかったときの、次の回（お客様がその日を選んだ理由に合わせる。2026-10-19 ユーザー決定）：
 # DAY＝時間の言葉（「夕方」「3時以降」）・日の種類だけ（「平日なら」）・「すぐ」⇒ 次の日の同じ幅／WEEK＝曜日・週末・週中・
@@ -134,7 +134,8 @@ _MIDWEEK = re.compile(r"(?:(?P<week>今週|来週|再来週)の?(?:週中|週の
 _WEEK_START = re.compile(r"週明け|週初め|週のはじめ|週の初め")
 _WEEK = re.compile(r"(?P<week>今週|来週|再来週)(?P<within>中|いっぱい)?(?!の?[月火水木金土日]曜)(?!の?週)(?!末)(?!半ば)")
 _DATE = re.compile(r"(?:(?P<mrel>今月|来月|再来月)の?|(?P<mon>\d{1,2})月)?(?P<dom>\d{1,2})日")
-_WDAY = re.compile(r"(?P<week>今週|来週|再来週)?の?(?P<wday>[月火水木金土日])曜日?")
+# 「毎週月曜」＝いちばん近いその曜日（次の回は次の週の同じ曜日＝WEEK。「月曜なら」と同じ。⛔ 見直し18c：前は読めなかった）
+_WDAY = re.compile(r"(?:毎週|(?P<week>今週|来週|再来週))?の?(?P<wday>[月火水木金土日])曜日?")
 _WDAY_CHECK = re.compile(r"\((?P<p>[月火水木金土日])(?:曜日?)?\)|の?(?P<w>[月火水木金土日])曜日?")
 # 日の種類（その中の日だけ。calling_hours の曜日・祝日の鍵）
 _DAY_KINDS = [("土日祝日", ("sat", "sun", "holiday")), ("土日祝", ("sat", "sun", "holiday")),
@@ -562,6 +563,7 @@ def read(text: str | None, now: datetime, *, business_hours: tuple[int, int], li
         return _confirm("幅が空になる言い方です（いつまでか決まりません）")
     daily = (s0, s1) if kind == "window" else None
     said = said if daily is not None else NOT_SAID
+    made = False                                      # 幅の終わりを、口にした時刻からこちらが作った（1回分。callee_range の made）
     if daily is not None and said == UNTIL_SAID:      # 「〇時まで」：いま電話を続けられなかった理由で、かけてよい時間を決める
         if until is None:
             return _confirm("「〇時まで」は、いま電話を続けられない理由で、かけてよい時間が変わります（別の番号・別の方へ＝今から・"
@@ -569,13 +571,17 @@ def read(text: str | None, now: datetime, *, business_hours: tuple[int, int], li
                             "よろしいでしょうか」を伺ってください")
         if until == "after":                           # 口にした時刻から（終わりは言葉で決まっていない＝歯止め時間で埋める）
             daily, said = (s1, DAY), (True, False)
-        elif until == "slot_after":                    # 口にした時刻から1回分（両方の端をお客様の言葉から決めた幅）
-            daily, said = (s1, min(s1 + slot, DAY)), BOTH_SAID
+        elif until == "slot_after":                    # 口にした時刻から1回分（終わりはこちらが作った端＝口にした端ではない）
+            daily, said, made = (s1, min(s1 + slot, DAY)), (True, False), True
         elif until != "now":
             raise ValueError(f"「〇時まで」の決め方が違います：{until!r}")
         s0, s1 = daily
-    if daily is not None and callee_range(daily, said, limit) is None:   # かけてよい時間が空になる（判断は callee_range の1か所）
-        slotted = callee_range(daily, said, limit, slot) if beyond_ok else None
+    got = None if daily is None else callee_range(daily, said, limit, made=made)
+    if made and got is not None:                      # 作った終わりは歯止め時間で切る（「21時45分までに確認」＝21:45〜22:00）
+        daily = got
+        s0, s1 = daily
+    if daily is not None and got is None:             # かけてよい時間が空になる（判断は callee_range の1か所）
+        slotted = callee_range(daily, said, limit, slot, made=made) if beyond_ok else None
         if slotted is None:
             return _confirm("お客様が言った時刻が、お客様指定の歯止め時間の外です（夜遅く・朝早く）。その時刻でよいかを確かめてください"
                             "（「はい」なら、その時刻から1回分かける）")

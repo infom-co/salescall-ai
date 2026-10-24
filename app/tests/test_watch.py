@@ -175,6 +175,19 @@ class LineStops(unittest.TestCase):
             self.line_error()
         self.assertEqual(self.line_stops(), [])
 
+    def test_a_call_that_rang_on_another_line_is_not_evidence(self):
+        """回線が直った証拠は「その回線で」鳴って終わった電話だけ（0124 の consecutive_errors の line_ok）。同じ契約者のほかの回線で
+        鳴った電話は、この回線が直った証拠にならない（⛔ 見直し18a の (5)：壊しても試験が落ちなかった）。"""
+        need = owner_access().in_system(SYSTEM, lambda tx: settings.initial_value(tx, "stop.line.stop_after_failures"))
+        other_line = self.w.line(self.s["tenant"])
+        for _ in range(need - 1):
+            self.line_error()
+        aid = self.w.insert_claim(self.s, line=other_line)
+        for st in ("dialing", "ringing", "no_answer"):
+            self.w.move(self.s, aid, st)                             # ほかの回線で鳴って出なかった
+        self.line_error()
+        self.assertEqual([r["cause"] for r in self.line_stops()], ["line_failure"])
+
     def test_a_person_resume_restarts_the_count_and_explain_shows_why(self):
         need = owner_access().in_system(SYSTEM, lambda tx: settings.initial_value(tx, "stop.line.stop_after_failures"))
         for _ in range(need):

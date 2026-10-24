@@ -370,7 +370,7 @@ class TargetRecheck(SettleBase):
         self.assertEqual((r["detail"].get("target_unconfirmed"), r["detail"].get("not_reached"), r["detail"].get("policy_key"),
                           r["snapshot"]["target_recheck"]), (True, "not_transferred", "not_reached_not_transferred", "not_target"))
         inp = self.tx(s, lambda tx: settle._judge_input(tx, settle._attempt(tx, aid), s["version"])[0])
-        self.assertEqual((inp.report.reached_target, inp.reached_target), (True, False))
+        self.assertEqual((inp.report.reached(inp.anyone_target), inp.reached_target), (True, False))
 
     def test_the_target_keeps_the_answers_and_a_later_call_by_another_person_gives_back_the_earlier_answers(self):
         """目的のお客様だったら答えはそのまま。後の通話（判定なしで繋いだ）が上書きした答えは、その通話が別の方だったら、前の通話で
@@ -787,6 +787,40 @@ class UnusableNumber(SettleBase):
         latest = self.tx(s, lambda tx: tx.one("SELECT max(ended_at) AS e FROM salescall.attempts WHERE contact_id = %s",
                                              (s["contact"],))["e"])
         self.assertEqual(run["last_end"], latest)
+
+    def test_a_failure_moved_to_a_later_day_moves_the_rest_too(self):
+        """2つ目の失敗が、決まった順の日（1日目）より遅れた（時間帯の外などで2日目にずれた）とき、3つ目は2日目でなく3日目
+        （次の日は「最初の失敗の日＋並び」と「前の失敗の日＋並びの差」の遅いほう＝next_action._failed_retry_at の1か所。⛔ 見直し18c の
+        (1)：前は最初の日からだけ数え、ずれた2つ目と同じ日に3つ目を詰めた）。"""
+        s = self.ready()
+        for days_ago in (1, 0):   # 1日前に1つ目・今日に2つ目（本当は1日目＝1日前にかけるはずだった分）
+            aid = self.w.insert_claim(s)
+            for state in ("dialing", "call_failed"):
+                self.w.move(s, aid, state)
+
+            def back(tx):
+                tx.execute("ALTER TABLE salescall.attempts DISABLE TRIGGER USER")
+                tx.execute("UPDATE salescall.attempts SET claimed_at = claimed_at - make_interval(days => %s),"
+                           " ended_at = ended_at - make_interval(days => %s) WHERE attempt_id = %s", (days_ago, days_ago, aid))
+                tx.execute("ALTER TABLE salescall.attempts ENABLE TRIGGER USER")
+            owner_access().in_system(SYSTEM, back)
+        today = self.tx(s, lambda tx: tx.one("SELECT salescall.jst(now())::date AS d")["d"])
+        self.assertEqual(self.tx(s, lambda tx: attempts.failed_run(tx, s["contact"]))["first_day"], today - timedelta(days=1))
+        now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
+        at = self.tx(s, lambda tx: next_action._failed_retry_at(tx, s["task"], s["contact"], now, now))
+        self.assertEqual(self.jst_date(s, at), today + timedelta(days=1))   # 前の失敗の日（今日）＋並びの差（1日）
+
+    def test_outside_hours_waits_for_the_next_opening(self):
+        """門が時間帯の外で断ったら、次の予定は次の時間帯の始まり（gate.next_opening の1か所。⛔ 見直し17a：前は決まった間のあとへ
+        書き直し続けた。見直し18a の (5)：壊しても試験が落ちなかった。見直し18a の Records.test_outside_hours_overnight の場面）。"""
+        s = self.ready()
+        hour = self.tx(s, lambda tx: tx.one("SELECT extract(hour FROM salescall.jst(now()))::int AS h")["h"])
+        band = [["13:00", "14:00"]] if hour < 12 else [["06:00", "07:00"]]   # いまを含まない時間帯
+        self.put_client(s, "calling.hours", {k: band for k in KEYS})
+        scope = dict(tenant_id=s["tenant"], client_id=s["client"], business_id=s["business"])
+        d = self.tx(s, lambda tx: next_action.after_denial(tx, s["task"], gate.denied("outside_hours"), **scope))
+        opening = self.tx(s, lambda tx: gate.next_opening(tx, tx.one("SELECT now() AS t")["t"], **scope))
+        self.assertEqual((d.kind, d.at), ("call", opening))
 
     def test_the_order_is_per_client(self):
         """並びは依頼者ごとに変えられる（[1]＝最初の失敗で、その番号へはかけない）。並びは1日目から始まり、小さくならない。"""
@@ -1914,6 +1948,65 @@ class CallbackWindow(SettleBase):
             hours, {k: [] for k in KEYS}, holiday_checker(tx), local, local + lifetime, callee_at=t_local, window=callee))
         self.assertEqual((ok(final_local), ok(final_local + timedelta(minutes=3)), ok(t_local + timedelta(minutes=36))),
                          (True, True, False))
+
+    def test_the_end_of_an_exact_promise_slot_is_not_a_said_edge(self):
+        """時刻ちょうどの約束の回の終わりは、こちらが作った端（口にしたのは約束の時刻だけ）：歯止め時間（7〜22時）の中の約束は、
+        終わりを歯止め時間で切る＝「21時45分」の約束は 21:45・21:50 だけ（22:00・22:15 にはかけない）。歯止めの外の約束（23時）は、
+        通話の中で確かめていなければ口にした時刻そのものの1本だけ、確かめて「はい」なら 23:00 から1回分（決めるのは
+        calling_hours.callee_range の made の1か所。⛔ 見直し18a の (4)・18c の (2)：前は回の両端を口にした端にした）。"""
+        s = self.ready()
+        self.put_client(s, "callee.designated_limit", ["07:00", "22:00"])   # 初めの値（試験の土台は1日じゅうに替えている）
+        day = self.tx(s, lambda tx: tx.one("SELECT salescall.from_jst(date_trunc('day', salescall.jst(now())) + interval '1 day') AS d")["d"])
+        callee = lambda w: self.tx(s, lambda tx: gate.window_hours(   # noqa: E731
+            tx, tenant_id=s["tenant"], client_id=s["client"], business_id=s["business"], window=w.callee))
+        t = day + timedelta(hours=21, minutes=45)
+        w = self.tx(s, lambda tx: next_action._exact_window(tx, s["task"], t, day_said=True))
+        self.assertEqual((w.daily, w.said, w.until), ((21 * 3600 + 2700, 22 * 3600), (True, False), day + timedelta(hours=22)))
+        self.assertEqual(callee(w)["mon"], [["21:45", "22:00"]])                         # 門も同じ幅
+        start, end = next_action._slot_of(w)
+        plan = next_action._exact_plan(start, start + timedelta(minutes=30), [300, 600], 0)
+        self.assertEqual([x for x in plan if x < end], [t, t + timedelta(minutes=5)])   # 21:45・21:50 だけ
+        late = day + timedelta(hours=23)
+        w = self.tx(s, lambda tx: next_action._exact_window(tx, s["task"], late, day_said=True))
+        self.assertEqual((w.daily, w.said), ((23 * 3600, 23 * 3600 + 300), (True, True)))   # 口にした時刻そのもの（5分の遅れの許し）
+        start, end = next_action._slot_of(w)
+        self.assertEqual([x for x in next_action._exact_plan(start, start + timedelta(minutes=30), [300, 600], 0) if x < end],
+                         [late])
+        w = self.tx(s, lambda tx: next_action._exact_window(tx, s["task"], late, day_said=True, beyond_ok=True))
+        self.assertEqual((w.daily, w.said), ((23 * 3600, 23 * 3600 + 2100), (True, True)))   # 確かめ済み：23:00 から1回分（＋5分）
+
+    def test_a_promise_on_a_later_day_of_the_failed_order_keeps_its_time(self):
+        """鳴らない電話が続く番号の決まった順（dial.failed_retry_days）の次の日が先の日で、その日に約束（「明日の10時」）があるとき：
+        その日の始まりから約束を守り直す＝約束の時刻 10:00 にかける（`_not_before_failed` の1か所。決まった順の時刻＝前と別の時間帯の
+        14時から探すと、約束の回を過ぎて次の日へ回る。⛔ 見直し18a の (5)：壊しても試験が落ちなかった。見直し18a の MorningPromise の場面）。"""
+        s = self.ready()
+        self.put_client(s, "calling.ng_hours", {k: [] for k in KEYS})
+        clock = self.tx(s, lambda tx: tx.one(
+            "SELECT now() AS now, salescall.from_jst(date_trunc('day', salescall.jst(now())) + interval '1 day') AS day"))
+        now, day = clock["now"], clock["day"]
+        t = day + timedelta(hours=10)
+        target = next_action.Target(s["contact"])
+        d = self.tx(s, lambda tx: next_action._keep_promise(
+            tx, s["task"], t, next_action._exact_window(tx, s["task"], t, day_said=True), target, now=now, exact=True))
+        self.assertEqual((d.kind, d.at), ("call", t))
+        got = self.tx(s, lambda tx: next_action._not_before_failed(tx, s["task"], d, day + timedelta(hours=14), now=now))
+        self.assertEqual((got.kind, got.at, got.callee_at, got.window.round), ("call", t, t, 0))
+
+    def test_an_unrung_dial_in_an_exact_round_is_not_one_of_its_calls(self):
+        """時刻ちょうどの約束の回の本数は、お客様に届いた電話だけで数える（`_exact_next_try`。お客様が出る前に回線の側で終わった電話は
+        数えない）：回線の失敗1本と、鳴って出なかった3本のあとでも、最後の1本（1回分の終わり）が残る（⛔ 見直し18a の (5)：数え方を
+        「発信した電話すべて」に壊しても試験が落ちなかった。見直し18a の test_exact_line_failure_then_rang の場面）。"""
+        s = self.ready()
+        now, t, window = self.exact_ready(s)
+        paths = [["dialing", "ringing", "technical_error"]] + [["dialing", "ringing", "no_answer"]] * 3
+        for path in paths:
+            aid = self.w.insert_claim(s)
+            for st in path:
+                self.w.move(s, aid, st)
+        slot = self.tx(s, lambda tx: gate.callee_settings(tx, tenant_id=s["tenant"], client_id=s["client"],
+                                                          business_id=s["business"]).exact_slot)
+        got = self.tx(s, lambda tx: next_action._exact_next_try(tx, s["task"], window, now))
+        self.assertEqual(got, t + timedelta(seconds=slot))                          # 最後の1本（1回分の終わり）
 
     def test_exact_promise_counts_cannot_be_zero(self):
         """時刻ちょうどの約束の時間・日数・かけ直しの間は1以上（0なら約束を一度もかけずに終えてしまう。データベースが守る＝0093）。"""

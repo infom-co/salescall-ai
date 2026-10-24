@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from salescall.core import gate, next_action, settle
+from salescall.core import gate, next_action, results, settle
 from tests.test_settle import SettleBase, rep
 
 CUT = ("dialing", "ringing", "answered", "in_conversation", "technical_error")
@@ -61,14 +61,30 @@ class UnknownPending(SettleBase):
         self.assertEqual(self.tx(s, lambda tx: settle.awaiting_rejudge(tx, s["task"])), a)
 
     def test_an_unknown_call_that_was_not_cut_still_holds_the_customer(self):
-        """途中で切れていない、判定できない通話（会話の処理の誤り）は、判定し直しまで、断られたかがまだ決まっていない（同じお客様の
-        ほかの行は待つ。判定し直しは、直す担当への修正依頼のあと）。"""
+        """途中で切れていない、判定できない通話で、断られたかが分からない原因（切れ方の材料が無い・会話の報告が無い）は、判定し直し
+        まで、断られたかがまだ決まっていない（同じお客様のほかの行は待つ。判定し直しは、直す担当への修正依頼のあと）。"""
+        s = self.ready()
+        o = self.other_row(s)
+        a = self.call(s, report=rep(cut=None), items=(("Q1", "dont_know", None),))
+        got = self.settle(s, a)
+        self.assertEqual((got["state"], self.tx(s, lambda tx: results.latest(tx, s["task"]))["detail"]["unknown_cause"]),
+                         ("unknown", "cut_missing"))
+        self.assertTrue(self.undecided(s, a))
+        self.assertEqual(self.tx(o, lambda tx: gate.pacing(tx, o["task"])).binding, "related_unsettled")
+
+    def test_an_unknown_call_whose_refusal_is_known_does_not_hold_the_customer(self):
+        """判定できない原因が、拒否の確かめを通ったあとの抜け（「わからない」の理由が無い など）なら、断られていないと分かっている：
+        同じお客様のほかの行は待たない（原因ごとに分かるかを決めるのは judge.REFUSAL_KNOWN の1か所。データベースは結果の中身の印を
+        読む＝0128）。判定し直しの対象には残る。⛔ 見直し18b の (5)：前は、どの原因でもほかの行を止めた。"""
         s = self.ready()
         o = self.other_row(s)
         a = self.call(s, report=rep(), items=(("Q1", "dont_know", None),))
-        self.assertEqual(self.settle(s, a)["state"], "unknown")
-        self.assertTrue(self.undecided(s, a))
-        self.assertEqual(self.tx(o, lambda tx: gate.pacing(tx, o["task"])).binding, "related_unsettled")
+        got = self.settle(s, a)
+        detail = self.tx(s, lambda tx: results.latest(tx, s["task"]))["detail"]
+        self.assertEqual((got["state"], detail["unknown_cause"], detail["refusal_known"]), ("unknown", "reason_missing", True))
+        self.assertFalse(self.undecided(s, a))
+        self.assertNotEqual(self.tx(o, lambda tx: gate.pacing(tx, o["task"])).binding, "related_unsettled")
+        self.assertEqual(self.tx(s, lambda tx: settle.awaiting_rejudge(tx, s["task"])), a)
 
     def test_a_later_call_whose_result_is_also_unknown_keeps_it_pending(self):
         """あとの発信がお客様につながっても、その結果も判定できなければ、前の通話はまだ判定し直しの対象（決まったとみなすのは、あとの

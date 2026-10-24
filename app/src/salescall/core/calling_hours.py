@@ -248,7 +248,7 @@ def callee_window(row: dict) -> CalleeWindow | None:
 
 
 def callee_range(daily: tuple[int, int], said: tuple[bool, bool] | None,
-                 limit: tuple[int, int], beyond_slot: int | None = None) -> tuple[int, int] | None:
+                 limit: tuple[int, int], beyond_slot: int | None = None, *, made: bool = False) -> tuple[int, int] | None:
     """お客様が言った1日の中の幅から、かけてよい [始まり, 終わり)（1か所。2026-10-23 ユーザー：「『朝』も時間帯が決まっているでしょ」
     「お客様の日時指定の場合は、『お客様指定の歯止め時間』で見るようにしないといけない」）：
     - 幅はすべてお客様の指定（言葉の表の幅：朝〜10時・午前中〜12時・午後一13〜14時・午後13時〜・夕方16〜18時・夜18〜20時、数の幅：
@@ -264,9 +264,18 @@ def callee_range(daily: tuple[int, int], said: tuple[bool, bool] | None,
       「はい」と言われたときだけ（beyond_slot＝1回分の長さ。設定 callback.exact_slot＝時刻ちょうどの約束と同じ）、口にした端から
       1回分（「23時以降」＝23時から・「6時まで」＝6時の前の1回分）。確かめていなければ None（2026-10-23 ユーザー：「案B＆案A
       (確かめたうえで案A)」）。
+    - made＝幅の終わりを、お客様が口にした始まりの時刻から、こちらが作った（1回分。時刻ちょうどの約束の回・「〇時までに確認して
+      おきます」の「〇時から1回分」）。作った終わりは「口にした端」ではない：始まりが歯止め時間の中なら、終わりを歯止め時間で切る
+      （「21時45分」の約束は 21:45〜22:00）。始まりが歯止め時間の外なら、作った幅は、通話の中で確かめて「はい」と言われたときだけ
+      （beyond_slot。口にした時刻から1回分）。確かめていなければ None（⛔ 見直し18c の (2)・18a の (4)：前は作った終わりも口にした端に
+      入れ、「23時までに確認しておきます」を確かめずに 23:00〜23:30、「21時45分」の約束に 22:00・22:15 にもかけた）。
     空なら None。"""
     lo, hi = daily
     said_lo, said_hi = said or (False, False)
+    if made:
+        if limit[0] <= lo < limit[1]:
+            return lo, min(hi, limit[1])
+        return None if beyond_slot is None else (lo, min(lo + beyond_slot, _DAY))
     a = lo if said_lo else max(lo, limit[0])
     b = hi if said_hi else min(hi, limit[1])
     if a < b:

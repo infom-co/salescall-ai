@@ -21,9 +21,9 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from salescall.core import (apology, approval, attempts, business_rules, call_report, calling_hours, dnc, fix_requests,
-                            gate, next_action, notify, number_recheck, quality_stage, results, settings, spoken_time,
-                            target_policy, target_recheck, tasks, usage)
+from salescall.core import (apology, approval, attempts, business_rules, business_settings, call_report, calling_hours, dnc,
+                            fix_requests, gate, next_action, notify, number_recheck, quality_stage, results, settings,
+                            spoken_time, target_policy, target_recheck, tasks, usage)
 from salescall.core.access import Tx
 from salescall.core.judge import (JUDGE_VERSION, UNKNOWN_CAUSE_FIXERS, UNKNOWN_CAUSES, Facts, Item, JudgeInput, Judgement,
                                   classify_cut, cut_off as judge_cut_off, judge, refusal, unreached_today)
@@ -287,7 +287,8 @@ def _judge_input(tx: Tx, a: dict[str, Any], rules_version: Any) -> tuple[JudgeIn
                      report, _items(tx, a["task_id"]), business_rules.load(tx, rules_version), refused_after,
                      unclear_is_refusal, periods,
                      dnc.refused_in(tx, attempt_id, "refused_in_call"), target_recheck.unconfirmed(tx, attempt_id),
-                     callee=_callee(tx, a))   # お客様の時間の設定（読むのは gate.callee_settings の1か所）
+                     callee=_callee(tx, a),   # お客様の時間の設定（読むのは gate.callee_settings の1か所）
+                     anyone_target=business_settings.anyone_target(tx, rules_version))   # 「誰でも」の業務か（見直し18b の (3)）
     return inp, report_source, dialed
 
 

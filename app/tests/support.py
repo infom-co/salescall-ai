@@ -18,8 +18,9 @@ from salescall.core.access import Access, Actor
 from salescall.core.attempts import ForbiddenFinding, VerificationSummary
 
 # 試験の判定に渡す、お客様の時間の設定（本番は gate.callee_settings が設定から読む。試験は値を自分で決めて渡す＝初めの値と同じ形：
-# 営業時間 9〜19時・お客様指定の歯止め時間 7〜22時・1回分 1時間・「〇時まで」の理由ごとの決め方は初めの値＝0127）
-CALLEE = calling_hours.CalleeSettings((9 * 3600, 19 * 3600), (7 * 3600, 22 * 3600), 3600,
+# 営業時間 9〜19時・お客様指定の歯止め時間 7〜22時・1回分 30分＝0125・「〇時まで」の理由ごとの決め方は初めの値＝0127）。
+# ⛔ 見直し18：前は1回分を1時間のままにしていた（初めの値は 2026-10-23 から30分）
+CALLEE = calling_hours.CalleeSettings((9 * 3600, 19 * 3600), (7 * 3600, 22 * 3600), 1800,
                                       (("other_party", "now"), ("unavailable", "after"), ("preparing", "slot_after")))
 
 OPERATOR = Actor("試験の契約者", "operator")
@@ -76,13 +77,17 @@ def callback(reason: str, at=None, number: str | None = None, person: str | None
 def make_report(parties=("target",), *, dnc: bool = False, oos: bool = False, complaint: bool = False,
                 not_reached: str | None = None, callback=None, cut="normal", apology_delivered: bool | None = None,
                 end: str | None = None):
-    """会話の報告（版3。通話の事実の形）を、試験の材料から作る。cut＝"normal" は、ふつうに締めた切れ方の材料。"""
-    from salescall.core.call_report import CallReport, Cut, End, Party, Said
+    """会話の報告（版3。通話の事実の形）を、試験の材料から作る。cut＝"normal" は、ふつうに締めた切れ方の材料。
+    電話口の種別に目的のお客様があり、繋がらなかった理由が無ければ、CL-1 と同じく繋いだ事実（connect）も残す（目的のお客様のいる
+    業務の「繋がった」は繋いだ事実で決まる＝CallReport.reached）。"""
+    from salescall.core.call_report import CallReport, Connect, Cut, End, Party, Said
     ev = Said(2, "試験の発話")
+    connects = (Connect(Said(parties.index("target"), "試験の発話"), ("ai", "judge", "judge2"), True),) \
+        if "target" in parties and not_reached is None else ()
     return CallReport((ev,) if dnc else (), (ev,) if complaint else (), (ev,) if oos else (),
                       tuple(Party(p, "ai", Said(i, "試験の発話")) for i, p in enumerate(parties)),
                       () if callback is None else (callback,), () if end is None else (End(end, ev),), not_reached,
-                      Cut("ai", True, False) if cut == "normal" else cut, apology_delivered)
+                      Cut("ai", True, False) if cut == "normal" else cut, apology_delivered, connects=connects)
 
 
 def rules_raw(required=("Q1",), *, decline=None, retry=None, handling=None) -> dict:
@@ -235,7 +240,7 @@ def content(target_person: dict | None = None) -> dict:
     return {"purpose": "架空の業務の目的", "target_class": "corporate",
             "caller": {"company": {"text": "株式会社テスト", "reading": "かぶしきがいしゃてすと"},
                        "person": {"text": "山田", "reading": "やまだ"}, "purpose_line": None},
-            "target_person": target_person or {"kind": "anyone", "role": None}, "busy_line": None, "voicemail_message": None,
+            "target_person": target_person or {"kind": "role", "role": "総務部長"}, "busy_line": None, "voicemail_message": None,
             "ai_answer": None, "answers": [], "voice": "S2",
             "questions": [{"id": "Q1", "text": "ご希望の日時をお聞かせください。", "ask_about": None, "type": "datetime",
                            "required": True, "choices": None, "next": None, "unit": None, "meanings": None, "replies": None}],

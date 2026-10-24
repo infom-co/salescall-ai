@@ -292,7 +292,8 @@ class UntilByReason(unittest.TestCase):
         cases = {   # 決め方 → (始まり, 終わり, 1日の中の幅, 口にした端)
             "now": (NOW, at(2026, 10, 14, 15), (0, 15 * H), (False, True)),                        # 別の番号・別の方へ：今から
             "after": (at(2026, 10, 14, 15), at(2026, 10, 15, 0), (15 * H, DAY), (True, False)),    # それまでは出られない：3時から
-            "slot_after": (at(2026, 10, 14, 15), at(2026, 10, 14, 15, 30), (15 * H, 15 * H + 1800), (True, True)),   # 確認のあと
+            "slot_after": (at(2026, 10, 14, 15), at(2026, 10, 14, 15, 30), (15 * H, 15 * H + 1800), (True, False)),   # 確認のあと
+            # （終わりはこちらが作った端＝口にした端ではない。見直し18c の (2)）
         }
         for until, (start, end, daily, said) in cases.items():
             for text in ("3時まで", "午後3時までに", "3時より前"):
@@ -316,10 +317,22 @@ class UntilByReason(unittest.TestCase):
 
     def test_a_said_time_beyond_the_limit(self):
         """理由で決めた幅も、歯止め時間の決まり（calling_hours.callee_range の1か所）は同じ：「23時までには戻ります」（3時から＝
-        終わりは歯止めで埋める）は空なので確かめる。確認のあと1回分は、口にした時刻からなので歯止めの外でもかける。"""
+        終わりは歯止めで埋める）は空なので確かめる。確認のあと1回分（「23時までに確認しておきます」）も、1回分はこちらが作った幅
+        なので、口にした23時が歯止めの外なら確かめが要り、確かめ済みなら 23:00〜23:30（⛔ 見直し18c の (2)：前は確かめずにかけた）。
+        歯止めの中の時刻なら、作った終わりを歯止め時間で切る（「21時45分までに確認」＝21:45〜22:00）。"""
         self.assertEqual(read("23時まで", NOW, until="after").kind, CONFIRM)
-        r = read("23時まで", NOW, until="slot_after", slot=1800)
-        self.assertEqual((r.kind, r.daily), (WINDOW, (23 * H, 23 * H + 1800)))
+        self.assertEqual(read("23時まで", NOW, until="slot_after", slot=1800).kind, CONFIRM)
+        r = read("23時まで", NOW, until="slot_after", slot=1800, beyond_ok=True)
+        self.assertEqual((r.kind, r.start, r.end, r.daily, r.said),
+                         (WINDOW, at(2026, 10, 14, 23), at(2026, 10, 14, 23, 30), (23 * H, 23 * H + 1800), (True, True)))
+        r = read("21時45分まで", NOW, until="slot_after", slot=1800)
+        self.assertEqual((r.kind, r.end, r.daily, r.said), (WINDOW, at(2026, 10, 14, 22), (21 * H + 2700, 22 * H), (True, False)))
+        from salescall.core import calling_hours
+        self.assertEqual(calling_hours.callee_range(r.daily, r.said, CALLEE.designated_limit), r.daily)   # 門も同じ幅を読む
+        # 歯止めの始まりより前の時刻（「明日の朝6時までに確認しておきます」）も同じ：作った 6:00〜6:30 は歯止めの外なので確かめる
+        self.assertEqual(read("明日の朝6時まで", NOW, until="slot_after", slot=1800).kind, CONFIRM)
+        r = read("明日の朝6時まで", NOW, until="slot_after", slot=1800, beyond_ok=True)
+        self.assertEqual((r.start, r.end, r.said), (at(2026, 10, 15, 6), at(2026, 10, 15, 6, 30), (True, True)))
 
 
 class Repeat(unittest.TestCase):
@@ -328,6 +341,8 @@ class Repeat(unittest.TestCase):
     def test_the_reason_decides_the_next_round(self):
         cases = {   # 通話は 2026-10-14（水）10:00
             "金曜なら": ("week", at(2026, 10, 16), (at(2026, 10, 23), at(2026, 10, 24))),
+            "毎週月曜": ("week", at(2026, 10, 19), (at(2026, 10, 26), at(2026, 10, 27))),   # 見直し18c：前は読めなかった
+            "毎週金曜の夕方": ("week", at(2026, 10, 16, 16), (at(2026, 10, 23, 16), at(2026, 10, 23, 18))),
             "金曜日の夕方": ("week", at(2026, 10, 16, 16), (at(2026, 10, 23, 16), at(2026, 10, 23, 18))),
             "週末なら": ("week", at(2026, 10, 17), (at(2026, 10, 24), at(2026, 10, 26))),
             "週中": ("week", at(2026, 10, 13), (at(2026, 10, 20), at(2026, 10, 23))),   # 水曜に言われても、次の回は火曜から

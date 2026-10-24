@@ -83,7 +83,7 @@ SCENES = {"取り次げない": NOT_TRANSFERRED, "不在・途中で切れた": 
 
 def run(raw, *, items=None, facts=TALKED, cut=CLOSED):
     rep = replace(from_json(raw), cut=cut)
-    return judge(JudgeInput(facts, rep, items or {}, RULES, False, True, callee=CALLEE))
+    return judge(JudgeInput(facts, rep, items or {}, RULES, False, True, callee=CALLEE, anyone_target=False))
 
 
 class Accepted(unittest.TestCase):
@@ -96,19 +96,19 @@ class Accepted(unittest.TestCase):
 
     def test_what_the_report_says(self):
         """繋がったか・話したか・判定が読むかけ直しは、call_report の1か所で読む。新しい事実は受けて残す（判定には使わない）。"""
-        cases = {   # 名前 → (目的のお客様のある通話と分かるか, 繋がった, 話した, 判定が読むかけ直しの理由)
-            "取り次げない": (True, False, True, None),
-            "不在・途中で切れた": (True, False, True, "absent"),
-            "戻ったが別の方": (True, False, True, "absent"),
-            "戻ってご本人に繋いだ": (True, True, True, None),           # 繋がったかけ直しは、もう要らない
-            "AIは目的の人・判定は別の方": (True, False, True, None),   # 電話口の種別の target は AI の報告。繋いだ事実が無い
-            "留守番電話": (False, False, False, None),
-            "答えられない質問に答えた": (True, False, True, None)}
-        for name, (for_target, reached, talked, cb) in cases.items():
+        cases = {   # 名前 → (目的のお客様のいる業務で繋がった, 話した, 判定が読むかけ直しの理由)
+            "取り次げない": (False, True, None),
+            "不在・途中で切れた": (False, True, "absent"),
+            "戻ったが別の方": (False, True, "absent"),
+            "戻ってご本人に繋いだ": (True, True, None),           # 繋がったかけ直しは、もう要らない
+            "AIは目的の人・判定は別の方": (False, True, None),   # 電話口の種別の target は AI の報告。繋いだ事実が無い
+            "留守番電話": (False, False, None),
+            "答えられない質問に答えた": (False, True, None)}
+        for name, (reached, talked, cb) in cases.items():
             with self.subTest(name):
                 r = from_json(SCENES[name])
-                self.assertEqual((r.for_target, r.reached_target, r.talked, r.callback and r.callback.reason),
-                                 (for_target, reached, talked, cb))
+                self.assertEqual((r.reached(False), r.talked, r.callback and r.callback.reason), (reached, talked, cb))
+                self.assertEqual(r.reached(True), talked)          # 「誰でも」の業務：話した＝繋がった（見直し18b の (3)）
         r = from_json(BACK_NOT_TARGET)
         self.assertEqual(([b.reason for b in r.target_backs], [(b.reason, b.read) for b in r.callback_resumes]),
                          (["absent"], [("absent", ("judge", "judge2"))]))
@@ -117,22 +117,22 @@ class Accepted(unittest.TestCase):
         r = from_json(ANSWERED)
         self.assertEqual(([a.part for a in r.answered], len(r.not_transferred), r.end_reason, r.hurried),
                          (["unknown"], 1, "not_transferred", False))
-        # 目的のお客様の無い業務（誰でも）：繋いだ事実も理由も無い ⇒ 電話口の種別の目的のお客様で見る（前のまま）
+        # 「誰でも」の業務（目的のお客様のいない業務）：繋いだ事実が無くても、話していれば繋がった（業務設定から判定の入力に入れる。
+        # ⛔ 見直し18b の (3)：前は報告の印だけで推し、種別 target が無いと「繋がらなかった」になった）
         anyone = from_json({"version": 3, "not_reached": None, "cut": None, "apology_delivered": None, "facts": {
-            "party": [{"turn": 1, "said": "はい、私です。", "party": "target", "by": "ai"}]}})
-        self.assertEqual((anyone.for_target, anyone.reached_target, anyone.talked), (False, True, True))
-        # 目的のお客様の無い業務で、種別の報告なしに「あとでかけて」：かけ直しの申し出があれば話した
+            "party": [{"turn": 1, "said": "はい、私です。", "party": "person", "by": "ai"}]}})
+        self.assertEqual((anyone.reached(True), anyone.reached(False), anyone.talked), (True, False, True))
+        # 種別の報告なしに「あとでかけて」：かけ直しの申し出があれば話した（「誰でも」の業務なら繋がった）
         later = from_json({"version": 3, "not_reached": None, "cut": None, "apology_delivered": None, "facts": {
             "callback": [{"turn": 1, "said": "いま手が離せないので、あとでかけてください。", "why": "later", "read": ["ai"],
                           "time": None, "number": None}]}})
-        self.assertEqual((later.for_target, later.reached_target, later.talked), (False, False, True))
-        # 確かめに戻った方が「もうかけないで」（発信の拒否＝not_reached は無い）：確かめに戻った事実で、目的のお客様のある通話と分かる
+        self.assertEqual((later.reached(True), later.reached(False), later.talked), (True, False, True))
+        # 確かめに戻った方が「もうかけないで」（発信の拒否＝not_reached は無い）：繋いだ事実が無いので繋がっていない
         refused = copy.deepcopy(BACK_NOT_TARGET)
         refused["not_reached"] = None
         refused["facts"]["do_not_call"] = [{"turn": 5, "said": "もうかけてこないでください。"}]
         r = from_json(refused)
-        self.assertEqual((r.for_target, r.reached_target, r.do_not_call), (True, False, True))
-
+        self.assertEqual((r.reached(False), r.talked, r.do_not_call), (False, True, True))
 
 class Judged(unittest.TestCase):
     def test_could_not_be_put_through_means_one_more_call_on_another_day(self):
@@ -351,9 +351,9 @@ class Offers428(unittest.TestCase):
 
     def test_what_the_report_says(self):
         r = from_json(SCENES_428["代わりの方（お立場を伺って繋いだ）"])
-        self.assertEqual((r.reached_target, r.talked, r.connects[0].who, r.substitutes[0].policy), (True, True, "substitute", "anyone"))
+        self.assertEqual((r.reached(False), r.talked, r.connects[0].who, r.substitutes[0].policy), (True, True, "substitute", "anyone"))
         r = from_json(SCENES_428["後任の方に繋いだ"])
-        self.assertEqual((r.reached_target, r.connects[0].who, r.departures[0].successor), (True, "successor", False))
+        self.assertEqual((r.reached(False), r.connects[0].who, r.departures[0].successor), (True, "successor", False))
         r = from_json(SCENES_428["ほかの手段（メール）"])
         self.assertEqual((r.callback.reason, r.callback.offer, dict(r.callback.means)), ("other_means", "email", {"email": "info@example.co.jp"}))
         r = from_json(SCENES_428["伝言を残した"])
@@ -490,3 +490,70 @@ class Later1022(unittest.TestCase):
                       {"substitute": [sub], "callback_resume": [{**back, "why": "absent", "read": []}]}):
             with self.subTest(facts=list(facts)), self.assertRaises(ReportInvalid):
                 from_json(self.raw(facts))
+
+
+# ── 「誰でも」の業務の報告（main の flowctl：目的のお客様のいない業務では電話口の種別を残さない。見直し18b）
+ANYONE_DONE = {   # 質問に答えて「質問が終わった」で締めた（お客様からの質問と受け答えもある）
+    "version": 3, "facts": {
+        "callee_question": [{"turn": 2, "said": "それはいくらですか？", "answered": True, "answer": "初月は半額です。",
+                             "checked": "judge"}],
+        "end": [{"turn": 4, "said": "はい、ありがとうございます。", "reason": "done"}]},
+    "not_reached": None, "cut": None, "apology_delivered": None}
+ANYONE_REFUSED = {   # 「結構です」で通話を断られて締めた
+    "version": 3, "facts": {"end": [{"turn": 1, "said": "結構です。", "reason": "callee_refused_call"}]},
+    "not_reached": None, "cut": None, "apology_delivered": None}
+ANYONE_SILENT = {   # 名乗りのあと、何も言わずに切られた（締めた理由も無い）
+    "version": 3, "facts": {}, "not_reached": None, "cut": None, "apology_delivered": None}
+
+
+def judged(raw, *, anyone: bool, items=None, cut=CLOSED):
+    return judge(JudgeInput(TALKED, replace(from_json(raw), cut=cut), items or {}, RULES, False, True, callee=CALLEE,
+                            anyone_target=anyone))
+
+
+class Anyone18b(unittest.TestCase):
+    def test_which_facts_show_a_person_is_decided_in_one_table(self):
+        """人の証の表（call_report の HUMAN_ENDS・HUMAN_FACTS）：締めた理由は、人の言葉の締めと機械の締めにちょうど分かれる。
+        人の締め・お客様からの質問・受け答えだけの報告も「話した」。留守番電話・自動音声・FAX の締めだけでは話していない。"""
+        from salescall.core import call_report as cr
+        self.assertEqual((cr.HUMAN_ENDS | cr.MACHINE_ENDS, cr.HUMAN_ENDS & cr.MACHINE_ENDS), (set(cr.END_REASONS), set()))
+        base = {"version": 3, "not_reached": None, "cut": None, "apology_delivered": None}
+        rec = {"turn": 1, "said": "試験の発話"}
+        for reason in cr.END_REASONS:
+            with self.subTest(reason):
+                r = from_json({**base, "facts": {"end": [{**rec, "reason": reason}]}})
+                self.assertEqual(r.talked, reason in cr.HUMAN_ENDS)
+        for kind, record in [("callee_question", {"answered": None, "checked": None}), ("talk", {"answer": "恐れ入ります。",
+                                                                                                  "checked": "judge"}),
+                             ("answered", {"part": "unknown"}), ("ai_question", {}), ("complaint", {})]:
+            with self.subTest(kind):
+                self.assertTrue(from_json({**base, "facts": {kind: [{**rec, **record}]}}).talked)
+        self.assertFalse(from_json({**base, "facts": {"do_not_call": [rec]}}).talked)   # 自動音声の「お断り」もありうる
+        self.assertFalse(from_json(ANYONE_SILENT).talked)
+
+    def test_a_talk_in_an_anyone_business_is_judged_as_a_conversation(self):
+        """「誰でも」の業務で話した通話は「会話に至らなかった」にならない（⛔ 見直し18b：main の報告 685 件のうち、締めまで進んだ
+        「誰でも」の通話がすべて open＝会話に至らなかった、だった）。取れていれば完了・取れていなければ一部だけ取れた。"""
+        taken = {"Q1": Item("confirmed", None, None), "Q2": Item("accepted", "はい", None)}
+        self.assertEqual(judged(ANYONE_DONE, anyone=True, items=taken).state, "completed")
+        self.assertEqual(judged(ANYONE_DONE, anyone=True, items={"Q1": taken["Q1"]}).state, "incomplete")
+        self.assertEqual(judged(ANYONE_REFUSED, anyone=True).state, "incomplete")
+        self.assertEqual(judged(ANYONE_SILENT, anyone=True).state, "open")     # 何も起きていない＝会話に至らなかった
+        # 目的のお客様のいる業務で、繋がらずに締めた（繋がらなかった理由が無い）は判定できない（繋がったとは読まない）
+        self.assertEqual(judged(ANYONE_DONE, anyone=False, items={"Q1": taken["Q1"]}).detail.get("unknown_cause"),
+                         "not_reached_reason_missing")
+
+    def test_a_silent_hang_up_in_an_anyone_business_follows_the_cut_rules(self):
+        """「誰でも」の業務でも、話したお客様が AI の話の途中・話し終えたあとの間に黙って切ったら拒否（7-1c）。切れ方の材料が
+        無ければ判定できない（cut_missing。⛔ 前は「話していない」と読み、材料が無くても拒否も見なかった）。"""
+        j = judged(ANYONE_DONE, anyone=True, cut=Cut("ai", False, False))
+        self.assertEqual((j.state, j.dnc_reason, j.detail.get("refusal")), ("do_not_call", "refused_in_call", "cut"))
+        self.assertEqual(judged(ANYONE_DONE, anyone=True, cut=None).detail.get("unknown_cause"), "cut_missing")
+
+    def test_a_person_of_unknown_role_in_an_anyone_business_is_the_target(self):
+        """「誰でも」の業務で、CL-1 が役の分からないお客様（person）を出しても、繋がった（判定待ちにならない）。目的のお客様のいる
+        業務では、繋いだ事実が無ければ繋がっていない。"""
+        raw = copy.deepcopy(ANYONE_DONE)
+        raw["facts"]["party"] = [{"turn": 1, "said": "はい、テスト商店です。", "party": "person", "by": "ai"}]
+        self.assertEqual(judged(raw, anyone=True, items={"Q1": Item("confirmed", None, None)}).state, "incomplete")
+        self.assertEqual(judged(raw, anyone=False, items={"Q1": Item("confirmed", None, None)}).state, "unknown")
