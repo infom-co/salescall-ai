@@ -5118,6 +5118,35 @@ class TargetTest(unittest.TestCase):
         self.say(g, "そうでしたか、ご丁寧にどうも。", "request_end", reason="done")
         self.assertTrue(g.apology_delivered)
 
+    def test_apology_call_paths_found_in_the_review(self):
+        # ⛔ 2026-10-24 の見直し（調べ役）で見つけた穴：流し直しの条件が広すぎた・代わりの方に繋ぐと締められない・業務の用件が聞こえる・AIが話す形
+        import dataclasses
+        from flowctl import Flow
+        from g22_opening import BUSINESS
+        text = "先ほどのお電話で誤ったご案内をしてしまい、誠に申し訳ございませんでした。"
+        t = dataclasses.replace(self.business(), apology_call=text)
+        # (1) 繋がる前（受付の方とのかけ直しの質問）に終えるときは、お詫びを流さない（受付の方へは流さない）
+        f = Flow(t.questions, play_recordings=True, opening=t.replay_parts(), target=t.replay_parts(), apology_call=t.apology_call)
+        self.say(f, "あいにく岡田は席を外しております。", "request_callback", why="absent")
+        r = self.say(f, "すみません、急いでいるので。", "request_end", reason="callee_hurry")
+        self.assertEqual((r["result"], [p.get("kind") for p in r["play"]], f.apology_delivered), ("end", ["closing"], False))
+        # (2) お詫びが遮られたあとの断り：お詫びを流し直さず、発信禁止の申告を残して締める
+        b = dataclasses.replace(BUSINESS, apology_call=text)
+        f = Flow(b.questions, play_recordings=True, opening=b.replay_parts(), apology_call=b.apology_call)
+        f.on_opening_cut(b.opening_parts()[:2])
+        r = self.say(f, "営業でしょ？もう二度とかけてこないで！", "request_end", reason="callee_refused_call")
+        self.assertEqual((r["result"], f.end_reason, bool(f.facts.get("do_not_call"))), ("end", "callee_refused_call", True))
+        # (3) 業務の用件は、どの道でも流れない。「ご用件は？」には、お詫びの録音
+        f = Flow(b.questions, play_recordings=True, opening=b.replay_parts(), apology_call=b.apology_call)
+        f.on_opening_cut(b.opening_parts()[:1])
+        self.assertNotIn("purpose", f.opening_unheard)
+        r = self.say(f, "え、何の件でしょうか？", "replay_opening", part="purpose")
+        self.assertEqual([p.get("kind") for p in r["play"]], ["opening", "apology"])   # まだ届いていない名乗り＋お詫び（業務の用件ではない）
+        self.assertNotIn(BUSINESS.purpose_line, "".join(p["text"] for p in r["play"]))
+        # (4) 目的のお客様のいない業務で、名乗りをAIが話す形：お詫びを流す所が無いので、作る時点で断る
+        with self.assertRaises(ValueError):
+            Flow(b.questions, apology_call=b.apology_call)
+
     def test_cut_off_call_continues_from_where_it_stopped(self):
         # CL-2 の 4-77（✅ 2026-10-17 ユーザー：途中で切れた通話は、お詫びとともにすぐかけ直す）：前の通話で取れた答えの質問は、もう伺わずに続きから聞く。
         # 前の通話の答えは、この通話の答えとして渡さない（記録は前の通話のもの）

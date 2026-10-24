@@ -1233,6 +1233,15 @@ class Flow:
             for d in {id(d): d for d in (self.target, self.opening) if d}.values():   # 在る入れ物だけ（名乗りの録音が無い通話＝AIが話す形でも作れる）
                 # この電話の呼ぶ一言（流す録音は target_successor＝_part_play）と、確かめる一言・聞き返し（契約者の単位の録音の文＝system_parts）
                 d.update({k: v for k, v in SUCCESSOR.items() if k != "target"}, target=d["target_successor"])
+        if apology_call:
+            # お詫びの電話には業務の用件を流さない（どの道でも＝名乗りの流し直し・まだ届いていない部分・代わりの方の申し出。「ご用件は？」には
+            # お詫びの録音＝_op_replay_opening）。⛔ 2026-10-24 の見直し（調べ役）：繋いだときだけ用件を外していたので、ほかの道では業務の用件が流れた
+            for d in {id(d): d for d in (self.target, self.opening) if d}.values():
+                d.pop("purpose", None)
+            if not target and not self.opening:
+                # 目的のお客様のいない業務のお詫びは、名乗りの録音の終わりに流れる。AIが話す形には流す所が無い（本番は名乗りを録音で流す形だけ＝6-13。
+                # ⛔ 2026-10-24 の見直し：どこからも流れないのに「伝えられた」になった）
+                raise ValueError("目的のお客様のいない業務のお詫びの電話は、名乗りを録音で流す形だけです")
         # 呼んでいる段は、電話口の方ごとに数える（DESIGN.md 4-3 の区間）：speaker_from＝いま電話口にいる方が話し始めた相手の発話の番号
         # （取り次ぎの判定のあとの発話・代わった方の発話から）。呼ぶ一言・確かめる一言は、流したときの相手の発話の番号を残し、その方に流した
         # 数を数える（呼ぶ一言は1人に2回まで・確かめる一言は1人に1回）。⛔ 2026-10-21 の見直し：通話ごとに数えていたので、受付の方に1回
@@ -1270,7 +1279,8 @@ class Flow:
         # 業務の質問はしない。お呼びした方（目的のお客様のいる業務）に繋がったら、または名乗りのあと（いない業務）にお詫びの録音を流し、お客様の
         # お返事を聞いてから、お礼の締めで終える。伝えられたかは会話の報告の apology_delivered（Flow.apology_delivered）
         self.apology_call = apology_call
-        self.apology_played = bool(apology_call) and not target   # いない業務は名乗りの録音の終わりに流れる（途中で止まれば on_opening_cut が外す）
+        # お詫びを流すように頼んだか（apology_asked）・頼んだあと止まっていないか（apology_played。止まれば on_opening_cut が外す）・流し直したか
+        self.apology_asked = self.apology_played = bool(apology_call) and not target   # いない業務は名乗りの録音の終わりに流れる
         self.apology_replayed = False
         # 最後まで流れた録音の文（電話接続側の知らせ＝on_played・on_opening_cut の届いた文）。お詫びを伝えられたか（apology_delivered）の唯一の材料
         self.heard_lines: set[str] = set()
@@ -1322,8 +1332,8 @@ class Flow:
         質問へ進む。どこまで届いたかはプログラムが知っているので、足すのはプログラム（AIの選び方に任せない）。"""
         self.opening_unheard = [k for k in OPENING_ORDER if self.opening.get(k) and self.opening[k] not in done]
         self.on_played(done)
-        if self.apology_played and self.apology_call not in done:
-            self.apology_played = False   # お詫びが届く前に止まった：お返事のあと、もう一度だけ流す（_op_request_end）
+        if self.apology_asked and self.apology_call not in self.heard_lines:
+            self.apology_played = False   # お詫びが届く前に止まった：お返事のあと、もう一度だけ流す（_apology_cut）
 
     # ── 録音を最後まで流し終えた（電話接続側が、流した録音の並びごとに呼ぶ。途中で止めたときは on_opening_cut）
     def on_played(self, done: list[str]) -> None:
@@ -2458,14 +2468,18 @@ class Flow:
         calling = self.phase == "calling"
         if calling and part == "all":
             keys = ["intro"]
+        # お詫びの電話の「用件」は、お詫びそのもの（業務の用件は通話の初めに外してある）：用件を流す頼みには、お詫びの録音を流す（繋がる前は流さない）
+        apology = ([self._apology_play()] if self.apology_call and not calling and set(keys) & {"purpose"} else [])
         keys = [k for k in OPENING_ORDER if self.opening.get(k)
                 and (k in keys or (k != "greeting" and k in self.opening_unheard and not (calling and k == "purpose")))]
-        if not keys:
+        if not keys and not apology:
             return self._reject(f"「{PART_LABEL[part]}」の録音はありません。聞かれたことに、自分で短く答えてください。")
         self.replays += 1
         self.opening_unheard = [k for k in self.opening_unheard if k not in keys]
-        play = [{"kind": "opening", "part": k, "text": self.opening[k]} for k in keys]
-        return self._continue(play, "".join(self.opening[k] for k in keys))
+        play = [{"kind": "opening", "part": k, "text": self.opening[k]} for k in keys] + apology
+        if apology:
+            self.apology_asked = self.apology_played = True
+        return self._continue(play, "".join(x["text"] for x in play))
 
     def _who_took_over(self) -> bool:
         """相手が替わった（代わった方が話し始めた）と決まったときの、分かるお客様の聞き足しの扱いの唯一の場所（AIの「代わった方へ」・判定の
@@ -3270,9 +3284,11 @@ class Flow:
         lines = [{"kind": "opening", "part": k, "text": self.target[k]} for k in keys]
         lines[at:at] = sorry
         if self.apology_call:
-            # お詫びの電話：用件・質問の代わりに、お詫びの録音を流して、お返事を待つ（業務の質問はしない）
-            lines = [x for x in lines if x.get("part") != "purpose"] + [self._apology_play()]
-            self.apology_played = True
+            # お詫びの電話：用件・質問の代わりに、お詫びの録音を流して、お返事を待つ（業務の質問はしない＝いまの質問を空にする。⛔ 2026-10-24 の見直し
+            # （調べ役）：代わりの方に繋いだとき、判断いただけるお立場かの質問が「いまの質問」に残り、締められなかった）
+            lines = lines + [self._apology_play()]
+            self.apology_asked = self.apology_played = True
+            self.current, self.order, self.substitute_q = None, [], None
             return {"result": "next", "silent": True, "play": [x if x["kind"] != "opening" or not self.opening else {**x, "text": self.opening[x["part"]]}
                                                                for x in lines],
                     "message": f"{prefix}{whom}に繋がりました。「{''.join(x['text'] for x in lines)}」は、プログラムが録音で流しました（相手にもう"
@@ -3563,13 +3579,20 @@ class Flow:
         """お詫びの電話で、お詫びを伝えられたか（会話の報告の apology_delivered の唯一の場所。お詫びの電話でなければ None）。"""
         return None if self.apology_call is None else self.apology_call in self.heard_lines and self.callee_turns > 0  # お客様が出て、お詫びが最後まで流れた
 
+    def _apology_cut(self) -> bool:
+        """お詫びを流したのに届く前に止まり、まだ流し直していない（流し直す唯一の条件）：お詫びを伝える相手と話している（流すように頼んだあと＝
+        目的のお客様のいる業務は繋いだあと）・締めに入っていない・最後まで届いていない。⛔ 2026-10-24 の見直し（調べ役）：前は「流していない」だけを
+        見ていたので、繋がる前（受付の方とのかけ直しの質問）・断り・苦情・締めたあとでもお詫びを流し、発信禁止の申告が残らなかった"""
+        return (bool(self.apology_call) and self.apology_asked and not self.apology_played and not self.apology_replayed
+                and self.apology_call not in self.heard_lines and self.phase not in ("calling", "closing"))
+
     def _apology_play(self) -> dict:
         return {"kind": "apology", "text": self.apology_call}   # 承認したときに聞いていただいた録音（お詫びの案ごと＝CL-2 の apology の録音）
 
     def _op_request_end(self, a: dict) -> dict:
         reason = a.get("reason")
-        if self.apology_call and not self.apology_played and self.phase != "calling" and not self.apology_replayed:
-            # お詫びが届く前に止まっていた（相手が話し始めた）：締める前に、もう一度だけ流す
+        if reason == "done" and self._apology_cut():
+            # お詫びが届く前に止まっていた（相手が話し始めた）：締める前に、もう一度だけ流す（ほかの理由＝断り・苦情などは、今までどおり記録して締める）
             self.apology_replayed = self.apology_played = True
             return {"result": "next", "silent": True, "play": [self._apology_play()],
                     "message": "お詫びを、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、相手のお返事を待ってください。"

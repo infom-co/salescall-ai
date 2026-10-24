@@ -537,8 +537,8 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                     if i == 0 and barge_in is not None and sessions == 1:
                         flow.on_opening_cut(barge_in[0])  # 流れの制御も、どこまで届いたかを覚える（流し直しで、届いていない部分を足す）
                         await send_note(s, barge_in_note(business, *barge_in))  # 録音のどこまでが届いたか
-                    elif i == 0 and sessions == 1:
-                        flow.on_played(business.opening_parts())  # 名乗りは最後まで流れた（止めた形でなければ）
+                    elif i == 0 and sessions == 1 and opening_mode == "recorded":
+                        flow.on_played(business.opening_parts())  # 名乗りの録音は最後まで流れた（止めた形でなければ。AIが話す形は録音ではない）
                     if replay != i:  # 送り直しは、相手がもう一度話したのではないので数えない（文字だけを受け取り直す）
                         deliver_plays()
                         flow.on_callee()
