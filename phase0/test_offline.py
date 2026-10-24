@@ -4362,6 +4362,32 @@ class CallbackTest(unittest.TestCase):
         r = self.say(f, "はい。", "confirm_field", question_id="C1", result="affirmed")
         self.assertEqual((r["result"], "back_today" in f.facts["callback"][0]), ("end", False))
 
+    def test_later_until_keeps_the_reason(self):
+        # ✅ 2026-10-23 ユーザー（CL-2 の 4-149）・2026-10-24「進めてよい」：「あとで」のかけ直しの「〇時まで」は、いま電話を続けられない理由で
+        # かけてよい時間が決まる。理由が相手の言葉にあれば記録し、無ければ承認済みの時刻の問いで1回だけ伺い直す（そのあとは、そのまま受け取る）
+        from phrases import CALLBACK_ASK
+        f = self.flow()
+        self.say(f, "今ちょっと手が離せなくて、あとでかけてもらえますか。", "request_callback", why="later")
+        r = self.say(f, "3時までに担当に確認しておきますので。", "record_answer", question_id="C1", condition_id="答えた", value="3時まで",
+                     until_why="preparing")
+        self.assertEqual(r["result"], "confirm_required")
+        self.say(f, "はい。", "confirm_field", question_id="C1", result="affirmed")
+        self.assertEqual((f.end_reason, f.facts["callback"][0].get("until_why")), ("callback", "preparing"))
+        # 理由が無い：1回だけ伺い直す
+        f = self.flow()
+        self.say(f, "今ちょっと手が離せなくて、あとでかけてもらえますか。", "request_callback", why="later")
+        r = self.say(f, "3時までなら大丈夫です。", "record_answer", question_id="C1", condition_id="答えた", value="3時までなら")
+        self.assertEqual((r["result"], r.get("say"), r["ask_reason"]), ("ask_back", CALLBACK_ASK["later_time"], "until"))
+        r = self.say(f, "ですから3時までなら。", "record_answer", question_id="C1", condition_id="答えた", value="3時までなら")
+        self.assertEqual(r["result"], "confirm_required")                                         # 二度は伺わない
+        self.say(f, "はい。", "confirm_field", question_id="C1", result="affirmed")
+        self.assertNotIn("until_why", f.facts["callback"][0])                                     # 分からないまま（CL-2 が確かめの要る時刻として扱う）
+        # 不在の「〇時まで」は、理由（不在＝それまでは出られない）が決める：伺い直さない
+        f = self.flow()
+        self.say(f, "あいにく本人は出かけておりまして。", "request_callback", why="absent")
+        r = self.say(f, "3時までには戻ると思います。", "record_answer", question_id="C1", condition_id="答えた", value="3時まで")
+        self.assertEqual(r["result"], "confirm_required")
+
     def test_other_number_asks_number_then_reachable_time(self):
         from phrases import CALLBACK_ASK
         f = self.flow()
