@@ -431,6 +431,17 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                                                                                           known=tuple(flow.known_lines())),
                                    thinking_budget=thinking_budget, speech_end=speech_end)
 
+    played_upto = 0
+
+    def deliver_plays() -> None:
+        """流れの制御の返事で流した録音を、最後まで流れたと知らせる（Flow.on_played。本番は電話接続側が、流し終えたときに知らせる）。試作は
+        名乗りの場面のほかは録音を止めないので、相手が次に話す前・電話が切れる前に、流した録音は全部流れ終わっている。"""
+        nonlocal played_upto
+        texts = [p["text"] for log in flow.log[played_upto:] for p in (log["reply"].get("play") or []) if p.get("text")]
+        played_upto = len(flow.log)
+        if texts:
+            flow.on_played(texts)
+
     async def add_turn(turn, line, log_start: int, i: int, voice: str) -> None:
         """AIの1ターンぶんを記録する唯一の場所。"""
         r = turn.summary()
@@ -526,7 +537,10 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                     if i == 0 and barge_in is not None and sessions == 1:
                         flow.on_opening_cut(barge_in[0])  # 流れの制御も、どこまで届いたかを覚える（流し直しで、届いていない部分を足す）
                         await send_note(s, barge_in_note(business, *barge_in))  # 録音のどこまでが届いたか
+                    elif i == 0 and sessions == 1:
+                        flow.on_played(business.opening_parts())  # 名乗りは最後まで流れた（止めた形でなければ）
                     if replay != i:  # 送り直しは、相手がもう一度話したのではないので数えない（文字だけを受け取り直す）
+                        deliver_plays()
                         flow.on_callee()
                     else:
                         flow.on_resend()
@@ -634,6 +648,7 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                     i += 1
     # 電話が切れた瞬間（切れ方の材料＝Flow.on_line_end の1か所）。試作では、AIのターンを話し終えるまで待ってから次へ進むので、切れた瞬間は
     # だれも話していない：締めた（こちらが締めて切った）か、相手の台詞が尽きた（AIが話し終えたあとに、相手が何も言わずに切った）
+    deliver_plays()
     flow.on_line_end(ai_speaking=False, callee_speaking=False)
     # 通話は終わった：まだ走っている確かめは、届くまで待って同じ決まりで当てる（通話後の検証＝DESIGN.md 6-12 と同じ判定・同じ決まり。
     # Flow.on_check ⇒ _late）。LATE_CHECK_S まで待っても届かないものは止める（届かなかった＝unchecked。通話後の検証でやり直す）。

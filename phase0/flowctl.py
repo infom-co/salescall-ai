@@ -578,6 +578,16 @@ OPENING_ORDER = ("greeting", "intro", "purpose")  # 名乗りの録音の部分�
 PARTY_LABEL = {"reception": "受付の方", "target": "目的の人", "substitute": "代わりの方", "successor": "後任の方", "voicemail": "留守番電話",
                "ivr": "自動音声の案内", "fax": "ファクスの音", "wrong_party": "番号違い"}
 NOT_A_PERSON = ("voicemail", "ivr", "fax")
+# 締めた理由の全部（通話の事実 end の reason。Flow._end の1か所で確かめる。CL-2 の call_report.END_REASONS と同じ＝試験で比べる）：AIが選ぶもの
+# （END_LABEL）と、流れの制御が決めるもの（人ではない相手・番号違い・かけ直しの申し出・ほかの手段・在籍していない・保留で待ちきった）。
+# ⛔ 2026-10-24 の見直しで見つけた穴：保留で待ちきった締めを、いつも「取り次いでいただけなかった」で残していた＝目的のお客様に繋がった
+#    あとの保留（「確認しますので少々お待ちください」）・目的のお客様のいない業務の保留でも、事実と違う理由になった。目的のお客様に
+#    繋がらなかった理由は、締めた理由とは別に Flow.not_reached の1か所で決める（保留で待ちきった呼んでいる段は、取り次いでいただけなかった）
+END_REASONS = (*END_LABEL, *NOT_A_PERSON, "wrong_party", "callback", "other_means", "departed", "hold_timeout")
+# 通話の事実の種類の全部（Flow._note の1か所で確かめる。CL-2 の call_report.FACT_KINDS と同じ＝試験で比べる。中身は CL-1.md 2-2）。
+# out_of_scope（範囲外の求めで終えた）は、まだ書かない（実際にあるかを測ってから作る＝2-2 の「まだ作っていないもの」）
+FACT_KINDS = ("do_not_call", "complaint", "out_of_scope", "party", "callback", "ai_question", "voicemail_message", "end", "connect", "answered",
+              "target_back", "callback_resume", "not_transferred", "substitute", "departed", "callee_question", "talk", "hold_timeout")
 PERSON_PARTIES = ("reception", "target")
 STANDIN_PARTIES = ("substitute", "successor")  # 目的の人の代わりにお話しうる方（目的の人のある業務の、呼んでいる段だけ）
 # かけ直しの申し出（DESIGN.md 6-2 の request_callback。CL-2 の依頼・✅ 2026-10-14 ユーザー「相手が別の番号を言ったら、基本はその番号へかける」）：
@@ -1244,6 +1254,8 @@ class Flow:
         self.apology_call = apology_call
         self.apology_played = bool(apology_call) and not target   # いない業務は名乗りの録音の終わりに流れる（途中で止まれば on_opening_cut が外す）
         self.apology_replayed = False
+        # 最後まで流れた録音の文（電話接続側の知らせ＝on_played・on_opening_cut の届いた文）。お詫びを伝えられたか（apology_delivered）の唯一の材料
+        self.heard_lines: set[str] = set()
         if apology_call:
             self.order, self.business_ids = [], []
             self.current = None
@@ -1290,8 +1302,16 @@ class Flow:
         ⛔ G-50：用件が届く前に「どちら様ですか」と聞かれると、AIは「名乗り」だけを選んだ（11本中11本）＝用件が一度も届かないまま
         質問へ進む。どこまで届いたかはプログラムが知っているので、足すのはプログラム（AIの選び方に任せない）。"""
         self.opening_unheard = [k for k in OPENING_ORDER if self.opening.get(k) and self.opening[k] not in done]
-        if self.apology_call and self.apology_call not in done and self.phase != "calling":
-            self.apology_played = False   # お詫びが届く前に止まった：お返事のあと、もう一度だけ流す（_apology_again）
+        self.on_played(done)
+        if self.apology_played and self.apology_call not in done:
+            self.apology_played = False   # お詫びが届く前に止まった：お返事のあと、もう一度だけ流す（_op_request_end）
+
+    # ── 録音を最後まで流し終えた（電話接続側が、流した録音の並びごとに呼ぶ。途中で止めたときは on_opening_cut）
+    def on_played(self, done: list[str]) -> None:
+        """最後まで届いた録音の文を覚える唯一の場所（お詫びを伝えられたか＝apology_delivered の材料）。⛔ 2026-10-24 の見直しで見つけた穴：
+        お詫びの録音を流すように頼んだ瞬間に「伝えられた」としていた＝お詫びの途中で切られても、伝えたと報告した。電話に出た方の第一声と
+        名乗りの録音の順は決めていないので、相手が話し始めたことからは推し量らない（どこまで届いたかは、流した電話接続側だけが知っている）。"""
+        self.heard_lines.update(done)
 
     # ── 相手の発話が届いた（本番では、相手の音声の発話の検出で数える）
     def on_callee(self) -> None:
@@ -2127,13 +2147,15 @@ class Flow:
     # ── 取り次ぎ・保留のあと、待つ長さ（_hold の返事の hold_wait_s）のあいだ誰も話さなかった（電話接続側が呼ぶ）
     def on_hold_timeout(self) -> dict | None:
         """保留で待ちきった：決まった締め（phrases.HOLD_TIMEOUT＝✅ 2026-10-24 ユーザーの言い方「お返事がないようですので、また、あらためて、
-        かけ直させていただきます。それでは、いったん失礼いたします。」）で終える。締めた理由は取り次いでいただけなかった（かけ直しは CL-2 の
-        決まりのまま＝日を改めて1回）。締めの根拠の発話は保留を頼まれた発話なので、待ちきったことを通話の事実 hold_timeout（waited_s＝待った秒）
-        に残す（通話後の検証と CL-2 の判定が、取り次げないと言われた発話と見分けられるように。CL-1.md 4-42）。保留でなければ None（何もしない）。"""
+        かけ直させていただきます。それでは、いったん失礼いたします。」）で終える（かけ直しは CL-2 の決まりのまま＝日を改めて1回）。
+        締めた理由は「保留で待ちきった」（hold_timeout）。目的のお客様に繋がる前（呼んでいる段）の保留なら、
+        繋がらなかった理由は取り次いでいただけなかった（Flow.not_reached の1か所。繋がったあと・目的のお客様のいない業務の保留は、繋がらなかった
+        理由を持たない）。待った長さは通話の事実 hold_timeout（waited_s＝待った秒。根拠の発話＝保留を頼まれた発話）に残す（CL-1.md 4-42）。
+        保留でなければ None（何もしない）。"""
         if not self.holding or self.phase == "closing":
             return None
         self._note("hold_timeout", waited_s=self.hold_wait)
-        return self._close("not_transferred", prefix="保留のまま、待つ長さが過ぎました。", text=(HOLD_TIMEOUT, "hold_timeout"))
+        return self._close("hold_timeout", prefix="保留のまま、待つ長さが過ぎました。", text=(HOLD_TIMEOUT, "hold_timeout"))
 
     def _confirm_again(self, qid: str, why: str, reported: str | None, back: str | None) -> dict:
         """言い直しへの返事の確かめがそろわない：もう1回だけ言い直して確かめる（訂正のあとの復唱と同じ回数＝after_correction。選択肢の型は、
@@ -3414,10 +3436,15 @@ class Flow:
         self._new_speaker(self.callee_turns, after=False, sure=True)
         return self._ask_target(new_person=True)
 
-    def _hang_up(self, reason: str) -> dict:
-        """話さずに切る唯一の場所（人ではない相手）。締めの言葉も相づちも流さない。"""
+    def _end(self, reason: str) -> None:
+        """通話を終える印の唯一の場所（締め・話さずに切る）：締めた理由（END_REASONS の中の名前）を、通話の事実 end に残す。"""
+        assert reason in END_REASONS, reason
         self.current, self.phase, self.end_reason = None, "closing", reason
         self._note("end", reason=reason)
+
+    def _hang_up(self, reason: str) -> dict:
+        """話さずに切る唯一の場所（人ではない相手）。締めの言葉も相づちも流さない。"""
+        self._end(reason)
         return {"result": "end", "hang_up": True,
                 "message": f"相手は{PARTY_LABEL[reason]}です（人ではありません）。何も言わずに終えます（言葉を言いません）。"}
 
@@ -3483,7 +3510,7 @@ class Flow:
     @property
     def apology_delivered(self) -> bool | None:
         """お詫びの電話で、お詫びを伝えられたか（会話の報告の apology_delivered の唯一の場所。お詫びの電話でなければ None）。"""
-        return None if self.apology_call is None else self.apology_played and self.callee_turns > 0  # お客様が出て、お詫びが最後まで流れた
+        return None if self.apology_call is None else self.apology_call in self.heard_lines and self.callee_turns > 0  # お客様が出て、お詫びが最後まで流れた
 
     def _apology_play(self) -> dict:
         return {"kind": "apology", "text": self.apology_call}   # 承認したときに聞いていただいた録音（お詫びの案ごと＝CL-2 の apology の録音）
@@ -3820,11 +3847,12 @@ class Flow:
         """通話の事実を残す唯一の場所（self.facts）。根拠の発話＝相手の発話の番号（on_callee で数えた番号）と、その文字（会話AIの聞き取り）。
         Intent.md 9-5「各項目には、根拠になった発話（時刻つき）を保存する」・11-1「拒否・同意の記録（根拠の発話）」。時刻は電話接続側が
         発話の番号に付ける（試作では通話の記録の turns）。"""
+        assert kind in FACT_KINDS, kind
         self.facts.setdefault(kind, []).append({"turn": self.callee_turns, "said": (self.callee_said or "").strip()[:80], **extra})
 
     def _close(self, reason: str, prefix: str = "", spoken: bool = False, text: tuple[str, str] | None = None, part: bool = False) -> dict:
         """締め（DESIGN.md 6-14）を作る唯一の場所。毎回同じ文なので、言い方は決まった1つ（ふつう＝CLOSING・急いでいる／断られた／怒っている
-        ＝CLOSE_DECLINED）。reason＝締めた理由（END_LABEL の中の名前。通話の事実の end に残す）。
+        ＝CLOSE_DECLINED）。reason＝締めた理由（END_REASONS の中の名前。通話の事実の end に残す＝_end）。
         録音で流す形なら録音を流してAIは黙る（6-13：毎回同じ文の発話は録音）。AIが話す形と、spoken（録音の無い文＝名乗りの録音に無い
         留守番電話の伝言）は、AIがその言い方のまま言う。相手が最後に質問をしていたら、その質問に答えてから流す（_advance の after_answer）。⛔ 2026-10-17 の見直しで見つけた漏れ：ふつうの締めは、録音で流す形のときしか言い方を渡しておらず、
         AIが話す形では「締めの言葉を言って」とだけ伝えていた＝AIが自分で文を作り、「お気軽にお問い合わせください」「お気をつけて
@@ -3832,8 +3860,7 @@ class Flow:
         part：text の録音が依頼主の単位（名乗りの部分。留守番電話の伝言）。無ければ契約者の単位（締めの録音）。"""
         polite = ("done", "callback", "not_transferred", "departed", "other_means")  # お礼の締め（ほかは断られたときの締め）
         text, rid = text or ((CLOSING, "closing") if reason in polite else (CLOSE_DECLINED, "closing_declined"))
-        self.current, self.phase, self.end_reason = None, "closing", reason
-        self._note("end", reason=reason)
+        self._end(reason)
         if self.play_recordings and not spoken:
             item = {"kind": "opening", "part": rid, "text": text} if part else {"kind": "closing", "id": rid, "text": text}
             return {"result": "end", "play": [item],

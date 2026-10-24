@@ -2452,6 +2452,11 @@ class MeaningJudgeTest(unittest.TestCase):
         self.assertIn("代わった方が話し始めた", r["message"])
         r = self.report(f, "Q1", "はい、予約しています。", "はい", "はい")
         self.assertEqual(f.items["Q1"].state, "accepted")
+        # 目的のお客様のいない業務で、保留のまま待ちきった：締めた理由は「保留で待ちきった」（繋がらなかった理由は持たない＝目的のお客様がいない）
+        g = self.flow()
+        self.report(g, "Q1", "少々お待ちください。", "はい", HOLD)
+        r = g.on_hold_timeout()
+        self.assertEqual((r["result"], g.end_reason, g.not_reached), ("end", "hold_timeout", None))
 
     def test_handover_replay_waits_for_the_new_person(self):
         # ⛔ G-50：代わった方への名乗りを、相手の「少々お待ちください」の直後に流していた ⇒ 判定が「取り次ぎを待つ」の間は流さない
@@ -4928,6 +4933,12 @@ class TargetTest(unittest.TestCase):
         r = self.say(f, "はい、岡田は私ですが。", "report_party", party="target")
         self.assertEqual(r["play"][-1], {"kind": "apology", "text": text})
         self.assertNotIn("purpose", [x.get("part") for x in r["play"]])                      # 用件は流さない
+        self.assertFalse(f.apology_delivered)                       # 流すように頼んだだけ（⛔ 前は、この時点で「伝えられた」になった）
+        cut = Flow(t.questions, play_recordings=True, opening=t.replay_parts(), target=t.replay_parts(), apology_call=t.apology_call)
+        self.say(cut, "はい、岡田は私ですが。", "report_party", party="target")
+        cut.on_line_end(ai_speaking=True, callee_speaking=False)    # お詫びの録音の途中で切れた（流し終えた知らせが無い）
+        self.assertFalse(cut.apology_delivered)
+        f.on_played([x["text"] for x in r["play"]])                 # 電話接続側：最後まで流し終えた
         r = self.say(f, "ああ、わざわざすみません。", "request_end", reason="done")
         self.assertEqual((r["result"], f.end_reason, f.apology_delivered), ("end", "done", True))
         self.assertIn(CLOSING, r.get("say") or "".join(x["text"] for x in r.get("play", [])))
@@ -4938,9 +4949,14 @@ class TargetTest(unittest.TestCase):
         f = Flow(b.questions, play_recordings=True, opening=b.replay_parts(), apology_call=b.apology_call)
         f.on_opening_cut(b.opening_parts()[:2])
         r = self.say(f, "はい？どちら様？", "request_end", reason="done")
-        self.assertEqual((r["result"], r["play"]), ("next", [{"kind": "apology", "text": text}]))
+        self.assertEqual((r["result"], r["play"], f.apology_delivered), ("next", [{"kind": "apology", "text": text}], False))
+        f.on_played([text])
         r = self.say(f, "そうでしたか、ご丁寧にどうも。", "request_end", reason="done")
         self.assertEqual((r["result"], f.apology_delivered), ("end", True))
+        g = Flow(b.questions, play_recordings=True, opening=b.replay_parts(), apology_call=b.apology_call)
+        g.on_played(b.opening_parts())                                  # 名乗りもお詫びも最後まで流れた（止めていない）
+        self.say(g, "そうでしたか、ご丁寧にどうも。", "request_end", reason="done")
+        self.assertTrue(g.apology_delivered)
 
     def test_cut_off_call_continues_from_where_it_stopped(self):
         # CL-2 の 4-77（✅ 2026-10-17 ユーザー：途中で切れた通話は、お詫びとともにすぐかけ直す）：前の通話で取れた答えの質問は、もう伺わずに続きから聞く。
@@ -6248,6 +6264,25 @@ class TargetTest(unittest.TestCase):
         f.on_check("judge2", TARGET_IS_AWAY); f.on_unsure("asks", HOLD)
         self.assertEqual(f.apply("request_callback", {"why": "absent"})["result"], "next")
 
+    def test_end_reasons_and_fact_kinds_match_cl2_report(self):
+        # 締めた理由（flowctl.END_REASONS）と通話の事実の種類（flowctl.FACT_KINDS）が、CL-2 の会話の報告の読み手（call_report の
+        # END_REASONS・FACT_KINDS）と同じか（知らない名前が来ると、報告が丸ごと断られる）。CL-2 の部品（app/）が無い所では飛ばす。ast で読む
+        import ast
+        import pathlib
+        from flowctl import END_REASONS, FACT_KINDS
+        src = pathlib.Path(__file__).resolve().parent.parent / "app" / "src" / "salescall" / "core" / "call_report.py"
+        if not src.is_file():
+            self.skipTest("CL-2 の報告の読み手（app/）がまだ無い")
+        tree = ast.parse(src.read_text(encoding="utf-8"))
+        def names(var):
+            node = next(n.value for n in tree.body if isinstance(n, (ast.Assign, ast.AnnAssign))
+                        and var in [getattr(t, "id", None) for t in (n.targets if isinstance(n, ast.Assign) else [n.target])])
+            return {x.value for x in ast.walk(node) if isinstance(x, ast.Constant) and isinstance(x.value, str)}
+        for mine, var in ((END_REASONS, "END_REASONS"), (FACT_KINDS, "FACT_KINDS")):
+            with self.subTest(var):
+                theirs = names(var)
+                self.assertEqual((sorted(set(mine) - theirs), sorted(theirs - set(mine))), ([], []), f"{var}（こちらだけ, CL-2 だけ）")
+
     def test_recorded_names_match_cl2_contractor_parts(self):
         # CL-2 の 4-154：契約者の組にそろっているかを確かめる一覧（CL-2 の recordings.CONTRACTOR_PARTS）が、契約者の単位の録音の名前の正本
         # （phrases.RECORDED）と同じか。足りなければ、CL-2 はその声で話させない（待たせる）。名前を足したら CL-2 の連絡帳への返事で知らせる。
@@ -6313,7 +6348,7 @@ class TargetTest(unittest.TestCase):
         self.assertEqual((r["result"], r["hold_wait_s"]), ("hold", 300))                      # 理由・長さが無ければ5分（業務設定の初めの値）
         self.assertNotIn("hold_wait_s", Flow._reply_out(r))                                      # 電話接続側だけが読む（AIには見せない）
         r = f.on_hold_timeout()
-        self.assertEqual((r["result"], f.end_reason, f.not_reached), ("end", "not_transferred", "not_transferred"))
+        self.assertEqual((r["result"], f.end_reason, f.not_reached), ("end", "hold_timeout", "not_transferred"))  # 呼んでいる段＝取り次がれなかった
         from phrases import HOLD_TIMEOUT
         self.assertEqual(r["play"], [{"kind": "closing", "id": "hold_timeout", "text": HOLD_TIMEOUT}])   # ✅ ユーザーの言い方の締め
         self.assertEqual(f.facts["hold_timeout"], [{"turn": 1, "said": "少々お待ちください。", "waited_s": 300}])  # 待ちきった印（取り次げないと言われた発話と見分ける）
@@ -6326,6 +6361,21 @@ class TargetTest(unittest.TestCase):
         self.assertEqual(f.apply("report_party", {"party": "reception"})["hold_wait_s"], 900)  # 言われた長さを待つ
         self.assertIsNone(Flow(b2.questions).on_hold_timeout())                                  # 保留でなければ何もしない
         self.assertEqual((wait_seconds("十分です"), wait_seconds("2時十分に戻ります"), wait_seconds("三十分くらい")), (None, None, 1800))
+
+    def test_hold_timeout_after_connecting_is_not_a_failed_transfer(self):
+        # ⛔ 2026-10-24 の見直しで見つけた穴：目的のお客様に繋がったあとの保留（「確認しますので少々お待ちください」）で待ちきったときも、
+        #    締めた理由を「取り次いでいただけなかった」で残していた ⇒ 締めた理由は「保留で待ちきった」、繋がらなかった理由は持たない
+        from flowctl import END_REASONS, HOLD, TARGET_IS_THERE
+        f, b = self.checked()
+        self.heard(f, "はい、岡田は私ですが。", TARGET_IS_THERE)
+        self.assertEqual(f.apply("report_party", {"party": "target"})["result"], "next")
+        q = f.questions[f.current]
+        self.heard(f, "確認しますので少々お待ちください。", HOLD)
+        r = f.apply("record_answer", {"question_id": q.id, "condition_id": q.conditions[0]})
+        self.assertEqual((r["result"], f.holding), ("hold", True))
+        r = f.on_hold_timeout()
+        self.assertEqual((r["result"], f.end_reason, f.not_reached, f.facts["end"][-1]["reason"]), ("end", "hold_timeout", None, "hold_timeout"))
+        self.assertIn("hold_timeout", END_REASONS)
 
     def test_cut_material_is_decided_once_at_the_line_end(self):
         # ✅ 2026-10-24 ユーザー決定（CL-2 の 4-151）：お客様と話した通話の会話の報告には、切れ方の材料（cut）を必ず入れる。出すのは CL-1。
