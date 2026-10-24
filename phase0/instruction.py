@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass, field
 
 from flowctl import (ANY_LABEL, ARG_LABEL, CALLBACK_LABEL, CONFIRM_LABEL, END_LABEL, GOT, PART_LABEL, PARTY_LABEL, SYSTEM_LABEL, Question,
@@ -68,9 +69,11 @@ class Target:
         return f"{who}の後任のご担当者様" if self.successor else who
 
     def call(self) -> str:
-        if self.successor:
-            return SUCCESSOR_OF.format(who=target_who(self.kind, self._name(), self.role))
-        return target_call(self.kind, self._name(), self.role)
+        return self.successor_call() if self.successor else target_call(self.kind, self._name(), self.role)
+
+    def successor_call(self) -> str:
+        """この方の後任のご担当者様をお呼びする一言（法人だけ。業務の録音の部分 target_successor＝Business.replay_parts）。"""
+        return SUCCESSOR_OF.format(who=target_who(self.kind, self._name(), self.role))
 
     def confirm(self) -> str:
         return SUCCESSOR["target_confirm"] if self.successor else target_confirm(self._name(), self.role)
@@ -232,14 +235,20 @@ class Business:
     def replay_parts(self) -> dict:
         """名乗りの部分（flowctl.Flow の opening。部分 → 文）：流し直す録音と、目的の人に繋がったときに流す名乗り・用件の両方に使う。
         文は opening_parts と同じもの（録音も同じ）。目的の人のある業務では、呼ぶ一言（target）と、代わった方を確かめる一言（target_confirm）と、
-        その返事がはっきりしないときの聞き返し（target_reconfirm）も。"""
+        その返事がはっきりしないときの聞き返し（target_reconfirm）と、約束の電話で取り次げないと言われたときに伺う一言（promise_again）と、
+        法人なら前任の方の後任のご担当者様をお呼びする一言（target_successor）も。
+        録音の組は「業務設定の版 × 声」ごとに1つで、承認したあとは部分を足せない（CL-2 の 4-152）。どの行が約束の電話・後任の方の電話になるかは
+        録音のときには分からないので、この電話が何の電話か（予約証の promised・successor）に関わらず、どの電話にも同じ部分を返す。
+        この電話で流す部分を選ぶのは flowctl.Flow（後任の方の電話は target の代わりに target_successor を流す＝Flow._part_play）。"""
         company, caller = self._said()
         parts = {"greeting": GREETING, "intro": f"株式会社{company}の{caller}と申します。", "purpose": self.purpose_line or "",
                  "ai": self.ai_answer or AI_ANSWER}  # 「AIですか？」への決まった答え（録音で流す。⛔ G-57：AIに言わせると質問に戻らなかった）
         if self.target is not None:
-            parts.update(target=self.target.call(), target_confirm=self.target.confirm(), target_reconfirm=self.target.reconfirm())
-            if self.promised:
-                parts["promise_again"] = self.target.promise_again()  # 約束の電話で取り次げないと言われたとき（flowctl.Flow._not_transferred）
+            t = dataclasses.replace(self.target, successor=False)
+            parts.update(target=t.call(), target_confirm=t.confirm(), target_reconfirm=t.reconfirm(),
+                         promise_again=t.promise_again())  # 約束の電話で取り次げないと言われたとき（flowctl.Flow._not_transferred）
+            if t.kind == "法人":
+                parts["target_successor"] = t.successor_call()
         if self.voicemail_message:
             parts["voicemail"] = self.voicemail_message  # 留守番電話の伝言（依頼主ごとの設定。✅ 2026-10-19 ユーザー：必要なら録音）
         if self.message:

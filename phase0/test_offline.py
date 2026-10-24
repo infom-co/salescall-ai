@@ -4704,14 +4704,25 @@ class TargetTest(unittest.TestCase):
     def test_next_call_asks_for_the_successor(self):
         # ✅ 2026-10-24 ユーザー「5つOK」（CL-2 の 4-140：予約証の successor）：前の電話でお呼びした方が在籍していないと言われた会社への次の電話は、
         # 「（前任の方のお名前）様の後任のご担当者様」をお呼びする。確かめる一言は、通話の中で後任の方へ切り替えたときと同じ録音
+        import dataclasses
         from flowctl import Flow
         from phrases import SUCCESSOR
         b = self.business(successor=True)
         self.assertEqual(b.opening_parts()[-1], "営業部部長の「おかだ」様の後任のご担当者様はいらっしゃいますでしょうか？")
-        self.assertEqual(b.replay_parts()["target_confirm"], SUCCESSOR["target_confirm"])
         self.assertIn("お呼びする方：営業部部長の（お名前）様の後任のご担当者様", b.knowledge())
+        # 録音の組は業務×声で1つ（承認したあとは部分を足せない）＝どの電話にも同じ部分（CL-2 の 4-152）：ふつうの呼ぶ一言と後任の方の呼ぶ一言は
+        # 別の名前・約束の電話の一言も初めから入れる
+        parts = b.replay_parts()
+        self.assertEqual(parts, dataclasses.replace(self.business(), promised=True).replay_parts())
+        self.assertEqual((parts["target"], parts["target_successor"]), ("営業部部長の「おかだ」様はいらっしゃいますでしょうか？",
+                                                                     "営業部部長の「おかだ」様の後任のご担当者様はいらっしゃいますでしょうか？"))
+        self.assertIn("promise_again", parts)
         f = Flow(b.questions, play_recordings=True, opening=b.replay_parts(), target=b.replay_parts(), successor=True)
         self.assertEqual((f.successor, f.system_parts.get("target_confirm"), "target" in f.system_parts), (True, "successor_confirm", False))
+        self.assertEqual(f._part_play("target"), {"kind": "opening", "part": "target_successor", "text": parts["target_successor"]})
+        self.assertEqual(f._part_play("target_confirm")["text"], SUCCESSOR["target_confirm"])
+        f2 = Flow(b.questions, play_recordings=True, opening=b.replay_parts(), target=b.replay_parts())      # ふつうの電話は今までどおり
+        self.assertEqual(f2._part_play("target"), {"kind": "opening", "part": "target", "text": parts["target"]})
         self.say(f, "はい、後任の山田ですが。", "report_party", party="target")
         self.assertEqual((f.phase, f.facts["connect"][-1]["who"]), ("asking", "successor"))
 
@@ -5998,6 +6009,32 @@ class TargetTest(unittest.TestCase):
         f.on_check("judge2", TARGET_IS_AWAY); f.on_unsure("asks", HOLD)
         self.assertEqual(f.apply("request_callback", {"why": "absent"})["result"], "next")
 
+    def test_names_match_cl2_business_settings(self):
+        # CL-2 の 4-144 (a)・4-121：業務設定の確かめ（CL-2 の business_settings の ANSWER_RESERVED・RESERVED_IDS）が、会話の側の名前と
+        # そろっているか。ANSWER_RESERVED＝AIが選ぶ録音の部分の名前（RESERVED_PART_NAMES）と同じ／RESERVED_IDS＝システムが足す質問の番号
+        # （CALLBACK_IDS・SUBSTITUTE_ID）と、業務の録音の組の部分の名前（Business.replay_parts の鍵。想定問答の答えは頭の名前で別に断る）を含む。
+        # CL-2 の部品（app/）が無い所（main に入る前）では飛ばす。CL-2 の書き方を ast で読む（CL-2 の部品は読み込まない＝I-30 の逆向きも守る）
+        import ast
+        import dataclasses
+        import pathlib
+        from flowctl import ANSWER_PREFIX, CALLBACK_IDS, RESERVED_PART_NAMES, SUBSTITUTE_ID
+        src = pathlib.Path(__file__).resolve().parent.parent / "app" / "src" / "salescall" / "core" / "business_settings.py"
+        if not src.is_file():
+            self.skipTest("CL-2 の業務設定の部品（app/）がまだ無い")
+        tree = ast.parse(src.read_text(encoding="utf-8"))
+        consts = {n.targets[0].id: n.value.value for n in tree.body if isinstance(n, ast.Assign) and len(n.targets) == 1
+                  and isinstance(n.targets[0], ast.Name) and isinstance(n.value, ast.Constant) and isinstance(n.value.value, str)}
+        def names(var):
+            node = next(n.value for n in tree.body if isinstance(n, ast.Assign) and any(getattr(t, "id", None) == var for t in n.targets))
+            return {x.value for x in ast.walk(node) if isinstance(x, ast.Constant) and isinstance(x.value, str)} | \
+                   {consts[x.id] for x in ast.walk(node) if isinstance(x, ast.Name) and x.id in consts}
+        self.assertEqual(names("ANSWER_RESERVED"), set(RESERVED_PART_NAMES))
+        self.assertEqual(consts.get("ANSWER_PART_PREFIX"), ANSWER_PREFIX)
+        b = dataclasses.replace(self.business(), voicemail_message="（伝言）", message="（伝言の文）")
+        parts = {k for k in b.replay_parts() if not k.startswith(ANSWER_PREFIX)}
+        missing = (set(CALLBACK_IDS.values()) | {SUBSTITUTE_ID} | parts) - names("RESERVED_IDS")
+        self.assertFalse(missing, f"CL-2 の RESERVED_IDS に無い名前：{sorted(missing)}")
+
     def test_answer_names_must_not_be_part_names(self):
         # 想定問答の問いの名前が、AIが選ぶ部分の名前（中の名前・日本語の名前）と同じなら、会話の始めに断る（AIの報告は日本語の名前を
         # 中の名前に読み替えてから問いを探すので、「用件」という問いには届かない）
@@ -6008,6 +6045,30 @@ class TargetTest(unittest.TestCase):
                 Flow(b.questions, opening=b.replay_parts(), target=b.replay_parts(), answers={name: "x"})
         self.assertTrue(set(PART_LABEL) | set(PART_LABEL.values()) <= RESERVED_PART_NAMES)
         Flow(b.questions, opening=b.replay_parts(), target=b.replay_parts(), answers={"番号の出どころ": "x"})
+
+    def test_cut_material_is_decided_once_at_the_line_end(self):
+        # ✅ 2026-10-24 ユーザー決定（CL-2 の 4-151）：お客様と話した通話の会話の報告には、切れ方の材料（cut）を必ず入れる。出すのは CL-1。
+        # 決めるのは電話が切れた瞬間の様子だけ（Flow.on_line_end の1か所）。営業拒否か・かけ直すかは CL-2 の判定（DESIGN.md 7-1c）
+        f, b = self.flow()
+        self.say(f, "営業のお電話でしたら結構です。お断りしております。", "request_end", reason="callee_refused_call")
+        self.assertEqual(f.on_line_end(ai_speaking=True, callee_speaking=False),
+                         {"speaker": "ai", "in_closing": True, "callee_refused_last": True})        # 断りを受けて締めの言葉の途中
+        self.assertEqual(f.on_line_end(ai_speaking=False, callee_speaking=True)["speaker"], "ai")   # 2回目は最初の瞬間のまま
+        f, b = self.flow()
+        self.say(f, "少々お待ちください。", "report_party", party="reception")
+        self.assertEqual(f.on_line_end(ai_speaking=True, callee_speaking=True),
+                         {"speaker": "callee", "in_closing": False, "callee_refused_last": False})  # 相手の言葉の途中（AIも話していた）
+        for ai, callee, speaker in ((True, False, "ai"), (False, False, "none"), (None, False, None)):
+            f, b = self.flow()
+            self.say(f, "少々お待ちください。", "report_party", party="reception")
+            self.assertEqual(f.on_line_end(ai_speaking=ai, callee_speaking=callee)["speaker"], speaker, (ai, callee))
+        f, b = self.flow()                                       # 相手の声を見張っていない：会話AIの話し始めの知らせで補う
+        f.on_callee(); f.on_activity(True); f.on_heard("あの、すみませ")
+        self.assertEqual(f.on_line_end(ai_speaking=None)["speaker"], "callee")
+        f, b = self.flow()                                       # 断りを受けたのが前の発話：最後の発話の断りではない
+        self.say(f, "営業のお電話はお断りしております。", "request_end", reason="callee_refused_call")
+        f.on_callee(); f.on_heard("はい。")
+        self.assertFalse(f.on_line_end(ai_speaking=False)["callee_refused_last"])
 
     def test_not_reached_reasons_are_told_apart(self):
         # ✅ 2026-10-22 ユーザー決定（CL-2 の 4-130）：取り次いでもらえなかったときを、営業のお断り（もうかけない）・事情で取り次げなかった

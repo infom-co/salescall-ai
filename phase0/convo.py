@@ -626,6 +626,9 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                     if again is not None:
                         continue
                     i += 1
+    # 電話が切れた瞬間（切れ方の材料＝Flow.on_line_end の1か所）。試作では、AIのターンを話し終えるまで待ってから次へ進むので、切れた瞬間は
+    # だれも話していない：締めた（こちらが締めて切った）か、相手の台詞が尽きた（AIが話し終えたあとに、相手が何も言わずに切った）
+    flow.on_line_end(ai_speaking=False, callee_speaking=False)
     # 通話は終わった：まだ走っている確かめは、届くまで待って同じ決まりで当てる（通話後の検証＝DESIGN.md 6-12 と同じ判定・同じ決まり。
     # Flow.on_check ⇒ _late）。LATE_CHECK_S まで待っても届かないものは止める（届かなかった＝unchecked。通話後の検証でやり直す）。
     # ⛔ 2026-10-18 に見つけた漏れ：通話の終わりに止めていたので、1秒以上かかる2つ目の判定（Sonnet 5.5）が、短い試験の通話ではほとんど
@@ -645,6 +648,7 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
             "export": flow.export(), "hedged_words": flow.hedged_words(), "final_phase": flow.phase, "hurried": flow.hurried,
             "facts": flow.facts,
             "not_reached": flow.not_reached,  # 目的の人に繋がらずに終わった理由（会話の報告の not_reached。Flow.not_reached の1か所）
+            "cut": flow.cut,  # 切れ方の材料（会話の報告の cut。Flow.on_line_end の1か所。CL-2 の 4-151）
             "checked_after_call": before_after - len(flow.unchecked()),
             "opening_mode": opening_mode, "barge_in": barge_in, "ear_errors": ear.errors if ear is not None else None,
             "unchecked": flow.unchecked()}

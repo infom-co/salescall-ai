@@ -1061,10 +1061,15 @@ class Flow:
         self.promised = promised
         self.apology_due = [k for k in apology if k in APOLOGY_FIRST]   # まだ言っていないお詫び（目的の方に繋がったら流す＝_connect）
         self.close_after: str | None = None  # 締めの前に伺う一言のあとの、締めた理由（約束の電話で取り次げなかった＝_not_transferred）
+        # 名乗りの部分のうち、別の名前の録音で流すもの（部分 → 業務の録音の部分の名前。_part_play）
+        self.part_names: dict[str, str] = {}
         if successor:
-            # 前任の方の後任のご担当者様をお呼びする電話：最初から後任の方が目的の人（確かめる一言・聞き返しは契約者の単位の録音＝_to_successor と同じ）
+            # 前任の方の後任のご担当者様をお呼びする電話：最初から後任の方が目的の人。呼ぶ一言は業務の録音の target_successor（お名前が入る。
+            # instruction.Business.replay_parts）、確かめる一言・聞き返しは契約者の単位の録音（_to_successor と同じ）。
+            # ⛔ 2026-10-24 CL-2 の 4-152：1つの録音の組に同じ名前の部分は1つだけ＝ふつうの電話の呼ぶ一言（target）と同じ名前では録音できない
             self.successor = True
             self.system_parts.update({k: v for k, v in SUCCESSOR_IDS.items() if k != "target"})
+            self.part_names["target"] = "target_successor"
         self.busy_asked = False
         self.confirm_counts: dict[str, int] = {}   # 言い直しの場面ごとの回数（同じ言い方が続かないよう、順番に回す）
         self.awaiting_say: str | None = None       # いま返事を待っている言い直しの、言い方（差し戻しのときも同じ言い方を使う）
@@ -1087,6 +1092,7 @@ class Flow:
         self.callee_end_at: float | None = None
         self.callee_speaking = False
         self.callee_voice_end: float | None = None
+        self.cut: dict | None = None     # 切れ方の材料（電話が切れた瞬間の様子。on_line_end だけが書く。会話の報告の cut）
         self.midway = False              # いま受けている報告は、相手の言葉が出揃う前に届いた（handle の midway。電話接続側が付ける）
         # いまの相手の発話の確かめ（on_check。CHECKS の名前 → 別の耳の文字／意味の判定の中の名前。届いていないものは入らない）。
         # いまの相手の言葉のものだけ（check_said：その確かめが見た相手の言葉。None＝発話まるごと。言葉が増えたら、前の言葉の判定は外す）
@@ -1130,6 +1136,10 @@ class Flow:
         self.opening_unheard: list[str] = []
         # 目的の人（DESIGN.md 4-3）：繋がるまでは calling の段（いまの質問は無い）。名乗りの終わりは呼ぶ一言なので、用件はまだ届いていない
         self.target = dict(target) if target else target
+        if self.successor:
+            for d in (self.target, self.opening):
+                # この電話の呼ぶ一言（流す録音は target_successor＝_part_play）と、確かめる一言・聞き返し（契約者の単位の録音の文＝system_parts）
+                d.update({k: v for k, v in SUCCESSOR.items() if k != "target"}, target=d["target_successor"])
         # 呼んでいる段は、電話口の方ごとに数える（DESIGN.md 4-3 の区間）：speaker_from＝いま電話口にいる方が話し始めた相手の発話の番号
         # （取り次ぎの判定のあとの発話・代わった方の発話から）。呼ぶ一言・確かめる一言は、流したときの相手の発話の番号を残し、その方に流した
         # 数を数える（呼ぶ一言は1人に2回まで・確かめる一言は1人に1回）。⛔ 2026-10-21 の見直し：通話ごとに数えていたので、受付の方に1回
@@ -1183,6 +1193,7 @@ class Flow:
         （契約者の単位の録音＝system_parts）。"""
         if k in self.system_parts:
             return {"kind": "recorded", "id": self.system_parts[k], "text": self.target[k]}
+        k = self.part_names.get(k, k)
         return {"kind": "opening", "part": k, "text": self.opening.get(k) or self.target[k]}
 
     # ── 名乗りの録音の途中で相手が話し始めて、録音を止めた（電話接続側の見張りが止めた。DESIGN.md 6-13）
@@ -3361,6 +3372,25 @@ class Flow:
             self._add_callback_question("promise_again", self.target["promise_again"])
             return self._advance("", handled=True)
         return self._close("not_transferred")
+
+    # ── 電話が切れた（電話接続側が、回線が切れた瞬間に1回だけ呼ぶ。お客様が切ったときも、こちらが締めて切ったときも同じ）。
+    #    ai_speaking＝その瞬間に、AIの声（録音も）を相手に流していたか／callee_speaking＝その瞬間に、相手の声があったか（電話接続側の
+    #    声の見張り）。どちらも分からなければ None（相手の声は、会話AIの話し始め・話し終わりの知らせ＝on_activity で補う）
+    def on_line_end(self, ai_speaking: bool | None, callee_speaking: bool | None = None) -> dict:
+        """切れ方の材料（会話の報告の cut）を決める唯一の場所。決めるのは切れた瞬間の様子だけで、営業拒否か・かけ直すかは判定が決める
+        （CL-2 の judge.classify_cut。DESIGN.md 7-1c の表。✅ 2026-10-24 ユーザー決定＝CL-2 の 4-151：材料を出すのは CL-1）。
+        - speaker：切れた瞬間に話していた側。相手の声があれば callee（相手の言葉の途中で切れた。AIも話していても＝相手の言葉が途切れた）／
+          AIの声を流していれば ai／どちらも無ければ none／分からなければ None
+        - in_closing：締めに入っていた・締めのあと（締めの言葉を決めた＝phase が closing。締めの言葉を流している途中に切れても入る）
+        - callee_refused_last：相手の最後の発話を、通話の断りとして受け取った（発信禁止の申告 do_not_call が、その発話についた）。
+          「結構です」だけの言葉は、断りと決めない（_ambiguous_only。✅ 2026-10-17 ユーザー）＝ここでも断りに数えない
+        2回目からは何もしない（最初の瞬間の様子を残す）。"""
+        if self.cut is None:
+            callee = self.callee_speaking if callee_speaking is None else callee_speaking
+            self.cut = {"speaker": "callee" if callee else {True: "ai", False: "none"}.get(ai_speaking),
+                        "in_closing": self.phase == "closing",
+                        "callee_refused_last": any(f["turn"] == self.callee_turns for f in self.facts.get("do_not_call", ()))}
+        return self.cut
 
     @property
     def not_reached(self) -> str | None:
