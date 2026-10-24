@@ -347,16 +347,18 @@ def cut_after_context(pcm: bytes, rate: int) -> bytes | None:
     return None
 
 
-# 声のAIが読み違える言葉の読み（✅ 2026-10-24 ユーザー：番号違いの伺い直しの録音で「『前回』を『せんかい』と言っている」）。その言葉を含む
-# 録音の指示に、読みを添える（どの録音でも同じ1か所＝take）。⚠️ 耳の確かめでは見分けられない（聞き取りは、どちらの読みでも「前回」と書いた）
-# ので、人が聞いて選ぶ
+# 声のAIが読み違える言葉の読み（✅ 2026-10-24 ユーザー：番号違いの伺い直しの録音で「『前回』を『せんかい』と言っている」）。声のAIに渡す
+# 言葉そのものを、読みのかなに置き換えて渡す（どの録音でも同じ1か所＝take。録音の文と耳の確かめは元の文のまま）。⛔ 2026-10-24 の1回目：
+# 指示に「『前回』は『ぜんかい』と読みます」と添えただけでは、作り直しの半分ほどが、まだ「せんかい」と読んだ（ユーザーが聞いて見つけた）。
+# ⚠️ 耳の確かめでは見分けられない（聞き取りは、どちらの読みでも「前回」と書いた）ので、人が聞いて選ぶ
 READ_AS = {"前回": "ぜんかい"}
 
 
-def read_as_note(text: str) -> str:
-    """その言葉の読みの指示（READ_AS の言葉を含まなければ空）。"""
-    hits = [f"「{w}」は「{r}」" for w, r in READ_AS.items() if w in text]
-    return f"{'、'.join(hits)}と読みます。" if hits else ""
+def spoken_input(text: str) -> str:
+    """声のAIに読ませる言葉（READ_AS の言葉を読みのかなに置き換えたもの。含まなければ、そのまま）。"""
+    for w, r in READ_AS.items():
+        text = text.replace(w, r)
+    return text
 
 
 async def take(client, args, vt: str, aid: str, text: str, how: str, voice_note: str = "") -> tuple[dict, bytes, int]:
@@ -367,10 +369,10 @@ async def take(client, args, vt: str, aid: str, text: str, how: str, voice_note:
     context = CONTEXT.get(aid, "")
     try:
         inst = (f"{style}{voice_note}\nあなたは音声の材料を作る係です。渡された言葉だけを、{HOW.get(how, DEFAULT_HOW)}、そのまま読み上げます。"
-                f"{read_as_note(text)}言葉を足しません。")
+                "言葉を足しません。")
         async with client.aio.live.connect(model=args.model, config=build_config(voice=voice, system_instruction=inst)) as s:
             t = time.monotonic()
-            await send_text(s, f"読み上げる言葉：{context}{text}")
+            await send_text(s, f"読み上げる言葉：{context}{spoken_input(text)}")
             turn = await collect_turn(s, started_at=t, timeout_s=60)
         pcm, rate = bytes(turn.audio), turn.audio_rate or 24000
         if context and pcm:

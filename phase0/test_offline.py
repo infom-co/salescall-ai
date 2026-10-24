@@ -4664,13 +4664,15 @@ class ClipTablesTest(unittest.TestCase):
     契約者の単位の録音に足したとき、読み方も上限も無く、作ると止まった）。依頼主の単位の録音には「AIですか」への言い方と伝言も入る。"""
 
     def test_misread_words_get_their_reading(self):
-        # ✅ 2026-10-24 ユーザー：「『前回』を『せんかい』と言っている」＝その言葉を含むどの録音の指示にも、読みを添える（1か所）
-        from make_ack_clips import READ_AS, read_as_note
+        # ✅ 2026-10-24 ユーザー：「『前回』を『せんかい』と言っている」＝その言葉を含むどの録音も、声のAIには読みのかなで渡す（1か所）。
+        # ⛔ 1回目は指示に読みを添えただけで、半分ほどが「せんかい」のままだった
+        from make_ack_clips import READ_AS, spoken_input
         from phrases import APOLOGY_FIRST, NUMBER_AGAIN
         for text in (*NUMBER_AGAIN.values(), APOLOGY_FIRST["cut_off"]):
-            self.assertIn("「前回」は「ぜんかい」", read_as_note(text))
-        self.assertEqual(read_as_note("恐れ入りますがいつ頃でしたらお分かりになりますでしょうか？"), "")
-        self.assertEqual(READ_AS["前回"], "ぜんかい")
+            self.assertTrue(spoken_input(text).startswith("ぜんかい"), text)
+            self.assertNotIn("前回", spoken_input(text))
+        same = "恐れ入りますがいつ頃でしたらお分かりになりますでしょうか？"
+        self.assertEqual((spoken_input(same), READ_AS["前回"]), (same, "ぜんかい"))
 
     def test_every_recording_has_a_style_and_a_limit(self):
         import dataclasses
