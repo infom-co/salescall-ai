@@ -1,0 +1,111 @@
+"""会話の処理が書き込む入口（DESIGN.md 4-4・7-1）。持ち主 CL-2。
+
+会話の処理（CL-1。サーバーで動く通話を進める部品 `supervisor.plugins.CallRunner`・通話後の検証）は、データベースへ直接書かず、
+ここだけを呼んで書く（CL-1 の連絡帳 4-2 のお願い (a)。2026-10-24 ユーザー：入口は「CL-2」）。項目の値（`item_values`）を書けるのは
+この部品だけ（機械の見張り app/checks/rules.py の WRITERS）。
+
+- 取引は呼ぶ側が持つ（`access.in_client(actor, 契約者, 依頼者, lambda tx: conversation_io.write_item(tx, …))`。ほかの書く部品
+  ＝target_recheck.record・attempts.record_verification と同じ形）。1つの取引に、状態の移り・答え・報告をまとめてもよい。
+- **項目の値を1つ書く**（`write_item`）：通話の途中で答えが決まるたびに呼べる（会話の処理が落ちても、取れた答えは残る）。同じ
+  質問をもう一度書けば、いまの値を書き換える。どの通話で取ったか（attempt_id）は必ず入る。前の通話の答えを上書きするときは、
+  前の答えをデータベースが残す（0108）。書けるのは、次のときだけ（確かめは、それぞれ今の1か所を使う。2つ目を作らない）：
+  - お客様が出た通話（`salescall.reached_answer`。発信禁止の申告 dnc.register_declared と同じ見方）で、通話中か通話後の検証が
+    済む前（`verification` が無い・pending。検証が済むと締めが答えを読むので、そのあとは書き換えない）。
+  - そのタスクのいちばん新しい通話（データベースの守り item_values_from_newest_call＝0108）。
+  - 質問がその通話の業務設定の版にある（質問は版の業務設定 `business_settings.load` の1か所）。
+  - 状態が項目の状態の一覧にある（データベースの種類 salescall.item_state が正本＝DESIGN.md 4-4）。
+  - 選んだ選択肢は、その質問で返りうる答え（`business_settings.possible_answers`）のどれか。
+  - 「わからない」「答えない」の理由は、その状態のときだけで（データベースの守り item_values_reason_only_when_not_answered と同じ
+    決まり）、名前は業務の決まりの一覧（`business_rules.DONT_KNOW_REASONS`・`REFUSED_REASONS`）のどれか。理由が無いのは受け取る
+    （判定が「理由が無い」＝reason_missing として、直す担当へ修正依頼を出す。答えそのものは失わない）。
+  - ⏳ 値の形（型ごとの値の決まり）は、CL-1 が持つ予定の core/value_types.py（CL-1 の連絡帳 4-5・CL-2 の連絡帳 4-24 の約束）が
+    できるまで見ない（勝手に2つ目の決まりを作らない）。
+- **会話の報告を置く**（`save_report`。形の確かめは call_report.from_json の1か所。1回だけ・変更不可）と、**録音から作り直した
+  報告を置く**（`save_rebuilt_report`。通話後の検証が呼ぶ）。
+- **「もうかけないで」をその場で台帳へ**（`declare_do_not_call`。dnc.register_declared をそのまま呼ぶ。原則14）。
+"""
+
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass
+from typing import Any
+from uuid import UUID
+
+from salescall.core import business_rules, business_settings, call_report, dnc
+from salescall.core.access import Tx
+from salescall.core.attempts import AttemptNotFound
+
+__all__ = ["ItemInvalid", "ItemValue", "declare_do_not_call", "save_rebuilt_report", "save_report", "write_item"]
+
+# 理由を持てる状態と、その理由の名前の一覧（正本は業務の決まり business_rules。ここは対応だけ）
+_REASONS: dict[str, tuple[str, ...]] = {"dont_know": business_rules.DONT_KNOW_REASONS,
+                                        "refused": business_rules.REFUSED_REASONS}
+
+
+class ItemInvalid(Exception):
+    """書けない項目の値（理由は日本語）。"""
+
+
+@dataclass(frozen=True)
+class ItemValue:
+    """会話の処理が書く、1つの質問の答え（DESIGN.md 4-4）。"""
+    question_id: str               # 質問の番号（その通話の業務設定の版の質問）
+    state: str                     # 項目の状態（salescall.item_state のどれか）
+    value: Any = None              # 取れた値（JSON にできる形。⏳ 形の確かめは core/value_types.py ができてから）
+    condition: str | None = None   # 選んだ選択肢（business_settings.possible_answers のどれか）
+    reason: str | None = None      # 「わからない」「答えない」の理由（dont_know・refused のときだけ）
+    hedged: str | None = None      # 言い切っていない返事の言葉（お客様の言葉そのまま。CL-1 の 4-21）
+
+
+def write_item(tx: Tx, attempt_id: UUID, item: ItemValue) -> None:
+    """その通話で取った答えを1つ書く（同じ質問なら書き換える）。書けなければ ItemInvalid。"""
+    a = tx.one("SELECT task_id, version_id, verification::text AS verification,"
+               " salescall.reached_answer(attempt_id) AS reached FROM salescall.attempts WHERE attempt_id = %s", (attempt_id,))
+    if a is None:
+        raise AttemptNotFound(str(attempt_id))
+    if not a["reached"]:
+        raise ItemInvalid("お客様が出ていない通話には、答えはありません")
+    if a["verification"] not in (None, "pending"):
+        raise ItemInvalid("通話後の検証が済んだ通話の答えは、書き換えません（締めが読んだあとです）")
+    question = next((q for q in business_settings.load(tx, a["version_id"]).questions if q.id == item.question_id), None)
+    if question is None:
+        raise ItemInvalid(f"質問「{item.question_id}」は、この通話の業務設定の版にありません")
+    if not tx.one("SELECT %s = ANY(enum_range(NULL::salescall.item_state)::text[]) AS ok", (item.state,))["ok"]:
+        raise ItemInvalid(f"項目の状態「{item.state}」は、決まった状態のどれでもありません")
+    if item.condition is not None and item.condition not in business_settings.possible_answers(question):
+        raise ItemInvalid(f"選択肢「{item.condition}」は、質問「{item.question_id}」で返りうる答えではありません")
+    if item.reason is not None:
+        allowed = _REASONS.get(item.state)
+        if allowed is None:
+            raise ItemInvalid("理由は「わからない」（dont_know）「答えない」（refused）のときだけ付けます")
+        if item.reason not in allowed:
+            raise ItemInvalid(f"理由「{item.reason}」は、「{item.state}」の決まった理由 {allowed} のどれでもありません")
+    if item.hedged is not None and not item.hedged.strip():
+        raise ItemInvalid("言い切っていない言葉が空です（無ければ None）")
+    tx.execute(
+        "INSERT INTO salescall.item_values (tenant_id, client_id, task_id, version_id, question_id, state, value, condition,"
+        "                                   reason, hedged, attempt_id)"
+        " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+        " ON CONFLICT (task_id, question_id) DO UPDATE SET version_id = EXCLUDED.version_id, state = EXCLUDED.state,"
+        "   value = EXCLUDED.value, condition = EXCLUDED.condition, reason = EXCLUDED.reason, hedged = EXCLUDED.hedged,"
+        "   attempt_id = EXCLUDED.attempt_id, updated_at = now()",
+        (a["task_id"], a["version_id"], item.question_id, item.state,
+         None if item.value is None else json.dumps(item.value, ensure_ascii=False), item.condition, item.reason, item.hedged, attempt_id))
+
+
+def save_report(tx: Tx, attempt_id: UUID, raw: Any) -> call_report.CallReport:
+    """会話の報告（版3の JSON の形）を確かめて置く（1回だけ。合わなければ call_report.ReportInvalid）。置いた報告を返す。"""
+    report = call_report.from_json(raw)
+    call_report.save(tx, attempt_id, report)
+    return report
+
+
+def save_rebuilt_report(tx: Tx, attempt_id: UUID, raw: Any, *, evidence: str) -> int:
+    """通話の録音から作り直した報告を置く（通話後の検証が呼ぶ。「判定できない」の通話を判定し直すため）。作り直しの番号を返す。"""
+    return call_report.save_rebuilt(tx, attempt_id, call_report.from_json(raw), evidence=evidence)
+
+
+def declare_do_not_call(tx: Tx, attempt_id: UUID) -> dict[str, Any]:
+    """通話の途中の「もうかけないで」を、その場で発信禁止の台帳へ（dnc.register_declared の1か所。何度呼んでも同じ）。"""
+    return dnc.register_declared(tx, attempt_id)

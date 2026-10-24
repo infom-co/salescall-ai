@@ -127,14 +127,17 @@ class World:
         return tid
 
     def approve_voices(self, tenant: UUID, client: UUID | None, version: UUID | None,
-                       voices: tuple[str, ...] = VOICES) -> None:
-        """声ごとに、録音の組を作って承認する（契約者の単位＝版なし／依頼者の単位＝その版。架空の録音）。"""
+                       voices: tuple[str, ...] = VOICES, *, parts: tuple[str, ...] | None = None) -> None:
+        """声ごとに、録音の組を作って承認する（契約者の単位＝版なし／依頼者の単位＝その版。架空の録音）。parts＝組に入れる部分の
+        名前（無ければ、あいさつと、その単位で電話の印ごとに使う部分のすべて＝recordings.call_needs が見るもの）。"""
+        unit = "contractor" if version is None else "business"
+        names = parts if parts is not None else ("greeting",) + (
+            (*recordings.APOLOGY_PARTS.values(), *recordings.TARGET_PARTS) if unit == "contractor" else recordings.PROMISED_PARTS)
         def work(tx):
             for v in voices:
-                sid = recordings.create_set(tx, unit="contractor" if version is None else "business", voice_name=v,
-                                            parts=[recordings.Part("greeting", "お忙しいところ恐れ入ります。",
-                                                                   f"test://{v}/greeting", "0" * 64)],
-                                            version_id=version)
+                sid = recordings.create_set(tx, unit=unit, voice_name=v, version_id=version,
+                                            parts=[recordings.Part(n, f"架空の録音（{n}）。", f"test://{v}/{n}", "0" * 64)
+                                                   for n in names])
                 recordings.approve(tx, sid)
         if version is None:
             self.a.in_tenant(OPERATOR, tenant, work)

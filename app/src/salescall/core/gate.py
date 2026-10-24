@@ -100,6 +100,7 @@ REASONS: dict[str, Reason] = {
                                   "wait", "unoffered"),
     "line_busy": Reason("回線が使用中です", "wait", "line"),
     "voice_not_ready": Reason("この業務の、承認した録音のある声がありません", "wait", "run"),
+    "voice_parts_missing": Reason("この電話で使う録音（約束の電話の一言・お詫び・不在のときの伺い）が、承認した録音にありません", "wait", "unoffered"),
     "voice_used_by_other_client": Reason("ほかの依頼者がこの番号へ同じ声でかけています（別の声の録音がありません）", "wait", "unoffered"),
     "client_concurrency": Reason("この依頼者の同時の本数の上限です", "wait", "client"),
     "contact_active": Reason("同じ番号のお客様（この依頼者の別の行を含む）に、進行中の発信があります", "wait", "task"),
@@ -383,7 +384,7 @@ def waits_unknown(tx: Tx, task_id: UUID, line_id: UUID | None = None) -> str | N
     候補のデータベースの条件で除けないもの（`UNOFFERED_HERE`）。どれも門と同じ関数を読む：契約者の承認を待つ（approval.task_cleared）・
     同じお客様の発信で、断られたかがまだ決まっていない（dnc.undecided_reach_overlaps）・鳴らない電話が決まった数だけ続いた番号の、
     番号のせいか回線のせいかがまだ分からない（attempts.number_unconfirmed）・目的のお客様を呼ぶ材料が無い（`_target_short`）・
-    話してよい別の声が無い（`choose_voice`）・その回線の発信番号で、ほかの依頼者がこの番号へかけた（`_line_taken`。line_id を渡した
+    話してよい別の声が無い・この電話で使う録音の部分がそろった声が無い（`choose_voice`）・その回線の発信番号で、ほかの依頼者がこの番号へかけた（`_line_taken`。line_id を渡した
     ときだけ。ほかの回線には出す）・待つ時刻が分からない約束（`pacing` の known）。"""
     if not approval.task_cleared(tx, task_id):
         return "awaiting_approval"
@@ -393,7 +394,7 @@ def waits_unknown(tx: Tx, task_id: UUID, line_id: UUID | None = None) -> str | N
     if attempts.number_unconfirmed(tx, task["contact_id"], tenant_id=task["tenant_id"], client_id=task["client_id"],
                                    business_id=task["business_id"]):
         return "number_unconfirmed"
-    nxt = tx.one("SELECT promised, salescall.keeping_kind(purpose, promised) AS keeping, now() AS now,"
+    nxt = tx.one("SELECT promised, apology_reasons, salescall.keeping_kind(purpose, promised) AS keeping, now() AS now,"
                  " salescall.jst(now())::date AS today FROM salescall.current_next_actions WHERE task_id = %s", (task_id,))
     if nxt is None:
         return None
@@ -406,7 +407,8 @@ def waits_unknown(tx: Tx, task_id: UUID, line_id: UUID | None = None) -> str | N
         short = _target_short(tx, task, nxt["keeping"], content)
         if short is not None:
             return short
-        voice = choose_voice(tx, task, version, content.voice, nxt["today"])
+        voice = choose_voice(tx, task, version, content.voice, nxt["today"], promised=bool(nxt["promised"]),
+                             apology=tuple(nxt["apology_reasons"]))
         if isinstance(voice, Denied) and voice.reason in UNOFFERED_HERE:
             return voice.reason
     if line_id is not None and _line_taken(tx, task, line_id, nxt["today"]):
@@ -437,10 +439,13 @@ OWN_LINE_MISSING = "この依頼者に専用の発信番号がありません。
 
 
 VOICE_NOT_READY = "この業務の録音が、まだ承認されていません。録音を聞いて承認してください。"
+VOICE_PARTS_MISSING = ("この電話で使う録音（{}）のどれかが、承認した録音にありません。足りない録音を入れた組を作り、聞いて承認してください"
+                       "（それまで、この電話はかけません）。")
 OTHER_VOICE_MISSING = "別の声の録音がありません。ほかの依頼者がかけた番号へは、同じ声ではかけません。別の声の録音を承認してください。"
 
 
-def choose_voice(tx: Tx, task: dict[str, Any], version_id: UUID, business_voice: str, today: Any) -> str | Denied:
+def choose_voice(tx: Tx, task: dict[str, Any], version_id: UUID, business_voice: str, today: Any, *,
+                 promised: bool = False, apology: tuple[str, ...] = ()) -> str | Denied:
     """この通話で話す声の型（決めるのはここだけ。DESIGN.md 5-2-2 の順10。2026-10-17 ユーザー：声を決める場所は門＝案A）。
     話してよい声は、承認した録音のある声だけ（`recordings.ready_voices` の1か所。事前の録音チェック）。
     (1) この行で前に話した声の型があり、その声が話してよい声なら、それ（同じお客様へのかけ直し・お詫びの電話は同じ声）。
@@ -448,8 +453,14 @@ def choose_voice(tx: Tx, task: dict[str, Any], version_id: UUID, business_voice:
         期間に関係なく、声…は変えた方がいい」「同じ男性ならサービスを聞く前に嫌悪感を持たれるので、Ledaが対応するなど」）。
         別の性別の声があれば、その中から（声の一覧の性別の表示名。見直し16）。業務設定の声の型が使えればそれ、使えなければ、話して
         よいほかの声の初めの声の型（声の名前の順。声が増えても同じ決まり）。
-    話してよい声が無い・別の声が無いときは、通さずに待つ（発信番号を替えられないときと同じ）。契約者に知らせる（止めない）。"""
-    ready = recordings.ready_voices(tx, version_id)
+    話してよい声が無い・別の声が無いときは、通さずに待つ（発信番号を替えられないときと同じ）。契約者に知らせる（止めない）。
+    **その電話で使う録音の部分**（約束の電話の一言・お詫び・不在のときの伺い＝`recordings.call_needs` の1か所。promised・apology＝
+    次の予定の印＝予約証に写すもの）が、いまの組にそろっている声だけで話す（⛔ 2026-10-24 CL-2 の連絡帳 4-152：前は承認した組が
+    あるかだけを見たので、前に承認した組で、流す録音の無い約束の電話・お詫びの電話をかけた）。承認した録音のある声はあるが、どれも
+    部分がそろわなければ voice_parts_missing（行ごとに違う＝この行だけ候補に出さない。契約者に、足りない録音を知らせる）。"""
+    needs = recordings.call_needs(promised=promised, apology=apology,
+                                  anyone=business_settings.anyone_target(tx, version_id))
+    ready = recordings.ready_voices(tx, version_id, needs)
     types = {r["code"]: r for r in tx.all("SELECT code, voice_name, default_for_voice FROM salescall.voice_types")}
     mine = tx.one(f"SELECT voice_type FROM salescall.attempts WHERE task_id = %s AND voice_type IS NOT NULL AND {attempts.DIALED}"
                   " ORDER BY claimed_at DESC LIMIT 1", (task["task_id"],))   # お客様が聞いた声だけ（発信しなかった予約は数えない）
@@ -468,8 +479,14 @@ def choose_voice(tx: Tx, task: dict[str, Any], version_id: UUID, business_voice:
         return business_voice
     if usable:
         return next(code for code, t in sorted(types.items()) if t["voice_name"] == usable[0] and t["default_for_voice"])
-    reason, summary = ("voice_not_ready", VOICE_NOT_READY) if not ready else ("voice_used_by_other_client", OTHER_VOICE_MISSING)
-    notify.emit(tx, "setting_missing", key=f"{reason}:{version_id}:{today}", summary=summary,
+    if ready:
+        reason, summary, key = "voice_used_by_other_client", OTHER_VOICE_MISSING, ""
+    elif needs != recordings.Needs() and recordings.ready_voices(tx, version_id):   # 承認した録音はあるが、この電話の部分が無い
+        reason, summary, key = ("voice_parts_missing", VOICE_PARTS_MISSING.format("・".join(needs.labels())),
+                                ":" + ",".join((*needs.contractor, *needs.business)))
+    else:
+        reason, summary, key = "voice_not_ready", VOICE_NOT_READY, ""
+    notify.emit(tx, "setting_missing", key=f"{reason}:{version_id}{key}:{today}", summary=summary,
                 refs={"client_id": task["client_id"], "version_id": version_id})
     return _deny(reason)
 
@@ -734,7 +751,8 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
 
     # (10) 話す声（承認した録音のある声だけ。ほかの依頼者がかけた番号へは別の声。choose_voice の1か所。ほかの理由で通さない
     #      ときに知らせを出さないよう、最後に決める）
-    voice = choose_voice(tx, task, version, content.voice, local.date())
+    voice = choose_voice(tx, task, version, content.voice, local.date(), promised=bool(nxt["promised"]),
+                         apology=tuple(nxt["apology_reasons"]))
     if isinstance(voice, Denied):
         return voice
 

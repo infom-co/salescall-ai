@@ -20,8 +20,9 @@ __all__ = ["CallRunner", "Prober", "Verifier", "load"]
 class CallRunner(Protocol):
     """通話を最後まで進める部品（会話＝CL-1。サーバーで動く。作るときに受け取った回線の電話の部品で、通話の声を受け渡す）。
     発信の出口（dial_exit.dial）がかけたあとに呼ぶ。
-    試行の状態を終わりまで移し、報告を置く（attempts.move・call_report.save。報告は版3＝通話の事実の形）。通話の途中で「もう
-    かけないで」の申告を聞いたら、その場で台帳へ入れる（dnc.register_declared。原則14）。エラーは自分でエラーの入口
+    試行の状態を終わりまで移し（attempts.move）、答え・報告・「もうかけないで」の申告は、書き込む入口（core/conversation_io.py）
+    だけを通して書く：答えは決まるたびに `write_item`、報告は `save_report`（版3＝通話の事実の形）、申告はその場で
+    `declare_do_not_call`（原則14）。エラーは自分でエラーの入口
     （watch.after_error）へ渡す。外へ出た誤りは、見守り役が「見守り役の誤り」として記録し、その試行を結果不明にする。"""
 
     def run(self, access: Access, actor: Actor, claim: Claim, *, tenant_id: UUID, client_id: UUID) -> None: ...

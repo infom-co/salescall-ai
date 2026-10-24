@@ -12,7 +12,7 @@ from unittest import mock
 from datetime import timedelta
 from pathlib import Path
 
-from salescall.core import (attempts, backup, business_rules, call_report, fix_requests, gate, leases, next_action, quality_stage,
+from salescall.core import (attempts, backup, business_rules, conversation_io, fix_requests, gate, leases, next_action, quality_stage,
                             registry, scheduler, settings, stops)
 from salescall.core.phone import normalize
 from salescall.core.access import Rejected
@@ -39,10 +39,8 @@ class Runner:
         def work(tx):
             for st in ("ringing", "answered", "in_conversation", "ending", "ended"):
                 attempts.move(tx, claim.attempt_id, st)
-            tx.execute("INSERT INTO salescall.item_values (tenant_id, client_id, task_id, version_id, question_id, state, attempt_id)"
-                       " VALUES (%s, %s, %s, %s, 'Q1', 'confirmed', %s)",
-                       (tenant_id, client_id, claim.task_id, claim.version_id, claim.attempt_id))
-            call_report.save(tx, claim.attempt_id, rep())
+            conversation_io.write_item(tx, claim.attempt_id, conversation_io.ItemValue("Q1", "confirmed", None, "答えた"))
+            conversation_io.save_report(tx, claim.attempt_id, rep().to_json())   # 会話の処理は、書き込む入口だけを通す
             attempts.record_verification(tx, claim.attempt_id, summary=CLEAN)
         access.in_client(actor, tenant_id, client_id, work)
 

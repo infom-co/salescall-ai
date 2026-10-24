@@ -1,8 +1,8 @@
 """会話の担当 CL-1 がいま出している会話の報告（main の会話の試作 flowctl が作る報告。CL-1 の連絡帳 2-2・4-26・4-27）を、
 受け口（core/call_report.py）が受け取り、判定（core/judge.py）がユーザーの決定どおりに読むかの試験。
 
-場面の報告は、main の flowctl で通話を流して出た JSON をそのまま写したもの（架空のデータ。切れ方の材料 cut は電話接続の側が
-足すので、判定の試験では足して渡す）。ユーザーの決定（2026-10-22。Intent.md・DESIGN.md 7-1・7-1e）：取り次いでもらえなかったとき、
+場面の報告は、main の flowctl で通話を流して出た JSON をそのまま写したもの（架空のデータ。切れ方の材料 cut は CL-1 が
+出す＝2026-10-24 ユーザー決定・CL-2 の連絡帳 4-151。いまの main の報告にはまだ無いので、判定の試験では足して渡す）。ユーザーの決定（2026-10-22。Intent.md・DESIGN.md 7-1・7-1e）：取り次いでもらえなかったとき、
 営業拒否＝発信の拒否（もうかけない）／事情があり取り次げなかった（not_reached=not_transferred）＝システムが日を改めて1回／
 約束した時刻のかけ直し＝約束の時刻。
 """
@@ -187,7 +187,7 @@ class Judged(unittest.TestCase):
         self.assertEqual((j.state, j.dnc_reason, j.disconnect), ("do_not_call", "refused_in_call", "refused"))
         j = run(ABSENT_CUT, facts=dropped, cut=Cut("callee", False, False))
         self.assertEqual((j.state, j.disconnect), ("not_reached", "interrupted"))
-        # 切れ方の材料が無い：話した通話なので、決めつけずに判定できない（直すのは電話接続の側＝CL-1）
+        # 切れ方の材料が無い：話した通話なので、決めつけずに判定できない（出すのは CL-1＝2026-10-24 ユーザー決定）
         self.assertEqual(run(NOT_TRANSFERRED, cut=None).detail["unknown_cause"], "cut_missing")
 
     def test_voicemail_is_open(self):
