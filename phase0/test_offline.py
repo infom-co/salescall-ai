@@ -4301,6 +4301,11 @@ class PartyTest(unittest.TestCase):
         r = self.say(f, "ただいま電話に出ることができません。", "report_party", party="voicemail")
         self.assertEqual(r["play"], [{"kind": "opening", "part": "voicemail", "text": msg}])
         self.assertEqual(f.end_reason, "voicemail")
+        self.assertEqual(f.facts["voicemail_message"], [{"turn": 1, "said": "ただいま電話に出ることができません。"}])   # 残した事実（CL-2 の 4-106）
+        # ✅ 2026-10-19 ユーザー：「留守番電話に入れるのは最初の1回だけ」＝この依頼者が、このお客様にもう残していたら、何も言わずに切る
+        f = self.flow(voicemail_message=msg, play_recordings=True, opening=b.replay_parts(), voicemail_left=True)
+        r = self.say(f, "ただいま電話に出ることができません。", "report_party", party="voicemail")
+        self.assertEqual((r["result"], r.get("hang_up"), "play" in r, f.facts.get("voicemail_message")), ("end", True, False, None))
 
     def test_wrong_party_closes_politely(self):
         from phrases import CLOSE_DECLINED
@@ -4408,6 +4413,18 @@ class CallbackTest(unittest.TestCase):
         self.say(f, "あいにく本人は出かけておりまして。", "request_callback", why="absent")
         r = self.say(f, "3時までには戻ると思います。", "record_answer", question_id="C1", condition_id="答えた", value="3時まで")
         self.assertEqual(r["result"], "confirm_required")
+
+    def test_monthly_reason_is_kept_with_the_callback_date(self):
+        # ✅ 2026-10-19 ユーザー（CL-2 の 4-106）：「月ぎめの業務の都合や振り込みなどの入金の間隔などの話の場合は、月単位で考えた方がいい」
+        # ⇒ 月単位の理由でその日・頃を選んだと言われたときだけ、かけ直しの記録に cycle: month（言葉だけでは、たまたまその頃か分からない）
+        for cycle, want in (("month", "month"), (None, None)):
+            f = self.flow()
+            self.say(f, "あいにく岡田は席を外しております。", "request_callback", why="absent")
+            r = self.say(f, "月末の締めが終わってからの方がいいので、来月の5日以降にお願いします。", "record_answer", question_id="C1",
+                         condition_id="答えた", value="来月の5日以降", **({"cycle": cycle} if cycle else {}))
+            self.assertEqual(r["result"], "confirm_required")
+            self.say(f, "はい。", "confirm_field", question_id="C1", result="affirmed")
+            self.assertEqual(f.facts["callback"][0].get("cycle"), want, cycle)
 
     def test_other_number_asks_number_then_reachable_time(self):
         from phrases import CALLBACK_ASK

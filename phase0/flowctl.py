@@ -371,7 +371,7 @@ def other_value(qtype: str, pending: str | None, given: str | None) -> str | Non
 #    書き違えは名前を変えても0にはならない前提で、宣言に無い項目名・選択肢は、すべて差し戻す（Flow.apply の _check_args）。
 ARG_LABEL = {"question_id": "質問", "condition_id": "答えの種類", "value": "値", "result": "返事の種類", "correction": "訂正された値",
              "reason": "理由", "part": "流し直す部分", "party": "相手", "why": "かけ直しの理由", "offer": "相手の申し出", "answer": "答えの文",
-             "fallback": "使えないときの一言", "until_why": "〇時までの理由"}
+             "fallback": "使えないときの一言", "until_why": "〇時までの理由", "cycle": "その日・頃を選んだ理由"}
 SYSTEM_LABEL = {"unknown": "わからない", "refused": "答えたくない"}
 ANY_LABEL = "どちらでも"
 # 意味の2つ目の判定（meaning_judge。DESIGN.md 6-10 の (6)）が、どの選択肢とも決められないと答えたときの名前（受け入れにも断りにも取れる・言い切っていない・答えになっていない）
@@ -565,6 +565,9 @@ STANDIN_PARTIES = ("substitute", "successor")  # 目的の人の代わりにお�
 # いけない理由によるでしょ。3時までに別の番号にかけてなら、すぐでいいし、3時まで出られないなら、3時以降になるし、3時までに担当者へ聞いて折り返してなら、
 # 確認後になるだろうし」＝CL-2 の 4-149。✅ 2026-10-24 ユーザー「進めてよい」）。ほかのかけ直しの理由は、理由そのものが決める（CL-2 の UNTIL_BY_REASON＝書かない）
 UNTIL_LABEL = {"other_party": "別の番号・別の方へ", "unavailable": "それまでは出られない", "preparing": "それまでに確認・準備"}
+# かけ直しの日・頃を、月単位の理由で選んだ（かけ直しの記録の cycle。✅ 2026-10-19 ユーザー：「月ぎめの業務の都合や振り込みなどの入金の間隔などの話の
+# 場合は、月単位で考えた方がいい」＝CL-2 の 4-106。言葉だけでは、たまたまその頃になったのか分からないので、理由を言われたときだけ書く）
+CYCLE_LABEL = {"month": "月単位の理由（月ぎめ・締め・振り込みや入金の間隔など）"}
 _UNTIL = re.compile(r"\d{1,2}時(?:半|\d{1,2}分)?(?:まで|より前)")
 CALLBACK_LABEL = {"absent": "不在", "long_absent": "長期の不在", "other_number": "別の番号へ", "later": "あとで", "departed": "在籍していない",
                   "other_means": "ほかの手段"}
@@ -630,7 +633,7 @@ _FROM_LABEL = {"condition_id": {**{v: k for k, v in SYSTEM_LABEL.items()}, ANY_L
                "reason": {v: k for k, v in END_LABEL.items()}, "part": {v: k for k, v in PART_LABEL.items()},
                "party": {v: k for k, v in PARTY_LABEL.items()}, "why": {v: k for k, v in CALLBACK_LABEL.items()},
                "offer": {v: k for k, v in OFFER_LABEL.items()}, "fallback": {v: k for k, v in TALK_LABEL.items()},
-               "until_why": {v: k for k, v in UNTIL_LABEL.items()}}
+               "until_why": {v: k for k, v in UNTIL_LABEL.items()}, "cycle": {v: k for k, v in CYCLE_LABEL.items()}}
 _ARG_FROM_LABEL = {v: k for k, v in ARG_LABEL.items()}
 
 
@@ -658,7 +661,7 @@ def label(cond: str | None) -> str | None:
     return ANY_LABEL if cond == ANY else SYSTEM_LABEL.get(cond) or CONFIRM_LABEL.get(cond, cond)
 # AIが呼べる操作（6-2）と、その項目（中の名前）：(必ず要る項目, 無くてもよい項目)。操作の宣言（tool_declarations）と、
 # 受け取ったときの確かめ（Flow._check_args）は、この表だけを使う（宣言と確かめが食い違わないように）
-OP_ARGS = {"record_answer": (("question_id", "condition_id"), ("value", "until_why")),
+OP_ARGS = {"record_answer": (("question_id", "condition_id"), ("value", "until_why", "cycle")),
            "report_unclear": (("question_id",), ()),
            "confirm_field": (("question_id", "result"), ("correction",)),
            "request_end": (("reason",), ()),
@@ -670,7 +673,7 @@ OP_ARGS = {"record_answer": (("question_id", "condition_id"), ("value", "until_w
 OPS = tuple(OP_ARGS)
 # 選択肢が決まっている項目（中の名前 → その表）。答えの種類（condition_id）は質問ごとに違うので、record_answer の中で確かめる
 _ENUM_ARGS = {"result": CONFIRM_LABEL, "reason": END_LABEL, "part": PART_LABEL, "party": PARTY_LABEL, "why": CALLBACK_LABEL, "offer": OFFER_LABEL,
-              "fallback": TALK_LABEL, "until_why": UNTIL_LABEL}
+              "fallback": TALK_LABEL, "until_why": UNTIL_LABEL, "cycle": CYCLE_LABEL}
 
 
 def check_policies(policies: dict, message: str | None = None) -> None:
@@ -980,6 +983,7 @@ class Item:
     pending_value: str | None = None  # 午前・午後を聞いている値（答えが届いたら、そこへ入れる）
     ampm_asked: bool = False          # 午前・午後を聞いたか（1項目1回まで）
     until_why: str | None = None      # 「〇時まで」の、いま電話を続けられない理由（UNTIL_LABEL の中の名前。かけ直しの記録の until_why）
+    cycle: str | None = None          # かけ直しの日・頃を選んだ月単位の理由（CYCLE_LABEL の中の名前。かけ直しの記録の cycle）
     until_asked: bool = False         # 理由が分からないので、時刻を伺い直したか（1項目1回まで）
     ambiguous_asked: bool = False     # 曖昧な答えの意味を確かめたか（そのあとの「結構です」は、確かめへの返事として受け取る）
     tried_readings: list = field(default_factory=list)  # 名前の読みの確かめで、これまでに言った読み（同じ読みを2度言わない）
@@ -998,7 +1002,8 @@ class Flow:
                  opening: dict | None = None,
                  voicemail_message: str | None = None, target: dict | None = None, answers: dict | None = None,
                  policies: dict | None = None, knowledge: list[str] | None = None, names: list[str] | None = None,
-                 name_readings: dict[str, str] | None = None, promised: bool = False, apology: tuple = (), successor: bool = False):
+                 name_readings: dict[str, str] | None = None, promised: bool = False, apology: tuple = (), successor: bool = False,
+                 voicemail_left: bool = False):
         """confirm：言い直しの言い方を作る関数 (値, 場面, 何回目) → 文（ふだんは phrases.confirm。言い方を比べる試験 G-25 だけが別のものを渡す）。
         busy_ask：相手が「忙しい」と言ったときに1回だけ言う一言（業務設定。None なら丁寧に終える＝既定。Intent.md 9-4）。
         target：目的の人のある業務の、名乗りの部分の文（instruction.Business.replay_parts。呼ぶ一言 target・確かめる一言 target_confirm を含む）。
@@ -1014,6 +1019,9 @@ class Flow:
         self.busy_ask = busy_ask
         # 留守番電話に残す伝言（業務設定。Intent.md 9-4・18-2 の14。None なら残さずに切る＝安全側）
         self.voicemail_message = voicemail_message
+        # この依頼者が、このお客様（同じ番号）の留守番電話に、もう伝言を残したか（電話の前に CL-2 の call_report.voicemail_left を読んで渡す。
+        # ✅ 2026-10-19 ユーザー：「留守番電話に入れるのは最初の1回だけ…同じ依頼者のすべての一覧で、同じお客様（同じ番号）」＝CL-2 の 4-106）
+        self.voicemail_left = voicemail_left
         # 想定問答（業務設定。Intent.md 5-3 (2)「AIが答えてよいこと」）：問いの名前 → 答えの文。答えは録音（名乗りを録音で流す通話）か、
         # AIがその文のとおりに言う（AIが話す通話）。AIは自分の言葉では答えない（_answer）
         self.answers: dict[str, str] = dict(answers or {})
@@ -1648,6 +1656,8 @@ class Flow:
                 got["again"] = False   # 本日はお戻りにならない＝その日は改めてお掛けしない
             if self.callback_why == "later" and (t := CALLBACK_IDS["time"]) in self.items and self.items[t].until_why:
                 got["until_why"] = self.items[t].until_why   # 「〇時まで」の理由（書くのは「あとで」のときだけ＝CL-2 の 4-149 の (1)(2)）
+            if (t := CALLBACK_IDS["time"]) in self.items and self.items[t].state in GOT and self.items[t].cycle:
+                got["cycle"] = self.items[t].cycle   # 月単位の理由でその日・頃を選んだ（CL-2 の 4-106。無ければ書かない）
             self.facts["callback"][-1].update(got)
         if (p1 := CALLBACK_IDS["promise_again"]) in self.items and self.items[p1].state in GOT + ("unresolved",) and self.facts.get("not_transferred"):
             # 約束の電話で取り次げなかったときの一言への答え（はっきりしない・答えが取れないは「よいと言われていない」＝CL-2 の 4-135）
@@ -1860,6 +1870,8 @@ class Flow:
             value, ask = fill_ampm(value, self.business_hours, self.designated_limit)
             if ask and not it.ampm_asked:
                 return self._ask_ampm(qid, value)
+        if ROLE_KEY.get(q.callback or "") == "time":
+            it.cycle = a.get("cycle") if cond not in SYSTEM_CONDITIONS else None
         if q.callback == "later_time" and cond not in SYSTEM_CONDITIONS:
             # 「あとで」のかけ直しの「〇時まで」：いま電話を続けられない理由で、かけてよい時間が決まる（CL-2 の 4-149）。理由が相手の言葉に無ければ、
             # 承認済みの時刻の問いで1回だけ伺い直す（✅ 2026-10-24 ユーザー「進めてよい」＝CL-1 の提案）。伺い直しても理由が無ければ、そのまま受け取る
@@ -2681,9 +2693,11 @@ class Flow:
         """相手の種別が分かったときの扱いの唯一の場所（AIの報告 report_party と、音・回線の信号 on_signal の両方）。by＝どちらで分かったか。"""
         self.party = party
         self._note("party", party=party, by=by)
-        if party == "voicemail" and self.voicemail_message:
+        if party == "voicemail" and self.voicemail_message and not self.voicemail_left:
             # ✅ 2026-10-19 ユーザー：「依頼者ごとに設定で選べる形にして、必要なら録音をしましょう」⇒ 伝言は依頼主の単位の録音（名乗りの部分 voicemail）
-            #    依頼主の録音が無い（名乗りを録音で流さない通話）ときは、AIが設定の文のまま言う
+            #    依頼主の録音が無い（名乗りを録音で流さない通話）ときは、AIが設定の文のまま言う。残したことは通話の事実 voicemail_message
+            #    （次の電話からは残さない＝voicemail_left。2回目からは、伝言の設定の無い業務と同じく何も言わずに切る）
+            self._note("voicemail_message")
             return self._close("voicemail", text=(self.voicemail_message, "voicemail"), part=True, spoken="voicemail" not in self.opening)
         if party in NOT_A_PERSON:
             return self._hang_up(party)
@@ -3807,9 +3821,11 @@ def tool_declarations(questions: list[Question], replay: bool = False, target: b
            f"相手が「わからない」と答えたら「{SYSTEM_LABEL['unknown']}」、答えを拒んだら「{SYSTEM_LABEL['refused']}」、"
            f"選択肢の質問で、どれでもよいとこちらに任されたら（「どちらでも」「どれでも」）「{ANY_LABEL}」（まだ決めていないなら「{SYSTEM_LABEL['unknown']}」）"
            f"。「あとで」のかけ直しの時刻で、相手が「3時までなら」のように『〇時まで』と言い、いま電話を続けられない理由も言ったら、"
-           f"「{A['until_why']}」でその理由を選ぶ（{'・'.join(UNTIL_LABEL.values())}。理由を言っていなければ書かない）",
+           f"「{A['until_why']}」でその理由を選ぶ（{'・'.join(UNTIL_LABEL.values())}。理由を言っていなければ書かない）"
+           f"。かけ直しの日・時刻で、相手がその日・頃を月単位の理由（月ぎめの業務・締め・振り込みや入金の間隔など）で選んだと言ったら、"
+           f"「{A['cycle']}」で「{CYCLE_LABEL['month']}」を選ぶ（言っていなければ書かない）",
            {A["question_id"]: s(qids), A["condition_id"]: s(conds), A["value"]: s(desc="聞き取った値（相手の言葉のとおり）"),
-            A["until_why"]: s(list(UNTIL_LABEL.values()))},
+            A["until_why"]: s(list(UNTIL_LABEL.values())), A["cycle"]: s(list(CYCLE_LABEL.values()))},
            [A["question_id"], A["condition_id"]]),
         fd("report_unclear", "相手の答えが聞き取れない・曖昧だったことを報告する",
            {A["question_id"]: s(qids)}, [A["question_id"]]),
