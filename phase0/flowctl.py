@@ -1423,6 +1423,13 @@ class Flow:
             return None
         return self._log_signal({"voicemail_wait_end": True}, self._not_a_person("voicemail"))
 
+    def _party_ask(self) -> str:
+        """第一声を聞く段で、AIに相手の種別を報告させる文（差し戻し・報告の抜けの知らせの1か所）。"""
+        own = f"お呼びする方ご本人が名乗ったら「{PARTY_LABEL['target']}」、" if self.target and not self.number_again else ""
+        return ("まだ名乗っていません（名乗りは、プログラムが録音で流します）。何も言わずに、report_party で、いまの言葉が人か（"
+                f"{own}そのほかの人は「{PARTY_LABEL['person']}」）・{PARTY_LABEL['voicemail']}の案内・{PARTY_LABEL['ivr']}かを知らせてください。"
+                + ("留守番電話の案内のあとに人が出たら、人と知らせます。" if self.voicemail_waiting else ""))
+
     def _opening_reply(self) -> dict:
         """第一声のあとに流す名乗り（唯一の場所。並びは instruction.Business.opening_parts と同じ＝試験で比べる）：あいさつ・名乗りのあと、
         目的の人のある業務は呼ぶ一言（第一声でお呼びする方ご本人が名乗ったなら確かめる一言＝✅ 2026-10-24 ユーザー「OK」）、ない業務は
@@ -1693,13 +1700,15 @@ class Flow:
         if self.answering:
             # 出た方の第一声を聞く段：言葉が出揃ったのに、AIが、出た方が人か・留守番電話か・自動音声の案内かを報告していない（名乗りは、その報告の
             # あとに流す＝_opening_when_ready。報告が無いと、相手には無言が続く）。1つの相手の発話に1回まで
-            if (self.callee_turns == 0 or not self.words_complete or self.nudged_turn == self.callee_turns or self.voicemail_waiting
-                    or (self.party is not None and self.party not in NOT_A_PERSON)):
+            # 留守番電話の案内を聞き続けている間も、新しい言葉ごとに（案内のあとに人が出たかもしれない。⛔ 2026-10-24 G-57 J1：聞き続けている間は
+            # 知らせず、案内のあとに出た方の言葉を、AIが人と報告しないまま通話が終わった）
+            reported = any(x["op"] == "report_party" and x["callee_turns"] == self.callee_turns and x["reply"].get("result") != "rejected"
+                           for x in self.log)
+            if self.callee_turns == 0 or not self.words_complete or self.nudged_turn == self.callee_turns or reported:
                 return None
             self.nudged_turn = self.callee_turns
-            return (f"［プログラムからのお知らせ］{self._unsent(muted)}電話に出た方の最初の言葉（「{self.callee_said.strip()[:40]}」）を聞きました。"
-                    "何も言わずに、出た方が人か（受付の方・目的の人など）・留守番電話・自動音声の案内かを report_party で報告してください"
-                    "（名乗りは、そのあとプログラムが録音で流します）。このお知らせには、声で返事をしません。")
+            return (f"［プログラムからのお知らせ］{self._unsent(muted)}相手の言葉（「{self.callee_said.strip()[:40]}」）を聞きました。"
+                    f"{self._party_ask()}このお知らせには、声で返事をしません。")
         if self.phase == "calling":
             # 目的の人を呼んでいる段：AIの報告を、相手の言葉が出揃う前のものとして決めずに待たせた（_wait_for_words）のに、言葉が出揃っても
             # AIが報告し直さない ⇒ 出揃った言葉で報告し直すように知らせる（1つの相手の発話に1回まで）。
@@ -1890,8 +1899,9 @@ class Flow:
             reply = self._reject(why)
         elif self.answering and name != "report_party":
             # 出た方の第一声を聞いている（まだ名乗っていない）：相手の種別の報告のほかは受け付けない（名乗りは、第一声のあとにプログラムが流す）
-            reply = self._reject("まだ名乗っていません。何も言わずに、電話に出た方の最初の言葉を最後まで聞きます（名乗りは、そのあとプログラムが"
-                                 "録音で流します）。留守番電話・自動音声の案内・ファクスの音なら、report_party で知らせます。")
+            # ⛔ 2026-10-24 G-57 J1（留守番電話のあとに人が出る・S2）：前の文は「人ではない相手なら知らせる」だけで、人の知らせ方を書いて
+            #    いなかった＝案内のあとに出た方の言葉に、AIは名乗りの流し直しを頼み、差し戻されたまま、人と知らせられなかった
+            reply = self._reject(self._party_ask())
         elif self._asking_now() and not (name == "request_end" or (name == "replay_opening" and args.get("part") != "handover")
                                          or self._offer_while_asking(name, args)):
             # 相手がこちらに尋ねている（呼んでいる段の、別の問い合わせ asks）：聞かれたことに答えるのが先（唯一の場所。目的の人・受付の方の

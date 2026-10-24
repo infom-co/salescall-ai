@@ -6739,6 +6739,7 @@ class FirstWordsTest(unittest.TestCase):
         r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい", "value": "はい"})
         self.assertEqual(r["result"], "rejected")
         self.assertIn("まだ名乗っていません", r["message"])
+        self.assertIn("電話に出た方（人）", r["message"])          # 人の知らせ方も書く（⛔ G-57 J1：人ではない相手の知らせ方だけだった）
         self.assertFalse(f.speech_allowed(0))
         note = f.unreported_note(muted=True)                  # 報告しないままターンを終えた ⇒ 人かどうかを報告させる（1つの発話に1回）
         self.assertIn("report_party", note)
@@ -6804,8 +6805,14 @@ class FirstWordsTest(unittest.TestCase):
             f.on_heard("発信音のあとに、お名前とご用件をお話しください。")
             r = f.apply("report_party", {"party": "voicemail"})
             self.assertNotIn("voicemail_wait_s", r)               # 聞き続ける長さは、最初の1回だけ渡す
+            self.assertIsNone(f.unreported_note())                # この言葉は、もう報告された
             if after == "person":
-                r = self.first_words(f, "はい、もしもし。すみません、アオバ物流です。")   # 案内のあとに人が出た
+                f.on_callee(); f.on_heard("あ、もしもし、すみません。")      # 案内のあとに人が出た：報告が無ければ、人かを報告させる
+                r = f.apply("replay_opening", {"part": "all"})
+                self.assertEqual(r["result"], "rejected")
+                self.assertIn("人と知らせます", r["message"])
+                self.assertIn("電話に出た方（人）", f.unreported_note())
+                r = f.apply("report_party", {"party": "person"})
                 self.assertEqual([x["text"] for x in r["play"]], b.opening_parts())
                 self.assertIsNone(f.on_voicemail_wait_end())
                 continue
