@@ -170,6 +170,14 @@ class FlowTest(unittest.TestCase):
         self.assertEqual((r["result"], f.items["Q2"].state), ("end", "dont_know"))  # 答えは聞けたので、念のため聞き直さない
         self.assertEqual(f.export()["Q2"], "-")
 
+    def test_unknown_and_refused_keep_the_reason(self):
+        # CL-2 の 4-37：「わからない」「答えたくない」には理由を必ず入れる（業務の決まりが、理由×扱いで次の動きを決める）。理由を言わなければ受け皿
+        for cond, why, want in (("unknown", "not_in_charge", "not_in_charge"), ("unknown", None, "unspecified"),
+                                ("refused", "policy", "policy"), ("refused", None, "unwilling"), ("refused", "undecided", "unwilling")):
+            f = self.flow()
+            self.call(f, "record_answer", question_id="Q1", condition_id=cond, **({"unknown_why": why} if why else {}))
+            self.assertEqual(f.items["Q1"].reason, want, (cond, why))
+
     def test_dont_know_is_not_got(self):
         # 2026-10-13 ユーザー決定（CL-2 から依頼）：必須の質問が「わからない」なら、業務は完了ではない。
         # 前は accepted（＝取れた）にしていたので、ほかがそろうと「すべて取れた」になっていた

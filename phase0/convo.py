@@ -643,7 +643,7 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
         t.cancel()
     await asyncio.gather(*closing, return_exceptions=True)
     return {"voice_type": voice_type, "sessions": sessions, "turns": turns, "flow_log": flow.log,
-            "items": {k: {"state": v.state, "value": v.value, "condition": v.condition, "ask_backs": v.ask_backs,
+            "items": {k: {"state": v.state, "value": v.value, "condition": v.condition, "reason": v.reason, "ask_backs": v.ask_backs,
                           "rechecks": v.rechecks, "corrections": v.corrections, "hedged": v.hedged,
                           "history": [list(h) for h in v.history]}
                       for k, v in flow.items.items()},
