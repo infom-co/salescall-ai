@@ -4886,6 +4886,34 @@ class TargetTest(unittest.TestCase):
         r = self.say(f, "申し訳ございません、担当が分からないのでお繋ぎできかねます。", "request_end", reason="not_transferred")
         self.assertEqual((r["result"], f.end_reason, "again" in f.facts["not_transferred"][-1]), ("end", "not_transferred", False))
 
+    def test_apology_call_plays_the_approved_apology_and_closes(self):
+        # ✅ 2026-10-24 ユーザー「OK」（お詫びの文を録音にし、承認のときに聞いていただく）・CL-2 の 4-49・4-58：業務の質問はしない。お呼びした方に
+        # 繋がったら（目的のお客様のいない業務は名乗りのあと）、承認したお詫びの録音を流し、お返事を聞いてからお礼の締め。伝えられたかを報告に入れる
+        import dataclasses
+        from flowctl import CLOSING, Flow
+        from g22_opening import BUSINESS
+        from instruction import build
+        text = "先ほどのお電話で、誤って「無料です」というご案内をしてしまいましたが、正しくは「初回のみ無料」となります。不正確なご案内をしてしまいまして、誠に申し訳ございませんでした。"
+        t = dataclasses.replace(self.business(), apology_call=text)
+        f = Flow(t.questions, play_recordings=True, opening=t.replay_parts(), target=t.replay_parts(), apology_call=t.apology_call)
+        self.assertEqual((t.opening_parts()[-1], t.first_ask(), f.apology_delivered), (t.target.call(), None, False))
+        r = self.say(f, "はい、岡田は私ですが。", "report_party", party="target")
+        self.assertEqual(r["play"][-1], {"kind": "apology", "text": text})
+        self.assertNotIn("purpose", [x.get("part") for x in r["play"]])                      # 用件は流さない
+        r = self.say(f, "ああ、わざわざすみません。", "request_end", reason="done")
+        self.assertEqual((r["result"], f.end_reason, f.apology_delivered), ("end", "done", True))
+        self.assertIn(CLOSING, r.get("say") or "".join(x["text"] for x in r.get("play", [])))
+        self.assertIn("お詫びするお電話です。業務の質問はしません。", build(t, "S2", opening_mode="recorded")[1])
+        # 目的のお客様のいない業務：名乗りのあとにお詫び。途中で止まったら、お返事のあと一度だけ流し直す
+        b = dataclasses.replace(BUSINESS, apology_call=text)
+        self.assertEqual(b.opening_parts()[-1], text)
+        f = Flow(b.questions, play_recordings=True, opening=b.replay_parts(), apology_call=b.apology_call)
+        f.on_opening_cut(b.opening_parts()[:2])
+        r = self.say(f, "はい？どちら様？", "request_end", reason="done")
+        self.assertEqual((r["result"], r["play"]), ("next", [{"kind": "apology", "text": text}]))
+        r = self.say(f, "そうでしたか、ご丁寧にどうも。", "request_end", reason="done")
+        self.assertEqual((r["result"], f.apology_delivered), ("end", True))
+
     def test_cut_off_call_continues_from_where_it_stopped(self):
         # CL-2 の 4-77（✅ 2026-10-17 ユーザー：途中で切れた通話は、お詫びとともにすぐかけ直す）：前の通話で取れた答えの質問は、もう伺わずに続きから聞く。
         # 前の通話の答えは、この通話の答えとして渡さない（記録は前の通話のもの）

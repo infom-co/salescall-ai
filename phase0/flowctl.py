@@ -1045,7 +1045,8 @@ class Flow:
                  voicemail_message: str | None = None, target: dict | None = None, answers: dict | None = None,
                  policies: dict | None = None, knowledge: list[str] | None = None, names: list[str] | None = None,
                  name_readings: dict[str, str] | None = None, promised: bool = False, apology: tuple = (), successor: bool = False,
-                 voicemail_left: bool = False, earlier: dict | None = None, number_again: str | None = None, hold_wait_s: int = 300):
+                 voicemail_left: bool = False, earlier: dict | None = None, number_again: str | None = None, hold_wait_s: int = 300,
+                 apology_call: str | None = None):
         """confirm：言い直しの言い方を作る関数 (値, 場面, 何回目) → 文（ふだんは phrases.confirm。言い方を比べる試験 G-25 だけが別のものを渡す）。
         busy_ask：相手が「忙しい」と言ったときに1回だけ言う一言（業務設定。None なら丁寧に終える＝既定。Intent.md 9-4）。
         target：目的の人のある業務の、名乗りの部分の文（instruction.Business.replay_parts。呼ぶ一言 target・確かめる一言 target_confirm を含む）。
@@ -1236,6 +1237,15 @@ class Flow:
             self.opening_unheard = ["purpose"] if target.get("purpose") else []
         elif self.current is not None and self.questions[self.current].reading_of:
             self._enter_reading(self.current)
+        # お詫びの電話（予約証の目的 apology。CL-2 の apology.for_task の文＝承認したときに聞いていただいた録音。✅ 2026-10-24 ユーザー「OK」）：
+        # 業務の質問はしない。お呼びした方（目的のお客様のいる業務）に繋がったら、または名乗りのあと（いない業務）にお詫びの録音を流し、お客様の
+        # お返事を聞いてから、お礼の締めで終える。伝えられたかは会話の報告の apology_delivered（Flow.apology_delivered）
+        self.apology_call = apology_call
+        self.apology_played = bool(apology_call) and not target   # いない業務は名乗りの録音の終わりに流れる（途中で止まれば on_opening_cut が外す）
+        self.apology_replayed = False
+        if apology_call:
+            self.order, self.business_ids = [], []
+            self.current = None
         # 番号を伺い直す電話（予約証の目的 ask_number_again。instruction.Business.number_again と同じ値）：電話に出た方に、名乗りのあと伺い直す一言
         # （phrases.NUMBER_AGAIN。名乗りの録音の終わり＝Business.first_ask）で番号を伺い、続けて出られる時間を伺って締める。答えはかけ直しの申し出
         # （別の番号）として通話の事実 callback に残す（CL-2 の 4-42：「ふつうの『かけ直しの申し出（別の番号）』として返せば、同じ流れで扱います」）
@@ -1279,6 +1289,8 @@ class Flow:
         ⛔ G-50：用件が届く前に「どちら様ですか」と聞かれると、AIは「名乗り」だけを選んだ（11本中11本）＝用件が一度も届かないまま
         質問へ進む。どこまで届いたかはプログラムが知っているので、足すのはプログラム（AIの選び方に任せない）。"""
         self.opening_unheard = [k for k in OPENING_ORDER if self.opening.get(k) and self.opening[k] not in done]
+        if self.apology_call and self.apology_call not in done and self.phase != "calling":
+            self.apology_played = False   # お詫びが届く前に止まった：お返事のあと、もう一度だけ流す（_apology_again）
 
     # ── 相手の発話が届いた（本番では、相手の音声の発話の検出で数える）
     def on_callee(self) -> None:
@@ -3176,6 +3188,15 @@ class Flow:
         at = next((i + 1 for i, k in enumerate(keys) if k == "intro"), 0)
         lines = [{"kind": "opening", "part": k, "text": self.target[k]} for k in keys]
         lines[at:at] = sorry
+        if self.apology_call:
+            # お詫びの電話：用件・質問の代わりに、お詫びの録音を流して、お返事を待つ（業務の質問はしない）
+            lines = [x for x in lines if x.get("part") != "purpose"] + [self._apology_play()]
+            self.apology_played = True
+            return {"result": "next", "silent": True, "play": [x if x["kind"] != "opening" or not self.opening else {**x, "text": self.opening[x["part"]]}
+                                                               for x in lines],
+                    "message": f"{prefix}{whom}に繋がりました。「{''.join(x['text'] for x in lines)}」は、プログラムが録音で流しました（相手にもう"
+                               f"聞こえています）。何も言わずに、相手のお返事を待ってください。お返事を聞いたら request_end を{ARG_LABEL['reason']}"
+                               f"「{END_LABEL['done']}」で呼びます。"}
         texts = "".join(x["text"] for x in lines)
         if not lines:
             return self._advance(f"{prefix}{whom}に繋がりました。", handled=True)
@@ -3450,8 +3471,22 @@ class Flow:
                            "message": f"{what}「{text}」は、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、{self._now()}"}
         return head | {"say": text, "message": f"{what}「{text}」とだけ言います（言葉を足しません）。そのあと、{self._now()}"}
 
+    @property
+    def apology_delivered(self) -> bool | None:
+        """お詫びの電話で、お詫びを伝えられたか（会話の報告の apology_delivered の唯一の場所。お詫びの電話でなければ None）。"""
+        return None if self.apology_call is None else self.apology_played and self.callee_turns > 0  # お客様が出て、お詫びが最後まで流れた
+
+    def _apology_play(self) -> dict:
+        return {"kind": "apology", "text": self.apology_call}   # 承認したときに聞いていただいた録音（お詫びの案ごと＝CL-2 の apology の録音）
+
     def _op_request_end(self, a: dict) -> dict:
         reason = a.get("reason")
+        if self.apology_call and not self.apology_played and self.phase != "calling" and not self.apology_replayed:
+            # お詫びが届く前に止まっていた（相手が話し始めた）：締める前に、もう一度だけ流す
+            self.apology_replayed = self.apology_played = True
+            return {"result": "next", "silent": True, "play": [self._apology_play()],
+                    "message": "お詫びを、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、相手のお返事を待ってください。"
+                               f"お返事を聞いたら request_end を{ARG_LABEL['reason']}「{END_LABEL['done']}」で呼びます。"}
         if reason == "done" and self.phase == "calling":
             return self._reject("まだ目的の人に繋がっていません（質問を始めていません）。")
         if reason == "not_transferred":

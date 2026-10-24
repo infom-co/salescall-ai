@@ -137,6 +137,8 @@ class Business:
     # 取り次ぎ・保留で待つ長さ（秒。業務ごとに選べる。✅ 2026-10-24 ユーザー：「デフォルト、相手から長く待つ必要がある理由がなければ5分、理由があれば
     # それまで待つ」＝相手が長さを言えば、その長さ。flowctl.Flow の hold_wait_s）
     hold_wait_s: int = 300
+    # お詫びの電話（予約証の目的 apology）：伝える文（CL-2 の apology.for_task の text。承認したときに聞いていただいた録音で流す）。業務の質問はしない
+    apology_call: str | None = None
     # 自社名・担当者名の読み（ひらがな。空＝決まらない＝表記のまま渡す）。自社名は、設定に無ければ取込で names.decide が決める（Intent.md 6-8）。
     # ✅ 2026-10-16 ユーザー決定（案C）：担当者名の読みは、設定に必ず入れる（名乗りでは言い換えられない。個人向けでは名乗ることが法律の確認事項）。
     #    必須かどうかを確かめるのは設定の登録（CL-2）。ここは、担当者名を unread_names に入れた矛盾した設定を受け付けない。
@@ -247,6 +249,8 @@ class Business:
         parts = [GREETING, f"{company}の{caller}と申します。"]
         if self.target is not None and not self.number_again:
             return parts + [self.target.call()]   # お詫び（apology）は、目的の方に繋がってから（flowctl.Flow._connect）
+        if self.apology_call:
+            return parts + [self.apology_call]   # お詫びの電話（目的の人の無い業務）：名乗りのあとにお詫び（用件・質問は無い）
         if not self.number_again:
             parts += [APOLOGY_FIRST[k] for k in self.apology]   # 目的の人の無い業務：最初に出た方がお客様＝名乗りのあとにお詫び
             if self.purpose_line:
@@ -261,6 +265,8 @@ class Business:
         前の通話で取れた答えの質問を飛ばした最初の質問／それ以外は最初の質問。"""
         if self.number_again:
             return CALLBACK_IDS["number"], NUMBER_AGAIN[self.number_again]
+        if self.apology_call:
+            return None   # お詫びの電話は、業務の質問をしない
         qid = next((q.id for q in self.questions if not q.callback and (self.earlier.get(q.id) or {}).get("state") not in TAKEN), None)
         return (qid, spoken_question(self.questions, qid)[0]) if qid else None
 
@@ -549,6 +555,10 @@ def build(business: Business, voice_type: str, resume=None, opening_mode: str = 
                      (f"続けて最初の質問 {ask[0]}「{ask[1]}」を聞きます。" + (choices_note(first) if first else "") if ask else "相手の返事を待ちます。"))
     else:
         parts.append(position_text(business, resume))
+    if business.apology_call:
+        # お詫びの電話（予約証の目的 apology）：業務の質問はしない。お詫びは承認した録音（AIは言わない）
+        parts.append("この電話は、前のお電話のことをお詫びするお電話です。業務の質問はしません。お詫びの言葉は、プログラムが録音で流します"
+                     f"（あなたは言いません）。お詫びのあと、相手のお返事を聞いたら request_end を{ARG_LABEL['reason']}「{END_LABEL['done']}」で呼びます。")
     parts.append(system_rules(play_recordings, target=business.target is not None, follow_up=business.follow_up)
                  + ai_rule(business, recorded=opening_mode == "recorded" or bool(resume and resume.opening)))
     if business.answers:
