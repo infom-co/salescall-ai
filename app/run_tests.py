@@ -1520,6 +1520,15 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      + _edited("0134_test_ring_trouble_system_names.sql", "CREATE VIEW salescall.current_name_recordings",
                "(s.tenant_id IS NULL), p.approved_at DESC", "(s.tenant_id IS NOT NULL), p.approved_at DESC", end="TO salescall_app;"),
      ("tests.test_gate.NameLedger.test_the_systems_names_serve_every_contractor_and_the_contractors_own_come_first",)),
+    ("テスト番号を鳴らしてよい時間の初めの値を 0〜24時にする（0135：いまはユーザー自身の電話なので、夜中に鳴らしうる）",
+     "INSERT INTO salescall.setting_values (key, scope, value, status, rationale, review_when, set_by)"
+     " VALUES ('line.test_ring_hours', 'system', '[\"00:00\", \"24:00\"]', 'decided', '壊し試し', '壊し試し', '壊し試し')",
+     ("tests.test_supervisor.Blame.test_the_test_ring_hours_are_the_contractors_and_start_at_7_to_22",)),
+    ("テスト番号を鳴らしてよい時間を、契約者ごとに変えられない（0135：この仕事専用の電話に替えても、夜に鳴らせない）",
+     "ALTER TABLE salescall.setting_definitions DISABLE TRIGGER setting_definitions_frozen;"
+     " UPDATE salescall.setting_definitions SET finest_scope = 'system' WHERE key = 'line.test_ring_hours';"
+     " ALTER TABLE salescall.setting_definitions ENABLE TRIGGER setting_definitions_frozen",
+     ("tests.test_supervisor.Blame.test_the_test_ring_hours_are_the_contractors_and_start_at_7_to_22",)),
 )
 
 

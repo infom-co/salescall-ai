@@ -10,11 +10,11 @@ import time
 import unittest
 import uuid
 from unittest import mock
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from salescall.core import (attempts, backup, business_rules, conversation_io, fix_requests, gate, leases, next_action, quality_stage,
-                            registry, scheduler, settings, stops)
+from salescall.core import (attempts, backup, business_rules, calling_hours, conversation_io, errors, fix_requests, gate, leases,
+                            next_action, quality_stage, registry, ring_test, scheduler, settings, stops, watch)
 from salescall.core.phone import normalize
 from salescall.core.access import Rejected
 from salescall import supervisor
@@ -873,12 +873,27 @@ class Blame(SupervisorBase):
     # 2026-10-24 ユーザー決定：「その回線にかける行が残っていないときは、『テスト番号』で決めます。前に鳴った電話があれば番号のせい、
     # 一度も鳴らせていなければ回線のせいです。」「回線が止まったあとの再開の確かめ：OK」（core/ring_test の1か所。0134）
     def numbered(self, s):
-        """その契約者にテスト番号を入れる（架空の番号。返すのは、その番号）。"""
+        """その契約者にテスト番号を入れる（架空の番号。返すのは、その番号）。鳴らしてよい時間は 0:00〜24:00（この仕事専用の電話の形＝
+        時刻しだいで試験が変わらない。時間の外の試験は `ring_hours` で決める）。"""
         phone = normalize(fictional_jp_fixed()).e164
         self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: settings.set_value(
             tx, "line.test_number", phone, scope="tenant", tenant_id=s["tenant"], status="decided", rationale="試験",
             review_when="試験"))
+        self.set_ring_hours(s, "00:00", "24:00")
         return phone
+
+    def set_ring_hours(self, s, start, end):
+        self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: settings.set_value(
+            tx, "line.test_ring_hours", [start, end], scope="tenant", tenant_id=s["tenant"], status="decided", rationale="試験",
+            review_when="試験"))
+
+    def ring_hours(self, s, *, inside):
+        """鳴らしてよい時間を、いまを含む2時間（inside）か、いまを含まない1時間（2時間後から）にする（日本時間・時刻しだいで変わらない
+        形。日をまたぐ範囲にもなる）。"""
+        now = calling_hours.local(datetime.now(timezone.utc))
+        start = now - timedelta(hours=1) if inside else now + timedelta(hours=2)
+        end = start + timedelta(hours=2 if inside else 1)
+        self.set_ring_hours(s, start.strftime("%H:%M"), end.strftime("%H:%M"))
 
     def bad_number(self, s):
         return self.tx(s, lambda tx: tx.one("SELECT phone_e164 FROM salescall.contacts WHERE contact_id = %s",
@@ -991,6 +1006,90 @@ class Blame(SupervisorBase):
         self.assertIsNone(line._check_stop(self.w.a, SYSTEM, s["tenant"], s["line"], d))   # 2回続けて鳴った：解けた
         self.assertEqual(self.line_stops(s), [])
         self.assertEqual(self.ring_tests_of(s), [("resume_check", None)] + [("resume_check", True)] * 2)
+
+    # 2026-10-24 ユーザー：「（テスト番号を夜も鳴らしてよいか）私の電話です。軌道に乗れば、新しい電話をもうひとつ契約予定なのでその後に
+    # 考えます。この仕事専用なら夜でもOK」（設定 line.test_ring_hours。鳴らすかは core/ring_test.run の1か所。0135）
+    def stopped_line(self, s):
+        """テスト番号のある契約者の回線を、回線の異常で止める（確かめの間隔1秒・続けて2回で解く）。止めた停止を返す。"""
+        for key, value in (("stop.line.probe_interval", 1), ("stop.line.resume_after_successes", 2)):
+            self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx, key=key, value=value: settings.set_value(
+                tx, key, value, scope="tenant", tenant_id=s["tenant"], status="decided", rationale="試験", review_when="試験"))
+        self.rows(s, 4)
+        got, stopped = self.drive(s, FakeDriver(line.dial_exit.CallNotPlaced("試験：かけられない")), Runner(), 6)
+        self.assertEqual(stopped, 1)
+        return self.line_stops(s)[0]
+
+    def checks_of(self, stop):
+        return support.owner_access().in_system(SYSTEM, lambda tx: tx.one(
+            "SELECT count(*) AS n FROM salescall.stop_checks WHERE stop_event_id = %s", (stop["event_id"],)))["n"]
+
+    def test_the_test_ring_hours_are_the_contractors_and_start_at_7_to_22(self):
+        """鳴らしてよい時間の初めの値は 7:00〜22:00（いまはユーザー自身の電話＝深夜・早朝の歯止めと同じ）。契約者ごとに変えられ、
+        この仕事専用の電話に替えたら 0:00〜24:00（いつでも鳴らしてよい）。"""
+        s = self.ready()
+        self.assertEqual(self.w.a.in_tenant(SYSTEM, s["tenant"], ring_test.hours), (7 * 3600, 22 * 3600))
+        self.set_ring_hours(s, "00:00", "24:00")
+        self.assertEqual(self.w.a.in_tenant(SYSTEM, s["tenant"], ring_test.hours), (0, 24 * 3600))
+        self.assertTrue(self.w.a.in_tenant(SYSTEM, s["tenant"], ring_test.allowed))   # いつでも（夜も）
+        other = self.ready()                                                  # ほかの契約者は初めの値のまま
+        self.assertEqual(self.w.a.in_tenant(SYSTEM, other["tenant"], ring_test.hours), (7 * 3600, 22 * 3600))
+
+    def test_the_test_number_is_not_rung_outside_its_hours(self):
+        """かける行が残っていない回線の確かめ：鳴らしてよい時間の外では鳴らさず、記録もせず、前の区切りで決めることもしない（時間が
+        来るまで休んで試し直す）。時間の内に入れば鳴らして決める。"""
+        s = self.ready()
+        phone = self.numbered(s)
+        self.ring_hours(s, inside=False)
+        bad = self.bad_number(s)
+        self.fail_until_unconfirmed(s, self.Refuses(bad))
+        d = self.Refuses(bad)
+        d.ring = True
+        got = line.one_round(self.w.a, SYSTEM, s["tenant"], s["line"], HOLDER, d, Runner())
+        self.assertEqual((got.pause, d.rings), (line.RING_TEST_PAUSE, []))
+        self.assertEqual((self.ring_tests_of(s), self.closures(s)), ([], []))
+        self.assertTrue(self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: attempts.line_run_pending(tx, s["line"])))
+        self.ring_hours(s, inside=True)
+        line.one_round(self.w.a, SYSTEM, s["tenant"], s["line"], HOLDER, d, Runner())
+        self.assertEqual(d.rings, [phone])
+        self.assertEqual(self.ring_tests_of(s), [("no_rows", True)])
+
+    def test_a_stopped_line_waits_for_the_test_numbers_hours_and_no_weaker_check_resumes_it(self):
+        """止めた回線の再開の確かめ：鳴らしてよい時間の外では、テスト番号を鳴らさず（記録しない＝確かめの間隔も伸びない）、アプリが
+        応答するかだけの確かめ（確かめの部品）でも解かない。回線は止まったまま朝（時間の始まり）を待つ。時間に入れば鳴らして解く。"""
+        s = self.ready()
+        phone = self.numbered(s)
+        stop = self.stopped_line(s)
+        self.ring_hours(s, inside=False)
+        time.sleep(1.1)                                                       # 確かめの時刻は来ている
+        del PROBED[:]
+        jobs.stop_checks(jobs.Context(self.w.a, self.cfg(s, SALESCALL_PROBER="tests.test_supervisor:make_prober"), HOLDER,
+                                      NoLinks(), s["tenant"]))
+        self.assertEqual(PROBED, [])                                          # 弱い確かめでは解かない
+        d = FakeDriver(ring=True)
+        for _ in range(3):
+            self.assertIsNone(line._check_stop(self.w.a, SYSTEM, s["tenant"], s["line"], d))
+        self.assertEqual((d.rings, self.ring_tests_of(s), self.checks_of(stop)), ([], [], 0))
+        self.assertEqual(len(self.line_stops(s)), 1)                          # 止まったまま
+        self.ring_hours(s, inside=True)
+        line._check_stop(self.w.a, SYSTEM, s["tenant"], s["line"], d)
+        self.assertEqual((d.rings, self.checks_of(stop)), ([phone], 1))       # 時間に入ったので鳴らして確かめた
+
+    def test_the_night_wait_does_not_make_a_lasting_stop_fix_request(self):
+        """「止まったまま1時間以上」の修正依頼（Intent.md 10-3）は、テスト番号で確かめる停止では、鳴らしてよい時間の長さで数える
+        （夜は確かめていないので、夜の待ちで「確かめが通らない」とはしない）。見張りの長さを短くして確かめる（試験で1時間待たない）。"""
+        s = self.ready()
+        self.numbered(s)
+        stop = self.stopped_line(s)
+        self.ring_hours(s, inside=False)
+        time.sleep(0.05)
+        lasting = lambda: self.w.a.in_tenant(SYSTEM, s["tenant"], watch.lasting_stops)   # noqa: E731
+        asked = lambda: [r for r in self.w.a.in_system(SYSTEM, lambda tx: fix_requests.open_requests(tx, "CL-2"))   # noqa: E731
+                         if r["refs"].get("stop_event_id") == stop["event_id"]]
+        with mock.patch.object(errors, "LASTING", timedelta(milliseconds=1)):
+            self.assertEqual((lasting(), asked()), ([], []))                  # 時間の外だけ止まっていた：まだ数えない
+            self.ring_hours(s, inside=True)
+            self.assertEqual(lasting(), [stop["event_id"]])                   # 時間の内で続いた：修正依頼
+            self.assertEqual(len(asked()), 1)
 
 
 class FakeThread:

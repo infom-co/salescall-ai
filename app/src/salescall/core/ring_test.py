@@ -14,6 +14,12 @@
 - 使う所は2つ：(1) その回線にかける行が、まだ分からない続きを待つ行のほかに残っていない（supervisor/line.py の `_close_if_nothing_left`）
   (2) 回線の異常で止めた回線を再開してよいかの確かめ（止めた停止の確かめ＝core/watch.record_check。鳴れば成功）。テスト番号が無い
   契約者は、(1) は前の区切りで決め（0131 の no_rows）、(2) は確かめの部品（アプリが応答するか）で行う（⏳ テスト番号が入るまで）。
+- **鳴らしてよい時間**（設定 `line.test_ring_hours`。契約者ごと。初め 7:00〜22:00。表の作り 0135）：2026-10-24 ユーザー：「私の電話
+  です。軌道に乗れば、新しい電話をもうひとつ契約予定なのでその後に考えます。この仕事専用なら夜でもOK」。時間の外では鳴らさない
+  （`run` の1か所＝(1)(2) のどちらも）。(2) は、時間の外ではアプリが応答するかだけの弱い確かめで代わりもしない（`checks_stop` は
+  時間に関係なくテスト番号で確かめる停止と答える＝確かめの部品は触らない）。時間の始まりまで待ち、待った分は確かめに数えない
+  （記録しない＝間隔も伸びない）。「止まったまま1時間以上」の修正依頼も、鳴らしてよい時間の長さで数える（`checkable_seconds`。
+  core/watch.lasting_stops。夜の待ちで修正依頼を出さない）。
 """
 
 from __future__ import annotations
@@ -22,10 +28,10 @@ from enum import Enum
 from typing import Any, Protocol
 from uuid import UUID
 
-from salescall.core import attempts, settings
+from salescall.core import attempts, calling_hours, settings
 from salescall.core.access import Access, Actor, Tx
 
-__all__ = ["PURPOSES", "Result", "RingDriver", "checks_stop", "number", "run"]
+__all__ = ["PURPOSES", "Result", "RingDriver", "allowed", "checkable_seconds", "checks_stop", "hours", "number", "run"]
 
 PURPOSES = ("no_rows", "resume_check")   # データベースの守り（0134）と同じ
 
@@ -47,6 +53,7 @@ class Result(Enum):
     UNKNOWN = "unknown"       # 分からない（電話の部品が答えない）：どちらの証拠にもしない
     NO_NUMBER = "no_number"   # テスト番号が無い：試していない
     BUSY = "busy"             # 回線が話している途中・答えない：試していない
+    OFF_HOURS = "off_hours"   # 鳴らしてよい時間の外：試していない（時間の始まりまで待つ）
 
 
 def number(tx: Tx) -> str | None:
@@ -55,6 +62,25 @@ def number(tx: Tx) -> str | None:
     if tenant_id is None:
         return None
     return settings.resolve(tx, "line.test_number", tenant_id=tenant_id, client_id=None, business_id=None)
+
+
+def hours(tx: Tx) -> tuple[int, int]:
+    """取引の契約者の、テスト番号を鳴らしてよい時間（設定 line.test_ring_hours。0時からの秒の組。終わりが始まりより前なら日をまたぐ）。"""
+    tenant_id = tx.one("SELECT salescall.cur_tenant() AS t")["t"]
+    a, b = settings.resolve(tx, "line.test_ring_hours", tenant_id=tenant_id, client_id=None, business_id=None)
+    return calling_hours.clock_seconds(a), calling_hours.clock_seconds(b)
+
+
+def allowed(tx: Tx) -> bool:
+    """いま、テスト番号を鳴らしてよい時間か（1か所。時刻はデータベースの時計）。"""
+    return calling_hours.in_daily(calling_hours.local(tx.one("SELECT now() AS t")["t"]), hours(tx))
+
+
+def checkable_seconds(tx: Tx, since: Any) -> float:
+    """since からいままでのうち、テスト番号を鳴らしてよい時間の秒（＝テスト番号で確かめられた長さ。「止まったまま1時間以上」を数える
+    core/watch.lasting_stops が読む。夜の待ちは数えない）。"""
+    now = tx.one("SELECT now() AS t")["t"]
+    return calling_hours.daily_seconds(calling_hours.local(since), calling_hours.local(now), hours(tx))
 
 
 def checks_stop(tx: Tx, stop: dict[str, Any]) -> bool:
@@ -70,6 +96,8 @@ def run(access: Access, actor: Actor, tenant_id: UUID, line_id: UUID, driver: Ri
     to = access.in_tenant(actor, tenant_id, number)
     if to is None:
         return Result.NO_NUMBER
+    if not access.in_tenant(actor, tenant_id, allowed):   # 鳴らしてよい時間の外：鳴らさず、記録もしない（時間の始まりまで待つ）
+        return Result.OFF_HOURS
     try:
         busy = driver.in_call()
     except Exception:  # noqa: BLE001 答えられない＝分からない：話しているとみなす（試さない側）

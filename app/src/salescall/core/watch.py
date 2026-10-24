@@ -181,10 +181,14 @@ def lasting_stops(tx: Tx) -> list[int]:
     異常も1時間以上続けば修正依頼＝Intent.md 10-3。鍵はエラーで数えるときと同じ＝同じ不具合の依頼は1つ）。この取引が見る範囲の停止
     （全体の取引＝全体の停止／契約者の取引＝その契約者の停止）。依頼を出した停止の番号を返す。見守り役が、確かめの部品の有る無しに
     関係なく呼ぶ（⚠️ 見直し8では解く確かめの中で出していたので、確かめの部品の無い PC では、何時間止まっても依頼が出なかった＝見直し9。
-    その前は、止まると新しいエラーが起きないので数えられなかった＝見直し8）。"""
+    その前は、止まると新しいエラーが起きないので数えられなかった＝見直し8）。
+    テスト番号で確かめる回線の停止（core/ring_test.checks_stop）は、止まっていた長さを、テスト番号を鳴らしてよい時間の分だけで数える
+    （ring_test.checkable_seconds。2026-10-24 ユーザー：テスト番号はいまユーザー自身の電話なので夜は鳴らさない＝夜は確かめていない。
+    確かめられなかった夜の待ちで「確かめが通らない」とはしない）。"""
+    from salescall.core import ring_test   # テスト番号の部品が、試行の部品を通してこの部品を読むので、ここで読む（読み合いにしない）
     asked = []
     for s in tx.all(
-            "SELECT s.event_id, s.tenant_id, s.evidence FROM salescall.open_stop_events s"
+            "SELECT s.event_id, s.tenant_id, s.evidence, s.cause::text AS cause, s.line_id, s.at FROM salescall.open_stop_events s"
             " WHERE s.actor_kind = 'system' AND s.cause::text = ANY(%s) AND s.at <= now() - %s"
             " AND (s.scope = 'system') = (salescall.cur_tenant() IS NULL) ORDER BY s.event_id",
             (list(PROBE_SETTINGS), errors.LASTING)):
@@ -192,6 +196,8 @@ def lasting_stops(tx: Tx) -> list[int]:
         fixer = errors.ACTIONS[kind].lasting_fixer if kind in errors.ACTIONS else None
         if fixer is None:
             continue   # 根源的なもの（起きたときに依頼を出した）・エラーで止めたのではないもの
+        if ring_test.checks_stop(tx, s) and ring_test.checkable_seconds(tx, s["at"]) < errors.LASTING.total_seconds():
+            continue   # テスト番号で確かめる停止：鳴らしてよい時間の中で、まだ1時間たっていない（夜の待ちは数えない）
         fix_requests.request(tx, fixer, kind, key=f"error:{kind}:{s['tenant_id']}",
                              summary=errors.LABELS[kind] + "（止まったまま1時間以上続いている）",
                              refs={"stop_event_id": s["event_id"], "kind": kind})

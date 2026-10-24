@@ -6,7 +6,8 @@ import unittest
 from datetime import date, datetime, timedelta
 
 from salescall.core.calendar import CalendarOutOfRange
-from salescall.core.calling_hours import (CalleeWindow, allowed, band_of, callee_hours, covers, day_key, next_opening,
+from salescall.core.calling_hours import (CalleeWindow, allowed, band_of, callee_hours, covers, daily_seconds, day_key, in_daily,
+                                          next_opening,
                                           next_opening_in_new_band, subtract)
 
 KEYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun", "holiday")
@@ -56,6 +57,33 @@ class Covers(unittest.TestCase):
     def test_bad_input(self):
         with self.assertRaises(ValueError):
             covers(WEEKDAY_9_18, no_holiday, at(MON, 10), at(MON, 9))
+
+
+class Daily(unittest.TestCase):
+    """1日の中の時刻の範囲（設定の値の形 daily_range。テスト番号を鳴らしてよい時間 line.test_ring_hours が使う）。"""
+    H = 3600
+
+    def test_inside_a_daily_range_including_one_that_crosses_midnight(self):
+        day = (7 * self.H, 22 * self.H)
+        self.assertTrue(in_daily(at(MON, 7), day))
+        self.assertTrue(in_daily(at(MON, 21, 59, 59), day))
+        self.assertFalse(in_daily(at(MON, 22), day))                      # 終わりは含まない
+        self.assertFalse(in_daily(at(MON, 3), day))
+        night = (18 * self.H, 3 * self.H)                                  # 18時から翌3時まで
+        self.assertTrue(in_daily(at(MON, 23), night))
+        self.assertTrue(in_daily(at(MON, 2, 59), night))
+        self.assertFalse(in_daily(at(MON, 3), night))
+        self.assertFalse(in_daily(at(MON, 12), night))
+        self.assertTrue(all(in_daily(at(MON, h), (0, 24 * self.H)) for h in range(24)))   # 1日じゅう
+
+    def test_seconds_inside_a_daily_range(self):
+        day = (7 * self.H, 22 * self.H)
+        self.assertEqual(daily_seconds(at(MON, 21, 30), at(MON + timedelta(days=1), 7, 30), day), 3600)   # 夜は数えない
+        self.assertEqual(daily_seconds(at(MON, 23), at(MON + timedelta(days=1), 6), day), 0)
+        self.assertEqual(daily_seconds(at(MON, 8), at(MON + timedelta(days=2), 8), day), 2 * 15 * self.H)
+        self.assertEqual(daily_seconds(at(MON, 23), at(MON + timedelta(days=1), 1), (0, 24 * self.H)), 2 * self.H)
+        self.assertEqual(daily_seconds(at(MON, 1), at(MON, 4), (18 * self.H, 3 * self.H)), 2 * self.H)   # 日をまたぐ範囲
+        self.assertEqual(daily_seconds(at(MON, 5), at(MON, 4), day), 0)                                    # 逆の区間
 
 
 class NextOpening(unittest.TestCase):

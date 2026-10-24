@@ -75,6 +75,29 @@ def covers(hours: dict, is_holiday: Callable[[date], bool], start: datetime, end
     return True
 
 
+def in_daily(local: datetime, daily: tuple[int, int]) -> bool:
+    """その時刻（日本時間・時差なし）が、1日の中の時刻の範囲（設定の値の形 daily_range を秒にしたもの。終わりが始まりより前なら日を
+    またぐ＝[18時, 3時) は 18時から翌3時まで）の内か（1か所）。"""
+    a, b = daily
+    t = _of_day(local)
+    return a <= t < b if a < b else (t >= a or t < b)
+
+
+def daily_seconds(start: datetime, end: datetime, daily: tuple[int, int]) -> float:
+    """start から end まで（日本時間・時差なし）のうち、1日の中の時刻の範囲（`in_daily` と同じ決まり）に入る秒の合計（1か所）。"""
+    if end <= start:
+        return 0.0
+    a, b = daily
+    total = 0.0
+    for offset in range((end.date() - start.date()).days + 1):
+        day = datetime.combine(start.date() + timedelta(days=offset), time())
+        spans = [(a, b)] if a < b else [(0, b), (a, _DAY)]
+        for s0, s1 in spans:
+            lo, hi = max(start, day + timedelta(seconds=s0)), min(end, day + timedelta(seconds=s1))
+            total += max(0.0, (hi - lo).total_seconds())
+    return total
+
+
 def next_opening(hours: dict, is_holiday: Callable[[date], bool], after: datetime, length: timedelta,
                  *, horizon_days: int = 31) -> datetime | None:
     """after 以降で、length の長さの区間がまるごと時間帯に入る、最も早い始まり（日本時間）。horizon_days 日のうちに無ければ None。"""
