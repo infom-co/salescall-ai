@@ -6210,6 +6210,29 @@ class TargetTest(unittest.TestCase):
         self.assertTrue(set(PART_LABEL) | set(PART_LABEL.values()) <= RESERVED_PART_NAMES)
         Flow(b.questions, opening=b.replay_parts(), target=b.replay_parts(), answers={"番号の出どころ": "x"})
 
+    def test_hold_waits_five_minutes_or_the_stated_length(self):
+        # ✅ 2026-10-24 ユーザー：「業務ごとに選べる：デフォルト、相手から長く待つ必要がある理由がなければ5分、理由があればそれまで待つ」
+        from flowctl import CLOSING, Flow, HOLD, wait_seconds
+        f, b = self.flow()
+        f.use_checks("judge", "judge2")
+        f.on_callee(); f.on_heard("少々お待ちください。")
+        f.on_check("judge", HOLD); f.on_check("judge2", HOLD)
+        r = f.apply("report_party", {"party": "reception"})
+        self.assertEqual((r["result"], r["hold_wait_s"]), ("hold", 300))                      # 理由・長さが無ければ5分（業務設定の初めの値）
+        self.assertNotIn("hold_wait_s", Flow._reply_out(r))                                      # 電話接続側だけが読む（AIには見せない）
+        r = f.on_hold_timeout()
+        self.assertEqual((r["result"], f.end_reason, f.not_reached), ("end", "not_transferred", "not_transferred"))
+        self.assertIn(CLOSING, r.get("say") or "".join(x["text"] for x in r.get("play", [])))   # ⏳ 終え方は案（お礼の締め）
+        import dataclasses
+        b2 = dataclasses.replace(b, hold_wait_s=120)
+        f = Flow(b2.questions, play_recordings=True, opening=b2.replay_parts(), target=b2.replay_parts(), hold_wait_s=b2.hold_wait_s)
+        f.use_checks("judge", "judge2")
+        f.on_callee(); f.on_heard("岡田はいま会議中でして、15分ほどお待ちいただけますでしょうか。")
+        f.on_check("judge", HOLD); f.on_check("judge2", HOLD)
+        self.assertEqual(f.apply("report_party", {"party": "reception"})["hold_wait_s"], 900)  # 言われた長さを待つ
+        self.assertIsNone(Flow(b2.questions).on_hold_timeout())                                  # 保留でなければ何もしない
+        self.assertEqual((wait_seconds("十分です"), wait_seconds("2時十分に戻ります"), wait_seconds("三十分くらい")), (None, None, 1800))
+
     def test_cut_material_is_decided_once_at_the_line_end(self):
         # ✅ 2026-10-24 ユーザー決定（CL-2 の 4-151）：お客様と話した通話の会話の報告には、切れ方の材料（cut）を必ず入れる。出すのは CL-1。
         # 決めるのは電話が切れた瞬間の様子だけ（Flow.on_line_end の1か所）。営業拒否か・かけ直すかは CL-2 の判定（DESIGN.md 7-1c）

@@ -84,6 +84,28 @@ def _kanji_to_digits(v: str) -> str:
     return _KANJI_NUMBER.sub(repl, v)
 
 
+# 待ってほしいと言われた長さ（「15分ほどお待ちいただけますか」「あと5分で会議が終わりますので」「1時間半」）。「十分ほど」の「十分」は長さ
+# （「十分です」＝足りる、とは分ける：後ろに「ほど・くらい・ぐらい・程度・前後・で・お待ち」が続くときだけ）
+# 時刻の「2時10分」は長さではない（「時」のすぐあとの分は数えない）
+_WAIT_LEN = re.compile(r"(?<![時\d])(\d+)\s*時間(半)?|(?<![時\d])(\d+)\s*分|(半)\s*時間")
+_TEN_MINUTES = re.compile(r"(?<![〇一二三四五六七八九十百時])十分(?=\s*(?:ほど|くらい|ぐらい|程度|前後|で(?!す)|お待ち|待))")
+
+
+def wait_seconds(text: str | None) -> int | None:
+    """相手の言葉の中の、待ってほしい長さ（秒。無ければ None）。保留の待ちの長さを決める唯一の場所（Flow._hold）。いくつか言われたら長いほう。"""
+    t = _TEN_MINUTES.sub("10分", unicodedata.normalize("NFKC", text or ""))
+    t = _kanji_to_digits(t)
+    found = []
+    for m in _WAIT_LEN.finditer(t):
+        if m.group(1):
+            found.append(int(m.group(1)) * 3600 + (1800 if m.group(2) else 0))
+        elif m.group(3):
+            found.append(int(m.group(3)) * 60)
+        else:
+            found.append(1800)
+    return max(found) if found else None
+
+
 def normalize_value(qtype: str, value: str | None, unit: str = "") -> str | None:
     """値の形をそろえる。unit は数の質問の単位（Question.unit。取込で決めたもの）で、数の型の数字だけの値に補う（units.supply_unit）。
     ✅ 2026-10-16 ユーザー：「入れる方向でOK」（G-37：相手の「3人です」を AI が「3 です」と聞き、言い直しが「3で大丈夫でしょうか？」に
@@ -636,7 +658,7 @@ CONFIRM_MEANINGS = {TARGET_IS_THERE: "電話に出ている方が、お呼びし
                     TARGET_IS_AWAY: TARGET_MEANINGS[TARGET_IS_AWAY]}
 # hang_up＝話さずに切る（電話接続側が読む）・silent＝AIに話させない返事（取り次ぎを待つ間など。handle_call）
 INTERNAL_KEYS = {"ack", "ask_n", "ask_reason", "ask_last", "after", "play", "speak", "hang_up", "silent", "sorry", "again", "away", "renamed",
-                 "led", "thanks", "talked", "fallback", "quiet", "bridged"}  # 中で使うだけの項目（電話接続側・数え方が読む）。AIへの返事には入れない
+                 "led", "thanks", "talked", "fallback", "quiet", "bridged", "hold_wait_s"}  # 中で使うだけの項目（電話接続側・数え方が読む）。AIへの返事には入れない
 # こちらが使う名前（AIに見せる日本語の名前）。値の欄に入っていたら、相手の答えではない（form_problem）
 _LABELS = (set(SYSTEM_LABEL.values()) | set(CONFIRM_LABEL.values()) | set(END_LABEL.values()) | set(PARTY_LABEL.values())
            | set(CALLBACK_LABEL.values()) | set(OFFER_LABEL.values()) | {"答えた"})
@@ -1023,7 +1045,7 @@ class Flow:
                  voicemail_message: str | None = None, target: dict | None = None, answers: dict | None = None,
                  policies: dict | None = None, knowledge: list[str] | None = None, names: list[str] | None = None,
                  name_readings: dict[str, str] | None = None, promised: bool = False, apology: tuple = (), successor: bool = False,
-                 voicemail_left: bool = False, earlier: dict | None = None, number_again: str | None = None):
+                 voicemail_left: bool = False, earlier: dict | None = None, number_again: str | None = None, hold_wait_s: int = 300):
         """confirm：言い直しの言い方を作る関数 (値, 場面, 何回目) → 文（ふだんは phrases.confirm。言い方を比べる試験 G-25 だけが別のものを渡す）。
         busy_ask：相手が「忙しい」と言ったときに1回だけ言う一言（業務設定。None なら丁寧に終える＝既定。Intent.md 9-4）。
         target：目的の人のある業務の、名乗りの部分の文（instruction.Business.replay_parts。呼ぶ一言 target・確かめる一言 target_confirm を含む）。
@@ -1042,6 +1064,9 @@ class Flow:
         # この依頼者が、このお客様（同じ番号）の留守番電話に、もう伝言を残したか（電話の前に CL-2 の call_report.voicemail_left を読んで渡す。
         # ✅ 2026-10-19 ユーザー：「留守番電話に入れるのは最初の1回だけ…同じ依頼者のすべての一覧で、同じお客様（同じ番号）」＝CL-2 の 4-106）
         self.voicemail_left = voicemail_left
+        # 取り次ぎ・保留で待つ長さ（秒。業務設定。✅ 2026-10-24 ユーザー：「業務ごとに選べる：デフォルト、相手から長く待つ必要がある理由がなければ5分、
+        # 理由があればそれまで待つ」）。相手が長さを言えば、その長さ（_hold の1か所で決め、返事の hold_wait_s で電話接続側へ渡す）
+        self.hold_wait_s = hold_wait_s
         # 想定問答（業務設定。Intent.md 5-3 (2)「AIが答えてよいこと」）：問いの名前 → 答えの文。答えは録音（名乗りを録音で流す通話）か、
         # AIがその文のとおりに言う（AIが話す通話）。AIは自分の言葉では答えない（_answer）
         self.answers: dict[str, str] = dict(answers or {})
@@ -2075,8 +2100,20 @@ class Flow:
         self.holding = True
         if (self.callback_why or self.substitute_q) and self.phase != "calling":
             self.callback_held = True  # かけ直し・お立場の質問の途中の取り次ぎ：このあと出る方は、新しい方かもしれない（_op_replay_opening）
-        return {"result": "hold", "silent": True, "message": f"相手は、ほかの人に取り次いでいます（「{said}」）。答えではありません。何も言わずに、"
-                                             f"代わった方が話し始めるのを待ってください。{then}"}
+        # 待つ長さ：相手が言った長さ（「15分ほど」）があればそれ、無ければ業務設定（初め5分）。電話接続側は、この長さのあいだ黙って待ち、
+        # 誰も話さなければ on_hold_timeout を呼ぶ（相手がまた話せば、その言葉で決め直す）
+        wait = wait_seconds(self.callee_said) or self.hold_wait_s
+        return {"result": "hold", "silent": True, "hold_wait_s": wait,
+                "message": f"相手は、ほかの人に取り次いでいます（「{said}」）。答えではありません。何も言わずに、"
+                           f"代わった方が話し始めるのを待ってください。{then}"}
+
+    # ── 取り次ぎ・保留のあと、待つ長さ（_hold の返事の hold_wait_s）のあいだ誰も話さなかった（電話接続側が呼ぶ）
+    def on_hold_timeout(self) -> dict | None:
+        """保留で待ちきった：お礼の締めで終える（締めた理由は取り次いでいただけなかった＝CL-2 が日を改めて1回かける。⏳ 終え方はユーザーに伺う＝
+        案）。保留でなければ None（何もしない）。"""
+        if not self.holding or self.phase == "closing":
+            return None
+        return self._close("not_transferred", prefix="保留のまま、待つ長さが過ぎました。")
 
     def _confirm_again(self, qid: str, why: str, reported: str | None, back: str | None) -> dict:
         """言い直しへの返事の確かめがそろわない：もう1回だけ言い直して確かめる（訂正のあとの復唱と同じ回数＝after_correction。選択肢の型は、
