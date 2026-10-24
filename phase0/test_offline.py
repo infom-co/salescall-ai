@@ -6176,6 +6176,32 @@ class TargetTest(unittest.TestCase):
         self.assertIsNone(g.unreported_note())
         self.assertIn("waited = bool(ops) and ops[-1][\"reply\"].get(\"result\") in (\"wait\", \"noted\", \"hold\")", inspect.getsource(convo.run_call))
 
+    def test_other_questions_are_not_answered_with_the_opening(self):
+        # 名乗り・用件のほかのことを聞かれたのに、AIが用件の録音で答えようとした（⛔ 2026-10-25 J10b・番号の出どころを聞かれる S4・L4：「この番号は
+        # どちらでお知りになりましたか？」に「ご予約の確認でお電話いたしました。」を流した）：尋ねているかの読みに「ほかのこと」があり「名乗り・用件」が
+        # 無ければ、受けずに答え方を選び直させる（同じ発話に1回だけ）。読みが分かれた・届いていないときは、AIの選びのまま
+        from flowctl import ASKS_OTHER, ASKS_YES, PART_LABEL
+        said = "この番号はどちらでお知りになりましたか？"
+        f, b = self.checked()
+        self.heard(f, said, "決められない"); f.on_check("asks", ASKS_OTHER); f.on_check("asks2", ASKS_OTHER)
+        r = f.apply("replay_opening", {"part": "purpose"})
+        self.assertEqual(r["result"], "rejected")
+        for word in (said, f"「{PART_LABEL['own']}」", f"「{PART_LABEL['no_answer']}」"):
+            self.assertIn(word, r["message"])
+        self.assertEqual(f.apply("replay_opening", {"part": "purpose"})["result"], "replayed")   # 2回目は AIの選びで進む
+        # 「ほかのことを尋ねている」も質問：目的の人の報告は受けず、答えるように返す
+        g, _ = self.checked()
+        self.heard(g, said, "決められない"); g.on_check("asks", ASKS_OTHER)
+        self.assertEqual(g.apply("report_party", {"party": "target"})["result"], "rejected")
+        self.assertEqual(g.apply("replay_opening", {"part": "intro"})["result"], "rejected")
+        # 読みが分かれた（片方は名乗り・用件）・届いていない・名乗りを聞かれた：差し戻さない
+        for readings in ((("asks", ASKS_OTHER), ("asks2", ASKS_YES)), (), (("asks", ASKS_YES),)):
+            h, _ = self.checked()
+            self.heard(h, said if readings[:1] != (("asks", ASKS_YES),) else "失礼ですが、どちら様でしょうか？", "決められない")
+            for kind, value in readings:
+                h.on_check(kind, value)
+            self.assertEqual(h.apply("replay_opening", {"part": "intro"})["result"], "replayed", readings)
+
     def test_paths_asked_on_20261022(self):
         # ✅ 2026-10-22 ユーザーのご質問から（Flow._calling_reported・unreported_note・hold_play）
         from flowctl import HANDOVER, HOLD, TARGET_IS_AWAY, TARGET_IS_NOT, TARGET_IS_THERE

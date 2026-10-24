@@ -715,9 +715,22 @@ TARGET_IS_THERE, TARGET_IS_AWAY, TARGET_IS_NOT = "ご本人", "不在", "別の�
 # ⛔ 目的の人の判定の選択肢に「こちらに聞いている」を足す形は取り下げ（G-59 10-22）：質問は全部読めたが、ほかの言葉の読み方まで変わり、
 #    取り次ぎのあとの「お待たせいたしました。」を 3.5 Flash Lite が10回中3回・Sonnet が10回中1回「ご本人」と読んだ（足す前は0回）＝別の方に繋ぐ向き
 ASKS_YES, ASKS_NO = "尋ねている", "尋ねていない"
+# ほかのことを尋ねている（名乗り・用件・お呼びした方のほか）。⛔ 2026-10-25 J10b（番号の出どころを聞かれる・S4・L4）：「この番号はどちらでお知りに
+#    なりましたか？」に、AIが用件の録音を選び、プログラムはそのまま流した（それまでの記録で 46本中5本。AIへの決まりは「番号をどこで知ったかは用件では
+#    答えません」）＝AIが選んだ答え方を確かめる所が無かった ⇒ 何を聞かれたかも読み、名乗り・用件の録音で答えようとしたときに当てる（Flow._asked_other）
+ASKS_OTHER = "ほかのことを尋ねている"
+ASKED = (ASKS_YES, ASKS_OTHER)  # どちらも「こちらに尋ねている」（質問に答える道へ）
 CONFIRM_PARTS = ("target_confirm", "target_reconfirm")  # 目的の人かを確かめる一言（名乗りの部分）：確かめ・はっきりしない返事への聞き返し
-ASKS_MEANINGS = {ASKS_YES: "電話に出た方が、こちらに尋ねている（どちら様か・ご用件か・どちらの〇〇か など、こちらが答えることを聞いた）",
-                 ASKS_NO: "こちらに何も尋ねていない（名乗った・取り次ぐ・不在を伝えた・「はい」「いいえ」と答えた・名前をくり返して確かめた など）"}
+# ⛔ 2026-10-25 J10b（不在で別の方に代わる・S2）：「岡田は外出しておりますので、別の者に代わります。少々お待ちください。」（不在と取り次ぎの
+#    2つの意味）を、目的の人の判定は2つとも「不在」と読み（1つしか選べない）、この問いも2つとも「尋ねていない」と読んだ（説明に「取り次ぐ・
+#    不在を伝えた」と書いていた）＝どの読みも「取り次ぎを待つ」にならず、取り次ぎの最中にかけ直しの質問を流した。⇒ 不在の事実は目的の人の判定、
+#    取り次ぎはこの問い（判定の仕組みがどの問いにも添える「取り次ぎを待つ」）が受け持つように、ここから取り次ぎを外した（G-59 で測ってから）
+ASKS_MEANINGS = {ASKS_YES: "電話に出た方が、こちらの名乗り・用件・お呼びした方のことを尋ねている（どちら様か・ご用件か・どういうご関係か・"
+                           "営業の電話か・どちらの〇〇か など）",
+                 ASKS_OTHER: "電話に出た方が、名乗り・用件・お呼びした方のほかのことを、こちらに尋ねている（この番号をどこで知ったか・会社の"
+                             "所在地・料金・会社のこと など）",
+                 ASKS_NO: "こちらに何も尋ねていない（名乗った・不在を伝えた・「はい」「いいえ」と答えた・名前をくり返して確かめた など）。"
+                          "ほかの方に代わる・取り次ぐので待つように言ったときは、不在を伝えていても、こちらではない"}
 # ご本人の意味（判定の決まりの1か所。meaning_judge.KIND_DESC の「代わった人」は、ここに当たるときは選ばない）。
 # ✅ 2026-10-19 ユーザー：「受付が『それでは岡田にお繋ぎします。』のような後に、『はい、お電話代わりました。』と言われれば、『ご本人』になりますよね」
 #    ⛔ 直す前は、判定に、その前の取り次いだ方の言葉を渡しておらず、名乗らない「はい、お電話代わりました。」を「代わった人」と読んでいた（G-62）
@@ -767,7 +780,7 @@ def unsure_counts(kind: str, value: str) -> str | None:
     if kind in JUDGMENTS:
         return HOLD if value == HOLD else UNDECIDED if value != TARGET_IS_THERE else None
     if kind in ASKS_CHECKS:
-        return ASKS_YES if value == ASKS_YES else None
+        return value if value in ASKED else None
     return None
 
 
@@ -1351,6 +1364,8 @@ class Flow:
         # 呼んでいる段の、こちらに尋ねているかの読み（発話の番号ごと＝on_check の asks）と、取り次ぎの判定が区切りを動かす前の区切り（尋ねて
         # いた発話なら戻す＝尋ねた方は、こちらの答えを待っている）
         self.calling_asks: dict[int, str] = {}
+        self.other_rejected: int | None = None  # 名乗り・用件で答えようとしたのを差し戻した発話（_asked_other。1発話に1回）
+        self.asks_read: dict[int, set[str]] = {}  # 呼んでいる段の発話ごとの、尋ねているかの読み（何を聞かれたか＝_asked_other）
         self.hold_moved: dict[int, tuple[int, bool]] = {}
         # 繋ぐのを止める弱い読み（確からしさが線より下の、「ご本人」ではない読み＝on_unsure）：いまの言葉の分（受け持ち → 見た言葉）と、
         # 終わった発話の分（発話の番号 → 受け持ち）。判定の読み（check・calling_judged）には入れない（_doubted）
@@ -1671,9 +1686,10 @@ class Flow:
             # だけを数えていたので、判定が遅れて目的の人かを確かめると、確かめの間に届いた前の発話の判定を使わず、また確かめていた）
             self.calling_judged.setdefault(turn, {})[kind] = value
         if self.phase == "calling" and kind in ASKS_CHECKS and (current or turn < self.callee_turns):
-            if value == ASKS_YES or self.calling_asks.get(turn) != ASKS_YES:   # どちらか1つでも「尋ねている」なら、その発話は質問
-                self.calling_asks[turn] = value
-            if value == ASKS_YES and turn == self.callee_turns and turn in self.hold_moved:
+            self.asks_read.setdefault(turn, set()).add(value)   # 何を聞かれたか（Flow._asked_other）
+            if value in ASKED or self.calling_asks.get(turn) not in ASKED:   # どちらか1つでも「尋ねている」なら、その発話は質問
+                self.calling_asks[turn] = ASKS_YES if value in ASKED else value
+            if value in ASKED and turn == self.callee_turns and turn in self.hold_moved:
                 # 取り次ぎと読まれた発話が、こちらへの質問だった（「岡田ですね。失礼ですが、どちら様でしょうか？」）：尋ねた方は電話口を
                 # 離れず、こちらの答えを待っている ⇒ 区切りを戻す（次の発話も同じ方。いまの発話のうちだけ＝次の方が話し始めたら戻さない）
                 self.speaker_from, self.passed_on = self.hold_moved.pop(turn)
@@ -2698,6 +2714,8 @@ class Flow:
             self._who_took_over()
             if not self.opening or self.replays >= self.limits.replays:
                 return self._new_person_unrecorded()
+        if part in ("intro", "purpose", "all") and (other := self._asked_other()):
+            return other
         if not self.opening:
             return self._reject("この通話では、名乗りの録音はありません。聞かれたことに、自分で短く答えてください。")
         if self.replays >= self.limits.replays:
@@ -2977,6 +2995,19 @@ class Flow:
         """自分で答える質問の受け皿に使える、知っていることの文（業務の情報・想定問答の答え。名前の読みに置き換えた、声に出す形）。AIは、答えのもとに
         した文を、答えの文と一緒に「使えないときの一言」で選ぶ（操作の宣言＝tool_declarations の known）。"""
         return [k.split("：", 1)[1] for k in self.knowledge if k.startswith(("業務の情報：", "想定問答の答え"))]
+
+    def _asked_other(self) -> dict | None:
+        """名乗り・用件の録音で答えようとした（replay_opening の名乗り・用件・最初から）が、いまの言葉の尋ねているかの読みに「ほかのことを尋ねている」が
+        あり、「名乗り・用件…を尋ねている」が1つも無い：受けずに、答え方を選び直させる（同じ発話に1回だけ＝読みが違っていても、AIの選びで進む）。
+        読みが分かれた・届いていないときは、AIの選びのまま。⛔ 2026-10-25 J10b（番号の出どころを聞かれる・S4・L4）：用件の録音で答えた"""
+        got = self.asks_read.get(self.callee_turns, set())
+        if self.phase != "calling" or ASKS_OTHER not in got or ASKS_YES in got or self.other_rejected == self.callee_turns:
+            return None
+        self.other_rejected = self.callee_turns
+        said = f"（「{self.callee_said[:40]}」）" if self.callee_said else ""
+        return self._reject(f"このご質問{said}は、名乗りや用件のことではありません（名乗り・用件の録音では答えません）。replay_opening を"
+                            f"「{PART_LABEL['own']}」（業務の情報で答えられる問い）か「{PART_LABEL['no_answer']}」（答えを持っていない問い）で"
+                            f"呼びます（想定問答にある問いなら、その問いの名前）。{self._answer_choices()}")
 
     def _known_line_of(self, part: str | None) -> str | None:
         """判定が「答えられるのに預かっている」の答えのもとに挙げた文（部分）が、知っていることの文のどれか（known_lines）なら、その文。
@@ -3398,7 +3429,7 @@ class Flow:
 
     def _asking_now(self) -> bool:
         """いまの相手の言葉（出揃ったもの）で、電話に出た方がこちらに尋ねているか（別の問い合わせ asks。聞かれたことに答えるのが先）。"""
-        return self.words_complete and any(self.check.get(k) == ASKS_YES for k in ASKS_CHECKS)
+        return self.words_complete and any(self.check.get(k) in ASKED for k in ASKS_CHECKS)
 
     def _offer_while_asking(self, name: str, args: dict) -> bool:
         """こちらに尋ねている言葉への報告が、問いの形の申し出か（申し出の報告は止めない＝apply の入口）：代わりの方・後任の方の報告／相手の申し出

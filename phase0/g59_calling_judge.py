@@ -33,6 +33,12 @@ LINES = [
     ("あいにく岡田は外出しております。失礼ですが、どちら様でしょうか？", ["不在"]),
     # 不在を伝えてから、別の方に取り次ぐ（流れの制御は「取り次ぎを待つ」が1つでもあれば黙って待つ＝どちらでもよい）
     (AWAY_TO_OTHER := "岡田は外出しておりますので、別の者に代わります。少々お待ちください。", ["不在", "取り次ぎを待つ"]),
+    # 名乗り・用件・お呼びした方のほかのことを尋ねる（⛔ 2026-10-25 J10b：番号の出どころに AIが用件の録音で答えた ⇒ 尋ねているかの問い合わせで、
+    # 何を聞かれたかも読む＝flowctl.ASKS_OTHER）。目的の人の判定は、質問の言葉と同じ（ご本人でも不在でもなければよい）
+    ("この番号はどちらでお知りになりましたか？", ON_QUESTION),
+    ("失礼ですが、御社はどちらにある会社なんですか？", ON_QUESTION),
+    ("キャンセル料ってかかるんですか？", ON_QUESTION),
+    ("岡田ですね。失礼ですが、この番号はどちらでお知りになりましたか？", ON_QUESTION),
 ]
 # その前に相手が言ったこと（取り次いだ方の言葉）と、そのあとの言葉 ⇒ 受け取ってよい読み（Flow.judge_context の before）
 # ✅ 2026-10-19 ユーザー：「受付が『それでは岡田にお繋ぎします。』のような後に、『はい、お電話代わりました。』と言われれば、『ご本人』になりますよね」
@@ -81,6 +87,9 @@ LINES_CONFIRMED = [
 #    「ご本人」と読むなど、ほかの言葉の読み方まで変わった（3.5 Flash Lite 103/111・Sonnet 102/111）＝取り下げて、別の問い合わせにした
 ASKING = {"岡田ですね。失礼ですが、どちら様でしょうか？", "どういったご用件でしょうか？", "どちらの岡田でしょうか？",
           "あいにく岡田は外出しております。失礼ですが、どちら様でしょうか？", "えっと、どちら様でしょうか？"}
+# ほかのことを尋ねている言葉（「ほかのことを尋ねている」と読むべきもの。ASKING は「名乗り・用件・お呼びした方のことを尋ねている」と読むべきもの）
+ASKING_OTHER = {"この番号はどちらでお知りになりましたか？", "失礼ですが、御社はどちらにある会社なんですか？", "キャンセル料ってかかるんですか？",
+                "岡田ですね。失礼ですが、この番号はどちらでお知りになりましたか？"}
 
 
 def cases(confirm: str) -> list[tuple[str, list[str], str | None, str | None]]:
@@ -90,7 +99,7 @@ def cases(confirm: str) -> list[tuple[str, list[str], str | None, str | None]]:
 
 
 async def run(args) -> dict:
-    from flowctl import ASKS_YES, Flow, Question, label, unsure_counts
+    from flowctl import ASKED, ASKS_OTHER, ASKS_YES, Flow, Question, label, unsure_counts
     from instruction import Target
     target = Target(name="岡田", reading="おかだ", role="営業部部長")
     from g22_opening import BUSINESS
@@ -104,8 +113,9 @@ async def run(args) -> dict:
         for rep in range(args.repeat):
             for j in {j.panel for j in judges.values() if j is not None}:
                 j.reset()  # 言葉ごとに測る（前の言葉の時間切れで、この言葉の問い合わせを飛ばさない）
-            want = text in ASKING
-            row = {"text": text, "accept": ok, "asks_accept": want, "before": before, "asked": asked, "rep": rep}
+            want = text in ASKING or text in ASKING_OTHER
+            kind = ASKS_YES if text in ASKING else ASKS_OTHER if text in ASKING_OTHER else None
+            row = {"text": text, "accept": ok, "asks_accept": want, "asks_kind": kind, "before": before, "asked": asked, "rep": rep}
             async def one(k, j, col, question):
                 try:
                     got = await j(question, text, None, before=before)
@@ -123,14 +133,34 @@ async def run(args) -> dict:
             await asyncio.gather(*(one(k, j, col, question) for k, j in judges.items() if j is not None
                                    for col, question in ((k, q), (f"{k}_asks", f.asks_questions[q.id]))))
             # 尋ねているかは「尋ねている」だけが流れを変える（Flow._asking_now）＝ほかの読みは全部「尋ねていない」と数える
-            row["ok"] = all(row.get(k) in ok and (row.get(f"{k}_asks") == ASKS_YES) == want for k in judges if judges[k] is not None)
+            row["ok"] = all(row.get(k) in ok and (row.get(f"{k}_asks") in ASKED) == want for k in judges if judges[k] is not None)
             rows.append(row)
             say(f"（前：{before}）" if before else "", text, {k: (row.get(k), row.get(f"{k}_asks")) for k in judges}, "OK" if row["ok"] else "×")
     summary = {k: f"{sum(1 for r in rows if r.get(k) in r['accept'])}/{len(rows)}" for k in judges if judges[k] is not None}
-    summary |= {f"{k}（尋ねているか）": f"{sum(1 for r in rows if (r.get(f'{k}_asks') == ASKS_YES) == r['asks_accept'])}/{len(rows)}"
+    summary |= {f"{k}（尋ねているか）": f"{sum(1 for r in rows if (r.get(f'{k}_asks') in ASKED) == r['asks_accept'])}/{len(rows)}"
                 for k in judges if judges[k] is not None}
+    # 何を聞かれたか（質問の言葉だけ）：名乗り・用件の質問を「ほかのこと」と読むと、正しい名乗り・用件の答えを差し戻しうる（もう1つの読みが名乗り・用件
+    # なら差し戻さない＝Flow._asked_other）／ほかの質問を「名乗り・用件」と読むと、用件の録音の答えを止められない
+    asked_rows = [r for r in rows if r["asks_kind"]]
+    summary |= {f"{k}（何を聞かれたか）": f"{sum(1 for r in asked_rows if r.get(f'{k}_asks') == r['asks_kind'])}/{len(asked_rows)}"
+                for k in judges if judges[k] is not None}
+    summary["名乗り・用件の質問を、どの判定もほかと読んだ（差し戻しうる）"] = (
+        f"{sum(1 for r in asked_rows if r['asks_kind'] == ASKS_YES and any(r.get(f'{k}_asks') == ASKS_OTHER for k in judges) and not any(r.get(f'{k}_asks') == ASKS_YES for k in judges))}"
+        f"/{sum(1 for r in asked_rows if r['asks_kind'] == ASKS_YES)}")
+    summary["ほかの質問を差し戻せた（ほかの読みがあり、名乗り・用件の読みが無い）"] = (
+        f"{sum(1 for r in asked_rows if r['asks_kind'] == ASKS_OTHER and any(r.get(f'{k}_asks') == ASKS_OTHER for k in judges) and not any(r.get(f'{k}_asks') == ASKS_YES for k in judges))}"
+        f"/{sum(1 for r in asked_rows if r['asks_kind'] == ASKS_OTHER)}")
     summary |= {f"{k}（前の言葉つき）": f"{sum(1 for r in rows if r['before'] and r.get(k) in r['accept'])}/{sum(1 for r in rows if r['before'])}"
                 for k in judges if judges[k] is not None}
+    # 取り次ぎの読み（流れの制御は、読みのどれか1つでも「取り次ぎを待つ」なら黙って待つ＝flowctl.HOLD_READINGS）。⛔ 2026-10-25 J10b：不在と取り次ぎの
+    # 2つの意味の言葉で、どの読みも「取り次ぎを待つ」にならず、取り次ぎの最中にかけ直しの質問を流した ⇒ 取り次ぎを含む言葉では、どれかの読みが
+    # 「取り次ぎを待つ」であること（効き目）／取り次ぎでない言葉に、尋ねているかの問い合わせが「取り次ぎを待つ」を返した回（間違えて黙る側）を数える
+    from flowctl import HOLD
+    held = [r for r in rows if HOLD in r["accept"]]
+    summary["取り次ぎの言葉に、どれかの読みが取り次ぎ"] = (f"{sum(1 for r in held if any(r.get(c) == HOLD for k in judges for c in (k, f'{k}_asks')))}"
+                                              f"/{len(held)}")
+    summary["取り次ぎでない言葉に、尋ねているかが取り次ぎ"] = (f"{sum(1 for r in rows if HOLD not in r['accept'] for k in judges if r.get(f'{k}_asks') == HOLD)}"
+                                               f"/{sum(1 for r in rows if HOLD not in r['accept']) * len(judges)}")
     say("数え：", json.dumps(summary, ensure_ascii=False))
     return {"question": q.text, "summary": summary, "rows": rows}
 
