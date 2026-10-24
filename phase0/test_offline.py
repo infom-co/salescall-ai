@@ -4438,6 +4438,50 @@ class CallbackTest(unittest.TestCase):
         r = self.say(f, "3時までには戻ると思います。", "record_answer", question_id="C1", condition_id="答えた", value="3時まで")
         self.assertEqual(r["result"], "confirm_required")
 
+    def test_callback_record_is_built_in_one_place(self):
+        # ⛔ 2026-10-24 の見直し（調べ役）で見つけた穴：かけ直しの記録の項目を、伺った質問の役目の名前から作っていた（Flow._callback_fields の1か所に）
+        import dataclasses
+        from flowctl import Flow
+        from g22_opening import BUSINESS
+        # (1) 番号を伺い直す電話：人の言葉が届くまで、かけ直しの記録を書かない（留守番電話・ファクス・無言で切られた電話を「人と話した」にしない）
+        b = dataclasses.replace(BUSINESS, number_again="wrong_party")
+        f = Flow(b.questions, number_again=b.number_again)
+        f.on_signal("fax")
+        self.assertNotIn("callback", f.facts)
+        f = Flow(b.questions, number_again=b.number_again)
+        self.say(f, "ただいま電話に出ることができません。", "report_party", party="voicemail")
+        self.assertNotIn("callback", f.facts)
+        f = Flow(b.questions, number_again=b.number_again)
+        f.on_line_end(ai_speaking=True)
+        self.assertNotIn("callback", f.facts)
+        f = Flow(b.questions, number_again=b.number_again)
+        self.say(f, "あ、すみません、090-1234-5678です。", "record_answer", question_id="C2", condition_id="答えた", value="090-1234-5678")
+        self.assertEqual((f.facts["callback"][0]["turn"], f.facts["callback"][0]["why"]), (1, "other_number"))   # 根拠＝人の最初の言葉
+        # (2) はい／いいえの答えが取れていなければ書かない（null を書くと CL-2 が報告ごと断る）。改めてお掛けしてよいかは、伺ったら「はい」のときだけ true
+        f = self.flow()
+        self.say(f, "あいにく本人は出かけておりまして。", "request_callback", why="absent")
+        self.say(f, "戻りの時間はちょっと分からないですね。", "record_answer", question_id="C1", condition_id="unknown")
+        self.assertNotIn("back_today", f.facts["callback"][0])                               # 本日のお戻りを伺ったところで切れた
+        self.say(f, "ちょっと分からないですね。", "record_answer", question_id="C6", condition_id="unknown")
+        self.say(f, "うーん、どうでしょう。", "record_answer", question_id="C7", condition_id="unknown")
+        self.assertEqual((f.end_reason, "back_today" in f.facts["callback"][0], f.facts["callback"][0]["again"]), ("callback", False, False))
+        # (3) 午前・午後を伺っても、「〇時まで」の理由は消えない（もう一度伺わない）
+        f = self.flow()
+        self.say(f, "今ちょっと会議がありまして、あとでかけてもらえますか。", "request_callback", why="later")
+        r = self.say(f, "9時まで会議なんです。", "record_answer", question_id="C1", condition_id="答えた", value="9時まで", until_why="unavailable")
+        self.assertEqual(r["ask_reason"], "ampm")
+        r = self.say(f, "朝です。", "record_answer", question_id="C1", condition_id="答えた", value="朝")
+        self.assertEqual(r["result"], "confirm_required")
+        self.say(f, "はい。", "confirm_field", question_id="C1", result="affirmed")
+        self.assertEqual(f.facts["callback"][0]["until_why"], "unavailable")
+        # (4) 直されて「〇時以降」になったら、「〇時まで」の理由を書かない
+        f = self.flow()
+        self.say(f, "今ちょっと手が離せなくて、あとでかけてもらえますか。", "request_callback", why="later")
+        self.say(f, "3時までに確認しておきます。", "record_answer", question_id="C1", condition_id="答えた", value="午後3時まで", until_why="preparing")
+        self.say(f, "いえ、4時以降でお願いします。", "confirm_field", question_id="C1", result="corrected", correction="午後4時以降")
+        self.say(f, "はい。", "confirm_field", question_id="C1", result="affirmed")
+        self.assertEqual((f.facts["callback"][0]["time"], "until_why" in f.facts["callback"][0]), ("午後4時以降", False))
+
     def test_monthly_reason_is_kept_with_the_callback_date(self):
         # ✅ 2026-10-19 ユーザー（CL-2 の 4-106）：「月ぎめの業務の都合や振り込みなどの入金の間隔などの話の場合は、月単位で考えた方がいい」
         # ⇒ 月単位の理由でその日・頃を選んだと言われたときだけ、かけ直しの記録に cycle: month（言葉だけでは、たまたまその頃か分からない）
@@ -4488,6 +4532,13 @@ class CallbackTest(unittest.TestCase):
         self.say(f, "来週の水曜には決まると思います。", "record_answer", question_id="C9", condition_id="答えた", value="来週の水曜")
         self.say(f, "はい。", "confirm_field", question_id="C9", result="affirmed")
         self.assertEqual((f.facts["callback"][0]["why"], f.facts["callback"][0]["time"]), ("ask_when", "来週の水曜"))
+        # 分かる時を月単位の理由で選ばれた：記録に cycle（⛔ 2026-10-24 の見直し：前は C1 だけで、C9 では捨てていた）
+        f = Flow(qs())
+        self.say(f, "まだ社内で調整中で、いまは分からないです。", "record_answer", question_id="Q1", condition_id="unknown", unknown_why="unknown_now")
+        self.say(f, "月次の会議で決まるので、来月の5日以降ですね。", "record_answer", question_id="C9", condition_id="答えた", value="来月の5日以降",
+                 cycle="month")
+        self.say(f, "はい。", "confirm_field", question_id="C9", result="affirmed")
+        self.assertEqual((f.facts["callback"][0]["time"], f.facts["callback"][0].get("cycle")), ("来月の5日以降", "month"))
         # 聞き足しにまた「わからない」なら重ねない・日を改める（retry）は伺わずに次へ
         f = Flow(qs())
         self.say(f, "担当じゃないので。", "record_answer", question_id="Q1", condition_id="unknown", unknown_why="not_in_charge")
@@ -4912,6 +4963,16 @@ class TargetTest(unittest.TestCase):
                 {"kind": "opening", "part": "promise_again", "text": "「おかだ」様とお電話の約束をしておりましたので後ほど改めてお掛けしてもよろしいでしょうか？"}]))
             r = self.say(f, said, "record_answer", question_id="P1", condition_id=cond)
             self.assertEqual((r["result"], f.end_reason, f.not_reached, f.facts["not_transferred"][-1].get("again")), ("end", "not_transferred", "not_transferred", again))
+        # 伺ったのに「はい」と言われなかった（わからない・伺う途中で切れた）：よいと言われていない＝false（⛔ 2026-10-24 の見直し：書いていなかった＝
+        # CL-2 は「聞いていない」と読んだ）
+        for unknown in (True, False):
+            b = dataclasses.replace(self.business(), promised=True)
+            f = Flow(b.questions, play_recordings=True, opening=b.replay_parts(), target=b.replay_parts(), promised=True)
+            self.say(f, "申し訳ございません、担当が分からないのでお繋ぎできかねます。", "request_end", reason="not_transferred")
+            if unknown:
+                self.say(f, "ちょっと分かりかねます。", "record_answer", question_id="P1", condition_id="unknown")
+            f.on_line_end(ai_speaking=not unknown)
+            self.assertIs(f.facts["not_transferred"][-1].get("again"), False, unknown)
             self.assertIn(CLOSING, r.get("say") or "".join(x["text"] for x in r.get("play", [])))   # お礼の締め
             self.assertNotIn("P1", f.export())                                                      # 依頼主へ渡す項目には入れない
         # 約束の電話でなければ、伺わずに締める（今までどおり）
@@ -6282,6 +6343,13 @@ class TargetTest(unittest.TestCase):
             with self.subTest(var):
                 theirs = names(var)
                 self.assertEqual((sorted(set(mine) - theirs), sorted(theirs - set(mine))), ([], []), f"{var}（こちらだけ, CL-2 だけ）")
+        # かけ直しの記録の項目（Flow._callback_fields が書くもの）が、CL-2 の読み手の受ける項目に全部入っているか（知らない項目は報告ごと断られる）
+        from flowctl import CALLBACK_FIELD
+        call = next(n for n in ast.walk(tree) if isinstance(n, ast.Call) and getattr(n.func, "id", None) == "_records"
+                    and len(n.args) > 1 and getattr(n.args[1], "value", None) == "callback")
+        accepted = {x.value for x in ast.walk(call.args[2]) if isinstance(x, ast.Constant) and isinstance(x.value, str)} | names("CALLBACK_MEANS")
+        written = set(CALLBACK_FIELD.values()) | {"why", "read", "time", "number", "cycle", "until_why", "connected", "offer", "message_left"}
+        self.assertEqual(sorted(written - accepted), [], "かけ直しの記録で、CL-2 が受けない項目")
 
     def test_recorded_names_match_cl2_contractor_parts(self):
         # CL-2 の 4-154：契約者の組にそろっているかを確かめる一覧（CL-2 の recordings.CONTRACTOR_PARTS）が、契約者の単位の録音の名前の正本

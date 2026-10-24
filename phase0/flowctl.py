@@ -632,6 +632,15 @@ ROLE_KEY = {"back_time": "time", "later_time": "time", "back_date": "time", "rea
 # 分かるお客様を聞く・分かる時を聞く（聞き足しの質問を1通話1回）・日を改める（会話は次の質問へ進む）・結論として終える（丁寧に締める）
 HANDLINGS = ("ask_who", "ask_when", "retry", "conclude")
 YES_NO_FACT = ("back_today", "again")   # かけ直しの記録に、はい／いいえ（真偽）で入れる答え（CL-2 の call_report.Callback の back_today・again）
+# システムの質問の答えが、かけ直しの記録（通話の事実 callback）のどの項目に入るか（Flow._callback_fields の1か所。CL-2 の call_report が受ける
+# 項目だけ）。約束の電話の一言（P1）は、取り次げなかった記録（not_transferred）の again に入るので、ここには無い。分かる時（C9）は時刻。
+# ⛔ 2026-10-24 の見直し（調べ役）で見つけた穴：記録の項目を、聞いた質問の役目の名前から作っていた＝P1 が「promise_again」として入り、
+#    CL-2 が報告ごと断った／はい・いいえの答えが取れていないと null を書き、CL-2 が報告ごと断った（相手が切った・「わからない」のとき）
+CALLBACK_FIELD = {"C1": "time", "C2": "number", "C3": "email", "C4": "fax", "C5": "address", "C6": "back_today", "C7": "again",
+                  "C8": "person", "C9": "time", "M1": "message"}
+# 伺ったのに「はい」でなければ「いいえ」（よいと言われていない＝CL-2 の 4-135）と書く問い。ほかのはい／いいえは、取れたときだけ書く
+# （「本日お戻りのご予定」の「わからない」は、戻らないとは言われていない）
+NOT_YES_IS_NO = ("C7", "P1")
 # 相手の申し出への応じ方（業務設定。instruction.Business の substitute_policy・message_policy・departed_policy・follow_up）。最初が既定（ユーザーの決定）
 POLICIES = {"substitute": ("decision_maker", "target_only", "anyone"), "message": ("decline", "leave"), "departed": ("successor", "end")}
 SUBSTITUTE_ID = "S1"  # 代わりの方に、判断いただけるお立場かを聞く質問（Flow._substitute）
@@ -1032,6 +1041,7 @@ class Item:
     corrections: int = 0
     history: list = field(default_factory=list)
     pending_value: str | None = None  # 午前・午後を聞いている値（答えが届いたら、そこへ入れる）
+    pending_reasons: dict = dataclasses.field(default_factory=dict)  # その値と一緒に受け取った理由（until_why・cycle。午前・午後の答えで消さない）
     ampm_asked: bool = False          # 午前・午後を聞いたか（1項目1回まで）
     until_why: str | None = None      # 「〇時まで」の、いま電話を続けられない理由（UNTIL_LABEL の中の名前。かけ直しの記録の until_why）
     cycle: str | None = None          # かけ直しの日・頃を選んだ月単位の理由（CYCLE_LABEL の中の名前。かけ直しの記録の cycle）
@@ -1266,7 +1276,8 @@ class Flow:
         if number_again:
             assert number_again in NUMBER_AGAIN, number_again
             self.phase, self.callback_why = "asking", "other_number"
-            self._note("callback", why="other_number", read=[])   # こちらから伺う（お客様の申し出の発話は無い＝発話の番号0）
+            # かけ直しの記録は、人の言葉が届いてから書く（_apply_one。⛔ 2026-10-24 の見直し：通話の初めに書いていたので、留守番電話・ファクス・
+            # 無言で切られた電話まで、CL-2 は「人と話した」と読んだ＝かけ直しの約束・発信の拒否に誤った）
             qs = [callback_question(r) for r in CALLBACK_PLAN["other_number"]]
             qs[0] = dataclasses.replace(qs[0], text=NUMBER_AGAIN[number_again])
             for q in qs:
@@ -1749,31 +1760,20 @@ class Flow:
                 turn, said, check = (words["turn"], words["said"], words["check"]) if words else (self.callee_turns, self.callee_said, self.check)
                 self.taken[qid] = {"turn": turn, "said": said, "check": dict(check), "confirming": confirming,
                                    "reported": "affirmed" if confirming and q.type not in CHOICE_TYPES else it.condition}
-        if self.callback_why:
-            # かけ直しの申し出の答え（取れたものだけ。取れていなければ None）。操作のたびに書き直す（締めの前に相手が切っても、取れた分は残る）
-            # 名前は、この申し出で聞いた質問のもの（かけ直しは「時刻」「番号」をいつも持つ＝CL-2 との約束）
-            keys = {ROLE_KEY[self.questions[qid].callback] for qid in self.callback_ids}
-            keys |= set() if self.callback_why == "other_means" else {"time", "number"}
-            got = {k: self.answer_of(qid) if qid in self.items and self.items[qid].state in GOT else None
-                   for k, qid in CALLBACK_IDS.items() if k in keys}
-            for k in set(YES_NO_FACT) & set(got):
-                got[k] = {"はい": True, "いいえ": False}.get(got[k])
-            if got.get("back_today") is False and "again" not in got:
-                got["again"] = False   # 本日はお戻りにならない＝その日は改めてお掛けしない
-            if self.callback_why == "later" and (t := CALLBACK_IDS["time"]) in self.items and self.items[t].until_why:
-                got["until_why"] = self.items[t].until_why   # 「〇時まで」の理由（書くのは「あとで」のときだけ＝CL-2 の 4-149 の (1)(2)）
-            if (t := CALLBACK_IDS["time"]) in self.items and self.items[t].state in GOT and self.items[t].cycle:
-                got["cycle"] = self.items[t].cycle   # 月単位の理由でその日・頃を選んだ（CL-2 の 4-106。無ければ書かない）
-            self.facts["callback"][-1].update(got)
+        if (self.number_again and not self.facts.get("callback") and self.callee_turns > 0 and self.party not in NOT_A_PERSON
+                and self.party != "wrong_party"):
+            self._note("callback", why="other_number", read=[])   # 番号を伺い直す電話：人の言葉が届いた（その発話が根拠）
+        if self.callback_why and self.facts.get("callback"):
+            # かけ直しの申し出の答え（Flow._callback_fields の1か所）。操作のたびに書き直す（締めの前に相手が切っても、取れた分は残る）
+            self.facts["callback"][-1].update(self._callback_fields(self.callback_ids, self.callback_why))
         for fid in [f for f in self.follow_ups if f not in self.follow_noted and self.items[f].state in GOT]:
-            # 分かるお客様・分かる時の答え：かけ直しの記録（理由＝扱いの名前。分かるお客様は person・分かる時は time。CL-2 の call_report.Callback）
-            role, got_value = self.questions[fid].callback, self.answer_of(fid)
+            # 分かるお客様・分かる時の答え：かけ直しの記録（理由＝扱いの名前。項目は同じ1か所＝分かるお客様は person・分かる時は time）
             self.follow_noted.add(fid)
-            self._note("callback", why=role, read=[], time=got_value if role == "ask_when" else None, number=None,
-                       **({"person": got_value} if role == "ask_who" else {}))
-        if (p1 := CALLBACK_IDS["promise_again"]) in self.items and self.items[p1].state in GOT + ("unresolved",) and self.facts.get("not_transferred"):
-            # 約束の電話で取り次げなかったときの一言への答え（はっきりしない・答えが取れないは「よいと言われていない」＝CL-2 の 4-135）
-            self.facts["not_transferred"][-1]["again"] = self.items[p1].state in GOT and self.items[p1].condition == "はい"
+            self._note("callback", why=self.questions[fid].callback, read=[], **self._callback_fields([fid], self.questions[fid].callback))
+        if (p1 := CALLBACK_IDS["promise_again"]) in self.items and self._asked(p1) and self.facts.get("not_transferred"):
+            # 約束の電話で取り次げなかったときの一言への答え（伺ったら、「はい」のときだけ true＝CL-2 の 4-135。⛔ 2026-10-24 の見直し：
+            # 「わからない」・伺う途中で切れたときに書いていなかった＝CL-2 は「聞いていない」と読んだ）
+            self.facts["not_transferred"][-1]["again"] = self._yes_no(p1)
         if not (name == "replay_opening" and args.get("part") in ("ai", "resume") + OWN_PARTS):
             # 決まった言い方・自分の言葉の答えへの返事を待つのは、その次の報告まで（答え・ほかの報告が来たら、もう待っていない）
             self.ai_pending = self.own_pending = False
@@ -1977,19 +1977,26 @@ class Flow:
             # ⛔ 2026-10-13 G-25 で見つけた漏れ：値の要る質問で値の無い答えを受け付け、言い直しに「Noneで、よろしいでしょうか。」を
             #    入れていた（確かめない型なら、依頼主へ値の代わりに条件の名前が渡っていた）
             return self._reject(f"答えの値がありません。相手が答えた値を「{ARG_LABEL['value']}」に入れて、もう一度報告してください。")
+        # 時刻の答えと一緒に受け取る理由（月単位の理由・「〇時まで」の理由）。午前・午後を伺ったときは、前の報告の理由を引き継ぐ（⛔ 2026-10-24 の
+        # 見直し：午前・午後の答えの報告には理由が無いので、理由が消え、承認済みの時刻の問いでもう一度伺っていた）
+        reasons = {k: a.get(k) for k in ("cycle", "until_why")}
         if cond not in SYSTEM_CONDITIONS and q.type in AMPM_TYPES:
-            value, it.pending_value = merge_ampm(it.pending_value, value), None
+            if it.pending_value is not None:
+                reasons = {k: v or it.pending_reasons.get(k) for k, v in reasons.items()}
+            value, it.pending_value, it.pending_reasons = merge_ampm(it.pending_value, value), None, {}
             value, ask = fill_ampm(value, self.business_hours, self.designated_limit)
             if ask and not it.ampm_asked:
+                it.pending_reasons = reasons
                 return self._ask_ampm(qid, value)
-        if ROLE_KEY.get(q.callback or "") == "time":
-            it.cycle = a.get("cycle") if cond not in SYSTEM_CONDITIONS else None
+        if CALLBACK_FIELD.get(qid) == "time":
+            # かけ直しの時刻の質問（分かる時 C9 も）：月単位の理由でその日・頃を選んだか（⛔ 2026-10-24 の見直し：前は C1 だけで、C9 では捨てていた）
+            it.cycle = reasons["cycle"] if cond not in SYSTEM_CONDITIONS else None
         if q.callback == "later_time" and cond not in SYSTEM_CONDITIONS:
             # 「あとで」のかけ直しの「〇時まで」：いま電話を続けられない理由で、かけてよい時間が決まる（CL-2 の 4-149）。理由が相手の言葉に無ければ、
             # 承認済みの時刻の問いで1回だけ伺い直す（✅ 2026-10-24 ユーザー「進めてよい」＝CL-1 の提案）。伺い直しても理由が無ければ、そのまま受け取る
             # （判定は「理由が分からない」＝通話の中で確かめが要った時刻として CL-2 が扱う）
             until = bool(_UNTIL.search(value or ""))
-            it.until_why = a.get("until_why") if until else None
+            it.until_why = reasons["until_why"] if until else None
             if until and not it.until_why and not it.until_asked:
                 return self._ask_until(qid, value)
         if cond in SYSTEM_CONDITIONS and (taken := self._ambiguous_only(f"「{SYSTEM_LABEL[cond]}」")):
@@ -3842,6 +3849,45 @@ class Flow:
     def hurried(self) -> bool:
         """相手が急いでいる・通話を断られた・怒っている、で締めたか（念のための確認をしない・締めは断られたときの言い方）。"""
         return self.end_reason in DECLINED_ENDS
+
+    def _asked(self, qid: str) -> bool:
+        """その質問を、もう伺ったか（答えが届いた・いま伺っている＝返事で流した。相手がその途中で切っても伺った）。"""
+        return qid in self.items and (self.items[qid].state != "empty" or self.current == qid)
+
+    def _yes_no(self, qid: str) -> bool | None:
+        """はい／いいえの問いの答えを、記録に書く真偽にする唯一の場所（書かないなら None）：「はい」＝true・「いいえ」＝false。それ以外
+        （わからない・答えたくない・聞き取れない・伺う途中で切れた）は、NOT_YES_IS_NO の問いなら false（よいと言われていない）、ほかは書かない。"""
+        it = self.items.get(qid)
+        if it is None or not self._asked(qid):
+            return None
+        got = it.condition if it.state in GOT else None
+        if got in ("はい", "いいえ"):
+            return got == "はい"
+        return False if qid in NOT_YES_IS_NO else None
+
+    def _callback_fields(self, qids, why: str) -> dict:
+        """かけ直しの記録（通話の事実 callback）の答えの項目を作る唯一の場所（CL-2 の call_report.Callback の形）：「時刻」「番号」はいつも
+        持つ（ほかの手段のときは持たない＝CL-2 との約束）。取れた答えだけ値を入れ、はい／いいえは _yes_no の1か所。時刻の答えには、その値と
+        一緒に受け取った理由を添える：月単位の理由（cycle）と、「あとで」の「〇時まで」の理由（until_why。値に「まで」があるときだけ＝
+        直されて「〇時以降」になったら書かない）。"""
+        fields: dict = {} if why == "other_means" else {"time": None, "number": None}
+        for qid in qids:
+            if (field := CALLBACK_FIELD.get(qid)) is None or qid not in self.items:
+                continue
+            it = self.items[qid]
+            if field in YES_NO_FACT:
+                if (v := self._yes_no(qid)) is not None:
+                    fields[field] = v
+                continue
+            fields[field] = self.answer_of(qid) if it.state in GOT else None
+            if field == "time" and it.state in GOT:
+                if it.cycle:
+                    fields["cycle"] = it.cycle   # 月単位の理由でその日・頃を選んだ（CL-2 の 4-106）
+                if why == "later" and it.until_why and _UNTIL.search(fields["time"] or ""):
+                    fields["until_why"] = it.until_why   # 「〇時まで」の理由（書くのは「あとで」のときだけ＝CL-2 の 4-149 の (1)(2)）
+        if fields.get("back_today") is False and "again" not in fields:
+            fields["again"] = False   # 本日はお戻りにならない＝その日は改めてお掛けしない
+        return fields
 
     def _note(self, kind: str, **extra) -> None:
         """通話の事実を残す唯一の場所（self.facts）。根拠の発話＝相手の発話の番号（on_callee で数えた番号）と、その文字（会話AIの聞き取り）。
