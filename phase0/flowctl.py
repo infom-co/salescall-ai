@@ -896,7 +896,13 @@ def own_answer_problem(answer: str, names: list[str], may_follow_up: bool, verdi
         #    プログラムも同じ質問の録音を流した＝2回聞いた（業務設定で許された「改めてご連絡…よろしいでしょうか？」の申し出は除く）
         return f"問いかけ（「{asked}」）が入っています。お客様に伺うことは、プログラムが流します（問いかけを入れずに書きます）"
     if verdict is not None:
-        from grounding import REFUSED, UNGROUNDED
+        from grounding import DEFERRED, REFUSED, UNGROUNDED
+        if verdict == DEFERRED:
+            # 知っていることで答えられる問いを預かった（⛔ J9a：所在地を聞かれて「担当の者に申し伝えます」）：「自分で答える質問」で答え直させる
+            known = f"（「{verdict.part}」）" if verdict.part else ""
+            return (f"こちらが知っていること{known}で答えられるご質問です。担当の者に申し伝えるのではなく、replay_opening を"
+                    f"「{PART_LABEL['own']}」で呼び、知っていることだけで答えます（答えのもとにした業務の情報の文も"
+                    f"「{ARG_LABEL['fallback']}」で選びます）")
         if verdict == UNGROUNDED:
             return (f"こちらについて知らない事実（「{verdict.part or text}」）が入っています。知っていることだけで言うか、そのご質問を担当の者に"
                     "申し伝える文にします")
@@ -2858,7 +2864,7 @@ class Flow:
                 return self._own_fallback(kind, pick, None, {}, {"checked": "fallback"})
             return self._reject(f"言う文（自分の言葉で、短く1〜2文）を「{ARG_LABEL['answer']}」に書いて、もう一度呼んでください（声に出すのは、"
                                 "プログラムの返事のあとです）。")
-        from grounding import GROUNDED, Verdict, verbatim
+        from grounding import DEFERRED, GROUNDED, Verdict, verbatim
         answer = answer.strip()
         verdict = Verdict(GROUNDED) if verbatim(answer, self.knowledge) else self._grounded(answer)
         problem = own_answer_problem(answer, self.names, may_follow_up=self._may_follow_up(kind), verdict=verdict,
@@ -2883,6 +2889,10 @@ class Flow:
         self.own_turn = self.callee_turns
         checked = {"checked": getattr(verdict, "by", None) or ("knowledge" if verdict is not None else None)}
         drafts = {"drafts": [{"text": t, "problem": p} for t, p in tried]} if tried else {}
+        if problem and kind == "no_answer" and verdict == DEFERRED and (line := self._known_line_of(verdict.part)):
+            # 知っていることで答えられる問いを、書き直しを使い切っても預かったまま：判定が答えのもとに挙げた知っていることの文をそのまま言う
+            # （自分で答える質問の受け皿と同じ形。⛔ 2026-10-25 J9a：所在地を聞かれて「担当の者に申し伝えます」と答えた）
+            kind, pick = "own", line
         if problem:
             return self._own_fallback(kind, pick, problem, drafts, checked)
         self.own_pending = kind
@@ -2960,6 +2970,13 @@ class Flow:
         """自分で答える質問の受け皿に使える、知っていることの文（業務の情報・想定問答の答え。名前の読みに置き換えた、声に出す形）。AIは、答えのもとに
         した文を、答えの文と一緒に「使えないときの一言」で選ぶ（操作の宣言＝tool_declarations の known）。"""
         return [k.split("：", 1)[1] for k in self.knowledge if k.startswith(("業務の情報：", "想定問答の答え"))]
+
+    def _known_line_of(self, part: str | None) -> str | None:
+        """判定が「答えられるのに預かっている」の答えのもとに挙げた文（部分）が、知っていることの文のどれか（known_lines）なら、その文。
+        判定の言い換えは使わない（そのままの文だけ＝中身を確かめなくてよい）。"""
+        from grounding import verbatim
+        said = (part or "").split("：", 1)[-1]
+        return next((k for k in self.known_lines() if said and verbatim(said, [k])), None)
 
     def _fallback_missing(self, part: str | None, fallback: str | None) -> str | None:
         """受け答え・自分で答える質問で、返す文が使えないときの一言が選ばれていなければ、その差し戻しの理由（_own_answer・grounding_job の1か所）。

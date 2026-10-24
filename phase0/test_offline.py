@@ -8002,6 +8002,52 @@ class OwnWordsTest(unittest.TestCase):
         # 「はい、ご予約は…」は会話が繋がっていない）
         self.assertEqual((r["ack"], [(p.get("kind"), p.get("id")) for p in r["play"]]), (None, [("recorded", "back"), ("question", "Q1")]))
 
+    def test_a_question_the_knowledge_answers_is_not_deferred(self):
+        # 知っていることで答えられる問いを「答えを持っていない質問」にして預けた（⛔ 2026-10-25 J9a・会社の所在地を聞かれる L4：「恐れ入りますが、
+        # そちらのご質問は担当の者に申し伝えます。」）：中身の判定が「答えられるのに預かっている」と読んだら声に出さず、「自分で答える質問」で
+        # 答え直させる。書き直しを使い切っても預かったままなら、判定が挙げた知っていることの文をそのまま言う（判定の言い換えは使わない）
+        from flowctl import OWN_REWRITES, PART_LABEL
+        from grounding import DEFERRED, NO_FACT
+        f, b = self.flow()
+        said, defer = "失礼ですが、御社はどちらにある会社なんですか？", "恐れ入りますが、そちらのご質問は担当の者に申し伝えます。"
+        self.heard(f, said)
+        known = next(k for k in f.known_lines() if "本社" in k)
+        f.on_grounded(defer, self.verdict(DEFERRED, known))
+        r = f.apply("replay_opening", {"part": "no_answer", "answer": defer})
+        self.assertEqual(r["result"], "rejected")
+        self.assertIn(f"「{PART_LABEL['own']}」で呼び", r["message"])
+        self.assertIn(known, r["message"])
+        # 答え直した（知っていることの文そのまま＝判定に聞かない）：その文を言う
+        r = f.apply("replay_opening", {"part": "own", "answer": known, "fallback": known})
+        self.assertEqual((r["result"], r["say"]), ("own_answer", known))
+        self.assertTrue(f.facts["callee_question"][-1]["answered"])
+        # 書き直しを使い切っても預かったまま：判定が挙げた知っていることの文をそのまま言う
+        g, _ = self.flow()
+        self.heard(g, said)
+        for n in range(OWN_REWRITES):
+            text = f"{defer}{'（' * n}"
+            g.on_grounded(text, self.verdict(DEFERRED, f"業務の情報：{known}"))
+            self.assertEqual(g.apply("replay_opening", {"part": "no_answer", "answer": text})["result"], "rejected")
+        g.on_grounded(defer + "。", self.verdict(DEFERRED, known))
+        r = g.apply("replay_opening", {"part": "no_answer", "answer": defer + "。"})
+        self.assertEqual((r["result"], r.get("say"), r.get("fallback")), ("own_answer", known, True))
+        self.assertTrue(g.facts["callee_question"][-1]["answered"])
+        # 判定が挙げた文が知っていることに無い（言い換え）・部分が無い：今までどおり、断らない一言の録音
+        from phrases import OWN_FALLBACK
+        for part in ("弊社は港区にあります。", ""):
+            h, _ = self.flow()
+            self.heard(h, said)
+            for n in range(OWN_REWRITES + 1):
+                text = f"{defer}{'（' * n}"
+                h.on_grounded(text, self.verdict(DEFERRED, part))
+                r = h.apply("replay_opening", {"part": "no_answer", "answer": text})
+            self.assertEqual((r["result"], [p["text"] for p in r.get("play", [])]), ("own_answer", [OWN_FALLBACK]), part)
+        # 答えられない問いを預けた（判定は「事実を言っていない」）：今までどおり、その文を言う
+        k, _ = self.flow()
+        self.heard(k, "キャンセル料はいくらですか？")
+        k.on_grounded(defer, self.verdict(NO_FACT))
+        self.assertEqual(k.apply("replay_opening", {"part": "no_answer", "answer": defer})["say"], defer)
+
     def test_small_talk_that_cannot_be_used_is_still_answered(self):
         # 受け答えの文に、こちらについて知らない事実（「先日はご来店いただき」）：書き直させ、それでも通らなければ、AIが返す文と一緒に選んだ一言の
         # 録音で応えてから、相手の返事を待つ（✅ 2026-10-23 ユーザー：言葉を足さずに「はい、」で質問に戻るのは「お客様の気分を害する返答」。
