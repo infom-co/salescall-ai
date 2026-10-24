@@ -10,7 +10,7 @@ G-65 で分かったこと（✅ 2026-10-25 ユーザーの聞き比べ。PHASE0
        文まるごとの録音の同じ所の差に一番近い組（文まるごとでも、「部長の」のあとで声は変わる＝その変わり方にそろえる）
 声ごとに3本（results/name_splice/round7/{声の型}/ の 01〜03。どれがどれかは index.json。聞く前に開かない）：
    (W)  文まるごと「営業部部長の岡田様はいらっしゃいますでしょうか？」
-   (R1) 役職（山田様の文から）｜「岡田様はいらっ」（役職の無い文から）｜「しゃいますでしょうか？」（中島様の文から）
+   (R1) 役職（伊藤様の文から。--role-name）｜「岡田様はいらっ」（役職の無い文から）｜「しゃいますでしょうか？」（中島様の文から）
    (R2) 役職｜「岡田様はいらっ」（「課長の岡田様は…」の文の、のあとの間から）｜「しゃいますでしょうか？」
 録り方と確かめは make_ack_clips.take と同じ（g58_name_splice.good_take）。回帰と並べて流すときは --key-index を別にする（CL-1.md 0-2）。
 """
@@ -28,7 +28,10 @@ from g65_seams import char_index, pause_after, quiet_point
 from phrases import TARGET_CALL
 
 ROLE = "営業部部長の"
-NAME, OTHER, ROLE_NAME, CARRIER_ROLE = "岡田", "中島", "山田", "課長の"
+NAME, OTHER, CARRIER_ROLE = "岡田", "中島", "課長の"
+# 役職の録音に入れる名前（--role-name）。⛔ 2026-10-25 の1回目：「山田」で録ったら、L4 は8本とも「部長の」から「やまだ」へ声が切れずに続き
+#    （や＝声の続く音）、声帯の震えの無い区間が無くて切れなかった（文まるごとの「岡田」は母音で始まり、その前で声が止まる）⇒ 母音で始まる「伊藤」に
+ROLE_NAME_DEFAULT = "伊藤"
 LEAD_DB, LEAD_S = -60.0, 0.15   # 声の前後に残す：一番大きい所からこの dB より大きい音は全部・その外は LEAD_S まで
 FEAT_S = 0.35                  # つなぎ目の前後の声を比べる長さ
 ROLE_TAKES = 5                 # 役職の録音を、この本数まで録って選ぶ
@@ -113,7 +116,7 @@ async def run(args) -> dict:
     # 役職の録音を ROLE_TAKES 本：「の」のあとの間（声帯の震えの無い区間）と、その前の声
     roles = []
     for _ in range(ROLE_TAKES):
-        x, rx, _, pause_x, row_x = await take_with_times(client, args, key, call.format(who=f"{ROLE}{ROLE_NAME}様"), lambda p, r, t: pause_after(p, r, t, ROLE))
+        x, rx, _, pause_x, row_x = await take_with_times(client, args, key, call.format(who=f"{ROLE}{args.role_name}様"), lambda p, r, t: pause_after(p, r, t, ROLE))
         fe = seam_features(x, rx, pause_x[0] - FEAT_S, pause_x[0])
         if fe:
             roles.append({"pcm": x, "pause": pause_x, "end": fe, "row": row_x})
@@ -192,6 +195,7 @@ def main() -> None:
     p.add_argument("--tries", type=int, default=8)
     p.add_argument("--pause", type=float, default=2.0)
     p.add_argument("--seed", type=int, default=66)
+    p.add_argument("--role-name", default=ROLE_NAME_DEFAULT, help="役職の録音に入れる名前（声の止まる所が「部長の」のあとにできる名前）")
     args = p.parse_args()
     save_result("G-66", asyncio.run(run(args)))
 
