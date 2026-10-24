@@ -2108,6 +2108,15 @@ class Flow:
         return any(x["reply"].get("say") or x["reply"].get("speak") or (x.get("phase", "calling") != "calling" and not self.play_recordings)
                    for x in ops)
 
+    def _heard_unreported(self) -> bool:
+        """相手が、報告されていないAIの言い直しを聞けたか（答えの報告の前の「違う値を言われた」の報告を差し戻すときに、言い直しを直された
+        言い方にするかの唯一の材料）：最後に受け付けた操作のあとに相手が2回以上話した（答えと、報告されなかった言い直しへの返事）うえに、
+        報告の無いAIの声が相手に流れる通話（speech_allowed の1か所。録音で流す通話では流さない）。
+        ⛔ 2026-10-24 J11a（本当に人ですか L4）：相手の最初の答え「15日の午後2時でお願いします」を、AIが「違う値を言われた」で報告した。差し戻す
+           ときに直された印を立てていたので、相手は何も直していないのに「改めまして…」と言い直した"""
+        acted = next((x["callee_turns"] for x in reversed(self.log) if x["reply"].get("result") != "rejected"), 0)
+        return self.callee_turns - acted >= 2 and self.speech_allowed(len(self.log))
+
     def _unsent(self, muted: bool) -> str:
         """流さなかった声の知らせの頭（unreported_note の1か所）。このターンの返事で、相手に何かが聞こえた（録音を流した・言い方を渡した・話させた）
         なら、言わない（相手は待たされていない。報告し直させると重なる）。
@@ -2544,7 +2553,8 @@ class Flow:
             #    「相手が答えたら record_answer で」としか言わず、相手がもう答えているのに AIが待つと読めた。1回は報告し直さず、次の質問の
             #    答え「3人」が日時の答えとして記録され、確かめまで済んだ。⇒ 答えがまだ報告されていないことと、報告する値を、はっきり言う
             v = normalize_value(self.questions[qid].type, a.get("correction"), self.questions[qid].unit)
-            self.unreported_correction = (qid, correction_kind(self.callee_said)) if a.get("result") == "corrected" else None
+            heard = a.get("result") == "corrected" and self._heard_unreported()
+            self.unreported_correction = (qid, correction_kind(self.callee_said)) if heard else None
             shown = f"（「{v}」）" if v else ""
             return self._reject(f"{qid} の答えは、まだ record_answer で報告されていません。相手が答えた値{shown}を、いま record_answer で"
                                 "報告してください。言い直しの言い方は、プログラムの返事のとおりにします。")

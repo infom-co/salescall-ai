@@ -949,7 +949,8 @@ class AckChoiceTest(unittest.TestCase):
         """AIが答えを報告せずに自分で言い直し、相手の返事を報告してきた（G-34）：答えの報告を、値つきではっきり求める。"""
         f = self.flow()
         self.report(f, "record_answer", question_id="Q1", condition_id="はい")
-        f.on_callee()
+        f.on_callee()   # 相手の答え（AIは報告せずに、自分の声で言い直した）
+        f.on_callee()   # その言い直しへの相手の返事（値を直した）
         r = f.apply("confirm_field", {"question_id": "Q2", "result": "corrected", "correction": "16 日の午後 2 時"})
         self.assertEqual(r["result"], "rejected")
         self.assertIn("まだ record_answer で報告されていません", r["message"])
@@ -958,6 +959,22 @@ class AckChoiceTest(unittest.TestCase):
         # 報告し直したら、ふつうに言い直しへ進む。相手は値を直していたので、相づちはお詫び
         self.assertEqual(f.apply("record_answer", {"question_id": "Q2", "condition_id": "答えた", "value": "16日の午後2時"})["ack"], "shitsurei")
         self.assertEqual(self.report(f, "confirm_field", question_id="Q2", result="affirmed"), "arigatou")
+        # ⛔ 2026-10-24 J11a（本当に人ですか L4）：相手の最初の答えを、AIが「違う値を言われた」で報告した（相手は何も直していない・AIの言い直しも
+        # 聞いていない）＝報告し直した答えは、ふつうの言い直し（お詫びも「改めまして」も無い）。録音で流す通話では、報告の無いAIの声は相手に
+        # 流れない（speech_allowed）ので、相手が2回話していても同じ
+        from flowctl import Flow, Question
+        recorded = Flow([Question("Q1", "ご予約はされていますか。", "yes_no", conditions=("はい", "いいえ")),
+                         Question("Q2", "ご希望の日時をお聞かせください。", "datetime", conditions=("答えた",))], play_recordings=True)
+        for h, extra in ((self.flow(), 0), (recorded, 1)):
+            self.report(h, "record_answer", question_id="Q1", condition_id="はい")
+            for _ in range(1 + extra):
+                h.on_callee()
+            self.assertEqual(h.apply("confirm_field", {"question_id": "Q2", "result": "corrected", "correction": "15日の午後2時"})["result"],
+                             "rejected")
+            r = h.apply("record_answer", {"question_id": "Q2", "condition_id": "答えた", "value": "15日の午後2時"})
+            self.assertEqual(r["result"], "confirm_required")
+            self.assertNotEqual(r["ack"], "shitsurei")
+            self.assertNotIn("改めまして", json.dumps(r, ensure_ascii=False))
         g = self.flow()
         self.report(g, "record_answer", question_id="Q1", condition_id="はい")
         g.on_callee()
@@ -3385,11 +3402,21 @@ class AskLadderTest(unittest.TestCase):
     def test_unreported_restatement_keeps_its_kind(self):
         """AIが答えを報告せずに言い直し、相手が自分の言い間違いを直した：差し戻したあとの答えの報告でも、言い直しを受けた言い方にする。"""
         f = self.flow()
+        self.heard(f, "15日の午後2時です。")   # 相手の答え（AIは報告せずに、自分の声で言い直した）
         self.heard(f, "あ、すみません、間違えました。16日です。")
         self.assertEqual(f.apply("confirm_field", {"question_id": "Q1", "result": "corrected", "correction": "16日の午後2時"})["result"],
                          "rejected")
         r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "答えた", "value": "16日の午後2時"})
         self.assertEqual((r["ack"], r["say"]), ("shouchi", "それでは16日の14時、午後2時でよろしいでしょうか？"))
+        # 最初の答えを「違う値を言われた」で報告した（AIの言い直しは、相手に聞こえていない）：報告し直した答えは、最初の答えをふつうに報告した
+        # ときと同じ言い方（AIの操作の取り違えで、相手に聞こえる言い方を変えない。⛔ 2026-10-24 J11a）
+        g = self.flow()
+        self.heard(g, "15日、あ、間違えました。16日の午後2時です。")
+        g.apply("confirm_field", {"question_id": "Q1", "result": "corrected", "correction": "16日の午後2時"})
+        h = self.flow()
+        self.heard(h, "15日、あ、間違えました。16日の午後2時です。")
+        g_r, h_r = (x.apply("record_answer", {"question_id": "Q1", "condition_id": "答えた", "value": "16日の午後2時"}) for x in (g, h))
+        self.assertEqual((g_r["ack"], g_r["say"]), (h_r["ack"], h_r["say"]))
 
     def test_instruction_leaves_the_fit_to_the_program(self):
         """答えが質問に合うかは、プログラムの1か所で決める（✅ 2026-10-14 ユーザー承認）。AIには、聞いたとおりの値で報告させる。"""
