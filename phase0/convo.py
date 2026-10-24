@@ -408,7 +408,9 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
         """そのターンの見張り：渡した言い方から外れたか（offscript.SpeechGate。DESIGN.md 6-7）。1つの相手の発話に1回まで。"""
         if swapped == i:
             return None
-        return SpeechGate(lambda: flow.expected_say(log_start), force=off_script_at == i and sessions == 1)
+        # 外れたものとして止めるのは、その台詞で1回だけ（⛔ 2026-10-24 G-57 J5：その前にAIが黙ってつなぎを張り替えた通話では、1つ目のつなぎの
+        # ときだけ止める作りだったので止めず、場面が外れた）
+        return SpeechGate(lambda: flow.expected_say(log_start), force=off_script_at == i and not any(t.get("off_script") for t in turns))
 
     def stop_off_script(log_start: int, i: int, turn) -> None:
         """AIの声が渡した言い方から外れた（6-7。見張りの watch が止めた）：このつなぎを閉じ、新しいつなぎに「失礼いたしました。改めまして、…」と

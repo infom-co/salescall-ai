@@ -139,6 +139,9 @@ class Business:
     hold_wait_s: int = 300
     # お詫びの電話（予約証の目的 apology）：伝える文（CL-2 の apology.for_task の text。承認したときに聞いていただいた録音で流す）。業務の質問はしない
     apology_call: str | None = None
+    # その文が、いつの電話のことか（same_day＝同じ日「先ほど」・later＝あとの日「先日」。CL-2 の apology.for_task が選んだ文の部分
+    # apology_same_day・apology_later）。繋がる前に用件を聞かれたときの一言も、これで選ぶ（phrases.APOLOGY_PURPOSE）
+    apology_when: str = "later"
     # 自社名・担当者名の読み（ひらがな。空＝決まらない＝表記のまま渡す）。自社名は、設定に無ければ取込で names.decide が決める（Intent.md 6-8）。
     # ✅ 2026-10-16 ユーザー決定（案C）：担当者名の読みは、設定に必ず入れる（名乗りでは言い換えられない。個人向けでは名乗ることが法律の確認事項）。
     #    必須かどうかを確かめるのは設定の登録（CL-2）。ここは、担当者名を unread_names に入れた矛盾した設定を受け付けない。
@@ -222,7 +225,7 @@ class Business:
                     name_readings=self.name_readings(),
                     # 門の予約証から（CL-2 の gate.Claim）：約束の電話か・まずお詫びすること・後任のご担当者様をお呼びする電話か
                     promised=self.promised, apology=tuple(self.apology), earlier=self.earlier, number_again=self.number_again,
-                    hold_wait_s=self.hold_wait_s, apology_call=self.apology_call,
+                    hold_wait_s=self.hold_wait_s, apology_call=self.apology_call, apology_when=self.apology_when,
                     successor=self.target is not None and self.target.successor,
                     target=self.replay_parts() if self.target is not None else None,
                     opening=self.replay_parts() if recorded else None, **kw)

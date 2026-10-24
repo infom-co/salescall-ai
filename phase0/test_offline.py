@@ -3448,6 +3448,26 @@ class AmPmTest(unittest.TestCase):
         f.on_callee()
         return f.apply(name, args)
 
+    def test_the_restated_form_is_the_same_value(self):
+        # ⛔ 2026-10-24 G-57 J5（言い間違えの直し・L4）：AIが、こちらの言い直しの言い方（「15日の14時、午後2時」）をそのまま「訂正された値」として
+        # 「合っている」と報告し、別の値と取り違えて「15日の14時、14時、午後2時、2時」と確かめ直した ⇒ 値はもとの形で持ち、言い方はそこから作るだけ
+        from flowctl import other_value, plain_clock, spoken_clock
+        for v in ("15日の午後2時", "午後3時から5時の間", "明日の19時", "夜8時半", "午前10時から午後2時", "15日の12時", "いつでも大丈夫"):
+            said = spoken_clock(v)
+            self.assertEqual((spoken_clock(said), spoken_clock(plain_clock(said))), (said, said), v)   # 二重にしない・もとの形に戻せる
+            self.assertIsNone(other_value("datetime", v, said), v)
+            self.assertIsNone(other_value("datetime", v, plain_clock(said)), v)
+        self.assertEqual(other_value("datetime", "15日の午後2時", "16日の14時、午後2時"), "16日の午後2時")   # 違う値は違う値（もとの形で）
+        self.assertEqual(plain_clock("15日、14時に"), "15日、14時に")   # 言い方の形でない「、」はそのまま
+        f = self.flow()
+        r = self.do(f, "record_answer", question_id="Q1", condition_id="答えた", value="15日の午後2時")
+        self.assertEqual(r["result"], "confirm_required")
+        r = self.do(f, "confirm_field", question_id="Q1", result="affirmed", correction="15日の14時、午後2時")
+        self.assertEqual((f.items["Q1"].state, f.items["Q1"].value), ("confirmed", "15日の午後2時"))
+        f = self.flow()
+        self.do(f, "record_answer", question_id="Q1", condition_id="答えた", value="15日の14時、午後2時")   # 最初の答えが言い方の形でも
+        self.assertEqual(f.items["Q1"].value, "15日の午後2時")
+
     def test_filled_value_is_read_back_without_asking(self):
         f = self.flow()
         r = self.do(f, "record_answer", question_id="Q1", condition_id="答えた", value="15日の1時")
@@ -5154,6 +5174,20 @@ class TargetTest(unittest.TestCase):
         # (4) 目的のお客様のいない業務で、名乗りをAIが話す形：お詫びを流す所が無いので、作る時点で断る
         with self.assertRaises(ValueError):
             Flow(b.questions, apology_call=b.apology_call)
+        # (5) 繋がる前に受付の方から用件を聞かれた：お詫びではなく、用件の一言の録音（✅ 2026-10-24 ユーザー「OK」。同じ日は「先ほど」・あとの日は「先日」）。
+        #     お詫びはまだ伝えていない（繋がったら流す）。⛔ 前は流す録音が無く、AIが自分の言葉で答える形だった
+        from phrases import APOLOGY_PURPOSE, RECORDED
+        for when in ("same_day", "later"):
+            t2 = dataclasses.replace(t, apology_when=when)
+            f = t2.flow(play_recordings=True)
+            r = self.say(f, "どういったご用件でしょうか？", "replay_opening", part="purpose")
+            self.assertEqual(r["play"][0], {"kind": "recorded", "id": f"apology_purpose_{when}", "text": APOLOGY_PURPOSE[when]}, when)
+            self.assertEqual(r["play"][1:], [f._part_play("target")], when)   # 用件を伝えたら、もう一度だけお呼びする（Intent.md 9-4）
+            self.assertNotIn(text, "".join(p["text"] for p in r["play"]), when)  # 受付の方にはお詫びを流さない
+            self.assertEqual(RECORDED[f"apology_purpose_{when}"], APOLOGY_PURPOSE[when])
+            self.assertEqual((f.apology_asked, f.apology_played, f.phase), (False, False, "calling"), when)
+            r = self.say(f, "はい、岡田は私です。", "report_party", party="target")
+            self.assertEqual([p["kind"] for p in r["play"]][-1], "apology", when)   # 繋がったら、お詫びの録音
 
     def test_cut_off_call_continues_from_where_it_stopped(self):
         # CL-2 の 4-77（✅ 2026-10-17 ユーザー：途中で切れた通話は、お詫びとともにすぐかけ直す）：前の通話で取れた答えの質問は、もう伺わずに続きから聞く。

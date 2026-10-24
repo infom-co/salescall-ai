@@ -30,7 +30,7 @@ from instruction import VOICE_TYPES, voice_style
 from jtext import compare_reading
 from listen import hear_feeds
 from live_util import build_config, collect_turn, send_text
-from phrases import APOLOGY_FIRST, CALLBACK_ASK, LINE_TROUBLE, NUMBER_AGAIN, RECORDED, SUCCESSOR_IDS, TALK_FALLBACK
+from phrases import APOLOGY_FIRST, APOLOGY_PURPOSE, CALLBACK_ASK, LINE_TROUBLE, NUMBER_AGAIN, RECORDED, SUCCESSOR_IDS, TALK_FALLBACK
 from voice_features import read_wav
 
 OUT = HERE / "results" / "ack"
@@ -123,6 +123,7 @@ HOW_OF.update({f"apology_{k}": "apology_first" for k in APOLOGY_FIRST})  # 調�
 HOW_OF.update({f"line_trouble_{k}": "line_trouble" for k in LINE_TROUBLE})
 HOW_OF.update({f"number_again_{k}": "number_again" for k in NUMBER_AGAIN})
 HOW_OF["hold_timeout"] = "closing"   # 保留で待ちきったときの締め：締めの読み方
+HOW_OF.update({f"apology_purpose_{k}": "purpose" for k in APOLOGY_PURPOSE})  # お詫びの電話の用件の一言：用件の一文と同じ読み方
 HOW["moshimoshi"] = "電話で、相手の声が聞こえないときに、繋がっているかを穏やかに確かめるように、問いかけるように柔らかく"
 MAX_S["moshimoshi"] = 1.5
 

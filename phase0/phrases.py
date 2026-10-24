@@ -286,6 +286,10 @@ PROMISE_AGAIN = "{who}とお電話の約束をしておりましたので後ほ�
 # 「お約束の時間にお電話ができず誠に申し訳ございませんでした。」（「お」が多すぎのため修正＝案の「お時間」）・途中で切れたとき「OK」
 APOLOGY_FIRST = {"missed_promise": "お約束の時間にお電話ができず誠に申し訳ございませんでした。",
                  "cut_off": "前回はお電話が途中で切れてしまい大変失礼いたしました。"}
+# 言ってはいけないことを言ってしまったあとのお詫びの電話（予約証の目的 apology）で、目的のお客様に繋がる前に受付の方から用件を聞かれたときの一言
+# （契約者の単位の録音。お詫びそのものは、お詫びを伝える方にだけ流す）。いつの電話のことかは、お詫びの文と同じ2つ（CL-2 の apology の
+# text_same_day「先ほど」・text_later「先日」）。✅ 2026-10-24 ユーザー「OK」（言葉の途中の読点は外す＝2026-10-15）
+APOLOGY_PURPOSE = {"same_day": "先ほどのお電話の件でご連絡いたしました。", "later": "先日のお電話の件でご連絡いたしました。"}
 # こちらの仕組みの都合で、通話をどうしても途中で切るときに流す2つ（契約者の単位の録音）。✅ 2026-10-22 夜 ユーザー決定（CL-2 の 4-137）：
 # 「恐れ入ります。こちらの通信に不具合が起きたようですので、改めてお電話させていただいてもよろしいでしょうか？」→ お客様の返事を待つ（AIはいないので
 # 中身は聞き分けない）→「大変申し訳ございません。それではいったんお電話を失礼いたします。」→ 切る。流すのは電話の部品（CL-2 の
@@ -365,6 +369,7 @@ RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait
             "offer_thanks": OFFER_THANKS, "departed": DEPARTED_ACK, **{SUCCESSOR_IDS[k]: v for k, v in SUCCESSOR.items()},
             "own_fallback": OWN_FALLBACK, "back": BACK_TO, **{k: v for k, (v, _, _) in TALK_FALLBACK.items()},
             **{f"apology_{k}": v for k, v in APOLOGY_FIRST.items()}, **{f"line_trouble_{k}": v for k, v in LINE_TROUBLE.items()},
+            **{f"apology_purpose_{k}": v for k, v in APOLOGY_PURPOSE.items()},
             **{f"number_again_{k}": v for k, v in NUMBER_AGAIN.items()}, "hold_timeout": HOLD_TIMEOUT, "moshimoshi": MOSHIMOSHI}
 
 

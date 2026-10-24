@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 
 from names import hira, quote, unvoiced
 from phrases import AI_ANSWER, AI_ASKED_AGAIN, AMPM_ASK, CALLBACK_ASK, CLOSE_DECLINED, CLOSING, LEAD_IN, NAME_READING_ASK
-from phrases import APOLOGY_FIRST, BACK_TO, DEPARTED_ACK, HOLD_TIMEOUT, MOSHIMOSHI, NUMBER_AGAIN, OFFER_THANKS, OWN_FALLBACK, SILENCE_PROMPT, SILENCE_PROMPT_IDS, SUCCESSOR, SUCCESSOR_IDS, TALK_FALLBACK
+from phrases import APOLOGY_FIRST, APOLOGY_PURPOSE, BACK_TO, DEPARTED_ACK, HOLD_TIMEOUT, MOSHIMOSHI, NUMBER_AGAIN, OFFER_THANKS, OWN_FALLBACK, SILENCE_PROMPT, SILENCE_PROMPT_IDS, SUCCESSOR, SUCCESSOR_IDS, TALK_FALLBACK
 from phrases import ask_again as ask_again_phrase
 from phrases import confirm as confirm_phrase, restate_words
 from phrases import lead_in as lead_in_phrase
@@ -260,7 +260,9 @@ def _inside(minute: int, r: tuple) -> bool:
 
 
 def fill_ampm(value: str | None, hours: tuple = DEFAULT_BUSINESS_HOURS, limit: tuple = DEFAULT_DESIGNATED_LIMIT) -> tuple[str | None, bool]:
-    """時刻の値に午前・午後が無いとき、営業時間と歯止め時間から補う。返り値＝(値, 聞く必要があるか)。"""
+    """時刻の値に午前・午後が無いとき、営業時間と歯止め時間から補う。返り値＝(値, 聞く必要があるか)。言い直しの言い方の形で報告された値は、
+    もとの値に戻してから（plain_clock。値はいつも、もとの形で持つ）。"""
+    value = plain_clock(value)
     if not value or AMPM_WORDS.search(value) or not (m := _CLOCK.search(value)):
         return value, False
     h = int(m.group("h"))
@@ -279,8 +281,26 @@ def fill_ampm(value: str | None, hours: tuple = DEFAULT_BUSINESS_HOURS, limit: t
 _CLOCK_TAIL = re.compile(r"(?:頃|ごろ|くらい|ぐらい|以降|以後|過ぎ|すぎ|までに|まで|前後|ちょうど|台)*")
 
 
+def plain_clock(value: str | None) -> str | None:
+    """言い直しの言い方の形（spoken_clock の形「15日の14時、午後2時」）になっている時刻の値を、もとの値（「15日の午後2時」）に戻す（唯一の場所。
+    その形でなければ、そのまま）。値はいつも、もとの形で持つ（言い方は、そこから spoken_clock で作るだけ）。
+    ⛔ 2026-10-24 G-57 J5（言い間違えの直し・L4）：AIが、こちらの言い直しの言い方をそのまま「訂正された値」として報告し、プログラムは
+       別の値と取り違えて念のためもう一度確かめた。そのとき言い方の形にもう一度言い方を当てたので「15日の14時、14時、午後2時、2時」と崩れた"""
+    ms = list(_CLOCK.finditer(value or ""))
+    i = value.find("、", ms[0].end()) if len(ms) >= 2 else -1
+    if i < 0:
+        return value
+    base = value[:ms[0].start()] + value[i + 1:]
+    return base if _speak_clock(base) == value else value
+
+
 def spoken_clock(value: str | None) -> str | None:
-    """時刻の値を、言い直しで言う形にする（唯一の場所。値そのものは変えない）。午後は24時間＋午後の両方、午前は「午前○時」、昼の12時台は
+    """時刻の値を、言い直しで言う形にする（唯一の場所。値そのものは変えない。もう言い方の形になっている値は、そのまま＝plain_clock）。"""
+    return _speak_clock(plain_clock(value))
+
+
+def _speak_clock(value: str | None) -> str | None:
+    """時刻の値を、言い直しで言う形にする（spoken_clock の中身）。午後は24時間＋午後の両方、午前は「午前○時」、昼の12時台は
     「昼の12時」（✅ 2026-10-24 ユーザー：「確認の言葉は、24時間方式（午前は、午前○○時、午後は○○(24時間)時+(午後○○時の両方)を使う」）。
     例：「15日の午後2時」⇒「15日の14時、午後2時」・「午後3時から5時の間」⇒「15時から17時、午後3時から5時の間」。午前か午後かが決まって
     いない時刻（午前・午後を聞いても決まらなかった）は、そのまま。"""
@@ -380,6 +400,9 @@ def other_value(qtype: str, pending: str | None, given: str | None) -> str | Non
     （「3人」と「3名」）。これまでの試験の「合っている」588回のうち、違う意味の値は2回だけ（どちらも、AIが訂正を報告しなかった回）。"""
     if not given or _REPLY_ONLY.fullmatch(given) or form_problem(qtype, given):
         return None
+    if qtype in AMPM_TYPES:
+        # 時刻は、言い直しの言い方の形どうしで比べる（「明日の19時」と「明日の19時、午後7時」・「明日の午後7時」は同じ値）。違う値は、もとの形で返す
+        return None if spoken_clock(given) == spoken_clock(pending) else plain_clock(given)
     if qtype in NUMBER_TYPES:
         a, b = re.sub(r"\D", "", pending or ""), re.sub(r"\D", "", given)
         return given if b and a != b else None
@@ -1095,7 +1118,7 @@ class Flow:
                  policies: dict | None = None, knowledge: list[str] | None = None, names: list[str] | None = None,
                  name_readings: dict[str, str] | None = None, promised: bool = False, apology: tuple = (), successor: bool = False,
                  voicemail_left: bool = False, earlier: dict | None = None, number_again: str | None = None, hold_wait_s: int = 300,
-                 apology_call: str | None = None):
+                 apology_call: str | None = None, apology_when: str = "later"):
         """confirm：言い直しの言い方を作る関数 (値, 場面, 何回目) → 文（ふだんは phrases.confirm。言い方を比べる試験 G-25 だけが別のものを渡す）。
         busy_ask：相手が「忙しい」と言ったときに1回だけ言う一言（業務設定。None なら丁寧に終える＝既定。Intent.md 9-4）。
         target：目的の人のある業務の、名乗りの部分の文（instruction.Business.replay_parts。呼ぶ一言 target・確かめる一言 target_confirm を含む）。
@@ -1304,6 +1327,8 @@ class Flow:
         # 業務の質問はしない。お呼びした方（目的のお客様のいる業務）に繋がったら、または名乗りのあと（いない業務）にお詫びの録音を流し、お客様の
         # お返事を聞いてから、お礼の締めで終える。伝えられたかは会話の報告の apology_delivered（Flow.apology_delivered）
         self.apology_call = apology_call
+        self.apology_when = apology_when   # お詫びの文が、いつの電話のことか（same_day＝先ほど・later＝先日。CL-2 の apology の文の部分）
+        assert apology_when in APOLOGY_PURPOSE, apology_when
         # お詫びを流すように頼んだか（apology_asked）・頼んだあと止まっていないか（apology_played。止まれば on_opening_cut が外す）・流し直したか
         self.apology_asked = self.apology_played = bool(apology_call) and not target   # いない業務は名乗りの録音の終わりに流れる
         self.apology_replayed = False
@@ -1379,6 +1404,8 @@ class Flow:
         if self.callee_turns or any(x["op"] == "signal" and x["args"].get("connect") for x in self.log):
             return None   # 繋がったのは1通話に1回（2回目の知らせでは、聞く段に戻さない）
         self.answering = True
+        if self.apology_call and not self.target:
+            self.apology_asked = self.apology_played = False   # お詫びは、第一声のあとに流す名乗りの終わりに流れる（_opening_reply）
         self.target_called = []   # 呼ぶ一言は、第一声のあとに流す（_opening_reply。第一声への判定の読みは、呼ぶ一言への返事に数えない）
         self.speaker_from = 1     # 最初の電話口の方は、第一声（相手の発話の1つ目）から（第一声を「代わった人」と読まれても、替わった印にしない）
         return self._log_signal({"connect": True}, {
@@ -2637,8 +2664,12 @@ class Flow:
         calling = self.phase == "calling"
         if calling and part == "all":
             keys = ["intro"]
-        # お詫びの電話の「用件」は、お詫びそのもの（業務の用件は通話の初めに外してある）：用件を流す頼みには、お詫びの録音を流す（繋がる前は流さない）
-        apology = ([self._apology_play()] if self.apology_call and not calling and set(keys) & {"purpose"} else [])
+        # お詫びの電話の「用件」は、お詫びそのもの（業務の用件は通話の初めに外してある）：用件を流す頼みには、お詫びの録音を流す。繋がる前（受付の方）
+        # には、お詫びではなく用件の一言（「先日のお電話の件でご連絡いたしました。」✅ 2026-10-24 ユーザー「OK」。⛔ 前は流す録音が無く、
+        # AIが自分の言葉で答える形だった）
+        asked = bool(self.apology_call) and "purpose" in keys
+        apology = ([] if not asked else [self._apology_play()] if not calling else
+                   [{"kind": "recorded", "id": f"apology_purpose_{self.apology_when}", "text": APOLOGY_PURPOSE[self.apology_when]}])
         keys = [k for k in OPENING_ORDER if self.opening.get(k)
                 and (k in keys or (k != "greeting" and k in self.opening_unheard and not (calling and k == "purpose")))]
         if not keys and not apology:
@@ -2646,8 +2677,8 @@ class Flow:
         self.replays += 1
         self.opening_unheard = [k for k in self.opening_unheard if k not in keys]
         play = [{"kind": "opening", "part": k, "text": self.opening[k]} for k in keys] + apology
-        if apology:
-            self.apology_asked = self.apology_played = True
+        if asked and not calling:
+            self.apology_asked = self.apology_played = True   # お詫びそのものを流した（用件の一言では、まだお詫びしていない）
         return self._continue(play, "".join(x["text"] for x in play))
 
     def _who_took_over(self) -> bool:

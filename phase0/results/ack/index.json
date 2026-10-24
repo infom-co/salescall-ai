@@ -2090,5 +2090,54 @@
     "made_as": "S2",
     "chosen_from": "S2_apology_missed_promise_誠2",
     "chosen_by": "人"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "moshimoshi",
+    "text": "もしもし？",
+    "heard": {
+      "0.0": "もしもし",
+      "1.0": "もしもし。"
+    },
+    "ok": true,
+    "seconds": 0.76,
+    "try": 2,
+    "wav": "L4_moshimoshi.wav",
+    "chosen_from": "L4_moshimoshi_2",
+    "chosen_by": "人"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "moshimoshi",
+    "text": "もしもし？",
+    "heard": {
+      "0.0": "もしもし",
+      "1.0": "もしもし。"
+    },
+    "ok": true,
+    "seconds": 0.54,
+    "try": 4,
+    "wav": "S2_moshimoshi.wav",
+    "chosen_from": "S2_moshimoshi_2",
+    "chosen_by": "人"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "moshimoshi",
+    "text": "もしもし？",
+    "heard": {
+      "0.0": "もしもし",
+      "1.0": "もしもし。"
+    },
+    "ok": true,
+    "seconds": 0.54,
+    "try": 4,
+    "wav": "S4_moshimoshi.wav",
+    "made_as": "S2",
+    "chosen_from": "S2_moshimoshi_2",
+    "chosen_by": "人"
   }
 ]

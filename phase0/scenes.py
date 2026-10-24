@@ -234,7 +234,9 @@ def restated(head: str):
         ai = plain(rs[0].get("intended")) if rs else ""
         return {"止めた": any(t.get("off_script") for t in c["turns"]), "言い直しは1回": len(rs) == 1,
                 "頭の言葉": ai.startswith(head), "お詫びは多くて1回": ai.count("失礼") <= 1,
-                "日付": bool(rs) and "15日の午後2時" in plain(said(rs[0])),
+                # 日時の言い直しは「15日の14時、午後2時でよろしいでしょうか？」（✅ 2026-10-24 ユーザー：24時間＋午後。flowctl.spoken_clock の1か所）。
+                # ⛔ 2026-10-24 G-57 J5：前の言い方「15日の午後2時」の続きの文字で数えていたので、正しい言い直しを外れと数えた
+                "日付": bool(rs) and all(x in plain(said(rs[0])) for x in ("15日", "14時", "午後2時")),
                 "言い直しまでの間": all(t["gap_s"] <= 2.0 for t in rs if t.get("gap_s") is not None),
                 "続けて答えが取れた": got(c, "Q2", "15日") and got(c, "Q3", "3")}
     return check
