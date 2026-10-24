@@ -428,10 +428,16 @@ UNDECIDED = "決められない"
 HOLD = "取り次ぎを待つ"
 HANDOVER = "代わった人が話し始めた"
 # 確かめの名前（Flow.on_check）：別の耳の文字（聞き取り。6-10 の (5)）・意味の判定（6-10 の (6)。judge2＝後ろで走らせる2つ目の判定）
-CHECKS = ("ear", "judge", "judge2", "asks")  # asks＝呼んでいる段の、こちらに尋ねているかの問い合わせ（Flow.asks_context）
+CHECKS = ("ear", "judge", "judge2", "asks", "asks2")  # asks・asks2＝呼んでいる段の、こちらに尋ねているかの問い合わせ（Flow.asks_context）
 # 意味の判定の受け持ち（会社を分けて同時に出す2つ。早く届いたほうで決め、遅れて届いたほうも同じ決まりで当てる。meaning_judge.JudgePanel）
 JUDGMENTS = ("judge", "judge2")
-HOLD_READINGS = JUDGMENTS + ("asks",)  # 「取り次ぎを待つ」を数える読み（Flow._hold_now・取り次ぎの区切り。尋ねているかの問い合わせの「取り次ぎを待つ」も）
+# 尋ねているかの問い合わせの受け持ち（意味の判定の2つと同じ会社の2つ。どちらか1つでも「尋ねている」なら質問＝Flow._asking_now・calling_asks）。
+# ⛔ 2026-10-25 J10b（名前を確かめてから名乗りを聞かれる・S4）：受け持ちが 3.5 Flash Lite の1つだけで、混んで 4.7秒かかり待つ長さに届かず、
+#    「岡田ですね。（間）失礼ですが、どちら様でしょうか？」に、質問と分からないまま目的の人かを確かめる一言を流した（会社を分ける決まり＝CL-1.md 0-2
+#    に当たっていなかった）。G-59 の記録：3.5 Flash Lite の外れはどれも答えが返らない側（質問を見落とす）・Sonnet 5.5 は 234回中 0 の外れ・
+#    質問ではない言葉を「尋ねている」と読んだ回はどちらも 0 ＝ どちらか1つで質問とみなしても、質問でない言葉を質問と取る回は増えない
+ASKS_CHECKS = ("asks", "asks2")
+HOLD_READINGS = JUDGMENTS + ASKS_CHECKS  # 「取り次ぎを待つ」を数える読み（Flow._hold_now・取り次ぎの区切り。尋ねているかの問い合わせの「取り次ぎを待つ」も）
 CONFIRM_LABEL = {"affirmed": "合っている", "corrected": "違う値を言われた", "no_answer": "答えなかった"}
 # 値を直されたあとの言い直し（✅ 2026-10-14 ユーザー）：(場面＝phrases.CONFIRM の鍵, 頭の言葉＝phrases.LEAD_IN の鍵, 流す相づち)
 # - こちらの聞き違い（相手に「違う」と言われた）：「失礼いたしました。改めまして、16日の午後2時で、大丈夫でしょうか？」
@@ -760,7 +766,7 @@ def unsure_counts(kind: str, value: str) -> str | None:
     0回／尋ねているかの問い合わせでは、ほかの言葉（「お待たせいたしました。」）に6回（0.37〜0.49）"""
     if kind in JUDGMENTS:
         return HOLD if value == HOLD else UNDECIDED if value != TARGET_IS_THERE else None
-    if kind == "asks":
+    if kind in ASKS_CHECKS:
         return ASKS_YES if value == ASKS_YES else None
     return None
 
@@ -1664,8 +1670,9 @@ class Flow:
             # 終わった発話の判定が遅れて届いた：その方の「ご本人」の読みとして数える（_target_readings。⛔ 2026-10-21 の見直し：いまの発話の判定
             # だけを数えていたので、判定が遅れて目的の人かを確かめると、確かめの間に届いた前の発話の判定を使わず、また確かめていた）
             self.calling_judged.setdefault(turn, {})[kind] = value
-        if self.phase == "calling" and kind == "asks" and (current or turn < self.callee_turns):
-            self.calling_asks[turn] = value
+        if self.phase == "calling" and kind in ASKS_CHECKS and (current or turn < self.callee_turns):
+            if value == ASKS_YES or self.calling_asks.get(turn) != ASKS_YES:   # どちらか1つでも「尋ねている」なら、その発話は質問
+                self.calling_asks[turn] = value
             if value == ASKS_YES and turn == self.callee_turns and turn in self.hold_moved:
                 # 取り次ぎと読まれた発話が、こちらへの質問だった（「岡田ですね。失礼ですが、どちら様でしょうか？」）：尋ねた方は電話口を
                 # 離れず、こちらの答えを待っている ⇒ 区切りを戻す（次の発話も同じ方。いまの発話のうちだけ＝次の方が話し始めたら戻さない）
@@ -3391,7 +3398,7 @@ class Flow:
 
     def _asking_now(self) -> bool:
         """いまの相手の言葉（出揃ったもの）で、電話に出た方がこちらに尋ねているか（別の問い合わせ asks。聞かれたことに答えるのが先）。"""
-        return self.words_complete and self.check.get("asks") == ASKS_YES
+        return self.words_complete and any(self.check.get(k) == ASKS_YES for k in ASKS_CHECKS)
 
     def _offer_while_asking(self, name: str, args: dict) -> bool:
         """こちらに尋ねている言葉への報告が、問いの形の申し出か（申し出の報告は止めない＝apply の入口）：代わりの方・後任の方の報告／相手の申し出

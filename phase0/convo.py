@@ -29,7 +29,7 @@ from contextlib import nullcontext
 from audio import is_fax_tone
 from common import HERE, read_wav_pcm16_mono, write_wav
 from offscript import SpeechGate
-from flowctl import CHOICE_TYPES, Flow, tool_declarations
+from flowctl import ASKS_CHECKS, CHOICE_TYPES, Flow, tool_declarations
 from instruction import Business, barge_in_note, build
 from ears import open_ear
 from listen import hear
@@ -115,8 +115,11 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
     # 呼んでいる段だけ：こちらに尋ねているかを、目的の人の判定とは別の問い合わせとして同時に出す（受け持ちは1つ目の判定＝止まれば代わりが入る。
     # Flow.asks_context。✅ 2026-10-22 ユーザー：「相手が喋っていても、それが質問だった場合の対処は？」）
     questions = {k: (q, asked, before) for k in runs}
-    if (ac := flow.asks_context()) is not None and judge is not None:
-        runs["asks"], questions["asks"] = judge, (ac[0], None, ac[1])
+    # ⛔ 2026-10-25 J10b：受け持ちが1つ目の判定だけだと、その会社が混むと質問に気づけない ⇒ 2つ目の判定にも出す（flowctl.ASKS_CHECKS）
+    if (ac := flow.asks_context()) is not None:
+        for kind, j in (("asks", judge), ("asks2", judge2)):
+            if j is not None:
+                runs[kind], questions[kind] = j, (ac[0], None, ac[1])
 
     def started(coro) -> asyncio.Task:
         t = asyncio.create_task(coro)
@@ -196,8 +199,9 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
 
     def judged() -> bool:
         # いまの言葉の判定が、1つでも届いた（Flow.check はいまの言葉のものだけ）。尋ねているかの問い合わせ（asks）を出していれば、それも届いた
-        return (any(k in flow.check for k in runs if k != "asks")
-                and ("asks" not in runs or "asks" in flow.check))
+        asks = [k for k in ASKS_CHECKS if k in runs]
+        return (any(k in flow.check for k in runs if k not in ASKS_CHECKS)
+                and (not asks or any(k in flow.check for k in asks)))
 
     async def judgments(every: bool) -> None:
         """いまの言葉の判定を待つ：1つ届くまで（every＝全部が終わるまで）。答えずに終わった判定は待たない（もう1つを待つ）。"""

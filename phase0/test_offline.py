@@ -6221,6 +6221,18 @@ class TargetTest(unittest.TestCase):
         self.assertIn("replay_opening", r["message"])
         r = f.apply("replay_opening", {"part": "intro"})
         self.assertEqual(parts(r), ["intro", "target"])
+        # 2つ目の判定の「尋ねているか」（asks2）だけが届いた・2つが分かれた：どちらか1つでも「尋ねている」なら質問（⛔ 2026-10-25 J10b の S4：
+        # 受け持ちが 3.5 Flash Lite だけで、混んで待つ長さに届かず、質問と分からないまま目的の人かを確かめる一言を流した）
+        for readings in ((("asks2", ASKS_YES),), (("asks", ASKS_NO), ("asks2", ASKS_YES)), (("asks2", ASKS_YES), ("asks", ASKS_NO))):
+            f, b = self.checked()
+            f.use_checks("judge", "judge2")
+            self.heard(f, "岡田ですね。失礼ですが、どちら様でしょうか？", TARGET_IS_THERE); f.on_check("judge2", "決められない")
+            for kind, value in readings:
+                f.on_check(kind, value)
+            r = f.apply("report_party", {"party": "target"})
+            self.assertEqual((r["result"], f.phase, f.target_confirmed), ("rejected", "calling", []), readings)
+            self.assertEqual(f.calling_asks[f.callee_turns], ASKS_YES, readings)
+            self.assertEqual(parts(f.apply("replay_opening", {"part": "intro"})), ["intro", "target"], readings)
         g, _ = self.checked()
         self.heard(g, "あの、どちら様でしょうか？", None)
         g.apply("report_party", {"party": "reception"})
