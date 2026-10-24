@@ -80,6 +80,20 @@ def blame(tx: Tx, attempt_id: UUID) -> str | None:
     return tx.one("SELECT salescall.unrung_blame(%s) AS b", (attempt_id,))["b"]
 
 
+def line_run_pending(tx: Tx, line_id: UUID) -> bool:
+    """その回線に、番号のせいか回線のせいかがまだ分からない続き（鳴った電話・閉じた印のあと、1つの番号だけが鳴らなかった）があるか
+    （決まりはデータベースの1か所 salescall.line_run_pending＝0131）。"""
+    return tx.one("SELECT salescall.line_run_pending(%s) AS p", (line_id,))["p"]
+
+
+def close_unrung_run(tx: Tx, line_id: UUID, reason: str) -> bool:
+    """まだ分からない続きを閉じて、決着させる（1か所。2026-10-24 ユーザー：「一つの行で止まり続けることがないようにしてください」。
+    決め方はデータベースの1か所 salescall.close_unrung_run＝0131）。reason＝no_rows（その回線にかける行が、分からないまま待つ行の
+    ほかに残っていない。呼ぶのは回線ごとの処理だけ）・retired（その回線を使わなくした）。閉じたら True。
+    no_rows：続きの前の区切りが鳴った電話なら番号のせい、閉じた印ならその決め方を引き継ぎ、無ければ回線のせい。retired：回線のせい。"""
+    return tx.one("SELECT salescall.close_unrung_run(%s, %s) AS c", (line_id, reason))["c"]
+
+
 def line_faults_unrecorded(tx: Tx, line_id: UUID) -> list[dict[str, Any]]:
     """その回線の、鳴った電話のあとの続きのうち、回線のせい（`blame` が line）と分かったのに、まだ回線の異常として記録していない
     発信（attempt_id・client_id。かけた順。決まりはデータベースの1か所 salescall.line_faults_unrecorded＝0129）。回線ごとの処理が

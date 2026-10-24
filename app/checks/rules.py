@@ -266,6 +266,7 @@ WRITE_FUNCTIONS: dict[str, frozenset[str]] = {
     "release_claims_for_contractor_dnc": frozenset({_CORE + "dnc.py"}),
     "release_claims_on_line": frozenset({_CORE + "registry.py"}),
     "release_claims_in_scope": frozenset({_CORE + "calendar.py", _CORE + "settings.py", _CORE + "registry.py"}),
+    "close_unrung_run": frozenset({_CORE + "attempts.py"}),      # まだ分からない続きを閉じる（0131。呼ぶ入口は attempts の1か所）
 }
 _CALL = re.compile(r"\bsalescall\." + _NAME + r"\s*\(")
 

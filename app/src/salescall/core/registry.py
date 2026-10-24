@@ -15,7 +15,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from salescall.core import business_settings, phone
+from salescall.core import attempts, business_settings, phone
 from salescall.core.access import Tx
 
 CALLER_KINDS = ("mobile", "fixed")   # 発信番号にしてよい番号の種類（Rakuten Link は携帯の番号。固定の回線を足すときも、ここ）
@@ -136,6 +136,9 @@ def retire_line(tx: Tx, line_id: UUID, *, reason: str) -> None:
     _one(tx.one("UPDATE salescall.lines SET retired_at = now(), retired_reason = %s WHERE line_id = %s AND retired_at IS NULL"
                 " RETURNING line_id", (_name(reason), line_id)), "使っている回線", line_id)
     _release_line_claims(tx, line_id)
+    # その回線の、番号のせいか回線のせいかがまだ分からない続きは、回線のせいとして閉じる（その回線はもうかけないので、次の電話で
+    # 決まることは無い。番号には数えず、ほかの回線でかけ直して確かめる＝2026-10-24 ユーザー：「一つの行で止まり続けることがないように」）
+    attempts.close_unrung_run(tx, line_id, "retired")
 
 
 def _release_line_claims(tx: Tx, line_id: UUID) -> None:

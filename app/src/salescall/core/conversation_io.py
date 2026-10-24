@@ -40,11 +40,11 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
-from salescall.core import attempts, business_rules, business_settings, call_report, dnc
+from salescall.core import attempts, business_rules, business_settings, call_report, dnc, settings, tasks
 from salescall.core.access import Tx
 from salescall.core.attempts import AttemptNotFound
 
-__all__ = ["ItemInvalid", "ItemValue", "declare_do_not_call", "earlier", "handlings", "progress", "record_keys",
+__all__ = ["ItemInvalid", "ItemValue", "call_setting", "declare_do_not_call", "earlier", "handlings", "progress", "record_keys",
            "save_rebuilt_report", "save_report", "write_item"]
 
 # 理由を持てる状態と、その理由の名前の一覧（正本は業務の決まり business_rules。ここは対応だけ）
@@ -134,6 +134,22 @@ def handlings(tx: Tx, version_id: UUID, question_id: str) -> dict[tuple[str, str
     どれか）。正本は業務の決まり（business_rules.load の1か所）。必須でない質問は扱いを持たない（空）。CL-1 の連絡帳 4-41 の (5)。"""
     rules = business_rules.load(tx, version_id)
     return {(state, reason): h.kind for (q, state, reason), h in rules.handling.items() if q == question_id}
+
+
+# 会話の処理が読む設定（持ち主 CL-1 の会話の決まり。値を持つのは設定の表の1か所。範囲は、その通話の業務）
+CALL_SETTING_PREFIXES = ("call.", "conversation.")
+
+
+def call_setting(tx: Tx, attempt_id: UUID, key: str) -> Any:
+    """その通話の業務で、会話の決まりの設定がいくつか（settings.resolve の1か所。業務 → 依頼者 → 契約者 → システムの順で、細かい
+    ほうが勝つ）。読めるのは会話の決まりの設定だけ（`CALL_SETTING_PREFIXES`）。例：受付で保留になったときに待つ長さ
+    `call.hold_wait`（秒。初め300。お客様が長く待つ理由を言ったら、その時まで待つのは会話の側で決める）・`call.silence_prompt_after`。"""
+    if not key.startswith(CALL_SETTING_PREFIXES):
+        raise ValueError(f"会話の処理が読む設定ではありません：{key}")
+    row = tx.one("SELECT task_id FROM salescall.attempts WHERE attempt_id = %s", (attempt_id,))
+    if row is None:
+        raise AttemptNotFound(str(attempt_id))
+    return settings.resolve(tx, key, **tasks.scope(tx, row["task_id"]))
 
 
 def progress(tx: Tx, attempt_id: UUID) -> bool:

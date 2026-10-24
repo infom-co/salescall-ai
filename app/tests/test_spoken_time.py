@@ -452,3 +452,32 @@ class NotGuessed(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DayTail(unittest.TestCase):
+    """日のすぐあとの言葉（2026-10-24。⛔ main の会話の報告の「来月の5日以降」を読めず、判定できないにしていた）：「〇日以降・から」＝
+    その日から終わり無し（話せなければ次の日＝「すぐ」と同じ）／「〇日ごろ」＝その日／「〇日まで」＝「〇時まで」と同じく、いま電話を
+    続けられなかった理由で決める（別の番号・別の方へ＝今からその日まで／それまでは出られない＝その日から／それまでに確認＝その日）。"""
+
+    def test_from_the_day_on(self):
+        for text in ("来月の5日以降", "来月5日から", "11月5日以降でしたら大丈夫です"):
+            with self.subTest(text=text):
+                r = read(text, NOW)
+                self.assertEqual((r.kind, r.start, r.end, r.repeat), (WINDOW, at(2026, 11, 5), None, spoken_time.DAY_REPEAT))
+        r = read("来月の5日以降の午後", NOW)
+        self.assertEqual((r.kind, r.start, r.end, r.daily), (WINDOW, at(2026, 11, 5, 13), None, (13 * H, DAY)))
+        self.assertEqual(read("来月の5日以降の3時", NOW).kind, CONFIRM)        # いくつもの日の、どの日の3時か決まらない
+        r = read("5日の3時以降", NOW)                                          # 時刻の言葉は今までどおり（日の言葉ではない）
+        self.assertEqual((r.start, r.end), (at(2026, 11, 5, 15), at(2026, 11, 6)))
+
+    def test_about_the_day(self):
+        r = read("来月の5日ごろ", NOW)
+        self.assertEqual((r.kind, r.start, r.end), (WINDOW, at(2026, 11, 5), at(2026, 11, 6)))
+
+    def test_until_the_day_follows_the_reason(self):
+        self.assertEqual(read("来月の5日まで", NOW, until=None).kind, CONFIRM)   # 理由が分からなければ確かめる
+        cases = {"now": (NOW, at(2026, 11, 6)), "after": (at(2026, 11, 5), None), "slot_after": (at(2026, 11, 5), at(2026, 11, 6))}
+        for until, (start, end) in cases.items():
+            with self.subTest(until=until):
+                r = read("来月の5日までに", NOW, until=until)
+                self.assertEqual((r.kind, r.start, r.end), (WINDOW, start, end))

@@ -723,6 +723,88 @@ class Blame(SupervisorBase):
             self.assertEqual(self.tx(s, lambda tx: attempts.failed_run(tx, r["contact"]))["n"], 0)
 
 
+    def fail_until_unconfirmed(self, s, driver):
+        """その行だけを、決まった順の数（並びの数）だけ、かけて失敗させる（毎回、予定をいまに書き直す）。"""
+        need = len(self.tx(s, lambda tx: attempts.failed_retry_days(tx, tenant_id=s["tenant"], client_id=s["client"],
+                                                                    business_id=s["business"])))
+        for _ in range(need):
+            self.tx(s, lambda tx: next_action.schedule_now(tx, s["task"], cause="試験：その時刻が来た"))
+            line.one_round(self.w.a, SYSTEM, s["tenant"], s["line"], HOLDER, driver, Runner())
+            jobs.settle_ready(self.ctx(s))
+        self.tx(s, lambda tx: next_action.schedule_now(tx, s["task"], cause="試験：その時刻が来た"))
+        return need
+
+    def closures(self, s):
+        return self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: [(r["reason"], r["verdict"]) for r in tx.all(
+            "SELECT reason, verdict FROM salescall.line_run_closures WHERE line_id = %s ORDER BY closure_id", (s["line"],))])
+
+    def test_the_last_row_on_the_line_does_not_wait_forever(self):
+        """一覧の最後の1件（その回線にかける行が、ほかに残っていない）で、番号か回線か分からないまま止まり続けない（2026-10-24 ユーザー：
+        「一つの行で止まり続けることがないようにしてください」）。その回線が一度も鳴らせていなければ回線のせい：番号に数えず（行は続く）、
+        回線の異常として数える。⛔ 前は、その行を候補に出さないまま、だれにも知らされずに待ち続けた。"""
+        s = self.ready()
+        bad = self.tx(s, lambda tx: tx.one("SELECT phone_e164 FROM salescall.contacts WHERE contact_id = %s",
+                                           (s["contact"],))["phone_e164"])
+        need = self.fail_until_unconfirmed(s, self.Refuses(bad))
+        self.assertEqual(self.closures(s), [])
+        self.assertTrue(self.tx(s, lambda tx: attempts.number_unconfirmed(tx, s["contact"], tenant_id=s["tenant"],
+                                                                         client_id=s["client"], business_id=s["business"])))
+        line.one_round(self.w.a, SYSTEM, s["tenant"], s["line"], HOLDER, self.Refuses(bad), Runner())   # かける行が無い回
+        self.assertEqual(self.closures(s), [("no_rows", "line")])
+        self.assertEqual(self.tx(s, lambda tx: attempts.failed_run(tx, s["contact"]))["n"], 0)   # 番号に数えない
+        self.assertEqual(self.faults(s), ["line"] * need)                    # 回線の異常として数える（知らせ）
+        self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["kind"], "call")   # 行は続く
+        line.one_round(self.w.a, SYSTEM, s["tenant"], s["line"], HOLDER, self.Refuses(bad), Runner())
+        self.assertEqual(len(self.closures(s)), 1)                           # 閉じるのは、まだ分からない続きがあるときだけ
+
+    def test_a_line_that_rang_before_closes_the_last_rows_run_as_the_numbers(self):
+        """その回線が、続きの前にほかの番号を鳴らせていた（直前まで元気だった）なら、かける行が残っていない回に閉じた続きは番号のせい：
+        並びの数だけ続いた番号は取りやめになる。"""
+        s = self.ready()
+        other = self.rows(s, 2)[1]
+        line.one_round(self.w.a, SYSTEM, s["tenant"], s["line"], HOLDER, FakeDriver(), Runner())   # 先頭の行（s）が鳴った
+        jobs.settle_ready(self.ctx(s))
+        first = self.tx(s, lambda tx: tx.one("SELECT contact_id FROM salescall.attempts WHERE line_id = %s"
+                                             " ORDER BY claimed_at LIMIT 1", (s["line"],)))["contact_id"]
+        t = s if first == other["contact"] else other                        # まだかけていない行を、壊れた番号の行にする
+        rang = other if t is s else s
+        self.tx(s, lambda tx: next_action._append(tx, rang["task"], call_at=None, end_reason="completed", cause="試験：終えた"))
+        bad = self.tx(s, lambda tx: tx.one("SELECT phone_e164 FROM salescall.contacts WHERE contact_id = %s",
+                                           (t["contact"],))["phone_e164"])
+        self.fail_until_unconfirmed(t, self.Refuses(bad))
+        line.one_round(self.w.a, SYSTEM, s["tenant"], s["line"], HOLDER, self.Refuses(bad), Runner())
+        self.assertEqual(self.closures(s), [("no_rows", "number")])
+        self.assertTrue(self.tx(t, lambda tx: attempts.number_unusable(tx, t["contact"], tenant_id=t["tenant"],
+                                                                      client_id=t["client"], business_id=t["business"])))
+        self.assertEqual(self.faults(s), [])
+
+    def test_a_row_that_can_only_wait_for_now_keeps_the_run_open(self):
+        """夜・時間帯の外のように「今はかけられない」だけの行が残っていれば、閉じない（朝の次の電話で決まる）。"""
+        s = self.ready()
+        later = self.rows(s, 2)[1]
+        tomorrow = self.tx(s, lambda tx: tx.one("SELECT now() + interval '1 day' AS t")["t"])
+        self.tx(s, lambda tx: support.schedule_call(tx, later["task"], tomorrow, contact_id=later["contact"],
+                                                    cause="試験：明日かける", promised=False))
+        bad = self.tx(s, lambda tx: tx.one("SELECT phone_e164 FROM salescall.contacts WHERE contact_id = %s",
+                                           (s["contact"],))["phone_e164"])
+        self.fail_until_unconfirmed(s, self.Refuses(bad))
+        line.one_round(self.w.a, SYSTEM, s["tenant"], s["line"], HOLDER, self.Refuses(bad), Runner())
+        self.assertEqual(self.closures(s), [])
+        self.assertTrue(self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: attempts.line_run_pending(tx, s["line"])))
+
+    def test_retiring_the_line_closes_its_run_as_the_lines(self):
+        """回線を使わなくしたら、その回線のまだ分からない続きは回線のせい（番号に数えず、ほかの回線でかけ直して確かめる）。"""
+        s = self.ready()
+        bad = self.tx(s, lambda tx: tx.one("SELECT phone_e164 FROM salescall.contacts WHERE contact_id = %s",
+                                           (s["contact"],))["phone_e164"])
+        self.fail_until_unconfirmed(s, self.Refuses(bad))
+        self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: registry.retire_line(tx, s["line"], reason="試験：端末を返した"))
+        self.assertEqual(self.closures(s), [("retired", "line")])
+        self.assertEqual(self.tx(s, lambda tx: attempts.failed_run(tx, s["contact"]))["n"], 0)
+        self.assertFalse(self.tx(s, lambda tx: attempts.number_unconfirmed(tx, s["contact"], tenant_id=s["tenant"],
+                                                                          client_id=s["client"], business_id=s["business"])))
+
+
 class FakeThread:
     """回線ごとの流れの代わり：止める印が立てば止まる（died＝思いがけず止まった）。"""
 

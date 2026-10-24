@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import unittest
 
-from salescall.core import attempts, business_rules, call_report, conversation_io, dnc, gate
+from salescall.core import attempts, business_rules, call_report, conversation_io, dnc, gate, settings
 from salescall.core.access import Rejected
 from salescall.core.conversation_io import ItemInvalid, ItemValue
-from tests.support import CLEAN, SYSTEM
+from tests.support import CLEAN, OPERATOR, SYSTEM
 from tests.test_gate import FakeDriver, dial_exit
 from tests.test_settle import SettleBase, rep
 
@@ -110,6 +110,19 @@ class Materials(SettleBase):
     """会話の処理に渡す材料と、通話の途中の知らせ（2026-10-24 CL-1 の連絡帳 4-34・4-37・4-41。どれも今ある正本を読む・書くだけ）。"""
     answered = Write.answered
     write = Write.write
+
+    def test_call_settings_are_read_in_the_scope_of_the_call(self):
+        """会話の決まりの設定は、その通話の業務の値（受付の保留を待つ長さ call.hold_wait＝初め300秒。2026-10-24 ユーザー：「業務ごとに
+        選べる：デフォルト…5分、理由があればそれまで待つ」）。会話の決まりでない設定は読ませない。"""
+        s = self.ready()
+        aid = self.answered(s)
+        self.assertEqual(self.tx(s, lambda tx: conversation_io.call_setting(tx, aid, "call.hold_wait")), 300)
+        self.tx(s, lambda tx: settings.set_value(
+            tx, "call.hold_wait", 600, scope="business", tenant_id=s["tenant"], client_id=s["client"], business_id=s["business"],
+            status="decided", rationale="試験：この業務は長く待つ", review_when="試験"), OPERATOR)
+        self.assertEqual(self.tx(s, lambda tx: conversation_io.call_setting(tx, aid, "call.hold_wait")), 600)
+        with self.assertRaises(ValueError):
+            self.tx(s, lambda tx: conversation_io.call_setting(tx, aid, "dial.failed_retry_days"))
 
     def test_earlier_answers_and_the_handlings_of_a_question(self):
         """前の通話で取れた答え（続きから聞く電話で、取れた質問を伺わない）と、質問ごとの「理由×扱い」（業務の決まりの1か所）。"""

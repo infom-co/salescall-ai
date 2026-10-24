@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 import uuid
 
-from salescall.core import attempts, next_action, recordings, registry, stops
+from salescall.core import apology, attempts, next_action, recordings, registry, stops
 from salescall.core.access import Rejected
 from tests import support
 from tests.support import OPERATOR, SYSTEM, said
@@ -142,6 +142,18 @@ class Guards(Base):
         self.assertTrue(any(by != "recording" for _, _, by in got))
 
     # ── (8) 番号だけの参照で、ほかの依頼者・契約者の行を指せない
+    @staticmethod
+    def _sorry_recording(tx, order):
+        """お詫びの案の録音の組を作って承認する（文は案の文・声は誤った通話の声）。"""
+        o = tx.one("SELECT o.text_same_day, o.text_later, t.voice_name FROM salescall.apology_orders o"
+                   " JOIN salescall.attempts a ON a.attempt_id = o.source_attempt_id"
+                   " JOIN salescall.voice_types t ON t.code = a.voice_type WHERE o.order_id = %s", (order,))
+        set_id = recordings.create_set(tx, unit="apology", voice_name=o["voice_name"], order_id=order, parts=[
+            recordings.Part(apology.PARTS[True], o["text_same_day"], "test://sorry/same", "a" * 64),
+            recordings.Part(apology.PARTS[False], o["text_later"], "test://sorry/later", "b" * 64)])
+        recordings.approve(tx, set_id)
+        return set_id
+
     def test_an_apology_approval_cannot_point_at_another_contractors_order(self):
         """お詫びの承認は、自分の依頼者の案だけ（⛔ 2026-10-22 の見直し：案の番号だけで参照していたので、契約者Aの取引から
         契約者Bの案に承認を入れ、B自身の承認を「重複」で塞げた）。承認の時刻は、渡してもいまになる。"""
@@ -150,12 +162,13 @@ class Guards(Base):
         order = self.tx(theirs, lambda tx: tx.one(
             "SELECT order_id FROM salescall.apology_orders WHERE task_id = %s", (theirs["task"],)))["order_id"]
         mine = self.fresh(stage_cap=20)
-        approve = ("INSERT INTO salescall.apology_approvals (tenant_id, client_id, order_id, approved_by, approved_at)"
+        heard = self.tx(theirs, lambda tx: self._sorry_recording(tx, order), OPERATOR)   # 案の録音を聞いて承認した組（0131）
+        approve = ("INSERT INTO salescall.apology_approvals (tenant_id, client_id, order_id, approved_by, approved_at, set_id)"
                    " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, salescall.cur_actor(),"
-                   " now() + interval '1 year')")
+                   " now() + interval '1 year', %s)")
         with self.assertRaises(Rejected):
-            self.tx(mine, lambda tx: tx.execute(approve, (order,)), OPERATOR)
-        self.tx(theirs, lambda tx: tx.execute(approve, (order,)), OPERATOR)    # 自分の案は承認できる（塞がれていない）
+            self.tx(mine, lambda tx: tx.execute(approve, (order, heard)), OPERATOR)
+        self.tx(theirs, lambda tx: tx.execute(approve, (order, heard)), OPERATOR)    # 自分の案は承認できる（塞がれていない）
         self.assertTrue(self.tx(theirs, lambda tx: tx.one(
             "SELECT approved_at <= now() AS ok FROM salescall.apology_approvals WHERE order_id = %s", (order,)))["ok"])
 

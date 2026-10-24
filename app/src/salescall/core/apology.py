@@ -12,8 +12,13 @@
   両方を伝える。
 - お詫びの電話は、業務の結果を変えない。届かなければ、別の時間帯に決まった回数（retry.apology_max）までかけ直す。
   お客様が「もうかけないで」と言っていれば、門が止める。
-- 会話の担当（CL-1）は、目的が apology の予約証を受けたら `for_task` で文面を読み、話し終えたら、伝えられたかを報告に入れる
+- 会話の担当（CL-1）は、目的が apology の予約証を受けたら `for_task` で文面と録音を読み、話し終えたら、伝えられたかを報告に入れる
   （call_report の apology_delivered）。
+- **文面は録音で流し、契約者は録音を聞いて承認する**（CL-1 の連絡帳 4-40 の 4。ユーザー「OK」。表の作り 0131）：案を作るとき、伝える
+  文を2つ（誤った通話と同じ日＝「先ほど」・あとの日＝「先日」）決めて案に残す。録音は、案ごとの録音の組（単位 apology。部分は
+  `PARTS` の2つ。声は誤った通話の声。文が案の文と違えば組に入れられない＝データベースが守る）。承認（`approve`）は、その組の承認と
+  同じ取引でし、承認に組を結ぶ（承認の無い録音・録音の無い承認は無い）。流すのは、承認が結んだ組の、その日の文の部分だけ（`for_task`）。
+  録音を作るのは CL-1 の録音の道具（`recordings.create_set(unit="apology", order_id=…)`）。
 """
 
 from __future__ import annotations
@@ -22,7 +27,7 @@ import json
 from typing import Any
 from uuid import UUID
 
-from salescall.core import business_rules, next_action
+from salescall.core import business_rules, next_action, recordings
 from salescall.core.access import Tx
 
 # 2026-10-16 ユーザー決定の文面（「○○」に、誤って案内したことと正しい内容が入る）。誤りが2つ以上なら「また、…」で続ける。
@@ -37,6 +42,8 @@ TEMPLATE_END = "不正確なご案内をしてしまいまして、誠に申し�
 TEMPLATE_IMPROPER_ONLY = "{when}のお電話で、{said}といった不適切な発言をしてしまい、大変失礼いたしました。心よりお詫び申し上げます。誠に申し訳ございません！"
 TEMPLATE_IMPROPER_ALSO = "また、{said}といった不適切な発言もしてしまいました。"
 TEMPLATE_END_BOTH = "不正確なご案内と不適切な発言をしてしまいまして、誠に申し訳ございませんでした。"
+# お詫びの録音の部分の名前（誤った通話と同じ日に伝えるか → 部分。データベースの守り 0131 と同じ名前）
+PARTS = {True: "apology_same_day", False: "apology_later"}
 
 
 def text(pairs: list[dict[str, str]], *, improper: list[str] = (), same_day: bool = True) -> str:
@@ -57,9 +64,9 @@ def text(pairs: list[dict[str, str]], *, improper: list[str] = (), same_day: boo
 def prepare(tx: Tx, attempt_id: UUID) -> dict[str, Any]:
     """言ってはいけないことを言った通話の、お詫びの電話の案を作る（締めの処理が呼ぶ。同じ通話で2回目からは前の案を返す）。
     答え：order_id と text（案）。"""
-    done = tx.one("SELECT order_id, pairs, improper FROM salescall.apology_orders WHERE source_attempt_id = %s", (attempt_id,))
+    done = tx.one("SELECT order_id, text_same_day FROM salescall.apology_orders WHERE source_attempt_id = %s", (attempt_id,))
     if done is not None:
-        return {"order_id": done["order_id"], "text": text(done["pairs"], improper=done["improper"])}
+        return {"order_id": done["order_id"], "text": done["text_same_day"]}
     a = tx.one("SELECT task_id, version_id FROM salescall.attempts WHERE attempt_id = %s", (attempt_id,))
     known = business_rules.load(tx, a["version_id"]).forbidden
     pairs, improper = [], []
@@ -70,21 +77,27 @@ def prepare(tx: Tx, attempt_id: UUID) -> dict[str, Any]:
                 improper.append(f["said"])
         elif {"wrong": f["said"], "correct": correct} not in pairs:
             pairs.append({"wrong": f["said"], "correct": correct})
+    texts = {day: text(pairs, improper=improper, same_day=day) for day in PARTS}   # 伝える文は、ここで1回だけ決めて案に残す
     order_id = tx.one(
-        "INSERT INTO salescall.apology_orders (tenant_id, client_id, task_id, source_attempt_id, pairs, improper)"
-        " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s) RETURNING order_id",
-        (a["task_id"], attempt_id, json.dumps(pairs, ensure_ascii=False), json.dumps(improper, ensure_ascii=False)))["order_id"]
-    return {"order_id": order_id, "text": text(pairs, improper=improper)}
+        "INSERT INTO salescall.apology_orders (tenant_id, client_id, task_id, source_attempt_id, pairs, improper,"
+        "                                      text_same_day, text_later)"
+        " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s, %s, %s) RETURNING order_id",
+        (a["task_id"], attempt_id, json.dumps(pairs, ensure_ascii=False), json.dumps(improper, ensure_ascii=False),
+         texts[True], texts[False]))["order_id"]
+    return {"order_id": order_id, "text": texts[True]}
 
 
-def approve(tx: Tx, order_id: int) -> None:
-    """お詫びの電話の案を承認する（管理者か契約者だけ）。その通話のお客様へ、いまかける予定を書く。"""
+def approve(tx: Tx, order_id: int, set_id: UUID) -> None:
+    """お詫びの電話の案を、その案の録音（set_id＝お詫びの単位の録音の組）を聞いて承認する（管理者か契約者だけ）。録音の組の承認と
+    同じ取引でする（まだ承認していなければ、ここで承認する＝承認の仕組みは録音の1つ）。その通話のお客様へ、いまかける予定を書く。"""
     o = tx.one("SELECT o.task_id, a.contact_id FROM salescall.apology_orders o JOIN salescall.attempts a"
                " ON a.attempt_id = o.source_attempt_id WHERE o.order_id = %s", (order_id,))
     if o is None:
         raise LookupError(f"そのお詫びの案は無い（または、取引の範囲の外）：{order_id}")
-    tx.execute("INSERT INTO salescall.apology_approvals (tenant_id, client_id, order_id, approved_by)"
-               " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, salescall.cur_actor())", (order_id,))
+    if tx.one("SELECT 1 AS x FROM salescall.recording_approvals WHERE set_id = %s", (set_id,)) is None:
+        recordings.approve(tx, set_id)
+    tx.execute("INSERT INTO salescall.apology_approvals (tenant_id, client_id, order_id, approved_by, set_id)"
+               " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, salescall.cur_actor(), %s)", (order_id, set_id))
     schedule_if_ready(tx, o["task_id"])
 
 
@@ -114,11 +127,20 @@ def schedule_if_ready(tx: Tx, task_id: UUID) -> bool:
 
 
 def for_task(tx: Tx, task_id: UUID) -> dict[str, Any] | None:
-    """その行の、承認されたいちばん新しいお詫びの案と、いま伝える文面（無ければ None。誤った通話と今日の日付で「先ほど」か
-    「先日」かが決まる）。"""
-    row = tx.one("SELECT o.order_id, o.source_attempt_id, o.pairs, o.improper,"
+    """その行の、承認されたいちばん新しいお詫びの案と、いま伝える文面・その録音（無ければ None。誤った通話と今日の日付で「先ほど」か
+    「先日」かが決まる＝`PARTS`）。録音は、承認が結んだ組の、その日の文の部分（part・audio_ref・audio_sha256・voice_name）。
+    0131 より前に承認した案（録音の無い承認）は recording が None。"""
+    row = tx.one("SELECT o.order_id, o.source_attempt_id, o.pairs, o.improper, o.text_same_day, o.text_later, p.set_id,"
                  "       salescall.jst(a.claimed_at)::date = salescall.jst(now())::date AS same_day"
                  " FROM salescall.apology_orders o JOIN salescall.apology_approvals p ON p.order_id = o.order_id"
                  " JOIN salescall.attempts a ON a.attempt_id = o.source_attempt_id"
                  " WHERE o.task_id = %s ORDER BY o.order_id DESC LIMIT 1", (task_id,))
-    return None if row is None else dict(row, text=text(row["pairs"], improper=row["improper"], same_day=row["same_day"]))
+    if row is None:
+        return None
+    said = (row["text_same_day"] if row["same_day"] else row["text_later"]) or \
+        text(row["pairs"], improper=row["improper"], same_day=row["same_day"])
+    rec = None if row["set_id"] is None else tx.one(
+        "SELECT r.part, r.audio_ref, r.audio_sha256, s.voice_name FROM salescall.recordings r"
+        " JOIN salescall.recording_sets s ON s.set_id = r.set_id WHERE r.set_id = %s AND r.part = %s",
+        (row["set_id"], PARTS[row["same_day"]]))
+    return dict(row, text=said, recording=None if rec is None else dict(rec))

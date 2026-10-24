@@ -103,7 +103,9 @@ class Action:
                                    #       next_key（そのプロジェクトを休ませ、次のキーで続ける。同じプロジェクトと分かっているキーは
                                    #       飛ばす。2026-10-17 ユーザー：「1日制限や回避できなかった他の制限が来たら次のキー」）
     retry: str                     # やり直し：none／backoff（間隔を伸ばしながら上限まで）／reconnect_once（6-7）／
-                                   #           project_backoff（そのプロジェクトを待ってから1回だけ。設定 stop.ai_rate_limit.backoff）
+                                   #           project_backoff（そのプロジェクトを待ってから1回だけ。設定 stop.ai_rate_limit.backoff）／
+                                   #           project_rest（そのプロジェクトを決まった間＝設定 stop.ai_quota.rest 休ませ、明けたら
+                                   #           問い合わせ直す。1日の上限。キーを選ぶ処理＝CL-1 の Q15 が行う）
     stop_cause: str | None         # 止めるときの原因（DESIGN.md 9-1 の名前）。None＝止めない
     stop_scope: str | None         # 止める範囲：tenant（その契約者。会話AIの枠は契約者ごと＝キー・プロジェクトは契約者のもの。
                                    #   2026-10-16 ユーザー）／line（その回線）
@@ -150,9 +152,12 @@ ACTIONS: dict[str, Action] = {
     "config_error": Action("keep", "none", "ai_connection", "tenant", None, True,
                            "設定の誤り：キーを切り替えず、新しい発信を待つ（設定を直すまで、どのキーでも同じ結果＝会話AIにつなげない"
                            "ので、かけられない）。CL-1 に修正依頼を出す", fixer="CL-1"),
-    "project_quota": Action("next_key", "none", None, None, None, True,
-                            "プロジェクトの枠の超過（1日の上限など）：次のキーで続ける（同じプロジェクトと分かっているキーは飛ばす。"
-                            "使えるキーが1つも無ければ、キーの選択が「会話AIにつながらない」（ai_unreachable）として知らせる）"),
+    "project_quota": Action("next_key", "project_rest", None, None, None, True,
+                            "プロジェクトの枠の超過（1日の上限など）：そのプロジェクトを30分（設定 stop.ai_quota.rest）休ませ、次のキーで"
+                            "続ける（同じプロジェクトと分かっているキーは飛ばす）。休みが明けたら、そのキーに問い合わせ直して確かめる（その日"
+                            "ずっと使わない、ではない。⛔ 2026-10-19：1日の上限の答えが出たキーが2時間ほどで戻っていた＝CL-1 の連絡帳。"
+                            "通話の中の判定は、どのキーも休み中なら待たずに代わりへ回す）。使えるキーが1つも無ければ、キーの選択が"
+                            "「会話AIにつながらない」（ai_unreachable）として知らせる"),
     "ai_unreachable": Action("keep", "backoff", "ai_connection", "tenant", "stop.ai.stop_after_failures", False,
                              "会話AIにつながらない（一時的。使えるキーが1つも無いときも、これ）：間隔を伸ばしてやり直す。続いたら、"
                              "つながるまで、その契約者の新しい発信を待ち、直ったら自動で続ける。1時間以上続いたら（止まったまま確かめが"

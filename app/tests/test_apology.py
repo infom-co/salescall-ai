@@ -5,7 +5,7 @@ from __future__ import annotations
 import unittest
 from dataclasses import replace
 
-from salescall.core import apology, attempts, fix_requests, gate, next_action, quality_stage, reward, stops
+from salescall.core import apology, attempts, fix_requests, gate, next_action, quality_stage, recordings, reward, stops
 from salescall.core.access import Rejected
 from salescall.core.attempts import ForbiddenFinding, VerificationSummary
 from salescall.core.call_report import Cut
@@ -28,9 +28,23 @@ class Apology(Helpers):
         return self.tx(s, lambda tx: tx.one("SELECT order_id FROM salescall.apology_orders WHERE source_attempt_id = %s",
                                             (aid,)))
 
+    def recorded(self, s, order_id, *, voice=None, same_day=None):
+        """案の文の録音の組を作る（録音を作るのは CL-1 の録音の道具。ここでは試験の音声の参照）。声は誤った通話の声（voice で
+        替えれば、データベースが断る）。same_day＝同じ日の部分の文（替えれば、データベースが断る）。"""
+        def work(tx):
+            o = tx.one("SELECT o.text_same_day, o.text_later, t.voice_name FROM salescall.apology_orders o"
+                       " JOIN salescall.attempts a ON a.attempt_id = o.source_attempt_id"
+                       " JOIN salescall.voice_types t ON t.code = a.voice_type WHERE o.order_id = %s", (order_id,))
+            parts = [recordings.Part(apology.PARTS[True], same_day or o["text_same_day"], "test://sorry/same", "a" * 64),
+                     recordings.Part(apology.PARTS[False], o["text_later"], "test://sorry/later", "b" * 64)]
+            return recordings.create_set(tx, unit="apology", voice_name=voice or o["voice_name"], parts=parts, order_id=order_id)
+        return self.tx(s, work, SYSTEM)
+
     def order(self, s, aid, actor=OPERATOR):
-        """システムが作った案を、契約者が承認する。"""
-        return self.tx(s, lambda tx: apology.approve(tx, self.draft(s, aid)["order_id"]), actor)
+        """システムが作った案を、契約者が録音を聞いて承認する（録音の組の承認と同じ取引）。"""
+        order_id = self.draft(s, aid)["order_id"]
+        set_id = self.recorded(s, order_id)
+        return self.tx(s, lambda tx: apology.approve(tx, order_id, set_id), actor)
 
     def apology_call(self, s, **report):
         aid = self.call(s, report=replace(rep(), **report))
@@ -62,10 +76,64 @@ class Apology(Helpers):
         self.assertEqual(self.tx(s, lambda tx: apology.for_task(tx, s["task"])), None)   # 承認するまで、かけない
         self.assertEqual(self.reason(s), "task_ended")
         with self.assertRaises(Rejected) as e:
-            self.order(s, aid, actor=SYSTEM)                          # システムは承認しない（契約者が確認して承認する）
+            self.order(s, aid, actor=SYSTEM)                          # システムは承認しない（契約者が録音を聞いて承認する）
+        self.assertEqual(e.exception.constraint, "recording_approval_by_person")   # 録音の承認と同じ取引で断る
+        order_id = self.draft(s, aid)["order_id"]
+        heard = self.recorded(s, order_id)
+        self.tx(s, lambda tx: recordings.approve(tx, heard), OPERATOR)  # 録音は契約者が聞いて承認したが…
+        with self.assertRaises(Rejected) as e:                        # …お詫びの電話の承認は、システムはしない
+            self.tx(s, lambda tx: apology.approve(tx, order_id, heard), SYSTEM)
         self.assertEqual(e.exception.constraint, "apology_approval_by_person")
         self.order(s, aid)
-        self.assertEqual(self.tx(s, lambda tx: apology.for_task(tx, s["task"]))["text"], TEXT)
+        got = self.tx(s, lambda tx: apology.for_task(tx, s["task"]))
+        self.assertEqual(got["text"], TEXT)
+        self.assertEqual((got["recording"]["part"], got["recording"]["audio_ref"]), ("apology_same_day", "test://sorry/same"))
+
+    def test_the_apology_is_recorded_and_the_approval_binds_the_recording(self):
+        """お詫びの電話の文は録音で流し、契約者は録音を聞いて承認する（CL-1 の連絡帳 4-40 の 4。ユーザー「OK」。0131）：
+        録音の文は案の文と同じだけ・声は誤った通話の声だけ・2つそろってから承認・承認には承認した録音の組を必ず結ぶ。"""
+        s = self.fresh(stage_cap=20)
+        aid = self.incident(s)
+        order_id = self.draft(s, aid)["order_id"]
+        texts = self.tx(s, lambda tx: tx.one("SELECT text_same_day, text_later FROM salescall.apology_orders WHERE order_id = %s",
+                                             (order_id,)))
+        self.assertEqual(texts["text_same_day"], TEXT)
+        self.assertEqual(texts["text_later"], TEXT.replace("先ほど", "先日", 1))
+        with self.assertRaises(Rejected) as e:                        # 案と違う文の録音は、組に入れられない
+            self.recorded(s, order_id, same_day=TEXT + "以上です。")
+        self.assertEqual(e.exception.constraint, "apology_recording_text")
+        other = self.tx(s, lambda tx: tx.one(
+            "SELECT v.voice_name FROM salescall.voices v WHERE v.voice_name <> (SELECT t.voice_name FROM salescall.attempts a"
+            " JOIN salescall.voice_types t ON t.code = a.voice_type WHERE a.attempt_id = %s) ORDER BY 1 LIMIT 1", (aid,)))["voice_name"]
+        with self.assertRaises(Rejected) as e:                        # 誤った通話と別の声の録音は作れない
+            self.recorded(s, order_id, voice=other)
+        self.assertEqual(e.exception.constraint, "apology_recording_voice")
+        half = self.tx(s, lambda tx: tx.one(
+            "SELECT o.text_same_day, t.voice_name FROM salescall.apology_orders o JOIN salescall.attempts a"
+            " ON a.attempt_id = o.source_attempt_id JOIN salescall.voice_types t ON t.code = a.voice_type WHERE o.order_id = %s",
+            (order_id,)))
+        partial = self.tx(s, lambda tx: recordings.create_set(
+            tx, unit="apology", voice_name=half["voice_name"], order_id=order_id,
+            parts=[recordings.Part(apology.PARTS[True], half["text_same_day"], "test://sorry/x", "c" * 64)]), SYSTEM)
+        with self.assertRaises(Rejected) as e:                        # 同じ日・あとの日の2つがそろうまで承認しない
+            self.tx(s, lambda tx: apology.approve(tx, order_id, partial), OPERATOR)
+        self.assertEqual(e.exception.constraint, "apology_recording_complete")
+        with self.assertRaises(Rejected) as e:                        # 録音の組を結ばない承認は無い
+            self.tx(s, lambda tx: tx.execute(
+                "INSERT INTO salescall.apology_approvals (tenant_id, client_id, order_id, approved_by)"
+                " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, salescall.cur_actor())", (order_id,)), OPERATOR)
+        self.assertIn(e.exception.constraint, ("apology_approvals_recorded", "apology_approval_recording"))
+        with self.assertRaises(Rejected) as e:                        # 聞いて承認していない録音の組も結べない
+            self.tx(s, lambda tx: tx.execute(
+                "INSERT INTO salescall.apology_approvals (tenant_id, client_id, order_id, approved_by, set_id)"
+                " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, salescall.cur_actor(), %s)", (order_id, partial)),
+                OPERATOR)
+        self.assertEqual(e.exception.constraint, "apology_approval_recording")
+        self.order(s, aid)
+        got = self.tx(s, lambda tx: apology.for_task(tx, s["task"]))
+        self.assertEqual(got["recording"]["part"], apology.PARTS[True])
+        voice = self.tx(s, lambda tx: recordings.apology_voice(tx, s["task"]))
+        self.assertEqual(voice, half["voice_name"])                   # お詫びの電話は、録音と同じ声で話す（門の choose_voice）
 
     def test_improper_speech_uses_the_other_script(self):
         """正しい案内の無いこと（失礼な言葉など）を言ったときは、別の文面（2026-10-16 ユーザー）。"""

@@ -459,6 +459,11 @@ def choose_voice(tx: Tx, task: dict[str, Any], version_id: UUID, business_voice:
     部分を見て、約束の電話には業務の組に入らない promise_again を求めたので、約束の電話が1本もかからなかった）。"""
     ready = recordings.ready_voices(tx, version_id)
     types = {r["code"]: r for r in tx.all("SELECT code, voice_name, default_for_voice FROM salescall.voice_types")}
+    # お詫びの電話は、契約者が聞いて承認した録音と同じ声だけ（録音の文を流すので、声がまじらない。0131）。その声で話せなければ待つ
+    sorry = tx.one("SELECT purpose = 'apology' AS yes FROM salescall.current_next_actions WHERE task_id = %s", (task["task_id"],))
+    must = recordings.apology_voice(tx, task["task_id"]) if sorry is not None and sorry["yes"] else None
+    if must is not None:
+        ready = [v for v in ready if v == must]
     mine = tx.one(f"SELECT voice_type FROM salescall.attempts WHERE task_id = %s AND voice_type IS NOT NULL AND {attempts.DIALED}"
                   " ORDER BY claimed_at DESC LIMIT 1", (task["task_id"],))   # お客様が聞いた声だけ（発信しなかった予約は数えない）
     if mine is not None and types[mine["voice_type"]]["voice_name"] in ready:

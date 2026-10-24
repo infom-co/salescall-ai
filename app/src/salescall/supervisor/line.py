@@ -175,7 +175,24 @@ def one_round(access: Access, actor: Actor, tenant_id: UUID, line_id: UUID, hold
                 return got
     # どこもかけられず、依頼者の理由で断られていた：回線の理由と同じく休む（⛔ 2026-10-22 の見直し：休まずに数秒ごとに門へ渡し
     # 直し、同時の上限のあいだ、断られた記録を増やし続けた）
-    return Round(pause=held[0]) if held else Round()
+    if held:
+        return Round(pause=held[0])
+    _close_if_nothing_left(access, actor, tenant_id, line_id, clients)
+    return Round()
+
+
+def _close_if_nothing_left(access: Access, actor: Actor, tenant_id: UUID, line_id: UUID, clients: list[UUID]) -> None:
+    """かける行が無い回（1か所）：その回線に、番号のせいか回線のせいかがまだ分からない続きがあり、その回線にかける行が、分からないまま
+    待つ行のほかに残っていなければ（scheduler.rows_left）、続きを閉じて決着させる（attempts.close_unrung_run の no_rows。前に鳴った
+    電話があれば番号のせい、無ければ回線のせい＝回線の異常として数える）。2026-10-24 ユーザー：「回線か番号かどちらかわからない場合は、
+    その行に固執するのでなく、1回目から、次の行に進むようにしてください。…一つの行で止まり続けることがないようにしてください。」
+    次の行があれば、次の電話の結果で決まるので閉じない（夜・時間帯の外で「今はかけられない」だけの行も、残っている行）。"""
+    if not access.in_tenant(actor, tenant_id, lambda tx: attempts.line_run_pending(tx, line_id)):
+        return
+    if any(access.in_client(actor, tenant_id, c, scheduler.rows_left) for c in clients):
+        return
+    if access.in_tenant(actor, tenant_id, lambda tx: attempts.close_unrung_run(tx, line_id, "no_rows")):
+        _unrung(access, actor, tenant_id, line_id)   # 回線のせいと決まった分は、回線の異常として数える（同じ1か所）
 
 
 def _client_round(access: Access, actor: Actor, tenant_id: UUID, client_id: UUID, line_id: UUID, holder: str,

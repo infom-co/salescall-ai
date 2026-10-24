@@ -18,7 +18,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from salescall.core import gate
+from salescall.core import attempts, gate
 from salescall.core.access import Tx
 
 
@@ -31,6 +31,28 @@ def clients_for_line(tx: Tx, line_id: UUID) -> list[UUID]:
     return [r["client_id"] for r in tx.all(
         "SELECT client_id FROM salescall.clients WHERE tenant_id = %s AND salescall.line_serves(%s, client_id)"
         " AND salescall.client_active(client_id) ORDER BY created_at", (line["tenant_id"], line["client_id"]))]
+
+
+def rows_left(tx: Tx) -> bool:
+    """取引の依頼者に、まだかける行が残っているか（1か所。回線ごとの処理が、番号のせいか回線のせいかがまだ分からない続きを閉じて
+    よいか＝その回線にかける行が残っていないか、を決めるのに読む）。残っている行＝終えていない（いまの予定が「終える」でない）・
+    いま「かけない」の印の無い行のうち、番号のせいか回線のせいかが分からないまま待つ行（attempts.number_unconfirmed）でないもの。
+    夜・時間帯の外・間隔・判定待ちなどで「今はかけられない」だけの行は、残っている行に数える（朝や時刻が来れば、かけて決まる）。"""
+    offset = 0
+    while True:
+        rows = tx.all(
+            "SELECT n.contact_id, t.tenant_id, t.client_id, r.business_id FROM salescall.tasks t"
+            " JOIN salescall.runs r ON r.client_id = t.client_id AND r.run_id = t.run_id"
+            " JOIN LATERAL (SELECT c.kind, c.contact_id FROM salescall.current_next_actions c WHERE c.task_id = t.task_id) n ON true"
+            " WHERE n.kind <> 'end' AND NOT salescall.task_excluded_now(t.task_id)"
+            " ORDER BY t.task_id LIMIT 50 OFFSET %s", (offset,))
+        for r in rows:
+            if r["contact_id"] is None or not attempts.number_unconfirmed(
+                    tx, r["contact_id"], tenant_id=r["tenant_id"], client_id=r["client_id"], business_id=r["business_id"]):
+                return True
+        if len(rows) < 50:
+            return False
+        offset += 50
 
 
 def due_tasks(tx: Tx, limit: int, *, skip_businesses: set[UUID] | frozenset[UUID] = frozenset(),

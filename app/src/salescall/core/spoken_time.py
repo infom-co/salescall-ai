@@ -45,7 +45,7 @@ from datetime import date, datetime, time, timedelta
 from salescall.core.calling_hours import JST, callee_range, clock_seconds
 
 # 読み方の版（読み方を変えたら上げる）。判定の版（judge.JUDGE_VERSION）に入る＝上げると、読めなかった「判定待ち」の行が判定し直される
-VERSION = "14"   # 14：「〇時までに確認しておきます」の「〇時から1回分」・時刻ちょうどの約束の1回分の終わりは、こちらが作った端（口にした端に入れない。始まりが歯止め時間の外なら確かめが要る・中なら終わりを歯止め時間で切る＝callee_range の made）・「毎週月曜」を読む（見直し18）。13：「〇時まで」（終わりだけを口にした幅）は、いま電話を続けられなかった理由で、かけてよい時間を決める（理由が分からなければ確かめる。2026-10-23 ユーザー：「かけ直さないといけない理由によるでしょ」）。12：その「23時以降なら」「朝6時まで」を確かめて「はい」なら、口にした端から1回分（callback.exact_slot）の幅（2026-10-23 ユーザー：「案B＆案A(確かめたうえで案A)」）。11：お客様が口にした端の反対側を「お客様指定の歯止め時間」で埋めると空になる幅（「23時以降なら」「朝6時まで」）は、通話の中で確かめる（見直し16b）。10：日を言わない約束の今日の回は、お客様が言った日（day_said。見直し16）
+VERSION = "15"   # 15：日のすぐあとの「以降・から」（その日から終わり無し）・「ごろ」（その日）・「まで」（「〇時まで」と同じく、いま電話を続けられなかった理由で決める）を読む（2026-10-24。main の報告の「来月の5日以降」を読めず判定できないにしていた）。14：「〇時までに確認しておきます」の「〇時から1回分」・時刻ちょうどの約束の1回分の終わりは、こちらが作った端（口にした端に入れない。始まりが歯止め時間の外なら確かめが要る・中なら終わりを歯止め時間で切る＝callee_range の made）・「毎週月曜」を読む（見直し18）。13：「〇時まで」（終わりだけを口にした幅）は、いま電話を続けられなかった理由で、かけてよい時間を決める（理由が分からなければ確かめる。2026-10-23 ユーザー：「かけ直さないといけない理由によるでしょ」）。12：その「23時以降なら」「朝6時まで」を確かめて「はい」なら、口にした端から1回分（callback.exact_slot）の幅（2026-10-23 ユーザー：「案B＆案A(確かめたうえで案A)」）。11：お客様が口にした端の反対側を「お客様指定の歯止め時間」で埋めると空になる幅（「23時以降なら」「朝6時まで」）は、通話の中で確かめる（見直し16b）。10：日を言わない約束の今日の回は、お客様が言った日（day_said。見直し16）
 AT, WINDOW, UNSPECIFIED, CONFIRM, UNREADABLE = "at", "window", "unspecified", "confirm", "unreadable"
 # 幅の中でお客様と話せなかったときの、次の回（お客様がその日を選んだ理由に合わせる。2026-10-19 ユーザー決定）：
 # DAY＝時間の言葉（「夕方」「3時以降」）・日の種類だけ（「平日なら」）・「すぐ」⇒ 次の日の同じ幅／WEEK＝曜日・週末・週中・
@@ -149,6 +149,11 @@ _HOUR_PARTS = {"午前": (range(0, 12), 0), "午後": (range(0, 12), 12), "朝":
 _POINT_TAIL = re.compile(r"頃|ごろ|くらい|ぐらい|位|ちょうど|前後")
 _BAND_TAIL = re.compile(r"台")
 _FROM_TAIL = re.compile(r"以降|以後|過ぎ|すぎ|から(?!\d)|より後|より後ろ")
+# 日のすぐあとの言葉（「来月の5日以降」「5日まで」「5日ごろ」。時刻が続かないときだけ＝「5日の3時以降」は時刻の言葉）。
+# ⛔ 2026-10-24 の見直し：前は「以降」を時刻の言葉として読み、時刻が無いので読めない（判定できない）にしていた
+_DAY_FROM = re.compile(r"(?:以降|以後|から|過ぎ|すぎ|より後ろ|より後)(?![0-9午朝夕夜晩])")
+_DAY_UNTIL = re.compile(r"(?:までに|まで|より前)(?![0-9午朝夕夜晩])")
+_DAY_ABOUT = re.compile(r"(?:頃|ごろ|くらい|ぐらい|位|前後)(?![0-9午朝夕夜晩])")
 _UNTIL_TAIL = re.compile(r"までに|まで|より前|前")
 _KANJI = {"〇": 0, "零": 0, "一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
 
@@ -270,6 +275,20 @@ def _months_later(today: date, n: int) -> date:
     return date(y, m, min(today.day, _cal.monthrange(y, m)[1]))
 
 
+def _day_tail(t: str, pos: int, days: tuple[date, date]) -> tuple[tuple[date | None, date | None], int]:
+    """日のすぐあとの言葉（1か所。`_DAY_FROM` などの上の説明）：（日の範囲, 読んだ長さ）。
+    「〇日以降・から・過ぎ」＝その日から終わり無し（範囲の終わりが None。話せなければ次の日の同じ時間＝「すぐ」と同じ）／
+    「〇日ごろ・くらい」＝その日（「〇日」と同じ）／「〇日まで・までに・より前」＝終わりの日だけを口にした（範囲の始まりが None。
+    どの日にかけてよいかは「〇時まで」と同じく、いま電話を続けられなかった理由で決める＝read の1か所）。無ければそのまま。"""
+    if m := _DAY_FROM.match(t, pos):
+        return (days[0], None), m.end()
+    if m := _DAY_ABOUT.match(t, pos):
+        return days, m.end()
+    if m := _DAY_UNTIL.match(t, pos):
+        return (None, days[1]), m.end()
+    return days, pos
+
+
 def _day_part(t: str, today: date) -> tuple[tuple[date, date] | None, str | None, int, str | None]:
     """頭の日の言葉を読む：（日の範囲〔両端を含む〕, その日に付いた時間の言葉〔「今晩」の「夜」など〕, 読んだ長さ, 日の選び方）。
     日の選び方（`_repeat` が、話せなかったときの次の回を決めるのに使う）：WEEK＝曜日・週末・週中・週明け（その曜日なら出られる）／
@@ -340,6 +359,7 @@ def _day_part(t: str, today: date) -> tuple[tuple[date, date] | None, str | None
             if c < today:
                 raise _Ambiguous("過ぎた日です")
             days, end = _check_wday(t, m.end(), (c, c))
+            days, end = _day_tail(t, end, days)
             return days, None, end, f"month:day:{dom}"
         found = None
         # 今日以後でいちばん近いその日（月が無ければ今月か来月、あれば今年か来年。年が付いていれば、その年）
@@ -359,6 +379,7 @@ def _day_part(t: str, today: date) -> tuple[tuple[date, date] | None, str | None
         if mon is not None and year is None and found > today + _FAR:
             raise _Ambiguous("過ぎた日の言い違いか、来年のことか決まりません")
         days, end = _check_wday(t, m.end(), (found, found))
+        days, end = _day_tail(t, end, days)
         return days, None, end, f"month:day:{dom}"
     if year is not None:
         raise _Ambiguous("年のあとの月日が読めません")
@@ -544,6 +565,20 @@ def read(text: str | None, now: datetime, *, business_hours: tuple[int, int], li
         return _unreadable(str(e))
     if not _TAIL.fullmatch(t[end:]):
         return _unreadable(f"読めない言葉があります（「{t[end:]}」）")
+    if days is not None and days[0] is None:          # 「〇日まで」：終わりの日だけを口にした（「〇時まで」と同じ決まり）
+        if until is None:
+            return _confirm("「〇日まで」は、いま電話を続けられない理由で、かけてよい日が変わります（別の番号・別の方へ＝今から・"
+                            "それまでは出られない＝その日から・それまでに確認しておく＝その日）。理由か「いつ頃でしたらよろしいでしょうか」"
+                            "を伺ってください")
+        last = days[1]
+        if until == "now":
+            days = (local.date(), last)
+        elif until == "after":
+            days = (last, None)
+        elif until == "slot_after":
+            days = (last, last)
+        else:
+            raise ValueError(f"「〇日まで」の決め方が違います：{until!r}")
     # お客様がその日（日・曜日・日の種類）を言った。日を言わなければ今日の回＝いま話している日なので、言った日（見直し16）
     day_said = True
     if days is None:
@@ -589,7 +624,11 @@ def read(text: str | None, now: datetime, *, business_hours: tuple[int, int], li
         s0, s1 = daily
     if days is None:                                  # 「平日の夕方」「土日祝ならいつでも」：日の種類だけ（終わり無し）
         return Reading(WINDOW, local, None, daily, days=kinds, repeat=DAY_REPEAT, said=said, day_said=day_said)
-    start, end_at = _at(days[0], s0), _at(days[1], s1)
+    start = _at(days[0], s0)
+    if days[1] is None:                               # 「〇日以降」：その日から終わり無し（「すぐ」と同じく、話せなければ次の日）
+        return Reading(WINDOW, max(start, local), None, daily, days=kinds, repeat=DAY_REPEAT, since=start, said=said,
+                       day_said=day_said)
+    end_at = _at(days[1], s1)
     if end_at <= local:
         return _confirm("その頃はもう過ぎています（今日のことか、明日以降か決まりません）")
     return Reading(WINDOW, max(start, local), end_at, daily, days=kinds, repeat=_repeat(cycle, daily, monthly), since=start,

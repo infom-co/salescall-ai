@@ -196,6 +196,8 @@ class UserDecisions(unittest.TestCase):
                          (True, False, False))
         self.assertEqual((v("call.hangup_after_decline_wait"), v("call.hangup_after_close_wait"),
                           v("callback.call_alternate_number")), (7, 20, True))
+        # 2026-10-24：受付の保留を待つ長さ（業務ごと・初め5分）・1日の上限のキーを休ませる長さ（30分。0131）
+        self.assertEqual((v("call.hold_wait"), v("stop.ai_quota.rest")), (300, 1800))
 
 
 class PerClientSettings(unittest.TestCase):

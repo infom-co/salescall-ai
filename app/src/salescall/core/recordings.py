@@ -83,20 +83,23 @@ def retire_voice(tx: Tx, voice_name: str, *, reason: str) -> None:
         raise LookupError(f"使っている声ではありません：{voice_name}")
 
 
-def create_set(tx: Tx, *, unit: Literal["contractor", "business"], voice_name: str, parts: list[Part],
-               version_id: UUID | None = None) -> UUID:
-    """録音の組を作る（承認の前）。契約者の単位は取引の契約者、依頼者の単位は取引の依頼者の、その版。"""
+def create_set(tx: Tx, *, unit: Literal["contractor", "business", "apology"], voice_name: str, parts: list[Part],
+               version_id: UUID | None = None, order_id: int | None = None) -> UUID:
+    """録音の組を作る（承認の前）。契約者の単位は取引の契約者、依頼者の単位は取引の依頼者の、その版。お詫びの単位（apology）は
+    取引の依頼者の、そのお詫びの案（order_id。部分は apology.PARTS の2つで、文は案の文と同じ・声は誤った通話の声＝データベースが
+    守る。0131）。"""
     if not parts:
         raise ValueError("録音の部分がありません")
     if len({p.part for p in parts}) != len(parts):
         raise ValueError("同じ名前の部分が2つあります")
-    if (unit == "business") != (version_id is not None):
-        raise ValueError("依頼者の単位の組には業務設定の版を、契約者の単位の組には版を渡しません")
+    if (unit == "business") != (version_id is not None) or (unit == "apology") != (order_id is not None):
+        raise ValueError("依頼者の単位の組には業務設定の版を、お詫びの単位の組にはお詫びの案を渡します（契約者の単位の組には、どちらも"
+                         "渡しません）")
     chosen = _chosen_readings(tx, parts, version_id)
     set_id = tx.one(
-        "INSERT INTO salescall.recording_sets (tenant_id, unit, voice_name, client_id, version_id)"
-        " VALUES (salescall.cur_tenant(), %s, %s, CASE WHEN %s = 'business' THEN salescall.cur_client() END, %s)"
-        " RETURNING set_id", (unit, voice_name, unit, version_id))["set_id"]
+        "INSERT INTO salescall.recording_sets (tenant_id, unit, voice_name, client_id, version_id, order_id)"
+        " VALUES (salescall.cur_tenant(), %s, %s, CASE WHEN %s <> 'contractor' THEN salescall.cur_client() END, %s, %s)"
+        " RETURNING set_id", (unit, voice_name, unit, version_id, order_id))["set_id"]
     for p in parts:
         tx.execute("INSERT INTO salescall.recordings (tenant_id, client_id, set_id, part, spoken_text, audio_ref, audio_sha256)"
                    " SELECT tenant_id, client_id, set_id, %s, %s, %s, %s FROM salescall.recording_sets WHERE set_id = %s",
@@ -235,6 +238,15 @@ def current_sets(tx: Tx, version_id: UUID, voice_name: str) -> dict[str, UUID | 
         "SELECT unit, set_id FROM salescall.current_recording_sets WHERE tenant_id = salescall.cur_tenant() AND voice_name = %s"
         " AND (unit = 'contractor' OR version_id = %s)", (voice_name, version_id))}
     return {"contractor": rows.get("contractor"), "business": rows.get("business")}
+
+
+def apology_voice(tx: Tx, task_id: UUID) -> str | None:
+    """その行の、承認されたいちばん新しいお詫びの案に結んだ録音の声（無ければ None。0131 より前の録音の無い承認も None）。
+    お詫びの電話は、この声で話す（録音と同じ声。決めるのは門の gate.choose_voice）。"""
+    row = tx.one("SELECT s.voice_name FROM salescall.apology_orders o JOIN salescall.apology_approvals p ON p.order_id = o.order_id"
+                 " LEFT JOIN salescall.recording_sets s ON s.set_id = p.set_id"
+                 " WHERE o.task_id = %s ORDER BY o.order_id DESC LIMIT 1", (task_id,))
+    return None if row is None else row["voice_name"]
 
 
 def parts(tx: Tx, set_id: UUID) -> dict[str, Part]:
