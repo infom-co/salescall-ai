@@ -6874,7 +6874,9 @@ class FirstWordsTest(unittest.TestCase):
             self.assertEqual((r["result"], r["silent"], r.get("voicemail_wait_s"), f.end_reason), ("wait", True, VOICEMAIL_WAIT_S, None), after)
             self.assertIn("電話に出た方（人）", r["message"])   # 案内のあとの人の声の知らせ方も渡す（⛔ G-57 J2）
             f.on_heard("発信音のあとに、お名前とご用件をお話しください。")
-            r = f.apply("report_party", {"party": "voicemail"})
+            # 案内の続きを AIが「自動音声の案内」と報告し直しても、案内の続きとして待ち続ける（⛔ 2026-10-25 J8a の L4：そこで切っていた）
+            r = f.apply("report_party", {"party": "ivr" if after == "nobody" else "voicemail"})
+            self.assertEqual((r["result"], f.end_reason, f.voicemail_waiting), ("wait", None, True), after)
             self.assertNotIn("voicemail_wait_s", r)               # 聞き続ける長さは、最初の1回だけ渡す
             self.assertIsNone(f.unreported_note())                # この言葉は、もう報告された
             if after == "person":

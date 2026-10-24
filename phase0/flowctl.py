@@ -3141,8 +3141,14 @@ class Flow:
         """相手の種別が分かったときの扱いの唯一の場所（AIの報告 report_party と、音・回線の信号 on_signal の両方）。by＝どちらで分かったか。"""
         if party == "person" and not self.answering:
             return self._reject(f"「{PARTY_LABEL['person']}」は、電話に出た方の最初の言葉を聞いたときだけ使います（いまの方とのお話を続けます）。")
-        self.party = party
         self._note("party", party=party, by=by)
+        if self.answering and self.voicemail_waiting and party == "ivr" and by == "ai":
+            # 留守番電話の案内を聞いて待っている間に、AIが同じ案内を「自動音声の案内」と報告し直した：案内の続きとして待ち続ける（人が出るかも
+            # しれない待ちを、案内の呼び方の揺れでやめない。音で分かる確かな知らせ＝ファクスの音は、今までどおり切る）。⛔ 2026-10-25 J8a
+            # （留守番電話のあとに人が出る・L4）：「ただいま電話に出ることができません。」を留守番電話と報告したあと、続きの「ピーという
+            # 発信音の後に、お名前とご用件をお話しください。」を自動音声と報告し直し、そこで切っていた
+            party = "voicemail"
+        self.party = party
         if self.answering and party == "voicemail":
             # 第一声が留守番電話の案内：すぐには切らず、黙って聞き続ける（✅ 2026-10-24 ユーザー：「留守番電話が流れて、数秒してから出る方も
             # いらっしゃいますよね。ちょっと待った方がいいんじゃないですか」）。人が出たら名乗る（on_first_words_end）。出なければ on_voicemail_wait_end
