@@ -953,6 +953,22 @@ _KANA = re.compile(r"[ぁ-ゖー]+")
 # 相手からの質問（文の終わりが「？」か、問いかけの言い終わり）。⚠️「はい？」（聞き返し）も当たるが、次の質問へ進む所（_advance）でしか見ないので、
 # 当たっても、AIが自分で次の質問を言う（録音を流さない）だけ
 _CALLEE_ASKS = re.compile(r"(?:[？?]|(?:です|ます|でしょう|ません|んです|ない|でした|ました)か[。]?)$")
+_SO = ("そう", "さよう", "そっ")       # 相づちの「そうですか」の中身の言葉（指す言葉の「そう」。「さようでございますか」「そっか」も）
+_ACK_HEADS = ("なるほど",)            # 相づちの頭に来る、受け止めの副詞（感動詞の「あ」「へえ」「はい」と同じく、問いの中身にしない）
+
+
+def acknowledgment(sentence: str) -> bool:
+    """「そうですか。」「あ、そうでしたか。」「なるほど、そうなんですか。」「さようでございますか。」のような相づちか（文の終わりが「か」でも、
+    相手の話を受け止める言葉で、こちらへの問いかけではない）：感動詞・記号・受け止めの副詞を除くと、中身の言葉が「そう」だけで、そのあとは
+    助動詞・助詞（「ございます」の「ござい」も）だけで「か」で終わる。「？」の付いた文は問い（語尾の上がりを聞き取った印）。
+    ⛔ 2026-10-24 の見直しで見つけた誤り：語尾だけで見ていたので、「あ、そうでしたか。はい、予約しています。」の「そうでしたか」を相手からの
+       質問と取り、AIに先に答えさせる形だった（Flow._advance の callee_asked）。中身のある問い（「大丈夫ですか」「本当ですか」「それは何ですか」）は今までどおり。"""
+    if re.search(r"[？?]\s*$", sentence):
+        return False
+    from jtext import words
+    ws = [w for w in words(sentence) if w.feature.pos1 not in ("感動詞", "補助記号") and w.surface not in _ACK_HEADS]
+    return (len(ws) >= 2 and ws[0].surface in _SO and ws[-1].surface == "か"
+            and all(w.feature.pos1 in ("助動詞", "助詞") or w.feature.pos2 == "非自立可能" for w in ws[1:]))
 
 
 def question_in(text: str | None, written: bool = False) -> str | None:
@@ -961,7 +977,7 @@ def question_in(text: str | None, written: bool = False) -> str | None:
     「さようでございましたか。」は相づち。聞き取りの文字は「？」が抜けうるので、語尾でも見る）。"""
     for sent in re.findall(r"[^。！!？?]+[。！!？?]?", text or ""):
         t = sent.strip()
-        if re.search(r"[？?]$", t) if written else _CALLEE_ASKS.search(t):
+        if re.search(r"[？?]$", t) if written else (_CALLEE_ASKS.search(t) and not acknowledgment(t)):
             return t
     return None
 
@@ -1360,6 +1376,8 @@ class Flow:
         if not self.opening:
             # AIが名乗る形（録音を使わない古い試し）は、繋がったらAIが名乗る（本番は名乗りを録音で流す形だけ＝DESIGN.md 6-13）
             raise ValueError("電話に出た方の第一声を待ってから名乗る形は、名乗りを録音で流す通話だけです")
+        if self.callee_turns or any(x["op"] == "signal" and x["args"].get("connect") for x in self.log):
+            return None   # 繋がったのは1通話に1回（2回目の知らせでは、聞く段に戻さない）
         self.answering = True
         self.target_called = []   # 呼ぶ一言は、第一声のあとに流す（_opening_reply。第一声への判定の読みは、呼ぶ一言への返事に数えない）
         self.speaker_from = 1     # 最初の電話口の方は、第一声（相手の発話の1つ目）から（第一声を「代わった人」と読まれても、替わった印にしない）
@@ -1862,7 +1880,7 @@ class Flow:
 
     def _apply_one(self, name: str, args: dict) -> dict:
         before = {qid: it.state for qid, it in self.items.items()}
-        phase_before = self.phase
+        phase_before, answering = self.phase, self.answering
         words = None  # 前の発話の言葉の答えなら、その言葉（下の操作で決まる）
         if name == "replay_opening" and args.get("part") in self.answers:
             args = {**args, "part": ANSWER_PREFIX + args["part"]}  # 想定問答の問いの名前 ⇒ 録音の部分の名前
@@ -1929,7 +1947,7 @@ class Flow:
             reply["talked"] = True
         reply["ack"] = self._ack(name, args, reply)
         self.log.append({"op": name, "args": args, "reply": reply, "callee_turns": self.callee_turns, "phase_before": phase_before,
-                         "phase": self.phase} | ({"words_turn": words["turn"]} if words else {}))
+                         "phase": self.phase} | ({"words_turn": words["turn"]} if words else {}) | ({"answering": True} if answering else {}))
         return reply
 
     def speech_allowed(self, since: int) -> bool:
@@ -1950,6 +1968,9 @@ class Flow:
             # 外れた言葉を止めたあとの言い直し（on_off_script）：返事は止めたターンで作り、新しいつなぎのターンで言わせる＝そのターンの言い方
             # （⛔ 2026-10-22 の4回目の流し G-57 tc37：答えの段に広げたら、言い間違えの直しの3場面で、言い直しの声を流さなかった）
             ops = self.log[since - 1:]
+        if ops and ops[0].get("answering"):
+            # 第一声を聞く段に始まったターン：名乗りの録音のあとにAIに言わせる返事（確かめる一言の録音が無い形）のあとだけ（段の決まりより先）
+            return any(x["reply"].get("say") or x["reply"].get("speak") for x in ops)
         start = ops[0].get("phase_before", self.phase) if ops else self.phase
         if not (self.opening if start == "calling" else self.play_recordings):
             return True

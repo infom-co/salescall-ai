@@ -29,6 +29,10 @@ from live_util import build_config, collect_turn, send_text
 CALLEE_VOICES = ("Puck", "Kore", "Leda", "Sadachbia")
 UTTERANCES = {
     "hello": "はい、もしもし。",
+    # 2026-10-24：電話に出た方の第一声（こちらは第一声を聞いてから名乗る＝flowctl.Flow.on_connect。CL-1.md 4-45）
+    "greet_company": ("お電話ありがとうございます。山田商事でございます。", "会社の電話に出た受付の方のように、明るく丁寧に"),
+    "greet_okada": "はい、岡田です。",
+    "hello_after_voicemail": ("あ、もしもし、すみません、お待たせしました。", "留守番電話の案内が流れたあとに、急いで電話に出た方のように"),
     "yes_reserved": "はい、予約しています。",
     "no_not_yet": "いいえ、まだしていません。",
     "datetime_pm": "15日の午後2時でお願いします。",

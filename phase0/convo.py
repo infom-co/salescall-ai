@@ -474,6 +474,10 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
             row["audio_file"] = path.name
         turns.append(row)
 
+    if opening_mode == "recorded":
+        # 電話が繋がった：こちらは話さずに、出た方の第一声を聞く（名乗りは、出た方が人と分かり、言葉が終わってから＝Flow.on_connect。
+        # ✅ 2026-10-24 ユーザー。CL-1.md 4-45）。台詞の1つ目は、出た方の第一声
+        flow.on_connect()
     async with (open_ear(ear_kind, client) if ear_kind else nullcontext()) as ear:  # 別の耳は通話ごとに1本（本番の形。ears.open_ear）
         i = 0
         while i < len(callee_lines) and flow.phase != "closing":
@@ -515,6 +519,8 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                         async with silence_while(s):
                             turn = await collect_turn(s, started_at=time.monotonic(), on_tool_call=flow.handle_call, timeout_s=line["silence_s"],
                                                      on_heard=flow.on_heard)
+                        if (r := flow.on_start_silence()) is not None:
+                            await send_note(s, r["message"])  # 第一声が無いまま黙っている：「もしもし」の録音を流した（電話接続側の知らせ）
                         await add_turn(turn, line, log_start, i, voice)
                         i += 1
                         continue
@@ -525,11 +531,11 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                         await asyncio.sleep(stall_wait_s)
                         replay = i
                         break
-                    if i == 0 and barge_in is not None and sessions == 1:
+                    if i == 1 and barge_in is not None and sessions == 1:
+                        # 第一声のあとに流した名乗りの録音の途中で、相手が話し始めた：最後まで流れたとは数えない（deliver_plays に渡さない）
+                        played_upto = len(flow.log)
                         flow.on_opening_cut(barge_in[0])  # 流れの制御も、どこまで届いたかを覚える（流し直しで、届いていない部分を足す）
                         await send_note(s, barge_in_note(business, *barge_in))  # 録音のどこまでが届いたか
-                    elif i == 0 and sessions == 1 and opening_mode == "recorded":
-                        flow.on_played(business.opening_parts())  # 名乗りの録音は最後まで流れた（止めた形でなければ。AIが話す形は録音ではない）
                     if replay != i:  # 送り直しは、相手がもう一度話したのではないので数えない（文字だけを受け取り直す）
                         deliver_plays()
                         flow.on_callee()
@@ -604,6 +610,10 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                             again, again_n = answer_again(line, flow.log[turn_log_start:], again_n)
                             i += again is None
                             break
+                    if (r := flow.on_first_words_end()) is not None:
+                        # 出た方の言葉が出揃った（続きの言葉を待ったあと。本番は、会話AIの話し終わりの知らせ）：人と分かっていれば、名乗りの録音を
+                        # 流した（電話接続側の知らせ）。AIが言葉の途中で人と報告したとき（言葉の終わりで流す）
+                        await send_note(s, r["message"])
                     spoke = any(t.get("audio_seconds") for t in turns if t["index"] == i and t["session"] == sessions)
                     ops = flow.log[turn_log_start:]
                     if not spoke and ops and all(e["reply"].get("result") == "rejected" for e in ops) and swapped != i:
@@ -639,6 +649,9 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                     i += 1
     # 電話が切れた瞬間（切れ方の材料＝Flow.on_line_end の1か所）。試作では、AIのターンを話し終えるまで待ってから次へ進むので、切れた瞬間は
     # だれも話していない：締めた（こちらが締めて切った）か、相手の台詞が尽きた（AIが話し終えたあとに、相手が何も言わずに切った）
+    if (r := flow.on_voicemail_wait_end()) is not None:
+        turns.append({"index": i, "session": sessions, "callee": None, "signal": "voicemail_wait_end", "heard": "", "intended": "",
+                      "tool_events": [], "audio_seconds": 0})   # 留守番電話の案内のあと、人が出なかった（試作では、台詞が尽きたら待ちきった）
     deliver_plays()
     flow.on_line_end(ai_speaking=False, callee_speaking=False)
     # 通話は終わった：まだ走っている確かめは、届くまで待って同じ決まりで当てる（通話後の検証＝DESIGN.md 6-12 と同じ判定・同じ決まり。

@@ -240,6 +240,13 @@ def restated(head: str):
     return check
 
 
+# 電話に出た方の第一声の台詞（こちらは第一声を聞いてから名乗る＝flowctl.Flow.on_connect。✅ 2026-10-24 ユーザー。CL-1.md 4-45）。場面の台詞が
+# これで始まらなければ、業務ごとの決まった第一声を頭に足す（目的の人のある業務＝会社の受付の方・ない業務＝お客様ご本人）。人ではない相手の
+# 音（留守番電話・自動音声・ファクス）と、黙って出る方（無音）は、その音が第一声
+FIRST_WORDS = ("hello", "greet_company", "greet_okada", "hello_after_voicemail", "voicemail", "ivr", "fax_tone")
+INDEX_KW = ("off_script_at", "stall_at", "swap_before")   # 台詞の番号で指す、通話の試験への指定（第一声を足した分ずらす）
+
+
 @dataclasses.dataclass
 class Scene:
     business: object
@@ -247,6 +254,13 @@ class Scene:
     expect: object        # 通話の記録 → {決まりの名前: 守られたか}
     note: str = ""        # 何を確かめる場面か（記録に残す）
     kw: dict = dataclasses.field(default_factory=dict)  # 通話の試験への追加の指定（convo.run_call。外れた言葉を止める番号など）
+
+    def call(self) -> tuple[list, dict]:
+        """通話に流す台詞（電話に出た方の第一声から）と、通話の試験への指定（台詞の番号は、足した第一声の分ずらす）。"""
+        first = self.lines[0] if self.lines else {}
+        own = "silence_s" in first or any(first.get("wav", "").endswith(f"_{n}.wav") for n in FIRST_WORDS)
+        head = [] if own else [W("greet_company") if self.business.target is not None else W("hello")]
+        return head + self.lines, {k: v + len(head) if k in INDEX_KW else v for k, v in self.kw.items()}
 
 
 SCENES = {
@@ -489,6 +503,22 @@ SCENES = {
         "聞く一言は録音": "callback_back_date" in played_ids(c), "締め": closing_of(c) == CLOSING, "約束しない": no_promise(c)}),
     "目的の人_受付で断られる": Scene(TARGET_BUSINESS, [W("reception_refuse")], lambda c: {
         "発信禁止の申告": bool(c.get("facts", {}).get("do_not_call")), "締め": closing_of(c) == CLOSE_DECLINED}),
+    # ── 通話の始め（✅ 2026-10-24 ユーザー：電話に出た方の第一声を聞いてから名乗る。CL-1.md 4-45・DESIGN.md 6-13）
+    "第一声でご本人が名乗る": Scene(TARGET_BUSINESS, [W("greet_okada"), W("affirm")] + FULL, lambda c: {
+        # 「第一声でお呼びする方ご本人が名乗ったら…確かめます。OK」：呼ぶ一言の代わりに確かめる一言。確かめに「はい」なら繋ぎ、名乗り直さない
+        "確かめた": any(x["reply"].get("result") == "opening" and played_parts(x["reply"])[-1:] == ["target_confirm"] for x in ops(c)),
+        "呼ぶ一言は流さない": not any("target" in played_parts(x["reply"]) for x in ops(c)),
+        "繋いだ": connect_reply(c) != {}, "名乗り直さない": "intro" not in played_parts(connect_reply(c)), "答えが取れた": got(c, "Q1", "はい")}),
+    "留守番電話のあとに人が出る": Scene(BUSINESS, [W("voicemail"), W("hello_after_voicemail")] + FULL, lambda c: {
+        # 「留守番電話が流れて、数秒してから出る方もいらっしゃいますよね。ちょっと待った方がいいんじゃないですか」
+        "案内には話さない": said(turn_of(c, "voicemail")) == "", "切らない": end_reason(c) != "voicemail",
+        "人が出てから名乗った": any(x["reply"].get("result") == "opening" and x["callee_turns"] == 2 for x in ops(c)),
+        "答えが取れた": got(c, "Q1", "はい") and got(c, "Q2", "15日")}),
+    "黙って出る方": Scene(BUSINESS, [{"silence_s": 2.5}, W("hello")] + FULL, lambda c: {
+        # 「2秒ほど待っても『はい、』もなく黙っているなら、『もしもし』などで…確認した方がいいんじゃないですか？」
+        "もしもしで確かめた": any(p.get("id") == "moshimoshi" for x in ops(c) for p in x["reply"].get("play") or []),
+        "声が出てから名乗った": any(x["reply"].get("result") == "opening" and x["callee_turns"] == 1 for x in ops(c)),
+        "答えが取れた": got(c, "Q1", "はい") and got(c, "Q2", "15日")}),
 }
 
 
@@ -510,16 +540,17 @@ async def run(args) -> dict:
                 continue
             for vt in args.type or VOICE_TYPES:
                 head = {"rep": rep, "scene": name, "type": vt, "note": sc.note}
-                missing = [x["wav"] for x in sc.lines if not verified(callee_wav(x["wav"], callee_voice_for(vt)))]
+                lines, kw = sc.call()
+                missing = [x["wav"] for x in lines if "wav" in x and not verified(callee_wav(x["wav"], callee_voice_for(vt)))]
                 if missing:  # 確かめに通っていない相手役の声では動かさない
                     rows.append({**head, "skipped": f"相手役の声が確かめに通っていない：{missing}"})
                     say(f"[{rep}] {name} {vt}：動かさない（相手役の声が確かめに通っていない {missing}）")
                     continue
                 try:
                     call, _ = await ring.acall(args.model, lambda client: run_call(
-                        client, args.model, sc.business, vt, sc.lines, opening_mode="recorded", use_ear=True, save_audio="bad",
+                        client, args.model, sc.business, vt, lines, opening_mode="recorded", use_ear=True, save_audio="bad",
                         audio_label=f"G57_{name}_{vt}_{rep}", followup_wait_s=FOLLOWUP_WAIT_S, play_recordings=True,
-                        callee_voice="swap", **judges, **FAST, **sc.kw))
+                        callee_voice="swap", **judges, **FAST, **kw))
                     row = keep_call(head, call, lambda c: measures(c, name))
                 except Exception as exc:
                     row = {**head, "error": describe_error(exc)}

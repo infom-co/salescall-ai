@@ -6726,6 +6726,8 @@ class FirstWordsTest(unittest.TestCase):
         self.assertEqual([x["text"] for x in r["play"]], b.opening_parts())
         self.assertEqual((f.log[-1]["op"], f.log[-1]["args"], f.log[-1]["reply"]), ("signal", {"first_words_end": True}, r))
         self.assertIsNone(f.on_first_words_end())             # 2回は流さない
+        self.assertIsNone(f.on_connect())                      # 繋がった知らせも1通話に1回（聞く段に戻さない）
+        self.assertFalse(f.answering)
         self.assertEqual(sum(x["reply"].get("result") == "opening" for x in f.log), 1)
 
     def test_only_the_party_report_is_taken_while_listening(self):
@@ -6838,6 +6840,23 @@ class FirstWordsTest(unittest.TestCase):
         self.assertEqual([x["text"] for x in r["play"]], b.opening_parts())
         self.assertIsNone(g.on_start_silence())
 
+    def test_a_new_session_while_listening_has_not_named_itself(self):
+        # 第一声を聞いている間につなぎ直した（DESIGN.md 6-7）：「名乗りはもう済んでいます」「次に聞くのは…」を渡さない
+        from instruction import build, position_text
+        for b in (self.business(), self.business(target=True)):
+            f = b.flow(play_recordings=True)
+            f.on_connect()
+            text = position_text(b, f)
+            self.assertIn("まだ名乗っていません", text)
+            self.assertNotIn("名乗りはもう済んでいます", text)
+            self.assertNotIn("次に聞くのは", text)
+            self.assertIn("report_party", text)
+            self.assertIn("電話に出た方の最初の言葉", build(b, "S2", opening_mode="recorded")[1])
+            self.first_words(f, "ただいま電話に出ることができません。", "voicemail")
+            self.assertIn("留守番電話の案内を黙って聞いている", position_text(b, f))
+            self.first_words(f, "はい、もしもし。")
+            self.assertIn("名乗りはもう済んでいます", position_text(b, f))
+
     def test_person_is_only_for_the_first_words_and_the_recorded_form(self):
         b = self.business()
         f = b.flow(play_recordings=True)                     # 第一声を待たない通話（電話接続側が on_connect を呼ばない）：今までどおり
@@ -6855,10 +6874,25 @@ class ScenesTest(unittest.TestCase):
         from make_callee_samples import PAUSED, TONES, UTTERANCES
         from scenes import SCENES
         for name, sc in SCENES.items():
-            for x in sc.lines:
+            for x in sc.call()[0]:
+                if "silence_s" in x:
+                    continue   # 黙って出る方（無音）
                 uid = x["wav"].removeprefix("Puck_").removesuffix(".wav")
                 self.assertIn(uid, set(UTTERANCES) | set(TONES) | set(PAUSED), name)
         self.assertTrue(all(base in UTTERANCES for base, _ in PAUSED.values()))
+
+    def test_every_call_starts_with_the_first_words(self):
+        # こちらは電話に出た方の第一声を聞いてから名乗る（CL-1.md 4-45）＝どの場面も、台詞の1つ目は第一声（足した分、番号の指定もずれる）
+        from scenes import FIRST_WORDS, SCENES
+        for name, sc in SCENES.items():
+            lines, kw = sc.call()
+            first = lines[0]
+            self.assertTrue("silence_s" in first or first["wav"].removeprefix("Puck_").removesuffix(".wav") in FIRST_WORDS, name)
+            if "off_script_at" in sc.kw:
+                self.assertEqual(lines[kw["off_script_at"]], sc.lines[sc.kw["off_script_at"]], name)
+        self.assertEqual(SCENES["目的の人_本人"].call()[0][0]["wav"], "Puck_greet_company.wav")   # 目的の人のある業務は、会社の受付の方
+        self.assertEqual(SCENES["苦情"].call()[0][0]["wav"], "Puck_hello.wav")                    # ない業務は、お客様ご本人
+        self.assertEqual(len(SCENES["留守番電話"].call()[0]), 1)                                     # 案内が第一声
 
     def test_widened_pause_keeps_the_voice(self):
         # 間を長くした台詞：文と文の間だけが変わり、声の長さ（間を除く）は同じ
@@ -7973,8 +8007,15 @@ class OwnWordsTest(unittest.TestCase):
                                                     verdict=Verdict(NO_FACT)))
         self.assertIsNone(own_answer_problem("さようでございましたか。それは大変でしたね。", [], False, verdict=Verdict(NO_FACT)))
         self.assertIsNone(own_answer_problem("確認のうえ改めてご連絡させていただいてもよろしいでしょうか？", [], True, verdict=Verdict(NO_FACT)))
-        self.assertEqual(question_in("あ、そうなんですか"), "あ、そうなんですか")          # 聞き取りの文字は語尾でも見る（「？」が抜けうる）
-        self.assertIsNone(question_in("あ、そうなんですか", written=True))
+        self.assertEqual(question_in("あ、大丈夫ですか"), "あ、大丈夫ですか")              # 聞き取りの文字は語尾でも見る（「？」が抜けうる）
+        self.assertIsNone(question_in("あ、大丈夫ですか", written=True))
+        # 「そうですか」の仲間は相づち（中身の言葉が「そう」だけ）。「？」が付いていれば問い。⛔ 2026-10-24 の見直し：語尾だけで質問と取っていた
+        for ack in ("そうでしたか。", "あ、そうですか。", "なるほど、そうでしたか。", "へえ、そうなんですか。", "さようでございますか。", "あ、そっか。"):
+            self.assertIsNone(question_in(ack), ack)
+        self.assertIsNone(question_in("あ、そうでしたか。はい、予約しています。"))
+        for asked in ("そうなんですか？", "本当ですか。", "それは何ですか。", "そういうことですか。", "あ、そうでしたか。それって無料ですか。"):
+            self.assertIsNotNone(question_in(asked), asked)
+        self.assertEqual(question_in("あ、そうでしたか。それって無料ですか。"), "それって無料ですか。")
         # 中身の判定へ送る「知っていること」に、人の名前（こちらの担当者名・お呼びする方の名前と読み）は入れない（Intent.md 13章）
         import dataclasses
         from g22_opening import BUSINESS

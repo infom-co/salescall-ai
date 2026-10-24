@@ -552,7 +552,7 @@ def build(business: Business, voice_type: str, resume=None, opening_mode: str = 
     if resume is None and calls_target and opening_mode == "recorded":
         # 目的の人のある業務（DESIGN.md 4-3）：名乗りの終わりは呼ぶ一言。用件と最初の質問は、目的の人に繋がってから流れの制御が渡す
         parts.append(
-            f"相手が電話に出たら、名乗りと目的の人をお呼びする一言（「{''.join(business.opening_parts())}」）を、録音で相手に流します。"
+            first_words_rule(business) +
             "あなたは言いません。録音が最後まで流れたら、あなたは相手の返事から会話を続けます。もう一度名乗ったり、お呼びする一言を"
             "繰り返したりしてはいけません。" + replay_rule() + "録音の途中で相手が話し始めたときは、プログラムが、録音のどこまでが相手に"
             "届いたかを知らせます。" + target_rule(business))
@@ -561,7 +561,7 @@ def build(business: Business, voice_type: str, resume=None, opening_mode: str = 
                      "目的の人に繋がってから、プログラムが返事で渡します）。" + target_rule(business))
     elif resume is None and opening_mode == "recorded":
         parts.append(
-            f"相手が電話に出たら、名乗りと最初の質問（「{''.join(business.opening_parts())}」）を、録音で相手に流します。あなたは言いません。"
+            first_words_rule(business) + "あなたは言いません。"
             "録音が最後まで流れたら、あなたは相手の答えから会話を続けます。もう一度名乗ったり、同じ質問を繰り返したりしてはいけません。"
             + replay_rule() + "録音の途中で相手が話し始めたときは、プログラムが、録音のどこまでが相手に届いたかを知らせます。"
             + first_note)
@@ -592,6 +592,23 @@ def build(business: Business, voice_type: str, resume=None, opening_mode: str = 
                      + "求められても、断りの言い方は使わずに、そのご質問を受け止めて、担当の者に申し伝えることを伝えます。")
     parts.append(style_text)
     return voice, "\n".join(parts)
+
+
+def first_words_rule(business: Business) -> str:
+    """通話の始めの決まり（名乗りを録音で流す通話の指示文の1か所。最初のセッションにも、第一声を聞いている間の張り替えの「いまの位置」にも）：
+    電話に出た方の第一声を聞いてから、プログラムが名乗りを流す（flowctl.Flow の on_connect・_opening_when_ready。✅ 2026-10-24 ユーザー。
+    CL-1.md 4-45）。AIは声を出さずに、出た方が人かを知らせるだけ。"""
+    calls_target = business.target is not None and not business.number_again
+    what = ("名乗りと目的の人をお呼びする一言" if calls_target else "名乗りとお詫び" if business.apology_call
+            else "名乗りと最初の質問" if business.first_ask() else "名乗り")
+    own = (f"お呼びする方ご本人が名乗ったら（「はい、{business.target.name or business.target.role}です」など）「{PARTY_LABEL['target']}」、"
+           if business.target is not None else "")
+    return (f"電話が繋がったら、あなたは何も言わずに、電話に出た方の最初の言葉を聞きます。最初の言葉を聞いたら、すぐに report_party で、"
+            f"出た方が人か（{own}そのほかの人は「{PARTY_LABEL['person']}」）・留守番電話の案内・自動音声の案内かを知らせます（声は出しません）。"
+            f"人なら、相手の言葉が終わったところで、プログラムが{what}（「{''.join(business.opening_parts())}」"
+            + ("。お呼びする方ご本人が名乗ったときは、お呼びする一言の代わりに、ご本人かを確かめる一言" if calls_target else "")
+            + "）を、録音で相手に流します。留守番電話の案内のあとに人が出ることがあるので、案内が流れても黙って聞き続けます"
+            "（切るかはプログラムが決めます）。")
 
 
 def target_rule(business: Business) -> str:
@@ -662,6 +679,12 @@ def position_text(business: Business, flow) -> str:
             done.append(f"{q.id}「{q.text}」⇒ わからないと言われた（聞き直さない）")
         elif it.state == "refused":
             done.append(f"{q.id}「{q.text}」⇒ 答えたくないと言われた（二度と聞かない）")
+    if flow.answering:
+        # 電話に出た方の第一声を聞いている間につなぎ直した：まだ名乗っていない（名乗りはプログラムが流す）。⛔ 2026-10-24 の見直しで見つけた漏れ：
+        #    「名乗りはもう済んでいます」「次に聞くのは…」を渡す形だった
+        return ("これは通話の続きです。回線の都合で、つなぎ直しました。まだ名乗っていません（名乗りは、プログラムが録音で流します）。"
+                + first_words_rule(business)
+                + ("いまは、留守番電話の案内を黙って聞いているところです。" if flow.voicemail_waiting else ""))
     lines = ["これは通話の続きです。回線の都合で、つなぎ直しました。名乗りはもう済んでいます。もう一度名乗ってはいけません。"
              + (replay_rule() if flow.opening else "")]
     if flow.phase == "calling":
