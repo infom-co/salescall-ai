@@ -283,7 +283,7 @@ class FlowTest(unittest.TestCase):
                        ("confirm_field", {"question_id": "Q3", "result": "affirmed"}), ("no_such_op", {})):
             r = self.call(f, op, **kw)
             self.assertEqual(r["result"], "rejected", op)
-            self.assertIn("15日の午後2時でよろしいでしょうか？", r["message"], op)  # 待っている言い直しと、その言い方
+            self.assertIn("15日の14時、午後2時でよろしいでしょうか？", r["message"], op)  # 待っている言い直しと、その言い方
             self.assertIn("confirm_field", r["message"], op)
         self.assertEqual(f.items["Q3"].state, "empty")  # 差し戻した報告は、記録に入らない
         r = self.call(f, "confirm_field", question_id="Q2", result="affirmed")
@@ -378,8 +378,8 @@ class FlowTest(unittest.TestCase):
         f = Flow(list(self.flow().questions.values()), lead_ins=False)  # 言い直しの言い方だけを見る
         self.call(f, "record_answer", question_id="Q1", condition_id="yes")
         r = self.call(f, "record_answer", question_id="Q2", condition_id="answered", value="16日の午後2時")
-        self.assertEqual(r["say"], confirm("16日の午後2時"))
-        self.assertIn(f"「{confirm('16日の午後2時')}」", r["message"])
+        self.assertEqual(r["say"], confirm("16日の14時、午後2時"))
+        self.assertIn(f"「{confirm('16日の14時、午後2時')}」", r["message"])
 
     def test_confirm_without_request_rejected(self):
         f = self.flow()
@@ -588,7 +588,7 @@ class AIToJapaneseTest(unittest.TestCase):
         r = f.handle(fc("record_answer", 質問="Q1", 答えの種類="はい"))
         self.assertEqual((r["結果"], r["質問"]), ("次の質問", "Q2"))
         r = f.handle(fc("record_answer", 質問="Q2", 答えの種類="答えた", 値="15日の午後2時です。"))
-        self.assertEqual((r["結果"], r["値"], r["言い方"]), ("言い直して確かめる", "15日の午後2時", "ありがとうございます。15日の午後2時でよろしいでしょうか？"))
+        self.assertEqual((r["結果"], r["値"], r["言い方"]), ("言い直して確かめる", "15日の午後2時", "ありがとうございます。15日の14時、午後2時でよろしいでしょうか？"))
         f.on_callee()
         r = f.handle(fc("confirm_field", 質問="Q2", 返事の種類="合っている"))
         self.assertEqual(r["結果"], "締め")
@@ -612,7 +612,7 @@ class AIToJapaneseTest(unittest.TestCase):
             f.on_callee()
             r = f.handle(fc("confirm_field", **bad))
             self.assertEqual(r["結果"], "差し戻し", bad)
-            self.assertIn("15日の午後2時でよろしいでしょうか？", r["次にすること"], bad)  # いま求めていること（_now）も添える
+            self.assertIn("15日の14時、午後2時でよろしいでしょうか？", r["次にすること"], bad)  # いま求めていること（_now）も添える
             self.assertEqual((f.awaiting_confirm, f.items["Q2"].state), ("Q2", "checking"), bad)  # 記録は書き換えない
             if "与えの返事" in bad:
                 self.assertIn("「与えの返事」という項目は", r["次にすること"])
@@ -1116,7 +1116,7 @@ class FormCheckTest(unittest.TestCase):
         self.do(f, "record_answer", question_id="Q2", condition_id="答えた", value="15日の午後2時")
         r = self.do(f, "confirm_field", question_id="Q2", result="affirmed", correction="16日の午後2時")
         self.assertEqual((r["result"], r["value"], r["ack"]), ("confirm_required", "16日の午後2時", "hai"))
-        self.assertTrue(r["say"].startswith("念のため16日の午後2時"))
+        self.assertTrue(r["say"].startswith("念のため16日の14時、午後2時"))
         self.assertNotEqual(f.items["Q2"].state, "confirmed")             # 古い値（15日）で済ませない
         self.do(f, "confirm_field", question_id="Q2", result="affirmed", correction="16日の午後2時")
         self.assertEqual((f.items["Q2"].state, f.items["Q2"].value), ("confirmed", "16日の午後2時"))
@@ -3263,7 +3263,7 @@ class AskLadderTest(unittest.TestCase):
         cases = {"あ、すみません、間違えました。16日の午後2時でお願いします。": "shouchi", "やっぱり16日にしてください。": "shouchi",
                  "16日に変更できますか。": "shouchi", "いや、16日って言ったんですけど。": "shitsurei", "いえ、16日の午後2時です。": "shitsurei",
                  "": "shitsurei"}
-        says = {"shitsurei": "改めまして16日の午後2時で大丈夫でしょうか？", "shouchi": "それでは16日の午後2時でよろしいでしょうか？"}
+        says = {"shitsurei": "改めまして16日の14時、午後2時で大丈夫でしょうか？", "shouchi": "それでは16日の14時、午後2時でよろしいでしょうか？"}
         for said, ack in cases.items():
             f = self.flow()
             self.do(f, "record_answer", question_id="Q1", condition_id="答えた", value="15日の午後2時")
@@ -3290,7 +3290,7 @@ class AskLadderTest(unittest.TestCase):
         self.assertEqual(f.apply("confirm_field", {"question_id": "Q1", "result": "affirmed"})["result"], "next")
         f.on_heard("、すみません、間違えました。16日の午後2時でお願いします。")
         r = f.apply("confirm_field", {"question_id": "Q1", "result": "corrected", "correction": "16日の午後2時"})
-        self.assertEqual((r["result"], r["ack"], r["say"]), ("confirm_required", "shouchi", "それでは16日の午後2時でよろしいでしょうか？"))
+        self.assertEqual((r["result"], r["ack"], r["say"]), ("confirm_required", "shouchi", "それでは16日の14時、午後2時でよろしいでしょうか？"))
         self.assertEqual((f.items["Q1"].state, f.items["Q1"].value, f.awaiting_confirm), ("checking", "16日の午後2時", "Q1"))
         self.heard(f, "はい、そうです。")
         r = f.apply("confirm_field", {"question_id": "Q1", "result": "affirmed"})
@@ -3328,7 +3328,7 @@ class AskLadderTest(unittest.TestCase):
         self.assertEqual(f.apply("confirm_field", {"question_id": "Q1", "result": "corrected", "correction": "16日の午後2時"})["result"],
                          "rejected")
         r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "答えた", "value": "16日の午後2時"})
-        self.assertEqual((r["ack"], r["say"]), ("shouchi", "それでは16日の午後2時でよろしいでしょうか？"))
+        self.assertEqual((r["ack"], r["say"]), ("shouchi", "それでは16日の14時、午後2時でよろしいでしょうか？"))
 
     def test_instruction_leaves_the_fit_to_the_program(self):
         """答えが質問に合うかは、プログラムの1か所で決める（✅ 2026-10-14 ユーザー承認）。AIには、聞いたとおりの値で報告させる。"""
@@ -3364,16 +3364,41 @@ class AmPmTest(unittest.TestCase):
     会社は 9:00〜19:00 が初めの値）。"""
 
     def test_fill_from_business_hours(self):
+        # ✅ 2026-10-24 ユーザー：営業時間か歯止め時間（初め 7〜22時）のどちらかに入れば時間内。両方とも時間内＝必ず伺う・片方だけ＝その側を
+        # 採って復唱・どちらも外＝伺う（CL-1 の提案「OK」）。「閉店ちょうどや開始ちょうどは時間内に含める」
         from flowctl import fill_ampm
-        for v, hours, want in [("15日の1時", (9, 19), ("15日の午後1時", False)), ("15日の10時", (9, 19), ("15日の午前10時", False)),
-                               ("15日の10時", (9, 23), ("15日の10時", True)),       # 午前も午後も営業時間 ⇒ 聞く
-                               ("15日の8時", (9, 19), ("15日の8時", True)),         # どちらも営業時間の外 ⇒ 聞く
-                               ("1時", (18, 3), ("午前1時", False)), ("8時", (18, 3), ("午後8時", False)),  # 日をまたぐ深夜営業
-                               ("15日の12時", (9, 19), ("15日の12時", False)),      # 昼の12時（「午後12時」とは言わない）
-                               ("2時から4時", (9, 19), ("午後2時から4時", False)),
-                               ("15日の14時", (9, 19), ("15日の14時", False)), ("夕方5時", (9, 19), ("夕方5時", False)),
-                               ("15日の午前11時", (9, 19), ("15日の午前11時", False)), ("いつでも大丈夫", (9, 19), ("いつでも大丈夫", False))]:
-            self.assertEqual(fill_ampm(v, hours), want, (v, hours))
+        for v, hours, limit, want in [
+                ("15日の1時", (9, 19), (7, 22), ("15日の午後1時", False)), ("15日の11時", (9, 19), (7, 22), ("15日の午前11時", False)),
+                ("15日の10時", (9, 19), (7, 22), ("15日の10時", True)),       # 午後10時は歯止め時間の終わりちょうど＝時間内 ⇒ 伺う
+                ("15日の10時半", (9, 19), (7, 22), ("15日の午前10時半", False)),  # 22時半は時間外（分まで見る）
+                ("15日の9時", (9, 19), (7, 22), ("15日の9時", True)),         # 21時は歯止め時間の内 ⇒ 伺う
+                ("15日の7時", (9, 19), (7, 22), ("15日の7時", True)),
+                ("1時", (18, 3), (7, 22), ("1時", True)),                      # 夜のお店：午前1時は営業時間・13時は歯止め時間 ⇒ 伺う
+                ("3時", (18, 3), (7, 22), ("3時", True)),                      # 閉店ちょうど（午前3時）も時間内
+                ("5時", (18, 3), (7, 22), ("午後5時", False)),
+                ("7時", (9, 17), (9, 18), ("7時", True)),                      # 午前7時も19時も時間外 ⇒ 伺う
+                ("7時", (9, 19), (9, 19), ("午後7時", False)),                 # 閉店ちょうどは時間内
+                ("9時", (9, 19), (9, 19), ("午前9時", False)),                 # 開始ちょうども時間内
+                ("15日の12時", (9, 19), (7, 22), ("15日の12時", False)),      # 昼の12時（「午後12時」とは書かない）
+                ("12時", (18, 3), (13, 22), ("午前0時", False)),               # 夜中の12時は「午前0時」
+                ("2時から4時", (9, 19), (7, 22), ("午後2時から4時", False)),
+                ("15日の14時", (9, 19), (7, 22), ("15日の14時", False)), ("夕方5時", (9, 19), (7, 22), ("夕方5時", False)),
+                ("15日の午前11時", (9, 19), (7, 22), ("15日の午前11時", False)), ("いつでも大丈夫", (9, 19), (7, 22), ("いつでも大丈夫", False)),
+                ("9時", ("09:00", "19:00"), ("07:00", "22:00"), ("9時", True))]:   # 設定の「09:00」の形でも同じ
+            self.assertEqual(fill_ampm(v, hours, limit), want, (v, hours, limit))
+
+    def test_restated_in_24_hours_and_afternoon(self):
+        # ✅ 2026-10-24 ユーザー：「確認の言葉は、24時間方式（午前は、午前○○時、午後は○○(24時間)時+(午後○○時の両方)を使う」。昼の12時台は
+        # 「昼の12時」・時間の幅は「15時から17時、午後3時から5時」（CL-1 の提案「OK」）。値そのものは変えない
+        from flowctl import spoken_clock
+        for v, want in [("15日の午後2時", "15日の14時、午後2時"), ("明日の19時", "明日の19時、午後7時"), ("午前10時", "午前10時"),
+                        ("朝9時から10時", "午前9時から10時"), ("午後3時から5時の間", "15時から17時、午後3時から5時の間"),
+                        ("明日の午後3時頃", "明日の15時頃、午後3時頃"), ("23時以降", "23時以降、午後11時以降"), ("夜8時半", "20時半、午後8時半"),
+                        ("15日の12時", "15日の昼の12時"), ("午後12時半", "昼の12時半"), ("午前0時", "午前0時"),
+                        ("午前10時から午後2時", "10時から14時、午前10時から午後2時"),
+                        ("16日の10時", "16日の10時"),   # 午前か午後かが決まっていない（聞いても決まらなかった）ときは、そのまま
+                        ("いつでも大丈夫", "いつでも大丈夫")]:
+            self.assertEqual(spoken_clock(v), want, v)
 
     def flow(self, hours=(9, 19)):
         from flowctl import Flow, Question
@@ -3389,7 +3414,7 @@ class AmPmTest(unittest.TestCase):
         f = self.flow()
         r = self.do(f, "record_answer", question_id="Q1", condition_id="答えた", value="15日の1時")
         self.assertEqual((r["result"], f.items["Q1"].value), ("confirm_required", "15日の午後1時"))
-        self.assertIn("15日の午後1時", r["say"])
+        self.assertIn("15日の13時、午後1時", r["say"])   # 言い直しは24時間＋午後（spoken_clock）
 
     def test_ask_once_then_merge_answer(self):
         from phrases import AMPM_ASK
@@ -3413,7 +3438,7 @@ class AmPmTest(unittest.TestCase):
         self.do(f, "record_answer", question_id="Q1", condition_id="答えた", value="15日の午後2時")
         r = self.do(f, "confirm_field", question_id="Q1", result="corrected", correction="16日の3時")
         self.assertEqual(f.items["Q1"].value, "16日の午後3時")
-        self.assertIn("16日の午後3時", r["say"])
+        self.assertIn("16日の15時、午後3時", r["say"])
 
     def test_ai_does_not_ask_by_itself(self):
         from g22_opening import BUSINESS
@@ -6424,8 +6449,8 @@ class OffScriptTest(unittest.TestCase):
         self.assertEqual(f.expected_say(start), r["say"])
         self.assertIsNone(f.expected_say(len(f.log)))           # このターンに渡した言い方が無ければ見張らない（自由に答えるターン）
         plan = f.on_off_script(r["say"])
-        self.assertEqual((plan["ack"], plan["say"]), (None, "失礼いたしました。改めまして、15日の午後2時でよろしいでしょうか？"))  # お詫びは録音にしない
-        self.assertEqual(f.on_off_script(r["say"], heard="opener")["say"], "それでは、15日の午後2時でよろしいでしょうか？")
+        self.assertEqual((plan["ack"], plan["say"]), (None, "失礼いたしました。改めまして、15日の14時、午後2時でよろしいでしょうか？"))  # お詫びは録音にしない
+        self.assertEqual(f.on_off_script(r["say"], heard="opener")["say"], "それでは、15日の14時、午後2時でよろしいでしょうか？")
         self.assertEqual(f.on_off_script(r["say"], heard="none")["say"], r["say"])
         self.assertEqual(f.awaiting_confirm, "Q1")               # 位置は変えない（言う中身は同じ）
 

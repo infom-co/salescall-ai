@@ -204,33 +204,114 @@ def kana_number_note(value: str, bad: str) -> str:
 # 深夜営業でもしていない限りおかしい。依頼者ごとに『営業時間』を入れる形にして、その時間外の時間だと、午前と午後の確認はしない。会社の場合は
 # 9:00〜19:00 がデフォルト、店舗や深夜営業店などは営業時間を入れる形式」）。⛔ G-37：AIが「32 です」を時刻と思い込み、報告せずに自分で
 # 午前・午後を聞き、相手の言っていない「3時の午後」を報告した。
-# ⇒ 時刻（1〜12時）に午前・午後を表す言葉が無いとき：午前と午後のどちらか一方だけが営業時間に入れば、その側を値に補う（言い直しで相手が
-#    確かめられる）。両方とも入る・どちらも入らないときだけ、プログラムが1回だけ聞く（AMPM_ASK）。答え（「午後です」）は、前の値に入れる
+# ✅ 2026-10-24 ユーザー（営業時間とは別に、業務ごとの「お客様指定の歯止め時間」ができたため）：「営業時間+歯止め時間内に、午前と午後の両方が
+#    入っている場合は午前か午後を必ず『伺う』。営業時間+歯止め時間外がある時間は、時間内の時間を採用し、(24時間方式+午前午後で)『○○時ですね』と
+#    復唱する。午前と午後を確かめたうえで、お客様の要望時間は、何時でも『かける』」「閉店ちょうどや開始ちょうどは時間内に含める」・どちらも外なら
+#    伺う・12時台は「昼の12時」（夜中は「午前0時」）・復唱は「（日時）でよろしいでしょうか？」のまま言い方だけ（✅ CL-1 の提案「OK」）
+# ⇒ 時刻（1〜12時）に午前・午後を表す言葉が無いとき：営業時間か歯止め時間の、どちらかに入れば時間内（端ちょうども入れる・分まで見る）。
+#    片方だけが時間内なら、その側を値に補う（言い直しで相手が確かめられる＝spoken_clock）。両方とも時間内・どちらも時間外なら、プログラムが
+#    1回だけ聞く（AMPM_ASK）。答え（「午後です」）は、前の値に入れる。⚠️ CL-2 の時刻の読み（spoken_time）と同じ決まり（CL-1.md 4-31）
 AMPM_TYPES = {"time", "datetime"}
-DEFAULT_BUSINESS_HOURS = (9, 19)  # 会社の初めの値（9:00〜19:00）。依頼主ごとの設定（店舗・深夜営業は (18, 3) のように日をまたいでよい）
+DEFAULT_BUSINESS_HOURS = (9, 19)  # お客様の営業時間の初めの値（会社 9:00〜19:00。業務ごとの設定 callee.business_hours。日をまたいでよい）
+DEFAULT_DESIGNATED_LIMIT = (7, 22)  # お客様指定の歯止め時間の初めの値（7:00〜22:00。業務ごとの設定 callee.designated_limit）
 AMPM_WORDS = re.compile(r"午前|午後|朝|昼|夕方|夕刻|夜|晩|深夜|夜中|明け方|正午")
 _HOUR = re.compile(r"(?<!\d)(\d{1,2})時")
+_CLOCK = re.compile(r"(?:(?P<part>午前|午後|朝|昼|夕方|夕刻|夜|晩|深夜|夜中|明け方)の?)?(?<!\d)(?P<h>\d{1,2})時(?:(?P<half>半)|(?P<min>\d{1,2})分)?")
 
 
-def _in_hours(hour: int, hours: tuple[int, int]) -> bool:
-    open_, close = hours
-    return open_ <= hour <= close if open_ <= close else (hour >= open_ or hour <= close)
+def _minutes(r: tuple) -> tuple[int, int]:
+    """時間の範囲を、0時からの分の (始まり, 終わり) に（(9, 19) の時・"09:00" の形のどちらでも）。"""
+    def one(x):
+        if isinstance(x, str):
+            h, m = x.split(":")
+            return int(h) * 60 + int(m)
+        return int(round(x * 60))
+    return one(r[0]), one(r[1])
 
 
-def fill_ampm(value: str | None, hours: tuple[int, int] = DEFAULT_BUSINESS_HOURS) -> tuple[str | None, bool]:
-    """時刻の値に午前・午後が無いとき、営業時間から補う。返り値＝(値, 聞く必要があるか)。"""
-    if not value or AMPM_WORDS.search(value) or not (m := _HOUR.search(value)):
+def _inside(minute: int, r: tuple) -> bool:
+    """その時刻が範囲に入るか（始まりちょうど・終わりちょうども入る。日をまたいでよい）。"""
+    a, b = _minutes(r)
+    return a <= minute <= b if a <= b else (minute >= a or minute <= b)
+
+
+def fill_ampm(value: str | None, hours: tuple = DEFAULT_BUSINESS_HOURS, limit: tuple = DEFAULT_DESIGNATED_LIMIT) -> tuple[str | None, bool]:
+    """時刻の値に午前・午後が無いとき、営業時間と歯止め時間から補う。返り値＝(値, 聞く必要があるか)。"""
+    if not value or AMPM_WORDS.search(value) or not (m := _CLOCK.search(value)):
         return value, False
-    h = int(m.group(1))
+    h = int(m.group("h"))
     if h == 0 or h > 12:
         return value, False
-    am, pm = (0, 12) if h == 12 else (h, h + 12)
-    am_in, pm_in = _in_hours(am, hours), _in_hours(pm, hours)
+    minute = 30 if m.group("half") else int(m.group("min") or 0)
+    am = (0 if h == 12 else h) * 60 + minute
+    am_in, pm_in = (any(_inside(x, r) for r in (hours, limit)) for x in (am, am + 720))
     if am_in == pm_in:
         return value, True
-    if h == 12 and pm_in:
-        return value, False  # 「12時」は昼の12時（「午後12時」とは言わない）
+    if h == 12:   # 「12時」：昼はそのまま（「午後12時」とは言わない）・夜中は「午前0時」
+        return (value, False) if pm_in else (value[:m.start()] + "午前0" + value[m.start() + 2:], False)
     return value[:m.start()] + ("午前" if am_in else "午後") + value[m.start():], False
+
+
+_CLOCK_TAIL = re.compile(r"(?:頃|ごろ|くらい|ぐらい|以降|以後|過ぎ|すぎ|までに|まで|前後|ちょうど|台)*")
+
+
+def spoken_clock(value: str | None) -> str | None:
+    """時刻の値を、言い直しで言う形にする（唯一の場所。値そのものは変えない）。午後は24時間＋午後の両方、午前は「午前○時」、昼の12時台は
+    「昼の12時」（✅ 2026-10-24 ユーザー：「確認の言葉は、24時間方式（午前は、午前○○時、午後は○○(24時間)時+(午後○○時の両方)を使う」）。
+    例：「15日の午後2時」⇒「15日の14時、午後2時」・「午後3時から5時の間」⇒「15時から17時、午後3時から5時の間」。午前か午後かが決まって
+    いない時刻（午前・午後を聞いても決まらなかった）は、そのまま。"""
+    ms = list(_CLOCK.finditer(value or ""))
+    if not ms:
+        return value
+    times, half = [], None   # 0時からの分と、午前・午後（前の時刻から引き継ぐ＝「午後3時から5時」の5時）
+    for m in ms:
+        h, part = int(m.group("h")), m.group("part")
+        minute = 30 if m.group("half") else int(m.group("min") or 0)
+        if h > 23 or minute > 59 or (part and h > 12):
+            return value
+        if h >= 13:
+            h24 = h
+        elif part in ("午後", "夕方", "夕刻", "夜", "晩"):
+            h24 = 0 if h == 12 and part in ("夜", "晩") else (h if h == 12 else h + 12)
+        elif part in ("午前", "朝", "明け方"):
+            h24 = h % 12
+        elif part == "昼":
+            h24 = 12 if h == 12 else h + 12
+        elif part in ("深夜", "夜中"):
+            h24 = 0 if h == 12 else (h if h <= 5 else h + 12)
+        elif h == 12:
+            h24 = 12   # 「12時」は昼の12時（fill_ampm の決まり）
+        elif half is not None:
+            h24 = h if half == "am" else h + 12
+        else:
+            return value   # 午前か午後かが決まっていない
+        half = "am" if h24 < 12 else "pm"
+        times.append(h24 * 60 + minute)
+    tail = _CLOCK_TAIL.match(value, ms[-1].end()).group()
+    head, rest = value[:ms[0].start()], value[ms[-1].end() + len(tail):]
+
+    def clock(t: int, h: int) -> str:
+        mm = t % 60
+        return f"{h}時" + ("半" if mm == 30 else f"{mm}分" if mm else "")
+
+    def span(render) -> str:
+        out, pos = "", ms[0].start()
+        for m, t, prev in zip(ms, times, [None] + times[:-1]):
+            out += value[pos:m.start()] + render(t, prev)
+            pos = m.end()
+        return out + tail
+
+    def twelve(t: int, prev: int | None) -> str:
+        h24 = t // 60
+        if h24 == 12:
+            return "昼の" + clock(t, 12)
+        word = "午前" if h24 < 12 else "午後"
+        same = prev is not None and (prev // 60 < 12) == (h24 < 12) and prev // 60 != 12
+        return ("" if same else word) + clock(t, h24 % 12)
+
+    if all(t // 60 <= 12 for t in times):
+        return head + span(twelve) + rest   # 午前と昼の12時台だけ＝24時間の形は言わない
+    return head + span(lambda t, prev: clock(t, t // 60)) + "、" + span(twelve) + rest
 
 
 def merge_ampm(pending: str | None, answer: str | None) -> str | None:
@@ -895,7 +976,8 @@ class Item:
 class Flow:
     def __init__(self, questions: list[Question], limits: Limits | None = None, confirm=confirm_phrase,
                  busy_ask: str | None = None, lead_ins: bool = True, play_recordings: bool = False,
-                 business_hours: tuple[int, int] = DEFAULT_BUSINESS_HOURS, opening: dict | None = None,
+                 business_hours: tuple = DEFAULT_BUSINESS_HOURS, designated_limit: tuple = DEFAULT_DESIGNATED_LIMIT,
+                 opening: dict | None = None,
                  voicemail_message: str | None = None, target: dict | None = None, answers: dict | None = None,
                  policies: dict | None = None, knowledge: list[str] | None = None, names: list[str] | None = None,
                  name_readings: dict[str, str] | None = None):
@@ -964,7 +1046,8 @@ class Flow:
         # play_recordings：次の質問（つなぎの言葉＋質問の文）と締めの言葉を、電話接続側が録音で流し、AIには話させない（DESIGN.md 6-13。
         # ✅ 2026-10-15 ユーザー：よく使う言葉は契約者の単位で、トークスクリプト（質問の文）は依頼主の単位で録音する。G-37 で確かめる）
         self.play_recordings = play_recordings
-        self.business_hours = business_hours  # 営業時間（午前・午後を補う・聞くかを決める。依頼主ごとの設定）
+        self.business_hours = business_hours  # お客様の営業時間（午前・午後を補う・聞くかを決める。業務ごとの設定）
+        self.designated_limit = designated_limit  # お客様指定の歯止め時間（営業時間と合わせて、午前・午後を決める。業務ごとの設定）
         self.lead_counts: dict[str, int] = {}
         self.ack_count = 0               # 次の質問の前に流す相づちを、順番に回す（_ack）
         # AIが答えを報告せずに言い直し、相手に値を直された：(質問, 直され方＝AFTER の鍵)。その答えの報告で、直され方に合う言い直しにする
@@ -1726,7 +1809,7 @@ class Flow:
             return self._reject(f"答えの値がありません。相手が答えた値を「{ARG_LABEL['value']}」に入れて、もう一度報告してください。")
         if cond not in SYSTEM_CONDITIONS and q.type in AMPM_TYPES:
             value, it.pending_value = merge_ampm(it.pending_value, value), None
-            value, ask = fill_ampm(value, self.business_hours)
+            value, ask = fill_ampm(value, self.business_hours, self.designated_limit)
             if ask and not it.ampm_asked:
                 return self._ask_ampm(qid, value)
         if cond in SYSTEM_CONDITIONS and (taken := self._ambiguous_only(f"「{SYSTEM_LABEL[cond]}」")):
@@ -2002,7 +2085,7 @@ class Flow:
             self.awaiting_confirm = None  # 言い直しの返事待ちをやめて、質問から聞き直す（6-2）
             return self._bad_form(qid, correction, why)
         if result in ("corrected", "affirmed") and correction and self.questions[qid].type in AMPM_TYPES:
-            correction, ask = fill_ampm(correction, self.business_hours)
+            correction, ask = fill_ampm(correction, self.business_hours, self.designated_limit)
             if ask and result == "corrected" and not it.ampm_asked:
                 self.awaiting_confirm = None
                 return self._ask_ampm(qid, correction)
@@ -3281,7 +3364,8 @@ class Flow:
         """時刻の午前・午後を、1回だけ聞く（fill_ampm で決められなかったとき）。答えは、次の答えの報告で前の値に入れる（merge_ampm）。"""
         it = self.items[qid]
         it.ampm_asked, it.pending_value = True, value
-        it.set("unclear", f"午前か午後かが分からない（{value}。営業時間 {self.business_hours[0]}〜{self.business_hours[1]}時）")
+        it.set("unclear", f"午前か午後かが分からない（{value}。営業時間 {self.business_hours[0]}〜{self.business_hours[1]}・"
+                          f"歯止め時間 {self.designated_limit[0]}〜{self.designated_limit[1]}）")
         return {"result": "ask_back", "question_id": qid, "say": AMPM_ASK, "ask_n": 0, "ask_reason": "ampm",
                 "message": f"「{value}」の午前・午後が分かりません。「{AMPM_ASK}」と聞いて、相手の答えを待ってください。"
                            "相手が答えたら、聞いたとおりの値で record_answer で報告します。"}
@@ -3338,6 +3422,7 @@ class Flow:
         # 言い直す値：値の無い選択肢の型（はい／いいえなど。聞き返したあとは復唱する＝6-11）は、選んだ選択肢で言い直す。
         # ⛔ 2026-10-14 に見つけた穴：値だけを渡していたため、「Noneで、よろしいでしょうか。」という文を作っていた
         shown = restate_words(words, self.heard_said) if choice else (it.value or label(it.condition))
+        said_as = spoken_clock(shown) if q.type in AMPM_TYPES and it.value else shown   # 時刻は「15日の14時、午後2時」の形で言う（値は変えない）
         if q.reading_of:
             shown = quote(it.value)
             it.tried_readings.append(it.value)
@@ -3348,7 +3433,7 @@ class Flow:
         elif choice:
             phrase = confirm_phrase(shown, situation, n, meaning=True)
         else:
-            phrase = self.confirm(shown, situation, n)
+            phrase = self.confirm(said_as, situation, n)
         say = self.awaiting_say = self._lead(lead) + phrase
         return {"result": "confirm_required", "value": shown, "say": say, "after": after,
                 "message": f"言い直して確かめます。「{say}」と言って、相手の返事を待ってください。" + (self._confirm_how(qid) if choice else "")}

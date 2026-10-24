@@ -1251,24 +1251,6 @@
   {
     "type": "L4",
     "voice": "Leda",
-    "id": "talk_agree_high",
-    "text": "本当にそうですよね！",
-    "heard": {
-      "0.0": "本当にそうですよね。",
-      "1.0": "本当にそうですよね。"
-    },
-    "ok": true,
-    "seconds": 1.48,
-    "tries": 1,
-    "wav": "L4_talk_agree_high.wav",
-    "chosen_by": "人",
-    "made_as_id": "talk_agree",
-    "chosen_from": "L4_talk_agree",
-    "pending": "⏳ 2026-10-23：L4 の調子ごとの録音はまだ選んでいない。それまで、承認済みの1本（L4：全てOK）を同じ言葉の調子すべてに仮に使う"
-  },
-  {
-    "type": "L4",
-    "voice": "Leda",
     "id": "talk_agree_deep",
     "text": "本当にそうですよね！",
     "heard": {
@@ -1282,7 +1264,25 @@
     "chosen_by": "人",
     "made_as_id": "talk_agree",
     "chosen_from": "L4_talk_agree",
-    "pending": "⏳ 2026-10-23：L4 の調子ごとの録音はまだ選んでいない。それまで、承認済みの1本（L4：全てOK）を同じ言葉の調子すべてに仮に使う"
+    "approved": "✅ 2026-10-24 ユーザーが L4 の聞き比べで選んだ：「深くうなずいて＝4（承認済みの1本）」（番号は results/voice_match/talk_tone_L4_key.json）"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "talk_agree_high",
+    "text": "本当にそうですよね！",
+    "heard": {
+      "0.0": "本当にそうですよね。",
+      "1.0": "本当にそうですよね。"
+    },
+    "ok": true,
+    "seconds": 1.44,
+    "try": 1,
+    "wav": "L4_talk_agree_high.wav",
+    "made_as_id": "talk_agree_light",
+    "chosen_from": "L4_talk_agree_light_1",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-24 ユーザーが L4 の聞き比べで選んだ：「元気よく＝6」（番号は results/voice_match/talk_tone_L4_key.json）"
   },
   {
     "type": "L4",
@@ -1294,13 +1294,13 @@
       "1.0": "本当にそうですよね。"
     },
     "ok": true,
-    "seconds": 1.48,
-    "tries": 1,
+    "seconds": 1.52,
+    "try": 1,
     "wav": "L4_talk_agree_light.wav",
+    "made_as_id": "talk_agree_deep",
+    "chosen_from": "L4_talk_agree_deep_1",
     "chosen_by": "人",
-    "made_as_id": "talk_agree",
-    "chosen_from": "L4_talk_agree",
-    "pending": "⏳ 2026-10-23：L4 の調子ごとの録音はまだ選んでいない。それまで、承認済みの1本（L4：全てOK）を同じ言葉の調子すべてに仮に使う"
+    "approved": "✅ 2026-10-24 ユーザーが L4 の聞き比べで選んだ：「軽く＝7」（番号は results/voice_match/talk_tone_L4_key.json）"
   },
   {
     "type": "L4",
@@ -1312,13 +1312,12 @@
       "1.0": "そうでしたか。"
     },
     "ok": true,
-    "seconds": 1.12,
-    "tries": 1,
+    "seconds": 1.14,
+    "try": 2,
     "wav": "L4_talk_heard_sad.wav",
+    "chosen_from": "L4_talk_heard_sad_2",
     "chosen_by": "人",
-    "made_as_id": "talk_heard",
-    "chosen_from": "L4_talk_heard",
-    "pending": "⏳ 2026-10-23：L4 の調子ごとの録音はまだ選んでいない。それまで、承認済みの1本（L4：全てOK）を同じ言葉の調子すべてに仮に使う"
+    "approved": "✅ 2026-10-24 ユーザーが L4 の聞き比べで選んだ：「しんみりと＝4」（番号は results/voice_match/talk_tone_L4_key.json）"
   },
   {
     "type": "L4",
@@ -1330,13 +1329,30 @@
       "1.0": "そうでしたか。"
     },
     "ok": true,
-    "seconds": 1.12,
-    "tries": 1,
+    "seconds": 0.92,
+    "try": 1,
     "wav": "L4_talk_heard_glad.wav",
+    "chosen_from": "L4_talk_heard_glad_1",
     "chosen_by": "人",
-    "made_as_id": "talk_heard",
-    "chosen_from": "L4_talk_heard",
-    "pending": "⏳ 2026-10-23：L4 の調子ごとの録音はまだ選んでいない。それまで、承認済みの1本（L4：全てOK）を同じ言葉の調子すべてに仮に使う"
+    "approved": "✅ 2026-10-24 ユーザーが L4 の聞き比べで選んだ：「少し嬉しそうに＝3」（番号は results/voice_match/talk_tone_L4_key.json）"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "talk_heard_nod",
+    "text": "そうでしたか！",
+    "heard": {
+      "0.0": "そうでしたか。",
+      "1.0": "そうでしたか。"
+    },
+    "ok": true,
+    "seconds": 1.24,
+    "try": 2,
+    "wav": "L4_talk_heard_nod.wav",
+    "made_as_id": "talk_heard_glad",
+    "chosen_from": "L4_talk_heard_glad_2",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-24 ユーザーが L4 の聞き比べで選んだ：「納得＝5」（番号は results/voice_match/talk_tone_L4_key.json）"
   },
   {
     "type": "L4",
@@ -1348,13 +1364,12 @@
       "1.0": "それは大変でしたね。"
     },
     "ok": true,
-    "seconds": 1.74,
-    "tries": 1,
+    "seconds": 1.68,
+    "try": 2,
     "wav": "L4_talk_hard_sad.wav",
+    "chosen_from": "L4_talk_hard_sad_2",
     "chosen_by": "人",
-    "made_as_id": "talk_hard",
-    "chosen_from": "L4_talk_hard",
-    "pending": "⏳ 2026-10-23：L4 の調子ごとの録音はまだ選んでいない。それまで、承認済みの1本（L4：全てOK）を同じ言葉の調子すべてに仮に使う"
+    "approved": "✅ 2026-10-24 ユーザーが L4 の聞き比べで選んだ：「しんみりと＝5」（番号は results/voice_match/talk_tone_L4_key.json）"
   },
   {
     "type": "L4",
@@ -1366,12 +1381,48 @@
       "1.0": "それは大変でしたね。"
     },
     "ok": true,
-    "seconds": 1.74,
-    "tries": 1,
+    "seconds": 1.8,
+    "try": 1,
     "wav": "L4_talk_hard_bright.wav",
+    "chosen_from": "L4_talk_hard_bright_1",
     "chosen_by": "人",
-    "made_as_id": "talk_hard",
-    "chosen_from": "L4_talk_hard",
-    "pending": "⏳ 2026-10-23：L4 の調子ごとの録音はまだ選んでいない。それまで、承認済みの1本（L4：全てOK）を同じ言葉の調子すべてに仮に使う"
+    "approved": "✅ 2026-10-24 ユーザーが L4 の聞き比べで選んだ：「前向きに＝3」（番号は results/voice_match/talk_tone_L4_key.json）"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "talk_heard_nod",
+    "text": "そうでしたか！",
+    "heard": {
+      "0.0": "そうでしたか。",
+      "1.0": "そうでしたか。"
+    },
+    "ok": true,
+    "seconds": 0.96,
+    "wav": "S2_talk_heard_nod.wav",
+    "how": "ふつうの調子（2026-10-23）",
+    "made_as_id": "talk_heard_glad",
+    "chosen_from": "S2_talk_heard_glad",
+    "chosen_by": "人",
+    "pending": "⏳ 2026-10-24 ユーザー：「Sでも納得が欲しいですね」。S2 の「納得して」の候補を聞いて選んでいただくまで、「少し嬉しそうに」の録音を仮に使う"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "talk_heard_nod",
+    "text": "そうでしたか！",
+    "heard": {
+      "0.0": "そうでしたか。",
+      "1.0": "そうでしたか。"
+    },
+    "ok": true,
+    "seconds": 0.96,
+    "wav": "S4_talk_heard_nod.wav",
+    "how": "ふつうの調子（2026-10-23）",
+    "made_as_id": "talk_heard_glad",
+    "chosen_from": "S2_talk_heard_glad",
+    "chosen_by": "人",
+    "made_as": "S2",
+    "pending": "⏳ 2026-10-24 ユーザー：「Sでも納得が欲しいですね」。S2 の「納得して」の候補を聞いて選んでいただくまで、「少し嬉しそうに」の録音を仮に使う"
   }
 ]
