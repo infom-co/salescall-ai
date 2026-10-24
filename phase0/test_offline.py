@@ -6773,6 +6773,10 @@ class FirstWordsTest(unittest.TestCase):
                     from flowctl import answer_wait
                     self.assertIn(answer_wait(), r["message"], name)
                     self.assertNotIn("request_callback", r["message"], name)
+                if b.target is not None and not b.number_again and not b.apology_call:
+                    # 呼んでいる段も同じ：目的の人ではないこと（代わりの方・後任の方など）を言われたときの道を知らせる（⛔ 2026-10-25 J8a）
+                    from flowctl import NOT_WAITED
+                    self.assertIn(NOT_WAITED["calling"], r["message"], name)
                 if b.apology_call:
                     self.assertTrue(f.apology_asked and f.apology_played, name)
 
