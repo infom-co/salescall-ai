@@ -288,6 +288,12 @@ APOLOGY_FIRST = {"missed_promise": "お約束の時間にお電話ができず�
 # link.phone.Phone.play_apology_and_hang_up）。言葉の途中の読点は外す（10-15 の決まり）
 LINE_TROUBLE = {"ask": "恐れ入ります。こちらの通信に不具合が起きたようですので改めてお電話させていただいてもよろしいでしょうか？",
                 "bye": "大変申し訳ございません。それではいったんお電話を失礼いたします。"}
+# 前の電話で伺った番号へかけたら、別の方のお電話だった・繋がらなかったときに、名乗りのあとで番号を伺い直す一言（予約証の目的 ask_number_again＝
+# CL-2 の 4-42・4-153。契約者の単位の録音＝お名前が入らない）。✅ 2026-10-24 ユーザー：番号違い「OK」（案の「先日」は、前の電話がいつか分からないので
+# 「前回」＝お詫びの言い方と同じ。言葉の途中の読点は外す）・「別の方のお電話よりも、繋がらない番号のパターンも必要じゃないですか？」⇒ 繋がらなかった
+# （⏳ 言い方は案。ユーザーに伺う）
+NUMBER_AGAIN = {"wrong_party": "前回お伺いしたお電話番号にお掛けしたところ別の方のお電話でした。恐れ入りますがもう一度お電話番号をお伺いしてもよろしいでしょうか？",
+                "unreachable": "前回お伺いしたお電話番号にお掛けしたのですがつながりませんでした。恐れ入りますがもう一度お電話番号をお伺いしてもよろしいでしょうか？"}
 # AIが自分の言葉で答える文（flowctl.Flow._own_answer）が、声に出す前の確かめ（flowctl.own_answer_problem）に、書き直しても通らなかったときだけ
 # 流す一言（契約者の単位の録音。⏳ 言い方はユーザーに聞いていただく）。断らない（✅ 2026-10-22 ユーザー（4回目）：「『そちらにつきましてはこの場では
 # お答えいたしかねます。』こういう回答をするから、機械っぽいとかAIぽいと思われるんでしょ！電話で営業する人がそんなことはまず言わない（契約が
@@ -346,7 +352,8 @@ RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait
             **{f"callback_{k}": v for k, v in CALLBACK_ASK.items()},
             "offer_thanks": OFFER_THANKS, "departed": DEPARTED_ACK, **{SUCCESSOR_IDS[k]: v for k, v in SUCCESSOR.items()},
             "own_fallback": OWN_FALLBACK, "back": BACK_TO, **{k: v for k, (v, _, _) in TALK_FALLBACK.items()},
-            **{f"apology_{k}": v for k, v in APOLOGY_FIRST.items()}, **{f"line_trouble_{k}": v for k, v in LINE_TROUBLE.items()}}
+            **{f"apology_{k}": v for k, v in APOLOGY_FIRST.items()}, **{f"line_trouble_{k}": v for k, v in LINE_TROUBLE.items()},
+            **{f"number_again_{k}": v for k, v in NUMBER_AGAIN.items()}}
 
 
 def lead_in(kind: str, n: int) -> str:

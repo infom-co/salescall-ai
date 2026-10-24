@@ -1526,5 +1526,86 @@
     "chosen_from": "L4_callback_call_again_2",
     "chosen_by": "人",
     "pending": "⏳ 2026-10-24 ユーザー：「2⇒悪くないが、やや自信な下げで弱弱しすぎるので、もうちょっと別パターンで選別した方がいい」。別の読み方の候補を聞いていただくまで仮に使う"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "line_trouble_ask",
+    "text": "恐れ入ります。こちらの通信に不具合が起きたようですので改めてお電話させていただいてもよろしいでしょうか？",
+    "heard": {
+      "0.0": "恐れ入ります。こちらの通信に不具合が起きたようですので、改めてお電話させていただいてもよろしいでしょうか。",
+      "1.0": "恐れ入ります。こちらの通信に不具合が起きたようですので、改めてお電話させていただいてもよろしいでしょうか。"
+    },
+    "ok": false,
+    "seconds": 7.68,
+    "wav": "L4_line_trouble_ask.wav",
+    "pauses": [
+      0.74,
+      0.58
+    ],
+    "note": "間の確かめは通っていない（人が聞いて選ぶ）",
+    "chosen_from": "L4_line_trouble_ask_2",
+    "chosen_by": "人"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "line_trouble_bye",
+    "text": "大変申し訳ございません。それではいったんお電話を失礼いたします。",
+    "heard": {
+      "0.0": "大変申し訳ございません。それでは一旦お電話を失礼いたします。",
+      "1.0": "大変申し訳ございません。それでは一旦お電話を失礼いたします。"
+    },
+    "ok": false,
+    "seconds": 4.78,
+    "wav": "L4_line_trouble_bye.wav",
+    "pauses": [
+      0.58,
+      0.14
+    ],
+    "note": "間の確かめは通っていない（人が聞いて選ぶ）",
+    "chosen_from": "L4_line_trouble_bye_2",
+    "chosen_by": "人"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "line_trouble_bye",
+    "text": "大変申し訳ございません。それではいったんお電話を失礼いたします。",
+    "heard": {
+      "0.0": "大変申し訳ございません。それでは一旦お電話を失礼いたします。",
+      "1.0": "大変申し訳ございません。それでは一旦お電話を失礼いたします。"
+    },
+    "ok": false,
+    "seconds": 4.0,
+    "wav": "S2_line_trouble_bye.wav",
+    "pauses": [
+      0.36,
+      0.12
+    ],
+    "note": "間の確かめは通っていない（人が聞いて選ぶ）",
+    "chosen_from": "S2_line_trouble_bye_2",
+    "chosen_by": "人"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "line_trouble_bye",
+    "text": "大変申し訳ございません。それではいったんお電話を失礼いたします。",
+    "heard": {
+      "0.0": "大変申し訳ございません。それでは一旦お電話を失礼いたします。",
+      "1.0": "大変申し訳ございません。それでは一旦お電話を失礼いたします。"
+    },
+    "ok": false,
+    "seconds": 4.0,
+    "wav": "S4_line_trouble_bye.wav",
+    "pauses": [
+      0.36,
+      0.12
+    ],
+    "note": "間の確かめは通っていない（人が聞いて選ぶ）",
+    "made_as": "S2",
+    "chosen_from": "S2_line_trouble_bye_2",
+    "chosen_by": "人"
   }
 ]

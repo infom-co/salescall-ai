@@ -16,11 +16,12 @@ from __future__ import annotations
 
 import re
 import unicodedata
+import dataclasses
 from dataclasses import dataclass, field
 
 from names import hira, quote, unvoiced
 from phrases import AI_ANSWER, AI_ASKED_AGAIN, AMPM_ASK, CALLBACK_ASK, CLOSE_DECLINED, CLOSING, LEAD_IN, NAME_READING_ASK
-from phrases import APOLOGY_FIRST, BACK_TO, DEPARTED_ACK, OFFER_THANKS, OWN_FALLBACK, SILENCE_PROMPT, SILENCE_PROMPT_IDS, SUCCESSOR, SUCCESSOR_IDS, TALK_FALLBACK
+from phrases import APOLOGY_FIRST, BACK_TO, DEPARTED_ACK, NUMBER_AGAIN, OFFER_THANKS, OWN_FALLBACK, SILENCE_PROMPT, SILENCE_PROMPT_IDS, SUCCESSOR, SUCCESSOR_IDS, TALK_FALLBACK
 from phrases import ask_again as ask_again_phrase
 from phrases import confirm as confirm_phrase, restate_words
 from phrases import lead_in as lead_in_phrase
@@ -1012,7 +1013,7 @@ class Flow:
                  voicemail_message: str | None = None, target: dict | None = None, answers: dict | None = None,
                  policies: dict | None = None, knowledge: list[str] | None = None, names: list[str] | None = None,
                  name_readings: dict[str, str] | None = None, promised: bool = False, apology: tuple = (), successor: bool = False,
-                 voicemail_left: bool = False, earlier: dict | None = None):
+                 voicemail_left: bool = False, earlier: dict | None = None, number_again: str | None = None):
         """confirm：言い直しの言い方を作る関数 (値, 場面, 何回目) → 文（ふだんは phrases.confirm。言い方を比べる試験 G-25 だけが別のものを渡す）。
         busy_ask：相手が「忙しい」と言ったときに1回だけ言う一言（業務設定。None なら丁寧に終える＝既定。Intent.md 9-4）。
         target：目的の人のある業務の、名乗りの部分の文（instruction.Business.replay_parts。呼ぶ一言 target・確かめる一言 target_confirm を含む）。
@@ -1197,6 +1198,20 @@ class Flow:
             self.opening_unheard = ["purpose"] if target.get("purpose") else []
         elif self.current is not None and self.questions[self.current].reading_of:
             self._enter_reading(self.current)
+        # 番号を伺い直す電話（予約証の目的 ask_number_again。instruction.Business.number_again と同じ値）：電話に出た方に、名乗りのあと伺い直す一言
+        # （phrases.NUMBER_AGAIN。名乗りの録音の終わり＝Business.first_ask）で番号を伺い、続けて出られる時間を伺って締める。答えはかけ直しの申し出
+        # （別の番号）として通話の事実 callback に残す（CL-2 の 4-42：「ふつうの『かけ直しの申し出（別の番号）』として返せば、同じ流れで扱います」）
+        self.number_again = number_again
+        if number_again:
+            assert number_again in NUMBER_AGAIN, number_again
+            self.phase, self.callback_why = "asking", "other_number"
+            self._note("callback", why="other_number", read=[])   # こちらから伺う（お客様の申し出の発話は無い＝発話の番号0）
+            qs = [callback_question(r) for r in CALLBACK_PLAN["other_number"]]
+            qs[0] = dataclasses.replace(qs[0], text=NUMBER_AGAIN[number_again])
+            for q in qs:
+                self.questions[q.id], self.items[q.id] = q, Item()
+            self.order = self.callback_ids = [q.id for q in qs]
+            self.current = qs[0].id
 
     def _calling_questions(self) -> None:
         """呼んでいる段の判定の質問（judge_context）を作る唯一の場所（始めと、後任の方へ切り替えたとき＝_to_successor）：呼ぶ一言と、確かめる一言

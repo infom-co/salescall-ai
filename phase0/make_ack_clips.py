@@ -30,7 +30,7 @@ from instruction import VOICE_TYPES, voice_style
 from jtext import compare_reading
 from listen import hear_feeds
 from live_util import build_config, collect_turn, send_text
-from phrases import APOLOGY_FIRST, CALLBACK_ASK, LINE_TROUBLE, RECORDED, SUCCESSOR_IDS, TALK_FALLBACK
+from phrases import APOLOGY_FIRST, CALLBACK_ASK, LINE_TROUBLE, NUMBER_AGAIN, RECORDED, SUCCESSOR_IDS, TALK_FALLBACK
 from voice_features import read_wav
 
 OUT = HERE / "results" / "ack"
@@ -85,6 +85,8 @@ HOW = {"moushiwake": "電話で、相手に聞き取れなかったことを申�
        "apology_first": "電話で、前回の電話でお客様にご迷惑をおかけしたことを、心から深くお詫びするように、誠実に、丁寧に、落ち着いた調子で。言葉の途中で区切らずに",
        # 通話をどうしても途中で切るときの2つ（phrases.LINE_TROUBLE）：こちらの都合でご迷惑をおかけしていることを、慌てずに誠実に
        "line_trouble": "電話で、こちらの都合でお客様にご迷惑をおかけしていることを、申し訳なく思いながら、慌てずに、誠実に、丁寧に、落ち着いた調子で。言葉の途中で区切らずに",
+       # 番号を伺い直す一言（phrases.NUMBER_AGAIN）：前回伺った番号のことを、お客様を責めずに、申し訳なさそうに丁寧にお伺いする
+       "number_again": "電話で、前回伺った番号のことを、お客様を責めずに、申し訳なさそうに、丁寧に、柔らかくお伺いするように。言葉の途中で区切らずに",
        # 同じ言葉の調子ごとの録音（phrases.TALK_FALLBACK の調子。✅ 2026-10-23 ユーザーが S2 の聞き比べで調子を聞き分けた）
        "talk_agree_high": "電話で、弾んだ調子で楽しそうに話すお客様に、こちらも元気よく、気持ちを込めて同意するように",
        "talk_agree_deep": "電話で、お客様のお話に、深くうなずきながら、心から同意するように、気持ちを込めて、落ち着いた調子で",
@@ -101,7 +103,7 @@ MAX_S = {"hai": 1.0, "shouchi": 1.4, "arigatou": 1.6, "shitsurei": 1.6, "moushiw
          "lead_tsuzukimashite": 1.2, "lead_deha": 0.8, "closing": 8.0, "closing_declined": 7.0, "wait": 3.5, "wait_heavy": 3.8, "question": 6.0,
          "greeting": 2.5, "intro": 4.5, "purpose": 4.5, "ai": 3.0, "voicemail": 12.0, "ai_again": 8.0, "answer": 8.0, "offer_thanks": 7.5,
          "departed": 4.0, "message": 12.0, "authority": 13.0, "own_fallback": 8.5, "back": 3.0,
-         "talk": 3.5, "apology_first": 6.5, "line_trouble": 9.5}
+         "talk": 3.5, "apology_first": 6.5, "line_trouble": 9.5, "number_again": 12.0}
 MAX_S.update({k: MAX_S["talk"] for k, (_, tone, _) in TALK_FALLBACK.items() if tone})
 # 長い文の上限は、文の長さの見込み（L4 の締めの実測：42字・5.92秒＝1字0.141秒）の1.15倍より短くしない（ClipTablesTest が見る）。
 # ✅ 2026-10-22 ユーザー（4回目）の言い方で、ほかの手段の質問（「それでは恐れ入りますが…」）・お立場を伺う一言（2つから選んでいただく形）・
@@ -119,6 +121,7 @@ HOW_OF.update({"ikaga": "ai", "dou": "ai"})
 HOW_OF.update({k: "talk" for k, (_, tone, _) in TALK_FALLBACK.items() if tone is None})
 HOW_OF.update({f"apology_{k}": "apology_first" for k in APOLOGY_FIRST})  # 調子ごとの録音は、名前そのものが読み方の鍵
 HOW_OF.update({f"line_trouble_{k}": "line_trouble" for k in LINE_TROUBLE})
+HOW_OF.update({f"number_again_{k}": "number_again" for k in NUMBER_AGAIN})
 
 
 END_SILENCE_S = 0.1  # 声のあとに、これだけの無音が無ければ、声の途中で切れた録音として落とす

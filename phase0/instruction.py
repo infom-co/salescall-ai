@@ -12,11 +12,11 @@ from __future__ import annotations
 import dataclasses
 from dataclasses import dataclass, field
 
-from flowctl import (ANY_LABEL, ARG_LABEL, CALLBACK_LABEL, CONFIRM_LABEL, END_LABEL, GOT, PART_LABEL, PARTY_LABEL, SYSTEM_LABEL, TAKEN, Question,
+from flowctl import (ANY_LABEL, ARG_LABEL, CALLBACK_IDS, CALLBACK_LABEL, CONFIRM_LABEL, END_LABEL, GOT, PART_LABEL, PARTY_LABEL, SYSTEM_LABEL, TAKEN, Question,
                      check_policies, choices_note, offers_rule, spoken_question)
 from names import hira, legal_form_reading_off, legal_form_split, quote  # noqa: F401（名前を「」でくくる唯一の場所。ここからも読める）
 
-from phrases import AI_ANSWER, APOLOGY, APOLOGY_FIRST, ASK_BACK, GREETING, PROMISE_AGAIN, SUCCESSOR, SUCCESSOR_OF, role_honorific, target_call, target_confirm, target_reconfirm, target_who  # noqa: F401（決まった言い方は phrases.py の1か所。試験からも、ここ経由で読める）
+from phrases import AI_ANSWER, APOLOGY, APOLOGY_FIRST, ASK_BACK, GREETING, NUMBER_AGAIN, PROMISE_AGAIN, SUCCESSOR, SUCCESSOR_OF, role_honorific, target_call, target_confirm, target_reconfirm, target_who  # noqa: F401（決まった言い方は phrases.py の1か所。試験からも、ここ経由で読める）
 # プログラムから会話AIへ送る合図の文面（文字で送る。相手には聞こえない）。合図の文面はここだけに置く（DESIGN.md 6-7）
 CUES = {
     # AIが黙ったとき：1回だけ返事を促す
@@ -131,6 +131,9 @@ class Business:
     # 前の通話で取れた答え（質問の番号 → {"state", "value", "condition"}。途中で切れた通話の、お詫びしてすぐのかけ直し＝予約証の目的 resume など。
     # CL-2 の行の項目の記録から）。取れた答え（flowctl.TAKEN の状態）の質問は、もう伺わずに続きから聞く（CL-2 の 4-77）。流れの制御 Flow の earlier
     earlier: dict = field(default_factory=dict)
+    # 番号を伺い直す電話（予約証の目的 ask_number_again）：前の電話で伺った番号がどうだったか（phrases.NUMBER_AGAIN の鍵＝wrong_party・unreachable）。
+    # 名乗りのあとに伺い直す一言で番号を伺い、答えはかけ直しの申し出（別の番号）として残す（CL-2 の 4-42）。流れの制御 Flow の number_again
+    number_again: str | None = None
     # 自社名・担当者名の読み（ひらがな。空＝決まらない＝表記のまま渡す）。自社名は、設定に無ければ取込で names.decide が決める（Intent.md 6-8）。
     # ✅ 2026-10-16 ユーザー決定（案C）：担当者名の読みは、設定に必ず入れる（名乗りでは言い換えられない。個人向けでは名乗ることが法律の確認事項）。
     #    必須かどうかを確かめるのは設定の登録（CL-2）。ここは、担当者名を unread_names に入れた矛盾した設定を受け付けない。
@@ -239,18 +242,24 @@ class Business:
         目的の人のある業務では、最後は目的の人を呼ぶ一言（用件と最初の質問は、目的の人に繋がってから＝DESIGN.md 4-3 の ⚠️）。"""
         company, caller = self._said()
         parts = [GREETING, f"{company}の{caller}と申します。"]
-        if self.target is not None:
+        if self.target is not None and not self.number_again:
             return parts + [self.target.call()]   # お詫び（apology）は、目的の方に繋がってから（flowctl.Flow._connect）
-        parts += [APOLOGY_FIRST[k] for k in self.apology]   # 目的の人の無い業務：最初に出た方がお客様＝名乗りのあとにお詫び
-        if self.purpose_line:
-            parts.append(self.purpose_line)
-        if (first := self.first_question()) is not None:
-            parts.append(spoken_question(self.questions, first)[0])   # 前の通話の続きなら、まだ取れていない最初の質問（つなぎの言葉ごと）
+        if not self.number_again:
+            parts += [APOLOGY_FIRST[k] for k in self.apology]   # 目的の人の無い業務：最初に出た方がお客様＝名乗りのあとにお詫び
+            if self.purpose_line:
+                parts.append(self.purpose_line)
+        if (first := self.first_ask()) is not None:
+            parts.append(first[1])   # 番号を伺い直す一言・前の通話の続きなら、まだ取れていない最初の質問（つなぎの言葉ごと）
         return parts
 
-    def first_question(self) -> str | None:
-        """この電話で最初に伺う質問（前の通話で取れた答えの質問は飛ばす＝earlier。無ければ None）。流れの制御 Flow の最初の質問と同じ決まり。"""
-        return next((q.id for q in self.questions if not q.callback and (self.earlier.get(q.id) or {}).get("state") not in TAKEN), None)
+    def first_ask(self) -> tuple[str, str] | None:
+        """この電話で、名乗りのあとに最初に伺うこと（質問の番号, 声に出す文。無ければ None）を決める唯一の場所（名乗りの録音・AIへの指示文が読む。
+        流れの制御 Flow も同じ number_again・earlier で、同じ質問から始める）：番号を伺い直す電話は伺い直す一言（かけ直しの番号の質問）／前の通話の続きは、
+        前の通話で取れた答えの質問を飛ばした最初の質問／それ以外は最初の質問。"""
+        if self.number_again:
+            return CALLBACK_IDS["number"], NUMBER_AGAIN[self.number_again]
+        qid = next((q.id for q in self.questions if not q.callback and (self.earlier.get(q.id) or {}).get("state") not in TAKEN), None)
+        return (qid, spoken_question(self.questions, qid)[0]) if qid else None
 
     def replay_parts(self) -> dict:
         """名乗りの部分（flowctl.Flow の opening。部分 → 文）：流し直す録音と、目的の人に繋がったときに流す名乗り・用件の両方に使う。
@@ -508,19 +517,22 @@ def build(business: Business, voice_type: str, resume=None, opening_mode: str = 
     いまの位置は流れの制御が持っているので、AIが前のセッションを覚えていなくても続きから話せる。
     """
     voice, style_text = voice_style(voice_type)
-    first = business.questions[0]
+    ask = business.first_ask()   # 名乗りのあとに最初に伺うこと（番号を伺い直す一言・前の通話の続き＝Business.first_ask の1か所）
+    first = next((q for q in business.questions if ask and q.id == ask[0]), None)
+    calls_target = business.target is not None and not business.number_again   # 番号を伺い直す電話は、電話に出た方に伺う
+    first_note = (f"最初の質問は {ask[0]} です。" + (choices_note(first) if first else "")) if ask else "伺う質問は、もうありません。"
     parts = [
         "あなたは{}の{}として、電話をかけています。日本語で、丁寧に短く話します。".format(*business._said()),
         f"目的：{business.purpose}",
     ]
-    if resume is None and business.target is not None and opening_mode == "recorded":
+    if resume is None and calls_target and opening_mode == "recorded":
         # 目的の人のある業務（DESIGN.md 4-3）：名乗りの終わりは呼ぶ一言。用件と最初の質問は、目的の人に繋がってから流れの制御が渡す
         parts.append(
             f"相手が電話に出たら、名乗りと目的の人をお呼びする一言（「{''.join(business.opening_parts())}」）を、録音で相手に流します。"
             "あなたは言いません。録音が最後まで流れたら、あなたは相手の返事から会話を続けます。もう一度名乗ったり、お呼びする一言を"
             "繰り返したりしてはいけません。" + replay_rule() + "録音の途中で相手が話し始めたときは、プログラムが、録音のどこまでが相手に"
             "届いたかを知らせます。" + target_rule(business))
-    elif resume is None and business.target is not None:
+    elif resume is None and calls_target:
         parts.append(f"相手が電話に出たら、まず「{business.opening()}{business.target.call()}」と言い、相手の返事を待ちます（質問は、"
                      "目的の人に繋がってから、プログラムが返事で渡します）。" + target_rule(business))
     elif resume is None and opening_mode == "recorded":
@@ -528,10 +540,10 @@ def build(business: Business, voice_type: str, resume=None, opening_mode: str = 
             f"相手が電話に出たら、名乗りと最初の質問（「{''.join(business.opening_parts())}」）を、録音で相手に流します。あなたは言いません。"
             "録音が最後まで流れたら、あなたは相手の答えから会話を続けます。もう一度名乗ったり、同じ質問を繰り返したりしてはいけません。"
             + replay_rule() + "録音の途中で相手が話し始めたときは、プログラムが、録音のどこまでが相手に届いたかを知らせます。"
-            + f"最初の質問は {first.id} です。" + choices_note(first))
+            + first_note)
     elif resume is None:
-        parts.append(f"相手が電話に出たら、まず「{business.opening()}」と名乗り、続けて最初の質問 {first.id}「{first.text}」を聞きます。"
-                     + choices_note(first))
+        parts.append(f"相手が電話に出たら、まず「{business.opening()}」と名乗り、" +
+                     (f"続けて最初の質問 {ask[0]}「{ask[1]}」を聞きます。" + (choices_note(first) if first else "") if ask else "相手の返事を待ちます。"))
     else:
         parts.append(position_text(business, resume))
     parts.append(system_rules(play_recordings, target=business.target is not None, follow_up=business.follow_up)

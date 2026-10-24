@@ -4459,6 +4459,33 @@ class CallbackTest(unittest.TestCase):
         self.assertEqual((f.facts["callback"][0]["number"], f.facts["callback"][0]["time"]), ("090-1234-5678", None))
         self.assertEqual(f.export(), {"Q1": "はい", "Q2": "-"})
 
+    def test_number_again_call_asks_the_number_after_the_introduction(self):
+        # ✅ 2026-10-24 ユーザー（CL-2 の 4-42・4-153）：前の電話で伺った番号が別の方のお電話・繋がらなかったときは、名乗りのあとに伺い直す一言で
+        # 番号を伺い直す（「前回お伺いしたお電話番号に…」）。答えはかけ直しの申し出（別の番号）として残す。目的のお客様のいる業務でも、電話に出た方に伺う
+        import dataclasses
+        from flowctl import Flow
+        from g22_opening import BUSINESS
+        from phrases import CALLBACK_ASK, NUMBER_AGAIN
+        for reason in NUMBER_AGAIN:
+            b = dataclasses.replace(BUSINESS, number_again=reason)
+            self.assertEqual(b.opening_parts()[-1], NUMBER_AGAIN[reason])
+            self.assertEqual(len(b.opening_parts()), 3)                                    # あいさつ・名乗り・伺い直す一言（用件・業務の質問は無い）
+            f = Flow(b.questions, number_again=b.number_again)
+            self.assertEqual((f.current, f.questions["C2"].text, f.callback_why), ("C2", NUMBER_AGAIN[reason], "other_number"))
+            self.say(f, "あ、すみません、090-1234-5678です。", "record_answer", question_id="C2", condition_id="答えた", value="090-1234-5678")
+            r = self.say(f, "はい。", "confirm_field", question_id="C2", result="affirmed")
+            self.assertEqual((r["question_id"], r["question"]), ("C1", CALLBACK_ASK["reachable_time"]))
+            r = self.say(f, "夕方なら出られます。", "record_answer", question_id="C1", condition_id="答えた", value="夕方")
+            self.say(f, "はい。", "confirm_field", question_id="C1", result="affirmed")
+            self.assertEqual((f.end_reason, f.facts["callback"][0]["why"], f.facts["callback"][0]["number"]), ("callback", "other_number", "090-1234-5678"))
+            self.assertEqual(set(f.export().values()), {"-"})                               # 業務の質問は伺っていない
+        from instruction import Target, build
+        t = dataclasses.replace(BUSINESS, target=Target(name="岡田", reading="おかだ", role="営業部部長"), number_again="wrong_party")
+        self.assertEqual(t.opening_parts()[-1], NUMBER_AGAIN["wrong_party"])                 # お呼びせずに、電話に出た方に伺う
+        f = Flow(t.questions, play_recordings=True, opening=t.replay_parts(), target=t.replay_parts(), number_again="wrong_party")
+        self.assertEqual((f.phase, f.current), ("asking", "C2"))
+        self.assertIn("最初の質問は C2 です。", build(t, "S2", opening_mode="recorded")[1])
+
     def test_later_time_is_asked_back_when_unclear_but_not_rechecked(self):
         from flowctl import Limits
         f = self.flow()
@@ -4824,7 +4851,7 @@ class TargetTest(unittest.TestCase):
         self.assertEqual(r["question_id"], "Q2")
         # 全部取れていた：質問を伺わない
         done = {q.id: {"state": "accepted", "value": "x", "condition": "はい"} for q in BUSINESS.questions}
-        self.assertIsNone(dataclasses.replace(BUSINESS, earlier=done).first_question())
+        self.assertIsNone(dataclasses.replace(BUSINESS, earlier=done).first_ask())
         self.assertIsNone(Flow(BUSINESS.questions, earlier=done).current)
 
     def test_apology_comes_first_when_the_target_answers(self):
