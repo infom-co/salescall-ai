@@ -19,7 +19,8 @@
    (P0) 役職｜「岡田様」（R1 の名前の文から）｜「はいらっしゃいますでしょうか？」（中島様の文から）：「様｜は」の近くの一番静かな所で両方を切り、
         無音を足さずにつなぐ（声が続いていても切る＝決まりの外。間があった録音かどうかは記録に残す）
    (P1) 「岡田様」（「岡田様とお電話の約束を…」の文から）｜「とお電話の約束を…」（中島様の文から）＝約束の一言
-   (P2) 同じ「岡田様」｜「でいらっしゃいますでしょうか？」（中島様の文から）＝確かめる一言（名前の部分1つを、別の形に使い回せるか）
+   (P2) 同じ「岡田様」｜「でいらっしゃいますでしょうか？」（中島様の文から）＝確かめる一言（名前の部分1つを、別の形に使い回せるか）。
+        「で」の頭は声の続く音で、静かな所が無いことが多い（L4 は8本とも −20 dB より大きかった）＝(P0) と同じく一番静かな所で切る（決まりの外）
 録り方と確かめは make_ack_clips.take と同じ（g58_name_splice.good_take）。
 """
 from __future__ import annotations
@@ -201,7 +202,12 @@ async def run(args) -> dict:
         return lambda p, r, t: (lambda c: c if c and c["cut"] is not None else None)(particle_cut(p, r, t, head))
     tails = {}
     for form, tmpl in (("と", PROMISE_AGAIN), ("で", TARGET_CONFIRM)):
-        p, r, _, c, row = await timed(client, args, key, tmpl.format(who=f"{OTHER}様"), pt_check(f"{OTHER}様"))
+        if form == "で":
+            # ⛔ 2026-10-24 L4：「で」の頭（声の続く破裂音）は、8本とも一番静かな所が −20 dB より大きかった（S2 は −20.0 dB）＝決まりの中では
+            #    切れないことが多い ⇒ (P0) の「は」と同じく、一番静かな所で切る（決まりの外）。何 dB だったかは記録に残す
+            p, r, _, c, row = await timed(client, args, key, tmpl.format(who=f"{OTHER}様"), lambda p_, r_, t_: wa_evidence(p_, r_, t_, f"{OTHER}様"))
+        else:
+            p, r, _, c, row = await timed(client, args, key, tmpl.format(who=f"{OTHER}様"), pt_check(f"{OTHER}様"))
         before = p[max(0, c["cut"] - int(SEAM_S * r)) * 2:c["cut"] * 2]
         tails[form] = {"pcm": p[c["cut"] * 2:], "whole_hz": features(p, r)["pitch_hz"], "seam_hz": (features(before, r) or {}).get("pitch_hz"),
                        "seam_db": loudness_db(before), "span": c["span"], "db": c["db"], "row": row}
@@ -230,7 +236,7 @@ async def run(args) -> dict:
              {"kind": "(P0) 役職｜名前｜「は」からの続く言葉（「様｜は」の一番静かな所で、無音を足さずに）", "text": f"{ROLE}｜{NAME}様｜はいらっしゃいますでしょうか？", "pcm": p0},
              {"kind": "(R2) 役職｜「課長の」の文の名前と助詞｜息の音からの続く言葉", "text": f"{ROLE}｜{NAME}様はいらっ｜しゃいますでしょうか？", "pcm": r2},
              {"kind": "(P1) 名前｜「と」の頭からの続く言葉（約束の一言）", "text": PROMISE_AGAIN.format(who=f"{NAME}様｜"), "pcm": name_p + tails["と"]["pcm"]},
-             {"kind": "(P2) 同じ名前｜「で」の頭からの続く言葉（確かめる一言）", "text": TARGET_CONFIRM.format(who=f"{NAME}様｜"), "pcm": name_p + tails["で"]["pcm"]}]
+             {"kind": f"(P2) 同じ名前｜「で」の頭の一番静かな所（{tails['で']['db']} dB）からの続く言葉（確かめる一言）", "text": TARGET_CONFIRM.format(who=f"{NAME}様｜"), "pcm": name_p + tails["で"]["pcm"]}]
     random.Random(args.seed).shuffle(items)
     index = []
     for k, it in enumerate(items, 1):
