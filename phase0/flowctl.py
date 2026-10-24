@@ -608,7 +608,9 @@ DONT_KNOW_LABEL = {"not_in_charge": "担当ではない", "undecided": "まだ�
                    "unspecified": "わからない理由を言わなかった"}
 REFUSED_LABEL = {"policy": "決まりで言えない", "unwilling": "答えたくない理由を言わなかった"}
 UNKNOWN_WHY_LABEL = {**DONT_KNOW_LABEL, **REFUSED_LABEL}
-_UNTIL = re.compile(r"\d{1,2}時(?:半|\d{1,2}分)?(?:まで|より前)")
+# 「〇時まで」「〇日まで」（いま電話を続けられない理由で、かけてよい時間・日が決まる言い方。理由を伺い直す・記録に until_why を書く唯一の
+# 見分け。CL-2 の 4-149・4-155：「来月の5日までに」も「〇時まで」と同じ。「〇日以降」「〇日ごろ」は理由なしで読める）
+_UNTIL = re.compile(r"\d{1,2}(?:時(?:半|\d{1,2}分)?|日)(?:まで|より前)")
 CALLBACK_LABEL = {"absent": "不在", "long_absent": "長期の不在", "other_number": "別の番号へ", "later": "あとで", "departed": "在籍していない",
                   "other_means": "ほかの手段"}
 # 相手の申し出（request_callback の、無くてもよい項目）：折り返し・伝言（お呼びした方が出られないときの申し出）／メール・ファクス・郵送（ほかの手段で

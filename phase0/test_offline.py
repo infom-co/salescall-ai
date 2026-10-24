@@ -4423,6 +4423,13 @@ class CallbackTest(unittest.TestCase):
         self.assertEqual(r["result"], "confirm_required")
         self.say(f, "はい。", "confirm_field", question_id="C1", result="affirmed")
         self.assertEqual((f.end_reason, f.facts["callback"][0].get("until_why")), ("callback", "preparing"))
+        # 「〇日まで」も同じ（CL-2 の 4-155：「来月の5日までに」も、いま電話を続けられなかった理由で、かけてよい日が決まる）
+        f = self.flow()
+        self.say(f, "今ちょっと立て込んでいて、あとにしてもらえますか。", "request_callback", why="later")
+        self.say(f, "来月の5日までに社内で決めておきますので。", "record_answer", question_id="C1", condition_id="答えた", value="来月の5日までに",
+                 until_why="preparing")
+        self.say(f, "はい。", "confirm_field", question_id="C1", result="affirmed")
+        self.assertEqual(f.facts["callback"][0].get("until_why"), "preparing")
         # 理由が無い：1回だけ伺い直す
         f = self.flow()
         self.say(f, "今ちょっと手が離せなくて、あとでかけてもらえますか。", "request_callback", why="later")
