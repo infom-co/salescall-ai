@@ -4663,6 +4663,23 @@ class ClipTablesTest(unittest.TestCase):
     """録音を作る表（make_ack_clips）に、どの録音にも読み方と長さの上限がある（⛔ 2026-10-19 の見直しで見つけた漏れ：かけ直しの質問を
     契約者の単位の録音に足したとき、読み方も上限も無く、作ると止まった）。依頼主の単位の録音には「AIですか」への言い方と伝言も入る。"""
 
+    def test_chosen_recordings_are_usable(self):
+        # 人が聞いて選んだ録音（間の確かめに通っていない＝ok は偽）も使う録音（作る道具が作り直さない・試験の通話が「無い」と止まらない）。
+        # 文が変わった録音・音声の無い行は使わない（⛔ 2026-10-24 の見直し：ok だけで見ていた）
+        import json
+        import convo
+        from make_ack_clips import OUT, usable, words
+        table = words(False)[0]
+        text = table["hold_timeout"][0]
+        self.assertTrue(usable({"id": "hold_timeout", "text": text, "wav": "x.wav", "ok": False, "chosen_by": "人"}, table))
+        self.assertTrue(usable({"id": "hold_timeout", "text": text, "wav": "x.wav", "ok": True}, table))
+        self.assertFalse(usable({"id": "hold_timeout", "text": text, "wav": "x.wav", "ok": False}, table))
+        self.assertFalse(usable({"id": "hold_timeout", "text": text + "。", "wav": "x.wav", "ok": True, "chosen_by": "人"}, table))
+        self.assertFalse(usable({"id": "hold_timeout", "text": text, "ok": True}, table))
+        chosen = next(m for m in json.loads((OUT / "index.json").read_text(encoding="utf-8"))
+                      if m.get("chosen_by") == "人" and not m.get("ok") and usable(m, table))
+        self.assertGreater(convo.recording_seconds(chosen["type"], chosen["id"]), 0)
+
     def test_misread_words_get_their_reading(self):
         # ✅ 2026-10-24 ユーザー：「『前回』を『せんかい』と言っている」＝その言葉を含むどの録音も、声のAIには読みのかなで渡す（1か所）。
         # ⛔ 1回目は指示に読みを添えただけで、半分ほどが「せんかい」のままだった

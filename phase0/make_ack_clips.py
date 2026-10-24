@@ -233,6 +233,15 @@ def words(script: bool) -> tuple[dict, Path]:
     return {aid: (text, HOW_OF.get(aid, aid)) for aid, text in RECORDED.items()}, OUT
 
 
+def usable(m: dict, table: dict | None = None) -> bool:
+    """使う録音か（唯一の決まり＝作るとき・試験の通話で流すとき）：音声があり、確かめに通ったか、人が聞いて選んだもの（人が選んだ録音は、
+    間の確かめに通っていないものも多い＝ok は偽のまま）。table を渡せば、文がいまの言い方と同じものだけ（⛔ 2026-10-15：文が変わった録音を
+    作り済みとして飛ばしていた）。⛔ 2026-10-24 の見直しで見つけた穴：ok だけで見ていたので、人が選んだ録音を、作る道具は「まだ無い」として
+    作り直し（台帳の行を、確かめに落ちた行で置き換えうる）、試験の通話（convo.recording_seconds）は「無い」として止めていた。"""
+    return (bool(m.get("wav")) and (bool(m.get("ok")) or m.get("chosen_by") == "人")
+            and (table is None or m.get("text") == table.get(m.get("id"), (None,))[0]))
+
+
 def adopt(names: list[str], script: bool, as_type: str | None = None, as_id: str | None = None) -> dict:
     """人が選んだ候補を、使う録音にする（候補の確かめの結果も、そのまま台帳に移す）。
     as_type：別の声の型の録り方で作った候補を、この声の型の録音として使う（同じ声の名前のときだけ）。
@@ -302,7 +311,7 @@ async def run(args) -> dict:
     index_path = out / "index.json"
     made = json.loads(index_path.read_text(encoding="utf-8")) if index_path.exists() else []
     # 作り済みでも、文が変わった録音は作り直す（⛔ 2026-10-15：読点を外した質問の文が、作り済みとして飛ばされていた）
-    have = {(m["type"], m["id"]) for m in made if m.get("ok") and m.get("text") == table.get(m["id"], (None,))[0]}
+    have = {(m["type"], m["id"]) for m in made if usable(m, table)}
     todo = [(vt, aid) for vt in (args.type or VOICE_TYPES) for aid in ids if (vt, aid) not in have or aid in (args.redo or [])]
     if args.candidates:  # 候補は、作り済みかどうかに関わらず、名指しした録音を作る
         todo = [(vt, aid) for vt in (args.type or VOICE_TYPES) for aid in ids]
