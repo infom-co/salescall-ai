@@ -451,7 +451,9 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                # 声のまとまりの始まり・返事を送った時刻（報告の返事の前と後の声を分けて、間を測る）
                "timeline": [{k: e[k] for k in ("at_s", "kind", "chunk", "speaking", "offset_s", "ids") if k in e} for e in r["events"]
                             if e["kind"] in ("audio_start", "tool_response_sent", "turn_complete", "interrupted", "tool_call_cancelled", "activity")],
-               "phase_after": flow.phase, "current_after": flow.current}
+               "phase_after": flow.phase, "current_after": flow.current,
+               # 会話AIの量（Live の usage_metadata をそのまま。1通話の1分あたりの量＝CL-2 の設定 gate.ai_tpm_per_call を測る。CL-2 の 4-19）
+               "usage": r["usage"]}
         if use_ear and audio:
             row["ear"] = await hear(client, audio, rate, "transcribe35")
         # 見張りは別の耳の文字のあとで当てる（何語を話したかは、口から出た声で決める。turn_check）

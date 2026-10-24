@@ -237,8 +237,9 @@ class Business:
         文は opening_parts と同じもの（録音も同じ）。目的の人のある業務では、呼ぶ一言（target）と、代わった方を確かめる一言（target_confirm）と、
         その返事がはっきりしないときの聞き返し（target_reconfirm）と、約束の電話で取り次げないと言われたときに伺う一言（promise_again）と、
         法人なら前任の方の後任のご担当者様をお呼びする一言（target_successor）も。
-        録音の組は「業務設定の版 × 声」ごとに1つで、承認したあとは部分を足せない（CL-2 の 4-152）。どの行が約束の電話・後任の方の電話になるかは
-        録音のときには分からないので、この電話が何の電話か（予約証の promised・successor）に関わらず、どの電話にも同じ部分を返す。
+        お名前の入る5つ（target・target_confirm・target_reconfirm・promise_again・target_successor）は、業務の録音の組ではなく、名前の録音の
+        台帳（名前の部分＋続く言葉。DESIGN.md 4-3）から流す。どの行が約束の電話・後任の方の電話になるかは、取込（台帳の録音を作る時）には
+        分からないので、この電話が何の電話か（予約証の promised・successor）に関わらず、どの電話にも同じ部分を返す（CL-2 の 4-152）。
         この電話で流す部分を選ぶのは flowctl.Flow（後任の方の電話は target の代わりに target_successor を流す＝Flow._part_play）。"""
         company, caller = self._said()
         parts = {"greeting": GREETING, "intro": f"株式会社{company}の{caller}と申します。", "purpose": self.purpose_line or "",
