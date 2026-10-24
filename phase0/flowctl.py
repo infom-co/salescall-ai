@@ -87,7 +87,8 @@ def _kanji_to_digits(v: str) -> str:
 # 待ってほしいと言われた長さ（「15分ほどお待ちいただけますか」「あと5分で会議が終わりますので」「1時間半」）。「十分ほど」の「十分」は長さ
 # （「十分です」＝足りる、とは分ける：後ろに「ほど・くらい・ぐらい・程度・前後・で・お待ち」が続くときだけ）
 # 時刻の「2時10分」は長さではない（「時」のすぐあとの分は数えない）
-_WAIT_LEN = re.compile(r"(?<![時\d])(\d+)\s*時間(半)?|(?<![時\d])(\d+)\s*分|(半)\s*時間")
+# 「1時間30分」は1つの長さ（⛔ 2026-10-24 の見直し（調べ役）：「1時間」と「30分」を別々に拾い、長いほうの60分で締めていた）
+_WAIT_LEN = re.compile(r"(?<![時\d])(\d+)\s*時間(?:(半)|\s*(\d+)\s*分)?|(?<![時\d])(\d+)\s*分|(半)\s*時間")
 _TEN_MINUTES = re.compile(r"(?<![〇一二三四五六七八九十百時])十分(?=\s*(?:ほど|くらい|ぐらい|程度|前後|で(?!す)|お待ち|待))")
 
 
@@ -98,9 +99,9 @@ def wait_seconds(text: str | None) -> int | None:
     found = []
     for m in _WAIT_LEN.finditer(t):
         if m.group(1):
-            found.append(int(m.group(1)) * 3600 + (1800 if m.group(2) else 0))
-        elif m.group(3):
-            found.append(int(m.group(3)) * 60)
+            found.append(int(m.group(1)) * 3600 + (1800 if m.group(2) else int(m.group(3) or 0) * 60))
+        elif m.group(4):
+            found.append(int(m.group(4)) * 60)
         else:
             found.append(1800)
     return max(found) if found else None
@@ -2160,17 +2161,24 @@ class Flow:
         """取り次ぎを待つように言われた：相手はいま聞いていないので、AIは黙って待つ（唯一の返事。差し戻しではない＝張り替えない。相づちも
         流さない）。代わった方が話し始めたら、名乗りを流し直す（その時機は、判定が HANDOVER と決めた発話で、プログラムが受け付ける）。"""
         said = (self.callee_said or "").strip()[:30]
-        then = (f"代わった方が話し始めたら、replay_opening を{ARG_LABEL['part']}「{PART_LABEL['handover']}」で呼びます。" if self.opening
-                else "代わった方が話し始めたら、名乗りと用件を短く伝えてから、いまの質問を聞きます。")
+        # 相手が電話口を離れた理由は決めつけない：呼んでいる段はお取り次ぎ、繋がったあと・目的の人のいない業務は、確かめに行った・ほかの方に代わる
+        # のどちらもある（⛔ 2026-10-24 の見直しで見つけた穴：どの場面でも「ほかの人に取り次いでいます」「代わった方が話し始めたら名乗りを流し直す」と
+        # 伝えていた＝目的のお客様ご本人が確かめに離れて戻られても、AIは代わった方と思い込み、同じ方に名乗りを流し直させうる）
+        away = ("相手は、お取り次ぎのために電話口を離れています" if self.phase == "calling" else
+                "相手は、電話口を少し離れています（確かめに行かれた・ほかの方に代わる、のどちらもあります）")
+        new_person = (f"replay_opening を{ARG_LABEL['part']}「{PART_LABEL['handover']}」で呼びます" if self.opening
+                      else "名乗りと用件を短く伝えてから、いまの質問を聞きます")
+        then = f"別の方に代わったら（「お電話代わりました」など）、{new_person}。同じ方が戻られたら、その方のお話から続けます。"
         self.holding = True
         if self.asking_reception and self.phase != "calling":
             self.callback_held = True  # かけ直し・お立場の質問の途中の取り次ぎ：このあと出る方は、新しい方かもしれない（_op_replay_opening）
-        # 待つ長さ：相手が言った長さ（「15分ほど」）があればそれ、無ければ業務設定（初め5分）。電話接続側は、この長さのあいだ黙って待ち、
-        # 誰も話さなければ on_hold_timeout を呼ぶ（相手がまた話せば、その言葉で決め直す）
-        wait = self.hold_wait = wait_seconds(self.callee_said) or self.hold_wait_s
+        # 待つ長さ：業務設定（初め5分）。相手がそれより長く待つ理由（長さ）を言えば、その長さ（✅ 2026-10-24 ユーザー：「相手から長く待つ必要がある
+        # 理由がなければ5分、理由があればそれまで待つ」＝短い長さ「1分ほど」は、5分より早く締める理由にしない。⛔ 2026-10-24 の見直し（調べ役）：
+        # 言われた長さをそのまま使い、「1分ほど」で1分後に締めていた）。電話接続側は、この長さのあいだ黙って待ち（90秒より短い間ごとに進みを
+        # 知らせながら＝6-9）、誰も話さなければ on_hold_timeout を呼ぶ（相手がまた話せば、その言葉で決め直す）
+        wait = self.hold_wait = max(wait_seconds(self.callee_said) or 0, self.hold_wait_s)
         return {"result": "hold", "silent": True, "hold_wait_s": wait,
-                "message": f"相手は、ほかの人に取り次いでいます（「{said}」）。答えではありません。何も言わずに、"
-                           f"代わった方が話し始めるのを待ってください。{then}"}
+                "message": f"{away}（「{said}」）。答えではありません。何も言わずに、相手がまた話し始めるのを待ってください。{then}"}
 
     # ── 取り次ぎ・保留のあと、待つ長さ（_hold の返事の hold_wait_s）のあいだ誰も話さなかった（電話接続側が呼ぶ）
     def on_hold_timeout(self) -> dict | None:
@@ -2183,7 +2191,10 @@ class Flow:
         if not self.holding or self.phase == "closing":
             return None
         self._note("hold_timeout", waited_s=self.hold_wait)
-        return self._close("hold_timeout", prefix="保留のまま、待つ長さが過ぎました。", text=(HOLD_TIMEOUT, "hold_timeout"))
+        reply = self._close("hold_timeout", prefix="保留のまま、待つ長さが過ぎました。", text=(HOLD_TIMEOUT, "hold_timeout"))
+        # 電話接続側からの知らせ（AIの操作ではない）も、操作の記録に残す（on_signal と同じ形。流した締めの録音を、ほかの返事と同じく扱う）
+        self.log.append({"op": "signal", "args": {"hold_timeout": True}, "reply": reply, "callee_turns": self.callee_turns})
+        return reply
 
     def _confirm_again(self, qid: str, why: str, reported: str | None, back: str | None) -> dict:
         """言い直しへの返事の確かめがそろわない：もう1回だけ言い直して確かめる（訂正のあとの復唱と同じ回数＝after_correction。選択肢の型は、
@@ -2410,6 +2421,13 @@ class Flow:
         """「合っている」で済んだ確かめを取り消し、言い直しの返事を待つ位置に戻す（_affirmed_in_this_turn のときだけ）。"""
         la, self.last_affirmed = self.last_affirmed, None
         self.items[la["qid"]].set("checking", "同じ相手の発話への報告を、AIが「違う値を言われた」に直した（先の確かめを取り消す）")
+        if self.end_reason is not None and la["phase"] != "closing":
+            # その確かめで締めに進んでいた：締めを取り消す（締めた理由と、締めの記録を1つ。⛔ 2026-10-24 の見直し：段だけを戻していた＝締めた
+            # 理由と締めの記録が残り、二つ目の締めで上書きしていた）
+            self.facts["end"].pop()
+            if not self.facts["end"]:
+                del self.facts["end"]
+            self.end_reason = None
         self.phase, self.current, self.recheck_queue = la["phase"], la["current"], la["recheck_queue"]
         self.awaiting_confirm, self.confirm_requested_at, self.awaiting_say = la["qid"], la["confirm_requested_at"], la["awaiting_say"]
 
@@ -3504,13 +3522,21 @@ class Flow:
         return self._ask_target(new_person=True)
 
     def _end(self, reason: str) -> None:
-        """通話を終える印の唯一の場所（締め・話さずに切る）：締めた理由（END_REASONS の中の名前）を、通話の事実 end に残す。"""
+        """通話を終える印の唯一の場所（締め・話さずに切る）：締めた理由（END_REASONS の中の名前）を、通話の事実 end に残す。1通話1回
+        （二つ目は来ない＝_op_request_end が、締めたあとの終える報告を止める）。"""
         assert reason in END_REASONS, reason
+        assert self.end_reason is None, (self.end_reason, reason)
         self.current, self.phase, self.end_reason = None, "closing", reason
         self._note("end", reason=reason)
 
+    def _ended(self) -> dict:
+        """もう締めた（締め・話さずに切る、のあと）：何もしない返事（唯一の場所。締めは1通話1回＝_end）。"""
+        return {"result": "end", "silent": True, "message": "締めの言葉は、もう流しました（または話さずに終えました）。何も言わずに終えます。"}
+
     def _hang_up(self, reason: str) -> dict:
         """話さずに切る唯一の場所（人ではない相手）。締めの言葉も相づちも流さない。"""
+        if self.end_reason is not None:
+            return self._ended()
         self._end(reason)
         return {"result": "end", "hang_up": True,
                 "message": f"相手は{PARTY_LABEL[reason]}です（人ではありません）。何も言わずに終えます（言葉を言いません）。"}
@@ -3591,6 +3617,18 @@ class Flow:
 
     def _op_request_end(self, a: dict) -> dict:
         reason = a.get("reason")
+        if self.end_reason is not None:
+            # もう締めた（保留で待ちきった・断られた など。電話接続側の知らせで締めたあとに、AIが終える報告をした）：二度締めない・締めた理由を
+            # 変えない（⛔ 2026-10-24 の見直し（調べ役）：二つ目の締めを流し、締めた理由を「質問が終わった」に上書きしていた）。締めたあとの
+            # 発信の拒否・苦情は、記録には残す（原則14：その場で発信禁止に登録）
+            if reason == "callee_refused_call":
+                self._note("do_not_call")
+            elif reason == "callee_complaint":
+                self._note("complaint")
+            if self.after_answer is not None:
+                reply, self.after_answer = self.after_answer[1], None   # 相手の質問に答えてから流すはずだった締め：いま流す
+                return reply
+            return self._ended()
         if reason == "done" and self._apology_cut():
             # お詫びが届く前に止まっていた（相手が話し始めた）：締める前に、もう一度だけ流す（ほかの理由＝断り・苦情などは、今までどおり記録して締める）
             self.apology_replayed = self.apology_played = True
@@ -3981,6 +4019,8 @@ class Flow:
         AIが話す形では「締めの言葉を言って」とだけ伝えていた＝AIが自分で文を作り、「お気軽にお問い合わせください」「お気をつけて
         お越しくださいませ」（命令の形）を足した（G-45）。断られたときの締めは録音にしていなかった（「お忙しいところ」はAIの声で崩れやすい）。
         part：text の録音が依頼主の単位（名乗りの部分。留守番電話の伝言）。無ければ契約者の単位（締めの録音）。"""
+        if self.end_reason is not None:
+            return self._ended()
         polite = ("done", "callback", "not_transferred", "departed", "other_means")  # お礼の締め（ほかは断られたときの締め）
         text, rid = text or ((CLOSING, "closing") if reason in polite else (CLOSE_DECLINED, "closing_declined"))
         self._end(reason)
@@ -3988,9 +4028,12 @@ class Flow:
             item = {"kind": "opening", "part": rid, "text": text} if part else {"kind": "closing", "id": rid, "text": text}
             return {"result": "end", "play": [item],
                     "message": f"{prefix}締めの言葉「{text}」は、プログラムが録音で流しました。何も言わずに終えます。"}
+        # 言い方のとおりに言わせる（足しも削りもしない。約束の言葉も足さない＝G-22：断られたときの締めに、AIが6本中5本で「また改めてご連絡
+        # いたします」と約束を足した）。⛔ 2026-10-24 の見直し（調べ役）：前は「約束もしません」と書いていた＝保留で待ちきったときの言い方の
+        # 「あらためてかけ直させていただきます」と食い違い、AIがその部分を削るおそれがあった
         return {"result": "end", "say": text,
-                "message": f"{prefix}「{text}」と言って終えてください。この言い方だけを使い、言葉を足しません"
-                           "（またお電話します、などの約束もしません）。"}
+                "message": f"{prefix}「{text}」と言って終えてください。この言い方のとおりに言い、言葉を足しも削りもしません"
+                           "（「またお電話します」のような約束の言葉も足しません）。"}
 
     def _lead(self, kind: str) -> str:
         """受けの言葉（lead_ins が無効なら空）。種類ごとに順番に回す。"""

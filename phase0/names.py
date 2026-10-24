@@ -142,11 +142,13 @@ def legal_form_split(company: str) -> tuple[str, str, str]:
 
 def legal_form_reading_off(reading: str, company: str) -> str:
     """名前の部分の読み：自社名の読みに会社の種類の読みが入っていたら外す（読みは名前の部分に当てる＝Business._said）。"""
+    # 比べるのは、カタカナと空白をそろえ（hira）、濁りを外した形（unvoiced。「かぶしきかいしゃ」も「かぶしきがいしゃ」）。⛔ 2026-10-24 の見直し
+    # （調べ役）：書いたままの形で比べていたので、清音の読み・空白入り・カタカナの読みでは外れず、「株式会社「かぶしきかいしゃあおば…」」と2回言った
     head, _, tail = legal_form_split(company)
-    r = reading.strip()
-    if head and r.startswith(LEGAL_FORMS[head]):
+    r = hira(reading)
+    if head and unvoiced(r).startswith(unvoiced(LEGAL_FORMS[head])):
         r = r[len(LEGAL_FORMS[head]):]
-    if tail and r.endswith(LEGAL_FORMS[tail]):
+    if tail and unvoiced(r).endswith(unvoiced(LEGAL_FORMS[tail])):
         r = r[:len(r) - len(LEGAL_FORMS[tail])]
     return r
 

@@ -218,7 +218,7 @@ class FlowTest(unittest.TestCase):
             f.items[q].state = "accepted"
         r = f._advance("")
         self.assertEqual((r["result"], r["say"]), ("end", CLOSING))
-        self.assertIn("言葉を足しません", r["message"])
+        self.assertIn("言葉を足しも削りもしません", r["message"])
         from instruction import Business, build
         b = Business(company="株式会社アオバ物流", caller="佐藤", purpose="ご予約の確認", questions=list(self.flow().questions.values()))
         self.assertIn("約束してはいけません", build(b, "S2")[1])
@@ -1372,6 +1372,10 @@ class SpokenNameTest(unittest.TestCase):
         for company, reading, said in (("株式会社アオバ物流", "", "株式会社「アオバ物流」"),
                                        ("大和ハウス工業株式会社", "だいわはうすこうぎょう", "「だいわはうすこうぎょう」株式会社"),
                                        ("大和ハウス工業株式会社", "だいわはうすこうぎょうかぶしきがいしゃ", "「だいわはうすこうぎょう」株式会社"),
+                                       # 種類の読みは、清音・空白入り・カタカナでも外す（⛔ 2026-10-24 の見直し（調べ役）：「株式会社」を2回言った）
+                                       ("株式会社アオバ物流", "かぶしきかいしゃあおばぶつりゅう", "株式会社「あおばぶつりゅう」"),
+                                       ("株式会社アオバ物流", "カブシキガイシャ アオバブツリュウ", "株式会社「あおばぶつりゅう」"),
+                                       ("合同会社アオバ", "ごうどうかいしゃあおば", "合同会社「あおば」"),
                                        ("合同会社青葉", "", "合同会社「青葉」"),
                                        ("(株)アオバ物流", "", "株式会社「アオバ物流」"),       # 略した書き方は正式に
                                        ("㈲あおば商店", "", "有限会社「あおば商店」"),
@@ -6557,6 +6561,34 @@ class TargetTest(unittest.TestCase):
         self.assertEqual(f.apply("report_party", {"party": "reception"})["hold_wait_s"], 900)  # 言われた長さを待つ
         self.assertIsNone(Flow(b2.questions).on_hold_timeout())                                  # 保留でなければ何もしない
         self.assertEqual((wait_seconds("十分です"), wait_seconds("2時十分に戻ります"), wait_seconds("三十分くらい")), (None, None, 1800))
+        self.assertEqual((wait_seconds("1時間30分ほどお待ちいただけますか"), wait_seconds("2時間15分ほど")), (5400, 8100))   # 1つの長さ
+        # 短い長さ（「1分ほど」）は、業務設定（5分）より早く締める理由にしない（✅ ユーザー：「長く待つ必要がある理由がなければ5分」）
+        f = Flow(b.questions, play_recordings=True, opening=b.replay_parts(), target=b.replay_parts())
+        f.use_checks("judge", "judge2")
+        f.on_callee(); f.on_heard("1分ほどお待ちいただけますか。")
+        f.on_check("judge", HOLD); f.on_check("judge2", HOLD)
+        self.assertEqual(f.apply("report_party", {"party": "reception"})["hold_wait_s"], 300)
+
+    def test_a_call_is_closed_only_once(self):
+        # 締めは1通話1回（⛔ 2026-10-24 の見直し（調べ役）：保留で待ちきった・断られたあとに、AIが終える報告をすると、二つ目の締めを流し、締めた理由を
+        # 「質問が終わった」に上書きしていた）。締めたあとの発信の拒否は、記録には残す（原則14）
+        from flowctl import HOLD
+        f, b = self.flow()
+        f.use_checks("judge", "judge2")
+        f.on_callee(); f.on_heard("少々お待ちください。")
+        f.on_check("judge", HOLD); f.on_check("judge2", HOLD)
+        f.apply("report_party", {"party": "reception"})
+        f.on_hold_timeout()
+        r = f.apply("request_end", {"reason": "done"})
+        self.assertEqual((r["result"], r.get("play"), f.end_reason, [e["reason"] for e in f.facts["end"]]), ("end", None, "hold_timeout", ["hold_timeout"]))
+        f, b = self.flow()
+        self.say(f, "営業のお電話でしたらお断りしております。", "request_end", reason="callee_refused_call")
+        self.say(f, "はい、失礼します。", "request_end", reason="done")
+        self.assertEqual((f.end_reason, len(f.facts["end"])), ("callee_refused_call", 1))
+        f, b = self.flow()
+        self.say(f, "すみません、いま急いでいるので。", "request_end", reason="callee_hurry")
+        self.say(f, "もう二度とかけてこないでください。", "request_end", reason="callee_refused_call")
+        self.assertEqual((f.end_reason, len(f.facts["end"]), len(f.facts.get("do_not_call", []))), ("callee_hurry", 1, 1))
 
     def test_hold_timeout_after_connecting_is_not_a_failed_transfer(self):
         # ⛔ 2026-10-24 の見直しで見つけた穴：目的のお客様に繋がったあとの保留（「確認しますので少々お待ちください」）で待ちきったときも、
