@@ -7832,6 +7832,17 @@ class OfferTest(unittest.TestCase):
         self.heard(f, "はい、私がお伺いします。", TARGET_IS_THERE)
         r = f.apply("report_party", {"party": "substitute"})
         self.assertEqual((r["result"], f.phase), ("confirm_target", "calling"))
+        # 2つの判定が「ご本人」と「代わった人が話し始めた」に割れた（まとめた読みは「決められない」）：1つでも「ご本人」なら、AIの「代わりの方」とは
+        # 食い違う ⇒ 確かめる（⛔ 2026-10-25 J11a 確かめにいいえ・S2：名乗らずに出た方に、確かめずに用件とお立場の質問を流した）。どちらも
+        # 「ご本人」でなければ、これまでどおり代わりの方として受け取る
+        from flowctl import HANDOVER
+        for second, result in ((TARGET_IS_THERE, "confirm_target"), (TARGET_IS_AWAY, "next")):
+            f, b = self.flow()
+            f.use_checks("judge", "judge2")
+            self.heard(f, "はい、お電話代わりました。", HANDOVER)
+            f.on_check("judge2", second)
+            r = f.apply("report_party", {"party": "substitute"})
+            self.assertEqual((r["result"], "substitute" in f.facts), (result, result == "next"))
         # 繋いだあとの「代わりの方」は差し戻す（いまの方とお話を続ける）
         f, b = self.flow()
         self.heard(f, "はい、岡田は私です。", TARGET_IS_THERE)

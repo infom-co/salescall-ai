@@ -3389,8 +3389,13 @@ class Flow:
             # 「ご本人」と読まれない限り、お呼びし直さずに、かけ直しへ
             return self._away(ai, why, offer)
         if ai in STANDIN_PARTIES or why in ("departed", "other_means") or offer in ("callback", "message"):
-            # 折り返し・伝言の申し出も同じ：申し出た方は、お呼びした方の代わりに伝える側（電話口の方は目的の人ではない）
-            if j != TARGET_IS_THERE or why == "other_means":
+            # 折り返し・伝言の申し出も同じ：申し出た方は、お呼びした方の代わりに伝える側（電話口の方は目的の人ではない）。
+            # 判定のどれか1つでも「ご本人」と読んだら受け取らない（判定が割れた「決められない」も、取り消せない側へは進まない＝不在・取り次ぎの
+            # 読みと同じく1つで数える）。⛔ 2026-10-25 J11a（確かめにいいえ・S2）：名乗らずに出た方の「はい、お電話代わりました。」を、AIが
+            # 「代わりの方」と報告し、判定は「ご本人」と「代わった人が話し始めた」に割れた＝「ご本人ではない」として受け取り、確かめずに用件と
+            # お立場の質問を流した。これまでの回帰で、本当に代わりの方・後任の方・申し出・在籍していない方だった報告（約130回）に、「ご本人」の
+            # 読みは0回
+            if not (self.words_complete and TARGET_IS_THERE in self._judged_now().values()) or why == "other_means":
                 if j is None and self.judging and ai in STANDIN_PARTIES and self.standin_wait != self.callee_turns:
                     # 判定が1つも届いていない：代わりの方・後任の方として用件や確かめを流すのは、取り消せない側（目的の人の報告を読み1つで
                     # 繋がないのと同じ）⇒ 黙って待ち、判定が届いたら報告し直させる（unreported_note）。同じ発話で2回目も判定が無ければ、
@@ -3400,10 +3405,10 @@ class Flow:
                     self.standin_wait = self.callee_turns
                     return {"result": "wait", "silent": True,
                             "message": "相手の言葉の読みがそろうまで、何も言わずに待ちます（このあと知らせがあったら、もう一度報告します）。"}
-                # 判定が「ご本人」ではない（別の方・代わった人・決められない・届いていない）：電話口の方は目的の人ではない、とそろう（上の (6)）。
+                # どの判定も「ご本人」と読んでいない（別の方・代わった人・届いていない）：電話口の方は目的の人ではない、とそろう（上の (6)）。
                 # ほかの手段は、電話口のご本人の申し出でもよい
                 return self._not_available(ai, why, offer, {"ai"} | {k for k in JUDGMENTS if self.check.get(k) not in (None, HOLD)})
-            ai = "not_target"  # 判定は「ご本人」：代わりの方・後任の方・在籍していない、と食い違う（確かめる・お呼びし直す）
+            ai = "not_target"  # 判定のどれかが「ご本人」：代わりの方・後任の方・在籍していない、と食い違う（確かめる・お呼びし直す）
         if ai == "away":
             if j is None or (j == TARGET_IS_THERE and why not in ("absent", "long_absent")):
                 # 判定が届いていない（AIの読みだけ＝通話の事実に残し、通話後の検証が確かめる）／電話口のご本人が、いまは話せないと言った
