@@ -123,6 +123,8 @@ HOW_OF.update({f"apology_{k}": "apology_first" for k in APOLOGY_FIRST})  # 調�
 HOW_OF.update({f"line_trouble_{k}": "line_trouble" for k in LINE_TROUBLE})
 HOW_OF.update({f"number_again_{k}": "number_again" for k in NUMBER_AGAIN})
 HOW_OF["hold_timeout"] = "closing"   # 保留で待ちきったときの締め：締めの読み方
+HOW["moshimoshi"] = "電話で、相手の声が聞こえないときに、繋がっているかを穏やかに確かめるように、問いかけるように柔らかく"
+MAX_S["moshimoshi"] = 1.5
 
 
 END_SILENCE_S = 0.1  # 声のあとに、これだけの無音が無ければ、声の途中で切れた録音として落とす

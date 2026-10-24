@@ -212,6 +212,21 @@ class Business:
         return {unicodedata.normalize("NFKC", n["surface"]): n["reading"] for n in self.names  # 置き換えと同じ読み（quote_in_text）
                 if isinstance(n, dict) and n.get("surface") and n.get("reading")}
 
+    def flow(self, recorded: bool = True, play_recordings: bool = False, **kw) -> "Flow":
+        """この業務・この電話の流れの制御（flowctl.Flow）を作る唯一の場所（通話の駆動側・試験の両方）。recorded＝名乗りを録音で流す形（本番の形＝
+        DESIGN.md 6-13。流し直しにも使う）。目的の人のある業務は、繋がるまで最初の質問を渡さない（DESIGN.md 4-3）＝名乗り・用件の文は、
+        AIが話す形でも流れの制御が持つ。kw＝試しの比べだけで変えるもの（lead_ins・confirm など）。"""
+        from flowctl import Flow
+        return Flow(self.questions, busy_ask=self.busy_ask, play_recordings=play_recordings, voicemail_message=self.voicemail_message,
+                    answers=dict(self.answers), policies=self.policies(), knowledge=self.knowledge(), names=self.spoken_names(),
+                    name_readings=self.name_readings(),
+                    # 門の予約証から（CL-2 の gate.Claim）：約束の電話か・まずお詫びすること・後任のご担当者様をお呼びする電話か
+                    promised=self.promised, apology=tuple(self.apology), earlier=self.earlier, number_again=self.number_again,
+                    hold_wait_s=self.hold_wait_s, apology_call=self.apology_call,
+                    successor=self.target is not None and self.target.successor,
+                    target=self.replay_parts() if self.target is not None else None,
+                    opening=self.replay_parts() if recorded else None, **kw)
+
     def spoken_names(self) -> list[str]:
         """声に出す名前（表記と読み）：社名・担当者名・お呼びした方の名前・読みの決まらない名前。名前は録音だけで言い、AIの自分の言葉には入れない
         （flowctl.own_answer_problem。⛔ G-57 tc18：AIの声で目的の人の名前を言い崩した）。"""

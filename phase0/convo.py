@@ -383,17 +383,8 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                     if isinstance(x, dict) and "wav" in x else
                     {**x, "yes": callee_wav(x["yes"], callee_voice), "no": callee_wav(x["no"], callee_voice)}
                     if isinstance(x, dict) and "if_value" in x else x for x in callee_lines]
-    flow = Flow(business.questions, busy_ask=business.busy_ask, lead_ins=lead_ins, play_recordings=play_recordings,
-                voicemail_message=business.voicemail_message, answers=dict(business.answers), policies=business.policies(),
-                knowledge=business.knowledge(), names=business.spoken_names(), name_readings=business.name_readings(),
-                # 門の予約証から（CL-2 の gate.Claim）：約束の電話か・まずお詫びすること・後任のご担当者様をお呼びする電話か
-                promised=business.promised, apology=tuple(business.apology), earlier=business.earlier, number_again=business.number_again,
-                hold_wait_s=business.hold_wait_s, apology_call=business.apology_call,
-                successor=business.target is not None and business.target.successor,
-                # 目的の人のある業務：繋がるまで最初の質問を渡さない（DESIGN.md 4-3）。名乗り・用件の文は、AIが話す形でも流れの制御が持つ
-                target=business.replay_parts() if business.target is not None else None,
-                opening=business.replay_parts() if opening_mode == "recorded" else None,  # 名乗りを録音で流す形なら、流し直しもできる（6-13）
-                **({"confirm": confirm} if confirm else {}))  # confirm：言い直しの言い方（G-25 の比べだけ）。lead_ins：G-27
+    flow = business.flow(recorded=opening_mode == "recorded", play_recordings=play_recordings, lead_ins=lead_ins,
+                         **({"confirm": confirm} if confirm else {}))  # confirm：言い直しの言い方（G-25 の比べだけ）。lead_ins：G-27
     flow.use_checks(*[k for k, used in (("ear", ear_kind), ("judge", judge), ("judge2", judge2)) if used])
     checking = bool(ear_kind or judge or judge2)
     pending: list = []  # 確かめの作業（通話の終わりに、まだ走っているものは届くまで待つ＝通話後の検証と同じ。待っても届かなければ止める）

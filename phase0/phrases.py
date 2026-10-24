@@ -300,6 +300,10 @@ LINE_TROUBLE = {"ask": "恐れ入ります。こちらの通信に不具合が�
 # 「お返事がないようですので、また、あらためて、かけ直させていただきます。それでは、いったん失礼いたします。」（言葉の途中の読点は外す＝10-15。
 # 同じ日の1回目の言い方の「のちほど」を、ユーザーが「あらためて」に替えた＝同じ日のうちとはお約束しない）
 HOLD_TIMEOUT = "お返事がないようですのでまたあらためてかけ直させていただきます。それではいったん失礼いたします。"
+# 電話が繋がっても、出た方が黙ったまま（第一声が無い）とき、回線が繋がっているか・途切れていないか・留守番電話ではないかを確かめる一言（契約者の単位の
+# 録音。✅ 2026-10-24 ユーザー：「2秒ほど待っても『はい、』もなく黙っているなら、『もしもし』などで、回線がつながっているのか、不安定でないのか？
+# 留守電ではないのか？を確認した方がいいんじゃないですか？」＝CL-1.md 4-45。⏳ 言い方と録音はユーザーに伺う）
+MOSHIMOSHI = "もしもし？"
 NUMBER_AGAIN = {"wrong_party": "前回お伺いしたお電話番号にお掛けしたところ別の方のお電話でした。恐れ入りますがもう一度お電話番号をお伺いしてもよろしいでしょうか？",
                 "unreachable": "前回お伺いしたお電話番号にお掛けしたのですがつながりませんでした。恐れ入りますがもう一度お電話番号をお伺いしてもよろしいでしょうか？"}
 # AIが自分の言葉で答える文（flowctl.Flow._own_answer）が、声に出す前の確かめ（flowctl.own_answer_problem）に、書き直しても通らなかったときだけ
@@ -361,7 +365,7 @@ RECORDED = {**ACK, "closing": CLOSING, "closing_declined": CLOSE_DECLINED, "wait
             "offer_thanks": OFFER_THANKS, "departed": DEPARTED_ACK, **{SUCCESSOR_IDS[k]: v for k, v in SUCCESSOR.items()},
             "own_fallback": OWN_FALLBACK, "back": BACK_TO, **{k: v for k, (v, _, _) in TALK_FALLBACK.items()},
             **{f"apology_{k}": v for k, v in APOLOGY_FIRST.items()}, **{f"line_trouble_{k}": v for k, v in LINE_TROUBLE.items()},
-            **{f"number_again_{k}": v for k, v in NUMBER_AGAIN.items()}, "hold_timeout": HOLD_TIMEOUT}
+            **{f"number_again_{k}": v for k, v in NUMBER_AGAIN.items()}, "hold_timeout": HOLD_TIMEOUT, "moshimoshi": MOSHIMOSHI}
 
 
 def lead_in(kind: str, n: int) -> str:

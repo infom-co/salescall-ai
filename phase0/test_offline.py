@@ -4355,7 +4355,8 @@ class PartyTest(unittest.TestCase):
         qs = list(self.flow().questions.values())
         d = next(d for d in tool_declarations(qs)[0].function_declarations if d.name == "report_party")
         self.assertEqual(d.parameters.properties["相手"].enum,
-                         [PARTY_LABEL[k] for k in ("voicemail", "ivr", "fax", "wrong_party")])  # 目的の人の無い業務では、受付・目的の人は見せない
+                         [PARTY_LABEL[k] for k in ("person", "voicemail", "ivr", "fax", "wrong_party")])  # 目的の人の無い業務では、受付・目的の人は見せない
+        # （「電話に出た方（人）」は、どの業務にも＝第一声で人と分かったら知らせる。CL-1.md 4-45）
         text = build(Business(company="株式会社アオバ物流", caller="佐藤", purpose="ご予約の確認", questions=qs), "S2")[1]
         self.assertIn("report_party", text)
         self.assertIn("何も言わずに", text)
@@ -6663,6 +6664,188 @@ class TargetTest(unittest.TestCase):
         f, b = self.flow()
         self.say(f, "はい、岡田は私ですが。", "report_party", party="target")
         self.assertEqual(self.say(f, "えっと。", "request_end", reason="not_transferred")["result"], "rejected")
+
+
+class FirstWordsTest(unittest.TestCase):
+    """電話に出た方の第一声を聞いてから名乗る（✅ 2026-10-24 ユーザー。CL-1.md 4-45・DESIGN.md 6-13）：繋がったら黙って聞き、人と分かり、その方の
+    言葉が終わったら名乗りの録音を流す。留守番電話の案内は黙って聞き続け（案内のあとに人が出ることがある）、黙っている方には「もしもし」。"""
+
+    @staticmethod
+    def business(target: bool = False, **kw):
+        import dataclasses
+        from g22_opening import BUSINESS
+        from instruction import Target
+        return dataclasses.replace(BUSINESS, **({"target": Target(name="岡田", reading="おかだ", role="営業部部長")} if target else {}), **kw)
+
+    @staticmethod
+    def first_words(f, heard: str, party: str = "person") -> dict:
+        f.on_callee(); f.on_heard(heard)
+        return f.apply("report_party", {"party": party})
+
+    def test_the_opening_is_played_after_a_person_speaks_in_the_recorded_order(self):
+        # 第一声のあとに流す名乗りは、録音を作るときの並び（instruction.Business.opening_parts＝名乗りの録音の唯一の並び）と同じ
+        from phrases import GREETING
+        cases = {"目的の人": self.business(target=True), "誰でも": self.business(),
+                 "前の電話のお詫び": self.business(apology=("cut_off", "missed_promise")),
+                 "番号の伺い直し": self.business(number_again="wrong_party"), "目的の人・番号の伺い直し": self.business(target=True, number_again="unreachable"),
+                 "お詫びの電話": self.business(apology_call="前回は、お電話が途中で切れてしまい、大変失礼いたしました。"),
+                 "前の通話の続き": self.business(earlier={"Q1": {"state": "confirmed", "value": "はい"}})}
+        for name, b in cases.items():
+            for play in (True, False):
+                f = b.flow(play_recordings=play)
+                r = f.on_connect()
+                self.assertEqual((r["result"], r["silent"], f.answering, f.speech_allowed(0)), ("wait", True, True, False), name)
+                self.assertEqual(f.log[-1]["args"], {"connect": True}, name)          # 電話接続側の知らせも、操作の記録に残す
+                r = self.first_words(f, "はい、アオバ物流でございます。")
+                self.assertEqual(r["result"], "opening", name)
+                self.assertEqual([x["text"] for x in r["play"]], b.opening_parts(), (name, play))
+                self.assertEqual(r["play"][0]["text"], GREETING, name)
+                self.assertFalse(f.answering, name)
+                self.assertIsNone(f._ack("report_party", {"party": "person"}, r), name)   # 名乗りの頭に相づちを付けない
+                self.assertEqual({k: f.facts["party"][-1][k] for k in ("party", "by", "turn")}, {"party": "person", "by": "ai", "turn": 1}, name)
+                if b.target is not None and not b.number_again:
+                    self.assertEqual((f.target_called, f.phase), ([1], "calling"), name)   # 呼ぶ一言は、第一声（1つ目の発話）のあとに流した
+                else:
+                    self.assertEqual(f.phase, "asking", name)
+                if b.apology_call:
+                    self.assertTrue(f.apology_asked and f.apology_played, name)
+
+    def test_nothing_is_played_until_the_person_is_known_and_has_finished(self):
+        b = self.business(target=True)
+        f = b.flow(play_recordings=True)
+        f.on_connect()
+        f.on_callee(); f.on_heard("お電話ありがとうございます。")
+        self.assertIsNone(f.on_first_words_end())            # 言葉は終わったが、人かはまだ分からない（留守番電話の案内も、文の間で途切れる）
+        self.assertTrue(f.answering)
+        f.on_activity(True)                                    # 相手はまだ話している
+        r = f.apply("report_party", {"party": "person"})
+        self.assertEqual((r["result"], r.get("play")), ("noted", None))
+        self.assertTrue(f.answering)
+        f.on_heard("アオバ物流でございます。"); f.on_activity(False, 3.0)
+        r = f.on_first_words_end()                             # 言葉が出揃った ⇒ 名乗りを流す（電話接続側の知らせ）
+        self.assertEqual([x["text"] for x in r["play"]], b.opening_parts())
+        self.assertEqual((f.log[-1]["op"], f.log[-1]["args"], f.log[-1]["reply"]), ("signal", {"first_words_end": True}, r))
+        self.assertIsNone(f.on_first_words_end())             # 2回は流さない
+        self.assertEqual(sum(x["reply"].get("result") == "opening" for x in f.log), 1)
+
+    def test_only_the_party_report_is_taken_while_listening(self):
+        from flowctl import JUDGMENTS
+        f = self.business().flow(play_recordings=True)
+        f.on_connect()
+        f.on_callee(); f.on_heard("はい。")
+        self.assertEqual(f.judge_context(), (None, None, None))   # 「はい。」は、まだ流していない最初の質問の答えではない（判定を走らせない）
+        r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい", "value": "はい"})
+        self.assertEqual(r["result"], "rejected")
+        self.assertIn("まだ名乗っていません", r["message"])
+        self.assertFalse(f.speech_allowed(0))
+        note = f.unreported_note(muted=True)                  # 報告しないままターンを終えた ⇒ 人かどうかを報告させる（1つの発話に1回）
+        self.assertIn("report_party", note)
+        self.assertIsNone(f.unreported_note(muted=True))
+        self.assertFalse(f.wants_checks("report_party", {"party": "person"}))
+        self.assertTrue(set(JUDGMENTS))
+        self.first_words(f, "", "person")
+        self.assertEqual(f.judge_context()[0].id, "Q1")       # 名乗りのあとは、最初の質問の判定
+
+    def test_a_handover_reading_on_the_first_words_is_not_a_new_speaker(self):
+        from flowctl import HANDOVER
+        b = self.business(target=True)
+        f = b.flow(play_recordings=True)
+        f.use_checks("judge")
+        f.on_connect()
+        f.on_callee(); f.on_heard("はい、お電話ありがとうございます。")
+        f.on_check("judge", HANDOVER, turn=1)                  # 第一声の方は、最初の電話口の方（替わった方ではない）
+        self.assertEqual((f.speaker_from, f.passed_on), (1, False))
+        r = f.apply("report_party", {"party": "reception"})
+        self.assertEqual([x["text"] for x in r["play"]], b.opening_parts())
+
+    def test_the_target_who_names_themselves_is_asked_to_confirm(self):
+        # ✅ 2026-10-24 ユーザー「第一声でお呼びする方ご本人が名乗ったら…確かめます。OK」：呼ぶ一言の代わりに確かめる一言
+        from phrases import GREETING
+        b = self.business(target=True)
+        parts = b.replay_parts()
+        for play in (True, False):
+            f = b.flow(play_recordings=play)
+            f.on_connect()
+            r = self.first_words(f, "はい、岡田です。", "target")
+            self.assertEqual([x["text"] for x in r["play"]], [GREETING, parts["intro"]] + ([parts["target_confirm"]] if play else []), play)
+            self.assertEqual(r.get("say"), None if play else f.target["target_confirm"], play)   # 確かめる一言の録音が無い形は、AIが言う
+            self.assertEqual((f.target_confirmed, f.target_called, f.confirm_open), ([1], [], True), play)
+            if not play:
+                self.assertTrue(f.speech_allowed(len(f.log) - 1))
+            f.on_callee(); f.on_heard("はい、そうです。")
+            r = f.apply("report_party", {"party": "target"})
+            self.assertEqual(f.phase, "asking", play)
+            self.assertEqual([x["text"] for x in r["play"]][0], parts["purpose"], play)   # 名乗りはもう聞いた方＝用件から
+
+    def test_reception_then_the_target_after_a_handover(self):
+        b = self.business(target=True)
+        parts = b.replay_parts()
+        f = b.flow(play_recordings=True)
+        f.on_connect()
+        r = self.first_words(f, "はい、アオバ物流でございます。", "reception")
+        self.assertEqual(r["play"][-1]["text"], parts["target"])
+        f.on_callee(); f.on_heard("少々お待ちください。")
+        self.assertEqual((f.apply("report_party", {"party": "reception"})["result"], f.passed_on), ("noted", True))   # 取り次がれた
+        f.on_callee(); f.on_heard("お電話代わりました、岡田です。")
+        r = f.apply("report_party", {"party": "target"})
+        self.assertEqual(f.phase, "asking")
+        self.assertEqual([x["text"] for x in r["play"]][:3], [parts["greeting"], parts["intro"], parts["purpose"]])   # 代わった方には名乗りから
+
+    def test_voicemail_is_listened_to_before_hanging_up(self):
+        from flowctl import VOICEMAIL_WAIT_S
+        for after in ("person", "nobody", "message"):
+            b = self.business(voicemail_message="アオバ物流の佐藤です。また改めてお電話いたします。" if after == "message" else None)
+            f = b.flow(play_recordings=True)
+            f.on_connect()
+            r = self.first_words(f, "ただいま電話に出ることができません。", "voicemail")
+            self.assertEqual((r["result"], r["silent"], r.get("voicemail_wait_s"), f.end_reason), ("wait", True, VOICEMAIL_WAIT_S, None), after)
+            f.on_heard("発信音のあとに、お名前とご用件をお話しください。")
+            r = f.apply("report_party", {"party": "voicemail"})
+            self.assertNotIn("voicemail_wait_s", r)               # 聞き続ける長さは、最初の1回だけ渡す
+            if after == "person":
+                r = self.first_words(f, "はい、もしもし。すみません、アオバ物流です。")   # 案内のあとに人が出た
+                self.assertEqual([x["text"] for x in r["play"]], b.opening_parts())
+                self.assertIsNone(f.on_voicemail_wait_end())
+                continue
+            r = f.on_voicemail_wait_end()
+            self.assertEqual(f.end_reason, "voicemail", after)
+            self.assertEqual(f.log[-1]["args"], {"voicemail_wait_end": True}, after)
+            if after == "nobody":
+                self.assertEqual((r["result"], r.get("hang_up"), r.get("play")), ("end", True, None))
+            else:
+                self.assertEqual(f.facts["voicemail_message"][0]["turn"], 1)
+            self.assertIsNone(f.on_voicemail_wait_end())
+
+    def test_a_silent_line_is_checked_with_moshimoshi_then_closed(self):
+        # ✅ 2026-10-24 ユーザー：「2秒ほど待っても『はい、』もなく黙っているなら、『もしもし』などで…確認した方がいいんじゃないですか？」
+        from flowctl import FIRST_WORDS_SILENCE_S, MOSHIMOSHI_TRIES
+        from phrases import MOSHIMOSHI, RECORDED
+        self.assertIn("moshimoshi", RECORDED)
+        b = self.business(target=True)
+        f = b.flow(play_recordings=True)
+        self.assertEqual(f.on_connect()["silence_s"], FIRST_WORDS_SILENCE_S)
+        for _ in range(MOSHIMOSHI_TRIES):
+            r = f.on_start_silence()
+            self.assertEqual((r["result"], r["play"], r["silence_s"]), ("wait", [{"kind": "recorded", "id": "moshimoshi", "text": MOSHIMOSHI}],
+                                                                       FIRST_WORDS_SILENCE_S))
+        r = f.on_start_silence()
+        self.assertEqual((r["result"], r["hang_up"], r["silent"], f.end_reason, f.facts.get("end")), ("end", True, True, None, None))
+        self.assertIsNone(f.not_reached)                     # 会話に至らなかった（お客様の拒否ではない）
+        self.assertEqual([x["args"] for x in f.log if x["op"] == "signal"], [{"connect": True}] + [{"start_silence": True}] * 3)
+        g = b.flow(play_recordings=True)                     # 「もしもし」のあとに声が出たら、ふつうに名乗る
+        g.on_connect(); g.on_start_silence()
+        r = self.first_words(g, "あ、はい、アオバ物流です。")
+        self.assertEqual([x["text"] for x in r["play"]], b.opening_parts())
+        self.assertIsNone(g.on_start_silence())
+
+    def test_person_is_only_for_the_first_words_and_the_recorded_form(self):
+        b = self.business()
+        f = b.flow(play_recordings=True)                     # 第一声を待たない通話（電話接続側が on_connect を呼ばない）：今までどおり
+        r = self.first_words(f, "はい、そうです。")
+        self.assertEqual(r["result"], "rejected")
+        self.assertNotIn("party", f.facts)
+        with self.assertRaises(ValueError):
+            b.flow(recorded=False).on_connect()              # AIが名乗る形（録音を使わない古い試し）には、第一声を待つ形は無い
 
 
 class ScenesTest(unittest.TestCase):
