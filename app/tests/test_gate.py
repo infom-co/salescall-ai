@@ -98,6 +98,19 @@ class Base(unittest.TestCase):
     def claim(self, s, line=None, holder=HOLDER, task=None):
         return self.tx(s, lambda tx: gate.claim(tx, task_id=task or s["task"], line_id=line or s["line"], lease_holder=holder))
 
+    def ring_elsewhere(self, s, line=None):
+        """同じ回線で、ほかの番号へかけた電話が、お客様のところで鳴った（出なかった）：回線が元気だった証拠（その前の、鳴らなかった
+        電話の続きが閉じる＝番号が1つだけなら番号のせい。salescall.unrung_blame＝0129）。ほかの番号の行は1つ作って使い回す。"""
+        if "elsewhere" not in s:
+            phone = normalize(fictional_jp_fixed()).e164
+            k = self.w.contact(s["tenant"], s["client"], phone)
+            s["elsewhere"] = dict(s, task=self.w.task(s["tenant"], s["client"], s["run"], k), contact=k, phone=phone)
+        other = s["elsewhere"]
+        aid = self.w.insert_claim(other, line=line)
+        for state in ("dialing", "no_answer"):
+            self.w.move(other, aid, state)
+        return aid
+
     def reason(self, s, **kw):
         got = self.claim(s, **kw)
         self.assertIsInstance(got, gate.Denied, got)
@@ -1234,14 +1247,16 @@ class Exit(Base):
         s = self.ready()
         c = self.claim(s)
         self.assertIs(dial_exit.dial(self.w.a, SYSTEM, s["tenant"], s["client"], c.attempt_id,
-                                     FakeDriver(dial_exit.NumberRejected("番号を受け付けなかった"))),
-                      dial_exit.Outcome.NUMBER_REJECTED)
-        self.assertEqual(self.state(s, c.attempt_id), "call_failed")              # 番号のせい：番号の歯止めで数える
+                                     FakeDriver(dial_exit.CallNotPlaced("番号を受け付けなかった"))), dial_exit.Outcome.NOT_PLACED)
+        # かけようとして、かけられなかった：「発信に失敗」（だれのせいかは、同じ回線の前後の電話で決める＝salescall.unrung_blame。
+        # ⛔ 0129：前はアプリの言い分で、回線のせい・分からないは取り消し、番号のせいだけ「発信に失敗」にした）
+        self.assertEqual(self.state(s, c.attempt_id), "call_failed")
+        self.assertEqual(self.tx(s, lambda tx: attempts.blame(tx, c.attempt_id)), "pending")   # 回線がつぎにかけるまで分からない
         s5 = self.ready()
         c5 = self.claim(s5)
         self.assertIs(dial_exit.dial(self.w.a, SYSTEM, s5["tenant"], s5["client"], c5.attempt_id,
-                                     FakeDriver(dial_exit.CallNotPlaced("回線のせいか分からない"))), dial_exit.Outcome.NOT_PLACED)
-        self.assertEqual(self.state(s5, c5.attempt_id), "released")              # 回線のせい・分からない：番号には数えない
+                                     FakeDriver(dial_exit.CallWithheld("試験：PC がかけようとしなかった"))), dial_exit.Outcome.WITHHELD)
+        self.assertEqual(self.state(s5, c5.attempt_id), "released")              # かけようとしなかった：どの数にも入れない
         s2 = self.ready()
         c2 = self.claim(s2)
         unknown = FakeDriver(RuntimeError("切断"))

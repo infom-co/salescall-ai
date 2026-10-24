@@ -25,7 +25,7 @@ from salescall.agent import main as agent_main
 from salescall.agent.pc_login import PcPass
 from salescall.core import agents, stops
 from salescall.link import protocol, sealing
-from salescall.link.phone import CallNotPlaced, CallWithheld, NumberRejected
+from salescall.link.phone import CallNotPlaced, CallWithheld
 from salescall.link.protocol import RemoteError
 from salescall.supervisor import channel, config
 from salescall.supervisor.links import Attached
@@ -223,9 +223,9 @@ class Connect(LinkBase):
         until(lambda: phone.played == [b"\x03"], "サーバーの声が電話の部品へ届く")
 
     def test_the_phone_answers_and_failures_map_to_the_dial_exit(self):
-        """通話中か・かける・切るは、PC の部品を通して電話の部品へ。かけられなかった＝番号のせい NumberRejected（番号の歯止めで
-        数える）／回線のせい・分からない CallNotPlaced（回線の異常として数える）、
-        かけたか分からない＝ほかの誤り（結果不明）。つながっていない回線は「通話中」（かけない側）。"""
+        """通話中か・かける・切るは、PC の部品を通して電話の部品へ。かけようとして、かけられなかった＝CallNotPlaced（だれのせいかは
+        サーバーが同じ回線の前後の電話で決める＝0129。前は番号のせい NumberRejected を分けていた）、かけたか分からない＝ほかの誤り
+        （結果不明）。つながっていない回線は「通話中」（かけない側）。"""
         s = self.ready()
         got = self.pc(s)
         phone = FakePhone(busy=True)
@@ -238,13 +238,10 @@ class Connect(LinkBase):
         driver.start_call("+81300000000")
         driver.hang_up()
         self.assertEqual((phone.calls, phone.hung), (["+81300000000"], 1))
-        phone.fail = CallNotPlaced("試験：回線のせいか分からない")
+        phone.fail = CallNotPlaced("試験：アプリが番号を受け付けない")
         with self.assertRaises(CallNotPlaced) as e:
             driver.start_call("+81300000001")
-        self.assertIs(type(e.exception), CallNotPlaced)                     # 回線のせい・分からない（番号のせいにしない）
-        phone.fail = NumberRejected("試験：アプリが番号を受け付けない")
-        with self.assertRaises(NumberRejected):                              # 番号のせいは、そのまま番号のせいで届く
-            driver.start_call("+81300000001")
+        self.assertIs(type(e.exception), CallNotPlaced)                     # かけられなかった（だれのせいかは、ここでは決めない）
         phone.fail = RuntimeError("試験：分からない")
         with self.assertRaises(RuntimeError):
             driver.start_call("+81300000002")
@@ -548,6 +545,29 @@ class LostConnection(LinkBase):
         with mock.patch.object(protocol, "ANSWER_BY", 0.5), self.assertRaises(RuntimeError):
             driver.start_call("+81300000001")                                  # 答えは「分からない」（出口が結果不明にする）
         self.assertEqual(order, ["かけた", "おわび"])
+
+    def test_a_call_request_that_waited_past_its_deadline_is_withheld_not_failed(self):
+        """前の頼みを待つうちに答えの期限を過ぎた「かけて」は、PC がかけようとしない（番号も回線も試していない）：「かけようとしな
+        かった」（withheld）で答え、サーバーは試行を取り消す（どの数にも入れない）。⛔ 0129：前は「かけられなかった」（not_placed）で
+        答えていたので、いまは「発信に失敗」になり、番号のせいか回線のせいかを数える材料に入ってしまう。"""
+        s = self.ready()
+        got = self.pc(s)
+
+        class SlowPhone(FakePhone):
+            def start_call(self, phone, voice_type=None):
+                time.sleep(1.0)
+                self.calls.append(phone)
+        phone = SlowPhone()
+        self.agent(got, [s["line"]], {s["line"]: phone})
+        driver = self.hub.driver(s["line"], self.attached(s, got))
+        with mock.patch.object(protocol, "ANSWER_BY", 0.5):
+            first = threading.Thread(target=lambda: self.assertRaises(RuntimeError, driver.start_call, "+81300000000"))
+            first.start()
+            until(lambda: self.hub.sessions[got.pc_id].pending, "かけてと頼んだ")
+            with self.assertRaises(CallWithheld):
+                driver.start_call("+81300000001")
+            first.join(10)
+        self.assertEqual(phone.calls, ["+81300000000"])                       # 2つ目は、かけようとしていない
 
     def test_a_pass_revoked_during_a_call_waits_for_the_call_to_end(self):
         """通話の途中で通行証が止められた（画面の「この PC のログインを外す」）：その PC の回線はすぐ見せなくし（新しくかけない）、

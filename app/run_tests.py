@@ -1124,15 +1124,12 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      " OR salescall.unknown_pending(p_attempt) $$",
      ("tests.test_settle.CutOffCalls.test_rejudging_an_old_cut_call_does_not_revive_the_ended_row_nor_hold_the_customer",)),
     ("同じ番号の、発信に失敗した数を数えない（0118：受け付けない番号へ、終わりなくかける）",
-     "CREATE OR REPLACE FUNCTION salescall.failed_run(p_contact uuid) RETURNS TABLE (n integer, first_day date, last_end timestamptz)"
-     " LANGUAGE sql STABLE AS $$ SELECT 0, NULL::date, NULL::timestamptz $$",
+     _edited("0129_unrung_blame.sql", "CREATE FUNCTION salescall.failed_run(", "SELECT (count(*) FILTER (WHERE c.blame IN ('number', 'pending')))::integer,\n         (count(*) FILTER (WHERE c.blame = 'number'))::integer,", 'SELECT 0, 0,', end="\n$$"),
      ("tests.test_settle.UnusableNumber.test_four_failures_follow_the_order_and_stop_the_number",
       "tests.test_settle.UnusableNumber.test_other_rows_of_the_same_number_do_not_dial_it_again")),
     ("同じ番号の、発信に失敗した数を、あいだにかけられた発信があっても数え続ける（0118：番号を早く捨てる）",
-     "CREATE OR REPLACE FUNCTION salescall.failed_run(p_contact uuid) RETURNS TABLE (n integer, first_day date, last_end timestamptz)"
-     " LANGUAGE sql STABLE AS $$ SELECT count(*)::integer, min(salescall.jst(a.claimed_at))::date, max(a.ended_at)"
-     " FROM salescall.attempts a WHERE a.contact_id = p_contact AND salescall.is_dialed(a.state) AND NOT salescall.is_placed(a.state) $$",
-     ("tests.test_settle.UnusableNumber.test_a_placed_call_between_restarts_the_count",)),
+     _edited("0129_unrung_blame.sql", "CREATE FUNCTION salescall.failed_run(", "WHERE NOT x.rang AND x.claimed_at > coalesce((SELECT max(y.claimed_at) FROM x y WHERE y.rang), '-infinity'::timestamptz))", 'WHERE NOT x.rang)', end="\n$$"),
+     ("tests.test_settle.UnusableNumber.test_a_call_that_rang_restarts_the_run",)),
     ("声の性別の表示名を、あとから書き換えられる（0118：前の通話の声の性別の意味が変わる）",
      "CREATE OR REPLACE FUNCTION salescall.voices_guard() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN"
      " IF current_user <> 'salescall_owner' AND salescall.cur_actor_kind() IS DISTINCT FROM 'admin' THEN"
@@ -1261,13 +1258,7 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      " AND salescall.is_settled(b.attempt_id)) $$",
      ("tests.test_undecided_unknown.UnknownPending.test_a_later_call_whose_result_is_also_unknown_keeps_it_pending",)),
     ("発信に失敗が続いた最初の日を、いちばん新しい失敗の日にする（次にかける日がずれる）",
-     "CREATE OR REPLACE FUNCTION salescall.failed_run(p_contact uuid) RETURNS TABLE (n integer, first_day date, last_end timestamptz)"
-     " LANGUAGE sql STABLE SET search_path = salescall, pg_temp AS $$ WITH x AS (SELECT a.claimed_at,"
-     " coalesce(a.ended_at, a.claimed_at) AS e, salescall.is_placed(a.state) AS placed, row_number() OVER (ORDER BY a.claimed_at DESC)"
-     " AS rn FROM salescall.attempts a WHERE a.contact_id = p_contact AND salescall.is_dialed(a.state)),"
-     " k AS (SELECT coalesce(min(x.rn) FILTER (WHERE x.placed) - 1, count(*))::integer AS n FROM x)"
-     " SELECT k.n, (SELECT salescall.jst(x.claimed_at)::date FROM x WHERE x.rn = 1), (SELECT x.e FROM x WHERE x.rn = 1 AND k.n > 0)"
-     " FROM k $$",
+     _edited("0129_unrung_blame.sql", "CREATE FUNCTION salescall.failed_run(", 'salescall.jst(min(c.claimed_at)', 'salescall.jst(max(c.claimed_at)', end="\n$$"),
      ("tests.test_settle.UnusableNumber.test_the_run_of_failures_starts_on_its_first_day",)),
     # 見直し17a（0122）：回線が直った証拠
     ("回線が直った証拠を、前の「その回線で呼び出し中に移った」に戻す（お客様が出る前に回線の側で終わる電話が続いても、回線が止まらない）",
@@ -1293,13 +1284,7 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      ("tests.test_watch.LineStops.test_only_a_call_that_rang_and_ended_resets_the_count",)),
     # 2026-10-23 ユーザー：お客様が出る前に毎回終わる番号も「番号を受け付けないときと同じ」（0124）
     ("番号の続きが、発信に失敗だけを数える（0124 の前の形：お客様が出る前に終わる番号へ、方針の間隔で終わりなくかける）",
-     "CREATE OR REPLACE FUNCTION salescall.failed_run(p_contact uuid) RETURNS TABLE (n integer, first_day date, last_end timestamptz)"
-     " LANGUAGE sql STABLE SET search_path = salescall, pg_temp AS $$ WITH x AS (SELECT a.claimed_at,"
-     " coalesce(a.ended_at, a.claimed_at) AS e, salescall.is_placed(a.state) AS rang, row_number() OVER (ORDER BY a.claimed_at DESC)"
-     " AS rn FROM salescall.attempts a WHERE a.contact_id = p_contact AND salescall.is_dialed(a.state)),"
-     " k AS (SELECT coalesce(min(x.rn) FILTER (WHERE x.rang) - 1, count(*))::integer AS n FROM x)"
-     " SELECT k.n, (SELECT salescall.jst(x.claimed_at)::date FROM x WHERE x.rn = k.n), (SELECT x.e FROM x WHERE x.rn = 1 AND k.n > 0)"
-     " FROM k $$",
+     _edited("0129_unrung_blame.sql", "CREATE FUNCTION salescall.failed_run(", 'salescall.rang(a.state, a.cut_off, a.attempt_id) AS rang', 'salescall.is_placed(a.state) AS rang', end="\n$$"),
      ("tests.test_settle.UnusableNumber.test_calls_ending_before_the_callee_answers_follow_the_same_order",)),
     ("お客様のところで鳴ったか（rang）が、お客様が出る前に終わった電話も鳴ったとみなす",
      "CREATE OR REPLACE FUNCTION salescall.rang(s salescall.attempt_state, p_cut_off boolean, p_attempt uuid) RETURNS boolean"
@@ -1307,7 +1292,7 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      ("tests.test_settle.UnusableNumber.test_a_call_that_rang_restarts_the_run",)),
     # 見直し17b（全部の試験でも落ちなかった壊し方に、試験を足した）
     ("発信に失敗の続きの「最後の失敗の終わり」を、続いた最初の失敗の終わりにする（次にかける時刻を取り違える）",
-     'CREATE OR REPLACE FUNCTION salescall.failed_run(p_contact uuid)\nRETURNS TABLE (n integer, first_day date, last_end timestamptz)\nLANGUAGE sql STABLE SET search_path = salescall, pg_temp AS $$\n  WITH x AS (SELECT a.claimed_at, coalesce(a.ended_at, a.claimed_at) AS e, salescall.is_placed(a.state) AS placed,\n                    row_number() OVER (ORDER BY a.claimed_at DESC) AS rn\n             FROM salescall.attempts a WHERE a.contact_id = p_contact AND salescall.is_dialed(a.state)),\n       k AS (SELECT coalesce(min(x.rn) FILTER (WHERE x.placed) - 1, count(*))::integer AS n FROM x)\n  SELECT k.n, (SELECT salescall.jst(x.claimed_at)::date FROM x WHERE x.rn = k.n),\n         (SELECT x.e FROM x WHERE x.rn = k.n AND k.n > 0)\n  FROM k\n$$;',
+     _edited("0129_unrung_blame.sql", "CREATE FUNCTION salescall.failed_run(", 'max(c.ended_at) FILTER', 'min(c.ended_at) FILTER', end="\n$$"),
      ("tests.test_settle.UnusableNumber.test_the_run_of_failures_starts_on_its_first_day",)),
     ("これからかける約束の一覧（回線の取り置き）が「強制かけない」の行も入れる",
      "CREATE OR REPLACE FUNCTION salescall.promises_waiting()\nRETURNS TABLE (task_id uuid, client_id uuid, call_at timestamptz, callee_at timestamptz, phone_e164 text)\nLANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$\n  SELECT n.task_id, n.client_id, n.call_at, n.callee_at, k.phone_e164\n  FROM salescall.task_next_actions n\n  JOIN salescall.tasks t ON t.task_id = n.task_id\n  JOIN salescall.runs r ON r.run_id = t.run_id\n  JOIN salescall.task_numbers k ON k.task_id = n.task_id AND k.contact_id = n.contact_id\n  WHERE n.tenant_id = salescall.cur_tenant() AND n.promised AND n.kind = 'call'\n    AND n.seq = (SELECT c.seq FROM salescall.current_next_actions c WHERE c.task_id = n.task_id)\n    AND salescall.client_active(n.client_id)\n    AND NOT EXISTS (SELECT 1 FROM salescall.blocking_stops(n.tenant_id, n.client_id, r.business_id, NULL,\n                                                           salescall.keeping_kind(n.purpose, n.promised)))\n    AND NOT EXISTS (SELECT 1 FROM salescall.attempts a\n                    WHERE a.task_id = n.task_id AND salescall.is_live(a.state, a.claim_expires_at))\n$$;",
@@ -1387,6 +1372,36 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      "CREATE OR REPLACE FUNCTION salescall.refusal_undecided(p_attempt uuid) RETURNS boolean LANGUAGE sql STABLE"
      " SET search_path = salescall, pg_temp AS $$ SELECT NOT salescall.is_settled(p_attempt) $$",
      ("tests.test_undecided_unknown.UnknownPending.test_an_unknown_call_that_was_not_cut_still_holds_the_customer",)),
+    # 2026-10-24 ユーザー：「明らかに番号に問題がある場合は、その行は取りやめですが、回線の問題が明らかな場合は行は取りやめでなく
+    # 一時中止だけ」（0129：鳴らなかった電話のせいを、同じ回線の前後の電話の証拠で決める）
+    ("鳴らなかった電話を、違う番号が続けて鳴らなくても回線のせいにしない（0129 の前：壊れた回線で、お客様の行が「番号が使えない」で終わる）",
+     _edited("0129_unrung_blame.sql", "CREATE FUNCTION salescall.unrung_blame(", "> 1 THEN 'line'", "> 99 THEN 'line'", end="\n$$"),
+     ("tests.test_settle.UnusableNumber.test_a_broken_line_does_not_make_numbers_unusable_on_its_own",
+      "tests.test_supervisor.Blame.test_a_line_that_rejects_every_number_stops_and_loses_no_row")),
+    ("鳴らなかった電話を、あとに回線が鳴らせた証拠が無くても番号のせいにする（回線が壊れた直後の番号を、取りやめうる）",
+     _edited("0129_unrung_blame.sql", "CREATE FUNCTION salescall.unrung_blame(", "WHEN (SELECT hi.t FROM hi) IS NOT NULL THEN 'number'", "WHEN true THEN 'number'", end="\n$$"),
+     ("tests.test_gate.Exit.test_driver_failures",
+      "tests.test_settle.UnusableNumber.test_a_last_failure_that_turns_out_the_lines_does_not_end_the_row")),
+    ("回線が元気だった証拠に、ほかの回線で鳴った電話も数える",
+     _edited("0129_unrung_blame.sql", "CREATE FUNCTION salescall.unrung_blame(", 'WHERE b.line_id = me.line_id AND b.claimed_at > me.claimed_at', 'WHERE b.claimed_at > me.claimed_at', end="\n$$"),
+     ("tests.test_settle.UnusableNumber.test_the_blame_of_a_call_is_read_on_its_own_line_only",)),
+    ("回線の続きを、鳴った電話で区切らない（前に鳴らなかった別の番号まで、回線のせいの証拠にする）",
+     _edited("0129_unrung_blame.sql", "CREATE FUNCTION salescall.unrung_blame(", "ORDER BY b.claimed_at DESC LIMIT 1), '-infinity'::timestamptz) AS t", "ORDER BY b.claimed_at DESC LIMIT 0), '-infinity'::timestamptz) AS t", end="\n$$"),
+     ("tests.test_settle.UnusableNumber.test_the_run_on_the_line_is_cut_by_a_call_that_rang",)),
+    ("番号の続きに、回線のせいの電話も数える（0129 の前：回線の故障で、番号が使えないと決まる）",
+     _edited("0129_unrung_blame.sql", "CREATE FUNCTION salescall.failed_run(", "WHERE c.blame IN ('number', 'pending')))::integer,", 'WHERE c.blame IS NOT NULL))::integer,', end="\n$$"),
+     ("tests.test_settle.UnusableNumber.test_a_broken_line_does_not_make_numbers_unusable_on_its_own",
+      "tests.test_supervisor.Blame.test_a_line_that_rejects_every_number_stops_and_loses_no_row")),
+    ("番号を取りやめる数に、まだ分からない電話も数える（回線のせいかもしれない番号を取りやめる）",
+     _edited("0129_unrung_blame.sql", "CREATE FUNCTION salescall.failed_run(", "(count(*) FILTER (WHERE c.blame = 'number'))::integer", '(count(*) FILTER (WHERE c.blame IS NOT NULL))::integer', end="\n$$"),
+     ("tests.test_settle.UnusableNumber.test_four_failures_follow_the_order_and_stop_the_number",)),
+    ("回線の異常として記録済みの電話も、また数える（1本の失敗を何度も回線の異常に数える）",
+     _edited("0129_unrung_blame.sql", "CREATE FUNCTION salescall.line_faults_unrecorded(", "AND NOT EXISTS (SELECT 1 FROM salescall.error_events e WHERE e.attempt_id = a.attempt_id AND e.source = 'line')", 'AND true', end="\n$$"),
+     ("tests.test_supervisor.Rounds.test_a_call_that_could_not_be_placed_is_a_failed_dial_whose_blame_the_line_decides",)),
+    ("番号のせい・まだ分からない電話も、回線の異常として数える（0129 の前：1つの番号のために回線が止まり続ける）",
+     _edited("0129_unrung_blame.sql", "CREATE FUNCTION salescall.line_faults_unrecorded(", "AND salescall.unrung_blame(a.attempt_id) = 'line'", 'AND salescall.unrung_blame(a.attempt_id) IS NOT NULL', end="\n$$"),
+     ("tests.test_supervisor.Blame.test_one_number_that_cannot_be_placed_does_not_starve_the_line",
+      "tests.test_supervisor.Rounds.test_a_call_that_ends_before_the_answer_on_the_line_side_counts_as_a_line_fault_once_it_is_the_lines")),
 )
 
 

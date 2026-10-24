@@ -61,11 +61,29 @@ def resume_allowed(tx: Tx, task_id: UUID) -> bool:
 
 
 def failed_run(tx: Tx, contact_id: UUID) -> dict[str, Any]:
-    """その番号（依頼者の連絡先。どの行・どの回線でも）への、いちばん新しい発信から続けて、お客様のところで電話が鳴らなかった
-    （回線の部品が番号を受け付けなかった・お客様が出る前に回線やこちらの側で終わった＝`rang` でない）発信の続き（決まりはデータベースの
-    1か所 salescall.failed_run＝0124。2026-10-23 ユーザー：「番号を受け付けないときと同じ」）：n＝続いた数・first_day＝続いた最初の日
-    （日本時間）・last_end＝いちばん新しい発信の終わり（続いていなければ None）。"""
-    return tx.one("SELECT n, first_day, last_end FROM salescall.failed_run(%s)", (contact_id,))
+    """その番号（依頼者の連絡先。どの行・どの回線でも）への、いちばん新しい鳴った発信より後の、お客様のところで電話が鳴らなかった
+    （回線の部品がかけられなかった・お客様が出る前に回線やこちらの側で終わった＝`rang` でない）発信の続き（決まりはデータベースの
+    1か所 salescall.failed_run＝0129）。回線のせいと分かった発信（`blame` が line）は数えない（続きを切りもしない）：
+    n＝番号のせい（number）と、まだ分からない（pending）の数（次にかける時刻の決まった順に使う）・n_sure＝番号のせいの数（その番号へ
+    かけないと決めるのは、こちらだけ）・first_day＝数えた最初の日（日本時間）・last_end＝数えたいちばん新しい発信の終わり（無ければ
+    None）。2026-10-24 ユーザー：「明らかに番号に問題がある場合は、その行は取りやめですが、回線の問題が明らかな場合は行は取りやめで
+    なく一時中止だけ」。"""
+    return tx.one("SELECT n, n_sure, first_day, last_end FROM salescall.failed_run(%s)", (contact_id,))
+
+
+def blame(tx: Tx, attempt_id: UUID) -> str | None:
+    """お客様のところで鳴らなかった発信が、だれのせいか（決まりはデータベースの1か所 salescall.unrung_blame＝0129。電話の部品の
+    言い分では決めず、同じ回線の前後の電話の証拠で決める）：line＝鳴った電話を挟まずに、同じ回線で違う番号も続けて鳴らなかった
+    （回線のせい）／number＝同じ回線が、そのあとほかの電話を鳴らせた（番号のせい）／pending＝まだ分からない（その回線がつぎに
+    かければ決まる）。鳴った・終わっていない・発信まで進んでいない発信は None。"""
+    return tx.one("SELECT salescall.unrung_blame(%s) AS b", (attempt_id,))["b"]
+
+
+def line_faults_unrecorded(tx: Tx, line_id: UUID) -> list[dict[str, Any]]:
+    """その回線の、鳴った電話のあとの続きのうち、回線のせい（`blame` が line）と分かったのに、まだ回線の異常として記録していない
+    発信（attempt_id・client_id。かけた順。決まりはデータベースの1か所 salescall.line_faults_unrecorded＝0129）。回線ごとの処理が
+    読んで1つずつ記録する（記録済みかは記録の attempt_id で見る＝何度読んでも二重に数えない）。"""
+    return tx.all("SELECT attempt_id, client_id FROM salescall.line_faults_unrecorded(%s)", (line_id,))
 
 
 def failed_retry_days(tx: Tx, **scope: Any) -> list[int]:
@@ -75,11 +93,22 @@ def failed_retry_days(tx: Tx, **scope: Any) -> list[int]:
 
 
 def number_unusable(tx: Tx, contact_id: UUID, **scope: Any) -> bool:
-    """その番号へは、もうかけないか（1か所。門と次の動きの両方が読む）：お客様のところで鳴らなかった発信（`failed_run`）が、並び
-    （`failed_retry_days`）の数だけ続いた（2026-10-22 深夜 ユーザー：「同じ番号で続けて当日2回＆翌日1回、さらに2日後1回の計4回
-    受け付けられなかったら、その番号へはかけない」。2026-10-23 ユーザー：お客様が出る前に毎回終わる番号も「番号を受け付けないときと
-    同じ」）。"""
-    return failed_run(tx, contact_id)["n"] >= len(failed_retry_days(tx, **scope))
+    """その番号へは、もうかけないか（1か所。門と次の動きの両方が読む）：番号のせいと分かった、お客様のところで鳴らなかった発信
+    （`failed_run` の n_sure）が、並び（`failed_retry_days`）の数だけ続いた（2026-10-22 深夜 ユーザー：「同じ番号で続けて当日2回＆
+    翌日1回、さらに2日後1回の計4回受け付けられなかったら、その番号へはかけない」。2026-10-23 ユーザー：お客様が出る前に毎回終わる
+    番号も「番号を受け付けないときと同じ」。2026-10-24 ユーザー：「明らかに番号に問題がある場合は、その行は取りやめ」＝回線のせいか
+    まだ分からない発信では、やめない＝`number_unconfirmed`）。"""
+    return failed_run(tx, contact_id)["n_sure"] >= len(failed_retry_days(tx, **scope))
+
+
+def number_unconfirmed(tx: Tx, contact_id: UUID, **scope: Any) -> bool:
+    """鳴らなかった発信が並びの数だけ続いたが、番号のせいか回線のせいかが、まだ分からないものがある（1か所。門と、候補を出す処理
+    （gate.waits_unknown）が読む）：その行はかけずに待つ（候補に出さない）。その回線がつぎにほかの番号へかければ決まる（鳴れば番号の
+    せい＝`number_unusable`、鳴らなければ回線のせい＝数から外れ、決まった順の続きでかける）。"""
+    run = failed_run(tx, contact_id)
+    if run["n"] == run["n_sure"]:   # まだ分からない電話が無い（候補を出す処理が行ごとに読むので、設定を読む前に返す）
+        return False
+    return run["n"] >= len(failed_retry_days(tx, **scope)) > run["n_sure"]
 
 
 def reached(table: str = "") -> str:
@@ -153,9 +182,10 @@ def release(tx: Tx, attempt_ids: list[UUID]) -> int:
 
 
 def withheld(tx: Tx, attempt_id: UUID) -> None:
-    """発信の出口だけが呼ぶ。PC の部品が電話をかけなかった（PC の上の緊急停止・PC がつながっていない・回線のせいか、どちらの
-    せいか分からないで、かけられなかった＝お客様の電話は鳴っていない。⛔ 見直し17c：回線のせいの分も、前は「発信に失敗」にして番号の
-    歯止めで数えた）：発信まで進まなかった予約と同じく取り消す（判定しない・どの数にも入らない。行の予定はそのまま＝いまの予定のまま、
+    """発信の出口だけが呼ぶ。PC の部品が電話をかけようとしなかった（PC の上の緊急停止・PC がつながっていない・前の頼みを待つうちに
+    答えの期限を過ぎた＝お客様の電話は鳴っていないし、番号も回線も試していない。かけようとして、かけられなかったものは「発信に失敗」
+    にして、だれのせいかを証拠で決める＝`blame`。⛔ 0129：前は「回線のせいか分からない」もここで取り消し、番号には数えず回線の異常と
+    して数えたので、1つの番号だけが続けてかけられないと回線が止まり続けた）：発信まで進まなかった予約と同じく取り消す（判定しない・どの数にも入らない。行の予定はそのまま＝いまの予定のまま、
     ほかの回線か、少しあとにかけ直す）。⛔ 2026-10-22 の見直し14：前は「発信に失敗」にして、締めが「会話に至らなかった」と判定し、
     再発信の方針の回数を使い、続き・番号の聞き直しの目的も消えた。"""
     if tx.one("UPDATE salescall.attempts SET state = 'released' WHERE attempt_id = %s AND state = 'dialing'"

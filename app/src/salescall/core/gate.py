@@ -61,6 +61,7 @@ REASONS: dict[str, Reason] = {
     "number_kind_forbidden": Reason("かけない種類の番号です", "permanent", "plan"),
     "number_kind_not_allowed": Reason("この業務の設定でかけない種類の番号です", "permanent", "plan"),
     "number_unusable": Reason("この番号は、お客様のところで電話が鳴らない電話が続きました（番号を受け付けない・お客様が出る前に終わる、が決まった数だけ続いた）", "permanent", "plan"),
+    "number_unconfirmed": Reason("この番号は、お客様のところで鳴らない電話が決まった数だけ続きましたが、番号のせいか回線のせいかが、まだ分かりません（その回線がほかの番号へかけると決まります）", "wait", "unoffered"),
     "dnc_client": Reason("発信禁止です", "permanent", "plan"),
     "dnc_contractor": Reason("契約者の共通の発信禁止です", "permanent", "plan"),
     "other_contractor_called": Reason("ほかの契約者がかけた番号です（契約者の設定で、かけない）", "permanent", "plan"),
@@ -380,7 +381,8 @@ def waits_unknown(tx: Tx, task_id: UUID, line_id: UUID | None = None) -> str | N
     門に渡さずに飛ばす（門に渡すと、次の動きが決まった間ごとに予定を書き直し、記録が増え続けた＝⛔ 見直し16・17a。待つ時刻が分かる
     理由は、次の動きがその時刻へ1回書くので、ここには入れない）。見るのは、理由の表の扱いが unoffered・plan_if_known の理由のうち、
     候補のデータベースの条件で除けないもの（`UNOFFERED_HERE`）。どれも門と同じ関数を読む：契約者の承認を待つ（approval.task_cleared）・
-    同じお客様の発信で、断られたかがまだ決まっていない（dnc.undecided_reach_overlaps）・目的のお客様を呼ぶ材料が無い（`_target_short`）・
+    同じお客様の発信で、断られたかがまだ決まっていない（dnc.undecided_reach_overlaps）・鳴らない電話が決まった数だけ続いた番号の、
+    番号のせいか回線のせいかがまだ分からない（attempts.number_unconfirmed）・目的のお客様を呼ぶ材料が無い（`_target_short`）・
     話してよい別の声が無い（`choose_voice`）・その回線の発信番号で、ほかの依頼者がこの番号へかけた（`_line_taken`。line_id を渡した
     ときだけ。ほかの回線には出す）・待つ時刻が分からない約束（`pacing` の known）。"""
     if not approval.task_cleared(tx, task_id):
@@ -388,6 +390,9 @@ def waits_unknown(tx: Tx, task_id: UUID, line_id: UUID | None = None) -> str | N
     if dnc.undecided_reach_overlaps(tx, task_id):
         return "related_unsettled"
     task = _task(tx, task_id)
+    if attempts.number_unconfirmed(tx, task["contact_id"], tenant_id=task["tenant_id"], client_id=task["client_id"],
+                                   business_id=task["business_id"]):
+        return "number_unconfirmed"
     nxt = tx.one("SELECT promised, salescall.keeping_kind(purpose, promised) AS keeping, now() AS now,"
                  " salescall.jst(now())::date AS today FROM salescall.current_next_actions WHERE task_id = %s", (task_id,))
     if nxt is None:
@@ -589,6 +594,11 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
     if attempts.number_unusable(tx, task["contact_id"], tenant_id=task["tenant_id"], client_id=task["client_id"],
                                 business_id=task["business_id"]):
         return _deny("number_unusable")
+    # 並びの数だけ続いたが、番号のせいか回線のせいかが、まだ分からない：かけずに待つ（決まりは attempts.number_unconfirmed の1か所。
+    # 候補を出す処理も同じ関数で出さない＝waits_unknown。2026-10-24 ユーザー：行をやめるのは「明らかに番号に問題がある場合」だけ）
+    if attempts.number_unconfirmed(tx, task["contact_id"], tenant_id=task["tenant_id"], client_id=task["client_id"],
+                                   business_id=task["business_id"]):
+        return _deny("number_unconfirmed")
 
     # (3) 回数と間隔（pacing の1か所）
     pace = _pacing(tx, task, now)

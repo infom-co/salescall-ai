@@ -40,7 +40,7 @@ from salescall.agent.config import Config
 from salescall.link import protocol as p
 from salescall.link import sealing
 from salescall.link.basics import PcPass, backoff, load
-from salescall.link.phone import CallNotPlaced, NumberRejected, Phone
+from salescall.link.phone import CallNotPlaced, Phone
 
 RECONNECT_FIRST, RECONNECT_MAX = 1.0, 60.0
 # PC の部品が終わるとき、途中の頼み（かけている途中の電話）が済むのを待つ長さ（秒）。かけ終わったあとの見張り（つながりが切れたら
@@ -315,16 +315,14 @@ class Agent:
         if op == "start_call":
             if emergency.engaged() is not None:   # かける直前にもう一度見る（印があれば、かけない）
                 return {"ok": False, "error": "withheld"}
-            if time.monotonic() - got > p.ANSWER_BY:   # 前の頼みを待つうちに、答えの期限を過ぎた：かけない
-                return {"ok": False, "error": "not_placed"}
+            if time.monotonic() - got > p.ANSWER_BY:   # 前の頼みを待つうちに、答えの期限を過ぎた：かけようとしない（番号も回線も
+                return {"ok": False, "error": "withheld"}   # 試していない＝どの数にも入れない）
             generation = self.generation
             try:
                 voice = msg.get("voice") if isinstance(msg.get("voice"), str) else None   # この通話の声の型（おわびの録音も、この声）
                 await loop.run_in_executor(None, lambda: phone.start_call(str(msg.get("phone")), voice_type=voice))
                 out: dict[str, Any] = {"ok": True}
-            except NumberRejected:   # 番号のせい（分け方は link/phone.py の形の1か所）
-                return {"ok": False, "error": "number_rejected"}
-            except CallNotPlaced:    # 回線のせい・どちらか分からない
+            except CallNotPlaced:    # かけようとして、かけられなかった（だれのせいかは、サーバーが同じ回線の前後の電話で決める）
                 return {"ok": False, "error": "not_placed"}
             except Exception:  # noqa: BLE001 かけたか分からない
                 out = {"ok": False, "error": "failed"}

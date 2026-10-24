@@ -545,15 +545,35 @@ def _write(tx: Tx, task_id: UUID, d: Decision) -> int:
 UNREACHED_REASONS = ("absent", "not_transferred", "departed")
 
 
+def _line_fault_again(tx: Tx, task_id: UUID, dialed: Target, dialed_at: datetime, now: datetime) -> Decision | None:
+    """回線のせいで、お客様のところで鳴らなかった（鳴った電話を挟まずに、同じ回線で違う番号も続けて鳴らなかった＝attempts.blame が
+    line）発信のあとの次の動き（1か所。ふつうの電話・約束の電話・お詫びの電話のどれも）：かけなかったのと同じに、かけた予定をそのまま
+    （かける先・約束・時刻・幅・お詫びの印）いまから。回数・番号の続き・約束の回の本数のどれにも数えない。回線はその回線ごとの処理が
+    休ませ、続けば止めて知らせる（ほかの回線は、すぐかけられる）。2026-10-24 ユーザー：「回線の問題が明らかな場合は行は取りやめで
+    なく一時中止だけ」。かけた予定が読めなければ None（ふつうの決め方で決める）。"""
+    row = _plan_at(tx, task_id, dialed_at)
+    if row is None or row["kind"] != "call":
+        return None
+    target = replace(dialed, successor=True) if row["successor"] else dialed
+    return _call(now, bool(row["promised"]), "回線のせいで鳴らなかった（同じ回線で違う番号も続けて鳴らなかった）：回線の一時中止"
+                 "だけで、かけた予定のまま（どの数にも数えない）", target,
+                 row["callee_at"] if row["promised"] else None, window_of(row))
+
+
 def after_call(tx: Tx, task_id: UUID, j: Judgement, *, rules: Rules, dialed: Target,
                dialed_at: datetime, alternate: Alternate | None, recheck: Recheck | None, forbidden: bool,
-               cut_off: bool = False, reached_target: bool = False) -> Decision:
+               cut_off: bool = False, reached_target: bool = False, line_fault: bool = False) -> Decision:
     """締めの処理（core/settle.py）だけが呼ぶ。判定の結果から次の動きを決めて記録する（同じ取引）。
     cut_off＝お客様が出たあと、お客様の意思と関係なく途中で切れた（決めるのは締めの処理の1か所）。
     dialed＝この通話でかけた先（番号・目的）、dialed_at＝かけた時刻。alternate＝お客様が言った別の番号の材料（言われたときだけ）。
     recheck＝言われた番号が番号違いだったときの番号の確かめ（そのときだけ）。reached_target＝目的のお客様と話せた（約束の日に
-    かけられなかったお詫びは、ここで済んだものとして外す＝会話の処理が、予約証の印を見て最初にお詫びしている）。"""
+    かけられなかったお詫びは、ここで済んだものとして外す＝会話の処理が、予約証の印を見て最初にお詫びしている）。
+    line_fault＝回線のせいで鳴らなかった（attempts.blame。`_line_fault_again` の1か所で、かけた予定のまま）。"""
     now = tx.one("SELECT now() AS now")["now"]
+    again = _line_fault_again(tx, task_id, dialed, dialed_at, now) if line_fault else None
+    if again is not None:
+        _write(tx, task_id, again)
+        return again
     # かけた予定（発信のときに効いていた次の予定）が持っていた、お客様が言った時間の幅。いまの予定ではなく、発信の時刻までに
     # 決めた予定から読む（判定し直しのときは、いまの予定が判定待ちになっていて、幅を失うため）
     dialed_row = _plan_at(tx, task_id, dialed_at)
@@ -676,25 +696,31 @@ def numbers_of(tx: Tx, task_id: UUID) -> Numbers:
 def _failed_retry_at(tx: Tx, task_id: UUID, contact_id: UUID | None, now: datetime, dialed_at: datetime) -> datetime | None:
     """その番号へ、お客様のところで鳴らない電話（回線の部品が受け付けなかった・お客様が出る前に終わった＝attempts.failed_run）が
     続いているとき、次にかける時刻（1か所）。
-    続いていない・並びを使い切った（その番号へはかけない＝`usable`）ときは None。並び（設定 dial.failed_retry_days。1＝最初に失敗
+    続いていない・番号のせいと分かった発信で並びを使い切った（その番号へはかけない＝`usable`）ときは None。並び（設定 dial.failed_retry_days。1＝最初に失敗
     した日）の次の日（前の失敗の日から並びの差より前にはしない）が今日（か、もう過ぎた）なら、最後の失敗から同じお客様への最短の間隔をあけて。先の日なら、その日の、前と別の
     時間帯で（`_retry_at`）。2026-10-22 深夜 ユーザー：「同じ番号で続けて当日2回＆翌日1回、さらに2日後1回の計4回受け付けられ
     なかったら、その番号へはかけない」。"""
     if contact_id is None:
         return None
     run = attempts.failed_run(tx, contact_id)   # 続いた数・最初の日・最後の終わり（データベースの1か所。⛔ 見直し16b：前は最初の日を
-    k = run["n"]                                # 別の問い合わせで求め直していた）
+    k = run["n"]                                # 別の問い合わせで求め直していた。回線のせいの発信は数えない＝0129）
     scope = tasks.scope(tx, task_id)
     days = attempts.failed_retry_days(tx, **scope)
-    if k == 0 or k >= len(days):
+    gap = timedelta(seconds=int(settings.resolve(tx, "gate.same_contact_min_interval", **scope)))
+    if k == 0 or run["n_sure"] >= len(days):
         return None
+    if k >= len(days):
+        # 並びを使い切ったが、番号のせいか回線のせいかが、まだ分からない発信がある：行は終えず、この時刻から先は、決まるまで候補に
+        # 出さない（attempts.number_unconfirmed の1か所＝門と候補を出す処理）。決まれば、番号のせいなら門が「番号が使えない」で断り
+        # （別の番号へ替えるか行を終える）、回線のせいなら数から外れて、この時刻からかけ直す（2026-10-24 ユーザー：行をやめるのは
+        # 「明らかに番号に問題がある場合」だけ。予定を書き直し続けない＝1回だけ書く）
+        return max(now, run["last_end"] + gap)
     # 次の日：「最初の失敗の日＋並び」と「前の失敗の日＋並びの差」の遅いほう（⛔ 見直し18c の (1)：前は最初の日からだけ数え、前の分が
     # 時間帯の外などで次の日にずれると、残りが同じ日に詰まった＝当日2回・翌日1回の「翌日」が、ずれた2回目と同じ日になった）
     last_day = calling_hours.local(run["last_end"]).date()
     day = max(run["first_day"] + timedelta(days=days[k] - 1), last_day + timedelta(days=days[k] - days[k - 1]))
     today = calling_hours.local(now).date()
     if day <= today:
-        gap = timedelta(seconds=int(settings.resolve(tx, "gate.same_contact_min_interval", **scope)))
         return max(now, run["last_end"] + gap)
     return _retry_at(tx, task_id, ("days", (day - today).days), now, dialed_at)
 
@@ -1122,12 +1148,18 @@ def decide_after_apology(*, delivered: bool, refused: bool, retry: AskAgain, pro
 
 def after_apology(tx: Tx, task_id: UUID, *, delivered: bool, refused: bool, dialed: Target,
                   stop_reason: str | None = None, reached_target: bool = False,
-                  not_reached: str | None = None, again: bool = False) -> Decision:
+                  not_reached: str | None = None, again: bool = False, dialed_at: datetime | None = None,
+                  line_fault: bool = False) -> Decision:
     """締めの処理（core/settle.py）だけが呼ぶ。お詫びの電話のあとの次の動きを決めて記録する（同じ取引）。
     reached_target＝目的のお客様と話せた（約束の日にかけられなかったお詫びの印を外す＝`_apologised`）。途中で切れて、すぐかけ直して
     よいかは、締めの処理が試行に残した「切れたか」を、データベースの resume_allowed の1か所が読む。not_reached・again＝目的のお客様に繋がらなかった理由と、同じ日にまた
-    かけてよいと言われたか（会話の報告。同じ日にかけ直さないかは `not_today` の1か所＝ふつうの電話と同じ）。"""
+    かけてよいと言われたか（会話の報告。同じ日にかけ直さないかは `not_today` の1か所＝ふつうの電話と同じ）。
+    line_fault＝回線のせいで鳴らなかった（dialed_at＝かけた時刻。ふつうの電話と同じ `_line_fault_again` の1か所）。"""
     now = tx.one("SELECT now() AS now")["now"]
+    redo = _line_fault_again(tx, task_id, dialed, dialed_at, now) if line_fault and dialed_at is not None else None
+    if redo is not None:
+        _write(tx, task_id, redo)
+        return redo
     promised = gate.pacing(tx, task_id, contact_id=dialed.contact_id, promised=True)
     retry = _new_band_retry(tx, task_id, max(now, promised.earliest or now), purpose="apology",
                             not_today=not_today(None if reached_target else not_reached, again), now=now)

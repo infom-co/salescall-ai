@@ -47,7 +47,7 @@ from websockets.exceptions import ConnectionClosed
 from salescall.core import agents, emergency, notify
 from salescall.core.access import Access
 from salescall.link import protocol as p
-from salescall.link.phone import CallNotPlaced, CallWithheld, NumberRejected
+from salescall.link.phone import CallNotPlaced, CallWithheld
 from salescall.link.protocol import RemoteError
 from salescall.supervisor import ACTOR, CALL_WAIT, config, report, updates
 from salescall.supervisor.links import Attached
@@ -59,12 +59,11 @@ AWAY = "控えを書く PC が、サーバーとのつながりを失いまし�
 LINE_CONFLICT = ("同じ回線（スマホ）を、2台の PC がつないでいます。先につないだ PC でかけています。もう一方の PC の設定"
                  "（SALESCALL_LINES）から、その回線を外してください")
 
-# PC の部品が「かけていない」と答えたときの誤りの名前と、発信の出口へ上げる形（名前と形の対応はこの1か所。どちらのせいかの分け方は
-# link/phone.py の形）
-NOT_PLACED: dict[str, tuple[type[CallNotPlaced], str]] = {
-    "withheld": (CallWithheld, "PC の上で緊急停止が押されています"),
-    "number_rejected": (NumberRejected, "電話の部品（アプリ）が番号を受け付けませんでした"),
-    "not_placed": (CallNotPlaced, "電話の部品がかけられませんでした（回線のせい、または、どちらのせいか分からない）"),
+# PC の部品が「かけていない」と答えたときの誤りの名前と、発信の出口へ上げる形（名前と形の対応はこの1か所。だれのせいかは、ここでも
+# PC でも決めない＝発信の出口が「発信に失敗」にし、データベースの salescall.unrung_blame が証拠で決める＝0129）
+NOT_PLACED: dict[str, tuple[type[Exception], str]] = {
+    "withheld": (CallWithheld, "PC の部品がかけようとしませんでした（PC の上で緊急停止が押されている・前の頼みを待つうちに答えの期限を過ぎた）"),
+    "not_placed": (CallNotPlaced, "電話の部品がかけようとして、かけられませんでした（だれのせいかは、同じ回線の前後の電話で決めます）"),
 }
 
 
