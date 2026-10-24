@@ -1422,5 +1422,109 @@
     "chosen_from": "S2_talk_heard_nod_3",
     "chosen_by": "人",
     "approved": "✅ 2026-10-24 ユーザー：「S2 の『そうでしたか！（納得して）』：3」・S4 は S2 の録音を使う"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "callback_back_today",
+    "text": "本日お戻りのご予定はございますでしょうか？",
+    "heard": {
+      "0.0": "本日お戻りのご予定はございますでしょうか？",
+      "1.0": "本日お戻りのご予定はございますでしょうか？"
+    },
+    "ok": true,
+    "seconds": 2.6,
+    "try": 3,
+    "wav": "S2_callback_back_today.wav",
+    "chosen_from": "S2_callback_back_today_2",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-24 ユーザーが聞き比べで選んだ：2"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "callback_back_today",
+    "text": "本日お戻りのご予定はございますでしょうか？",
+    "heard": {
+      "0.0": "本日お戻りのご予定はございますでしょうか？",
+      "1.0": "本日お戻りのご予定はございますでしょうか？"
+    },
+    "ok": true,
+    "seconds": 2.6,
+    "try": 3,
+    "wav": "S4_callback_back_today.wav",
+    "made_as": "S2",
+    "chosen_from": "S2_callback_back_today_2",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-24 ユーザーが聞き比べで選んだ：2・S4 は S2 の録音を使う"
+  },
+  {
+    "type": "S2",
+    "voice": "Sadachbia",
+    "id": "callback_call_again",
+    "text": "後ほど改めてお掛けしてもよろしいでしょうか？",
+    "heard": {
+      "0.0": "後ほど改めてお掛けしてもよろしいでしょうか？",
+      "1.0": "後ほど改めておかけしてもよろしいでしょうか？"
+    },
+    "ok": true,
+    "seconds": 2.64,
+    "try": 4,
+    "wav": "S2_callback_call_again.wav",
+    "chosen_from": "S2_callback_call_again_1",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-24 ユーザーが聞き比べで選んだ：1"
+  },
+  {
+    "type": "S4",
+    "voice": "Sadachbia",
+    "id": "callback_call_again",
+    "text": "後ほど改めてお掛けしてもよろしいでしょうか？",
+    "heard": {
+      "0.0": "後ほど改めてお掛けしてもよろしいでしょうか？",
+      "1.0": "後ほど改めておかけしてもよろしいでしょうか？"
+    },
+    "ok": true,
+    "seconds": 2.64,
+    "try": 4,
+    "wav": "S4_callback_call_again.wav",
+    "made_as": "S2",
+    "chosen_from": "S2_callback_call_again_1",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-24 ユーザーが聞き比べで選んだ：1・S4 は S2 の録音を使う"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "callback_back_today",
+    "text": "本日お戻りのご予定はございますでしょうか？",
+    "heard": {
+      "0.0": "本日お戻りのご予定はございますでしょうか？",
+      "1.0": "本日お戻りのご予定はございますでしょうか？"
+    },
+    "ok": true,
+    "seconds": 2.84,
+    "try": 2,
+    "wav": "L4_callback_back_today.wav",
+    "chosen_from": "L4_callback_back_today_1",
+    "chosen_by": "人",
+    "approved": "✅ 2026-10-24 ユーザーが聞き比べで選んだ：1"
+  },
+  {
+    "type": "L4",
+    "voice": "Leda",
+    "id": "callback_call_again",
+    "text": "後ほど改めてお掛けしてもよろしいでしょうか？",
+    "heard": {
+      "0.0": "後ほど改めておかけしてもよろしいでしょうか？",
+      "1.0": "後ほど改めておかけしてもよろしいでしょうか？"
+    },
+    "ok": true,
+    "seconds": 3.2,
+    "try": 4,
+    "wav": "L4_callback_call_again.wav",
+    "chosen_from": "L4_callback_call_again_2",
+    "chosen_by": "人",
+    "pending": "⏳ 2026-10-24 ユーザー：「2⇒悪くないが、やや自信な下げで弱弱しすぎるので、もうちょっと別パターンで選別した方がいい」。別の読み方の候補を聞いていただくまで仮に使う"
   }
 ]
