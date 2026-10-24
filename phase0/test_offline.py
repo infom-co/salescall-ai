@@ -3776,6 +3776,17 @@ class RetryTest(unittest.TestCase):
         self.assertEqual(len(calls), 3)  # やり直しを使い切ったら、誤りをそのまま上げる
 
 
+class EnglishLineTest(unittest.TestCase):
+    """読み直しの道具が、英語で書いた一言を見つける（CL-1.md 0-2 の書き方。⛔ 2026-10-24：コンパクトの前後で56回、英語の一言を書いた）。"""
+
+    def test_finds_english_lines_only(self):
+        from read_user_messages import english
+        self.assertTrue(english("Pushed (522f70d). Next, the recording candidates the user is waiting on."))
+        self.assertTrue(english("Progress note for the user: 4-151 の材料を作っています。"))
+        self.assertFalse(english("試験は416本すべて合格です。`flowctl.Flow.on_line_end` の1か所で決めます。"))
+        self.assertFalse(english("作りに入ります。phrases（言い方）・instruction（業務の文）・flowctl（流れ）を一度に直します。"))
+
+
 class WordingTest(unittest.TestCase):
     """AIへの指示と録音の読み方に、ユーザーが外すよう言った言葉を入れない。"""
 
