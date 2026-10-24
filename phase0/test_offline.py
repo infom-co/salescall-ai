@@ -6176,6 +6176,42 @@ class TargetTest(unittest.TestCase):
         self.assertIsNone(g.unreported_note())
         self.assertIn("waited = bool(ops) and ops[-1][\"reply\"].get(\"result\") in (\"wait\", \"noted\", \"hold\")", inspect.getsource(convo.run_call))
 
+    def test_the_person_who_held_hears_no_second_intro(self):
+        # 取り次ぎで待たせた方が戻って、お呼びした方は出られないと伝えた（⛔ 2026-10-25 J9a：取り込んでいて出られない3本で、あいさつと名乗りを
+        # 流し直した）：待たせた方が戻ったと2つの判定がそろって読んだら、かけ直しの質問の前の名乗りを省く。片方だけ・分かれたときは今までどおり
+        from flowctl import HOLD, RETURNED_OTHER, RETURNED_SAME, TARGET_IS_AWAY, TARGET_IS_THERE
+
+        def parts(r):
+            return [p.get("part") or p.get("id") for p in r.get("play") or []]
+        busy = "お待たせいたしました。申し訳ございません、岡田は取り込んでおりまして、ただいま電話に出られないとのことです。"
+        for readings, intro in (((RETURNED_SAME, RETURNED_SAME), False), ((RETURNED_SAME, None), True), ((RETURNED_SAME, RETURNED_OTHER), True)):
+            f, b = self.checked()
+            f.use_checks("judge", "judge2")
+            self.heard(f, "岡田ですね。少々お待ちください。", HOLD); f.on_check("judge2", HOLD)
+            self.assertEqual(f.apply("report_party", {"party": "reception"})["result"], "hold")
+            self.assertIsNone(f.returned_context())                                  # 待たせた方の言葉には聞かない
+            self.heard(f, busy, TARGET_IS_AWAY); f.on_check("judge2", TARGET_IS_AWAY)
+            self.assertIsNotNone(f.returned_context())                               # 戻ってきた方の最初の発話だけ
+            for kind, value in zip(("returned", "returned2"), readings):
+                if value:
+                    f.on_check(kind, value)
+            r = f.apply("request_callback", {"why": "later"})
+            self.assertEqual(("intro" in parts(r), "greeting" in parts(r)), (intro, intro), readings)
+            self.assertIn("callback_later_time", parts(r), readings)
+        # どちらとも言えない「お待たせいたしました。」で、そろって「戻った」でも、ご本人に繋ぐときは、あいさつ・名乗りから全部（ご本人が名乗らずに
+        # 出た恐れ。省くのは、お呼びした方に繋がない道だけ）
+        f, b = self.checked()
+        f.use_checks("judge", "judge2")
+        self.heard(f, "岡田ですね。少々お待ちください。", HOLD); f.on_check("judge2", HOLD)
+        f.apply("report_party", {"party": "reception"})
+        self.heard(f, "お待たせいたしました。", "決められない"); f.on_check("judge2", "決められない")
+        f.on_check("returned", RETURNED_SAME); f.on_check("returned2", RETURNED_SAME)
+        self.assertEqual(f.apply("report_party", {"party": "target"})["result"], "confirm_target")
+        self.heard(f, "はい、そうです。", TARGET_IS_THERE); f.on_check("judge2", TARGET_IS_THERE)
+        r = f.apply("report_party", {"party": "target"})
+        self.assertEqual(r["result"], "next")
+        self.assertIn("intro", parts(r))
+
     def test_other_questions_are_not_answered_with_the_opening(self):
         # 名乗り・用件のほかのことを聞かれたのに、AIが用件の録音で答えようとした（⛔ 2026-10-25 J10b・番号の出どころを聞かれる S4・L4：「この番号は
         # どちらでお知りになりましたか？」に「ご予約の確認でお電話いたしました。」を流した）：尋ねているかの読みに「ほかのこと」があり「名乗り・用件」が

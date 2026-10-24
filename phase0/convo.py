@@ -29,7 +29,7 @@ from contextlib import nullcontext
 from audio import is_fax_tone
 from common import HERE, read_wav_pcm16_mono, write_wav
 from offscript import SpeechGate
-from flowctl import ASKS_CHECKS, CHOICE_TYPES, Flow, tool_declarations
+from flowctl import ASKS_CHECKS, CHOICE_TYPES, RETURN_CHECKS, Flow, tool_declarations
 from instruction import Business, barge_in_note, build
 from ears import open_ear
 from listen import hear
@@ -120,6 +120,11 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
         for kind, j in (("asks", judge), ("asks2", judge2)):
             if j is not None:
                 runs[kind], questions[kind] = j, (ac[0], None, ac[1])
+    # 取り次ぎで待ったあとに話した方の最初の発話だけ：待たせた方が戻ったか（Flow.returned_context。2つがそろったときだけ名乗りを省く＝待たない）
+    if (rc := flow.returned_context()) is not None:
+        for kind, j in (("returned", judge), ("returned2", judge2)):
+            if j is not None:
+                runs[kind], questions[kind] = j, (rc[0], None, rc[1])
 
     def started(coro) -> asyncio.Task:
         t = asyncio.create_task(coro)
@@ -200,7 +205,7 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
     def judged() -> bool:
         # いまの言葉の判定が、1つでも届いた（Flow.check はいまの言葉のものだけ）。尋ねているかの問い合わせ（asks）を出していれば、それも届いた
         asks = [k for k in ASKS_CHECKS if k in runs]
-        return (any(k in flow.check for k in runs if k not in ASKS_CHECKS)
+        return (any(k in flow.check for k in runs if k not in ASKS_CHECKS + RETURN_CHECKS)
                 and (not asks or any(k in flow.check for k in asks)))
 
     async def judgments(every: bool) -> None:

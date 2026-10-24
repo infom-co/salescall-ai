@@ -18,11 +18,7 @@ import json
 from common import base_parser, require_python, save_result, say
 from meaning_judge import NoJudgment, add_judge_args, make_judges
 
-SAME, OTHER = "待たせた方が戻った", "別の方が出た"
-MEANINGS = {SAME: "前の言葉で取り次ぎのためにこちらを待たせた方が、また電話に出ている（「お待たせいたしました」と戻って、お呼びした方の"
-                  "ことを伝えた・自分が代わりにお話を聞くと言った など。別の方に代わったと分かる言葉が無い）",
-            OTHER: "前の言葉を言った方とは別の方が、電話に出ている（「お電話代わりました」と出た・前の方と違うお名前を名乗った・"
-                   "お呼びした方ご本人が名乗った など）"}
+from flowctl import RETURN_MEANINGS as MEANINGS, RETURNED_OTHER as OTHER, RETURNED_SAME as SAME  # 説明の文の正本（G-68 で測った文）
 HOLD_TARGET, HOLD_OTHER = "岡田ですね。少々お待ちください。", "担当の者に代わりますので、少々お待ちください。"
 ANY = None  # どちらとも言えない（数えない）
 # (待たせた方の言葉, 戻ってきた方の言葉, 正解)
