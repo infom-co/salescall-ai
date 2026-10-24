@@ -16,7 +16,8 @@
 - お詫びの電話で、文面を伝えられたか（apology_delivered。無ければ None。版 2 から）。
 - **事実 connect（2026-10-22 足した。CL-1 の連絡帳 4-25。無くてもよい＝版は3のまま）**：目的のお客様に繋いだ発話と、繋いだ読み
   （`read`＝"ai"（会話AIの報告）と、「ご本人」と読んだ判定の名前）・判定を使う通話か（`judging`）・繋いだあとに届いた、その発話の
-  判定（`late`＝判定の名前 → 読み）。判定なしで繋いだ・あとの判定が「ご本人」でない通話は、通話後の検証が録音で確かめ直す
+  判定（`late`＝判定の名前 → 読み）・繋ぐときまでに届いていた、その発話の判定（`turn_reads`。同じ形。2026-10-24 CL-1 の 4-127 (a)）。
+  判定なしで繋いだ・繋ぐときの判定かあとの判定が「ご本人」でない通話は、通話後の検証が録音で確かめ直す
   （`target_unverified`。判断はこの1か所。記録は core/target_recheck.py。DESIGN.md 6-12 の (e)）。
 - **CL-1 の 10-22 の報告（2026-10-22 足した。CL-1 の連絡帳 2-2・4-26・4-27。どれも無くてもよい＝版は3のまま）**：
   - 締めた理由 `not_transferred`（受付の方が、営業のお断りではない事情で取り次げないと言った）と、同じ発話の事実 `not_transferred`。
@@ -281,11 +282,16 @@ class Connect:
     judging: bool                # 判定を使う通話か
     late: tuple[tuple[str, str], ...] = ()   # 繋いだあとに届いた、その発話の判定（受け持ちの名前, 読み）
     who: str | None = None       # 繋いだ方（CONNECT_WHO。無い＝前の形の報告＝目的のお客様）。誰の答えかの記録（依頼者への見せ方は CL-3）
+    turn_reads: tuple[tuple[str, str], ...] = ()   # 繋いだ発話そのものに、繋ぐときまでに届いていた判定（受け持ちの名前, 読み）。
+    #                                                CL-1 の連絡帳 4-34 の 4-127 (a)。無い＝届いていなかった・前の形の報告
 
     @property
     def unverified(self) -> bool:
-        """判定を使う通話で、判定の読み無しで繋いだ（AIの読みだけ）・繋いだあとに届いた判定が「ご本人」でない。"""
-        return self.judging and (not set(self.read) & set(JUDGES) or any(v != TARGET_IS_THERE for _, v in self.late))
+        """判定を使う通話で、判定の読み無しで繋いだ（AIの読みだけ）・繋いだ発話そのものに届いていた判定、または繋いだあとに届いた
+        判定に「ご本人」でないものがある（⛔ 2026-10-24 CL-1 の連絡帳 4-34 の 4-127 (a)：前は繋ぐときに届いていた判定の食い違いを
+        見なかった。別の方の答えを目的のお客様の答えとして依頼者に渡すのは取り返しがつかないので、確かめ直す）。"""
+        return self.judging and (not set(self.read) & set(JUDGES)
+                                 or any(v != TARGET_IS_THERE for _, v in (*self.turn_reads, *self.late)))
 
 
 @dataclass(frozen=True)
@@ -430,7 +436,8 @@ class CallReport:
             "voicemail_message": [said(v) for v in self.voicemail_messages],
             "end": [{**said(e.evidence), "reason": e.reason} for e in self.ends],
             "connect": [{**said(c.evidence), "read": list(c.read), "judging": c.judging,
-                         **({"late": dict(c.late)} if c.late else {}), **({"who": c.who} if c.who else {})}
+                         **({"late": dict(c.late)} if c.late else {}), **({"who": c.who} if c.who else {}),
+                         **({"turn_reads": dict(c.turn_reads)} if c.turn_reads else {})}
                         for c in self.connects],
             "answered": [{**said(a.evidence), "part": a.part} for a in self.answered],
             "target_back": [{**said(b.evidence), "why": b.reason} for b in self.target_backs],
@@ -504,6 +511,15 @@ def _true(d: dict, key: str) -> bool:
     if d.get(key) is not True:
         raise ReportInvalid(f"{key} は、あるときは true です")
     return True
+
+
+def _judge_reads(v: Any, key: str) -> tuple[tuple[str, str], ...]:
+    """判定の受け持ち → 読み（MEANING_MAX 字まで）の形（無くてよい。繋いだ事実の late・turn_reads の1か所）。"""
+    v = v or {}
+    if not isinstance(v, dict) or any(k not in JUDGES or not isinstance(x, str) or not x.strip() or len(x) > MEANING_MAX
+                                       for k, x in v.items()):
+        raise ReportInvalid(f"{key} は、判定の受け持ち {JUDGES} → 読み（{MEANING_MAX} 字まで）です")
+    return tuple(sorted(v.items()))
 
 
 def _reads(v: Any, key: str) -> tuple[str, ...]:
@@ -581,16 +597,13 @@ def from_json(raw: Any) -> CallReport:
     if voicemail and "voicemail" not in (p.party for p in parties):
         raise ReportInvalid("留守番電話の伝言は、電話口の種別が留守番電話の通話だけです")
     connects = []
-    for r, s in _records(facts, "connect", {"read", "judging", "late", "who"}):
+    for r, s in _records(facts, "connect", {"read", "judging", "late", "who", "turn_reads"}):
         read = r.get("read")
         if not isinstance(read, list) or not read or any(x not in CONNECT_READS for x in read) or len(set(read)) != len(read):
             raise ReportInvalid(f"facts.connect.read は {CONNECT_READS} のうちの並び（重ならず、1つ以上）です")
-        late = r.get("late") or {}
-        if not isinstance(late, dict) or any(k not in JUDGES or not isinstance(v, str) or not v.strip() or len(v) > MEANING_MAX
-                                              for k, v in late.items()):
-            raise ReportInvalid(f"facts.connect.late は、判定の受け持ち {JUDGES} → 読み（{MEANING_MAX} 字まで）です")
-        connects.append(Connect(s, tuple(sorted(read)), _bool(r, "judging"), tuple(sorted(late.items())),
-                                _choice(r.get("who"), CONNECT_WHO, "facts.connect.who", optional=True)))
+        connects.append(Connect(s, tuple(sorted(read)), _bool(r, "judging"), _judge_reads(r.get("late"), "facts.connect.late"),
+                                _choice(r.get("who"), CONNECT_WHO, "facts.connect.who", optional=True),
+                                _judge_reads(r.get("turn_reads"), "facts.connect.turn_reads")))
     if connects and not_reached is not None:
         raise ReportInvalid("目的のお客様に繋いだのに、繋がらなかった理由があります")
     if any(c.connected for c in callbacks) and not connects:

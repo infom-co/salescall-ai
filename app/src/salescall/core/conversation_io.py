@@ -23,6 +23,14 @@
 - **会話の報告を置く**（`save_report`。形の確かめは call_report.from_json の1か所。1回だけ・変更不可）と、**録音から作り直した
   報告を置く**（`save_rebuilt_report`。通話後の検証が呼ぶ）。
 - **「もうかけないで」をその場で台帳へ**（`declare_do_not_call`。dnc.register_declared をそのまま呼ぶ。原則14）。
+- **会話に渡す材料を読む**（2026-10-24 CL-1 の連絡帳 4-37・4-41 の (5)。どれも今ある正本を読むだけ）：前の通話で取れた答え
+  （`earlier`。続きから聞く電話＝目的 resume で、取れた答えの質問を伺わない）・質問ごとの「理由×扱い」（`handlings`。業務の決まり
+  business_rules の1か所）。
+- **通話が進んだ知らせ**（`progress`。通話を進める部品が、通話の途中でターンごとに・待つ間も決まった間ごとに呼ぶ）：待つ・見張る所は、
+  時間の上限ではなく「supervisor.CALL_STALL 進まない」で、こちらの仕組みが止まったとみなす（2026-10-24 ユーザー：時間で業務を打ち
+  切らない。CL-1 の連絡帳 4-41 の (1)）。
+- **使ったキーの識別名**（`record_keys`。CL-1 の連絡帳 4-34 の 4-67）：[{"service": "live"|"judge"|"ear"|"own_check",
+  "key": "名前#指紋8桁"}]。値は残さない（データベースが形を守る）。
 """
 
 from __future__ import annotations
@@ -32,11 +40,12 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
-from salescall.core import business_rules, business_settings, call_report, dnc
+from salescall.core import attempts, business_rules, business_settings, call_report, dnc
 from salescall.core.access import Tx
 from salescall.core.attempts import AttemptNotFound
 
-__all__ = ["ItemInvalid", "ItemValue", "declare_do_not_call", "save_rebuilt_report", "save_report", "write_item"]
+__all__ = ["ItemInvalid", "ItemValue", "declare_do_not_call", "earlier", "handlings", "progress", "record_keys",
+           "save_rebuilt_report", "save_report", "write_item"]
 
 # 理由を持てる状態と、その理由の名前の一覧（正本は業務の決まり business_rules。ここは対応だけ）
 _REASONS: dict[str, tuple[str, ...]] = {"dont_know": business_rules.DONT_KNOW_REASONS,
@@ -109,3 +118,29 @@ def save_rebuilt_report(tx: Tx, attempt_id: UUID, raw: Any, *, evidence: str) ->
 def declare_do_not_call(tx: Tx, attempt_id: UUID) -> dict[str, Any]:
     """通話の途中の「もうかけないで」を、その場で発信禁止の台帳へ（dnc.register_declared の1か所。何度呼んでも同じ）。"""
     return dnc.register_declared(tx, attempt_id)
+
+
+def earlier(tx: Tx, task_id: UUID) -> dict[str, dict[str, Any]]:
+    """その行で、前の通話までに取れた答え（質問の番号 → {"state", "value", "condition"}）。続きから聞く電話（目的 resume）で、取れた
+    答えの質問を伺わないために会話へ渡す（CL-1 の連絡帳 4-37）。前の通話の答えは、この通話の答えとして書かない（取った通話の番号の
+    まま残す＝write_item は、この通話で取った答えだけ）。正本は項目の値の表（item_values）。"""
+    return {r["question_id"]: {"state": r["state"], "value": r["value"], "condition": r["condition"]} for r in tx.all(
+        "SELECT question_id, state::text AS state, value, condition FROM salescall.item_values WHERE task_id = %s"
+        " ORDER BY question_id", (task_id,))}
+
+
+def handlings(tx: Tx, version_id: UUID, question_id: str) -> dict[tuple[str, str], str]:
+    """その質問で、お客様が「わからない」「答えない」と言ったときの扱い（(状態, 理由) → 扱いの名前。business_rules.HANDLINGS の
+    どれか）。正本は業務の決まり（business_rules.load の1か所）。必須でない質問は扱いを持たない（空）。CL-1 の連絡帳 4-41 の (5)。"""
+    rules = business_rules.load(tx, version_id)
+    return {(state, reason): h.kind for (q, state, reason), h in rules.handling.items() if q == question_id}
+
+
+def progress(tx: Tx, attempt_id: UUID) -> bool:
+    """通話が進んだ（ターンごと・待つ間も決まった間ごとに呼ぶ）。進行中の通話でなければ False（attempts.progress の1か所）。"""
+    return attempts.progress(tx, attempt_id)
+
+
+def record_keys(tx: Tx, attempt_id: UUID, keys: list[dict[str, str]]) -> None:
+    """その通話で使ったキーの識別名を残す（attempts.record_keys の1か所。形が合わなければデータベースが断る）。"""
+    attempts.record_keys(tx, attempt_id, keys)

@@ -48,8 +48,13 @@ END = "END"                                       # 分岐の行き先「終わ�
 # ＝phrases.RECORDED）は別の組で、流すときも別の種類（会話の側の play の kind が recorded・closing）なので、ぶつからない＝ここに入れない
 # （⛔ 見直し17d：前は closing・closing_declined の2つだけを入れ、ほかの契約者の単位の名前は入れていなかった＝半端。逆に、依頼者の
 # 単位の target_reconfirm と、想定問答の answer_ で始まる名前が抜けていた）。会話の側に名前が増えたら、ここに足す（CL-2.md 4-121）。
-RESERVED_IDS = frozenset({END, "C1", "C2", "C3", "C4", "C5", "M1", "S1", "greeting", "intro", "purpose", "ai", "target",
-                          "target_confirm", "target_reconfirm", "voicemail", "message"})
+# 2026-10-24 CL-1 の連絡帳 4-32・4-41 で足した：システムが足す質問 C6（本日のお戻りのご予定）・C7（改めてお掛けしてよいか）・
+# P1（約束の電話の一言）・C8（分かるお客様）・C9（分かる時）と、部分の名前 promise_again・target_successor（お名前の入る一言。
+# 流すのは名前の録音の台帳からだが、流す部品の中で質問の番号と同じ並びに入る）。CL-1 の試験 test_offline が、会話の側の番号と
+# 部分の名前がすべてここに入っているかを確かめる。
+RESERVED_IDS = frozenset({END, "C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9", "M1", "S1", "P1", "greeting", "intro",
+                          "purpose", "ai", "target", "target_confirm", "target_reconfirm", "promise_again", "target_successor",
+                          "voicemail", "message"})
 ANSWER_PART_PREFIX = "answer_"                    # 想定問答の答えの録音の部分の名前の頭（会話の側の flowctl.ANSWER_PREFIX と同じ）
 ANY = "*"                                         # 分岐の受け皿（ほかのどの答えでも）
 SYSTEM_CHOICES = ("わからない", "答えたくない")      # システムがどの質問にも足す答え（CL-1 の連絡帳 2-1。名前の正本はここ）

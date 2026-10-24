@@ -6,8 +6,8 @@
 - 承認は組ごとに1回。管理者か契約者が聞いて承認する（事前の録音チェック。データベースが守る）。承認した組には部分を足せない。
 - **話してよい声は `ready_voices` の1か所で決める**：使う声（使わない印の無い声）のうち、承認した録音が、契約者の単位と、その版の
   依頼者の単位の両方にあり、初めの声の型を持つもの（2026-10-17 ユーザー：「事前の録音チェックになる方向性」「新しい声が増える
-  かもしれません」＝声を足しても処理は変えない）。門（core/gate.py の `choose_voice`）だけが使う。その電話で使う録音の部分
-  （約束の電話の一言・お詫び・不在のときの伺い＝`call_needs`）が、いまの組にそろっている声だけ（CL-2 の連絡帳 4-152）。
+  かもしれません」＝声を足しても処理は変えない）。門（core/gate.py の `choose_voice`）だけが使う。契約者の組には、契約者の単位の
+  部分（`CONTRACTOR_PARTS`。名前の正本は CL-1 の phrases.RECORDED）がすべて要る（CL-1 の連絡帳 4-39）。
 - 流すときに使う組は `current_sets`（それぞれの単位で、いちばん新しく承認した組のうち、名前の読みがその版のいまの読みと合うもの＝
   見方 current_recording_sets）。
 - **測り終わるまで消さない録音**（`hold`・`release`。表の作り 0056。2026-10-17 ユーザー 案A。Intent.md 11-4 第2版）：検証モードの通話
@@ -181,54 +181,51 @@ _CURRENT = ("EXISTS (SELECT 1 FROM salescall.current_recording_sets s"
             " WHERE s.voice_name = v.voice_name AND s.tenant_id = salescall.cur_tenant() AND {where})")
 
 
-@dataclass(frozen=True)
-class Needs:
-    """その電話で使う録音の部分（単位ごとの部分の名前）。いまの組に、これがそろっている声だけで話す（`ready_voices`）。"""
-    contractor: tuple[str, ...] = ()
-    business: tuple[str, ...] = ()
+# 契約者の単位の録音の部分の名前（判断はここだけ。話してよい声＝`ready_voices` が、契約者の組にこれが全部そろっているかを見る）。
+# 名前の正本は CL-1 の phrases.RECORDED（origin/main 10f2e22 の53。CL-1 の連絡帳 4-34 の 4-83 (a)・4-37・4-41）。CL-1 の試験 test_offline が
+# この一覧と同じかを確かめる（CL-2 の連絡帳で頼む）。CL-1 が部分を足したら、ここにも足す（足すと、足した部分の無い前の組の声では
+# 話さない＝足りない録音を契約者に知らせ、録音を入れた組の承認を待つ）。
+# ⛔ 2026-10-24（CL-1 の連絡帳 4-39）：前は、予約証の印ごとに一部の部分（お詫び・不在の伺い）だけを見て、約束の電話には業務の組の
+# promise_again を求めた。お名前の入る一言（target・target_confirm・target_reconfirm・promise_again・target_successor）は業務の組に入らず、
+# 名前の録音の台帳（CL-1 の DESIGN.md 4-3）から流すので、約束の電話が1本もかからなかった。契約者の組の部分はどの電話でも流れうる（相づち・
+# 締め・つなぎ・通話を途中で切るときの2つ・番号を伺い直す一言）ので、電話の種類で分けずに全部を見る。
+# ⏳ お名前の入る一言の確かめ（その行の名前の部分と、その声の続く言葉が承認されているか）は、名前の録音の台帳を作るときに入れる。
+# 業務の組の部分（名乗り・質問など）は、組を作るときに CL-1 の一覧（make_ack_clips.script_table）から作られるので、ここでは見ない。
+CONTRACTOR_PARTS: tuple[str, ...] = (
+    "ai_again", "apology_cut_off", "apology_missed_promise", "arigatou", "back", "callback_address", "callback_ask_when",
+    "callback_ask_who", "callback_authority", "callback_back_date", "callback_back_time", "callback_back_today",
+    "callback_call_again", "callback_email", "callback_fax", "callback_later_time", "callback_number",
+    "callback_reachable_time", "closing", "closing_declined", "departed", "dou", "greeting", "hai", "ikaga",
+    "line_trouble_ask", "line_trouble_bye", "moushiwake", "moushiwake_heavy", "number_again_unreachable",
+    "number_again_wrong_party", "offer_thanks", "own_fallback", "shitsurei", "shouchi", "successor_call",
+    "successor_confirm", "successor_reconfirm", "talk_agree_deep", "talk_agree_high", "talk_agree_light", "talk_cared",
+    "talk_hard_bright", "talk_hard_sad", "talk_heard_glad", "talk_heard_nod", "talk_heard_sad", "talk_osewa",
+    "talk_praised", "talk_welcome", "talk_yoroshiku", "wait", "wait_heavy")
 
-    def labels(self) -> list[str]:
-        return [PART_LABELS[p] for p in (*self.contractor, *self.business)]
-
-
-# 予約証の印ごとに、その電話で使う録音の部分（判断はここだけ。門の choose_voice が読む）。名前の正本は CL-1 の
-# instruction.Business.replay_parts（業務の組）と、契約者の単位の録音（CL-1 の連絡帳 2026-10-24「契約者の単位の録音も4つ増えます」）。
-# ⛔ 2026-10-24（CL-2 の連絡帳 4-152）：前は承認した組があるかだけを見て、中に要る部分がそろっているかは見なかったので、前に承認した
-# 組で約束の電話・お詫びの電話をかけると、流す録音の無いまま会話が始まった。
-# ⏳ 後任の方をお呼びする電話（予約証の successor）の一言は、部分の名前を CL-1 に確かめている（いまの名前 target は、ふつうの電話の
-# 呼ぶ一言と重なる）。決まるまで、ここに入れない＝その電話の録音がそろっているかは見ない。
-PROMISED_PARTS = ("promise_again",)                 # 約束の電話で取り次げないと言われたときの一言（業務の組。目的のお客様のいる業務）
-APOLOGY_PARTS = {"missed_promise": "apology_missed_promise", "cut_off": "apology_cut_off"}   # お詫びの理由 → 契約者の組の部分
-TARGET_PARTS = ("callback_back_today", "callback_call_again")   # 不在で戻る時刻が分からないときの伺い（契約者の組。目的のお客様の
-#                                                                 いる業務のどの電話でも起きうる）
-PART_LABELS = {"promise_again": "約束の電話で取り次げないときの一言", "apology_missed_promise": "約束の時間にかけられなかったお詫び",
-               "apology_cut_off": "途中で切れたお詫び", "callback_back_today": "本日お戻りのご予定の伺い",
-               "callback_call_again": "改めてお掛けしてよいかの伺い"}
-
-
-def call_needs(*, promised: bool, apology: tuple[str, ...], anyone: bool) -> Needs:
-    """その電話で使う録音の部分（予約証の印から。1か所）。promised＝約束の電話・apology＝お詫びの理由の並び・anyone＝業務が
-    「誰でも」（目的のお客様のいない業務＝business_settings.anyone_target）。"""
-    contractor = tuple(APOLOGY_PARTS[r] for r in apology) + (() if anyone else TARGET_PARTS)
-    business = PROMISED_PARTS if promised and not anyone else ()
-    return Needs(contractor, business)
-
-
-# その組に、渡した部分（名前の並び）がすべてあるか（SQL。ready_voices の中で、組 s ごとに見る）
+# その組に、契約者の単位の部分がすべてあるか（SQL。ready_voices の中で、組 s ごとに見る）
 _HAS_PARTS = ("NOT EXISTS (SELECT 1 FROM unnest(%s::text[]) p(part) WHERE NOT EXISTS (SELECT 1 FROM salescall.recordings r"
               " WHERE r.set_id = s.set_id AND r.part = p.part))")
 
 
-def ready_voices(tx: Tx, version_id: UUID, needs: Needs = Needs()) -> list[str]:
+def ready_voices(tx: Tx, version_id: UUID) -> list[str]:
     """その版で話してよい声の名前（名前の順）。決まりはここだけ（上の説明）。使う組は、流す組と同じ見方 current_recording_sets
-    （承認した組のうち、その版のいまの名前の読みと合うもの）。needs＝その電話で使う部分（`call_needs`）：いまの組にそろっている声だけ。"""
+    （承認した組のうち、その版のいまの名前の読みと合うもの）。契約者の組には、契約者の単位の部分（`CONTRACTOR_PARTS`）がすべて要る。"""
     return [r["voice_name"] for r in tx.all(
         "SELECT v.voice_name FROM salescall.voices v"
         " WHERE v.retired_at IS NULL"
         "   AND EXISTS (SELECT 1 FROM salescall.voice_types t WHERE t.voice_name = v.voice_name AND t.default_for_voice)"
         "  AND " + _CURRENT.format(where="s.unit = 'contractor' AND " + _HAS_PARTS) +
-        "  AND " + _CURRENT.format(where="s.unit = 'business' AND s.version_id = %s AND " + _HAS_PARTS) +
-        " ORDER BY v.voice_name", (list(needs.contractor), version_id, list(needs.business)))]
+        "  AND " + _CURRENT.format(where="s.unit = 'business' AND s.version_id = %s") +
+        " ORDER BY v.voice_name", (list(CONTRACTOR_PARTS), version_id))]
+
+
+def missing_parts(tx: Tx) -> list[str]:
+    """承認した契約者の組のある声のうち、契約者の単位の部分が足りない声の、足りない部分の名前（名前の順。知らせに使う）。"""
+    return [r["part"] for r in tx.all(
+        "SELECT DISTINCT p.part FROM unnest(%s::text[]) p(part), salescall.current_recording_sets s"
+        " WHERE s.tenant_id = salescall.cur_tenant() AND s.unit = 'contractor'"
+        "   AND NOT EXISTS (SELECT 1 FROM salescall.recordings r WHERE r.set_id = s.set_id AND r.part = p.part)"
+        " ORDER BY p.part", (list(CONTRACTOR_PARTS),))]
 
 
 def current_sets(tx: Tx, version_id: UUID, voice_name: str) -> dict[str, UUID | None]:

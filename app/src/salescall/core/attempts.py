@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any, Literal
@@ -179,6 +180,39 @@ def release(tx: Tx, attempt_ids: list[UUID]) -> int:
         "UPDATE salescall.attempts SET state = 'released' WHERE attempt_id = ANY(%s) AND state = 'claimed'",
         (list(attempt_ids),),
     ).rowcount
+
+
+# 使ったキーの種類（試行の keys_used。CL-1 の連絡帳 4-34 の 4-67。形の守りはデータベースの salescall.keys_used_ok）
+KEY_SERVICES = ("live", "judge", "ear", "own_check")
+
+
+def record_keys(tx: Tx, attempt_id: UUID, keys: list[dict[str, str]]) -> None:
+    """その通話で使ったキーの識別名を足す（書き込む入口 conversation_io.record_keys から。前に残したものは消さず、同じものは
+    重ねない）。形は {"service": KEY_SERVICES のどれか, "key": "名前#指紋8桁"}。値は残さない（形の確かめはデータベース）。"""
+    if tx.one("UPDATE salescall.attempts SET keys_used ="
+              " (SELECT coalesce(jsonb_agg(DISTINCT k), '[]'::jsonb)"
+              "  FROM jsonb_array_elements(coalesce(keys_used, '[]'::jsonb) || %s::jsonb) k)"
+              " WHERE attempt_id = %s RETURNING attempt_id", (json.dumps(keys), attempt_id)) is None:
+        raise AttemptNotFound(str(attempt_id))
+
+
+def progress(tx: Tx, attempt_id: UUID) -> bool:
+    """通話が進んだ（通話を進める部品が、通話の途中で知らせる。書き込む入口 conversation_io.progress から）。進行中の試行の
+    「最後に進んだ時刻」をいまにする。進行中でなければ何もしない（False）。"""
+    return tx.one("UPDATE salescall.attempts SET progress_at = now() WHERE attempt_id = %s AND salescall.is_active(state)"
+                  " AND state <> 'claimed' RETURNING attempt_id", (attempt_id,)) is not None
+
+
+def stalled(tx: Tx, attempt_id: UUID, gap_seconds: float) -> bool:
+    """進行中の通話が、決まった長さより長く進んでいない＝こちらの仕組みが止まった（決まりはデータベースの salescall.call_stalled
+    の1か所）。"""
+    return bool(tx.one("SELECT salescall.call_stalled(%s, %s) AS s", (attempt_id, gap_seconds))["s"])
+
+
+def line_call_progressing(tx: Tx, line_id: UUID, gap_seconds: float) -> bool:
+    """その回線に、進んでいる通話があるか（決まりはデータベースの salescall.line_call_progressing の1か所。止めるとき・通行証が
+    止められたあとに、いまの通話を待つかを決める）。"""
+    return bool(tx.one("SELECT salescall.line_call_progressing(%s, %s) AS p", (line_id, gap_seconds))["p"])
 
 
 def withheld(tx: Tx, attempt_id: UUID) -> None:

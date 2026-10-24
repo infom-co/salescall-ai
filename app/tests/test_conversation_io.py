@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from salescall.core import attempts, call_report, conversation_io, dnc, gate
+from salescall.core import attempts, business_rules, call_report, conversation_io, dnc, gate
 from salescall.core.access import Rejected
 from salescall.core.conversation_io import ItemInvalid, ItemValue
 from tests.support import CLEAN, SYSTEM
@@ -104,6 +104,68 @@ class Write(SettleBase):
         again = self.tx(s, lambda tx: conversation_io.declare_do_not_call(tx, aid))
         self.assertEqual(first["entry_id"], again["entry_id"])
         self.assertTrue(self.tx(s, lambda tx: dnc.refused_in(tx, aid, "refused_in_call")))
+
+
+class Materials(SettleBase):
+    """会話の処理に渡す材料と、通話の途中の知らせ（2026-10-24 CL-1 の連絡帳 4-34・4-37・4-41。どれも今ある正本を読む・書くだけ）。"""
+    answered = Write.answered
+    write = Write.write
+
+    def test_earlier_answers_and_the_handlings_of_a_question(self):
+        """前の通話で取れた答え（続きから聞く電話で、取れた質問を伺わない）と、質問ごとの「理由×扱い」（業務の決まりの1か所）。"""
+        s = self.ready()
+        aid = self.answered(s)
+        self.write(s, aid, ItemValue("Q1", "confirmed", {"text": "来週の火曜"}, "答えた"))
+        self.assertEqual(self.tx(s, lambda tx: conversation_io.earlier(tx, s["task"])),
+                         {"Q1": {"state": "confirmed", "value": {"text": "来週の火曜"}, "condition": "答えた"}})
+        got = self.tx(s, lambda tx: conversation_io.handlings(tx, s["version"], "Q1"))
+        rules = self.tx(s, lambda tx: business_rules.load(tx, s["version"]))
+        self.assertEqual(got, {(st, r): h.kind for (q, st, r), h in rules.handling.items() if q == "Q1"})
+        self.assertTrue(got)
+        self.assertEqual(self.tx(s, lambda tx: conversation_io.handlings(tx, s["version"], "Q9")), {})
+
+    def test_progress_moves_forward_only_while_the_call_is_live(self):
+        """通話が進んだ知らせ（progress）：発信を始めたときにデータベースが時刻を入れ、進行中の通話でだけ前へ進む（0130）。
+        止まったか（attempts.stalled）は、決まった長さ進まないかで決める。"""
+        s = self.ready()
+        aid = self.answered(s)
+        at = lambda: self.tx(s, lambda tx: tx.one("SELECT progress_at FROM salescall.attempts WHERE attempt_id = %s",  # noqa: E731
+                                                  (aid,))["progress_at"])
+        first = at()
+        self.assertIsNotNone(first)                                            # 発信を始めた時刻
+        self.assertTrue(self.tx(s, lambda tx: conversation_io.progress(tx, aid)))
+        self.assertGreaterEqual(at(), first)
+        self.assertFalse(self.tx(s, lambda tx: attempts.stalled(tx, aid, 60)))
+        self.assertTrue(self.tx(s, lambda tx: attempts.stalled(tx, aid, -1)))   # 決まった長さを過ぎたことにする
+        self.assertTrue(self.tx(s, lambda tx: attempts.line_call_progressing(tx, s["line"], 60)))
+        self.assertFalse(self.tx(s, lambda tx: attempts.line_call_progressing(tx, s["line"], -1)))
+        with self.assertRaises(Rejected):                                      # 前へだけ
+            self.tx(s, lambda tx: tx.execute("UPDATE salescall.attempts SET progress_at = progress_at - interval '1 minute'"
+                                             " WHERE attempt_id = %s", (aid,)))
+        for st in ("ending", "ended"):
+            self.tx(s, lambda tx: attempts.move(tx, aid, st))
+        self.assertFalse(self.tx(s, lambda tx: conversation_io.progress(tx, aid)))   # 終わった通話は進まない
+        self.assertFalse(self.tx(s, lambda tx: attempts.stalled(tx, aid, -1)))
+        with self.assertRaises(Rejected):
+            self.tx(s, lambda tx: tx.execute("UPDATE salescall.attempts SET progress_at = now() WHERE attempt_id = %s", (aid,)))
+
+    def test_keys_used_keep_only_names_and_fingerprints(self):
+        """使ったキーの識別名（CL-1 の 4-67）：名前と値の指紋の頭8桁だけ。同じものは重ねず、前のものは消さない。キーの値らしいものは
+        データベースが断る（0130）。"""
+        s = self.ready()
+        aid = self.answered(s)
+        live = {"service": "live", "key": "GEMINI_API_KEY_1#872cbac5"}
+        judge = {"service": "judge", "key": "ANTHROPIC_JUDGE_KEY#0a1b2c3d"}
+        self.tx(s, lambda tx: conversation_io.record_keys(tx, aid, [live]))
+        self.tx(s, lambda tx: conversation_io.record_keys(tx, aid, [live, judge]))
+        got = self.tx(s, lambda tx: tx.one("SELECT keys_used FROM salescall.attempts WHERE attempt_id = %s", (aid,)))["keys_used"]
+        self.assertEqual(sorted(got, key=str), sorted([live, judge], key=str))
+        for bad in ({"service": "live", "key": "AIzaSyD-0123456789abcdefghijklmnopqrstu"},   # 値そのもの
+                    {"service": "live", "key": "GEMINI_API_KEY_1#872cbac5ff"},               # 指紋が長い
+                    {"service": "voice", "key": "GEMINI_API_KEY_1#872cbac5"},                # 知らない種類
+                    {"service": "live", "key": "GEMINI_API_KEY_1#872cbac5", "value": "x"}):   # 余分な項目
+            with self.subTest(bad=bad), self.assertRaises(Rejected):
+                self.tx(s, lambda tx: conversation_io.record_keys(tx, aid, [bad]))
 
 
 if __name__ == "__main__":

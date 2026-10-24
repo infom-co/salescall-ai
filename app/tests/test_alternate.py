@@ -328,7 +328,8 @@ class WrongNumber(Base):
         self.assertEqual((nxt["contact_id"], nxt["purpose"], nxt["promised"]), (s["contact"], "ask_number_again", True))
         c = self.claim(s)
         self.assertIsInstance(c, gate.Claim, c)
-        self.assertEqual((c.phone_e164, c.purpose, c.wrong_phone_e164), (s["phone"], "ask_number_again", alt))
+        self.assertEqual((c.phone_e164, c.purpose, c.wrong_phone_e164, c.number_again),
+                         (s["phone"], "ask_number_again", alt, "wrong_party"))   # 伺い直す理由も予約証に（0130）
         row = self.tx(s, lambda tx: tx.one("SELECT purpose, wrong_contact_id FROM salescall.attempts WHERE attempt_id = %s",
                                            (c.attempt_id,)))
         self.assertEqual(row["purpose"], "ask_number_again")
@@ -470,9 +471,19 @@ class WrongNumber(Base):
         with self.assertRaises(Rejected) as e:          # 聞き直しの予定は、違った番号を必ず持つ
             self.tx(s, lambda tx: tx.execute(
                 "INSERT INTO salescall.task_next_actions (tenant_id, client_id, task_id, seq, kind, call_at, cause, promised,"
-                " contact_id, purpose) VALUES (%s, %s, %s, 99, 'call', now(), '試験', true, %s, 'ask_number_again')",
+                " contact_id, purpose, number_again) VALUES (%s, %s, %s, 99, 'call', now(), '試験', true, %s,"
+                " 'ask_number_again', 'wrong_party')",
                 (s["tenant"], s["client"], s["task"], s["contact"])))
         self.assertEqual(e.exception.constraint, "task_next_actions_wrong_number")
+        for purpose, reason in (("ask_number_again", None), ("normal", "unreachable")):
+            with self.subTest(purpose=purpose, reason=reason), self.assertRaises(Rejected) as e:
+                # 聞き直しの予定は伺い直す理由を必ず持ち、ほかの目的は持たない（0130。CL-1 の連絡帳 4-41 の (3)）
+                self.tx(s, lambda tx: tx.execute(
+                    "INSERT INTO salescall.task_next_actions (tenant_id, client_id, task_id, seq, kind, call_at, cause, promised,"
+                    " contact_id, purpose, wrong_contact_id, number_again) VALUES (%s, %s, %s, 99, 'call', now(), '試験', true,"
+                    " %s, %s, %s, %s)", (s["tenant"], s["client"], s["task"], s["contact"], purpose,
+                                         alt if purpose == "ask_number_again" else None, reason)))
+            self.assertEqual(e.exception.constraint, "task_next_actions_number_again_reason")
         with self.assertRaises(Rejected) as e:          # 聞き直しの発信も、違った番号を必ず持つ
             self.tx(s, lambda tx: tx.execute(
                 "INSERT INTO salescall.attempts (tenant_id, client_id, task_id, contact_id, phone_e164, line_id, version_id,"

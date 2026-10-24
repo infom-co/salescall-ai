@@ -500,7 +500,10 @@ class Shapes(unittest.TestCase):
                  ({"read": ["ai"], "judging": True}, True),                            # 判定が止まって、AIの読みだけ
                  ({"read": ["ai"], "judging": False}, False),                          # 判定を使わない通話（報告のまま）
                  ({"read": ["ai", "judge"], "judging": True, "late": {"judge2": "ご本人"}}, False),
-                 ({"read": ["ai", "judge"], "judging": True, "late": {"judge2": "別の方"}}, True)]   # あとの判定が食い違う
+                 ({"read": ["ai", "judge"], "judging": True, "late": {"judge2": "別の方"}}, True),   # あとの判定が食い違う
+                 # 繋いだ発話そのものに、繋ぐときまでに届いていた判定（turn_reads。CL-1 の連絡帳 4-34 の 4-127 (a)）
+                 ({"read": ["ai", "judge"], "judging": True, "turn_reads": {"judge": "ご本人", "judge2": "ご本人"}}, False),
+                 ({"read": ["ai", "judge"], "judging": True, "turn_reads": {"judge": "ご本人", "judge2": "別の方"}}, True)]
         for record, unverified in cases:
             with self.subTest(record):
                 got = with_connect(record)
@@ -515,6 +518,8 @@ class Shapes(unittest.TestCase):
                              ("読みが重なる", {"read": ["ai", "ai"], "judging": True}), ("判定を使うかが無い", {"read": ["ai"]}),
                              ("あとの判定の名前が違う", {"read": ["ai"], "judging": True, "late": {"ai": "ご本人"}}),
                              ("あとの判定の読みが空", {"read": ["ai"], "judging": True, "late": {"judge": " "}}),
+                             ("繋ぐときの判定の名前が違う", {"read": ["ai"], "judging": True, "turn_reads": {"ai": "ご本人"}}),
+                             ("繋ぐときの判定の読みが長い", {"read": ["ai"], "judging": True, "turn_reads": {"judge": "あ" * 41}}),
                              ("知らない項目", {"read": ["ai"], "judging": True, "why": 1})]:
             with self.subTest(name), self.assertRaises(ReportInvalid):
                 from_json({**base, "facts": {**base["facts"], "connect": [{**rec, **record}]}})

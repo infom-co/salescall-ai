@@ -914,66 +914,46 @@ class CallerNumberAndVoice(Base):
         return c
 
     @staticmethod
-    def voice(tx, s, business_voice, **marks):
-        """門の声の決め方（choose_voice の1か所）を、その行・その版で呼ぶ（marks＝予約証の印 promised・apology）。"""
+    def voice(tx, s, business_voice):
+        """門の声の決め方（choose_voice の1か所）を、その行・その版で呼ぶ。"""
         return gate.choose_voice(tx, {"task_id": s["task"], "phone_e164": s["phone"], "client_id": s["client"]},
-                                 s["version"], business_voice, date.today(), **marks)
+                                 s["version"], business_voice, date.today())
 
-    def test_the_parts_a_call_uses_are_decided_in_one_place(self):
-        """その電話で使う録音の部分（recordings.call_needs の1か所。CL-2 の連絡帳 4-152）：約束の電話は業務の組の「約束の電話で
-        取り次げないときの一言」（目的のお客様のいる業務だけ）・お詫びは理由ごとの契約者の組の録音・目的のお客様のいる業務は不在の
-        ときの伺い2つ。「誰でも」の業務のふつうの電話は、何も足さない。"""
-        need = recordings.call_needs
-        self.assertEqual(need(promised=False, apology=(), anyone=True), recordings.Needs())
-        self.assertEqual(need(promised=True, apology=(), anyone=True), recordings.Needs())
-        self.assertEqual(need(promised=False, apology=(), anyone=False),
-                         recordings.Needs(("callback_back_today", "callback_call_again"), ()))
-        self.assertEqual(need(promised=True, apology=("missed_promise", "cut_off"), anyone=False),
-                         recordings.Needs(("apology_missed_promise", "apology_cut_off", "callback_back_today",
-                                           "callback_call_again"), ("promise_again",)))
-        self.assertEqual(need(promised=False, apology=("cut_off",), anyone=True), recordings.Needs(("apology_cut_off",), ()))
-
-    def test_a_voice_is_used_only_when_its_sets_hold_the_parts_the_call_uses(self):
-        """承認した組に、その電話で使う部分が無い声では話さない（⛔ 2026-10-24 CL-2 の連絡帳 4-152：前は組があるかだけを見て、
-        流す録音の無いまま約束の電話・お詫びの電話をかけた）。そろう声があれば、その声。どれも無ければ、この行だけ候補に出さず、
-        契約者に足りない録音を知らせる（止めない）。約束でない電話は、約束の電話の一言を見ない。"""
+    def test_a_voice_is_used_only_when_its_contractor_set_holds_every_contractor_part(self):
+        """契約者の組に、契約者の単位の部分（recordings.CONTRACTOR_PARTS）がすべてある声だけで話す（⛔ 2026-10-24 CL-1 の連絡帳
+        4-39：前は予約証の印ごとに一部の部分を見て、約束の電話には業務の組に入らない promise_again を求め、約束の電話が1本もかからなかった。
+        契約者の組の部分はどの電話でも流れうる）。どの声にも足りなければ、待たせて契約者に足りない部分の名前を知らせる（止めない）。
+        お名前の入る一言（promise_again など）は業務の組で見ない＝約束の電話も、業務の組が名乗りだけでかかる。"""
         t = self.w.tenant(voices=())
-        # Sadachbia の契約者の組には途中で切れたお詫びが無い。Leda はすべてある
-        self.w.approve_voices(t, None, None, ("Sadachbia",), parts=("greeting", "apology_missed_promise",
-                                                                     "callback_back_today", "callback_call_again"))
+        missing = recordings.CONTRACTOR_PARTS[-1]
+        self.w.approve_voices(t, None, None, ("Sadachbia",),
+                              parts=tuple(p for p in recordings.CONTRACTOR_PARTS if p != missing))   # 1つ足りない
         self.w.approve_voices(t, None, None, ("Leda",))
         a = self.ready(tenant=t)
-        # 業務の組：Sadachbia は約束の電話の一言なし、Leda はあり（ready の業務の組はどちらも「すべて」なので、作り直す）
-        self.w.approve_voices(t, a["client"], a["version"], ("Sadachbia",), parts=("greeting",))
-        self.assertEqual(self.tx(a, lambda tx: self.voice(tx, a, "S2")), "S2")                       # ふつうの電話は業務の声
-        self.assertEqual(self.tx(a, lambda tx: self.voice(tx, a, "S2", promised=True)), "L4")        # 約束の一言は Leda だけ
-        self.assertEqual(self.tx(a, lambda tx: self.voice(tx, a, "S2", apology=("cut_off",))), "L4")
-        self.assertEqual(self.tx(a, lambda tx: self.voice(tx, a, "S2", apology=("missed_promise",))), "S2")
-        # どの声にもそろわない：約束の電話の一言の無い声だけの契約者
-        u = self.w.tenant(voices=("Sadachbia",))
+        self.assertEqual(self.tx(a, lambda tx: recordings.ready_voices(tx, a["version"])), ["Leda"])
+        self.assertEqual(self.tx(a, lambda tx: self.voice(tx, a, "S2")), "L4")
+        # どの声にも足りない契約者：待たせて、足りない部分の名前を知らせる
+        u = self.w.tenant(voices=())
+        self.w.approve_voices(u, None, None, ("Sadachbia",),
+                              parts=tuple(p for p in recordings.CONTRACTOR_PARTS if p != missing))
         b = self.ready(tenant=u)
-        self.w.approve_voices(u, b["client"], b["version"], ("Sadachbia",), parts=("greeting",))
-        got = self.tx(b, lambda tx: self.voice(tx, b, "S2", promised=True))
+        got = self.tx(b, lambda tx: self.voice(tx, b, "S2"))
         self.assertIsInstance(got, gate.Denied)
-        self.assertEqual((got.reason, gate.REASONS[got.reason].handling), ("voice_parts_missing", "unoffered"))
+        self.assertEqual((got.reason, gate.REASONS[got.reason].handling), ("voice_not_ready", "run"))
         told = self.tx(b, lambda tx: tx.all("SELECT summary FROM salescall.notification_events WHERE kind = 'setting_missing'"))
-        self.assertEqual([r["summary"] for r in told],
-                         [gate.VOICE_PARTS_MISSING.format("本日お戻りのご予定の伺い・改めてお掛けしてよいかの伺い・"
-                                                          "約束の電話で取り次げないときの一言")])
-        self.assertEqual(self.tx(b, lambda tx: self.voice(tx, b, "S2")), "S2")                     # 約束でなければ話す
+        self.assertEqual([r["summary"] for r in told], [gate.VOICE_PARTS_MISSING.format(missing)])
+        self.w.approve_voices(u, None, None, ("Sadachbia",))   # 足りない部分を入れた組を承認すれば話す
+        self.assertEqual(self.tx(b, lambda tx: self.voice(tx, b, "S2")), "S2")
 
-    def test_a_row_whose_call_lacks_its_parts_is_not_offered_and_waits(self):
-        """門の前の候補でも同じ判断（waits_unknown が choose_voice を読む）：契約者の組に不在のときの伺いが無ければ、目的のお客様の
-        いる業務の行は候補に出さず、門も voice_parts_missing で断る。録音を足して承認すれば、また出る。"""
-        t = self.w.tenant(voices=("Sadachbia",))
-        a = self.ready(tenant=t)
-        self.w.approve_voices(t, None, None, ("Sadachbia",), parts=("greeting",))   # 新しく承認した組（いまの組）に伺いが無い
-        offered = lambda: self.tx(a, lambda tx: [r["task_id"] for r in scheduler.due_tasks(tx, 10)])  # noqa: E731
-        self.assertEqual(offered(), [])
-        self.assertEqual(self.reason(a), "voice_parts_missing")
-        self.w.approve_voices(t, None, None, ("Sadachbia",))
-        self.assertEqual(offered(), [a["task"]])
-        self.assertIsInstance(self.claim(a), gate.Claim)
+    def test_a_promised_call_needs_no_name_part_in_the_business_set(self):
+        """約束の電話も、お詫びの電話も、業務の組にお名前の入る一言が無くても予約できる（⛔ 2026-10-24 CL-1 の連絡帳 4-39。台帳は ⏳）。"""
+        a = self.ready()
+        self.w.approve_voices(a["tenant"], a["client"], a["version"], parts=("intro",))
+        self.tx(a, lambda tx: support.schedule_call(tx, a["task"], tx.one("SELECT now() AS t")["t"],
+                                                        contact_id=a["contact"], cause="お客様に頼まれた折り返し", promised=True))
+        got = self.claim(a)
+        self.assertIsInstance(got, gate.Claim, got)
+        self.assertTrue(got.promised)
 
     def test_another_client_or_contractor_gets_the_other_voice(self):
         self.override("gate.cross_client_interval", 1)

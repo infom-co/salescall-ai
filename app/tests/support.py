@@ -129,10 +129,9 @@ class World:
     def approve_voices(self, tenant: UUID, client: UUID | None, version: UUID | None,
                        voices: tuple[str, ...] = VOICES, *, parts: tuple[str, ...] | None = None) -> None:
         """声ごとに、録音の組を作って承認する（契約者の単位＝版なし／依頼者の単位＝その版。架空の録音）。parts＝組に入れる部分の
-        名前（無ければ、あいさつと、その単位で電話の印ごとに使う部分のすべて＝recordings.call_needs が見るもの）。"""
+        名前（無ければ、契約者の単位は契約者の単位の部分のすべて＝recordings.CONTRACTOR_PARTS、依頼者の単位は名乗り）。"""
         unit = "contractor" if version is None else "business"
-        names = parts if parts is not None else ("greeting",) + (
-            (*recordings.APOLOGY_PARTS.values(), *recordings.TARGET_PARTS) if unit == "contractor" else recordings.PROMISED_PARTS)
+        names = parts if parts is not None else (recordings.CONTRACTOR_PARTS if unit == "contractor" else ("intro",))
         def work(tx):
             for v in voices:
                 sid = recordings.create_set(tx, unit=unit, voice_name=v, version_id=version,
@@ -290,9 +289,12 @@ def full_version(w: "World", s: dict, target_person: dict | None = None, *, cont
 
 
 def schedule_call(tx, task_id, call_at, *, contact_id, cause: str, promised: bool, purpose: str = "normal",
-                  wrong_contact_id=None, callee_at=None, window=None, successor: bool = False) -> int:
+                  wrong_contact_id=None, callee_at=None, window=None, successor: bool = False,
+                  number_again: str | None = None) -> int:
     """試験の場面を作る：次の動きの記録に、かける予定を直に書く（本番では、予定を書くのは次の動きの決め方だけ）。"""
     from salescall.core import next_action
     return next_action._append(tx, task_id, call_at=call_at, end_reason=None, cause=cause, promised=promised,
-                               target=next_action.Target(contact_id, None, purpose, wrong_contact_id, successor=successor), callee_at=callee_at,
+                               target=next_action.Target(contact_id, None, purpose, wrong_contact_id, successor=successor,
+                                                         number_again=number_again or ("wrong_party" if purpose == "ask_number_again"
+                                                                                       else None)), callee_at=callee_at,
                                window=window)

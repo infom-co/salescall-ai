@@ -32,11 +32,15 @@
 4. **回線が「通話中」のまま（電話の部品が「通話中」と答え続ける・答えられない）で、かけられない状態が `STUCK_AFTER` 続いたら、
    回線の異常として数える**（`Stuck` の1か所。数える入口は、かけられなかったときと同じ `_line_fault`＝続けば、処置の表のとおり、
    その回線を止めて知らせる。⛔ 2026-10-22 の見直し15：前は、通話中を理由に休み続けるだけで、だれにも知らされなかった）。
+5. **通話の長さでは切らない**：通話を進める部品が動いている間は、通話が「進んだ」知らせ（core/conversation_io.progress）を見張り、
+   `supervisor.CALL_STALL` 進まなければ、こちらの仕組みが止まったとして、おわびの2つの一言で終える（`_Watch` の1か所。2026-10-24
+   ユーザー：時間で業務を打ち切らない。CL-1 の連絡帳 4-41 の (1)）。
 締め（判定・次の動き）は、見守り役の決まった間隔の仕事がする（jobs の settle）。
 """
 
 from __future__ import annotations
 
+import threading
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -45,14 +49,15 @@ from uuid import UUID
 from salescall.core import attempts, dial_exit, gate, next_action, scheduler, settings, watch
 from salescall.core.access import Access, Actor
 from salescall.core.errors import ErrorReport
-from salescall.supervisor import ACTOR, CALL_WAIT, plugins, report, updates
+from salescall.supervisor import ACTOR, CALL_STALL, plugins, report, updates
 from salescall.supervisor.links import CallDriver
 
 CANDIDATES_PER_CLIENT = 20   # 1回に門へ渡す行の数の上限（依頼者ごと）。通れば1本かけて、また初めから並べ直す
 IDLE_SECONDS = 5             # かける行が無いとき・版が合わないときの待ち
-# 回線が「通話中」のまま、かけられない状態がこれだけ続いたら、回線の異常として数える（秒。通話の最長から決める＝supervisor の1か所。
-# 最長の通話より長く「通話中」なら、通話ではなく、電話の部品か回線が動いていない）
-STUCK_AFTER = CALL_WAIT
+# 回線が「通話中」のまま、かけられない状態がこれだけ続いたら、回線の異常として数える（秒。通話が進まないとみなす長さ＝supervisor の
+# 1か所。こちらの通話を進める部品が戻ったあとも「通話中」なら、通話ではなく、電話の部品か回線が動いていない）
+STUCK_AFTER = CALL_STALL
+WATCH_EVERY = 5.0   # 通話の途中に、進んでいるかを見る間（秒）
 UNRUNG_PAUSE = "unrung_line"   # 回線のせいで鳴らなかった電話を数えて、回線を休ませた（Round.pause の名前）
 
 
@@ -82,6 +87,40 @@ class Stuck:
         elif got.free:
             self.since = None
         return False
+
+
+class _Watch:
+    """通話の途中の見張り（判断はこの1か所）：通話を進める部品が動いている間、通話が「進んだ」かを WATCH_EVERY ごとに見て、CALL_STALL
+    進まなければ（`attempts.stalled`＝データベースの salescall.call_stalled）、こちらの仕組みが止まったとみなし、通話を途中で切るときの
+    2つの一言で終え（`dial_exit.abandon`）、結果不明にして記録する（2026-10-24 ユーザー：時間で業務を打ち切らない。CL-1 の連絡帳 4-41 の
+    (1)：「通話を進める部品が動いている間（ターンごとの進みの知らせが届いている間）は待ち、知らせが止まったときだけ…」）。
+    進んでいる通話は、どれだけ長くても切らない。"""
+
+    def __init__(self, access: Access, actor: Actor, tenant_id: UUID, client_id: UUID, line_id: UUID, attempt_id: UUID,
+                 driver: CallDriver) -> None:
+        self.access, self.actor, self.tenant_id, self.client_id = access, actor, tenant_id, client_id
+        self.line_id, self.attempt_id, self.driver = line_id, attempt_id, driver
+        self.done = threading.Event()
+        self.thread = threading.Thread(target=self._run, name=f"通話の見張り {attempt_id}", daemon=True)
+
+    def start(self) -> None:
+        self.thread.start()
+
+    def stop(self) -> None:
+        self.done.set()
+
+    def _run(self) -> None:
+        while not self.done.wait(WATCH_EVERY):
+            try:
+                if self.access.in_client(self.actor, self.tenant_id, self.client_id,
+                                         lambda tx: attempts.stalled(tx, self.attempt_id, CALL_STALL)):
+                    dial_exit.abandon(self.driver)   # お客様を無言で放置しない（おわびの2つの一言を流して切る）
+                    _end_unknown(self.access, self.actor, self.tenant_id, self.client_id, self.attempt_id)
+                    report(self.access, self.tenant_id, "通話を進める部品",
+                           RuntimeError(f"通話が {int(CALL_STALL)} 秒進みませんでした（おわびして切りました）"), line_id=self.line_id)
+                    return
+            except Exception as e:  # noqa: BLE001 見張りの誤りで、通話を止めない（記録だけ）
+                report(self.access, self.tenant_id, "通話の見張り", e, line_id=self.line_id)
 
 
 def _line_fault(access: Access, actor: Actor, tenant_id: UUID, line_id: UUID, what: str, *,
@@ -164,13 +203,17 @@ def _client_round(access: Access, actor: Actor, tenant_id: UUID, client_id: UUID
                 driver.prepare_call(got.voice_type)   # この通話の声の型を電話の部品へ（おわびの録音も同じ声で）
                 done = dial_exit.dial(access, actor, tenant_id, client_id, got.attempt_id, driver)
                 if done is dial_exit.Outcome.DIALED:
+                    guard = _Watch(access, actor, tenant_id, client_id, line_id, got.attempt_id, driver)
+                    guard.start()
                     try:
                         runner.run(access, actor, got, tenant_id=tenant_id, client_id=client_id)
                     except Exception as e:  # noqa: BLE001 その通話だけを結果不明にして、次へ進む（止めない）
+                        guard.stop()
                         dial_exit.abandon(driver)   # 通話が残っていれば、おわびして切る（お客様を無言で放置しない）
                         _end_unknown(access, actor, tenant_id, client_id, got.attempt_id)
                         report(access, tenant_id, "通話を進める部品", e, line_id=line_id)
                     else:
+                        guard.stop()
                         # 通話を終えずに戻った（試行がまだ進行中）：誤りのときと同じに扱う（⛔ 2026-10-22 の見直し：電話はつながった
                         # まま無言になり、回線は「通話中」で止まり続け、だれにも知らされなかった）
                         if _end_unknown(access, actor, tenant_id, client_id, got.attempt_id):
@@ -228,7 +271,7 @@ def loop(access: Access, tenant_id: UUID, line: UUID, holder: str, driver: CallD
             got = one_round(access, ACTOR, tenant_id, line, holder, driver, runner)
             if stuck.seen(got, time.monotonic()):
                 _line_fault(access, ACTOR, tenant_id, line,
-                            f"回線が「通話中」のまま、かけられません（{int(STUCK_AFTER // 60)}分以上。電話の部品が答えない場合も）")
+                            f"回線が「通話中」のまま、かけられません（{int(STUCK_AFTER)}秒以上。電話の部品が答えない場合も）")
             if got.called is None or got.pause:
                 stop.wait(pause if got.pause else IDLE_SECONDS)
         except Exception as e:  # noqa: BLE001 記録して、少し待ってから続ける（止めない）

@@ -38,7 +38,8 @@ from datetime import datetime, timedelta
 from typing import Any
 from uuid import UUID
 
-from salescall.core import attempts, business_rules, calling_hours, gate, settings, spoken_time, target_policy, tasks
+from salescall.core import (attempts, business_rules, calling_hours, gate, number_recheck, settings, spoken_time, target_policy,
+                            tasks)
 from salescall.core.access import Tx
 from salescall.core.business_rules import Rules
 from salescall.core.calendar import CalendarOutOfRange, holiday_checker
@@ -52,12 +53,13 @@ def current(tx: Tx, task_id: UUID) -> dict[str, Any] | None:
     return tx.one(
         "SELECT task_id, seq, kind, call_at, end_reason, cause, promised, contact_id, purpose, wrong_contact_id, callee_at,"
         "       window_until, window_daily, window_days, window_from, window_repeat, window_round, window_missed, window_said,"
-        "       window_day_said, apology_owed, apology_reasons, successor, decided_at"
+        "       window_day_said, apology_owed, apology_reasons, successor, number_again, decided_at"
         " FROM salescall.current_next_actions WHERE task_id = %s",   # いまの予定を選ぶのはデータベースの見方の1か所（0094）
         (task_id,),
     )
 
 
+NUMBER_AGAIN = ("wrong_party", "unreachable")   # 番号を伺い直す理由：お客様が言った番号が別の方のお電話だった／繋がらなかった（0130）
 PURPOSES = ("normal", "ask_number_again", "apology", "resume")   # 発信の目的：ふつう／番号の聞き直し（3-5）／お詫び（10-1-2）／
 #                                                                   続き（途中で切れた通話のかけ直し。お詫びから始めて続ける）
 
@@ -70,6 +72,8 @@ class Target:
     purpose: str = "normal"
     wrong_contact_id: UUID | None = None    # 番号の聞き直しのとき：番号違いだった番号
     successor: bool = False                 # 目的のお客様の代わりに、後任のご担当者様をお呼びする（お呼びした方が在籍していない。0114）
+    number_again: str | None = None         # 番号の聞き直しのとき：なぜ伺い直すか（NUMBER_AGAIN。0130。予約証へ写し、会話が理由ごとの
+    #                                         一言で伺う＝CL-1 の連絡帳 4-41 の (3)）
 
 
 @dataclass(frozen=True)
@@ -172,8 +176,9 @@ def _append(tx: Tx, task_id: UUID, *, call_at: datetime | None, end_reason: str 
         raise ValueError("かけ直すときは、約束したかけ直しか（promised）と、かける先（番号・目的）を必ず決めます"
                          "（終えるときは持たない）")
     if target is not None and (target.purpose not in PURPOSES
-                               or (target.purpose == "ask_number_again") != (target.wrong_contact_id is not None)):
-        raise ValueError(f"発信の目的は {'・'.join(PURPOSES)} のどれか（聞き直しは、番号違いだった番号を必ず持つ）")
+                               or (target.purpose == "ask_number_again") != (target.wrong_contact_id is not None)
+                               or (target.purpose == "ask_number_again") != (target.number_again in NUMBER_AGAIN)):
+        raise ValueError(f"発信の目的は {'・'.join(PURPOSES)} のどれか（聞き直しは、番号違いだった番号と、伺い直す理由を必ず持つ）")
     if callee_at is not None and not (calls and promised):
         raise ValueError("お客様が指定した時刻を持てるのは、約束したかけ直しだけです")
     if window is not None and not calls:
@@ -193,10 +198,11 @@ def _append(tx: Tx, task_id: UUID, *, call_at: datetime | None, end_reason: str 
         "INSERT INTO salescall.task_next_actions (tenant_id, client_id, task_id, kind, call_at, end_reason, cause,"
         "                                         promised, contact_id, purpose, wrong_contact_id, callee_at, window_until,"
         "                                         window_daily, window_days, window_from, window_repeat, window_round,"
-        "                                         window_missed, window_said, window_day_said, apology_reasons, successor)"
+        "                                         window_missed, window_said, window_day_said, apology_reasons, successor,"
+        "                                         number_again)"
         " SELECT t.tenant_id, t.client_id, t.task_id,"
         "        %s, CASE WHEN %s THEN now() ELSE %s::timestamptz END, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,"
-        "        %s, %s, %s, %s"
+        "        %s, %s, %s, %s, %s"
         " FROM salescall.tasks t WHERE t.task_id = %s RETURNING seq",
         ("hold" if hold else "call" if calls else "end", call_now, call_at, end_reason, cause, promised,
          target and target.contact_id, target and target.purpose, target and target.wrong_contact_id, callee_at,
@@ -204,7 +210,8 @@ def _append(tx: Tx, task_id: UUID, *, call_at: datetime | None, end_reason: str 
          None if window is None or window.days is None else list(window.days), window and window.since,
          window and window.repeat, 0 if window is None else window.round, 0 if window is None else window.missed,
          None if window is None or window.said is None else list(window.said), bool(window and window.day_said),
-         list(reasons), bool(target and target.contact_id and target.successor), task_id),
+         list(reasons), bool(target and target.contact_id and target.successor),
+         target.number_again if target is not None and target.purpose == "ask_number_again" else None, task_id),
     )
     if row is None:
         raise TaskNotFound(str(task_id))
@@ -311,6 +318,8 @@ class Numbers:
     """行の番号の材料（締めの処理の時点。`numbers_of` の1か所で集める）。"""
     unusable: frozenset[UUID] = frozenset()   # 回線の部品が続けて受け付けなかった番号（attempts.number_unusable の1か所。0118）
     said: tuple[UUID, ...] = ()                # お客様が言った別の番号のうち、かけない理由の無いもの（新しい順）
+    sources: tuple[tuple[UUID, UUID], ...] = ()   # お客様が言った番号 → その番号を言われた通話でかけた番号（伺い直す先）
+    asked_again: bool = False                  # この行で、前にも番号を伺い直すと決めた（number_recheck.asked_again_before の1か所）
 
 
 def choose_number(j: Judgement, *, dialed: Target, alternate: Alternate | None, recheck: Recheck | None,
@@ -337,6 +346,11 @@ def usable(t: Target, numbers: Numbers) -> Target:
         for c in numbers.said:
             if c not in numbers.unusable and c != t.contact_id:
                 return replace(t, contact_id=c)
+        # お客様が言った番号に繋がらなかった：その番号を言われた通話の番号へ、番号を伺い直す（同じ行で1回だけ。番号違いの聞き直しと
+        # 同じ数え方＝numbers.asked_again。2026-10-24 ユーザー：「別の方のお電話よりも、繋がらない番号のパターンも必要じゃないですか？」）
+        source = dict(numbers.sources).get(t.contact_id)
+        if source is not None and source not in numbers.unusable and not numbers.asked_again:
+            return Target(source, None, "ask_number_again", t.contact_id, number_again="unreachable")
     return Target(None, "number_unusable")
 
 
@@ -363,7 +377,7 @@ def _choose(j: Judgement, *, dialed: Target, alternate: Alternate | None, rechec
             return _alternate_target(recheck.corrected)
         if recheck.asked_again_before:
             return Target(None, "alternate_wrong_again")     # 聞き直しても、また番号違い：記録して終える
-        return Target(recheck.source_contact_id, None, "ask_number_again", dialed.contact_id)
+        return Target(recheck.source_contact_id, None, "ask_number_again", dialed.contact_id, number_again="wrong_party")
     if dialed.purpose == "ask_number_again" and (j.state in ("open", "not_reached") or cut_off):
         return replace(dialed, successor=False)
     return Target(dialed.contact_id)
@@ -554,7 +568,7 @@ def _line_fault_again(tx: Tx, task_id: UUID, dialed: Target, dialed_at: datetime
     row = _plan_at(tx, task_id, dialed_at)
     if row is None or row["kind"] != "call":
         return None
-    target = replace(dialed, successor=True) if row["successor"] else dialed
+    target = _dialed_marks(dialed, row)
     return _call(now, bool(row["promised"]), "回線のせいで鳴らなかった（同じ回線で違う番号も続けて鳴らなかった）：回線の一時中止"
                  "だけで、かけた予定のまま（どの数にも数えない）", target,
                  row["callee_at"] if row["promised"] else None, window_of(row))
@@ -579,8 +593,7 @@ def after_call(tx: Tx, task_id: UUID, j: Judgement, *, rules: Rules, dialed: Tar
     dialed_row = _plan_at(tx, task_id, dialed_at)
     dialed_window = window_of(dialed_row)
     dialed_exact = dialed_window is not None and dialed_row["callee_at"] is not None   # 時刻ちょうどの約束の回
-    if dialed_row is not None and dialed_row["successor"]:   # 後任の方を追う電話だった（印は行が終わるまで引き継ぐ＝choose_number）
-        dialed = replace(dialed, successor=True)
+    dialed = _dialed_marks(dialed, dialed_row)
     key = j.detail.get("policy_key")
     target = choose_number(j, dialed=dialed, alternate=alternate, recheck=recheck, cut_off=cut_off,
                            numbers=numbers_of(tx, task_id))
@@ -683,14 +696,17 @@ def not_today(not_reached: str | None, again: bool) -> bool:
 def numbers_of(tx: Tx, task_id: UUID) -> Numbers:
     """行の番号の材料（1か所）：回線の部品が続けて受け付けなかった番号と、お客様が言った別の番号のうち、かけない理由の無いもの
     （かけない理由は target_policy.block_reason の1か所）。"""
-    rows = tx.all("SELECT n.contact_id, n.phone_e164, n.source, t.client_ref FROM salescall.task_numbers n"
-                  " JOIN salescall.tasks t ON t.task_id = n.task_id WHERE n.task_id = %s ORDER BY n.added_at DESC, n.phone_e164",
-                  (task_id,))
+    rows = tx.all("SELECT n.contact_id, n.phone_e164, n.source, t.client_ref, s.contact_id AS source_contact"
+                  " FROM salescall.task_numbers n JOIN salescall.tasks t ON t.task_id = n.task_id"
+                  " LEFT JOIN salescall.attempts s ON s.attempt_id = n.source_attempt_id"
+                  " WHERE n.task_id = %s ORDER BY n.added_at DESC, n.phone_e164", (task_id,))
     scope = tasks.scope(tx, task_id)
     unusable = frozenset(r["contact_id"] for r in rows if attempts.number_unusable(tx, r["contact_id"], **scope))
     said = tuple(r["contact_id"] for r in rows if r["source"] == "callee" and r["contact_id"] not in unusable
                  and target_policy.block_reason(tx, normalize(r["phone_e164"]), client_ref=r["client_ref"], **scope) is None)
-    return Numbers(unusable, said)
+    sources = tuple((r["contact_id"], r["source_contact"]) for r in rows
+                    if r["source_contact"] is not None and r["source_contact"] != r["contact_id"])
+    return Numbers(unusable, said, sources, number_recheck.asked_again_before(tx, task_id))
 
 
 def _failed_retry_at(tx: Tx, task_id: UUID, contact_id: UUID | None, now: datetime, dialed_at: datetime) -> datetime | None:
@@ -1183,14 +1199,20 @@ def after_denial(tx: Tx, task_id: UUID, denied: gate.Denied, *, tenant_id: UUID,
     retry_wait = int(settings.resolve(tx, "gate.denied_retry_wait", tenant_id=tenant_id, client_id=client_id,
                                       business_id=business_id))
     now_target = None if cur is None or cur["kind"] != "call" else Target(cur["contact_id"], None, cur["purpose"],
-                                                                            cur["wrong_contact_id"], bool(cur["successor"]))
+                                                                            cur["wrong_contact_id"], bool(cur["successor"]),
+                                                                            cur["number_again"])
     if denied.reason == "number_unusable" and now_target is not None:
         # その番号は、鳴らない電話が決まった数だけ続いた（門と同じ attempts.number_unusable）：お客様が言った別の番号へ替えるか、行を
         # 終える（通話のあとと同じ `usable` の1か所）
         t = usable(now_target, numbers_of(tx, task_id))
-        d = _end(t.end_reason, "門：その番号は、鳴らない電話が続いた（もうかけない）") if t.contact_id is None else \
-            _call(now, bool(cur["promised"]), "門：その番号は、鳴らない電話が続いた ⇒ お客様が言った別の番号へ", t,
-                  cur["callee_at"], window)
+        if t.contact_id is None:
+            d = _end(t.end_reason, "門：その番号は、鳴らない電話が続いた（もうかけない）")
+        elif t.purpose == "ask_number_again":   # お客様が言った番号に繋がらない：言われた通話の番号へ、番号を伺い直す（すぐ。
+            # 番号の聞き直しは約束の印を必ず持つ＝データベースの salescall.needs_promise_mark の1か所）
+            d = _call(now, True, "門：お客様が言った番号は、鳴らない電話が続いた ⇒ 言われた通話の番号へ、番号を伺い直す", t)
+        else:
+            d = _call(now, bool(cur["promised"]), "門：その番号は、鳴らない電話が続いた ⇒ お客様が言った別の番号へ", t,
+                      cur["callee_at"], window)
         _write(tx, task_id, d)
         return d
     if denied.reason in ("outside_hours", "callback_window") and window is not None and now_target is not None:
@@ -1256,9 +1278,19 @@ def _plan_at(tx: Tx, task_id: UUID, at: datetime) -> dict[str, Any] | None:
     （いまの予定ではない：判定し直しのときは、いまの予定が判定待ちになっていて、幅を失うため）。"""
     return tx.one(
         "SELECT kind, window_until, window_daily, window_days, window_from, window_repeat, window_round, window_missed,"
-        "       window_said, window_day_said, callee_at, promised, successor"
+        "       window_said, window_day_said, callee_at, promised, successor, number_again"
         " FROM salescall.task_next_actions WHERE task_id = %s AND decided_at <= %s ORDER BY seq DESC LIMIT 1",
         (task_id, at))
+
+
+def _dialed_marks(dialed: Target, row: dict[str, Any] | None) -> Target:
+    """かけた電話の印（後任の方を追う・番号を伺い直す理由）を、かけたときに効いていた予定から写す（1か所。試行には持たない印）。
+    番号を伺い直す理由の無い前の予定（0130 より前）は、番号違いの聞き直ししか無かったので wrong_party。"""
+    if row is not None and row["successor"]:   # 後任の方を追う電話だった（印は行が終わるまで引き継ぐ＝choose_number）
+        dialed = replace(dialed, successor=True)
+    if dialed.purpose == "ask_number_again":
+        dialed = replace(dialed, number_again=(row or {}).get("number_again") or "wrong_party")
+    return dialed
 
 
 def _served_unspecified(tx: Tx, task_id: UUID, at: datetime, purpose: str) -> bool:

@@ -945,6 +945,38 @@ class UnusableNumber(SettleBase):
         d = self.confirmed(s)
         self.assertEqual((d.kind, d.contact_id), ("call", other))
 
+    def test_a_number_the_callee_gave_that_never_rings_is_asked_again(self):
+        """お客様が言った番号が、番号のせいで繋がらない（並びを使い切り、同じ回線がほかの番号を鳴らせた）：その番号を言われた通話の
+        番号へ、番号を伺い直す（予約証の number_again＝unreachable。2026-10-24 ユーザー：「別の方のお電話よりも、繋がらない番号の
+        パターンも必要じゃないですか？」・CL-1 の連絡帳 4-41 の (3)）。伺い直すのは同じ行で1回だけ（番号違いの聞き直しと同じ数え方）。"""
+        from salescall.core.phone import normalize
+        s = self.ready()
+        first = self.call(s, ["dialing", "no_answer"])
+        self.settle(s, first)
+        phone = normalize("0312345679")
+        other = self.tx(s, lambda tx: tasks.add_callee_number(tx, s["task"], phone, source_attempt_id=first))
+        alt = dict(s, contact=other, phone=phone.e164)
+        for _ in range(4):
+            self.due_now(s, contact=other)
+            self.settle(alt, self.past_attempt(alt, ["dialing", "call_failed"], settled=False))
+        self.ring_elsewhere(s)                                                 # 回線は元気だった：番号のせい
+        self.due_now(s, contact=other)
+        got = self.claim(s)
+        self.assertEqual(got.reason, "number_unusable")
+        d = self.tx(s, lambda tx: next_action.after_denial(tx, s["task"], got, tenant_id=s["tenant"], client_id=s["client"],
+                                                         business_id=s["business"]))
+        self.assertEqual((d.kind, d.contact_id, d.target.purpose, d.target.wrong_contact_id, d.target.number_again),
+                         ("call", s["contact"], "ask_number_again", other, "unreachable"))
+        c = self.claim(s)
+        self.assertIsInstance(c, gate.Claim, c)
+        self.assertEqual((c.purpose, c.number_again, c.wrong_phone_e164), ("ask_number_again", "unreachable", phone.e164))
+        # 同じ行で、もう伺い直していれば、繋がらない番号でも伺い直さずに終える
+        numbers = next_action.Numbers(unusable=frozenset({other}), sources=((other, s["contact"]),), asked_again=True)
+        self.assertEqual(next_action.usable(next_action.Target(other), numbers).end_reason, "number_unusable")
+        numbers = next_action.Numbers(unusable=frozenset({other}), sources=((other, s["contact"]),))
+        self.assertEqual(next_action.usable(next_action.Target(other), numbers),
+                         next_action.Target(s["contact"], None, "ask_number_again", other, number_again="unreachable"))
+
     def test_only_calls_to_whoever_answers_move_to_another_number(self):
         """使えない番号のとき、お客様が言った別の番号へ替えるのは、ふつうの電話・続きの電話（行のお客様へかける電話）だけ。番号の
         聞き直し・お詫びの電話は、その番号のお客様へかける電話なので替えずに行を終える（next_action.usable の1か所。見直し16b：
@@ -2419,15 +2451,16 @@ class DatabaseGuards(Base):
         付け忘れると、お詫びの電話がふつうの電話の後ろに回され、取り置きもされない）。ふつうの電話は、印が無くても書ける。"""
         s = self.ready()
         sql = ("INSERT INTO salescall.task_next_actions (tenant_id, client_id, task_id, kind, call_at, cause, promised,"
-               " contact_id, purpose, wrong_contact_id)"
+               " contact_id, purpose, wrong_contact_id, number_again)"
                " SELECT tenant_id, client_id, task_id, 'call', now(), cause, %s, contact_id, %s,"
-               " CASE WHEN %s = 'ask_number_again' THEN contact_id END FROM salescall.current_next_actions WHERE task_id = %s")
+               " CASE WHEN %s = 'ask_number_again' THEN contact_id END, CASE WHEN %s = 'ask_number_again' THEN 'wrong_party' END"
+               " FROM salescall.current_next_actions WHERE task_id = %s")
         for purpose in ("apology", "resume", "ask_number_again"):
             with self.subTest(purpose=purpose), self.assertRaises(Rejected) as e:
-                self.tx(s, lambda tx: tx.execute(sql, (False, purpose, purpose, s["task"])))
+                self.tx(s, lambda tx: tx.execute(sql, (False, purpose, purpose, purpose, s["task"])))
             self.assertEqual(e.exception.constraint, "task_next_actions_promise_mark")
-            self.tx(s, lambda tx: tx.execute(sql, (True, purpose, purpose, s["task"])))
-        self.tx(s, lambda tx: tx.execute(sql, (False, "normal", "normal", s["task"])))
+            self.tx(s, lambda tx: tx.execute(sql, (True, purpose, purpose, purpose, s["task"])))
+        self.tx(s, lambda tx: tx.execute(sql, (False, "normal", "normal", "normal", s["task"])))
 
     def test_the_successor_mark_is_only_on_a_call(self):
         """後任のご担当者様をお呼びする印は、かける予定にだけ付く（終わる予定には付かない。0114）。"""

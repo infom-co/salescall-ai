@@ -18,8 +18,8 @@
 6. **版**：プログラムとデータベースの版がずれていれば、回線ごとの流れを止め（いまの通話は最後まで）、立ち上げず、決まった間隔の仕事も
    しない（`supervisor.updates`。合えば、またかける）。ずれは CL-2 へ（変わったときだけ）。
 7. **どの段の誤りでも、本体は止まらない**（データベースに届かない など）：記録して、次の回にまた試す。
-8. **止め方は1つ**（Ctrl+C・終わりの合図 SIGTERM・入れ替えの前の命令 `drain`）：新しい電話をかけず、いまの通話の終わりを最長
-   `SHUTDOWN_WAIT` 待ち、回線を返して止まる。`drain`（`ask_drain`）は、機械の中の印のファイル（`DRAIN_FLAG`）で、動いている見守り役に
+8. **止め方は1つ**（Ctrl+C・終わりの合図 SIGTERM・入れ替えの前の命令 `drain`）：新しい電話をかけず、いまの通話が進んでいる間は
+   待ち（少なくとも `SHUTDOWN_WAIT`。通話の長さでは打ち切らない＝2026-10-24 ユーザー）、回線を返して止まる。`drain`（`ask_drain`）は、機械の中の印のファイル（`DRAIN_FLAG`）で、動いている見守り役に
    頼み、止まるまで待って知らせる（入れ替えで通話をいきなり切らない。動かす所の仕組みの待つ長さの上限に頼らない＝⛔ 2026-10-22 の
    見直し15）。動き出す前に置かれた印は、前の回の残りとして消す（次に動かしたとたんに止まらない）。止まったことは、見守り役が
    止まり終えたときに書く「止まった」の印（`DRAIN_DONE`。頼んだ印と同じ番号）で知る（⛔ 見直し16：前は、止まったかを印のファイルを
@@ -37,11 +37,11 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 from uuid import UUID
 
-from salescall.core import dial_exit, leases
+from salescall.core import attempts, dial_exit, leases
 from salescall.core.access import Access, busy, unreachable
 from salescall.link.basics import backoff
 from salescall.link.locks import AlreadyRunning, SingleInstance, lock_dir, machine_id
-from salescall.supervisor import (ACTOR, CALL_WAIT, busy_seen, config, flush_busy, jobs, line, local_pc, plugins, report,
+from salescall.supervisor import (ACTOR, CALL_STALL, busy_seen, config, flush_busy, jobs, line, local_pc, plugins, report,
                                  updates, watchdog)
 from salescall.supervisor.links import Attached, Links, NoLinks
 
@@ -53,21 +53,22 @@ HEAVY_THREADS = 4                          # 長い仕事（控えの書き込�
 __all__ = ["AlreadyRunning", "Supervisor", "serve", "holder_name"]
 
 
-# 止めるとき、いまの通話が終わるのを待つ長さ（秒。通話の最長から決める＝supervisor.CALL_WAIT）。動かす所の仕組みの「止めるまで
-# 待つ長さ」は、これより長くする（Fly.io の kill_timeout など。app/README.md）。短いと、話している通話がいきなり切れる。入れ替えの
-# ときは、先に `drain` で止めておく（動かす所の仕組みの待つ長さに頼らない）
-SHUTDOWN_WAIT = CALL_WAIT
+# 止めるとき、いまの通話を待つ決まり（1か所＝`Supervisor.shutdown`）：少なくともこの長さは待ち、そのあとも、回線に進んでいる通話が
+# ある間は待つ（通話の長さに上限は無い＝2026-10-24 ユーザー：時間で業務を打ち切らない。進んでいるかは core/attempts.line_call_progressing
+# の1か所）。⛔ 2026-10-24：前は通話の最長（11分）で待つのをやめ、話している通話がいきなり切れえた。入れ替えのときは、先に `drain` で
+# 止めておく（動かす所の仕組みの待つ長さ＝Fly.io の kill_timeout には上限があるので頼らない）
+SHUTDOWN_WAIT = CALL_STALL
 DRAIN_FLAG = "salescall-supervisor.drain"   # 「新しい電話をかけずに、いまの通話が終わったら終わって」の印（機械の中。lock_dir）
 DRAIN_DONE = "salescall-supervisor.drained"  # 頼まれて止まり終えた印（中身は頼んだ印と同じ番号）
-DRAIN_WAIT = SHUTDOWN_WAIT + 120.0          # drain の命令が、止まるのを待つ長さ（止めるときの待ちに、仕事とつなぎ口の後始末の分を足す）
 
 
 LOCK_FILE = "salescall-supervisor.lock"   # 1つの機械に1つだけ（機械の中の印）
 
 
-def ask_drain(wait_seconds: float = DRAIN_WAIT, every: float = 1.0) -> bool | None:
+def ask_drain(wait_seconds: float | None = None, every: float = 1.0) -> bool | None:
     """動いている見守り役に「新しい電話をかけずに、いまの通話が終わったら終わって」と頼み、止まるまで待つ（命令 `drain`。入れ替えの
-    前に使う）。止まったら True、待っても止まらなければ False、動いていなければ None（印は置かない）。"""
+    前に使う）。止まったら True、待っても止まらなければ False、動いていなければ None（印は置かない）。wait_seconds＝待つ長さの上限
+    （None＝上限なし：見守り役が止まり終えるか、止まり終えた印を書かずに終わるまで待つ。通話の長さに上限は無いため）。"""
     lock, flag, done = lock_dir() / LOCK_FILE, lock_dir() / DRAIN_FLAG, lock_dir() / DRAIN_DONE
     try:
         with SingleInstance(lock):   # 押さえられた：動いていない
@@ -80,14 +81,20 @@ def ask_drain(wait_seconds: float = DRAIN_WAIT, every: float = 1.0) -> bool | No
     except OSError:
         pass
     flag.write_text(token)
-    deadline = time.monotonic() + wait_seconds
-    while time.monotonic() < deadline:   # 待つあいだは印のファイルを押さえない（動き出す見守り役の邪魔をしない）
+    deadline = None if wait_seconds is None else time.monotonic() + wait_seconds
+    while deadline is None or time.monotonic() < deadline:   # 待つあいだは印のファイルを押さえない（動き出す見守り役の邪魔をしない）
         time.sleep(every)
         try:
             if done.read_text() == token:   # 見守り役が止まり終えた
                 return True
         except OSError:
-            continue
+            pass
+        if deadline is None:   # 上限なし：止まり終えた印を書かずに終わった（落ちた）なら、待ち続けない
+            try:
+                with SingleInstance(lock):
+                    return done.exists() and done.read_text() == token
+            except AlreadyRunning:
+                continue
     return False
 
 
@@ -402,21 +409,34 @@ class Supervisor:
                 if what == "回線の借用":
                     self._next_renew = now + (self._renew_every or RENEW_FALLBACK)
 
+    def _progressing(self, line_id: UUID) -> bool:
+        """その回線に、進んでいる通話があるか（core/attempts.line_call_progressing の1か所）。データベースに届かなければ、進んでいると
+        は言えない（待ち続けて止まれない、にしない。止まったあとの回線は、借用の期限で次が後始末する）。"""
+        w = self.workers.get(line_id)
+        if w is None:
+            return False
+        try:
+            return self.access.in_tenant(ACTOR, w.at.tenant_id,
+                                         lambda tx: attempts.line_call_progressing(tx, line_id, CALL_STALL))
+        except Exception:  # noqa: BLE001 データベースに届かない
+            return False
+
     def shutdown(self, wait_seconds: float = SHUTDOWN_WAIT) -> None:
-        """回線ごとの流れを止め（いまの通話は最後まで）、終わったら、その回線の後始末をして返す。"""
+        """回線ごとの流れを止め（いまの通話は最後まで）、終わったら、その回線の後始末をして返す。少なくとも wait_seconds は待ち、
+        そのあとも、まだ動いている回線に進んでいる通話がある間は待つ（`_progressing`。通話の長さでは打ち切らない）。"""
         for line_id in list(self.workers):
             self._stop_worker(line_id)
         deadline, next_extend = time.monotonic() + wait_seconds, 0.0
         while True:   # 通話が終わるのを待つあいだも、その回線の借用は延ばし続ける
             alive = [l for l, w in self.workers.items() if w.thread is not None and w.thread.is_alive()]
             left = deadline - time.monotonic()
-            if not alive or left <= 0:
+            if not alive or (left <= 0 and not any(self._progressing(l) for l in alive)):
                 break
             if time.monotonic() >= next_extend:
                 for line_id in alive:
                     self._extend(line_id)
                 next_extend = time.monotonic() + (self._renew_every or RENEW_FALLBACK)
-            self.workers[alive[0]].thread.join(min(1.0, left))
+            self.workers[alive[0]].thread.join(1.0 if left <= 0 else min(1.0, left))
         for line_id in list(self.leased):
             w = self.workers.get(line_id)
             if w is not None and w.thread is not None and w.thread.is_alive():   # まだ通話の途中：返さない（期限で次が後始末する）

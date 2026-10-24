@@ -4,6 +4,7 @@ tests/test_link.py。"""
 from __future__ import annotations
 
 import tempfile
+import inspect
 import threading
 import time
 import unittest
@@ -184,6 +185,41 @@ class Rounds(SupervisorBase):
                                          (got.called,)))
         self.assertEqual(r["business_state"], "completed")
 
+    def test_a_call_that_stops_progressing_is_ended_with_the_apology_and_a_long_one_is_not(self):
+        """通話の長さでは切らない。通話が「進んだ」知らせ（conversation_io.progress）が CALL_STALL 届かないときだけ、こちらの仕組みが
+        止まったとして、おわびの2つの一言で終え、結果不明にする（line._Watch の1か所。2026-10-24 ユーザー：時間で業務を打ち切らない。
+        CL-1 の連絡帳 4-41 の (1)）。"""
+        class Slow:
+            """話している間、決まった間ごとに「進んだ」と知らせる（talking＝知らせる回数）。0回なら、何も知らせずに固まる。"""
+            def __init__(self, talking: int) -> None:
+                self.talking, self.release = talking, threading.Event()
+
+            def run(self, access, actor, claim, *, tenant_id, client_id):
+                access.in_client(actor, tenant_id, client_id, lambda tx: attempts.move(tx, claim.attempt_id, "ringing"))
+                for _ in range(self.talking):
+                    time.sleep(0.3)
+                    access.in_client(actor, tenant_id, client_id, lambda tx: conversation_io.progress(tx, claim.attempt_id))
+                if not self.talking:
+                    self.release.wait(10)                                     # 固まった（見張りが切るまで戻らない）
+                    raise RuntimeError("固まっていた")
+                Runner().run(access, actor, claim, tenant_id=tenant_id, client_id=client_id)
+        with mock.patch.object(line, "CALL_STALL", 1.0), mock.patch.object(line, "WATCH_EVERY", 0.2):
+            s = self.ready()
+            long = FakeDriver()
+            got = line.one_round(self.w.a, SYSTEM, s["tenant"], s["line"], HOLDER, long, Slow(talking=8))   # 2.4秒＞1秒
+            self.assertEqual(self.state(s, got.called), "ended")              # 進んでいる長い通話は切らない
+            self.assertEqual(getattr(long, "apologized", 0), 0)
+            t = self.ready()
+            stuck, runner = FakeDriver(), Slow(talking=0)
+            with mock.patch.object(line, "report") as reported:
+                timer = threading.Timer(4.0, runner.release.set)
+                timer.start()
+                got = line.one_round(self.w.a, SYSTEM, t["tenant"], t["line"], HOLDER, stuck, runner)
+                timer.cancel()
+            self.assertEqual(self.state(t, got.called), "technical_error")    # 進まない通話は結果不明
+            self.assertGreaterEqual(stuck.apologized, 1)                      # おわびの2つの一言で終えた
+            self.assertIn("進みませんでした", str(reported.call_args_list[0].args[3]))
+
     def test_a_line_reason_rests_the_line_without_rewriting_the_row(self):
         s = self.ready()
         self.lease(s, holder="ほかのPC#x")                                    # この見守り役は回線を借りていない
@@ -299,7 +335,7 @@ class Rounds(SupervisorBase):
         self.assertFalse(stuck.seen(free, line.STUCK_AFTER * 2 + 1))          # 「通話中ではない」と分かった：数え直す
         self.assertFalse(stuck.seen(in_call, line.STUCK_AFTER * 3))
         self.assertFalse(stuck.seen(in_call, line.STUCK_AFTER * 4 - 2))
-        self.assertGreaterEqual(line.STUCK_AFTER, main_mod.SHUTDOWN_WAIT)      # 通話の最長より短くしない（同じ1か所から決める）
+        self.assertEqual(line.STUCK_AFTER, main_mod.SHUTDOWN_WAIT)             # 同じ1か所から決める（supervisor.CALL_STALL）
 
         s = self.ready()                                                       # 回線ごとの流れ：本物の数える入口を通る
         got = line.one_round(self.w.a, SYSTEM, s["tenant"], s["line"], HOLDER, FakeDriver(busy=True), Runner())
@@ -1140,15 +1176,18 @@ class Drain(SupervisorBase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def test_the_waits_come_from_the_longest_call(self):
+    def test_the_waits_come_from_one_stall_length_and_calls_have_no_length_limit(self):
+        """待つ・見張る長さは、通話が進まないとみなす長さ（supervisor.CALL_STALL）の1か所から決まる。通話の長さの上限は持たない
+        （2026-10-24 ユーザー：時間で業務を打ち切らない。CL-1 の連絡帳 4-41 の (1)）。drain の命令は、上限なしで待つ。"""
         from salescall import supervisor
         from salescall.supervisor import channel
-        self.assertEqual(main_mod.SHUTDOWN_WAIT, supervisor.CALL_WAIT)
-        self.assertEqual(channel.REVOKED_WAIT, supervisor.CALL_WAIT)
-        self.assertGreater(supervisor.CALL_WAIT, supervisor.CALL_LONGEST)
-        self.assertGreater(main_mod.DRAIN_WAIT, main_mod.SHUTDOWN_WAIT)
+        self.assertEqual(main_mod.SHUTDOWN_WAIT, supervisor.CALL_STALL)
+        self.assertEqual(channel.REVOKED_WAIT, supervisor.CALL_STALL)
+        self.assertEqual(line.STUCK_AFTER, supervisor.CALL_STALL)
+        self.assertFalse(hasattr(supervisor, "CALL_LONGEST"))
+        self.assertIsNone(inspect.signature(main_mod.ask_drain).parameters["wait_seconds"].default)
         readme = (Path(main_mod.__file__).parents[3] / "README.md").read_text(encoding="utf-8")
-        self.assertIn(f"`kill_timeout` を {int(main_mod.DRAIN_WAIT // 60)}分以上", readme)   # README の値も同じ所から
+        self.assertIn(f"`supervisor.CALL_STALL`（{int(supervisor.CALL_STALL)}秒）", readme)   # README の値も同じ所から
 
     def test_drain_asks_the_running_supervisor_and_waits_until_it_stops(self):
         flag = self.dir / main_mod.DRAIN_FLAG

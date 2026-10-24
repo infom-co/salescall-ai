@@ -1402,6 +1402,22 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      _edited("0129_unrung_blame.sql", "CREATE FUNCTION salescall.line_faults_unrecorded(", "AND salescall.unrung_blame(a.attempt_id) = 'line'", 'AND salescall.unrung_blame(a.attempt_id) IS NOT NULL', end="\n$$"),
      ("tests.test_supervisor.Blame.test_one_number_that_cannot_be_placed_does_not_starve_the_line",
       "tests.test_supervisor.Rounds.test_a_call_that_ends_before_the_answer_on_the_line_side_counts_as_a_line_fault_once_it_is_the_lines")),
+    ("番号の聞き直しの予定に、伺い直す理由を求めない（0130 の前：会話が、別の方のお電話か繋がらない番号かを言い分けられない）",
+     "ALTER TABLE salescall.task_next_actions DROP CONSTRAINT task_next_actions_number_again_reason",
+     ("tests.test_alternate.WrongNumber.test_database_promises",)),
+    ("使ったキーの識別名の形を見ない（0130：キーの値そのものが試行に残りうる）",
+     "CREATE OR REPLACE FUNCTION salescall.keys_used_ok(p jsonb) RETURNS boolean LANGUAGE sql IMMUTABLE AS $$ SELECT true $$",
+     ("tests.test_conversation_io.Materials.test_keys_used_keep_only_names_and_fingerprints",)),
+    ("通話の進んだ時刻の守りを外す（0130：発信の時刻が入らず、後ろへ戻せ、終わった通話も進んだことにできる）",
+     "DROP TRIGGER attempt_progress ON salescall.attempts",
+     ("tests.test_conversation_io.Materials.test_progress_moves_forward_only_while_the_call_is_live",)),
+    ("通話が進まなくなったと決して言わない（0130：固まった通話を、おわびして切れない）",
+     _edited("0130_cl1_requests_1024.sql", "CREATE FUNCTION salescall.call_stalled(", "AND coalesce(a.progress_at, a.claimed_at) < now() - p_gap_seconds * interval '1 second'", "AND false", end="\n$$"),
+     ("tests.test_conversation_io.Materials.test_progress_moves_forward_only_while_the_call_is_live",
+      "tests.test_supervisor.Rounds.test_a_call_that_stops_progressing_is_ended_with_the_apology_and_a_long_one_is_not")),
+    ("回線に進んでいる通話があっても、無いと答える（0130：止めるとき・通行証を止めたとき、話している通話を待たない）",
+     _edited("0130_cl1_requests_1024.sql", "CREATE FUNCTION salescall.line_call_progressing(", "AND coalesce(a.progress_at, a.claimed_at) >= now() - p_gap_seconds * interval '1 second'", "AND false", end="\n$$"),
+     ("tests.test_conversation_io.Materials.test_progress_moves_forward_only_while_the_call_is_live",)),
 )
 
 

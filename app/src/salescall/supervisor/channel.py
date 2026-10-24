@@ -13,8 +13,9 @@
   立ち上げ直し、止まった試行を後始末する）。
 - **通話の途中で通行証が止められたら**（画面の「この PC のログインを外す」・契約の終わり）、その PC の回線をすぐ見せなくし（新しい
   電話をかけない）、いまの通話が終わってから断ってつながりを閉じる（PC はログインし直す）。いきなり閉じると、PC が話している
-  お客様をおわびの録音で切るため（2026-10-22 ユーザー：「本番でいきなり止めてはいけません」）。通話が `REVOKED_WAIT` を過ぎても
-  終わらなければ閉じる（止めた通行証で、いつまでもつなぎ続けない）。
+  お客様をおわびの録音で切るため（2026-10-22 ユーザー：「本番でいきなり止めてはいけません」）。少なくとも `REVOKED_WAIT` 待ち、そのあと
+  も、その通話が進んでいる間は待つ（通話の長さでは打ち切らない＝2026-10-24 ユーザー。進んでいるかは core/attempts.line_call_progressing
+  の1か所）。進まなくなったら閉じる（止めた通行証で、いつまでもつなぎ続けない）。
 - **かけてから切れるまでの回線の印**（`_Session.open_calls`。控えを送る速さ・通行証が止められたあとに閉じる時を決める）：出し入れは
   `_Session.call_began`・`call_over` の1か所。かけたら付け、切った・おわびして切った・電話の部品が「通話中ではない」と答えたら外す。
   **お客様が自分で切ったとき**のように、サーバーが切っていない通話も、印が付いたまま声が `protocol.CALL_QUIET` 秒途切れたら、合図の
@@ -44,16 +45,16 @@ from uuid import UUID
 from websockets.asyncio.server import ServerConnection, serve
 from websockets.exceptions import ConnectionClosed
 
-from salescall.core import agents, emergency, notify
+from salescall.core import agents, attempts, emergency, notify
 from salescall.core.access import Access
 from salescall.link import protocol as p
 from salescall.link.phone import CallNotPlaced, CallWithheld
 from salescall.link.protocol import RemoteError
-from salescall.supervisor import ACTOR, CALL_WAIT, config, report, updates
+from salescall.supervisor import ACTOR, CALL_STALL, config, report, updates
 from salescall.supervisor.links import Attached
 
 HELLO_WAIT = 10   # つないでから、最初のやり取り（hello）を待つ長さ（秒）
-REVOKED_WAIT = CALL_WAIT   # 通行証が止められたあと、いまの通話が終わるのを待つ長さの上限（秒。通話の最長から決める＝supervisor の1か所）
+REVOKED_WAIT = CALL_STALL   # 通行証が止められたあと、少なくとも待つ長さ（秒＝supervisor の1か所）。そのあとも、通話が進んでいる間は待つ
 _SERIAL = itertools.count(1)
 AWAY = "控えを書く PC が、サーバーとのつながりを失いました。PC の電源・ネット・PC の部品が動いているかを確かめてください"
 LINE_CONFLICT = ("同じ回線（スマホ）を、2台の PC がつないでいます。先につないだ PC でかけています。もう一方の PC の設定"
@@ -210,6 +211,15 @@ class Hub:
         """データベースを使う処理は、別の流れで（つなぎ口の流れでデータベースを待つと、すべての PC の声と生存確認が止まる）。"""
         return await asyncio.get_running_loop().run_in_executor(None, work)
 
+    def _progressing(self, session: _Session) -> bool:
+        """その PC の、いま話している回線に、進んでいる通話があるか（core/attempts.line_call_progressing の1か所。データベースに届か
+        なければ、進んでいるとは言えない）。"""
+        try:
+            return self.app.in_tenant(ACTOR, session.who.tenant_id, lambda tx: any(
+                attempts.line_call_progressing(tx, line, CALL_STALL) for line in list(session.open_calls)))
+        except Exception:  # noqa: BLE001
+            return False
+
     def _report(self, tenant_id: UUID | None, what: str, error: BaseException) -> None:
         """誤りの記録は、別の流れで、待たずに（データベースが止まっているときに、つなぎ口の流れを止めない）。"""
         asyncio.get_running_loop().run_in_executor(None, report, self.app, tenant_id, what, error)
@@ -269,7 +279,8 @@ class Hub:
             # 見直し14：前はその場で閉じ、PC が話しているお客様をおわびの録音で切った）
             if session.revoked_at is None:
                 session.revoked_at = time.monotonic()
-            if session.open_calls and time.monotonic() - session.revoked_at < REVOKED_WAIT:
+            if session.open_calls and (time.monotonic() - session.revoked_at < REVOKED_WAIT
+                                       or await self._db(lambda: self._progressing(session))):
                 return None
             await session.ws.send(p.dumps("refuse", why="この PC のログインが止められました。ログインし直してください",
                                           relogin=True, update=False))

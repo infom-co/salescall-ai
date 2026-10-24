@@ -17,12 +17,14 @@ from salescall.core.access import Access, Actor, busy, unreachable
 from salescall.core.errors import ErrorReport
 
 ACTOR = Actor("見守り役", "system")
-# 通話1本の最長の見込み（秒）。いまの通話の終わりを待つ長さ（見守り役を止めるとき＝main.SHUTDOWN_WAIT・PC のログインを外したとき＝
-# channel.REVOKED_WAIT）と、回線が「通話中」のまま動かないのを異常とみなす長さ（line.STUCK_AFTER）、動かす所の仕組みの待つ長さ
-# （app/README.md の Fly.io の kill_timeout）は、すべてここから決める（1か所。⛔ 2026-10-22 の見直し15：前は 10分・20分・11分と
-# ばらばらだった）。⏳ 仮の値：会話（CL-1）が、通話をこの長さまでに締めるかは CL-1 と決める
-CALL_LONGEST = 600.0
-CALL_WAIT = CALL_LONGEST + 60.0   # 最長の通話に、締め・おわびの録音・後始末の分を足した、待つ長さ
+# 通話が「進まない」とみなす長さ（秒。1か所）。通話の長さに上限は持たない（2026-10-24 ユーザー：時間で業務を打ち切らない＝
+# 「何を言っているの！？それだと業務を果たせずに終わることになるでしょ！」。CL-1 の連絡帳 4-41 の (1)）。通話を進める部品（CL-1）は、
+# 通話の途中でターンごと・待つ間も決まった間ごとに「進んだ」と知らせる（core/conversation_io.progress）。この長さ進まなければ、こちらの
+# 仕組みが止まったとみなし、おわびして切る（回線ごとの見張り＝line._Watch）。止めるとき（main.Supervisor.shutdown）・PC のログインを
+# 外したとき（channel の通行証の取り消し）は、進んでいる通話がある間は待つ（進んでいなければ、この長さのあとで止める・閉じる）。
+# 回線が「通話中」のまま、かけられない状態を異常とみなす長さ（line.STUCK_AFTER）も同じ。⛔ 2026-10-24：前は通話の最長（10分＋1分）を
+# 決めて、それを過ぎた通話は待たずに止め・閉じた（話している電話を時間で切りえた）
+CALL_STALL = 90.0
 # 混雑（共有のつなぎの空き待ちの時間切れ）で記録できなかった誤り：仕事の名前 → 回数。空いたときに、まとめて記録する（flush_busy）
 _BUSY: Counter[str] = Counter()
 _BUSY_LOCK = threading.Lock()

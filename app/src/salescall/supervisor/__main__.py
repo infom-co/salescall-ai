@@ -53,8 +53,8 @@ def run(argv: list[str]) -> int:
         print("\n".join(config.status()))
         return 0
     if command == "drain":
-        print("新しい電話を止めて、いまの通話の終わりを待っています（最長"
-              f" {int(main.DRAIN_WAIT // 60)} 分）…", flush=True)
+        print("新しい電話を止めて、いまの通話の終わりを待っています（通話が進んでいる間は待ちます。進まない通話は"
+              f" {int(main.SHUTDOWN_WAIT)} 秒で、おわびして切ります）…", flush=True)
         done = main.ask_drain()
         if done is None:
             print("この機械では、見守り役は動いていません")

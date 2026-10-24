@@ -75,9 +75,9 @@ def load(tx: Tx, attempt_id: UUID) -> dict[str, Any] | None:
                   (attempt_id,))
 
 
-def asked_again_before(tx: Tx, task_id: UUID, *, except_attempt: UUID) -> bool:
-    """この行で、前にも「言われたとおりにかけて番号違い」（＝聞き直しをした）があったか。"""
-    return tx.one(
-        "SELECT 1 FROM salescall.number_rechecks c JOIN salescall.attempts a ON a.attempt_id = c.attempt_id"
-        " WHERE a.task_id = %s AND c.attempt_id <> %s AND c.outcome IN ('as_said', 'cannot_check') LIMIT 1",
-        (task_id, except_attempt)) is not None
+def asked_again_before(tx: Tx, task_id: UUID) -> bool:
+    """この行で、前にも番号を伺い直すと決めたか（1か所。番号違いの聞き直し・繋がらない番号の聞き直しのどちらも、同じ行で1回だけ＝
+    次の動き next_action.choose_number が読む）：次の予定の記録に、目的が「番号の聞き直し」の予定があるか。⛔ 2026-10-24（CL-1 の
+    連絡帳 4-41 の (3)）：前は番号違いの確かめの記録（言われたとおり・確かめられない）だけで数え、繋がらない番号の聞き直しを数えられなかった。"""
+    return tx.one("SELECT 1 FROM salescall.task_next_actions WHERE task_id = %s AND purpose = 'ask_number_again' LIMIT 1",
+                  (task_id,)) is not None

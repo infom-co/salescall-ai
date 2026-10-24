@@ -409,4 +409,4 @@ def _recheck(tx: Tx, a: dict[str, Any], j: Judgement, dialed: dict[str, Any]) ->
     return next_action.Recheck(
         r["outcome"], corrected,
         tx.one("SELECT contact_id FROM salescall.attempts WHERE attempt_id = %s", (source,))["contact_id"],
-        number_recheck.asked_again_before(tx, a["task_id"], except_attempt=a["attempt_id"]))
+        number_recheck.asked_again_before(tx, a["task_id"]))
