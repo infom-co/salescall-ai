@@ -123,9 +123,18 @@ def went_back(call: dict, wav_name: str) -> bool:
                for t in turns_to(call, wav_name) for e in t.get("tool_events") or [])
 
 
-def played_ids(call: dict) -> list[str]:
-    """通話で流れの制御が流した録音（契約者の単位は中の名前・依頼主の単位は名乗りの部分）の並び。"""
-    return [p.get("id") or p.get("part") for x in ops(call) for p in x["reply"].get("play") or []]
+def after_opening(call: dict) -> list[dict]:
+    """名乗り（電話に出た方の第一声のあとに流れの制御が流す＝結果 opening）より後ろの操作の記録。名乗りが無ければ全部。
+    名乗りの録音（あいさつ・名乗り・最初の質問・お呼びする一言）を、そのあとの応じ方として数えない1か所。
+    ⛔ 2026-10-24 J5・J8a：名乗りは流れの記録の中で流れるようになった（Flow._opening_reply）のに、見方が記録の頭から数えていたので、
+       名乗りの最初の質問・お呼びする一言を、そのあとに流したものと数えて外れにしていた（答えに添えられた質問・後任の方）"""
+    log = ops(call)
+    return log[next((k + 1 for k, x in enumerate(log) if x["reply"].get("result") == "opening"), 0):]
+
+
+def played_ids(call: dict, since_opening: bool = False) -> list[str]:
+    """通話で流れの制御が流した録音（契約者の単位は中の名前・依頼主の単位は名乗りの部分）の並び。since_opening＝名乗りより後ろだけ。"""
+    return [p.get("id") or p.get("part") for x in (after_opening(call) if since_opening else ops(call)) for p in x["reply"].get("play") or []]
 
 
 def own_words(call: dict, wav_name: str) -> str:
@@ -179,8 +188,7 @@ def answered_before_next(call: dict, then: str = "Q2") -> bool:
     ⛔ 2026-10-23 tc48 のあとの見直し：前は答えの報告が先の道（callee_asked）だけを数えていた＝答えたあとに報告する道を外れと数える
     ⛔ 2026-10-24 J5：名乗り（最初の質問を含む）は、電話に出た方の第一声のあとに流れの記録の中で流れる（Flow._opening_reply）＝数えるのは名乗りより後ろ。
        前は記録の頭から数えていたので、名乗りの最初の質問を「答えより先に流した質問」と数えて、3つの声とも外れにしていた"""
-    log = ops(call)
-    log = log[next((k + 1 for k, x in enumerate(log) if x["reply"].get("result") == "opening"), 0):]
+    log = after_opening(call)
     i = next((k for k, x in enumerate(log) if x["op"] == "replay_opening" and x["args"].get("part") not in ("resume", "handover")
               and x["reply"]["result"] != "rejected"), None)
     if i is None or any("question" in played_parts(x["reply"]) for x in log[:i]):
@@ -491,13 +499,13 @@ SCENES = {
         "締め": closing_of(c) == CLOSING, "約束しない": no_promise(c)}),
     "目的の人_在籍していない": Scene(TARGET_BUSINESS, [W("departed"), W("successor_hold"), T("taken_over_tanaka")] + FULL, lambda c: {
         "在籍していないと受けた": bool(c.get("facts", {}).get("departed")),
-        "お詫びと後任の方のお呼び": played_ids(c)[:2] == ["departed", "successor_call"],
+        "お詫びと後任の方のお呼び": played_ids(c, since_opening=True)[:2] == ["departed", "successor_call"],
         "取り次ぎの間は話さない": plain(said_to(c, "successor_hold")) == "",
         "後任の方と話した": last_fact(c, "connect").get("who") == "successor", "代わった方に全部": full_opening(c),
         "答えが取れた": got(c, "Q1", "はい")}),
     "目的の人_後任の方が電話口": Scene(TARGET_BUSINESS, [W("successor_self") | {"if_asked_target": W("affirm")["wav"]}] + FULL, lambda c: {
         "在籍していないと受けた": bool(c.get("facts", {}).get("departed")),
-        "お詫びと後任の方の確かめ": played_ids(c)[:2] == ["departed", "successor_confirm"],
+        "お詫びと後任の方の確かめ": played_ids(c, since_opening=True)[:2] == ["departed", "successor_confirm"],
         "後任の方と話した": last_fact(c, "connect").get("who") == "successor", "答えが取れた": got(c, "Q1", "はい")}),
     "目的の人_メールで": Scene(TARGET_BUSINESS, [W("email_request"), W("email_answer"), W("affirm")], lambda c: {
         "ほかの手段と受けた": (last_fact(c, "callback").get("why"), last_fact(c, "callback").get("offer")) == ("other_means", "email"),

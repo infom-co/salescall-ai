@@ -6982,6 +6982,12 @@ class ScenesTest(unittest.TestCase):
         self.assertFalse(answered_before_next({"flow_log": [opening, op("report_answer", "next", [q("Q2")]), answer]}))
         # 答えのあとの質問が、次の質問ではない（いまの質問を流し直した）なら外れ
         self.assertFalse(answered_before_next({"flow_log": [opening, answer, op("report_answer", "again", [q("Q1")])]}))
+        # 流した録音の並びも、名乗りより後ろだけで見られる（後任の方の場面＝お詫びと後任の方の一言が、名乗りのあとの最初の2つ）
+        from scenes import played_ids
+        later = op("report_party", "confirm_target", [{"kind": "recorded", "id": "departed"}, {"kind": "recorded", "id": "successor_confirm"}])
+        call = {"flow_log": [opening, later]}
+        self.assertEqual(played_ids(call)[:2], ["intro", "Q1"])
+        self.assertEqual(played_ids(call, since_opening=True)[:2], ["departed", "successor_confirm"])
 
     def test_a_turn_the_gate_cannot_watch_is_not_measured(self):
         # 外れた言葉を起こすターンで、AIの声は出たが AI自身の文字が届かなかった＝見張れないターン（設計どおり流す）＝言い直しを試していない
