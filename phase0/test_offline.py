@@ -6261,7 +6261,7 @@ class TargetTest(unittest.TestCase):
         self.assertEqual((r["result"], f.end_reason, f.not_reached), ("end", "not_transferred", "not_transferred"))
         from phrases import HOLD_TIMEOUT
         self.assertEqual(r["play"], [{"kind": "closing", "id": "hold_timeout", "text": HOLD_TIMEOUT}])   # ✅ ユーザーの言い方の締め
-        self.assertEqual(f.facts["hold_timeout"], [{"turn": 1, "said": "少々お待ちください。", "waited_s": 300}])  # のちほどかけ直す印（CL-2 が時を決める）
+        self.assertEqual(f.facts["hold_timeout"], [{"turn": 1, "said": "少々お待ちください。", "waited_s": 300}])  # 待ちきった印（取り次げないと言われた発話と見分ける）
         import dataclasses
         b2 = dataclasses.replace(b, hold_wait_s=120)
         f = Flow(b2.questions, play_recordings=True, opening=b2.replay_parts(), target=b2.replay_parts(), hold_wait_s=b2.hold_wait_s)
