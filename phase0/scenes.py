@@ -216,8 +216,11 @@ def connect_reply(call: dict) -> dict:
     名乗りの流し直しの頼み（判定が「ご本人」。Flow._calling_reported の1か所）の、どちらか。"""
     # かけ直しの質問（C1・C2）が始まった返事は、繋いだ返事ではない（プログラムがかけ直しへ進めた・確かめのあと続きへ戻った＝Flow._callback。
     # ⛔ 2026-10-22 tc28：代わった山田様へのかけ直しの質問を、繋いだ返事と取り違えて「用件を流さない」を外していた）
+    # 後任の方へ切り替えたあとの「後任の方」の報告も、目的の人の報告（Flow._calling_reported。⛔ 2026-10-25 J12b 在籍していない S4：お呼びした
+    # 田中様にAIが「後任の方」と報告して繋いだ返事を拾わず、あいさつ・名乗り・用件を流したのに「代わった方に全部」を外していた）。切り替えの前の
+    # 「後任の方」は確かめる返事（confirm_target）なので、ここには入らない
     return next((x["reply"] for x in ops(call)
-                 if ((x["op"] == "report_party" and x["args"].get("party") == "target")
+                 if ((x["op"] == "report_party" and x["args"].get("party") in ("target", "successor"))
                      or (x["op"] == "replay_opening" and x["args"].get("part") == "handover"))
                  and x["reply"]["result"] in ("next", "confirm_required")
                  and not str(x["reply"].get("question_id", "")).startswith("C")), {})
