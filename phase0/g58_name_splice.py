@@ -23,7 +23,6 @@ NAMES = ("「おかだ」", "「なかじま」")
 # 継ぎ目に足す無音（声の前後の無音は切ってから継ぐ）。2026-10-19 に測った：文まるごとの録音でも、声は「営業部部長の｜おかだ様は」の所で
 # 0.12〜0.26秒の間を置く（12本中11本。かぎかっこの有無によらない＝results/G-58-quote.json）⇒ 継ぎ目にも同じくらいの間を置く
 JOIN_S = 0.15
-QUOTA_WAIT_S = 30.0  # 録る問い合わせが上限の答えだったときに待つ秒（1分の上限）
 
 
 def trim(pcm: bytes, rate: int, keep_s: float = 0.03) -> bytes:
@@ -40,16 +39,26 @@ async def good_take(client, args, vt: str, aid: str, text: str, also: tuple[str,
     """読みが合う録音（make_ack_clips の確かめのうち、文の途中の間の確かめだけは外す：上の JOIN_S のとおり、文まるごとでも間が入るので、
     間の自然さは人が聞いて比べる）。also：この読みに聞こえても通す文（どれに聞こえたかを記録の heard_as に残す。⛔ 2026-10-25：
     「お間違えない」（✅ ユーザーの言い方）は、どの耳も「お間違いない」と書き、8回とも通らなかった＝声か耳かは人が聞いて決める）。"""
-    from common import is_quota
+    from common import KeyRing, is_quota
     from make_ack_clips import ends_in_silence, heard_ok
+    # 上限の答え：そのキーは休ませて、次のキーで録り直す（キーの順番の正本＝KeyRing.acall。client の キーから始める）。⛔ 2026-10-25 G-69 の
+    #    3回目の録り足し：同じ時間に流した判定の測り（3.5 Flash Lite）で、キー10番・11番が「地域ごとの1分あたりの問い合わせ数の上限」に当たり
+    #    続け、同じキーで8回待って試すだけで、5番のキーなら録れたのに止まった（1回目は、待たずに録り直して残りの回数を同じ1分で使い切った）
+    ring = getattr(args, "_take_ring", None)
+    if ring is None:
+        ring = args._take_ring = KeyRing(args)
+
+    async def once(c):
+        row, pcm, rate = await take(c, args, vt, aid, text, "question")
+        if row.get("error") and is_quota(Exception(row["error"].get("message", ""))):
+            raise RuntimeError(row["error"].get("message", ""))
+        return row, pcm, rate
     for _ in range(args.tries):
-        row, pcm, rate = await take(client, args, vt, aid, text, "question")
+        (row, pcm, rate), _ = await ring.acall(args.model, once)
         as_ = next((t for t in (text,) + tuple(also) if heard_ok(t, row.get("heard") or {})), None)
         if pcm and as_ is not None and ends_in_silence(pcm, rate):
             return pcm, rate, row | {"heard_as": as_}
-        # 上限の答え（1分の上限）：すぐ録り直すと、残りの回数を同じ1分の中で使い切る（⛔ 2026-10-25 G-69 の1回目）⇒ 1分の上限が戻るまで待つ
-        quota = row.get("error") and is_quota(Exception(row["error"].get("message", "")))
-        await asyncio.sleep(QUOTA_WAIT_S if quota else args.pause)
+        await asyncio.sleep(args.pause)
     raise RuntimeError(f"確かめに通る録音が作れなかった：{text}")
 
 
