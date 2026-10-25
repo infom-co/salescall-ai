@@ -346,6 +346,13 @@ def answer_again(line, entries: list[dict], n: int) -> tuple[dict | None, int]:
     key = ANSWER_AGAIN.get(last_reply(entries))
     if isinstance(line, dict) and key in line and n < MAX_AGAIN:
         return {"wav": line[key], key: line[key]}, n + 1
+    accepted = [e for e in entries if (e.get("reply") or {}).get("result") != "rejected"]
+    if (isinstance(line, dict) and "wav" in line and n < MAX_AGAIN and accepted and accepted[-1].get("op") == "confirm_field"
+            and (accepted[-1].get("args") or {}).get("result") == "affirmed" and accepted[-1]["reply"].get("result") == "confirm_required"):
+        # 「合っている」の報告に、同じ値をもう一度確かめられた（返事の言葉では決められなかった＝Flow._confirm_again）：本物の相手は、同じ返事を
+        # もう一度言う。⛔ 2026-10-25 J12b（伝言の申し出・S4）：相手役の「はい。そうです。」を会話AIの聞き取りが「Hi.」と書き（その録音の
+        # 3,579回中14回）、流れは決まりどおり確かめ直したが、相手役は次の台詞（無い）へ進み、戻る時刻を取れないまま終わった
+        return {"wav": line["wav"]}, n + 1
     return None, 0
 
 

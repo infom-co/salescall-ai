@@ -3780,6 +3780,22 @@ class AckTimingTest(unittest.TestCase):
         self.assertEqual(followup_reason(reported, words_complete=False), "words")
         self.assertEqual(followup_reason(waited, words_complete=False), "waited")
 
+    def test_callee_answers_again_when_asked_again(self):
+        # 試験の相手役が答え直す（convo.answer_again の1か所）：聞き返し・目的の人かの確かめは台詞の答え直し。「合っている」の報告に同じ値を
+        # もう一度確かめられたら、同じ返事をもう一度（⛔ 2026-10-25 J12b 伝言の申し出 S4：「はい。そうです。」が「Hi.」と書かれ、確かめ直しに
+        # 答えないまま終わった）。値を直したあとの言い直しには、台本の次の台詞（「はい、そうです」）で答える
+        from convo import MAX_AGAIN, answer_again
+        affirm = {"wav": "affirm.wav"}
+        again = [{"op": "confirm_field", "args": {"result": "affirmed"}, "reply": {"result": "confirm_required"}}]
+        self.assertEqual(answer_again(affirm, again, 0), ({"wav": "affirm.wav"}, 1))
+        self.assertEqual(answer_again(affirm, again, MAX_AGAIN), (None, 0))
+        corrected = [{"op": "confirm_field", "args": {"result": "corrected"}, "reply": {"result": "confirm_required"}}]
+        self.assertEqual(answer_again(affirm, corrected, 0), (None, 0))
+        first = [{"op": "record_answer", "args": {}, "reply": {"result": "confirm_required"}}]
+        self.assertEqual(answer_again(affirm, first, 0), (None, 0))
+        asked = [{"op": "record_answer", "args": {}, "reply": {"result": "ask_back"}}]
+        self.assertEqual(answer_again({"wav": "a.wav", "again": "b.wav"}, asked, 0), ({"wav": "b.wav", "again": "b.wav"}, 1))
+
     def test_stitch_call_keeps_waited_turn(self):
         import numpy as np
 
