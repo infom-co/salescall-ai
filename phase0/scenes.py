@@ -112,8 +112,10 @@ def answered_with(call: dict, wav_name: str, *parts: str) -> bool:
 
 def own_answered(call: dict, wav_name: str, *parts: str) -> bool:
     """その台詞へのAIのターンで、自分の言葉で言う部分（parts。無ければ OWN_PARTS＝自分で答える質問・答えを持っていない質問・受け答え）を選び、
-    流れの制御が受け付けたか（Flow._own_answer）。"""
-    return any(e["name"] == "replay_opening" and e["args"].get("part") in (parts or OWN_PARTS) and e["reply"] == "own_answer"
+    流れの制御が受け付けたか（Flow._own_answer）。parts が無いときは、名乗り・用件の録音を選び直さなかったので流れの制御が受け皿の一言で応えた
+    返事（Flow._asked_other）も数える（⛔ 2026-10-25 J14o 番号の出どころ S2：受け皿の録音で正しく応えたのに、AIの選んだ部分が「用件」なので外していた）"""
+    names = parts or OWN_PARTS + ("intro", "purpose", "all")
+    return any(e["name"] == "replay_opening" and e["args"].get("part") in names and e["reply"] == "own_answer"
                for t in turns_to(call, wav_name) for e in t.get("tool_events") or [])
 
 

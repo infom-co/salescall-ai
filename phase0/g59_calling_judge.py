@@ -92,10 +92,23 @@ ASKING_OTHER = {"この番号はどちらでお知りになりましたか？", 
                 "岡田ですね。失礼ですが、この番号はどちらでお知りになりましたか？"}
 
 
-def cases(confirm: str) -> list[tuple[str, list[str], str | None, str | None]]:
-    """測る言葉の全部：(相手の言葉, 受け取ってよい読み, その前に相手が言ったこと, 確かめた言い方)。"""
-    return ([(t, o, None, None) for t, o in LINES] + [(t, o, b, None) for t, o, b in LINES_AFTER]
-            + [(t, o, b, confirm) for t, o, b in LINES_CONFIRMED])
+# お呼びした方が在籍しておらず、後任の方をお呼びしたあと（Flow._to_successor＝判定の問いは「後任のご担当者様はいらっしゃいますでしょうか？」）。
+# ⛔ 2026-10-25 J12b（在籍していない・L4）：受付の方の「後任は田中になります。少々お待ちください。」（聞き取りは「公認は田中に…」）のあとの
+#    「お電話代わりました。田中です。」を、3.5 Flash Lite は「代わった人が話し始めた」と読み、田中様に後任の方をお呼びし直した
+TO_SUCCESSOR = "後任は田中になります。少々お待ちください。"
+LINES_SUCCESSOR = [
+    ("お電話代わりました。田中です。", ["ご本人"], TO_SUCCESSOR),
+    ("お電話代わりました。田中です。", ["ご本人"], "公認は田中になります。少々お待ちください。"),
+    ("はい、お電話代わりました。", ["ご本人"], "後任の者に代わりますので、少々お待ちください。"),
+    ("お電話代わりました。山本です。", ["代わった人が話し始めた", "決められない"], TO_SUCCESSOR),
+    ("田中はただいま席を外しております。", ["不在"], TO_SUCCESSOR),
+]
+
+
+def cases(confirm: str) -> list[tuple[str, list[str], str | None, str | None, bool]]:
+    """測る言葉の全部：(相手の言葉, 受け取ってよい読み, その前に相手が言ったこと, 確かめた言い方, 後任の方をお呼びしたあとか)。"""
+    return ([(t, o, None, None, False) for t, o in LINES] + [(t, o, b, None, False) for t, o, b in LINES_AFTER]
+            + [(t, o, b, confirm, False) for t, o, b in LINES_CONFIRMED] + [(t, o, b, None, True) for t, o, b in LINES_SUCCESSOR])
 
 
 async def run(args) -> dict:
@@ -106,16 +119,20 @@ async def run(args) -> dict:
     import dataclasses
     b = dataclasses.replace(BUSINESS, target=target)
     f = Flow(b.questions, opening=b.replay_parts(), target=b.replay_parts(), play_recordings=True)
+    fs = Flow(b.questions, opening=b.replay_parts(), target=b.replay_parts(), play_recordings=True)
+    fs._to_successor()  # 後任の方をお呼びしたあとの問い（本番と同じ1か所で作り直す）
     judges = {k: j for k, j in make_judges(args).items() if k != "grounder"}  # 測るのは意味の判定だけ（中身の判定は g63_grounding）
     rows = []
-    for text, ok, before, asked in cases(b.target.confirm()):
-        q = f.confirm_questions["target_confirm"] if asked else f.calling_question  # 確かめたあとの返事は、確かめる一言を質問にする（Flow.judge_context）
+    for text, ok, before, asked, successor in cases(b.target.confirm()):
+        fl = fs if successor else f
+        q = fl.confirm_questions["target_confirm"] if asked else fl.calling_question  # 確かめたあとの返事は、確かめる一言を質問にする（Flow.judge_context）
         for rep in range(args.repeat):
             for j in {j.panel for j in judges.values() if j is not None}:
                 j.reset()  # 言葉ごとに測る（前の言葉の時間切れで、この言葉の問い合わせを飛ばさない）
             want = text in ASKING or text in ASKING_OTHER
             kind = ASKS_YES if text in ASKING else ASKS_OTHER if text in ASKING_OTHER else None
-            row = {"text": text, "accept": ok, "asks_accept": want, "asks_kind": kind, "before": before, "asked": asked, "rep": rep}
+            row = {"text": text, "accept": ok, "asks_accept": want, "asks_kind": kind, "before": before, "asked": asked, "rep": rep,
+                   "successor": successor}
             async def one(k, j, col, question):
                 try:
                     got = await j(question, text, None, before=before)
@@ -131,7 +148,7 @@ async def run(args) -> dict:
                     row[f"{col}_by"], row[f"{col}_sure"] = got.by, got.sure
             # 目的の人の判定と、こちらに尋ねているかの問い合わせ（本番と同じに、同じ言葉・同じ前の言葉で同時に出す＝convo.check_handler）
             await asyncio.gather(*(one(k, j, col, question) for k, j in judges.items() if j is not None
-                                   for col, question in ((k, q), (f"{k}_asks", f.asks_questions[q.id]))))
+                                   for col, question in ((k, q), (f"{k}_asks", fl.asks_questions[q.id]))))
             # 尋ねているかは「尋ねている」だけが流れを変える（Flow._asking_now）＝ほかの読みは全部「尋ねていない」と数える
             row["ok"] = all(row.get(k) in ok and (row.get(f"{k}_asks") in ASKED) == want for k in judges if judges[k] is not None)
             rows.append(row)
