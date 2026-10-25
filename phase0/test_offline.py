@@ -1654,6 +1654,13 @@ class KeyRingTest(unittest.TestCase):
         self.assertTrue(common.is_denied(Live("1008 None. Your project has been denied access. Please contact support.")))
         self.assertTrue(common.is_quota(Exception("1011 None. You exceeded your current quota, please check your plan and billing details.")))
         self.assertFalse(common.is_quota(goaway))
+        # ⛔ 2026-10-25：地域ごとの1分あたりの問い合わせ数の上限は、この文面で返る（回帰と並べて録音を作ったとき）。会話AIの内部の誤り
+        #    （「Internal error encountered.」）は上限ではない
+        self.assertTrue(common.is_quota(Exception("1011 None. Quota exceeded for quota metric 'API requests' and limit 'Request limit per "
+                                                  "minute for a region' of service 'generativelanguage.googleapis.com'")))
+        self.assertFalse(common.is_quota(Exception("1011 None. Internal error encountered.")))
+        self.assertFalse(common.is_daily(Exception("1011 None. Quota exceeded for quota metric 'API requests' and limit 'Request limit per "
+                                                   "minute for a region'")))
 
 
 class ScriptRecordingTest(unittest.TestCase):

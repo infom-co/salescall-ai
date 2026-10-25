@@ -23,6 +23,7 @@ NAMES = ("「おかだ」", "「なかじま」")
 # 継ぎ目に足す無音（声の前後の無音は切ってから継ぐ）。2026-10-19 に測った：文まるごとの録音でも、声は「営業部部長の｜おかだ様は」の所で
 # 0.12〜0.26秒の間を置く（12本中11本。かぎかっこの有無によらない＝results/G-58-quote.json）⇒ 継ぎ目にも同じくらいの間を置く
 JOIN_S = 0.15
+QUOTA_WAIT_S = 30.0  # 録る問い合わせが上限の答えだったときに待つ秒（1分の上限）
 
 
 def trim(pcm: bytes, rate: int, keep_s: float = 0.03) -> bytes:
@@ -38,12 +39,15 @@ def trim(pcm: bytes, rate: int, keep_s: float = 0.03) -> bytes:
 async def good_take(client, args, vt: str, aid: str, text: str) -> tuple[bytes, int, dict]:
     """読みが合う録音（make_ack_clips の確かめのうち、文の途中の間の確かめだけは外す：上の JOIN_S のとおり、文まるごとでも間が入るので、
     間の自然さは人が聞いて比べる）。"""
+    from common import is_quota
     from make_ack_clips import ends_in_silence, heard_ok
     for _ in range(args.tries):
         row, pcm, rate = await take(client, args, vt, aid, text, "question")
         if pcm and heard_ok(text, row.get("heard") or {}) and ends_in_silence(pcm, rate):
             return pcm, rate, row
-        await asyncio.sleep(args.pause)
+        # 上限の答え（1分の上限）：すぐ録り直すと、残りの回数を同じ1分の中で使い切る（⛔ 2026-10-25 G-69 の1回目）⇒ 1分の上限が戻るまで待つ
+        quota = row.get("error") and is_quota(Exception(row["error"].get("message", "")))
+        await asyncio.sleep(QUOTA_WAIT_S if quota else args.pause)
     raise RuntimeError(f"確かめに通る録音が作れなかった：{text}")
 
 

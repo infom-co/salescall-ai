@@ -188,9 +188,11 @@ def is_unavailable(exc: BaseException) -> bool:
 
 def is_quota(exc: BaseException) -> bool:
     """1日・1分の上限（429 RESOURCE_EXHAUSTED）に当たったか。会話のモデル（つなぎっぱなしの接続）では、閉じる番号 1011 と
-    「You exceeded your current quota」の文面で返る（2026-10-17：6つの声を同じキーで同時に流した G-14 --ear amivoice）。"""
+    「You exceeded your current quota」の文面で返る（2026-10-17：6つの声を同じキーで同時に流した G-14 --ear amivoice）。
+    ⛔ 2026-10-25：地域ごとの1分あたりの問い合わせ数の上限は「Quota exceeded for quota metric … Request limit per minute for a region」の
+       文面で返り、上限と見分けていなかった（回帰と並べて録音を作ったとき。録る道具は8回をすぐ使い切って止まった）"""
     return (str(getattr(exc, "code", "")) == "429" or getattr(exc, "status", "") == "RESOURCE_EXHAUSTED" or "RESOURCE_EXHAUSTED" in str(exc)
-            or "exceeded your current quota" in str(exc))
+            or "exceeded your current quota" in str(exc) or "Quota exceeded" in str(exc))
 
 
 def is_denied(exc: BaseException) -> bool:
