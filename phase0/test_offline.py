@@ -6264,6 +6264,17 @@ class TargetTest(unittest.TestCase):
             for kind, value in readings:
                 h.on_check(kind, value)
             self.assertEqual(h.apply("replay_opening", {"part": "intro"})["result"], "replayed", readings)
+        # 当てるのは読みが届いてから：呼んでいる段の名乗り・用件・最初からの流し直しは、電話接続側が読みを待ってから渡す（先に届いた1つで決める）。
+        # ⛔ 2026-10-25 J12b（3つの声とも）：AIは約0.3秒で用件の録音を選び、読みは 1.4秒と2.8秒に届いた＝待たずに受け、当てる所が一度も効かなかった
+        k, _ = self.checked()
+        self.heard(k, said, "決められない")
+        self.assertEqual([(k.wants_checks("replay_opening", {"part": p}), k.waits_every("replay_opening", {"part": p}))
+                          for p in ("intro", "purpose", "all", "resume")], [(True, False)] * 3 + [(False, False)])
+        k.on_check("asks", ASKS_YES)
+        k.apply("replay_opening", {"part": "intro"})
+        self.heard(k, "はい、岡田です。", "ご本人")
+        k.apply("report_party", {"party": "target"})
+        self.assertEqual((k.phase, k._opening_answer("intro")), ("asking", False))  # 繋いだあとは当てない（待つかは答えの段の決まり）
 
     def test_paths_asked_on_20261022(self):
         # ✅ 2026-10-22 ユーザーのご質問から（Flow._calling_reported・unreported_note・hold_play）

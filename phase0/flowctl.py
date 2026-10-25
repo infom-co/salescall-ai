@@ -1924,8 +1924,10 @@ class Flow:
     def wants_checks(self, name: str, args: dict | None = None) -> bool:
         a = self._args_in(dict(args or {}))
         if name == "replay_opening":
-            # 代わった方への流し直し（繋ぐ）・相手の質問への答え方（いまの質問の答えも入っているかもしれない間＝_keep_answer_reading）
-            return a.get("part") == "handover" or (a.get("part") not in ("resume", "handover") and self._answer_may_come_first())
+            # 代わった方への流し直し（繋ぐ）・相手の質問への答え方（いまの質問の答えも入っているかもしれない間＝_keep_answer_reading）・
+            # 呼んでいる段で名乗り・用件の録音で答える（何を聞かれたかの読みで当てる＝_asked_other。読みが届く前に決めると当てられない）
+            return (a.get("part") == "handover" or (a.get("part") not in ("resume", "handover") and self._answer_may_come_first())
+                    or self._opening_answer(a.get("part")))
         if name == "report_party":
             # 呼んでいる段の「目的の人」「受付の方」の報告は、判定に当ててから決める（_calling_reported。⛔ 2026-10-21 の見直し：受付の方の報告は
             # 判定を待たずに黙って待たせていたので、「席を外しております」「私が岡田です」を受付の方と報告されると、そのまま黙っていた）
@@ -2757,7 +2759,7 @@ class Flow:
             self._who_took_over()
             if not self.opening or self.replays >= self.limits.replays:
                 return self._new_person_unrecorded()
-        if part in ("intro", "purpose", "all") and (other := self._asked_other()):
+        if self._opening_answer(part) and (other := self._asked_other()):
             return other
         if not self.opening:
             return self._reject("この通話では、名乗りの録音はありません。聞かれたことに、自分で短く答えてください。")
@@ -3039,12 +3041,20 @@ class Flow:
         した文を、答えの文と一緒に「使えないときの一言」で選ぶ（操作の宣言＝tool_declarations の known）。"""
         return [k.split("：", 1)[1] for k in self.knowledge if k.startswith(("業務の情報：", "想定問答の答え"))]
 
+    def _opening_answer(self, part: str | None) -> bool:
+        """呼んでいる段で、相手の言葉に名乗り・用件の録音で答える報告か（replay_opening の名乗り・用件・最初から）：何を聞かれたかの読みで当てる
+        （_asked_other）報告の唯一の決まり。読みが届くまで報告を待たせる（wants_checks。先に届いた1つで決める）。
+        ⛔ 2026-10-25 J12b（番号の出どころを聞かれる・3つの声とも）：AIは相手の言葉の終わりから約0.3秒で用件の録音を選び、何を聞かれたかの読みは
+           1.4秒と2.8秒に届いた＝待たずに受けていたので、当てる所（J10b の直し）が一度も効かず、用件の録音が流れた。G-59 asks4 の記録で、
+           どちらの判定も1つだけで、ほかの質問12個を12個とも差し戻し、名乗り・用件の質問15個・質問でない言葉210回を1つも差し戻さない"""
+        return self.phase == "calling" and part in ("intro", "purpose", "all")
+
     def _asked_other(self) -> dict | None:
-        """名乗り・用件の録音で答えようとした（replay_opening の名乗り・用件・最初から）が、いまの言葉の尋ねているかの読みに「ほかのことを尋ねている」が
+        """名乗り・用件の録音で答えようとした（_opening_answer）が、いまの言葉の尋ねているかの読みに「ほかのことを尋ねている」が
         あり、「名乗り・用件…を尋ねている」が1つも無い：受けずに、答え方を選び直させる（同じ発話に1回だけ＝読みが違っていても、AIの選びで進む）。
         読みが分かれた・届いていないときは、AIの選びのまま。⛔ 2026-10-25 J10b（番号の出どころを聞かれる・S4・L4）：用件の録音で答えた"""
         got = self.asks_read.get(self.callee_turns, set())
-        if self.phase != "calling" or ASKS_OTHER not in got or ASKS_YES in got or self.other_rejected == self.callee_turns:
+        if ASKS_OTHER not in got or ASKS_YES in got or self.other_rejected == self.callee_turns:
             return None
         self.other_rejected = self.callee_turns
         said = f"（「{self.callee_said[:40]}」）" if self.callee_said else ""
