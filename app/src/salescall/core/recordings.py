@@ -197,9 +197,10 @@ _CURRENT = ("EXISTS (SELECT 1 FROM salescall.current_recording_sets s"
 
 
 # 契約者の単位の録音の部分の名前（判断はここだけ。話してよい声＝`ready_voices` が、契約者の組にこれが全部そろっているかを見る）。
-# 名前の正本は CL-1 の phrases.RECORDED（origin/main 77ce59f の57。CL-1 の連絡帳 4-34 の 4-83 (a)・4-37・4-41、4-42・4-43 の
+# 名前の正本は CL-1 の phrases.RECORDED（origin/main 6364c51 の58。CL-1 の連絡帳 4-34 の 4-83 (a)・4-37・4-41、4-42・4-43 の
 # hold_timeout＝保留で待ちきったときの締め、4-45 の moshimoshi＝電話に出た方が黙っているときの「もしもし？」、4-49 の
-# apology_purpose_same_day・apology_purpose_later＝お詫びの電話で受付の方に用件を聞かれたときの一言）。CL-1 の試験 test_offline が
+# apology_purpose_same_day・apology_purpose_later＝お詫びの電話で受付の方に用件を聞かれたときの一言、4-55 の
+# callback_next_workday＝お休みのお客様に「次のご出社はいつか」を伺う一言）。CL-1 の試験 test_offline が
 # この一覧と同じかを確かめる（CL-2 の連絡帳で頼む）。CL-1 が部分を足したら、ここにも足す（足すと、足した部分の無い前の組の声では
 # 話さない＝足りない録音を契約者に知らせ、録音を入れた組の承認を待つ）。
 # ⛔ 2026-10-24（CL-1 の連絡帳 4-39）：前は、予約証の印ごとに一部の部分（お詫び・不在の伺い）だけを見て、約束の電話には業務の組の
@@ -212,7 +213,7 @@ _CURRENT = ("EXISTS (SELECT 1 FROM salescall.current_recording_sets s"
 CONTRACTOR_PARTS: tuple[str, ...] = (
     "ai_again", "apology_cut_off", "apology_missed_promise", "apology_purpose_later", "apology_purpose_same_day", "arigatou", "back", "callback_address", "callback_ask_when",
     "callback_ask_who", "callback_authority", "callback_back_date", "callback_back_time", "callback_back_today",
-    "callback_call_again", "callback_email", "callback_fax", "callback_later_time", "callback_number",
+    "callback_call_again", "callback_email", "callback_next_workday", "callback_fax", "callback_later_time", "callback_number",
     "callback_reachable_time", "closing", "closing_declined", "departed", "dou", "greeting", "hai", "hold_timeout", "ikaga",
     "line_trouble_ask", "line_trouble_bye", "moshimoshi", "moushiwake", "moushiwake_heavy", "number_again_unreachable",
     "number_again_wrong_party", "offer_thanks", "own_fallback", "shitsurei", "shouchi", "successor_call",

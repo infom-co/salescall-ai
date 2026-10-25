@@ -463,13 +463,14 @@ class Later1022(unittest.TestCase):
 
     def test_the_reason_behind_until_is_kept_in_one_place(self):
         """「〇時まで」の言い方の、いま電話を続けられなかった理由（2026-10-23 ユーザー）。かけ直しの理由だけで決まるもの（別の番号へ・
-        分かるお客様＝別の方へ／不在・長期の不在＝それまでは出られない／分かる時＝それまでに確かめておく）には until_why を書かせない
+        分かるお客様＝別の方へ／不在・長期の不在・お休み＝それまでは出られない／分かる時＝それまでに確かめておく）には until_why を書かせない
         （同じことを2つの項目で表さない）。あとで などは until_why（無ければ分からない）。書き戻しても落とさない。"""
         rec = {"turn": 2, "said": "3時までなら大丈夫です。", "time": "3時まで"}
         for why, extra, expected in (("later", {"until_why": "unavailable"}, "unavailable"),
                                      ("later", {"until_why": "preparing"}, "preparing"), ("later", {}, None),
                                      ("other_number", {"number": "03-1234-5678"}, "other_party"), ("absent", {}, "unavailable"),
-                                     ("long_absent", {}, "unavailable"), ("ask_when", {}, "preparing")):
+                                     ("long_absent", {}, "unavailable"), ("day_off", {}, "unavailable"),
+                                     ("ask_when", {}, "preparing")):
             with self.subTest(why=why, extra=extra):
                 r = from_json(self.raw({"callback": [{**rec, "why": why, **extra}]}, None))
                 self.assertEqual(r.callbacks[0].until_reason, expected)

@@ -84,10 +84,12 @@ PARTY_KINDS = ("reception", "target", "substitute", "successor", "voicemail", "i
 # 読み、「誰でも」の業務は話した＝繋がった（業務設定から。judge.JudgeInput.reached_target）
 PARTY_SOURCES = ("ai", "signal")                         # 会話AIの報告で分かった／音・回線の信号で分かった（CL-1 の `flowctl._party`
 #   の by と同じ値。⚠️ 前は "report" を受け、CL-1 の "ai" の報告をまるごと断っていた＝CL-2 の 4-101 の約束と食い違い。見直し6）
-CALLBACK_REASONS = ("absent", "long_absent", "other_number", "later", "departed", "other_means", "ask_who", "ask_when", "our_promise")
-# long_absent＝長期の不在（出張・休職など）・departed＝在籍していない・other_means＝ほかの手段（電話ではない。CL-1 の CALLBACK_LABEL の
+CALLBACK_REASONS = ("absent", "long_absent", "day_off", "other_number", "later", "departed", "other_means", "ask_who", "ask_when", "our_promise")
+# long_absent＝長期の不在（出張など、仕事で出ていてその日は戻らない）・day_off＝お休み（本日は休み・休暇・休職など。CL-1 の連絡帳
+# 4-55 の (1)。✅ 2026-10-25 ユーザー：お休みに「お戻り」はおかしい⇒「次のご出社はいつか」を伺う。伺う一言が違うだけで、扱いは
+# 長期の不在と同じ＝下の ABSENT_REASONS・UNTIL_BY_REASON に同じく入れる）・departed＝在籍していない・other_means＝ほかの手段（電話ではない。CL-1 の CALLBACK_LABEL の
 # 版 0.5。2026-10-22 ユーザー決定）
-ABSENT_REASONS = ("absent", "long_absent")              # 不在の仲間（戻る時刻が取れなければ「不在」の方針。judge の順7 の1か所が読む）
+ABSENT_REASONS = ("absent", "long_absent", "day_off")   # 不在の仲間（戻る時刻が取れなければ「不在」の方針。judge の順7 の1か所が読む）
 ENDING_CALLBACKS = ("other_means",)                      # 電話ではかけ直さない申し出（約束にしない。judge の順7 の1か所が読む）
 CALLBACK_OFFERS = ("callback", "message", "email", "fax", "post")   # お客様の申し出（CL-1 の OFFER_LABEL）：折り返し・伝言・メール・ファクス・郵送
 CALLBACK_MEANS = ("email", "fax", "address", "message")  # 申し出で聞いた宛先・伝言の答え（取れた値の文字か null。CL-1 の CALLBACK_IDS）
@@ -106,9 +108,9 @@ CALLBACK_CYCLES = ("month",)
 # お客様の時間の設定の1か所（calling_hours.CalleeSettings.until_rule。設定 callback.until_*）
 UNTIL_WHYS = ("other_party", "unavailable", "preparing")
 # かけ直しの理由（why）だけで決まる「〇時まで」の理由（同じことを2つの項目で表さない＝この理由には until_why を書かせない）：別の番号へ・
-# 分かるお客様（a1）＝別の方へ／不在・長期の不在＝それまでは出られない／分かる時（a2）＝それまでに確かめておく
+# 分かるお客様（a1）＝別の方へ／不在・長期の不在・お休み＝それまでは出られない／分かる時（a2）＝それまでに確かめておく
 UNTIL_BY_REASON = {"other_number": "other_party", "ask_who": "other_party", "absent": "unavailable", "long_absent": "unavailable",
-                   "ask_when": "preparing"}
+                   "day_off": "unavailable", "ask_when": "preparing"}
 # 不在・別の番号・あとで（お客様に頼まれた。6-2）／分かるお客様・分かる時を聞いた（15-2-3 の a1・a2）／こちらが約束した
 END_REASONS = ("done", "callee_hurry", "callee_refused_call", "callee_complaint", "wrong_party", "voicemail", "ivr", "fax",
                "callback", "not_transferred", "departed", "other_means", "hold_timeout")               # 締めた理由（CL-1 の END_LABEL の名前。「AIですか」では終えない＝2026-10-19 夜 ユーザー）

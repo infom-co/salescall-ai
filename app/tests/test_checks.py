@@ -225,6 +225,31 @@ class EntriesCalledFromTheirPlaces(Planted):
                           ("src/salescall/core/settle_more.py", "一本化"), ("src/salescall/supervisor/jobs.py", "一本化")])
 
 
+class CallErrorsOnlyThroughTroubles(Planted):
+    """一本化：出どころ「通話」のエラーを作るのは core/troubles.py だけ（見直し20b：ほかで作ると、行が休み始めた知らせの出ない
+    2つ目の伝え方になる）。位置でも source= でも、trouble= だけでも見つける。読み戻して表を引く所（出どころが変数）はよい。"""
+
+    def test_a_call_error_made_elsewhere_is_caught(self):
+        root = self._app({
+            "src/salescall/core/troubles.py": "def after_trouble(a):\n    watch.after_error(a, ErrorReport('call', None, 'x', trouble='frozen'))\n",
+            "src/salescall/supervisor/line.py": "def go(a):\n    watch.after_error(a, ErrorReport('call', None, 'x', trouble='frozen'))\n",
+            "src/salescall/supervisor/jobs.py": "def go(a):\n    x = errors.ErrorReport(source='call', code=None, message='x')\n",
+            "src/salescall/core/settle.py": "def go(a, s):\n    x = ErrorReport(s, None, 'x', trouble='poor_audio')\n",
+            "src/salescall/core/stops.py": "def go(e):\n    return errors.lookup(errors.ErrorReport(e['source'], e['code'], e['message']))\n",
+            "src/salescall/core/attempts.py": "def go(tx):\n    watch.record_error(tx, ErrorReport('recording', None, 'x'))\n",
+        })
+        found = rules.call_errors_only_through_troubles(root)
+        self.assertEqual(sorted((v.path, v.line) for v in found),
+                         [("src/salescall/core/settle.py", 2), ("src/salescall/supervisor/jobs.py", 2),
+                          ("src/salescall/supervisor/line.py", 2)])
+
+    def test_restoring_a_resting_row_is_for_the_screens_only(self):
+        root = self._app({"src/salescall/web/rows.py": "def go(tx, t):\n    troubles.restore(tx, t, reason='直した')\n",
+                          "src/salescall/supervisor/jobs.py": "def go(tx, t):\n    troubles.restore(tx, t, reason='x')\n"})
+        found = rules.entries_called_from_their_places(root)
+        self.assertEqual([(v.path, v.rule) for v in found], [("src/salescall/supervisor/jobs.py", "一本化")])
+
+
 class PcSideStaysOffTheServer(Planted):
     """5-5：PC の部品（agent・link）は、データベースにも、サーバーの部品にも触れない。PC とのつなぎを使うのは、つなぎ口と PC の部品だけ。"""
 

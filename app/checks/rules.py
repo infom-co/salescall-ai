@@ -473,6 +473,7 @@ PY_ENTRY_CALLERS: dict[tuple[str, str], frozenset[str]] = {
     ("troubles", "after_trouble"): frozenset({_SUP + "line.py"}),           # こちらの不具合を伝える：通話ごとの口だけ（0139）
     ("watch", "resume_fixed"): frozenset({_SUP + "jobs.py"}),               # 直した版でこちらの不具合の停止を解く：決まった間隔の仕事だけ
     ("updates", "note"): frozenset({_SUP + "main.py"}),                     # 動いているプログラムの版を書く：本体の版の確かめだけ
+    ("troubles", "restore"): frozenset({WEB_PLACE}),                         # 休んだ行を戻す：画面だけ（管理者・契約者。見直し20b）
 }
 
 
@@ -496,6 +497,30 @@ def entries_called_from_their_places(app_root: Path) -> list[Violation]:
     return out
 
 
+# ── 一本化：出どころ「通話」（こちらの不具合で終えた電話）のエラーを作るのは core/troubles.py の after_trouble だけ（見直し20b：
+#    ErrorReport("call", …) をほかで作って watch.after_error へ渡すと、行が休み始めた知らせの出ない2つ目の伝え方になる）。
+#    出どころを文字で書いたもの（位置でも source= でも）と、通話を終えた理由 trouble= を見る。データベースから読み戻して表を引く所
+#    （stops.py。出どころは変数）は作り手ではない。
+CALL_SOURCE_HOME = _CORE + "troubles.py"
+
+
+def call_errors_only_through_troubles(app_root: Path) -> list[Violation]:
+    out: list[Violation] = []
+    for path in _python_files(app_root):
+        rel = _rel(app_root, path)
+        if rel.startswith("tests/") or rel == "run_tests.py" or rel == CALL_SOURCE_HOME:
+            continue
+        for node in ast.walk(_parse(path)):
+            if not (isinstance(node, ast.Call) and getattr(node.func, "id", getattr(node.func, "attr", None)) == "ErrorReport"):
+                continue
+            first = node.args[0] if node.args else next((k.value for k in node.keywords if k.arg == "source"), None)
+            by_call = isinstance(first, ast.Constant) and first.value == "call"
+            if by_call or any(k.arg == "trouble" for k in node.keywords):
+                out.append(Violation("一本化", rel, node.lineno,
+                                     f"出どころ「通話」のエラーを作るのは {CALL_SOURCE_HOME} の after_trouble だけです"))
+    return out
+
+
 ALL_RULES: tuple[Callable[[Path], list[Violation]], ...] = (
     value_types_stays_pure,
     phone_formatting_only_in_q1,
@@ -509,6 +534,7 @@ ALL_RULES: tuple[Callable[[Path], list[Violation]], ...] = (
     settings_read_in_one_place,
     web_parts_only_in_web,
     entries_called_from_their_places,
+    call_errors_only_through_troubles,
 )
 
 
