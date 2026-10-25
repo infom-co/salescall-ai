@@ -88,9 +88,12 @@ def turn_of(call: dict, wav_name: str) -> dict:
 
 
 def _line_of(t: dict) -> str:
-    """そのターンの相手の台詞の録音（続きの待ち＝followup のターンは、もとの台詞）。"""
+    """そのターンの相手の台詞の録音（唯一の場所。続きの待ち＝followup・流さなかった声の知らせ＝nudge のターンは、もとの台詞）。
+    ⛔ 2026-10-25 J14o（番号の出どころ S4）：知らせのあとのターンで、AIが答えを持っていない質問を選んで受け付けられたのに、そのターンを台詞に
+       結び付けず「自分の言葉で答えた」を外していた"""
     cl = t.get("callee")
-    cl = cl.get("followup_of", cl) if isinstance(cl, dict) else cl
+    while isinstance(cl, dict) and ("followup_of" in cl or "nudge_of" in cl):
+        cl = cl.get("followup_of") or cl.get("nudge_of")
     return cl.get("wav", "") if isinstance(cl, dict) else ""
 
 
@@ -155,11 +158,7 @@ def full_opening(call: dict) -> bool:
 
 def replies_to(call: dict, *wav_names: str) -> list[str]:
     """その台詞（続きの待ち・答え直しの台詞も）へのAIのターンで、流れの制御が返した返事の種類。"""
-    def line_of(t):
-        cl = t.get("callee")
-        cl = cl.get("followup_of", cl) if isinstance(cl, dict) else cl
-        return cl.get("wav", "") if isinstance(cl, dict) else ""
-    return [e["reply"] for t in call["turns"] if any(line_of(t).endswith(f"_{w}.wav") for w in wav_names) for e in t.get("tool_events") or []]
+    return [e["reply"] for t in call["turns"] if any(_line_of(t).endswith(f"_{w}.wav") for w in wav_names) for e in t.get("tool_events") or []]
 
 
 def not_the_target(*wav_names: str):
