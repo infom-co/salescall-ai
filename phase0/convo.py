@@ -489,7 +489,11 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
         # 見張りは別の耳の文字のあとで当てる（何語を話したかは、口から出た声で決める。turn_check）
         row["check"] = check_ai_turn(audio=audio, rate=rate, voice=voice, timed_out=turn.timed_out,
                                      intended_text=r["output_transcript"] or None, heard_text=row.get("ear"))
-        if audio and (save_audio == "all" or (save_audio == "bad" and row["check"]["kind"] in BAD_KINDS)):
+        # 外れた言葉を止めたあとの言い直しのターン（restate）も、見張りにかかわらず残す（試験の耳の書き違いか、声の言い違いかを、あとから
+        # 独立した耳で聞き分けるため。⛔ 2026-10-25 J11a・J12b：言い直しの「午後2時で」が試験の耳で「午後2で」と書かれ、音が無く決められなかった。
+        # 同じ日に独立した2つの耳で聞いた14本は、3つの耳とも14本とも「午後2時」＝ARATAME-EARS-4）
+        restated = isinstance(line, dict) and "restate" in line
+        if audio and (save_audio == "all" or (save_audio == "bad" and (row["check"]["kind"] in BAD_KINDS or restated))):
             AUDIO_DIR.mkdir(parents=True, exist_ok=True)
             label = f"{audio_label}_" if audio_label else ""
             part = "f" if isinstance(line, dict) and "followup_of" in line else ""
