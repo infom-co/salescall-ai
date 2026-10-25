@@ -59,88 +59,124 @@ GAP_WINDOW_S = 0.8             # 続く言葉の、助詞のあとの間を探�
 # 「様で｜」で ○△「『岡田様でっ』のように聞こえ、後に間がある」／0.26秒＝G-69 1回目の S2 (V と) の「と｜お」で「間が長すぎる」
 PARTICLE_GAP_S = 0.14
 RATE_WEIGHT = 10.0             # 話す長さが同じ形の材料の中央から 10% 離れると、半音1つと同じ重さ（「少し早口」）
+EAR_TRIES = 4                  # 組んだ音が耳の確かめに通らなければ、次に合う組を試す数
 SHAPE_WEIGHT = 3.0             # 前後の1周期の形の近さ（相関）が 1 から 0.33 下がると、半音1つと同じ重さ
 FRAME_S, HOP_S = 0.02, 0.005   # 「ま」を探す区間の長さと細かさ
 SIDE_S = 0.025                 # つなぎ目の前後で比べる長さ
 BAND = (1000.0, 4000.0)        # 鼻の音（「ま」の m）で弱まる帯
+LOW = (300.0, 1000.0)          # 母音で強い低い帯（「さ」の s では弱い）
+HIGH = (4000.0, 8000.0)        # 擦れる音（「さ」の s）で強い高い帯
+LOOSE_APERIODIC = 0.6           # かすれた母音の1周期の長さを取るときの、周期のずれの上限（pitch_at の既定は 0.35）
 DIP_DB = 6.0                   # m の谷は、前後の母音より、帯の強さがこれだけ弱い
 DROP_DB = 6.0                  # 母音の終わり：帯の強さが、母音の一番強い所からこれだけ下がった所（助詞の頭）
 MIN_VOWEL_S = 0.025            # 切る所を選べる母音の短さの下限
+MAX_VOWEL_S = 0.12             # 「ま」の母音の長さの上限
 TIME_SLACK_S = 0.08            # 言葉ごとの時刻（0.06秒きざみ）のずれの見込み：m は助詞の文字の始まり＋これより前
 EDGES = np.geomspace(200.0, 6000.0, 21)   # 声質を比べる帯（20）
 NFFT = 2048
 
 
-def _spectrum(seg: np.ndarray, rate: int) -> tuple[np.ndarray, float]:
+def _spectrum(seg: np.ndarray, rate: int) -> tuple[np.ndarray, float, float, float]:
+    """1つの区間の、帯ごとの強さ（EDGES）と、鼻の音で弱まる帯（BAND）・母音で強い低い帯（LOW）・擦れる音で強い高い帯（HIGH）の強さ（dB）。"""
     p = np.abs(np.fft.rfft(seg * np.hanning(len(seg)), n=NFFT)) ** 2
     f = np.fft.rfftfreq(NFFT, 1 / rate)
-    return (np.array([10 * np.log10(p[(f >= lo) & (f < hi)].sum() + 1e-9) for lo, hi in zip(EDGES, EDGES[1:])]),
-            float(10 * np.log10(p[(f >= BAND[0]) & (f < BAND[1])].sum() + 1e-9)))
+
+    def e(lo, hi):
+        return float(10 * np.log10(p[(f >= lo) & (f < hi)].sum() + 1e-9))
+    return (np.array([e(lo, hi) for lo, hi in zip(EDGES, EDGES[1:])]), e(*BAND), e(*LOW), e(*HIGH))
 
 
 def contour(pcm: bytes, rate: int, a: float, b: float) -> dict:
-    """a〜b 秒の HOP_S ごとの区間（FRAME_S）の：帯（BAND）の強さ dB・帯ごとの強さ・声帯の震え（声の高さが取れるか）。t は区間の真ん中。"""
+    """a〜b 秒の HOP_S ごとの区間（FRAME_S）の：帯ごとの強さと、BAND・LOW・HIGH の強さ（dB）。t は区間の真ん中。
+    ⛔ 2026-10-25 の2回目：声の周期が取れるか（声帯の震え）で母音と s を分けていた＝S2 の声は「ま」の母音の途中で周期が乱れる（かすれる）録音が
+       多く、名前の部分の材料6本中4本を「母音が短すぎる」と落とした ⇒ 周期ではなく、音の強さの形（擦れる音は高い帯が低い帯より強い）で分ける"""
     x = np.frombuffer(pcm, dtype="<i2").astype(np.float64)
     w = int(FRAME_S * rate)
     ts = np.arange(max(0.0, a), min(len(x) / rate - FRAME_S, b), HOP_S)
-    shape, band, voiced = [], [], []
-    for t in ts:
-        s, bd = _spectrum(x[int(t * rate):int(t * rate) + w], rate)
-        shape.append(s)
-        band.append(bd)
-        voiced.append(pitch_at(pcm, rate, t + FRAME_S / 2 - 0.022) is not None)
-    return {"t": ts + FRAME_S / 2, "shape": np.array(shape), "band": np.array(band), "voiced": np.array(voiced, dtype=bool)}
+    rows = [_spectrum(x[int(t * rate):int(t * rate) + w], rate) for t in ts]
+    return {"t": ts + FRAME_S / 2, "shape": np.array([r[0] for r in rows]), "band": np.array([r[1] for r in rows]),
+            "low": np.array([r[2] for r in rows]), "high": np.array([r[3] for r in rows])}
 
 
-def pulse_cut(pcm: bytes, rate: int, t: float, sign: int) -> tuple[int, int] | None:
-    """t 秒に一番近い、声の1周期の決まった所：t を真ん中にした1周期の中の、向き sign（+1 か −1）の一番大きい山の、直前で波が0をまたぐ所
-    （その向きへ上がっていく所）。返り値＝(標本の番号, 周期の標本数)。周期が取れなければ None。名前の部分と続く言葉を同じ向きの山でそろえて
-    切る＝周期の同じ位置でつなぐ（⛔ 1回目は、どちらも「下から上へ0をまたぐ所」というだけで、周期の中の位置は録音ごとにばらばらだった）。"""
-    x = np.frombuffer(pcm, dtype="<i2").astype(np.float64)
+def period_at(pcm: bytes, rate: int, t: float) -> int | None:
+    """t 秒の声の1周期の標本数。ふだんの決まり（pitch_at）で取れなければ、かすれた声も数える緩い上限（LOOSE_APERIODIC）で。取れなければ None。
+    緩い上限で取った高さは、その録音全体の声の高さ（features の中央）に近いほうへ1オクターブずつ直す（⛔ 2026-10-25：かすれた母音を、ほかの所の
+    倍の高さ＝周期が半分と読んだ材料があった）。"""
     hz = pitch_at(pcm, rate, t - 0.022)
-    if not hz:
-        return None
-    period = int(rate / hz)
+    if hz is None:
+        hz = pitch_at(pcm, rate, t - 0.022, LOOSE_APERIODIC)
+        whole = features(pcm, rate)
+        if hz and whole:
+            while hz > whole["pitch_hz"] * 1.5:
+                hz /= 2
+            while hz < whole["pitch_hz"] / 1.5:
+                hz *= 2
+    return int(rate / hz) if hz else None
+
+
+def pulse_cut(pcm: bytes, rate: int, t: float, sign: int, period: int) -> int | None:
+    """t 秒に一番近い、声の1周期の決まった所：t を真ん中にした1周期の中の、向き sign（+1 か −1）の一番大きい山の、直前で波が0をまたぐ所
+    （その向きへ上がっていく所）。名前の部分の切る所（続く言葉は、この所までの1周期に一番よく続く位置で切る＝align）。
+    ⛔ 1回目は、どちらも「下から上へ0をまたぐ所」というだけで、周期の中の位置は録音ごとにばらばらだった。"""
+    x = np.frombuffer(pcm, dtype="<i2").astype(np.float64)
     a = max(1, int(t * rate) - period // 2)
     w = x[a:a + period] * sign
     if not len(w):
         return None
     k = a + int(np.argmax(w))
-    j = next((j for j in range(k, max(1, k - period), -1) if x[j - 1] * sign < 0 <= x[j] * sign), None)
-    return (j, period) if j is not None else None
+    return next((j for j in range(k, max(1, k - period), -1) if x[j - 1] * sign < 0 <= x[j] * sign), None)
 
 
 def dominant_sign(pcm: bytes, rate: int, t: float) -> int:
-    """t 秒のまわりの声で、大きい山が上向き（+1）か下向き（−1）か（名前の部分の向きに、続く言葉もそろえる）。"""
+    """t 秒のまわりの声で、大きい山が上向き（+1）か下向き（−1）か。"""
     x = np.frombuffer(pcm, dtype="<i2").astype(np.float64)
     seg = x[max(0, int((t - 0.01) * rate)):int((t + 0.01) * rate)]
     return 1 if seg.max() >= -seg.min() else -1
 
 
+def align(head_pcm: bytes, head_cut: int, period: int, tail_pcm: bytes, rate: int, tail_t: float) -> tuple[int, float]:
+    """続く言葉の切る所：名前の部分の最後の1周期（head_cut まで）と一番形の近い1周期が始まる所（続く言葉の tail_t 秒の ±1周期の中）。
+    名前の部分の最後の1周期のあとに、同じ形の周期が続く＝周期の同じ位置でつながる（音は加工しない。切る所を選ぶだけ）。(標本の番号, 形の近さ)。"""
+    a = np.frombuffer(head_pcm, dtype="<i2")[head_cut - period:head_cut].astype(np.float64)
+    x = np.frombuffer(tail_pcm, dtype="<i2").astype(np.float64)
+    c = int(tail_t * rate)
+    best = (c, -1.0)
+    if len(a) < period or not a.std():
+        return best
+    for j in range(max(period, c - period), min(len(x) - period, c + period)):
+        b = x[j:j + period]
+        if b.std():
+            r = float(np.corrcoef(a, b)[0, 1])
+            if r > best[1]:
+                best = (j, r)
+    return best
+
+
 def ma_vowel(pcm: bytes, rate: int, times, head: str) -> dict | None:
     """「様」の「ま」の母音（あ）の、音の落ち着いている所（切る所）。head＝「岡田様」など（言葉ごとの時刻で「様」と次の文字の始まりを探す。
-    その時刻は 0.06秒きざみで粗いので、音で決める）：「さ」の s（声帯の震えの無い区間）⇒ 最初の母音 ⇒ m の谷（帯の強さが前後の母音より DIP_DB
-    弱い、最初の谷）⇒ 「ま」の母音（谷のあとの一番強い所から DROP_DB 下がるまで、または声帯の震えが止まるまで）。母音の真ん中の6割の中で、前後の
-    区間の声質の変わり方が一番小さい所（t_steady）の、声の1周期の決まった所（pulse_cut。上向きの山・下向きの山の両方＝cuts）。cut は、その録音の
-    大きい山の向きのほう。見つからなければ None。
+    その時刻は 0.06秒きざみで粗く、0.2秒ほどずれる録音もあるので、音で決める）：「さ」の s（擦れる音＝高い帯が低い帯より強い区間）⇒ 最初の母音 ⇒
+    m の谷（帯 BAND の強さが前後の母音より DIP_DB 弱い、最初の谷）⇒ 「ま」の母音（谷のあとの一番強い所から DROP_DB 下がるまで）。母音の真ん中の
+    6割の中で、前後の区間の声質の変わり方が一番小さい所（t_steady）の、声の1周期の決まった所（pulse_cut。その録音の大きい山の向き）が cut。
+    見つからなければ None。
     ⛔ 2026-10-25 の1回目：谷のうち一番深い所を m にしていた＝「で」の d・「の」の n・「は」の w（どれも帯の強さが下がる）を選び、助詞の母音で
-       切った録音があった（「ま」の母音が助詞の文字の始まりより後ろに出た）⇒ 「さ」の母音のあとの最初の谷にし、助詞の文字の始まりより
-       TIME_SLACK_S 以上後ろの谷は数えない。"""
+       切った録音があった ⇒ 「さ」の母音のあとの最初の谷にし、助詞の文字の始まりより TIME_SLACK_S 以上後ろの谷は数えない。
+    ⛔ 2回目：母音の終わりを「声の周期が取れなくなる所」にもしていた＝かすれた母音を短すぎるとして落とした ⇒ 帯の強さだけで決める。"""
     k = char_index(times, head)
     if k is None or k + 1 >= len(times):
         return None
     t0, t1 = times[k][1], times[k + 1][1]
-    c = contour(pcm, rate, t0 - 0.12, t1 + 0.18)
-    ts, band, voiced, shape = c["t"], c["band"], c["voiced"], c["shape"]
-    # 「さ」の s：t0 の近くで、声帯の震えの無い区間（2つ以上続く）のあと、声が始まる所
-    v0 = next((i for i in range(2, len(ts)) if t0 - 0.06 <= ts[i] <= t0 + 0.16 and voiced[i] and not voiced[i - 1] and not voiced[i - 2]), None)
+    c = contour(pcm, rate, t0 - 0.12, t1 + 0.24)
+    ts, band, shape = c["t"], c["band"], c["shape"]
+    fric = (c["high"] > c["low"]) & (c["high"] > c["high"].max() - 25)
+    # 「さ」の s：t0 の近くで、擦れる音が2つ以上続いたあと、擦れる音でなくなる所（最初の母音の始まり）
+    v0 = next((i for i in range(2, len(ts)) if t0 - 0.08 <= ts[i] <= t0 + 0.22 and not fric[i] and fric[i - 1] and fric[i - 2]), None)
     if v0 is None:
         return None
     m = None
     for i in range(v0 + 1, len(ts) - 1):
-        if ts[i] > min(ts[v0] + 0.20, t1 + TIME_SLACK_S):
+        if ts[i] > min(ts[v0] + 0.20, t1 + TIME_SLACK_S + 0.12):
             break
-        if ts[i] < ts[v0] + 0.03 or not voiced[i] or band[i] > band[i - 1] or band[i] > band[i + 1]:
+        if ts[i] < ts[v0] + 0.03 or fric[i] or band[i] > band[i - 1] or band[i] > band[i + 1]:
             continue
         before, after = band[v0:i], band[i + 1:i + 1 + int(0.12 / HOP_S)]
         if len(before) and len(after) and before.max() - band[i] >= DIP_DB and after.max() - band[i] >= DIP_DB:
@@ -151,7 +187,9 @@ def ma_vowel(pcm: bytes, rate: int, times, head: str) -> dict | None:
     after = range(m + 1, min(len(ts), m + 1 + int(0.12 / HOP_S)))
     p = max(after, key=lambda i: band[i])
     a_s = next(i for i in range(m, p + 1) if band[i] >= band[p] - 3)
-    a_e = next((i for i in range(p, len(ts)) if band[i] < band[p] - DROP_DB or not voiced[i]), len(ts) - 1)
+    a_e = next((i for i in range(p, len(ts)) if band[i] < band[p] - DROP_DB), len(ts) - 1)
+    # 「ま」の母音は長くても MAX_VOWEL_S（⛔ 2026-10-25：「は」の w の谷が浅い材料で、終わりが見つからず「わ」の母音まで続いた＝0.245秒）
+    a_e = min(a_e, a_s + int(MAX_VOWEL_S / HOP_S))
     if ts[a_e] - ts[a_s] < MIN_VOWEL_S:
         return None
     lo, hi = a_s + int((a_e - a_s) * 0.2), a_s + int((a_e - a_s) * 0.8)
@@ -160,12 +198,14 @@ def ma_vowel(pcm: bytes, rate: int, times, head: str) -> dict | None:
         return None
     i_cut = min(mid, key=lambda i: float(np.sqrt(((shape[i + 1] - shape[i - 1]) ** 2).mean())))
     steady = float(ts[i_cut])
-    cuts = {s: pulse_cut(pcm, rate, steady, s) for s in (1, -1)}
-    sign = dominant_sign(pcm, rate, steady)
-    if cuts[sign] is None:
+    period = period_at(pcm, rate, steady)
+    if period is None:
         return None
-    cut, period = cuts[sign]
-    return {"cut": cut, "sign": sign, "cuts": cuts, "period": period, "t": round(cut / rate, 4), "t_steady": round(steady, 4),
+    sign = dominant_sign(pcm, rate, steady)
+    cut = pulse_cut(pcm, rate, steady, sign, period)
+    if cut is None:
+        return None
+    return {"cut": cut, "sign": sign, "period": period, "t": round(cut / rate, 4), "t_steady": round(steady, 4),
             "s_end": round(float(ts[v0]), 3), "m": round(float(ts[m]), 3), "vowel": (round(float(ts[a_s]), 3), round(float(ts[a_e]), 3)),
             "times": (t0, t1)}
 
@@ -281,7 +321,6 @@ async def build(args, out, rows: list[dict]) -> dict:
                 m["before"] = side(pcm, rate, mv["cut"], True)
             else:
                 gaps = odd_gaps_after(pcm, rate, mv["cut"], times, r["head"])
-                m["by_sign"] = {s: c and {"cut": c[0], "after": side(pcm, rate, c[0], False)} for s, c in mv["cuts"].items()}
                 m["speech_s"] = speech_after(pcm, rate, mv["cut"])
             if gaps:
                 notes["使わなかった材料"][r["wav"]] = {"不自然な間（秒）": gaps}
@@ -295,42 +334,56 @@ async def build(args, out, rows: list[dict]) -> dict:
     median_s = {form: float(np.median([t["speech_s"] for t in ts])) for form, ts in tails.items()}
 
     def pair(h, t, form):
-        """名前の部分 h と続く言葉 t（h と同じ向きの山で切る）の、つなぎ目の差と、組のずれ（小さいほど合う）。組めなければ None。"""
-        ts = t["by_sign"].get(h["mv"]["sign"])
-        if not ts:
-            return None
-        g = gap(h["before"], ts["after"])
-        shape = round(_period_corr(h["pcm"], h["mv"]["cut"], t["pcm"], ts["cut"], h["mv"]["period"]), 2)
+        """名前の部分 h と続く言葉 t（h の最後の1周期に一番よく続く位置で切る＝align）の、つなぎ目の差と、組のずれ（小さいほど合う）。"""
+        cut, shape = align(h["pcm"], h["mv"]["cut"], h["mv"]["period"], t["pcm"], rate, t["mv"]["t_steady"])
+        g = gap(h["before"], side(t["pcm"], rate, cut, False))
         speed = round(abs(t["speech_s"] - median_s[form]) / median_s[form], 3) if median_s[form] else 0.0
-        return score(g) + SHAPE_WEIGHT * (1 - shape) + RATE_WEIGHT * speed, {**g, "前後の1周期の形": shape, "話す長さの中央からの離れ": speed}, ts["cut"]
+        shape = round(shape, 2)
+        return score(g) + SHAPE_WEIGHT * (1 - shape) + RATE_WEIGHT * speed, {**g, "前後の1周期の形": shape, "話す長さの中央からの離れ": speed}, cut
 
-    # 組を選ぶ：名前の部分ごとに、形ごとに一番合う続く言葉を選び、4つの形のうち一番合わない形のずれが一番小さい名前の部分
+    # 組を選ぶ：名前の部分ごとに、形ごとに続く言葉を合う順に並べ、4つの形のうち一番合わない形のずれ（各形の一番合う組）が一番小さい名前の部分
     def plan(h):
-        best = {}
-        for form, ts in tails.items():
-            gs = [(p[0], k, p[1], p[2]) for k, t in enumerate(ts) if (p := pair(h, t, form))]
-            if not gs:
-                return 999.0, {}
-            best[form] = min(gs, key=lambda g: g[0])
-        return max(s for s, _, _, _ in best.values()), best
+        ranked = {form: sorted((p[0], k, p[1], p[2]) for k, t in enumerate(ts) if (p := pair(h, t, form))) for form, ts in tails.items()}
+        if not all(ranked.values()):
+            return 999.0, ranked
+        return max(r[0][0] for r in ranked.values()), ranked
     plans = [(plan(h), i) for i, h in enumerate(heads)]
-    (worst, best), hi = min(plans, key=lambda p: p[0][0])
-    if not best:
-        raise RuntimeError("同じ向きの山で切れる組がありません")
+    (worst, ranked), hi = min(plans, key=lambda p: p[0][0])
+    if worst >= 999.0:
+        raise RuntimeError("組める材料がありません")
     h = heads[hi]
-    notes["名前の部分の候補"] = [{"材料": x["wav"], "切る所": {k: v for k, v in x["mv"].items() if k not in ("cut", "cuts")},
+    head_pcm = h["pcm"][:h["mv"]["cut"] * 2]
+    # 組んだ音が、録音と同じ2通りの聞き方で読みが合う組だけを使う（合う順に EAR_TRIES 組まで）。⛔ 2026-10-25 の2回目：「で」の形の組を、耳は
+    #    2通りとも「岡田様はいらっしゃいますでしょうか」と書いた（つなぎ目の高さの差 2.95半音・前後の1周期の形 0.14 の組）
+    from make_ack_clips import hear_feeds, heard_ok
+    texts = {form: tmpl.format(who=f"{NAME}様") for form, tmpl in FORMS.items()}
+    best, joined, ears = {}, {}, {}
+    for form, cands in ranked.items():
+        alts = (texts[form],) + ((texts[form].replace(*ALSO[form]),) if form in ALSO else ())
+        tried = []
+        for s_, k, g, cut in cands[:EAR_TRIES]:
+            pcm = head_pcm + tails[form][k]["pcm"][cut * 2:]
+            heard = await hear_feeds(client, pcm, rate)
+            as_ = next((a for a in alts if heard_ok(a, heard)), None)
+            tried.append({"材料": tails[form][k]["wav"], "ずれ": round(s_, 2), "heard": heard, "読みが合う": as_})
+            say(f"（{form}）", tried[-1])
+            if as_ is not None:
+                best[form], joined[form], ears[form] = (s_, k, g, cut), pcm, tried[-1]
+                break
+        notes.setdefault("耳の確かめで選び直した", {})[form] = tried
+        if form not in best:
+            raise RuntimeError(f"「{form}」の形は、耳の確かめに通る組がありません（{tried}）")
+    notes["名前の部分の候補"] = [{"材料": x["wav"], "切る所": {k: v for k, v in x["mv"].items() if k != "cut"},
                              "自然な変わり方": x["natural"], "自然な1周期の形": x["natural_shape"], "一番合わない形のずれ": round(p[0], 2)}
                             for (p, _), x in zip(plans, heads)]
-    notes["続く言葉の候補"] = {f: [{"材料": t["wav"], "切る所": {k: v for k, v in t["mv"].items() if k not in ("cut", "cuts")},
+    notes["続く言葉の候補"] = {f: [{"材料": t["wav"], "切る所": {k: v for k, v in t["mv"].items() if k != "cut"},
                                 "自然な変わり方": t["natural"], "自然な1周期の形": t["natural_shape"], "話す長さ（秒）": round(t["speech_s"], 3),
                                 "聞こえた読み": t["row"]["row"].get("heard_as")} for t in ts] for f, ts in tails.items()}
     notes["選んだ名前の部分"] = h["wav"]
-    notes["選んだ続く言葉"] = {form: {"材料": tails[form][k]["wav"], "つなぎ目の差": g, "ずれ": round(s, 2),
+    notes["選んだ続く言葉"] = {form: {"材料": tails[form][k]["wav"], "つなぎ目の差": g, "ずれ": round(s_, 2),
                                   "全体の高さの差（半音）": round(abs(semitones(tails[form][k]["whole"]["pitch_hz"], h["whole"]["pitch_hz"])), 2)
                                   if h["whole"] and tails[form][k]["whole"] else None}
-                           for form, (s, k, g, _) in best.items()}
-    head_pcm = h["pcm"][:h["mv"]["cut"] * 2]
-    joined = {form: head_pcm + tails[form][k]["pcm"][cut * 2:] for form, (_, k, _, cut) in best.items()}
+                           for form, (s_, k, g, _) in best.items()}
 
     # (V 役職)：役職の材料のうち、文まるごとの変わり方に一番そろうもの（G-66 と同じ）
     wr = mats["whole_role"][0]
@@ -358,12 +411,13 @@ async def build(args, out, rows: list[dict]) -> dict:
              {"kind": f"(M と) (V と) の続く言葉の材料そのもの（{raw['と']['wav']}）", "text": raw["と"]["row"]["text"], "pcm": raw["と"]["pcm"]},
              {"kind": "(V の) 同じ名前の部分｜「の」の続く言葉（個人の呼ぶ一言）", "text": TARGET_CALL["個人"].format(who=f"{NAME}様"), "pcm": joined["の"]},
              {"kind": "(V 役職) 役職｜同じ名前の部分｜(V は) の続く言葉", "text": call.format(who=f"{ROLE}{NAME}様"), "pcm": role_pcm + joined["は"]}]
-    from make_ack_clips import hear_feeds, heard_ok
     for it in items:
-        if it["kind"].startswith("(V"):
+        form = it["kind"][3] if it["kind"].startswith("(V ") and it["kind"][3] in FORMS else None
+        if form:
+            it["耳"] = {"heard": ears[form]["heard"], "読みが合う": ears[form]["読みが合う"]}
+        elif it["kind"].startswith("(V 役職"):
             heard = await hear_feeds(client, it["pcm"], rate)
-            alts = (it["text"],) + ((it["text"].replace(*ALSO["の"]),) if "(V の)" in it["kind"] else ())
-            it["耳"] = {"heard": heard, "読みが合う": next((a for a in alts if heard_ok(a, heard)), None)}
+            it["耳"] = {"heard": heard, "読みが合う": it["text"] if heard_ok(it["text"], heard) else None}
             say(it["kind"], it["耳"])
     random.Random(args.seed).shuffle(items)
     index = []

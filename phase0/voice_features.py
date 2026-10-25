@@ -118,9 +118,10 @@ def unvoiced_spans(pcm16: bytes, rate: int, min_s: float = 0.03, noise_only: boo
     return spans
 
 
-def pitch_at(pcm16: bytes, rate: int, t: float) -> float | None:
+def pitch_at(pcm16: bytes, rate: int, t: float, max_aperiodic: float = APERIODIC_MAX) -> float | None:
     """t 秒から始まる1つの区間（FRAME_S と、周期を探す長さ）の声の高さ（Hz）。周期が揃わない（子音・息・無音）なら None。
-    録音を継ぐ所の前後の高さを比べるため（g69_vowel_seam。features は区間5つ以上の中央なので、継ぎ目の1点には使えない）。"""
+    録音を継ぐ所の前後の高さを比べるため（g69_vowel_seam。features は区間5つ以上の中央なので、継ぎ目の1点には使えない）。
+    max_aperiodic：周期のずれの上限（既定は APERIODIC_MAX。かすれた母音の1周期の長さを取るときだけ、緩くする）。"""
     x = np.frombuffer(pcm16, dtype="<i2").astype(np.float64) / 32768.0
     lag_lo, lag_hi = int(rate / F0_MAX), int(rate / F0_MIN)
     w, i = int(rate * FRAME_S), int(t * rate)
@@ -128,7 +129,7 @@ def pitch_at(pcm16: bytes, rate: int, t: float) -> float | None:
     if i < 0 or len(f) < w + lag_hi or np.sqrt((f[:w] ** 2).mean()) < 1e-4:
         return None
     lag, a = _yin(f, w, lag_lo, lag_hi)
-    return rate / lag if a <= APERIODIC_MAX else None
+    return rate / lag if a <= max_aperiodic else None
 
 
 def loudness_db(pcm16: bytes) -> float:
