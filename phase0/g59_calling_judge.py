@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 
 from common import base_parser, require_python, save_result, say
 from meaning_judge import NoJudgment, add_judge_args, make_judges
@@ -134,15 +135,18 @@ async def run(args) -> dict:
             row = {"text": text, "accept": ok, "asks_accept": want, "asks_kind": kind, "before": before, "asked": asked, "rep": rep,
                    "successor": successor}
             async def one(k, j, col, question):
+                t0 = time.monotonic()
                 try:
                     got = await j(question, text, None, before=before)
                 except NoJudgment as exc:  # 答えにならなかった（Jev の確からしさが線より下・止まっている）：どれも選ばなかったと数える
+                    row[f"{col}_s"] = round(time.monotonic() - t0, 3)
                     row[f"{col}_tried"] = exc.tried
                     # 確からしさが線より下の読みは、本番と同じに数える（flowctl.unsure_counts＝Flow.on_unsure と同じ決まり）
                     unsure = next((t["unsure"] for t in exc.tried if "unsure" in t), None)
                     counted = unsure_counts("judge" if col == k else "asks", unsure) if unsure is not None else None
                     row[col] = label(counted) if counted else None
                     return
+                row[f"{col}_s"] = round(time.monotonic() - t0, 3)   # 答えが届くまでの秒（判定の速さ。2026-10-25：2つ目の判定の替えを比べる）
                 row[col] = label(got) if got else None
                 if got is not None and got.by:
                     row[f"{col}_by"], row[f"{col}_sure"] = got.by, got.sure
@@ -178,6 +182,11 @@ async def run(args) -> dict:
                                               f"/{len(held)}")
     summary["取り次ぎでない言葉に、尋ねているかが取り次ぎ"] = (f"{sum(1 for r in rows if HOLD not in r['accept'] for k in judges if r.get(f'{k}_asks') == HOLD)}"
                                                f"/{sum(1 for r in rows if HOLD not in r['accept']) * len(judges)}")
+    # 判定の速さ（目的の人の判定の問い合わせ。中央・遅いほうから1割・最長の秒）
+    for k in judges:
+        s = sorted(r[f"{k}_s"] for r in rows if f"{k}_s" in r)
+        if s:
+            summary[f"{k}（答えまでの秒：中央・遅いほうから1割・最長）"] = [s[len(s) // 2], s[int(len(s) * 0.9)], s[-1]]
     say("数え：", json.dumps(summary, ensure_ascii=False))
     return {"question": q.text, "summary": summary, "rows": rows}
 
