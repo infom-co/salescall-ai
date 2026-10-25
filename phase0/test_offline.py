@@ -4050,7 +4050,12 @@ class JudgeSetupTest(unittest.TestCase):
         add_judge_args(p)
         a = p.parse_args(["--judge", "--judge2"])
         self.assertEqual((a.judge, a.judge2), ("3.5 Flash Lite", JUDGE2))
-        self.assertEqual(JUDGE2, "Claude Sonnet 5.5（考える）")
+        # ✅ 2026-10-25 ユーザー：「以前、JevやSonnet 5.5 の「考えない」形を使うと決めましたよね。同じことを聞くな！」＝2つ目の判定は、中身の判定と
+        #    同じ組（Jev と2つの Sonnet を同時に出し、先に届いた確かな読み）。組は1か所（meaning_judge.RACE）
+        from grounding import GROUNDERS
+        from meaning_judge import GROUPS, RACE
+        self.assertEqual((GROUPS[JUDGE2], GROUNDERS), (RACE, RACE))
+        self.assertEqual(RACE, ("Jev 1.14", "Claude Sonnet 5.5（考える）", "Claude Sonnet 5.5"))
 
     def test_decisive_answers_go_first_and_survive_rejudge(self):
         # 1日の上限が少ないとき、いまの判定が言い直しへの返事を認めたと読み違えた答えを、先に判定させる（判定し直しで読みを捨てても印は残る）
@@ -4152,7 +4157,7 @@ class JudgePanelTest(unittest.TestCase):
         self.assertEqual(self.ask(panel, "judge").by, self.JEV)
         self.assertIsInstance(self.ask(panel, "judge2"), NoJudgment)
         self.assertEqual(panel.holder, "judge")
-        panel.judges["judge"] = (self.LITE, panel.standin[1])  # 3.5 Flash Lite が戻った（答えを返す判定に差し替え）
+        panel.judges["judge"] = ((self.LITE, panel.standin[1]),)  # 3.5 Flash Lite が戻った（答えを返す判定に差し替え）
         now[0] = 1000
         self.ask(panel, "judge")
         self.assertIsNone(panel.holder)
@@ -4188,6 +4193,67 @@ class JudgePanelTest(unittest.TestCase):
         self.assertEqual(self.ask(forced, "judge2").by, self.JEV)
         self.assertIn(self.SONNET, forced.down_until)
         self.assertNotIn(self.SONNET, calls)
+
+    def race(self, took, sure=0.99, fail=None):
+        """2つ目の受け持ちを組（Jev・Sonnet の考える・考えない）にした受け持ち。took：判定の名前 ⇒ かかる秒。"""
+        import asyncio
+
+        from meaning_judge import JudgePanel, Reading
+        calls, now, fail = [], [0.0], fail or {}
+
+        def judge(name):
+            async def run(q, text, asked=None, before=None):
+                calls.append(name)
+                await asyncio.sleep(took.get(name, 0.0))
+                if name in fail:
+                    raise fail[name]
+                return Reading("はい", sure=sure if name == self.JEV else None)
+            return run
+        fast = "Claude Sonnet 5.5"
+        panel = JudgePanel({"judge": (self.LITE, judge(self.LITE)),
+                            "judge2": tuple((n, judge(n)) for n in (self.JEV, self.SONNET, fast))},
+                           standin=(self.JEV, judge(self.JEV)), clock=lambda: now[0])
+        return panel, calls, now
+
+    def test_group_slot_takes_the_first_sure_reading(self):
+        # 組の受け持ち：先に届いた確かな読みで決め、ほかの問い合わせは止める。Jev が線（0.95）より下なら、Sonnet の読みを待つ
+        took = {self.JEV: 0.0, self.SONNET: 0.05, "Claude Sonnet 5.5": 0.02}
+        panel, calls, _ = self.race(took)
+        self.assertEqual(self.ask(panel, "judge2").by, self.JEV)
+        panel, calls, _ = self.race(took, sure=0.9)
+        got = self.ask(panel, "judge2")
+        self.assertEqual(got.by, "Claude Sonnet 5.5")
+        self.assertEqual([t.get("unsure") for t in got.tried], ["はい"])
+        # どれも答えない：代わり（Jev）はこの受け持ちには入らない（組に Jev がいる）
+        from meaning_judge import NoJudgment, OtherJudgeError
+        down = OtherJudgeError(503, "混雑")
+        panel, _, _ = self.race(took, sure=0.9, fail={self.SONNET: down, "Claude Sonnet 5.5": down})
+        self.assertEqual(panel.serves, {"judge"})
+        self.assertIsInstance(self.ask(panel, "judge2"), NoJudgment)
+
+    def test_two_slots_never_answer_from_one_maker(self):
+        # 1つの発話で、2つの受け持ちの答えは違う会社から：3.5 Flash Lite が止まって Jev が代わりに入ると、組からは Jev を外す（Sonnet を待つ）
+        from meaning_judge import NoJudgment, OtherJudgeError, SAME_MAKER
+        down = OtherJudgeError(503, "混雑")
+        took = {self.JEV: 0.0, self.SONNET: 0.03, "Claude Sonnet 5.5": 0.02}
+        panel, calls, _ = self.race(took, fail={self.LITE: down})
+        self.assertEqual((self.ask(panel, "judge").by, panel.holder), (self.JEV, "judge"))
+        got = self.ask(panel, "judge2")
+        self.assertEqual(got.by, "Claude Sonnet 5.5")
+        self.assertEqual(got.tried[0], {"model": self.JEV, "error": SAME_MAKER})
+        # 先に組の Jev が答えた発話では、止まった 3.5 Flash Lite の代わりに Jev を入れない（その発話は、受け持ち1つで決める）
+        panel, calls, _ = self.race(took, fail={self.LITE: down})
+        self.assertEqual(self.ask(panel, "judge2").by, self.JEV)
+        got = self.ask(panel, "judge")
+        self.assertIsInstance(got, NoJudgment)
+        self.assertEqual(got.tried[-1], {"model": self.JEV, "error": SAME_MAKER})
+        # 同じ言葉の、前の発話の答え（1回の判定の打ち切りより前）は見ない
+        from meaning_judge import DOWN_AFTER_S
+        panel, calls, now = self.race(took, fail={self.LITE: down})
+        self.ask(panel, "judge2")
+        now[0] = DOWN_AFTER_S + 2
+        panel.down_until.clear()
+        self.assertEqual(self.ask(panel, "judge").by, self.JEV)
 
     def test_args_turn_on_the_standin(self):
         import argparse

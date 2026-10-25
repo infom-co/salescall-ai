@@ -430,6 +430,7 @@ def run_judges(args, items: list[dict], qmap: dict, ids: dict) -> None:
                     t = time.monotonic()
                     it[key] = judge_other(clients[key], key, q, it["text"], it.get("asked"))
                     it[f"{key}言い切り"] = getattr(it[key], "firm", None)
+                    it[f"{key}確からしさ"] = getattr(it[key], "sure", None)  # Jev の線（OTHER_JUDGES の sure_min）で、同時に出した組の読みを見積もるため
                     it[f"{key}秒"] = round(time.monotonic() - t, 3)
                     break
                 except OtherJudgeError as exc:  # 上限（429）・混雑（5xx）は待ってやり直す。ほかは記録して次へ
@@ -557,7 +558,7 @@ def main() -> None:
                 # だけにする。見本は、前の読みを捨てる前に決める（捨てたあとでは、どれが難しい答えか分からない）
                 for it in pick_sample(items, args.sample):
                     it["見本"] = True
-            items = [{k: v for k, v in it.items() if not any(k == j or (k.startswith(j) and k[len(j):] in ("秒", "誤り", "言い切り"))
+            items = [{k: v for k, v in it.items() if not any(k == j or (k.startswith(j) and k[len(j):] in ("秒", "誤り", "言い切り", "確からしさ"))
                                                              for j in args.judge)} for it in items]
         if args.add_de and not any(it["set"] in ("D", "E") for it in items):
             names = {m.display_name: m.name.split("/")[-1] for m in ring.client().models.list() if getattr(m, "display_name", None)}

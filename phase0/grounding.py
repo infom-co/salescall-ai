@@ -33,7 +33,8 @@ import time
 #    届かなかったのと同じ＝Sonnet を待つ。`grounding.trusted`）。同じ時間帯に並べて測った（G-63 `race3`・`race2b`）：危ない文はどちらも0・
 #    答えまで中央 0.2秒（2つの Sonnet は 1.4秒）・2秒を超えたのは168回中1回（同4回）。Jev だけでは、線より下で決められないのが約4回に1回
 #    （そのたびに AI の文が使えず決まった一言になる）。毎回 TypeSafe・OpenRouter（米国）へも送る＝Intent.md 13章に書き足した（ユーザー承認）
-GROUNDERS = ("Jev 1.14", "Claude Sonnet 5.5（考える）", "Claude Sonnet 5.5")
+from meaning_judge import RACE  # noqa: E402（組は1か所＝meaning_judge.RACE。意味の2つ目の判定と同じ組）
+GROUNDERS = RACE
 GROUNDED = "知っていることだけ"
 NO_FACT = "事実を言っていない"
 UNGROUNDED = "知らない事実がある"
@@ -258,21 +259,9 @@ def make_grounder(args, names: tuple[str, ...]):
     """通話の中で使う形：async (知っていること, お客様の言葉, 返す文) -> Verdict | None。names の判定（ふだんは GROUNDERS）を同時に出し、
     先に届いた読みで決める（届かなかった・読めなかった判定は待たない）。どれも届かなければ None（呼ぶ側が待つ長さで打ち切り、文は声に出さない）。
     ⚠️ 遅れて届いた読みは使わない（声はもう出ている）＝呼ぶ側が通話の事実に残し、通話後の検証が見る。"""
+    from meaning_judge import first_of
     readers = [make_reader(args, n) for n in names if n]
 
     async def ground(knowledge, said, draft):
-        jobs = [asyncio.create_task(r(knowledge, said, draft)) for r in readers]
-        try:
-            for done in asyncio.as_completed(jobs):
-                try:
-                    v = await done
-                except Exception:
-                    continue
-                if v is not None and trusted(v.by, v.sure):
-                    return v
-            return None
-        finally:
-            for j in jobs:
-                if not j.done():
-                    j.cancel()
+        return await first_of([lambda r=r: r(knowledge, said, draft) for r in readers], lambda v: trusted(v.by, v.sure))
     return ground
