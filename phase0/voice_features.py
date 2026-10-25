@@ -118,6 +118,19 @@ def unvoiced_spans(pcm16: bytes, rate: int, min_s: float = 0.03, noise_only: boo
     return spans
 
 
+def pitch_at(pcm16: bytes, rate: int, t: float) -> float | None:
+    """t 秒から始まる1つの区間（FRAME_S と、周期を探す長さ）の声の高さ（Hz）。周期が揃わない（子音・息・無音）なら None。
+    録音を継ぐ所の前後の高さを比べるため（g69_vowel_seam。features は区間5つ以上の中央なので、継ぎ目の1点には使えない）。"""
+    x = np.frombuffer(pcm16, dtype="<i2").astype(np.float64) / 32768.0
+    lag_lo, lag_hi = int(rate / F0_MAX), int(rate / F0_MIN)
+    w, i = int(rate * FRAME_S), int(t * rate)
+    f = x[max(0, i):max(0, i) + w + lag_hi]
+    if i < 0 or len(f) < w + lag_hi or np.sqrt((f[:w] ** 2).mean()) < 1e-4:
+        return None
+    lag, a = _yin(f, w, lag_lo, lag_hi)
+    return rate / lag if a <= APERIODIC_MAX else None
+
+
 def loudness_db(pcm16: bytes) -> float:
     """声の大きさ（全体の2乗平均の dB。もとの音の数のまま＝比べるのは、同じ録音の仕組みで作った録音どうし）。"""
     x = np.frombuffer(pcm16, dtype="<i2").astype(np.float64)

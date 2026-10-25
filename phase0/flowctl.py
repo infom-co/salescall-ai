@@ -653,7 +653,8 @@ PERSON_PARTIES = ("reception", "target")
 STANDIN_PARTIES = ("substitute", "successor")  # 目的の人の代わりにお話しうる方（目的の人のある業務の、呼んでいる段だけ）
 # かけ直しの申し出（DESIGN.md 6-2 の request_callback。CL-2 の依頼・✅ 2026-10-14 ユーザー「相手が別の番号を言ったら、基本はその番号へかける」）：
 # 理由は3つだけ。理由ごとに、システムが足す質問（CALLBACK_ASK の役目の順）。足した質問は C1（時刻）・C2（番号）で、どの業務でも同じ番号
-# ✅ 2026-10-22 ユーザーの決定で足した理由：長期の不在（出張・休職・長い休み＝「戻る日時やおおよその帰社日を聞き、その時に折り返す」）・在籍
+# ✅ 2026-10-22 ユーザーの決定で足した理由：長期の不在（出張など＝「戻る日時やおおよその帰社日を聞き、その時に折り返す」。休み・休職は 10-25 に
+# お休みへ分けた）・在籍
 # していない（退職・異動＝後任の方をお呼びするか終えるかは業務設定。Flow._departed）・ほかの手段（「メールで送って」＝「希望とメールアドレスを
 # 記録して、お礼を言って締める」。どの手段かは相手の申し出 OFFER_LABEL）
 # 「あとで」のかけ直しで「〇時まで」と言われたときの、いま電話を続けられない理由（CL-2 の call_report.UNTIL_WHYS。✅ 2026-10-23 ユーザー：「かけ直さないと
@@ -672,8 +673,13 @@ UNKNOWN_WHY_LABEL = {**DONT_KNOW_LABEL, **REFUSED_LABEL}
 # 「〇時まで」「〇日まで」（いま電話を続けられない理由で、かけてよい時間・日が決まる言い方。理由を伺い直す・記録に until_why を書く唯一の
 # 見分け。CL-2 の 4-149・4-155：「来月の5日までに」も「〇時まで」と同じ。「〇日以降」「〇日ごろ」は理由なしで読める）
 _UNTIL = re.compile(r"\d{1,2}(?:時(?:半|\d{1,2}分)?|日)(?:まで|より前)")
-CALLBACK_LABEL = {"absent": "不在", "long_absent": "長期の不在", "other_number": "別の番号へ", "later": "あとで", "departed": "在籍していない",
-                  "other_means": "ほかの手段"}
+# ✅ 2026-10-25 日本時間の夕方 ユーザー：お休みは長期の不在から分ける（「本日は休み・出張 → 「いつごろお戻りのご予定かお分かりでしょうか？」
+# 出張ならいいが、お休みだとおかしい⇒ 「次のご出社はいつかお分かりになりますでしょうか？」」）。違うのは伺う一言だけ（CALLBACK_PLAN）
+CALLBACK_LABEL = {"absent": "不在", "day_off": "お休み", "long_absent": "長期の不在", "other_number": "別の番号へ", "later": "あとで",
+                  "departed": "在籍していない", "other_means": "ほかの手段"}
+# お呼びした方の事情で、いまはお話しできない理由（電話口の方ご自身の申し出ではない＝別の方に代わっても、代わりの方とお話しできないときに伺う
+# のは、お呼びした方の戻り。唯一の場所＝Flow の呼んでいる段の3か所が読む。CL-2 の call_report.ABSENT_REASONS も同じ仲間）
+AWAY_WHYS = ("absent", "day_off", "long_absent")
 # 相手の申し出（request_callback の、無くてもよい項目）：折り返し・伝言（お呼びした方が出られないときの申し出）／メール・ファクス・郵送（ほかの手段で
 # 送ってほしい）。✅ 2026-10-22 ユーザー：折り返し＝「お礼を言い、こちらからかけ直す形にして戻る時刻を聞く」・伝言＝「業務ごとに選べるようにし、
 # 選んでいなければ (a)」（お礼を言って断り、戻る時刻を聞く）
@@ -682,13 +688,14 @@ OFFER_LABEL = {"callback": "折り返し", "message": "伝言", "email": "メー
 TALK_LABEL = {k: f"{w}（{tone}）" if tone else w for k, (w, tone, _) in TALK_FALLBACK.items()}
 TALK_CHOICES = "、".join(f"{TALK_LABEL[k]}＝{scene}" for k, (_, _, scene) in TALK_FALLBACK.items())  # AIに見せる、選び方の説明（1か所）
 MEANS = ("email", "fax", "post")
-CALLBACK_PLAN = {"absent": ("back_time",), "long_absent": ("back_date",), "other_number": ("number", "reachable_time"), "later": ("later_time",),
-                 "other_means": ()}
+CALLBACK_PLAN = {"absent": ("back_time",), "day_off": ("next_workday",), "long_absent": ("back_date",),
+                 "other_number": ("number", "reachable_time"), "later": ("later_time",), "other_means": ()}
 MEANS_PLAN = {"email": ("email",), "fax": ("fax",), "post": ("address",)}  # ほかの手段で、聞くこと（手段の申し出が無ければ、聞かずに締める）
 # システムが足す質問の番号（どの業務でも同じ）と、通話の事実（callback）に残すときの名前
 CALLBACK_IDS = {"time": "C1", "number": "C2", "email": "C3", "fax": "C4", "address": "C5", "back_today": "C6", "again": "C7", "who": "C8",
                 "when": "C9", "message": "M1", "promise_again": "P1"}
-ROLE_KEY = {"back_time": "time", "later_time": "time", "back_date": "time", "reachable_time": "time", "number": "number", "email": "email",
+ROLE_KEY = {"back_time": "time", "later_time": "time", "back_date": "time", "next_workday": "time", "reachable_time": "time", "number": "number",
+            "email": "email",
             "fax": "fax", "address": "address", "message": "message", "back_today": "back_today", "call_again": "again",
             "promise_again": "promise_again", "ask_who": "who", "ask_when": "when"}
 # 必須の質問の「わからない」「答えたくない」の扱い（業務の決まり＝CL-2 の business_rules.HANDLINGS と同じ名前。Question.handlings の値）：
@@ -837,7 +844,9 @@ def offers_rule(target: bool = True) -> str:
     #    席にいて取り込んでいる方に「お戻り」を聞く）。同じ言葉でも回によって AIの選ぶ理由が割れた（取り込んでいて出られない：6本中3本ずつ）
     #    ⇒ 分け方はここだけに書き、ほかは「聞いた言葉に合う理由で」とだけ書く
     whys = [f"いらっしゃらない（席を外している・外出しているなど。その日のうちに戻る・戻るかが分からない）＝「{C['absent']}」",
-            f"その日のうちには戻らない（本日は休み・出張・休暇・休職など。「今週いっぱい」「来週まで」も）＝「{C['long_absent']}」",
+            f"お休み（本日は休み・休暇・休職など。「今週いっぱい休み」も）＝「{C['day_off']}」",
+            f"お休みではなく、出張などで、その日のうちには戻らない（「来週まで出張」も。休みとは言われず「今週いっぱいおりません」"
+            f"だけのときも）＝「{C['long_absent']}」",
             f"いらっしゃるが、いまは話せない（取り込んでいる・手が離せないなど）・あとでかけてほしい＝「{C['later']}」",
             f"別の電話番号にかけてほしい＝「{C['other_number']}」"]
     if target:
@@ -1097,7 +1106,8 @@ def next_reading(heard: str | None, readings: tuple | list, tried: list[str]) ->
 
 
 CALLBACK_TOPIC = {"back_time": "お戻りになるお時間", "later_time": "ご都合のよろしいお時間", "number": "お電話番号",
-                  "reachable_time": "お電話に出られるお時間", "back_date": "お戻りのご予定", "email": "メールアドレス", "fax": "ファクス番号",
+                  "reachable_time": "お電話に出られるお時間", "back_date": "お戻りのご予定", "next_workday": "次のご出社のご予定",
+                  "email": "メールアドレス", "fax": "ファクス番号",
                   "address": "ご住所", "authority": "ご判断いただけるお立場か", "message": "ご伝言", "back_today": "本日のお戻りのご予定",
                   "call_again": "改めてのお電話", "promise_again": "改めてのお電話", "ask_who": "お分かりになる方", "ask_when": "お分かりになる時期"}
 # 文が依頼主の単位の録音のもの（伝言の文＝業務設定 message・約束の電話の一言＝お名前が入る＝instruction.Business.replay_parts の promise_again）
@@ -3390,7 +3400,7 @@ class Flow:
         if ai == "handover":
             self._new_speaker(self.callee_turns, after=False)  # 代わった方が話し始めた（確かめを聞いた方の返事なら、替わった印にしない）
         if (handed := self._handed()) and j != TARGET_IS_THERE and ai not in ("target", "successor") and not offer \
-                and why in (None, "absent", "long_absent"):
+                and (why is None or why in AWAY_WHYS):
             # 前の方が「お呼びした方は出られない」と伝えたうえで、電話を代わった方：お呼びした方の代わりにお話を伺う方（代わりの方。応じ方は
             # 業務設定）。代わった方ご自身の申し出（折り返し・伝言・ほかの手段・あとで・別の番号へ・在籍していない）は、その申し出で決める。
             # ✅ 2026-10-22 ユーザー：「代わりの方が聞いてくれると言っているのに、それを無下にするんですか？」。⛔ G-57 tc33（不在で別の方に代わる）：
@@ -3427,7 +3437,7 @@ class Flow:
                 return self._not_available(ai, why, offer, {"ai"} | {k for k in JUDGMENTS if self.check.get(k) not in (None, HOLD)})
             ai = "not_target"  # 判定のどれかが「ご本人」：代わりの方・後任の方・在籍していない、と食い違う（確かめる・お呼びし直す）
         if ai == "away":
-            if j is None or (j == TARGET_IS_THERE and why not in ("absent", "long_absent")):
+            if j is None or (j == TARGET_IS_THERE and why not in AWAY_WHYS):
                 # 判定が届いていない（AIの読みだけ＝通話の事実に残し、通話後の検証が確かめる）／電話口のご本人が、いまは話せないと言った
                 return self._not_available(ai, why, offer, {"ai"} | (read if j == TARGET_IS_THERE else set()))
             ai = "not_target"  # 判定と食い違う：AIの読みを「この方は目的の人ではない」として決める（上の (5)）
@@ -3743,7 +3753,7 @@ class Flow:
         - 目的の人だけと話す（target_only）：お礼を言い、こちらからかけ直す形にして、戻る時刻を聞く（_callback）
         - どなたでも話す（anyone）：代わりの方として繋ぐ（_connect）"""
         policy = self.policies["substitute"]
-        self.substitute_why = why if why in ("absent", "long_absent") else "absent"  # お話しできなかったときに聞くこと（長期の不在なら戻る日）
+        self.substitute_why = why if why in AWAY_WHYS else "absent"  # お話しできなかったときに聞くこと（お休みなら次のご出社・長期の不在なら戻る日）
         self._note("substitute", policy=policy, read=sorted(read))
         if policy == "target_only":
             return self._callback(self.substitute_why, read, thanks=True)

@@ -520,6 +520,11 @@ SCENES = {
     "目的の人_長期の不在": Scene(TARGET_BUSINESS, [W("long_absence"), W("back_date"), W("affirm")], lambda c: {
         "理由": last_fact(c, "callback").get("why") == "long_absent", "戻る日": "月曜" in (last_fact(c, "callback").get("time") or ""),
         "聞く一言は録音": "callback_back_date" in played_ids(c), "締め": closing_of(c) == CLOSING, "約束しない": no_promise(c)}),
+    # お休み（✅ 2026-10-25 日本時間の夕方 ユーザー：「出張ならいいが、お休みだとおかしい」⇒ 次のご出社を伺う。お戻りの一言は流さない）
+    "目的の人_お休み": Scene(TARGET_BUSINESS, [W("day_off"), W("back_date"), W("affirm")], lambda c: {
+        "理由": last_fact(c, "callback").get("why") == "day_off", "出社の日": "月曜" in (last_fact(c, "callback").get("time") or ""),
+        "聞く一言は録音": "callback_next_workday" in played_ids(c) and "callback_back_date" not in played_ids(c),
+        "締め": closing_of(c) == CLOSING, "約束しない": no_promise(c)}),
     "目的の人_受付で断られる": Scene(TARGET_BUSINESS, [W("reception_refuse")], lambda c: {
         "発信禁止の申告": bool(c.get("facts", {}).get("do_not_call")), "締め": closing_of(c) == CLOSE_DECLINED}),
     # ── 通話の始め（✅ 2026-10-24 ユーザー：電話に出た方の第一声を聞いてから名乗る。CL-1.md 4-45・DESIGN.md 6-13）

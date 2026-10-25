@@ -6539,6 +6539,9 @@ class TargetTest(unittest.TestCase):
                 ({}, "request_callback", {"why": "absent"}, ["greeting", "intro", "purpose", "callback_authority"], None),
                 ({"substitute": "target_only"}, "replay_opening", {"part": "handover"}, ["greeting", "intro", "offer_thanks", "callback_back_time"], "absent"),
                 ({}, "request_callback", {"why": "later"}, ["greeting", "intro", "callback_later_time"], "later"),
+                # お呼びした方はお休み：代わりの方とお話しできないときに伺うのも「次のご出社」（不在・長期の不在と同じ、お呼びした方の事情）
+                ({"substitute": "target_only"}, "request_callback", {"why": "day_off"},
+                 ["greeting", "intro", "offer_thanks", "callback_next_workday"], "day_off"),
                 ({}, "request_callback", {"why": "absent", "offer": "callback"}, ["greeting", "intro", "offer_thanks", "callback_back_time"], "absent")):
             g = handed(**policies)
             r = g.apply(op, args)
@@ -8047,6 +8050,25 @@ class OfferTest(unittest.TestCase):
         r = f.apply("confirm_field", {"question_id": "C1", "result": "affirmed"})
         self.assertEqual((r["result"], f.facts["callback"][0]["time"], f.not_reached), ("end", "再来週の月曜", "absent"))
 
+    def test_day_off_asks_the_next_workday(self):
+        # お休み：✅ 2026-10-25 ユーザー「本日は休み・出張 → 「いつごろお戻りのご予定かお分かりでしょうか？」出張ならいいが、お休みだとおかしい
+        # ⇒ 「次のご出社はいつかお分かりになりますでしょうか？」」。答えは長期の不在と同じ（日時・C1・かけ直しの記録の time）
+        from flowctl import TARGET_IS_AWAY
+        from phrases import CALLBACK_ASK
+        f, b = self.flow()
+        self.heard(f, "岡田は本日お休みをいただいております。", TARGET_IS_AWAY)
+        r = f.apply("request_callback", {"why": "day_off"})
+        self.assertEqual((r["question_id"], self.played(r), r["play"][0]["text"]),
+                         ("C1", ["callback_next_workday"], "恐れ入りますが次のご出社はいつかお分かりになりますでしょうか？"))
+        self.assertEqual(CALLBACK_ASK["next_workday"], r["play"][0]["text"])
+        self.heard(f, "来週の月曜日には出社する予定です。")
+        r = f.apply("record_answer", {"question_id": "C1", "condition_id": "答えた", "value": "来週の月曜日"})
+        self.assertEqual(r["result"], "confirm_required")
+        self.heard(f, "はい。")
+        r = f.apply("confirm_field", {"question_id": "C1", "result": "affirmed"})
+        self.assertEqual((r["result"], f.facts["callback"][0]["why"], f.facts["callback"][0]["time"], f.not_reached),
+                         ("end", "day_off", "来週の月曜日", "absent"))
+
     def test_instruction_tells_the_offers_and_the_info(self):
         # 指示文：申し出の報告の仕方（1か所の文）と、業務の情報（自分の言葉で答える材料）。許されていない約束はしない
         from flowctl import offers_rule
@@ -8074,7 +8096,7 @@ class OfferTest(unittest.TestCase):
         for why in CALLBACK_LABEL.values():
             self.assertNotIn(f"「{why}」", rest)
         rule = offers_rule()
-        for words, why in (("席を外している", "absent"), ("本日は休み", "long_absent"), ("取り込んでいる", "later")):
+        for words, why in (("席を外している", "absent"), ("本日は休み", "day_off"), ("出張", "long_absent"), ("取り込んでいる", "later")):
             at = rule.index("＝「", rule.index(words))
             self.assertTrue(rule.startswith(f"＝「{CALLBACK_LABEL[why]}」", at), words)
         # 確かめを待つ間の知らせ（Flow._now）も、理由を決め打ちしない

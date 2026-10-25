@@ -3384,5 +3384,35 @@
     "tries": 2,
     "seconds": 2.92,
     "wav": "Sadachbia_successor_hold.wav"
+  },
+  {
+    "voice": "Leda",
+    "id": "day_off",
+    "text": "岡田は本日お休みをいただいております。",
+    "how": null,
+    "said": "岡田は本日お休みをいただい",
+    "heard": "岡田は本日お休みをいただいております。",
+    "diffs": [],
+    "question_needed": false,
+    "question_ok": true,
+    "ok": true,
+    "tries": 1,
+    "seconds": 2.76,
+    "wav": "Leda_day_off.wav"
+  },
+  {
+    "voice": "Sadachbia",
+    "id": "day_off",
+    "text": "岡田は本日お休みをいただいております。",
+    "how": null,
+    "said": "岡田は本日お休みをいただいております。",
+    "heard": "岡田は本日お休みをいただいております。",
+    "diffs": [],
+    "question_needed": false,
+    "question_ok": true,
+    "ok": true,
+    "tries": 1,
+    "seconds": 2.92,
+    "wav": "Sadachbia_day_off.wav"
   }
 ]

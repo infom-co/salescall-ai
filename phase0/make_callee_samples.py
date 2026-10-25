@@ -19,6 +19,7 @@ import time
 from audio import duration_s, phone_quality
 from common import (HERE, base_parser, describe_error, make_client, pick_key, read_wav_pcm16_mono, require_python, save_result,
                     say, write_wav)
+from convo import CALLEE_FOR
 from listen import differences, hear
 from live_util import build_config, collect_turn, send_text
 
@@ -27,6 +28,9 @@ from live_util import build_config, collect_turn, send_text
 #    いいんじゃないですか？話し方もお客っぽいものに変更して！」⇒ Leda・Sadachbia をお客の話し方で作る。会話のAIが Sadachbia（S2・S4）の
 #    ときは Leda が、Leda（L4）のときは Sadachbia がお客役になる（convo.callee_voice_for）。同じ声どうしで話させない
 CALLEE_VOICES = ("Puck", "Kore", "Leda", "Sadachbia")
+# 名指しが無いときに作る声＝場面でお客役をする声（convo.CALLEE_FOR の1か所）。⛔ 2026-10-25：既定を4つ全部にしていたので、台詞を1つ足して流すと、
+#    場面で使わない Puck の声まで全部の台詞を作り始めた（作り直さない声＝上の注意）。Puck・Kore は --voice で名指ししたときだけ作る
+SCENE_VOICES = tuple(sorted(set(CALLEE_FOR.values())))
 UTTERANCES = {
     "hello": "はい、もしもし。",
     # 2026-10-24：電話に出た方の第一声（こちらは第一声を聞いてから名乗る＝flowctl.Flow.on_connect。CL-1.md 4-45）
@@ -155,6 +159,8 @@ UTTERANCES = {
     # ⛔ 1回目「再来週の月曜日には…」：Leda の声は4回とも「来週の月曜日」と読んだ（別の耳もそう聞いた）⇒ 読まれた言い方に合う日にした
     "long_absence": "岡田は今週いっぱい出張で不在にしております。",
     "back_date": "来週の月曜日には出社する予定です。",
+    # お休み（✅ 2026-10-25 ユーザー：出張とは伺う一言を分ける）。答えは上の「来週の月曜日には出社する予定です。」を使う
+    "day_off": "岡田は本日お休みをいただいております。",
     # 想定外の質問（✅ 2026-10-22 ユーザー：「想定外の時はどうするのかを聞いているんですよ」）：業務の情報にあること＝AIが自分の言葉で答える
     "where_company": "失礼ですが、御社はどちらにある会社なんですか？",
     "i_see": "そうなんですね。",
@@ -308,7 +314,7 @@ async def run(args) -> dict:
         index.write_text(json.dumps(made, ensure_ascii=False, indent=2), encoding="utf-8")
         return {"model": args.model, "verified": made}
     have = {(m.get("voice"), m.get("id")) for m in made if "error" not in m and matches_script(m)}
-    for voice in args.voice or CALLEE_VOICES:
+    for voice in args.voice or SCENE_VOICES:
         for uid, value in UTTERANCES.items():
             text, how = text_and_how(value)
             if uid not in (args.redo or []) and (voice, uid) in have and (OUT / f"{voice}_{uid}.wav").exists():
@@ -347,7 +353,7 @@ def main() -> None:
     p.add_argument("--redo", action="append", choices=sorted(UTTERANCES), help="作ってある声でも作り直す（名指ししたものだけ）")
     p.add_argument("--verify", action="store_true", help="作り直さずに、まだ確かめていない声を確かめだけする")
     p.add_argument("--recheck", action="store_true", help="保存した別の耳の文字に、いまの確かめの決まりを当て直す（キーを使わない）")
-    p.add_argument("--voice", action="append", choices=CALLEE_VOICES, help="作る声（無ければ全部）")
+    p.add_argument("--voice", action="append", choices=CALLEE_VOICES, help="作る声（無ければ、場面でお客役をする声＝SCENE_VOICES）")
     args = p.parse_args()
     save_result("CALLEE-SAMPLES", asyncio.run(run(args)))
 

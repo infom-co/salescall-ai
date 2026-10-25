@@ -77,6 +77,22 @@ def mismatch(d: dict, target: dict) -> float:
     return abs(d["st"] - target["st"]) + abs(d["db"] - target["db"]) / 3 + abs(d["bright"] - target["bright"]) / 300
 
 
+def pick_role(roles: list[dict], target: dict, y: bytes, rate: int, start_q: float, lead: float) -> tuple[bytes, dict]:
+    """名前の部分 y（start_q 秒から。声の始まりまで lead 秒）に、つなぎ目の前後の声の変わり方が文まるごとの変わり方（target）に一番そろう
+    役職の録音（roles の1つ＝{pcm, pause, end}）を選び、間をもとの長さにして、役職の側の音を返す（G-66・G-69 の唯一の場所）。"""
+    o = start_q + lead
+    fs = seam_features(y, rate, o, o + FEAT_S)
+    scored = sorted(((mismatch(delta(ro["end"], fs), target), k) for k, ro in enumerate(roles)), key=lambda t: t[0]) if fs else [(None, 0)]
+    sc, k = scored[0]
+    ro = roles[k]
+    a, b = ro["pause"]
+    keep = max(0.02, (b - a) - lead)               # 役職の側に残す間（名前の側の頭の無音と合わせて、もとの間になる）
+    cut = int(min(b, a + keep) * rate)
+    return ro["pcm"][:cut * 2], {"役職の録音": k + 1, "変わり方のずれ": sc and round(sc, 2), "役職のもとの間（秒）": round(b - a, 3),
+                                 "名前の頭の無音（秒）": round(lead, 3), "役職の側に残した間（秒）": round(keep, 3),
+                                 "役職の候補のずれ": [round(s, 2) for s, _ in scored if s is not None]}
+
+
 async def take_with_times(client, args, key: str, text: str, check):
     """確かめに通り、check（音・速さ・時刻 ⇒ 値。無ければ None）が値を返す録音（声の頭を削らない）。(音, 速さ, 時刻, 値, 記録)。"""
     from ears import soniox_word_times
@@ -141,18 +157,7 @@ async def run(args) -> dict:
         return go()
 
     def pair(y, start_q: float, lead: float):
-        """名前の部分（start_q から。声の始まりまで lead 秒）に、声の変わり方が一番そろう役職の録音を選び、間をもとの長さにしてつなぐ。"""
-        o = start_q + lead
-        fs = seam_features(y, rate, o, o + FEAT_S)
-        scored = sorted(((mismatch(delta(ro["end"], fs), target), k) for k, ro in enumerate(roles)), key=lambda t: t[0]) if fs else [(None, 0)]
-        sc, k = scored[0]
-        ro = roles[k]
-        a, b = ro["pause"]
-        keep = max(0.02, (b - a) - lead)               # 役職の側に残す間（名前の側の頭の無音と合わせて、もとの間になる）
-        cut = int(min(b, a + keep) * rate)
-        return ro["pcm"][:cut * 2], {"役職の録音": k + 1, "変わり方のずれ": sc and round(sc, 2), "役職のもとの間（秒）": round(b - a, 3),
-                                     "名前の頭の無音（秒）": round(lead, 3), "役職の側に残した間（秒）": round(keep, 3),
-                                     "役職の候補のずれ": [round(s, 2) for s, _ in scored if s is not None]}
+        return pick_role(roles, target, y, rate, start_q, lead)
 
     # (R1) 役職の無い文の名前の部分（文の頭から＝頭を削らない）
     (ok1, _, y1, t1, _, cut1, row1), tries1 = await name_take(call.format(who=f"{NAME}様"), lambda p, r, t: 0.0 if seam_cut(p, r, t) else None)
