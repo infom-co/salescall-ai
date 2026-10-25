@@ -15,10 +15,17 @@
   役職の部分は G-66 と同じ選び方（g66_role_seam.pick_role）。
 段は2つ：(1) 録る（材料を takes/ に保存する。--reuse を付けなければ録る）(2) 保存した材料から、切る所を決め、組を選んで組む（録り直さずに、
 切り方を直して組み直せる。⛔ 2026-10-25 の1回目：材料を保存していなかったので、切り方の誤りが分かっても組み直せなかった）。
-声ごとに8本（results/name_splice/round8/{声の型}/ の 01〜08。どれがどれかは index.json。聞く前に開かない）：
+1回目（round8・✅ 2026-10-25 夜のユーザーの聞き比べ＝PHASE0 G-69）：S2 は (V) 5本中4本 ◎・前の切り方 (C) は ✕「『は』の助詞が聞こえない」。
+   残ったのは、助詞のあたりの雑音（L4 に多い）・「岡田様と」のあとの間・早口・L4 の役職のつなぎ目の音量。⇒ 2回目（round9）で直したこと：
+   (1) 切る所を、声の1周期の同じ位置にそろえる（周期ごとの一番大きい山の直前で、波が0をまたぐ所。名前の部分と続く言葉で同じ向きの山。
+       ⛔ 1回目は、どちらも「下から上へ0をまたぐ所」というだけで、周期の中の位置は録音ごとにばらばらだった）。前後の1周期の形の近さも選ぶ条件に足す
+   (2) 材料を増やす（名前6・続く言葉は形ごとに5・役職10）。続く言葉は、助詞のあとに不自然な間がある録音は使わず、話す速さが同じ形の材料の
+       中央から離れた録音は選ばれにくくする
+   (3) 雑音の出どころ（つなぎ目か、材料か）を決めるため、使った続く言葉の材料そのもの（M）も聞いていただく。(C) は結論が出たので外した
+声ごとに9本（results/name_splice/round{回}/{声の型}/ の 01〜09。どれがどれかは index.json。聞く前に開かない）：
    (W は) 文まるごと「岡田様はいらっしゃいますでしょうか？」（名前の部分を切り出した録音そのもの）
    (V は)「岡田さ（あ）」｜「（あ）はいらっしゃいますでしょうか？」（中島様の文から）
-   (C は) 同じ2本を、G-65 の (P0) と同じ「様｜は」の一番静かな所で切ってつなぐ（切る所だけを変えた比べ）
+   (M は)・(M と) (V は)・(V と) に使った続く言葉の材料そのもの（「中島様は…」「中島様とお電話の約束を…」）
    (W で) 文まるごと「岡田様でいらっしゃいますでしょうか？」
    (V で)(V と)(V の) 同じ名前の部分｜「（あ）でいらっしゃいますでしょうか？」「（あ）とお電話の約束を…」「（あ）のお電話でお間違えないでしょうか？」
    (V 役職) 役職（伊藤様の文から）｜同じ名前の部分｜(V は) と同じ続く言葉＝3つに分けた形そのもの
@@ -37,7 +44,7 @@ import numpy as np
 
 from common import base_parser, make_client, pick_key, read_wav_pcm16_mono, require_python, save_result, say, write_wav
 from g58_name_splice import OUT
-from g65_seams import char_index, pause_after, wa_evidence
+from g65_seams import char_index, pause_after
 from g66_role_seam import FEAT_S, delta, onset_s, pick_role, seam_features, take_with_times
 from phrases import PROMISE_AGAIN, TARGET_CALL, TARGET_CONFIRM
 from voice_features import features, loudness_db, pitch_at, semitones
@@ -46,7 +53,13 @@ ROLE = "営業部部長の"
 NAME, OTHER, ROLE_NAME = "岡田", "中島", "伊藤"
 FORMS = {"は": TARGET_CALL["法人"], "で": TARGET_CONFIRM, "と": PROMISE_AGAIN, "の": TARGET_CALL["個人"]}
 ALSO = {"の": ("お間違えない", "お間違いない")}   # この形だけ、聞こえた読みが違っても通す（上の ⚠️）
-HEAD_TAKES, TAIL_TAKES, ROLE_TAKES = 4, 3, 5
+HEAD_TAKES, TAIL_TAKES, ROLE_TAKES = 6, 5, 10   # 1回目は 4・3・5（L4 の役職は5本とも、文まるごとの変わり方から高さで 2.9半音以上ずれた）
+GAP_WINDOW_S = 0.8             # 続く言葉の、助詞のあとの間を探す長さ（つなぎ目から）
+# 助詞とその次の文字の間の上限（秒）。ユーザーが聞いた3つの点の間：0.12秒＝G-69 1回目の S2 (V は) の「は｜い」で ◎／0.16秒＝G-58 3回目の
+# 「様で｜」で ○△「『岡田様でっ』のように聞こえ、後に間がある」／0.26秒＝G-69 1回目の S2 (V と) の「と｜お」で「間が長すぎる」
+PARTICLE_GAP_S = 0.14
+RATE_WEIGHT = 10.0             # 話す長さが同じ形の材料の中央から 10% 離れると、半音1つと同じ重さ（「少し早口」）
+SHAPE_WEIGHT = 3.0             # 前後の1周期の形の近さ（相関）が 1 から 0.33 下がると、半音1つと同じ重さ
 FRAME_S, HOP_S = 0.02, 0.005   # 「ま」を探す区間の長さと細かさ
 SIDE_S = 0.025                 # つなぎ目の前後で比べる長さ
 BAND = (1000.0, 4000.0)        # 鼻の音（「ま」の m）で弱まる帯
@@ -79,20 +92,37 @@ def contour(pcm: bytes, rate: int, a: float, b: float) -> dict:
     return {"t": ts + FRAME_S / 2, "shape": np.array(shape), "band": np.array(band), "voiced": np.array(voiced, dtype=bool)}
 
 
-def _upward_zero(pcm: bytes, rate: int, t: float) -> int:
-    """t 秒に一番近い、音の波が下から上へ0をまたぐ所（標本の番号。±5ms の中。無ければ t のまま）。"""
-    x = np.frombuffer(pcm, dtype="<i2")
-    i = int(t * rate)
-    lo, hi = max(1, i - int(0.005 * rate)), min(len(x) - 1, i + int(0.005 * rate))
-    up = [j for j in range(lo, hi) if x[j - 1] < 0 <= x[j]]
-    return min(up, key=lambda j: abs(j - i)) if up else i
+def pulse_cut(pcm: bytes, rate: int, t: float, sign: int) -> tuple[int, int] | None:
+    """t 秒に一番近い、声の1周期の決まった所：t を真ん中にした1周期の中の、向き sign（+1 か −1）の一番大きい山の、直前で波が0をまたぐ所
+    （その向きへ上がっていく所）。返り値＝(標本の番号, 周期の標本数)。周期が取れなければ None。名前の部分と続く言葉を同じ向きの山でそろえて
+    切る＝周期の同じ位置でつなぐ（⛔ 1回目は、どちらも「下から上へ0をまたぐ所」というだけで、周期の中の位置は録音ごとにばらばらだった）。"""
+    x = np.frombuffer(pcm, dtype="<i2").astype(np.float64)
+    hz = pitch_at(pcm, rate, t - 0.022)
+    if not hz:
+        return None
+    period = int(rate / hz)
+    a = max(1, int(t * rate) - period // 2)
+    w = x[a:a + period] * sign
+    if not len(w):
+        return None
+    k = a + int(np.argmax(w))
+    j = next((j for j in range(k, max(1, k - period), -1) if x[j - 1] * sign < 0 <= x[j] * sign), None)
+    return (j, period) if j is not None else None
+
+
+def dominant_sign(pcm: bytes, rate: int, t: float) -> int:
+    """t 秒のまわりの声で、大きい山が上向き（+1）か下向き（−1）か（名前の部分の向きに、続く言葉もそろえる）。"""
+    x = np.frombuffer(pcm, dtype="<i2").astype(np.float64)
+    seg = x[max(0, int((t - 0.01) * rate)):int((t + 0.01) * rate)]
+    return 1 if seg.max() >= -seg.min() else -1
 
 
 def ma_vowel(pcm: bytes, rate: int, times, head: str) -> dict | None:
     """「様」の「ま」の母音（あ）の、音の落ち着いている所（切る所）。head＝「岡田様」など（言葉ごとの時刻で「様」と次の文字の始まりを探す。
     その時刻は 0.06秒きざみで粗いので、音で決める）：「さ」の s（声帯の震えの無い区間）⇒ 最初の母音 ⇒ m の谷（帯の強さが前後の母音より DIP_DB
     弱い、最初の谷）⇒ 「ま」の母音（谷のあとの一番強い所から DROP_DB 下がるまで、または声帯の震えが止まるまで）。母音の真ん中の6割の中で、前後の
-    区間の声質の変わり方が一番小さい所を、音の波が下から上へ0をまたぐ所に合わせる。見つからなければ None。
+    区間の声質の変わり方が一番小さい所（t_steady）の、声の1周期の決まった所（pulse_cut。上向きの山・下向きの山の両方＝cuts）。cut は、その録音の
+    大きい山の向きのほう。見つからなければ None。
     ⛔ 2026-10-25 の1回目：谷のうち一番深い所を m にしていた＝「で」の d・「の」の n・「は」の w（どれも帯の強さが下がる）を選び、助詞の母音で
        切った録音があった（「ま」の母音が助詞の文字の始まりより後ろに出た）⇒ 「さ」の母音のあとの最初の谷にし、助詞の文字の始まりより
        TIME_SLACK_S 以上後ろの谷は数えない。"""
@@ -129,9 +159,15 @@ def ma_vowel(pcm: bytes, rate: int, times, head: str) -> dict | None:
     if not len(mid):
         return None
     i_cut = min(mid, key=lambda i: float(np.sqrt(((shape[i + 1] - shape[i - 1]) ** 2).mean())))
-    cut = _upward_zero(pcm, rate, float(ts[i_cut]))
-    return {"cut": cut, "t": round(cut / rate, 4), "s_end": round(float(ts[v0]), 3), "m": round(float(ts[m]), 3),
-            "vowel": (round(float(ts[a_s]), 3), round(float(ts[a_e]), 3)), "times": (t0, t1)}
+    steady = float(ts[i_cut])
+    cuts = {s: pulse_cut(pcm, rate, steady, s) for s in (1, -1)}
+    sign = dominant_sign(pcm, rate, steady)
+    if cuts[sign] is None:
+        return None
+    cut, period = cuts[sign]
+    return {"cut": cut, "sign": sign, "cuts": cuts, "period": period, "t": round(cut / rate, 4), "t_steady": round(steady, 4),
+            "s_end": round(float(ts[v0]), 3), "m": round(float(ts[m]), 3), "vowel": (round(float(ts[a_s]), 3), round(float(ts[a_e]), 3)),
+            "times": (t0, t1)}
 
 
 def side(pcm: bytes, rate: int, cut: int, before: bool) -> dict:
@@ -193,10 +229,40 @@ async def record(args, out) -> list[dict]:
     return rows
 
 
+def _period_corr(a_pcm: bytes, a_cut: int, b_pcm: bytes, b_cut: int, period: int) -> float:
+    """つなぎ目の前の1周期（a の a_cut まで）と後ろの1周期（b の b_cut から）の形の近さ（相関。−1〜1）。"""
+    a = np.frombuffer(a_pcm, dtype="<i2")[a_cut - period:a_cut].astype(np.float64)
+    b = np.frombuffer(b_pcm, dtype="<i2")[b_cut:b_cut + period].astype(np.float64)
+    if a_cut < period or len(a) < period or len(b) < period or not a.std() or not b.std():
+        return 0.0
+    return float(np.corrcoef(a, b)[0, 1])
+
+
+def odd_gaps_after(pcm: bytes, rate: int, cut: int, times, head: str) -> list[float]:
+    """続く言葉の、助詞とその次の文字の間の、PARTICLE_GAP_S より長い間（秒）。（✅ ユーザー：「『岡田様と』の後の間が長すぎる」）
+    数えるのは、つなぎ目から次の文字の始まり（言葉ごとの時刻＋その粗さ）までに始まる間だけ。⛔ つなぎ目から GAP_WINDOW_S の間を全部数えると、
+    「いらっしゃい」の「っ」の自然な間（0.12秒）で、ユーザーが ◎ と聞いた材料（G-69 1回目の S2 の (V は)）まで落とした。"""
+    from barge import voice_runs, voiced
+    k = char_index(times, head)
+    if k is None or k + 2 >= len(times):
+        return []
+    until = times[k + 2][1] + TIME_SLACK_S - cut / rate   # つなぎ目からの秒
+    runs = voice_runs(voiced(pcm[cut * 2:(cut + int(GAP_WINDOW_S * rate)) * 2], rate), 0.01)
+    return [round(b[0] - a[1], 3) for a, b in zip(runs, runs[1:]) if b[0] - a[1] > PARTICLE_GAP_S and a[1] <= until]
+
+
+def speech_after(pcm: bytes, rate: int, cut: int) -> float:
+    """つなぎ目から声の終わりまでの長さ（秒）＝同じ形の材料どうしで話す速さを比べる（✅ ユーザー：「少し早口」）。"""
+    from barge import voice_runs, voiced
+    runs = voice_runs(voiced(pcm[cut * 2:], rate), 0.05)
+    return runs[-1][1] if runs else 0.0
+
+
 async def build(args, out, rows: list[dict]) -> dict:
-    """保存した材料から、切る所を決め、組を選んで組み、聞き比べの8本を作る。"""
+    """保存した材料から、切る所を決め、組を選んで組み、聞き比べの9本を作る。"""
+    from name_clips import odd_gaps
     client = make_client(pick_key(args))
-    notes: dict = {"切れなかった材料": []}
+    notes: dict = {"切れなかった材料": [], "使わなかった材料": {}}
     mats: dict[str, list] = {}
     rate = None
     for r in rows:
@@ -208,47 +274,69 @@ async def build(args, out, rows: list[dict]) -> dict:
             if mv is None:
                 notes["切れなかった材料"].append(r["wav"])
                 continue
-            m.update({"mv": mv, "before": side(pcm, rate, mv["cut"], True), "after": side(pcm, rate, mv["cut"], False),
-                      "natural": natural(pcm, rate, mv["cut"]), "whole": features(pcm, rate)})
+            m.update({"mv": mv, "natural": natural(pcm, rate, mv["cut"]), "whole": features(pcm, rate),
+                      "natural_shape": round(_period_corr(pcm, mv["cut"], pcm, mv["cut"], mv["period"]), 2)})
+            if r["kind"] == "head":
+                gaps = odd_gaps(pcm, rate, mv["cut"], times, "")
+                m["before"] = side(pcm, rate, mv["cut"], True)
+            else:
+                gaps = odd_gaps_after(pcm, rate, mv["cut"], times, r["head"])
+                m["by_sign"] = {s: c and {"cut": c[0], "after": side(pcm, rate, c[0], False)} for s, c in mv["cuts"].items()}
+                m["speech_s"] = speech_after(pcm, rate, mv["cut"])
+            if gaps:
+                notes["使わなかった材料"][r["wav"]] = {"不自然な間（秒）": gaps}
+                continue
         mats.setdefault(r["kind"] if r["kind"] != "tail" else f"tail_{r['form']}", []).append(m)
     heads = mats.get("head", [])
     tails = {form: mats.get(f"tail_{form}", []) for form in FORMS}
     lacking = [k for k, v in {"名前の部分": heads, **{f"続く言葉（{f}）": t for f, t in tails.items()}}.items() if not v]
     if lacking:
-        raise RuntimeError(f"切れる材料がありません：{lacking}（{notes['切れなかった材料']}）")
+        raise RuntimeError(f"使える材料がありません：{lacking}（{notes}）")
+    median_s = {form: float(np.median([t["speech_s"] for t in ts])) for form, ts in tails.items()}
+
+    def pair(h, t, form):
+        """名前の部分 h と続く言葉 t（h と同じ向きの山で切る）の、つなぎ目の差と、組のずれ（小さいほど合う）。組めなければ None。"""
+        ts = t["by_sign"].get(h["mv"]["sign"])
+        if not ts:
+            return None
+        g = gap(h["before"], ts["after"])
+        shape = round(_period_corr(h["pcm"], h["mv"]["cut"], t["pcm"], ts["cut"], h["mv"]["period"]), 2)
+        speed = round(abs(t["speech_s"] - median_s[form]) / median_s[form], 3) if median_s[form] else 0.0
+        return score(g) + SHAPE_WEIGHT * (1 - shape) + RATE_WEIGHT * speed, {**g, "前後の1周期の形": shape, "話す長さの中央からの離れ": speed}, ts["cut"]
 
     # 組を選ぶ：名前の部分ごとに、形ごとに一番合う続く言葉を選び、4つの形のうち一番合わない形のずれが一番小さい名前の部分
     def plan(h):
         best = {}
         for form, ts in tails.items():
-            gs = [(score(gap(h["before"], t["after"])), k, gap(h["before"], t["after"])) for k, t in enumerate(ts)]
+            gs = [(p[0], k, p[1], p[2]) for k, t in enumerate(ts) if (p := pair(h, t, form))]
+            if not gs:
+                return 999.0, {}
             best[form] = min(gs, key=lambda g: g[0])
-        return max(s for s, _, _ in best.values()), best
+        return max(s for s, _, _, _ in best.values()), best
     plans = [(plan(h), i) for i, h in enumerate(heads)]
     (worst, best), hi = min(plans, key=lambda p: p[0][0])
+    if not best:
+        raise RuntimeError("同じ向きの山で切れる組がありません")
     h = heads[hi]
-    notes["名前の部分の候補"] = [{"材料": x["wav"], "切る所": {k: v for k, v in x["mv"].items() if k != "cut"}, "自然な変わり方": x["natural"],
-                             "一番合わない形のずれ": round(p[0], 2)} for (p, _), x in zip(plans, heads)]
-    notes["続く言葉の候補"] = {f: [{"材料": t["wav"], "切る所": {k: v for k, v in t["mv"].items() if k != "cut"}, "自然な変わり方": t["natural"],
+    notes["名前の部分の候補"] = [{"材料": x["wav"], "切る所": {k: v for k, v in x["mv"].items() if k not in ("cut", "cuts")},
+                             "自然な変わり方": x["natural"], "自然な1周期の形": x["natural_shape"], "一番合わない形のずれ": round(p[0], 2)}
+                            for (p, _), x in zip(plans, heads)]
+    notes["続く言葉の候補"] = {f: [{"材料": t["wav"], "切る所": {k: v for k, v in t["mv"].items() if k not in ("cut", "cuts")},
+                                "自然な変わり方": t["natural"], "自然な1周期の形": t["natural_shape"], "話す長さ（秒）": round(t["speech_s"], 3),
                                 "聞こえた読み": t["row"]["row"].get("heard_as")} for t in ts] for f, ts in tails.items()}
     notes["選んだ名前の部分"] = h["wav"]
     notes["選んだ続く言葉"] = {form: {"材料": tails[form][k]["wav"], "つなぎ目の差": g, "ずれ": round(s, 2),
                                   "全体の高さの差（半音）": round(abs(semitones(tails[form][k]["whole"]["pitch_hz"], h["whole"]["pitch_hz"])), 2)
                                   if h["whole"] and tails[form][k]["whole"] else None}
-                           for form, (s, k, g) in best.items()}
+                           for form, (s, k, g, _) in best.items()}
     head_pcm = h["pcm"][:h["mv"]["cut"] * 2]
-    joined = {form: head_pcm + tails[form][k]["pcm"][tails[form][k]["mv"]["cut"] * 2:] for form, (_, k, _) in best.items()}
-
-    # (C は)：同じ2本を「様｜は」の一番静かな所で（G-65 の (P0) と同じ切り方）
-    t_wa = tails["は"][best["は"][1]]
-    wa_h, wa_t = wa_evidence(h["pcm"], rate, h["times"], f"{NAME}様"), wa_evidence(t_wa["pcm"], rate, t_wa["times"], f"{OTHER}様")
-    control = h["pcm"][:wa_h["cut"] * 2] + t_wa["pcm"][wa_t["cut"] * 2:]
-    notes["C は"] = {"名前の文": {k: v for k, v in wa_h.items() if k != "cut"}, "続く言葉の文": {k: v for k, v in wa_t.items() if k != "cut"},
-                    "つなぎ目の差": gap(side(h["pcm"], rate, wa_h["cut"], True), side(t_wa["pcm"], rate, wa_t["cut"], False))}
+    joined = {form: head_pcm + tails[form][k]["pcm"][cut * 2:] for form, (_, k, _, cut) in best.items()}
 
     # (V 役職)：役職の材料のうち、文まるごとの変わり方に一番そろうもの（G-66 と同じ）
     wr = mats["whole_role"][0]
     pw = pause_after(wr["pcm"], rate, wr["times"], ROLE)
+    if pw is None:
+        raise RuntimeError("文まるごと（役職つき）に、役職のあとの間が見つかりません")
     target = delta(seam_features(wr["pcm"], rate, pw[0] - FEAT_S, pw[0]), seam_features(wr["pcm"], rate, pw[1], pw[1] + FEAT_S))
     roles = []
     for ro in mats.get("role", []):
@@ -257,19 +345,22 @@ async def build(args, out, rows: list[dict]) -> dict:
         if fe:
             roles.append({"pcm": ro["pcm"], "pause": px, "end": fe, "wav": ro["wav"]})
     role_pcm, notes["V 役職"] = pick_role(roles, target, h["pcm"], rate, 0.0, onset_s(h["pcm"], rate))
+    notes["V 役職"]["文まるごとの変わり方"] = {k: round(v, 2) for k, v in target.items()}
 
     call = TARGET_CALL["法人"]
+    raw = {form: tails[form][best[form][1]] for form in ("は", "と")}
     items = [{"kind": "(W は) まるごと（名前の部分を切り出した録音そのもの）", "text": call.format(who=f"{NAME}様"), "pcm": h["pcm"]},
              {"kind": "(V は) 名前｜「ま」の母音の真ん中から「は」の続く言葉", "text": call.format(who=f"{NAME}様"), "pcm": joined["は"]},
-             {"kind": "(C は) 同じ2本を「様｜は」の一番静かな所で（G-65 の P0 の切り方）", "text": call.format(who=f"{NAME}様"), "pcm": control},
+             {"kind": f"(M は) (V は) の続く言葉の材料そのもの（{raw['は']['wav']}）", "text": raw["は"]["row"]["text"], "pcm": raw["は"]["pcm"]},
              {"kind": "(W で) まるごと", "text": TARGET_CONFIRM.format(who=f"{NAME}様"), "pcm": mats["whole_de"][0]["pcm"]},
              {"kind": "(V で) 同じ名前の部分｜「で」の続く言葉", "text": TARGET_CONFIRM.format(who=f"{NAME}様"), "pcm": joined["で"]},
              {"kind": "(V と) 同じ名前の部分｜「と」の続く言葉（約束の一言）", "text": PROMISE_AGAIN.format(who=f"{NAME}様"), "pcm": joined["と"]},
+             {"kind": f"(M と) (V と) の続く言葉の材料そのもの（{raw['と']['wav']}）", "text": raw["と"]["row"]["text"], "pcm": raw["と"]["pcm"]},
              {"kind": "(V の) 同じ名前の部分｜「の」の続く言葉（個人の呼ぶ一言）", "text": TARGET_CALL["個人"].format(who=f"{NAME}様"), "pcm": joined["の"]},
              {"kind": "(V 役職) 役職｜同じ名前の部分｜(V は) の続く言葉", "text": call.format(who=f"{ROLE}{NAME}様"), "pcm": role_pcm + joined["は"]}]
     from make_ack_clips import hear_feeds, heard_ok
     for it in items:
-        if it["kind"].startswith(("(V", "(C")):
+        if it["kind"].startswith("(V"):
             heard = await hear_feeds(client, it["pcm"], rate)
             alts = (it["text"],) + ((it["text"].replace(*ALSO["の"]),) if "(V の)" in it["kind"] else ())
             it["耳"] = {"heard": heard, "読みが合う": next((a for a in alts if heard_ok(a, heard)), None)}
@@ -282,11 +373,11 @@ async def build(args, out, rows: list[dict]) -> dict:
         index.append({"wav": wav, "kind": it["kind"], "text": it["text"], **({"耳": it["耳"]} if "耳" in it else {})})
     (out / "index.json").write_text(json.dumps(index, ensure_ascii=False, indent=2), encoding="utf-8")
     say("作った：", ", ".join(f"{args.type}/{x['wav']}" for x in index))
-    return {"model": args.model, "type": args.type, "round": 8, "items": index, "measures": notes}
+    return {"model": args.model, "type": args.type, "round": args.round, "items": index, "measures": notes}
 
 
 async def run(args) -> dict:
-    out = OUT / "round8" / args.type
+    out = OUT / f"round{args.round}" / args.type
     out.mkdir(parents=True, exist_ok=True)
     if args.reuse:
         rows = json.loads((out / "takes" / "takes.json").read_text(encoding="utf-8"))
@@ -303,6 +394,7 @@ def main() -> None:
     p.add_argument("--pause", type=float, default=2.0)
     p.add_argument("--seed", type=int, default=69)
     p.add_argument("--reuse", action="store_true", help="録らずに、保存した材料（takes/）から組み直す")
+    p.add_argument("--round", type=int, default=9, help="置き場所の回（results/name_splice/round{回}）。1回目は 8")
     args = p.parse_args()
     save_result("G-69", asyncio.run(run(args)))
 
