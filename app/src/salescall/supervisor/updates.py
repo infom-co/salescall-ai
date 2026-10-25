@@ -10,6 +10,11 @@
   - 本体は、決まった間隔の仕事（締め・控え など）もしない（古いプログラムが新しいデータベースの決まりを知らずに書くと、守りが外れうる）。
   - 版を比べられない（データベースに届かない・表の作りのファイルが無い）ときも、合わないとみなす（かけない側に倒す）。
   ずれは、サーバーへ入れる手順の誤り（流し忘れ・入れ忘れ）なので、CL-2 へ修正依頼（変わったときだけ＝呼ぶ側）。
+- **動いているプログラムの版**（`program_version`・`note`。0139）：こちらのプログラムの不具合で休ませた行と、止めた契約者を、直した
+  プログラムに替わったら戻すために、中央の見守り役が、データベースと版が合っているときに、動いているプログラムの版（表の作りの指紋・
+  このプログラム（salescall の部品）と、設定で読み込むほかの担当の部品（通話を進める部品など）のソースの指紋）を書く（まだ書いていない
+  版のときだけ。同じ版で立ち上げ直しても、前の版に戻しても、入れ替えのあいだ新旧が少し重なっても、替わったことにしない）。版が替わった時刻は、データベースの salescall.program_since の1か所。
+  2026-10-25 ユーザー：「その行だけなら…2回続いたら、次の行へ。3行同じ問題なら、甚大な問題と判断。」
 - **PC の部品のプログラム**（`pc_out_of_date`）：つないだとき、PC の部品のやり取りの版（link.protocol.VERSION）がサーバーと合わなければ、
   サーバーは断る（その PC からはかけない）。その契約者と管理者へ知らせる（1日1回）：自動で入れ替える部品（設定 pc.auto_update が自動で、
   その PC に入れ替えの部品があるとき）なら「自動で入れ替えます」、無ければ「更新してください」。通話の途中では入れ替えない
@@ -18,6 +23,9 @@
 
 from __future__ import annotations
 
+import hashlib
+import importlib.util
+from pathlib import Path
 from uuid import UUID
 
 from salescall.core import migrate, notify, settings
@@ -48,6 +56,37 @@ def current(tx: Tx, program: object = _OWN) -> str:
     """いまのずれ（どの取引でも読める）。"""
     row = tx.one("SELECT salescall.schema_version() AS v, salescall.schema_fingerprint() AS f")
     return gap((row["v"], row["f"]), program)
+
+
+def _package_root(module: str) -> Path | None:
+    """部品（`モジュール` の名前）のいちばん上の部品の場所（フォルダ・1つのファイル）。見つからなければ None。"""
+    spec = importlib.util.find_spec(module.split(".")[0])
+    if spec is None:
+        return None
+    if spec.submodule_search_locations:
+        return Path(next(iter(spec.submodule_search_locations)))
+    return Path(spec.origin) if spec.origin else None
+
+
+def program_version(*specs: str | None) -> str:
+    """動いているプログラムの版（指紋。1か所）：表の作りの指紋（`PROGRAM`）と、このプログラム（salescall の部品）と、設定で読み込む
+    ほかの担当の部品（specs＝`モジュール:名前`。通話を進める部品・通話後の検証の部品・確かめの部品）のいちばん上の部品のソース
+    （.py。行の終わりを LF にそろえる＝migrate と同じ）の指紋。どれかを直して入れ替えれば、版が替わる。"""
+    roots = {r for r in [_package_root("salescall"), *(_package_root(s.partition(":")[0]) for s in specs if s)] if r is not None}
+    h = hashlib.sha256(repr(PROGRAM).encode("utf-8"))
+    for root in sorted(roots):
+        files = [root] if root.is_file() else sorted(f for f in root.rglob("*.py") if "__pycache__" not in f.parts)
+        for f in files:
+            h.update(f"{root.name}/{f.relative_to(root.parent if root.is_file() else root).as_posix()}\n".encode("utf-8"))
+            h.update(hashlib.sha256(f.read_bytes().replace(b"\r\n", b"\n")).digest())
+    return h.hexdigest()
+
+
+def note(tx: Tx, version: str) -> bool:
+    """動いているプログラムの版を書く（全体の取引。中央の見守り役が、データベースと版が合っているときに呼ぶ。まだ書いていない版の
+    ときだけ書く＝データベースの salescall.note_program の1か所）。書いたら True（版が替わった＝休んだ行が戻り、こちらの不具合で止めた
+    停止は watch.resume_fixed が解く）。"""
+    return tx.one("SELECT salescall.note_program(%s) AS n", (version,))["n"]
 
 
 def pc_out_of_date(tx: Tx, tenant_id: UUID, pc_id: UUID, *, can_replace: bool) -> bool:

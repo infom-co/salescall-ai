@@ -61,7 +61,7 @@ class Classify(unittest.TestCase):
         # 続いた回数を数え直す「直った証拠」は、止める種類すべてにあり、データベースが知っている名前だけ
         stopping = {k for k, a in errors.ACTIONS.items() if a.stop_cause is not None}
         self.assertEqual(set(errors.EVIDENCE), stopping)
-        self.assertTrue(set(errors.EVIDENCE.values()) <= {"in_conversation", "verified", "line_ok", "none"})
+        self.assertTrue(set(errors.EVIDENCE.values()) <= {"in_conversation", "verified", "line_ok", "program_fixed", "none"})
         self.assertNotIn("ear_unreachable", errors.counted_with("ai_unreachable"))
         for k in stopping:
             with self.subTest(k):

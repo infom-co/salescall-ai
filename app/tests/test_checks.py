@@ -216,11 +216,13 @@ class EntriesCalledFromTheirPlaces(Planted):
             "src/salescall/core/settle.py": "def go(tx, l):\n    attempts.close_unrung_run(tx, l, 'no_rows')\n",
             "src/salescall/core/next_action.py": "from salescall.core.attempts import end_for_trouble\n",
             "src/salescall/supervisor/jobs.py": "def go(a):\n    a.in_tenant(lambda tx: ring_test.run)\n",
+            # こちらの不具合を伝える入口（0139）：通話ごとの口（supervisor/line.py）のほかからは伝えない（2つ目の伝え方を作らない）
+            "src/salescall/core/settle_more.py": "def go(a):\n    troubles.after_trouble(a)\n",
         })
         found = rules.entries_called_from_their_places(root)
         self.assertEqual(sorted((v.path, v.rule) for v in found),
                          [("src/salescall/core/next_action.py", "一本化"), ("src/salescall/core/settle.py", "一本化"),
-                          ("src/salescall/supervisor/jobs.py", "一本化")])
+                          ("src/salescall/core/settle_more.py", "一本化"), ("src/salescall/supervisor/jobs.py", "一本化")])
 
 
 class PcSideStaysOffTheServer(Planted):

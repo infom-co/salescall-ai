@@ -240,6 +240,8 @@ WRITERS: dict[str, dict[str, frozenset[str]]] = {
     "dnc_import_rows": {"INSERT": frozenset({_CORE + "dnc_import.py"})},
     "judgement_checks": {"INSERT": frozenset({_CORE + "measure.py"})},       # 誤判定率の正解（16-3）
     "task_exclusions": {"INSERT": frozenset({_CORE + "exclusions.py"})},     # 行ごとの「かけない」（3-4-2）
+    "task_trouble_restores": {"INSERT": frozenset({_CORE + "troubles.py"})},   # 休んだ行を戻す（管理者か契約者。0139）
+    "program_versions": {"INSERT": frozenset()},        # 動いているプログラムの版を書くのは、データベースの関数 note_program だけ（0139）
     "sample_draws": {"INSERT": frozenset({_CORE + "measure.py"})},           # 誤判定率の抜き取り（16-3）
     "sample_draw_calls": {"INSERT": frozenset({_CORE + "measure.py"})},
     "deliveries": {"INSERT": frozenset({"src/salescall/output/"}),           # 連携の台帳（Q17。持ち主 CL-3）
@@ -268,6 +270,7 @@ WRITE_FUNCTIONS: dict[str, frozenset[str]] = {
     "release_claims_on_line": frozenset({_CORE + "registry.py"}),
     "release_claims_in_scope": frozenset({_CORE + "calendar.py", _CORE + "settings.py", _CORE + "registry.py"}),
     "close_unrung_run": frozenset({_CORE + "attempts.py"}),      # まだ分からない続きを閉じる（0131。呼ぶ入口は attempts の1か所）
+    "note_program": frozenset({"src/salescall/supervisor/updates.py"}),   # 動いているプログラムの版（0139。中央の見守り役の1か所）
 }
 _CALL = re.compile(r"\bsalescall\." + _NAME + r"\s*\(")
 
@@ -467,6 +470,9 @@ PY_ENTRY_CALLERS: dict[tuple[str, str], frozenset[str]] = {
     ("ring_test", "run"): frozenset({_SUP + "line.py"}),                     # テスト番号を鳴らす：電話の部品を持つ回線ごとの処理だけ
     ("scheduler", "soon_left"): frozenset({_SUP + "line.py"}),               # 決めにいくかの判断：回線ごとの処理だけ
     ("watch", "record_check"): frozenset({_SUP + "line.py", _SUP + "jobs.py"}),   # 止めた停止の確かめ：テスト番号・確かめの部品
+    ("troubles", "after_trouble"): frozenset({_SUP + "line.py"}),           # こちらの不具合を伝える：通話ごとの口だけ（0139）
+    ("watch", "resume_fixed"): frozenset({_SUP + "jobs.py"}),               # 直した版でこちらの不具合の停止を解く：決まった間隔の仕事だけ
+    ("updates", "note"): frozenset({_SUP + "main.py"}),                     # 動いているプログラムの版を書く：本体の版の確かめだけ
 }
 
 

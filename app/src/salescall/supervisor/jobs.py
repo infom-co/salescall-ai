@@ -150,6 +150,12 @@ def system_lasting_stops(ctx: Context) -> None:
     ctx.access.in_system(ACTOR, watch.lasting_stops)
 
 
+def fixed_stops(ctx: Context) -> None:
+    """こちらのプログラムの不具合で止めた停止（すべての行にかかわる甚大な問題）を、直したプログラムの版に替わっていたら解く（その契約者の
+    分。core/watch.resume_fixed の1か所。休んだ行は、データベースの決まりで同じ時に戻る）。"""
+    ctx.access.in_tenant(ACTOR, ctx.tenant_id, watch.resume_fixed)
+
+
 def budget(ctx: Context) -> None:
     """費用の見張り（その契約者の分）：今日の費用の注意・赤字の警告と、期限までに確認されなければもう一度の知らせ（赤字では止めない＝
     2026-10-22 深夜 ユーザー。12-1）。"""
@@ -206,6 +212,7 @@ def pc_watch(ctx: Context) -> None:
 # - pc_watch：PC の合図の途切れ（pc.down_after＝初め3分）に、1分の遅れで気づく
 # - verify_watch：通話後の検証が止まっている（録音を待つ時間＋1時間）ことに、10分の遅れで気づく（修正依頼は同じ不具合で1つ）
 # - whole_backup：数分ごとに見て、backup が1日1回にする（失敗したら1時間あけてやり直す）
+# - fixed_stops：直したプログラムの版に替わってから、こちらの不具合の停止を解くまでの遅れ（1分。版を書くのは本体の毎回の段）
 # - lasting_stops・system_lasting_stops：止まったまま1時間続いた停止の修正依頼（確かめの部品が無くても動く。依頼は同じ不具合で1つ）
 # - backup_watch・whole_backup_watch：控えが1日以上取れていないことに気づく（取る仕事は設定が無いと動かないので、別の仕事にする）。
 #   1時間に1回で足りる（知らせは1日1回）
@@ -224,6 +231,7 @@ JOBS: tuple[Job, ...] = (
     Job("whole_backup", 300, "system", 4 * 3600, whole_backup, wanted=lambda cfg: cfg.whole_backup, heavy=True),
     Job("backup_watch", 3600, "tenant", 600, backup_watch),
     Job("lasting_stops", 300, "tenant", 600, lasting_stops),
+    Job("fixed_stops", 60, "tenant", 300, fixed_stops),
     Job("system_lasting_stops", 300, "system", 600, system_lasting_stops),
     Job("whole_backup_watch", 3600, "system", 600, whole_backup_watch),
     Job("pc_watch", 60, "tenant", 300, pc_watch),

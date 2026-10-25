@@ -18,7 +18,7 @@ from datetime import timedelta
 from typing import Any, Literal
 from uuid import UUID
 
-from salescall.core import business_rules, fix_requests, number_recheck, settings, target_recheck, watch
+from salescall.core import business_rules, errors, fix_requests, number_recheck, settings, target_recheck, watch
 from salescall.core.access import Tx
 from salescall.core.errors import ErrorReport
 
@@ -76,9 +76,9 @@ def blame(tx: Tx, attempt_id: UUID) -> str | None:
     """お客様のところで鳴らなかった発信が、だれのせいか（決まりはデータベースの1か所 salescall.unrung_blame＝0129。電話の部品の
     言い分では決めず、同じ回線の前後の電話の証拠で決める）：line＝鳴った電話を挟まずに、同じ回線で違う番号も続けて鳴らなかった
     （回線のせい。使わなくした回線でかけている途中だった電話も＝0136）／number＝同じ回線が、そのあとほかの電話を鳴らせた（番号のせい）
-    ／ours＝こちらのせい（こちらのプログラムが固まった・甚大な問題で終えた・通話を進める部品が落ちた＝trouble。番号にも回線にも
-    数えない＝0136）／pending＝まだ分からない（その回線がつぎにかければ決まる）。鳴った・終わっていない・発信まで進んでいない発信は
-    None。"""
+    ／ours＝こちらのせい（こちらのプログラムが固まった・甚大な問題で終えた・通話を進める部品が落ちた＝trouble。いつも、番号にも回線にも
+    行の回数にも数えない＝salescall.is_ours。0139。同じ行で続けば、その行を休ませる＝core/troubles）／pending＝まだ分からない（その回線が
+    つぎにかければ決まる）。鳴った・終わっていない・発信まで進んでいない発信は None。"""
     return tx.one("SELECT salescall.unrung_blame(%s) AS b", (attempt_id,))["b"]
 
 
@@ -225,11 +225,9 @@ def record_keys(tx: Tx, attempt_id: UUID, keys: list[dict[str, str]]) -> None:
         raise AttemptNotFound(str(attempt_id))
 
 
-# 甚大な問題で通話を終えた理由（データベースの守り 0134 と同じ）。frozen＝こちらのプログラム（通話を進める部品）が固まった（回線ごとの
-# 見張りが決める）／ai_malfunction＝AI・プログラムが意図しない状態（英語・関係のない文を話し続ける・声が出ない など）／poor_audio＝
-# 声がお互い・片方にほとんど聞き取れない／cannot_proceed＝そのほか、決まりどおりの会話が進められない（2026-10-24 ユーザー決定）／
-# runner_error＝通話を進める部品が例外で落ちた（回線ごとの見張りが決める。0136）。どれも、こちらのせい（attempts.blame の ours）
-TROUBLES = ("frozen", "ai_malfunction", "poor_audio", "cannot_proceed", "runner_error")
+# こちらのプログラムの不具合で通話を終えた理由（一覧の正本は core/errors.TROUBLES の1か所＝理由ごとの直す担当・止め方も、そこの処置の表）。
+# どれも、こちらのせい（attempts.blame の ours。番号・回線・行の回数のどれにも数えない。同じ行で続けば、その行を休ませる＝core/troubles）
+TROUBLES = tuple(errors.TROUBLES)
 
 
 def end_for_trouble(tx: Tx, attempt_id: UUID, reason: str) -> bool:

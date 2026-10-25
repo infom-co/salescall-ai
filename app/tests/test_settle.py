@@ -85,19 +85,19 @@ class Settle(SettleBase):
         self.assertFalse(self.tx(s, lambda tx: attempts.line_run_pending(tx, s["line"])))           # 回線の続きにも入らない
         with self.assertRaises(ValueError):
             self.tx(s, lambda tx: attempts.end_for_trouble(tx, aid, "who_knows"))
-        # 同じ行で、こちらのせいが続けて2回（resume_in_a_row）を超えたら、ふつうの鳴らなかった電話として証拠で決める（数えないまま
-        # お客様へ鳴らし続けない。salescall.is_ours の1か所。⛔ 見直しの一生の試験 1o：5日で 270 回かけ続けた）
+        # 同じ行で、こちらのせいが続いても、どれもこちらのせい（数えない）。数えないまま鳴らし続けない歯止めは、行の休み（同じ行で続けて
+        # 2回で休む＝salescall.task_resting。0139。⛔ 0136：3回目からはふつうの鳴らなかった電話として番号に数えた。⛔ 見直しの一生の
+        # 試験 1o：数えないと5日で 270 回かけ続けた）
         self.override("gate.same_contact_min_interval", 1)
-        blames = []
-        for _ in range(2):
-            time.sleep(1.1)
-            self.tx(s, lambda tx: next_action.schedule_now(tx, s["task"], cause="試験：その時刻が来た"))
-            again = self.call(s, ["dialing", "ringing"])
-            self.tx(s, lambda tx: attempts.end_for_trouble(tx, again, "frozen"))
-            blames.append(self.tx(s, lambda tx: attempts.blame(tx, again)))
-            self.settle(s, again)
-        self.assertEqual(blames, ["ours", "pending"])
-        self.assertEqual(self.tx(s, lambda tx: attempts.failed_run(tx, s["contact"]))["n"], 1)
+        time.sleep(1.1)
+        self.tx(s, lambda tx: next_action.schedule_now(tx, s["task"], cause="試験：その時刻が来た"))
+        again = self.call(s, ["dialing", "ringing"])
+        self.tx(s, lambda tx: attempts.end_for_trouble(tx, again, "frozen"))
+        self.assertEqual(self.tx(s, lambda tx: attempts.blame(tx, again)), "ours")
+        self.settle(s, again)
+        self.assertEqual(self.tx(s, lambda tx: attempts.failed_run(tx, s["contact"]))["n"], 0)
+        self.tx(s, lambda tx: next_action.schedule_now(tx, s["task"], cause="試験：その時刻が来た"))
+        self.assertEqual(self.reason(s), "task_resting")                     # 2回続いた：その行は休む
 
     def test_no_answer_is_open_and_scheduled_by_the_policy(self):
         s = self.ready()
@@ -1221,6 +1221,35 @@ class CutOffCalls(SettleBase):
         self.resumed(self.settle(s, aid))
         c = self.claim(s)                                               # すぐ（間隔をあけずに）かけられる
         self.assertEqual((type(c).__name__, getattr(c, "purpose", None)), ("Claim", "resume"))
+
+    def trouble_cut(self, s, reason="ai_malfunction"):
+        """お客様と話している途中で、こちらのプログラムの不具合で終えた電話（門を通さずに作る。締める）。"""
+        aid = self.w.insert_claim(s)
+        for st in ("dialing", "ringing", "answered", "in_conversation"):
+            self.w.move(s, aid, st)
+        self.assertTrue(self.tx(s, lambda tx: attempts.end_for_trouble(tx, aid, reason)))
+        self.tx(s, lambda tx: attempts.record_verification(tx, aid, summary=CLEAN))
+        return aid, self.settle(s, aid)
+
+    def test_our_own_troubles_neither_count_nor_restart_the_customers_cuts_and_are_always_called_back(self):
+        """こちらのプログラムの不具合でお客様と話している途中に終えた電話は、いつも「途中で切れた」（行の回数に数えない）で、お詫びとともに
+        かけ直す（salescall.dial_kind・resume_allowed の is_ours。0139）。お客様の電波などで切れた続きの数（cuts_in_a_row）には入れず、
+        数え直しもしない（2026-10-25 ユーザー：こちらの不具合は番号にも回線にも行の回数にも数えない。続けば行を休ませる）。"""
+        s = self.ready()
+        line_cut = ("dialing", "ringing", "answered", "in_conversation", "dropped")
+        kinds = []
+        self.past_attempt(s, line_cut, side="line", report=rep(cut=Cut("callee", False, False)), verify=True)
+        for _ in range(2):
+            aid, got = self.trouble_cut(s)
+            self.assertEqual(got["decision"].target.purpose, "resume")
+            kinds.append(self.tx(s, lambda tx: attempts.kind_of(tx, aid)))
+        for _ in range(2):   # お客様の側で切れた2回目・3回目（こちらの不具合は数えも数え直しもしない＝3回目は数える）
+            aid = self.past_attempt(s, line_cut, side="line", report=rep(cut=Cut("callee", False, False)), verify=True)
+            kinds.append(self.tx(s, lambda tx: attempts.kind_of(tx, aid)))
+        self.assertEqual(kinds, ["cut_off", "cut_off", "cut_off", "reached"])
+        aid, got = self.trouble_cut(s, "poor_audio")                     # 続いたお客様の切れのあとでも、こちらの不具合は数えない
+        self.assertEqual(self.tx(s, lambda tx: attempts.kind_of(tx, aid)), "cut_off")
+        self.resumed(got)
 
     def test_at_most_two_call_backs_in_a_row_then_the_usual_retry(self):
         """お詫びしてすぐかけ直すのは、同じ行で続けて2回まで（2026-10-18 ユーザー 案A）。3回目に切れたら、ふつうの再発信の方針。"""

@@ -36,9 +36,12 @@
    進める部品へ渡し、その「動いています」の知らせ（`beat`）が設定 call.frozen_after（初め3秒。2026-10-24 ユーザー：「20秒でも長すぎる
    でしょ」）途切れたら、こちらのプログラムが固まったとみなし、通話を途中で切るときの2つの一言で終え、結果不明にして理由（frozen）を
    残す。通話を進める部品が見つけた甚大な問題（`end_for_trouble`）・通話を進める部品が落ちた／終えずに戻った（runner_error）も同じ道
-   （2026-10-24 ユーザー決定）。どれも、こちらのせい（番号にも回線にも数えない＝attempts.blame の ours。0136）。見張るのは通話が進行中の
-   あいだだけ・おわびして切り終えるまで「話している」・通話の途中の書き込みは通話ごとの書き手（`_Call`）。見張りはデータベースを
-   通さない（⛔ 0130：前はデータベースの「進んだ時刻」を 90 秒見ていた）。
+   （2026-10-24 ユーザー決定）。どれも、こちらのせい（番号にも回線にも行の回数にも数えない＝attempts.blame の ours。0136・0139）。
+   おわびして切り終えたら、こちらのプログラムの不具合として伝える（core/troubles.after_trouble の1か所：記録・契約者と管理者への
+   知らせ・直す担当への修正依頼。同じ行で2回続けばその行を休ませ、違う3つの行で同じ理由なら契約者の新しい電話を止める＝2026-10-25
+   ユーザー。⛔ 0139 の前は「見守り役の誤り」として CL-2 へだけ伝え、同じ行で3回目からはふつうの鳴らなかった電話として数えた）。
+   見張るのは通話が進行中のあいだだけ・おわびして切り終えるまで「話している」・通話の途中の書き込みは通話ごとの書き手（`_Call`）。
+   見張りはデータベースを通さない（⛔ 0130：前はデータベースの「進んだ時刻」を 90 秒見ていた）。
 6. **番号のせいか回線のせいかがまだ分からない続き**があり、その回線がまもなく（設定 line.decide_horizon。初め30分）かけられる行が
    無ければ、テスト番号で試して決める（`_decide_if_stuck` の1か所→core/ring_test。テスト番号で決められない契約者は前の区切りで
    決める。決まらないまま1日を過ぎたら知らせる）。**回線の異常で止めた回線**は、毎回の頭で、テスト番号で再開してよいかを確かめる
@@ -57,7 +60,7 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
-from salescall.core import attempts, dial_exit, gate, next_action, notify, ring_test, scheduler, settings, watch
+from salescall.core import attempts, dial_exit, gate, next_action, notify, ring_test, scheduler, settings, troubles, watch
 from salescall.core.access import Access, Actor, Tx
 from salescall.core.errors import ErrorReport
 from salescall.supervisor import ACTOR, call_began, call_over, plugins, report, updates
@@ -124,6 +127,7 @@ class _Call:
         self.line_id, self.attempt_id, self.driver, self.frozen_after = line_id, attempt_id, driver, frozen_after
         self.last = time.monotonic()
         self.ended = False                 # 終えると決めた（1回だけ）
+        self.troubled = False              # こちらのプログラムの不具合として終え、伝えた（同じ出来事を見守り役の誤りに重ねない）
         self._over = threading.Event()    # おわびして切り終えた
         self._closed = False               # 片付けた（このあとは終えない）
         self._lock = threading.Lock()
@@ -144,7 +148,7 @@ class _Call:
         if reason not in attempts.TROUBLES or reason in WATCHER_TROUBLES:   # frozen・runner_error を決めるのは、この口だけ
             raise ValueError(f"通話を終える理由は {tuple(t for t in attempts.TROUBLES if t not in WATCHER_TROUBLES)} のどれかです："
                              f"{reason!r}")
-        self._end(reason)
+        self._end(reason, "通話を進める部品が、その電話の甚大な問題を知らせました")
 
     def write(self, work: Callable[[Tx], Any]) -> None:
         """データベースへの書き込み（その依頼者の取引で work(tx)）を、通話ごとの書き手に頼む（待たずに戻る。頼んだ順に書く。
@@ -172,24 +176,35 @@ class _Call:
             finally:
                 self._writes.task_done()
 
-    def _end(self, reason: str) -> bool:
-        """通話を終える（1か所）。試行がまだ進行中なら、理由を残して結果不明にし、おわびして切る（True）。もう終わっていれば何もしない。"""
+    def _end(self, reason: str, what: str) -> bool:
+        """通話を終える（1か所）。試行がまだ進行中なら、理由を残して結果不明にし、おわびして切り（True）、切り終えてから、こちらの
+        プログラムの不具合として伝える（core/troubles.after_trouble の1か所＝記録・契約者と管理者への知らせ・直す担当への修正依頼・
+        同じ行で続けば休ませる・違う行で続けば止める。2026-10-25 ユーザー）。もう終わっていれば何もしない。what＝何が起きたか（決まった
+        言葉と誤りの種類の名前だけ）。"""
         with self._lock:
             if self.ended or self._closed:
                 return False
             self.ended = True
+        recorded = False
         try:
             try:
-                live = self.access.in_client(self.actor, self.tenant_id, self.client_id,
-                                             lambda tx: attempts.end_for_trouble(tx, self.attempt_id, reason))
+                live = recorded = self.access.in_client(self.actor, self.tenant_id, self.client_id,
+                                                        lambda tx: attempts.end_for_trouble(tx, self.attempt_id, reason))
             except Exception as e:  # noqa: BLE001 記録できない：進行中とみなして、おわびして切る（お客様を無言で放置しない）
                 report(self.access, self.tenant_id, "通話を終える記録", e, line_id=self.line_id)
                 live = True
             if live:
                 dial_exit.abandon(self.driver)   # 通話を途中で切るときの2つの一言を流して切る
-            return live
         finally:
             self._over.set()
+        if recorded:   # お客様へのおわびを待たせないよう、切り終えてから伝える（伝えられなくても、通話の処理は止めない）
+            self.troubled = True
+            try:
+                troubles.after_trouble(self.access, self.actor, tenant_id=self.tenant_id, client_id=self.client_id,
+                                       line_id=self.line_id, attempt_id=self.attempt_id, reason=reason, what=what)
+            except Exception as e:  # noqa: BLE001
+                report(self.access, self.tenant_id, "こちらの不具合の記録", e, line_id=self.line_id)
+        return live
 
     def start(self) -> None:
         """「話している」に載せる（かける前から。supervisor.call_live）。"""
@@ -210,9 +225,11 @@ class _Call:
             ending = self.ended
         if ending:
             self._over.wait()   # 見張り・通話を進める部品が終えている途中：切り終えるまで待つ
-        elif self._end("runner_error") and error is None:
-            report(self.access, self.tenant_id, "通話を進める部品", RuntimeError("通話を終えないまま戻りました"), line_id=self.line_id)
-        if error is not None:
+        else:
+            self._end("runner_error", "通話を終えないまま戻りました" if error is None else f"落ちました（{type(error).__name__}）")
+        # こちらのプログラムの不具合として伝えた電話（固まったあとに落ちた も）は、同じ出来事なので見守り役の誤りに重ねない（記録・知らせ・
+        # 修正依頼は1つの入口で）。通話はもう終わっていた（こちらの不具合で終えた電話ではない）ときだけ、見守り役の誤りとして記録する
+        if error is not None and not self.troubled:
             report(self.access, self.tenant_id, "通話を進める部品", error, line_id=self.line_id)
 
     def stop(self) -> None:
@@ -231,10 +248,7 @@ class _Call:
     def _run(self) -> None:
         while not self._done.wait(WATCH_EVERY):
             if time.monotonic() - self.last > self.frozen_after:
-                if self._end("frozen"):
-                    report(self.access, self.tenant_id, "通話を進める部品",
-                           RuntimeError(f"「動いています」の知らせが {self.frozen_after:g} 秒途切れました（おわびして終えました）"),
-                           line_id=self.line_id)
+                self._end("frozen", f"「動いています」の知らせが {self.frozen_after:g} 秒途切れました")
                 return
 
 

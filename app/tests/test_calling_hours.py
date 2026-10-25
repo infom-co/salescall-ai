@@ -60,29 +60,42 @@ class Covers(unittest.TestCase):
 
 
 class Daily(unittest.TestCase):
-    """1日の中の時刻の範囲（設定の値の形 daily_range。テスト番号を鳴らしてよい時間 line.test_ring_hours が使う）。"""
+    """1日の中の時刻の範囲の並び（設定の値の形 daily_ranges。テスト番号を鳴らしてよい時間 line.test_ring_hours が使う。決まりは
+    calling_hours.daily_spans の1か所。2026-10-25 ユーザー：「止める回線を2択だけじゃなく、こちらが決められるようにして。昼間に私は
+    寝ていることがあるし、夜中でも起きていることがある。0～24時の選択は残したうえで。」）。"""
     H = 3600
 
     def test_inside_a_daily_range_including_one_that_crosses_midnight(self):
-        day = (7 * self.H, 22 * self.H)
+        day = [(7 * self.H, 22 * self.H)]
         self.assertTrue(in_daily(at(MON, 7), day))
         self.assertTrue(in_daily(at(MON, 21, 59, 59), day))
         self.assertFalse(in_daily(at(MON, 22), day))                      # 終わりは含まない
         self.assertFalse(in_daily(at(MON, 3), day))
-        night = (18 * self.H, 3 * self.H)                                  # 18時から翌3時まで
+        night = [(18 * self.H, 3 * self.H)]                                # 18時から翌3時まで
         self.assertTrue(in_daily(at(MON, 23), night))
         self.assertTrue(in_daily(at(MON, 2, 59), night))
         self.assertFalse(in_daily(at(MON, 3), night))
         self.assertFalse(in_daily(at(MON, 12), night))
-        self.assertTrue(all(in_daily(at(MON, h), (0, 24 * self.H)) for h in range(24)))   # 1日じゅう
+        self.assertTrue(all(in_daily(at(MON, h), [(0, 24 * self.H)]) for h in range(24)))   # 1日じゅう（0〜24時は残す）
+
+    def test_several_ranges_in_a_day(self):
+        """1日に何か所でも：昼に寝ている契約者の 0〜9時と14〜24時（管理者の例）・日をまたぐ範囲とほかの範囲の組。"""
+        awake = [(0, 9 * self.H), (14 * self.H, 24 * self.H)]
+        self.assertEqual([h for h in range(24) if in_daily(at(MON, h), awake)], [*range(0, 9), *range(14, 24)])
+        self.assertEqual(daily_seconds(at(MON, 0), at(MON + timedelta(days=1), 0), awake), 19 * self.H)
+        self.assertEqual(daily_seconds(at(MON, 8), at(MON, 15), awake), 2 * self.H)   # 8〜9時と14〜15時
+        mixed = [(22 * self.H, 2 * self.H), (12 * self.H, 13 * self.H)]   # 夜10時〜翌2時と、昼の1時間
+        self.assertEqual([h for h in range(24) if in_daily(at(MON, h), mixed)], [0, 1, 12, 22, 23])
+        self.assertEqual(daily_seconds(at(MON, 0), at(MON + timedelta(days=1), 0), mixed), 5 * self.H)
+        self.assertFalse(in_daily(at(MON, 12), []))                         # 並びが空なら、どこも外（データベースが空を断る）
 
     def test_seconds_inside_a_daily_range(self):
-        day = (7 * self.H, 22 * self.H)
+        day = [(7 * self.H, 22 * self.H)]
         self.assertEqual(daily_seconds(at(MON, 21, 30), at(MON + timedelta(days=1), 7, 30), day), 3600)   # 夜は数えない
         self.assertEqual(daily_seconds(at(MON, 23), at(MON + timedelta(days=1), 6), day), 0)
         self.assertEqual(daily_seconds(at(MON, 8), at(MON + timedelta(days=2), 8), day), 2 * 15 * self.H)
-        self.assertEqual(daily_seconds(at(MON, 23), at(MON + timedelta(days=1), 1), (0, 24 * self.H)), 2 * self.H)
-        self.assertEqual(daily_seconds(at(MON, 1), at(MON, 4), (18 * self.H, 3 * self.H)), 2 * self.H)   # 日をまたぐ範囲
+        self.assertEqual(daily_seconds(at(MON, 23), at(MON + timedelta(days=1), 1), [(0, 24 * self.H)]), 2 * self.H)
+        self.assertEqual(daily_seconds(at(MON, 1), at(MON, 4), [(18 * self.H, 3 * self.H)]), 2 * self.H)   # 日をまたぐ範囲
         self.assertEqual(daily_seconds(at(MON, 5), at(MON, 4), day), 0)                                    # 逆の区間
 
 

@@ -15,6 +15,9 @@
 - 確かめそのもの（試しの書き込み・回線の応答・試しのセッション）は、それぞれの持ち主の部品が行い、結果だけをここへ渡す。
 - 管理者か契約者が押した緊急停止（manual）と、確かめでは解けない原因（言ってはいけないこと・品質の基準・費用）は、ここでは解かない
   （品質は新しい版の合格で、費用は期間が替わったとき。それぞれの持ち主の処理が解く）。
+- **こちらのプログラムの不具合**（0139。2026-10-25 ユーザー：「3行同じ問題なら、甚大な問題と判断。」）：通話ごとの記録・知らせ・修正依頼は
+  `record_error`（電話ごと＝処置の表の per_call）。止めるかは `decide_stop`（理由ごとに、違う行の数。直った証拠は直したプログラムの版に
+  替わったこと＝program_fixed）。止めた停止は、直したプログラムの版に替わったら `resume_fixed` が解く（管理者・契約者も解ける）。
 """
 
 from __future__ import annotations
@@ -55,7 +58,10 @@ def record_error(tx: Tx, report: errors.ErrorReport, *, line_id: UUID | None = N
         "           salescall.cur_tenant() AS tenant, salescall.cur_client() AS client",
         (line_id, attempt_id, report.source, kind, report.code, report.message))
     action = errors.ACTIONS[kind]
-    key = f"{kind}:{row['tenant']}:{row['client']}:{row['hour']}"
+    # 知らせの鍵：同じ種類は、同じ範囲で1時間に1回。こちらのプログラムの不具合で終えた電話（per_call）は電話ごと（2026-10-25 ユーザー：
+    # 「契約者(管理者含む)と、開発AIの担当、記録にそれを伝え」）
+    key = (f"{kind}:attempt:{attempt_id}" if action.per_call and attempt_id is not None
+           else f"{kind}:{row['tenant']}:{row['client']}:{row['hour']}")
     refs = {"error_id": row["error_id"], "kind": kind, "attempt_id": attempt_id}
     # 根源的なもの（待っても直らない）は、止めずに直す担当へ修正依頼を出す（2026-10-17 ユーザー：「人はそのプロセスをチェック
     # もしくは承認するだけ」）。管理者には、どの種類も知らせる（確かめ・承認のため）。契約者には、処置の表が「知らせる」とした種類だけ
@@ -68,9 +74,10 @@ def record_error(tx: Tx, report: errors.ErrorReport, *, line_id: UUID | None = N
         what = hashlib.sha256(f"{report.source}\n{report.code}\n{report.message}".encode("utf-8")).hexdigest()[:16]
         new_request = fix_requests.request(tx, fixer, kind, key=f"error:{kind}:{what}", refs=refs,
                                            summary=errors.LABELS[kind] + ("" if action.fixer else "（1時間以上続いている）"))
-    # 管理者へは、修正依頼を新しく出したとき（同じ不具合を契約者の数だけ・1時間ごとに知らせない）と、直す担当の無い種類のとき。
-    # 契約者へは、処置の表が「知らせる」とした種類を、その契約者の範囲で1時間に1回
-    admin = new_request or fixer is None
+    # 管理者へは、修正依頼を新しく出したとき（同じ不具合を契約者の数だけ・1時間ごとに知らせない）と、直す担当の無い種類のとき、
+    # こちらのプログラムの不具合で終えた電話（per_call。電話ごとに）。契約者へは、処置の表が「知らせる」とした種類を、その契約者の範囲で
+    # 1時間に1回（per_call は電話ごと）。修正依頼は、同じ不具合で1つ（電話ごとに重ねない）
+    admin = new_request or fixer is None or action.per_call
     if admin or action.notify:
         notify.emit(tx, "error_notice", key=f"error:{key}",
                     summary=(f"{fixer} に修正依頼：" if fixer else "エラー：") + errors.LABELS[kind],
@@ -203,6 +210,24 @@ def lasting_stops(tx: Tx) -> list[int]:
                              refs={"stop_event_id": s["event_id"], "kind": kind})
         asked.append(s["event_id"])
     return asked
+
+
+FIXED_BY_PROGRAM = ("program_trouble",)   # 直したプログラムの版に替わったら解く停止の原因（1か所。0139）
+
+
+def resume_fixed(tx: Tx) -> list[int]:
+    """こちらのプログラムの不具合で止めた停止（すべての行にかかわる甚大な問題。原因 program_trouble）を、止めたあとで直したプログラムの
+    版に替わっていたら解く（1か所。版が替わった時刻はデータベースの salescall.program_since＝行の休みが戻る時刻と同じ）。この取引が
+    見る範囲のシステムが止めた停止（契約者の取引＝その契約者の停止）。解いた停止の番号を返す。見守り役の決まった間隔の仕事が呼ぶ
+    （supervisor.jobs の fixed_stops）。解いたあとに同じ不具合が続けば、違う行の数をまた数えて止める（数えるのは解いた時より後だけ）。"""
+    done = []
+    for s in tx.all(
+            "SELECT s.event_id FROM salescall.open_stop_events s WHERE s.actor_kind = 'system' AND s.cause::text = ANY(%s)"
+            " AND (s.scope = 'system') = (salescall.cur_tenant() IS NULL) AND salescall.program_since() > s.at ORDER BY s.event_id",
+            (list(FIXED_BY_PROGRAM),)):
+        stops.resume(tx, s["event_id"], reason="直したプログラムの版に替わった", evidence="プログラムの版が替わった")
+        done.append(s["event_id"])
+    return done
 
 
 def checkable(tx: Tx) -> list[dict[str, Any]]:

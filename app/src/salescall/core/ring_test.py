@@ -15,17 +15,21 @@
   `_decide_if_stuck`） (2) 回線の異常で止めた回線を再開してよいかの確かめ（止めた停止の確かめ＝core/watch.record_check。鳴れば成功）。
   テスト番号で決められない契約者（`usable` が False＝テスト番号が無い・続けて「分からない」）は、(1) は前の区切りで決め（0131 の
   no_rows）、(2) は確かめの部品（アプリが応答するか）で行う。
-- **鳴らしてよい時間**（設定 `line.test_ring_hours`。契約者ごと。初め 7:00〜22:00。表の作り 0135）：2026-10-24 ユーザー：「私の電話
-  です。軌道に乗れば、新しい電話をもうひとつ契約予定なのでその後に考えます。この仕事専用なら夜でもOK」。時間の外では鳴らさない
-  （`run` の1か所＝(1)(2) のどちらも）。(2) は、時間の外ではアプリが応答するかだけの弱い確かめで代わりもしない（`checks_stop` は
-  時間に関係なくテスト番号で確かめる停止と答える＝確かめの部品は触らない）。時間の始まりまで待ち、待った分は確かめに数えない
-  （記録しない＝間隔も伸びない）。「止まったまま1時間以上」の修正依頼も、鳴らしてよい時間の長さで数える（`checkable_seconds`。
+- **鳴らしてよい時間**（設定 `line.test_ring_hours`。契約者ごと。1日の中の時刻の範囲の並び＝値の形 daily_ranges。初め 7:00〜22:00
+  の1つ。表の作り 0135・0139）：2026-10-24 ユーザー：「私の電話です。軌道に乗れば、新しい電話をもうひとつ契約予定なのでその後に
+  考えます。この仕事専用なら夜でもOK」。2026-10-25 ユーザー：「止める回線を2択だけじゃなく、こちらが決められるようにして。昼間に私は
+  寝ていることがあるし、夜中でも起きていることがある。0～24時の選択は残したうえで。」＝1日に何か所でも・日をまたいでも・0〜24時も。
+  時刻の決まりは calling_hours.daily_spans の1か所（`in_daily`・`daily_seconds`）。範囲の重なり・空の並びは、データベースの値の形の
+  確かめ（setting_value_ok の daily_ranges）が断る。前の形（範囲1つ）の値は 0139 が並びに移した（読み口は並びの形だけを読む）。
+  時間の外では鳴らさない（`run` の1か所＝(1)(2) のどちらも）。(2) は、時間の外ではアプリが応答するかだけの弱い確かめで代わりもしない
+  （`checks_stop` は時間に関係なくテスト番号で確かめる停止と答える＝確かめの部品は触らない）。時間の始まりまで待ち、待った分は確かめに
+  数えない（記録しない＝間隔も伸びない）。「止まったまま1時間以上」の修正依頼も、鳴らしてよい時間の長さで数える（`checkable_seconds`。
   core/watch.lasting_stops。夜の待ちで修正依頼を出さない）。
-- **鳴らす間（契約者ごと・回線をまたいで1つ。`wait_seconds` の1か所。0136）**：テスト番号はいまユーザー自身の電話なので、続けて
-  鳴らさない。前のテストから設定 `line.test_ring_gap`（初め30分）あけ、続けて「鳴った」以外（鳴らなかった・分からない）だった
-  テストの数だけ倍にして、`line.test_ring_gap_max`（初め4時間）で止める。鳴れば初めの間に戻る。回線をまたいで同時に鳴らさないよう、
-  1つの契約者のテストは1本ずつ（`_LOCKS`。中央の見守り役の中の1か所）。
-  ⏳ 30分・4時間は仮の値（ユーザーに伺う）。
+- **鳴らす間（契約者ごと・回線をまたいで1つ。`wait_seconds` の1か所。0139）**：テスト番号はいまユーザー自身の電話なので、続けて
+  鳴らさない。前のテストから、設定 `line.test_ring_gaps`（長さの並び。初め 15→30→60→120→240分）の長さをあける：続けて「鳴った」
+  以外（鳴らなかった・分からない）だったテストの数だけ並びの次の長さにし、最後の長さで止まる。鳴れば初めの長さに戻る（2026-10-25
+  ユーザー：「15⇒30⇒60⇒120⇒240分　がデフォルト契約者ごとに設定」。⛔ 0136 の「初め30分・倍ずつ・最大4時間」は外した）。回線を
+  またいで同時に鳴らさないよう、1つの契約者のテストは1本ずつ（`_LOCKS`。中央の見守り役の中の1か所）。
 - **結果は3つ**（電話の部品の約束＝link/phone.py の test_ring）：鳴った（回線は元気）／鳴らなかった（回線のせい＝呼び出しの音が
   出なかった）／分からない（テスト番号の電話が話し中・電源が切れている・圏外・呼び出しの音が出たか見分けられない）。分からないは
   どちらの証拠にもしない（記録だけ）。**分からないが設定 `line.test_ring_unknown_limit`（初め3回）続いたら**（契約者ごと・回線をまたいで
@@ -96,24 +100,23 @@ def number(tx: Tx) -> str | None:
     return settings.resolve(tx, "line.test_number", **scope)
 
 
-def hours(tx: Tx) -> tuple[int, int]:
-    """取引の契約者の、テスト番号を鳴らしてよい時間（設定 line.test_ring_hours。0時からの秒の組。終わりが始まりより前なら日をまたぐ）。"""
-    a, b = settings.resolve(tx, "line.test_ring_hours", **_scope(tx))
-    return calling_hours.clock_seconds(a), calling_hours.clock_seconds(b)
+def hours(tx: Tx) -> tuple[tuple[int, int], ...]:
+    """取引の契約者の、テスト番号を鳴らしてよい時間（設定 line.test_ring_hours。0時からの秒の組の並び。終わりが始まりより前なら日を
+    またぐ。決まりは calling_hours.daily_spans の1か所）。"""
+    return tuple((calling_hours.clock_seconds(a), calling_hours.clock_seconds(b))
+                 for a, b in settings.resolve(tx, "line.test_ring_hours", **_scope(tx)))
 
 
 def wait_seconds(tx: Tx) -> float:
     """取引の契約者が、つぎにテスト番号を鳴らしてよいまでの秒（0＝いま鳴らしてよい。1か所。どの回線・どの目的のテストも数える）：
-    前のテストから、初めの間（line.test_ring_gap）に、続けて「鳴った」以外だったテストの数だけ倍をかけた間（line.test_ring_gap_max まで）。"""
-    scope = _scope(tx)
-    base = float(settings.resolve(tx, "line.test_ring_gap", **scope))
-    top = float(settings.resolve(tx, "line.test_ring_gap_max", **scope))
+    前のテストから、長さの並び（line.test_ring_gaps）の、続けて「鳴った」以外だったテストの数の番目の長さ（並びの最後で止まる）。"""
+    gaps = [float(g) for g in settings.resolve(tx, "line.test_ring_gaps", **_scope(tx))]
     rows = tx.all("SELECT tested_at, rang, now() AS now FROM salescall.line_ring_tests WHERE tenant_id = salescall.cur_tenant()"
-                  " ORDER BY tested_at DESC, test_id DESC LIMIT 16")
+                  " ORDER BY tested_at DESC, test_id DESC LIMIT %s", (len(gaps),))
     if not rows:
         return 0.0
     run = next((i for i, r in enumerate(rows) if r["rang"]), len(rows))   # 続けて「鳴った」以外だった数（新しいほうから）
-    gap = min(base * 2 ** run, top)
+    gap = gaps[min(run, len(gaps) - 1)]
     return max(0.0, (rows[0]["tested_at"] + timedelta(seconds=gap) - rows[0]["now"]).total_seconds())
 
 

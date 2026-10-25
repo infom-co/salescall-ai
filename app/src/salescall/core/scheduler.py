@@ -2,7 +2,7 @@
 
 - **判定はしない**：かけてよいかは門（`gate.claim`）だけが決める。ここは「予定の時刻を過ぎた行」を、門に渡す順に並べるだけ。
 - 門が必ず断る行は出さない（門と同じ1か所の決まりを読む）：次の予定が「かける」でない・時刻の前・前の発信の締めが済んでいない
-  （salescall.task_awaiting_decision）・「かけない」で止まる（salescall.task_excluded_now。「かけない」ならお詫び・かけ直し・約束した
+  （salescall.task_awaiting_decision）・こちらのプログラムの不具合で休んでいる（salescall.task_resting。0139）・「かけない」で止まる（salescall.task_excluded_now。「かけない」ならお詫び・かけ直し・約束した
   かけ直しは例外＝かける。「強制かけない」は例外なし。0078・0085）・その行か、かける番号に、いま進行中の発信がある（データベースの
   「進行中は1本」の守りと同じ。期限の切れた予約は門が取り消すので数えない。番号はほかの依頼者・契約者の発信も見る＝salescall.number_live。
   ⛔ 見直し15：前は門が「進行中」で断るたびに、行の予定を5分先へ書き直していた）・止まっている（全体・契約者・依頼者・業務の
@@ -92,6 +92,7 @@ def _candidates(tx: Tx, page: int, offset: int, skip_businesses: set[UUID] | fro
         " WHERE n.kind = 'call' AND n.call_at <= now() + make_interval(secs => %s)"
         "   AND (%s::text IS NULL OR k.phone_e164 <> %s)"
         "   AND NOT salescall.task_awaiting_decision(t.task_id) AND NOT salescall.task_excluded_now(t.task_id)"
+        "   AND NOT salescall.task_resting(t.task_id)"
         "   AND NOT EXISTS (SELECT 1 FROM salescall.attempts a WHERE a.task_id = t.task_id"
         "                   AND salescall.is_live(a.state, a.claim_expires_at))"
         "   AND NOT salescall.number_live(k.phone_e164)"

@@ -31,7 +31,7 @@ from salescall.core.access import Tx
 
 Scope = Literal["system", "tenant", "client", "business", "line"]   # line＝その回線だけ（回線の異常。9-1）
 Cause = Literal["manual", "storage_failure", "line_failure", "ai_connection", "project_denied",
-                "forbidden_speech", "quality_gate", "budget", "deficit", "judge_unknown"]
+                "forbidden_speech", "quality_gate", "budget", "deficit", "judge_unknown", "program_trouble"]
 
 SCOPE_NAMES: dict[str, str] = {"system": "全体", "tenant": "契約者", "client": "依頼者", "business": "業務", "line": "回線"}
 
@@ -77,6 +77,14 @@ CAUSES: dict[str, CauseInfo] = {
                               "検証モードだけ）",
                               "直した新しい版が模擬通話に合格したら解く",
                               "外れた指標。管理者か契約者が解くと、その版をもう一度測り直す（段の件数を最初から数える）"),
+    "program_trouble": CauseInfo("こちらのプログラムの不具合",
+                                 "違う行で、同じ理由のこちらのプログラムの不具合（固まった・AI の異常・声が聞き取れない・会話を進められない・"
+                                 "通話を進める部品が落ちた）で通話を終えた行が、決めた数（設定 stop.trouble.stop_after_rows。初め3行）に"
+                                 "なった＝すべての行にかかわる甚大な問題（2026-10-25 ユーザー：「3行同じ問題なら、甚大な問題と判断。」）。"
+                                 "止まるのは新しい電話だけ（話している電話は切らない）",
+                                 "直す担当（修正依頼）が直したプログラムの版に替わったら解く（core/watch.resume_fixed）",
+                                 "修正依頼が直ったか。管理者か契約者が解くと、同じ理由の行の数は解いた時から数え直す（直っていなければ、"
+                                 "また止まる）"),
     "judge_unknown": CauseInfo("判定できない通話", "「判定できない」通話があった（会話の報告の書き漏れなど、こちらの誤り。検証モードの"
                                "業務だけ1件で止める。本番は止めない＝2026-10-22 ユーザー）",
                                "原因を直して、その場面を入れた模擬通話に合格したら解く（同じ版でもよい）",

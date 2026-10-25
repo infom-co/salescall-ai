@@ -12,7 +12,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from typing import Any
@@ -75,23 +75,31 @@ def covers(hours: dict, is_holiday: Callable[[date], bool], start: datetime, end
     return True
 
 
-def in_daily(local: datetime, daily: tuple[int, int]) -> bool:
-    """その時刻（日本時間・時差なし）が、1日の中の時刻の範囲（設定の値の形 daily_range を秒にしたもの。終わりが始まりより前なら日を
-    またぐ＝[18時, 3時) は 18時から翌3時まで）の内か（1か所）。"""
-    a, b = daily
+def daily_spans(ranges: Sequence[tuple[int, int]]) -> list[tuple[int, int]]:
+    """1日の中の時刻の範囲の並び（設定の値の形 daily_ranges を秒にしたもの。それぞれ終わりが始まりより前なら日をまたぐ＝[18時, 3時) は
+    18時から翌3時まで。[0時, 24時) は1日じゅう）を、1日の中の区間（0時からの秒の [始まり, 終わり)。重なりは1つにまとめる）にする
+    （決まりの1か所。`in_daily`・`daily_seconds` が使う）。2026-10-25 ユーザー：「止める回線を2択だけじゃなく、こちらが決められるように
+    して。昼間に私は寝ていることがあるし、夜中でも起きていることがある。0～24時の選択は残したうえで。」"""
+    spans: list[tuple[int, int]] = []
+    for a, b in ranges:
+        spans += [(a, b)] if a < b else [(a, _DAY), (0, b)]
+    return _union([s for s in spans if s[0] < s[1]])
+
+
+def in_daily(local: datetime, ranges: Sequence[tuple[int, int]]) -> bool:
+    """その時刻（日本時間・時差なし）が、1日の中の時刻の範囲の並び（`daily_spans` と同じ決まり）のどれかの内か（1か所）。"""
     t = _of_day(local)
-    return a <= t < b if a < b else (t >= a or t < b)
+    return any(a <= t < b for a, b in daily_spans(ranges))
 
 
-def daily_seconds(start: datetime, end: datetime, daily: tuple[int, int]) -> float:
-    """start から end まで（日本時間・時差なし）のうち、1日の中の時刻の範囲（`in_daily` と同じ決まり）に入る秒の合計（1か所）。"""
+def daily_seconds(start: datetime, end: datetime, ranges: Sequence[tuple[int, int]]) -> float:
+    """start から end まで（日本時間・時差なし）のうち、1日の中の時刻の範囲の並び（`daily_spans` と同じ決まり）に入る秒の合計（1か所）。"""
     if end <= start:
         return 0.0
-    a, b = daily
+    spans = daily_spans(ranges)
     total = 0.0
     for offset in range((end.date() - start.date()).days + 1):
         day = datetime.combine(start.date() + timedelta(days=offset), time())
-        spans = [(a, b)] if a < b else [(0, b), (a, _DAY)]
         for s0, s1 in spans:
             lo, hi = max(start, day + timedelta(seconds=s0)), min(end, day + timedelta(seconds=s1))
             total += max(0.0, (hi - lo).total_seconds())

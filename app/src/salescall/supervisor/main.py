@@ -187,6 +187,8 @@ class Supervisor:
         self.pool = ThreadPoolExecutor(max_workers=JOB_THREADS, thread_name_prefix="salescall-job")
         self.heavy_pool = ThreadPoolExecutor(max_workers=HEAVY_THREADS, thread_name_prefix="salescall-backup")
         self.context = jobs.Context(self.access, self.cfg, self.holder, self.links)
+        # 動いているプログラムの版（読み込んだときに1回。こちらの不具合で休んだ行・止めた契約者を、直した版に替わったら戻すため）
+        self.program = updates.program_version(self.cfg.call_runner, self.cfg.verifier, self.cfg.prober)
 
     # ── 起動 ──
     def start(self) -> None:
@@ -214,6 +216,11 @@ class Supervisor:
             return
         if self.version_gap != updates.SAME and before != self.version_gap:
             report(self.access, None, "版のずれ", RuntimeError(updates.describe(self.version_gap)))
+        if self.version_gap == updates.SAME:   # 版が合っている：動いているプログラムの版を書く（替わったときだけ書かれる）
+            try:
+                self.access.in_system(ACTOR, lambda tx: updates.note(tx, self.program))
+            except Exception as e:  # noqa: BLE001
+                report(self.access, None, "プログラムの版の記録", e)
         try:   # 前の PC の鍵の役が残っていないか（残っていれば、CL-2 へ修正依頼。残り始めたときだけ）
             left, self.leftover_roles = self.leftover_roles, self.access.in_system(ACTOR, updates.leftover_pc_roles)
             if self.leftover_roles and not left:

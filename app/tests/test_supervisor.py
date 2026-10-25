@@ -13,8 +13,8 @@ from unittest import mock
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from salescall.core import (attempts, backup, business_rules, calling_hours, conversation_io, errors, fix_requests, gate, leases,
-                            next_action, quality_stage, registry, ring_test, scheduler, settings, stops, watch)
+from salescall.core import (attempts, backup, business_rules, calling_hours, conversation_io, errors, fix_requests, gate, help_texts,
+                            leases, migrate, next_action, quality_stage, registry, ring_test, scheduler, settings, stops, watch)
 from salescall.core.phone import normalize
 from salescall.core.access import Rejected
 from salescall import supervisor
@@ -242,7 +242,12 @@ class Rounds(SupervisorBase):
                                                (got.called,)))
             self.assertEqual((row["st"], row["trouble"]), ("technical_error", "frozen"))   # 固まった通話は結果不明・理由つき
             self.assertEqual(stuck.apologized, 1)                             # おわびの2つの一言で、1回だけ終えた
-            self.assertIn("途切れました", str(reported.call_args_list[0].args[3]))
+            self.assertEqual(reported.call_args_list, [])                     # 見守り役の誤りに重ねない（落ちたのも同じ出来事）
+            told = self.tx(t, lambda tx: [(r["kind"], r["message"]) for r in tx.all(
+                "SELECT kind, message FROM salescall.error_events WHERE attempt_id = %s", (got.called,))])
+            self.assertEqual(len(told), 1)                                    # こちらの不具合として1回だけ伝えた（0139）
+            self.assertEqual(told[0][0], "call_frozen")
+            self.assertIn("途切れました", told[0][1])
 
     def test_the_watch_covers_only_the_call_in_progress_lives_until_the_apology_ends_and_never_waits_on_writes(self):
         """通話ごとの口（line._Call の1か所。0136。⛔ 見直し19a）：(1) お客様が切って試行が終わったあとの片付けで知らせが途切れても、
@@ -451,6 +456,9 @@ class Rounds(SupervisorBase):
         s = self.ready()
         need = self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: settings.resolve(
             tx, "stop.line.stop_after_failures", tenant_id=s["tenant"], client_id=None, business_id=None))
+        self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: settings.set_value(   # こちらの不具合の止め方は tests/test_troubles で試す
+            tx, "stop.trouble.stop_after_rows", 100, scope="tenant", tenant_id=s["tenant"], status="decided", rationale="試験",
+            review_when="試験"))
 
         def fresh():   # 別のお客様（同じ番号の空けに当たらない）
             task = self.w.task(s["tenant"], s["client"], s["run"], self.w.contact(
@@ -537,12 +545,17 @@ class Rounds(SupervisorBase):
         self.tx(s, lambda tx: attempts.release(tx, [busy.attempt_id]))
         self.assertEqual((got.called, got.pause), (None, "client_concurrency"))
 
-    def test_a_failure_in_the_call_ends_only_that_call_and_asks_cl2(self):
+    def test_a_failure_in_the_call_ends_only_that_call_and_asks_its_fixer_once(self):
+        """通話を進める部品が落ちた電話は、その通話だけをおわびして終え、こちらのプログラムの不具合（runner_error）として1つの入口で
+        伝える（直す担当は処置の表の1か所＝会話の部品なので CL-1。見守り役の誤りとして CL-2 へ重ねない。0139）。"""
         s = self.ready()
         driver = FakeDriver()
         got = line.one_round(self.w.a, SYSTEM, s["tenant"], s["line"], HOLDER, driver, Runner(RuntimeError("試験")))
         self.assertEqual(self.state(s, got.called), "technical_error")
-        self.assertTrue(self.asked_supervisor(s))
+        self.assertEqual(self.faults(s), ["call_runner_error"])
+        self.assertTrue([r for r in self.w.a.in_system(SYSTEM, lambda tx: fix_requests.open_requests(tx, "CL-1"))
+                         if r["kind"] == "call_runner_error"])
+        self.assertEqual(self.asked_supervisor(s), [])
         self.assertEqual(getattr(driver, "apologized", 0), 1)                 # 通話が残っていれば、おわびして切る
 
     def test_promised_calls_go_first_across_clients_and_keep_their_share_of_the_line(self):
@@ -973,32 +986,43 @@ class Blame(SupervisorBase):
             " VALUES (%s, %s, 'no_rows', %s, now() - make_interval(mins => %s))", (s["tenant"], line_id or s["line"], rang, ago))
             for ago, rang in rows])
 
-    def test_the_test_number_keeps_its_gap_across_lines_and_doubles_while_it_does_not_ring(self):
-        """テスト番号を鳴らす間（契約者ごと・回線をまたいで1つ。core/ring_test.wait_seconds の1か所。0136）：前のテストから30分。
-        続けて「鳴った」以外なら、その数だけ倍にし、4時間で止める。鳴れば初めに戻る。間の前は鳴らさない（記録もしない）。
-        ⛔ 見直し19a：前は止めた回線の確かめのたびに（1分ごとに）、契約者自身の電話を鳴らしていた。"""
+    def test_the_test_number_keeps_its_gap_across_lines_and_steps_through_the_contractors_list(self):
+        """テスト番号を鳴らす間（契約者ごと・回線をまたいで1つ。core/ring_test.wait_seconds の1か所。0139）：長さの並び
+        line.test_ring_gaps（初め 15→30→60→120→240分＝2026-10-25 ユーザー：「15⇒30⇒60⇒120⇒240分　がデフォルト契約者ごとに設定」）。
+        鳴らない・分からないが続くたびに並びの次の長さ、最後の長さで止まる。鳴れば初めの長さに戻る。間の前は鳴らさない（記録もしない）。
+        ⛔ 見直し19a：前は止めた回線の確かめのたびに（1分ごとに）、契約者自身の電話を鳴らしていた。⛔ 0136：初め30分・倍ずつ・4時間。"""
         s = self.ready()
         phone = self.numbered(s)
-        for key, value in (("line.test_ring_gap", 1800), ("line.test_ring_gap_max", 14400)):
-            self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx, key=key, value=value: settings.set_value(
-                tx, key, value, scope="tenant", tenant_id=s["tenant"], status="decided", rationale="試験", review_when="試験"))
+        system = self.w.a.in_tenant(SYSTEM, self.ready()["tenant"], lambda tx: settings.resolve(
+            tx, "line.test_ring_gaps", tenant_id=None, client_id=None, business_id=None))
+        self.assertEqual(system, [900, 1800, 3600, 7200, 14400])                # 初めの値（システム）
+        self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: settings.set_value(   # 契約者ごとに変えられる
+            tx, "line.test_ring_gaps", system, scope="tenant", tenant_id=s["tenant"], status="decided", rationale="試験",
+            review_when="試験"))
         wait = lambda: self.w.a.in_tenant(SYSTEM, s["tenant"], ring_test.wait_seconds)   # noqa: E731
         self.assertEqual(wait(), 0)
         other = self.w.line(s["tenant"])
-        self.ring_logged(s, [(10, True)], other)                               # ほかの回線で10分前に鳴った
-        self.assertAlmostEqual(wait(), 20 * 60, delta=30)
+        self.ring_logged(s, [(10, True)], other)                               # ほかの回線で10分前に鳴った：15分
+        self.assertAlmostEqual(wait(), 5 * 60, delta=30)
         d = FakeDriver(ring=True)
         self.assertEqual(ring_test.run(self.w.a, SYSTEM, s["tenant"], s["line"], d, "no_rows"), ring_test.Result.WAIT)
         self.assertEqual((d.rings, self.ring_tests_of(s)), ([], []))          # 鳴らさず、記録もしない
-        self.ring_logged(s, [(9, None)])                                       # 鳴った以外が1回：1時間
-        self.assertAlmostEqual(wait(), 51 * 60, delta=30)
-        self.ring_logged(s, [(8, False), (7, None)])                           # 3回：4時間（1800×8＝4時間で止まる）
-        self.assertAlmostEqual(wait(), 4 * 3600 - 7 * 60, delta=30)
-        self.ring_logged(s, [(6, False)])                                      # 4回：4時間のまま
-        self.assertAlmostEqual(wait(), 4 * 3600 - 6 * 60, delta=30)
-        self.ring_logged(s, [(5, True)], other)                                # 鳴った：初めの30分に戻る
-        self.assertAlmostEqual(wait(), 25 * 60, delta=30)
+        self.ring_logged(s, [(9, None)])                                       # 鳴った以外が1回：30分
+        self.assertAlmostEqual(wait(), 21 * 60, delta=30)
+        self.ring_logged(s, [(8, False)])                                      # 2回：60分
+        self.assertAlmostEqual(wait(), 52 * 60, delta=30)
+        self.ring_logged(s, [(7, None)])                                       # 3回：120分
+        self.assertAlmostEqual(wait(), 113 * 60, delta=30)
+        self.ring_logged(s, [(6, False)])                                      # 4回：240分（並びの最後）
+        self.assertAlmostEqual(wait(), 234 * 60, delta=30)
+        self.ring_logged(s, [(5, None)])                                       # 5回：最後の長さのまま
+        self.assertAlmostEqual(wait(), 235 * 60, delta=30)
+        self.ring_logged(s, [(4, True)], other)                                # 鳴った：初めの15分に戻る
+        self.assertAlmostEqual(wait(), 11 * 60, delta=30)
         self.assertEqual(phone, self.w.a.in_tenant(SYSTEM, s["tenant"], ring_test.number))
+        for gone in ("line.test_ring_gap", "line.test_ring_gap_max"):           # 前の「初め・倍ずつ・最大」は残さない
+            self.assertIsNone(self.w.a.in_system(SYSTEM, lambda tx, gone=gone: tx.one(
+                "SELECT key FROM salescall.setting_definitions WHERE key = %s", (gone,))))
 
     def test_a_test_number_that_keeps_answering_unknown_falls_back_and_tells_once(self):
         """テスト番号の結果は3つ（鳴った・鳴らなかった＝回線のせい・分からない＝話し中・電源が切れている・圏外・見分けられない）。
@@ -1185,10 +1209,10 @@ class Blame(SupervisorBase):
         self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: settings.set_value(
             tx, "line.test_number", phone, scope="tenant", tenant_id=s["tenant"], status="decided", rationale="試験",
             review_when="試験"))
-        self.set_ring_hours(s, "00:00", "24:00")
-        for key in ("line.test_ring_gap", "line.test_ring_gap_max"):   # 鳴らす間は1秒（間そのものの試験は、それぞれで決める）
-            self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx, key=key: settings.set_value(
-                tx, key, 1, scope="tenant", tenant_id=s["tenant"], status="decided", rationale="試験", review_when="試験"))
+        self.set_ring_hours(s, ("00:00", "24:00"))
+        self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: settings.set_value(   # 鳴らす間は1秒（間そのものの試験は、それぞれで決める）
+            tx, "line.test_ring_gaps", [1], scope="tenant", tenant_id=s["tenant"], status="decided", rationale="試験",
+            review_when="試験"))
         return phone
 
     @staticmethod
@@ -1196,10 +1220,11 @@ class Blame(SupervisorBase):
         """テスト番号の鳴らす間（試験では1秒）が過ぎるまで待つ。"""
         time.sleep(1.1)
 
-    def set_ring_hours(self, s, start, end):
+    def set_ring_hours(self, s, *ranges):
+        """鳴らしてよい時間を、範囲（"HH:MM" の組）の並びにする（いくつでも）。"""
         self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: settings.set_value(
-            tx, "line.test_ring_hours", [start, end], scope="tenant", tenant_id=s["tenant"], status="decided", rationale="試験",
-            review_when="試験"))
+            tx, "line.test_ring_hours", [list(r) for r in ranges], scope="tenant", tenant_id=s["tenant"], status="decided",
+            rationale="試験", review_when="試験"))
 
     def ring_hours(self, s, *, inside):
         """鳴らしてよい時間を、いまを含む2時間（inside）か、いまを含まない1時間（2時間後から）にする（日本時間・時刻しだいで変わらない
@@ -1207,7 +1232,7 @@ class Blame(SupervisorBase):
         now = calling_hours.local(datetime.now(timezone.utc))
         start = now - timedelta(hours=1) if inside else now + timedelta(hours=2)
         end = start + timedelta(hours=2 if inside else 1)
-        self.set_ring_hours(s, start.strftime("%H:%M"), end.strftime("%H:%M"))
+        self.set_ring_hours(s, (start.strftime("%H:%M"), end.strftime("%H:%M")))
 
     def bad_number(self, s):
         return self.tx(s, lambda tx: tx.one("SELECT phone_e164 FROM salescall.contacts WHERE contact_id = %s",
@@ -1338,16 +1363,76 @@ class Blame(SupervisorBase):
         return support.owner_access().in_system(SYSTEM, lambda tx: tx.one(
             "SELECT count(*) AS n FROM salescall.stop_checks WHERE stop_event_id = %s", (stop["event_id"],)))["n"]
 
-    def test_the_test_ring_hours_are_the_contractors_and_start_at_7_to_22(self):
-        """鳴らしてよい時間の初めの値は 7:00〜22:00（いまはユーザー自身の電話＝深夜・早朝の歯止めと同じ）。契約者ごとに変えられ、
-        この仕事専用の電話に替えたら 0:00〜24:00（いつでも鳴らしてよい）。"""
+    def test_the_test_ring_hours_are_the_contractors_any_number_of_ranges_and_start_at_7_to_22(self):
+        """鳴らしてよい時間の初めの値は 7:00〜22:00 の1つ（いまはユーザー自身の電話＝深夜・早朝の歯止めと同じ）。契約者ごとに、1日に何か所
+        でも決められる（日をまたいでも・0:00〜24:00 も。2026-10-25 ユーザー：「止める回線を2択だけじゃなく、こちらが決められるようにして。
+        昼間に私は寝ていることがあるし、夜中でも起きていることがある。0～24時の選択は残したうえで。」）。重なり・空の並びは、データベースの
+        値の形の確かめ（setting_value_ok の daily_ranges）の1か所が断る。i マークの説明に原文と使い方の例がある。"""
         s = self.ready()
-        self.assertEqual(self.w.a.in_tenant(SYSTEM, s["tenant"], ring_test.hours), (7 * 3600, 22 * 3600))
-        self.set_ring_hours(s, "00:00", "24:00")
-        self.assertEqual(self.w.a.in_tenant(SYSTEM, s["tenant"], ring_test.hours), (0, 24 * 3600))
-        self.assertTrue(self.w.a.in_tenant(SYSTEM, s["tenant"], ring_test.allowed))   # いつでも（夜も）
+        hours = lambda t: self.w.a.in_tenant(SYSTEM, t, ring_test.hours)   # noqa: E731
+        allowed = lambda: self.w.a.in_tenant(SYSTEM, s["tenant"], ring_test.allowed)   # noqa: E731
+        self.assertEqual(hours(s["tenant"]), ((7 * 3600, 22 * 3600),))
+        self.set_ring_hours(s, ("00:00", "24:00"))
+        self.assertEqual(hours(s["tenant"]), ((0, 24 * 3600),))
+        self.assertTrue(allowed())                                            # いつでも（夜も）
+        self.set_ring_hours(s, ("00:00", "09:00"), ("14:00", "24:00"))        # 管理者の例：昼に寝ている
+        self.assertEqual(hours(s["tenant"]), ((0, 9 * 3600), (14 * 3600, 24 * 3600)))
+        now = calling_hours.local(datetime.now(timezone.utc))
+        hhmm = lambda h: (now + timedelta(hours=h)).strftime("%H:%M")   # noqa: E731（いまからの時刻。時刻しだいで変わらない形）
+        self.set_ring_hours(s, (hhmm(3), hhmm(4)), (hhmm(-1), hhmm(1)))       # 2つ目の範囲がいまを含む
+        self.assertTrue(allowed())
+        self.set_ring_hours(s, (hhmm(2), hhmm(3)), (hhmm(5), hhmm(6)))        # どちらもいまを含まない
+        self.assertFalse(allowed())
+        for bad in ([], [("09:00", "12:00"), ("11:00", "13:00")], [("22:00", "02:00"), ("01:00", "03:00")],
+                    [("00:00", "24:00"), ("05:00", "06:00")], [("09:00", "09:00")], [("09:00", "25:00")]):
+            with self.subTest(bad=bad), self.assertRaises(Rejected):
+                self.set_ring_hours(s, *bad)
+        self.set_ring_hours(s, ("22:00", "02:00"), ("02:00", "05:00"))        # 端が触れるだけは重なりではない
         other = self.ready()                                                  # ほかの契約者は初めの値のまま
-        self.assertEqual(self.w.a.in_tenant(SYSTEM, other["tenant"], ring_test.hours), (7 * 3600, 22 * 3600))
+        self.assertEqual(hours(other["tenant"]), ((7 * 3600, 22 * 3600),))
+        meaning = support.owner_access().in_system(SYSTEM, lambda tx: help_texts.explain(tx, "line.test_ring_hours"))
+        for words in ("0:00〜9:00", "14:00〜24:00", "昼間に私は寝ていることがあるし", "0:00〜24:00"):
+            self.assertIn(words, meaning)
+
+    def test_values_in_the_old_single_range_form_are_moved_into_the_list(self):
+        """前の形（範囲1つ ["07:00","22:00"]）の値が入ったデータベースでも読める：0139 が、どの記録も並びの形に移す（読み口は並びの形
+        だけを読む＝前の形を受ける2つ目の読み方を作らない）。前の「初めの間・いちばん長い間」を変えていた契約者は、同じ長さの並びに移す。
+        移し替えの文は 0139 のファイルからそのまま読み、元に戻す取引の中で流す。"""
+        s = self.ready()
+        text = (Path(migrate.MIGRATIONS_DIR) / "0139_ring_hours_gaps_and_our_troubles.sql").read_text()
+        def statement(head):
+            i = text.index(head)
+            return text[i:text.index(";\n", i) + 1]
+        move_hours = statement("UPDATE salescall.setting_values SET value = jsonb_build_array(value)")
+        move_gaps = statement("INSERT INTO salescall.setting_values (key, scope, tenant_id, value, status, rationale, review_when, set_by)\nSELECT 'line.test_ring_gaps'")
+        class Undo(Exception):   # 移し替えを試した取引を、元に戻す（ほかの試験に残さない）
+            pass
+
+        def work(tx):
+            tx.execute("ALTER TABLE salescall.setting_values DISABLE TRIGGER setting_values_before_insert")
+            tx.execute("INSERT INTO salescall.setting_values (key, scope, tenant_id, value, status, rationale, review_when, set_by)"
+                       " VALUES ('line.test_ring_hours', 'tenant', %s, '[\"21:00\", \"03:00\"]', 'decided', '前の形', '試験', '試験')",
+                       (s["tenant"],))
+            tx.execute("INSERT INTO salescall.setting_definitions (key, merge_kind, value_type, meaning, design_ref, finest_scope)"
+                       " VALUES ('line.test_ring_gap', 'override', 'seconds', '前の形', '試験', 'tenant'),"
+                       "        ('line.test_ring_gap_max', 'override', 'seconds', '前の形', '試験', 'tenant')")
+            tx.execute("INSERT INTO salescall.setting_values (key, scope, tenant_id, value, status, rationale, review_when, set_by)"
+                       " VALUES ('line.test_ring_gap', 'tenant', %s, '600', 'decided', '前の形', '試験', '試験'),"
+                       "        ('line.test_ring_gap_max', 'tenant', %s, '3000', 'decided', '前の形', '試験', '試験')",
+                       (s["tenant"], s["tenant"]))
+            tx.execute("ALTER TABLE salescall.setting_values DISABLE TRIGGER setting_values_frozen")
+            tx.execute(move_hours)
+            tx.execute(move_gaps)
+            raise Undo([(r["key"], r["value"], r["ok"]) for r in tx.all(
+                "SELECT key, value, salescall.setting_value_ok(d.value_type, v.value) AS ok"
+                " FROM salescall.setting_values v JOIN salescall.setting_definitions d USING (key)"
+                " WHERE v.tenant_id = %s AND key IN ('line.test_ring_hours', 'line.test_ring_gaps') ORDER BY value_id",
+                (s["tenant"],))])
+        with self.assertRaises(Undo) as got:
+            support.owner_access().in_system(SYSTEM, work)
+        self.assertEqual(got.exception.args[0], [("line.test_ring_hours", [["21:00", "03:00"]], True),
+                                                 ("line.test_ring_gaps", [600, 1200, 2400, 3000], True)])
+        self.assertEqual(self.w.a.in_tenant(SYSTEM, s["tenant"], ring_test.hours), ((7 * 3600, 22 * 3600),))   # 元に戻った
 
     def test_the_test_number_is_not_rung_outside_its_hours(self):
         """かける行が残っていない回線の確かめ：鳴らしてよい時間の外では鳴らさず、記録もせず、前の区切りで決めることもしない（時間が
