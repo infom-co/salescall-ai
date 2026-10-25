@@ -228,7 +228,7 @@ async def build(args, out, rows: list[dict]) -> dict:
     (worst, best), hi = min(plans, key=lambda p: p[0][0])
     h = heads[hi]
     notes["名前の部分の候補"] = [{"材料": x["wav"], "切る所": {k: v for k, v in x["mv"].items() if k != "cut"}, "自然な変わり方": x["natural"],
-                             "一番合わない形のずれ": round(p[0][0], 2)} for (p, i), x in zip(plans, heads)]
+                             "一番合わない形のずれ": round(p[0], 2)} for (p, _), x in zip(plans, heads)]
     notes["続く言葉の候補"] = {f: [{"材料": t["wav"], "切る所": {k: v for k, v in t["mv"].items() if k != "cut"}, "自然な変わり方": t["natural"],
                                 "聞こえた読み": t["row"]["row"].get("heard_as")} for t in ts] for f, ts in tails.items()}
     notes["選んだ名前の部分"] = h["wav"]
