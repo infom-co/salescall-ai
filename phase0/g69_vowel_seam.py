@@ -48,6 +48,7 @@ from g65_seams import char_index, pause_after
 from g66_role_seam import FEAT_S, delta, onset_s, pick_role, seam_features, take_with_times
 from phrases import PROMISE_AGAIN, TARGET_CALL, TARGET_CONFIRM
 from voice_features import features, loudness_db, pitch_at, semitones
+from name_clips import MAX_ST
 
 ROLE = "営業部部長の"
 NAME, OTHER, ROLE_NAME = "岡田", "中島", "伊藤"
@@ -60,6 +61,7 @@ GAP_WINDOW_S = 0.8             # 続く言葉の、助詞のあとの間を探�
 PARTICLE_GAP_S = 0.14
 RATE_WEIGHT = 10.0             # 話す長さが同じ形の材料の中央から 10% 離れると、半音1つと同じ重さ（「少し早口」）
 EAR_TRIES = 4                  # 組んだ音が耳の確かめに通らなければ、次に合う組を試す数
+WHOLE_OVER = 100.0             # 録音全体の声の高さの差が MAX_ST を超える組に足すずれ（ほかに組が無いときだけ選ばれる）
 SHAPE_WEIGHT = 3.0             # 前後の1周期の形の近さ（相関）が 1 から 0.33 下がると、半音1つと同じ重さ
 FRAME_S, HOP_S = 0.02, 0.005   # 「ま」を探す区間の長さと細かさ
 SIDE_S = 0.025                 # つなぎ目の前後で比べる長さ
@@ -215,7 +217,7 @@ def side(pcm: bytes, rate: int, cut: int, before: bool) -> dict:
     t = cut / rate
     a, b = (t - SIDE_S, t) if before else (t, t + SIDE_S)
     seg = pcm[int(a * rate) * 2:int(b * rate) * 2]
-    s, _ = _spectrum(np.frombuffer(seg, dtype="<i2").astype(np.float64), rate)
+    s = _spectrum(np.frombuffer(seg, dtype="<i2").astype(np.float64), rate)[0]
     win = 0.03 + 1 / 70.0   # pitch_at の区間の長さ（FRAME_S と、周期を探す長さ）
     return {"hz": pitch_at(pcm, rate, t - win if before else t), "db": loudness_db(seg), "shape": s - s.mean()}
 
@@ -339,7 +341,12 @@ async def build(args, out, rows: list[dict]) -> dict:
         g = gap(h["before"], side(t["pcm"], rate, cut, False))
         speed = round(abs(t["speech_s"] - median_s[form]) / median_s[form], 3) if median_s[form] else 0.0
         shape = round(shape, 2)
-        return score(g) + SHAPE_WEIGHT * (1 - shape) + RATE_WEIGHT * speed, {**g, "前後の1周期の形": shape, "話す長さの中央からの離れ": speed}, cut
+        # 録音全体の声の高さの差（G-58 の4回目で決めた「半音3つ以内」＝name_clips.MAX_ST）。超える組は、ほかに組が無いときだけ選ぶ
+        # （⛔ 2026-10-25 の2回目：この条件を入れておらず、S2 の「で」の組は全体の高さが 6.5半音違った＝続く言葉が別の人の声に聞こえうる）
+        whole = round(abs(semitones(t["whole"]["pitch_hz"], h["whole"]["pitch_hz"])), 2) if h["whole"] and t["whole"] else None
+        over = WHOLE_OVER if whole is None or whole > MAX_ST else 0.0
+        return (score(g) + SHAPE_WEIGHT * (1 - shape) + RATE_WEIGHT * speed + over,
+                {**g, "前後の1周期の形": shape, "話す長さの中央からの離れ": speed, "全体の高さの差（半音）": whole}, cut)
 
     # 組を選ぶ：名前の部分ごとに、形ごとに続く言葉を合う順に並べ、4つの形のうち一番合わない形のずれ（各形の一番合う組）が一番小さい名前の部分
     def plan(h):
