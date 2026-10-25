@@ -6267,7 +6267,17 @@ class TargetTest(unittest.TestCase):
         self.assertEqual(r["result"], "rejected")
         for word in (said, f"「{PART_LABEL['own']}」", f"「{PART_LABEL['no_answer']}」"):
             self.assertIn(word, r["message"])
-        self.assertEqual(f.apply("replay_opening", {"part": "purpose"})["result"], "replayed")   # 2回目は AIの選びで進む
+        # 差し戻したあとも、AIがまた用件の録音を選んだ（⛔ 2026-10-25 J13r L4）：読みがそのままなら、AIに選ばせず、断らない一言の録音で応える
+        from phrases import OWN_FALLBACK
+        r = f.apply("replay_opening", {"part": "purpose"})
+        self.assertEqual((r["result"], [p.get("id") for p in r["play"]], f.own_pending), ("own_answer", ["own_fallback"], "no_answer"))
+        self.assertEqual((f.facts["callee_question"][-1]["answer"], f.facts["callee_question"][-1]["answered"]), (OWN_FALLBACK, False))
+        # 2回目のあいだに「名乗り・用件」の読みが届いた（読みが分かれた）：AIの選びで進む
+        g, _ = self.checked()
+        self.heard(g, said, "決められない"); g.on_check("asks", ASKS_OTHER)
+        self.assertEqual(g.apply("replay_opening", {"part": "purpose"})["result"], "rejected")
+        g.on_check("asks2", ASKS_YES)
+        self.assertEqual(g.apply("replay_opening", {"part": "purpose"})["result"], "replayed")
         # 「ほかのことを尋ねている」も質問：目的の人の報告は受けず、答えるように返す
         g, _ = self.checked()
         self.heard(g, said, "決められない"); g.on_check("asks", ASKS_OTHER)

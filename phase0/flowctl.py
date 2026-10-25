@@ -2061,8 +2061,9 @@ class Flow:
             # 約束の電話で取り次げなかったときの一言への答え（伺ったら、「はい」のときだけ true＝CL-2 の 4-135。⛔ 2026-10-24 の見直し：
             # 「わからない」・伺う途中で切れたときに書いていなかった＝CL-2 は「聞いていない」と読んだ）
             self.facts["not_transferred"][-1]["again"] = self._yes_no(p1)
-        if not (name == "replay_opening" and args.get("part") in ("ai", "resume") + OWN_PARTS):
-            # 決まった言い方・自分の言葉の答えへの返事を待つのは、その次の報告まで（答え・ほかの報告が来たら、もう待っていない）
+        if not (name == "replay_opening" and (args.get("part") in ("ai", "resume") + OWN_PARTS or reply["result"] == "own_answer")):
+            # 決まった言い方・自分の言葉の答えへの返事を待つのは、その次の報告まで（答え・ほかの報告が来たら、もう待っていない）。
+            # この報告で応えた（own_answer＝名乗り・用件の録音を選び直さなかったので、受け皿の一言で応えた＝_asked_other も）は、いま待ち始めた
             self.ai_pending = self.own_pending = False
         if name == "replay_opening" and args.get("part") not in ("resume", "handover") and reply["result"] != "rejected":
             self.question_answered_turn = self.callee_turns  # この発話の相手の質問には、もう答えた（_advance）
@@ -3051,11 +3052,17 @@ class Flow:
 
     def _asked_other(self) -> dict | None:
         """名乗り・用件の録音で答えようとした（_opening_answer）が、いまの言葉の尋ねているかの読みに「ほかのことを尋ねている」が
-        あり、「名乗り・用件…を尋ねている」が1つも無い：受けずに、答え方を選び直させる（同じ発話に1回だけ＝読みが違っていても、AIの選びで進む）。
-        読みが分かれた・届いていないときは、AIの選びのまま。⛔ 2026-10-25 J10b（番号の出どころを聞かれる・S4・L4）：用件の録音で答えた"""
+        あり、「名乗り・用件…を尋ねている」が1つも無い：受けずに、答え方を選び直させる。差し戻したあとも同じ発話にまた名乗り・用件の録音を
+        選び、読みがそのままなら、AIに選ばせず、答えを持っていない質問の受け皿（断らない一言の録音＝_own_fallback）で応える（形に合わない
+        ときの流れは制御が決める＝DESIGN.md の G-34 の決まり）。読みが分かれた（名乗り・用件の読みもある）・届いていないときは、AIの選びのまま。
+        ⛔ 2026-10-25 J10b（番号の出どころを聞かれる・S4・L4）：用件の録音で答えた。⛔ J13r（同じ場面・L4）：差し戻しのあと、AIはまた用件の
+        録音を選び、2回目はAIの選びで進む決まりだったので、用件の録音が流れた（G-59 asks4 で、名乗り・用件の質問の読み30回・質問でない言葉の
+        読み210回に「ほかのこと」は0回＝読みのほうを採る）"""
         got = self.asks_read.get(self.callee_turns, set())
-        if ASKS_OTHER not in got or ASKS_YES in got or self.other_rejected == self.callee_turns:
+        if ASKS_OTHER not in got or ASKS_YES in got:
             return None
+        if self.other_rejected == self.callee_turns:
+            return self._own_fallback("no_answer", None, None, {}, {})
         self.other_rejected = self.callee_turns
         said = f"（「{self.callee_said[:40]}」）" if self.callee_said else ""
         return self._reject(f"このご質問{said}は、名乗りや用件のことではありません（名乗り・用件の録音では答えません）。replay_opening を"
