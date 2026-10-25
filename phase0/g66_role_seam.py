@@ -77,19 +77,46 @@ def mismatch(d: dict, target: dict) -> float:
     return abs(d["st"] - target["st"]) + abs(d["db"] - target["db"]) / 3 + abs(d["bright"] - target["bright"]) / 300
 
 
+# 役職の側の切る所（残す間の終わり）の直前 STEP_S の大きさが、名前の部分の頭（声の始まりまで）より、これだけ大きい録音は、ほかに無いときだけ選ぶ。
+# ⛔ 2026-10-25 G-69 の2回目（S2 の (V 役職) ○△「『岡田様』の前に、雑音か前の言葉が入っている。途切れにも聞こえる」）：選んだ役職の録音の
+#    「の」のあとの間（声帯の震えの無い区間＝pause_after）は 0.06秒で、静かにならないまま（一番静かな所でも録音の一番大きい所から −48.5 dB。
+#    ほかの録音は −53〜−81 dB）次の「伊藤」の「い」へつながっていた。その音を 0.04秒残して名前の部分の頭の無音を足したので、切る所で
+#    +9.3 dB の段差になった（ご指摘の無かった組は −9.4〜−23.9 dB）
+ROLE_STEP_DB = 3.0
+STEP_S = 0.01
+STEP_OVER = 100.0
+
+
+def _db(pcm: bytes, rate: int, a: float, b: float) -> float:
+    x = np.frombuffer(pcm[max(0, int(a * rate)) * 2:int(b * rate) * 2], dtype="<i2").astype(np.float64)
+    return float(20 * np.log10(np.sqrt((x ** 2).mean()) + 1e-9)) if len(x) else -999.0
+
+
 def pick_role(roles: list[dict], target: dict, y: bytes, rate: int, start_q: float, lead: float) -> tuple[bytes, dict]:
     """名前の部分 y（start_q 秒から。声の始まりまで lead 秒）に、つなぎ目の前後の声の変わり方が文まるごとの変わり方（target）に一番そろう
-    役職の録音（roles の1つ＝{pcm, pause, end}）を選び、間をもとの長さにして、役職の側の音を返す（G-66・G-69 の唯一の場所）。"""
+    役職の録音（roles の1つ＝{pcm, pause, end}）を選び、間をもとの長さにして、役職の側の音を返す（G-66・G-69 の唯一の場所）。
+    役職の側の切る所が、名前の部分の頭より ROLE_STEP_DB 以上大きい録音（間が静かにならない録音）は、ほかに無いときだけ選ぶ。"""
     o = start_q + lead
     fs = seam_features(y, rate, o, o + FEAT_S)
-    scored = sorted(((mismatch(delta(ro["end"], fs), target), k) for k, ro in enumerate(roles)), key=lambda t: t[0]) if fs else [(None, 0)]
+    floor = _db(y, rate, start_q, start_q + max(lead, STEP_S))   # 名前の部分の頭（声の始まりまで）の大きさ
+
+    def cut_at(ro) -> tuple[float, float]:
+        a, b = ro["pause"]
+        keep = max(0.02, (b - a) - lead)               # 役職の側に残す間（名前の側の頭の無音と合わせて、もとの間になる）
+        return keep, min(b, a + keep)
+
+    def step(ro) -> float:
+        return _db(ro["pcm"], rate, cut_at(ro)[1] - STEP_S, cut_at(ro)[1]) - floor
+    scored = (sorted(((mismatch(delta(ro["end"], fs), target) + (STEP_OVER if step(ro) > ROLE_STEP_DB else 0.0), k)
+                      for k, ro in enumerate(roles)), key=lambda t: t[0]) if fs else [(None, 0)])
     sc, k = scored[0]
     ro = roles[k]
     a, b = ro["pause"]
-    keep = max(0.02, (b - a) - lead)               # 役職の側に残す間（名前の側の頭の無音と合わせて、もとの間になる）
-    cut = int(min(b, a + keep) * rate)
+    keep, end = cut_at(ro)
+    cut = int(end * rate)
     return ro["pcm"][:cut * 2], {"役職の録音": k + 1, "変わり方のずれ": sc and round(sc, 2), "役職のもとの間（秒）": round(b - a, 3),
                                  "名前の頭の無音（秒）": round(lead, 3), "役職の側に残した間（秒）": round(keep, 3),
+                                 "切る所の段差（dB）": round(step(ro), 1),
                                  "役職の候補のずれ": [round(s, 2) for s, _ in scored if s is not None]}
 
 
