@@ -36,15 +36,17 @@ def trim(pcm: bytes, rate: int, keep_s: float = 0.03) -> bytes:
     return pcm[a:b]
 
 
-async def good_take(client, args, vt: str, aid: str, text: str) -> tuple[bytes, int, dict]:
+async def good_take(client, args, vt: str, aid: str, text: str, also: tuple[str, ...] = ()) -> tuple[bytes, int, dict]:
     """読みが合う録音（make_ack_clips の確かめのうち、文の途中の間の確かめだけは外す：上の JOIN_S のとおり、文まるごとでも間が入るので、
-    間の自然さは人が聞いて比べる）。"""
+    間の自然さは人が聞いて比べる）。also：この読みに聞こえても通す文（どれに聞こえたかを記録の heard_as に残す。⛔ 2026-10-25：
+    「お間違えない」（✅ ユーザーの言い方）は、どの耳も「お間違いない」と書き、8回とも通らなかった＝声か耳かは人が聞いて決める）。"""
     from common import is_quota
     from make_ack_clips import ends_in_silence, heard_ok
     for _ in range(args.tries):
         row, pcm, rate = await take(client, args, vt, aid, text, "question")
-        if pcm and heard_ok(text, row.get("heard") or {}) and ends_in_silence(pcm, rate):
-            return pcm, rate, row
+        as_ = next((t for t in (text,) + tuple(also) if heard_ok(t, row.get("heard") or {})), None)
+        if pcm and as_ is not None and ends_in_silence(pcm, rate):
+            return pcm, rate, row | {"heard_as": as_}
         # 上限の答え（1分の上限）：すぐ録り直すと、残りの回数を同じ1分の中で使い切る（⛔ 2026-10-25 G-69 の1回目）⇒ 1分の上限が戻るまで待つ
         quota = row.get("error") and is_quota(Exception(row["error"].get("message", "")))
         await asyncio.sleep(QUOTA_WAIT_S if quota else args.pause)

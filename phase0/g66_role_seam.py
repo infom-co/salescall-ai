@@ -93,11 +93,12 @@ def pick_role(roles: list[dict], target: dict, y: bytes, rate: int, start_q: flo
                                  "役職の候補のずれ": [round(s, 2) for s, _ in scored if s is not None]}
 
 
-async def take_with_times(client, args, key: str, text: str, check):
-    """確かめに通り、check（音・速さ・時刻 ⇒ 値。無ければ None）が値を返す録音（声の頭を削らない）。(音, 速さ, 時刻, 値, 記録)。"""
+async def take_with_times(client, args, key: str, text: str, check, also: tuple[str, ...] = ()):
+    """確かめに通り、check（音・速さ・時刻 ⇒ 値。無ければ None）が値を返す録音（声の頭を削らない）。(音, 速さ, 時刻, 値, 記録)。
+    also：この読みに聞こえても通す文（g58_name_splice.good_take）。"""
     from ears import soniox_word_times
     for _ in range(args.tries):
-        pcm, rate, row = await good_take(client, args, args.type, "whole", text)
+        pcm, rate, row = await good_take(client, args, args.type, "whole", text, also)
         pcm = gentle_trim(pcm, rate)
         times = await soniox_word_times(key, pcm, rate)
         row["words"] = [(t, round(a, 3), round(b, 3)) for t, a, b in times]
