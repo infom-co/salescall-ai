@@ -218,10 +218,17 @@ class EntriesCalledFromTheirPlaces(Planted):
             "src/salescall/supervisor/jobs.py": "def go(a):\n    a.in_tenant(lambda tx: ring_test.run)\n",
             # こちらの不具合を伝える入口（0139）：通話ごとの口（supervisor/line.py）のほかからは伝えない（2つ目の伝え方を作らない）
             "src/salescall/core/settle_more.py": "def go(a):\n    troubles.after_trouble(a)\n",
+            # 別名で取り込んでも・部品の名前を全部書いても見つける（⛔ 見直し20a：`import … as 別名` を素通りした）
+            "src/salescall/core/alias_a.py": "from salescall.core import attempts as at\ndef go(tx, l):\n    at.close_unrung_run(tx, l, 'x')\n",
+            "src/salescall/core/alias_b.py": "import salescall.core.ring_test as rt\ndef go(a):\n    rt.run(a)\n",
+            "src/salescall/core/alias_c.py": "import salescall.core.attempts\ndef go(tx, l):\n    salescall.core.attempts.hold_unrung_run(tx, l)\n",
+            "src/salescall/core/alias_ok.py": "from salescall.core import attempts as at\ndef go(tx, l):\n    at.blame(tx, l)\n",
         })
         found = rules.entries_called_from_their_places(root)
         self.assertEqual(sorted((v.path, v.rule) for v in found),
-                         [("src/salescall/core/next_action.py", "一本化"), ("src/salescall/core/settle.py", "一本化"),
+                         [("src/salescall/core/alias_a.py", "一本化"), ("src/salescall/core/alias_b.py", "一本化"),
+                          ("src/salescall/core/alias_c.py", "一本化"),
+                          ("src/salescall/core/next_action.py", "一本化"), ("src/salescall/core/settle.py", "一本化"),
                           ("src/salescall/core/settle_more.py", "一本化"), ("src/salescall/supervisor/jobs.py", "一本化")])
 
 

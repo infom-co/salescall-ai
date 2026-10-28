@@ -44,6 +44,14 @@ def call_live(line_id: object) -> bool:
     return call is not None and bool(getattr(call, "live", True))
 
 
+def stuck_call(line_id: object) -> object | None:
+    """その回線の、おわびして終えたあとも通話を進める部品が戻らない通話（無ければ None。判断は通話ごとの口の1か所＝line._Call.abandoned。
+    中央の見守り役が読んで、その回線の流れを立て直す＝main.Supervisor.watch_workers。0141）。"""
+    with _LIVE_LOCK:
+        call = _LIVE.get(line_id)
+    return call if call is not None and getattr(call, "abandoned", False) is True else None
+
+
 # 混雑（共有のつなぎの空き待ちの時間切れ）で記録できなかった誤り：仕事の名前 → 回数。空いたときに、まとめて記録する（flush_busy）
 _BUSY: Counter[str] = Counter()
 _BUSY_LOCK = threading.Lock()

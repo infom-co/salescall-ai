@@ -23,10 +23,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import timedelta
 
-SOURCES = ("ai", "ear", "line", "storage", "delivery", "recording", "supervisor", "judge", "call")   # 会話AI／別の耳（通話後の検証）／
+SOURCES = ("ai", "ear", "line", "storage", "delivery", "recording", "supervisor", "judge", "call", "runner")   # 会話AI／別の耳（通話後の検証）／
 #   回線／保存／連携／録音（通話の録音が残っていない・壊れている）／見守り役（決まった間隔の仕事・回線ごとの発信の繰り返しの処理の
 #   誤り。0063）／意味の判定（会話AIとは別の会社の、答えの意味の判定。DESIGN.md 6-10 の (6)。0098）／通話（こちらのプログラムの
-#   不具合で通話をお詫びして終えた。理由は ErrorReport.trouble。0139）
+#   不具合で通話をお詫びして終えた。理由は ErrorReport.trouble。0139）／通話の部品（通話を進める部品が、おわびして終えたあとも
+#   戻らず、回線の処理を立て直した。0141）
 
 # 意味の判定の失敗の分け方（CL-1 の連絡帳 4-24）：キーが使えない（無効・権限が無い＝401・403、一覧のキーの行＝Google の
 # 「400 API key not valid」）は、会話AIと同じくキーの誤り（judge_key。⚠️ 試作 meaning_judge.outage は「止まっている」・Google の
@@ -133,26 +134,33 @@ class Action:
 
 LASTING = timedelta(hours=1)   # 一時的なものが「続いている」とみなす長さ（1時間より長くあかずに、1時間以上起き続けている）
 
-# こちらのプログラムの不具合で通話をお詫びして終えた理由（試行の trouble。データベースの守り 0136 と同じ。一覧の正本はここ＝
-# core/attempts.TROUBLES はこれを読む）→ エラーの種類（1か所。理由ごとの直す担当・止め方は ACTIONS の行）。frozen＝通話を進める部品が
-# 固まった（回線ごとの見張りが決める）／ai_malfunction＝AI・プログラムが意図しない状態（英語・関係のない文を話し続ける・声が出ない
-# など）／poor_audio＝声がお互い・片方にほとんど聞き取れない／cannot_proceed＝そのほか、決まりどおりの会話が進められない
-# （2026-10-24 ユーザー決定）／runner_error＝通話を進める部品が例外で落ちた・終えずに戻った（回線ごとの見張りが決める。0136）
+# 通話をお詫びして終えた理由（試行の trouble。データベースの守り attempts_trouble_check と同じ。一覧の正本はここ＝core/attempts.ENDS は
+# これを読む）。frozen＝通話を進める部品が固まった（回線ごとの見張りが決める）／ai_malfunction＝AI・プログラムが意図しない状態（英語・
+# 関係のない文を話し続ける・声が出ない など）／poor_audio＝声がお互い・片方にほとんど聞き取れない／cannot_proceed＝そのほか、決まり
+# どおりの会話が進められない（2026-10-24 ユーザー決定）／runner_error＝通話を進める部品が例外で落ちた・終えずに戻った（回線ごとの見張りが
+# 決める。0136）
+ENDS: tuple[str, ...] = ("frozen", "ai_malfunction", "poor_audio", "cannot_proceed", "runner_error")
+# そのうち、こちらのプログラムの不具合の理由 → エラーの種類（理由ごとの直す担当・止め方は ACTIONS の行）。どの理由がこちらの不具合かを決める
+# のはデータベースの salescall.trouble_ours の1か所（0141。通話ごとの口は、終えた電話をこちらの不具合として伝えるかを、そこに聞く）。ここは
+# その種類の名前の表だけ（種類の名前は salescall.trouble_kind と同じ形＝試験が確かめる）。2026-10-25 夜 管理者：「声が聞き取れない」は
+# こちらの不具合に数えない（お客様と話している途中で切れた電話と同じ。違うお客様で続けば回線の異常）＝ここに無い
 TROUBLES: dict[str, str] = {
-    "frozen": "call_frozen", "ai_malfunction": "call_ai_malfunction", "poor_audio": "call_poor_audio",
+    "frozen": "call_frozen", "ai_malfunction": "call_ai_malfunction",
     "cannot_proceed": "call_cannot_proceed", "runner_error": "call_runner_error",
 }
 
 
 def _trouble(what: str, fixer: str) -> str:
-    """こちらのプログラムの不具合の処置の説明（5つの種類で同じ決まり。2026-10-25 ユーザー：「同じ行で、こちらのプログラムの不具合が
+    """こちらのプログラムの不具合の処置の説明（4つの種類で同じ決まり。2026-10-25 ユーザー：「同じ行で、こちらのプログラムの不具合が
     続くとき：その行だけの問題なのか、すべての行にかかわる問題なのかを見極めないといけないでしょ？その行だけなら、契約者(管理者含む)と、
     開発AIの担当、記録にそれを伝え、2回続いたら、次の行へ。3行同じ問題なら、甚大な問題と判断。」）。"""
     return (f"{what}（こちらのプログラムの不具合。その電話はお詫びして終え、番号・回線・行の回数のどれにも数えない）：電話ごとに、"
-            f"契約者と管理者に知らせ、{fixer} に修正依頼を出し、記録する。同じ行で2回続いたら、その行は休ませて次の行へ進む（直した"
-            "プログラムの版に替わるか、管理者・契約者が戻すまで）。違う行で同じ理由が決めた数（設定 stop.trouble.stop_after_rows。初め3行）"
-            "になったら、すべての行にかかわる甚大な問題として、その契約者の新しい電話を止める（話している電話は切らない。直したプログラムの"
-            "版に替わったら解く。管理者・契約者も解ける）")
+            f"契約者と管理者に知らせ、{fixer} に修正依頼を出し、記録する。お客様へは復旧次第かけ直す（同じ契約者で、こちらの不具合なしに"
+            "お客様と話し終えた電話があるか、版が替わったら、すぐ。お客様が出たあとならお詫びとともに）。同じ行で2回続いたら、その行は休ませて"
+            "次の行へ進む（その不具合を直したと記録され、そのあと直したプログラムの版に替わるか、管理者・契約者が戻すまで）。違う行で同じ理由が"
+            "決めた数（設定 stop.trouble.stop_after_rows。初め3行）続いたら（こちらの不具合なしにお客様と話し終えた電話があれば数え直す）、"
+            "すべての行にかかわる甚大な問題として、その契約者の新しい電話を止める（話している電話は切らない。その不具合を直したと記録され、"
+            "そのあと版が替わったら解く。管理者・契約者も解ける）")
 
 
 # 知らせに出す短い名前（注意は短く。詳しい意味は Action.meaning＝画面の「止まった理由」・i マークで。2026-10-17 ユーザー）
@@ -169,9 +177,9 @@ LABELS: dict[str, str] = {
     "unknown_ai": "原因の分からない会話AIの誤りです", "unknown_line": "原因の分からない回線の誤りです",
     "call_frozen": "通話の部品が固まりました（お詫びして終えた）",
     "call_ai_malfunction": "会話AIが意図しない状態になりました",
-    "call_poor_audio": "声がほとんど聞き取れませんでした",
     "call_cannot_proceed": "会話を決まりどおり進められませんでした",
     "call_runner_error": "通話の部品が落ちました（お詫びして終えた）",
+    "runner_stuck": "通話の部品が戻りません",
 }
 
 ACTIONS: dict[str, Action] = {
@@ -259,14 +267,17 @@ ACTIONS: dict[str, Action] = {
     "call_ai_malfunction": Action("keep", "none", "program_trouble", "tenant", "stop.trouble.stop_after_rows", True,
                                   _trouble("会話AI・プログラムが意図しない状態になった（英語・関係のない文を話し続ける・声が出ない など）",
                                            "CL-1"), fixer="CL-1", per_call=True),
-    "call_poor_audio": Action("keep", "none", "program_trouble", "tenant", "stop.trouble.stop_after_rows", True,
-                              _trouble("声がお互い・片方にほとんど聞き取れなかった（声の受け渡し＝電話接続）", "CL-2"),
-                              fixer="CL-2", per_call=True),
     "call_cannot_proceed": Action("keep", "none", "program_trouble", "tenant", "stop.trouble.stop_after_rows", True,
                                   _trouble("決まりどおりの会話を進められなかった", "CL-1"), fixer="CL-1", per_call=True),
     "call_runner_error": Action("keep", "none", "program_trouble", "tenant", "stop.trouble.stop_after_rows", True,
                                 _trouble("通話を進める部品（会話）が例外で落ちた・通話を終えないまま戻った", "CL-1"),
                                 fixer="CL-1", per_call=True),
+    # 通話を進める部品が、こちらの不具合でおわびして終えたあとも戻らない（0141。見直し20a）：その電話は、もう call_frozen などとして伝えて
+    # ある。ここで伝えるのは「その回線の処理が止まっていた」こと（回線ごとの処理を立て直したので、電話は止まらない）
+    "runner_stuck": Action("keep", "none", None, None, None, True,
+                           "通話を進める部品（会話）が、おわびして終えたあとも決めた長さ（設定 call.stuck_after）戻らなかった：その回線の"
+                           "処理を立て直して（新しい通話の部品で）次の電話へ進む。契約者と管理者に知らせ、CL-1 に修正依頼を出す（回線が"
+                           "黙って止まったままにしない）", fixer="CL-1"),
 }
 
 # 止める原因ごとに、続けて数えるエラーの種類（同じ原因で止める種類を合わせて数える。1か所）
@@ -281,9 +292,12 @@ COUNTED_FOR: dict[str, tuple[str, ...]] = {
 #   in_conversation＝どこかの通話が会話に入った（会話AIが動いた）／verified＝どこかの通話の検証が済んだ（別の耳が動いた）／
 #   line_ok＝その回線で、お客様のところで電話が鳴って終わった（回線の部品が番号を受け付けなかった・お客様が出る前に回線の側で
 #   終わったではない電話。⛔ 見直し17a：前は「その回線でお客様を呼び出せた」で、失敗した電話そのものの呼び出しで数え直し、回線の
-#   失敗が続いても止まらなかった＝0122）か、その回線でテスト番号が鳴った（0134。どちらも salescall.line_rings の1か所）／
-#   program_fixed＝直したプログラムの版に替わった（salescall.program_since。0139。この証拠で数える種類は、エラーの数でなく違う行の数で
-#   数える＝同じ行の2回目は、その行の休みで扱う）／none＝証拠を持たない（1回で止める種類）
+#   失敗が続いても止まらなかった＝0122）か、その回線でテスト番号が鳴った（0134。話し中・電源オフ・圏外のお知らせが返ったのも
+#   「鳴った」＝回線から発信できた。0141）。声が聞き取れずに終えた電話は、回線が直った証拠にしない（どちらも salescall.line_good_rings
+#   の1か所。0141）／
+#   program_fixed＝その種類の不具合を直したと記録され、そのあと版が替わった（salescall.trouble_fixed_at）か、こちらの不具合なしにお客様と
+#   話し終えた電話があった（salescall.last_good_talk。0141。この証拠で数える種類は、エラーの数でなく違う行の数で数える＝同じ行の2回目は、
+#   その行の休みで扱う）／none＝証拠を持たない（1回で止める種類）
 EVIDENCE: dict[str, str] = {
     "config_error": "in_conversation",
     "ai_unreachable": "in_conversation",
@@ -338,6 +352,8 @@ def classify(e: ErrorReport) -> str:
         return "storage"
     if e.source in ("recording", "supervisor"):
         return e.source
+    if e.source == "runner":
+        return "runner_stuck"
     if e.source == "call":
         if e.trouble not in TROUBLES:
             raise ValueError(f"通話を終えた理由は {tuple(TROUBLES)} のどれかです（{e.trouble!r}）")

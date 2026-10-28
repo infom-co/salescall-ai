@@ -68,8 +68,10 @@ class Settle(SettleBase):
     def test_a_call_our_own_program_ended_is_made_again_as_planned_and_counts_nowhere(self):
         """こちらのせい（こちらのプログラムが固まった・甚大な問題で終えた・通話を進める部品が落ちた＝試行の trouble）でお客様のところで
         鳴らなかった電話は、番号にも回線にも数えない（attempts.blame の ours。0136）。次の動きは1か所（next_action._line_fault_again）
-        で、かけた予定のまま、同じお客様への最短の間隔のあと（⛔ 見直し19a：前は回線のせい・番号のせいの続きに入り、こちらの不具合で
-        番号を取りやめうる・回線を止めうる形だった）。"""
+        で、かけた予定のまま、復旧次第（⛔ 見直し19a：前は回線のせい・番号のせいの続きに入り、こちらの不具合で番号を取りやめうる・回線を
+        止めうる形だった）。復旧＝同じ契約者で、こちらの不具合なしにお客様と話し終えた電話がある・直したプログラムの版に替わった（それまで
+        門と候補を出す処理が待たせる＝salescall.awaiting_recovery の1か所。0141。2026-10-17 管理者：「復旧次第、お詫びとともにすぐかけ直さ
+        ないといけないでしょ！」）。"""
         s = self.ready()
         aid = self.call(s, ["dialing", "ringing"])
         self.assertTrue(self.tx(s, lambda tx: attempts.end_for_trouble(tx, aid, "runner_error")))
@@ -77,19 +79,16 @@ class Settle(SettleBase):
         d = self.settle(s, aid)["decision"]
         self.assertEqual((d.kind, d.target.purpose), ("call", "normal"))
         self.assertIn("こちらのせい", d.rule)
-        ended = self.tx(s, lambda tx: tx.one("SELECT ended_at FROM salescall.attempts WHERE attempt_id = %s", (aid,))["ended_at"])
-        interval = self.tx(s, lambda tx: int(settings.resolve(tx, "gate.same_contact_min_interval", tenant_id=s["tenant"],
-                                                                 client_id=s["client"], business_id=s["business"])))
-        self.assertGreaterEqual((d.at - ended).total_seconds(), interval - 1)
+        self.assertEqual(self.reason(s), "awaiting_recovery")                 # 復旧するまで、かけない
+        self.assertNotIn(s["task"], [r["task_id"] for r in self.tx(s, lambda tx: scheduler.due_tasks(tx, 10))])   # 候補にも出さない
         self.assertEqual(self.tx(s, lambda tx: attempts.failed_run(tx, s["contact"]))["n"], 0)       # 番号に数えない
         self.assertFalse(self.tx(s, lambda tx: attempts.line_run_pending(tx, s["line"])))           # 回線の続きにも入らない
+        self.w.talked(s)                                                       # 同じ契約者で、こちらの不具合なしに話し終えた＝復旧
         with self.assertRaises(ValueError):
             self.tx(s, lambda tx: attempts.end_for_trouble(tx, aid, "who_knows"))
         # 同じ行で、こちらのせいが続いても、どれもこちらのせい（数えない）。数えないまま鳴らし続けない歯止めは、行の休み（同じ行で続けて
         # 2回で休む＝salescall.task_resting。0139。⛔ 0136：3回目からはふつうの鳴らなかった電話として番号に数えた。⛔ 見直しの一生の
         # 試験 1o：数えないと5日で 270 回かけ続けた）
-        self.override("gate.same_contact_min_interval", 1)
-        time.sleep(1.1)
         self.tx(s, lambda tx: next_action.schedule_now(tx, s["task"], cause="試験：その時刻が来た"))
         again = self.call(s, ["dialing", "ringing"])
         self.tx(s, lambda tx: attempts.end_for_trouble(tx, again, "frozen"))
@@ -1234,7 +1233,8 @@ class CutOffCalls(SettleBase):
     def test_our_own_troubles_neither_count_nor_restart_the_customers_cuts_and_are_always_called_back(self):
         """こちらのプログラムの不具合でお客様と話している途中に終えた電話は、いつも「途中で切れた」（行の回数に数えない）で、お詫びとともに
         かけ直す（salescall.dial_kind・resume_allowed の is_ours。0139）。お客様の電波などで切れた続きの数（cuts_in_a_row）には入れず、
-        数え直しもしない（2026-10-25 ユーザー：こちらの不具合は番号にも回線にも行の回数にも数えない。続けば行を休ませる）。"""
+        数え直しもしない（2026-10-25 ユーザー：こちらの不具合は番号にも回線にも行の回数にも数えない。続けば行を休ませる）。「声が
+        聞き取れない」は、こちらの不具合でなく、お客様の側で切れた電話と同じに数える（0141）。"""
         s = self.ready()
         line_cut = ("dialing", "ringing", "answered", "in_conversation", "dropped")
         kinds = []
@@ -1247,9 +1247,14 @@ class CutOffCalls(SettleBase):
             aid = self.past_attempt(s, line_cut, side="line", report=rep(cut=Cut("callee", False, False)), verify=True)
             kinds.append(self.tx(s, lambda tx: attempts.kind_of(tx, aid)))
         self.assertEqual(kinds, ["cut_off", "cut_off", "cut_off", "reached"])
-        aid, got = self.trouble_cut(s, "poor_audio")                     # 続いたお客様の切れのあとでも、こちらの不具合は数えない
+        aid, got = self.trouble_cut(s, "ai_malfunction")                 # 続いたお客様の切れのあとでも、こちらの不具合は数えない
         self.assertEqual(self.tx(s, lambda tx: attempts.kind_of(tx, aid)), "cut_off")
         self.resumed(got)
+        # 「声が聞き取れない」は、こちらの不具合でなく、お客様の側で切れた電話と同じ（2026-10-25 夜 管理者の決定 案A。0141）：続けて
+        # 切れた数に入り、すぐのかけ直しの回を超えていれば、ふつうの電話の回数に数える（すぐにはかけ直さない）
+        aid, got = self.trouble_cut(s, "poor_audio")
+        self.assertEqual(self.tx(s, lambda tx: attempts.kind_of(tx, aid)), "reached")
+        self.assertNotEqual(got["decision"].target.purpose if got["decision"].target else None, "resume")
 
     def test_at_most_two_call_backs_in_a_row_then_the_usual_retry(self):
         """お詫びしてすぐかけ直すのは、同じ行で続けて2回まで（2026-10-18 ユーザー 案A）。3回目に切れたら、ふつうの再発信の方針。"""

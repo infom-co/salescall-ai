@@ -216,16 +216,22 @@ FIXED_BY_PROGRAM = ("program_trouble",)   # 直したプログラムの版に替
 
 
 def resume_fixed(tx: Tx) -> list[int]:
-    """こちらのプログラムの不具合で止めた停止（すべての行にかかわる甚大な問題。原因 program_trouble）を、止めたあとで直したプログラムの
-    版に替わっていたら解く（1か所。版が替わった時刻はデータベースの salescall.program_since＝行の休みが戻る時刻と同じ）。この取引が
-    見る範囲のシステムが止めた停止（契約者の取引＝その契約者の停止）。解いた停止の番号を返す。見守り役の決まった間隔の仕事が呼ぶ
-    （supervisor.jobs の fixed_stops）。解いたあとに同じ不具合が続けば、違う行の数をまた数えて止める（数えるのは解いた時より後だけ）。"""
+    """こちらのプログラムの不具合で止めた停止（すべての行にかかわる甚大な問題。原因 program_trouble）を、止めたあとで、止めた種類の不具合
+    を直したと記録され、そのあと動いているプログラムの版が替わっていたら解く（1か所。直した時刻はデータベースの salescall.trouble_fixed_at
+    ＝行の休みが戻る時刻と同じ。2026-10-25 夜 管理者の決定。⛔ 0139：版が替われば、どの種類でも解いた）。止めた種類は、停止の根拠
+    （`STOPPED_BY`＋種類）から読む。この取引が見る範囲のシステムが止めた停止（契約者の取引＝その契約者の停止）。解いた停止の番号を返す。
+    見守り役の決まった間隔の仕事が呼ぶ（supervisor.jobs の fixed_stops）。解いたあとに同じ不具合が続けば、違う行の数をまた数えて止める
+    （数えるのは解いた時より後だけ）。"""
     done = []
     for s in tx.all(
-            "SELECT s.event_id FROM salescall.open_stop_events s WHERE s.actor_kind = 'system' AND s.cause::text = ANY(%s)"
-            " AND (s.scope = 'system') = (salescall.cur_tenant() IS NULL) AND salescall.program_since() > s.at ORDER BY s.event_id",
+            "SELECT s.event_id, s.evidence, s.at FROM salescall.open_stop_events s WHERE s.actor_kind = 'system'"
+            " AND s.cause::text = ANY(%s) AND (s.scope = 'system') = (salescall.cur_tenant() IS NULL) ORDER BY s.event_id",
             (list(FIXED_BY_PROGRAM),)):
-        stops.resume(tx, s["event_id"], reason="直したプログラムの版に替わった", evidence="プログラムの版が替わった")
+        kind = s["evidence"][len(STOPPED_BY):] if (s["evidence"] or "").startswith(STOPPED_BY) else None
+        if kind is None or not tx.one("SELECT salescall.trouble_fixed_at(%s) > %s AS f", (kind, s["at"]))["f"]:
+            continue
+        stops.resume(tx, s["event_id"], reason="止めた種類の不具合を直したと記録され、そのあと直したプログラムの版に替わった",
+                     evidence="直した記録とプログラムの版の替わり")
         done.append(s["event_id"])
     return done
 

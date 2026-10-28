@@ -12,7 +12,9 @@
    同じ回線を別の PC がつなぎ直したら、前の流れが止まってから、新しい PC で始める（同じスマホで二重にかけない）。
 4. **回線ごとの流れ**（`line.loop`）：別の流れ（スレッド）で動かす。外へ出た誤りでは止まらない（その通話だけを結果不明にする）。
    止まってしまったら（思いがけない終わり）、後始末して「見守り役の誤り」として記録し（CL-2 へ修正依頼）、間をあけて立ち上げ直す
-   （続けて止まるほど間を延ばす。上限5分）。
+   （続けて止まるほど間を延ばす。上限5分）。通話を進める部品が、こちらの不具合でおわびして終えたあとも決めた長さ（設定 call.stuck_after）
+   戻らなければ（判断は line._Call.abandoned の1か所）、その流れを捨てて、すぐ立て直す（`_abandon`。契約者と管理者に知らせ、CL-1 へ
+   修正依頼。0141。⛔ 見直し20a：前は流れが生きていれば何もせず、その回線は黙って止まったままだった）。
 5. **決まった間隔の仕事**（`jobs.JOBS`）：すべての契約者に共通の仕事は1つ、契約者ごとの仕事はすべての契約者について1つずつ、
    それぞれ別の流れで、同じ仕事が重ならないように回す。
 6. **版**：プログラムとデータベースの版がずれていれば、回線ごとの流れを止め（いまの通話は最後まで）、立ち上げず、決まった間隔の仕事も
@@ -38,12 +40,13 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 from uuid import UUID
 
-from salescall.core import dial_exit, leases
+from salescall.core import dial_exit, leases, watch
 from salescall.core.access import Access, busy, unreachable
+from salescall.core.errors import ErrorReport
 from salescall.link.basics import backoff
 from salescall.link.locks import AlreadyRunning, SingleInstance, lock_dir, machine_id
-from salescall.supervisor import (ACTOR, busy_seen, call_live, config, flush_busy, jobs, line, local_pc, plugins, report,
-                                 updates, watchdog)
+from salescall.supervisor import (ACTOR, busy_seen, call_live, call_over, config, flush_busy, jobs, line, local_pc, plugins, report,
+                                 stuck_call, updates, watchdog)
 from salescall.supervisor.links import Attached, Links, NoLinks
 
 RESTART_FIRST, RESTART_MAX = 5.0, 300.0   # 回線ごとの流れを立ち上げ直すまでの間（秒。続けて止まるほど倍に）
@@ -345,6 +348,10 @@ class Supervisor:
                     self._launch(line_id, at, fails=w.fails, now=now)
                 continue
             if w.thread.is_alive():
+                stuck = stuck_call(line_id)
+                if stuck is not None and not w.stopping:   # 通話を進める部品が、おわびして終えたあとも戻らない：流れを立て直す
+                    self._abandon(line_id, w, stuck, now)
+                    continue
                 if w.fails and now - w.started_at >= STABLE_AFTER:   # しばらく続けて動いた：止まった回数を数え直す
                     w.fails = 0
                 continue
@@ -358,6 +365,21 @@ class Supervisor:
                 continue
             report(self.access, w.at.tenant_id, "回線ごとの流れが止まった", RuntimeError("思いがけない終わり"), line_id=line_id)
             self.workers[line_id] = _Worker(line_id, w.at, None, None, w.fails + 1, now + _backoff(w.fails))
+
+    def _abandon(self, line_id: UUID, w: _Worker, call: Any, now: float) -> None:
+        """通話を進める部品が、こちらの不具合でおわびして終えたあとも設定 call.stuck_after 戻らない（判断は通話ごとの口の1か所＝
+        line._Call.abandoned。0141。⛔ 見直し20a：前は流れが生きているあいだ何もせず、借用を延ばし続け、その回線は二度とかけず、だれにも
+        知らされなかった）：その流れを捨てて立て直す（流れには止める印を立てる＝戻れば、そこで終わる。新しい流れ・新しい通話の部品で、
+        すぐ次の電話へ）。契約者と管理者に知らせ、CL-1 へ修正依頼を出す（エラーの入口 watch.after_error の1か所。種類 runner_stuck）。"""
+        call_over(line_id, call)   # 「話している」から外す（止める処理・ログインを外す処理が、戻らない部品を待たない）
+        w.stop.set()
+        try:
+            watch.after_error(self.access, ACTOR, ErrorReport("runner", None, "通話を進める部品が、おわびして終えたあとも戻りません"),
+                              tenant_id=w.at.tenant_id, client_id=getattr(call, "client_id", None), line_id=line_id,
+                              attempt_id=getattr(call, "attempt_id", None))
+        except Exception as e:  # noqa: BLE001 伝えられなくても、立て直しは止めない
+            report(self.access, w.at.tenant_id, "戻らない通話の部品の記録", e, line_id=line_id)
+        self.workers[line_id] = _Worker(line_id, w.at, None, None, w.fails, restart_at=now)
 
     def _hang_up_left(self, line_id: UUID, at: Attached) -> None:
         """回線ごとの流れが思いがけず止まった：その回線が通話中（か分からない）なら、おわびして切ってもらう（判断は発信の出口の

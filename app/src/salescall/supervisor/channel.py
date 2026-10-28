@@ -414,16 +414,17 @@ class Hub:
             raise ConnectionError("その回線をつないでいる、そのつなぎがありません")
         return got
 
-    def ask(self, session: _Session, kind: str, *, wait: float = p.REPLY_WAIT, source: Path | None = None, live: bool = True,
+    def ask(self, session: _Session, kind: str, *, wait: float | None = None, source: Path | None = None, live: bool = True,
             **fields: Any) -> dict[str, Any]:
         """頼んで答えを待つ（中央の見守り役の流れから）。source＝続けて送るファイル（控えの中身。少しずつ読んで送る＝丸ごとメモリに
-        持たない。`_stream`）。wait＝答えを待つ長さ（source があれば、送り終えてから）。live＝通話の頼みを通話の動きとして数える
+        持たない。`_stream`）。wait＝答えを待つ長さ（source があれば、送り終えてから。無ければ protocol.REPLY_WAIT）。live＝通話の頼みを通話の動きとして数える
         （控えをゆっくり送る）。つなぎ口の流れ（声・出来事の受け口の中）からは呼べない（自分の流れを止めて、すべての PC のやり取りが
         固まるため）。"""
         if self.loop is None or not self.loop.is_running():   # 止めたつなぎ口に頼むと、答えが来ないまま待ち続ける
             raise ConnectionError("つなぎ口が動いていません")
         if threading.current_thread() is self._thread:
             raise RuntimeError("つなぎ口の流れ（声・出来事の受け口）から、PC の部品への頼みは呼べません（別の流れへ渡してください）")
+        wait = p.REPLY_WAIT if wait is None else wait
         ident = p.new_id()
         if kind == "request" and live:   # 通話の頼み：このつなぎで、控えの中身をゆっくり送る
             session.voice()
@@ -552,16 +553,18 @@ class AgentDriver:
             raise RuntimeError("電話の部品が、切れたか分からない誤りを返しました")
 
     def apologize_and_hang_up(self) -> None:
-        """おわびの録音を流して切る（サーバーの側の誤りで通話を続けられないとき。PC の電話の部品が持っている録音）。"""
+        """おわびの録音を流して切る（サーバーの側の誤りで通話を続けられないとき。PC の電話の部品が持っている録音）。答えは、おわびを
+        流し終えるまで待つ（protocol.APOLOGY_WAIT。⛔ 見直し20a：ほかの頼みと同じ REPLY_WAIT で待つのをやめると、通話ごとの口は切り終えた
+        とみなして「話している」から外れ、ログインを外した PC のつなぎを、おわびの途中で閉じうる＝PC がもう一度おわびして切る）。"""
         session = self._session()
-        got = self.hub.ask(session, "request", op="apologize", line=self.line_id)
+        got = self.hub.ask(session, "request", wait=p.APOLOGY_WAIT, op="apologize", line=self.line_id)
         session.call_over(self.line_id)
         if not got.get("ok"):
             raise RuntimeError("電話の部品が、おわびして切れたか分からない誤りを返しました")
 
     def test_ring(self, phone_e164: str) -> bool | None:
-        """テスト番号へ鳴るか試す（core/ring_test が呼ぶ）。鳴った True・鳴らなかった False・分からない None（つながっていない・答えない・
-        PC が試さなかった）。"""
+        """テスト番号へ鳴るか試す（core/ring_test が呼ぶ）。回線から発信できた True（呼び出しの音・話し中の音・電源オフや圏外のお知らせ）・
+        発信できない False・見分けられない None（つながっていない・答えない・PC が試さなかった）。意味は link/phone.Phone.test_ring。"""
         try:
             got = self.hub.ask(self._session(), "request", op="test_ring", line=self.line_id, phone=phone_e164)
         except Exception:  # noqa: BLE001 つながっていない・待ち過ぎ：分からない

@@ -231,6 +231,24 @@ class Access:
         （発信禁止の共通の台帳は、2026-10-16 から契約者ごと＝契約者の取引で扱う。0032）"""
         return self._run(actor, None, None, work)
 
+    @contextmanager
+    def exclusive(self, key: str) -> Iterator[bool]:
+        """データベースの鍵（この接続先につなぐ、どの処理・どの機械とも、同じ鍵は1つだけ）を、待たずに取りにいく（1か所）。取れたら
+        True を渡し、抜けるときに放す。取れなければ False（ほかの処理が持っている）。取引の外の、やり直すと二重になること（電話を鳴らす
+        など）を、処理をまたいで1つずつにするのに使う（中央の見守り役の入れ替えで新旧が少し重なっても、同時にしない）。持っているあいだ、
+        共有のつなぎを1本使う（取引は開かない）。処理が落ちれば、つなぎが切れてデータベースが放す。"""
+        with _connection(self._conninfo) as conn:
+            conn.autocommit = True   # 鍵を持つあいだ、取引を開いたままにしない（ほかの取引をやり直させない）
+            try:
+                got = bool(conn.execute("SELECT pg_try_advisory_lock(hashtextextended(%s, 0)) AS g", (key,)).fetchone()["g"])
+                try:
+                    yield got
+                finally:
+                    if got:
+                        conn.execute("SELECT pg_advisory_unlock(hashtextextended(%s, 0))", (key,))
+            finally:
+                conn.autocommit = False
+
     def _run(self, actor: Actor, tenant_id: UUID | None, client_id: UUID | None, work: Callable[[Tx], T], *,
              read_only: bool = False) -> T:
         for attempt in range(self._max_attempts):

@@ -9,12 +9,16 @@
   試さない）。結果は回線ごとの記録（`line_ring_tests`。書くのはここだけ）に残す。
 - **鳴ったテストは、その回線で「鳴った電話」と同じ証拠**（データベースの salescall.line_rings の1か所）：番号のせいか回線のせいかの続きの
   区切り（鳴ったテストのあとなら、まだ分からなかった続きは番号のせい）と、回線が直った証拠（回線の異常の数え直し）。**鳴らなかった
-  テスト**は、まだ分からない続きがあれば、続きを閉じて回線のせいにする（salescall.close_unrung_run の test_silent）。分からない（電話の
-  部品が答えない）テストは、どちらの証拠にもしない（記録だけ）。
-- 使う所は2つ：(1) 番号のせいか回線のせいかがまだ分からない続きがあり、その回線にまもなくかけられる行が無い（supervisor/line.py の
-  `_decide_if_stuck`） (2) 回線の異常で止めた回線を再開してよいかの確かめ（止めた停止の確かめ＝core/watch.record_check。鳴れば成功）。
-  テスト番号で決められない契約者（`usable` が False＝テスト番号が無い・続けて「分からない」）は、(1) は前の区切りで決め（0131 の
-  no_rows）、(2) は確かめの部品（アプリが応答するか）で行う。
+  テスト**は、まだ分からない続きがあれば、続きを閉じて回線のせいにする（salescall.close_unrung_run の test_silent）。見分けられない
+  テストは、どちらの証拠にもしない（記録だけ。あける長さのあとで、また鳴らす）。
+- 使う所は2つ：(1) 番号のせいか回線のせいかがまだ分からない続きがあり、その回線にまもなくかけられる行が無い・違う番号が2つ以上続けて
+  鳴らなかった（supervisor/line.py の `_decide_if_stuck`） (2) 回線の異常で止めた回線を再開してよいかの確かめ（止めた停止の確かめ＝
+  core/watch.record_check。鳴れば成功）。テスト番号で決められない契約者（`usable` が False＝テスト番号が無い）は、(1) は前の区切りで
+  決め（0131 の no_rows）、(2) は確かめの部品（アプリが応答するか）で行う。
+- **テスト番号で決めるか（`decides` の1か所。0141）**：違う番号が2つ以上続けて鳴らなかった続きを、すぐ回線のせいとせずテスト番号で
+  決めるのは、テスト番号で決められ（`usable`）、いまが鳴らしてよい時間の中（`allowed`）のときだけ（見直し20a：テスト番号を挟まずに
+  回線を止め・再開をくり返した）。そうでなければ、今の決まり（違う番号2つ以上で回線のせい。管理者に伺い中なので変えない）。1つの番号の
+  続きは、時間の外なら時間の始まりまで待つ（今のまま）。
 - **鳴らしてよい時間**（設定 `line.test_ring_hours`。契約者ごと。1日の中の時刻の範囲の並び＝値の形 daily_ranges。初め 7:00〜22:00
   の1つ。表の作り 0135・0139）：2026-10-24 ユーザー：「私の電話です。軌道に乗れば、新しい電話をもうひとつ契約予定なのでその後に
   考えます。この仕事専用なら夜でもOK」。2026-10-25 ユーザー：「止める回線を2択だけじゃなく、こちらが決められるようにして。昼間に私は
@@ -25,22 +29,28 @@
   （`checks_stop` は時間に関係なくテスト番号で確かめる停止と答える＝確かめの部品は触らない）。時間の始まりまで待ち、待った分は確かめに
   数えない（記録しない＝間隔も伸びない）。「止まったまま1時間以上」の修正依頼も、鳴らしてよい時間の長さで数える（`checkable_seconds`。
   core/watch.lasting_stops。夜の待ちで修正依頼を出さない）。
-- **鳴らす間（契約者ごと・回線をまたいで1つ。`wait_seconds` の1か所。0139）**：テスト番号はいまユーザー自身の電話なので、続けて
-  鳴らさない。前のテストから、設定 `line.test_ring_gaps`（長さの並び。初め 15→30→60→120→240分）の長さをあける：続けて「鳴った」
-  以外（鳴らなかった・分からない）だったテストの数だけ並びの次の長さにし、最後の長さで止まる。鳴れば初めの長さに戻る（2026-10-25
-  ユーザー：「15⇒30⇒60⇒120⇒240分　がデフォルト契約者ごとに設定」。⛔ 0136 の「初め30分・倍ずつ・最大4時間」は外した）。回線を
-  またいで同時に鳴らさないよう、1つの契約者のテストは1本ずつ（`_LOCKS`。中央の見守り役の中の1か所）。
-- **結果は3つ**（電話の部品の約束＝link/phone.py の test_ring）：鳴った（回線は元気）／鳴らなかった（回線のせい＝呼び出しの音が
-  出なかった）／分からない（テスト番号の電話が話し中・電源が切れている・圏外・呼び出しの音が出たか見分けられない）。分からないは
-  どちらの証拠にもしない（記録だけ）。**分からないが設定 `line.test_ring_unknown_limit`（初め3回）続いたら**（契約者ごと・回線をまたいで
-  数える＝`unknown_run`）、テスト番号で決めるのをやめ（`usable`＝False。(1) は前の区切りで決め、(2) はアプリの確かめに戻す）、契約者
-  と管理者に1回知らせる（`test_ring_unknown`。続きごとに1回）。そのあいだも、鳴らす間が来れば試し、鳴った・鳴らなかったが出れば
-  元に戻る。⏳ 3回は仮の値（ユーザーに伺う）。
+- **鳴らす間（契約者ごと・回線をまたいで1つ。`wait_seconds` の1か所。0139・0141）**：テスト番号はいまユーザー自身の電話なので、
+  鳴らなかった・見分けられなかったあとは続けて鳴らさない：続けて1回目のあと設定 `line.test_ring_gaps`（長さの並び。初め 15→30→60→120→
+  240分）の1つ目、2回目のあと2つ目…（最後の長さで止まる）。鳴ったら、テストは OK で終わり、あける長さは無い（2026-10-25 夜 管理者の
+  決定。⛔ 0139：鳴ったあとも15分あけていた。⛔ 0136 の「初め30分・倍ずつ・最大4時間」は外した）。回線を
+  またいで同時に鳴らさないよう、1つの契約者のテストは1本ずつ（データベースの鍵＝Access.exclusive。契約者ごと。見守り役の入れ替えで
+  新旧が少し重なっても同時に鳴らさない。⛔ 見直し20a：前はプログラムの中だけの鍵だった）。ほかが鳴らしている途中なら、鳴らさずに
+  WAIT（記録しない）。
+- **結果は3つ**（電話の部品の約束＝link/phone.py の test_ring。0141）：鳴った＝回線から発信できた（呼び出しの音・話し中の音・電源オフや
+  圏外のお知らせの声が返った＝電話網がこの回線の発信を受け付けた＝回線は元気。決まっていない続きは番号のせい）／鳴らなかった＝回線から
+  発信できない（アプリが発信できない・呼び出しもお知らせも無いまま終わった＝回線のせい）／見分けられない（どちらの証拠にもしない。
+  記録だけ。あける長さのあとで、また鳴らす。電話の部品が誤りを返したときも、これ）。2026-10-25 夜 管理者：「テスト番号が話し中・電源
+  オフ・圏外だと分かるのなら、回線の問題じゃないんじゃないの？」。⛔ 0136〜0140：話し中・電源オフ・圏外を「分からない」とし、
+  「分からない」が設定 line.test_ring_unknown_limit（3回）続いたらテスト番号で決めるのをやめて前の区切りで決めていた（0141 で外した）。
+- **見分けられないと返ったら、すぐ知らせる（`run` の1か所。0141。2026-10-25 夜 管理者「OK」）**：まだ分からない続きを決めにいった
+  テスト（目的 no_rows）が見分けられなかったら、その続きについて契約者と管理者にすぐ1回知らせる（`line_undecided`。鍵は回線と続きの
+  始まり＝同じ続きで何度見分けられなくても1回）。⛔ 0136〜0140：決まらないまま、鳴らしてよい時間で数えて line.pending_alert_after
+  （1日）たってから知らせていた（0141 で外した）。テスト番号が無い・鳴らしてよい時間の外で決まらないのは、前の区切りで決める・
+  時間の始まりまで待つ（今のまま。知らせない）。
 """
 
 from __future__ import annotations
 
-import threading
 from datetime import timedelta
 from enum import Enum
 from typing import Any, Protocol
@@ -49,8 +59,8 @@ from uuid import UUID
 from salescall.core import attempts, calling_hours, notify, settings
 from salescall.core.access import Access, Actor, Tx
 
-__all__ = ["PURPOSES", "Result", "RingDriver", "allowed", "checkable_seconds", "checks_stop", "hours", "number", "run",
-           "unknown_run", "usable", "wait_seconds"]
+__all__ = ["PURPOSES", "Result", "RingDriver", "allowed", "checkable_seconds", "checks_stop", "decide_within", "decides", "hours",
+           "number", "run", "usable", "wait_seconds"]
 
 PURPOSES = ("no_rows", "resume_check")   # データベースの守り（0134）と同じ
 
@@ -61,31 +71,27 @@ class RingDriver(Protocol):
     def in_call(self) -> bool: ...
 
     def test_ring(self, phone_e164: str) -> bool | None:
-        """その番号へかけ、呼び出しの音が出たら（お客様の電話でいう「鳴った」）、出る前に切って True。呼び出しの音が出ずに終わった
-        （回線のせい）なら False。テスト番号の電話が話し中・電源が切れている・圏外、呼び出しの音が出たか見分けられないときは None
-        （分からない。False にしない＝回線のせいの証拠にしない）。話している回線では試さない（None）。"""
+        """その番号へかけ、この回線から発信できたか（意味は link/phone.Phone.test_ring の1か所）：True＝発信できた（呼び出しの音・
+        話し中の音・電源オフや圏外のお知らせの声）・False＝発信できない（回線のせい）・None＝見分けられない。話している回線では試さない
+        （None）。"""
         ...
 
 
 class Result(Enum):
     # 試した結果（3つ。記録する）
-    RANG = "rang"             # 鳴った（回線は元気）
-    SILENT = "silent"         # 鳴らなかった（回線のせい）
-    UNKNOWN = "unknown"       # 分からない（テスト番号の電話が話し中・電源が切れている・圏外・見分けられない）：どちらの証拠にもしない
+    RANG = "rang"             # 鳴った＝回線から発信できた（呼び出しの音・話し中の音・電源オフや圏外のお知らせ。回線は元気）
+    SILENT = "silent"         # 鳴らなかった＝回線から発信できない（回線のせい）
+    UNKNOWN = "unknown"       # 見分けられない：どちらの証拠にもしない（あける長さのあとで、また鳴らす）
     # 試していない（記録しない）
     NO_NUMBER = "no_number"   # テスト番号が無い
     BUSY = "busy"             # 回線が話している途中・答えない
     OFF_HOURS = "off_hours"   # 鳴らしてよい時間の外（時間の始まりまで待つ）
-    WAIT = "wait"             # 鳴らす間がまだ来ていない（`wait_seconds`）
+    WAIT = "wait"             # 鳴らす間がまだ来ていない（`wait_seconds`）・ほかの回線が鳴らしている途中
 
 
-_LOCKS: dict[UUID, threading.Lock] = {}   # 契約者ごとに、テストは1本ずつ（回線をまたいで同時に鳴らさない）
-_LOCKS_GUARD = threading.Lock()
-
-
-def _lock(tenant_id: UUID) -> threading.Lock:
-    with _LOCKS_GUARD:
-        return _LOCKS.setdefault(tenant_id, threading.Lock())
+def _lock_key(tenant_id: UUID) -> str:
+    """契約者ごとに、テストは1本ずつ（回線をまたいで・見守り役をまたいで同時に鳴らさない）のデータベースの鍵の名前。"""
+    return f"salescall.ring_test:{tenant_id}"
 
 
 def _scope(tx: Tx) -> dict[str, Any]:
@@ -109,38 +115,46 @@ def hours(tx: Tx) -> tuple[tuple[int, int], ...]:
 
 def wait_seconds(tx: Tx) -> float:
     """取引の契約者が、つぎにテスト番号を鳴らしてよいまでの秒（0＝いま鳴らしてよい。1か所。どの回線・どの目的のテストも数える）：
-    前のテストから、長さの並び（line.test_ring_gaps）の、続けて「鳴った」以外だったテストの数の番目の長さ（並びの最後で止まる）。"""
+    いちばん新しいテストが鳴ったなら0（テストは OK で終わり、あける長さは無い）。鳴らなかった・見分けられなかったが続けて n 回なら、前の
+    テストから、長さの並び（line.test_ring_gaps）の n 番目の長さ（並びの最後で止まる＝初めの値で 15→30→60→120→240分）。2026-10-25 夜
+    管理者の決定（⛔ 0139 の読み方：鳴ったあとも15分あけ、鳴らなかった1回目のあとは30分だった）。"""
     gaps = [float(g) for g in settings.resolve(tx, "line.test_ring_gaps", **_scope(tx))]
     rows = tx.all("SELECT tested_at, rang, now() AS now FROM salescall.line_ring_tests WHERE tenant_id = salescall.cur_tenant()"
                   " ORDER BY tested_at DESC, test_id DESC LIMIT %s", (len(gaps),))
-    if not rows:
-        return 0.0
     run = next((i for i, r in enumerate(rows) if r["rang"]), len(rows))   # 続けて「鳴った」以外だった数（新しいほうから）
-    gap = gaps[min(run, len(gaps) - 1)]
+    if run == 0:   # テストが無い・いちばん新しいテストが鳴った（OK で終わり）：あける長さは無い
+        return 0.0
+    gap = gaps[min(run - 1, len(gaps) - 1)]
     return max(0.0, (rows[0]["tested_at"] + timedelta(seconds=gap) - rows[0]["now"]).total_seconds())
 
 
-def unknown_run(tx: Tx) -> list[dict[str, Any]]:
-    """取引の契約者の、いちばん新しいテストから続いた「分からない」のすべて（test_id・tested_at。新しい順。回線をまたいで数える）。"""
-    return tx.all("SELECT test_id, tested_at FROM salescall.line_ring_tests t WHERE t.tenant_id = salescall.cur_tenant()"
-                  "   AND t.rang IS NULL AND NOT EXISTS (SELECT 1 FROM salescall.line_ring_tests k"
-                  "                                      WHERE k.tenant_id = t.tenant_id AND k.rang IS NOT NULL"
-                  "                                        AND (k.tested_at, k.test_id) > (t.tested_at, t.test_id))"
-                  " ORDER BY tested_at DESC, test_id DESC")
+def decide_within(tx: Tx) -> float:
+    """取引の契約者の、その回線で次にかける電話の結果で決まるのを待つ長さ（秒。1か所）：テスト番号をあける長さの並び
+    （line.test_ring_gaps）の1つ目（初め15分）。まだ分からない続きは、その回線がこの長さのうちにかけられる行があれば、テスト番号を
+    鳴らさずに、その電話の結果を待つ（scheduler.soon_left が読む）。2026-10-25 夜 管理者：「その回線で次にかけるのは15分後と決めたんだ
+    から、15分になるんじゃないの？新たな設定はいらないでしょ？」（⛔ 0136〜0140：別の設定 line.decide_horizon＝30分。0141 で外した）。"""
+    return float(settings.resolve(tx, "line.test_ring_gaps", **_scope(tx))[0])
 
 
 def usable(tx: Tx) -> bool:
-    """取引の契約者が、テスト番号で決められるか（1か所）：テスト番号があり、「分からない」が決めた回数（line.test_ring_unknown_limit）
-    続いていない。False なら、まだ分からない続きは前の区切りで決め（supervisor/line.py）、止めた回線の確かめはアプリの確かめに戻す
-    （`checks_stop`）。"""
-    if number(tx) is None:
-        return False
-    return len(unknown_run(tx)) < int(settings.resolve(tx, "line.test_ring_unknown_limit", **_scope(tx)))
+    """取引の契約者が、テスト番号で決められるか（1か所）：テスト番号がある。False なら、まだ分からない続きは前の区切りで決め
+    （supervisor/line.py）、止めた回線の確かめはアプリの確かめで行う（`checks_stop`）。⛔ 0136〜0140：「分からない」が
+    line.test_ring_unknown_limit（3回）続いたら False にしていた（0141 で外した。見分けられないテストは、あける長さのあとで、また鳴らす）。"""
+    return number(tx) is not None
 
 
 def allowed(tx: Tx) -> bool:
     """いま、テスト番号を鳴らしてよい時間か（1か所。時刻はデータベースの時計）。"""
     return calling_hours.in_daily(calling_hours.local(tx.one("SELECT now() AS t")["t"]), hours(tx))
+
+
+def decides(tx: Tx, *, several: bool = False) -> bool:
+    """取引の契約者の、まだ分からない続きを、いまテスト番号で決めるか（1か所。0141）。several＝違う番号が2つ以上続けて鳴らなかった
+    続き：テスト番号で決められ（`usable`）、いまが鳴らしてよい時間の中（`allowed`）のときだけテスト番号で決める（そうでなければ前の
+    決まり＝回線のせい。管理者に伺い中なので変えない）。1つの番号の続き：テスト番号で決められれば決める（時間の外は時間の始まりまで待つ）。
+    回線ごとの処理が、続きに「テスト番号で決める」印を置くか（attempts.hold_unrung_run）と、印のある続きを前の決まりで閉じるかを、
+    ここで決める。"""
+    return usable(tx) and (not several or allowed(tx))
 
 
 def checkable_seconds(tx: Tx, since: Any) -> float:
@@ -157,8 +171,8 @@ def checks_stop(tx: Tx, stop: dict[str, Any]) -> bool:
 
 
 def run(access: Access, actor: Actor, tenant_id: UUID, line_id: UUID, driver: RingDriver, purpose: str) -> Result:
-    """テスト番号で、その回線で電話が鳴るかを試し、記録する（1か所）。鳴らなかったら、まだ分からない続きを回線のせいで閉じる。
-    分からないが決めた回数続いたら、契約者と管理者に1回知らせる。"""
+    """テスト番号で、その回線から発信できるかを試し、記録する（1か所）。鳴らなかったら、まだ分からない続きを回線のせいで閉じる。
+    まだ分からない続きを決めにいったテスト（no_rows）が見分けられなかったら、その続きについて契約者と管理者にすぐ1回知らせる。"""
     if purpose not in PURPOSES:
         raise ValueError(f"試す目的は {PURPOSES} のどれかです：{purpose!r}")
     to = access.in_tenant(actor, tenant_id, number)
@@ -166,7 +180,9 @@ def run(access: Access, actor: Actor, tenant_id: UUID, line_id: UUID, driver: Ri
         return Result.NO_NUMBER
     if not access.in_tenant(actor, tenant_id, allowed):   # 鳴らしてよい時間の外：鳴らさず、記録もしない（時間の始まりまで待つ）
         return Result.OFF_HOURS
-    with _lock(tenant_id):   # 契約者ごとに1本ずつ（間を見てから記録するまで）
+    with access.exclusive(_lock_key(tenant_id)) as mine:   # 契約者ごとに1本ずつ（間を見てから記録するまで。データベースの鍵）
+        if not mine:   # ほかの回線・ほかの見守り役が鳴らしている途中：鳴らさない（記録もしない）
+            return Result.WAIT
         if access.in_tenant(actor, tenant_id, wait_seconds) > 0:
             return Result.WAIT
         try:
@@ -177,7 +193,7 @@ def run(access: Access, actor: Actor, tenant_id: UUID, line_id: UUID, driver: Ri
             return Result.BUSY
         try:
             rang = driver.test_ring(to)
-        except Exception:  # noqa: BLE001 電話の部品の誤り：分からない
+        except Exception:  # noqa: BLE001 電話の部品の誤り：見分けられない（回線のせいの証拠にしない）
             rang = None
 
         def work(tx: Tx) -> None:
@@ -185,15 +201,23 @@ def run(access: Access, actor: Actor, tenant_id: UUID, line_id: UUID, driver: Ri
                        " VALUES (salescall.cur_tenant(), %s, %s, %s)", (line_id, purpose, rang))
             if rang is False:
                 attempts.close_unrung_run(tx, line_id, "test_silent")
-            if rang is None and not usable(tx):   # 分からないが続いた：続きごとに1回（鍵は続きの最初のテスト）
-                first = unknown_run(tx)[-1]
-                notify.emit(tx, "test_ring_unknown", key=f"test_ring_unknown:{first['test_id']}", admin=True,
-                            summary="テスト番号の電話が、続けて「分からない」（話し中・電源が切れている・圏外など）でした。"
-                                    "テスト番号の電話を確かめてください。そのあいだ、回線のせいか番号のせいかは前の電話で決め、"
-                                    "止めた回線はアプリの確かめで再開します。",
-                            refs={"line_id": line_id, "since": first["tested_at"]})
+            if rang is None and purpose == "no_rows":
+                _tell_undecided(tx, line_id)
         access.in_tenant(actor, tenant_id, work)
     return Result.UNKNOWN if rang is None else Result.RANG if rang else Result.SILENT
+
+
+def _tell_undecided(tx: Tx, line_id: UUID) -> None:
+    """テスト番号が見分けられず、まだ分からない続きが決まらない：契約者と管理者に、その続きについて1回知らせる（1か所。鍵は回線と
+    続きの始まり＝同じ続きで何度見分けられなくても1回。知らせの「同じ出来事は1回だけ」の作り＝notify.emit）。"""
+    pending = attempts.line_pending(tx, line_id)
+    if pending is None:
+        return
+    notify.emit(tx, "line_undecided", key=f"line_undecided:{line_id}:{pending['since'].isoformat()}", admin=True,
+                summary="テスト番号の電話の答えが見分けられず、回線のせいか番号のせいかが決まりません（その続きの行は、"
+                        "番号の回数にも回線の異常にも数えないまま待っています。テスト番号は、あける長さのあとで、また鳴らします）。"
+                        "回線とテスト番号の電話を確かめてください。",
+                refs={"line_id": line_id, "since": pending["since"]})
 
 
 def last(tx: Tx, line_id: UUID) -> dict[str, Any] | None:

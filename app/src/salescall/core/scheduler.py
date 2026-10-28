@@ -2,7 +2,8 @@
 
 - **判定はしない**：かけてよいかは門（`gate.claim`）だけが決める。ここは「予定の時刻を過ぎた行」を、門に渡す順に並べるだけ。
 - 門が必ず断る行は出さない（門と同じ1か所の決まりを読む）：次の予定が「かける」でない・時刻の前・前の発信の締めが済んでいない
-  （salescall.task_awaiting_decision）・こちらのプログラムの不具合で休んでいる（salescall.task_resting。0139）・「かけない」で止まる（salescall.task_excluded_now。「かけない」ならお詫び・かけ直し・約束した
+  （salescall.task_awaiting_decision）・こちらのプログラムの不具合で休んでいる（salescall.task_resting。0139）・こちらのプログラムの
+  不具合で終えた電話のあと、まだ復旧していない（salescall.awaiting_recovery。0141）・「かけない」で止まる（salescall.task_excluded_now。「かけない」ならお詫び・かけ直し・約束した
   かけ直しは例外＝かける。「強制かけない」は例外なし。0078・0085）・その行か、かける番号に、いま進行中の発信がある（データベースの
   「進行中は1本」の守りと同じ。期限の切れた予約は門が取り消すので数えない。番号はほかの依頼者・契約者の発信も見る＝salescall.number_live。
   ⛔ 見直し15：前は門が「進行中」で断るたびに、行の予定を5分先へ書き直していた）・止まっている（全体・契約者・依頼者・業務の
@@ -18,7 +19,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from salescall.core import gate
+from salescall.core import gate, ring_test
 from salescall.core.access import Tx
 
 
@@ -33,13 +34,15 @@ def clients_for_line(tx: Tx, line_id: UUID) -> list[UUID]:
         " AND salescall.client_active(client_id) ORDER BY created_at", (line["tenant_id"], line["client_id"]))]
 
 
-def soon_left(tx: Tx, line_id: UUID, *, not_phone: str, within: float) -> bool:
-    """取引の依頼者に、その回線が within 秒のうちにかけられる行があるか（1か所。回線ごとの処理が、番号のせいか回線のせいかがまだ
-    分からない続きを、待たずに決めにいくかを決めるのに読む＝supervisor/line.py の `_decide_if_stuck`）。数える行は、門に渡す候補と
-    同じ決まり（`_candidates`・gate.waits_unknown の1か所）で、時刻だけを within 秒先まで広げたもの。数えない行：まだ分からない続きの
-    番号（not_phone）の行・番号のせいか回線のせいかが分からないまま待つ行（attempts.number_unconfirmed）・候補に出さない行・判定待ち・
-    止めた範囲の行・時刻が within より先の行（夜・時間帯の外で「今はかけられない」だけの行も、時刻が先なら数えない）。
+def soon_left(tx: Tx, line_id: UUID, *, not_phone: str) -> bool:
+    """取引の依頼者に、その回線が「次の電話で決まるのを待つ長さ」（core/ring_test.decide_within の1か所＝テスト番号をあける長さの
+    並びの1つ目。初め15分。0141）のうちにかけられる行があるか（1か所。回線ごとの処理が、番号のせいか回線のせいかがまだ分からない続きを、
+    待たずに決めにいくかを決めるのに読む＝supervisor/line.py の `_decide_if_stuck`）。数える行は、門に渡す候補と同じ決まり
+    （`_candidates`・gate.waits_unknown の1か所）で、時刻だけをその長さ先まで広げたもの。数えない行：まだ分からない続きの番号
+    （not_phone）の行・番号のせいか回線のせいかが分からないまま待つ行（attempts.number_unconfirmed）・候補に出さない行・判定待ち・
+    止めた範囲の行・時刻がその長さより先の行（夜・時間帯の外で「今はかけられない」だけの行も、時刻が先なら数えない）。
     ⛔ 0136：前は終えていない行が1つでも残っていれば決めにいかず（夜や翌週にかける行も数えた）、行が止まり続けた（見直し19a）。"""
+    within = ring_test.decide_within(tx)
     rows = _candidates(tx, 50, 0, frozenset(), frozenset(), frozenset(), False, within=within, not_phone=not_phone)
     offset = 0
     while True:
@@ -93,6 +96,7 @@ def _candidates(tx: Tx, page: int, offset: int, skip_businesses: set[UUID] | fro
         "   AND (%s::text IS NULL OR k.phone_e164 <> %s)"
         "   AND NOT salescall.task_awaiting_decision(t.task_id) AND NOT salescall.task_excluded_now(t.task_id)"
         "   AND NOT salescall.task_resting(t.task_id)"
+        "   AND NOT salescall.awaiting_recovery(t.task_id)"
         "   AND NOT EXISTS (SELECT 1 FROM salescall.attempts a WHERE a.task_id = t.task_id"
         "                   AND salescall.is_live(a.state, a.claim_expires_at))"
         "   AND NOT salescall.number_live(k.phone_e164)"

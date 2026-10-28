@@ -12,7 +12,8 @@
   ずれは、サーバーへ入れる手順の誤り（流し忘れ・入れ忘れ）なので、CL-2 へ修正依頼（変わったときだけ＝呼ぶ側）。
 - **動いているプログラムの版**（`program_version`・`note`。0139）：こちらのプログラムの不具合で休ませた行と、止めた契約者を、直した
   プログラムに替わったら戻すために、中央の見守り役が、データベースと版が合っているときに、動いているプログラムの版（表の作りの指紋・
-  このプログラム（salescall の部品）と、設定で読み込むほかの担当の部品（通話を進める部品など）のソースの指紋）を書く（まだ書いていない
+  このプログラム（salescall の部品）と、設定で読み込むほかの担当の部品（通話を進める部品など）のファイル＝ソース・部品の文・設定の
+  ファイルの指紋）を書く（まだ書いていない
   版のときだけ。同じ版で立ち上げ直しても、前の版に戻しても、入れ替えのあいだ新旧が少し重なっても、替わったことにしない）。版が替わった時刻は、データベースの salescall.program_since の1か所。
   2026-10-25 ユーザー：「その行だけなら…2回続いたら、次の行へ。3行同じ問題なら、甚大な問題と判断。」
 - **PC の部品のプログラム**（`pc_out_of_date`）：つないだとき、PC の部品のやり取りの版（link.protocol.VERSION）がサーバーと合わなければ、
@@ -68,14 +69,23 @@ def _package_root(module: str) -> Path | None:
     return Path(spec.origin) if spec.origin else None
 
 
+def _source_file(root: Path, f: Path) -> bool:
+    """版の指紋に入れるファイルか（1か所）：部品の中のファイルのすべて（ソース・部品の文・設定のファイルなど。どれを直しても版が
+    替わる）。入れないのは、動かしたときにできる写し（__pycache__・.pyc・.pyo）と、隠しファイル・隠しフォルダ（. で始まる）と、
+    編集の控え（~ で終わる）だけ（⛔ 見直し20a：前は .py だけで、部品の文や設定のファイルだけを直しても版が替わらなかった）。"""
+    parts = f.relative_to(root).parts
+    return (f.is_file() and "__pycache__" not in parts and not any(x.startswith(".") for x in parts)
+            and f.suffix not in (".pyc", ".pyo") and not f.name.endswith("~"))
+
+
 def program_version(*specs: str | None) -> str:
     """動いているプログラムの版（指紋。1か所）：表の作りの指紋（`PROGRAM`）と、このプログラム（salescall の部品）と、設定で読み込む
-    ほかの担当の部品（specs＝`モジュール:名前`。通話を進める部品・通話後の検証の部品・確かめの部品）のいちばん上の部品のソース
-    （.py。行の終わりを LF にそろえる＝migrate と同じ）の指紋。どれかを直して入れ替えれば、版が替わる。"""
+    ほかの担当の部品（specs＝`モジュール:名前`。通話を進める部品・通話後の検証の部品・確かめの部品）のいちばん上の部品のファイル
+    （`_source_file`。行の終わりを LF にそろえる＝migrate と同じ）の指紋。どれかを直して入れ替えれば、版が替わる。"""
     roots = {r for r in [_package_root("salescall"), *(_package_root(s.partition(":")[0]) for s in specs if s)] if r is not None}
     h = hashlib.sha256(repr(PROGRAM).encode("utf-8"))
     for root in sorted(roots):
-        files = [root] if root.is_file() else sorted(f for f in root.rglob("*.py") if "__pycache__" not in f.parts)
+        files = [root] if root.is_file() else sorted(f for f in root.rglob("*") if _source_file(root, f))
         for f in files:
             h.update(f"{root.name}/{f.relative_to(root.parent if root.is_file() else root).as_posix()}\n".encode("utf-8"))
             h.update(hashlib.sha256(f.read_bytes().replace(b"\r\n", b"\n")).digest())

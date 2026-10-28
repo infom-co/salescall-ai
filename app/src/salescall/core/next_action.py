@@ -566,9 +566,11 @@ def _line_fault_again(tx: Tx, task_id: UUID, dialed: Target, dialed_at: datetime
     そのまま（かける先・約束・時刻・幅・お詫びの印）。回数・番号の続き・約束の回の本数のどれにも数えない。
     - line（鳴った電話を挟まずに、同じ回線で違う番号も続けて鳴らなかった）：いまから。回線はその回線ごとの処理が休ませ、続けば止めて
       知らせる（ほかの回線は、すぐかけられる）。2026-10-24 ユーザー：「回線の問題が明らかな場合は行は取りやめでなく一時中止だけ」。
-    - ours（こちらのプログラムが固まった・甚大な問題で終えた・通話を進める部品が落ちた＝試行の trouble。0136）：お客様の電話は鳴りえた
-      ので、同じお客様への最短の間隔（gate.same_contact_min_interval）をあけてから（こちらの不具合で同じお客様へ続けて鳴らさない。
-      修正依頼は見守り役の誤りとして出ている）。
+    - ours（こちらのプログラムが固まった・甚大な問題で終えた・通話を進める部品が落ちた＝試行の trouble。0136）：いまから。ただし門と
+      候補を出す処理が、復旧するまで待たせる（データベースの salescall.awaiting_recovery の1か所＝お客様が出たあとに終えた電話のすぐの
+      かけ直しと同じ。復旧＝同じ契約者で、こちらの不具合なしにお客様と話し終えた電話がある・直したプログラムの版に替わった。0141。
+      2026-10-17 管理者：「復旧次第、お詫びとともにすぐかけ直さないといけないでしょ！」。⛔ 0141 の前は、復旧を見ずに同じお客様への
+      最短の間隔だけをあけた＝お客様が出たあとの電話とは別の決め方だった）。
     それ以外（番号のせい・まだ分からない・鳴った）・かけた予定が読めなければ None（ふつうの決め方で決める）。"""
     if blame not in attempts.REDO_AS_PLANNED:
         return None
@@ -576,16 +578,10 @@ def _line_fault_again(tx: Tx, task_id: UUID, dialed: Target, dialed_at: datetime
     if row is None or row["kind"] != "call":
         return None
     target = _dialed_marks(dialed, row)
-    at = now
-    if blame == "ours":
-        ended = tx.one("SELECT max(coalesce(ended_at, claimed_at)) AS e FROM salescall.attempts WHERE task_id = %s AND "
-                       + attempts.DIALED, (task_id,))["e"]
-        gap = timedelta(seconds=int(settings.resolve(tx, "gate.same_contact_min_interval", **tasks.scope(tx, task_id))))
-        at = max(now, ended + gap) if ended is not None else now
     why = ("回線のせいで鳴らなかった（同じ回線で違う番号も続けて鳴らなかった）：回線の一時中止だけで、かけた予定のまま（どの数にも数えない）"
            if blame == "line" else
-           "こちらのせいで鳴らなかった（こちらのプログラムの不具合）：かけた予定のまま、同じお客様への最短の間隔のあと（どの数にも数えない）")
-    return _call(at, bool(row["promised"]), why, target, row["callee_at"] if row["promised"] else None, window_of(row))
+           "こちらのせいで鳴らなかった（こちらのプログラムの不具合）：かけた予定のまま、復旧次第（どの数にも数えない）")
+    return _call(now, bool(row["promised"]), why, target, row["callee_at"] if row["promised"] else None, window_of(row))
 
 
 def after_call(tx: Tx, task_id: UUID, j: Judgement, *, rules: Rules, dialed: Target,

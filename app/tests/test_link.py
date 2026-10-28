@@ -29,6 +29,7 @@ from salescall.link.phone import CallNotPlaced, CallWithheld
 from salescall.link.protocol import RemoteError
 from salescall import supervisor
 from salescall.supervisor import channel, config
+from salescall.supervisor import line as line_mod
 from salescall.supervisor.links import Attached
 from salescall.supervisor.main import Supervisor
 from tests.support import OPERATOR, SYSTEM
@@ -636,6 +637,52 @@ class LostConnection(LinkBase):
         until(lambda: isinstance(r.error, agent_main.NeedLogin), "進めている処理が無くなったら断る")
         until(lambda: phone.apologies == 1, "まだ話している回線は、おわびして切る")
         live.over()
+
+    def test_an_apology_longer_than_the_reply_wait_is_not_cut_by_a_revoked_pass(self):
+        """おわび（2つの録音とお客様の返事の待ち）が、ほかの頼みの答えを待つ長さ（REPLY_WAIT）より長くかかっても、サーバーはおわびを
+        流し終えるまで答えを待つ（protocol.APOLOGY_WAIT）。その間は通話ごとの口が「話している」ので、ログインを外した PC のつなぎを
+        おわびの途中で閉じない（閉じると、PC がもう一度おわびして切る）。⛔ 見直し20a：前は REPLY_WAIT で待つのをやめ、切り終えたと
+        みなして、おわびの途中でつなぎを閉じえた。"""
+        s = self.ready()
+        got = self.pc(s)
+
+        class SlowApology(FakePhone):
+            def play_apology_and_hang_up(self):
+                time.sleep(1.5)                                                # 2つの録音とお客様の返事の待ち
+                self.done_at = time.monotonic()
+                super().play_apology_and_hang_up()
+        phone = SlowApology()
+        r = self.agent(got, [s["line"]], {s["line"]: phone})
+        driver = self.hub.driver(s["line"], self.attached(s, got))
+        live = LiveCall(s["line"])
+        self.addCleanup(live.over)
+        with mock.patch.object(protocol, "REPLY_WAIT", 0.5):
+            driver.start_call("+81300000009")
+            phone.busy = True
+            self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: agents.revoke(tx, got.pc_id))
+            r.beat()
+            until(lambda: s["line"] not in self.hub.lines(), "回線を見せない")
+
+            def apologize():   # 通話ごとの口と同じ：おわびして切り終えたら「話している」から外れる
+                line_mod.dial_exit.abandon(driver)
+                live.ended = True
+            th = threading.Thread(target=apologize)
+            th.start()
+            closed_at = None
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
+                if isinstance(r.error, agent_main.NeedLogin):
+                    closed_at = time.monotonic()
+                    break
+                try:
+                    r.beat()
+                except RuntimeError:   # PC の部品が終わったところ（次の回で見る）
+                    pass
+                time.sleep(0.1)
+            th.join(10)
+        self.assertIsNotNone(closed_at)
+        self.assertLessEqual(phone.done_at, closed_at)                          # おわびを流し終えてから閉じた
+        self.assertEqual(phone.apologies, 1)                                    # PC がもう一度おわびしていない
 
     def test_a_pass_revoked_during_a_call_the_customer_ends_closes_without_waiting_for_the_line_flow(self):
         """通行証が止められたあと、お客様が自分で切った（サーバーは切っていない）：回線ごとの処理が戻るのを待たず、電話の部品に聞いて

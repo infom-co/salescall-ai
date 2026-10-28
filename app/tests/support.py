@@ -257,6 +257,19 @@ class World:
              version or s["version"], expires_in)))
         return aid
 
+    def talked(self, s: dict) -> UUID:
+        """同じ契約者（s の依頼者）で、こちらの不具合なしにお客様と話し終えた電話を1本足す（別の架空の行。こちらの不具合のあとの「復旧」の
+        証拠＝salescall.recovered_after。0141）。足した試行を返す。"""
+        from salescall.core.phone import normalize
+        k = self.contact(s["tenant"], s["client"], normalize(fictional_jp_fixed()).e164)
+        other = dict(s, task=self.task(s["tenant"], s["client"], s["run"], k), contact=k)
+        other["phone"] = self.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: tx.one(
+            "SELECT phone_e164 FROM salescall.contacts WHERE contact_id = %s", (k,))["phone_e164"])
+        aid = self.insert_claim(other)
+        for state in ("dialing", "ringing", "answered", "in_conversation", "ending", "ended"):
+            self.move(other, aid, state)
+        return aid
+
     def move(self, s: dict, attempt: UUID, state: str, hangup_side: str | None = None) -> None:
         self.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: tx.execute(
             "UPDATE salescall.attempts SET state = %s, hangup_side = %s WHERE attempt_id = %s",

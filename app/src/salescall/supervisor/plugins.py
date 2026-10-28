@@ -15,7 +15,17 @@ from salescall.core.access import Access, Actor, Tx
 from salescall.core.gate import Claim
 from salescall.link.basics import load   # 部品の作り方は link.basics の1か所（PC の部品と同じ）
 
-__all__ = ["CallControl", "CallRunner", "Prober", "Verifier", "load"]
+__all__ = ["CallControl", "CallRunner", "Prober", "Verifier", "WriteFailed", "load"]
+
+
+class WriteFailed(Exception):
+    """通話ごとの書き手が書けなかった書き込み（`CallControl.flush` が返す。0141）。failed＝(頼んだ書き込み, 誤り) の並び（頼んだ順）。
+    受け口の決まりに合わない（core/conversation_io.REFUSED）なら直して頼み直し、データベースの誤りなら同じ書き込みをもう一度頼める。
+    返した分は、書き手はもう持たない。"""
+
+    def __init__(self, failed: tuple[tuple[Callable[[Tx], Any], BaseException], ...]) -> None:
+        super().__init__(f"書けなかった書き込みが {len(failed)} 件あります（" + "、".join(type(e).__name__ for _, e in failed) + "）")
+        self.failed = failed
 
 
 class CallControl(Protocol):
@@ -35,19 +45,28 @@ class CallControl(Protocol):
         進められない状態です。」）。reason＝core.attempts.TROUBLES のどれか（ai_malfunction・poor_audio・cannot_proceed。frozen は回線
         ごとの処理だけが使う）。通話を途中で切るときの2つの一言（line_trouble_ask→お客様の返事→line_trouble_bye）を流して切り、試行を
         結果不明にして理由を残す（1回だけ。2回目からは何もしない）。呼んだら、通話を進める部品は、その通話の処理を終えて戻る。
-        どの理由も、こちらのせい（番号にも回線にも数えない。お客様へは、同じお客様への最短の間隔のあとで、かけた予定のままかけ直す）。"""
+        どの理由も、こちらのせい（番号にも回線にも数えない）。お客様へは、復旧次第すぐ、かけた予定のままかけ直す（お客様が出たあとなら
+        お詫びとともに。復旧＝同じ契約者で、こちらの不具合なしにお客様と話し終えた電話がある・直したプログラムの版に替わった。それまで
+        その行は待つ＝データベースの salescall.awaiting_recovery の1か所。0141。2026-10-17 管理者：「復旧次第、お詫びとともにすぐかけ直さ
+        ないといけないでしょ！」）。呼んだあとは戻ること（戻らなければ、設定 call.stuck_after で回線の処理を立て直し、CL-1 へ修正依頼）。"""
         ...
 
     def write(self, work: Callable[[Tx], Any]) -> None:
-        """通話の途中のデータベースへの書き込み（work(tx)。その依頼者の取引。例：`lambda tx: conversation_io.write_item(tx, …)`・
-        状態の移り attempts.move）を、通話ごとの書き手に頼む（**待たずに戻る**。頼んだ順に書く。書けなければ見守り役の誤りとして記録）。
+        """通話の途中のデータベースへの書き込み（work(tx)。その依頼者の取引。答えは `conversation_io.item_work(…)`・報告は
+        `conversation_io.report_work(…)`＝受け口の決まりのうちデータベースを読まずに分かる確かめを、頼むその場で行い、合わなければ
+        その場で誤りを返す。状態の移りは `lambda tx: attempts.move(tx, …)`）を、通話ごとの書き手に頼む（**待たずに戻る**。頼んだ順に書く）。
         通話を進める流れが書き込みを待たないので、データベースが遅くても「動いています」の知らせが途切れない（0136）。結果を読む
-        必要のある読み書き（通話の前の材料を読む など）は、今まで通り access で行い、通話の途中では避ける。通話を進める部品が戻ると、
-        回線ごとの処理が書き終えるまで待ってから締める。"""
+        必要のある読み書き（通話の前の材料を読む など）は、今まで通り access で行い、通話の途中では避ける。
+        **書けなかった分は、書き手が持って `flush` で返す**（WriteFailed。0141。⛔ 前は記録して捨てたので、通話の部品は知らずに通話を
+        終えた）。通話を終えて戻る前に `flush` を呼んで受け取ること（受け取らずに戻った分は、回線ごとの処理が記録する）。データベースの
+        誤りは、受け取らなくても見守り役の誤りとして記録する。通話を進める部品が戻ると、回線ごとの処理が書き終えるまで待ってから締める。
+        通話を途中で終えると決めるとき（知らせの途切れ・`end_for_trouble`）も、頼まれた書き込みを書き切ってから（設定 call.end_write_wait
+        まで）、通話がまだ進行中かを見る（話し終えた電話におわびを流さない）。"""
         ...
 
     def flush(self) -> None:
-        """頼んだ書き込みを、すべて書き終えるまで待つ（書いた結果を続けて読むとき）。"""
+        """頼んだ書き込みを、すべて書き終えるまで待つ（書いた結果を続けて読むとき・通話を終えて戻る前）。書けなかった分があれば
+        WriteFailed で返す（0141）。"""
         ...
 
 

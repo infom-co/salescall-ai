@@ -5,17 +5,23 @@
 見極めないといけないでしょ？その行だけなら、契約者(管理者含む)と、開発AIの担当、記録にそれを伝え、2回続いたら、次の行へ。3行同じ問題なら、
 甚大な問題と判断。」
 
-- **こちらの不具合で終えた電話**（試行の trouble。理由の一覧と、理由ごとの直す担当・止め方は core/errors の TROUBLES と処置の表の1か所）は、
-  番号の4回・回線の異常・行の回数のどれにも数えない（データベースの salescall.is_ours の1か所）。
+- **こちらの不具合で終えた電話**（試行の trouble のうち、こちらの不具合の理由。どれがそうかはデータベースの salescall.trouble_ours の1か所。
+  理由ごとの直す担当・止め方は core/errors の TROUBLES と処置の表）は、番号の4回・回線の異常・行の回数のどれにも数えない（salescall.is_ours）。
+  「声が聞き取れない」（poor_audio）は、こちらの不具合に数えない（2026-10-25 夜 管理者：お客様と話している途中で切れた電話と同じ。違う
+  お客様で続けば回線の異常＝supervisor/line.py の `_unrung`。0141）＝ここを通らない。
 - **電話ごとに伝える**（`after_trouble` の1か所。呼ぶのは通話ごとの口＝supervisor/line.py の `_Call` だけ）：エラーの入口
   （watch.after_error）に、出どころ「通話」で渡す＝記録（error_events）・契約者と管理者への知らせ（電話ごと）・直す担当への修正依頼
   （同じ不具合で1つ）。止めるかも同じ道（watch.decide_stop）。
 - **その行だけの問題**：同じ行で続けて salescall.trouble_rest_after()（2回）になったら、その行は休む（データベースの salescall.task_resting の
   1か所。門の理由 task_resting と、候補を出す処理が読む）。休み始めたら、契約者と管理者に1回知らせる（`task_resting`）。
-- **戻す道は2つ**：(1) 直したプログラムの版に替わった（中央の見守り役が、動いているプログラムの版を書く＝supervisor/updates.note。数えるのは
-  版が替わった時より後だけ）(2) 管理者・契約者が戻す（`restore` の1か所。画面＝CL-3 が呼ぶ。説明は help_texts の task.trouble_restore）。
+- **戻す道は2つ**：(1) その理由の修正依頼が直したと記録され（fix_requests.report_fixed）、そのあと動いているプログラムの版が替わった（中央の
+  見守り役が版を書く＝supervisor/updates.note。決めるのはデータベースの salescall.trouble_fixed_at の1か所＝止めた停止を解くのも同じ。
+  数えるのは、その時より後だけ。2026-10-25 夜 管理者の決定。⛔ 0139：版が替われば、どの理由でも戻した）(2) 管理者・契約者が戻す（`restore` の
+  1か所。画面＝CL-3 が呼ぶ。説明は help_texts の task.trouble_restore）。
 - **すべての行にかかわる問題**：違う行で同じ理由が設定 stop.trouble.stop_after_rows（初め3行）になったら、その契約者の新しい電話を止める
-  （watch.decide_stop。話している電話は切らない。直したプログラムの版に替わったら watch.resume_fixed が解く。管理者・契約者も解ける）。
+  （watch.decide_stop。話している電話は切らない。その種類を直したと記録され、そのあと版が替わったら watch.resume_fixed が解く。管理者・
+  契約者も解ける）。こちらの不具合なしにお客様と話し終えた電話（同じ契約者）があれば、違う行の数を数え直す（続けて3行のときだけ止める。
+  データベースの consecutive_errors の program_fixed。0141）。
 """
 
 from __future__ import annotations

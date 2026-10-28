@@ -242,6 +242,7 @@ WRITERS: dict[str, dict[str, frozenset[str]]] = {
     "task_exclusions": {"INSERT": frozenset({_CORE + "exclusions.py"})},     # 行ごとの「かけない」（3-4-2）
     "task_trouble_restores": {"INSERT": frozenset({_CORE + "troubles.py"})},   # 休んだ行を戻す（管理者か契約者。0139）
     "program_versions": {"INSERT": frozenset()},        # 動いているプログラムの版を書くのは、データベースの関数 note_program だけ（0139）
+    "line_run_holds": {"INSERT": frozenset()},          # 「テスト番号で決める」印を書くのは、データベースの関数 hold_unrung_run だけ（0141）
     "sample_draws": {"INSERT": frozenset({_CORE + "measure.py"})},           # 誤判定率の抜き取り（16-3）
     "sample_draw_calls": {"INSERT": frozenset({_CORE + "measure.py"})},
     "deliveries": {"INSERT": frozenset({"src/salescall/output/"}),           # 連携の台帳（Q17。持ち主 CL-3）
@@ -270,6 +271,7 @@ WRITE_FUNCTIONS: dict[str, frozenset[str]] = {
     "release_claims_on_line": frozenset({_CORE + "registry.py"}),
     "release_claims_in_scope": frozenset({_CORE + "calendar.py", _CORE + "settings.py", _CORE + "registry.py"}),
     "close_unrung_run": frozenset({_CORE + "attempts.py"}),      # まだ分からない続きを閉じる（0131。呼ぶ入口は attempts の1か所）
+    "hold_unrung_run": frozenset({_CORE + "attempts.py"}),       # 「テスト番号で決める」印を置く（0141。呼ぶ入口は attempts の1か所）
     "note_program": frozenset({"src/salescall/supervisor/updates.py"}),   # 動いているプログラムの版（0139。中央の見守り役の1か所）
 }
 _CALL = re.compile(r"\bsalescall\." + _NAME + r"\s*\(")
@@ -466,6 +468,7 @@ PY_ENTRY_CALLERS: dict[tuple[str, str], frozenset[str]] = {
     # まだ分からない続きを閉じる：決めにいく1か所（回線ごとの処理）・テスト番号・回線を使わなくする所
     ("attempts", "close_unrung_run"): frozenset({_SUP + "line.py", _CORE + "ring_test.py", _CORE + "registry.py"}),
     ("attempts", "end_for_trouble"): frozenset({_SUP + "line.py"}),          # 甚大な問題で終える：通話ごとの口だけ
+    ("attempts", "hold_unrung_run"): frozenset({_SUP + "line.py"}),          # 「テスト番号で決める」印：回線ごとの処理だけ（0141）
     ("attempts", "line_faults_unrecorded"): frozenset({_SUP + "line.py"}),   # 回線の異常として数える：回線ごとの処理だけ
     ("ring_test", "run"): frozenset({_SUP + "line.py"}),                     # テスト番号を鳴らす：電話の部品を持つ回線ごとの処理だけ
     ("scheduler", "soon_left"): frozenset({_SUP + "line.py"}),               # 決めにいくかの判断：回線ごとの処理だけ
@@ -477,16 +480,36 @@ PY_ENTRY_CALLERS: dict[tuple[str, str], frozenset[str]] = {
 }
 
 
+def _module_names(tree: ast.AST) -> dict[str, str]:
+    """そのファイルで、モジュールを指す名前 → モジュールの名前（いちばん後ろ）。`import … as 別名`・`from … import モジュール as 別名`
+    の別名も読む（⛔ 見直し20a：別名で取り込むと、決める入口の呼び手の見張りを素通りした）。"""
+    names: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for a in node.names:
+                if a.asname:
+                    names[a.asname] = a.name.rsplit(".", 1)[-1]
+        elif isinstance(node, ast.ImportFrom):
+            for a in node.names:
+                if a.asname:
+                    names[a.asname] = a.name
+    return names
+
+
 def entries_called_from_their_places(app_root: Path) -> list[Violation]:
     out: list[Violation] = []
     for path in _python_files(app_root):
         rel = _rel(app_root, path)
         if rel.startswith("tests/") or rel == "run_tests.py":
             continue
-        for node in ast.walk(_parse(path)):
+        tree = _parse(path)
+        aliases = _module_names(tree)
+        for node in ast.walk(tree):
             hits: list[tuple[str, str]] = []
             if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):   # attempts.close_unrung_run（呼ぶ・渡す）
-                hits.append((node.value.id, node.attr))
+                hits.append((aliases.get(node.value.id, node.value.id), node.attr))
+            elif isinstance(node, ast.Attribute) and isinstance(node.value, ast.Attribute):   # salescall.core.attempts.close_unrung_run
+                hits.append((node.value.attr, node.attr))
             elif isinstance(node, ast.ImportFrom) and node.module:                    # from …attempts import close_unrung_run
                 hits += [(node.module.rsplit(".", 1)[-1], a.name) for a in node.names]
             for module, function in hits:

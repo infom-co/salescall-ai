@@ -20,6 +20,11 @@
     （判定が「理由が無い」＝reason_missing として、直す担当へ修正依頼を出す。答えそのものは失わない）。
   - ⏳ 値の形（型ごとの値の決まり）は、CL-1 が持つ予定の core/value_types.py（CL-1 の連絡帳 4-5・CL-2 の連絡帳 4-24 の約束）が
     できるまで見ない（勝手に2つ目の決まりを作らない）。
+- **通話の途中に、通話ごとの書き手（supervisor.plugins.CallControl.write）へ頼む形**（`item_work`・`report_work`。0141。見直し20a の (7)）：
+  受け口の決まりのうち、データベースを読まずに分かるもの（`check_item`・報告の形＝call_report.from_json）は、頼んだその場で確かめ、
+  合わなければその場で ItemInvalid・ReportInvalid を返す（通話の部品が、その場で聞き直せる）。データベースを読む確かめ（質問が版に
+  あるか など）は書き手が書くときに行い、書けなかった分は書き手が持って、通話の部品の flush（と通話の終わり）で返す。
+  確かめの決まりは、どちらも `write_item`・`save_report` と同じ1か所（2つ目を作らない）。
 - **会話の報告を置く**（`save_report`。形の確かめは call_report.from_json の1か所。1回だけ・変更不可）と、**録音から作り直した
   報告を置く**（`save_rebuilt_report`。通話後の検証が呼ぶ）。
 - **「もうかけないで」をその場で台帳へ**（`declare_do_not_call`。dnc.register_declared をそのまま呼ぶ。原則14）。
@@ -36,6 +41,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
@@ -44,8 +50,8 @@ from salescall.core import attempts, business_rules, business_settings, call_rep
 from salescall.core.access import Tx
 from salescall.core.attempts import AttemptNotFound
 
-__all__ = ["ItemInvalid", "ItemValue", "call_setting", "declare_do_not_call", "earlier", "handlings", "record_keys",
-           "save_rebuilt_report", "save_report", "write_item"]
+__all__ = ["REFUSED", "ItemInvalid", "ItemValue", "call_setting", "check_item", "declare_do_not_call", "earlier", "handlings",
+           "item_work", "record_keys", "report_work", "save_rebuilt_report", "save_report", "write_item"]
 
 # 理由を持てる状態と、その理由の名前の一覧（正本は業務の決まり business_rules。ここは対応だけ）
 _REASONS: dict[str, tuple[str, ...]] = {"dont_know": business_rules.DONT_KNOW_REASONS,
@@ -67,8 +73,48 @@ class ItemValue:
     hedged: str | None = None      # 言い切っていない返事の言葉（お客様の言葉そのまま。CL-1 の 4-21）
 
 
+# 受け口の決まりに合わないとして断った誤り（データベースの誤りではない＝直すのは頼んだ側。通話ごとの書き手は、見守り役の誤りに数えず、
+# 通話の部品へ返す）
+REFUSED: tuple[type[Exception], ...] = (ItemInvalid, call_report.ReportInvalid)
+
+
+def check_item(item: ItemValue) -> None:
+    """答えの形の確かめのうち、データベースを読まずに分かるもの（1か所。`write_item` も、頼んだその場の `item_work` も、これを通る）：
+    質問の番号があること・理由はその状態のときだけで名前が決まった一覧にあること・言い切っていない言葉が空でないこと・値が JSON に
+    できること。合わなければ ItemInvalid。"""
+    if not isinstance(item.question_id, str) or not item.question_id.strip():
+        raise ItemInvalid("質問の番号がありません")
+    if item.reason is not None:
+        allowed = _REASONS.get(item.state)
+        if allowed is None:
+            raise ItemInvalid("理由は「わからない」（dont_know）「答えない」（refused）のときだけ付けます")
+        if item.reason not in allowed:
+            raise ItemInvalid(f"理由「{item.reason}」は、「{item.state}」の決まった理由 {allowed} のどれでもありません")
+    if item.hedged is not None and not item.hedged.strip():
+        raise ItemInvalid("言い切っていない言葉が空です（無ければ None）")
+    try:
+        json.dumps(item.value, ensure_ascii=False)
+    except (TypeError, ValueError):
+        raise ItemInvalid("取れた値が JSON にできる形ではありません") from None
+
+
+def item_work(attempt_id: UUID, item: ItemValue) -> Callable[[Tx], None]:
+    """答えを1つ書く、通話ごとの書き手へ頼む形（`call.write(conversation_io.item_work(…))`）。データベースを読まずに分かる確かめ
+    （`check_item`）は、いま行う（合わなければ、いま ItemInvalid）。書くときの確かめは `write_item` のまま。"""
+    check_item(item)
+    return lambda tx: write_item(tx, attempt_id, item)
+
+
+def report_work(attempt_id: UUID, raw: Any) -> Callable[[Tx], call_report.CallReport]:
+    """会話の報告を置く、通話ごとの書き手へ頼む形（`call.write(conversation_io.report_work(…))`）。報告の形の確かめ（call_report.from_json
+    の1か所）は、いま行う（合わなければ、いま ReportInvalid）。"""
+    call_report.from_json(raw)
+    return lambda tx: save_report(tx, attempt_id, raw)
+
+
 def write_item(tx: Tx, attempt_id: UUID, item: ItemValue) -> None:
     """その通話で取った答えを1つ書く（同じ質問なら書き換える）。書けなければ ItemInvalid。"""
+    check_item(item)
     a = tx.one("SELECT task_id, version_id, verification::text AS verification,"
                " salescall.reached_answer(attempt_id) AS reached FROM salescall.attempts WHERE attempt_id = %s", (attempt_id,))
     if a is None:
@@ -84,14 +130,6 @@ def write_item(tx: Tx, attempt_id: UUID, item: ItemValue) -> None:
         raise ItemInvalid(f"項目の状態「{item.state}」は、決まった状態のどれでもありません")
     if item.condition is not None and item.condition not in business_settings.possible_answers(question):
         raise ItemInvalid(f"選択肢「{item.condition}」は、質問「{item.question_id}」で返りうる答えではありません")
-    if item.reason is not None:
-        allowed = _REASONS.get(item.state)
-        if allowed is None:
-            raise ItemInvalid("理由は「わからない」（dont_know）「答えない」（refused）のときだけ付けます")
-        if item.reason not in allowed:
-            raise ItemInvalid(f"理由「{item.reason}」は、「{item.state}」の決まった理由 {allowed} のどれでもありません")
-    if item.hedged is not None and not item.hedged.strip():
-        raise ItemInvalid("言い切っていない言葉が空です（無ければ None）")
     tx.execute(
         "INSERT INTO salescall.item_values (tenant_id, client_id, task_id, version_id, question_id, state, value, condition,"
         "                                   reason, hedged, attempt_id)"

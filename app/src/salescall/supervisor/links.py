@@ -22,7 +22,8 @@ class CallDriver(LineDriver, Protocol):
         ...
 
     def test_ring(self, phone_e164: str) -> bool | None:
-        """テスト番号へ鳴るか試す（鳴った True・鳴らなかった False・分からない None。core/ring_test の1か所が呼ぶ）。"""
+        """テスト番号へ鳴るか試す（回線から発信できた True・発信できない False・見分けられない None。意味は link/phone.Phone.test_ring。
+        core/ring_test の1か所が呼ぶ）。"""
         ...
 
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import unittest
 from dataclasses import replace
 
-from salescall.core import apology, attempts, fix_requests, gate, next_action, quality_stage, recordings, reward, settings, stops
+from salescall.core import apology, attempts, fix_requests, gate, next_action, quality_stage, recordings, reward, stops
 from salescall.core.access import Rejected
 from salescall.core.attempts import ForbiddenFinding, VerificationSummary
 from salescall.core.call_report import Cut
@@ -270,8 +270,9 @@ class Apology(Helpers):
 
     def test_an_apology_call_that_did_not_ring_through_no_fault_of_the_number_is_made_again_as_planned(self):
         """お詫びの電話が、番号のせいでなく鳴らなかった（こちらのせい＝こちらのプログラムの不具合で終えた。0136）：ふつうの電話と同じ
-        1か所（next_action._line_fault_again）で、かけた予定のまま（お詫びの印も）、同じお客様への最短の間隔のあとにかけ直す。
-        届かなかった回数にも数えない（⛔ 見直し19a の壊し試し：お詫びの電話のこの道を外しても落ちる試験が無かった）。"""
+        1か所（next_action._line_fault_again）で、かけた予定のまま（お詫びの印も）、復旧次第かけ直す（それまでは門が待たせる＝
+        salescall.awaiting_recovery。0141）。届かなかった回数にも数えない（⛔ 見直し19a の壊し試し：お詫びの電話のこの道を外しても落ちる
+        試験が無かった）。"""
         s = self.fresh(stage_cap=20)
         self.order(s, self.incident(s))
         aid = self.call(s, ("dialing", "ringing"))
@@ -280,11 +281,9 @@ class Apology(Helpers):
         d = self.settle(s, aid)["decision"]
         self.assertEqual((d.kind, d.target.purpose, d.promised), ("call", "apology", True))
         self.assertIn("こちらのせい", d.rule)
-        gap = self.tx(s, lambda tx: tx.one("SELECT (%s - ended_at) AS g FROM salescall.attempts WHERE attempt_id = %s",
-                                           (d.at, aid))["g"])
-        interval = self.tx(s, lambda tx: int(settings.resolve(tx, "gate.same_contact_min_interval", tenant_id=s["tenant"],
-                                                                      client_id=s["client"], business_id=s["business"])))
-        self.assertGreaterEqual(gap.total_seconds(), interval - 1)
+        self.assertEqual(self.reason(s), "awaiting_recovery")                 # 復旧するまで待つ
+        self.w.talked(s)                                                       # 同じ契約者で、こちらの不具合なしに話し終えた
+        self.assertIsInstance(self.claim(s), gate.Claim)                       # 復旧次第すぐ（お詫びの印のまま）
 
     def test_an_apology_call_waits_for_the_voice_the_apology_was_recorded_in(self):
         """お詫びの電話は、契約者が聞いて承認したお詫びの録音と同じ声だけで話す（gate.choose_voice の1か所。0131）：その声で話せなく

@@ -96,8 +96,13 @@ REASONS: dict[str, Reason] = {
     "excluded": Reason("「かけない」か「強制かけない」にしている行です（依頼者・契約者の都合。ダッシュボードで戻せます）", "wait", "unoffered"),
     # こちらのプログラムの不具合で、同じ行の電話が続けて終わった（2026-10-25 ユーザー：「2回続いたら、次の行へ」。決まりはデータベースの
     # salescall.task_resting の1か所＝候補を出す処理も同じ関数で出さない。0139）
-    "task_resting": Reason("こちらのプログラムの不具合で、この行の電話が続けて終わったので、休ませています（直したプログラムの版に替わるか、"
-                           "管理者・契約者が戻すと、またかけます）", "wait", "unoffered"),
+    "task_resting": Reason("こちらのプログラムの不具合で、この行の電話が続けて終わったので、休ませています（直す担当がその不具合を直したと"
+                           "記録し、そのあと直したプログラムの版に替わるか、管理者・契約者が戻すと、またかけます）", "wait", "unoffered"),
+    # こちらのプログラムの不具合で終えた電話のあと、復旧を待つ（2026-10-17 管理者：「復旧次第、お詫びとともにすぐかけ直さないといけない
+    # でしょ！」。決まりはデータベースの salescall.awaiting_recovery の1か所＝候補を出す処理も同じ関数で出さない。0141）
+    "awaiting_recovery": Reason("こちらのプログラムの不具合でこの行の電話を終えたので、復旧を待っています（同じ契約者で、こちらの不具合なしに"
+                                "お客様と話し終えた電話があるか、直したプログラムの版に替わったら、すぐにかけ直します。お客様が出たあとに"
+                                "終えた電話は、お詫びとともに）", "wait", "unoffered"),
     "business_daily_limit": Reason("この業務の、今日の発信の上限に達しました（業務ごとの設定）", "wait", "business"),
     "line_other_client": Reason("この回線は、ほかの依頼者に割り当てた発信番号です", "wait", "line"),
     "line_used_by_other_client": Reason("この発信番号で、ほかの依頼者がこの番号へかけたことがあります（依頼者が替わったら発信番号を替える）",
@@ -571,8 +576,8 @@ TASK_REASONS = _handled("task")
 UNOFFERED_REASONS = _handled("unoffered")
 PLAN_IF_KNOWN = _handled("plan_if_known")
 # 候補に出さない理由のうち、候補のデータベースの条件（scheduler._candidates）で除くもの（門と同じデータベースの関数：
-# salescall.task_excluded_now・salescall.blocking_stops・salescall.task_resting）。のこりは `waits_unknown` が門と同じ関数で見る
-UNOFFERED_IN_CANDIDATES = frozenset({"excluded", "stopped", "task_resting"})
+# salescall.task_excluded_now・salescall.blocking_stops・salescall.task_resting・salescall.awaiting_recovery）。のこりは `waits_unknown` が門と同じ関数で見る
+UNOFFERED_IN_CANDIDATES = frozenset({"excluded", "stopped", "task_resting", "awaiting_recovery"})
 UNOFFERED_HERE = UNOFFERED_REASONS - UNOFFERED_IN_CANDIDATES
 # 行の予定を書き直さない理由のすべて（回線ごとの処理は、これに入らない理由だけを次の動き after_denial へ渡す）
 PLAN_KEPT = frozenset(REASONS) - _handled("plan") - _handled("plan_if_known")
@@ -618,9 +623,15 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
     if tx.one("SELECT salescall.task_excluded_now(%s) AS x", (task["task_id"],))["x"]:
         return _deny("excluded")
     # こちらのプログラムの不具合で、この行の電話が続けて終わった：その行は休む（次の行へ。決まりはデータベースの1か所
-    # salescall.task_resting＝候補を出す処理と同じ。戻るのは、直したプログラムの版に替わったとき・管理者か契約者が戻したとき。0139）
+    # salescall.task_resting＝候補を出す処理と同じ。戻るのは、その不具合を直したと記録され、そのあと版が替わったとき（0141）・管理者か
+    # 契約者が戻したとき。0139）
     if tx.one("SELECT salescall.task_resting(%s) AS r", (task["task_id"],))["r"]:
         return _deny("task_resting")
+    # こちらのプログラムの不具合で終えた電話のあと、まだ復旧していない：復旧を待つ（決まりはデータベースの1か所 salescall.awaiting_recovery
+    # ＝候補を出す処理と同じ。復旧したら、すぐ。0141。⛔ 前は、お客様が出たあとに終えた電話を締めてすぐかけ直し、直っていなければ、お客様が
+    # 続けて2回お詫びの電話を受けた）
+    if tx.one("SELECT salescall.awaiting_recovery(%s) AS w", (task["task_id"],))["w"]:
+        return _deny("awaiting_recovery")
 
     # (1b) 依頼者を無効にしていないか（Intent.md 4章 A。判断はデータベースの1か所 salescall.client_active）。業務設定の確かめより
     #      先に見る（無効の依頼者の設定の抜けを、契約者に知らせない＝2026-10-18 の見直し）

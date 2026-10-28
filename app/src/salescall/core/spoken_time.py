@@ -424,8 +424,11 @@ def _check_wday(t: str, pos: int, days: tuple[date, date]) -> tuple[tuple[date, 
 
 def _within(sec: int, hours: tuple[int, int]) -> bool:
     """その時刻（0時からの秒）が時間 [始まり, 終わり] に入るか（始まりちょうど・終わりちょうども入る＝2026-10-24 ユーザー：「閉店
-    ちょうどや開始ちょうどは時間内に含める」。日をまたいでよい：18:00〜翌3:00 の「3時」は入る）。"""
+    ちょうどや開始ちょうどは時間内に含める」。日をまたいでよい：18:00〜翌3:00 の「3時」は入る）。終わりが 24:00（1日の終わり）なら、
+    0時ちょうども閉店ちょうどとして入る（⛔ 見直し20a：18:00〜24:00 の「12時」の夜中＝閉店ちょうどを時間外と見ていた）。"""
     open_, close = hours
+    if close >= DAY and sec == 0:
+        sec = DAY
     return open_ <= sec <= close if open_ <= close else (sec >= open_ or sec <= close)
 
 
