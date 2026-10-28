@@ -84,7 +84,26 @@ def mismatch(d: dict, target: dict) -> float:
 #    +9.3 dB の段差になった（ご指摘の無かった組は −9.4〜−23.9 dB）
 ROLE_STEP_DB = 3.0
 STEP_S = 0.01
-STEP_OVER = 100.0
+# 上限を超えた組に足すずれ：100＋超えた量÷unit×10（ほかに組が無いときだけ選ばれ、そのときは超えた量の小さい組から。⛔ 2026-10-25 の3回目：どれも
+# 同じ +100 にしたので、L4 の「で」で、声質の差 6.39 dB の組より 12.84 dB の組を選んだ）。役職の切る所の段差・録音全体の高さの差と、
+# g69_vowel_seam の声質の差・話す速さのずれは、みなこの足し方（G-66・G-69 の唯一の場所）
+OVER = 100.0
+
+
+def over_by(value: float, limit: float, unit: float) -> float:
+    """上限 limit を超えた組に足すずれ：OVER＋（超えた量÷unit）×10。超えていなければ 0（上の OVER の説明）。"""
+    return OVER + (value - limit) / unit * 10.0 if value > limit else 0.0
+
+
+def pitch_over(a: dict | None, b: dict | None) -> tuple[float | None, float]:
+    """2つの録音全体（voice_features.features）の声の高さの差（半音）と、上限（G-58 の4回目で決めた「半音3つ以内」＝name_clips.MAX_ST）を
+    超えた分のずれ。どちらかの高さが読めなければ (None, OVER)。役職｜名前の部分と、名前の部分｜続く言葉の両方の唯一の決まり。"""
+    from name_clips import MAX_ST
+    from voice_features import semitones
+    if not (a and b and a.get("pitch_hz") and b.get("pitch_hz")):
+        return None, OVER
+    st = round(abs(semitones(b["pitch_hz"], a["pitch_hz"])), 2)
+    return st, over_by(st, MAX_ST, 1.0)
 
 
 def _db(pcm: bytes, rate: int, a: float, b: float) -> float:
@@ -95,10 +114,15 @@ def _db(pcm: bytes, rate: int, a: float, b: float) -> float:
 def pick_role(roles: list[dict], target: dict, y: bytes, rate: int, start_q: float, lead: float) -> tuple[bytes, dict]:
     """名前の部分 y（start_q 秒から。声の始まりまで lead 秒）に、つなぎ目の前後の声の変わり方が文まるごとの変わり方（target）に一番そろう
     役職の録音（roles の1つ＝{pcm, pause, end}）を選び、間をもとの長さにして、役職の側の音を返す（G-66・G-69 の唯一の場所）。
-    役職の側の切る所が、名前の部分の頭より ROLE_STEP_DB 以上大きい録音（間が静かにならない録音）は、ほかに無いときだけ選ぶ。"""
+    役職の側の切る所が、名前の部分の頭より ROLE_STEP_DB 以上大きい録音（間が静かにならない録音）と、録音全体の声の高さが名前の部分の録音と
+    MAX_ST より離れた録音は、ほかに無いときだけ選ぶ（pitch_over）。⛔ 2026-10-28 G-69 の4回目（S2 の (V 役職) ○「『営業部部長の』と『岡田様』
+    以降の声質が違う」）：選んだ役職の録音は全体で 180 Hz・名前の部分の録音は 148 Hz（3.4半音）で、この決まりを役職には当てていなかった"""
+    from voice_features import features
     o = start_q + lead
     fs = seam_features(y, rate, o, o + FEAT_S)
     floor = _db(y, rate, start_q, start_q + max(lead, STEP_S))   # 名前の部分の頭（声の始まりまで）の大きさ
+    fy = features(y, rate)
+    whole = [pitch_over(fy, features(ro["pcm"], rate)) for ro in roles]
 
     def cut_at(ro) -> tuple[float, float]:
         a, b = ro["pause"]
@@ -107,7 +131,7 @@ def pick_role(roles: list[dict], target: dict, y: bytes, rate: int, start_q: flo
 
     def step(ro) -> float:
         return _db(ro["pcm"], rate, cut_at(ro)[1] - STEP_S, cut_at(ro)[1]) - floor
-    scored = (sorted(((mismatch(delta(ro["end"], fs), target) + (STEP_OVER if step(ro) > ROLE_STEP_DB else 0.0), k)
+    scored = (sorted(((mismatch(delta(ro["end"], fs), target) + over_by(step(ro), ROLE_STEP_DB, 1.0) + whole[k][1], k)
                       for k, ro in enumerate(roles)), key=lambda t: t[0]) if fs else [(None, 0)])
     sc, k = scored[0]
     ro = roles[k]
@@ -116,7 +140,8 @@ def pick_role(roles: list[dict], target: dict, y: bytes, rate: int, start_q: flo
     cut = int(end * rate)
     return ro["pcm"][:cut * 2], {"役職の録音": k + 1, "変わり方のずれ": sc and round(sc, 2), "役職のもとの間（秒）": round(b - a, 3),
                                  "名前の頭の無音（秒）": round(lead, 3), "役職の側に残した間（秒）": round(keep, 3),
-                                 "切る所の段差（dB）": round(step(ro), 1),
+                                 "切る所の段差（dB）": round(step(ro), 1), "全体の高さの差（半音）": whole[k][0],
+                                 "役職の候補の全体の高さの差（半音）": [w for w, _ in whole],
                                  "役職の候補のずれ": [round(s, 2) for s, _ in scored if s is not None]}
 
 

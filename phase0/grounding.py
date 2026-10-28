@@ -211,7 +211,7 @@ def make_reader(args, name: str, wait_s: float = 0.0, attempt_s: float | None = 
     from meaning_judge import OTHER_JUDGES, other_client
 
     if name in OTHER_JUDGES:
-        client = other_client(name, load_secret(OTHER_JUDGES[name]["key"], args.env), aio=True)
+        client = other_client(name, load_secret(OTHER_JUDGES[name]["key"], args.env), aio=True, budget=getattr(args, "budget_yen", None))
 
         async def call(knowledge, said, draft):
             return await ask_other(client, name, knowledge, said, draft), None

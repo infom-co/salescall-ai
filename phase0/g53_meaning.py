@@ -424,7 +424,7 @@ def run_judges(args, items: list[dict], qmap: dict, ids: dict) -> None:
                 return
             q = qmap[it["qid"]]
             if key not in clients:
-                clients[key] = other_client(key, load_secret(OTHER_JUDGES[key]["key"], args.env))
+                clients[key] = other_client(key, load_secret(OTHER_JUDGES[key]["key"], args.env), budget=args.budget_yen)
             for attempt in range(5):
                 try:
                     t = time.monotonic()

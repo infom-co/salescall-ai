@@ -45,10 +45,9 @@ import numpy as np
 from common import base_parser, make_client, pick_key, read_wav_pcm16_mono, require_python, save_result, say, write_wav
 from g58_name_splice import OUT
 from g65_seams import char_index, pause_after
-from g66_role_seam import FEAT_S, delta, onset_s, pick_role, seam_features, take_with_times
+from g66_role_seam import FEAT_S, delta, onset_s, over_by, pick_role, pitch_over, seam_features, take_with_times
 from phrases import PROMISE_AGAIN, TARGET_CALL, TARGET_CONFIRM
 from voice_features import features, pitch_at, pitch_near, semitones
-from name_clips import MAX_ST
 
 ROLE = "営業部部長の"
 NAME, OTHER, ROLE_NAME = "岡田", "中島", "伊藤"
@@ -65,7 +64,6 @@ PARTICLE_GAP_S = 0.14
 # ○「『岡田様』のイントネーションが少しおかしい」（名前の部分の録音そのものは ◎「少し早口」）。1回目の S2（◎）は約16%・L4 は 5〜11%
 RATE_WEIGHT = 10.0
 EAR_TRIES = 4                  # 組んだ音が耳の確かめに通らなければ、次に合う組を試す数
-WHOLE_OVER = 100.0             # 録音全体の声の高さの差が MAX_ST を超える組に足すずれ（ほかに組が無いときだけ選ばれる）
 # つなぎ目に接する所だけで読む周期の数（join_gap）。⛔ 2026-10-28：前は高さを約44ミリ秒・大きさを SIDE_S で読み、動いている声ではつなぎ目の
 # 値にならなかった。前後の1周期の形の近さ（相関）も足していたが、つなぎ目の周期のそろいを直に読む「周期のずれ」と同じ問いなので外した
 # （形の近さは、続く言葉の切る所を周期の同じ位置に合わせる align だけに使う。記録には残す）
@@ -82,9 +80,7 @@ DUR_UNIT = 1.2
 # S2 の 3.99〜6.04 dB と L4 の「と」4.77 dB は機械音のご指摘なし／「で」の 9.0 dB 前後（前後の1周期の形 0.46 以下）は「途切れと違和感」。
 # 同じ録音の同じ所の自然な変わり方は 1.6〜4.8 dB
 VOICE_MAX = 6.3
-# 上限を超えた組に足すずれ：100＋超えた量×10（ほかに組が無いときだけ選ばれ、そのときは超えた量の小さい組から。⛔ 2026-10-25 の3回目：どれも同じ
-# +100 にしたので、L4 の「で」で、声質の差 6.39 dB の組より 12.84 dB の組を選んだ）。録音全体の高さ・話す速さの上限も同じ足し方（over）
-VOICE_OVER = 100.0
+# 上限を超えた組に足すずれは g66_role_seam.over_by（録音全体の高さ・話す速さの上限も同じ足し方）
 # 話す速さのずれの上限（下の RATE_WEIGHT の速さのずれ）。✅ 2026-10-25 のユーザーの聞き比べ：◎ だった組は 0.16 まで（1回目の S2）・
 # ○「『岡田様』のイントネーションが少しおかしい」は 0.32（2回目の S2）。L4 は2回とも 0.11 まで（ご指摘なし）
 SPEED_MAX = 0.25
@@ -99,6 +95,9 @@ DROP_DB = 6.0                  # 母音の終わり：帯の強さが、母音�
 MIN_VOWEL_S = 0.025            # 切る所を選べる母音の短さの下限
 MAX_VOWEL_S = 0.12             # 「ま」の母音の長さの上限
 TIME_SLACK_S = 0.08            # 言葉ごとの時刻（0.06秒きざみ）のずれの見込み：m は助詞の文字の始まり＋これより前
+# 「さ」の s が「様」の時刻の 0.08秒前までに見つからないときに、探し直す前の限り（秒）。S2 の名前の部分で、s は時刻の 0.14〜0.22秒前だった
+# （2026-10-29。名前の擦れる音＝「石井」の「し」などは、ふつう「様」の s より1拍（0.12秒〜）以上前で、この限りより前）
+S_BACK_S = 0.25
 EDGES = np.geomspace(200.0, 6000.0, 21)   # 声質を比べる帯（20）
 NFFT = 2048
 
@@ -187,16 +186,22 @@ def ma_vowel(pcm: bytes, rate: int, times, head: str) -> dict | None:
     見つからなければ None。
     ⛔ 2026-10-25 の1回目：谷のうち一番深い所を m にしていた＝「で」の d・「の」の n・「は」の w（どれも帯の強さが下がる）を選び、助詞の母音で
        切った録音があった ⇒ 「さ」の母音のあとの最初の谷にし、助詞の文字の始まりより TIME_SLACK_S 以上後ろの谷は数えない。
-    ⛔ 2回目：母音の終わりを「声の周期が取れなくなる所」にもしていた＝かすれた母音を短すぎるとして落とした ⇒ 帯の強さだけで決める。"""
+    ⛔ 2回目：母音の終わりを「声の周期が取れなくなる所」にもしていた＝かすれた母音を短すぎるとして落とした ⇒ 帯の強さだけで決める。
+    ⛔ 2026-10-29（4回目のあと）：「さ」の s を「様」の時刻の 0.08秒前からしか探さず、時刻が遅れて付いた S2 の名前の部分12本中4本で s を見落とし
+       「切れなかった材料」にしていた（s は時刻の 0.14〜0.22秒前）⇒ 見つからなかったときだけ、S_BACK_S 前まで広げて探し直す（見つかった録音は
+       今までと同じ。広げるのは見落としたときだけなので、続く言葉の「中島」の「じま」を拾うことはない）。"""
     k = char_index(times, head)
     if k is None or k + 1 >= len(times):
         return None
     t0, t1 = times[k][1], times[k + 1][1]
-    c = contour(pcm, rate, t0 - 0.12, t1 + 0.24)
-    ts, band, shape = c["t"], c["band"], c["shape"]
-    fric = (c["high"] > c["low"]) & (c["high"] > c["high"].max() - 25)
-    # 「さ」の s：t0 の近くで、擦れる音が2つ以上続いたあと、擦れる音でなくなる所（最初の母音の始まり）
-    v0 = next((i for i in range(2, len(ts)) if t0 - 0.08 <= ts[i] <= t0 + 0.22 and not fric[i] and fric[i - 1] and fric[i - 2]), None)
+    for back in (0.08, S_BACK_S):
+        c = contour(pcm, rate, t0 - back - 0.04, t1 + 0.24)
+        ts, band, shape = c["t"], c["band"], c["shape"]
+        fric = (c["high"] > c["low"]) & (c["high"] > c["high"].max() - 25)
+        # 「さ」の s：t0 の近くで、擦れる音が2つ以上続いたあと、擦れる音でなくなる所（最初の母音の始まり）
+        v0 = next((i for i in range(2, len(ts)) if t0 - back <= ts[i] <= t0 + 0.22 and not fric[i] and fric[i - 1] and fric[i - 2]), None)
+        if v0 is not None:
+            break
     if v0 is None:
         return None
     m = None
@@ -235,11 +240,6 @@ def ma_vowel(pcm: bytes, rate: int, times, head: str) -> dict | None:
     return {"cut": cut, "sign": sign, "period": period, "t": round(cut / rate, 4), "t_steady": round(steady, 4),
             "s_end": round(float(ts[v0]), 3), "m": round(float(ts[m]), 3), "vowel": (round(float(ts[a_s]), 3), round(float(ts[a_e]), 3)),
             "times": (t0, t1)}
-
-
-def over_by(value: float, limit: float, unit: float) -> float:
-    """上限 limit を超えた組に足すずれ：VOICE_OVER＋（超えた量÷unit）×10。超えていなければ 0（上の VOICE_OVER の説明）。"""
-    return VOICE_OVER + (value - limit) / unit * 10.0 if value > limit else 0.0
 
 
 def points(pcm: bytes, rate: int, mv: dict) -> list[tuple[int, int]]:
@@ -452,10 +452,10 @@ async def build(args, out, rows: list[dict]) -> dict:
         """名前の部分 h と続く言葉 t の、一番合う切る点の組（名前の部分の切る点ごとに、続く言葉はその最後の1周期に一番よく続く位置＝align）の
         組のずれ（小さいほど合う）・つなぎ目の差・続く言葉の切る所・名前の部分の切る所。"""
         speed = round(abs(t["speech_s"] / median_s[form] - h["rel_s"]), 3) if median_s[form] else 0.0
-        # 録音全体の声の高さの差（G-58 の4回目で決めた「半音3つ以内」＝name_clips.MAX_ST）。超える組は、ほかに組が無いときだけ選ぶ
+        # 録音全体の声の高さの差（g66_role_seam.pitch_over＝役職と同じ決まり）。超える組は、ほかに組が無いときだけ選ぶ
         # （⛔ 2026-10-25 の2回目：この条件を入れておらず、S2 の「で」の組は全体の高さが 6.5半音違った＝続く言葉が別の人の声に聞こえうる）
-        whole = round(abs(semitones(t["whole"]["pitch_hz"], h["whole"]["pitch_hz"])), 2) if h["whole"] and t["whole"] else None
-        over = (WHOLE_OVER if whole is None else over_by(whole, MAX_ST, 1.0)) + over_by(speed, SPEED_MAX, 0.1)
+        whole, w_over = pitch_over(h["whole"], t["whole"])
+        over = w_over + over_by(speed, SPEED_MAX, 0.1)
         best = None
         for hc, per in h["points"]:
             for tc, tper in t["points"]:
@@ -509,9 +509,7 @@ async def build(args, out, rows: list[dict]) -> dict:
                                 "自然な変わり方": t["natural"], "自然な1周期の形": t["natural_shape"], "話す長さ（秒）": round(t["speech_s"], 3),
                                 "聞こえた読み": t["row"]["row"].get("heard_as")} for t in ts] for f, ts in tails.items()}
     notes["選んだ名前の部分"] = h["wav"]
-    notes["選んだ続く言葉"] = {form: {"材料": tails[form][k]["wav"], "つなぎ目の差": g, "ずれ": round(s_, 2),
-                                  "全体の高さの差（半音）": round(abs(semitones(tails[form][k]["whole"]["pitch_hz"], h["whole"]["pitch_hz"])), 2)
-                                  if h["whole"] and tails[form][k]["whole"] else None}
+    notes["選んだ続く言葉"] = {form: {"材料": tails[form][k]["wav"], "つなぎ目の差": g, "ずれ": round(s_, 2)}   # 全体の高さの差は g の中
                            for form, (s_, k, g, _, _) in best.items()}
 
     # (V 役職)：役職の材料のうち、文まるごとの変わり方に一番そろうもの（G-66 と同じ）

@@ -4035,6 +4035,52 @@ class JudgeSetupTest(unittest.TestCase):
         from g53_meaning import g48_questions
         return next(q for q in g48_questions() if q.id == "G17")
 
+    def test_spend_is_counted_saved_and_capped(self):
+        # 有料の判定（Anthropic）の料金の帳簿（meaning_judge.SPEND）：返事の使った量から円を数え、結果の記録に入れ、試しの上限を超えたら
+        # 送らない（判定は止まった扱い）。⛔ 2026-10-28 ユーザー：「ここまでで3万円以上使用しているということですよ。無駄遣いや…」
+        import asyncio
+        import json
+        import tempfile
+        from types import SimpleNamespace
+        import common
+        import meaning_judge as mj
+
+        sent = []
+
+        class Messages:
+            def create(self, **body):
+                sent.append(body["model"])
+                return SimpleNamespace(usage=SimpleNamespace(input_tokens=1670, output_tokens=40, cache_read_input_tokens=0,
+                                                             cache_creation_input_tokens=0))
+
+        class AioMessages:
+            async def create(self, **body):
+                return Messages().create(**body)
+        old, mj.SPEND = mj.SPEND, mj.Spend()
+        try:
+            c = mj._Metered(SimpleNamespace(messages=Messages()), aio=False)
+            c.messages.create(model="claude-sonnet-5-5", messages=[])
+            # 1回＝入力 1,670×2ドル＋出力 40×10ドル（100万トークンあたり）＝0.00374ドル＝約0.56円
+            self.assertAlmostEqual(mj.SPEND.yen, (1670 * 2.0 + 40 * 10.0) / 1e6 * 150, places=6)
+            a = mj._Metered(SimpleNamespace(messages=AioMessages()), aio=True)
+            asyncio.run(a.messages.create(model="claude-haiku-5-5", messages=[]))
+            self.assertEqual(dict(mj.SPEND.calls), {"claude-sonnet-5-5": 1, "claude-haiku-5-5": 1})
+            mj.SPEND.limit = mj.SPEND.yen   # 上限に達した：それより後は送らない（失敗は止まった判定と同じ形）
+            with self.assertRaises(mj.OtherJudgeError):
+                c.messages.create(model="claude-sonnet-5-5", messages=[])
+            self.assertEqual(len(sent), 2)
+            with tempfile.TemporaryDirectory() as d:   # 結果を保存するとき、料金も記録に入る
+                old_dir, old_ledgers = common.RESULTS_DIR, list(common.LEDGERS)
+                common.RESULTS_DIR, common.LEDGERS[:] = Path(d), [mj.SPEND]
+                try:
+                    got = json.loads(common.save_result("TEST", {}).read_text(encoding="utf-8"))
+                finally:
+                    common.RESULTS_DIR, common.LEDGERS[:] = old_dir, old_ledgers
+            self.assertEqual(got["有料の窓口の料金"]["Anthropic の判定"]["回数"], {"claude-sonnet-5-5": 1, "claude-haiku-5-5": 1})
+            self.assertEqual(common.base_parser("").parse_args([]).budget_yen, common.DEV_BUDGET_YEN)   # 試しには初めから上限がある
+        finally:
+            mj.SPEND = old
+
     def test_doc_has_every_host_and_key_name(self):
         # 枠に、判定の接続先・キーの名前と、いま使えている接続先（貼り替えで消さない）が、すべてある
         from meaning_judge import OTHER_JUDGES
@@ -5058,6 +5104,36 @@ class VoiceFeaturesTest(unittest.TestCase):
         comp, w = ma_length({"vowel": (0.5, 0.58)}, int(0.54 * rate), {"vowel": (0.6, 0.65)}, int(0.625 * rate), rate)
         self.assertAlmostEqual(comp, 0.065, delta=1e-4)
         self.assertAlmostEqual(w, np.log(1.3) / np.log(1.2), delta=0.01)
+
+    def test_role_take_keeps_the_whole_pitch_rule(self):
+        # 役職の録音も、録音全体の声の高さが名前の部分の録音と半音3つ（name_clips.MAX_ST）以内のものを選ぶ（名前の部分｜続く言葉と同じ1か所＝
+        # g66_role_seam.pitch_over）。⛔ 2026-10-28 G-69 の4回目：S2 の役職は 3.4半音高い録音を選び「『営業部部長の』と『岡田様』以降の声質が違う」
+        import numpy as np
+        from g66_role_seam import delta, over_by, pick_role, pitch_over, seam_features
+        from voice_features import features
+        rate = 24000
+
+        def voice(hz, s=1.0):
+            t = np.arange(int(s * rate)) / rate
+            return self.pcm(0.3 * np.sin(2 * np.pi * hz * t) + 0.2 * np.sin(4 * np.pi * hz * t) + 0.1 * np.sin(6 * np.pi * hz * t))
+        y = voice(150.0)
+        high, near = voice(150.0 * 2 ** (5 / 12)), voice(150.0 * 2 ** (1 / 12))
+        st, over = pitch_over(features(y, rate), features(high, rate))
+        self.assertAlmostEqual(st, 5.0, delta=0.3)
+        self.assertAlmostEqual(over, over_by(st, 3.0, 1.0))
+        self.assertGreater(over, 100.0)
+        self.assertEqual(pitch_over(features(y, rate), features(near, rate))[1], 0.0)
+        self.assertEqual(pitch_over(None, features(y, rate)), (None, 100.0))   # 読めない録音は、ほかに無いときだけ
+        fs = seam_features(y, rate, 0.0, 0.35)
+        end = {"hz": 150.0, "db": fs["db"], "bright": fs["bright"]}
+        target = delta(end, fs)
+        # 高い録音は、つなぎ目の前後の変わり方が文まるごとにぴったりそろう（ずれ 0）が、全体の高さが5半音違う／もう1つは変わり方が半音1つずれる
+        roles = [{"pcm": high, "pause": (0.5, 0.6), "end": end}, {"pcm": near, "pause": (0.5, 0.6), "end": {**end, "hz": 150.0 * 2 ** (1 / 12)}}]
+        _, info = pick_role(roles, target, y, rate, 0.0, 0.0)
+        self.assertEqual(info["役職の録音"], 2)
+        self.assertAlmostEqual(info["全体の高さの差（半音）"], 1.0, delta=0.3)
+        _, only = pick_role(roles[:1], target, y, rate, 0.0, 0.0)               # ほかに無いときは、高い録音でも選ぶ
+        self.assertEqual(only["役職の録音"], 1)
 
 
 class ClipTablesTest(unittest.TestCase):

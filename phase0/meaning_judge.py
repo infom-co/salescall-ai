@@ -332,12 +332,77 @@ def other_text(name: str, data: dict) -> str | None:
     return next((c.get("text") for o in data.get("output") or [] for c in o.get("content") or [] if c.get("type") == "output_text"), None)
 
 
-def other_client(name: str, key: str, aio: bool = False):
-    """Google 以外の判定へ送る道具（Anthropic は公式の部品・OpenAI は httpx）。やり直しは呼ぶ側の1か所でするので、部品では繰り返さない。"""
+# ── 有料の判定（Anthropic）の料金の帳簿（唯一の場所）。返事ごとに使った量（usage）を数え、結果を保存するときに記録へ入れる（common.save_result）。
+#    ⛔ 2026-10-28 ユーザー：「ここまでで3万円以上使用しているということですよ。無駄遣いや、必要ないのに使っているシーンはありませんか？
+#       儲けより、API料金の方が高いことになりますよ」＝使った量をどこにも残しておらず、測りの料金が積み上がっても気づけなかった
+#       （10-18 の午後だけで、同じ答え 2,259件を Sonnet に約1万1千回送り、同じ測りを2分おいて2回流した回もあった）
+#    料金：100万トークンあたりのドル（入力・出力・まとめて送った分の読み・書き。考える量は出力に入る）。1ドル＝150円（Intent.md 12-2）
+PRICE = {"claude-sonnet-5-5": (2.00, 10.00, 0.20, 2.50), "claude-haiku-5-5": (0.10, 0.50, 0.01, 0.125)}
+YEN_PER_USD = 150.0
+
+
+class Spend:
+    """送った回数・量・円。limit＝この試しで使ってよい円（common.base_parser の --budget-yen。通話の本番では渡さない＝上限なし）：超えたら、
+    それより後は送らずに失敗にする（判定は止まった扱い＝通話は止まらない。測りは、それ以上お金を使わない）。"""
+    name = "Anthropic の判定"
+
+    def __init__(self):
+        from collections import Counter, defaultdict
+        self.calls, self.tokens, self.yen, self.limit = Counter(), defaultdict(Counter), 0.0, None
+
+    def check(self) -> None:
+        if self.limit is not None and self.yen >= self.limit:
+            raise OtherJudgeError(None, f"この試しで使ってよい料金（{self.limit:.0f}円）に達したので送りません（--budget-yen）")
+
+    def add(self, model: str, usage) -> None:
+        u = {k: getattr(usage, k, None) or (usage.get(k) if isinstance(usage, dict) else None) or 0
+             for k in ("input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")}
+        p_in, p_out, p_read, p_write = PRICE.get(model, PRICE["claude-sonnet-5-5"])
+        usd = (u["input_tokens"] * p_in + u["output_tokens"] * p_out + u["cache_read_input_tokens"] * p_read
+               + u["cache_creation_input_tokens"] * p_write) / 1e6
+        self.calls[model] += 1
+        self.tokens[model].update(u)
+        self.yen += usd * YEN_PER_USD
+
+    def summary(self) -> dict:
+        return {"円": round(self.yen, 1), "回数": dict(self.calls), "トークン": {m: dict(t) for m, t in self.tokens.items()},
+                **({"上限の円": self.limit} if self.limit is not None else {})}
+
+
+SPEND = Spend()
+
+
+class _Metered:
+    """Anthropic の部品の messages.create を包む：送る前に上限を確かめ（SPEND.check）、返事の使った量を帳簿に数えてから返す。"""
+
+    def __init__(self, client, aio: bool):
+        self._client, self._aio, self.messages = client, aio, self
+
+    def create(self, **body):
+        SPEND.check()
+        if self._aio:
+            async def go():
+                got = await self._client.messages.create(**body)
+                SPEND.add(body["model"], got.usage)
+                return got
+            return go()
+        got = self._client.messages.create(**body)
+        SPEND.add(body["model"], got.usage)
+        return got
+
+
+def other_client(name: str, key: str, aio: bool = False, budget: float | None = None):
+    """Google 以外の判定へ送る道具（Anthropic は公式の部品を料金の帳簿で包む・OpenAI は httpx）。やり直しは呼ぶ側の1か所でするので、部品では
+    繰り返さない。budget：この試しで有料の判定に使ってよい円（試しの引数 --budget-yen。通話の本番は渡さない）。"""
     if OTHER_JUDGES[name]["maker"] == "anthropic":
         import anthropic
+        from common import LEDGERS
 
-        return (anthropic.AsyncAnthropic if aio else anthropic.Anthropic)(api_key=key, max_retries=0, timeout=60)
+        if budget is not None:
+            SPEND.limit = budget
+        if SPEND not in LEDGERS:
+            LEDGERS.append(SPEND)
+        return _Metered((anthropic.AsyncAnthropic if aio else anthropic.Anthropic)(api_key=key, max_retries=0, timeout=60), aio)
     import httpx
 
     return (httpx.AsyncClient if aio else httpx.Client)(base_url=f"https://{OTHER_JUDGES[name]['host']}", timeout=60,
@@ -630,7 +695,8 @@ def make_judge(args, model_name: str):
     from g23_names import find_models
 
     if model_name in OTHER_JUDGES:
-        client = other_client(model_name, load_secret(OTHER_JUDGES[model_name]["key"], args.env), aio=True)
+        client = other_client(model_name, load_secret(OTHER_JUDGES[model_name]["key"], args.env), aio=True,
+                              budget=getattr(args, "budget_yen", None))
 
         async def other(q, text, asked=None, before=None):
             return await ajudge_other(client, model_name, q, text, asked, before)

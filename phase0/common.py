@@ -155,14 +155,24 @@ def make_client(key: ApiKey):
 
 
 # ---------------------------------------------------------------- 結果
+# 有料の窓口の料金の帳簿（name・calls・summary() を持つもの。meaning_judge.SPEND が、道具を作るときに自分を入れる）。結果を保存するときに、
+# 使った分を必ず記録に入れて言う（⛔ 2026-10-28：測りが使った料金をどこにも残しておらず、積み上がっても気づけなかった）
+LEDGERS: list = []
+DEV_BUDGET_YEN = 100.0   # 試しで有料の判定に使ってよい円の初めの値（--budget-yen）。大きな測りは、見込みの円を出してから上げる
+
+
 def save_result(item: str, data: dict) -> Path:
-    """結果を results/<項目>_<日時>.json に保存する。中身も必ず伏せる。"""
+    """結果を results/<項目>_<日時>.json に保存する。中身も必ず伏せる。有料の窓口を使っていれば、その料金も入れる。"""
     RESULTS_DIR.mkdir(exist_ok=True)
     stamp = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
     path = RESULTS_DIR / f"{item}_{stamp}.json"
-    payload = {"item": item, "saved_at": _dt.datetime.now().isoformat(timespec="seconds"), **data}
+    spent = {ledger.name: ledger.summary() for ledger in LEDGERS if ledger.calls}
+    payload = {"item": item, "saved_at": _dt.datetime.now().isoformat(timespec="seconds"), **data,
+               **({"有料の窓口の料金": spent} if spent else {})}
     path.write_text(redact(json.dumps(payload, ensure_ascii=False, indent=2, default=str)), encoding="utf-8")
     say(f"結果を保存しました：{path}")
+    for name, s in spent.items():
+        say(f"{name}に使った料金：約{s['円']}円（{sum(s['回数'].values())}回）")
     return path
 
 
@@ -462,6 +472,8 @@ def base_parser(description: str) -> argparse.ArgumentParser:
     p.add_argument("--key-index", type=int, default=0, help="何番目のキーを使うか（0 から）")
     p.add_argument("--model", default=DEFAULT_MODEL, help="モデルID（G-1 で公式の値を確かめる）")
     p.add_argument("--dry-run", action="store_true", help="接続せず、設定の組み立てだけ確かめる")
+    p.add_argument("--budget-yen", type=float, default=DEV_BUDGET_YEN,
+                   help="この試しで有料の判定（Anthropic）に使ってよい円。超えたら、それより後は送らない（判定は止まった扱い）")
     p.add_argument(
         "--proxy-key",
         action="store_true",
