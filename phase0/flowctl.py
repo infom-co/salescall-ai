@@ -1024,6 +1024,10 @@ class Question:
     # 「わからない」「答えたくない」の扱い（業務の決まり＝CL-2 の business_rules の「理由×扱い」。(状態, 理由) → HANDLINGS の1つ。必須の質問だけ）。
     # 状態は dont_know・refused、理由は DONT_KNOW_LABEL・REFUSED_LABEL の名前。「答えたくない」に使えるのは結論として終えるだけ（✕ は二度と聞かない）
     handlings: dict = field(default_factory=dict)
+    # 選択肢が、こちらが決めた意味の名前（ご本人・不在・尋ねている など）か。真なら、意味の判定にはその名前のまま見せ、意味の定義は説明に書く
+    # （meaning_judge.options）。偽（お客様の選択肢の言葉＝はい・いいえ・している など）は、意味の言葉を名前にして見せる（言葉の頭で選ばせない）。
+    # ⛔ 2026-10-29：意味の定義（長い文）を名前にしていたので、返事の形の指定にも長い文が並び、「ご本人」と答えるたびに長い文を書き出していた
+    named: bool = False
 
     def __post_init__(self):
         assert self.type in TYPES, f"{self.id} の型「{self.type}」は、型の一覧にありません（I-16）"
@@ -1464,13 +1468,13 @@ class Flow:
         target = self.target
         asked_parts = (("T1", "target"),) + tuple((f"T{i + 2}", part) for i, part in enumerate(CONFIRM_PARTS)) if target else ()
         self.calling_question = (Question("T1", target["target"], "yes_no", required=False, conditions=tuple(TARGET_MEANINGS),
-                                          meanings=dict(TARGET_MEANINGS)) if target else None)
+                                          meanings=dict(TARGET_MEANINGS), named=True) if target else None)
         self.confirm_questions = {part: Question(qid, target[part], "yes_no", required=False, conditions=tuple(CONFIRM_MEANINGS),
-                                                 meanings=dict(CONFIRM_MEANINGS)) for qid, part in asked_parts[1:]}
-        self.asks_questions = {qid: Question(qid, target[part], "yes_no", required=False, conditions=tuple(ASKS_MEANINGS), meanings=dict(ASKS_MEANINGS))
-                               for qid, part in asked_parts}
+                                                 meanings=dict(CONFIRM_MEANINGS), named=True) for qid, part in asked_parts[1:]}
+        self.asks_questions = {qid: Question(qid, target[part], "yes_no", required=False, conditions=tuple(ASKS_MEANINGS), meanings=dict(ASKS_MEANINGS),
+                                        named=True) for qid, part in asked_parts}
         self.return_question = (Question("R1", target["target"], "yes_no", required=False, conditions=tuple(RETURN_MEANINGS),
-                                         meanings=dict(RETURN_MEANINGS)) if target else None)
+                                         meanings=dict(RETURN_MEANINGS), named=True) if target else None)
 
     def _part_play(self, k: str) -> dict:
         """名乗りの部分 k を流す1つ（唯一の場所）：依頼主の単位の録音（名乗りの部分）か、後任の方へ切り替えたあとの呼ぶ一言・確かめる一言

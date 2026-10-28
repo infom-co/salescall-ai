@@ -2545,15 +2545,10 @@ class MeaningJudgeOptionsTest(unittest.TestCase):
         from meaning_judge import options, prompt, read
         q = Question("Q1", "ご予約の日時に変更はございませんでしょうか？", "yes_no", conditions=("はい", "いいえ"),
                      meanings={"はい": "ご予約の日時に変更はないということ", "いいえ": "ご予約の日時に変更がおありということ"})
-        # 名前は短く中立に（「答えA」…）・意味の言葉は説明に1回だけ（⛔ 2026-10-29：意味の言葉を名前にしていたので、返事の形の指定にも長い文が並んだ）
-        from meaning_judge import _schema
         names = [n for n, _, _ in options(q)]
-        self.assertEqual(names[:2], ["答えA", "答えB"])
-        said = prompt(q, "違います。", "念のためご予約の日時に変更がおありということでよろしいでしょうか？")
-        self.assertNotIn("- はい：", said)
-        self.assertIn("- 答えA：「ご予約の日時に変更はないということ」という意味の答え", said)
-        self.assertNotIn("ご予約の日時に変更はないということ", json.dumps(_schema(q, None), ensure_ascii=False))
-        self.assertEqual(read(q, json.dumps({"choice": "答えA"})), "はい")
+        self.assertEqual(names[:2], ["ご予約の日時に変更はないということ", "ご予約の日時に変更がおありということ"])
+        self.assertNotIn("- はい：", prompt(q, "違います。", "念のためご予約の日時に変更がおありということでよろしいでしょうか？"))
+        self.assertEqual(read(q, json.dumps({"choice": "ご予約の日時に変更はないということ"})), "はい")
         self.assertEqual(read(q, json.dumps({"choice": HOLD})), HOLD)
         c = Question("Q2", "お支払いはどちらになさいますか？", "choice", conditions=("カード", "振込"), meanings={"カード": "わからない"})
         self.assertEqual([n for n, _, _ in options(c)][:3], ["カード", "振込", "どちらでも"])  # ほかの名前とかぶる意味の言葉は使わない
@@ -2561,6 +2556,32 @@ class MeaningJudgeOptionsTest(unittest.TestCase):
         v = Question("Q3", "ご希望の日時をお聞かせいただけますでしょうか？", "datetime", conditions=("答えた",))
         self.assertEqual(read(v, json.dumps({"choice": "合っている"}), "念のため16日でよろしいでしょうか？"), "affirmed")
         self.assertIsNone(read(v, json.dumps({"choice": "はい"}), "念のため16日でよろしいでしょうか？"))
+
+    def test_our_meaning_names_are_shown_as_names(self):
+        # こちらが決めた意味の名前の質問（Question.named＝目的のお客様か・確かめへの返事・尋ねているか・待たせた方が戻ったか）は、その名前のまま
+        # 見せ、意味の定義は説明に1回だけ（⛔ 2026-10-29：定義の長い文を名前にしていて、返事の形の指定に長い文が並び、「ご本人」と答える
+        # たびに長い文を書き出していた）。お客様の選択肢の言葉の質問は、前のまま意味の言葉を名前に（上の試験）
+        import json
+        from flowctl import Flow, TARGET_IS_THERE, TARGET_MEANINGS, Question
+        from meaning_judge import _schema, jev_criteria, options, prompt, prompt_parts, read
+        f = Flow([Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"))],
+                 target={"target": "営業部部長の「岡田」様はいらっしゃいますでしょうか？", "target_confirm": "「おかだ」様でいらっしゃいますでしょうか？",
+                         "target_reconfirm": "「おかだ」様でお間違えなかったでしょうか？"})
+        for q in (f.calling_question, *f.confirm_questions.values(), *f.asks_questions.values(), f.return_question):
+            self.assertTrue(q.named, q.id)
+            names = [n for n, _, _ in options(q)][:len(q.conditions)]
+            self.assertEqual(names, list(q.conditions))
+            self.assertLess(len(json.dumps(_schema(q, None), ensure_ascii=False)), 400)   # 名前の決まりに長い定義を並べない
+        q = f.calling_question
+        said = prompt(q, "はい、岡田です。")
+        self.assertIn(f"- {TARGET_IS_THERE}：{TARGET_MEANINGS[TARGET_IS_THERE]}", said)
+        self.assertEqual(said.count(TARGET_MEANINGS[TARGET_IS_THERE]), 1)
+        self.assertEqual(read(q, json.dumps({"choice": TARGET_IS_THERE})), TARGET_IS_THERE)
+        self.assertEqual(jev_criteria(q)[TARGET_IS_THERE], TARGET_MEANINGS[TARGET_IS_THERE])
+        # まとめて送る区切りは、毎回同じ「決まり＋質問」の後ろ（つなげると1文字も違わない）
+        head, rest = prompt_parts(q, "はい、岡田です。", None, "少々お待ちください。")
+        self.assertEqual(head + rest, prompt(q, "はい、岡田です。", None, "少々お待ちください。"))
+        self.assertEqual(head, prompt_parts(q, "別の言葉", None, None)[0])
 
 
 class UnreportedNoteTest(unittest.TestCase):

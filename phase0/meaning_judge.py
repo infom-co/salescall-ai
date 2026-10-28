@@ -82,7 +82,7 @@ RULES = (
     "決まり：\n"
     "- 言葉の意味で選びます。言葉の頭の「はい」「いいえ」だけで決めません（「いいえ、もう済ませてあります」は、済ませた側）。\n"
     "- 打ち消しを重ねた言い方は、意味で読みます（「していないわけではない」は、している側）。\n"
-    "- 「〜ございませんでしょうか？」のような打ち消しの問いへの「はい」「いいえ」は、選べるものの説明（意味）で、どちらの意味かを決めます。\n"
+    "- 「〜ございませんでしょうか？」のような打ち消しの問いへの「はい」「いいえ」は、選べるものの名前（意味）で、どちらの意味かを決めます。\n"
     "- こちらが答えを言い直して確かめたあとの返事は、お客様が認めた意味で選びます（言い直した意味を「はい」と認めたら、その意味）。\n"
     # ⚠️ 例は、試験の言葉（G-14・G-52）と同じ言い方にしない（同じだと、試験で測った正しさが高く出る）
     # ⛔ 2026-10-18：言い切っているかを足した形で、Claude Sonnet 5.5（考える）が、打ち消しの言い直し（「〜ではないということで…」）への
@@ -96,18 +96,17 @@ RULES = (
     "- " + FIRM_RULE + "\n"
     "- 迷ったら「" + UNDECIDED + "」を選びます。\n"
 )
-# 問い合わせの文は、毎回同じ部分（決まり・質問・選べるもの）を先に、その発話ごとに変わる部分（その前に相手が言ったこと・言い直した言葉・
-# お客様の言葉）を後ろに並べる（prompt_parts）。✅ 2026-10-29 ユーザー「(1) で進めてOKです」：毎回同じ前の部分は、Anthropic へ2回目から
-# 約10分の1の値段で送れる（まとめて送る仕組み＝other_request）。⛔ 前は「その前に相手が言ったこと」が選べるものの説明より前にあり、まとめられなかった
-FIXED = RULES + (
+PROMPT = RULES + (   # 並びの見本（文を作るのは prompt_parts の1か所）
     "質問：「{question}」\n"
-    "選べるもの（名前：説明）：\n{choices}\n"
-)
-VARYING = (
     "{before}"
     "{asked}"
+    "選べるもの（名前：説明）：\n{choices}\n"
     "お客様の言葉：「{text}」\n"
 )
+# ⛔ 2026-10-29（✅ ユーザー「(1) で進めてOKです」で試した）：毎回同じ部分（決まり・質問・選べるもの）を先に並べ替え、お客様の選択肢の言葉の
+#    名前も「答えA」…にした形は、G-53 の 2,817件で危ない向き 40 → 42・言い直しを認めたと誤読 5 → 6（「なるべく早く導入したいと思ってます」
+#    を2つの Sonnet とも3回中3回誤読。前の名前に戻すと3回中3回正しい・並べ替えだけでも「50名に近いのですが…」を3回中2回誤読）⇒ 文は前の
+#    並びのまま、名前は印のある質問（Question.named）だけ短くする。まとめて送る区切りは、毎回同じ「決まり＋質問」の後ろ（prompt_parts）
 
 
 # ⛔ 2026-10-18 取り下げた決まりの案：「言い切っていない返事（『〜ですが…』『できれば〜』『〜かな』『〜はず』『〜くらい』）は決められない」。
@@ -115,29 +114,26 @@ VARYING = (
 #    案は逆の向きだった（測った「直った」は、作らせたモデルの誤った正解に合わせただけのものを含む。PHASE0 G-53 の3回目）。
 
 
-MEANT = "という意味の答え"   # 意味の言葉のある選択肢の説明の終わり（jev_criteria が意味の言葉を読み戻す）
-
-
 def options(q, asked: str | None = None) -> list[tuple[str, str, str]]:
     """選べるもの（判定に見せる名前、説明、中の名前）。選択肢の質問と、値を聞く質問の最初の答えは Question.all_conditions の並び
-    （宣言した選択肢で意味の言葉があるものは、名前を「答えA」「答えB」…にし、説明に意味の言葉を書く＝意味で選ばせる。意味の言葉が無い・
-    ほかの名前とかぶるときは選択肢の名前）。値を聞く質問の言い直しへの返事は「合っている」「違う値を言われた」（AIの報告 confirm_field と
-    同じ名前）。最後に、答えでない言葉の3つ。
-    ⛔ G-53 の2回目：名前の「いいえ」と相手の「違います」を言葉で結びつけ、言い直しを認めていないのに認めたと読んだ ⇒ 名前を選択肢の言葉にしない。
-    ⛔ 2026-10-29：意味の言葉そのものを名前にしていたので、返事の形の指定（_schema の enum）にも長い文が並び、目的のお客様の判定では
-       送る量の 55%（4,065トークン中 約2,230）がその分だった（数えるだけの窓口で測った）⇒ 名前は短く中立に、意味の言葉は説明に1回だけ"""
+    （宣言した選択肢は、意味の言葉を名前にする。無い・ほかの名前とかぶるときは選択肢の名前）。選択肢がこちらが決めた意味の名前の質問
+    （Question.named＝目的のお客様か・確かめへの返事・尋ねているか・待たせた方が戻ったか）は、その名前のまま見せ、意味の定義を説明に書く。
+    値を聞く質問の言い直しへの返事は「合っている」「違う値を言われた」（AIの報告 confirm_field と同じ名前）。最後に、答えでない言葉の3つ。
+    ⛔ G-53 の2回目：名前の「いいえ」と相手の「違います」を言葉で結びつけ、言い直しを認めていないのに認めたと読んだ ⇒ お客様の選択肢の言葉は名前にしない。
+    ⛔ 2026-10-29：印のある質問も意味の定義（長い文）を名前にしていたので、返事の形の指定にも長い文が並び（目的のお客様の判定で送る量の55%）、
+       「ご本人」と答えるたびに長い文（約400トークン＝入力の5倍の値段）を書き出していた"""
     if q.type in CHOICE_TYPES or asked is None:
         taken = {label(c) for c in q.all_conditions if c not in q.conditions} | set(KIND_DESC)
-        head, n = [], 0
+        head = []
         for c in q.all_conditions:
-            if c in q.conditions:
-                meaning = q.meanings.get(c)
-                if meaning and meaning not in taken:
-                    taken.add(meaning)
-                    head.append((f"答え{chr(ord('A') + n)}", f"「{meaning}」{MEANT}", c))
-                    n += 1
-                else:
-                    head.append((label(c), f"「{c}」と答えた", c))
+            if c in q.conditions and getattr(q, "named", False):
+                head.append((label(c), q.meanings.get(c) or f"「{c}」と答えた", c))
+            elif c in q.conditions:
+                name = q.meanings.get(c)
+                if not name or name in taken:
+                    name = label(c)
+                taken.add(name)
+                head.append((name, "この意味の答え" if name != label(c) else f"「{c}」と答えた", c))
             else:
                 head.append((label(c), SYSTEM_DESC[c], c))
     else:
@@ -154,15 +150,24 @@ def scene(q, text: str, asked: str | None = None, before: str | None = None) -> 
             | {"お客様の言葉": text})
 
 
-def prompt_parts(q, text: str, asked: str | None = None, before: str | None = None) -> tuple[str, str]:
-    """問い合わせの文の (毎回同じ部分, その発話ごとに変わる部分)。同じ質問・同じ言い直しの段なら、前の部分は1文字も変わらない。"""
-    said = f"こちらが言い直して確かめた言葉：「{asked}」\n" if asked else ""
-    return (FIXED.format(question=q.text, choices="\n".join(f"- {n}：{d}" for n, d, _ in options(q, asked))),
-            VARYING.format(asked=said, text=text, before=f"{BEFORE}：「{before}」\n" if before else ""))
-
-
 def prompt(q, text: str, asked: str | None = None, before: str | None = None) -> str:
     return "".join(prompt_parts(q, text, asked, before))
+
+
+def prompt_parts(q, text: str, asked: str | None = None, before: str | None = None) -> tuple[str, str]:
+    """問い合わせの文（prompt）の (毎回同じ前の部分, その発話ごとに変わる残り)。Anthropic へは前の部分に印を付けて送る（cached_content）。
+    返事の形の指定（選べる名前の決まり）は、文より前に置かれ、前の部分と一緒にまとめて送られる（2026-10-29 に確かめた）。
+    並びは PROMPT（質問・その前に相手が言ったこと・言い直した言葉・選べるもの・お客様の言葉）。ただし、こちらが決めた意味の名前の質問
+    （Question.named）は、選べるもの（意味の定義＝長くて毎回同じ）を、その前に相手が言ったことより先に置く（定義もまとめて送れる）。
+    ⛔ 2026-10-29：お客様の選択肢の言葉の質問で選べるものを先に置くと、言い直しへの返事の読みが悪くなった（G-53。上の PROMPT の注意）。
+       目的のお客様の判定（G-59）は、選べるものを先に置いた形で 139 → 144/147"""
+    said = f"こちらが言い直して確かめた言葉：「{asked}」\n" if asked else ""
+    before = f"{BEFORE}：「{before}」\n" if before else ""
+    choices = "選べるもの（名前：説明）：\n" + "\n".join(f"- {n}：{d}" for n, d, _ in options(q, asked)) + "\n"
+    head, tail = RULES + f"質問：「{q.text}」\n", f"お客様の言葉：「{text}」\n"
+    if getattr(q, "named", False):
+        return head + choices, before + said + tail
+    return head, before + said + choices + tail
 
 
 def cached_content(fixed: str, varying: str) -> list[dict]:
@@ -327,13 +332,10 @@ JEV_FIRM = {"true": "答えを言い切っている（" + FIRM_YES[0] + FIRM_YES
 
 def jev_criteria(q, asked: str | None = None) -> dict:
     """Jev に渡す選択肢の定義（名前は options と同じ。答えの意味の選択肢は、意味で読むことを定義に書く）。"""
-    import re
-
     out = {}
     for n, d, c in options(q, asked):
-        m = re.fullmatch(r"「(.*)」(?:" + MEANT + "|と答えた)", d)   # 意味の言葉（無ければ選択肢の言葉）
-        if m:
-            d = (f"お客様の答えの意味が「{m.group(1)}」（打ち消しを重ねた言い方・打ち消しの問いへの「はい」「いいえ」も、言葉の頭ではなく意味で読む。"
+        if d == "この意味の答え" or d.startswith("「"):
+            d = (f"お客様の答えの意味が「{n}」（打ち消しを重ねた言い方・打ち消しの問いへの「はい」「いいえ」も、言葉の頭ではなく意味で読む。"
                  "言い切っていなくても、この意味に寄っていればこれ）")
         out[n] = d
     return out
@@ -378,13 +380,15 @@ class Spend:
     name = "Anthropic の判定"
 
     # 返事を待たずに止めた問い合わせ（先に届いた答えで決めたあと、first_of が止めた分）は、使った量が返らないが料金はかかりうる ⇒
-    # 同じモデルの返事のあった問い合わせの平均の円で見込む（返事が1つも無ければ、意味の判定の1回＝入力 1,670・出力 40 トークン）
-    # ⛔ 2026-10-29：帳簿を作った日の確かめで、止めた Sonnet を数えていなかった
+    # 同じモデルの返事のあった問い合わせの、まとめて送った分を書いた料金を除いた平均の円で見込む（書くのは1回目だけ。返事が1つも無ければ、
+    # 意味の判定の1回＝入力 1,670・出力 40 トークン）。⛔ 2026-10-29：帳簿を作った日の確かめで、止めた Sonnet を数えていなかった・
+    # 次に書いた分まで平均に入れ、G-53 の100件で実際の約2倍に見込んだ
     TYPICAL_TOKENS = (1670, 40)
 
     def __init__(self):
         from collections import Counter, defaultdict
-        self.calls, self.stopped, self.tokens, self.yen_by, self.limit = Counter(), Counter(), defaultdict(Counter), Counter(), None
+        self.calls, self.stopped, self.tokens, self.yen_by, self.write_by, self.limit = (Counter(), Counter(), defaultdict(Counter), Counter(),
+                                                                                       Counter(), None)
 
     @property
     def yen(self) -> float:
@@ -393,7 +397,7 @@ class Spend:
 
     def _mean(self, model: str) -> float:
         if self.calls[model]:
-            return self.yen_by[model] / self.calls[model]
+            return (self.yen_by[model] - self.write_by[model]) / self.calls[model]
         p_in, p_out, _, _ = PRICE.get(model, PRICE["claude-sonnet-5-5"])
         return (self.TYPICAL_TOKENS[0] * p_in + self.TYPICAL_TOKENS[1] * p_out) / 1e6 * YEN_PER_USD
 
@@ -410,6 +414,7 @@ class Spend:
         self.calls[model] += 1
         self.tokens[model].update(u)
         self.yen_by[model] += usd * YEN_PER_USD
+        self.write_by[model] += u["cache_creation_input_tokens"] * p_write / 1e6 * YEN_PER_USD
 
     def summary(self) -> dict:
         return {"円": round(self.yen, 1), "回数": dict(self.calls), "返事を待たずに止めた回数（円は見込み）": dict(self.stopped),
