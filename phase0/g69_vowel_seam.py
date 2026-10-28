@@ -72,7 +72,12 @@ SHAPE_WEIGHT = 3.0             # 前後の1周期の形の近さ（相関）が 
 # S2 の 3.99〜6.04 dB と L4 の「と」4.77 dB は機械音のご指摘なし／「で」の 9.0 dB 前後（前後の1周期の形 0.46 以下）は「途切れと違和感」。
 # 同じ録音の同じ所の自然な変わり方は 1.6〜4.8 dB
 VOICE_MAX = 6.3
+# 上限を超えた組に足すずれ：100＋超えた量×10（ほかに組が無いときだけ選ばれ、そのときは超えた量の小さい組から。⛔ 2026-10-25 の3回目：どれも同じ
+# +100 にしたので、L4 の「で」で、声質の差 6.39 dB の組より 12.84 dB の組を選んだ）。録音全体の高さ・話す速さの上限も同じ足し方（over）
 VOICE_OVER = 100.0
+# 話す速さのずれの上限（下の RATE_WEIGHT の速さのずれ）。✅ 2026-10-25 のユーザーの聞き比べ：◎ だった組は 0.16 まで（1回目の S2）・
+# ○「『岡田様』のイントネーションが少しおかしい」は 0.32（2回目の S2）。L4 は2回とも 0.11 まで（ご指摘なし）
+SPEED_MAX = 0.25
 FRAME_S, HOP_S = 0.02, 0.005   # 「ま」を探す区間の長さと細かさ
 SIDE_S = 0.025                 # つなぎ目の前後で比べる長さ
 BAND = (1000.0, 4000.0)        # 鼻の音（「ま」の m）で弱まる帯
@@ -220,6 +225,11 @@ def ma_vowel(pcm: bytes, rate: int, times, head: str) -> dict | None:
     return {"cut": cut, "sign": sign, "period": period, "t": round(cut / rate, 4), "t_steady": round(steady, 4),
             "s_end": round(float(ts[v0]), 3), "m": round(float(ts[m]), 3), "vowel": (round(float(ts[a_s]), 3), round(float(ts[a_e]), 3)),
             "times": (t0, t1)}
+
+
+def over_by(value: float, limit: float, unit: float) -> float:
+    """上限 limit を超えた組に足すずれ：VOICE_OVER＋（超えた量÷unit）×10。超えていなければ 0（上の VOICE_OVER の説明）。"""
+    return VOICE_OVER + (value - limit) / unit * 10.0 if value > limit else 0.0
 
 
 def points(pcm: bytes, rate: int, mv: dict) -> list[tuple[int, int]]:
@@ -386,14 +396,13 @@ async def build(args, out, rows: list[dict]) -> dict:
         # 録音全体の声の高さの差（G-58 の4回目で決めた「半音3つ以内」＝name_clips.MAX_ST）。超える組は、ほかに組が無いときだけ選ぶ
         # （⛔ 2026-10-25 の2回目：この条件を入れておらず、S2 の「で」の組は全体の高さが 6.5半音違った＝続く言葉が別の人の声に聞こえうる）
         whole = round(abs(semitones(t["whole"]["pitch_hz"], h["whole"]["pitch_hz"])), 2) if h["whole"] and t["whole"] else None
-        over = WHOLE_OVER if whole is None or whole > MAX_ST else 0.0
+        over = (WHOLE_OVER if whole is None else over_by(whole, MAX_ST, 1.0)) + over_by(speed, SPEED_MAX, 0.1)
         best = None
         for hc, per, before in h["points"]:
             for tc, _ in t["points"]:
                 cut, shape = align(h["pcm"], hc, per, t["pcm"], rate, tc / rate)
                 g = gap(before, side(t["pcm"], rate, cut, False))
-                s_ = (score(g) + SHAPE_WEIGHT * (1 - shape) + RATE_WEIGHT * speed + over
-                      + (VOICE_OVER if g["声質（dB）"] > VOICE_MAX else 0.0))
+                s_ = score(g) + SHAPE_WEIGHT * (1 - shape) + RATE_WEIGHT * speed + over + over_by(g["声質（dB）"], VOICE_MAX, 1.0)
                 if best is None or s_ < best[0]:
                     best = (s_, {**g, "前後の1周期の形": round(shape, 2), "話す速さのずれ": speed, "全体の高さの差（半音）": whole,
                                  "切る所（秒）": [round(hc / rate, 4), round(cut / rate, 4)]}, cut, hc)
@@ -494,13 +503,17 @@ async def run(args) -> dict:
     if args.reuse:
         rows = json.loads((out / "takes" / "takes.json").read_text(encoding="utf-8"))
     elif args.from_round:
-        # 前の回の材料を写し、続く言葉だけを足して録る（名前の部分・役職は、前の回のまま）
+        # 前の回の材料を写し、続く言葉・名前の部分を足して録る（役職は、前の回のまま）
         import shutil
         src = OUT / f"round{args.from_round}" / args.type / "takes"
         (out / "takes").mkdir(parents=True, exist_ok=True)
         for f in src.iterdir():
             shutil.copy2(f, out / "takes" / f.name)
-        rows = await record(args, out, json.loads((src / "takes.json").read_text(encoding="utf-8")), only=("tail",), extra=args.add_tails)
+        rows = json.loads((src / "takes.json").read_text(encoding="utf-8"))
+        if args.add_tails:
+            rows = await record(args, out, rows, only=("tail",), extra=args.add_tails)
+        if args.add_heads:
+            rows = await record(args, out, rows, only=("head",), extra=args.add_heads)
     else:
         rows = await record(args, out)
     return await build(args, out, rows)
@@ -516,7 +529,8 @@ def main() -> None:
     p.add_argument("--reuse", action="store_true", help="録らずに、保存した材料（takes/）から組み直す")
     p.add_argument("--round", type=int, default=10, help="置き場所の回（results/name_splice/round{回}）。1回目は 8・2回目は 9")
     p.add_argument("--from-round", type=int, help="この回の材料を写して、続く言葉だけを --add-tails 本ずつ足して録る")
-    p.add_argument("--add-tails", type=int, default=5)
+    p.add_argument("--add-tails", type=int, default=0, help="続く言葉を、形ごとにこの本数足して録る")
+    p.add_argument("--add-heads", type=int, default=0, help="名前の部分を、この本数足して録る（本番でも、新しい名前は数本録って、続く言葉に合う1本を選ぶ）")
     args = p.parse_args()
     save_result("G-69", asyncio.run(run(args)))
 

@@ -4230,6 +4230,10 @@ class JudgePanelTest(unittest.TestCase):
         panel, _, _ = self.race(took, sure=0.9, fail={self.SONNET: down, "Claude Sonnet 5.5": down})
         self.assertEqual(panel.serves, {"judge"})
         self.assertIsInstance(self.ask(panel, "judge2"), NoJudgment)
+        # 契約者が Jev を使わないと選んだ組（2つの Sonnet）：Jev は、どちらの受け持ちが止まっても代わりに入る（✅ 2026-10-18 ユーザー）
+        from meaning_judge import JudgePanel, SONNETS_NAME, members
+        both = JudgePanel({"judge": (self.LITE, None), "judge2": tuple((m, None) for m in members(SONNETS_NAME))}, standin=(self.JEV, None))
+        self.assertEqual(both.serves, {"judge", "judge2"})
 
     def test_two_slots_never_answer_from_one_maker(self):
         # 1つの発話で、2つの受け持ちの答えは違う会社から：3.5 Flash Lite が止まって Jev が代わりに入ると、組からは Jev を外す（Sonnet を待つ）

@@ -122,13 +122,18 @@ def differences(expected: str, heard: str) -> list[dict]:
 
 
 async def hear_feeds(client, pcm16: bytes, rate: int, ear: str = "transcribe35") -> dict[str, str | None]:
-    """同じ声を、2通りの聞かせ方（FEEDS）で聞く。聞けなかったほうは None。"""
+    """同じ声を、2通りの聞かせ方（FEEDS）で聞く。聞けなかったほうは None。聞けなかった・空の返事だった聞き方は、1回だけ聞き直す
+    （⛔ 2026-10-25 G-69 の3回目：片方の耳が2秒の声に空の返事をし、「読みが合わない」として組を落とした＝耳の問い合わせの失敗を、
+    聞こえ方の違いと数えていた）。"""
     out: dict[str, str | None] = {}
     for lead in FEEDS:
-        try:
-            out[str(lead)] = await hear(client, pcm16, rate, ear, lead_s=lead)
-        except Exception:
-            out[str(lead)] = None
+        for _ in range(2):
+            try:
+                out[str(lead)] = await hear(client, pcm16, rate, ear, lead_s=lead)
+            except Exception:
+                out[str(lead)] = None
+            if out[str(lead)]:
+                break
     return out
 
 
