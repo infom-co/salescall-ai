@@ -82,7 +82,7 @@ RULES = (
     "決まり：\n"
     "- 言葉の意味で選びます。言葉の頭の「はい」「いいえ」だけで決めません（「いいえ、もう済ませてあります」は、済ませた側）。\n"
     "- 打ち消しを重ねた言い方は、意味で読みます（「していないわけではない」は、している側）。\n"
-    "- 「〜ございませんでしょうか？」のような打ち消しの問いへの「はい」「いいえ」は、選べるものの名前（意味）で、どちらの意味かを決めます。\n"
+    "- 「〜ございませんでしょうか？」のような打ち消しの問いへの「はい」「いいえ」は、選べるものの説明（意味）で、どちらの意味かを決めます。\n"
     "- こちらが答えを言い直して確かめたあとの返事は、お客様が認めた意味で選びます（言い直した意味を「はい」と認めたら、その意味）。\n"
     # ⚠️ 例は、試験の言葉（G-14・G-52）と同じ言い方にしない（同じだと、試験で測った正しさが高く出る）
     # ⛔ 2026-10-18：言い切っているかを足した形で、Claude Sonnet 5.5（考える）が、打ち消しの言い直し（「〜ではないということで…」）への
@@ -96,11 +96,16 @@ RULES = (
     "- " + FIRM_RULE + "\n"
     "- 迷ったら「" + UNDECIDED + "」を選びます。\n"
 )
-PROMPT = RULES + (
+# 問い合わせの文は、毎回同じ部分（決まり・質問・選べるもの）を先に、その発話ごとに変わる部分（その前に相手が言ったこと・言い直した言葉・
+# お客様の言葉）を後ろに並べる（prompt_parts）。✅ 2026-10-29 ユーザー「(1) で進めてOKです」：毎回同じ前の部分は、Anthropic へ2回目から
+# 約10分の1の値段で送れる（まとめて送る仕組み＝other_request）。⛔ 前は「その前に相手が言ったこと」が選べるものの説明より前にあり、まとめられなかった
+FIXED = RULES + (
     "質問：「{question}」\n"
+    "選べるもの（名前：説明）：\n{choices}\n"
+)
+VARYING = (
     "{before}"
     "{asked}"
-    "選べるもの（名前：説明）：\n{choices}\n"
     "お客様の言葉：「{text}」\n"
 )
 
@@ -110,20 +115,29 @@ PROMPT = RULES + (
 #    案は逆の向きだった（測った「直った」は、作らせたモデルの誤った正解に合わせただけのものを含む。PHASE0 G-53 の3回目）。
 
 
+MEANT = "という意味の答え"   # 意味の言葉のある選択肢の説明の終わり（jev_criteria が意味の言葉を読み戻す）
+
+
 def options(q, asked: str | None = None) -> list[tuple[str, str, str]]:
     """選べるもの（判定に見せる名前、説明、中の名前）。選択肢の質問と、値を聞く質問の最初の答えは Question.all_conditions の並び
-    （宣言した選択肢は、意味の言葉を名前にする。無い・ほかの名前とかぶるときは選択肢の名前）。値を聞く質問の言い直しへの返事は
-    「合っている」「違う値を言われた」（AIの報告 confirm_field と同じ名前）。最後に、答えでない言葉の3つ。"""
+    （宣言した選択肢で意味の言葉があるものは、名前を「答えA」「答えB」…にし、説明に意味の言葉を書く＝意味で選ばせる。意味の言葉が無い・
+    ほかの名前とかぶるときは選択肢の名前）。値を聞く質問の言い直しへの返事は「合っている」「違う値を言われた」（AIの報告 confirm_field と
+    同じ名前）。最後に、答えでない言葉の3つ。
+    ⛔ G-53 の2回目：名前の「いいえ」と相手の「違います」を言葉で結びつけ、言い直しを認めていないのに認めたと読んだ ⇒ 名前を選択肢の言葉にしない。
+    ⛔ 2026-10-29：意味の言葉そのものを名前にしていたので、返事の形の指定（_schema の enum）にも長い文が並び、目的のお客様の判定では
+       送る量の 55%（4,065トークン中 約2,230）がその分だった（数えるだけの窓口で測った）⇒ 名前は短く中立に、意味の言葉は説明に1回だけ"""
     if q.type in CHOICE_TYPES or asked is None:
         taken = {label(c) for c in q.all_conditions if c not in q.conditions} | set(KIND_DESC)
-        head = []
+        head, n = [], 0
         for c in q.all_conditions:
             if c in q.conditions:
-                name = q.meanings.get(c)
-                if not name or name in taken:
-                    name = label(c)
-                taken.add(name)
-                head.append((name, "この意味の答え" if name != label(c) else f"「{c}」と答えた", c))
+                meaning = q.meanings.get(c)
+                if meaning and meaning not in taken:
+                    taken.add(meaning)
+                    head.append((f"答え{chr(ord('A') + n)}", f"「{meaning}」{MEANT}", c))
+                    n += 1
+                else:
+                    head.append((label(c), f"「{c}」と答えた", c))
             else:
                 head.append((label(c), SYSTEM_DESC[c], c))
     else:
@@ -140,10 +154,23 @@ def scene(q, text: str, asked: str | None = None, before: str | None = None) -> 
             | {"お客様の言葉": text})
 
 
-def prompt(q, text: str, asked: str | None = None, before: str | None = None) -> str:
+def prompt_parts(q, text: str, asked: str | None = None, before: str | None = None) -> tuple[str, str]:
+    """問い合わせの文の (毎回同じ部分, その発話ごとに変わる部分)。同じ質問・同じ言い直しの段なら、前の部分は1文字も変わらない。"""
     said = f"こちらが言い直して確かめた言葉：「{asked}」\n" if asked else ""
-    return PROMPT.format(question=q.text, asked=said, text=text, before=f"{BEFORE}：「{before}」\n" if before else "",
-                         choices="\n".join(f"- {n}：{d}" for n, d, _ in options(q, asked)))
+    return (FIXED.format(question=q.text, choices="\n".join(f"- {n}：{d}" for n, d, _ in options(q, asked))),
+            VARYING.format(asked=said, text=text, before=f"{BEFORE}：「{before}」\n" if before else ""))
+
+
+def prompt(q, text: str, asked: str | None = None, before: str | None = None) -> str:
+    return "".join(prompt_parts(q, text, asked, before))
+
+
+def cached_content(fixed: str, varying: str) -> list[dict]:
+    """Anthropic へ送る問い合わせの文（唯一の場所。意味の判定・中身の判定）：毎回同じ前の部分に印（cache_control）を付け、2回目からは
+    約10分の1の値段で読ませる（5分使わなければ消える。1回目の書き込みは1.25倍）。⚠️ 2026-10-29 に確かめた（約3.4円）：考える Sonnet と
+    考えない Sonnet は、本文に置いてもシステムの指示に置いても、互いの印の部分を読めない（考える設定が前の部分に入る）＝形ごとに別に書く。
+    同じ形どうしは 1,961トークン中 1,961 を読めた。印の部分は 512トークンより短いと付かない（Sonnet 5.5・Haiku 5.5）"""
+    return [{"type": "text", "text": fixed, "cache_control": {"type": "ephemeral"}}, {"type": "text", "text": varying}]
 
 
 def _config(q, asked: str | None):
@@ -265,9 +292,10 @@ def other_request(name: str, q, text: str, asked: str | None, before: str | None
     """Google 以外の判定への問い合わせの中身（会社ごとの形。問い合わせの文と選べるものは Gemini と同じ）。"""
     j, p = OTHER_JUDGES[name], prompt(q, text, asked, before)
     if j["maker"] == "anthropic":
+        content = cached_content(*prompt_parts(q, text, asked, before))   # 毎回同じ前の部分は、2回目から約10分の1の値段
         # ⚠️ Claude Haiku 5.5 は temperature などを送ると断る（1以外は400＝2026-10-18 に当たった）。名前を指定した道具の呼び出しは、
         #    考える段を飛ばして道具の呼び出しから返す（いちばん速い形）。strict＝選べるもの以外の名前を返させない
-        body = {"model": j["model"], "max_tokens": 256, "messages": [{"role": "user", "content": p}],
+        body = {"model": j["model"], "max_tokens": 256, "messages": [{"role": "user", "content": content}],
                 "tools": [{"name": "answer", "description": "お客様の言葉に当たるものの名前", "input_schema": _schema(q, asked),
                            "strict": True}],
                 "tool_choice": {"type": "tool", "name": "answer"}}
@@ -277,7 +305,7 @@ def other_request(name: str, q, text: str, asked: str | None, before: str | None
         if j.get("form") == "json":  # 道具を使わず、返事の形（選べるものの名前だけ）を決めて返させる
             # ⚠️ 断られたときに別のモデルへ回す仕組み（fallbacks）は入れない：測っているモデルの答えに、別のモデルの答えが混ざるため
             #    （断られたら読めない返事＝None として数える）
-            body = {"model": j["model"], "max_tokens": 4096, "messages": [{"role": "user", "content": p}], "thinking": j["thinking"],
+            body = {"model": j["model"], "max_tokens": 4096, "messages": [{"role": "user", "content": content}], "thinking": j["thinking"],
                     "output_config": {"effort": j["effort"], "format": {"type": "json_schema", "schema": _schema(q, asked)}}}
         return body
     if j["maker"] == "typesafe":
@@ -299,10 +327,13 @@ JEV_FIRM = {"true": "答えを言い切っている（" + FIRM_YES[0] + FIRM_YES
 
 def jev_criteria(q, asked: str | None = None) -> dict:
     """Jev に渡す選択肢の定義（名前は options と同じ。答えの意味の選択肢は、意味で読むことを定義に書く）。"""
+    import re
+
     out = {}
     for n, d, c in options(q, asked):
-        if d == "この意味の答え" or d.startswith("「"):
-            d = (f"お客様の答えの意味が「{n}」（打ち消しを重ねた言い方・打ち消しの問いへの「はい」「いいえ」も、言葉の頭ではなく意味で読む。"
+        m = re.fullmatch(r"「(.*)」(?:" + MEANT + "|と答えた)", d)   # 意味の言葉（無ければ選択肢の言葉）
+        if m:
+            d = (f"お客様の答えの意味が「{m.group(1)}」（打ち消しを重ねた言い方・打ち消しの問いへの「はい」「いいえ」も、言葉の頭ではなく意味で読む。"
                  "言い切っていなくても、この意味に寄っていればこれ）")
         out[n] = d
     return out

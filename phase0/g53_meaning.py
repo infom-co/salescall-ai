@@ -27,9 +27,9 @@ from common import HERE, KeyRing, base_parser, describe_error, require_python, s
 from flowctl import ANY, CHOICE_TYPES, HANDOVER, HOLD, SYSTEM_CONDITIONS, Flow, Question
 from g23_names import find_models
 from g48_meanings import QUESTIONS as G48
-from meaning_judge import JUDGE_MODELS, OTHER_JUDGES, UNDECIDED, judge, judge_other
+from meaning_judge import GROUPS, JUDGE_MODELS, OTHER_JUDGES, UNDECIDED, judge, judge_other
 
-JUDGES = JUDGE_MODELS + tuple(OTHER_JUDGES)
+JUDGES = JUDGE_MODELS + tuple(OTHER_JUDGES) + tuple(GROUPS)   # 組の名前は、本番と同じ組の流れ（JudgePanel）で1件ずつ判定する（run_group）
 BASE = "3.5 Flash Lite"  # いまの判定（2つ目の判定の候補は、これと同じ答えで比べる）
 MAKERS = ("3.7 Flash", "3.6 Flash")
 # D・E を作るモデル（表示名）：判定の候補（JUDGE_MODELS）に入れないもの（自分で作った答えを判定すると、正しさが高く出る）
@@ -364,7 +364,7 @@ def run_judges(args, items: list[dict], qmap: dict, ids: dict) -> None:
     order = {s: n for n, s in enumerate(args.sets or "")}  # --sets の並びの順に判定する（上限で止まっても、先の組は測り終える）
     gem = [k for k in args.judge if k not in OTHER_JUDGES]  # Google の判定（キーごとの流れで、1日の上限を飛ばしながら）
     others: queue.Queue = queue.Queue()  # Google 以外の判定（1日の上限が無い有料の枠＝見本に絞らず全部）
-    for key in args.judge:  # 判定ごとに、決め手の答え（first）から、--sets の組の順に
+    for key in [k for k in args.judge if k not in GROUPS]:  # 判定ごとに、決め手の答え（first）から、--sets の組の順に
         pool = (sample if sample and key not in (BASE, *OTHER_JUDGES)
                 else [it for it in items if it.get("見本")] if key == BASE and any(it.get("見本") for it in items) else items)
         for it in sorted(pool, key=lambda it: (not first(it), order.get(it["set"], 0))):
@@ -457,6 +457,38 @@ def run_judges(args, items: list[dict], qmap: dict, ids: dict) -> None:
     left = jobs.qsize() + others.qsize()
     if left:
         say(f"⚠️ どのキーでも判定できなかった答えが {left} 個残りました（1日の上限）")
+    for name in [k for k in args.judge if k in GROUPS]:
+        import asyncio
+        asyncio.run(run_group(args, items, qmap, name))
+
+
+async def run_group(args, items: list[dict], qmap: dict, name: str, lanes: int = 4) -> None:
+    """組（GROUPS）の判定を、本番と同じ流れ（meaning_judge.JudgePanel・first_of の lead＝Jev を先に出し、確かな読みが無いときだけ Sonnet）で
+    1件ずつ判定する。読みは items の「組の名前」の欄（＋言い切り・秒・by・誤り）に書く。--limit があれば、決め手の答えから、その数だけ。
+    ⛔ 2026-10-29：判定ごとに全部の答えを別々に送る形（run_judges）では、組の料金が本番の2倍半になる（Jev が確かな読みでも Sonnet を送る）"""
+    import asyncio
+    from meaning_judge import JudgePanel, NoJudgment, make_judge, members
+
+    fns = tuple((m, make_judge(args, m)) for m in members(name))   # 送る道具は1つずつ（つながりを保つ）
+    todo = [it for it in sorted(items, key=lambda it: (not first(it), it["set"])) if name not in it and it["qid"] in qmap
+            and (not args.sets or it["set"] in args.sets)][:args.limit or None]
+    sem, done = asyncio.Semaphore(lanes), Counter()
+
+    async def one(it):
+        async with sem:
+            panel = JudgePanel({"judge2": fns})   # 答えごとに新しい受け持ち（前の答えの時間切れ・会社の印を持ち越さない）
+            t = time.monotonic()
+            try:
+                got = await panel.ask("judge2", qmap[it["qid"]], it["text"], it.get("asked"))
+                it[name], it[f"{name}言い切り"], it[f"{name}by"] = str(got), got.firm, got.by
+            except NoJudgment as exc:
+                it[f"{name}誤り"] = str(exc)[:200]
+            it[f"{name}秒"] = round(time.monotonic() - t, 3)
+            done["済"] += 1
+            if done["済"] % 50 == 0:
+                say(name, "判定", done["済"], "/", len(todo))
+                save_partial(f"G-53{args.tag}", {"items": items})
+    await asyncio.gather(*(one(it) for it in todo))
 
 
 def tally(items: list[dict], judges) -> dict:
@@ -538,6 +570,7 @@ def main() -> None:
     p.add_argument("--rejudge", action="store_true", help="--reuse の、--judge で渡した判定の読みを捨てて測り直す（判定の文・選べるものを変えたとき）")
     p.add_argument("--add-de", action="store_true", help="--reuse の答えに、D（言い直しへの返事）・E（答えでない言葉）を作って足す")
     p.add_argument("--sample", type=int, default=0, help="2つ目の判定の候補は、3.5 Flash Lite が誤った答えと、ほかから無作為にこの数だけ（1日の上限が少ない）")
+    p.add_argument("--limit", type=int, default=0, help="組の判定（GROUPS）だけ：決め手の答えから、この数だけ判定する（はじめに少しだけ流して1件の円を確かめる）")
     p.add_argument("--interval", type=float, default=4.0, help="同じキー・同じモデルに続けて聞く間（秒）。1分の上限に当たったら、言われた秒だけ待つ")
     args = p.parse_args()
     args.judge = args.judge or ["3.5 Flash Lite"]
@@ -558,7 +591,7 @@ def main() -> None:
                 # だけにする。見本は、前の読みを捨てる前に決める（捨てたあとでは、どれが難しい答えか分からない）
                 for it in pick_sample(items, args.sample):
                     it["見本"] = True
-            items = [{k: v for k, v in it.items() if not any(k == j or (k.startswith(j) and k[len(j):] in ("秒", "誤り", "言い切り", "確からしさ"))
+            items = [{k: v for k, v in it.items() if not any(k == j or (k.startswith(j) and k[len(j):] in ("秒", "誤り", "言い切り", "確からしさ", "by"))
                                                              for j in args.judge)} for it in items]
         if args.add_de and not any(it["set"] in ("D", "E") for it in items):
             names = {m.display_name: m.name.split("/")[-1] for m in ring.client().models.list() if getattr(m, "display_name", None)}

@@ -2545,10 +2545,15 @@ class MeaningJudgeOptionsTest(unittest.TestCase):
         from meaning_judge import options, prompt, read
         q = Question("Q1", "ご予約の日時に変更はございませんでしょうか？", "yes_no", conditions=("はい", "いいえ"),
                      meanings={"はい": "ご予約の日時に変更はないということ", "いいえ": "ご予約の日時に変更がおありということ"})
+        # 名前は短く中立に（「答えA」…）・意味の言葉は説明に1回だけ（⛔ 2026-10-29：意味の言葉を名前にしていたので、返事の形の指定にも長い文が並んだ）
+        from meaning_judge import _schema
         names = [n for n, _, _ in options(q)]
-        self.assertEqual(names[:2], ["ご予約の日時に変更はないということ", "ご予約の日時に変更がおありということ"])
-        self.assertNotIn("- はい：", prompt(q, "違います。", "念のためご予約の日時に変更がおありということでよろしいでしょうか？"))
-        self.assertEqual(read(q, json.dumps({"choice": "ご予約の日時に変更はないということ"})), "はい")
+        self.assertEqual(names[:2], ["答えA", "答えB"])
+        said = prompt(q, "違います。", "念のためご予約の日時に変更がおありということでよろしいでしょうか？")
+        self.assertNotIn("- はい：", said)
+        self.assertIn("- 答えA：「ご予約の日時に変更はないということ」という意味の答え", said)
+        self.assertNotIn("ご予約の日時に変更はないということ", json.dumps(_schema(q, None), ensure_ascii=False))
+        self.assertEqual(read(q, json.dumps({"choice": "答えA"})), "はい")
         self.assertEqual(read(q, json.dumps({"choice": HOLD})), HOLD)
         c = Question("Q2", "お支払いはどちらになさいますか？", "choice", conditions=("カード", "振込"), meanings={"カード": "わからない"})
         self.assertEqual([n for n, _, _ in options(c)][:3], ["カード", "振込", "どちらでも"])  # ほかの名前とかぶる意味の言葉は使わない
@@ -4112,7 +4117,7 @@ class JudgeSetupTest(unittest.TestCase):
     def test_requests_carry_the_same_prompt_and_choices(self):
         # 会社ごとに違うのは送り方だけ：同じ問い合わせの文と、同じ選べるものの名前（Gemini の _config と同じ並び）。
         # Jev は決まり・場面・選べるものを別々に受け取る：同じ決まりの文・同じ場面・同じ名前と説明（同じ並び）
-        from meaning_judge import OTHER_JUDGES, RULES, options, other_request, prompt, scene
+        from meaning_judge import OTHER_JUDGES, RULES, cached_content, options, other_request, prompt, prompt_parts, scene
         q, asked, text = self.q(), "念のためご連絡はメールでよろしいでしょうか？", "メールのほうが助かりますが…"
         names = [n for n, _, _ in options(q, asked)]
         for name in OTHER_JUDGES:
@@ -4123,7 +4128,12 @@ class JudgeSetupTest(unittest.TestCase):
                 self.assertEqual((list(ask["criteria"]), body["state"]), (names, scene(q, text, asked)))
                 self.assertLess(len(ask["instructions"]), 120)
                 continue
-            self.assertIn(json.dumps(prompt(q, text, asked), ensure_ascii=False), sent)
+            if OTHER_JUDGES[name]["maker"] == "anthropic":   # 毎回同じ前の部分に印を付けて、後ろに変わる部分（cached_content）
+                fixed, varying = prompt_parts(q, text, asked)
+                self.assertEqual(body["messages"][0]["content"], cached_content(fixed, varying))
+                self.assertEqual(fixed + varying, prompt(q, text, asked))
+            else:
+                self.assertIn(json.dumps(prompt(q, text, asked), ensure_ascii=False), sent)
             self.assertIn(json.dumps(names, ensure_ascii=False), sent)
             # Claude Haiku 5.5 は温度などを送ると断る（2026-10-18 に400）
             self.assertFalse({"temperature", "top_p", "top_k"} & set(body), name)

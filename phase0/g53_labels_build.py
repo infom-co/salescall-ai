@@ -150,8 +150,9 @@ def item(n):
     s, qid, text, a = r["id"].split("|", 3)
     return byid[f"{s}|{qid}|{text}|{'' if a == 'None' else a}"]
 def cond(i, label):  # 選択肢の意味の言葉から中の名前へ
-    from meaning_judge import options
-    return next(c for nm, _, c in options(qmap.get(i["qid"]) or __import__("g14_listen").business(i["qid"]).questions[0], i.get("asked")) if nm == label)
+    from meaning_judge import MEANT, options  # 2026-10-29 から意味の言葉は説明の側（名前は「答えA」…）＝どちらでも探す
+    return next(c for nm, d, c in options(qmap.get(i["qid"]) or __import__("g14_listen").business(i["qid"]).questions[0], i.get("asked"))
+                if label in (nm, d[1:-len(MEANT) - 1] if d.endswith(MEANT) else None))
 fix = {
     (0, 9, 2, 3, 5, 6, 11, 13, 14, 15): (lambda i: NT, "会話AIの聞き取りの文字が崩れていて、文字からは決められない（記録の通話の言葉）"),
     (4, 12): (lambda i: [truth(i)] + NT, "「家まだです」＝崩れた文字。「いえ、まだです」とも読める"),
