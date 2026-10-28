@@ -293,7 +293,8 @@ class Choice(unittest.TestCase):
         w = World()
         t = w.tenant()
         c = w.client(t)
-        self.assertEqual(resolved(w, t, c, "judge.models"), "sonnet")         # 2026-10-18 ユーザー：当面は Sonnet だけ
+        self.assertEqual(resolved(w, t, c, "judge.models"), "jev_and_sonnet")  # 2026-10-25 夜 ユーザー（CL-1 の 4-57）：Jev と Sonnet の組
+        # （⛔ 前は 2026-10-18 の「当面は Sonnet だけ」のまま＝0082。0142 で新しい行が効く）
         def put_tenant(value):
             w.a.in_tenant(OPERATOR, t, lambda tx: tx.execute(
                 "INSERT INTO salescall.setting_values (key, scope, tenant_id, value, status, rationale, review_when, set_by)"
@@ -301,8 +302,8 @@ class Choice(unittest.TestCase):
         for bad in ("gpt", 1, ["sonnet"], None):
             with self.subTest(bad=bad), self.assertRaises(Rejected):
                 put_tenant(bad)
-        put_tenant("jev_and_sonnet")                                            # 契約者が選ぶ
-        self.assertEqual(resolved(w, t, c, "judge.models"), "jev_and_sonnet")
+        put_tenant("sonnet")                                                    # 契約者が選ぶ（2つの Sonnet の組）
+        self.assertEqual(resolved(w, t, c, "judge.models"), "sonnet")
         for choices, value_type in ((None, "choice"), (["a"], "choice"), (["a", "b"], "integer")):
             with self.subTest(choices=choices, value_type=value_type), self.assertRaises(Rejected):
                 owner_access().in_system(SYSTEM, lambda tx: tx.execute(
