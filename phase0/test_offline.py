@@ -4967,6 +4967,48 @@ class VoiceFeaturesTest(unittest.TestCase):
         self.assertAlmostEqual(a - b, 6.02, delta=0.05)
         self.assertEqual(loudness_db(b""), -999.0)
 
+    def test_join_gap_reads_only_the_periods_next_to_the_seam(self):
+        # G-69 のつなぎ目の物差し（g69_vowel_seam.join_gap）：つなぎ目に接する2周期で、高さの跳ね・高さの動き・大きさ・周期のそろいを読む。
+        # ⛔ 2026-10-28：高さを約44ミリ秒で読み、下がっている声の、つなぎ目の 1.22半音の跳ねを 0.0 と数えた（3回目の S2 の「の」✕）
+        import numpy as np
+        from g69_vowel_seam import join_gap, ma_length
+        rate = 24000
+
+        def voice(f0, s=0.3):
+            t = np.arange(int(s * rate)) / rate
+            ph = 2 * np.pi * np.cumsum(f0(t)) / rate
+            return ph, 0.3 * np.sin(ph) + 0.2 * np.sin(2 * ph) + 0.1 * np.sin(3 * ph)
+
+        def starts(ph):   # 1周期の始まり（位相が 2π の倍数をまたぐ所）
+            return np.nonzero(np.diff(np.floor(ph / (2 * np.pi))) > 0)[0] + 1
+
+        def near(ph, s):
+            k = starts(ph)
+            return int(k[np.argmin(np.abs(k - int(s * rate)))])
+        ph_a, a = voice(lambda t: np.full_like(t, 200.0))
+        ph_b, b = voice(lambda t: np.full_like(t, 200.0 * 2 ** (2 / 12)))
+        ph_f, f = voice(lambda t: 240.0 - 300.0 * t)          # 0.13秒で 200Hz を下がって通る（1周期に約0.13半音ずつ下がる）
+        A, B, F = self.pcm(a), self.pcm(b), self.pcm(f)
+        ca, cb, cf = near(ph_a, 0.15), near(ph_b, 0.15), near(ph_f, 0.133)
+        same = join_gap(A, ca, 120, A, ca, 120, rate)           # 切らずに続く声
+        self.assertLess(same["高さの跳ね（半音）"], 0.05)
+        self.assertLess(same["高さの動き（半音）"], 0.05)
+        self.assertLess(same["大きさ（dB）"], 0.1)
+        self.assertEqual(same["周期のずれ"], 0.0)
+        step = join_gap(A, ca, 120, B, cb, int(rate / 224.5), rate)   # 高さが2半音違う声
+        self.assertAlmostEqual(step["高さの跳ね（半音）"], 2.0, delta=0.3)
+        self.assertLess(step["高さの動き（半音）"], 0.3)
+        fall = join_gap(F, cf, 120, A, ca, 120, rate)           # 下がっている声のあとに、平らな声
+        # 200Hz で 1周期に 12×log2(1−1.5/200)≒−0.13半音ずつ下がる声 × 2つの区間の真ん中どうしの間 3.4周期 ≒ 0.44半音
+        self.assertAlmostEqual(fall["高さの動き（半音）"], 0.13 * 3.4, delta=0.15)
+        self.assertLess(fall["高さの跳ね（半音）"], 0.3)        # 下がっている声の続きの高さでつないだので、跳ねではない
+        off = join_gap(A, ca, 120, A, ca + 36, 120, rate)       # 周期の3割ずれた所でつなぐ
+        self.assertGreater(off["周期のずれ"], 0.05)
+        # 組んだ「ま」の長さ：名前の部分の母音の頭から 0.04秒＋続く言葉の 0.025秒＝0.065秒・続く言葉のもとは 0.05秒＝1.3倍＝半音 1.44 の重さ
+        comp, w = ma_length({"vowel": (0.5, 0.58)}, int(0.54 * rate), {"vowel": (0.6, 0.65)}, int(0.625 * rate), rate)
+        self.assertAlmostEqual(comp, 0.065, delta=1e-4)
+        self.assertAlmostEqual(w, np.log(1.3) / np.log(1.2), delta=0.01)
+
 
 class ClipTablesTest(unittest.TestCase):
     """録音を作る表（make_ack_clips）に、どの録音にも読み方と長さの上限がある（⛔ 2026-10-19 の見直しで見つけた漏れ：かけ直しの質問を

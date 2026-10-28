@@ -47,7 +47,7 @@ from g58_name_splice import OUT
 from g65_seams import char_index, pause_after
 from g66_role_seam import FEAT_S, delta, onset_s, pick_role, seam_features, take_with_times
 from phrases import PROMISE_AGAIN, TARGET_CALL, TARGET_CONFIRM
-from voice_features import features, loudness_db, pitch_at, semitones
+from voice_features import features, pitch_at, pitch_near, semitones
 from name_clips import MAX_ST
 
 ROLE = "営業部部長の"
@@ -66,7 +66,17 @@ PARTICLE_GAP_S = 0.14
 RATE_WEIGHT = 10.0
 EAR_TRIES = 4                  # 組んだ音が耳の確かめに通らなければ、次に合う組を試す数
 WHOLE_OVER = 100.0             # 録音全体の声の高さの差が MAX_ST を超える組に足すずれ（ほかに組が無いときだけ選ばれる）
-SHAPE_WEIGHT = 3.0             # 前後の1周期の形の近さ（相関）が 1 から 0.33 下がると、半音1つと同じ重さ
+# つなぎ目に接する所だけで読む周期の数（join_gap）。⛔ 2026-10-28：前は高さを約44ミリ秒・大きさを SIDE_S で読み、動いている声ではつなぎ目の
+# 値にならなかった。前後の1周期の形の近さ（相関）も足していたが、つなぎ目の周期のそろいを直に読む「周期のずれ」と同じ問いなので外した
+# （形の近さは、続く言葉の切る所を周期の同じ位置に合わせる align だけに使う。記録には残す）
+JOIN_PERIODS = 2
+JOIN_WEIGHT = 10.0             # つなぎ目の周期のずれ 0.1（切らずに続く声より多い分）が、半音1つと同じ重さ（S2 のかすれた声の自然な幅が 0.1 前後）
+# 組んだ「ま」の母音の長さ（ma_length）は、続く言葉のもとの「ま」の長さに合わせる（続く言葉の録音は、その形のふつうの速さの言い方）。
+# もとの長さの DUR_UNIT 倍（または 1/DUR_UNIT 倍）が、半音1つと同じ重さ（同じ形の材料どうしの「ま」の長さの自然な幅は、中央値で 5〜25%・
+# 長さの読みは 5ミリ秒きざみ）。⛔ 2026-10-28 G-69 の3回目：切る点を名前の部分と続く言葉で別々に選び、名前の部分を母音の後ろ寄り・続く言葉を
+# 前寄りで切った組が多く、組んだ「ま」が、続く言葉のもとの 1.4〜1.9倍に伸びた（2回目は 0.5〜1.3倍）＝一番長い S2 の「と」1.90倍が ✕「『と』の
+# 部分が重なっている」・L4 の「で」1.81倍・「の」1.72倍が「途切れ」
+DUR_UNIT = 1.2
 # 声質の差（つなぎ目の前後 SIDE_S の帯ごとの強さの形）の上限。超える組は、ほかに組が無いときだけ選ぶ。✅ 2026-10-25 夜 G-69 の2回目のユーザーの
 # 聞き比べ（つなぎ目の周期をそろえたあと）：L4 の「は」8.15 dB・「の」6.58 dB は「音響ミスのような機械音のような違和感」（材料そのものは ◎◎）／
 # S2 の 3.99〜6.04 dB と L4 の「と」4.77 dB は機械音のご指摘なし／「で」の 9.0 dB 前後（前後の1周期の形 0.46 以下）は「途切れと違和感」。
@@ -251,30 +261,72 @@ def points(pcm: bytes, rate: int, mv: dict) -> list[tuple[int, int]]:
     return out or [(mv["cut"], mv["period"])]
 
 
-def side(pcm: bytes, rate: int, cut: int, before: bool) -> dict:
-    """つなぎ目の前（before）か後ろの SIDE_S の、声の高さ（Hz。つなぎ目に接する1区間）・大きさ（dB）・帯ごとの強さの形（平均を引いた dB）。"""
+def side(pcm: bytes, rate: int, cut: int, before: bool) -> np.ndarray:
+    """つなぎ目の前（before）か後ろの SIDE_S の、帯ごとの強さの形（平均を引いた dB）＝声質を比べる。"""
     t = cut / rate
     a, b = (t - SIDE_S, t) if before else (t, t + SIDE_S)
     seg = pcm[int(a * rate) * 2:int(b * rate) * 2]
     s = _spectrum(np.frombuffer(seg, dtype="<i2").astype(np.float64), rate)[0]
-    win = 0.03 + 1 / 70.0   # pitch_at の区間の長さ（FRAME_S と、周期を探す長さ）
-    return {"hz": pitch_at(pcm, rate, t - win if before else t), "db": loudness_db(seg), "shape": s - s.mean()}
+    return s - s.mean()
 
 
-def gap(a: dict, b: dict) -> dict:
-    """2つの側の差：高さ（半音。どちらかが取れなければ None）・大きさ（dB）・声質（帯ごとの形の差の2乗平均 dB）。"""
-    return {"高さ（半音）": round(abs(semitones(b["hz"], a["hz"])), 2) if a["hz"] and b["hz"] else None,
-            "大きさ（dB）": round(abs(b["db"] - a["db"]), 2), "声質（dB）": round(float(np.sqrt(((b["shape"] - a["shape"]) ** 2).mean())), 2)}
+def join_gap(a_pcm: bytes, a_cut: int, a_per: int, b_pcm: bytes, b_cut: int, b_per: int, rate: int) -> dict:
+    """a の a_cut までと、b の b_cut からをつないだ所の差（a と b が同じ録音の同じ所なら、切らずに続く声＝自然な変わり方）。a_per・b_per は
+    その所の1周期の標本数。録音をつなぐ所の、ふつうの物差し（高さ・高さの動き・大きさ・声質・周期のそろい）を、つなぎ目に接する所だけで読む：
+    - 高さの跳ね（半音）：a の最後の JOIN_PERIODS 周期と b の最初の JOIN_PERIODS 周期の高さの差から、両側の高さの動きを延ばした分を引いた残り
+      （下がっている声どうしなら、跳ねとは数えない）
+    - 高さの動き（半音）：a の高さの動き（隣の JOIN_PERIODS 周期との差）と b の高さの動きの違いを、2つの区間の間の長さぶん延ばした高さの差
+    - 大きさ（dB）：同じ2つの区間の大きさの差／声質（dB）：つなぎ目の前後 SIDE_S の帯ごとの強さの形の差（2乗平均）
+    - 周期のずれ：つないだ音の、つなぎ目をはさむ JOIN_PERIODS 周期の周期のずれ（波のそろわなさ）から、切らずに続く声の同じ所の大きいほうを引いた残り
+    つなぎ目に接する区間で高さが読めない（波がそろわない所）なら、高さの跳ね・動きは None。隣の区間だけ読めなければ、動きだけ None。
+    ⛔ 2026-10-28 G-69 の3回目（ユーザー：S2 の「と」✕「『と』の部分が重なっている」・「の」✕「『の』の部分が重なって、音量も違和感」・L4 の
+       「の」「と」「で」○△・△「途切れ」）：高さを約44ミリ秒・大きさを SIDE_S の区間で読み、高さの動きと周期のそろいを数えていなかった。
+       2周期で読むと、S2 の「の」は高さの跳ね 1.22半音（前の読み方は 0.0）・大きさ 3.0 dB／S2 の「と」は、名前の部分が「様は」の下がり始め
+       （約0.6半音／周期で下がる）で、続く言葉は平ら＝高さの動きの違いが24組の中で一番大きい／L4 の「途切れ」の4組は、つなぎ目の周期の
+       ずれが 0.19〜0.28 多い（切らずに続く声は 0.03 まで・ご指摘の無かった L4 の組は 0.05〜0.08）。"""
+    span_a, span_b = JOIN_PERIODS * a_per + int(a_per * 1.4), JOIN_PERIODS * b_per + int(b_per * 1.4)
+    a1 = pitch_near(a_pcm, rate, a_cut - span_a, a_per, JOIN_PERIODS)
+    a2 = pitch_near(a_pcm, rate, a_cut - span_a - JOIN_PERIODS * a_per, a_per, JOIN_PERIODS)
+    b1 = pitch_near(b_pcm, rate, b_cut, b_per, JOIN_PERIODS)
+    b2 = pitch_near(b_pcm, rate, b_cut + JOIN_PERIODS * b_per, b_per, JOIN_PERIODS)
+    jump = move = None
+    if a1[0] and b1[0]:
+        jump = abs(semitones(b1[0], a1[0]))
+        # 隣の区間はつなぎ目から4〜5周期離れ、短い「ま」では母音の外（m・助詞の頭）に出ることがある＝読めなければ、動きは数えない
+        if a2[0] and b2[0]:
+            da, db = semitones(a1[0], a2[0]) / JOIN_PERIODS, semitones(b2[0], b1[0]) / JOIN_PERIODS   # 1周期あたり、後ろへ向かって何半音上がるか
+            dist = (span_a / a_per + span_b / b_per) / 2   # 2つの区間の真ん中どうしの間（周期の数）
+            jump = abs(semitones(b1[0], a1[0]) - dist * (da + db) / 2)
+            move = round(abs(db - da) * dist, 2)
+        jump = round(jump, 2)
+    near = (span_a + span_b) // 4
+    joined = a_pcm[(a_cut - near) * 2:a_cut * 2] + b_pcm[b_cut * 2:(b_cut + near + span_b) * 2]
+    ap_join = pitch_near(joined, rate, 0, a_per, JOIN_PERIODS)[1]
+    ap_a = pitch_near(a_pcm, rate, a_cut - near, a_per, JOIN_PERIODS)[1]
+    ap_b = pitch_near(b_pcm, rate, b_cut - near, b_per, JOIN_PERIODS)[1]
+    voice = float(np.sqrt(((side(b_pcm, rate, b_cut, False) - side(a_pcm, rate, a_cut, True)) ** 2).mean()))
+    return {"高さの跳ね（半音）": jump, "高さの動き（半音）": move, "大きさ（dB）": round(abs(b1[2] - a1[2]), 2), "声質（dB）": round(voice, 2),
+            "周期のずれ": round(max(0.0, ap_join - max(ap_a, ap_b)), 3)}
 
 
 def score(g: dict) -> float:
-    """差を1つの数に（半音1つ＝大きさ3dB＝声質3dB を同じ重さに。高さが取れなければ半音3つとみなす＝選ばない側）。"""
-    return (g["高さ（半音）"] if g["高さ（半音）"] is not None else 3.0) + g["大きさ（dB）"] / 3 + g["声質（dB）"] / 3
+    """差を1つの数に（半音1つ＝大きさ3dB＝声質3dB＝周期のずれ 1/JOIN_WEIGHT を同じ重さに。つなぎ目で高さが読めなければ、跳ね・動きを
+    半音3つずつとみなす＝選ばない側。隣の区間だけ読めず動きが None なら、動きは数えない）。"""
+    if g["高さの跳ね（半音）"] is None:
+        jump = move = 3.0
+    else:
+        jump, move = g["高さの跳ね（半音）"], g["高さの動き（半音）"] or 0.0
+    return jump + move + g["大きさ（dB）"] / 3 + g["声質（dB）"] / 3 + JOIN_WEIGHT * g["周期のずれ"]
 
 
-def natural(pcm: bytes, rate: int, cut: int) -> dict:
-    """同じ録音の同じ所（切らずに続く声）の、前後の差＝自然な声の変わり方。"""
-    return gap(side(pcm, rate, cut, True), side(pcm, rate, cut, False))
+def ma_length(h_mv: dict, hc: int, t_mv: dict, tc: int, rate: int) -> tuple[float, float]:
+    """組んだ「ま」の母音の長さ（名前の部分の母音の始まりから hc まで＋続く言葉の tc から母音の終わりまで。秒）と、続く言葉のもとの
+    「ま」の長さとの比の、DUR_UNIT を半音1つとした重さ。"""
+    comp = (hc / rate - h_mv["vowel"][0]) + (t_mv["vowel"][1] - tc / rate)
+    own = t_mv["vowel"][1] - t_mv["vowel"][0]
+    if comp <= 0 or own <= 0:
+        return comp, 3.0
+    return comp, abs(np.log(comp / own)) / np.log(DUR_UNIT)
 
 
 def _plan() -> list[tuple[str, str, int, str, tuple]]:
@@ -288,9 +340,10 @@ def _plan() -> list[tuple[str, str, int, str, tuple]]:
     return out
 
 
-async def record(args, out, rows: list[dict] | None = None, only: tuple[str, ...] = (), extra: int = 0) -> list[dict]:
+async def record(args, out, rows: list[dict] | None = None, only: tuple[str, ...] = (), extra: int = 0, forms: str = "") -> list[dict]:
     """材料を録って、takes/ に保存する（音と、言葉ごとの時刻と、録ったときの記録）。rows＝前の回から写した材料（その続きの番号で足す）・
-    only＝この種類だけ録る・extra＝その種類を何本足すか（続く言葉はどの名前にも使うシステムの録音＝多く録って選ぶ形が本番と同じ）。"""
+    only＝この種類だけ録る・extra＝その種類を何本足すか（続く言葉はどの名前にも使うシステムの録音＝多く録って選ぶ形が本番と同じ）・
+    forms＝続く言葉をこの形だけ録る（空ならどの形も）。"""
     from common import load_secret
     client = make_client(pick_key(args))
     key = load_secret("SONIOX_API_KEY", args.env)
@@ -300,7 +353,7 @@ async def record(args, out, rows: list[dict] | None = None, only: tuple[str, ...
     for r in rows:
         have[(r["kind"], r["form"])] = have.get((r["kind"], r["form"]), 0) + 1
     for kind, form, n, text, also in _plan():
-        if only and kind not in only:
+        if only and kind not in only or kind == "tail" and forms and form not in forms:
             continue
         start = have.get((kind, form), 0)
         n = extra if only else n
@@ -355,7 +408,14 @@ async def build(args, out, rows: list[dict]) -> dict:
     notes: dict = {"切れなかった材料": [], "使わなかった材料": {}}
     mats: dict[str, list] = {}
     rate = None
+    # 人が聞いて外した材料（takes/verdicts.json：{録音: {"評価": …, "使わない": 理由}}）。続く言葉はどの名前にも使うシステムの録音で、本番では
+    # 人が聞いて承認したものだけを使う（✅ 2026-10-28 のユーザーの聞き比べ：「と」の材料の「お電話」のなまり・「お約束」が「わくそく」）
+    vpath = out / "takes" / "verdicts.json"
+    verdicts = json.loads(vpath.read_text(encoding="utf-8")) if vpath.exists() else {}
     for r in rows:
+        if verdicts.get(r["wav"], {}).get("使わない"):
+            notes["使わなかった材料"][r["wav"]] = {"人が聞いて外した": verdicts[r["wav"]]["使わない"]}
+            continue
         pcm, rate = read_wav_pcm16_mono(out / "takes" / r["wav"])
         times = [tuple(w) for w in r["words"]]
         m = {"pcm": pcm, "times": times, "row": r, "wav": r["wav"]}
@@ -364,11 +424,10 @@ async def build(args, out, rows: list[dict]) -> dict:
             if mv is None:
                 notes["切れなかった材料"].append(r["wav"])
                 continue
-            m.update({"mv": mv, "natural": natural(pcm, rate, mv["cut"]), "whole": features(pcm, rate),
-                      "natural_shape": round(_period_corr(pcm, mv["cut"], pcm, mv["cut"], mv["period"]), 2)})
+            m.update({"mv": mv, "natural": join_gap(pcm, mv["cut"], mv["period"], pcm, mv["cut"], mv["period"], rate),
+                      "whole": features(pcm, rate), "natural_shape": round(_period_corr(pcm, mv["cut"], pcm, mv["cut"], mv["period"]), 2)})
             if r["kind"] == "head":
                 gaps = odd_gaps(pcm, rate, mv["cut"], times, "")
-                m["before"] = side(pcm, rate, mv["cut"], True)
             else:
                 gaps = odd_gaps_after(pcm, rate, mv["cut"], times, r["head"])
                 m["speech_s"] = speech_after(pcm, rate, mv["cut"])
@@ -384,7 +443,7 @@ async def build(args, out, rows: list[dict]) -> dict:
     median_s = {form: float(np.median([t["speech_s"] for t in ts])) for form, ts in tails.items()}
     for h in heads:   # 名前の部分の録音の速さ＝その続き（「は」の文）の話す長さの、「は」の続く言葉の材料の中央との比
         h["rel_s"] = speech_after(h["pcm"], rate, h["mv"]["cut"]) / median_s["は"] if median_s["は"] else 1.0
-        h["points"] = [(c, per, side(h["pcm"], rate, c, True)) for c, per in points(h["pcm"], rate, h["mv"])]
+        h["points"] = points(h["pcm"], rate, h["mv"])
     for ts in tails.values():
         for t in ts:
             t["points"] = points(t["pcm"], rate, t["mv"])
@@ -398,13 +457,16 @@ async def build(args, out, rows: list[dict]) -> dict:
         whole = round(abs(semitones(t["whole"]["pitch_hz"], h["whole"]["pitch_hz"])), 2) if h["whole"] and t["whole"] else None
         over = (WHOLE_OVER if whole is None else over_by(whole, MAX_ST, 1.0)) + over_by(speed, SPEED_MAX, 0.1)
         best = None
-        for hc, per, before in h["points"]:
-            for tc, _ in t["points"]:
+        for hc, per in h["points"]:
+            for tc, tper in t["points"]:
                 cut, shape = align(h["pcm"], hc, per, t["pcm"], rate, tc / rate)
-                g = gap(before, side(t["pcm"], rate, cut, False))
-                s_ = score(g) + SHAPE_WEIGHT * (1 - shape) + RATE_WEIGHT * speed + over + over_by(g["声質（dB）"], VOICE_MAX, 1.0)
+                g = join_gap(h["pcm"], hc, per, t["pcm"], cut, tper, rate)
+                comp, dur = ma_length(h["mv"], hc, t["mv"], cut, rate)
+                s_ = score(g) + dur + RATE_WEIGHT * speed + over + over_by(g["声質（dB）"], VOICE_MAX, 1.0)
                 if best is None or s_ < best[0]:
                     best = (s_, {**g, "前後の1周期の形": round(shape, 2), "話す速さのずれ": speed, "全体の高さの差（半音）": whole,
+                                 "「ま」の長さ（秒）": round(comp, 3),
+                                 "続く言葉のもとの「ま」の長さ（秒）": round(t["mv"]["vowel"][1] - t["mv"]["vowel"][0], 3),
                                  "切る所（秒）": [round(hc / rate, 4), round(cut / rate, 4)]}, cut, hc)
         return best
 
@@ -511,7 +573,7 @@ async def run(args) -> dict:
             shutil.copy2(f, out / "takes" / f.name)
         rows = json.loads((src / "takes.json").read_text(encoding="utf-8"))
         if args.add_tails:
-            rows = await record(args, out, rows, only=("tail",), extra=args.add_tails)
+            rows = await record(args, out, rows, only=("tail",), extra=args.add_tails, forms=args.tail_forms)
         if args.add_heads:
             rows = await record(args, out, rows, only=("head",), extra=args.add_heads)
     else:
@@ -530,6 +592,8 @@ def main() -> None:
     p.add_argument("--round", type=int, default=10, help="置き場所の回（results/name_splice/round{回}）。1回目は 8・2回目は 9")
     p.add_argument("--from-round", type=int, help="この回の材料を写して、続く言葉だけを --add-tails 本ずつ足して録る")
     p.add_argument("--add-tails", type=int, default=0, help="続く言葉を、形ごとにこの本数足して録る")
+    p.add_argument("--tail-forms", default="", help="--add-tails で録る続く言葉の形（例：で。空ならどの形も）。⚠️ 2026-10-28 の4回目：「で」の形は、"
+                   "確かめる問いの言い方で「ま」が高い録音が多く、どの名前の部分とも合う組が足りなかった")
     p.add_argument("--add-heads", type=int, default=0, help="名前の部分を、この本数足して録る（本番でも、新しい名前は数本録って、続く言葉に合う1本を選ぶ）")
     args = p.parse_args()
     save_result("G-69", asyncio.run(run(args)))
