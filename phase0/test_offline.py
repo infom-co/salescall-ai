@@ -3335,6 +3335,56 @@ class AskLadderTest(unittest.TestCase):
         r = self.do(h, "record_answer", question_id="Q1", condition_id="答えた", value="3人")
         self.assertEqual((r["say"], r["ack"]), (self.LAST, "moushiwake_heavy"))
 
+    def test_poor_audio_ends_after_two_different_questions_stay_unclear(self):
+        """声が聞き取れない（甚大な問題の poor_audio＝DESIGN.md 6-8。✅ 2026-10-24 ユーザー：「回線が悪く、声がお互いや片方がほとんど聞き取れない
+        場合など規定通りの会話が進められない状態」）：聞き返しを使い切っても聞き取れないまま「-」にした違う質問が、答えを受け取らないまま
+        2つ続いたら、お詫びして終える（Flow._trouble。お詫びの2つの一言は電話接続側＝CL-2 の call.end_for_trouble）。終えたあとは、AIの報告を受けない。
+        同じ質問を、その場と念のための確認で2回聞き取れなかっただけでは終えない（FlowTest の「念のための確認でも聞けない」＝「-」で締める）。"""
+        f = self.flow()
+        for _ in range(3):
+            r = self.do(f, "report_unclear", question_id="Q1")
+        self.assertEqual((r["result"], r["question_id"], f.trouble), ("next", "Q2", None))   # 1つ目：まだ終えない
+        for _ in range(2):
+            self.assertEqual(self.do(f, "report_unclear", question_id="Q2")["result"], "ask_back")
+        r = self.do(f, "report_unclear", question_id="Q2")
+        self.assertEqual((r["result"], r["reason"], r.get("ack"), f.phase, f.trouble["reason"]), ("end_trouble", "poor_audio", None, "closing", "poor_audio"))
+        self.assertTrue(r["silent"])     # AIには話させない（お詫びの言葉は、電話接続側が録音で流す）
+        r = self.do(f, "record_answer", question_id="Q2", condition_id="答えた", value="3人")
+        self.assertEqual((r["result"], r.get("silent")), ("end", True))   # 終えたあとの報告は受けない
+        self.assertEqual(f.end_reason, None)   # 締めの理由（会話の報告の end）は書かない＝終えるのも記録するのも電話接続側
+
+    def test_answer_between_unclear_questions_resets_the_count(self):
+        """答えを1つ受け取ったら、お声は聞き取れている＝数え直す（2つ目の聞き取れない質問のあとも終えずに、締めの前の念のための確認へ）。"""
+        from flowctl import Flow, Limits, Question
+        f = Flow([Question("Q1", "ご希望の日時をお聞かせください。", "datetime", conditions=("答えた",), topic="ご希望の日時"),
+                  Question("Q2", "ご来店の人数をお聞かせください。", "number", conditions=("答えた",), topic="ご来店の人数"),
+                  Question("Q3", "ご予算をお聞かせください。", "number", conditions=("答えた",), topic="ご予算")], limits=Limits())
+        for _ in range(3):
+            self.do(f, "report_unclear", question_id="Q1")
+        self.do(f, "record_answer", question_id="Q2", condition_id="答えた", value="3人")
+        self.do(f, "confirm_field", question_id="Q2", result="affirmed")
+        for _ in range(3):
+            r = self.do(f, "report_unclear", question_id="Q3")
+        self.assertEqual((r["result"], f.trouble), ("recheck", None))
+
+    def test_ai_failed_swaps_once_then_ends_as_malfunction(self):
+        """会話AIが声も受け付けた報告も返さない（黙った など）：その発話で1回だけ張り替え（相手の同じ発話を送り直す）、張り替えたあとも戻らなければ、
+        会話AIの異常（ai_malfunction）で終える（Flow.on_ai_failed の1か所。⛔ 2026-10-28：張り替えたあとは黙りの見張りを外して待つだけ＝無言が
+        続いた）。次の発話へ進めば、また1回は張り替える。"""
+        f = self.flow()
+        f.on_callee()
+        self.assertEqual(f.on_ai_failed("黙った")["result"], "swap")
+        f.on_resend()
+        self.assertEqual(f.apply("record_answer", {"question_id": "Q1", "condition_id": "答えた", "value": "15日の午後2時"})["result"],
+                         "confirm_required")    # 張り替えたら戻った
+        f.on_callee()   # 次の相手の発話
+        self.assertEqual(f.on_ai_failed("黙った")["result"], "swap")
+        f.on_resend()
+        r = f.on_ai_failed("報告がどれも差し戻され、声も出なかった")
+        self.assertEqual((r["result"], r["reason"], f.trouble["reason"], f.phase), ("end_trouble", "ai_malfunction", "ai_malfunction", "closing"))
+        self.assertIn("差し戻され", f.trouble["why"])
+        self.assertEqual(f.on_ai_failed("黙った")["result"], "end")   # 1通話1回
+
     def heard(self, f, said):
         """相手が話した（会話AIの聞き取りの文字が届いた）。"""
         f.on_callee()
@@ -6185,7 +6235,9 @@ class TargetTest(unittest.TestCase):
         # (6) 試作は流さなかった声に印を付け、場面の数えは、その声を相手に聞こえた言葉に入れない
         self.assertIn("flow.speech_allowed(log_start)", inspect.getsource(convo.run_call))
         self.assertIn("unreported_note(muted=muted)", inspect.getsource(convo.run_call))
-        self.assertIn('if muted and swapped != i and all(', inspect.getsource(convo.run_call))   # 知らせのあとも報告が無ければ張り替える（6-7）
+        # 知らせのあとも報告が無ければ張り替える（6-7）。張り替えるか、張り替えたあとも戻らず終えるかは流れの制御の1か所（Flow.on_ai_failed）
+        self.assertIn('if muted and all(', inspect.getsource(convo.run_call))
+        self.assertIn('ai_failed("流せない声のあと、知らせても報告が無い", i)', inspect.getsource(convo.run_call))
         self.assertEqual(scenes.said({"audio_seconds": 1.2, "ear": "弊社は東京目黒にございます。", "muted": True}), "")
         self.assertEqual(scenes.said({"audio_seconds": 1.2, "ear": "弊社の本社は東京都港区にございます。"}), "弊社の本社は東京都港区にございます。")
 

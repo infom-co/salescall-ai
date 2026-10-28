@@ -30,6 +30,7 @@ from audio import is_fax_tone
 from common import HERE, read_wav_pcm16_mono, write_wav
 from offscript import SpeechGate
 from flowctl import ASKS_CHECKS, CHOICE_TYPES, RETURN_CHECKS, Flow, tool_declarations
+from phrases import LINE_TROUBLE
 from instruction import Business, barge_in_note, build
 from ears import open_ear
 from listen import hear
@@ -428,6 +429,22 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
         # ときだけ止める作りだったので止めず、場面が外れた）
         return SpeechGate(lambda: flow.expected_say(log_start), force=off_script_at == i and not any(t.get("off_script") for t in turns))
 
+    def ai_failed(why: str, i: int) -> bool:
+        """会話AIが、相手の発話に声も受け付けた報告も返さなかった：張り替える（True）か、こちらの不具合で終えた（False）か。決めるのは
+        Flow.on_ai_failed の1か所（同じ発話で張り替えたあとも戻らなければ、会話AIの異常で終える）。終えるときのお詫びの2つの一言は、電話接続側
+        （CL-2 の call.end_for_trouble）が流して切る＝試作では、通話の終わりに記録を残すだけ（trouble_row）。"""
+        nonlocal swapped
+        if flow.on_ai_failed(why)["result"] == "swap":
+            swapped = i
+            return True
+        return False
+
+    def trouble_row(i: int) -> dict:
+        """こちらの不具合で電話を終えた記録（Flow._trouble）。電話接続側が流す2つの一言と、そのあいだのお客様のお返事（AIは聞かない）。"""
+        return {"index": i, "session": sessions, "callee": None, "signal": "end_trouble", "reason": flow.trouble["reason"], "why": flow.trouble["why"],
+                "heard": "", "intended": "", "tool_events": [], "audio_seconds": 0,
+                "played": [LINE_TROUBLE["ask"], "（お客様のお返事）", LINE_TROUBLE["bye"]]}
+
     def stop_off_script(log_start: int, i: int, turn) -> None:
         """AIの声が渡した言い方から外れた（6-7。見張りの watch が止めた）：このつなぎを閉じ、新しいつなぎに「失礼いたしました。改めまして、…」と
         言わせる（Flow.on_off_script）。相手の発話への報告は済んでいるので、送り直さずに次の台詞へ（⛔ G-57 の3回目：用件と関係の無い話を12秒した）。
@@ -589,7 +606,7 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                                                                              grounder=grounder)
                                                                if checking else (flow.handle_call, None, None, None))
                         turn = await callee_turn(s, pcm, prate, on_tool_call=on_tool, timeout_s=90, on_heard=flow.on_heard,
-                                                 silent_after_s=SILENT_SWAP_S if swapped != i else None, gate=watch(log_start, i))
+                                                 silent_after_s=SILENT_SWAP_S, gate=watch(log_start, i))
                         if ear_task is not None:
                             await ear_task  # 声を流し終えるのを待つ（会話AIへ送るのと同じ長さ）
                             # 待つ時間とは別に、文字が実際に届いた時刻（話し終わりから。待つ時間を決めるための記録）
@@ -603,15 +620,17 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                                                         else (flow.handle_call, None, None, None))
                         await send_text(s, line)
                         turn = await collect_turn(s, started_at=t, on_tool_call=on_tool, timeout_s=90, on_heard=flow.on_heard,
-                                                  silent_after_s=SILENT_SWAP_S if swapped != i else None, gate=watch(log_start, i))
+                                                  silent_after_s=SILENT_SWAP_S, gate=watch(log_start, i))
                     if ear_info is not None:
                         ear_info.pop("_end", None)
                     await add_turn(turn, line, log_start, i, voice)
                     if turn.silent:
-                        # AIが黙った（6-7）：このつなぎを閉じ、いまの位置を渡して開き直し、相手の同じ発話を送り直す（相手は1回しか話していない）
+                        # AIが黙った（6-7）：このつなぎを閉じ、いまの位置を渡して開き直し、相手の同じ発話を送り直す（相手は1回しか話していない）。
+                        # 張り替えたあとも黙ったら、こちらの不具合で終える（決めるのは Flow.on_ai_failed の1か所）
                         if ear_info is not None:
                             turns[-1]["ear_check"] = ear_info  # 張り替えたターンの確かめも残す（中身の判定の待ち・遅れを数えるため）
-                        replay = swapped = i
+                        if ai_failed("声も報告も無いまま黙った", i):
+                            replay = i
                         break
                     if turn.off_script:
                         if ear_info is not None:
@@ -644,11 +663,12 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                         await send_note(s, r["message"])
                     spoke = any(t.get("audio_seconds") for t in turns if t["index"] == i and t["session"] == sessions)
                     ops = flow.log[turn_log_start:]
-                    if not spoke and ops and all(e["reply"].get("result") == "rejected" for e in ops) and swapped != i:
+                    if not spoke and ops and all(e["reply"].get("result") == "rejected" for e in ops):
                         # 報告がどれも差し戻され、そのあとAIが声を出さなかった＝相手には黙ったのと同じ（6-7：声が出ないのを見張る）。
                         # ⛔ 2026-10-17：「結構です。」で締めを頼んで差し戻されたあと、AIが声を出さず（AI自身の文字は関係の無い外国語の文）、
                         #    通話が止まった。張り替えは「声も操作も無い」ときだけだった
-                        replay = swapped = i
+                        if ai_failed("報告がどれも差し戻され、声も出なかった", i):
+                            replay = i
                         break
                     # 呼んでいる段で、報告を決めずに待たせたまま（相手の言葉の途中の報告）AIのターンが終わった：言葉が出揃ったら報告し直すように
                     # 知らせる（知らせるかは流れの制御が決める＝Flow.unreported_note の1か所）
@@ -665,11 +685,12 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                         nudge = await collect_turn(s, started_at=time.monotonic(), on_tool_call=on_tool, timeout_s=followup_wait_s or 8.0,
                                                    on_heard=None)
                         await add_turn(nudge, {"nudge_of": line, "note": note}, log_start, i, voice)
-                        if muted and swapped != i and all(e["reply"].get("result") == "rejected" for e in flow.log[turn_log_start:]):
+                        if muted and all(e["reply"].get("result") == "rejected" for e in flow.log[turn_log_start:]):
                             # 流さなかった声のあと、知らせのあとも報告を受け付けていない（黙った・流せない声だけ）：相手には無言が続く＝黙ったのと
                             # 同じ（DESIGN.md 6-7）⇒ 張り替えて、相手の同じ発話を送り直す。⛔ 2026-10-22 G-57 tc34（名乗らない方・L4）：知らせのあと
                             # AIは黙ったまま報告せず、試作は次の台詞へ進んだ（流せない声のときだけ張り替えていた）
-                            replay = swapped = i
+                            if ai_failed("流せない声のあと、知らせても報告が無い", i):
+                                replay = i
                             break
                     again, again_n = answer_again(line, flow.log[turn_log_start:], again_n)
                     if again is not None:
@@ -680,6 +701,8 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
     if (r := flow.on_voicemail_wait_end()) is not None:
         turns.append({"index": i, "session": sessions, "callee": None, "signal": "voicemail_wait_end", "heard": "", "intended": "",
                       "tool_events": [], "audio_seconds": 0})   # 留守番電話の案内のあと、人が出なかった（試作では、台詞が尽きたら待ちきった）
+    if flow.trouble is not None:
+        turns.append(trouble_row(i))   # こちらの不具合で終えた（Flow._trouble）：電話接続側がお詫びの2つの一言を流して切る
     deliver_plays()
     flow.on_line_end(ai_speaking=False, callee_speaking=False)
     # 通話は終わった：まだ走っている確かめは、届くまで待って同じ決まりで当てる（通話後の検証＝DESIGN.md 6-12 と同じ判定・同じ決まり。
@@ -693,7 +716,7 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
     for t in pending:
         t.cancel()
     await asyncio.gather(*closing, return_exceptions=True)
-    return {"voice_type": voice_type, "sessions": sessions, "turns": turns, "flow_log": flow.log,
+    return {"voice_type": voice_type, "sessions": sessions, "turns": turns, "flow_log": flow.log, "trouble": flow.trouble,
             "items": {k: {"state": v.state, "value": v.value, "condition": v.condition, "reason": v.reason, "ask_backs": v.ask_backs,
                           "rechecks": v.rechecks, "corrections": v.corrections, "hedged": v.hedged,
                           "history": [list(h) for h in v.history]}

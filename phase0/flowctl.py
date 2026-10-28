@@ -599,7 +599,8 @@ REPLY_KEY_LABEL = {"result": "結果", "message": "次にすること", "questio
 RESULT_LABEL = {"next": "次の質問", "confirm_required": "言い直して確かめる", "rejected": "差し戻し", "ask_back": "聞き返す",
                 "recheck": "念のための確認", "end": "締め", "busy_ask": "引き止めの一言", "replayed": "録音で流し直した",
                 "hold": "取り次ぎを待つ", "noted": "受け付けた", "confirm_target": "目的の人か確かめる", "call_target": "目的の人をお呼びし直す", "ai_question": "エーアイか聞かれた",
-                "restate": "言い直す", "wait": "最後まで聞く", "opening": "名乗り", "own_answer": "自分の言葉で答える", "callee_asked": "先に相手の質問に答える"}
+                "restate": "言い直す", "wait": "最後まで聞く", "opening": "名乗り", "own_answer": "自分の言葉で答える", "callee_asked": "先に相手の質問に答える",
+                "end_trouble": "こちらの不具合で終える"}
 # 名乗りの流し直し（DESIGN.md 6-13。✅ 2026-10-13 ユーザー：名乗り直しも録音で流す「間が大丈夫ならOK」）：AIが選ぶ部分の名前
 # 名乗り＝「どちら様ですか」／用件＝「何のご用件ですか」／最初から＝聞き取れなかった様子（「もう一度」「はい？」）／代わった方へ＝別の人に代わった
 # エーアイか聞かれた＝「AIですか？」「人間ですか？」への決まった言い方（instruction.Business の ai_answer。Flow._ai_question）。
@@ -645,6 +646,11 @@ VOICEMAIL_WAIT_S = 8.0        # 第一声が留守番電話の案内と分かっ
 #    あとの保留（「確認しますので少々お待ちください」）・目的のお客様のいない業務の保留でも、事実と違う理由になった。目的のお客様に
 #    繋がらなかった理由は、締めた理由とは別に Flow.not_reached の1か所で決める（保留で待ちきった呼んでいる段は、取り次いでいただけなかった）
 END_REASONS = (*END_LABEL, *NOT_A_PERSON, "wrong_party", "callback", "other_means", "departed", "hold_timeout")
+# こちらの不具合で電話を途中で終える理由（CL-2 の call.end_for_trouble の理由＝attempts.TROUBLES の3つ。CL-2 の連絡帳 4-156・4-158）。決めるのは
+# Flow._trouble の1か所（DESIGN.md 6-8）。✅ 2026-10-24 ユーザー：甚大とは「プログラムやAIがこちらの意図しない相手がおかしいと思うような状況に
+# 陥った場合全般や、回線が悪く、声がお互いや片方がほとんど聞き取れない場合など規定通りの会話が進められない状態」。締めた理由（END_REASONS）とは
+# 別（終えるのも記録するのも CL-2 の電話の部品＝会話の報告の締めの理由には入れない）
+TROUBLE_REASONS = ("ai_malfunction", "poor_audio", "cannot_proceed")
 # 通話の事実の種類の全部（Flow._note の1か所で確かめる。CL-2 の call_report.FACT_KINDS と同じ＝試験で比べる。中身は CL-1.md 2-2）。
 # out_of_scope（範囲外の求めで終えた）は、まだ書かない（実際にあるかを測ってから作る＝2-2 の「まだ作っていないもの」）
 FACT_KINDS = ("do_not_call", "complaint", "out_of_scope", "party", "callback", "ai_question", "voicemail_message", "end", "connect", "answered",
@@ -979,6 +985,11 @@ class Limits:
     # 遅れて届いた確かめを同じ決まりで当てる（食い違えば「-」にして締めの前にもう一度聞く＝Flow.on_check）。最後まで届かなかった確かめは、
     # 通話後の検証（6-12）でやり直す（Flow.unchecked）。止まらない
     hold_s: float = 2.0
+    # 声が聞き取れない（poor_audio）で電話を途中で終える：聞き返しを使い切っても（念のための確認でも）聞き取れないまま「-」にした回が、答えを
+    # 1つも受け取らないまま、この回数続いたら（答えを1つ受け取ったら数え直す）。⏳ 初めの値＝本物の電話で測って決める（DESIGN.md 6-8。2回続けば、
+    # お客様は「お電話が少し遠いようでして…」などの聞き返しを4回聞いている＝聞き続けて「-」にするより、お詫びして終え、復旧次第お詫びとともに
+    # かけ直して続きから伺うほうが、お客様の負担が軽く、伺うべきことも伺える）
+    trouble_unclear: int = 2
 
 
 @dataclass
@@ -1320,6 +1331,12 @@ class Flow:
         self.holding = False
         self.hold_wait: int | None = None  # いまの保留で待つ長さ（秒。_hold が決め、待ちきったら通話の事実 hold_timeout の waited_s に残す）
         self.nudged_turn = -1            # 報告を促す知らせを出した相手の発話の番号（unreported_note。1つの発話に1回まで）
+        # こちらの不具合で電話を途中で終えた（_trouble の1か所）：理由と根拠（None＝終えていない）。聞き返しを使い切っても聞き取れないまま「-」に
+        # なった必須の質問のうち、答えを受け取らないまま続いているもの（答えを1つ受け取ったら空）。張り替えて相手の発話を送り直した、相手の発話の
+        # 番号（on_resend。同じ発話で2回目は張り替えない＝on_ai_failed）
+        self.trouble: dict | None = None
+        self.unclear_qids: set[str] = set()
+        self.resent_turn: int | None = None
         # いちばん最近「合っている」で確かめが済んだ項目と、そのときの流れの位置（同じ相手の発話への報告を、AIが「違う値を言われた」に
         # 直したとき、その確かめを取り消して戻すため。_reopen）
         self.last_affirmed: dict | None = None
@@ -1618,11 +1635,23 @@ class Flow:
     # ── 相手の同じ発話を、張り替えた新しいつなぎへ送り直す（DESIGN.md 6-7）：相手は話していないので数えず、文字だけを受け取り直す。
     #    ⛔ 2026-10-17 に見つけた穴：送り直しで on_callee を呼ばないまま、新しいつなぎの聞き取りを足していた（同じ言葉が2回たまる）
     def on_resend(self) -> None:
+        self.resent_turn = self.callee_turns   # この発話は張り替えた（張り替えたあとも戻らなければ、こちらの不具合で終える＝on_ai_failed）
         self.callee_said = ""
         self.doubt = {}
         self.callee_ended = self.callee_speaking = False  # 知らせは、新しいつなぎから届き直す（位置も、新しいつなぎの音の上で数え直す）
         self.callee_end_at = self.callee_voice_end = None
         self.check, self.check_said = {}, {}
+
+    # ── 会話AIが、相手の発話に、声も受け付けた報告も返さなかった（黙った・報告がどれも差し戻されて声も無い・流さなかった声のあとも報告が無い）
+    def on_ai_failed(self, why: str) -> dict:
+        """張り替えるか、こちらの不具合で電話を終えるかを決める唯一の場所（DESIGN.md 6-7・6-8）：この発話でまだ張り替えていなければ張り替える
+        （{"result": "swap"}＝電話接続側がつなぎを開き直し、相手の同じ発話を送り直す＝on_resend）。張り替えたあとも戻らなければ、会話AIの異常
+        （ai_malfunction）で終える（_trouble）。why＝何が無かったか（記録に残す）。
+        ⛔ 2026-10-28 の見直しで見つけた穴：張り替えは1つの発話に1回までで、張り替えたあとにまた黙ると、黙りの見張りを外して待つだけだった
+           （試作は最大90秒）＝お客様には無言が続いた（Intent.md 9-4「会話AIが通話中に落ちた」の「相手を無言で放置しない」に届いていなかった）。"""
+        if self.resent_turn == self.callee_turns:
+            return self._trouble("ai_malfunction", f"張り替えて相手の発話を送り直しても、会話AIの声も受け付けた報告も戻らない（{why}）")
+        return {"result": "swap", "why": why}
 
     # ── 相手の言葉の文字が届いた（会話AIの聞き取り。値を直されたときの直され方を、プログラムが決めるのに使う）
     def on_heard(self, text: str) -> None:
@@ -2029,7 +2058,9 @@ class Flow:
         words = None  # 前の発話の言葉の答えなら、その言葉（下の操作で決まる）
         if name == "replay_opening" and args.get("part") in self.answers:
             args = {**args, "part": ANSWER_PREFIX + args["part"]}  # 想定問答の問いの名前 ⇒ 録音の部分の名前
-        if name not in OPS:
+        if self.trouble is not None:
+            reply = self._ended()   # こちらの不具合で電話を終えた（_trouble）：AIの報告は受けない（お詫びの言葉は電話接続側が流す）
+        elif name not in OPS:
             reply = self._reject(f"その操作はありません（使える操作は {'・'.join(OPS)}）。")
         elif why := self._check_args(name, args, {ANSWER_PREFIX + k for k in self.answers}, set(self.known_lines())):
             reply = self._reject(why)
@@ -2063,6 +2094,8 @@ class Flow:
                 turn, said, check = (words["turn"], words["said"], words["check"]) if words else (self.callee_turns, self.callee_said, self.check)
                 self.taken[qid] = {"turn": turn, "said": said, "check": dict(check), "confirming": confirming,
                                    "reported": "affirmed" if confirming and q.type not in CHOICE_TYPES else it.condition}
+            if it.state in TAKEN and before[qid] != it.state:
+                self.unclear_qids = set()   # 答えを1つ受け取った＝お声は聞き取れている（声が聞き取れないで終えるのは、聞き取れない質問が続いたときだけ）
         if (self.number_again and not self.facts.get("callback") and self.callee_turns > 0 and self.party not in NOT_A_PERSON
                 and self.party != "wrong_party"):
             self._note("callback", why="other_number", read=[])   # 番号を伺い直す電話：人の言葉が届いた（その発話が根拠）
@@ -2159,10 +2192,11 @@ class Flow:
           （moushiwake_heavy）。✅ 2026-10-16 ユーザー：「02だと軽薄に聞こえる」場面（こちらの誤り・クレーム・かけ直し）は重いほう
         - 差し戻し ⇒ 流さない（AIはまだ受け付けられていない報告を出し直す）"""
         result = reply["result"]
-        if result in ("rejected", "hold", "wait", "confirm_target", "callee_asked"):
+        if result in ("rejected", "hold", "wait", "confirm_target", "callee_asked", "end_trouble"):
             # 差し戻し・取り次ぎを待つ（相手はいま聞いていない）・相手の言葉の途中・目的の人かを確かめる（どの報告から来ても同じ＝確かめる
             # 一言だけ。聞き返しにもお詫びは重ねない＝✅ 2026-10-22 ユーザーの言い方「おかだ様でお間違えなかったでしょうか？」）・
-            # 答えに相手の質問が添えられていた（先に質問に答える。その答えの頭の相づちは、答える操作のほう）
+            # 答えに相手の質問が添えられていた（先に質問に答える。その答えの頭の相づちは、答える操作のほう）・こちらの不具合で終える（お詫びの
+            # 一言「恐れ入ります。…」から始まる＝相づちを重ねない）
             return None
         if reply.get("led"):
             return None  # 返事の録音が、お礼・お詫びの一言から始まる（申し出へのお礼・在籍していないときのお詫び＝_led）。重ねない
@@ -3915,12 +3949,26 @@ class Flow:
         self._note("end", reason=reason)
 
     def _ended(self) -> dict:
-        """もう締めた（締め・話さずに切る、のあと）：何もしない返事（唯一の場所。締めは1通話1回＝_end）。"""
+        """もう締めた（締め・話さずに切る・こちらの不具合で終える、のあと）：何もしない返事（唯一の場所。締めは1通話1回＝_end・_trouble）。"""
         return {"result": "end", "silent": True, "message": "締めの言葉は、もう流しました（または話さずに終えました）。何も言わずに終えます。"}
+
+    def _trouble(self, reason: str, why: str) -> dict:
+        """こちらの不具合で電話を途中で終える唯一の場所（甚大な問題＝DESIGN.md 6-8。理由は TROUBLE_REASONS）。電話接続側が
+        call.end_for_trouble(reason) を呼び、お詫びの2つの一言（phrases.LINE_TROUBLE）で終える：「恐れ入ります。こちらの通信に不具合が起きた
+        ようですので改めてお電話させていただいてもよろしいでしょうか？」→ お客様のお返事 →「大変申し訳ございません。それではいったんお電話を
+        失礼いたします。」→ 切る（流して切り、理由を試行に残し、復旧次第お詫びとともにかけ直すのは CL-2＝CL-2 の連絡帳 4-156・4-158。かけ直しは、
+        取れた答えの質問を伺わずに続きから）。会話の側は、このあと何も流さず、AIの報告も受けない（_apply_one）。1通話1回。"""
+        assert reason in TROUBLE_REASONS, reason
+        if self.end_reason is not None or self.trouble is not None:
+            return self._ended()
+        self.trouble = {"reason": reason, "why": why, "turn": self.callee_turns}
+        self.current, self.phase = None, "closing"
+        return {"result": "end_trouble", "reason": reason, "why": why, "silent": True,
+                "message": "こちらの都合で、この電話はいったん終えます。何も言わずにお待ちください（お詫びの言葉は、プログラムが流します）。"}
 
     def _hang_up(self, reason: str) -> dict:
         """話さずに切る唯一の場所（人ではない相手）。締めの言葉も相づちも流さない。"""
-        if self.end_reason is not None:
+        if self.end_reason is not None or self.trouble is not None:
             return self._ended()
         self._end(reason)
         return {"result": "end", "hang_up": True,
@@ -4180,6 +4228,15 @@ class Flow:
             return {"result": "ask_back", "question_id": q.id, "say": say, "ask_n": it.ask_backs, "ask_reason": reason, "ask_last": last,
                     "message": f"{shown}「{say}」と聞き返して、相手の答えを待ってください。" + answer_wait()}
         it.set("unresolved", f"{why}・聞き返しを使い切った" if self.phase == "asking" else f"{why}・念のための確認でも聞けなかった")
+        if reason == "unclear" and q.required:
+            # 聞き取れないまま「-」にした（その場の聞き返しを使い切った・念のための確認でも聞けなかった）違う質問が、答えを1つも受け取らない
+            # まま続いた：声が聞き取れない（poor_audio）で、お詫びして終える（_trouble。DESIGN.md 6-8。答えを受け取ったら数え直す＝_apply_one）。
+            # 同じ質問を2回（その場と念のための確認）数えない：1つの質問だけが聞き取れないのは、お声のせいとは限らない（お名前などの答えが
+            # 聞き取りにくい）＝ユーザーの甚大は「声がお互いや片方がほとんど聞き取れない場合」
+            self.unclear_qids.add(qid)
+            if len(self.unclear_qids) >= self.limits.trouble_unclear:
+                return self._trouble("poor_audio", f"聞き返しを使い切っても聞き取れないまま「-」にした質問が、答えを受け取らないまま"
+                                                   f"{len(self.unclear_qids)}つ続いた（{'・'.join(sorted(self.unclear_qids))}）")
         return self._advance(f"{shown}「-」にします。" + self._reading_note(qid))
 
     def _enter_reading(self, qid: str, prefix: str = "") -> dict:
@@ -4403,7 +4460,7 @@ class Flow:
         AIが話す形では「締めの言葉を言って」とだけ伝えていた＝AIが自分で文を作り、「お気軽にお問い合わせください」「お気をつけて
         お越しくださいませ」（命令の形）を足した（G-45）。断られたときの締めは録音にしていなかった（「お忙しいところ」はAIの声で崩れやすい）。
         part：text の録音が依頼主の単位（名乗りの部分。留守番電話の伝言）。無ければ契約者の単位（締めの録音）。"""
-        if self.end_reason is not None:
+        if self.end_reason is not None or self.trouble is not None:
             return self._ended()
         polite = ("done", "callback", "not_transferred", "departed", "other_means")  # お礼の締め（ほかは断られたときの締め）
         text, rid = text or ((CLOSING, "closing") if reason in polite else (CLOSE_DECLINED, "closing_declined"))
