@@ -4065,6 +4065,21 @@ class JudgeSetupTest(unittest.TestCase):
             a = mj._Metered(SimpleNamespace(messages=AioMessages()), aio=True)
             asyncio.run(a.messages.create(model="claude-haiku-5-5", messages=[]))
             self.assertEqual(dict(mj.SPEND.calls), {"claude-sonnet-5-5": 1, "claude-haiku-5-5": 1})
+
+            class Slow:
+                async def create(self, **body):
+                    await asyncio.sleep(1.0)
+
+            async def stop_one():   # 先に届いた答えで決めて、返事を待たずに止めた問い合わせも、料金の見込みに入れる
+                job = asyncio.ensure_future(mj._Metered(SimpleNamespace(messages=Slow()), aio=True).messages.create(
+                    model="claude-sonnet-5-5", messages=[]))
+                await asyncio.sleep(0.01)
+                job.cancel()
+                await asyncio.gather(job, return_exceptions=True)
+            before = mj.SPEND.yen
+            asyncio.run(stop_one())
+            self.assertEqual(dict(mj.SPEND.stopped), {"claude-sonnet-5-5": 1})
+            self.assertAlmostEqual(mj.SPEND.yen - before, (1670 * 2.0 + 40 * 10.0) / 1e6 * 150, places=6)   # 返事のあった1回の平均
             mj.SPEND.limit = mj.SPEND.yen   # 上限に達した：それより後は送らない（失敗は止まった判定と同じ形）
             with self.assertRaises(mj.OtherJudgeError):
                 c.messages.create(model="claude-sonnet-5-5", messages=[])

@@ -346,9 +346,25 @@ class Spend:
     それより後は送らずに失敗にする（判定は止まった扱い＝通話は止まらない。測りは、それ以上お金を使わない）。"""
     name = "Anthropic の判定"
 
+    # 返事を待たずに止めた問い合わせ（先に届いた答えで決めたあと、first_of が止めた分）は、使った量が返らないが料金はかかりうる ⇒
+    # 同じモデルの返事のあった問い合わせの平均の円で見込む（返事が1つも無ければ、意味の判定の1回＝入力 1,670・出力 40 トークン）
+    # ⛔ 2026-10-29：帳簿を作った日の確かめで、止めた Sonnet を数えていなかった
+    TYPICAL_TOKENS = (1670, 40)
+
     def __init__(self):
         from collections import Counter, defaultdict
-        self.calls, self.tokens, self.yen, self.limit = Counter(), defaultdict(Counter), 0.0, None
+        self.calls, self.stopped, self.tokens, self.yen_by, self.limit = Counter(), Counter(), defaultdict(Counter), Counter(), None
+
+    @property
+    def yen(self) -> float:
+        """返事のあった分の円＋止めた分の見込みの円。"""
+        return sum(self.yen_by.values()) + sum(n * self._mean(m) for m, n in self.stopped.items())
+
+    def _mean(self, model: str) -> float:
+        if self.calls[model]:
+            return self.yen_by[model] / self.calls[model]
+        p_in, p_out, _, _ = PRICE.get(model, PRICE["claude-sonnet-5-5"])
+        return (self.TYPICAL_TOKENS[0] * p_in + self.TYPICAL_TOKENS[1] * p_out) / 1e6 * YEN_PER_USD
 
     def check(self) -> None:
         if self.limit is not None and self.yen >= self.limit:
@@ -362,18 +378,19 @@ class Spend:
                + u["cache_creation_input_tokens"] * p_write) / 1e6
         self.calls[model] += 1
         self.tokens[model].update(u)
-        self.yen += usd * YEN_PER_USD
+        self.yen_by[model] += usd * YEN_PER_USD
 
     def summary(self) -> dict:
-        return {"円": round(self.yen, 1), "回数": dict(self.calls), "トークン": {m: dict(t) for m, t in self.tokens.items()},
-                **({"上限の円": self.limit} if self.limit is not None else {})}
+        return {"円": round(self.yen, 1), "回数": dict(self.calls), "返事を待たずに止めた回数（円は見込み）": dict(self.stopped),
+                "トークン": {m: dict(t) for m, t in self.tokens.items()}, **({"上限の円": self.limit} if self.limit is not None else {})}
 
 
 SPEND = Spend()
 
 
 class _Metered:
-    """Anthropic の部品の messages.create を包む：送る前に上限を確かめ（SPEND.check）、返事の使った量を帳簿に数えてから返す。"""
+    """Anthropic の部品の messages.create を包む：送る前に上限を確かめ（SPEND.check）、返事の使った量を帳簿に数えてから返す。
+    返事を待たずに止められたら（first_of が先に届いた答えで決めた）、止めた回数に数える。"""
 
     def __init__(self, client, aio: bool):
         self._client, self._aio, self.messages = client, aio, self
@@ -382,7 +399,12 @@ class _Metered:
         SPEND.check()
         if self._aio:
             async def go():
-                got = await self._client.messages.create(**body)
+                import asyncio
+                try:
+                    got = await self._client.messages.create(**body)
+                except asyncio.CancelledError:
+                    SPEND.stopped[body["model"]] += 1
+                    raise
                 SPEND.add(body["model"], got.usage)
                 return got
             return go()
@@ -391,22 +413,32 @@ class _Metered:
         return got
 
 
+# 使っていないつながりを保つ秒（判定へ送る道具の1か所）。⛔ 2026-10-29：通信の部品の初めの値は5秒で切る作りで、6秒ずつ間をあけて Jev に
+#    問い合わせると、毎回つなぎ直して 0.39〜0.46秒かかった（つないだままなら 0.15〜0.16秒）＝通話の中の判定は数秒おきなので、Jev が待つ長さ
+#    （LEAD_WAIT_S 0.3秒）を毎回過ぎて、2つの Sonnet を毎回出すところだった（記録の 0.16秒は、間をあけずに続けて測った値）
+KEEPALIVE_S = 90.0
+
+
 def other_client(name: str, key: str, aio: bool = False, budget: float | None = None):
     """Google 以外の判定へ送る道具（Anthropic は公式の部品を料金の帳簿で包む・OpenAI は httpx）。やり直しは呼ぶ側の1か所でするので、部品では
-    繰り返さない。budget：この試しで有料の判定に使ってよい円（試しの引数 --budget-yen。通話の本番は渡さない）。"""
+    繰り返さない。つながりは KEEPALIVE_S 秒保つ。budget：この試しで有料の判定に使ってよい円（試しの引数 --budget-yen。通話の本番は渡さない）。"""
     if OTHER_JUDGES[name]["maker"] == "anthropic":
         import anthropic
+        import httpx2
         from common import LEDGERS
 
         if budget is not None:
             SPEND.limit = budget
         if SPEND not in LEDGERS:
             LEDGERS.append(SPEND)
-        return _Metered((anthropic.AsyncAnthropic if aio else anthropic.Anthropic)(api_key=key, max_retries=0, timeout=60), aio)
+        http = (anthropic.DefaultAsyncHttpxClient if aio else anthropic.DefaultHttpxClient)(
+            limits=httpx2.Limits(max_connections=1000, max_keepalive_connections=100, keepalive_expiry=KEEPALIVE_S))
+        return _Metered((anthropic.AsyncAnthropic if aio else anthropic.Anthropic)(api_key=key, max_retries=0, timeout=60, http_client=http), aio)
     import httpx
 
     return (httpx.AsyncClient if aio else httpx.Client)(base_url=f"https://{OTHER_JUDGES[name]['host']}", timeout=60,
-                                                        headers={"authorization": f"Bearer {key}"})
+                                                        headers={"authorization": f"Bearer {key}"},
+                                                        limits=httpx.Limits(keepalive_expiry=KEEPALIVE_S))
 
 
 def _other_error(exc: BaseException) -> OtherJudgeError | None:
