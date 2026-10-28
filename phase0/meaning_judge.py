@@ -505,13 +505,37 @@ class NoJudgment(RuntimeError):
         self.tried = tried
 
 
-async def first_of(starts, usable):
-    """同時に出して、先に届いた使える答えで決める（唯一の場所。JudgePanel の受け持ち・grounding.make_grounder）：starts＝問い合わせを始める
-    関数の並び（引数なし・答えを返す）。usable(答え) が真の、最初に届いた答えを返し、残りの問い合わせは止める。どれも無ければ None。
-    失敗した問い合わせ・None の答えは待たない（ほかの答えを待つ）。"""
+# 組の中で先に出す判定と、その確かな読みを待つ秒（first_of の lead）。✅ 2026-10-29 ユーザー：「(1) では、Jev が『確かでない』と返したら、
+#    その時点で Sonnet を出します。OK」＝⛔ 3つを同時に出すと、Jev が確かな読みで先に答えた発話（意味の判定で6割）でも、2つの Sonnet の料金を
+#    払っていた（送った問い合わせは、止めても料金がかかる）。記録の読みと秒で数えると、正しさは1件も変わらず、Sonnet は意味の判定で 58%・
+#    中身の判定で 70% 減る（PHASE0 G-59 の 10-29・phase0/judge_cost.py）。Jev の答えまでは中央 0.16秒
+LEAD = "Jev 1.14"
+LEAD_WAIT_S = 0.3
+
+
+async def first_of(starts, usable, lead: int | None = None, wait_s: float = LEAD_WAIT_S):
+    """先に届いた使える答えで決める（唯一の場所。JudgePanel の受け持ち・grounding.make_grounder）：starts＝問い合わせを始める関数の並び
+    （引数なし・答えを返す）。usable(答え) が真の、最初に届いた答えを返し、残りの問い合わせは止める。どれも無ければ None。
+    失敗した問い合わせ・None の答えは待たない（ほかの答えを待つ）。
+    lead＝先に出す1つ（starts の番号。安くて速い判定＝LEAD）：それだけを先に出し、使える答えが届けばそれで決める（ほかは出さない）。
+    使えない答え・失敗が届いたとき、または wait_s 秒たっても届かないときに、ほかを同時に出す。lead が無ければ全部を同時に出す。"""
     import asyncio
 
-    jobs = [asyncio.ensure_future(start()) for start in starts]
+    jobs = []
+    if lead is not None and len(starts) > 1:
+        first = asyncio.ensure_future(starts[lead]())
+        done, _ = await asyncio.wait({first}, timeout=wait_s)
+        if done:
+            try:
+                got = first.result()
+            except Exception:
+                got = None
+            if got is not None and usable(got):
+                return got
+        else:
+            jobs.append(first)
+        starts = [s for i, s in enumerate(starts) if i != lead]
+    jobs += [asyncio.ensure_future(start()) for start in starts]
     try:
         for done in asyncio.as_completed(jobs):
             try:
@@ -641,7 +665,8 @@ class JudgePanel:
                 tried.append({"model": pair[0], "error": SAME_MAKER})
                 return False
             return True
-        won = await first_of([start(n, f) for n, f in live], usable)
+        names = [n for n, _ in live]
+        won = await first_of([start(n, f) for n, f in live], usable, lead=names.index(LEAD) if LEAD in names else None)
         if won is not None:
             if self.holder == kind:
                 self.holder = None

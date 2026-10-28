@@ -4206,6 +4206,54 @@ class JudgePanelTest(unittest.TestCase):
         self.assertEqual([self.ask(panel, k).by for k in ("judge", "judge2")], [self.LITE, self.SONNET])
         self.assertEqual(calls, [self.LITE, self.SONNET])
 
+    def test_group_asks_jev_first_and_sonnets_only_without_a_sure_reading(self):
+        # 組（Jev＋2つの Sonnet）は Jev を先に出し、確かな読みが届けば Sonnet は出さない。確かでない読み・失敗が届いたらその時に、
+        # LEAD_WAIT_S 秒たっても届かなければ、2つの Sonnet を出す（first_of の lead＝意味の判定・中身の判定の1か所）。
+        # ✅ 2026-10-29 ユーザー：「(1) では、Jev が『確かでない』と返したら、その時点で Sonnet を出します。OK」
+        import asyncio
+        import time
+
+        from meaning_judge import LEAD_WAIT_S, OtherJudgeError, JudgePanel, Reading, first_of
+        THINK, FAST = self.SONNET, "Claude Sonnet 5.5"
+
+        def run(sure=0.99, jev_s=0.0, fail=False):
+            calls = []
+
+            def judge(name, s=0.0):
+                async def go(q, text, asked=None, before=None):
+                    calls.append((name, round(time.monotonic() - t0, 1)))
+                    await asyncio.sleep(s)
+                    if name == self.JEV and fail:
+                        raise OtherJudgeError(401, "期限切れ")
+                    return Reading("はい", sure=sure if name == self.JEV else None)
+                return go
+            panel = JudgePanel({"judge2": ((self.JEV, judge(self.JEV, jev_s)), (THINK, judge(THINK, 0.05)), (FAST, judge(FAST, 0.02)))})
+            t0 = time.monotonic()
+            got = asyncio.run(panel.ask("judge2", None, "はい。"))
+            return got.by, calls
+        by, calls = run()
+        self.assertEqual((by, [n for n, _ in calls]), (self.JEV, [self.JEV]))         # 確かな読み：Sonnet は出さない
+        by, calls = run(sure=0.5)
+        self.assertEqual((by, sorted(n for n, _ in calls)), (FAST, sorted([self.JEV, THINK, FAST])))
+        self.assertTrue(all(t < LEAD_WAIT_S for n, t in calls))                       # 確かでない読みが届いた時に出す（待たない）
+        by, calls = run(fail=True)
+        self.assertEqual(by, FAST)                                                     # 失敗も同じ
+        by, calls = run(jev_s=1.0)
+        self.assertEqual(by, FAST)
+        self.assertTrue(all(abs(t - LEAD_WAIT_S) < 0.1 for n, t in calls if n != self.JEV))   # 届かなければ LEAD_WAIT_S 秒で出す
+        # 先に出すものが無い組（契約者が Jev を使わない＝2つの Sonnet）は、今までどおり同時
+        async def two():
+            order = []
+
+            def s(name, d):
+                async def go():
+                    order.append(name)
+                    await asyncio.sleep(d)
+                    return name
+                return go
+            return await first_of([s(THINK, 0.05), s(FAST, 0.01)], lambda g: True), order
+        self.assertEqual(asyncio.run(two()), (FAST, [THINK, FAST]))
+
     def test_stopped_judge_is_replaced_and_skipped_for_a_while(self):
         # 止まっている（混雑の 503）：その発話は Jev が答え、DOWN_S 秒は問い合わせずに Jev へ。過ぎたら、また問い合わせる
         from meaning_judge import DOWN_S, OtherJudgeError
@@ -8681,6 +8729,24 @@ class OwnWordsTest(unittest.TestCase):
             with m.patch.object(grounding, "make_reader", lambda args, name: next(it)):
                 ground = grounding.make_grounder(None, tuple(f"j{i}" for i in range(len(readers))))
             self.assertEqual(asyncio.run(ground(["業務の情報：x"], "相手", "文")), want)
+        # 組に Jev があれば Jev を先に出し、確かな読み（線 ground_min から上）が届けば Sonnet は出さない。線より下ならその時に出す
+        # （✅ 2026-10-29 ユーザー：「Jev が『確かでない』と返したら、その時点で Sonnet を出します。OK」）
+        from meaning_judge import LEAD, RACE
+        for sure, want, called in ((0.96, UNGROUNDED, [LEAD]), (0.5, GROUNDED, list(RACE))):
+            calls = []
+
+            def named(name):
+                async def call(knowledge, said, draft):
+                    calls.append(name)
+                    await asyncio.sleep(0.01 if name == LEAD else 0.03)
+                    v = self.verdict(UNGROUNDED if name == LEAD else GROUNDED, by=name)
+                    v.sure = sure if name == LEAD else None
+                    return v
+                return call
+            with m.patch.object(grounding, "make_reader", lambda args, name: named(name)):
+                ground = grounding.make_grounder(None, RACE)
+            self.assertEqual(asyncio.run(ground(["業務の情報：x"], "相手", "文")), want)
+            self.assertEqual(sorted(calls), sorted(called))
 
     def test_the_call_waits_for_the_reading(self):
         # 電話接続側（convo.check_handler）：答えの文の操作が来たら、返事を作る前に中身の判定を待つ長さまで待ち、届いた読みを渡す。

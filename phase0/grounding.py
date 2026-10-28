@@ -256,12 +256,15 @@ def verbatim(draft: str, knowledge: list[str]) -> bool:
 
 
 def make_grounder(args, names: tuple[str, ...]):
-    """通話の中で使う形：async (知っていること, お客様の言葉, 返す文) -> Verdict | None。names の判定（ふだんは GROUNDERS）を同時に出し、
-    先に届いた読みで決める（届かなかった・読めなかった判定は待たない）。どれも届かなければ None（呼ぶ側が待つ長さで打ち切り、文は声に出さない）。
+    """通話の中で使う形：async (知っていること, お客様の言葉, 返す文) -> Verdict | None。names の判定（ふだんは GROUNDERS）に出し、
+    先に届いた読みで決める（届かなかった・読めなかった判定は待たない）。組に Jev（meaning_judge.LEAD）があれば Jev を先に出し、確かな読みが
+    無いときだけほかを出す（意味の判定と同じ1か所＝first_of）。どれも届かなければ None（呼ぶ側が待つ長さで打ち切り、文は声に出さない）。
     ⚠️ 遅れて届いた読みは使わない（声はもう出ている）＝呼ぶ側が通話の事実に残し、通話後の検証が見る。"""
-    from meaning_judge import first_of
-    readers = [make_reader(args, n) for n in names if n]
+    from meaning_judge import LEAD, first_of
+    names = [n for n in names if n]
+    readers = [make_reader(args, n) for n in names]
 
     async def ground(knowledge, said, draft):
-        return await first_of([lambda r=r: r(knowledge, said, draft) for r in readers], lambda v: trusted(v.by, v.sure))
+        return await first_of([lambda r=r: r(knowledge, said, draft) for r in readers], lambda v: trusted(v.by, v.sure),
+                              lead=names.index(LEAD) if LEAD in names else None)
     return ground
