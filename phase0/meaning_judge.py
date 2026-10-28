@@ -114,20 +114,26 @@ PROMPT = RULES + (   # 並びの見本（文を作るのは prompt_parts の1か
 #    案は逆の向きだった（測った「直った」は、作らせたモデルの誤った正解に合わせただけのものを含む。PHASE0 G-53 の3回目）。
 
 
+MEANT = "という意味の答え"   # 印のある質問の選択肢の説明の終わり（jev_criteria が意味の定義を読み戻す）
+
+
 def options(q, asked: str | None = None) -> list[tuple[str, str, str]]:
     """選べるもの（判定に見せる名前、説明、中の名前）。選択肢の質問と、値を聞く質問の最初の答えは Question.all_conditions の並び
     （宣言した選択肢は、意味の言葉を名前にする。無い・ほかの名前とかぶるときは選択肢の名前）。選択肢がこちらが決めた意味の名前の質問
-    （Question.named＝目的のお客様か・確かめへの返事・尋ねているか・待たせた方が戻ったか）は、その名前のまま見せ、意味の定義を説明に書く。
+    （Question.named＝目的のお客様か・確かめへの返事・尋ねているか・待たせた方が戻ったか）は、名前を「答えA」「答えB」…にし、意味の定義を
+    説明に1回だけ書く（⛔ 2026-10-29：意味の名前（「別の方」）のまま見せると、確かめへの「いいえ、山田と申します。岡田は本日おりません。」を
+    言葉の頭に引かれて「別の方」と読んだ＝中立の名前の形だけが3回中3回「不在」）。
     値を聞く質問の言い直しへの返事は「合っている」「違う値を言われた」（AIの報告 confirm_field と同じ名前）。最後に、答えでない言葉の3つ。
     ⛔ G-53 の2回目：名前の「いいえ」と相手の「違います」を言葉で結びつけ、言い直しを認めていないのに認めたと読んだ ⇒ お客様の選択肢の言葉は名前にしない。
     ⛔ 2026-10-29：印のある質問も意味の定義（長い文）を名前にしていたので、返事の形の指定にも長い文が並び（目的のお客様の判定で送る量の55%）、
        「ご本人」と答えるたびに長い文（約400トークン＝入力の5倍の値段）を書き出していた"""
     if q.type in CHOICE_TYPES or asked is None:
         taken = {label(c) for c in q.all_conditions if c not in q.conditions} | set(KIND_DESC)
-        head = []
+        head, n = [], 0
         for c in q.all_conditions:
             if c in q.conditions and getattr(q, "named", False):
-                head.append((label(c), q.meanings.get(c) or f"「{c}」と答えた", c))
+                head.append((f"答え{chr(ord('A') + n)}", f"「{q.meanings.get(c) or c}」{MEANT}", c))
+                n += 1
             elif c in q.conditions:
                 name = q.meanings.get(c)
                 if not name or name in taken:
@@ -334,7 +340,11 @@ def jev_criteria(q, asked: str | None = None) -> dict:
     """Jev に渡す選択肢の定義（名前は options と同じ。答えの意味の選択肢は、意味で読むことを定義に書く）。"""
     out = {}
     for n, d, c in options(q, asked):
-        if d == "この意味の答え" or d.startswith("「"):
+        if d.endswith(MEANT):   # 印のある質問（名前は「答えA」…＝意味は説明の中）
+            d = d[1:-len(MEANT) - 1]
+            d = (f"お客様の答えの意味が「{d}」（打ち消しを重ねた言い方・打ち消しの問いへの「はい」「いいえ」も、言葉の頭ではなく意味で読む。"
+                 "言い切っていなくても、この意味に寄っていればこれ）")
+        elif d == "この意味の答え" or d.startswith("「"):
             d = (f"お客様の答えの意味が「{n}」（打ち消しを重ねた言い方・打ち消しの問いへの「はい」「いいえ」も、言葉の頭ではなく意味で読む。"
                  "言い切っていなくても、この意味に寄っていればこれ）")
         out[n] = d

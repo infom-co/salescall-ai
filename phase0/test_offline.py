@@ -2558,9 +2558,9 @@ class MeaningJudgeOptionsTest(unittest.TestCase):
         self.assertIsNone(read(v, json.dumps({"choice": "はい"}), "念のため16日でよろしいでしょうか？"))
 
     def test_our_meaning_names_are_shown_as_names(self):
-        # こちらが決めた意味の名前の質問（Question.named＝目的のお客様か・確かめへの返事・尋ねているか・待たせた方が戻ったか）は、その名前のまま
-        # 見せ、意味の定義は説明に1回だけ（⛔ 2026-10-29：定義の長い文を名前にしていて、返事の形の指定に長い文が並び、「ご本人」と答える
-        # たびに長い文を書き出していた）。お客様の選択肢の言葉の質問は、前のまま意味の言葉を名前に（上の試験）
+        # こちらが決めた意味の名前の質問（Question.named＝目的のお客様か・確かめへの返事・尋ねているか・待たせた方が戻ったか）は、名前を
+        # 「答えA」…にし、意味の定義は説明に1回だけ（⛔ 2026-10-29：定義の長い文を名前にしていて、返事の形の指定に長い文が並び、「ご本人」と
+        # 答えるたびに長い文を書き出していた・意味の名前のままでは言葉の頭に引かれた）。お客様の選択肢の言葉の質問は、前のまま（上の試験）
         import json
         from flowctl import Flow, TARGET_IS_THERE, TARGET_MEANINGS, Question
         from meaning_judge import _schema, jev_criteria, options, prompt, prompt_parts, read
@@ -2570,18 +2570,19 @@ class MeaningJudgeOptionsTest(unittest.TestCase):
         for q in (f.calling_question, *f.confirm_questions.values(), *f.asks_questions.values(), f.return_question):
             self.assertTrue(q.named, q.id)
             names = [n for n, _, _ in options(q)][:len(q.conditions)]
-            self.assertEqual(names, list(q.conditions))
+            self.assertEqual(names, [f"答え{chr(ord('A') + i)}" for i in range(len(q.conditions))])
             self.assertLess(len(json.dumps(_schema(q, None), ensure_ascii=False)), 400)   # 名前の決まりに長い定義を並べない
         q = f.calling_question
         said = prompt(q, "はい、岡田です。")
-        self.assertIn(f"- {TARGET_IS_THERE}：{TARGET_MEANINGS[TARGET_IS_THERE]}", said)
+        self.assertIn(f"- 答えA：「{TARGET_MEANINGS[TARGET_IS_THERE]}」という意味の答え", said)
         self.assertEqual(said.count(TARGET_MEANINGS[TARGET_IS_THERE]), 1)
-        self.assertEqual(read(q, json.dumps({"choice": TARGET_IS_THERE})), TARGET_IS_THERE)
-        self.assertEqual(jev_criteria(q)[TARGET_IS_THERE], TARGET_MEANINGS[TARGET_IS_THERE])
+        self.assertEqual(read(q, json.dumps({"choice": "答えA"})), TARGET_IS_THERE)
+        self.assertIn(TARGET_MEANINGS[TARGET_IS_THERE], jev_criteria(q)["答えA"])
         # まとめて送る区切りは、毎回同じ「決まり＋質問」の後ろ（つなげると1文字も違わない）
         head, rest = prompt_parts(q, "はい、岡田です。", None, "少々お待ちください。")
         self.assertEqual(head + rest, prompt(q, "はい、岡田です。", None, "少々お待ちください。"))
         self.assertEqual(head, prompt_parts(q, "別の言葉", None, None)[0])
+        self.assertIn(TARGET_MEANINGS[TARGET_IS_THERE], head)   # 意味の定義（長くて毎回同じ）も前の部分＝まとめて送る
 
 
 class UnreportedNoteTest(unittest.TestCase):
