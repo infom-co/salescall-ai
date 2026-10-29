@@ -6,6 +6,13 @@ a4・a6・a7・a9・a10）。時計は、この試験のためだけに
 立てる使い捨てのデータベース（run_tests.clock_cluster。libfaketime をデータベースの処理にだけ差し込む）の時計（Python の時計は進めない）。
 時計をずらす部品が無い機械では、この試験は飛ばす（壊し試しが、飛ばした試験では落ちないので、run_tests が「見張れていない」と知らせる）。
 
+**状態の欄の影と比べる**（DESIGN.md 17章の作り直しの3段目。2026-10-29）：どの場面も、時計を進める各時点で、今の作りの答え（unrung_blame・
+task_awaiting_decision・task_resting・awaiting_recovery・回線と契約者の停止・番号の続き など）と、状態の欄の影（core/health）を比べる
+（tests/shadow.py）。食い違いは、どれも分け方の表（`SHADOW_KNOWN`）の1つに当たり（今の作りの誤り・表の誤りに見えるもの・影の作りの限り・
+それらから続くもの）、場面ごとの分け方の組は `SHADOW_SCENES` のとおり（違えば落ちる＝影か今の作りの動きが変わった）。見直し20〜22 の場面
+（作業の場所の life_r20・life_r21・life_r22）のうち、17章にかかわるもの（こちらの不具合 b1・b2・b3・b4・b8・b9、回線 a5・n3・n4・n7・n8・r2）を
+この試験に移した（時間を縮めたものがある。通話ごとの口の場面 w は 17章の外）。
+
 2026-10-24 管理者の決定：「明らかに番号に問題がある場合は、その行は取りやめですが、回線の問題が明らかな場合は行は取りやめでなく一時中止
 だけ」「回線か番号かどちらかわからない場合は…1回目から、次の行に進む…一つの行で止まり続けることがないように」「その回線にかける行が
 残っていないときは、『テスト番号』で決めます。前に鳴った電話があれば番号のせい、一度も鳴らせていなければ回線のせい」。2026-10-25 夜
@@ -18,8 +25,10 @@ from __future__ import annotations
 import contextlib
 import os
 import unittest
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import NamedTuple
 
 import run_tests
 from salescall.core import access as access_mod
@@ -28,7 +37,7 @@ from salescall.core.calling_hours import JST
 from salescall.core.phone import normalize
 from salescall.supervisor import jobs, line
 from salescall.supervisor.links import NoLinks
-from tests import support
+from tests import shadow, support
 from tests.support import CLEAN, OPERATOR, SYSTEM, owner_access, rules_raw
 from tests.test_gate import HOLDER, KEYS, FakeDriver
 from tests.test_settle import rep
@@ -122,6 +131,32 @@ class Life(SupervisorBase):
         self.override("calling.ng_hours", NG_NONE)
         self.override("calling.hours_limit", LIMIT_7_22)
         self.override("callee.designated_limit", ["07:00", "22:00"])
+        self.shadow_labels, self.shadow_seen = shadow.Labels(), {}   # 影との食い違い（tests/shadow.py。DESIGN.md 17章の3段目）
+
+    # ── 影との比べ（各時点＝回線ごとの処理の何回分かのあと）
+    def compare(self, s) -> None:
+        at = self.db_now().astimezone(JST).strftime("%m-%d %H:%M")
+        for d in shadow.observe(s["tenant"], self.shadow_labels) or ():
+            first, n = self.shadow_seen.get(d, (at, 0))
+            self.shadow_seen[d] = (first, n + 1)
+
+    def tearDown(self):
+        kinds = {d: shadow_kind(d) for d in self.shadow_seen}
+        report = os.environ.get("SALESCALL_SHADOW_REPORT")
+        if report:   # 作業用：食い違いを書き出す（場面ごと・分け方・初めて見た時刻と、見た回数）
+            with open(report, "a", encoding="utf-8") as f:
+                f.write(f"\n===== {self._testMethodName} {sorted(set(k for k in kinds.values() if k))}\n")
+                for d, (first, n) in self.shadow_seen.items():
+                    f.write(f"{kinds[d]} {first} ×{n} | {d.what} | {d.label} | 今={d.current!r} | 影={d.shadow!r}\n")
+        super().tearDown()
+        # どの食い違いも分け方の表に当たり、場面ごとの分け方の組は決めたとおり（DESIGN.md 17章の3段目の比べる試験）
+        unknown = [d for d, k in kinds.items() if k is None]
+        self.assertEqual(unknown, [], "分け方の表（SHADOW_KNOWN）に無い食い違い")
+        got = set(kinds.values())
+        roots = got - {"続"}
+        if "続" in got:
+            self.assertTrue(roots & ROOTS, f"続きの食い違いがあるのに、もとの食い違いが無い：{sorted(got)}")
+        self.assertEqual(got, SHADOW_SCENES.get(self._testMethodName, set()), "場面の食い違いの分け方の組が、決めたものと違う")
 
     # ── 時計（データベースだけ）
     def db_now(self):
@@ -189,6 +224,7 @@ class Life(SupervisorBase):
                 self.turn(s, p, talk, line_id)
             if each is not None:
                 each()
+            self.compare(s)   # 各時点で、今の作りと影を比べる（tests/shadow.py）
             t += step if 8 <= t.astimezone(JST).hour < 22 else night
             self.jump(t)
 
@@ -610,3 +646,301 @@ class Life(SupervisorBase):
         for r in rows:
             self.assertNotEqual(self.ended(r), "number_unusable")              # 行は失わない
 
+
+    # ── 見直し20〜22 の場面（作業の場所にあった life_r20・life_r21・life_r22 から移した。DESIGN.md 17章の3段目で、影と比べるため。
+    #    比べる時間を縮めたものがある。通話ごとの口の場面＝W は 17章の外なので移していない）
+    def note_version(self):
+        """動いているプログラムの版が替わった（中央の見守り役が書く＝supervisor/updates.note）。"""
+        from salescall.supervisor import updates
+        import uuid
+        self.w.a.in_system(SYSTEM, lambda tx: updates.note(tx, f"試験の版-{uuid.uuid4().hex}"))
+
+    def fixed(self, s):
+        """決まった間隔の仕事 fixed_stops（直した版で、こちらの不具合の停止を解く・状態の欄へ直した版を渡す）。"""
+        jobs.fixed_stops(self.ctx(s))
+
+    def report_fixed(self, kind):
+        """直す担当が、その種類の修正依頼を直したと記録する。"""
+        for r in owner_access().in_system(SYSTEM, lambda tx: tx.all(
+                "SELECT request_id FROM salescall.fix_requests q WHERE kind = %s AND NOT EXISTS"
+                " (SELECT 1 FROM salescall.fix_reports r WHERE r.request_id = q.request_id)", (kind,))):
+            self.w.a.in_system(SYSTEM, lambda tx, r=r: fix_requests.report_fixed(tx, r["request_id"], "試験：直した"))
+
+    def tenant_stops(self, s):
+        return self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: [r["cause"] for r in tx.all(
+            "SELECT cause::text AS cause FROM salescall.open_stop_events WHERE scope = 'tenant'")])
+
+    def resting(self, r):
+        return self.tx(r, lambda tx: tx.one("SELECT salescall.task_resting(%s) AS w", (r["task"],))["w"])
+
+    def awaiting(self, r):
+        return self.tx(r, lambda tx: tx.one("SELECT salescall.awaiting_recovery(%s) AS w", (r["task"],))["w"])
+
+    def troubles_of(self, r):
+        return self.tx(r, lambda tx: [x["trouble"] for x in tx.all(
+            "SELECT trouble FROM salescall.attempts WHERE task_id = %s AND salescall.is_dialed(state) ORDER BY claimed_at", (r["task"],))])
+
+    def test_b1_our_trouble_twice_on_one_row_rests_it(self):
+        """場面 b1（見直し21a）：X だけ、話し始めたあと毎回 AI の異常（ほかの3行は完了）。X は2回かけて休み、休み始めの知らせは1回。"""
+        s, rows = self.start(4)
+        x = rows[0]
+        self.run_until(s, Phone(), Script({x["phone"]: "trouble:ai_malfunction"}, default="complete"),
+                       self.db_now() + timedelta(hours=9))
+        self.assertTrue(self.resting(x))
+        self.assertEqual(self.troubles_of(x), ["ai_malfunction"] * 2)
+        self.assertEqual([self.ended(r) for r in rows[1:]], ["completed"] * 3)
+        self.assertEqual(self.notes(s, "task_resting"), 1)
+
+    def test_b2_the_same_trouble_on_three_rows_stops_until_the_fixed_version(self):
+        """場面 b2（見直し21a）：最初の3行が続けて AI の異常（ほかの2行は完了）：契約者の新しい電話を止める。版が替わっただけでは解かない。
+        直したと記録して版が替わると解け、休んだ行も戻り、5行とも完了する。"""
+        s, rows = self.start(5)
+        monday = self.db_now().astimezone(JST)
+        talk = Script({r["phone"]: "trouble:ai_malfunction" for r in rows[:3]}, default="complete")
+        self.run_until(s, Phone(), talk, monday.replace(hour=12))
+        self.assertEqual(self.tenant_stops(s), ["program_trouble"])
+        self.note_version()
+        self.fixed(s)
+        self.assertEqual(self.tenant_stops(s), ["program_trouble"])
+        self.report_fixed("call_ai_malfunction")
+        self.note_version()
+        self.fixed(s)
+        self.assertEqual(self.tenant_stops(s), [])
+        talk.how = {}
+        self.run_until(s, Phone(), talk, monday.replace(hour=18))
+        self.assertEqual([self.ended(r) for r in rows], ["completed"] * 5)
+
+    def test_b3_the_same_trouble_with_good_talks_between_does_not_stop(self):
+        """場面 b3（見直し21a）：同じ理由の行が3つあるが、あいだに話し終えた電話がはさまる（X・良・Y・良・Z）：止めない。"""
+        s, rows = self.start(6)
+        talk = Script({r["phone"]: "trouble:cannot_proceed" for r in (rows[0], rows[2], rows[4])}, default="complete")
+        self.run_until(s, Phone(), talk, self.db_now() + timedelta(hours=9))
+        self.assertEqual(self.tenant_stops(s), [])
+
+    def test_b4_poor_audio_with_the_same_customer_is_not_our_trouble(self):
+        """場面 b4（見直し21a）：X は毎回「声が聞き取れない」で終える（ほかは完了）。こちらの不具合に数えず（修正依頼なし・行は休まない）、
+        同じお客様なので回線も止めない。"""
+        asked = lambda: owner_access().in_system(SYSTEM, lambda tx: tx.one(   # noqa: E731 修正依頼の数（試験の場面をまたいで数える）
+            "SELECT count(*) AS n FROM salescall.fix_requests")["n"])
+        before = asked()
+        s, rows = self.start(3)
+        x = rows[0]
+        self.run_until(s, Phone(), Script({x["phone"]: "trouble:poor_audio"}, default="complete"),
+                       self.db_now() + timedelta(hours=9))
+        self.assertEqual(self.line_stops(s), [])
+        self.assertFalse(self.resting(x))
+        self.assertEqual(asked(), before)
+
+    def test_b8_a_version_without_the_fix_keeps_the_rest(self):
+        """場面 b8（見直し21a。今の作りの復旧の決まり＝0143 に合わせて、ほかの2行は話して完了）：X が2回こちらの不具合で休む。版だけ
+        替わる（直したと記録しない）：X は休んだまま。直したと記録して版が替わると、X も戻って完了する。"""
+        s, rows = self.start(3)
+        monday = self.db_now().astimezone(JST)
+        x = rows[0]
+        talk = Script({x["phone"]: "trouble:ai_malfunction"}, default="complete")
+        self.run_until(s, Phone(), talk, monday.replace(hour=12))
+        self.assertTrue(self.resting(x))
+        self.note_version()
+        self.fixed(s)
+        self.run_until(s, Phone(), talk, monday.replace(hour=14))
+        self.assertTrue(self.resting(x))
+        self.report_fixed("call_ai_malfunction")
+        self.note_version()
+        self.fixed(s)
+        talk.how[x["phone"]] = "complete"
+        self.run_until(s, Phone(), talk, monday.replace(hour=16))
+        self.assertEqual(self.ended(x), "completed")
+
+    def test_b9_our_trouble_before_the_answer_on_the_only_row_waits_for_recovery(self):
+        """場面 b9（見直し21a）：1行だけ。X は呼び出しの途中でこちらの不具合（出る前）。ほかに話し終える電話も直した版も無いので、
+        その行は復旧を待ったまま（失わない）。"""
+        s, rows = self.start(1)
+        x = rows[0]
+        self.run_until(s, Phone(), Script({x["phone"]: ["ring_trouble:cannot_proceed", "complete"]}, default="complete"),
+                       self.db_now() + timedelta(hours=9))
+        self.assertIsNone(self.ended(x))
+        self.assertTrue(self.awaiting(x))
+
+    def test_a5_two_lines_one_broken_and_one_bad_number(self):
+        """場面 a5（見直し21a。時間を縮めた）：回線 A（壊れた）と B（元気）。8行のうち X だけかけられない番号。テスト番号は終日。月曜9時〜
+        18時：ほかの7行は完了し、X は番号のせいの順のとちゅう（取りやめはまだ。回線のせいの分は数えない）。"""
+        s, rows = self.start(8)
+        line_b = self.w.line(s["tenant"])
+        self.give_test_number(s)
+        x = rows[2]
+        lines = [(s["line"], Phone(broken=True)), (line_b, Phone(bad={x["phone"]}))]
+        self.run_until(s, None, Talk(), self.db_now() + timedelta(hours=9), lines=lines)
+        self.assertIsNone(self.ended(x))
+        self.assertGreaterEqual(self.tx(x, lambda tx: attempts.failed_run(tx, x["contact"]))["n_sure"], 1)
+        self.assertEqual([self.ended(r) for r in rows if r is not x], ["completed"] * 7)
+
+    def test_n3_without_a_test_number_a_line_broken_for_half_a_day(self):
+        """場面 n3（見直し22。時間を縮めた）：テスト番号が無い。回線が月曜9時〜13時まで壊れ、そのあと直る（システムは知らない）。5行・
+        18時まで：どの行も番号のせいにしない（失わない）。"""
+        s, rows = self.start(5)
+        phone = Phone(broken=True)
+        monday = self.db_now().astimezone(JST)
+        self.run_until(s, phone, Talk(), monday.replace(hour=13))
+        phone.broken = False
+        self.run_until(s, phone, Talk(), monday.replace(hour=18))
+        for r in rows:
+            self.assertNotEqual(self.ended(r), "number_unusable")
+
+    def test_n4_without_a_test_number_a_new_row_decides_the_bad_numbers(self):
+        """場面 n4（見直し22。時間を縮めた）：テスト番号が無い・元気な回線。X・Y（かけられない）が一覧の最後。15時に新しい行（話せる）が
+        入る：その電話が鳴って、X・Y は番号のせいと決まる。"""
+        s, rows = self.start(5)
+        x, y = rows[3], rows[4]
+        phone = Phone(bad={x["phone"], y["phone"]})
+        monday = self.db_now().astimezone(JST)
+        self.run_until(s, phone, Talk(), monday.replace(hour=15))
+        self.add_row(s)
+        self.run_until(s, phone, Talk(), monday.replace(hour=18))
+        for r in (x, y):
+            self.assertGreaterEqual(self.tx(r, lambda tx, r=r: attempts.failed_run(tx, r["contact"]))["n_sure"], 1)
+
+    def test_n7_a_bad_number_at_evening_is_decided_the_next_morning(self):
+        """場面 n7（見直し22。時間を縮めた）：X（かけられない）を月曜 17:50 にかけ、ほかに行は無い。テスト番号は 9:00〜12:00 だけ。火曜
+        13時まで：テスト番号は時間の外に鳴らさず、X は火曜の朝に番号のせいと決まる。"""
+        monday = self.next_monday_9()
+        s, rows = self.start(1, at=monday.replace(hour=17, minute=50))
+        self.give_test_number(s, (("09:00", "12:00"),))
+        x = rows[0]
+        self.run_until(s, Phone(bad={x["phone"]}), Talk(), monday + timedelta(days=1, hours=4))
+        self.assert_never_outside(self.ring_tests(s), "09:00", "12:00")
+        self.assertGreaterEqual(self.tx(x, lambda tx: attempts.failed_run(tx, x["contact"]))["n_sure"], 1)
+
+    def test_n8_rows_left_undecided_on_a_line_that_is_retired_are_called_by_a_new_line(self):
+        """場面 n8（見直し22）：テスト番号なし。回線 A が壊れ、4行とも分からないまま休む。11時に回線 A を使わなくし（回線のせいと決まる）、
+        回線 B（元気）を足す：4行とも B でかけて完了する。"""
+        from salescall.core import registry
+        s, rows = self.start(4)
+        monday = self.db_now().astimezone(JST)
+        self.run_until(s, Phone(broken=True), Talk(), monday.replace(hour=11))
+        self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: registry.retire_line(tx, s["line"], reason="試験：返した"))
+        line_b = self.w.line(s["tenant"])
+        self.run_until(s, None, Talk(), monday.replace(hour=18), lines=[(line_b, Phone())])
+        self.assertEqual([self.ended(r) for r in rows], ["completed"] * 4)
+
+    def test_r2_two_broken_lines_never_ring_the_test_number_together(self):
+        """場面 r2（見直し20a。時間を縮めた）：回線が2本とも壊れる（同じ契約者）。テスト番号は終日。月曜9時〜13時（5分ごと）：同じ時刻に
+        2本で鳴らさない（1つの契約者のテスト番号は1本ずつ）。"""
+        s, rows = self.start(6)
+        line_b = self.w.line(s["tenant"])
+        self.give_test_number(s)
+        a, b = Phone(broken=True), Phone(broken=True)
+        self.run_until(s, None, Talk(), self.db_now().astimezone(JST).replace(hour=13), step=timedelta(minutes=5),
+                       lines=[(s["line"], a), (line_b, b)])
+        tests = [t for t, _, _ in self.ring_tests(s)] + [t for t, _, _ in self.ring_tests(dict(s, line=line_b))]
+        self.assertEqual(len(tests), len(set(tests)))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 影との食い違いの分け方（DESIGN.md 17章の作り直しの3段目。2026-10-29 CL-2）。今の作りの誤り（17-8 の番号か「新」）・影の作りの限り・それらから
+# 続くもの。表の誤りに見えるものは、この比べでは見つかっていない（作るうちに見つけた、表の書き方の穴は報告に書いた）。表は直していない。
+# ─────────────────────────────────────────────────────────────────────────────
+
+class ShadowKind(NamedTuple):
+    id: str
+    kind: str        # 今の作りの誤り（17-8 の番号・新）／影の作りの限り／続き
+    about: str
+    match: Callable[[shadow.Diff], bool]
+
+
+def _cant(d: shadow.Diff, subject: str, stages: tuple[str, ...], events: tuple[str, ...], gap: str) -> bool:
+    """影が表を引けなかった（誤りの値）：その欄・段・出来事・表に無い組み合わせの番号。"""
+    if d.what != "表を引けない":
+        return False
+    sub, stage, event = d.label.split("・")
+    return sub == subject and stage in stages and event in events and d.shadow == gap
+
+
+CALL_EVENTS, TEST_EVENTS = ("E1", "E2", "E3", "E4", "E5"), ("E6", "E7", "E8", "E9")
+SHADOW_KNOWN: tuple[ShadowKind, ...] = (
+    ShadowKind("影1", "今の作りの誤り 17-8 (5)＋影の作りの限り",
+               "今の作りがテスト番号を鳴らす（試す）時が、表（最初の鳴らなかった電話から15分＝L-2・L-7）と違う。影はテスト番号を鳴らさない"
+               "（することは記録だけ）ので、今の作りが鳴らした答えは、表では鳴らしていない段（元気・確かめ中 (a)(b)）に来て、表を引けない（G-L6）",
+               lambda d: _cant(d, "line", ("healthy", "check_a", "check_b"), TEST_EVENTS, "G-L6")),
+    ShadowKind("今1", "今の作りの誤り 17-8 (1)",
+               "テスト番号が鳴らなかった回線を、表は回線のせい・休み（お客様へかけない＝L-10）にするが、今の作りは回線の異常が3件に届くまで"
+               "止めず、お客様へかけ続ける（表では休みの回線にお客様の電話の出来事は来ない＝G-L7）",
+               lambda d: (d.what == "回線を止めているか" and d.current is False and d.shadow == "回線のせい・休み")
+               or _cant(d, "line", ("line_rest",), CALL_EVENTS, "G-L7")),
+    ShadowKind("今2", "今の作りの誤り 17-8 (2)・(7)",
+               "声が聞き取れない電話が違うお客様で2人続いた回線を、表は声の不調・休み（L-3。2026-10-29「2人」）、再開のあとは1本で止め直す"
+               "（【当(3)】）が、今の作りは回線の異常3件まで止めず、テスト番号の再開で数え直す（止めた続きの回数も、今の作りは0のまま）",
+               lambda d: (d.what == "回線を止めているか" and d.current is False and d.shadow == "声の不調・休み")
+               or _cant(d, "line", ("audio_rest",), CALL_EVENTS, "G-L7")
+               or (d.what == "声で止めた続きの回数" and d.current == 0)),
+    ShadowKind("今3", "今の作りの誤り（新）",
+               "声が聞き取れずに終えた行を、今の作りは同じ回線ですぐ（お詫びとともに）かけ直す。表は、声が通ると分かっている回線が空くのを待ち、"
+               "同じ回線ですぐにはかけない（R-11・R-12・R-13。2026-10-29「回線が整えば、案Aでいい」・(4) 案A）",
+               lambda d: _cant(d, "task", ("voice_redial",), CALL_EVENTS, "G-R11")),
+    ShadowKind("今4", "今の作り（答えの重なり。害は見つけていない）",
+               "同じ行で2回続けてこちらの不具合で終えた行を、今の作りは休み（task_resting）とも復旧待ち（awaiting_recovery）とも答える"
+               "（2つの関数が別々に導く）。表では1つの欄＝休み（R-8）",
+               lambda d: d.what == "行の復旧待ち" and d.current is True and d.shadow == "休み"),
+    ShadowKind("続", "続き（もとの食い違いから）",
+               "影1・今1・今2 で、影が今の作りと違う答えのまま進んだことから続くもの（試行のせい・行の判定待ち・回線のまだ分からない続き・"
+               "番号の続きの数・使えない・待つ印、表では判定待ちの行に今の作りがかける＝G-R11・G-R12）",
+               lambda d: d.what in ("行の判定待ち（回線ごと）", "回線のまだ分からない続き", "番号のせいの続きの数", "番号が使えない",
+                                    "番号の分からない電話の待ち（N-4 の印）")
+               or (d.what == "試行のせい" and ((d.current in ("number", "line") and d.shadow == "unknown")
+                                               or (d.current == "line" and d.shadow == "number")))
+               or (d.what == "回線を止めているか" and d.current is True and str(d.shadow).startswith("確かめ中"))
+               or _cant(d, "task", ("await_decision",), CALL_EVENTS, "G-R11") or _cant(d, "task", ("await_decision",), CALL_EVENTS, "G-R12")),
+)
+ROOTS = {"影1", "今1", "今2"}   # 「続」のもとになる食い違い
+
+
+def shadow_kind(d: shadow.Diff) -> str | None:
+    """その食い違いの分け方（SHADOW_KNOWN の最初に当たるもの。無ければ None）。"""
+    return next((k.id for k in SHADOW_KNOWN if k.match(d)), None)
+
+
+# 場面ごとの、食い違いの分け方の組（2026-10-29 に流して決めた。空＝今の作りと影が、どの時点でも同じ答え）
+SHADOW_SCENES: dict[str, set[str]] = {
+    "test_a1_three_bad_numbers_side_by_side_end_as_the_numbers_without_stopping_the_line": {"影1", "続"},
+    "test_a4_a_broken_line_whose_test_number_cannot_be_told_apart_waits_and_tells_once": {"影1"},
+    "test_a5_two_lines_one_broken_and_one_bad_number": {"今1", "影1", "続"},
+    "test_a6_a_line_broken_for_two_hours_loses_nothing_and_comes_back_with_one_ring": {"影1", "続"},
+    "test_a_list_of_mostly_bad_numbers_on_a_healthy_line_never_stops_the_line": {"影1", "続"},
+    "test_b3_the_same_trouble_with_good_talks_between_does_not_stop": {"今4"},
+    "test_b4_poor_audio_with_the_same_customer_is_not_our_trouble": {"今3"},
+    "test_b5b_a_line_whose_voice_is_broken_is_stopped_again_with_longer_waits": {"今2", "今3"},
+    "test_n10_a_test_the_pc_never_tries_is_told_once": {"影1"},
+    "test_n2b_a_row_left_undecided_on_a_broken_line_is_called_by_a_healthy_line": {"今1"},
+    "test_n6_one_number_on_two_rows_keeps_the_numbers_four_tries": {"影1", "続"},
+    "test_n7_a_bad_number_at_evening_is_decided_the_next_morning": {"影1", "続"},
+    "test_r2_two_broken_lines_never_ring_the_test_number_together": {"影1", "続"},
+}
+
+
+class Script(Talk):
+    """会話の処理の代わり（見直し20〜22 の筋書き）：番号ごとの筋書き（並びなら1本ずつ取り出し、最後の1つは残す）。'complete'＝話して
+    完了（Talk）／'no_answer'＝出ない／'trouble:<理由>'＝出て話し始めたあと、その理由で終える（声が聞き取れないは poor_audio）／
+    'ring_trouble:<理由>'＝呼び出しの途中（出る前）に、その理由で終える。"""
+
+    def __init__(self, how=None, default="complete"):
+        self.how, self.default = dict(how or {}), default
+
+    def run(self, access, actor, claim, *, tenant_id, client_id, call=None):
+        what = self.how.get(claim.phone_e164, self.default)
+        if isinstance(what, list):
+            what = what.pop(0) if len(what) > 1 else what[0]
+        if call is not None:
+            call.beat()
+        if what == "complete":
+            return Talk.run(self, access, actor, claim, tenant_id=tenant_id, client_id=client_id, call=call)
+
+        def move(*sts):
+            access.in_client(actor, tenant_id, client_id, lambda tx: [attempts.move(tx, claim.attempt_id, st) for st in sts])
+        if what == "no_answer":
+            move("ringing", "no_answer")
+            return
+        kind, _, reason = what.partition(":")
+        answered = kind == "trouble"
+        move(*(("ringing", "answered", "in_conversation") if answered else ("ringing",)))
+        call.end_for_trouble(reason)
+        if answered:
+            access.in_client(actor, tenant_id, client_id, lambda tx: attempts.record_verification(tx, claim.attempt_id, summary=CLEAN))

@@ -61,7 +61,7 @@ from enum import Enum
 from typing import Any, Protocol
 from uuid import UUID
 
-from salescall.core import attempts, calling_hours, errors, fix_requests, notify, settings
+from salescall.core import attempts, calling_hours, errors, fix_requests, health, notify, settings
 from salescall.core.access import Access, Actor, Tx
 from salescall.link.phone import CallWithheld
 
@@ -197,12 +197,14 @@ def run(access: Access, actor: Actor, tenant_id: UUID, line_id: UUID, driver: Ri
         except Exception:  # noqa: BLE001 答えられない＝分からない：話しているとみなす（試さない側）
             busy = True
         if busy:
+            health.in_tenant(access, actor, tenant_id, health.tested, line_id, "withheld")   # 話している途中（E9。影）
             return Result.BUSY
         try:
             rang = driver.test_ring(to)
         except CallWithheld:   # PC の部品が試さなかった（つながっていない・答えが期限に届かない・緊急停止）：結果ではない（記録しない）
             if purpose == "no_rows":   # 決めにいくテストを長く試せない：見分けられないと同じく1回知らせる（長さは `_tell_undecided` が見る）
                 access.in_tenant(actor, tenant_id, lambda tx: _tell_undecided(tx, line_id, purpose, "withheld"))
+            health.in_tenant(access, actor, tenant_id, health.tested, line_id, "withheld")   # PC の部品が試さなかった（E9。影）
             return Result.WITHHELD
         except Exception:  # noqa: BLE001 電話の部品の誤り：見分けられない（回線のせいの証拠にしない）
             rang = None
@@ -214,6 +216,8 @@ def run(access: Access, actor: Actor, tenant_id: UUID, line_id: UUID, driver: Ri
                 attempts.close_unrung_run(tx, line_id, "test_silent")
             if rang is None:
                 _tell_undecided(tx, line_id, purpose, "unknown")
+            # テスト番号の答え（E6 鳴った・E7 鳴らなかった・E8 見分けられない）を状態の欄へ（DESIGN.md 17章の3段目＝影。記録だけ）
+            health.tested(tx, line_id, "unknown" if rang is None else "rang" if rang else "silent")
         access.in_tenant(actor, tenant_id, work)
     return Result.UNKNOWN if rang is None else Result.RANG if rang else Result.SILENT
 

@@ -29,7 +29,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from salescall.core import errors, notify, watch
+from salescall.core import errors, health, notify, watch
 from salescall.core.access import Access, Actor, Tx
 from salescall.core.errors import ErrorReport
 
@@ -56,6 +56,7 @@ def after_trouble(access: Access, actor: Actor, *, tenant_id: UUID, client_id: U
         if row is not None and resting(tx, row["task_id"]):
             notify.emit(tx, "task_resting", key=f"task_resting:{attempt_id}", summary=RESTING_SUMMARY, admin=True,
                         refs={"task_id": row["task_id"], "attempt_id": attempt_id, "kind": kind})
+        health.after_call(tx, attempt_id)   # その電話の出来事（E3）を状態の欄へ（DESIGN.md 17章の3段目＝影。記録だけ）
     access.in_client(actor, tenant_id, client_id, tell)
     return kind
 
@@ -70,4 +71,5 @@ def restore(tx: Tx, task_id: UUID, *, reason: str) -> bool:
     tx.execute("INSERT INTO salescall.task_trouble_restores (tenant_id, client_id, task_id, reason, restored_by, actor_kind)"
                " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, salescall.cur_actor(),"
                "         salescall.cur_actor_kind()::salescall.actor_kind)", (task_id, reason))
+    health.by_hand_task(tx, task_id, reason)   # 手で戻した（E12）を状態の欄へ（DESIGN.md 17章の3段目＝影。記録だけ）
     return True

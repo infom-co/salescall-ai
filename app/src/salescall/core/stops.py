@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 from uuid import UUID
 
-from salescall.core import errors, notify
+from salescall.core import errors, health, notify
 from salescall.core.access import Tx
 
 Scope = Literal["system", "tenant", "client", "business", "line"]   # line＝その回線だけ（回線の異常。9-1）
@@ -146,6 +146,7 @@ def resume(tx: Tx, stop_event_id: int, *, reason: str, evidence: str | None = No
     notify.emit(tx, "resumed", key=f"resume:{row['event_id']}",
                 summary=f"止めていた発信を解きました（{SCOPE_NAMES[row['scope']]}：{CAUSES[cause].label}）。",
                 refs={"stop_event_id": stop_event_id, "resume_event_id": row["event_id"], "cause": cause})
+    health.by_hand_stop(tx, stop_event_id, reason)   # 管理者か契約者が解いた（E12）なら状態の欄へ（DESIGN.md 17章の3段目＝影。記録だけ）
     return row["event_id"]
 
 

@@ -116,7 +116,7 @@ def line_states():
                        next_at=None if wait is Wait.NO_NUMBER else T0, entered_at=entered, fix_at=entered + 60 * MIN,
                        tested_at=entered if stage is LS.LINE_REST else None, told=told)
     yield Line(LS.AUDIO_REST, j=2, audio=frozenset({"n7"}), next_at=T0, entered_at=T0 - 20 * MIN)
-    yield Line(LS.REMOVED, removed=("契約者", T0 - MIN, "スマホを替えた"))
+    yield Line(LS.OUT_OF_USE, removed=("契約者", T0 - MIN, "スマホを替えた"))
 
 
 def line_events(state):
@@ -335,7 +335,7 @@ def timeless_key(state):
     """待つ状態で、次に動く時刻を持たないなら、その鍵（欄・段・待つ理由）。待ちでない・時刻があるなら None。"""
     subject = h.subject_of(state)
     if isinstance(state, Line):
-        waiting = state.stage not in (LS.HEALTHY, LS.REMOVED)
+        waiting = state.stage not in (LS.HEALTHY, LS.OUT_OF_USE)
         return (subject, state.stage.value, state.wait.value if state.wait else None) if waiting and state.next_at is None else None
     if isinstance(state, Task):   # 判定待ちは回線の欄の時刻を読む（17-1-2）
         waiting = state.stage in (TS.AWAIT_RECOVERY, TS.RESTING, TS.VOICE_REDIAL)
@@ -347,7 +347,7 @@ def timeless_key(state):
 
 def goal(state) -> bool:
     if isinstance(state, Line):
-        return state.stage in (LS.HEALTHY, LS.REMOVED)
+        return state.stage in (LS.HEALTHY, LS.OUT_OF_USE)
     if isinstance(state, Task):
         return state.stage is TS.ON_PLAN
     if isinstance(state, Number):
@@ -466,7 +466,7 @@ class WaysOut(unittest.TestCase):
 
     def test_every_wait_of_the_line_has_a_next_time_except_the_listed(self):
         for *_, out in self.results:
-            if isinstance(out, Outcome) and isinstance(out.state, Line) and out.state.stage not in (LS.HEALTHY, LS.REMOVED):
+            if isinstance(out, Outcome) and isinstance(out.state, Line) and out.state.stage not in (LS.HEALTHY, LS.OUT_OF_USE):
                 self.assertTrue(out.state.next_at is not None or out.state.wait is Wait.NO_NUMBER, out.state)
 
 
@@ -836,12 +836,12 @@ class Decisions(unittest.TestCase):
         self.assertEqual((withheld.wait, withheld.t, withheld.next_at), (Wait.WITHHELD, 0, T0 + GAP[0] + MIN + GAP[0]))
 
     def test_1029_removed_means_taken_off_by_a_person_in_charge(self):
-        """2026-10-29 管理者：「使わないとはどういうこと？」（外した＝契約者か管理者がその回線を外した終わりの状態。L-14・L-22・L-27）"""
+        """2026-10-29 管理者：「使わないとはどういうこと？」（使用停止＝契約者か管理者がその回線を外した終わりの状態。前の名前は「外した」。L-14・L-22・L-27）"""
         out = ok(self, h.apply(Line(LS.CHECK_B, run_start=T0, run=RUN, wait=Wait.GAP, next_at=T0 + MIN), ev("E13"), R))
-        self.assertEqual((out.state.stage, out.state.removed), (LS.REMOVED, ("契約者", T0, "スマホを替えた")))
+        self.assertEqual((out.state.stage, out.state.removed), (LS.OUT_OF_USE, ("契約者", T0, "スマホを替えた")))
         self.assertEqual([(a.get("attempt"), a.get("blame")) for a in out.actions if a.what == h.DECIDED], [("a1", "回線")])
         rest = ok(self, h.apply(Line(LS.LINE_REST, t=1, next_at=T0, entered_at=T0, tested_at=T0), ev("E13"), R))
-        self.assertEqual((rest.state.stage, rest.rows), (LS.REMOVED, ("L-22",)))
+        self.assertEqual((rest.state.stage, rest.rows), (LS.OUT_OF_USE, ("L-22",)))
         for code in ("E1", "E6", "E12"):   # 終わり：システムは入れない・抜けない
             self.assertEqual(ok(self, h.apply(out.state, ev(code, T0 + MIN), R)), (out.state, (), ("L-27",)))
 
@@ -916,7 +916,7 @@ class Filled1029(unittest.TestCase):
 
     def test_line_rows(self):
         self.assertEqual(ok(self, h.apply(Line(LS.HEALTHY), ev("E13"), R)).rows, ("L-29",))   # 元気でも外せる（試行は書かない）
-        self.assertEqual(ok(self, h.apply(Line(LS.HEALTHY), ev("E13"), R)).state.stage, LS.REMOVED)
+        self.assertEqual(ok(self, h.apply(Line(LS.HEALTHY), ev("E13"), R)).state.stage, LS.OUT_OF_USE)
         for stage in (LS.LINE_REST, LS.AUDIO_REST):   # 休みでテスト番号が無い × E14：次に動く時刻＝いま → すぐ鳴らす
             rest = Line(stage, t=1 if stage is LS.LINE_REST else 0, j=1 if stage is LS.AUDIO_REST else 0, wait=Wait.NO_NUMBER,
                         entered_at=T0 - 20 * MIN, tested_at=T0 - 20 * MIN if stage is LS.LINE_REST else None,
@@ -934,7 +934,7 @@ class Filled1029(unittest.TestCase):
                                  ev("E10"), R)).state
         self.assertEqual(ringing.wait, Wait.ANSWER)                          # 休みで鳴らした：答えを待つ
         self.assertEqual(ok(self, h.apply(ringing, ev("E10", ringing.next_at), R)).rows, ("L-19",))   # 休みの答えの期限も同じ形
-        removed = Line(LS.REMOVED, removed=("契約者", T0, "x"))
+        removed = Line(LS.OUT_OF_USE, removed=("契約者", T0, "x"))
         out = ok(self, h.apply(removed, ev("E2", T0 + MIN, attempt="a7"), R))   # 外す前からかけていた電話が鳴らずに終わった
         self.assertEqual([(a.what, a.get("attempt"), a.get("blame")) for a in out.actions], [(h.DECIDED, "a7", "回線")])
         self.assertIn("答えの期限", h.EVENT_NAMES["E10"])

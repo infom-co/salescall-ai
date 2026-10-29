@@ -118,7 +118,7 @@ class LineStage(Enum):
     CHECK_C = "確かめ中 (c)"        # テスト番号の答えを待つ
     LINE_REST = "回線のせい・休み"
     AUDIO_REST = "声の不調・休み"
-    REMOVED = "外した"
+    OUT_OF_USE = "使用停止"   # 2026-10-29 管理者：「使用停止でOK」（前の名前は「外した」）
 
 
 CHECKING = frozenset({LineStage.CHECK_A, LineStage.CHECK_B, LineStage.CHECK_C})
@@ -557,7 +557,7 @@ def _l12(line: Line, ev: Event, rules: Rules) -> _Step:
 
 
 def _l14_l22(line: Line, ev: Event, rules: Rules) -> _Step:
-    return _Step(Line(LineStage.REMOVED, removed=(ev.by, ev.at, ev.reason)),
+    return _Step(Line(LineStage.OUT_OF_USE, removed=(ev.by, ev.at, ev.reason)),
                  _decide_run(line, "回線") + (_do(RECORD, about=f"回線を外した：{ev.reason}"),))
 
 
@@ -867,7 +867,7 @@ def _row(id: str, subject: str, stages: Any, events: Any, then: Callable[[Any, E
 L, T, N, C, V = "回線", "行", "番号", "契約者", "試行のせい"
 LS, TS, NS, CS = LineStage, TaskStage, NumberStage, TenantStage
 ALL_LINE_EVENTS = ("E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8", "E9", "E10", "E12", "E13", "E14", "E17")
-NOT_REMOVED = frozenset(LineStage) - {LineStage.REMOVED}
+IN_USE = frozenset(LineStage) - {LineStage.OUT_OF_USE}
 
 
 TABLE: tuple[TableRow, ...] = (
@@ -901,16 +901,16 @@ TABLE: tuple[TableRow, ...] = (
     _row("L-24", L, LS.AUDIO_REST, "E6", _l24, "【決 10-29「テスト番号が鳴れば再開」】"),
     _row("L-25", L, LS.AUDIO_REST, "E7", _l25, "【決 10-24（8-8 の回線のせい）】"),
     _row("L-26", L, LS.AUDIO_REST, "E8", _l18_l26, "【決 10-25 夜】"),
-    _row("L-27", L, LS.REMOVED, tuple(e for e in ALL_LINE_EVENTS if e != "E2"), _nothing, "【決 10-29】", nothing=True),
-    _row("L-28", L, NOT_REMOVED, "E17", _l28, "【当(10)】"),
+    _row("L-27", L, LS.OUT_OF_USE, tuple(e for e in ALL_LINE_EVENTS if e != "E2"), _nothing, "【決 10-29】", nothing=True),
+    _row("L-28", L, IN_USE, "E17", _l28, "【当(10)】"),
     # 2026-10-29：見つけた穴を、決定の言葉からの当てはめで埋めた行（17章の決まり (3)）
     _row("L-29", L, LS.HEALTHY, "E13", _l14_l22, "【当】（L-14 と同じ。続きは無いので試行は書かない）"),
     _row("L-30", L, RESTS, "E14", _l30, "【当】（休みでテスト番号が無いとき：次に動く時刻＝いま）",
          when=lambda s, e, r: s.wait is Wait.NO_NUMBER),
-    _row("L-31", L, NOT_REMOVED, "E14", _nothing, "【当】（テスト番号を待っていない段：何もしない）",
+    _row("L-31", L, IN_USE, "E14", _nothing, "【当】（テスト番号を待っていない段：何もしない）",
          when=lambda s, e, r: s.wait is not Wait.NO_NUMBER, nothing=True),
     _row("L-32", L, {LS.HEALTHY} | CHECKING, "E12", _record_only, "【当】（手の再開は休みの状態だけ＝決定 10-29「手で再開」）"),
-    _row("L-33", L, LS.REMOVED, "E2", _l33, "【当】（L-14「かけている途中の電話も、終わって鳴っていなければ回線」）"),
+    _row("L-33", L, LS.OUT_OF_USE, "E2", _l33, "【当】（L-14「かけている途中の電話も、終わって鳴っていなければ回線」）"),
 
     # ── 17-3-2 行 ──
     _row("R-1", T, TS.ON_PLAN, "E2", _r1, "【決 10-24】"),
@@ -1040,10 +1040,10 @@ def _contents_wrong(state: Any) -> str | None:
     """状態の中身が、その段と合わないか（合わなければ理由）。"""
     if isinstance(state, Line):
         s = state.stage
-        if s is LineStage.REMOVED:
-            return None if state.removed is not None else "外したのに、外した管理者か契約者・時刻・理由が無い"
+        if s is LineStage.OUT_OF_USE:
+            return None if state.removed is not None else "使用停止なのに、外した管理者か契約者・時刻・理由が無い"
         if state.removed is not None:
-            return "外していないのに、外した印がある"
+            return "使用停止でないのに、外した印がある"
         if s is LineStage.HEALTHY:
             bad = state.t or state.run or state.wait or state.next_at or state.entered_at or state.tested_at
             return "元気なのに、確かめ中・休みの中身がある" if bad else None

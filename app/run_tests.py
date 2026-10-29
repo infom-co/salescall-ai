@@ -138,6 +138,7 @@ def _edited(migration: str, start: str, old: str, new: str, *, end: str = "END $
 _M139 = "0139_ring_hours_gaps_and_our_troubles.sql"
 _T139 = "tests.test_troubles.OurTroubles."
 _M141 = "0141_review20a_hold_runs_and_calls.sql"
+_M145, _TH = "0145_health_states_shadow.sql", "tests.test_health."
 _B141 = "tests.test_supervisor.Blame."
 _M143 = "0143_review21_one_way_and_call_watch.sql"
 _T143 = "tests.test_life.Life."
@@ -1753,6 +1754,29 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("こちらの不具合でない「声が聞き取れない」のあとも、復旧を待つ（途中で切れた電話と同じに、すぐかけ直さない）",
      _edited(_M141, "CREATE FUNCTION salescall.awaiting_recovery(", "WHEN NOT salescall.trouble_ours(a.trouble) THEN false", "WHEN false THEN false", end="\n$$"),
      (_T139 + "test_poor_audio_is_like_a_cut_call_not_our_trouble_and_on_different_customers_it_is_the_line",)),
+    # ── 状態の欄と、試行のせいの欄（DESIGN.md 17章の3段目＝影。0145）
+    ("試行のせいを1回だけ書ける守りを外す（番号のせいと決まった試行を、あとから回線のせいにも、分からないにも書き直せる）",
+     "DROP TRIGGER attempt_blame_once ON salescall.attempt_blames", (_TH + "Guards.test_the_blame_of_an_attempt_is_written_once",)),
+    ("移った記録の書き換えの拒みを外す", "DROP TRIGGER state_moves_frozen ON salescall.state_moves",
+     (_TH + "Guards.test_only_the_two_functions_write_the_states",)),
+    ("アプリの役に、回線の欄を直に書く権限を渡す（表を引く入口の外から、状態を変えられる）",
+     "GRANT INSERT, UPDATE ON salescall.line_states TO salescall_app", (_TH + "Guards.test_only_the_two_functions_write_the_states",)),
+    ("鍵を取って読む関数が、ほかの契約者の回線も読んで作る",
+     _edited(_M145, "CREATE FUNCTION salescall.health_take(",
+             "        WHERE l.line_id = k AND l.tenant_id = v_tenant ON CONFLICT DO NOTHING;\n        GET DIAGNOSTICS n = ROW_COUNT;\n"
+             "        SELECT s.line_id AS key, NULL::uuid AS client_id, s.stage, s.state INTO r FROM salescall.line_states s\n"
+             "        WHERE s.line_id = k AND s.tenant_id = v_tenant FOR UPDATE;",
+             "        WHERE l.line_id = k ON CONFLICT DO NOTHING;\n        GET DIAGNOSTICS n = ROW_COUNT;\n"
+             "        SELECT s.line_id AS key, NULL::uuid AS client_id, s.stage, s.state INTO r FROM salescall.line_states s\n"
+             "        WHERE s.line_id = k FOR UPDATE;"),
+     (_TH + "Guards.test_another_contractors_states_are_out_of_reach",)),
+    ("書く関数が、ほかの契約者の回線の欄も書き換える",
+     _edited(_M145, "CREATE FUNCTION salescall.health_save(",
+             "        UPDATE salescall.line_states SET stage = w->>'stage', state = w->'state', moved_at = clock_timestamp()\n"
+             "        WHERE line_id = k AND tenant_id = v_tenant;",
+             "        UPDATE salescall.line_states SET stage = w->>'stage', state = w->'state', moved_at = clock_timestamp()\n"
+             "        WHERE line_id = k;"),
+     (_TH + "Guards.test_another_contractors_states_are_out_of_reach",)),
 )
 
 # Python の判断を、わざと1つずつ外す（データベースの守りの壊し試しと同じ考え。0136。⛔ 見直し19a：Python の判断を外しても落ちる試験の
@@ -1924,7 +1948,7 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
      "    if tx.one(\"SELECT salescall.task_resting(%s) AS r\", (task[\"task_id\"],))[\"r\"]:", "    if False:",
      (_T139 + "test_two_in_a_row_on_one_row_rest_it_and_the_line_moves_to_the_next_row",)),
     ("直したプログラムの版に替わっても、こちらの不具合の停止を解かない", "src/salescall/supervisor/jobs.py",
-     "    ctx.access.in_tenant(ACTOR, ctx.tenant_id, watch.resume_fixed)", "    pass",
+     "        watch.resume_fixed(tx)\n", "        pass\n",
      (_T139 + "test_the_same_reason_on_three_rows_stops_the_contractor_and_tells_once",)),
     ("中央の見守り役が、動いているプログラムの版を書かない（直しても、休んだ行・止めた契約者が戻らない）", "src/salescall/supervisor/main.py",
      "        if self.version_gap == updates.SAME:   # 版が合っている", "        if False:   # 版が合っている",
@@ -2114,6 +2138,58 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
     ("「声が聞き取れない」で終えた電話のあと、回線の異常を数え直さない（違うお客様で続いても回線を休ませない）",
      "src/salescall/core/attempts.py", " OR salescall.trouble_counts_line(trouble) AS c\"", " AS c\"",
      (_T139 + "test_poor_audio_is_like_a_cut_call_not_our_trouble_and_on_different_customers_it_is_the_line",)),
+    # ── 状態の欄の影（DESIGN.md 17章の3段目。core/health.py と、出来事を起こす所）
+    ("締めの仕事が、電話の出来事（E1〜E5）を状態の欄へ渡さない", "src/salescall/supervisor/jobs.py",
+     "    health.after_call(tx, attempt_id)\n    return out", "    return out",
+     (_TH + "Places.test_a_call_that_did_not_ring_and_the_next_call_that_did",)),
+    ("通話ごとの口が、こちらの不具合で終えた電話（E3）を、締めを待たずに渡さない", "src/salescall/core/troubles.py",
+     "        health.after_call(tx, attempt_id)   # その電話の出来事（E3）", "        pass   # その電話の出来事（E3）",
+     (_TH + "Places.test_our_trouble_is_given_at_the_call_before_the_settle",)),
+    ("テスト番号の答え（E6〜E8）を状態の欄へ渡さない", _RING,
+     '            health.tested(tx, line_id, "unknown" if rang is None else "rang" if rang else "silent")', "            pass",
+     (_TH + "Places.test_test_number_answers_decide_the_run",)),
+    ("テスト番号を試さなかった（話している途中＝E9）を渡さない", _RING,
+     '            health.in_tenant(access, actor, tenant_id, health.tested, line_id, "withheld")   # 話している途中（E9。影）', "            pass",
+     (_TH + "Places.test_test_number_answers_decide_the_run",)),
+    ("回線ごとの処理の毎回の頭で、次に動く時刻（E10）を見ない", _LINE,
+     "    health.in_tenant(access, actor, tenant_id, health.tick, line_id)\n", "",
+     (_TH + "Places.test_time_comes_at_the_head_of_each_round",)),
+    ("テスト番号が入った（E14）を渡さない", "src/salescall/core/settings.py", "        health.number_set(tx)\n", "        pass\n",
+     (_TH + "Places.test_time_comes_at_the_head_of_each_round",)),
+    ("手で解いた回線の停止（E12）を渡さない", "src/salescall/core/stops.py", "    health.by_hand_stop(tx, stop_event_id, reason)", "    pass",
+     (_TH + "Places.test_hands_resume_a_line_stop_and_remove_the_line",)),
+    ("システムが解いた停止も、手で解いた（E12）として渡す", "src/salescall/core/health.py",
+     "    who, name = _by(tx)\n    if who is None:\n        return\n    s = tx.one(", "    who, name = _by(tx)\n    s = tx.one(",
+     (_TH + "Places.test_hands_resume_a_line_stop_and_remove_the_line",)),
+    ("回線を外した（E13）を渡さない", "src/salescall/core/registry.py", "    health.removed(tx, line_id, reason)", "    pass",
+     (_TH + "Places.test_hands_resume_a_line_stop_and_remove_the_line",)),
+    ("手で戻した休んだ行（E12）を渡さない", "src/salescall/core/troubles.py", "    health.by_hand_task(tx, task_id, reason)", "    pass",
+     (_TH + "Places.test_our_trouble_rests_the_row_and_a_contractor_puts_it_back",)),
+    ("門の通過で、ほかの回線の判定待ちの行（E15）を渡さない", "src/salescall/core/gate.py", "        health.claimed(tx, task_id, line_id)", "        pass",
+     (_TH + "Places.test_another_line_calls_a_row_waiting_on_one_line",)),
+    ("直した版（E11）を渡さない", "src/salescall/supervisor/jobs.py", "        health.fixed(tx)\n", "        pass\n",
+     (_TH + "Places.test_a_fixed_version_is_given_once",)),
+    ("同じ直した版（E11）を、何度でも渡す", "src/salescall/core/health.py",
+     "                  (run.tenant, once)) is not None:", "                  (run.tenant, once)) is None and False:",
+     (_TH + "Places.test_a_fixed_version_is_given_once",)),
+    ("声が聞き取れずに終えた電話（E4）を、ふつうの鳴った電話（E1）にする", "src/salescall/core/health.py",
+     '    if a["by_audio"]:\n        return "E4"\n', "",
+     (_TH + "Places.test_poor_audio_counts_on_the_line_and_the_row_waits_for_a_voiced_line",)),
+    ("影の失敗を受け止めない（表を引く所が落ちると、締めも落ちる）", "src/salescall/core/health.py",
+     "            if layer.conflict(e) or layer.unreachable(e):\n                raise\n            _failed(tx, entry.__name__, e)",
+     "            raise",
+     (_TH + "Failures.test_a_failing_shadow_never_stops_the_current_work",)),
+    ("鍵を取る順を、17章の順（回線→契約者→行・番号・試行のせい）にしない", "src/salescall/core/health.py",
+     "        for subject, key in sorted(wants, key=lambda w: ORDER.index(w[0])):", "        for subject, key in wants:",
+     (_TH + "LockOrder.test_the_states_are_asked_in_the_order_of_chapter_17",)),
+    ("直した版（E11）を、その契約者の影が動き始める前の版でも渡す（前の版で、そのあとのこちらの不具合の休みを戻す）",
+     "src/salescall/core/health.py",
+     '                    " AND t > (SELECT min(m.event_at) FROM salescall.state_moves m WHERE m.tenant_id = salescall.cur_tenant())"\n', "",
+     (_TH + "Places.test_a_version_fixed_before_the_shadow_began_is_not_given",)),
+    ("比べる試験が、影の食い違いを見落とさないか：こちらの不具合なしに話し終えた電話（E5）を、ふつうの鳴った電話（E1）として渡す"
+     "（復旧待ちの行が戻らず、違う行の数も0に戻らない）", "src/salescall/core/health.py",
+     '    if a["talked"]:\n        return "E5"\n', "",
+     ("tests.test_life.Life.test_b3_the_same_trouble_with_good_talks_between_does_not_stop",)),
 )
 
 

@@ -198,6 +198,12 @@ def unreachable(error: BaseException) -> bool:
     return isinstance(error, psycopg.OperationalError) and not isinstance(error, (_CONFLICTS, PoolBusy))
 
 
+def conflict(error: BaseException) -> bool:
+    """ほかの取引とぶつかった誤りか（取引を最初からやり直すもの。`Access._run` がやり直すのと同じ組）。取引の中で誤りを受け止めて続ける
+    所（状態の欄の影＝core/health）は、これだけは受け止めずに返す（やり直しは `Access._run` の1か所）。"""
+    return isinstance(error, _CONFLICTS)
+
+
 def busy(error: BaseException) -> bool:
     """共有のつなぎの空き待ちの時間切れか（混雑。データベースには届いている。判断はこの1か所）。"""
     return isinstance(error, PoolBusy)

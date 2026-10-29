@@ -69,8 +69,8 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
-from salescall.core import (attempts, conversation_io, dial_exit, gate, next_action, ring_test, scheduler, settings, troubles,
-                            watch)
+from salescall.core import (attempts, conversation_io, dial_exit, gate, health, next_action, ring_test, scheduler, settings,
+                            troubles, watch)
 from salescall.core.access import Access, Actor, Tx
 from salescall.core.errors import ErrorReport
 from salescall.link.protocol import APOLOGY_WAIT
@@ -105,8 +105,10 @@ class Round:
 
 @dataclass
 class Stuck:
-    """回線が「通話中」のまま、かけられない状態の見張り（判断はこの1か所）。since＝続けて「通話中」と分かった始まり。"""
+    """回線が「通話中」のまま、かけられない状態の見張り（判断はこの1か所）。since＝続けて「通話中」と分かった始まり（数えるたびに
+    数え直す）。began＝かけられなくなった始まり（数えても数え直さない。状態の欄の影へ渡す E17 の時刻＝core/health.stuck）。"""
     since: float | None = None
+    began: float | None = None
 
     def seen(self, got: Round, now: float) -> bool:
         """1回分の結果を見る。「通話中」が STUCK_AFTER 続いたら True（数えたら、また初めから数える＝続けば、また数える）。
@@ -114,11 +116,13 @@ class Stuck:
         if got.pause == dial_exit.Outcome.LINE_IN_CALL.value:
             if self.since is None:
                 self.since = now
+                self.began = now if self.began is None else self.began
             elif now - self.since >= STUCK_AFTER:
                 self.since = now
                 return True
         elif got.free:
             self.since = None
+            self.began = None
         return False
 
 
@@ -469,6 +473,9 @@ def _claim(tx: Any, task: dict[str, Any], line_id: UUID, holder: str, tenant_id:
 
 def one_round(access: Access, actor: Actor, tenant_id: UUID, line_id: UUID, holder: str, driver: CallDriver,
               runner: plugins.CallRunner) -> Round:
+    # 毎回の頭：状態の欄の「次に動く時刻」（E10）・声が通ると分かっている回線が空いた（E18）を、状態の欄へ（DESIGN.md 17章の3段目＝影。
+    # 記録だけ。この回の動きは変えない。影が失敗しても止めない）
+    health.in_tenant(access, actor, tenant_id, health.tick, line_id)
     clients = access.in_tenant(actor, tenant_id, lambda tx: scheduler.clients_for_line(tx, line_id))
     held: list[str] = []   # 依頼者の理由（同時の上限・無効）で断られた
     for promised_only in (True, False):   # 約束したかけ直しを、すべての依頼者について先に（目印で分けるのは due_tasks の1か所）
@@ -641,9 +648,12 @@ def loop(access: Access, tenant_id: UUID, line: UUID, holder: str, driver: CallD
             wait = pause
             if checked is not None:   # 確かめを待つ停止がある：次に確かめてよいときより長く休まない
                 wait = max(1.0, min(pause, checked))
-            if stuck.seen(got, time.monotonic()):
+            now = time.monotonic()
+            if stuck.seen(got, now):
                 _line_fault(access, ACTOR, tenant_id, line,
                             f"回線が「通話中」のまま、かけられません（{int(STUCK_AFTER)}秒以上。電話の部品が答えない場合も）")
+                # かけられない（E17）を状態の欄へ（DESIGN.md 17章の3段目＝影。記録だけ）。時刻は、かけられなくなった始まり
+                health.in_tenant(access, ACTOR, tenant_id, health.stuck, line, now - (stuck.began or now))
             if got.called is None or got.pause:
                 stop.wait(wait if got.pause else min(wait, IDLE_SECONDS))
         except Exception as e:  # noqa: BLE001 記録して、少し待ってから続ける（止めない）

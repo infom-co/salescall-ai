@@ -21,7 +21,7 @@ from datetime import datetime, timedelta
 from typing import Any, NamedTuple
 from uuid import UUID
 
-from salescall.core import (approval, attempts, business_rules, business_settings, calling_hours, dnc, errors, notify,
+from salescall.core import (approval, attempts, business_rules, business_settings, calling_hours, dnc, errors, health, notify,
                             quality_stage, recordings, settings, stops, target_policy)
 from salescall.core.access import Rejected, Tx
 from salescall.core.calendar import CalendarOutOfRange, holiday_checker
@@ -580,6 +580,8 @@ def claim(tx: Tx, *, task_id: UUID, line_id: UUID, lease_holder: str) -> Claim |
             notify.emit(tx, "setting_missing", key=f"gate:{outcome.reason}:{task['client_id']}:{task['run_id']}",
                         summary=SETTING_GAPS[outcome.reason], refs={"client_id": task["client_id"], "run_id": task["run_id"],
                                                                      "reason": outcome.reason})
+    else:   # 通した：その行がほかの回線の判定待ちなら（E15）、状態の欄へ（DESIGN.md 17章の3段目＝影。記録だけ）
+        health.claimed(tx, task_id, line_id)
     return outcome
 
 

@@ -247,6 +247,10 @@ WRITERS: dict[str, dict[str, frozenset[str]]] = {
     "deliveries": {"INSERT": frozenset({"src/salescall/output/"}),           # 連携の台帳（Q17。持ち主 CL-3）
                    "UPDATE": frozenset({"src/salescall/output/"})},
     "notification_deliveries": {"INSERT": frozenset({"src/salescall/output/"})},   # 知らせの送信の記録（Q23。送るのは CL-3）
+    # 回線・行・番号・契約者の状態の欄と、試行のせいの欄と、移った記録（DESIGN.md 17章。0145）：書くのはデータベースの関数
+    # health_take・health_save だけ（呼んでよいのは表を引く入口 core/health.py だけ＝下の WRITE_FUNCTIONS）
+    **{t: {"INSERT": frozenset(), "UPDATE": frozenset()}
+       for t in ("line_states", "tenant_states", "task_states", "number_states", "attempt_blames", "state_moves")},
 }
 # 名前は、そのままの書き方（大文字は小文字に読みかえる＝データベースと同じ）と、引用符でくくった書き方（"tasks"）の両方を読む
 # （⛔ 2026-10-22 の見直し13：引用符でくくった名前・差し込んだ関数の名前は、見張りを素通りしていた）
@@ -271,6 +275,8 @@ WRITE_FUNCTIONS: dict[str, frozenset[str]] = {
     "release_claims_in_scope": frozenset({_CORE + "calendar.py", _CORE + "settings.py", _CORE + "registry.py"}),
     "close_unrung_run": frozenset({_CORE + "attempts.py"}),      # まだ分からない続きを閉じる（0131。呼ぶ入口は attempts の1か所）
     "note_program": frozenset({"src/salescall/supervisor/updates.py"}),   # 動いているプログラムの版（0139。中央の見守り役の1か所）
+    "health_take": frozenset({_CORE + "health.py"}),   # 状態の欄の鍵を取って読む（0145。表を引く入口の1か所）
+    "health_save": frozenset({_CORE + "health.py"}),   # 状態の欄の次の状態と移った記録（0145。表を引く入口の1か所）
 }
 _CALL = re.compile(r"\bsalescall\." + _NAME + r"\s*\(")
 
@@ -476,8 +482,20 @@ PY_ENTRY_CALLERS: dict[tuple[str, str], frozenset[str]] = {
     ("updates", "note"): frozenset({_SUP + "main.py"}),                     # 動いているプログラムの版を書く：本体の版の確かめだけ
     ("troubles", "restore"): frozenset({WEB_PLACE}),                         # 休んだ行を戻す：画面だけ（管理者・契約者。見直し20b）
     # 回線・行・番号・契約者・試行のせいの表を引く入口（DESIGN.md 17章の決まり (1)：状態を変えるのは、表を引く入口1つだけ）。
-    # まだどこからも呼ばない（試験だけ）。3段目の「影で動かす」で、表を引く所を決めたら、その1か所をここに足す
-    ("health_rules", "apply"): frozenset(),
+    # 表を引くのは core/health.py の1か所（`_Run.give`。3段目＝影。0145）
+    ("health_rules", "apply"): frozenset({_CORE + "health.py"}),
+    # 出来事を起こす所（17-2 の「起こす所」）ごとの、状態の欄の入口（3段目＝影：今の作りの処理の横で呼び、記録だけ）
+    ("health", "after_call"): frozenset({_CORE + "troubles.py", _SUP + "jobs.py"}),   # E1〜E5：通話ごとの口（E3）・締めの仕事
+    ("health", "tested"): frozenset({_CORE + "ring_test.py"}),                       # E6〜E9：テスト番号の口
+    ("health", "tick"): frozenset({_SUP + "line.py"}),                               # E10・E18：回線ごとの処理の毎回の頭
+    ("health", "stuck"): frozenset({_SUP + "line.py"}),                              # E17：回線が「通話中」のまま
+    ("health", "fixed"): frozenset({_SUP + "jobs.py"}),                              # E11：直した版（決まった間隔の仕事）
+    ("health", "by_hand_task"): frozenset({_CORE + "troubles.py"}),                  # E12：休んだ行を手で戻す
+    ("health", "by_hand_stop"): frozenset({_CORE + "stops.py"}),                     # E12：止めた回線・契約者を手で解く
+    ("health", "removed"): frozenset({_CORE + "registry.py"}),                       # E13：回線を外す
+    ("health", "number_set"): frozenset({_CORE + "settings.py"}),                    # E14：テスト番号が入った
+    ("health", "claimed"): frozenset({_CORE + "gate.py"}),                           # E15：門の通過
+    ("health", "in_tenant"): frozenset({_SUP + "line.py", _CORE + "ring_test.py"}),  # 取引の外から入口を呼ぶ所
 }
 
 

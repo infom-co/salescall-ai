@@ -86,6 +86,10 @@ def set_value(tx: Tx, key: str, value: Any, *, scope: Literal["system", "tenant"
         (key, scope, tenant_id, client_id, business_id, json.dumps(value), status, rationale, review_when),
     )
     tx.one("SELECT salescall.release_claims_in_scope(%s, %s, %s, %s)", (scope, tenant_id, client_id, business_id))
+    if key == "line.test_number" and scope == "tenant" and value is not None:
+        # テスト番号が入った（E14）を状態の欄へ（DESIGN.md 17章の3段目＝影。記録だけ）。状態の欄の部品が設定の部品を読むので、ここで読む
+        from salescall.core import health
+        health.number_set(tx)
     return row["value_id"]
 
 

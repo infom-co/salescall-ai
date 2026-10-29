@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 from uuid import UUID
 
-from salescall.core import agents, answer_rate, attempts, backup, calendar, leases, measure, ring_test, settle, usage, watch
+from salescall.core import agents, answer_rate, attempts, backup, calendar, health, leases, measure, ring_test, settle, usage, watch
 from salescall.core.access import Access
 from salescall.supervisor import ACTOR, config, plugins, report
 from salescall.supervisor.links import Links
@@ -79,12 +79,22 @@ def recover_expired(ctx: Context) -> None:
 
 
 def settle_ready(ctx: Context) -> None:
-    """締めを待っている試行（終わって、通話後の検証が済んだもの）を締める（判定 → 結果 → 次の動き。1本ずつ別の取引）。"""
+    """締めを待っている試行（終わって、通話後の検証が済んだもの）を締める（判定 → 結果 → 次の動き。1本ずつ別の取引）。
+    同じ取引で、その電話の出来事（E1〜E5）を状態の欄へ渡す（`_settle_one`。DESIGN.md 17章の3段目＝影）。"""
     def per_client(client_id: UUID) -> None:
         ready = ctx.access.in_client(ACTOR, ctx.tenant_id, client_id, settle.unsettled)
         _each(ctx, "締め", [r["attempt_id"] for r in ready],
-              lambda a: ctx.access.in_client(ACTOR, ctx.tenant_id, client_id, lambda tx: settle.settle(tx, a)))
+              lambda a: ctx.access.in_client(ACTOR, ctx.tenant_id, client_id, lambda tx: _settle_one(tx, a)))
     _each(ctx, "締め（依頼者）", _clients(ctx), per_client)
+
+
+def _settle_one(tx: Any, attempt_id: UUID) -> dict[str, Any]:
+    """1本を締め、そのあとで、その電話の出来事を状態の欄へ渡す（影：表を引いて記録するだけ。締めの答えは変えない。失敗しても締めは
+    そのまま＝core/health）。締めのあとにするのは、声が聞き取れずに終えた電話（E4）の「すぐのかけ直しが続けて2回のうちか」が、締めが
+    残す「途中で切れたか」を読むため（core/health の after_call）。まだ分からない電話（締めずに待つ）も、ここで1回渡す。"""
+    out = settle.settle(tx, attempt_id)
+    health.after_call(tx, attempt_id)
+    return out
 
 
 def rejudge_held(ctx: Context) -> None:
@@ -153,8 +163,12 @@ def system_lasting_stops(ctx: Context) -> None:
 def fixed_stops(ctx: Context) -> None:
     """こちらのプログラムの不具合で止めた停止（すべての行にかかわる甚大な問題）を、止めた種類の不具合を直したと記録され、そのあと
     プログラムが替わっていたら解く（その契約者の
-    分。core/watch.resume_fixed の1か所。休んだ行は、データベースの決まりで同じ時に戻る）。"""
-    ctx.access.in_tenant(ACTOR, ctx.tenant_id, watch.resume_fixed)
+    分。core/watch.resume_fixed の1か所。休んだ行は、データベースの決まりで同じ時に戻る）。同じ取引で、直した版（E11）を状態の欄へ
+    渡す（DESIGN.md 17章の3段目＝影。core/health.fixed）。"""
+    def work(tx: Any) -> None:
+        watch.resume_fixed(tx)
+        health.fixed(tx)
+    ctx.access.in_tenant(ACTOR, ctx.tenant_id, work)
 
 
 def budget(ctx: Context) -> None:
