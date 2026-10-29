@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import json
 
-from flowctl import ABOUT, ANY, CHOICE_TYPES, CONFIRM_LABEL, HANDOVER, HOLD, PHONE, UNDECIDED, WHO, label, target_reading
+from flowctl import ABOUT, ANY, CHOICE_TYPES, CONFIRM_LABEL, HANDOVER, HOLD, PHONE, UNDECIDED, facts_reading, label
 
 SYSTEM_DESC = {ANY: "どれでもよいと、こちらに任された（「どちらでも」「どれでも」）",
                "unknown": "わからない・覚えていない・まだ決めていない（選ぶ前の状態）",
@@ -68,12 +68,14 @@ class Reading(str):
     """判定の答え（中の名前のまま比べられる）に、お客様が言い切っているか（firm）を添えたもの。sure＝判定の確からしさ（返す判定だけ＝Jev）・
     by＝答えた判定の名前・tried＝その前に問い合わせて答えが無かった判定（JudgePanel が付ける）。
     項目ごとに答える質問（Question.facets＝目的のお客様の判定）では、中の名前は組み合わせた読み（flowctl.target_reading）で、away・new＝読みに
-    出ない事実の印（不在も伝えた・電話を代わった方）・facts＝項目ごとの答え（記録・試験の数え方）。"""
+    出ない事実の印（不在も伝えた・電話を代わった方）・successor＝はじめの場面で、電話に出ている方は後任の方だと読んだ印（flowctl.facts_reading）・
+    facts＝項目ごとの答え（記録・試験の数え方）。"""
     sure: float | None = None
     by: str | None = None
     tried: tuple = ()
     away: bool = False
     new: bool = False
+    successor: bool = False
     facts: dict | None = None
 
     def __new__(cls, cond: str, firm: bool = True, sure: float | None = None):
@@ -117,8 +119,11 @@ FACET_RULES = (
     # ⛔ 2026-10-29 G-59（項目ごとに答える形の1回目）：取り次ぎのあとの言葉（「岡田は本日休みを…」「お電話代わりました。」など）で、その前の
     #    「少々お待ちください。」を、いまの言葉の「取り次ぎを待つ」と読んだ（Jev は項目ごとの外れ17のうち13・GPT-6 Luna 8のうち4・Haiku 5.5 1。
     #    Sonnet 5.5 は0）＝どの項目を、いまの言葉だけで読むかを書いていなかった
+    # ⛔ 2026-10-29 の見直し（正解の表を、言葉と説明だけから読み直した）：後任の方をお呼びしたあとの「田中はただいま席を外しております。」は、
+    #    田中様が後任の方（お呼びした方）だと結ぶのに前の言葉（「後任は田中になります。…」）が要るのに、前の言葉は「電話に出ている方が誰か」に
+    #    だけ使う、と書いていた ⇒ 言葉の中の人が誰かを結ぶのにも使い、前の言葉で言った事実は、いまの言葉の答えにしない、と分けた
     "- 電話のやり取りと、お呼びした方の事情は、" + (NOW_ONLY := "お客様の言葉（いまの言葉）で言ったことだけで選びます") + "。その前に相手が言ったことは、"
-    "電話に出ている方が誰かを決める手がかりにだけ使います。\n"
+    "電話に出ている方が誰か・いまの言葉の中の人が誰かを決める手がかりにだけ使います（その前に言った事実は、いまの言葉の答えにしません）。\n"
 )
 # いまの言葉だけで読む項目（FACET_RULES の上の1行と、Jev の問い＝jev_request が同じ文を使う。Jev には決まりの文を渡さないため）
 NOW_ONLY_FACETS = (PHONE, ABOUT)
@@ -251,9 +256,9 @@ def read(q, text: str | None, asked: str | None = None) -> Reading | None:
         facts = {k: got.get(k) for k, _, _ in q.facets}
         if any(facts[k] not in t for k, _, t in q.facets):
             return None
-        value, away, new = target_reading(facts[WHO], facts[PHONE], facts[ABOUT])
+        value, away, new, successor = facts_reading(facts)
         r = Reading(value, True, sure)
-        r.away, r.new, r.facts = away, new, facts
+        r.away, r.new, r.successor, r.facts = away, new, successor, facts
         return r
     cond = next((c for n, _, c in options(q, asked) if n == name), None)
     return None if cond is None else Reading(cond, firm is not False, sure)

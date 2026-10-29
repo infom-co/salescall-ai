@@ -767,9 +767,10 @@ ASKS_MEANINGS = {ASKS_YES: "電話に出た方が、こちらの名乗り・用�
 #    しょうか？」）の「後任の者に代わりますので、少々お待ちください。」⇒「はい、お電話代わりました。」と「後任は田中になります。…」⇒「お電話代わり
 #    ました。田中です。」を、考えない Sonnet 5.5 は3回とも「代わった人が話し始めた」と読んだ（考える形は3回とも「ご本人」）＝下の「お呼びした方が
 #    いないので別の者に代わる」を、役目の方への取り次ぎにも当てていた ⇒ 役目でお呼びしたときの、お呼びした方を書いた
+#    ⇒ 2026-10-29 から、後任の方をお呼びしたあとは、この説明を見せない（後任の方かの物差し SUCC_CALLED が、同じ決まりを後任の方について書く）
 WHO_CALLING = {TARGET_IS_THERE: "お呼びした方ご本人が電話に出ているということ（電話を代わった方が、お呼びした方の名前を名乗ったときも・"
                                 "その前に取り次いだ方が、お呼びした方に取り次いだ（お名前を確かめて待つように言った・お繋ぎしますと言った）あとに、"
-                                "電話を代わった方が「お電話代わりました」のように出たときも）。お名前ではなく役目（「後任のご担当者様」など）で"
+                                "電話を代わった方が「お電話代わりました」のように出たときも）。お名前ではなく役目（「ご担当者様」など）で"
                                 "お呼びしたときは、取り次いだ方がその役目の方だと言った方（名前を言ったなら、その名前の方）・その役目の方に代わると"
                                 "言ったあとに電話を代わった方が、お呼びした方。取り次いだあとでも、お呼びした方が出られないと伝える言葉"
                                 "（取り込んでいる・席を外しているなど）はこちらではなく、取り次いだ方がまた出たのか、代わった方が出たのか分からない言葉"
@@ -792,6 +793,35 @@ WHO_CONFIRM = {TARGET_IS_THERE: "電話に出ている方が、お呼びした�
                               "受付の者だと言った）",
                UNDECIDED: "電話に出ている方がお呼びした方かどうか、この言葉からは決められない（はいともいいえとも言っていない・こちらに聞き返した"
                           "だけ など）"}
+# 電話に出ている方は後任の方か（電話に出ている方＝お呼びした方ご本人か、とは別の物差し）。✅ 2026-10-29 ユーザー：「『別の方』と『後任』は別の軸
+#    ですよね！『別の方』の中に『後任』『上司』『同僚』などがいることになるでしょ！」「『お電話代わりました。田中です。』だけで判断するとなると、
+#    『別の方』は正解で、『後任』の可能性もある」。⛔ 前の形は、後任の方をお呼びしたあと、電話に出ている方の物差しの「ご本人」を後任の方の意味に
+#    変えていた（同じ「別の方」が、場面で「岡田様ではない」と「後任の方ではない」の2つの意味になる）。はじめの場面では、後任の方だと言われても
+#    判定に読む所が無く、AIの読み1つでは繋げないので、「今は私が担当しております」と言った方に「後任のご担当者様でいらっしゃいますでしょうか？」と
+#    確かめていた（✅ 同じ日のユーザー：「『確かめが1回増える』のは安全でなく、相手からの不信ですよ！」）
+SUCCESSOR_FACET, SUCC_YES, SUCC_NO = "successor", "後任の方", "後任の方ではない"
+SUCC_CALLING = {SUCC_YES: "お呼びした方が退職・異動などでいらっしゃらず、電話に出ている方が、その後任の方（いまの担当の方）だということ（自分で後任だ・"
+                          "いまは自分が担当していると言った・その前に取り次いだ方が後任の方だと言ったお名前を名乗った・後任の方に代わると言ったあとに、"
+                          "電話を代わった方が出た）",
+                SUCC_NO: "電話に出ている方が後任の方だと分かる言葉は無いということ（お呼びした方ご本人・後任の方の話が出ていない・後任の方を、"
+                         "ほかの人のこととして話した・後任の方だと言われたお名前と違うお名前を名乗った・受付の者だと言った など）",
+                UNDECIDED: "後任の方の話は出ているが、電話に出ている方がその後任の方かどうかは、この言葉からは決められない"}
+# 後任の方をお呼びしたあと（質問＝「後任のご担当者様はいらっしゃいますでしょうか？」・Flow._to_successor・次の電話で初めから後任の方をお呼び
+# するときも）：お呼びした方ではないことは分かっているので、電話に出ている方の物差しは見せず、後任の方かで読む（呼ぶ一言への言葉と、確かめる
+# 一言への返事。役目の方への取り次ぎの決まりは WHO_CALLING と同じ＝⛔ 2026-10-25 G-59）
+SUCC_CALLED = {SUCC_YES: "電話に出ている方が、お呼びした後任のご担当者様だということ（自分で後任だ・いまは自分が担当していると言った・その前に"
+                         "取り次いだ方が後任の方だと言った方（お名前を言ったなら、そのお名前を名乗った方）・後任の方に代わると言ったあとに、電話を代わった"
+                         "方が出た）。取り次いだあとでも、後任の方が出られないと伝える言葉（取り込んでいる・席を外しているなど）はこちらではなく、取り次いだ"
+                         "方がまた出たのか、代わった方が出たのか分からない言葉（「お待たせいたしました」だけなど）もこちらではない",
+               SUCC_NO: "電話に出ている方は、後任の方ではないということ（後任の方のことを、ほかの人のこととして話した・後任の方だと言われたお名前と"
+                        "違うお名前を名乗った・受付の者だと言った など）",
+               UNDECIDED: "電話に出ている方が後任の方かどうか、この言葉からは決められない（「はい」だけ・会社の名前だけ・「お待たせいたしました」だけ・"
+                          "取り次いだ方の言葉が無いままの「お電話代わりました」だけ など）"}
+SUCC_CONFIRM = {SUCC_YES: "電話に出ている方が、後任のご担当者様だということ（「はい」「そうです」「私です」と答えた）",
+                SUCC_NO: "電話に出ている方は、後任の方ではないということ（「いいえ」「違います」と答えた・後任の方だと言われたお名前と違うお名前を"
+                         "名乗った・受付の者だと言った）",
+                UNDECIDED: "電話に出ている方が後任の方かどうか、この言葉からは決められない（はいともいいえとも言っていない・こちらに聞き返しただけ "
+                           "など）"}
 # 目的のお客様の判定の物差し（呼ぶ一言・確かめる一言への言葉を読む質問＝Question.facets。判定は1回の問い合わせで項目ごとに1つずつ答え、
 # 流れの制御は target_reading の1か所で組み合わせて読む）。電話に出ている方は誰か／電話のやり取り（取り次ぐので待つ・電話を代わった方が
 # 話し始めた）／お呼びした方の事情（不在）は、1つの言葉に同時に入りうる別々の事実。
@@ -808,30 +838,51 @@ WHO, PHONE, ABOUT = "who", "phone", "target"   # 返事の項目の名前（見�
 PHONE_NONE, ABOUT_NONE = "何もない", "言っていない"
 PHONE_MEANINGS = {PHONE_NONE: "電話を代わる・取り次ぐ話も、電話を代わった方が出た様子も無い",
                   HOLD: "ほかの人に電話を代わる・取り次ぐので、待つように言った（お呼びした方に取り次ぐときも、ほかの者に代わるときも）",
-                  HANDOVER: "電話を代わった方が、話し始めた（「お電話代わりました」のように出た）"}
+                  # ⛔ 2026-10-29 G-59（場面ごとに数えた）：Haiku 5.5（考える）は、呼ぶ一言への返事で、はじめに出た方がそのまま話している
+                  #    「岡田は私ですが。」「…私が代わりにご用件をお伺いします。」を「代わった人が話し始めた」と読んだ（69回中8回の外れの中身）＝
+                  #    電話を代わったことと、代わりに用件を伺うこと・名乗ったことの区別が説明に無かった
+                  HANDOVER: "電話を代わった方が、話し始めた（「お電話代わりました」のように出た）。はじめに電話に出た方がそのまま話している"
+                            "（名乗った・答えた・代わりに用件を伺うと言った）ときは、こちらではない"}
 ABOUT_MEANINGS = {ABOUT_NONE: "お呼びした方がいらっしゃるか・電話に出られるかを、何も言っていない（取り次ぐ・代わるので待つように、と言っただけの"
                               "ときも）",
                   TARGET_IS_AWAY: "お呼びした方は、いらっしゃらない・電話に出られない・いまはお話しできない、と伝えた（電話に出ている方がほかの方でも・"
                                   "取り次いだあとに、取り次いだ方がまた出てそう伝えたときも・ご本人が、いまは手が離せないと言ったときも）"}
 
 
-def target_facets(who: dict) -> tuple:
+def target_facets(who: dict | None, successor: dict) -> tuple:
     """目的のお客様の判定の物差し（Question.facets の唯一の形）：((返事の項目の名前, 見出し, {中の名前: 説明}), …)。電話に出ている方の説明は、
-    呼ぶ一言への言葉（WHO_CALLING）と、確かめる一言への返事（WHO_CONFIRM）で違う。見せる名前は中の名前のまま。"""
-    return ((WHO, "電話に出ている方", who), (PHONE, "電話のやり取り", PHONE_MEANINGS), (ABOUT, "お呼びした方の事情", ABOUT_MEANINGS))
+    呼ぶ一言への言葉（WHO_CALLING）と、確かめる一言への返事（WHO_CONFIRM）で違う。後任の方をお呼びしたあとは、電話に出ている方の物差しを
+    見せず（who＝None。お呼びした方ではないと分かっている）、後任の方かの物差し（SUCC_CALLED・SUCC_CONFIRM）で読む。見せる名前は中の名前のまま。"""
+    return ((((WHO, "電話に出ている方", who),) if who else ()) + ((SUCCESSOR_FACET, "電話に出ている方が後任の方か", successor),
+            (PHONE, "電話のやり取り", PHONE_MEANINGS), (ABOUT, "お呼びした方の事情", ABOUT_MEANINGS)))
+
+
+def facts_reading(facts: dict) -> tuple[str, bool, bool, bool]:
+    """項目ごとの答え（facts＝{項目の名前: 中の名前}）⇒ (読み, 不在の印, 電話を代わった方の印, 後任の方の印)（唯一の決まり）。
+    電話に出ている方の項目が無い（後任の方をお呼びしたあと）ときは、後任の方かの答えを電話に出ている方の読みにする（お呼びした方＝後任の方）。
+    はじめの場面の後任の方の印は、電話に出ている方がご本人ではないときだけ（Flow._successor_read が、AIの「後任の方」の報告とそろえる）。"""
+    succ = facts.get(SUCCESSOR_FACET)
+    who = facts[WHO] if WHO in facts else {SUCC_YES: TARGET_IS_THERE, SUCC_NO: TARGET_IS_NOT}.get(succ, UNDECIDED)
+    value, away, new = target_reading(who, facts[PHONE], facts[ABOUT])
+    return value, away, new, WHO in facts and succ == SUCC_YES and who != TARGET_IS_THERE
 
 
 def target_reading(who: str, phone: str, about: str) -> tuple[str, bool, bool]:
     """目的のお客様の判定の3つの答え ⇒ 流れの制御の読み（唯一の決まり）：(読み, 出られない・いまは話せないと伝えたか, 電話を代わった方か)。
     読みは、流れの制御が先に見る順（Flow._calling_reported）：取り次ぎを待つ（黙って待つ）＞ 不在（ご本人ではない方が、お呼びした方は出られないと
-    伝えた＝お呼びし直さずに、戻りの時刻などを伺う）＞ 電話に出ている方（電話を代わった方で、ご本人でなければ「代わった人が話し始めた」）。
+    伝えた＝お呼びし直さずに、戻りの時刻などを伺う）＞ 電話に出ている方（電話を代わった方で、別の方なら「代わった人が話し始めた」＝確かめずに
+    お呼びし直す側。決められないなら「決められない」のまま＝確かめる側）。
     ご本人が「いまは話せない」と言ったときは、読みはご本人のまま（理由はAIが聞いた言葉で選ぶ＝_calling_reported の (5)。不在の読みにすると、
     AIが理由を「不在」と選んだときに、ご本人へ「何時ごろお戻りに…」を伺う）。
     読みに出ない事実は印で残す：不在＝取り次ぎを待つ言葉でも（次に代わって出る方は、お呼びした方の代わりの方＝_handed＝says_away）／ご本人が
-    いまは話せない（繋がない＝says_busy）／電話を代わった方＝不在の言葉・ご本人でも（まだ名乗りを聞いていない方＝_new_speaker＝says_new）。"""
+    いまは話せない（繋がない＝says_busy）／電話を代わった方＝不在の言葉・ご本人・決められないでも（まだ名乗りを聞いていない方＝_new_speaker＝says_new）。
+    ⛔ 2026-10-29 まで、電話を代わった方で「決められない」も「代わった人が話し始めた」にしていた（決められないことと、別の方だと分かったことを1つに
+       混ぜていた）：後任の方をお呼びしたあと、「公認は田中に…」（聞き取りの誤り）のあとの「お電話代わりました。田中です。」を判定が「決められない」と
+       読むと、AIの「代わった方」とそろって、確かめずに田中様へ後任の方をお呼びし直す（J12b と同じ外れ）。✅ 2026-10-19 ユーザー：取り次いだ方が
+       また出たのか代わった方が出たのか分からない言葉は確かめる"""
     away, new = about == TARGET_IS_AWAY, phone == HANDOVER
     value = (HOLD if phone == HOLD else TARGET_IS_AWAY if away and who != TARGET_IS_THERE
-             else HANDOVER if new and who != TARGET_IS_THERE else who)
+             else HANDOVER if new and who == TARGET_IS_NOT else who)
     return value, away, new
 
 
@@ -848,6 +899,11 @@ def says_busy(value) -> bool:
 def says_new(value) -> bool:
     """判定の読みが「電話を代わった方が話し始めた」を含むか（読みそのものか、電話を代わった方の印＝target_reading）。"""
     return value == HANDOVER or bool(getattr(value, "new", False))
+
+
+def says_successor(value) -> bool:
+    """判定の読みが、はじめの場面で「電話に出ている方は後任の方」を含むか（後任の方の印＝facts_reading。後任の方をお呼びしたあとは、読みそのもの）。"""
+    return bool(getattr(value, "successor", False))
 # hang_up＝話さずに切る（電話接続側が読む）・silent＝AIに話させない返事（取り次ぎを待つ間など。handle_call）
 INTERNAL_KEYS = {"ack", "ack_pause_s", "ask_n", "ask_reason", "ask_last", "after", "play", "speak", "hang_up", "silent", "sorry", "again", "away", "renamed",
                  "led", "thanks", "talked", "fallback", "quiet", "bridged", "hold_wait_s"}  # 中で使うだけの項目（電話接続側・数え方が読む）。AIへの返事には入れない
@@ -1536,13 +1592,14 @@ class Flow:
         """呼んでいる段の判定の質問（judge_context）を作る唯一の場所（始めと、後任の方へ切り替えたとき＝_to_successor）：呼ぶ一言と、確かめる一言
         （確かめへの返事を待つ間は、こちらが実際に聞いた問いを質問にする）。確かめる一言は2つ（CONFIRM_PARTS：確かめ・はっきりしない返事への
         聞き返し）。返事を待っている方を confirm_part に持つ。こちらに尋ねているかの問い合わせ（asks_context）の質問の文も、こちらが最後に聞いたこと
-        ＝呼ぶ一言か確かめる一言。"""
+        ＝呼ぶ一言か確かめる一言。目的のお客様の判定の物差しは、後任の方をお呼びしたあとは電話に出ている方を見せず、後任の方かで読む（target_facets）。"""
         target = self.target
         asked_parts = (("T1", "target"),) + tuple((f"T{i + 2}", part) for i, part in enumerate(CONFIRM_PARTS)) if target else ()
+        calling, confirm = ((None, SUCC_CALLED), (None, SUCC_CONFIRM)) if self.successor else ((WHO_CALLING, SUCC_CALLING), (WHO_CONFIRM, SUCC_CALLING))
         self.calling_question = (Question("T1", target["target"], "yes_no", required=False, conditions=(TARGET_IS_THERE, TARGET_IS_NOT),
-                                          named=True, facets=target_facets(WHO_CALLING)) if target else None)
+                                          named=True, facets=target_facets(*calling)) if target else None)
         self.confirm_questions = {part: Question(qid, target[part], "yes_no", required=False, conditions=(TARGET_IS_THERE, TARGET_IS_NOT),
-                                                 named=True, facets=target_facets(WHO_CONFIRM)) for qid, part in asked_parts[1:]}
+                                                 named=True, facets=target_facets(*confirm)) for qid, part in asked_parts[1:]}
         self.asks_questions = {qid: Question(qid, target[part], "yes_no", required=False, conditions=tuple(ASKS_MEANINGS), meanings=dict(ASKS_MEANINGS),
                                         named=True) for qid, part in asked_parts}
         self.return_question = (Question("R1", target["target"], "yes_no", required=False, conditions=tuple(RETURN_MEANINGS),
@@ -3526,6 +3583,14 @@ class Flow:
             # 「取り次ぎを待つ」・もう1つが別の読みのとき、受付の方へ確かめる一言を流した（区切りは取り次ぎで次の発話へ動き、確かめは誰にも
             # 数えられず、知らせの文が「None」になった）
             return self._hold()
+        if ai == "successor" and (seen := self._successor_read()):
+            # はじめの場面で、AIの「後任の方」と、判定の「電話に出ている方は後任の方」がそろった（どの判定も「ご本人」と読んでいない）：確かめずに
+            # 後任の方として繋ぐ（代わりの方・お呼びし直す道より先）。どちらか1つだけなら、前のとおり（AIだけ＝確かめる・判定だけ＝AIの報告の道）＝
+            # 後任の方へ切り替えるのは取り消せない側なので、1つの読みでは進まない（試しの形：「本日は私が代わりに担当しております」を判定が1つ
+            # 読み違えると、お詫びと「後任のご担当者様でいらっしゃいますでしょうか？」が流れる）。✅ 2026-10-29 ユーザー：「『別の方』と『後任』は
+            # 別の軸ですよね！」。⛔ 前は「岡田は異動になりまして、今は私が担当しております。」に「後任のご担当者様でいらっしゃいますでしょうか？」と
+            #    確かめ（判定に後任の方を読む所が無かった）、「退職いたしまして、後任の田中に代わります。…」のあとに出た田中様には、お詫びと確かめを流した
+            return self._departed(confirm=False, read=seen | {"ai"}, why=why, agreed=True)
         if ai == "handover":
             self._new_speaker(self.callee_turns, after=False)  # 代わった方が話し始めた（確かめを聞いた方の返事なら、替わった印にしない）
         if (handed := self._handed()) and j != TARGET_IS_THERE and ai not in ("target", "successor") and not offer \
@@ -3756,6 +3821,13 @@ class Flow:
                 any(v for t, v in seen.items() if t > after),
                 {k for t, v in every.items() if t >= since for k, x in v.items() if says_away(x)})
 
+    def _successor_read(self) -> set[str]:
+        """はじめの場面で、いまの言葉（出揃ったもの）を「電話に出ている方は後任の方」と読んだ判定の名前（唯一の場所）。どれか1つでも「ご本人」と
+        読んでいれば空（後任の方の道へは進まない＝取り消せない側へは1つの読みで止める）。後任の方をお呼びしたあとは、後任の方かは読みそのもの
+        （facts_reading）なので空。"""
+        now = self._judged_now() if self.words_complete and not self.successor else {}
+        return set() if TARGET_IS_THERE in now.values() else {k for k, v in now.items() if says_successor(v)}
+
     def _handed(self) -> set[str]:
         """いま電話口にいる方は、前の方が「お呼びした方は出られない」と伝えたうえで代わった方か（唯一の場所）：前の方の言葉（いまの方に替わる前・
         お呼びし直したあとの発話）を「不在」と読んだ判定の名前（無ければ空＝代わった方ではない）。AIの読みだけでは決めない（代わりの方として
@@ -3874,7 +3946,7 @@ class Flow:
         if ai == "substitute":
             return self._substitute(read, why)
         if ai == "successor" or why == "departed":
-            return self._departed(confirm=ai == "successor", read=read)
+            return self._departed(confirm=ai == "successor", read=read, why=why)
         return self._callback(why or "absent", read, offer=offer)
 
     def _substitute(self, read: set[str], why: str | None = None) -> dict:
@@ -3920,19 +3992,28 @@ class Flow:
                                  who="substitute", prefix=prefix)
         return self._callback(self.substitute_why, {"ai"}, prefix=prefix, thanks=True)
 
-    def _departed(self, confirm: bool, read: set[str]) -> dict:
+    def _departed(self, confirm: bool, read: set[str], why: str | None = None, agreed: bool = False) -> dict:
         """お呼びした方が在籍していない（退職・異動・担当が変わった）：業務設定で決める（唯一の場所）。
         ✅ 2026-10-22 ユーザー：「目的の人がいない（退職・異動）：(a) 基本は後任の方をお呼びする+業務ごとに選べる」
         - 後任の方をお呼びする（既定 successor）：録音「さようでございましたか。大変失礼いたしました。」のあと、後任の方をお呼びする一言（電話口の方が
           後任の方だと言ったとき＝confirm は、確かめる一言）。ここからは後任の方が目的の人（_to_successor。判定も後任の方の問いで読む）
+        - 電話口の方が後任の方だと、AIと判定の読みがそろった（agreed＝_successor_read）：確かめずに後任の方として繋ぐ（_connect。
+          まだ名乗りを聞いていない方なら、あいさつ・名乗りから）
+        - お詫びの録音は、在籍していないことを、いま電話口の方が伝えたときだけ（AIの理由が「在籍していない」・いまの言葉の不在の読み。判定が
+          1つも届いていなければ流す＝前のとおり）。取り次いだ方が伝えて代わった後任の方には流さない（その方は何も伝えていない。⛔ 前は、
+          「退職いたしまして、後任の田中に代わります。…」のあとに出た田中様に「そうでしたか。大変失礼いたしました。」を流した）
         - お礼を言って終える（end）：同じお詫びのあと、ふつうの締め。後任の方へ切り替えたあとにまた在籍していないと言われたときも終える"""
         policy = self.policies["departed"]
         self._note("departed", policy=policy, read=sorted(read), successor=self.successor)
+        now = self._judged_now()
+        told = why == "departed" or not now or any(says_away(v) for v in now.values())
         self._keep_calling_turn()
-        lead = [{"kind": "recorded", "id": "departed", "text": DEPARTED_ACK}]
+        lead = [{"kind": "recorded", "id": "departed", "text": DEPARTED_ACK}] if told else []
         if policy == "end" or self.successor:
             return self._led(lead, "", self._close("departed")) | {"led": True}
         self._to_successor()
+        if agreed:
+            return self._led(lead, "お呼びした方は在籍しておらず、電話口の方が後任の方だと伺いました（読みがそろいました）。", self._connect(read)) | {"led": True}
         if confirm:
             return self._led(lead, "お呼びした方は在籍しておらず、電話口の方が後任の方だと伺いました。", self._ask_target(new_person=False)) | {"led": True}
         keys = [k for k in ("greeting", "intro") if self._new_ears() and self.target.get(k) and not (k == "greeting" and self._greeted())]
