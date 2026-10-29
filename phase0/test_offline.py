@@ -2651,7 +2651,7 @@ class MeaningJudgeOptionsTest(unittest.TestCase):
         # 2つの判定がそろって「別の方」と読み、お呼びし直す側だった。✅ ユーザー：「『別の方』+『不在』と判断しなければならないんじゃないですか？」）
         self.assertIn("いらっしゃらない・電話に出られないとも伝えたときは、こちらではない", CONFIRM_MEANINGS[TARGET_IS_NOT])
         self.assertIn("違うお名前を名乗ったり「いいえ」と答えたりしたうえで、そう伝えたときも", CONFIRM_MEANINGS[TARGET_IS_AWAY])
-        self.assertEqual(CONFIRM_MEANINGS[TARGET_IS_AWAY], TARGET_MEANINGS[TARGET_IS_AWAY])   # 不在の意味は呼ぶ一言と確かめで1つ
+        self.assertNotIn("「いいえ」と答えたり", TARGET_MEANINGS[TARGET_IS_AWAY])   # 呼んでいる段の説明は前の文（書き足すと「岡田ですね。」を「ご本人」と読んだ）
         # まとめて送る区切りは、毎回同じ「決まり＋質問」の後ろ（つなげると1文字も違わない）
         head, rest = prompt_parts(q, "はい、岡田です。", None, "少々お待ちください。")
         self.assertEqual(head + rest, prompt(q, "はい、岡田です。", None, "少々お待ちください。"))

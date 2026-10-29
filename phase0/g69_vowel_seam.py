@@ -84,6 +84,11 @@ VOICE_MAX = 6.3
 # 話す速さのずれの上限（下の RATE_WEIGHT の速さのずれ）。✅ 2026-10-25 のユーザーの聞き比べ：◎ だった組は 0.16 まで（1回目の S2）・
 # ○「『岡田様』のイントネーションが少しおかしい」は 0.32（2回目の S2）。L4 は2回とも 0.11 まで（ご指摘なし）
 SPEED_MAX = 0.25
+# つなぎ目の高さの跳ねの上限（半音。join_gap の「高さの跳ね」）。超える組は、ほかに組が無いときだけ選ぶ。ユーザーの聞き比べ：跳ねが 1.38 まで
+# の組には途切れ・重なりのご指摘が無い（6回目の S2「の」1.38・4回目の S2「と」0.99・L4「で」0.86 など）／4.89（2回目の S2「で」✕「途切れと違和感」）・
+# 約2（3回目の S2「の」✕「重なっている」）・2.07（4回目の S2「で」✕「重なって、機械音にも聞こえ」）は3組とも ✕。⛔ 2026-10-29 G-69 の7回目：
+# 点数は周期のずれを重く数え（0.1 が半音1つ）、跳ね 3.45 の組（「は」）を持つ名前の部分を、跳ね 1.57 が一番悪い名前の部分と 0.38 差で選んでいた
+JUMP_MAX = 1.7
 FRAME_S, HOP_S = 0.02, 0.005   # 「ま」を探す区間の長さと細かさ
 SIDE_S = 0.025                 # つなぎ目の前後で比べる長さ
 BAND = (1000.0, 4000.0)        # 鼻の音（「ま」の m）で弱まる帯
@@ -467,7 +472,8 @@ async def build(args, out, rows: list[dict]) -> dict:
                 cut, shape = align(h["pcm"], hc, per, t["pcm"], rate, tc / rate)
                 g = join_gap(h["pcm"], hc, per, t["pcm"], cut, tper, rate)
                 comp, dur = ma_length(h["mv"], hc, t["mv"], cut, rate)
-                s_ = score(g) + dur + RATE_WEIGHT * speed + over + over_by(g["声質（dB）"], VOICE_MAX, 1.0)
+                s_ = (score(g) + dur + RATE_WEIGHT * speed + over + over_by(g["声質（dB）"], VOICE_MAX, 1.0)
+                      + over_by(3.0 if g["高さの跳ね（半音）"] is None else g["高さの跳ね（半音）"], JUMP_MAX, 0.1))
                 if best is None or s_ < best[0]:
                     best = (s_, {**g, "前後の1周期の形": round(shape, 2), "話す速さのずれ": speed, "全体の高さの差（半音）": whole,
                                  "いつもの声との高さの差（半音）": [h["usual"][0], t["usual"][0]],
