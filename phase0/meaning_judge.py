@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import json
 
-from flowctl import ANY, CHOICE_TYPES, CONFIRM_LABEL, HANDOVER, HOLD, UNDECIDED, label
+from flowctl import ABOUT, ANY, CHOICE_TYPES, CONFIRM_LABEL, HANDOVER, HOLD, PHONE, UNDECIDED, WHO, label, target_reading
 
 SYSTEM_DESC = {ANY: "どれでもよいと、こちらに任された（「どちらでも」「どれでも」）",
                "unknown": "わからない・覚えていない・まだ決めていない（選ぶ前の状態）",
@@ -34,7 +34,9 @@ KIND_DESC = {HOLD: "ほかの人に電話を代わる・取り次ぐので、待
              # ✅ 2026-10-19 ユーザー：「受付が『それでは岡田にお繋ぎします。』のような後に、『はい、お電話代わりました。』と言われれば、
              #    『ご本人』になりますよね」⇒ お呼びした方に取り次いだあとなら、名乗らなくても答えが決まる（その前に相手が言ったこと＝BEFORE）
              # ⚠️ 同じ日のユーザー（2回目）：「取次後は必ずしも、本人とは限らない」⇒ ここは「代わった別の人が話し始めた」ときだけの話。取り次いだ方が
-             #    また出て出られないと伝えたときは不在、どちらが出たか分からない言葉はご本人と決めない（決まりの正本＝flowctl.TARGET_MEANINGS）
+             #    また出て出られないと伝えたときは不在、どちらが出たか分からない言葉はご本人と決めない（決まりの正本＝flowctl.WHO_CALLING）。
+             # ⚠️ 2026-10-29 から、目的のお客様の判定はこの説明を使わない（項目ごとに答える＝flowctl.target_facets）。答えの判定（G-53）の文を
+             #    変えないために、ここはそのまま残す
              HANDOVER: "電話を代わった別の人が、話し始めた（「お電話代わりました」など。答えではない）。お呼びした方がいないので別の者に代わると"
                        "言ったあとに代わった方が出たとき・お呼びした方と違う名前を名乗ったときも、こちら。代わった方が誰かで答えが決まるとき"
                        "（お呼びした方の名前を名乗った・その前に取り次いだ方が、お呼びした方に取り次いだ）は、こちらではなく、その答えを選ぶ",
@@ -64,10 +66,15 @@ FIRM_RULE = ("言い切っていなくても（" + FIRM_NOT + "のように、�
 
 class Reading(str):
     """判定の答え（中の名前のまま比べられる）に、お客様が言い切っているか（firm）を添えたもの。sure＝判定の確からしさ（返す判定だけ＝Jev）・
-    by＝答えた判定の名前・tried＝その前に問い合わせて答えが無かった判定（JudgePanel が付ける）。"""
+    by＝答えた判定の名前・tried＝その前に問い合わせて答えが無かった判定（JudgePanel が付ける）。
+    項目ごとに答える質問（Question.facets＝目的のお客様の判定）では、中の名前は組み合わせた読み（flowctl.target_reading）で、away・new＝読みに
+    出ない事実の印（不在も伝えた・電話を代わった方）・facts＝項目ごとの答え（記録・試験の数え方）。"""
     sure: float | None = None
     by: str | None = None
     tried: tuple = ()
+    away: bool = False
+    new: bool = False
+    facts: dict | None = None
 
     def __new__(cls, cond: str, firm: bool = True, sure: float | None = None):
         r = super().__new__(cls, cond)
@@ -96,6 +103,29 @@ RULES = (
     "- " + FIRM_RULE + "\n"
     "- 迷ったら「" + UNDECIDED + "」を選びます。\n"
 )
+# 項目ごとに答える質問（Question.facets＝目的のお客様の判定）の決まり（RULES の代わり。✅ 2026-10-29 ユーザー：「『不在』と『別の方』というのは、
+#    そもそも別の評価軸でしょ。それをどちらかしか選べないというのは設計上の問題じゃないですか？」＝1つの言葉に同時に入る事実を、項目ごとに答えさせる）。
+#    ⚠️ 例は、試験の言葉（G-59）と同じ言い方にしない
+FACET_RULES = (
+    "電話でお呼びする方を、質問の言葉でお呼びして、電話に出ている方が話しました。その言葉について、次の項目ごとに、選べるものを1つずつ選んで"
+    "ください。\n"
+    "1つの言葉に、いくつもの事実が入ることがあります（お呼びした方ではない方が、お呼びした方は出られないと伝えた・お呼びした方は出られないので"
+    "ほかの者に代わると言った など）。項目ごとに、その項目のことだけを読みます（ほかの項目に当たる事実があっても、この項目の答えは変えません）。\n"
+    "決まり：\n"
+    "- 言葉の意味で選びます。言葉の頭の「はい」「いいえ」だけで決めません。\n"
+    "- 電話に出ている方が誰か迷ったら「" + UNDECIDED + "」を選びます。\n"
+)
+
+
+def facet_choices(q) -> str:
+    """項目ごとに答える質問の、項目と選べるもの（問い合わせの文の1か所。見せる名前＝中の名前）。"""
+    lines = ["項目と選べるもの（名前：説明）："]
+    for i, (key, heading, table) in enumerate(q.facets, 1):
+        lines.append(f"({i}) {heading}（{key}）：")
+        lines += [f"- {n}：{d}" for n, d in table.items()]
+    return "\n".join(lines) + "\n"
+
+
 PROMPT = RULES + (   # 並びの見本（文を作るのは prompt_parts の1か所）
     "質問：「{question}」\n"
     "{before}"
@@ -121,8 +151,8 @@ def options(q, asked: str | None = None) -> list[tuple[str, str, str]]:
     を名前にし、意味の定義を説明に1回だけ書く。⛔ 2026-10-29：名前を「答えA」…にした形は、その場の判定（3.5 Flash Lite）が、取り次ぎのあとの
     「お電話代わりました。」を3回とも「代わった人が話し始めた」と読むなど悪くなった（G-59 の両方で読めた128行で 112 対 118＝食い違いが要らない
     確かめになり、お客様の不信になる。✅ ユーザー：「『確かめが1回増える』のは安全でなく、相手からの不信ですよ！」）⇒ 意味の名前に戻した。
-    意味の名前で「いいえ、山田と申します。岡田は本日おりません。」を「別の方」と読んだのは、名前ではなく意味の定義の穴（不在を伝えた言葉が
-    「違うお名前を名乗った」にも当たっていた）＝定義の1か所（flowctl.CONFIRM_MEANINGS）で直す。
+    意味の名前で「いいえ、山田と申します。岡田は本日おりません。」を「別の方」と読んだのは、1つの言葉の2つの事実（違う方・お呼びした方は不在）を
+    1つの選びに押し込めていたため ⇒ 目的のお客様の判定は、項目ごとに答える形にした（Question.facets・prompt_parts）。
     値を聞く質問の言い直しへの返事は「合っている」「違う値を言われた」（AIの報告 confirm_field と同じ名前）。最後に、答えでない言葉の3つ。
     ⛔ G-53 の2回目：名前の「いいえ」と相手の「違います」を言葉で結びつけ、言い直しを認めていないのに認めたと読んだ ⇒ お客様の選択肢の言葉は名前にしない。
     ⛔ 2026-10-29：印のある質問も意味の定義（長い文）を名前にしていたので、返事の形の指定にも長い文が並び（目的のお客様の判定で送る量の55%）、
@@ -168,6 +198,8 @@ def prompt_parts(q, text: str, asked: str | None = None, before: str | None = No
        目的のお客様の判定（G-59）は、選べるものを先に置いた形で 139 → 144/147"""
     said = f"こちらが言い直して確かめた言葉：「{asked}」\n" if asked else ""
     before = f"{BEFORE}：「{before}」\n" if before else ""
+    if q.facets:   # 項目ごとに答える質問：決まり・質問・項目は毎回同じ（まとめて送る前の部分）
+        return FACET_RULES + f"質問：「{q.text}」\n" + facet_choices(q), before + said + f"お客様の言葉：「{text}」\n"
     choices = "選べるもの（名前：説明）：\n" + "\n".join(f"- {n}：{d}" for n, d, _ in options(q, asked)) + "\n"
     head, tail = RULES + f"質問：「{q.text}」\n", f"お客様の言葉：「{text}」\n"
     if getattr(q, "named", False):
@@ -186,6 +218,11 @@ def cached_content(fixed: str, varying: str) -> list[dict]:
 def _config(q, asked: str | None):
     from google.genai import types
 
+    if q.facets:
+        keys = [k for k, _, _ in q.facets]
+        schema = types.Schema(type=types.Type.OBJECT, properties={k: types.Schema(type=types.Type.STRING, enum=list(t)) for k, _, t in q.facets},
+                              required=keys, property_ordering=keys)
+        return types.GenerateContentConfig(response_mime_type="application/json", response_schema=schema, temperature=0)
     names = [n for n, _, _ in options(q, asked)]
     schema = types.Schema(type=types.Type.OBJECT, properties={"choice": types.Schema(type=types.Type.STRING, enum=names),
                                                               FIRM: types.Schema(type=types.Type.BOOLEAN)}, required=["choice", FIRM])
@@ -201,12 +238,25 @@ def read(q, text: str | None, asked: str | None = None) -> Reading | None:
         name, firm, sure = got.get("choice"), got.get(FIRM), got.get("sure")
     except (ValueError, AttributeError):
         return None
+    sure = sure if isinstance(sure, (int, float)) else None
+    if q.facets:
+        # 項目ごとの答え（どれか1つでも無い・選べるものに無ければ、読めない返事）⇒ 組み合わせた読みと、読みに出ない事実の印（唯一の決まり）
+        facts = {k: got.get(k) for k, _, _ in q.facets}
+        if any(facts[k] not in t for k, _, t in q.facets):
+            return None
+        value, away, new = target_reading(facts[WHO], facts[PHONE], facts[ABOUT])
+        r = Reading(value, True, sure)
+        r.away, r.new, r.facts = away, new, facts
+        return r
     cond = next((c for n, _, c in options(q, asked) if n == name), None)
-    return None if cond is None else Reading(cond, firm is not False, sure if isinstance(sure, (int, float)) else None)
+    return None if cond is None else Reading(cond, firm is not False, sure)
 
 
 def _schema(q, asked: str | None) -> dict:
-    """選べるものの名前だけを返させる形（Gemini は _config・ほかの会社はこの形をそのまま渡す）。"""
+    """選べるものの名前だけを返させる形（Gemini は _config・ほかの会社はこの形をそのまま渡す）。項目ごとに答える質問は、項目ごとの名前。"""
+    if q.facets:
+        return {"type": "object", "properties": {k: {"type": "string", "enum": list(t)} for k, _, t in q.facets},
+                "required": [k for k, _, _ in q.facets], "additionalProperties": False}
     return {"type": "object", "properties": {"choice": {"type": "string", "enum": [n for n, _, _ in options(q, asked)]},
                                              FIRM: {"type": "boolean"}},
             "required": ["choice", FIRM], "additionalProperties": False}
@@ -347,7 +397,13 @@ def jev_criteria(q, asked: str | None = None) -> dict:
 
 
 def jev_request(model: str, q, text: str, asked: str | None = None, before: str | None = None) -> dict:
-    """Jev への問い合わせ：どの答えか（choice・確からしさ付き）と、言い切っているか（noul）。"""
+    """Jev への問い合わせ：どの答えか（choice・確からしさ付き）と、言い切っているか（noul）。項目ごとに答える質問は、項目ごとに1つの問い
+    （確からしさは項目ごと＝読むときは一番低いもの。言い切っているかは問わない）。"""
+    if q.facets:
+        return {"model": model, "state": scene(q, text, asked, before),
+                "questions": {k: {"type": "choice", "instructions": f"電話に出ている方の言葉で、{h}はどれに当たりますか？（ほかの項目に当たる事実が"
+                                                                       "あっても、この項目のことだけを読みます）", "criteria": dict(t)}
+                              for k, h, t in q.facets}}
     return {"model": model, "state": scene(q, text, asked, before),
             "questions": {"choice": {"type": "choice", "instructions": JEV_ASK_REPLY if asked else JEV_ASK, "criteria": jev_criteria(q, asked)},
                           FIRM: {"type": "noul", "instructions": "お客様は、その答えを言い切っていますか？", "criteria": JEV_FIRM}}}
@@ -362,11 +418,16 @@ def other_text(name: str, data: dict) -> str | None:
         return json.dumps(got, ensure_ascii=False) if got else None
     if OTHER_JUDGES[name]["maker"] == "typesafe":  # 言い切っているかは確からしさ（0〜1）で返る：線（firm_min）から上なら言い切っている
         # ⛔ 2026-10-19 の見直し：ここは半分（0.5）で切っていた（測って合った線は0.2）。答えの確からしさ（sure）も捨てていた
+        # 選ぶ問いの答えは全部（項目ごとに答える質問は項目ごと）。確からしさは、選ぶ問いのうち一番低いもの（1つでも自信のない項目があれば、
+        # その読みは線より下＝JudgePanel が組のほかの判定で読む）
         answers = data.get("answers") or {}
-        choice = answers.get("choice") or {}
-        got, firm = choice.get("choice"), (answers.get(FIRM) or {}).get("noul")
-        return json.dumps({"choice": got, FIRM: firm is None or firm >= OTHER_JUDGES[name]["firm_min"], "sure": choice.get("confidence")},
-                          ensure_ascii=False) if got else None
+        picked = {k: a for k, a in answers.items() if isinstance(a, dict) and "choice" in a}
+        if not picked or any(not a.get("choice") for a in picked.values()):
+            return None
+        confs = [a.get("confidence") for a in picked.values()]
+        firm = (answers.get(FIRM) or {}).get("noul")
+        return json.dumps({k: a["choice"] for k, a in picked.items()} | {FIRM: firm is None or firm >= OTHER_JUDGES[name]["firm_min"],
+                          "sure": min(confs) if all(isinstance(c, (int, float)) for c in confs) else None}, ensure_ascii=False)
     return next((c.get("text") for o in data.get("output") or [] for c in o.get("content") or [] if c.get("type") == "output_text"), None)
 
 
