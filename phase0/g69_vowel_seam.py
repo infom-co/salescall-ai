@@ -94,8 +94,11 @@ JUMP_MAX = 1.7
 # 7回目「で」△「僅かに途切れ」動き 1.26／7回目「の」○「『の』の辺りが少し違和感」周期 0.284・動き 1.08／4回目「で」✕「重なって」動き 0.85）。
 # ご指摘の無かった組は、周期のずれ 0.173 まで・動き 0.22 まで（6回目の「の」周期 0.338 だけ、ご指摘が無かった）。⛔ 2026-10-29 G-69 の7回目：上限を
 # 置かず点数に足すだけだったので、いつもの声の上限の中にほかの組が無い「と」で、周期のずれ 0.689・前後の1周期の形 0.35 の組を選んだ
+# ✅ 8回目の聞き比べ：高さの動き 0.95（「は」）・0.91（「と」）の組が、どちらも ◎◎「自然」＝上限 0.8 は締めすぎ（聞く前の「途切れのおそれ」の見込みは
+# 外れた）。動きの上限の根拠だった組のうち、4回目「で」0.85 は高さの跳ね 2.07（JUMP_MAX を超える）・7回目「の」1.08 は周期のずれ 0.284（PERIOD_MAX を
+# 超える）＝ほかの物差しで説明がつく。残る 7回目「で」1.26 との間に置く
 PERIOD_MAX = 0.25
-MOVE_MAX = 0.8
+MOVE_MAX = 1.0
 # 続く言葉の「ま」から助詞への高さの下がり（切る所から FALL_S 秒＝fall_after）の下限（半音）。下がりが小さい組は、ほかに組が無いときだけ選ぶ。
 # ✅ ユーザーの聞き比べ（1〜7回目の S2 の (V) の組）：イントネーションのご指摘の無かった ◎ の5組は、5組とも 1.9半音以上下がる（−1.9〜−5.5）／
 # 下がりが 1.3半音より小さい11組は、どれも「『岡田様』のイントネーションが少しおかしい」「機械のよう」「抑揚がなさ過ぎる」「言い方が少し怖い」などの
@@ -180,21 +183,49 @@ def dominant_sign(pcm: bytes, rate: int, t: float) -> int:
 
 
 def align(head_pcm: bytes, head_cut: int, period: int, tail_pcm: bytes, rate: int, tail_t: float) -> tuple[int, float]:
-    """続く言葉の切る所：名前の部分の最後の1周期（head_cut まで）と一番形の近い1周期が始まる所（続く言葉の tail_t 秒の ±1周期の中）。
-    名前の部分の最後の1周期のあとに、同じ形の周期が続く＝周期の同じ位置でつながる（音は加工しない。切る所を選ぶだけ）。(標本の番号, 形の近さ)。"""
-    a = np.frombuffer(head_pcm, dtype="<i2")[head_cut - period:head_cut].astype(np.float64)
+    """続く言葉の切る所：続く言葉の tail_t 秒の ±1周期の中で、名前の部分の切る所と同じ向きに波が0をまたぐ所のうち、そこから始まる1周期が
+    名前の部分の最後の1周期（head_cut まで）と一番形の近い所。名前の部分の最後の1周期のあとに、同じ形の周期が続く＝周期の同じ位置でつながる
+    （音は加工しない。切る所を選ぶだけ）。(標本の番号, 形の近さ)。
+    ⛔ 2026-10-29 G-69 の8回目（ユーザー：S2 の (V の) ○○「自然だが、『の』のあたりでラップ音がなる」・(V 役職) ○「『岡田様は』の『は』の
+    あたりでラップ音がなる」）：続く言葉の側は形の近さだけで切り、0をまたぐ所にそろえていなかった＝名前の部分は0をまたぐ直前の値（−2,924）で
+    終わり、「の」の続く言葉は山へ上がる途中の値（10,935）から始まった（1標本で 13,859 の跳び。その声の自然な1標本の跳びは大きくても約 4,000）。
+    1〜8回目の組で一番大きい跳びだった（「は」7,189・「と」10,347 も8回目が一番大きい）。0をまたぐ所どうしでつなげば、つなぎ目の跳びは
+    0をまたぐ所の自然な跳びと同じ大きさになる。
+    0をまたぐのは標本と標本の間なので、続く言葉を、0をまたぐ直前の標本から始めるか直後の標本から始めるかは、0をまたぐ所から名前の部分の
+    次の標本までの間（標本の何割か）に近いほうにする（⛔ 同じ日の組み直し：直後の標本から始めるだけでは、「の」は名前の部分の最後の −2,924
+    のあと、続く言葉の直前の −679 を飛ばして 4,589 から始まり、跳びが 7,513＝0をまたぐ所の2つの跳びの和になった）。"""
+    h = np.frombuffer(head_pcm, dtype="<i2").astype(np.float64)
+    a = h[head_cut - period:head_cut]
+    sign = 1 if h[head_cut] >= h[head_cut - 1] else -1   # 名前の部分の波が、切る所で上がっていく（+1）か下がっていく（−1）か
     x = np.frombuffer(tail_pcm, dtype="<i2").astype(np.float64)
     c = int(tail_t * rate)
     best = (c, -1.0)
     if len(a) < period or not a.std():
         return best
     for j in range(max(period, c - period), min(len(x) - period, c + period)):
+        if not x[j - 1] * sign < 0 <= x[j] * sign:
+            continue
         b = x[j:j + period]
         if b.std():
             r = float(np.corrcoef(a, b)[0, 1])
             if r > best[1]:
                 best = (j, r)
-    return best
+    j, r = best
+    if r > -1.0 and h[head_cut - 1] * sign < 0 <= h[head_cut] * sign:
+        def frac(y, k):   # k−1 の標本から、0をまたぐ所までの間（標本の何割か）
+            return abs(y[k - 1]) / (abs(y[k - 1]) + abs(y[k]))
+        after = 1.0 - frac(h, head_cut)   # 0をまたぐ所から、名前の部分の次の標本まで
+        ft = frac(x, j)
+        if abs(-ft - after) < abs((1.0 - ft) - after):
+            j -= 1
+    return j, r
+
+
+def seam_step(a_pcm: bytes, a_cut: int, b_pcm: bytes, b_cut: int) -> list[int]:
+    """a の a_cut までと b の b_cut からをつないだ所の、1標本の波の跳びと、a が切らずに続いたときの同じ所の跳び（記録に残す。align の ⛔）。"""
+    a = np.frombuffer(a_pcm, dtype="<i2").astype(int)
+    b = np.frombuffer(b_pcm, dtype="<i2").astype(int)
+    return [abs(int(b[b_cut]) - int(a[a_cut - 1])), abs(int(a[a_cut]) - int(a[a_cut - 1]))]
 
 
 def ma_vowel(pcm: bytes, rate: int, times, head: str) -> dict | None:
@@ -516,6 +547,7 @@ async def build(args, out, rows: list[dict]) -> dict:
                                  "いつもの声との高さの差（半音）": [h["usual"][0], t["usual"][0]],
                                  "「ま」の長さ（秒）": round(comp, 3), "「ま」から助詞への高さの動き（半音）": fall,
                                  "続く言葉のもとの「ま」の長さ（秒）": round(t["mv"]["vowel"][1] - t["mv"]["vowel"][0], 3),
+                                 "つなぎ目の1標本の跳び（つないだ所・切らずに続く所）": seam_step(h["pcm"], hc, t["pcm"], cut),
                                  "切る所（秒）": [round(hc / rate, 4), round(cut / rate, 4)]}, cut, hc)
         return best
 
@@ -612,7 +644,7 @@ async def run(args) -> dict:
     if args.reuse:
         rows = json.loads((out / "takes" / "takes.json").read_text(encoding="utf-8"))
     elif args.from_round:
-        # 前の回の材料を写し、続く言葉・名前の部分を足して録る（役職は、前の回のまま）
+        # 前の回の材料を写し、続く言葉・名前の部分・役職を足して録る
         import shutil
         src = OUT / f"round{args.from_round}" / args.type / "takes"
         (out / "takes").mkdir(parents=True, exist_ok=True)
@@ -623,6 +655,8 @@ async def run(args) -> dict:
             rows = await record(args, out, rows, only=("tail",), extra=args.add_tails, forms=args.tail_forms)
         if args.add_heads:
             rows = await record(args, out, rows, only=("head",), extra=args.add_heads)
+        if args.add_roles:
+            rows = await record(args, out, rows, only=("role",), extra=args.add_roles)
     else:
         rows = await record(args, out)
     return await build(args, out, rows)
@@ -642,6 +676,8 @@ def main() -> None:
     p.add_argument("--tail-forms", default="", help="--add-tails で録る続く言葉の形（例：で。空ならどの形も）。⚠️ 2026-10-28 の4回目：「で」の形は、"
                    "確かめる問いの言い方で「ま」が高い録音が多く、どの名前の部分とも合う組が足りなかった")
     p.add_argument("--add-heads", type=int, default=0, help="名前の部分を、この本数足して録る（本番でも、新しい名前は数本録って、続く言葉に合う1本を選ぶ）")
+    p.add_argument("--add-roles", type=int, default=0, help="役職を、この本数足して録る。⚠️ 2026-10-29 の8回目のあと：人が外した2本のほかは、"
+                   "高さの上限に入る3本とも切る所の段差が上限（g66_role_seam.ROLE_STEP_DB）を超えた")
     args = p.parse_args()
     save_result("G-69", asyncio.run(run(args)))
 

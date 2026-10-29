@@ -293,6 +293,10 @@ OTHER_JUDGES = {
     # 考える段を入れた形（2026-10-18：考えない形は「違います」を、言い直した意味を認めたと読む向きに 47 回誤った）
     "Claude Haiku 5.5（考える）": {"maker": "anthropic", "model": "claude-haiku-5-5", "key": "ANTHROPIC_JUDGE_KEY", "host": "api.anthropic.com",
                                  "think": "low"},
+    # 同じ考える形を、道具を使わず返事の形を決めて JSON で返させる形（下の Sonnet 5.5（考える）と同じ送り方。2026-10-29 ユーザー：「Haiku（考える）で
+    # 早く出させる方法はないのか？」）。道具で返す形は、考えたあとに道具を選んで呼ぶ一手が入り、G-59 の答えまでが中央 2.38秒・遅いほうから1割 4.64秒だった
+    "Claude Haiku 5.5（考える・形）": {"maker": "anthropic", "model": "claude-haiku-5-5", "key": "ANTHROPIC_JUDGE_KEY", "host": "api.anthropic.com",
+                                    "form": "json", "effort": "low", "thinking": {"type": "adaptive"}},
     # Sonnet 5.5（2026-10-18 ユーザー：「Sonnet5.5でも試した方がいい」）：名前を指定した道具の呼び出しは断る（400）ので、返事の形を決めて
     # JSON で返させる。考えない形は {"type": "between_tools"}（道具が無いので考える段が無い）
     "Claude Sonnet 5.5": {"maker": "anthropic", "model": "claude-sonnet-5-5", "key": "ANTHROPIC_JUDGE_KEY", "host": "api.anthropic.com",

@@ -5346,6 +5346,30 @@ class VoiceFeaturesTest(unittest.TestCase):
         self.assertAlmostEqual(comp, 0.065, delta=1e-4)
         self.assertAlmostEqual(w, np.log(1.3) / np.log(1.2), delta=0.01)
 
+    def test_seam_cut_continues_the_wave_across_zero(self):
+        # G-69 のつなぎ目（g69_vowel_seam.align）：続く言葉は、名前の部分と同じ向きに波が0をまたぐ所で切る＝つなぎ目の1標本の跳びが、0をまたぐ所の
+        # 自然な跳びと同じ大きさになる。⛔ 2026-10-29 G-69 の8回目（「『の』のあたりでラップ音がなる」）：1周期の長さの読みが数標本ずれると、形の一番
+        # 近い所が0をまたぐ所からずれ、続く言葉が山へ上がる途中から始まっていた（1標本で 13,859 の跳び）
+        import numpy as np
+        from g69_vowel_seam import align, pulse_cut, seam_step
+        rate = 24000
+        ph = 2 * np.pi * 200.0 * np.arange(int(0.3 * rate)) / rate   # 1周期 120標本・0をまたいで上がる所は1周期に1つ
+
+        def voice(p):
+            return 0.3 * np.sin(p) + 0.2 * np.sin(2 * p) + 0.1 * np.sin(3 * p)
+        H = self.pcm(voice(ph))
+        hc = pulse_cut(H, rate, 0.15, 1, 120)
+        for shift in (1.1, 1.2):   # 同じ声の、周期の中の位置が違う録音（0をまたぐ所が、標本と標本の間の後ろ寄り・前寄り）
+            T = self.pcm(voice(ph + shift))
+            x = np.frombuffer(T, dtype="<i2").astype(int)
+            for per in (120, 126, 114):   # 1周期の長さの読みが正しいとき・数標本ずれたとき
+                cut, _ = align(H, hc, per, T, rate, 0.15)
+                k = cut if x[cut - 1] < 0 <= x[cut] else cut + 1   # 続く言葉は、0をまたぐ直後か直前の標本から始まる
+                self.assertTrue(x[k - 1] < 0 <= x[k], (shift, per))
+                jump, natural = seam_step(H, hc, T, cut)
+                # 0をまたぐ所の自然な跳び（名前の部分・続く言葉の大きいほう）と同じ大きさ（標本の間の端数の分だけ超えうる）
+                self.assertLessEqual(jump, 1.1 * max(natural, abs(x[k] - x[k - 1])), (shift, per))
+
     def test_role_take_keeps_the_whole_pitch_rule(self):
         # 役職の録音も、録音全体の声の高さが名前の部分の録音と name_clips.MAX_ST（半音 2.4）以内のものを選ぶ（名前の部分｜続く言葉と同じ1か所＝
         # g66_role_seam.pitch_over）。⛔ 2026-10-28 G-69 の4回目：S2 の役職は 3.4半音高い録音を選び「『営業部部長の』と『岡田様』以降の声質が違う」

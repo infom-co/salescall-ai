@@ -159,7 +159,9 @@ def pick_role(roles: list[dict], target: dict, y: bytes, rate: int, start_q: flo
     a, b = ro["pause"]
     keep, end = cut_at(ro)
     cut = int(end * rate)
-    return ro["pcm"][:cut * 2], {"役職の録音": k + 1, "変わり方のずれ": sc and round(sc, 2), "役職のもとの間（秒）": round(b - a, 3),
+    # 「役職の録音」は候補の並びの番号（人が外した録音を抜いた並び）。録音の名前は「材料」（⛔ 2026-10-29 G-69 の8回目：番号 7 を role_は_7 と読み
+    # 違えかけた。並びは role_は_5 を抜いていたので、7番は role_は_8）
+    return ro["pcm"][:cut * 2], {"役職の録音": k + 1, "材料": ro.get("wav"), "変わり方のずれ": sc and round(sc, 2), "役職のもとの間（秒）": round(b - a, 3),
                                  "名前の頭の無音（秒）": round(lead, 3), "役職の側に残した間（秒）": round(keep, 3),
                                  "切る所の段差（dB）": round(step(ro), 1), "全体の高さの差（半音）": whole[k][0], "いつもの声との高さの差（半音）": near[k][0],
                                  "役職の候補の全体の高さの差（半音）": [w for w, _ in whole],
