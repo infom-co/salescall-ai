@@ -45,7 +45,7 @@ import numpy as np
 from common import base_parser, make_client, pick_key, read_wav_pcm16_mono, require_python, save_result, say, write_wav
 from g58_name_splice import OUT
 from g65_seams import char_index, pause_after
-from g66_role_seam import FEAT_S, delta, onset_s, over_by, pick_role, pitch_over, seam_features, take_with_times
+from g66_role_seam import FEAT_S, delta, onset_s, over_by, pick_role, pitch_over, seam_features, take_with_times, usual_voice
 from phrases import PROMISE_AGAIN, TARGET_CALL, TARGET_CONFIRM
 from voice_features import features, pitch_at, pitch_near, semitones
 
@@ -441,6 +441,11 @@ async def build(args, out, rows: list[dict]) -> dict:
     if lacking:
         raise RuntimeError(f"使える材料がありません：{lacking}（{notes}）")
     median_s = {form: float(np.median([t["speech_s"] for t in ts])) for form, ts in tails.items()}
+    # いつもの声（通話で一緒に流す文の録音）の高さと比べる（g66_role_seam.usual_voice。名前の部分・続く言葉・役職の3つとも同じ pitch_over）
+    usual = usual_voice(args.type)
+    notes["いつもの声の高さ（Hz）"] = usual and round(usual["pitch_hz"], 1)
+    for m in heads + [t for ts in tails.values() for t in ts]:
+        m["usual"] = pitch_over(usual, m["whole"]) if usual else (None, 0.0)
     for h in heads:   # 名前の部分の録音の速さ＝その続き（「は」の文）の話す長さの、「は」の続く言葉の材料の中央との比
         h["rel_s"] = speech_after(h["pcm"], rate, h["mv"]["cut"]) / median_s["は"] if median_s["は"] else 1.0
         h["points"] = points(h["pcm"], rate, h["mv"])
@@ -455,7 +460,7 @@ async def build(args, out, rows: list[dict]) -> dict:
         # 録音全体の声の高さの差（g66_role_seam.pitch_over＝役職と同じ決まり）。超える組は、ほかに組が無いときだけ選ぶ
         # （⛔ 2026-10-25 の2回目：この条件を入れておらず、S2 の「で」の組は全体の高さが 6.5半音違った＝続く言葉が別の人の声に聞こえうる）
         whole, w_over = pitch_over(h["whole"], t["whole"])
-        over = w_over + over_by(speed, SPEED_MAX, 0.1)
+        over = w_over + over_by(speed, SPEED_MAX, 0.1) + h["usual"][1] + t["usual"][1]
         best = None
         for hc, per in h["points"]:
             for tc, tper in t["points"]:
@@ -465,6 +470,7 @@ async def build(args, out, rows: list[dict]) -> dict:
                 s_ = score(g) + dur + RATE_WEIGHT * speed + over + over_by(g["声質（dB）"], VOICE_MAX, 1.0)
                 if best is None or s_ < best[0]:
                     best = (s_, {**g, "前後の1周期の形": round(shape, 2), "話す速さのずれ": speed, "全体の高さの差（半音）": whole,
+                                 "いつもの声との高さの差（半音）": [h["usual"][0], t["usual"][0]],
                                  "「ま」の長さ（秒）": round(comp, 3),
                                  "続く言葉のもとの「ま」の長さ（秒）": round(t["mv"]["vowel"][1] - t["mv"]["vowel"][0], 3),
                                  "切る所（秒）": [round(hc / rate, 4), round(cut / rate, 4)]}, cut, hc)
@@ -524,7 +530,7 @@ async def build(args, out, rows: list[dict]) -> dict:
         fe = px and seam_features(ro["pcm"], rate, px[0] - FEAT_S, px[0])
         if fe:
             roles.append({"pcm": ro["pcm"], "pause": px, "end": fe, "wav": ro["wav"]})
-    role_pcm, notes["V 役職"] = pick_role(roles, target, h["pcm"], rate, 0.0, onset_s(h["pcm"], rate))
+    role_pcm, notes["V 役職"] = pick_role(roles, target, h["pcm"], rate, 0.0, onset_s(h["pcm"], rate), usual=usual)
     notes["V 役職"]["文まるごとの変わり方"] = {k: round(v, 2) for k, v in target.items()}
 
     call = TARGET_CALL["法人"]

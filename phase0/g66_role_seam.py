@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import json
 import random
+from pathlib import Path
 
 import numpy as np
 
@@ -106,23 +107,43 @@ def pitch_over(a: dict | None, b: dict | None) -> tuple[float | None, float]:
     return st, over_by(st, MAX_ST, 1.0)
 
 
+def usual_voice(voice_type: str, base: Path | None = None) -> dict | None:
+    """その声の「いつもの声」＝通話で一緒に流す文の録音（results/script/{声の型}_*.wav）の録音全体の声の高さの中央（{pitch_hz}）。無ければ None。
+    名前の録音の材料（役職・名前の部分・続く言葉）は、組む相手と半音 MAX_ST 以内（pitch_over）に加えて、この高さとも MAX_ST 以内のものを選ぶ
+    （同じ pitch_over。ほかに無いときだけ超えたものを選ぶ）。⛔ 2026-10-29 G-69 の6回目：S2 の組の材料は、どれも文の録音より +3.5〜3.8半音高く
+    （名前の部分 +3.53・「は」+3.66・「で」+3.79・役職 +3.79）、「は」の材料そのものを「自然だが声質がいつもと違う」と聞いていただいた。
+    L4 の組の材料は −0.8〜+2.1半音で、4回目に全部 ◎◎・◎。組む2つだけを比べていて、電話の中でほかの録音と並ぶ声を見ていなかった"""
+    from common import RESULTS_DIR, read_wav_pcm16_mono
+    from voice_features import features
+    hz = []
+    for f in sorted((base or RESULTS_DIR / "script").glob(f"{voice_type}_*.wav")):
+        pcm, rate = read_wav_pcm16_mono(f)[:2]
+        x = features(pcm, rate)
+        if x and x.get("pitch_hz"):
+            hz.append(x["pitch_hz"])
+    return {"pitch_hz": float(np.median(hz))} if hz else None
+
+
 def _db(pcm: bytes, rate: int, a: float, b: float) -> float:
     x = np.frombuffer(pcm[max(0, int(a * rate)) * 2:int(b * rate) * 2], dtype="<i2").astype(np.float64)
     return float(20 * np.log10(np.sqrt((x ** 2).mean()) + 1e-9)) if len(x) else -999.0
 
 
-def pick_role(roles: list[dict], target: dict, y: bytes, rate: int, start_q: float, lead: float) -> tuple[bytes, dict]:
+def pick_role(roles: list[dict], target: dict, y: bytes, rate: int, start_q: float, lead: float,
+              usual: dict | None = None) -> tuple[bytes, dict]:
     """名前の部分 y（start_q 秒から。声の始まりまで lead 秒）に、つなぎ目の前後の声の変わり方が文まるごとの変わり方（target）に一番そろう
     役職の録音（roles の1つ＝{pcm, pause, end}）を選び、間をもとの長さにして、役職の側の音を返す（G-66・G-69 の唯一の場所）。
     役職の側の切る所が、名前の部分の頭より ROLE_STEP_DB 以上大きい録音（間が静かにならない録音）と、録音全体の声の高さが名前の部分の録音と
-    MAX_ST より離れた録音は、ほかに無いときだけ選ぶ（pitch_over）。⛔ 2026-10-28 G-69 の4回目（S2 の (V 役職) ○「『営業部部長の』と『岡田様』
+    MAX_ST より離れた録音、いつもの声（usual＝usual_voice）と MAX_ST より離れた録音は、ほかに無いときだけ選ぶ（pitch_over）。⛔ 2026-10-28 G-69 の4回目（S2 の (V 役職) ○「『営業部部長の』と『岡田様』
     以降の声質が違う」）：選んだ役職の録音は全体で 180 Hz・名前の部分の録音は 148 Hz（3.4半音）で、この決まりを役職には当てていなかった"""
     from voice_features import features
     o = start_q + lead
     fs = seam_features(y, rate, o, o + FEAT_S)
     floor = _db(y, rate, start_q, start_q + max(lead, STEP_S))   # 名前の部分の頭（声の始まりまで）の大きさ
     fy = features(y, rate)
-    whole = [pitch_over(fy, features(ro["pcm"], rate)) for ro in roles]
+    fr = [features(ro["pcm"], rate) for ro in roles]
+    whole = [pitch_over(fy, f) for f in fr]
+    near = [pitch_over(usual, f) if usual else (None, 0.0) for f in fr]   # いつもの声との差
 
     def cut_at(ro) -> tuple[float, float]:
         a, b = ro["pause"]
@@ -131,7 +152,7 @@ def pick_role(roles: list[dict], target: dict, y: bytes, rate: int, start_q: flo
 
     def step(ro) -> float:
         return _db(ro["pcm"], rate, cut_at(ro)[1] - STEP_S, cut_at(ro)[1]) - floor
-    scored = (sorted(((mismatch(delta(ro["end"], fs), target) + over_by(step(ro), ROLE_STEP_DB, 1.0) + whole[k][1], k)
+    scored = (sorted(((mismatch(delta(ro["end"], fs), target) + over_by(step(ro), ROLE_STEP_DB, 1.0) + whole[k][1] + near[k][1], k)
                       for k, ro in enumerate(roles)), key=lambda t: t[0]) if fs else [(None, 0)])
     sc, k = scored[0]
     ro = roles[k]
@@ -140,7 +161,7 @@ def pick_role(roles: list[dict], target: dict, y: bytes, rate: int, start_q: flo
     cut = int(end * rate)
     return ro["pcm"][:cut * 2], {"役職の録音": k + 1, "変わり方のずれ": sc and round(sc, 2), "役職のもとの間（秒）": round(b - a, 3),
                                  "名前の頭の無音（秒）": round(lead, 3), "役職の側に残した間（秒）": round(keep, 3),
-                                 "切る所の段差（dB）": round(step(ro), 1), "全体の高さの差（半音）": whole[k][0],
+                                 "切る所の段差（dB）": round(step(ro), 1), "全体の高さの差（半音）": whole[k][0], "いつもの声との高さの差（半音）": near[k][0],
                                  "役職の候補の全体の高さの差（半音）": [w for w, _ in whole],
                                  "役職の候補のずれ": [round(s, 2) for s, _ in scored if s is not None]}
 

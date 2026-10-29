@@ -5298,6 +5298,23 @@ class VoiceFeaturesTest(unittest.TestCase):
         self.assertAlmostEqual(info["全体の高さの差（半音）"], 1.0, delta=0.3)
         _, only = pick_role(roles[:1], target, y, rate, 0.0, 0.0)               # ほかに無いときは、高い録音でも選ぶ
         self.assertEqual(only["役職の録音"], 1)
+        # いつもの声（通話で一緒に流す文の録音）の高さとも半音 MAX_ST 以内を選ぶ（⛔ 2026-10-29 G-69 の6回目：S2 の組の材料はどれも文の録音より
+        # +3.5〜3.8半音高く、「声質がいつもと違う」）。文の録音の高さは g66_role_seam.usual_voice の1か所で読む
+        import tempfile
+        from pathlib import Path as _P
+        from common import write_wav
+        from g66_role_seam import usual_voice
+        with tempfile.TemporaryDirectory() as d:
+            for n, hz in enumerate((150.0, 152.0, 300.0)):
+                write_wav(_P(d) / f"S9_Q{n}.wav", voice(hz), rate)
+            write_wav(_P(d) / "L9_Q0.wav", voice(200.0), rate)
+            ref = usual_voice("S9", _P(d))
+            self.assertAlmostEqual(ref["pitch_hz"], 152.0, delta=3)                  # 中央（はずれた1本に引かれない）
+            self.assertIsNone(usual_voice("X9", _P(d)))
+        near_ref = pitch_over({"pitch_hz": 150.0 * 2 ** (1 / 12)}, features(near, rate))
+        self.assertLess(near_ref[1], 1e-9)
+        _, both = pick_role(roles, target, y, rate, 0.0, 0.0, usual={"pitch_hz": 150.0 * 2 ** (1 / 12)})
+        self.assertLessEqual(both["いつもの声との高さの差（半音）"], 2.4)
 
 
 class ClipTablesTest(unittest.TestCase):
