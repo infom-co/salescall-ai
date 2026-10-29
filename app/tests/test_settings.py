@@ -311,6 +311,20 @@ class Choice(unittest.TestCase):
                     " choices) VALUES ('test.choice', 'override', %s, '試験', '試験', 'system', %s)", (value_type, choices)))
 
 
+    def test_meanings_of_the_review21_settings_follow_the_decisions(self):
+        """0143 の設定の意味（画面の説明の文）：(1) 意味の判定の組 jev_and_sonnet は Jev を先に出し、確かな読みが無い・失敗・0.3秒で
+        届かないときだけ2つの Sonnet を出す（main の e3019c4・CL-1 の連絡帳 4-59。2026-10-29 ユーザー「OK」）／sonnet は2つの Sonnet だけ
+        (2) テスト番号で確かめる回線の停止は1回鳴れば解く（2026-10-25 夜 管理者「鳴ったら、テストＯＫなだけ」） (3) 通話ごとの口の仮の
+        設定（call.end_write_wait・call.stuck_after）は外した（すでにある値で決める）。"""
+        meaning = lambda key: owner_access().in_system(SYSTEM, lambda tx: tx.one(   # noqa: E731
+            "SELECT meaning FROM salescall.setting_definitions WHERE key = %s", (key,)))
+        judge = meaning("judge.models")["meaning"]
+        for words in ("Jev 1.14 を先に出し", "0.3秒", "確かな読みが無い・失敗した", "sonnet＝2つの Sonnet 5.5"):
+            self.assertIn(words, judge)
+        self.assertIn("1回鳴れば解きます", meaning("stop.line.resume_after_successes")["meaning"])
+        for gone in ("call.end_write_wait", "call.stuck_after"):
+            self.assertIsNone(meaning(gone))
+
 class ScopesDecidedByUser(unittest.TestCase):
     """2026-10-17 ユーザー：「1回線から1日 300本　依頼者ごと」「同じお客様への最小の間隔 5分　依頼者ごと」「依頼者をまたいだ間隔
     3日　契約者」「会話AI・回線の異常で止める回数と、解くまでの確かめ　契約者」「深夜・早朝の歯止め 7〜22時 など　依頼者ごと」。"""

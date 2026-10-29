@@ -34,16 +34,17 @@ def clients_for_line(tx: Tx, line_id: UUID) -> list[UUID]:
         " AND salescall.client_active(client_id) ORDER BY created_at", (line["tenant_id"], line["client_id"]))]
 
 
-def soon_left(tx: Tx, line_id: UUID, *, not_phone: str) -> bool:
+def soon_left(tx: Tx, line_id: UUID, *, not_phones: list[str]) -> bool:
     """取引の依頼者に、その回線が「次の電話で決まるのを待つ長さ」（core/ring_test.decide_within の1か所＝テスト番号をあける長さの
     並びの1つ目。初め15分。0141）のうちにかけられる行があるか（1か所。回線ごとの処理が、番号のせいか回線のせいかがまだ分からない続きを、
     待たずに決めにいくかを決めるのに読む＝supervisor/line.py の `_decide_if_stuck`）。数える行は、門に渡す候補と同じ決まり
     （`_candidates`・gate.waits_unknown の1か所）で、時刻だけをその長さ先まで広げたもの。数えない行：まだ分からない続きの番号
-    （not_phone）の行・番号のせいか回線のせいかが分からないまま待つ行（attempts.number_unconfirmed）・候補に出さない行・判定待ち・
-    止めた範囲の行・時刻がその長さより先の行（夜・時間帯の外で「今はかけられない」だけの行も、時刻が先なら数えない）。
+    （not_phones。その番号にかけても続きは決まらない）の行・決まるのを待って締めていない行（判定待ち＝settle.settle）・番号のせいか
+    回線のせいかが分からないまま待つ行（attempts.number_unconfirmed）・候補に出さない行・止めた範囲の行・時刻がその長さより先の行
+    （夜・時間帯の外で「今はかけられない」だけの行も、時刻が先なら数えない）。違う番号の数にはよらない（0143）。
     ⛔ 0136：前は終えていない行が1つでも残っていれば決めにいかず（夜や翌週にかける行も数えた）、行が止まり続けた（見直し19a）。"""
     within = ring_test.decide_within(tx)
-    rows = _candidates(tx, 50, 0, frozenset(), frozenset(), frozenset(), False, within=within, not_phone=not_phone)
+    rows = _candidates(tx, 50, 0, frozenset(), frozenset(), frozenset(), False, within=within, not_phones=not_phones)
     offset = 0
     while True:
         if any(gate.waits_unknown(tx, r["task_id"], line_id) is None for r in rows):
@@ -51,7 +52,7 @@ def soon_left(tx: Tx, line_id: UUID, *, not_phone: str) -> bool:
         if len(rows) < 50:
             return False
         offset += 50
-        rows = _candidates(tx, 50, offset, frozenset(), frozenset(), frozenset(), False, within=within, not_phone=not_phone)
+        rows = _candidates(tx, 50, offset, frozenset(), frozenset(), frozenset(), False, within=within, not_phones=not_phones)
 
 
 def due_tasks(tx: Tx, limit: int, *, skip_businesses: set[UUID] | frozenset[UUID] = frozenset(),
@@ -82,9 +83,9 @@ def due_tasks(tx: Tx, limit: int, *, skip_businesses: set[UUID] | frozenset[UUID
 
 def _candidates(tx: Tx, page: int, offset: int, skip_businesses: set[UUID] | frozenset[UUID],
                 skip_runs: set[UUID] | frozenset[UUID], skip_stage: set[UUID] | frozenset[UUID],
-                promised_only: bool, *, within: float = 0, not_phone: str | None = None) -> list[dict[str, Any]]:
+                promised_only: bool, *, within: float = 0, not_phones: list[str] | None = None) -> list[dict[str, Any]]:
     """データベースだけで決まる候補（門に渡す順。下の条件は門と同じ1か所の決まりを読む）。within＝予定の時刻を、いまからこの秒
-    先まで広げる（`soon_left`）。not_phone＝この番号へかける行を除く（`soon_left`）。"""
+    先まで広げる（`soon_left`）。not_phones＝この番号へかける行を除く（`soon_left`）。"""
     return tx.all(
         "SELECT t.task_id, r.business_id, t.run_id FROM salescall.tasks t"
         " JOIN salescall.runs r ON r.client_id = t.client_id AND r.run_id = t.run_id"
@@ -93,7 +94,7 @@ def _candidates(tx: Tx, page: int, offset: int, skip_businesses: set[UUID] | fro
         "   ON true"   # 行ごとに索引で読む（いまの予定を選ぶのはデータベースの見方の1か所＝0094）
         " JOIN salescall.task_numbers k ON k.task_id = t.task_id AND k.contact_id = n.contact_id"
         " WHERE n.kind = 'call' AND n.call_at <= now() + make_interval(secs => %s)"
-        "   AND (%s::text IS NULL OR k.phone_e164 <> %s)"
+        "   AND k.phone_e164 <> ALL(%s::text[])"
         "   AND NOT salescall.task_awaiting_decision(t.task_id) AND NOT salescall.task_excluded_now(t.task_id)"
         "   AND NOT salescall.task_resting(t.task_id)"
         "   AND NOT salescall.awaiting_recovery(t.task_id)"
@@ -106,4 +107,4 @@ def _candidates(tx: Tx, page: int, offset: int, skip_businesses: set[UUID] | fro
         "   AND (t.run_id <> ALL(%s::uuid[]) OR salescall.fixed_text_kind(salescall.keeping_kind(n.purpose, n.promised)))"
         "   AND (n.promised OR NOT %s)"
         " ORDER BY n.promised DESC, n.call_at, t.task_id LIMIT %s OFFSET %s",
-        (within, not_phone, not_phone, list(skip_businesses), list(skip_runs), list(skip_stage), promised_only, page, offset))
+        (within, list(not_phones or ()), list(skip_businesses), list(skip_runs), list(skip_stage), promised_only, page, offset))

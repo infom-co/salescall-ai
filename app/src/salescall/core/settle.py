@@ -6,7 +6,8 @@
   (3) 書く：試行の切れ方（attempts）・結果の版（results。入力の写しつき）・発信禁止（dnc。拒否と番号違い。広げ方は dnc の1か所）・
       次の動き（next_action。決め方は next_action の1か所）
 - 同じ試行は1回だけ締める（2回目は前の結果を返す。データベースも、1つの試行に判定の版は1つと守る）。
-- 締めが済むまで、門はその行に次をかけない（`awaiting_decision`）。
+- 締めが済むまで、門はその行に次をかけない（`awaiting_decision`）。お客様のところで鳴らなかった電話は、番号のせいか回線のせいかが
+  決まってから締める（`attempts.blame` が pending のあいだは締めない＝その行は休み、回線は次の行へ進む。0143）。
 - お客様が言った別の番号（DESIGN.md 3-5）：そろえられた番号は、かけるかどうかに関係なく、その行の番号に足す（tasks の1か所。
   お客様が断ったら、この番号も止めるため＝3-6）。かけるか・どの番号へかけるかは次の動き（next_action.choose_number）が決める。
 - **判定できなかった行は、判定待ちで残す**（2026-10-16 ユーザー決定）：判定できない＝こちらの誤りなので、何も決めない
@@ -76,6 +77,13 @@ def settle(tx: Tx, attempt_id: UUID) -> dict[str, Any]:
         raise NotReady("発信していない・まだ終わっていない試行です")
     if a["verification"] == "pending":
         raise NotReady("通話後の検証が済んでいません")
+    if attempts.blame(tx, attempt_id) == "pending":
+        # お客様のところで鳴らなかった電話が、番号のせいか回線のせいか、まだ分からない：決まるまで締めない（その行は締めを待って休む＝
+        # 門の awaiting_decision・候補を出す処理。予定・約束の印・お詫びの印はそのまま）。決まったら、番号のせいなら決まった順
+        # （next_action._failed_retry_at）、回線のせいなら、かけた予定のまま（next_action._line_fault_again）で、1回だけ決める（0143。
+        # ⛔ 0129〜0141：締めの時点で分からない電話も番号のせいと同じ決まった順で予定を書き、壊れた回線の2時間で行が次の日へ送られ、
+        # 約束の印も外れた＝見直し21a の場面 a6・a10）
+        return {"version_no": None, "state": None, "already": False, "waiting": "unrung_blame"}
     if target_recheck.missing(tx, attempt_id):   # 確かめ直しを待つ（締めない）。待つだけにせず、促す所が無ければ CL-1 へ修正依頼
         _recheck_missing_notice(tx, a)            # （この取引に残す＝断らずに返す）
         return {"version_no": None, "state": None, "already": False, "waiting": "target_recheck"}

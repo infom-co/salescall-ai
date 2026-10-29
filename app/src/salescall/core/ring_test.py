@@ -11,14 +11,11 @@
   区切り（鳴ったテストのあとなら、まだ分からなかった続きは番号のせい）と、回線が直った証拠（回線の異常の数え直し）。**鳴らなかった
   テスト**は、まだ分からない続きがあれば、続きを閉じて回線のせいにする（salescall.close_unrung_run の test_silent）。見分けられない
   テストは、どちらの証拠にもしない（記録だけ。あける長さのあとで、また鳴らす）。
-- 使う所は2つ：(1) 番号のせいか回線のせいかがまだ分からない続きがあり、その回線にまもなくかけられる行が無い・違う番号が2つ以上続けて
-  鳴らなかった（supervisor/line.py の `_decide_if_stuck`） (2) 回線の異常で止めた回線を再開してよいかの確かめ（止めた停止の確かめ＝
-  core/watch.record_check。鳴れば成功）。テスト番号で決められない契約者（`usable` が False＝テスト番号が無い）は、(1) は前の区切りで
-  決め（0131 の no_rows）、(2) は確かめの部品（アプリが応答するか）で行う。
-- **テスト番号で決めるか（`decides` の1か所。0141）**：違う番号が2つ以上続けて鳴らなかった続きを、すぐ回線のせいとせずテスト番号で
-  決めるのは、テスト番号で決められ（`usable`）、いまが鳴らしてよい時間の中（`allowed`）のときだけ（見直し20a：テスト番号を挟まずに
-  回線を止め・再開をくり返した）。そうでなければ、今の決まり（違う番号2つ以上で回線のせい。管理者に伺い中なので変えない）。1つの番号の
-  続きは、時間の外なら時間の始まりまで待つ（今のまま）。
+- 使う所は2つ：(1) 番号のせいか回線のせいかがまだ分からない続きがあり、その回線にまもなく（`decide_within`）かけられる行が無い
+  （supervisor/line.py の `_decide_if_stuck`。違う番号の数にはよらない＝0143） (2) 回線の異常で止めた回線を再開してよいかの確かめ（止めた
+  停止の確かめ＝core/watch.record_check。1回鳴れば解く＝2026-10-25 夜 管理者「鳴ったら、テストＯＫなだけ」。0143）。テスト番号が無い
+  契約者（`usable` が False）は、(1) は決めずに待ち、契約者と管理者に1回「テスト番号が無いので決められません」と知らせ（0143。⛔ 0131〜0141：
+  前の区切りで決めた＝壊れた回線のお客様の行を失いえた）、(2) は確かめの部品（アプリが応答するか）で行う。
 - **鳴らしてよい時間**（設定 `line.test_ring_hours`。契約者ごと。1日の中の時刻の範囲の並び＝値の形 daily_ranges。初め 7:00〜22:00
   の1つ。表の作り 0135・0139）：2026-10-24 ユーザー：「私の電話です。軌道に乗れば、新しい電話をもうひとつ契約予定なのでその後に
   考えます。この仕事専用なら夜でもOK」。2026-10-25 ユーザー：「止める回線を2択だけじゃなく、こちらが決められるようにして。昼間に私は
@@ -36,17 +33,21 @@
   またいで同時に鳴らさないよう、1つの契約者のテストは1本ずつ（データベースの鍵＝Access.exclusive。契約者ごと。見守り役の入れ替えで
   新旧が少し重なっても同時に鳴らさない。⛔ 見直し20a：前はプログラムの中だけの鍵だった）。ほかが鳴らしている途中なら、鳴らさずに
   WAIT（記録しない）。
-- **結果は3つ**（電話の部品の約束＝link/phone.py の test_ring。0141）：鳴った＝回線から発信できた（呼び出しの音・話し中の音・電源オフや
+- **結果は3つ**（電話の部品の約束＝link/phone.py の test_ring。0141）。**試さなかった**（PC の部品がつながっていない・答えが期限に
+  届かない・PC の上の緊急停止の印＝電話の部品が CallWithheld を上げる）は結果ではない：記録せず、あける長さも伸ばさない（`Result.WITHHELD`。
+  PC がつながらないことは、ふつうの PC の見張り＝agents.watch_down が知らせる。⛔ 0134〜0142：「見分けられない」として記録し、あける長さを
+  伸ばし、誤った知らせを出した＝見直し21a の 10）。結果の3つ鳴った＝回線から発信できた（呼び出しの音・話し中の音・電源オフや
   圏外のお知らせの声が返った＝電話網がこの回線の発信を受け付けた＝回線は元気。決まっていない続きは番号のせい）／鳴らなかった＝回線から
   発信できない（アプリが発信できない・呼び出しもお知らせも無いまま終わった＝回線のせい）／見分けられない（どちらの証拠にもしない。
   記録だけ。あける長さのあとで、また鳴らす。電話の部品が誤りを返したときも、これ）。2026-10-25 夜 管理者：「テスト番号が話し中・電源
   オフ・圏外だと分かるのなら、回線の問題じゃないんじゃないの？」。⛔ 0136〜0140：話し中・電源オフ・圏外を「分からない」とし、
   「分からない」が設定 line.test_ring_unknown_limit（3回）続いたらテスト番号で決めるのをやめて前の区切りで決めていた（0141 で外した）。
-- **見分けられないと返ったら、すぐ知らせる（`run` の1か所。0141。2026-10-25 夜 管理者「OK」）**：まだ分からない続きを決めにいった
-  テスト（目的 no_rows）が見分けられなかったら、その続きについて契約者と管理者にすぐ1回知らせる（`line_undecided`。鍵は回線と続きの
-  始まり＝同じ続きで何度見分けられなくても1回）。⛔ 0136〜0140：決まらないまま、鳴らしてよい時間で数えて line.pending_alert_after
-  （1日）たってから知らせていた（0141 で外した）。テスト番号が無い・鳴らしてよい時間の外で決まらないのは、前の区切りで決める・
-  時間の始まりまで待つ（今のまま。知らせない）。
+- **見分けられないと返ったら、すぐ知らせる（`_tell_undecided` の1か所。0141・0143。2026-10-25 夜 管理者「OK」）**：決めにいくテストでも
+  再開の確かめでも、見分けられなかったら、契約者と管理者にすぐ1回知らせる（`line_undecided`。鍵は、決めにいくテストは回線と続きの始まり・
+  再開の確かめは止めた停止＝同じ続き・同じ停止で何度見分けられなくても1回）。あわせて、電話をつなぐ部品の不具合として直す担当
+  （errors.PHONE_FIXER）へ修正依頼を出す（同じ不具合で1つ）。⛔ 0141：決めにいくテストだけ知らせ、修正依頼は出さなかった。テスト番号が
+  無いときは、決めにいく回に1回「テスト番号が無いので、回線のせいか番号のせいか決められません」と知らせる（続きごとに1回）。鳴らしてよい
+  時間の外は、時間の始まりまで待つ（知らせない）。
 """
 
 from __future__ import annotations
@@ -56,10 +57,11 @@ from enum import Enum
 from typing import Any, Protocol
 from uuid import UUID
 
-from salescall.core import attempts, calling_hours, notify, settings
+from salescall.core import attempts, calling_hours, errors, fix_requests, notify, settings
 from salescall.core.access import Access, Actor, Tx
+from salescall.link.phone import CallWithheld
 
-__all__ = ["PURPOSES", "Result", "RingDriver", "allowed", "checkable_seconds", "checks_stop", "decide_within", "decides", "hours",
+__all__ = ["PURPOSES", "Result", "RingDriver", "allowed", "checkable_seconds", "checks_stop", "decide_within", "hours",
            "number", "run", "usable", "wait_seconds"]
 
 PURPOSES = ("no_rows", "resume_check")   # データベースの守り（0134）と同じ
@@ -73,7 +75,7 @@ class RingDriver(Protocol):
     def test_ring(self, phone_e164: str) -> bool | None:
         """その番号へかけ、この回線から発信できたか（意味は link/phone.Phone.test_ring の1か所）：True＝発信できた（呼び出しの音・
         話し中の音・電源オフや圏外のお知らせの声）・False＝発信できない（回線のせい）・None＝見分けられない。話している回線では試さない
-        （None）。"""
+        （None）。試さなかった（つながっていない・答えが期限に届かない・PC の上の緊急停止）は CallWithheld を上げる（0143）。"""
         ...
 
 
@@ -83,7 +85,8 @@ class Result(Enum):
     SILENT = "silent"         # 鳴らなかった＝回線から発信できない（回線のせい）
     UNKNOWN = "unknown"       # 見分けられない：どちらの証拠にもしない（あける長さのあとで、また鳴らす）
     # 試していない（記録しない）
-    NO_NUMBER = "no_number"   # テスト番号が無い
+    NO_NUMBER = "no_number"   # テスト番号が無い（決めにいく回は、契約者と管理者に1回知らせる）
+    WITHHELD = "withheld"     # PC の部品が試さなかった（つながっていない・答えが期限に届かない・PC の上の緊急停止）
     BUSY = "busy"             # 回線が話している途中・答えない
     OFF_HOURS = "off_hours"   # 鳴らしてよい時間の外（時間の始まりまで待つ）
     WAIT = "wait"             # 鳴らす間がまだ来ていない（`wait_seconds`）・ほかの回線が鳴らしている途中
@@ -137,24 +140,14 @@ def decide_within(tx: Tx) -> float:
 
 
 def usable(tx: Tx) -> bool:
-    """取引の契約者が、テスト番号で決められるか（1か所）：テスト番号がある。False なら、まだ分からない続きは前の区切りで決め
-    （supervisor/line.py）、止めた回線の確かめはアプリの確かめで行う（`checks_stop`）。⛔ 0136〜0140：「分からない」が
-    line.test_ring_unknown_limit（3回）続いたら False にしていた（0141 で外した。見分けられないテストは、あける長さのあとで、また鳴らす）。"""
+    """取引の契約者が、テスト番号で決められるか（1か所）：テスト番号がある。False なら、まだ分からない続きは決めずに待ち（`run` が
+    1回知らせる）、止めた回線の確かめはアプリの確かめで行う（`checks_stop`）。"""
     return number(tx) is not None
 
 
 def allowed(tx: Tx) -> bool:
     """いま、テスト番号を鳴らしてよい時間か（1か所。時刻はデータベースの時計）。"""
     return calling_hours.in_daily(calling_hours.local(tx.one("SELECT now() AS t")["t"]), hours(tx))
-
-
-def decides(tx: Tx, *, several: bool = False) -> bool:
-    """取引の契約者の、まだ分からない続きを、いまテスト番号で決めるか（1か所。0141）。several＝違う番号が2つ以上続けて鳴らなかった
-    続き：テスト番号で決められ（`usable`）、いまが鳴らしてよい時間の中（`allowed`）のときだけテスト番号で決める（そうでなければ前の
-    決まり＝回線のせい。管理者に伺い中なので変えない）。1つの番号の続き：テスト番号で決められれば決める（時間の外は時間の始まりまで待つ）。
-    回線ごとの処理が、続きに「テスト番号で決める」印を置くか（attempts.hold_unrung_run）と、印のある続きを前の決まりで閉じるかを、
-    ここで決める。"""
-    return usable(tx) and (not several or allowed(tx))
 
 
 def checkable_seconds(tx: Tx, since: Any) -> float:
@@ -172,11 +165,14 @@ def checks_stop(tx: Tx, stop: dict[str, Any]) -> bool:
 
 def run(access: Access, actor: Actor, tenant_id: UUID, line_id: UUID, driver: RingDriver, purpose: str) -> Result:
     """テスト番号で、その回線から発信できるかを試し、記録する（1か所）。鳴らなかったら、まだ分からない続きを回線のせいで閉じる。
-    まだ分からない続きを決めにいったテスト（no_rows）が見分けられなかったら、その続きについて契約者と管理者にすぐ1回知らせる。"""
+    見分けられなかったら、契約者と管理者にすぐ1回知らせ、直す担当へ修正依頼を出す（`_tell_undecided`）。試さなかったら記録しない。
+    テスト番号が無ければ、決めにいく回（no_rows）に1回知らせる（決めずに待つ）。"""
     if purpose not in PURPOSES:
         raise ValueError(f"試す目的は {PURPOSES} のどれかです：{purpose!r}")
     to = access.in_tenant(actor, tenant_id, number)
     if to is None:
+        if purpose == "no_rows":
+            access.in_tenant(actor, tenant_id, lambda tx: _tell_undecided(tx, line_id, purpose, unknown=False))
         return Result.NO_NUMBER
     if not access.in_tenant(actor, tenant_id, allowed):   # 鳴らしてよい時間の外：鳴らさず、記録もしない（時間の始まりまで待つ）
         return Result.OFF_HOURS
@@ -193,6 +189,8 @@ def run(access: Access, actor: Actor, tenant_id: UUID, line_id: UUID, driver: Ri
             return Result.BUSY
         try:
             rang = driver.test_ring(to)
+        except CallWithheld:   # PC の部品が試さなかった（つながっていない・答えが期限に届かない・緊急停止）：結果ではない（記録しない）
+            return Result.WITHHELD
         except Exception:  # noqa: BLE001 電話の部品の誤り：見分けられない（回線のせいの証拠にしない）
             rang = None
 
@@ -201,23 +199,45 @@ def run(access: Access, actor: Actor, tenant_id: UUID, line_id: UUID, driver: Ri
                        " VALUES (salescall.cur_tenant(), %s, %s, %s)", (line_id, purpose, rang))
             if rang is False:
                 attempts.close_unrung_run(tx, line_id, "test_silent")
-            if rang is None and purpose == "no_rows":
-                _tell_undecided(tx, line_id)
+            if rang is None:
+                _tell_undecided(tx, line_id, purpose, unknown=True)
         access.in_tenant(actor, tenant_id, work)
     return Result.UNKNOWN if rang is None else Result.RANG if rang else Result.SILENT
 
 
-def _tell_undecided(tx: Tx, line_id: UUID) -> None:
-    """テスト番号が見分けられず、まだ分からない続きが決まらない：契約者と管理者に、その続きについて1回知らせる（1か所。鍵は回線と
-    続きの始まり＝同じ続きで何度見分けられなくても1回。知らせの「同じ出来事は1回だけ」の作り＝notify.emit）。"""
-    pending = attempts.line_pending(tx, line_id)
-    if pending is None:
+NO_NUMBER_SUMMARY = ("テスト番号が無いので、回線のせいか番号のせいか決められません（その続きの行は、番号の回数にも回線の異常にも数えないまま"
+                     "待っています。この回線で次にお客様の電話が鳴れば決まります）。テスト番号を設定してください。")
+UNKNOWN_SUMMARY = {
+    "no_rows": ("テスト番号の電話の答えが見分けられず、回線のせいか番号のせいかが決まりません（その続きの行は、番号の回数にも回線の異常にも"
+                "数えないまま待っています。テスト番号は、あける長さのあとで、また鳴らします）。回線とテスト番号の電話を確かめてください。"),
+    "resume_check": ("テスト番号の電話の答えが見分けられず、止めた回線を再開してよいか確かめられません（回線は止めたまま、あける長さのあとで、"
+                     "また鳴らします）。回線とテスト番号の電話を確かめてください。"),
+}
+
+
+def _tell_undecided(tx: Tx, line_id: UUID, purpose: str, *, unknown: bool) -> None:
+    """テスト番号で決められない・確かめられないことを、契約者と管理者に1回知らせる（1か所。0141・0143）。unknown＝テスト番号の答えが見分け
+    られなかった（電話をつなぐ部品の不具合として、直す担当へ修正依頼も出す＝同じ不具合で1つ）・False＝テスト番号が無い（決めにいく回だけ）。
+    鍵：決めにいくテストは回線と続きの始まり・再開の確かめは止めた停止（同じ続き・同じ停止で何度でも1回。知らせの「同じ出来事は1回だけ」の
+    作り＝notify.emit）。"""
+    if purpose == "no_rows":
+        pending = attempts.line_pending(tx, line_id)
+        if pending is None:
+            return
+        about, refs = f"{line_id}:{pending['since'].isoformat()}", {"line_id": line_id, "since": pending["since"]}
+    else:
+        stop = tx.one("SELECT event_id FROM salescall.open_stop_events WHERE scope = 'line' AND line_id = %s"
+                      " AND cause::text = 'line_failure' ORDER BY event_id DESC LIMIT 1", (line_id,))
+        if stop is None:
+            return
+        about, refs = f"{line_id}:stop:{stop['event_id']}", {"line_id": line_id, "stop_event_id": stop["event_id"]}
+    if not unknown:
+        notify.emit(tx, "line_undecided", key=f"line_undecided:{about}:no_number", admin=True, summary=NO_NUMBER_SUMMARY, refs=refs)
         return
-    notify.emit(tx, "line_undecided", key=f"line_undecided:{line_id}:{pending['since'].isoformat()}", admin=True,
-                summary="テスト番号の電話の答えが見分けられず、回線のせいか番号のせいかが決まりません（その続きの行は、"
-                        "番号の回数にも回線の異常にも数えないまま待っています。テスト番号は、あける長さのあとで、また鳴らします）。"
-                        "回線とテスト番号の電話を確かめてください。",
-                refs={"line_id": line_id, "since": pending["since"]})
+    notify.emit(tx, "line_undecided", key=f"line_undecided:{about}", admin=True, summary=UNKNOWN_SUMMARY[purpose], refs=refs)
+    fix_requests.request(tx, errors.PHONE_FIXER, "test_ring_undecided", key="test_ring_undecided",
+                         summary="テスト番号の電話の答え（鳴った・鳴らない）を、電話をつなぐ部品が見分けられません",
+                         refs={**refs, "purpose": purpose})
 
 
 def last(tx: Tx, line_id: UUID) -> dict[str, Any] | None:

@@ -138,16 +138,29 @@ LASTING = timedelta(hours=1)   # 一時的なものが「続いている」と�
 # これを読む）。frozen＝通話を進める部品が固まった（回線ごとの見張りが決める）／ai_malfunction＝AI・プログラムが意図しない状態（英語・
 # 関係のない文を話し続ける・声が出ない など）／poor_audio＝声がお互い・片方にほとんど聞き取れない／cannot_proceed＝そのほか、決まり
 # どおりの会話が進められない（2026-10-24 ユーザー決定）／runner_error＝通話を進める部品が例外で落ちた・終えずに戻った（回線ごとの見張りが
-# 決める。0136）
-ENDS: tuple[str, ...] = ("frozen", "ai_malfunction", "poor_audio", "cannot_proceed", "runner_error")
+# 決める。0136）／storage_stuck＝データベースへの書き込みが進まない（書き込み1つが call.frozen_after より長く終わらない。回線ごとの見張りが
+# 決める。0143）
+ENDS: tuple[str, ...] = ("frozen", "ai_malfunction", "poor_audio", "cannot_proceed", "runner_error", "storage_stuck")
 # そのうち、こちらのプログラムの不具合の理由 → エラーの種類（理由ごとの直す担当・止め方は ACTIONS の行）。どの理由がこちらの不具合かを決める
 # のはデータベースの salescall.trouble_ours の1か所（0141。通話ごとの口は、終えた電話をこちらの不具合として伝えるかを、そこに聞く）。ここは
 # その種類の名前の表だけ（種類の名前は salescall.trouble_kind と同じ形＝試験が確かめる）。2026-10-25 夜 管理者：「声が聞き取れない」は
 # こちらの不具合に数えない（お客様と話している途中で切れた電話と同じ。違うお客様で続けば回線の異常）＝ここに無い
 TROUBLES: dict[str, str] = {
     "frozen": "call_frozen", "ai_malfunction": "call_ai_malfunction",
-    "cannot_proceed": "call_cannot_proceed", "runner_error": "call_runner_error",
+    "cannot_proceed": "call_cannot_proceed", "runner_error": "call_runner_error", "storage_stuck": "call_storage_stuck",
 }
+# 理由ごとのエラーの出どころ（無ければ「通話」。0143）：データベースへの書き込みが進まないのは「保存」（直す担当 CL-2）
+TROUBLE_SOURCES: dict[str, str] = {"storage_stuck": "storage"}
+
+# 電話をつなぐ部品（電話接続。PC の電話の部品・声の受け渡し・録音・テスト番号の鳴らし方）の不具合を直す担当（1か所。⏳ 電話接続の担当が
+# 決まったら、その担当へ。それまでは CL-2＝2026-10-13 の分担の「回線の部品」）
+PHONE_FIXER = "CL-2"
+
+# こちらの不具合で終えた電話の行が、何を待っているか（1か所。門の理由 awaiting_recovery の説明・不具合の知らせの文が読む。0143。
+# 2026-10-17 管理者：「復旧次第、お詫びとともにすぐかけ直さないといけないでしょ！」。2026-10-25 夜 管理者の決定：戻すのは、その不具合を
+# 直したと記録され、そのあとプログラムが替わったとき）
+RECOVERY_WAIT = ("同じ契約者で、こちらの不具合なしにお客様と話し終えた電話があるか、その不具合を直したと記録され、そのあとプログラムが"
+                 "替わったら、すぐにかけ直します。お客様が出たあとに終えた電話は、お詫びとともに")
 
 
 def _trouble(what: str, fixer: str) -> str:
@@ -155,9 +168,8 @@ def _trouble(what: str, fixer: str) -> str:
     続くとき：その行だけの問題なのか、すべての行にかかわる問題なのかを見極めないといけないでしょ？その行だけなら、契約者(管理者含む)と、
     開発AIの担当、記録にそれを伝え、2回続いたら、次の行へ。3行同じ問題なら、甚大な問題と判断。」）。"""
     return (f"{what}（こちらのプログラムの不具合。その電話はお詫びして終え、番号・回線・行の回数のどれにも数えない）：電話ごとに、"
-            f"契約者と管理者に知らせ、{fixer} に修正依頼を出し、記録する。お客様へは復旧次第かけ直す（同じ契約者で、こちらの不具合なしに"
-            "お客様と話し終えた電話があるか、版が替わったら、すぐ。お客様が出たあとならお詫びとともに）。同じ行で2回続いたら、その行は休ませて"
-            "次の行へ進む（その不具合を直したと記録され、そのあと直したプログラムの版に替わるか、管理者・契約者が戻すまで）。違う行で同じ理由が"
+            f"契約者と管理者に知らせ、{fixer} に修正依頼を出し、記録する。お客様へは復旧次第かけ直す（{RECOVERY_WAIT}）。同じ行で2回続いたら、"
+            "その行は休ませて次の行へ進む（その不具合を直したと記録され、そのあとプログラムが替わるか、管理者・契約者が戻すまで）。違う行で同じ理由が"
             "決めた数（設定 stop.trouble.stop_after_rows。初め3行）続いたら（こちらの不具合なしにお客様と話し終えた電話があれば数え直す）、"
             "すべての行にかかわる甚大な問題として、その契約者の新しい電話を止める（話している電話は切らない。その不具合を直したと記録され、"
             "そのあと版が替わったら解く。管理者・契約者も解ける）")
@@ -179,6 +191,7 @@ LABELS: dict[str, str] = {
     "call_ai_malfunction": "会話AIが意図しない状態になりました",
     "call_cannot_proceed": "会話を決まりどおり進められませんでした",
     "call_runner_error": "通話の部品が落ちました（お詫びして終えた）",
+    "call_storage_stuck": "記録の書き込みが進みません（お詫びして終えた）",
     "runner_stuck": "通話の部品が戻りません",
 }
 
@@ -221,7 +234,7 @@ ACTIONS: dict[str, Action] = {
     "line": Action("keep", "none", "line_failure", "line", "stop.line.stop_after_failures", False,
                    "回線（発信失敗・回線の上限・端末やアプリの異常。一時的）：続いたら、その回線の発信を待ち、直ったら自動で続ける。"
                    "1時間以上続いたら（止まったまま確かめが通らないときも）CL-2 に修正依頼を出す（⏳ 電話接続の担当が決まったら、その担当へ。"
-                   "見直し8）", lasting_fixer="CL-2"),
+                   "見直し8）", lasting_fixer=PHONE_FIXER),
     "storage": Action("keep", "none", None, None, None, True,
                       "保存の失敗：止めない。CL-2 に修正依頼を出し、ほかの行は続ける（2026-10-16 ユーザー：「理由を記載と"
                       "あなたへの修正依頼をして、次の行に進んだらいい」）。保存できなかった通話は締めが済まないまま残るので、門が"
@@ -232,7 +245,7 @@ ACTIONS: dict[str, Action] = {
                         "続ける（2026-10-17 ユーザー：「止めずに CL1 か CL2 に修正依頼を出さないといけないだろ」）。その通話の"
                         "確かめは、録音が届くまで待ち（門が、その行と同じお客様にはかけない）、通話の終わりから10分（設定 "
                         "verification.recording_wait）たったら「録音なし」で済ませ、通話中の報告だけで結果を決める（2026-10-18 "
-                        "ユーザー決定。attempts.finish_without_recording）。⏳ 電話接続の担当が決まったら、その担当へ", fixer="CL-2"),
+                        "ユーザー決定。attempts.finish_without_recording）。⏳ 電話接続の担当が決まったら、その担当へ", fixer=PHONE_FIXER),
     "supervisor": Action("keep", "none", None, None, None, False,
                          "見守り役の処理の誤り（決まった間隔の仕事・回線ごとの発信の繰り返しが落ちた）：止めない。CL-2 に修正依頼を"
                          "出し、ほかの仕事は続ける（落ちた回線の処理は、その回線の進行中の通話を後始末してから立ち上げ直す。DESIGN.md 5-4）",
@@ -258,7 +271,7 @@ ACTIONS: dict[str, Action] = {
                          fixer="CL-1"),
     "unknown_line": Action("keep", "none", "line_failure", "line", "stop.line.stop_after_failures", True,
                            "不明（回線）：続いたら（その回線でかけられない）、その回線の発信を待つ。CL-2 に修正依頼を出す",
-                           fixer="CL-2"),
+                           fixer=PHONE_FIXER),
     # こちらのプログラムの不具合（0139）。直す担当は理由ごとにこの1か所：会話の部品（通話を進める部品＝CL-1 の CallRunner）の不具合は
     # CL-1、声の受け渡し（電話接続。⏳ 電話接続の担当が決まったら、その担当へ）は CL-2。止める原因は program_trouble（契約者）
     "call_frozen": Action("keep", "none", "program_trouble", "tenant", "stop.trouble.stop_after_rows", True,
@@ -272,12 +285,16 @@ ACTIONS: dict[str, Action] = {
     "call_runner_error": Action("keep", "none", "program_trouble", "tenant", "stop.trouble.stop_after_rows", True,
                                 _trouble("通話を進める部品（会話）が例外で落ちた・通話を終えないまま戻った", "CL-1"),
                                 fixer="CL-1", per_call=True),
+    "call_storage_stuck": Action("keep", "none", "program_trouble", "tenant", "stop.trouble.stop_after_rows", True,
+                                 _trouble("データベースへの書き込みが進まなかった（書き込み1つが call.frozen_after より長く終わらない）",
+                                          "CL-2"), fixer="CL-2", per_call=True),
     # 通話を進める部品が、こちらの不具合でおわびして終えたあとも戻らない（0141。見直し20a）：その電話は、もう call_frozen などとして伝えて
-    # ある。ここで伝えるのは「その回線の処理が止まっていた」こと（回線ごとの処理を立て直したので、電話は止まらない）
+    # ある。ここで伝えるのは「その回線の処理が止まっていた」こと（回線ごとの処理を立て直したので、電話は止まらない）。戻らない長さは、
+    # おわびを流し終えるまでの長さ（protocol.APOLOGY_WAIT）と call.frozen_after から決める（0143。仮の設定 call.stuck_after は外した）
     "runner_stuck": Action("keep", "none", None, None, None, True,
-                           "通話を進める部品（会話）が、おわびして終えたあとも決めた長さ（設定 call.stuck_after）戻らなかった：その回線の"
-                           "処理を立て直して（新しい通話の部品で）次の電話へ進む。契約者と管理者に知らせ、CL-1 に修正依頼を出す（回線が"
-                           "黙って止まったままにしない）", fixer="CL-1"),
+                           "通話を進める部品（会話）が、終えると決めたあと、おわびを流し終える長さと call.frozen_after を過ぎても戻らなかった："
+                           "その回線の処理を立て直して（新しい通話の部品で）次の電話へ進む。契約者と管理者に知らせ、CL-1 に修正依頼を出す"
+                           "（回線が黙って止まったままにしない）", fixer="CL-1"),
 }
 
 # 止める原因ごとに、続けて数えるエラーの種類（同じ原因で止める種類を合わせて数える。1か所）
@@ -348,6 +365,10 @@ def classify(e: ErrorReport) -> str:
         return kind
     if e.source == "line":
         return "line"
+    if e.source in ("call", "storage") and e.trouble is not None:   # こちらの不具合で通話を終えた（出どころは理由ごと＝TROUBLE_SOURCES）
+        if e.trouble not in TROUBLES or TROUBLE_SOURCES.get(e.trouble, "call") != e.source:
+            raise ValueError(f"通話を終えた理由と出どころが合いません（{e.source}・{e.trouble!r}）")
+        return TROUBLES[e.trouble]
     if e.source == "storage":
         return "storage"
     if e.source in ("recording", "supervisor"):
@@ -355,9 +376,7 @@ def classify(e: ErrorReport) -> str:
     if e.source == "runner":
         return "runner_stuck"
     if e.source == "call":
-        if e.trouble not in TROUBLES:
-            raise ValueError(f"通話を終えた理由は {tuple(TROUBLES)} のどれかです（{e.trouble!r}）")
-        return TROUBLES[e.trouble]
+        raise ValueError(f"通話を終えた理由は {tuple(TROUBLES)} のどれかです（{e.trouble!r}）")
     if e.source == "judge":
         if e.unreachable:
             return "judge_outage"

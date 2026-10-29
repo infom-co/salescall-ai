@@ -16,8 +16,11 @@
 - 管理者か契約者が押した緊急停止（manual）と、確かめでは解けない原因（言ってはいけないこと・品質の基準・費用）は、ここでは解かない
   （品質は新しい版の合格で、費用は期間が替わったとき。それぞれの持ち主の処理が解く）。
 - **こちらのプログラムの不具合**（0139。2026-10-25 ユーザー：「3行同じ問題なら、甚大な問題と判断。」）：通話ごとの記録・知らせ・修正依頼は
-  `record_error`（電話ごと＝処置の表の per_call）。止めるかは `decide_stop`（理由ごとに、違う行の数。直った証拠は直したプログラムの版に
-  替わったこと＝program_fixed）。止めた停止は、直したプログラムの版に替わったら `resume_fixed` が解く（管理者・契約者も解ける）。
+  `record_error`（電話ごと＝処置の表の per_call）。止めるかは `decide_stop`（理由ごとに、違う行の数。直った証拠＝program_fixed：その種類を
+  直したと記録され、そのあとプログラムが替わったこと・こちらの不具合なしにお客様と話し終えた電話）。止めた停止は、その種類を直したと記録
+  され、そのあとプログラムが替わったら `resume_fixed` が解く（管理者・契約者も解ける）。
+- **テスト番号で確かめる停止**（core/ring_test.checks_stop）は、1回鳴れば解く（`record_check`。2026-10-25 夜 管理者「鳴ったら、テストＯＫ
+  なだけ」。0143）。
 """
 
 from __future__ import annotations
@@ -79,8 +82,11 @@ def record_error(tx: Tx, report: errors.ErrorReport, *, line_id: UUID | None = N
     # 1時間に1回（per_call は電話ごと）。修正依頼は、同じ不具合で1つ（電話ごとに重ねない）
     admin = new_request or fixer is None or action.per_call
     if admin or action.notify:
-        notify.emit(tx, "error_notice", key=f"error:{key}",
-                    summary=(f"{fixer} に修正依頼：" if fixer else "エラー：") + errors.LABELS[kind],
+        # こちらの不具合で終えた電話（per_call）は、その行が復旧を待っていること（何が直れば動くか）も文に入れる（0143。⛔ 見直し21a の 4：
+        # 最後に残った行が復旧待ちで動かないとき、だれも知らなかった。新しい知らせは増やさない）
+        summary = ((f"{fixer} に修正依頼：" if fixer else "エラー：") + errors.LABELS[kind]
+                   + (f"。この行は復旧を待っています（{errors.RECOVERY_WAIT}）" if action.per_call else ""))
+        notify.emit(tx, "error_notice", key=f"error:{key}", summary=summary,
                     refs={**refs, "fixer": fixer}, admin=admin, contractor=action.notify)
     return kind
 
@@ -153,7 +159,13 @@ def _flapping_wait(tx: Tx, stop: dict[str, Any], interval: int) -> timedelta:
     return timedelta(seconds=min(wait, int(_tenant_setting(tx, "stop.flapping.max_wait", stop["tenant_id"]))))
 
 
-STOPPED_BY = "エラーの種類："   # エラーで止めた停止の根拠の頭（そのあとにエラーの種類。書くのは decide_stop、読むのは lasting_stops）
+STOPPED_BY = "エラーの種類："   # エラーで止めた停止の根拠の頭（そのあとにエラーの種類。書くのは decide_stop、読むのは `stopped_kind`）
+
+
+def stopped_kind(evidence: str | None) -> str | None:
+    """エラーで止めた停止の根拠の文から、止めたエラーの種類を読む（1か所。書くのは decide_stop＝`STOPPED_BY`＋種類。エラーで止めたので
+    なければ None。読むのは lasting_stops・resume_fixed）。"""
+    return evidence[len(STOPPED_BY):] if (evidence or "").startswith(STOPPED_BY) else None
 
 
 def record_check(tx: Tx, stop_event_id: int, ok: bool, *, evidence: str) -> dict[str, Any]:
@@ -171,8 +183,12 @@ def record_check(tx: Tx, stop_event_id: int, ok: bool, *, evidence: str) -> dict
     if prev is not None and now < prev["next_check_at"]:
         raise NotDue(f"次に確かめてよいのは {prev['next_check_at']} から")
     interval_key, need_key = PROBE_SETTINGS[s["cause"]]
-    interval, need = (int(_tenant_setting(tx, interval_key, s["tenant_id"])),
-                      int(_tenant_setting(tx, need_key, s["tenant_id"])))
+    # テスト番号で確かめる停止（core/ring_test.checks_stop の1か所）は、1回鳴れば解く（2026-10-25 夜 管理者：「鳴ったら、テストＯＫなだけ」。
+    # ⛔ 0136〜0142：アプリの確かめ用の回数＝stop.line.resume_after_successes（3）を使い、再開のたびに約2分で3回、管理者の電話を鳴らした＝
+    # 見直し21a の 3）。アプリの確かめ（確かめの部品）は、今までどおり決めた回数
+    from salescall.core import ring_test   # テスト番号の部品が、試行の部品を通してこの部品を読むので、ここで読む（読み合いにしない）
+    interval = int(_tenant_setting(tx, interval_key, s["tenant_id"]))
+    need = 1 if ring_test.checks_stop(tx, s) else int(_tenant_setting(tx, need_key, s["tenant_id"]))
     streak = ((prev["streak"] if prev is not None else 0) + 1) if ok else 0
     next_at = now + _flapping_wait(tx, s, interval)
     tx.execute("INSERT INTO salescall.stop_checks (stop_event_id, ok, streak, checked_at, next_check_at, evidence)"
@@ -199,7 +215,7 @@ def lasting_stops(tx: Tx) -> list[int]:
             " WHERE s.actor_kind = 'system' AND s.cause::text = ANY(%s) AND s.at <= now() - %s"
             " AND (s.scope = 'system') = (salescall.cur_tenant() IS NULL) ORDER BY s.event_id",
             (list(PROBE_SETTINGS), errors.LASTING)):
-        kind = s["evidence"][len(STOPPED_BY):] if (s["evidence"] or "").startswith(STOPPED_BY) else None
+        kind = stopped_kind(s["evidence"])
         fixer = errors.ACTIONS[kind].lasting_fixer if kind in errors.ACTIONS else None
         if fixer is None:
             continue   # 根源的なもの（起きたときに依頼を出した）・エラーで止めたのではないもの
@@ -227,7 +243,7 @@ def resume_fixed(tx: Tx) -> list[int]:
             "SELECT s.event_id, s.evidence, s.at FROM salescall.open_stop_events s WHERE s.actor_kind = 'system'"
             " AND s.cause::text = ANY(%s) AND (s.scope = 'system') = (salescall.cur_tenant() IS NULL) ORDER BY s.event_id",
             (list(FIXED_BY_PROGRAM),)):
-        kind = s["evidence"][len(STOPPED_BY):] if (s["evidence"] or "").startswith(STOPPED_BY) else None
+        kind = stopped_kind(s["evidence"])
         if kind is None or not tx.one("SELECT salescall.trouble_fixed_at(%s) > %s AS f", (kind, s["at"]))["f"]:
             continue
         stops.resume(tx, s["event_id"], reason="止めた種類の不具合を直したと記録され、そのあと直したプログラムの版に替わった",

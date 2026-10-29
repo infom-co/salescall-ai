@@ -45,8 +45,8 @@ def call_live(line_id: object) -> bool:
 
 
 def stuck_call(line_id: object) -> object | None:
-    """その回線の、おわびして終えたあとも通話を進める部品が戻らない通話（無ければ None。判断は通話ごとの口の1か所＝line._Call.abandoned。
-    中央の見守り役が読んで、その回線の流れを立て直す＝main.Supervisor.watch_workers。0141）。"""
+    """その回線の、戻らない通話（終えると決めたあとも通話を進める部品が戻らない・戻ったあと書き手が進まない。無ければ None。判断は通話
+    ごとの口の1か所＝line._Call.abandoned。中央の見守り役が読んで、その回線の流れを立て直す＝main.Supervisor.watch_workers。0141・0143）。"""
     with _LIVE_LOCK:
         call = _LIVE.get(line_id)
     return call if call is not None and getattr(call, "abandoned", False) is True else None

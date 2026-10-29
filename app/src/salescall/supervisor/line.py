@@ -22,14 +22,16 @@
 3. 予約証で発信の出口（dial_exit.dial）がかけ、通話を進める部品（CL-1）が最後まで進める。外へ出た誤りは、その試行を結果不明に
    して「見守り役の誤り」として記録する（止めない）。お客様のところで鳴らなかった電話（かけられなかった・お客様が出る前に終わった
    ＝結果不明。通話を進める部品が落ちた・終えずに戻ったときも）のあとは、**回線のせいと分かった電話だけを回線の異常として数える**
-   （`_unrung` の1か所。だれのせいかはデータベースの salescall.unrung_blame が、同じ回線の前後の電話の証拠で決める＝0129：鳴った
-   電話を挟まずに違う番号も続けて鳴らなければ回線のせい。ただし、その契約者がいまテスト番号で決められれば、続きに「テスト番号で
-   決める」印を置き、違う番号が2つ以上でもテスト番号の結果で決める＝0141。見直し20a）。数えたら、その回線を休ませる（一時中止。続けば、エラーの処置の表の
-   とおり、その回線を止めて管理者と契約者に知らせる）。番号のせい・まだ分からないときは、回線を休ませず、回線の異常にも数えない
-   （番号の続きで数える）。2026-10-24 ユーザー：「明らかに番号に問題がある場合は、その行は取りやめですが、回線の問題が明らかな場合は
-   行は取りやめでなく一時中止だけ」。⛔ 0129：前は、アプリの言い分（番号のせい・回線のせいか分からない）で分け、お客様が出る前に
-   終わった電話はいつも回線の異常に数えた（見直し18a の問題1〜3）。回線がまだ前の通話の途中・PC の部品がかけようとしなかった
-   ときは、その回線を休ませる（数えない）。
+   （`_unrung` の1か所。だれのせいかはデータベースの salescall.unrung_blame が、同じ回線のあとの証拠で決める＝0129・0143：あとで
+   この回線がお客様の電話を鳴らせた・テスト番号が鳴った＝番号のせい／テスト番号が鳴らなかった・回線を使わなくした＝回線のせい／
+   それまでは、まだ分からない）。数えたら、その回線を休ませる（一時中止。続けば、エラーの処置の表のとおり、その回線を止めて管理者と
+   契約者に知らせる）。番号のせい・まだ分からないときは、回線を休ませず、回線の異常にも数えない。まだ分からない電話の行は、決まるまで
+   締めずに休み（settle.settle）、回線は次の行へ進む（2026-10-24 管理者：「回線か番号かどちらかわからない場合は、その行に固執するのでなく、
+   1回目から、次の行に進むようにしてください。次の行に進んで、次の行がつながればすぐに回線の問題か番号の問題か判断できますよね」）。
+   ⛔ 0129〜0141：決定に無い「違う番号が2つ続けて鳴らなかったら回線のせい」と「テスト番号で決める」印の2つの道があり、元気な回線を
+   止め（見直し21a の場面 a3・a7・a2）、テスト番号を余分に鳴らした（場面 a9）。回線がまだ前の通話の途中・PC の部品がかけようとしなかった
+   ときは、その回線を休ませる（数えない）。声が聞き取れずに終えた電話が違うお客様で続いたときも、回線の異常として数える（記録の理由の文は
+   理由ごと＝`_unrung`）。
 4. **回線が「通話中」のまま（電話の部品が「通話中」と答え続ける・答えられない）で、かけられない状態が `STUCK_AFTER` 続いたら、
    回線の異常として数える**（`Stuck` の1か所。数える入口は、かけられなかったときと同じ `_line_fault`＝続けば、処置の表のとおり、
    その回線を止めて知らせる。⛔ 2026-10-22 の見直し15：前は、通話中を理由に休み続けるだけで、だれにも知らされなかった）。
@@ -42,15 +44,16 @@
    知らせ・直す担当への修正依頼。同じ行で2回続けばその行を休ませ、違う3つの行で同じ理由なら契約者の新しい電話を止める＝2026-10-25
    ユーザー。⛔ 0139 の前は「見守り役の誤り」として CL-2 へだけ伝え、同じ行で3回目からはふつうの鳴らなかった電話として数えた）。
    見張るのは通話が進行中のあいだだけ・おわびして切り終えるまで「話している」・通話の途中の書き込みは通話ごとの書き手（`_Call`）。
-   見張りはデータベースを通さない（⛔ 0130：前はデータベースの「進んだ時刻」を 90 秒見ていた）。
+   見張りはデータベースを通さない（⛔ 0130：前はデータベースの「進んだ時刻」を 90 秒見ていた）。通話の部品が書き手を待っているあいだは、
+   書き手が進んでいれば途切れに数えず、書き込み1つが call.frozen_after より長く終わらなければ、データベースが止まったとしておわびして
+   すぐ終える（storage_stuck。直す担当 CL-2。0143）。
 6. **番号のせいか回線のせいかがまだ分からない続き**があり、その回線がまもなく（テスト番号をあける長さの並びの1つ目＝初め15分。
-   core/ring_test.decide_within。0141）かけられる行が無ければ、テスト番号で試して決める（`_decide_if_stuck` の1か所→core/ring_test。テスト番号で決められない契約者は前の区切りで
-   決める。テスト番号の答えが見分けられなければ、すぐ1回知らせる）。**違う番号が2つ以上続けて鳴らなかった続き**（「テスト番号で決める」印のある続き）は、
-   テスト番号を鳴らせる時になったら、まもなくかける行の有無にかかわらず、すぐテスト番号で決める（`_test_now_if_several`。0141）。
-   待つあいだも回線は止めず、次の行へかけ続ける（鳴れば、その電話で番号のせいと決まる＝2026-10-24 管理者「作業を止めるな」）。
+   core/ring_test.decide_within。0141）かけられる行が無いときだけ、テスト番号で試して決める（`_decide_if_stuck` の1か所→core/ring_test。
+   違う番号の数にはよらない＝0143）。まもなくかけられる行があれば、その電話の結果で決まるので、テスト番号は鳴らさない。テスト番号で
+   決められないとき（無い・鳴らしてよい時間の外・見分けられない）は決めずに待つ（無い・見分けられないは、すぐ1回知らせる＝core/ring_test）。
    **回線の異常で止めた回線**は、毎回の頭で、テスト番号で再開してよいかを確かめる
-   （`_check_stop`。鳴れば成功＝core/watch.record_check。2026-10-24 ユーザー「OK」）。テスト番号を鳴らすのは、その回線の電話の部品を
-   持つ、ここだけ。
+   （`_check_stop`。1回鳴れば解く＝core/watch.record_check。2026-10-25 夜 管理者「鳴ったら、テストＯＫなだけ」）。テスト番号を鳴らすのは、
+   その回線の電話の部品を持つ、ここだけ。
 締め（判定・次の動き）は、見守り役の決まった間隔の仕事がする（jobs の settle）。
 """
 
@@ -68,6 +71,7 @@ from salescall.core import (attempts, conversation_io, dial_exit, gate, next_act
                             watch)
 from salescall.core.access import Access, Actor, Tx
 from salescall.core.errors import ErrorReport
+from salescall.link.protocol import APOLOGY_WAIT
 from salescall.supervisor import ACTOR, call_began, call_over, plugins, report, updates
 from salescall.supervisor.links import CallDriver
 
@@ -80,7 +84,10 @@ STUCK_AFTER = 60.0
 WATCH_EVERY = 0.25   # 通話の途中に、「動いています」の知らせが途切れていないかを見る間（秒。固まったとみなす長さより十分短く）
 UNRUNG_PAUSE = "unrung_line"   # 回線のせいで鳴らなかった電話を数えて、回線を休ませた（Round.pause の名前）
 RING_TEST_PAUSE = "ring_test"  # テスト番号を試したが決まらなかった（分からない・話している途中）：休んでから試し直す（鳴らし続けない）
-WATCHER_TROUBLES = ("frozen", "runner_error")   # 通話ごとの口だけが決める、終えた理由（通話を進める部品は使わない）
+WATCHER_TROUBLES = ("frozen", "runner_error", "storage_stuck")   # 通話ごとの口だけが決める、終えた理由（通話を進める部品は使わない）
+# 通話の部品が頼んだ移りのうち、通話が終わりに向かっているもの（話し終えた ending・ended、出なかった・話し中・つながらなかった など）。
+# `_Call` が手元で持ち、データベースを読み直す前に、通話が進行中かを決める（0143。conversation_io.move_work で頼まれたもの）
+FINISHING = frozenset({"ending", "ended", "busy", "no_answer", "call_failed", "dropped", "technical_error"})
 
 
 @dataclass(frozen=True)
@@ -114,24 +121,31 @@ class Stuck:
 class _Call:
     """通話ごとの口（plugins.CallControl。判断はこの1か所）：通話を進める部品の「動いています」の知らせ（`beat`）を WATCH_EVERY ごとに
     見て、frozen_after 途切れたら、こちらのプログラムが固まったとみなして終える（frozen）。通話を進める部品が見つけた甚大な問題
-    （`end_for_trouble`）・通話を進める部品が落ちた／終えずに戻った（runner_error。`after_runner`）も同じ道（`_end`）：試行がまだ進行中
-    なら、結果不明にして理由を残し（attempts.end_for_trouble）、通話を途中で切るときの2つの一言で終える（dial_exit.abandon）。1回だけ。
+    （`end_for_trouble`）・通話を進める部品が落ちた／終えずに戻った（runner_error。`after_runner`）・データベースへの書き込みが進まない
+    （storage_stuck）も同じ道（`_end`）：試行がまだ進行中なら、結果不明にして理由と根拠の文を残し（attempts.end_for_trouble）、通話を
+    途中で切るときの2つの一言で終える（dial_exit.abandon）。1回だけ。
     - **見張るのは通話が進行中のあいだだけ**（0136）：知らせが途切れても、試行がもう終わっていれば何もしない（お客様が切ったあとの
       片付けの途中で、終わった通話におわびを流さない・こちらのせいの印を付けない）。通話を進める部品が戻れば、見張りをやめる。
-      **進行中かは、通話を進める部品が頼んだ書き込みを書き切ってから見る**（`_end` の1か所。上限 end_wait＝設定 call.end_write_wait。
-      0141。⛔ 見直し20a：書き手の待ち行列に「話し終えた」の書き込みが残っているうちにデータベースだけを見て、話し終えた電話を「固まった」
-      としておわびを流し、取れた結果を消して、お客様にもう一度かけた）。
+      **進行中かは、まず手元で決める**（0143）：通話の部品が終わりの移り（`FINISHING`＝話し終えた ending・ended など）を
+      conversation_io.move_work で頼んでいれば、データベースを読み直さずに、終わりに向かっている（おわびを流さない）。そうでなければ、
+      すぐデータベースで見る（決まった秒数待たない。⛔ 0141：仮の設定 call.end_write_wait＝5秒まで書き手を待ち、本当に固まった通話の
+      おわびが最大8秒遅れ、書き込みが5秒より遅いと話し終えた電話を固まったとした＝見直し21a の 5・6）。
+    - **通話の部品が書き手を待っているあいだ**（`flush`）は、書き手が進んでいれば（書き込みが1つずつ終わっていれば）知らせの途切れに
+      数えない（0143。⛔ 0141：flush で待つあいだ知らせを出せず、データベースが遅いと元気な通話を固まったとして切った＝見直し21a の 7）。
+    - **書き手が進まない**（`_stalled`＝いま書いている書き込み1つが frozen_after より長く終わらない）ときは、データベースが止まったとして、
+      記録を待たずにすぐおわびして終え（storage_stuck。出どころ「保存」＝直す担当 CL-2。0143）、そのあとで記録する。
     - **おわびして切り終えるまで「話している」**（supervisor.call_live の1か所。`live`）：止めるとき・PC のログインを外したときに、
       おわびの途中で切らない。切り終えたら外れる（固まった部品が戻らなくても、止める処理が待ち続けない）。
-    - **おわびして切り終えたあとも通話を進める部品が戻らない**（`abandoned`。stuck_after＝設定 call.stuck_after。0141）：中央の見守り役が
-      その回線の流れを捨てて立て直し、契約者と管理者に知らせ、CL-1 へ修正依頼を出す（supervisor/main.py。⛔ 見直し20a：前は回線が
-      黙って止まったままだった）。
+    - **戻らない**（`abandoned`。0141・0143）：(1) 終えると決めたあと、おわびを流し終える長さ（protocol.APOLOGY_WAIT）と frozen_after を
+      過ぎても通話を進める部品が戻らない (2) 通話を進める部品が戻ったあと（か、おわびして切り終えたあと）、書き手が進まない。中央の
+      見守り役がその回線の流れを捨てて立て直し、契約者と管理者に知らせ、直す担当（(1) 会話＝CL-1・(2) 保存＝CL-2。`stuck_source`）へ
+      修正依頼を出す（supervisor/main.py）。⛔ 0141：仮の設定 call.stuck_after（60秒）で決め、戻ったあとの書き手の待ちは上限なしで、
+      書き込みがデータベースで止まると回線が黙って止まった（見直し21a の 5・21b の 1）。
     - **データベースへの書き込みは、通話ごとの書き手**（`write`。頼んだ順に、別の流れで書く）：通話を進める流れがデータベースの
-      書き込みを待って止まり、知らせが途切れて、元気な通話をおわびして切ることが無いように（0136。⛔ 見直し19a：書き込みが3秒
-      かかると、話している途中の通話を「固まった」として切った）。**書けなかった分は書き手が持ち、`flush` で通話の部品へ返す**
-      （plugins.WriteFailed。0141。⛔ 見直し20a：前は記録して捨てた）。データベースの誤りは、そのときに見守り役の誤りとしても記録する
-      （受け口の決まりに合わない誤り＝conversation_io.REFUSED は、頼んだ側が直すもの）。通話を進める部品が戻ったら、書き終えるまで
-      待ってから締め、返せなかった分を記録する。
+      書き込みを待って止まり、知らせが途切れて、元気な通話をおわびして切ることが無いように（0136）。**書けなかった分は書き手が持ち、
+      `flush` で通話の部品へ返す**（plugins.WriteFailed。0141）。データベースの誤りは、そのときに見守り役の誤りとしても記録する
+      （受け口の決まりに合わない誤り＝conversation_io.REFUSED は、頼んだ側が直すもの）。通話を進める部品が戻ったら、書き手が進むあいだ
+      書き終えるまで待ってから締め、返せなかった分を記録する。
     かける前から終わるまで、supervisor の1か所（call_live）に載る（かけた直後に閉じない）。進んでいる通話は、どれだけ長くても切らない
     （2026-10-24 ユーザー：時間で業務を打ち切らない）。"""
 
@@ -139,9 +153,11 @@ class _Call:
                  driver: CallDriver, limits: CallLimits) -> None:
         self.access, self.actor, self.tenant_id, self.client_id = access, actor, tenant_id, client_id
         self.line_id, self.attempt_id, self.driver = line_id, attempt_id, driver
-        self.frozen_after, self.end_wait, self.stuck_after = limits.frozen_after, limits.end_write_wait, limits.stuck_after
+        self.frozen_after = limits.frozen_after
         self.last = time.monotonic()
         self.ended = False                 # 終えると決めた（1回だけ）
+        self.end_at: float | None = None   # 終えると決めた時刻
+        self.finishing = False             # 通話の部品が終わりの移り（FINISHING）を頼んだ（手元で持つ）
         self.troubled = False              # こちらのプログラムの不具合として終え、伝えた（同じ出来事を見守り役の誤りに重ねない）
         self.over_at: float | None = None  # おわびして切り終えた時刻（終えると決めて、進行中でなかったときも）
         self._over = threading.Event()    # おわびして切り終えた
@@ -154,6 +170,8 @@ class _Call:
         self._progress = threading.Condition()   # 書き手の進み（頼んだ数・書き終えた数・書けなかった分）
         self._asked = 0                          # 頼まれた書き込みの数（通し）
         self._written = 0                        # 書き終えた（書けなかったも）数
+        self._writing_since: float | None = None   # いま書いている書き込みを始めた時刻（書いていなければ None）
+        self._waiting = 0                        # 通話の部品が書き手を待っている（flush の途中）
         self._failed: list[tuple[Callable[[Tx], Any], BaseException]] = []   # 書けなかった分（まだ通話の部品へ返していない）
 
     @property
@@ -163,25 +181,39 @@ class _Call:
 
     @property
     def abandoned(self) -> bool:
-        """終えたあと（おわびして切り終えたあと）、通話を進める部品が stuck_after 秒たっても戻らない（1か所。中央の見守り役が読む＝
-        supervisor.stuck_call）。"""
-        over = self.over_at
-        return over is not None and not self._done.is_set() and time.monotonic() - over >= self.stuck_after
+        """戻らない（1か所。中央の見守り役が読む＝supervisor.stuck_call）：(1) 終えると決めたあと、おわびを流し終える長さ（APOLOGY_WAIT）と
+        frozen_after を過ぎても、通話を進める部品が戻らない (2) 通話を進める部品が戻ったあと（か、おわびして切り終えたあと）、書き手が
+        進まない（`_stalled`）。"""
+        now = time.monotonic()
+        end = self.end_at
+        if end is not None and not self._done.is_set() and now - end >= APOLOGY_WAIT + self.frozen_after:
+            return True
+        return (self._done.is_set() or self._over.is_set()) and self._stalled(now)
+
+    @property
+    def stuck_source(self) -> str:
+        """戻らない理由の出どころ（直す担当を決める＝core/errors の表）：書き手が進まない＝保存（storage）・ほかは通話の部品（runner）。"""
+        return "storage" if self._stalled() else "runner"
 
     def beat(self) -> None:
         self.last = time.monotonic()
 
-    def end_for_trouble(self, reason: str) -> None:
-        if reason not in attempts.TROUBLES or reason in WATCHER_TROUBLES:   # frozen・runner_error を決めるのは、この口だけ
+    def end_for_trouble(self, reason: str, why: str | None = None) -> None:
+        if reason not in attempts.TROUBLES or reason in WATCHER_TROUBLES:   # 見張りの理由を決めるのは、この口だけ
             raise ValueError(f"通話を終える理由は {tuple(t for t in attempts.TROUBLES if t not in WATCHER_TROUBLES)} のどれかです："
                              f"{reason!r}")
-        self._end(reason, "通話を進める部品が、その電話の甚大な問題を知らせました")
+        if why is not None and not isinstance(why, str):
+            raise TypeError("根拠の文（why）は短い文字で渡します（お客様の言葉・名前は入れない）")
+        self._end(reason, "通話を進める部品が、その電話の甚大な問題を知らせました", why)
 
     def write(self, work: Callable[[Tx], Any]) -> None:
         """データベースへの書き込み（その依頼者の取引で work(tx)）を、通話ごとの書き手に頼む（待たずに戻る。頼んだ順に書く。書けなかった
-        分は `flush` で返す）。頼めない形（呼べないもの）は、その場で TypeError。"""
+        分は `flush` で返す）。頼めない形（呼べないもの）は、その場で TypeError。状態の移り（conversation_io.move_work）のうち、通話が
+        終わりに向かう移り（`FINISHING`）は、手元にも持つ（`_end` がデータベースを読み直す前に読む）。"""
         if not callable(work):
             raise TypeError("書き込みは、取引を受け取る関数（work(tx)）で頼みます")
+        if isinstance(work, conversation_io.MoveWork) and work.to_state in FINISHING:
+            self.finishing = True
         with self._lock:
             if self._writer is None:
                 self._writer = threading.Thread(target=self._write_loop, name=f"通話の書き手 {self.attempt_id}", daemon=True)
@@ -191,8 +223,16 @@ class _Call:
         self._writes.put(work)
 
     def flush(self) -> None:
-        """頼んだ書き込みを、すべて書き終えるまで待つ。書けなかった分があれば plugins.WriteFailed で返す（返した分は手放す）。"""
-        self._writes.join()
+        """頼んだ書き込みを、すべて書き終えるまで待つ。待つあいだは、書き手が進んでいれば知らせの途切れに数えない（見張りが読む）。
+        書けなかった分があれば plugins.WriteFailed で返す（返した分は手放す）。"""
+        with self._progress:
+            self._waiting += 1
+        try:
+            self._writes.join()
+        finally:
+            with self._progress:
+                self._waiting -= 1
+            self.last = max(self.last, time.monotonic())   # 待っていたあいだは、途切れに数えない
         failed = self._take_failed()
         if failed:
             raise plugins.WriteFailed(failed)
@@ -202,15 +242,20 @@ class _Call:
             failed, self._failed = tuple(self._failed), []
         return failed
 
-    def _written_up_to(self, ticket: int, limit: float) -> bool:
-        """頼まれた書き込みのうち、ticket 番目までを書き終えるまで待つ（limit 秒まで）。書き終えたら True。"""
-        deadline = time.monotonic() + limit
+    def _stalled(self, now: float | None = None) -> bool:
+        """書き手が進まないか（1か所）：いま書いている書き込み1つが frozen_after より長く終わらない（データベースが止まった）。"""
+        since = self._writing_since
+        return since is not None and (time.monotonic() if now is None else now) - since > self.frozen_after
+
+    def _drain(self) -> bool:
+        """いま頼まれている書き込みを書き終えるまで待つ（書き手が進んでいるあいだは待ち続ける。決まった秒数で打ち切らない）。書き手が
+        進まなくなったら（`_stalled`）、待つのをやめて False。"""
         with self._progress:
+            ticket = self._asked
             while self._written < ticket:
-                left = deadline - time.monotonic()
-                if left <= 0:
+                if self._stalled():
                     return False
-                self._progress.wait(left)
+                self._progress.wait(WATCH_EVERY)
         return True
 
     def _write_loop(self) -> None:
@@ -219,6 +264,7 @@ class _Call:
             try:
                 if work is None:
                     return
+                self._writing_since = time.monotonic()
                 try:
                     self.access.in_client(self.actor, self.tenant_id, self.client_id, work)
                 except Exception as e:  # noqa: BLE001 書けなくても通話は止めない（持って、flush で返す）
@@ -228,40 +274,52 @@ class _Call:
                         report(self.access, self.tenant_id, "通話の書き込み", e, line_id=self.line_id)
             finally:
                 with self._progress:
+                    self._writing_since = None
                     if work is not None:
                         self._written += 1
                     self._progress.notify_all()
                 self._writes.task_done()
 
-    def _end(self, reason: str, what: str) -> bool:
-        """通話を終える（1か所）。頼まれた書き込みを書き切ってから（end_wait 秒まで）、試行がまだ進行中なら、理由を残して結果不明にし、
-        おわびして切り（True）、切り終えてから、こちらのプログラムの不具合として伝える（core/troubles.after_trouble の1か所＝記録・
-        契約者と管理者への知らせ・直す担当への修正依頼・同じ行で続けば休ませる・違う行で続けば止める。2026-10-25 ユーザー）。もう
-        終わっていれば何もしない。what＝何が起きたか（決まった言葉と誤りの種類の名前だけ）。"""
+    def _end(self, reason: str, what: str, why: str | None = None, *, trust_db: bool = False) -> bool:
+        """通話を終える（1か所）。試行がまだ進行中なら、理由と根拠の文（why）を残して結果不明にし、おわびして切り（True）、切り終えて
+        から、こちらのプログラムの不具合として伝える（core/troubles.after_trouble の1か所＝記録・契約者と管理者への知らせ・直す担当への
+        修正依頼・同じ行で続けば休ませる・違う行で続けば止める。2026-10-25 ユーザー）。もう終わっていれば何もしない。
+        進行中かは、まず手元（通話の部品が終わりの移りを頼んだか＝`finishing`）で決め、頼んでいなければ、すぐデータベースで見る（trust_db＝
+        頼まれた書き込みを書き終えたあと＝データベースだけで決める）。データベースが止まった（storage_stuck）ときは、記録を待たずに先に
+        おわびして切る。what＝何が起きたか（決まった言葉と誤りの種類の名前だけ）。"""
         with self._lock:
             if self.ended or self._closed:
                 return False
             self.ended = True
-        with self._progress:
-            ticket = self._asked
-        # 通話を進める部品が「話し終えた」と頼んだ書き込みが、まだ書き手の待ち行列にあるかもしれない：書き切ってから進行中かを見る（0141）
-        self._written_up_to(ticket, self.end_wait)
+            self.end_at = time.monotonic()
         recorded = False
+        finishing = self.finishing and not trust_db
 
         def record(tx: Tx) -> tuple[bool, bool]:   # 終えた・こちらの不具合か（決まりはデータベースの trouble_ours の1か所。0141）
-            ended = attempts.end_for_trouble(tx, self.attempt_id, reason)
+            ended = attempts.end_for_trouble(tx, self.attempt_id, reason, why)
             return ended, ended and attempts.is_ours(tx, self.attempt_id)
-        try:
+
+        def record_or_report() -> tuple[bool, bool]:
             try:
-                live, recorded = self.access.in_client(self.actor, self.tenant_id, self.client_id, record)
-            except Exception as e:  # noqa: BLE001 記録できない：進行中とみなして、おわびして切る（お客様を無言で放置しない）
+                return self.access.in_client(self.actor, self.tenant_id, self.client_id, record)
+            except Exception as e:  # noqa: BLE001 記録できない：進行中とみなす（お客様を無言で放置しない）
                 report(self.access, self.tenant_id, "通話を終える記録", e, line_id=self.line_id)
+                return True, False
+        try:
+            if finishing:     # 通話の部品が終わりの移りを頼んだ：終わりに向かっている（おわびを流さない・こちらのせいにしない）
+                live = False
+            elif reason == "storage_stuck":   # データベースが止まった：記録を待たずに、すぐおわびして切る
                 live = True
-            if live:
-                dial_exit.abandon(self.driver)   # 通話を途中で切るときの2つの一言を流して切る
+                dial_exit.abandon(self.driver)
+            else:
+                live, recorded = record_or_report()
+                if live:
+                    dial_exit.abandon(self.driver)   # 通話を途中で切るときの2つの一言を流して切る
         finally:
             self.over_at = time.monotonic()
             self._over.set()
+        if reason == "storage_stuck" and not finishing:   # おわびのあとで記録する（データベースが戻るまで、この流れが待つ）
+            _, recorded = record_or_report()
         # お客様へのおわびを待たせないよう、切り終えてから伝える（伝えられなくても、通話の処理は止めない）。こちらの不具合でない理由
         # （声が聞き取れない）は、ここでは伝えない（途中で切れた電話と同じ。違うお客様で続けば、回線ごとの処理が回線の異常として数える＝`_unrung`）
         if recorded:
@@ -283,17 +341,22 @@ class _Call:
         self.thread.start()
 
     def after_runner(self, error: BaseException | None) -> None:
-        """通話を進める部品が戻った（error＝外へ出た誤り）：見張りをやめ、頼まれた書き込みを書き終えてから、試行がまだ進行中なら
-        （落ちた・終えずに戻った）こちらのせい（runner_error）で終える（1か所。⛔ 0136 の前は理由を残さず、回線のせい・番号のせいに
-        数えうる形で終えた）。通話の部品へ返せなかった書けなかった分は、記録する（データベースの誤りは、書けなかったときに記録済み）。"""
+        """通話を進める部品が戻った（error＝外へ出た誤り）：見張りをやめ、まだ終えると決めていなければ、頼まれた書き込みを書き手が進む
+        あいだ書き終えてから、試行がまだ進行中なら（落ちた・終えずに戻った）こちらのせい（runner_error）で終える（1か所。⛔ 0136 の前は
+        理由を残さず、回線のせい・番号のせいに数えうる形で終えた）。書き手が進まなくなったら、終わりの移りを頼んでいなければ、データベースが
+        止まったとして、すぐおわびして終える（storage_stuck）。そのあと書き終えるまで待つ（進まないあいだは `abandoned`＝中央の見守り役が
+        立て直す）。通話の部品へ返せなかった書けなかった分は、記録する（データベースの誤りは、書けなかったときに記録済み）。"""
         self._done.set()
-        self._writes.join()
         with self._lock:
             ending = self.ended
         if ending:
             self._over.wait()   # 見張り・通話を進める部品が終えている途中：切り終えるまで待つ
-        else:
-            self._end("runner_error", "通話を終えないまま戻りました" if error is None else f"落ちました（{type(error).__name__}）")
+        elif self._drain():
+            self._end("runner_error", "通話を終えないまま戻りました" if error is None else f"落ちました（{type(error).__name__}）",
+                      None if error is None else type(error).__name__, trust_db=True)
+        elif not self.finishing:
+            self._end("storage_stuck", "データベースへの書き込みが進みません（通話の部品が戻ったあと）")
+        self._writes.join()
         for _, e in self._take_failed():
             if isinstance(e, conversation_io.REFUSED):   # 受け口の決まりに合わず、通話の部品が受け取らずに戻った
                 report(self.access, self.tenant_id, "通話の書き込み（受け口が断ったまま、通話の部品が受け取らなかった）", e,
@@ -304,7 +367,8 @@ class _Call:
             report(self.access, self.tenant_id, "通話を進める部品", error, line_id=self.line_id)
 
     def stop(self) -> None:
-        """見張りと書き手を止め、「話している」から外す（何度呼んでもよい。おわびして切っている途中なら、切り終えるまで待つ）。"""
+        """見張りと書き手を止め、「話している」から外す（何度呼んでもよい。おわびして切っている途中なら、切り終えるまで待つ。書き手が
+        進まないあいだは待ち続け、中央の見守り役が `abandoned` で立て直す）。"""
         with self._lock:
             self._closed = True
             ending = self.ended
@@ -318,19 +382,23 @@ class _Call:
 
     def _run(self) -> None:
         while not self._done.wait(WATCH_EVERY):
-            if time.monotonic() - self.last > self.frozen_after:
-                self._end("frozen", f"「動いています」の知らせが {self.frozen_after:g} 秒途切れました")
+            now = time.monotonic()
+            if self._stalled(now):   # 書き込み1つが frozen_after より長く終わらない：データベースが止まった
+                self._end("storage_stuck", f"データベースへの書き込みが {self.frozen_after:g} 秒より長く終わりません")
+                return
+            # 通話の部品が書き手を待っているあいだ（書き手は進んでいる）は、途切れに数えない
+            if now - self.last > self.frozen_after and not self._waiting:
+                self._end("frozen", f"「動いています」の知らせが {self.frozen_after:g} 秒途切れました",
+                          f"「動いています」の知らせが {self.frozen_after:g} 秒途切れた")
                 return
 
 
 @dataclass(frozen=True)
 class CallLimits:
-    """通話ごとの口の長さ（秒。どれもシステムの設定）。frozen_after＝「動いています」が途切れたら固まったとみなす長さ（call.frozen_after）・
-    end_write_wait＝終えると決める前に、頼まれた書き込みを書き切るのを待ついちばん長い秒（call.end_write_wait。0141）・stuck_after＝
-    おわびして終えたあと、通話を進める部品が戻らなければ回線の流れを立て直すまでの長さ（call.stuck_after。0141）。"""
+    """通話ごとの口の長さ（秒。システムの設定）。frozen_after＝「動いています」が途切れたら固まったとみなす長さ（call.frozen_after）。
+    書き手が進まないとみなす長さも同じ値。戻らないとみなす長さは、これと protocol.APOLOGY_WAIT から決める（0143。仮の設定
+    call.end_write_wait・call.stuck_after は外した）。"""
     frozen_after: float
-    end_write_wait: float
-    stuck_after: float
 
 
 def frozen_after(tx: Any) -> float:
@@ -340,8 +408,7 @@ def frozen_after(tx: Any) -> float:
 
 def call_limits(tx: Any) -> CallLimits:
     """通話ごとの口の長さ（1か所）。"""
-    return CallLimits(frozen_after(tx), float(settings.system_value(tx, "call.end_write_wait")),
-                      float(settings.system_value(tx, "call.stuck_after")))
+    return CallLimits(frozen_after(tx))
 
 
 def _line_fault(access: Access, actor: Actor, tenant_id: UUID, line_id: UUID, what: str, *,
@@ -351,28 +418,20 @@ def _line_fault(access: Access, actor: Actor, tenant_id: UUID, line_id: UUID, wh
                       client_id=client_id, attempt_id=attempt_id)
 
 
-UNRUNG_LINE = "鳴った電話を挟まずに、この回線で違う番号へかけた電話も続けて、お客様のところで鳴りませんでした（回線のせい）"
+# 回線の異常として数えるときの理由の文（`_unrung` が理由ごとに選ぶ。0143。⛔ 0141：声が聞き取れずに止めた回線も「鳴りませんでした」と記録した）
+UNRUNG_LINE = "この回線で、お客様のところで電話が鳴りませんでした（テスト番号も鳴らなかった・回線を使わなくした＝回線のせい）"
+POOR_AUDIO_LINE = "この回線で、違うお客様との電話が続けて、声が聞き取れずに終わりました（回線の声の受け渡しのせい）"
 
 
 def _unrung(access: Access, actor: Actor, tenant_id: UUID, line_id: UUID) -> bool:
-    """お客様のところで鳴らなかった電話のあと（1か所）：
-    (1) その契約者が、いまテスト番号で決められれば（core/ring_test.decides。違う番号が2つ以上の続きの決め方＝鳴らしてよい時間の中）、
-        まだ分からない続きに「テスト番号で決める」印を置く
-        （attempts.hold_unrung_run。0141）。印のある続きは、違う番号が2つ以上続けて鳴らなくても回線のせいと決めず、テスト番号の結果で
-        決める（`_test_now_if_several`・`_decide_if_stuck`）。決められなければ印を置かず、今の決まり（違う番号2つ以上で回線のせい）のまま。
-        ⛔ 見直し20a：前は、テスト番号で決められる契約者でも、かけられない番号が2つ並ぶとテスト番号を挟まずに回線を止め、再開しては
-        また止まる、をくり返した。
-    (2) その回線の、回線のせいと分かったのに、まだ回線の異常として記録していない電話を、1本ずつ回線の異常として数える
-        （attempts.line_faults_unrecorded。続きが初めて回線のせいになったときは、前のまだ分からなかった分もまとめて数える＝鳴った電話を
-        挟まずに違う番号が続けて鳴らなかった数が、回線の異常の数）。数えたら True（その回線を休ませる）。番号のせい・まだ分からない
-        ときは数えない（False）。"""
-    def hold(tx: Tx) -> None:   # 印が効くのは、違う番号が2つ以上になった続きだけ（その決め方で見る）
-        if ring_test.decides(tx, several=True):
-            attempts.hold_unrung_run(tx, line_id)
-    access.in_tenant(actor, tenant_id, hold)
+    """その回線の、回線のせいと分かったのに、まだ回線の異常として記録していない電話を、1本ずつ回線の異常として数える（1か所。
+    attempts.line_faults_unrecorded。続きが回線のせいと決まったときは、その続きの分をまとめて数える）。記録の理由の文は理由ごと（鳴らな
+    かった＝`UNRUNG_LINE`・声が聞き取れない電話が違うお客様で続いた＝`POOR_AUDIO_LINE`）。数えたら True（その回線を休ませる）。番号の
+    せい・まだ分からないときは数えない（False）。⛔ 0141：「テスト番号で決める」印もここで置いていた（0143 で外した）。"""
     faults = access.in_tenant(actor, tenant_id, lambda tx: attempts.line_faults_unrecorded(tx, line_id))
     for f in faults:
-        _line_fault(access, actor, tenant_id, line_id, UNRUNG_LINE, client_id=f["client_id"], attempt_id=f["attempt_id"])
+        _line_fault(access, actor, tenant_id, line_id, POOR_AUDIO_LINE if f["by_audio"] else UNRUNG_LINE,
+                    client_id=f["client_id"], attempt_id=f["attempt_id"])
     return bool(faults)
 
 
@@ -387,9 +446,6 @@ def _claim(tx: Any, task: dict[str, Any], line_id: UUID, holder: str, tenant_id:
 def one_round(access: Access, actor: Actor, tenant_id: UUID, line_id: UUID, holder: str, driver: CallDriver,
               runner: plugins.CallRunner) -> Round:
     clients = access.in_tenant(actor, tenant_id, lambda tx: scheduler.clients_for_line(tx, line_id))
-    decided = _test_now_if_several(access, actor, tenant_id, line_id, clients, driver)
-    if decided is not None:   # 違う番号が続けて鳴らなかった続きが、回線のせいと決まった：回線を休ませる
-        return decided
     held: list[str] = []   # 依頼者の理由（同時の上限・無効）で断られた
     for promised_only in (True, False):   # 約束したかけ直しを、すべての依頼者について先に（目印で分けるのは due_tasks の1か所）
         for client_id in clients:
@@ -405,47 +461,30 @@ def one_round(access: Access, actor: Actor, tenant_id: UUID, line_id: UUID, hold
     return _decide_if_stuck(access, actor, tenant_id, line_id, clients, driver)
 
 
-def _test_now_if_several(access: Access, actor: Actor, tenant_id: UUID, line_id: UUID, clients: list[UUID],
-                         driver: CallDriver) -> Round | None:
-    """違う番号が2つ以上続けて鳴らなかった、まだ分からない続き（「テスト番号で決める」印のある続き。0141）は、まもなくかける行の有無に
-    かかわらず、テスト番号を鳴らせる時（core/ring_test.wait_seconds が0）になったら、すぐテスト番号で決める（1か所。`_decide_if_stuck`）。
-    待つあいだも、その回線は止めずに次の行へ進んでかけ続ける（その電話が鳴れば、前の続きはその場で番号のせいと決まる。行は番号の4回にも
-    回線の異常にも数えないまま、次の動きが休ませて次へ進む＝まだ分からない電話の扱い）。2026-10-24 管理者：「わからない場合は…1回目から、
-    次の行に進む…次の行がつながればすぐに判断できますよね」・「作業を止めるな」。返すのは、回線のせいと決まって回線を休ませるときだけ
-    （テスト番号が鳴らなかった・テスト番号で決められず今の決まりで回線のせいにした）。ほかは None（そのまま次の行へ）。"""
-    pending = access.in_tenant(actor, tenant_id, lambda tx: attempts.line_pending(tx, line_id))
-    if pending is None or pending["numbers"] < 2:
-        return None
-    got = _decide_if_stuck(access, actor, tenant_id, line_id, clients, driver)
-    return got if got.pause == UNRUNG_PAUSE else None
-
-
 def _decide_if_stuck(access: Access, actor: Actor, tenant_id: UUID, line_id: UUID, clients: list[UUID], driver: CallDriver,
                      *, line_blocked: bool = False) -> Round:
-    """番号のせいか回線のせいかがまだ分からない続きを、止まり続けさせない（決めにいくかの判断はこの1か所。0136）。2026-10-24 ユーザー：
-    「回線か番号かどちらかわからない場合は、その行に固執するのでなく、1回目から、次の行に進むようにしてください。…一つの行で
-    止まり続けることがないようにしてください。」「その回線にかける行が残っていないときは、『テスト番号』で決めます。」
+    """番号のせいか回線のせいかがまだ分からない続きを、止まり続けさせない（決めにいくかの判断はこの1か所。0136・0143）。2026-10-24 管理者：
+    「回線か番号かどちらかわからない場合は、その行に固執するのでなく、1回目から、次の行に進むようにしてください。次の行に進んで、次の行が
+    つながればすぐに回線の問題か番号の問題か判断できますよね。一つの行で止まり続けることがないようにしてください。」「その回線にかける行が
+    残っていないときは、『テスト番号』で決めます。」
     決めにいくのは、その回線に、まだ分からない続き（attempts.line_pending）があり、その回線が「次の電話で決まるのを待つ長さ」
-    （core/ring_test.decide_within＝テスト番号をあける長さの並びの1つ目。初め15分。0141）のうちにかけられる行が無いとき
-    （scheduler.soon_left の1か所。続きの番号の行・分からないまま待つ行・候補に出さない行・判定待ち・
-    止めた範囲の行・時刻が先の行は数えない。line_blocked＝この回線が門の回線の理由でいまかけられない＝かけられる行は無い）。
-    まもなくかけられる行があれば、その電話の結果で決まるので待つ。違う番号が2つ以上続けて鳴らなかった続き（「テスト番号で決める」印の
-    ある続き。0141）は、まもなくかける行を待たずに決めにいく（`_test_now_if_several`。待つあいだも次の行へかけ続ける）。
-    - テスト番号で決められれば（core/ring_test.decides の1か所）、試す（鳴れば、まだ分からなかった続きは番号のせい＝鳴った電話と同じ
-      区切り。鳴らなければ回線のせい＝回線の異常として数える）。決まらなかった（見分けられない・話している途中・鳴らしてよい時間の外・
-      鳴らす間がまだ＝core/ring_test）ときは、休んでから試し直す（時間の外・間の前は鳴らさない）。
-    - テスト番号で決められなければ（テスト番号が無い。違う番号が2つ以上の続きは、鳴らしてよい時間の外も）、
-      続きを閉じて前の決まりで決める（attempts.close_unrung_run の no_rows。違う番号が2つ以上なら回線のせい。1つの番号なら、前に鳴った
-      電話があれば番号のせい、無ければ回線のせい）。
-    - テスト番号の答えが見分けられなかったら、その続きについて契約者と管理者にすぐ1回知らせる（core/ring_test.run の1か所。0141。
-      ⛔ 0136〜0140：決まらないまま line.pending_alert_after＝1日たってから知らせた）。"""
+    （core/ring_test.decide_within＝テスト番号をあける長さの並びの1つ目。初め15分）のうちにかけられる行が無いときだけ
+    （scheduler.soon_left の1か所。続きの番号の行・決まるのを待つ行・候補に出さない行・判定待ち・止めた範囲の行・時刻が先の行は数えない。
+    line_blocked＝この回線が門の回線の理由でいまかけられない＝かけられる行は無い）。違う番号の数にはよらない（⛔ 0129〜0141：違う番号が
+    2つ続けば回線のせい・テスト番号を先に鳴らす、の別の道があった＝0143 で外した）。まもなくかけられる行があれば、その電話の結果で決まる
+    ので待つ（テスト番号は鳴らさない）。
+    - テスト番号で試す（core/ring_test.run の1か所）：鳴った＝まだ分からなかった続きは番号のせい（鳴った電話と同じ区切り）・鳴らなかった＝
+      回線のせい（回線の異常として数えて休む）。
+    - 決まらない（テスト番号が無い・鳴らしてよい時間の外・見分けられない・鳴らす間がまだ・話している途中・PC の部品が試さなかった）ときは、
+      決めずに待つ（休んでから試し直す）。テスト番号が無い・見分けられないは、core/ring_test.run が契約者と管理者にすぐ1回知らせる。
+      ⛔ 0131〜0141：テスト番号で決められないとき、前の区切りで決めた（前に鳴った電話があれば番号のせい）＝壊れた回線のお客様の行を
+      失いえた。"""
     pending = access.in_tenant(actor, tenant_id, lambda tx: attempts.line_pending(tx, line_id))
     if pending is None:
         return Round()
-    several = pending["numbers"] > 1
-    if not line_blocked and not several:
+    if not line_blocked:
         if any(access.in_client(actor, tenant_id, c, lambda tx: scheduler.soon_left(
-                tx, line_id, not_phone=pending["phone_e164"])) for c in clients):
+                tx, line_id, not_phones=pending["phones"])) for c in clients):
             return Round()
     tested = ring_test.run(access, actor, tenant_id, line_id, driver, "no_rows")
     if tested is ring_test.Result.SILENT:
@@ -453,19 +492,15 @@ def _decide_if_stuck(access: Access, actor: Actor, tenant_id: UUID, line_id: UUI
         return Round(pause=UNRUNG_PAUSE)
     if tested is ring_test.Result.RANG:
         return Round()
-    if not access.in_tenant(actor, tenant_id, lambda tx: ring_test.decides(tx, several=several)):   # テスト番号で決められない：前の決まりで決める
-        if access.in_tenant(actor, tenant_id, lambda tx: attempts.close_unrung_run(tx, line_id, "no_rows")) \
-                and _unrung(access, actor, tenant_id, line_id):   # 回線のせいと決まった分は、回線の異常として数える（同じ1か所）
-            return Round(pause=UNRUNG_PAUSE)
-        return Round()
     return Round(pause=RING_TEST_PAUSE)
 
 
 def _check_stop(access: Access, actor: Actor, tenant_id: UUID, line_id: UUID, driver: CallDriver) -> float | None:
     """回線の異常で止めた、この回線の停止の確かめ（2026-10-24 ユーザー：再開の確かめもテスト番号で「OK」）：テスト番号で確かめる停止
     （core/ring_test.checks_stop の1か所。テスト番号の無い契約者は確かめの部品＝supervisor.jobs）で、確かめの時が来ていれば、テスト番号で
-    試し、鳴れば成功・鳴らなければ失敗として記録する（core/watch.record_check。決めた回数続けて成功したら解く）。分からない・話している
-    途中・鳴らしてよい時間の外（設定 line.test_ring_hours。2026-10-24 ユーザー：テスト番号はいまユーザー自身の電話）なら記録しない
+    試し、鳴れば成功・鳴らなければ失敗として記録する（core/watch.record_check。1回鳴れば解く＝2026-10-25 夜 管理者「鳴ったら、テストＯＫ
+    なだけ」。0143）。見分けられない（core/ring_test.run が、その停止について1回知らせる）・話している途中・PC の部品が試さなかった・
+    鳴らしてよい時間の外（設定 line.test_ring_hours。2026-10-24 ユーザー：テスト番号はいまユーザー自身の電話）なら記録しない
     （いつもの休みのあとで試し直す。時間の外は、時間の始まりまで鳴らさず、アプリが応答するかだけの確かめでも解かない＝朝まで待つ。
     記録しないので、確かめの間隔も伸びない）。返すのは、次に確かめてよいまでの秒（その停止が無い・決まらなかったときは None＝
     いつもの休み）：回線ごとの処理は、それより長く休まない（確かめの間隔＝stop.line.probe_interval のとおりに試す）。"""

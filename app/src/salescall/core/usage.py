@@ -40,6 +40,25 @@ from salescall.core import notify, reward, settings
 from salescall.core.access import Access, Actor, Tx
 
 
+# 意味の判定（出どころ judge。答えの意味の2つ目の判定・AI の自分の言葉の中身の判定）の利用量の名前（1か所。CL-1 の連絡帳 4-59 への答え。
+# 0143）。新しい作りは増やさない（0102・0104 の出どころ・サービス・枠・単位のまま）。会話の側（CL-1）は、通話ごとに、判定へ送った分を
+# `record(tx, source="judge", service=JUDGE_SERVICES[判定の名前], tier=JUDGE_TIER, kind=…, quantity=…, unit=…, attempt_id=試行)` で残す：
+# - service＝「会社:モデル」（考える形・考えない形は同じモデル・同じ単価なので同じ名前。考えた量は出力に入る）。まとめて送った前の部分
+#   （プロンプトのキャッシュ）の読み・書きは単価が違うので、名前の後ろに JUDGE_CACHE_READ・JUDGE_CACHE_WRITE を付け、入力の量
+#   （input_tokens）として残す。
+# - tier＝枠（いまはどれも有料の枠 paid。契約者が無料の枠を使うなら free）。単価は、この組ごとに管理者・契約者が入れる（set_price）。
+# - kind＝返事の使った量は measured・返事を待たずに止めた問い合わせ（先に届いた答えで決めた）は、会話の側の見込みの量で estimated。
+# - unit＝input_tokens・output_tokens。
+JUDGE_SERVICES: dict[str, str] = {
+    "Jev 1.14": "openrouter:typesafe/jev-1.14",
+    "Claude Sonnet 5.5": "anthropic:claude-sonnet-5-5",
+    "Claude Sonnet 5.5（考える）": "anthropic:claude-sonnet-5-5",
+}
+JUDGE_CACHE_READ = ":cache_read"     # まとめて送った前の部分の読み（service の後ろに付ける）
+JUDGE_CACHE_WRITE = ":cache_write"   # まとめて送った前の部分の書き（service の後ろに付ける）
+JUDGE_TIER = "paid"
+
+
 class PriceMissing(Exception):
     """その出どころ・単位の単価が無い（記録できない）。"""
 

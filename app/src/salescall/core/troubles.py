@@ -10,8 +10,9 @@
   「声が聞き取れない」（poor_audio）は、こちらの不具合に数えない（2026-10-25 夜 管理者：お客様と話している途中で切れた電話と同じ。違う
   お客様で続けば回線の異常＝supervisor/line.py の `_unrung`。0141）＝ここを通らない。
 - **電話ごとに伝える**（`after_trouble` の1か所。呼ぶのは通話ごとの口＝supervisor/line.py の `_Call` だけ）：エラーの入口
-  （watch.after_error）に、出どころ「通話」で渡す＝記録（error_events）・契約者と管理者への知らせ（電話ごと）・直す担当への修正依頼
-  （同じ不具合で1つ）。止めるかも同じ道（watch.decide_stop）。
+  （watch.after_error）に、出どころ「通話」（データベースへの書き込みが進まなかったときは「保存」＝errors.TROUBLE_SOURCES。0143）で渡す＝
+  記録（error_events）・契約者と管理者への知らせ（電話ごと。その行が復旧を待っていること＝何が直れば動くかを文に入れる＝errors.RECOVERY_WAIT）・
+  直す担当への修正依頼（同じ不具合で1つ）。止めるかも同じ道（watch.decide_stop）。
 - **その行だけの問題**：同じ行で続けて salescall.trouble_rest_after()（2回）になったら、その行は休む（データベースの salescall.task_resting の
   1か所。門の理由 task_resting と、候補を出す処理が読む）。休み始めたら、契約者と管理者に1回知らせる（`task_resting`）。
 - **戻す道は2つ**：(1) その理由の修正依頼が直したと記録され（fix_requests.report_fixed）、そのあと動いているプログラムの版が替わった（中央の
@@ -28,12 +29,12 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from salescall.core import notify, watch
+from salescall.core import errors, notify, watch
 from salescall.core.access import Access, Actor, Tx
 from salescall.core.errors import ErrorReport
 
 RESTING_SUMMARY = ("こちらのプログラムの不具合で、同じ行の電話が続けて終わりました。この行は休ませ、次の行へ進みます"
-                   "（直したプログラムの版に替わると自動で戻ります。管理者・契約者が戻すこともできます）。")
+                   "（その不具合を直したと記録され、そのあとプログラムが替わったら、自動で戻ります。管理者・契約者が戻すこともできます）。")
 
 
 def resting(tx: Tx, task_id: UUID) -> bool:
@@ -46,7 +47,8 @@ def after_trouble(access: Access, actor: Actor, *, tenant_id: UUID, client_id: U
     """こちらのプログラムの不具合で通話を終えたあと（試行に理由を残したあと）に呼ぶ入口（1か所）：記録・契約者と管理者への知らせ・
     直す担当への修正依頼・止めるかを、エラーの入口の1か所で行い、その行が休み始めたら1回知らせる。エラーの種類を返す。
     what＝何が起きたか（決まった言葉と誤りの種類の名前だけ。お客様の情報・誤りの文は入れない＝supervisor.report と同じ決まり）。"""
-    kind = watch.after_error(access, actor, ErrorReport("call", None, f"{reason}：{what}", trouble=reason),
+    source = errors.TROUBLE_SOURCES.get(reason, "call")   # 出どころは理由ごと（データベースが止まった＝保存。0143）
+    kind = watch.after_error(access, actor, ErrorReport(source, None, f"{reason}：{what}", trouble=reason),
                              tenant_id=tenant_id, client_id=client_id, line_id=line_id, attempt_id=attempt_id)
 
     def tell(tx: Tx) -> None:

@@ -25,6 +25,8 @@
   合わなければその場で ItemInvalid・ReportInvalid を返す（通話の部品が、その場で聞き直せる）。データベースを読む確かめ（質問が版に
   あるか など）は書き手が書くときに行い、書けなかった分は書き手が持って、通話の部品の flush（と通話の終わり）で返す。
   確かめの決まりは、どちらも `write_item`・`save_report` と同じ1か所（2つ目を作らない）。
+  **状態の移り**も、書き手へは `move_work` で頼む（0143）：通話ごとの口が、頼まれた移り（話し終えた ending・ended など）を手元で持ち、
+  データベースを読み直す前に、通話が終わりに向かっているかを決める（書き込みが遅くても、話し終えた電話におわびを流さない）。
 - **会話の報告を置く**（`save_report`。形の確かめは call_report.from_json の1か所。1回だけ・変更不可）と、**録音から作り直した
   報告を置く**（`save_rebuilt_report`。通話後の検証が呼ぶ）。
 - **「もうかけないで」をその場で台帳へ**（`declare_do_not_call`。dnc.register_declared をそのまま呼ぶ。原則14）。
@@ -41,6 +43,7 @@
 from __future__ import annotations
 
 import json
+import typing
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -50,8 +53,8 @@ from salescall.core import attempts, business_rules, business_settings, call_rep
 from salescall.core.access import Tx
 from salescall.core.attempts import AttemptNotFound
 
-__all__ = ["REFUSED", "ItemInvalid", "ItemValue", "call_setting", "check_item", "declare_do_not_call", "earlier", "handlings",
-           "item_work", "record_keys", "report_work", "save_rebuilt_report", "save_report", "write_item"]
+__all__ = ["REFUSED", "ItemInvalid", "ItemValue", "MoveWork", "call_setting", "check_item", "declare_do_not_call", "earlier",
+           "handlings", "item_work", "move_work", "record_keys", "report_work", "save_rebuilt_report", "save_report", "write_item"]
 
 # 理由を持てる状態と、その理由の名前の一覧（正本は業務の決まり business_rules。ここは対応だけ）
 _REASONS: dict[str, tuple[str, ...]] = {"dont_know": business_rules.DONT_KNOW_REASONS,
@@ -103,6 +106,25 @@ def item_work(attempt_id: UUID, item: ItemValue) -> Callable[[Tx], None]:
     （`check_item`）は、いま行う（合わなければ、いま ItemInvalid）。書くときの確かめは `write_item` のまま。"""
     check_item(item)
     return lambda tx: write_item(tx, attempt_id, item)
+
+
+@dataclass(frozen=True)
+class MoveWork:
+    """試行の状態を移す、通話ごとの書き手へ頼む形（`call.write(conversation_io.move_work(…))`。0143）。to_state を通話ごとの口が手元で
+    読む（話し終えた ending・ended、出なかった no_answer などの終わりの移り＝通話は終わりに向かっている）。書くのは attempts.move の1か所。"""
+    attempt_id: UUID
+    to_state: str
+
+    def __call__(self, tx: Tx) -> dict[str, Any]:
+        return attempts.move(tx, self.attempt_id, self.to_state)   # type: ignore[arg-type]
+
+
+def move_work(attempt_id: UUID, to_state: str) -> MoveWork:
+    """試行の状態の移りを、通話ごとの書き手へ頼む形（`call.write(conversation_io.move_work(試行, "ending"))`）。移ってよい先かは、いま
+    確かめる（予約・発信・取り消しへは移せない＝attempts.move と同じ決まり。移れる組はデータベースが守る）。"""
+    if to_state not in typing.get_args(attempts.LineState):
+        raise ValueError(f"通話の部品が移せる状態は {typing.get_args(attempts.LineState)} のどれかです：{to_state!r}")
+    return MoveWork(attempt_id, to_state)
 
 
 def report_work(attempt_id: UUID, raw: Any) -> Callable[[Tx], call_report.CallReport]:

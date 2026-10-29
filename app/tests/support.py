@@ -270,6 +270,22 @@ class World:
             self.move(other, aid, state)
         return aid
 
+    def test_number_rang(self, s: dict, *, line: UUID | None = None) -> None:
+        """その回線のテスト番号が、いま鳴った（記録だけ。発信の回数・報酬には数えない）：その前の、まだ分からない鳴らなかった電話は
+        番号のせいと決まる（salescall.unrung_blame。0143：決まるまで締めない）。決め方そのものを試さない試験が、締める前に使う。"""
+        owner_access().in_system(SYSTEM, lambda tx: tx.execute(
+            "INSERT INTO salescall.line_ring_tests (tenant_id, line_id, purpose, rang) VALUES (%s, %s, 'no_rows', true)",
+            (s["tenant"], line or s["line"])))
+
+    def test_number_silent(self, s: dict, *, line: UUID | None = None) -> bool:
+        """その回線のテスト番号が、いま鳴らなかった（記録し、続きを閉じる＝ring_test.run と同じ順）：その前の、まだ分からない
+        鳴らなかった電話は回線のせいと決まる。閉じたら True。"""
+        owner_access().in_system(SYSTEM, lambda tx: tx.execute(
+            "INSERT INTO salescall.line_ring_tests (tenant_id, line_id, purpose, rang) VALUES (%s, %s, 'no_rows', false)",
+            (s["tenant"], line or s["line"])))
+        from salescall.core import attempts
+        return self.a.in_tenant(SYSTEM, s["tenant"], lambda tx: attempts.close_unrung_run(tx, line or s["line"], "test_silent"))
+
     def move(self, s: dict, attempt: UUID, state: str, hangup_side: str | None = None) -> None:
         self.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: tx.execute(
             "UPDATE salescall.attempts SET state = %s, hangup_side = %s WHERE attempt_id = %s",

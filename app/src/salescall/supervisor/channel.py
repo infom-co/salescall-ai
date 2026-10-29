@@ -564,12 +564,16 @@ class AgentDriver:
 
     def test_ring(self, phone_e164: str) -> bool | None:
         """テスト番号へ鳴るか試す（core/ring_test が呼ぶ）。回線から発信できた True（呼び出しの音・話し中の音・電源オフや圏外のお知らせ）・
-        発信できない False・見分けられない None（つながっていない・答えない・PC が試さなかった）。意味は link/phone.Phone.test_ring。"""
+        発信できない False・見分けられない None（PC の電話の部品が見分けられなかった）。意味は link/phone.Phone.test_ring。
+        **試さなかった**（つながっていない・答えが期限に届かない・PC が試さなかった＝PC の上の緊急停止・話している途中・答えの期限）は
+        CallWithheld（記録しない＝結果ではない。0143。⛔ 0134〜0142：None＝見分けられないとして記録し、あける長さを伸ばした）。"""
         try:
             got = self.hub.ask(self._session(), "request", op="test_ring", line=self.line_id, phone=phone_e164)
-        except Exception:  # noqa: BLE001 つながっていない・待ち過ぎ：分からない
-            return None
-        value = got.get("value") if got.get("ok") else None
+        except Exception:  # noqa: BLE001 つながっていない・待ち過ぎ：試していない（答えが届かない）
+            raise CallWithheld("PC の部品がつながっていない・答えが期限に届きませんでした") from None
+        if not got.get("ok"):
+            raise CallWithheld("PC の部品が、テスト番号を試しませんでした")
+        value = got.get("value")
         return value if isinstance(value, bool) else None
 
     def send_audio(self, audio: bytes) -> None:

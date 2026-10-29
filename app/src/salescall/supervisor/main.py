@@ -12,9 +12,10 @@
    同じ回線を別の PC がつなぎ直したら、前の流れが止まってから、新しい PC で始める（同じスマホで二重にかけない）。
 4. **回線ごとの流れ**（`line.loop`）：別の流れ（スレッド）で動かす。外へ出た誤りでは止まらない（その通話だけを結果不明にする）。
    止まってしまったら（思いがけない終わり）、後始末して「見守り役の誤り」として記録し（CL-2 へ修正依頼）、間をあけて立ち上げ直す
-   （続けて止まるほど間を延ばす。上限5分）。通話を進める部品が、こちらの不具合でおわびして終えたあとも決めた長さ（設定 call.stuck_after）
-   戻らなければ（判断は line._Call.abandoned の1か所）、その流れを捨てて、すぐ立て直す（`_abandon`。契約者と管理者に知らせ、CL-1 へ
-   修正依頼。0141。⛔ 見直し20a：前は流れが生きていれば何もせず、その回線は黙って止まったままだった）。
+   （続けて止まるほど間を延ばす。上限5分）。通話を進める部品が、終えると決めたあと、おわびを流し終える長さ（protocol.APOLOGY_WAIT）と
+   call.frozen_after を過ぎても戻らない・戻ったあと書き手が進まない（判断は line._Call.abandoned の1か所。0141・0143）なら、その流れを
+   捨てて、すぐ立て直す（`_abandon`。電話がまだつながっていれば、おわびして切ってもらう。契約者と管理者に知らせ、直す担当へ修正依頼＝
+   通話の部品は CL-1・書き手は保存の CL-2。⛔ 見直し20a：前は流れが生きていれば何もせず、その回線は黙って止まったままだった）。
 5. **決まった間隔の仕事**（`jobs.JOBS`）：すべての契約者に共通の仕事は1つ、契約者ごとの仕事はすべての契約者について1つずつ、
    それぞれ別の流れで、同じ仕事が重ならないように回す。
 6. **版**：プログラムとデータベースの版がずれていれば、回線ごとの流れを止め（いまの通話は最後まで）、立ち上げず、決まった間隔の仕事も
@@ -349,7 +350,7 @@ class Supervisor:
                 continue
             if w.thread.is_alive():
                 stuck = stuck_call(line_id)
-                if stuck is not None and not w.stopping:   # 通話を進める部品が、おわびして終えたあとも戻らない：流れを立て直す
+                if stuck is not None and not w.stopping:   # 通話の部品が戻らない・書き手が進まない：流れを立て直す
                     self._abandon(line_id, w, stuck, now)
                     continue
                 if w.fails and now - w.started_at >= STABLE_AFTER:   # しばらく続けて動いた：止まった回数を数え直す
@@ -367,14 +368,22 @@ class Supervisor:
             self.workers[line_id] = _Worker(line_id, w.at, None, None, w.fails + 1, now + _backoff(w.fails))
 
     def _abandon(self, line_id: UUID, w: _Worker, call: Any, now: float) -> None:
-        """通話を進める部品が、こちらの不具合でおわびして終えたあとも設定 call.stuck_after 戻らない（判断は通話ごとの口の1か所＝
-        line._Call.abandoned。0141。⛔ 見直し20a：前は流れが生きているあいだ何もせず、借用を延ばし続け、その回線は二度とかけず、だれにも
-        知らされなかった）：その流れを捨てて立て直す（流れには止める印を立てる＝戻れば、そこで終わる。新しい流れ・新しい通話の部品で、
-        すぐ次の電話へ）。契約者と管理者に知らせ、CL-1 へ修正依頼を出す（エラーの入口 watch.after_error の1か所。種類 runner_stuck）。"""
+        """通話ごとの口が「戻らない」（判断は通話ごとの口の1か所＝line._Call.abandoned。0141・0143）：(1) 通話を進める部品が、終えると決めた
+        あと、おわびを流し終える長さと call.frozen_after を過ぎても戻らない (2) 通話を進める部品が戻ったあと、書き手が進まない（データ
+        ベースが止まった）。⛔ 見直し20a：前は流れが生きているあいだ何もせず、借用を延ばし続け、その回線は二度とかけず、だれにも知らされ
+        なかった。⛔ 見直し21a の 5・21b の 1：戻ったあとの書き手の待ちは上限なしで、回線が黙って止まった。
+        その流れを捨てて立て直す（流れには止める印を立てる＝戻れば、そこで終わる。新しい流れ・新しい通話の部品で、すぐ次の電話へ）。
+        電話がまだつながっていれば、おわびして切ってもらう（`_hang_up_left`。終わりに向かっていた通話の部品が固まり、電話が残ったとき）。
+        契約者と管理者に知らせ、直す担当へ修正依頼を出す（エラーの入口 watch.after_error の1か所。出どころは通話ごとの口が決める＝
+        `stuck_source`：通話の部品＝runner（種類 runner_stuck・CL-1）／書き手＝storage（保存・CL-2））。"""
+        source = getattr(call, "stuck_source", "runner")
         call_over(line_id, call)   # 「話している」から外す（止める処理・ログインを外す処理が、戻らない部品を待たない）
         w.stop.set()
+        self._hang_up_left(line_id, w.at)
+        what = ("通話を進める部品が、終えると決めたあとも戻りません" if source == "runner"
+                else "通話の書き込みがデータベースで進みません（回線の処理を立て直しました）")
         try:
-            watch.after_error(self.access, ACTOR, ErrorReport("runner", None, "通話を進める部品が、おわびして終えたあとも戻りません"),
+            watch.after_error(self.access, ACTOR, ErrorReport(source, None, what),
                               tenant_id=w.at.tenant_id, client_id=getattr(call, "client_id", None), line_id=line_id,
                               attempt_id=getattr(call, "attempt_id", None))
         except Exception as e:  # noqa: BLE001 伝えられなくても、立て直しは止めない

@@ -332,15 +332,16 @@ class Agent:
                 await loop.run_in_executor(None, _apologize, phone)
                 return None if self.generation != generation else {"ok": False, "error": "failed"}
             return out
-        if op == "test_ring":   # テスト番号へ鳴るか試す（緊急停止の印がある・話している途中なら試さない＝分からない）
-            if emergency.engaged() is not None or await loop.run_in_executor(None, _busy, phone):
-                return {"ok": True, "value": None}
+        if op == "test_ring":   # テスト番号へ鳴るか試す（緊急停止の印がある・話している途中・答えの期限を過ぎたら試さない＝withheld。0143）
+            if (emergency.engaged() is not None or time.monotonic() - got > p.ANSWER_BY
+                    or await loop.run_in_executor(None, _busy, phone)):
+                return {"ok": False, "error": "withheld"}
             try:
                 rang = await loop.run_in_executor(None, lambda: phone.test_ring(str(msg.get("phone"))))
-            except Exception:  # noqa: BLE001 電話の部品の誤り：分からない
+            except Exception:  # noqa: BLE001 電話の部品の誤り：見分けられない
                 rang = None
-            if time.monotonic() - got > p.ANSWER_BY:   # 答えの期限を過ぎた：サーバーはもう待っていない
-                return {"ok": True, "value": None}
+            if time.monotonic() - got > p.ANSWER_BY:   # 答えの期限を過ぎた：サーバーはもう待っていない（答えは届かない＝試さなかった扱い）
+                return {"ok": False, "error": "withheld"}
             return {"ok": True, "value": None if rang is None else bool(rang)}
         work = phone.hang_up if op == "hang_up" else phone.play_apology_and_hang_up
         try:

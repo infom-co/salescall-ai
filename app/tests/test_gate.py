@@ -128,6 +128,10 @@ class Base(unittest.TestCase):
             rep = report or make_report()
             self.tx(s, lambda tx: call_report.save(tx, aid, rep))
         if settled and "dialing" in path:     # 予約だけで取り消した試行は、締める対象ではない
+            if self.tx(s, lambda tx: attempts.blame(tx, aid)) == "pending":
+                # 鳴らなかった電話は、だれのせいかが決まるまで締めない（0143）：門の守りを試すため、テスト番号が鳴った＝番号のせい、
+                # と決めてから締める（発信の回数には数えない）
+                self.w.test_number_rang(s, line=line)
             self.tx(s, lambda tx: settle.settle(tx, aid))
             self.tx(s, lambda tx: next_action.schedule_now(tx, s["task"], cause="試験：次の予定を、いまに書き直した"))
         return aid

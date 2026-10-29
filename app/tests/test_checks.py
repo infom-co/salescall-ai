@@ -211,7 +211,9 @@ class EntriesCalledFromTheirPlaces(Planted):
 
     def test_an_entry_outside_its_places_is_caught(self):
         root = self._app({
-            "src/salescall/supervisor/line.py": "def go(tx, l):\n    attempts.close_unrung_run(tx, l, 'no_rows')\n",
+            "src/salescall/core/ring_test.py": "def go(tx, l):\n    attempts.close_unrung_run(tx, l, 'test_silent')\n",
+            # 決めにいく回線ごとの処理は、続きを閉じない（0143：テスト番号で決められないときは決めずに待つ）
+            "src/salescall/supervisor/line.py": "def go(tx, l):\n    attempts.close_unrung_run(tx, l, 'test_silent')\n",
             "src/salescall/core/attempts.py": "def close_unrung_run(tx, l, r):\n    pass\ndef x(tx, l):\n    close_unrung_run(tx, l, 'r')\n",
             "src/salescall/core/settle.py": "def go(tx, l):\n    attempts.close_unrung_run(tx, l, 'no_rows')\n",
             "src/salescall/core/next_action.py": "from salescall.core.attempts import end_for_trouble\n",
@@ -221,7 +223,7 @@ class EntriesCalledFromTheirPlaces(Planted):
             # 別名で取り込んでも・部品の名前を全部書いても見つける（⛔ 見直し20a：`import … as 別名` を素通りした）
             "src/salescall/core/alias_a.py": "from salescall.core import attempts as at\ndef go(tx, l):\n    at.close_unrung_run(tx, l, 'x')\n",
             "src/salescall/core/alias_b.py": "import salescall.core.ring_test as rt\ndef go(a):\n    rt.run(a)\n",
-            "src/salescall/core/alias_c.py": "import salescall.core.attempts\ndef go(tx, l):\n    salescall.core.attempts.hold_unrung_run(tx, l)\n",
+            "src/salescall/core/alias_c.py": "import salescall.core.attempts\ndef go(tx, l):\n    salescall.core.attempts.end_for_trouble(tx, l, 'x')\n",
             "src/salescall/core/alias_ok.py": "from salescall.core import attempts as at\ndef go(tx, l):\n    at.blame(tx, l)\n",
         })
         found = rules.entries_called_from_their_places(root)
@@ -229,7 +231,8 @@ class EntriesCalledFromTheirPlaces(Planted):
                          [("src/salescall/core/alias_a.py", "一本化"), ("src/salescall/core/alias_b.py", "一本化"),
                           ("src/salescall/core/alias_c.py", "一本化"),
                           ("src/salescall/core/next_action.py", "一本化"), ("src/salescall/core/settle.py", "一本化"),
-                          ("src/salescall/core/settle_more.py", "一本化"), ("src/salescall/supervisor/jobs.py", "一本化")])
+                          ("src/salescall/core/settle_more.py", "一本化"), ("src/salescall/supervisor/jobs.py", "一本化"),
+                          ("src/salescall/supervisor/line.py", "一本化")])
 
 
 class CallErrorsOnlyThroughTroubles(Planted):

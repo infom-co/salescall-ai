@@ -451,17 +451,7 @@ class WrongNumber(Base):
                 self.tx(s, lambda tx: support.schedule_call(          # 試験：その時刻が来たことにする
                     tx, s["task"], self.now(s), contact_id=nxt["contact_id"], cause="試験", promised=True,
                     purpose="ask_number_again", wrong_contact_id=nxt["wrong_contact_id"]))
-        nxt = self.current(s)
-        self.assertEqual((got["decision"].kind, nxt["purpose"]), ("call", "ask_number_again"))   # まだ番号のせいか分からない：待つ
-        self.tx(s, lambda tx: support.schedule_call(tx, s["task"], self.now(s), contact_id=nxt["contact_id"], cause="試験",
-                                                       promised=True, purpose="ask_number_again",
-                                                       wrong_contact_id=nxt["wrong_contact_id"]))
-        self.assertEqual(self.claim(s).reason, "number_unconfirmed")
-        self.ring_elsewhere(s)                                                 # 同じ回線がほかの番号を鳴らせた：番号のせい（0129）
-        denied = self.claim(s)
-        self.assertEqual(denied.reason, "number_unusable")
-        d = self.tx(s, lambda tx: next_action.after_denial(tx, s["task"], denied, tenant_id=s["tenant"], client_id=s["client"],
-                                                         business_id=s["business"]))
+        d = got["decision"]                                                    # 番号のせいと分かった4回目で、その番号へはかけない
         self.assertEqual((d.kind, d.end_reason), ("end", "number_unusable"))
 
     def test_database_promises(self):

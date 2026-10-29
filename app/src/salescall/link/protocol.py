@@ -26,7 +26,8 @@ PC → サーバー：
                                                    test_ring＝テスト番号（phone）へかけ、鳴ったら出る前に切る（答えの value：true＝回線から発信
                                                    できた＝呼び出しの音・話し中の音・電源オフや圏外のお知らせの声が返った・false＝回線から発信
                                                    できない＝アプリが発信できない・呼び出しもお知らせも無いまま終わった・null＝見分けられない。
-                                                   話している回線・PC の緊急停止の印があれば試さない＝null。0134・0141）
+                                                   話している回線・PC の緊急停止の印がある・答えの期限を過ぎたら試さない＝error withheld
+                                                   ＝サーバーは記録しない。0134・0141・0143）
   backup_begin {id, folder, file_name, sha256}     控えを書く（中身は CHUNK ずつのバイト。sha256＝暗号化する前の中身）
   backup_end {id}
   prune {id, folders}                              古い控えを消す（folders＝フォルダごとに、種類・残す日数・消さないもの）
@@ -46,9 +47,10 @@ import uuid
 from typing import Any
 from uuid import UUID
 
-VERSION = 5                  # やり取りの形の版（変えたら上げる。2＝控えの書けた印と送る速さ。3＝番号を受け付けなかった number_rejected。
+VERSION = 6                  # やり取りの形の版（変えたら上げる。2＝控えの書けた印と送る速さ。3＝番号を受け付けなかった number_rejected。
                              # 4＝number_rejected をやめ not_placed の1つに（だれのせいかは証拠で決める＝0129）・期限切れは withheld。
-                             # 5＝テスト番号に鳴るか試す test_ring＝0134）
+                             # 5＝テスト番号に鳴るか試す test_ring＝0134。6＝test_ring の答えの意味：true＝回線から発信できた（話し中・
+                             # 電源オフ・圏外のお知らせも）・null＝見分けられない・試さなかったときは error withheld＝0141・0143）
 BEAT_EVERY = 15              # 動いている合図の間隔（秒）
 REPLY_WAIT = 20              # 頼んだことの答えを待つ長さ（秒。過ぎたら「分からない」＝かけない側）
 APOLOGY_WAIT = 60            # 「おわびして切って」の答えを待つ長さ（秒）。おわびは2つの録音とお客様の返事の待ちで REPLY_WAIT を超えうる。

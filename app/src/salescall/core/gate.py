@@ -21,8 +21,8 @@ from datetime import datetime, timedelta
 from typing import Any, NamedTuple
 from uuid import UUID
 
-from salescall.core import (approval, attempts, business_rules, business_settings, calling_hours, dnc, notify, quality_stage,
-                            recordings, settings, stops, target_policy)
+from salescall.core import (approval, attempts, business_rules, business_settings, calling_hours, dnc, errors, notify,
+                            quality_stage, recordings, settings, stops, target_policy)
 from salescall.core.access import Rejected, Tx
 from salescall.core.calendar import CalendarOutOfRange, holiday_checker
 from salescall.core.phone import normalize
@@ -97,12 +97,11 @@ REASONS: dict[str, Reason] = {
     # こちらのプログラムの不具合で、同じ行の電話が続けて終わった（2026-10-25 ユーザー：「2回続いたら、次の行へ」。決まりはデータベースの
     # salescall.task_resting の1か所＝候補を出す処理も同じ関数で出さない。0139）
     "task_resting": Reason("こちらのプログラムの不具合で、この行の電話が続けて終わったので、休ませています（直す担当がその不具合を直したと"
-                           "記録し、そのあと直したプログラムの版に替わるか、管理者・契約者が戻すと、またかけます）", "wait", "unoffered"),
+                           "記録し、そのあとプログラムが替わるか、管理者・契約者が戻すと、またかけます）", "wait", "unoffered"),
     # こちらのプログラムの不具合で終えた電話のあと、復旧を待つ（2026-10-17 管理者：「復旧次第、お詫びとともにすぐかけ直さないといけない
     # でしょ！」。決まりはデータベースの salescall.awaiting_recovery の1か所＝候補を出す処理も同じ関数で出さない。0141）
-    "awaiting_recovery": Reason("こちらのプログラムの不具合でこの行の電話を終えたので、復旧を待っています（同じ契約者で、こちらの不具合なしに"
-                                "お客様と話し終えた電話があるか、直したプログラムの版に替わったら、すぐにかけ直します。お客様が出たあとに"
-                                "終えた電話は、お詫びとともに）", "wait", "unoffered"),
+    "awaiting_recovery": Reason(f"こちらのプログラムの不具合でこの行の電話を終えたので、復旧を待っています（{errors.RECOVERY_WAIT}）",
+                                "wait", "unoffered"),
     "business_daily_limit": Reason("この業務の、今日の発信の上限に達しました（業務ごとの設定）", "wait", "business"),
     "line_other_client": Reason("この回線は、ほかの依頼者に割り当てた発信番号です", "wait", "line"),
     "line_used_by_other_client": Reason("この発信番号で、ほかの依頼者がこの番号へかけたことがあります（依頼者が替わったら発信番号を替える）",

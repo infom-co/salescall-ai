@@ -60,9 +60,14 @@ class FakePhone:
     def __init__(self, busy=False, fail=None):
         self.calls, self.busy, self.fail, self.hung, self.apologies, self.played = [], busy, fail, 0, 0, []
         self.send_audio = self.send_event = None
+        self.ring, self.rings = None, []   # テスト番号の答え（True・False・None）と、試した番号
 
     def in_call(self):
         return self.busy
+
+    def test_ring(self, phone):
+        self.rings.append(phone)
+        return self.ring
 
     def start_call(self, phone, voice_type=None):
         if self.fail:
@@ -341,6 +346,37 @@ class CallingState(LinkBase):
             self.beaten(r, got)
             until(lambda: not session.calling(), "電話の部品に聞いて、印を外す")
             self.assertEqual(phone.hung, 0)
+
+    def test_a_test_ring_the_pc_did_not_try_is_not_an_answer(self):
+        """テスト番号の答え（PC とのやり取りの版 6。0143）：鳴った true・鳴らなかった false・見分けられない null のほかに、PC の部品が試さ
+        なかった（話している途中・PC の上の緊急停止の印・答えの期限を過ぎた）は error withheld。サーバーは、試さなかった・つながっていない・
+        答えが届かないを CallWithheld にする（core/ring_test が記録しない＝あける長さも伸ばさない）。⛔ 0134〜0142：どれも null（見分け
+        られない）として記録し、あける長さを伸ばし、誤った知らせを出した（見直し21a の 10）。"""
+        s = self.ready()
+        got = self.pc(s)
+        phone = FakePhone()
+        self.agent(got, [s["line"]], {s["line"]: phone})
+        at = self.attached(s, got)
+        driver = self.hub.driver(s["line"], at)
+        for answer in (True, False, None):
+            phone.ring = answer
+            self.assertIs(driver.test_ring("+81300000009"), answer)
+        phone.busy = True                                                       # 話している途中：試さない
+        with self.assertRaises(CallWithheld):
+            driver.test_ring("+81300000009")
+        phone.busy = False
+        with mock.patch.object(protocol, "ANSWER_BY", -1.0):                    # 答えの期限を過ぎた：試さない
+            with self.assertRaises(CallWithheld):
+                driver.test_ring("+81300000009")
+        self.assertEqual(len(phone.rings), 3)
+        pc_emergency.stop("試験：押した")                                        # PC の上の緊急停止：試さない
+        with self.assertRaises(CallWithheld):
+            driver.test_ring("+81300000009")
+        self.assertEqual(len(phone.rings), 3)
+        gone = self.hub.driver(s["line"], Attached(s["tenant"], uuid.uuid4(), 0))   # つながっていない
+        with self.assertRaises(CallWithheld):
+            gone.test_ring("+81300000009")
+        self.assertEqual(protocol.VERSION, 6)
 
     def test_an_old_answer_does_not_unmark_a_new_call(self):
         """「通話中ではない」の答えは、聞いたときの印にだけ効く（聞いているあいだに、かけ直していれば外さない）。"""

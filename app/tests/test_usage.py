@@ -300,6 +300,7 @@ class CostRatio(Priced):
                 self.tx(s, lambda tx: attempts.withheld(tx, c.attempt_id))
             else:
                 self.tx(s, lambda tx: attempts.move(tx, c.attempt_id, end))
+                self.w.test_number_rang(s)                       # 鳴らなかった電話は、番号のせいと決まってから締める（0143）
                 self.settle(s, c.attempt_id)
                 self.tx(s, lambda tx: next_action.schedule_now(tx, s["task"], cause="試験"))
             self.assertEqual(self.month(s)["breakdown"]["dial"]["count"], 1 if end == "no_answer" else 0, end)
