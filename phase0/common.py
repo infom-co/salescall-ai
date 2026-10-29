@@ -263,7 +263,7 @@ class KeyRing:
     - 1分の上限（429。あと数十秒で使える）：同じキーで、言われた秒数だけ待ってから続ける。そもそも当たらないように、同じキー・同じモデルの
       問い合わせは min_interval_s 秒あける（無料枠の文字のモデルは1分に5回まで＝ユーザーが管理画面で確かめた表）。
       ⛔ 2026-10-16：3秒おきに聞いて1分の上限に当たり、1日の上限と取り違えて次のキーへ進んでいた
-    - 1日の上限（429。上限の名前に PerDay）：そのモデルでは、そのキーを DAILY_REST_S 秒休ませて、次のキーで続ける（休み明けに1回問い合わせ直す）。
+    - 1日の上限（429。上限の名前に PerDay）：そのモデルでは、そのキーを DAILY_REST_S 秒（知らせの「あと何秒」が短ければその秒）休ませて、次のキーで続ける（休み明けに1回問い合わせ直す）。
       ⛔ 2026-10-19：その日いっぱい使わない形にしたら、16時15分（世界標準時）に「1日の上限」と答えたキーのうち5本が、2時間後には使えたのに、
       使わないままだった（その日の記録で、使えるキー11本がすべて止まり、意味の判定が1つも答えなかった）
     - 上限の値そのものが0（429。知らせの中の quota_limit_value が '0'＝is_zero_limit）：1日の上限と同じく休ませて、次のキーで続ける
@@ -333,10 +333,13 @@ class KeyRing:
         import time
         return self.spent.get(model, {}).get(i, 0.0) > time.time()
 
-    def rest(self, i: int, model: str) -> None:
-        """1日の上限に当たったキーを DAILY_REST_S 秒休ませる（記録して、ほかの実行とも分け合う）。"""
+    def rest(self, i: int, model: str, exc: BaseException | None = None) -> None:
+        """1日の上限に当たったキーを休ませる（記録して、ほかの実行とも分け合う）。休ませるのは DAILY_REST_S 秒、ただし知らせに
+        「あと何秒で使えるか」がそれより短く書いてあれば、その秒だけ（⛔ 2026-10-29：太平洋時間の0時の23分前に1日の上限に当たった2本を
+        30分休ませ、0時に戻ったあとも13分使わなかった）。"""
         import time
-        self.spent.setdefault(model, {})[i] = time.time() + self.DAILY_REST_S
+        after = retry_after_s(exc) if exc is not None else None
+        self.spent.setdefault(model, {})[i] = time.time() + (min(self.DAILY_REST_S, after + 1) if after is not None else self.DAILY_REST_S)
         self._save()
 
     @staticmethod
@@ -389,8 +392,8 @@ class KeyRing:
                         say(f"{self.keys[i].label} は {model} の1分の上限に当たりました（{limit_note(exc)}） ⇒ {wait:.0f}秒待って続けます")
                         time.sleep(min(wait, 90.0) + 1)
                         continue
-                    self.rest(i, model)
-                    say(f"{self.keys[i].label} は {model} の{self.limit_name(exc)}に当たりました ⇒ {self.DAILY_REST_S / 60:.0f}分休ませて、次のキーで続けます")
+                    self.rest(i, model, exc)
+                    say(f"{self.keys[i].label} は {model} の{self.limit_name(exc)}に当たりました（{limit_note(exc)}） ⇒ 休ませて、次のキーで続けます")
                     break
         if not rotate:
             raise KeyUnusable(f"{self.keys[self.start].label} では {model} を使えません")
@@ -434,8 +437,8 @@ class KeyRing:
                         # 1日の上限・上限の値が0と書いてある（文字のモデル＝意味の判定）：call と同じく DAILY_REST_S 秒休ませる（記録して、ほかの実行とも
                         # 分け合う）。⛔ 2026-10-19：10分休ませるだけで記録もしなかったので、休み明けのたびに、また実行が替わるたびに、上限の
                         # キーへ順に問い合わせ直し、1回の判定に7.9秒かかった。⛔ その次に「その日は使わない」にしたら、戻ったキーまで止めた
-                        self.rest(i, model)
-                        say(f"{self.keys[i].label} は {model} の{self.limit_name(exc)}に当たりました ⇒ {self.DAILY_REST_S / 60:.0f}分休ませて、次のキーで初めからやり直します")
+                        self.rest(i, model, exc)
+                        say(f"{self.keys[i].label} は {model} の{self.limit_name(exc)}に当たりました（{limit_note(exc)}） ⇒ 休ませて、次のキーで初めからやり直します")
                         continue
                     after = retry_after_s(exc)
                     if after is None and "PerMinute" in str(exc):

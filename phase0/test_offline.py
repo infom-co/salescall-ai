@@ -1567,6 +1567,18 @@ class KeyRingTest(unittest.TestCase):
         self.assertFalse(any(c.args[0] >= 1 for c in sl.call_args_list))
         self.assertTrue(ring.resting(0, "m") and ring.resting(1, "m") and not ring.resting(0, "other"))
 
+        # 1日の上限の知らせに、休みより短い「あと何秒」が書いてあれば、その秒だけ休ませる（⛔ 2026-10-29：太平洋時間の0時の23分前に
+        #    当たった2本を30分休ませた）。書いていなければ・長ければ DAILY_REST_S
+        import time as _t
+        ring.spent = {}
+        ring.rest(0, "d", Zero("429 RESOURCE_EXHAUSTED. GenerateRequestsPerDayPerProjectPerModel-FreeTier. Please retry in 1379.5s."))
+        ring.rest(1, "d", Zero("429 RESOURCE_EXHAUSTED. GenerateRequestsPerDayPerProjectPerModel-FreeTier. Please retry in 11h8m7.1s."))
+        ring.rest(2, "d")
+        left = {i: ring.spent["d"][i] - _t.time() for i in range(3)}
+        self.assertAlmostEqual(left[0], 1380.5, delta=2)
+        self.assertAlmostEqual(left[1], common.KeyRing.DAILY_REST_S, delta=2)
+        self.assertAlmostEqual(left[2], common.KeyRing.DAILY_REST_S, delta=2)
+
         # モデルの ID も、同じ回し方で引く（⛔ 2026-10-29 G-59：始めのキーで直に引き、そのキーが上限の値0で、判定を作れずに止まった）
         ring.spent, ring.start = {}, 0
 
