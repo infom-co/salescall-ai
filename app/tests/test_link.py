@@ -369,10 +369,18 @@ class CallingState(LinkBase):
             with self.assertRaises(CallWithheld):
                 driver.test_ring("+81300000009")
         self.assertEqual(len(phone.rings), 3)
+        phone.ring = True
+        slow = phone.test_ring
+        phone.test_ring = lambda number: (time.sleep(0.6), slow(number))[1]   # 鳴らしているあいだに、答えの期限を過ぎた
+        with mock.patch.object(protocol, "ANSWER_BY", 0.3):                     # 届く前にサーバーが待つのをやめた答え＝試さなかった
+            with self.assertRaises(CallWithheld):                             # （見直し22 の 8：外しても落ちる試験が無かった）
+                driver.test_ring("+81300000009")
+        del phone.test_ring
+        self.assertEqual(len(phone.rings), 4)
         pc_emergency.stop("試験：押した")                                        # PC の上の緊急停止：試さない
         with self.assertRaises(CallWithheld):
             driver.test_ring("+81300000009")
-        self.assertEqual(len(phone.rings), 3)
+        self.assertEqual(len(phone.rings), 4)
         gone = self.hub.driver(s["line"], Attached(s["tenant"], uuid.uuid4(), 0))   # つながっていない
         with self.assertRaises(CallWithheld):
             gone.test_ring("+81300000009")

@@ -407,8 +407,9 @@ class AfterDenial(unittest.TestCase):
                 decide = lambda: decide_after_denial(   # noqa: E731
                     self.deny(reason), current_promised=False, current=Target(MAIN),
                     pacing=pace, now=NOW, opening=opening, retry_wait=300)
-                if reason in gate.PLAN_KEPT or reason == "callback_window":   # 幅の外の次の回は _keep_promise（test_settle）
-                    self.assertTrue(reason == "callback_window" or r.handling not in ("plan", "plan_if_known"))
+                # 幅の外の次の回は _keep_promise・番号ごとの決まった順は _failed_retry_at（after_denial。test_settle）
+                if reason in gate.PLAN_KEPT or reason in ("callback_window", "number_failed_wait"):
+                    self.assertTrue(reason in ("callback_window", "number_failed_wait") or r.handling not in ("plan", "plan_if_known"))
                     with self.assertRaises(ValueError):
                         decide()
                     continue

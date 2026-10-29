@@ -325,6 +325,20 @@ class Choice(unittest.TestCase):
         for gone in ("call.end_write_wait", "call.stuck_after"):
             self.assertIsNone(meaning(gone))
 
+    def test_the_test_number_is_set_by_the_admin_first_and_by_the_contractor_after(self):
+        """テスト番号（line.test_number）の使い方（2026-10-29 管理者。0144）：管理者がシステムの初めの値として仮の番号を入れ、契約者が自分の
+        番号を入れたら、その契約者ではそちらを使う（設定の作り＝override のまま）。説明の文と、テスト番号が無いときの知らせの文が、その
+        向きを書く（⛔ 0143 まで：説明の文に、外した「無いあいだは、その前の電話で決め」が残っていた）。"""
+        from salescall.core import ring_test
+        got = owner_access().in_system(SYSTEM, lambda tx: tx.one(
+            "SELECT meaning, merge_kind::text AS merge FROM salescall.setting_definitions WHERE key = 'line.test_number'"))
+        self.assertEqual(got["merge"], "override")
+        for words in ("管理者がシステムの初めの値として仮の番号を入れ", "契約者が自分の番号を入れたら", "決めずに待ち"):
+            self.assertIn(words, got["meaning"])
+        self.assertNotIn("その前の電話で決め", got["meaning"])
+        self.assertIn("管理者か契約者がテスト番号を入れてください", ring_test.NO_NUMBER_SUMMARY)
+        self.assertNotIn("次にお客様の電話が鳴れば決まります", ring_test.NO_NUMBER_SUMMARY)
+
 class ScopesDecidedByUser(unittest.TestCase):
     """2026-10-17 ユーザー：「1回線から1日 300本　依頼者ごと」「同じお客様への最小の間隔 5分　依頼者ごと」「依頼者をまたいだ間隔
     3日　契約者」「会話AI・回線の異常で止める回数と、解くまでの確かめ　契約者」「深夜・早朝の歯止め 7〜22時 など　依頼者ごと」。"""

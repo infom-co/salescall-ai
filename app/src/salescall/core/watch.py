@@ -254,15 +254,30 @@ def resume_fixed(tx: Tx) -> list[int]:
 
 def checkable(tx: Tx) -> list[dict[str, Any]]:
     """確かめで解ける停止（システムが止めた、確かめで解ける原因の、まだ解かれていない停止のうち、この取引が確かめを書けるもの：
-    全体の取引＝全体の停止／契約者の取引＝その契約者の停止）と、次に確かめてよいまでの秒（wait。0＝いま）。1か所。"""
-    return tx.all(
+    全体の取引＝全体の停止／契約者の取引＝その契約者の停止）と、次に確かめてよいまでの秒（wait。0＝いま）。1か所。
+    **声が聞き取れずに止めた回線を、止め直した**（テスト番号が鳴って再開したあと、また声が聞き取れずに止めた。続けて止めた回数＝
+    データベースの salescall.audio_stops_in_a_row の1か所）ときは、最初の確かめを、止めた時から、長さの並び（line.test_ring_gaps＝
+    core/ring_test.gap_after の1か所。初め 15→30→60→120→240分）の（止め直した回数）番目の長さのあとにする（2026-10-29 管理者：「テスト番号が
+    鳴れば再開のあと、また聞き取れなければ止め直し、次に試すまで 15→30→60→120→240分あけます。+管理者か契約者が、直ったことを確かめて手で
+    再開も可能」。声が聞き取れて話し終えた電話があれば、最初に戻る。⛔ 0143 まで：テスト番号では声が通るかを確かめられないのに、止めては
+    すぐ再開し、1日に停止13回・お詫びの電話40本をくり返した＝見直し22 の場面 b5b）。声以外の理由で止めた回線は今のまま（すぐ確かめる）。
+    手で解く道（管理者・契約者が理由を書いて解く＝stops.resume）は、どの停止にも今のまま効く。"""
+    from salescall.core import ring_test   # テスト番号の部品が、試行の部品を通してこの部品を読むので、ここで読む（読み合いにしない）
+    rows = tx.all(
         "SELECT s.event_id, s.scope, s.cause::text AS cause, s.line_id,"
         " greatest(0, extract(epoch FROM coalesce((SELECT c.next_check_at FROM salescall.stop_checks c"
-        "   WHERE c.stop_event_id = s.event_id ORDER BY c.check_id DESC LIMIT 1), now()) - now()))::float AS wait"
+        "   WHERE c.stop_event_id = s.event_id ORDER BY c.check_id DESC LIMIT 1), now()) - now()))::float AS wait,"
+        " NOT EXISTS (SELECT 1 FROM salescall.stop_checks c WHERE c.stop_event_id = s.event_id) AS fresh,"
+        " salescall.audio_stops_in_a_row(s.event_id) AS again, extract(epoch FROM now() - s.at)::float AS since"
         " FROM salescall.open_stop_events s"
         " WHERE s.actor_kind = 'system' AND s.cause::text = ANY(%s)"
         " AND (s.scope = 'system') = (salescall.cur_tenant() IS NULL)"   # 確かめを書ける停止だけ（0029 の (3)）
         " ORDER BY s.event_id", (list(PROBE_SETTINGS),))
+    for r in rows:
+        if r.pop("fresh") and r["again"] > 1:   # 止め直した：止めた時から、並びの（止め直した回数）番目の長さのあとに確かめる
+            r["wait"] = max(r["wait"], ring_test.gap_after(tx, r["again"] - 1) - r["since"])
+        del r["again"], r["since"]
+    return rows
 
 
 def due_checks(tx: Tx) -> list[dict[str, Any]]:

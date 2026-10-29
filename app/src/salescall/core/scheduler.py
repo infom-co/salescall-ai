@@ -2,7 +2,8 @@
 
 - **判定はしない**：かけてよいかは門（`gate.claim`）だけが決める。ここは「予定の時刻を過ぎた行」を、門に渡す順に並べるだけ。
 - 門が必ず断る行は出さない（門と同じ1か所の決まりを読む）：次の予定が「かける」でない・時刻の前・前の発信の締めが済んでいない
-  （salescall.task_awaiting_decision）・こちらのプログラムの不具合で休んでいる（salescall.task_resting。0139）・こちらのプログラムの
+  （salescall.task_awaiting_decision。番号のせいか回線のせいかがまだ分からない電話は、その電話をかけた回線にだけ効く＝ほかの回線には
+  出す。0144）・こちらのプログラムの不具合で休んでいる（salescall.task_resting。0139）・こちらのプログラムの
   不具合で終えた電話のあと、まだ復旧していない（salescall.awaiting_recovery。0141）・「かけない」で止まる（salescall.task_excluded_now。「かけない」ならお詫び・かけ直し・約束した
   かけ直しは例外＝かける。「強制かけない」は例外なし。0078・0085）・その行か、かける番号に、いま進行中の発信がある（データベースの
   「進行中は1本」の守りと同じ。期限の切れた予約は門が取り消すので数えない。番号はほかの依頼者・契約者の発信も見る＝salescall.number_live。
@@ -38,21 +39,30 @@ def soon_left(tx: Tx, line_id: UUID, *, not_phones: list[str]) -> bool:
     """取引の依頼者に、その回線が「次の電話で決まるのを待つ長さ」（core/ring_test.decide_within の1か所＝テスト番号をあける長さの
     並びの1つ目。初め15分。0141）のうちにかけられる行があるか（1か所。回線ごとの処理が、番号のせいか回線のせいかがまだ分からない続きを、
     待たずに決めにいくかを決めるのに読む＝supervisor/line.py の `_decide_if_stuck`）。数える行は、門に渡す候補と同じ決まり
-    （`_candidates`・gate.waits_unknown の1か所）で、時刻だけをその長さ先まで広げたもの。数えない行：まだ分からない続きの番号
-    （not_phones。その番号にかけても続きは決まらない）の行・決まるのを待って締めていない行（判定待ち＝settle.settle）・番号のせいか
-    回線のせいかが分からないまま待つ行（attempts.number_unconfirmed）・候補に出さない行・止めた範囲の行・時刻がその長さより先の行
-    （夜・時間帯の外で「今はかけられない」だけの行も、時刻が先なら数えない）。違う番号の数にはよらない（0143）。
+    （`_candidates`・gate.waits_unknown・gate.stage_reason の1か所）で、時刻だけをその長さ先まで広げたもの。数えない行：まだ分からない
+    続きの番号（not_phones。その番号にかけても続きは決まらない）の行・この回線が決まるのを待って締めていない行（判定待ち＝settle.settle）・
+    番号のせいか回線のせいかが分からないまま待つ行（attempts.number_unconfirmed）・候補に出さない行・門が品質の段で断る行（段が進むまで
+    かけない＝見直し22 の 2。⛔ 0143：数えたので、段の件数に達した検証モードで、まだ分からない続きを決めにいかなかった＝場面 n11）・
+    止めた範囲の行・時刻がその長さより先の行（夜・時間帯の外で「今はかけられない」だけの行も、時刻が先なら数えない）。違う番号の数には
+    よらない（0143）。
     ⛔ 0136：前は終えていない行が1つでも残っていれば決めにいかず（夜や翌週にかける行も数えた）、行が止まり続けた（見直し19a）。"""
     within = ring_test.decide_within(tx)
-    rows = _candidates(tx, 50, 0, frozenset(), frozenset(), frozenset(), False, within=within, not_phones=not_phones)
+    staged: dict[tuple[Any, Any], bool] = {}   # 品質の段で断られるか（版と電話の種類ごとに1回読む）
+
+    def callable_soon(r: dict[str, Any]) -> bool:
+        key = (r["version_id"], r["keeping"])
+        if key not in staged:
+            staged[key] = gate.stage_reason(tx, r["version_id"], r["keeping"]) is None
+        return staged[key] and gate.waits_unknown(tx, r["task_id"], line_id) is None
     offset = 0
     while True:
-        if any(gate.waits_unknown(tx, r["task_id"], line_id) is None for r in rows):
+        rows = _candidates(tx, 50, offset, frozenset(), frozenset(), frozenset(), False, within=within, not_phones=not_phones,
+                           line_id=line_id)
+        if any(callable_soon(r) for r in rows):
             return True
         if len(rows) < 50:
             return False
         offset += 50
-        rows = _candidates(tx, 50, offset, frozenset(), frozenset(), frozenset(), False, within=within, not_phones=not_phones)
 
 
 def due_tasks(tx: Tx, limit: int, *, skip_businesses: set[UUID] | frozenset[UUID] = frozenset(),
@@ -73,7 +83,7 @@ def due_tasks(tx: Tx, limit: int, *, skip_businesses: set[UUID] | frozenset[UUID
     page = max(limit, 50)
     offset = 0
     while len(out) < limit:
-        rows = _candidates(tx, page, offset, skip_businesses, skip_runs, skip_stage, promised_only)
+        rows = _candidates(tx, page, offset, skip_businesses, skip_runs, skip_stage, promised_only, line_id=line_id)
         out += [r for r in rows if gate.waits_unknown(tx, r["task_id"], line_id) is None][:limit - len(out)]
         if len(rows) < page:
             break
@@ -83,11 +93,14 @@ def due_tasks(tx: Tx, limit: int, *, skip_businesses: set[UUID] | frozenset[UUID
 
 def _candidates(tx: Tx, page: int, offset: int, skip_businesses: set[UUID] | frozenset[UUID],
                 skip_runs: set[UUID] | frozenset[UUID], skip_stage: set[UUID] | frozenset[UUID],
-                promised_only: bool, *, within: float = 0, not_phones: list[str] | None = None) -> list[dict[str, Any]]:
+                promised_only: bool, *, within: float = 0, not_phones: list[str] | None = None,
+                line_id: UUID | None = None) -> list[dict[str, Any]]:
     """データベースだけで決まる候補（門に渡す順。下の条件は門と同じ1か所の決まりを読む）。within＝予定の時刻を、いまからこの秒
-    先まで広げる（`soon_left`）。not_phones＝この番号へかける行を除く（`soon_left`）。"""
+    先まで広げる（`soon_left`）。not_phones＝この番号へかける行を除く（`soon_left`）。line_id＝その回線で探す（締めを待つ行のうち、
+    まだ分からない電話の行は、その電話をかけた回線でだけ除く＝salescall.task_awaiting_decision。None ならどの回線でも除く）。"""
     return tx.all(
-        "SELECT t.task_id, r.business_id, t.run_id FROM salescall.tasks t"
+        "SELECT t.task_id, r.business_id, t.run_id, salescall.run_current_version(t.run_id) AS version_id,"
+        "       salescall.keeping_kind(n.purpose, n.promised) AS keeping FROM salescall.tasks t"
         " JOIN salescall.runs r ON r.client_id = t.client_id AND r.run_id = t.run_id"
         " JOIN LATERAL (SELECT c.kind, c.call_at, c.promised, c.purpose, c.contact_id FROM salescall.current_next_actions c"
         "               WHERE c.task_id = t.task_id) n"
@@ -95,7 +108,7 @@ def _candidates(tx: Tx, page: int, offset: int, skip_businesses: set[UUID] | fro
         " JOIN salescall.task_numbers k ON k.task_id = t.task_id AND k.contact_id = n.contact_id"
         " WHERE n.kind = 'call' AND n.call_at <= now() + make_interval(secs => %s)"
         "   AND k.phone_e164 <> ALL(%s::text[])"
-        "   AND NOT salescall.task_awaiting_decision(t.task_id) AND NOT salescall.task_excluded_now(t.task_id)"
+        "   AND NOT salescall.task_awaiting_decision(t.task_id, %s) AND NOT salescall.task_excluded_now(t.task_id)"
         "   AND NOT salescall.task_resting(t.task_id)"
         "   AND NOT salescall.awaiting_recovery(t.task_id)"
         "   AND NOT EXISTS (SELECT 1 FROM salescall.attempts a WHERE a.task_id = t.task_id"
@@ -107,4 +120,5 @@ def _candidates(tx: Tx, page: int, offset: int, skip_businesses: set[UUID] | fro
         "   AND (t.run_id <> ALL(%s::uuid[]) OR salescall.fixed_text_kind(salescall.keeping_kind(n.purpose, n.promised)))"
         "   AND (n.promised OR NOT %s)"
         " ORDER BY n.promised DESC, n.call_at, t.task_id LIMIT %s OFFSET %s",
-        (within, list(not_phones or ()), list(skip_businesses), list(skip_runs), list(skip_stage), promised_only, page, offset))
+        (within, list(not_phones or ()), line_id, list(skip_businesses), list(skip_runs), list(skip_stage), promised_only, page,
+         offset))

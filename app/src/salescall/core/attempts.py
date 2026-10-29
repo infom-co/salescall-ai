@@ -14,11 +14,11 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import timedelta
-from typing import Any, Literal
+from datetime import date, datetime, timedelta
+from typing import Any, Literal, NamedTuple
 from uuid import UUID
 
-from salescall.core import business_rules, errors, fix_requests, number_recheck, settings, target_recheck, watch
+from salescall.core import business_rules, calling_hours, errors, fix_requests, number_recheck, settings, target_recheck, watch
 from salescall.core.access import Tx
 from salescall.core.errors import ErrorReport
 
@@ -132,6 +132,38 @@ def failed_retry_days(tx: Tx, **scope: Any) -> list[int]:
     return [int(d) for d in settings.resolve(tx, "dial.failed_retry_days", **scope)]
 
 
+class FailedWait(NamedTuple):
+    """鳴らない電話が続く番号へ、次にかけてよい日（day）と、その時刻の下限（not_before）。last_end＝数えたいちばん新しい鳴らなかった
+    電話の終わり（その番号の続きが、いつ伸びたか）。"""
+    day: date
+    not_before: datetime
+    last_end: datetime
+
+
+def failed_wait(tx: Tx, contact_id: UUID, **scope: Any) -> FailedWait | None:
+    """鳴らない電話が続く番号へ、次にかけてよい日と、その時刻の下限（番号ごとの1か所。門＝gate.number_waits と、次の動き＝
+    next_action._failed_retry_at が読む。見直し22 の 9）。番号の4回（並び dial.failed_retry_days。1＝最初に失敗した日。初め当日2回・翌日・
+    2日後）は番号ごとの決まりなので、同じ番号が2つの行にあっても、行ごとに別々に決めない（⛔ 0129〜0143：次の動きが行ごとに予定を書き、
+    もう1つの行の予定は、番号の続きが伸びる前に書いたままだったので、1日目に3回かけ、2日目の1回で「番号が使えない」になった＝場面 n6）。
+    日：並びの次の日（「最初の失敗の日＋並び」と「前の失敗の日＋並びの差」の遅いほう。⛔ 見直し18c の (1)：前は最初の日からだけ数え、
+    前の分が時間帯の外などで次の日にずれると、残りが同じ日に詰まった）。時刻の下限：最後の失敗の終わりから同じお客様への最短の間隔の
+    あと。数えるのは番号のせいと分かった数（`failed_run` の n_sure）だけ（0143：日をまたいで送るのは番号のせいと分かった数だけ）。
+    続いていない・並びを使い切った（その番号へはかけない＝`number_unusable`）ときは None。"""
+    run = failed_run(tx, contact_id)
+    k = run["n_sure"]
+    days = failed_retry_days(tx, **scope)
+    if k == 0 or k >= len(days):
+        return None
+    gap = timedelta(seconds=int(settings.resolve(tx, "gate.same_contact_min_interval", **scope)))
+    return FailedWait(_failed_day(run, days, k), run["last_end"] + gap, run["last_end"])
+
+
+def _failed_day(run: dict[str, Any], days: list[int], k: int) -> date:
+    """鳴らない電話が k 回続いた番号の、次にかけてよい日（1か所）：「最初の失敗の日＋並び」と「前の失敗の日＋並びの差」の遅いほう。"""
+    last_day = calling_hours.local(run["last_end"]).date()
+    return max(run["first_day"] + timedelta(days=days[k] - 1), last_day + timedelta(days=days[k] - days[k - 1]))
+
+
 def number_unusable(tx: Tx, contact_id: UUID, **scope: Any) -> bool:
     """その番号へは、もうかけないか（1か所。門と次の動きの両方が読む）：番号のせいと分かった、お客様のところで鳴らなかった発信
     （`failed_run` の n_sure）が、並び（`failed_retry_days`）の数だけ続いた（2026-10-22 深夜 ユーザー：「同じ番号で続けて当日2回＆
@@ -142,14 +174,21 @@ def number_unusable(tx: Tx, contact_id: UUID, **scope: Any) -> bool:
 
 
 def number_unconfirmed(tx: Tx, contact_id: UUID, **scope: Any) -> bool:
-    """鳴らなかった発信が並びの数だけ続いたが、番号のせいか回線のせいかが、まだ分からないものがある（1か所。門と、候補を出す処理
-    （gate.waits_unknown）が読む）：その行はかけずに待つ（候補に出さない）。分からない発信の行そのものは、決まるまで締めないので
-    （settle.settle）、ここで待つのは、同じ番号のほかの行（同じ番号が2つの行にある）。決まれば、番号のせいなら `number_unusable`、回線の
-    せいなら数から外れ、決まった順の続きでかける。"""
+    """番号のせいか回線のせいかが、まだ分からない鳴らなかった発信があり、それを番号のせいに数えると、番号の4回の順（`_failed_day`）で
+    次にかけてよい日が今日より後になる（並びを使い切るときも）か（1か所。門と、候補を出す処理（gate.waits_unknown）が読む）：その番号の
+    行はかけずに待つ（候補に出さない。予定は書き直さない）。決まれば、番号のせいなら番号の順（`failed_wait`・`number_unusable`）、回線の
+    せいなら数から外れ、決まった順の続きでかける。分からない発信の行そのものは、その回線では決まるまで締めないので（settle.settle）、
+    ここで待つのは、同じ番号のほかの行と、ほかの回線（0144：分からない電話の行も、ほかの回線はかけてよい）。番号の順の日をまたぐ
+    ところでは、分からない電話のあいだに、ほかの回線・ほかの行が同じ日にかけ続けない（見直し22 の 9。⛔ 0143：ほかの回線が分からない
+    電話の行へかけ続け、決まってみると1日目に4回で「番号が使えない」になりえた）。同じ日のうちのかけ直しは待たない（回線 A が壊れて
+    鳴らなかった約束の電話を、回線 B がすぐかけられる）。"""
     run = failed_run(tx, contact_id)
     if run["n"] == run["n_sure"]:   # まだ分からない電話が無い（候補を出す処理が行ごとに読むので、設定を読む前に返す）
         return False
-    return run["n"] >= len(failed_retry_days(tx, **scope)) > run["n_sure"]
+    days = failed_retry_days(tx, **scope)
+    if run["n"] >= len(days):
+        return True
+    return _failed_day(run, days, run["n"]) > calling_hours.local(tx.one("SELECT now() AS t")["t"]).date()
 
 
 def reached(table: str = "") -> str:

@@ -268,9 +268,13 @@ def evaluate(tx: Tx, version_id: UUID) -> dict[str, Any] | None:
     elif not m["unknown_judgments"]["inside"]:
         cause = "judge_unknown"
     else:
+        # 締めていない通話が残れば、段を進めない（結果が出そろってから比べる）。ただし、お客様のところで鳴らずに終わった電話（会話の品質に
+        # かかわらない。決まりは attempts.rang の1か所）は待たない：番号のせいか回線のせいかが決まるまで締めない電話（settle.settle）を
+        # 待つと、段が進まず、残りの行に永久にかけなかった（見直し22 の 2。場面 n11）
         unsettled = tx.one(
             f"SELECT 1 FROM ({_WINDOW}) a WHERE {attempts.dialed('a')}"
-            " AND NOT salescall.is_settled(a.attempt_id) LIMIT 1", (version_id, version_id)) is not None
+            " AND NOT salescall.is_settled(a.attempt_id)"
+            f" AND (salescall.is_active(a.state) OR {attempts.rang('a')}) LIMIT 1", (version_id, version_id)) is not None
         if stage["cap"] is not None and n_used >= stage["cap"] and not unsettled:
             if all(x["inside"] for x in m.values()):
                 sizes = list(_get(tx, v, "quality.stage.sizes"))

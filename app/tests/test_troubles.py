@@ -11,7 +11,7 @@ from __future__ import annotations
 import time
 import uuid
 
-from salescall.core import attempts, errors, fix_requests, gate, next_action, scheduler, settings, stops, troubles
+from salescall.core import attempts, errors, fix_requests, gate, next_action, scheduler, settings, stops, troubles, watch
 from salescall.core.access import Rejected
 from salescall.core.phone import normalize
 from salescall.supervisor import jobs, line, updates
@@ -218,6 +218,10 @@ class OurTroubles(SupervisorBase):
                           "storage_stuck": "CL-2"})
         self.trouble(s, "ai_malfunction", task=self.row(s)["task"], again=False)   # 同じ理由は2行：まだ止めない
         self.assertEqual(self.tenant_stops(s), [])
+        for source, trouble in (("call", "storage_stuck"), ("storage", "frozen")):   # 理由と出どころが合わない伝え方は断る
+            with self.assertRaises(ValueError):                               # （errors.TROUBLE_SOURCES の1か所。見直し22 の 8）
+                errors.classify(errors.ErrorReport(source, None, "試験", trouble=trouble))
+        self.assertEqual(errors.classify(errors.ErrorReport("storage", None, "試験", trouble="storage_stuck")), "call_storage_stuck")
 
     def test_a_contractor_or_the_admin_can_put_a_resting_row_back_and_our_calls_never_count(self):
         """戻す道の2つ目：管理者か契約者が戻す（core/troubles.restore の1か所。システムの処理は戻せない＝データベースが守る。休んで
@@ -409,6 +413,58 @@ class OurTroubles(SupervisorBase):
         self.finish(u, z)
         self.trouble(u, "poor_audio", answered=True, task=self.row(u)["task"])
         self.assertEqual(self.faults(u), [])
+
+    def test_a_line_stopped_again_for_poor_audio_waits_longer_before_the_test_number(self):
+        """声が聞き取れない電話が違うお客様で続いて止めた回線（2026-10-29 管理者：「テスト番号が鳴れば再開のあと、また聞き取れなければ
+        止め直し、次に試すまで 15→30→60→120→240分あけます。+管理者か契約者が、直ったことを確かめて手で再開も可能」。0144）：
+        (1) 1回目は、今までどおりすぐテスト番号で確かめ、1回鳴れば再開する (2) また聞き取れずに止め直したら、次に再開を試してよいまで、
+        長さの並び（line.test_ring_gaps をそのまま使う）の1つ目をあける（続けて止めた回数＝salescall.audio_stops_in_a_row・あける長さ＝
+        core/watch.checkable の1か所）。そのあいだテスト番号を鳴らさない (3) 管理者・契約者は、理由を書いて手で解ける（stops.resume）
+        (4) 声が聞き取れて話し終えた電話があれば、並びは最初に戻る（次に止めたら、すぐ確かめる）。⛔ 0143 まで：止めてはすぐ再開し、
+        1日に停止13回・お詫びの電話40本をくり返した（見直し22 の場面 b5b）。"""
+        s = self.ready()
+        self.numbered(s)
+        self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: settings.set_value(   # 長さの並びは初めの値（15→30→…分）
+            tx, "line.test_ring_gaps", [900, 1800, 3600, 7200, 14400], scope="tenant", tenant_id=s["tenant"], status="decided",
+            rationale="試験", review_when="試験"))
+
+        def three_poor():
+            """違うお客様3人と、声が聞き取れずに終える（回線の異常が3回続いて、回線を止める）。止めた停止を返す。"""
+            for _ in range(3):
+                r = self.row(s)
+                self.trouble(s, "poor_audio", answered=True, task=r["task"])
+                self.finish(s, r["task"])
+            stop = self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: tx.one(
+                "SELECT event_id FROM salescall.open_stop_events WHERE scope = 'line' AND line_id = %s", (s["line"],)))
+            self.assertIsNotNone(stop)
+            return stop["event_id"]
+
+        def wait_of(stop):
+            return {r["event_id"]: r["wait"] for r in self.w.a.in_tenant(SYSTEM, s["tenant"], watch.checkable)}[stop]
+        self.finish(s, s["task"])
+        first = three_poor()                                                   # (1) 1回目
+        self.assertEqual(self.tx(s, lambda tx: tx.one("SELECT salescall.audio_stops_in_a_row(%s) AS n", (first,))["n"]), 1)
+        self.assertEqual(wait_of(first), 0)
+        d = FakeDriver(ring=True)
+        line._check_stop(self.w.a, SYSTEM, s["tenant"], s["line"], d)
+        self.assertEqual(len(d.rings), 1)                                      # 1回鳴って再開
+        again = three_poor()                                                   # (2) 止め直した
+        self.assertEqual(self.tx(s, lambda tx: tx.one("SELECT salescall.audio_stops_in_a_row(%s) AS n", (again,))["n"]), 2)
+        self.assertGreater(wait_of(again), 850)                                # 並びの1つ目（15分）をあける
+        line._check_stop(self.w.a, SYSTEM, s["tenant"], s["line"], d)
+        self.assertEqual(len(d.rings), 1)                                      # そのあいだテスト番号を鳴らさない
+        self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: stops.resume(     # (3) 管理者・契約者が手で解く
+            tx, again, reason="試験：回線の声の受け渡しを直したと確かめた"))
+        self.assertIsNone(self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: tx.one(
+            "SELECT event_id FROM salescall.open_stop_events WHERE scope = 'line' AND line_id = %s", (s["line"],))))
+        z = self.row(s)                                                        # (4) 声が聞き取れて話し終えた
+        got = line.one_round(self.w.a, SYSTEM, s["tenant"], s["line"], HOLDER, FakeDriver(), Runner())
+        self.assertEqual(self.tx(s, lambda tx: tx.one("SELECT task_id, state::text AS st FROM salescall.attempts WHERE attempt_id = %s",
+                                                      (got.called,))), {"task_id": z["task"], "st": "ended"})
+        jobs.settle_ready(self.ctx(s))
+        last = three_poor()
+        self.assertEqual(self.tx(s, lambda tx: tx.one("SELECT salescall.audio_stops_in_a_row(%s) AS n", (last,))["n"]), 1)
+        self.assertEqual(wait_of(last), 0)                                     # 最初に戻った：すぐ確かめる
 
     def test_the_python_table_of_our_troubles_follows_the_database_rule(self):
         """どの終えた理由がこちらの不具合かは、データベースの salescall.trouble_ours の1か所。Python の処置の表（core/errors.TROUBLES）は、

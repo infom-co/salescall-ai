@@ -26,7 +26,7 @@
    この回線がお客様の電話を鳴らせた・テスト番号が鳴った＝番号のせい／テスト番号が鳴らなかった・回線を使わなくした＝回線のせい／
    それまでは、まだ分からない）。数えたら、その回線を休ませる（一時中止。続けば、エラーの処置の表のとおり、その回線を止めて管理者と
    契約者に知らせる）。番号のせい・まだ分からないときは、回線を休ませず、回線の異常にも数えない。まだ分からない電話の行は、決まるまで
-   締めずに休み（settle.settle）、回線は次の行へ進む（2026-10-24 管理者：「回線か番号かどちらかわからない場合は、その行に固執するのでなく、
+   締めずに休み（settle.settle。休むのはその電話をかけた回線でだけ＝ほかの回線はかけてよい。0144）、回線は次の行へ進む（2026-10-24 管理者：「回線か番号かどちらかわからない場合は、その行に固執するのでなく、
    1回目から、次の行に進むようにしてください。次の行に進んで、次の行がつながればすぐに回線の問題か番号の問題か判断できますよね」）。
    ⛔ 0129〜0141：決定に無い「違う番号が2つ続けて鳴らなかったら回線のせい」と「テスト番号で決める」印の2つの道があり、元気な回線を
    止め（見直し21a の場面 a3・a7・a2）、テスト番号を余分に鳴らした（場面 a9）。回線がまだ前の通話の途中・PC の部品がかけようとしなかった
@@ -44,13 +44,15 @@
    知らせ・直す担当への修正依頼。同じ行で2回続けばその行を休ませ、違う3つの行で同じ理由なら契約者の新しい電話を止める＝2026-10-25
    ユーザー。⛔ 0139 の前は「見守り役の誤り」として CL-2 へだけ伝え、同じ行で3回目からはふつうの鳴らなかった電話として数えた）。
    見張るのは通話が進行中のあいだだけ・おわびして切り終えるまで「話している」・通話の途中の書き込みは通話ごとの書き手（`_Call`）。
-   見張りはデータベースを通さない（⛔ 0130：前はデータベースの「進んだ時刻」を 90 秒見ていた）。通話の部品が書き手を待っているあいだは、
-   書き手が進んでいれば途切れに数えず、書き込み1つが call.frozen_after より長く終わらなければ、データベースが止まったとしておわびして
-   すぐ終える（storage_stuck。直す担当 CL-2。0143）。
+   見張りはデータベースを通さない（⛔ 0130：前はデータベースの「進んだ時刻」を 90 秒見ていた）。**「動いています」が続いているあいだは、
+   書き込みが遅くても終えない**（見直し22 の 1）。書き手の止まり（書き込み1つが call.frozen_after より長く終わらない）でデータベースが
+   止まったとしておわびしてすぐ終える（storage_stuck。直す担当 CL-2。0143）のは、通話の部品が書き手を待っているあいだ（flush・終わりの
+   移りの書き切り）と、通話の部品が戻ったあとだけ。待っているあいだは、書き手が進んでいれば途切れに数えない。
 6. **番号のせいか回線のせいかがまだ分からない続き**があり、その回線がまもなく（テスト番号をあける長さの並びの1つ目＝初め15分。
    core/ring_test.decide_within。0141）かけられる行が無いときだけ、テスト番号で試して決める（`_decide_if_stuck` の1か所→core/ring_test。
    違う番号の数にはよらない＝0143）。まもなくかけられる行があれば、その電話の結果で決まるので、テスト番号は鳴らさない。テスト番号で
-   決められないとき（無い・鳴らしてよい時間の外・見分けられない）は決めずに待つ（無い・見分けられないは、すぐ1回知らせる＝core/ring_test）。
+   決められないとき（無い・鳴らしてよい時間の外・見分けられない）は決めずに待つ（無い・見分けられないは、すぐ1回知らせる。PC の部品が
+   試さないまま、あける長さの最初を過ぎたときも同じ＝core/ring_test。見直し22 の 9）。
    **回線の異常で止めた回線**は、毎回の頭で、テスト番号で再開してよいかを確かめる
    （`_check_stop`。1回鳴れば解く＝core/watch.record_check。2026-10-25 夜 管理者「鳴ったら、テストＯＫなだけ」）。テスト番号を鳴らすのは、
    その回線の電話の部品を持つ、ここだけ。
@@ -85,8 +87,10 @@ WATCH_EVERY = 0.25   # 通話の途中に、「動いています」の知らせ
 UNRUNG_PAUSE = "unrung_line"   # 回線のせいで鳴らなかった電話を数えて、回線を休ませた（Round.pause の名前）
 RING_TEST_PAUSE = "ring_test"  # テスト番号を試したが決まらなかった（分からない・話している途中）：休んでから試し直す（鳴らし続けない）
 WATCHER_TROUBLES = ("frozen", "runner_error", "storage_stuck")   # 通話ごとの口だけが決める、終えた理由（通話を進める部品は使わない）
-# 通話の部品が頼んだ移りのうち、通話が終わりに向かっているもの（話し終えた ending・ended、出なかった・話し中・つながらなかった など）。
-# `_Call` が手元で持ち、データベースを読み直す前に、通話が進行中かを決める（0143。conversation_io.move_work で頼まれたもの）
+# 通話の部品が頼んだ移りのうち、通話が終わりに向かっているもの（話し終えた ending・ended、出なかった・話し中・つながらなかった など。
+# conversation_io.move_work で頼まれたもの）。頼まれていれば、`_Call` は通話を終えると決める前に、書き手がそれを書き切るのを（書き手が
+# 進むあいだ）待ってから、データベースで進行中かを見る（見直し22 の 3。⛔ 0143：頼んだ時点で「終わりに向かっている」とし、書き手が
+# 断った移り・書く前に固まった電話でも、お詫びも終わりの記録もしなかった＝場面 w22b・w23）
 FINISHING = frozenset({"ending", "ended", "busy", "no_answer", "call_failed", "dropped", "technical_error"})
 
 
@@ -126,14 +130,19 @@ class _Call:
     途中で切るときの2つの一言で終える（dial_exit.abandon）。1回だけ。
     - **見張るのは通話が進行中のあいだだけ**（0136）：知らせが途切れても、試行がもう終わっていれば何もしない（お客様が切ったあとの
       片付けの途中で、終わった通話におわびを流さない・こちらのせいの印を付けない）。通話を進める部品が戻れば、見張りをやめる。
-      **進行中かは、まず手元で決める**（0143）：通話の部品が終わりの移り（`FINISHING`＝話し終えた ending・ended など）を
-      conversation_io.move_work で頼んでいれば、データベースを読み直さずに、終わりに向かっている（おわびを流さない）。そうでなければ、
-      すぐデータベースで見る（決まった秒数待たない。⛔ 0141：仮の設定 call.end_write_wait＝5秒まで書き手を待ち、本当に固まった通話の
-      おわびが最大8秒遅れ、書き込みが5秒より遅いと話し終えた電話を固まったとした＝見直し21a の 5・6）。
+      **進行中かは、データベースで決める**：通話の部品が終わりの移り（`FINISHING`＝話し終えた ending・ended など）を
+      conversation_io.move_work で頼んでいれば、書き手がそれを書き切るのを（書き手が進むあいだ）待ってから見る（見直し22 の 3。決まった
+      秒数は待たない。頼んでいなければ、すぐ見る＝本当に固まった通話には、すぐおわびする。⛔ 0141：仮の設定 call.end_write_wait＝5秒まで
+      書き手を待った。⛔ 0143：頼んだ時点で終わりに向かっているとし、断られた移り・書く前に固まった電話を、進行中のまま黙って残した）。
+      まだ進行中なら（お別れの言葉の途中＝ending も）、終わりの記録を書き、おわびして切る。
+    - **「動いています」が続いているあいだは、書き込みが遅くても終えない**（見直し22 の 1。⛔ 0143：書き込み1つが frozen_after より
+      長いだけで、元気な通話をおわびで切り、3行で契約者の電話を止めた＝場面 w20・w25）。
     - **通話の部品が書き手を待っているあいだ**（`flush`）は、書き手が進んでいれば（書き込みが1つずつ終わっていれば）知らせの途切れに
       数えない（0143。⛔ 0141：flush で待つあいだ知らせを出せず、データベースが遅いと元気な通話を固まったとして切った＝見直し21a の 7）。
-    - **書き手が進まない**（`_stalled`＝いま書いている書き込み1つが frozen_after より長く終わらない）ときは、データベースが止まったとして、
-      記録を待たずにすぐおわびして終え（storage_stuck。出どころ「保存」＝直す担当 CL-2。0143）、そのあとで記録する。
+    - **書き手が進まない**（`_stalled`＝いま書いている書き込み1つが frozen_after より長く終わらない）のが、通話の部品が書き手を待って
+      いるあいだ（`flush`・終わりの移りの書き切り）か、通話の部品が戻ったあとなら、データベースが止まったとして、記録を待たずにすぐ
+      おわびして終え（storage_stuck。出どころ「保存」＝直す担当 CL-2。0143）、そのあとで記録する（書き手が試行を終わった状態へ移せて
+      いれば＝`finishing`、おわびは流さない）。
     - **おわびして切り終えるまで「話している」**（supervisor.call_live の1か所。`live`）：止めるとき・PC のログインを外したときに、
       おわびの途中で切らない。切り終えたら外れる（固まった部品が戻らなくても、止める処理が待ち続けない）。
     - **戻らない**（`abandoned`。0141・0143）：(1) 終えると決めたあと、おわびを流し終える長さ（protocol.APOLOGY_WAIT）と frozen_after を
@@ -157,7 +166,7 @@ class _Call:
         self.last = time.monotonic()
         self.ended = False                 # 終えると決めた（1回だけ）
         self.end_at: float | None = None   # 終えると決めた時刻
-        self.finishing = False             # 通話の部品が終わりの移り（FINISHING）を頼んだ（手元で持つ）
+        self.finishing = False             # 書き手が、試行を終わった状態（ended_at のある状態）へ移せた（書けたあとに立てる）
         self.troubled = False              # こちらのプログラムの不具合として終え、伝えた（同じ出来事を見守り役の誤りに重ねない）
         self.over_at: float | None = None  # おわびして切り終えた時刻（終えると決めて、進行中でなかったときも）
         self._over = threading.Event()    # おわびして切り終えた
@@ -172,6 +181,7 @@ class _Call:
         self._written = 0                        # 書き終えた（書けなかったも）数
         self._writing_since: float | None = None   # いま書いている書き込みを始めた時刻（書いていなければ None）
         self._waiting = 0                        # 通話の部品が書き手を待っている（flush の途中）
+        self._finish_ticket = 0                  # 終わりの移り（FINISHING）を頼んだ書き込みの番号（通し。0＝頼んでいない）
         self._failed: list[tuple[Callable[[Tx], Any], BaseException]] = []   # 書けなかった分（まだ通話の部品へ返していない）
 
     @property
@@ -209,17 +219,17 @@ class _Call:
     def write(self, work: Callable[[Tx], Any]) -> None:
         """データベースへの書き込み（その依頼者の取引で work(tx)）を、通話ごとの書き手に頼む（待たずに戻る。頼んだ順に書く。書けなかった
         分は `flush` で返す）。頼めない形（呼べないもの）は、その場で TypeError。状態の移り（conversation_io.move_work）のうち、通話が
-        終わりに向かう移り（`FINISHING`）は、手元にも持つ（`_end` がデータベースを読み直す前に読む）。"""
+        終わりに向かう移り（`FINISHING`）は、その番号を覚える（`_end` が、書き手がそれを書き切るまで待ってから決める）。"""
         if not callable(work):
             raise TypeError("書き込みは、取引を受け取る関数（work(tx)）で頼みます")
-        if isinstance(work, conversation_io.MoveWork) and work.to_state in FINISHING:
-            self.finishing = True
         with self._lock:
             if self._writer is None:
                 self._writer = threading.Thread(target=self._write_loop, name=f"通話の書き手 {self.attempt_id}", daemon=True)
                 self._writer.start()
         with self._progress:
             self._asked += 1
+            if isinstance(work, conversation_io.MoveWork) and work.to_state in FINISHING:
+                self._finish_ticket = self._asked
         self._writes.put(work)
 
     def flush(self) -> None:
@@ -247,11 +257,11 @@ class _Call:
         since = self._writing_since
         return since is not None and (time.monotonic() if now is None else now) - since > self.frozen_after
 
-    def _drain(self) -> bool:
-        """いま頼まれている書き込みを書き終えるまで待つ（書き手が進んでいるあいだは待ち続ける。決まった秒数で打ち切らない）。書き手が
-        進まなくなったら（`_stalled`）、待つのをやめて False。"""
+    def _drain(self, ticket: int | None = None) -> bool:
+        """いま頼まれている書き込み（ticket＝その番号の書き込みまで）を書き終えるまで待つ（書き手が進んでいるあいだは待ち続ける。決まった
+        秒数で打ち切らない）。書き手が進まなくなったら（`_stalled`）、待つのをやめて False。"""
         with self._progress:
-            ticket = self._asked
+            ticket = self._asked if ticket is None else ticket
             while self._written < ticket:
                 if self._stalled():
                     return False
@@ -266,12 +276,17 @@ class _Call:
                     return
                 self._writing_since = time.monotonic()
                 try:
-                    self.access.in_client(self.actor, self.tenant_id, self.client_id, work)
+                    done = self.access.in_client(self.actor, self.tenant_id, self.client_id, work)
                 except Exception as e:  # noqa: BLE001 書けなくても通話は止めない（持って、flush で返す）
                     with self._progress:
                         self._failed.append((work, e))
                     if not isinstance(e, conversation_io.REFUSED):   # データベースの誤り：見守り役の誤りとしても記録する
                         report(self.access, self.tenant_id, "通話の書き込み", e, line_id=self.line_id)
+                else:
+                    # 試行を終わった状態へ移せた（終わったかはデータベースの1か所＝終わった時刻 ended_at）：データベースを読めなくても、
+                    # おわびを流さない（`_end`。書けたあとに立てる＝見直し22 の 3）
+                    if isinstance(work, conversation_io.MoveWork) and done["ended_at"] is not None:
+                        self.finishing = True
             finally:
                 with self._progress:
                     self._writing_since = None
@@ -280,20 +295,26 @@ class _Call:
                     self._progress.notify_all()
                 self._writes.task_done()
 
-    def _end(self, reason: str, what: str, why: str | None = None, *, trust_db: bool = False) -> bool:
+    def _end(self, reason: str, what: str, why: str | None = None, *, drained: bool = False) -> bool:
         """通話を終える（1か所）。試行がまだ進行中なら、理由と根拠の文（why）を残して結果不明にし、おわびして切り（True）、切り終えて
         から、こちらのプログラムの不具合として伝える（core/troubles.after_trouble の1か所＝記録・契約者と管理者への知らせ・直す担当への
         修正依頼・同じ行で続けば休ませる・違う行で続けば止める。2026-10-25 ユーザー）。もう終わっていれば何もしない。
-        進行中かは、まず手元（通話の部品が終わりの移りを頼んだか＝`finishing`）で決め、頼んでいなければ、すぐデータベースで見る（trust_db＝
-        頼まれた書き込みを書き終えたあと＝データベースだけで決める）。データベースが止まった（storage_stuck）ときは、記録を待たずに先に
-        おわびして切る。what＝何が起きたか（決まった言葉と誤りの種類の名前だけ）。"""
+        進行中かはデータベースで見る。通話の部品が終わりの移り（`FINISHING`）を頼んでいれば、書き手がそれを書き切るまで（書き手が進む
+        あいだ）待ってから見る（drained＝頼まれた書き込みを、もう書き終えた）。終わりの移りを頼んだあとでも、試行がまだ進行中なら（断られた
+        移り・お別れの言葉の途中で固まった）、終わりの記録を書き、おわびして切る（見直し22 の 3。⛔ 0143：頼んだ時点の手元の印だけで
+        終わりに向かっているとし、何も記録せず、試行が進行中のまま残って回線が黙って止まった＝場面 w22b・w23）。データベースが止まった
+        （storage_stuck。書き切りを待つうちに書き手が進まなくなった・いま書き手が止まっている、も）ときは、データベースを読まずに、記録を
+        待たずに先におわびして切る（書き手が試行を終わった状態へ移せていれば＝`finishing`、おわびは流さない）。what＝何が起きたか（決まった
+        言葉と誤りの種類の名前だけ）。"""
         with self._lock:
             if self.ended or self._closed:
                 return False
             self.ended = True
             self.end_at = time.monotonic()
+        if reason != "storage_stuck" and not drained and (not self._drain(self._finish_ticket) or self._stalled()):
+            reason, what, why = "storage_stuck", f"データベースへの書き込みが進みません（{what}）", None
         recorded = False
-        finishing = self.finishing and not trust_db
+        stuck = reason == "storage_stuck"
 
         def record(tx: Tx) -> tuple[bool, bool]:   # 終えた・こちらの不具合か（決まりはデータベースの trouble_ours の1か所。0141）
             ended = attempts.end_for_trouble(tx, self.attempt_id, reason, why)
@@ -306,11 +327,10 @@ class _Call:
                 report(self.access, self.tenant_id, "通話を終える記録", e, line_id=self.line_id)
                 return True, False
         try:
-            if finishing:     # 通話の部品が終わりの移りを頼んだ：終わりに向かっている（おわびを流さない・こちらのせいにしない）
-                live = False
-            elif reason == "storage_stuck":   # データベースが止まった：記録を待たずに、すぐおわびして切る
-                live = True
-                dial_exit.abandon(self.driver)
+            if stuck:   # データベースが止まった：記録を待たずに、すぐおわびして切る（書き手が終わった状態へ移せていれば、流さない）
+                live = not self.finishing
+                if live:
+                    dial_exit.abandon(self.driver)
             else:
                 live, recorded = record_or_report()
                 if live:
@@ -318,7 +338,7 @@ class _Call:
         finally:
             self.over_at = time.monotonic()
             self._over.set()
-        if reason == "storage_stuck" and not finishing:   # おわびのあとで記録する（データベースが戻るまで、この流れが待つ）
+        if stuck:   # おわびのあとで記録する（まだ進行中なら。データベースが戻るまで、この流れが待つ）
             _, recorded = record_or_report()
         # お客様へのおわびを待たせないよう、切り終えてから伝える（伝えられなくても、通話の処理は止めない）。こちらの不具合でない理由
         # （声が聞き取れない）は、ここでは伝えない（途中で切れた電話と同じ。違うお客様で続けば、回線ごとの処理が回線の異常として数える＝`_unrung`）
@@ -343,9 +363,10 @@ class _Call:
     def after_runner(self, error: BaseException | None) -> None:
         """通話を進める部品が戻った（error＝外へ出た誤り）：見張りをやめ、まだ終えると決めていなければ、頼まれた書き込みを書き手が進む
         あいだ書き終えてから、試行がまだ進行中なら（落ちた・終えずに戻った）こちらのせい（runner_error）で終える（1か所。⛔ 0136 の前は
-        理由を残さず、回線のせい・番号のせいに数えうる形で終えた）。書き手が進まなくなったら、終わりの移りを頼んでいなければ、データベースが
-        止まったとして、すぐおわびして終える（storage_stuck）。そのあと書き終えるまで待つ（進まないあいだは `abandoned`＝中央の見守り役が
-        立て直す）。通話の部品へ返せなかった書けなかった分は、記録する（データベースの誤りは、書けなかったときに記録済み）。"""
+        理由を残さず、回線のせい・番号のせいに数えうる形で終えた）。書き手が進まなくなったら、データベースが止まったとして、すぐおわびして
+        終える（storage_stuck。書き手が試行を終わった状態へ移せていれば、おわびは流さない＝`_end`）。そのあと書き終えるまで待つ（進まない
+        あいだは `abandoned`＝中央の見守り役が立て直す）。通話の部品へ返せなかった書けなかった分は、記録する（データベースの誤りは、
+        書けなかったときに記録済み）。"""
         self._done.set()
         with self._lock:
             ending = self.ended
@@ -353,8 +374,8 @@ class _Call:
             self._over.wait()   # 見張り・通話を進める部品が終えている途中：切り終えるまで待つ
         elif self._drain():
             self._end("runner_error", "通話を終えないまま戻りました" if error is None else f"落ちました（{type(error).__name__}）",
-                      None if error is None else type(error).__name__, trust_db=True)
-        elif not self.finishing:
+                      None if error is None else type(error).__name__, drained=True)
+        else:   # 書き手が進まない：データベースが止まった
             self._end("storage_stuck", "データベースへの書き込みが進みません（通話の部品が戻ったあと）")
         self._writes.join()
         for _, e in self._take_failed():
@@ -383,11 +404,14 @@ class _Call:
     def _run(self) -> None:
         while not self._done.wait(WATCH_EVERY):
             now = time.monotonic()
-            if self._stalled(now):   # 書き込み1つが frozen_after より長く終わらない：データベースが止まった
-                self._end("storage_stuck", f"データベースへの書き込みが {self.frozen_after:g} 秒より長く終わりません")
-                return
-            # 通話の部品が書き手を待っているあいだ（書き手は進んでいる）は、途切れに数えない
-            if now - self.last > self.frozen_after and not self._waiting:
+            if self._waiting:   # 通話の部品が書き手を待っている（flush）：書き手が進んでいれば、途切れに数えない
+                if self._stalled(now):   # 書き込み1つが frozen_after より長く終わらない：データベースが止まった
+                    self._end("storage_stuck", f"データベースへの書き込みが {self.frozen_after:g} 秒より長く終わりません")
+                    return
+                continue
+            # 「動いています」が続いているあいだは、書き込みが遅くても終えない（見直し22 の 1。⛔ 0143：書き込み1つが遅いだけで、元気な
+            # 通話をおわびで切った＝場面 w20・w25）。途切れたら固まった（書き手が止まっていれば、`_end` がデータベースの止まりとして終える）
+            if now - self.last > self.frozen_after:
                 self._end("frozen", f"「動いています」の知らせが {self.frozen_after:g} 秒途切れました",
                           f"「動いています」の知らせが {self.frozen_after:g} 秒途切れた")
                 return
@@ -499,7 +523,8 @@ def _check_stop(access: Access, actor: Actor, tenant_id: UUID, line_id: UUID, dr
     """回線の異常で止めた、この回線の停止の確かめ（2026-10-24 ユーザー：再開の確かめもテスト番号で「OK」）：テスト番号で確かめる停止
     （core/ring_test.checks_stop の1か所。テスト番号の無い契約者は確かめの部品＝supervisor.jobs）で、確かめの時が来ていれば、テスト番号で
     試し、鳴れば成功・鳴らなければ失敗として記録する（core/watch.record_check。1回鳴れば解く＝2026-10-25 夜 管理者「鳴ったら、テストＯＫ
-    なだけ」。0143）。見分けられない（core/ring_test.run が、その停止について1回知らせる）・話している途中・PC の部品が試さなかった・
+    なだけ」。0143）。声が聞き取れずに止め直した回線は、確かめの時を、止めた時から並びの長さだけ遅らせる（core/watch.checkable の1か所。
+    2026-10-29 管理者。0144）。見分けられない（core/ring_test.run が、その停止について1回知らせる）・話している途中・PC の部品が試さなかった・
     鳴らしてよい時間の外（設定 line.test_ring_hours。2026-10-24 ユーザー：テスト番号はいまユーザー自身の電話）なら記録しない
     （いつもの休みのあとで試し直す。時間の外は、時間の始まりまで鳴らさず、アプリが応答するかだけの確かめでも解かない＝朝まで待つ。
     記録しないので、確かめの間隔も伸びない）。返すのは、次に確かめてよいまでの秒（その停止が無い・決まらなかったときは None＝

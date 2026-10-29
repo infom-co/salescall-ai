@@ -23,7 +23,7 @@ from pathlib import Path
 
 import run_tests
 from salescall.core import access as access_mod
-from salescall.core import attempts, conversation_io, dial_exit, fix_requests, next_action, settings, watch
+from salescall.core import approval, attempts, conversation_io, dial_exit, fix_requests, next_action, quality_stage, settings, watch
 from salescall.core.calling_hours import JST
 from salescall.core.phone import normalize
 from salescall.supervisor import jobs, line
@@ -169,22 +169,24 @@ class Life(SupervisorBase):
     def ctx(self, s, links=None):
         return jobs.Context(self.w.a, None, HOLDER, links or NoLinks(), s["tenant"])
 
-    def turn(self, s, phone, talk):
-        """回線ごとの処理の loop の何回分か（かけなくなるまで。loop と同じく、毎回の頭で止めた回線の確かめ）。"""
-        self.lease(s, seconds=3600)
+    def turn(self, s, phone, talk, line_id=None):
+        """回線ごとの処理の loop の何回分か（かけなくなるまで。loop と同じく、毎回の頭で止めた回線の確かめ）。line_id＝ほかの回線。"""
+        line_id = line_id or s["line"]
+        self.lease(s, line=line_id, seconds=3600)
         for _ in range(8):
-            line._check_stop(self.w.a, SYSTEM, s["tenant"], s["line"], phone)
-            got = line.one_round(self.w.a, SYSTEM, s["tenant"], s["line"], HOLDER, phone, talk)
+            line._check_stop(self.w.a, SYSTEM, s["tenant"], line_id, phone)
+            got = line.one_round(self.w.a, SYSTEM, s["tenant"], line_id, HOLDER, phone, talk)
             jobs.settle_ready(self.ctx(s))
             if got.called is None or got.pause:
                 break
         self.w.a.in_tenant(SYSTEM, s["tenant"], watch.lasting_stops)
 
-    def run_until(self, s, phone, talk, until, *, step=timedelta(minutes=10), night=timedelta(minutes=30), each=None):
-        """時計を step ずつ（夜は night ずつ）進め、毎回その回線をまわす。"""
+    def run_until(self, s, phone, talk, until, *, step=timedelta(minutes=10), night=timedelta(minutes=30), each=None, lines=None):
+        """時計を step ずつ（夜は night ずつ）進め、毎回その回線をまわす（lines＝(回線, 電話の部品) の並び：毎回この順にまわす）。"""
         t = self.db_now()
         while t < until:
-            self.turn(s, phone, talk)
+            for line_id, p in lines or [(s["line"], phone)]:
+                self.turn(s, p, talk, line_id)
             if each is not None:
                 each()
             t += step if 8 <= t.astimezone(JST).hour < 22 else night
@@ -436,3 +438,175 @@ class Life(SupervisorBase):
             "SELECT promised FROM salescall.task_next_actions WHERE task_id = %s AND kind = 'call' AND seq > 1 ORDER BY seq",
             (p["task"],))])
         self.assertTrue(all(plans), plans)                                      # 約束の印は外れない
+
+    # ── 見直し22 の場面（0144）
+    def add_row(self, s, *, contact=None, run=None):
+        """行を1つ足す（contact＝同じ番号のお客様・run＝ほかの実施回）。いまかける予定にする。"""
+        k = contact or self.w.contact(s["tenant"], s["client"], normalize(support.fictional_jp_fixed()).e164)
+        t = self.w.task(s["tenant"], s["client"], run or s["run"], k)
+        self.tx(s, lambda tx: next_action.schedule_now(tx, t, cause="試験"))
+        r = dict(s, task=t, contact=k)
+        r["phone"] = self.tx(r, lambda tx: tx.one("SELECT phone_e164 FROM salescall.contacts WHERE contact_id = %s", (k,))["phone_e164"])
+        return r
+
+    def calls_on(self, s, line_id):
+        """その回線でかけた（発信まで進んだ）試行の、行・日本時間の時刻・状態。"""
+        return owner_access().in_system(SYSTEM, lambda tx: [(r["task_id"], r["claimed_at"].astimezone(JST), r["state"]) for r in tx.all(
+            "SELECT task_id, claimed_at, state::text AS state FROM salescall.attempts WHERE line_id = %s"
+            " AND salescall.is_dialed(state) ORDER BY claimed_at", (line_id,))])
+
+    def test_n2b_a_row_left_undecided_on_a_broken_line_is_called_by_a_healthy_line(self):
+        """場面 n2b（見直し22 の 5）：回線 A は壊れ（どの番号もかけられない・テスト番号も鳴らない）、回線 B は元気。テスト番号は 12:00〜13:00
+        だけ。P は 9:30 ちょうどの約束。A がかけて鳴らず、番号のせいか回線のせいかが分からない行も、B は、ふつうの決まりでかけてよい（門の
+        awaiting_decision は、その電話をかけた回線にだけ効く＝0144。2026-10-24 管理者「回線の問題が明らかな場合は行は取りやめでなく一時中止
+        だけ」＝止めるのは回線であって行ではない）。⛔ 0143：分からない行をどの回線にも出さず、9:30 の約束を12時まで待たせた。
+        A の分からなかった電話は、B がかけたあとに締め（行の予定は B の電話の締めが決める）、行の結果はあとの電話（B）のもの。"""
+        monday = self.next_monday_9()
+        s, rows = self.start(4, at=monday)
+        line_b = self.w.line(s["tenant"])
+        self.give_test_number(s, (("12:00", "13:00"),))
+        p = self.add_row(s)
+        at = monday.replace(minute=30)
+        self.tx(p, lambda tx: support.schedule_call(tx, p["task"], at, contact_id=p["contact"], cause="試験：約束", promised=True,
+                                                     callee_at=at))
+        rows.append(p)
+        a, b = Phone(broken=True), Phone()
+        lines = [(s["line"], a), (line_b, b)]                                   # 毎回 A が先（A が先に行を取る）
+        self.run_until(s, None, Talk(), monday.replace(minute=40), step=timedelta(minutes=2), lines=lines)
+        self.assertEqual([self.ended(r) for r in rows], ["completed"] * 5)     # 約束の P も、A が手をつけた行も、B がかけて完了
+        on_a = {task for task, _, _ in self.calls_on(s, s["line"])}
+        self.assertIn(p["task"], on_a)                                         # P は A が先に取って、鳴らなかった
+        done = {task: (when, st) for task, when, st in self.calls_on(s, line_b)}
+        self.assertEqual(done[p["task"]][1], "ended")
+        self.assertLess(done[p["task"]][0], monday.replace(minute=40))        # 約束の回のうちに（12時まで待たせない）
+        self.assertTrue(self.tx(p, lambda tx: tx.one("SELECT promised FROM salescall.attempts WHERE task_id = %s AND line_id = %s",
+                                                      (p["task"], line_b))["promised"]))   # 約束の電話として
+        tried = self.tx(p, lambda tx: tx.one("SELECT claimed_at FROM salescall.attempts WHERE task_id = %s AND line_id = %s",
+                                              (p["task"], s["line"]))["claimed_at"])
+        plans = self.tx(p, lambda tx: [r["kind"] for r in tx.all(
+            "SELECT kind::text AS kind FROM salescall.task_next_actions WHERE task_id = %s AND decided_at > %s ORDER BY seq",
+            (p["task"], tried))])
+        self.assertEqual(plans, ["end"])                                       # A の電話の締めは予定を書かない（B の締めが決める）
+        self.run_until(s, None, Talk(), monday.replace(hour=12, minute=30), step=timedelta(minutes=10), lines=lines)
+        for r in rows:                                                         # 行の結果は、あとの電話（B）の結果
+            got = self.tx(r, lambda tx, r=r: tx.one(
+                "SELECT x.attempt_id, (SELECT a.line_id FROM salescall.attempts a WHERE a.attempt_id = x.attempt_id) AS line_id"
+                " FROM salescall.latest_task_results x WHERE x.task_id = %s", (r["task"],)))
+            self.assertEqual(got["line_id"], line_b)
+        unsettled = self.tx(s, lambda tx: tx.one("SELECT count(*) AS n FROM salescall.attempts WHERE line_id = %s"
+                                                 " AND salescall.is_dialed(state) AND NOT salescall.is_settled(attempt_id)",
+                                                 (s["line"],))["n"])
+        self.assertEqual(unsettled, 0)                                         # A の分からなかった電話も締めた
+
+    def test_n11_an_undecided_call_does_not_hold_the_verification_stage(self):
+        """場面 n11（見直し22 の 2）：検証モード・最初の段は2件。テスト番号が無い。回線 A が X（かけられない番号）にかけて分からないまま
+        （A はそのあと鳴らさない）、回線 B が約束の2行で段の件数に達する（X ほかの行は、段が進むまで、どの回線もかけない）。お客様の
+        ところで鳴らなかった電話は会話の品質にかかわらないので、段の評価は待たない（quality_stage.evaluate の1か所）：段は進み、残りの行
+        にもかける。X は失わない（決まるまで休む）。⛔ 0143：締めていない電話が1つでもあると段を進めず、残りの行に永久にかけなかった。"""
+        monday = self.next_monday_9()
+        s, rows = self.start(5, at=monday)
+        line_b = self.w.line(s["tenant"])
+        x, good = rows[0], rows[1:]
+        for r in good:                                                         # A が X を取るまでは、ほかの行はまだ（10分後）
+            self.tx(r, lambda tx, r=r: support.schedule_call(tx, r["task"], monday.replace(minute=10), contact_id=r["contact"],
+                                                             cause="試験", promised=False))
+        self.put_client(s, "approval.human", True)
+        self.override("quality.stage.sizes", [2, 100])
+        for r in rows:
+            self.tx(r, lambda tx, r=r: approval.approve_task(tx, r["task"]), OPERATOR)
+        self.tx(s, lambda tx: quality_stage.open_stage(tx, s["version"], 1, 2, evidence="試験：最初の段は2件"), OPERATOR)
+        a, b = Phone(bad={x["phone"]}), Phone(bad={x["phone"]})
+        self.turn(s, a, Talk(), s["line"])                                     # 9:00：A が X にかけて鳴らない
+        self.assertEqual([task for task, _, _ in self.calls_on(s, s["line"])], [x["task"]])
+        now = self.db_now()
+        for r in good[:2]:                                                     # 2行は約束（時刻の決まっていない約束）：B が先にかけて段を埋める
+            self.tx(r, lambda tx, r=r: support.schedule_call(tx, r["task"], now, contact_id=r["contact"], cause="試験：約束",
+                                                             promised=True))
+        self.run_until(s, None, Talk(), monday.replace(hour=12), step=timedelta(minutes=5), lines=[(line_b, b), (s["line"], a)])
+        self.assertEqual({task for task, _, _ in self.calls_on(s, line_b)[:2]}, {good[0]["task"], good[1]["task"]})   # 段を埋めた
+        self.assertEqual([self.ended(r) for r in good], ["completed"] * 4)     # 段が進み、残りの行にもかけた
+        stages = self.tx(s, lambda tx: [r["stage_no"] for r in tx.all(
+            "SELECT stage_no FROM salescall.version_stages WHERE version_id = %s ORDER BY stage_id", (s["version"],))])
+        self.assertEqual(stages[-1], 2)
+        self.assertIsNone(self.ended(x))                                       # X は失わない（番号の4回の順で続く）
+
+    def test_n6_one_number_on_two_rows_keeps_the_numbers_four_tries(self):
+        """場面 n6（見直し22 の 9）：同じ番号 X（かけられない）が2つの行にある（同じお客様・違う実施回）。回線は元気・テスト番号は終日。
+        番号の4回（並び dial.failed_retry_days の初め＝当日2回・翌日1回・2日後1回）は番号ごとの決まり：次にかけてよい時刻は番号ごとの
+        1か所（attempts.failed_wait）で決め、門と次の動きがそれを読む（行ごとに別々に決めない）。月曜9時から金曜18時まで：X へかけるのは、
+        月曜2回・火曜1回・木曜1回の4回だけ。2つの行とも「番号が使えない」で終わる。⛔ 0129〜0143：もう1つの行の予定は、番号の続きが
+        伸びる前に書いたままだったので、月曜に3回かけ、火曜の1回で「番号が使えない」になった。"""
+        s, rows = self.start(4)
+        self.give_test_number(s)
+        x1 = rows[3]
+        x2 = self.add_row(s, contact=x1["contact"], run=self.w.run(s["tenant"], s["client"], s["business"], s["version"]))
+        phone = Phone(bad={x1["phone"]})
+        monday = self.db_now().astimezone(JST)
+        self.run_until(s, phone, Talk(), monday + timedelta(days=4, hours=9))
+        days = [when.date() - monday.date() for task, when, _ in self.calls_on(s, s["line"]) if task in (x1["task"], x2["task"])]
+        self.assertEqual([d.days for d in days], [0, 0, 1, 3])
+        self.assertEqual([self.ended(r) for r in (x1, x2)], ["number_unusable"] * 2)
+        self.assertEqual([self.ended(r) for r in rows[:3]], ["completed"] * 3)
+        for r in (x1, x2):                                                     # 門が断ったら、次の動きが番号の順で1回書き直す（書き直し続けない）
+            plans = self.tx(r, lambda tx, r=r: tx.one("SELECT count(*) AS n FROM salescall.task_next_actions WHERE task_id = %s",
+                                                      (r["task"],))["n"])
+            self.assertLessEqual(plans, 10, r["task"])
+
+    def test_n10_a_test_the_pc_never_tries_is_told_once(self):
+        """場面 n10（見直し22 の 9）：回線が壊れ、テスト番号の頼みに PC の部品がいつも答えない（試さなかった＝withheld）。決めにいくテストが
+        試されないまま、あける長さの最初（15分）を過ぎても試せないときは、「見分けられない」と同じ知らせを、同じ続きで1回出し、電話を
+        つなぐ部品の直す担当へ修正依頼を出す（core/ring_test._tell_undecided の1か所）。それより前は知らせない。行は失わない。
+        ⛔ 0143：行が決まらないまま、だれにも知らされなかった。"""
+        from salescall.link.phone import CallWithheld
+
+        class Withholds(Phone):
+            def test_ring(self, phone_):
+                self.rings.append(phone_)
+                raise CallWithheld("試験：PC の部品が試さない")
+        s, rows = self.start(5)
+        self.give_test_number(s)
+        phone = Withholds(broken=True)
+        monday = self.db_now().astimezone(JST)
+        self.run_until(s, phone, Talk(), monday.replace(minute=10), step=timedelta(minutes=1))
+        self.assertTrue(phone.rings)                                           # 試そうとした
+        self.assertEqual(self.notes(s, "line_undecided"), 0)                   # 15分より前は知らせない
+        self.run_until(s, phone, Talk(), monday.replace(hour=11), step=timedelta(minutes=5))
+        self.assertEqual(self.notes(s, "line_undecided"), 1)                   # 同じ続きで1回
+        asked = [r for r in owner_access().in_system(SYSTEM, lambda tx: fix_requests.open_requests(tx, "CL-2"))
+                 if r["kind"] == "test_ring_undecided"]
+        self.assertEqual(len(asked), 1)
+        self.assertEqual(self.ring_tests(s), [])                               # 試さなかったテストは記録しない
+        for r in rows:
+            self.assertIsNone(self.ended(r))                                   # 行は失わない（決まるまで休む）
+
+    def test_b5b_a_line_whose_voice_is_broken_is_stopped_again_with_longer_waits(self):
+        """場面 b5b（2026-10-29 管理者の決定。0144）：回線の声の受け渡しが壊れ、どのお客様とも「声が聞き取れない」で終わる（テスト番号は
+        鳴る＝発信はできる）。テスト番号では声が通るかを確かめられないので、1回鳴れば再開し、また聞き取れなければ止め直し、次に再開を
+        試すまで 15→30→60→120→240分あける（core/watch.checkable の1か所。並びは line.test_ring_gaps）。月曜9時〜18時：止める・再開の
+        回数と、お客様へのお詫びの電話の本数が減る。⛔ 0143 まで：止めてはすぐ再開し、停止13回・お詫び40本だった。"""
+        class PoorAudio:
+            def run(self, access, actor, claim, *, tenant_id, client_id, call=None):
+                call.beat()
+                access.in_client(actor, tenant_id, client_id, lambda tx: [
+                    attempts.move(tx, claim.attempt_id, st) for st in ("ringing", "answered", "in_conversation")])
+                call.end_for_trouble("poor_audio")
+        s, rows = self.start(8)
+        self.give_test_number(s)
+        phone = Phone()
+        monday = self.db_now().astimezone(JST)
+
+        def verified():   # 通話後の検証（会話の担当の部品）が済む
+            for a in self.tx(s, lambda tx: tx.all("SELECT attempt_id FROM salescall.attempts WHERE verification = 'pending'"
+                                                  " AND NOT salescall.is_active(state)")):
+                self.tx(s, lambda tx, a=a: attempts.record_verification(tx, a["attempt_id"], summary=CLEAN))
+            jobs.settle_ready(self.ctx(s))
+        self.run_until(s, phone, PoorAudio(), monday.replace(hour=18), step=timedelta(minutes=5), each=verified)
+        resumes = [at for at, purpose, rang in self.ring_tests(s) if purpose == "resume_check" and rang]
+        self.assertLessEqual(len(self.line_stops(s)), 7, resumes)              # 止める回数が減る（前は13回）
+        self.assertLessEqual(getattr(phone, "apologized", 0), 25)             # お詫びの電話が減る（前は40本）
+        ladder = [15, 30, 60, 120, 240]
+        for i, (a, b) in enumerate(zip(resumes, resumes[1:])):                 # 止め直すたびに、並びの次の長さをあける
+            self.assertGreaterEqual(b - a, timedelta(minutes=ladder[min(i, len(ladder) - 1)]), (i, resumes))
+        for r in rows:
+            self.assertNotEqual(self.ended(r), "number_unusable")              # 行は失わない
+

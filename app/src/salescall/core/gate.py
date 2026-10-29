@@ -61,7 +61,11 @@ REASONS: dict[str, Reason] = {
     "number_kind_forbidden": Reason("かけない種類の番号です", "permanent", "plan"),
     "number_kind_not_allowed": Reason("この業務の設定でかけない種類の番号です", "permanent", "plan"),
     "number_unusable": Reason("この番号は、お客様のところで電話が鳴らない電話が続きました（番号を受け付けない・お客様が出る前に終わる、が決まった数だけ続いた）", "permanent", "plan"),
-    "number_unconfirmed": Reason("この番号は、お客様のところで鳴らない電話が決まった数だけ続きましたが、番号のせいか回線のせいかが、まだ分かりません（その回線がほかの番号へかけると決まります）", "wait", "unoffered"),
+    # 鳴らない電話が続く番号の、番号ごとの決まった順（当日2回・翌日・2日後）の次の時刻の前（同じ番号のほかの行も、この順を越えない。
+    # 決まりは attempts.failed_wait の1か所＝次の動きと同じ。見直し22 の 9）
+    "number_failed_wait": Reason("この番号は、お客様のところで鳴らない電話が続いています（番号ごとの決まった順＝当日2回・翌日・2日後の、"
+                                 "次にかけてよい時刻まで待ちます）", "wait", "plan"),
+    "number_unconfirmed": Reason("この番号は、お客様のところで鳴らない電話が続いていますが、番号のせいか回線のせいかが、まだ分かりません（番号のせいなら、番号ごとの決まった順で次の日以降になります。その回線がほかの番号へかけると決まります）", "wait", "unoffered"),
     "dnc_client": Reason("発信禁止です", "permanent", "plan"),
     "dnc_contractor": Reason("契約者の共通の発信禁止です", "permanent", "plan"),
     "other_contractor_called": Reason("ほかの契約者がかけた番号です（契約者の設定で、かけない）", "permanent", "plan"),
@@ -373,6 +377,32 @@ def _target_short(tx: Tx, task: dict[str, Any], keeping: str, content: Any) -> s
     return None if short is None else short[0]
 
 
+def number_waits(tx: Tx, task: dict[str, Any], now: datetime) -> bool:
+    """鳴らない電話が続く番号で、番号ごとの決まった順（並び dial.failed_retry_days。初め当日2回・翌日・2日後）の次にかけてよい時刻が、
+    まだ来ていないか（1か所。時刻は attempts.failed_wait の1か所＝次の動きと同じ）。見るのは、行のいまの予定が、その番号の続きが伸びる
+    前に書いたもののときだけ（同じ番号のほかの行の電話で続きが伸びた。伸びたあとに次の動きが書いた予定は、同じ1か所を読んで、時刻と
+    時間帯まで決めている）。断ったら、次の動きが同じ1か所で予定を書き直す（next_action.after_denial）。見直し22 の 9：同じ番号が2つの行に
+    あると、もう1つの行の古い予定で、1日目に3回かけ、2日目の1回で「番号が使えない」になった（場面 n6）。"""
+    wait = attempts.failed_wait(tx, task["contact_id"], tenant_id=task["tenant_id"], client_id=task["client_id"],
+                                business_id=task["business_id"])
+    if wait is None:
+        return False
+    planned = tx.one("SELECT decided_at FROM salescall.current_next_actions WHERE task_id = %s", (task["task_id"],))
+    if planned is not None and planned["decided_at"] >= wait.last_end:
+        return False
+    return wait.day > calling_hours.local(now).date() or wait.not_before > now
+
+
+def stage_reason(tx: Tx, version_id: UUID | None, keeping: str | None) -> str | None:
+    """品質の段の理由（まだかけられる段の前・段の件数に達した。無ければ None。1か所＝門と、まもなくかけられる行を数える
+    scheduler.soon_left が読む。見直し22 の 2）。業務の話し方を使わない電話（決まった文面だけ＝お詫びの電話。どれがそれに当たるかは
+    データベースの salescall.fixed_text_kind の1か所）は見ない。版が無ければ None（門が実施回の理由で断る）。"""
+    if version_id is None or tx.one("SELECT salescall.fixed_text_kind(%s) AS p", (keeping,))["p"]:
+        return None
+    ok, why = quality_stage.allowance(tx, version_id)
+    return None if ok else why
+
+
 def _line_taken(tx: Tx, task: dict[str, Any], line_id: UUID, today: Any) -> bool:
     """その回線の発信番号で、ほかの依頼者がこの番号へかけたことがあるか（あれば、この回線ではかけない。1か所＝門と候補を出す処理）。
     依頼者が替わったら、期間に関係なく発信番号を替える（2026-10-17 ユーザー：「依頼者が違うと、期間に関係なく、声と発信番号は変えた
@@ -613,8 +643,10 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
     if not approval.task_cleared(tx, task["task_id"]):   # 契約者の承認を使う業務：契約者が承認した行だけ（モードは承認の部分が読む）
         return _deny("awaiting_approval")
     # 前の発信の締め（判定の結果の版）が済むまで、次をかけない（予定を誰が書き直しても抜け道にならないよう、
-    # 「前の発信に判定の結果があるか」で決める。判定と次の予定は、締めの処理 core/settle.py が1つの取引で書く）
-    if tx.one("SELECT salescall.task_awaiting_decision(%s) AS w", (task["task_id"],))["w"]:   # 決まりは1か所（0063）
+    # 「前の発信に判定の結果があるか」で決める。判定と次の予定は、締めの処理 core/settle.py が1つの取引で書く）。番号のせいか回線の
+    # せいかがまだ分からない電話は、その電話をかけた回線でだけ待つ（ほかの回線は、ふつうの決まりでかけてよい＝止めるのは回線であって
+    # 行ではない。2026-10-24 管理者「回線の問題が明らかな場合は行は取りやめでなく一時中止だけ」。見直し22 の 5。決まりは1か所＝0144）
+    if tx.one("SELECT salescall.task_awaiting_decision(%s, %s) AS w", (task["task_id"], line_id))["w"]:
         return _deny("awaiting_decision")
     # 「かけない」にしている行（一覧の列・ダッシュボード。2026-10-18 ユーザー決定）。お詫び・途中で切れたあとのかけ直し・約束した
     # かけ直しは、「かけない」の例外＝かける（2026-10-18 ユーザー）。「強制かけない」は例外なし（2026-10-19 ユーザー）。
@@ -649,11 +681,16 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
     if attempts.number_unusable(tx, task["contact_id"], tenant_id=task["tenant_id"], client_id=task["client_id"],
                                 business_id=task["business_id"]):
         return _deny("number_unusable")
-    # 並びの数だけ続いたが、番号のせいか回線のせいかが、まだ分からない：かけずに待つ（決まりは attempts.number_unconfirmed の1か所。
+    # 番号のせいか回線のせいかが、まだ分からない電話を数えると、番号の順で次の日以降になる・並びを使い切る：かけずに待つ（決まりは
+    # attempts.number_unconfirmed の1か所。見直し22 の 9。
     # 候補を出す処理も同じ関数で出さない＝waits_unknown。2026-10-24 ユーザー：行をやめるのは「明らかに番号に問題がある場合」だけ）
     if attempts.number_unconfirmed(tx, task["contact_id"], tenant_id=task["tenant_id"], client_id=task["client_id"],
                                    business_id=task["business_id"]):
         return _deny("number_unconfirmed")
+
+    # 鳴らない電話が続く番号の、番号ごとの決まった順（当日2回・翌日・2日後）の次の時刻の前（`number_waits` の1か所。見直し22 の 9）
+    if number_waits(tx, task, now):
+        return _deny("number_failed_wait")
 
     # (3) 回数と間隔（pacing の1か所）
     pace = _pacing(tx, task, now)
@@ -676,13 +713,12 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
     # 入っていない）と、目的のお客様を呼ぶ材料を見ない（前の通話で話したお客様に、決まった文面を伝える）。どの電話がそれに当たるかは、
     # データベースの1か所 salescall.fixed_text_kind（0120。⛔ 見直し16b：前は「品質の停止でも通す電話」の表の行で決めていて、2つの
     # 別の問いがつながっていた。見直し15の前は、ここに「お詫び」を直に書いていた）
-    fixed_text = tx.one("SELECT salescall.fixed_text_kind(%s) AS p", (nxt["keeping"],))["p"]
     # 目的のお客様を呼ぶ材料が足りない行にかけない（`_target_short` の1か所。候補を出す処理も同じものを読んで、初めから出さない）
     short = _target_short(tx, task, nxt["keeping"], content)
     if short is not None:
         return _deny(short)
-    ok, why = (True, None) if fixed_text else quality_stage.allowance(tx, version)
-    if not ok:
+    why = stage_reason(tx, version, nxt["keeping"])   # 品質の段（`stage_reason` の1か所。まもなくかけられる行の数えも同じものを読む）
+    if why is not None:
         return _deny(why)
 
     # (5) 止まっているか（全体・契約者・依頼者・業務・回線）

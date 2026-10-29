@@ -852,7 +852,8 @@ class UnusableNumber(SettleBase):
         """同じ番号の別の行（別の実行）に、まだ分からない電話があっても、この行の次の日は、番号のせいと分かった数（n_sure）だけで
         決める（next_action._failed_retry_at の1か所。0143）。分からない電話は日を送らない。⛔ 0129〜0141：分からない電話も数に入れて
         次の日へ送った（見直し21a の場面 a6）。同じ番号のほかの行は、決まるまで門が number_unconfirmed で待たせない（並びを使い切って
-        いない）。"""
+        いない）。⇒ 見直し22 の 9：ただし、分からない電話を番号のせいに数えると番号の順で次の日になるあいだは待つ（同じ日に3回目を
+        かけない）。"""
         s = self.ready()
         today = self.tx(s, lambda tx: tx.one("SELECT salescall.jst(now())::date AS d")["d"])
         run2 = self.w.run(s["tenant"], s["client"], s["business"], s["version"])
@@ -861,6 +862,16 @@ class UnusableNumber(SettleBase):
         self.tx(s, lambda tx: next_action.schedule_now(tx, t2, cause="試験"))
         d = self.settle(s, self.call(s, ["dialing", "call_failed"]))["decision"]   # 1つ目：番号のせい
         self.assertEqual(self.jst_date(s, d.at), today)                        # 1日目にもう1回（並びの1つ目）
+        # 別の行の予定は、番号の続きが伸びる前に書いたもの：番号ごとの決まった順（最後の失敗＋最短の間隔）より前にはかけない（門の
+        # number_failed_wait。決まりは attempts.failed_wait の1か所。見直し22 の 9）。次の動きが、その順で予定を書き直す
+        got = self.claim(other)
+        self.assertEqual(getattr(got, "reason", None), "number_failed_wait")
+        self.tx(s, lambda tx: next_action.after_denial(tx, t2, got, tenant_id=s["tenant"], client_id=s["client"],
+                                                       business_id=s["business"]))
+        replanned = self.tx(s, lambda tx: next_action.current(tx, t2))
+        self.assertLess(abs((replanned["call_at"] - d.at).total_seconds()), 2)
+        self.assertIn("鳴らない電話が続く番号", replanned["cause"])               # 通話のあとと同じ1か所で（決まった間ごとに書き直さない）
+        self.tx(s, lambda tx: next_action.schedule_now(tx, t2, cause="試験：その時刻が来た"))
         aid = self.call(other, ["dialing", "call_failed"])                     # 別の行：まだ分からない
         self.assertEqual(self.tx(s, lambda tx: attempts.blame(tx, aid)), "pending")
         run = self.tx(s, lambda tx: attempts.failed_run(tx, s["contact"]))
@@ -868,6 +879,12 @@ class UnusableNumber(SettleBase):
         now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
         at = self.tx(s, lambda tx: next_action._failed_retry_at(tx, s["task"], s["contact"], now, now))
         self.assertEqual(self.jst_date(s, at), today)                          # 分からない電話では、次の日へ送らない
+        # ただし、分からない電話を番号のせいに数えると番号の順で次の日になる（当日の2回を使い切る）あいだは、同じ番号の行は、どの回線
+        # でもかけずに待つ（attempts.number_unconfirmed の1か所。予定は書き直さない。見直し22 の 9）
+        self.assertTrue(self.tx(s, lambda tx: attempts.number_unconfirmed(tx, s["contact"], tenant_id=s["tenant"], client_id=s["client"],
+                                                                          business_id=s["business"])))
+        self.tx(s, lambda tx: next_action.schedule_now(tx, s["task"], cause="試験：その時刻が来た"))
+        self.assertEqual(self.reason(s), "number_unconfirmed")
 
     def test_the_blame_of_a_call_is_read_on_its_own_line_only(self):
         """だれのせいかは、その電話の回線の上の前後の電話だけで決まる（ほかの回線の鳴った電話は、この回線が元気だった証拠に

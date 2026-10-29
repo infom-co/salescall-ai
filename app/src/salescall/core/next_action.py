@@ -527,6 +527,8 @@ def decide_after_denial(d: gate.Denied, *, current_promised: bool, current: Targ
         raise ValueError(f"{d.reason} は、行の予定を書き直さない理由です（gate.REASONS の扱い {gate.REASONS[d.reason].handling}）")
     if d.reason == "callback_window":   # 幅のある約束だけが幅の外で止められ、その次の回は `_keep_promise` の1か所が決める
         raise ValueError("幅の外（callback_window）の次の回は、after_denial の _keep_promise が決めます")
+    if d.reason == "number_failed_wait":   # 番号ごとの決まった順は、通話のあとと同じ1か所（`_failed_retry_at`）が after_denial で決める
+        raise ValueError("番号ごとの決まった順（number_failed_wait）の次の時刻は、after_denial の _failed_retry_at が決めます")
     if d.reason in ("awaiting_decision", "not_due", "no_schedule", "task_ended", "judge_pending"):
         # 締めの処理・いまの予定に任せる（先に書き直さない）。予定の無い行・終えた行に、門の答えから書かない
         return None
@@ -730,23 +732,16 @@ def _failed_retry_at(tx: Tx, task_id: UUID, contact_id: UUID | None, now: dateti
     なかったら、その番号へはかけない」。"""
     if contact_id is None:
         return None
-    run = attempts.failed_run(tx, contact_id)   # 続いた数・最初の日・最後の終わり（データベースの1か所。⛔ 見直し16b：前は最初の日を
-    k = run["n_sure"]                           # 別の問い合わせで求め直していた。回線のせいの発信は数えない＝0129）
-    # 日をまたいで送るのは、番号のせいと分かった数だけ（0143。まだ分からない電話の行は、決まるまで締めない＝settle.settle。⛔ 0129〜0141：
-    # まだ分からない電話も数えて次の日へ送り、壊れた回線の2時間で行が次の日へ送られた＝見直し21a の場面 a6）
-    scope = tasks.scope(tx, task_id)
-    days = attempts.failed_retry_days(tx, **scope)
-    gap = timedelta(seconds=int(settings.resolve(tx, "gate.same_contact_min_interval", **scope)))
-    if k == 0 or k >= len(days):
+    # 次にかけてよい日と時刻の下限は、番号ごとの1か所（attempts.failed_wait。門も同じものを読む＝同じ番号のほかの行も、この順を
+    # 越えない。見直し22 の 9）。数えるのは番号のせいと分かった数だけ（0143。⛔ 0129〜0141：まだ分からない電話も数えて次の日へ送り、
+    # 壊れた回線の2時間で行が次の日へ送られた＝見直し21a の場面 a6）
+    wait = attempts.failed_wait(tx, contact_id, **tasks.scope(tx, task_id))
+    if wait is None:
         return None
-    # 次の日：「最初の失敗の日＋並び」と「前の失敗の日＋並びの差」の遅いほう（⛔ 見直し18c の (1)：前は最初の日からだけ数え、前の分が
-    # 時間帯の外などで次の日にずれると、残りが同じ日に詰まった＝当日2回・翌日1回の「翌日」が、ずれた2回目と同じ日になった）
-    last_day = calling_hours.local(run["last_end"]).date()
-    day = max(run["first_day"] + timedelta(days=days[k] - 1), last_day + timedelta(days=days[k] - days[k - 1]))
     today = calling_hours.local(now).date()
-    if day <= today:
-        return max(now, run["last_end"] + gap)
-    return _retry_at(tx, task_id, ("days", (day - today).days), now, dialed_at)
+    if wait.day <= today:
+        return max(now, wait.not_before)
+    return _retry_at(tx, task_id, ("days", (wait.day - today).days), now, dialed_at)
 
 
 def _not_before_failed(tx: Tx, task_id: UUID, d: Decision | None, failed_at: datetime | None, *,
@@ -1221,6 +1216,16 @@ def after_denial(tx: Tx, task_id: UUID, denied: gate.Denied, *, tenant_id: UUID,
         else:
             d = _call(now, bool(cur["promised"]), "門：その番号は、鳴らない電話が続いた ⇒ お客様が言った別の番号へ", t,
                       cur["callee_at"], window)
+        _write(tx, task_id, d)
+        return d
+    if denied.reason == "number_failed_wait" and now_target is not None:
+        # 鳴らない電話が続く番号の、番号ごとの決まった順の前（門と同じ attempts.failed_wait の1か所）：通話のあとと同じ1か所
+        # （`_failed_retry_at`・`_not_before_failed`）で、いまの予定（かける先・約束・時刻・幅・お詫びの印）を、その順より前にしない
+        wait = attempts.failed_wait(tx, now_target.contact_id, tenant_id=tenant_id, client_id=client_id, business_id=business_id)
+        failed_at = _failed_retry_at(tx, task_id, now_target.contact_id, now, now if wait is None else wait.last_end)
+        planned = _call(cur["call_at"], bool(cur["promised"]), "門：鳴らない電話が続く番号（番号ごとの決まった順）", now_target,
+                        cur["callee_at"], window)
+        d = _not_before_failed(tx, task_id, planned, failed_at, now=now) or planned
         _write(tx, task_id, d)
         return d
     if denied.reason in ("outside_hours", "callback_window") and window is not None and now_target is not None:
