@@ -235,6 +235,21 @@ class EntriesCalledFromTheirPlaces(Planted):
                           ("src/salescall/supervisor/line.py", "一本化")])
 
 
+class HealthTableEntry(Planted):
+    """一本化：回線・行・番号・契約者の状態を変えるのは、表を引く入口（core/health_rules.apply）1つだけ（DESIGN.md 17章の決まり (1)）。
+    まだ今の作りにはつながないので、試験のほかからは呼べない（3段目で、表を引く所を決めたら、その1か所だけを許す）。"""
+
+    def test_the_table_entry_is_called_from_nowhere_yet(self):
+        root = self._app({"src/salescall/supervisor/line.py": "from salescall.core import health_rules\n"
+                                                              "def go(s, e, r):\n    return health_rules.apply(s, e, r)\n",
+                          "src/salescall/core/gate.py": "from salescall.core.health_rules import apply\n",
+                          "src/salescall/core/health_rules.py": "def apply(s, e, r):\n    pass\ndef again(s, e, r):\n    return apply(s, e, r)\n",
+                          "tests/test_x.py": "from salescall.core import health_rules\nhealth_rules.apply(1, 2, 3)\n"})
+        found = rules.entries_called_from_their_places(root)
+        self.assertEqual(sorted((v.path, v.rule) for v in found),
+                         [("src/salescall/core/gate.py", "一本化"), ("src/salescall/supervisor/line.py", "一本化")])
+
+
 class CallErrorsOnlyThroughTroubles(Planted):
     """一本化：出どころ「通話」のエラーを作るのは core/troubles.py だけ（見直し20b：ほかで作ると、行が休み始めた知らせの出ない
     2つ目の伝え方になる）。位置でも source= でも、trouble= だけでも見つける。読み戻して表を引く所（出どころが変数）はよい。"""

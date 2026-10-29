@@ -475,6 +475,9 @@ PY_ENTRY_CALLERS: dict[tuple[str, str], frozenset[str]] = {
     ("watch", "resume_fixed"): frozenset({_SUP + "jobs.py"}),               # 直した版でこちらの不具合の停止を解く：決まった間隔の仕事だけ
     ("updates", "note"): frozenset({_SUP + "main.py"}),                     # 動いているプログラムの版を書く：本体の版の確かめだけ
     ("troubles", "restore"): frozenset({WEB_PLACE}),                         # 休んだ行を戻す：画面だけ（管理者・契約者。見直し20b）
+    # 回線・行・番号・契約者・試行のせいの表を引く入口（DESIGN.md 17章の決まり (1)：状態を変えるのは、表を引く入口1つだけ）。
+    # まだどこからも呼ばない（試験だけ）。3段目の「影で動かす」で、表を引く所を決めたら、その1か所をここに足す
+    ("health_rules", "apply"): frozenset(),
 }
 
 
