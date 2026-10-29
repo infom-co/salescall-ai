@@ -35,6 +35,22 @@ def current() -> dict:
     return {(t, b, a is not None, s): (acc, f) for t, acc, b, a, s, f in g.cases("確かめる一言")}
 
 
+def flow_ok(got: dict, facts: dict, acc: list, r: dict) -> bool:
+    """流れの制御の動きが正解と同じか：組み合わせた読み（flowctl.facts_reading）が受け取ってよい読みに入り、印（不在・電話を代わった方・後任の方）も
+    正解の組み合わせのどれかと同じ。項目だけの外れ（読みも印も変わらない）は、流れの制御の動きを変えない。電話を代わった方の印は、流れの制御が
+    使うときだけ比べる（Flow._new_speaker：確かめる一言を聞いた方の返事・取り次ぎの言葉のあとの言葉では使わない＝g.HELD_BEFORE）。"""
+    from itertools import product
+    seeks = r["successor"]
+    used = not r["asked"] and not set((r["before"] or "").split("／")) & g.HELD_BEFORE
+    keys = list(facts)
+    def flags(f):
+        value, away, new, succ = facts_reading(f, seeks)
+        return value, away, new if used else None, succ
+    want = {flags(dict(zip(keys, c)))[1:] for c in product(*(facts[k] for k in keys))}
+    value, *rest = flags(got)
+    return value in acc and tuple(rest) in want
+
+
 def judged(r: dict, col: str) -> dict | None:
     """1行の、判定 col の項目ごとの答え（G-59 の行は「<col>_facts」・Jev だけに聞いた行は「jev」＝{項目: (答え, 確からしさ)}）。"""
     if col == "jev":
@@ -51,10 +67,11 @@ def misses(names: list[str]) -> None:
             for col in ["jev"] if "jev" in r else [k[:-6] for k in r if k.endswith("_facts") and not k.endswith("_asks_facts")]:
                 got = judged(r, col) or {}
                 bad = {k: (got.get(k), sorted(v)) for k, v in facts.items() if got.get(k) not in v}
-                value = facts_reading(got)[0] if len(got) == len(facts) else None
+                value = facts_reading(got, r["successor"])[0] if len(got) == len(facts) else None
                 if bad or value not in acc:
+                    moved = not (len(got) == len(facts) and flow_ok(got, facts, acc, r))
                     print(name, r.get("rep", ""), col, scene(r), r["text"], "｜前：", r["before"] or "", "｜外れ：", bad,
-                          "｜読み：", value, "○" if value in acc else "×")
+                          "｜読み：", value, "○" if value in acc else "×", "｜流れの制御の動き：", "変わる" if moved else "同じ")
 
 
 def plan(cheap: list[str], jev: list[str], group: str, line: float) -> None:
@@ -82,7 +99,7 @@ def plan(cheap: list[str], jev: list[str], group: str, line: float) -> None:
                 cr = cheap_rows[k][i % len(cheap_rows[k])]
                 who, got, s = "安い判定", cr.get("judge2_facts"), cr.get("judge2_s") or 99
             by[who] += 1
-            value = facts_reading(got)[0] if got else None
+            value = facts_reading(got, jr["successor"])[0] if got else None
             ok, fok = value in acc, g.facts_ok(got, facts)
             count["回"] += 1
             count["読み○"] += ok
