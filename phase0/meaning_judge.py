@@ -114,7 +114,14 @@ FACET_RULES = (
     "決まり：\n"
     "- 言葉の意味で選びます。言葉の頭の「はい」「いいえ」だけで決めません。\n"
     "- 電話に出ている方が誰か迷ったら「" + UNDECIDED + "」を選びます。\n"
+    # ⛔ 2026-10-29 G-59（項目ごとに答える形の1回目）：取り次ぎのあとの言葉（「岡田は本日休みを…」「お電話代わりました。」など）で、その前の
+    #    「少々お待ちください。」を、いまの言葉の「取り次ぎを待つ」と読んだ（Jev は項目ごとの外れ17のうち13・GPT-6 Luna 8のうち4・Haiku 5.5 1。
+    #    Sonnet 5.5 は0）＝どの項目を、いまの言葉だけで読むかを書いていなかった
+    "- 電話のやり取りと、お呼びした方の事情は、" + (NOW_ONLY := "お客様の言葉（いまの言葉）で言ったことだけで選びます") + "。その前に相手が言ったことは、"
+    "電話に出ている方が誰かを決める手がかりにだけ使います。\n"
 )
+# いまの言葉だけで読む項目（FACET_RULES の上の1行と、Jev の問い＝jev_request が同じ文を使う。Jev には決まりの文を渡さないため）
+NOW_ONLY_FACETS = (PHONE, ABOUT)
 
 
 def facet_choices(q) -> str:
@@ -401,8 +408,9 @@ def jev_request(model: str, q, text: str, asked: str | None = None, before: str 
     （確からしさは項目ごと＝読むときは一番低いもの。言い切っているかは問わない）。"""
     if q.facets:
         return {"model": model, "state": scene(q, text, asked, before),
-                "questions": {k: {"type": "choice", "instructions": f"電話に出ている方の言葉で、{h}はどれに当たりますか？（ほかの項目に当たる事実が"
-                                                                       "あっても、この項目のことだけを読みます）", "criteria": dict(t)}
+                "questions": {k: {"type": "choice", "instructions": f"電話に出ている方の言葉で、{h}はどれに当たりますか？（"
+                                                                       + (f"{NOW_ONLY}。" if k in NOW_ONLY_FACETS else "")
+                                                                       + "ほかの項目に当たる事実があっても、この項目のことだけを読みます）", "criteria": dict(t)}
                               for k, h, t in q.facets}}
     return {"model": model, "state": scene(q, text, asked, before),
             "questions": {"choice": {"type": "choice", "instructions": JEV_ASK_REPLY if asked else JEV_ASK, "criteria": jev_criteria(q, asked)},

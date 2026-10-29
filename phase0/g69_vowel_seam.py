@@ -89,6 +89,20 @@ SPEED_MAX = 0.25
 # 約2（3回目の S2「の」✕「重なっている」）・2.07（4回目の S2「で」✕「重なって、機械音にも聞こえ」）は3組とも ✕。⛔ 2026-10-29 G-69 の7回目：
 # 点数は周期のずれを重く数え（0.1 が半音1つ）、跳ね 3.45 の組（「は」）を持つ名前の部分を、跳ね 1.57 が一番悪い名前の部分と 0.38 差で選んでいた
 JUMP_MAX = 1.7
+# つなぎ目の周期のずれ・高さの動きの上限（join_gap）。超える組は、ほかに組が無いときだけ選ぶ。ユーザーの聞き比べ（4〜7回目の S2）：途切れ・違和感の
+# ご指摘のあった組は、どれも周期のずれ 0.25 か高さの動き 0.8 を超える（5回目「の」△「途切れ」周期 0.258／7回目「と」△「途切れる」周期 0.689／
+# 7回目「で」△「僅かに途切れ」動き 1.26／7回目「の」○「『の』の辺りが少し違和感」周期 0.284・動き 1.08／4回目「で」✕「重なって」動き 0.85）。
+# ご指摘の無かった組は、周期のずれ 0.173 まで・動き 0.22 まで（6回目の「の」周期 0.338 だけ、ご指摘が無かった）。⛔ 2026-10-29 G-69 の7回目：上限を
+# 置かず点数に足すだけだったので、いつもの声の上限の中にほかの組が無い「と」で、周期のずれ 0.689・前後の1周期の形 0.35 の組を選んだ
+PERIOD_MAX = 0.25
+MOVE_MAX = 0.8
+# 続く言葉の「ま」から助詞への高さの下がり（切る所から FALL_S 秒＝fall_after）の下限（半音）。下がりが小さい組は、ほかに組が無いときだけ選ぶ。
+# ✅ ユーザーの聞き比べ（1〜7回目の S2 の (V) の組）：イントネーションのご指摘の無かった ◎ の5組は、5組とも 1.9半音以上下がる（−1.9〜−5.5）／
+# 下がりが 1.3半音より小さい11組は、どれも「『岡田様』のイントネーションが少しおかしい」「機械のよう」「抑揚がなさ過ぎる」「言い方が少し怖い」などの
+# ご指摘（◎ は0組）。材料そのものでも同じ（「は」の ◎◎ tail_は_3 −4.73／「機械のよう」tail_は_1 −1.18／「前半の抑揚がなく違和感」tail_と_6 +0.57／
+# 「機械のよう」tail_で_7 +0.11）。⛔ 2026-10-29 G-69 の7回目：材料をいつもの声の高さにそろえたとき、この下がりを見ておらず、平らな材料ばかりになった
+FALL_S = 0.2
+FALL_MIN = 1.9
 FRAME_S, HOP_S = 0.02, 0.005   # 「ま」を探す区間の長さと細かさ
 SIDE_S = 0.025                 # つなぎ目の前後で比べる長さ
 BAND = (1000.0, 4000.0)        # 鼻の音（「ま」の m）で弱まる帯
@@ -314,6 +328,22 @@ def join_gap(a_pcm: bytes, a_cut: int, a_per: int, b_pcm: bytes, b_cut: int, b_p
             "周期のずれ": round(max(0.0, ap_join - max(ap_a, ap_b)), 3)}
 
 
+def fall_after(pcm: bytes, rate: int, t: float) -> float | None:
+    """声の高さが、t 秒から FALL_S 秒の間にどれだけ動いたか（半音。下がれば負＝続く言葉の「ま」から助詞への下がり。唯一の測り方）。t の前 0.4秒から
+    10ミリ秒ごとに高さを読み（pitch_at）、その区間の中央から半音7つより外（1オクターブの読み違い）を外し、5点の中央でならして、t から FALL_S 秒の
+    最初と最後の差。読めなければ None。"""
+    ts = np.arange(max(0.0, t - 0.4), t + FALL_S, 0.01)
+    hz = np.array([pitch_at(pcm, rate, x) or np.nan for x in ts])
+    if np.isnan(hz).all():
+        return None
+    st = 12 * np.log2(hz / np.nanmedian(hz))
+    st[np.abs(st) > 7] = np.nan
+    smooth = np.array([np.nanmedian(w) if np.isfinite(w).any() else np.nan
+                       for w in (st[max(0, i - 2):i + 3] for i in range(len(st)))])
+    post = smooth[(ts >= t) & np.isfinite(smooth)]
+    return round(float(post[-1] - post[0]), 2) if len(post) > 1 else None
+
+
 def score(g: dict) -> float:
     """差を1つの数に（半音1つ＝大きさ3dB＝声質3dB＝周期のずれ 1/JOIN_WEIGHT を同じ重さに。つなぎ目で高さが読めなければ、跳ね・動きを
     半音3つずつとみなす＝選ばない側。隣の区間だけ読めず動きが None なら、動きは数えない）。"""
@@ -458,6 +488,8 @@ async def build(args, out, rows: list[dict]) -> dict:
         for t in ts:
             t["points"] = points(t["pcm"], rate, t["mv"])
 
+    falls = {}   # (続く言葉, 切る所) ⇒ 「ま」から助詞への高さの動き（fall_after。名前の部分によらない）
+
     def pair(h, t, form):
         """名前の部分 h と続く言葉 t の、一番合う切る点の組（名前の部分の切る点ごとに、続く言葉はその最後の1周期に一番よく続く位置＝align）の
         組のずれ（小さいほど合う）・つなぎ目の差・続く言葉の切る所・名前の部分の切る所。"""
@@ -472,12 +504,17 @@ async def build(args, out, rows: list[dict]) -> dict:
                 cut, shape = align(h["pcm"], hc, per, t["pcm"], rate, tc / rate)
                 g = join_gap(h["pcm"], hc, per, t["pcm"], cut, tper, rate)
                 comp, dur = ma_length(h["mv"], hc, t["mv"], cut, rate)
+                if (key := (id(t), cut)) not in falls:
+                    falls[key] = fall_after(t["pcm"], rate, cut / rate)
+                fall = falls[key]
                 s_ = (score(g) + dur + RATE_WEIGHT * speed + over + over_by(g["声質（dB）"], VOICE_MAX, 1.0)
-                      + over_by(3.0 if g["高さの跳ね（半音）"] is None else g["高さの跳ね（半音）"], JUMP_MAX, 0.1))
+                      + over_by(3.0 if g["高さの跳ね（半音）"] is None else g["高さの跳ね（半音）"], JUMP_MAX, 0.1)
+                      + over_by(g["周期のずれ"], PERIOD_MAX, 0.01) + over_by(g["高さの動き（半音）"] or 0.0, MOVE_MAX, 0.1)
+                      + over_by(0.0 if fall is None else fall, -FALL_MIN, 0.1))
                 if best is None or s_ < best[0]:
                     best = (s_, {**g, "前後の1周期の形": round(shape, 2), "話す速さのずれ": speed, "全体の高さの差（半音）": whole,
                                  "いつもの声との高さの差（半音）": [h["usual"][0], t["usual"][0]],
-                                 "「ま」の長さ（秒）": round(comp, 3),
+                                 "「ま」の長さ（秒）": round(comp, 3), "「ま」から助詞への高さの動き（半音）": fall,
                                  "続く言葉のもとの「ま」の長さ（秒）": round(t["mv"]["vowel"][1] - t["mv"]["vowel"][0], 3),
                                  "切る所（秒）": [round(hc / rate, 4), round(cut / rate, 4)]}, cut, hc)
         return best

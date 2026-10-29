@@ -6072,7 +6072,7 @@ class TargetTest(unittest.TestCase):
         self.assertIn(f"{BEFORE}：「岡田ですね。少々お待ちください。」", prompt(q, "はい、お電話代わりました。", asked, before))
         self.assertEqual(scene(q, "x", None, before)[BEFORE], before)
         self.assertEqual(jev_request("m", q, "x", None, before)["state"][BEFORE], before)
-        self.assertNotIn(BEFORE, prompt(q, "はい、お電話代わりました。"))       # 渡さなければ、これまでと同じ文
+        self.assertNotIn(f"{BEFORE}：", prompt(q, "はい、お電話代わりました。"))   # 渡さなければ、前の言葉の行は無い（決まりの文は見出しを名指しで指す）
         self.assertIn("お呼びした方に取り次いだ", WHO_CALLING[TARGET_IS_THERE])  # 決まりは意味の説明の1か所（代わった人の説明は、そこを指す）
         from flowctl import HANDOVER
         self.assertIn("お呼びした方に取り次いだ", KIND_DESC[HANDOVER])
