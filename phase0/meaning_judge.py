@@ -21,7 +21,8 @@ from __future__ import annotations
 
 import json
 
-from flowctl import ABOUT, ANY, CHOICE_TYPES, CONFIRM_LABEL, HANDOVER, HOLD, PHONE, UNDECIDED, facts_reading, label
+from flowctl import (ABOUT, ANY, BEFORE, CHOICE_TYPES, CONFIRM_LABEL, HANDOVER, HOLD, NO_BEFORE, PHONE, SPEAKER, UNDECIDED, WHO, called_words,
+                     facts_reading, label)
 
 SYSTEM_DESC = {ANY: "どれでもよいと、こちらに任された（「どちらでも」「どれでも」）",
                "unknown": "わからない・覚えていない・まだ決めていない（選ぶ前の状態）",
@@ -108,54 +109,51 @@ RULES = (
 # 項目ごとに答える質問（Question.facets＝目的のお客様の判定）の決まり（RULES の代わり。✅ 2026-10-29 ユーザー：「『不在』と『別の方』というのは、
 #    そもそも別の評価軸でしょ。それをどちらかしか選べないというのは設計上の問題じゃないですか？」＝1つの言葉に同時に入る事実を、項目ごとに答えさせる）。
 #    ⚠️ 例は、試験の言葉（G-59）と同じ言い方にしない
-FACET_RULES = (
-    "電話でお呼びする方を、質問の言葉でお呼びして、電話に出ている方が話しました。その言葉について、次の項目ごとに、選べるものを1つずつ選んで"
-    "ください。\n"
-    "1つの言葉に、いくつもの事実が入ることがあります（お呼びした方ではない方が、お呼びした方は出られないと伝えた・お呼びした方は出られないので"
-    "ほかの者に代わると言った など）。項目ごとに、その項目のことだけを読みます（ほかの項目に当たる事実があっても、この項目の答えは変えません）。\n"
-    "決まり：\n"
-    "- 言葉の意味で選びます。言葉の頭の「はい」「いいえ」だけで決めません。\n"
-    # ✅ 2026-10-30 ユーザー：話している方は、前と同じ方か（第1層）・前と違う方なら目的のご本人／取次ぎの方／代理の方、前と同じ方なら受付など／ご本人
-    #    （第2層）・代理の方なら後任／上司／代わりをできる代理／代わりのできない代理（第3層）を判断させる（flowctl.WHO_CALLING）
-    "- 「お呼びした方」「ご本人」は、はじめにお呼びした方です（後任のご担当者様をお呼びしているときも、はじめにお呼びした前任の方）。"
-    "「いまお呼びしている方」は、いまの質問でお呼びしている方です（後任のご担当者様をお呼びしているときは、その後任の方）。\n"
-    "- 話している方が誰かは、言葉から言える段まで選びます（代理の方と分かっても、どの代理かを言っていなければ「代理の方（どれかは分からない）」・"
-    "電話を代わった方がご本人ではないと分かっても、取り次ぐ方か代理の方かが分からなければ「別の方（どなたかは分からない）」）。"
-    # ⛔ 2026-10-30 G-59：「いまお呼びしている方かどうか迷ったら『決められない』」と書いていたので、Luna は説明の文で決まる言葉（「それでは岡田に
-    #    お繋ぎします。」のあとの「はい、お電話代わりました。」・後任は田中と言われたあとの「お電話代わりました。山本です。」＝理由に「名前が異なります」
-    #    と書いたうえで）でも「決められない」に逃げた
-    "「" + UNDECIDED + "」は、説明の文のどれにも当たらないとき・2つ以上に当たって決められないときだけ選びます（説明の文で決まるときは、"
-    "その答えを選びます）。\n"
-    # ⛔ 2026-10-29 G-59（項目ごとに答える形の1回目）：取り次ぎのあとの言葉（「岡田は本日休みを…」「お電話代わりました。」など）で、その前の
-    #    「少々お待ちください。」を、いまの言葉の「取り次ぎを待つ」と読んだ（Jev は項目ごとの外れ17のうち13・GPT-6 Luna 8のうち4・Haiku 5.5 1。
-    #    Sonnet 5.5 は0）＝どの項目を、いまの言葉だけで読むかを書いていなかった
-    # ⛔ 2026-10-29 の見直し（正解の表を、言葉と説明だけから読み直した）：後任の方をお呼びしたあとの「田中はただいま席を外しております。」は、
-    #    田中様が後任の方（お呼びした方）だと結ぶのに前の言葉（「後任は田中になります。…」）が要るのに、前の言葉は「電話に出ている方が誰か」に
-    #    だけ使う、と書いていた ⇒ 言葉の中の人が誰かを結ぶのにも使い、前の言葉で言った事実は、いまの言葉の答えにしない、と分けた
-    # ⛔ 2026-10-30 G-59（3つの段の形・GPT-6 Luna）：取り次ぎのあとの「はい、お電話代わりました。」「お電話代わりました。」を、前の言葉
-    #    「岡田ですね。少々お待ちください。」を見せても6回とも「決められない」と読んだ。理由を書かせると「その前の言葉は相手が言ったことなので、
-    #    ご本人かどうかの判断には使いません」「いまの言葉だけでは決められません」＝この1行の「いまの言葉だけ」「その前に言った事実は、いまの言葉の
-    #    答えにしません」を、話している方にも当てていた ⇒ 項目ごとに、どちらの決まりかを分けて書いた
-    "- 電話のやり取りと、いまお呼びしている方の事情は、" + (NOW_ONLY := "お客様の言葉（いまの言葉）で言ったことだけで選びます") + "（その前に相手が"
-    "言った取り次ぎ・不在などの事実は、いまの言葉の答えにしません）。\n"
-    # ⛔ 同じ日の次の回：ここに「取り次いだあとに『お電話代わりました』と出たら、ご本人」と、説明の文の条件（違うお名前を名乗らない）を落として
-    #    写したら、Luna は取り次ぎのあとの「お電話代わりました。山本です。」まで「ご本人」と読んだ ⇒ 説明の文の条件は写さず、当て方だけを書く
-    "- 前と同じ方かと、話している方は誰かは、その前に相手が言ったことも合わせて決めます（説明の中の「その前の言葉で」「取り次ぐと言われたあとに」"
-    "などは、その前に相手が言ったことに当てます。いまの言葉の中の人が誰かも、その前の言葉で結びます）。"
-    # ⛔ 2026-10-30 G-59（確かめへの返事に、本番と同じに確かめるきっかけの「はい。」を前の言葉として見せた回）：考える Haiku は、その「はい。」を
-    #    確かめた問いへの答えと取り違え、「えっと、どちら様でしょうか？」を「ご本人」と読んだ・「いいえ、受付の田中です。」を「前と違う方」と読んだ
-    "その前に相手が言ったことは、いまの質問より前に言った言葉です（いまの質問への答えではありません）。\n"
-)
-# いまの言葉だけで読む項目（FACET_RULES の上の1行と、Jev の問い＝jev_request が同じ文を使う。Jev には決まりの文を渡さないため）
+NOW_ONLY = "お客様の言葉（いまの言葉）で言ったことだけで選びます"
+
+
+def facet_rules(q) -> str:
+    """項目ごとに答える質問の決まり（問い合わせの文の1か所。RULES の代わり）。場面で変わる所（いまお呼びしている方の呼び方）は、項目と同じ
+    1か所（flowctl.called_words）から作る。後任の方の場面だけの言い分けは、話している方は誰かの見分け方（flowctl.target_facets）にだけ書く。
+    ⚠️ 例は、試験の言葉（G-59）と同じ言い方にしない。決まりの文に、選べるものの説明の条件を写さない（⛔ 2026-10-30：条件を一部だけ写して2回
+    行き過ぎた＝帳面 0-2 の21回目の失敗）。
+    ✅ 2026-10-29 ユーザー：「『不在』と『別の方』というのは、そもそも別の評価軸でしょ。それをどちらかしか選べないというのは設計上の問題じゃ
+       ないですか？」＝1つの言葉に同時に入る事実を、項目ごとに答えさせる
+    ⛔ 2026-10-29 G-59：取り次ぎのあとの言葉で、その前の「少々お待ちください。」を、いまの言葉の「取り次ぎを待つ」と読んだ＝どの項目を、いまの
+       言葉だけで読むかを書いていなかった ⇒ 下の4行目。後任の方の場面の「田中はただいま席を外しております。」は、田中様が誰かを結ぶのに前の
+       言葉が要る ⇒ 5行目（いまの言葉の中の人が誰かも、その前の言葉で結ぶ）
+    ⛔ 2026-10-30 G-59：Luna は、取り次ぎのあとの「はい、お電話代わりました。」を、前の言葉を見せても「その前の言葉は相手が言ったことなので、
+       ご本人かどうかの判断には使いません」と読んだ＝4行目の「いまの言葉だけ」を話している方にも当てていた ⇒ 4行目と5行目を項目ごとに分けた。
+       考える Haiku は、確かめるきっかけの「はい。」を確かめた問いへの答えと取り違えた ⇒ 言葉の決まりの「その前に相手が言ったこと」（確かめる一言への返事の場面だけ＝flowctl.facet_terms。⛔ はじめは5行目の終わりに、どの場面にも書いていた）。
+       「迷ったら決められない」と書いていたので、Luna は説明で決まる言葉でも「決められない」に逃げた ⇒ 見分け方の「決められない」を選ぶとき"""
+    P, _ = called_words(getattr(q, "seeks_successor", False))
+    return ("電話でお呼びする方を、質問の言葉でお呼びして、電話に出ている方が話しました。その言葉について、次の項目ごとに、選べるものを1つずつ"
+            "選んでください。\n"
+            f"1つの言葉に、いくつもの事実が入ることがあります（{P}ではない方が、{P}は出られないと伝えた・{P}は出られないのでほかの者に代わると"
+            "言った など）。項目ごとに、その項目のことだけを読みます（ほかの項目に当たる事実があっても、この項目の答えは変えません）。\n"
+            "言葉の決まり（説明・見分け方・決まりの中の言葉）：\n" + "".join(f"- {t}\n" for t in q.terms)
+            + "決まり：\n"
+            "- 言葉の意味で選びます。言葉の頭の「はい」「いいえ」だけで決めません。\n"
+            "- 話している方は誰かは、言葉から言える段まで選び、2つの答えの境目は、その項目の見分け方で決めます。\n"
+            f"- 電話のやり取りと、{P}の事情は、{NOW_ONLY}（その前に相手が言った取り次ぎ・不在などの事実は、いまの言葉の答えにしません）。\n"
+            "- 前と同じ方かと、話している方は誰かは、その前に相手が言ったことも合わせて決めます（説明と見分け方の中の「その前の言葉で」「取り次ぐと"
+            "言われたあとに」などは、その前に相手が言ったことに当てます。いまの言葉の中の人が誰かも、その前の言葉で結びます）。\n")
+
+
+# いまの言葉だけで読む項目（facet_rules の4行目と、Jev の問い＝jev_request が同じ文を使う。Jev には決まりの文を渡さないため）
 NOW_ONLY_FACETS = (PHONE, ABOUT)
+TERM_FACETS = (SPEAKER, WHO)   # 説明に言葉の決まり（flowctl.facet_terms）の言葉を使う項目（Jev の問いの指示に、言葉の決まりを入れる）
 
 
 def facet_choices(q) -> str:
     """項目ごとに答える質問の、項目と選べるもの（問い合わせの文の1か所。見せる名前＝中の名前）。"""
     lines = ["項目と選べるもの（名前：説明）："]
-    for i, (key, heading, table) in enumerate(q.facets, 1):
-        lines.append(f"({i}) {heading}（{key}）：")
-        lines += [f"- {n}：{d}" for n, d in table.items()]
+    for i, f in enumerate(q.facets, 1):
+        lines.append(f"({i}) {f.heading}（{f.key}）：")
+        lines += [f"- {n}：{d}" for n, d in f.choices.items()]
+        if f.notes:   # 2つの答えの境目（1つの境目は1回だけ＝flowctl.Facet）
+            lines.append("見分け方：")
+            lines += [f"・{n}" for n in f.notes]
     return "\n".join(lines) + "\n"
 
 
@@ -209,14 +207,7 @@ def options(q, asked: str | None = None) -> list[tuple[str, str, str]]:
     return head + [(k, d, k) for k, d in KIND_DESC.items()]
 
 
-BEFORE = "その前に相手が言ったこと"  # 目的の人を呼んでいる段だけ（Flow.judge_context。取り次いだ方の言葉で、代わった方が誰かが決まる）
-# 目的のお客様の判定（項目ごとに答える質問）で、その前に相手が言ったことが無いとき（本番では、電話に出た方が呼ぶ一言のあとに初めて話した言葉だけ＝
-# 呼んでいる段の相手の言葉は消えない＝Flow.judge_context）。⛔ 2026-10-30 G-59（3つの段の形の1回目）：前の言葉の行が無いと、考える Haiku は
-# 「前に話した方がいない」と読んで前と同じ方かを「決められない」にし（前の言葉の無い言葉の 22件中16件）、「はい、岡田です。」の話している方まで
-# 「決められない」にした
-# ⛔ 同じ日：はじめは「電話に出た方が、…初めて話した言葉です」と書いた＝話した方を決めつけていた。Luna は「『お電話代わりました』は電話に出た方の
-#    最初の言葉なので、代わったとは扱いません」と読み、前の言葉の無い「お電話代わりました、営業部の岡田です。」を前と同じ方と読んだ
-NO_BEFORE = "無し（お客様の言葉は、こちらが質問の言葉を言ったあとに、相手が初めて話した言葉です）"
+# その前に相手が言ったことの行の見出し（BEFORE）と、無いときの中身（NO_BEFORE）は flowctl（流れの制御が渡すものの説明＝1か所）
 
 
 CALLED = "はじめにお呼びした言葉"  # 後任の方をお呼びしたあとの目的のお客様の判定だけ（Question.called。「ご本人」は、はじめにお呼びした方）
@@ -247,9 +238,8 @@ def prompt_parts(q, text: str, asked: str | None = None, before: str | None = No
         #    はじめにお呼びした方のことを、いまお呼びしている方の事情と取り違えた）
         # ⛔ 同じ日の2回目：この行の「在籍していないと伺い」が残る間は、考える・考えない Haiku とも、後任の方の「はい、そうです。」の事情を
         #    「在籍していない」と読んだ（流れの制御は、後任の方がいまは話せないと受け取り、繋がない）⇒ この行には事情を書かない
-        called = (f"{CALLED}：「{q.called}」（いまは、その方の後任のご担当者様をお呼びしています。いまお呼びしている方の事情は、後任のご担当者様の"
-                  "事情です）\n") if getattr(q, "called", "") else ""
-        return FACET_RULES + f"質問：「{q.text}」\n" + called + facet_choices(q), before + said + f"お客様の言葉：「{text}」\n"
+        called = f"{CALLED}：「{q.called}」（いまは、その方の後任のご担当者様をお呼びしています）\n" if getattr(q, "called", "") else ""
+        return facet_rules(q) + f"質問：「{q.text}」\n" + called + facet_choices(q), before + said + f"お客様の言葉：「{text}」\n"
     choices = "選べるもの（名前：説明）：\n" + "\n".join(f"- {n}：{d}" for n, d, _ in options(q, asked)) + "\n"
     head, tail = RULES + f"質問：「{q.text}」\n", f"お客様の言葉：「{text}」\n"
     if getattr(q, "named", False):
@@ -269,8 +259,8 @@ def _config(q, asked: str | None):
     from google.genai import types
 
     if q.facets:
-        keys = [k for k, _, _ in q.facets]
-        schema = types.Schema(type=types.Type.OBJECT, properties={k: types.Schema(type=types.Type.STRING, enum=list(t)) for k, _, t in q.facets},
+        keys = [f.key for f in q.facets]
+        schema = types.Schema(type=types.Type.OBJECT, properties={f.key: types.Schema(type=types.Type.STRING, enum=list(f.choices)) for f in q.facets},
                               required=keys, property_ordering=keys)
         return types.GenerateContentConfig(response_mime_type="application/json", response_schema=schema, temperature=0)
     names = [n for n, _, _ in options(q, asked)]
@@ -291,8 +281,8 @@ def read(q, text: str | None, asked: str | None = None) -> Reading | None:
     sure = sure if isinstance(sure, (int, float)) else None
     if q.facets:
         # 項目ごとの答え（どれか1つでも無い・選べるものに無ければ、読めない返事）⇒ 組み合わせた読みと、読みに出ない事実の印（唯一の決まり）
-        facts = {k: got.get(k) for k, _, _ in q.facets}
-        if any(facts[k] not in t for k, _, t in q.facets):
+        facts = {f.key: got.get(f.key) for f in q.facets}
+        if any(facts[f.key] not in f.choices for f in q.facets):
             return None
         value, away, new, successor = facts_reading(facts, getattr(q, "seeks_successor", False))
         r = Reading(value, True, sure)
@@ -305,8 +295,8 @@ def read(q, text: str | None, asked: str | None = None) -> Reading | None:
 def _schema(q, asked: str | None) -> dict:
     """選べるものの名前だけを返させる形（Gemini は _config・ほかの会社はこの形をそのまま渡す）。項目ごとに答える質問は、項目ごとの名前。"""
     if q.facets:
-        return {"type": "object", "properties": {k: {"type": "string", "enum": list(t)} for k, _, t in q.facets},
-                "required": [k for k, _, _ in q.facets], "additionalProperties": False}
+        return {"type": "object", "properties": {f.key: {"type": "string", "enum": list(f.choices)} for f in q.facets},
+                "required": [f.key for f in q.facets], "additionalProperties": False}
     return {"type": "object", "properties": {"choice": {"type": "string", "enum": [n for n, _, _ in options(q, asked)]},
                                              FIRM: {"type": "boolean"}},
             "required": ["choice", FIRM], "additionalProperties": False}
@@ -467,10 +457,13 @@ def jev_request(model: str, q, text: str, asked: str | None = None, before: str 
     （確からしさは項目ごと＝読むときは一番低いもの。言い切っているかは問わない）。"""
     if q.facets:
         return {"model": model, "state": scene(q, text, asked, before),
-                "questions": {k: {"type": "choice", "instructions": f"電話に出ている方の言葉で、{h}はどれに当たりますか？（"
-                                                                       + (f"{NOW_ONLY}。" if k in NOW_ONLY_FACETS else "")
-                                                                       + "ほかの項目に当たる事実があっても、この項目のことだけを読みます）", "criteria": dict(t)}
-                              for k, h, t in q.facets}}
+                "questions": {f.key: {"type": "choice", "instructions": f"電話に出ている方の言葉で、{f.heading}はどれに当たりますか？（"
+                                      + (f"{NOW_ONLY}。" if f.key in NOW_ONLY_FACETS else "")
+                                      + "ほかの項目に当たる事実があっても、この項目のことだけを読みます）"
+                                      + ("見分け方：" + "／".join(f.notes) if f.notes else "")   # 境目は判定の文と同じ1か所（flowctl.Facet）
+                                      + ("言葉の決まり：" + "／".join(q.terms) if f.key in TERM_FACETS else ""),
+                                      "criteria": dict(f.choices)}
+                              for f in q.facets}}
     return {"model": model, "state": scene(q, text, asked, before),
             "questions": {"choice": {"type": "choice", "instructions": JEV_ASK_REPLY if asked else JEV_ASK, "criteria": jev_criteria(q, asked)},
                           FIRM: {"type": "noul", "instructions": "お客様は、その答えを言い切っていますか？", "criteria": JEV_FIRM}}}

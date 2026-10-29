@@ -33,12 +33,13 @@ def run(steps, successor=False):
     if successor:
         heard(f, "岡田は先月退職いたしました。", "同受x籍")
         f.apply("request_callback", {"why": "departed"})
-    out = []
+    out, ctx = [], None
     for text, code, op in steps:
         heard(f, text, code)
+        ctx = {"asked": f.asked_target is not None, "before": f.judge_context()[2], "successor": successor}   # 最後の言葉の場面（g59_tally の行と同じ形）
         if op:
             out.append(shown(f.apply(*op)))
-    return out, (f.phase, f.speaker_from, f.passed_on)
+    return out, (f.phase, f.speaker_from, f.passed_on), ctx
 
 T, H, R, S = (("report_party", {"party": "target"}), ("replay_opening", {"part": "handover"}), ("report_party", {"party": "reception"}),
               ("report_party", {"party": "successor"}))
@@ -76,10 +77,17 @@ CASES = [
 ]
 
 
+def changes(right, wrong, succ) -> bool:
+    """正しい読みと外れた読みで、流れの制御の動き（返す結果・流す録音・名乗りを聞いていない方の印）が変わるか。"""
+    a, sa, _ = run(right, succ)
+    w, sw, _ = run(wrong, succ)
+    return (a, sa[2]) != (w, sw[2])
+
+
 def main() -> None:
     for name, right, wrong, succ in CASES:
-        a, sa = run(right, succ)
-        w, sw = run(wrong, succ)
+        a, sa, _ = run(right, succ)
+        w, sw, _ = run(wrong, succ)
         print(("同じ" if (a, sa[2]) == (w, sw[2]) else "変わる"), "｜", name)
         if (a, sa[2]) != (w, sw[2]):
             print("    正しい読み：", a, "｜名乗りを聞いていない方か：", sa[2])

@@ -2664,17 +2664,23 @@ class MeaningJudgeOptionsTest(unittest.TestCase):
         # あり得るじゃないですか！」。⛔ 1つだけ選ぶ形では「いいえ、山田と申します。岡田は本日おりません。」を2つの判定がそろって「別の方」と読み、
         # 説明の言葉で順番を付けると「岡田ですね。」を「ご本人」と読んだ＝G-59 の 10-29）
         import json
-        from flowctl import (ABOUT, ABOUT_DEPARTED, ABOUT_MEANINGS, ABOUT_NONE, HANDOVER, HOLD, PHONE, PHONE_MEANINGS, PHONE_NONE, SPEAKER,
-                             SPEAKER_MEANINGS, SPEAKER_NEW, SPEAKER_SAME, TARGET_IS_AWAY, TARGET_IS_NOT, TARGET_IS_THERE, UNDECIDED, WHO, WHO_CALLING,
-                             WHO_CONFIRM, WHO_RECEPTION, says_away, says_busy, says_new, says_successor, target_facets, target_reading)
-        from meaning_judge import FACET_RULES, OTHER_JUDGES, _schema, jev_request, other_text, prompt, prompt_parts, read
+        from flowctl import (ABOUT, ABOUT_DEPARTED, ABOUT_NONE, HANDOVER, HOLD, PHONE, PHONE_NONE, SPEAKER, SPEAKER_NEW, SPEAKER_SAME, TARGET_IS_AWAY,
+                             TARGET_IS_NOT, TARGET_IS_THERE, UNDECIDED, WHO, WHO_RECEPTION, facet_terms, says_away, says_busy, says_new, says_successor,
+                             target_facets, target_reading)
+        from meaning_judge import OTHER_JUDGES, _schema, facet_rules, jev_request, other_text, prompt, prompt_parts, read
         f = self.target_flow()
-        self.assertEqual(f.calling_question.facets, target_facets(WHO_CALLING))
-        self.assertEqual([q.facets for q in f.confirm_questions.values()], [target_facets(WHO_CONFIRM)] * 2)
+        self.assertEqual(f.calling_question.facets, target_facets(False, False))
+        self.assertEqual([q.facets for q in f.confirm_questions.values()], [target_facets(True, False)] * 2)
+        # 言葉の決まりも場面ごと（確かめる一言への返事の場面だけ、確かめる問いより前の言葉は、その問いへの答えではないと書く）
+        self.assertEqual(f.calling_question.terms, facet_terms(False, False))
+        self.assertEqual([q.terms for q in f.confirm_questions.values()], [facet_terms(True, False)] * 2)
+        self.assertNotIn("確かめる問い", "".join(facet_terms(False, False)))
+        self.assertIn("確かめる問いを言う前の言葉は、その問いへの答えではない", "".join(facet_terms(True, False)))
         # 説明の文は、前の言葉の見出しを名指しして結んでよい（「前に話した方」＝その前に相手が言ったことの最後の言葉を話した方）：項目ごとに答える質問には、
         # 前の言葉の行が必ずある（無いときは「無し」＝NO_BEFORE。⛔ 前は行が無いことがあったので、見出しを説明に混ぜないようにしていた）
         from meaning_judge import BEFORE, NO_BEFORE
-        self.assertIn("その前に相手が言ったこと", "".join(d for _, _, t in f.calling_question.facets for d in t.values()))
+        self.assertIn("その前に相手が言ったこと", "".join([*(d for fc in f.calling_question.facets for d in fc.choices.values()),
+                                                       *(n for fc in f.calling_question.facets for n in fc.notes)]))
         for fq in [f.calling_question, *f.confirm_questions.values()]:
             self.assertIn(f"{BEFORE}：{NO_BEFORE}\n", prompt(fq, "はい。"))
         # 組み合わせ（唯一の決まり）：取り次ぎ ＞ 不在（ご本人ではない方） ＞ 電話に出ている方。読みに出ない事実は印で残す
@@ -2686,9 +2692,10 @@ class MeaningJudgeOptionsTest(unittest.TestCase):
         self.assertEqual(target_reading(TARGET_IS_THERE, HANDOVER, A), (TARGET_IS_THERE, False, True))         # 代わったご本人
         self.assertEqual(target_reading(TARGET_IS_THERE, N, TARGET_IS_AWAY), (TARGET_IS_THERE, True, False))   # ご本人がいまは話せない
         self.assertEqual(target_reading(TARGET_IS_NOT, N, A), (TARGET_IS_NOT, False, False))
-        self.assertEqual(set(SPEAKER_MEANINGS), {SPEAKER_SAME, SPEAKER_NEW})   # 第1層はユーザーの形のとおり2つ（10-30）
-        self.assertEqual(set(PHONE_MEANINGS), {N, HOLD})       # 電話を代わった方が話し始めたことは、前と同じ方かの物差し（10-30）
-        self.assertEqual(set(ABOUT_MEANINGS), {A, TARGET_IS_AWAY, ABOUT_DEPARTED})
+        sp, _, ph, ab = target_facets()
+        self.assertEqual(set(sp.choices), {SPEAKER_SAME, SPEAKER_NEW})   # 第1層はユーザーの形のとおり2つ（10-30）
+        self.assertEqual(set(ph.choices), {N, HOLD})       # 電話を代わった方が話し始めたことは、前と同じ方かの物差し（10-30）
+        self.assertEqual(set(ab.choices), {A, TARGET_IS_AWAY, ABOUT_DEPARTED})
         # 返事の読み方：項目ごとの名前 ⇒ 組み合わせた読みと印（flowctl.facts_reading）。どれか1つでも無い・選べるものに無ければ、読めない返事
         q = f.confirm_questions["target_confirm"]
         S = {SPEAKER: SPEAKER_SAME}
@@ -2709,18 +2716,26 @@ class MeaningJudgeOptionsTest(unittest.TestCase):
         self.assertIsNone(read(q, json.dumps({"choice": TARGET_IS_NOT})))
         # 問い合わせの文：項目ごとの決まり・質問・項目と選べるもの（毎回同じ＝まとめて送る前の部分）・その前の言葉・お客様の言葉
         head, rest = prompt_parts(q, "いいえ、山田と申します。", None, "少々お待ちください。")
-        self.assertTrue(head.startswith(FACET_RULES))
+        self.assertTrue(head.startswith(facet_rules(q)))
+        for t in q.terms:
+            self.assertEqual(head.count(f"- {t}\n"), 1)        # 言葉の決まりは1回だけ
         self.assertEqual(head + rest, prompt(q, "いいえ、山田と申します。", None, "少々お待ちください。"))
         self.assertEqual(head, prompt_parts(q, "別の言葉", None, None)[0])
-        for key, heading, table in q.facets:
-            self.assertIn(f"{heading}（{key}）", head)
-            for n, d in table.items():
+        for fc in q.facets:
+            self.assertIn(f"{fc.heading}（{fc.key}）", head)
+            for n, d in fc.choices.items():
                 self.assertEqual(head.count(f"- {n}：{d}"), 1)
+            for note in fc.notes:
+                self.assertEqual(head.count(f"・{note}\n"), 1)   # 見分け方も1回だけ
         self.assertEqual(_schema(q, None)["required"], [SPEAKER, WHO, PHONE, ABOUT])
-        self.assertEqual(_schema(q, None)["properties"][ABOUT]["enum"], list(ABOUT_MEANINGS))
+        self.assertEqual(_schema(q, None)["properties"][ABOUT]["enum"], list(ab.choices))
         # Jev：項目ごとに1つの問い（言い切っているかは問わない）。確かめの線は、項目のうち一番低い確からしさで当てる
         jq = jev_request("m", q, "いいえ、山田と申します。")["questions"]
-        self.assertEqual((list(jq), jq[ABOUT]["criteria"]), ([SPEAKER, WHO, PHONE, ABOUT], ABOUT_MEANINGS))
+        self.assertEqual((list(jq), jq[ABOUT]["criteria"]), ([SPEAKER, WHO, PHONE, ABOUT], ab.choices))
+        # Jev にも、見分け方と言葉の決まりを、判定の文と同じ1か所から渡す（言葉の決まりは、その言葉を説明に使う項目だけ）
+        who_q = q.facets[1]
+        self.assertTrue(all(n in jq[WHO]["instructions"] for n in who_q.notes) and all(t in jq[WHO]["instructions"] for t in q.terms))
+        self.assertNotIn("言葉の決まり", jq[PHONE]["instructions"])
         got = json.loads(other_text("Jev 1.14", {"answers": {SPEAKER: {"choice": SPEAKER_SAME, "confidence": 0.9}, WHO: {"choice": WHO_RECEPTION, "confidence": 0.99},
                                                              PHONE: {"choice": N, "confidence": 0.98}, ABOUT: {"choice": TARGET_IS_AWAY, "confidence": 0.7}}}))
         self.assertEqual((got[WHO], got[ABOUT], got["sure"]), (WHO_RECEPTION, TARGET_IS_AWAY, 0.7))
@@ -2734,20 +2749,111 @@ class MeaningJudgeOptionsTest(unittest.TestCase):
         # G-59 の事実ごとの正解（項目ごと）と、受け取ってよい読み（流れの制御の読み）が食い違わない：事実ごとの正解の組み合わせを、流れの制御の
         # 1か所（target_reading）で読みにすると、どれも受け取ってよい読みに入る。2つの事実が重なる言葉は、事実が2つ以上ある
         import g59_calling_judge as g
-        from flowctl import ABOUT, ABOUT_NONE, PHONE, PHONE_NONE, WHO, WHO_CALLING, WHO_CONFIRM, WHO_SUCC_CONFIRM, target_facets
+        from flowctl import ABOUT, ABOUT_NONE, PHONE, PHONE_NONE, WHO, target_facets
         cases = g.cases("「おかだ」様でいらっしゃいますでしょうか？")
         self.assertEqual(len(cases), len({(t, b, bool(a), succ) for t, _, b, a, succ, _ in cases}))   # 同じ場面の言葉を2回数えない
         for text, accept, before, asked, successor, facts in cases:
             self.assertLessEqual(set(g.accept_of(facts, successor)), set(accept), text)
             self.assertLessEqual(set(accept) - set(g.accept_of(facts, successor)), set(g.EXTRA.get((text, before), ())), text)   # 足した読みはご決定の分だけ
             # 正解の項目と中の名前は、その場面で判定に見せる項目と選べるものの中（Flow._calling_questions と同じ選び分け）
-            who = (WHO_SUCC_CONFIRM if successor else WHO_CONFIRM) if asked else WHO_CALLING
-            shown = {k: t for k, _, t in target_facets(who)}
+            shown = {fc.key: fc.choices for fc in target_facets(bool(asked), successor)}
             self.assertEqual(set(facts), set(shown), text)
             for k, got in facts.items():
                 self.assertTrue(got and got <= set(shown[k]), (text, k))
         for text, before, confirmed, f in g.LINES_BOTH:
             self.assertGreaterEqual((f[PHONE] != {PHONE_NONE}) + (f[ABOUT] != {ABOUT_NONE}) + (f[WHO] != {"決められない"}), 2, text)
+
+    def test_target_facets_say_each_condition_once(self):
+        # 目的のお客様の判定の説明の文は、1つの条件を1か所だけに書く（⛔ 2026-10-30＝帳面 0-2 の21回目の失敗：同じ境目を両側の説明に書き、片方だけ
+        # 直して食い違わせた・ほかの説明の条件を一部だけ写して行き過ぎた・同じ言葉の中身を何か所にも書いた）。場面の呼び方（flowctl.called_words）と
+        # 言葉の決まりの名前は、決まった言葉なので数えない。説明の例は、試しの言葉（G-59）と同じ言い方にしない（測りが本番の力を表さなくなる）
+        import re
+        from types import SimpleNamespace
+        import g59_calling_judge as g
+        from flowctl import (BEFORE, CHANGED, FIRST_ANSWERER, NAME_CHECK, OTHER_NAME, OTHER_PERSON, RELAY_WORDS, called_words, facet_terms,
+                             target_facets)
+        from meaning_judge import facet_rules
+        N = 14
+        tests = {t for t, *_ in g.cases("x")} | {b for _, _, b, *_ in g.cases("x") if b}
+        for asked in (False, True):
+            for seeks in (False, True):
+                P, NOT_P = called_words(seeks)
+                items = [(f"{fc.key}:{n}", d) for fc in target_facets(asked, seeks) for n, d in fc.choices.items()]
+                items += [(f"{fc.key}:見分け方{i}", t) for fc in target_facets(asked, seeks) for i, t in enumerate(fc.notes)]
+                items += [(f"言葉{i}", t) for i, t in enumerate(facet_terms(asked, seeks))]
+                rules = facet_rules(SimpleNamespace(seeks_successor=seeks, terms=facet_terms(asked, seeks))).split("決まり：\n", 1)[1]   # 言葉の決まりの行は「言葉」で数えた
+                items += [(f"決まり{i}", l) for i, l in enumerate(rules.split("\n")) if l.startswith("- ")]
+                seen = {}
+                for name, text in items:
+                    for w in (NOT_P, P, CHANGED, OTHER_PERSON, NAME_CHECK, RELAY_WORDS, FIRST_ANSWERER, OTHER_NAME, BEFORE):
+                        text = text.replace(w, "＊")
+                    for i in range(len(text) - N + 1):
+                        if "＊" not in text[i:i + N]:
+                            seen.setdefault(text[i:i + N], set()).add(name)
+                shared = {k: sorted(v) for k, v in seen.items() if len(v) > 1}
+                self.assertEqual(shared, {}, (asked, seeks))
+                for name, text in items:
+                    for ex in re.findall(r"「([^「」]+)」", text):
+                        for who in ("岡田", "田中", "山本", "山田"):
+                            ex2 = ex.replace("〇〇", who)
+                            if len(ex2) >= 11:
+                                self.assertFalse(any(ex2 in t for t in tests), (name, ex2))
+
+    def test_target_facets_keep_every_boundary(self):
+        # 話している方は誰かの、隣り合う答えの境目は、どの場面でも見分け方に1つずつある（⛔ 2026-10-30：境目を1か所に寄せて作り直したときに、受付の方と
+        # 決められないの境目を落とし、Luna は「岡田ですね。」を決められない・「どういったご用件でしょうか？」を受付の方と読んだ）。言葉の決まりの
+        # 名前は、その中身を言い表す（⛔ 同じ日：「ほかの人として話した」に「名前をくり返して確かめた」を入れ、Luna は名前の確かめを当てなかった）
+        from flowctl import NAME_CHECK, OTHER_NAME, RELAY_WORDS, UNDECIDED, WHO, WHO_RECEPTION, facet_terms, target_facets
+        for asked in (False, True):
+            for seeks in (False, True):
+                notes = next(fc for fc in target_facets(asked, seeks) if fc.key == WHO).notes
+                for other in ("別の方", "代理の方", UNDECIDED):
+                    self.assertEqual(sum(n.startswith(f"{WHO_RECEPTION}と{other}：") for n in notes), 1, (asked, seeks, other))
+                self.assertEqual(sum(n.startswith(f"取り次がれて") and RELAY_WORDS in n for n in notes), 1)   # 取り次がれて出た方の決め方
+                self.assertEqual(sum(n.startswith(f"{OTHER_NAME}を名乗った方は") for n in notes), 1)          # お名前の違う方
+                terms = facet_terms(asked, seeks)
+                self.assertTrue(all("名前" not in t.split("＝", 1)[1] for t in terms if t.startswith("「ほかの人として話した」")))
+                self.assertTrue(any(t.startswith(f"{NAME_CHECK}＝") and "名前をくり返して確かめた" in t for t in terms))
+
+    def test_successor_words_only_in_the_successor_scene(self):
+        # 後任の方の場面だけの言葉は、その場面の問い合わせにだけ入る（⛔ 2026-10-30 G-59：後任の方の場面のために「在籍していない」に足した一文を、
+        # 考えない Sonnet が、ふつうの場面の「いえ、岡田は退職しまして、私が後任の田中です。」にも当てた）
+        f, b = TargetTest().flow()
+        from meaning_judge import prompt_parts
+        heads = {asked: prompt_parts(f.for_judge(q), "はい。", None, None)[0] for asked, q in ((False, f.calling_question), (True, f.confirm_questions["target_confirm"]))}
+        f._to_successor()
+        succ = {asked: prompt_parts(f.for_judge(q), "はい。", None, None)[0] for asked, q in ((False, f.calling_question), (True, f.confirm_questions["target_confirm"]))}
+        for word in ("いまお呼びしている方", "前任の方", "後任の方はいない", "後任のご担当者様をお呼び", "後任のご担当者様かを確かめた"):
+            for asked in (False, True):
+                self.assertNotIn(word, heads[asked], (word, asked))
+        for asked in (False, True):
+            self.assertIn("いまお呼びしている方", succ[asked])
+            self.assertIn("後任の方はいない", succ[asked])
+        self.assertIn("後任のご担当者様かを確かめた", succ[True])
+
+    def test_g59_tally_never_misses_a_change_the_flow_check_finds(self):
+        # 数える道具（g59_tally.flow_ok＝流れの制御の決まりを写したもの）は、会話の試し（g59_flow_check＝流れの制御そのもの）で動きが変わる外れを、
+        # 「同じ」と数えない（✅ 2026-10-30 ユーザー：「流れの制御の動きが変わる外れの原因と理由が何かを…しっかりと分析した方がいいんじゃないですか？」
+        # ⛔ 同じ日：会話の試しの道具の字を書き間違え、どれも「同じ」と出た＝道具は、答えが分かっている例で先に確かめる）
+        import g59_calling_judge as g
+        import g59_flow_check as fc
+        import g59_tally as t
+        right, wrong, succ = fc.CASES[0][1:]
+        self.assertTrue(fc.changes(right, wrong, succ))        # 変わる例（名乗りを聞いていない岡田様に、名乗りを流さない）
+        self.assertFalse(fc.changes(right, right, succ))       # 同じ読みなら同じ
+        for name, right, wrong, succ in fc.CASES:
+            facts = {k: {v} for k, v in fc.facts(right[-1][1]).items()}
+            _, _, ctx = fc.run(wrong, succ)
+            ok = t.flow_ok(fc.facts(wrong[-1][1]), facts, g.accept_of(facts, succ), ctx)
+            if fc.changes(right, wrong, succ):
+                self.assertFalse(ok, name)
+        # 会話の試しで動きが同じと確かめた形は、数える道具も同じと数える（2026-10-30 に直した数えすぎ）
+        for name in ("Luna：確かめへの「いいえ、私は山田と申します。」（前「お電話代わりました。担当の山田です。」）を前と違う方（AIは代わった方）",
+                     "Sonnet：前の言葉の無い「お電話代わりました。」を前と同じ方（AIは目的の人→確かめ→「はい、そうです。」）"):
+            _, right, wrong, succ = next(c for c in fc.CASES if c[0] == name)
+            facts = {k: {v} for k, v in fc.facts(right[-1][1]).items()}
+            _, _, ctx = fc.run(wrong, succ)
+            self.assertTrue(t.flow_ok(fc.facts(wrong[-1][1]), facts, g.accept_of(facts, succ), ctx), name)
 
 
 class UnreportedNoteTest(unittest.TestCase):
@@ -6048,11 +6154,11 @@ class TargetTest(unittest.TestCase):
     def test_judge_runs_while_calling(self):
         # 呼んでいる段にも、意味の判定を当てる（呼ぶ一言を判定の「質問」にする）。⛔ 直す前：いまの質問が無いので判定が走らず、
         #    取り次ぎ（「少々お待ちください」）を見分ける独立した確かめが無かった
-        from flowctl import TARGET_IS_THERE, TARGET_IS_NOT, WHO_CALLING, target_facets
+        from flowctl import TARGET_IS_THERE, TARGET_IS_NOT, target_facets
         f, b = self.checked()
         q, asked, before = f.judge_context()
         self.assertEqual((q.text, asked), (b.target.call(), None))
-        self.assertEqual((set(q.conditions), q.facets), ({TARGET_IS_THERE, TARGET_IS_NOT}, target_facets(WHO_CALLING)))
+        self.assertEqual((set(q.conditions), q.facets), ({TARGET_IS_THERE, TARGET_IS_NOT}, target_facets(False, False)))
         # こちらに尋ねているかは、別の問い合わせ（目的の人の判定の選択肢は変えない＝G-59 10-22：足すと、ほかの言葉の読み方まで変わった）
         from flowctl import ASKS_MEANINGS
         aq, abefore = f.asks_context()
@@ -6096,10 +6202,10 @@ class TargetTest(unittest.TestCase):
             f.on_callee()
             # 確かめへの返事は、確かめる一言を質問にして判定する（話している方は誰かは、確かめへの返事の説明＝WHO_CONFIRM。⛔ G-59：呼ぶ一言の選択肢
             # だけでは、「いいえ」に当たる選択肢が無く、「いえ、違います。」を2社とも「不在」と読んだ）
-            from flowctl import TARGET_IS_NOT, WHO_CONFIRM, target_facets
+            from flowctl import TARGET_IS_NOT, target_facets
             q, asked, _ = f.judge_context()
             self.assertEqual((q.text, asked, set(q.conditions), q.facets), (b.target.confirm(), None, {TARGET_IS_THERE, TARGET_IS_NOT},
-                                                                             target_facets(WHO_CONFIRM)))
+                                                                             target_facets(True, False)))
             f.on_heard("はい、そうです。"); f.on_check("judge", TARGET_IS_THERE)
             r = f.apply("report_party", {"party": "target"})
             self.assertEqual([p.get("part", p["kind"]) for p in r["play"]], ["greeting", "intro", "purpose", "question"], judged)
@@ -6130,7 +6236,7 @@ class TargetTest(unittest.TestCase):
     def test_judge_sees_what_the_callee_said_before(self):
         # ✅ 2026-10-19 ユーザー：「受付が『それでは岡田にお繋ぎします。』のような後に、『はい、お電話代わりました。』と言われれば、『ご本人』に
         # なりますよね」⇒ 呼んでいる段では、その前に相手が言ったことを判定に渡す（直前の3つまで）。繋いだあとは渡さない
-        from flowctl import TARGET_IS_THERE, WHO_CALLING
+        from flowctl import RELAY_WORDS, TARGET_IS_THERE, facet_terms, target_facets
         from meaning_judge import BEFORE, KIND_DESC, jev_request, prompt, scene
         f, b = self.checked()
         f.on_callee()
@@ -6150,7 +6256,9 @@ class TargetTest(unittest.TestCase):
         aq = f.asks_context()[0]
         self.assertNotIn(f"{BEFORE}：", prompt(aq, "はい、お電話代わりました。"))
         self.assertNotIn(BEFORE, scene(aq, "x"))
-        self.assertIn("お呼びした方に取り次いだ", WHO_CALLING[TARGET_IS_THERE])  # 決まりは意味の説明の1か所（代わった人の説明は、そこを指す）
+        # 決まりは意味の説明の1か所（ご本人の説明は言葉の決まりの「取り次ぎの言葉」を指し、その中身は言葉の決まりにだけある）
+        self.assertTrue(any(n.startswith("取り次がれて") and f"{RELAY_WORDS}⇒{TARGET_IS_THERE}" in n for n in target_facets()[1].notes))
+        self.assertIn("お呼びした方に取り次ぐ", next(t for t in facet_terms(False, False) if t.startswith(RELAY_WORDS)))
         from flowctl import HANDOVER
         self.assertIn("お呼びした方に取り次いだ", KIND_DESC[HANDOVER])
         f.on_check("judge", TARGET_IS_THERE)
@@ -8637,22 +8745,24 @@ class OfferTest(unittest.TestCase):
         # などがいることになるでしょ！」）。「ご本人」は、どの場面でも、はじめにお呼びした方。⛔ 前は「ご本人・別の方・決められない」＋後任の方か
         # だけで、受付の方の「岡田ですね。」を「別の方」としか書けず、後任の方をお呼びしたあとは「ご本人」を後任の方の意味に変えていた
         from flowctl import (ABOUT, ABOUT_DEPARTED, HOLD, PHONE, PROXIES, SPEAKER, SPEAKER_NEW, SPEAKER_SAME, TARGET_IS_AWAY, TARGET_IS_NOT,
-                             TARGET_IS_THERE, UNDECIDED, WHO, WHO_BOSS, WHO_CALLING, WHO_CAN, WHO_CANNOT, WHO_CONFIRM, WHO_OTHER, WHO_PROXY,
-                             WHO_RECEPTION, WHO_SUCC_CONFIRM, WHO_SUCCESSOR, facts_reading, target_facets)
+                             TARGET_IS_THERE, UNDECIDED, WHO, WHO_BOSS, WHO_CAN, WHO_CANNOT, WHO_CHOICES, WHO_OTHER, WHO_PROXY, WHO_RECEPTION,
+                             WHO_SUCCESSOR, facts_reading, target_facets)
         from meaning_judge import CALLED, prompt
-        for table in (WHO_CALLING, WHO_CONFIRM, WHO_SUCC_CONFIRM):   # 第2層・第3層は、どの場面でも同じ選べるもの（説明だけが場面で違う）
-            self.assertEqual(list(table), [TARGET_IS_THERE, WHO_RECEPTION, *PROXIES, WHO_OTHER, UNDECIDED])
+        for asked in (False, True):   # 第2層・第3層は、どの場面でも同じ選べるもの（説明だけが場面で違う）
+            for seeks in (False, True):
+                self.assertEqual(list(target_facets(asked, seeks)[1].choices), [TARGET_IS_THERE, WHO_RECEPTION, *PROXIES, WHO_OTHER, UNDECIDED])
+        self.assertEqual(WHO_CHOICES, (TARGET_IS_THERE, WHO_RECEPTION, *PROXIES, WHO_OTHER, UNDECIDED))
         self.assertEqual(PROXIES, (WHO_SUCCESSOR, WHO_BOSS, WHO_CAN, WHO_CANNOT, WHO_PROXY))
         f, b = self.flow()
-        self.assertEqual(f.calling_question.facets, target_facets(WHO_CALLING))
-        self.assertEqual(f.confirm_questions["target_confirm"].facets, target_facets(WHO_CONFIRM))
+        self.assertEqual(f.calling_question.facets, target_facets(False, False))
+        self.assertEqual(f.confirm_questions["target_confirm"].facets, target_facets(True, False))
         self.assertEqual((f.calling_question.seeks_successor, f.calling_question.called), (False, ""))
         call = f.calling_question.text
         self.heard(f, "岡田は先月退職いたしました。", TARGET_IS_AWAY)
         f.apply("request_callback", {"why": "departed"})
         # 後任の方をお呼びしたあと：項目は同じ。はじめにお呼びした言葉を判定に見せる（「ご本人」はその方のまま・いまお呼びしているのは後任の方）
-        self.assertEqual(f.calling_question.facets, target_facets(WHO_CALLING))
-        self.assertEqual(f.confirm_questions["target_confirm"].facets, target_facets(WHO_SUCC_CONFIRM))
+        self.assertEqual(f.calling_question.facets, target_facets(False, True))
+        self.assertEqual(f.confirm_questions["target_confirm"].facets, target_facets(True, True))
         self.assertEqual((f.calling_question.seeks_successor, f.calling_question.called), (True, call))
         self.assertEqual(f.confirm_questions["target_confirm"].called, call)
         jq = f.for_judge(f.calling_question)

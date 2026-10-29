@@ -43,7 +43,7 @@ LINES = [
     ("はい、岡田です。", F("同", "本", "無", "無")),
     ("岡田は私ですが。", F("同", "本", "無", "無")),
     # 前の言葉の無い「お電話代わりました。」は、代わった方がお呼びした方かどうか分からない（✅ 2026-10-19 ユーザー：取り次いだ方がまた出たのか
-    # 代わった方が出たのか分からない言葉は確かめる＝WHO_CALLING の「決められない」の例そのもの）
+    # 代わった方が出たのか分からない言葉は確かめる＝話している方は誰かの「決められない」の例そのもの＝flowctl.target_facets）
     ("お電話代わりました。", F("違", "不", "無", "無")),
     ("お電話代わりました。山本です。", F("違", "別", "無", "無")),       # 電話を代わった違うお名前の方（取り次ぐ方か代理の方かは言っていない）
     ("岡田ですね。少々お待ちください。", F("同", "受", "待", "無")),     # お呼びした方の名前をくり返して確かめた＝受付など
@@ -210,24 +210,46 @@ def cases(confirm: str) -> list[tuple[str, list[str], str | None, str | None, bo
             for t, b, c, s, f in rows]
 
 
-async def run(args) -> dict:
-    from flowctl import ASKED, ASKS_OTHER, ASKS_YES, Flow, Question, label, unsure_counts
+def flows():
+    """測る業務と、2つの流れの制御（ふつうの場面・後任の方をお呼びしたあと）。測る所（run）と送る文の指紋（prompts_fingerprint）の1か所。"""
+    from flowctl import Flow
     from instruction import Target
-    target = Target(name="岡田", reading="おかだ", role="営業部部長")
     from g22_opening import BUSINESS
     import dataclasses
-    b = dataclasses.replace(BUSINESS, target=target)
-    f = Flow(b.questions, opening=b.replay_parts(), target=b.replay_parts(), play_recordings=True, judge_names=b.judge_names())
-    fs = Flow(b.questions, opening=b.replay_parts(), target=b.replay_parts(), play_recordings=True, judge_names=b.judge_names())
+    b = dataclasses.replace(BUSINESS, target=Target(name="岡田", reading="おかだ", role="営業部部長"))
+    mk = lambda: Flow(b.questions, opening=b.replay_parts(), target=b.replay_parts(), play_recordings=True, judge_names=b.judge_names())
+    f, fs = mk(), mk()
     fs._to_successor()  # 後任の方をお呼びしたあとの問い（本番と同じ1か所で作り直す）
+    return b, f, fs
+
+
+def question_of(fl, asked) -> "Question":
+    """判定に見せる質問：確かめたあとの返事は、確かめる一言を質問にする（Flow.judge_context）。名前の形も本番と同じ1か所（Flow.for_judge）。"""
+    return fl.for_judge(fl.confirm_questions["target_confirm"] if asked else fl.calling_question)
+
+
+def prompts_fingerprint() -> tuple[int, str]:
+    """判定に送る文（71件の、目的のお客様の判定の問い合わせの文の全部）の長さと指紋（0円）。測った文に1文字も違わず戻したか・文を
+    変えていないかを確かめる（⛔ 2026-10-30：文をいくつも直して測りが悪くなり、測った中でいちばん良い形に戻すとき、その形の写しが作業の
+    場所の外にしか無かった）。"""
+    import hashlib
+    from meaning_judge import prompt_parts
+    b, f, fs = flows()
+    s = "".join("".join(prompt_parts(question_of(fs if succ else f, asked), text, None, before))
+                for text, _, before, asked, succ, _ in cases(b.target.confirm()))
+    return len(s), hashlib.sha256(s.encode()).hexdigest()[:16]
+
+
+async def run(args) -> dict:
+    from flowctl import ASKED, ASKS_OTHER, ASKS_YES, Question, label, unsure_counts
+    b, f, fs = flows()
     judges = {k: j for k, j in make_judges(args).items() if k != "grounder"}  # 測るのは意味の判定だけ（中身の判定は g63_grounding）
     rows = []
     for text, ok, before, asked, successor, facts in cases(b.target.confirm()):
         if args.only and text not in args.only:   # 外れた言葉だけを、本番と同じ送り方でくり返して確かめるとき（測る言葉を選ぶだけ）
             continue
         fl = fs if successor else f
-        # 確かめたあとの返事は、確かめる一言を質問にする（Flow.judge_context）。判定に見せる名前の形も本番と同じ1か所（Flow.for_judge）
-        q = fl.for_judge(fl.confirm_questions["target_confirm"] if asked else fl.calling_question)
+        q = question_of(fl, asked)
         for rep in range(args.repeat):
             for j in {j.panel for j in judges.values() if j is not None}:
                 j.reset()  # 言葉ごとに測る（前の言葉の時間切れで、この言葉の問い合わせを飛ばさない）
@@ -317,7 +339,17 @@ def main() -> None:
     p.add_argument("--only", nargs="*", default=None, help="この言葉だけを測る（外れた言葉を、本番と同じ送り方でくり返して確かめるとき）")
     p.add_argument("--pace-s", type=float, default=0.0, help="行ごとに待つ秒（無料の枠のキーが少ないとき。2本×1分15回なら 4.5）")
     p.add_argument("--tag", default="")
+    # ⛔ 2026-10-30：--only の言葉の数で料金を見積もり、同じ言葉がほかの場面にもあって行が倍になり、上限の円に届いて10行を測れなかった
+    p.add_argument("--count", action="store_true", help="測らずに、測る行と問い合わせの数だけを出す（有料の測りの料金の見込みは、この数から出す）")
+    p.add_argument("--fingerprint", action="store_true", help="測らずに、判定に送る文の長さと指紋だけを出す（測った文と同じかを確かめる）")
     args = p.parse_args()
+    if args.fingerprint:
+        say("判定に送る文：%d 字・指紋 %s" % prompts_fingerprint())
+        return
+    if args.count:
+        n = sum(1 for text, *_ in cases("x") if not args.only or text in args.only)
+        say(f"測る行：{n} 行 × {args.repeat} 回り（1つの判定につき、問い合わせは {n * args.repeat * 2} 回＝目的のお客様の判定と、尋ねているか）")
+        return
     save_result(f"G-59{args.tag}", asyncio.run(run(args)))
 
 
