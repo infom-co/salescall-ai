@@ -5346,6 +5346,33 @@ class VoiceFeaturesTest(unittest.TestCase):
         self.assertAlmostEqual(comp, 0.065, delta=1e-4)
         self.assertAlmostEqual(w, np.log(1.3) / np.log(1.2), delta=0.01)
 
+    def test_jev_line_for_target_facets(self):
+        # Jev の線（meaning_judge.sure_line の1か所）：目的のお客様の判定（項目ごとに答える質問）は 0.8（G-59 で半分で決め、残りの半分で数えた）・
+        # ほかの質問は 0.95（G-53 で測った線）のまま
+        import dataclasses
+        from g22_opening import BUSINESS
+        from instruction import Target
+        from meaning_judge import sure_line
+        b = dataclasses.replace(BUSINESS, target=Target(name="岡田", reading="おかだ", role="営業部部長"))
+        f = b.flow(play_recordings=True)
+        self.assertEqual(sure_line("Jev 1.14", f.judge_context()[0]), 0.8)
+        self.assertEqual(sure_line("Jev 1.14", b.questions[0]), 0.95)
+        self.assertIsNone(sure_line("Claude Sonnet 5.5", f.judge_context()[0]))
+
+    def test_judges_see_names_as_written(self):
+        # 判定に見せる質問の文の名前は、書いてあるとおり＋読み（instruction.Business.judge_names・flowctl.Flow.for_judge の1か所）。声で流す文は読みのまま。
+        # ⛔ 2026-10-29 G-59：判定に見せる質問の文が声の形のまま（「おかだ」）で、Haiku 5.5（考えない）は「はい、岡田です。」を3回とも「決められない」と読んだ
+        import dataclasses
+        from g22_opening import BUSINESS
+        from instruction import Target
+        b = dataclasses.replace(BUSINESS, target=Target(name="岡田", reading="おかだ", role="営業部部長"))
+        f = b.flow(play_recordings=True)
+        self.assertEqual(f.judge_context()[0].text, "営業部部長の岡田（おかだ）様はいらっしゃいますでしょうか？")
+        self.assertEqual(f.asks_context()[0].text, f.judge_context()[0].text)
+        self.assertEqual(b.replay_parts()["target"], "営業部部長の「おかだ」様はいらっしゃいますでしょうか？")   # 声は読みのまま
+        self.assertEqual(f.calling_question.text, b.replay_parts()["target"])   # 流れの制御の持つ質問そのものは変えない
+        self.assertEqual(dataclasses.replace(b, target=Target(role="社長")).judge_names(), {})   # お名前の無い呼び方は、そのまま
+
     def test_seam_cut_continues_the_wave_across_zero(self):
         # G-69 のつなぎ目（g69_vowel_seam.align）：続く言葉は、名前の部分と同じ向きに波が0をまたぐ所で切る＝つなぎ目の1標本の跳びが、0をまたぐ所の
         # 自然な跳びと同じ大きさになる。⛔ 2026-10-29 G-69 の8回目（「『の』のあたりでラップ音がなる」）：1周期の長さの読みが数標本ずれると、形の一番

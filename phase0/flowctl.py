@@ -1283,7 +1283,8 @@ class Flow:
                  opening: dict | None = None,
                  voicemail_message: str | None = None, target: dict | None = None, answers: dict | None = None,
                  policies: dict | None = None, knowledge: list[str] | None = None, names: list[str] | None = None,
-                 name_readings: dict[str, str] | None = None, promised: bool = False, apology: tuple = (), successor: bool = False,
+                 name_readings: dict[str, str] | None = None, judge_names: dict[str, str] | None = None,
+                 promised: bool = False, apology: tuple = (), successor: bool = False,
                  voicemail_left: bool = False, earlier: dict | None = None, number_again: str | None = None, hold_wait_s: int = 300,
                  apology_call: str | None = None, apology_when: str = "later"):
         """confirm：言い直しの言い方を作る関数 (値, 場面, 何回目) → 文（ふだんは phrases.confirm。言い方を比べる試験 G-25 だけが別のものを渡す）。
@@ -1293,7 +1294,8 @@ class Flow:
         policies：相手の申し出への応じ方（instruction.Business.policies。無い項目は既定＝POLICIES の最初・follow_up は False）。
         knowledge：こちらが知っていること（instruction.Business.knowledge）・names：声に出さない名前（社名・担当者名・お呼びした方の名前と読み。
         instruction.Business.spoken_names）・name_readings：読みの決まった名前の表記 -> 読み（instruction.Business.name_readings）＝AIが自分の言葉で言う文の
-        確かめ（own_answer_problem・grounding）に使う。
+        確かめ（own_answer_problem・grounding）に使う。judge_names：判定に見せる名前の形（声の形 -> 書いてあるとおり＋読み。
+        instruction.Business.judge_names）＝判定へ質問を渡す1か所（for_judge）で当てる。
         promised・apology・successor：この電話の門の予約証（CL-2 の gate.Claim）から＝お客様と約束したかけ直しの電話か（取り次げないと言われたら、
         締めの前に改めてお掛けしてよいかを伺う）・まずお詫びすること（理由の並び。目的の方に繋がったら最初に）・前任の方の後任のご担当者様を
         お呼びする電話か（呼ぶ一言は instruction.Target の successor が作る）。"""
@@ -1341,6 +1343,7 @@ class Flow:
         self.grounded: tuple[int, dict] = (-1, {})
         self.names = [n for n in (names or []) if n]
         self.name_readings = {k: v for k, v in (name_readings or {}).items() if k and v and k != v}
+        self.judge_names = {k: v for k, v in (judge_names or {}).items() if k and v and k != v}
         self.party: str | None = None     # いまの相手の種別（PARTY_LABEL の中の名前。報告が無ければ None＝不明。DESIGN.md 4-3）
         self.callback_why: str | None = None  # かけ直しの申し出の理由（CALLBACK_LABEL の中の名前。1通話1回まで）
         self.callback_ids: list[str] = []      # かけ直しで足した質問（目的の人かを確かめに戻ったあと、続きから聞く＝_callback）
@@ -1892,11 +1895,24 @@ class Flow:
             # 「お電話代わりました。担当の山田です。」のあとの「いいえ、私は山田と申します。」を3回中2回「ご本人」と読んだ（決まりの文を足す形は、
             # 判定ごとに誤りの出方が入れ替わるだけだった＝Jev が「いえ、違います。」を「ご本人」と読んだ）
             q = self.confirm_questions[self.confirm_part] if self.asked_target is not None and self.confirm_open else self.calling_question
-            return q, None, "／".join(list(self.calling_words.values())[-3:]) or None
+            return self.for_judge(q), None, "／".join(list(self.calling_words.values())[-3:]) or None
         if self.answering:
             return None, None, None   # 出た方の第一声（「はい、〇〇でございます」）は、まだ流していない最初の質問の答えではない
         q = self.questions.get(self.current) if self.current else None
-        return q, (self.awaiting_say if self.awaiting_confirm is not None else None), None
+        return self.for_judge(q), (self._judge_text(self.awaiting_say) if self.awaiting_confirm is not None else None), None
+
+    def for_judge(self, q: "Question | None") -> "Question | None":
+        """判定に見せる質問（判定へ質問を渡す唯一の場所＝judge_context・asks_context・returned_context）：質問の文の名前を、声で読ませる形から
+        判定に見せる形（書いてあるとおり＋読み＝instruction.Business.judge_names）にする。声で流す文・質問そのもの（選べるもの・項目）は変えない。"""
+        if q is None:
+            return None
+        text = self._judge_text(q.text)
+        return q if text == q.text else dataclasses.replace(q, text=text)
+
+    def _judge_text(self, text: str | None) -> str | None:
+        for spoken in sorted(self.judge_names, key=len, reverse=True):   # 長い名前から先に（短い名前が長い名前の中に入っていても1回だけ）
+            text = text.replace(spoken, self.judge_names[spoken]) if text else text
+        return text
 
     def asks_context(self) -> tuple["Question", str | None] | None:
         """呼んでいる段の、こちらに尋ねているかの問い合わせ（電話接続側が、目的の人の判定と同時に出す。確かめの名前 "asks"）：(質問, その前に
@@ -1904,7 +1920,7 @@ class Flow:
         if self.phase != "calling":
             return None
         q, _, before = self.judge_context()
-        return self.asks_questions[q.id], before
+        return self.for_judge(self.asks_questions[q.id]), before
 
     def returned_context(self) -> tuple["Question", str | None] | None:
         """取り次ぎで待ったあと、新しい方の区切りの最初の発話だけ：待たせた方が戻ったかの問い合わせ（電話接続側が、目的の人の判定と同時に2つの判定へ
@@ -1913,7 +1929,7 @@ class Flow:
                 or self.callee_turns == 0):
             return None
         _, _, before = self.judge_context()
-        return self.return_question, before
+        return self.for_judge(self.return_question), before
 
     def _new_ears(self) -> bool:
         """電話口の方が、まだこちらの名乗りを聞いていないか（お呼びした方に繋がない道＝かけ直し・お立場・後任の方・お呼びし直し の1か所）：

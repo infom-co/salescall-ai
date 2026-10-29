@@ -80,6 +80,11 @@ DUR_UNIT = 1.2
 # S2 の 3.99〜6.04 dB と L4 の「と」4.77 dB は機械音のご指摘なし／「で」の 9.0 dB 前後（前後の1周期の形 0.46 以下）は「途切れと違和感」。
 # 同じ録音の同じ所の自然な変わり方は 1.6〜4.8 dB
 VOICE_MAX = 6.3
+# つなぎ目の大きさの差（join_gap の「大きさ」＝つなぎ目に接する2周期どうし）の上限。超える組は、ほかに組が無いときだけ選ぶ。✅ 2026-10-29 G-69 の
+# 9回目のユーザーの聞き比べ：つなぎ目の波の跳びを無くしたあとも、大きさの差 5.01 dB の「の」は ○○「前半『岡田様の』と後半の音質が少し違う」
+# （8回目の同じ材料 4.89 dB は「ラップ音」と重なっていた）／3.12 dB（8回目の「と」）は ◎◎・2.38 dB（9回目の「と」）は ◎。3回目の「の」3.0 dB の
+# 「音量も違和感」は、高さの跳ね 1.98（JUMP_MAX を超える）と重なっていた
+LOUD_MAX = 4.0
 # 上限を超えた組に足すずれは g66_role_seam.over_by（録音全体の高さ・話す速さの上限も同じ足し方）
 # 話す速さのずれの上限（下の RATE_WEIGHT の速さのずれ）。✅ 2026-10-25 のユーザーの聞き比べ：◎ だった組は 0.16 まで（1回目の S2）・
 # ○「『岡田様』のイントネーションが少しおかしい」は 0.32（2回目の S2）。L4 は2回とも 0.11 まで（ご指摘なし）
@@ -538,7 +543,7 @@ async def build(args, out, rows: list[dict]) -> dict:
                 if (key := (id(t), cut)) not in falls:
                     falls[key] = fall_after(t["pcm"], rate, cut / rate)
                 fall = falls[key]
-                s_ = (score(g) + dur + RATE_WEIGHT * speed + over + over_by(g["声質（dB）"], VOICE_MAX, 1.0)
+                s_ = (score(g) + dur + RATE_WEIGHT * speed + over + over_by(g["声質（dB）"], VOICE_MAX, 1.0) + over_by(g["大きさ（dB）"], LOUD_MAX, 1.0)
                       + over_by(3.0 if g["高さの跳ね（半音）"] is None else g["高さの跳ね（半音）"], JUMP_MAX, 0.1)
                       + over_by(g["周期のずれ"], PERIOD_MAX, 0.01) + over_by(g["高さの動き（半音）"] or 0.0, MOVE_MAX, 0.1)
                       + over_by(0.0 if fall is None else fall, -FALL_MIN, 0.1))

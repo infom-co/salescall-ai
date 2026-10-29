@@ -318,9 +318,21 @@ OTHER_JUDGES = {
     # firm_min＝言い切っているとする確からしさ（0.5 では要らない「曖昧」の印が53個、0.2 では5個）
     # ground_min＝中身の判定（grounding）で読みにする確からしさ（2026-10-23 G-63：Jev が外したのは5回とも 0.48 以下・正しく通したのは 0.51 以上
     # ＝線 0.8 で危ない文 0・Jev が決めるのは 76%。✅ 2026-10-23 の2回目・ユーザー承認で、中身の判定にも毎回入れた＝grounding.GROUNDERS）
+    # facets_sure_min＝目的のお客様の判定（項目ごとに答える質問）で答えにする確からしさ（3つの項目の一番低いもの）。✅ 線の決め方は G-53 と同じ
+    # （2026-10-18 ユーザーの案：正解の付いた答えの半分で決め、残りの半分で数える）。G-59 の60行×3回り：Jev が外れた回の確からしさは、1回り目で
+    # 一番高くて 0.59（2回り目 0.55・3回り目 0.64）⇒ 1回り目で 0.8 と決め、2・3回り目で 120回中49回を Jev だけで決めて外れ0（G-59jev_facets_r2/_r3）。
+    # 判定に見せる名前を書いてあるとおりにしたあと（Flow.for_judge）の3回りでも、外れの確からしさは 0.37 まで・0.8 から上は 180回中78回で外れ0
+    # （G-59jev_names）。⛔ 2026-10-29：答えの判定で測った 0.95 を、項目ごとの形で測らずに使っていた（Jev が決めるのは 180回中10回だけだった）
     "Jev 1.14": {"maker": "typesafe", "model": "typesafe/jev-1.14", "key": "OPENROUTER_JUDGE_KEY", "host": "openrouter.ai",
-                 "sure_min": 0.95, "firm_min": 0.2, "ground_min": 0.8},
+                 "sure_min": 0.95, "facets_sure_min": 0.8, "firm_min": 0.2, "ground_min": 0.8},
 }
+
+
+def sure_line(name: str, q) -> float | None:
+    """確からしさを返す判定（Jev）の、答えにする線を決める唯一の場所：目的のお客様の判定（項目ごとに答える質問＝q.facets）は facets_sure_min・
+    ほかの質問は sure_min。確からしさを返さない判定は None（線なし）。"""
+    j = OTHER_JUDGES.get(name, {})
+    return j.get("facets_sure_min", j.get("sure_min")) if getattr(q, "facets", ()) else j.get("sure_min")
 # 同時に出して、先に届いた確かな読みで決める組（唯一の場所。意味の判定の受け持ち＝JudgePanel・中身の判定＝grounding.make_grounder の両方が使う）。
 #    ✅ 2026-10-23 ユーザー（中身の判定）：「W sonnetで暫定としてOK」・2回目「OK」（Jev と2つの Sonnet を同時に出し、早く届いた確かな読みで決める）
 #    ✅ 2026-10-25 ユーザー：「以前、JevやSonnet 5.5 の「考えない」形を使うと決めましたよね。同じことを聞くな！」＝意味の2つ目の判定も同じ組
@@ -767,7 +779,7 @@ class JudgePanel:
         if got is None:
             tried.append({"model": name, "error": "読めない返事", "s": round(self.clock() - t0, 3)})
             return None
-        line = OTHER_JUDGES.get(name, {}).get("sure_min")  # 確からしさを返す判定（Jev）は、線から上だけを答えにする
+        line = sure_line(name, q)  # 確からしさを返す判定（Jev）は、線から上だけを答えにする
         if line is not None and (got.sure is None or got.sure < line):
             tried.append({"model": name, "unsure": str(got), "sure": got.sure, "s": round(self.clock() - t0, 3)})
             return None

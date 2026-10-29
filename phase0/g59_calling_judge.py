@@ -220,14 +220,15 @@ async def run(args) -> dict:
     from g22_opening import BUSINESS
     import dataclasses
     b = dataclasses.replace(BUSINESS, target=target)
-    f = Flow(b.questions, opening=b.replay_parts(), target=b.replay_parts(), play_recordings=True)
-    fs = Flow(b.questions, opening=b.replay_parts(), target=b.replay_parts(), play_recordings=True)
+    f = Flow(b.questions, opening=b.replay_parts(), target=b.replay_parts(), play_recordings=True, judge_names=b.judge_names())
+    fs = Flow(b.questions, opening=b.replay_parts(), target=b.replay_parts(), play_recordings=True, judge_names=b.judge_names())
     fs._to_successor()  # 後任の方をお呼びしたあとの問い（本番と同じ1か所で作り直す）
     judges = {k: j for k, j in make_judges(args).items() if k != "grounder"}  # 測るのは意味の判定だけ（中身の判定は g63_grounding）
     rows = []
     for text, ok, before, asked, successor, facts in cases(b.target.confirm()):
         fl = fs if successor else f
-        q = fl.confirm_questions["target_confirm"] if asked else fl.calling_question  # 確かめたあとの返事は、確かめる一言を質問にする（Flow.judge_context）
+        # 確かめたあとの返事は、確かめる一言を質問にする（Flow.judge_context）。判定に見せる名前の形も本番と同じ1か所（Flow.for_judge）
+        q = fl.for_judge(fl.confirm_questions["target_confirm"] if asked else fl.calling_question)
         for rep in range(args.repeat):
             for j in {j.panel for j in judges.values() if j is not None}:
                 j.reset()  # 言葉ごとに測る（前の言葉の時間切れで、この言葉の問い合わせを飛ばさない）
@@ -256,7 +257,7 @@ async def run(args) -> dict:
                     row[f"{col}_by"], row[f"{col}_sure"] = got.by, got.sure
             # 目的の人の判定と、こちらに尋ねているかの問い合わせ（本番と同じに、同じ言葉・同じ前の言葉で同時に出す＝convo.check_handler）
             await asyncio.gather(*(one(k, j, col, question) for k, j in judges.items() if j is not None
-                                   for col, question in ((k, q), (f"{k}_asks", fl.asks_questions[q.id]))))
+                                   for col, question in ((k, q), (f"{k}_asks", fl.for_judge(fl.asks_questions[q.id])))))
             # 尋ねているかは「尋ねている」だけが流れを変える（Flow._asking_now）＝ほかの読みは全部「尋ねていない」と数える
             row["ok"] = all(row.get(k) in ok and (want is None or (row.get(f"{k}_asks") in ASKED) == want) for k in judges if judges[k] is not None)
             row["facts_ok"] = all(facts_ok(row.get(f"{k}_facts"), facts) for k in judges if judges[k] is not None)

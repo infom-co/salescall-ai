@@ -215,6 +215,20 @@ class Business:
         return {unicodedata.normalize("NFKC", n["surface"]): n["reading"] for n in self.names  # 置き換えと同じ読み（quote_in_text）
                 if isinstance(n, dict) and n.get("surface") and n.get("reading")}
 
+    def judge_names(self) -> dict[str, str]:
+        """判定（意味の判定・目的のお客様の判定）に見せる名前の形を決める唯一の場所：声で読ませる形（「」でくくった読み＝quote_in_text・
+        Target._name）⇒ 書いてあるとおり＋読み（「岡田（おかだ）」）。お客様の言葉は聞き取りの文字（漢字）で届くので、判定には名前を書いて
+        あるとおりに見せる（読みも添える）。当てるのは、流れの制御が判定へ質問を渡す1か所（flowctl.Flow.for_judge）。声で流す文は変えない。
+        ⛔ 2026-10-29 G-59：判定に見せる質問の文が声の形のまま（「営業部部長の「おかだ」様はいらっしゃいますでしょうか？」）で、Claude Haiku 5.5
+           （考えない）は「はい、岡田です。」を3回とも「決められない」、取り次ぎのあとの「お電話代わりました。」を3回とも「決められない」と読んだ
+           （質問の文を「岡田（おかだ）」にすると、どちらも「ご本人」）"""
+        from names import hira, quote
+        out = {quote(r): f"{s}（{r}）" for s, r in self.name_readings().items() if s != r}
+        t = self.target
+        if t is not None and t.name and t.name != hira(t.reading):
+            out[quote(hira(t.reading))] = f"{t.name}（{hira(t.reading)}）"
+        return out
+
     def flow(self, recorded: bool = True, play_recordings: bool = False, **kw) -> "Flow":
         """この業務・この電話の流れの制御（flowctl.Flow）を作る唯一の場所（通話の駆動側・試験の両方）。recorded＝名乗りを録音で流す形（本番の形＝
         DESIGN.md 6-13。流し直しにも使う）。目的の人のある業務は、繋がるまで最初の質問を渡さない（DESIGN.md 4-3）＝名乗り・用件の文は、
@@ -222,7 +236,7 @@ class Business:
         from flowctl import Flow
         return Flow(self.questions, busy_ask=self.busy_ask, play_recordings=play_recordings, voicemail_message=self.voicemail_message,
                     answers=dict(self.answers), policies=self.policies(), knowledge=self.knowledge(), names=self.spoken_names(),
-                    name_readings=self.name_readings(),
+                    name_readings=self.name_readings(), judge_names=self.judge_names(),
                     # 門の予約証から（CL-2 の gate.Claim）：約束の電話か・まずお詫びすること・後任のご担当者様をお呼びする電話か
                     promised=self.promised, apology=tuple(self.apology), earlier=self.earlier, number_again=self.number_again,
                     hold_wait_s=self.hold_wait_s, apology_call=self.apology_call, apology_when=self.apology_when,
