@@ -2671,7 +2671,12 @@ class MeaningJudgeOptionsTest(unittest.TestCase):
         f = self.target_flow()
         self.assertEqual(f.calling_question.facets, target_facets(WHO_CALLING))
         self.assertEqual([q.facets for q in f.confirm_questions.values()], [target_facets(WHO_CONFIRM)] * 2)
-        self.assertNotIn("その前に相手が言ったこと", "".join(d for _, _, t in f.calling_question.facets for d in t.values()))  # 前の言葉の見出しと混ぜない
+        # 説明の文は、前の言葉の見出しを名指しして結んでよい（「前に話した方」＝その前に相手が言ったことの最後の言葉を話した方）：項目ごとに答える質問には、
+        # 前の言葉の行が必ずある（無いときは「無し」＝NO_BEFORE。⛔ 前は行が無いことがあったので、見出しを説明に混ぜないようにしていた）
+        from meaning_judge import BEFORE, NO_BEFORE
+        self.assertIn("その前に相手が言ったこと", "".join(d for _, _, t in f.calling_question.facets for d in t.values()))
+        for fq in [f.calling_question, *f.confirm_questions.values()]:
+            self.assertIn(f"{BEFORE}：{NO_BEFORE}\n", prompt(fq, "はい。"))
         # 組み合わせ（唯一の決まり）：取り次ぎ ＞ 不在（ご本人ではない方） ＞ 電話に出ている方。読みに出ない事実は印で残す
         N, A = PHONE_NONE, ABOUT_NONE
         self.assertEqual(target_reading(TARGET_IS_NOT, N, TARGET_IS_AWAY), (TARGET_IS_AWAY, True, False))      # 別の方＋不在＝不在

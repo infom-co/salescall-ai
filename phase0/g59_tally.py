@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 
 import g59_calling_judge as g
-from flowctl import facts_reading
+from flowctl import HANDOVER, TARGET_IS_NOT, UNDECIDED, facts_reading
 
 RESULTS = Path(__file__).parent / "results"
 HARD = {"取り次ぎのあと", "後任の方"}
@@ -45,10 +45,14 @@ def flow_ok(got: dict, facts: dict, acc: list, r: dict) -> bool:
     keys = list(facts)
     def flags(f):
         value, away, new, succ = facts_reading(f, seeks)
-        return value, away, new if used else None, succ
+        if not used and value == HANDOVER:   # 印を使わない所では「代わった人が話し始めた」＝「別の方」と同じ動き（2026-10-30 に会話の試しで確かめた）
+            value = TARGET_IS_NOT
+        # 「決められない」の読みは、必ず確かめに回り、確かめたあとに、あいさつと名乗りから流す＝電話を代わった方の印は動きを変えない（同じ日に確かめた）
+        return value, away, new if used and value != UNDECIDED else None, succ
     want = {flags(dict(zip(keys, c)))[1:] for c in product(*(facts[k] for k in keys))}
     value, *rest = flags(got)
-    return value in acc and tuple(rest) in want
+    accepted = {TARGET_IS_NOT if not used and a == HANDOVER else a for a in acc}
+    return value in accepted and tuple(rest) in want
 
 
 def judged(r: dict, col: str) -> dict | None:

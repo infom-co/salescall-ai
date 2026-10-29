@@ -223,6 +223,8 @@ async def run(args) -> dict:
     judges = {k: j for k, j in make_judges(args).items() if k != "grounder"}  # 測るのは意味の判定だけ（中身の判定は g63_grounding）
     rows = []
     for text, ok, before, asked, successor, facts in cases(b.target.confirm()):
+        if args.only and text not in args.only:   # 外れた言葉だけを、本番と同じ送り方でくり返して確かめるとき（測る言葉を選ぶだけ）
+            continue
         fl = fs if successor else f
         # 確かめたあとの返事は、確かめる一言を質問にする（Flow.judge_context）。判定に見せる名前の形も本番と同じ1か所（Flow.for_judge）
         q = fl.for_judge(fl.confirm_questions["target_confirm"] if asked else fl.calling_question)
@@ -312,6 +314,7 @@ def main() -> None:
     p = base_parser(__doc__)
     add_judge_args(p)
     p.add_argument("--repeat", type=int, default=3)
+    p.add_argument("--only", nargs="*", default=None, help="この言葉だけを測る（外れた言葉を、本番と同じ送り方でくり返して確かめるとき）")
     p.add_argument("--pace-s", type=float, default=0.0, help="行ごとに待つ秒（無料の枠のキーが少ないとき。2本×1分15回なら 4.5）")
     p.add_argument("--tag", default="")
     args = p.parse_args()
