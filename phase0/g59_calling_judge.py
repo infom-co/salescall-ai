@@ -160,6 +160,8 @@ async def run(args) -> dict:
             row["ok"] = all(row.get(k) in ok and (row.get(f"{k}_asks") in ASKED) == want for k in judges if judges[k] is not None)
             rows.append(row)
             say(f"（前：{before}）" if before else "", text, {k: (row.get(k), row.get(f"{k}_asks")) for k in judges}, "OK" if row["ok"] else "×")
+            if args.pace_s:   # 使えるキーが少ない無料の枠で、1分の上限に削られないように（⛔ 2026-10-29：2本で流して49行中40行が届かなかった）
+                await asyncio.sleep(args.pace_s)
     summary = {k: f"{sum(1 for r in rows if r.get(k) in r['accept'])}/{len(rows)}" for k in judges if judges[k] is not None}
     summary |= {f"{k}（尋ねているか）": f"{sum(1 for r in rows if (r.get(f'{k}_asks') in ASKED) == r['asks_accept'])}/{len(rows)}"
                 for k in judges if judges[k] is not None}
@@ -199,6 +201,7 @@ def main() -> None:
     p = base_parser(__doc__)
     add_judge_args(p)
     p.add_argument("--repeat", type=int, default=3)
+    p.add_argument("--pace-s", type=float, default=0.0, help="行ごとに待つ秒（無料の枠のキーが少ないとき。2本×1分15回なら 4.5）")
     p.add_argument("--tag", default="")
     args = p.parse_args()
     save_result(f"G-59{args.tag}", asyncio.run(run(args)))

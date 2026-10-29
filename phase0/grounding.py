@@ -225,10 +225,8 @@ def make_reader(args, name: str, wait_s: float = 0.0, attempt_s: float | None = 
         async def call(knowledge, said, draft):
             return await ask_other(client, name, knowledge, said, draft), None
     else:
-        from g23_names import find_models
-
         ring = KeyRing(args)
-        model = find_models(ring.client())[0][name]
+        model = ring.model_ids()[name]
 
         async def call(knowledge, said, draft):
             spent = {}

@@ -221,6 +221,29 @@ def is_daily(exc: BaseException) -> bool:
     return "PerDay" in str(exc)
 
 
+def is_zero_limit(exc: BaseException) -> bool:
+    """上限の値そのものが 0 か（429 の知らせの中の quota_limit_value が '0'）。量を使い切ったのではなく、そのプロジェクトには枠が無い
+    ＝待っても戻らない ⇒ 1日の上限と同じく、そのモデルではそのキーを DAILY_REST_S 秒休ませて次のキーで続ける（休み明けに1回だけ確かめ直す）。
+    ⛔ 2026-10-29：17本中15本が、どのモデルでも「地域ごとの1分の上限（…PerMinutePerProjectPerRegion）の値が 0」（地域は us-east4・
+       europe-west1）で返っていた。1分の上限として同じキーで30秒ずつ待ち直し、ほかのキーへ順に問い合わせ直していた（10-28 の G-59 で、
+       その場の判定の答えまでの中央が 10.3秒）。それを見て私は「すべてのキーが1日の上限」と、1本ずつ確かめずに誤って伝えた"""
+    return bool(re.search(r"""quota_limit_value['"]?\s*[:=]\s*['"]0['"]""", str(exc)))
+
+
+def limit_note(exc: BaseException) -> str:
+    """上限の知らせの要点（知らせに書くだけ）：上限の名前と値・待つ秒。どれも無ければ文面の頭。キーの値・プロジェクトの番号は入れない。
+    ⛔ 2026-10-29 G-59：使える2本が「待つ秒も1分の上限の名前も無い上限」で600秒休みになったが、知らせに文面が無く、何の上限か分からなかった"""
+    s = str(exc)
+    m = re.search(r"Quota exceeded for metric: ([\w./]+), limit: (\d+)", s)
+    name = re.search(r"""quota_limit['"]?\s*[:=]\s*['"]([\w\-]+)""", s) or re.search(r"""quotaId['"]?\s*[:=]\s*['"]([\w\-]+)""", s)
+    value = re.search(r"""quota_limit_value['"]?\s*[:=]\s*['"]([^'"]+)""", s)
+    parts = ([f"{m.group(1).split('/')[-1]}（{m.group(2)}）"] if m else []) + ([name.group(1)] if name else []) \
+        + ([f"値 {value.group(1)}"] if value else []) + ([f"あと{retry_after_s(exc):.0f}秒"] if retry_after_s(exc) is not None else [])
+    if parts:
+        return "・".join(parts)
+    return re.sub(r"AIza[\w\-]+|project_number:\d+|projects/\d+", "＊", s)[:160]
+
+
 def retry_after_s(exc: BaseException) -> float | None:
     """上限の誤りに書いてある「あと何秒で使えるか」（無ければ None）。1分の上限（数十秒）と1日の上限（数時間）を見分けるのに使う。"""
     m = re.search(r"retry in (?:(\d+)h)?(?:(\d+)m)?([\d.]+)s", str(exc))
@@ -243,6 +266,7 @@ class KeyRing:
     - 1日の上限（429。上限の名前に PerDay）：そのモデルでは、そのキーを DAILY_REST_S 秒休ませて、次のキーで続ける（休み明けに1回問い合わせ直す）。
       ⛔ 2026-10-19：その日いっぱい使わない形にしたら、16時15分（世界標準時）に「1日の上限」と答えたキーのうち5本が、2時間後には使えたのに、
       使わないままだった（その日の記録で、使えるキー11本がすべて止まり、意味の判定が1つも答えなかった）
+    - 上限の値そのものが0（429。知らせの中の quota_limit_value が '0'＝is_zero_limit）：1日の上限と同じく休ませて、次のキーで続ける
     - プロジェクトが止められている（403）：そのキーを、どのモデルでも飛ばす
     ⚠️ 上限はプロジェクトごとに数えられる。同じプロジェクトのキーなら、次のキーもすぐ上限に当たる。"""
 
@@ -315,11 +339,22 @@ class KeyRing:
         self.spent.setdefault(model, {})[i] = time.time() + self.DAILY_REST_S
         self._save()
 
+    @staticmethod
+    def limit_name(exc: BaseException) -> str:
+        """休ませる上限の名前（知らせに書くだけ）：上限の値が0（is_zero_limit）か、1日の上限か。"""
+        return "上限の値が0（待っても戻らない）" if is_zero_limit(exc) else "1日の上限"
+
     def client(self, i: int | None = None):
         i = self.start if i is None else i
         if i not in self._clients:
             self._clients[i] = make_client(self.keys[i])
         return self._clients[i]
+
+    def model_ids(self) -> dict[str, str]:
+        """表示名 ⇒ モデルID（g23_names.find_models）を、使えるキーで引く（call と同じく、上限・止められたキーを飛ばす＝キーの回し方の
+        唯一の場所を通す）。⛔ 2026-10-29 G-59：始めのキーで直に引いていて、そのキーが上限の値0のとき、使えるキーが2本あるのに判定を作れずに止まった"""
+        from g23_names import find_models
+        return self.call("models.list", lambda client: find_models(client)[0])[0]
 
     def call(self, model: str, fn, rotate: bool = True):
         """fn(client) を、そのモデルで使えるキーで呼ぶ（混んでいる 503 は call_with_retry が待ってやり直す）。戻り値＝(結果, キーの番号)。
@@ -348,13 +383,14 @@ class KeyRing:
                     if not is_quota(exc):
                         raise
                     after = retry_after_s(exc)
-                    if not is_daily(exc):  # 1日の上限と書かれていなければ、待って同じキーで続ける（秒が無ければ30秒）
+                    # 1日の上限・上限の値が0と書かれていなければ、待って同じキーで続ける（秒が無ければ30秒）
+                    if not (is_daily(exc) or is_zero_limit(exc)):
                         wait = after if after is not None else 30.0
-                        say(f"{self.keys[i].label} は {model} の1分の上限に当たりました ⇒ {wait:.0f}秒待って続けます")
+                        say(f"{self.keys[i].label} は {model} の1分の上限に当たりました（{limit_note(exc)}） ⇒ {wait:.0f}秒待って続けます")
                         time.sleep(min(wait, 90.0) + 1)
                         continue
                     self.rest(i, model)
-                    say(f"{self.keys[i].label} は {model} の1日の上限に当たりました ⇒ {self.DAILY_REST_S / 60:.0f}分休ませて、次のキーで続けます")
+                    say(f"{self.keys[i].label} は {model} の{self.limit_name(exc)}に当たりました ⇒ {self.DAILY_REST_S / 60:.0f}分休ませて、次のキーで続けます")
                     break
         if not rotate:
             raise KeyUnusable(f"{self.keys[self.start].label} では {model} を使えません")
@@ -394,19 +430,19 @@ class KeyRing:
                     # 通話の試験の153本で判定が1つも間に合わなかった）。書いていなければ、会話のモデルと同じく LIVE_COOL_S
                     # 待つ秒が無くても、1分の上限と書いてあれば（上限の名前に PerMinute）、call と同じく30秒（⛔ 2026-10-18：判定の測り直しと
                     # 同時に流した通話の中の判定が、1分の上限のたびにキーを10分休ませ、判定が通話の中に届かなかった）
-                    if is_daily(exc):
-                        # 1日の上限と書いてある（文字のモデル＝意味の判定）：call と同じく DAILY_REST_S 秒休ませる（記録して、ほかの実行とも
+                    if is_daily(exc) or is_zero_limit(exc):
+                        # 1日の上限・上限の値が0と書いてある（文字のモデル＝意味の判定）：call と同じく DAILY_REST_S 秒休ませる（記録して、ほかの実行とも
                         # 分け合う）。⛔ 2026-10-19：10分休ませるだけで記録もしなかったので、休み明けのたびに、また実行が替わるたびに、上限の
                         # キーへ順に問い合わせ直し、1回の判定に7.9秒かかった。⛔ その次に「その日は使わない」にしたら、戻ったキーまで止めた
                         self.rest(i, model)
-                        say(f"{self.keys[i].label} は {model} の1日の上限に当たりました ⇒ {self.DAILY_REST_S / 60:.0f}分休ませて、次のキーで初めからやり直します")
+                        say(f"{self.keys[i].label} は {model} の{self.limit_name(exc)}に当たりました ⇒ {self.DAILY_REST_S / 60:.0f}分休ませて、次のキーで初めからやり直します")
                         continue
                     after = retry_after_s(exc)
                     if after is None and "PerMinute" in str(exc):
                         after = 30.0
                     rest = after + 1 if after is not None else self.LIVE_COOL_S
                     cool[(i, model)] = time.monotonic() + rest
-                    say(f"{self.keys[i].label} は {model} の上限に当たりました ⇒ {rest:.0f}秒休ませて、次のキーで初めからやり直します")
+                    say(f"{self.keys[i].label} は {model} の上限に当たりました（{limit_note(exc)}） ⇒ {rest:.0f}秒休ませて、次のキーで初めからやり直します")
             ends = [t for (i, m), t in cool.items() if m == model and i not in self.denied]
             if not ends or waited >= (self.LIVE_MAX_WAIT_S if max_wait_s is None else max_wait_s):
                 raise RuntimeError(f"どのキーでも {model} を使えません（上限・プロジェクトが止められている）")

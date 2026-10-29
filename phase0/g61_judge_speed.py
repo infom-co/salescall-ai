@@ -27,7 +27,6 @@ from collections import Counter
 from pathlib import Path
 
 from common import HERE, KeyRing, base_parser, describe_error, is_quota, require_python, save_partial, save_result, say
-from g23_names import find_models
 from g53_meaning import accept, g48_questions, value_questions
 from meaning_judge import ajudge
 
@@ -55,7 +54,7 @@ async def timed(client, model: str, q, it: dict) -> tuple[float, object, str | N
 
 async def run(args) -> dict:
     ring = KeyRing(args)
-    model = find_models(ring.client())[0]["3.5 Flash Lite"]
+    model = ring.model_ids()["3.5 Flash Lite"]
     qmap = questions()
     items = [it for it in json.loads(SOURCE.read_text(encoding="utf-8"))["items"] if it.get("3.5 Flash Lite") is not None]
     # 使えるキー：1本ずつ1回問い合わせて確かめる（止められている・1日の上限のキーを外す。記録の状態は当てにしない＝CL-1.md 0-2）

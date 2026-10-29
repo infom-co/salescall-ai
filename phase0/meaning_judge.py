@@ -795,7 +795,6 @@ def make_judge(args, model_name: str):
     """通話の中で使う形：async (質問, 相手の言葉, こちらが言い直した言葉) -> 中の名前。キーは会話と同じく、上限・止められたキーを飛ばす
     （common.KeyRing.acall）。どの試験も、これを run_call(judge=…) に渡す（作り方を試験ごとに書かない）。"""
     from common import KeyRing, load_secret
-    from g23_names import find_models
 
     if model_name in OTHER_JUDGES:
         client = other_client(model_name, load_secret(OTHER_JUDGES[model_name]["key"], args.env), aio=True,
@@ -805,7 +804,7 @@ def make_judge(args, model_name: str):
             return await ajudge_other(client, model_name, q, text, asked, before)
         return other
     ring = KeyRing(args)
-    model = find_models(ring.client())[0][model_name]
+    model = ring.model_ids()[model_name]
 
     async def run(q, text, asked=None, before=None):
         # どのキーも上限で休み中なら、待たずに失敗にする（通話の中では待っても間に合わない＝JudgePanel が代わりへ回す）

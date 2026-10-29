@@ -1531,6 +1531,62 @@ class KeyRingTest(unittest.TestCase):
         self.assertTrue(any(c.args[0] >= 2.5 for c in sl.call_args_list))
         self.assertEqual(common.retry_after_s(Exception("Please retry in 11h8m7.1s")), 11 * 3600 + 8 * 60 + 7.1)
 
+    def test_zero_limit_rests_and_moves_on(self):
+        # ⛔ 2026-10-29：17本中15本が「地域ごとの1分の上限の値が 0」で返り、1分の上限として同じキーで30秒ずつ待ち直していた
+        #    ＝待っても戻らない ⇒ 1日の上限と同じく休ませて、すぐ次のキーへ（会話の中の判定 acall も同じ）
+        import argparse
+        import asyncio
+        import common
+        from unittest import mock
+
+        class Zero(Exception):
+            code = 429
+        zero = Zero("429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': \"Quota exceeded for quota metric 'Generate Content API "
+                    "requests per minute' and limit 'GenerateContent request limit per minute for a region'\", 'details': [{'metadata': "
+                    "{'quota_limit_value': '0', 'quota_limit': 'GenerateContentRequestsPerMinutePerProjectPerRegion', "
+                    "'quota_location': 'us-east4'}}]}}")
+        self.assertTrue(common.is_quota(zero) and common.is_zero_limit(zero) and not common.is_daily(zero))
+        self.assertFalse(common.is_zero_limit(Zero("429 RESOURCE_EXHAUSTED. {'quota_limit_value': '15'}")))   # 値のある1分の上限は待つ
+        self.assertFalse(common.is_zero_limit(Zero("429 RESOURCE_EXHAUSTED. {'quota_limit_value': '0.5'}")))
+
+        ring = common.KeyRing(argparse.Namespace(proxy_key=False, env="/nonexistent", key_name=None, key_index=0), min_interval_s=0,
+                              state_path=False)
+        ring.keys = [common.ApiKey(f"K{i}", chr(97 + i) * 39) for i in range(3)]
+        ring._clients = {0: "c0", 1: "c1", 2: "c2"}
+        calls = []
+
+        def fn(client):
+            calls.append(client)
+            if client in ("c0", "c1"):
+                raise zero
+            return "ok"
+        with mock.patch("time.sleep") as sl:
+            self.assertEqual(ring.call("m", fn), ("ok", 2))
+            self.assertEqual(ring.call("m", fn), ("ok", 2))
+        self.assertEqual(calls, ["c0", "c1", "c2", "c2"])                  # 1本に1回だけ問い合わせて次へ（待ち直さない）
+        self.assertFalse(any(c.args[0] >= 1 for c in sl.call_args_list))
+        self.assertTrue(ring.resting(0, "m") and ring.resting(1, "m") and not ring.resting(0, "other"))
+
+        # モデルの ID も、同じ回し方で引く（⛔ 2026-10-29 G-59：始めのキーで直に引き、そのキーが上限の値0で、判定を作れずに止まった）
+        ring.spent, ring.start = {}, 0
+
+        def listing(client):
+            if client in ("c0", "c1"):
+                raise zero
+            return {"3.5 Flash Lite": "gemini-3.5-flash-lite"}, []
+        with mock.patch("g23_names.find_models", side_effect=listing), mock.patch("time.sleep"):
+            self.assertEqual(ring.model_ids(), {"3.5 Flash Lite": "gemini-3.5-flash-lite"})
+
+        async def afn(client):
+            calls.append(client)
+            if client == "c0":
+                raise zero
+            return "ok"
+        ring.spent, calls[:] = {}, []
+        self.assertEqual(asyncio.run(ring.acall("text", afn, max_wait_s=0.0)), ("ok", 1))
+        self.assertEqual(asyncio.run(ring.acall("text", afn, max_wait_s=0.0)), ("ok", 1))
+        self.assertEqual((calls, set(ring.spent.get("text", {})), (0, "text") in ring._cool), (["c0", "c1", "c1"], {0}, False))
+
     def test_state_is_remembered_for_the_day(self):
         import argparse
         import tempfile
@@ -5201,7 +5257,7 @@ class VoiceFeaturesTest(unittest.TestCase):
         self.assertAlmostEqual(w, np.log(1.3) / np.log(1.2), delta=0.01)
 
     def test_role_take_keeps_the_whole_pitch_rule(self):
-        # 役職の録音も、録音全体の声の高さが名前の部分の録音と半音3つ（name_clips.MAX_ST）以内のものを選ぶ（名前の部分｜続く言葉と同じ1か所＝
+        # 役職の録音も、録音全体の声の高さが名前の部分の録音と name_clips.MAX_ST（半音 2.4）以内のものを選ぶ（名前の部分｜続く言葉と同じ1か所＝
         # g66_role_seam.pitch_over）。⛔ 2026-10-28 G-69 の4回目：S2 の役職は 3.4半音高い録音を選び「『営業部部長の』と『岡田様』以降の声質が違う」
         import numpy as np
         from g66_role_seam import delta, over_by, pick_role, pitch_over, seam_features
@@ -5215,7 +5271,8 @@ class VoiceFeaturesTest(unittest.TestCase):
         high, near = voice(150.0 * 2 ** (5 / 12)), voice(150.0 * 2 ** (1 / 12))
         st, over = pitch_over(features(y, rate), features(high, rate))
         self.assertAlmostEqual(st, 5.0, delta=0.3)
-        self.assertAlmostEqual(over, over_by(st, 3.0, 1.0))
+        from name_clips import MAX_ST
+        self.assertAlmostEqual(over, over_by(st, MAX_ST, 1.0))
         self.assertGreater(over, 100.0)
         self.assertEqual(pitch_over(features(y, rate), features(near, rate))[1], 0.0)
         self.assertEqual(pitch_over(None, features(y, rate)), (None, 100.0))   # 読めない録音は、ほかに無いときだけ

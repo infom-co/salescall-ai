@@ -25,7 +25,6 @@ from concurrent.futures import ThreadPoolExecutor
 
 from common import HERE, KeyRing, base_parser, describe_error, require_python, save_partial, save_result, say
 from flowctl import ANY, CHOICE_TYPES, HANDOVER, HOLD, SYSTEM_CONDITIONS, Flow, Question
-from g23_names import find_models
 from g48_meanings import QUESTIONS as G48
 from meaning_judge import GROUPS, JUDGE_MODELS, OTHER_JUDGES, UNDECIDED, judge, judge_other
 
@@ -575,7 +574,7 @@ def main() -> None:
     args = p.parse_args()
     args.judge = args.judge or ["3.5 Flash Lite"]
     ring = KeyRing(args)
-    ids, _ = find_models(ring.client())
+    ids = ring.model_ids()
     from g14_listen import business
     qs = g48_questions()
     vqs = value_questions()

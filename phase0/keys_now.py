@@ -1,25 +1,28 @@
 """いま、どのキーがそのモデルで使えるかを、1本ずつ短い問い合わせを1回だけ送って確かめる（キーの値は出さない。名前だけ）。
 ⛔ 2026-10-18：前の日の上限の記録を混ぜて読み、「ほとんどのキーで使い切った」と誤って測定を翌日へ回した（実際は11本中2本だけ）。
    キーの状態は記録から推し量らず、これで確かめる。
+⛔ 2026-10-29：1回の実行の「どのキーでも使えません」を見て「すべてのキーが1日の上限」と伝えた（これで確かめなかった）。実際は17本中、
+   1日の上限0本・使える2本・残る15本は「上限の値が0」（地域ごとの1分の上限。待っても戻らない＝common.is_zero_limit）。
 使い方：python keys_now.py [モデルのID（既定 gemini-3.5-flash-lite）]"""
 from __future__ import annotations
 
 import sys
 
-from common import KeyRing, base_parser, describe_error, is_daily, is_denied, is_quota, make_client, require_python, say
+from common import KeyRing, base_parser, describe_error, is_daily, is_denied, is_quota, is_zero_limit, make_client, require_python, say
 
 
 def check(model: str) -> dict[str, list[str]]:
     ring = KeyRing(base_parser("").parse_args([]), state_path=False)
     ring.state_path = None  # 確かめるだけ（その日の状態の記録は書き換えない）
-    out: dict[str, list[str]] = {"使える": [], "1日の上限": [], "1分の上限": [], "止められている": [], "ほか": []}
+    out: dict[str, list[str]] = {"使える": [], "1日の上限": [], "上限の値が0": [], "1分の上限": [], "止められている": [], "ほか": []}
     for k in ring.keys:
         try:
             client = make_client(k)  # ⚠️ 問い合わせの間は手放さない（手放すと「client has been closed」になる）
             client.models.generate_content(model=model, contents="「はい」とだけ答えてください。")
             out["使える"].append(k.name)
         except Exception as exc:
-            kind = "止められている" if is_denied(exc) else "1日の上限" if is_daily(exc) else "1分の上限" if is_quota(exc) else "ほか"
+            kind = ("止められている" if is_denied(exc) else "1日の上限" if is_daily(exc) else "上限の値が0" if is_zero_limit(exc)
+                    else "1分の上限" if is_quota(exc) else "ほか")
             out[kind].append(k.name if kind != "ほか" else f"{k.name}：{describe_error(exc).get('message', '')[:80]}")
     return out
 

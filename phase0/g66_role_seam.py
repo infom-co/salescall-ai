@@ -96,7 +96,7 @@ def over_by(value: float, limit: float, unit: float) -> float:
 
 
 def pitch_over(a: dict | None, b: dict | None) -> tuple[float | None, float]:
-    """2つの録音全体（voice_features.features）の声の高さの差（半音）と、上限（G-58 の4回目で決めた「半音3つ以内」＝name_clips.MAX_ST）を
+    """2つの録音全体（voice_features.features）の声の高さの差（半音）と、上限（name_clips.MAX_ST＝半音 2.4。G-58 の4回目は半音3つ・G-69 の5回目までのご評価で締めた）を
     超えた分のずれ。どちらかの高さが読めなければ (None, OVER)。役職｜名前の部分と、名前の部分｜続く言葉の両方の唯一の決まり。"""
     from name_clips import MAX_ST
     from voice_features import semitones
