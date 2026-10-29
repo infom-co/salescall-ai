@@ -2626,11 +2626,12 @@ class MeaningJudgeOptionsTest(unittest.TestCase):
         self.assertIsNone(read(v, json.dumps({"choice": "はい"}), "念のため16日でよろしいでしょうか？"))
 
     def test_our_meaning_names_are_shown_as_names(self):
-        # こちらが決めた意味の名前の質問（Question.named＝目的のお客様か・確かめへの返事・尋ねているか・待たせた方が戻ったか）は、名前を
-        # 「答えA」…にし、意味の定義は説明に1回だけ（⛔ 2026-10-29：定義の長い文を名前にしていて、返事の形の指定に長い文が並び、「ご本人」と
-        # 答えるたびに長い文を書き出していた・意味の名前のままでは言葉の頭に引かれた）。お客様の選択肢の言葉の質問は、前のまま（上の試験）
+        # こちらが決めた意味の名前の質問（Question.named＝目的のお客様か・確かめへの返事・尋ねているか・待たせた方が戻ったか）は、意味の名前
+        # （「ご本人」「別の方」「不在」など）を名前にし、意味の定義は説明に1回だけ（⛔ 2026-10-29：定義の長い文を名前にしていて、返事の形の指定に
+        # 長い文が並び、「ご本人」と答えるたびに長い文を書き出していた／名前を「答えA」…にした形は、3.5 Flash Lite が取り次ぎのあとの
+        # 「お電話代わりました。」を3回とも「代わった人が話し始めた」と読み、要らない確かめになった）。お客様の選択肢の言葉の質問は、前のまま（上の試験）
         import json
-        from flowctl import Flow, TARGET_IS_THERE, TARGET_MEANINGS, Question
+        from flowctl import CONFIRM_MEANINGS, Flow, TARGET_IS_AWAY, TARGET_IS_NOT, TARGET_IS_THERE, TARGET_MEANINGS, Question, label
         from meaning_judge import _schema, jev_criteria, options, prompt, prompt_parts, read
         f = Flow([Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"))],
                  target={"target": "営業部部長の「岡田」様はいらっしゃいますでしょうか？", "target_confirm": "「おかだ」様でいらっしゃいますでしょうか？",
@@ -2638,14 +2639,19 @@ class MeaningJudgeOptionsTest(unittest.TestCase):
         for q in (f.calling_question, *f.confirm_questions.values(), *f.asks_questions.values(), f.return_question):
             self.assertTrue(q.named, q.id)
             names = [n for n, _, _ in options(q)][:len(q.conditions)]
-            self.assertEqual(names, [f"答え{chr(ord('A') + i)}" for i in range(len(q.conditions))])
+            self.assertEqual(names, [label(c) for c in q.conditions])
             self.assertLess(len(json.dumps(_schema(q, None), ensure_ascii=False)), 400)   # 名前の決まりに長い定義を並べない
         q = f.calling_question
         said = prompt(q, "はい、岡田です。")
-        self.assertIn(f"- 答えA：「{TARGET_MEANINGS[TARGET_IS_THERE]}」という意味の答え", said)
+        self.assertIn(f"- {label(TARGET_IS_THERE)}：{TARGET_MEANINGS[TARGET_IS_THERE]}", said)
         self.assertEqual(said.count(TARGET_MEANINGS[TARGET_IS_THERE]), 1)
-        self.assertEqual(read(q, json.dumps({"choice": "答えA"})), TARGET_IS_THERE)
-        self.assertIn(TARGET_MEANINGS[TARGET_IS_THERE], jev_criteria(q)["答えA"])
+        self.assertEqual(read(q, json.dumps({"choice": label(TARGET_IS_THERE)})), TARGET_IS_THERE)
+        self.assertIn(TARGET_MEANINGS[TARGET_IS_THERE], jev_criteria(q)[label(TARGET_IS_THERE)])
+        # 違うお名前を名乗り、お呼びした方の不在も伝えた言葉は「不在」（⛔ 2026-10-29：「いいえ、山田と申します。岡田は本日おりません。」を
+        # 2つの判定がそろって「別の方」と読み、お呼びし直す側だった。✅ ユーザー：「『別の方』+『不在』と判断しなければならないんじゃないですか？」）
+        self.assertIn("いらっしゃらない・電話に出られないとも伝えたときは、こちらではない", CONFIRM_MEANINGS[TARGET_IS_NOT])
+        self.assertIn("違うお名前を名乗ったり「いいえ」と答えたりしたうえで、そう伝えたときも", CONFIRM_MEANINGS[TARGET_IS_AWAY])
+        self.assertEqual(CONFIRM_MEANINGS[TARGET_IS_AWAY], TARGET_MEANINGS[TARGET_IS_AWAY])   # 不在の意味は呼ぶ一言と確かめで1つ
         # まとめて送る区切りは、毎回同じ「決まり＋質問」の後ろ（つなげると1文字も違わない）
         head, rest = prompt_parts(q, "はい、岡田です。", None, "少々お待ちください。")
         self.assertEqual(head + rest, prompt(q, "はい、岡田です。", None, "少々お待ちください。"))
@@ -6916,6 +6922,12 @@ class TargetTest(unittest.TestCase):
         self.assertEqual((r["result"], r["ack"], f.phase, f.callback_why), ("call_target", "shitsurei", "calling", None))
         f, r = confirmed(TARGET_IS_NOT, TARGET_IS_AWAY)          # 1つでも「不在」 ⇒ 受け取る（読みを通話の事実に残す）
         self.assertEqual((r["result"], r["question_id"], f.facts["callback"][-1]["read"]), ("next", "C1", ["ai", "judge2"]))
+        # 違うお名前を名乗り、不在も伝えた（「いいえ、山田と申します。岡田は本日おりません。」）を判定が「不在」と読めば、お呼びし直さず・
+        # 確かめ直さずに、電話口の方へ戻りの時刻を伺う（✅ 2026-10-29 ユーザー：「『岡田は本日おりません。』といっているのに、『岡田様で
+        # いらっしゃいますでしょうか？』と1回確かめるのはおかしいし、…お呼びし直すのも明らかにおかしいでしょ」）
+        f, r = confirmed(TARGET_IS_AWAY, TARGET_IS_AWAY)
+        self.assertEqual((r["result"], r["question_id"]), ("next", "C1"))
+        self.assertFalse(any(p.get("part") in ("target", "target_confirm", "target_reconfirm") for p in r.get("play") or []))
         f, r = confirmed()                                       # 判定が1つも届かない ⇒ AIの読みだけで受け取り、通話の事実に残す
         self.assertEqual((r["result"], f.facts["callback"][-1]["read"]), ("next", ["ai"]))
         f, r = confirmed(HOLD, TARGET_IS_NOT)                    # 取り次ぎの読み ⇒ 黙って待つ
