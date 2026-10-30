@@ -229,16 +229,22 @@ def question_of(fl, asked) -> "Question":
     return fl.for_judge(fl.confirm_questions["target_confirm"] if asked else fl.calling_question)
 
 
-def prompts_fingerprint() -> tuple[int, str]:
-    """判定に送る文（71件の、目的のお客様の判定の問い合わせの文の全部）の長さと指紋（0円）。測った文に1文字も違わず戻したか・文を
-    変えていないかを確かめる（⛔ 2026-10-30：文をいくつも直して測りが悪くなり、測った中でいちばん良い形に戻すとき、その形の写しが作業の
-    場所の外にしか無かった）。"""
+def prompts_fingerprint() -> dict[str, tuple[int, str]]:
+    """判定に送る文（71件の、目的のお客様の判定と尋ねているかの問い合わせの文の全部）の長さと指紋を、問い合わせごとに（0円）。測った文に
+    1文字も違わず戻したか・文を変えていないかを確かめる（⛔ 2026-10-30：文をいくつも直して測りが悪くなり、測った中でいちばん良い形に戻すとき、
+    その形の写しが作業の場所の外にしか無かった）。
+    ⛔ 2026-10-31：目的のお客様の判定の文だけを見ていた＝答えの段の説明の文（1か所）を直したとき、同じ文が入る尋ねているかの文が変わったのに
+       「お呼びする段の文は変わらない」と記録した ⇒ 尋ねているかの文も出す"""
     import hashlib
     from meaning_judge import prompt_parts
     b, f, fs = flows()
-    s = "".join("".join(prompt_parts(question_of(fs if succ else f, asked), text, None, before))
-                for text, _, before, asked, succ, _ in cases(b.target.confirm()))
-    return len(s), hashlib.sha256(s.encode()).hexdigest()[:16]
+    target = asks = ""
+    for text, _, before, asked, succ, _ in cases(b.target.confirm()):
+        fl = fs if succ else f
+        q = question_of(fl, asked)
+        target += "".join(prompt_parts(q, text, None, before))
+        asks += "".join(prompt_parts(fl.for_judge(fl.asks_questions[q.id]), text, None, before))
+    return {name: (len(s), hashlib.sha256(s.encode()).hexdigest()[:16]) for name, s in (("目的のお客様の判定", target), ("尋ねているか", asks))}
 
 
 async def run(args) -> dict:
@@ -388,7 +394,7 @@ def main() -> None:
     p.add_argument("--fingerprint", action="store_true", help="測らずに、判定に送る文の長さと指紋だけを出す（測った文と同じかを確かめる）")
     args = p.parse_args()
     if args.fingerprint:
-        say("判定に送る文：%d 字・指紋 %s" % prompts_fingerprint())
+        say("判定に送る文：" + "／".join("%s %d 字・指紋 %s" % (name, n, h) for name, (n, h) in prompts_fingerprint().items()))
         return
     if args.count:
         n = sum(1 for text, *_ in cases("x") if not args.only or text in args.only)

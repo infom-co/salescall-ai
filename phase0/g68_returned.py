@@ -44,10 +44,25 @@ CASES = [
 ]
 
 
-async def run(args) -> dict:
+def question():
+    """測る問い合わせの質問（測る所 run と、送る文の指紋 prompts_fingerprint の1か所）。"""
     from flowctl import Question
     from phrases import target_call
-    q = Question("R1", target_call("法人", "おかだ", "営業部部長"), "yes_no", required=False, conditions=tuple(MEANINGS), meanings=dict(MEANINGS))
+    return Question("R1", target_call("法人", "おかだ", "営業部部長"), "yes_no", required=False, conditions=tuple(MEANINGS), meanings=dict(MEANINGS))
+
+
+def prompts_fingerprint() -> tuple[int, str]:
+    """判定に送る文（CASES の全部）の長さと指紋（0円）。⛔ 2026-10-31：答えの段の説明の文（1か所）を直したとき、この文も変わったのに
+    確かめていなかった（指紋の道具が無かった）＝測った文と同じかを、ここで確かめる"""
+    import hashlib
+    from meaning_judge import prompt_parts
+    q = question()
+    s = "".join("".join(prompt_parts(q, text, None, before)) for before, text, _ in CASES)
+    return len(s), hashlib.sha256(s.encode()).hexdigest()[:16]
+
+
+async def run(args) -> dict:
+    q = question()
     judges = {k: j for k, j in make_judges(args).items() if k != "grounder" and j is not None}
     rows = []
     for before, text, want in CASES:
@@ -87,7 +102,11 @@ def main() -> None:
     add_judge_args(p)
     p.add_argument("--repeat", type=int, default=2)
     p.add_argument("--tag", default="")
+    p.add_argument("--fingerprint", action="store_true", help="測らずに、判定に送る文の長さと指紋だけを出す（測った文と同じかを確かめる）")
     args = p.parse_args()
+    if args.fingerprint:
+        say("判定に送る文：%d 字・指紋 %s" % prompts_fingerprint())
+        return
     save_result(f"G-68{args.tag}", asyncio.run(run(args)))
 
 
