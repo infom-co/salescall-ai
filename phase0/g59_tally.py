@@ -3,7 +3,8 @@
 - plan：判定を場面で選び分ける形を数える（✅ 2026-10-29 ユーザー：「Jevの0.8以上と『難しくない場合』Haiku（考える）で、『難しい場合』のみ
   Sonnetを使う形がいいんじゃないですか？」）＝Jev の確からしさが線から上なら Jev、そうでなければ難しくない場面（呼ぶ一言への返事・確かめへの
   返事）は安い判定、難しい場面（取り次ぎのあと・後任の方）は今の組。場面は流れの制御の状態だけで分ける（言葉の中身で分けない）
-- agree：会社の違う安い判定2つの読みが、流れの制御の動きでそろえば決め、そろわなければ今の組を出す形を数える（2秒超も、ご本人の回とほかの回に分ける）"""
+- agree：会社の違う安い判定2つの読みが、流れの制御の動きでそろえば決め、そろわなければ今の組を出す形を数える（2秒超も、ご本人の回とほかの回に分ける）
+- cascade：判断のモデル（Jev・d1 など）を線つきで並べ、どれかが線から上なら決め、どれも違えば今の組を出す形を数える"""
 from __future__ import annotations
 
 import argparse
@@ -204,6 +205,57 @@ def agree(a_specs: list[str], b_specs: list[str], jev: list[str], group: str, li
         print("  ", x)
 
 
+def cascade(stages: list[str], group: str) -> None:
+    """判断のモデルを線つきで並べる形（2026-10-30 ユーザー：「他に、無料や格安で使える優秀なAPIはありますか？」）：どれも同時に出し、確からしさが
+    その判定の線から上の読みが届けば、並べた順の先のもので決める。どれも線より下なら今の組（0.3秒で出す＝meaning_judge の組と同じ）。
+    stages は「ファイル名:列@線」（列の既定は judge2）。外れは流れの制御の動きで数え、2秒超は plan と同じに数える。"""
+    table = current()
+    loaded = []
+    for spec in stages:
+        src, _, line = spec.rpartition("@")
+        name, c = source(src, "judge2")
+        rows = collections.defaultdict(list)
+        for r in rows_of(name):
+            rows[key(r)].append((r, c))
+        loaded.append((name, float(line), rows))
+    gr = collections.defaultdict(list)
+    gname, gc = source(group, "judge2")
+    for r in rows_of(gname):
+        gr[key(r)].append((r, gc))
+    by, moved, only, late = (collections.Counter() for _ in range(4))
+    out = []
+    keys = set(gr).intersection(*(set(rows) for _, _, rows in loaded))
+    for k in sorted(keys, key=str):
+        acc, facts = table[k]
+        for i in range(max(len(rows[k]) for _, _, rows in loaded)):
+            who = got = None
+            for name, line, rows in loaded:
+                r, c = rows[k][i % len(rows[k])]
+                g_, sure, s = answer(r, c)
+                if g_ and sure >= line:
+                    who, got, sc_row = name, g_, r
+                    break
+            if who is None:
+                r, c = gr[k][i % len(gr[k])]
+                got, _, s = answer(r, c)
+                who, sc_row, s = "今の組", r, 0.3 + s
+            by[who] += 1
+            if s > 2.0:
+                late["ご本人の回" if TARGET_IS_THERE in acc else "ほかの回"] += 1
+            sc = scene(sc_row)
+            if not got or len(got) != len(facts) or not flow_ok(got, facts, acc, sc_row):
+                moved[f"{who}・{sc}"] += 1
+                out.append((sc, who, sc_row["text"], sc_row["before"] or ""))
+            elif not g.facts_ok(got, facts):
+                only[f"{who}・{sc}"] += 1
+    n = sum(by.values())
+    print("決めた判定：", dict(by), f"｜今の組を出した回 {by['今の組']}/{n}（{by['今の組'] / n:.0%}）")
+    print("流れの制御の動きが変わる外れ：", dict(moved) or 0, "｜項目だけの外れ：", dict(only) or 0)
+    print("2秒超：", dict(late) or 0)
+    for x in out:
+        print("  ", x)
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__)
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -221,11 +273,16 @@ def main() -> None:
     w.add_argument("--group", required=True, help="今の組の答え（plan と同じ）")
     w.add_argument("--line", type=float, default=0.8)
     w.add_argument("--sonnet-scenes", default=",".join(sorted(HARD)), help="そろいを使わず今の組で決める場面（,で区切る。空なら全部の場面でそろいを使う）")
+    c = sub.add_parser("cascade")
+    c.add_argument("--stage", action="append", required=True, help="判断のモデルの答えと線（「ファイル名:列@線」。並べた順に先のもので決める。いくつでも）")
+    c.add_argument("--group", required=True, help="今の組の答え（plan と同じ）")
     a = p.parse_args()
     if a.cmd == "misses":
         misses(a.names)
     elif a.cmd == "plan":
         plan(a.cheap.split(","), a.jev.split(","), a.group, a.line)
+    elif a.cmd == "cascade":
+        cascade(a.stage, a.group)
     else:
         agree(a.a.split(","), a.b.split(","), a.jev.split(","), a.group, a.line, set(filter(None, a.sonnet_scenes.split(","))))
 
