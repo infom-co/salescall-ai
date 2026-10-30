@@ -4413,7 +4413,8 @@ class JudgeSetupTest(unittest.TestCase):
         from meaning_judge import OTHER_JUDGES, RULES, cached_content, decision_model, options, other_path, other_request, prompt, prompt_parts, scene
         q, asked, text = self.q(), "念のためご連絡はメールでよろしいでしょうか？", "メールのほうが助かりますが…"
         names = [n for n, _, _ in options(q, asked)]
-        self.assertEqual({n for n in OTHER_JUDGES if decision_model(n)}, {"Jev 1.14", "d1 Ultra（Liquid）", "d1.1（Liquid）"})
+        self.assertEqual({n for n in OTHER_JUDGES if decision_model(n)}, {"Jev 1.14", "d1 Ultra（Liquid）", "d1.1（Liquid）", "GPT-6 Luna Decisions",
+                                                                         "Mercury Decide（Inception）", "Solar Decide（Upstage）"})
         for name in OTHER_JUDGES:
             body = other_request(name, q, text, asked)
             sent = json.dumps(body, ensure_ascii=False)

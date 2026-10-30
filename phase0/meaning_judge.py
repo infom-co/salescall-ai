@@ -371,6 +371,15 @@ OTHER_JUDGES = {
                           "host": "openrouter.ai", "firm_min": 0.2},
     "d1.1（Liquid）": {"maker": "liquid", "api": "decision", "model": "liquid/d1.1-20261027", "key": "OPENROUTER_JUDGE_KEY",
                       "host": "openrouter.ai", "firm_min": 0.2},
+    # 同じ窓口のほかの判断のモデル（2026-10-30 に1回ずつ確かめた。線は測ってから決める・送り先はどれも Intent.md 13章にまだ無い）：
+    # GPT-6 Luna Decisions（OpenAI・10-06 版・約0.8秒）・Mercury Decide（Inception・09-30 版・約0.6秒）・Solar Decide（Upstage・09-28 版・
+    # 1回目 11秒・2回目 1.05秒＝遅く揺れる。同じ問いの言い切っているかが 0.003 と 0.89 に割れた）
+    "GPT-6 Luna Decisions": {"maker": "openai", "api": "decision", "model": "openai/gpt-6-luna-decisions-20261006", "key": "OPENROUTER_JUDGE_KEY",
+                             "host": "openrouter.ai", "firm_min": 0.2},
+    "Mercury Decide（Inception）": {"maker": "inception", "api": "decision", "model": "inception/mercury-decide-20260930",
+                                  "key": "OPENROUTER_JUDGE_KEY", "host": "openrouter.ai", "firm_min": 0.2},
+    "Solar Decide（Upstage）": {"maker": "upstage", "api": "decision", "model": "upstage/solar-decide-20260928", "key": "OPENROUTER_JUDGE_KEY",
+                              "host": "openrouter.ai", "firm_min": 0.2},
 }
 
 
