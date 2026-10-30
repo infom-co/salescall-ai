@@ -547,8 +547,10 @@ class Rounds(SupervisorBase):
                 return end_for_trouble(*args, **kw)
             with mock.patch.object(line, "report"), mock.patch.object(line.attempts, "end_for_trouble", slow_record):
                 got = line.one_round(self.w.a, SYSTEM, u["tenant"], u["line"], HOLDER, d, runner)
-                for _ in range(60):                                            # おわびのあとの記録（遅い）を待つ
-                    if row(got, u)["st"] != "in_conversation":
+                for _ in range(100):   # おわびのあとの記録（遅い）を待つ：試行の終わりと、そのあと別の取引で書く、こちらの不具合の記録の
+                    #                   両方（⛔ 前は試行の終わりだけを待ち、重いときに、不具合の記録を書く前に読んで落ちた）
+                    if row(got, u)["st"] != "in_conversation" and self.tx(u, lambda tx: tx.one(
+                            "SELECT count(*) AS n FROM salescall.error_events WHERE attempt_id = %s", (got.called,)))["n"]:
                         break
                     time.sleep(0.1)
             timer.cancel()

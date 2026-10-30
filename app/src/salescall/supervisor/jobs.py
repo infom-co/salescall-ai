@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 from uuid import UUID
 
-from salescall.core import agents, answer_rate, attempts, backup, calendar, health, leases, measure, settle, usage, watch
+from salescall.core import agents, answer_rate, attempts, backup, calendar, health, leases, measure, next_action, settle, usage, watch
 from salescall.core.access import Access
 from salescall.supervisor import ACTOR, config, plugins, report
 from salescall.supervisor.links import Links
@@ -101,6 +101,14 @@ def rejudge_held(ctx: Context) -> None:
     """判定できずに待っている行を、原因が直っていれば判定し直す（DESIGN.md 7-2-2）。"""
     _each(ctx, "判定し直し", _clients(ctx),
           lambda c: ctx.access.in_client(ACTOR, ctx.tenant_id, c, settle.rejudge_held))
+
+
+def reopen_revoked(ctx: Context) -> None:
+    """発信禁止で門が終えた行のうち、そのあと登録が取り消されたものを、終える前の予定に戻す（依頼者ごと。契約者の共通の台帳の取り消しは、
+    すべての依頼者の行に効くので、ここで戻す。どの行を戻すかは core/next_action.reopen_revoked の1か所。2026-10-30 管理者のご決定 (7)）。"""
+    _each(ctx, "発信禁止の取り消しで行を戻す", _clients(ctx),
+          lambda c: ctx.access.in_client(ACTOR, ctx.tenant_id, c, lambda tx: next_action.reopen_revoked(
+              tx, cause="発信禁止の取り消し：終える前の予定に戻す")))
 
 
 def draw_samples(ctx: Context) -> None:
@@ -215,6 +223,7 @@ def pc_watch(ctx: Context) -> None:
 # - verify：通話後の検証は締めの前に要る（同じお客様への次の電話を待たせる）
 # - stop_checks：確かめてよい時刻は停止の記録が決める（ここは、その時刻を見に行く間隔）
 # - rejudge：判定できない原因が直るのは、修正が入ったとき（数分の遅れは問題にならない）
+# - reopen_revoked：契約者の共通の発信禁止を取り消したあと、その登録で終えた行を予定に戻すまでの遅れ（5分。依頼者の台帳の取り消しは、その場で戻す）
 # - budget：赤字の警告の期限（1時間）を見る。数分の遅れは問題にならない
 # - holidays：取りに行くかは calendar が決める（1日1回で足りる）
 # - samples：週に1回でよい（週の終わりから1日あけて選ぶ。するかは measure が決める）
@@ -233,6 +242,7 @@ JOBS: tuple[Job, ...] = (
     Job("verify", 15, "tenant", 600, verify_pending, wanted=lambda cfg: cfg.verifier is not None),
     Job("stop_checks", 30, "tenant", 600, stop_checks, wanted=lambda cfg: cfg.prober is not None),
     Job("rejudge", 600, "tenant", 1800, rejudge_held),
+    Job("reopen_revoked", 300, "tenant", 600, reopen_revoked),
     Job("samples", 3600, "tenant", 1800, draw_samples),
     Job("answer_rates", 1800, "tenant", 600, answer_rates),
     Job("budget", 60, "tenant", 600, budget),

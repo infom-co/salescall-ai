@@ -19,18 +19,22 @@
   - **承認・直したことは、誤判定率の正解になる**（Intent.md 16-3「検証モードで契約者が直した結果も、正解として使う」）：システムが
     判定した版を承認したら「判定どおりが正解」、直したら「直した中身が正解」として `measure.record_check` に入れる（入れる所は
     measure の1か所。その通話の「測り終わるまで消さない」印も、そこで外れる）。
-- **取り消せない決定の保留と答え**（2026-10-30 管理者のご決定 (6)(7)。表の作り 0152。書くのは、ここの1か所）：お客様の断り・番号違い・
+- **取り消せない決定の保留と答え**（2026-10-30 管理者のご決定 (6)(7)。表の作り 0152〜0154。書くのは、ここの1か所）：お客様の断り・番号違い・
   怒っていた（会話の報告で発信禁止や行の終わりになるもの。どれが取り消せない決定で、2つ目の判定とそろったかは core/judge.irreversible）
-  を、その場で決めるか・保留にするかは `decision_wait` の1か所：
-  - 検証モードの業務：そろっていても保留（approval）。契約者が録音とその場のやり取りを確かめて承認（`confirm_decision`）を押したときだけ
-    確定し、差し戻し（`send_back_decision`＝断りではない）を押したら、その決定をその通話の報告から外して、ふつうに締める。
-  - そのほか：会話AIの報告と2つ目の判定がそろったときだけ、その場で決める。そろわなければ保留（recording）。通話後の録音の確かめ
-    （録音から作り直した報告）で決まったら、締めの処理が `answer_from_recording` を呼ぶ。
-  - 誤って入れた発信禁止を取り消した（core/dnc.revoke・revoke_source＝依頼者からの正式な求めのときだけ）：その通話の決定を外して
-    締め直す（`withdraw_revoked`）。
-  保留のあいだは、発信禁止を登録しない・行を終えない（締めの処理と次の動き）・結果を確定しない（`after_judged`）・同じお客様のほかの
-  行も待たせる（データベースの salescall.decision_pending＝「まだ決まっていない」の1か所。切れ方が分からない通話の確かめのかけ直しも
-  同じ1か所）。答えはどれも `_answer` の1か所を通り、締め直しは締めの処理の1か所（core/settle.resettle）。
+  のどの中身を待つかは `decision_wait` の1か所、保留を書くのは `record_wait` の1か所（締めの処理が判定するたびに呼ぶ。いまの報告と答えから
+  待つ中身を決め、前の版と違えば版を足す＝報告が変わったら保留も決め直す。待たなくなったら中身が空の版）：
+  - 検証モードの業務：そろっていても保留（approval）。契約者か管理者が録音とその場のやり取りを確かめて承認（`approve_decision`）を押した
+    ときだけ確定し、差し戻し（`send_back_decision`＝断りではない）を押したら、その中身をその通話の報告から外して、ふつうに締める。
+  - そのほか：会話AIの報告と2つ目の判定がそろったときだけ、その場で決める。そろわなければ保留（recording）。録音から作り直した報告が
+    届いたら、締めの処理が締め直して保留を決め直す。締めは通話後の検証のあとなので、保留にした時点で録音の確かめでは決められなかった：
+    契約者に録音とやり取りを確かめてもらう（`chase_recording`。録音が届かなかった・作り直してもそろわない・検証が作り直さなかった＝
+    会話の担当へ修正依頼も）。⏳ フルオートの業務で契約者に求めることは、管理者に伺っている。
+  - 誤って入れた発信禁止を取り消した（core/dnc.revoke・revoke_source＝依頼者からの正式な求めのときだけ）：その発信禁止の中身だけを
+    外して締め直す（`withdraw_revoked`。ほかの中身の保留はそのまま）。
+  答えは中身ごとに効き（承認した中身はもう待たない・外した中身は報告から外す）、答えたら締め直しが保留の版を決め直す。いまの保留の中身は
+  データベースの salescall.decision_open の1か所（いちばん新しい版の中身）。保留のあいだは、発信禁止を登録しない・行を終えない（締めの処理と次の動き）・結果を確定しない（`after_judged`・確定の印の守り）・
+  同じお客様の行（この行も、ほかの行も）を門で待たせる（データベースの salescall.decision_pending＝「まだ決まっていない」の1か所。切れ方が
+  分からない通話の確かめのかけ直しも同じ1か所）。答えはどれも `_answer` の1か所を通り、締め直しは締めの処理の1か所（core/settle.resettle）。
 - **行が終わったとき**（`after_ended`。次の動きが行を終えるたびに呼ぶ）：まだ確定の印の無い、いちばん新しい判定の版を、`after_judged`
   の同じ決まりで確かめ直す（切れ方が分からず、確かめのかけ直しが一度もかからないまま行が終わった通話の版は、もう決まっていない
   ものを待たない＝営業拒否の証拠が無いので、その通話の結果どおりで確定する。前の作業担当の残した問い (8)）。
@@ -38,6 +42,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
@@ -90,18 +95,24 @@ def after_judged(tx: Tx, task_id: UUID, version_no: int, version_id: UUID) -> li
     if tx.one("SELECT business_state::text AS s FROM salescall.task_results WHERE task_id = %s AND version_no = %s",
               (task_id, version_no))["s"] == "unknown":
         return []                                  # 判定できなかった結果は確定しない（判定し直した版が確定する）
-    if tx.one("SELECT salescall.decision_pending(r.attempt_id) AS p FROM salescall.task_results r"
-              " WHERE r.task_id = %s AND r.version_no = %s", (task_id, version_no))["p"]:
-        # 取り消せない決定がまだ決まっていない通話の結果は確定しない（切れ方が分からず確かめのかけ直しを待っている・2つ目の判定と
-        # そろわず録音の確かめを待っている。2026-10-30 管理者の決定。決まったときの締めの版が確定する。決まりはデータベースの
-        # salescall.decision_pending の1か所）
+    if _blocked(tx, task_id, version_no):
         return []
     _release(tx, task_id, version_no)
     return [(task_id, version_no)]
 
 
+def _blocked(tx: Tx, task_id: UUID, version_no: int) -> bool:
+    """その版に確定の印を付けられないか（データベースの salescall.release_blocked の1か所。印の表の守りも同じものを読む）：その版の通話の
+    取り消せない決定がまだ決まっていない（切れ方の確かめのかけ直し・保留。決まったときの締めの版が確定する）・あとの通話の結果がある前の
+    通話の版（行の結果は、あとの通話の結果。断り・怒っていたで終えた版は除く。2026-10-30 の見直し24）。"""
+    return tx.one("SELECT salescall.release_blocked(%s, %s) AS b", (task_id, version_no))["b"]
+
+
 def approve_result(tx: Tx, task_id: UUID, version_no: int) -> None:
-    """契約者の承認：契約者が、その結果の版を確かめて「送ってよい」にする。システムが判定した版なら、判定どおりが正解。"""
+    """契約者の承認：契約者が、その結果の版を確かめて「送ってよい」にする。システムが判定した版なら、判定どおりが正解。確定の印を付け
+    られない版（`_blocked`）は断る（ValueError）。"""
+    if _blocked(tx, task_id, version_no):
+        raise ValueError(f"その版には確定の印を付けられません（取り消せない決定がまだ決まっていない・あとの通話の結果がある）：{task_id} の版 {version_no}")
     _release(tx, task_id, version_no)
     v = tx.one("SELECT business_state::text AS state FROM salescall.task_results WHERE task_id = %s AND version_no = %s",
                (task_id, version_no))
@@ -117,6 +128,10 @@ def correct_result(tx: Tx, task_id: UUID, *, checked_version: int, business_stat
                (task_id, checked_version))
     if v is None or v["kind"] not in measure.SYSTEM_KINDS:   # システムが判定した版（決まりは measure の1か所）
         raise LookupError(f"直すのは、システムが判定した結果の版です：{task_id} の版 {checked_version}")
+    if tx.one("SELECT salescall.decision_pending(attempt_id) AS p FROM salescall.task_results WHERE task_id = %s AND version_no = %s",
+              (task_id, checked_version))["p"]:
+        # 取り消せない決定がまだ決まっていない通話の版は、直して確定しない（保留を、結果を直す道で越えない。承認・差し戻しで答える）
+        raise ValueError(f"その版の通話の取り消せない決定が、まだ決まっていません（承認か差し戻しで答えてください）：{task_id} の版 {checked_version}")
     version_no = results.append(tx, task_id, kind="human", business_state=business_state, attempt_id=None,
                                 judge_version=None, complaint=complaint, snapshot=snapshot, decided_by="契約者",
                                 detail=detail)
@@ -139,8 +154,19 @@ def after_ended(tx: Tx, task_id: UUID) -> list[tuple[UUID, int]]:
     return after_judged(tx, task_id, r["version_no"], None)
 
 
-# ── 取り消せない決定の保留と答え（2026-10-30 管理者のご決定 (6)(7)。表の作り 0152）
-WAIT_KINDS = ("recording", "approval")   # 録音の確かめ待ち／契約者の承認待ち
+# ── 取り消せない決定の保留と答え（2026-10-30 管理者のご決定 (6)(7)。表の作り 0152〜0154）
+WAIT_KINDS = ("recording", "approval")   # 録音の確かめ待ち（録音で決められなければ契約者に求める）／契約者の承認待ち（検証モード）
+ASK_WHY = {"recording_missing": "録音が届かず、録音で確かめられなかった",
+           "recording_undecided": "録音から確かめ直しても、2つの判定がそろわなかった",
+           "recording_unchecked": "通話後の検証が録音で確かめないまま済み、会話の担当へ直しを頼んだ"}
+
+
+@dataclass(frozen=True)
+class Wait:
+    """その通話で待つ取り消せない決定（`decision_wait` の1か所が決める）。parts＝待つ中身（空なら待たない）。"""
+    kind: str                    # WAIT_KINDS
+    parts: frozenset[str]
+    check: str                   # 会話の報告の、2つ目の判定がそろったか（judge.Irreversible.check）
 
 
 def decides_on_spot(tx: Tx, task_id: UUID) -> bool:
@@ -149,100 +175,168 @@ def decides_on_spot(tx: Tx, task_id: UUID) -> bool:
     return not _human(tx, task_id)
 
 
-def decision_wait(tx: Tx, task_id: UUID, attempt_id: UUID, irr: Irreversible | None) -> str | None:
-    """その通話の取り消せない決定を、保留にするか（1か所。締めの処理が判定のあとに呼ぶ）。保留の種類（WAIT_KINDS）か、その場で決める
-    なら None。もう答えのある通話（承認・差し戻し・録音の確かめ・取り消しのあと）は保留にしない（答えの中身は締めの処理が読む）。
-    - 検証モードの業務：取り消せない決定があれば、そろっていても approval（契約者の承認待ち）
-    - そのほか：会話AIの報告と2つ目の判定がそろわなかった（食い違った・判定が無い）中身があれば recording（録音の確かめ待ち）"""
-    if irr is None or answered(tx, attempt_id):
-        return None
-    if _human(tx, task_id):
-        return "approval"
-    return None if irr.check == "agreed" else "recording"
-
-
-def answered(tx: Tx, attempt_id: UUID) -> bool:
-    """その通話の取り消せない決定に、もう答えがあるか。"""
-    return tx.one("SELECT 1 FROM salescall.decision_answers WHERE attempt_id = %s LIMIT 1", (attempt_id,)) is not None
+def _answered(tx: Tx, attempt_id: UUID, outcome: str) -> frozenset[str]:
+    return frozenset(p for r in tx.all("SELECT parts FROM salescall.decision_answers WHERE attempt_id = %s AND outcome = %s",
+                                       (attempt_id, outcome)) for p in r["parts"])
 
 
 def withdrawn(tx: Tx, attempt_id: UUID) -> frozenset[str]:
-    """その通話の報告から外す、取り消せない決定の中身（差し戻し・録音の確かめで決まらなかった・取り消した。締めの処理が読む1か所）。"""
-    return frozenset(p for r in tx.all("SELECT parts FROM salescall.decision_answers WHERE attempt_id = %s AND outcome = 'withdrawn'",
-                                       (attempt_id,)) for p in r["parts"])
+    """その通話の報告から外す、取り消せない決定の中身（差し戻し・取り消した。締めの処理が読む1か所）。"""
+    return _answered(tx, attempt_id, "withdrawn")
 
 
-def hold_decision(tx: Tx, a: dict[str, Any], kind: str, irr: Irreversible, version_no: int | None) -> None:
-    """保留を始める（締めの処理が呼ぶ1か所。同じ通話に保留は1つ）。契約者の承認待ちは、契約者へ知らせる（承認するまで、そのお客様に
-    かけない）。録音の確かめ待ちで、通話後の検証がもう済んでいる（検証が録音で確かめずに済ませた）なら、止めずに会話の担当へ修正依頼
-    （録音から作り直した報告で返してもらう。CL-2 の連絡帳 4-167 の頼み3・5。同じ不具合は、直したと報告するまで1つ）。"""
-    if kind not in WAIT_KINDS:
-        raise ValueError(f"保留の種類は {WAIT_KINDS} のどれかです：{kind!r}")
-    parts = irr.parts if kind == "approval" else irr.unsure
-    tx.execute("INSERT INTO salescall.decision_waits (tenant_id, client_id, attempt_id, task_id, kind, parts, checked, version_no)"
-               " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s, %s, %s) ON CONFLICT (attempt_id) DO NOTHING",
-               (a["attempt_id"], a["task_id"], kind, sorted(parts), irr.check, version_no))
-    refs = {"attempt_id": a["attempt_id"], "task_id": a["task_id"], "parts": sorted(parts)}
-    if kind == "approval":
-        notify.emit(tx, "decision_approval", key=f"decision_approval:{a['attempt_id']}", refs=refs,
-                    summary="検証モードの業務で、お客様の断り・番号違い・怒っていたを確かめる通話があります（録音とやり取りを確かめて、"
-                            "承認か差し戻しを押してください。押すまで、このお客様にはかけません）。")
-    elif tx.one("SELECT verification::text AS v FROM salescall.attempts WHERE attempt_id = %s", (a["attempt_id"],))["v"] == "done":
-        fix_requests.request(tx, "CL-1", "irreversible_unchecked", key="irreversible_unchecked", refs=refs,
+def decision_wait(tx: Tx, task_id: UUID, attempt_id: UUID, irr: Irreversible | None) -> Wait | None:
+    """その通話で、取り消せない決定のどの中身を待つか（1か所。締めの処理が判定するたびに呼ぶ。irr は、外すと答えた中身を報告から外した
+    判定のもの）。契約者が承認した中身は、もう待たない（そろった扱い）。待たなければ None。
+    - 検証モードの業務：取り消せない決定の中身すべて（そろっていても approval＝契約者の承認待ち）
+    - そのほか：会話AIの報告と2つ目の判定がそろわなかった（食い違った・判定が無い）中身（recording＝録音の確かめ待ち）。そろわない中身が
+      1つでもあれば、その通話の決定は全部、決まるまで行わない（発信禁止・行の終わり。締めの処理）"""
+    if irr is None:
+        return None
+    confirmed = _answered(tx, attempt_id, "confirmed")
+    if _human(tx, task_id):
+        need, kind = irr.parts - confirmed, "approval"
+    else:
+        need, kind = (frozenset() if irr.check == "agreed" else irr.unsure - confirmed), "recording"
+    return Wait(kind, frozenset(need), irr.check) if need else None
+
+
+def record_wait(tx: Tx, a: dict[str, Any], wait: Wait | None, version_no: int | None, report_source: str | None) -> None:
+    """保留を書く1か所（締めの処理が、判定するたびに呼ぶ）。いまの保留（いちばん新しい版）と、待つ中身・種類・判定に使った報告が違えば、
+    新しい版を足す（待たなくなったら、中身が空の版＝もう待たない）。新しい承認待ちは契約者へ知らせ、新しい録音の確かめ待ちは、録音の
+    確かめで決められるかを、すぐ確かめる（`chase_recording`）。"""
+    cur = tx.one("SELECT seq, kind, parts, report_source FROM salescall.decision_waits WHERE attempt_id = %s"
+                 " ORDER BY seq DESC LIMIT 1", (a["attempt_id"],))
+    parts = sorted(wait.parts) if wait is not None else []
+    if cur is None and wait is None:
+        return
+    if cur is not None and sorted(cur["parts"]) == parts and cur["report_source"] == report_source \
+            and (wait is None or cur["kind"] == wait.kind):
+        return
+    if wait is None and cur is not None and not cur["parts"]:
+        return
+    seq = 1 if cur is None else cur["seq"] + 1
+    tx.execute("INSERT INTO salescall.decision_waits (tenant_id, client_id, attempt_id, seq, task_id, kind, parts, checked, version_no,"
+               " report_source) VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s, %s, %s, %s, %s)",
+               (a["attempt_id"], seq, a["task_id"], cur["kind"] if wait is None else wait.kind, parts,
+                "agreed" if wait is None else wait.check, version_no, report_source))
+    if wait is None:
+        return
+    if wait.kind == "approval":
+        _tell_contractor(tx, a["attempt_id"], seq, "検証モードの業務で、お客様の断り・番号違い・怒っていたを確かめる通話があります")
+    else:
+        chase_recording(tx, a["attempt_id"])
+
+
+def chase_recording(tx: Tx, attempt_id: UUID) -> None:
+    """録音の確かめ待ちの保留を、録音の確かめで決められないまま待たせない（1か所。保留の版を足したとき・決まった間隔の仕事が呼ぶ）。
+    締めの処理は通話後の検証が済んでから締めるので、保留にした報告は、検証が録音で確かめたあとのもの。録音で決められない理由を見て、
+    契約者に録音（あれば）とその場のやり取りの文字を確かめてもらう（`_ask_contractor`）：
+    - 録音が届かなかった（通話後の検証が録音なしで済んだ）＝recording_missing
+    - 録音から作り直した報告がある（作り直してもそろわない）＝recording_undecided
+    - 録音はあるのに、通話後の検証が作り直した報告を返さないまま済んだ＝recording_unchecked（あわせて会話の担当へ修正依頼。直して作り直した
+      報告が届けば、締め直しで決まる。CL-2 の連絡帳 4-167 の頼み3・5。同じ不具合は、直したと報告するまで1つ）"""
+    v = tx.one("SELECT a.task_id, coalesce(s.recording_missing, false) AS missing,"
+               "       EXISTS (SELECT 1 FROM salescall.call_report_rebuilds b WHERE b.attempt_id = a.attempt_id) AS rebuilt"
+               " FROM salescall.attempts a LEFT JOIN salescall.verification_summaries s ON s.attempt_id = a.attempt_id"
+               " WHERE a.attempt_id = %s", (attempt_id,))
+    if v["missing"]:
+        why = "recording_missing"
+    elif v["rebuilt"]:
+        why = "recording_undecided"
+    else:
+        why = "recording_unchecked"
+        fix_requests.request(tx, "CL-1", "irreversible_unchecked", key="irreversible_unchecked",
+                             refs={"attempt_id": attempt_id, "task_id": v["task_id"]},
                              summary="会話AIの報告と2つ目の判定がそろわなかった（食い違った・判定が無い）お客様の断り・番号違い・怒っていたを、"
                                      "通話後の検証が録音で確かめないまま済ませました（録音から作り直した報告で返してください。それまで、"
-                                     "そのお客様にはかけません）")
+                                     "契約者の確かめを待ち、そのお客様にはかけません）")
+    _ask_contractor(tx, attempt_id, why)
+
+
+def _ask_contractor(tx: Tx, attempt_id: UUID, why: str) -> None:
+    """いまの録音の確かめ待ちの保留を、契約者に確かめてもらう印（1か所。0153・0154）。印のある保留は、検証モードの承認待ちと同じく、
+    契約者が録音（あれば）とその場のやり取りの文字を確かめて、承認か差し戻しを押すまで保留のまま（2026-10-30 管理者のご決定 (6)「人が
+    録音やその場のやり取りを確認できる状態にする」）。同じ版に印は1つ。"""
+    if why not in ASK_WHY:
+        raise ValueError(f"確かめてもらう理由は {tuple(ASK_WHY)} のどれかです：{why!r}")
+    seq = tx.one("SELECT salescall.decision_wait_seq(%s) AS s", (attempt_id,))["s"]
+    if tx.one("INSERT INTO salescall.decision_asks (tenant_id, client_id, attempt_id, seq, why)"
+              " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s) ON CONFLICT (attempt_id, seq) DO NOTHING"
+              " RETURNING attempt_id", (attempt_id, seq, why)) is not None:
+        _tell_contractor(tx, attempt_id, seq, f"お客様の断り・番号違い・怒っていたを、{ASK_WHY[why]}通話があります")
+
+
+def _tell_contractor(tx: Tx, attempt_id: UUID, seq: int, what: str) -> None:
+    """契約者に、承認か差し戻しを押してもらう知らせ（1か所。保留の版1つに1つ。プログラムの誤りで作り直されないときも含むので、管理者へも）。"""
+    w = tx.one("SELECT task_id, parts FROM salescall.decision_waits WHERE attempt_id = %s AND seq = %s", (attempt_id, seq))
+    notify.emit(tx, "decision_approval", key=f"decision_approval:{attempt_id}:{seq}", admin=True,
+                refs={"attempt_id": attempt_id, "seq": seq, "task_id": w["task_id"], "parts": sorted(w["parts"])},
+                summary=f"{what}（録音とやり取りを確かめて、承認か差し戻しを押してください。押すまで、このお客様にはかけません）。")
 
 
 def pending_decisions(tx: Tx) -> list[dict[str, Any]]:
-    """答えを待っている保留の一覧（取引の依頼者の分。画面＝CL-3 が、承認の一覧に出す）。種類・中身・2つ目の判定・保留にした結果の版。"""
-    return tx.all("SELECT w.attempt_id, w.task_id, w.kind, w.parts, w.checked, w.version_no, w.waited_at FROM salescall.decision_waits w"
-                  " WHERE NOT EXISTS (SELECT 1 FROM salescall.decision_answers x WHERE x.attempt_id = w.attempt_id)"
+    """答えを待っている保留の一覧（取引の依頼者の分。画面＝CL-3 が、承認の一覧に出す）。いまの保留の版ごとに：通話・行・版（seq。承認と
+    差し戻しに渡す）・種類・待っている中身（parts）・2つ目の判定・保留にした結果の版・時刻・契約者に答えを求めているか（ask＝承認か
+    差し戻しのボタンを出す）・録音で確かめられなかった理由（ask_why＝ASK_WHY）。決まりはデータベースの salescall.decision_open・
+    decision_asks_contractor の1か所。"""
+    return tx.all("SELECT w.attempt_id, w.task_id, w.seq, w.kind, salescall.decision_open(w.attempt_id) AS parts, w.checked,"
+                  "       w.version_no, w.waited_at, salescall.decision_asks_contractor(w.attempt_id) AS ask, k.why AS ask_why"
+                  " FROM salescall.decision_waits w"
+                  " LEFT JOIN salescall.decision_asks k ON k.attempt_id = w.attempt_id AND k.seq = w.seq"
+                  " WHERE w.seq = salescall.decision_wait_seq(w.attempt_id) AND cardinality(salescall.decision_open(w.attempt_id)) > 0"
                   " ORDER BY w.waited_at, w.attempt_id")
 
 
-def _wait(tx: Tx, attempt_id: UUID, kind: str) -> dict[str, Any]:
-    w = tx.one("SELECT attempt_id, task_id, kind, parts FROM salescall.decision_waits w WHERE attempt_id = %s AND kind = %s"
-               " AND NOT EXISTS (SELECT 1 FROM salescall.decision_answers x WHERE x.attempt_id = w.attempt_id)", (attempt_id, kind))
+def _open_for_contractor(tx: Tx, attempt_id: UUID, seq: int) -> dict[str, Any]:
+    """契約者に答えを求めている、いまの保留の版（画面が見た版＝seq でなければ断る：報告が変わって版が替わった）。"""
+    w = tx.one("SELECT w.task_id, salescall.decision_open(w.attempt_id) AS parts FROM salescall.decision_waits w"
+               " WHERE w.attempt_id = %s AND w.seq = %s AND w.seq = salescall.decision_wait_seq(w.attempt_id)"
+               "   AND salescall.decision_asks_contractor(w.attempt_id)", (attempt_id, seq))
     if w is None:
-        raise LookupError(f"その通話に、答えを待っている保留（{kind}）はありません：{attempt_id}")
+        raise LookupError(f"その通話に、承認か差し戻しを求めている、いまの保留（版 {seq}）はありません：{attempt_id}")
     return w
 
 
-def _answer(tx: Tx, attempt_id: UUID, *, outcome: str, parts: list[str], by: str, why: str | None = None) -> dict[str, Any]:
+def _answer(tx: Tx, attempt_id: UUID, *, outcome: str, parts: list[str], by: str, why: str | None = None,
+            seq: int | None = None) -> dict[str, Any]:
     """答えを残して、その通話を締め直す（答えの入口はどれもここを通る。締め直しは締めの処理の1か所 core/settle.resettle）。"""
     from salescall.core import settle   # 締めの処理がこの部品を読むので、ここで読む（読み合いにしない）
-    tx.execute("INSERT INTO salescall.decision_answers (tenant_id, client_id, attempt_id, outcome, parts, by_kind, why, answered_by)"
-               " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s, %s, salescall.cur_actor())",
-               (attempt_id, outcome, sorted(set(parts)), by, why))
+    tx.execute("INSERT INTO salescall.decision_answers (tenant_id, client_id, attempt_id, outcome, parts, by_kind, why, answered_by,"
+               " wait_seq) VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s, %s, salescall.cur_actor(), %s)",
+               (attempt_id, outcome, sorted(set(parts)), by, why, seq))
     return settle.resettle(tx, attempt_id)
 
 
-def confirm_decision(tx: Tx, attempt_id: UUID) -> dict[str, Any]:
-    """契約者の承認（検証モード）：録音とその場のやり取りを確かめて、その通話の断り・番号違い・怒っていたを確定する。発信禁止の登録・
-    行の終わりは締め直しが行い、締め直した版に確定の印を付ける（システムの判定どおりが正解＝`approve_result`）。締め直しの答えを返す。"""
-    w = _wait(tx, attempt_id, "approval")
-    out = _answer(tx, attempt_id, outcome="confirmed", parts=w["parts"], by="approval")
-    if out.get("version_no") is not None:
-        approve_result(tx, w["task_id"], out["version_no"])
-    return out
+def approve_decision(tx: Tx, attempt_id: UUID, seq: int) -> dict[str, Any]:
+    """契約者か管理者の承認（契約者に答えを求めている保留）：録音とその場のやり取りを確かめて、その版の中身（断り・番号違い・怒っていた）を
+    確定する。発信禁止の登録・行の終わりは締め直しが行う。結果の版の承認ではない（確かめたのは取り消せない決定だけ。
+    締め直した版は、検証モードでは、ほかの結果と同じく確かめる）。締め直しの答えを返す。"""
+    w = _open_for_contractor(tx, attempt_id, seq)
+    return _answer(tx, attempt_id, outcome="confirmed", parts=w["parts"], by="approval", seq=seq)
 
 
-def send_back_decision(tx: Tx, attempt_id: UUID) -> dict[str, Any]:
-    """契約者の差し戻し（検証モード）：断り（番号違い・怒っていた）ではなかった。その決定をその通話の報告から外して、ふつうに締め直す
-    （発信禁止を登録しない・行はふつうの次の動き）。締め直した版は、ほかの結果と同じく契約者が承認する。締め直しの答えを返す。"""
-    w = _wait(tx, attempt_id, "approval")
-    return _answer(tx, attempt_id, outcome="withdrawn", parts=w["parts"], by="approval")
+def send_back_decision(tx: Tx, attempt_id: UUID, seq: int) -> dict[str, Any]:
+    """契約者か管理者の差し戻し（契約者に答えを求めている保留）：その版の中身は、断り（番号違い・怒っていた）ではなかった。
+    その中身をその通話の報告から外して、ふつうに締め直す（発信禁止を登録しない・行はふつうの次の動き）。その場で決めていたはずの決定
+    （2つ目の判定とそろっていた）を差し戻したことは、その通話の正解に「違っていた」として必ず入る（`sent_back_on_spot` を
+    `measure.record_check` が読む）。締め直しの答えを返す。"""
+    w = _open_for_contractor(tx, attempt_id, seq)
+    return _answer(tx, attempt_id, outcome="withdrawn", parts=w["parts"], by="approval", seq=seq)
 
 
-def answer_from_recording(tx: Tx, attempt_id: UUID, *, confirmed: bool) -> dict[str, Any]:
-    """録音の確かめの答え（締めの処理の決まった間隔の仕事が、録音から作り直した報告を読んで呼ぶ。システムの処理だけ）：その決定が2つ目の
-    判定とそろった（confirmed）＝決まりどおり／報告から消えた＝元に戻す（作り直した報告のまま、ふつうに締める）。"""
-    w = _wait(tx, attempt_id, "recording")
-    return _answer(tx, attempt_id, outcome="confirmed" if confirmed else "withdrawn", parts=w["parts"], by="recording")
+def sent_back_on_spot(tx: Tx, attempt_id: UUID) -> frozenset[str]:
+    """その通話で、契約者が差し戻した中身のうち、システムがその場で決めていたはずのもの（答えた保留の版で、2つ目の判定とそろっていた＝
+    フルオートなら、そのまま発信禁止・行の終わりになっていた）。誤判定率の正解に「違っていた」として入れる（measure の1か所が読む）。"""
+    return frozenset(p for r in tx.all(
+        "SELECT x.parts FROM salescall.decision_answers x"
+        " JOIN salescall.decision_waits w ON w.attempt_id = x.attempt_id AND w.seq = x.wait_seq"
+        " WHERE x.attempt_id = %s AND x.by_kind = 'approval' AND x.outcome = 'withdrawn' AND w.checked = 'agreed'",
+        (attempt_id,)) for p in r["parts"])
 
 
 def withdraw_revoked(tx: Tx, attempt_id: UUID, parts: list[str], why: str) -> dict[str, Any]:
     """誤って入れた発信禁止を取り消した（core/dnc の取り消しの1か所が呼ぶ。その通話から入れた発信禁止がすべて取り消されたとき）：その
-    通話の決定を報告から外して締め直す（その発信禁止で終えた行は予定に戻り、依頼者へ渡す結果の「営業拒否」も外れる＝2026-10-30 (7)）。"""
+    通話の決定のうち、その発信禁止の中身だけを報告から外して締め直す（ほかの中身の保留は、そのまま。その発信禁止で終えた行は予定に戻り、
+    依頼者へ渡す結果の「営業拒否」も外れる＝2026-10-30 (7)）。"""
     return _answer(tx, attempt_id, outcome="withdrawn", parts=parts, by="revoke", why=why)

@@ -393,6 +393,11 @@ def call_event(tx: Tx, attempt_id: UUID) -> str | None:
     return None if a is None else _call_event(tx, a)
 
 
+def _audio_lines(row: dict[str, Any] | None) -> frozenset[str]:
+    """番号の欄の、声が聞き取れなかった回線（欄が無ければ空）。"""
+    return frozenset() if row is None else frozenset(decode(row["state"]).audio_lines)
+
+
 def after_call(tx: Tx, attempt_id: UUID, *, report: Any = None) -> None:
     """電話が終わった（E1〜E5）。1つの試行で1回だけ（試行のせいの欄の行があれば、もう渡した）。E4 の行への分は `after_settle`。
     report＝こちらの不具合で終えた電話の、通話ごとの口が作ったエラーの中身（電話ごとの記録に使う。core/troubles.after_trouble だけが渡す）。"""
@@ -405,6 +410,11 @@ def after_call(tx: Tx, attempt_id: UUID, *, report: Any = None) -> None:
     run = _Run(tx, "after_call", {str(attempt_id): report} if report is not None else None)
     at, me, number, line_id = a["ended_at"], str(attempt_id), str(a["contact_id"]), str(a["line_id"])
     wants: list[tuple[str, Any]] = [(LINE, line_id), (TASK, a["task_id"]), (NUMBER, number), (ATTEMPT, me)]
+    if code == "E4":
+        # 声が聞き取れなかったお客様が、ほかの回線でも聞き取れなかったか（番号の欄の audio_lines）：その回線の欄も同じ取り方で取る（鍵の順を
+        # 崩さないよう、番号の欄を鍵なしで先に読む。鍵を取ったあとの番号の欄で決め直し、取った回線にだけ E20 を渡す。2026-10-30 夜 管理者）
+        pre = tx.one("SELECT state FROM salescall.number_states WHERE contact_id = %s", (a["contact_id"],))
+        wants += [(LINE, other) for other in sorted(_audio_lines(pre) - {line_id})]
     if code in ("E3", "E5"):   # 契約者の欄へも渡す出来事（C-1・C-3）
         wants.append((TENANT, run.tenant))
     if code == "E5":           # 復旧を待つ行へも渡す（R-6。同じ契約者のどの行でも）
@@ -429,12 +439,17 @@ def after_call(tx: Tx, attempt_id: UUID, *, report: Any = None) -> None:
         ev = hr.Event("E3", at, attempt=me, kind=a["kind"], task=str(a["task_id"]), rang=a["rang"], answered=a["answered"])
         sends = [(line, ev), (task, ev), (ten, ev), (att, ev)]
     elif code == "E4":   # 行への分は締めのあと（`after_settle`）
-        ev = hr.Event("E4", at, attempt=me, number=number, line=line_id)
-        sends = [(line, ev), (num, hr.Event("E1", at, attempt=me, number=number))]
+        # ほかの回線でも聞き取れなかったお客様＝お客様の回線のせい（表の L-3・L-34。2026-10-30 夜 管理者）：この回線へは、その回線を添えて
+        # 渡し、その回線へは E20（声の続きから外し、お客様の回線のせいと見た続きに数える）
+        elsewhere = frozenset(num.state.audio_lines) - {line_id}
+        sends = [(line, hr.Event("E4", at, attempt=me, number=number, line=line_id, audio_elsewhere=elsewhere)),
+                 (num, hr.Event("E4", at, attempt=me, number=number, line=line_id))]
+        sends += [(run.boxes[(LINE, other)], hr.Event("E20", at, number=number))
+                  for other in sorted(elsewhere) if (LINE, other) in run.boxes]
     elif code == "E5":
         ev = hr.Event("E5", at, attempt=me, number=number, started_at=a["claimed_at"])
         others = [t for t in recovering if t.key != task.key]
-        sends = [(line, ev), (task, ev), (ten, ev), (num, hr.Event("E1", at, attempt=me, number=number))]
+        sends = [(line, ev), (task, ev), (ten, ev), (num, ev)]
         sends += [(t, hr.Event("E5", at, attempt=me, number=number, started_at=a["claimed_at"], own=False)) for t in others]
     else:
         ev = hr.Event("E1", at, attempt=me, number=number)

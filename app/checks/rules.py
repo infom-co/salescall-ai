@@ -245,6 +245,7 @@ WRITERS: dict[str, dict[str, frozenset[str]]] = {
     # 取り消せない決定の保留と答え（2026-10-30 管理者のご決定 (6)(7)。0152）：保留にするか・答えは承認の部分の1か所
     "decision_waits": {"INSERT": frozenset({_CORE + "approval.py"})},
     "decision_answers": {"INSERT": frozenset({_CORE + "approval.py"})},
+    "decision_asks": {"INSERT": frozenset({_CORE + "approval.py"})},
     "call_utterances": {"INSERT": frozenset({_CORE + "conversation_io.py"})},   # やり取りの文字（計画書 11-1。会話の側の書き込み口。0152）
     "program_versions": {"INSERT": frozenset()},        # 動いているプログラムの版を書くのは、データベースの関数 note_program だけ（0139）
     "sample_draws": {"INSERT": frozenset({_CORE + "measure.py"})},           # 誤判定率の抜き取り（16-3）
@@ -486,6 +487,16 @@ PY_ENTRY_CALLERS: dict[tuple[str, str], frozenset[str]] = {
     # 決めにいくかの判断（scheduler.soon_left）・直した版で停止を解く（watch.resume_fixed）も、ここで呼び手を決めていた（5段目で外した）
     ("updates", "note"): frozenset({_SUP + "main.py"}),                     # 動いているプログラムの版を書く：本体の版の確かめだけ
     ("troubles", "restore"): frozenset({WEB_PLACE}),                         # 休んだ行を戻す：画面だけ（管理者・契約者。見直し20b）
+    # 取り消せない決定の保留と答え（2026-10-30 管理者のご決定 (6)(7)。0152〜0154。⛔ 見直し24b：入口を足したのに、ここに無かった）
+    ("approval", "decision_wait"): frozenset({_CORE + "settle.py"}),          # どの中身を待つか：締めの処理だけ
+    ("approval", "record_wait"): frozenset({_CORE + "settle.py"}),            # 保留を書く：締めの処理だけ（判定するたびに）
+    ("approval", "chase_recording"): frozenset({_CORE + "settle.py"}),        # 録音で決められないかの確かめ：締めの処理の見直し
+    ("approval", "approve_decision"): frozenset({WEB_PLACE}),                  # 承認：画面だけ（契約者・管理者）
+    ("approval", "send_back_decision"): frozenset({WEB_PLACE}),                # 差し戻し：画面だけ（契約者・管理者）
+    ("approval", "withdraw_revoked"): frozenset({_CORE + "dnc.py"}),          # 取り消しの答え：発信禁止の取り消しの1か所だけ
+    ("approval", "sent_back_on_spot"): frozenset({_CORE + "measure.py"}),     # 差し戻しを誤判定率へ：正解を入れる1か所だけ
+    ("settle", "resettle"): frozenset({_CORE + "approval.py"}),              # 締め直し：答えの1か所だけ（締めの処理の中は、いつでもよい）
+    ("next_action", "reopen_revoked"): frozenset({_CORE + "dnc.py", _SUP + "jobs.py"}),   # 取り消しで行を戻す：取り消しと決まった間隔の仕事
     # 回線・行・番号・契約者・試行のせいの表を引く入口（DESIGN.md 17章の決まり (1)：状態を変えるのは、表を引く入口1つだけ）。
     # 表を引くのは core/health.py の1か所（`_Run.give`。0145・0146）
     ("health_rules", "apply"): frozenset({_CORE + "health.py"}),

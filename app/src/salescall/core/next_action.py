@@ -41,8 +41,8 @@
   怒っていたが、まだ決まらない（検証モードの承認待ち・2つ目の判定とそろわず録音の確かめ待ち）通話のあとは、行を終えずに判定待ち
   （`decide_after_call` の waiting）。答えが出たら、締めの処理が締め直して、ふつうの次の動きを書く。
 - **行が終わったら**（`end`）、確定の印の無い結果の版を承認の部分が確かめ直す（core/approval.after_ended の1か所）。
-- **誤って入れた発信禁止を取り消したら**（core/dnc の取り消しの1か所が呼ぶ `reopen`）、その発信禁止で門が終えた行を、終える前の予定に
-  戻す（2026-10-30 管理者のご決定 (7)）。
+- **誤って入れた発信禁止を取り消したら**（core/dnc の取り消しの1か所と、見守り役の決まった間隔の仕事が呼ぶ `reopen_revoked`）、発信禁止で
+  門が終えた行のうち、もう止まっていないものを、終える前の予定に戻す（2026-10-30 管理者のご決定 (7)）。
 """
 
 from __future__ import annotations
@@ -256,30 +256,44 @@ def end(tx: Tx, task_id: UUID, reason: str, *, cause: str, apology: Apology = No
     approval.after_ended(tx, task_id)
     return seq
 
-
-# 門が発信禁止で終えた行の、終えた理由（門の理由の名前と同じ。gate.REASONS の dnc_client・dnc_client_ref）
-DNC_ENDS = ("dnc_client", "dnc_client_ref")
+DNC_ENDS = ("dnc_client", "dnc_client_ref", "dnc_contractor")   # 門が発信禁止で終えた行の終わりの理由＝かけない理由の名前（target_policy）
 
 
-def reopen(tx: Tx, task_id: UUID, *, cause: str) -> int | None:
-    """発信禁止で門が終えた行を、終える前の予定に戻す（1か所。誤って入れた発信禁止を取り消したとき、core/dnc の取り消しの1か所が呼ぶ。
-    2026-10-30 管理者のご決定 (7)）。戻す予定は、終える前のいちばん新しい「かけ直す」の予定（かける先・目的・約束の印・お客様の時刻・幅・
-    お詫びの印のまま、時刻はいま。かけるかは門が決める＝まだほかの登録で止まっていれば、門がまた終える）。いまの予定が発信禁止の終わり
-    でない・戻す予定が無ければ何もしない（None）。"""
-    cur = current(tx, task_id)
-    if cur is None or cur["kind"] != "end" or cur["end_reason"] not in DNC_ENDS:
-        return None
-    row = tx.one("SELECT seq, kind, call_at, promised, contact_id, purpose, wrong_contact_id, callee_at, window_until, window_daily,"
-                 "       window_days, window_from, window_repeat, window_round, window_missed, window_said, window_day_said,"
-                 "       apology_reasons, successor, number_again"
-                 " FROM salescall.task_next_actions WHERE task_id = %s AND kind = 'call' AND seq < %s ORDER BY seq DESC LIMIT 1",
-                 (task_id, cur["seq"]))
-    if row is None:
-        return None
-    target = Target(row["contact_id"], None, row["purpose"], row["wrong_contact_id"], bool(row["successor"]), row["number_again"])
-    return _append(tx, task_id, call_at=None, call_now=True, end_reason=None, cause=cause, promised=bool(row["promised"]),
-                   target=target, callee_at=row["callee_at"] if row["promised"] else None, window=window_of(row),
-                   apology=tuple(row["apology_reasons"]))   # お詫びの印も、終える前の予定のまま
+def reopen_revoked(tx: Tx, *, cause: str) -> list[UUID]:
+    """発信禁止で門が終えた行のうち、その行の番号・管理番号の登録（依頼者の台帳・契約者の共通の台帳）が取り消され、いまはもう発信禁止で
+    止まっていないものを、終える前の予定に戻す（どの行を戻すかの1か所。2026-10-30 管理者のご決定 (7)）。戻す予定は、終える前のいちばん
+    新しい「かけ直す」の予定（かける先・目的・約束の印・お客様の時刻・幅・お詫びの印のまま、時刻はいま）。まだ止まっているかは、門と同じ
+    かけない理由の1か所（target_policy.block_reason）で、戻す予定の番号と行の管理番号を見る（⛔ 見直し24b の (C)：前は、取り消した時刻と
+    終えた時刻を比べて自分で決め、まだほかの登録で止まっている行も「戻した」にした）。呼ぶのは、依頼者の台帳の取り消しの1か所（core/dnc の
+    `_revoke`。その場で）と、見守り役の決まった間隔の仕事（依頼者ごと。契約者の共通の台帳は、その契約者のすべての依頼者の行に効くので、
+    取り消しの取引からは行を読めない）。戻した行を返す。"""
+    back = []
+    for r in tx.all(
+            "SELECT c.task_id, c.seq, t.client_ref FROM salescall.current_next_actions c JOIN salescall.tasks t ON t.task_id = c.task_id"
+            " WHERE c.kind = 'end' AND c.end_reason = ANY(%s)"
+            "   AND (EXISTS (SELECT 1 FROM salescall.dnc_entries e WHERE e.revoked_at IS NOT NULL"
+            "                AND (e.client_ref = t.client_ref OR e.phone_e164 IN (SELECT n.phone_e164 FROM salescall.task_numbers n"
+            "                                                                      WHERE n.task_id = t.task_id)))"
+            "        OR EXISTS (SELECT 1 FROM salescall.contractor_dnc_entries e WHERE e.revoked_at IS NOT NULL"
+            "                   AND e.phone_e164 IN (SELECT n.phone_e164 FROM salescall.task_numbers n WHERE n.task_id = t.task_id)))"
+            " ORDER BY c.task_id", (list(DNC_ENDS),)):
+        row = tx.one("SELECT n.contact_id, n.kind, n.call_at, n.promised, n.purpose, n.wrong_contact_id, n.callee_at, n.window_until,"
+                     "       n.window_daily, n.window_days, n.window_from, n.window_repeat, n.window_round, n.window_missed,"
+                     "       n.window_said, n.window_day_said, n.apology_reasons, n.successor, n.number_again, k.phone_e164"
+                     " FROM salescall.task_next_actions n JOIN salescall.task_numbers k ON k.contact_id = n.contact_id"
+                     " WHERE n.task_id = %s AND n.kind = 'call' AND n.seq < %s ORDER BY n.seq DESC LIMIT 1", (r["task_id"], r["seq"]))
+        if row is None:
+            continue
+        blocked = target_policy.block_reason(tx, normalize(row["phone_e164"]), client_ref=r["client_ref"],
+                                             **tasks.scope(tx, r["task_id"]))
+        if blocked is not None and blocked[0] in DNC_ENDS:
+            continue                           # まだ発信禁止で止まっている（ほかの登録）：戻さない
+        target = Target(row["contact_id"], None, row["purpose"], row["wrong_contact_id"], bool(row["successor"]), row["number_again"])
+        _append(tx, r["task_id"], call_at=None, call_now=True, end_reason=None, cause=cause, promised=bool(row["promised"]),
+                target=target, callee_at=row["callee_at"] if row["promised"] else None, window=window_of(row),
+                apology=tuple(row["apology_reasons"]))   # お詫びの印も、終える前の予定のまま
+        back.append(r["task_id"])
+    return back
 
 
 # ── 何を決めるか（1か所。DESIGN.md 7-2） ──
@@ -670,10 +684,11 @@ def check_outcome(tx: Tx, attempt_id: UUID) -> Check | None:
     """その試行が、切れ方の分からなかった通話のあとの確かめのかけ直しなら、その答え（1か所。締めの処理が、判定の入力＝check_rang と
     `after_call` に渡す）。確かめのかけ直しは、確かめると決めた（表 salescall.unclear_checks）あと、その行で最初に発信まで進んだ、
     同じ番号への続き・番号の聞き直しの電話（こちらの不具合で終えた電話＝かけた予定のままかけ直す＝は数えない）。鳴ったか・鳴らなかったかは、
-    状態の表の入口が電話の出来事を決める1か所（core/health.call_event：E2＝鳴らなかった・E3＝こちらの不具合・ほか＝鳴った）。
+    お客様の電話まで鳴ったか（こちらの不具合で終えた＝状態の表の出来事 E3・鳴らなかった＝E2・電源オフや圏外のお知らせ・話し中でなければ
+    鳴った）。
     確かめのかけ直しでなければ None。"""
     row = tx.one(
-        "SELECT u.attempt_id AS of, c.ended_at FROM salescall.attempts c"
+        "SELECT u.attempt_id AS of, c.ended_at, c.notice, c.state::text AS state FROM salescall.attempts c"
         " JOIN salescall.unclear_checks u ON u.task_id = c.task_id"
         " JOIN salescall.attempts x ON x.attempt_id = u.attempt_id"
         " WHERE c.attempt_id = %s AND c.attempt_id <> u.attempt_id AND c.claimed_at > u.decided_at AND c.contact_id = x.contact_id"
@@ -687,7 +702,14 @@ def check_outcome(tx: Tx, attempt_id: UUID) -> Check | None:
     code = health.call_event(tx, attempt_id)
     if code is None:
         return None
-    return Check(row["of"], {"E2": "unrung", "E3": "ours"}.get(code, "rang"), row["ended_at"])
+    if code == "E3":
+        return Check(row["of"], "ours", row["ended_at"])
+    # 鳴ったか＝お客様の電話まで鳴ったか（2026-10-30 管理者のご決定 (3)「鳴れば回線は元気なので、お客様が自分で切った＝営業拒否とみなします。
+    # 鳴らなければ回線のせいなので、時間をおいてお客様へかけ直します（お詫びから）」）。回線が元気か（状態の表の出来事）とは別の問い：
+    # 電源オフ・圏外のお知らせ（こちらの回線は元気＝0151）・話し中は、お客様の電話は鳴っていない（⛔ 見直し24c の A1：前は状態の表の
+    # 出来事で決め、圏外・電源オフ・話し中で終わった確かめのかけ直しを「鳴った」として営業拒否にした）
+    rang = code != "E2" and row["notice"] not in ("power_off", "out_of_range") and row["state"] != "busy"
+    return Check(row["of"], "rang" if rang else "unrung", row["ended_at"])
 
 
 def _unclear_check_of(tx: Tx, task_id: UUID, attempt_id: UUID | None, j: Judgement, dialed: Target, target: Target) -> UUID | None:

@@ -52,7 +52,7 @@
 | Q32 この電話は、決まった文面だけの電話か | 決まった文面の電話（`salescall.fixed_text_kind`） | CL-2（同上） |
 | Q33 この番号は、もう使えないか | 番号の使えなさ（`attempts.number_unusable`） | CL-2（同上） |
 | Q34 お客様が言った時間の幅のうち、いつかけてよいか | お客様の指定の幅（`calling_hours.callee_range`・時刻の読み `spoken_time`） | CL-2（同上。午前・午後の読み分けは会話の側も同じ1か所を呼ぶ＝CL-1 の連絡帳 4-53） |
-| Q35 判定できない通話は、まだ決まっていないか | 未決の判断（`salescall.unknown_pending`・`refusal_undecided`） | CL-2（同上） |
+| Q35 判定できない通話は、まだ決まっていないか | 未決の判断（`salescall.unknown_pending`・`refusal_undecided`。【0152】「まだ決まっていない」は `salescall.decision_pending` の1か所） | CL-2（同上） |
 | Q36 同じ日にまたかけてよいか | 同じ日の材料（`judge.unreached_today`） | CL-2（同上） |
 | Q37 報酬・時給・応答率に数える電話は、どれか | 報酬に数える電話（`salescall.counts_for_reward`） | CL-2（同上） |
 | Q38 先に出す・取り置く・間隔の外に置く電話は、どれか | 予定の約束の印（`task_next_actions.promised`） | CL-2（同上） |
@@ -70,6 +70,11 @@
 | Q50 電話網のお知らせ（電源オフ・圏外・使われていない）が返った電話 | お知らせで終える1か所（`attempts.end_by_notice`） | CL-2（2026-10-30 ユーザー承認「8.案A」） |
 | Q51 同じお客様への最短の間隔 | `gate.same_contact_free_at` | CL-2（2026-10-30 ユーザー承認「8.案A」） |
 | Q52 AI の使用額の上限に当たったときの扱い | エラーの分類の1か所（`errors.spend_limit`） | CL-2（2026-10-30 ユーザー承認「8.案A」） |
+| Q53 どれが取り消せない決定（お客様の断り・番号違い・怒っていた）か・2つ目の判定とそろったか | `judge.irreversible` の1か所 | CL-2（⏳ 管理者に確かめる。2026-10-30 管理者のご決定 (6) の作り＝0152） |
+| Q54 取り消せない決定を、その場で決めるか・保留にするか | どの中身を待つかは `approval.decision_wait`、保留（版）を書くのは `approval.record_wait` の1か所（⛔ 0154 で `hold_decision` を外した。いまの保留の中身は `salescall.decision_open`、まだ決まっていないかは `salescall.decision_pending`） | CL-2（⏳ 管理者に確かめる。同上） |
+| Q55 保留にどう答え、どう締め直すか | 答えは `approval._answer`（承認 `approval.approve_decision`・差し戻し `approval.send_back_decision`。⛔ 0154 で `confirm_decision` から名前を替えた。録音の確かめの答えは外した）、締め直しは `settle.resettle`（報告が変わったときは `settle._recheck_waits` が呼ぶ）、報告から外すのは `settle._judge_input` の1か所 | CL-2（⏳ 管理者に確かめる。同上） |
+| Q56 保留に、契約者の答えを求めているか（録音の確かめで決められないとき） | `salescall.decision_asks_contractor` と `approval.chase_recording` の1か所（印を付けるのは `approval._ask_contractor`） | CL-2（⏳ 管理者に確かめる。2026-10-30 管理者のご決定 (6) の当てはめ＝0153） |
+| Q57 誤って入れた発信禁止を取り消したとき、結果と終えた行をどう戻すか | 取り消しの1か所 `dnc._revoke`（締め直しは `approval.withdraw_revoked`、止め直しは `dnc._restop`）と、どの行を戻すかの1か所 `next_action.reopen_revoked`（⛔ 0154 で `next_action.reopen` を外した） | CL-2（⏳ 管理者に確かめる。2026-10-30 管理者のご決定 (7) の作り＝0152・0153） |
 
 新しい問いが出てきたら、勝手に持ち主を決めず、ユーザーに伝える（表に1行足すのはユーザーの承認のあと）。
 

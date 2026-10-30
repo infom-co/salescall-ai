@@ -69,7 +69,7 @@ UNKNOWN_CAUSES: dict[str, str] = {
     "callback_time_unconfirmed": "お客様が言ったかけ直しの時刻が1つに決まらない言い方（「昼」・午前か午後か など）のまま、通話の中で"
                                  "確かめずに終わった（会話の処理の誤り。直すのは CL-1。確かめるかは spoken_time.read が答える）",
 }
-# プログラムの誤りと、直す担当（止めずに修正依頼を出す。人は確かめ・承認だけ＝2026-10-17 ユーザー）
+# プログラムの誤りと、直す担当（止めずに修正依頼を出す。管理者と契約者は確かめ・承認だけ＝2026-10-17 ユーザー）
 UNKNOWN_CAUSE_FIXERS: dict[str, str] = {"report_missing": "CL-1", "cut_missing": "CL-1", "reason_missing": "CL-1",
                                         "not_reached_reason_missing": "CL-1", "callback_time_unreadable": "CL-2",
                                         "callback_time_unconfirmed": "CL-1"}

@@ -96,6 +96,8 @@ def line_states():
     yield Line(LS.HEALTHY, j=1)                                        # 声で再開したあと（1本で止め直す）
     yield Line(LS.HEALTHY, audio=frozenset({"n7"}), j=3)
     yield Line(LS.HEALTHY, told=frozenset({"かけられない:x"}))
+    yield Line(LS.HEALTHY, suspect=2)                                  # お客様の回線のせいと見た電話が2本（次で止める＝3回）
+    yield Line(LS.HEALTHY, audio=frozenset({"n7"}), suspect=1)
     yield Line(LS.CHECK_A, run_start=T0, run=RUN, next_at=T0 + GAP[0])
     yield Line(LS.CHECK_A, run_start=T0, run=RUN + (("a2", "n2"),), next_at=T0 + GAP[0], audio=frozenset({"n7"}), j=1)
     late = T0.replace(hour=22, minute=50)
@@ -116,6 +118,7 @@ def line_states():
                        next_at=None if wait is Wait.NO_NUMBER else T0, entered_at=entered, fix_at=entered + 60 * MIN,
                        tested_at=entered if stage is LS.LINE_REST else None, told=told)
     yield Line(LS.AUDIO_REST, j=2, audio=frozenset({"n7"}), next_at=T0, entered_at=T0 - 20 * MIN)
+    yield Line(LS.AUDIO_REST, j=1, suspect=3, next_at=T0, entered_at=T0 - 20 * MIN)
     yield Line(LS.OUT_OF_USE, removed=("契約者", T0 - MIN, "スマホを替えた"))
 
 
@@ -128,6 +131,9 @@ def line_events(state):
     yield "E4 違うお客様", ev("E4", now, number="n9")
     if state.audio:
         yield "E4 同じお客様", ev("E4", now, number=sorted(state.audio)[0])
+        yield "E20 数えていたお客様", ev("E20", now, number=sorted(state.audio)[0])
+    yield "E4 ほかの回線でも聞き取れなかったお客様", ev("E4", now, number="n9", audio_elsewhere=frozenset({"l2"}))
+    yield "E20 数えていないお客様", ev("E20", now, number="n9")
     yield "E5", ev("E5", now)
     for code in ("E6", "E7", "E8", "E9", "E12", "E13", "E14"):
         yield code, ev(code, now)
@@ -188,11 +194,15 @@ def number_states():
     yield Number(NS.RUN, n=1, first_day=day, last_end=T0, next_day=day, not_before=T0 + 5 * MIN,      # 次の日なら今日の分が残る
                  unknown=frozenset({"a1"}), hold=True, next_at=tomorrow)
     yield Number(NS.DEAD, n=4, dead_at=T0)
+    yield Number(NS.NONE, audio_lines=frozenset({"l1"}))                # 回線 l1 で声が聞き取れなかったお客様
+    yield Number(NS.RUN, n=1, first_day=day, last_end=T0, next_day=day, not_before=T0 + 5 * MIN, audio_lines=frozenset({"l1"}))
 
 
 def number_events(state):
     now = latest(state) + MIN
     yield "E1", ev("E1", now)
+    yield "E4", ev("E4", now, line="l2")
+    yield "E5", ev("E5", now)
     yield "E2", ev("E2", now, attempt="a5")
     for blame in ("番号", "回線"):
         yield f"E16 {blame}", ev("E16", now, blame=blame, attempt="a1", call_at=now - MIN)
@@ -279,8 +289,8 @@ class Exhaustive(unittest.TestCase):
 
     def test_the_table_holds_the_rows_of_chapter_17_once_each(self):
         ids = [r.id for r in h.TABLE]
-        expected = ([f"L-{i}" for i in range(1, 34)] + [f"R-{i}" for i in range(1, 22)] +
-                    [f"N-{i}" for i in range(1, 8)] + [f"C-{i}" for i in range(1, 11)] + [f"V-{i}" for i in range(1, 6)])
+        expected = ([f"L-{i}" for i in range(1, 35)] + [f"R-{i}" for i in range(1, 22)] +
+                    [f"N-{i}" for i in range(1, 10)] + [f"C-{i}" for i in range(1, 11)] + [f"V-{i}" for i in range(1, 6)])
         self.assertEqual(sorted(ids), sorted(expected))   # 17章の60行と、2026-10-29 に穴を埋めた【当】の行
 
     def test_every_answer_is_a_whole_state_and_known_actions(self):
@@ -512,7 +522,7 @@ class Decisions(unittest.TestCase):
             into_stop = isinstance(out.state, Tenant) and not out.state.stopped <= state.stopped
             if into_rest or into_stop:
                 entries.add(out.rows[-1])   # E1 でもある E4 は L-5 のあとに L-3 を引く：入れたのは後ろの行
-        self.assertEqual(entries, {"L-3", "L-10", "C-1", "L-25", "C-8"})
+        self.assertEqual(entries, {"L-3", "L-10", "C-1", "L-25", "C-8", "L-34"})   # L-34＝お客様の回線のせいと見た電話が3回（10-30 夜）
         three = Tenant(CS.NORMAL, rows=(("frozen", frozenset({"t1", "t2"})),))
         out = ok(self, h.apply(three, ev("E3", task="t3"), R))
         self.assertIn("話している電話は切らない", h.STOP_CALLS)
@@ -886,6 +896,37 @@ class Decided1029(unittest.TestCase):
         two = ok(self, h.apply(one, ev("E4", T0 + MIN, number="n2"), R))
         self.assertEqual((two.state.stage, two.state.m, two.rows), (LS.AUDIO_REST, 2, ("L-3",)))
         self.assertIn(h.NOTIFY, whats(two))
+
+    def test_1030_a_customer_not_heard_on_another_line_is_the_customers_line_and_three_in_a_row_are_ours(self):
+        """2026-10-30 夜 管理者：「別の回線でも聞き取れなかったお客様は『お客様の回線のせい』としはいいですが、3回続いたら、こちらの回線の
+        不調の可能性が高いんじゃないですか？」。(1) ほかの回線でも聞き取れなかったお客様は、この回線の声の続きに入れず、前の回線の続きから
+        も外す（E20）(2) お客様の回線のせいと見た電話が、話し終えた電話をはさまずに3回続いたら、この回線の声の不調・休み (3) 数え直すのは
+        話し終えた電話（E5）だけ（出なかった電話 E1 では数え直さない）。"""
+        self.assertEqual((h.CUSTOMER_LINE_STOP_AFTER, R.customer_line_stop_after), (3, 3))
+        line = Line(LS.HEALTHY)
+        for k in (1, 2):
+            out = ok(self, h.apply(line, ev("E4", T0 + k * MIN, number=f"n{k}", audio_elsewhere=frozenset({"L2"})), R))
+            line = out.state
+            self.assertEqual((line.stage, line.m, line.suspect), (LS.HEALTHY, 0, k))   # 声の続きには入れない
+            line = ok(self, h.apply(line, ev("E1", T0 + k * MIN + MIN), R)).state      # 出なかった電話では数え直さない
+            self.assertEqual(line.suspect, k)
+        third = ok(self, h.apply(line, ev("E4", T0 + 5 * MIN, number="n3", audio_elsewhere=frozenset({"L2"})), R))
+        self.assertEqual((third.state.stage, third.state.j, third.rows), (LS.AUDIO_REST, 1, ("L-3",)))
+        self.assertIn(h.NOTIFY, whats(third))
+        # 前の回線：数えていたお客様が、ほかの回線でも聞き取れなかった（E20）＝続きから外し、お客様の回線のせいと見た続きに数える
+        before = Line(LS.HEALTHY, audio=frozenset({"n1"}))
+        moved = ok(self, h.apply(before, ev("E20", number="n1"), R))
+        self.assertEqual((moved.state.m, moved.state.suspect, moved.rows), (0, 1, ("L-34",)))
+        self.assertEqual(ok(self, h.apply(Line(LS.HEALTHY, suspect=2), ev("E20", number="n4"), R)).state.stage, LS.AUDIO_REST)
+        # 話し終えた電話（E5）だけが数え直す（⛔ 見直し24c の A5：前は出なかった電話でも0に戻し、声の壊れた回線が止まらなかった）
+        kept = ok(self, h.apply(Line(LS.HEALTHY, audio=frozenset({"n1"}), suspect=2), ev("E1"), R)).state
+        self.assertEqual((kept.m, kept.suspect), (1, 2))
+        reset = ok(self, h.apply(Line(LS.HEALTHY, audio=frozenset({"n1"}), suspect=2, j=1), ev("E5"), R)).state
+        self.assertEqual((reset.m, reset.suspect, reset.j), (0, 0, 0))
+        # 番号の欄：声が聞き取れなかった回線を持ち、話し終えたら空にする（入口が、ほかの回線でも聞き取れなかったかを読む材料）
+        num = ok(self, h.apply(Number(NS.NONE), ev("E4", line="L1"), R)).state
+        self.assertEqual(num.audio_lines, frozenset({"L1"}))
+        self.assertEqual(ok(self, h.apply(num, ev("E5"), R)).state.audio_lines, frozenset())
 
     def test_4_with_no_line_known_to_carry_voice_call_back_on_the_same_line_after_15_minutes(self):
         """2026-10-29 管理者の決定 (4) 案A：声が聞き取れなかった電話から15分（並びの1つ目。新しい設定は作らない）のうちに、はさむ行も

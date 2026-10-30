@@ -72,6 +72,10 @@ SETTING_KEYS = {
 # 声が聞き取れずに終えた電話が、違うお客様で何本続いたら回線を止めるか（1か所。設定は作らない）。2026-10-29 管理者の決定：
 # 「2人」（違うお客様の電話が2本続いたら声の不調・休み。回線の異常3件の基準は通さない）
 AUDIO_STOP_AFTER_CUSTOMERS = 2
+# お客様の回線のせいと見た声の聞き取れない電話（別の回線でも聞き取れなかったお客様）が、同じ回線で、声が通った電話（話し終えた電話）を
+# はさまずに何本続いたら、その回線の声の不調とみて休ませるか（1か所。設定は作らない）。2026-10-30 夜 管理者：「別の回線でも聞き取れな
+# かったお客様は『お客様の回線のせい』としはいいですが、3回続いたら、こちらの回線の不調の可能性が高いんじゃないですか？」
+CUSTOMER_LINE_STOP_AFTER = 3
 
 
 @dataclass(frozen=True)
@@ -85,6 +89,7 @@ class Rules:
     lasting: timedelta          # 一時的な異常が「続いている」とみなす長さ（core/errors の LASTING）
     reply_wait: timedelta       # テスト番号の答えを待つ長さ（PC とのやり取りの期限。link/protocol の REPLY_WAIT）
     audio_stop_after_customers: int   # 声で止める違うお客様の数（`AUDIO_STOP_AFTER_CUSTOMERS`）
+    customer_line_stop_after: int     # お客様の回線のせいと見た電話が続いたら声で止める数（`CUSTOMER_LINE_STOP_AFTER`）
 
     @classmethod
     def from_settings(cls, values: Mapping[str, Any]) -> Rules:
@@ -97,7 +102,7 @@ class Rules:
                    failed_retry_days=tuple(int(d) for d in v["failed_retry_days"]),
                    same_contact_min_interval=timedelta(seconds=float(v["same_contact_min_interval"])),
                    lasting=LASTING, reply_wait=timedelta(seconds=REPLY_WAIT),
-                   audio_stop_after_customers=AUDIO_STOP_AFTER_CUSTOMERS)
+                   audio_stop_after_customers=AUDIO_STOP_AFTER_CUSTOMERS, customer_line_stop_after=CUSTOMER_LINE_STOP_AFTER)
 
     def gap(self, t: int) -> timedelta:
         """続けて t 回（1から）鳴らなかった・見分けられなかったあとにあける長さ：並びの t 番目（並びの最後で止まる）。1か所。"""
@@ -138,10 +143,13 @@ class Wait(Enum):
 
 @dataclass(frozen=True)
 class Line:
-    """回線の欄（17-1-1）。声の続き（audio＝違うお客様の番号の組。m はその数）と、声で止めた続きの回数 j は、回線が外れるまで
-    どの段でも持ち越す（L-5 が続けて L-3 を引くため）。テストの回数 t・続き・待つ理由・次に動く時刻は、元気でない段だけが持つ。"""
+    """回線の欄（17-1-1）。声の続き（audio＝声が聞き取れなかった、違うお客様の番号の組。m はその数。お客様の回線のせいと分かった
+    お客様は入れない）・お客様の回線のせいと見た電話の続き（suspect）・声で止めた続きの回数 j は、回線が外れるまで、どの段でも持ち越す
+    （L-5 が続けて L-3 を引くため）。audio と suspect を0に戻すのは、声が通った証拠（話し終えた電話 E5）だけ。テストの回数 t・続き・
+    待つ理由・次に動く時刻は、元気でない段だけが持つ。"""
     stage: LineStage
     audio: frozenset[str] = frozenset()
+    suspect: int = 0
     j: int = 0
     t: int = 0
     run_start: datetime | None = None                 # 続きの始まり（最初の鳴らなかった電話の時刻）
@@ -206,6 +214,7 @@ class Number:
     hold: bool = False                    # N-4 の印（2026-10-29 決定 案A）
     dead_at: datetime | None = None
     next_at: datetime | None = None       # 印があるあいだ：印を見直す時刻＝次の日の始まり（N-7。17-3-6 の【当】）
+    audio_lines: frozenset[str] = frozenset()   # このお客様の声が聞き取れなかった回線（話し終えた電話 E5 で空にする。N-8・N-9）
 
 
 class TenantStage(Enum):
@@ -279,6 +288,8 @@ EVENT_NAMES = {
     # 17-2 に記号の無かった出来事（表の R-12・R-14 が使う。2026-10-29 に E18・E19 の名前を付けた）
     "E18": "声が通ると分かっている回線が空いた（R-12）",
     "E19": "お客様の「もうかけないで」・業務の終わり（R-14）",
+    # 2026-10-30 夜 管理者の決定で足した出来事
+    "E20": "声が聞き取れなかったお客様が、ほかの回線でも聞き取れなかった（お客様の回線のせいと分かった。番号 n）",
 }
 
 COMPOSITE = frozenset({"E4", "E5"})   # E1 でもある出来事（自分の電話のとき。読み方：E1 の行を先に、続けて E4・E5 の行）
@@ -306,6 +317,7 @@ class Event:
     by: str | None = None                   # E12・E13：管理者か契約者
     reason: str | None = None               # E12・E13：書いた理由
     resume_allowed: bool | None = None      # E4：すぐのかけ直しが、同じ行で続けて2回のうちか（今の作り salescall.resume_allowed の答え）
+    audio_elsewhere: frozenset[str] = frozenset()   # E4（回線へ）：このお客様の声が、ほかの回線でも聞き取れなかった（その回線。番号の欄）
 
 
 _EVENT_NEEDS: dict[str, tuple[str, ...]] = {
@@ -313,7 +325,7 @@ _EVENT_NEEDS: dict[str, tuple[str, ...]] = {
     "E4": ("attempt", "number", "line"), "E5": ("attempt", "number", "started_at"),
     "E6": (), "E7": (), "E8": (), "E9": (), "E10": (), "E11": ("kind",), "E12": ("by", "reason"), "E13": ("by", "reason"),
     "E14": (), "E15": ("line",), "E16": ("attempt", "blame", "call_at"), "E17": ("since",), "E18": ("line",),
-    "E19": (),
+    "E19": (), "E20": ("number",),
 }
 
 
@@ -455,7 +467,7 @@ def _decide_run(line: Line, blame: str) -> tuple[Do, ...]:
 
 def _healthy(line: Line) -> Line:
     """元気にする（中身は m と j だけ。t・続き・待つ理由・次に動く時刻・知らせた印は持たない）。"""
-    return Line(LineStage.HEALTHY, audio=line.audio, j=line.j)
+    return Line(LineStage.HEALTHY, audio=line.audio, suspect=line.suspect, j=line.j)
 
 
 # テスト番号が無いときの知らせの文（1か所。L-7・L-8・L-15・L-23）。実際に起きることだけを書く（見直し22 の 4）。2026-10-29 管理者：「一時的な
@@ -511,15 +523,24 @@ def _untried_since(line: Line) -> datetime:
 
 
 def _l1(line: Line, ev: Event, rules: Rules) -> _Step:
-    return _Step(replace(line, audio=frozenset(), j=0 if ev.code == "E5" else line.j))
+    # 声の続き・お客様の回線のせいと見た続き・声で再開したあとの回数を0に戻すのは、声が通った証拠（こちらの不具合なしに話し終えた電話 E5）
+    # だけ。鳴ったが出なかった・留守電などの電話（E1）では戻さない（⛔ 見直し24c の A5：前は E1 でも戻し、「聞き取れない → 出ない →
+    # 聞き取れない」と並ぶと、声の壊れた回線がいつまでも止まらなかった。2026-10-30 夜 管理者）
+    if ev.code == "E5":
+        return _Step(replace(line, audio=frozenset(), suspect=0, j=0))
+    return _Step(line)
 
 
 def _l2(line: Line, ev: Event, rules: Rules) -> _Step:
-    return _Step(Line(LineStage.CHECK_A, audio=line.audio, j=line.j, t=0, run_start=ev.at,
+    return _Step(Line(LineStage.CHECK_A, audio=line.audio, suspect=line.suspect, j=line.j, t=0, run_start=ev.at,
                       run=((ev.attempt, ev.number),), next_at=ev.at + rules.first_gap()))
 
 
 def _l3(line: Line, ev: Event, rules: Rules) -> _Step:
+    if ev.audio_elsewhere:
+        # このお客様は、ほかの回線でも聞き取れなかった＝お客様の回線のせい（2026-10-30 夜 管理者）：この回線の声の続きには入れず、
+        # お客様の回線のせいと見た続きに数える（ほかの回線には E20 が渡る）
+        return _customer_line(line, ev, rules)
     audio = line.audio | {ev.number}
     if line.j >= 1:   # 声で再開したあと、まだ声が聞き取れて話し終えた電話が無い：1本で止め直す（【当(3)】）
         stop = True
@@ -527,12 +548,33 @@ def _l3(line: Line, ev: Event, rules: Rules) -> _Step:
         stop = len(audio) >= rules.audio_stop_after_customers
     if not stop:
         return _Step(replace(line, audio=audio))
+    return _audio_rest(line, ev, rules, audio=audio, about="声が聞き取れずに終えた電話が違うお客様で続いたので、回線を休ませた")
+
+
+def _audio_rest(line: Line, ev: Event, rules: Rules, *, about: str, **contents: Any) -> _Step:
+    """声の不調・休みに入れる（L-3・L-34 の1か所）。"""
     j = line.j + 1
     nxt = ev.at if j == 1 else ev.at + rules.gap(j - 1)
-    return _Step(_rest(LineStage.AUDIO_REST, rules, ev.at, audio=audio, j=j, t=0, next_at=nxt),
-                 (_do(RECORD, about="声が聞き取れずに終えた電話が違うお客様で続いたので、回線を休ませた"),
+    keep = {"audio": line.audio, "suspect": line.suspect, **contents}
+    return _Step(_rest(LineStage.AUDIO_REST, rules, ev.at, j=j, t=0, next_at=nxt, **keep),
+                 (_do(RECORD, about=about),
                   _do(NOTIFY, to=BOTH, note="stopped", cause="poor_audio",
                       about="声が聞き取れない電話が続いたので、この回線を休ませます（テスト番号が鳴れば再開します）")))
+
+
+def _customer_line(line: Line, ev: Event, rules: Rules) -> _Step:
+    """お客様の回線のせいと見た、声の聞き取れない電話（L-3 の別の回線でも聞き取れなかった・L-34 の E20 の1か所）：声の続きから、その
+    お客様を外し、お客様の回線のせいと見た続きに1つ足す。声が通った電話（E5）をはさまずに、決めた数（3）続いたら、この回線の声の不調と
+    みて休ませる（元気なときだけ。休み・確かめ中は数えるだけ＝元気に戻ってから L-3 が見る）。"""
+    new = replace(line, audio=line.audio - {ev.number}, suspect=line.suspect + 1)
+    if line.stage is not LineStage.HEALTHY or new.suspect < rules.customer_line_stop_after:
+        return _Step(new)
+    return _audio_rest(new, ev, rules, audio=new.audio, suspect=new.suspect,
+                       about="お客様の回線のせいと見た、声の聞き取れない電話が続いたので、この回線の声の不調とみて休ませた")
+
+
+def _l34(line: Line, ev: Event, rules: Rules) -> _Step:
+    return _customer_line(line, ev, rules)
 
 
 def _l5(line: Line, ev: Event, rules: Rules) -> _Step:
@@ -653,7 +695,7 @@ def _l21(line: Line, ev: Event, rules: Rules) -> _Step:
 
 
 def _l24(line: Line, ev: Event, rules: Rules) -> _Step:
-    return _Step(Line(LineStage.HEALTHY, audio=frozenset(), j=line.j),
+    return _Step(Line(LineStage.HEALTHY, j=line.j),     # 再開した：声の続き・お客様の回線のせいと見た続きは0から
                  (_do(RECORD, about="テスト番号が鳴ったので、声で休ませた回線を再開した"),
                   _do(NOTIFY, to=("契約者",), note="resumed", about="テスト番号が鳴ったので、この回線を再開しました")))
 
@@ -794,20 +836,20 @@ def _n1(num: Number, ev: Event, rules: Rules) -> _Step:
     first = num.first_day or last
     unknown = num.unknown - {ev.attempt}
     if c >= len(rules.failed_retry_days):
-        return _Step(Number(NumberStage.DEAD, n=c, first_day=first, last_end=ev.call_at, dead_at=ev.at),
+        return _Step(Number(NumberStage.DEAD, n=c, first_day=first, last_end=ev.call_at, dead_at=ev.at, audio_lines=num.audio_lines),
                      (_do(RECORD, about="番号のせいの電話が並びの数に届いたので、この番号へはかけない"),),
                      ("N-4",) if num.hold else ())
     day = _number_day(rules, first, last, c)
     new = Number(NumberStage.RUN, n=c, first_day=first, last_end=ev.call_at, next_day=day,
                  not_before=ev.call_at + rules.same_contact_min_interval, hold=num.hold,
-                 unknown_since=num.unknown_since, unknown_last=num.unknown_last)
+                 unknown_since=num.unknown_since, unknown_last=num.unknown_last, audio_lines=num.audio_lines)
     new, also = _with_unknown(new, unknown, rules, ev.at)
     return _Step(new, (), also)
 
 
 def _n2(num: Number, ev: Event, rules: Rules) -> _Step:
     new, also = _with_unknown(Number(NumberStage.NONE, hold=num.hold, unknown_since=num.unknown_since,
-                                     unknown_last=num.unknown_last), num.unknown, rules, ev.at)
+                                     unknown_last=num.unknown_last, audio_lines=num.audio_lines), num.unknown, rules, ev.at)
     return _Step(new, (), also)
 
 
@@ -819,6 +861,16 @@ def _n3(num: Number, ev: Event, rules: Rules) -> _Step:
 def _n4(num: Number, ev: Event, rules: Rules) -> _Step:
     new, _ = _with_unknown(num, num.unknown | {ev.attempt}, rules, ev.at, ev.at)
     return _Step(new)
+
+
+def _n8(num: Number, ev: Event, rules: Rules) -> _Step:
+    """このお客様の声が、その回線で聞き取れなかった（E4。2026-10-30 夜 管理者：お客様の回線のせいかを見分ける材料）。"""
+    return _Step(replace(num, audio_lines=num.audio_lines | {ev.line}))
+
+
+def _n9(num: Number, ev: Event, rules: Rules) -> _Step:
+    """このお客様と、こちらの不具合なしに話し終えた（E5）：声の材料を空にする。"""
+    return _Step(replace(num, audio_lines=frozenset()))
 
 
 def _n7(num: Number, ev: Event, rules: Rules) -> _Step:
@@ -917,15 +969,15 @@ def _row(id: str, subject: str, stages: Any, events: Any, then: Callable[[Any, E
 
 L, T, N, C, V = "回線", "行", "番号", "契約者", "試行のせい"
 LS, TS, NS, CS = LineStage, TaskStage, NumberStage, TenantStage
-ALL_LINE_EVENTS = ("E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8", "E9", "E10", "E12", "E13", "E14", "E17")
+ALL_LINE_EVENTS = ("E1", "E2", "E3", "E4", "E5", "E6", "E7", "E8", "E9", "E10", "E12", "E13", "E14", "E17", "E20")
 IN_USE = frozenset(LineStage) - {LineStage.OUT_OF_USE}
 
 
 TABLE: tuple[TableRow, ...] = (
     # ── 17-3-1 回線 ──
-    _row("L-1", L, LS.HEALTHY, ("E1", "E5"), _l1, "【決 10-25 夜・10-29】"),
+    _row("L-1", L, LS.HEALTHY, ("E1", "E5"), _l1, "【決 10-25 夜・10-29・10-30 夜（数え直すのは話し終えた電話だけ）】"),
     _row("L-2", L, LS.HEALTHY, "E2", _l2, "【決 10-24・10-25 夜】・【当(5)】"),
-    _row("L-3", L, LS.HEALTHY, "E4", _l3, "【決 10-25 夜 案A・10-29（2人）】・【当(3)】"),
+    _row("L-3", L, LS.HEALTHY, "E4", _l3, "【決 10-25 夜 案A・10-29（2人）・10-30 夜（お客様の回線のせい・3回）】・【当(3)】"),
     _row("L-4", L, {LS.HEALTHY} | CHECKING, "E3", _nothing, "【決 10-25】", nothing=True),
     _row("L-5", L, CHECKING, ("E1", "E4", "E5"), _l5, "【決 10-24】", chain=True),
     _row("L-6", L, CHECKING, "E2", _l6, "【決 10-24】"),
@@ -962,6 +1014,7 @@ TABLE: tuple[TableRow, ...] = (
          when=lambda s, e, r: s.wait is not Wait.NO_NUMBER, nothing=True),
     _row("L-32", L, {LS.HEALTHY} | CHECKING, "E12", _record_only, "【当】（手の再開は休みの状態だけ＝決定 10-29「手で再開」）"),
     _row("L-33", L, LS.OUT_OF_USE, "E2", _l33, "【当】（L-14「かけている途中の電話も、終わって鳴っていなければ回線」）"),
+    _row("L-34", L, IN_USE, "E20", _l34, "【決 10-30 夜（お客様の回線のせいと分かったお客様は、前の回線の数からも外す・3回）】"),
 
     # ── 17-3-2 行 ──
     _row("R-1", T, TS.ON_PLAN, "E2", _r1, "【決 10-24】"),
@@ -998,11 +1051,13 @@ TABLE: tuple[TableRow, ...] = (
 
     # ── 17-3-3 番号 ──
     _row("N-1", N, (NS.NONE, NS.RUN), "E16", _n1, "【決 10-22 深夜・10-23】・【今 見直し18c】", when=lambda s, e, r: e.blame == "番号"),
-    _row("N-2", N, NS.RUN, "E1", _n2, "【決 10-22 深夜】"),
+    _row("N-2", N, NS.RUN, ("E1", "E4", "E5"), _n2, "【決 10-22 深夜】", chain=True),
     _row("N-3", N, (NS.NONE, NS.RUN), "E16", _n3, "【決 10-24】", when=lambda s, e, r: e.blame == "回線"),
     _row("N-4", N, (NS.NONE, NS.RUN), "E2", _n4, "【今 0144 の (3)】・【決 10-29 案A】"),
-    _row("N-5", N, NS.DEAD, ("E1", "E2", "E16"), _nothing, "【決 10-22 深夜】", nothing=True),
-    _row("N-6", N, NS.NONE, "E1", _nothing, "【当】（続きが無い番号で鳴った：何もしない）", nothing=True),
+    _row("N-5", N, NS.DEAD, ("E1", "E2", "E4", "E5", "E16"), _nothing, "【決 10-22 深夜】", nothing=True),
+    _row("N-6", N, NS.NONE, ("E1", "E4", "E5"), _nothing, "【当】（続きが無い番号で鳴った：何もしない）", nothing=True, chain=True),
+    _row("N-8", N, NS.NONE, "E4", _n8, "【決 10-30 夜（お客様の回線のせいの見分け）】"),
+    _row("N-9", N, NS.NONE, "E5", _n9, "【決 10-30 夜（数え直すのは話し終えた電話だけ）】"),
     _row("N-7", N, (NS.NONE, NS.RUN), "E10", _n7, "【当】（17-3-6：番号の待つ印は、次の日の始まりで見直す。4段目）"),
 
     # ── 17-3-4 契約者 ──

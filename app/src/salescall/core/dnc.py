@@ -18,8 +18,9 @@
   依頼者からの正式な求めのときだけの操作。1件ずつ（`revoke`）と、出どころの通話ごとにまとめて（`revoke_source`。断りで広げた登録を
   まとめて取り消す）の2つの入口があり、どちらも `_revoke` の1か所を通る。取り消したあと（2026-10-30 管理者のご決定 (7)）：その通話から
   入れた発信禁止がすべて取り消されたら、その通話の決定（断り・番号違い・FAX）を報告から外して締め直す（core/approval.withdraw_revoked。
-  その発信禁止で終えた行は予定に戻り、依頼者へ渡す結果の「営業拒否」も外れる）。取り消した番号・管理番号で門が終えたほかの行は、
-  終える前の予定に戻す（core/next_action.reopen。まだほかの登録で止まっていれば、門がまた終える）。
+  その発信禁止で終えた行は予定に戻り、依頼者へ渡す結果の「営業拒否」も外れる）。取り消した番号・管理番号が、まだ有効なほかの決定（ほかの
+  通話の断り・依頼者の一覧）の止める範囲に入っていれば、その決定で止め直す（`_restop`）。発信禁止で門が終えた行のうち、もう止まって
+  いないものは、終える前の予定に戻す（core/next_action.reopen_revoked の1か所）。
 - 通話の途中の「もうかけないで」の申告（`register_declared`）は、検証モードの業務では台帳へ入れない（契約者が承認を押した場合だけ
   営業拒否と確定＝2026-10-30 (6)。承認の部分 approval.decides_on_spot が答える）。
 - 引くのは `lookup`。門と取込は、`target_policy` を通して引く。
@@ -101,6 +102,17 @@ def register(tx: Tx, phone: PhoneNumber | str | None, reason: Reason, *, source_
     管理番号）・released_claims。
     """
     numbers, refs = stop_set(tx, phone, reason, source_attempt_id=source_attempt_id, client_ref=client_ref, in_call=in_call)
+    _put(tx, numbers, refs, reason, source_attempt_id, import_id)
+    entry = (tx.one("SELECT entry_id, reason FROM salescall.dnc_entries WHERE phone_e164 = %s AND revoked_at IS NULL",
+                    (_number(phone).e164,)) if phone is not None else
+             tx.one("SELECT entry_id, reason FROM salescall.dnc_entries WHERE client_ref = %s AND revoked_at IS NULL",
+                    (client_ref.strip(),)))
+    return {"entry_id": entry["entry_id"], "reason": entry["reason"], "numbers": numbers, "client_refs": refs,
+            "released_claims": _release_claims(tx, numbers, refs)}
+
+
+def _put(tx: Tx, numbers: list[str], refs: list[str], reason: str, source_attempt_id: UUID | None, import_id: UUID | None) -> None:
+    """台帳へ書く1か所（同じ番号・管理番号に、取り消していない登録があれば、そのまま＝台帳は番号ごとに1つ）。"""
     for e164 in numbers:
         tx.execute(
             "INSERT INTO salescall.dnc_entries (tenant_id, client_id, phone_e164, reason, source_attempt_id, registered_by,"
@@ -117,16 +129,15 @@ def register(tx: Tx, phone: PhoneNumber | str | None, reason: Reason, *, source_
             " ON CONFLICT (client_id, client_ref) WHERE revoked_at IS NULL DO NOTHING",
             (ref, reason, source_attempt_id, import_id),
         )
-    entry = (tx.one("SELECT entry_id, reason FROM salescall.dnc_entries WHERE phone_e164 = %s AND revoked_at IS NULL",
-                    (_number(phone).e164,)) if phone is not None else
-             tx.one("SELECT entry_id, reason FROM salescall.dnc_entries WHERE client_ref = %s AND revoked_at IS NULL",
-                    (client_ref.strip(),)))
+
+
+def _release_claims(tx: Tx, numbers: list[str], refs: list[str]) -> int:
+    """止めた番号・管理番号への、まだ発信していない予約を取り消す。"""
     claimed = [r["attempt_id"] for r in tx.all(
         "SELECT a.attempt_id FROM salescall.attempts a"
         " JOIN salescall.tasks t ON t.client_id = a.client_id AND t.task_id = a.task_id"
         " WHERE a.state = 'claimed' AND (a.phone_e164 = ANY(%s) OR t.client_ref = ANY(%s))", (numbers, refs))]
-    return {"entry_id": entry["entry_id"], "reason": entry["reason"], "numbers": numbers, "client_refs": refs,
-            "released_claims": attempts.release(tx, claimed)}
+    return attempts.release(tx, claimed)
 
 
 def register_declared(tx: Tx, attempt_id: UUID) -> dict[str, Any]:
@@ -200,7 +211,7 @@ UndecidedKind = Literal["unsettled", "decision_pending"]
 
 
 def undecided_reach(tx: Tx, task_id: UUID) -> UndecidedKind | None:
-    """この行と同じお客様の、ほかの行の発信で、断られたかがまだ決まっていないもの（予約・通話中・締め前・判定できないで
+    """この行と同じお客様の、ほかの行の発信で（取り消せない決定の保留は、この行の発信も）、断られたかがまだ決まっていないもの（予約・通話中・締め前・判定できないで
     判定待ち・取り消せない決定がまだ決まっていない。データベースの1か所 salescall.refusal_undecided）があるか。取引の依頼者の分
     （発信禁止は依頼者ごと）。あれば、その種類（decision_pending＝取り消せない決定がまだ決まっていない＝データベースの
     salescall.decision_pending の1か所：切れ方の分からない通話の確かめのかけ直し・2つ目の判定とそろわず録音の確かめ・検証モードの契約者の
@@ -216,6 +227,12 @@ def undecided_reach(tx: Tx, task_id: UUID) -> UndecidedKind | None:
     t = tx.one("SELECT client_ref FROM salescall.tasks WHERE task_id = %s", (task_id,))
     if t is None:
         raise tasks.TaskNotFound(str(task_id))
+    # この行の前の通話の、取り消せない決定の保留（いまの保留の中身＝データベースの salescall.decision_open の1か所）：この行も止める
+    # （⛔ 見直し24a の (2)：前の通話を判定し直して保留が始まったとき、この行のあとの発信がもうあると、行の予定は判定待ちにならず、門が
+    # 同じお客様へかけた）。切れ方の確かめのかけ直しの待ちは、この行では止めない（その確かめの電話を通す）
+    if tx.one("SELECT EXISTS (SELECT 1 FROM salescall.attempts a WHERE a.task_id = %s"
+              "  AND cardinality(salescall.decision_open(a.attempt_id)) > 0) AS w", (task_id,))["w"]:
+        return "decision_pending"
     mine = set(tasks.numbers(tx, task_id))
     near, _ = reach(tx, task_id)   # この行の番号と、番号を共有する行の番号（相手の範囲が、この行の番号に届きうる行の番号）
     found: UndecidedKind | None = None
@@ -255,7 +272,9 @@ def register_contractor(tx: Tx, phone: PhoneNumber | str, reason: str, *, import
 
 
 def revoke_contractor(tx: Tx, entry_id: UUID, reason: str) -> None:
-    """契約者の共通の発信禁止の登録を取り消す（管理者か契約者だけ・理由つき・1回だけ。データベースが守る）。"""
+    """契約者の共通の発信禁止の登録を取り消す（管理者か契約者だけ・理由つき・1回だけ。データベースが守る）。その登録で門が終えた行は、
+    見守り役の決まった間隔の仕事が、依頼者ごとに終える前の予定に戻す（core/next_action.reopen_revoked の1か所。2026-10-30 管理者のご決定
+    (7)。この取引は契約者の範囲なので、依頼者の行を読めない）。"""
     row = tx.one(
         "UPDATE salescall.contractor_dnc_entries SET revoked_at = now(), revoked_by = salescall.cur_actor(),"
         " revoke_reason = %s WHERE entry_id = %s AND revoked_at IS NULL RETURNING entry_id", (reason, entry_id))
@@ -291,7 +310,7 @@ def revoke(tx: Tx, entry_id: UUID, reason: str) -> dict[str, Any]:
 
 def revoke_source(tx: Tx, attempt_id: UUID, reason: str) -> dict[str, Any]:
     """その通話から入れた発信禁止（断りで行の番号・管理番号へ広げた登録も）を、まとめて取り消す（2026-10-30 管理者のご決定 (7)。⛔ 前は
-    広げた登録を1件ずつしか取り消せなかった）。呼ぶ人・守りは `revoke` と同じ。取り消す登録が無ければ DncEntryNotFound。"""
+    広げた登録を1件ずつしか取り消せなかった）。呼ぶ者・守りは `revoke` と同じ。取り消す登録が無ければ DncEntryNotFound。"""
     ids = [r["entry_id"] for r in tx.all("SELECT entry_id FROM salescall.dnc_entries WHERE source_attempt_id = %s AND revoked_at IS NULL"
                                          " ORDER BY entry_id", (attempt_id,))]
     if not ids:
@@ -310,7 +329,8 @@ def _revoke(tx: Tx, entry_ids: list[UUID], reason: str) -> dict[str, Any]:
     (2) 出どころの通話から入れた登録が、もう1つも残っていなければ、その通話の決定（断り・番号違い・FAX）を報告から外して締め直す
         （core/approval.withdraw_revoked → 締めの処理 settle.resettle。結果の版を足し直し、その行が終わっていれば、ふつうの次の動きへ）。
         一部だけを取り消したときは、断りそのものは誤りではない（ほかの番号は止めたまま）ので、締め直さない
-    (3) 取り消した番号・管理番号を持つ行で、門が発信禁止で終えた行を、終える前の予定に戻す（core/next_action.reopen）
+    (3) 取り消した番号・管理番号を持つ行で、門が発信禁止で終えた行を、終える前の予定に戻す（どの行を戻すかは core/next_action.reopen_revoked
+        の1か所。契約者の共通の台帳の取り消し `revoke_contractor` で終えた行は、見守り役の決まった間隔の仕事が同じ1か所で戻す）
     取り消した登録・締め直した通話・予定に戻した行を返す。"""
     rows = []
     for entry_id in entry_ids:
@@ -331,12 +351,49 @@ def _revoke(tx: Tx, entry_ids: list[UUID], reason: str) -> dict[str, Any]:
         if parts:
             approval.withdraw_revoked(tx, source, parts, reason)
             resettled.append(source)
-    numbers = [r["phone_e164"] for r in rows if r["phone_e164"] is not None]
-    refs = [r["client_ref"] for r in rows if r["client_ref"] is not None]
-    reopened = []
-    for t in tx.all("SELECT DISTINCT t.task_id FROM salescall.tasks t WHERE t.client_ref = ANY(%s)"
-                    " OR EXISTS (SELECT 1 FROM salescall.task_numbers n WHERE n.task_id = t.task_id AND n.phone_e164 = ANY(%s))"
-                    " ORDER BY 1", (refs, numbers)):
-        if next_action.reopen(tx, t["task_id"], cause=f"発信禁止の取り消し（{reason}）：終える前の予定に戻す") is not None:
-            reopened.append(t["task_id"])
+    _restop(tx, rows)
+    reopened = next_action.reopen_revoked(tx, cause=f"発信禁止の取り消し（{reason}）：終える前の予定に戻す")
     return {"revoked": [r["entry_id"] for r in rows], "resettled": resettled, "reopened": reopened}
+
+
+def _restop(tx: Tx, rows: list[dict[str, Any]]) -> None:
+    """取り消した番号・管理番号を、止める範囲に持つ、まだ有効なほかの決定（ほかの通話の断り・依頼者の一覧）で止め直す（1か所。見直し24a の
+    (1)：台帳は番号ごとに1つなので、番号違いの登録の番号が、あとの通話の断りの止める範囲にも入っていると、断りの登録は書かれていなかった。
+    番号違いの登録を取り消すと、断ったお客様の番号が止まらなくなった）。止める範囲は `stop_set` の1か所。同じ出どころ（同じ通話・同じ一覧の
+    取込）の、取り消した番号・管理番号は止め直さない（その出どころの、その番号の取り消しは、依頼者からの正式な求め）。
+    調べるのは、取り消した番号・管理番号を持つ行と、それと番号を共有する行（止める範囲が届きうる行＝`reach` の1段）の決定だけ。"""
+    numbers = sorted({r["phone_e164"] for r in rows if r["phone_e164"] is not None})
+    refs = sorted({r["client_ref"] for r in rows if r["client_ref"] is not None})
+    near = [r["task_id"] for r in tx.all(
+        "WITH hit AS (SELECT task_id FROM salescall.task_numbers WHERE phone_e164 = ANY(%s)"
+        "             UNION SELECT task_id FROM salescall.tasks WHERE client_ref = ANY(%s))"
+        " SELECT task_id FROM hit UNION"
+        " SELECT o.task_id FROM salescall.task_numbers o JOIN salescall.task_numbers s ON s.phone_e164 = o.phone_e164"
+        " WHERE s.task_id IN (SELECT task_id FROM hit) ORDER BY 1", (numbers, refs))]
+    if not near:
+        return
+    standing = tx.all(
+        "SELECT DISTINCT ON (coalesce(e.source_attempt_id::text, ''), coalesce(e.import_id::text, ''), e.reason)"
+        "       e.phone_e164, e.client_ref, e.reason::text AS reason, e.source_attempt_id, e.import_id"
+        " FROM salescall.dnc_entries e"
+        " WHERE e.revoked_at IS NULL AND e.reason::text = ANY(%s)"
+        "   AND (e.source_attempt_id IN (SELECT attempt_id FROM salescall.attempts WHERE task_id = ANY(%s))"
+        "        OR (e.reason = 'client_list' AND (e.phone_e164 IN (SELECT phone_e164 FROM salescall.task_numbers WHERE task_id = ANY(%s))"
+        "                                          OR e.client_ref IN (SELECT client_ref FROM salescall.tasks WHERE task_id = ANY(%s)))))"
+        " ORDER BY coalesce(e.source_attempt_id::text, ''), coalesce(e.import_id::text, ''), e.reason, e.entry_id",
+        (sorted(CUSTOMER_WIDE), near, near, near))
+    for e in standing:
+        if e["source_attempt_id"] is not None:   # 通話の断り：その通話の番号から（止める範囲は、その通話の行から広げる）
+            phone = tx.one("SELECT phone_e164 FROM salescall.attempts WHERE attempt_id = %s", (e["source_attempt_id"],))["phone_e164"]
+            want_n, want_r = stop_set(tx, phone, e["reason"], source_attempt_id=e["source_attempt_id"])
+        else:                                     # 依頼者の一覧：その登録の番号・管理番号から
+            want_n, want_r = stop_set(tx, e["phone_e164"], e["reason"],
+                                      client_ref=e["client_ref"] if e["phone_e164"] is None else None)
+        gone = tx.all("SELECT phone_e164, client_ref FROM salescall.dnc_entries WHERE revoked_at IS NOT NULL"
+                      " AND source_attempt_id IS NOT DISTINCT FROM %s AND import_id IS NOT DISTINCT FROM %s",
+                      (e["source_attempt_id"], e["import_id"]))
+        n = [x for x in want_n if x in numbers and x not in {g["phone_e164"] for g in gone}]
+        r = [x for x in want_r if x in refs and x not in {g["client_ref"] for g in gone}]
+        if n or r:
+            _put(tx, n, r, e["reason"], e["source_attempt_id"], e["import_id"])
+            _release_claims(tx, n, r)

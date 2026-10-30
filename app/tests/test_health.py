@@ -223,7 +223,7 @@ class Places(HealthBase):
     def test_poor_audio_counts_on_the_line_and_the_row_waits_for_a_voiced_line(self):
         """E4（声が聞き取れずに終えた）：回線へは電話が終わった所で（L-3。そのお客様を声の続きに数える。1人では止めない）、行へは締めの
         あと（R-11。すぐのかけ直しが続けて2回のうち＝salescall.resume_allowed が、締めが残す「途中で切れたか」を読む）。行は声の通る回線を
-        待つ（門・候補は、その行を出さない）。番号は鳴った電話（N-6）。"""
+        待つ（門・候補は、その行を出さない）。番号は鳴った電話（N-6）で、声が聞き取れなかった回線を持つ（N-8。2026-10-30 夜）。"""
         s = self.ready()
         called = self.round(s, FakeDriver(), Script({}, default="trouble:poor_audio"))
         self.assertEqual(self.blame(s, called), "empty")
@@ -231,10 +231,32 @@ class Places(HealthBase):
         self.assertEqual((ln.stage, ln.m), (hr.LineStage.HEALTHY, 1))
         got = self.moves(s, event="E4")
         self.assertEqual(got, [("line", "E4", "healthy", "healthy", ("L-3",), "after_call"),
+                               ("number", "E4", "none", "none", ("N-6", "N-8"), "after_call"),   # 声が聞き取れなかった回線を持つ（10-30 夜）
                                ("task", "E4", "on_plan", "voice_redial", ("R-11",), "after_settle")])
         jobs.settle_ready(self.ctx(s))
-        self.assertEqual(len(self.moves(s, event="E4")), 2)                            # 締めのあとの分も1回だけ
+        self.assertEqual(len(self.moves(s, event="E4")), 3)                            # 締めのあとの分も1回だけ（回線・番号・行）
         self.assertEqual(self.reason(s), "voice_redial")
+
+    def test_a_customer_not_heard_on_another_line_too_is_the_customers_line(self):
+        """2026-10-30 夜 管理者：声が聞き取れなかったお客様が、ほかの回線 B でも聞き取れなかった ⇒ お客様の回線のせい。入口
+        （core/health.after_call）が番号の欄（audio_lines）を読み、この回線 A へは B を添えて E4 を渡す＝A の声の続きに入れず、お客様の回線の
+        せいと見た続きに数える（L-3）。B へは E20＝B の声の続きから、そのお客様を外し、同じく数える（L-34）。番号の欄は A も持つ（N-8）。"""
+        s = self.ready()
+        b = self.w.line(s["tenant"])
+        before = hr.Number(hr.NumberStage.NONE, audio_lines=frozenset({str(b)}))
+        owner_access().in_system(SYSTEM, lambda tx: tx.execute(
+            "INSERT INTO salescall.number_states (contact_id, tenant_id, client_id, stage, state) VALUES (%s, %s, %s, %s, %s)"
+            " ON CONFLICT (contact_id) DO UPDATE SET stage = EXCLUDED.stage, state = EXCLUDED.state",
+            (s["contact"], s["tenant"], s["client"], health.stage_name(before), json.dumps(health.encode(before)))))
+        self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: health.tick(tx, b))   # 回線 B の欄を作る（元気）
+        self.put_line(s, hr.Line(hr.LineStage.HEALTHY, audio=frozenset({str(s["contact"])})), b)   # B では、このお客様を数えていた
+        self.round(s, FakeDriver(), Script({}, default="trouble:poor_audio"))
+        a = self.state(s, "line", s["line"])
+        self.assertEqual((a.stage, a.m, a.suspect), (hr.LineStage.HEALTHY, 0, 1))      # 声の続きには入れない
+        other = self.state(s, "line", b)
+        self.assertEqual((other.m, other.suspect), (0, 1))                              # B の続きから外した
+        self.assertIn(("line", "E20", "healthy", "healthy", ("L-34",), "after_call"), self.moves(s, event="E20"))
+        self.assertEqual(self.state(s, "number", s["contact"]).audio_lines, frozenset({str(b), str(s["line"])}))
 
     def test_a_fixed_version_is_given_once(self):
         """E11（決まった間隔の仕事 fixed_stops）：その種類を直したと記録され、そのあと版が替わった＝契約者の数を0に（C-4）・復旧待ちの行を

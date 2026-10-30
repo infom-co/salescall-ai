@@ -12,7 +12,11 @@ Intent.md 16-3：「誤判定率：通話のサンプルを管理者か契約者
     直した中身が正解）とき。測らない通話（話していない・お詫び）なら、何も入れない。
   - 本番：抜き取った通話の録音を、管理者か契約者が聞いて正解を付けたとき（画面＝CL-3 が呼ぶ）。
   正解は「正しい業務の状態」と「システムが渡した項目のうち、違っていたもの（質問の番号）」。同じ通話に付け直したら、新しい正解を
-  足す（最新が正本）。**正解の出どころ（検証モード・抜き取り・本番で気づいて直した）は、データベースがその通話から決めて入れる**
+  足す（最新が正本）。**契約者が差し戻した取り消せない決定のうち、システムがその場で決めていたはずのもの（2つ目の判定とそろって
+  いた＝フルオートなら、そのまま発信禁止・行の終わりになっていた）は、その通話のどの正解にも「違っていた項目」として必ず入る**
+  （`decision:` に決定の中身＝refusal・wrong_party・complaint を付けた名前。差し戻すと、その決定を外して締め直した版ができ、正解は
+  その版に付くので、入れないと、システムの誤りが誤判定率から黙って落ちる。2026-10-30 管理者のご決定 (6) の当てはめ。0153）。
+  **正解の出どころ（検証モード・抜き取り・本番で気づいて直した）は、データベースがその通話から決めて入れる**
   （呼ぶ側は渡さない。前は呼ぶ側が渡せたので、抜き取っていない通話を抜き取りとして入れられた＝2026-10-18 の見直し）。
 - **正解を付けたら、その通話の「測り終わるまで消さない」印を外す**（`recordings.release`。2026-10-17 ユーザー 案A：測り終わったら、
   ふつうの決まりに戻す）。測り終わる＝その通話に正解が付いた（誤判定率は正解から数えるので、録音はもう要らない）。
@@ -42,6 +46,7 @@ from salescall.core.access import Tx
 # 材料（録音の印の理由と同じ名前）。本番で契約者が気づいて直したもの（correction）は、気づいたものだけ＝偏った材料なので、記録は
 # するが誤判定率には混ぜない。
 SOURCES = ("verification", "sample", "correction")
+SENT_BACK = "decision:"   # 差し戻した取り消せない決定の、違っていた項目の名前の頭（質問の番号と重ならない）
 METHOD = "前の週（日本時間の月曜〜日曜）の、お客様と話せた本番の通話（会話に入った・お詫びの電話でない・検証モードでない・判定した版がある）から、乱数の種で無作為に選んだ"
 SYSTEM_KINDS = ("judged", "rejudged")   # システムが判定した版（正解を付ける相手）
 UNMEASURED = "測らない通話（お客様と話していない・お詫びの電話・かけずに取り消した予約）"
@@ -50,7 +55,7 @@ UNMEASURED = "測らない通話（お客様と話していない・お詫びの
 def record_check(tx: Tx, task_id: UUID, version_no: int, *, truth_state: str,
                  wrong_items: list[str] | tuple[str, ...]) -> int | None:
     """システムが判定した結果の版に、正解を付ける（取引の依頼者の行。管理者か契約者だけ）。その通話の出どころの印（検証モード・
-    抜き取り）を外す。正解の番号を返す。人の版・測らない通話の版なら、何もせず None（承認・直したことが正解にならない場合）。
+    抜き取り）を外す。正解の番号を返す。契約者の版・測らない通話の版なら、何もせず None（承認・直したことが正解にならない場合）。
     その通話の最新の判定の版でなければ LookupError（比べる相手は、通話ごとに1つ）。"""
     v = tx.one("SELECT kind::text AS kind, attempt_id, salescall.call_to_measure(attempt_id) AS measured"
                " FROM salescall.task_results WHERE task_id = %s AND version_no = %s", (task_id, version_no))
@@ -60,12 +65,14 @@ def record_check(tx: Tx, task_id: UUID, version_no: int, *, truth_state: str,
         return None
     if tx.one("SELECT version_no FROM salescall.call_judgements WHERE attempt_id = %s", (v["attempt_id"],))["version_no"] != version_no:
         raise LookupError(f"その通話には、新しい判定の版があります（正解は、その通話の最新の判定の版に付けます）：{task_id} の版 {version_no}")
+    from salescall.core import approval   # 承認の部分がこの部品を読むので、ここで読む（読み合いにしない）
+    sent_back = [SENT_BACK + p for p in approval.sent_back_on_spot(tx, v["attempt_id"])]
     got = tx.one(
         "INSERT INTO salescall.judgement_checks (tenant_id, client_id, task_id, version_no, attempt_id, source, truth_state,"
         "                                        wrong_items, checked_by)"
         " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, 'correction', %s, %s, salescall.cur_actor())"
         " RETURNING check_id, source",       # 出どころはデータベースが決めて入れる（ここで渡す値は使われない）
-        (task_id, version_no, v["attempt_id"], truth_state, sorted(set(wrong_items))))
+        (task_id, version_no, v["attempt_id"], truth_state, sorted(set(wrong_items) | set(sent_back))))
     if got["source"] in recordings.HOLD_REASONS:
         recordings.release(tx, [v["attempt_id"]], got["source"], measurement=f"誤判定率の正解（{got['check_id']}）")
     return got["check_id"]

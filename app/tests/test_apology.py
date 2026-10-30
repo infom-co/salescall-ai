@@ -7,7 +7,7 @@ from dataclasses import replace
 from datetime import timedelta
 
 from salescall.core import apology, attempts, call_report, fix_requests, gate, next_action, quality_stage, recordings, reward, settle, stops
-from salescall.core import health
+from salescall.core import dnc, health
 from salescall.core.access import Rejected
 from salescall.core.attempts import ForbiddenFinding, VerificationSummary
 from salescall.core.call_report import Cut
@@ -355,6 +355,21 @@ class Apology(Helpers):
         self.tx(s, settle.rejudge_held)
         self.assertEqual(count(), 1)
         self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["end_reason"], "do_not_call")
+
+    def test_revoking_an_apology_call_refusal_puts_the_row_back(self):
+        """お詫びの電話で断られた（そろった）⇒ 発信禁止・行は終わり。そのあと依頼者からの正式な求めで、その通話から入れた発信禁止を取り
+        消した ⇒ 断りを外して、お詫びの電話の次の動きを決め直す＝行は「お詫びの電話の断り」で終わったままにしない（2026-10-30 (7)。
+        ⛔ 見直し24a の (5)：前は、締めてあるお詫びの電話の締め直しが何もせず、行が終わったままだった）。伝えたかの記録はそのまま。"""
+        s = self.fresh(stage_cap=20)
+        self.order(s, self.incident(s))
+        got = self.apology_call(s, refusals=rep(dnc_=True).refusals, apology_delivered=True)
+        self.assertEqual(got["decision"].end_reason, "do_not_call")
+        aid = self.tx(s, lambda tx: tx.one("SELECT attempt_id FROM salescall.attempts WHERE task_id = %s AND purpose = 'apology'",
+                                           (s["task"],)))["attempt_id"]
+        self.tx(s, lambda tx: dnc.revoke_source(tx, aid, "依頼者からの正式な求め（試験）"), OPERATOR)
+        self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["end_reason"], "apology_done")
+        self.assertEqual(self.tx(s, lambda tx: tx.one("SELECT count(*) AS n FROM salescall.apology_outcomes WHERE attempt_id = %s",
+                                                      (aid,)))["n"], 1)
 
     def test_refusal_is_decided_in_the_one_place(self):
         """お詫びの電話の拒否も、判定と同じ1か所（judge.refusal）で決める（2026-10-16 の見直し J6）。
