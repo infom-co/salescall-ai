@@ -21,8 +21,8 @@ from __future__ import annotations
 
 import json
 
-from flowctl import (ABOUT, ANY, BEFORE, CHOICE_TYPES, CONFIRM_LABEL, HANDOVER, HOLD, NO_BEFORE, PHONE, SPEAKER, UNDECIDED, WHO, called_words,
-                     facts_reading, label)
+from flowctl import (ABOUT, ANY, ASKS_MEANINGS, BEFORE, CHOICE_TYPES, CONFIRM_LABEL, HANDOVER, HOLD, NO_BEFORE, PHONE, SPEAKER, UNDECIDED, WHO,
+                     called_words, facts_reading, label)
 
 SYSTEM_DESC = {ANY: "どれでもよいと、こちらに任された（「どちらでも」「どれでも」）",
                "unknown": "わからない・覚えていない・まだ決めていない（選ぶ前の状態）",
@@ -356,16 +356,23 @@ OTHER_JUDGES = {
     # 一番高くて 0.59（2回り目 0.55・3回り目 0.64）⇒ 1回り目で 0.8 と決め、2・3回り目で 120回中49回を Jev だけで決めて外れ0（G-59jev_facets_r2/_r3）。
     # 判定に見せる名前を書いてあるとおりにしたあと（Flow.for_judge）の3回りでも、外れの確からしさは 0.37 まで・0.8 から上は 180回中78回で外れ0
     # （G-59jev_names）。⛔ 2026-10-29：答えの判定で測った 0.95 を、項目ごとの形で測らずに使っていた（Jev が決めるのは 180回中10回だけだった）
+    # asks_sure_min＝目的のお客様をお呼びする段の「尋ねているか」（flowctl.ASKS_MEANINGS の質問）で答えにする確からしさ。決め方は上と同じ。G-59 の
+    # 71行×3回（G-59jev_layer5・_layer15・_layer17。この質問の説明は3回とも同じ）：尋ねているか・何を聞かれたか・取り次ぎを待つ（電話のやり取りの
+    # 正解に当てた）で数えて、1回り目は外れ0・Jev が外れたのは3回の中で確からしさ 0.3 台の1回だけ ⇒ 目的のお客様の判定と同じ 0.8 と決め、2・3回り目で
+    # 142回中108回を Jev だけで決めて外れ0（0.95 のときは 64回。尋ねている9行は3回とも 0.8 から上で合った）。⛔ 2026-10-30：この質問も、答えの判定で
+    # 測った 0.95 を測らずに使っていた（2026-10-30 ユーザー：「考えない Sonnet の割合を下げながら、100％精度を出す組や仕組みを模索してください。」）
     "Jev 1.14": {"maker": "typesafe", "model": "typesafe/jev-1.14", "key": "OPENROUTER_JUDGE_KEY", "host": "openrouter.ai",
-                 "sure_min": 0.95, "facets_sure_min": 0.8, "firm_min": 0.2, "ground_min": 0.8},
+                 "sure_min": 0.95, "facets_sure_min": 0.8, "asks_sure_min": 0.8, "firm_min": 0.2, "ground_min": 0.8},
 }
 
 
 def sure_line(name: str, q) -> float | None:
     """確からしさを返す判定（Jev）の、答えにする線を決める唯一の場所：目的のお客様の判定（項目ごとに答える質問＝q.facets）は facets_sure_min・
-    ほかの質問は sure_min。確からしさを返さない判定は None（線なし）。"""
+    尋ねているか（選ぶものが flowctl.ASKS_MEANINGS の質問）は asks_sure_min・ほかの質問は sure_min（線は質問の種類ごとに、その種類の正解の付いた
+    答えで決める＝測っていない種類は sure_min のまま）。確からしさを返さない判定は None（線なし）。"""
     j = OTHER_JUDGES.get(name, {})
-    return j.get("facets_sure_min", j.get("sure_min")) if getattr(q, "facets", ()) else j.get("sure_min")
+    kind = "facets_sure_min" if getattr(q, "facets", ()) else "asks_sure_min" if set(getattr(q, "conditions", ())) == set(ASKS_MEANINGS) else ""
+    return j.get(kind, j.get("sure_min"))
 # 同時に出して、先に届いた確かな読みで決める組（唯一の場所。意味の判定の受け持ち＝JudgePanel・中身の判定＝grounding.make_grounder の両方が使う）。
 #    ✅ 2026-10-23 ユーザー（中身の判定）：「W sonnetで暫定としてOK」・2回目「OK」（Jev と2つの Sonnet を同時に出し、早く届いた確かな読みで決める）
 #    ✅ 2026-10-25 ユーザー：「以前、JevやSonnet 5.5 の「考えない」形を使うと決めましたよね。同じことを聞くな！」＝意味の2つ目の判定も同じ組

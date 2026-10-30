@@ -5483,6 +5483,11 @@ class VoiceFeaturesTest(unittest.TestCase):
         self.assertEqual(sure_line("Jev 1.14", f.judge_context()[0]), 0.8)
         self.assertEqual(sure_line("Jev 1.14", b.questions[0]), 0.95)
         self.assertIsNone(sure_line("Claude Sonnet 5.5", f.judge_context()[0]))
+        # 尋ねているか（お呼びする段・確かめる一言の段の両方）も 0.8（G-59 の Jev の3回分で決めて数えた）・測っていない「待たせた方が戻ったか」は 0.95 のまま
+        self.assertEqual({sure_line("Jev 1.14", q) for q in f.asks_questions.values()}, {0.8})
+        self.assertGreater(len(f.asks_questions), 1)
+        self.assertEqual(sure_line("Jev 1.14", f.return_question), 0.95)
+        self.assertIsNone(sure_line("Claude Sonnet 5.5", next(iter(f.asks_questions.values()))))
 
     def test_judges_see_names_as_written(self):
         # 判定に見せる質問の文の名前は、書いてあるとおり＋読み（instruction.Business.judge_names・flowctl.Flow.for_judge の1か所）。声で流す文は読みのまま。

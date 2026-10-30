@@ -2,7 +2,8 @@
 - misses：組み合わせた読みか、項目ごとの答えの外れを1行ずつ出す
 - plan：判定を場面で選び分ける形を数える（✅ 2026-10-29 ユーザー：「Jevの0.8以上と『難しくない場合』Haiku（考える）で、『難しい場合』のみ
   Sonnetを使う形がいいんじゃないですか？」）＝Jev の確からしさが線から上なら Jev、そうでなければ難しくない場面（呼ぶ一言への返事・確かめへの
-  返事）は安い判定、難しい場面（取り次ぎのあと・後任の方）は今の組。場面は流れの制御の状態だけで分ける（言葉の中身で分けない）"""
+  返事）は安い判定、難しい場面（取り次ぎのあと・後任の方）は今の組。場面は流れの制御の状態だけで分ける（言葉の中身で分けない）
+- agree：会社の違う安い判定2つの読みが、流れの制御の動きでそろえば決め、そろわなければ今の組を出す形を数える（2秒超も、ご本人の回とほかの回に分ける）"""
 from __future__ import annotations
 
 import argparse
@@ -11,7 +12,7 @@ import json
 from pathlib import Path
 
 import g59_calling_judge as g
-from flowctl import HANDOVER, TARGET_IS_NOT, UNDECIDED, facts_reading
+from flowctl import HANDOVER, TARGET_IS_NOT, TARGET_IS_THERE, UNDECIDED, facts_reading
 
 RESULTS = Path(__file__).parent / "results"
 HARD = {"取り次ぎのあと", "後任の方"}
@@ -35,22 +36,26 @@ def current() -> dict:
     return {(t, b, a is not None, s): (acc, f) for t, acc, b, a, s, f in g.cases("確かめる一言")}
 
 
+def flow_flags(f: dict, r: dict) -> tuple:
+    """項目ごとの答え f で、行 r の場面の流れの制御がどう動くか（読み・不在・電話を代わった方・後任の方の印）。2つの答えの印が同じなら、流れの制御の
+    動きも同じ（flow_ok と、判定どうしのそろいを数える agree の両方が使う1か所）。電話を代わった方の印は、流れの制御が使うときだけ持つ
+    （Flow._new_speaker：確かめる一言を聞いた方の返事・取り次ぎの言葉のあとの言葉では使わない＝g.HELD_BEFORE）。"""
+    used = not r["asked"] and not set((r["before"] or "").split("／")) & g.HELD_BEFORE
+    value, away, new, succ = facts_reading(f, r["successor"])
+    if not used and value == HANDOVER:   # 印を使わない所では「代わった人が話し始めた」＝「別の方」と同じ動き（2026-10-30 に会話の試しで確かめた）
+        value = TARGET_IS_NOT
+    # 「決められない」の読みは、必ず確かめに回り、確かめたあとに、あいさつと名乗りから流す＝電話を代わった方の印は動きを変えない（同じ日に確かめた）
+    return value, away, new if used and value != UNDECIDED else None, succ
+
+
 def flow_ok(got: dict, facts: dict, acc: list, r: dict) -> bool:
     """流れの制御の動きが正解と同じか：組み合わせた読み（flowctl.facts_reading）が受け取ってよい読みに入り、印（不在・電話を代わった方・後任の方）も
-    正解の組み合わせのどれかと同じ。項目だけの外れ（読みも印も変わらない）は、流れの制御の動きを変えない。電話を代わった方の印は、流れの制御が
-    使うときだけ比べる（Flow._new_speaker：確かめる一言を聞いた方の返事・取り次ぎの言葉のあとの言葉では使わない＝g.HELD_BEFORE）。"""
+    正解の組み合わせのどれかと同じ（flow_flags）。項目だけの外れ（読みも印も変わらない）は、流れの制御の動きを変えない。"""
     from itertools import product
-    seeks = r["successor"]
     used = not r["asked"] and not set((r["before"] or "").split("／")) & g.HELD_BEFORE
     keys = list(facts)
-    def flags(f):
-        value, away, new, succ = facts_reading(f, seeks)
-        if not used and value == HANDOVER:   # 印を使わない所では「代わった人が話し始めた」＝「別の方」と同じ動き（2026-10-30 に会話の試しで確かめた）
-            value = TARGET_IS_NOT
-        # 「決められない」の読みは、必ず確かめに回り、確かめたあとに、あいさつと名乗りから流す＝電話を代わった方の印は動きを変えない（同じ日に確かめた）
-        return value, away, new if used and value != UNDECIDED else None, succ
-    want = {flags(dict(zip(keys, c)))[1:] for c in product(*(facts[k] for k in keys))}
-    value, *rest = flags(got)
+    want = {flow_flags(dict(zip(keys, c)), r)[1:] for c in product(*(facts[k] for k in keys))}
+    value, *rest = flow_flags(got, r)
     accepted = {TARGET_IS_NOT if not used and a == HANDOVER else a for a in acc}
     return value in accepted and tuple(rest) in want
 
@@ -148,6 +153,57 @@ def plan(cheap: list[str], jev: list[str], group: str, line: float) -> None:
         print("  ", x)
 
 
+def agree(a_specs: list[str], b_specs: list[str], jev: list[str], group: str, line: float, sonnet_scenes: set[str]) -> None:
+    """判定2つのそろいで決める形（✅ 2026-10-30 ユーザー：「考えない Sonnet の割合を下げながら、100％精度を出す組や仕組みを模索してください。」）：
+    Jev の確からしさが線から上なら Jev。そうでなければ、sonnet_scenes の場面は今の組、ほかの場面は、安い判定 a と b（Jev と同時に出す）の流れの
+    制御の印（flow_flags）がそろえばその読み、そろわなければ今の組（a・b の両方を待ってから出す）。外れは流れの制御の動きで数え、2秒を超えた回は、
+    正しい読みがご本人の回（繋ぐ前に判定を待ち、間に合わなければ確かめに回る）と、ほかの回に分ける（答えの段は遅れて当て直す＝Flow.hold_s）。"""
+    table = current()
+    def load(specs: list[str], col: str) -> dict:
+        rows = collections.defaultdict(list)
+        for spec in specs:
+            name, c = source(spec, col)
+            for r in rows_of(name):
+                rows[key(r)].append((r, c))
+        return rows
+    ar, br, jr_, gr = load(a_specs, "judge2"), load(b_specs, "judge2"), load(jev, "jev"), load([group], "judge2")
+    by, moved, only, late = (collections.Counter() for _ in range(4))
+    out = []
+    for k in sorted(set(ar) & set(br) & set(gr), key=str):
+        acc, facts = table[k]
+        for i in range(max(len(ar[k]), len(br[k]))):
+            jr, jc = jr_[k][i % len(jr_[k])] if jr_[k] else (ar[k][0][0], None)
+            sc = scene(jr)
+            got, sure, _ = answer(jr, jc) if jc else (None, 0.0, 0.0)
+            g_got, _, g_s = answer(*gr[k][i % len(gr[k])])
+            if got and sure >= line:
+                who, s = "Jev", 0.3
+            elif sc in sonnet_scenes:
+                who, got, s = "今の組（場面）", g_got, 0.3 + g_s
+            else:
+                (a_got, _, a_s), (b_got, _, b_s) = answer(*ar[k][i % len(ar[k])]), answer(*br[k][i % len(br[k])])
+                both = max(a_s, b_s)
+                if a_got and b_got and len(a_got) == len(b_got) == len(facts) and flow_flags(a_got, jr) == flow_flags(b_got, jr):
+                    who, got, s = "そろい", a_got, both
+                else:
+                    who, got, s = "今の組（食い違い）", g_got, both + g_s
+            by[who] += 1
+            if s > 2.0:
+                late["ご本人の回" if TARGET_IS_THERE in acc else "ほかの回"] += 1
+            if not got or len(got) != len(facts) or not flow_ok(got, facts, acc, jr):
+                moved[f"{who}・{sc}"] += 1
+                out.append((sc, who, jr["text"], jr["before"] or ""))
+            elif not g.facts_ok(got, facts):
+                only[f"{who}・{sc}"] += 1
+    n = sum(by.values())
+    group_n = by["今の組（場面）"] + by["今の組（食い違い）"]
+    print("決めた判定：", dict(by), f"｜今の組を出した回 {group_n}/{n}（{group_n / n:.0%}）")
+    print("流れの制御の動きが変わる外れ：", dict(moved) or 0, "｜項目だけの外れ：", dict(only) or 0)
+    print("2秒超：", dict(late) or 0)
+    for x in out:
+        print("  ", x)
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__)
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -158,11 +214,20 @@ def main() -> None:
     q.add_argument("--jev", required=True, help="Jev の答え（「ファイル名:列」を,で区切る。列の既定は jev＝Jev だけに聞いた行の並び・G-59 の形は judge2）")
     q.add_argument("--group", required=True, help="今の組の答え（「ファイル名:列」。列の既定は judge2）")
     q.add_argument("--line", type=float, default=0.8)
+    w = sub.add_parser("agree")
+    w.add_argument("--a", required=True, help="安い判定の1つ目（「ファイル名:列」を,で区切る。列の既定は judge2・その場の判定は judge）")
+    w.add_argument("--b", required=True, help="安い判定の2つ目（会社の違うもの）")
+    w.add_argument("--jev", required=True, help="Jev の答え（plan と同じ）")
+    w.add_argument("--group", required=True, help="今の組の答え（plan と同じ）")
+    w.add_argument("--line", type=float, default=0.8)
+    w.add_argument("--sonnet-scenes", default=",".join(sorted(HARD)), help="そろいを使わず今の組で決める場面（,で区切る。空なら全部の場面でそろいを使う）")
     a = p.parse_args()
     if a.cmd == "misses":
         misses(a.names)
-    else:
+    elif a.cmd == "plan":
         plan(a.cheap.split(","), a.jev.split(","), a.group, a.line)
+    else:
+        agree(a.a.split(","), a.b.split(","), a.jev.split(","), a.group, a.line, set(filter(None, a.sonnet_scenes.split(","))))
 
 
 if __name__ == "__main__":
