@@ -249,12 +249,14 @@ def prompt_parts(q, text: str, asked: str | None = None, before: str | None = No
     return head, before + said + choices + tail
 
 
-def cached_content(fixed: str, varying: str) -> list[dict]:
+def cached_content(fixed: str, varying: str, ttl: str | None = None) -> list[dict]:
     """Anthropic へ送る問い合わせの文（唯一の場所。意味の判定・中身の判定）：毎回同じ前の部分に印（cache_control）を付け、2回目からは
     約10分の1の値段で読ませる（5分使わなければ消える。1回目の書き込みは1.25倍）。⚠️ 2026-10-29 に確かめた（約3.4円）：考える Sonnet と
     考えない Sonnet は、本文に置いてもシステムの指示に置いても、互いの印の部分を読めない（考える設定が前の部分に入る）＝形ごとに別に書く。
-    同じ形どうしは 1,961トークン中 1,961 を読めた。印の部分は 512トークンより短いと付かない（Sonnet 5.5・Haiku 5.5）"""
-    return [{"type": "text", "text": fixed, "cache_control": {"type": "ephemeral"}}, {"type": "text", "text": varying}]
+    同じ形どうしは 1,961トークン中 1,961 を読めた。印の部分は 512トークンより短いと付かない（Sonnet 5.5・Haiku 5.5）。
+    ttl＝もつ長さ（"1h"＝1時間。書き込みは2倍。まとめて送る測り＝batch_judge だけ。通話は5分のまま）"""
+    mark = {"type": "ephemeral"} | ({"ttl": ttl} if ttl else {})
+    return [{"type": "text", "text": fixed, "cache_control": mark}, {"type": "text", "text": varying}]
 
 
 def _config(q, asked: str | None):
@@ -478,11 +480,12 @@ class OtherJudgeError(RuntimeError):
         self.status, self.retry = status, retry
 
 
-def other_request(name: str, q, text: str, asked: str | None, before: str | None = None) -> dict:
-    """Google 以外の判定への問い合わせの中身（会社ごとの形。問い合わせの文と選べるものは Gemini と同じ）。"""
+def other_request(name: str, q, text: str, asked: str | None, before: str | None = None, ttl: str | None = None) -> dict:
+    """Google 以外の判定への問い合わせの中身（会社ごとの形。問い合わせの文と選べるものは Gemini と同じ）。ttl＝Anthropic の、毎回同じ前の部分の
+    もつ長さ（まとめて送る測り＝batch_judge だけ。cached_content）。"""
     j, p = OTHER_JUDGES[name], prompt(q, text, asked, before)
     if j["maker"] == "anthropic":
-        content = cached_content(*prompt_parts(q, text, asked, before))   # 毎回同じ前の部分は、2回目から約10分の1の値段
+        content = cached_content(*prompt_parts(q, text, asked, before), ttl=ttl)   # 毎回同じ前の部分は、2回目から約10分の1の値段
         # ⚠️ Claude Haiku 5.5 は temperature などを送ると断る（1以外は400＝2026-10-18 に当たった）。名前を指定した道具の呼び出しは、
         #    考える段を飛ばして道具の呼び出しから返す（いちばん速い形）。strict＝選べるもの以外の名前を返させない
         body = {"model": j["model"], "max_tokens": 256, "messages": [{"role": "user", "content": content}],
@@ -605,16 +608,21 @@ class Spend:
         if self.limit is not None and self.yen >= self.limit:
             raise OtherJudgeError(None, f"この試しで使ってよい料金（{self.limit:.0f}円）に達したので送りません（--budget-yen）")
 
-    def add(self, model: str, usage) -> None:
-        u = {k: getattr(usage, k, None) or (usage.get(k) if isinstance(usage, dict) else None) or 0
-             for k in ("input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")}
+    def add(self, model: str, usage, factor: float = 1.0) -> None:
+        """返事の使った量を数える。factor＝料金の掛け目（まとめて送る測り＝BATCH_FACTOR。書き込み・読み出しも同じく半分）。1時間もつ形の
+        書き込み（cache_creation の ephemeral_1h_input_tokens）は入力の2倍（5分の形は PRICE の書き込み＝1.25倍）。"""
+        def field(obj, k):
+            return getattr(obj, k, None) or (obj.get(k) if isinstance(obj, dict) else None) or 0
+        u = {k: field(usage, k) for k in ("input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")}
+        cc = getattr(usage, "cache_creation", None) or (usage.get("cache_creation") if isinstance(usage, dict) else None)
+        hour = field(cc, "ephemeral_1h_input_tokens") if cc else 0
         p_in, p_out, p_read, p_write = PRICE.get(model, PRICE["claude-sonnet-5-5"])
-        usd = (u["input_tokens"] * p_in + u["output_tokens"] * p_out + u["cache_read_input_tokens"] * p_read
-               + u["cache_creation_input_tokens"] * p_write) / 1e6
+        write = (u["cache_creation_input_tokens"] - hour) * p_write + hour * 2 * p_in
+        usd = (u["input_tokens"] * p_in + u["output_tokens"] * p_out + u["cache_read_input_tokens"] * p_read + write) / 1e6 * factor
         self.calls[model] += 1
         self.tokens[model].update(u)
         self.yen_by[model] += usd * YEN_PER_USD
-        self.write_by[model] += u["cache_creation_input_tokens"] * p_write / 1e6 * YEN_PER_USD
+        self.write_by[model] += write / 1e6 * factor * YEN_PER_USD
 
     def summary(self) -> dict:
         return {"円": round(self.yen, 1), "回数": dict(self.calls), "返事を待たずに止めた回数（円は見込み）": dict(self.stopped),
@@ -725,6 +733,73 @@ async def ajudge_other(client, name: str, q, text: str, asked: str | None = None
             raise
         raise err from exc
     return read(q, other_text(name, data), asked)
+
+
+BATCH_FACTOR = 0.5  # まとめて送る測り（Message Batches）の料金の掛け目：送った量すべて（前の部分の書き込み・読み出しも）が半分
+
+
+def batch_judge(name: str, key: str, items: list, budget: float | None = None, poll_s: float = 30.0, warm: bool = True, client=None) -> dict:
+    """正しさだけを見る測り（答えまでの秒は測らない）を、Anthropic の Message Batches でまとめて送る（唯一の場所。✅ 2026-10-30 ユーザー：「Batch
+    もOKです」。料金は送った量すべてが半分・答えはたいてい1時間以内・最長24時間）。items＝[(印, 質問, 言葉, 言い直した言葉, 前の言葉)]（印は
+    英数字と「_」「-」の64字まで）。問い合わせの文と読み方は通話と同じ1か所（other_request・other_text・read）。⇒ {印: (読み, 読めなかった理由)}。
+    - 毎回同じ前の部分は1時間もつ形にし（バッチの中で効くかは「できる限り」＝Anthropic の説明）、warm なら、前の部分ごとに1つだけ先にふつうに
+      送って書いておく（その答えも使う）。⚠️ 前の部分が効かないと、まとめて送るほうが、ふつうに送る（前の部分を約10分の1で読む）より高い
+    - budget＝この測りで使ってよい円（--budget-yen）：前の部分が1つも効かなかったとき（いちばん高い）の円を数えるだけの窓口で見込み、超えるなら送らない"""
+    import time
+
+    from common import LEDGERS, say
+
+    if OTHER_JUDGES[name]["maker"] != "anthropic":
+        raise ValueError(f"まとめて送れるのは Anthropic の判定だけです（{name}）")
+    if client is None:
+        import anthropic
+        client = anthropic.Anthropic(api_key=key, max_retries=2, timeout=120)
+    if budget is not None:
+        SPEND.limit = budget
+    if SPEND not in LEDGERS:
+        LEDGERS.append(SPEND)
+    bodies = {cid: (q, asked, other_request(name, q, text, asked, before, ttl="1h")) for cid, q, text, asked, before in items}
+    out: dict = {}
+
+    def take(cid, data: dict) -> None:
+        q, asked, _ = bodies[cid]
+        got = read(q, other_text(name, data), asked)
+        out[cid] = (got, None if got is not None else "読めない返事")
+    rest = dict(bodies)
+    if warm:
+        seen = set()
+        for cid, (q, asked, body) in bodies.items():
+            fixed = body["messages"][0]["content"][0]["text"]
+            if fixed not in seen:
+                seen.add(fixed)
+                SPEND.check()
+                msg = client.messages.create(**body)
+                SPEND.add(body["model"], msg.usage)
+                take(cid, msg.to_dict())
+                del rest[cid]
+    if not rest:
+        return out
+    if SPEND.limit is not None:
+        sample = max((b for _, _, b in rest.values()), key=lambda b: len(json.dumps(b, ensure_ascii=False)))
+        n_in = client.messages.count_tokens(**{k: sample[k] for k in ("model", "messages", "tools", "tool_choice", "system") if k in sample}).input_tokens
+        p_in, p_out, _, _ = PRICE.get(sample["model"], PRICE["claude-sonnet-5-5"])
+        worst = len(rest) * (n_in * p_in + sample["max_tokens"] * p_out) / 1e6 * BATCH_FACTOR * YEN_PER_USD
+        if SPEND.yen + worst > SPEND.limit:
+            raise OtherJudgeError(None, f"まとめて送る {len(rest)}回は、前の部分が効かないと約{worst:.0f}円かかり、この試しで使ってよい料金"
+                                        f"（{SPEND.limit:.0f}円）を超えるので送りません（--budget-yen）")
+        say(f"まとめて送ります：{len(rest)}回（前の部分が1つも効かなくても約{worst:.0f}円まで）")
+    batch = client.messages.batches.create(requests=[{"custom_id": cid, "params": body} for cid, (_, _, body) in rest.items()])
+    while batch.processing_status != "ended":
+        time.sleep(poll_s)
+        batch = client.messages.batches.retrieve(batch.id)
+        say(f"まとめて送った問い合わせ（{batch.id}）：{batch.request_counts}")
+    for r in client.messages.batches.results(batch.id):
+        if r.result.type == "succeeded":
+            SPEND.add(rest[r.custom_id][2]["model"], r.result.message.usage, factor=BATCH_FACTOR)
+            take(r.custom_id, r.result.message.to_dict())
+        else:
+            out[r.custom_id] = (None, r.result.type)
+    return out
 
 
 def add_judge_args(p) -> None:

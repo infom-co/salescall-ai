@@ -4486,6 +4486,112 @@ class JudgeSetupTest(unittest.TestCase):
         self.assertTrue(first(stripped))
 
 
+class BatchJudgeTest(unittest.TestCase):
+    """正しさだけを見る測りを、Anthropic の Message Batches でまとめて送る（meaning_judge.batch_judge。✅ 2026-10-30 ユーザー：「BatchもOKです」）。
+    問い合わせの文と読み方は通話と同じ1か所。料金は送った量すべてが半分。前の部分は1時間もつ形にし、前の部分ごとに1つだけ先にふつうに送る。"""
+
+    def fake(self, input_tokens=600):
+        import json
+        from types import SimpleNamespace as N
+
+        sent = {"create": [], "batch": []}
+
+        def message(body):
+            usage = N(input_tokens=10, output_tokens=20, cache_read_input_tokens=0, cache_creation_input_tokens=input_tokens,
+                      cache_creation=N(ephemeral_1h_input_tokens=input_tokens, ephemeral_5m_input_tokens=0))
+            answer = {"choice": "はい", "firm": True}
+            # 考えない Sonnet は返事の形を決めた文字（form json）・ほかは道具で答える（meaning_judge.other_text の1か所で読む）
+            return N(usage=usage, to_dict=lambda: {"content": [{"type": "text", "text": json.dumps(answer, ensure_ascii=False)},
+                                                               {"type": "tool_use", "input": answer}]})
+
+        def create(**body):
+            sent["create"].append(body)
+            return message(body)
+
+        def batch_create(requests):
+            sent["batch"] = list(requests)
+            return N(id="b1", processing_status="in_progress", request_counts={})
+
+        def results(batch_id):
+            for r in sent["batch"]:
+                m = message(r["params"])
+                m.usage.cache_creation_input_tokens, m.usage.cache_read_input_tokens = 0, input_tokens   # バッチの中では前の部分を読めた
+                m.usage.cache_creation = None
+                yield N(custom_id=r["custom_id"], result=N(type="succeeded", message=m))
+        batches = N(create=batch_create, retrieve=lambda i: N(id=i, processing_status="ended", request_counts={}), results=results)
+        client = N(messages=N(create=create, count_tokens=lambda **kw: N(input_tokens=input_tokens), batches=batches))
+        return client, sent
+
+    def items(self):
+        from flowctl import Question
+        q1 = Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"))
+        q2 = Question("Q2", "パンフレットをお送りしてもよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"))
+        return [(f"r{i}", q, t, None, None) for i, (q, t) in enumerate([(q1, "はい、しています。"), (q1, "はい。"), (q2, "はい。"), (q1, "ええ。")])]
+
+    def test_warms_each_prefix_then_batches_the_rest_at_half_price(self):
+        from meaning_judge import SPEND, Spend, batch_judge
+        client, sent = self.fake()
+        before = SPEND.yen
+        got = batch_judge("Claude Sonnet 5.5", "x", self.items(), client=client, poll_s=0)
+        self.assertEqual(sorted(got), ["r0", "r1", "r2", "r3"])
+        self.assertTrue(all(str(r) == "はい" and why is None for r, why in got.values()))   # 読み方は通話と同じ（read・other_text）
+        self.assertEqual([b["messages"][0]["content"][1]["text"].count("はい") > 0 for b in sent["create"]], [True, True])
+        self.assertEqual(len(sent["create"]), 2)                       # 前の部分（質問）ごとに1つだけ、ふつうに送って書いておく
+        self.assertEqual(sorted(r["custom_id"] for r in sent["batch"]), ["r1", "r3"])
+        self.assertTrue(all(r["params"]["messages"][0]["content"][0]["cache_control"] == {"type": "ephemeral", "ttl": "1h"} for r in sent["batch"]))
+        # 料金：先に送った2つは1時間もつ形の書き込み（入力の2倍）・まとめて送った2つは前の部分の読み出しで、半分
+        alone = Spend()
+        alone.add("claude-sonnet-5-5", {"input_tokens": 10, "output_tokens": 20, "cache_read_input_tokens": 600, "cache_creation_input_tokens": 0},
+                  factor=0.5)
+        full = Spend()
+        full.add("claude-sonnet-5-5", {"input_tokens": 10, "output_tokens": 20, "cache_read_input_tokens": 600, "cache_creation_input_tokens": 0})
+        self.assertAlmostEqual(alone.yen, full.yen / 2)
+        hour = Spend()
+        hour.add("claude-sonnet-5-5", {"input_tokens": 0, "output_tokens": 0, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 600,
+                                       "cache_creation": {"ephemeral_1h_input_tokens": 600, "ephemeral_5m_input_tokens": 0}})
+        self.assertAlmostEqual(hour.yen, 600 * 2 * 2.00 / 1e6 * 150)
+        self.assertAlmostEqual(SPEND.yen - before, 2 * (10 * 2 + 20 * 10 + 600 * 4) / 1e6 * 150 + 2 * alone.yen)
+
+    def test_g59_batch_fills_the_rows_like_the_live_run(self):
+        # 測りの道具（g59_calling_judge --batch）：1行の答えの書き方は、ふつうに送る測りと同じ1か所（fill）。答えまでの秒は測らない（None）
+        import asyncio
+        import unittest.mock as m
+        from types import SimpleNamespace as N
+
+        import g59_calling_judge as g
+        from meaning_judge import RACE_NAME, Reading
+
+        seen = []
+
+        def fake_batch(name, key, items, budget=None, poll_s=30.0):
+            seen.extend(items)
+            return {cid: (Reading("尋ねていない") if "尋ねているか" in q.text or q.facets == () else Reading("ご本人"), None)
+                    for cid, q, text, asked, before in items}
+        args = N(batch=True, judge=None, judge2="Claude Sonnet 5.5", only=["はい、岡田です。"], repeat=1, pace_s=0.0, budget_yen=10.0, env=None,
+                 batch_poll_s=0.0)
+        with m.patch.object(g, "batch_judge", fake_batch), m.patch("common.load_secret", return_value="x"):
+            out = asyncio.run(g.run(args))
+        self.assertEqual(len(seen), 2 * len(out["rows"]))                 # 目的のお客様の判定と、尋ねているか
+        self.assertTrue(all(r["judge2_s"] is None and "judge2" in r and "judge2_asks" in r for r in out["rows"]))
+        self.assertIn("judge2", out["summary"])
+        self.assertNotIn("judge2（答えまでの秒：中央・遅いほうから1割・最長）", out["summary"])
+        with self.assertRaises(SystemExit):                                # 組・その場の判定とは一緒に使えない
+            asyncio.run(g.run(N(**{**vars(args), "judge2": RACE_NAME})))
+
+    def test_refuses_when_the_worst_case_exceeds_the_budget(self):
+        from meaning_judge import SPEND, OtherJudgeError, batch_judge
+        client, sent = self.fake(input_tokens=200_000)
+        limit = SPEND.limit
+        try:
+            with self.assertRaises(OtherJudgeError):
+                batch_judge("Claude Sonnet 5.5", "x", self.items(), budget=SPEND.yen + 60, client=client, poll_s=0)
+        finally:
+            SPEND.limit = limit
+        self.assertEqual(sent["batch"], [])                            # まとめては送らない（前の部分ごとの2つだけ送った）
+        with self.assertRaises(ValueError):
+            batch_judge("Jev 1.14", "x", self.items(), client=client)   # まとめて送れるのは Anthropic の判定だけ
+
+
 class JudgePanelTest(unittest.TestCase):
     """通話の中の意味の判定の受け持ち（meaning_judge.JudgePanel）：会社の違う2つを受け持ちに置き、止まった判定の代わりに Jev が入る。
     ✅ 2026-10-19 ユーザー：「同じ会社のモデルだけだと、通信の問題が影響するでしょ」「どれかがダウンしていたら、Jevも使ったらいいんじゃない」"""

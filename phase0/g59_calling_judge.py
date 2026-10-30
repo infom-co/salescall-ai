@@ -11,7 +11,7 @@ import time
 from common import base_parser, require_python, save_result, say
 from convo import answers
 from flowctl import ABOUT, PHONE, SPEAKER, WHO
-from meaning_judge import NoJudgment, add_judge_args, make_judges
+from meaning_judge import OTHER_JUDGES, NoJudgment, add_judge_args, batch_judge, make_judges
 
 # ── 正解の表（言葉ごとに、項目ごとの正解＝flowctl.target_facets の項目）。正解は、判定に見せた言葉（質問・はじめにお呼びした言葉・その前に相手が
 #    言ったこと・お客様の言葉）と項目の説明の文だけから決める。受け取ってよい読み（流れの制御の読み）は、正解の組み合わせを流れの制御の1か所
@@ -244,54 +244,87 @@ def prompts_fingerprint() -> tuple[int, str]:
 async def run(args) -> dict:
     from flowctl import ASKED, ASKS_OTHER, ASKS_YES, Question, label, unsure_counts
     b, f, fs = flows()
-    judges = {k: j for k, j in make_judges(args).items() if k != "grounder"}  # 測るのは意味の判定だけ（中身の判定は g63_grounding）
-    rows = []
+    if args.batch:
+        # 正しさだけを見る測り：1つの Anthropic の判定を、まとめて送る（meaning_judge.batch_judge。料金は半分・答えまでの秒は測らない）
+        name = args.judge2
+        if args.judge or OTHER_JUDGES.get(name, {}).get("maker") != "anthropic":
+            raise SystemExit("--batch は、--judge2 に Anthropic の判定を1つだけ選んだときに使えます（組・その場の判定とは一緒に使えません）")
+        judges = {"judge": None, "judge2": name}
+    else:
+        judges = {k: j for k, j in make_judges(args).items() if k != "grounder"}  # 測るのは意味の判定だけ（中身の判定は g63_grounding）
+    rows, items, where = [], [], {}
+
+    def fill(row, k, col, got, s, tried=None):
+        """1行の判定 col の答えを書く（ふつうに送る測り・まとめて送る測りの1か所）。got が None＝答えにならなかった（Jev の確からしさが線より下・
+        止まっている・読めない返事）：どれも選ばなかったと数え、確からしさが線より下の読みは本番と同じに数える（flowctl.unsure_counts＝Flow.on_unsure
+        と同じ決まり）。s＝答えが届くまでの秒（まとめて送る測りは None）。"""
+        row[f"{col}_s"] = s
+        if got is None:
+            row[f"{col}_tried"] = tried or []
+            unsure = next((t["unsure"] for t in tried or [] if "unsure" in t), None)
+            counted = unsure_counts("judge" if col == k else "asks", unsure) if unsure is not None else None
+            row[col] = label(counted) if counted else None
+            return
+        row[col] = label(got) if got else None
+        if getattr(got, "facts", None) is not None:   # 項目ごとの答え（目的のお客様の判定）
+            row[f"{col}_facts"], row[f"{col}_away"], row[f"{col}_new"] = got.facts, got.away, got.new
+        if got.by:
+            row[f"{col}_by"], row[f"{col}_sure"] = got.by, got.sure
+        if getattr(got, "weak", None) is not None:   # 代わりが答えたときの、受け持ちの組の確かでない読み（本番は Flow.on_unsure で数える）
+            row[f"{col}_weak"] = got.weak
+
+    def finish(row) -> None:
+        # 尋ねているかは「尋ねている」だけが流れを変える（Flow._asking_now）＝ほかの読みは全部「尋ねていない」と数える
+        want, ok, facts = row["asks_accept"], row["accept"], {k: set(v) for k, v in row["facts_accept"].items()}
+        asked_now = [k for k in judges if judges[k] is not None and f"{k}_s" in row]   # この行で問い合わせた受け持ち
+        row["ok"] = all(row.get(k) in ok and (want is None or (row.get(f"{k}_asks") in ASKED) == want) for k in asked_now)
+        row["facts_ok"] = all(facts_ok(row.get(f"{k}_facts"), facts) for k in asked_now)
+        say(f"（前：{row['before']}）" if row["before"] else "", row["text"], {k: (row.get(k), row.get(f"{k}_asks")) for k in judges},
+            "OK" if row["ok"] else "×")
     for text, ok, before, asked, successor, facts in cases(b.target.confirm()):
         if args.only and text not in args.only:   # 外れた言葉だけを、本番と同じ送り方でくり返して確かめるとき（測る言葉を選ぶだけ）
             continue
         fl = fs if successor else f
         q = question_of(fl, asked)
         for rep in range(args.repeat):
-            for j in {j.panel for j in judges.values() if j is not None}:
-                j.reset()  # 言葉ごとに測る（前の言葉の時間切れで、この言葉の問い合わせを飛ばさない）
             want = None if text in ASKS_EITHER else text in ASKING or text in ASKING_OTHER
             kind = ASKS_YES if text in ASKING else ASKS_OTHER if text in ASKING_OTHER else None
             row = {"text": text, "accept": ok, "asks_accept": want, "asks_kind": kind, "before": before, "asked": asked, "rep": rep,
                    "successor": successor, "facts_accept": {k: sorted(v) for k, v in facts.items()},
                    "both": (text, before, bool(asked)) in {(t, b, c) for t, b, c, _ in LINES_BOTH}}
-            async def one(k, j, col, question):
+            rows.append(row)
+            # 目的の人の判定と、こちらに尋ねているかの問い合わせ（本番と同じに、同じ言葉・同じ前の言葉で同時に出す＝convo.check_handler）
+            pairs = ((q, ""), (fl.for_judge(fl.asks_questions[q.id]), "_asks"))
+            if args.batch:
+                for question, tail in pairs:
+                    where[f"r{len(items)}"] = (row, "judge2", "judge2" + tail)
+                    items.append((f"r{len(items)}", question, text, None, before))
+                continue
+            for j in {j.panel for j in judges.values() if j is not None}:
+                j.reset()  # 言葉ごとに測る（前の言葉の時間切れで、この言葉の問い合わせを飛ばさない）
+
+            async def one(k, j, col, question, row=row, text=text, before=before):
                 t0 = time.monotonic()
                 try:
                     got = await j(question, text, None, before=before)
-                except NoJudgment as exc:  # 答えにならなかった（Jev の確からしさが線より下・止まっている）：どれも選ばなかったと数える
-                    row[f"{col}_s"] = round(time.monotonic() - t0, 3)
-                    row[f"{col}_tried"] = exc.tried
-                    # 確からしさが線より下の読みは、本番と同じに数える（flowctl.unsure_counts＝Flow.on_unsure と同じ決まり）
-                    unsure = next((t["unsure"] for t in exc.tried if "unsure" in t), None)
-                    counted = unsure_counts("judge" if col == k else "asks", unsure) if unsure is not None else None
-                    row[col] = label(counted) if counted else None
+                except NoJudgment as exc:
+                    fill(row, k, col, None, round(time.monotonic() - t0, 3), exc.tried)
                     return
-                row[f"{col}_s"] = round(time.monotonic() - t0, 3)   # 答えが届くまでの秒（判定の速さ。2026-10-25：2つ目の判定の替えを比べる）
-                row[col] = label(got) if got else None
-                if getattr(got, "facts", None) is not None:   # 項目ごとの答え（目的のお客様の判定）
-                    row[f"{col}_facts"], row[f"{col}_away"], row[f"{col}_new"] = got.facts, got.away, got.new
-                if got is not None and got.by:
-                    row[f"{col}_by"], row[f"{col}_sure"] = got.by, got.sure
-                if getattr(got, "weak", None) is not None:   # 代わりが答えたときの、受け持ちの組の確かでない読み（本番は Flow.on_unsure で数える）
-                    row[f"{col}_weak"] = got.weak
-            # 目的の人の判定と、こちらに尋ねているかの問い合わせ（本番と同じに、同じ言葉・同じ前の言葉で同時に出す＝convo.check_handler）
+                fill(row, k, col, got, round(time.monotonic() - t0, 3))   # 答えが届くまでの秒（判定の速さ。2026-10-25：2つ目の判定の替えを比べる）
             # 代わりだけの受け持ち（お呼びする段の 3.5 Flash Lite）には問い合わせない（convo.answers）
-            await asyncio.gather(*(one(k, j, col, question) for k, j in judges.items() if j is not None
-                                   for col, question in ((k, q), (f"{k}_asks", fl.for_judge(fl.asks_questions[q.id])))
-                                   if answers(j, question)))
-            # 尋ねているかは「尋ねている」だけが流れを変える（Flow._asking_now）＝ほかの読みは全部「尋ねていない」と数える
-            asked_now = [k for k in judges if judges[k] is not None and f"{k}_s" in row]   # この行で問い合わせた受け持ち
-            row["ok"] = all(row.get(k) in ok and (want is None or (row.get(f"{k}_asks") in ASKED) == want) for k in asked_now)
-            row["facts_ok"] = all(facts_ok(row.get(f"{k}_facts"), facts) for k in asked_now)
-            rows.append(row)
-            say(f"（前：{before}）" if before else "", text, {k: (row.get(k), row.get(f"{k}_asks")) for k in judges}, "OK" if row["ok"] else "×")
+            await asyncio.gather(*(one(k, j, k + tail, question) for k, j in judges.items() if j is not None
+                                   for question, tail in pairs if answers(j, question)))
+            finish(row)
             if args.pace_s:   # 使えるキーが少ない無料の枠で、1分の上限に削られないように（⛔ 2026-10-29：2本で流して49行中40行が届かなかった）
                 await asyncio.sleep(args.pace_s)
+    if args.batch:
+        from common import load_secret
+        got = batch_judge(name, load_secret(OTHER_JUDGES[name]["key"], args.env), items, budget=args.budget_yen, poll_s=args.batch_poll_s)
+        for cid, (reading, why) in got.items():
+            row, k, col = where[cid]
+            fill(row, k, col, reading, None, [] if reading is not None else [{"model": name, "error": why}])
+        for row in rows:
+            finish(row)
     # 測った受け持ち＝答えた行がある受け持ち（お呼びする段の質問では、代わりだけの受け持ちは問い合わせない＝本番と同じ。convo.answers）
     measured = [k for k in judges if judges[k] is not None and any(f"{k}_s" in r for r in rows)]
     summary = {k: f"{sum(1 for r in rows if r.get(k) in r['accept'])}/{len(rows)}" for k in measured}
@@ -332,7 +365,7 @@ async def run(args) -> dict:
                                                f"/{sum(1 for r in rows if HOLD not in r['accept']) * len(measured)}")
     # 判定の速さ（目的の人の判定の問い合わせ。中央・遅いほうから1割・最長の秒）
     for k in measured:
-        s = sorted(r[f"{k}_s"] for r in rows if f"{k}_s" in r)
+        s = sorted(r[f"{k}_s"] for r in rows if r.get(f"{k}_s") is not None)   # まとめて送る測りは秒を測らない
         if s:
             summary[f"{k}（答えまでの秒：中央・遅いほうから1割・最長）"] = [s[len(s) // 2], s[int(len(s) * 0.9)], s[-1]]
     say("数え：", json.dumps(summary, ensure_ascii=False))
@@ -347,6 +380,9 @@ def main() -> None:
     p.add_argument("--only", nargs="*", default=None, help="この言葉だけを測る（外れた言葉を、本番と同じ送り方でくり返して確かめるとき）")
     p.add_argument("--pace-s", type=float, default=0.0, help="行ごとに待つ秒（無料の枠のキーが少ないとき。2本×1分15回なら 4.5）")
     p.add_argument("--tag", default="")
+    p.add_argument("--batch", action="store_true", help="正しさだけを見る測り：--judge2 の Anthropic の判定1つを、まとめて送る（料金は半分・答えはたいてい1時間・"
+                                                        "最長24時間・答えまでの秒は測らない。meaning_judge.batch_judge）")
+    p.add_argument("--batch-poll-s", type=float, default=30.0, help="まとめて送った問い合わせが終わったかを見る間隔の秒")
     # ⛔ 2026-10-30：--only の言葉の数で料金を見積もり、同じ言葉がほかの場面にもあって行が倍になり、上限の円に届いて10行を測れなかった
     p.add_argument("--count", action="store_true", help="測らずに、測る行と問い合わせの数だけを出す（有料の測りの料金の見込みは、この数から出す）")
     p.add_argument("--fingerprint", action="store_true", help="測らずに、判定に送る文の長さと指紋だけを出す（測った文と同じかを確かめる）")
