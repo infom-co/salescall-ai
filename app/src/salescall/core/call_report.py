@@ -33,12 +33,20 @@
     電話口の種別の target はAIの報告で、判定と食い違うと繋がずに終わることがある）。「誰でも」の業務は、お客様と話した＝繋がった
     （業務設定から判定の入力に入れる。見直し18b の (3)）。「お客様と話したか」は、人の証の表（HUMAN_PARTIES・HUMAN_ENDS・
     HUMAN_FACTS）で決める（`talked` の1か所。見直し18b の (2)）。
+- **取り消せない決定の2つ目の判定（2026-10-30 管理者のご決定 (6)。データの形 版 1.07。CL-2 の連絡帳 4-167 の頼み3。無くてもよい＝版は3のまま）**：
+  お客様の断り（do_not_call・切れ方の callee_refused_last）・番号違い（電話口の種別 wrong_party）・怒っていた（complaint）は、発信禁止や
+  行の終わりになる取り消せない決定。会話AIの報告と2つ目の判定（意味の判定）がそろったか（`irreversible_check`＝agreed：そろった／
+  disagreed：食い違った／none：判定が無い）を、報告ごとに1つ受ける。無い・古い報告は none（判定が無い）。そろったときだけ、その場で決める
+  （答えを受け取る決まり＝計画書 9-5 の 7 と同じ）。そろわなければ、通話後の録音の確かめ（録音から作り直した報告）で決まるまで保留
+  （決めるのは core/approval.decision_wait の1か所。どの決定が取り消せない決定かは core/judge.irreversible の1か所）。録音から作り直した
+  報告では、2つの耳がそろったかを同じ項目で返す。
+- 取り消せない決定を、その通話の報告から外す形（`CallReport.without`。差し戻し・発信禁止の取り消しのあと、ふつうに締めるため）も、ここの1か所。
 """
 
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 from uuid import UUID
 
@@ -137,6 +145,13 @@ MACHINE_ENDS = frozenset({"voicemail", "ivr", "fax"})
 HUMAN_FACTS = ("connects", "callbacks", "complaints", "out_of_scope_requests", "ai_questions", "answered", "target_backs",
                "callback_resumes", "not_transferred", "substitutes", "departures", "callee_questions", "talks", "hold_timeouts")
 SPEAKERS = ("callee", "ai", "none")                      # 切れた瞬間に話していた側（7-1c）
+# 取り消せない決定について、会話AIの報告と2つ目の判定（意味の判定）がそろったか（報告ごとに1つ。データの形 版 1.07）：
+# agreed＝そろった（その場で決める）／disagreed＝食い違った／none＝判定が無い（無い・古い報告もこれ）。そろわなければ録音の確かめまで保留
+IRREVERSIBLE_CHECKS = ("agreed", "disagreed", "none")
+# 取り消せない決定の中身の名前（報告から外す単位。`CallReport.without` の1か所）：断り（発信禁止の申告・断りの言葉のあとに切れた）・
+# 番号違い（電話口の種別 wrong_party）・怒っていた（苦情）・FAX の回線（電話口の種別 fax。音の信号から分かるので2つ目の判定は当てないが、
+# 誤って入れた発信禁止を取り消したときに外す＝2026-10-30 (7)）
+DECISION_PARTS = ("refusal", "wrong_party", "complaint", "fax")
 SAID_MAX = 80                                            # 根拠の発話の文字の長さの上限（CL-1 の _note と同じ）
 
 
@@ -338,6 +353,7 @@ class CallReport:
     callee_questions: tuple[CalleeQuestion, ...] = ()   # 事実 callee_question：お客様からの質問（記録だけ）
     talks: tuple[Talk, ...] = ()         # 事実 talk：受け答えの一言（記録だけ）
     hold_timeouts: tuple[HoldTimeout, ...] = ()   # 事実 hold_timeout：保留を頼まれ、待ちきった（記録だけ）
+    irreversible_check: str = "none"     # 取り消せない決定の2つ目の判定がそろったか（IRREVERSIBLE_CHECKS。無い・古い報告は none）
 
     # ── 判定が読むもの（どれも事実から読む。ここの1か所）
     @property
@@ -434,6 +450,23 @@ class CallReport:
         """お客様が急いでいる・通話を断られた・怒っている、で締めたか。"""
         return self.end_reason in HURRIED_ENDS
 
+    def without(self, parts: frozenset[str] | set[str] | tuple[str, ...]) -> CallReport:
+        """取り消せない決定の中身（DECISION_PARTS）を、この報告から外した形（1か所。差し戻し・発信禁止の取り消しのあと、その通話を
+        ふつうに締めるため＝core/settle._judge_input）。断り＝発信禁止の申告と、切れ方の「断りの言葉のあとに切れた」／番号違い・FAX＝その
+        電話口の種別／怒っていた＝苦情。2つ目の判定の項目はそのまま（外さなかった決定は、そろっていればそのまま決まる）。"""
+        unknown = set(parts) - set(DECISION_PARTS)
+        if unknown:
+            raise ValueError(f"報告から外せるのは {DECISION_PARTS} です：{sorted(unknown)}")
+        if not parts:
+            return self
+        drop = {p for p in ("wrong_party", "fax") if p in parts}   # 電話口の種別の名前と、外す中身の名前は同じ
+        cut = self.cut
+        if cut is not None and "refusal" in parts:
+            cut = replace(cut, callee_refused_last=False)
+        return replace(self, refusals=() if "refusal" in parts else self.refusals,
+                       complaints=() if "complaint" in parts else self.complaints,
+                       party_reports=tuple(p for p in self.party_reports if p.party not in drop), cut=cut)
+
     def to_json(self) -> dict[str, Any]:
         def said(s: Said) -> dict[str, Any]:
             return {"turn": s.turn, "said": s.said}
@@ -477,7 +510,7 @@ class CallReport:
                                                       "callee_refused_last": self.cut.callee_refused_last,
                                                       "callee_cannot_hear": self.cut.callee_cannot_hear,
                                                       "callee_silent": self.cut.callee_silent},
-                "apology_delivered": self.apology_delivered}
+                "apology_delivered": self.apology_delivered, "irreversible_check": self.irreversible_check}
 
 
 def _bool(d: dict, key: str) -> bool:
@@ -577,7 +610,7 @@ def _records(facts: dict, kind: str, extra: set[str]) -> list[tuple[dict, Said]]
 
 def from_json(raw: Any) -> CallReport:
     """報告を確かめて読む（ただ1つの確かめ）。"""
-    d = _keys(raw, {"version", "facts", "not_reached", "cut", "apology_delivered"}, "報告")
+    d = _keys(raw, {"version", "facts", "not_reached", "cut", "apology_delivered", "irreversible_check"}, "報告")
     if d.get("version") != VERSION:
         raise ReportInvalid(f"報告の版が違います（{d.get('version')!r}。この部品は {VERSION}）")
     facts = _keys(d.get("facts"), set(FACT_KINDS), "facts")
@@ -679,9 +712,12 @@ def from_json(raw: Any) -> CallReport:
         if isinstance(w, bool) or not isinstance(w, (int, float)) or not w > 0:
             raise ReportInvalid("facts.hold_timeout.waited_s は、待った秒（0より大きい数）です")
         holds.append(HoldTimeout(s, float(w)))
+    # 取り消せない決定の2つ目の判定（データの形 版 1.07）：無い・null（古い報告・まだ書かない会話の処理）は「判定が無い」
+    check = "none" if d.get("irreversible_check") is None else \
+        _choice(d["irreversible_check"], IRREVERSIBLE_CHECKS, "irreversible_check")
     return CallReport(refusals, complaints, oos, parties, tuple(callbacks), ends, not_reached, cut, delivered, ai_questions,
                       voicemail, tuple(connects), tuple(answered), backs, resumes, not_transferred, substitutes, departures,
-                      tuple(questions), talks, tuple(holds))
+                      tuple(questions), talks, tuple(holds), check)
 
 
 OWN_WORDS_KEYS = {"answer", "drafts", "checked"}

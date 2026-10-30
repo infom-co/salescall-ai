@@ -150,6 +150,43 @@ class Judgement:
     detail: dict[str, Any]       # 判定の中身（依頼者への報告・次の動きが読む。policy_key＝再発信の方針の鍵）
 
 
+@dataclass(frozen=True)
+class Irreversible:
+    """その通話の判定のうち、取り消せない決定（発信禁止・行の終わりになる、お客様の断り・番号違い・怒っていた）と、2つ目の判定が
+    そろったか（`irreversible` の1か所が決める）。"""
+    parts: frozenset[str]        # 決定の中身のすべて（call_report.DECISION_PARTS のうち refusal・wrong_party・complaint）
+    unsure: frozenset[str]       # そのうち、会話AIの読みから決まり、2つ目の判定がそろったかを見るもの
+    check: str                   # unsure についての agreed＝そろった／disagreed＝食い違った／none＝判定が無い（unsure が空なら agreed）
+
+
+def irreversible(inp: JudgeInput, j: Judgement) -> Irreversible | None:
+    """取り消せない決定と、2つ目の判定がそろったか（1か所。2026-10-30 管理者のご決定 (6)。保留にするかを決めるのは core/approval.decision_wait）。
+    取り消せない決定＝判定が、お客様の断り（発信禁止の理由 refused_*）・番号違い（wrong_party）・怒っていた（苦情＝行を終える）を出したもの。
+    判定できない（unknown）は、もう「まだ決まっていない」（判定し直しを待つ）ので None。FAX の回線は音の信号から分かる（会話AIの読みでは
+    ない）ので入れない。2つ目の判定を見ないもの（unsure に入れない）：
+    - 通話の途中の申告が台帳にある断り（会話の側は、2つ目の判定とそろったときだけ申告を入れる＝計画書 9-5 の 7。CL-2 の連絡帳 4-168）
+    - 切れ方の分からない通話の確かめのかけ直しが鳴ったのに出なかった断り（会話AIの読みではない＝2026-10-30 (3) の決まり）
+    ほかの中身は、会話の報告の irreversible_check（無い報告は「判定が無い」）で見る。"""
+    if j.state == "unknown":
+        return None
+    parts: set[str] = set()
+    unsure: set[str] = set()
+    if j.dnc_reason in ("refused_in_call", "refused_unclear_checked"):
+        parts.add("refusal")
+        if not (inp.declared_in_call or j.detail.get("refusal") == "unclear_checked"):
+            unsure.add("refusal")
+    if j.dnc_reason == "wrong_party":
+        parts.add("wrong_party")
+        unsure.add("wrong_party")
+    if j.complaint:
+        parts.add("complaint")
+        unsure.add("complaint")
+    if not parts:
+        return None
+    check = "agreed" if not unsure else inp.report.irreversible_check if inp.report is not None else "none"
+    return Irreversible(frozenset(parts), frozenset(unsure), check)
+
+
 def classify_cut(facts: Facts, report: CallReport | None) -> str | None:
     """切れ方の判定（7-1c。2026-10-14 ユーザー承認）。お客様と話した通話で、ふつうに終えたのでないときだけ決める（`cut_of` の1か所）。"""
     return cut_of(reached_answer=facts.reached_answer, end_state=facts.end_state, hangup_side=facts.hangup_side, report=report)

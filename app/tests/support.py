@@ -83,10 +83,11 @@ def callback(reason: str, at=None, number: str | None = None, person: str | None
 
 def make_report(parties=("target",), *, dnc: bool = False, oos: bool = False, complaint: bool = False,
                 not_reached: str | None = None, callback=None, cut="normal", apology_delivered: bool | None = None,
-                end: str | None = None):
+                end: str | None = None, check: str = "agreed"):
     """会話の報告（版3。通話の事実の形）を、試験の材料から作る。cut＝"normal" は、ふつうに締めた切れ方の材料。
     電話口の種別に目的のお客様があり、繋がらなかった理由が無ければ、CL-1 と同じく繋いだ事実（connect）も残す（目的のお客様のいる
-    業務の「繋がった」は繋いだ事実で決まる＝CallReport.reached）。"""
+    業務の「繋がった」は繋いだ事実で決まる＝CallReport.reached）。check＝取り消せない決定の2つ目の判定（データの形 版 1.07）。試験の
+    初めの値は「そろった」（会話の側がそろったかを返す形。そろわない場面・判定の無い古い報告は、試験が渡す）。"""
     from salescall.core.call_report import CallReport, Connect, Cut, End, Party, Said
     ev = Said(2, "試験の発話")
     connects = (Connect(Said(parties.index("target"), "試験の発話"), ("ai", "judge", "judge2"), True),) \
@@ -94,7 +95,8 @@ def make_report(parties=("target",), *, dnc: bool = False, oos: bool = False, co
     return CallReport((ev,) if dnc else (), (ev,) if complaint else (), (ev,) if oos else (),
                       tuple(Party(p, "ai", Said(i, "試験の発話")) for i, p in enumerate(parties)),
                       () if callback is None else (callback,), () if end is None else (End(end, ev),), not_reached,
-                      Cut("ai", True, False) if cut == "normal" else cut, apology_delivered, connects=connects)
+                      Cut("ai", True, False) if cut == "normal" else cut, apology_delivered, connects=connects,
+                      irreversible_check=check)
 
 
 def rules_raw(required=("Q1",), *, decline=None, retry=None, handling=None) -> dict:

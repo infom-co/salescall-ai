@@ -38,6 +38,13 @@
   切るには、その回線の電話の部品が要るため。⛔ 0130 の「通話が進んだ知らせ」progress はデータベースに書いていた＝0134 で外した）。
 - **使ったキーの識別名**（`record_keys`。CL-1 の連絡帳 4-34 の 4-67）：[{"service": "live"|"judge"|"ear"|"own_check",
   "key": "名前#指紋8桁"}]。値は残さない（データベースが形を守る）。
+- **やり取りの文字**（`write_utterance`・通話ごとの書き手へ頼む形 `utterance_work`。読むのは `utterances`。2026-10-30 管理者のご決定 (6)
+  「人が録音やその場のやり取りを確認できる状態にする必要があります」。計画書 11-1。表の作り 0152）：お客様と AI の発話の文字と時刻を、
+  通話ごとに起きた順に残す（書き換えない・消さない。依頼者ごとに分け、読める範囲は今の決まり＝11章）。形は `Utterance` の1か所：
+  speaker＝"callee"（お客様。会話AIの聞き取り＝会話の側の Flow.callee_said）／"ai"（AI が言った文・流した録音の文）、turn＝相手の発話の
+  番号（会話の側の Flow.callee_turns。通話の事実の根拠の発話の turn と同じ物差し。AI の発話は、そのときの番号）、said＝文字、at_s＝その
+  通話の録音の上の位置（秒。会話の側の試作の通話の記録 turns の said_events・heard_events の at_s と同じ物差しにするかは CL-1 と決める）。
+  書けるのは、お客様が出た通話で、通話後の検証が済む前（答えと同じ見方）。
 """
 
 from __future__ import annotations
@@ -53,8 +60,9 @@ from salescall.core import attempts, business_rules, business_settings, call_rep
 from salescall.core.access import Tx
 from salescall.core.attempts import AttemptNotFound
 
-__all__ = ["REFUSED", "ItemInvalid", "ItemValue", "MoveWork", "NoticeWork", "call_setting", "check_item", "declare_do_not_call", "earlier",
-           "handlings", "item_work", "move_work", "notice_work", "record_keys", "report_work", "save_rebuilt_report", "save_report", "write_item"]
+__all__ = ["REFUSED", "ItemInvalid", "ItemValue", "MoveWork", "NoticeWork", "Utterance", "call_setting", "check_item", "check_utterance",
+           "declare_do_not_call", "earlier", "handlings", "item_work", "move_work", "notice_work", "record_keys", "report_work",
+           "save_rebuilt_report", "save_report", "utterance_work", "utterances", "write_item", "write_utterance"]
 
 # 理由を持てる状態と、その理由の名前の一覧（正本は業務の決まり business_rules。ここは対応だけ）
 _REASONS: dict[str, tuple[str, ...]] = {"dont_know": business_rules.DONT_KNOW_REASONS,
@@ -76,9 +84,25 @@ class ItemValue:
     hedged: str | None = None      # 言い切っていない返事の言葉（お客様の言葉そのまま。CL-1 の 4-21）
 
 
+@dataclass(frozen=True)
+class Utterance:
+    """やり取りの文字の1つ（お客様か AI の1つの発話）。形の確かめは `check_utterance` の1か所。"""
+    speaker: str                   # "callee"（お客様）／"ai"（AI）
+    turn: int                      # 相手の発話の番号（会話の側の callee_turns。0 以上）
+    said: str                      # 発話の文字（空でない）
+    at_s: float                    # その通話の録音の上の位置（秒。0 以上）
+
+
+SPEAKERS = ("callee", "ai")
+
+
+class UtteranceInvalid(ValueError):
+    """書けないやり取りの文字（理由は日本語）。"""
+
+
 # 受け口の決まりに合わないとして断った誤り（データベースの誤りではない＝直すのは頼んだ側。通話ごとの書き手は、見守り役の誤りに数えず、
 # 通話の部品へ返す）
-REFUSED: tuple[type[Exception], ...] = (ItemInvalid, call_report.ReportInvalid)
+REFUSED: tuple[type[Exception], ...] = (ItemInvalid, call_report.ReportInvalid, UtteranceInvalid)
 
 
 def check_item(item: ItemValue) -> None:
@@ -228,6 +252,50 @@ def call_setting(tx: Tx, attempt_id: UUID, key: str) -> Any:
     if row is None:
         raise AttemptNotFound(str(attempt_id))
     return settings.resolve(tx, key, **tasks.scope(tx, row["task_id"]))
+
+
+def check_utterance(u: Utterance) -> None:
+    """やり取りの文字の形の確かめ（1か所。`write_utterance` も、頼んだその場の `utterance_work` も、これを通る）。合わなければ UtteranceInvalid。"""
+    if u.speaker not in SPEAKERS:
+        raise UtteranceInvalid(f"話した側は {SPEAKERS} のどれかです：{u.speaker!r}")
+    if not isinstance(u.turn, int) or isinstance(u.turn, bool) or u.turn < 0:
+        raise UtteranceInvalid("相手の発話の番号（turn）は 0 以上の整数です")
+    if not isinstance(u.said, str) or not u.said.strip():
+        raise UtteranceInvalid("発話の文字（said）が空です")
+    if isinstance(u.at_s, bool) or not isinstance(u.at_s, (int, float)) or u.at_s < 0:
+        raise UtteranceInvalid("録音の上の位置（at_s）は 0 以上の秒です")
+
+
+def write_utterance(tx: Tx, attempt_id: UUID, u: Utterance) -> int:
+    """やり取りの文字を1つ足す（起きた順の番号はここが付ける。書き換えない）。書けるのは、お客様が出た通話で、通話後の検証が済む前だけ
+    （答え＝`write_item` と同じ見方）。付けた順の番号を返す。"""
+    check_utterance(u)
+    a = tx.one("SELECT verification::text AS verification, salescall.reached_answer(attempt_id) AS reached"
+               " FROM salescall.attempts WHERE attempt_id = %s", (attempt_id,))
+    if a is None:
+        raise AttemptNotFound(str(attempt_id))
+    if not a["reached"]:
+        raise UtteranceInvalid("お客様が出ていない通話には、やり取りはありません")
+    if a["verification"] not in (None, "pending"):
+        raise UtteranceInvalid("通話後の検証が済んだ通話のやり取りには、足しません")
+    return tx.one(
+        "INSERT INTO salescall.call_utterances (tenant_id, client_id, attempt_id, seq, speaker, turn, said, at_s)"
+        " SELECT salescall.cur_tenant(), salescall.cur_client(), %s,"
+        "        coalesce((SELECT max(u.seq) FROM salescall.call_utterances u WHERE u.attempt_id = %s), 0) + 1, %s, %s, %s, %s"
+        " RETURNING seq", (attempt_id, attempt_id, u.speaker, u.turn, u.said.strip(), u.at_s))["seq"]
+
+
+def utterance_work(attempt_id: UUID, u: Utterance) -> Callable[[Tx], int]:
+    """やり取りの文字を1つ足す、通話ごとの書き手へ頼む形（`call.write(conversation_io.utterance_work(…))`）。データベースを読まずに分かる
+    確かめ（`check_utterance`）は、いま行う（合わなければ、いま UtteranceInvalid）。"""
+    check_utterance(u)
+    return lambda tx: write_utterance(tx, attempt_id, u)
+
+
+def utterances(tx: Tx, attempt_id: UUID) -> list[dict[str, Any]]:
+    """その通話のやり取りの文字（起きた順。画面＝CL-3 が、録音と一緒に契約者へ見せる。取引の依頼者の分だけが見える）。"""
+    return tx.all("SELECT seq, speaker, turn, said, at_s FROM salescall.call_utterances WHERE attempt_id = %s ORDER BY seq",
+                  (attempt_id,))
 
 
 def record_keys(tx: Tx, attempt_id: UUID, keys: list[dict[str, str]]) -> None:

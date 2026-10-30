@@ -1580,8 +1580,8 @@ class UnclearCutChecks(SettleBase):
                                                        (aid,)))["disconnect"])            # 切れ方もまだ決めない
         self.assertEqual(self.released(s, aid), 0)                                        # 結果を確定しない
         self.assertTrue(self.tx(s, lambda tx: tx.one("SELECT salescall.refusal_undecided(%s) AS u", (aid,)))["u"])
-        self.assertEqual(self.tx(s, lambda tx: gate.pacing(tx, other)).binding, "related_unclear_cut")   # ほかの行は待つ
-        self.assertIn("related_unclear_cut", gate.REASONS)
+        self.assertEqual(self.tx(s, lambda tx: gate.pacing(tx, other)).binding, "related_decision_pending")   # ほかの行は待つ
+        self.assertIn("related_decision_pending", gate.REASONS)
 
     def test_a_check_call_that_rang_without_an_answer_is_a_refusal(self):
         """営業拒否の言葉が無い × かけ直しが鳴って出なかった ⇒ 営業拒否とみなす（発信禁止の台帳には、はっきり断られたときと別の理由。
@@ -1595,7 +1595,7 @@ class UnclearCutChecks(SettleBase):
         self.assertEqual((got["state"], got["decision"].end_reason), ("do_not_call", "do_not_call"))
         self.assertEqual(self.dnc_reasons(s), ["refused_unclear_checked"])
         self.assertFalse(self.tx(s, lambda tx: tx.one("SELECT salescall.refusal_undecided(%s) AS u", (aid,)))["u"])
-        self.assertNotIn(self.tx(s, lambda tx: gate.pacing(tx, other)).binding, ("related_unclear_cut", "related_unsettled"))
+        self.assertNotIn(self.tx(s, lambda tx: gate.pacing(tx, other)).binding, ("related_decision_pending", "related_unsettled"))
         self.tx(s, lambda tx: next_action.schedule_now(tx, other, cause="試験：ほかの行の最初の予定"))
         self.assertEqual(self.reason(s, task=other), "dnc_client")                      # ほかの行も止まった
         self.assertEqual(self.released(s, check), 1)                                       # 確かめの締めの版が確定する

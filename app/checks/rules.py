@@ -242,6 +242,10 @@ WRITERS: dict[str, dict[str, frozenset[str]]] = {
     "task_exclusions": {"INSERT": frozenset({_CORE + "exclusions.py"})},     # 行ごとの「かけない」（3-4-2）
     "task_trouble_restores": {"INSERT": frozenset({_CORE + "troubles.py"})},   # 休んだ行を戻す（管理者か契約者。0139）
     "unclear_checks": {"INSERT": frozenset({_CORE + "next_action.py"})},   # 切れ方の分からない通話の確かめのかけ直し（同じ行で1回。0150）
+    # 取り消せない決定の保留と答え（2026-10-30 管理者のご決定 (6)(7)。0152）：保留にするか・答えは承認の部分の1か所
+    "decision_waits": {"INSERT": frozenset({_CORE + "approval.py"})},
+    "decision_answers": {"INSERT": frozenset({_CORE + "approval.py"})},
+    "call_utterances": {"INSERT": frozenset({_CORE + "conversation_io.py"})},   # やり取りの文字（計画書 11-1。会話の側の書き込み口。0152）
     "program_versions": {"INSERT": frozenset()},        # 動いているプログラムの版を書くのは、データベースの関数 note_program だけ（0139）
     "sample_draws": {"INSERT": frozenset({_CORE + "measure.py"})},           # 誤判定率の抜き取り（16-3）
     "sample_draw_calls": {"INSERT": frozenset({_CORE + "measure.py"})},

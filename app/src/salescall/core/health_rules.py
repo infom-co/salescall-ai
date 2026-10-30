@@ -760,7 +760,7 @@ def _hold(num: Number, rules: Rules, at: datetime) -> bool:
     c = num.n + len(num.unknown)
     if c >= len(rules.failed_retry_days):
         return True
-    # 数えたときの「最初の失敗の日」と「前の失敗の日」は、分からない電話の日（今の形 attempts.number_unconfirmed と同じ。次の日の始まりで
+    # 数えたときの「最初の失敗の日」と「前の失敗の日」は、分からない電話の日（番号の欄の待つ印 N-4＝core/health.number_held と同じ。次の日の始まりで
     # 見直す＝N-7 のとき、前の日の分からない電話を今日の失敗として数えない）
     today = _local_day(at)
     first = num.first_day or (_local_day(num.unknown_since) if num.unknown_since else today)

@@ -68,7 +68,7 @@ REASONS: dict[str, Reason] = {
     "number_kind_not_allowed": Reason("この業務の設定でかけない種類の番号です", "permanent", "plan"),
     "number_unusable": Reason("この番号は、お客様のところで電話が鳴らない電話が続きました（番号を受け付けない・お客様が出る前に終わる、が決まった数だけ続いた）", "permanent", "plan"),
     # 鳴らない電話が続く番号の、番号ごとの決まった順（当日2回・翌日・2日後）の次の時刻の前（同じ番号のほかの行も、この順を越えない。
-    # 決まりは attempts.failed_wait の1か所＝次の動きと同じ。見直し22 の 9）
+    # 決まりは番号の欄＝core/health.number_wait の1か所＝次の動きと同じ。見直し22 の 9）
     "number_failed_wait": Reason("この番号は、お客様のところで鳴らない電話が続いています（番号ごとの決まった順＝当日2回・翌日・2日後の、"
                                  "次にかけてよい時刻まで待ちます）", "wait", "plan"),
     "number_unconfirmed": Reason("この番号は、お客様のところで鳴らない電話が続いていますが、番号のせいか回線のせいかが、まだ分かりません（番号のせいなら、番号ごとの決まった順で次の日以降になります。その回線がほかの番号へかけると決まります）", "wait", "unoffered"),   # 番号の欄の待つ印（N-4）
@@ -93,10 +93,12 @@ REASONS: dict[str, Reason] = {
     "callback_window": Reason("お客様が言ったかけ直しの時間（「夕方」「3時まで」など）の外です", "wait", "plan"),
     "calendar_out_of_range": Reason("祝日の暦が無い日です", "cannot_judge", "run"),
     "related_unsettled": Reason("このお客様にかかわる前の発信の締め（断られたかの確かめ）が、まだ済んでいません", "wait", "unoffered"),
-    # 同じお客様のほかの行の通話の切れ方が分からず、確かめのかけ直しの答えを待っている（2026-10-30 管理者の決定：決まるまでのあいだに、
-    # 断ったかもしれない会社へほかの行からかけない。決まりはデータベースの salescall.unclear_check_pending の1か所＝dnc.undecided_reach）
-    "related_unclear_cut": Reason("このお客様にかかわる前の通話の切れ方が分からず、確かめのかけ直しの答え（断られたか）を待っています",
-                                  "wait", "unoffered"),
+    # 同じお客様のほかの行の通話で、取り消せない決定（断り・番号違い・怒っていた）がまだ決まっていない：切れ方が分からず確かめのかけ直しの
+    # 答えを待っている・2つ目の判定とそろわず録音の確かめを待っている・検証モードで契約者の承認を待っている（2026-10-30 管理者の決定 (3)(6)：
+    # 決まるまでのあいだに、断ったかもしれない会社へほかの行からかけない。決まりはデータベースの salescall.decision_pending の1か所＝
+    # dnc.undecided_reach。⛔ 0150 の名前 related_unclear_cut から替えた＝まだ決まっていないの形を1つにした）
+    "related_decision_pending": Reason("このお客様にかかわる前の通話で、断られたかなど取り消せない決定が、まだ決まっていません（切れ方の"
+                                       "確かめのかけ直し・録音の確かめ・契約者の承認を待っています）", "wait", "unoffered"),
     "same_contact_interval": Reason("同じお客様への前の発信から、間隔が空いていません", "wait", "plan"),
     "daily_attempts": Reason("同じお客様へ、今日かけてよい回数を使い切りました", "wait", "plan"),
     "cross_client_interval_same_tenant": Reason("ほかの依頼者が同じ番号へかけたばかりです", "wait", "plan"),
@@ -632,7 +634,7 @@ PLAN_IF_KNOWN = _handled("plan_if_known")
 # 締め待ちの1か所＝salescall.task_unsettled が、その電話をかけた回線でだけ待つ）。⛔ 4段目の前：門と候補が、待つ理由を別々の関数
 # （task_resting・awaiting_recovery）で読み、候補の条件で除く理由の一覧（UNOFFERED_IN_CANDIDATES）を手で合わせていた
 # 同じお客様のほかの行で、断られたかがまだ決まっていないときの門の理由（dnc.undecided_reach の答えの種類 → 理由の名前。1か所）
-RELATED_REASONS: dict[str, str] = {"unsettled": "related_unsettled", "unclear_cut": "related_unclear_cut"}
+RELATED_REASONS: dict[str, str] = {"unsettled": "related_unsettled", "decision_pending": "related_decision_pending"}
 TASK_STAGE_REASONS: dict[str, str] = {"resting": "task_resting", "await_recovery": "awaiting_recovery", "voice_redial": "voice_redial"}
 # 行の予定を書き直さない理由のすべて（回線ごとの処理は、これに入らない理由だけを次の動き after_denial へ渡す）
 PLAN_KEPT = frozenset(REASONS) - _handled("plan") - _handled("plan_if_known")
@@ -699,7 +701,7 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
     if blocked is not None:
         return _deny(blocked[0])
     # 発信に失敗（回線の部品が番号を受け付けない）が、決まった数だけ続いた番号（同じ番号のほかの行も、それぞれ失敗するまでかけない。
-    # 決まりは attempts.number_unusable の1か所＝次の動きと同じ。お客様が言った別の番号へ替えるか終えるかは、次の動きが決める。
+    # 決まりは番号の欄＝core/health.number_dead の1か所（状態の表の N-1）＝次の動きと同じ。お客様が言った別の番号へ替えるか終えるかは、次の動きが決める。
     # ⛔ 見直し16：前は通話のあとの締めでだけ見て、同じ番号のほかの行は、それぞれ1回ずつ失敗して回線の異常に数えられた）
     if health.number_dead(tx, task["contact_id"]):   # 番号の欄が「使えない」（N-1）
         return _deny("number_unusable")
