@@ -1032,8 +1032,14 @@ _FROM_LABEL = {"condition_id": {**{v: k for k, v in SYSTEM_LABEL.items()}, ANY_L
 _ARG_FROM_LABEL = {v: k for k, v in ARG_LABEL.items()}
 
 
-def unsure_counts(kind: str, value: str) -> str | None:
+def unsure_counts(kind: str, value: str, answer: bool = True) -> str | None:
     """目的の人を呼んでいる段で、確からしさが線より下の読み（value。代わりの Jev）を、どう数えるか（唯一の決まり＝Flow.on_unsure・G-59 の数え方）。
+    answer＝答える側（尋ねている＝聞かれたことに録音で答える）にも数えてよい読みか。False は止める側だけの読み（組の答えが待つ長さに間に合わない
+    ときの、裏で出した代わり＝convo.check_handler の hold。✅ 2026-10-30 ユーザー：「(1)(2)ともお勧めの形でOK」＝黙って待つ・確かめる側だけ）。
+    ⛔ 2026-10-30 夜：裏の代わりも答える側に数えていた＝3.5 Flash Lite の「尋ねている」で、聞かれていない質問に答える側へ進みえた。弱い
+       「尋ねている」を数えてよい根拠は、確からしさを返す判定の測りだけ（Jev・d1-ultra は、質問でない言葉に弱い「尋ねている」0回＝下・PHASE0
+       G-59）。Flash Lite は、d1-ultra と Jev が2つとも確かでない言葉（裏で出す言葉）で、確かめへの「いいえ、私は山田と申します。」を3回中1回
+       「尋ねている」と読み、質問の言葉では裏で出ることが無かった（質問は27回とも d1-ultra か Jev が確かに読む）＝答える側に数えると、救う0・誤る1
     弱い読みは、繋ぐのを止める側にだけ使う：目的の人の判定で「ご本人」でなければ「決められない」＝繋ぐのを止める印（Flow._doubted。判定の
     読みとは別に持つ＝ほかの判定と食い違いを作らない）／尋ねているかの問い合わせで「尋ねている」（目的の人かを決めずに、聞かれたことに
     答える側）。ほかは数えない（None）。
@@ -1046,7 +1052,7 @@ def unsure_counts(kind: str, value: str) -> str | None:
     0回／尋ねているかの問い合わせでは、ほかの言葉（「お待たせいたしました。」）に6回（0.37〜0.49）"""
     if kind in JUDGMENTS:
         return HOLD if value == HOLD else UNDECIDED if value != TARGET_IS_THERE else None
-    if kind in ASKS_CHECKS:
+    if kind in ASKS_CHECKS and answer:
         return value if value in ASKED else None
     return None
 
@@ -2035,8 +2041,9 @@ class Flow:
         if (h := self.answer_held) is not None and h["turn"] == turn != self.callee_turns and kind not in h["check"] and said in (None, h["said"]):
             h["check"][kind] = value  # 覚えておいた言葉の確かめが、次の発話のあとに届いた：その言葉の答えの報告に当てる（_held_words）
 
-    def on_unsure(self, kind: str, value: str, turn: int | None = None, said: str | None = None) -> None:
+    def on_unsure(self, kind: str, value: str, turn: int | None = None, said: str | None = None, answer: bool = True) -> None:
         """判定の受け持ちが、確からしさが線より下の読み（value）しか返さなかった（meaning_judge.NoJudgment の unsure＝代わりの Jev）。
+        answer＝答える側にも数えてよい読みか（False＝止める側だけの読み＝裏で出した代わり。決まりは unsure_counts の1か所）。
         目的の人を呼んでいる段（繋ぐのは取り消せない）では、「ご本人」ではない読みだけを「決められない」として数える（弱い読みは、繋ぐのを
         止める側にだけ使い、繋ぐ側には使わない）。答えの段では数えない（届かなかった確かめ＝通話後の検証。答えは遅れて届いた判定でも当て直せる）。
         ⛔ 2026-10-21 G-57 tc11（確かめにいいえ・L4）：中身を見ずに「決められない」と数えたので、確かめへの「はい、そうです。」を Jev が
@@ -2044,9 +2051,9 @@ class Flow:
         ⛔ 2026-10-21 G-57 tc10（確かめにいいえ・L4）：最初の方の「はい、お電話変わりました。」（前の言葉なし）を、AIは決まりに反して「目的の人」と
            報告し、3.5 Flash Lite も「ご本人」と読んだ。もう1つの受け持ちは Sonnet が止まっていて、代わりの Jev は「代わった人が話し始めた」と
            読んだが確からしさ 0.89 で線より下＝捨てて「答えなし」と同じに数え、読みが2つそろったとして別の方（山田様）に繋いだ"""
-        if self.phase != "calling" or unsure_counts(kind, value) is None:
+        if self.phase != "calling" or unsure_counts(kind, value, answer) is None:
             return
-        if kind in JUDGMENTS and unsure_counts(kind, value) == HOLD:
+        if kind in JUDGMENTS and unsure_counts(kind, value, answer) == HOLD:
             # 弱い「取り次ぎを待つ」：取り次ぎの読みとして数える（黙って待つ・このあと出る方は新しい方＝on_check の1か所。unsure_counts）
             self.on_check(kind, HOLD, turn, said)
             return
@@ -2060,7 +2067,7 @@ class Flow:
             elif turn < self.callee_turns and said in (None, self.calling_words.get(turn)):
                 self.calling_doubted.setdefault(turn, set()).add(kind)
             return
-        self.on_check(kind, unsure_counts(kind, value), turn, said)
+        self.on_check(kind, unsure_counts(kind, value, answer), turn, said)
 
     def judge_context(self) -> tuple["Question | None", str | None, str | None]:
         """意味の判定に渡すもの（相手の発話の始めに決める）：いまの質問と、こちらが言い直して確かめた言葉（言い直しの返事を待っているとき）と、

@@ -4735,11 +4735,12 @@ class JudgePanelTest(unittest.TestCase):
         f = b.flow(play_recordings=True)
         return f, f.judge_context()[0], next(iter(f.asks_questions.values())), b.questions[0]
 
-    def lite_and_race(self, sures, fail=(), backup=True, took=None):
+    def lite_and_race(self, sures, fail=(), backup=True, took=None, lite_asks=None):
         """その場の判定（3.5 Flash Lite）と2つ目の受け持ち（組）の JudgePanel。sures：判定 ⇒ 確からしさ・fail：答えずに失敗する判定・
-        took：判定 ⇒ かかる秒（無ければ 0.01秒）。"""
+        took：判定 ⇒ かかる秒（無ければ 0.01秒）・lite_asks：尋ねているかの質問への Flash Lite の読み（無ければほかの質問と同じ）。"""
         import asyncio
 
+        from flowctl import ASKS_YES
         from meaning_judge import RACE, JudgePanel, OtherJudgeError, Reading
         calls = []
 
@@ -4749,6 +4750,8 @@ class JudgePanelTest(unittest.TestCase):
                 await asyncio.sleep((took or {}).get(name, 0.01))
                 if name in fail:
                     raise OtherJudgeError(503, "混雑")
+                if name == self.LITE and lite_asks is not None and ASKS_YES in (getattr(q, "conditions", ()) or ()):
+                    return Reading(lite_asks)
                 return Reading("代わった人が話し始めた" if name in sures else "ご本人", sure=sures.get(name))
             return go
         panel = JudgePanel({"judge": (self.LITE, judge(self.LITE)), "judge2": tuple((n, judge(n)) for n in RACE)},
@@ -4847,12 +4850,12 @@ class JudgePanelTest(unittest.TestCase):
         from meaning_judge import RACE
         D1, JEV, THINK, FAST = RACE
 
-        def drive(fail=(), took=None, lite_reads_new=False, report=False):
+        def drive(fail=(), took=None, lite_reads_new=False, report=False, lite_asks=None):
             f, *_ = self.calling()
             f.limits = dataclasses.replace(f.limits, hold_s=0.3)
             f.use_checks("judge", "judge2")   # 本番の通話と同じ（convo.run_call）
             sures = {D1: 0.3, JEV: 0.3} | ({self.LITE: None} if lite_reads_new else {})
-            panel, calls = self.lite_and_race(sures, fail=fail, took=took)
+            panel, calls = self.lite_and_race(sures, fail=fail, took=took, lite_asks=lite_asks)
 
             async def main():
                 pending = []
@@ -4882,6 +4885,14 @@ class JudgePanelTest(unittest.TestCase):
         f, calls, info, out = drive(took={FAST: 1.0, self.LITE: 0.02}, lite_reads_new=True, report=True)
         self.assertEqual(sorted((a["kind"], a["by"]) for a in info["ahead"]), [("asks2", self.LITE), ("judge2", self.LITE)])
         self.assertIn("judge2", f.doubt)
+        self.assertNotIn("connect", f.facts)
+        # 裏の Flash Lite の「尋ねている」は、答える側（聞かれたことに録音で答える）には数えない＝止める側だけ（flowctl.unsure_counts の answer）。
+        # ⛔ 2026-10-30 夜：弱い読みと同じに数えていたので、AIの報告を「聞かれたことに答えて」と差し戻した（G-59 の記録：Flash Lite は、裏で出す
+        #    言葉＝d1-ultra と Jev が2つとも確かでない言葉で、確かめへの「いいえ、私は山田と申します。」を3回中1回「尋ねている」と読んだ）
+        f, calls, info, out = drive(took={FAST: 1.0, self.LITE: 0.02}, lite_reads_new=True, report=True, lite_asks="尋ねている")
+        self.assertIn(("asks2", self.LITE), [(a["kind"], a["by"]) for a in info["ahead"]])
+        self.assertEqual(out[0]["結果"], "目的の人か確かめる")   # 直す前は「差し戻し」（こちらへの質問です。聞かれたことに答えます）
+        self.assertIn("judge2", f.doubt)                     # 目的のお客様の判定の読みは、今までどおり止める側に使う
         self.assertNotIn("connect", f.facts)
         # 間に合えば使わない
         f, calls, info, out = drive(took={FAST: 0.05, self.LITE: 0.02}, lite_reads_new=True, report=True)
@@ -7719,8 +7730,12 @@ class TargetTest(unittest.TestCase):
     def test_weak_hold_of_the_target_judgment_waits(self):
         # 目的の人の判定の弱い「取り次ぎを待つ」は、取り次ぎの読みとして数える（黙って待つ）。尋ねているかの問い合わせの弱い読みは数えない
         # （⛔ G-57 tc27：捨てたので、取り次ぎの最中にかけ直しの質問を流した。G-59：判定の問いでは、ほかの言葉に0回）
-        from flowctl import HOLD, TARGET_IS_AWAY, unsure_counts
+        from flowctl import ASKS_YES, HOLD, TARGET_IS_AWAY, UNDECIDED, unsure_counts
         self.assertEqual((unsure_counts("judge", HOLD), unsure_counts("asks", HOLD)), (HOLD, None))
+        # 止める側だけの読み（裏で出した代わり）：黙って待つ・繋ぐのを止める印は数え、答える側（尋ねている）は数えない
+        self.assertEqual([unsure_counts(k, v, answer=False) for k, v in (("judge", HOLD), ("judge", "別の方"), ("asks", ASKS_YES))],
+                         [HOLD, UNDECIDED, None])
+        self.assertEqual(unsure_counts("asks", ASKS_YES), ASKS_YES)   # 確からしさを返す判定の弱い読みは、今までどおり答える側にも
         f, b = self.flow()
         f.use_checks("judge", "judge2", "asks")
         f.on_callee(); f.on_heard("岡田は外出しておりますので、別の者に代わります。少々お待ちください。")

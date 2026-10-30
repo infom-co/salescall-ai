@@ -283,10 +283,12 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
         # 組の答えが待つ長さに間に合わなかった判定：組より先に、裏で出した代わり（お呼びする段の 3.5 Flash Lite）の読みが届いていれば、止める側
         # だけに使う（弱い読みと同じ＝Flow.on_unsure：黙って待つ・確かめる側。繋ぐ・かけ直しへは進ませない）。✅ 2026-10-30 ユーザー：「(1)(2)とも
         # お勧めの形でOK」。⛔ 前は、Anthropic が混んで遅いだけのとき、d1-ultra と Jev が確かでない言葉に読みが1つも無かった（Intent.md 9-4 の J10b）
+        # 答える側（尋ねている）には数えない（answer=False＝flowctl.unsure_counts の1か所。⛔ 2026-10-30 夜：弱い読みと同じに数えていたので、
+        # 確かめへの「いいえ、私は山田と申します。」の Flash Lite の「尋ねている」で、聞かれていない質問に答える側へ進みえた）
         for kind, (atext, asaid, got) in list(ahead.items()):
             if not jobs[kind].done() and judging_text.get(kind) == atext and flow.callee_turns == turn:
                 del ahead[kind]
-                flow.on_unsure(kind, str(got), turn, asaid)
+                flow.on_unsure(kind, str(got), turn, asaid, answer=False)
                 info.setdefault("ahead", []).append({"kind": kind, "reading": str(got), "by": getattr(got, "by", None)})
         info.setdefault("waits", []).append({"for": "report" if ack else "settle", "every": every, "speaking_s": round(ready - t0, 3),
                                              "waited_s": round(loop.time() - t0, 3),
