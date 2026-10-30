@@ -1010,6 +1010,13 @@ def says_new(value) -> bool:
 def says_successor(value) -> bool:
     """判定の読みが、はじめの場面で「話している方は代理の方（後任）」を含むか（後任の方の印＝facts_reading。後任の方をお呼びしたあとは、読みそのもの）。"""
     return bool(getattr(value, "successor", False))
+
+
+def says_proxy(value) -> bool:
+    """判定の読みが「話している方は代理の方」（後任・上司・代わりに決められる・決められない・どれかは分からない＝PROXIES）か（項目ごとの答え
+    ＝facts の「話している方は誰か」。項目ごとに答えない読みは、代理の方とは読んでいない）。Flow._proxy_read が、AIの「代わりの方」「後任の方」の
+    報告とそろうかを見る。"""
+    return (getattr(value, "facts", None) or {}).get(WHO) in PROXIES
 # hang_up＝話さずに切る（電話接続側が読む）・silent＝AIに話させない返事（取り次ぎを待つ間など。handle_call）
 INTERNAL_KEYS = {"ack", "ack_pause_s", "ask_n", "ask_reason", "ask_last", "after", "play", "speak", "hang_up", "silent", "sorry", "again", "away", "renamed",
                  "led", "thanks", "talked", "fallback", "quiet", "bridged", "hold_wait_s"}  # 中で使うだけの項目（電話接続側・数え方が読む）。AIへの返事には入れない
@@ -3675,7 +3682,8 @@ class Flow:
               山田様に戻る時刻を聞き、そのあと代わって出た岡田様にも「何時ごろお戻りに…」を流した
         (6) 代わりの方・後任の方・在籍していない・ほかの手段・折り返しや伝言の申し出（どれも「電話口の方は目的の人ではない／目的の人とは
             話せない」）は、判定が「ご本人」
-            でなければ受け取り、応じ方は業務設定で決める（_not_available）。判定が「ご本人」なら食い違う（ほかの手段だけは、ご本人の申し出として
+            でなければ受け取り（代わりの方・後任の方は、判定が届いていれば、話している方を代理の方と読んだ判定とそろったときだけ＝_proxy_read。
+            そろわなければ「この方は目的の人ではない」として確かめる）、応じ方は業務設定で決める（_not_available）。判定が「ご本人」なら食い違う（ほかの手段だけは、ご本人の申し出として
             受け取る）＝「この方は目的の人ではない」として (3)(4) で決める。✅ 2026-10-22 ユーザー：「代わりの方が聞いてくれると言っているのに、
             それを無下にするんですか？」"""
         j = self.meaning_said if self.words_complete else None
@@ -3744,9 +3752,15 @@ class Flow:
                     return {"result": "wait", "silent": True,
                             "message": "相手の言葉の読みがそろうまで、何も言わずに待ちます（このあと知らせがあったら、もう一度報告します）。"}
                 # どの判定も「ご本人」と読んでいない（別の方・代わった人・届いていない）：電話口の方は目的の人ではない、とそろう（上の (6)）。
-                # ほかの手段は、電話口のご本人の申し出でもよい
-                return self._not_available(ai, why, offer, {"ai"} | {k for k in JUDGMENTS if self.check.get(k) not in (None, HOLD)})
-            ai = "not_target"  # 判定のどれかが「ご本人」：代わりの方・後任の方・在籍していない、と食い違う（確かめる・お呼びし直す）
+                # ほかの手段は、電話口のご本人の申し出でもよい。代わりの方・後任の方は、判定が届いていれば、話している方を代理の方と読んだ判定と
+                # そろったときだけ（9-5 の 7「独立した確かめとそろったときだけ受け取る」）。✅ 2026-10-30 ユーザー：「(1)(2)ともお勧めの形でOK」。
+                # ⛔ 前は「ご本人」と食い違わなければ受け取っていた＝J11a の「はい、お電話代わりました。」（正しくは決められない）で誤った報告を
+                #    止めたのは、3.5 Flash Lite の読み違いの「ご本人」だった（お呼びする段を組だけにすると、組が正しく読んで報告が通った）
+                if not (ai in STANDIN_PARTIES and j is not None and not self._proxy_read()):
+                    return self._not_available(ai, why, offer, {"ai"} | {k for k in JUDGMENTS if self.check.get(k) not in (None, HOLD)})
+            # 判定のどれかが「ご本人」（代わりの方・後任の方・在籍していない、と食い違う）・代わりの方・後任の方の報告が、代理の方の読みとそろわない
+            # ＝AIの読みを「この方は目的の人ではない」として決める（確かめる・お呼びし直す）
+            ai = "not_target"
         if ai == "away":
             if j is None or (j == TARGET_IS_THERE and why not in AWAY_WHYS):
                 # 判定が届いていない（AIの読みだけ＝通話の事実に残し、通話後の検証が確かめる）／電話口のご本人が、いまは話せないと言った
@@ -3944,6 +3958,12 @@ class Flow:
         （facts_reading）なので空。"""
         now = self._judged_now() if self.words_complete and not self.successor else {}
         return set() if TARGET_IS_THERE in now.values() else {k for k, v in now.items() if says_successor(v)}
+
+    def _proxy_read(self) -> set[str]:
+        """いまの言葉（出揃ったもの）を「話している方は代理の方」と読んだ判定の名前（唯一の場所＝says_proxy）。AIの「代わりの方」「後任の方」の
+        報告は、これとそろったときだけ受け取る（_calling_reported の (6)）。確からしさが線より下の読み（on_unsure）は数えない。"""
+        now = self._judged_now() if self.words_complete else {}
+        return {k for k, v in now.items() if says_proxy(v)}
 
     def _handed(self) -> set[str]:
         """いま電話口にいる方は、前の方が「お呼びした方は出られない」と伝えたうえで代わった方か（唯一の場所）：前の方の言葉（いまの方に替わる前・

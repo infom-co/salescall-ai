@@ -787,16 +787,18 @@ def leads_of(names) -> tuple[int, ...]:
     return tuple(i for i, n in enumerate(names) if decision_model(n))
 
 
-async def first_of(starts, usable, leads: tuple[int, ...] = (), wait_s: float = LEAD_WAIT_S):
+async def first_of(starts, usable, leads: tuple[int, ...] = (), wait_s: float = LEAD_WAIT_S, on_rest=None):
     """先に届いた使える答えで決める（唯一の場所。JudgePanel の受け持ち・grounding.make_grounder）：starts＝問い合わせを始める関数の並び
     （引数なし・答えを返す）。usable(答え) が真の、最初に届いた答えを返し、残りの問い合わせは止める。どれも無ければ None。
     失敗した問い合わせ・None の答えは待たない（ほかの答えを待つ）。
     leads＝先に出すもの（starts の番号。安くて速い判断のモデル＝leads_of）：それだけを同時に先に出し、使える答えが1つ届けばそれで決める（ほかは
     出さない）。先に出したものが全部、使えない答え・失敗を返したとき、または wait_s 秒たっても使える答えが無いときに、ほかを同時に出す（まだ
-    答えていない先のものは、そのまま待つ）。leads が無いか、全部が先のものなら、全部を同時に出す。"""
+    答えていない先のものは、そのまま待つ）。leads が無いか、全部が先のものなら、全部を同時に出す。
+    on_rest＝先に出したもの以外（確からしさを返さない判定）を出す時点で呼ぶ（引数なし。先に出すものが無ければ初めに。全部が先のものなら呼ばない＝
+    JudgePanel が、組が確かな読みを返せないと分かった時点で、代わりも裏で出しておく）。"""
     import asyncio
 
-    jobs = []
+    jobs, rest = [], True
     if leads and len(leads) < len(starts):
         pending = {asyncio.ensure_future(starts[i]()) for i in leads}
         deadline = asyncio.get_running_loop().time() + wait_s
@@ -816,6 +818,10 @@ async def first_of(starts, usable, leads: tuple[int, ...] = (), wait_s: float = 
                     return got
         jobs += list(pending)
         starts = [s for i, s in enumerate(starts) if i not in leads]
+    elif leads:
+        rest = False   # 全部が先のもの（判断のモデルだけの組）：ほかを出す時点は無い
+    if rest and on_rest is not None and starts:
+        on_rest()
     jobs += [asyncio.ensure_future(start()) for start in starts]
     try:
         for done in asyncio.as_completed(jobs):
@@ -873,8 +879,8 @@ class JudgePanel:
 
     def slot(self, kind: str):
         """受け持ち kind の判定（convo.check_handler に渡す形。panel＝この受け持ちの仕組み・answers＝その質問に自分で答えるか）。"""
-        async def run(q, text, asked=None, before=None):
-            return await self.ask(kind, q, text, asked, before)
+        async def run(q, text, asked=None, before=None, early=None):
+            return await self.ask(kind, q, text, asked, before, early)
         run.panel = self
         run.answers = lambda q: self.answers(kind, q)
         return run
@@ -953,7 +959,12 @@ class JudgePanel:
         while len(self.answered) > 64:
             self.answered.popitem(last=False)
 
-    async def ask(self, kind: str, q, text: str, asked: str | None = None, before: str | None = None) -> Reading:
+    async def ask(self, kind: str, q, text: str, asked: str | None = None, before: str | None = None, early=None) -> Reading:
+        """受け持ち kind の判定で、言葉 text を読む。early＝組が確かな読みを返せないと分かった時点で裏で出した代わり（この質問では代わりだけの
+        判定）の読みが、組の答えより先に届いたら知らせる先（引数は読み。会話の側が、組の答えが待つ長さに間に合わなかったときだけ、止める側だけに
+        使う＝convo.check_handler。✅ 2026-10-30 ユーザー：「(1)(2)ともお勧めの形でOK」）。"""
+        import asyncio
+
         tried: list[dict] = []
         # 発話と質問ごと（⚠️ 呼んでいる段の、目的のお客様かの質問と、こちらに尋ねているかの質問は、同じ番号＝選べるもので分ける）
         key = (getattr(q, "id", None), tuple(getattr(q, "conditions", ()) or ()), text, asked, before)
@@ -981,8 +992,30 @@ class JudgePanel:
                 tried.append({"model": pair[0], "error": SAME_MAKER})
                 return False
             return True
-        won = await first_of([start(n, f) for n, f in live], usable, leads=leads_of([n for n, _ in live]))
+        backups = self._backups(kind, qkind)
+        ahead = None  # 裏で出しておいた代わり（名前, 問い合わせ）
+
+        def start_ahead():
+            # 組の先に出す判定（d1-ultra・Jev）から確かな読みが届かず、ほかの判定（考えない Sonnet）を出す時点（first_of の on_rest）：代わりも
+            # 裏で出しておく（混んだときの備え＝組の答えが待つ長さに間に合わないとき、会話の側が止める側だけに使う）。⛔ 2026-10-30：代わりを組が
+            # 答えられなかったあとにだけ出していたので、Anthropic が混んで遅いだけのときは、10秒の時間切れまで入らなかった（Intent.md 9-4 の J10b）
+            nonlocal ahead
+            ready = [(n, f) for n, f in backups if self.down_until.get(n, 0.0) <= self.clock() and maker(n) not in self._taken(kind, key)]
+            if not ready:
+                return
+            bname, bfn = ready[0]
+
+            async def go():
+                got = await self._try(bname, bfn, q, text, asked, before, tried)
+                if got is not None and early is not None:
+                    early(self._mark(got, bname, ()))
+                return got
+            ahead = (bname, asyncio.ensure_future(go()))
+        won = await first_of([start(n, f) for n, f in live], usable, leads=leads_of([n for n, _ in live]),
+                             on_rest=start_ahead if backups else None)
         if won is not None:
+            if ahead is not None:
+                ahead[1].cancel()  # 組が答えた：裏の代わりは使わない
             if self.holder == kind:
                 self.holder = None
             self._keep(kind, key, won[0])
@@ -990,7 +1023,14 @@ class JudgePanel:
         # 受け持ちの判定がどれも答えなかった：確かでない読み（代わりが答えても、流れの制御が数える＝Reading.weak）と、代わり（この質問では代わり
         # だけの、ほかの受け持ちの判定 → 止まった判定の代わり STANDIN の順）
         weak = next((t["unsure"] for t in tried if "unsure" in t), None)
-        for bname, bfn in self._backups(kind, qkind):
+        if ahead is not None:  # 裏で出しておいた代わり：その答えを待つ（同じ代わりに2回は問い合わせない）
+            bname, job = ahead
+            got = await job
+            if got is not None and maker(bname) not in self._taken(kind, key):
+                self._keep(kind, key, bname)
+                return self._mark(got, bname, tried, weak)
+            backups = [(n, f) for n, f in backups if n != bname]
+        for bname, bfn in backups:
             if self.down_until.get(bname, 0.0) > self.clock():
                 tried.append({"model": bname, "error": "止まっている（前の問い合わせ）"})
             elif maker(bname) in self._taken(kind, key):

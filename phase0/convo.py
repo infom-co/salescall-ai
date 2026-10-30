@@ -139,6 +139,7 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
         return t
 
     judging_text: dict[str, str | None] = {}  # 判定ごとに、いま判定している言葉（None＝出揃うのを待っている＝出揃った言葉で判定する）
+    ahead: dict[str, tuple] = {}  # 判定ごとに、組より先に届いた、裏で出した代わりの読み（言葉, 見た言葉の印, 読み）＝hold が止める側だけに使う
 
     def complete() -> bool:
         return flow.words_complete
@@ -182,7 +183,10 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
             judging_text[kind] = text
             try:
                 kq, kasked, kbefore = questions[kind]
-                got = await asyncio.wait_for(runs[kind](kq, text, kasked, before=kbefore), LATE_CHECK_S)
+                # 受け持ちの仕組み（JudgePanel）の判定には、裏で出した代わりの読みを知らせてもらう（early。meaning_judge.JudgePanel.ask）
+                kw = ({"early": lambda r, k=kind, t=text, s=said: ahead.__setitem__(k, (t, s, r))}
+                      if getattr(runs[kind], "panel", None) is not None else {})
+                got = await asyncio.wait_for(runs[kind](kq, text, kasked, before=kbefore, **kw), LATE_CHECK_S)
             except Exception as exc:  # 判定が落ちても通話は止めない（届かなかった＝通話後の検証へ）
                 info[f"{kind}_error"] = repr(exc)[:200]
                 if getattr(exc, "tried", None):  # 受け持ちの判定・代わりの、答えが無かった理由（meaning_judge.NoJudgment）
@@ -276,6 +280,14 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
             await asyncio.wait(waits, timeout=max(0.0, max(ready, quiet) + flow.limits.hold_s + extra - loop.time()))
         if first is not None and not first.done():
             first.cancel()
+        # 組の答えが待つ長さに間に合わなかった判定：組より先に、裏で出した代わり（お呼びする段の 3.5 Flash Lite）の読みが届いていれば、止める側
+        # だけに使う（弱い読みと同じ＝Flow.on_unsure：黙って待つ・確かめる側。繋ぐ・かけ直しへは進ませない）。✅ 2026-10-30 ユーザー：「(1)(2)とも
+        # お勧めの形でOK」。⛔ 前は、Anthropic が混んで遅いだけのとき、d1-ultra と Jev が確かでない言葉に読みが1つも無かった（Intent.md 9-4 の J10b）
+        for kind, (atext, asaid, got) in list(ahead.items()):
+            if not jobs[kind].done() and judging_text.get(kind) == atext and flow.callee_turns == turn:
+                del ahead[kind]
+                flow.on_unsure(kind, str(got), turn, asaid)
+                info.setdefault("ahead", []).append({"kind": kind, "reading": str(got), "by": getattr(got, "by", None)})
         info.setdefault("waits", []).append({"for": "report" if ack else "settle", "every": every, "speaking_s": round(ready - t0, 3),
                                              "waited_s": round(loop.time() - t0, 3),
                                              "judged": [k for k in runs if k in flow.check],  # 決めるときに届いていた判定
