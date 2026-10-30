@@ -111,9 +111,16 @@ def reading(it: dict, key: str):
     return None if got is None else Reading(got, it.get(f"{key}言い切り") is not False)
 
 
+def either(it: dict) -> bool:
+    """言い切っていても、いなくても正しい答え（付け直した正解の either。境目＝どちらの読みも正解）。⚠️ 2026-10-31：「〜のほうがいいですかね」
+    「決まってないわけではないです」「メールが埋もれてしまって」のように、答えは決まるが、言い切りかは人でも分かれるもの"""
+    got = _label(it)
+    return bool(got and got.get("either"))
+
+
 def mark(it: dict, key: str) -> str | None:
     """「曖昧」の印の数え：寄っている答えを正しく選んだときだけ（値が誤っていれば、印の前に誤り）。"""
-    if it.get(key) not in accept(it) or it[key] in (UNDECIDED, "unknown", HOLD, HANDOVER):
+    if it.get(key) not in accept(it) or it[key] in (UNDECIDED, "unknown", HOLD, HANDOVER) or either(it):
         return None
     unsure = it.get(f"{key}言い切り") is False
     if hedged(it):
@@ -305,6 +312,68 @@ def dangerous(it: dict, q: Question, key: str) -> bool:
     return got not in accept(it) and (got in q.conditions or got == ANY) and it.get(f"{key}言い切り") is not False
 
 
+# 流れの制御がすること（判定1つの読みから。Flow._agree の向き：最初の答えは、言い切っていなければ念のため確かめる・決められなければ聞き直す／
+#    言い直しへの返事は、認めたら受け取る（言い切っていなければ「曖昧」の印）・打ち消したら言い回しを変えて確かめ直す・決められなければ「-」で
+#    締めの前に聞き直す）。✅ 2026-10-30 ユーザー：「何が問題で間違えたのかを徹底的に洗い出し…」＝判定の答えの正誤だけでなく、お客様に聞こえる
+#    動きの正誤で数える（決められない言葉を判定が「寄っているが言い切っていない」と読んでも、流れの制御は確かめるので、お客様に聞こえる動きは同じ）
+ASK_AGAIN, AFFIRMED, AFFIRMED_HEDGED, DENIED = "聞き直す", "認めた（受け取る）", "認めた（受け取る・曖昧の印）", "打ち消した（確かめ直す）"
+
+
+def flow_act(it: dict, q: Question, got, firm) -> str | None:
+    """判定の読み got（firm＝言い切っているか）から、流れの制御がすること（数えるのはここ）。"""
+    if got is None:
+        return None
+    if it["set"] == "D":
+        if got == "affirmed" or got == it.get("asked_choice"):
+            return AFFIRMED_HEDGED if firm is False else AFFIRMED
+        return ASK_AGAIN if got in (UNDECIDED, "unknown") else DENIED
+    if got in (UNDECIDED, "unknown"):
+        return ASK_AGAIN
+    return f"念のため確かめる：{got}" if got in q.conditions and firm is False else f"受け取る：{got}"
+
+
+def flow_wants(it: dict, q: Question) -> set[str]:
+    """正解の表から決まる、流れの制御がすべきこと（どれをしても正しい）。"""
+    h, e, ok = hedged(it), either(it), set()
+    for a in accept(it):
+        if it["set"] == "D":
+            if a == "affirmed" or a == it.get("asked_choice"):
+                ok |= {AFFIRMED, AFFIRMED_HEDGED} if e else {AFFIRMED_HEDGED if h else AFFIRMED}
+            else:
+                ok.add(ASK_AGAIN if a in (UNDECIDED, "unknown") else DENIED)
+        elif a in (UNDECIDED, "unknown"):
+            ok.add(ASK_AGAIN)
+        elif a in q.conditions:
+            ok |= {f"受け取る：{a}", f"念のため確かめる：{a}"} if e else {f"念のため確かめる：{a}" if h else f"受け取る：{a}"}
+        else:
+            ok.add(f"受け取る：{a}")
+    return ok
+
+
+def flow_miss(it: dict, q: Question, key: str) -> str | None:
+    """判定 key の読みで、流れの制御の動きが正解と違えば、その違いの種類（正しければ None・読みが無ければ「読み無し」）。"""
+    act = flow_act(it, q, it.get(key), it.get(f"{key}言い切り"))
+    if act is None:
+        return "読み無し"
+    want = flow_wants(it, q)
+    if act in want:
+        return None
+    pure = set(accept(it)) <= {UNDECIDED, "unknown"}   # どの答えにも寄っていない言葉
+    if act in (AFFIRMED, AFFIRMED_HEDGED) or act.startswith("受け取る"):
+        if act == AFFIRMED_HEDGED and AFFIRMED in want:
+            return "要らない曖昧の印（値は正しい）"
+        if act == AFFIRMED and AFFIRMED_HEDGED in want:
+            return "曖昧の印が落ちた（値は正しい）"
+        if act.startswith("受け取る") and act.replace("受け取る", "念のため確かめる") in want:
+            return "⛔言い切っていない答えを、確かめずに受け取る"
+        return "⛔受け取ってはいけないのに受け取る"
+    if act == ASK_AGAIN:
+        return "要らない聞き直し"
+    if act.startswith("念のため") and act.replace("念のため確かめる", "受け取る") in want:
+        return "要らない念のための確かめ"
+    return "推し量って確かめる（どの答えにも寄っていない言葉）" if pure else "違う答えで確かめる"
+
+
 def first(it: dict) -> bool:
     """1日の上限が少ないときに、先に判定させる答え：いまの判定（BASE）が言い直しへの返事を認めたと読み違えたもの。判定し直すときは、
     捨てる前の読み違えの印（前の読み違え）で見る。⛔ 2026-10-18：組の順で流し、上限で止まって、決め手の15個が2回とも後回しになった"""
@@ -430,6 +499,7 @@ def run_judges(args, items: list[dict], qmap: dict, ids: dict) -> None:
                     it[key] = judge_other(clients[key], key, q, it["text"], it.get("asked"))
                     it[f"{key}言い切り"] = getattr(it[key], "firm", None)
                     it[f"{key}確からしさ"] = getattr(it[key], "sure", None)  # Jev の線（OTHER_JUDGES の sure_min）で、同時に出した組の読みを見積もるため
+                    it[f"{key}言い切りの確からしさ"] = getattr(it[key], "firm_p", None)   # 言い切りの線と、どちらとも言えない幅を決めるため
                     it[f"{key}秒"] = round(time.monotonic() - t, 3)
                     break
                 except OtherJudgeError as exc:  # 上限（429）・混雑（5xx）は待ってやり直す。ほかは記録して次へ
@@ -490,7 +560,8 @@ async def run_group(args, items: list[dict], qmap: dict, name: str, lanes: int =
     await asyncio.gather(*(one(it) for it in todo))
 
 
-def tally(items: list[dict], judges) -> dict:
+def tally(items: list[dict], judges, qmap: dict | None = None) -> dict:
+    """判定ごとの数え。qmap（質問の表）を渡せば、流れの制御の動き（flow_miss）でも数える。"""
     out = {}
     for key in judges:
         t = defaultdict(Counter)
@@ -504,6 +575,8 @@ def tally(items: list[dict], judges) -> dict:
             label = {"B": "選択肢", "D": it.get("kind")}.get(it["set"], want)
             t[f"{it['set']}・{label}"][res] += 1
             t["全体"][res] += 1
+            if qmap and it["qid"] in qmap:
+                t["流れの制御の動き"][flow_miss(it, qmap[it["qid"]], key) or "正しい動き"] += 1
             if (m := mark(it, key)):
                 t["全体"][f"曖昧の印・{m}"] += 1
             if misread_as_affirmed(it, key):
@@ -593,7 +666,7 @@ def main() -> None:
                 # だけにする。見本は、前の読みを捨てる前に決める（捨てたあとでは、どれが難しい答えか分からない）
                 for it in pick_sample(items, args.sample):
                     it["見本"] = True
-            items = [{k: v for k, v in it.items() if not any(k == j or (k.startswith(j) and k[len(j):] in ("秒", "誤り", "言い切り", "確からしさ", "by"))
+            items = [{k: v for k, v in it.items() if not any(k == j or (k.startswith(j) and k[len(j):] in ("秒", "誤り", "言い切り", "確からしさ", "言い切りの確からしさ", "by"))
                                                              for j in args.judge)} for it in items]
         if args.add_de and not any(it["set"] in ("D", "E") for it in items):
             names = {m.display_name: m.name.split("/")[-1] for m in ring.client().models.list() if getattr(m, "display_name", None)}
@@ -610,7 +683,7 @@ def main() -> None:
             items += got
     say("答えの数", dict(Counter(it["set"] for it in items)))
     run_judges(args, items, qmap, ids)
-    summary = tally(items, args.judge)
+    summary = tally(items, args.judge, qmap)
     summary["記録の通話に当てた見込み"] = {k: predict_calls(items, k) for k in args.judge}
     summary[f"{BASE} と同じ答えで比べた"] = {k: versus(items, qmap, k) for k in args.judge if k != BASE}
     for k, v in summary.items():

@@ -2740,9 +2740,13 @@ class MeaningJudgeOptionsTest(unittest.TestCase):
                                                              PHONE: {"choice": N, "confidence": 0.98}, ABOUT: {"choice": TARGET_IS_AWAY, "confidence": 0.7}}}))
         self.assertEqual((got[WHO], got[ABOUT], got["sure"]), (WHO_RECEPTION, TARGET_IS_AWAY, 0.7))
         self.assertEqual(read(q, json.dumps(got)).sure, 0.7)
-        # 1つだけ選ぶ質問の Jev の返事の読み方は前のまま
+        # 1つだけ選ぶ質問の Jev の返事の読み方は前のまま。言い切っているかのもとの確からしさ（firm_p）も添えて、読みに残す（線と、どちらとも
+        # 言えない幅を決める測りが使う＝2026-10-31）
         one = json.loads(other_text("Jev 1.14", {"answers": {"choice": {"choice": "はい", "confidence": 0.9}, "firm": {"noul": 0.1}}}))
-        self.assertEqual(one, {"choice": "はい", "firm": 0.1 >= OTHER_JUDGES["Jev 1.14"]["firm_min"], "sure": 0.9})
+        self.assertEqual(one, {"choice": "はい", "firm": 0.1 >= OTHER_JUDGES["Jev 1.14"]["firm_min"], "sure": 0.9, "firm_p": 0.1})
+        from flowctl import Question
+        yn = Question("q", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"))
+        self.assertEqual((read(yn, json.dumps(one)).firm_p, read(yn, json.dumps({"choice": "はい", "firm": True})).firm_p), (0.1, None))
         self.assertIsNone(other_text("Jev 1.14", {"answers": {WHO: {"choice": None, "confidence": 0.9}}}))
 
     def test_g59_facts_agree_with_the_readings_it_accepts(self):
