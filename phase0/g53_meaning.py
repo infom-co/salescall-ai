@@ -447,7 +447,7 @@ def run_judges(args, items: list[dict], qmap: dict, ids: dict) -> None:
                     say("判定", dict(done), "残り", jobs.qsize() + others.qsize())
                     save_partial(f"G-53{args.tag}", {"items": items})
 
-    n_other = 4 * len({k for k in args.judge if k in OTHER_JUDGES})  # 有料の枠の1分の上限に収まる数（1つの会社に4本）
+    n_other = getattr(args, "other_lanes", 4) * len({k for k in args.judge if k in OTHER_JUDGES})  # 有料の枠の1分の上限に収まる数（既定は1つの会社に4本）
     lanes = usable if gem else []
     with ThreadPoolExecutor(max_workers=max(1, len(lanes) + n_other)) as ex:  # Google の流れと、ほかの会社の流れを同時に
         futures = [ex.submit(worker, k) for k in lanes] + [ex.submit(other_worker, n) for n in range(n_other)]
@@ -571,6 +571,9 @@ def main() -> None:
     p.add_argument("--sample", type=int, default=0, help="2つ目の判定の候補は、3.5 Flash Lite が誤った答えと、ほかから無作為にこの数だけ（1日の上限が少ない）")
     p.add_argument("--limit", type=int, default=0, help="組の判定（GROUPS）だけ：決め手の答えから、この数だけ判定する（はじめに少しだけ流して1件の円を確かめる）")
     p.add_argument("--interval", type=float, default=4.0, help="同じキー・同じモデルに続けて聞く間（秒）。1分の上限に当たったら、言われた秒だけ待つ")
+    p.add_argument("--other-lanes", type=int, default=4,
+                   help="Google 以外の判定1つにつき、同時に送る流れの本数（少しだけ聞き直すときは1＝前の部分の保存がまだ無いうちに同じ前の部分を"
+                        "何本も同時に送ると、どれも書き込みになる。2026-10-30：95件の聞き直しで、4本なら最悪約57円・1本なら約25円の見込み）")
     args = p.parse_args()
     args.judge = args.judge or ["3.5 Flash Lite"]
     ring = KeyRing(args)
