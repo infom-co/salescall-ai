@@ -78,45 +78,74 @@ def misses(names: list[str]) -> None:
                           "｜読み：", value, "○" if value in acc else "×", "｜流れの制御の動き：", "変わる" if moved else "同じ")
 
 
+def source(spec: str, col: str) -> tuple[str, str]:
+    """「ファイル名:列」（列を書かなければ col）⇒ (ファイル名, 列)。列は G-59 の行の判定の列（judge＝その場の判定・judge2＝2つ目の判定）か、
+    Jev だけに聞いた行の並びの jev。"""
+    name, _, c = spec.partition(":")
+    return name, c or col
+
+
+def answer(r: dict, col: str) -> tuple[dict | None, float, float]:
+    """1行の、判定 col の (項目ごとの答え, 確からしさ, 答えまでの秒)。G-59 の形の Jev は、確からしさが線（meaning_judge.sure_line）から上のときだけ
+    答えを残す（下なら答え無し＝確からしさ 0）。確からしさを返さない判定は 1。答えの無い判定（止まった・上限）は (None, 0, 99)。"""
+    if col == "jev":
+        j = r.get("jev") or {}
+        return (judged(r, "jev"), min(v[1] for v in j.values()), 0.3) if judged(r, "jev") else (None, 0.0, 0.3)
+    got = r.get(f"{col}_facts")
+    sure = r.get(f"{col}_sure")
+    return got, (1.0 if sure is None else sure) if got else 0.0, r.get(f"{col}_s") or 99.0
+
+
 def plan(cheap: list[str], jev: list[str], group: str, line: float) -> None:
+    """場面で選び分ける形：Jev の確からしさが線から上なら Jev、そうでなければ難しくない場面（呼ぶ一言への返事・確かめへの返事）は安い判定、難しい
+    場面（取り次ぎのあと・後任の方）は今の組。外れは、流れの制御の動きが変わるもの（flow_ok）と、項目だけのものを分けて、場面ごとに数える。
+    回りの数が違う答えは、言葉ごとに、多いほうの回りに合わせて少ないほうをくり返して組む（⛔ 2026-10-30：前は Jev だけに聞いた行の並びと、
+    2つ目の判定の列しか読めず、外れも項目で数えていた）。"""
     table = current()
-    cheap_rows, jev_rows = collections.defaultdict(list), collections.defaultdict(list)
-    for name in cheap:
-        for r in rows_of(name):
-            cheap_rows[key(r)].append(r)
-    for name in jev:
-        for r in rows_of(name):
-            jev_rows[key(r)].append(r)
-    groups = {key(r): r for r in rows_of(group)}
-    by, slow, count, out = collections.Counter(), collections.Counter(), collections.Counter(), []
-    for k, js in jev_rows.items():
+    def load(specs: list[str], col: str) -> dict:
+        rows = collections.defaultdict(list)
+        for spec in specs:
+            name, c = source(spec, col)
+            for r in rows_of(name):
+                rows[key(r)].append((r, c))
+        return rows
+    cheap_rows, jev_rows, group_rows = load(cheap, "judge2"), load(jev, "jev"), load([group], "judge2")
+    by, slow, moved, only, none, count = (collections.Counter() for _ in range(6))
+    out = []
+    for k in sorted(set(cheap_rows) | set(jev_rows) | set(group_rows), key=str):
         acc, facts = table[k]
-        for i, jr in enumerate(js):
-            j = jr.get("jev") or {}
-            sure = min(v[1] for v in j.values()) if judged(jr, "jev") else 0.0
-            if sure >= line:
-                who, got, s = "Jev", judged(jr, "jev"), 0.3
-            elif scene(jr) in HARD:
-                gr = groups[k]
-                who, got, s = "今の組", gr.get("judge2_facts"), gr.get("judge2_s") or 99
+        js, cs, gs = jev_rows[k], cheap_rows[k], group_rows[k]
+        for i in range(max(len(js), len(cs), len(gs))):
+            jr, jc = js[i % len(js)]
+            got, sure, s = answer(jr, jc)
+            sc = scene(jr)
+            if got and sure >= line:
+                who = "Jev"
             else:
-                cr = cheap_rows[k][i % len(cheap_rows[k])]
-                who, got, s = "安い判定", cr.get("judge2_facts"), cr.get("judge2_s") or 99
+                r, c = (gs if sc in HARD else cs)[i % len(gs if sc in HARD else cs)]
+                who = "今の組" if sc in HARD else "安い判定"
+                got, _, s2 = answer(r, c)
+                s = 0.3 + s2 if js else s2   # Jev を先に出して確かでなければ出す（0.3秒で出す＝meaning_judge の組と同じ）
             by[who] += 1
-            value = facts_reading(got, jr["successor"])[0] if got else None
-            ok, fok = value in acc, g.facts_ok(got, facts)
-            count["回"] += 1
-            count["読み○"] += ok
-            count["項目○"] += fok
+            count[sc] += 1
             if s > 2.0:
-                slow[f"{who}・{scene(jr)}"] += 1
-            if not (ok and fok):
-                out.append((scene(jr), who, jr["text"], jr["before"] or "", "読み○" if ok else "読み×",
-                            {x: (got.get(x) if got else None, sorted(v)) for x, v in facts.items() if not got or got.get(x) not in v}))
-    print("決めた判定：", dict(by), "｜", dict(count))
-    print("2秒超：", dict(slow))
+                slow[f"{who}・{sc}"] += 1
+            if not got or len(got) != len(facts):
+                none[f"{who}・{sc}"] += 1
+                out.append((sc, who, jr["text"], jr["before"] or "", "答え無し"))
+                continue
+            if not flow_ok(got, facts, acc, jr):
+                moved[f"{who}・{sc}"] += 1
+                out.append((sc, who, jr["text"], jr["before"] or "", "動きが変わる",
+                            {x: (got.get(x), sorted(v)) for x, v in facts.items() if got.get(x) not in v}))
+            elif not g.facts_ok(got, facts):
+                only[f"{who}・{sc}"] += 1
+    print("決めた判定：", dict(by), "｜場面ごとの回：", dict(count))
+    print("流れの制御の動きが変わる外れ：", dict(moved) or 0)
+    print("項目だけの外れ：", dict(only) or 0, "｜答え無し：", dict(none) or 0)
+    print("2秒超：", dict(slow) or 0)
     for x in out:
-        print("  外れ：", x)
+        print("  ", x)
 
 
 def main() -> None:
@@ -125,9 +154,9 @@ def main() -> None:
     m = sub.add_parser("misses")
     m.add_argument("names", nargs="+")
     q = sub.add_parser("plan")
-    q.add_argument("--cheap", required=True, help="安い判定の G-59 の答え（,で区切る。回りの順に Jev と組む）")
-    q.add_argument("--jev", required=True, help="Jev だけに聞いた行の並び（,で区切る）")
-    q.add_argument("--group", required=True, help="今の組の G-59 の答え")
+    q.add_argument("--cheap", required=True, help="安い判定の答え（「ファイル名:列」を,で区切る。列の既定は judge2・その場の判定は judge）")
+    q.add_argument("--jev", required=True, help="Jev の答え（「ファイル名:列」を,で区切る。列の既定は jev＝Jev だけに聞いた行の並び・G-59 の形は judge2）")
+    q.add_argument("--group", required=True, help="今の組の答え（「ファイル名:列」。列の既定は judge2）")
     q.add_argument("--line", type=float, default=0.8)
     a = p.parse_args()
     if a.cmd == "misses":
