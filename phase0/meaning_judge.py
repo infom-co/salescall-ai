@@ -315,6 +315,8 @@ async def ajudge(client, model: str, q, text: str, asked: str | None = None, bef
 
 
 JUDGE_MODELS = ("3.5 Flash Lite", "3.6 Flash", "3.7 Flash", "3.8 Flash")   # 判定に使える文字のモデル（表示名。g23_names.find_models でIDを引く）
+# 質問の種類（question_kind）のうち、目的のお客様をお呼びする段の2つ（目的のお客様の判定・尋ねているか）。中身の判定（grounding）は ground
+CALLING_KINDS = ("facets", "asks")
 
 # ── Google 以外の判定（DESIGN.md 1-3 の (2)・選んだ根拠は docs/JUDGE_SETUP.md）。同じ問い合わせの文・同じ選べるもの・同じ読み方（read）で、
 #    送り方だけが会社ごとに違う。
@@ -334,8 +336,11 @@ OTHER_JUDGES = {
     # JSON で返させる。考えない形は {"type": "between_tools"}（道具が無いので考える段が無い）
     "Claude Sonnet 5.5": {"maker": "anthropic", "model": "claude-sonnet-5-5", "key": "ANTHROPIC_JUDGE_KEY", "host": "api.anthropic.com",
                           "form": "json", "effort": "low", "thinking": {"type": "between_tools"}},
+    # group_kinds＝組の中で答える質問の種類（takes_part）。✅ 2026-10-30 ユーザー：「d1-ultra（線0.6）と Jev（線0.8）を同時に出し、どちらも
+    #    確かでないときだけ考えない Sonnet を出す形。OK」＝お呼びする段の2つの質問には、考える形は出さない（答えの意味・中身の判定は今のまま）
     "Claude Sonnet 5.5（考える）": {"maker": "anthropic", "model": "claude-sonnet-5-5", "key": "ANTHROPIC_JUDGE_KEY",
-                                  "host": "api.anthropic.com", "form": "json", "effort": "low", "thinking": {"type": "adaptive"}},
+                                  "host": "api.anthropic.com", "form": "json", "effort": "low", "thinking": {"type": "adaptive"},
+                                  "group_kinds": ("other", "ground")},
     "GPT-6 Luna": {"maker": "openai", "model": "gpt-6-luna", "key": "OPENAI_JUDGE_KEY", "host": "api.openai.com"},
     # 同じ GPT-6 Luna を、設定済みの OpenRouter のキーで（2026-10-23。OpenAI のキーが作業環境に無いため）。送り方は OpenAI と同じ形
     # （OpenRouter の Responses の窓口）。⚠️ 文の行き先は OpenRouter（米国）を通って OpenAI（米国）。考える量は「なし」（中身の判定の
@@ -366,9 +371,14 @@ OTHER_JUDGES = {
     # d1（Liquid の判断のモデル。2026-10-30 ユーザー：「他に、無料や格安で使える優秀なAPIはありますか？」）。Jev と同じ OpenRouter の判断の窓口・
     # 同じ問いの形（項目ごとの選ぶ問い・言い切っているかの 0〜1）で答えることを、1回ずつ確かめた（答えまで約0.5秒・Jev と同じ問いで入力は約3分の1）。
     # 公開の料金は入力100万トークンあたり d1-ultra 約0.042ドル・返す側0。版は名前で決める（「最新」の別名だと、測ったあとに中身が替わる）。
-    # 線は、測ってから決める（決めるまで線なし＝試しだけで使う）。⚠️ 送り先は Liquid（米国・OpenRouter を通る）＝Intent.md 13章の送り先にまだ無い
+    # 線（決め方は Jev と同じ：初めの3回りで決め、新しい3回りで数えた。G-59d1ultra_layer15・_check）：目的のお客様の判定は、外れの確からしさが
+    # 初めの3回りで一番高くて 0.45 ⇒ 0.6。新しい3回りで、Jev（0.8）と並べて Sonnet 46%・外れ0（外れの確からしさは 0.37 まで）。尋ねているかは
+    # 6回り426回で外れ0 ⇒ 同じ 0.6。✅ 2026-10-30 ユーザー：「d1-ultra（線0.6）と Jev（線0.8）を同時に出し、どちらも確かでないときだけ考えない
+    # Sonnet を出す形。OK」「お客様の言葉の送り先に、Liquid（米国・OpenRouter 経由）が増えます。OK」（Intent.md 13章）。組の中では、測った
+    # お呼びする段の2つの質問にだけ答える（group_kinds。答えの意味・中身の判定は測っていない）
     "d1 Ultra（Liquid）": {"maker": "liquid", "api": "decision", "model": "liquid/d1-ultra-20261015", "key": "OPENROUTER_JUDGE_KEY",
-                          "host": "openrouter.ai", "firm_min": 0.2},
+                          "host": "openrouter.ai", "firm_min": 0.2, "facets_sure_min": 0.6, "asks_sure_min": 0.6,
+                          "group_kinds": CALLING_KINDS},
     "d1.1（Liquid）": {"maker": "liquid", "api": "decision", "model": "liquid/d1.1-20261027", "key": "OPENROUTER_JUDGE_KEY",
                       "host": "openrouter.ai", "firm_min": 0.2},
     # 同じ窓口のほかの判断のモデル（2026-10-30 に1回ずつ確かめた。線は測ってから決める・送り先はどれも Intent.md 13章にまだ無い）：
@@ -383,20 +393,38 @@ OTHER_JUDGES = {
 }
 
 
+def question_kind(q) -> str:
+    """質問の種類（唯一の場所。線＝sure_line と、組の中でどの判定が答えるか＝takes_part が使う）：目的のお客様の判定（項目ごとに答える質問＝
+    q.facets）は facets・尋ねているか（選ぶものが flowctl.ASKS_MEANINGS の質問）は asks・ほか（答えの意味の判定・待たせた方が戻ったか など）は
+    other。中身の判定（grounding）は質問を持たないので、呼ぶ側が ground と書く。"""
+    if getattr(q, "facets", ()):
+        return "facets"
+    return "asks" if set(getattr(q, "conditions", ()) or ()) == set(ASKS_MEANINGS) else "other"
+
+
 def sure_line(name: str, q) -> float | None:
-    """確からしさを返す判定（Jev）の、答えにする線を決める唯一の場所：目的のお客様の判定（項目ごとに答える質問＝q.facets）は facets_sure_min・
-    尋ねているか（選ぶものが flowctl.ASKS_MEANINGS の質問）は asks_sure_min・ほかの質問は sure_min（線は質問の種類ごとに、その種類の正解の付いた
-    答えで決める＝測っていない種類は sure_min のまま）。確からしさを返さない判定は None（線なし）。"""
+    """確からしさを返す判定（Jev・d1）の、答えにする線を決める唯一の場所：お呼びする段の2つ（question_kind が facets・asks）は
+    facets_sure_min・asks_sure_min、ほかの質問は sure_min（線は質問の種類ごとに、その種類の正解の付いた答えで決める＝測っていない種類は
+    sure_min のまま）。確からしさを返さない判定は None（線なし）。"""
     j = OTHER_JUDGES.get(name, {})
-    kind = "facets_sure_min" if getattr(q, "facets", ()) else "asks_sure_min" if set(getattr(q, "conditions", ())) == set(ASKS_MEANINGS) else ""
-    return j.get(kind, j.get("sure_min"))
+    kind = question_kind(q)
+    return j.get(f"{kind}_sure_min", j.get("sure_min")) if kind in CALLING_KINDS else j.get("sure_min")
+
+
+def takes_part(name: str, kind: str) -> bool:
+    """組（2つ以上の判定の受け持ち）の中で、判定 name が kind（question_kind・ground）の質問に答えるか（唯一の場所。JudgePanel・
+    grounding.make_grounder が使う）。group_kinds を書いていない判定は、どの種類にも答える。1つだけの判定で測るときは使わない。"""
+    return kind in OTHER_JUDGES.get(name, {}).get("group_kinds", (kind,))
 # 同時に出して、先に届いた確かな読みで決める組（唯一の場所。意味の判定の受け持ち＝JudgePanel・中身の判定＝grounding.make_grounder の両方が使う）。
 #    ✅ 2026-10-23 ユーザー（中身の判定）：「W sonnetで暫定としてOK」・2回目「OK」（Jev と2つの Sonnet を同時に出し、早く届いた確かな読みで決める）
 #    ✅ 2026-10-25 ユーザー：「以前、JevやSonnet 5.5 の「考えない」形を使うと決めましたよね。同じことを聞くな！」＝意味の2つ目の判定も同じ組
 #    ⛔ 2026-10-25 の失敗：意味の2つ目の判定だけ Sonnet 5.5（考える）1つのまま（Jev は止まったときの代わりだけ）にして、答えまで中央 1.69秒・
 #       4割が2秒超のまま、「判定の顔ぶれと待つ長さ」を伺い続けた。確かな読み＝Jev は線（OTHER_JUDGES の sure_min・ground_min）から上だけ
-RACE = ("Jev 1.14", "Claude Sonnet 5.5（考える）", "Claude Sonnet 5.5")
-RACE_NAME = "Jev 1.14＋Claude Sonnet 5.5（考える・考えない）"
+#    ✅ 2026-10-30 ユーザー：「d1-ultra（線0.6）と Jev（線0.8）を同時に出し、どちらも確かでないときだけ考えない Sonnet を出す形。OK」＝組の前に
+#       d1-ultra を足した。どの判定がどの質問に答えるかは takes_part の1か所（お呼びする段の2つ＝d1-ultra・Jev → 考えない Sonnet／答えの意味・
+#       中身の判定＝Jev → 考える・考えない Sonnet で今のまま）。先に出すのは組の中の判断のモデル全部（first_of の leads）
+RACE = ("d1 Ultra（Liquid）", "Jev 1.14", "Claude Sonnet 5.5（考える）", "Claude Sonnet 5.5")
+RACE_NAME = "d1 Ultra＋Jev 1.14＋Claude Sonnet 5.5（考える・考えない）"
 # 契約者が Jev を使わないと選んだとき（✅ 2026-10-18 ユーザー：「契約者設定で、Jev も使うか、Sonnetだけにするかも選択できるようにした方がいいね」。
 #    CL-2 の契約者の設定 judge.models の sonnet）：2つの Sonnet の組（Jev は止まった判定の代わりだけ）
 SONNETS = ("Claude Sonnet 5.5（考える）", "Claude Sonnet 5.5")
@@ -733,32 +761,45 @@ class NoJudgment(RuntimeError):
 #    その時点で Sonnet を出します。OK」＝⛔ 3つを同時に出すと、Jev が確かな読みで先に答えた発話（意味の判定で6割）でも、2つの Sonnet の料金を
 #    払っていた（送った問い合わせは、止めても料金がかかる）。記録の読みと秒で数えると、正しさは1件も変わらず、Sonnet は意味の判定で 58%・
 #    中身の判定で 70% 減る（PHASE0 G-59 の 10-29・phase0/judge_cost.py）。Jev の答えまでは中央 0.16秒
-LEAD = "Jev 1.14"
+#    ✅ 2026-10-30：先に出すのは組の中の判断のモデル全部（decision_model＝Jev・d1-ultra。同時に出す。d1-ultra の答えまでは中央 0.19秒）。
+#    G-59 の6回りで、2つがどちらも確かなときに読みが食い違った回は0（目的のお客様の判定21回・尋ねているか243回）＝先に届いた確かな読みで決める
 LEAD_WAIT_S = 0.3
 
 
-async def first_of(starts, usable, lead: int | None = None, wait_s: float = LEAD_WAIT_S):
+def leads_of(names) -> tuple[int, ...]:
+    """組の名前の並びのうち、先に出すもの（判断のモデル）の番号（first_of の leads。JudgePanel・grounding.make_grounder が使う）。"""
+    return tuple(i for i, n in enumerate(names) if decision_model(n))
+
+
+async def first_of(starts, usable, leads: tuple[int, ...] = (), wait_s: float = LEAD_WAIT_S):
     """先に届いた使える答えで決める（唯一の場所。JudgePanel の受け持ち・grounding.make_grounder）：starts＝問い合わせを始める関数の並び
     （引数なし・答えを返す）。usable(答え) が真の、最初に届いた答えを返し、残りの問い合わせは止める。どれも無ければ None。
     失敗した問い合わせ・None の答えは待たない（ほかの答えを待つ）。
-    lead＝先に出す1つ（starts の番号。安くて速い判定＝LEAD）：それだけを先に出し、使える答えが届けばそれで決める（ほかは出さない）。
-    使えない答え・失敗が届いたとき、または wait_s 秒たっても届かないときに、ほかを同時に出す。lead が無ければ全部を同時に出す。"""
+    leads＝先に出すもの（starts の番号。安くて速い判断のモデル＝leads_of）：それだけを同時に先に出し、使える答えが1つ届けばそれで決める（ほかは
+    出さない）。先に出したものが全部、使えない答え・失敗を返したとき、または wait_s 秒たっても使える答えが無いときに、ほかを同時に出す（まだ
+    答えていない先のものは、そのまま待つ）。leads が無いか、全部が先のものなら、全部を同時に出す。"""
     import asyncio
 
     jobs = []
-    if lead is not None and len(starts) > 1:
-        first = asyncio.ensure_future(starts[lead]())
-        done, _ = await asyncio.wait({first}, timeout=wait_s)
-        if done:
-            try:
-                got = first.result()
-            except Exception:
-                got = None
-            if got is not None and usable(got):
-                return got
-        else:
-            jobs.append(first)
-        starts = [s for i, s in enumerate(starts) if i != lead]
+    if leads and len(leads) < len(starts):
+        pending = {asyncio.ensure_future(starts[i]()) for i in leads}
+        deadline = asyncio.get_running_loop().time() + wait_s
+        while pending:
+            done, pending = await asyncio.wait(pending, timeout=max(0.0, deadline - asyncio.get_running_loop().time()),
+                                               return_when=asyncio.FIRST_COMPLETED)
+            if not done:
+                break
+            for d in done:
+                try:
+                    got = d.result()
+                except Exception:
+                    got = None
+                if got is not None and usable(got):
+                    for p in pending:
+                        p.cancel()
+                    return got
+        jobs += list(pending)
+        starts = [s for i, s in enumerate(starts) if i not in leads]
     jobs += [asyncio.ensure_future(start()) for start in starts]
     try:
         for done in asyncio.as_completed(jobs):
@@ -870,7 +911,11 @@ class JudgePanel:
         # 発話と質問ごと（⚠️ 呼んでいる段の、目的のお客様かの質問と、こちらに尋ねているかの質問は、同じ番号＝選べるもので分ける）
         key = (getattr(q, "id", None), tuple(getattr(q, "conditions", ()) or ()), text, asked, before)
         live = []
-        for name, fn in self.judges[kind]:
+        members = self.judges[kind]
+        qkind = question_kind(q)
+        for name, fn in members:
+            if len(members) > 1 and not takes_part(name, qkind):
+                continue  # 組の中で、この種類の質問には答えない判定（takes_part の1か所）
             if self.down_until.get(name, 0.0) > self.clock():
                 tried.append({"model": name, "error": "止まっている（前の問い合わせ）"})
             elif maker(name) in self._taken(kind, key):
@@ -889,8 +934,7 @@ class JudgePanel:
                 tried.append({"model": pair[0], "error": SAME_MAKER})
                 return False
             return True
-        names = [n for n, _ in live]
-        won = await first_of([start(n, f) for n, f in live], usable, lead=names.index(LEAD) if LEAD in names else None)
+        won = await first_of([start(n, f) for n, f in live], usable, leads=leads_of([n for n, _ in live]))
         if won is not None:
             if self.holder == kind:
                 self.holder = None

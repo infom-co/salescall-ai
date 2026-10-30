@@ -4472,7 +4472,8 @@ class JudgeSetupTest(unittest.TestCase):
         from grounding import GROUNDERS
         from meaning_judge import GROUPS, RACE
         self.assertEqual((GROUPS[JUDGE2], GROUNDERS), (RACE, RACE))
-        self.assertEqual(RACE, ("Jev 1.14", "Claude Sonnet 5.5（考える）", "Claude Sonnet 5.5"))
+        # ✅ 2026-10-30 ユーザー：「d1-ultra（線0.6）と Jev（線0.8）を同時に出し、どちらも確かでないときだけ考えない Sonnet を出す形。OK」
+        self.assertEqual(RACE, ("d1 Ultra（Liquid）", "Jev 1.14", "Claude Sonnet 5.5（考える）", "Claude Sonnet 5.5"))
 
     def test_decisive_answers_go_first_and_survive_rejudge(self):
         # 1日の上限が少ないとき、いまの判定が言い直しへの返事を認めたと読み違えた答えを、先に判定させる（判定し直しで読みを捨てても印は残る）
@@ -4574,6 +4575,49 @@ class JudgePanelTest(unittest.TestCase):
                 return go
             return await first_of([s(THINK, 0.05), s(FAST, 0.01)], lambda g: True), order
         self.assertEqual(asyncio.run(two()), (FAST, [THINK, FAST]))
+
+    def test_calling_questions_ask_both_decision_models_first_then_the_fast_sonnet(self):
+        # ✅ 2026-10-30 ユーザー：「d1-ultra（線0.6）と Jev（線0.8）を同時に出し、どちらも確かでないときだけ考えない Sonnet を出す形。OK」
+        # お呼びする段の2つの質問（目的のお客様の判定・尋ねているか）：d1-ultra と Jev を同時に先に出し、どちらかの確かな読みで決める。どちらも
+        # 確かでなければ考えない Sonnet だけ（考える形は出さない）。ほかの質問（答えの意味）は今のまま（d1-ultra は出さず、Jev → 2つの Sonnet）。
+        # 組の中でどれが答えるかは takes_part・線は sure_line の1か所
+        import asyncio
+        import dataclasses
+        import time
+
+        from g22_opening import BUSINESS
+        from instruction import Target
+        from meaning_judge import RACE, JudgePanel, Reading, question_kind, sure_line
+        D1, JEV, THINK, FAST = RACE
+        b = dataclasses.replace(BUSINESS, target=Target(name="岡田", reading="おかだ", role="営業部部長"))
+        f = b.flow(play_recordings=True)
+        target_q, asks_q, answer_q = f.judge_context()[0], next(iter(f.asks_questions.values())), b.questions[0]
+        self.assertEqual([question_kind(q) for q in (target_q, asks_q, answer_q)], ["facets", "asks", "other"])
+        self.assertEqual([sure_line(D1, q) for q in (target_q, asks_q)], [0.6, 0.6])
+
+        def run(q, sures):
+            calls = []
+
+            def judge(name):
+                async def go(q, text, asked=None, before=None):
+                    calls.append((name, round(time.monotonic() - t0, 2)))
+                    await asyncio.sleep({D1: 0.02, JEV: 0.01, FAST: 0.03, THINK: 0.06}[name])
+                    return Reading("はい", sure=sures.get(name))
+                return go
+            panel = JudgePanel({"judge2": tuple((n, judge(n)) for n in RACE)})
+            t0 = time.monotonic()
+            got = asyncio.run(panel.ask("judge2", q, "はい。"))
+            return got.by, calls
+        for q in (target_q, asks_q):
+            by, calls = run(q, {D1: 0.7, JEV: 0.3})
+            self.assertEqual((by, sorted(n for n, _ in calls)), (D1, sorted([D1, JEV])))       # d1-ultra の確かな読み：Sonnet は出さない
+            self.assertTrue(all(t < 0.01 for _, t in calls))                                 # 2つは同時に先に出す
+            by, calls = run(q, {D1: 0.5, JEV: 0.9})
+            self.assertEqual((by, sorted(n for n, _ in calls)), (JEV, sorted([D1, JEV])))      # Jev の確かな読み
+            by, calls = run(q, {D1: 0.5, JEV: 0.3})
+            self.assertEqual((by, sorted(n for n, _ in calls)), (FAST, sorted([D1, JEV, FAST])))   # どちらも確かでない：考えない Sonnet だけ
+        by, calls = run(answer_q, {D1: 0.99, JEV: 0.3})
+        self.assertEqual((by, sorted(n for n, _ in calls)), (FAST, sorted([JEV, THINK, FAST])))   # 答えの意味：d1-ultra は出さず、今のまま
 
     def test_stopped_judge_is_replaced_and_skipped_for_a_while(self):
         # 止まっている（混雑の 503）：その発話は Jev が答え、DOWN_S 秒は問い合わせずに Jev へ。過ぎたら、また問い合わせる
@@ -9303,8 +9347,12 @@ class OwnWordsTest(unittest.TestCase):
             self.assertEqual(asyncio.run(ground(["業務の情報：x"], "相手", "文")), want)
         # 組に Jev があれば Jev を先に出し、確かな読み（線 ground_min から上）が届けば Sonnet は出さない。線より下ならその時に出す
         # （✅ 2026-10-29 ユーザー：「Jev が『確かでない』と返したら、その時点で Sonnet を出します。OK」）
-        from meaning_judge import LEAD, RACE
-        for sure, want, called in ((0.96, UNGROUNDED, [LEAD]), (0.5, GROUNDED, list(RACE))):
+        # 中身の判定には、組の中で中身の判定に答える判定だけが出る（takes_part。d1-ultra は測っていないので出ない）
+        from meaning_judge import RACE, takes_part
+        LEAD = "Jev 1.14"
+        grounders = [n for n in RACE if takes_part(n, "ground")]
+        self.assertEqual(grounders, ["Jev 1.14", "Claude Sonnet 5.5（考える）", "Claude Sonnet 5.5"])
+        for sure, want, called in ((0.96, UNGROUNDED, [LEAD]), (0.5, GROUNDED, grounders)):
             calls = []
 
             def named(name):

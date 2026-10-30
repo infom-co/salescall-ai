@@ -264,14 +264,17 @@ def verbatim(draft: str, knowledge: list[str]) -> bool:
 
 def make_grounder(args, names: tuple[str, ...]):
     """通話の中で使う形：async (知っていること, お客様の言葉, 返す文) -> Verdict | None。names の判定（ふだんは GROUNDERS）に出し、
-    先に届いた読みで決める（届かなかった・読めなかった判定は待たない）。組に Jev（meaning_judge.LEAD）があれば Jev を先に出し、確かな読みが
-    無いときだけほかを出す（意味の判定と同じ1か所＝first_of）。どれも届かなければ None（呼ぶ側が待つ長さで打ち切り、文は声に出さない）。
+    先に届いた読みで決める（届かなかった・読めなかった判定は待たない）。組の中で中身の判定に答えるのは takes_part（ground）の判定だけ
+    （d1-ultra は測っていないので入らない）。判断のモデル（Jev）があれば先に出し、確かな読みが無いときだけほかを出す（意味の判定と同じ1か所＝
+    first_of・leads_of）。どれも届かなければ None（呼ぶ側が待つ長さで打ち切り、文は声に出さない）。
     ⚠️ 遅れて届いた読みは使わない（声はもう出ている）＝呼ぶ側が通話の事実に残し、通話後の検証が見る。"""
-    from meaning_judge import LEAD, first_of
+    from meaning_judge import first_of, leads_of, takes_part
     names = [n for n in names if n]
+    if len(names) > 1:
+        names = [n for n in names if takes_part(n, "ground")]
     readers = [make_reader(args, n) for n in names]
 
     async def ground(knowledge, said, draft):
         return await first_of([lambda r=r: r(knowledge, said, draft) for r in readers], lambda v: trusted(v.by, v.sure),
-                              lead=names.index(LEAD) if LEAD in names else None)
+                              leads=leads_of(names))
     return ground
