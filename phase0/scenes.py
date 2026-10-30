@@ -589,7 +589,7 @@ async def run(args) -> dict:
                     call, _ = await ring.acall(args.model, lambda client: run_call(
                         client, args.model, sc.business, vt, lines, opening_mode="recorded", use_ear=True, save_audio="bad",
                         audio_label=f"G57_{name}_{vt}_{rep}", followup_wait_s=FOLLOWUP_WAIT_S, play_recordings=True,
-                        callee_voice="swap", **judges, **FAST, **kw))
+                        callee_voice="swap", judge_route=getattr(args, "judge_route", None), **judges, **FAST, **kw))
                     row = keep_call(head, call, lambda c: measures(c, name))
                 except Exception as exc:
                     row = {**head, "error": describe_error(exc)}

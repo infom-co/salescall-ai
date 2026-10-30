@@ -4661,13 +4661,15 @@ class JudgePanelTest(unittest.TestCase):
             return got.by, calls
         by, calls = run()
         self.assertEqual((by, [n for n, _ in calls]), (self.JEV, [self.JEV]))         # 確かな読み：Sonnet は出さない
+        # 答えの意味の質問（q=None）の Sonnet は考える形だけ（✅ 2026-10-30 夜 ユーザー：「(1)(2)ともお勧めの形でOKです」＝考えない形は
+        # お呼びする段の2つだけ。meaning_judge の group_kinds）
         by, calls = run(sure=0.5)
-        self.assertEqual((by, sorted(n for n, _ in calls)), (FAST, sorted([self.JEV, THINK, FAST])))
+        self.assertEqual((by, sorted(n for n, _ in calls)), (THINK, sorted([self.JEV, THINK])))
         self.assertTrue(all(t < LEAD_WAIT_S for n, t in calls))                       # 確かでない読みが届いた時に出す（待たない）
         by, calls = run(fail=True)
-        self.assertEqual(by, FAST)                                                     # 失敗も同じ
+        self.assertEqual(by, THINK)                                                    # 失敗も同じ
         by, calls = run(jev_s=1.0)
-        self.assertEqual(by, FAST)
+        self.assertEqual(by, THINK)
         self.assertTrue(all(abs(t - LEAD_WAIT_S) < 0.1 for n, t in calls if n != self.JEV))   # 届かなければ LEAD_WAIT_S 秒で出す
         # 先に出すものが無い組（契約者が Jev を使わない＝2つの Sonnet）は、今までどおり同時
         async def two():
@@ -4723,7 +4725,7 @@ class JudgePanelTest(unittest.TestCase):
             by, calls = run(q, {D1: 0.5, JEV: 0.3})
             self.assertEqual((by, sorted(n for n, _ in calls)), (FAST, sorted([D1, JEV, FAST])))   # どちらも確かでない：考えない Sonnet だけ
         by, calls = run(answer_q, {D1: 0.99, JEV: 0.3})
-        self.assertEqual((by, sorted(n for n, _ in calls)), (FAST, sorted([JEV, THINK, FAST])))   # 答えの意味：d1-ultra は出さず、今のまま
+        self.assertEqual((by, sorted(n for n, _ in calls)), (THINK, sorted([JEV, THINK])))   # 答えの意味：d1-ultra は出さず、考える Sonnet だけ
 
     def calling(self):
         """お呼びする段の2つの質問と、答えの意味の質問（営業部部長の岡田様をお呼びする試しの業務）。"""
@@ -4758,35 +4760,42 @@ class JudgePanelTest(unittest.TestCase):
                            standin=(self.JEV, judge(self.JEV)), backup=backup)
         return panel, calls
 
-    def test_lite_only_stands_in_for_the_calling_questions(self):
-        # ✅ 2026-10-30 ユーザー：「Flash Lite は代わりだけにする形でOKです」＝お呼びする段の2つの質問では、その場の判定（3.5 Flash Lite）は
-        # 自分で答えず、組が答えられない（止まった・時間切れ・確かな読みが無い）ときだけ組の代わりに答える。答えの意味の質問は今のまま。
+    def test_lite_is_stop_only_for_the_calling_questions(self):
+        # ✅ 2026-10-30 ユーザー：「Flash Lite は代わりだけにする形でOKです」・同じ夜「(1)(2)ともお勧めの形でOKです」＝お呼びする段の2つの質問では、
+        # その場の判定（3.5 Flash Lite）は自分で答えず、組が答えられない（止まった・時間切れ・確かな読みが無い）ときも答えにしない＝止める側だけ
+        # （組が答えられないときの代わりは、同じ Sonnet の緊急の道＝下の test_emergency_route_*）。答えの意味の質問は今のまま。
         # ⛔ 同じ言葉に同時に出していたので、組が正しく読んでも、Flash Lite の読み1つで流れの制御が動いた（G-59 のいまの文で 213回中30回）
         import asyncio
 
-        from meaning_judge import RACE, NoJudgment, standin_only
+        from meaning_judge import RACE, NoJudgment, stop_only
         D1, JEV, THINK, FAST = RACE
         _, target_q, asks_q, answer_q = self.calling()
-        self.assertEqual([standin_only(self.LITE, k) for k in ("facets", "asks", "other", "ground")], [True, True, False, False])
+        self.assertEqual([stop_only(self.LITE, k) for k in ("facets", "asks", "other", "ground")], [True, True, False, False])
         panel, calls = self.lite_and_race({D1: 0.3, JEV: 0.3})
         self.assertEqual([(panel.answers("judge", q), panel.answers("judge2", q)) for q in (target_q, asks_q, answer_q)],
                          [(False, True), (False, True), (True, True)])
         self.assertEqual([panel.slot("judge").answers(q) for q in (target_q, answer_q)], [False, True])   # 会話の側が見る形（convo.answers）
         for q in (target_q, asks_q):
             panel.reset(); calls.clear()
-            with self.assertRaises(NoJudgment) as e:   # 代わりだけの受け持ちは、問い合わせない（止まった判定の代わりの Jev も入れない）
+            with self.assertRaises(NoJudgment) as e:   # 止める側だけの受け持ちは、問い合わせない（止まった判定の代わりの Jev も入れない）
                 asyncio.run(panel.ask("judge", q, "はい。"))
-            self.assertEqual((calls, e.exception.tried[0]["error"]), ([], "この質問では代わりだけ"))
+            self.assertEqual((calls, e.exception.tried[0]["error"]), ([], "この質問では止める側だけ"))
             got = asyncio.run(panel.ask("judge2", q, "はい。"))        # 組が答えた：組の答え（Flash Lite は裏で出すだけ＝下の混んだときの備え）
             self.assertEqual((got.by, got.weak, calls.count(self.LITE)), (FAST, None, 1))
             panel.reset(); calls.clear()
             panel_d1, calls_d1 = self.lite_and_race({D1: 0.9, JEV: 0.3})
             self.assertEqual((asyncio.run(panel_d1.ask("judge2", q, "はい。")).by, self.LITE in calls_d1), (D1, False))  # 確かな読み：出さない
-        # 組がどれも答えない（d1-ultra・Jev は確かでない・考えない Sonnet は止まっている）：Flash Lite が組の代わりに答え、組の確かでない読みを添える
+        # 組がどれも答えない（d1-ultra・Jev は確かでない・考えない Sonnet は止まっている）：Flash Lite の読みは答えにしない＝止める側だけの読み
+        # （tried の stop_only ⇒ convo が Flow.on_unsure(…, answer=False)）。✅ 2026-10-30 夜 ユーザー：「(1)(2)ともお勧めの形でOKです」。
+        # ⛔ 前は Flash Lite が組の代わりに答えていた＝その言葉で 96回中17回、流れの制御の動きが外れる（PHASE0 G-59）
         panel, calls = self.lite_and_race({D1: 0.3, JEV: 0.3}, fail={FAST})
-        got = asyncio.run(panel.ask("judge2", target_q, "はい。"))
-        self.assertEqual((got.by, str(got), got.weak, calls.count(self.LITE)), (self.LITE, "ご本人", "代わった人が話し始めた", 1))
-        self.assertEqual(sorted(t["model"] for t in got.tried if "unsure" in t or "error" in t), sorted([JEV, D1, FAST]))
+        with self.assertRaises(NoJudgment) as e:
+            asyncio.run(panel.ask("judge2", target_q, "はい。"))
+        tried = e.exception.tried
+        self.assertEqual(([t["stop_only"] for t in tried if "stop_only" in t], calls.count(self.LITE)), (["ご本人"], 1))
+        self.assertEqual(sorted(t["model"] for t in tried if "unsure" in t or "error" in t), sorted([JEV, D1, FAST]))
+        self.assertTrue(next(t for t in tried if t["model"] == FAST)["outage"])     # 止まった印（通話の報告の ai_trouble へ）
+        self.assertIn("止める側だけの読み：ご本人", str(e.exception))
         self.assertNotIn(THINK, calls)
         # Flash Lite も止まっている：答え無し（組の確かでない読みは、今までどおり流れの制御が数える＝convo の on_unsure）
         panel, calls = self.lite_and_race({D1: 0.3, JEV: 0.3}, fail={FAST, self.LITE})
@@ -4806,6 +4815,134 @@ class JudgePanelTest(unittest.TestCase):
         alone = JudgePanel({"judge": (self.LITE, panel.judges["judge"][0][1])})
         self.assertTrue(alone.answers("judge", target_q))
         self.assertEqual(asyncio.run(alone.ask("judge", target_q, "はい。")).by, self.LITE)
+
+    def test_emergency_route_only_when_the_direct_route_is_down(self):
+        # ✅ 2026-10-30 夜 ユーザー：「OpenRouter を通して Google が預かる Claudeを使うのは、会話の途中などでアンソロピックが使えなくなった緊急事態の
+        # 時のみです。基本的にアンソロピックが使えなくなったりその他に使う AI のどれかが止まったら、AI の不具合として回復するまで一時停止してください。
+        # ただし、どうしても使わなければいけないシーンが出たときは、契約者以上の権限で…再開することができるようにしておいてください。」
+        # ＝直接が止まった（outage）ときだけ、同じ問い合わせを緊急の道へ（meaning_judge.routed_call の1か所）。止まっている間（DOWN_S）は直接を
+        # 試さない。契約者以上の権限で再開した通話（emergency_first）は、はじめから緊急の道。止まったこと・緊急の道で答えたことは on_trouble へ
+        import asyncio
+
+        from meaning_judge import DOWN_S, EMERGENCY_ROUTE, JudgePanel, NoJudgment, OtherJudgeError, Reading
+        now, calls, events = [0.0], [], []
+        state = {"direct": None}
+
+        def judge():
+            async def direct(q, text, asked=None, before=None):
+                calls.append("直接")
+                if state["direct"]:
+                    raise state["direct"]
+                return Reading("はい")
+
+            async def urgent(q, text, asked=None, before=None):
+                calls.append("緊急")
+                return Reading("いいえ")
+            direct.emergency = urgent
+            return direct
+        panel = JudgePanel({"judge2": ((self.SONNET, judge()),)}, clock=lambda: now[0])
+        panel.on_trouble = events.append
+
+        def ask():
+            calls.clear()
+            got = asyncio.run(panel.ask("judge2", None, "はい。"))
+            return str(got), list(calls)
+        self.assertEqual(ask(), ("はい", ["直接"]))                       # ふだんは直接だけ（緊急の道は使わない）
+        self.assertEqual(events, [])
+        state["direct"] = OtherJudgeError(529, "混雑")
+        self.assertEqual(ask(), ("いいえ", ["直接", "緊急"]))              # 通話の途中で止まった：同じ発話を緊急の道で
+        self.assertEqual([(e["model"], e.get("route"), bool(e.get("outage")), bool(e.get("used"))) for e in events],
+                         [(self.SONNET, None, True, False), (self.SONNET, EMERGENCY_ROUTE, False, True)])
+        self.assertEqual(ask(), ("いいえ", ["緊急"]))                      # 止まっている間は、直接を試さない
+        now[0] += DOWN_S + 1
+        state["direct"] = None
+        self.assertEqual(ask(), ("はい", ["直接"]))                       # 戻ったら直接へ
+        state["direct"] = OtherJudgeError(400, "問い合わせの中身が断られた")
+        with self.assertRaises(NoJudgment):
+            ask()                                                           # 止まったのではない（中身の誤り）：緊急の道へは回さない
+        self.assertNotIn("緊急", calls)
+        state["direct"], panel.emergency_first = None, True
+        self.assertEqual(ask(), ("いいえ", ["緊急"]))                      # 契約者以上の権限で再開した通話：はじめから緊急の道
+
+    def test_grounder_shares_the_route_state_with_the_meaning_judge(self):
+        # 中身の判定（grounding.make_grounder）も同じ1か所（routed_call）・同じ道の状態（RouteState）＝意味の判定で Anthropic が止まったと分かれば、
+        # 中身の判定も直接を試さずに緊急の道へ（make_judges が同じものを渡す）
+        import asyncio
+        import unittest.mock as m
+
+        import grounding
+        from grounding import GROUNDED, Verdict
+        from meaning_judge import DOWN_S, EMERGENCY_ROUTE, RouteState
+        calls = []
+
+        def reader(args, name, route=None):
+            async def call(knowledge, said, draft):
+                calls.append(route or "直接")
+                v = Verdict(GROUNDED)
+                v.by, v.sure = name, None
+                return v
+            return call
+        st = RouteState(clock=lambda: 0.0)
+        with m.patch.object(grounding, "make_reader", reader):
+            ground = grounding.make_grounder(None, (self.SONNET,), state=st)
+        self.assertIs(ground.state, st)
+        self.assertEqual((asyncio.run(ground(["業務の情報：x"], "相手", "文")), calls), (GROUNDED, ["直接"]))
+        calls.clear()
+        st.down_until[self.SONNET] = DOWN_S      # 意味の判定で止まったと分かった（同じ状態）
+        self.assertEqual((asyncio.run(ground(["業務の情報：x"], "相手", "文")), calls), (GROUNDED, [EMERGENCY_ROUTE]))
+
+    def test_emergency_route_sends_the_same_request_to_openrouter_only(self):
+        # 緊急の道の問い合わせは、モデルの名前のほか直接と1文字も変わらない（other_request の1か所）。送り先は OpenRouter の Anthropic と同じ形の
+        # 窓口で、預け先は Google だけ（ほかへ回さない・お客様の言葉を残す預け先は使わない）。鍵は OpenRouter の鍵だけを明示して渡す
+        # （⚠️ Anthropic の公式の部品は、鍵を渡さないと作業の場所の ANTHROPIC_API_KEY を読む＝使わない）。料金は同じ帳簿（_Metered）
+        import asyncio
+        import json
+
+        import httpx
+
+        from meaning_judge import (EMERGENCY, EMERGENCY_ROUTE, SPEND, _Metered, _Routed, ajudge_other, other_request)
+        _, target_q, _, answer_q = self.calling()
+        for name in (self.SONNET, "Claude Sonnet 5.5"):
+            direct, urgent = other_request(name, answer_q, "はい。", None), other_request(name, answer_q, "はい。", None, route=EMERGENCY_ROUTE)
+            self.assertEqual({k: v for k, v in urgent.items() if k != "model"}, {k: v for k, v in direct.items() if k != "model"})
+            self.assertEqual((direct["model"], urgent["model"]), ("claude-sonnet-5-5", EMERGENCY["model"]))
+        seen = []
+
+        def handler(request):
+            seen.append((request.url.path, dict(request.headers), json.loads(request.content)))
+            return httpx.Response(200, json={"content": [{"type": "text", "text": json.dumps({"choice": "はい"}, ensure_ascii=False)}],
+                                             "usage": {"input_tokens": 10, "output_tokens": 5}})
+        before = SPEND.calls[EMERGENCY["model"]]
+
+        async def go():
+            http = httpx.AsyncClient(base_url=EMERGENCY["base"], transport=httpx.MockTransport(handler), headers={"authorization": "Bearer test-key"})
+            return await ajudge_other(_Metered(_Routed(http, EMERGENCY), aio=True), self.SONNET, answer_q, "はい。", route=EMERGENCY_ROUTE)
+        got = asyncio.run(go())
+        path, headers, body = seen[0]
+        self.assertEqual((str(got), path), ("はい", "/api/v1/messages"))
+        self.assertEqual(body["provider"], {"only": ["google-vertex/us"], "allow_fallbacks": False, "data_collection": "deny"})
+        self.assertEqual((headers.get("authorization"), "x-api-key" in headers), ("Bearer test-key", False))
+        self.assertEqual(SPEND.calls[EMERGENCY["model"]], before + 1)
+
+    def test_ai_trouble_is_one_record_per_ai_route_and_event(self):
+        # 通話の報告の ai_trouble（Flow.on_ai_trouble の1か所）：止まったAI・緊急の道で答えたことを、AI・道・出来事ごとに1つにまとめて数える。
+        # 会話AIの不具合で終えたとき（Flow._trouble の ai_malfunction）も入る。⚠️ 新しい電話の一時停止・再開は発信の門（CL-2）
+        import inspect
+
+        import convo
+        from meaning_judge import EMERGENCY_ROUTE
+        f, *_ = self.calling()
+        f.on_ai_trouble({"model": self.SONNET, "error": "529", "outage": True})
+        f.on_ai_trouble({"model": self.SONNET, "route": EMERGENCY_ROUTE, "used": True})
+        f.on_ai_trouble({"model": self.SONNET, "route": EMERGENCY_ROUTE, "used": True})
+        self.assertEqual([(t["ai"], t["route"], t["what"], t["count"]) for t in f.ai_trouble],
+                         [(self.SONNET, "直接", "止まった", 1), (self.SONNET, EMERGENCY_ROUTE, "緊急の道で答えた", 2)])
+        f._trouble("ai_malfunction", "張り替えても声が戻らない")
+        self.assertEqual(f.ai_trouble[-1]["ai"], "会話AI")
+        src = inspect.getsource(convo.run_call)
+        self.assertIn("st.on_trouble, st.emergency_first = flow.on_ai_trouble, judge_route == RESUME_EMERGENCY", src)   # 通話の始めに入れ
+        self.assertIn("st.on_trouble, st.emergency_first = None, False", src)                                           # 終わりに外す
+        self.assertIn('"ai_trouble": flow.ai_trouble', src)
 
     def test_lite_runs_ahead_when_the_decision_models_are_unsure(self):
         # ✅ 2026-10-30 ユーザー：「(1)(2)ともお勧めの形でOK」＝d1-ultra と Jev がどちらも確かでないと分かった時点で、Flash Lite も裏で出しておく
@@ -4833,12 +4970,12 @@ class JudgePanelTest(unittest.TestCase):
         # 答えの意味の質問では、裏で出さない（Flash Lite は自分の受け持ちで答える）
         panel, calls = self.lite_and_race({D1: 0.3, JEV: 0.3})
         early = []
-        self.assertIn(asyncio.run(panel.ask("judge2", answer_q, "はい。", early=early.append)).by, (THINK, FAST))
+        self.assertEqual(asyncio.run(panel.ask("judge2", answer_q, "はい。", early=early.append)).by, THINK)   # 答えの意味は考える Sonnet だけ
         self.assertEqual((early, self.LITE in calls), ([], False))
 
     def test_call_does_not_ask_lite_while_calling_and_counts_the_weak_reading(self):
-        # 会話の側（convo.check_handler）：お呼びする段では、代わりだけの受け持ち（その場の判定）に問い合わせない（convo.answers）。Flash Lite が
-        # 組の代わりに答えたときも、組の確かでない読みは、答えが無いときと同じに数える（繋ぐのを止める側だけ＝Flow.on_unsure・Flow.doubt）。
+        # 会話の側（convo.check_handler）：お呼びする段では、止める側だけの受け持ち（その場の判定）に問い合わせない（convo.answers）。組が
+        # 答えられないときの Flash Lite の読みも、組の確かでない読みも、答えが無いときと同じに数える（繋ぐのを止める側だけ＝Flow.on_unsure・Flow.doubt）。
         # ⛔ 2026-10-21 G-57 tc10：弱い「代わった人が話し始めた」を捨て、読みが2つそろったとして別の方（山田様）に繋いだ。
         # ✅ 2026-10-30 ユーザー：「(1)(2)ともお勧めの形でOK」＝組の答えが待つ長さに間に合わなければ、裏で出した Flash Lite の読みを、止める側だけに使う
         import asyncio
@@ -4877,9 +5014,11 @@ class JudgePanelTest(unittest.TestCase):
         self.assertEqual({k for k in ("judge", "judge2", "asks", "asks2") if k in f.check}, {"judge2", "asks2"})
         self.assertEqual(f.check["judge2"].by, FAST)
         self.assertEqual(f.doubt, {})
+        # 組がどれも答えない（考えない Sonnet が止まった）：Flash Lite の読みは答えにしない（止める側だけ）。組の確かでない読みは、今までどおり
+        # 繋ぐのを止める印。止まった考えない Sonnet は、通話の報告の ai_trouble に入る（Flow.on_ai_trouble）
         f, calls, info, _ = drive(fail={FAST})
-        self.assertEqual((f.check["judge2"].by, f.check["judge2"]), (self.LITE, "ご本人"))
-        self.assertEqual(info["judge2_weak"], "代わった人が話し始めた")
+        self.assertNotIn("judge2", f.check)
+        self.assertIn({"model": self.LITE, "stop_only": "ご本人"}, info["judge2_tried"])
         self.assertIn("judge2", f.doubt)                     # 繋ぐのを止める印（判定の読みには入れない）
         # 組（考えない Sonnet）が待つ長さに間に合わない：裏の Flash Lite の「代わった人が話し始めた」を、止める側だけに使う＝AIの「目的の人」で繋がない
         f, calls, info, out = drive(took={FAST: 1.0, self.LITE: 0.02}, lite_reads_new=True, report=True)
@@ -5011,7 +5150,7 @@ class JudgePanelTest(unittest.TestCase):
         self.assertEqual(self.ask(panel, "judge2").by, self.JEV)
         panel, calls, _ = self.race(took, sure=0.9)
         got = self.ask(panel, "judge2")
-        self.assertEqual(got.by, "Claude Sonnet 5.5")
+        self.assertEqual(got.by, self.SONNET)          # 答えの意味の質問は考える Sonnet だけ（group_kinds）
         self.assertEqual([t.get("unsure") for t in got.tried], ["はい"])
         # どれも答えない：代わり（Jev）はこの受け持ちには入らない（組に Jev がいる）
         from meaning_judge import NoJudgment, OtherJudgeError
@@ -5032,7 +5171,7 @@ class JudgePanelTest(unittest.TestCase):
         panel, calls, _ = self.race(took, fail={self.LITE: down})
         self.assertEqual((self.ask(panel, "judge").by, panel.holder), (self.JEV, "judge"))
         got = self.ask(panel, "judge2")
-        self.assertEqual(got.by, "Claude Sonnet 5.5")
+        self.assertEqual(got.by, self.SONNET)          # 答えの意味の質問は考える Sonnet だけ（group_kinds）
         self.assertEqual(got.tried[0], {"model": self.JEV, "error": SAME_MAKER})
         # 先に組の Jev が答えた発話では、止まった 3.5 Flash Lite の代わりに Jev を入れない（その発話は、受け持ち1つで決める）
         panel, calls, _ = self.race(took, fail={self.LITE: down})
@@ -8989,7 +9128,7 @@ class OfferTest(unittest.TestCase):
 
         def report(text, value, who, party):
             f, b = self.flow(judging=False)
-            f.use_checks("judge2")                    # お呼びする段は組だけ（Flash Lite は代わり＝meaning_judge.STANDIN_ONLY）
+            f.use_checks("judge2")                    # お呼びする段は組だけ（Flash Lite は止める側だけ＝meaning_judge.STOP_ONLY）
             got = Reading(value)
             got.facts = {WHO: who}
             self.heard(f, text)
@@ -9659,7 +9798,7 @@ class OwnWordsTest(unittest.TestCase):
         from meaning_judge import RACE, takes_part
         LEAD = "Jev 1.14"
         grounders = [n for n in RACE if takes_part(n, "ground")]
-        self.assertEqual(grounders, ["Jev 1.14", "Claude Sonnet 5.5（考える）", "Claude Sonnet 5.5"])
+        self.assertEqual(grounders, ["Jev 1.14", "Claude Sonnet 5.5（考える）"])   # ✅ 2026-10-30 夜：中身の判定は考える Sonnet だけ
         for sure, want, called in ((0.96, UNGROUNDED, [LEAD]), (0.5, GROUNDED, grounders)):
             calls = []
 

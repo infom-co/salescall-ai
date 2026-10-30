@@ -79,7 +79,7 @@ def recording_seconds(voice_type: str, part: str) -> float:
 
 def answers(judge, q) -> bool:
     """判定の受け持ち judge が、質問 q に自分で答えるか（meaning_judge.JudgePanel.answers の1か所。お呼びする段の 3.5 Flash Lite は、もう1つの
-    受け持ちが答えられないときだけの代わり＝STANDIN_ONLY）。受け持ちの仕組みを持たない判定（試験の判定）は、どの質問にも答える。"""
+    受け持ちが確かな読みを返さないときに裏で出す止める側だけの判定＝STOP_ONLY）。受け持ちの仕組みを持たない判定（試験の判定）は、どの質問にも答える。"""
     return getattr(judge, "answers", None) is None or judge.answers(q)
 
 
@@ -194,6 +194,11 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
                     if any("unsure" in t for t in exc.tried):
                         # 確からしさが線より下の読みだけが届いた：どう数えるかは流れの制御が決める
                         flow.on_unsure(kind, next(t["unsure"] for t in exc.tried if "unsure" in t), turn, said)
+                    for t in exc.tried:
+                        if "stop_only" in t:
+                            # 止める側だけの判定（お呼びする段の 3.5 Flash Lite＝meaning_judge.STOP_ONLY）の読み：答えにはせず、止める側だけに使う
+                            # （✅ 2026-10-30 夜 ユーザー：「(1)(2)ともお勧めの形でOKです」）
+                            flow.on_unsure(kind, t["stop_only"], turn, said, answer=False)
                 return None
             info.setdefault(f"{kind}_calls_s", []).append(round(loop.time() - t0, 3))  # 判定そのものにかかった秒（待つ長さを決めるため）
             # 判定の間に相手がまた話し始めたら、話し終わるのを待ってから、言葉が増えたかを見る（増えていれば、この判定は渡さない）
@@ -411,7 +416,7 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
                    audio_label: str = "", confirm=None, gap_s: float = 0.0, lead_ins: bool = True,
                    followup_wait_s: float | None = None, callee_voice: str | None = None, play_recordings: bool = False,
                    ear_kind: str | None = None, judge=None, judge2=None, off_script_at: int | None = None,
-                   off_script_heard: str | None = None, grounder=None) -> dict:
+                   off_script_heard: str | None = None, grounder=None, judge_route: str | None = None) -> dict:
     """followup_wait_s：相手の言葉の途中でAIが話し出していたとき・AIが黙って待ったとき（followup_reason）は、相手の続きの言葉への
     返事を、次の台詞を送る前に、この秒数まで、もう1回ぶん待つ（来なければ、相手が黙って待たされたことになる。
     記録の行は callee={"followup_of": 台詞, "reason": 理由}）。G-31・G-34
@@ -434,6 +439,14 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
     flow = business.flow(recorded=opening_mode == "recorded", play_recordings=play_recordings, lead_ins=lead_ins,
                          **({"confirm": confirm} if confirm else {}))  # confirm：言い直しの言い方（G-25 の比べだけ）。lead_ins：G-27
     flow.use_checks(*[k for k, used in (("ear", ear_kind), ("judge", judge), ("judge2", judge2)) if used])
+    # 判定の道の状態（meaning_judge.RouteState。意味の判定と中身の判定で同じもの）に、この通話の知らせ先（止まったAI・緊急の道＝Flow.on_ai_trouble）
+    # と、緊急の道から始めるか（judge_route＝RESUME_EMERGENCY：契約者以上の権限で、緊急の道を使って再開した通話。決めるのは発信の門＝CL-2）を入れる。
+    # 通話の終わりに外す。⚠️ 1つの状態を同時に2つの通話で使わない（試作の道具は通話を1本ずつ流す。本番は通話ごとに作る）
+    from meaning_judge import RESUME_EMERGENCY
+    route_states = list({id(st): st for st in (getattr(j, "panel", None) for j in (judge, judge2)) + (getattr(grounder, "state", None),)
+                         if st is not None}.values())
+    for st in route_states:
+        st.on_trouble, st.emergency_first = flow.on_ai_trouble, judge_route == RESUME_EMERGENCY
     checking = bool(ear_kind or judge or judge2)
     pending: list = []  # 確かめの作業（通話の終わりに、まだ走っているものは届くまで待つ＝通話後の検証と同じ。待っても届かなければ止める）
     turns: list[dict] = []
@@ -741,6 +754,10 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
     for t in pending:
         t.cancel()
     await asyncio.gather(*closing, return_exceptions=True)
+    for st in route_states:
+        st.on_trouble, st.emergency_first = None, False
+    for e in (ear.errors if ear is not None else ()):
+        flow.on_ai_trouble({"model": f"別の耳（{ear_kind}）", "error": e, "outage": True})   # 別の耳が止まった（ears.Ear.errors）
     return {"voice_type": voice_type, "sessions": sessions, "turns": turns, "flow_log": flow.log, "trouble": flow.trouble,
             "items": {k: {"state": v.state, "value": v.value, "condition": v.condition, "reason": v.reason, "ask_backs": v.ask_backs,
                           "rechecks": v.rechecks, "corrections": v.corrections, "hedged": v.hedged,
@@ -753,4 +770,5 @@ async def run_call(client, model: str, business: Business, voice_type: str, call
             "apology_delivered": flow.apology_delivered,  # お詫びの電話で、お詫びを伝えられたか（会話の報告の apology_delivered。お詫びの電話でなければ None）
             "checked_after_call": before_after - len(flow.unchecked()),
             "opening_mode": opening_mode, "barge_in": barge_in, "ear_errors": ear.errors if ear is not None else None,
-            "unchecked": flow.unchecked()}
+            "unchecked": flow.unchecked(),
+            "ai_trouble": flow.ai_trouble}  # 止まったAI・緊急の道で答えたこと（会話の報告の ai_trouble。Flow.on_ai_trouble の1か所＝CL-2 が新しい電話を一時停止する）

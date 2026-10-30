@@ -1593,6 +1593,7 @@ class Flow:
         # なった必須の質問のうち、答えを受け取らないまま続いているもの（答えを1つ受け取ったら空）。張り替えて相手の発話を送り直した、相手の発話の
         # 番号（on_resend。同じ発話で2回目は張り替えない＝on_ai_failed）
         self.trouble: dict | None = None
+        self.ai_trouble: list[dict] = []   # この通話で止まったAI・緊急の道で答えたこと（on_ai_trouble の1か所。通話の報告の ai_trouble）
         self.unclear_qids: set[str] = set()
         self.resent_turn: int | None = None
         # いちばん最近「合っている」で確かめが済んだ項目と、そのときの流れの位置（同じ相手の発話への報告を、AIが「違う値を言われた」に
@@ -4273,6 +4274,20 @@ class Flow:
         """もう締めた（締め・話さずに切る・こちらの不具合で終える、のあと）：何もしない返事（唯一の場所。締めは1通話1回＝_end・_trouble）。"""
         return {"result": "end", "silent": True, "message": "締めの言葉は、もう流しました（または話さずに終えました）。何も言わずに終えます。"}
 
+    def on_ai_trouble(self, entry: dict) -> None:
+        """この通話で、使うAIのどれかが止まった・緊急の道で答えた（唯一の場所。通話の報告の ai_trouble＝発信の門が新しい電話を回復まで一時停止する
+        ＝CL-2）。✅ 2026-10-30 夜 ユーザー：「基本的にアンソロピックが使えなくなったりその他に使う AI のどれかが止まったら、AI の不具合として
+        回復するまで一時停止してください。」。entry：判定の問い合わせの記録（meaning_judge.routed_call の tried の1つ＝model・route・error・
+        outage／used）か、会話AI・別の耳の同じ形。同じAI・同じ道・同じ出来事は1つにまとめて回数を数える（最初の発話の番号を残す）。"""
+        what = "緊急の道で答えた" if entry.get("used") else "止まった"
+        route = entry.get("route") or "直接"
+        for t in self.ai_trouble:
+            if (t["ai"], t["route"], t["what"]) == (entry["model"], route, what):
+                t["count"] += 1
+                return
+        self.ai_trouble.append({"ai": entry["model"], "route": route, "what": what, "error": entry.get("error"),
+                                "turn": self.callee_turns, "count": 1})
+
     def _trouble(self, reason: str, why: str) -> dict:
         """こちらの不具合で電話を途中で終える唯一の場所（甚大な問題＝DESIGN.md 6-8。理由は TROUBLE_REASONS）。電話接続側が
         call.end_for_trouble(reason) を呼び、お詫びの2つの一言（phrases.LINE_TROUBLE）で終える：「恐れ入ります。こちらの通信に不具合が起きた
@@ -4283,6 +4298,8 @@ class Flow:
         if self.end_reason is not None or self.trouble is not None:
             return self._ended()
         self.trouble = {"reason": reason, "why": why, "turn": self.callee_turns}
+        if reason == "ai_malfunction":   # 会話AIの不具合も、止まったAIとして数える（on_ai_trouble の1か所）
+            self.on_ai_trouble({"model": "会話AI", "error": why, "outage": True})
         self.current, self.phase = None, "closing"
         return {"result": "end_trouble", "reason": reason, "why": why, "silent": True,
                 "message": "こちらの都合で、この電話はいったん終えます。何も言わずにお待ちください（お詫びの言葉は、プログラムが流します）。"}

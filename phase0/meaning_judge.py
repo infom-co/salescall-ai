@@ -327,6 +327,21 @@ CALLING_KINDS = ("facets", "asks")
 #    ✅ 2026-10-18 ユーザー：「ジェミニより精度が悪いんだったら意味がないでしょ。ジェミニよりほぼ確実に精度がいいものを抜粋しないと時間の無駄」
 #       「最新モデルで評価しないとダメだよ」⇒ 各社の最新の、速くて安いモデルのうち、公開の数字で 3.5 Flash Lite を上回るものだけ
 #    ⚠️ キーの名前は ANTHROPIC_API_KEY にしない（この作業の場所そのものが読む名前と同じになる）
+# 緊急の道（唯一の場所）：Anthropic の判定（Sonnet 5.5）を、Anthropic へ直接送れないときだけ、OpenRouter の Anthropic と同じ形の窓口
+#    （/api/v1/messages）を通して、Google（Vertex）が預かる同じモデルへ送る。問い合わせの文・返す形・読み方は直接と同じ（other_request・other_text）で、
+#    替わるのは送り先・鍵・モデルの名前だけ。預け先は Google の米国の受け口1つだけ（ほかへ回さない・お客様の言葉を残す預け先は使わない）。
+#    ⛔ 2026-10-30 夜：はじめは「google-vertex」とだけ指定し、Google の受け口3つ（global・us・europe）のどこへでも回っていた＝毎回同じ前の部分の
+#    保存が受け口ごとに書かれ（G-59 の1回り：書き込み 114,451 トークン＝直接の約4.6倍・60.9円）、お客様の言葉が欧州へも行きうり、国も決まらなかった
+#    ⇒ 米国の受け口（google-vertex/us）だけにした（料金は直接の1.1倍＝OpenRouter の一覧。global は直接と同じ値段だが処理する国が決まらない）。✅ 2026-10-30 夜 ユーザー：「OpenRouter を通して Google が預かる Claudeを使うのは、会話の途中などで
+#    アンソロピックが使えなくなった緊急事態の時のみです。基本的にアンソロピックが使えなくなったりその他に使う AI のどれかが止まったら、AI の不具合として
+#    回復するまで一時停止してください。ただし、どうしても使わなければいけないシーンが出たときは、契約者以上の権限で…再開することができるようにしておいて
+#    ください。」＝使うのは JudgePanel が、通話の中で直接が止まったと分かったとき（_try）と、契約者以上の権限で再開した通話（emergency_first）だけ。
+#    新しい電話を一時停止するのは発信の門（CL-2）。止まったことは通話の報告の ai_trouble に残す（Flow.on_ai_trouble）
+EMERGENCY = {"base": "https://openrouter.ai", "path": "/api/v1/messages", "key": "OPENROUTER_JUDGE_KEY", "model": "anthropic/claude-sonnet-5.5",
+             "provider": {"only": ["google-vertex/us"], "allow_fallbacks": False, "data_collection": "deny"}}
+EMERGENCY_ROUTE = "緊急の道（OpenRouter を通して Google が預かる Claude）"
+RESUME_EMERGENCY = "emergency"   # 通話の始めに渡す judge_route（convo.run_call）：契約者以上の権限で、緊急の道を使って再開した通話（RouteState.emergency_first）
+
 OTHER_JUDGES = {
     "Claude Haiku 5.5": {"maker": "anthropic", "model": "claude-haiku-5-5", "key": "ANTHROPIC_JUDGE_KEY", "host": "api.anthropic.com"},
     # 考える段を入れた形（2026-10-18：考えない形は「違います」を、言い直した意味を認めたと読む向きに 47 回誤った）
@@ -338,13 +353,17 @@ OTHER_JUDGES = {
                                     "form": "json", "effort": "low", "thinking": {"type": "adaptive"}},
     # Sonnet 5.5（2026-10-18 ユーザー：「Sonnet5.5でも試した方がいい」）：名前を指定した道具の呼び出しは断る（400）ので、返事の形を決めて
     # JSON で返させる。考えない形は {"type": "between_tools"}（道具が無いので考える段が無い）
+    # group_kinds（✅ 2026-10-30 夜 ユーザー：「(1)(2)ともお勧めの形でOKです」）：組の中では、お呼びする段の2つの質問にだけ答える（測った
+    #    G-59 で考える形より正しい＝71/71 と 69/71）。答えの意味・中身の判定は考える形だけ（記録で、考えない形だけは中身の判定で危ない文を2つ通し、
+    #    2つ同時は考える形だけと正しさが同じで、Sonnet の料金が2倍＝PHASE0 G-59 の「答えの段・中身の判定で、2つの Sonnet…」）
     "Claude Sonnet 5.5": {"maker": "anthropic", "model": "claude-sonnet-5-5", "key": "ANTHROPIC_JUDGE_KEY", "host": "api.anthropic.com",
-                          "form": "json", "effort": "low", "thinking": {"type": "between_tools"}},
+                          "form": "json", "effort": "low", "thinking": {"type": "between_tools"}, "group_kinds": CALLING_KINDS,
+                          "emergency": EMERGENCY},
     # group_kinds＝組の中で答える質問の種類（takes_part）。✅ 2026-10-30 ユーザー：「d1-ultra（線0.6）と Jev（線0.8）を同時に出し、どちらも
     #    確かでないときだけ考えない Sonnet を出す形。OK」＝お呼びする段の2つの質問には、考える形は出さない（答えの意味・中身の判定は今のまま）
     "Claude Sonnet 5.5（考える）": {"maker": "anthropic", "model": "claude-sonnet-5-5", "key": "ANTHROPIC_JUDGE_KEY",
                                   "host": "api.anthropic.com", "form": "json", "effort": "low", "thinking": {"type": "adaptive"},
-                                  "group_kinds": ("other", "ground")},
+                                  "group_kinds": ("other", "ground"), "emergency": EMERGENCY},
     "GPT-6 Luna": {"maker": "openai", "model": "gpt-6-luna", "key": "OPENAI_JUDGE_KEY", "host": "api.openai.com"},
     # 同じ GPT-6 Luna を、設定済みの OpenRouter のキーで（2026-10-23。OpenAI のキーが作業環境に無いため）。送り方は OpenAI と同じ形
     # （OpenRouter の Responses の窓口）。⚠️ 文の行き先は OpenRouter（米国）を通って OpenAI（米国）。考える量は「なし」（中身の判定の
@@ -421,16 +440,20 @@ def takes_part(name: str, kind: str) -> bool:
     return kind in OTHER_JUDGES.get(name, {}).get("group_kinds", (kind,))
 
 
-# 質問の種類ごとに、ほかの受け持ちが答えられないときだけ代わりに入る判定（唯一の場所。JudgePanel）。✅ 2026-10-30 ユーザー：「Flash Lite は代わり
-#    だけにする形でOKです」＝お呼びする段の2つの質問（目的のお客様の判定・尋ねているか）では、その場の判定（3.5 Flash Lite）は、2つ目の受け持ち
-#    （組）が答えられない（止まった・時間切れ・確かな読みが無い）ときだけ答える。⛔ 同じ言葉に同時に出していたので、組が正しく読んでも、
-#    Flash Lite の読み1つで流れの制御が動いた（G-59 のいまの文で 213回中30回。組は0）。答えの意味・待たせた方が戻ったかは今のまま同時に出す
-STANDIN_ONLY = {"3.5 Flash Lite": CALLING_KINDS}
+# 質問の種類ごとに、止める側だけに使う判定（唯一の場所。JudgePanel）：その質問には自分で答えず、ほかの受け持ち（組）が確かな読みを返さないと
+#    分かった時点で裏で出し、その読みは、組の答えが待つ長さに間に合わない・組が答えられないときに、止める側（黙って待つ・繋ぐのを止める）だけに使う
+#    （NoJudgment の tried の stop_only ⇒ convo が Flow.on_unsure(…, answer=False)）。答えにはしない。
+#    ✅ 2026-10-30 ユーザー：「Flash Lite は代わりだけにする形でOKです」・同じ夜「(1)(2)ともお勧めの形でOKです」＝お呼びする段の2つの質問（目的の
+#    お客様の判定・尋ねているか）では、その場の判定（3.5 Flash Lite）はいつも止める側だけ。⛔ 同じ言葉に同時に出していたので、組が正しく読んでも、
+#    Flash Lite の読み1つで流れの制御が動いた（G-59 のいまの文で 213回中30回。組は0）。⛔ 同じ夜まで、組が答えられないときは Flash Lite の読みを
+#    答えにしていた＝その言葉（d1-ultra と Jev が2つとも確かでない言葉）96回中17回で流れの制御の動きが外れる（PHASE0 G-59）。組が答えられない
+#    ときの代わりは、同じ Sonnet の緊急の道（EMERGENCY）。答えの意味・待たせた方が戻ったかは今のまま同時に出す
+STOP_ONLY = {"3.5 Flash Lite": CALLING_KINDS}
 
 
-def standin_only(name: str, kind: str) -> bool:
-    """判定 name が kind（question_kind）の質問では、ほかの受け持ちが答えられないときだけの代わりか（STANDIN_ONLY の1か所）。"""
-    return kind in STANDIN_ONLY.get(name, ())
+def stop_only(name: str, kind: str) -> bool:
+    """判定 name が kind（question_kind）の質問では、止める側だけに使う判定か（STOP_ONLY の1か所）。"""
+    return kind in STOP_ONLY.get(name, ())
 
 
 # 同時に出して、先に届いた確かな読みで決める組（唯一の場所。意味の判定の受け持ち＝JudgePanel・中身の判定＝grounding.make_grounder の両方が使う）。
@@ -480,9 +503,18 @@ class OtherJudgeError(RuntimeError):
         self.status, self.retry = status, retry
 
 
-def other_request(name: str, q, text: str, asked: str | None, before: str | None = None, ttl: str | None = None) -> dict:
+def routed_model(name: str, route: str | None = None) -> str:
+    """判定 name を道 route で送るときのモデルの名前（唯一の場所。意味の判定＝other_request・中身の判定＝grounding.ask_other）：緊急の道なら
+    その道の名前（EMERGENCY の model）・直接ならその判定の名前。"""
+    j = OTHER_JUDGES[name]
+    return j["emergency"]["model"] if route == EMERGENCY_ROUTE else j["model"]
+
+
+def other_request(name: str, q, text: str, asked: str | None, before: str | None = None, ttl: str | None = None,
+                  route: str | None = None) -> dict:
     """Google 以外の判定への問い合わせの中身（会社ごとの形。問い合わせの文と選べるものは Gemini と同じ）。ttl＝Anthropic の、毎回同じ前の部分の
-    もつ長さ（まとめて送る測り＝batch_judge だけ。cached_content）。"""
+    もつ長さ（まとめて送る測り＝batch_judge だけ。cached_content）。route＝EMERGENCY_ROUTE なら緊急の道（中身は同じで、モデルの名前だけ
+    緊急の道の名前＝EMERGENCY。預け先の指定は送る所＝_Routed）。"""
     j, p = OTHER_JUDGES[name], prompt(q, text, asked, before)
     if j["maker"] == "anthropic":
         content = cached_content(*prompt_parts(q, text, asked, before), ttl=ttl)   # 毎回同じ前の部分は、2回目から約10分の1の値段
@@ -500,6 +532,7 @@ def other_request(name: str, q, text: str, asked: str | None, before: str | None
             #    （断られたら読めない返事＝None として数える）
             body = {"model": j["model"], "max_tokens": 4096, "messages": [{"role": "user", "content": content}], "thinking": j["thinking"],
                     "output_config": {"effort": j["effort"], "format": {"type": "json_schema", "schema": _schema(q, asked)}}}
+        body["model"] = routed_model(name, route)
         return body
     if decision_model(name):
         return jev_request(j["model"], q, text, asked, before)
@@ -663,9 +696,45 @@ class _Metered:
 KEEPALIVE_S = 90.0
 
 
-def other_client(name: str, key: str, aio: bool = False, budget: float | None = None):
+class _Routed:
+    """緊急の道へ送る道具：Anthropic の部品と同じ messages.create(**body) の形で、OpenRouter の Anthropic と同じ形の窓口へ送り、返事を同じ形
+    （usage・to_dict）で返す＝料金の帳簿（_Metered）・読み方（other_text）は直接と同じ1か所を通る。⚠️ Anthropic の公式の部品は使わない（鍵を
+    渡さないと、作業の場所の ANTHROPIC_API_KEY を自分で読む＝別の会社へ送ってしまう）。鍵は OpenRouter の鍵だけを、明示して渡す。"""
+
+    def __init__(self, http, route: dict):
+        self.http, self.route, self.messages = http, route, self
+
+    async def create(self, **body):
+        r = await self.http.post(self.route["path"], json=body | {"provider": self.route["provider"]})
+        r.raise_for_status()
+        data = r.json()
+
+        class Got:
+            usage = data.get("usage") or {}
+
+            @staticmethod
+            def to_dict():
+                return data
+        return Got()
+
+
+def other_client(name: str, key: str, aio: bool = False, budget: float | None = None, route: str | None = None):
     """Google 以外の判定へ送る道具（Anthropic は公式の部品を料金の帳簿で包む・OpenAI は httpx）。やり直しは呼ぶ側の1か所でするので、部品では
-    繰り返さない。つながりは KEEPALIVE_S 秒保つ。budget：この試しで有料の判定に使ってよい円（試しの引数 --budget-yen。通話の本番は渡さない）。"""
+    繰り返さない。つながりは KEEPALIVE_S 秒保つ。budget：この試しで有料の判定に使ってよい円（試しの引数 --budget-yen。通話の本番は渡さない）。
+    route＝EMERGENCY_ROUTE なら緊急の道（通話の中だけ＝aio。key は緊急の道の鍵）。"""
+    if route == EMERGENCY_ROUTE:
+        import httpx
+        from common import LEDGERS
+
+        assert aio, "緊急の道は通話の中だけ"
+        if budget is not None:
+            SPEND.limit = budget
+        if SPEND not in LEDGERS:
+            LEDGERS.append(SPEND)
+        e = OTHER_JUDGES[name]["emergency"]
+        http = httpx.AsyncClient(base_url=e["base"], timeout=60, headers={"authorization": f"Bearer {key}"},
+                                 limits=httpx.Limits(keepalive_expiry=KEEPALIVE_S))
+        return _Metered(_Routed(http, e), aio=True)
     if OTHER_JUDGES[name]["maker"] == "anthropic":
         import anthropic
         import httpx2
@@ -717,9 +786,10 @@ def judge_other(client, name: str, q, text: str, asked: str | None = None, befor
     return read(q, other_text(name, data), asked)
 
 
-async def ajudge_other(client, name: str, q, text: str, asked: str | None = None, before: str | None = None) -> str | None:
-    """judge_other と同じ（通話の中の形。client は other_client(…, aio=True) で作る）。"""
-    body = other_request(name, q, text, asked, before)
+async def ajudge_other(client, name: str, q, text: str, asked: str | None = None, before: str | None = None,
+                       route: str | None = None) -> str | None:
+    """judge_other と同じ（通話の中の形。client は other_client(…, aio=True) で作る。route＝緊急の道なら、client もその道のもの）。"""
+    body = other_request(name, q, text, asked, before, route=route)
     try:
         if OTHER_JUDGES[name]["maker"] == "anthropic":
             data = (await client.messages.create(**body)).to_dict()
@@ -812,9 +882,11 @@ def add_judge_args(p) -> None:
     p.add_argument("--judge", nargs="?", const="3.5 Flash Lite", choices=JUDGE_MODELS, help="意味の判定を使う（DESIGN.md 6-10 の (6)）")
     p.add_argument("--judge2", nargs="?", const=JUDGE2, choices=tuple(OTHER_JUDGES) + JUDGE_MODELS + tuple(GROUPS),
                    help=f"もう1つの判定を同時に出す（DESIGN.md 6-10 の (6)。既定 {JUDGE2}）")
-    p.add_argument("--no-standin", action="store_true", help=f"止まった判定の代わり（{STANDIN}）と、お呼びする段の代わりだけの判定（STANDIN_ONLY）を使わない（比べるときだけ）")
+    p.add_argument("--no-standin", action="store_true", help=f"止まった判定の代わり（{STANDIN}）と、お呼びする段の止める側だけの判定（STOP_ONLY）を使わない（比べるときだけ）")
     p.add_argument("--judge-down", action="append", choices=tuple(OTHER_JUDGES) + JUDGE_MODELS,
                    help="試験だけ：この判定が止まっているものとして流す（代わりが受け持つかを確かめる。いくつでも）")
+    p.add_argument("--judge-route", choices=(RESUME_EMERGENCY,),
+                   help="緊急の道で始める（契約者以上の権限で再開した通話と同じ＝RouteState.emergency_first。本番では発信の門が通話ごとに決める）")
     # 中身の判定（grounding）の顔ぶれ（既定 grounding.GROUNDERS）。「なし」＝中身を確かめられない通話（受け皿の道を通話で確かめる）
     p.add_argument("--grounder", action="append", choices=tuple(OTHER_JUDGES) + JUDGE_MODELS + (NO_GROUNDER,),
                    help="試験だけ：AIの自分の言葉の中身の判定の顔ぶれ（同時に出して早いほう。既定 grounding.GROUNDERS。「なし」で判定を使わない）")
@@ -848,7 +920,13 @@ class NoJudgment(RuntimeError):
     """受け持ちの判定も代わりも、答えを返さなかった（tried＝問い合わせた判定ごとの、答えが無かった理由）。"""
 
     def __init__(self, tried: list[dict]):
-        super().__init__("判定が届かなかった：" + "・".join(f"{t['model']}（{t.get('error') or '確からしさが線より下'}）" for t in tried))
+        def why(t: dict) -> str:
+            if t.get("error"):
+                return t["error"]
+            if "stop_only" in t:
+                return f"止める側だけの読み：{t['stop_only']}"
+            return "緊急の道で答えた" if t.get("used") else "確からしさが線より下"
+        super().__init__("判定が届かなかった：" + "・".join(f"{t['model']}（{why(t)}）" for t in tried))
         self.tried = tried
 
 
@@ -918,9 +996,77 @@ async def first_of(starts, usable, leads: tuple[int, ...] = (), wait_s: float = 
 
 
 SAME_MAKER = "ほかの受け持ちが同じ会社の判定で答えた"
+FAILED = object()  # routed_call：どの道でも答えが無かった（止まった・断られた。読めない返事＝None とは別）
 
 
-class JudgePanel:
+class RouteState:
+    """判定の道（直接・緊急の道）の状態の唯一の場所：止まっているとみなした判定と道（down_until。DOWN_S のあいだ）・契約者以上の権限で再開した通話
+    （emergency_first）・止まったことの知らせ先（on_trouble＝通話の流れの制御の Flow.on_ai_trouble。会話の側が通話の始めに入れる）・試験で止めた判定
+    （forced_down）。意味の判定（JudgePanel）と中身の判定（grounding.make_grounder）が同じものを使う＝どちらかで Anthropic が止まったと分かれば、
+    両方が緊急の道へ回る。"""
+
+    def __init__(self, down=(), clock=None):
+        import time
+
+        self.forced_down = set(down)   # 試験だけ（--judge-down）
+        self.down_until: dict[str, float] = {}
+        self.clock = clock or time.monotonic
+        self.emergency_first = False
+        self.on_trouble = None
+
+    def _down(self, name: str) -> bool:
+        return self.down_until.get(name, 0.0) > self.clock()
+
+    def usable(self, name: str, urgent=None) -> bool:
+        """問い合わせてよいか：止まっていない、または止まっていても緊急の道がある（緊急の道そのものも止まっていない）。"""
+        return not self._down(name) or (urgent is not None and not self._down(name + EMERGENCY_ROUTE))
+
+
+async def routed_call(state: RouteState, name: str, direct, urgent, tried: list[dict], timeout: float | None = None):
+    """判定 name に1回問い合わせる唯一の場所（道の選び方・止まった印・知らせ）：direct／urgent＝引数なしで問い合わせる関数（urgent＝緊急の道。
+    無ければ None）。直接が止まっている（DOWN_S のあいだ）か、契約者以上の権限で再開した通話（emergency_first）なら緊急の道で、直接が止まる
+    （outage）と同じ問い合わせを緊急の道で送り直す。✅ 2026-10-30 夜 ユーザー：緊急の道は「会話の途中などでアンソロピックが使えなくなった緊急
+    事態の時のみ」・「アンソロピックが使えなくなったりその他に使う AI のどれかが止まったら、AI の不具合として回復するまで一時停止」＝止まった
+    （outage）こと・緊急の道で答えたことは、tried に残し、state.on_trouble に知らせる（通話の報告の ai_trouble＝発信の門が新しい電話を止める）。
+    返す：答え（読めない返事は None）か FAILED。timeout＝1回の問い合わせの打ち切りの秒（無ければ DOWN_AFTER_S を、呼ぶたびに読む）。"""
+    import asyncio
+
+    from common import redact
+
+    timeout = DOWN_AFTER_S if timeout is None else timeout
+    def note(entry: dict) -> None:
+        tried.append(entry)
+        if (entry.get("outage") or entry.get("used")) and state.on_trouble is not None:
+            state.on_trouble(entry)
+    t0 = state.clock()
+    if urgent is None or not (state.emergency_first or state._down(name)):
+        try:
+            if name in state.forced_down:
+                raise OtherJudgeError(503, "試験：止まっているものとして扱う")
+            return await asyncio.wait_for(direct(), timeout)
+        except Exception as exc:
+            down = outage(exc)
+            if down:
+                state.down_until[name] = state.clock() + DOWN_S
+            note({"model": name, "error": redact(repr(exc))[:160], "s": round(state.clock() - t0, 3), "outage": down})
+            if not down or urgent is None:
+                return FAILED
+    if state._down(name + EMERGENCY_ROUTE):
+        return FAILED
+    t1 = state.clock()
+    try:
+        got = await asyncio.wait_for(urgent(), timeout)
+    except Exception as exc:
+        down = outage(exc)
+        if down:
+            state.down_until[name + EMERGENCY_ROUTE] = state.clock() + DOWN_S
+        note({"model": name, "route": EMERGENCY_ROUTE, "error": redact(repr(exc))[:160], "s": round(state.clock() - t1, 3), "outage": down})
+        return FAILED
+    note({"model": name, "route": EMERGENCY_ROUTE, "used": True, "s": round(state.clock() - t1, 3)})
+    return got
+
+
+class JudgePanel(RouteState):
     """通話の中の意味の判定の受け持ち（唯一の場所。DESIGN.md 6-10 の (6)）：受け持ち（judge・judge2）ごとに、決めた判定の組へ同時に問い合わせ、
     先に届いた確かな読みで決める（組＝members。1つだけの組もある）。受け持ちの組のどれも答えなかった（止まっている・上限・時間切れ・読めない返事・
     確からしさが線より下）ときは、代わり（STANDIN）に問い合わせる。
@@ -930,14 +1076,20 @@ class JudgePanel:
     - 止まっている（outage）とみなした判定は DOWN_S 秒、問い合わせずに組のほか・代わりへ
     - 確からしさを返す判定（Jev）は、線（OTHER_JUDGES の sure_min）より下なら答えにしない＝その判定は届かなかった（組のほかの判定・代わりを
       待つ。どれも無ければ、もう1つの受け持ちで決め、通話後の検証へ。✅ 2026-10-18 ユーザーの案「このスコア以上ならJevで間違いなく正確というライン」）
-    - 質問の種類によって代わりだけになる判定（standin_only＝お呼びする段の 3.5 Flash Lite）の受け持ちは、その質問には自分で答えず（answers）、
-      ほかの受け持ちの判定がどれも答えなかったときに、その受け持ちの代わりとして答える（backup＝False なら入れない。試しで比べるときだけ）。
-      代わりが答えても、受け持ちの確かでない読みは答えに添える（Reading.weak）
+    - 質問の種類によって止める側だけになる判定（stop_only＝お呼びする段の 3.5 Flash Lite）の受け持ちは、その質問には自分で答えず（answers）、
+      ほかの受け持ちの組が確かな読みを返さないと分かった時点で裏で出す（backup＝False なら出さない。試しで比べるときだけ）。その読みは答えに
+      しない＝組の答えが待つ長さに間に合わなければ会話の側が（early）、組が答えられなければ NoJudgment の tried の stop_only で、止める側だけに使う
+    - 緊急の道（EMERGENCY）を持つ判定（Sonnet 5.5）は、直接が止まっている（outage・DOWN_S のあいだ）か、契約者以上の権限で再開した通話
+      （emergency_first）なら、同じ問い合わせを緊急の道で送る（_try の1か所）。✅ 2026-10-30 夜 ユーザー：緊急の道は「会話の途中などで
+      アンソロピックが使えなくなった緊急事態の時のみ」
+    - どの判定でも、止まった（outage）ことは tried に outage の印で残す（会話の側が Flow.on_ai_trouble で通話の報告の ai_trouble に入れる＝
+      新しい電話を一時停止するのは発信の門＝CL-2）。緊急の道で答えたときも tried に残す
     どれを使って答えたかは、答え（Reading）の by・tried に残す。"""
 
     def __init__(self, judges: dict, standin: tuple | None = None, down=(), clock=None, backup: bool = True):
-        import time
         from collections import OrderedDict
+
+        super().__init__(down, clock)
 
         # 受け持ち → ((判定の名前, async (質問, 言葉, こちらが言い直した言葉) -> Reading), …)。1つの (名前, 関数) も受ける
         self.judges = {k: (v,) if isinstance(v[0], str) else tuple(v) for k, v in judges.items()}
@@ -949,12 +1101,13 @@ class JudgePanel:
                            and all(any(maker(n) != s for n, _ in other) for k2, other in self.judges.items() if k2 != k)}
             if not self.serves:
                 self.standin = None
-        self.forced_down = set(down)   # 試験だけ（--judge-down）
-        self.down_until: dict[str, float] = {}
         self.holder: str | None = None  # 代わりが入っている受け持ち
         self.answered: OrderedDict = OrderedDict()  # 発話 ⇒ {受け持ち: (答えた会社, 時刻)}（同じ発話で、2つの受け持ちを同じ会社にしない）
-        self.clock = clock or time.monotonic
         self.backup = backup
+        # emergency_first（RouteState）＝契約者以上の権限で、緊急の道を使って再開した通話（✅ 2026-10-30 夜 ユーザー：「どうしても使わなければいけない
+        # シーンが出たときは、契約者以上の権限でOpenRouter を通して Google が預かる Claudeを使って再開することができるようにしておいてください。」）：
+        # 直接を試さずに緊急の道で送る（1回目の問い合わせで時間切れまで待たない）。決めるのは発信の門（CL-2）で、通話の始めに会話の側が入れる
+        # （run_call の judge_route）
 
     def slot(self, kind: str):
         """受け持ち kind の判定（convo.check_handler に渡す形。panel＝この受け持ちの仕組み・answers＝その質問に自分で答えるか）。"""
@@ -970,11 +1123,11 @@ class JudgePanel:
         return [(n, f) for n, f in ms if len(ms) == 1 or takes_part(n, qkind)]
 
     def _own(self, kind: str, qkind: str) -> list:
-        """受け持ち kind が qkind の質問に自分で出す判定：組の中の分けのうち、ほかの受け持ちに自分で答える判定があれば、代わりだけの判定
-        （standin_only）を除く（ほかの受け持ちが無い・ほかも代わりだけなら、自分で答える＝1つの判定で測るとき）。"""
+        """受け持ち kind が qkind の質問に自分で出す判定：組の中の分けのうち、ほかの受け持ちに自分で答える判定があれば、止める側だけの判定
+        （stop_only）を除く（ほかの受け持ちが無い・ほかも止める側だけなら、自分で答える＝1つの判定で測るとき）。"""
         mine = self._parts(kind, qkind)
-        if any(not standin_only(n, qkind) for k in self.judges if k != kind for n, _ in self._parts(k, qkind)):
-            mine = [(n, f) for n, f in mine if not standin_only(n, qkind)]
+        if any(not stop_only(n, qkind) for k in self.judges if k != kind for n, _ in self._parts(k, qkind)):
+            mine = [(n, f) for n, f in mine if not stop_only(n, qkind)]
         return mine
 
     def answers(self, kind: str, q) -> bool:
@@ -982,8 +1135,8 @@ class JudgePanel:
         return bool(self._own(kind, question_kind(q)))
 
     def _backups(self, kind: str, qkind: str) -> list:
-        """受け持ち kind の判定がどれも答えなかったときの代わり：ほかの受け持ちの、qkind の質問では自分で答えない判定（standin_only）。kind の
-        判定と同じ会社のものは入れない（同じ会社の代わりは、止まるのも誤るのも一緒）。"""
+        """受け持ち kind の組が確かな読みを返さないときに、裏で出す止める側だけの判定：ほかの受け持ちの、qkind の質問では自分で答えない判定
+        （stop_only）。kind の判定と同じ会社のものは入れない（同じ会社だと、止まるのも誤るのも一緒）。"""
         if not self.backup:
             return []
         makers = {maker(n) for n, _ in self._own(kind, qkind)}
@@ -997,23 +1150,12 @@ class JudgePanel:
         self.holder = None
         self.answered.clear()
 
-    async def _one(self, name: str, fn, q, text: str, asked: str | None, before: str | None):
-        import asyncio
-
-        if name in self.forced_down:
-            raise OtherJudgeError(503, "試験：止まっているものとして扱う")
-        return await asyncio.wait_for(fn(q, text, asked, before=before), DOWN_AFTER_S)
-
     async def _try(self, name: str, fn, q, text: str, asked: str | None, before: str | None, tried: list[dict]) -> Reading | None:
-        from common import redact
-
         t0 = self.clock()
-        try:
-            got = await self._one(name, fn, q, text, asked, before)
-        except Exception as exc:
-            if outage(exc):
-                self.down_until[name] = self.clock() + DOWN_S
-            tried.append({"model": name, "error": redact(repr(exc))[:160], "s": round(self.clock() - t0, 3)})
+        urgent = getattr(fn, "emergency", None)
+        got = await routed_call(self, name, lambda: fn(q, text, asked, before=before),
+                                (lambda: urgent(q, text, asked, before=before)) if urgent is not None else None, tried)
+        if got is FAILED:
             return None
         if got is None:
             tried.append({"model": name, "error": "読めない返事", "s": round(self.clock() - t0, 3)})
@@ -1039,8 +1181,8 @@ class JudgePanel:
             self.answered.popitem(last=False)
 
     async def ask(self, kind: str, q, text: str, asked: str | None = None, before: str | None = None, early=None) -> Reading:
-        """受け持ち kind の判定で、言葉 text を読む。early＝組が確かな読みを返せないと分かった時点で裏で出した代わり（この質問では代わりだけの
-        判定）の読みが、組の答えより先に届いたら知らせる先（引数は読み。会話の側が、組の答えが待つ長さに間に合わなかったときだけ、止める側だけに
+        """受け持ち kind の判定で、言葉 text を読む。early＝組が確かな読みを返せないと分かった時点で裏で出した止める側だけの判定（STOP_ONLY）
+        の読みが、組の答えより先に届いたら知らせる先（引数は読み。会話の側が、組の答えが待つ長さに間に合わなかったときだけ、止める側だけに
         使う＝convo.check_handler。✅ 2026-10-30 ユーザー：「(1)(2)ともお勧めの形でOK」）。"""
         import asyncio
 
@@ -1049,11 +1191,11 @@ class JudgePanel:
         key = (getattr(q, "id", None), tuple(getattr(q, "conditions", ()) or ()), text, asked, before)
         live = []
         qkind = question_kind(q)
-        own = self._own(kind, qkind)   # 組の中で、この種類の質問に答える判定（takes_part）・代わりだけの判定を除いたもの（standin_only）
-        if not own:  # この質問では代わりだけの受け持ち（answers）：問い合わせない（ほかの受け持ちが答えられないときに、そちらの代わりで入る）
-            raise NoJudgment([{"model": n, "error": "この質問では代わりだけ"} for n, _ in self.judges[kind]])
+        own = self._own(kind, qkind)   # 組の中で、この種類の質問に答える判定（takes_part）・止める側だけの判定を除いたもの（stop_only）
+        if not own:  # この質問では止める側だけの受け持ち（answers）：問い合わせない（ほかの受け持ちが確かな読みを返さないと分かった時点で、そちらが裏で出す）
+            raise NoJudgment([{"model": n, "error": "この質問では止める側だけ"} for n, _ in self.judges[kind]])
         for name, fn in own:
-            if self.down_until.get(name, 0.0) > self.clock():
+            if not self.usable(name, getattr(fn, "emergency", None)):
                 tried.append({"model": name, "error": "止まっている（前の問い合わせ）"})
             elif maker(name) in self._taken(kind, key):
                 tried.append({"model": name, "error": SAME_MAKER})
@@ -1079,7 +1221,7 @@ class JudgePanel:
             # 裏で出しておく（混んだときの備え＝組の答えが待つ長さに間に合わないとき、会話の側が止める側だけに使う）。⛔ 2026-10-30：代わりを組が
             # 答えられなかったあとにだけ出していたので、Anthropic が混んで遅いだけのときは、10秒の時間切れまで入らなかった（Intent.md 9-4 の J10b）
             nonlocal ahead
-            ready = [(n, f) for n, f in backups if self.down_until.get(n, 0.0) <= self.clock() and maker(n) not in self._taken(kind, key)]
+            ready = [(n, f) for n, f in backups if not self._down(n) and maker(n) not in self._taken(kind, key)]
             if not ready:
                 return
             bname, bfn = ready[0]
@@ -1099,24 +1241,23 @@ class JudgePanel:
                 self.holder = None
             self._keep(kind, key, won[0])
             return self._mark(won[1], won[0], tried)
-        # 受け持ちの判定がどれも答えなかった：確かでない読み（代わりが答えても、流れの制御が数える＝Reading.weak）と、代わり（この質問では代わり
-        # だけの、ほかの受け持ちの判定 → 止まった判定の代わり STANDIN の順）
+        # 受け持ちの判定がどれも答えなかった：確かでない読み（流れの制御が数える＝Reading.weak・NoJudgment の unsure）と、止める側だけの判定の読み
+        # （答えにはしない＝NoJudgment の tried の stop_only。会話の側が止める側だけに使う）・止まった判定の代わり STANDIN の順
         weak = next((t["unsure"] for t in tried if "unsure" in t), None)
-        if ahead is not None:  # 裏で出しておいた代わり：その答えを待つ（同じ代わりに2回は問い合わせない）
+        if ahead is not None:  # 裏で出しておいた止める側だけの判定：その読みを待つ（同じ判定に2回は問い合わせない）
             bname, job = ahead
             got = await job
-            if got is not None and maker(bname) not in self._taken(kind, key):
-                self._keep(kind, key, bname)
-                return self._mark(got, bname, tried, weak)
-            backups = [(n, f) for n, f in backups if n != bname]
+            if got is not None:
+                tried.append({"model": bname, "stop_only": str(got)})
+            backups = []
         for bname, bfn in backups:
-            if self.down_until.get(bname, 0.0) > self.clock():
+            if self._down(bname):
                 tried.append({"model": bname, "error": "止まっている（前の問い合わせ）"})
             elif maker(bname) in self._taken(kind, key):
                 tried.append({"model": bname, "error": SAME_MAKER})
             elif (got := await self._try(bname, bfn, q, text, asked, before, tried)) is not None:
-                self._keep(kind, key, bname)
-                return self._mark(got, bname, tried, weak)
+                tried.append({"model": bname, "stop_only": str(got)})
+                break
         if self.standin is None or kind not in self.serves or self.holder not in (None, kind):
             raise NoJudgment(tried)
         sname, sfn = self.standin
@@ -1149,13 +1290,14 @@ def make_judges(args) -> dict:
     panel = JudgePanel({k: tuple((m, make_judge(args, m)) for m in members(n)) for k, n in used.items()},
                        standin=(standin, make_judge(args, standin)) if standin else None, down=getattr(args, "judge_down", None) or (),
                        backup=not getattr(args, "no_standin", False))
+    panel.emergency_first = getattr(args, "judge_route", None) == RESUME_EMERGENCY   # 測りの道具（通話を使わない）。通話は run_call の judge_route
     if standin and panel.standin is None:
         say(f"止まった判定の代わり（{standin}）は、どの受け持ちにも入れない（同じ会社の判定が組にある・ほかの受け持ちが同じ会社だけ）ので使いません")
     # AIが自分の言葉で言う文の中身の判定（grounding）も、判定を使う通話では一緒に作る（顔ぶれは grounding.GROUNDERS＝危ない文を通さないと
     # 測ったものだけ。意味の判定の顔ぶれとは別）。⛔ 2026-10-22 G-63：言葉で見る確かめは、通すべき世間話・お礼を12文止め、作り話を2文通した
     from grounding import GROUNDERS, make_grounder
     chosen = tuple(getattr(args, "grounder", None) or GROUNDERS)
-    grounder = None if NO_GROUNDER in chosen else make_grounder(args, chosen)
+    grounder = None if NO_GROUNDER in chosen else make_grounder(args, chosen, state=panel)   # 道の状態は意味の判定と同じもの（RouteState）
     return {k: panel.slot(k) if k in used else None for k in names} | {"grounder": grounder}
 
 
@@ -1170,6 +1312,19 @@ def make_judge(args, model_name: str):
 
         async def other(q, text, asked=None, before=None):
             return await ajudge_other(client, model_name, q, text, asked, before)
+        route = OTHER_JUDGES[model_name].get("emergency")
+        if route is not None:
+            # 緊急の道（同じ判定・同じ問い合わせを、別の送り先で。使うかは JudgePanel._try の1か所が決める）。鍵が無ければ、緊急の道は無い
+            try:
+                urgent_client = other_client(model_name, load_secret(route["key"], args.env), aio=True,
+                                             budget=getattr(args, "budget_yen", None), route=EMERGENCY_ROUTE)
+            except (Exception, SystemExit) as exc:  # 鍵が無い（load_secret は名前だけを言って止める）・作れない
+                from common import say
+                say(f"{model_name} の緊急の道は使えません（{type(exc).__name__}）")
+            else:
+                async def urgent(q, text, asked=None, before=None):
+                    return await ajudge_other(urgent_client, model_name, q, text, asked, before, route=EMERGENCY_ROUTE)
+                other.emergency = urgent
         return other
     ring = KeyRing(args)
     model = ring.model_ids()[model_name]

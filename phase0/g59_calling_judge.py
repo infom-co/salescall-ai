@@ -311,7 +311,7 @@ async def run(args) -> dict:
                     fill(row, k, col, None, round(time.monotonic() - t0, 3), exc.tried)
                     return
                 fill(row, k, col, got, round(time.monotonic() - t0, 3))   # 答えが届くまでの秒（判定の速さ。2026-10-25：2つ目の判定の替えを比べる）
-            # 代わりだけの受け持ち（お呼びする段の 3.5 Flash Lite）には問い合わせない（convo.answers）
+            # 止める側だけの受け持ち（お呼びする段の 3.5 Flash Lite）には問い合わせない（convo.answers）
             await asyncio.gather(*(one(k, j, k + tail, question) for k, j in judges.items() if j is not None
                                    for question, tail in pairs if answers(j, question)))
             finish(row)
@@ -325,7 +325,7 @@ async def run(args) -> dict:
             fill(row, k, col, reading, None, [] if reading is not None else [{"model": name, "error": why}])
         for row in rows:
             finish(row)
-    # 測った受け持ち＝答えた行がある受け持ち（お呼びする段の質問では、代わりだけの受け持ちは問い合わせない＝本番と同じ。convo.answers）
+    # 測った受け持ち＝答えた行がある受け持ち（お呼びする段の質問では、止める側だけの受け持ちは問い合わせない＝本番と同じ。convo.answers）
     measured = [k for k in judges if judges[k] is not None and any(f"{k}_s" in r for r in rows)]
     summary = {k: f"{sum(1 for r in rows if r.get(k) in r['accept'])}/{len(rows)}" for k in measured}
     # 事実ごと（項目ごとに答える形だけ）：項目がみな正解か・項目ごと（その項目を見せた言葉だけ）・2つの事実が重なる言葉（LINES_BOTH）だけ
