@@ -66,6 +66,10 @@
 | Q46 お客様が自分の意思で切ったか | 材料＝会話の報告の `cut`／判定＝`judge.classify_cut` | 材料は CL-1（2026-10-24 ユーザー決定「1.CL-1」）、判定は CL-2 |
 | Q47 こちらのプログラムの不具合で、その行を休ませるか・契約者を止めるか・直ったか | こちらの不具合の見極め（`salescall.trouble_ours`・`trouble_counts_line`・`core/troubles`・`salescall.task_resting`・`watch.decide_stop`・`salescall.trouble_fixed_at`） | CL-2（会話の側の理由（会話AIの異常・声が聞き取れない・会話を進められない）を選ぶのは CL-1 の `Flow._trouble`、固まった・書き込みが進まない・流れの制御の誤りは通話ごとの口。直す担当は処置の表 `errors.ACTIONS`。修正依頼の「直した」を記録するのは直した担当。2026-10-29 ユーザー承認「3.案A」） |
 | Q48 こちらの不具合のあと、かけ直してよいか（復旧したか） | 復旧の見極め（`salescall.recovered_after`・`awaiting_recovery`） | CL-2（2026-10-29 ユーザー承認「3.案A」） |
+| Q49 切れ方の分からない通話のあとの確かめのかけ直し | 次の動き（`next_action.after_call`・`check_outcome`）と答えを待っているかの1か所（`salescall.unclear_check_pending`） | CL-2（2026-10-30 ユーザー承認「8.案A」） |
+| Q50 電話網のお知らせ（電源オフ・圏外・使われていない）が返った電話 | お知らせで終える1か所（`attempts.end_by_notice`） | CL-2（2026-10-30 ユーザー承認「8.案A」） |
+| Q51 同じお客様への最短の間隔 | `gate.same_contact_free_at` | CL-2（2026-10-30 ユーザー承認「8.案A」） |
+| Q52 AI の使用額の上限に当たったときの扱い | エラーの分類の1か所（`errors.spend_limit`） | CL-2（2026-10-30 ユーザー承認「8.案A」） |
 
 新しい問いが出てきたら、勝手に持ち主を決めず、ユーザーに伝える（表に1行足すのはユーザーの承認のあと）。
 
