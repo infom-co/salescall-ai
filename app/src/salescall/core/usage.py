@@ -19,9 +19,12 @@
   - 赤字（今月の費用 ＞ 多めに見込んだ報酬）⇒ まず警告して契約者へ知らせる。期限（設定 budget.deficit_grace＝1時間）までに
     管理者か契約者が確認ボタンを押さなければ、もう一度、契約者と管理者へ知らせる（1回。**止めない**＝2026-10-22 深夜 ユーザー：
     「赤字で、知らせてから1時間たっても確認ボタンが押されないとき：止めない。知らせるだけでいい」。⛔ 前は、その依頼者を止めていた
-    ＝2026-10-16 の「1時間押さなければ止める」を変えた）。確認は設定 budget.deficit_confirm_valid の間だけ効き、そのあともまだ赤字
-    なら、もう一度警告する。進め方の判断は `_deficit_step` の1か所（利用量の記録のたびと、見守りの `tick` が呼ぶ＝記録が無くても
-    期限が来たら知らせる）。
+    ＝2026-10-16 の「1時間押さなければ止める」を変えた）。**確認ボタンが押されたら、その赤字が続くあいだは、もう知らせない**（2026-10-30
+    管理者：「警告して、1時間で赤字の確認ボタンを契約者が押したらもう知らせない。確認ボタンは画面に出したまま。」）。黒字に戻ったら警告を
+    閉じ、また赤字になったら新しく警告する。⛔ 見直し23 のあと：前は確認が設定 budget.deficit_confirm_valid（CL-2 の仮の値＝1日）の間だけ
+    効き、そのあともまだ赤字なら、もう一度警告した（0149 で外した）。進め方の判断は `_deficit_step` の1か所（利用量の記録のたびと、
+    見守りの `tick` が呼ぶ＝記録が無くても期限が来たら知らせる）。画面が確認ボタンを出し続けるための、いまの赤字の警告（確認を待って
+    いる・確認済みで赤字が続いている）は `deficit_notice` の1か所で読む。
   - 報酬の決まりが無い依頼者は、赤字かを判断できないので、止めずに「設定がされていません」の注意を知らせる（1日1回。2026-10-16
     ユーザー：止めるのは、お客様に影響が出るときだけ。前は報酬 0円とみなして止めていた）。
   - 赤字でなく、割合（費用 ÷ 多めに見込んだ報酬）が上限（budget.max_cost_ratio。既定 30％。依頼者ごとに選べる）を超えた
@@ -31,7 +34,6 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
@@ -158,9 +160,9 @@ def _setting(tx: Tx, key: str, tenant_id: UUID, client_id: UUID) -> Any:
 
 def _deficit_step(tx: Tx, tenant_id: UUID, client_id: UUID) -> int | None:
     """赤字の警告の進め方（判断はここだけ。利用量の記録のたびと、見守りの tick が呼ぶ）。期限が過ぎて、もう一度知らせたら、その
-    警告の番号を返す。赤字でない ⇒ 開いている警告を閉じる／赤字で警告が無い・確認が切れた ⇒ 警告して知らせる／警告の期限までに
-    確認されていない ⇒ もう一度、契約者と管理者へ知らせる（1回。止めない＝2026-10-22 深夜 ユーザー）／確認済みで確認が効いて
-    いるあいだ ⇒ 何もしない。"""
+    警告の番号を返す。赤字でない ⇒ 開いている警告を閉じる（また赤字になったら、新しく警告する）／赤字で警告が無い ⇒ 警告して知らせる／
+    警告の期限までに確認されていない ⇒ もう一度、契約者と管理者へ知らせる（1回。止めない＝2026-10-22 深夜 ユーザー）／確認済み ⇒
+    その赤字が続くあいだは何もしない（警告は開いたまま＝画面は確認ボタンを出したまま。2026-10-30 管理者）。"""
     state, m = _deficit(tx, tenant_id, client_id)
     figures = f"今月の費用 {m['cost']:.2f}円・報酬 {m['revenue']:.2f}円"
     w = tx.one("SELECT warning_id, deadline, confirmed_at, reminded_at, now() AS now FROM salescall.deficit_warnings"
@@ -171,12 +173,7 @@ def _deficit_step(tx: Tx, tenant_id: UUID, client_id: UUID) -> int | None:
                        " WHERE warning_id = %s", (w["warning_id"],))
         return None
     if w is not None and w["confirmed_at"] is not None:
-        valid = timedelta(seconds=int(_setting(tx, "budget.deficit_confirm_valid", tenant_id, client_id)))
-        if w["now"] < w["confirmed_at"] + valid:
-            return None                                  # 確認が効いている
-        tx.execute("UPDATE salescall.deficit_warnings SET closed_at = now(), closed_why = 'confirm_expired'"
-                   " WHERE warning_id = %s", (w["warning_id"],))   # 確認が切れた：まだ赤字なので、もう一度警告する
-        w = None
+        return None                                      # 確認済み：その赤字が続くあいだは、もう知らせない
     if w is None:
         grace = int(_setting(tx, "budget.deficit_grace", tenant_id, client_id))
         row = tx.one("INSERT INTO salescall.deficit_warnings (tenant_id, client_id, deadline, figures)"
@@ -196,13 +193,23 @@ def _deficit_step(tx: Tx, tenant_id: UUID, client_id: UUID) -> int | None:
 
 
 def confirm_deficit(tx: Tx, warning_id: int) -> None:
-    """赤字の警告を確認する（管理者か契約者だけ。データベースが守る）。確認したら、確認が効いているあいだ（設定
-    budget.deficit_confirm_valid）は新しく警告しない（赤字では止めない＝2026-10-22 ユーザー「止めない。知らせるだけでいい」。
+    """赤字の警告を確認する（管理者か契約者だけ。データベースが守る）。確認したら、その赤字が続くあいだは、もう知らせない（2026-10-30
+    管理者。黒字に戻って、また赤字になったら新しく警告する。赤字では止めない＝2026-10-22 ユーザー「止めない。知らせるだけでいい」。
     確認されないまま期限を過ぎたら、契約者と管理者へもう一度だけ知らせる）。"""
     row = tx.one("UPDATE salescall.deficit_warnings SET confirmed_at = now(), confirmed_by = salescall.cur_actor()"
                  " WHERE warning_id = %s AND closed_at IS NULL AND confirmed_at IS NULL RETURNING warning_id", (warning_id,))
     if row is None:
         raise LookupError(f"確認できる赤字の警告がありません：{warning_id}")
+
+
+def deficit_notice(tx: Tx) -> dict[str, Any] | None:
+    """取引の依頼者の、いまの赤字の警告（画面が確認ボタンを出し続けるために読む1か所。CL-3）。無ければ None（赤字でない・まだ警告して
+    いない）。中身：warning_id・figures（警告したときの今月の費用と報酬）・warned_at・deadline（この時刻までに確認されなければ、もう一度
+    知らせる）・reminded_at（もう一度知らせた時刻）・confirmed（確認ボタンが押されたか）・confirmed_at・confirmed_by。確認済みでも、
+    その赤字が続くあいだは開いたまま（確認ボタンは画面に出したまま＝2026-10-30 管理者）。"""
+    row = tx.one("SELECT warning_id, figures, warned_at, deadline, reminded_at, confirmed_at, confirmed_by"
+                 " FROM salescall.deficit_warnings WHERE closed_at IS NULL AND client_id = salescall.cur_client()")
+    return None if row is None else {**row, "confirmed": row["confirmed_at"] is not None}
 
 
 def _check_cost_ratio(tx: Tx, tenant_id: UUID, client_id: UUID) -> None:

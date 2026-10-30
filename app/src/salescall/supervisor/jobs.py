@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 from uuid import UUID
 
-from salescall.core import agents, answer_rate, attempts, backup, calendar, health, leases, measure, ring_test, settle, usage, watch
+from salescall.core import agents, answer_rate, attempts, backup, calendar, health, leases, measure, settle, usage, watch
 from salescall.core.access import Access
 from salescall.supervisor import ACTOR, config, plugins, report
 from salescall.supervisor.links import Links
@@ -130,18 +130,18 @@ def verify_watch(ctx: Context) -> None:
 
 
 def _probe(ctx: Context, run: Callable[[Callable[[Any], Any]], Any]) -> None:
-    """確かめの部品で確かめる停止（テスト番号で確かめる回線の停止は、その回線の処理がする＝core/ring_test.checks_stop の1か所。
-    2026-10-24 ユーザー：再開の確かめもテスト番号で「OK」）。"""
+    """確かめの部品で確かめる停止（会話AIの異常で止めた停止。回線の休みの再開の確かめは、回線の状態の表が置いたテスト番号を、その回線の
+    処理が鳴らす＝DESIGN.md 17章。⛔ 4段目まで：テスト番号で確かめる回線の停止を ring_test.checks_stop で除いていた）。"""
     prober = ctx.part(ctx.cfg.prober)
     def one(stop: dict[str, Any]) -> None:
         ok, evidence = prober.probe(stop)
         run(lambda tx: watch.record_check(tx, stop["event_id"], ok, evidence=evidence))
     _each(ctx, "停止を解く確かめ",
-          run(lambda tx: [s for s in watch.due_checks(tx) if not ring_test.checks_stop(tx, s)]), one)
+          run(watch.due_checks), one)
 
 
 def stop_checks(ctx: Context) -> None:
-    """システムが止めた停止（会話AI・回線）の確かめ（その契約者の分）。決めた回数続けて通れば、確かめの部品が解く（9-1）。"""
+    """システムが止めた停止（会話AI）の確かめ（その契約者の分）。決めた回数続けて通れば、確かめの部品が解く（9-1）。"""
     _probe(ctx, lambda work: ctx.access.in_tenant(ACTOR, ctx.tenant_id, work))
 
 

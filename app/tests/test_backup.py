@@ -375,7 +375,7 @@ class PerClient(unittest.TestCase):
         self.assertNotIn(s["tenant"], [r["origin_tenant"] for r in self.notices()])   # 管理者の作業ではない
         self.assertIsNotNone(content())                                   # 外れている間は残す
         (self.root / pc.DRIVE_MARK).write_text("控え用")
-        with mock.patch.object(backup, "RETRY_AFTER", timedelta(0)):    # 1時間あけるのを待たない
+        with mock.patch.object(backup, "_retry_after", lambda tx: timedelta(0)):    # 1時間（仮の設定 backup.retry_after）あけるのを待たない
             self.assertEqual(backup.copy_submissions(self.app, writer(self.root), s["tenant"]), [])
             self.assertIsNone(content())
             self.assertEqual(backup.copy_submissions(self.app, writer(self.root), s["tenant"]), [])   # 写すものが無ければ何もしない
@@ -430,9 +430,9 @@ class PerClient(unittest.TestCase):
             tenant_id=s["tenant"], client_id=c)
         watch = lambda: sorted(c for c in (s["client"], second) if backup.watch_client(self.app, s["tenant"], c))   # noqa: E731
         mine = lambda: [r["summary"] for r in self.notices(s["tenant"]) if r["summary"] == backup.OVERDUE_CLIENT]   # noqa: E731
-        with mock.patch.object(backup, "OVERDUE", timedelta(days=1)):          # 作ったばかりの依頼者は数えない
+        with mock.patch.object(backup, "_overdue_after", lambda tx: timedelta(days=1)):   # 作ったばかりの依頼者は数えない
             self.assertEqual(watch(), [])
-        with mock.patch.object(backup, "OVERDUE", timedelta(microseconds=1)):
+        with mock.patch.object(backup, "_overdue_after", lambda tx: timedelta(microseconds=1)):
             self.assertEqual(watch(), sorted([s["client"], second]))
             self.assertEqual(len(mine()), 2)                                   # 依頼者ごとに、その契約者へ
             watch()

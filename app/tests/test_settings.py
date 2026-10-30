@@ -314,15 +314,16 @@ class Choice(unittest.TestCase):
     def test_meanings_of_the_review21_settings_follow_the_decisions(self):
         """0143 の設定の意味（画面の説明の文）：(1) 意味の判定の組 jev_and_sonnet は Jev を先に出し、確かな読みが無い・失敗・0.3秒で
         届かないときだけ2つの Sonnet を出す（main の e3019c4・CL-1 の連絡帳 4-59。2026-10-29 ユーザー「OK」）／sonnet は2つの Sonnet だけ
-        (2) テスト番号で確かめる回線の停止は1回鳴れば解く（2026-10-25 夜 管理者「鳴ったら、テストＯＫなだけ」） (3) 通話ごとの口の仮の
+        (2) 回線の停止の仮の設定（stop.line.*。テスト番号で確かめる回線の停止は1回鳴れば解く＝2026-10-25 夜 管理者「鳴ったら、テストＯＫ
+        なだけ」を書いていた）は、5段目（0147）で外した（回線の休みと再開は回線の状態の表＝DESIGN.md 17-6） (3) 通話ごとの口の仮の
         設定（call.end_write_wait・call.stuck_after）は外した（すでにある値で決める）。"""
         meaning = lambda key: owner_access().in_system(SYSTEM, lambda tx: tx.one(   # noqa: E731
             "SELECT meaning FROM salescall.setting_definitions WHERE key = %s", (key,)))
         judge = meaning("judge.models")["meaning"]
         for words in ("Jev 1.14 を先に出し", "0.3秒", "確かな読みが無い・失敗した", "sonnet＝2つの Sonnet 5.5"):
             self.assertIn(words, judge)
-        self.assertIn("1回鳴れば解きます", meaning("stop.line.resume_after_successes")["meaning"])
-        for gone in ("call.end_write_wait", "call.stuck_after"):
+        for gone in ("call.end_write_wait", "call.stuck_after", "stop.line.stop_after_failures", "stop.line.probe_interval",
+                     "stop.line.resume_after_successes"):
             self.assertIsNone(meaning(gone))
 
     def test_the_test_number_is_set_by_the_admin_first_and_by_the_contractor_after(self):
@@ -350,8 +351,7 @@ class ScopesDecidedByUser(unittest.TestCase):
               "gate.exact_promise_guard", "gate.exact_promise_guard_samples",  # 時刻を指定した約束の前の空け（0090・0091）
               "callback.exact_slot", "callback.exact_retry_gaps", "callback.exact_days")   # 時刻ちょうどの約束の回（0093）
     TENANT = ("gate.cross_client_interval", "stop.ai.stop_after_failures", "stop.ai.probe_interval",
-              "stop.ai.resume_after_successes", "stop.line.stop_after_failures", "stop.line.probe_interval",
-              "stop.line.resume_after_successes", "stop.flapping.window", "stop.flapping.wait_multiplier",
+              "stop.ai.resume_after_successes", "stop.flapping.window", "stop.flapping.wait_multiplier",
               "stop.flapping.max_wait", "budget.tenant_daily_yen",   # 費用の見張りは契約者ごと（2026-10-18 ユーザー）
               "judge.models", "pc.auto_update")   # 判定に使うAI・プログラムの更新（2026-10-18 ユーザー）
 
@@ -425,6 +425,39 @@ class FramesCannotBeFinerThanWhatTheyFrame(unittest.TestCase):
             owner_access().in_system(SYSTEM, lambda tx: tx.execute(
                 "INSERT INTO salescall.setting_definitions (key, merge_kind, value_type, meaning, design_ref, finest_scope)"
                 " VALUES ('test.old_way', 'system_only', 'integer', '試験', '試験', 'system')"))
+
+
+class Review23Marks(unittest.TestCase):
+    """見直し23 の (7)(9)（0148）：設定の「仮・確定」の印は管理者の決定に合わせる。コードに直に書いていた数は、仮の設定にして画面の仮の値の
+    一覧（settings.provisional）に出す（値は今までと同じ。どれも管理者の決定ではない＝仮）。"""
+
+    MOVED = {"line.answer_drop_baseline_days": 14, "line.answer_drop_baseline_min_dials": 100, "line.answer_drop_hour_min_dials": 20,
+             "line.answer_drop_significance": 0.01, "gate.call_length_days": 30, "measure.draw_after": 86400,
+             "backup.retry_after": 3600, "backup.overdue_after": 93600, "retry.no_opening_recheck": 86400}
+
+    def test_numbers_once_written_in_the_code_are_provisional_settings(self):
+        listed = {r["key"]: r for r in sys_tx(settings.provisional)}
+        for key, value in self.MOVED.items():
+            with self.subTest(key=key):
+                self.assertEqual(listed[key]["value"], value)
+                self.assertTrue(listed[key]["meaning"].strip() and "CL-2 が決めた値" in listed[key]["rationale"])
+                self.assertEqual(sys_tx(lambda tx: settings.system_value(tx, key)), value)   # 管理者だけが決める
+
+    def test_marks_follow_the_decisions(self):
+        """gate.other_contractor_interval（3日）＝2026-10-16 のご決定「決めるまでの初めの値は3日」（計画書 1-4）・quality.max_forbidden_speech
+        （0件）＝原則9 の「1件で止める」（2026-10-16 のご決定）・retry.apology_max（3回）＝2026-10-30 のご決定。
+        どれも確定で、根拠はご決定の言葉。"""
+        listed = {r["key"] for r in sys_tx(settings.provisional)}
+        for key, value, words in (("gate.other_contractor_interval", {"days": 3}, "決めるまでの初めの値は3日"),
+                                  ("quality.max_forbidden_speech", 0, "1件で止める"),
+                                  # 2026-10-30 のご決定（0149）：お詫びの電話に出ないときは、時間帯を変えて3回まで
+                                  ("retry.apology_max", 3, "案A（3回）　出ない場合、連続してかけないようにすること")):
+            with self.subTest(key=key):
+                self.assertNotIn(key, listed)
+                row = sys_tx(lambda tx: tx.one("SELECT value, status, rationale FROM salescall.setting_values WHERE key = %s"
+                                               " AND scope = 'system' ORDER BY value_id DESC LIMIT 1", (key,)))
+                self.assertEqual((row["value"], row["status"]), (value, "decided"))
+                self.assertIn(words, row["rationale"])
 
 
 if __name__ == "__main__":

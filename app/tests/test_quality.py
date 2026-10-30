@@ -6,7 +6,7 @@ import unittest
 from dataclasses import replace
 from uuid import UUID
 
-from salescall.core import approval, attempts, business_rules, fix_requests, next_action, quality_stage, stops
+from salescall.core import approval, attempts, business_rules, fix_requests, next_action, notify, quality_stage, stops
 from salescall.core.access import Rejected
 from salescall.core.attempts import VerificationSummary
 from salescall.core.phone import normalize
@@ -221,44 +221,54 @@ if __name__ == "__main__":
 
 class Production(Base):
     """本番（検証モードでない業務）の品質の見方：止めない（2026-10-22 ユーザー：「前にも言ったはずで本番は止めない（担当への修正依頼と
-    管理者への知らせ）ただし、大問題は止める」）。1件ごとの手当て（その行を終える・判定待ち）と修正依頼は締めの処理がする。その日の
-    うちに同じ原因が設定の件数になったら、管理者へ知らせる（その日・その原因に1回）。段階的な立ち上げ（段の件数）は見ない。"""
+    管理者への知らせ）ただし、大問題は止める」）。1件ごとの手当て（その行を終える・判定待ち）と、通話ごとの契約者と管理者への知らせ・
+    直す担当への修正依頼（同じ不具合は1つ）は締めの処理がする。段階的な立ち上げ（段の件数）も、品質の評価もしない。⛔ 見直し23 の (3)：
+    撤回された 2026-10-16 の決定の名残（その日のうちに同じ原因が設定 quality.production_same_cause_per_day の件数になったら管理者へ知らせる
+    ＝知らせの種類 quality_alert）を外した（0148）。"""
     def rows(self, s, n):
         return [s] + [self.second_row(s) for _ in range(n - 1)]
 
-    def alerts(self, s):
+    def admin_notes(self, s, kind):
         return self.w.a.in_system(ADMIN, lambda tx: tx.all(
-            "SELECT event_key, summary FROM salescall.notification_events WHERE for_admin AND kind = 'quality_alert'"
-            " AND refs ->> 'business_id' = %s ORDER BY event_key", (str(s["business"]),)))
+            "SELECT event_key FROM salescall.notification_events WHERE for_admin AND kind = %s"
+            " AND refs ->> 'business_id' = %s ORDER BY event_key", (kind, str(s["business"]))))
 
-    def test_forbidden_speech_never_stops_the_business_and_tells_the_admin_once(self):
+    def evaluations(self, s):
+        return self.tx(s, lambda tx: tx.one("SELECT count(*) AS n FROM salescall.quality_evaluations WHERE version_id = %s",
+                                            (s["version"],)))["n"]
+
+    def test_forbidden_speech_never_stops_the_business_and_tells_per_call(self):
         s = self.fresh(stage_cap=20)
         rows = self.rows(s, 4)
         got = self.verified_call(rows[0], said(3))
         self.assertEqual((got["decision"].kind, got["decision"].end_reason), ("end", "forbidden_speech"))   # その行は終える
-        self.verified_call(rows[1], said(3))
-        self.assertEqual(self.alerts(s), [])                            # 基準（3件）まではまだ知らせない
-        self.verified_call(rows[2], said(3))
-        self.verified_call(rows[3], said(3))
+        for r in rows[1:]:
+            self.verified_call(r, said(3))
         self.assertEqual(self.business_stops(s), [])                   # 何件になっても、業務は止めない
-        self.assertEqual(len(self.alerts(s)), 1)                         # 管理者へは、その日・その原因に1回
-        self.assertIn("業務は止めていません", self.alerts(s)[0]["summary"])
+        told = self.w.a.in_system(ADMIN, lambda tx: tx.one(
+            "SELECT count(*) AS n FROM salescall.notification_events WHERE for_admin AND kind = 'forbidden_speech'"
+            " AND refs ->> 'version_id' = %s", (str(s["version"]),)))["n"]
+        self.assertEqual(told, 4)                                      # 管理者へは通話ごと（締めの処理）
+        self.assertEqual(self.admin_notes(s, "quality_alert"), [])     # 1日の件数でまとめた知らせは無い
+        self.assertNotIn("quality_alert", notify.KINDS)
         asked = self.w.a.in_system(SYSTEM, lambda tx: [r for r in fix_requests.open_requests(tx, "CL-1")
                                                        if r["kind"] == "forbidden_speech"
                                                        and r["refs"].get("version_id") == str(s["version"])])
         self.assertEqual(len(asked), 1)                                  # 担当への修正依頼（同じ不具合は1つ）
+        self.assertEqual(self.evaluations(s), 0)                         # 本番は品質の評価をしない
         self.assertIsInstance(self.claim(self.second_row(s)), gate.Claim)   # 業務はかけ続ける
+        gone = owner_access().in_system(SYSTEM, lambda tx: tx.one(
+            "SELECT 1 FROM salescall.setting_definitions WHERE key = 'quality.production_same_cause_per_day'"))
+        self.assertIsNone(gone)
 
-    def test_unknowns_are_told_per_cause_and_never_stop(self):
+    def test_unknowns_never_stop(self):
         s = self.fresh(stage_cap=20)
-        self.put_client(s, "quality.production_same_cause_per_day", 2)
         rows = self.rows(s, 3)
         self.verified_call(rows[0], VerificationSummary(1, 0, 0), report=rep(cut=None))       # 切れ方の材料が無い
         self.verified_call(rows[1], VerificationSummary(1, 0, 0), items=[("Q1", "dont_know", None)])   # 理由が無い（別の原因）
-        self.assertEqual(self.alerts(s), [])                            # 原因ごとに1件ずつ：まだ知らせない
         self.verified_call(rows[2], VerificationSummary(1, 0, 0), report=rep(cut=None))
         self.assertEqual(self.business_stops(s), [])
-        self.assertEqual([a["event_key"].rsplit(":", 2)[-2:] for a in self.alerts(s)], [["judge_unknown", "cut_missing"]])
+        self.assertEqual(self.evaluations(s), 0)
 
     def test_the_stage_cap_is_only_for_verification(self):
         s = self.fresh(stage_cap=1)

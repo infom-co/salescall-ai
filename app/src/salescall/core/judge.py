@@ -18,7 +18,8 @@
       番号違いの電話口が断った・何も言わずに切ったときも、ここ（止めるのは、その番号だけ。行のお客様が断ったのではない
       ので、行の番号すべて・管理番号へ広げない。DESIGN.md 3-6。2026-10-16 見直し：前は断りを先に見て、番号違いの相手の
       断りで、行のお客様ごと止めていた）
-  (2) 発信の拒否（通話中の申告・通話後の検証で見つかった・切れ方の判定が「断った」）  ⇒ do_not_call
+  (2) 発信の拒否（通話中の申告・切れ方の判定が「断った」＝営業拒否の言葉のあとに切れた・
+      切れ方の分からない通話のあとの確かめのかけ直しが鳴ったのに、お客様が出て話さなかった＝2026-10-30 管理者の決定）  ⇒ do_not_call
       (1)(2) は `refusal` の1か所（お詫びの電話の締めも使う）。はっきりした拒否は、切れ方の材料が無くても拒否
   (3) 範囲外の求めで終えた                                                          ⇒ out_of_scope
   (4) 用件を断られた（業務の決まりの「断りの答え」が取れた）                          ⇒ declined
@@ -53,7 +54,7 @@ from salescall.core.business_rules import Rules
 from salescall.core.call_report import CallReport
 
 # 判定の決まりの版（変えたら上げる）。かけ直しの時刻の読み方の版も入れる（読み方を直すと、判定待ちの行が判定し直される＝settle.rejudge）
-JUDGE_VERSION = f"judge-2026-10-24.1+time-{spoken_time.VERSION}"   # 2026-10-24.1（見直し18b）：「お客様と話したか」を人の証の表で読む（人の言葉の締め・お客様からの質問・受け答えなど）・「誰でも」の業務は話した＝繋がった（業務設定から判定の入力に）・判定できない結果に、断られたかは分かっているか（refusal_known）を残す。2026-10-22.8：判定できなかった通話にも、会話の報告のかけ直しの申し出（約束）を残す（promise_offer。途中で切れたとき、すぐにかけず約束を守る＝見直し15）・約束の幅に、お客様が言った端とその日を言ったか（said・day_said）を残す・理由の無い「わからない」の確かめ（(6)）は、お客様と話した通話だけ（前の通話の答えで、出なかった電話まで判定できないにしない）。.7：目的のお客様に繋がらなかった結果に again（同じ日にまたかけてよいと言われたか）・在籍していないは業務の応じ方で（終える／後任の方を追う＝successor の印）。.6：CL-1 の 4-28（長期の不在は不在の仲間・ほかの手段と在籍していないは電話でかけ直さず終える）。.5：取り次げなかった通話に、あとでまたかけてよいと言われたか（again）を残す。.4：不在で戻る時刻が取れなかった申し出は「不在」（約束にしない）。.3：CL-1 の 10-22 の報告を受ける（目的のお客様のある通話は繋いだ事実だけで繋がった・繋がらなかった理由／かけ直しの申し出があれば話した・繋がって要らなくなったかけ直しは読まない。読み方は call_report の1か所）（.2：確かめ直しで目的のお客様だと確かめられなかった通話は「取り次いでもらえなかった」。.1：繋いだ事実で話した・繋がったと読む）
+JUDGE_VERSION = f"judge-2026-10-30.1+time-{spoken_time.VERSION}"   # 2026-10-30.1（管理者の指摘・決定）：切れ方の「断った」は営業拒否の言葉のときだけ（AI が話していた・だれも話していなかっただけでは断ったにしない）・声が片方に届いていなかった証拠があれば「声が届かず切れた」（audio＝途中で切れた電話と同じ）・決められない切れ方は確かめのかけ直しで決める（鳴ったのに出なければ営業拒否）。2026-10-24.1（見直し18b）：「お客様と話したか」を人の証の表で読む（人の言葉の締め・お客様からの質問・受け答えなど）・「誰でも」の業務は話した＝繋がった（業務設定から判定の入力に）・判定できない結果に、断られたかは分かっているか（refusal_known）を残す。2026-10-22.8：判定できなかった通話にも、会話の報告のかけ直しの申し出（約束）を残す（promise_offer。途中で切れたとき、すぐにかけず約束を守る＝見直し15）・約束の幅に、お客様が言った端とその日を言ったか（said・day_said）を残す・理由の無い「わからない」の確かめ（(6)）は、お客様と話した通話だけ（前の通話の答えで、出なかった電話まで判定できないにしない）。.7：目的のお客様に繋がらなかった結果に again（同じ日にまたかけてよいと言われたか）・在籍していないは業務の応じ方で（終える／後任の方を追う＝successor の印）。.6：CL-1 の 4-28（長期の不在は不在の仲間・ほかの手段と在籍していないは電話でかけ直さず終える）。.5：取り次げなかった通話に、あとでまたかけてよいと言われたか（again）を残す。.4：不在で戻る時刻が取れなかった申し出は「不在」（約束にしない）。.3：CL-1 の 10-22 の報告を受ける（目的のお客様のある通話は繋いだ事実だけで繋がった・繋がらなかった理由／かけ直しの申し出があれば話した・繋がって要らなくなったかけ直しは読まない。読み方は call_report の1か所）（.2：確かめ直しで目的のお客様だと確かめられなかった通話は「取り次いでもらえなかった」。.1：繋いだ事実で話した・繋がったと読む）
 # 「判定できない」の原因の名前（同じ原因かを数える単位）と意味。プログラムの誤りか（直す担当へ修正依頼を出し、管理者にも
 # 知らせる＝確かめ・承認のため。2026-10-16・10-17 ユーザー）も、ここで決まる（1か所）。業務設定の抜けは契約者が直す（いまは無い：業務の決まりは、必須の質問ごとに、
 # 決まった理由のすべてに扱いが無いと保存できない＝business_rules。2026-10-16 見直し：前は「理由×扱いが決まらない」を業務設定の
@@ -109,9 +110,9 @@ class JudgeInput:
     report: CallReport | None    # 会話から返る報告（会話が無かった試行は None）
     items: dict[str, Item]       # 行の項目（試行をまたいでたまったもの）
     rules: Rules
-    refused_after: bool          # 通話後の検証で、拒否の聞き逃しが見つかった（Q21 が発信禁止に登録した）
-    unclear_is_refusal: bool     # 切れ方を決められないとき、営業拒否として扱うか（設定 judge.unclear_disconnect_is_refusal）
-    periods: dict[str, tuple[int, int]] = field(default_factory=lambda: spoken_time.PERIODS)   # 言葉ごとの幅（依頼者ごとの設定）
+    # ⛔ 2026-10-30 に外した入力：refused_after（通話後の検証で見つけた断り。書く入口がどこにも無く、使われない道だった。断りを
+    # あとから見つける道は「録音から作り直した報告」の1本＝call_report.save_rebuilt）・unclear_is_refusal（設定
+    # judge.unclear_disconnect_is_refusal。決め方が管理者の決定の1つ＝確かめのかけ直しになったので、設定ごと外した）
     # 通話の途中の「もうかけないで」が、その場で台帳に入っている（dnc.register_declared）。⚠️ 会話の処理が報告を書く前に
     # 落ちても、申告は台帳にある：報告だけを見ると、断りを見落として、行のほかの番号へ広げず、お詫びしてかけ直そうとした
     # （2026-10-19 の見直し）
@@ -119,12 +120,17 @@ class JudgeInput:
     # 目的のお客様に判定なしで繋いだ通話を確かめ直して、目的のお客様だと確かめられなかった（別の方・確かめられなかった。
     # core/target_recheck.py）。その通話の答えは、もう戻されている・「-」になっている。結果の中身に残す
     target_unconfirmed: bool = False
-    # お客様の時間の設定（営業時間＝午前・午後・お客様指定の歯止め時間・1回分の長さ。読むのは gate.callee_settings の1か所。
-    # 初めの値の写しを持たない＝必ず渡す。⛔ 見直し17b：前は渡し忘れても黙って 7〜22時・1時間になった）
+    # お客様の時間の設定（営業時間＝午前・午後・お客様指定の歯止め時間・1回分の長さ・言葉ごとの幅。読むのは gate.callee_settings の
+    # 1か所。初めの値の写しを持たない＝必ず渡す。⛔ 見直し17b：前は渡し忘れても黙って 7〜22時・1時間になった。⛔ 見直し23 の (2)：
+    # 言葉ごとの幅は別の引数 periods で、既定に初めの値の写し spoken_time.PERIODS を持っていた）
     callee: calling_hours.CalleeSettings = field(kw_only=True)
     # 業務に目的のお客様がいないか（「誰でも」。業務設定の版から＝business_settings.anyone_target の1か所。初めの値を持たない＝必ず
     # 渡す）。⛔ 見直し18b の (3)：前は判定の入力に無く、報告の印だけで「目的のお客様のある通話か」を推していた
     anyone_target: bool = field(kw_only=True)
+    # この通話が、切れ方の分からない通話のあとの確かめのかけ直しで、お客様の電話まで鳴ったか（next_action.check_outcome の1か所が
+    # "rang" と答えた。確かめのかけ直しでない・鳴らなかった・こちらの不具合で終えた＝False。初めの値を持たない＝必ず渡す）。
+    # 2026-10-30 管理者の決定：鳴ったのに出なかった・出ても話さなかった ⇒ 両方の回線は元気＝営業拒否（`refusal`）
+    check_rang: bool = field(kw_only=True)
 
     @property
     def reached_target(self) -> bool:
@@ -140,15 +146,29 @@ class Judgement:
     state: str                   # 業務の状態（4-1）
     complaint: bool
     disconnect: str | None       # 試行に記録する切れ方（normal / refused / interrupted。決められないものは設定で決めたほう）
-    dnc_reason: str | None       # 発信禁止に登録する理由（refused_in_call / refused_found_after / wrong_party / fax_line）
+    dnc_reason: str | None       # 発信禁止に登録する理由（refused_in_call / refused_unclear_checked / wrong_party / fax_line）
     detail: dict[str, Any]       # 判定の中身（依頼者への報告・次の動きが読む。policy_key＝再発信の方針の鍵）
 
 
 def classify_cut(facts: Facts, report: CallReport | None) -> str | None:
-    """切れ方の判定（7-1c。2026-10-14 ユーザー承認）。お客様と話した通話で、ふつうに終えたのでないときだけ決める。
-    返す値：normal / refused / interrupted / unclear（材料はあるが決められない）／missing（材料が報告されていない＝入力の誤り）。
-    対象でなければ None。⚠️ missing を unclear と同じに扱わない（報告の書き損じで、ふつうに終えたお客様を営業拒否にしない）。"""
-    if not facts.reached_answer or facts.end_state not in ("ended", "dropped") or report is None:
+    """切れ方の判定（7-1c。2026-10-14 ユーザー承認）。お客様と話した通話で、ふつうに終えたのでないときだけ決める（`cut_of` の1か所）。"""
+    return cut_of(reached_answer=facts.reached_answer, end_state=facts.end_state, hangup_side=facts.hangup_side, report=report)
+
+
+def cut_of(*, reached_answer: bool, end_state: str, hangup_side: str | None, report: CallReport | None) -> str | None:
+    """切れ方を決める1か所（締め＝`classify_cut` と、状態の表の入口＝core/health が、声が届かず切れた電話を E4 にするのに読む）。
+    返す値：normal / refused / interrupted / audio（声が届かず切れた）／unclear（材料はあるが決められない）／missing（材料が報告されて
+    いない＝入力の誤り）。対象でなければ None。⚠️ missing を unclear と同じに扱わない（報告の書き損じで、ふつうに終えたお客様を営業拒否
+    にしない）。
+    refused は営業拒否の言葉があったときだけ（お客様の最後の発話が断りの言葉だった。通話の途中の「もうかけないで」の申告は
+    `refusal` が先に見る）。2026-10-30 管理者の指摘：「声が届かないお客様が黙って切った通話を、営業拒否にしない」。⛔ 前は、切れた瞬間に
+    AI が話していた・だれも話していなかった（speaker が ai / none）だけで refused にしていた（声が届かず「もしもし？」のあと切ったお客様も
+    営業拒否＝発信禁止になった）。声が片方に届いていなかった証拠（cut.callee_cannot_hear・cut.callee_silent）があれば audio＝「声が
+    聞き取れない」と同じ扱い（こちらの不具合に数えない・途中で切れた電話と同じく、お詫びとともにかけ直す・状態の表の E4＝声が通ると
+    分かっている回線から）。拒否の言葉も声の証拠も無いもの（speaker が ai / none / 分からない）は unclear＝確かめのかけ直し
+    （next_action.after_call。2026-10-30 管理者の決定：初めの値は「かけ直す」。決め方がその1つになったので、営業拒否にする設定
+    judge.unclear_disconnect_is_refusal は外した）。"""
+    if not reached_answer or end_state not in ("ended", "dropped") or report is None:
         return None
     if not report.talked:
         return None                              # 留守電・自動音声・FAX は、お客様の意思が無い
@@ -159,13 +179,13 @@ def classify_cut(facts: Facts, report: CallReport | None) -> str | None:
         return "normal"                          # 締めの言葉に入っていた・締めのあと
     if cut.callee_refused_last:
         return "refused"                         # 断りの言葉のあとに切れた
+    if cut.callee_cannot_hear or cut.callee_silent:
+        return "audio"                           # 声が片方に届いていなかった（お客様が「聞こえない」と言っていた・お客様の声が届かない）
     if cut.speaker == "callee":
         return "interrupted"                     # お客様の言葉が途中で途切れた
-    if facts.hangup_side == "line":
+    if hangup_side == "line":
         return "interrupted"                     # 回線の信号で、回線の側で切れたと分かる
-    if cut.speaker in ("ai", "none"):
-        return "refused"                         # AIが話している途中・話し終えたあとの間に、お客様が何も言わずに切った
-    return "unclear"
+    return "unclear"                             # AI が話している途中・話し終えたあとの間に、お客様が何も言わずに切った など
 
 
 def cut_off(*, reached_answer: bool, end_state: str, raw_cut: str | None, hangup_side: str | None,
@@ -179,7 +199,10 @@ def cut_off(*, reached_answer: bool, end_state: str, raw_cut: str | None, hangup
     raw_cut＝依頼者の設定で写す前の切れ方（`classify_cut`。締めに入っていれば normal）。"""
     if not reached_answer:
         return False
-    return (end_state == "technical_error" and not closing_started) or (raw_cut == "interrupted" and hangup_side != "callee")
+    # 声が届かず切れた（audio）は、お客様が自分で切ったときも入れる（お客様の意思ではなく、声が届かなかった＝「声が聞き取れない」と同じ。
+    # 2026-10-30 管理者の指摘）
+    return ((end_state == "technical_error" and not closing_started) or raw_cut == "audio"
+            or (raw_cut == "interrupted" and hangup_side != "callee"))
 
 
 def judge(inp: JudgeInput) -> Judgement:
@@ -187,14 +210,17 @@ def judge(inp: JudgeInput) -> Judgement:
 
 
 def _cut(inp: JudgeInput) -> tuple[str | None, str | None]:
+    """（依頼者の設定で写す前の切れ方, 試行に記録する切れ方）。声が届かず切れた（audio）は、記録では「途中で切れた」（interrupted＝
+    お客様の意思と関係なく切れた）。決められない（unclear）は、まだ記録しない（確かめのかけ直しで決まる＝next_action.after_call。鳴っても
+    出なければ、そのかけ直しの締めが営業拒否にする＝`refusal`。2026-10-30 管理者の決定）。"""
     raw_cut = classify_cut(inp.facts, inp.report)
-    return raw_cut, {"unclear": "refused" if inp.unclear_is_refusal else "interrupted", "missing": None}.get(raw_cut, raw_cut)
+    return raw_cut, {"unclear": None, "audio": "interrupted", "missing": None}.get(raw_cut, raw_cut)
 
 
 def refusal(inp: JudgeInput) -> Judgement | None:
     """発信の拒否と番号違いの決め方（判定の (1)(2)。この1か所。お詫びの電話の締めも、これを使う＝2026-10-16 の見直し J6）。
     決まれば結果、拒否も番号違いも無ければ None（業務の中身の判定へ進む）。断ったかを決められない（会話の報告が無い・
-    切れ方の材料が無い）ときは unknown。⚠️ はっきりした拒否（通話中の申告・通話後の検証で見つかった）は、切れ方の材料が
+    切れ方の材料が無い）ときは unknown。⚠️ はっきりした拒否（通話中の申告）は、切れ方の材料が
     無くても拒否（前は材料の抜けを先に見て unknown にし、発信禁止を登録しなかった＝2026-10-16 の見直し J9）。"""
     r = inp.report
     raw_cut, cut = _cut(inp)
@@ -213,8 +239,6 @@ def refusal(inp: JudgeInput) -> Judgement | None:
     if inp.facts.reached_answer and r is None and inp.facts.end_state != "technical_error":
         if inp.declared_in_call:   # 報告は無くても、通話の途中の申告が台帳にある：はっきりした拒否が勝つ（2026-10-19 の見直し）
             return done("do_not_call", dnc="refused_in_call", refusal="in_call")
-        if inp.refused_after:   # 報告は無くても、通話後の検証が録音から拒否を見つけた：はっきりした拒否が勝つ（2026-10-17 の見直し）
-            return done("do_not_call", dnc="refused_found_after", refusal="found_after")
         return unknown("report_missing", "お客様が出た通話なのに、会話の報告がありません")
     # (0) FAX の回線：お客様に届かない番号。その番号だけ止める（番号違いと同じ扱い。行のお客様が断ったのではない）
     if r and "fax" in r.parties and not r.talked:
@@ -223,16 +247,18 @@ def refusal(inp: JudgeInput) -> Judgement | None:
         return done("out_of_scope", dnc="fax_line", out_of_scope="fax_line")
     # (1) 番号違い（その番号の持ち主の断りも、その番号だけを止める）
     if r and "wrong_party" in r.parties:
-        refused = {"wrong_party_refused": True} if r.do_not_call or inp.declared_in_call or cut == "refused" \
-            or inp.refused_after else {}
+        refused = {"wrong_party_refused": True} if r.do_not_call or inp.declared_in_call or cut == "refused" else {}
         if inp.facts.dialed_callee_number:   # 言われた番号が違った：その番号だけ止め、番号を確かめて聞き直す（次の動き）
             return done("not_reached", dnc="wrong_party", not_reached="wrong_alternate", **refused)
         return done("out_of_scope", dnc="wrong_party", out_of_scope="wrong_party", **refused)
     # (2) 発信の拒否（原則14）：はっきりした拒否が先、切れ方はそのあと
     if (r and r.do_not_call) or inp.declared_in_call:   # 申告の台帳も見る（報告が無い・報告から抜けた＝結果不明の通話も）
         return done("do_not_call", dnc="refused_in_call", refusal="in_call")
-    if inp.refused_after:
-        return done("do_not_call", dnc="refused_found_after", refusal="found_after")
+    # 切れ方の分からない通話のあとの確かめのかけ直しが、お客様の電話まで鳴ったのに、お客様が出て話さなかった（出なかった・留守電）：
+    # 両方の回線は元気なので、前の通話はお客様が切った＝営業拒否とみなす（2026-10-30 管理者の決定。発信禁止の登録は、ほかの営業拒否と
+    # 同じこの1か所・広げ方も同じ＝dnc.CUSTOMER_WIDE。台帳には、はっきり断られた refused_in_call と別の理由 refused_unclear_checked で残す）。お客様が出て話を続けたら、その話の結果どおり（下へ進む）
+    if inp.check_rang and not (inp.facts.reached_answer and r is not None and r.talked):
+        return done("do_not_call", dnc="refused_unclear_checked", refusal="unclear_checked")
     if raw_cut == "missing":
         return unknown("cut_missing", "お客様と話した通話なのに、切れ方の材料（切れた瞬間に話していた側など）が報告されていません")
     if cut == "refused":
@@ -269,7 +295,7 @@ def _when(inp: JudgeInput, cb: Any) -> spoken_time.Reading:
     # callback.beyond_limit_ok。無い＝確かめていない＝今までどおり判定できない）。until＝「〇時まで」の言い方のときの、かけてよい
     # 時間の決め方（いま電話を続けられなかった理由＝Callback.until_reason から、お客様の時間の設定の1か所が決める）
     c = inp.callee
-    return spoken_time.read(cb.time_said, inp.facts.called_at, business_hours=c.business_hours, periods=inp.periods,
+    return spoken_time.read(cb.time_said, inp.facts.called_at, business_hours=c.business_hours, periods=c.period_table(),
                             monthly=cb.cycle == "month", limit=c.designated_limit, beyond_ok=cb.beyond_limit_ok,
                             slot=c.exact_slot, until=c.until_rule(cb.until_reason))
 

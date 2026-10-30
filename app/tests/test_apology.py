@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import unittest
 from dataclasses import replace
+from datetime import timedelta
 
 from salescall.core import apology, attempts, fix_requests, gate, next_action, quality_stage, recordings, reward, stops
 from salescall.core import health
@@ -232,6 +233,20 @@ class Apology(Helpers):
         got = self.apology_call(t)                                     # 報告に無い ⇒ 伝えていない側に倒す
         self.assertEqual((got["decision"].kind, got["decision"].end_reason), ("end", "apology_unreached"))
 
+    def test_the_next_band_waits_the_shortest_interval_after_the_last_apology_call(self):
+        """届かなかったお詫びの電話の、別の時間帯へのかけ直しも、前のお詫びの電話から、同じお客様への最短の間隔（設定
+        gate.same_contact_min_interval。依頼者ごと）をあける。あけた時刻を決めるのは門の数え方の1か所（gate.same_contact_free_at）で、次の動きは
+        それを読む（⛔ 見直し23 の (8)：前は次の動きが同じ設定を別に読んでいた）。お詫びの電話は約束したかけ直しと同じく門の最短の間隔では
+        止めないので、ここであけないと、すぐ次の時間帯の始まりにかけ直す。"""
+        s = self.fresh(stage_cap=20)
+        self.put_client(s, "gate.same_contact_min_interval", 3 * 86400)   # 試験：どの時間帯の始まりよりも長い間隔
+        self.order(s, self.incident(s))
+        got = self.apology_call(s, apology_delivered=False)
+        ended = self.tx(s, lambda tx: tx.one("SELECT max(ended_at) AS t FROM salescall.attempts WHERE task_id = %s"
+                                             " AND purpose = 'apology'", (s["task"],)))["t"]
+        self.assertEqual((got["decision"].kind, got["decision"].target.purpose), ("call", "apology"))
+        self.assertGreaterEqual(got["decision"].at, ended + timedelta(days=3))
+
     def test_an_apology_call_not_passed_on_is_not_tried_again_the_same_day(self):
         """お詫びの電話で、受付の方に「席を外しております」と言われ、また掛けてよいとは言われなかった：ふつうの電話と同じく、同じ日には
         かけ直さない（材料は判定の中身から＝next_action.unreached_of の1か所。2026-10-22 ユーザー：「同じ日に2回以上、その言葉がなく
@@ -272,7 +287,7 @@ class Apology(Helpers):
     def test_an_apology_call_that_did_not_ring_through_no_fault_of_the_number_is_made_again_as_planned(self):
         """お詫びの電話が、番号のせいでなく鳴らなかった（こちらのせい＝こちらのプログラムの不具合で終えた。0136）：ふつうの電話と同じ
         1か所（next_action._line_fault_again）で、かけた予定のまま（お詫びの印も）、復旧次第かけ直す（それまでは門が待たせる＝
-        salescall.awaiting_recovery。0141）。届かなかった回数にも数えない（⛔ 見直し19a の壊し試し：お詫びの電話のこの道を外しても落ちる
+        行の欄の「復旧待ち」。17章の R-5）。届かなかった回数にも数えない（⛔ 見直し19a の壊し試し：お詫びの電話のこの道を外しても落ちる
         試験が無かった）。"""
         s = self.fresh(stage_cap=20)
         self.order(s, self.incident(s))
@@ -324,13 +339,20 @@ class Apology(Helpers):
 
     def test_refusal_is_decided_in_the_one_place(self):
         """お詫びの電話の拒否も、判定と同じ1か所（judge.refusal）で決める（2026-10-16 の見直し J6）。
-        何も言わずに切った ⇒ 断った（発信禁止）。断ったかを決められない（切れ方の材料が無い）⇒ もうかけない。"""
+        断りの言葉のあとに切った ⇒ 断った（発信禁止。2026-10-30 管理者の指摘：断ったのは営業拒否の言葉があったときだけ）。断ったかを
+        決められない（切れ方の材料が無い）⇒ もうかけない。"""
         s = self.fresh(stage_cap=20)
         self.order(s, self.incident(s))
-        got = self.apology_call(s, cut=Cut("ai", False, False))       # AIが話している途中で、何も言わずに切った
+        got = self.apology_call(s, cut=Cut("ai", False, True))        # AIが話している途中で、断りの言葉のあとに切った
         self.assertEqual(got["decision"].end_reason, "do_not_call")
         self.assertEqual(self.tx(s, lambda tx: tx.one("SELECT count(*) AS n FROM salescall.dnc_entries"
                                                       " WHERE phone_e164 = %s", (s["phone"],)))["n"], 1)
+        u = self.fresh(stage_cap=20)
+        self.order(u, self.incident(u))
+        got = self.apology_call(u, cut=Cut("ai", False, False))       # 断りの言葉が無いまま、何も言わずに切った：断ったとは決めない
+        self.assertNotEqual(got["decision"].end_reason, "do_not_call")
+        self.assertEqual(self.tx(u, lambda tx: tx.one("SELECT count(*) AS n FROM salescall.dnc_entries"
+                                                      " WHERE phone_e164 = %s", (u["phone"],)))["n"], 0)
         t = self.fresh(stage_cap=20)
         self.order(t, self.incident(t))
         got = self.apology_call(t, cut=None)                            # 断ったかを決められない：何も決めずに残す

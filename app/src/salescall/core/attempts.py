@@ -2,6 +2,7 @@
 
 試行の行を書き換えるのは、この部品だけ（I-12・I-27。app/checks が見張る）。呼ぶ側と、使ってよい処理：
 - 回線の部品（呼び出し中・応答・会話中・締め・終わり）と復旧（結果不明）  ⇒ `move`
+- 回線の部品（お客様の番号へかけて、電話網のお知らせの声が返った）          ⇒ `end_by_notice`（0151）
 - 発信の出口（予約 → 発信）                                              ⇒ `start_dialing`
 - 門（期限切れの予約を戻す・門の前提が変わった予約を取り消す）           ⇒ `release`
 - 通話後の検証（Q21。待ち → 済み）                                        ⇒ `record_verification`
@@ -14,13 +15,14 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
-from typing import Any, Literal, NamedTuple
+from datetime import timedelta
+from typing import Any, Literal
 from uuid import UUID
 
-from salescall.core import business_rules, calling_hours, errors, fix_requests, number_recheck, settings, target_recheck, watch
+from salescall.core import business_rules, errors, fix_requests, number_recheck, settings, target_recheck, watch
 from salescall.core.access import Tx
 from salescall.core.errors import ErrorReport
+from salescall.link.phone import NOTICES
 
 def dialed(table: str = "") -> str:
     """発信まで進んだ試行の条件（SQL。予約のまま・かけずに取り消した予約は入れない）。決まりはデータベースの salescall.is_dialed の
@@ -34,7 +36,7 @@ DIALED = dialed()
 
 def placed(table: str = "") -> str:
     """発信まで進み、回線の部品が番号を受け付けなかった（call_failed）ものを除いた試行の条件（SQL。1か所）。回線を使った電話：
-    回線の1日の上限・報酬の「かけた1本」が使う。番号の続き（salescall.failed_run）・約束の回に「かけたか」・その回にかけた数は
+    回線の1日の上限・報酬の「かけた1本」が使う。番号の続き（番号の欄＝core/health）・約束の回に「かけたか」・その回にかけた数は
     これでなく、数え方の種類（`reached`・`rang`）で決める（⛔ 見直し17c）。"""
     return f"salescall.is_placed({table + '.' if table else ''}state)"   # 決まりはデータベースの1か所（0109）
 
@@ -56,139 +58,17 @@ def resume_allowed(tx: Tx, task_id: UUID) -> bool:
     """その行のいちばん新しい発信のあと、お詫びしてすぐかけ直してよいか（決まりはデータベースの1か所 salescall.resume_allowed＝
     その発信が途中で切れた通話で、続けて切れた数が salescall.resume_in_a_row() 回まで。2026-10-18 ユーザー 案A。数え方の dial_kind も
     同じ数を読む＝すぐかけ直す回を超えて切れた通話は、ふつうの電話の回数に数える）。こちらのプログラムの不具合で終えた通話（is_ours）は、
-    いつもお詫びとともにかけ直すが、いつかけるか（復旧次第）は門と候補を出す処理が salescall.awaiting_recovery の1か所で待たせる（0141）。"""
+    いつもお詫びとともにかけ直すが、いつかけるか（復旧次第）は、行の欄の「復旧待ち」（DESIGN.md 17-1-2。core/health）を門と候補を出す
+    処理が読んで待たせる。"""
     row = tx.one(f"SELECT salescall.resume_allowed(attempt_id) AS ok FROM salescall.attempts WHERE task_id = %s AND {DIALED}"
                  " ORDER BY claimed_at DESC LIMIT 1", (task_id,))
     return bool(row and row["ok"])
 
 
-def failed_run(tx: Tx, contact_id: UUID) -> dict[str, Any]:
-    """その番号（依頼者の連絡先。どの行・どの回線でも）への、いちばん新しい鳴った発信より後の、お客様のところで電話が鳴らなかった
-    （回線の部品がかけられなかった・お客様が出る前に回線やこちらの側で終わった＝`rang` でない）発信の続き（決まりはデータベースの
-    1か所 salescall.failed_run＝0129）。回線のせいと分かった発信（`blame` が line）は数えない（続きを切りもしない）：
-    n＝番号のせい（number）と、まだ分からない（pending）の数（同じ番号のほかの行の、まだ決まっていない発信も入る＝`number_unconfirmed`）・
-    n_sure＝番号のせいの数（次にかける時刻の決まった順＝next_action._failed_retry_at と、その番号へかけないと決めるのは、こちらだけ。
-    0143：日をまたいで送るのは番号のせいと分かった数だけ）・first_day＝数えた最初の日（日本時間）・last_end＝数えたいちばん新しい発信の
-    終わり（無ければ None）。2026-10-24 ユーザー：「明らかに番号に問題がある場合は、その行は取りやめですが、回線の問題が明らかな場合は行は取りやめで
-    なく一時中止だけ」。"""
-    return tx.one("SELECT n, n_sure, first_day, last_end FROM salescall.failed_run(%s)", (contact_id,))
-
-
-def blame(tx: Tx, attempt_id: UUID) -> str | None:
-    """お客様のところで鳴らなかった発信が、だれのせいか（決まりはデータベースの1か所 salescall.unrung_blame＝0129・0143。電話の部品の
-    言い分では決めず、同じ回線のあとの証拠で決める。2026-10-24 管理者：「次の行に進んで、次の行がつながればすぐに回線の問題か番号の
-    問題か判断できますよね」）：number＝同じ回線が、そのあとお客様の電話を鳴らせた・テスト番号が鳴った（番号のせい）／line＝テスト番号が
-    鳴らなかった・回線を使わなくした（回線のせい）／ours＝こちらのせい（こちらのプログラムの不具合で終えた＝trouble。いつも、番号にも回線
-    にも行の回数にも数えない＝salescall.is_ours。0139。同じ行で続けば、その行を休ませる＝core/troubles）／pending＝まだ分からない（その
-    回線がつぎにお客様の電話を鳴らすか、テスト番号で決まる。⛔ 0129〜0141：違う番号が2つ続けて鳴らなかったら回線のせいとした＝決定に
-    無い決まり。0143 で外した）。鳴った・終わっていない・発信まで進んでいない発信は None。まだ分からない発信は締めない（`settle.settle`。
-    その行は、決まるまで休む）。"""
-    return tx.one("SELECT salescall.unrung_blame(%s) AS b", (attempt_id,))["b"]
-
-
-def line_counted_after(tx: Tx, attempt_id: UUID) -> bool:
-    """その発信のあと、回線ごとの処理が、回線の異常を数え直すか（1か所）：お客様のところで鳴らなかった発信（`blame` がある）か、
-    回線の異常に数えうる理由で終えた発信（声が聞き取れない。どの理由かはデータベースの salescall.trouble_counts_line の1か所。0143）。"""
-    row = tx.one("SELECT salescall.unrung_blame(attempt_id) IS NOT NULL OR salescall.trouble_counts_line(trouble) AS c"
-                 " FROM salescall.attempts WHERE attempt_id = %s", (attempt_id,))
-    return bool(row and row["c"])
-
-
-# 番号のせいでないと分かった鳴らなかった発信（`blame` の値）：かけた予定のまま、どの数にも数えずにかけ直す（next_action の1か所）
+# 番号のせいでないと分かった鳴らなかった発信（試行のせいの欄を次の動きが読む名前＝core/health.blame_of の値。回線のせい line・
+# こちらのせい ours）：かけた予定のまま、どの数にも数えずにかけ直す（next_action の1か所）。⛔ 4段目まで：だれのせいかを、読むたびに
+# データベースの salescall.unrung_blame で導き直した（5段目＝0147 で外した）
 REDO_AS_PLANNED = ("line", "ours")
-
-
-def line_pending(tx: Tx, line_id: UUID) -> dict[str, Any] | None:
-    """その回線の、番号のせいか回線のせいかがまだ分からない続き（since＝続きの最初の電話の時刻・phones＝続きの番号の並び）。違う番号の
-    数にかかわらない（0143）。無ければ None（決まりはデータベースの1か所 salescall.line_pending。`line_run_pending` も同じものを読む）。"""
-    return tx.one("SELECT since, phones FROM salescall.line_pending(%s)", (line_id,))
-
-
-def line_run_pending(tx: Tx, line_id: UUID) -> bool:
-    """その回線に、番号のせいか回線のせいかがまだ分からない続き（`line_pending`）があるか（決まりはデータベースの1か所
-    salescall.line_pending＝0136・0141。区切りは鳴った電話・鳴ったテスト・閉じた印。こちらのせいの電話は数えない）。"""
-    return tx.one("SELECT salescall.line_run_pending(%s) AS p", (line_id,))["p"]
-
-
-def close_unrung_run(tx: Tx, line_id: UUID, reason: str) -> bool:
-    """まだ分からない続きを閉じて、回線のせいと決める（1か所。決め方はデータベースの1か所 salescall.close_unrung_run＝0143）。
-    reason＝retired（その回線を使わなくした。呼ぶのは core/registry）・test_silent（テスト番号が鳴らなかった。呼ぶのは core/ring_test の
-    1か所）。閉じたら True。⛔ 0131〜0141 の no_rows（テスト番号で決められないとき、前の区切りで決める）は外した：前の区切りで番号のせいと
-    決めると、壊れた回線のお客様の行を失う。テスト番号で決められないあいだは決めずに待つ（supervisor/line.py の `_decide_if_stuck`）。"""
-    return tx.one("SELECT salescall.close_unrung_run(%s, %s) AS c", (line_id, reason))["c"]
-
-
-def line_faults_unrecorded(tx: Tx, line_id: UUID) -> list[dict[str, Any]]:
-    """その回線の、回線のせいと分かったのに、まだ回線の異常として記録していない発信（attempt_id・client_id・by_audio＝声が聞き取れない
-    電話が違うお客様で続いたもの。ほかは鳴らなかった電話で回線のせい（`blame` が line）。かけた順。決まりはデータベースの1か所
-    salescall.line_faults_unrecorded＝0143）。回線ごとの処理が読んで1つずつ記録する（記録済みかは記録の attempt_id で見る＝何度読んでも
-    二重に数えない）。"""
-    return tx.all("SELECT attempt_id, client_id, by_audio FROM salescall.line_faults_unrecorded(%s)", (line_id,))
-
-
-def failed_retry_days(tx: Tx, **scope: Any) -> list[int]:
-    """発信に失敗が続いたときに、同じ番号へ何日目にかけるかの並び（設定 dial.failed_retry_days。1＝最初に失敗した日。並びの数が、
-    続けて受け付けられなければその番号へかけない回数）。"""
-    return [int(d) for d in settings.resolve(tx, "dial.failed_retry_days", **scope)]
-
-
-class FailedWait(NamedTuple):
-    """鳴らない電話が続く番号へ、次にかけてよい日（day）と、その時刻の下限（not_before）。last_end＝数えたいちばん新しい鳴らなかった
-    電話の終わり（その番号の続きが、いつ伸びたか）。"""
-    day: date
-    not_before: datetime
-    last_end: datetime
-
-
-def failed_wait(tx: Tx, contact_id: UUID, **scope: Any) -> FailedWait | None:
-    """鳴らない電話が続く番号へ、次にかけてよい日と、その時刻の下限（番号ごとの1か所。門＝gate.number_waits と、次の動き＝
-    next_action._failed_retry_at が読む。見直し22 の 9）。番号の4回（並び dial.failed_retry_days。1＝最初に失敗した日。初め当日2回・翌日・
-    2日後）は番号ごとの決まりなので、同じ番号が2つの行にあっても、行ごとに別々に決めない（⛔ 0129〜0143：次の動きが行ごとに予定を書き、
-    もう1つの行の予定は、番号の続きが伸びる前に書いたままだったので、1日目に3回かけ、2日目の1回で「番号が使えない」になった＝場面 n6）。
-    日：並びの次の日（「最初の失敗の日＋並び」と「前の失敗の日＋並びの差」の遅いほう。⛔ 見直し18c の (1)：前は最初の日からだけ数え、
-    前の分が時間帯の外などで次の日にずれると、残りが同じ日に詰まった）。時刻の下限：最後の失敗の終わりから同じお客様への最短の間隔の
-    あと。数えるのは番号のせいと分かった数（`failed_run` の n_sure）だけ（0143：日をまたいで送るのは番号のせいと分かった数だけ）。
-    続いていない・並びを使い切った（その番号へはかけない＝`number_unusable`）ときは None。"""
-    run = failed_run(tx, contact_id)
-    k = run["n_sure"]
-    days = failed_retry_days(tx, **scope)
-    if k == 0 or k >= len(days):
-        return None
-    gap = timedelta(seconds=int(settings.resolve(tx, "gate.same_contact_min_interval", **scope)))
-    return FailedWait(_failed_day(run, days, k), run["last_end"] + gap, run["last_end"])
-
-
-def _failed_day(run: dict[str, Any], days: list[int], k: int) -> date:
-    """鳴らない電話が k 回続いた番号の、次にかけてよい日（1か所）：「最初の失敗の日＋並び」と「前の失敗の日＋並びの差」の遅いほう。"""
-    last_day = calling_hours.local(run["last_end"]).date()
-    return max(run["first_day"] + timedelta(days=days[k] - 1), last_day + timedelta(days=days[k] - days[k - 1]))
-
-
-def number_unusable(tx: Tx, contact_id: UUID, **scope: Any) -> bool:
-    """その番号へは、もうかけないか（1か所。門と次の動きの両方が読む）：番号のせいと分かった、お客様のところで鳴らなかった発信
-    （`failed_run` の n_sure）が、並び（`failed_retry_days`）の数だけ続いた（2026-10-22 深夜 ユーザー：「同じ番号で続けて当日2回＆
-    翌日1回、さらに2日後1回の計4回受け付けられなかったら、その番号へはかけない」。2026-10-23 ユーザー：お客様が出る前に毎回終わる
-    番号も「番号を受け付けないときと同じ」。2026-10-24 ユーザー：「明らかに番号に問題がある場合は、その行は取りやめ」＝回線のせいか
-    まだ分からない発信では、やめない＝`number_unconfirmed`）。"""
-    return failed_run(tx, contact_id)["n_sure"] >= len(failed_retry_days(tx, **scope))
-
-
-def number_unconfirmed(tx: Tx, contact_id: UUID, **scope: Any) -> bool:
-    """番号のせいか回線のせいかが、まだ分からない鳴らなかった発信があり、それを番号のせいに数えると、番号の4回の順（`_failed_day`）で
-    次にかけてよい日が今日より後になる（並びを使い切るときも）か（1か所。門と、候補を出す処理（gate.waits_unknown）が読む）：その番号の
-    行はかけずに待つ（候補に出さない。予定は書き直さない）。決まれば、番号のせいなら番号の順（`failed_wait`・`number_unusable`）、回線の
-    せいなら数から外れ、決まった順の続きでかける。分からない発信の行そのものは、その回線では決まるまで締めないので（settle.settle）、
-    ここで待つのは、同じ番号のほかの行と、ほかの回線（0144：分からない電話の行も、ほかの回線はかけてよい）。番号の順の日をまたぐ
-    ところでは、分からない電話のあいだに、ほかの回線・ほかの行が同じ日にかけ続けない（見直し22 の 9。⛔ 0143：ほかの回線が分からない
-    電話の行へかけ続け、決まってみると1日目に4回で「番号が使えない」になりえた）。同じ日のうちのかけ直しは待たない（回線 A が壊れて
-    鳴らなかった約束の電話を、回線 B がすぐかけられる）。"""
-    run = failed_run(tx, contact_id)
-    if run["n"] == run["n_sure"]:   # まだ分からない電話が無い（候補を出す処理が行ごとに読むので、設定を読む前に返す）
-        return False
-    days = failed_retry_days(tx, **scope)
-    if run["n"] >= len(days):
-        return True
-    return _failed_day(run, days, run["n"]) > calling_hours.local(tx.one("SELECT now() AS t")["t"]).date()
 
 
 def reached(table: str = "") -> str:
@@ -202,7 +82,7 @@ def rang(table: str = "") -> str:
     （発信に失敗・お客様が出る前の回線の失敗は、かけられなかったのと同じ）。約束の回に、一度もかけられなかったか（お詫びの印）を
     決めるのに使う（next_action._missed）。本数を方針と比べる所は `reached`（同じ決まりの、数える側）。"""
     t = table + "." if table else ""
-    return f"salescall.rang({t}state, {t}cut_off, {t}attempt_id)"   # 決まりはデータベースの1か所（0124）。番号の続き・回線の証拠も同じ
+    return f"salescall.rang({t}state, {t}cut_off, {t}attempt_id)"   # 決まりはデータベースの1か所（0124）。状態の表へ渡す出来事（core/health）も同じ
 
 
 def counts_as_try(table: str = "") -> str:
@@ -231,6 +111,30 @@ def move(tx: Tx, attempt_id: UUID, to_state: LineState, *, hangup_side: HangupSi
         "UPDATE salescall.attempts SET state = %s, hangup_side = %s WHERE attempt_id = %s"
         " RETURNING attempt_id, state, verification, hangup_side, ended_at",
         (to_state, hangup_side, attempt_id),
+    )
+    if row is None:
+        raise AttemptNotFound(str(attempt_id))
+    return row
+
+
+# お知らせの種類ごとの、試行の終わり方（決めるのはここの1か所。0151）。2026-10-25 夜 管理者のご決定（テスト番号の話し中・電源オフ・圏外は、
+# こちらの回線から発信できた証拠）と同じ当てはめ：電源オフ・圏外＝こちらの回線は元気で、番号のせいにも数えない＝「お客様が出なかった」と
+# 同じ（no_answer。ふつうの再発信の方針）／「この番号は現在使われておりません」だけが番号のせい（call_failed。試行のせいは番号＝
+# 状態の表の入口 core/health.after_call が、テスト番号を待たずに決める）／見分けられない（None）＝今までどおり発信に失敗（だれのせいかは
+# 証拠で決める）
+NOTICE_ENDS: dict[str | None, str] = {"power_off": "no_answer", "out_of_range": "no_answer", "not_in_use": "call_failed", None: "call_failed"}
+
+
+def end_by_notice(tx: Tx, attempt_id: UUID, notice: str | None) -> dict[str, Any]:
+    """お客様の番号へかけて、電話網のお知らせの声が返った（または、お客様の電話が鳴らないまま終わった）試行を終える（1か所）。
+    notice＝お知らせの種類（link/phone.NOTICES のどれか。見分けられなければ None）。終わり方は `NOTICE_ENDS`。お知らせの種類は試行に
+    1回だけ残る（データベースが守る）。"""
+    if notice not in NOTICE_ENDS:
+        raise ValueError(f"お知らせの種類は {NOTICES} のどれか（見分けられなければ None）です：{notice!r}")
+    row = tx.one(
+        "UPDATE salescall.attempts SET state = %s, notice = %s WHERE attempt_id = %s"
+        " RETURNING attempt_id, state, verification, hangup_side, ended_at, notice",
+        (NOTICE_ENDS[notice], notice, attempt_id),
     )
     if row is None:
         raise AttemptNotFound(str(attempt_id))
@@ -275,7 +179,7 @@ def record_keys(tx: Tx, attempt_id: UUID, keys: list[dict[str, str]]) -> None:
         raise AttemptNotFound(str(attempt_id))
 
 
-# 通話をお詫びして終えた理由（一覧の正本は core/errors.ENDS の1か所）。どれがこちらのプログラムの不具合か（こちらのせい＝attempts.blame の
+# 通話をお詫びして終えた理由（一覧の正本は core/errors.ENDS の1か所）。どれがこちらのプログラムの不具合か（こちらのせい＝試行のせいの欄の
 # ours。番号・回線・行の回数のどれにも数えない。同じ行で続けば、その行を休ませる＝core/troubles）は、データベースの salescall.trouble_ours の
 # 1か所（`is_ours`。0141：「声が聞き取れない」は、こちらの不具合に数えない）
 TROUBLES = errors.ENDS
@@ -304,7 +208,7 @@ def end_for_trouble(tx: Tx, attempt_id: UUID, reason: str, why: str | None = Non
 def withheld(tx: Tx, attempt_id: UUID) -> None:
     """発信の出口だけが呼ぶ。PC の部品が電話をかけようとしなかった（PC の上の緊急停止・PC がつながっていない・前の頼みを待つうちに
     答えの期限を過ぎた＝お客様の電話は鳴っていないし、番号も回線も試していない。かけようとして、かけられなかったものは「発信に失敗」
-    にして、だれのせいかを証拠で決める＝`blame`。⛔ 0129：前は「回線のせいか分からない」もここで取り消し、番号には数えず回線の異常と
+    にして、だれのせいかを証拠で決める＝状態の表の試行のせいの欄＝DESIGN.md 17-1-5。⛔ 0129：前は「回線のせいか分からない」もここで取り消し、番号には数えず回線の異常と
     して数えたので、1つの番号だけが続けてかけられないと回線が止まり続けた）：発信まで進まなかった予約と同じく取り消す（判定しない・どの数にも入らない。行の予定はそのまま＝いまの予定のまま、
     ほかの回線か、少しあとにかけ直す）。⛔ 2026-10-22 の見直し14：前は「発信に失敗」にして、締めが「会話に至らなかった」と判定し、
     再発信の方針の回数を使い、続き・番号の聞き直しの目的も消えた。"""

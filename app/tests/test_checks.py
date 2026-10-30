@@ -211,20 +211,20 @@ class EntriesCalledFromTheirPlaces(Planted):
 
     def test_an_entry_outside_its_places_is_caught(self):
         root = self._app({
-            "src/salescall/core/ring_test.py": "def go(tx, l):\n    attempts.close_unrung_run(tx, l, 'test_silent')\n",
-            # 決めにいく回線ごとの処理は、続きを閉じない（0143：テスト番号で決められないときは決めずに待つ）
-            "src/salescall/supervisor/line.py": "def go(tx, l):\n    attempts.close_unrung_run(tx, l, 'test_silent')\n",
-            "src/salescall/core/attempts.py": "def close_unrung_run(tx, l, r):\n    pass\ndef x(tx, l):\n    close_unrung_run(tx, l, 'r')\n",
-            "src/salescall/core/settle.py": "def go(tx, l):\n    attempts.close_unrung_run(tx, l, 'no_rows')\n",
+            # テスト番号の答え（E6〜E9）を状態の表へ渡すのは、テスト番号の口（core/ring_test）だけ（回線ごとの処理は渡さない＝2つ目の口を作らない）
+            "src/salescall/core/ring_test.py": "def go(tx, l):\n    health.tested(tx, l, 'rang')\n",
+            "src/salescall/supervisor/line.py": "def go(tx, l):\n    health.tested(tx, l, 'rang')\n",
+            "src/salescall/core/attempts.py": "def end_for_trouble(tx, a, r):\n    pass\ndef x(tx, a):\n    end_for_trouble(tx, a, 'frozen')\n",
+            "src/salescall/core/settle.py": "def go(tx, a):\n    attempts.end_for_trouble(tx, a, 'frozen')\n",
             "src/salescall/core/next_action.py": "from salescall.core.attempts import end_for_trouble\n",
             "src/salescall/supervisor/jobs.py": "def go(a):\n    a.in_tenant(lambda tx: ring_test.run)\n",
             # こちらの不具合を伝える入口（0139）：通話ごとの口（supervisor/line.py）のほかからは伝えない（2つ目の伝え方を作らない）
             "src/salescall/core/settle_more.py": "def go(a):\n    troubles.after_trouble(a)\n",
             # 別名で取り込んでも・部品の名前を全部書いても見つける（⛔ 見直し20a：`import … as 別名` を素通りした）
-            "src/salescall/core/alias_a.py": "from salescall.core import attempts as at\ndef go(tx, l):\n    at.close_unrung_run(tx, l, 'x')\n",
+            "src/salescall/core/alias_a.py": "from salescall.core import attempts as at\ndef go(tx, a):\n    at.end_for_trouble(tx, a, 'x')\n",
             "src/salescall/core/alias_b.py": "import salescall.core.ring_test as rt\ndef go(a):\n    rt.run(a)\n",
             "src/salescall/core/alias_c.py": "import salescall.core.attempts\ndef go(tx, l):\n    salescall.core.attempts.end_for_trouble(tx, l, 'x')\n",
-            "src/salescall/core/alias_ok.py": "from salescall.core import attempts as at\ndef go(tx, l):\n    at.blame(tx, l)\n",
+            "src/salescall/core/alias_ok.py": "from salescall.core import attempts as at\ndef go(tx, a):\n    at.kind_of(tx, a)\n",
         })
         found = rules.entries_called_from_their_places(root)
         self.assertEqual(sorted((v.path, v.rule) for v in found),

@@ -34,6 +34,12 @@ from tests.test_gate import HOLDER, Base, FakeDriver
 from tests.test_settle import rep
 
 
+def _ring_hours(tx):
+    """取引の契約者の、テスト番号を鳴らしてよい時間（0時からの秒の組）。読むのは状態の表の決まりの値（health_rules.Rules。設定の合成は
+    core/settings.resolve_for_table の1か所）。⛔ 4段目まで：テスト番号の部品が ring_test.hours・allowed で別に読んでいた（5段目で外した）。"""
+    return hr.Rules.from_settings(settings.resolve_for_table(tx, hr.SETTING_KEYS.values(), None)).test_ring_hours
+
+
 def until_true(test, seconds):
     """test() が真になるまで待ち、その値を返す（待っても真にならなければ None）。"""
     deadline = time.monotonic() + seconds
@@ -278,7 +284,7 @@ class Candidates(SupervisorBase):
         self.tx(s, lambda tx: next_action.hold(tx, s["task"], cause="試験"))
         self.assertEqual(due(), [])                                            # 判定し直しを待っている
         self.tx(s, lambda tx: next_action.schedule_now(tx, s["task"], cause="試験"))
-        e = self.tx(s, lambda tx: stops.stop(tx, cause="budget", reason="試験", tenant_id=s["tenant"], scope="client",
+        e = self.tx(s, lambda tx: stops.stop(tx, cause="ai_connection", reason="試験", tenant_id=s["tenant"], scope="client",
                                              client_id=s["client"]))
         self.assertEqual((lines(), due()), ([s["client"]], []))                 # 依頼者が止まっている（依頼者の取引で見る）
         self.tx(s, lambda tx: stops.resume(tx, e["event_id"], reason="試験"))
@@ -1090,7 +1096,7 @@ class Rounds(SupervisorBase):
         self.put_client(s, "line.max_dials_per_day", 1)
         kept = next(x for x, n in zip((s, t, u), reserved()) if n)            # 約束が割り当たった回線は、その分を取り置く
         self.assertEqual(self.reason(s, line=kept["line"]), "line_daily_limit")
-        self.tx(u, lambda tx: stops.stop(tx, cause="budget", reason="試験", tenant_id=u["tenant"], scope="client",
+        self.tx(u, lambda tx: stops.stop(tx, cause="ai_connection", reason="試験", tenant_id=u["tenant"], scope="client",
                                          client_id=u["client"]))
         self.tx(t, lambda tx: support.schedule_call(tx, t["task"], now, contact_id=t["contact"], cause="試験", promised=True))
         busy = self.w.insert_claim(t, line=t["line"])                         # Tの約束はいま通話中
@@ -1741,8 +1747,8 @@ class Blame(SupervisorBase):
         昼間に私は寝ていることがあるし、夜中でも起きていることがある。0～24時の選択は残したうえで。」）。重なり・空の並びは、データベースの
         値の形の確かめ（setting_value_ok の daily_ranges）の1か所が断る。i マークの説明に原文と使い方の例がある。"""
         s = self.ready()
-        hours = lambda t: self.w.a.in_tenant(SYSTEM, t, ring_test.hours)   # noqa: E731
-        allowed = lambda: self.w.a.in_tenant(SYSTEM, s["tenant"], ring_test.allowed)   # noqa: E731
+        hours = lambda t: self.w.a.in_tenant(SYSTEM, t, _ring_hours)   # noqa: E731
+        allowed = lambda: calling_hours.in_daily(calling_hours.local(datetime.now(timezone.utc)), hours(s["tenant"]))   # noqa: E731
         self.assertEqual(hours(s["tenant"]), ((7 * 3600, 22 * 3600),))
         self.set_ring_hours(s, ("00:00", "24:00"))
         self.assertEqual(hours(s["tenant"]), ((0, 24 * 3600),))
@@ -1804,7 +1810,7 @@ class Blame(SupervisorBase):
             support.owner_access().in_system(SYSTEM, work)
         self.assertEqual(got.exception.args[0], [("line.test_ring_hours", [["21:00", "03:00"]], True),
                                                  ("line.test_ring_gaps", [600, 1200, 2400, 3000], True)])
-        self.assertEqual(self.w.a.in_tenant(SYSTEM, s["tenant"], ring_test.hours), ((7 * 3600, 22 * 3600),))   # 元に戻った
+        self.assertEqual(self.w.a.in_tenant(SYSTEM, s["tenant"], _ring_hours), ((7 * 3600, 22 * 3600),))   # 元に戻った
 
     # 見直し21a：違う番号が続けて鳴らなくても、違う番号の数では決めない（1つの道。0143）
     def test_two_bad_numbers_side_by_side_are_decided_by_the_next_call_without_the_test_number(self):

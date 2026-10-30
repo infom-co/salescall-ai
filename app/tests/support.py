@@ -13,16 +13,23 @@ import uuid
 from datetime import timedelta
 from uuid import UUID
 
-from salescall.core import calling_hours, recordings
+from salescall.core import calling_hours, recordings, spoken_time
 from salescall.core.access import Access, Actor
 from salescall.core.attempts import ForbiddenFinding, VerificationSummary
 
 # 試験の判定に渡す、お客様の時間の設定（本番は gate.callee_settings が設定から読む。試験は値を自分で決めて渡す＝初めの値と同じ形：
-# 営業時間 9〜19時・お客様指定の歯止め時間 7〜22時・1回分 30分＝0125・「〇時まで」の理由ごとの決め方は初めの値＝0127）。
-# ⛔ 見直し18：前は1回分を1時間のままにしていた（初めの値は 2026-10-23 から30分）
+# 営業時間 9〜19時・お客様指定の歯止め時間 7〜22時・1回分 30分＝0125・「〇時まで」の理由ごとの決め方は初めの値＝0127・言葉ごとの幅は
+# 初めの値＝0088：朝〜10時・午前〜12時・午後13時〜・夕方16〜18時・夜18〜20時）。⛔ 見直し18：前は1回分を1時間のままにしていた（初めの値は
+# 2026-10-23 から30分）。⛔ 見直し23 の (2)：言葉ごとの幅は、時刻の読みと判定の既定の写しに頼っていた
+CALLEE_PERIODS = spoken_time.periods_from({"morning": (0, 10 * 3600), "forenoon": (0, 12 * 3600), "afternoon": (13 * 3600, 24 * 3600),
+                                           "evening": (16 * 3600, 18 * 3600), "night": (18 * 3600, 20 * 3600)})
 CALLEE = calling_hours.CalleeSettings((9 * 3600, 19 * 3600), (7 * 3600, 22 * 3600), 1800,
-                                      (("other_party", "now"), ("unavailable", "after"), ("preparing", "slot_after")))
+                                      (("other_party", "now"), ("unavailable", "after"), ("preparing", "slot_after")),
+                                      tuple(sorted(CALLEE_PERIODS.items())))
 
+# 試験の次の動きに渡す、かけてよい時間帯が見つからない行をもう一度確かめるまでの秒（本番は next_action.no_opening_recheck が仮の設定
+# retry.no_opening_recheck から読む。試験は値を自分で決めて渡す＝初めの値と同じ1日。⛔ 見直し23 の (9)：前はコードに直に書いていた）
+NO_OPENING_RECHECK = 86400
 OPERATOR = Actor("試験の契約者", "operator")
 CLEAN = VerificationSummary(items_checked=1, items_disagreed=0, forbidden_speech=0)   # 検証で何も見つからなかった
 SYSTEM = Actor("試験のシステムの処理", "system")
@@ -106,7 +113,7 @@ def rules_raw(required=("Q1",), *, decline=None, retry=None, handling=None) -> d
 
 def number_run(tx, contact_id) -> dict:
     """番号の欄（DESIGN.md 17-1-3）を、試験が読む形で：n_sure＝番号のせいと決まった続きの数・n＝それに、まだ分からない電話を足した数・
-    first_day・last_end（4段目の前の salescall.failed_run と同じ名前。読むのは状態の欄だけ）。"""
+    first_day・last_end（4段目の前の salescall.failed_run と同じ名前。0147 で外した。読むのは状態の欄だけ）。"""
     from salescall.core import health
     num = health.number_of(tx, contact_id)
     return {"n_sure": num.n, "n": num.n + len(num.unknown), "first_day": num.first_day, "last_end": num.last_end}

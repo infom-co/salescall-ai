@@ -6,8 +6,8 @@
   予約証が使えなければ、かけない（False）。停止・発信禁止の登録で取り消された予約も、ここで止まる（5-2-1 の2）。
 - 回線の部品が「かけようとして、かけられなかった」と確かに言える失敗（`CallNotPlaced`）は、試行を「発信に失敗」にする（声は
   届いていない。どの回数にも数えない＝数え方の1か所 salescall.dial_kind）。**だれのせいかは、ここでもアプリの言い分でも決めない**：
-  同じ回線の前後の電話の証拠で決める（データベースの1か所 salescall.unrung_blame＝0129。番号のせい＝決まった順でかけ直し、続けば
-  その番号へはかけない＝core/next_action／回線のせい＝番号には数えず、回線ごとの処理が回線を休ませ、続けば止めて知らせる）。
+  同じ回線の前後の電話の証拠で決める（状態の表の試行のせいの欄＝DESIGN.md 17章。番号のせい＝番号の欄の決まった順でかけ直し、続けば
+  その番号へはかけない／回線のせい＝番号には数えず、回線の欄が休みになる）。
   ⛔ 0129：前は「番号のせい」（NumberRejected）と「回線のせい・分からない」をアプリの言い分で分け、どの番号も受け付けない回線では
   行がすべて終わり、1つの番号だけが続けてかけられないときは回線が止まり続けた（見直し18a の問題2・3）。
   それ以外の失敗は、かかったかどうか分からないので「結果不明」（technical_error）にする（すぐかけ直さない。4-2）。
@@ -98,7 +98,7 @@ def dial(access: Access, actor: Actor, tenant_id: UUID, client_id: UUID, attempt
         # ので、判定せず、どの数にも入れない＝発信まで進まなかった予約と同じ）
         access.in_client(actor, tenant_id, client_id, lambda tx: attempts.withheld(tx, attempt_id))
         return Outcome.WITHHELD
-    except CallNotPlaced:    # かけられなかった：「発信に失敗」（どの回数にも数えない。だれのせいかは証拠で＝salescall.unrung_blame）
+    except CallNotPlaced:    # かけられなかった：「発信に失敗」（どの回数にも数えない。だれのせいかは証拠で＝状態の表の試行のせいの欄）
         access.in_client(actor, tenant_id, client_id, lambda tx: attempts.move(tx, attempt_id, "call_failed"))
         return Outcome.NOT_PLACED
     except BaseException:

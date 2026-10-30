@@ -8,15 +8,15 @@ from datetime import datetime, timezone
 
 from salescall.core import spoken_time
 from salescall.core.spoken_time import AT, CONFIRM, DAY, JST, UNREADABLE, UNSPECIFIED, WINDOW, next_occurrence
-from tests.support import CALLEE
+from tests.support import CALLEE, CALLEE_PERIODS
 
 
 def read(text, now, business_hours=CALLEE.business_hours, *, limit=CALLEE.designated_limit, slot=CALLEE.exact_slot,
-         until="now", **more):
-    """試験の読み方：お客様の時間の設定は、試験が決めた値（tests.support.CALLEE）を渡す（本番の読み方は初めの値を持たない＝
-    必ず渡す。⛔ 見直し17b）。「〇時まで」の決め方は、ことわりの無い試験では now（今から〇時まで。別の番号・別の方へのとき）。
-    理由ごとの決め方は UntilByReason が確かめる。"""
-    return spoken_time.read(text, now, business_hours=business_hours, limit=limit, slot=slot, until=until, **more)
+         until="now", periods=CALLEE_PERIODS, **more):
+    """試験の読み方：お客様の時間の設定（言葉ごとの幅も）は、試験が決めた値（tests.support.CALLEE）を渡す（本番の読み方は初めの値を
+    持たない＝必ず渡す。⛔ 見直し17b・見直し23 の (2)）。「〇時まで」の決め方は、ことわりの無い試験では now（今から〇時まで。別の番号・
+    別の方へのとき）。理由ごとの決め方は UntilByReason が確かめる。"""
+    return spoken_time.read(text, now, business_hours=business_hours, limit=limit, slot=slot, until=until, periods=periods, **more)
 
 # 2026-10-14（水）10:00 の通話
 NOW = datetime(2026, 10, 14, 10, 0, tzinfo=JST)
@@ -392,13 +392,19 @@ class Repeat(unittest.TestCase):
 
 class PeriodsBySetting(unittest.TestCase):
     def test_periods_come_from_the_client_setting(self):
-        """言葉ごとの幅は依頼者ごとの設定（0088）。設定を変えれば読み方が変わる。終わりが始まり以前なら、その日の終わりまで。"""
-        from salescall.core.spoken_time import DEFAULT_PERIODS, PERIODS, periods_from, range_seconds
-        self.assertEqual(periods_from(DEFAULT_PERIODS), PERIODS)
+        """言葉ごとの幅は依頼者ごとの設定（0088）。設定を変えれば読み方が変わる。終わりが始まり以前なら、その日の終わりまで。
+        時刻の読みは幅の初めの値を持たない（渡し忘れは、引数が足りない誤りで落ちる＝見直し23 の (2)）。"""
+        from salescall.core.spoken_time import periods_from, range_seconds
+        self.assertFalse(hasattr(spoken_time, "PERIODS") or hasattr(spoken_time, "DEFAULT_PERIODS"))
+        with self.assertRaises(TypeError):
+            spoken_time.read("明日の夕方", NOW, business_hours=CALLEE.business_hours, limit=CALLEE.designated_limit,
+                             slot=CALLEE.exact_slot, until="now")
         self.assertEqual(range_seconds(["13:00", "00:00"]), (13 * H, DAY))
         self.assertEqual(range_seconds(["18:00", "02:00"]), (18 * H, DAY))
-        shop = periods_from({**DEFAULT_PERIODS, "evening": range_seconds(["17:00", "19:00"]),
-                             "afternoon": range_seconds(["14:00", "00:00"])})
+        base = {"morning": (0, 10 * H), "forenoon": (0, 12 * H), "afternoon": (13 * H, DAY), "evening": (16 * H, 18 * H),
+                "night": (18 * H, 20 * H)}
+        self.assertEqual(periods_from(base), CALLEE_PERIODS)
+        shop = periods_from({**base, "evening": range_seconds(["17:00", "19:00"]), "afternoon": range_seconds(["14:00", "00:00"])})
         r = read("明日の夕方", NOW, periods=shop)
         self.assertEqual((r.start, r.end), (at(2026, 10, 15, 17), at(2026, 10, 15, 19)))
         r = read("明日の午後一", NOW, periods=shop)

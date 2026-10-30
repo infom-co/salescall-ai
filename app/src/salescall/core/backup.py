@@ -170,7 +170,10 @@ def _verify(dump: Path, restore_conninfo: str, counts: dict[str, int], *, source
 PARTS = {"system": "データベース全体の控え", "client_ai": "依頼者ごとの AI用の控え", "submission": "提出用の控え",
          "prune": "古い控えの片付け"}
 _DAILY = ("system", "client_ai", "prune")   # 1日1回でよい種類（今日うまくいったら、もうしない）
-RETRY_AFTER = timedelta(hours=1)            # 失敗したら、同じ種類（・同じ契約者・同じ依頼者）は1時間あけてやり直す
+def _retry_after(tx: Tx) -> timedelta:
+    """失敗したら、同じ種類（・同じ契約者・同じ依頼者）をやり直すまであける長さ（仮の設定 backup.retry_after。初め1時間。⛔ 見直し23 の
+    (9)：前はコードに直に書いていた）。"""
+    return timedelta(seconds=int(settings.system_value(tx, "backup.retry_after")))
 
 
 def _in(app: Access, tenant_id: UUID | None, client_id: UUID | None, work: Any) -> Any:
@@ -233,7 +236,7 @@ def _may_try(app: Access, part: str, tenant_id: UUID | None = None, client_id: U
             "SELECT NOT EXISTS (SELECT 1 FROM salescall.backup_runs WHERE NOT restore_ok AND kind = %(part)s"
             "                   AND tenant_id IS NOT DISTINCT FROM %(t)s AND client_id IS NOT DISTINCT FROM %(c)s"
             "                   AND started_at > now() - %(after)s) AS ok",
-            {"part": part, "t": tenant_id, "c": client_id, "after": RETRY_AFTER})["ok"]
+            {"part": part, "t": tenant_id, "c": client_id, "after": _retry_after(tx)})["ok"]
     return _in(app, tenant_id, None, look)
 
 
@@ -253,7 +256,12 @@ def latest(app: Access) -> dict[str, Any] | None:
 # 控えは、その契約者の PC（控え用のハードディスクと鍵のあるもの）がつながっているときだけ書ける。PC が止まっている・設定が無いと、
 # 失敗の記録も知らせも出ないまま、控えが1つも無くなる（Intent.md 14-1「取れなかったら知らせる」と食い違い）。⇒ 取れたかを、取る仕事と
 # 別に、記録（backup_runs）だけから見る。見るのは中央の見守り役で、すべての契約者の分（どの PC が止まっていても見落とさない＝5-5）。
-OVERDUE = timedelta(hours=26)   # 1日1回の控えが「取れていない」とみなす長さ（1日に、取る時刻のずれの余裕を足した長さ）
+def _overdue_after(tx: Tx) -> timedelta:
+    """1日1回の控えが「取れていない」とみなす長さ（仮の設定 backup.overdue_after。初め26時間＝1日に、取る時刻のずれの余裕を足した
+    長さ。⛔ 見直し23 の (9)：前はコードに直に書いていた）。"""
+    return timedelta(seconds=int(settings.system_value(tx, "backup.overdue_after")))
+
+
 OVERDUE_CLIENT = ("依頼者ごとの AI用の控えが1日以上取れていません。この契約者の PC（PC の部品）が動いていて、控え用のハードディスクと"
                   "鍵の設定（SALESCALL_BACKUP_DRIVE・SALESCALL_BACKUP_KEY）が入っているかを確かめてください（手順：docs/PC_SETUP.md）。")
 OVERDUE_WHOLE = ("データベース全体の控えが1日以上取れていません。サーバーの設定（SALESCALL_OWNER_DSN・SALESCALL_RESTORE_DSN・"
@@ -262,12 +270,12 @@ OVERDUE_WHOLE = ("データベース全体の控えが1日以上取れていま�
 
 
 def _overdue(tx: Tx, part: str, since: Any) -> bool:
-    """その種類の、戻せることまで確かめた控えが、OVERDUE のあいだ1つも無いか（since＝見張りを始めてよい時刻。依頼者を作った
+    """その種類の、戻せることまで確かめた控えが、`_overdue_after` のあいだ1つも無いか（since＝見張りを始めてよい時刻。依頼者を作った
     ばかり・初めて動かしたばかりは数えない）。どの依頼者の分かは取引で決まる（依頼者の取引からは、その依頼者の記録だけが見える。0064）。"""
     return tx.one(
         "SELECT %(since)s < now() - %(late)s AND NOT EXISTS (SELECT 1 FROM salescall.backup_runs WHERE restore_ok"
         "   AND kind = %(part)s AND started_at > now() - %(late)s) AS late",
-        {"since": since, "late": OVERDUE, "part": part})["late"]
+        {"since": since, "late": _overdue_after(tx), "part": part})["late"]
 
 
 def watch_client(app: Access, tenant_id: UUID, client_id: UUID) -> bool:

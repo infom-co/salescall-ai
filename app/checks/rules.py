@@ -241,6 +241,7 @@ WRITERS: dict[str, dict[str, frozenset[str]]] = {
     "judgement_checks": {"INSERT": frozenset({_CORE + "measure.py"})},       # 誤判定率の正解（16-3）
     "task_exclusions": {"INSERT": frozenset({_CORE + "exclusions.py"})},     # 行ごとの「かけない」（3-4-2）
     "task_trouble_restores": {"INSERT": frozenset({_CORE + "troubles.py"})},   # 休んだ行を戻す（管理者か契約者。0139）
+    "unclear_checks": {"INSERT": frozenset({_CORE + "next_action.py"})},   # 切れ方の分からない通話の確かめのかけ直し（同じ行で1回。0150）
     "program_versions": {"INSERT": frozenset()},        # 動いているプログラムの版を書くのは、データベースの関数 note_program だけ（0139）
     "sample_draws": {"INSERT": frozenset({_CORE + "measure.py"})},           # 誤判定率の抜き取り（16-3）
     "sample_draw_calls": {"INSERT": frozenset({_CORE + "measure.py"})},
@@ -273,7 +274,6 @@ WRITE_FUNCTIONS: dict[str, frozenset[str]] = {
     "release_claims_for_contractor_dnc": frozenset({_CORE + "dnc.py"}),
     "release_claims_on_line": frozenset({_CORE + "registry.py"}),
     "release_claims_in_scope": frozenset({_CORE + "calendar.py", _CORE + "settings.py", _CORE + "registry.py"}),
-    "close_unrung_run": frozenset({_CORE + "attempts.py"}),      # まだ分からない続きを閉じる（0131。呼ぶ入口は attempts の1か所）
     "note_program": frozenset({"src/salescall/supervisor/updates.py"}),   # 動いているプログラムの版（0139。中央の見守り役の1か所）
     "health_take": frozenset({_CORE + "health.py"}),   # 状態の欄の鍵を取って読む（0145。表を引く入口の1か所）
     "health_save": frozenset({_CORE + "health.py"}),   # 状態の欄の次の状態と移った記録（0145。表を引く入口の1か所）
@@ -448,6 +448,11 @@ SETTING_READERS: dict[str, tuple[str, str, str]] = {
     "calling.hours": ("src/salescall/core/gate.py", "5-2-2", "時間帯の設定は gate.calling_hours_for から読みます（NG時間を引き忘れない）"),
     "calling.ng_hours": ("src/salescall/core/gate.py", "5-2-2", "時間帯の設定は gate.calling_hours_for から読みます（NG時間を引き忘れない）"),
     "approval.human": ("src/salescall/core/approval.py", "I-13", "契約者の承認のモードを読むのは、承認の部分（core/approval.py）だけです"),
+    # 言葉ごとの幅（依頼者ごと。0088）：お客様の時間の設定を読む1か所（gate.callee_settings の CalleeSettings.periods）。時刻の読み・判定は
+    # 渡されたものを使う（⛔ 見直し23 の (2)：時刻の読みと判定の入力に、初めの値の写しがあった）
+    **{key: ("src/salescall/core/gate.py", "7-1d", "言葉ごとの幅の設定は gate.callee_settings から読みます（初めの値の写しを作らない）")
+       for key in ("callback.period_morning", "callback.period_forenoon", "callback.period_afternoon", "callback.period_evening",
+                   "callback.period_night")},
 }
 
 
@@ -469,16 +474,12 @@ def settings_read_in_one_place(app_root: Path) -> list[Violation]:
 #    ファイル（そのモジュールの中は、いつでもよい）。入口を足したら、ここにも足す
 _SUP = "src/salescall/supervisor/"
 PY_ENTRY_CALLERS: dict[tuple[str, str], frozenset[str]] = {
-    # まだ分からない続きを閉じる：テスト番号が鳴らなかった（core/ring_test）・回線を使わなくした（core/registry）だけ（0143：決めにいく回線
-    # ごとの処理は、テスト番号で決められないとき決めずに待つ＝閉じない）
-    ("attempts", "close_unrung_run"): frozenset({_CORE + "ring_test.py", _CORE + "registry.py"}),   # テスト番号・回線を使わなくする所（0143）
     ("attempts", "end_for_trouble"): frozenset({_SUP + "line.py"}),          # 甚大な問題で終える：通話ごとの口だけ
-    ("attempts", "line_faults_unrecorded"): frozenset({_SUP + "line.py"}),   # 回線の異常として数える：回線ごとの処理だけ
     ("ring_test", "run"): frozenset({_SUP + "line.py"}),                     # テスト番号を鳴らす：電話の部品を持つ回線ごとの処理だけ
-    ("scheduler", "soon_left"): frozenset({_SUP + "line.py"}),               # 決めにいくかの判断：回線ごとの処理だけ
-    ("watch", "record_check"): frozenset({_SUP + "line.py", _SUP + "jobs.py"}),   # 止めた停止の確かめ：テスト番号・確かめの部品
+    ("watch", "record_check"): frozenset({_SUP + "jobs.py"}),               # 止めた停止（会話AI）の確かめ：確かめの部品だけ
     ("troubles", "after_trouble"): frozenset({_SUP + "line.py"}),           # こちらの不具合を伝える：通話ごとの口だけ（0139）
-    ("watch", "resume_fixed"): frozenset({_SUP + "jobs.py"}),               # 直した版でこちらの不具合の停止を解く：決まった間隔の仕事だけ
+    # ⛔ 4段目まで：まだ分からない続きを閉じる（attempts.close_unrung_run）・回線の異常として数える（attempts.line_faults_unrecorded）・
+    # 決めにいくかの判断（scheduler.soon_left）・直した版で停止を解く（watch.resume_fixed）も、ここで呼び手を決めていた（5段目で外した）
     ("updates", "note"): frozenset({_SUP + "main.py"}),                     # 動いているプログラムの版を書く：本体の版の確かめだけ
     ("troubles", "restore"): frozenset({WEB_PLACE}),                         # 休んだ行を戻す：画面だけ（管理者・契約者。見直し20b）
     # 回線・行・番号・契約者・試行のせいの表を引く入口（DESIGN.md 17章の決まり (1)：状態を変えるのは、表を引く入口1つだけ）。

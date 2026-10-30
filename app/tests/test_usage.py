@@ -395,25 +395,43 @@ class CostRatio(Priced):
         self.assertEqual(self.deficit_notices(s), [("deficit_warning", False)])   # 確認が効いているあいだは、もう一度知らせない
         self.assertEqual(self.client_stops(s), [])
 
-    def test_an_expired_confirmation_closes_with_its_own_reason_and_warns_again(self):
-        """確認の有効期間が切れて、まだ赤字なら、警告を「確認が切れた」で閉じて、新しく警告する（⛔ 見直し17b：前は「赤字でなく
-        なった」と書いていた）。赤字で止めた（'stopped'）は、もう書かせない（赤字では止めない＝2026-10-22 ユーザー）。"""
+    def test_a_confirmed_deficit_is_not_told_again_while_it_lasts_and_a_new_deficit_warns_again(self):
+        """確認ボタンが押されたら、その赤字が続くあいだは、もう知らせない（時間がたっても知らせ直さない）。警告は開いたまま（画面は確認ボタンを
+        出したまま＝usage.deficit_notice の1か所で、確認済みで赤字が続いていると読める）。黒字に戻ったら警告を閉じ、また赤字になったら新しく
+        警告する（2026-10-30 管理者：「警告して、1時間で赤字の確認ボタンを契約者が押したらもう知らせない。確認ボタンは画面に出したまま。」。
+        ⛔ 前は確認が設定 budget.deficit_confirm_valid＝1日の間だけ効き、そのあと知らせ直した＝0149 で外した）。赤字で止めた（'stopped'）は、
+        もう書かせない（赤字では止めない＝2026-10-22 ユーザー）。"""
         s = self.ready()
         self.terms(s, per_dial_yen=10)
         self.talked(s)
         self.priced("0.01")
-        self.put_client(s, "budget.deficit_confirm_valid", 1)
+        self.put_client(s, "budget.deficit_grace", 1)
         self.spend(s, 15)
         wid = self.warnings(s)[0]["warning_id"]
+        notice = lambda: self.tx(s, usage.deficit_notice)   # noqa: E731
+        self.assertEqual((notice()["warning_id"], notice()["confirmed"]), (wid, False))   # 確認を待っている
         self.tx(s, lambda tx: usage.confirm_deficit(tx, wid), OPERATOR)
         time.sleep(1.2)
         usage.tick(self.w.a, SYSTEM, s["tenant"])
-        got = self.warnings(s)
-        self.assertEqual([w["closed_why"] for w in got], ["confirm_expired", None])   # 閉じて、新しく警告した
-        self.assertEqual(self.deficit_notices(s), [("deficit_warning", False), ("deficit_warning", False)])
+        self.spend(s, 1)
+        self.assertEqual(self.deficit_notices(s), [("deficit_warning", False)])          # 確認のあとは、もう知らせない
+        self.assertEqual([w["closed_why"] for w in self.warnings(s)], [None])            # 警告は開いたまま
+        self.assertEqual((notice()["warning_id"], notice()["confirmed"]), (wid, True))    # 確認済みで赤字が続いている（ボタンは出したまま）
+        gone = owner_access().in_system(SYSTEM, lambda tx: tx.one(
+            "SELECT 1 FROM salescall.setting_definitions WHERE key = 'budget.deficit_confirm_valid'"))
+        self.assertIsNone(gone)
         with self.assertRaises(Rejected):
             self.tx(s, lambda tx: tx.execute("UPDATE salescall.deficit_warnings SET closed_at = now(), closed_why = 'stopped'"
-                                             " WHERE warning_id = %s", (got[1]["warning_id"],)))
+                                             " WHERE warning_id = %s", (wid,)))
+        self.terms(s, per_dial_yen=10 ** 6)                                              # 黒字に戻った（報酬の決まりを直した）
+        usage.tick(self.w.a, SYSTEM, s["tenant"])
+        self.assertEqual([w["closed_why"] for w in self.warnings(s)], ["not_deficit"])
+        self.assertIsNone(notice())
+        self.terms(s, per_dial_yen=10)                                                   # また赤字になった
+        self.spend(s, 1)
+        self.assertEqual([w["closed_why"] for w in self.warnings(s)], ["not_deficit", None])   # 新しく警告する
+        self.assertEqual(self.deficit_notices(s), [("deficit_warning", False), ("deficit_warning", False)])
+        self.assertFalse(notice()["confirmed"])
 
     def test_a_count_that_can_vary_is_judged_only_when_sure(self):
         s = self.ready()

@@ -36,6 +36,13 @@ SOURCES = ("ai", "ear", "line", "storage", "delivery", "recording", "supervisor"
 _JUDGE_KEY_CODES = (401, 403)
 _JUDGE_OUTAGE_4XX = (408, 429)
 
+# 使用額の上限（管理者が決めた API の支払いの上限に当たった）を見分ける文（1か所。`spend_limit`）。管理者の支払いの件なので、直す担当への
+# 修正依頼でなく、管理者への知らせ（種類 spend_limit。どの出どころでも同じ）。**番号（400・429）では見分けない**：同じ番号で、中身の
+# 断り（400）・1分の上限（429）など、ほかの誤りも返る。2026-10-28 の実測（Anthropic の意味の判定）：「You have reached your specified
+# API usage limits」（CL-2 の連絡帳 4-163。⛔ 見直し23：前は意味の判定の 400 として「中身が断られた」に入り、1時間続くと CL-1 へ修正依頼に
+# なった）。文を足すのは、実際に受けた文だけ（推し量って足さない）
+SPEND_LIMIT_TEXTS = ("You have reached your specified API usage limits",)
+
 @dataclass(frozen=True)
 class CatalogEntry:
     """会話AI（Google）のエラーの一覧の1行。"""
@@ -111,7 +118,7 @@ class Action:
                                    #           問い合わせ直す。1日の上限。キーを選ぶ処理＝CL-1 の Q15 が行う）
     stop_cause: str | None         # 止めるときの原因（DESIGN.md 9-1 の名前）。None＝止めない
     stop_scope: str | None         # 止める範囲：tenant（その契約者。会話AIの枠は契約者ごと＝キー・プロジェクトは契約者のもの。
-                                   #   2026-10-16 ユーザー）／line（その回線）
+                                   #   2026-10-16 ユーザー）。回線の休みはエラーでは決めない（回線の状態の表＝DESIGN.md 17章）
     stop_after: str | None         # 何回続いたら止めるか（設定の名前。None＝1回で止める）
     notify: bool                   # 契約者に知らせる（知らせの台帳に入れるだけ。管理者には、どの種類も知らせる）
     meaning: str                   # 日本語（画面・知らせに出す）
@@ -186,6 +193,7 @@ LABELS: dict[str, str] = {
     "recording": "通話の録音が残っていません", "supervisor": "見守り役の処理の誤りです",
     "judge_outage": "意味の判定が止まっています", "judge_key": "意味の判定のキーが使えません",
     "judge_rejected": "意味の判定が問い合わせを断りました",
+    "spend_limit": "API の使用額の上限に当たりました",
     "unknown_ai": "原因の分からない会話AIの誤りです", "unknown_line": "原因の分からない回線の誤りです",
     "call_frozen": "通話の部品が固まりました（お詫びして終えた）",
     "call_ai_malfunction": "会話AIが意図しない状態になりました",
@@ -231,10 +239,11 @@ ACTIONS: dict[str, Action] = {
                            "通話中のセッションの切断：会話AIは1回だけつなぎ直し、駄目ならおわびして終える（6-7。その行は、"
                            "あとでかけ直す）。別の耳は1回だけ聞き直し、駄目なら検証は順番待ちのまま（あとでやり直す）。止める判断は、品質の段の"
                            "「技術的な失敗の割合」で見る（切断は会話に入ったあとに起きるので、続けた回数では数えられない）"),
-    "line": Action("keep", "none", "line_failure", "line", "stop.line.stop_after_failures", False,
-                   "回線（発信失敗・回線の上限・端末やアプリの異常。一時的）：続いたら、その回線の発信を待ち、直ったら自動で続ける。"
-                   "1時間以上続いたら（止まったまま確かめが通らないときも）CL-2 に修正依頼を出す（⏳ 電話接続の担当が決まったら、その担当へ。"
-                   "見直し8）", lasting_fixer=PHONE_FIXER),
+    "line": Action("keep", "none", None, None, None, False,
+                   "回線（発信失敗・回線の上限・端末やアプリの異常。一時的）：記録し、管理者に知らせる。その回線でお客様へかけるのを休むか・"
+                   "再開するかは、エラーの数では決めない（回線の状態の表が、お客様のところで電話が鳴ったか・テスト番号の答えで決める＝"
+                   "DESIGN.md 17章）。1時間以上続いたら CL-2 に修正依頼を出す（⏳ 電話接続の担当が決まったら、その担当へ。見直し8）",
+                   lasting_fixer=PHONE_FIXER),
     "storage": Action("keep", "none", None, None, None, True,
                       "保存の失敗：止めない。CL-2 に修正依頼を出し、ほかの行は続ける（2026-10-16 ユーザー：「理由を記載と"
                       "あなたへの修正依頼をして、次の行に進んだらいい」）。保存できなかった通話は締めが済まないまま残るので、門が"
@@ -263,15 +272,19 @@ ACTIONS: dict[str, Action] = {
                              "意味の判定が問い合わせの中身を断った（400 など）：発信は止めない。その発話だけ代わりの判定へ回す"
                              "（判定は止まっていない）。1時間以上続いたら（問い合わせの作り方の誤り）CL-1 に修正依頼を出す"
                              "（CL-1 の連絡帳 4-24）", lasting_fixer="CL-1"),
+    "spend_limit": Action("keep", "none", None, None, None, False,
+                          "API の使用額の上限（管理者が決めた支払いの上限）に当たった：管理者の支払いの件なので、直す担当への修正依頼は"
+                          "出さず、管理者に知らせる（同じ範囲で1時間に1回）。発信は止めない。管理者が上限を上げるか、上限の期間が"
+                          "替われば、また使える（見分けるのは返事の文＝SPEND_LIMIT_TEXTS。番号では見分けない）"),
     "delivery": Action("keep", "backoff", None, None, None, False,
                        "連携（書き戻し）の失敗：連携だけ再送する（通話の結果は失わない。4-5）。1時間以上続いたら CL-3 に修正依頼を出す",
                        lasting_fixer="CL-3"),
     "unknown_ai": Action("keep", "none", "ai_connection", "tenant", "stop.ai.stop_after_failures", True,
                          "不明（会話AI）：キーを切り替えない。続いたら（会話AIで話せない）新しい発信を待つ。CL-1 に修正依頼を出す",
                          fixer="CL-1"),
-    "unknown_line": Action("keep", "none", "line_failure", "line", "stop.line.stop_after_failures", True,
-                           "不明（回線）：続いたら（その回線でかけられない）、その回線の発信を待つ。CL-2 に修正依頼を出す",
-                           fixer=PHONE_FIXER),
+    "unknown_line": Action("keep", "none", None, None, None, True,
+                           "不明（回線）：記録し、CL-2 に修正依頼を出す。その回線でお客様へかけるのを休むかは、回線の状態の表が決める"
+                           "（DESIGN.md 17章。エラーの数では止めない）", fixer=PHONE_FIXER),
     # こちらのプログラムの不具合（0139）。直す担当は理由ごとにこの1か所：会話の部品（通話を進める部品＝CL-1 の CallRunner）の不具合は
     # CL-1、声の受け渡し（電話接続。⏳ 電話接続の担当が決まったら、その担当へ）は CL-2。止める原因は program_trouble（契約者）
     "call_frozen": Action("keep", "none", "program_trouble", "tenant", "stop.trouble.stop_after_rows", True,
@@ -303,26 +316,22 @@ COUNTED_FOR: dict[str, tuple[str, ...]] = {
     for cause in {a.stop_cause for a in ACTIONS.values() if a.stop_cause is not None}
 }
 
-# 止める種類ごとに、「直った」とみなす証拠（続いた回数を、この証拠の時刻から数え直す。1か所。データベースの
-# salescall.consecutive_errors がこの名前で読む）。2026-10-16 見直し：前は会話AIと別の耳を「どこかの通話が会話に入った」で
-# まとめて数え直していたので、別の耳だけつながらないとき、ほかの通話が会話に入るたびに数え直し、止まらなかった。
-#   in_conversation＝どこかの通話が会話に入った（会話AIが動いた）／verified＝どこかの通話の検証が済んだ（別の耳が動いた）／
-#   line_ok＝その回線で、お客様のところで電話が鳴って終わった（回線の部品が番号を受け付けなかった・お客様が出る前に回線の側で
-#   終わったではない電話。⛔ 見直し17a：前は「その回線でお客様を呼び出せた」で、失敗した電話そのものの呼び出しで数え直し、回線の
-#   失敗が続いても止まらなかった＝0122）か、その回線でテスト番号が鳴った（0134。話し中・電源オフ・圏外のお知らせが返ったのも
-#   「鳴った」＝回線から発信できた。0141）。声が聞き取れずに終えた電話は、回線が直った証拠にしない（どちらも salescall.line_good_rings
-#   の1か所。0141）／
-#   program_fixed＝その種類の不具合を直したと記録され、そのあと版が替わった（salescall.trouble_fixed_at）か、こちらの不具合なしにお客様と
-#   話し終えた電話があった（salescall.last_good_talk。0141。この証拠で数える種類は、エラーの数でなく違う行の数で数える＝同じ行の2回目は、
-#   その行の休みで扱う）／none＝証拠を持たない（1回で止める種類）
+# 止めるか・解くかを、エラーの数でなく、回線・行・番号・契約者の状態の表（DESIGN.md 17章。core/health）が決める停止の原因（1か所。
+# core/watch.decide_stop が読む）：こちらのプログラムの不具合（契約者の欄の C-1。違う行の数は表が数える）。回線の異常は、エラーの種類に
+# 止める原因を持たない（回線の休みは回線の欄＝停止の記録を作らない）。⛔ 4段目まで：エラーの数（consecutive_errors）で回線を止め、
+# こちらの不具合の違う行の数を読むたびに導いた（17-8 の (1)(2)。5段目＝0147 で外した）
+TABLE_CAUSES = frozenset({"program_trouble"})
+
+# エラーの数で止める種類（止める原因が `TABLE_CAUSES` でないもの）ごとに、「直った」とみなす証拠（続いた回数を、この証拠の時刻から
+# 数え直す。1か所。データベースの salescall.consecutive_errors がこの名前で読む）。2026-10-16 見直し：前は会話AIと別の耳を「どこかの
+# 通話が会話に入った」でまとめて数え直していたので、別の耳だけつながらないとき、ほかの通話が会話に入るたびに数え直し、止まらなかった。
+#   in_conversation＝その契約者のどこかの通話が会話に入った（会話AIが動いた）。
+#   ⛔ 4段目まで：回線の line_ok・こちらの不具合の program_fixed・どの種類も使わない verified と none も持っていた（0147 で外した）
 EVIDENCE: dict[str, str] = {
     "config_error": "in_conversation",
     "ai_unreachable": "in_conversation",
     "ai_server_error": "in_conversation",
     "unknown_ai": "in_conversation",
-    "line": "line_ok",
-    "unknown_line": "line_ok",
-    **{kind: "program_fixed" for kind in TROUBLES.values()},
 }
 
 
@@ -346,10 +355,18 @@ def lookup(e: ErrorReport) -> CatalogEntry | None:
     return None
 
 
+def spend_limit(e: ErrorReport) -> bool:
+    """使用額の上限に当たったか（返事の文 `SPEND_LIMIT_TEXTS` で見分ける1か所。番号では見分けない）。"""
+    return e.message is not None and any(x in e.message for x in SPEND_LIMIT_TEXTS)
+
+
 def classify(e: ErrorReport) -> str:
-    """エラーの種類（ACTIONS の鍵）。会話AI・別の耳は一覧の公式と実測の行だけで決める。ほかの出どころは出どころで決まる。"""
+    """エラーの種類（ACTIONS の鍵）。使用額の上限（管理者の支払いの件）は、どの出どころでも先に返事の文で見分ける（`spend_limit`）。
+    会話AI・別の耳は一覧の公式と実測の行だけで決める。ほかの出どころは出どころで決まる。"""
     if e.source not in SOURCES:
         raise ValueError(f"出どころは {SOURCES} のどれかです（{e.source!r}）")
+    if spend_limit(e):
+        return "spend_limit"
     if e.source in ("ai", "ear"):
         entry = lookup(e)
         # 切断は、開いたセッションが途中で切れたこと。開けなかった（つながらなかった）なら、つながらないの種類にする

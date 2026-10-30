@@ -367,7 +367,7 @@ class TenantTransactions(unittest.TestCase):
                                                                 admin=True, contractor=False))
         self.assertEqual(a.in_tenant(SYSTEM, s["tenant"], lambda tx: tx.all(
             "SELECT 1 FROM salescall.notification_events WHERE for_admin")), [])   # 管理者あての知らせは全体の取引だけ
-        stop = a.in_tenant(SYSTEM, o["tenant"], lambda tx: stops.stop(tx, cause="budget", reason="試験", tenant_id=o["tenant"],
+        stop = a.in_tenant(SYSTEM, o["tenant"], lambda tx: stops.stop(tx, cause="ai_connection", reason="試験", tenant_id=o["tenant"],
                                                                       scope="tenant"))
         with self.assertRaises(Rejected):                                    # ほかの契約者の停止で、予約を取り消せない
             a.in_tenant(SYSTEM, s["tenant"], lambda tx: tx.one("SELECT salescall.release_claims_for_stop(%s)",

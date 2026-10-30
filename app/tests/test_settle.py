@@ -18,6 +18,7 @@ from salescall.core import health
 from salescall.core.access import Rejected
 from salescall.core.call_report import Cut
 from salescall.core.phone import normalize
+from salescall.link import phone
 from tests import support
 from tests.support import (ADMIN, CLEAN, OPERATOR, SYSTEM, app_access, callback, fictional_jp_fixed, make_report, owner_access,
                            rules_raw)
@@ -76,10 +77,10 @@ class Settle(SettleBase):
 
     def test_a_call_our_own_program_ended_is_made_again_as_planned_and_counts_nowhere(self):
         """こちらのせい（こちらのプログラムが固まった・甚大な問題で終えた・通話を進める部品が落ちた＝試行の trouble）でお客様のところで
-        鳴らなかった電話は、番号にも回線にも数えない（attempts.blame の ours。0136）。次の動きは1か所（next_action._line_fault_again）
+        鳴らなかった電話は、番号にも回線にも数えない（試行のせいの欄の ours。0136）。次の動きは1か所（next_action._line_fault_again）
         で、かけた予定のまま、復旧次第（⛔ 見直し19a：前は回線のせい・番号のせいの続きに入り、こちらの不具合で番号を取りやめうる・回線を
         止めうる形だった）。復旧＝同じ契約者で、こちらの不具合なしにお客様と話し終えた電話がある・直したプログラムの版に替わった（それまで
-        門と候補を出す処理が待たせる＝salescall.awaiting_recovery の1か所。0141。2026-10-17 管理者：「復旧次第、お詫びとともにすぐかけ直さ
+        門と候補を出す処理が待たせる＝行の欄の「復旧待ち」。17章の R-5・R-6。2026-10-17 管理者：「復旧次第、お詫びとともにすぐかけ直さ
         ないといけないでしょ！」）。"""
         s = self.ready()
         aid = self.call(s, ["dialing", "ringing"])
@@ -126,10 +127,15 @@ class Settle(SettleBase):
         hit = self.tx(s, lambda tx: dnc.lookup(tx, s["phone"]))
         self.assertEqual(hit["ledger"], "client")
 
-    def test_hangup_during_our_talk_is_refusal_and_line_cut_is_not(self):
+    def test_hangup_after_refusal_words_is_refusal_and_line_cut_is_not(self):
+        """2026-10-30 管理者の指摘で書き替えた：切れ方で「断った」になるのは、営業拒否の言葉のあとに切れたときだけ（発信禁止・行を終える）。
+        回線の側で切れた通話は途中で切れた電話（数えない）。営業拒否の言葉の無い切れ方は UnclearCutChecks。"""
         s = self.ready()
-        aid = self.call(s, ["dialing", "answered", "dropped"], report=rep(cut=Cut("ai", False, False)), side="callee")
+        aid = self.call(s, ["dialing", "answered", "dropped"], report=rep(cut=Cut("ai", False, True)), side="callee")
         self.assertEqual(self.settle(s, aid)["state"], "do_not_call")
+        self.assertEqual(self.tx(s, lambda tx: tx.one("SELECT reason::text AS r FROM salescall.dnc_entries WHERE source_attempt_id = %s",
+                                                      (aid,)))["r"], "refused_in_call")
+        self.assertIsNone(self.tx(s, lambda tx: tx.one("SELECT 1 FROM salescall.unclear_checks WHERE task_id = %s", (s["task"],))))
         s2 = self.ready()
         aid2 = self.call(s2, ["dialing", "answered", "dropped"], report=rep(cut=Cut(None, False, False)), side="line",
                          items=[])
@@ -870,7 +876,7 @@ class UnusableNumber(SettleBase):
         d = self.settle(s, self.call(s, ["dialing", "call_failed"]))["decision"]   # 1つ目：番号のせい
         self.assertEqual(self.jst_date(s, d.at), today)                        # 1日目にもう1回（並びの1つ目）
         # 別の行の予定は、番号の続きが伸びる前に書いたもの：番号ごとの決まった順（最後の失敗＋最短の間隔）より前にはかけない（門の
-        # number_failed_wait。決まりは attempts.failed_wait の1か所。見直し22 の 9）。次の動きが、その順で予定を書き直す
+        # number_failed_wait。決まりは番号の欄＝core/health.number_wait の1か所。見直し22 の 9）。次の動きが、その順で予定を書き直す
         got = self.claim(other)
         self.assertEqual(getattr(got, "reason", None), "number_failed_wait")
         self.tx(s, lambda tx: next_action.after_denial(tx, t2, got, tenant_id=s["tenant"], client_id=s["client"],
@@ -887,14 +893,14 @@ class UnusableNumber(SettleBase):
         at = self.tx(s, lambda tx: next_action._failed_retry_at(tx, s["task"], s["contact"], now, now))
         self.assertEqual(self.jst_date(s, at), today)                          # 分からない電話では、次の日へ送らない
         # ただし、分からない電話を番号のせいに数えると番号の順で次の日になる（当日の2回を使い切る）あいだは、同じ番号の行は、どの回線
-        # でもかけずに待つ（attempts.number_unconfirmed の1か所。予定は書き直さない。見直し22 の 9）
+        # でもかけずに待つ（番号の欄の待つ印＝N-4 の1か所。予定は書き直さない。見直し22 の 9）
         self.assertTrue(self.tx(s, lambda tx: health.number_held(tx, s["contact"])))
         self.tx(s, lambda tx: next_action.schedule_now(tx, s["task"], cause="試験：その時刻が来た"))
         self.assertEqual(self.reason(s), "number_unconfirmed")
 
     def test_the_blame_of_a_call_is_read_on_its_own_line_only(self):
         """だれのせいかは、その電話の回線の上の前後の電話だけで決まる（ほかの回線の鳴った電話は、この回線が元気だった証拠に
-        ならない＝salescall.unrung_blame の a.line_id。回線が2本の場面）。"""
+        ならない＝回線の欄は回線ごと。回線が2本の場面）。"""
         s = self.ready()
         other_line = self.w.line(s["tenant"])
         aid = self.call(s, ["dialing", "call_failed"])
@@ -918,7 +924,7 @@ class UnusableNumber(SettleBase):
         self.assertEqual([self.tx(s, lambda tx: health.blame_of(tx, x)) for x in (a, b)], ["number", "number"])
 
     def test_the_run_of_failures_starts_on_its_first_day(self):
-        """続いた失敗の数・続いた最初の日・最後の失敗の終わりは、データベースの1か所 salescall.failed_run（次にかける日は最初の日から
+        """続いた失敗の数・続いた最初の日・最後の失敗の終わりは、番号の欄の1か所（DESIGN.md 17-1-3。次にかける日は最初の日から
         数える。見直し16b：前は最初の日を別の問い合わせで求め直し、日をまたいで続いた場面の試験が無かった）。"""
         s = self.ready()
         for days_ago in (2, 1):   # 2日前と1日前に、受け付けられなかった
@@ -1047,7 +1053,7 @@ class UnusableNumber(SettleBase):
 
     def test_other_rows_of_the_same_number_do_not_dial_it_again(self):
         """同じ番号のほかの行も、その番号へはかけない（門が「番号が使えない」で断り、次の動きが行を終える。決まりは
-        attempts.number_unusable の1か所。⛔ 見直し16：前は、ほかの行が、それぞれ1回ずつ失敗するまでかけ、そのたびに回線の異常に
+        番号の欄の「使えない」＝N-1 の1か所。⛔ 見直し16：前は、ほかの行が、それぞれ1回ずつ失敗するまでかけ、そのたびに回線の異常に
         数えられた）。"""
         s = self.ready()
         run2 = self.w.run(s["tenant"], s["client"], s["business"], s["version"])
@@ -1355,7 +1361,7 @@ class CutOffCalls(SettleBase):
         self.assertEqual((first["state"], first["decision"].target.purpose), ("unknown", "resume"))
         undecided = lambda: self.tx(s, lambda tx: tx.one("SELECT salescall.refusal_undecided(%s) AS u", (aid,)))["u"]   # noqa: E731
         self.assertFalse(undecided())                                          # (1) 断られていない
-        self.assertFalse(self.tx(s, lambda tx: dnc.undecided_reach_overlaps(tx, other)))
+        self.assertIsNone(self.tx(s, lambda tx: dnc.undecided_reach(tx, other)))
         for _ in range(10):                                                    # 予定どおりにかけて、出ない
             cur = self.tx(s, lambda tx: next_action.current(tx, s["task"]))
             if cur["kind"] != "call":
@@ -1520,12 +1526,207 @@ class CutOffCalls(SettleBase):
     def test_a_customer_who_hung_up_or_was_not_reached_is_not_called_back_at_once(self):
         s = self.ready()
         aid = self.call(s, ("dialing", "ringing", "answered", "in_conversation", "dropped"), side="callee",
-                        report=rep(cut=Cut("ai", False, False)))            # AIが話している途中で、お客様が切った＝断った
+                        report=rep(cut=Cut("ai", False, True)))             # 断りの言葉のあとに、お客様が切った＝断った
         self.assertEqual(self.settle(s, aid)["decision"].end_reason, "do_not_call")
         t = self.ready()
         aid = self.call(t, ("dialing", "technical_error"))               # お客様が出る前に止まった：お詫びは要らない
         got = self.settle(t, aid)["decision"]
         self.assertNotEqual(got.target and got.target.purpose, "resume")
+
+
+class UnclearCutChecks(SettleBase):
+    """切れ方の分からない通話の確かめのかけ直し（2026-10-30 管理者の決定）：「営業拒否の言葉が無く切れ方が分からない通話は、すぐ確かめの
+    かけ直しをする。かけ直しがお客様の電話まで鳴ったら両方の回線は元気＝営業拒否（お客様が出て話を続けたら、その話の結果どおり）。
+    鳴らなかったら回線のせい＝15分（テスト番号のあける長さの並びの1つ目）おいてお詫びからかけ直す。同じお客様に確かめのかけ直しは1回だけ」。
+    決まるまでは、発信禁止を登録しない・行を終えない・結果を確定しない・同じお客様のほかの行を門で待たせる（取り消せない決定の洗い出し）。
+    声が届かないお客様が黙って切った通話は、営業拒否にしない（2026-10-30 管理者の指摘。「声が聞き取れない」と同じ）。"""
+
+    SILENT = ("dialing", "ringing", "answered", "in_conversation", "dropped")   # お客様が出て話し、何も言わずに切った
+
+    def unclear(self, s, **kw):
+        """AI が話している途中に、お客様が何も言わずに切った（営業拒否の言葉も、声が届かなかった証拠も無い）通話を締める。"""
+        aid = self.call(s, self.SILENT, side="callee", report=rep(cut=Cut("ai", False, False)), **kw)
+        return aid, self.settle(s, aid)
+
+    def come(self, s):
+        """いまの予定の時刻が来た（試験の近道。かける先・目的は同じで、時刻だけいま。同じお客様への最短の間隔で門に止められないよう、
+        約束の印をつける＝確かめのかけ直しかどうかには効かない）。"""
+        cur = self.tx(s, lambda tx: next_action.current(tx, s["task"]))
+        self.tx(s, lambda tx: next_action._append(tx, s["task"], call_at=None, call_now=True, end_reason=None, cause="試験：その時刻が来た",
+                                                  promised=True, target=next_action.Target(cur["contact_id"], None, cur["purpose"])))
+
+    def other_row(self, s):
+        run2 = self.w.run(s["tenant"], s["client"], s["business"], s["version"])   # 同じお客様の、ほかの一覧の行（番号を共有する）
+        return self.w.task(s["tenant"], s["client"], run2, s["contact"])
+
+    def released(self, s, aid):
+        return self.tx(s, lambda tx: tx.one(
+            "SELECT count(*) AS n FROM salescall.result_releases l JOIN salescall.task_results r"
+            " ON r.task_id = l.task_id AND r.version_no = l.version_no WHERE r.attempt_id = %s", (aid,)))["n"]
+
+    def dnc_reasons(self, s):
+        return sorted(r["r"] for r in self.tx(s, lambda tx: tx.all(
+            "SELECT reason::text AS r FROM salescall.dnc_entries WHERE phone_e164 = %s AND revoked_at IS NULL", (s["phone"],))))
+
+    def test_until_the_check_call_nothing_irreversible_is_decided(self):
+        s = self.ready()
+        other = self.other_row(s)
+        aid, got = self.unclear(s)
+        d = got["decision"]
+        self.assertEqual((got["state"], d.kind, d.promised, d.target.purpose, d.check_of), ("incomplete", "call", True, "resume", aid))
+        self.assertIn("cut_off", self.tx(s, lambda tx: next_action.current(tx, s["task"]))["apology_reasons"])   # お詫びから
+        self.assertEqual(self.dnc_reasons(s), [])                                         # 発信禁止を登録しない
+        self.assertIsNone(self.tx(s, lambda tx: tx.one("SELECT disconnect FROM salescall.attempts WHERE attempt_id = %s",
+                                                       (aid,)))["disconnect"])            # 切れ方もまだ決めない
+        self.assertEqual(self.released(s, aid), 0)                                        # 結果を確定しない
+        self.assertTrue(self.tx(s, lambda tx: tx.one("SELECT salescall.refusal_undecided(%s) AS u", (aid,)))["u"])
+        self.assertEqual(self.tx(s, lambda tx: gate.pacing(tx, other)).binding, "related_unclear_cut")   # ほかの行は待つ
+        self.assertIn("related_unclear_cut", gate.REASONS)
+
+    def test_a_check_call_that_rang_without_an_answer_is_a_refusal(self):
+        """営業拒否の言葉が無い × かけ直しが鳴って出なかった ⇒ 営業拒否とみなす（発信禁止の台帳には、はっきり断られたときと別の理由。
+        広げ方は営業拒否と同じ＝同じお客様のほかの行も止まる）。"""
+        s = self.ready()
+        other = self.other_row(s)
+        aid, _ = self.unclear(s)
+        check = self.call(s, ("dialing", "ringing", "no_answer"))
+        self.assertEqual(self.tx(s, lambda tx: next_action.check_outcome(tx, check)).outcome, "rang")
+        got = self.settle(s, check)
+        self.assertEqual((got["state"], got["decision"].end_reason), ("do_not_call", "do_not_call"))
+        self.assertEqual(self.dnc_reasons(s), ["refused_unclear_checked"])
+        self.assertFalse(self.tx(s, lambda tx: tx.one("SELECT salescall.refusal_undecided(%s) AS u", (aid,)))["u"])
+        self.assertNotIn(self.tx(s, lambda tx: gate.pacing(tx, other)).binding, ("related_unclear_cut", "related_unsettled"))
+        self.tx(s, lambda tx: next_action.schedule_now(tx, other, cause="試験：ほかの行の最初の予定"))
+        self.assertEqual(self.reason(s, task=other), "dnc_client")                      # ほかの行も止まった
+        self.assertEqual(self.released(s, check), 1)                                       # 確かめの締めの版が確定する
+
+    def test_a_check_call_the_customer_answered_follows_that_talk(self):
+        """営業拒否の言葉が無い × かけ直しが鳴って、お客様が出て話を続けた ⇒ その話の結果どおり（営業拒否にしない）。"""
+        s = self.ready()
+        aid, _ = self.unclear(s)
+        check = self.call(s, items=[("Q1", "confirmed", None)])
+        got = self.settle(s, check)
+        self.assertEqual((got["state"], got["decision"].end_reason), ("completed", "completed"))
+        self.assertEqual(self.dnc_reasons(s), [])
+
+    def test_a_check_call_that_did_not_ring_is_retried_with_an_apology_after_the_first_gap(self):
+        """営業拒否の言葉が無い × かけ直しが鳴らなかった ⇒ 回線のせいとして、テスト番号をあける長さの並びの1つ目（15分）おいて、
+        お詫びからかけ直す。そのかけ直しは確かめのかけ直しではない（同じお客様に1回だけ）＝鳴って出なくても営業拒否にしない。"""
+        s = self.ready()
+        aid, _ = self.unclear(s)
+        check = self.call(s, ("dialing", "call_failed"))
+        self.assertEqual(self.tx(s, lambda tx: next_action.check_outcome(tx, check)).outcome, "unrung")
+        got = self.settle(s, check)
+        d = got["decision"]
+        ended = self.tx(s, lambda tx: tx.one("SELECT ended_at FROM salescall.attempts WHERE attempt_id = %s", (check,)))["ended_at"]
+        self.assertEqual((d.kind, d.promised, d.target.purpose, d.check_of), ("call", True, "resume", None))
+        self.assertGreaterEqual(d.at, ended + timedelta(minutes=15))
+        self.assertIn("cut_off", self.tx(s, lambda tx: next_action.current(tx, s["task"]))["apology_reasons"])
+        self.assertFalse(self.tx(s, lambda tx: tx.one("SELECT salescall.refusal_undecided(%s) AS u", (aid,)))["u"])
+        self.come(s)
+        later = self.call(s, ("dialing", "ringing", "no_answer"))
+        self.assertIsNone(self.tx(s, lambda tx: next_action.check_outcome(tx, later)))
+        self.assertNotEqual(self.settle(s, later)["state"], "do_not_call")
+        self.assertEqual(self.dnc_reasons(s), [])
+        # もう一度、決められない切れ方になっても、確かめのかけ直しはしない（同じお客様に1回だけ）
+        self.come(s)
+        again, got = self.unclear(s)
+        self.assertIsNone(got["decision"].check_of)
+
+    def test_a_silent_hang_up_by_a_customer_who_could_not_hear_is_not_a_refusal(self):
+        """声が届かないお客様が黙って切った通話は、営業拒否にしない（2026-10-30 管理者の指摘）。「声が聞き取れない」と同じ扱い：こちらの
+        不具合に数えない・途中で切れた電話と同じ（お詫びとともにかけ直す）・状態の表の E4（声が通ると分かっている回線から＝R-11）。"""
+        s = self.ready()
+        aid = self.call(s, self.SILENT, side="callee", report=rep(cut=Cut("ai", False, False, callee_cannot_hear=True)))
+        self.assertEqual(self.tx(s, lambda tx: health.call_event(tx, aid)), "E4")
+        got = self.settle(s, aid)
+        self.tx(s, lambda tx: health.after_settle(tx, aid))   # 締めのあと（回線ごとの処理の締めの仕事と同じ＝supervisor/jobs）
+        self.assertEqual((got["state"], got["decision"].target.purpose, got["decision"].check_of), ("incomplete", "resume", None))
+        self.assertEqual(self.dnc_reasons(s), [])
+        row = self.tx(s, lambda tx: tx.one("SELECT disconnect, cut_off, trouble FROM salescall.attempts WHERE attempt_id = %s", (aid,)))
+        self.assertEqual((row["disconnect"], row["cut_off"], row["trouble"]), ("interrupted", True, None))
+        self.assertEqual(self.tx(s, lambda tx: support.task_stage(tx, s["task"])), "voice_redial")
+        self.assertIn(s["contact"], {uuid.UUID(str(c)) for c in self.tx(s, lambda tx: health.line_of(tx, s["line"])).audio})
+
+    def test_the_database_keeps_one_check_per_row_and_never_changes_it(self):
+        """確かめのかけ直しは同じ行で1回だけ（表 unclear_checks は行ごとに1行。書き換え・消しはできない）。"""
+        s = self.ready()
+        aid, _ = self.unclear(s)
+        check = self.call(s, ("dialing", "ringing", "no_answer"))
+        with self.assertRaises(Rejected):
+            self.tx(s, lambda tx: tx.execute("INSERT INTO salescall.unclear_checks (tenant_id, client_id, task_id, attempt_id)"
+                                             " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s)", (s["task"], check)))
+        for sql in ("UPDATE salescall.unclear_checks SET decided_at = now() WHERE task_id = %s AND attempt_id <> %s",
+                    "DELETE FROM salescall.unclear_checks WHERE task_id = %s AND attempt_id <> %s"):
+            with self.subTest(sql=sql[:6]), self.assertRaises(Rejected):   # 表の持ち主でも（権限ではなく、引き金が守る）
+                owner_access().in_tenant(SYSTEM, s["tenant"], lambda tx: tx.execute(sql, (s["task"], check)))
+
+    def test_the_retired_reason_found_after_is_not_written(self):
+        """通話後の検証で見つけた断り（refused_found_after）は、書く入口がどこにも無かった（取り消せない決定の洗い出し）。あとから見つける
+        道は録音から作り直した報告の1本にそろえ、この理由ではもう書かない（データベースが守る）。"""
+        s = self.ready()
+        with self.assertRaises(Rejected):
+            self.tx(s, lambda tx: tx.execute(
+                "INSERT INTO salescall.dnc_entries (tenant_id, client_id, phone_e164, reason, registered_by)"
+                " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, 'refused_found_after', 'test')", (s["phone"],)))
+
+
+class DialNotices(SettleBase):
+    """お客様の番号へかけて、電話網のお知らせの声が返った電話（取り消せない決定の洗い出し。2026-10-25 夜 管理者のご決定＝テスト番号の
+    話し中・電源オフ・圏外は、こちらの回線から発信できた証拠、と同じ当てはめ。0151）。"""
+
+    def notice_call(self, s, notice):
+        c = self.claim(s)
+        self.assertTrue(dial_exit.dial(self.w.a, SYSTEM, s["tenant"], s["client"], c.attempt_id, FakeDriver()))
+        self.tx(s, lambda tx: attempts.end_by_notice(tx, c.attempt_id, notice))
+        self.tx(s, lambda tx: health.after_call(tx, c.attempt_id))
+        return c.attempt_id
+
+    def test_power_off_and_out_of_range_are_the_same_as_no_answer(self):
+        """電源オフ・圏外：こちらの回線は元気（確かめ中にしない）・番号のせいにも数えない＝「お客様が出なかった」と同じ（ふつうの方針）。"""
+        for notice in ("power_off", "out_of_range"):
+            with self.subTest(notice):
+                s = self.ready()
+                aid = self.notice_call(s, notice)
+                self.assertEqual(self.tx(s, lambda tx: health.call_event(tx, aid)), "E1")
+                self.assertFalse(self.tx(s, lambda tx: support.line_checking(tx, s["line"])))
+                self.assertEqual(self.tx(s, lambda tx: support.number_run(tx, s["contact"]))["n"], 0)
+                got = self.settle(s, aid, decide=False)
+                self.assertEqual((got["state"], got["decision"].kind, got["decision"].promised), ("open", "call", False))
+
+    def test_not_in_use_alone_is_the_numbers_fault(self):
+        """「この番号は現在使われておりません」のお知らせだけが番号のせい：テスト番号を待たずに決まる（回線は確かめ中にしない）。"""
+        s = self.ready()
+        aid = self.notice_call(s, "not_in_use")
+        self.assertFalse(self.tx(s, lambda tx: support.line_checking(tx, s["line"])))
+        self.assertEqual(self.tx(s, lambda tx: health.blame_of(tx, aid)), "number")
+        self.assertEqual(self.tx(s, lambda tx: support.number_run(tx, s["contact"]))["n_sure"], 1)
+        got = self.settle(s, aid, decide=False)
+        self.assertEqual((got["state"], got["decision"].kind), ("open", "call"))
+
+    def test_the_database_keeps_the_notice_with_its_ending_once(self):
+        """お知らせの種類は、その終わり方（電源オフ・圏外＝出なかった／使われていない＝発信に失敗）とだけ、進行中の試行を終えるときに
+        1回だけ残る（データベースが守る）。"""
+        s = self.ready()
+        c = self.claim(s)
+        self.assertTrue(dial_exit.dial(self.w.a, SYSTEM, s["tenant"], s["client"], c.attempt_id, FakeDriver()))
+        with self.assertRaises(Rejected):   # 使われていないのお知らせで「出なかった」にはしない
+            self.tx(s, lambda tx: tx.execute("UPDATE salescall.attempts SET state = 'no_answer', notice = 'not_in_use'"
+                                             " WHERE attempt_id = %s", (c.attempt_id,)))
+        self.tx(s, lambda tx: attempts.end_by_notice(tx, c.attempt_id, "power_off"))
+        with self.assertRaises(Rejected):   # 終えたあとに書き換えない
+            self.tx(s, lambda tx: tx.execute("UPDATE salescall.attempts SET notice = 'out_of_range' WHERE attempt_id = %s",
+                                             (c.attempt_id,)))
+
+    def test_an_unknown_notice_is_a_failed_dial_decided_by_evidence(self):
+        """お知らせの種類が分からない（None）：今までどおり発信に失敗（だれのせいかは証拠で）。知らない名前は受け取らない。"""
+        s = self.ready()
+        aid = self.notice_call(s, None)
+        self.assertEqual(self.tx(s, lambda tx: health.blame_of(tx, aid)), "pending")
+        self.assertTrue(self.tx(s, lambda tx: support.line_checking(tx, s["line"])))
+        with self.assertRaises(ValueError):
+            attempts.end_by_notice(None, aid, "busy_tone")
+        self.assertEqual(set(attempts.NOTICE_ENDS) - {None}, set(phone.NOTICES))   # 名前の正本は link/phone.NOTICES
 
 
 class CallbackWindow(SettleBase):
@@ -1650,6 +1851,31 @@ class CallbackWindow(SettleBase):
         got = self.tx(s, lambda tx: settle.rejudge(tx, aid))
         self.assertEqual(got["state"], "callback_scheduled")
 
+    def test_the_client_period_widths_reach_the_judgement_through_settle(self):
+        """言葉ごとの幅（「夕方」など。依頼者ごとの設定 callback.period_*＝0088）は、お客様の時間の設定の1か所（gate.callee_settings の
+        CalleeSettings.periods）で読み、締めが判定に渡す。依頼者が幅を変えたら、その依頼者の判定はその幅で読み（ほかの依頼者は初めの
+        幅のまま）、判定の記録（お客様の時間の設定）にも、読んだ幅が残る（⛔ 見直し23 の (2)：前は時刻の読みと判定の入力に初めの値の写しが
+        あり、渡し忘れても黙って初めの値になった）。"""
+        s, t = self.ready(), self.ready()
+        widths = lambda x: self.tx(x, lambda tx: gate.callee_settings(   # noqa: E731
+            tx, tenant_id=x["tenant"], client_id=x["client"], business_id=x["business"]).period_table())
+        self.assertEqual((widths(s)["夕方"], widths(s)["午後一"]), ((16 * 3600, 18 * 3600), (13 * 3600, 14 * 3600)))   # 初めの値
+        self.put_client(s, "callback.period_evening", ["17:00", "19:00"])                # この依頼者だけ、夕方を17〜19時に
+        self.put_client(s, "callback.period_afternoon", ["14:00", "00:00"])              # 午後を14時から（午後一は14〜15時）
+        self.assertEqual((widths(s)["夕方"], widths(s)["午後一"], widths(t)["夕方"]),
+                         ((17 * 3600, 19 * 3600), (14 * 3600, 15 * 3600), (16 * 3600, 18 * 3600)))
+        day = self.tx(s, lambda tx: tx.one("SELECT (salescall.jst(now()) + interval '2 days')::date AS d")["d"])
+        said = callback("later", time=f"{day.month}月{day.day}日の夕方")
+        daily = lambda x: self.tx(x, lambda tx: next_action.current(tx, x["task"]))["window_daily"]   # noqa: E731
+        for x, want in ((s, [17 * 3600, 19 * 3600]), (t, [16 * 3600, 18 * 3600])):     # ほかの依頼者は初めの幅
+            with self.subTest(client=x["client"]):
+                self.assertEqual(self.settle(x, self.call(x, report=rep(callback=said)))["state"], "callback_scheduled")
+                self.assertEqual(daily(x), want)
+        kept = self.tx(s, lambda tx: tx.one("SELECT snapshot -> 'callee' -> 'periods' -> '夕方' AS p FROM salescall.call_judgements"
+                                            " WHERE attempt_id IN (SELECT attempt_id FROM salescall.attempts WHERE task_id = %s)",
+                                            (s["task"],)))["p"]
+        self.assertEqual(kept, [17 * 3600, 19 * 3600])                                   # 判定の記録に、読んだ幅
+
     def test_until_is_decided_by_the_business_setting_of_each_reason(self):
         """「〇時まで」のかけてよい時間は、電話を続けられなかった理由ごとの業務の設定（0127）で決まり、設定を読むのはお客様の時間の
         設定（gate.callee_settings）の1か所。選べる3つと理由の並びは、作りの表（calling_hours）とデータベースで食い違わない。
@@ -1729,7 +1955,7 @@ class CallbackWindow(SettleBase):
             with self.subTest(text=text):
                 self.assertTrue(spoken_time.read(text, at(saturday, 10), business_hours=support.CALLEE.business_hours,
                                                  limit=support.CALLEE.designated_limit, slot=support.CALLEE.exact_slot,
-                                                 until=None).day_said)
+                                                 until=None, periods=support.CALLEE.period_table()).day_said)
         asap = next_action.Window(None, None, None, at(saturday, 10), "day", day_said=True)
         self.assertEqual(self.opening(s, at(saturday, 10), asap, now=at(saturday, 10)),
                          (at(saturday, 10), replace(asap, until=at(saturday, 24), since=at(saturday, 0))))   # 休みの土曜でも今日
@@ -1824,7 +2050,8 @@ class CallbackWindow(SettleBase):
         self.put_client(s, "calling.ng_hours", {k: [["00:00", "24:00"]] for k in KEYS})
         kept = self.tx(s, lambda tx: next_action._keep_promise(tx, s["task"], first.until, first, target, now=now))
         self.assertEqual((kept.kind, kept.promised, kept.window), ("call", True, first))   # 時間帯が無い：約束の幅のまま確かめ直す
-        self.assertEqual(kept.at, now + next_action.NO_OPENING_RECHECK)
+        self.assertEqual(kept.at, now + timedelta(seconds=self.tx(s, lambda tx: next_action.no_opening_recheck(tx, s["task"]))))
+        self.assertEqual(self.tx(s, lambda tx: next_action.no_opening_recheck(tx, s["task"])), 86400)   # 仮の設定の初めの値＝1日
 
     def test_an_exact_time_promise_is_called_a_few_times_in_its_slot_then_on_the_next_days(self):
         """時刻ちょうどの約束（「明日の15時」）に出なければ、その時刻からの1回分（callback.exact_slot）の中で、前の電話から5分後・

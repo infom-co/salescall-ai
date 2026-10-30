@@ -144,7 +144,7 @@ class OurTroubles(SupervisorBase):
 
     def test_two_in_a_row_on_one_row_rest_it_and_the_line_moves_to_the_next_row(self):
         """その行だけの問題：電話ごとに、記録・契約者と管理者への知らせ・直す担当への修正依頼（理由ごとの担当は処置の表の1か所）。
-        同じ行で2回続いたら、その行は休む（門の理由 task_resting・候補を出す処理も出さない＝salescall.task_resting の1か所）。回線は
+        同じ行で2回続いたら、その行は休む（門の理由 task_resting・候補を出す処理も出さない＝行の欄の「休み」の1か所）。回線は
         次の行へかける。こちらのせいの電話は、番号にも回線にも行の回数にも数えない。知らせと修正依頼は重ならない（電話ごとの知らせ1つ・
         同じ不具合の修正依頼は1つ・見守り役の誤りとして重ねない・休み始めの知らせは1回）。"""
         s = self.ready()
@@ -325,7 +325,7 @@ class OurTroubles(SupervisorBase):
         self.assertTrue(self.requests("CL-1", "call_runner_error"))
 
     def test_a_poor_audio_call_between_our_troubles_breaks_the_run_of_the_row(self):
-        """行の休みの「続けて」が途切れるのは、こちらの不具合でなく、お客様のところで鳴った電話（salescall.task_trouble_run の1か所）：声が
+        """行の休みの「続けて」が途切れるのは、こちらの不具合でなく、お客様のところで鳴った電話（行の欄の n を0に戻す R-9 の1か所）：声が
         聞き取れずに終えた電話（こちらの不具合に数えない＝途中で切れた電話と同じ。0141）も、続きを途切れさせる。"""
         s = self.ready()
         self.trouble(s, "ai_malfunction", answered=True, task=s["task"])
@@ -524,7 +524,7 @@ class OurTroubles(SupervisorBase):
 
     def test_a_call_ended_by_our_trouble_is_called_back_once_recovered(self):
         """こちらの不具合で途中で終えた電話は「復旧次第」かけ直す（2026-10-17 管理者：「復旧次第、お詫びとともにすぐかけ直さないと
-        いけないでしょ！」。判断はデータベースの salescall.awaiting_recovery→recovered_after の1か所）。復旧＝その電話が終わったあと、
+        いけないでしょ！」。判断は行の欄の「復旧待ち」＝17章の R-5・R-6 の1か所）。復旧＝その電話が終わったあと、
         (a) 同じ契約者で、こちらの不具合なしにお客様と話し終えた電話をかけ始めた、(b) その種類の不具合を直したと記録され、そのあと版が
         替わった（salescall.trouble_fixed_at＝休んだ行を戻す・止めた停止を解くのと同じ1か所。0143）。それまでは門と候補を出す処理が待たせる
         （お客様が続けて2回お詫びの電話を受けない）。⛔ 0139：1秒ほどでかけ直した。⛔ 0141：どの版の入れ替えでも復旧にした（直した

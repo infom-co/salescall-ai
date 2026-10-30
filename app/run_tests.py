@@ -140,6 +140,7 @@ _T139 = "tests.test_troubles.OurTroubles."
 _M141 = "0141_review20a_hold_runs_and_calls.sql"
 _M145, _TH = "0145_health_states_shadow.sql", "tests.test_health."
 _M146 = "0146_health_states_read.sql"
+_M147 = "0147_stage5_remove_old_reads.sql"
 _B141 = "tests.test_supervisor.Blame."
 _M143 = "0143_review21_one_way_and_call_watch.sql"
 _T143 = "tests.test_life.Life."
@@ -648,13 +649,13 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
       "tests.test_settle.Settle.test_a_verification_that_cannot_run_waits_and_never_ends_the_row")),
     # 見守り（Q9・9-1）
     ("何回続いたかを数えない（いつも0。会話AIの異常で契約者を止める数え方）",
-     "CREATE OR REPLACE FUNCTION salescall.consecutive_errors(p_kinds text[], p_cause text, p_evidence text,"
-     " p_line uuid DEFAULT NULL) RETURNS integer LANGUAGE sql STABLE SECURITY DEFINER"
+     "CREATE OR REPLACE FUNCTION salescall.consecutive_errors(p_kinds text[], p_cause text, p_evidence text)"
+     " RETURNS integer LANGUAGE sql STABLE SECURITY DEFINER"
      " SET search_path = salescall, pg_temp AS $$ SELECT 0 $$",
      ("tests.test_watch.TenantAiStopsAndChecks.test_one_contractors_ai_errors_stop_only_that_contractor",)),
     ("エラーの数を、範囲の外の取引にも見せる",
-     "CREATE OR REPLACE FUNCTION salescall.consecutive_errors(p_kinds text[], p_cause text, p_evidence text,"
-     " p_line uuid DEFAULT NULL) RETURNS integer LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$"
+     "CREATE OR REPLACE FUNCTION salescall.consecutive_errors(p_kinds text[], p_cause text, p_evidence text)"
+     " RETURNS integer LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$"
      " SELECT count(*)::integer FROM salescall.error_events e WHERE e.kind = ANY(p_kinds) $$",
      ("tests.test_watch.TenantAiStopsAndChecks.test_counting_needs_the_transaction_of_that_scope",)),
     ("停止を解く確かめを、範囲の外の取引からも書ける",
@@ -671,7 +672,10 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      " RETURNS TABLE (error_id bigint, source text, kind text, code integer, message text, occurred_at timestamptz)"
      " LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$"
      " SELECT NULL::bigint, NULL::text, NULL::text, NULL::integer, NULL::text, NULL::timestamptz WHERE false $$",
-     ("tests.test_watch.LineStops.test_a_person_resume_of_an_old_line_stop_explains_why_and_goes_to_the_line_column",)),
+     # ⛔ 5段目の前：回線の停止の説明の試験を見ていた（回線のエラーは、もう回線の停止に数えない＝0147）。数えたエラーを出すのは、いまは
+     # 会話AIの異常で止めた停止
+     ("tests.test_watch.TenantAiStopsAndChecks.test_explain_gives_the_meaning_from_the_catalog",
+      "tests.test_watch.TenantAiStopsAndChecks.test_the_contractor_can_resume_and_cl1_is_asked_to_fix")),
     ("停止を解く確かめの記録の変更の拒みを外す", "DROP TRIGGER stop_checks_frozen ON salescall.stop_checks",
      ("tests.test_watch.TenantAiStopsAndChecks.test_checks_are_frozen",)),
     # 知らせの台帳（Q23）
@@ -1300,7 +1304,7 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      "ALTER TABLE salescall.deficit_warnings DROP CONSTRAINT deficit_warnings_closed_why_check;"
      " ALTER TABLE salescall.deficit_warnings ADD CONSTRAINT deficit_warnings_closed_why_check"
      " CHECK (closed_why IN ('not_deficit', 'confirm_expired', 'stopped'))",
-     ("tests.test_usage.CostRatio.test_an_expired_confirmation_closes_with_its_own_reason_and_warns_again",)),
+     ("tests.test_usage.CostRatio.test_a_confirmed_deficit_is_not_told_again_while_it_lasts_and_a_new_deficit_warns_again",)),
     ("結果の版の番号を、書く側が渡せる（0123 の前：書く側が「最大＋1」を書き、大きな番号を入れると桁あふれで失敗し続ける）",
      "DROP TRIGGER next_seq ON salescall.task_results",
      ("tests.test_foundation.FrozenRecords.test_result_and_setting_version_numbers_are_decided_by_the_database",)),
@@ -1490,8 +1494,12 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("こちらのせいで途中で終えた電話も、お客様の側で続けて切れた数に入れる（0120 の形：3回目からを行の回数に数える）",
      _edited(_M141, "CREATE OR REPLACE FUNCTION salescall.cuts_in_a_row(", "    AND NOT salescall.trouble_ours(b.trouble)\n", "", end="\n$$"),
      ("tests.test_settle.CutOffCalls.test_our_own_troubles_neither_count_nor_restart_the_customers_cuts_and_are_always_called_back",)),
-    ("お客様の側で切れた続きのあとの、こちらのせいで途中で終えた電話を、行の回数に数える（数え方の種類の is_ours を外す）",
-     _edited(_M139, "CREATE OR REPLACE FUNCTION salescall.dial_kind(", "AND (salescall.is_ours(p_attempt) OR salescall.cuts_in_a_row(p_attempt)", "AND (salescall.cuts_in_a_row(p_attempt)", end="\n$$"),
+    # 0147 で、数え方の種類は「途中で切れた」をすぐのかけ直しの1か所（resume_allowed）で読む形に寄せた。数え方の種類が自分で数え直す
+    # （is_ours を持たない前の式に戻す）と、こちらのせいの電話を数える
+    ("お客様の側で切れた続きのあとの、こちらのせいで途中で終えた電話を、行の回数に数える（数え方の種類が resume_allowed を読まず、"
+     "is_ours を持たない式で自分で数える）",
+     _edited(_M147, "CREATE OR REPLACE FUNCTION salescall.dial_kind(", "AND salescall.resume_allowed(p_attempt) THEN 'cut_off'",
+             "AND salescall.cuts_in_a_row(p_attempt) <= salescall.resume_in_a_row() THEN 'cut_off'", end="\n$$"),
      ("tests.test_settle.CutOffCalls.test_our_own_troubles_neither_count_nor_restart_the_customers_cuts_and_are_always_called_back",)),
     ("お客様の側で切れた続きのあとの、こちらのせいで途中で終えた電話を、お詫びとともにかけ直さない（resume_allowed の is_ours を外す）",
      _edited(_M139, "CREATE OR REPLACE FUNCTION salescall.resume_allowed(", "AND (salescall.is_ours(p_attempt) OR salescall.cuts_in_a_row(p_attempt)", "AND (salescall.cuts_in_a_row(p_attempt)", end="\n$$"),
@@ -1529,12 +1537,14 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("通話を終えた根拠の文を、あとで書き換えられる（0143：理由と同じ書き換えで1回だけ）",
      _edited(_M143, "CREATE OR REPLACE FUNCTION salescall.attempt_trouble_fixed(", " OR NEW.trouble_why IS DISTINCT FROM OLD.trouble_why", ""),
      ("tests.test_supervisor.Rounds.test_a_call_with_a_grave_problem_is_ended_with_the_apology_and_called_back",)),
-    ("テスト番号で確かめる停止の説明の文を、0143 の形にしない（テスト番号は1回鳴れば解く、が画面に出ない）",
-     "ALTER TABLE salescall.setting_definitions DISABLE TRIGGER setting_definitions_frozen;"
-     " UPDATE salescall.setting_definitions SET meaning = '回線の確かめが何回続けて正常なら解くか（契約者ごと）'"
-     " WHERE key = 'stop.line.resume_after_successes';"
-     " ALTER TABLE salescall.setting_definitions ENABLE TRIGGER setting_definitions_frozen",
-     ("tests.test_settings.Choice.test_meanings_of_the_review21_settings_follow_the_decisions",)),
+    # ⛔ 5段目の前：この壊し試しは「テスト番号で確かめる停止は1回鳴れば解く」の説明の文（stop.line.resume_after_successes）を見ていた。
+    # その仮の設定は 0147 で外した（回線の休みと再開は回線の状態の表＝17-6）ので、外したものが残らないことを見る形に指し直した
+    ("外した回線の仮の設定（stop.line.*。17-6）が残る（回線の休み・再開を、状態の表と別の回数で決めうる）",
+     "INSERT INTO salescall.setting_definitions (key, merge_kind, value_type, meaning, design_ref, finest_scope)"
+     " VALUES ('stop.line.resume_after_successes', 'override', 'integer', '回線の確かめが何回続けて正常なら解くか（契約者ごと）',"
+     " 'DESIGN.md 9-1', 'tenant')",
+     ("tests.test_settings.Choice.test_meanings_of_the_review21_settings_follow_the_decisions",
+      "tests.test_watch.LineStops.test_line_errors_are_recorded_but_never_stop_the_line")),
     ("意味の判定の組の説明を、Jev を先に出す形にしない（0142 の形：3つを同時に出し、Sonnet の料金を払い続ける＝main の e3019c4 に反する）",
      "ALTER TABLE salescall.setting_definitions DISABLE TRIGGER setting_definitions_frozen;"
      " UPDATE salescall.setting_definitions SET meaning = 'jev_and_sonnet＝3つを同時に出す' WHERE key = 'judge.models';"
@@ -1597,6 +1607,33 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("1回の表引きで空から番号・回線へ移った試行のせいを、守りに1つずつ通さずに書く（0146 の (6)。使用停止の回線の途中の電話で、書けずに落ちる）",
      _edited(_M146, "CREATE OR REPLACE FUNCTION salescall.health_save(", "        IF w->>'stage' IN ('number', 'line') THEN", "        IF false THEN"),
      (_B141 + "test_a_call_in_progress_when_the_line_is_retired_is_the_lines",)),
+    # ── 見直し23（0148）
+    ("止める処理の無い原因（保存の失敗・会話AIの利用拒否・費用の上限・赤字）でも、新しく止められる（見直し23 の (4)）",
+     "ALTER TABLE salescall.stop_events DROP CONSTRAINT stop_events_cause_retired",
+     ("tests.test_stops.RetiredCauses.test_new_stops_with_retired_causes_are_refused",)),
+    ("管理者のご決定の値（ほかの契約者と同じ番号の間隔＝3日）を、また「仮」の印にする（見直し23 の (7)）",
+     "INSERT INTO salescall.setting_values (key, scope, value, status, rationale, review_when, set_by)"
+     " VALUES ('gate.other_contractor_interval', 'system', '{\"days\": 3}', 'provisional', '試験：仮に戻す', '試験', '試験')",
+     ("tests.test_settings.Review23Marks.test_marks_follow_the_decisions",)),
+    # ── 切れ方の分からない通話の確かめのかけ直し・お知らせの声（2026-10-30 管理者の決定と指摘・取り消せない決定の洗い出し。0150・0151）
+    ("確かめのかけ直しの答えを待っている通話を、断られたかが決まったとみなす（同じお客様のほかの行からかけ、結果も確定する）",
+     "CREATE OR REPLACE FUNCTION salescall.unclear_check_pending(p_attempt uuid) RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT false $$",
+     ("tests.test_settle.UnclearCutChecks.test_until_the_check_call_nothing_irreversible_is_decided",)),
+    ("確かめのかけ直しを、同じ行で何度でも記録できる（同じお客様に1回だけ、をデータベースが守らない）",
+     "ALTER TABLE salescall.unclear_checks DROP CONSTRAINT unclear_checks_pkey",
+     ("tests.test_settle.UnclearCutChecks.test_the_database_keeps_one_check_per_row_and_never_changes_it",)),
+    ("確かめのかけ直しの記録を、あとから書き換え・消せる",
+     "DROP TRIGGER unclear_checks_frozen ON salescall.unclear_checks",
+     ("tests.test_settle.UnclearCutChecks.test_the_database_keeps_one_check_per_row_and_never_changes_it",)),
+    ("通話後の検証で見つけた断り（書く入口の無い理由）で、また書ける",
+     "ALTER TABLE salescall.dnc_entries DROP CONSTRAINT dnc_entries_found_after_retired",
+     ("tests.test_settle.UnclearCutChecks.test_the_retired_reason_found_after_is_not_written",)),
+    ("お知らせの種類と試行の終わり方が食い違ってよい（使われていない番号を「出なかった」にできる）",
+     "ALTER TABLE salescall.attempts DROP CONSTRAINT attempts_notice",
+     ("tests.test_settle.DialNotices.test_the_database_keeps_the_notice_with_its_ending_once",)),
+    ("お知らせの種類を、終えたあとに書き換えられる",
+     "DROP TRIGGER attempt_notice_once ON salescall.attempts",
+     ("tests.test_settle.DialNotices.test_the_database_keeps_the_notice_with_its_ending_once",)),
 )
 
 # Python の判断を、わざと1つずつ外す（データベースの守りの壊し試しと同じ考え。0136。⛔ 見直し19a：Python の判断を外しても落ちる試験の
@@ -1637,8 +1674,8 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
      ("tests.test_settle.Settle.test_a_call_our_own_program_ended_is_made_again_as_planned_and_counts_nowhere",
       _T139 + "test_a_call_ended_by_our_trouble_is_called_back_once_recovered")),
     ("候補を出す処理が、復旧を待つ行も出す（門が断るたびに、回線がその行で止まりうる）", "src/salescall/core/scheduler.py",
-     "(within, list(not_phones or ()), line_id, list(gate.TASK_STAGE_REASONS),",
-     "(within, list(not_phones or ()), line_id, [k for k in gate.TASK_STAGE_REASONS if k != \"await_recovery\"],",
+     "(line_id, list(gate.TASK_STAGE_REASONS),",
+     "(line_id, [k for k in gate.TASK_STAGE_REASONS if k != \"await_recovery\"],",
      ("tests.test_settle.Settle.test_a_call_our_own_program_ended_is_made_again_as_planned_and_counts_nowhere",)),
     ("お詫びの電話を、承認したお詫びの録音と違う声でも話す（録音の文と声がまじる）", "src/salescall/core/gate.py",
      "    if must is not None:\n        ready = [v for v in ready if v == must]", "    if False:\n        ready = [v for v in ready if v == must]",
@@ -1780,8 +1817,8 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
      "                         answered=bool(ev.answered), since=ev.at), _per_call(ev))",
      (_T139 + "test_two_in_a_row_on_one_row_rest_it_and_the_line_moves_to_the_next_row",)),
     ("候補を出す処理が、休んだ行も出す（門が断るたびに、回線がその行で止まりうる）", "src/salescall/core/scheduler.py",
-     "(within, list(not_phones or ()), line_id, list(gate.TASK_STAGE_REASONS),",
-     "(within, list(not_phones or ()), line_id, [k for k in gate.TASK_STAGE_REASONS if k != \"resting\"],",
+     "(line_id, list(gate.TASK_STAGE_REASONS),",
+     "(line_id, [k for k in gate.TASK_STAGE_REASONS if k != \"resting\"],",
      (_T139 + "test_two_in_a_row_on_one_row_rest_it_and_the_line_moves_to_the_next_row",)),
     ("門が、休んだ行を通す（候補を出したあとで休んだ行にかける）", "src/salescall/core/gate.py",
      "    if waits is not None:\n        return _deny(waits)", "    if waits not in (None, \"task_resting\"):\n        return _deny(waits)",
@@ -1935,8 +1972,8 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
      "        if not mine:   # ほかの回線・ほかの見守り役が鳴らしている途中", "        if False:   # ほかの回線・ほかの見守り役が鳴らしている途中",
      (_B141 + "test_one_test_ring_at_a_time_per_contractor_across_lines_and_supervisors",)),
     ("候補を出す処理が、声のかけ直しを待つ行も出す（門が断るたびに、回線がその行で止まりうる）", "src/salescall/core/scheduler.py",
-     "(within, list(not_phones or ()), line_id, list(gate.TASK_STAGE_REASONS),",
-     "(within, list(not_phones or ()), line_id, [k for k in gate.TASK_STAGE_REASONS if k != \"voice_redial\"],",
+     "(line_id, list(gate.TASK_STAGE_REASONS),",
+     "(line_id, [k for k in gate.TASK_STAGE_REASONS if k != \"voice_redial\"],",
      (_TH + "Places.test_poor_audio_counts_on_the_line_and_the_row_waits_for_a_voiced_line",
       "tests.test_decided.Errors178.test_s17_9_a_row_ended_by_poor_audio_is_not_called_again_at_once_on_the_same_line")),
     ("知らせの重ね防ぎの鍵を、欄ごとに1つにする（戻したあとの2回目の休みを知らせない）", "src/salescall/core/health.py",
@@ -2019,7 +2056,7 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
      "                  (run.tenant, once)) is not None:", "                  (run.tenant, once)) is None and False:",
      (_TH + "Places.test_a_fixed_version_is_given_once",)),
     ("声が聞き取れずに終えた電話（E4）を、ふつうの鳴った電話（E1）にする", "src/salescall/core/health.py",
-     '    if a["by_audio"]:\n        return "E4"\n', "",
+     '    if a["by_audio"] or _cut_by_audio(tx, a):\n        return "E4"\n', "",
      (_TH + "Places.test_poor_audio_counts_on_the_line_and_the_row_waits_for_a_voiced_line",)),
     ("表を引く所が落ちても、締めの処理が出来事を捨てて締める（出来事を黙って失う。⛔ 3段目の影の受け止め方）", "src/salescall/core/settle.py",
      "    health.after_call(tx, attempt_id)   # まだ状態の表へ渡していなければ渡す",
@@ -2226,6 +2263,86 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
      "    _row(\"R-8\", T, TS.ON_PLAN, \"E3\", _r8, \"【決 10-25】・【当(11)】\", when=lambda s, e, r: s.n == 1000),",
      (_T139 + "test_two_in_a_row_on_one_row_rest_it_and_the_line_moves_to_the_next_row",
       "tests.test_settle.Settle.test_a_call_our_own_program_ended_is_made_again_as_planned_and_counts_nowhere")),
+    # ── 見直し23
+    ("言葉ごとの幅を、依頼者の設定でなく初めの値で読む（依頼者が「夕方」を変えても、判定は16〜18時のまま。見直し23 の (2)）",
+     "src/salescall/core/gate.py",
+     "    periods = spoken_time.periods_from({k: spoken_time.range_seconds(get(key)) for k, key in PERIOD_SETTINGS.items()})",
+     "    periods = spoken_time.periods_from({k: spoken_time.range_seconds(v) for k, v in {\"morning\": [\"00:00\", \"10:00\"],"
+     " \"forenoon\": [\"00:00\", \"12:00\"], \"afternoon\": [\"13:00\", \"00:00\"], \"evening\": [\"16:00\", \"18:00\"],"
+     " \"night\": [\"18:00\", \"20:00\"]}.items()})",
+     ("tests.test_settle.CallbackWindow.test_the_client_period_widths_reach_the_judgement_through_settle",)),
+    ("本番の業務も、検証モードと同じく品質の基準で評価して止める（撤回された 2026-10-16 の決定の形。見直し23 の (3)）",
+     "src/salescall/core/quality_stage.py",
+     "    if not _verification(tx, version_id):   # 本番：段も基準も見ない（1件ごとの知らせと修正依頼は、締めの処理が通話ごとに出す）\n"
+     "        return None",
+     "    pass",
+     ("tests.test_quality.Production.test_forbidden_speech_never_stops_the_business_and_tells_per_call",)),
+    ("番号の聞き直し・お詫びの電話の別の時間帯へのかけ直しで、前の同じ目的の電話から最短の間隔をあけない（見直し23 の (8)）", _NEXT,
+     "        local = max(local, gate.same_contact_free_at(tx, scope, max(d.ended for d in dials)))",
+     "        local = local",
+     ("tests.test_apology.Apology.test_the_next_band_waits_the_shortest_interval_after_the_last_apology_call",)),
+    ("赤字の確認ボタンが押されても、期限が来たら、もう一度知らせる（2026-10-30 管理者：押したらもう知らせない）", "src/salescall/core/usage.py",
+     "    if w is not None and w[\"confirmed_at\"] is not None:\n        return None",
+     "    if False:\n        return None",
+     ("tests.test_usage.CostRatio.test_a_confirmed_deficit_is_not_told_again_while_it_lasts_and_a_new_deficit_warns_again",
+      "tests.test_usage.CostRatio.test_a_confirmed_deficit_is_not_reminded")),
+    ("API の使用額の上限（管理者の支払いの件）を、返事の文で見分けない（意味の判定の 400 として、1時間続くと CL-1 へ修正依頼になる）",
+     "src/salescall/core/errors.py",
+     "    if spend_limit(e):\n        return \"spend_limit\"",
+     "    if False:\n        return \"spend_limit\"",
+     ("tests.test_watch.TenantAiStopsAndChecks.test_the_spend_limit_is_told_to_the_admin_not_asked_to_a_fixer",)),
+    # ── 切れ方（2026-10-30 管理者の指摘と決定・取り消せない決定の洗い出し。0150・0151）
+    ("AI が話していた・だれも話していなかっただけで「断った」にする（⛔ 前の穴：声が届かないお客様が黙って切った通話も営業拒否）",
+     "src/salescall/core/judge.py",
+     '    return "unclear"                             # AI が話している途中',
+     '    return "refused" if cut.speaker in ("ai", "none") else "unclear"   # AI が話している途中',
+     ("tests.test_judge.CutTable.test_each_row", "tests.test_settle.UnclearCutChecks.test_until_the_check_call_nothing_irreversible_is_decided")),
+    ("声が片方に届いていなかった証拠を見ない（声が届かず切れた通話を、決められない切れ方にする）", "src/salescall/core/judge.py",
+     '    if cut.callee_cannot_hear or cut.callee_silent:\n        return "audio"', '    if False:\n        return "audio"',
+     ("tests.test_judge.CutTable.test_each_row",
+      "tests.test_settle.UnclearCutChecks.test_a_silent_hang_up_by_a_customer_who_could_not_hear_is_not_a_refusal")),
+    ("声が届かず切れた通話を、途中で切れた電話にしない（お詫びのかけ直しをしない）", "src/salescall/core/judge.py",
+     'or raw_cut == "audio"\n', '\n',
+     ("tests.test_judge.CutTable.test_a_callee_who_could_not_hear_and_hung_up_silently_is_not_a_refusal",
+      "tests.test_settle.UnclearCutChecks.test_a_silent_hang_up_by_a_customer_who_could_not_hear_is_not_a_refusal")),
+    ("会話の報告の、声が届いていなかった証拠を読まない（いつも false）", "src/salescall/core/call_report.py",
+     '_bool_or_false(c, "callee_cannot_hear"), _bool_or_false(c, "callee_silent"))', 'False, False)',
+     ("tests.test_judge.CutTable.test_the_voice_evidence_is_read_from_the_report_and_old_reports_have_none",)),
+    ("状態の表の入口が、声が届かず切れた電話を E4 にしない（声の通る回線からかけ直さない）", "src/salescall/core/health.py",
+     '                        report=report) == "audio"', '                        report=report) == "never"',
+     ("tests.test_settle.UnclearCutChecks.test_a_silent_hang_up_by_a_customer_who_could_not_hear_is_not_a_refusal",)),
+    ("確かめのかけ直しが鳴ったのに出なかった通話を、営業拒否にしない", "src/salescall/core/judge.py",
+     "    if inp.check_rang and not (", "    if False and not (",
+     ("tests.test_judge.CutTable.test_a_check_call_that_rang_without_a_talk_is_a_refusal",
+      "tests.test_settle.UnclearCutChecks.test_a_check_call_that_rang_without_an_answer_is_a_refusal")),
+    ("確かめのかけ直しで決まった営業拒否を、はっきり断られたときと同じ理由で台帳に残す", "src/salescall/core/judge.py",
+     'dnc="refused_unclear_checked", refusal="unclear_checked"', 'dnc="refused_in_call", refusal="unclear_checked"',
+     ("tests.test_judge.Order.test_dnc_reasons_and_flags", "tests.test_settle.UnclearCutChecks.test_a_check_call_that_rang_without_an_answer_is_a_refusal")),
+    ("確かめのかけ直しを、同じお客様に何度でもする", _NEXT,
+     '    return attempt_id if done is None or done["attempt_id"] == attempt_id else None', '    return attempt_id',
+     ("tests.test_settle.UnclearCutChecks.test_a_check_call_that_did_not_ring_is_retried_with_an_apology_after_the_first_gap",)),
+    ("切れ方の分からない通話のあと、確かめのかけ直しをしない（ふつうの再発信の方針で）", _NEXT,
+     '    if check_of is not None and not j.complaint and', '    if False and not j.complaint and',
+     ("tests.test_settle.UnclearCutChecks.test_until_the_check_call_nothing_irreversible_is_decided",)),
+    ("確かめのかけ直しが鳴らなかったとき、回線のせいとして時間をおいてお詫びからかけ直さない", _NEXT,
+     '    if check is not None and check.outcome == "unrung" and', '    if False and',
+     ("tests.test_settle.UnclearCutChecks.test_a_check_call_that_did_not_ring_is_retried_with_an_apology_after_the_first_gap",)),
+    ("確かめのかけ直しが鳴らなかったとき、時間をおかずにかけ直す", _NEXT,
+     "    at = max(now, check.ended_at + health.first_gap(tx))", "    at = now",
+     ("tests.test_settle.UnclearCutChecks.test_a_check_call_that_did_not_ring_is_retried_with_an_apology_after_the_first_gap",)),
+    ("確かめのかけ直しの答えを待っている通話の結果を確定する", "src/salescall/core/approval.py",
+     "        # 決定。確かめのかけ直しの締めの版が確定する。決まりはデータベースの salescall.unclear_check_pending の1か所）\n        return []",
+     "        pass",
+     ("tests.test_settle.UnclearCutChecks.test_until_the_check_call_nothing_irreversible_is_decided",)),
+    ("同じお客様のほかの行を、確かめを待っていても、ほかの決まっていない発信と同じ理由で待たせる（画面が理由を出し分けられない）",
+     "src/salescall/core/dnc.py", '            if p["unclear"]:\n                return "unclear_cut"\n', "",
+     ("tests.test_settle.UnclearCutChecks.test_until_the_check_call_nothing_irreversible_is_decided",)),
+    ("「この番号は現在使われておりません」のお知らせでも、回線を確かめ中にして、テスト番号を待つ", "src/salescall/core/health.py",
+     '    if code == "E2" and a["notice"] == "not_in_use":', '    if False:',
+     ("tests.test_settle.DialNotices.test_not_in_use_alone_is_the_numbers_fault",)),
+    ("電源オフ・圏外のお知らせを、発信に失敗（回線を確かめ中にする・番号のせいに数えうる）にする", "src/salescall/core/attempts.py",
+     '{"power_off": "no_answer", "out_of_range": "no_answer",', '{"power_off": "call_failed", "out_of_range": "call_failed",',
+     ("tests.test_settle.DialNotices.test_power_off_and_out_of_range_are_the_same_as_no_answer",)),
 )
 
 

@@ -334,14 +334,14 @@ class Stops(Base):
         for kw in ({"scope": "client", "client_id": s["client"]},
                    {"scope": "business", "client_id": s["client"], "business_id": s["business"]}):
             with self.subTest(scope=kw["scope"]):
-                e = self.tx(s, lambda tx: stops.stop(tx, cause="budget", reason="試験", tenant_id=s["tenant"], **kw))
+                e = self.tx(s, lambda tx: stops.stop(tx, cause="ai_connection", reason="試験", tenant_id=s["tenant"], **kw))
                 self.assertEqual(self.reason(s), "stopped")
                 self.tx(s, lambda tx: stops.resume(tx, e["event_id"], reason="試験"))
         e = self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: stops.stop(
             tx, scope="line", cause="line_failure", reason="試験", tenant_id=s["tenant"], line_id=s["line"]))
         self.assertEqual(self.reason(s), "line_stopped")       # 止まっているのが回線だけ：回線の理由（行の予定は書き直さない）
         self.assertIn("line_stopped", gate.LINE_REASONS)
-        b = self.tx(s, lambda tx: stops.stop(tx, scope="client", cause="budget", reason="試験", tenant_id=s["tenant"],
+        b = self.tx(s, lambda tx: stops.stop(tx, scope="client", cause="ai_connection", reason="試験", tenant_id=s["tenant"],
                                                client_id=s["client"]))
         self.assertEqual(self.reason(s), "stopped")            # 回線のほかにも止まっていれば、ふつうの「止まっている」
         self.tx(s, lambda tx: stops.resume(tx, b["event_id"], reason="試験"))
@@ -1350,7 +1350,7 @@ class Exit(Base):
     def test_dnc_after_claim_stops_the_dial(self):
         s = self.ready()
         c = self.claim(s)
-        self.tx(s, lambda tx: dnc.register(tx, s["phone"], "refused_found_after"))
+        self.tx(s, lambda tx: dnc.register(tx, s["phone"], "refused_unclear_checked"))
         d = FakeDriver()
         self.assertFalse(dial_exit.dial(self.w.a, SYSTEM, s["tenant"], s["client"], c.attempt_id, d))
         self.assertEqual(d.calls, [])
@@ -2016,7 +2016,7 @@ class PromisesStopsAndConflicts(Base):
         行の予定を、門が5分ごとに書き直し続けた）。"""
         s = self.ready()
         listed = lambda: self.tx(s, lambda tx: [r["task_id"] for r in scheduler.due_tasks(tx, 10)])   # noqa: E731
-        e = self._stop(s, "budget", scope="business")
+        e = self._stop(s, "ai_connection", scope="business")
         self.assertEqual(listed(), [])
         self._resume(s, e)
         d = self._stop(s, "forbidden_speech", scope="business")
@@ -2052,7 +2052,7 @@ class PromisesStopsAndConflicts(Base):
         self.assertEqual(due(), 0)                                              # 約束の電話は品質の停止で止まる
         self._promise(s, minutes=60, purpose="apology")
         self.assertEqual(due(), 1)                                              # お詫びの電話は通す
-        m = self._stop(s, "budget")
+        m = self._stop(s, "ai_connection")
         self.assertEqual(due(), 0)
         self._resume(s, m)
         self._resume(s, q)

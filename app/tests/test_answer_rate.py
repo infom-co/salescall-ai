@@ -30,16 +30,21 @@ def baseline(rate_by_hour, per_hour=20):
             for h, r in rate_by_hour.items()]
 
 
+# 試験の、いつもの割合の見方（本番は answer_rate.baseline が仮の設定 line.answer_drop_* から読む。試験は値を自分で決めて渡す＝初めの値と
+# 同じ：14日・100本・20本・0.01。⛔ 見直し23 の (9)：前はコードに直に書いていた）
+USUAL = answer_rate.Baseline(14, 100, 20, 0.01)
+
+
 class Judge(unittest.TestCase):
     def judge(self, data, **kw):
-        return answer_rate.judge(data, TODAY, ratio=kw.get("ratio", 0.5), min_dials=kw.get("min_dials", 30))
+        return answer_rate.judge(data, TODAY, ratio=kw.get("ratio", 0.5), min_dials=kw.get("min_dials", 30), usual=USUAL)
 
     def test_a_clear_drop_is_found(self):
         got = self.judge(baseline({10: 0.3, 14: 0.3}) + [rows(TODAY, 10, 20, 1), rows(TODAY, 14, 20, 2)])
         self.assertIsNotNone(got)
         self.assertEqual((got.dials, got.answers), (40, 3))
         self.assertAlmostEqual(got.expected, 0.3, places=2)
-        self.assertLess(got.chance, answer_rate.SIGNIFICANCE)
+        self.assertLess(got.chance, USUAL.significance)
 
     def test_hours_that_are_always_low_are_not_a_drop(self):
         """昼休みは、いつも出てもらいにくい：今日が昼休みばかりでも、同じ時間帯どうしで比べるので知らせない。"""

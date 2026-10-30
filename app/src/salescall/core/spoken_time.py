@@ -30,7 +30,8 @@ callee.business_hours。会社の初めは 9:00〜19:00。日をまたいでよ�
 ⛔ 2026-10-24（見直し19c）：前は営業時間だけを [始まり, 終わり) で見て、会話の側（CL-1 の fill_ampm＝ユーザーの決まり）と読みが
 分かれていた（「明日の9時」を CL-2 は午前9時、会話は確かめる）。
 
-言葉ごとの幅（`PERIODS`。2026-10-19 ユーザー「OK」。幅はお客様の指定＝2026-10-23 ユーザー「『朝』も時間帯が決まっているでしょ」）：朝・朝一＝〜10時・午前（中）＝〜12時・
+言葉ごとの幅（依頼者ごとの設定 callback.period_*＝0088 を `periods_from` で言葉の表にしたもの。読むのはお客様の時間の設定の1か所＝
+gate.callee_settings の CalleeSettings.periods。この部品は初めの値を持たない＝`read` に必ず渡す。2026-10-19 ユーザー「OK」。幅はお客様の指定＝2026-10-23 ユーザー「『朝』も時間帯が決まっているでしょ」）：朝・朝一＝〜10時・午前（中）＝〜12時・
 午後一＝13〜14時・午後＝13時〜・夕方＝16〜18時・夜（晩）＝18〜20時。日の言葉の一覧は DESIGN.md 7-1d の表。
 幅の端のうち、お客様が実際に口にした端（「4時以降」の4時・「3時まで」の3時・時刻ちょうど）を返す（`Reading.said`）。端の決まって
 いない側（「朝」の0時・「午後」の24時）は、かける所（calling_hours.callee_range の1か所）がお客様指定の歯止め時間（設定
@@ -44,6 +45,7 @@ from __future__ import annotations
 import calendar as _cal
 import re
 import unicodedata
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 
@@ -64,12 +66,9 @@ H = 3600
 # 読むのは gate.callee_settings。⛔ 見直し17b）。
 
 # 言葉ごとの1日の中の幅（秒。終わりは含まない）。端の決まっていない側（朝・午前の始まり＝0時、午後の終わり＝24時）は、かける所が
-# お客様指定の歯止め時間で埋める（calling_hours.callee_range）。
-# 依頼者ごとの設定（callback.period_*。表の作り 0088）を `periods_from` で、言葉の表にする（判定が設定を渡す）。下は初めの値
-PERIOD_SETTINGS = {"morning": "callback.period_morning", "forenoon": "callback.period_forenoon",
-                   "afternoon": "callback.period_afternoon", "evening": "callback.period_evening", "night": "callback.period_night"}
-DEFAULT_PERIODS = {"morning": (0, 10 * H), "forenoon": (0, 12 * H), "afternoon": (13 * H, DAY), "evening": (16 * H, 18 * H),
-                   "night": (18 * H, 20 * H)}
+# お客様指定の歯止め時間で埋める（calling_hours.callee_range）。依頼者ごとの設定（callback.period_*。表の作り 0088）を `periods_from` で
+# 言葉の表にする（設定を読むのは gate.callee_settings の1か所）。⛔ 見直し23 の (2)：前はここに初めの値の写し（DEFAULT_PERIODS・
+# PERIODS）を持ち、`read` の引数の既定にしていた（渡し忘れても黙って初めの値になった）
 
 
 def periods_from(ranges: dict[str, tuple[int, int]]) -> dict[str, tuple[int, int]]:
@@ -88,7 +87,6 @@ def range_seconds(value: list[str]) -> tuple[int, int]:
     return s0, s1 if s1 > s0 else DAY
 
 
-PERIODS = periods_from(DEFAULT_PERIODS)
 # 確かめが要る言葉（いつかが1つに決まらない）
 _AMBIGUOUS_TIME = ("お昼前", "昼前", "お昼過ぎ", "お昼すぎ", "昼過ぎ", "昼すぎ", "お昼頃", "お昼ごろ", "昼頃", "昼ごろ", "お昼", "昼間",
                    "昼", "夜遅く", "遅く", "深夜", "夜中", "明け方", "早朝", "定時後", "終業後", "仕事終わり", "仕事のあと")
@@ -467,7 +465,7 @@ def _hour(m: re.Match, hours: tuple[tuple[int, int], ...]) -> int:
 
 
 def _time_part(t: str, pos: int, hours: tuple[tuple[int, int], ...],
-               periods: dict[str, tuple[int, int]] = PERIODS) -> tuple[str, int, int, int, tuple[bool, bool]]:
+               periods: Mapping[str, tuple[int, int]]) -> tuple[str, int, int, int, tuple[bool, bool]]:
     """時刻の言葉を読む：（種類 point／window／whole, 始まりの秒, 終わりの秒, 読んだ位置, 始まり・終わりをお客様が言ったか
     ＝`Reading.said`）。読めなければ _Ambiguous か ValueError。"""
     rest = t[pos:]
@@ -531,12 +529,13 @@ def _at(d: date, sec: int) -> datetime:
 
 
 def read(text: str | None, now: datetime, *, business_hours: tuple[int, int], limit: tuple[int, int], slot: int,
-         until: str | None, periods: dict[str, tuple[int, int]] = PERIODS, monthly: bool = False,
+         until: str | None, periods: Mapping[str, tuple[int, int]], monthly: bool = False,
          beyond_ok: bool = False) -> Reading:
     """お客様が言った時刻の言葉を読む。now＝その通話の時刻（「明日」などの起点。過ぎた時刻は確かめが要る）。
     business_hours＝お客様の営業時間（0時からの秒の (始まり, 終わり)。設定 callee.business_hours）。limit とあわせて午前・午後を
     決める（どちらかに入れば時間内＝`_ampm`）。
-    periods＝言葉ごとの幅（依頼者ごとの設定 callback.period_* を `periods_from` で表にしたもの）。
+    periods＝言葉ごとの幅（依頼者ごとの設定 callback.period_* を `periods_from` で表にしたもの。読むのは gate.callee_settings の1か所＝
+    CalleeSettings.period_table。初めの値を持たない＝必ず渡す）。
     monthly＝お客様が月の理由（月ぎめの業務・入金の間隔など）を言った（会話の報告の callback.cycle＝month）。
     limit＝お客様指定の歯止め時間（設定 callee.designated_limit。幅の端の決まっていない側を埋めて切る＝calling_hours.callee_range）。
     埋めると幅が空になる言い方（口にした端が歯止め時間の外：「23時以降なら」「明日の朝6時まで」）は、通話の中で確かめる（CONFIRM）。

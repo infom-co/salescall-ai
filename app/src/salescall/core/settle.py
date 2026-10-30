@@ -28,7 +28,7 @@ from uuid import UUID
 
 from salescall.core import (apology, approval, attempts, business_rules, business_settings, call_report, calling_hours, dnc,
                             fix_requests, gate, health, next_action, notify, number_recheck, quality_stage, results, settings,
-                            spoken_time, target_policy, target_recheck, tasks, usage)
+                            target_policy, target_recheck, tasks, usage)
 from salescall.core.access import Tx
 from salescall.core.judge import (JUDGE_VERSION, UNKNOWN_CAUSE_FIXERS, UNKNOWN_CAUSES, Facts, Item, JudgeInput, Judgement,
                                   classify_cut, cut_off as judge_cut_off, judge, refusal, unreached_today)
@@ -212,7 +212,6 @@ def _inputs_now(tx: Tx, a: dict[str, Any]) -> dict[str, Any]:
     return {"judge_version": JUDGE_VERSION, "rules_version": str(version),
             "report_source": call_report.load_with_source(tx, a["attempt_id"])[1],
             "items": _items_snapshot(_items(tx, a["task_id"])),
-            "refused_after": dnc.refused_in(tx, a["attempt_id"], "refused_found_after"),   # 検証があとで拒否を見つけた（2026-10-17 の見直し）
             "declared_in_call": dnc.refused_in(tx, a["attempt_id"], "refused_in_call"),   # 通話の途中の申告（2026-10-19 の見直し）
             "target_recheck": target_recheck.load(tx, a["attempt_id"]),   # 目的のお客様の確かめ直し（0108）
             # お客様の時間の設定（歯止め時間・1回分の長さ・営業時間。直したら判定し直す＝⛔ 見直し17b：前は比べていなかった）
@@ -233,7 +232,6 @@ def rejudge(tx: Tx, attempt_id: UUID) -> dict[str, Any] | None:
     now = _inputs_now(tx, a)
     before = {"judge_version": last["judge_version"], "rules_version": last["snapshot"].get("rules_version"),
               "report_source": last["snapshot"].get("report_source"), "items": last["snapshot"].get("items"),
-              "refused_after": bool(last["snapshot"].get("refused_after")),
               "declared_in_call": bool(last["snapshot"].get("declared_in_call")),
               "target_recheck": last["snapshot"].get("target_recheck"), "callee": last["snapshot"].get("callee")}
     if now == before:
@@ -293,21 +291,19 @@ def _judge_input(tx: Tx, a: dict[str, Any], rules_version: Any) -> tuple[JudgeIn
     if target_recheck.missing(tx, attempt_id):   # 録音から作り直した報告に、判定なしの繋ぎが入ったときも（検証は済んでいる）
         raise NotReady("目的のお客様の確かめ直し（録音から）がありません。通話後の検証が記録するまで締めません")
     report, report_source = call_report.load_with_source(tx, attempt_id)
-    refused_after = dnc.refused_in(tx, attempt_id, "refused_found_after")
-    unclear_is_refusal = bool(settings.resolve(tx, "judge.unclear_disconnect_is_refusal", tenant_id=a["tenant_id"],
-                                               client_id=a["client_id"], business_id=a["business_id"]))
     dialed = number_recheck.dialed(tx, attempt_id)
-    get = lambda key: settings.resolve(tx, key, tenant_id=a["tenant_id"], client_id=a["client_id"],   # noqa: E731
-                                       business_id=a["business_id"])
-    periods = spoken_time.periods_from({k: spoken_time.range_seconds(get(key))     # 言葉ごとの幅（依頼者ごとの設定。0088）
-                                        for k, key in spoken_time.PERIOD_SETTINGS.items()})
     inp = JudgeInput(Facts(a["state"], a["hangup_side"], a["reached_answer"], dialed["source"] == "callee", a["spoken_at"]),
-                     report, _items(tx, a["task_id"]), business_rules.load(tx, rules_version), refused_after,
-                     unclear_is_refusal, periods,
+                     report, _items(tx, a["task_id"]), business_rules.load(tx, rules_version),
                      dnc.refused_in(tx, attempt_id, "refused_in_call"), target_recheck.unconfirmed(tx, attempt_id),
-                     callee=_callee(tx, a),   # お客様の時間の設定（読むのは gate.callee_settings の1か所）
-                     anyone_target=business_settings.anyone_target(tx, rules_version))   # 「誰でも」の業務か（見直し18b の (3)）
+                     callee=_callee(tx, a),   # お客様の時間の設定・言葉ごとの幅（読むのは gate.callee_settings の1か所）
+                     anyone_target=business_settings.anyone_target(tx, rules_version),   # 「誰でも」の業務か（見直し18b の (3)）
+                     # 切れ方の分からなかった通話のあとの確かめのかけ直しで、お客様の電話まで鳴ったか（next_action.check_outcome の1か所）
+                     check_rang=_check_rang(next_action.check_outcome(tx, attempt_id)))
     return inp, report_source, dialed
+
+
+def _check_rang(check: next_action.Check | None) -> bool:
+    return check is not None and check.outcome == "rang"
 
 
 def _judge_and_write(tx: Tx, a: dict[str, Any], *, kind: str, rules_version: Any) -> dict[str, Any]:
@@ -316,7 +312,6 @@ def _judge_and_write(tx: Tx, a: dict[str, Any], *, kind: str, rules_version: Any
     attempt_id = a["attempt_id"]
     inp, report_source, dialed = _judge_input(tx, a, rules_version)
     report, rules, items = inp.report, inp.rules, inp.items
-    refused_after, unclear_is_refusal = inp.refused_after, inp.unclear_is_refusal
     j = judge(inp)
     decided = j.state != "unknown"
     alternate = None if not decided or report is None or report.callback is None \
@@ -331,8 +326,9 @@ def _judge_and_write(tx: Tx, a: dict[str, Any], *, kind: str, rules_version: Any
                   "verification": a["verification"]},
         "report": None if report is None else report.to_json(), "report_source": report_source,
         "items": _items_snapshot(items),
-        "rules_version": str(rules.version_id), "refused_after": refused_after, "unclear_is_refusal": unclear_is_refusal,
+        "rules_version": str(rules.version_id),
         "declared_in_call": inp.declared_in_call, "target_recheck": target_recheck.load(tx, attempt_id),
+        "check_rang": inp.check_rang,
         "callee": inp.callee.to_json(),
     }
     version_no = results.append(tx, a["task_id"], kind=kind, business_state=j.state, attempt_id=attempt_id,
@@ -364,7 +360,8 @@ def _judge_and_write(tx: Tx, a: dict[str, Any], *, kind: str, rules_version: Any
         dialed=next_action.Target(a["contact_id"], None, a["purpose"], a["wrong_contact_id"]), dialed_at=a["claimed_at"],
         alternate=alternate, recheck=recheck, forbidden=forbidden, cut_off=cut_off,
         reached_target=inp.reached_target,   # 目的のお客様と話せた（約束の日のお詫びは済んだ）
-        blame=health.blame_of(tx, attempt_id))   # 回線のせい・こちらのせい（試行のせいの欄）：かけた予定のまま（0129・0136）
+        blame=health.blame_of(tx, attempt_id),   # 回線のせい・こちらのせい（試行のせいの欄）：かけた予定のまま（0129・0136）
+        attempt_id=attempt_id, check=next_action.check_outcome(tx, attempt_id))   # 確かめのかけ直し（2026-10-30 管理者の決定）
     apology.schedule_if_ready(tx, a["task_id"])   # 締めの前に承認されていたお詫び：判定が決まったいま、予定を書く（apology の1か所）
     return {"version_no": version_no, "state": j.state, "decision": decision, "already": False}
 

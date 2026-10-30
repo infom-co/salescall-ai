@@ -287,6 +287,10 @@ class Cut:
     speaker: str | None          # 切れた瞬間に話していた側（分からなければ None）
     in_closing: bool             # 締めの言葉に入っていた・締めのあとだった
     callee_refused_last: bool    # お客様の最後の発話が、断りの言葉だった
+    # 声が片方に届いていなかった証拠（2026-10-30 管理者の指摘：声が届かないお客様が黙って切った通話を、営業拒否にしない。
+    # judge.classify_cut が「声が届かず切れた」＝audio にする）。無い（前の形の報告）＝ false。データの形 版 1.06
+    callee_cannot_hear: bool = False   # お客様が「聞こえない」「もしもし？」と言っていた（こちらの声がお客様に届いていない）
+    callee_silent: bool = False        # お客様の声がこちらにほとんど届いていなかった（出たあと、聞き取れる言葉が無いまま切れた）
 
 
 @dataclass(frozen=True)
@@ -470,7 +474,9 @@ class CallReport:
             "hold_timeout": [{**said(h.evidence), "waited_s": h.waited_s} for h in self.hold_timeouts]}
         return {"version": VERSION, "facts": {k: v for k, v in facts.items() if v}, "not_reached": self.not_reached,
                 "cut": None if self.cut is None else {"speaker": self.cut.speaker, "in_closing": self.cut.in_closing,
-                                                      "callee_refused_last": self.cut.callee_refused_last},
+                                                      "callee_refused_last": self.cut.callee_refused_last,
+                                                      "callee_cannot_hear": self.cut.callee_cannot_hear,
+                                                      "callee_silent": self.cut.callee_silent},
                 "apology_delivered": self.apology_delivered}
 
 
@@ -479,6 +485,11 @@ def _bool(d: dict, key: str) -> bool:
     if not isinstance(v, bool):
         raise ReportInvalid(f"{key} は true / false です")
     return v
+
+
+def _bool_or_false(d: dict, key: str) -> bool:
+    """無ければ false の true / false（あとから足した項目。前の形の報告を受け取る）。"""
+    return False if d.get(key) is None else _bool(d, key)
 
 
 def _choice(v: Any, allowed: tuple[str, ...], key: str, *, optional: bool = False) -> str | None:
@@ -603,9 +614,10 @@ def from_json(raw: Any) -> CallReport:
     not_reached = _choice(d.get("not_reached"), NOT_REACHED_REASONS, "not_reached", optional=True)
     cut = None
     if d.get("cut") is not None:
-        c = _keys(d["cut"], {"speaker", "in_closing", "callee_refused_last"}, "cut")
+        c = _keys(d["cut"], {"speaker", "in_closing", "callee_refused_last", "callee_cannot_hear", "callee_silent"}, "cut")
+        # 声が届いていなかった証拠の2つは、無ければ false（前の形の報告・まだ書かない会話の処理＝データの形 版 1.06 で足した）
         cut = Cut(_choice(c.get("speaker"), SPEAKERS, "cut.speaker", optional=True), _bool(c, "in_closing"),
-                  _bool(c, "callee_refused_last"))
+                  _bool(c, "callee_refused_last"), _bool_or_false(c, "callee_cannot_hear"), _bool_or_false(c, "callee_silent"))
     delivered = d.get("apology_delivered")
     if delivered is not None and not isinstance(delivered, bool):
         raise ReportInvalid("apology_delivered は true / false です")

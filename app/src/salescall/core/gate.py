@@ -22,7 +22,7 @@ from typing import Any, NamedTuple
 from uuid import UUID
 
 from salescall.core import (approval, attempts, business_rules, business_settings, calling_hours, dnc, errors, health, notify,
-                            quality_stage, recordings, settings, stops, target_policy)
+                            quality_stage, recordings, settings, spoken_time, stops, target_policy)
 from salescall.core.access import Rejected, Tx
 from salescall.core.calendar import CalendarOutOfRange, holiday_checker
 from salescall.core.health_rules import RESTS
@@ -93,6 +93,10 @@ REASONS: dict[str, Reason] = {
     "callback_window": Reason("お客様が言ったかけ直しの時間（「夕方」「3時まで」など）の外です", "wait", "plan"),
     "calendar_out_of_range": Reason("祝日の暦が無い日です", "cannot_judge", "run"),
     "related_unsettled": Reason("このお客様にかかわる前の発信の締め（断られたかの確かめ）が、まだ済んでいません", "wait", "unoffered"),
+    # 同じお客様のほかの行の通話の切れ方が分からず、確かめのかけ直しの答えを待っている（2026-10-30 管理者の決定：決まるまでのあいだに、
+    # 断ったかもしれない会社へほかの行からかけない。決まりはデータベースの salescall.unclear_check_pending の1か所＝dnc.undecided_reach）
+    "related_unclear_cut": Reason("このお客様にかかわる前の通話の切れ方が分からず、確かめのかけ直しの答え（断られたか）を待っています",
+                                  "wait", "unoffered"),
     "same_contact_interval": Reason("同じお客様への前の発信から、間隔が空いていません", "wait", "plan"),
     "daily_attempts": Reason("同じお客様へ、今日かけてよい回数を使い切りました", "wait", "plan"),
     "cross_client_interval_same_tenant": Reason("ほかの依頼者が同じ番号へかけたばかりです", "wait", "plan"),
@@ -255,14 +259,21 @@ def window_hours(tx: Tx, *, tenant_id: UUID, client_id: UUID, business_id: UUID 
                                       callee_settings(tx, **scope).designated_limit, window)
 
 
+# 言葉ごとの幅の設定（依頼者ごと。表の作り 0088）の名前（読むのは `callee_settings` の1か所＝checks/rules.py の SETTING_READERS）
+PERIOD_SETTINGS = {"morning": "callback.period_morning", "forenoon": "callback.period_forenoon",
+                   "afternoon": "callback.period_afternoon", "evening": "callback.period_evening", "night": "callback.period_night"}
+
+
 def callee_settings(tx: Tx, *, tenant_id: UUID, client_id: UUID, business_id: UUID | None) -> calling_hours.CalleeSettings:
-    """お客様の時間の設定（営業時間・お客様指定の歯止め時間・1回分の長さ・「〇時まで」の理由ごとの決め方）を読む1か所（門・締め＝
-    判定・次の動きが使う）。"""
+    """お客様の時間の設定（営業時間・お客様指定の歯止め時間・1回分の長さ・「〇時まで」の理由ごとの決め方・言葉ごとの幅）を読む1か所
+    （門・締め＝判定・次の動きが使う）。言葉ごとの幅は、依頼者の値（callback.period_*）を言葉の表にする（spoken_time.periods_from）。"""
     get = lambda key: settings.resolve(tx, key, tenant_id=tenant_id, client_id=client_id, business_id=business_id)   # noqa: E731
     sec = lambda pair: (calling_hours.clock_seconds(pair[0]), calling_hours.clock_seconds(pair[1]))   # noqa: E731
+    periods = spoken_time.periods_from({k: spoken_time.range_seconds(get(key)) for k, key in PERIOD_SETTINGS.items()})
     return calling_hours.CalleeSettings(sec(get("callee.business_hours")), sec(get("callee.designated_limit")),
                                         int(get("callback.exact_slot")),
-                                        tuple((why, get(key)) for why, key in calling_hours.UNTIL_SETTINGS.items()))
+                                        tuple((why, get(key)) for why, key in calling_hours.UNTIL_SETTINGS.items()),
+                                        tuple(sorted(periods.items())))
 
 
 def _setting(tx: Tx, key: str, task: dict[str, Any]) -> Any:
@@ -270,15 +281,14 @@ def _setting(tx: Tx, key: str, task: dict[str, Any]) -> Any:
                             business_id=task["business_id"])
 
 
-CALL_LENGTH_DAYS = 30   # 業務の平均通話時間を測る期間（直近の日数）
-
-
 def promise_guard_seconds(tx: Tx, task: dict[str, Any]) -> int:
     """時刻を指定された約束の前に回線を空ける長さ（秒。1か所）：これから始める電話（時刻を指定された約束の電話のほかすべて）の
-    業務の平均通話時間（お客様が出て、ふつうに終えた・お客様が切った通話の、予約から終わりまで。直近 CALL_LENGTH_DAYS 日）。数が設定 gate.exact_promise_guard_samples より少ないうちは、設定
+    業務の平均通話時間（お客様が出て、ふつうに終えた・お客様が切った通話の、予約から終わりまで。直近の日数は仮の設定 gate.call_length_days。
+    初め30日。⛔ 見直し23 の (9)：前はコードに直に書いていた）。数が設定 gate.exact_promise_guard_samples より少ないうちは、設定
     gate.exact_promise_guard（初め5分）。2026-10-19 ユーザー：「業務ごとに平均通話時間を測って、それを利用するといいでしょう。
     30分かかる業務と1分で終わる業務では、同じにできないからです」。"""
-    got = tx.one("SELECT seconds, calls FROM salescall.business_call_seconds(%s, %s)", (task["business_id"], CALL_LENGTH_DAYS))
+    got = tx.one("SELECT seconds, calls FROM salescall.business_call_seconds(%s, %s)",
+                 (task["business_id"], int(_setting(tx, "gate.call_length_days", task))))
     if got["calls"] > 0 and got["calls"] >= int(_setting(tx, "gate.exact_promise_guard_samples", task)):   # 0本なら初めの値
         return got["seconds"]
     return int(_setting(tx, "gate.exact_promise_guard", task))
@@ -296,15 +306,15 @@ def _pacing(tx: Tx, task: dict[str, Any], now: datetime, assume_promised: bool |
     else:
         promised = assume_promised
     # 同じお客様（止める範囲が重なる行）の発信で、断られたかがまだ決まっていないものがあれば、決まるまで待つ（dnc の1か所を読む）
-    if dnc.undecided_reach_overlaps(tx, task["task_id"]):
-        return Pacing(remaining, None, "related_unsettled", promised)
+    related = dnc.undecided_reach(tx, task["task_id"])
+    if related is not None:
+        return Pacing(remaining, None, RELATED_REASONS[related], promised)
     same = (task["contact_id"], task["task_id"])   # 同じお客様＝かける番号が同じ発信、または同じ行の発信
     limits: list[tuple[datetime, str, bool]] = []   # 待つ時刻・理由・その時刻が分かっているか（Pacing.known）
     if not promised:
         last = tx.one(f"SELECT max(ended_at) AS at FROM salescall.attempts WHERE {_SAME} AND {_COUNTED}", same)["at"]
         if last is not None:
-            limits.append((last + timedelta(seconds=int(_setting(tx, "gate.same_contact_min_interval", task))),
-                           "same_contact_interval", True))
+            limits.append((same_contact_free_at(tx, task, last), "same_contact_interval", True))
         today = tx.one(
             f"SELECT count(*) AS n, salescall.jst_day_start(salescall.jst(now())::date + 1) AS tomorrow"
             f" FROM salescall.attempts WHERE {_SAME} AND {_COUNTED_TIMES}"
@@ -354,6 +364,14 @@ def _pacing(tx: Tx, task: dict[str, Any], now: datetime, assume_promised: bool |
     return Pacing(remaining, at, reason, promised, known)
 
 
+def same_contact_free_at(tx: Tx, scope: dict[str, Any], last_end: datetime) -> datetime:
+    """同じお客様への前の電話の終わり（last_end）から、最短の間隔（設定 gate.same_contact_min_interval。依頼者ごと）をあけた時刻（門の
+    数え方の1か所＝`_pacing`。お客様と約束したかけ直しの扱いの、番号の聞き直し・お詫びの電話の次の時刻＝next_action._new_band_retry も
+    ここを読む）。scope＝契約者・依頼者・業務（tenant_id・client_id・business_id を持つもの）。⛔ 見直し23 の (8)：前は次の動きが同じ設定を
+    別に読み、門と2か所で決めていた。"""
+    return last_end + timedelta(seconds=int(_setting(tx, "gate.same_contact_min_interval", scope)))
+
+
 def _other_promises(tx: Tx, task: dict[str, Any], promised: bool) -> tuple[str, list[datetime | None]]:
     """ほかの依頼者がお客様と約束している番号か（1か所）：契約者の設定（約束でない電話を、声を替えてかける／待つ／かけない）と、
     その約束の、待つ時刻の並び（None＝ほかの契約者の約束で、時刻が分からない）。約束の電話は、声を替えてかける（待たない）。"""
@@ -399,8 +417,7 @@ def number_waits(tx: Tx, task: dict[str, Any], now: datetime) -> bool:
 
 
 def stage_reason(tx: Tx, version_id: UUID | None, keeping: str | None) -> str | None:
-    """品質の段の理由（まだかけられる段の前・段の件数に達した。無ければ None。1か所＝門と、まもなくかけられる行を数える
-    scheduler.soon_left が読む。見直し22 の 2）。業務の話し方を使わない電話（決まった文面だけ＝お詫びの電話。どれがそれに当たるかは
+    """品質の段の理由（まだかけられる段の前・段の件数に達した。無ければ None。門の1か所）。業務の話し方を使わない電話（決まった文面だけ＝お詫びの電話。どれがそれに当たるかは
     データベースの salescall.fixed_text_kind の1か所）は見ない。版が無ければ None（門が実施回の理由で断る）。"""
     if version_id is None or tx.one("SELECT salescall.fixed_text_kind(%s) AS p", (keeping,))["p"]:
         return None
@@ -429,14 +446,15 @@ def waits_unknown(tx: Tx, task_id: UUID, line_id: UUID | None = None) -> str | N
     門に渡さずに飛ばす（門に渡すと、次の動きが決まった間ごとに予定を書き直し、記録が増え続けた＝⛔ 見直し16・17a。待つ時刻が分かる
     理由は、次の動きがその時刻へ1回書くので、ここには入れない）。見るのは、理由の表の扱いが unoffered・plan_if_known の理由のうち、
     候補のデータベースの条件（行の欄の段＝`TASK_STAGE_REASONS`・「かけない」・止まっている）で除けないもの。どれも門と同じ1か所を読む：
-    契約者の承認を待つ（approval.task_cleared）・同じお客様の発信で、断られたかがまだ決まっていない（dnc.undecided_reach_overlaps）・
+    契約者の承認を待つ（approval.task_cleared）・同じお客様の発信で、断られたかがまだ決まっていない（dnc.undecided_reach）・
     番号の欄の待つ印（N-4。core/health.number_held）・目的のお客様を呼ぶ材料が無い（`_target_short`）・
     話してよい別の声が無い（`choose_voice`）・その回線の発信番号で、ほかの依頼者がこの番号へかけた（`_line_taken`。line_id を渡した
     ときだけ。ほかの回線には出す）・待つ時刻が分からない約束（`pacing` の known）。"""
     if not approval.task_cleared(tx, task_id):
         return "awaiting_approval"
-    if dnc.undecided_reach_overlaps(tx, task_id):
-        return "related_unsettled"
+    related = dnc.undecided_reach(tx, task_id)
+    if related is not None:
+        return RELATED_REASONS[related]
     task = _task(tx, task_id)
     if health.number_held(tx, task["contact_id"]):
         return "number_unconfirmed"
@@ -613,6 +631,8 @@ PLAN_IF_KNOWN = _handled("plan_if_known")
 # 行の欄（DESIGN.md 17-1-2）の段 → 門の理由（1か所。門と、候補を出す処理＝scheduler._candidates が、同じこの表で読む。判定待ちは、
 # 締め待ちの1か所＝salescall.task_unsettled が、その電話をかけた回線でだけ待つ）。⛔ 4段目の前：門と候補が、待つ理由を別々の関数
 # （task_resting・awaiting_recovery）で読み、候補の条件で除く理由の一覧（UNOFFERED_IN_CANDIDATES）を手で合わせていた
+# 同じお客様のほかの行で、断られたかがまだ決まっていないときの門の理由（dnc.undecided_reach の答えの種類 → 理由の名前。1か所）
+RELATED_REASONS: dict[str, str] = {"unsettled": "related_unsettled", "unclear_cut": "related_unclear_cut"}
 TASK_STAGE_REASONS: dict[str, str] = {"resting": "task_resting", "await_recovery": "awaiting_recovery", "voice_redial": "voice_redial"}
 # 行の予定を書き直さない理由のすべて（回線ごとの処理は、これに入らない理由だけを次の動き after_denial へ渡す）
 PLAN_KEPT = frozenset(REASONS) - _handled("plan") - _handled("plan_if_known")
@@ -718,7 +738,7 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
     short = _target_short(tx, task, nxt["keeping"], content)
     if short is not None:
         return _deny(short)
-    why = stage_reason(tx, version, nxt["keeping"])   # 品質の段（`stage_reason` の1か所。まもなくかけられる行の数えも同じものを読む）
+    why = stage_reason(tx, version, nxt["keeping"])   # 品質の段（`stage_reason` の1か所）
     if why is not None:
         return _deny(why)
 

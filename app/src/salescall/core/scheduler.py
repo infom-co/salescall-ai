@@ -20,7 +20,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from salescall.core import gate, ring_test
+from salescall.core import gate
 from salescall.core.access import Tx
 
 
@@ -33,36 +33,6 @@ def clients_for_line(tx: Tx, line_id: UUID) -> list[UUID]:
     return [r["client_id"] for r in tx.all(
         "SELECT client_id FROM salescall.clients WHERE tenant_id = %s AND salescall.line_serves(%s, client_id)"
         " AND salescall.client_active(client_id) ORDER BY created_at", (line["tenant_id"], line["client_id"]))]
-
-
-def soon_left(tx: Tx, line_id: UUID, *, not_phones: list[str]) -> bool:
-    """取引の依頼者に、その回線が「次の電話で決まるのを待つ長さ」（core/ring_test.decide_within の1か所＝テスト番号をあける長さの
-    並びの1つ目。初め15分。0141）のうちにかけられる行があるか（1か所。回線ごとの処理が、番号のせいか回線のせいかがまだ分からない続きを、
-    待たずに決めにいくかを決めるのに読む＝supervisor/line.py の `_decide_if_stuck`）。数える行は、門に渡す候補と同じ決まり
-    （`_candidates`・gate.waits_unknown・gate.stage_reason の1か所）で、時刻だけをその長さ先まで広げたもの。数えない行：まだ分からない
-    続きの番号（not_phones。その番号にかけても続きは決まらない）の行・この回線が決まるのを待って締めていない行（判定待ち＝settle.settle）・
-    番号のせいか回線のせいかが分からないまま待つ行（attempts.number_unconfirmed）・候補に出さない行・門が品質の段で断る行（段が進むまで
-    かけない＝見直し22 の 2。⛔ 0143：数えたので、段の件数に達した検証モードで、まだ分からない続きを決めにいかなかった＝場面 n11）・
-    止めた範囲の行・時刻がその長さより先の行（夜・時間帯の外で「今はかけられない」だけの行も、時刻が先なら数えない）。違う番号の数には
-    よらない（0143）。
-    ⛔ 0136：前は終えていない行が1つでも残っていれば決めにいかず（夜や翌週にかける行も数えた）、行が止まり続けた（見直し19a）。"""
-    within = ring_test.decide_within(tx)
-    staged: dict[tuple[Any, Any], bool] = {}   # 品質の段で断られるか（版と電話の種類ごとに1回読む）
-
-    def callable_soon(r: dict[str, Any]) -> bool:
-        key = (r["version_id"], r["keeping"])
-        if key not in staged:
-            staged[key] = gate.stage_reason(tx, r["version_id"], r["keeping"]) is None
-        return staged[key] and gate.waits_unknown(tx, r["task_id"], line_id) is None
-    offset = 0
-    while True:
-        rows = _candidates(tx, 50, offset, frozenset(), frozenset(), frozenset(), False, within=within, not_phones=not_phones,
-                           line_id=line_id)
-        if any(callable_soon(r) for r in rows):
-            return True
-        if len(rows) < 50:
-            return False
-        offset += 50
 
 
 def due_tasks(tx: Tx, limit: int, *, skip_businesses: set[UUID] | frozenset[UUID] = frozenset(),
@@ -93,11 +63,11 @@ def due_tasks(tx: Tx, limit: int, *, skip_businesses: set[UUID] | frozenset[UUID
 
 def _candidates(tx: Tx, page: int, offset: int, skip_businesses: set[UUID] | frozenset[UUID],
                 skip_runs: set[UUID] | frozenset[UUID], skip_stage: set[UUID] | frozenset[UUID],
-                promised_only: bool, *, within: float = 0, not_phones: list[str] | None = None,
-                line_id: UUID | None = None) -> list[dict[str, Any]]:
-    """データベースだけで決まる候補（門に渡す順。下の条件は門と同じ1か所の決まりを読む）。within＝予定の時刻を、いまからこの秒
-    先まで広げる（`soon_left`）。not_phones＝この番号へかける行を除く（`soon_left`）。line_id＝その回線で探す（締めを待つ行のうち、
-    行の欄が判定待ちの行は、その電話をかけた回線でだけ除く＝salescall.task_unsettled。None ならどの回線でも除く）。"""
+                promised_only: bool, *, line_id: UUID | None = None) -> list[dict[str, Any]]:
+    """データベースだけで決まる候補（門に渡す順。下の条件は門と同じ1か所の決まりを読む）。line_id＝その回線で探す（締めを待つ行の
+    うち、行の欄が判定待ちの行は、その電話をかけた回線でだけ除く＝salescall.task_unsettled。None ならどの回線でも除く）。
+    ⛔ 4段目まで：回線ごとの処理が「まもなくかける行があるか」を決めるのに、予定の時刻を先まで広げ・まだ分からない続きの番号を除いて
+    数えた（`soon_left`。いまは回線の欄の確かめ中 (a) の次に動く時刻が決める＝DESIGN.md 17章。5段目で外した）。"""
     return tx.all(
         "SELECT t.task_id, r.business_id, t.run_id, salescall.run_current_version(t.run_id) AS version_id,"
         "       salescall.keeping_kind(n.purpose, n.promised) AS keeping FROM salescall.tasks t"
@@ -106,8 +76,7 @@ def _candidates(tx: Tx, page: int, offset: int, skip_businesses: set[UUID] | fro
         "               WHERE c.task_id = t.task_id) n"
         "   ON true"   # 行ごとに索引で読む（いまの予定を選ぶのはデータベースの見方の1か所＝0094）
         " JOIN salescall.task_numbers k ON k.task_id = t.task_id AND k.contact_id = n.contact_id"
-        " WHERE n.kind = 'call' AND n.call_at <= now() + make_interval(secs => %s)"
-        "   AND k.phone_e164 <> ALL(%s::text[])"
+        " WHERE n.kind = 'call' AND n.call_at <= now()"
         "   AND NOT salescall.task_unsettled(t.task_id, %s) AND NOT salescall.task_excluded_now(t.task_id)"
         "   AND NOT EXISTS (SELECT 1 FROM salescall.task_states s WHERE s.task_id = t.task_id AND s.stage = ANY(%s::text[]))"
         "   AND NOT EXISTS (SELECT 1 FROM salescall.attempts a WHERE a.task_id = t.task_id"
@@ -119,5 +88,5 @@ def _candidates(tx: Tx, page: int, offset: int, skip_businesses: set[UUID] | fro
         "   AND (t.run_id <> ALL(%s::uuid[]) OR salescall.fixed_text_kind(salescall.keeping_kind(n.purpose, n.promised)))"
         "   AND (n.promised OR NOT %s)"
         " ORDER BY n.promised DESC, n.call_at, t.task_id LIMIT %s OFFSET %s",
-        (within, list(not_phones or ()), line_id, list(gate.TASK_STAGE_REASONS), list(skip_businesses), list(skip_runs),
+        (line_id, list(gate.TASK_STAGE_REASONS), list(skip_businesses), list(skip_runs),
          list(skip_stage), promised_only, page, offset))

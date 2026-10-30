@@ -31,8 +31,11 @@ from salescall.core import notify as _notify
 from salescall.core.access import Tx
 
 Scope = Literal["system", "tenant", "client", "business", "line"]   # line＝その回線だけ（回線の異常。9-1）
-Cause = Literal["manual", "storage_failure", "line_failure", "ai_connection", "project_denied",
-                "forbidden_speech", "quality_gate", "budget", "deficit", "judge_unknown", "program_trouble"]
+Cause = Literal["manual", "line_failure", "ai_connection", "forbidden_speech", "quality_gate", "judge_unknown", "program_trouble"]
+# 止める処理の無い原因（保存の失敗・会話AIの利用拒否・費用の上限・赤字。いまはどれも止めずに、修正依頼・次のキー・知らせで続ける＝
+# 2026-10-16・10-17・10-22 深夜 ユーザー）：新しく止めるのはデータベースが断る（守り stop_events_cause_retired。0148＝見直し23 の (4)）。
+# 前の記録の値としては残す（`CAUSES` の説明も残す。`Cause` には入れない）
+RETIRED_CAUSES = ("storage_failure", "project_denied", "budget", "deficit")
 
 SCOPE_NAMES: dict[str, str] = {"system": "全体", "tenant": "契約者", "client": "依頼者", "business": "業務", "line": "回線"}
 
@@ -61,9 +64,10 @@ CAUSES: dict[str, CauseInfo] = {
     "storage_failure": CauseInfo("保存の失敗", "記録の保存の失敗（いまは、この原因で止める処理は無い：保存の失敗では止めず、CL-2 に"
                                  "修正依頼を出して、ほかの行を続ける。2026-10-16 ユーザー）",
                                  "自動では解かない（この原因で止める処理が無い）", "データベースの状態"),
-    "line_failure": CauseInfo("回線の異常", "その回線の異常が続いた（発信の失敗・回線の上限・端末やアプリの異常）",
-                              "回線の応答の確かめが、決めた回数続けて成功したら解く",
-                              "端末・アプリの状態。管理者か契約者が解くと、続いたエラーは解いた時から数え直す"),
+    "line_failure": CauseInfo("回線の異常", "その回線の異常が続いた（いまは、この原因で止める処理は無い：回線の休みと再開は、回線の"
+                              "状態の表が回線の欄に持ち、停止の記録を作らない＝DESIGN.md 17章。前の作りの記録の値）",
+                              "自動では解かない（この原因で止める処理が無い）",
+                              "端末・アプリの状態。管理者か契約者が解くと、回線の欄へ手の再開（E12）として渡す"),
     "ai_connection": CauseInfo("会話AIの異常", "会話AIの異常が続いた（つながらない・Google の側の誤り・設定の誤り・不明のエラー）",
                                "試しのセッションが、決めた回数続けて成功したら解く（設定の誤りは、直すまで確かめも失敗する）",
                                "数えたエラーの意味（会話AIのエラーの一覧）。管理者か契約者が解くと、続いたエラーは解いた時から数え直す"),

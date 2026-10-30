@@ -74,6 +74,11 @@ def after_judged(tx: Tx, task_id: UUID, version_no: int, version_id: UUID) -> li
     if tx.one("SELECT business_state::text AS s FROM salescall.task_results WHERE task_id = %s AND version_no = %s",
               (task_id, version_no))["s"] == "unknown":
         return []                                  # 判定できなかった結果は確定しない（判定し直した版が確定する）
+    if tx.one("SELECT salescall.unclear_check_pending(r.attempt_id) AS p FROM salescall.task_results r"
+              " WHERE r.task_id = %s AND r.version_no = %s", (task_id, version_no))["p"]:
+        # 切れ方が分からず、確かめのかけ直しの答えを待っている通話の結果は確定しない（断られたかが決まっていない。2026-10-30 管理者の
+        # 決定。確かめのかけ直しの締めの版が確定する。決まりはデータベースの salescall.unclear_check_pending の1か所）
+        return []
     _release(tx, task_id, version_no)
     return [(task_id, version_no)]
 

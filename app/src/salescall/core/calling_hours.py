@@ -241,20 +241,29 @@ class CalleeSettings:
     約束のその日の時間と、歯止め時間の外の時刻を確かめて「はい」と言われたときの1回分（設定 callback.exact_slot）。⛔ 見直し17b：前は
     門と締めが別々に読み、時刻の読み・判定の引数に初めの値（7〜22時・1時間）の写しがあって、渡し忘れても黙って初めの値になった。
     until_rules＝「〇時まで」の言い方の、いま電話を続けられなかった理由（call_report.UNTIL_WHYS）ごとの、かけてよい時間の決め方
-    （UNTIL_RULES。設定 callback.until_*。業務ごと。2026-10-23 ユーザー：「かけ直さないといけない理由によるでしょ」）。"""
+    （UNTIL_RULES。設定 callback.until_*。業務ごと。2026-10-23 ユーザー：「かけ直さないといけない理由によるでしょ」）。
+    periods＝言葉ごとの1日の中の幅（「朝」「夕方」など → 0時からの秒の [始まり, 終わり)。依頼者ごとの設定 callback.period_*＝0088 を
+    spoken_time.periods_from で言葉の表にしたもの。2026-10-19 ユーザー「OK」。時刻の読み spoken_time.read が読む）。⛔ 見直し23 の (2)：
+    前は時刻の読みと判定の入力に、初めの値の写し（spoken_time.DEFAULT_PERIODS・PERIODS）があり、渡し忘れても黙って初めの値になった。"""
     business_hours: tuple[int, int]
     designated_limit: tuple[int, int]
     exact_slot: int
     until_rules: tuple[tuple[str, str], ...]
+    periods: tuple[tuple[str, tuple[int, int]], ...]
 
     def until_rule(self, why: str | None) -> str | None:
         """「〇時まで」の理由の、かけてよい時間の決め方（1か所）。理由が分からなければ None（決めない＝通話の中で確かめる）。"""
         return None if why is None else dict(self.until_rules)[why]
 
+    def period_table(self) -> dict[str, tuple[int, int]]:
+        """言葉ごとの幅の表（時刻の読み spoken_time.read に渡す形）。"""
+        return dict(self.periods)
+
     def to_json(self) -> dict[str, Any]:
         """判定の記録（snapshot）と、判定し直しの比べに使う形（設定を直したら判定し直す）。"""
         return {"business_hours": list(self.business_hours), "designated_limit": list(self.designated_limit),
-                "exact_slot": self.exact_slot, "until_rules": dict(self.until_rules)}
+                "exact_slot": self.exact_slot, "until_rules": dict(self.until_rules),
+                "periods": {w: list(r) for w, r in self.periods}}
 
 
 @dataclass(frozen=True)

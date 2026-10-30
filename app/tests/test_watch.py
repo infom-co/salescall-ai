@@ -58,10 +58,12 @@ class Classify(unittest.TestCase):
         self.assertIn("ai_server_error", errors.COUNTED_FOR["ai_connection"])
 
     def test_every_counted_kind_has_its_evidence(self):
-        # 続いた回数を数え直す「直った証拠」は、止める種類すべてにあり、データベースが知っている名前だけ
-        stopping = {k for k, a in errors.ACTIONS.items() if a.stop_cause is not None}
+        # 続いた回数を数え直す「直った証拠」は、エラーの数で止める種類（止める原因が状態の表の原因でないもの）すべてにあり、データベースが
+        # 知っている名前だけ（0147：会話AIの in_conversation だけ。回線・こちらの不具合は状態の表が決める）
+        stopping = {k for k, a in errors.ACTIONS.items() if a.stop_cause is not None and a.stop_cause not in errors.TABLE_CAUSES}
         self.assertEqual(set(errors.EVIDENCE), stopping)
-        self.assertTrue(set(errors.EVIDENCE.values()) <= {"in_conversation", "verified", "line_ok", "program_fixed", "none"})
+        self.assertEqual(set(errors.EVIDENCE.values()), {"in_conversation"})
+        self.assertEqual({a.stop_cause for a in errors.ACTIONS.values() if a.stop_cause in errors.TABLE_CAUSES}, {"program_trouble"})
         self.assertNotIn("ear_unreachable", errors.counted_with("ai_unreachable"))
         for k in stopping:
             with self.subTest(k):
@@ -85,7 +87,7 @@ class Classify(unittest.TestCase):
             with self.subTest(kind):
                 self.assertIn(a.key, ("keep", "mark_key_unusable", "next_key"))
                 self.assertEqual(a.stop_cause is None, a.stop_scope is None)
-                self.assertIn(a.stop_scope, (None, "tenant", "line"))     # エラーで全体は止めない（会話AIの枠は契約者ごと）
+                self.assertIn(a.stop_scope, (None, "tenant"))     # エラーで全体は止めない（会話AIの枠は契約者ごと）。回線はエラーで止めない
                 if kind.startswith("unknown") or kind == "config_error":
                     self.assertEqual(a.key, "keep")
         own = owner_access()
@@ -135,35 +137,25 @@ class LineStops(unittest.TestCase):
             if r["scope"] == "line"]
 
     def test_line_errors_are_recorded_but_never_stop_the_line(self):
-        """回線の異常のエラーは記録し（何が起きたかの記録・1時間以上続けば修正依頼）、回線は止めない（止めるかは状態の表＝watch.TABLE_CAUSES）。
-        契約者が「何回で止めるか」を決めていても同じ（その仮の値は表に置き換えた）。"""
-        self.w.a.in_tenant(OPERATOR, self.s["tenant"], lambda tx: tx.execute(
-            "INSERT INTO salescall.setting_values (key, scope, tenant_id, value, status, rationale, review_when, set_by)"
-            " VALUES ('stop.line.stop_after_failures', 'tenant', %s, '1', 'decided', '契約者の決まり', '試験', '試験')",
-            (self.s["tenant"],)))
-        need = owner_access().in_system(SYSTEM, lambda tx: settings.initial_value(tx, "stop.line.stop_after_failures"))
-        for _ in range(need + 2):
+        """回線の異常のエラーは記録し（何が起きたかの記録・1時間以上続けば修正依頼）、回線は止めない（休ませるかは回線の状態の表。処置の表の
+        回線の種類は、止める原因を持たない）。「何回で止めるか」の仮の設定（stop.line.*）は、5段目（0147）で外した（17-6）。"""
+        for _ in range(5):
             self.assertEqual(self.line_error(), "line")
         self.assertEqual(self.line_stops(), [])
-        self.assertIn("line_failure", watch.TABLE_CAUSES)
+        for kind in ("line", "unknown_line"):
+            self.assertEqual((errors.ACTIONS[kind].stop_cause, errors.ACTIONS[kind].stop_scope, errors.ACTIONS[kind].stop_after),
+                             (None, None, None))
         recorded = self.a.in_tenant(SYSTEM, self.s["tenant"], lambda tx: tx.one(
             "SELECT count(*) AS n FROM salescall.error_events WHERE source = 'line'"))["n"]
-        self.assertEqual(recorded, need + 2)
-
-    def test_a_call_that_rang_and_ended_resets_the_count(self):
-        need = owner_access().in_system(SYSTEM, lambda tx: settings.initial_value(tx, "stop.line.stop_after_failures"))
-        for _ in range(need - 1):
-            self.line_error()
-        aid = self.w.insert_claim(self.s)
-        for st in ("dialing", "ringing", "no_answer"):
-            self.w.move(self.s, aid, st)                             # 鳴って出なかった：回線は動いている
-        for _ in range(need - 1):
-            self.line_error()
-        self.assertEqual(self.line_stops(), [])
+        self.assertEqual(recorded, 5)
+        gone = owner_access().in_system(SYSTEM, lambda tx: tx.all(
+            "SELECT key FROM salescall.setting_definitions WHERE key LIKE 'stop.line.%%'"))
+        self.assertEqual(gone, [])
 
     def test_a_person_resume_of_an_old_line_stop_explains_why_and_goes_to_the_line_column(self):
-        """前の作りで回線の異常で止めた停止の記録：何で止まったか（原因の意味・数えたエラー）を確かめられ、管理者か契約者が理由を書いて
-        解ける。解いたことは、手で再開した（E12）として回線の状態の表へ渡す（元気の回線は記録だけ＝L-32）。"""
+        """前の作りで回線の異常で止めた停止の記録：何で止まったか（原因の意味）を確かめられ、管理者か契約者が理由を書いて解ける。回線の
+        エラーは、もう回線の停止に数えない（数えたエラーは無い）。解いたことは、手で再開した（E12）として回線の状態の表へ渡す（元気の回線は
+        記録だけ＝L-32）。"""
         for _ in range(2):
             self.line_error()
         sid = self.a.in_tenant(SYSTEM, self.s["tenant"], lambda tx: stops.stop(
@@ -171,8 +163,7 @@ class LineStops(unittest.TestCase):
             tenant_id=self.s["tenant"], line_id=self.s["line"]))["event_id"]
         why = self.a.in_tenant(OPERATOR, self.s["tenant"], lambda tx: stops.explain(tx, sid))
         self.assertEqual(why["cause"]["meaning"], stops.CAUSES["line_failure"].meaning)
-        self.assertEqual(len(why["errors"]), 2)                       # 数えたエラーと、その意味
-        self.assertEqual(why["errors"][0]["meaning"], errors.ACTIONS["line"].meaning)
+        self.assertEqual(why["errors"], [])                           # 回線のエラーは、回線の停止に数えない
         self.assertIsNone(why["resolved"])
         self.a.in_tenant(OPERATOR, self.s["tenant"], lambda tx: stops.resume(tx, sid, reason="試験：端末を入れ直した"))
         self.assertEqual(self.line_stops(), [])
@@ -336,9 +327,16 @@ class TenantAiStopsAndChecks(unittest.TestCase):
         other = World().setup()
         with self.assertRaises(PermissionError):                     # 会話AIのエラーの数は、その契約者の取引だけ
             self.a.in_system(SYSTEM, lambda tx: watch.decide_stop(tx, "ai_unreachable"))
-        n = self.a.in_tenant(SYSTEM, self.s["tenant"], lambda tx: tx.one(
-            "SELECT salescall.consecutive_errors(%s, 'line_failure', 'ringing', %s) AS n", (["line"], other["line"]))["n"])
-        self.assertIsNone(n)                                         # ほかの契約者の回線は数えない
+        self.ai_error(ErrorReport("ai", None, None, unreachable=True), other)
+        count = "SELECT salescall.consecutive_errors(%s, 'ai_connection', %s) AS n"
+        n = self.a.in_system(SYSTEM, lambda tx: tx.one(count, (["ai_unreachable"], "in_conversation"))["n"])
+        self.assertIsNone(n)                                         # 全体の取引では、どの契約者のエラーも数えない
+        n = self.a.in_tenant(SYSTEM, self.s["tenant"], lambda tx: tx.one(count, (["ai_unreachable"], "in_conversation"))["n"])
+        self.assertEqual(n, 0)                                       # ほかの契約者のエラーは数えない
+        n = self.a.in_tenant(SYSTEM, other["tenant"], lambda tx: tx.one(count, (["ai_unreachable"], "in_conversation"))["n"])
+        self.assertEqual(n, 1)
+        n = self.a.in_tenant(SYSTEM, other["tenant"], lambda tx: tx.one(count, (["ai_unreachable"], "ringing"))["n"])
+        self.assertIsNone(n)                                         # 知らない証拠の名前では数えない
         spent = self.a.in_client(SYSTEM, self.s["tenant"], self.s["client"], lambda tx: tx.one(
             "SELECT salescall.spent_today_tenant() AS y")["y"])
         self.assertIsNone(spent)                                     # 契約者の今日の費用は、その契約者の取引だけ（0064）
@@ -427,6 +425,35 @@ class TenantAiStopsAndChecks(unittest.TestCase):
         self.assertEqual(self.a.in_tenant(SYSTEM, s["tenant"], lambda tx: stops.open_stops(
             tx, tenant_id=s["tenant"], client_id=s["client"], business_id=None)), [])
         self.assertEqual(owner_access().in_system(SYSTEM, lambda tx: settings.initial_value(tx, "judge.outage_bypass")), 60)
+
+    def test_the_spend_limit_is_told_to_the_admin_not_asked_to_a_fixer(self):
+        """API の使用額の上限（管理者が決めた支払いの上限。2026-10-28 の Anthropic の「You have reached your specified API usage limits」）は、
+        管理者の支払いの件：直す担当への修正依頼でなく、管理者への知らせ（1時間以上続いても修正依頼にしない）。見分けるのは返事の文の1か所
+        （errors.spend_limit）で、番号（400・429）では見分けない（同じ番号の、ほかの誤りは今までどおり）。止めない。"""
+        said = "Error code: 400 - You have reached your specified API usage limits. You will regain access on 2026-11-01."
+        for code in (400, 429, None):
+            with self.subTest(code=code):
+                self.assertEqual(errors.classify(ErrorReport("judge", code, said)), "spend_limit")
+        self.assertEqual(errors.classify(ErrorReport("judge", 400, "試験：中身の形が違う")), "judge_rejected")   # 文が無ければ今までどおり
+        self.assertEqual(errors.classify(ErrorReport("judge", 429, None)), "judge_outage")
+        a = errors.ACTIONS["spend_limit"]
+        self.assertEqual((a.fixer, a.lasting_fixer, a.stop_cause, a.notify), (None, None, None, False))
+        s = World().setup()
+        before = len(self.a.in_system(SYSTEM, lambda tx: fix_requests.open_requests(tx, "CL-1")))
+        with mock.patch.object(watch, "_lasting", lambda tx, kind: True):   # 1時間以上続いていても
+            got = watch.after_error(self.a, SYSTEM, ErrorReport("judge", 400, said), tenant_id=s["tenant"], client_id=s["client"])
+        self.assertEqual(got, "spend_limit")
+        self.assertEqual(len(self.a.in_system(SYSTEM, lambda tx: fix_requests.open_requests(tx, "CL-1"))), before)   # 修正依頼は出さない
+        told = self.a.in_system(SYSTEM, lambda tx: tx.all(
+            "SELECT summary FROM salescall.notification_events WHERE for_admin AND kind = 'error_notice' AND origin_tenant = %s",
+            (s["tenant"],)))
+        self.assertEqual([r["summary"] for r in told], ["エラー：" + errors.LABELS["spend_limit"]])   # 管理者へ知らせる
+        mine = self.a.in_tenant(SYSTEM, s["tenant"], lambda tx: tx.all(
+            "SELECT summary FROM salescall.notification_events WHERE kind = 'error_notice' AND NOT for_admin AND tenant_id = %s",
+            (s["tenant"],)))
+        self.assertEqual(mine, [])                                       # 契約者の支払いの件ではない
+        self.assertEqual(self.a.in_tenant(SYSTEM, s["tenant"], lambda tx: stops.open_stops(
+            tx, tenant_id=s["tenant"], client_id=s["client"], business_id=None)), [])
 
     def test_a_lasting_temporary_error_becomes_a_fix_request(self):
         """一時的なもの（別の耳につながらない）でも、1時間以上続いたら担当（CL-1）へ修正依頼を出す。続いていなければ出さない

@@ -92,7 +92,8 @@ def set_terms(tx: Tx, terms: Terms, *, valid_from: datetime, note: str) -> int:
          terms.hourly_gap_seconds, terms.deficit_caution, note))["terms_id"]
 
 
-# 1本あたりの報酬（かけた1本・話せた1本）に数える電話：お詫びの電話（こちらの誤りのため）と、途中で切れたあとにお詫びして
+# 1本あたりの報酬（かけた1本・話せた1本）に数える電話：お詫びの電話（こちらの誤りのため。時給の時間にも入れない＝salescall.counts_for_reward。
+# 2026-10-30 管理者：今の作りのまま確定）と、途中で切れたあとにお詫びして
 # すぐかけ直した電話は数えない（2026-10-18 ユーザー：「回線が切れてもシステムが途切れても、1人のお客さんに対して、50円ですよね」）。
 # 決まりはデータベースの1か所 salescall.counts_per_call（電話の種類 keeping_kind から。時給の「電話と電話の間」・回線の応答率も同じ。
 # ⛔ 見直し17b：前は目的の名前をここに直に書いていた）。時給の時間は salescall.work_seconds（かけ直した電話の時間も入れる＝1人の

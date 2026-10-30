@@ -53,8 +53,8 @@ from salescall.core import attempts, business_rules, business_settings, call_rep
 from salescall.core.access import Tx
 from salescall.core.attempts import AttemptNotFound
 
-__all__ = ["REFUSED", "ItemInvalid", "ItemValue", "MoveWork", "call_setting", "check_item", "declare_do_not_call", "earlier",
-           "handlings", "item_work", "move_work", "record_keys", "report_work", "save_rebuilt_report", "save_report", "write_item"]
+__all__ = ["REFUSED", "ItemInvalid", "ItemValue", "MoveWork", "NoticeWork", "call_setting", "check_item", "declare_do_not_call", "earlier",
+           "handlings", "item_work", "move_work", "notice_work", "record_keys", "report_work", "save_rebuilt_report", "save_report", "write_item"]
 
 # 理由を持てる状態と、その理由の名前の一覧（正本は業務の決まり business_rules。ここは対応だけ）
 _REASONS: dict[str, tuple[str, ...]] = {"dont_know": business_rules.DONT_KNOW_REASONS,
@@ -117,6 +117,24 @@ class MoveWork:
 
     def __call__(self, tx: Tx) -> dict[str, Any]:
         return attempts.move(tx, self.attempt_id, self.to_state)   # type: ignore[arg-type]
+
+
+@dataclass(frozen=True)
+class NoticeWork(MoveWork):
+    """お客様の番号へかけて、電話網のお知らせの声が返った試行を終える、通話ごとの書き手へ頼む形（`notice_work`。0151）。to_state は
+    終わり方（attempts.NOTICE_ENDS の1か所が決めたもの＝通話ごとの口が、終わりの移りとして手元で読む）。"""
+    notice: str | None = None
+
+    def __call__(self, tx: Tx) -> dict[str, Any]:
+        return attempts.end_by_notice(tx, self.attempt_id, self.notice)
+
+
+def notice_work(attempt_id: UUID, notice: str | None) -> NoticeWork:
+    """お知らせの声が返った試行の終わりを、通話ごとの書き手へ頼む形（`call.write(conversation_io.notice_work(試行, "power_off"))`）。
+    notice＝link/phone.NOTICES のどれか（見分けられなければ None）。終わり方は attempts.end_by_notice の1か所が決める。"""
+    if notice not in attempts.NOTICE_ENDS:
+        raise ValueError(f"お知らせの種類は {attempts.NOTICES} のどれか（見分けられなければ None）です：{notice!r}")
+    return NoticeWork(attempt_id, attempts.NOTICE_ENDS[notice], notice)
 
 
 def move_work(attempt_id: UUID, to_state: str) -> MoveWork:

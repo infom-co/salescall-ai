@@ -17,7 +17,7 @@
 - 取り消し（revoke）は管理者か契約者だけ・記録つき・1回だけ（データベースが守る）。自動では取り消さない（Intent.md 10-3）。
 - 引くのは `lookup`。門と取込は、`target_policy` を通して引く。
 - **断られたら止める範囲**（`reach`）も、ここの1か所。門は、締めがまだの発信（断られたかがまだ決まっていない）の範囲に入る
-  番号・管理番号へかけない（`undecided_reach_overlaps`。止める前にかけてしまう隙を作らない。DESIGN.md 5-2-2）。
+  番号・管理番号へかけない（`undecided_reach`。止める前にかけてしまう隙を作らない。DESIGN.md 5-2-2）。
 """
 
 from __future__ import annotations
@@ -29,8 +29,11 @@ from salescall.core import attempts, settings, tasks
 from salescall.core.access import Tx
 from salescall.core.phone import PhoneNumber, normalize
 
-Reason = Literal["refused_in_call", "refused_found_after", "wrong_party", "fax_line", "manual", "client_list"]
-REFUSALS = frozenset({"refused_in_call", "refused_found_after"})   # お客様が断った
+Reason = Literal["refused_in_call", "refused_unclear_checked", "wrong_party", "fax_line", "manual", "client_list"]
+# お客様が断った：通話の中ではっきり断られた（refused_in_call）・切れ方の分からない通話のあとの確かめのかけ直しが鳴ったのに出なかった
+# ＝営業拒否とみなす（refused_unclear_checked。2026-10-30 管理者の決定。広げ方は営業拒否と同じ）。⛔ 2026-10-30 に外した：
+# refused_found_after（通話後の検証で見つけた断り。書く入口がどこにも無かった。あとから見つける道は録音から作り直した報告の1本）
+REFUSALS = frozenset({"refused_in_call", "refused_unclear_checked"})
 # お客様（行）ごと止める理由：お客様が断った・依頼者の一覧（依頼者が受けた、お客様の「かけないで」。Intent.md 原則14「止めるのは
 # お客様ごと」。誤って広げても「かけない」側の誤りで害は無い＝Intent.md 10-3）
 CUSTOMER_WIDE = REFUSALS | {"client_list"}
@@ -126,7 +129,7 @@ def register_declared(tx: Tx, attempt_id: UUID) -> dict[str, Any]:
     止めるのは、その通話でかけた番号だけ（理由 refused_in_call・どの通話かつき）：その番号の相手が断ったことは、相手が誰でも
     確か。行の番号すべて・管理番号へ広げるのは締め（判定のあと。判定が「発信の拒否」のとき）：相手が番号違いの方だったなら、
     行のお客様の断りではないので広げない（判定の (1)）。締めまでは、門が、締めがまだの発信の範囲へかけない
-    （`undecided_reach_overlaps`）ので、広げるのを締めまで待っても、かけてしまう隙は無い。
+    （`undecided_reach`）ので、広げるのを締めまで待っても、かけてしまう隙は無い。
     ⇒ 会話の処理が報告を書く前に落ちても、申告はもう台帳にある。何度呼んでも同じ（2回目は前の登録のまま）。"""
     a = tx.one("SELECT phone_e164, salescall.reached_answer(attempt_id) AS reached FROM salescall.attempts"
                " WHERE attempt_id = %s", (attempt_id,))
@@ -138,8 +141,7 @@ def register_declared(tx: Tx, attempt_id: UUID) -> dict[str, Any]:
 
 
 def refused_in(tx: Tx, attempt_id: UUID, reason: Reason) -> bool:
-    """その通話の拒否が、台帳に入っているか（1か所。refused_in_call＝通話の途中の申告／refused_found_after＝通話後の検証が
-    聞き逃しを見つけた）。取り消した登録は数えない（取り消し＝契約者が誤りと確かめた。数えると、判定し直しで「発信の拒否」に
+    """その通話の拒否が、台帳に入っているか（1か所。refused_in_call＝通話の途中の申告）。取り消した登録は数えない（取り消し＝契約者が誤りと確かめた。数えると、判定し直しで「発信の拒否」に
     戻り、取り消した番号を締めがまた止めた）。"""
     return tx.one("SELECT 1 FROM salescall.dnc_entries WHERE source_attempt_id = %s AND reason = %s"
                   " AND revoked_at IS NULL LIMIT 1", (attempt_id, reason)) is not None
@@ -181,9 +183,15 @@ def reach(tx: Tx, task_id: UUID) -> tuple[list[str], str | None]:
     return list(dict.fromkeys(own + shared)), ref
 
 
-def undecided_reach_overlaps(tx: Tx, task_id: UUID) -> bool:
+UndecidedKind = Literal["unsettled", "unclear_cut"]
+
+
+def undecided_reach(tx: Tx, task_id: UUID) -> UndecidedKind | None:
     """この行と同じお客様の、ほかの行の発信で、断られたかがまだ決まっていないもの（予約・通話中・締め前・判定できないで
-    判定待ち。データベースの1か所 salescall.refusal_undecided）があるか。取引の依頼者の分（発信禁止は依頼者ごと）。
+    判定待ち・切れ方が分からず確かめのかけ直しを待っている。データベースの1か所 salescall.refusal_undecided）があるか。取引の依頼者の分
+    （発信禁止は依頼者ごと）。あれば、その種類（unclear_cut＝切れ方の分からない通話の確かめのかけ直しを待っている＝データベースの
+    salescall.unclear_check_pending。2026-10-30 管理者の決定：決まるまでのあいだに、断ったかもしれない会社へほかの行からかけない／
+    unsettled＝そのほか）。無ければ None。門の理由の名前は gate の1か所（`gate.RELATED_REASONS`）。
     「同じお客様」＝その発信が断られていたら、この行の番号（または管理番号）が止まる（止める範囲は `reach` の1か所）。
 
     止めるのは締めの処理（判定のあと）なので、決まる前に同じお客様へかけると、断ったお客様にまたかけうる。
@@ -196,19 +204,23 @@ def undecided_reach_overlaps(tx: Tx, task_id: UUID) -> bool:
         raise tasks.TaskNotFound(str(task_id))
     mine = set(tasks.numbers(tx, task_id))
     near, _ = reach(tx, task_id)   # この行の番号と、番号を共有する行の番号（相手の範囲が、この行の番号に届きうる行の番号）
+    found: UndecidedKind | None = None
     for p in tx.all(
-            "SELECT DISTINCT a.task_id FROM salescall.attempts a"
+            "SELECT a.task_id, bool_or(salescall.unclear_check_pending(a.attempt_id)) AS unclear FROM salescall.attempts a"
             " WHERE a.task_id <> %s"
             "   AND (salescall.is_dialed(a.state) OR salescall.is_live(a.state, a.claim_expires_at))"   # かけた・生きている予約
             "   AND (EXISTS (SELECT 1 FROM salescall.task_numbers n WHERE n.task_id = a.task_id AND n.phone_e164 = ANY(%s))"
             "        OR (%s::text IS NOT NULL AND EXISTS (SELECT 1 FROM salescall.tasks o WHERE o.task_id = a.task_id"
             "                                             AND o.client_ref = %s)))"
-            "   AND salescall.refusal_undecided(a.attempt_id)",
+            "   AND salescall.refusal_undecided(a.attempt_id)"
+            " GROUP BY a.task_id ORDER BY a.task_id",
             (task_id, list(near), t["client_ref"], t["client_ref"])):
         numbers, ref = reach(tx, p["task_id"])
         if mine.intersection(numbers) or (ref is not None and ref == t["client_ref"]):
-            return True
-    return False
+            if p["unclear"]:
+                return "unclear_cut"
+            found = "unsettled"
+    return found
 
 
 def register_contractor(tx: Tx, phone: PhoneNumber | str, reason: str, *, import_id: UUID | None = None) -> dict[str, Any]:

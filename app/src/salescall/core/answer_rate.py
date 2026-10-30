@@ -5,10 +5,13 @@ Intent.md 8-6：「同じ番号から短時間に大量にかけると、お客�
 
 - **数えるのはデータベースの1か所**（`salescall.line_answer_counts`：回線の、日・時間帯ごとの、かけた本数と出てもらえた本数）。
 - **落ちたかの判断は `judge` の1か所**（データベースを読まない＝数だけで決まる）：今日の出てもらえた割合を、その回線の前の
-  `BASELINE_DAYS` 日の**同じ時間帯の割合**から見込んだ割合と比べる（昼休み・夕方は出てもらいにくいので、時間帯の違いで知らせない）。
-  次の3つがそろったときだけ「落ちた」：(1) 今日の本数が設定（line.answer_drop_min_dials）以上 (2) 今日の割合が、見込みの設定の比
-  （line.answer_drop_ratio）より下 (3) 見込みどおりの割合なら、偶然では `SIGNIFICANCE`（100回に1回）も起きない下がり方。
-  前の日々の本数が `BASELINE_MIN_DIALS` に足りない回線（新しい番号など）は、いつもの割合が分からないので判断しない。
+  日々（`Baseline.days`＝仮の設定 line.answer_drop_baseline_days。初め14日）の**同じ時間帯の割合**から見込んだ割合と比べる（昼休み・
+  夕方は出てもらいにくいので、時間帯の違いで知らせない。時間帯の本数が `Baseline.hour_min_dials`＝line.answer_drop_hour_min_dials に
+  足りなければ、前の日々全体の割合）。次の3つがそろったときだけ「落ちた」：(1) 今日の本数が設定（line.answer_drop_min_dials）以上
+  (2) 今日の割合が、見込みの設定の比（line.answer_drop_ratio）より下 (3) 見込みどおりの割合なら、偶然では `Baseline.significance`
+  （line.answer_drop_significance。初め 0.01＝100回に1回）も起きない下がり方。前の日々の本数が `Baseline.min_dials`
+  （line.answer_drop_baseline_min_dials。初め100本）に足りない回線（新しい番号など）は、いつもの割合が分からないので判断しない。
+  ⛔ 見直し23 の (9)：前は、この4つの数をコードに直に書いていた（画面の仮の値の一覧に出なかった）。
 - **落ちたら、その契約者へ知らせる**（1回線1日1回。種類 answer_rate_drop）。**発信は止めない**（お客様に影響が出るものではない＝
   原則6。番号を休ませるか替えるかは、契約者が知らせを見て決める）。呼ぶのは見守り役（契約者ごとの仕事）。
 """
@@ -23,10 +26,20 @@ from uuid import UUID
 from salescall.core import notify, settings, stats
 from salescall.core.access import Tx
 
-BASELINE_DAYS = 14          # いつもの割合を見る日数（今日を除く）。曜日の偏りを2回ずつならす
-BASELINE_MIN_DIALS = 100    # いつもの割合を決めるのに要る、前の日々の本数
-HOUR_MIN_DIALS = 20         # 時間帯ごとの割合を使うのに要る、前の日々のその時間帯の本数（足りなければ、前の日々全体の割合）
-SIGNIFICANCE = 0.01         # 見込みどおりなら、この確率でしか起きない下がり方のときだけ知らせる
+@dataclass(frozen=True)
+class Baseline:
+    """いつもの割合の見方（どれもシステムの仮の設定。読むのは `baseline` の1か所）。"""
+    days: int               # いつもの割合を見る日数（今日を除く。line.answer_drop_baseline_days）
+    min_dials: int          # いつもの割合を決めるのに要る、前の日々の本数（line.answer_drop_baseline_min_dials）
+    hour_min_dials: int     # 時間帯ごとの割合を使うのに要る、前の日々のその時間帯の本数（line.answer_drop_hour_min_dials）
+    significance: float     # 見込みどおりなら、この確率でしか起きない下がり方のときだけ知らせる（line.answer_drop_significance）
+
+
+def baseline(tx: Tx) -> Baseline:
+    """いつもの割合の見方を、設定から読む（1か所）。"""
+    get = lambda key: settings.system_value(tx, key)   # noqa: E731
+    return Baseline(int(get("line.answer_drop_baseline_days")), int(get("line.answer_drop_baseline_min_dials")),
+                    int(get("line.answer_drop_hour_min_dials")), float(get("line.answer_drop_significance")))
 
 
 @dataclass(frozen=True)
@@ -39,13 +52,13 @@ class Drop:
     chance: float         # 見込みどおりなら、今日の本数以下しか出てもらえない確率
 
 
-def judge(rows: list[dict[str, Any]], today: date, *, ratio: float, min_dials: int) -> Drop | None:
-    """日・時間帯ごとの数（line_answer_counts の行）から、今日の応答率が落ちたかを決める（1か所）。"""
+def judge(rows: list[dict[str, Any]], today: date, *, ratio: float, min_dials: int, usual: Baseline) -> Drop | None:
+    """日・時間帯ごとの数（line_answer_counts の行）から、今日の応答率が落ちたかを決める（1か所）。usual＝いつもの割合の見方。"""
     now = [r for r in rows if r["day"] == today]
-    base = [r for r in rows if today - timedelta(days=BASELINE_DAYS) <= r["day"] < today]
+    base = [r for r in rows if today - timedelta(days=usual.days) <= r["day"] < today]
     n, k = sum(r["dials"] for r in now), sum(r["answers"] for r in now)
     base_n = sum(r["dials"] for r in base)
-    if n < min_dials or base_n < BASELINE_MIN_DIALS:
+    if n < min_dials or base_n < usual.min_dials:
         return None
     overall = sum(r["answers"] for r in base) / base_n
     by_hour: dict[int, list[int]] = {}
@@ -54,21 +67,23 @@ def judge(rows: list[dict[str, Any]], today: date, *, ratio: float, min_dials: i
         got[0] += r["dials"]
         got[1] += r["answers"]
     expected = sum(r["dials"] * (by_hour[r["hour"]][1] / by_hour[r["hour"]][0]
-                                 if by_hour.get(r["hour"], [0, 0])[0] >= HOUR_MIN_DIALS else overall) for r in now) / n
+                                 if by_hour.get(r["hour"], [0, 0])[0] >= usual.hour_min_dials else overall) for r in now) / n
     observed = k / n
     if expected <= 0 or observed >= expected * ratio:
         return None
     chance = stats.at_most(k, n, expected)
-    return Drop(n, k, observed, expected, chance) if chance < SIGNIFICANCE else None
+    return Drop(n, k, observed, expected, chance) if chance < usual.significance else None
 
 
 def check(tx: Tx, tenant_id: UUID, line_id: UUID, *, today: date | None = None) -> Drop | None:
     """その回線の今日（日本時間）を見る（契約者の取引）。"""
     today = today or tx.today()
+    usual = baseline(tx)
     rows = tx.all("SELECT * FROM salescall.line_answer_counts(%s, %s, %s)",
-                  (line_id, today - timedelta(days=BASELINE_DAYS), today))
+                  (line_id, today - timedelta(days=usual.days), today))
     value = lambda key: settings.resolve(tx, key, tenant_id=tenant_id, client_id=None, business_id=None)   # noqa: E731
-    return judge(rows, today, ratio=float(value("line.answer_drop_ratio")), min_dials=int(value("line.answer_drop_min_dials")))
+    return judge(rows, today, ratio=float(value("line.answer_drop_ratio")), min_dials=int(value("line.answer_drop_min_dials")),
+                 usual=usual)
 
 
 def watch(tx: Tx, tenant_id: UUID, *, today: date | None = None) -> dict[UUID, Drop]:

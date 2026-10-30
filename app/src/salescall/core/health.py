@@ -65,7 +65,7 @@ from enum import Enum
 from typing import Any, NamedTuple
 from uuid import UUID
 
-from salescall.core import errors, fix_requests, health_rules as hr, notify, settings
+from salescall.core import call_report, errors, fix_requests, health_rules as hr, judge, notify, settings
 from salescall.core.access import Tx
 
 __all__ = ["ORDER", "Tick", "after_call", "after_settle", "blame_of", "by_hand_line", "by_hand_stop", "by_hand_task", "claimed",
@@ -343,7 +343,7 @@ def _resume_calls(run: _Run, g: _Given) -> int | None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 _CALL = (
-    "SELECT a.attempt_id, a.line_id, a.task_id, a.contact_id, a.claimed_at, a.ended_at, a.trouble,"
+    "SELECT a.attempt_id, a.line_id, a.task_id, a.contact_id, a.claimed_at, a.ended_at, a.trouble, a.state::text AS state, a.hangup_side, a.notice,"
     "       salescall.rang(a.state, a.cut_off, a.attempt_id) AS rang, salescall.trouble_ours(a.trouble) AS ours,"
     "       salescall.trouble_counts_line(a.trouble) AS by_audio, salescall.trouble_kind(a.trouble) AS kind,"
     "       salescall.reached_answer(a.attempt_id) AS answered, (a.state = 'ended' AND a.trouble IS NULL) AS talked,"
@@ -352,19 +352,45 @@ _CALL = (
     " WHERE a.attempt_id = %s AND salescall.is_dialed(a.state) AND NOT salescall.is_active(a.state) AND a.ended_at IS NOT NULL")
 
 
-def _call_event(a: dict[str, Any]) -> str:
+def _call_event(tx: Tx, a: dict[str, Any]) -> str:
     """終わった電話の出来事（1か所。17-2）：こちらの不具合で終えた＝E3／お客様のところで鳴らなかった＝E2／声が聞き取れずに終えた＝E4／
-    こちらの不具合なしにお客様と話し終えた（ended まで進んだ＝salescall.last_good_talk と同じ）＝E5／ほかの鳴った電話＝E1。
-    どれも今の作りの1か所（trouble_ours・rang・trouble_counts_line）の答えを読む。"""
+    こちらの不具合なしにお客様と話し終えた（ended まで進んだ）＝E5／ほかの鳴った電話＝E1。
+    どれも今の作りの1か所（trouble_ours・rang・trouble_counts_line）の答えを読む。声が聞き取れずに終えた（E4）は、通話の部品が「声が
+    聞き取れない」で終えた電話（trouble_counts_line）と、お客様が切った電話のうち、声が片方に届いていなかった証拠のあるもの（切れ方
+    audio＝judge.cut_of の1か所が会話の報告から決める。2026-10-30 管理者の指摘：「声が聞き取れない」と同じ扱い）。"""
     if a["ours"]:
         return "E3"
     if not a["rang"]:
         return "E2"
-    if a["by_audio"]:
+    if a["by_audio"] or _cut_by_audio(tx, a):
         return "E4"
     if a["talked"]:
         return "E5"
     return "E1"
+
+
+def _cut_by_audio(tx: Tx, a: dict[str, Any]) -> bool:
+    """お客様が切った電話が、声が届かず切れた（切れ方 audio）か。会話の報告が無ければ、いいえ（報告は、回線ごとの処理が通話の書き込みを
+    書き終えてから、この入口を呼ぶので、そのときにはある）。"""
+    if a["state"] not in ("ended", "dropped"):
+        return False
+    report = call_report.load(tx, a["attempt_id"])
+    return judge.cut_of(reached_answer=bool(a["answered"]), end_state=a["state"], hangup_side=a["hangup_side"],
+                        report=report) == "audio"
+
+
+def first_gap(tx: Tx) -> timedelta:
+    """テスト番号をあける長さの並びの1つ目（取引の依頼者の値。表の決まりの値と同じ読み方＝`_Run.rules`。初め15分）。確かめのかけ直しが
+    鳴らなかったあと、お詫びからかけ直すまでの長さ（next_action._check_unrung。2026-10-30 管理者の決定：新しい設定は作らない）。"""
+    client = tx.one("SELECT salescall.cur_client() AS c")["c"]
+    return hr.Rules.from_settings(settings.resolve_for_table(tx, hr.SETTING_KEYS.values(), client)).first_gap()
+
+
+def call_event(tx: Tx, attempt_id: UUID) -> str | None:
+    """終わった電話の出来事の記号（E1〜E5。`_call_event` の1か所）。発信まで進んでいない・まだ終わっていない電話は None。
+    切れ方の分からない通話のあとの確かめのかけ直しが、鳴ったか（next_action.check_outcome）が読む。"""
+    a = tx.one(_CALL, (attempt_id,))
+    return None if a is None else _call_event(tx, a)
 
 
 def after_call(tx: Tx, attempt_id: UUID, *, report: Any = None) -> None:
@@ -375,7 +401,7 @@ def after_call(tx: Tx, attempt_id: UUID, *, report: Any = None) -> None:
     a = tx.one(_CALL, (attempt_id,))
     if a is None:   # 発信まで進んでいない・まだ終わっていない
         return
-    code = _call_event(a)
+    code = _call_event(tx, a)
     run = _Run(tx, "after_call", {str(attempt_id): report} if report is not None else None)
     at, me, number, line_id = a["ended_at"], str(attempt_id), str(a["contact_id"]), str(a["line_id"])
     wants: list[tuple[str, Any]] = [(LINE, line_id), (TASK, a["task_id"]), (NUMBER, number), (ATTEMPT, me)]
@@ -388,7 +414,15 @@ def after_call(tx: Tx, attempt_id: UUID, *, report: Any = None) -> None:
     ten, recovering = (boxes[4] if len(boxes) > 4 else None), (boxes[5] if len(boxes) > 5 else [])
     if not att.created:   # ほかの取引が、もう渡した
         return
-    if code == "E2":
+    if code == "E2" and a["notice"] == "not_in_use":
+        # 「この番号は現在使われておりません」のお知らせが返った（0151）：電話網がこの回線の発信を受け付けた＝回線は元気（テスト番号が
+        # 鳴ったのと同じ証拠＝回線へは鳴った電話 E1）、鳴らなかったのは番号のせい（行・番号・試行のせいへは E2 を渡し、続けて表が決めた
+        # のと同じ E16 を渡す＝`_Run.follow`）。電源オフ・圏外のお知らせは「お客様が出なかった」（試行は no_answer＝E1）。決めるのは
+        # core/attempts.end_by_notice の1か所
+        ev = hr.Event("E2", at, attempt=me, number=number, line=line_id)
+        sends = [(line, hr.Event("E1", at, attempt=me, number=number)), (task, ev), (num, ev), (att, ev)]
+        run.decided.append((me, "番号", at))
+    elif code == "E2":
         ev = hr.Event("E2", at, attempt=me, number=number, line=line_id)
         sends = [(line, ev), (task, ev), (num, ev), (att, ev)]
     elif code == "E3":
@@ -416,7 +450,7 @@ def after_settle(tx: Tx, attempt_id: UUID) -> None:
     if tx.one("SELECT 1 FROM salescall.attempt_blames WHERE attempt_id = %s", (attempt_id,)) is None:
         return   # まだ電話の出来事を渡していない（渡すのは `after_call`）
     a = tx.one(_CALL + " AND salescall.is_settled(a.attempt_id)", (attempt_id,))
-    if a is None or _call_event(a) != "E4":
+    if a is None or _call_event(tx, a) != "E4":
         return
     once = f"E4:{attempt_id}"
     if tx.one("SELECT 1 FROM salescall.state_moves WHERE subject = 'task' AND key = %s AND once = %s", (a["task_id"], once)) is not None:

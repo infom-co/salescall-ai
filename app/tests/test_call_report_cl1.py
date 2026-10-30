@@ -20,7 +20,7 @@ from salescall.core.business_rules import check
 from salescall.core.call_report import Cut, ReportInvalid, from_json
 from salescall.core.judge import Facts, Item, JudgeInput, judge
 from salescall.core.next_action import Target, decide_after_call
-from tests.support import CALLEE, rules_raw
+from tests.support import CALLEE, NO_OPENING_RECHECK, rules_raw
 
 V = uuid.uuid4()
 RULES = check(V, ("Q1", "Q2"), ("Q1", "Q2"), rules_raw(("Q1", "Q2")))
@@ -83,7 +83,8 @@ SCENES = {"取り次げない": NOT_TRANSFERRED, "不在・途中で切れた": 
 
 def run(raw, *, items=None, facts=TALKED, cut=CLOSED):
     rep = replace(from_json(raw), cut=cut)
-    return judge(JudgeInput(facts, rep, items or {}, RULES, False, True, callee=CALLEE, anyone_target=False))
+    return judge(JudgeInput(facts, rep, items or {}, RULES, callee=CALLEE, anyone_target=False,
+                            check_rang=False))
 
 
 class Accepted(unittest.TestCase):
@@ -144,10 +145,10 @@ class Judged(unittest.TestCase):
                 j = run(SCENES[name])
                 self.assertEqual((j.state, j.detail["not_reached"], j.detail["policy_key"], j.dnc_reason),
                                  ("not_reached", "not_transferred", "not_reached_not_transferred", None))
-                d = decide_after_call(j, normal=P_NONE, promised=P_NONE, rules=RULES, times_with_key=1, now=NOW,
+                d = decide_after_call(j, recheck=NO_OPENING_RECHECK, normal=P_NONE, promised=P_NONE, rules=RULES, times_with_key=1, now=NOW,
                                       retry_at=tomorrow, target=Target(uuid.UUID(int=1)))
                 self.assertEqual((d.kind, d.at), ("call", tomorrow))
-                d = decide_after_call(j, normal=P_NONE, promised=P_NONE, rules=RULES, times_with_key=2, now=NOW,
+                d = decide_after_call(j, recheck=NO_OPENING_RECHECK, normal=P_NONE, promised=P_NONE, rules=RULES, times_with_key=2, now=NOW,
                                       retry_at=tomorrow, target=Target(uuid.UUID(int=1)))
                 self.assertEqual((d.kind, d.end_reason), ("end", "policy_max:not_reached_not_transferred"))
 
@@ -180,11 +181,14 @@ class Judged(unittest.TestCase):
         self.assertEqual(run(BACK_CONNECTED, items=taken).state, "completed")
 
     def test_a_silent_hang_up_at_the_reception_is_a_refusal(self):
-        """種別の報告が無い受付の方の通話も「話した」なので、切れ方を見る（7-1c。種別があった通話と同じ）：AIが話している途中に
-        黙って切った ⇒ 発信の拒否（原則14）。お客様の言葉の途中で切れた ⇒ 途中で切れた（戻る時刻が取れていないので不在のまま）。"""
+        """種別の報告が無い受付の方の通話も「話した」なので、切れ方を見る（7-1c。種別があった通話と同じ）：断りの言葉のあとに切った ⇒
+        発信の拒否（原則14）。AIが話している途中に黙って切った ⇒ 決められない切れ方（2026-10-30 管理者の決定：すぐ確かめのかけ直し。
+        判定は営業拒否にしない）。お客様の言葉の途中で切れた ⇒ 途中で切れた（戻る時刻が取れていないので不在のまま）。"""
         dropped = Facts("dropped", "callee", True, False, NOW)
-        j = run(ABSENT_CUT, facts=dropped, cut=Cut("ai", False, False))
+        j = run(ABSENT_CUT, facts=dropped, cut=Cut("ai", False, True))
         self.assertEqual((j.state, j.dnc_reason, j.disconnect), ("do_not_call", "refused_in_call", "refused"))
+        j = run(ABSENT_CUT, facts=dropped, cut=Cut("ai", False, False))   # 断りの言葉が無い：決められない（確かめのかけ直しで決まる）
+        self.assertEqual((j.state, j.dnc_reason, j.disconnect, j.detail["cut"]), ("not_reached", None, None, "unclear"))
         j = run(ABSENT_CUT, facts=dropped, cut=Cut("callee", False, False))
         self.assertEqual((j.state, j.disconnect), ("not_reached", "interrupted"))
         # 切れ方の材料が無い：話した通話なので、決めつけずに判定できない（出すのは CL-1＝2026-10-24 ユーザー決定）
@@ -392,10 +396,10 @@ class Offers428(unittest.TestCase):
             with self.subTest(name):
                 j = run(SCENES_428[name])
                 self.assertEqual((j.state, j.detail["policy_key"]), ("not_reached", key))
-                promise = decide_after_call(run(SCENES_428["伝言を残した"]), normal=P_NONE, promised=P_NONE, rules=RULES,
+                promise = decide_after_call(run(SCENES_428["伝言を残した"]), recheck=NO_OPENING_RECHECK, normal=P_NONE, promised=P_NONE, rules=RULES,
                                             times_with_key=1, now=NOW, retry_at=NOW, target=Target(uuid.UUID(int=1)))
                 for k in (None, promise):                                 # 約束の電話（約束を守る次の動きがある）でも先に終える
-                    d = decide_after_call(j, normal=P_NONE, promised=P_NONE, rules=RULES, times_with_key=1, now=NOW,
+                    d = decide_after_call(j, recheck=NO_OPENING_RECHECK, normal=P_NONE, promised=P_NONE, rules=RULES, times_with_key=1, now=NOW,
                                           retry_at=NOW, target=Target(uuid.UUID(int=1)), kept=k)
                     self.assertEqual((d.kind, d.end_reason), ("end", key))
         # 目的のお客様に繋がっていて、ほかの手段を望まれた：取れていない質問があっても、電話ではかけ直さず終える
@@ -508,8 +512,8 @@ ANYONE_SILENT = {   # 名乗りのあと、何も言わずに切られた（締�
 
 
 def judged(raw, *, anyone: bool, items=None, cut=CLOSED):
-    return judge(JudgeInput(TALKED, replace(from_json(raw), cut=cut), items or {}, RULES, False, True, callee=CALLEE,
-                            anyone_target=anyone))
+    return judge(JudgeInput(TALKED, replace(from_json(raw), cut=cut), items or {}, RULES, callee=CALLEE,
+                            anyone_target=anyone, check_rang=False))
 
 
 class Anyone18b(unittest.TestCase):
@@ -545,10 +549,13 @@ class Anyone18b(unittest.TestCase):
                          "not_reached_reason_missing")
 
     def test_a_silent_hang_up_in_an_anyone_business_follows_the_cut_rules(self):
-        """「誰でも」の業務でも、話したお客様が AI の話の途中・話し終えたあとの間に黙って切ったら拒否（7-1c）。切れ方の材料が
+        """「誰でも」の業務でも、切れ方の決まりは同じ（7-1c）：断りの言葉のあとに切ったら拒否、AI の話の途中・話し終えたあとの間に黙って
+        切ったら決められない切れ方（2026-10-30 管理者の決定：すぐ確かめのかけ直し）。切れ方の材料が
         無ければ判定できない（cut_missing。⛔ 前は「話していない」と読み、材料が無くても拒否も見なかった）。"""
-        j = judged(ANYONE_DONE, anyone=True, cut=Cut("ai", False, False))
+        j = judged(ANYONE_DONE, anyone=True, cut=Cut("ai", False, True))
         self.assertEqual((j.state, j.dnc_reason, j.detail.get("refusal")), ("do_not_call", "refused_in_call", "cut"))
+        j = judged(ANYONE_DONE, anyone=True, cut=Cut("ai", False, False))   # 断りの言葉が無い：決められない（確かめのかけ直し）
+        self.assertEqual((j.dnc_reason, j.detail.get("cut")), (None, "unclear"))
         self.assertEqual(judged(ANYONE_DONE, anyone=True, cut=None).detail.get("unknown_cause"), "cut_missing")
 
     def test_a_person_of_unknown_role_in_an_anyone_business_is_the_target(self):

@@ -570,7 +570,7 @@ class Life(SupervisorBase):
     def test_n6_one_number_on_two_rows_keeps_the_numbers_four_tries(self):
         """場面 n6（見直し22 の 9）：同じ番号 X（かけられない）が2つの行にある（同じお客様・違う実施回）。回線は元気・テスト番号は終日。
         番号の4回（並び dial.failed_retry_days の初め＝当日2回・翌日1回・2日後1回）は番号ごとの決まり：次にかけてよい時刻は番号ごとの
-        1か所（attempts.failed_wait）で決め、門と次の動きがそれを読む（行ごとに別々に決めない）。月曜9時から金曜18時まで：X へかけるのは、
+        1か所（番号の欄＝core/health.number_wait。N-1）で決め、門と次の動きがそれを読む（行ごとに別々に決めない）。月曜9時から金曜18時まで：X へかけるのは、
         月曜2回・火曜1回・木曜1回の4回だけ。2つの行とも「番号が使えない」で終わる。⛔ 0129〜0143：もう1つの行の予定は、番号の続きが
         伸びる前に書いたままだったので、月曜に3回かけ、火曜の1回で「番号が使えない」になった。"""
         s, rows = self.start(4)
@@ -620,7 +620,7 @@ class Life(SupervisorBase):
     def test_b5b_a_line_whose_voice_is_broken_is_stopped_again_with_longer_waits(self):
         """場面 b5b（2026-10-29 管理者の決定。0144）：回線の声の受け渡しが壊れ、どのお客様とも「声が聞き取れない」で終わる（テスト番号は
         鳴る＝発信はできる）。テスト番号では声が通るかを確かめられないので、1回鳴れば再開し、また聞き取れなければ止め直し、次に再開を
-        試すまで 15→30→60→120→240分あける（core/watch.checkable の1か所。並びは line.test_ring_gaps）。月曜9時〜18時：止める・再開の
+        試すまで 15→30→60→120→240分あける（回線の欄の次のテストの時刻＝DESIGN.md 17章の表の1か所。並びは line.test_ring_gaps）。月曜9時〜18時：止める・再開の
         回数と、お客様へのお詫びの電話の本数が減る。⛔ 0143 まで：止めてはすぐ再開し、停止13回・お詫び40本だった。"""
         class PoorAudio:
             def run(self, access, actor, claim, *, tenant_id, client_id, call=None):

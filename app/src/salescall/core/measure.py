@@ -42,7 +42,6 @@ from salescall.core.access import Tx
 # 材料（録音の印の理由と同じ名前）。本番で契約者が気づいて直したもの（correction）は、気づいたものだけ＝偏った材料なので、記録は
 # するが誤判定率には混ぜない。
 SOURCES = ("verification", "sample", "correction")
-DRAW_AFTER = timedelta(days=1)          # 週の終わりから、これだけあけて選ぶ（その週の通話の締めが済むのを待つ）
 METHOD = "前の週（日本時間の月曜〜日曜）の、お客様と話せた本番の通話（会話に入った・お詫びの電話でない・検証モードでない・判定した版がある）から、乱数の種で無作為に選んだ"
 SYSTEM_KINDS = ("judged", "rejudged")   # システムが判定した版（正解を付ける相手）
 UNMEASURED = "測らない通話（お客様と話していない・お詫びの電話・かけずに取り消した予約）"
@@ -91,7 +90,9 @@ def draw(tx: Tx, *, now: datetime | None = None) -> list[UUID]:
     now＝いま（日本時間。試験で週を進めるときだけ渡す。ふだんはデータベースの時刻）。"""
     now = now or tx.one("SELECT salescall.jst(now()) AS t")["t"]
     week = week_start(now.date()) - timedelta(days=7)
-    if now < _jst_midnight(week + timedelta(days=7)) + DRAW_AFTER:
+    # 週の終わりから、仮の設定 measure.draw_after（初め1日）だけあけて選ぶ（その週の通話の締めが済むのを待つ。⛔ 見直し23 の (9)：前は
+    # コードに直に書いていた）
+    if now < _jst_midnight(week + timedelta(days=7)) + timedelta(seconds=int(settings.system_value(tx, "measure.draw_after"))):
         return []
     done = []
     for b in tx.all("SELECT business_id, tenant_id, client_id FROM salescall.businesses"

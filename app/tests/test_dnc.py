@@ -61,7 +61,7 @@ class Register(unittest.TestCase):
         w = World(); s = jp_setup(w); other_number = jp_setup(w)
         same_number_other_client = jp_setup(w, phone=s["raw"])
         a = w.insert_claim(s); b = w.insert_claim(other_number)
-        r = in_client(w, s, lambda tx: dnc.register(tx, s["raw"], "refused_found_after"))
+        r = in_client(w, s, lambda tx: dnc.register(tx, s["raw"], "refused_unclear_checked"))
         self.assertEqual(r["released_claims"], 1)
         self.assertEqual((state_of(w, s, a), state_of(w, other_number, b)), ("released", "claimed"))
         self.assertIsNone(blocked(w, same_number_other_client, s["raw"]))   # 依頼者の台帳は、その依頼者にだけ効く
@@ -281,7 +281,7 @@ class RefusalScope(unittest.TestCase):
         in_client(self.w, self.s, lambda tx: tx.execute(
             "UPDATE salescall.attempts SET state = 'no_answer' WHERE task_id = %s AND state = 'dialing'",
             (r["rows"][0]["task_id"],)))
-        self.refuse_on(r["rows"][0]["task_id"], reason="refused_found_after")
+        self.refuse_on(r["rows"][0]["task_id"], reason="refused_unclear_checked")
         n = in_client(self.w, self.s, lambda tx: tx.one(
             "SELECT count(*) FILTER (WHERE phone_e164 IS NOT NULL) AS numbers,"
             "       count(*) FILTER (WHERE client_ref IS NOT NULL) AS refs FROM salescall.dnc_entries"))
