@@ -361,8 +361,16 @@ OTHER_JUDGES = {
     # 正解に当てた）で数えて、1回り目は外れ0・Jev が外れたのは3回の中で確からしさ 0.3 台の1回だけ ⇒ 目的のお客様の判定と同じ 0.8 と決め、2・3回り目で
     # 142回中108回を Jev だけで決めて外れ0（0.95 のときは 64回。尋ねている9行は3回とも 0.8 から上で合った）。⛔ 2026-10-30：この質問も、答えの判定で
     # 測った 0.95 を測らずに使っていた（2026-10-30 ユーザー：「考えない Sonnet の割合を下げながら、100％精度を出す組や仕組みを模索してください。」）
-    "Jev 1.14": {"maker": "typesafe", "model": "typesafe/jev-1.14", "key": "OPENROUTER_JUDGE_KEY", "host": "openrouter.ai",
+    "Jev 1.14": {"maker": "typesafe", "api": "decision", "model": "typesafe/jev-1.14", "key": "OPENROUTER_JUDGE_KEY", "host": "openrouter.ai",
                  "sure_min": 0.95, "facets_sure_min": 0.8, "asks_sure_min": 0.8, "firm_min": 0.2, "ground_min": 0.8},
+    # d1（Liquid の判断のモデル。2026-10-30 ユーザー：「他に、無料や格安で使える優秀なAPIはありますか？」）。Jev と同じ OpenRouter の判断の窓口・
+    # 同じ問いの形（項目ごとの選ぶ問い・言い切っているかの 0〜1）で答えることを、1回ずつ確かめた（答えまで約0.5秒・Jev と同じ問いで入力は約3分の1）。
+    # 公開の料金は入力100万トークンあたり d1-ultra 約0.042ドル・返す側0。版は名前で決める（「最新」の別名だと、測ったあとに中身が替わる）。
+    # 線は、測ってから決める（決めるまで線なし＝試しだけで使う）。⚠️ 送り先は Liquid（米国・OpenRouter を通る）＝Intent.md 13章の送り先にまだ無い
+    "d1 Ultra（Liquid）": {"maker": "liquid", "api": "decision", "model": "liquid/d1-ultra-20261015", "key": "OPENROUTER_JUDGE_KEY",
+                          "host": "openrouter.ai", "firm_min": 0.2},
+    "d1.1（Liquid）": {"maker": "liquid", "api": "decision", "model": "liquid/d1.1-20261027", "key": "OPENROUTER_JUDGE_KEY",
+                      "host": "openrouter.ai", "firm_min": 0.2},
 }
 
 
@@ -393,13 +401,19 @@ JUDGE2 = RACE_NAME
 def members(name: str) -> tuple[str, ...]:
     """判定の名前（1つの判定か、組の名前）⇒ 同時に出す判定の名前の並び。"""
     return GROUPS.get(name, (name,))
-OTHER_PATH = {"openai": "/v1/responses", "typesafe": "/api/v1/systemone"}  # 部品を使わず httpx で送る会社の窓口
+OTHER_PATH = {"openai": "/v1/responses", "decision": "/api/v1/systemone"}  # 部品を使わず httpx で送る窓口（会社の窓口・判断のモデルの窓口）
+
+
+def decision_model(name: str) -> bool:
+    """判断のモデル（選ぶ・分けるだけで、選んだものと確からしさを返す。OpenRouter の判断の窓口＝Jev・d1）か（唯一の場所。問い方・読み方・窓口は
+    この形で選ぶ＝会社では選ばない）。"""
+    return OTHER_JUDGES.get(name, {}).get("api") == "decision"
 
 
 def other_path(name: str) -> str:
     """httpx で送る判定の窓口（同じ会社の形を、別の接続先から使うときは、その判定の path）。"""
     j = OTHER_JUDGES[name]
-    return j.get("path") or OTHER_PATH[j["maker"]]
+    return j.get("path") or OTHER_PATH[j.get("api") or j["maker"]]
 OPENAI_EFFORT = "low"  # 考える量（速さの公開の数字は low で約1.5秒。高くすると十数秒〜）
 
 
@@ -431,7 +445,7 @@ def other_request(name: str, q, text: str, asked: str | None, before: str | None
             body = {"model": j["model"], "max_tokens": 4096, "messages": [{"role": "user", "content": content}], "thinking": j["thinking"],
                     "output_config": {"effort": j["effort"], "format": {"type": "json_schema", "schema": _schema(q, asked)}}}
         return body
-    if j["maker"] == "typesafe":
+    if decision_model(name):
         return jev_request(j["model"], q, text, asked, before)
     return {"model": j["model"], "input": p, "reasoning": {"effort": j.get("effort", OPENAI_EFFORT)}, "max_output_tokens": 2000,
             "text": {"format": {"type": "json_schema", "name": "answer", "schema": _schema(q, asked), "strict": True}}}
@@ -483,7 +497,7 @@ def other_text(name: str, data: dict) -> str | None:
             return next((c.get("text") for c in data.get("content") or [] if c.get("type") == "text"), None)
         got = next((c.get("input") for c in data.get("content") or [] if c.get("type") == "tool_use"), None)
         return json.dumps(got, ensure_ascii=False) if got else None
-    if OTHER_JUDGES[name]["maker"] == "typesafe":  # 言い切っているかは確からしさ（0〜1）で返る：線（firm_min）から上なら言い切っている
+    if decision_model(name):  # 言い切っているかは確からしさ（0〜1）で返る：線（firm_min）から上なら言い切っている
         # ⛔ 2026-10-19 の見直し：ここは半分（0.5）で切っていた（測って合った線は0.2）。答えの確からしさ（sure）も捨てていた
         # 選ぶ問いの答えは全部（項目ごとに答える質問は項目ごと）。確からしさは、選ぶ問いのうち一番低いもの（1つでも自信のない項目があれば、
         # その読みは線より下＝JudgePanel が組のほかの判定で読む）

@@ -151,10 +151,10 @@ async def ask_other(client, name: str, knowledge: list[str], said: str, draft: s
     """Google 以外の判定（meaning_judge.OTHER_JUDGES の Anthropic・OpenAI・TypeSafe）。送り方は意味の判定と同じ形（meaning_judge.other_request）：
     返事の形を決める形（form json＝Sonnet 5.5・OpenAI）か、道具で答えさせる形（Haiku 5.5。考える段を入れる形は、道具を任せて考える量を
     決める）か、Jev の公式の型（部分は返らない・確からしさが返る）。失敗の形も同じ。"""
-    from meaning_judge import OPENAI_EFFORT, OTHER_JUDGES, _other_error, other_path, other_text
+    from meaning_judge import OPENAI_EFFORT, OTHER_JUDGES, _other_error, decision_model, other_path, other_text
 
     j = OTHER_JUDGES[name]
-    if j["maker"] == "typesafe":
+    if decision_model(name):
         body = {"model": j["model"], "state": {"こちらが知っていること": knowledge, "お客様の言葉": (said or "").strip(), "こちらが返す文": draft.strip()},
                 "questions": {"choice": {"type": "choice", "instructions": JEV_ASK, "criteria": CHOICES}}}
         try:

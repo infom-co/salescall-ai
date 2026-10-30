@@ -4410,13 +4410,15 @@ class JudgeSetupTest(unittest.TestCase):
     def test_requests_carry_the_same_prompt_and_choices(self):
         # 会社ごとに違うのは送り方だけ：同じ問い合わせの文と、同じ選べるものの名前（Gemini の _config と同じ並び）。
         # Jev は決まり・場面・選べるものを別々に受け取る：同じ決まりの文・同じ場面・同じ名前と説明（同じ並び）
-        from meaning_judge import OTHER_JUDGES, RULES, cached_content, options, other_request, prompt, prompt_parts, scene
+        from meaning_judge import OTHER_JUDGES, RULES, cached_content, decision_model, options, other_path, other_request, prompt, prompt_parts, scene
         q, asked, text = self.q(), "念のためご連絡はメールでよろしいでしょうか？", "メールのほうが助かりますが…"
         names = [n for n, _, _ in options(q, asked)]
+        self.assertEqual({n for n in OTHER_JUDGES if decision_model(n)}, {"Jev 1.14", "d1 Ultra（Liquid）", "d1.1（Liquid）"})
         for name in OTHER_JUDGES:
             body = other_request(name, q, text, asked)
             sent = json.dumps(body, ensure_ascii=False)
-            if OTHER_JUDGES[name]["maker"] == "typesafe":  # 問いは短く・選択肢は同じ名前で同じ並び（定義は意味で読む書き方）・同じ場面
+            if decision_model(name):  # 判断のモデル（Jev・d1）：問いは短く・選択肢は同じ名前で同じ並び（定義は意味で読む書き方）・同じ場面・同じ窓口
+                self.assertEqual(other_path(name), "/api/v1/systemone")
                 ask = body["questions"]["choice"]
                 self.assertEqual((list(ask["criteria"]), body["state"]), (names, scene(q, text, asked)))
                 self.assertLess(len(ask["instructions"]), 120)
