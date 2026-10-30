@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 from uuid import UUID
 
-from salescall.core import errors, health
+from salescall.core import ai_troubles, errors, health
 from salescall.core import notify as _notify
 from salescall.core.access import Tx
 
@@ -68,9 +68,15 @@ CAUSES: dict[str, CauseInfo] = {
                               "状態の表が回線の欄に持ち、停止の記録を作らない＝DESIGN.md 17章。前の作りの記録の値）",
                               "自動では解かない（この原因で止める処理が無い）",
                               "端末・アプリの状態。管理者か契約者が解くと、回線の欄へ手の再開（E12）として渡す"),
-    "ai_connection": CauseInfo("会話AIの異常", "会話AIの異常が続いた（つながらない・Google の側の誤り・設定の誤り・不明のエラー）",
-                               "試しのセッションが、決めた回数続けて成功したら解く（設定の誤りは、直すまで確かめも失敗する）",
-                               "数えたエラーの意味（会話AIのエラーの一覧）。管理者か契約者が解くと、続いたエラーは解いた時から数え直す"),
+    "ai_connection": CauseInfo("AIの不具合",
+                               "AIの不具合（2026-10-30 深夜 管理者：「アンソロピックが使えなくなったりその他に使う AI のどれかが止まったら、"
+                               "AI の不具合として回復するまで一時停止」）：通話の中で、使うAI（会話AI・判定・別の耳）のどれかが止まった、"
+                               "または会話AIの異常が続いた（つながらない・Google の側の誤り・設定の誤り・不明のエラー）",
+                               "回復の確かめ（通話に使うAIに短く問い合わせ、全部が答えた）が、決めた回数続けて成功したら解く（設定の誤りは、"
+                               "直すまで確かめも失敗する）",
+                               "止まったAIの名前と時刻・数えたエラーの意味。管理者か契約者が解くと、続いたエラーは解いた時から数え直す。"
+                               "どうしても要るときは、解かずに、緊急の道（OpenRouter を通して Google が預かる Claude）で再開できる（止まった"
+                               "のが判定か別の耳のときだけ。会話AIが止まっていると話せないので出せない）"),
     "project_denied": CauseInfo("会話AIの利用拒否", "会話AIのプロジェクトの利用拒否・枠の超過（いまは、この原因で止める処理は無い："
                                 "そのプロジェクトをしばらく休ませ、次のキーで続ける。2026-10-17 ユーザー）",
                                 "自動では解かない（この原因で止める処理が無い）", "Google の管理画面の上限"),
@@ -130,13 +136,16 @@ def stop(tx: Tx, *, scope: Scope, cause: Cause, reason: str, evidence: str | Non
 
 
 def open_same(tx: Tx, *, scope: Scope, cause: Cause, tenant_id: UUID | None = None, client_id: UUID | None = None,
-              business_id: UUID | None = None, line_id: UUID | None = None) -> int | None:
-    """同じ原因・同じ範囲の、まだ解かれていない停止（あればその番号。1か所。止める側は、あれば重ねて止めない）。"""
+              business_id: UUID | None = None, line_id: UUID | None = None, passed_too: bool = True) -> int | None:
+    """同じ原因・同じ範囲の、まだ解かれていない停止（あればその番号。1か所。止める側は、あれば重ねて止めない）。passed_too=False＝
+    緊急の道で再開した停止は数えない（その停止では止まっていないので。core/watch.decide_stop が、緊急の道で補えない種類のときに使う）。"""
     row = tx.one(
-        "SELECT event_id FROM salescall.open_stop_events WHERE cause::text = %s AND scope = %s"
-        " AND tenant_id IS NOT DISTINCT FROM %s AND client_id IS NOT DISTINCT FROM %s"
-        " AND business_id IS NOT DISTINCT FROM %s AND line_id IS NOT DISTINCT FROM %s ORDER BY event_id LIMIT 1",
-        (cause, scope, tenant_id, client_id, business_id, line_id))
+        "SELECT s.event_id FROM salescall.open_stop_events s WHERE s.cause::text = %s AND s.scope = %s"
+        " AND s.tenant_id IS NOT DISTINCT FROM %s AND s.client_id IS NOT DISTINCT FROM %s"
+        " AND s.business_id IS NOT DISTINCT FROM %s AND s.line_id IS NOT DISTINCT FROM %s"
+        " AND (%s OR NOT EXISTS (SELECT 1 FROM salescall.stop_emergency_passes p WHERE p.stop_event_id = s.event_id))"
+        " ORDER BY s.event_id LIMIT 1",
+        (cause, scope, tenant_id, client_id, business_id, line_id, passed_too))
     return None if row is None else row["event_id"]
 
 
@@ -187,6 +196,55 @@ def lets_through(tx: Tx, cause: str) -> frozenset[str]:
     return frozenset(r["kind"] for r in tx.all("SELECT kind FROM salescall.stop_lets_through WHERE cause::text = %s", (cause,)))
 
 
+class EmergencyNotAllowed(Exception):
+    """緊急の道での再開を出せない停止（理由は文で）。"""
+
+
+def emergency_possible(tx: Tx, stop_event_id: int) -> str | None:
+    """その停止で、緊急の道（OpenRouter を通して Google が預かる Claude）での再開を出せるか（1か所。画面がボタンを出すか・出す入口が
+    読む）。出せれば None、出せなければ理由の文。出せるのは、まだ解かれていない・システムが止めた・その契約者の AIの不具合の停止で、
+    まだ出していないもの、かつ、その契約者で同じ原因の前の解き以後に、緊急の道で補えない種類（errors.EMERGENCY_BLOCKERS＝会話AI・
+    緊急の道そのものが止まった・会話AIの異常）が1つも無いとき（2026-10-30 深夜 管理者のご決定。CL-1 の連絡帳 4-62 の (c)：会話AIが
+    止まっていると、再開しても話せない）。契約者の取引で読む。"""
+    s = tx.one(
+        "SELECT s.event_id, s.scope::text AS scope, s.cause::text AS cause, s.actor_kind::text AS actor_kind, s.tenant_id,"
+        " EXISTS (SELECT 1 FROM salescall.stop_emergency_passes p WHERE p.stop_event_id = s.event_id) AS passed"
+        " FROM salescall.open_stop_events s WHERE s.event_id = %s", (stop_event_id,))
+    if s is None:
+        return "まだ解かれていない、その停止はありません"
+    if (s["cause"], s["scope"], s["actor_kind"]) != ("ai_connection", "tenant", "system"):
+        return "緊急の道で再開できるのは、システムが止めた、契約者の AIの不具合の停止だけです"
+    if s["passed"]:
+        return "もう緊急の道で再開しています"
+    blocked = tx.one(
+        "SELECT e.kind FROM salescall.error_events e WHERE e.tenant_id = %s AND e.kind = ANY(%s)"
+        " AND e.occurred_at > coalesce((SELECT max(r.at) FROM salescall.stop_events r JOIN salescall.stop_events x"
+        "                               ON x.event_id = r.resolves_event_id"
+        "                               WHERE x.cause = 'ai_connection' AND x.scope = 'tenant' AND x.tenant_id = %s),"
+        "                              '-infinity'::timestamptz)"
+        " ORDER BY e.error_id DESC LIMIT 1", (s["tenant_id"], list(errors.EMERGENCY_BLOCKERS), s["tenant_id"]))
+    if blocked is not None:
+        return f"緊急の道では補えないAIが止まっています（{errors.LABELS[blocked['kind']]}）。回復を待ってください"
+    return None
+
+
+def emergency_pass(tx: Tx, stop_event_id: int, *, reason: str) -> dict[str, Any]:
+    """その停止のあいだ、緊急の道で新しい電話をかけてよいことにする（契約者か管理者だけ＝データベースが守る。理由は必ず書く）。出したあとの
+    電話は、判定を初めから緊急の道へ送る（予約の judge_route＝データベースの salescall.emergency_route の1か所）。止めた停止が解ければ
+    （確かめが通った・解いた）一緒に終わる。緊急の道で補えないAIがあとで止まれば、また止まる（core/watch.decide_stop）。出した記録を返す。"""
+    why = emergency_possible(tx, stop_event_id)
+    if why is not None:
+        raise EmergencyNotAllowed(why)
+    row = tx.one(
+        "INSERT INTO salescall.stop_emergency_passes (stop_event_id, tenant_id, reason, passed_by, actor_kind)"
+        " SELECT %s, salescall.cur_tenant(), %s, salescall.cur_actor(), salescall.cur_actor_kind()::salescall.actor_kind"
+        " RETURNING stop_event_id, reason, passed_by, actor_kind::text AS actor_kind, at", (stop_event_id, reason))
+    _notify.emit(tx, "emergency_route", key=f"emergency_pass:{stop_event_id}",
+                 summary="AIの不具合で止めていた新しい電話を、緊急の道（OpenRouter を通して Google が預かる Claude）で再開しました。",
+                 refs={"stop_event_id": stop_event_id}, admin=True)
+    return row
+
+
 def explain(tx: Tx, stop_event_id: int, *, error_limit: int = 20) -> dict[str, Any]:
     """何で止まったか（画面と契約者の判断のため。1か所）。取引で見える停止だけ。中身：
     stop（範囲・原因・理由・根拠・誰が・いつ）・cause（意味・自動で解く決まり・管理者か契約者が解く前に確かめること）・who_can_resume・
@@ -221,7 +279,14 @@ def explain(tx: Tx, stop_event_id: int, *, error_limit: int = 20) -> dict[str, A
             " AND NOT EXISTS (SELECT 1 FROM salescall.result_releases x WHERE x.task_id = r.task_id"
             "                 AND x.version_no = r.version_no) ORDER BY r.task_id, r.version_no", (quality["version_id"],))
     info = CAUSES[s["cause"]]
-    return {"stop": s, "cause": {"label": info.label, "meaning": info.meaning, "auto_resume": info.auto_resume,
+    # AIの不具合の停止：止まったAIの名前と時刻（CL-3 の画面）と、緊急の道での再開（出せるか・出した人と理由）
+    troubles, emergency = [], None
+    if s["cause"] == "ai_connection" and s["scope"] == "tenant":
+        troubles = ai_troubles.for_stop(tx, stop_event_id, error_limit)
+        emergency = {"impossible_because": None if resolved is not None else emergency_possible(tx, stop_event_id),
+                     "pass": tx.one("SELECT reason, passed_by, actor_kind::text AS actor_kind, at"
+                                    " FROM salescall.stop_emergency_passes WHERE stop_event_id = %s", (stop_event_id,))}
+    return {"stop": s, "ai_troubles": troubles, "emergency": emergency, "cause": {"label": info.label, "meaning": info.meaning, "auto_resume": info.auto_resume,
                                  "before_resume": info.before_resume,
                                  "lets_through": sorted(lets_through(tx, s["cause"]))},   # 止めているあいだも通す電話
             "who_can_resume": "管理者" if s["scope"] == "system" else "その契約者・管理者",

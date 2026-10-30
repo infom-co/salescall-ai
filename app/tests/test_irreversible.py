@@ -532,6 +532,35 @@ class Utterances(Helpers):
         with self.assertRaises(UtteranceInvalid):                                # 検証が済んだら足さない
             self.tx(s, lambda tx: conversation_io.write_utterance(tx, c.attempt_id, Utterance("ai", 1, "失礼いたします", 9.0)))
 
+    def test_the_words_go_with_the_recording_days_but_held_calls_are_kept(self):
+        """やり取りの文字は、録音と同じ「Fly.io に残す日数」（契約者ごと。初め7日）を過ぎたら消える（計画書 11-4。0157）。消さないのは録音と
+        同じ（測り終わるまで・まだ決まっていない取り消せない決定）。消すのは、その入口だけ。"""
+        worlds, calls = [self.ready(), self.ready()], []
+        for s in worlds:
+            aid = self.answered_call(s)
+            self.tx(s, lambda tx, aid=aid: conversation_io.write_utterance(tx, aid, Utterance("callee", 1, "はい", 1.0)))
+            for st in TALK[3:]:
+                self.tx(s, lambda tx, aid=aid: attempts.move(tx, aid, st))
+            calls.append(aid)
+        (s, s2), (old, held) = worlds, calls
+        self.tx(s2, lambda tx: tx.execute("INSERT INTO salescall.recording_holds (tenant_id, client_id, attempt_id, reason)"
+                                          " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, 'verification')", (held,)))
+        purge = lambda w: app_access().in_tenant(SYSTEM, w["tenant"], conversation_io.purge_utterances)   # noqa: E731
+        self.assertEqual((purge(s), purge(s2)), (0, 0))                              # まだ7日たっていない
+        owner_access().in_system(SYSTEM, lambda tx: (   # 8日前の通話にする（試験の場面を作るため、この取引の中だけ守りを外す）
+            tx.execute("ALTER TABLE salescall.attempts DISABLE TRIGGER USER"),
+            tx.execute("UPDATE salescall.attempts SET ended_at = ended_at - interval '8 days',"
+                       " claimed_at = claimed_at - interval '8 days' WHERE attempt_id = ANY(%s)", (calls,)),
+            tx.execute("ALTER TABLE salescall.attempts ENABLE TRIGGER USER")))
+        self.assertEqual((purge(s), purge(s2)), (1, 0))                              # 測り終わるまで消さない通話の分は残る
+        self.assertEqual(self.tx(s, lambda tx: conversation_io.utterances(tx, old)), [])
+        self.assertEqual(len(self.tx(s2, lambda tx: conversation_io.utterances(tx, held))), 1)
+        with self.assertRaises(Rejected):                                          # 表の持ち主でも、入口の外からは消せない
+            owner_access().in_tenant(SYSTEM, s2["tenant"], lambda tx: tx.execute(
+                "DELETE FROM salescall.call_utterances WHERE attempt_id = %s", (held,)))
+        with self.assertRaises(Rejected):                                          # 契約者の取引のシステムの処理だけ
+            app_access().in_tenant(OPERATOR, s["tenant"], conversation_io.purge_utterances)
+
 
 class ReportShape(unittest.TestCase):
     """会話の報告の項目 irreversible_check（データの形 版 1.07）：無い・null は「判定が無い」、決まった値だけを受ける。"""

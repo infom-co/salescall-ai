@@ -4,7 +4,8 @@
 - **止めるか**（`decide_stop`）：処置の表の「止める原因・範囲・何回続いたら」と、「何回続いたか」（データベースの1か所
   `salescall.consecutive_errors`。種類ごとの「直った証拠」（core/errors.py の EVIDENCE。会話AI＝その契約者のどこかの通話が会話に
   入った）より後で、同じ原因の停止が解かれた時刻より後＝管理者か契約者が再開したら・確かめで解けたら数え直す）。
-  同じ原因・同じ範囲で、まだ解かれていない停止があれば、重ねて止めない。
+  同じ原因・同じ範囲で、まだ解かれていない停止があれば、重ねて止めない（ただし、契約者以上が緊急の道で再開した AIの不具合の停止は、
+  緊急の道で補えない種類＝会話AI・緊急の道そのものが止まったときは、止まっていないものとみなして、また止める。0155）。
 - **止める範囲は、その契約者**（全体は止めない）。会話AIの枠は契約者ごと（契約者が自分のキー・プロジェクトを持つ。
   2026-10-16 ユーザー。Intent.md 1-4）なので、会話AIの異常も、その契約者のエラーだけを数えて、その契約者だけを止める
   （2026-10-17 見直し：前は全体で数えて全体を止め、ある契約者のキーの誤りで、ほかの契約者まで止まった）。
@@ -29,7 +30,7 @@ from datetime import timedelta
 from typing import Any
 from uuid import UUID
 
-from salescall.core import errors, fix_requests, notify, settings, stops
+from salescall.core import ai_troubles, errors, fix_requests, notify, settings, stops
 from salescall.core.access import Access, Actor, Tx
 
 # 確かめで解ける原因 → （確かめの間隔, 何回続けて成功したら解くか）の設定の名前
@@ -103,8 +104,11 @@ def decide_stop(tx: Tx, kind: str) -> dict[str, Any] | None:
     if action.stop_cause is None or action.stop_cause in errors.TABLE_CAUSES:
         return None
     tenant = tx.one("SELECT salescall.cur_tenant() AS t")["t"]
-    if stops.open_same(tx, scope=action.stop_scope, cause=action.stop_cause, tenant_id=tenant) is not None:
-        return None                                  # もう止まっている（重ねて止めない）
+    # もう止まっている（重ねて止めない）。緊急の道で再開した停止は、補える種類（判定・別の耳）なら止まっているとみなし、補えない種類なら
+    # みなさない（また止める。0155）
+    if stops.open_same(tx, scope=action.stop_scope, cause=action.stop_cause, tenant_id=tenant,
+                       passed_too=action.emergency) is not None:
+        return None
     n = tx.one("SELECT salescall.consecutive_errors(%s, %s, %s) AS n",
                (list(errors.counted_with(kind)), action.stop_cause, errors.EVIDENCE[kind]))["n"]
     if n is None:
@@ -134,6 +138,20 @@ def after_error(access: Access, actor: Actor, report: errors.ErrorReport, *, ten
             raise ValueError(f"止める種類のエラー（{kind}）なのに、契約者がありません")
         access.in_tenant(actor, tenant_id, lambda tx: decide_stop(tx, kind))
     return kind
+
+
+def after_ai_troubles(access: Access, actor: Actor, tenant_id: UUID, attempt_id: UUID) -> list[dict[str, Any]]:
+    """その通話で止まったAI（core/ai_troubles.note が書いたもの）について、その契約者の新しい電話を止めるかを決める入口（1か所。通話ごとの
+    書き手が、止まったAIを書いたすぐあとと、回線ごとの処理が通話のあとに呼ぶ）。決めるのは decide_stop（もう止まっていれば何もしない・
+    解けたあとの古い出来事は数えない）。止めた停止の記録を返す。"""
+    def run(tx: Tx) -> list[dict[str, Any]]:
+        done = []
+        for kind in ai_troubles.stop_kinds(tx, attempt_id):
+            got = decide_stop(tx, kind)
+            if got is not None:
+                done.append(got)
+        return done
+    return access.in_tenant(actor, tenant_id, run)
 
 
 def _tenant_setting(tx: Tx, key: str, tenant_id: UUID | None) -> Any:

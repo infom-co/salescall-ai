@@ -65,7 +65,7 @@ from typing import Any
 from uuid import UUID
 
 from salescall.core import (attempts, conversation_io, dial_exit, gate, health, next_action, ring_test, scheduler, settings,
-                            troubles)
+                            troubles, watch)
 from salescall.core.access import Access, Actor, Tx
 from salescall.core.health_rules import LineStage
 from salescall.link.protocol import APOLOGY_WAIT
@@ -214,6 +214,12 @@ class _Call:
             raise TypeError("根拠の文（why）は短い文字で渡します（お客様の言葉・名前は入れない）")
         self._end(reason, "通話を進める部品が、その電話の甚大な問題を知らせました", why)
 
+    def ai_trouble(self, entry: Any) -> None:
+        """通話の途中で、使うAIのどれかが止まった・緊急の道で答えた（会話の報告の ai_trouble の1つと同じ形。CL-1 の Flow.on_ai_trouble が
+        決めたもの）。書き手に頼み（待たずに戻る）、書けたら、その契約者の新しい電話を止めるかを決める（0155。2026-10-30 深夜 管理者：
+        「その他に使う AI のどれかが止まったら、AI の不具合として回復するまで一時停止」）。形が違えば、その場で ReportInvalid。"""
+        self.write(conversation_io.ai_trouble_work(self.attempt_id, entry))
+
     def write(self, work: Callable[[Tx], Any]) -> None:
         """データベースへの書き込み（その依頼者の取引で work(tx)）を、通話ごとの書き手に頼む（待たずに戻る。頼んだ順に書く。書けなかった
         分は `flush` で返す）。頼めない形（呼べないもの）は、その場で TypeError。状態の移り（conversation_io.move_work）のうち、通話が
@@ -285,6 +291,13 @@ class _Call:
                     # おわびを流さない（`_end`。書けたあとに立てる＝見直し22 の 3）
                     if isinstance(work, conversation_io.MoveWork) and done["ended_at"] is not None:
                         self.finishing = True
+                    # 止まったAIを書きうる書き込み（報告・通話の途中の知らせ）：すぐ、その契約者の新しい電話を止めるかを決める（0155。
+                    # 決めるのは watch の1か所。決められなくても、通話は止めない＝見守り役の誤りとして伝え、通話のあとにもう一度決める）
+                    if isinstance(work, conversation_io.TroubleWork):
+                        try:
+                            watch.after_ai_troubles(self.access, self.actor, self.tenant_id, self.attempt_id)
+                        except Exception as e:  # noqa: BLE001
+                            report(self.access, self.tenant_id, "止まったAIで止めるかの判断", e, line_id=self.line_id)
             finally:
                 with self._progress:
                     self._writing_since = None
@@ -505,6 +518,11 @@ def _client_round(access: Access, actor: Actor, tenant_id: UUID, client_id: UUID
                         call.after_runner(error)
                 finally:
                     call.stop()   # どの道でも「話している」から外す（残ると、止める・ログインを外す処理が待ち続ける）
+                    # 通話で止まったAI（どの道で書いても）で、その契約者の新しい電話を止めるか（watch の1か所。もう決めていれば何もしない。0155）
+                    try:
+                        watch.after_ai_troubles(access, actor, tenant_id, got.attempt_id)
+                    except Exception as e:  # noqa: BLE001 決められなくても、回線の処理は止めない（見守り役の誤りとして伝える）
+                        report(access, tenant_id, "止まったAIで止めるかの判断", e, line_id=line_id)
                 if done in (dial_exit.Outcome.DIALED, dial_exit.Outcome.NOT_PLACED):
                     # 電話が終わった（かけられなかった＝「発信に失敗」も）：その電話の出来事を、状態の表を引く入口へ（この回線の電話の
                     # 順のまま。回線を休ませるか・行を待たせるかは表が決める＝次の回の頭で、回線の欄を聞く）

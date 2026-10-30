@@ -173,7 +173,8 @@ class OurTroubles(SupervisorBase):
         # 伝える：電話ごとの知らせ（契約者と管理者）・修正依頼は同じ不具合で1つ・休み始めの知らせは1回・見守り役の誤りに重ねない
         self.assertEqual(self.notices(s, "error_notice"), (2, 2))
         summaries = self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: [r["summary"] for r in tx.all(
-            "SELECT summary FROM salescall.notification_events WHERE kind = 'error_notice'")])
+            "SELECT summary FROM salescall.notification_events WHERE kind = 'error_notice'"
+            " AND tenant_id = salescall.cur_tenant()")])   # この契約者の知らせだけ（全体の知らせは、どの契約者からも見える）
         for summary in summaries:                                              # その行が何を待っているか（0143。新しい知らせは増やさない）
             self.assertIn("この行は復旧を待っています", summary)
             self.assertIn("その不具合を直したと記録され、そのあとプログラムが替わったら", summary)

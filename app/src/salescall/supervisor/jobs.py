@@ -16,7 +16,8 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 from uuid import UUID
 
-from salescall.core import agents, answer_rate, attempts, backup, calendar, health, leases, measure, next_action, settle, usage, watch
+from salescall.core import (agents, answer_rate, attempts, backup, calendar, conversation_io, health, leases, measure, next_action,
+                            settle, usage, watch)
 from salescall.core.access import Access
 from salescall.supervisor import ACTOR, config, plugins, report
 from salescall.supervisor.links import Links
@@ -109,6 +110,13 @@ def reopen_revoked(ctx: Context) -> None:
     _each(ctx, "発信禁止の取り消しで行を戻す", _clients(ctx),
           lambda c: ctx.access.in_client(ACTOR, ctx.tenant_id, c, lambda tx: next_action.reopen_revoked(
               tx, cause="発信禁止の取り消し：終える前の予定に戻す")))
+
+
+def purge_utterances(ctx: Context) -> None:
+    """残す日数を過ぎた通話のやり取りの文字を消す（その契約者の分。1日1回。決まりは core/conversation_io.purge_utterances の1か所。
+    計画書 11-4）。"""
+    _each(ctx, "やり取りの文字を消す", [None],
+          lambda _: ctx.access.in_tenant(ACTOR, ctx.tenant_id, conversation_io.purge_utterances))
 
 
 def draw_samples(ctx: Context) -> None:
@@ -243,6 +251,7 @@ JOBS: tuple[Job, ...] = (
     Job("stop_checks", 30, "tenant", 600, stop_checks, wanted=lambda cfg: cfg.prober is not None),
     Job("rejudge", 600, "tenant", 1800, rejudge_held),
     Job("reopen_revoked", 300, "tenant", 600, reopen_revoked),
+    Job("utterances", 86400, "tenant", 600, purge_utterances),   # やり取りの文字を、録音と同じ日数で消す（1日1回。0157）
     Job("samples", 3600, "tenant", 1800, draw_samples),
     Job("answer_rates", 1800, "tenant", 600, answer_rates),
     Job("budget", 60, "tenant", 600, budget),

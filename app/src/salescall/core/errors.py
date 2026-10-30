@@ -23,11 +23,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import timedelta
 
-SOURCES = ("ai", "ear", "line", "storage", "delivery", "recording", "supervisor", "judge", "call", "runner")   # 会話AI／別の耳（通話後の検証）／
+SOURCES = ("ai", "ear", "line", "storage", "delivery", "recording", "supervisor", "judge", "call", "runner",
+           "ai_trouble")   # 会話AI／別の耳（通話後の検証）／
 #   回線／保存／連携／録音（通話の録音が残っていない・壊れている）／見守り役（決まった間隔の仕事・回線ごとの発信の繰り返しの処理の
 #   誤り。0063）／意味の判定（会話AIとは別の会社の、答えの意味の判定。DESIGN.md 6-10 の (6)。0098）／通話（こちらのプログラムの
 #   不具合で通話をお詫びして終えた。理由は ErrorReport.trouble。0139）／通話の部品（通話を進める部品が、おわびして終えたあとも
-#   戻らず、回線の処理を立て直した。0141）
+#   戻らず、回線の処理を立て直した。0141）／止まったAI（通話の中で、使うAIのどれかが止まった＝会話の報告の ai_trouble・通話ごとの口の
+#   call.ai_trouble。AIの名前は ErrorReport.ai、道は ErrorReport.route。0155）
 
 # 意味の判定の失敗の分け方（CL-1 の連絡帳 4-24）：キーが使えない（無効・権限が無い＝401・403、一覧のキーの行＝Google の
 # 「400 API key not valid」）は、会話AIと同じくキーの誤り（judge_key。⚠️ 試作 meaning_judge.outage は「止まっている」・Google の
@@ -104,6 +106,8 @@ class ErrorReport:
     message: str | None            # 文面（お客様の発話・番号を入れない。エラーの文面だけ）
     unreachable: bool = False      # つながらなかった（接続を開けない・応答が無い・時間切れ）と、呼び出し元が確かに言える
     trouble: str | None = None     # 出どころ「通話」だけ：通話を終えた理由（`TROUBLES` の鍵＝試行の trouble）
+    ai: str | None = None          # 出どころ「止まったAI」だけ：止まったAIの名前（CL-1 の名前。会話AIは `CONVO_AI`）
+    route: str | None = None       # 出どころ「止まったAI」だけ：道（`DIRECT`＝直接か、緊急の道の名前）
 
 
 @dataclass(frozen=True)
@@ -130,6 +134,10 @@ class Action:
     #                                （2026-10-16 ユーザー：「一時的なものなのか、根源的なものなのかで対応が違う」）
     lasting_fixer: str | None = None  # 一時的なもので、止めずに待つもの：LASTING 以上続いたら、待っても直らないとみなして、この担当へ
     #                                修正依頼を出す（2026-10-18 の見直し：前は何日続いても修正依頼にならず、その間お客様の行が待ち続けた）
+    emergency: bool = False        # AIの不具合の停止（ai_connection）のうち、契約者以上の権限で緊急の道（OpenRouter を通して Google が
+    #                                預かる Claude）で再開して補えるもの（止まったのが判定・別の耳＝会話はそのまま話せる）。会話AI・緊急の道
+    #                                そのものが止まったものは補えない（再開しても話せない・判定できない。CL-1 の連絡帳 4-62 の (c)）。
+    #                                決めるのはここの1か所（core/stops.emergency_possible と core/watch.decide_stop が読む）
     per_call: bool = False         # こちらのプログラムの不具合で終えた電話（0139）：知らせは電話ごとに、契約者と管理者の両方へ（同じ種類を
     #                                1時間にまとめない＝2026-10-25 ユーザー「契約者(管理者含む)と、開発AIの担当、記録にそれを伝え」）。
     #                                止めるかは、理由ごとに（ほかの種類と合わせず）、違う行の数で数える（`counted_with`・証拠 program_fixed）
@@ -162,6 +170,12 @@ TROUBLE_SOURCES: dict[str, str] = {"storage_stuck": "storage"}
 # 電話をつなぐ部品（電話接続。PC の電話の部品・声の受け渡し・録音・テスト番号の鳴らし方）の不具合を直す担当（1か所。⏳ 電話接続の担当が
 # 決まったら、その担当へ。それまでは CL-2＝2026-10-13 の分担の「回線の部品」）
 PHONE_FIXER = "CL-2"
+
+# 止まったAI（出どころ ai_trouble）の名前と道（CL-1 の名前そのまま。会話の報告の ai_trouble・回復の確かめ convo.check_ais と同じ。
+# CL-1 の連絡帳 4-62）。会話AIは `CONVO_AI`、直接の道は `DIRECT`、ほかの道（緊急の道）はその道の名前。止まったAIの種類を分けるのは
+# `classify` の1か所
+CONVO_AI = "会話AI"
+DIRECT = "直接"
 
 # こちらの不具合で終えた電話の行が、何を待っているか（1か所。門の理由 awaiting_recovery の説明・不具合の知らせの文が読む。0143。
 # 2026-10-17 管理者：「復旧次第、お詫びとともにすぐかけ直さないといけないでしょ！」。2026-10-25 夜 管理者の決定：戻すのは、その不具合を
@@ -201,6 +215,8 @@ LABELS: dict[str, str] = {
     "call_runner_error": "通話の部品が落ちました（お詫びして終えた）",
     "call_storage_stuck": "記録の書き込みが進みません（お詫びして終えた）",
     "runner_stuck": "通話の部品が戻りません",
+    "ai_stopped": "AIが止まりました（判定・別の耳）", "convo_stopped": "会話AIが止まりました",
+    "emergency_stopped": "緊急の道のAIが止まりました",
 }
 
 ACTIONS: dict[str, Action] = {
@@ -295,6 +311,24 @@ ACTIONS: dict[str, Action] = {
                                            "CL-1"), fixer="CL-1", per_call=True),
     "call_cannot_proceed": Action("keep", "none", "program_trouble", "tenant", "stop.trouble.stop_after_rows", True,
                                   _trouble("決まりどおりの会話を進められなかった", "CL-1"), fixer="CL-1", per_call=True),
+    # AIの不具合での一時停止（2026-10-30 深夜 管理者：「基本的にアンソロピックが使えなくなったりその他に使う AI のどれかが止まったら、
+    # AI の不具合として回復するまで一時停止してください。」。0155）：通話の中で、使うAIのどれかが止まった（会話の側の1か所＝CL-1 の
+    # Flow.on_ai_trouble が「止まった」と決めたもの。時間切れ・上限・つながらない など）。1回で、その契約者の新しい電話を止める
+    # （話している電話は切らない）。回復の確かめ（CL-1 の check_ais で通話に使うAIが全部答えた）が続けて通れば解く。止まったまま1時間以上
+    # なら CL-1 に修正依頼（lasting_stops）。「緊急の道で答えた」はエラーにしない（事実の表に残すだけ）
+    "ai_stopped": Action("keep", "none", "ai_connection", "tenant", None, True,
+                         "通話の中で、判定か別の耳のAIが止まった（時間切れ・上限・つながらない など）：その契約者の新しい電話を、回復の"
+                         "確かめが通るまで止める（話している電話は切らない）。どうしても要るときは、契約者か管理者が、緊急の道（OpenRouter を"
+                         "通して Google が預かる Claude）で再開できる。止まったまま1時間以上なら CL-1 に修正依頼を出す",
+                         lasting_fixer="CL-1", emergency=True),
+    "convo_stopped": Action("keep", "none", "ai_connection", "tenant", None, True,
+                            "通話の中で、会話AIが止まった：その契約者の新しい電話を、回復の確かめが通るまで止める（話している電話は切らない）。"
+                            "会話AIが止まっているので、緊急の道では再開できない。止まったまま1時間以上なら CL-1 に修正依頼を出す",
+                            lasting_fixer="CL-1"),
+    "emergency_stopped": Action("keep", "none", "ai_connection", "tenant", None, True,
+                                "通話の中で、緊急の道（OpenRouter を通して Google が預かる Claude）そのものが止まった：その契約者の新しい"
+                                "電話を、回復の確かめが通るまで止める（緊急の道で再開していても、また止める）。止まったまま1時間以上なら"
+                                " CL-1 に修正依頼を出す", lasting_fixer="CL-1"),
     "call_runner_error": Action("keep", "none", "program_trouble", "tenant", "stop.trouble.stop_after_rows", True,
                                 _trouble("通話を進める部品（会話）が例外で落ちた・通話を終えないまま戻った", "CL-1"),
                                 fixer="CL-1", per_call=True),
@@ -326,13 +360,23 @@ TABLE_CAUSES = frozenset({"program_trouble"})
 # 数え直す。1か所。データベースの salescall.consecutive_errors がこの名前で読む）。2026-10-16 見直し：前は会話AIと別の耳を「どこかの
 # 通話が会話に入った」でまとめて数え直していたので、別の耳だけつながらないとき、ほかの通話が会話に入るたびに数え直し、止まらなかった。
 #   in_conversation＝その契約者のどこかの通話が会話に入った（会話AIが動いた）。
+#   none＝解いた時からだけ数える（AIが止まった＝1回で止める種類。どこかの通話が会話に入ったことでは数え直さない：数え直すと、止まった
+#   AIを使う通話と同じ時刻にほかの通話が会話に入っただけで止まらなくなる。0155）。
 #   ⛔ 4段目まで：回線の line_ok・こちらの不具合の program_fixed・どの種類も使わない verified と none も持っていた（0147 で外した）
 EVIDENCE: dict[str, str] = {
     "config_error": "in_conversation",
     "ai_unreachable": "in_conversation",
     "ai_server_error": "in_conversation",
     "unknown_ai": "in_conversation",
+    "ai_stopped": "none",
+    "convo_stopped": "none",
+    "emergency_stopped": "none",
 }
+
+# AIの不具合の停止のうち、緊急の道で補えない種類（会話AI・緊急の道そのもの。`Action.emergency` の裏返し。1か所から作る）：その契約者で、
+# 同じ原因の前の解き以後に1つでもあれば、緊急の道での再開は出せない（core/stops.emergency_possible）。出したあとに起きれば、また止める
+# （core/watch.decide_stop）
+EMERGENCY_BLOCKERS: tuple[str, ...] = tuple(k for k, a in ACTIONS.items() if a.stop_cause == "ai_connection" and not a.emergency)
 
 
 def counted_with(kind: str) -> tuple[str, ...]:
@@ -361,10 +405,19 @@ def spend_limit(e: ErrorReport) -> bool:
 
 
 def classify(e: ErrorReport) -> str:
-    """エラーの種類（ACTIONS の鍵）。使用額の上限（管理者の支払いの件）は、どの出どころでも先に返事の文で見分ける（`spend_limit`）。
+    """エラーの種類（ACTIONS の鍵）。止まったAI（出どころ ai_trouble）は、AIの名前と道だけで決める。使用額の上限（管理者の支払いの件）は、
+    ほかのどの出どころでも先に返事の文で見分ける（`spend_limit`）。
     会話AI・別の耳は一覧の公式と実測の行だけで決める。ほかの出どころは出どころで決まる。"""
     if e.source not in SOURCES:
         raise ValueError(f"出どころは {SOURCES} のどれかです（{e.source!r}）")
+    # 止まったAI（会話の側が「止まった」と決めたもの）：道とAIの名前で分ける（1か所）。使用額の上限で止まったAIも、止まったAI（回復するまで
+    # 一時停止＝管理者が上限を上げれば、回復の確かめが通って解ける。管理者には、どの種類も知らせる）
+    if e.source == "ai_trouble":
+        if not e.ai or not e.route:
+            raise ValueError("止まったAIには、AIの名前（ai）と道（route）が要ります")
+        if e.route != DIRECT:
+            return "emergency_stopped"
+        return "convo_stopped" if e.ai == CONVO_AI else "ai_stopped"
     if spend_limit(e):
         return "spend_limit"
     if e.source in ("ai", "ear"):

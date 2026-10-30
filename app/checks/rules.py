@@ -247,6 +247,10 @@ WRITERS: dict[str, dict[str, frozenset[str]]] = {
     "decision_answers": {"INSERT": frozenset({_CORE + "approval.py"})},
     "decision_asks": {"INSERT": frozenset({_CORE + "approval.py"})},
     "call_utterances": {"INSERT": frozenset({_CORE + "conversation_io.py"})},   # やり取りの文字（計画書 11-1。会話の側の書き込み口。0152）
+    # AIの不具合での一時停止（2026-10-30 深夜 管理者のご決定。0155）：止まったAIの事実は、受け取る入口の1か所。緊急の道での再開は、
+    # 停止の部品の1か所（出せるかを決めるのも、そこ＝stops.emergency_possible）
+    "attempt_ai_troubles": {"INSERT": frozenset({_CORE + "ai_troubles.py"})},
+    "stop_emergency_passes": {"INSERT": frozenset({_CORE + "stops.py"})},
     "program_versions": {"INSERT": frozenset()},        # 動いているプログラムの版を書くのは、データベースの関数 note_program だけ（0139）
     "sample_draws": {"INSERT": frozenset({_CORE + "measure.py"})},           # 誤判定率の抜き取り（16-3）
     "sample_draw_calls": {"INSERT": frozenset({_CORE + "measure.py"})},
@@ -282,6 +286,7 @@ WRITE_FUNCTIONS: dict[str, frozenset[str]] = {
     "note_program": frozenset({"src/salescall/supervisor/updates.py"}),   # 動いているプログラムの版（0139。中央の見守り役の1か所）
     "health_take": frozenset({_CORE + "health.py"}),   # 状態の欄の鍵を取って読む（0145。表を引く入口の1か所）
     "health_save": frozenset({_CORE + "health.py"}),   # 状態の欄の次の状態と移った記録（0145。表を引く入口の1か所）
+    "purge_utterances": frozenset({_CORE + "conversation_io.py"}),   # やり取りの文字を、録音と同じ日数で消す（0157。計画書 11-4）
 }
 _CALL = re.compile(r"\bsalescall\." + _NAME + r"\s*\(")
 
@@ -497,6 +502,11 @@ PY_ENTRY_CALLERS: dict[tuple[str, str], frozenset[str]] = {
     ("approval", "sent_back_on_spot"): frozenset({_CORE + "measure.py"}),     # 差し戻しを誤判定率へ：正解を入れる1か所だけ
     ("settle", "resettle"): frozenset({_CORE + "approval.py"}),              # 締め直し：答えの1か所だけ（締めの処理の中は、いつでもよい）
     ("next_action", "reopen_revoked"): frozenset({_CORE + "dnc.py", _SUP + "jobs.py"}),   # 取り消しで行を戻す：取り消しと決まった間隔の仕事
+    # AIの不具合での一時停止（2026-10-30 深夜 管理者のご決定。0155）：止まったAIを受け取るのは、会話の書き込み口だけ。止めるかを決める入口は、
+    # 通話ごとの口と回線ごとの処理だけ。緊急の道での再開は、画面だけ（契約者・管理者）
+    ("ai_troubles", "note"): frozenset({_CORE + "conversation_io.py"}),
+    ("watch", "after_ai_troubles"): frozenset({_SUP + "line.py"}),
+    ("stops", "emergency_pass"): frozenset({WEB_PLACE}),
     # 回線・行・番号・契約者・試行のせいの表を引く入口（DESIGN.md 17章の決まり (1)：状態を変えるのは、表を引く入口1つだけ）。
     # 表を引くのは core/health.py の1か所（`_Run.give`。0145・0146）
     ("health_rules", "apply"): frozenset({_CORE + "health.py"}),

@@ -59,10 +59,13 @@ class Classify(unittest.TestCase):
 
     def test_every_counted_kind_has_its_evidence(self):
         # 続いた回数を数え直す「直った証拠」は、エラーの数で止める種類（止める原因が状態の表の原因でないもの）すべてにあり、データベースが
-        # 知っている名前だけ（0147：会話AIの in_conversation だけ。回線・こちらの不具合は状態の表が決める）
+        # 知っている名前だけ（0147：会話AIの in_conversation だけ。回線・こちらの不具合は状態の表が決める。0155：止まったAIは none＝
+        # 解いた時からだけ数える）
         stopping = {k for k, a in errors.ACTIONS.items() if a.stop_cause is not None and a.stop_cause not in errors.TABLE_CAUSES}
         self.assertEqual(set(errors.EVIDENCE), stopping)
-        self.assertEqual(set(errors.EVIDENCE.values()), {"in_conversation"})
+        self.assertEqual(set(errors.EVIDENCE.values()), {"in_conversation", "none"})
+        self.assertEqual({k for k, v in errors.EVIDENCE.items() if v == "none"},
+                         {k for k in stopping if errors.ACTIONS[k].stop_after is None and k.endswith("_stopped")})
         self.assertEqual({a.stop_cause for a in errors.ACTIONS.values() if a.stop_cause in errors.TABLE_CAUSES}, {"program_trouble"})
         self.assertNotIn("ear_unreachable", errors.counted_with("ai_unreachable"))
         for k in stopping:
@@ -268,7 +271,7 @@ class TenantAiStopsAndChecks(unittest.TestCase):
         self.assertIn("根源的なもの：CL-1 に修正依頼を出しました", why["stop"]["reason"])
         admin = self.a.in_system(ADMIN, lambda tx: tx.all(
             "SELECT summary FROM salescall.notification_events WHERE event_key = %s", (f"admin:stop:{sid}",)))
-        self.assertEqual([a["summary"] for a in admin], ["発信を止めました（契約者：会話AIの異常）。"])
+        self.assertEqual([a["summary"] for a in admin], ["発信を止めました（契約者：AIの不具合）。"])   # 0155：原因の名前を広げた
         self.a.in_tenant(OPERATOR, self.s["tenant"], lambda tx: stops.resume(tx, sid, reason="試験：設定を直した"))
         why = self.a.in_tenant(OPERATOR, self.s["tenant"], lambda tx: stops.explain(tx, sid))
         self.assertEqual(why["resolved"]["actor_kind"], "operator")

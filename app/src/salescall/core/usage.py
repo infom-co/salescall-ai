@@ -38,24 +38,40 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from salescall.core import notify, reward, settings
+from salescall.core import errors, notify, reward, settings
 from salescall.core.access import Access, Actor, Tx
 
 
 # 意味の判定（出どころ judge。答えの意味の2つ目の判定・AI の自分の言葉の中身の判定）の利用量の名前（1か所。CL-1 の連絡帳 4-59 への答え。
 # 0143）。新しい作りは増やさない（0102・0104 の出どころ・サービス・枠・単位のまま）。会話の側（CL-1）は、通話ごとに、判定へ送った分を
-# `record(tx, source="judge", service=JUDGE_SERVICES[判定の名前], tier=JUDGE_TIER, kind=…, quantity=…, unit=…, attempt_id=試行)` で残す：
+# `record(tx, source="judge", service=judge_service(判定の名前, 道), tier=JUDGE_TIER, kind=…, quantity=…, unit=…, attempt_id=試行)` で残す：
 # - service＝「会社:モデル」（考える形・考えない形は同じモデル・同じ単価なので同じ名前。考えた量は出力に入る）。まとめて送った前の部分
 #   （プロンプトのキャッシュ）の読み・書きは単価が違うので、名前の後ろに JUDGE_CACHE_READ・JUDGE_CACHE_WRITE を付け、入力の量
 #   （input_tokens）として残す。
 # - tier＝枠（いまはどれも有料の枠 paid。契約者が無料の枠を使うなら free）。単価は、この組ごとに管理者・契約者が入れる（set_price）。
 # - kind＝返事の使った量は measured・返事を待たずに止めた問い合わせ（先に届いた答えで決めた）は、会話の側の見込みの量で estimated。
 # - unit＝input_tokens・output_tokens。
+# - 判定の顔ぶれ（2026-10-30 夜〜10-31 未明のご決定。CL-1 の連絡帳 4-61・4-62）：d1-ultra（Liquid。Jev と同じ OpenRouter の窓口・入力の
+#   トークンで数える）・その場の判定 3.5 Flash Lite（Google）を足した。Anthropic へ直接送れないときの緊急の道（OpenRouter を通して Google が
+#   預かる Claude）で答えた分は、判定の名前でなく道で決まる名前 `judge_service(名前, 道)`（道の名前は会話の報告の ai_trouble の route と
+#   同じ＝errors.DIRECT が直接。同じ Sonnet でも、窓口と単価が違う）。
 JUDGE_SERVICES: dict[str, str] = {
+    "d1 Ultra（Liquid）": "openrouter:liquid/d1-ultra-20261015",
     "Jev 1.14": "openrouter:typesafe/jev-1.14",
     "Claude Sonnet 5.5": "anthropic:claude-sonnet-5-5",
     "Claude Sonnet 5.5（考える）": "anthropic:claude-sonnet-5-5",
+    "3.5 Flash Lite": "google:gemini-3.5-flash-lite",
 }
+# 緊急の道で答えた判定（考える・考えない Sonnet とも同じモデル＝CL-1 の meaning_judge.EMERGENCY）
+JUDGE_EMERGENCY_SERVICE = "openrouter:anthropic/claude-sonnet-5.5"
+
+
+def judge_service(name: str, route: str = errors.DIRECT) -> str:
+    """判定1回の利用量を残すときの名前（1か所）。直接の道は判定の名前で（JUDGE_SERVICES）、緊急の道で答えた分は緊急の道の名前で決まる。
+    知らない判定の名前は KeyError（勝手に名前を作らない＝足すときは、ここに足す）。"""
+    if name not in JUDGE_SERVICES:
+        raise KeyError(f"判定の名前 {name!r} の利用量の名前がありません（usage.JUDGE_SERVICES に足す）")
+    return JUDGE_SERVICES[name] if route == errors.DIRECT else JUDGE_EMERGENCY_SERVICE
 JUDGE_CACHE_READ = ":cache_read"     # まとめて送った前の部分の読み（service の後ろに付ける）
 JUDGE_CACHE_WRITE = ":cache_write"   # まとめて送った前の部分の書き（service の後ろに付ける）
 JUDGE_TIER = "paid"

@@ -173,6 +173,9 @@ class Claim:
     number_again: str | None = None  # 番号の聞き直しのとき：なぜ伺い直すか（wrong_party＝お客様が言った番号が別の方のお電話だった／
     #                                unreachable＝繋がらなかった。次の予定の印 number_again を写す。0130。CL-1 の連絡帳 4-41 の (3)）。
     #                                会話の処理は、理由ごとの一言（number_again_wrong_party・number_again_unreachable）で番号を伺う
+    judge_route: str | None = None   # 判定の道（'emergency'＝AIの不具合で止めているあいだに、契約者か管理者が緊急の道で再開した。予約の
+    #                                とき、データベースの1か所 salescall.emergency_route が決める＝門は選べない。0155）。会話の処理は、これを
+    #                                convo.run_call の judge_route へ渡す（判定を初めから緊急の道へ送る＝CL-1 の連絡帳 4-62）。None＝ふつうの道
 
 
 @dataclass(frozen=True)
@@ -864,7 +867,7 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
                 "                                promised)"
                 " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s, %s, 'claimed', now(), now() + %s,"
                 "         %s, %s, %s, %s)"
-                " RETURNING attempt_id, claim_expires_at,"
+                " RETURNING attempt_id, claim_expires_at, judge_route,"
                 "   (SELECT phone_e164 FROM salescall.task_numbers WHERE task_id = %s AND contact_id = %s) AS wrong_phone",
                 (task["task_id"], task["contact_id"], task["phone_e164"], line_id, version, lifetime,
                  nxt["purpose"], nxt["wrong_contact_id"], voice, bool(nxt["promised"]), task["task_id"],
@@ -886,4 +889,4 @@ def _judge_and_claim(tx: Tx, task: dict[str, Any], line_id: UUID, lease_holder: 
         recordings.hold(tx, row["attempt_id"], "verification")
     return Claim(row["attempt_id"], task["task_id"], line_id, task["phone_e164"], version, row["claim_expires_at"],
                  nxt["purpose"], row["wrong_phone"], voice, tuple(nxt["apology_reasons"]), bool(nxt["promised"]),
-                 bool(nxt["successor"]), nxt["number_again"])
+                 bool(nxt["successor"]), nxt["number_again"], row["judge_route"])

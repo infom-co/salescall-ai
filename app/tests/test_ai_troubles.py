@@ -1,0 +1,256 @@
+"""AIの不具合での一時停止と、契約者以上の緊急の道での再開の試験（2026-10-30 深夜 管理者のご決定。0155。CL-1 の連絡帳 4-62）。
+
+ご決定：「基本的にアンソロピックが使えなくなったりその他に使う AI のどれかが止まったら、AI の不具合として回復するまで一時停止して
+ください。ただし、どうしても使わなければいけないシーンが出たときは、契約者以上の権限でOpenRouter を通して Google が預かる Claudeを
+使って再開することができるようにしておいてください。」
+"""
+
+from __future__ import annotations
+
+import time
+import unittest
+
+from salescall.core import ai_troubles, call_report, conversation_io, errors, stops, watch
+from salescall.core.access import Rejected
+from salescall.core.call_report import AiTrouble, ReportInvalid
+from salescall.core.errors import ErrorReport
+from tests.support import ADMIN, OPERATOR, SYSTEM, World, app_access, make_report, owner_access
+from tests.test_watch import override
+
+JEV = "Jev 1.14"
+SONNET = "Claude Sonnet 5.5（考える）"
+EMERGENCY = "緊急の道（OpenRouter を通して Google が預かる Claude）"
+
+
+def trouble(ai=JEV, route=errors.DIRECT, what="止まった", error="時間切れ", turn=3, count=1) -> AiTrouble:
+    return AiTrouble(ai, route, what, error, turn, count)
+
+
+class Shape(unittest.TestCase):
+    """止まったAIの形（データの形 版 1.08）と、種類の分け方（処置の表の1か所）。"""
+
+    def test_three_kinds_by_ai_and_route(self):
+        c = lambda ai, route: errors.classify(ErrorReport("ai_trouble", None, "x", ai=ai, route=route))   # noqa: E731
+        self.assertEqual(c(JEV, errors.DIRECT), "ai_stopped")
+        self.assertEqual(c("別の耳（soniox）", errors.DIRECT), "ai_stopped")
+        self.assertEqual(c(errors.CONVO_AI, errors.DIRECT), "convo_stopped")
+        self.assertEqual(c(SONNET, EMERGENCY), "emergency_stopped")
+        # 使用額の上限の文でも、止まったAI（回復するまで一時停止。上限の知らせより先に分ける）
+        self.assertEqual(errors.classify(ErrorReport("ai_trouble", None, "You have reached your specified API usage limits",
+                                                     ai=SONNET, route=errors.DIRECT)), "ai_stopped")
+        with self.assertRaises(ValueError):
+            errors.classify(ErrorReport("ai_trouble", None, "x"))
+        for kind in ("ai_stopped", "convo_stopped", "emergency_stopped"):
+            a = errors.ACTIONS[kind]
+            with self.subTest(kind):
+                self.assertEqual((a.stop_cause, a.stop_scope, a.stop_after, a.lasting_fixer, errors.EVIDENCE[kind]),
+                                 ("ai_connection", "tenant", None, "CL-1", "none"))
+        # 緊急の道で補えるのは、判定・別の耳が止まったときだけ（会話AI・緊急の道そのもの・会話AIの異常は補えない）
+        self.assertEqual({k for k, a in errors.ACTIONS.items() if a.emergency}, {"ai_stopped"})
+        self.assertEqual(set(errors.EMERGENCY_BLOCKERS),
+                         set(errors.COUNTED_FOR["ai_connection"]) - {"ai_stopped"})
+
+    def test_report_round_trip_and_old_reports(self):
+        r = make_report()
+        raw = r.to_json()
+        self.assertEqual(raw["ai_trouble"], [])
+        del raw["ai_trouble"]                                          # 古い報告（無い）は空
+        self.assertEqual(call_report.from_json(raw).ai_troubles, ())
+        raw["ai_trouble"] = None
+        self.assertEqual(call_report.from_json(raw).ai_troubles, ())
+        raw["ai_trouble"] = [trouble().to_json(), trouble(SONNET, EMERGENCY, "緊急の道で答えた", None, None, 2).to_json()]
+        got = call_report.from_json(raw)
+        self.assertEqual(got.ai_troubles, (trouble(), trouble(SONNET, EMERGENCY, "緊急の道で答えた", None, None, 2)))
+        self.assertEqual(call_report.from_json(got.to_json()), got)
+
+    def test_bad_shapes_are_refused(self):
+        raw = make_report().to_json()
+        good = trouble().to_json()
+        bad = [dict(good, what="遅かった"), dict(good, ai=""), dict(good, route=None), dict(good, error="x" * 301),
+               dict(good, turn=-1), dict(good, count=0), dict(good, count=True), dict(good, extra=1)]
+        for b in bad:
+            with self.subTest(b):
+                with self.assertRaises(ReportInvalid):
+                    call_report.from_json(dict(raw, ai_trouble=[b]))
+        with self.assertRaises(ReportInvalid):                         # 同じAI・同じ道・同じ出来事は1つ（会話の側がまとめる）
+            call_report.from_json(dict(raw, ai_trouble=[good, good]))
+        with self.assertRaises(ReportInvalid):
+            call_report.from_json(dict(raw, ai_trouble={"ai": JEV}))
+        with self.assertRaises(ReportInvalid):                         # 通話の途中の知らせも、同じ1つの確かめ
+            conversation_io.ai_trouble_work(None, dict(good, what="遅かった"))
+
+
+class Pause(unittest.TestCase):
+    """止まったAIで、その契約者の新しい電話を止める・回復の確かめで解く・緊急の道で再開する。"""
+
+    def setUp(self):
+        self.a = app_access()
+        self.w = World()
+        self.s = self.w.setup()
+
+    def attempt(self, s=None):
+        s = s or self.s
+        aid = self.w.insert_claim(s)
+        for state in ("dialing", "ringing", "answered", "in_conversation"):
+            self.w.move(s, aid, state)
+        return aid
+
+    def note(self, aid, *troubles, s=None):
+        s = s or self.s
+        kinds = self.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: ai_troubles.note(tx, aid, troubles))
+        return kinds, watch.after_ai_troubles(self.a, SYSTEM, s["tenant"], aid)
+
+    def ai_stops(self, s=None):
+        s = s or self.s
+        return [r["event_id"] for r in self.a.in_tenant(SYSTEM, s["tenant"], lambda tx: stops.open_stops(
+            tx, tenant_id=s["tenant"], client_id=None, business_id=None)) if r["cause"] == "ai_connection"]
+
+    def blocking(self, s=None):
+        s = s or self.s
+        return self.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: stops.blocking(
+            tx, tenant_id=s["tenant"], client_id=s["client"], business_id=s["business"], kind=None))
+
+    def serving(self, s=None):
+        """約束の電話を受け持てる回線（salescall.lines_serving。回線を借りた形にして読む）。"""
+        s = s or self.s
+        self.a.in_tenant(SYSTEM, s["tenant"], lambda tx: tx.one("SELECT salescall.lease_line(%s, '試験', 60)", (s["line"],)))
+        return [r["line_id"] for r in owner_access().in_tenant(SYSTEM, s["tenant"], lambda tx: tx.all(
+            "SELECT line_id FROM salescall.lines_serving()"))]
+
+    def judge_route(self, aid, s=None):
+        s = s or self.s
+        return self.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: tx.one(
+            "SELECT judge_route FROM salescall.attempts WHERE attempt_id = %s", (aid,))["judge_route"])
+
+    def test_one_stopped_ai_stops_the_contractor_at_once_and_only_once(self):
+        other = World().setup()
+        aid = self.attempt()
+        self.assertIn(self.s["line"], self.serving())
+        kinds, stopped = self.note(aid, trouble())
+        self.assertEqual(kinds, ["ai_stopped"])
+        self.assertEqual(len(stopped), 1)
+        self.assertNotIn(self.s["line"], self.serving())               # 止まっているあいだは、約束の電話も受け持たない
+        self.assertEqual(len(self.ai_stops()), 1)
+        self.assertEqual(self.ai_stops(other), [])                     # ほかの契約者は止めない（キーと枠は契約者ごと）
+        self.assertTrue(self.blocking())                               # 新しい電話はかけない
+        # 同じAI・同じ道・同じ出来事をもう一度（報告の ai_trouble にも入っていた）：重ねて数えない・重ねて止めない
+        kinds, stopped = self.note(aid, trouble(count=4))
+        self.assertEqual((kinds, stopped), ([], []))
+        n = self.a.in_tenant(SYSTEM, self.s["tenant"], lambda tx: tx.one(
+            "SELECT count(*) AS n FROM salescall.error_events WHERE attempt_id = %s", (aid,))["n"])
+        self.assertEqual(n, 1)
+        # 「緊急の道で答えた」は書くだけ（止める材料にしない）
+        kinds, _ = self.note(aid, trouble(SONNET, EMERGENCY, "緊急の道で答えた", None))
+        self.assertEqual(kinds, [])
+        got = self.a.in_tenant(SYSTEM, self.s["tenant"], lambda tx: stops.explain(tx, self.ai_stops()[0]))
+        self.assertEqual({(t["ai"], t["what"]) for t in got["ai_troubles"]}, {(JEV, "止まった"), (SONNET, "緊急の道で答えた")})
+        self.assertEqual(got["cause"]["label"], "AIの不具合")
+
+    def test_another_call_reaching_the_customer_does_not_hide_the_stopped_ai(self):
+        # 止まったAIは1回で止める。どこかの通話が会話に入ったことでは数え直さない（数え直すと、同じ時刻にほかの通話が会話に入っただけで
+        # 止まらなくなる＝続いたエラーの証拠 none）
+        aid = self.attempt(_with_task(self.w, self.s))   # 話し終えた電話（talked）は、もとの回線でかける
+        self.a.in_client(SYSTEM, self.s["tenant"], self.s["client"], lambda tx: ai_troubles.note(tx, aid, (trouble(),)))
+        self.w.talked(self.s)
+        self.assertEqual(len(watch.after_ai_troubles(self.a, SYSTEM, self.s["tenant"], aid)), 1)
+
+    def test_a_report_with_ai_trouble_stops_through_the_same_door(self):
+        aid = self.attempt()
+        raw = dict(make_report().to_json(), ai_trouble=[trouble(errors.CONVO_AI, error="張り替えても声が出ない").to_json()])
+        self.a.in_client(SYSTEM, self.s["tenant"], self.s["client"], lambda tx: conversation_io.save_report(tx, aid, raw))
+        stopped = watch.after_ai_troubles(self.a, SYSTEM, self.s["tenant"], aid)
+        self.assertEqual(len(stopped), 1)
+        self.assertEqual(watch.after_ai_troubles(self.a, SYSTEM, self.s["tenant"], aid), [])   # もう止まっている
+
+    def test_the_contractor_can_reopen_on_the_emergency_route_while_a_judge_is_down(self):
+        aid = self.attempt()
+        self.note(aid, trouble(SONNET, error="529 overloaded"))
+        sid = self.ai_stops()[0]
+        self.assertIsNone(self.a.in_tenant(OPERATOR, self.s["tenant"], lambda tx: stops.emergency_possible(tx, sid)))
+        with self.assertRaises(Rejected):                              # システムの処理は出せない（契約者か管理者だけ）
+            self.a.in_tenant(SYSTEM, self.s["tenant"], lambda tx: stops.emergency_pass(tx, sid, reason="試験"))
+        got = self.a.in_tenant(OPERATOR, self.s["tenant"], lambda tx: stops.emergency_pass(
+            tx, sid, reason="試験：今日中に約束の電話を済ませたい"))
+        self.assertEqual(got["actor_kind"], "operator")
+        self.assertEqual(self.blocking(), [])                          # その停止では止めない
+        self.assertEqual(self.ai_stops(), [sid])                       # 停止そのものは解けていない（回復の確かめで解く）
+        self.assertIn(self.s["line"], self.serving())                  # 約束の電話を受け持てる回線にも数える（門と同じ1か所）
+        claimed = self.w.insert_claim(_with_task(self.w, self.s))
+        self.assertEqual(self.judge_route(claimed), "emergency")       # 判定を初めから緊急の道へ（データベースが決める）
+        with self.assertRaises(Rejected):                              # 判定の道は変えられない
+            self.a.in_client(SYSTEM, self.s["tenant"], self.s["client"], lambda tx: tx.execute(
+                "UPDATE salescall.attempts SET judge_route = NULL WHERE attempt_id = %s", (claimed,)))
+        with self.assertRaises(stops.EmergencyNotAllowed):             # 2回は出さない
+            self.a.in_tenant(OPERATOR, self.s["tenant"], lambda tx: stops.emergency_pass(tx, sid, reason="試験"))
+        # 緊急の道で補える種類（判定）がまた止まっても、止め直さない
+        _, stopped = self.note(self.attempt(_with_task(self.w, self.s)), trouble(JEV))
+        self.assertEqual(stopped, [])
+        self.assertEqual(self.blocking(), [])
+        # 補えない種類（緊急の道そのもの）が止まったら、また止める（新しい停止は、緊急の道では再開できない）
+        _, stopped = self.note(self.attempt(_with_task(self.w, self.s)), trouble(SONNET, EMERGENCY))
+        self.assertEqual(len(stopped), 1)
+        self.assertTrue(self.blocking())
+        new = stopped[0]["event_id"]
+        self.assertIsNotNone(self.a.in_tenant(OPERATOR, self.s["tenant"], lambda tx: stops.emergency_possible(tx, new)))
+        # 契約者が両方を解いたら、ふつうの道に戻る
+        for e in self.ai_stops():
+            self.a.in_tenant(OPERATOR, self.s["tenant"], lambda tx, e=e: stops.resume(tx, e, reason="試験：回復を確かめた"))
+        self.assertEqual(self.blocking(), [])
+        later = self.w.insert_claim(_with_task(self.w, self.s))
+        self.assertIsNone(self.judge_route(later))
+
+    def test_no_emergency_route_when_the_conversation_ai_itself_is_down(self):
+        aid = self.attempt()
+        self.note(aid, trouble(errors.CONVO_AI))
+        sid = self.ai_stops()[0]
+        why = self.a.in_tenant(OPERATOR, self.s["tenant"], lambda tx: stops.emergency_possible(tx, sid))
+        self.assertIn("会話AI", why)
+        with self.assertRaises(stops.EmergencyNotAllowed):
+            self.a.in_tenant(ADMIN, self.s["tenant"], lambda tx: stops.emergency_pass(tx, sid, reason="試験"))
+        got = self.a.in_tenant(OPERATOR, self.s["tenant"], lambda tx: stops.explain(tx, sid))
+        self.assertEqual(got["emergency"]["impossible_because"], why)
+        # 会話AIの異常のエラー（つながらない 3回など）が先にあっても同じ
+        other = World().setup()
+        override(self, "stop.ai.stop_after_failures", 1)
+        watch.after_error(self.a, SYSTEM, ErrorReport("ai", None, None, unreachable=True), tenant_id=other["tenant"],
+                          client_id=other["client"])
+        sid2 = self.ai_stops(other)[0]
+        self.assertIsNotNone(self.a.in_tenant(OPERATOR, other["tenant"], lambda tx: stops.emergency_possible(tx, sid2)))
+
+    def test_only_the_system_writes_stopped_ais_and_never_rewrites_them(self):
+        aid = self.attempt()
+        with self.assertRaises(Rejected):
+            self.a.in_client(OPERATOR, self.s["tenant"], self.s["client"], lambda tx: ai_troubles.note(tx, aid, (trouble(),)))
+        self.note(aid, trouble())
+        for sql in ("UPDATE salescall.attempt_ai_troubles SET error = 'x' WHERE attempt_id = %s",
+                    "DELETE FROM salescall.attempt_ai_troubles WHERE attempt_id = %s"):
+            with self.subTest(sql[:6]), self.assertRaises(Rejected):   # 表の持ち主でも（権限ではなく、引き金が守る）
+                owner_access().in_tenant(SYSTEM, self.s["tenant"], lambda tx, sql=sql: tx.execute(sql, (aid,)))
+
+    def test_the_call_door_stops_right_away_without_waiting_for_the_end_of_the_call(self):
+        """通話ごとの口の call.ai_trouble（通話の途中）：書き手が書いたすぐあと、通話の終わりを待たずに止める。"""
+        from salescall.supervisor.line import CallLimits, _Call
+        aid = self.attempt()
+        call = _Call(self.a, SYSTEM, self.s["tenant"], self.s["client"], self.s["line"], aid, None, CallLimits(3.0))
+        call.ai_trouble(trouble().to_json())
+        call.flush()
+        self.assertEqual(len(self.ai_stops()), 1)
+        with self.assertRaises(ReportInvalid):                         # 形が違えば、その場で
+            call.ai_trouble({"ai": JEV})
+
+
+def _other_phone() -> str:
+    from salescall.core.phone import normalize
+    from tests.support import fictional_jp_fixed
+    return normalize(fictional_jp_fixed()).e164
+
+
+def _with_task(w: World, s: dict) -> dict:
+    """同じ実施回の、別の架空のお客様の行と、別の回線（同じ行・同じ回線に進行中の予約は1つだけなので、別々に予約する）。"""
+    phone = _other_phone()
+    k = w.contact(s["tenant"], s["client"], phone)
+    return dict(s, task=w.task(s["tenant"], s["client"], s["run"], k), contact=k, phone=phone, line=w.line(s["tenant"]))
+
+
+if __name__ == "__main__":
+    unittest.main()

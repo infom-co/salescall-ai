@@ -56,7 +56,7 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
-from salescall.core import attempts, business_rules, business_settings, call_report, dnc, settings, tasks
+from salescall.core import ai_troubles, attempts, business_rules, business_settings, call_report, dnc, settings, tasks
 from salescall.core.access import Tx
 from salescall.core.attempts import AttemptNotFound
 
@@ -169,11 +169,43 @@ def move_work(attempt_id: UUID, to_state: str) -> MoveWork:
     return MoveWork(attempt_id, to_state)
 
 
-def report_work(attempt_id: UUID, raw: Any) -> Callable[[Tx], call_report.CallReport]:
+@dataclass(frozen=True)
+class TroubleWork:
+    """止まったAI（core/ai_troubles.note）を書きうる、通話ごとの書き手へ頼む形の印（0155）。書き手は、書けたあと、その契約者の新しい
+    電話を止めるかを決める入口（watch.after_ai_troubles）を呼ぶ（通話の終わりを待たない＝止まったAIで、同じ契約者のほかの回線が新しい
+    電話をかけない）。"""
+    attempt_id: UUID
+
+
+@dataclass(frozen=True)
+class ReportWork(TroubleWork):
+    """会話の報告を置く、通話ごとの書き手へ頼む形（`report_work`。報告の ai_trouble も書く＝`save_report`）。"""
+    raw: Any = None
+
+    def __call__(self, tx: Tx) -> call_report.CallReport:
+        return save_report(tx, self.attempt_id, self.raw)
+
+
+@dataclass(frozen=True)
+class AiTroubleWork(TroubleWork):
+    """通話の途中で止まったAIを1つ書く、通話ごとの書き手へ頼む形（`ai_trouble_work`。通話ごとの口 call.ai_trouble が頼む）。"""
+    trouble: call_report.AiTrouble | None = None
+
+    def __call__(self, tx: Tx) -> list[str]:
+        return ai_troubles.note(tx, self.attempt_id, (self.trouble,))
+
+
+def report_work(attempt_id: UUID, raw: Any) -> ReportWork:
     """会話の報告を置く、通話ごとの書き手へ頼む形（`call.write(conversation_io.report_work(…))`）。報告の形の確かめ（call_report.from_json
     の1か所）は、いま行う（合わなければ、いま ReportInvalid）。"""
     call_report.from_json(raw)
-    return lambda tx: save_report(tx, attempt_id, raw)
+    return ReportWork(attempt_id, raw)
+
+
+def ai_trouble_work(attempt_id: UUID, raw: Any) -> AiTroubleWork:
+    """通話の途中で止まったAI（会話の報告の ai_trouble の1つと同じ形）を書く、通話ごとの書き手へ頼む形。形の確かめ（call_report.ai_trouble
+    の1か所）は、いま行う（合わなければ、いま ReportInvalid）。"""
+    return AiTroubleWork(attempt_id, call_report.ai_trouble(raw))
 
 
 def write_item(tx: Tx, attempt_id: UUID, item: ItemValue) -> None:
@@ -209,6 +241,7 @@ def save_report(tx: Tx, attempt_id: UUID, raw: Any) -> call_report.CallReport:
     """会話の報告（版3の JSON の形）を確かめて置く（1回だけ。合わなければ call_report.ReportInvalid）。置いた報告を返す。"""
     report = call_report.from_json(raw)
     call_report.save(tx, attempt_id, report)
+    ai_troubles.note(tx, attempt_id, report.ai_troubles)   # 止まったAI（通話の途中に書いた分は重ねない。0155）
     return report
 
 
@@ -290,6 +323,16 @@ def utterance_work(attempt_id: UUID, u: Utterance) -> Callable[[Tx], int]:
     確かめ（`check_utterance`）は、いま行う（合わなければ、いま UtteranceInvalid）。"""
     check_utterance(u)
     return lambda tx: write_utterance(tx, attempt_id, u)
+
+
+def purge_utterances(tx: Tx) -> int:
+    """残す日数を過ぎた通話のやり取りの文字を消す（契約者の取引のシステムの処理で。1か所。計画書 11-4。0157）。日数は録音と同じ設定
+    （recording.keep_days_cloud＝Fly.io に残す日数。契約者ごと。初め7日）。消さないのは録音と同じ（salescall.recordings_held＝測り終わるまで・
+    まだ決まっていない取り消せない決定）。決まりはデータベースの salescall.purge_utterances の1か所（守りも同じ決まりを確かめる）。
+    消した数を返す。見守り役の1日1回の仕事が呼ぶ。"""
+    tenant = tx.one("SELECT salescall.cur_tenant() AS t")["t"]
+    days = int(settings.resolve(tx, "recording.keep_days_cloud", tenant_id=tenant, client_id=None, business_id=None))
+    return tx.one("SELECT salescall.purge_utterances(%s) AS n", (days,))["n"]
 
 
 def utterances(tx: Tx, attempt_id: UUID) -> list[dict[str, Any]]:

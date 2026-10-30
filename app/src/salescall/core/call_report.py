@@ -40,6 +40,11 @@
   （答えを受け取る決まり＝計画書 9-5 の 7 と同じ）。そろわなければ、通話後の録音の確かめ（録音から作り直した報告）で決まるまで保留
   （決めるのは core/approval.decision_wait の1か所。どの決定が取り消せない決定かは core/judge.irreversible の1か所）。録音から作り直した
   報告では、2つの耳がそろったかを同じ項目で返す。
+- **止まったAI（2026-10-30 深夜 管理者のご決定。データの形 版 1.08。CL-1 の連絡帳 4-62。無くてもよい＝版は3のまま）**：
+  `ai_trouble`＝通話で使うAI（会話AI・別の耳・判定）のどれかが止まった・緊急の道で答えた、の並び（CL-1 の Flow.on_ai_trouble の1か所。
+  同じAI・同じ道・同じ出来事は1つ）。1つずつ {"ai": AIの名前, "route": "直接" か緊急の道の名前, "what": "止まった" か "緊急の道で答えた",
+  "error": 最初の失敗の中身, "turn": 最初の相手の発話の番号, "count": 回数}。無い・古い報告は空。読むのは止まったAIの入口
+  （core/ai_troubles.note の1か所＝事実の表に書き、「止まった」なら AIの不具合として新しい電話を一時停止する＝core/watch）。判定には使わない。
 - 取り消せない決定を、その通話の報告から外す形（`CallReport.without`。差し戻し・発信禁止の取り消しのあと、ふつうに締めるため）も、ここの1か所。
 """
 
@@ -148,6 +153,11 @@ SPEAKERS = ("callee", "ai", "none")                      # 切れた瞬間に話
 # 取り消せない決定について、会話AIの報告と2つ目の判定（意味の判定）がそろったか（報告ごとに1つ。データの形 版 1.07）：
 # agreed＝そろった（その場で決める）／disagreed＝食い違った／none＝判定が無い（無い・古い報告もこれ）。そろわなければ録音の確かめまで保留
 IRREVERSIBLE_CHECKS = ("agreed", "disagreed", "none")
+# 止まったAIの出来事（データの形 版 1.08。CL-1 の Flow.on_ai_trouble の what）：止まった（一時停止の材料）／緊急の道で答えた（記録だけ）
+AI_TROUBLE_WHATS = ("止まった", "緊急の道で答えた")
+AI_TROUBLE_KEYS = {"ai", "route", "what", "error", "turn", "count"}
+AI_TROUBLE_TEXT_MAX = 100     # AIの名前・道の名前の長さの上限（データベースの守りと同じ）
+AI_TROUBLE_ERROR_MAX = 300    # 最初の失敗の中身の長さの上限（データベースの守りと同じ）
 # 取り消せない決定の中身の名前（報告から外す単位。`CallReport.without` の1か所）：断り（発信禁止の申告・断りの言葉のあとに切れた）・
 # 番号違い（電話口の種別 wrong_party）・怒っていた（苦情）・FAX の回線（電話口の種別 fax。音の信号から分かるので2つ目の判定は当てないが、
 # 誤って入れた発信禁止を取り消したときに外す＝2026-10-30 (7)）
@@ -285,6 +295,42 @@ class NotTransferred:
 
 
 @dataclass(frozen=True)
+class AiTrouble:
+    """止まったAI（`ai_trouble` の1つ。データの形 版 1.08）。読むのは core/ai_troubles.note の1か所（判定には使わない）。"""
+    ai: str                      # AIの名前（CL-1 の名前。会話AIは errors.CONVO_AI）
+    route: str                   # 道（errors.DIRECT＝直接か、緊急の道の名前）
+    what: str                    # AI_TROUBLE_WHATS のどれか
+    error: str | None            # 最初の失敗の中身（お客様の言葉・名前・キーの値は入れない）
+    turn: int | None             # 最初に起きたときの、相手の発話の番号
+    count: int                   # 回数
+
+    def to_json(self) -> dict[str, Any]:
+        return {"ai": self.ai, "route": self.route, "what": self.what, "error": self.error, "turn": self.turn, "count": self.count}
+
+
+def ai_trouble(raw: Any, where: str = "ai_trouble") -> AiTrouble:
+    """止まったAIの1つを確かめて読む（ただ1つの確かめ。報告の ai_trouble も、通話の途中の知らせ call.ai_trouble も、これを通る）。"""
+    d = _keys(raw, AI_TROUBLE_KEYS, where)
+    names = []
+    for key in ("ai", "route"):
+        v = d.get(key)
+        if not isinstance(v, str) or not v.strip() or len(v) > AI_TROUBLE_TEXT_MAX:
+            raise ReportInvalid(f"{where}.{key} は、名前の文字（{AI_TROUBLE_TEXT_MAX} 字まで）です")
+        names.append(v)
+    what = _choice(d.get("what"), AI_TROUBLE_WHATS, f"{where}.what")
+    error = d.get("error")
+    if error is not None and (not isinstance(error, str) or len(error) > AI_TROUBLE_ERROR_MAX):
+        raise ReportInvalid(f"{where}.error は、失敗の中身の文字（{AI_TROUBLE_ERROR_MAX} 字まで）か null です")
+    turn = d.get("turn")
+    if turn is not None and (isinstance(turn, bool) or not isinstance(turn, int) or turn < 0):
+        raise ReportInvalid(f"{where}.turn は、相手の発話の番号（0 から）か null です")
+    count = d.get("count", 1)
+    if isinstance(count, bool) or not isinstance(count, int) or count < 1:
+        raise ReportInvalid(f"{where}.count は、回数（1 から）です")
+    return AiTrouble(names[0], names[1], what, error, turn, count)
+
+
+@dataclass(frozen=True)
 class HoldTimeout:
     """保留を頼まれ、待ちきった（事実 hold_timeout。CL-1 の 4-42）。記録だけ。"""
     evidence: Said               # 保留を頼まれた発話
@@ -354,6 +400,7 @@ class CallReport:
     talks: tuple[Talk, ...] = ()         # 事実 talk：受け答えの一言（記録だけ）
     hold_timeouts: tuple[HoldTimeout, ...] = ()   # 事実 hold_timeout：保留を頼まれ、待ちきった（記録だけ）
     irreversible_check: str = "none"     # 取り消せない決定の2つ目の判定がそろったか（IRREVERSIBLE_CHECKS。無い・古い報告は none）
+    ai_troubles: tuple[AiTrouble, ...] = ()   # 止まったAI（データの形 版 1.08。無い・古い報告は空。判定には使わない）
 
     # ── 判定が読むもの（どれも事実から読む。ここの1か所）
     @property
@@ -510,7 +557,8 @@ class CallReport:
                                                       "callee_refused_last": self.cut.callee_refused_last,
                                                       "callee_cannot_hear": self.cut.callee_cannot_hear,
                                                       "callee_silent": self.cut.callee_silent},
-                "apology_delivered": self.apology_delivered, "irreversible_check": self.irreversible_check}
+                "apology_delivered": self.apology_delivered, "irreversible_check": self.irreversible_check,
+                "ai_trouble": [t.to_json() for t in self.ai_troubles]}
 
 
 def _bool(d: dict, key: str) -> bool:
@@ -610,7 +658,7 @@ def _records(facts: dict, kind: str, extra: set[str]) -> list[tuple[dict, Said]]
 
 def from_json(raw: Any) -> CallReport:
     """報告を確かめて読む（ただ1つの確かめ）。"""
-    d = _keys(raw, {"version", "facts", "not_reached", "cut", "apology_delivered", "irreversible_check"}, "報告")
+    d = _keys(raw, {"version", "facts", "not_reached", "cut", "apology_delivered", "irreversible_check", "ai_trouble"}, "報告")
     if d.get("version") != VERSION:
         raise ReportInvalid(f"報告の版が違います（{d.get('version')!r}。この部品は {VERSION}）")
     facts = _keys(d.get("facts"), set(FACT_KINDS), "facts")
@@ -715,9 +763,17 @@ def from_json(raw: Any) -> CallReport:
     # 取り消せない決定の2つ目の判定（データの形 版 1.07）：無い・null（古い報告・まだ書かない会話の処理）は「判定が無い」
     check = "none" if d.get("irreversible_check") is None else \
         _choice(d["irreversible_check"], IRREVERSIBLE_CHECKS, "irreversible_check")
+    # 止まったAI（データの形 版 1.08）：無い・null（古い報告・まだ書かない会話の処理）は空。同じAI・同じ道・同じ出来事は1つ（CL-1 の
+    # Flow.on_ai_trouble がまとめる。重なれば報告の誤り）
+    raw_troubles = d.get("ai_trouble")
+    if raw_troubles is not None and not isinstance(raw_troubles, list):
+        raise ReportInvalid("ai_trouble は、止まったAIの並びです")
+    troubles = tuple(ai_trouble(t, f"ai_trouble[{i}]") for i, t in enumerate(raw_troubles or ()))
+    if len({(t.ai, t.route, t.what) for t in troubles}) != len(troubles):
+        raise ReportInvalid("ai_trouble に、同じAI・同じ道・同じ出来事が2つあります（1つにまとめて回数を数えます）")
     return CallReport(refusals, complaints, oos, parties, tuple(callbacks), ends, not_reached, cut, delivered, ai_questions,
                       voicemail, tuple(connects), tuple(answered), backs, resumes, not_transferred, substitutes, departures,
-                      tuple(questions), talks, tuple(holds), check)
+                      tuple(questions), talks, tuple(holds), check, troubles)
 
 
 OWN_WORDS_KEYS = {"answer", "drafts", "checked"}
