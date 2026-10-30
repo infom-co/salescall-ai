@@ -765,7 +765,7 @@ def batch_judge(name: str, key: str, items: list, budget: float | None = None, p
         q, asked, _ = bodies[cid]
         got = read(q, other_text(name, data), asked)
         out[cid] = (got, None if got is not None else "読めない返事")
-    rest = dict(bodies)
+    rest, outs = dict(bodies), []   # outs＝先にふつうに送った問い合わせの、返した量（見込みに使う）
     if warm:
         seen = set()
         for cid, (q, asked, body) in bodies.items():
@@ -775,6 +775,7 @@ def batch_judge(name: str, key: str, items: list, budget: float | None = None, p
                 SPEND.check()
                 msg = client.messages.create(**body)
                 SPEND.add(body["model"], msg.usage)
+                outs.append(getattr(msg.usage, "output_tokens", 0) or 0)
                 take(cid, msg.to_dict())
                 del rest[cid]
     if not rest:
@@ -783,7 +784,10 @@ def batch_judge(name: str, key: str, items: list, budget: float | None = None, p
         sample = max((b for _, _, b in rest.values()), key=lambda b: len(json.dumps(b, ensure_ascii=False)))
         n_in = client.messages.count_tokens(**{k: sample[k] for k in ("model", "messages", "tools", "tool_choice", "system") if k in sample}).input_tokens
         p_in, p_out, _, _ = PRICE.get(sample["model"], PRICE["claude-sonnet-5-5"])
-        worst = len(rest) * (n_in * p_in + sample["max_tokens"] * p_out) / 1e6 * BATCH_FACTOR * YEN_PER_USD
+        # 返す量は、先にふつうに送った問い合わせの多いほうの2倍（無ければ上限の max_tokens）。⛔ 2026-10-30 の1回目：上限の 4,096トークンで
+        #    見込み、実際は約30トークンの返事を1回約3円と数えて、上限の10円で止まった（先に送った2回の分は使った）
+        n_out = 2 * max(outs) if outs else sample["max_tokens"]
+        worst = len(rest) * (n_in * p_in + n_out * p_out) / 1e6 * BATCH_FACTOR * YEN_PER_USD
         if SPEND.yen + worst > SPEND.limit:
             raise OtherJudgeError(None, f"まとめて送る {len(rest)}回は、前の部分が効かないと約{worst:.0f}円かかり、この試しで使ってよい料金"
                                         f"（{SPEND.limit:.0f}円）を超えるので送りません（--budget-yen）")
