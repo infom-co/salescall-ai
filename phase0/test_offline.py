@@ -4619,6 +4619,118 @@ class JudgePanelTest(unittest.TestCase):
         by, calls = run(answer_q, {D1: 0.99, JEV: 0.3})
         self.assertEqual((by, sorted(n for n, _ in calls)), (FAST, sorted([JEV, THINK, FAST])))   # 答えの意味：d1-ultra は出さず、今のまま
 
+    def calling(self):
+        """お呼びする段の2つの質問と、答えの意味の質問（営業部部長の岡田様をお呼びする試しの業務）。"""
+        import dataclasses
+
+        from g22_opening import BUSINESS
+        from instruction import Target
+        b = dataclasses.replace(BUSINESS, target=Target(name="岡田", reading="おかだ", role="営業部部長"))
+        f = b.flow(play_recordings=True)
+        return f, f.judge_context()[0], next(iter(f.asks_questions.values())), b.questions[0]
+
+    def lite_and_race(self, sures, fail=(), backup=True):
+        """その場の判定（3.5 Flash Lite）と2つ目の受け持ち（組）の JudgePanel。sures：判定 ⇒ 確からしさ・fail：答えずに失敗する判定。"""
+        import asyncio
+
+        from meaning_judge import RACE, JudgePanel, OtherJudgeError, Reading
+        calls = []
+
+        def judge(name):
+            async def go(q, text, asked=None, before=None):
+                calls.append(name)
+                await asyncio.sleep(0.01)
+                if name in fail:
+                    raise OtherJudgeError(503, "混雑")
+                return Reading("代わった人が話し始めた" if name in sures else "ご本人", sure=sures.get(name))
+            return go
+        panel = JudgePanel({"judge": (self.LITE, judge(self.LITE)), "judge2": tuple((n, judge(n)) for n in RACE)},
+                           standin=(self.JEV, judge(self.JEV)), backup=backup)
+        return panel, calls
+
+    def test_lite_only_stands_in_for_the_calling_questions(self):
+        # ✅ 2026-10-30 ユーザー：「Flash Lite は代わりだけにする形でOKです」＝お呼びする段の2つの質問では、その場の判定（3.5 Flash Lite）は
+        # 自分で答えず、組が答えられない（止まった・時間切れ・確かな読みが無い）ときだけ組の代わりに答える。答えの意味の質問は今のまま。
+        # ⛔ 同じ言葉に同時に出していたので、組が正しく読んでも、Flash Lite の読み1つで流れの制御が動いた（G-59 のいまの文で 213回中30回）
+        import asyncio
+
+        from meaning_judge import RACE, NoJudgment, standin_only
+        D1, JEV, THINK, FAST = RACE
+        _, target_q, asks_q, answer_q = self.calling()
+        self.assertEqual([standin_only(self.LITE, k) for k in ("facets", "asks", "other", "ground")], [True, True, False, False])
+        panel, calls = self.lite_and_race({D1: 0.3, JEV: 0.3})
+        self.assertEqual([(panel.answers("judge", q), panel.answers("judge2", q)) for q in (target_q, asks_q, answer_q)],
+                         [(False, True), (False, True), (True, True)])
+        self.assertEqual([panel.slot("judge").answers(q) for q in (target_q, answer_q)], [False, True])   # 会話の側が見る形（convo.answers）
+        for q in (target_q, asks_q):
+            panel.reset(); calls.clear()
+            with self.assertRaises(NoJudgment) as e:   # 代わりだけの受け持ちは、問い合わせない（止まった判定の代わりの Jev も入れない）
+                asyncio.run(panel.ask("judge", q, "はい。"))
+            self.assertEqual((calls, e.exception.tried[0]["error"]), ([], "この質問では代わりだけ"))
+            got = asyncio.run(panel.ask("judge2", q, "はい。"))        # 組が答えた：Flash Lite は出さない
+            self.assertEqual((got.by, got.weak, self.LITE in calls), (FAST, None, False))
+        # 組がどれも答えない（d1-ultra・Jev は確かでない・考えない Sonnet は止まっている）：Flash Lite が組の代わりに答え、組の確かでない読みを添える
+        panel, calls = self.lite_and_race({D1: 0.3, JEV: 0.3}, fail={FAST})
+        got = asyncio.run(panel.ask("judge2", target_q, "はい。"))
+        self.assertEqual((got.by, str(got), got.weak), (self.LITE, "ご本人", "代わった人が話し始めた"))
+        self.assertEqual(sorted(t["model"] for t in got.tried if "unsure" in t or "error" in t), sorted([JEV, D1, FAST]))
+        self.assertNotIn(THINK, calls)
+        # Flash Lite も止まっている：答え無し（組の確かでない読みは、今までどおり流れの制御が数える＝convo の on_unsure）
+        panel, calls = self.lite_and_race({D1: 0.3, JEV: 0.3}, fail={FAST, self.LITE})
+        with self.assertRaises(NoJudgment) as e:
+            asyncio.run(panel.ask("judge2", target_q, "はい。"))
+        self.assertTrue(any("unsure" in t for t in e.exception.tried))
+        # 比べる試しで代わりを使わない（--no-standin）：Flash Lite は入らない
+        panel, calls = self.lite_and_race({D1: 0.3, JEV: 0.3}, fail={FAST}, backup=False)
+        with self.assertRaises(NoJudgment):
+            asyncio.run(panel.ask("judge2", target_q, "はい。"))
+        self.assertNotIn(self.LITE, calls)
+        # 答えの意味の質問：Flash Lite は今までどおり自分で答える
+        panel, calls = self.lite_and_race({D1: 0.3, JEV: 0.3})
+        self.assertEqual(asyncio.run(panel.ask("judge", answer_q, "はい。")).by, self.LITE)
+        # Flash Lite だけで測るとき（ほかの受け持ちが無い）は、お呼びする段の質問にも答える
+        from meaning_judge import JudgePanel
+        alone = JudgePanel({"judge": (self.LITE, panel.judges["judge"][0][1])})
+        self.assertTrue(alone.answers("judge", target_q))
+        self.assertEqual(asyncio.run(alone.ask("judge", target_q, "はい。")).by, self.LITE)
+
+    def test_call_does_not_ask_lite_while_calling_and_counts_the_weak_reading(self):
+        # 会話の側（convo.check_handler）：お呼びする段では、代わりだけの受け持ち（その場の判定）に問い合わせない（convo.answers）。Flash Lite が
+        # 組の代わりに答えたときも、組の確かでない読みは、答えが無いときと同じに数える（繋ぐのを止める側だけ＝Flow.on_unsure・Flow.doubt）。
+        # ⛔ 2026-10-21 G-57 tc10：弱い「代わった人が話し始めた」を捨て、読みが2つそろったとして別の方（山田様）に繋いだ
+        import asyncio
+        import unittest.mock as m
+
+        from convo import check_handler
+        from meaning_judge import RACE
+        D1, JEV, THINK, FAST = RACE
+
+        def drive(fail):
+            f, *_ = self.calling()
+            panel, calls = self.lite_and_race({D1: 0.3, JEV: 0.3}, fail=fail)
+
+            async def main():
+                pending = []
+                f.on_callee()
+                _, _, info, _ = check_handler(f, judge=panel.slot("judge"), judge2=panel.slot("judge2"), pcm=b"\x00\x00", rate=16000,
+                                              wav="x.wav", tasks=pending, audio_at=1.0)
+                f.on_heard("お電話代わりました。"); f.on_activity(False, 2.0)
+                await asyncio.wait(pending, timeout=3)
+                return info
+            with m.patch("stitch_gap.callee_speech", return_value=(b"", 16000, 0.0)):
+                info = asyncio.run(main())
+            return f, calls, info
+        f, calls, info = drive(fail=())
+        self.assertNotIn(self.LITE, calls)
+        self.assertEqual({k for k in ("judge", "judge2", "asks", "asks2") if k in f.check}, {"judge2", "asks2"})
+        self.assertEqual(f.check["judge2"].by, FAST)
+        self.assertEqual(f.doubt, {})
+        f, calls, info = drive(fail={FAST})
+        self.assertEqual((f.check["judge2"].by, f.check["judge2"]), (self.LITE, "ご本人"))
+        self.assertEqual(info["judge2_weak"], "代わった人が話し始めた")
+        self.assertIn("judge2", f.doubt)                     # 繋ぐのを止める印（判定の読みには入れない）
+        self.assertNotIn("judge", f.check)
+
     def test_stopped_judge_is_replaced_and_skipped_for_a_while(self):
         # 止まっている（混雑の 503）：その発話は Jev が答え、DOWN_S 秒は問い合わせずに Jev へ。過ぎたら、また問い合わせる
         from meaning_judge import DOWN_S, OtherJudgeError

@@ -9,6 +9,7 @@ import json
 import time
 
 from common import base_parser, require_python, save_result, say
+from convo import answers
 from flowctl import ABOUT, PHONE, SPEAKER, WHO
 from meaning_judge import NoJudgment, add_judge_args, make_judges
 
@@ -276,43 +277,50 @@ async def run(args) -> dict:
                     row[f"{col}_facts"], row[f"{col}_away"], row[f"{col}_new"] = got.facts, got.away, got.new
                 if got is not None and got.by:
                     row[f"{col}_by"], row[f"{col}_sure"] = got.by, got.sure
+                if getattr(got, "weak", None) is not None:   # 代わりが答えたときの、受け持ちの組の確かでない読み（本番は Flow.on_unsure で数える）
+                    row[f"{col}_weak"] = got.weak
             # 目的の人の判定と、こちらに尋ねているかの問い合わせ（本番と同じに、同じ言葉・同じ前の言葉で同時に出す＝convo.check_handler）
+            # 代わりだけの受け持ち（お呼びする段の 3.5 Flash Lite）には問い合わせない（convo.answers）
             await asyncio.gather(*(one(k, j, col, question) for k, j in judges.items() if j is not None
-                                   for col, question in ((k, q), (f"{k}_asks", fl.for_judge(fl.asks_questions[q.id])))))
+                                   for col, question in ((k, q), (f"{k}_asks", fl.for_judge(fl.asks_questions[q.id])))
+                                   if answers(j, question)))
             # 尋ねているかは「尋ねている」だけが流れを変える（Flow._asking_now）＝ほかの読みは全部「尋ねていない」と数える
-            row["ok"] = all(row.get(k) in ok and (want is None or (row.get(f"{k}_asks") in ASKED) == want) for k in judges if judges[k] is not None)
-            row["facts_ok"] = all(facts_ok(row.get(f"{k}_facts"), facts) for k in judges if judges[k] is not None)
+            asked_now = [k for k in judges if judges[k] is not None and f"{k}_s" in row]   # この行で問い合わせた受け持ち
+            row["ok"] = all(row.get(k) in ok and (want is None or (row.get(f"{k}_asks") in ASKED) == want) for k in asked_now)
+            row["facts_ok"] = all(facts_ok(row.get(f"{k}_facts"), facts) for k in asked_now)
             rows.append(row)
             say(f"（前：{before}）" if before else "", text, {k: (row.get(k), row.get(f"{k}_asks")) for k in judges}, "OK" if row["ok"] else "×")
             if args.pace_s:   # 使えるキーが少ない無料の枠で、1分の上限に削られないように（⛔ 2026-10-29：2本で流して49行中40行が届かなかった）
                 await asyncio.sleep(args.pace_s)
-    summary = {k: f"{sum(1 for r in rows if r.get(k) in r['accept'])}/{len(rows)}" for k in judges if judges[k] is not None}
+    # 測った受け持ち＝答えた行がある受け持ち（お呼びする段の質問では、代わりだけの受け持ちは問い合わせない＝本番と同じ。convo.answers）
+    measured = [k for k in judges if judges[k] is not None and any(f"{k}_s" in r for r in rows)]
+    summary = {k: f"{sum(1 for r in rows if r.get(k) in r['accept'])}/{len(rows)}" for k in measured}
     # 事実ごと（項目ごとに答える形だけ）：項目がみな正解か・項目ごと（その項目を見せた言葉だけ）・2つの事実が重なる言葉（LINES_BOTH）だけ
     def fok(r, k):
         return facts_ok(r.get(f"{k}_facts"), {x: set(v) for x, v in r["facts_accept"].items()})
-    summary |= {f"{k}（事実ごとに全部）": f"{sum(1 for r in rows if fok(r, k))}/{len(rows)}" for k in judges if judges[k] is not None}
+    summary |= {f"{k}（事実ごとに全部）": f"{sum(1 for r in rows if fok(r, k))}/{len(rows)}" for k in measured}
     for key, name in ((SPEAKER, "前と同じ方か"), (WHO, "話している方は誰か"), (PHONE, "電話のやり取り"), (ABOUT, "いまお呼びしている方の事情")):
         shown = [r for r in rows if key in r["facts_accept"]]
         summary |= {f"{k}（{name}）": f"{sum(1 for r in shown if (r.get(f'{k}_facts') or {}).get(key) in r['facts_accept'][key])}/{len(shown)}"
-                    for k in judges if judges[k] is not None}
+                    for k in measured}
     both = [r for r in rows if r["both"]]
     summary |= {f"{k}（2つの事実の言葉：読み・事実ごと）": [f"{sum(1 for r in both if r.get(k) in r['accept'])}/{len(both)}",
-                                                    f"{sum(1 for r in both if fok(r, k))}/{len(both)}"] for k in judges if judges[k] is not None}
+                                                    f"{sum(1 for r in both if fok(r, k))}/{len(both)}"] for k in measured}
     summary |= {f"{k}（尋ねているか）": f"{sum(1 for r in rows if r['asks_accept'] is None or (r.get(f'{k}_asks') in ASKED) == r['asks_accept'])}/{len(rows)}"
-                for k in judges if judges[k] is not None}
+                for k in measured}
     # 何を聞かれたか（質問の言葉だけ）：名乗り・用件の質問を「ほかのこと」と読むと、正しい名乗り・用件の答えを差し戻しうる（もう1つの読みが名乗り・用件
     # なら差し戻さない＝Flow._asked_other）／ほかの質問を「名乗り・用件」と読むと、用件の録音の答えを止められない
     asked_rows = [r for r in rows if r["asks_kind"]]
     summary |= {f"{k}（何を聞かれたか）": f"{sum(1 for r in asked_rows if r.get(f'{k}_asks') == r['asks_kind'])}/{len(asked_rows)}"
-                for k in judges if judges[k] is not None}
+                for k in measured}
     summary["名乗り・用件の質問を、どの判定もほかと読んだ（差し戻しうる）"] = (
-        f"{sum(1 for r in asked_rows if r['asks_kind'] == ASKS_YES and any(r.get(f'{k}_asks') == ASKS_OTHER for k in judges) and not any(r.get(f'{k}_asks') == ASKS_YES for k in judges))}"
+        f"{sum(1 for r in asked_rows if r['asks_kind'] == ASKS_YES and any(r.get(f'{k}_asks') == ASKS_OTHER for k in measured) and not any(r.get(f'{k}_asks') == ASKS_YES for k in measured))}"
         f"/{sum(1 for r in asked_rows if r['asks_kind'] == ASKS_YES)}")
     summary["ほかの質問を差し戻せた（ほかの読みがあり、名乗り・用件の読みが無い）"] = (
-        f"{sum(1 for r in asked_rows if r['asks_kind'] == ASKS_OTHER and any(r.get(f'{k}_asks') == ASKS_OTHER for k in judges) and not any(r.get(f'{k}_asks') == ASKS_YES for k in judges))}"
+        f"{sum(1 for r in asked_rows if r['asks_kind'] == ASKS_OTHER and any(r.get(f'{k}_asks') == ASKS_OTHER for k in measured) and not any(r.get(f'{k}_asks') == ASKS_YES for k in measured))}"
         f"/{sum(1 for r in asked_rows if r['asks_kind'] == ASKS_OTHER)}")
     summary |= {f"{k}（前の言葉つき）": f"{sum(1 for r in rows if r['before'] and r.get(k) in r['accept'])}/{sum(1 for r in rows if r['before'])}"
-                for k in judges if judges[k] is not None}
+                for k in measured}
     # 取り次ぎの読み（流れの制御は、読みのどれか1つでも「取り次ぎを待つ」なら黙って待つ＝flowctl.HOLD_READINGS）。⛔ 2026-10-25 J10b：不在と取り次ぎの
     # 2つの意味の言葉で、どの読みも「取り次ぎを待つ」にならず、取り次ぎの最中にかけ直しの質問を流した ⇒ 取り次ぎを含む言葉では、どれかの読みが
     # 「取り次ぎを待つ」であること（効き目）／取り次ぎでない言葉に、尋ねているかの問い合わせが「取り次ぎを待つ」を返した回（間違えて黙る側）を数える
@@ -321,9 +329,9 @@ async def run(args) -> dict:
     summary["取り次ぎの言葉に、どれかの読みが取り次ぎ"] = (f"{sum(1 for r in held if any(r.get(c) == HOLD for k in judges for c in (k, f'{k}_asks')))}"
                                               f"/{len(held)}")
     summary["取り次ぎでない言葉に、尋ねているかが取り次ぎ"] = (f"{sum(1 for r in rows if HOLD not in r['accept'] for k in judges if r.get(f'{k}_asks') == HOLD)}"
-                                               f"/{sum(1 for r in rows if HOLD not in r['accept']) * len(judges)}")
+                                               f"/{sum(1 for r in rows if HOLD not in r['accept']) * len(measured)}")
     # 判定の速さ（目的の人の判定の問い合わせ。中央・遅いほうから1割・最長の秒）
-    for k in judges:
+    for k in measured:
         s = sorted(r[f"{k}_s"] for r in rows if f"{k}_s" in r)
         if s:
             summary[f"{k}（答えまでの秒：中央・遅いほうから1割・最長）"] = [s[len(s) // 2], s[int(len(s) * 0.9)], s[-1]]

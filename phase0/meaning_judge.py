@@ -70,10 +70,12 @@ class Reading(str):
     by＝答えた判定の名前・tried＝その前に問い合わせて答えが無かった判定（JudgePanel が付ける）。
     項目ごとに答える質問（Question.facets＝目的のお客様の判定）では、中の名前は組み合わせた読み（flowctl.target_reading）で、away・new＝読みに
     出ない事実の印（不在も伝えた・電話を代わった方）・successor＝はじめの場面で、電話に出ている方は後任の方だと読んだ印（flowctl.facts_reading）・
-    facts＝項目ごとの答え（記録・試験の数え方）。"""
+    facts＝項目ごとの答え（記録・試験の数え方）。weak＝受け持ちの判定がどれも確かな読みを返さず、代わりが答えたときの、受け持ちの確かでない読み
+    （流れの制御は、代わりの答えとあわせて数える＝convo.check_handler・Flow.on_unsure）。"""
     sure: float | None = None
     by: str | None = None
     tried: tuple = ()
+    weak: str | None = None
     away: bool = False
     new: bool = False
     successor: bool = False
@@ -415,6 +417,20 @@ def takes_part(name: str, kind: str) -> bool:
     """組（2つ以上の判定の受け持ち）の中で、判定 name が kind（question_kind・ground）の質問に答えるか（唯一の場所。JudgePanel・
     grounding.make_grounder が使う）。group_kinds を書いていない判定は、どの種類にも答える。1つだけの判定で測るときは使わない。"""
     return kind in OTHER_JUDGES.get(name, {}).get("group_kinds", (kind,))
+
+
+# 質問の種類ごとに、ほかの受け持ちが答えられないときだけ代わりに入る判定（唯一の場所。JudgePanel）。✅ 2026-10-30 ユーザー：「Flash Lite は代わり
+#    だけにする形でOKです」＝お呼びする段の2つの質問（目的のお客様の判定・尋ねているか）では、その場の判定（3.5 Flash Lite）は、2つ目の受け持ち
+#    （組）が答えられない（止まった・時間切れ・確かな読みが無い）ときだけ答える。⛔ 同じ言葉に同時に出していたので、組が正しく読んでも、
+#    Flash Lite の読み1つで流れの制御が動いた（G-59 のいまの文で 213回中30回。組は0）。答えの意味・待たせた方が戻ったかは今のまま同時に出す
+STANDIN_ONLY = {"3.5 Flash Lite": CALLING_KINDS}
+
+
+def standin_only(name: str, kind: str) -> bool:
+    """判定 name が kind（question_kind）の質問では、ほかの受け持ちが答えられないときだけの代わりか（STANDIN_ONLY の1か所）。"""
+    return kind in STANDIN_ONLY.get(name, ())
+
+
 # 同時に出して、先に届いた確かな読みで決める組（唯一の場所。意味の判定の受け持ち＝JudgePanel・中身の判定＝grounding.make_grounder の両方が使う）。
 #    ✅ 2026-10-23 ユーザー（中身の判定）：「W sonnetで暫定としてOK」・2回目「OK」（Jev と2つの Sonnet を同時に出し、早く届いた確かな読みで決める）
 #    ✅ 2026-10-25 ユーザー：「以前、JevやSonnet 5.5 の「考えない」形を使うと決めましたよね。同じことを聞くな！」＝意味の2つ目の判定も同じ組
@@ -717,7 +733,7 @@ def add_judge_args(p) -> None:
     p.add_argument("--judge", nargs="?", const="3.5 Flash Lite", choices=JUDGE_MODELS, help="意味の判定を使う（DESIGN.md 6-10 の (6)）")
     p.add_argument("--judge2", nargs="?", const=JUDGE2, choices=tuple(OTHER_JUDGES) + JUDGE_MODELS + tuple(GROUPS),
                    help=f"もう1つの判定を同時に出す（DESIGN.md 6-10 の (6)。既定 {JUDGE2}）")
-    p.add_argument("--no-standin", action="store_true", help=f"止まった判定の代わり（{STANDIN}）を使わない（比べるときだけ）")
+    p.add_argument("--no-standin", action="store_true", help=f"止まった判定の代わり（{STANDIN}）と、お呼びする段の代わりだけの判定（STANDIN_ONLY）を使わない（比べるときだけ）")
     p.add_argument("--judge-down", action="append", choices=tuple(OTHER_JUDGES) + JUDGE_MODELS,
                    help="試験だけ：この判定が止まっているものとして流す（代わりが受け持つかを確かめる。いくつでも）")
     # 中身の判定（grounding）の顔ぶれ（既定 grounding.GROUNDERS）。「なし」＝中身を確かめられない通話（受け皿の道を通話で確かめる）
@@ -829,9 +845,12 @@ class JudgePanel:
     - 止まっている（outage）とみなした判定は DOWN_S 秒、問い合わせずに組のほか・代わりへ
     - 確からしさを返す判定（Jev）は、線（OTHER_JUDGES の sure_min）より下なら答えにしない＝その判定は届かなかった（組のほかの判定・代わりを
       待つ。どれも無ければ、もう1つの受け持ちで決め、通話後の検証へ。✅ 2026-10-18 ユーザーの案「このスコア以上ならJevで間違いなく正確というライン」）
+    - 質問の種類によって代わりだけになる判定（standin_only＝お呼びする段の 3.5 Flash Lite）の受け持ちは、その質問には自分で答えず（answers）、
+      ほかの受け持ちの判定がどれも答えなかったときに、その受け持ちの代わりとして答える（backup＝False なら入れない。試しで比べるときだけ）。
+      代わりが答えても、受け持ちの確かでない読みは答えに添える（Reading.weak）
     どれを使って答えたかは、答え（Reading）の by・tried に残す。"""
 
-    def __init__(self, judges: dict, standin: tuple | None = None, down=(), clock=None):
+    def __init__(self, judges: dict, standin: tuple | None = None, down=(), clock=None, backup: bool = True):
         import time
         from collections import OrderedDict
 
@@ -850,13 +869,41 @@ class JudgePanel:
         self.holder: str | None = None  # 代わりが入っている受け持ち
         self.answered: OrderedDict = OrderedDict()  # 発話 ⇒ {受け持ち: (答えた会社, 時刻)}（同じ発話で、2つの受け持ちを同じ会社にしない）
         self.clock = clock or time.monotonic
+        self.backup = backup
 
     def slot(self, kind: str):
-        """受け持ち kind の判定（convo.check_handler に渡す形。panel＝この受け持ちの仕組み）。"""
+        """受け持ち kind の判定（convo.check_handler に渡す形。panel＝この受け持ちの仕組み・answers＝その質問に自分で答えるか）。"""
         async def run(q, text, asked=None, before=None):
             return await self.ask(kind, q, text, asked, before)
         run.panel = self
+        run.answers = lambda q: self.answers(kind, q)
         return run
+
+    def _parts(self, kind: str, qkind: str) -> list:
+        """受け持ち kind の判定のうち、組の中の分け（takes_part）で qkind の質問に答えるもの（1つだけの受け持ちは、その判定）。"""
+        ms = self.judges[kind]
+        return [(n, f) for n, f in ms if len(ms) == 1 or takes_part(n, qkind)]
+
+    def _own(self, kind: str, qkind: str) -> list:
+        """受け持ち kind が qkind の質問に自分で出す判定：組の中の分けのうち、ほかの受け持ちに自分で答える判定があれば、代わりだけの判定
+        （standin_only）を除く（ほかの受け持ちが無い・ほかも代わりだけなら、自分で答える＝1つの判定で測るとき）。"""
+        mine = self._parts(kind, qkind)
+        if any(not standin_only(n, qkind) for k in self.judges if k != kind for n, _ in self._parts(k, qkind)):
+            mine = [(n, f) for n, f in mine if not standin_only(n, qkind)]
+        return mine
+
+    def answers(self, kind: str, q) -> bool:
+        """受け持ち kind が、質問 q に自分で答えるか（答えない受け持ちには、convo.check_handler・G-59 が問い合わせない）。"""
+        return bool(self._own(kind, question_kind(q)))
+
+    def _backups(self, kind: str, qkind: str) -> list:
+        """受け持ち kind の判定がどれも答えなかったときの代わり：ほかの受け持ちの、qkind の質問では自分で答えない判定（standin_only）。kind の
+        判定と同じ会社のものは入れない（同じ会社の代わりは、止まるのも誤るのも一緒）。"""
+        if not self.backup:
+            return []
+        makers = {maker(n) for n, _ in self._own(kind, qkind)}
+        return [(n, f) for k in self.judges if k != kind for n, f in self._parts(k, qkind)
+                if (n, f) not in self._own(k, qkind) and maker(n) not in makers]
 
     def reset(self) -> None:
         """止まっているとみなした印と、代わりが入っている受け持ちを消す（判定の読みを言葉ごとに測る試験だけ：1つの言葉の時間切れで、
@@ -911,11 +958,11 @@ class JudgePanel:
         # 発話と質問ごと（⚠️ 呼んでいる段の、目的のお客様かの質問と、こちらに尋ねているかの質問は、同じ番号＝選べるもので分ける）
         key = (getattr(q, "id", None), tuple(getattr(q, "conditions", ()) or ()), text, asked, before)
         live = []
-        members = self.judges[kind]
         qkind = question_kind(q)
-        for name, fn in members:
-            if len(members) > 1 and not takes_part(name, qkind):
-                continue  # 組の中で、この種類の質問には答えない判定（takes_part の1か所）
+        own = self._own(kind, qkind)   # 組の中で、この種類の質問に答える判定（takes_part）・代わりだけの判定を除いたもの（standin_only）
+        if not own:  # この質問では代わりだけの受け持ち（answers）：問い合わせない（ほかの受け持ちが答えられないときに、そちらの代わりで入る）
+            raise NoJudgment([{"model": n, "error": "この質問では代わりだけ"} for n, _ in self.judges[kind]])
+        for name, fn in own:
             if self.down_until.get(name, 0.0) > self.clock():
                 tried.append({"model": name, "error": "止まっている（前の問い合わせ）"})
             elif maker(name) in self._taken(kind, key):
@@ -940,6 +987,17 @@ class JudgePanel:
                 self.holder = None
             self._keep(kind, key, won[0])
             return self._mark(won[1], won[0], tried)
+        # 受け持ちの判定がどれも答えなかった：確かでない読み（代わりが答えても、流れの制御が数える＝Reading.weak）と、代わり（この質問では代わり
+        # だけの、ほかの受け持ちの判定 → 止まった判定の代わり STANDIN の順）
+        weak = next((t["unsure"] for t in tried if "unsure" in t), None)
+        for bname, bfn in self._backups(kind, qkind):
+            if self.down_until.get(bname, 0.0) > self.clock():
+                tried.append({"model": bname, "error": "止まっている（前の問い合わせ）"})
+            elif maker(bname) in self._taken(kind, key):
+                tried.append({"model": bname, "error": SAME_MAKER})
+            elif (got := await self._try(bname, bfn, q, text, asked, before, tried)) is not None:
+                self._keep(kind, key, bname)
+                return self._mark(got, bname, tried, weak)
         if self.standin is None or kind not in self.serves or self.holder not in (None, kind):
             raise NoJudgment(tried)
         sname, sfn = self.standin
@@ -951,11 +1009,11 @@ class JudgePanel:
         if got is None:
             raise NoJudgment(tried)
         self._keep(kind, key, sname)
-        return self._mark(got, sname, tried)
+        return self._mark(got, sname, tried, weak)
 
     @staticmethod
-    def _mark(got: Reading, name: str, tried: list[dict]) -> Reading:
-        got.by, got.tried = name, tuple(tried)
+    def _mark(got: Reading, name: str, tried: list[dict], weak: str | None = None) -> Reading:
+        got.by, got.tried, got.weak = name, tuple(tried), weak
         return got
 
 
@@ -970,7 +1028,8 @@ def make_judges(args) -> dict:
         return {k: None for k in names} | {"grounder": None}
     standin = None if getattr(args, "no_standin", False) else STANDIN
     panel = JudgePanel({k: tuple((m, make_judge(args, m)) for m in members(n)) for k, n in used.items()},
-                       standin=(standin, make_judge(args, standin)) if standin else None, down=getattr(args, "judge_down", None) or ())
+                       standin=(standin, make_judge(args, standin)) if standin else None, down=getattr(args, "judge_down", None) or (),
+                       backup=not getattr(args, "no_standin", False))
     if standin and panel.standin is None:
         say(f"止まった判定の代わり（{standin}）は、どの受け持ちにも入れない（同じ会社の判定が組にある・ほかの受け持ちが同じ会社だけ）ので使いません")
     # AIが自分の言葉で言う文の中身の判定（grounding）も、判定を使う通話では一緒に作る（顔ぶれは grounding.GROUNDERS＝危ない文を通さないと

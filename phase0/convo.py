@@ -77,6 +77,12 @@ def recording_seconds(voice_type: str, part: str) -> float:
     return float(got["seconds"])
 
 
+def answers(judge, q) -> bool:
+    """判定の受け持ち judge が、質問 q に自分で答えるか（meaning_judge.JudgePanel.answers の1か所。お呼びする段の 3.5 Flash Lite は、もう1つの
+    受け持ちが答えられないときだけの代わり＝STANDIN_ONLY）。受け持ちの仕組みを持たない判定（試験の判定）は、どの質問にも答える。"""
+    return getattr(judge, "answers", None) is None or judge.answers(q)
+
+
 def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes | None = None, rate: int = 16000, wav: str | None = None,
                   tasks: list | None = None, audio_at: float | None = None, clip_s=None, grounder=None):
     """相手の1つの発話の確かめ（DESIGN.md 1章・6-10）：相手の声を、会話AIへ送るのと同時に別の耳（通話ごとに1本つないだ ears.Ear）へも流し、
@@ -110,7 +116,7 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
         flow.on_voice(info["voice_end_at"])
     turn = flow.callee_turns
     q, asked, before = flow.judge_context()  # 判定の質問（目的の人を呼んでいる段では、呼ぶ一言と、その前に相手が言ったこと）
-    runs = {k: r for k, r in (("judge", judge), ("judge2", judge2)) if r is not None and q}
+    runs = {k: r for k, r in (("judge", judge), ("judge2", judge2)) if r is not None and q and answers(r, q)}
     if before and runs:
         info["judge_before"] = before
     # 呼んでいる段だけ：こちらに尋ねているかを、目的の人の判定とは別の問い合わせとして同時に出す（受け持ちは1つ目の判定＝止まれば代わりが入る。
@@ -119,12 +125,12 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
     # ⛔ 2026-10-25 J10b：受け持ちが1つ目の判定だけだと、その会社が混むと質問に気づけない ⇒ 2つ目の判定にも出す（flowctl.ASKS_CHECKS）
     if (ac := flow.asks_context()) is not None:
         for kind, j in (("asks", judge), ("asks2", judge2)):
-            if j is not None:
+            if j is not None and answers(j, ac[0]):
                 runs[kind], questions[kind] = j, (ac[0], None, ac[1])
     # 取り次ぎで待ったあとに話した方の最初の発話だけ：待たせた方が戻ったか（Flow.returned_context。2つがそろったときだけ名乗りを省く＝待たない）
     if (rc := flow.returned_context()) is not None:
         for kind, j in (("returned", judge), ("returned2", judge2)):
-            if j is not None:
+            if j is not None and answers(j, rc[0]):
                 runs[kind], questions[kind] = j, (rc[0], None, rc[1])
 
     def started(coro) -> asyncio.Task:
@@ -200,6 +206,11 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
                 if got.tried:
                     info[f"{kind}_tried"] = list(got.tried)
             flow.on_check(kind, got, turn, said=said)
+            if getattr(got, "weak", None) is not None:
+                # 代わり（お呼びする段の 3.5 Flash Lite など）が答えた：受け持ちの組の確かでない読みも、答えが無いときと同じに数える（繋ぐのを
+                # 止める側だけ＝Flow.on_unsure。⛔ 2026-10-21 G-57 tc10：弱い「代わった人」を捨て、読みが2つそろったとして別の方に繋いだ）
+                info[f"{kind}_weak"] = got.weak
+                flow.on_unsure(kind, got.weak, turn, said)
             return got
     jobs = {kind: started(judging(kind)) for kind in runs}
 
