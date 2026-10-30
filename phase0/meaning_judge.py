@@ -42,7 +42,10 @@ KIND_DESC = {HOLD: "電話を待つように言った（ほかの人に取り次
              #    また出て出られないと伝えたときは不在、どちらが出たか分からない言葉はご本人と決めない（決まりの正本＝flowctl.WHO_CALLING）。
              # ⚠️ 2026-10-29 から、目的のお客様の判定はこの説明を使わない（項目ごとに答える＝flowctl.target_facets）。答えの判定（G-53）の文を
              #    変えないために、ここはそのまま残す
-             HANDOVER: "電話を代わった別の人が、話し始めた（「お電話代わりました」など。答えではない）。お呼びした方がいないので別の者に代わると"
+             # ⛔ 2026-10-31（G-53・d1-ultra）：言い直しのあとに電話を代わった方の「はい、〇〇でございます。お待たせいたしました。」を、頭の「はい」で
+             #    言い直しを認めたと読んだ（確からしさ 0.69）＝話し始めた言葉がどんなものかを書いていなかった ⇒ 意味で足した（言葉の形の例は足さない）
+             HANDOVER: "電話を代わった別の人が、話し始めた（「お電話代わりました」など。名乗る・待たせたことを詫びるなど、電話に出たあいさつで、頭の"
+                       "「はい」もあいさつの「はい」。答えではない）。お呼びした方がいないので別の者に代わると"
                        "言ったあとに代わった方が出たとき・お呼びした方と違う名前を名乗ったときも、こちら。代わった方が誰かで答えが決まるとき"
                        "（お呼びした方の名前を名乗った・その前に取り次いだ方が、お呼びした方に取り次いだ）は、こちらではなく、その答えを選ぶ",
              # 2026-10-25 G-53：言い直しへの「確認しておきます。」（これから確かめるだけ）を、考えない Sonnet 5.5 が答えと読んだ ⇒「答えになっていない」の例に足した。
@@ -53,7 +56,11 @@ KIND_DESC = {HOLD: "電話を待つように言った（ほかの人に取り次
              # ⛔ 2026-10-31（真因 (A) と同じ）：「『大丈夫です』『結構です』だけなど」と言葉で書いていた＝申し出への「いいえ、結構です」「送付は結構です」
              #    まで「決められない」と読み、聞き直していた（✅ 2026-10-17 ユーザー：「人でも前の質問や会話から判断する言葉です」＝前の質問で決まれば、
              #    その意味）。✅ 2026-10-30 ユーザー：「差し控えさせていただきます」は、本当にそう言ったなら会話になっていない（聞き取りの誤りも考える）
+             # ⛔ 2026-10-31（G-53・d1-ultra）：駐車場の質問への「差し控えさせていただきます」を「利用しない」（0.94）と読んだ＝答えるのを控えたのか、
+             #    利用を控えるのか決まらない言葉なのに、その決まらなさを書いていなかった ⇒ 意味で足した。✅ 2026-10-30 ユーザー：「お話しすることは
+             #    ありません」は「前の会話や…によって、どのパターンもあり得る」（前の会話は「前の会話からは」で読む）
              UNDECIDED: "この言葉と、前の質問・前の会話からは決められない（受け入れにも断りにも取れる・どの答えも指していない・選ぶのを避けた・"
+                        "答えることや話すことを控える・終える言葉とも、質問への答えとも取れる・"
                         "これから確かめる・調べる、と言っただけ・質問への答えとして意味がつながらない＝聞き違いもありうるので、近い言葉に読み替えない）"}
 CONFIRM_DESC = {"affirmed": "こちらが言い直した値で合っていると認めた", "corrected": "違う・直した（別の値を言った）"}
 
@@ -430,10 +437,15 @@ OTHER_JUDGES = {
     # 初めの3回りで一番高くて 0.45 ⇒ 0.6。新しい3回りで、Jev（0.8）と並べて Sonnet 46%・外れ0（外れの確からしさは 0.37 まで）。尋ねているかは
     # 6回り426回で外れ0 ⇒ 同じ 0.6。✅ 2026-10-30 ユーザー：「d1-ultra（線0.6）と Jev（線0.8）を同時に出し、どちらも確かでないときだけ考えない
     # Sonnet を出す形。OK」「お客様の言葉の送り先に、Liquid（米国・OpenRouter 経由）が増えます。OK」（Intent.md 13章）。組の中では、測った
-    # お呼びする段の2つの質問にだけ答える（group_kinds。答えの意味・中身の判定は測っていない）
+    # お呼びする段の2つの質問にだけ答える（group_kinds。中身の判定は測っていない）。
+    # 答えの意味の線（2026-10-31・意味で書き直した文＝G-53 の指紋 4fbf72dcb8ee7cbd・`G-53bf_final_20261030_182546.json`）：決まった決め方
+    #    （正解の付いた答えの半分で決め、残りの半分で数える）で、答えの確からしさ 0.77・言い切りの確からしさの、どちらとも言えない幅
+    #    0.20〜0.92（sure_reading。幅に入る読みは確かでない＝次の判定）。言い切っているのは 0.92 から上（firm_min＝幅の上）。数える半分の 1,430件で
+    #    946件を決め、外れは2（「社内にはいると思います」は表の誤りで直した・残る1つは駐車場の質問への「差し控えさせていただきます」＝PHASE0 G-59）。
+    #    ⏳ 答えの段の組に入れるのは、Jev も同時に出すか（(ア)）・d1-ultra だけを先に出すか（(a)）のご判断のあと
     "d1 Ultra（Liquid）": {"maker": "liquid", "api": "decision", "model": "liquid/d1-ultra-20261015", "key": "OPENROUTER_JUDGE_KEY",
-                          "host": "openrouter.ai", "firm_min": 0.2, "facets_sure_min": 0.6, "asks_sure_min": 0.6,
-                          "group_kinds": CALLING_KINDS},
+                          "host": "openrouter.ai", "firm_min": 0.92, "facets_sure_min": 0.6, "asks_sure_min": 0.6,
+                          "sure_min": 0.77, "firm_band": (0.20, 0.92), "group_kinds": CALLING_KINDS},
     "d1.1（Liquid）": {"maker": "liquid", "api": "decision", "model": "liquid/d1.1-20261027", "key": "OPENROUTER_JUDGE_KEY",
                       "host": "openrouter.ai", "firm_min": 0.2},
     # 同じ窓口のほかの判断のモデル（2026-10-30 に1回ずつ確かめた。線は測ってから決める・送り先はどれも Intent.md 13章にまだ無い）：
@@ -464,6 +476,26 @@ def sure_line(name: str, q) -> float | None:
     j = OTHER_JUDGES.get(name, {})
     kind = question_kind(q)
     return j.get(f"{kind}_sure_min", j.get("sure_min")) if kind in CALLING_KINDS else j.get("sure_min")
+
+
+def firm_matters(q, got) -> bool:
+    """読み got で、お客様が言い切っているかが流れの制御の動きを変えるか（唯一の場所。確かな読みの決め方＝sure_reading・測りの道具が使う）：
+    選択肢を選んだ読み（最初の答えは、念のため確かめるか受け取るかが変わる・言い直しへの返事は、曖昧の印が付くか）と、値の言い直しを認めた読み。"""
+    return got in (getattr(q, "conditions", ()) or ()) or got == "affirmed"
+
+
+def sure_reading(name: str, q, got) -> bool:
+    """確からしさを返す判定（判断のモデル）の読み got が、確かな読みか（唯一の場所。JudgePanel._try・測りの道具）：答えの確からしさが線
+    （sure_line）から上で、言い切りが動きを変える読み（firm_matters）なら、言い切りの確からしさが、どちらとも言えない幅（firm_band）の外。
+    線の無い判定は、いつも確か。✅ 2026-10-31 ユーザー：d1-ultra の「行けないことはないです」＝中くらい（0.56）の読みが正しい＝言い切りも
+    確からしさで扱い、どちらとも言えない読みは次の判定に回す（線と幅は、正解の付いた答えの半分で決め、残りの半分で数える）"""
+    line = sure_line(name, q)
+    if line is None:
+        return True
+    if got.sure is None or got.sure < line:
+        return False
+    band = OTHER_JUDGES.get(name, {}).get("firm_band") if question_kind(q) == "other" else None
+    return not (band and got.firm_p is not None and firm_matters(q, got) and band[0] <= got.firm_p < band[1])
 
 
 def takes_part(name: str, kind: str) -> bool:
@@ -1232,8 +1264,7 @@ class JudgePanel(RouteState):
         if got is None:
             tried.append({"model": name, "error": "読めない返事", "s": round(self.clock() - t0, 3)})
             return None
-        line = sure_line(name, q)  # 確からしさを返す判定（Jev）は、線から上だけを答えにする
-        if line is not None and (got.sure is None or got.sure < line):
+        if not sure_reading(name, q, got):  # 確からしさを返す判定（Jev・d1）は、確かな読み（線から上・言い切りが幅の外）だけを答えにする
             tried.append({"model": name, "unsure": str(got), "sure": got.sure, "s": round(self.clock() - t0, 3)})
             return None
         return got
