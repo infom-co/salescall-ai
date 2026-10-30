@@ -4944,6 +4944,52 @@ class JudgePanelTest(unittest.TestCase):
         self.assertIn("st.on_trouble, st.emergency_first = None, False", src)                                           # 終わりに外す
         self.assertIn('"ai_trouble": flow.ai_trouble', src)
 
+    def test_probe_asks_each_judge_once_and_names_them_like_ai_trouble(self):
+        # 回復の確かめ（JudgePanel.probe・convo.check_ais）：✅ 2026-10-30 夜 ユーザー：「…AI の不具合として回復するまで一時停止してください。」
+        # ＝発信の門が再開の前に呼ぶ。どの判定にも1回ずつ（2つの受け持ちにいる判定・止まった判定の代わりも1回）・名前は ai_trouble と同じ。
+        # 別の耳と会話AIは、通話と同じ部品でつないで閉じるだけ（声も文字も送らない）
+        import asyncio
+        import unittest.mock as m
+        from contextlib import asynccontextmanager
+
+        from convo import check_ais
+        from meaning_judge import RACE
+        D1, JEV, THINK, FAST = RACE
+        panel, calls = self.lite_and_race({D1: 0.3, JEV: 0.3}, fail={FAST})
+        got = asyncio.run(panel.probe())
+        self.assertEqual(sorted(calls), sorted([self.LITE, D1, JEV, THINK, FAST]))   # Jev は組と代わりの両方にいても1回
+        self.assertEqual({g["ai"]: g["ok"] for g in got}, {self.LITE: True, D1: True, JEV: True, THINK: True, FAST: False})
+        self.assertIn("混雑", next(g for g in got if g["ai"] == FAST)["error"])
+        panel.forced_down = {D1}   # 試験で止めた判定（--judge-down）は、確かめでも止まっている
+        self.assertFalse(next(g for g in asyncio.run(panel.probe()) if g["ai"] == D1)["ok"])
+
+        @asynccontextmanager
+        async def ear_fails(kind, client=None):
+            raise ConnectionError("つながらない")
+            yield
+
+        @asynccontextmanager
+        async def live_opens(client, model, cfg, closing):
+            yield object()
+        class Ring:   # キーの輪（common.KeyRing.acall と同じ形）：1本目は上限・2本目で通る＝確かめも、通話と同じくキーを回す
+            def __init__(self):
+                self.used = []
+
+            async def acall(self, model, fn, max_wait_s=None):
+                for i in (0, 1):
+                    self.used.append(i)
+                    if i == 0 and model:
+                        continue
+                    return await fn(object()), i
+        ring = Ring()
+        with m.patch("convo.open_ear", ear_fails), m.patch("convo.open_session", live_opens):
+            got = asyncio.run(check_ais(judges=(panel,), ear_kind="soniox", ring=ring, model="gemini-3.8-live"))
+        oks = {g["ai"]: g["ok"] for g in got}
+        self.assertEqual((oks["別の耳（soniox）"], oks["会話AI"], oks[FAST]), (False, True, False))
+        self.assertEqual(ring.used, [0, 1, 0, 1])   # 別の耳と会話AIの両方が、キーの輪を通った
+        self.assertIn("つながらない", next(g for g in got if g["ai"] == "別の耳（soniox）")["error"])
+        self.assertEqual(asyncio.run(check_ais()), [])   # 何も渡さなければ、何も問い合わせない
+
     def test_lite_runs_ahead_when_the_decision_models_are_unsure(self):
         # ✅ 2026-10-30 ユーザー：「(1)(2)ともお勧めの形でOK」＝d1-ultra と Jev がどちらも確かでないと分かった時点で、Flash Lite も裏で出しておく
         # （考えない Sonnet と同時。first_of の on_rest）。組より先に届いた Flash Lite の読みは early に知らせる（会話の側が、組の答えが待つ長さに

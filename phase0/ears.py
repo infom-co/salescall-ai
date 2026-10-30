@@ -62,7 +62,7 @@ class Ear:
         self._got, self._text = self._loop.create_future(), ""
         self._feeding = asyncio.Event()
         await self._open()
-        self._tasks = [asyncio.create_task(self._guard(self._receive())), asyncio.create_task(self._guard(self._silence()))]
+        self._tasks = [asyncio.create_task(self._guard(self._receive)), asyncio.create_task(self._guard(self._silence))]
         return self
 
     async def __aexit__(self, *exc):
@@ -73,10 +73,12 @@ class Ear:
         except Exception as e:  # 閉じるときの誤りで、通話の記録を失わない
             self.errors.append(repr(e)[:200])
 
-    async def _guard(self, coro) -> None:
-        """受け取り・無音の作業が落ちても、通話は止めない（文字が届かないだけ＝待つ側が時間で進む）。"""
+    async def _guard(self, work) -> None:
+        """受け取り・無音の作業が落ちても、通話は止めない（文字が届かないだけ＝待つ側が時間で進む）。作業は、始まってから作る（始まる前に
+        閉じたとき＝すぐ切れた通話・回復の確かめ＝convo.check_ais に、作ったまま動かない作業を残さない。⛔ 2026-10-30：先に作っていたので、
+        開いてすぐ閉じると「作業が一度も動かなかった」の警告が出た）。"""
         try:
-            await coro
+            await work()
         except asyncio.CancelledError:
             raise
         except Exception as e:

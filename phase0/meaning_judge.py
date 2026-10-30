@@ -451,6 +451,16 @@ def takes_part(name: str, kind: str) -> bool:
 STOP_ONLY = {"3.5 Flash Lite": CALLING_KINDS}
 
 
+PROBE_TEXT = "はい、しています。"   # 回復の確かめで判定に送る言葉（JudgePanel.probe）
+
+
+def probe_question():
+    """回復の確かめで判定に送る、決まった短い質問（はい／いいえ。前の部分が短いので、確かめのたびの料金が小さい＝2つの Sonnet で1回り
+    約0.4円・5分を超えて間が空くと前の部分を書き直して約1.1円。2026-10-30 に本物で2回り流して 1.5円）。"""
+    from flowctl import Question
+    return Question("probe", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"))
+
+
 def stop_only(name: str, kind: str) -> bool:
     """判定 name が kind（question_kind）の質問では、止める側だけに使う判定か（STOP_ONLY の1か所）。"""
     return kind in STOP_ONLY.get(name, ())
@@ -1149,6 +1159,34 @@ class JudgePanel(RouteState):
         self.down_until.clear()
         self.holder = None
         self.answered.clear()
+
+    async def probe(self) -> list[dict]:
+        """回復の確かめの判定の分（唯一の場所。入口は convo.check_ais）：受け持ちのどの判定（止まった判定の代わりも）にも、決まった短い質問
+        （probe_question）を直接の道で1回ずつ同時に送り、答えたかを返す＝[{"ai": 判定の名前（通話の報告の ai_trouble と同じ）, "ok": 答えたか,
+        "error": 失敗の中身, "s": 秒}]。読みの中身は見ない（どの読みでも、答えが返れば回復）。時間切れは通話と同じ DOWN_AFTER_S。止まった印には
+        触らない（印は通話ごと）。✅ 2026-10-30 夜 ユーザー：「…その他に使う AI のどれかが止まったら、AI の不具合として回復するまで一時停止して
+        ください。」＝発信の門（CL-2）が、AIの不具合で止めた新しい電話を再開する前に呼ぶ。"""
+        import asyncio
+
+        from common import redact
+        q = probe_question()
+        named: dict = {}
+        for ms in self.judges.values():
+            for n, f in ms:
+                named.setdefault(n, f)
+        if self.standin:
+            named.setdefault(*self.standin)
+
+        async def one(name, fn):
+            t0 = self.clock()
+            try:
+                if name in self.forced_down:
+                    raise OtherJudgeError(503, "試験：止まっているものとして扱う")
+                await asyncio.wait_for(fn(q, PROBE_TEXT, None, before=None), DOWN_AFTER_S)
+                return {"ai": name, "ok": True, "s": round(self.clock() - t0, 3)}
+            except Exception as exc:
+                return {"ai": name, "ok": False, "error": redact(repr(exc))[:160], "s": round(self.clock() - t0, 3)}
+        return list(await asyncio.gather(*(one(n, f) for n, f in named.items())))
 
     async def _try(self, name: str, fn, q, text: str, asked: str | None, before: str | None, tried: list[dict]) -> Reading | None:
         t0 = self.clock()

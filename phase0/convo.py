@@ -409,6 +409,43 @@ def followup_reason(turn, words_complete: bool = True) -> str | None:
     return None
 
 
+async def check_ais(*, judges=(), ear_kind: str | None = None, ring=None, model: str | None = None) -> list[dict]:
+    """回復の確かめの唯一の入口：通話で使うAI（判定・別の耳・会話AI）に、通話と同じ部品でつないで短く問い合わせ、答えたかを返す＝
+    [{"ai", "ok", "error", "s"}]（名前は通話の報告の ai_trouble と同じ＝止まったAIが答えるようになったかを、名前で突き合わせられる）。
+    ✅ 2026-10-30 夜 ユーザー：「基本的にアンソロピックが使えなくなったりその他に使う AI のどれかが止まったら、AI の不具合として回復するまで一時停止
+    してください。」＝発信の門（CL-2）が、AIの不具合で止めた新しい電話を再開する前に呼ぶ（全部 ok なら回復。CL-1.md 4-62）。
+    judges＝判定の受け持ち（meaning_judge.JudgePanel。中身の判定も同じAI）・ear_kind＝別の耳（つないで閉じるだけ＝声は送らない）・
+    ring と model＝会話AI（つなぎを開いて閉じるだけ＝声も文字も送らない）。会話AIと別の耳は、通話と同じくキーの輪（common.KeyRing.acall）を
+    通す＝上限のキーは飛ばして、使えるキーで確かめる（⛔ 2026-10-30：1本目のキー（上限の値が0）だけで確かめ、会話AIを「答えない」と誤った）。
+    料金は判定の短い質問だけ（meaning_judge.probe_question）。"""
+    from common import redact
+    out: list[dict] = []
+    for panel in judges:
+        out += await panel.probe()
+
+    async def opened(name, cm_of):
+        async def once(client):
+            closing: list = []
+            async with cm_of(client, closing):
+                pass
+            await asyncio.gather(*closing)
+        t0 = time.monotonic()
+        try:
+            if ring is not None:
+                await ring.acall(model, once, max_wait_s=0)
+            else:
+                await once(None)
+            out.append({"ai": name, "ok": True, "s": round(time.monotonic() - t0, 3)})
+        except Exception as exc:
+            out.append({"ai": name, "ok": False, "error": redact(repr(exc))[:160], "s": round(time.monotonic() - t0, 3)})
+    if ear_kind:
+        await opened(f"別の耳（{ear_kind}）", lambda client, closing: open_ear(ear_kind, client))
+    if ring is not None and model:
+        await opened("会話AI", lambda client, closing: open_session(client, model, build_config(voice=None, system_instruction="確かめ"),
+                                                                    closing))
+    return out
+
+
 async def run_call(client, model: str, business: Business, voice_type: str, callee_lines: list, *,
                    swap_before: int | None = None, stall_at: int | None = None, stall_wait_s: float = 1.0,
                    opening_mode: str = "ai", barge_in: tuple[list[str], list[str]] | None = None,
