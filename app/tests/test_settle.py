@@ -14,6 +14,7 @@ from salescall.core import (approval, attempts, backup, business_rules, calling_
                             next_action, quality_stage, recordings, results, scheduler, settings, settle, stops, target_recheck, tasks,
                             watch)
 from salescall.core.errors import ErrorReport
+from salescall.core import health
 from salescall.core.access import Rejected
 from salescall.core.call_report import Cut
 from salescall.core.phone import normalize
@@ -47,13 +48,15 @@ class SettleBase(Base):
             self.tx(s, lambda tx: call_report.save(tx, c.attempt_id, report or rep()))
             if verify:
                 self.tx(s, lambda tx: attempts.record_verification(tx, c.attempt_id, summary=CLEAN))
+        self.tx(s, lambda tx: health.after_call(tx, c.attempt_id))   # 電話が終わった所（回線ごとの処理）と同じく（終わっていなければ何もしない）
         return c.attempt_id
 
     def settle(self, s, aid, *, decide=True):
-        """本物の締めの処理で締める。鳴らなかった電話は、だれのせいかが決まるまで締めない（0143）ので、decide なら、まだ分からない
+        """本物の締めの処理で締める。鳴らなかった電話は、だれのせいかが決まるまで締めない（行の欄が判定待ち）ので、decide なら、まだ分からない
         電話は、その回線のテスト番号が鳴った＝番号のせい、と決めてから締める（決め方そのものを試さない試験の近道。発信の回数には
         数えない）。決め方や、決まるまで休むことを試す試験は decide=False。"""
-        if decide and self.tx(s, lambda tx: attempts.blame(tx, aid)) == "pending":
+        self.tx(s, lambda tx: health.after_call(tx, aid))   # 電話が終わった所と同じく、出来事を状態の表の入口へ（1回だけ）
+        if decide and self.tx(s, lambda tx: health.blame_of(tx, aid)) == "pending":
             line = self.tx(s, lambda tx: tx.one("SELECT line_id FROM salescall.attempts WHERE attempt_id = %s", (aid,)))["line_id"]
             self.w.test_number_rang(s, line=line)
         return self.tx(s, lambda tx: settle.settle(tx, aid))
@@ -81,26 +84,28 @@ class Settle(SettleBase):
         s = self.ready()
         aid = self.call(s, ["dialing", "ringing"])
         self.assertTrue(self.tx(s, lambda tx: attempts.end_for_trouble(tx, aid, "runner_error")))
-        self.assertEqual(self.tx(s, lambda tx: attempts.blame(tx, aid)), "ours")
+        self.tx(s, lambda tx: health.after_call(tx, aid))                      # 電話が終わった所（回線ごとの処理）と同じく
+        self.assertEqual(self.tx(s, lambda tx: health.blame_of(tx, aid)), "ours")
         d = self.settle(s, aid)["decision"]
         self.assertEqual((d.kind, d.target.purpose), ("call", "normal"))
         self.assertIn("こちらのせい", d.rule)
         self.assertEqual(self.reason(s), "awaiting_recovery")                 # 復旧するまで、かけない
         self.assertNotIn(s["task"], [r["task_id"] for r in self.tx(s, lambda tx: scheduler.due_tasks(tx, 10))])   # 候補にも出さない
-        self.assertEqual(self.tx(s, lambda tx: attempts.failed_run(tx, s["contact"]))["n"], 0)       # 番号に数えない
-        self.assertFalse(self.tx(s, lambda tx: attempts.line_run_pending(tx, s["line"])))           # 回線の続きにも入らない
+        self.assertEqual(self.tx(s, lambda tx: support.number_run(tx, s["contact"]))["n"], 0)       # 番号に数えない
+        self.assertFalse(self.tx(s, lambda tx: support.line_checking(tx, s["line"])))           # 回線の続きにも入らない
         self.w.talked(s)                                                       # 同じ契約者で、こちらの不具合なしに話し終えた＝復旧
         with self.assertRaises(ValueError):
             self.tx(s, lambda tx: attempts.end_for_trouble(tx, aid, "who_knows"))
         # 同じ行で、こちらのせいが続いても、どれもこちらのせい（数えない）。数えないまま鳴らし続けない歯止めは、行の休み（同じ行で続けて
-        # 2回で休む＝salescall.task_resting。0139。⛔ 0136：3回目からはふつうの鳴らなかった電話として番号に数えた。⛔ 見直しの一生の
+        # 2回で休む＝行の欄の R-8。0139。⛔ 0136：3回目からはふつうの鳴らなかった電話として番号に数えた。⛔ 見直しの一生の
         # 試験 1o：数えないと5日で 270 回かけ続けた）
         self.tx(s, lambda tx: next_action.schedule_now(tx, s["task"], cause="試験：その時刻が来た"))
         again = self.call(s, ["dialing", "ringing"])
         self.tx(s, lambda tx: attempts.end_for_trouble(tx, again, "frozen"))
-        self.assertEqual(self.tx(s, lambda tx: attempts.blame(tx, again)), "ours")
+        self.tx(s, lambda tx: health.after_call(tx, again))
+        self.assertEqual(self.tx(s, lambda tx: health.blame_of(tx, again)), "ours")
         self.settle(s, again)
-        self.assertEqual(self.tx(s, lambda tx: attempts.failed_run(tx, s["contact"]))["n"], 0)
+        self.assertEqual(self.tx(s, lambda tx: support.number_run(tx, s["contact"]))["n"], 0)
         self.tx(s, lambda tx: next_action.schedule_now(tx, s["task"], cause="試験：その時刻が来た"))
         self.assertEqual(self.reason(s), "task_resting")                     # 2回続いた：その行は休む
 
@@ -781,7 +786,7 @@ class UnusableNumber(SettleBase):
         """続いた数を0に戻すのは、お客様のところで電話が鳴った発信（salescall.rang＝数え方の「お客様に届いた1回」か「途中で切れた」）。
         お客様が出なかった（鳴った）電話がはさまれば、数え直す。"""
         s = self.ready()
-        run = lambda: self.tx(s, lambda tx: attempts.failed_run(tx, s["contact"]))["n"]
+        run = lambda: self.tx(s, lambda tx: support.number_run(tx, s["contact"]))["n"]
         for path, n in ((["dialing", "ringing", "technical_error"], 1), (["dialing", "call_failed"], 2),
                         (["dialing", "no_answer"], 0)):
             self.settle(s, self.call(s, path))
@@ -805,22 +810,21 @@ class UnusableNumber(SettleBase):
         for r in rows:
             before.append(self.tx(s, lambda tx: next_action.current(tx, r["task"])))
             aid = self.call(r, ["dialing", "ringing", "technical_error"])
-            self.assertEqual(self.settle(r, aid, decide=False).get("waiting"), "unrung_blame")   # 締めずに休む
+            self.assertEqual(self.settle(r, aid, decide=False).get("waiting"), "await_decision")   # 締めずに休む
             got.append(aid)
-        self.assertEqual([self.tx(s, lambda tx: attempts.blame(tx, a)) for a in got], ["pending"] * 3)
+        self.assertEqual([self.tx(s, lambda tx: health.blame_of(tx, a)) for a in got], ["pending"] * 3)
         self.assertEqual([self.tx(s, lambda tx: next_action.current(tx, r["task"]))["seq"] for r in rows],
                          [b["seq"] for b in before])                          # 予定は書かない
         self.assertTrue(self.w.test_number_silent(s))                              # テスト番号も鳴らない
-        self.assertEqual([self.tx(s, lambda tx: attempts.blame(tx, a)) for a in got], ["line"] * 3)
+        self.assertEqual([self.tx(s, lambda tx: health.blame_of(tx, a)) for a in got], ["line"] * 3)
         for r, b, aid in zip(rows, before, got):   # 回線のせい：かけた予定のまま（約束の印・かける先も同じ。どの数にも数えない）
             d = self.settle(r, aid)["decision"]
             self.assertEqual((d.kind, d.promised, d.target.contact_id), ("call", b["promised"], r["contact"]), d.rule)
         for r in rows:
-            self.assertEqual(self.tx(s, lambda tx: attempts.failed_run(tx, r["contact"]))["n"], 0)
-            self.assertFalse(self.tx(s, lambda tx: attempts.number_unusable(tx, r["contact"], tenant_id=s["tenant"],
-                                                                             client_id=s["client"], business_id=s["business"])))
+            self.assertEqual(self.tx(s, lambda tx: support.number_run(tx, r["contact"]))["n"], 0)
+            self.assertFalse(self.tx(s, lambda tx: health.number_dead(tx, r["contact"])))
         self.ring_elsewhere(s)                                                 # 直ったあと鳴っても、回線のせいのまま（変わらない）
-        self.assertEqual([self.tx(s, lambda tx: attempts.blame(tx, a)) for a in got], ["line"] * 3)
+        self.assertEqual([self.tx(s, lambda tx: health.blame_of(tx, a)) for a in got], ["line"] * 3)
 
     def test_a_last_failure_that_turns_out_the_lines_does_not_end_the_row(self):
         """並びを使い切る4回目が、まだ番号のせいか分からないあいだは、行を締めずに休む（予定は書かない。門が awaiting_decision で断り、
@@ -833,20 +837,23 @@ class UnusableNumber(SettleBase):
             self.due_now(t)
         before = self.tx(t, lambda tx: next_action.current(tx, t["task"]))
         last = self.call(t, ["dialing", "call_failed"])
-        self.assertEqual(self.settle(t, last, decide=False).get("waiting"), "unrung_blame")
+        self.assertEqual(self.settle(t, last, decide=False).get("waiting"), "await_decision")
         self.assertEqual(self.tx(t, lambda tx: next_action.current(tx, t["task"]))["seq"], before["seq"])   # 予定は書かない
         self.assertEqual(self.claim(t).reason, "awaiting_decision")
         self.assertNotIn(t["task"], [r["task_id"] for r in self.tx(t, lambda tx: scheduler.due_tasks(tx, 50))])
-        run = self.tx(t, lambda tx: attempts.failed_run(tx, t["contact"]))
+        run = self.tx(t, lambda tx: support.number_run(tx, t["contact"]))
         self.assertEqual((run["n"], run["n_sure"]), (4, 3))
         self.assertTrue(self.w.test_number_silent(t))                              # テスト番号も鳴らない
-        self.assertEqual(self.tx(t, lambda tx: attempts.blame(tx, last)), "line")
-        run = self.tx(t, lambda tx: attempts.failed_run(tx, t["contact"]))
+        self.assertEqual(self.tx(t, lambda tx: health.blame_of(tx, last)), "line")
+        run = self.tx(t, lambda tx: support.number_run(tx, t["contact"]))
         self.assertEqual((run["n"], run["n_sure"]), (3, 3))
         d = self.settle(t, last)["decision"]                                   # 決まったら、1回だけ決める
         self.assertEqual((d.kind, d.promised, d.target.contact_id), ("call", before["promised"], t["contact"]), d.rule)
         self.assertIn(t["task"], [r["task_id"] for r in self.tx(t, lambda tx: scheduler.due_tasks(tx, 50))])
-        self.assertIsInstance(self.claim(t), gate.Claim)
+        self.assertEqual(self.claim(t).reason, "line_stopped")                # テスト番号が鳴らなかった回線は休み（L-10）
+        other = self.w.line(t["tenant"])
+        self.lease(t, line=other)
+        self.assertIsInstance(self.claim(t, line=other), gate.Claim)          # 行は、ほかの回線でかけられる
 
     def test_a_pending_call_of_the_same_number_on_another_row_does_not_move_the_day(self):
         """同じ番号の別の行（別の実行）に、まだ分からない電話があっても、この行の次の日は、番号のせいと分かった数（n_sure）だけで
@@ -873,16 +880,15 @@ class UnusableNumber(SettleBase):
         self.assertIn("鳴らない電話が続く番号", replanned["cause"])               # 通話のあとと同じ1か所で（決まった間ごとに書き直さない）
         self.tx(s, lambda tx: next_action.schedule_now(tx, t2, cause="試験：その時刻が来た"))
         aid = self.call(other, ["dialing", "call_failed"])                     # 別の行：まだ分からない
-        self.assertEqual(self.tx(s, lambda tx: attempts.blame(tx, aid)), "pending")
-        run = self.tx(s, lambda tx: attempts.failed_run(tx, s["contact"]))
+        self.assertEqual(self.tx(s, lambda tx: health.blame_of(tx, aid)), "pending")
+        run = self.tx(s, lambda tx: support.number_run(tx, s["contact"]))
         self.assertEqual((run["n"], run["n_sure"]), (2, 1))
         now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
         at = self.tx(s, lambda tx: next_action._failed_retry_at(tx, s["task"], s["contact"], now, now))
         self.assertEqual(self.jst_date(s, at), today)                          # 分からない電話では、次の日へ送らない
         # ただし、分からない電話を番号のせいに数えると番号の順で次の日になる（当日の2回を使い切る）あいだは、同じ番号の行は、どの回線
         # でもかけずに待つ（attempts.number_unconfirmed の1か所。予定は書き直さない。見直し22 の 9）
-        self.assertTrue(self.tx(s, lambda tx: attempts.number_unconfirmed(tx, s["contact"], tenant_id=s["tenant"], client_id=s["client"],
-                                                                          business_id=s["business"])))
+        self.assertTrue(self.tx(s, lambda tx: health.number_held(tx, s["contact"])))
         self.tx(s, lambda tx: next_action.schedule_now(tx, s["task"], cause="試験：その時刻が来た"))
         self.assertEqual(self.reason(s), "number_unconfirmed")
 
@@ -893,9 +899,9 @@ class UnusableNumber(SettleBase):
         other_line = self.w.line(s["tenant"])
         aid = self.call(s, ["dialing", "call_failed"])
         self.ring_elsewhere(s, line=other_line)
-        self.assertEqual(self.tx(s, lambda tx: attempts.blame(tx, aid)), "pending")
+        self.assertEqual(self.tx(s, lambda tx: health.blame_of(tx, aid)), "pending")
         self.ring_elsewhere(s)
-        self.assertEqual(self.tx(s, lambda tx: attempts.blame(tx, aid)), "number")
+        self.assertEqual(self.tx(s, lambda tx: health.blame_of(tx, aid)), "number")
 
     def test_the_run_on_the_line_is_cut_by_a_call_that_rang(self):
         """続き（鳴った電話で区切った1かたまり）の外の、違う番号の鳴らなかった電話は、回線のせいの証拠にならない：鳴らなかった
@@ -909,7 +915,7 @@ class UnusableNumber(SettleBase):
         self.ring_elsewhere(s)
         b = self.call(c, ["dialing", "call_failed"])
         self.ring_elsewhere(s)
-        self.assertEqual([self.tx(s, lambda tx: attempts.blame(tx, x)) for x in (a, b)], ["number", "number"])
+        self.assertEqual([self.tx(s, lambda tx: health.blame_of(tx, x)) for x in (a, b)], ["number", "number"])
 
     def test_the_run_of_failures_starts_on_its_first_day(self):
         """続いた失敗の数・続いた最初の日・最後の失敗の終わりは、データベースの1か所 salescall.failed_run（次にかける日は最初の日から
@@ -926,7 +932,9 @@ class UnusableNumber(SettleBase):
                            " ended_at = ended_at - make_interval(days => %s) WHERE attempt_id = %s", (days_ago, days_ago, aid))
                 tx.execute("ALTER TABLE salescall.attempts ENABLE TRIGGER USER")
             owner_access().in_system(SYSTEM, back)
-        run = self.tx(s, lambda tx: attempts.failed_run(tx, s["contact"]))
+            self.tx(s, lambda tx, aid=aid: health.after_call(tx, aid))        # 電話が終わった所と同じく（戻した時刻で）
+        self.w.test_number_rang(s)                                             # 番号のせいと分かった（番号の欄が数えるのは、その数だけ）
+        run = self.tx(s, lambda tx: support.number_run(tx, s["contact"]))
         today = self.tx(s, lambda tx: tx.one("SELECT salescall.jst(now())::date AS d")["d"])
         self.assertEqual((run["n"], run["first_day"]), (2, today - timedelta(days=2)))
         # 最後の失敗の終わりは、いちばん新しい失敗（1日前）の終わり（次にかける時刻はここから数える。⛔ 見直し17b：取り違えても
@@ -951,9 +959,10 @@ class UnusableNumber(SettleBase):
                            " ended_at = ended_at - make_interval(days => %s) WHERE attempt_id = %s", (days_ago, days_ago, aid))
                 tx.execute("ALTER TABLE salescall.attempts ENABLE TRIGGER USER")
             owner_access().in_system(SYSTEM, back)
+            self.tx(s, lambda tx, aid=aid: health.after_call(tx, aid))        # 電話が終わった所と同じく（戻した時刻で）
         self.w.test_number_rang(s)                                             # 番号のせいと分かった（日を送るのは、その数だけ）
         today = self.tx(s, lambda tx: tx.one("SELECT salescall.jst(now())::date AS d")["d"])
-        self.assertEqual(self.tx(s, lambda tx: attempts.failed_run(tx, s["contact"]))["first_day"], today - timedelta(days=1))
+        self.assertEqual(self.tx(s, lambda tx: support.number_run(tx, s["contact"]))["first_day"], today - timedelta(days=1))
         now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
         at = self.tx(s, lambda tx: next_action._failed_retry_at(tx, s["task"], s["contact"], now, now))
         self.assertEqual(self.jst_date(s, at), today + timedelta(days=1))   # 前の失敗の日（今日）＋並びの差（1日）

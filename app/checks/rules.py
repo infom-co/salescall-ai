@@ -482,20 +482,23 @@ PY_ENTRY_CALLERS: dict[tuple[str, str], frozenset[str]] = {
     ("updates", "note"): frozenset({_SUP + "main.py"}),                     # 動いているプログラムの版を書く：本体の版の確かめだけ
     ("troubles", "restore"): frozenset({WEB_PLACE}),                         # 休んだ行を戻す：画面だけ（管理者・契約者。見直し20b）
     # 回線・行・番号・契約者・試行のせいの表を引く入口（DESIGN.md 17章の決まり (1)：状態を変えるのは、表を引く入口1つだけ）。
-    # 表を引くのは core/health.py の1か所（`_Run.give`。3段目＝影。0145）
+    # 表を引くのは core/health.py の1か所（`_Run.give`。0145・0146）
     ("health_rules", "apply"): frozenset({_CORE + "health.py"}),
-    # 出来事を起こす所（17-2 の「起こす所」）ごとの、状態の欄の入口（3段目＝影：今の作りの処理の横で呼び、記録だけ）
-    ("health", "after_call"): frozenset({_CORE + "troubles.py", _SUP + "jobs.py"}),   # E1〜E5：通話ごとの口（E3）・締めの仕事
+    # 出来事を起こす所（17-2 の「起こす所」）ごとの、状態の表を引く入口（4段目：入口が、することを行う）
+    ("health", "after_call"): frozenset({_CORE + "troubles.py", _CORE + "settle.py", _SUP + "line.py"}),   # E1〜E5：電話が終わった所・
+    #                                                                       通話ごとの口（E3）・締めの処理（まだ渡していなければ）
+    ("health", "after_settle"): frozenset({_SUP + "jobs.py"}),                        # E4 の行への分：締めの仕事（締めのあと）
     ("health", "tested"): frozenset({_CORE + "ring_test.py"}),                       # E6〜E9：テスト番号の口
     ("health", "tick"): frozenset({_SUP + "line.py"}),                               # E10・E18：回線ごとの処理の毎回の頭
     ("health", "stuck"): frozenset({_SUP + "line.py"}),                              # E17：回線が「通話中」のまま
     ("health", "fixed"): frozenset({_SUP + "jobs.py"}),                              # E11：直した版（決まった間隔の仕事）
-    ("health", "by_hand_task"): frozenset({_CORE + "troubles.py"}),                  # E12：休んだ行を手で戻す
-    ("health", "by_hand_stop"): frozenset({_CORE + "stops.py"}),                     # E12：止めた回線・契約者を手で解く
+    ("health", "by_hand_task"): frozenset({_CORE + "troubles.py"}),                  # E12：休んだ行・復旧待ちの行を手で戻す
+    ("health", "by_hand_line"): frozenset({WEB_PLACE}),                              # E12：回線の休みを手で再開（画面だけ）
+    ("health", "by_hand_stop"): frozenset({_CORE + "stops.py"}),                     # E12：止めた契約者・前の作りの回線の停止を手で解く
     ("health", "removed"): frozenset({_CORE + "registry.py"}),                       # E13：回線を外す
-    ("health", "number_set"): frozenset({_CORE + "settings.py"}),                    # E14：テスト番号が入った
+    ("health", "number_set"): frozenset({_CORE + "settings.py"}),                    # E14：テスト番号が入った（契約者の値）
+    ("health", "number_set_everywhere"): frozenset({_CORE + "settings.py"}),         # E14：システムの初めの値（契約者ごとに1回ずつ）
     ("health", "claimed"): frozenset({_CORE + "gate.py"}),                           # E15：門の通過
-    ("health", "in_tenant"): frozenset({_SUP + "line.py", _CORE + "ring_test.py"}),  # 取引の外から入口を呼ぶ所
 }
 
 

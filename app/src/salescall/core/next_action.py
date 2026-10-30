@@ -22,9 +22,11 @@
   ユーザー・見直し16）。
 - **同じ日にかけ直さないか**は `not_today` の1か所（ふつうの電話・約束の電話・番号の聞き直し・お詫びの電話）。
 - **お客様のところで電話が鳴らない電話が続いた番号**（回線の部品が番号を受け付けない・お客様が出る前に回線やこちらの側で終わる）
-  へはかけない（`usable`。決まりは attempts.number_unusable の1か所＝門も同じ）。鳴らなかった電話のあとは、決まった順（設定
-  dial.failed_retry_days。初めは、その日にもう1回・次の日に1回・そのさらに2日後に1回）で同じ番号へかけ直す（`_failed_retry_at`。
-  2026-10-22 深夜 ユーザー。お客様が出る前に終わる番号も同じ＝2026-10-23 ユーザー）。
+  へはかけない（`usable`。番号の欄が「使えない」＝DESIGN.md 17-1-3。core/health.number_dead の1か所＝門も同じ）。番号のせいの鳴らなかった
+  電話のあとは、決まった順（設定 dial.failed_retry_days。初めは、その日にもう1回・次の日に1回・そのさらに2日後に1回）で同じ番号へかけ
+  直す（`_failed_retry_at`。番号の欄の次の日と時刻の下限＝core/health.number_wait。2026-10-22 深夜 ユーザー。お客様が出る前に終わる番号も
+  同じ＝2026-10-23 ユーザー）。鳴らなかった電話のせいは、試行のせいの欄（17-1-5）を締めの処理が渡す（`blame`）。⛔ 4段目の前：番号の続き・
+  せいを、読むたびにデータベースの salescall.failed_run・unrung_blame で導き直した。
 - **どの番号へかけるかも、ここだけが決める**（`choose_number`。DESIGN.md 3-5）。予定（かけ直す）は必ず番号を持ち、門はその番号へ
   かける。決め方：お客様が「別の番号にかけ直して」と言った ⇒ その番号（業務の設定で「かけない」・かけない理由がある ⇒ 終える。
   番号は記録して依頼者へ渡す）／それ以外 ⇒ いまかけた番号のまま（門で止められたあとは、いまの予定の番号のまま）。
@@ -38,8 +40,8 @@ from datetime import datetime, timedelta
 from typing import Any
 from uuid import UUID
 
-from salescall.core import (attempts, business_rules, calling_hours, gate, number_recheck, settings, spoken_time, target_policy,
-                            tasks)
+from salescall.core import (attempts, business_rules, calling_hours, gate, health, number_recheck, settings, spoken_time,
+                            target_policy, tasks)
 from salescall.core.access import Tx
 from salescall.core.business_rules import Rules
 from salescall.core.calendar import CalendarOutOfRange, holiday_checker
@@ -316,7 +318,7 @@ def _alternate_target(alt: Alternate) -> Target:
 @dataclass(frozen=True)
 class Numbers:
     """行の番号の材料（締めの処理の時点。`numbers_of` の1か所で集める）。"""
-    unusable: frozenset[UUID] = frozenset()   # 回線の部品が続けて受け付けなかった番号（attempts.number_unusable の1か所。0118）
+    unusable: frozenset[UUID] = frozenset()   # 回線の部品が続けて受け付けなかった番号（番号の欄が「使えない」＝core/health.number_dead）
     said: tuple[UUID, ...] = ()                # お客様が言った別の番号のうち、かけない理由の無いもの（新しい順）
     sources: tuple[tuple[UUID, UUID], ...] = ()   # お客様が言った番号 → その番号を言われた通話でかけた番号（伺い直す先）
     asked_again: bool = False                  # この行で、前にも番号を伺い直すと決めた（number_recheck.asked_again_before の1か所）
@@ -335,8 +337,8 @@ def choose_number(j: Judgement, *, dialed: Target, alternate: Alternate | None, 
 
 
 def usable(t: Target, numbers: Numbers) -> Target:
-    """かける番号が、お客様のところで鳴らない電話が続いた番号（attempts.number_unusable：設定 dial.failed_retry_days の並びの数
-    だけ続いた）なら、その番号へはかけない（1か所。計画書 10-3「無限に再試行しない」。⛔ 見直し15：発信に失敗した電話は行の回数に
+    """かける番号が、お客様のところで鳴らない電話が続いた番号（番号の欄が「使えない」＝core/health.number_dead：設定
+    dial.failed_retry_days の並びの数だけ続いた）なら、その番号へはかけない（1か所。計画書 10-3「無限に再試行しない」。⛔ 見直し15：発信に失敗した電話は行の回数に
     数えないので、前は行が終わらず、同じ番号へかけ続けた）：お客様が言った別の番号（かけない理由の無いもの）があれば、そちらへ（ふつうの電話・続きの電話だけ。
     番号の聞き直し・お詫びは、その番号のお客様へかける電話なので替えない）。無ければ行を終える（number_unusable。番号は記録に
     残り、依頼者へ渡す）。"""
@@ -596,7 +598,8 @@ def after_call(tx: Tx, task_id: UUID, j: Judgement, *, rules: Rules, dialed: Tar
     dialed＝この通話でかけた先（番号・目的）、dialed_at＝かけた時刻。alternate＝お客様が言った別の番号の材料（言われたときだけ）。
     recheck＝言われた番号が番号違いだったときの番号の確かめ（そのときだけ）。reached_target＝目的のお客様と話せた（約束の日に
     かけられなかったお詫びは、ここで済んだものとして外す＝会話の処理が、予約証の印を見て最初にお詫びしている）。
-    blame＝鳴らなかった発信のせい（attempts.blame。回線のせい・こちらのせいなら `_line_fault_again` の1か所で、かけた予定のまま）。"""
+    blame＝鳴らなかった発信のせい（試行のせいの欄＝core/health.blame_of。回線のせい・こちらのせいなら `_line_fault_again` の1か所で、
+    かけた予定のまま）。"""
     now = tx.one("SELECT now() AS now")["now"]
     again = _line_fault_again(tx, task_id, dialed, dialed_at, now, blame)
     if again is not None:
@@ -715,7 +718,7 @@ def numbers_of(tx: Tx, task_id: UUID) -> Numbers:
                   " LEFT JOIN salescall.attempts s ON s.attempt_id = n.source_attempt_id"
                   " WHERE n.task_id = %s ORDER BY n.added_at DESC, n.phone_e164", (task_id,))
     scope = tasks.scope(tx, task_id)
-    unusable = frozenset(r["contact_id"] for r in rows if attempts.number_unusable(tx, r["contact_id"], **scope))
+    unusable = frozenset(r["contact_id"] for r in rows if health.number_dead(tx, r["contact_id"]))
     said = tuple(r["contact_id"] for r in rows if r["source"] == "callee" and r["contact_id"] not in unusable
                  and target_policy.block_reason(tx, normalize(r["phone_e164"]), client_ref=r["client_ref"], **scope) is None)
     sources = tuple((r["contact_id"], r["source_contact"]) for r in rows
@@ -724,7 +727,7 @@ def numbers_of(tx: Tx, task_id: UUID) -> Numbers:
 
 
 def _failed_retry_at(tx: Tx, task_id: UUID, contact_id: UUID | None, now: datetime, dialed_at: datetime) -> datetime | None:
-    """その番号へ、お客様のところで鳴らない電話（回線の部品が受け付けなかった・お客様が出る前に終わった＝attempts.failed_run）が
+    """その番号へ、お客様のところで鳴らない電話（回線の部品が受け付けなかった・お客様が出る前に終わった）が
     続いているとき、次にかける時刻（1か所）。
     続いていない・番号のせいと分かった発信で並びを使い切った（その番号へはかけない＝`usable`）ときは None。並び（設定 dial.failed_retry_days。1＝最初に失敗
     した日）の次の日（前の失敗の日から並びの差より前にはしない）が今日（か、もう過ぎた）なら、最後の失敗から同じお客様への最短の間隔をあけて。先の日なら、その日の、前と別の
@@ -732,10 +735,10 @@ def _failed_retry_at(tx: Tx, task_id: UUID, contact_id: UUID | None, now: dateti
     なかったら、その番号へはかけない」。"""
     if contact_id is None:
         return None
-    # 次にかけてよい日と時刻の下限は、番号ごとの1か所（attempts.failed_wait。門も同じものを読む＝同じ番号のほかの行も、この順を
-    # 越えない。見直し22 の 9）。数えるのは番号のせいと分かった数だけ（0143。⛔ 0129〜0141：まだ分からない電話も数えて次の日へ送り、
-    # 壊れた回線の2時間で行が次の日へ送られた＝見直し21a の場面 a6）
-    wait = attempts.failed_wait(tx, contact_id, **tasks.scope(tx, task_id))
+    # 次にかけてよい日と時刻の下限は、番号の欄（17-1-3 の「続きあり」の中身＝N-1。core/health.number_wait。門も同じものを読む＝同じ番号の
+    # ほかの行も、この順を越えない。見直し22 の 9）。数えるのは番号のせいと決まった数だけ（⛔ 0129〜0141：まだ分からない電話も数えて次の日へ
+    # 送り、壊れた回線の2時間で行が次の日へ送られた＝見直し21a の場面 a6）
+    wait = health.number_wait(tx, contact_id)
     if wait is None:
         return None
     today = calling_hours.local(now).date()
@@ -1205,7 +1208,7 @@ def after_denial(tx: Tx, task_id: UUID, denied: gate.Denied, *, tenant_id: UUID,
                                                                             cur["wrong_contact_id"], bool(cur["successor"]),
                                                                             cur["number_again"])
     if denied.reason == "number_unusable" and now_target is not None:
-        # その番号は、鳴らない電話が決まった数だけ続いた（門と同じ attempts.number_unusable）：お客様が言った別の番号へ替えるか、行を
+        # その番号は、鳴らない電話が決まった数だけ続いた（番号の欄が「使えない」。門と同じ）：お客様が言った別の番号へ替えるか、行を
         # 終える（通話のあとと同じ `usable` の1か所）
         t = usable(now_target, numbers_of(tx, task_id))
         if t.contact_id is None:
@@ -1219,9 +1222,9 @@ def after_denial(tx: Tx, task_id: UUID, denied: gate.Denied, *, tenant_id: UUID,
         _write(tx, task_id, d)
         return d
     if denied.reason == "number_failed_wait" and now_target is not None:
-        # 鳴らない電話が続く番号の、番号ごとの決まった順の前（門と同じ attempts.failed_wait の1か所）：通話のあとと同じ1か所
-        # （`_failed_retry_at`・`_not_before_failed`）で、いまの予定（かける先・約束・時刻・幅・お詫びの印）を、その順より前にしない
-        wait = attempts.failed_wait(tx, now_target.contact_id, tenant_id=tenant_id, client_id=client_id, business_id=business_id)
+        # 鳴らない電話が続く番号の、番号ごとの決まった順の前（番号の欄の中身。門と同じ core/health.number_wait の1か所）：通話のあとと同じ
+        # 1か所（`_failed_retry_at`・`_not_before_failed`）で、いまの予定（かける先・約束・時刻・幅・お詫びの印）を、その順より前にしない
+        wait = health.number_wait(tx, now_target.contact_id)
         failed_at = _failed_retry_at(tx, task_id, now_target.contact_id, now, now if wait is None else wait.last_end)
         planned = _call(cur["call_at"], bool(cur["promised"]), "門：鳴らない電話が続く番号（番号ごとの決まった順）", now_target,
                         cur["callee_at"], window)

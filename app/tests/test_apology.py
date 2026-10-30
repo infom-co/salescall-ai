@@ -6,6 +6,7 @@ import unittest
 from dataclasses import replace
 
 from salescall.core import apology, attempts, fix_requests, gate, next_action, quality_stage, recordings, reward, stops
+from salescall.core import health
 from salescall.core.access import Rejected
 from salescall.core.attempts import ForbiddenFinding, VerificationSummary
 from salescall.core.call_report import Cut
@@ -277,7 +278,8 @@ class Apology(Helpers):
         self.order(s, self.incident(s))
         aid = self.call(s, ("dialing", "ringing"))
         self.assertTrue(self.tx(s, lambda tx: attempts.end_for_trouble(tx, aid, "ai_malfunction")))
-        self.assertEqual(self.tx(s, lambda tx: attempts.blame(tx, aid)), "ours")
+        self.tx(s, lambda tx: health.after_call(tx, aid))                      # 電話が終わった所（回線ごとの処理）と同じく
+        self.assertEqual(self.tx(s, lambda tx: health.blame_of(tx, aid)), "ours")
         d = self.settle(s, aid)["decision"]
         self.assertEqual((d.kind, d.target.purpose, d.promised), ("call", "apology", True))
         self.assertIn("こちらのせい", d.rule)

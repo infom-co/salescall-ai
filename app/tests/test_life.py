@@ -1,17 +1,16 @@
-"""電話の一生の試験（データベースの時計を進める。DESIGN.md 5-4・7-2-1・9-1。持ち主 CL-2）。
+"""電話の一生の試験（データベースの時計を進める。DESIGN.md 5-4・7-2-1・9-1・17章。持ち主 CL-2）。
 
-本物の部品（回線ごとの処理 one_round〔候補 → 門 → 発信の出口 → 通話〕・止めた回線の確かめ _check_stop・締めの仕事 settle_ready →
-判定 → 次の動き）を、データベースの時計を進めながら何日分も通す（見直し20a の場面 r5・r4 と、壊れた回線。見直し21a の場面 a1・a2・a3・
-a4・a6・a7・a9・a10）。時計は、この試験のためだけに
-立てる使い捨てのデータベース（run_tests.clock_cluster。libfaketime をデータベースの処理にだけ差し込む）の時計（Python の時計は進めない）。
+本物の部品（回線ごとの処理 one_round〔回線の欄を聞く → テスト番号を鳴らす・候補 → 門 → 発信の出口 → 通話・待つ〕・締めの仕事
+settle_ready → 判定 → 次の動き）を、データベースの時計を進めながら何日分も通す（見直し20a の場面 r5・r4 と、壊れた回線。見直し21a の
+場面 a1・a2・a3・a4・a6・a7・a9・a10。見直し22 の場面）。時計は、この試験のためだけに立てる使い捨てのデータベース
+（run_tests.clock_cluster。libfaketime をデータベースの処理にだけ差し込む）の時計（Python の時計は進めない）。
 時計をずらす部品が無い機械では、この試験は飛ばす（壊し試しが、飛ばした試験では落ちないので、run_tests が「見張れていない」と知らせる）。
 
-**状態の欄の影と比べる**（DESIGN.md 17章の作り直しの3段目。2026-10-29）：どの場面も、時計を進める各時点で、今の作りの答え（unrung_blame・
-task_awaiting_decision・task_resting・awaiting_recovery・回線と契約者の停止・番号の続き など）と、状態の欄の影（core/health）を比べる
-（tests/shadow.py）。食い違いは、どれも分け方の表（`SHADOW_KNOWN`）の1つに当たり（今の作りの誤り・表の誤りに見えるもの・影の作りの限り・
-それらから続くもの）、場面ごとの分け方の組は `SHADOW_SCENES` のとおり（違えば落ちる＝影か今の作りの動きが変わった）。見直し20〜22 の場面
-（作業の場所の life_r20・life_r21・life_r22）のうち、17章にかかわるもの（こちらの不具合 b1・b2・b3・b4・b8・b9、回線 a5・n3・n4・n7・n8・r2）を
-この試験に移した（時間を縮めたものがある。通話ごとの口の場面 w は 17章の外）。
+**読み手と状態の欄を比べる**（DESIGN.md 17章の作り直しの4段目。2026-10-29）：どの場面も、時計を進める各時点で、読み手の答え（締めの
+待ち・次の動きが受け取る試行のせい・候補・番号の口・回線ごとの処理が休みの回線でかけないか）と、状態の欄を比べる（tests/shadow.py）。
+4段目では読み手が表そのものなので、食い違いは無い（3段目の分け方の一覧 SHADOW_KNOWN・場面ごとの組 SHADOW_SCENES は無くした）。表を
+引けない・入口の失敗も無い。17章の 17-8（今の作りの誤り）と、3段目の比べで見つけた誤りが無くなったことは、tests/test_decided.py の
+場面 `Errors178.test_s17_…` で示す（管理者のご決定ごとの場面も、同じ所の `Decided`）。
 
 2026-10-24 管理者の決定：「明らかに番号に問題がある場合は、その行は取りやめですが、回線の問題が明らかな場合は行は取りやめでなく一時中止
 だけ」「回線か番号かどちらかわからない場合は…1回目から、次の行に進む…一つの行で止まり続けることがないように」「その回線にかける行が
@@ -25,14 +24,14 @@ from __future__ import annotations
 import contextlib
 import os
 import unittest
-from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import NamedTuple
 
 import run_tests
 from salescall.core import access as access_mod
-from salescall.core import approval, attempts, conversation_io, dial_exit, fix_requests, next_action, quality_stage, settings, watch
+from salescall.core import (approval, attempts, conversation_io, dial_exit, fix_requests, health, next_action, quality_stage, settings,
+                            watch)
+from salescall.core.health_rules import TaskStage
 from salescall.core.calling_hours import JST
 from salescall.core.phone import normalize
 from salescall.supervisor import jobs, line
@@ -131,9 +130,9 @@ class Life(SupervisorBase):
         self.override("calling.ng_hours", NG_NONE)
         self.override("calling.hours_limit", LIMIT_7_22)
         self.override("callee.designated_limit", ["07:00", "22:00"])
-        self.shadow_labels, self.shadow_seen = shadow.Labels(), {}   # 影との食い違い（tests/shadow.py。DESIGN.md 17章の3段目）
+        self.shadow_labels, self.shadow_seen = shadow.Labels(), {}   # 読み手と状態の欄の食い違い（tests/shadow.py。DESIGN.md 17章）
 
-    # ── 影との比べ（各時点＝回線ごとの処理の何回分かのあと）
+    # ── 読み手と状態の欄の比べ（各時点＝回線ごとの処理の何回分かのあと）
     def compare(self, s) -> None:
         at = self.db_now().astimezone(JST).strftime("%m-%d %H:%M")
         for d in shadow.observe(s["tenant"], self.shadow_labels) or ():
@@ -141,22 +140,16 @@ class Life(SupervisorBase):
             self.shadow_seen[d] = (first, n + 1)
 
     def tearDown(self):
-        kinds = {d: shadow_kind(d) for d in self.shadow_seen}
         report = os.environ.get("SALESCALL_SHADOW_REPORT")
-        if report:   # 作業用：食い違いを書き出す（場面ごと・分け方・初めて見た時刻と、見た回数）
+        if report:   # 作業用：食い違いを書き出す（場面ごと・初めて見た時刻と、見た回数）
             with open(report, "a", encoding="utf-8") as f:
-                f.write(f"\n===== {self._testMethodName} {sorted(set(k for k in kinds.values() if k))}\n")
+                f.write(f"\n===== {self._testMethodName} {len(self.shadow_seen)}\n")
                 for d, (first, n) in self.shadow_seen.items():
-                    f.write(f"{kinds[d]} {first} ×{n} | {d.what} | {d.label} | 今={d.current!r} | 影={d.shadow!r}\n")
+                    f.write(f"{first} ×{n} | {d.what} | {d.label} | 読み手={d.current!r} | 欄={d.shadow!r}\n")
         super().tearDown()
-        # どの食い違いも分け方の表に当たり、場面ごとの分け方の組は決めたとおり（DESIGN.md 17章の3段目の比べる試験）
-        unknown = [d for d, k in kinds.items() if k is None]
-        self.assertEqual(unknown, [], "分け方の表（SHADOW_KNOWN）に無い食い違い")
-        got = set(kinds.values())
-        roots = got - {"続"}
-        if "続" in got:
-            self.assertTrue(roots & ROOTS, f"続きの食い違いがあるのに、もとの食い違いが無い：{sorted(got)}")
-        self.assertEqual(got, SHADOW_SCENES.get(self._testMethodName, set()), "場面の食い違いの分け方の組が、決めたものと違う")
+        # 4段目：読み手は状態の欄を読むだけなので、どの場面のどの時点でも食い違いは無い（3段目の分け方の一覧＝SHADOW_KNOWN は無し）。
+        # 表を引けない・入口の失敗も無い
+        self.assertEqual(list(self.shadow_seen), [], "読み手と状態の欄の食い違い（4段目では無いはず）")
 
     # ── 時計（データベースだけ）
     def db_now(self):
@@ -205,14 +198,16 @@ class Life(SupervisorBase):
         return jobs.Context(self.w.a, None, HOLDER, links or NoLinks(), s["tenant"])
 
     def turn(self, s, phone, talk, line_id=None):
-        """回線ごとの処理の loop の何回分か（かけなくなるまで。loop と同じく、毎回の頭で止めた回線の確かめ）。line_id＝ほかの回線。"""
+        """回線ごとの処理の loop の何回分か（かけなくなるまで。loop と同じく、毎回の頭で回線の欄を聞く＝one_round）。line_id＝ほかの回線。"""
         line_id = line_id or s["line"]
         self.lease(s, line=line_id, seconds=3600)
         for _ in range(8):
-            line._check_stop(self.w.a, SYSTEM, s["tenant"], line_id, phone)
             got = line.one_round(self.w.a, SYSTEM, s["tenant"], line_id, HOLDER, phone, talk)
             jobs.settle_ready(self.ctx(s))
-            if got.called is None or got.pause:
+            # loop と同じく、かけられなかった電話（called が無く、回線は空いた＝free）のあとは、すぐ次の行へ（loop は数秒で次）。かける行が
+            # 無い・休み・門の理由で待つときは、次の時点まで（⛔ 4段目の前：かけられなかった電話のあとも次の時点まで待たせ、次の行で
+            # 決まるはずの続きに、15分のテスト番号が先に来た＝場面 a9）
+            if got.pause or (got.called is None and not got.free):
                 break
         self.w.a.in_tenant(SYSTEM, s["tenant"], watch.lasting_stops)
 
@@ -233,8 +228,14 @@ class Life(SupervisorBase):
         return self.tx(r, lambda tx: next_action.current(tx, r["task"]))["end_reason"]
 
     def line_stops(self, s):
-        return self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: tx.all(
-            "SELECT event_id FROM salescall.stop_events WHERE scope = 'line' AND action = 'stop' AND line_id = %s", (s["line"],)))
+        """その回線が休みに入った（回線のせい・声の不調。回線の欄の移った記録＝DESIGN.md 17-1-1）回の並び。"""
+        return owner_access().in_tenant(SYSTEM, s["tenant"], lambda tx: tx.all(
+            "SELECT move_id FROM salescall.state_moves WHERE subject = 'line' AND key = %s AND to_stage IN ('line_rest', 'audio_rest')"
+            " AND from_stage NOT IN ('line_rest', 'audio_rest') ORDER BY move_id", (s["line"],)))
+
+    def number_n(self, r):
+        """その行の番号の、番号のせいと決まった続きの数（番号の欄＝17-1-3）。"""
+        return self.tx(r, lambda tx: health.number_of(tx, r["contact"]).n)
 
     def notes(self, s, kind):
         return self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: tx.one(
@@ -307,8 +308,8 @@ class Life(SupervisorBase):
         self.assertGreater(self.notes(s, "stopped"), 0)                          # 止めたことを知らせる
         for r in rows:
             self.assertNotEqual(self.ended(r), "number_unusable")
-            self.assertEqual(self.tx(r, lambda tx, r=r: attempts.failed_run(tx, r["contact"]))["n_sure"], 0)
-        blames = {self.tx(s, lambda tx, a=a: attempts.blame(tx, a["attempt_id"])) for a in self.dialed(s)}
+            self.assertEqual(self.number_n(r), 0)
+        blames = {self.tx(s, lambda tx, a=a: health.blame_of(tx, a["attempt_id"])) for a in self.dialed(s)}
         self.assertEqual(blames - {"pending"}, {"line"})
         self.assertLessEqual(len(phone.rings), 12)                               # 27時間で、決めた間より詰めない
         tests = self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: [r["tested_at"] for r in tx.all(
@@ -358,7 +359,7 @@ class Life(SupervisorBase):
         self.assertEqual([self.ended(r) for r in rows[:3]], ["completed"] * 3)
         for r in (x, y):
             self.assertIsNone(self.ended(r))                                    # 行は失わない（決まるまで休む）
-            self.assertEqual(self.tx(r, lambda tx, r=r: attempts.failed_run(tx, r["contact"]))["n_sure"], 0)
+            self.assertEqual(self.number_n(r), 0)
         self.assertEqual(self.tries(s, [x, y]), 2)                              # 1回ずつかけて、決まるまで待つ
         self.assertEqual(self.notes(s, "line_undecided"), 1)
         self.assertEqual(phone.rings, [])
@@ -402,7 +403,7 @@ class Life(SupervisorBase):
         self.run_until(s, phone, Talk(), self.db_now() + timedelta(days=3, hours=8))
         self.assertEqual([self.ended(r) for r in rows[2:]], ["completed"] * 4)
         first = [a for a in self.dialed(s) if a["phone_e164"] in (x["phone"], y["phone"])][:2]
-        self.assertEqual([self.tx(s, lambda tx, a=a: attempts.blame(tx, a["attempt_id"])) for a in first], ["number"] * 2)
+        self.assertEqual([self.tx(s, lambda tx, a=a: health.blame_of(tx, a["attempt_id"])) for a in first], ["number"] * 2)
         done = self.tx(s, lambda tx: tx.one("SELECT max(ended_at) AS t FROM salescall.attempts WHERE task_id = ANY(%s)",
                                             ([r["task"] for r in rows[2:]],))["t"])
         self.assertTrue(all(at > done for at, _, _ in self.ring_tests(s)), (done, self.ring_tests(s)))   # ほかの行があるあいだは鳴らさない
@@ -421,7 +422,7 @@ class Life(SupervisorBase):
         self.run_until(s, phone, Talk(), self.db_now() + timedelta(days=2, hours=9))
         for r in rows:
             self.assertNotEqual(self.ended(r), "number_unusable")
-            self.assertEqual(self.tx(r, lambda tx, r=r: attempts.failed_run(tx, r["contact"]))["n_sure"], 0)
+            self.assertEqual(self.number_n(r), 0)
         self.assertEqual(self.notes(s, "line_undecided"), 1)
         asked = [r for r in owner_access().in_system(SYSTEM, lambda tx: fix_requests.open_requests(tx, "CL-2"))
                  if r["kind"] == "test_ring_undecided"]
@@ -449,7 +450,7 @@ class Life(SupervisorBase):
         resumed = [t for t in self.ring_tests(s) if t[1] == "resume_check" and t[2]]
         self.assertEqual(len(resumed), 1)                                       # 1回鳴れば再開
         for r in rows:
-            self.assertEqual(self.tx(r, lambda tx, r=r: attempts.failed_run(tx, r["contact"]))["n_sure"], 0)
+            self.assertEqual(self.number_n(r), 0)
 
     def test_a10_a_promise_during_a_short_line_outage_keeps_its_mark_and_is_kept_that_day(self):
         """場面 a10：回線が 14:50〜15:30 だけ壊れる（テスト番号は終日）。P は 15:00 ちょうどの約束、ほかの5行は 14:50 から。⛔ 0129〜0141：
@@ -591,7 +592,7 @@ class Life(SupervisorBase):
     def test_n10_a_test_the_pc_never_tries_is_told_once(self):
         """場面 n10（見直し22 の 9）：回線が壊れ、テスト番号の頼みに PC の部品がいつも答えない（試さなかった＝withheld）。決めにいくテストが
         試されないまま、あける長さの最初（15分）を過ぎても試せないときは、「見分けられない」と同じ知らせを、同じ続きで1回出し、電話を
-        つなぐ部品の直す担当へ修正依頼を出す（core/ring_test._tell_undecided の1か所）。それより前は知らせない。行は失わない。
+        つなぐ部品の直す担当へ修正依頼を出す（状態の表の L-12・L-19＝【当(9)】。入口が行う）。それより前は知らせない。行は失わない。
         ⛔ 0143：行が決まらないまま、だれにも知らされなかった。"""
         from salescall.link.phone import CallWithheld
 
@@ -603,10 +604,11 @@ class Life(SupervisorBase):
         self.give_test_number(s)
         phone = Withholds(broken=True)
         monday = self.db_now().astimezone(JST)
-        self.run_until(s, phone, Talk(), monday.replace(minute=10), step=timedelta(minutes=1))
-        self.assertTrue(phone.rings)                                           # 試そうとした
+        self.run_until(s, phone, Talk(), monday.replace(minute=14), step=timedelta(minutes=1))
+        self.assertEqual(phone.rings, [])                                      # 最初の鳴らなかった電話から15分は試さない（【当(5)】）
         self.assertEqual(self.notes(s, "line_undecided"), 0)                   # 15分より前は知らせない
         self.run_until(s, phone, Talk(), monday.replace(hour=11), step=timedelta(minutes=5))
+        self.assertTrue(phone.rings)                                           # 試そうとした
         self.assertEqual(self.notes(s, "line_undecided"), 1)                   # 同じ続きで1回
         asked = [r for r in owner_access().in_system(SYSTEM, lambda tx: fix_requests.open_requests(tx, "CL-2"))
                  if r["kind"] == "test_ring_undecided"]
@@ -671,10 +673,10 @@ class Life(SupervisorBase):
             "SELECT cause::text AS cause FROM salescall.open_stop_events WHERE scope = 'tenant'")])
 
     def resting(self, r):
-        return self.tx(r, lambda tx: tx.one("SELECT salescall.task_resting(%s) AS w", (r["task"],))["w"])
+        return self.tx(r, lambda tx: health.task_of(tx, r["task"]).stage is TaskStage.RESTING)
 
     def awaiting(self, r):
-        return self.tx(r, lambda tx: tx.one("SELECT salescall.awaiting_recovery(%s) AS w", (r["task"],))["w"])
+        return self.tx(r, lambda tx: health.task_of(tx, r["task"]).stage is TaskStage.AWAIT_RECOVERY)
 
     def troubles_of(self, r):
         return self.tx(r, lambda tx: [x["trouble"] for x in tx.all(
@@ -771,7 +773,7 @@ class Life(SupervisorBase):
         lines = [(s["line"], Phone(broken=True)), (line_b, Phone(bad={x["phone"]}))]
         self.run_until(s, None, Talk(), self.db_now() + timedelta(hours=9), lines=lines)
         self.assertIsNone(self.ended(x))
-        self.assertGreaterEqual(self.tx(x, lambda tx: attempts.failed_run(tx, x["contact"]))["n_sure"], 1)
+        self.assertGreaterEqual(self.number_n(x), 1)
         self.assertEqual([self.ended(r) for r in rows if r is not x], ["completed"] * 7)
 
     def test_n3_without_a_test_number_a_line_broken_for_half_a_day(self):
@@ -797,7 +799,7 @@ class Life(SupervisorBase):
         self.add_row(s)
         self.run_until(s, phone, Talk(), monday.replace(hour=18))
         for r in (x, y):
-            self.assertGreaterEqual(self.tx(r, lambda tx, r=r: attempts.failed_run(tx, r["contact"]))["n_sure"], 1)
+            self.assertGreaterEqual(self.number_n(r), 1)
 
     def test_n7_a_bad_number_at_evening_is_decided_the_next_morning(self):
         """場面 n7（見直し22。時間を縮めた）：X（かけられない）を月曜 17:50 にかけ、ほかに行は無い。テスト番号は 9:00〜12:00 だけ。火曜
@@ -808,7 +810,7 @@ class Life(SupervisorBase):
         x = rows[0]
         self.run_until(s, Phone(bad={x["phone"]}), Talk(), monday + timedelta(days=1, hours=4))
         self.assert_never_outside(self.ring_tests(s), "09:00", "12:00")
-        self.assertGreaterEqual(self.tx(x, lambda tx: attempts.failed_run(tx, x["contact"]))["n_sure"], 1)
+        self.assertGreaterEqual(self.number_n(x), 1)
 
     def test_n8_rows_left_undecided_on_a_line_that_is_retired_are_called_by_a_new_line(self):
         """場面 n8（見直し22）：テスト番号なし。回線 A が壊れ、4行とも分からないまま休む。11時に回線 A を使わなくし（回線のせいと決まる）、
@@ -833,87 +835,6 @@ class Life(SupervisorBase):
                        lines=[(s["line"], a), (line_b, b)])
         tests = [t for t, _, _ in self.ring_tests(s)] + [t for t, _, _ in self.ring_tests(dict(s, line=line_b))]
         self.assertEqual(len(tests), len(set(tests)))
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# 影との食い違いの分け方（DESIGN.md 17章の作り直しの3段目。2026-10-29 CL-2）。今の作りの誤り（17-8 の番号か「新」）・影の作りの限り・それらから
-# 続くもの。表の誤りに見えるものは、この比べでは見つかっていない（作るうちに見つけた、表の書き方の穴は報告に書いた）。表は直していない。
-# ─────────────────────────────────────────────────────────────────────────────
-
-class ShadowKind(NamedTuple):
-    id: str
-    kind: str        # 今の作りの誤り（17-8 の番号・新）／影の作りの限り／続き
-    about: str
-    match: Callable[[shadow.Diff], bool]
-
-
-def _cant(d: shadow.Diff, subject: str, stages: tuple[str, ...], events: tuple[str, ...], gap: str) -> bool:
-    """影が表を引けなかった（誤りの値）：その欄・段・出来事・表に無い組み合わせの番号。"""
-    if d.what != "表を引けない":
-        return False
-    sub, stage, event = d.label.split("・")
-    return sub == subject and stage in stages and event in events and d.shadow == gap
-
-
-CALL_EVENTS, TEST_EVENTS = ("E1", "E2", "E3", "E4", "E5"), ("E6", "E7", "E8", "E9")
-SHADOW_KNOWN: tuple[ShadowKind, ...] = (
-    ShadowKind("影1", "今の作りの誤り 17-8 (5)＋影の作りの限り",
-               "今の作りがテスト番号を鳴らす（試す）時が、表（最初の鳴らなかった電話から15分＝L-2・L-7）と違う。影はテスト番号を鳴らさない"
-               "（することは記録だけ）ので、今の作りが鳴らした答えは、表では鳴らしていない段（元気・確かめ中 (a)(b)）に来て、表を引けない（G-L6）",
-               lambda d: _cant(d, "line", ("healthy", "check_a", "check_b"), TEST_EVENTS, "G-L6")),
-    ShadowKind("今1", "今の作りの誤り 17-8 (1)",
-               "テスト番号が鳴らなかった回線を、表は回線のせい・休み（お客様へかけない＝L-10）にするが、今の作りは回線の異常が3件に届くまで"
-               "止めず、お客様へかけ続ける（表では休みの回線にお客様の電話の出来事は来ない＝G-L7）",
-               lambda d: (d.what == "回線を止めているか" and d.current is False and d.shadow == "回線のせい・休み")
-               or _cant(d, "line", ("line_rest",), CALL_EVENTS, "G-L7")),
-    ShadowKind("今2", "今の作りの誤り 17-8 (2)・(7)",
-               "声が聞き取れない電話が違うお客様で2人続いた回線を、表は声の不調・休み（L-3。2026-10-29「2人」）、再開のあとは1本で止め直す"
-               "（【当(3)】）が、今の作りは回線の異常3件まで止めず、テスト番号の再開で数え直す（止めた続きの回数も、今の作りは0のまま）",
-               lambda d: (d.what == "回線を止めているか" and d.current is False and d.shadow == "声の不調・休み")
-               or _cant(d, "line", ("audio_rest",), CALL_EVENTS, "G-L7")
-               or (d.what == "声で止めた続きの回数" and d.current == 0)),
-    ShadowKind("今3", "今の作りの誤り（新）",
-               "声が聞き取れずに終えた行を、今の作りは同じ回線ですぐ（お詫びとともに）かけ直す。表は、声が通ると分かっている回線が空くのを待ち、"
-               "同じ回線ですぐにはかけない（R-11・R-12・R-13。2026-10-29「回線が整えば、案Aでいい」・(4) 案A）",
-               lambda d: _cant(d, "task", ("voice_redial",), CALL_EVENTS, "G-R11")),
-    ShadowKind("今4", "今の作り（答えの重なり。害は見つけていない）",
-               "同じ行で2回続けてこちらの不具合で終えた行を、今の作りは休み（task_resting）とも復旧待ち（awaiting_recovery）とも答える"
-               "（2つの関数が別々に導く）。表では1つの欄＝休み（R-8）",
-               lambda d: d.what == "行の復旧待ち" and d.current is True and d.shadow == "休み"),
-    ShadowKind("続", "続き（もとの食い違いから）",
-               "影1・今1・今2 で、影が今の作りと違う答えのまま進んだことから続くもの（試行のせい・行の判定待ち・回線のまだ分からない続き・"
-               "番号の続きの数・使えない・待つ印、表では判定待ちの行に今の作りがかける＝G-R11・G-R12）",
-               lambda d: d.what in ("行の判定待ち（回線ごと）", "回線のまだ分からない続き", "番号のせいの続きの数", "番号が使えない",
-                                    "番号の分からない電話の待ち（N-4 の印）")
-               or (d.what == "試行のせい" and ((d.current in ("number", "line") and d.shadow == "unknown")
-                                               or (d.current == "line" and d.shadow == "number")))
-               or (d.what == "回線を止めているか" and d.current is True and str(d.shadow).startswith("確かめ中"))
-               or _cant(d, "task", ("await_decision",), CALL_EVENTS, "G-R11") or _cant(d, "task", ("await_decision",), CALL_EVENTS, "G-R12")),
-)
-ROOTS = {"影1", "今1", "今2"}   # 「続」のもとになる食い違い
-
-
-def shadow_kind(d: shadow.Diff) -> str | None:
-    """その食い違いの分け方（SHADOW_KNOWN の最初に当たるもの。無ければ None）。"""
-    return next((k.id for k in SHADOW_KNOWN if k.match(d)), None)
-
-
-# 場面ごとの、食い違いの分け方の組（2026-10-29 に流して決めた。空＝今の作りと影が、どの時点でも同じ答え）
-SHADOW_SCENES: dict[str, set[str]] = {
-    "test_a1_three_bad_numbers_side_by_side_end_as_the_numbers_without_stopping_the_line": {"影1", "続"},
-    "test_a4_a_broken_line_whose_test_number_cannot_be_told_apart_waits_and_tells_once": {"影1"},
-    "test_a5_two_lines_one_broken_and_one_bad_number": {"今1", "影1", "続"},
-    "test_a6_a_line_broken_for_two_hours_loses_nothing_and_comes_back_with_one_ring": {"影1", "続"},
-    "test_a_list_of_mostly_bad_numbers_on_a_healthy_line_never_stops_the_line": {"影1", "続"},
-    "test_b3_the_same_trouble_with_good_talks_between_does_not_stop": {"今4"},
-    "test_b4_poor_audio_with_the_same_customer_is_not_our_trouble": {"今3"},
-    "test_b5b_a_line_whose_voice_is_broken_is_stopped_again_with_longer_waits": {"今2", "今3"},
-    "test_n10_a_test_the_pc_never_tries_is_told_once": {"影1"},
-    "test_n2b_a_row_left_undecided_on_a_broken_line_is_called_by_a_healthy_line": {"今1"},
-    "test_n6_one_number_on_two_rows_keeps_the_numbers_four_tries": {"影1", "続"},
-    "test_n7_a_bad_number_at_evening_is_decided_the_next_morning": {"影1", "続"},
-    "test_r2_two_broken_lines_never_ring_the_test_number_together": {"影1", "続"},
-}
 
 
 class Script(Talk):

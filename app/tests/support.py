@@ -104,6 +104,26 @@ def rules_raw(required=("Q1",), *, decline=None, retry=None, handling=None) -> d
                                for k in ("open", "incomplete", "not_reached_absent", "callback_unspecified_time")}}
 
 
+def number_run(tx, contact_id) -> dict:
+    """番号の欄（DESIGN.md 17-1-3）を、試験が読む形で：n_sure＝番号のせいと決まった続きの数・n＝それに、まだ分からない電話を足した数・
+    first_day・last_end（4段目の前の salescall.failed_run と同じ名前。読むのは状態の欄だけ）。"""
+    from salescall.core import health
+    num = health.number_of(tx, contact_id)
+    return {"n_sure": num.n, "n": num.n + len(num.unknown), "first_day": num.first_day, "last_end": num.last_end}
+
+
+def line_checking(tx, line_id) -> bool:
+    """その回線が、番号のせいか回線のせいかを確かめ中か（回線の欄＝DESIGN.md 17-1-1）。"""
+    from salescall.core import health, health_rules
+    return health.line_of(tx, line_id).stage in health_rules.CHECKING
+
+
+def task_stage(tx, task_id) -> str:
+    """行の欄の段（データベースの名前。DESIGN.md 17-1-2）。"""
+    from salescall.core import health
+    return health.stage_name(health.task_of(tx, task_id))
+
+
 def app_access() -> Access:
     return Access(os.environ["SALESCALL_TEST_APP_DSN"])
 
@@ -259,7 +279,8 @@ class World:
 
     def talked(self, s: dict) -> UUID:
         """同じ契約者（s の依頼者）で、こちらの不具合なしにお客様と話し終えた電話を1本足す（別の架空の行。こちらの不具合のあとの「復旧」の
-        証拠＝salescall.recovered_after。0141）。足した試行を返す。"""
+        証拠＝表の E5。DESIGN.md 17章）。電話が終わった所と同じく、その電話の出来事を状態の表を引く入口へ渡す（core/health.after_call）。
+        足した試行を返す。"""
         from salescall.core.phone import normalize
         k = self.contact(s["tenant"], s["client"], normalize(fictional_jp_fixed()).e164)
         other = dict(s, task=self.task(s["tenant"], s["client"], s["run"], k), contact=k)
@@ -268,23 +289,41 @@ class World:
         aid = self.insert_claim(other)
         for state in ("dialing", "ringing", "answered", "in_conversation", "ending", "ended"):
             self.move(other, aid, state)
+        from salescall.core import health
+        self.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: health.after_call(tx, aid))
         return aid
 
-    def test_number_rang(self, s: dict, *, line: UUID | None = None) -> None:
-        """その回線のテスト番号が、いま鳴った（記録だけ。発信の回数・報酬には数えない）：その前の、まだ分からない鳴らなかった電話は
-        番号のせいと決まる（salescall.unrung_blame。0143：決まるまで締めない）。決め方そのものを試さない試験が、締める前に使う。"""
+    def _test_answer(self, s: dict, line: UUID | None, rang: bool) -> bool:
+        """その回線のテスト番号の答えを、いま渡す（記録と、状態の表の入口＝core/ring_test.run と同じ順）。確かめ中の回線は、表が鳴らす頼みを
+        置いた段（確かめ中 (c)）にしてから渡す（試験の場面を作るため、回線の欄を直に書く。本番で書くのは表を引く入口だけ）。確かめ中
+        でなければ何もしない（False）。決め方そのものを試さない試験が、締める前に使う。"""
+        import json
+        from dataclasses import replace
+        from salescall.core import health, health_rules
+        line_id = line or s["line"]
+        row = owner_access().in_system(SYSTEM, lambda tx: tx.one("SELECT state FROM salescall.line_states WHERE line_id = %s",
+                                                                 (line_id,)))
+        state = None if row is None else health.decode(row["state"])
+        if state is None or state.stage not in health_rules.CHECKING:
+            return False
+        at = owner_access().in_system(SYSTEM, lambda tx: tx.one("SELECT now() AS t")["t"])
+        c = replace(state, stage=health_rules.LineStage.CHECK_C, wait=None, next_at=at + timedelta(minutes=1))
         owner_access().in_system(SYSTEM, lambda tx: tx.execute(
-            "INSERT INTO salescall.line_ring_tests (tenant_id, line_id, purpose, rang) VALUES (%s, %s, 'no_rows', true)",
-            (s["tenant"], line or s["line"])))
+            "UPDATE salescall.line_states SET stage = 'check_c', state = %s WHERE line_id = %s", (json.dumps(health.encode(c)), line_id)))
+        owner_access().in_system(SYSTEM, lambda tx: tx.execute(
+            "INSERT INTO salescall.line_ring_tests (tenant_id, line_id, purpose, rang) VALUES (%s, %s, 'no_rows', %s)",
+            (s["tenant"], line_id, rang)))
+        self.a.in_tenant(SYSTEM, s["tenant"], lambda tx: health.tested(tx, line_id, "rang" if rang else "silent"))
+        return True
+
+    def test_number_rang(self, s: dict, *, line: UUID | None = None) -> None:
+        """その回線のテスト番号が、いま鳴った：その前の、まだ分からない鳴らなかった電話は番号のせいと決まる（表の L-9）。"""
+        self._test_answer(s, line, True)
 
     def test_number_silent(self, s: dict, *, line: UUID | None = None) -> bool:
-        """その回線のテスト番号が、いま鳴らなかった（記録し、続きを閉じる＝ring_test.run と同じ順）：その前の、まだ分からない
-        鳴らなかった電話は回線のせいと決まる。閉じたら True。"""
-        owner_access().in_system(SYSTEM, lambda tx: tx.execute(
-            "INSERT INTO salescall.line_ring_tests (tenant_id, line_id, purpose, rang) VALUES (%s, %s, 'no_rows', false)",
-            (s["tenant"], line or s["line"])))
-        from salescall.core import attempts
-        return self.a.in_tenant(SYSTEM, s["tenant"], lambda tx: attempts.close_unrung_run(tx, line or s["line"], "test_silent"))
+        """その回線のテスト番号が、いま鳴らなかった：その前の、まだ分からない鳴らなかった電話は回線のせいと決まる（表の L-10）。決めたら
+        True。"""
+        return self._test_answer(s, line, False)
 
     def move(self, s: dict, attempt: UUID, state: str, hangup_side: str | None = None) -> None:
         self.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: tx.execute(

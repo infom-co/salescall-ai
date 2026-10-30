@@ -5,7 +5,8 @@
 - **データベースに触らない**。状態は値（`Line`・`Task`・`Number`・`Tenant`・`Attempt`）、出来事も値（`Event`。E1〜E17）。
 - **入口は `apply` の1つだけ**：`apply(今の状態, 出来事, 決まりの値)` が、表（`TABLE`。17-3 の行番号つき）の行を引き、
   `Outcome(次の状態, することの並び, 引いた表の行番号)` を返す。することは「何をするか」の値（`Do`）を並べるだけで、知らせ・修正依頼・
-  記録・試行のせいを書く・テスト番号を鳴らす、などは、この部品の外（3段目で、表を引く所）が行う。
+  記録・試行のせいを書く・テスト番号を鳴らす、などは、この部品の外（表を引く入口 core/health の1か所）が行う。知らせには種類（note＝
+  core/notify の KINDS の名前）、修正依頼には種類と鍵（fix_kind・fix_key）を、ここで決めて持たせる（入口は中身を見て決め直さない）。
 - **表に無い組み合わせは「何もしない」と表に書いたものだけ**（17章の決まり (1)）。それ以外が来たら、決めずに誤りの値
   （`Mistake`）を返す。誤りの値は「記録する」と「直す担当（CL-2）への修正依頼」を持つ。表に行の無い組み合わせは、その段では起きない
   出来事だけ（`GAPS`。来れば誤りの値）。17章を作るうちに見つけた穴は、2026-10-29 に、決定の言葉からの当てはめ【当】の行で埋めた
@@ -21,7 +22,7 @@
   (4) 声のかけ直しで声の通る回線が来ないときは案A（声が聞き取れなかった電話から並びの1つ目のうちに来なければ、同じ回線でお詫びと
   ともにかけ直す。続けて2回までのまま）／N-4 は案A（今の形どおり。分からない電話を番号のせいに数えると今日の分を使い切るあいだ、
   その番号の行はどの回線でもかけない印を付け、決まれば外す）。
-- まだ今の作り（門・候補・回線ごとの処理）にはつながない（3段目の「影で動かす」で、今の作りと並べて答えを比べる）。
+- 4段目（2026-10-29）：入口（core/health）が、することを行い、読み手（締め・次の動き・門・候補・回線ごとの処理）は状態の欄を読む。
 
 **読み方**（17章に書き方の無かった所を、書いてある決まりのとおりに読んだもの。管理者のご判断・17章の直しで変える）
 - (1) L-20（休みが鳴らしてよい時間で1時間）は、休みの中身に、その時刻（休みに入った時刻＋鳴らしてよい時間で1時間＝fix_at）を
@@ -49,8 +50,8 @@ from salescall.core import calling_hours
 from salescall.core.errors import LASTING, PHONE_FIXER
 from salescall.link.protocol import REPLY_WAIT
 
-__all__ = ["AUDIO_STOP_AFTER_CUSTOMERS", "Attempt", "Blame", "Do", "Event", "GAPS", "Line", "LineStage", "Mistake", "Number", "NumberStage",
-           "Outcome", "RECEIVES", "Rules", "SETTING_KEYS", "TABLE", "Task", "TaskStage", "Tenant", "TenantStage", "Wait",
+__all__ = ["AUDIO_STOP_AFTER_CUSTOMERS", "Attempt", "Blame", "Do", "Event", "GAPS", "Line", "LineStage", "Mistake", "NO_NUMBER_ABOUT",
+           "Number", "NumberStage", "Outcome", "RECEIVES", "Rules", "SETTING_KEYS", "TABLE", "Task", "TaskStage", "Tenant", "TenantStage", "Wait",
            "apply", "next_at", "subject_of"]
 
 
@@ -200,8 +201,11 @@ class Number:
     next_day: date | None = None          # 決まった順の次の日
     not_before: datetime | None = None    # 同じ日なら、最後の失敗の終わり＋同じお客様への最短の間隔
     unknown: frozenset[str] = frozenset()
+    unknown_since: datetime | None = None   # まだ分からない試行の、いちばん早い電話の終わり（印の「最初の失敗の日」の材料）
+    unknown_last: datetime | None = None    # まだ分からない試行の、いちばん遅い電話の終わり（印の「前の失敗の日」の材料）
     hold: bool = False                    # N-4 の印（2026-10-29 決定 案A）
     dead_at: datetime | None = None
+    next_at: datetime | None = None       # 印があるあいだ：印を見直す時刻＝次の日の始まり（N-7。17-3-6 の【当】）
 
 
 class TenantStage(Enum):
@@ -306,7 +310,7 @@ class Event:
 
 _EVENT_NEEDS: dict[str, tuple[str, ...]] = {
     "E1": ("attempt", "number"), "E2": ("attempt", "number", "line"), "E3": ("attempt", "kind", "task", "rang", "answered"),
-    "E4": ("attempt", "number", "line", "resume_allowed"), "E5": ("attempt", "number", "started_at"),
+    "E4": ("attempt", "number", "line"), "E5": ("attempt", "number", "started_at"),
     "E6": (), "E7": (), "E8": (), "E9": (), "E10": (), "E11": ("kind",), "E12": ("by", "reason"), "E13": ("by", "reason"),
     "E14": (), "E15": ("line",), "E16": ("attempt", "blame", "call_at"), "E17": ("since",), "E18": ("line",),
     "E19": (),
@@ -373,7 +377,8 @@ class Mistake:
     def actions(self) -> tuple[Do, ...]:
         """誤りとして記録し、直す担当（CL-2）へ修正依頼を出す（17章の決まり (1)）。"""
         about = f"表を引けない（{self.kind}）：{self.subject}・{self.stage}・{self.event}。{self.why}"
-        return (_do(RECORD, about=about), _do(FIX, fixer=TABLE_FIXER, about=about))
+        return (_do(RECORD, about=about), _do(FIX, fixer=TABLE_FIXER, fix_kind="state_table",
+                                              fix_key=f"state_table:{self.subject}:{self.stage}:{self.event}:{self.kind}", about=about))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -453,13 +458,21 @@ def _healthy(line: Line) -> Line:
     return Line(LineStage.HEALTHY, audio=line.audio, j=line.j)
 
 
+# テスト番号が無いときの知らせの文（1か所。L-7・L-8・L-15・L-23）。実際に起きることだけを書く（見直し22 の 4）。2026-10-29 管理者：「一時的な
+# testcallは環境設定に追加」＝管理者がシステムの初めの値に仮の番号を入れ、契約者が自分の番号を入れたら、そちらを使う
+NO_NUMBER_ABOUT = ("テスト番号が無いので、この回線の確かめ（回線のせいか番号のせいか・休んだ回線を再開してよいか）を決められません。"
+                   "管理者か契約者がテスト番号を入れてください（管理者が初めの値として入れた番号を、契約者が自分の番号を入れるまで使います）。"
+                   "入るまで、この回線の確かめは待ちます（まだ分からない電話の行は、番号の回数にも回線の異常にも数えません）。")
+
+
 def _choose_wait(line: Line, ev: Event, rules: Rules) -> tuple[Wait | None, datetime | None, tuple[Do, ...], frozenset[str]]:
     """テスト番号を鳴らす前の、待つ理由を見直す（L-7・L-8・L-13・L-15・L-23 の1か所）。順は L-8 のとおり。
     待つ理由が無ければ (None, …)＝いま鳴らす。"""
     told = line.told
     if not (ev.code == "E14" or ev.test_number):   # E14＝テスト番号が入った
         told, acts = _once(told, "テスト番号が無い",
-                           (_do(NOTIFY, to=BOTH, about="テスト番号を入れてください（入るまで、この回線の確かめを待ちます）"),))
+                           (_do(NOTIFY, to=BOTH, note="line_undecided",
+                                about=NO_NUMBER_ABOUT),))
         return Wait.NO_NUMBER, None, acts, told
     if not _in_hours(rules, ev.at):
         return Wait.OFF_HOURS, _hours_start(rules, ev.at), (), told
@@ -480,12 +493,15 @@ def _ring_or_wait(line: Line, ev: Event, rules: Rules, *, checking: bool) -> _St
     return _Step(replace(line, stage=stage, wait=wait, next_at=ev.at + rules.reply_wait, told=told), acts + (_do(RING),))
 
 
-def _untried(line: Line, since: datetime, at: datetime, rules: Rules, key: str) -> tuple[frozenset[str], tuple[Do, ...]]:
-    """試せない・かけられないまま並びの1つ目（初め15分）を過ぎたら、1回知らせて修正依頼（L-12・L-19・L-28 の1か所。【当(9)(10)】）。"""
+def _untried(line: Line, since: datetime, at: datetime, rules: Rules, key: str,
+             fix_kind: str = "test_ring_undecided") -> tuple[frozenset[str], tuple[Do, ...]]:
+    """試せない・かけられないまま並びの1つ目（初め15分）を過ぎたら、1回知らせて修正依頼（L-12・L-19・L-28 の1か所。【当(9)(10)】）。
+    修正依頼の種類は、テスト番号を試せない（test_ring_undecided。見分けられないと同じ1つ）と、回線が「通話中」のまま（line_in_call）。"""
     if at - since < rules.first_gap():
         return line.told, ()
-    return _once(line.told, key, (_do(NOTIFY, to=BOTH, about="テスト番号を試せない・かけられないまま続いています"),
-                                  _do(FIX, fixer=PHONE_FIXER, about="電話をつなぐ部品：試せない・かけられないまま続いている")))
+    return _once(line.told, key, (_do(NOTIFY, to=BOTH, note="line_undecided", about="テスト番号を試せない・かけられないまま続いています"),
+                                  _do(FIX, fixer=PHONE_FIXER, fix_kind=fix_kind, fix_key=fix_kind,
+                                      about="電話をつなぐ部品：試せない・かけられないまま続いている")))
 
 
 def _untried_since(line: Line) -> datetime:
@@ -515,7 +531,8 @@ def _l3(line: Line, ev: Event, rules: Rules) -> _Step:
     nxt = ev.at if j == 1 else ev.at + rules.gap(j - 1)
     return _Step(_rest(LineStage.AUDIO_REST, rules, ev.at, audio=audio, j=j, t=0, next_at=nxt),
                  (_do(RECORD, about="声が聞き取れずに終えた電話が違うお客様で続いたので、回線を休ませた"),
-                  _do(NOTIFY, to=BOTH, about="声が聞き取れない電話が続いたので、この回線を休ませます（テスト番号が鳴れば再開します）")))
+                  _do(NOTIFY, to=BOTH, note="stopped", cause="poor_audio",
+                      about="声が聞き取れない電話が続いたので、この回線を休ませます（テスト番号が鳴れば再開します）")))
 
 
 def _l5(line: Line, ev: Event, rules: Rules) -> _Step:
@@ -545,8 +562,9 @@ def _l10(line: Line, ev: Event, rules: Rules) -> _Step:
 def _l11(line: Line, ev: Event, rules: Rules) -> _Step:
     t = line.t + 1
     told, acts = _once(line.told, "見分けられない",
-                       (_do(NOTIFY, to=BOTH, about="テスト番号の答えを見分けられませんでした"),
-                        _do(FIX, fixer=PHONE_FIXER, about="電話をつなぐ部品：テスト番号の答えを見分けられない")))
+                       (_do(NOTIFY, to=BOTH, note="line_undecided", about="テスト番号の答えを見分けられませんでした"),
+                        _do(FIX, fixer=PHONE_FIXER, fix_kind="test_ring_undecided", fix_key="test_ring_undecided",
+                            about="電話をつなぐ部品：テスト番号の答えを見分けられない")))
     return _Step(replace(line, stage=LineStage.CHECK_B, t=t, wait=Wait.GAP, next_at=ev.at + rules.gap(t), tested_at=ev.at,
                          told=told), acts)
 
@@ -567,7 +585,8 @@ def _with_l20(line: Line, ev: Event, rules: Rules, step: _Step) -> _Step:
     lasting = calling_hours.daily_seconds(calling_hours.local(line.entered_at), calling_hours.local(ev.at), rules.test_ring_hours)
     if lasting < rules.lasting.total_seconds():
         return step
-    told, acts = _once(step.state.told, "1時間", (_do(FIX, fixer=PHONE_FIXER, about="電話をつなぐ部品：回線が1時間以上休んだまま"),))
+    told, acts = _once(step.state.told, "1時間", (_do(FIX, fixer=PHONE_FIXER, fix_kind="line", fix_key="error:line:{tenant}",
+                                                      about="電話をつなぐ部品：回線が1時間以上休んだまま"),))
     return _Step(replace(step.state, told=told), step.actions + acts, step.also + (("L-20",) if acts else ()))
 
 
@@ -587,21 +606,23 @@ def _l20(line: Line, ev: Event, rules: Rules) -> _Step:
 
 def _l16(line: Line, ev: Event, rules: Rules) -> _Step:
     return _Step(_healthy(line), (_do(RECORD, about="テスト番号が鳴ったので、回線を再開した"),
-                                  _do(NOTIFY, to=("契約者",), about="テスト番号が鳴ったので、この回線を再開しました")))
+                                  _do(NOTIFY, to=("契約者",), note="resumed", about="テスト番号が鳴ったので、この回線を再開しました")))
 
 
 def _l17(line: Line, ev: Event, rules: Rules) -> _Step:
     t = line.t + 1
     # 次のテストでも鳴らなかった：この休みで1回、契約者と管理者に知らせる（休みの中身の「知らせたか」＝told の「回線のせい」）
-    told, acts = _once(line.told, "回線のせい", (_do(NOTIFY, to=BOTH, about="テスト番号が続けて鳴らないので、この回線を休ませています"),))
+    told, acts = _once(line.told, "回線のせい", (_do(NOTIFY, to=BOTH, note="stopped", cause="line_failure",
+                                                     about="テスト番号が続けて鳴らないので、この回線を休ませています"),))
     return _Step(replace(line, t=t, wait=None, next_at=ev.at + rules.gap(t), tested_at=ev.at, told=told), acts)
 
 
 def _l18_l26(line: Line, ev: Event, rules: Rules) -> _Step:
     t = line.t + 1
     told, acts = _once(line.told, "見分けられない",
-                       (_do(NOTIFY, to=BOTH, about="テスト番号の答えを見分けられませんでした"),
-                        _do(FIX, fixer=PHONE_FIXER, about="電話をつなぐ部品：テスト番号の答えを見分けられない")))
+                       (_do(NOTIFY, to=BOTH, note="line_undecided", about="テスト番号の答えを見分けられませんでした"),
+                        _do(FIX, fixer=PHONE_FIXER, fix_kind="test_ring_undecided", fix_key="test_ring_undecided",
+                            about="電話をつなぐ部品：テスト番号の答えを見分けられない")))
     return _Step(replace(line, t=t, wait=None, next_at=ev.at + rules.gap(t), tested_at=ev.at, told=told), acts)
 
 
@@ -628,13 +649,13 @@ def _l33(line: Line, ev: Event, rules: Rules) -> _Step:
 
 def _l21(line: Line, ev: Event, rules: Rules) -> _Step:
     return _Step(Line(LineStage.HEALTHY), (_do(RECORD, about=f"{ev.by}が手で再開した：{ev.reason}"),
-                                           _do(NOTIFY, to=("契約者",), about="この回線を手で再開しました")))
+                                           _do(NOTIFY, to=("契約者",), note="resumed", about="この回線を手で再開しました")))
 
 
 def _l24(line: Line, ev: Event, rules: Rules) -> _Step:
     return _Step(Line(LineStage.HEALTHY, audio=frozenset(), j=line.j),
                  (_do(RECORD, about="テスト番号が鳴ったので、声で休ませた回線を再開した"),
-                  _do(NOTIFY, to=("契約者",), about="テスト番号が鳴ったので、この回線を再開しました")))
+                  _do(NOTIFY, to=("契約者",), note="resumed", about="テスト番号が鳴ったので、この回線を再開しました")))
 
 
 def _l25(line: Line, ev: Event, rules: Rules) -> _Step:
@@ -646,7 +667,7 @@ def _l25(line: Line, ev: Event, rules: Rules) -> _Step:
 def _l28(line: Line, ev: Event, rules: Rules) -> _Step:
     # E9 と同じ1か所（_untried）。元気には「続き・休み」が無いので、かけられなくなった時刻ごとに1回（下の「読み方」の (2)）
     key = "試せない" if line.stage is not LineStage.HEALTHY else f"かけられない:{ev.since.isoformat()}"
-    told, acts = _untried(line, ev.since, ev.at, rules, key)
+    told, acts = _untried(line, ev.since, ev.at, rules, key, "line_in_call")
     return _Step(replace(line, told=told), acts)
 
 
@@ -654,9 +675,10 @@ def _l28(line: Line, ev: Event, rules: Rules) -> _Step:
 
 def _per_call(ev: Event) -> tuple[Do, ...]:
     """こちらの不具合で終えた電話ごとの、記録・知らせ・修正依頼（R-5・R-8 の1か所。修正依頼は同じ不具合で1つ＝受け手が束ねる）。"""
-    return (_do(RECORD, about=f"こちらのプログラムの不具合で電話を終えた（{ev.kind}）"),
-            _do(NOTIFY, to=BOTH, about="こちらのプログラムの不具合で電話を終えました。この行は復旧を待っています"),
-            _do(FIX, fixer=f"種類 {ev.kind} の直す担当", kind=ev.kind, about="こちらのプログラムの不具合で電話を終えた"))
+    return (_do(RECORD, call=ev.attempt, kind=ev.kind, about=f"こちらのプログラムの不具合で電話を終えた（{ev.kind}）"),
+            _do(NOTIFY, to=BOTH, call=ev.attempt, note="error_notice",
+                about="こちらのプログラムの不具合で電話を終えました。この行は復旧を待っています"),
+            _do(FIX, fixer=f"種類 {ev.kind} の直す担当", call=ev.attempt, kind=ev.kind, about="こちらのプログラムの不具合で電話を終えた"))
 
 
 def _back(task: Task, **keep: Any) -> Task:
@@ -696,7 +718,9 @@ def _r7(task: Task, ev: Event, rules: Rules) -> _Step:
 
 
 def _r8(task: Task, ev: Event, rules: Rules) -> _Step:
-    rest = (_do(NOTIFY, to=BOTH, about="こちらのプログラムの不具合で、同じ行の電話が続けて終わりました。この行は休ませ、次の行へ進みます"),)
+    rest = (_do(NOTIFY, to=BOTH, note="task_resting",
+                about="こちらのプログラムの不具合で、同じ行の電話が続けて終わりました。この行は休ませ、次の行へ進みます"
+                      "（その不具合を直したと記録され、そのあとプログラムが替わったら、自動で戻ります。管理者・契約者が戻すこともできます）。"),)
     return _Step(replace(_back(task), stage=TaskStage.RESTING, kinds=frozenset({task.n_kind, ev.kind}), attempt=ev.attempt,
                          answered=bool(ev.answered), since=ev.at), _per_call(ev) + rest)
 
@@ -736,14 +760,32 @@ def _hold(num: Number, rules: Rules, at: datetime) -> bool:
     c = num.n + len(num.unknown)
     if c >= len(rules.failed_retry_days):
         return True
+    # 数えたときの「最初の失敗の日」と「前の失敗の日」は、分からない電話の日（今の形 attempts.number_unconfirmed と同じ。次の日の始まりで
+    # 見直す＝N-7 のとき、前の日の分からない電話を今日の失敗として数えない）
     today = _local_day(at)
-    return _number_day(rules, num.first_day or today, today, c) > today
+    first = num.first_day or (_local_day(num.unknown_since) if num.unknown_since else today)
+    last = max([_local_day(t) for t in (num.last_end, num.unknown_last) if t is not None] or [today])
+    return _number_day(rules, first, last, c) > today
 
 
-def _with_unknown(num: Number, unknown: frozenset[str], rules: Rules, at: datetime) -> tuple[Number, tuple[str, ...]]:
-    new = replace(num, unknown=unknown)
+def _next_day_start(at: datetime) -> datetime:
+    """at の次の日の始まり（日本時間の0時。日付の決まりは calling_hours.local・from_local の1か所）。"""
+    return calling_hours.from_local(datetime.combine(_local_day(at) + timedelta(days=1), time()))
+
+
+def _with_unknown(num: Number, unknown: frozenset[str], rules: Rules, at: datetime,
+                  call_at: datetime | None = None) -> tuple[Number, tuple[str, ...]]:
+    """まだ分からない試行の組を置き、N-4 の印を見直す（1か所。call_at＝足した分からない電話の終わり）。印があれば、番号の中身に「次に
+    動く時刻」＝次の日の始まり（分からない電話を数えても今日の分が残りうる日の始まり）を持つ（17-3-6 の【当】。3段目の比べで、日付が
+    替わっても印が残る形だった）。"""
+    if not unknown:
+        since = last = None
+    else:
+        since = min(t for t in (num.unknown_since, call_at) if t is not None) if (num.unknown_since or call_at) else None
+        last = max(t for t in (num.unknown_last, call_at) if t is not None) if (num.unknown_last or call_at) else None
+    new = replace(num, unknown=unknown, unknown_since=since, unknown_last=last)
     hold = _hold(new, rules, at)
-    return replace(new, hold=hold), (("N-4",) if hold != num.hold else ())
+    return replace(new, hold=hold, next_at=_next_day_start(at) if hold else None), (("N-4",) if hold != num.hold else ())
 
 
 def _n1(num: Number, ev: Event, rules: Rules) -> _Step:
@@ -757,13 +799,15 @@ def _n1(num: Number, ev: Event, rules: Rules) -> _Step:
                      ("N-4",) if num.hold else ())
     day = _number_day(rules, first, last, c)
     new = Number(NumberStage.RUN, n=c, first_day=first, last_end=ev.call_at, next_day=day,
-                 not_before=ev.call_at + rules.same_contact_min_interval, hold=num.hold)
+                 not_before=ev.call_at + rules.same_contact_min_interval, hold=num.hold,
+                 unknown_since=num.unknown_since, unknown_last=num.unknown_last)
     new, also = _with_unknown(new, unknown, rules, ev.at)
     return _Step(new, (), also)
 
 
 def _n2(num: Number, ev: Event, rules: Rules) -> _Step:
-    new, also = _with_unknown(Number(NumberStage.NONE, hold=num.hold), num.unknown, rules, ev.at)
+    new, also = _with_unknown(Number(NumberStage.NONE, hold=num.hold, unknown_since=num.unknown_since,
+                                     unknown_last=num.unknown_last), num.unknown, rules, ev.at)
     return _Step(new, (), also)
 
 
@@ -773,7 +817,13 @@ def _n3(num: Number, ev: Event, rules: Rules) -> _Step:
 
 
 def _n4(num: Number, ev: Event, rules: Rules) -> _Step:
-    new, _ = _with_unknown(num, num.unknown | {ev.attempt}, rules, ev.at)
+    new, _ = _with_unknown(num, num.unknown | {ev.attempt}, rules, ev.at, ev.at)
+    return _Step(new)
+
+
+def _n7(num: Number, ev: Event, rules: Rules) -> _Step:
+    """N-4 の印の見直しの時刻（次の日の始まり）が来た：その日で印を見直す（外れれば外し、まだなら次の日の始まりを持つ）。"""
+    new, _ = _with_unknown(num, num.unknown, rules, ev.at)
     return _Step(new)
 
 
@@ -786,7 +836,8 @@ def _c1(ten: Tenant, ev: Event, rules: Rules) -> _Step:
         return _Step(replace(ten, rows=rows))
     return _Step(Tenant(TenantStage.STOPPED, rows=rows, stopped=frozenset({ev.kind}), since=ev.at),
                  (_do(STOP_CALLS), _do(RECORD, about=f"こちらの不具合（{ev.kind}）が違う行で続いたので、新しい電話を止めた"),
-                  _do(NOTIFY, to=BOTH, about="こちらのプログラムの同じ不具合が違う行で続いたので、新しい電話を止めました")))
+                  _do(NOTIFY, to=BOTH, note="stopped", cause="program_trouble",
+                      about="こちらのプログラムの同じ不具合が違う行で続いたので、新しい電話を止めました")))
 
 
 def _c3_c7(ten: Tenant, ev: Event, rules: Rules) -> _Step:
@@ -801,7 +852,7 @@ def _c5(ten: Tenant, ev: Event, rules: Rules) -> _Step:
     left = ten.stopped - {ev.kind}
     rows = ten.with_r(ev.kind, frozenset())
     acts = (_do(RECORD, about=f"こちらの不具合（{ev.kind}）を直した版になったので、その止めを解いた"),
-            _do(NOTIFY, to=BOTH, about="不具合を直した版になったので、止めを解きました"))
+            _do(NOTIFY, to=BOTH, note="resumed", cause="program_trouble", about="不具合を直した版になったので、止めを解きました"))
     if left:
         return _Step(replace(ten, rows=rows, stopped=left), acts)
     return _Step(Tenant(TenantStage.NORMAL, rows=rows), (_do(RESUME_CALLS),) + acts)
@@ -822,7 +873,7 @@ def _c8(ten: Tenant, ev: Event, rules: Rules) -> _Step:
         return _Step(replace(ten, rows=rows))
     return _Step(replace(ten, rows=rows, stopped=ten.stopped | {ev.kind}),
                  (_do(RECORD, about=f"こちらの不具合（{ev.kind}）も違う行で続いたので、止める種類に足した"),
-                  _do(NOTIFY, to=BOTH, about="こちらのプログラムの別の不具合も違う行で続きました")))
+                  _do(NOTIFY, to=BOTH, note="stopped", cause="program_trouble", about="こちらのプログラムの別の不具合も違う行で続きました")))
 
 
 # ── 試行のせい ──
@@ -952,6 +1003,7 @@ TABLE: tuple[TableRow, ...] = (
     _row("N-4", N, (NS.NONE, NS.RUN), "E2", _n4, "【今 0144 の (3)】・【決 10-29 案A】"),
     _row("N-5", N, NS.DEAD, ("E1", "E2", "E16"), _nothing, "【決 10-22 深夜】", nothing=True),
     _row("N-6", N, NS.NONE, "E1", _nothing, "【当】（続きが無い番号で鳴った：何もしない）", nothing=True),
+    _row("N-7", N, (NS.NONE, NS.RUN), "E10", _n7, "【当】（17-3-6：番号の待つ印は、次の日の始まりで見直す。4段目）"),
 
     # ── 17-3-4 契約者 ──
     _row("C-1", C, CS.NORMAL, "E3", _c1, "【決 10-25・10-24】", when=lambda s, e, r: e.task not in s.r(e.kind)),
@@ -1033,6 +1085,8 @@ def next_at(state: Any) -> datetime | None:
         return min(times) if times else None
     if isinstance(state, Task) and state.stage is TaskStage.VOICE_REDIAL:
         return state.next_at
+    if isinstance(state, Number) and state.hold:
+        return state.next_at
     return None
 
 
@@ -1075,6 +1129,8 @@ def _contents_wrong(state: Any) -> str | None:
             return "続きありなのに、回数・最初の失敗の日・次の日が無い"
         if state.stage is NumberStage.NONE and state.n:
             return "続き無しなのに、回数がある"
+        if state.hold != (state.next_at is not None):
+            return "番号の待つ印と、印を見直す時刻は組で持つ"
         return None
     if isinstance(state, Tenant):
         if (state.stage is TenantStage.STOPPED) != bool(state.stopped):
@@ -1129,6 +1185,8 @@ def apply(state: Any, event: Event, rules: Rules) -> Outcome | Mistake:
         return mistake("受けない出来事", f"{subject}の表は {event.code} を受けない")
     if subject == L and event.code == "E10" and event.test_number is None:
         return mistake("中身の誤り", "回線の E10 には、いまテスト番号があるか（test_number）が要る")
+    if subject == T and event.code == "E4" and event.resume_allowed is None:
+        return mistake("中身の誤り", "行の E4 には、すぐのかけ直しが続けて2回のうちか（resume_allowed）が要る（締めのあとに渡す）")
     if event.code == "E10":
         due = next_at(state)
         if due is None or event.at < due:

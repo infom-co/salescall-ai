@@ -115,6 +115,11 @@ def override(test, key, value):
 
 
 class LineStops(unittest.TestCase):
+    """回線の異常で回線を止めるか・解くかは、回線の状態の表（DESIGN.md 17章。core/health）が決める（回線の欄の休み）。エラーの入口
+    （watch.after_error）は記録・知らせ・修正依頼だけをし、回線の異常の数で止めない（⛔ 4段目の前：consecutive_errors と仮の値
+    stop.line.stop_after_failures＝3件で止め、テスト番号が鳴らなかった回線へも記録が3件に届くまでかけ続けた＝17-8 の (1)(2)。17-6 で外す
+    仮の値）。前の作りで回線の異常で止めた停止の記録は、何で止まったかを確かめられ、管理者か契約者が解ける（E12 として表へ渡す）。"""
+
     def setUp(self):
         self.w = World()
         self.a = app_access()
@@ -129,40 +134,21 @@ class LineStops(unittest.TestCase):
             tx, tenant_id=self.s["tenant"], client_id=None, business_id=None, line_id=self.s["line"]))
             if r["scope"] == "line"]
 
-    def test_consecutive_line_errors_stop_only_that_line(self):
-        need = owner_access().in_system(SYSTEM, lambda tx: settings.initial_value(tx, "stop.line.stop_after_failures"))
-        for _ in range(need - 1):
-            self.line_error()
-        self.assertEqual(self.line_stops(), [])
-        self.line_error()
-        got = self.line_stops()
-        self.assertEqual([r["cause"] for r in got], ["line_failure"])
-        self.line_error()
-        self.assertEqual(len(self.line_stops()), 1)                  # 重ねて止めない
-
-    def test_the_contractor_decides_how_many_failures_stop_a_line(self):
-        """止める回数は契約者ごと（2026-10-17 ユーザー：「会話AI・回線の異常で止める回数と、解くまでの確かめ　契約者」）。"""
+    def test_line_errors_are_recorded_but_never_stop_the_line(self):
+        """回線の異常のエラーは記録し（何が起きたかの記録・1時間以上続けば修正依頼）、回線は止めない（止めるかは状態の表＝watch.TABLE_CAUSES）。
+        契約者が「何回で止めるか」を決めていても同じ（その仮の値は表に置き換えた）。"""
         self.w.a.in_tenant(OPERATOR, self.s["tenant"], lambda tx: tx.execute(
             "INSERT INTO salescall.setting_values (key, scope, tenant_id, value, status, rationale, review_when, set_by)"
             " VALUES ('stop.line.stop_after_failures', 'tenant', %s, '1', 'decided', '契約者の決まり', '試験', '試験')",
             (self.s["tenant"],)))
-        self.line_error()
-        self.assertEqual([r["cause"] for r in self.line_stops()], ["line_failure"])
-
-    def test_only_a_call_that_rang_and_ended_resets_the_count(self):
-        """回線が直った証拠は、その回線で、お客様のところで電話が鳴って終わった電話（0122）。⛔ 見直し17a：前は呼び出し中に移っただけで
-        数え直したので、お客様が出る前に回線の側で終わる電話（それ自身が呼び出し中を通る）が続いても、回線は止まらなかった。"""
         need = owner_access().in_system(SYSTEM, lambda tx: settings.initial_value(tx, "stop.line.stop_after_failures"))
-        for _ in range(need - 1):
-            self.line_error()
-        failed = self.w.insert_claim(self.s)
-        for st in ("dialing", "ringing", "technical_error"):
-            self.w.move(self.s, failed, st)                          # お客様が出る前に回線の側で終わった：証拠にならない
-        ringing = self.w.insert_claim(self.s)
-        for st in ("dialing", "ringing"):
-            self.w.move(self.s, ringing, st)                         # まだ鳴っているだけ：終わっていないので証拠にならない
-        self.line_error()
-        self.assertEqual([r["cause"] for r in self.line_stops()], ["line_failure"])
+        for _ in range(need + 2):
+            self.assertEqual(self.line_error(), "line")
+        self.assertEqual(self.line_stops(), [])
+        self.assertIn("line_failure", watch.TABLE_CAUSES)
+        recorded = self.a.in_tenant(SYSTEM, self.s["tenant"], lambda tx: tx.one(
+            "SELECT count(*) AS n FROM salescall.error_events WHERE source = 'line'"))["n"]
+        self.assertEqual(recorded, need + 2)
 
     def test_a_call_that_rang_and_ended_resets_the_count(self):
         need = owner_access().in_system(SYSTEM, lambda tx: settings.initial_value(tx, "stop.line.stop_after_failures"))
@@ -175,37 +161,26 @@ class LineStops(unittest.TestCase):
             self.line_error()
         self.assertEqual(self.line_stops(), [])
 
-    def test_a_call_that_rang_on_another_line_is_not_evidence(self):
-        """回線が直った証拠は「その回線で」鳴って終わった電話だけ（0124 の consecutive_errors の line_ok）。同じ契約者のほかの回線で
-        鳴った電話は、この回線が直った証拠にならない（⛔ 見直し18a の (5)：壊しても試験が落ちなかった）。"""
-        need = owner_access().in_system(SYSTEM, lambda tx: settings.initial_value(tx, "stop.line.stop_after_failures"))
-        other_line = self.w.line(self.s["tenant"])
-        for _ in range(need - 1):
+    def test_a_person_resume_of_an_old_line_stop_explains_why_and_goes_to_the_line_column(self):
+        """前の作りで回線の異常で止めた停止の記録：何で止まったか（原因の意味・数えたエラー）を確かめられ、管理者か契約者が理由を書いて
+        解ける。解いたことは、手で再開した（E12）として回線の状態の表へ渡す（元気の回線は記録だけ＝L-32）。"""
+        for _ in range(2):
             self.line_error()
-        aid = self.w.insert_claim(self.s, line=other_line)
-        for st in ("dialing", "ringing", "no_answer"):
-            self.w.move(self.s, aid, st)                             # ほかの回線で鳴って出なかった
-        self.line_error()
-        self.assertEqual([r["cause"] for r in self.line_stops()], ["line_failure"])
-
-    def test_a_person_resume_restarts_the_count_and_explain_shows_why(self):
-        need = owner_access().in_system(SYSTEM, lambda tx: settings.initial_value(tx, "stop.line.stop_after_failures"))
-        for _ in range(need):
-            self.line_error()
-        sid = self.line_stops()[0]["event_id"]
+        sid = self.a.in_tenant(SYSTEM, self.s["tenant"], lambda tx: stops.stop(
+            tx, scope="line", cause="line_failure", reason="試験：前の作りの停止", evidence=watch.STOPPED_BY + "line",
+            tenant_id=self.s["tenant"], line_id=self.s["line"]))["event_id"]
         why = self.a.in_tenant(OPERATOR, self.s["tenant"], lambda tx: stops.explain(tx, sid))
         self.assertEqual(why["cause"]["meaning"], stops.CAUSES["line_failure"].meaning)
-        self.assertEqual(len(why["errors"]), need)                    # 数えたエラーと、その意味
+        self.assertEqual(len(why["errors"]), 2)                       # 数えたエラーと、その意味
         self.assertEqual(why["errors"][0]["meaning"], errors.ACTIONS["line"].meaning)
         self.assertIsNone(why["resolved"])
         self.a.in_tenant(OPERATOR, self.s["tenant"], lambda tx: stops.resume(tx, sid, reason="試験：端末を入れ直した"))
-        self.line_error()
-        self.assertEqual(self.line_stops(), [])                       # 管理者か契約者が解いたら数え直す（前の数でまた止めない）
-        for _ in range(need - 1):
-            self.line_error()
-        self.assertEqual(len(self.line_stops()), 1)                   # 解いたあと、また続いたら止める
+        self.assertEqual(self.line_stops(), [])
         why = self.a.in_tenant(OPERATOR, self.s["tenant"], lambda tx: stops.explain(tx, sid))
         self.assertEqual((why["resolved"]["actor_kind"], why["resolved"]["reason"]), ("operator", "試験：端末を入れ直した"))
+        moved = owner_access().in_tenant(SYSTEM, self.s["tenant"], lambda tx: [tuple(r["table_rows"]) for r in tx.all(
+            "SELECT table_rows FROM salescall.state_moves WHERE subject = 'line' AND key = %s AND event = 'E12'", (self.s["line"],))])
+        self.assertEqual(moved, [("L-32",)])
 
 
 class TenantAiStopsAndChecks(unittest.TestCase):

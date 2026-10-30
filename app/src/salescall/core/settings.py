@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
 from typing import Any, Literal
 from uuid import UUID
 
@@ -86,10 +87,14 @@ def set_value(tx: Tx, key: str, value: Any, *, scope: Literal["system", "tenant"
         (key, scope, tenant_id, client_id, business_id, json.dumps(value), status, rationale, review_when),
     )
     tx.one("SELECT salescall.release_claims_in_scope(%s, %s, %s, %s)", (scope, tenant_id, client_id, business_id))
-    if key == "line.test_number" and scope == "tenant" and value is not None:
-        # テスト番号が入った（E14）を状態の欄へ（DESIGN.md 17章の3段目＝影。記録だけ）。状態の欄の部品が設定の部品を読むので、ここで読む
+    if key == "line.test_number" and value is not None and scope in ("tenant", "system"):
+        # テスト番号が入った（E14）を、状態の表を引く入口へ（DESIGN.md 17章）。契約者の値＝その契約者の回線へ。管理者がシステムの初めの値を
+        # 入れた・変えた＝自分の値を持たない契約者ごとに1回ずつ（17-3-6 の【当】(a)）。状態の欄の部品が設定の部品を読むので、ここで読む
         from salescall.core import health
-        health.number_set(tx)
+        if scope == "tenant":
+            health.number_set(tx)
+        else:
+            health.number_set_everywhere(tx)
     return row["value_id"]
 
 
@@ -100,13 +105,14 @@ def resolve(tx: Tx, key: str, *, tenant_id: UUID | None, client_id: UUID | None,
 
 
 def resolve_detail(tx: Tx, key: str, *, tenant_id: UUID | None, client_id: UUID | None,
-                   business_id: UUID | None) -> dict[str, Any]:
-    """合成した値と、どの範囲の値か（from）・枠で収めたか（bounded_by）。画面で「枠で止まった」を見せるのに使う。"""
+                   business_id: UUID | None, layers: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
+    """合成した値と、どの範囲の値か（from）・枠で収めたか（bounded_by）。画面で「枠で止まった」を見せるのに使う。layers＝範囲ごとの値を
+    読んだもの（`resolve_for_table` だけが渡す。無ければ取引から読む）。"""
     d = tx.one("SELECT merge_kind, value_type, bound_key, bound_side FROM salescall.setting_definitions WHERE key = %s",
                (key,))
     if d is None:
         raise SettingMissing(key)
-    by_scope = _layers(tx, key, tenant_id, client_id, business_id)
+    by_scope = layers.get(key, {}) if layers is not None else _layers(tx, key, tenant_id, client_id, business_id)
     kind = d["merge_kind"]
     if kind == "override":
         scope = next((sc for sc in ("business", "client", "tenant", "system") if sc in by_scope), None)
@@ -132,7 +138,8 @@ def resolve_detail(tx: Tx, key: str, *, tenant_id: UUID | None, client_id: UUID 
     if d["bound_key"] is not None:
         # 枠は、収める設定と同じ範囲で読む（依頼者ごとの歯止めは、その依頼者の値）。値が無ければ SettingMissing（決まっていない
         # ⇒ 使う側は通さない）
-        bound = resolve(tx, d["bound_key"], tenant_id=tenant_id, client_id=client_id, business_id=business_id)
+        bound = resolve_detail(tx, d["bound_key"], tenant_id=tenant_id, client_id=client_id, business_id=business_id,
+                               layers=layers)["value"]
         side = d["bound_side"]
         limited = (min(value, bound) if side == "upper" else max(value, bound) if side == "lower"
                    else calling_hours.intersect([value, bound]))
@@ -140,6 +147,17 @@ def resolve_detail(tx: Tx, key: str, *, tenant_id: UUID | None, client_id: UUID 
             bounded_by = d["bound_key"]
         value = limited
     return {"value": value, "from": origin, "bounded_by": bounded_by}
+
+
+def resolve_for_table(tx: Tx, keys: Iterable[str], client_id: UUID | None) -> dict[str, Any]:
+    """状態の表（core/health）が読む決まりの値を、その依頼者の範囲で（取引の依頼者と違う依頼者の行・番号も表は引く。契約者の取引でも
+    読む）。依頼者の範囲の値は、行ごとの制限で見えないので、データベースの1か所 salescall.table_setting_layers（取引の契約者の依頼者・
+    表の決まりだけ）から読み、合成は `resolve_detail` の1か所。"""
+    layers: dict[str, dict[str, Any]] = {}
+    for r in tx.all("SELECT key, scope, value FROM salescall.table_setting_layers(%s)", (client_id,)):
+        layers.setdefault(r["key"], {})[r["scope"]] = r["value"]
+    tenant = tx.one("SELECT salescall.cur_tenant() AS t")["t"]
+    return {k: resolve_detail(tx, k, tenant_id=tenant, client_id=client_id, business_id=None, layers=layers)["value"] for k in keys}
 
 
 def _layers(tx: Tx, key: str, tenant_id: UUID | None, client_id: UUID | None,

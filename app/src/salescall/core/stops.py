@@ -26,7 +26,8 @@ from dataclasses import dataclass
 from typing import Any, Literal
 from uuid import UUID
 
-from salescall.core import errors, health, notify
+from salescall.core import errors, health
+from salescall.core import notify as _notify
 from salescall.core.access import Tx
 
 Scope = Literal["system", "tenant", "client", "business", "line"]   # line＝その回線だけ（回線の異常。9-1）
@@ -78,11 +79,13 @@ CAUSES: dict[str, CauseInfo] = {
                               "直した新しい版が模擬通話に合格したら解く",
                               "外れた指標。管理者か契約者が解くと、その版をもう一度測り直す（段の件数を最初から数える）"),
     "program_trouble": CauseInfo("こちらのプログラムの不具合",
-                                 "違う行で、同じ理由のこちらのプログラムの不具合（固まった・AI の異常・声が聞き取れない・会話を進められない・"
-                                 "通話を進める部品が落ちた）で通話を終えた行が、決めた数（設定 stop.trouble.stop_after_rows。初め3行）に"
+                                 "違う行で、同じ理由のこちらのプログラムの不具合（固まった・AI の異常・会話を進められない・"
+                                 "通話を進める部品が落ちた。「声が聞き取れない」は数えない＝2026-10-25 夜 案A）で通話を終えた行が、"
+                                 "決めた数（設定 stop.trouble.stop_after_rows。初め3行）に"
                                  "なった＝すべての行にかかわる甚大な問題（2026-10-25 ユーザー：「3行同じ問題なら、甚大な問題と判断。」）。"
                                  "止まるのは新しい電話だけ（話している電話は切らない）",
-                                 "直す担当（修正依頼）がその不具合を直したと記録し、そのあとプログラムが替わったら解く（core/watch.resume_fixed）",
+                                 "直す担当（修正依頼）がその不具合を直したと記録し、そのあとプログラムが替わったら解く（状態の表の契約者の欄＝"
+                                 "DESIGN.md 17章の C-5。止めた種類がすべて直るまで止めたまま）",
                                  "修正依頼が直ったか。管理者か契約者が解くと、同じ理由の行の数は解いた時から数え直す（直っていなければ、"
                                  "また止まる）"),
     "judge_unknown": CauseInfo("判定できない通話", "「判定できない」通話があった（会話の報告の書き漏れなど、こちらの誤り。検証モードの"
@@ -100,10 +103,11 @@ CAUSES: dict[str, CauseInfo] = {
 
 def stop(tx: Tx, *, scope: Scope, cause: Cause, reason: str, evidence: str | None = None,
          tenant_id: UUID | None = None, client_id: UUID | None = None, business_id: UUID | None = None,
-         line_id: UUID | None = None, admin: bool = False) -> dict[str, Any]:
+         line_id: UUID | None = None, admin: bool = False, notify: bool = True) -> dict[str, Any]:
     """止める。止めた記録と、取り消した予約の数を返す。admin＝管理者あての写しも知らせる（担当へ修正依頼を出した原因＝管理者は確かめ・承認・
     ユーザーが「管理者へ知らせる」と決めた停止。決めるのは呼ぶ側の1か所）。知らせは短く、範囲と原因の短い名前だけ（理由・根拠は
-    `explain`＝画面の「止まった理由」で見る。2026-10-17 ユーザー：注意は短く、詳しくは i マークで）。"""
+    `explain`＝画面の「止まった理由」で見る。2026-10-17 ユーザー：注意は短く、詳しくは i マークで）。notify=False＝知らせない（知らせを
+    決めるのが呼ぶ側の表＝回線・行・契約者の状態の表を引く入口 core/health のとき。同じ出来事を二重に知らせない）。"""
     row = tx.one(
         "INSERT INTO salescall.stop_events (scope, tenant_id, client_id, business_id, line_id, action, cause, actor,"
         " actor_kind, reason, evidence)"
@@ -112,10 +116,12 @@ def stop(tx: Tx, *, scope: Scope, cause: Cause, reason: str, evidence: str | Non
         (scope, tenant_id, client_id, business_id, line_id, cause, reason, evidence),
     )
     released = tx.one("SELECT salescall.release_claims_for_stop(%s) AS n", (row["event_id"],))["n"]
-    notify.emit(tx, "stopped", key=f"stop:{row['event_id']}",
-                summary=f"発信を止めました（{SCOPE_NAMES[scope]}：{CAUSES[cause].label}）。",
-                refs={"stop_event_id": row["event_id"], "scope": scope, "cause": cause, "client_id": client_id,
-                      "business_id": business_id, "line_id": line_id}, admin=admin)
+    if not notify:
+        return {"event_id": row["event_id"], "released_claims": released}
+    _notify.emit(tx, "stopped", key=f"stop:{row['event_id']}",
+                 summary=f"発信を止めました（{SCOPE_NAMES[scope]}：{CAUSES[cause].label}）。",
+                 refs={"stop_event_id": row["event_id"], "scope": scope, "cause": cause, "client_id": client_id,
+                       "business_id": business_id, "line_id": line_id}, admin=admin)
     return {"event_id": row["event_id"], "released_claims": released}
 
 
@@ -130,8 +136,8 @@ def open_same(tx: Tx, *, scope: Scope, cause: Cause, tenant_id: UUID | None = No
     return None if row is None else row["event_id"]
 
 
-def resume(tx: Tx, stop_event_id: int, *, reason: str, evidence: str | None = None) -> int:
-    """その停止を解く（範囲は停止と同じ）。解いた記録の番号を返す。"""
+def resume(tx: Tx, stop_event_id: int, *, reason: str, evidence: str | None = None, notify: bool = True) -> int:
+    """その停止を解く（範囲は停止と同じ）。解いた記録の番号を返す。notify=False＝知らせない（`stop` と同じ）。"""
     row = tx.one(
         "INSERT INTO salescall.stop_events (scope, tenant_id, client_id, business_id, line_id, action, resolves_event_id,"
         " actor, actor_kind, reason, evidence)"
@@ -143,10 +149,11 @@ def resume(tx: Tx, stop_event_id: int, *, reason: str, evidence: str | None = No
     if row is None:
         raise LookupError(f"その停止は無い（または、取引の範囲の外）：{stop_event_id}")
     cause = tx.one("SELECT cause::text AS c FROM salescall.stop_events WHERE event_id = %s", (stop_event_id,))["c"]
-    notify.emit(tx, "resumed", key=f"resume:{row['event_id']}",
-                summary=f"止めていた発信を解きました（{SCOPE_NAMES[row['scope']]}：{CAUSES[cause].label}）。",
-                refs={"stop_event_id": stop_event_id, "resume_event_id": row["event_id"], "cause": cause})
-    health.by_hand_stop(tx, stop_event_id, reason)   # 管理者か契約者が解いた（E12）なら状態の欄へ（DESIGN.md 17章の3段目＝影。記録だけ）
+    if notify:
+        _notify.emit(tx, "resumed", key=f"resume:{row['event_id']}",
+                     summary=f"止めていた発信を解きました（{SCOPE_NAMES[row['scope']]}：{CAUSES[cause].label}）。",
+                     refs={"stop_event_id": stop_event_id, "resume_event_id": row["event_id"], "cause": cause})
+    health.by_hand_stop(tx, stop_event_id, reason)   # 管理者か契約者が解いた（E12）なら、状態の表を引く入口へ（DESIGN.md 17章）
     return row["event_id"]
 
 

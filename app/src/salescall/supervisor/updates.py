@@ -94,8 +94,9 @@ def program_version(*specs: str | None) -> str:
 
 def note(tx: Tx, version: str) -> bool:
     """動いているプログラムの版を書く（全体の取引。中央の見守り役が、データベースと版が合っているときに呼ぶ。まだ書いていない版の
-    ときだけ書く＝データベースの salescall.note_program の1か所）。書いたら True（版が替わった＝休んだ行が戻り、こちらの不具合で止めた
-    停止は watch.resume_fixed が解く）。"""
+    ときだけ書く＝データベースの salescall.note_program の1か所）。書いたら True（版が替わった。その種類を直したと記録されていれば、
+    決まった間隔の仕事が「直した版に替わった」（E11）を状態の表へ渡し、休んだ行・復旧待ちの行が戻り、こちらの不具合で止めた電話が解ける＝
+    core/health.fixed。4段目）。"""
     return tx.one("SELECT salescall.note_program(%s) AS n", (version,))["n"]
 
 

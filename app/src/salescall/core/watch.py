@@ -98,11 +98,18 @@ def _lasting(tx: Tx, kind: str) -> bool:
     return tx.one("SELECT salescall.error_lasting(%s, %s) AS lasting", (kind, errors.LASTING))["lasting"]
 
 
+# 止めるか・解くかを、回線・行・番号・契約者の状態の表（core/health。DESIGN.md 17章）が決める停止の原因（1か所）：回線の異常（回線の欄の
+# 休み）と、こちらのプログラムの不具合（契約者の欄の止め）。ここでは数えも止めもしない（⛔ 4段目の前：consecutive_errors と仮の値
+# stop.line.stop_after_failures＝3件で回線を止め、こちらの不具合は違う行の数を読むたびに導いた＝17-8 の (1)(2)）
+TABLE_CAUSES = frozenset({"line_failure", "program_trouble"})
+
+
 def decide_stop(tx: Tx, kind: str, *, line_id: UUID | None = None) -> dict[str, Any] | None:
     """処置の表のとおり、止めるなら止める（その契約者の取引で呼ぶ：契約者＝その契約者の会話AIの異常／回線＝その回線）。
-    止めた停止の記録を返す（止めなければ None）。根源的なもの（直す担当へ修正依頼を出したもの）は、管理者にも知らせる（確かめ・承認のため）。"""
+    止めた停止の記録を返す（止めなければ None）。根源的なもの（直す担当へ修正依頼を出したもの）は、管理者にも知らせる（確かめ・承認のため）。
+    状態の表が決める原因（`TABLE_CAUSES`）は止めない。"""
     action = errors.ACTIONS[kind]
-    if action.stop_cause is None:
+    if action.stop_cause is None or action.stop_cause in TABLE_CAUSES:
         return None
     if action.stop_scope == "line" and line_id is None:
         raise ValueError("回線を止める種類なのに、回線がありません")

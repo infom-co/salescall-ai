@@ -8,13 +8,19 @@ DESIGN.md 5-4・7-2-1・9-1）。
 
 from __future__ import annotations
 
+import json
 import time
 import uuid
+from dataclasses import replace
+from datetime import timedelta
 
-from salescall.core import attempts, errors, fix_requests, gate, next_action, scheduler, settings, stops, troubles, watch
+from salescall.core import attempts, errors, fix_requests, gate, next_action, scheduler, settings, stops, troubles
+from salescall.core import health
 from salescall.core.access import Rejected
+from salescall.core.health_rules import LineStage
 from salescall.core.phone import normalize
 from salescall.supervisor import jobs, line, updates
+from tests import support
 from tests.support import ADMIN, CLEAN, OPERATOR, SYSTEM, fictional_jp_fixed, owner_access
 from tests.test_gate import HOLDER, FakeDriver
 from tests.test_supervisor import Runner, SupervisorBase
@@ -38,6 +44,20 @@ class Troubled:
 
 
 class OurTroubles(SupervisorBase):
+    def setUp(self):
+        super().setUp()
+        self.moves_from = owner_access().in_system(SYSTEM, lambda tx: tx.one(
+            "SELECT coalesce(max(move_id), 0) AS m FROM salescall.state_moves"))["m"]
+
+    def tearDown(self):
+        # どの場面でも、状態の表を引けなかった（表に無い・重なり＝誤りの値）が無い（表の行が重なると、どちらの行も引かずに状態が
+        # 変わらないので、ほかの確かめでは見落としうる。DESIGN.md 17章の決まり (1)）
+        got = owner_access().in_system(SYSTEM, lambda tx: tx.all(
+            "SELECT subject, from_stage, event, mistake->>'kind' AS kind FROM salescall.state_moves WHERE move_id > %s"
+            " AND mistake IS NOT NULL ORDER BY move_id", (self.moves_from,)))
+        super().tearDown()
+        self.assertEqual(got, [], "状態の表を引けなかった")
+
     def row(self, s):
         """同じ依頼者の、別の番号の行（いまかけてよい）。"""
         k = self.w.contact(s["tenant"], s["client"], normalize(fictional_jp_fixed()).e164)
@@ -49,9 +69,11 @@ class OurTroubles(SupervisorBase):
         """回線ごとの処理で1本かけ、こちらの不具合で終える（本物の通話ごとの口・門・出口を通る）。締める。again（初めは、お客様が出る
         前に終えたとき）なら、その行の予定をいまにする（こちらのせいのかけ直しは、同じお客様への最短の間隔のあと＝それを待たずに、休みの
         決まりそのものを試す。お客様が出たあとに終えたときは、お詫びとともにすぐかけ直す予定のまま）。かけた試行を返す。"""
-        if task is not None and self.tx(s, lambda tx: tx.one("SELECT salescall.awaiting_recovery(%s) AS w", (task,))["w"]):
+        if task is not None and self.tx(s, lambda tx: support.task_stage(tx, task) == "await_recovery"):
             self.w.talked(s)   # 前のこちらの不具合のあと、復旧した（同じ契約者で、こちらの不具合なしにお客様と話し終えた電話。0141。
             #                    直した記録は無い＝休んだ行・止めた停止は戻らない。違う行の数は、ここから数え直す）
+        if task is not None and self.tx(s, lambda tx: support.task_stage(tx, task) == "voice_redial"):
+            self.voice_due(s, task)   # 声が聞き取れずに終えた行：はさむ行もほかの回線も無いまま15分たった（R-13。同じ回線でかけ直す）
         d = FakeDriver()
         got = line.one_round(self.w.a, SYSTEM, s["tenant"], s["line"], HOLDER, d, Troubled(reason, answered))
         self.assertIsNotNone(got.called, got)
@@ -81,6 +103,27 @@ class OurTroubles(SupervisorBase):
         """その行を終える（試験：ほかの行へかけるため。こちらの不具合のあとの復旧で、また候補に出ないように）。"""
         self.tx(s, lambda tx: next_action._append(tx, task, call_at=None, end_reason="completed", cause="試験：終えた"))
 
+    def round_(self, s, d):
+        """回線ごとの処理の1回（お客様の電話は話し終える）と、締めの仕事。"""
+        got = line.one_round(self.w.a, SYSTEM, s["tenant"], s["line"], HOLDER, d, Runner())
+        jobs.settle_ready(self.ctx(s))
+        return got
+
+    def voice_due(self, s, task):
+        """試験の場面を作る：声のかけ直しを待つ行の、待つ時刻（15分）を、いまより前にする（時計を進めない試験で、その時が来たことにする。
+        本番で行の欄を書くのは表を引く入口だけ）。"""
+        row = owner_access().in_system(SYSTEM, lambda tx: tx.one("SELECT state FROM salescall.task_states WHERE task_id = %s", (task,)))
+        now = self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])
+        state = replace(health.decode(row["state"]), next_at=now - timedelta(seconds=1))
+        owner_access().in_system(SYSTEM, lambda tx: tx.execute("UPDATE salescall.task_states SET state = %s WHERE task_id = %s",
+                                                               (json.dumps(health.encode(state)), task)))
+
+    def rows_counted(self, s, kind):
+        """契約者の欄の、種類 kind の「違う行」の数（17-1-4 の r_k。C-1 で足し、C-3・C-4 で数え直す）。"""
+        row = owner_access().in_system(SYSTEM, lambda tx: tx.one("SELECT state FROM salescall.tenant_states WHERE tenant_id = %s",
+                                                                 (s["tenant"],)))
+        return 0 if row is None else len(health.decode(row["state"]).r(kind))
+
     def resting(self, s, task):
         return self.tx(s, lambda tx: troubles.resting(tx, task))
 
@@ -105,15 +148,16 @@ class OurTroubles(SupervisorBase):
         次の行へかける。こちらのせいの電話は、番号にも回線にも行の回数にも数えない。知らせと修正依頼は重ならない（電話ごとの知らせ1つ・
         同じ不具合の修正依頼は1つ・見守り役の誤りとして重ねない・休み始めの知らせは1回）。"""
         s = self.ready()
+        asked_before = len(self.requests("CL-1", "call_ai_malfunction"))     # 修正依頼は全体で1つ（ほかの試験の分が開いていることがある）
         remaining = self.tx(s, lambda tx: gate.pacing(tx, s["task"])).remaining
         first = self.trouble(s, task=s["task"])
         self.assertFalse(self.resting(s, s["task"]))                           # 1回だけ：まだ休まない
-        self.assertEqual(self.tx(s, lambda tx: attempts.blame(tx, first)), "ours")
+        self.assertEqual(self.tx(s, lambda tx: health.blame_of(tx, first)), "ours")
         second = self.trouble(s, task=s["task"])
         self.assertTrue(self.resting(s, s["task"]))                            # 2回続いた：休む
-        self.assertEqual(self.tx(s, lambda tx: attempts.blame(tx, second)), "ours")
+        self.assertEqual(self.tx(s, lambda tx: health.blame_of(tx, second)), "ours")
         self.w.talked(s)                                                       # 復旧した（同じ契約者で話し終えた）が、直した記録は無い
-        self.assertFalse(self.tx(s, lambda tx: tx.one("SELECT salescall.awaiting_recovery(%s) AS w", (s["task"],))["w"]))
+        self.assertFalse(self.tx(s, lambda tx: support.task_stage(tx, s["task"]) == "await_recovery"))
         got = self.claim(s)                                                    # 復旧を待つのではなく、休んだまま
         self.assertEqual((type(got).__name__, getattr(got, "reason", None)), ("Denied", "task_resting"))
         self.assertEqual(gate.REASONS["task_resting"].handling, "unoffered")
@@ -123,7 +167,7 @@ class OurTroubles(SupervisorBase):
         self.assertEqual(self.tx(s, lambda tx: tx.one("SELECT task_id FROM salescall.attempts WHERE attempt_id = %s",
                                                       (got.called,)))["task_id"], other["task"])   # 次の行へ
         # どの数にも入れない
-        self.assertEqual(self.tx(s, lambda tx: attempts.failed_run(tx, s["contact"]))["n"], 0)
+        self.assertEqual(self.tx(s, lambda tx: support.number_run(tx, s["contact"]))["n"], 0)
         self.assertEqual(self.tx(s, lambda tx: gate.pacing(tx, s["task"])).remaining, remaining)
         self.assertEqual(self.faults(s), ["call_ai_malfunction"] * 2)          # 記録（回線の異常には数えない）
         # 伝える：電話ごとの知らせ（契約者と管理者）・修正依頼は同じ不具合で1つ・休み始めの知らせは1回・見守り役の誤りに重ねない
@@ -134,18 +178,17 @@ class OurTroubles(SupervisorBase):
             self.assertIn("この行は復旧を待っています", summary)
             self.assertIn("その不具合を直したと記録され、そのあとプログラムが替わったら", summary)
         self.assertEqual(self.notices(s, "task_resting"), (1, 1))
-        self.assertEqual(len(self.requests("CL-1", "call_ai_malfunction")), 1)
+        self.assertIn(len(self.requests("CL-1", "call_ai_malfunction")), range(max(1, asked_before), asked_before + 2))   # 電話ごとに重ねない
         self.assertEqual(self.asked_supervisor(s), [])
         self.assertEqual(self.tenant_stops(s), [])                             # 1つの行だけ：止めない
 
     def test_a_row_is_counted_once_even_if_its_errors_are_recorded_twice(self):
-        """すべての行にかかわる問題は、エラーの数ではなく行の数で数える（salescall.consecutive_errors の program_fixed の1か所）。門は
+        """すべての行にかかわる問題は、エラーの数ではなく行の数で数える（契約者の欄の、種類ごとの違う行の組＝17-1-4 の r_k の1か所）。門は
         復旧まで同じ行にかけない（awaiting_recovery）ので、同じ行の2回目はふつう復旧のあと（数え直したあと）になるが、同じ行の記録が
         重なっても（記録のし直しなど）行は1つ。⛔ エラーの数で数えると、同じ行の2回で契約者の電話を止めうる（0143 の見直しで、前の
         試験は同じ行の2回目の前に復旧させるようになり、この守りを見張れなくなった）。"""
         s = self.ready()
-        count = lambda: self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: tx.one(   # noqa: E731
-            "SELECT salescall.consecutive_errors(ARRAY['call_cannot_proceed'], 'program_trouble', 'program_fixed') AS n"))["n"]
+        count = lambda: self.rows_counted(s, "call_cannot_proceed")   # noqa: E731
         self.trouble(s, "cannot_proceed", task=s["task"], again=False)
         self.assertEqual(count(), 1)
         owner_access().in_system(SYSTEM, lambda tx: tx.execute(
@@ -163,6 +206,8 @@ class OurTroubles(SupervisorBase):
         契約者と管理者へ1回。修正依頼は同じ不具合で1つ（重ねない）。その種類の修正依頼が直したと記録され、そのあと版が替わったら解け、
         休んだ行も戻る（2026-10-25 夜 管理者の決定 案A。⛔ 0139：直した記録が無くても、版が替われば戻した）。"""
         s = self.ready()
+        asked_before = len(self.requests("CL-1", "call_cannot_proceed"))     # 修正依頼は全体で1つ（ほかの試験の分が開いていることがある。
+        #                                                                        「直した」にすると、そのあとの版で戻るので、ここでは閉じない）
         self.assertEqual(self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: settings.resolve(
             tx, "stop.trouble.stop_after_rows", tenant_id=s["tenant"], client_id=None, business_id=None)), 3)
         o = self.ready()                                                       # ほかの種類の不具合（ほかの契約者で。直す記録は種類ごと）
@@ -176,14 +221,13 @@ class OurTroubles(SupervisorBase):
         self.trouble(s, "cannot_proceed", task=c["task"], again=False)
         self.assertEqual(self.tenant_stops(s), ["program_trouble"])            # 3行：止める
         self.assertEqual(self.notices(s, "stopped"), (1, 1))
-        self.assertEqual(len(self.requests("CL-1", "call_cannot_proceed")), 1)
+        self.assertIn(len(self.requests("CL-1", "call_cannot_proceed")), range(max(1, asked_before), asked_before + 2))   # 同じ不具合で重ねない
         d = self.row(s)
         got = line.one_round(self.w.a, SYSTEM, s["tenant"], s["line"], HOLDER, FakeDriver(), Runner())
         self.assertIsNone(got.called)                                          # 新しい電話はかけない
         self.assertEqual(self.claim(s, task=d["task"]).reason, "stopped")
         self.assertTrue(self.resting(s, s["task"]))
-        count = lambda: self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: tx.one(   # noqa: E731
-            "SELECT salescall.consecutive_errors(ARRAY['call_cannot_proceed'], 'program_trouble', 'program_fixed') AS n"))["n"]
+        count = lambda: self.rows_counted(s, "call_cannot_proceed")   # noqa: E731
         # 版が替わっただけ（直した記録が無い）：休んだ行も、止めた停止も戻らない
         self.new_version()
         jobs.fixed_stops(self.ctx(s))
@@ -197,13 +241,13 @@ class OurTroubles(SupervisorBase):
         self.report_fixed("CL-1", "call_cannot_proceed")
         jobs.fixed_stops(self.ctx(s))
         self.assertEqual((self.tenant_stops(s), self.resting(s, s["task"])), (["program_trouble"], True))
-        # そのあと版が替わった：休んだ行は戻り、数え直し、止めた停止は決まった間隔の仕事が解く
+        # そのあと版が替わった：決まった間隔の仕事が「直した版に替わった」（E11）を渡し、休んだ行は戻り、数え直し、止めた停止を解く
         self.new_version()
-        self.assertFalse(self.resting(s, s["task"]))
-        self.assertEqual(count(), 0)                                           # 直した時から数え直す（停止を解く前から）
         jobs.fixed_stops(self.ctx(s))
+        self.assertFalse(self.resting(s, s["task"]))
+        self.assertEqual(count(), 0)                                           # 直した時から数え直す
         self.assertEqual(self.tenant_stops(s), [])
-        self.assertEqual(self.notices(s, "resumed"), (1, 0))
+        self.assertEqual(self.notices(s, "resumed"), (1, 1))                  # 契約者と管理者に（17-3-4 の C-5）
 
     def test_different_reasons_on_three_rows_do_not_stop(self):
         """違う理由なら、行が3つでも止めない（理由ごとに数える＝処置の表の per_call）。修正依頼は、理由ごとの担当へ（会話の部品は CL-1・
@@ -247,14 +291,14 @@ class OurTroubles(SupervisorBase):
                 "INSERT INTO salescall.task_trouble_restores (tenant_id, client_id, task_id, reason, restored_by, actor_kind)"
                 " VALUES (%s, %s, %s, '試験', '試験', 'operator')", (s["tenant"], s["client"], s["task"])), OPERATOR)
         third = self.trouble(s, "ai_malfunction", task=s["task"])              # 戻したあと1回目（お客様が出る前）
-        self.assertEqual(self.tx(s, lambda tx: attempts.blame(tx, third)), "ours")
+        self.assertEqual(self.tx(s, lambda tx: health.blame_of(tx, third)), "ours")
         self.assertFalse(self.resting(s, s["task"]))
         fourth = self.trouble(s, "ai_malfunction", answered=True, task=s["task"])
         self.assertEqual(self.tx(s, lambda tx: attempts.kind_of(tx, fourth)), "cut_off")   # 続いても行の回数に入れない
         self.assertTrue(self.resting(s, s["task"]))                            # 戻した時から2回：また休む
         self.assertEqual(self.notices(s, "task_resting"), (2, 2))              # また休み始めたことも知らせる（休みごとに1回）
         self.assertEqual(self.tx(s, lambda tx: gate.pacing(tx, s["task"])).remaining, remaining)
-        self.assertEqual(self.tx(s, lambda tx: attempts.failed_run(tx, s["contact"]))["n"], 0)
+        self.assertEqual(self.tx(s, lambda tx: support.number_run(tx, s["contact"]))["n"], 0)
         self.assertTrue(self.tx(s, lambda tx: troubles.restore(tx, s["task"], reason="試験：管理者が戻した"), ADMIN))
 
     def test_a_ringing_call_without_our_trouble_breaks_the_run_and_crashes_go_one_way(self):
@@ -348,7 +392,7 @@ class OurTroubles(SupervisorBase):
         self.assertNotEqual(updates.program_version(spec), after_text)         # 設定のファイルだけを直した：替わる
 
     def test_rows_count_again_after_a_call_that_talked_without_our_trouble(self):
-        """違う3行で同じ不具合なら止める数え方（consecutive_errors の program_fixed の1か所）：同じ契約者で、その不具合なしにお客様と
+        """違う3行で同じ不具合なら止める数え方（契約者の欄の、種類ごとの違う行の組＝17-1-4 の r_k の1か所）：同じ契約者で、その不具合なしにお客様と
         話し終えた電話があれば数え直す（続けて3行のときだけ止める。2026-10-25 夜 管理者の決定 案A。⛔ 0139：あいだに話し終えた電話が
         あっても、ばらばらの3行で止めた）。"""
         s = self.ready()
@@ -369,102 +413,102 @@ class OurTroubles(SupervisorBase):
     def test_poor_audio_is_like_a_cut_call_not_our_trouble_and_on_different_customers_it_is_the_line(self):
         """「声が聞き取れない」（poor_audio）で終えた電話（2026-10-25 夜 管理者の決定 案A）：お詫びして終えるのは今のまま。こちらの
         プログラムの不具合には数えない（行の休み・全体の停止・修正依頼・記録のどれにもしない＝データベースの salescall.trouble_ours の
-        1か所。core/errors.TROUBLES にも無い）。お客様と話している途中で切れた電話と同じ（続けて2回まではお詫びしてすぐかけ直し、超えたら
-        ふつうのかけ直しの決まりで回数に数える）。同じ回線で、違うお客様の「声が聞き取れない」が、回線が元気だった証拠（鳴ってふつうに
-        終えた電話・鳴ったテスト）を挟まずに続いたら、回線の異常（回線の異常の数え方の1か所 line_faults_unrecorded）。"""
+        1か所。core/errors.TROUBLES にも無い）。お客様と話している途中で切れた電話と同じ（続けて2回まではお詫びしてかけ直し、超えたら
+        ふつうのかけ直しの決まりで回数に数える。R-11）。同じ回線で、違うお客様2人の「声が聞き取れない」が、回線が元気だった証拠（声が
+        聞き取れて話し終えた電話）を挟まずに続いたら、その回線は声の不調・休み（L-3。2026-10-29 管理者「2人」。⛔ 4段目の前：回線の
+        異常の記録3件で止めた＝17-8 の (2)）。"""
         s = self.ready()
         kinds = []
         for _ in range(3):
             aid = self.trouble(s, "poor_audio", answered=True, task=s["task"], again=True)
             kinds.append(self.tx(s, lambda tx, aid=aid: (attempts.kind_of(tx, aid), attempts.is_ours(tx, aid))))
-            self.assertEqual(self.faults(s), [])                               # 同じお客様だけ：回線の異常ではない
+            ln = self.line_of(s)
+            self.assertEqual((ln.stage, ln.m), (LineStage.HEALTHY, 1))       # 同じお客様だけ：休みにしない
         self.assertEqual(kinds, [("cut_off", False), ("cut_off", False), ("reached", False)])
         self.assertFalse(self.resting(s, s["task"]))                           # 行を休ませない
-        self.assertEqual(self.tx(s, lambda tx: tx.one("SELECT salescall.awaiting_recovery(%s) AS w", (s["task"],))["w"]), False)
+        self.assertEqual(self.tx(s, lambda tx: support.task_stage(tx, s["task"]) == "await_recovery"), False)
         self.assertEqual((self.notices(s, "error_notice"), self.requests("CL-2", "call_poor_audio"),
                           self.requests("CL-1", "call_poor_audio")), ((0, 0), [], []))
         self.assertNotIn("poor_audio", errors.TROUBLES)
-        # 違うお客様で続いた：回線の異常（2本とも）。あいだに回線が元気だった証拠（話し終えた電話）があれば数え直す
+        # 違うお客様2人で続いた：声の不調・休み
         t = self.ready()
         self.trouble(t, "poor_audio", answered=True, task=t["task"])
         self.finish(t, t["task"])
-        self.assertEqual(self.faults(t), [])                                   # 1人だけ：まだ回線の異常ではない
+        self.assertEqual(self.line_of(t).stage, LineStage.HEALTHY)             # 1人だけ：まだ
         y = self.row(t)["task"]
         self.trouble(t, "poor_audio", answered=True, task=y)
         self.finish(t, y)
-        self.assertEqual(self.faults(t), ["line", "line"])
-        z = self.row(t)["task"]
-        got = line.one_round(self.w.a, SYSTEM, t["tenant"], t["line"], HOLDER, FakeDriver(), Runner())   # 話し終えた（回線は元気）
-        self.assertEqual(self.tx(t, lambda tx: tx.one("SELECT task_id FROM salescall.attempts WHERE attempt_id = %s",
-                                                      (got.called,)))["task_id"], z)
-        jobs.settle_ready(self.ctx(t))
-        self.trouble(t, "poor_audio", answered=True, task=self.row(t)["task"])
-        self.assertEqual(self.faults(t), ["line", "line"])                     # 元気だった証拠のあとの1本だけ：数えない
-        messages = self.w.a.in_tenant(SYSTEM, t["tenant"], lambda tx: [r["message"] for r in tx.all(
-            "SELECT message FROM salescall.error_events WHERE line_id = %s AND source = 'line'", (t["line"],))])
-        self.assertEqual(messages, [line.POOR_AUDIO_LINE] * 2)                 # 記録の理由の文は理由ごと（「鳴りませんでした」にしない）
-        # 違うお客様の「声が聞き取れない」のあいだに、回線が元気だった証拠（話し終えた電話）がはさまる：区切られ、どちらも数えない
+        self.assertEqual((self.line_of(t).stage, self.rests(t)), (LineStage.AUDIO_REST, [["L-3"]]))
+        self.assertEqual(self.notices(t, "stopped"), (1, 1))                   # 入るとき、契約者と管理者に知らせる
+        # 違うお客様の「声が聞き取れない」のあいだに、回線が元気だった証拠（話し終えた電話）がはさまる：区切られ、休みにしない
         u = self.ready()
         self.trouble(u, "poor_audio", answered=True, task=u["task"])
         self.finish(u, u["task"])
         z = self.row(u)["task"]
-        line.one_round(self.w.a, SYSTEM, u["tenant"], u["line"], HOLDER, FakeDriver(), Runner())   # 話し終えた（回線は元気）
+        got = line.one_round(self.w.a, SYSTEM, u["tenant"], u["line"], HOLDER, FakeDriver(), Runner())   # 話し終えた（回線は元気）
+        self.assertEqual(self.tx(u, lambda tx: tx.one("SELECT task_id FROM salescall.attempts WHERE attempt_id = %s",
+                                                      (got.called,)))["task_id"], z)
         jobs.settle_ready(self.ctx(u))
+        self.assertEqual(self.line_of(u).m, 0)
         self.finish(u, z)
         self.trouble(u, "poor_audio", answered=True, task=self.row(u)["task"])
-        self.assertEqual(self.faults(u), [])
+        self.assertEqual((self.line_of(u).stage, self.rests(u)), (LineStage.HEALTHY, []))
 
     def test_a_line_stopped_again_for_poor_audio_waits_longer_before_the_test_number(self):
-        """声が聞き取れない電話が違うお客様で続いて止めた回線（2026-10-29 管理者：「テスト番号が鳴れば再開のあと、また聞き取れなければ
-        止め直し、次に試すまで 15→30→60→120→240分あけます。+管理者か契約者が、直ったことを確かめて手で再開も可能」。0144）：
-        (1) 1回目は、今までどおりすぐテスト番号で確かめ、1回鳴れば再開する (2) また聞き取れずに止め直したら、次に再開を試してよいまで、
-        長さの並び（line.test_ring_gaps をそのまま使う）の1つ目をあける（続けて止めた回数＝salescall.audio_stops_in_a_row・あける長さ＝
-        core/watch.checkable の1か所）。そのあいだテスト番号を鳴らさない (3) 管理者・契約者は、理由を書いて手で解ける（stops.resume）
-        (4) 声が聞き取れて話し終えた電話があれば、並びは最初に戻る（次に止めたら、すぐ確かめる）。⛔ 0143 まで：止めてはすぐ再開し、
-        1日に停止13回・お詫びの電話40本をくり返した（見直し22 の場面 b5b）。"""
+        """声が聞き取れない電話が違うお客様で続いて休んだ回線（2026-10-29 管理者：「テスト番号が鳴れば再開のあと、また聞き取れなければ
+        止め直し、次に試すまで 15→30→60→120→240分あけます。+管理者か契約者が、直ったことを確かめて手で再開も可能」・【当(3)】）：
+        (1) 1回目は、すぐテスト番号で確かめ、1回鳴れば再開する (2) 再開のあと、まだ声が聞き取れて話し終えた電話が無いうちに、また聞き取れ
+        なければ、1本で止め直し（L-3 の j。⛔ 4段目の前：また違うお客様3人を待った＝17-8 の (7)）、次に試してよいまで、長さの並び
+        （line.test_ring_gaps）の1つ目をあける。そのあいだテスト番号を鳴らさない (3) 管理者・契約者は、理由を書いて手で再開できる
+        （E12＝core/health.by_hand_line。L-21） (4) 声が聞き取れて話し終えた電話があれば、j は0に戻る（次は2人で休み、すぐ確かめる）。
+        ⛔ 0143 まで：止めてはすぐ再開し、1日に停止13回・お詫びの電話40本をくり返した（見直し22 の場面 b5b）。"""
         s = self.ready()
         self.numbered(s)
         self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: settings.set_value(   # 長さの並びは初めの値（15→30→…分）
             tx, "line.test_ring_gaps", [900, 1800, 3600, 7200, 14400], scope="tenant", tenant_id=s["tenant"], status="decided",
             rationale="試験", review_when="試験"))
+        self.set_ring_hours(s, ("00:00", "24:00"))
 
-        def three_poor():
-            """違うお客様3人と、声が聞き取れずに終える（回線の異常が3回続いて、回線を止める）。止めた停止を返す。"""
-            for _ in range(3):
+        def poor(n):
+            """違うお客様 n 人と、声が聞き取れずに終える。"""
+            for _ in range(n):
                 r = self.row(s)
                 self.trouble(s, "poor_audio", answered=True, task=r["task"])
                 self.finish(s, r["task"])
-            stop = self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: tx.one(
-                "SELECT event_id FROM salescall.open_stop_events WHERE scope = 'line' AND line_id = %s", (s["line"],)))
-            self.assertIsNotNone(stop)
-            return stop["event_id"]
 
-        def wait_of(stop):
-            return {r["event_id"]: r["wait"] for r in self.w.a.in_tenant(SYSTEM, s["tenant"], watch.checkable)}[stop]
+        def wait():
+            ln = self.line_of(s)
+            return (ln.next_at - self.tx(s, lambda tx: tx.one("SELECT now() AS t")["t"])).total_seconds()
         self.finish(s, s["task"])
-        first = three_poor()                                                   # (1) 1回目
-        self.assertEqual(self.tx(s, lambda tx: tx.one("SELECT salescall.audio_stops_in_a_row(%s) AS n", (first,))["n"]), 1)
-        self.assertEqual(wait_of(first), 0)
+        poor(2)                                                                # (1) 1回目
+        ln = self.line_of(s)
+        self.assertEqual((ln.stage, ln.j), (LineStage.AUDIO_REST, 1))
+        self.assertLessEqual(wait(), 0)                                        # すぐ確かめる
         d = FakeDriver(ring=True)
-        line._check_stop(self.w.a, SYSTEM, s["tenant"], s["line"], d)
-        self.assertEqual(len(d.rings), 1)                                      # 1回鳴って再開
-        again = three_poor()                                                   # (2) 止め直した
-        self.assertEqual(self.tx(s, lambda tx: tx.one("SELECT salescall.audio_stops_in_a_row(%s) AS n", (again,))["n"]), 2)
-        self.assertGreater(wait_of(again), 850)                                # 並びの1つ目（15分）をあける
-        line._check_stop(self.w.a, SYSTEM, s["tenant"], s["line"], d)
+        self.assertIsNone(self.round_(s, d).called)                            # かける行は残っていない
+        self.assertEqual((len(d.rings), self.line_of(s).stage), (1, LineStage.HEALTHY))   # 1回鳴って再開
+        poor(1)                                                                # (2) 1本で止め直した
+        ln = self.line_of(s)
+        self.assertEqual((ln.stage, ln.j), (LineStage.AUDIO_REST, 2))
+        self.assertGreater(wait(), 850)                                        # 並びの1つ目（15分）をあける
+        self.round_(s, d)
         self.assertEqual(len(d.rings), 1)                                      # そのあいだテスト番号を鳴らさない
-        self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: stops.resume(     # (3) 管理者・契約者が手で解く
-            tx, again, reason="試験：回線の声の受け渡しを直したと確かめた"))
-        self.assertIsNone(self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: tx.one(
-            "SELECT event_id FROM salescall.open_stop_events WHERE scope = 'line' AND line_id = %s", (s["line"],))))
+        with self.assertRaises(ValueError):                                    # (3) 理由は必ず書く
+            self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: health.by_hand_line(tx, s["line"], " "))
+        self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: health.by_hand_line(   # 管理者・契約者が手で再開
+            tx, s["line"], "試験：回線の声の受け渡しを直したと確かめた"))
+        self.assertEqual(self.line_of(s).stage, LineStage.HEALTHY)
         z = self.row(s)                                                        # (4) 声が聞き取れて話し終えた
-        got = line.one_round(self.w.a, SYSTEM, s["tenant"], s["line"], HOLDER, FakeDriver(), Runner())
+        got = self.round_(s, FakeDriver())
         self.assertEqual(self.tx(s, lambda tx: tx.one("SELECT task_id, state::text AS st FROM salescall.attempts WHERE attempt_id = %s",
                                                       (got.called,))), {"task_id": z["task"], "st": "ended"})
-        jobs.settle_ready(self.ctx(s))
-        last = three_poor()
-        self.assertEqual(self.tx(s, lambda tx: tx.one("SELECT salescall.audio_stops_in_a_row(%s) AS n", (last,))["n"]), 1)
-        self.assertEqual(wait_of(last), 0)                                     # 最初に戻った：すぐ確かめる
+        self.assertEqual(self.line_of(s).j, 0)
+        poor(1)
+        self.assertEqual(self.line_of(s).stage, LineStage.HEALTHY)             # 1本では止めない（2人で）
+        poor(1)
+        ln = self.line_of(s)
+        self.assertEqual((ln.stage, ln.j), (LineStage.AUDIO_REST, 1))
+        self.assertLessEqual(wait(), 0)                                        # 最初に戻った：すぐ確かめる
 
     def test_the_python_table_of_our_troubles_follows_the_database_rule(self):
         """どの終えた理由がこちらの不具合かは、データベースの salescall.trouble_ours の1か所。Python の処置の表（core/errors.TROUBLES）は、
@@ -506,13 +550,17 @@ class OurTroubles(SupervisorBase):
         aid = self.w.insert_claim(other)
         for state in ("dialing", "ringing", "no_answer"):
             self.w.move(other, aid, state)
+        self.tx(other, lambda tx: health.after_call(tx, aid))                 # 電話が終わった所と同じく
         self.assertEqual(self.claim(u).reason, "awaiting_recovery")
         held = self.w.insert_claim(u)                                          # かけずに取り消した予約：見ない
         self.w.move(u, held, "released")
+        self.tx(u, lambda tx: health.after_call(tx, held))                    # 渡しても、発信まで進まなかった予約は出来事にならない
         self.assertEqual(self.claim(u).reason, "awaiting_recovery")
         self.report_fixed("CL-1", "call_cannot_proceed")                       # (b) 直したと記録され、
+        jobs.fixed_stops(self.ctx(u))
         self.assertEqual(self.claim(u).reason, "awaiting_recovery")
-        self.new_version()                                                     #     そのあと版が替わった
+        self.new_version()                                                     #     そのあと版が替わった（決まった間隔の仕事が E11 を渡す）
+        jobs.fixed_stops(self.ctx(u))
         self.assertIsInstance(self.claim(u), gate.Claim)
         # その電話が終わる前に（ほかの回線で）かけ始めた電話が話し終えても、復旧ではない（その電話のあとに話せた証拠ではない）
         v = self.ready()
@@ -525,9 +573,11 @@ class OurTroubles(SupervisorBase):
         for state in ("dialing", "ringing", "answered", "in_conversation"):
             self.w.move(good, early, state)
         self.assertTrue(self.tx(v, lambda tx: attempts.end_for_trouble(tx, troubled, "cannot_proceed", "試験：根拠の文")))
+        self.tx(v, lambda tx: health.after_call(tx, troubled))                # 電話が終わった所（回線ごとの処理）と同じく
         for state in ("ending", "ended"):
             self.w.move(good, early, state)
-        self.assertTrue(self.tx(v, lambda tx: tx.one("SELECT salescall.awaiting_recovery(%s) AS w", (v["task"],))["w"]))
+        self.tx(good, lambda tx: health.after_call(tx, early))
+        self.assertTrue(self.tx(v, lambda tx: support.task_stage(tx, v["task"]) == "await_recovery"))
         self.assertEqual(self.tx(v, lambda tx: tx.one("SELECT trouble_why FROM salescall.attempts WHERE attempt_id = %s",
                                                       (troubled,))["trouble_why"]), "試験：根拠の文")
 

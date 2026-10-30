@@ -80,7 +80,8 @@ def recover_expired(ctx: Context) -> None:
 
 def settle_ready(ctx: Context) -> None:
     """締めを待っている試行（終わって、通話後の検証が済んだもの）を締める（判定 → 結果 → 次の動き。1本ずつ別の取引）。
-    同じ取引で、その電話の出来事（E1〜E5）を状態の欄へ渡す（`_settle_one`。DESIGN.md 17章の3段目＝影）。"""
+    締めの処理は、締める前に、その電話の出来事（E1〜E5）をまだ状態の表へ渡していなければ渡す（core/settle.settle）。締めのあと、声が
+    聞き取れずに終えた電話の行への分（E4）を渡す（`_settle_one`。DESIGN.md 17章）。"""
     def per_client(client_id: UUID) -> None:
         ready = ctx.access.in_client(ACTOR, ctx.tenant_id, client_id, settle.unsettled)
         _each(ctx, "締め", [r["attempt_id"] for r in ready],
@@ -89,11 +90,10 @@ def settle_ready(ctx: Context) -> None:
 
 
 def _settle_one(tx: Any, attempt_id: UUID) -> dict[str, Any]:
-    """1本を締め、そのあとで、その電話の出来事を状態の欄へ渡す（影：表を引いて記録するだけ。締めの答えは変えない。失敗しても締めは
-    そのまま＝core/health）。締めのあとにするのは、声が聞き取れずに終えた電話（E4）の「すぐのかけ直しが続けて2回のうちか」が、締めが
-    残す「途中で切れたか」を読むため（core/health の after_call）。まだ分からない電話（締めずに待つ）も、ここで1回渡す。"""
+    """1本を締め、そのあとで、声が聞き取れずに終えた電話（E4）を、その行へ渡す（core/health.after_settle。「すぐのかけ直しが続けて2回の
+    うちか」が、締めが残す「途中で切れたか」を読むため）。"""
     out = settle.settle(tx, attempt_id)
-    health.after_call(tx, attempt_id)
+    health.after_settle(tx, attempt_id)
     return out
 
 
@@ -161,14 +161,10 @@ def system_lasting_stops(ctx: Context) -> None:
 
 
 def fixed_stops(ctx: Context) -> None:
-    """こちらのプログラムの不具合で止めた停止（すべての行にかかわる甚大な問題）を、止めた種類の不具合を直したと記録され、そのあと
-    プログラムが替わっていたら解く（その契約者の
-    分。core/watch.resume_fixed の1か所。休んだ行は、データベースの決まりで同じ時に戻る）。同じ取引で、直した版（E11）を状態の欄へ
-    渡す（DESIGN.md 17章の3段目＝影。core/health.fixed）。"""
-    def work(tx: Any) -> None:
-        watch.resume_fixed(tx)
-        health.fixed(tx)
-    ctx.access.in_tenant(ACTOR, ctx.tenant_id, work)
+    """その種類の不具合を直したと記録され、そのあとプログラムが替わった（E11）を、状態の表を引く入口へ渡す（その契約者の分。core/health.fixed。
+    DESIGN.md 17章）。表が、止めていた種類なら契約者の止めを解き（C-5）、その種類で休んだ行・復旧待ちの行を戻す（R-6・R-10）。
+    ⛔ 4段目の前：止めた種類を停止の根拠の文の頭から読み（watch.resume_fixed・stopped_kind）、行は別のデータベースの関数で戻した。"""
+    ctx.access.in_tenant(ACTOR, ctx.tenant_id, health.fixed)
 
 
 def budget(ctx: Context) -> None:

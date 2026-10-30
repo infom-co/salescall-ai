@@ -183,6 +183,10 @@ def number_states():
     for n in (1, 2, 3):
         for unknown in (frozenset(), frozenset({"a1"}), frozenset({"a1", "a2"})):
             yield Number(NS.RUN, n=n, first_day=day, last_end=T0, next_day=day, not_before=T0 + 5 * MIN, unknown=unknown)
+    tomorrow = h._next_day_start(T0)
+    yield Number(NS.NONE, unknown=frozenset({"a1", "a2", "a3", "a4"}), hold=True, next_at=tomorrow)   # 並びを使い切る（印は残る）
+    yield Number(NS.RUN, n=1, first_day=day, last_end=T0, next_day=day, not_before=T0 + 5 * MIN,      # 次の日なら今日の分が残る
+                 unknown=frozenset({"a1"}), hold=True, next_at=tomorrow)
     yield Number(NS.DEAD, n=4, dead_at=T0)
 
 
@@ -192,6 +196,8 @@ def number_events(state):
     yield "E2", ev("E2", now, attempt="a5")
     for blame in ("番号", "回線"):
         yield f"E16 {blame}", ev("E16", now, blame=blame, attempt="a1", call_at=now - MIN)
+    due = h.next_at(state)
+    yield "E10", ev("E10", due if due is not None else now)
 
 
 def tenant_states():
@@ -274,7 +280,7 @@ class Exhaustive(unittest.TestCase):
     def test_the_table_holds_the_rows_of_chapter_17_once_each(self):
         ids = [r.id for r in h.TABLE]
         expected = ([f"L-{i}" for i in range(1, 34)] + [f"R-{i}" for i in range(1, 22)] +
-                    [f"N-{i}" for i in range(1, 7)] + [f"C-{i}" for i in range(1, 11)] + [f"V-{i}" for i in range(1, 6)])
+                    [f"N-{i}" for i in range(1, 8)] + [f"C-{i}" for i in range(1, 11)] + [f"V-{i}" for i in range(1, 6)])
         self.assertEqual(sorted(ids), sorted(expected))   # 17章の60行と、2026-10-29 に穴を埋めた【当】の行
 
     def test_every_answer_is_a_whole_state_and_known_actions(self):
@@ -976,6 +982,63 @@ class Filled1029(unittest.TestCase):
         self.assertEqual(ok(self, h.apply(stopped, ev("E3", kind="frozen", task="t1"), R)).state, stopped)   # 同じ行の2回目
         rang = ok(self, h.apply(Attempt(Blame.EMPTY), ev("E3", rang=True, answered=True), R))
         self.assertEqual((rang.state, rang.rows), (Attempt(Blame.OURS), ("V-2",)))   # 鳴った・鳴らないで分けない
+
+
+class Stage4(unittest.TestCase):
+    """4段目（2026-10-29）に表へ入れた当てはめ（17-3-6 の【当】）と、入口が行うための中身。"""
+
+    def test_the_numbers_hold_is_looked_at_again_at_the_start_of_the_next_day(self):
+        """17-3-6 の【当】(b)：番号の待つ印（N-4）を付けたら、番号の中身に次に動く時刻＝次の日の始まりを持ち、E10 で見直す（N-7）。
+        ⛔ 3段目の比べ：日付が替わっても印が残る形だった。"""
+        num = Number(NS.RUN, n=1, first_day=T0.date(), last_end=T0, next_day=T0.date(), not_before=T0 + 5 * MIN)
+        marked = ok(self, h.apply(num, ev("E2", T0 + 10 * MIN, attempt="a2"), R)).state
+        tomorrow = h._next_day_start(T0)
+        self.assertEqual((marked.hold, marked.next_at, h.next_at(marked)), (True, tomorrow, tomorrow))
+        self.assertEqual(h.apply(marked, ev("E10", tomorrow - MIN), R).kind, "時刻の前")
+        looked = ok(self, h.apply(marked, ev("E10", tomorrow), R))
+        self.assertEqual((looked.rows, looked.state.hold, looked.state.next_at, looked.state.unknown),
+                         (("N-7",), False, None, frozenset({"a2"})))   # 次の日なら、数えても今日の分が残る：印を外す
+        used = Number(NS.NONE, unknown=frozenset({"a1", "a2", "a3", "a4"}), hold=True, next_at=tomorrow)
+        again = ok(self, h.apply(used, ev("E10", tomorrow), R)).state     # 並びを使い切る：印のまま、また次の日の始まりで見直す
+        self.assertEqual((again.hold, again.next_at), (True, h._next_day_start(tomorrow)))
+
+    def test_a_test_waits_for_its_gap_even_when_another_wait_ends_first(self):
+        """L-8：待つ理由の見直しは決まった順（テスト番号が無い→鳴らしてよい時間の外→前のテストからあける長さ→ほかの回線のテスト中）。
+        ほかの回線のテストの答えが先に来ても、前のテストから並びの t 番目をあけるまでは鳴らさない（契約者の電話を続けて鳴らさない）。"""
+        b = Line(LS.CHECK_B, t=1, run_start=T0, run=RUN, wait=Wait.OTHER_TEST, next_at=T0 + MIN, tested_at=T0)
+        out = ok(self, h.apply(b, ev("E10", T0 + MIN), R))
+        self.assertEqual((out.state.stage, out.state.wait, out.state.next_at), (LS.CHECK_B, Wait.GAP, T0 + GAP[0]))
+        self.assertNotIn(h.RING, [a.what for a in out.actions])
+
+    def test_a_fixed_version_lifts_only_its_own_kind_of_stop(self):
+        """【当(8)】・C-5：契約者の欄は止めている種類の組を持ち、直した版は、その種類だけを外す。組が空になるまで止めのまま（新しい電話を
+        戻さない）。"""
+        stopped = Tenant(CS.STOPPED, stopped=frozenset({"call_frozen", "call_ai_malfunction"}), since=T0)
+        one = ok(self, h.apply(stopped, ev("E11", kind="call_frozen"), R))
+        self.assertEqual((one.state.stage, one.state.stopped), (CS.STOPPED, frozenset({"call_ai_malfunction"})))
+        self.assertNotIn(h.RESUME_CALLS, [a.what for a in one.actions])
+        both = ok(self, h.apply(one.state, ev("E11", kind="call_ai_malfunction"), R))
+        self.assertEqual(both.state.stage, CS.NORMAL)
+        self.assertIn(h.RESUME_CALLS, [a.what for a in both.actions])
+
+    def test_the_row_takes_poor_audio_only_with_the_answer_of_the_settle(self):
+        """E4 は回線と番号へは電話の終わりに渡し、行へは締めのあと（すぐのかけ直しが続けて2回のうちか＝締めが残す「途中で切れたか」）に
+        渡す。行に答えが無ければ、決めずに誤りの値。"""
+        self.assertIsInstance(h.apply(Line(LS.HEALTHY), ev("E4", resume_allowed=None), R), Outcome)
+        self.assertIsInstance(h.apply(Number(NS.NONE), ev("E1"), R), Outcome)
+        out = h.apply(Task(TS.ON_PLAN), ev("E4", resume_allowed=None), R)
+        self.assertEqual((type(out), out.kind), (Mistake, "中身の誤り"))
+
+    def test_every_notice_and_fix_request_says_its_kind(self):
+        """入口が行うため、知らせには種類（core/notify の KINDS）、修正依頼には種類と鍵を、表が決めて持たせる（入口は決め直さない）。"""
+        from salescall.core import notify
+        results = list(every_combination())
+        for *_, out in results:
+            for a in out.actions:
+                if a.what == h.NOTIFY:
+                    self.assertIn(a.get("note"), notify.KINDS, a)
+                if a.what == h.FIX and a.get("call") is None:
+                    self.assertTrue(a.get("fix_kind") and a.get("fix_key"), a)
 
 
 if __name__ == "__main__":

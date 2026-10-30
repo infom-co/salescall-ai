@@ -16,7 +16,7 @@ from datetime import date, datetime, timedelta
 from unittest import mock
 
 from salescall.core import (approval, attempts, business_rules, calendar, call_report, calling_hours, dial_exit, dnc, fix_requests,
-                            gate,
+                            gate, health,
                             next_action, quality_stage, recordings, scheduler, settings, settle, stops, target_policy, tasks)
 from salescall.core.call_report import Cut
 from salescall.core.access import Rejected
@@ -100,7 +100,7 @@ class Base(unittest.TestCase):
 
     def ring_elsewhere(self, s, line=None):
         """同じ回線で、ほかの番号へかけた電話が、お客様のところで鳴った（出なかった）：回線が元気だった証拠（その前の、鳴らなかった
-        電話の続きが閉じる＝番号が1つだけなら番号のせい。salescall.unrung_blame＝0129）。ほかの番号の行は1つ作って使い回す。"""
+        電話の続きは番号のせい＝状態の表の L-5。電話が終わった所と同じく、出来事を表の入口へ渡す）。ほかの番号の行は1つ作って使い回す。"""
         if "elsewhere" not in s:
             phone = normalize(fictional_jp_fixed()).e164
             k = self.w.contact(s["tenant"], s["client"], phone)
@@ -109,6 +109,7 @@ class Base(unittest.TestCase):
         aid = self.w.insert_claim(other, line=line)
         for state in ("dialing", "no_answer"):
             self.w.move(other, aid, state)
+        self.tx(other, lambda tx: health.after_call(tx, aid))
         return aid
 
     def reason(self, s, **kw):
@@ -128,9 +129,10 @@ class Base(unittest.TestCase):
             rep = report or make_report()
             self.tx(s, lambda tx: call_report.save(tx, aid, rep))
         if settled and "dialing" in path:     # 予約だけで取り消した試行は、締める対象ではない
-            if self.tx(s, lambda tx: attempts.blame(tx, aid)) == "pending":
-                # 鳴らなかった電話は、だれのせいかが決まるまで締めない（0143）：門の守りを試すため、テスト番号が鳴った＝番号のせい、
-                # と決めてから締める（発信の回数には数えない）
+            self.tx(s, lambda tx: health.after_call(tx, aid))   # 電話が終わった所と同じく、出来事を状態の表の入口へ
+            if self.tx(s, lambda tx: health.blame_of(tx, aid)) == "pending":
+                # 鳴らなかった電話は、だれのせいかが決まるまで締めない（行の欄が判定待ち）：門の守りを試すため、テスト番号が鳴った＝
+                # 番号のせい、と決めてから締める（発信の回数には数えない）
                 self.w.test_number_rang(s, line=line)
             self.tx(s, lambda tx: settle.settle(tx, aid))
             self.tx(s, lambda tx: next_action.schedule_now(tx, s["task"], cause="試験：次の予定を、いまに書き直した"))
@@ -219,7 +221,9 @@ class ClaimAndDial(Base):
         for handling, names in groups.items():
             self.assertEqual(names, {n for n, r in gate.REASONS.items() if r.handling == handling})
         self.assertEqual(gate.PLAN_KEPT, frozenset().union(*(v for k, v in groups.items() if k != "plan_if_known")))
-        self.assertLessEqual(gate.UNOFFERED_IN_CANDIDATES, gate.UNOFFERED_REASONS)
+        # 行の欄の段から読む理由（門と候補を出す処理が同じ1つの表を読む＝DESIGN.md 17章。候補に出さない理由の一覧を手で合わせない）
+        self.assertLessEqual(set(gate.TASK_STAGE_REASONS.values()), gate.UNOFFERED_REASONS)
+        self.assertFalse(hasattr(gate, "UNOFFERED_IN_CANDIDATES"))
 
 
 class Schedule(Base):
@@ -1288,15 +1292,25 @@ class ExpiredClaims(Base):
 
 
 class Exit(Base):
+    def test_old_plans_without_a_reason_to_ask_the_number_again_read_as_wrong_party(self):
+        """前の版のデータ（0130 より前）の、番号を伺い直す理由の無い予定は「番号違い」と読む（門の予約証と、次の動きのかけた電話の印の
+        両方が読む1か所＝salescall.number_again_of。0136）。理由があれば、その理由のまま。"""
+        s = self.ready()
+        again = lambda purpose, mark: self.tx(s, lambda tx: tx.one(   # noqa: E731
+            "SELECT salescall.number_again_of(%s, %s) AS r", (purpose, mark))["r"])
+        self.assertEqual([again("ask_number_again", None), again("ask_number_again", "unreachable"), again("normal", None)],
+                         ["wrong_party", "unreachable", None])
+
     def test_driver_failures(self):
         s = self.ready()
         c = self.claim(s)
         self.assertIs(dial_exit.dial(self.w.a, SYSTEM, s["tenant"], s["client"], c.attempt_id,
                                      FakeDriver(dial_exit.CallNotPlaced("番号を受け付けなかった"))), dial_exit.Outcome.NOT_PLACED)
-        # かけようとして、かけられなかった：「発信に失敗」（だれのせいかは、同じ回線の前後の電話で決める＝salescall.unrung_blame。
+        # かけようとして、かけられなかった：「発信に失敗」（だれのせいかは、同じ回線の前後の電話で決める＝回線の欄。
         # ⛔ 0129：前はアプリの言い分で、回線のせい・分からないは取り消し、番号のせいだけ「発信に失敗」にした）
         self.assertEqual(self.state(s, c.attempt_id), "call_failed")
-        self.assertEqual(self.tx(s, lambda tx: attempts.blame(tx, c.attempt_id)), "pending")   # 回線がつぎにかけるまで分からない
+        self.tx(s, lambda tx: health.after_call(tx, c.attempt_id))            # 電話が終わった所（回線ごとの処理）と同じく
+        self.assertEqual(self.tx(s, lambda tx: health.blame_of(tx, c.attempt_id)), "pending")   # 回線がつぎにかけるまで分からない
         s5 = self.ready()
         c5 = self.claim(s5)
         self.assertIs(dial_exit.dial(self.w.a, SYSTEM, s5["tenant"], s5["client"], c5.attempt_id,
@@ -2070,6 +2084,14 @@ class PromisesStopsAndConflicts(Base):
             tx, scope="tenant", cause="manual", reason="試験：画面から押した", tenant_id=s["tenant"]))
         self.assertNotIn(s["line"], serving())
         self.w.a.in_tenant(OPERATOR, s["tenant"], lambda tx: stops.resume(tx, e["event_id"], reason="試験"))
+        self.assertIn(s["line"], serving())
+        # 回線の欄が休み（回線のせい・声の不調）か使用停止の回線も、約束の取り置きに割り当てない（0146。回線の休みは停止の記録を作らない）
+        self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: health.tick(tx, s["line"]))   # 回線の欄を作る（元気）
+        for stage in ("line_rest", "audio_rest", "out_of_use"):
+            own.in_system(SYSTEM, lambda tx, st=stage: tx.execute("UPDATE salescall.line_states SET stage = %s WHERE line_id = %s",
+                                                                  (st, s["line"])))
+            self.assertNotIn(s["line"], serving(), stage)
+        own.in_system(SYSTEM, lambda tx: tx.execute("UPDATE salescall.line_states SET stage = 'healthy' WHERE line_id = %s", (s["line"],)))
         self.assertIn(s["line"], serving())
 
     def test_ask_number_again_is_not_a_promise_kept_while_stopped(self):

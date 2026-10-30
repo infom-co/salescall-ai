@@ -7,9 +7,11 @@
       次の動き（next_action。決め方は next_action の1か所）
 - 同じ試行は1回だけ締める（2回目は前の結果を返す。データベースも、1つの試行に判定の版は1つと守る）。
 - 締めが済むまで、門はその行に次をかけない（`awaiting_decision`）。お客様のところで鳴らなかった電話は、番号のせいか回線のせいかが
-  決まってから締める（`attempts.blame` が pending のあいだは締めない＝その行は、その電話をかけた回線では休み、回線は次の行へ進む。
-  0143）。ほかの回線はその行にかけてよい（門の `awaiting_decision` は、その電話をかけた回線にだけ効く＝0144。見直し22 の 5）ので、
-  そのあとに同じ行で発信があれば、まだ分からない電話も待たずに締める（行の予定は書き直さない＝あとの発信の締めが決める。`_later_dial`）。
+  決まってから締める（**行の欄が、その電話の「判定待ち」＝DESIGN.md 17-1-2 のあいだは締めない**＝その行は、その電話をかけた回線では休み、
+  回線は次の行へ進む）。締める前に、その電話の出来事（E1〜E5）をまだ状態の表へ渡していなければ渡す（core/health.after_call。1回だけ）。
+  ほかの回線がその行にかけたら、表が判定待ちを解く（R-4）ので、まだ分からない電話も待たずに締める（行の予定は書き直さない＝あとの発信の
+  締めが決める。`_later_dial`）。次の動きへ渡す「鳴らなかった電話のせい」は、試行のせいの欄（17-1-5。core/health.blame_of）。
+  ⛔ 4段目の前：だれのせいかを、締めるたびに salescall.unrung_blame で導き直した。
 - お客様が言った別の番号（DESIGN.md 3-5）：そろえられた番号は、かけるかどうかに関係なく、その行の番号に足す（tasks の1か所。
   お客様が断ったら、この番号も止めるため＝3-6）。かけるか・どの番号へかけるかは次の動き（next_action.choose_number）が決める。
 - **判定できなかった行は、判定待ちで残す**（2026-10-16 ユーザー決定）：判定できない＝こちらの誤りなので、何も決めない
@@ -25,7 +27,7 @@ from typing import Any
 from uuid import UUID
 
 from salescall.core import (apology, approval, attempts, business_rules, business_settings, call_report, calling_hours, dnc,
-                            fix_requests, gate, next_action, notify, number_recheck, quality_stage, results, settings,
+                            fix_requests, gate, health, next_action, notify, number_recheck, quality_stage, results, settings,
                             spoken_time, target_policy, target_recheck, tasks, usage)
 from salescall.core.access import Tx
 from salescall.core.judge import (JUDGE_VERSION, UNKNOWN_CAUSE_FIXERS, UNKNOWN_CAUSES, Facts, Item, JudgeInput, Judgement,
@@ -79,15 +81,15 @@ def settle(tx: Tx, attempt_id: UUID) -> dict[str, Any]:
         raise NotReady("発信していない・まだ終わっていない試行です")
     if a["verification"] == "pending":
         raise NotReady("通話後の検証が済んでいません")
-    if attempts.blame(tx, attempt_id) == "pending" and not _later_dial(tx, a):
-        # お客様のところで鳴らなかった電話が、番号のせいか回線のせいか、まだ分からない：決まるまで締めない（その行は締めを待って休む＝
-        # 門の awaiting_decision・候補を出す処理。予定・約束の印・お詫びの印はそのまま）。決まったら、番号のせいなら決まった順
-        # （next_action._failed_retry_at）、回線のせいなら、かけた予定のまま（next_action._line_fault_again）で、1回だけ決める（0143。
-        # ⛔ 0129〜0141：締めの時点で分からない電話も番号のせいと同じ決まった順で予定を書き、壊れた回線の2時間で行が次の日へ送られ、
-        # 約束の印も外れた＝見直し21a の場面 a6・a10）。そのあと同じ行にほかの回線がかけたら、待たずに締める（行の予定はあとの発信の
-        # 締めが決める＝`_judge_and_write`・`_settle_apology`。⛔ 0143：ほかの回線でもかけられず、9:30 の約束を12時まで待たせた＝見直し22 の
-        # 場面 n2b）
-        return {"version_no": None, "state": None, "already": False, "waiting": "unrung_blame"}
+    health.after_call(tx, attempt_id)   # まだ状態の表へ渡していなければ渡す（1回だけ。電話が終わった所＝回線ごとの処理が先に渡している）
+    if health.waiting_decision(tx, attempt_id):
+        # お客様のところで鳴らなかった電話が、番号のせいか回線のせいか、まだ分からない（行の欄が、この電話の判定待ち＝R-1）：決まるまで
+        # 締めない（その行は締めを待って休む＝門の awaiting_decision・候補を出す処理。予定・約束の印・お詫びの印はそのまま＝R-1）。決まったら
+        # （R-2・R-3）、番号のせいなら番号の欄の決まった順（next_action._failed_retry_at）、回線のせいなら、かけた予定のまま
+        # （next_action._line_fault_again）で、1回だけ決める（⛔ 0129〜0141：締めの時点で分からない電話も番号のせいと同じ決まった順で予定を
+        # 書き、壊れた回線の2時間で行が次の日へ送られ、約束の印も外れた＝見直し21a の場面 a6・a10）。そのあと同じ行にほかの回線がかけたら、
+        # 表が判定待ちを解き（R-4）、待たずに締める（行の予定はあとの発信の締めが決める＝`_judge_and_write`・`_settle_apology`）
+        return {"version_no": None, "state": None, "already": False, "waiting": "await_decision"}
     if target_recheck.missing(tx, attempt_id):   # 確かめ直しを待つ（締めない）。待つだけにせず、促す所が無ければ CL-1 へ修正依頼
         _recheck_missing_notice(tx, a)            # （この取引に残す＝断らずに返す）
         return {"version_no": None, "state": None, "already": False, "waiting": "target_recheck"}
@@ -145,7 +147,7 @@ def _settle_apology(tx: Tx, a: dict[str, Any]) -> dict[str, Any]:
     decision = next_action.after_apology(tx, a["task_id"], delivered=delivered, refused=refused, stop_reason=stop_reason,
                                          dialed=next_action.Target(a["contact_id"], None, "apology", None),
                                          reached_target=inp.reached_target, not_reached=not_reached, again=again,
-                                         dialed_at=a["claimed_at"], blame=attempts.blame(tx, attempt_id))
+                                         dialed_at=a["claimed_at"], blame=health.blame_of(tx, attempt_id))
     if decision.kind == "end":
         notify.emit(tx, "apology", key=f"apology:{attempt_id}",
                     summary={"apology_done": "お詫びを伝えました。",
@@ -254,7 +256,7 @@ def awaiting_rejudge(tx: Tx, task_id: UUID) -> UUID | None:
     row = tx.one(
         "SELECT a.attempt_id FROM salescall.attempts a"
         f" WHERE a.task_id = %s AND {attempts.dialed('a')} AND salescall.unknown_pending(a.attempt_id)"
-        "   AND NOT salescall.task_awaiting_decision(a.task_id)"
+        "   AND NOT salescall.task_unsettled(a.task_id)"
         " ORDER BY a.claimed_at DESC LIMIT 1", (task_id,))
     return None if row is None else row["attempt_id"]
 
@@ -362,7 +364,7 @@ def _judge_and_write(tx: Tx, a: dict[str, Any], *, kind: str, rules_version: Any
         dialed=next_action.Target(a["contact_id"], None, a["purpose"], a["wrong_contact_id"]), dialed_at=a["claimed_at"],
         alternate=alternate, recheck=recheck, forbidden=forbidden, cut_off=cut_off,
         reached_target=inp.reached_target,   # 目的のお客様と話せた（約束の日のお詫びは済んだ）
-        blame=attempts.blame(tx, attempt_id))   # 回線のせい・こちらのせいで鳴らなかった：かけた予定のまま（0129・0136）
+        blame=health.blame_of(tx, attempt_id))   # 回線のせい・こちらのせい（試行のせいの欄）：かけた予定のまま（0129・0136）
     apology.schedule_if_ready(tx, a["task_id"])   # 締めの前に承認されていたお詫び：判定が決まったいま、予定を書く（apology の1か所）
     return {"version_no": version_no, "state": j.state, "decision": decision, "already": False}
 

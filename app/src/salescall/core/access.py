@@ -118,6 +118,20 @@ class Tx:
         with self._conn.transaction():
             yield
 
+    @contextmanager
+    def as_tenant(self, tenant_id: UUID) -> Iterator[None]:
+        """全体の取引（契約者の無い取引）の中で、しばらくのあいだ、その契約者の取引として読み書きする（「誰が」はそのまま。抜けたら全体の
+        取引に戻す）。使うのは、管理者がシステムの初めの値を変えたとき、自分の値を持たない契約者ごとに1回ずつ出来事を渡す所だけ
+        （core/health.number_set_everywhere。DESIGN.md 17-2 の E14）。契約者・依頼者の取引の中では使えない（ほかの契約者へ移れない）。"""
+        cur = self.one("SELECT current_setting('salescall.tenant_id', true) AS t, current_setting('salescall.client_id', true) AS c")
+        if (cur["t"] or "") != "" or (cur["c"] or "") != "":
+            raise PermissionError("契約者の取引に切り替えられるのは、全体の取引の中だけです")
+        self.execute("SELECT set_config('salescall.tenant_id', %s, true)", (str(tenant_id),))
+        try:
+            yield
+        finally:
+            self.execute("SELECT set_config('salescall.tenant_id', '', true)")
+
 
 @contextmanager
 def snapshot(conninfo: str) -> Iterator[tuple[str, Tx]]:
