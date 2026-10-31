@@ -1,0 +1,818 @@
+{
+  "item": "G-68talk_d1",
+  "saved_at": "2026-10-31T06:04:28",
+  "meanings": {
+    "待たせた方が戻った": "前の言葉で取り次ぎのためにこちらを待たせた方が、また電話に出ている（「お待たせいたしました」と戻って、お呼びした方のことを伝えた・自分が代わりにお話を聞くと言った など。別の方に代わったと分かる言葉が無い）",
+    "別の方が出た": "前の言葉を言った方とは別の方が、電話に出ている（「お電話代わりました」と出た・前の方と違うお名前を名乗った・お呼びした方ご本人が名乗った など）"
+  },
+  "summary": {
+    "別の方をそろって戻ったと読んだ（害）": "0/24",
+    "戻った方をそろって戻ったと読んだ（効き目）": "11/24",
+    "judge2・正しい（どちらとも言えない言葉を除く）": "12/48"
+  },
+  "rows": [
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせいたしました。申し訳ございません、岡田は取り込んでおりまして、ただいま電話に出られないとのことです。",
+      "want": "待たせた方が戻った",
+      "rep": 0,
+      "judge2": "待たせた方が戻った",
+      "judge2_by": "d1 Ultra（Liquid）",
+      "judge2_sure": 0.7956766218097238,
+      "both_same": true
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせいたしました。申し訳ございません、岡田は取り込んでおりまして、ただいま電話に出られないとのことです。",
+      "want": "待たせた方が戻った",
+      "rep": 1,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "d1 Ultra（Liquid）",
+          "unsure": "待たせた方が戻った",
+          "sure": 0.7204691180230345,
+          "s": 0.204
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせいたしました。申し訳ございません、岡田は取り込んでおりまして、ただいま電話に出られないとのことです。",
+      "want": "待たせた方が戻った",
+      "rep": 2,
+      "judge2": "待たせた方が戻った",
+      "judge2_by": "d1 Ultra（Liquid）",
+      "judge2_sure": 0.8142822583058635,
+      "both_same": true
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせいたしました。岡田はただいま席を外しておりまして。",
+      "want": "待たせた方が戻った",
+      "rep": 0,
+      "judge2": "待たせた方が戻った",
+      "judge2_by": "d1 Ultra（Liquid）",
+      "judge2_sure": 0.7856237075391534,
+      "both_same": true
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせいたしました。岡田はただいま席を外しておりまして。",
+      "want": "待たせた方が戻った",
+      "rep": 1,
+      "judge2": "待たせた方が戻った",
+      "judge2_by": "d1 Ultra（Liquid）",
+      "judge2_sure": 0.8773795707584606,
+      "both_same": true
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせいたしました。岡田はただいま席を外しておりまして。",
+      "want": "待たせた方が戻った",
+      "rep": 2,
+      "judge2": "待たせた方が戻った",
+      "judge2_by": "d1 Ultra（Liquid）",
+      "judge2_sure": 0.7775046592677441,
+      "both_same": true
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせしました。岡田、本日はお休みをいただいておりました。",
+      "want": "待たせた方が戻った",
+      "rep": 0,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "d1 Ultra（Liquid）",
+          "unsure": "待たせた方が戻った",
+          "sure": 0.618700755857869,
+          "s": 0.336
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせしました。岡田、本日はお休みをいただいておりました。",
+      "want": "待たせた方が戻った",
+      "rep": 1,
+      "judge2": "待たせた方が戻った",
+      "judge2_by": "d1 Ultra（Liquid）",
+      "judge2_sure": 0.8225951592398921,
+      "both_same": true
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせしました。岡田、本日はお休みをいただいておりました。",
+      "want": "待たせた方が戻った",
+      "rep": 2,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "d1 Ultra（Liquid）",
+          "unsure": "待たせた方が戻った",
+          "sure": 0.7634812308584971,
+          "s": 0.309
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせいたしました。あいにく岡田は会議中でした。",
+      "want": "待たせた方が戻った",
+      "rep": 0,
+      "judge2": "待たせた方が戻った",
+      "judge2_by": "d1 Ultra（Liquid）",
+      "judge2_sure": 0.8795844453430406,
+      "both_same": true
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせいたしました。あいにく岡田は会議中でした。",
+      "want": "待たせた方が戻った",
+      "rep": 1,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "d1 Ultra（Liquid）",
+          "unsure": "待たせた方が戻った",
+          "sure": 0.7552919115552021,
+          "s": 0.197
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせいたしました。あいにく岡田は会議中でした。",
+      "want": "待たせた方が戻った",
+      "rep": 2,
+      "judge2": "待たせた方が戻った",
+      "judge2_by": "d1 Ultra（Liquid）",
+      "judge2_sure": 0.7935059465703966,
+      "both_same": true
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "すみません、お待たせしました。岡田に確認したんですが、今日はもう戻らないそうです。",
+      "want": "待たせた方が戻った",
+      "rep": 0,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "d1 Ultra（Liquid）",
+          "unsure": "待たせた方が戻った",
+          "sure": 0.5351640351114766,
+          "s": 0.214
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "すみません、お待たせしました。岡田に確認したんですが、今日はもう戻らないそうです。",
+      "want": "待たせた方が戻った",
+      "rep": 1,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "d1 Ultra（Liquid）",
+          "unsure": "待たせた方が戻った",
+          "sure": 0.7692203465634191,
+          "s": 0.585
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "すみません、お待たせしました。岡田に確認したんですが、今日はもう戻らないそうです。",
+      "want": "待たせた方が戻った",
+      "rep": 2,
+      "judge2": "待たせた方が戻った",
+      "judge2_by": "d1 Ultra（Liquid）",
+      "judge2_sure": 0.7997795004304085,
+      "both_same": true
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせいたしました。岡田は外出しておりまして、戻りは夕方になるとのことです。",
+      "want": "待たせた方が戻った",
+      "rep": 0,
+      "judge2": "待たせた方が戻った",
+      "judge2_by": "d1 Ultra（Liquid）",
+      "judge2_sure": 0.9025139174532562,
+      "both_same": true
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせいたしました。岡田は外出しておりまして、戻りは夕方になるとのことです。",
+      "want": "待たせた方が戻った",
+      "rep": 1,
+      "judge2": "待たせた方が戻った",
+      "judge2_by": "d1 Ultra（Liquid）",
+      "judge2_sure": 0.8704645061742917,
+      "both_same": true
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせいたしました。岡田は外出しておりまして、戻りは夕方になるとのことです。",
+      "want": "待たせた方が戻った",
+      "rep": 2,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "d1 Ultra（Liquid）",
+          "unsure": "待たせた方が戻った",
+          "sure": 0.7647942025316823,
+          "s": 0.281
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "担当の者に代わりますので、少々お待ちください。",
+      "text": "お待たせいたしました。担当の者があいにく席を外しておりまして。",
+      "want": "待たせた方が戻った",
+      "rep": 0,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "d1 Ultra（Liquid）",
+          "unsure": "待たせた方が戻った",
+          "sure": 0.6462618150616165,
+          "s": 0.22
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "担当の者に代わりますので、少々お待ちください。",
+      "text": "お待たせいたしました。担当の者があいにく席を外しておりまして。",
+      "want": "待たせた方が戻った",
+      "rep": 1,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "d1 Ultra（Liquid）",
+          "unsure": "待たせた方が戻った",
+          "sure": 0.6065430590860968,
+          "s": 0.287
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "担当の者に代わりますので、少々お待ちください。",
+      "text": "お待たせいたしました。担当の者があいにく席を外しておりまして。",
+      "want": "待たせた方が戻った",
+      "rep": 2,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "d1 Ultra（Liquid）",
+          "unsure": "待たせた方が戻った",
+          "sure": 0.49540903451476215,
+          "s": 0.212
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせいたしました。岡田はおりませんので、私がご用件をお伺いしてもよろしいでしょうか。",
+      "want": "待たせた方が戻った",
+      "rep": 0,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "d1 Ultra（Liquid）",
+          "unsure": "待たせた方が戻った",
+          "sure": 0.6257371797083703,
+          "s": 0.49
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせいたしました。岡田はおりませんので、私がご用件をお伺いしてもよろしいでしょうか。",
+      "want": "待たせた方が戻った",
+      "rep": 1,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "d1 Ultra（Liquid）",
+          "unsure": "待たせた方が戻った",
+          "sure": 0.4660084630068836,
+          "s": 0.286
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせいたしました。岡田はおりませんので、私がご用件をお伺いしてもよろしいでしょうか。",
+      "want": "待たせた方が戻った",
+      "rep": 2,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "d1 Ultra（Liquid）",
+          "unsure": "待たせた方が戻った",
+          "sure": 0.5464440146889805,
+          "s": 0.219
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お電話代わりました。担当の山田です。あいにく岡田は本日不在にしております。",
+      "want": "別の方が出た",
+      "rep": 0,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "d1 Ultra（Liquid）",
+          "unsure": "別の方が出た",
+          "sure": 0.42613466770922304,
+          "s": 0.262
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お電話代わりました。担当の山田です。あいにく岡田は本日不在にしております。",
+      "want": "別の方が出た",
+      "rep": 1,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "d1 Ultra（Liquid）",
+          "unsure": "別の方が出た",
+          "sure": 0.38981183228526795,
+          "s": 0.327
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お電話代わりました。担当の山田です。あいにく岡田は本日不在にしております。",
+      "want": "別の方が出た",
+      "rep": 2,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "d1 Ultra（Liquid）",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.3848415246246618,
+          "s": 0.293
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お電話代わりました、山田です。岡田は外出しておりまして。",
+      "want": "別の方が出た",
+      "rep": 0,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "d1 Ultra（Liquid）",
+          "unsure": "別の方が出た",
+          "sure": 0.34431621350668973,
+          "s": 0.245
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お電話代わりました、山田です。岡田は外出しておりまして。",
+      "want": "別の方が出た",
+      "rep": 1,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "d1 Ultra（Liquid）",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.487914639413667,
+          "s": 0.193
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お電話代わりました、山田です。岡田は外出しておりまして。",
+      "want": "別の方が出た",
+      "rep": 2,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "d1 Ultra（Liquid）",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.42196469551740545,
+          "s": 0.253
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "はい、お電話代わりました。",
+      "want": "別の方が出た",
+      "rep": 0,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "d1 Ultra（Liquid）",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.39321916013402636,
+          "s": 0.207
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "はい、お電話代わりました。",
+      "want": "別の方が出た",
+      "rep": 1,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "d1 Ultra（Liquid）",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.5406107850464192,
+          "s": 0.548
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "はい、お電話代わりました。",
+      "want": "別の方が出た",
+      "rep": 2,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "d1 Ultra（Liquid）",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.5542412114082427,
+          "s": 1.687
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お電話代わりました。岡田です。",
+      "want": "別の方が出た",
+      "rep": 0,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "d1 Ultra（Liquid）",
+          "unsure": "別の方が出た",
+          "sure": 0.4791275560200393,
+          "s": 0.29
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お電話代わりました。岡田です。",
+      "want": "別の方が出た",
+      "rep": 1,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "d1 Ultra（Liquid）",
+          "unsure": "別の方が出た",
+          "sure": 0.7058606780795509,
+          "s": 0.216
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お電話代わりました。岡田です。",
+      "want": "別の方が出た",
+      "rep": 2,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "d1 Ultra（Liquid）",
+          "unsure": "別の方が出た",
+          "sure": 0.43133608778420574,
+          "s": 0.198
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせいたしました。お電話代わりました、営業部の田中です。",
+      "want": "別の方が出た",
+      "rep": 0,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "d1 Ultra（Liquid）",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.5784291008561961,
+          "s": 0.181
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせいたしました。お電話代わりました、営業部の田中です。",
+      "want": "別の方が出た",
+      "rep": 1,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "d1 Ultra（Liquid）",
+          "unsure": "別の方が出た",
+          "sure": 0.34221960427977605,
+          "s": 0.238
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせいたしました。お電話代わりました、営業部の田中です。",
+      "want": "別の方が出た",
+      "rep": 2,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "d1 Ultra（Liquid）",
+          "unsure": "別の方が出た",
+          "sure": 0.49912442574255544,
+          "s": 0.414
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "もしもし、代わりました。同じ部署の佐々木ですが、岡田は今日お休みです。",
+      "want": "別の方が出た",
+      "rep": 0,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "d1 Ultra（Liquid）",
+          "unsure": "別の方が出た",
+          "sure": 0.41249087525490424,
+          "s": 0.208
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "もしもし、代わりました。同じ部署の佐々木ですが、岡田は今日お休みです。",
+      "want": "別の方が出た",
+      "rep": 1,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "d1 Ultra（Liquid）",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.35368419949464824,
+          "s": 0.201
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "もしもし、代わりました。同じ部署の佐々木ですが、岡田は今日お休みです。",
+      "want": "別の方が出た",
+      "rep": 2,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "d1 Ultra（Liquid）",
+          "unsure": "別の方が出た",
+          "sure": 0.43498992677746295,
+          "s": 0.253
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせいたしました、岡田です。",
+      "want": "別の方が出た",
+      "rep": 0,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "d1 Ultra（Liquid）",
+          "unsure": "別の方が出た",
+          "sure": 0.5141259769153675,
+          "s": 0.175
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせいたしました、岡田です。",
+      "want": "別の方が出た",
+      "rep": 1,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "d1 Ultra（Liquid）",
+          "unsure": "別の方が出た",
+          "sure": 0.6613089308099965,
+          "s": 0.239
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせいたしました、岡田です。",
+      "want": "別の方が出た",
+      "rep": 2,
+      "judge2": "別の方が出た",
+      "judge2_by": "d1 Ultra（Liquid）",
+      "judge2_sure": 0.8798411111496476,
+      "both_same": false
+    },
+    {
+      "before": "担当の者に代わりますので、少々お待ちください。",
+      "text": "お電話代わりました。担当の者ですが。",
+      "want": "別の方が出た",
+      "rep": 0,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "d1 Ultra（Liquid）",
+          "unsure": "別の方が出た",
+          "sure": 0.3493282277695062,
+          "s": 0.327
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "担当の者に代わりますので、少々お待ちください。",
+      "text": "お電話代わりました。担当の者ですが。",
+      "want": "別の方が出た",
+      "rep": 1,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "d1 Ultra（Liquid）",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.3481370002906974,
+          "s": 0.306
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "担当の者に代わりますので、少々お待ちください。",
+      "text": "お電話代わりました。担当の者ですが。",
+      "want": "別の方が出た",
+      "rep": 2,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "d1 Ultra（Liquid）",
+          "unsure": "別の方が出た",
+          "sure": 0.4161528194574172,
+          "s": 0.184
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせいたしました。",
+      "want": null,
+      "rep": 0,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "d1 Ultra（Liquid）",
+          "unsure": "待たせた方が戻った",
+          "sure": 0.40582227616049715,
+          "s": 0.262
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせいたしました。",
+      "want": null,
+      "rep": 1,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "d1 Ultra（Liquid）",
+          "unsure": "待たせた方が戻った",
+          "sure": 0.5931313189083685,
+          "s": 0.255
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせいたしました。",
+      "want": null,
+      "rep": 2,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "d1 Ultra（Liquid）",
+          "unsure": "待たせた方が戻った",
+          "sure": 0.43278615878534354,
+          "s": 0.322
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせいたしました。岡田はおりませんので、代わりにお話をお聞きします。",
+      "want": null,
+      "rep": 0,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "d1 Ultra（Liquid）",
+          "unsure": "待たせた方が戻った",
+          "sure": 0.5744889135111841,
+          "s": 0.223
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせいたしました。岡田はおりませんので、代わりにお話をお聞きします。",
+      "want": null,
+      "rep": 1,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "d1 Ultra（Liquid）",
+          "unsure": "待たせた方が戻った",
+          "sure": 0.6036975256735878,
+          "s": 0.201
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせいたしました。岡田はおりませんので、代わりにお話をお聞きします。",
+      "want": null,
+      "rep": 2,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "d1 Ultra（Liquid）",
+          "unsure": "待たせた方が戻った",
+          "sure": 0.6669251314005704,
+          "s": 0.575
+        }
+      ],
+      "both_same": false
+    }
+  ],
+  "有料の窓口の料金": {
+    "OpenRouter の鍵": {
+      "円": 0.2,
+      "見込みの円（まだ額に出ていない分を含む）": 1.8,
+      "回数": {
+        "liquid/d1-ultra-20261015": 54
+      },
+      "数え方": "鍵の使った額の差（同じ鍵を同じ時に使った分も入る・遅れて増えるので、あとで読み直す）",
+      "上限の円": 8.4
+    }
+  }
+}
