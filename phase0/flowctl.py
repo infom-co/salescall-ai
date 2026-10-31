@@ -461,6 +461,16 @@ HEDGE_WHY = "言い切っていない答え"  # 確かめる理由の名前（�
 #    でしょうか？」と言い直して確かめる＝お客様が考えを変えた場合もある）⇒ 判定の読みに意味の答え（選択肢）があれば、その答えを言い切っていない
 #    答えと同じ言い方で確かめ、答えが無ければ（決められない・答えたくない など）質問から聞き直す
 TALK_WHY = "会話になっていない返事"
+
+
+def off_talk(q: "Question", got: str | None, fits: bool | None = True, prior: str | None = None) -> bool:
+    """会話になっていない返事か（唯一の決まり。流れの制御 Flow._judged_off_talk と、測りの数え g53_meaning.flow_act が使う）：判定が会話に
+    なっていないと読んだ（fits）か、その前に相手が言ったことだけから決まる答え（prior＝meaning_judge.PRIOR）と、いまの言葉の答え（got）が、
+    どちらも宣言した選択肢で、違う（前の話と合わない＝プログラムが比べる。✅ 2026-10-31 の昼 ユーザー：「(a) 検査OK」）。待つように言った・
+    代わった人が話し始めた、の読みは答えではないので当てない（待つ・名乗る、の道が受け持つ）。"""
+    if got in (HOLD, HANDOVER):
+        return False
+    return fits is False or (prior in q.conditions and got in q.conditions and prior != got)
 # 値を直されたとき、こちらの聞き違いか相手の言い間違いかは、プログラムが相手の言葉（会話AIの聞き取りの文字）から決める。
 # ✅ 2026-10-14 ユーザー決定（3つの案のうち「(a) プログラムが相手の言葉で見分ける」）。⛔ G-36 の2回目・3回目：AIに選ばせると、
 #    12本中12本「相手が言い直した」を選んだ（相手が「いや、16日って言ったんですけど。」と言っても）。
@@ -2717,7 +2727,7 @@ class Flow:
             # 意味に寄っていれば、その答えに「曖昧」の印を付けて受け取る＝Flow._hedged。✅ 2026-10-18 ユーザー：「yes,but 曖昧」）。
             # 「わからない」「答えたくない」の報告には当てない（「たぶん分からないです」は、そのまま「わからない」）
             return HEDGE_WHY, reported
-        if (off := Flow._judged_off_talk(check)) is not False:
+        if (off := Flow._judged_off_talk(q, check)) is not False:
             # 意味の判定が、前の質問（と前の会話）への返事として会話になっていないと読んだ：その判定の読みに意味の答え（選択肢）があれば、
             # それを念のため確かめる答えに（前に言ったことと逆の返事＝✅ ユーザー「(イ)」）、無ければ None（聞き直す）
             return f"{TALK_WHY}（意味の判定が、質問への返事として会話になっていないと読んだ）", (off if off in q.conditions + (ANY,) else None)
@@ -2730,14 +2740,14 @@ class Flow:
         return None, None
 
     @staticmethod
-    def _judged_off_talk(check: dict) -> str | None | bool:
+    def _judged_off_talk(q: "Question", check: dict) -> str | None | bool:
         """意味の判定が、お客様の言葉は前の質問（と前の会話）への返事として会話になっていないと読んだ（meaning_judge.Reading.fits。答えの段の
         問い合わせだけが返す＝ほかの読みは、なっている）：そう読んだ判定の読み（中の名前）。どの判定もそう読まなければ False。
         待つように言った・代わった人が話し始めた、の読みは答えではないので当てない（待つ・名乗る、の道が受け持つ）。⛔ 2026-10-31 の昼（G-53）：
         「わかる者に代わりますので、少しお待ちいただけますか。」を、d1-ultra も Jev も「取り次ぎを待つ」と正しく読み、会話になっていないとも
         読んだ＝待たずに聞き直す側へ回った"""
-        return next((str(check[k]) for k in JUDGMENTS
-                     if getattr(check.get(k), "fits", True) is False and check.get(k) not in (HOLD, HANDOVER)), False)
+        return next((str(check[k]) for k in JUDGMENTS if check.get(k) is not None
+                     and off_talk(q, str(check[k]), getattr(check[k], "fits", True), getattr(check[k], "prior", None))), False)
 
     @staticmethod
     def _judged_unsure(check: dict) -> bool:

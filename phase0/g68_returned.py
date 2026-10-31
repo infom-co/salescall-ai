@@ -42,6 +42,18 @@ CASES = [
     (HOLD_TARGET, "お待たせいたしました。", ANY),
     (HOLD_TARGET, "お待たせいたしました。岡田はおりませんので、代わりにお話をお聞きします。", ANY),
 ]
+# 戻ったかの線を決めるための、紛らわしい言葉（2026-10-31 の昼に足した案＝⏳ ご確認待ち。✅ ユーザー：「(c) …検査はOK」）：別の方が、代わったとは
+#    言わずに「お待たせいたしました」で話し始めて名乗る（害の側の線の確かめ）・戻った方が、確かめた結果を伝える
+NEW_CASES = [
+    (HOLD_OTHER, "お待たせいたしました。担当の佐藤でございます。", OTHER),
+    (HOLD_TARGET, "お待たせいたしました。営業部の田中と申します。岡田は本日おりません。", OTHER),
+    (HOLD_OTHER, "お待たせいたしました。担当の者ですが、どのようなご用件でしょうか。", OTHER),
+    (HOLD_TARGET, "お待たせしました。岡田の上司の村上ですが。", OTHER),
+    (HOLD_TARGET, "はい、お待たせしました。総務の木村です。", OTHER),
+    (HOLD_TARGET, "お待たせいたしました。岡田と同じ課の者です。", OTHER),
+    (HOLD_TARGET, "お待たせいたしました。確認しましたところ、岡田は本日出張でございます。", SAME),
+    (HOLD_TARGET, "大変お待たせいたしました。岡田は本日、在宅勤務でして。", SAME),
+]
 
 
 def question():
@@ -65,11 +77,11 @@ async def run(args) -> dict:
     q = question()
     judges = {k: j for k, j in make_judges(args).items() if k != "grounder" and j is not None}
     rows = []
-    for before, text, want in CASES:
+    for before, text, want in (NEW_CASES if args.only_new else CASES + NEW_CASES):
         for rep in range(args.repeat):
             for j in {j.panel for j in judges.values()}:
                 j.reset()
-            row = {"before": before, "text": text, "want": want, "rep": rep}
+            row = {"before": before, "text": text, "want": want, "rep": rep, "new": (before, text, want) in NEW_CASES}
 
             async def one(k, j):
                 try:
@@ -90,6 +102,10 @@ async def run(args) -> dict:
                "戻った方をそろって戻ったと読んだ（効き目）": f"{len(gain)}/{sum(1 for r in rows if r['want'] == SAME)}"}
     summary |= {f"{k}・正しい（どちらとも言えない言葉を除く）": f"{sum(1 for r in rows if r['want'] and r.get(k) == r['want'])}/"
                 f"{sum(1 for r in rows if r['want'])}" for k in judges}
+    new = [r for r in rows if r["new"]]
+    if new:
+        summary |= {"足した言葉の案・別の方をそろって戻ったと読んだ（害）":
+                    f"{sum(1 for r in new if r['want'] == OTHER and r['both_same'])}/{sum(1 for r in new if r['want'] == OTHER)}"}
     say("数え：", json.dumps(summary, ensure_ascii=False))
     for r in harm:
         say("⛔ 害：", r["text"], {k: r.get(k) for k in judges})
@@ -102,6 +118,7 @@ def main() -> None:
     add_judge_args(p)
     p.add_argument("--repeat", type=int, default=2)
     p.add_argument("--tag", default="")
+    p.add_argument("--only-new", action="store_true", help="足した言葉の案（NEW_CASES）だけを測る（前からの言葉は、同じ文で測ってあるとき）")
     p.add_argument("--fingerprint", action="store_true", help="測らずに、判定に送る文の長さと指紋だけを出す（測った文と同じかを確かめる）")
     args = p.parse_args()
     if args.fingerprint:

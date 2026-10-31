@@ -140,6 +140,16 @@ FITS_YES = ("前の質問への返事として筋が通り、" + BEFORE + "と�
             "言って答えたのも、会話になっている）")
 FITS_RULE = ("会話になっているか（" + FITS + "）は、" + FITS_NOT + "なら false、" + FITS_YES + "なら true です（答えは言葉の意味で選び、"
              "会話になっているかは、ここだけで答えます）。")
+# 前の話の答え（答えの段の最初の答えで、その前に相手が言ったことがあるときだけ＝prior_asked）。前に話したことだけから決まる答えを、いまの言葉の答え
+#    とは別に読ませ、2つが違えば、前の話と合わない返事（会話になっていない）とプログラムが決める（flowctl.off_talk の1か所）。✅ 2026-10-31 の昼
+#    ユーザー：「(a) 検査OK」（会話になっているかを1つの はい／いいえ で答えさせる形は、同じ言葉でも回ごとに 0.5 前後で揺れた＝G-70 の A2・D2。
+#    前に話したことから決まる答えは、C2 で6回とも同じ向きに読めた）。判断のモデルの確からしさは線 PRIOR_LINE（⏳ 未測定の仮の線）で分ける
+PRIOR = "prior"
+PRIOR_NONE = "前の話からは決まらない"
+PRIOR_LINE = 0.5
+PRIOR_RULE = ("前の話の答え（" + PRIOR + "）は、" + BEFORE + "だけから（いまの言葉は見ずに）、この質問の答えが決まれば、その答えを選び（言ったこと、"
+              "または、言ったことから必ずその答えになること）、決まらなければ「" + PRIOR_NONE + "」を選びます（前に話したことから推し量りません）。")
+JEV_PRIOR_ASK = "その前に相手が言ったことだけから（お客様のいまの言葉は見ずに）、質問の答えは決まりますか？"
 
 
 class Reading(str):
@@ -150,11 +160,14 @@ class Reading(str):
     facts＝項目ごとの答え（記録・試験の数え方）。weak＝受け持ちの判定がどれも確かな読みを返さず、代わりが答えたときの、受け持ちの確かでない読み
     （流れの制御は、代わりの答えとあわせて数える＝convo.check_handler・Flow.on_unsure）。firm_p＝言い切っているかの確からしさ（0〜1。返す判定
     だけ＝判断のモデル。firm は、これを線 firm_min で分けたもの。線と、どちらとも言えない幅を決める測りが使う）。
-    fits＝お客様の言葉が、前の質問（と前の会話）への返事として会話になっているか（答えの段だけ。FITS）・fits_p＝その確からしさ（判断のモデル）。"""
+    fits＝お客様の言葉が、前の質問（と前の会話）への返事として会話になっているか（答えの段だけ。FITS）・fits_p＝その確からしさ（判断のモデル）。
+    prior＝その前に相手が言ったことだけから決まる答え（中の名前。決まらない・問わなかったときは None。PRIOR）・prior_p＝その確からしさ。"""
     sure: float | None = None
     firm_p: float | None = None
     fits: bool = True
     fits_p: float | None = None
+    prior: str | None = None
+    prior_p: float | None = None
     by: str | None = None
     tried: tuple = ()
     weak: str | None = None
@@ -340,7 +353,7 @@ def prompt_parts(q, text: str, asked: str | None = None, before: str | None = No
         called = f"{CALLED}：「{q.called}」（いまは、その方の後任のご担当者様をお呼びしています）\n" if getattr(q, "called", "") else ""
         return facet_rules(q) + f"質問：「{q.text}」\n" + called + facet_choices(q), before + said + f"お客様の言葉：「{text}」\n"
     choices = "選べるもの（名前：説明）：\n" + "\n".join(f"- {n}：{d}" for n, d, _ in options(q, asked)) + "\n"
-    head, tail = rules(q) + f"質問：「{q.text}」\n", f"お客様の言葉：「{text}」\n"
+    head, tail = rules(q) + prior_rule(q, asked, before) + f"質問：「{q.text}」\n", f"お客様の言葉：「{text}」\n"
     if getattr(q, "named", False):
         return head + choices, before + said + tail
     return head, before + said + choices + tail
@@ -356,7 +369,7 @@ def cached_content(fixed: str, varying: str, ttl: str | None = None) -> list[dic
     return [{"type": "text", "text": fixed, "cache_control": mark}, {"type": "text", "text": varying}]
 
 
-def _config(q, asked: str | None):
+def _config(q, asked: str | None, before: str | None = None):
     from google.genai import types
 
     if q.facets:
@@ -365,8 +378,11 @@ def _config(q, asked: str | None):
                               required=keys, property_ordering=keys)
         return types.GenerateContentConfig(response_mime_type="application/json", response_schema=schema, temperature=0)
     names = [n for n, _, _ in options(q, asked)]
+    prior = [n for n, _ in prior_names(q)] if prior_asked(q, asked, before) else []
     schema = types.Schema(type=types.Type.OBJECT, properties={"choice": types.Schema(type=types.Type.STRING, enum=names)}
-                          | {m: types.Schema(type=types.Type.BOOLEAN) for m in answer_marks(q)}, required=["choice", *answer_marks(q)])
+                          | {m: types.Schema(type=types.Type.BOOLEAN) for m in answer_marks(q)}
+                          | ({PRIOR: types.Schema(type=types.Type.STRING, enum=prior)} if prior else {}),
+                          required=["choice", *answer_marks(q), *([PRIOR] if prior else [])])
     # ⚠️ 考える量（thinking_budget）は指定しない：3.5 Flash Lite は指定すると断る（400）。3.8 Flash は0にしても約3.3秒（2026-10-17 に測った）
     return types.GenerateContentConfig(response_mime_type="application/json", response_schema=schema, temperature=0)
 
@@ -396,17 +412,21 @@ def read(q, text: str | None, asked: str | None = None) -> Reading | None:
     r.firm_p = got.get("firm_p") if isinstance(got.get("firm_p"), (int, float)) else None
     r.fits = got.get(FITS) is not False   # 会話になっているかが無い・読めない返事は、なっている（印を付けない＝ほかの確かめのとおり）
     r.fits_p = got.get("fits_p") if isinstance(got.get("fits_p"), (int, float)) else None
+    r.prior = next((c for n, c in prior_names(q) if n == got.get(PRIOR)), None)   # 決まらない・問わなかった・読めない ⇒ None
+    r.prior_p = got.get("prior_p") if isinstance(got.get("prior_p"), (int, float)) else None
     return r
 
 
-def _schema(q, asked: str | None) -> dict:
-    """選べるものの名前だけを返させる形（Gemini は _config・ほかの会社はこの形をそのまま渡す）。項目ごとに答える質問は、項目ごとの名前。"""
+def _schema(q, asked: str | None, before: str | None = None) -> dict:
+    """選べるものの名前だけを返させる形（Gemini は _config・ほかの会社はこの形をそのまま渡す）。項目ごとに答える質問は、項目ごとの名前。
+    前の話の答え（PRIOR）は、前の話があるときだけ（prior_asked）。"""
     if q.facets:
         return {"type": "object", "properties": {f.key: {"type": "string", "enum": list(f.choices)} for f in q.facets},
                 "required": [f.key for f in q.facets], "additionalProperties": False}
+    prior = [n for n, _ in prior_names(q)] if prior_asked(q, asked, before) else []
     return {"type": "object", "properties": {"choice": {"type": "string", "enum": [n for n, _, _ in options(q, asked)]}}
-            | {m: {"type": "boolean"} for m in answer_marks(q)},
-            "required": ["choice", *answer_marks(q)], "additionalProperties": False}
+            | {m: {"type": "boolean"} for m in answer_marks(q)} | ({PRIOR: {"type": "string", "enum": prior}} if prior else {}),
+            "required": ["choice", *answer_marks(q), *([PRIOR] if prior else [])], "additionalProperties": False}
 
 
 def answer_marks(q) -> tuple[str, ...]:
@@ -415,15 +435,32 @@ def answer_marks(q) -> tuple[str, ...]:
     return () if talk_question(q) else (FIRM, FITS)
 
 
+def prior_asked(q, asked: str | None, before: str | None) -> bool:
+    """前の話の答え（PRIOR）を問うか（唯一の場所）：答えの段の、選択肢の質問の最初の答えで、その前に相手が言ったことがあるとき。"""
+    return bool(before) and not q.facets and not talk_question(q) and q.type in CHOICE_TYPES and asked is None
+
+
+def prior_names(q) -> list[tuple[str, str | None]]:
+    """前の話の答えの選べるもの（判定に見せる名前, 中の名前）：宣言した選択肢（名前は答えと同じ）と「前の話からは決まらない」（None）。"""
+    return [(n, c) for n, _, c in options(q) if c in q.conditions] + [(PRIOR_NONE, None)]
+
+
+def prior_rule(q, asked: str | None, before: str | None) -> str:
+    """判定の決まりに足す、前の話の答えの決まり（前の話があるときだけ。選べるものの名前を添える）。"""
+    if not prior_asked(q, asked, before):
+        return ""
+    return "- " + PRIOR_RULE + "選べるもの：" + "・".join(f"「{n}」" for n, _ in prior_names(q)) + "\n"
+
+
 def judge(client, model: str, q, text: str, asked: str | None = None, before: str | None = None) -> str | None:
     """相手の言葉 text が、質問 q（asked＝こちらが言い直した言葉・before＝その前に相手が言ったこと）のどれに当たるか。読めなければ None。"""
-    r = client.models.generate_content(model=model, contents=prompt(q, text, asked, before), config=_config(q, asked))
+    r = client.models.generate_content(model=model, contents=prompt(q, text, asked, before), config=_config(q, asked, before))
     return read(q, r.text, asked)
 
 
 async def ajudge(client, model: str, q, text: str, asked: str | None = None, before: str | None = None) -> str | None:
     """judge と同じ（通話の中で、会話のAIの報告を待つ間に走らせる形）。"""
-    r = await client.aio.models.generate_content(model=model, contents=prompt(q, text, asked, before), config=_config(q, asked))
+    r = await client.aio.models.generate_content(model=model, contents=prompt(q, text, asked, before), config=_config(q, asked, before))
     return read(q, r.text, asked)
 
 
@@ -679,7 +716,7 @@ def other_request(name: str, q, text: str, asked: str | None, before: str | None
         # ⚠️ Claude Haiku 5.5 は temperature などを送ると断る（1以外は400＝2026-10-18 に当たった）。名前を指定した道具の呼び出しは、
         #    考える段を飛ばして道具の呼び出しから返す（いちばん速い形）。strict＝選べるもの以外の名前を返させない
         body = {"model": j["model"], "max_tokens": 256, "messages": [{"role": "user", "content": content}],
-                "tools": [{"name": "answer", "description": "お客様の言葉に当たるものの名前", "input_schema": _schema(q, asked),
+                "tools": [{"name": "answer", "description": "お客様の言葉に当たるものの名前", "input_schema": _schema(q, asked, before),
                            "strict": True}],
                 "tool_choice": {"type": "tool", "name": "answer"}}
         if j.get("think"):  # 名前を指定した呼び出しは考える段を飛ばすので、道具は任せ、考える量を決め、道具で答えるように言う
@@ -689,13 +726,13 @@ def other_request(name: str, q, text: str, asked: str | None, before: str | None
             # ⚠️ 断られたときに別のモデルへ回す仕組み（fallbacks）は入れない：測っているモデルの答えに、別のモデルの答えが混ざるため
             #    （断られたら読めない返事＝None として数える）
             body = {"model": j["model"], "max_tokens": 4096, "messages": [{"role": "user", "content": content}], "thinking": j["thinking"],
-                    "output_config": {"effort": j["effort"], "format": {"type": "json_schema", "schema": _schema(q, asked)}}}
+                    "output_config": {"effort": j["effort"], "format": {"type": "json_schema", "schema": _schema(q, asked, before)}}}
         body["model"] = routed_model(name, route)
         return body
     if decision_model(name):
         return jev_request(j["model"], q, text, asked, before)
     return {"model": j["model"], "input": p, "reasoning": {"effort": j.get("effort", OPENAI_EFFORT)}, "max_output_tokens": 2000,
-            "text": {"format": {"type": "json_schema", "name": "answer", "schema": _schema(q, asked), "strict": True}}}
+            "text": {"format": {"type": "json_schema", "name": "answer", "schema": _schema(q, asked, before), "strict": True}}}
 
 
 # ── Jev（判断だけの専用モデル）への問い方。⛔ 2026-10-18 の1回目：チャットのAI向けの長い決まりの文（RULES）を、そのまま問い（instructions）に
@@ -742,7 +779,14 @@ def jev_request(model: str, q, text: str, asked: str | None = None, before: str 
                               for f in q.facets}}
     return {"model": model, "state": scene(q, text, asked, before),
             "questions": {"choice": {"type": "choice", "instructions": JEV_ASK_REPLY if asked else JEV_ASK, "criteria": jev_criteria(q, asked)}}
-            | {m: {"type": "noul", "instructions": JEV_MARKS[m][0], "criteria": JEV_MARKS[m][1]} for m in answer_marks(q)}}
+            | {m: {"type": "noul", "instructions": JEV_MARKS[m][0], "criteria": JEV_MARKS[m][1]} for m in answer_marks(q)}
+            | ({PRIOR: {"type": "choice", "instructions": JEV_PRIOR_ASK, "criteria": jev_prior_criteria(q)}} if prior_asked(q, asked, before) else {})}
+
+
+def jev_prior_criteria(q) -> dict:
+    """Jev に渡す前の話の答えの定義（名前は prior_names。中身は PRIOR_RULE と同じ）。"""
+    return {n: (f"{BEFORE}が「{n}」の意味を言った（または、言ったことから必ずその答えになる）" if c is not None
+                else f"{BEFORE}からは、この質問の答えが決まらない（言っていない・推し量るしかない）") for n, c in prior_names(q)}
 
 
 def other_text(name: str, data: dict) -> str | None:
@@ -757,14 +801,18 @@ def other_text(name: str, data: dict) -> str | None:
         # 選ぶ問いの答えは全部（項目ごとに答える質問は項目ごと）。確からしさは、選ぶ問いのうち一番低いもの（1つでも自信のない項目があれば、
         # その読みは線より下＝JudgePanel が組のほかの判定で読む）
         answers = data.get("answers") or {}
-        picked = {k: a for k, a in answers.items() if isinstance(a, dict) and "choice" in a}
+        picked = {k: a for k, a in answers.items() if isinstance(a, dict) and "choice" in a and k != PRIOR}   # 前の話の答えは別（確からしさに入れない）
         if not picked or any(not a.get("choice") for a in picked.values()):
             return None
         confs = [a.get("confidence") for a in picked.values()]
         firm = (answers.get(FIRM) or {}).get("noul")
         fits = (answers.get(FITS) or {}).get("noul")
+        prior = answers.get(PRIOR) if isinstance(answers.get(PRIOR), dict) else {}
+        prior_p = prior.get("confidence") if isinstance(prior.get("confidence"), (int, float)) else None
+        sure_prior = prior.get("choice") if prior_p is None or prior_p >= OTHER_JUDGES[name].get("prior_min", PRIOR_LINE) else None
         return json.dumps({k: a["choice"] for k, a in picked.items()} | {FIRM: firm is None or firm >= OTHER_JUDGES[name]["firm_min"],
                           FITS: fits is None or fits >= OTHER_JUDGES[name].get("fits_min", FITS_LINE),
+                          **({PRIOR: sure_prior, "prior_p": prior_p} if prior else {}),
                           "sure": min(confs) if all(isinstance(c, (int, float)) for c in confs) else None,
                           "firm_p": firm if isinstance(firm, (int, float)) else None,
                           "fits_p": fits if isinstance(fits, (int, float)) else None}, ensure_ascii=False)
@@ -882,8 +930,11 @@ class KeySpend:
         seen = bisect.bisect_right(self.marks, (self.read_at - self.LAG_S, float("inf")))
         seen_calls = self.marks[seen - 1][1] if seen else 0
         total = sum(self.calls.values())
-        per = self.seen_yen / seen_calls if seen_calls and self.seen_yen > 0 else self.PRIOR_YEN
-        return self.seen_yen + (total - seen_calls) * per
+        if not seen_calls or self.seen_yen <= 0:
+            # どの回が額に出たか分からないうち：額の差と、回数 × 1回の見込みの大きいほう（⛔ 2026-10-31 の昼：足していたので、額に出た回を
+            #    二重に数え、G-70 を実際の約0.8円で上限の3円に達したと止めた）
+            return max(self.seen_yen, total * self.PRIOR_YEN)
+        return self.seen_yen + (total - seen_calls) * (self.seen_yen / seen_calls)
 
     def refresh(self, force: bool = False) -> None:
         import time

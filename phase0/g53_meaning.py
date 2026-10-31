@@ -24,7 +24,7 @@ from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 
 from common import HERE, KeyRing, base_parser, describe_error, require_python, save_partial, save_result, say
-from flowctl import ANY, CHOICE_TYPES, HANDOVER, HOLD, SYSTEM_CONDITIONS, Flow, Question
+from flowctl import ANY, CHOICE_TYPES, HANDOVER, HOLD, SYSTEM_CONDITIONS, Flow, Question, off_talk
 from g48_meanings import QUESTIONS as G48
 from meaning_judge import GROUPS, JUDGE_MODELS, OTHER_JUDGES, UNDECIDED, judge, judge_other
 
@@ -332,13 +332,13 @@ ASK_AGAIN, AFFIRMED, AFFIRMED_HEDGED, DENIED = "聞き直す", "認めた（受�
 RECHECK = "会話になっていない（念のため確かめ直す）"
 
 
-def flow_act(it: dict, q: Question, got, firm, fits=True) -> str | None:
+def flow_act(it: dict, q: Question, got, firm, fits=True, prior=None) -> str | None:
     """判定の読み got（firm＝言い切っているか・fits＝会話になっているか）から、流れの制御がすること（数えるのはここ）。会話になっていない
     返事は、読みが選択肢なら念のため確かめ（言い直しへの返事なら確かめ直し）、そうでなければ聞き直す（flowctl.TALK_WHY・Flow._check_again。
     ✅ 2026-10-31 ユーザー：前に言ったことと逆の返事は「(イ)」＝念のため言い直して確かめる）。"""
     if got is None:
         return None
-    if fits is False and got not in (HOLD, HANDOVER):   # 待つ・代わった人の読みには当てない（Flow._judged_off_talk と同じ）
+    if off_talk(q, got, fits, prior):   # 会話になっていない返事（流れの制御 Flow._judged_off_talk と同じ1か所の決まり）
         if got not in q.conditions and got != ANY:
             return ASK_AGAIN
         return RECHECK if it["set"] == "D" else f"念のため確かめる：{got}"
@@ -374,7 +374,7 @@ def flow_wants(it: dict, q: Question) -> set[str]:
 
 def flow_miss(it: dict, q: Question, key: str) -> str | None:
     """判定 key の読みで、流れの制御の動きが正解と違えば、その違いの種類（正しければ None・読みが無ければ「読み無し」）。"""
-    act = flow_act(it, q, it.get(key), it.get(f"{key}言い切り"), it.get(f"{key}会話"))
+    act = flow_act(it, q, it.get(key), it.get(f"{key}言い切り"), it.get(f"{key}会話"), it.get(f"{key}前の話"))
     if act is None:
         return "読み無し"
     want = flow_wants(it, q)

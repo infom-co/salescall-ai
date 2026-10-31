@@ -55,14 +55,18 @@ def main() -> None:
     p.add_argument("--judge", action="append", choices=tuple(OTHER_JUDGES), help="測る判定（いくつでも。既定は d1-ultra と Jev）")
     p.add_argument("--repeat", type=int, default=3)
     p.add_argument("--tag", default="")
+    p.add_argument("--only", action="append", help="測る組の印だけ（いくつでも。例 G1）")
+    p.add_argument("--reps", type=int, nargs="*", help="測る回り（0 から。--only と使う＝前の測りで抜けた回り）")
     args = p.parse_args()
     names = args.judge or ["d1 Ultra（Liquid）", "Jev 1.14"]
     qmap = {q.id: q for q in g48_questions()}
     clients = {n: other_client(n, load_secret(OTHER_JUDGES[n]["key"], args.env), budget=args.budget_yen) for n in names}
     rows = []
     for mark, before, qid, text, accept, either, talk, checked in CASES:
+        if args.only and mark not in args.only:
+            continue
         q = qmap[qid]
-        for rep in range(args.repeat):
+        for rep in (args.reps if args.reps is not None and args.only else range(args.repeat)):
             row = {"mark": mark, "before": before, "qid": qid, "question": q.text, "text": text, "accept": list(accept), "either": either,
                    "talk": talk, "checked": checked, "rep": rep}
             for n in names:
@@ -77,11 +81,12 @@ def main() -> None:
                     continue
                 row[n] = str(got)
                 row |= {f"{n}{k}": getattr(got, a, None) for k, a in (("確からしさ", "sure"), ("言い切り", "firm"), ("言い切りの確からしさ", "firm_p"),
-                                                                     ("会話", "fits"), ("会話の確からしさ", "fits_p"))}
-                act = flow_act({"set": "C"}, q, str(got), got.firm, got.fits)
+                                                                     ("会話", "fits"), ("会話の確からしさ", "fits_p"),
+                                                                     ("前の話", "prior"), ("前の話の確からしさ", "prior_p"))}
+                act = flow_act({"set": "C"}, q, str(got), got.firm, got.fits, got.prior)
                 row[f"{n}動き"], row[f"{n}正しい"] = act, act in wants(q, accept, either, talk)
             rows.append(row)
-            say(mark, text, {n: (row.get(n), row.get(f"{n}会話の確からしさ"), row.get(f"{n}正しい")) for n in names})
+            say(mark, text, {n: (row.get(n), row.get(f"{n}会話の確からしさ"), row.get(f"{n}前の話"), row.get(f"{n}正しい")) for n in names})
     summary = {}
     for n in names:
         for part, pick in (("会話になっていない組", lambda r: not r["talk"]), ("会話になっている組", lambda r: r["talk"]),

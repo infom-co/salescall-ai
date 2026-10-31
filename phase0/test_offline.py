@@ -3165,13 +3165,57 @@ class AmbiguousAnswerTest(unittest.TestCase):
         from flowctl import HANDOVER, HOLD, Flow
         from g53_meaning import ASK_AGAIN, flow_act, g48_questions
         from meaning_judge import Reading
+        q = {q.id: q for q in g48_questions()}["G6"]
         for got in (HOLD, HANDOVER):
             r = Reading(got)
             r.fits = False
-            self.assertIs(Flow._judged_off_talk({"judge": r}), False, got)
-        q = {q.id: q for q in g48_questions()}["G6"]
+            self.assertIs(Flow._judged_off_talk(q, {"judge": r}), False, got)
         self.assertNotEqual(flow_act({"set": "C"}, q, HOLD, True, False), ASK_AGAIN)
         self.assertEqual(flow_act({"set": "C"}, q, "利用しない", True, False), "念のため確かめる：利用しない")
+
+    def test_prior_answer_is_compared_by_the_program(self):
+        # ✅ 2026-10-31 の昼 ユーザー：「(a) 検査OK」＝その前に相手が言ったことだけから決まる答え（前の話の答え）を別に読ませ、いまの言葉の答えと
+        #    違えば、前の話と合わない返事とプログラムが決める（flowctl.off_talk の1か所）。問うのは、答えの段の選択肢の質問の最初の答えで、
+        #    前の話があるときだけ（前の話の無い問い合わせの文は変わらない）
+        import json
+        from flowctl import BEFORE, HOLD, off_talk
+        from g53_meaning import flow_act, g48_questions
+        from meaning_judge import (PRIOR, PRIOR_NONE, PRIOR_RULE, Reading, _schema, jev_request, other_text, prior_names, prompt, read)
+        q = {q.id: q for q in g48_questions()}["G6"]
+        before = "車で伺うので、駐車場を使わせてください。"
+        self.assertIn(PRIOR_RULE, prompt(q, "差し控えさせていただきます", None, before))
+        self.assertNotIn(PRIOR_RULE, prompt(q, "差し控えさせていただきます", None, None))
+        self.assertNotIn(PRIOR_RULE, prompt(q, "はい", "念のため駐車場はご利用になるということでよろしいでしょうか？", before))   # 言い直しへの返事には問わない
+        self.assertIn(PRIOR, _schema(q, None, before)["required"])
+        self.assertNotIn(PRIOR, _schema(q, None)["required"])
+        names = [n for n, _ in prior_names(q)]
+        self.assertEqual(names[-1], PRIOR_NONE)
+        jq = jev_request("m", q, "差し控えさせていただきます", None, before)["questions"]
+        self.assertEqual(list(jq[PRIOR]["criteria"]), names)
+        self.assertNotIn(PRIOR, jev_request("m", q, "差し控えさせていただきます")["questions"])
+        use, not_use = names[0], names[1]
+        got = json.loads(other_text("Jev 1.14", {"answers": {"choice": {"choice": not_use, "confidence": 0.9}, "firm": {"noul": 0.9},
+                                                             "fits": {"noul": 0.8}, PRIOR: {"choice": use, "confidence": 0.3}}}))
+        self.assertEqual(got["sure"], 0.9)          # 前の話の答えは、答えの確からしさに入れない
+        self.assertIsNone(got[PRIOR])               # 線より下の前の話の答えは使わない
+        got = json.loads(other_text("Jev 1.14", {"answers": {"choice": {"choice": not_use, "confidence": 0.9}, "firm": {"noul": 0.9},
+                                                             "fits": {"noul": 0.8}, PRIOR: {"choice": use, "confidence": 0.9}}}))
+        r = read(q, json.dumps(got))
+        self.assertEqual((str(r), r.prior, r.prior_p, r.fits), ("利用しない", "利用する", 0.9, True))
+        self.assertTrue(off_talk(q, str(r), r.fits, r.prior))
+        self.assertFalse(off_talk(q, "利用する", True, "利用する"))
+        self.assertFalse(off_talk(q, "利用しない", True, None))
+        self.assertFalse(off_talk(q, HOLD, True, "利用する"))
+        self.assertEqual(flow_act({"set": "C"}, q, str(r), r.firm, r.fits, r.prior), "念のため確かめる：利用しない")
+        # 流れの制御：前の話と合わない答えは、受け取らずに念のため確かめる（(イ) と同じ1か所）
+        f = self.flow()   # 言い直しの言葉（意味の名前）のある質問（無ければ言い直せないので聞き直す＝前からの動き）
+        f.use_checks("judge")
+        off = Reading("いいえ")
+        off.prior = "はい"
+        f.on_callee(); f.on_heard("差し控えさせていただきます。"); f.on_check("judge", off)
+        res = f.apply("record_answer", {"question_id": "Q1", "condition_id": "いいえ", "value": "差し控えさせていただきます"})
+        self.assertEqual(res["result"], "confirm_required")
+        self.assertTrue(res["say"].startswith("念のため"), res["say"])
 
     def test_answer_text_reads_only_the_words_now(self):
         # ⛔ 2026-10-31 の昼（G-70）：答えを「お客様が言ったこと」と書き、いまの言葉か前に話したことかを決めていなかった＝前に話したことから答えを
@@ -3214,6 +3258,18 @@ class AmbiguousAnswerTest(unittest.TestCase):
                 sent += 1
         self.assertLessEqual(sent * ks.PRIOR_YEN, 1.0)
         self.assertGreater((sent + 2) * ks.PRIOR_YEN, 1.0)
+
+        # 額に出た回を二重に数えない：どの回が額に出たか分からないうちは、額の差と 回数 × 1回の見込み の大きいほう（⛔ 2026-10-31 の昼：
+        #    足していたので、G-70 を実際の約0.8円で上限の3円に達したと止めた）
+        usage = [1.0]
+        ks = KeySpend(read=lambda: usage[0])
+        ks.EVERY_S = 0.0
+        ks.bind("dummy", 3.0)
+        for _ in range(74):
+            ks.check("m")
+        usage[0] = 1.0 + 0.8 / YEN_PER_USD
+        ks.check("m")   # 0.8 円＋74回 × 見込み（2.22円）＝3.02円で止めていた
+        self.assertAlmostEqual(ks.yen, 75 * ks.PRIOR_YEN, places=6)
 
         def broken():
             raise OSError("no")
