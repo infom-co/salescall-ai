@@ -114,11 +114,6 @@ CHAR_S = 0.141
 # 足す質問を契約者の単位の録音に入れたとき、読み方も長さの上限も無く、作ると止まった＝ClipTablesTest で、表の漏れを見る）
 HOW_OF = {f"callback_{k}": "question" for k in CALLBACK_ASK}
 HOW_OF.update({v: "question" for v in SUCCESSOR_IDS.values()})
-# 後任の方の電話で、理由を言わずに取り次げないと言われたときに伺う一言（phrases.SUCCESSOR の unavailable_confirm・38字。✅ 2026-11-01 6時48分のユーザーの言い方）：読み方は問いかけと同じ。
-#    長さの上限は文の長さの見込みの1.15倍より短くしない（上の決まり＝38字×0.141秒×1.15＝約6.16秒）⇒ 9.0秒
-HOW_OF["successor_unavailable"] = "question_long"
-HOW["question_long"] = HOW["question"]
-MAX_S["question_long"] = 9.0
 HOW_OF["callback_authority"] = "authority"  # 判断いただけるお立場か・お取次ぎのみかを聞く一言は長い（76字）ので、読み方と長さの上限は別  # 後任の方をお呼びする・確かめる一言（phrases.SUCCESSOR）も質問の読み方
 # 「いかがなさいましたか？」「どうなさいましたか？」（phrases.SILENCE_PROMPT）：考えている相手にも、「AIですか」と3回目から聞かれたときにも
 # 流す。どちらも、何か気になる点があったかを心配して聞く一言なので、「AIですか」への言い方と同じ読み方

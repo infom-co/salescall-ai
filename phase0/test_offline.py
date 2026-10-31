@@ -3367,9 +3367,12 @@ class AmbiguousAnswerTest(unittest.TestCase):
         from meaning_judge import FIRM_NOT, FIRM_RULE, FIRM_YES, KIND_DESC, LEAN, jev_criteria
         from flowctl import Question
         self.assertIn("自分の考えとして言った（こちらに同意を求める言い方でも）", LEAN)
-        # 同意を求める形の望みは、寄っているが言い切っていない（決めるのをこちらの同意に預けた）。柔らかく言っただけの望みは今のまま言い切り
-        self.assertIn("決めるのをこちらの同意に預けた", FIRM_NOT)
-        self.assertIn("自分の望みや予定を柔らかく言った", FIRM_YES)
+        # 確かめるかは中身の3つで決める（✅ 2026-11-01 ユーザー：(a)「OK」）：こちらの返事や対応・料金などの状況しだいの答えは確かめる・
+        # 柔らかく言っただけならそのまま記録。言いかけたまま止めたか・「が」で終わるかでは決めない（文字だけでは見分けられない）
+        self.assertIn("こちらの返事や対応、料金などの状況しだい", FIRM_NOT)
+        self.assertIn("柔らかい言い方をしただけ", FIRM_YES)
+        self.assertNotIn("言わずに残した", FIRM_NOT)
+        self.assertNotIn("推し量った", FIRM_NOT)
         self.assertIn(FIRM_NOT, FIRM_RULE)
         self.assertIn("こちらの考えとして尋ねた（自分の考えは言っていない）", KIND_DESC[UNDECIDED])
         self.assertIn(LEAN, FIRM_RULE)
@@ -6754,7 +6757,7 @@ class TargetTest(unittest.TestCase):
         self.assertEqual((CALLBACK_PLAN["unavailable"], "unavailable" in AWAY_WHYS), (("transfer_time",), True))
         b = self.business()
         parts = b.replay_parts()
-        self.assertEqual(parts["unavailable_confirm"], "「おかだ」様は今はお電話に出られない状況ということでよろしいでしょうか？")  # 呼び方は確かめる一言と同じ
+        self.assertEqual(parts["unavailable_confirm"], "「おかだ」様は今お電話に出られないご状況ということでしょうか？")  # 呼び方は確かめる一言と同じ
         self.assertEqual(self.business(successor=True).replay_parts()["unavailable_confirm"], parts["unavailable_confirm"])  # 録音の組は業務×声で1つ
         # はい・ご事情：かけ直しの申し出で、お取り次ぎいただける日時を伺う
         f = Flow(b.questions, play_recordings=True, opening=parts, target=parts)
