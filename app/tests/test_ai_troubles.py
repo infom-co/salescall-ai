@@ -80,8 +80,8 @@ class Shape(unittest.TestCase):
             conversation_io.ai_trouble_work(None, dict(good, what="遅かった"))
 
 
-class Pause(unittest.TestCase):
-    """止まったAIで、その契約者の新しい電話を止める・回復の確かめで解く・緊急の道で再開する。"""
+class _Base(unittest.TestCase):
+    """止まったAIの試験の道具（架空の契約者ひとそろい・止まったAIを書く・止まっているかを読む）。"""
 
     def setUp(self):
         self.a = app_access()
@@ -121,6 +121,11 @@ class Pause(unittest.TestCase):
         s = s or self.s
         return self.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: tx.one(
             "SELECT judge_route FROM salescall.attempts WHERE attempt_id = %s", (aid,))["judge_route"])
+
+
+
+class Pause(_Base):
+    """止まったAIで、その契約者の新しい電話を止める・回復の確かめで解く・緊急の道で再開する。"""
 
     def test_one_stopped_ai_stops_the_contractor_at_once_and_only_once(self):
         other = World().setup()
@@ -237,6 +242,60 @@ class Pause(unittest.TestCase):
         self.assertEqual(len(self.ai_stops()), 1)
         with self.assertRaises(ReportInvalid):                         # 形が違えば、その場で
             call.ai_trouble({"ai": JEV})
+
+
+class VerificationEar(_Base):
+    """通話後の確かめ（別の耳）が止まったとき（2026-10-31 管理者のご決定：「通話中は止めません。ただし、次の電話はかけず、確かめが通れば
+    自動で再開します。」。0158）：止まったかは会話の側が決め、通話中と同じ入口・同じ判断で次の電話を止める。"""
+
+    EAR = "別の耳（soniox）"
+
+    def ended(self, s=None):
+        s = s or self.s
+        aid = self.attempt(s)
+        for state in ("ending", "ended"):
+            self.w.move(s, aid, state)
+        return aid
+
+    def verify_fail(self, aid, s=None):
+        s = s or self.s
+        return conversation_io.verification_ai_trouble(self.a, SYSTEM, s["tenant"], s["client"], aid,
+                                                        trouble(self.EAR, error="503 混雑").to_json())
+
+    def test_a_stopped_ear_after_the_call_stops_the_next_calls_but_not_the_talking_one(self):
+        talking = self.attempt(_with_task(self.w, self.s))              # ほかの回線で話している電話
+        done = self.ended()
+        stopped = self.verify_fail(done)
+        self.assertEqual(len(stopped), 1)
+        self.assertTrue(self.blocking())                               # 次の電話はかけない
+        state = self.a.in_client(SYSTEM, self.s["tenant"], self.s["client"], lambda tx: tx.one(
+            "SELECT state::text AS s FROM salescall.attempts WHERE attempt_id = %s", (talking,))["s"])
+        self.assertEqual(state, "in_conversation")                      # 話している電話は切らない
+        got = self.a.in_tenant(SYSTEM, self.s["tenant"], lambda tx: stops.explain(tx, stopped[0]["event_id"]))
+        self.assertEqual([(t["stage"], t["ai"]) for t in got["ai_troubles"]], [("verification", self.EAR)])
+        self.assertIsNone(got["emergency"]["impossible_because"])       # 別の耳だけなら、緊急の道で再開できる
+        self.assertEqual(self.verify_fail(done), [])                    # もう止まっている（重ねて止めない）
+
+    def test_after_resuming_the_same_calls_check_stopping_again_stops_again(self):
+        # 通話後の確かめは、確かめのたびに別の出来事（重ねると、再開したあとに同じ通話の確かめがまた止まっても止め直せない）
+        done = self.ended()
+        first = self.verify_fail(done)[0]["event_id"]
+        self.a.in_tenant(OPERATOR, self.s["tenant"], lambda tx: stops.resume(tx, first, reason="試験：回復を確かめた"))
+        self.assertEqual(self.blocking(), [])
+        again = self.verify_fail(done)
+        self.assertEqual(len(again), 1)
+        self.assertTrue(self.blocking())
+
+    def test_only_ended_calls_take_a_check_trouble(self):
+        talking = self.attempt()
+        with self.assertRaises(Rejected):
+            self.verify_fail(talking)
+        with self.assertRaises(ReportInvalid):
+            conversation_io.verification_ai_trouble(self.a, SYSTEM, self.s["tenant"], self.s["client"], self.ended(_with_task(
+                self.w, self.s)), {"ai": self.EAR})
+        with self.assertRaises(ValueError):
+            self.a.in_client(SYSTEM, self.s["tenant"], self.s["client"], lambda tx: ai_troubles.note(
+                tx, talking, (trouble(),), stage="あとで"))
 
 
 def _other_phone() -> str:

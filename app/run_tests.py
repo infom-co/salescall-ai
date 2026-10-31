@@ -1724,6 +1724,15 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
              "    AND NOT EXISTS (SELECT 1 FROM salescall.blocking_stops(o.tenant_id, NULL, NULL, o.line_id, NULL))",
              "    AND NOT EXISTS (SELECT 1 FROM salescall.open_stops(o.tenant_id, NULL, NULL, o.line_id))", end="\n$$;"),
      (_TA + "Pause.test_the_contractor_can_reopen_on_the_emergency_route_while_a_judge_is_down",)),
+    # ── 通話後の確かめ（別の耳）が止まったときも、次の電話を止める（2026-10-31 管理者のご決定。0158）
+    ("通話後の確かめで止まったAIも、通話の中と同じく1つに数える（再開したあとに同じ通話の確かめがまた止まっても、止め直さない）",
+     "DROP INDEX salescall.attempt_ai_troubles_once_in_call;"
+     " CREATE UNIQUE INDEX attempt_ai_troubles_once_in_call ON salescall.attempt_ai_troubles (attempt_id, ai, route, what)",
+     (_TA + "VerificationEar.test_after_resuming_the_same_calls_check_stopping_again_stops_again",)),
+    ("通話後の確かめで止まったAIを、終わっていない通話にも書ける",
+     _edited("0158_verification_ear_pause.sql", "CREATE OR REPLACE FUNCTION salescall.attempt_ai_trouble_guard(",
+             "IF NEW.stage = 'verification' AND NOT EXISTS", "IF false AND NOT EXISTS"),
+     (_TA + "VerificationEar.test_only_ended_calls_take_a_check_trouble",)),
     ("試行の判定の道を、あとから書き換えられる",
      _edited(_M155, "CREATE OR REPLACE FUNCTION salescall.attempt_record_fixed(",
              "(NEW.promised, NEW.voice_type, NEW.judge_route) IS DISTINCT FROM (OLD.promised, OLD.voice_type, OLD.judge_route)",
@@ -2607,9 +2616,14 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
      "    if blocked is not None:\n        return f\"緊急の道では補えないAIが止まっています", "    if False:\n        return f\"緊急の道では補えないAIが止まっています",
      ("tests.test_ai_troubles.Pause.test_no_emergency_route_when_the_conversation_ai_itself_is_down",)),
     ("同じ止まったAIを、通話の途中の知らせと報告で二重に数える", "src/salescall/core/ai_troubles.py",
-     '            " ON CONFLICT (attempt_id, ai, route, what) DO NOTHING RETURNING attempt_id",',
-     '            " ON CONFLICT (attempt_id, ai, route, what) DO UPDATE SET error = EXCLUDED.error RETURNING attempt_id",',
+     '            " ON CONFLICT (attempt_id, ai, route, what) WHERE stage = \'call\' DO NOTHING RETURNING attempt_id",',
+     '            " ON CONFLICT (attempt_id, ai, route, what) WHERE stage = \'call\' DO UPDATE SET error = EXCLUDED.error RETURNING attempt_id",',
      ("tests.test_ai_troubles.Pause.test_one_stopped_ai_stops_the_contractor_at_once_and_only_once",)),
+    ("通話後の確かめの入口が、通話の中の分として書く（再開したあとに同じ通話の確かめがまた止まっても、止め直さない）",
+     "src/salescall/core/conversation_io.py",
+     'ai_troubles.note(tx, attempt_id, (trouble,), stage="verification"))', 'ai_troubles.note(tx, attempt_id, (trouble,), stage="call"))',
+     ("tests.test_ai_troubles.VerificationEar.test_after_resuming_the_same_calls_check_stopping_again_stops_again",
+      "tests.test_ai_troubles.VerificationEar.test_a_stopped_ear_after_the_call_stops_the_next_calls_but_not_the_talking_one")),
     ("「緊急の道で答えた」でも止める", "src/salescall/core/ai_troubles.py",
      "        if row is None or t.what != STOPPED:", "        if row is None:",
      ("tests.test_ai_troubles.Pause.test_one_stopped_ai_stops_the_contractor_at_once_and_only_once",)),
@@ -2690,11 +2704,21 @@ def _missing_tests() -> list[str]:
     return missing
 
 
+def _misplaced_py_mutations() -> list[str]:
+    """Python の壊し試しのうち、置き換え元が今の部品にちょうど1つない題（部品を書き換えたのに、壊し試しを合わせていない）。⚠️ これまで
+    は、その壊し試しの番が来てから止まっていた（2026-10-31：0158 で書き換えた行を、0155 の壊し試しが指したまま、全部の試験の途中で
+    止まった）。⇒ 走らせる前に、表の作りの壊し試し（`_edited`。読み込むときに確かめる）と同じに、全部を確かめる。"""
+    return [title for title, rel, old, _, _ in PY_MUTATIONS if (APP / rel).read_text(encoding="utf-8").count(old) != 1]
+
+
 def main() -> int:
     missing = _missing_tests()
     for name in missing:
         print("壊し試しが指す試験が見つからない：", name)
-    if missing:
+    misplaced = _misplaced_py_mutations()
+    for title in misplaced:
+        print("壊し試しの置き換え元が、今の部品にちょうど1つない：", title)
+    if missing or misplaced:
         return 1
     violations = run_all(APP)
     for v in violations:

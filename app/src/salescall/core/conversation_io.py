@@ -57,7 +57,7 @@ from typing import Any
 from uuid import UUID
 
 from salescall.core import ai_troubles, attempts, business_rules, business_settings, call_report, dnc, settings, tasks
-from salescall.core.access import Tx
+from salescall.core.access import Access, Actor, Tx
 from salescall.core.attempts import AttemptNotFound
 
 __all__ = ["REFUSED", "ItemInvalid", "ItemValue", "MoveWork", "NoticeWork", "Utterance", "call_setting", "check_item", "check_utterance",
@@ -193,6 +193,19 @@ class AiTroubleWork(TroubleWork):
 
     def __call__(self, tx: Tx) -> list[str]:
         return ai_troubles.note(tx, self.attempt_id, (self.trouble,))
+
+
+def verification_ai_trouble(access: Access, actor: Actor, tenant_id: UUID, client_id: UUID, attempt_id: UUID,
+                            raw: Any) -> list[dict[str, Any]]:
+    """通話後の確かめで、使うAI（別の耳など）が止まったときの入口（会話の側の通話後の確かめの部品が呼ぶ。1か所。2026-10-31 管理者のご決定：
+    「通話後の確かめに使う別の耳が止まったとき：通話中は止めません。ただし、次の電話はかけず、確かめが通れば自動で再開します。」。0158）。
+    raw は会話の報告の ai_trouble の1つと同じ形（形の確かめは call_report.ai_trouble の1か所。合わなければ ReportInvalid）。止まったかを
+    決めるのは会話の側（通話中と同じ決め方）。書くのは通話中と同じ1か所（ai_troubles.note。どこで＝通話後の確かめ）、止めるかも同じ1か所
+    （watch.after_ai_troubles。もう止まっていれば何もしない）。止めた停止の記録を返す。話している電話は切らない（止めるのは新しい電話だけ）。"""
+    from salescall.core import watch   # watch は、ここ（会話の書き込み口）を通らないので、使うときに読む
+    trouble = call_report.ai_trouble(raw)
+    access.in_client(actor, tenant_id, client_id, lambda tx: ai_troubles.note(tx, attempt_id, (trouble,), stage="verification"))
+    return watch.after_ai_troubles(access, actor, tenant_id, attempt_id)
 
 
 def report_work(attempt_id: UUID, raw: Any) -> ReportWork:

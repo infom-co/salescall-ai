@@ -101,7 +101,11 @@ class CallRunner(Protocol):
 
 
 class Verifier(Protocol):
-    """通話後の検証の部品（CL-1。Q21）。待ちの通話を確かめ、attempts.record_verification・finish_without_recording を呼ぶ。"""
+    """通話後の検証の部品（CL-1。Q21）。待ちの通話を確かめ、attempts.record_verification・finish_without_recording を呼ぶ。
+    確かめに使うAI（別の耳など）が止まったと決めたら（通話中の Ear.errors と同じ決め方）、そのつど
+    `conversation_io.verification_ai_trouble(access, actor, 契約者, 依頼者, 試行, entry)` を呼ぶ（entry は報告の ai_trouble の1つと同じ形。
+    その契約者の次の電話を、回復の確かめが通るまで止める＝2026-10-31 管理者のご決定。0158）。その通話の確かめは、今までどおり順番待ちの
+    まま、直ったらやり直す。"""
 
     def run_pending(self, access: Access, actor: Actor, *, tenant_id: UUID) -> None: ...
 

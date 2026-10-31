@@ -505,7 +505,7 @@ PY_ENTRY_CALLERS: dict[tuple[str, str], frozenset[str]] = {
     # AIの不具合での一時停止（2026-10-30 深夜 管理者のご決定。0155）：止まったAIを受け取るのは、会話の書き込み口だけ。止めるかを決める入口は、
     # 通話ごとの口と回線ごとの処理だけ。緊急の道での再開は、画面だけ（契約者・管理者）
     ("ai_troubles", "note"): frozenset({_CORE + "conversation_io.py"}),
-    ("watch", "after_ai_troubles"): frozenset({_SUP + "line.py"}),
+    ("watch", "after_ai_troubles"): frozenset({_SUP + "line.py", _CORE + "conversation_io.py"}),   # 通話後の確かめの入口も（0158）
     ("stops", "emergency_pass"): frozenset({WEB_PLACE}),
     # 回線・行・番号・契約者・試行のせいの表を引く入口（DESIGN.md 17章の決まり (1)：状態を変えるのは、表を引く入口1つだけ）。
     # 表を引くのは core/health.py の1か所（`_Run.give`。0145・0146）

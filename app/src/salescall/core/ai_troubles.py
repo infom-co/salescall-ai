@@ -14,6 +14,11 @@
   (2) 会話の報告の `ai_trouble`（conversation_io.save_report。会話の処理がまだ (1) を呼ばない形でも止まる）。
   回線ごとの処理は、通話のあとにも `watch.after_ai_troubles` を呼ぶ（どの道で書いても、止める判断が漏れない）。
 - 「緊急の道で答えた」は書くだけ（エラーにしない。止めるのは、その前の「止まった」）。
+- **通話後の確かめ（別の耳）が止まったときも、同じ入口**（2026-10-31 管理者のご決定：「通話中は止めません。ただし、次の電話はかけず、
+  確かめが通れば自動で再開します。…この変更は、AI の判断が、以前よりも影響が大きくなったからです。」。0158）：止まったかを決めるのは、
+  会話の側の通話後の確かめの部品（通話中と同じ決め方）。入口は conversation_io.verification_ai_trouble（`note` に stage="verification"
+  を付けて通し、すぐ `watch.after_ai_troubles`）。通話の中の分（stage="call"）は、通話の途中の知らせと報告の両方から届くので1つに
+  数える。通話後の確かめの分は、確かめのたびに別の出来事として書く（重ねると、再開したあとに同じ通話の確かめがまた止まっても止め直せない）。
 """
 
 from __future__ import annotations
@@ -25,23 +30,26 @@ from salescall.core import call_report, errors
 from salescall.core.access import Tx
 
 STOPPED = "止まった"
+STAGES = {"call": "通話の中", "verification": "通話後の確かめ"}   # どこで止まったか（データベースの守りと同じ名前）
 
 
-def note(tx: Tx, attempt_id: UUID, troubles: Iterable[call_report.AiTrouble]) -> list[str]:
-    """その通話の止まったAIを書く（依頼者の取引で。1か所）。新しく書いた「止まった」を、エラーの入口へ渡し、その種類を返す（もう書いた
-    ものは何もしない）。止めるかは `watch.after_ai_troubles`（契約者の取引）。"""
+def note(tx: Tx, attempt_id: UUID, troubles: Iterable[call_report.AiTrouble], *, stage: str = "call") -> list[str]:
+    """その通話の止まったAIを書く（依頼者の取引で。1か所）。新しく書いた「止まった」を、エラーの入口へ渡し、その種類を返す（通話の中の分で
+    もう書いたものは何もしない）。止めるかは `watch.after_ai_troubles`（契約者の取引）。stage＝どこで止まったか（`STAGES`）。"""
+    if stage not in STAGES:
+        raise ValueError(f"どこで止まったかは {tuple(STAGES)} のどれかです：{stage!r}")
     from salescall.core import watch   # watch は、ここ（止まったAIの記録）を読む側でもあるので、使うときに読む
 
     kinds = []
     for t in troubles:
         row = tx.one(
-            "INSERT INTO salescall.attempt_ai_troubles (tenant_id, client_id, attempt_id, ai, route, what, error, turn)"
-            " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s, %s, %s)"
-            " ON CONFLICT (attempt_id, ai, route, what) DO NOTHING RETURNING attempt_id",
-            (attempt_id, t.ai, t.route, t.what, t.error, t.turn))
+            "INSERT INTO salescall.attempt_ai_troubles (tenant_id, client_id, attempt_id, stage, ai, route, what, error, turn)"
+            " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s, %s, %s, %s)"
+            " ON CONFLICT (attempt_id, ai, route, what) WHERE stage = 'call' DO NOTHING RETURNING attempt_id",
+            (attempt_id, stage, t.ai, t.route, t.what, t.error, t.turn))
         if row is None or t.what != STOPPED:
             continue
-        message = f"{t.ai}（{t.route}）が止まった" + ("" if t.error is None else f"：{t.error}")
+        message = f"{STAGES[stage]}で {t.ai}（{t.route}）が止まった" + ("" if t.error is None else f"：{t.error}")
         kinds.append(watch.record_error(tx, errors.ErrorReport("ai_trouble", None, message, ai=t.ai, route=t.route), attempt_id=attempt_id))
     return kinds
 
@@ -57,7 +65,7 @@ def for_stop(tx: Tx, stop_event_id: int, limit: int = 20) -> list[dict]:
     """AIの不具合の停止の説明に出す、止まったAI（その契約者で、同じ原因の前の解き以後に書いたもの。新しい順）。画面が、止まったAIの
     名前・時刻を出す（CL-3）。契約者の取引で読む。"""
     return tx.all(
-        "SELECT t.ai, t.route, t.what, t.error, t.noted_at, t.attempt_id FROM salescall.attempt_ai_troubles t"
+        "SELECT t.stage, t.ai, t.route, t.what, t.error, t.noted_at, t.attempt_id FROM salescall.attempt_ai_troubles t"
         " JOIN salescall.stop_events s ON s.event_id = %s AND s.tenant_id = t.tenant_id"
         " WHERE t.noted_at > coalesce((SELECT max(r.at) FROM salescall.stop_events r JOIN salescall.stop_events x"
         "                              ON x.event_id = r.resolves_event_id"
