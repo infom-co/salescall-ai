@@ -21,8 +21,8 @@ from __future__ import annotations
 
 import json
 
-from flowctl import (ABOUT, ANY, ASKS_MEANINGS, BEFORE, CHOICE_TYPES, CONFIRM_LABEL, HANDOVER, HOLD, NO_BEFORE, PHONE, SPEAKER, UNDECIDED, WHO,
-                     called_words, facts_reading, label)
+from flowctl import (ABOUT, ANY, ASKS_MEANINGS, BEFORE, CHOICE_TYPES, CONFIRM_LABEL, HANDOVER, HOLD, NO_BEFORE, PHONE, RETURN_MEANINGS, SPEAKER,
+                     UNDECIDED, WHO, called_words, facts_reading, label)
 
 # ⛔ 2026-10-31（G-53 の答えの段の外れを1つずつたどった・PHASE0 G-59）：「どちらでも」を言葉で書き、事実を聞く質問の「該当する区分で処理して
 #    ください」まで選んだ・「答えたくない」を「拒んだ」だけで書き、選ぶのを避けた「指定はしたくありません」（✅ 2026-10-30 ユーザー：会話が成り立って
@@ -71,11 +71,17 @@ KIND_DESC = {HOLD: "この電話の間に、取り次ぐ・確かめてくるあ
 #    なっていない」にも当てた（説明が重なっていた）⇒ 待つ・代わった人に当たるときはそちら、と書いた。「言えません」「お答えできません」を
 #    「わからない」と読み、「宛先を教えたくありません」から「メール」を推し量った ⇒「答えたくない」に、知らないと言わずに言わない・言えない、
 #    どの答えにも要ることを拒んだ、を足した
+# ⛔ 2026-10-31 の昼（✅ ユーザー：「『差し控えさせていただきます』だけだと『利用しない』になるのは当然。この部分だけの判断ならAIがあっています。
+#    前の分との流れの回答として会話になっていないだけです。それを分かるようにしないと！」）：言葉の意味と、前の流れへの返事として会話になって
+#    いるかの2つの軸を、この「決められない」1つに混ぜていた（10-29 の「不在」と「別の方」と同じ形）＝判定は、正しく意味のほうを選んでいた
+#    ⇒「意味がつながらない・聞き違い」と「控えたのが答えか利用か」はここから外し、会話になっているかは別の項目で答えさせる（FITS・答えの段だけ）
              UNDECIDED: "この言葉と、前の質問・前の会話からは決められない（受け入れにも断りにも取れる・どの答えも指していない・選ぶのを避けた・"
-                        "答えるのを控えたのか、質問のこと（利用するなど）をしないと答えたのか、どちらにも取れる・話すことを終える言葉とも、質問への"
-                        "答えとも取れる・確かめる・調べる・人に聞く、と言っただけ（いま確かめてくるので待つように、とは言っていない）・質問への答えとして"
-                        "意味がつながらない＝聞き違いもありうるので、近い言葉に"
-                        "読み替えない。待つように言った・代わった人が話し始めた、に当たるときは、そちら）"}
+                        "話すことを終える言葉とも、質問への答えとも取れる・確かめる・調べる・人に聞く、と言っただけ（いま確かめてくるので待つように、"
+                        "とは言っていない）。待つように言った・代わった人が話し始めた、に当たるときは、そちら）"}
+# 電話のやり取りを読む問い合わせ（尋ねているか・待たせた方が戻ったか＝TALK_KINDS）の「決められない」：お客様の答えの説明（上）は入れない
+#    （✅ 2026-10-31 ユーザー：(4) の案「OK」＝答えの段の説明を直すたびに、この2つの問い合わせの文が変わっていた・文の約30%が答え用だった）
+TALK_UNDECIDED = ("この言葉と、前の会話からは決められない（聞き違いもありうるので、近い言葉に読み替えない。待つように言った・代わった人が"
+                  "話し始めた、に当たるときは、そちら）")
 CONFIRM_DESC = {"affirmed": "こちらが言い直した値で合っていると認めた", "corrected": "違う・直した（別の値を言った）"}
 
 # 言い切っているか（✅ 2026-10-18 ユーザー：「『急ぎと言えば急ぎですが』『まあ、できれば早くとは思います』『さらっとは見たんですが』
@@ -109,6 +115,16 @@ FIRM_YES = ("質問が聞いていることについて、答えを決めてい�
             "（選べるもう一方を打ち消した など）ときも、言い切っている）")
 FIRM_RULE = ("答えは、" + LEAN + "で選びます。確かめていない・知らない、と言っただけで、どの答えも指していない言葉から、事情を推し量って答えを"
              "選びません。言い切っているか（" + FIRM + "）は、" + FIRM_NOT + "なら false、" + FIRM_YES + "なら true です。")
+# 会話になっているか（答えの段だけ。言い切っているかと同じく、選んだ答えとは別に答えさせる＝Claude・Gemini の決まり FITS_RULE・判断のモデルの
+#    定義 JEV_FITS を、ここから作る）。✅ 2026-10-31 の昼 ユーザー：「『差し控えさせていただきます』だけだと『利用しない』になるのは当然。この部分
+#    だけの判断ならAIがあっています。前の分との流れの回答として会話になっていないだけです。それを分かるようにしないと！」（10-30：「本当にお客様が
+#    『差し控えさせていただきます』なら会話になっていない。文字起こしが間違っている可能性も考えるべき」）。流れの制御は、会話になっていないと読めば、
+#    受け取らずに聞き直す（flowctl.TALK_WHY・Flow._check_again）
+FITS = "fits"
+FITS_NOT = "言葉の意味は答えに当たっても、前の質問（と前の会話）への返事としては流れがつながらず、会話になっていない（聞き違い・言い違いを疑う）"
+FITS_YES = "前の質問（と前の会話）への返事として、会話になっている"
+FITS_RULE = ("会話になっているか（" + FITS + "）は、" + FITS_NOT + "なら false、" + FITS_YES + "なら true です（答えは言葉の意味で選び、"
+             "会話になっているかは、ここだけで答えます）。")
 
 
 class Reading(str):
@@ -118,9 +134,12 @@ class Reading(str):
     出ない事実の印（不在も伝えた・電話を代わった方）・successor＝はじめの場面で、電話に出ている方は後任の方だと読んだ印（flowctl.facts_reading）・
     facts＝項目ごとの答え（記録・試験の数え方）。weak＝受け持ちの判定がどれも確かな読みを返さず、代わりが答えたときの、受け持ちの確かでない読み
     （流れの制御は、代わりの答えとあわせて数える＝convo.check_handler・Flow.on_unsure）。firm_p＝言い切っているかの確からしさ（0〜1。返す判定
-    だけ＝判断のモデル。firm は、これを線 firm_min で分けたもの。線と、どちらとも言えない幅を決める測りが使う）。"""
+    だけ＝判断のモデル。firm は、これを線 firm_min で分けたもの。線と、どちらとも言えない幅を決める測りが使う）。
+    fits＝お客様の言葉が、前の質問（と前の会話）への返事として会話になっているか（答えの段だけ。FITS）・fits_p＝その確からしさ（判断のモデル）。"""
     sure: float | None = None
     firm_p: float | None = None
+    fits: bool = True
+    fits_p: float | None = None
     by: str | None = None
     tried: tuple = ()
     weak: str | None = None
@@ -143,11 +162,14 @@ class Reading(str):
 NEG_REPLY = "「〜ではない」の言い直しへの「違う」が、どこを打ち消したのか決まらないときは「" + UNDECIDED + "」で、認めた側は選びません。"
 
 # 判定の決まり（どの会社の判定にも同じ文で渡す。Jev のように、決まり・場面・選べるものを別々に受け取る判定には、この部分を問いとして渡す）
+ASK_HEAD = "電話でお客様に質問をして、お客様が話しました。お客様の言葉が、次の選べるもののどれに当たるかを、1つだけ選んでください。"
+MEANING_RULE = "- 言葉の意味で選びます。言葉の頭の「はい」「いいえ」だけで決めません"
+MAYBE_RULE = "- 迷ったら「" + UNDECIDED + "」を選びます。\n"
 RULES = (
-    "電話でお客様に質問をして、お客様が話しました。お客様の言葉が、次の選べるもののどれに当たるかを、1つだけ選んでください。"
-    "あわせて、お客様がその答えを言い切っているか（" + FIRM + "）も答えてください。\n"
-    "決まり：\n"
-    "- 言葉の意味で選びます。言葉の頭の「はい」「いいえ」だけで決めません（「いいえ、もう済ませてあります」は、済ませた側）。\n"
+    ASK_HEAD +
+    "あわせて、お客様がその答えを言い切っているか（" + FIRM + "）と、質問への返事として会話になっているか（" + FITS + "）も答えてください。\n"
+    "決まり：\n" +
+    MEANING_RULE + "（「いいえ、もう済ませてあります」は、済ませた側）。\n"
     "- 打ち消しを重ねた言い方は、意味で読みます（「していないわけではない」は、している側）。\n"
     "- 「〜ございませんでしょうか？」のような打ち消しの問いへの「はい」「いいえ」は、選べるものの名前（意味）で、どちらの意味かを決めます。\n"
     "- こちらが答えを言い直して確かめたあとの返事は、お客様が認めた意味で選びます（言い直した意味を「はい」と認めたら、その意味）。\n"
@@ -161,8 +183,12 @@ RULES = (
     #    「いえ、受付の者です。少々お待ちください。」を、考えない Sonnet 5.5 が3回とも「別の方」と読むようになった（前は「取り次ぎを待つ」）＝
     #    「いえ」の一文が、結構です・大丈夫です以外にも効いた
     "- " + FIRM_RULE + "\n"
-    "- 迷ったら「" + UNDECIDED + "」を選びます。\n"
+    "- " + FITS_RULE + "\n" +
+    MAYBE_RULE
 )
+# 電話のやり取りを読む問い合わせ（TALK_KINDS＝尋ねているか・待たせた方が戻ったか）の決まり：お客様の答えの決まり（打ち消しの問い・言い直しへの
+#    返事・言い切り・会話になっているか）は入れない（✅ 2026-10-31 ユーザー：(4) の案「OK」。rules の1か所で選ぶ）
+TALK_RULES = ASK_HEAD + "\n決まり：\n" + MEANING_RULE + "。\n" + MAYBE_RULE
 # 項目ごとに答える質問（Question.facets＝目的のお客様の判定）の決まり（RULES の代わり。✅ 2026-10-29 ユーザー：「『不在』と『別の方』というのは、
 #    そもそも別の評価軸でしょ。それをどちらかしか選べないというのは設計上の問題じゃないですか？」＝1つの言葉に同時に入る事実を、項目ごとに答えさせる）。
 #    ⚠️ 例は、試験の言葉（G-59）と同じ言い方にしない
@@ -257,11 +283,12 @@ def options(q, asked: str | None = None) -> list[tuple[str, str, str]]:
                     name = label(c)
                 taken.add(name)
                 head.append((name, "この意味の答え" if name != label(c) else f"「{c}」と答えた", c))
-            else:
+            elif not talk_question(q):   # 電話のやり取りを読む問い合わせには、お客様の答えの「わからない」「答えたくない」を並べない
                 head.append((label(c), SYSTEM_DESC[c], c))
     else:
         head = [(CONFIRM_LABEL[k], d, k) for k, d in CONFIRM_DESC.items()]
-    return head + [(k, d, k) for k, d in KIND_DESC.items()]
+    kinds = KIND_DESC | ({UNDECIDED: TALK_UNDECIDED} if talk_question(q) else {})
+    return head + [(k, d, k) for k, d in kinds.items()]
 
 
 # その前に相手が言ったことの行の見出し（BEFORE）と、無いときの中身（NO_BEFORE）は flowctl（流れの制御が渡すものの説明＝1か所）
@@ -298,7 +325,7 @@ def prompt_parts(q, text: str, asked: str | None = None, before: str | None = No
         called = f"{CALLED}：「{q.called}」（いまは、その方の後任のご担当者様をお呼びしています）\n" if getattr(q, "called", "") else ""
         return facet_rules(q) + f"質問：「{q.text}」\n" + called + facet_choices(q), before + said + f"お客様の言葉：「{text}」\n"
     choices = "選べるもの（名前：説明）：\n" + "\n".join(f"- {n}：{d}" for n, d, _ in options(q, asked)) + "\n"
-    head, tail = RULES + f"質問：「{q.text}」\n", f"お客様の言葉：「{text}」\n"
+    head, tail = rules(q) + f"質問：「{q.text}」\n", f"お客様の言葉：「{text}」\n"
     if getattr(q, "named", False):
         return head + choices, before + said + tail
     return head, before + said + choices + tail
@@ -323,8 +350,8 @@ def _config(q, asked: str | None):
                               required=keys, property_ordering=keys)
         return types.GenerateContentConfig(response_mime_type="application/json", response_schema=schema, temperature=0)
     names = [n for n, _, _ in options(q, asked)]
-    schema = types.Schema(type=types.Type.OBJECT, properties={"choice": types.Schema(type=types.Type.STRING, enum=names),
-                                                              FIRM: types.Schema(type=types.Type.BOOLEAN)}, required=["choice", FIRM])
+    schema = types.Schema(type=types.Type.OBJECT, properties={"choice": types.Schema(type=types.Type.STRING, enum=names)}
+                          | {m: types.Schema(type=types.Type.BOOLEAN) for m in answer_marks(q)}, required=["choice", *answer_marks(q)])
     # ⚠️ 考える量（thinking_budget）は指定しない：3.5 Flash Lite は指定すると断る（400）。3.8 Flash は0にしても約3.3秒（2026-10-17 に測った）
     return types.GenerateContentConfig(response_mime_type="application/json", response_schema=schema, temperature=0)
 
@@ -352,6 +379,8 @@ def read(q, text: str | None, asked: str | None = None) -> Reading | None:
         return None
     r = Reading(cond, firm is not False, sure)
     r.firm_p = got.get("firm_p") if isinstance(got.get("firm_p"), (int, float)) else None
+    r.fits = got.get(FITS) is not False   # 会話になっているかが無い・読めない返事は、なっている（印を付けない＝ほかの確かめのとおり）
+    r.fits_p = got.get("fits_p") if isinstance(got.get("fits_p"), (int, float)) else None
     return r
 
 
@@ -360,9 +389,15 @@ def _schema(q, asked: str | None) -> dict:
     if q.facets:
         return {"type": "object", "properties": {f.key: {"type": "string", "enum": list(f.choices)} for f in q.facets},
                 "required": [f.key for f in q.facets], "additionalProperties": False}
-    return {"type": "object", "properties": {"choice": {"type": "string", "enum": [n for n, _, _ in options(q, asked)]},
-                                             FIRM: {"type": "boolean"}},
-            "required": ["choice", FIRM], "additionalProperties": False}
+    return {"type": "object", "properties": {"choice": {"type": "string", "enum": [n for n, _, _ in options(q, asked)]}}
+            | {m: {"type": "boolean"} for m in answer_marks(q)},
+            "required": ["choice", *answer_marks(q)], "additionalProperties": False}
+
+
+def answer_marks(q) -> tuple[str, ...]:
+    """選んだ答えとは別に答えさせる印（唯一の場所。返事の形 _config・_schema と判断のモデルの問い jev_request）：お客様の答えを読む問い合わせ
+    （答えの段）は、言い切っているか（FIRM）と会話になっているか（FITS）。電話のやり取りを読む問い合わせ（talk_question）には付けない。"""
+    return () if talk_question(q) else (FIRM, FITS)
 
 
 def judge(client, model: str, q, text: str, asked: str | None = None, before: str | None = None) -> str | None:
@@ -380,6 +415,8 @@ async def ajudge(client, model: str, q, text: str, asked: str | None = None, bef
 JUDGE_MODELS = ("3.5 Flash Lite", "3.6 Flash", "3.7 Flash", "3.8 Flash")   # 判定に使える文字のモデル（表示名。g23_names.find_models でIDを引く）
 # 質問の種類（question_kind）のうち、目的のお客様をお呼びする段の2つ（目的のお客様の判定・尋ねているか）。中身の判定（grounding）は ground
 CALLING_KINDS = ("facets", "asks")
+# 電話のやり取りを読む問い合わせの種類（お客様の答えではない＝talk_question）。✅ 2026-10-31 ユーザー：(4) の案「OK」
+TALK_KINDS = ("asks", "returned")
 
 # ── Google 以外の判定（DESIGN.md 1-3 の (2)・選んだ根拠は docs/JUDGE_SETUP.md）。同じ問い合わせの文・同じ選べるもの・同じ読み方（read）で、
 #    送り方だけが会社ごとに違う。
@@ -422,7 +459,7 @@ OTHER_JUDGES = {
     #    確かでないときだけ考えない Sonnet を出す形。OK」＝お呼びする段の2つの質問には、考える形は出さない（答えの意味・中身の判定は今のまま）
     "Claude Sonnet 5.5（考える）": {"maker": "anthropic", "model": "claude-sonnet-5-5", "key": "ANTHROPIC_JUDGE_KEY",
                                   "host": "api.anthropic.com", "form": "json", "effort": "low", "thinking": {"type": "adaptive"},
-                                  "group_kinds": ("other", "ground"), "emergency": EMERGENCY},
+                                  "group_kinds": ("other", "returned", "ground"), "emergency": EMERGENCY},
     "GPT-6 Luna": {"maker": "openai", "model": "gpt-6-luna", "key": "OPENAI_JUDGE_KEY", "host": "api.openai.com"},
     # 同じ GPT-6 Luna を、設定済みの OpenRouter のキーで（2026-10-23。OpenAI のキーが作業環境に無いため）。送り方は OpenAI と同じ形
     # （OpenRouter の Responses の窓口）。⚠️ 文の行き先は OpenRouter（米国）を通って OpenAI（米国）。考える量は「なし」（中身の判定の
@@ -482,20 +519,32 @@ OTHER_JUDGES = {
 
 def question_kind(q) -> str:
     """質問の種類（唯一の場所。線＝sure_line と、組の中でどの判定が答えるか＝takes_part が使う）：目的のお客様の判定（項目ごとに答える質問＝
-    q.facets）は facets・尋ねているか（選ぶものが flowctl.ASKS_MEANINGS の質問）は asks・ほか（答えの意味の判定・待たせた方が戻ったか など）は
-    other。中身の判定（grounding）は質問を持たないので、呼ぶ側が ground と書く。"""
+    q.facets）は facets・尋ねているか（選ぶものが flowctl.ASKS_MEANINGS の質問）は asks・待たせた方が戻ったか（flowctl.RETURN_MEANINGS）は
+    returned・ほか（答えの意味の判定）は other。中身の判定（grounding）は質問を持たないので、呼ぶ側が ground と書く。
+    ⛔ 2026-10-31：待たせた方が戻ったかを other（答えの意味と同じ種類）にしていた＝答えの段の線（測っていない）と答え用の文が入っていた"""
     if getattr(q, "facets", ()):
         return "facets"
-    return "asks" if set(getattr(q, "conditions", ()) or ()) == set(ASKS_MEANINGS) else "other"
+    conds = set(getattr(q, "conditions", ()) or ())
+    return "asks" if conds == set(ASKS_MEANINGS) else "returned" if conds == set(RETURN_MEANINGS) else "other"
+
+
+def talk_question(q) -> bool:
+    """電話のやり取りを読む問い合わせ（TALK_KINDS）か（唯一の場所。決まりの文・選べるもの・返事の形・判断のモデルの問いが、ここで分かれる）：
+    お客様の答えを読むのではないので、答え用の文（言い切り・会話になっているか・「わからない」「答えたくない」）を入れない。"""
+    return question_kind(q) in TALK_KINDS
+
+
+def rules(q) -> str:
+    """問い合わせの文の決まり（唯一の場所。項目ごとに答える質問は facet_rules）。"""
+    return TALK_RULES if talk_question(q) else RULES
 
 
 def sure_line(name: str, q) -> float | None:
-    """確からしさを返す判定（Jev・d1）の、答えにする線を決める唯一の場所：お呼びする段の2つ（question_kind が facets・asks）は
-    facets_sure_min・asks_sure_min、ほかの質問は sure_min（線は質問の種類ごとに、その種類の正解の付いた答えで決める＝測っていない種類は
-    sure_min のまま）。確からしさを返さない判定は None（線なし）。"""
+    """確からしさを返す判定（Jev・d1）の、答えにする線を決める唯一の場所：質問の種類（question_kind）ごとの線（facets_sure_min・
+    asks_sure_min・returned_sure_min）があればそれ、無ければ sure_min（線は質問の種類ごとに、その種類の正解の付いた答えで決める＝測っていない
+    種類は sure_min のまま）。確からしさを返さない判定は None（線なし）。"""
     j = OTHER_JUDGES.get(name, {})
-    kind = question_kind(q)
-    return j.get(f"{kind}_sure_min", j.get("sure_min")) if kind in CALLING_KINDS else j.get("sure_min")
+    return j.get(f"{question_kind(q)}_sure_min", j.get("sure_min"))
 
 
 def firm_matters(q, got) -> bool:
@@ -642,6 +691,13 @@ JEV_ASK = "お客様の言葉は、質問へのどの答えに当たりますか
 JEV_ASK_REPLY = ("お客様の言葉は、こちらが言い直して確かめた言葉への返事として、どの答えに当たりますか？"
                  "（言い直した意味を認めたら、その意味。言い直しを打ち消したら、打ち消した側）")
 JEV_FIRM = {"true": FIRM_YES, "false": FIRM_NOT}
+JEV_FITS = {"true": FITS_YES, "false": FITS_NOT}
+# 判断のモデルの印の問い（答えの段だけ＝answer_marks。定義は上の1か所から）
+JEV_MARKS = {FIRM: ("お客様は、その答えを言い切っていますか？", JEV_FIRM),
+             FITS: ("お客様の言葉は、前の質問（と前の会話）への返事として、会話になっていますか？", JEV_FITS)}
+# 会話になっているとする確からしさの線（判断のモデル）。⏳ 2026-10-31：まだ測っていない＝半分で切る仮の線（決まった決め方で決めて、判定ごとの
+#    fits_min に入れる）
+FITS_LINE = 0.5
 
 
 def jev_criteria(q, asked: str | None = None) -> dict:
@@ -670,8 +726,8 @@ def jev_request(model: str, q, text: str, asked: str | None = None, before: str 
                                       "criteria": dict(f.choices)}
                               for f in q.facets}}
     return {"model": model, "state": scene(q, text, asked, before),
-            "questions": {"choice": {"type": "choice", "instructions": JEV_ASK_REPLY if asked else JEV_ASK, "criteria": jev_criteria(q, asked)},
-                          FIRM: {"type": "noul", "instructions": "お客様は、その答えを言い切っていますか？", "criteria": JEV_FIRM}}}
+            "questions": {"choice": {"type": "choice", "instructions": JEV_ASK_REPLY if asked else JEV_ASK, "criteria": jev_criteria(q, asked)}}
+            | {m: {"type": "noul", "instructions": JEV_MARKS[m][0], "criteria": JEV_MARKS[m][1]} for m in answer_marks(q)}}
 
 
 def other_text(name: str, data: dict) -> str | None:
@@ -691,9 +747,12 @@ def other_text(name: str, data: dict) -> str | None:
             return None
         confs = [a.get("confidence") for a in picked.values()]
         firm = (answers.get(FIRM) or {}).get("noul")
+        fits = (answers.get(FITS) or {}).get("noul")
         return json.dumps({k: a["choice"] for k, a in picked.items()} | {FIRM: firm is None or firm >= OTHER_JUDGES[name]["firm_min"],
+                          FITS: fits is None or fits >= OTHER_JUDGES[name].get("fits_min", FITS_LINE),
                           "sure": min(confs) if all(isinstance(c, (int, float)) for c in confs) else None,
-                          "firm_p": firm if isinstance(firm, (int, float)) else None}, ensure_ascii=False)
+                          "firm_p": firm if isinstance(firm, (int, float)) else None,
+                          "fits_p": fits if isinstance(fits, (int, float)) else None}, ensure_ascii=False)
     return next((c.get("text") for o in data.get("output") or [] for c in o.get("content") or [] if c.get("type") == "output_text"), None)
 
 

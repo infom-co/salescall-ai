@@ -2743,7 +2743,9 @@ class MeaningJudgeOptionsTest(unittest.TestCase):
         # 1つだけ選ぶ質問の Jev の返事の読み方は前のまま。言い切っているかのもとの確からしさ（firm_p）も添えて、読みに残す（線と、どちらとも
         # 言えない幅を決める測りが使う＝2026-10-31）
         one = json.loads(other_text("Jev 1.14", {"answers": {"choice": {"choice": "はい", "confidence": 0.9}, "firm": {"noul": 0.1}}}))
-        self.assertEqual(one, {"choice": "はい", "firm": 0.1 >= OTHER_JUDGES["Jev 1.14"]["firm_min"], "sure": 0.9, "firm_p": 0.1})
+        # 会話になっているかの答えが無い返事は、なっている（印を付けない＝2026-10-31 に足した FITS）
+        self.assertEqual(one, {"choice": "はい", "firm": 0.1 >= OTHER_JUDGES["Jev 1.14"]["firm_min"], "fits": True, "sure": 0.9, "firm_p": 0.1,
+                               "fits_p": None})
         from flowctl import Question
         yn = Question("q", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"))
         self.assertEqual((read(yn, json.dumps(one)).firm_p, read(yn, json.dumps({"choice": "はい", "firm": True})).firm_p), (0.1, None))
@@ -3054,6 +3056,72 @@ class AmbiguousAnswerTest(unittest.TestCase):
         r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "unknown", "value": "たぶんしてない"})
         self.assertEqual(r["result"], "confirm_required")
         self.assertTrue(r["say"].endswith("よろしかったでしょうか？"), r["say"])
+
+    def test_off_talk_answer_is_asked_again(self):
+        # ✅ 2026-10-31 ユーザー：「この部分だけの判断ならAIがあっています。前の分との流れの回答として会話になっていないだけです。それを分かる
+        #    ようにしないと！」⇒ 意味の判定が「会話になっていない」と読めば、言葉の意味の答えで言い直して確かめず、聞き直す（最初の答えも、
+        #    言い直しへの返事も、Flow._check_again の1か所）
+        from flowctl import TALK_WHY
+        from meaning_judge import Reading
+        off = Reading("はい"); off.fits = False
+        f = self.flow()
+        f.use_checks("judge")
+        f.on_callee(); f.on_heard("差し控えさせていただきます。"); f.on_check("judge", off)
+        r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい", "value": "差し控えさせていただきます"})
+        self.assertEqual(r["result"], "ask_back")
+        self.assertTrue(any(TALK_WHY in why for _, _, why in f.items["Q1"].history))
+        # 言い直しへの返事でも、会話になっていなければ聞き直す（言い直す答えが無くても「-」にしない）
+        f = self.flow()
+        f.use_checks("judge")
+        f.on_callee(); f.on_heard("大丈夫です。"); f.on_check("judge", Reading("はい"))
+        self.assertEqual(f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい", "value": "大丈夫です"})["result"], "confirm_required")
+        f.on_callee(); f.on_heard("差し控えさせていただきます。"); f.on_check("judge", off)
+        self.assertEqual(f.apply("confirm_field", {"question_id": "Q1", "result": "affirmed"})["result"], "ask_back")
+        # 会話になっている読みは、今までどおり（受け取る）
+        f = self.flow()
+        f.use_checks("judge")
+        f.on_callee(); f.on_heard("はい、しています。"); f.on_check("judge", Reading("はい"))
+        self.assertNotEqual(f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい", "value": "しています"})["result"], "ask_back")
+
+    def test_talk_questions_carry_no_answer_text(self):
+        # ✅ 2026-10-31 ユーザー：(4) の案「OK」＝電話のやり取りを読む問い合わせ（尋ねているか・待たせた方が戻ったか）には、お客様の答え用の文
+        #    （言い切り・会話になっているか・「わからない」「答えたくない」）を入れない。答えの段の問い合わせには、言い切りと会話になっているかを聞く
+        from flowctl import ASKS_MEANINGS, Question, RETURN_MEANINGS
+        from meaning_judge import (FIRM, FIRM_RULE, FITS, FITS_RULE, SYSTEM_DESC, _schema, answer_marks, jev_request, options, prompt,
+                                   question_kind)
+        asks = Question("A1", "岡田様はいらっしゃいますでしょうか？", "yes_no", required=False, conditions=tuple(ASKS_MEANINGS), meanings=dict(ASKS_MEANINGS))
+        ret = Question("R1", "岡田様はいらっしゃいますでしょうか？", "yes_no", required=False, conditions=tuple(RETURN_MEANINGS),
+                       meanings=dict(RETURN_MEANINGS))
+        ans = Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"))
+        self.assertEqual([question_kind(q) for q in (asks, ret, ans)], ["asks", "returned", "other"])
+        for q in (asks, ret):
+            text = prompt(q, "お待たせいたしました。")
+            self.assertNotIn(FIRM_RULE, text)
+            self.assertNotIn(FITS_RULE, text)
+            self.assertFalse(any(d in text for d in (SYSTEM_DESC["unknown"], SYSTEM_DESC["refused"])))
+            self.assertEqual((answer_marks(q), _schema(q, None)["required"]), ((), ["choice"]))
+            self.assertEqual(set(jev_request("m", q, "お待たせいたしました。")["questions"]), {"choice"})
+            self.assertFalse({"unknown", "refused"} & {c for _, _, c in options(q)})
+        text = prompt(ans, "差し控えさせていただきます。")
+        self.assertIn(FIRM_RULE, text)
+        self.assertIn(FITS_RULE, text)
+        self.assertEqual(_schema(ans, None)["required"], ["choice", FIRM, FITS])
+        self.assertEqual(set(jev_request("m", ans, "差し控えさせていただきます。")["questions"]), {"choice", FIRM, FITS})
+
+    def test_off_talk_reading_from_each_judge(self):
+        # 会話になっているかは、どの判定の返事からも同じ1か所（read）で読む：判断のモデルは確からしさ（線より下はなっていない）・Claude と Gemini は
+        #    はい／いいえ。答えが無い返事は、なっている
+        import json
+        from flowctl import Question
+        from meaning_judge import FITS, other_text, read
+        q = Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"))
+        got = json.loads(other_text("Jev 1.14", {"answers": {"choice": {"choice": "はい", "confidence": 0.9}, "firm": {"noul": 0.9},
+                                                             FITS: {"noul": 0.1}}}))
+        self.assertEqual((got[FITS], got["fits_p"]), (False, 0.1))
+        r = read(q, json.dumps(got))
+        self.assertEqual((str(r), r.fits, r.fits_p), ("はい", False, 0.1))
+        self.assertTrue(read(q, json.dumps({"choice": "はい", "firm": True})).fits)
+        self.assertFalse(read(q, json.dumps({"choice": "はい", "firm": True, FITS: False})).fits)
 
     def test_unsure_first_answer_is_confirmed(self):
         # 最初の答えは、意味の判定が言い切っていないと読めば、言い直して確かめる（言い切っていない答えの決まりと同じ）

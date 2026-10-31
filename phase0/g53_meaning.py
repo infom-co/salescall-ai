@@ -104,11 +104,15 @@ def hedged(it: dict) -> bool:
 
 
 def reading(it: dict, key: str):
-    """記録した判定の答えを、流れの制御に渡す形（言い切っているかを添える）に戻す。"""
+    """記録した判定の答えを、流れの制御に渡す形（言い切っているか・会話になっているかを添える）に戻す。"""
     from meaning_judge import Reading
 
     got = it.get(key)
-    return None if got is None else Reading(got, it.get(f"{key}言い切り") is not False)
+    if got is None:
+        return None
+    r = Reading(got, it.get(f"{key}言い切り") is not False)
+    r.fits = it.get(f"{key}会話") is not False
+    return r
 
 
 def either(it: dict) -> bool:
@@ -116,6 +120,13 @@ def either(it: dict) -> bool:
     「決まってないわけではないです」「メールが埋もれてしまって」のように、答えは決まるが、言い切りかは人でも分かれるもの"""
     got = _label(it)
     return bool(got and got.get("either"))
+
+
+def talk(it: dict) -> bool | None:
+    """前の質問（と前の会話）への返事として会話になっているか（付け直した正解の talk。無ければ None＝なっている）。✅ 2026-10-31 ユーザー：
+    「この部分だけの判断ならAIがあっています。前の分との流れの回答として会話になっていないだけです。それを分かるようにしないと！」"""
+    got = _label(it)
+    return got.get("talk") if got else None
 
 
 def mark(it: dict, key: str) -> str | None:
@@ -319,10 +330,13 @@ def dangerous(it: dict, q: Question, key: str) -> bool:
 ASK_AGAIN, AFFIRMED, AFFIRMED_HEDGED, DENIED = "聞き直す", "認めた（受け取る）", "認めた（受け取る・曖昧の印）", "打ち消した（確かめ直す）"
 
 
-def flow_act(it: dict, q: Question, got, firm) -> str | None:
-    """判定の読み got（firm＝言い切っているか）から、流れの制御がすること（数えるのはここ）。"""
+def flow_act(it: dict, q: Question, got, firm, fits=True) -> str | None:
+    """判定の読み got（firm＝言い切っているか・fits＝会話になっているか）から、流れの制御がすること（数えるのはここ）。会話になっていない
+    返事は、読みに関係なく聞き直す（flowctl.TALK_WHY・Flow._check_again）。"""
     if got is None:
         return None
+    if fits is False:
+        return ASK_AGAIN
     if it["set"] == "D":
         if got == "affirmed" or got == it.get("asked_choice"):
             return AFFIRMED_HEDGED if firm is False else AFFIRMED
@@ -333,7 +347,9 @@ def flow_act(it: dict, q: Question, got, firm) -> str | None:
 
 
 def flow_wants(it: dict, q: Question) -> set[str]:
-    """正解の表から決まる、流れの制御がすべきこと（どれをしても正しい）。"""
+    """正解の表から決まる、流れの制御がすべきこと（どれをしても正しい）。会話になっていない返事（talk が False）は、聞き直すだけ。"""
+    if talk(it) is False:
+        return {ASK_AGAIN}
     h, e, ok = hedged(it), either(it), set()
     for a in accept(it):
         if it["set"] == "D":
@@ -352,7 +368,7 @@ def flow_wants(it: dict, q: Question) -> set[str]:
 
 def flow_miss(it: dict, q: Question, key: str) -> str | None:
     """判定 key の読みで、流れの制御の動きが正解と違えば、その違いの種類（正しければ None・読みが無ければ「読み無し」）。"""
-    act = flow_act(it, q, it.get(key), it.get(f"{key}言い切り"))
+    act = flow_act(it, q, it.get(key), it.get(f"{key}言い切り"), it.get(f"{key}会話"))
     if act is None:
         return "読み無し"
     want = flow_wants(it, q)
@@ -467,6 +483,7 @@ def run_judges(args, items: list[dict], qmap: dict, ids: dict) -> None:
                 got, _ = ring.call(ids[key], call, rotate=False)
                 it[key] = got
                 it[f"{key}言い切り"] = getattr(got, "firm", None)
+                it[f"{key}会話"] = getattr(got, "fits", None)
                 it[f"{key}秒"] = took.get("s")
             except KeyUnusable:
                 skip.add(key)
@@ -500,6 +517,8 @@ def run_judges(args, items: list[dict], qmap: dict, ids: dict) -> None:
                     it[f"{key}言い切り"] = getattr(it[key], "firm", None)
                     it[f"{key}確からしさ"] = getattr(it[key], "sure", None)  # Jev の線（OTHER_JUDGES の sure_min）で、同時に出した組の読みを見積もるため
                     it[f"{key}言い切りの確からしさ"] = getattr(it[key], "firm_p", None)   # 言い切りの線と、どちらとも言えない幅を決めるため
+                    it[f"{key}会話"] = getattr(it[key], "fits", None)   # 会話になっているか（答えの段だけ。FITS）
+                    it[f"{key}会話の確からしさ"] = getattr(it[key], "fits_p", None)
                     it[f"{key}秒"] = round(time.monotonic() - t, 3)
                     break
                 except OtherJudgeError as exc:  # 上限（429）・混雑（5xx）は待ってやり直す。ほかは記録して次へ
@@ -550,6 +569,7 @@ async def run_group(args, items: list[dict], qmap: dict, name: str, lanes: int =
             try:
                 got = await panel.ask("judge2", qmap[it["qid"]], it["text"], it.get("asked"))
                 it[name], it[f"{name}言い切り"], it[f"{name}by"] = str(got), got.firm, got.by
+                it[f"{name}会話"] = got.fits
             except NoJudgment as exc:
                 it[f"{name}誤り"] = str(exc)[:200]
             it[f"{name}秒"] = round(time.monotonic() - t, 3)
@@ -666,7 +686,7 @@ def main() -> None:
                 # だけにする。見本は、前の読みを捨てる前に決める（捨てたあとでは、どれが難しい答えか分からない）
                 for it in pick_sample(items, args.sample):
                     it["見本"] = True
-            items = [{k: v for k, v in it.items() if not any(k == j or (k.startswith(j) and k[len(j):] in ("秒", "誤り", "言い切り", "確からしさ", "言い切りの確からしさ", "by"))
+            items = [{k: v for k, v in it.items() if not any(k == j or (k.startswith(j) and k[len(j):] in ("秒", "誤り", "言い切り", "確からしさ", "言い切りの確からしさ", "会話", "会話の確からしさ", "by"))
                                                              for j in args.judge)} for it in items]
         if args.add_de and not any(it["set"] in ("D", "E") for it in items):
             names = {m.display_name: m.name.split("/")[-1] for m in ring.client().models.list() if getattr(m, "display_name", None)}
