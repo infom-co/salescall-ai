@@ -18,7 +18,7 @@ import time
 from common import base_parser, load_secret, require_python, save_result, say
 from flowctl import Question
 from g53_meaning import ASK_AGAIN, flow_act, g48_questions
-from meaning_judge import OTHER_JUDGES, OtherJudgeError, judge_other, other_client, sure_line
+from meaning_judge import OTHER_JUDGES, PRIOR_READERS, OtherJudgeError, judge_other, other_client, prior_asked, read_prior_first, sure_line
 
 # (印, その前にお客様が言ったこと, 質問の番号, 返事, 受け取ってよい読み, 言い切りはどちらでもよいか, 会話になっているか, ご確認)
 CASES = [
@@ -96,6 +96,10 @@ def main() -> None:
         for rep in (args.reps if args.reps is not None and args.only else range(args.repeat)):
             row = {"mark": mark, "before": before, "qid": qid, "question": q.text, "text": text, "accept": list(accept), "either": either,
                    "talk": talk, "checked": checked, "rep": rep}
+            # 前の話の答えは、組と同じく決めた順（PRIOR_READERS＝d1-ultra ⇒ Jev）の1か所で読み、どの判定の読みにも同じものを添える（JudgePanel.ask）
+            shared = (read_prior_first({n: clients[n] for n in PRIOR_READERS if n in clients}, q, before) if prior_asked(q, None, before)
+                      else (None, None, None))
+            row["前の話の答え（組の1か所）"] = list(shared)
             for n in names:
                 t = time.monotonic()
                 try:
@@ -106,6 +110,7 @@ def main() -> None:
                 row[f"{n}秒"] = round(time.monotonic() - t, 3)
                 if got is None:
                     continue
+                got.prior, got.prior_p, got.prior_raw = shared
                 row[n] = str(got)
                 row |= {f"{n}{k}": getattr(got, a, None) for k, a in (("確からしさ", "sure"), ("言い切り", "firm"), ("言い切りの確からしさ", "firm_p"),
                                                                      ("会話", "fits"), ("会話の確からしさ", "fits_p"),

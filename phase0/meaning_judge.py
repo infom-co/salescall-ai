@@ -487,30 +487,15 @@ def main_before(q, asked: str | None, before: str | None) -> str | None:
 
 def judge(client, model: str, q, text: str, asked: str | None = None, before: str | None = None) -> str | None:
     """相手の言葉 text が、質問 q（asked＝こちらが言い直した言葉・before＝その前に相手が言ったこと）のどれに当たるか。読めなければ None。
-    前の話の答えを問うとき（prior_asked）は、いまの言葉は前の話を見せずに読み、前の話の答えを別の問い合わせで読んで添える（ajudge と同じ）。"""
+    前の話の答えを問うとき（prior_asked）は、いまの言葉は前の話を見せずに読む（前の話の答えは、組の1か所＝JudgePanel.ask・read_prior_first）。"""
     r = client.models.generate_content(model=model, contents=prompt(q, text, asked, main_before(q, asked, before)), config=_config(q, asked))
-    got = read(q, r.text, asked)
-    if got is not None and prior_asked(q, asked, before):
-        p = client.models.generate_content(model=model, contents=prior_prompt(q, before), config=_prior_config(q))
-        got.prior, got.prior_p, got.prior_raw = read_prior(q, p.text)
-    return got
+    return read(q, r.text, asked)
 
 
 async def ajudge(client, model: str, q, text: str, asked: str | None = None, before: str | None = None) -> str | None:
-    """judge と同じ（通話の中で、会話のAIの報告を待つ間に走らせる形）。前の話の答えは、同時に問い合わせる。"""
-    import asyncio
-
-    main = client.aio.models.generate_content(model=model, contents=prompt(q, text, asked, main_before(q, asked, before)), config=_config(q, asked))
-    if not prior_asked(q, asked, before):
-        return read(q, (await main).text, asked)
-    r, p = await asyncio.gather(main, client.aio.models.generate_content(model=model, contents=prior_prompt(q, before), config=_prior_config(q)),
-                                return_exceptions=True)
-    if isinstance(r, BaseException):
-        raise r
-    got = read(q, r.text, asked)
-    if got is not None and not isinstance(p, BaseException):   # 前の話の答えが読めなくても、いまの言葉の答えは使う（食い違いを比べないだけ）
-        got.prior, got.prior_p, got.prior_raw = read_prior(q, p.text)
-    return got
+    """judge と同じ（通話の中で、会話のAIの報告を待つ間に走らせる形）。"""
+    r = await client.aio.models.generate_content(model=model, contents=prompt(q, text, asked, main_before(q, asked, before)), config=_config(q, asked))
+    return read(q, r.text, asked)
 
 
 JUDGE_MODELS = ("3.5 Flash Lite", "3.6 Flash", "3.7 Flash", "3.8 Flash")   # 判定に使える文字のモデル（表示名。g23_names.find_models でIDを引く）
@@ -589,6 +574,8 @@ OTHER_JUDGES = {
     "Jev 1.14": {"maker": "typesafe", "api": "decision", "model": "typesafe/jev-1.14", "key": "OPENROUTER_JUDGE_KEY", "host": "openrouter.ai",
                  "sure_min": 0.95, "facets_sure_min": 0.8, "asks_sure_min": 0.8, "firm_min": 0.2, "ground_min": 0.8, "returned_sure_min": 0.6,
                  "yen_per_char": 7.6e-6},
+    # 前の話の答えの線（prior_min。2026-10-31 の夜・G-70 の前の話のある13組×3回）：d1-ultra が前の話と逆の返事を拾うのに要る前の話の答えは
+    #    どれも 0.85 から上・「その日は空いています。」から説明会に参加するか（決まらないはず）の「参加する」は 0.45〜0.55 ⇒ 0.6（⏳ 組の数が少ない）
     # 待たせた方が戻ったかの線（returned_sure_min。2026-10-31 の昼・✅ ユーザー：「(b) 精度が100％ならOK」）：G-68 の18の言葉と、紛らわしい
     #    言葉の8つ（別の方が「お待たせいたしました」で始めて名乗る6・戻った方2）を3回りずつ測り、別の方を「戻った」と誤って読んだ確からしさは
     #    d1-ultra 0.48・Jev 0.39 まで ⇒ 0.6（言葉の半分ずつで、使う「戻った」の読みは2つの半分とも誤り0＝d1-ultra 21・5、Jev 21・6）。
@@ -609,7 +596,7 @@ OTHER_JUDGES = {
     "d1 Ultra（Liquid）": {"maker": "liquid", "api": "decision", "model": "liquid/d1-ultra-20261015", "key": "OPENROUTER_JUDGE_KEY",
                           "host": "openrouter.ai", "firm_min": 0.92, "facets_sure_min": 0.6, "asks_sure_min": 0.6,
                           "sure_min": 0.77, "firm_band": (0.20, 0.92), "group_kinds": CALLING_KINDS, "returned_sure_min": 0.6,
-                          "yen_per_char": 3.1e-6},
+                          "yen_per_char": 3.1e-6, "prior_min": 0.6},
     "d1.1（Liquid）": {"maker": "liquid", "api": "decision", "model": "liquid/d1.1-20261027", "key": "OPENROUTER_JUDGE_KEY",
                       "host": "openrouter.ai", "firm_min": 0.2},
     # 同じ窓口のほかの判断のモデル（2026-10-30 に1回ずつ確かめた。線は測ってから決める・送り先はどれも Intent.md 13章にまだ無い）：
@@ -1228,32 +1215,50 @@ async def _asend_other(client, name: str, body: dict) -> dict:
 
 def judge_other(client, name: str, q, text: str, asked: str | None = None, before: str | None = None) -> str | None:
     """judge と同じ（Google 以外の判定。client は other_client で作る）。失敗は OtherJudgeError。前の話の答えを問うとき（prior_asked）は、いまの
-    言葉は前の話を見せずに読み、前の話の答えを別の問い合わせで読んで添える（前の話の答えの失敗は、食い違いを比べないだけ）。"""
-    got = read(q, other_text(name, _send_other(client, name, other_request(name, q, text, asked, main_before(q, asked, before)))), asked)
-    if got is not None and prior_asked(q, asked, before):
-        try:
-            got.prior, got.prior_p, got.prior_raw = read_prior(q, other_text(name, _send_other(client, name, prior_request(name, q, before))))
-        except OtherJudgeError:
-            pass
-    return got
+    言葉は前の話を見せずに読む（前の話の答えは、組の1か所＝JudgePanel.ask・read_prior_first）。"""
+    return read(q, other_text(name, _send_other(client, name, other_request(name, q, text, asked, main_before(q, asked, before)))), asked)
 
 
 async def ajudge_other(client, name: str, q, text: str, asked: str | None = None, before: str | None = None,
                        route: str | None = None) -> str | None:
-    """judge_other と同じ（通話の中の形。client は other_client(…, aio=True) で作る。route＝緊急の道なら、client もその道のもの）。
-    前の話の答えは、いまの言葉の問い合わせと同時に送る（待つ長さは延びない）。"""
-    import asyncio
+    """judge_other と同じ（通話の中の形。client は other_client(…, aio=True) で作る。route＝緊急の道なら、client もその道のもの）。"""
+    return read(q, other_text(name, await _asend_other(client, name, other_request(name, q, text, asked, main_before(q, asked, before), route=route))),
+                asked)
 
-    main = _asend_other(client, name, other_request(name, q, text, asked, main_before(q, asked, before), route=route))
-    if not prior_asked(q, asked, before):
-        return read(q, other_text(name, await main), asked)
-    data, pdata = await asyncio.gather(main, _asend_other(client, name, prior_request(name, q, before, route=route)), return_exceptions=True)
-    if isinstance(data, BaseException):
-        raise data
-    got = read(q, other_text(name, data), asked)
-    if got is not None and not isinstance(pdata, BaseException):
-        got.prior, got.prior_p, got.prior_raw = read_prior(q, other_text(name, pdata))
-    return got
+
+# 前の話の答えを読む判定の順（唯一の場所。✅ 2026-10-31 の夜 ユーザー：「(a) OK」＝前の話の答えは、いまの言葉と関わりなく前の話と質問だけで
+#    決まるので、どの判定がいまの言葉を読んでも、前の話の答えは d1-ultra 1つが読んだものを使う。答えられないときだけ Jev）。
+#    ⛔ 同じ夜の G-70：判定ごとに前の話の答えを読ませた形では、Jev は「その日は出張でおりません。」から説明会に参加するかを「決まらない」と読み、
+#    前の話と逆の「はい、参加します。」を受け取った（d1-ultra は前の話と逆の5組をすべて拾えた）
+PRIOR_READERS = ("d1 Ultra（Liquid）", "Jev 1.14")
+
+
+def read_prior_first(clients: dict, q, before: str) -> tuple[str | None, float | None, str | None]:
+    """前の話の答えを、PRIOR_READERS の順に読む（clients＝判定の名前 ⇒ other_client。読めた最初の判定の答え）。どれも読めなければ (None, None, None)。"""
+    for name in PRIOR_READERS:
+        if name not in clients:
+            continue
+        try:
+            got = read_prior(q, other_text(name, _send_other(clients[name], name, prior_request(name, q, before))))
+        except OtherJudgeError:
+            continue
+        if got[2] is not None:
+            return got
+    return None, None, None
+
+
+async def aread_prior_first(clients: dict, q, before: str) -> tuple[str | None, float | None, str | None]:
+    """read_prior_first と同じ（通話の中の形。clients は other_client(…, aio=True)）。"""
+    for name in PRIOR_READERS:
+        if name not in clients:
+            continue
+        try:
+            got = read_prior(q, other_text(name, await _asend_other(clients[name], name, prior_request(name, q, before))))
+        except OtherJudgeError:
+            continue
+        if got[2] is not None:
+            return got
+    return None, None, None
 
 
 BATCH_FACTOR = 0.5  # まとめて送る測り（Message Batches）の料金の掛け目：送った量すべて（前の部分の書き込み・読み出しも）が半分
@@ -1537,10 +1542,12 @@ class JudgePanel(RouteState):
       新しい電話を一時停止するのは発信の門＝CL-2）。緊急の道で答えたときも tried に残す
     どれを使って答えたかは、答え（Reading）の by・tried に残す。"""
 
-    def __init__(self, judges: dict, standin: tuple | None = None, down=(), clock=None, backup: bool = True):
+    def __init__(self, judges: dict, standin: tuple | None = None, down=(), clock=None, backup: bool = True, prior=None):
         from collections import OrderedDict
 
         super().__init__(down, clock)
+        # 前の話の答えを読む道具（async (質問, 前の話) -> (中の名前, 確からしさ, 線より下も含めた選び)＝aread_prior_first。無ければ問わない）
+        self.prior = prior
 
         # 受け持ち → ((判定の名前, async (質問, 言葉, こちらが言い直した言葉) -> Reading), …)。1つの (名前, 関数) も受ける
         self.judges = {k: (v,) if isinstance(v[0], str) else tuple(v) for k, v in judges.items()}
@@ -1659,6 +1666,26 @@ class JudgePanel(RouteState):
             self.answered.popitem(last=False)
 
     async def ask(self, kind: str, q, text: str, asked: str | None = None, before: str | None = None, early=None) -> Reading:
+        """受け持ち kind の判定で、言葉 text を読む（_ask）。前の話の答えを問うとき（prior_asked）は、組の1か所（ここ）で、いまの言葉の問い合わせと
+        同時に前の話の答えを問い合わせ（self.prior＝PRIOR_READERS の順）、返す読みに添える（読めなくても、いまの言葉の答えは使う＝食い違いを
+        比べないだけ）。前の話の答えの問い合わせは短い（d1-ultra で約0.5秒）ので、待つ長さは延びない。"""
+        import asyncio
+
+        if self.prior is None or not prior_asked(q, asked, before):
+            return await self._ask(kind, q, text, asked, before, early)
+        job = asyncio.ensure_future(self.prior(q, before))
+        try:
+            got = await self._ask(kind, q, text, asked, before, early)
+        except BaseException:
+            job.cancel()
+            raise
+        try:
+            got.prior, got.prior_p, got.prior_raw = await job
+        except Exception:
+            pass
+        return got
+
+    async def _ask(self, kind: str, q, text: str, asked: str | None = None, before: str | None = None, early=None) -> Reading:
         """受け持ち kind の判定で、言葉 text を読む。early＝組が確かな読みを返せないと分かった時点で裏で出した止める側だけの判定（STOP_ONLY）
         の読みが、組の答えより先に届いたら知らせる先（引数は読み。会話の側が、組の答えが待つ長さに間に合わなかったときだけ、止める側だけに
         使う＝convo.check_handler。✅ 2026-10-30 ユーザー：「(1)(2)ともお勧めの形でOK」）。"""
@@ -1767,7 +1794,7 @@ def make_judges(args) -> dict:
     standin = None if getattr(args, "no_standin", False) else STANDIN
     panel = JudgePanel({k: tuple((m, make_judge(args, m)) for m in members(n)) for k, n in used.items()},
                        standin=(standin, make_judge(args, standin)) if standin else None, down=getattr(args, "judge_down", None) or (),
-                       backup=not getattr(args, "no_standin", False))
+                       backup=not getattr(args, "no_standin", False), prior=make_prior(args))
     panel.emergency_first = getattr(args, "judge_route", None) == RESUME_EMERGENCY   # 測りの道具（通話を使わない）。通話は run_call の judge_route
     if standin and panel.standin is None:
         say(f"止まった判定の代わり（{standin}）は、どの受け持ちにも入れない（同じ会社の判定が組にある・ほかの受け持ちが同じ会社だけ）ので使いません")
@@ -1777,6 +1804,24 @@ def make_judges(args) -> dict:
     chosen = tuple(getattr(args, "grounder", None) or GROUNDERS)
     grounder = None if NO_GROUNDER in chosen else make_grounder(args, chosen, state=panel)   # 道の状態は意味の判定と同じもの（RouteState）
     return {k: panel.slot(k) if k in used else None for k in names} | {"grounder": grounder}
+
+
+def make_prior(args):
+    """前の話の答えを読む道具（JudgePanel の prior）：PRIOR_READERS の判定へ、その順に（aread_prior_first）。鍵が無い判定は飛ばす。"""
+    from common import load_secret
+
+    clients = {}
+    for name in PRIOR_READERS:
+        try:
+            clients[name] = other_client(name, load_secret(OTHER_JUDGES[name]["key"], args.env), aio=True, budget=getattr(args, "budget_yen", None))
+        except (Exception, SystemExit):
+            continue
+    if not clients:
+        return None
+
+    async def prior(q, before):
+        return await aread_prior_first(clients, q, before)
+    return prior
 
 
 def make_judge(args, model_name: str):

@@ -3078,12 +3078,14 @@ class AmbiguousAnswerTest(unittest.TestCase):
 
         f, r = first(off("はい"))
         self.assertEqual(r["result"], "confirm_required")
-        self.assertEqual(r["say"], "念のためご予約はお済みということでよろしかったでしょうか？")   # 言い切っていない答えと同じ言い方
+        # 矛盾した答えを最終的に確かめる言い方（✅ 2026-10-31 の夜 ユーザー：「『それでは…ということでよろしいでしょうか？』は矛盾や言い直しの答えを
+        # 最終的に確認する場合です」。確かめるまでもない復唱は「念のため…でよろしかったでしょうか？」）
+        self.assertEqual(r["say"], "それではご予約はお済みということでよろしいでしょうか？")
         self.assertTrue(any(TALK_WHY in why for _, _, why in f.items["Q1"].history))
         # 判定の読みとAIの報告が違えば、判定の読みで確かめる
         f, r = first(off("いいえ"))
         self.assertEqual((r["result"], f.items["Q1"].condition), ("confirm_required", "いいえ"))
-        self.assertTrue(r["say"].startswith("念のため"), r["say"])
+        self.assertTrue(r["say"].startswith("それでは"), r["say"])
         # 読みに意味の答えが無い（決められない・答えたくない）：聞き直す
         for reading in (off(UNDECIDED), off("refused")):
             f, r = first(reading)
@@ -3098,7 +3100,7 @@ class AmbiguousAnswerTest(unittest.TestCase):
             r = f.apply("confirm_field", {"question_id": "Q1", "result": "affirmed"})
             self.assertEqual(r["result"], want, str(reading))
             if want == "confirm_required":
-                self.assertTrue(r["say"].startswith("念のため"), r["say"])
+                self.assertTrue(r["say"].startswith("それでは"), r["say"])
         # 会話になっている読みは、今までどおり（受け取る）
         f = self.flow()
         f.use_checks("judge")
@@ -3223,12 +3225,37 @@ class AmbiguousAnswerTest(unittest.TestCase):
                 return Resp({"answers": {"choice": {"choice": not_use, "confidence": 0.9}, "firm": {"noul": 0.9}, "fits": {"noul": 0.9}}})
         c = Client()
         r = judge_other(c, "Jev 1.14", q, "差し控えさせていただきます", None, before)
-        self.assertEqual(len(c.sent), 2)
+        self.assertEqual(len(c.sent), 1)                                                   # 判定ごとの入口は、いまの言葉の問い合わせだけ
         self.assertNotIn(BEFORE, c.sent[0]["state"])                                      # いまの言葉の問い合わせに前の話は無い
-        self.assertEqual((str(r), r.prior, r.prior_p, r.fits), ("利用しない", "利用する", 0.95, True))
-        c = Client()
-        judge_other(c, "Jev 1.14", q, "差し控えさせていただきます")                       # 前の話が無ければ1回だけ
-        self.assertEqual(len(c.sent), 1)
+        self.assertEqual((str(r), r.prior, r.fits), ("利用しない", None, True))
+        # 前の話の答えは、決めた順（d1-ultra ⇒ Jev）の1か所で読む（✅ 同じ夜 ユーザー：「(a) OK」）
+        from meaning_judge import PRIOR_READERS, OtherJudgeError, read_prior_first
+
+        class Down:
+            def post(self, path, json=None):
+                raise OtherJudgeError(503, "混んでいる")
+        d1, jev = PRIOR_READERS
+        self.assertEqual(d1, "d1 Ultra（Liquid）")
+        self.assertEqual(read_prior_first({d1: Client(), jev: Down()}, q, before)[0], "利用する")
+        self.assertEqual(read_prior_first({d1: Down(), jev: Client()}, q, before)[0], "利用する")   # d1-ultra が答えなければ Jev
+        self.assertEqual(read_prior_first({d1: Down(), jev: Down()}, q, before), (None, None, None))
+        # 組の入口（JudgePanel.ask）：いまの言葉の答えに、組の1か所で読んだ前の話の答えを添える（前の話が無い・言い直しへの返事には問わない）
+        import asyncio
+        from meaning_judge import JudgePanel
+        asked_prior = []
+
+        async def judge2(q_, text_, asked=None, before=None):
+            return Reading("利用しない", sure=0.99)
+
+        async def prior(q_, before_):
+            asked_prior.append(before_)
+            return ("利用する", 0.97, "利用する")
+        panel = JudgePanel({"judge2": ((jev, judge2),)}, prior=prior)
+        r = asyncio.run(panel.ask("judge2", q, "差し控えさせていただきます", None, before))
+        self.assertEqual((str(r), r.prior, r.prior_p, asked_prior), ("利用しない", "利用する", 0.97, [before]))
+        panel = JudgePanel({"judge2": ((jev, judge2),)}, prior=prior)
+        got = asyncio.run(panel.ask("judge2", q, "差し控えさせていただきます"))
+        self.assertEqual((got.prior, len(asked_prior)), (None, 1))
         self.assertTrue(off_talk(q, str(r), r.fits, r.prior))
         self.assertFalse(off_talk(q, "利用する", True, "利用する"))
         self.assertFalse(off_talk(q, "利用しない", True, None))
@@ -3237,10 +3264,9 @@ class AmbiguousAnswerTest(unittest.TestCase):
         self.assertEqual(prior_answer(q, UNDECIDED, "利用する"), "利用する")
         self.assertIsNone(prior_answer(q, "利用しない", "利用する"))
         self.assertEqual(flow_act({"set": "C"}, q, UNDECIDED, True, True, "利用する"), "念のため確かめる：利用する")
-        # 流れの制御：前の話と合わない答えは「念のため…よろしかったでしょうか？」（(イ)）、決められない言葉は前の話の答えを「それでは…よろしい
-        # でしょうか？」で確かめる（✅ 2026-10-31 の夜 ユーザー：「『それでは、駐車場を(利用される)(利用されない)ということでよろしいでしょうか？』の
-        # ような確認を入れる形で良いのではないでしょうか」）
-        for got, prior, cond, head in (("いいえ", "はい", "いいえ", "念のため"), (UNDECIDED, "はい", "はい", "それでは")):
+        # 流れの制御：前の話と合わない答えも、決められない言葉を前の話の答えで補うときも、「それでは…ということでよろしいでしょうか？」で最終的に
+        # 確かめる（✅ 2026-10-31 の夜 ユーザー：「『それでは…ということでよろしいでしょうか？』は矛盾や言い直しの答えを最終的に確認する場合です」）
+        for got, prior, cond, head in (("いいえ", "はい", "いいえ", "それでは"), (UNDECIDED, "はい", "はい", "それでは")):
             f = self.flow()   # 言い直しの言葉（意味の名前）のある質問（無ければ言い直せないので聞き直す＝前からの動き）
             f.use_checks("judge")
             off = Reading(got)
