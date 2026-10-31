@@ -328,15 +328,20 @@ def dangerous(it: dict, q: Question, key: str) -> bool:
 #    締めの前に聞き直す）。✅ 2026-10-30 ユーザー：「何が問題で間違えたのかを徹底的に洗い出し…」＝判定の答えの正誤だけでなく、お客様に聞こえる
 #    動きの正誤で数える（決められない言葉を判定が「寄っているが言い切っていない」と読んでも、流れの制御は確かめるので、お客様に聞こえる動きは同じ）
 ASK_AGAIN, AFFIRMED, AFFIRMED_HEDGED, DENIED = "聞き直す", "認めた（受け取る）", "認めた（受け取る・曖昧の印）", "打ち消した（確かめ直す）"
+# 言い直しへの返事が会話になっていず、判定の読みに選択肢がある：その選択肢で、念のため確かめ直す（Flow._confirm_again ⇒ _check_again）
+RECHECK = "会話になっていない（念のため確かめ直す）"
 
 
 def flow_act(it: dict, q: Question, got, firm, fits=True) -> str | None:
     """判定の読み got（firm＝言い切っているか・fits＝会話になっているか）から、流れの制御がすること（数えるのはここ）。会話になっていない
-    返事は、読みに関係なく聞き直す（flowctl.TALK_WHY・Flow._check_again）。"""
+    返事は、読みが選択肢なら念のため確かめ（言い直しへの返事なら確かめ直し）、そうでなければ聞き直す（flowctl.TALK_WHY・Flow._check_again。
+    ✅ 2026-10-31 ユーザー：前に言ったことと逆の返事は「(イ)」＝念のため言い直して確かめる）。"""
     if got is None:
         return None
     if fits is False:
-        return ASK_AGAIN
+        if got not in q.conditions and got != ANY:
+            return ASK_AGAIN
+        return RECHECK if it["set"] == "D" else f"念のため確かめる：{got}"
     if it["set"] == "D":
         if got == "affirmed" or got == it.get("asked_choice"):
             return AFFIRMED_HEDGED if firm is False else AFFIRMED
@@ -347,9 +352,10 @@ def flow_act(it: dict, q: Question, got, firm, fits=True) -> str | None:
 
 
 def flow_wants(it: dict, q: Question) -> set[str]:
-    """正解の表から決まる、流れの制御がすべきこと（どれをしても正しい）。会話になっていない返事（talk が False）は、聞き直すだけ。"""
+    """正解の表から決まる、流れの制御がすべきこと（どれをしても正しい）。会話になっていない返事（talk が False）は、言葉の意味の答えを念のため
+    確かめる（言い直しへの返事なら確かめ直す）か、聞き直す。"""
     if talk(it) is False:
-        return {ASK_AGAIN}
+        return {ASK_AGAIN} | {RECHECK if it["set"] == "D" else f"念のため確かめる：{a}" for a in accept(it) if a in q.conditions}
     h, e, ok = hedged(it), either(it), set()
     for a in accept(it):
         if it["set"] == "D":
@@ -385,6 +391,8 @@ def flow_miss(it: dict, q: Question, key: str) -> str | None:
         return "⛔受け取ってはいけないのに受け取る"
     if act == ASK_AGAIN:
         return "要らない聞き直し"
+    if act == RECHECK:
+        return "違う答えで確かめ直す" if talk(it) is False else "会話になっているのに、念のため確かめ直す"
     if act.startswith("念のため") and act.replace("念のため確かめる", "受け取る") in want:
         return "要らない念のための確かめ"
     return "推し量って確かめる（どの答えにも寄っていない言葉）" if pure else "違う答えで確かめる"

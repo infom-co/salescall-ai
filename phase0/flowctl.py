@@ -456,8 +456,10 @@ AFTER = {"misheard": ("聞き違いのあと", "お詫びのあとの言い直�
          # （✅ 2026-10-18 ユーザー：「この場合、こちらの方が自然」。その前の案「…というご回答で…」は採らなかった）
          "hedged": ("言い切っていない答えのあと", "念のための言い直し", "hai")}
 HEDGE_WHY = "言い切っていない答え"  # 確かめる理由の名前（言い直しの言い方を、曖昧な言葉の確かめと分ける。Flow._check_again）
-# 会話になっていない返事（確かめる理由の名前。言葉の意味の答えで言い直して確かめず、質問から聞き直す＝Flow._check_again）。✅ 2026-10-31 ユーザー：
-#    「この部分だけの判断ならAIがあっています。前の分との流れの回答として会話になっていないだけです。それを分かるようにしないと！」
+# 会話になっていない返事（確かめる理由の名前＝Flow._check_again）。✅ 2026-10-31 ユーザー：「この部分だけの判断ならAIがあっています。前の分との
+#    流れの回答として会話になっていないだけです。それを分かるようにしないと！」・前に言ったことと逆の返事は「(イ)」（「念のため…でよろしかった
+#    でしょうか？」と言い直して確かめる＝お客様が考えを変えた場合もある）⇒ 判定の読みに意味の答え（選択肢）があれば、その答えを言い切っていない
+#    答えと同じ言い方で確かめ、答えが無ければ（決められない・答えたくない など）質問から聞き直す
 TALK_WHY = "会話になっていない返事"
 # 値を直されたとき、こちらの聞き違いか相手の言い間違いかは、プログラムが相手の言葉（会話AIの聞き取りの文字）から決める。
 # ✅ 2026-10-14 ユーザー決定（3つの案のうち「(a) プログラムが相手の言葉で見分ける」）。⛔ G-36 の2回目・3回目：AIに選ばせると、
@@ -2715,10 +2717,10 @@ class Flow:
             # 意味に寄っていれば、その答えに「曖昧」の印を付けて受け取る＝Flow._hedged。✅ 2026-10-18 ユーザー：「yes,but 曖昧」）。
             # 「わからない」「答えたくない」の報告には当てない（「たぶん分からないです」は、そのまま「わからない」）
             return HEDGE_WHY, reported
-        if Flow._judged_off_talk(check):
-            # 意味の判定が、前の質問（と前の会話）への返事として会話になっていないと読んだ：言葉の意味の答えで言い直さず、聞き直す
-            # （聞き違い・言い違いを疑う。言い直す答えは無い＝None）
-            return f"{TALK_WHY}（意味の判定が、質問への返事として会話になっていないと読んだ）", None
+        if (off := Flow._judged_off_talk(check)) is not False:
+            # 意味の判定が、前の質問（と前の会話）への返事として会話になっていないと読んだ：その判定の読みに意味の答え（選択肢）があれば、
+            # それを念のため確かめる答えに（前に言ったことと逆の返事＝✅ ユーザー「(イ)」）、無ければ None（聞き直す）
+            return f"{TALK_WHY}（意味の判定が、質問への返事として会話になっていないと読んだ）", (off if off in q.conditions + (ANY,) else None)
         for kind in JUDGMENTS:
             back = Flow._meaning_disagrees(q, reported, check.get(kind), confirming)
             if back:
@@ -2728,10 +2730,10 @@ class Flow:
         return None, None
 
     @staticmethod
-    def _judged_off_talk(check: dict) -> bool:
+    def _judged_off_talk(check: dict) -> str | None | bool:
         """意味の判定が、お客様の言葉は前の質問（と前の会話）への返事として会話になっていないと読んだ（meaning_judge.Reading.fits。答えの段の
-        問い合わせだけが返す＝ほかの読みは、なっている）。"""
-        return any(getattr(check.get(k), "fits", True) is False for k in JUDGMENTS)
+        問い合わせだけが返す＝ほかの読みは、なっている）：そう読んだ判定の読み（中の名前）。どの判定もそう読まなければ False。"""
+        return next((str(check[k]) for k in JUDGMENTS if getattr(check.get(k), "fits", True) is False), False)
 
     @staticmethod
     def _judged_unsure(check: dict) -> bool:
@@ -2838,7 +2840,7 @@ class Flow:
         判定が選択肢を選んでいればその意味で）。使い切った・必須でない・言い直す選択肢が無い ⇒「-」（必須なら締めの前の念のための確認で1回）。"""
         it, q = self.items[qid], self.questions[qid]
         self.awaiting_confirm = None
-        if why.startswith(TALK_WHY):   # 会話になっていない返事は、言い直す答えが無くても聞き直す（_check_again の1か所）
+        if why.startswith(TALK_WHY) and back is None:   # 会話になっていない返事で、確かめる答えが無ければ聞き直す（_check_again の1か所）
             return self._check_again(qid, why, reported, back)
         if q.required and it.corrections < self.limits.after_correction and (q.type not in CHOICE_TYPES or back in q.conditions + (ANY,)):
             it.corrections += 1
@@ -2849,8 +2851,8 @@ class Flow:
     def _check_again(self, qid: str, why: str, cond: str | None, back: str | None) -> dict:
         """確かめがそろわなかった答えを、そのまま受け取らずに言い直して確かめる（選択肢の型は back の意味で＝判定が選択肢を選んでいれば判定のほう）。"""
         it, q = self.items[qid], self.questions[qid]
-        if why.startswith(TALK_WHY):
-            # 会話になっていない返事：言葉の意味の答えで言い直して確かめず、質問から聞き直す（聞き違い・言い違いを疑う。聞き返しの回数の中で）。
+        if why.startswith(TALK_WHY) and back is None:
+            # 会話になっていない返事で、確かめる意味の答えが無い：質問から聞き直す（聞き違い・言い違いを疑う。聞き返しの回数の中で）
             # ✅ 2026-10-30 ユーザー：「本当にお客様が『差し控えさせていただきます』なら会話になっていない。文字起こしが間違っている可能性も考えるべき」
             return self._ask_again(qid, "unclear", f"{why}（「{(self.heard_said or '')[:20]}」）")
         it.set("heard", f"{why}（「{(self.heard_said or '')[:20]}」）・AIは「{label(cond)}」と受け取った")
@@ -2860,7 +2862,8 @@ class Flow:
         # 言い方は、確かめるきっかけ（言い切っていない答えの決まり・判定との食い違い）ではなく、お客様の言葉が言い切っているかで決める
         # （⛔ 2026-10-18 に見つけた漏れ：AIが「わからない」と報告し、判定が「していない」と読んだ「たぶんしてないと思います」は、
         #    食い違いがきっかけなので、言い切っていない答えの言い方にならなかった）
-        hedged = why.startswith(HEDGE_WHY) or Flow._hedged(self.heard_said, self.heard_check)
+        # 会話になっていない返事に意味の答えがあるときも、言い切っていない答えと同じ言い方（「念のため…でよろしかったでしょうか？」＝✅ ユーザー「(イ)」）
+        hedged = why.startswith(HEDGE_WHY) or why.startswith(TALK_WHY) or Flow._hedged(self.heard_said, self.heard_check)
         return self._ask_confirm(qid, after="hedged" if hedged else "ambiguous")
 
     def _take_system(self, qid: str, cond: str, reason: str | None = None) -> dict:

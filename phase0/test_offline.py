@@ -3057,26 +3057,48 @@ class AmbiguousAnswerTest(unittest.TestCase):
         self.assertEqual(r["result"], "confirm_required")
         self.assertTrue(r["say"].endswith("よろしかったでしょうか？"), r["say"])
 
-    def test_off_talk_answer_is_asked_again(self):
+    def test_off_talk_answer_is_confirmed_or_asked_again(self):
         # ✅ 2026-10-31 ユーザー：「この部分だけの判断ならAIがあっています。前の分との流れの回答として会話になっていないだけです。それを分かる
-        #    ようにしないと！」⇒ 意味の判定が「会話になっていない」と読めば、言葉の意味の答えで言い直して確かめず、聞き直す（最初の答えも、
-        #    言い直しへの返事も、Flow._check_again の1か所）
-        from flowctl import TALK_WHY
+        #    ようにしないと！」・前に言ったことと逆の返事は「(イ)」⇒ 意味の判定が「会話になっていない」と読み、その読みに意味の答え（選択肢）が
+        #    あれば、その答えを「念のため…でよろしかったでしょうか？」で確かめる（お客様が考えを変えた場合もある）。答えが無ければ聞き直す
+        #    （最初の答えも、言い直しへの返事も、Flow._check_again の1か所）
+        from flowctl import TALK_WHY, UNDECIDED
         from meaning_judge import Reading
-        off = Reading("はい"); off.fits = False
-        f = self.flow()
-        f.use_checks("judge")
-        f.on_callee(); f.on_heard("差し控えさせていただきます。"); f.on_check("judge", off)
-        r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい", "value": "差し控えさせていただきます"})
-        self.assertEqual(r["result"], "ask_back")
+
+        def off(meaning):
+            r = Reading(meaning)
+            r.fits = False
+            return r
+
+        def first(reading, reported="はい"):
+            f = self.flow()
+            f.use_checks("judge")
+            f.on_callee(); f.on_heard("差し控えさせていただきます。"); f.on_check("judge", reading)
+            return f, f.apply("record_answer", {"question_id": "Q1", "condition_id": reported, "value": "差し控えさせていただきます"})
+
+        f, r = first(off("はい"))
+        self.assertEqual(r["result"], "confirm_required")
+        self.assertEqual(r["say"], "念のためご予約はお済みということでよろしかったでしょうか？")   # 言い切っていない答えと同じ言い方
         self.assertTrue(any(TALK_WHY in why for _, _, why in f.items["Q1"].history))
-        # 言い直しへの返事でも、会話になっていなければ聞き直す（言い直す答えが無くても「-」にしない）
-        f = self.flow()
-        f.use_checks("judge")
-        f.on_callee(); f.on_heard("大丈夫です。"); f.on_check("judge", Reading("はい"))
-        self.assertEqual(f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい", "value": "大丈夫です"})["result"], "confirm_required")
-        f.on_callee(); f.on_heard("差し控えさせていただきます。"); f.on_check("judge", off)
-        self.assertEqual(f.apply("confirm_field", {"question_id": "Q1", "result": "affirmed"})["result"], "ask_back")
+        # 判定の読みとAIの報告が違えば、判定の読みで確かめる
+        f, r = first(off("いいえ"))
+        self.assertEqual((r["result"], f.items["Q1"].condition), ("confirm_required", "いいえ"))
+        self.assertTrue(r["say"].startswith("念のため"), r["say"])
+        # 読みに意味の答えが無い（決められない・答えたくない）：聞き直す
+        for reading in (off(UNDECIDED), off("refused")):
+            f, r = first(reading)
+            self.assertEqual(r["result"], "ask_back", str(reading))
+        # 言い直しへの返事：会話になっていず、読みに選択肢があれば念のため確かめ直す・「合っている」だけなら聞き直す（「-」にしない）
+        for reading, want in ((off("はい"), "confirm_required"), (off("affirmed"), "ask_back")):
+            f = self.flow()
+            f.use_checks("judge")
+            f.on_callee(); f.on_heard("大丈夫です。"); f.on_check("judge", Reading("はい"))
+            self.assertEqual(f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい", "value": "大丈夫です"})["result"], "confirm_required")
+            f.on_callee(); f.on_heard("差し控えさせていただきます。"); f.on_check("judge", reading)
+            r = f.apply("confirm_field", {"question_id": "Q1", "result": "affirmed"})
+            self.assertEqual(r["result"], want, str(reading))
+            if want == "confirm_required":
+                self.assertTrue(r["say"].startswith("念のため"), r["say"])
         # 会話になっている読みは、今までどおり（受け取る）
         f = self.flow()
         f.use_checks("judge")
