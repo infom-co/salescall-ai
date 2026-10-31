@@ -3376,6 +3376,21 @@ class AmbiguousAnswerTest(unittest.TestCase):
             ks.check("m", 0.5)
             usage[0] = 1.0 + 0.4 * (i + 1) / YEN_PER_USD   # 額は見込みより少なく、遅れて増える
         self.assertAlmostEqual(ks.yen, 50.0, places=6)
+        # 結果を保存するときの表示には、見込みも並べる（⛔ 同じ日の夜：額の差だけを「約0.0円（83回）」と出し、見張りが働いていないように読めた）
+        import tempfile
+        import unittest.mock as m
+        from pathlib import Path
+
+        import common
+        self.assertEqual(ks.summary()[common.EST_YEN], 50.0)
+        with tempfile.TemporaryDirectory() as d, m.patch.object(common, "say") as said:
+            old_dir, old_ledgers = common.RESULTS_DIR, list(common.LEDGERS)
+            common.RESULTS_DIR, common.LEDGERS[:] = Path(d), [ks]
+            try:
+                common.save_result("TEST", {})
+            finally:
+                common.RESULTS_DIR, common.LEDGERS[:] = old_dir, old_ledgers
+        self.assertTrue(any("見込み約50.0円" in str(c.args[0]) for c in said.call_args_list), said.call_args_list)
 
         def broken():
             raise OSError("no")
@@ -5064,7 +5079,7 @@ class JudgePanelTest(unittest.TestCase):
             self.assertEqual((by, sorted(n for n, _ in calls)), (FAST, sorted([D1, JEV, FAST])))   # どちらも確かでない：考えない Sonnet だけ
         by, calls = run(answer_q, {D1: 0.99, JEV: 0.99})
         self.assertEqual((by, [n for n, _ in calls]), (D1, [D1]))                              # 答えの意味：d1-ultra の確かな読み（Jev は出さない）
-        by, calls = run(answer_q, {D1: 0.5, JEV: 0.99})
+        by, calls = run(answer_q, {D1: sure_line(D1, answer_q) - 0.01, JEV: 0.99})   # 線より下（線の値に寄りかからない）
         self.assertEqual((by, sorted(n for n, _ in calls)), (THINK, sorted([D1, THINK])))     # d1-ultra が確かでない：考える Sonnet（Jev は出さない）
         by, calls = run(answer_q, {D1: 0.99, JEV: 0.99}, down=[D1])
         self.assertEqual(by, THINK)                                                            # d1-ultra が止まったと分かった発話：考える Sonnet

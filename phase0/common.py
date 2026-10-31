@@ -161,6 +161,10 @@ LEDGERS: list = []
 DEV_BUDGET_YEN = 100.0   # 試しで有料の判定に使ってよい円の初めの値（--budget-yen）。大きな測りは、見込みの円を出してから上げる
 
 
+# 料金の帳簿の、見込みの円の項目名（唯一の場所。meaning_judge.KeySpend.summary が入れ、save_result が表示する）
+EST_YEN = "見込みの円（送った回の見込みの和と額の差の大きいほう）"
+
+
 def save_result(item: str, data: dict) -> Path:
     """結果を results/<項目>_<日時>.json に保存する。中身も必ず伏せる。有料の窓口を使っていれば、その料金も入れる。"""
     RESULTS_DIR.mkdir(exist_ok=True)
@@ -172,7 +176,10 @@ def save_result(item: str, data: dict) -> Path:
     path.write_text(redact(json.dumps(payload, ensure_ascii=False, indent=2, default=str)), encoding="utf-8")
     say(f"結果を保存しました：{path}")
     for name, s in spent.items():
-        say(f"{name}に使った料金：約{s['円']}円（{sum(s['回数'].values())}回）")
+        # 鍵の使った額の差は遅れて増える（約50秒）ので、帳簿に見込みがあれば並べる（⛔ 2026-10-31 の夜：「約0.0円（83回）」とだけ出て、上限の
+        # 見張りが働いていないように読めた＝見込みは0.5円で、見張りは働いていた）
+        est = f"・見込み約{s[EST_YEN]}円（額は遅れて増える）" if EST_YEN in s else ""
+        say(f"{name}に使った料金：約{s['円']}円{est}（{sum(s['回数'].values())}回）")
     return path
 
 

@@ -602,10 +602,17 @@ OTHER_JUDGES = {
     #    946件を決め、外れは2（「社内にはいると思います」は表の誤りで直した・残る1つは駐車場の質問への「差し控えさせていただきます」＝PHASE0 G-59）。
     #    ~~⏳ 答えの段の組に入れるのは、Jev も同時に出すか（(ア)）・d1-ultra だけを先に出すか（(a)）のご判断のあと~~ ⇒
     #    ✅ 2026-10-31 の夜 ユーザー：(b)「OK」＝答えの段の組に入れる（d1-ultra → 考える Sonnet。Jev は d1-ultra が止まったときの代わりだけ）。
-    #    ⏳ 線は、会話になっているか（FITS）を外した文で測り直してから決める（外した形で数え直した G-53final では 0.6・幅 0.14〜0.94 で2つの半分とも外れ0）
+    #    ~~⏳ 線は、会話になっているか（FITS）を外した文で測り直してから決める（外した形で数え直した G-53final では 0.6・幅 0.14〜0.94 で2つの半分とも外れ0）~~
+    #    ⇒ 外した文で測った（2026-10-31 の夜・`G-53nofits_20261031_161349.json`・2,817件・約19円）。決まった決め方で、答えの確からしさ 0.50・言い切りの
+    #    どちらとも言えない幅 0.46〜0.94・言い切っているのは 0.94 から上（決める半分で 1,114/1,387 を外れ0）。⏳ 数える半分は 1,158/1,430 を決めて外れ4
+    #    （どれも受け取ってはいけない値を受け取る向きではない＝聞き直す・念のため確かめる向き。「〜のほうがいいですかね」への「決められない」2・事実を
+    #    聞く質問への「区別がつかないのでお任せします」・「届いても見るか分からなくて」の向き＝PHASE0 G-59）＝まだ精度100%ではない。
+    #    ⛔ 前の値（0.77・幅 0.20〜0.92）のまま答えの段に入れていた間は、「ご予約はされていますでしょうか？」への「差し控えさせていただきます」を
+    #    「いいえ」（0.80・言い切り 0.938）と受け取った（受け取ると誤った値が渡る。前の顔ぶれでは Jev が線より下で、考える Sonnet が「答えたくない」と
+    #    読んでいた）＝顔ぶれを入れてから線を測り直す順にしたための穴 ⇒ 決まった決め方の値に入れ替えた（この言葉は幅に入る＝次の判定）
     "d1 Ultra（Liquid）": {"maker": "liquid", "api": "decision", "model": "liquid/d1-ultra-20261015", "key": "OPENROUTER_JUDGE_KEY",
-                          "host": "openrouter.ai", "firm_min": 0.92, "facets_sure_min": 0.6, "asks_sure_min": 0.6,
-                          "sure_min": 0.77, "firm_band": (0.20, 0.92), "group_kinds": CALLING_KINDS + ("other",), "returned_sure_min": 0.6,
+                          "host": "openrouter.ai", "firm_min": 0.94, "facets_sure_min": 0.6, "asks_sure_min": 0.6,
+                          "sure_min": 0.50, "firm_band": (0.46, 0.94), "group_kinds": CALLING_KINDS + ("other",), "returned_sure_min": 0.6,
                           "yen_per_char": 3.1e-6, "prior_min": 0.6},
     "d1.1（Liquid）": {"maker": "liquid", "api": "decision", "model": "liquid/d1.1-20261027", "key": "OPENROUTER_JUDGE_KEY",
                       "host": "openrouter.ai", "firm_min": 0.2},
@@ -1016,11 +1023,12 @@ class KeySpend:
             self.est += cost
 
     def summary(self) -> dict:
+        from common import EST_YEN
         try:
             self.refresh(force=True)
         except OtherJudgeError:
             pass
-        return {"円": round(self.seen_yen, 1), "見込みの円（送った回の見込みの和と額の差の大きいほう）": round(self.yen, 1), "回数": dict(self.calls),
+        return {"円": round(self.seen_yen, 1), EST_YEN: round(self.yen, 1), "回数": dict(self.calls),
                 "数え方": "鍵の使った額の差（同じ鍵を同じ時に使った分も入る・遅れて増えるので、あとで読み直す）",
                 **({"上限の円": self.limit} if self.limit is not None else {})}
 
