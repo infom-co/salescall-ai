@@ -468,7 +468,7 @@ def storage_back(access: Access, tenant_id: UUID) -> bool:
     確定まで call.frozen_after のうちに終わったときだけ True（データベースへの書き込みが戻った＝復旧）。2026-10-31 管理者「数えないで
     OK」（伺い5 の案1）：データベースの一時的な止まりは違う行の数に数えず（errors.counts_rows）、話していた電話はおわびして終え、復旧
     次第おわびとともにかけ直す。戻らないあいだは、その回線は新しい電話をかけない（⛔ 前は、データベースが遅いだけで動いているときは、
-    門が通って次のお客様へかけ、また止まっておわびして終えうた）。書けなければ（誤り）、外の見張りが記録して待つ。"""
+    門が通って次のお客様へかけ、また止まっておわびして終えることがあった）。書けなければ（誤り）、外の見張りが記録して待つ。"""
     limit = access.in_tenant(ACTOR, tenant_id, frozen_after)
     began = time.monotonic()
     access.in_tenant(ACTOR, tenant_id, attempts.write_probe)

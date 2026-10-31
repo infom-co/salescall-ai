@@ -341,6 +341,7 @@ class Places(HealthBase):
         st.seen(line.Round(free=True), 100.0)
         self.assertEqual((st.since, st.began), (None, None))
         s = self.ready()
+        self.report_fixed("CL-2", "line_in_call")   # 修正依頼は全体で1か所（ほかの試験が開いた同じ種類の修正依頼を先に閉じる）
         self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: health.stuck(tx, s["line"], 16 * 60.0))
         got = owner_access().in_tenant(SYSTEM, s["tenant"], lambda tx: tx.one(
             "SELECT table_rows, actions FROM salescall.state_moves WHERE tenant_id = salescall.cur_tenant() AND event = 'E17'"))
@@ -399,6 +400,7 @@ class Doing(HealthBase):
         """2026-10-25 夜 管理者「OK」：見分けられないと返ったら、その続きで1回だけ知らせ、電話をつなぐ部品の直す担当へ修正依頼（同じ
         不具合で1つ）。2回目は知らせない。"""
         s = self.ready()
+        self.report_fixed("CL-2", "test_ring_undecided")   # 修正依頼は全体で1か所（ほかの試験が開いた同じ種類の修正依頼を先に閉じる）
         self.numbered(s)
         x, phone = self.bad_row(s)
         self.finish_others(s, x)
