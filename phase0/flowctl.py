@@ -2732,8 +2732,12 @@ class Flow:
     @staticmethod
     def _judged_off_talk(check: dict) -> str | None | bool:
         """意味の判定が、お客様の言葉は前の質問（と前の会話）への返事として会話になっていないと読んだ（meaning_judge.Reading.fits。答えの段の
-        問い合わせだけが返す＝ほかの読みは、なっている）：そう読んだ判定の読み（中の名前）。どの判定もそう読まなければ False。"""
-        return next((str(check[k]) for k in JUDGMENTS if getattr(check.get(k), "fits", True) is False), False)
+        問い合わせだけが返す＝ほかの読みは、なっている）：そう読んだ判定の読み（中の名前）。どの判定もそう読まなければ False。
+        待つように言った・代わった人が話し始めた、の読みは答えではないので当てない（待つ・名乗る、の道が受け持つ）。⛔ 2026-10-31 の昼（G-53）：
+        「わかる者に代わりますので、少しお待ちいただけますか。」を、d1-ultra も Jev も「取り次ぎを待つ」と正しく読み、会話になっていないとも
+        読んだ＝待たずに聞き直す側へ回った"""
+        return next((str(check[k]) for k in JUDGMENTS
+                     if getattr(check.get(k), "fits", True) is False and check.get(k) not in (HOLD, HANDOVER)), False)
 
     @staticmethod
     def _judged_unsure(check: dict) -> bool:

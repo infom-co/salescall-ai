@@ -106,8 +106,11 @@ FIRM = "firm"
 #       いない）まで言い切っていないと読んだ。答えの理由を言って止めた「実は都合が悪くなりまして」・もう一方を打ち消した「現金振り込みは
 #       使いたくないです」も、言い切りとして書いていなかった ⇒ 推し量りは人や物・出来事の様子のこと・途中のことから推し量った答え、と書き、
 #       言い切りに、その4つの意味を足した
-LEAN = ("お客様が答えについて言ったこと（その答えだと言った・そう思っている・そう聞いている・そう望んでいる、または、言ったことから必ずその答えに"
-        "なること）")
+#    ⛔ 2026-10-31 の昼（G-70：「複合機は去年買い取りました。」のあとの「そうです。」）：答えを「お客様が言ったこと」と書き、いまの言葉か前に
+#       話したことかを決めていなかった＝d1-ultra も Jev も、前に話したことから答え（リースではない）を選んだ ⇒ 答えは、いまの言葉から選び、
+#       前に話したことは、いまの言葉がそれを指しているときに中身を補うだけ（食い違いは会話になっているか＝FITS で答える）
+LEAN = ("お客様のいまの言葉が答えについて言ったこと（その答えだと言った・そう思っている・そう聞いている・そう望んでいる、または、言ったことから"
+        "必ずその答えになること。" + BEFORE + "は、いまの言葉が前に話したことを指している・省いて言ったときに、その中身を補うためだけに使う）")
 FIRM_NOT = ("答えに寄っているが、答えそのものを弱める・覆しうることを残している（人や物・出来事の様子を推し量った・人から聞いたこと・まだ途中のことから"
             "推し量った・条件・言わずに残した逆の事情・質問が聞いている時と違う時のこと・質問より狭い範囲だけの答え）")
 FIRM_YES = ("質問が聞いていることについて、答えを決めている（柔らかい言い方・自分の望みや予定を柔らかく言った・およその数・まだ途中であることそのものが"
@@ -119,10 +122,17 @@ FIRM_RULE = ("答えは、" + LEAN + "で選びます。確かめていない・
 #    定義 JEV_FITS を、ここから作る）。✅ 2026-10-31 の昼 ユーザー：「『差し控えさせていただきます』だけだと『利用しない』になるのは当然。この部分
 #    だけの判断ならAIがあっています。前の分との流れの回答として会話になっていないだけです。それを分かるようにしないと！」（10-30：「本当にお客様が
 #    『差し控えさせていただきます』なら会話になっていない。文字起こしが間違っている可能性も考えるべき」）。流れの制御は、会話になっていないと読めば、
-#    受け取らずに聞き直す（flowctl.TALK_WHY・Flow._check_again）
+#    受け取らずに念のため確かめるか聞き直す（flowctl.TALK_WHY・Flow._check_again）
+#    ⛔ 2026-10-31 の昼（G-70・G-53 で測った）：分かれ目を「流れがつながらない」としか書かなかった ⇒ (1) 前に言ったことと逆の返事（「車で伺うので、
+#       駐車場を使わせてください。」のあとの「差し控えさせていただきます」）を、d1-ultra も Jev も6回とも会話になっていると読んだ (2) 答えを拒んだ・
+#       理由だけを言った・わからない・迷った・待つように言った返事を、前の会話の無い試し（G-53）で d1-ultra は124・Jev は120、会話になっていないと
+#       読んだ（本当に会話になっていないのは、記録の通話の聞き違いの言葉だけ）⇒ 両側を意味で書いた（言葉の形の例は書かない）
 FITS = "fits"
-FITS_NOT = "言葉の意味は答えに当たっても、前の質問（と前の会話）への返事としては流れがつながらず、会話になっていない（聞き違い・言い違いを疑う）"
-FITS_YES = "前の質問（と前の会話）への返事として、会話になっている"
+FITS_NOT = ("いまの言葉が、前の質問への返事として筋が通らない（質問と関わりのないことを言った・聞き違いや言い違いでなければ出てこない言葉）か、"
+            + BEFORE + "と合わない（前に言ったことと逆のことを、考えを変えたとは言わずに言った）。聞き違い・言い違いを疑う")
+FITS_YES = ("前の質問への返事として筋が通り、" + BEFORE + "とも合う（答えを言わない返事＝わからない・答えたくない・理由だけを言った・迷った・"
+            "聞き返した・待つように言った・代わった人が話し始めた、も、質問への返事として筋が通っていれば、会話になっている。前に言ったことを変えると"
+            "言って答えたのも、会話になっている）")
 FITS_RULE = ("会話になっているか（" + FITS + "）は、" + FITS_NOT + "なら false、" + FITS_YES + "なら true です（答えは言葉の意味で選び、"
              "会話になっているかは、ここだけで答えます）。")
 
@@ -694,7 +704,7 @@ JEV_FIRM = {"true": FIRM_YES, "false": FIRM_NOT}
 JEV_FITS = {"true": FITS_YES, "false": FITS_NOT}
 # 判断のモデルの印の問い（答えの段だけ＝answer_marks。定義は上の1か所から）
 JEV_MARKS = {FIRM: ("お客様は、その答えを言い切っていますか？", JEV_FIRM),
-             FITS: ("お客様の言葉は、前の質問（と前の会話）への返事として、会話になっていますか？", JEV_FITS)}
+             FITS: ("お客様のいまの言葉は、前の質問への返事として、また" + BEFORE + "と並べて、会話になっていますか？", JEV_FITS)}
 # 会話になっているとする確からしさの線（判断のモデル）。⏳ 2026-10-31：まだ測っていない＝半分で切る仮の線（決まった決め方で決めて、判定ごとの
 #    fits_min に入れる）
 FITS_LINE = 0.5
@@ -820,6 +830,105 @@ class Spend:
 SPEND = Spend()
 
 
+class KeySpend:
+    """OpenRouter の鍵の使った額で数える帳簿（測りの --budget-yen のときだけ。OpenRouter の判定＝d1-ultra・Jev などは、返事に料金が無く、Spend の
+    帳簿を通らない）。鍵の使った額（ドルの累計＝/api/v1/key。読むのは無料）を、はじめと、送る前に EVERY_S 秒おきに読み、はじめからの差が上限に
+    達したら、それより後は送らずに失敗にする（Spend.check と同じ扱い）。同じ鍵を同じ時に使った分も入る（多めに数える側）。読めなければ止める側。
+    ⛔ 2026-10-31 の昼：--budget-yen 50 を付けて流したが、OpenRouter の分を数える所が無く、上限で止まらなかった（ご承認の約51円に対して、
+    G-70 と G-53 で約53円＝2回続けて見込みを超えた）。鍵の使った額は遅れて増える（同じ日の G-53：途中で読んだ額が、あとから見ると約50秒分＝
+    約10円少なかった）⇒ 上限には、まだ額に出ていない最近 LAG_S 秒の回数ぶんを、それまでの1回あたりの額（額がまだ増えないうちは PRIOR_YEN）で
+    足した見込みを当てる"""
+    name = "OpenRouter の鍵"
+    EVERY_S = 5.0
+    LAG_S = 90.0
+    PRIOR_YEN = 0.03   # 1回の見込みの円（額がまだ増えないうち。同じ日の G-53 の d1-ultra と Jev の1回の平均 約0.009円の3倍）
+
+    def __init__(self, read=None):
+        import threading
+        from collections import Counter
+        self.calls, self.limit, self.start, self.now, self.read_at = Counter(), None, None, None, 0.0
+        self._read, self._lock, self.marks = read, threading.Lock(), []   # marks＝(送った時刻, それまでの回数)
+
+    def bind(self, key: str, limit: float) -> None:
+        """上限と、使った額を読む道具（鍵は持たずに、読む関数だけを持つ）。はじめの額は最初の1回だけ読む。"""
+        import time
+
+        import httpx
+
+        def read() -> float:
+            r = httpx.get("https://openrouter.ai/api/v1/key", headers={"authorization": f"Bearer {key}"}, timeout=20)
+            r.raise_for_status()
+            return float(r.json()["data"]["usage"])
+        self.limit, self._read = limit, self._read or read
+        with self._lock:
+            if self.start is None:
+                self.start = self.now = self._read()
+                self.read_at = time.monotonic()
+
+    @property
+    def seen_yen(self) -> float:
+        """鍵の使った額の差（遅れて増えるので、少なめに出る）。"""
+        return 0.0 if self.start is None else (self.now - self.start) * YEN_PER_USD
+
+    @property
+    def yen(self) -> float:
+        """見込みの円：鍵の使った額の差＋まだ額に出ていない最近 LAG_S 秒の回数 × 1回あたりの円。"""
+        import bisect
+        seen = bisect.bisect_right(self.marks, (self.read_at - self.LAG_S, float("inf")))
+        seen_calls = self.marks[seen - 1][1] if seen else 0
+        total = sum(self.calls.values())
+        per = self.seen_yen / seen_calls if seen_calls and self.seen_yen > 0 else self.PRIOR_YEN
+        return self.seen_yen + (total - seen_calls) * per
+
+    def refresh(self, force: bool = False) -> None:
+        import time
+        with self._lock:
+            if self._read is None or (not force and time.monotonic() - self.read_at < self.EVERY_S):
+                return
+            try:
+                self.now = self._read()
+            except Exception as exc:   # 読めなければ止める側（上限を守れないまま送らない）
+                raise OtherJudgeError(None, f"鍵の使った額が読めないので送りません（--budget-yen）：{type(exc).__name__}") from exc
+            self.read_at = time.monotonic()
+
+    def check(self, model: str) -> None:
+        if self.limit is None:
+            return
+        self.refresh()
+        import time
+        with self._lock:
+            if self.yen + self.PRIOR_YEN > self.limit:
+                raise OtherJudgeError(None, f"この試しで使ってよい料金（{self.limit:.0f}円）に達するので送りません（--budget-yen・鍵の使った額の見込み）")
+            self.calls[model] += 1
+            self.marks.append((time.monotonic(), sum(self.calls.values())))
+
+    def summary(self) -> dict:
+        try:
+            self.refresh(force=True)
+        except OtherJudgeError:
+            pass
+        return {"円": round(self.seen_yen, 1), "見込みの円（まだ額に出ていない分を含む）": round(self.yen, 1), "回数": dict(self.calls),
+                "数え方": "鍵の使った額の差（同じ鍵を同じ時に使った分も入る・遅れて増えるので、あとで読み直す）",
+                **({"上限の円": self.limit} if self.limit is not None else {})}
+
+
+KEY_SPEND = KeySpend()
+
+
+class _KeyMetered:
+    """OpenRouter へ送る httpx の道具を包む：送る前に KEY_SPEND.check で上限を確かめる（ほかはそのまま渡す）。"""
+
+    def __init__(self, client, aio: bool):
+        self._client, self._aio = client, aio
+
+    def __getattr__(self, attr):
+        return getattr(self._client, attr)
+
+    def post(self, path, json=None, **kw):
+        KEY_SPEND.check((json or {}).get("model", "?"))
+        return self._client.post(path, json=json, **kw)
+
+
 class _Metered:
     """Anthropic の部品の messages.create を包む：送る前に上限を確かめ（SPEND.check）、返事の使った量を帳簿に数えてから返す。
     返事を待たずに止められたら（first_of が先に届いた答えで決めた）、止めた回数に数える。"""
@@ -904,9 +1013,19 @@ def other_client(name: str, key: str, aio: bool = False, budget: float | None = 
         return _Metered((anthropic.AsyncAnthropic if aio else anthropic.Anthropic)(api_key=key, max_retries=0, timeout=60, http_client=http), aio)
     import httpx
 
-    return (httpx.AsyncClient if aio else httpx.Client)(base_url=f"https://{OTHER_JUDGES[name]['host']}", timeout=60,
+    http = (httpx.AsyncClient if aio else httpx.Client)(base_url=f"https://{OTHER_JUDGES[name]['host']}", timeout=60,
                                                         headers={"authorization": f"Bearer {key}"},
                                                         limits=httpx.Limits(keepalive_expiry=KEEPALIVE_S))
+    if budget is None:
+        return http
+    if OTHER_JUDGES[name]["host"] != "openrouter.ai":   # 使った額を数える道が無い窓口に、上限つきでは送らない
+        raise OtherJudgeError(None, f"{name} は使った額を数えられないので、--budget-yen つきでは送りません")
+    from common import LEDGERS
+
+    KEY_SPEND.bind(key, budget)
+    if KEY_SPEND not in LEDGERS:
+        LEDGERS.append(KEY_SPEND)
+    return _KeyMetered(http, aio)
 
 
 def _other_error(exc: BaseException) -> OtherJudgeError | None:

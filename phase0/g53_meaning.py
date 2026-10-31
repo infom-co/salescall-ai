@@ -338,7 +338,7 @@ def flow_act(it: dict, q: Question, got, firm, fits=True) -> str | None:
     ✅ 2026-10-31 ユーザー：前に言ったことと逆の返事は「(イ)」＝念のため言い直して確かめる）。"""
     if got is None:
         return None
-    if fits is False:
+    if fits is False and got not in (HOLD, HANDOVER):   # 待つ・代わった人の読みには当てない（Flow._judged_off_talk と同じ）
         if got not in q.conditions and got != ANY:
             return ASK_AGAIN
         return RECHECK if it["set"] == "D" else f"念のため確かめる：{got}"

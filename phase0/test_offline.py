@@ -3159,6 +3159,71 @@ class AmbiguousAnswerTest(unittest.TestCase):
         self.assertTrue(read(q, json.dumps({"choice": "はい", "firm": True})).fits)
         self.assertFalse(read(q, json.dumps({"choice": "はい", "firm": True, FITS: False})).fits)
 
+    def test_off_talk_is_not_applied_to_hold_or_handover(self):
+        # ⛔ 2026-10-31 の昼（G-53）：「わかる者に代わりますので、少しお待ちいただけますか。」を「取り次ぎを待つ」と正しく読み、会話になっていない
+        #    とも読んだ＝待たずに聞き直す側へ回った ⇒ 待つように言った・代わった人の読みには、会話になっているかを当てない（答えではない）
+        from flowctl import HANDOVER, HOLD, Flow
+        from g53_meaning import ASK_AGAIN, flow_act, g48_questions
+        from meaning_judge import Reading
+        for got in (HOLD, HANDOVER):
+            r = Reading(got)
+            r.fits = False
+            self.assertIs(Flow._judged_off_talk({"judge": r}), False, got)
+        q = {q.id: q for q in g48_questions()}["G6"]
+        self.assertNotEqual(flow_act({"set": "C"}, q, HOLD, True, False), ASK_AGAIN)
+        self.assertEqual(flow_act({"set": "C"}, q, "利用しない", True, False), "念のため確かめる：利用しない")
+
+    def test_answer_text_reads_only_the_words_now(self):
+        # ⛔ 2026-10-31 の昼（G-70）：答えを「お客様が言ったこと」と書き、いまの言葉か前に話したことかを決めていなかった＝前に話したことから答えを
+        #    選んだ ⇒ 答えは、いまの言葉から（前に話したことは、いまの言葉がそれを指すときに補うだけ）。会話になっているかの分かれ目は、前に
+        #    話したことと合うか・質問への返事として筋が通るか（答えを言わない返事も、筋が通れば会話になっている）
+        from flowctl import BEFORE
+        from meaning_judge import FIRM_RULE, FITS_NOT, FITS_YES, JEV_MARKS, LEAN, FITS
+        self.assertIn("いまの言葉", LEAN)
+        self.assertIn(BEFORE, LEAN)
+        self.assertIn(LEAN, FIRM_RULE)
+        for text in (FITS_NOT, FITS_YES, JEV_MARKS[FITS][0]):
+            self.assertIn(BEFORE, text)
+        self.assertIn("答えたくない", FITS_YES)
+
+    def test_key_spend_stops_at_the_limit(self):
+        # ⛔ 2026-10-31 の昼：--budget-yen を付けても、OpenRouter の分（d1-ultra・Jev）を数える所が無く、上限で止まらなかった ⇒ 鍵の使った額の差で
+        #    上限を守る（送る前に読み直す・読めなければ送らない）
+        from meaning_judge import YEN_PER_USD, KeySpend, OtherJudgeError
+        usage = [1.0]
+        ks = KeySpend(read=lambda: usage[0])
+        ks.EVERY_S = 0.0
+        ks.bind("dummy", 30.0)
+        ks.check("m")
+        usage[0] = 1.0 + 29 / YEN_PER_USD
+        ks.check("m")
+        usage[0] = 1.0 + 31 / YEN_PER_USD
+        with self.assertRaises(OtherJudgeError):
+            ks.check("m")
+        self.assertEqual(ks.summary()["回数"], {"m": 2})
+        self.assertAlmostEqual(ks.summary()["円"], 31.0, places=1)
+
+        # 使った額がまだ増えない（遅れ）うちも、回数 × 1回の見込みで止まる
+        ks = KeySpend(read=lambda: 1.0)
+        ks.EVERY_S = 0.0
+        ks.bind("dummy", 1.0)
+        sent = 0
+        with self.assertRaises(OtherJudgeError):
+            for _ in range(1000):
+                ks.check("m")
+                sent += 1
+        self.assertLessEqual(sent * ks.PRIOR_YEN, 1.0)
+        self.assertGreater((sent + 2) * ks.PRIOR_YEN, 1.0)
+
+        def broken():
+            raise OSError("no")
+        ks = KeySpend(read=lambda: 1.0)
+        ks.EVERY_S = 0.0
+        ks.bind("dummy", 30.0)
+        ks._read = broken
+        with self.assertRaises(OtherJudgeError):   # 読めなければ送らない
+            ks.check("m")
+
     def test_unsure_first_answer_is_confirmed(self):
         # 最初の答えは、意味の判定が言い切っていないと読めば、言い直して確かめる（言い切っていない答えの決まりと同じ）
         from meaning_judge import Reading

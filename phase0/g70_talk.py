@@ -7,6 +7,7 @@
 「念のため…でよろしかったでしょうか？」で確かめる・答えが無ければ聞き直す。✅ 2026-10-31 ユーザー「(イ)」＝お客様が考えを変えた場合もある）に並べる。
 前の流れは、答えの段の判定に渡す「その前に相手が言ったこと」（flowctl.Flow.judge_context の answer_words）と同じ形で渡す。
 正解はここに書いた（作らせたモデルの正解ではない）。A の組は 2026-10-31 にご確認済み・B〜F も同じ日にご確認済み（「(a) OK」）。
+G の組は、分かれ目の向こう側の案（⏳ ご確認待ち）。
 回帰と並べて流さない（判定の鍵を取り合う）。
 """
 from __future__ import annotations
@@ -33,6 +34,10 @@ CASES = [
     ("E2", "まだどこにも予約していないんです。", "G31", "はい、しています。", ("している",), False, False, True),
     ("F1", "その日は空いています。", "G9", "参加します。", ("参加する",), False, True, True),
     ("F2", "その日は出張でおりません。", "G9", "はい、参加します。", ("参加する",), False, False, True),
+    # 分かれ目の向こう側（2026-10-31 の昼に足した案＝⏳ ご確認待ち）：前に言ったことを変えると言って答えた（会話になっている）・いまの言葉が
+    #    前に話したことを指している（前に話したことで答えを補う）
+    ("G1", "車で伺うので、駐車場を使わせてください。", "G6", "やっぱり電車で行くことにしたので、利用しません", ("利用しない",), False, True, False),
+    ("G2", "駐車場を使わせてください。", "G6", "先ほど申し上げたとおりです", ("利用する",), False, True, False),
 ]
 
 
@@ -80,7 +85,7 @@ def main() -> None:
     summary = {}
     for n in names:
         for part, pick in (("会話になっていない組", lambda r: not r["talk"]), ("会話になっている組", lambda r: r["talk"]),
-                           ("ご確認済み", lambda r: r["checked"])):
+                           ("ご確認済み", lambda r: r["checked"]), ("案（ご確認待ち）", lambda r: not r["checked"])):
             got = [r for r in rows if pick(r) and n in r]
             summary[f"{n}・{part}"] = f"{sum(1 for r in got if r[f'{n}正しい'])}/{len(got)}"
     say("数え：", json.dumps(summary, ensure_ascii=False))
