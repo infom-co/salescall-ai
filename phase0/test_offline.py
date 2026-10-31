@@ -5457,7 +5457,10 @@ class JudgePanelTest(unittest.TestCase):
         self.assertEqual(self.ask(panel, "judge").by, self.JEV)
         self.ask(panel, "judge")
         self.assertEqual(calls, [self.LITE, self.JEV, self.LITE, self.JEV])
-        self.assertTrue(all(outage(e) for e in (OtherJudgeError(429, ""), OtherJudgeError(403, ""), OtherJudgeError(None, ""),
+        self.assertFalse(outage(OtherJudgeError(400, "形が違う")))
+        # 残高不足（402）も、足すまで続く止まり（⛔ 2026-10-31 の夜：中身の断りと同じに扱い、代わりも一時停止の印も付かなかった）
+        self.assertTrue(all(outage(e) for e in (OtherJudgeError(429, ""), OtherJudgeError(403, ""), OtherJudgeError(402, "Insufficient credits"),
+                                                 OtherJudgeError(None, ""),
                                                  TimeoutError(), RuntimeError("どのキーでも使えません"))))
 
     def test_slow_judge_is_cut_and_replaced(self):
