@@ -52,7 +52,7 @@ from datetime import date, datetime, time, timedelta
 from salescall.core.calling_hours import JST, callee_range, clock_seconds
 
 # 読み方の版（読み方を変えたら上げる）。判定の版（judge.JUDGE_VERSION）に入る＝上げると、読めなかった「判定待ち」の行が判定し直される
-VERSION = "16"   # 16：午前・午後は、お客様の営業時間かお客様指定の歯止め時間のどちらかに入る時刻で決め、始まり・終わりちょうども入れる（2026-10-24 ユーザー＝CL-1 の連絡帳 4-31。会話の側の fill_ampm と1本化。見直し19c）。15：日のすぐあとの「以降・から」（その日から終わり無し）・「ごろ」（その日）・「まで」（「〇時まで」と同じく、いま電話を続けられなかった理由で決める）を読む（2026-10-24。main の報告の「来月の5日以降」を読めず判定できないにしていた）。14：「〇時までに確認しておきます」の「〇時から1回分」・時刻ちょうどの約束の1回分の終わりは、こちらが作った端（口にした端に入れない。始まりが歯止め時間の外なら確かめが要る・中なら終わりを歯止め時間で切る＝callee_range の made）・「毎週月曜」を読む（見直し18）。13：「〇時まで」（終わりだけを口にした幅）は、いま電話を続けられなかった理由で、かけてよい時間を決める（理由が分からなければ確かめる。2026-10-23 ユーザー：「かけ直さないといけない理由によるでしょ」）。12：その「23時以降なら」「朝6時まで」を確かめて「はい」なら、口にした端から1回分（callback.exact_slot）の幅（2026-10-23 ユーザー：「案B＆案A(確かめたうえで案A)」）。11：お客様が口にした端の反対側を「お客様指定の歯止め時間」で埋めると空になる幅（「23時以降なら」「朝6時まで」）は、通話の中で確かめる（見直し16b）。10：日を言わない約束の今日の回は、お客様が言った日（day_said。見直し16）
+VERSION = "17"   # 17：お客様がその日を言った（依頼者の休みの日でもかける）のは、名指しの日（1日だけの日・週末・日の種類）と日を言わない今日の回だけ。範囲（「月末」「来週」「週中」「来月」「〇日以降」「2、3日後」など）は依頼者のかける日の中だけでかける（2026-10-31 管理者：伺い4 の案1。⛔ 前は範囲でも休みの日にかけ、「月末」で土日に9本かけた）。16：午前・午後は、お客様の営業時間かお客様指定の歯止め時間のどちらかに入る時刻で決め、始まり・終わりちょうども入れる（2026-10-24 ユーザー＝CL-1 の連絡帳 4-31。会話の側の fill_ampm と1本化。見直し19c）。15：日のすぐあとの「以降・から」（その日から終わり無し）・「ごろ」（その日）・「まで」（「〇時まで」と同じく、いま電話を続けられなかった理由で決める）を読む（2026-10-24。main の報告の「来月の5日以降」を読めず判定できないにしていた）。14：「〇時までに確認しておきます」の「〇時から1回分」・時刻ちょうどの約束の1回分の終わりは、こちらが作った端（口にした端に入れない。始まりが歯止め時間の外なら確かめが要る・中なら終わりを歯止め時間で切る＝callee_range の made）・「毎週月曜」を読む（見直し18）。13：「〇時まで」（終わりだけを口にした幅）は、いま電話を続けられなかった理由で、かけてよい時間を決める（理由が分からなければ確かめる。2026-10-23 ユーザー：「かけ直さないといけない理由によるでしょ」）。12：その「23時以降なら」「朝6時まで」を確かめて「はい」なら、口にした端から1回分（callback.exact_slot）の幅（2026-10-23 ユーザー：「案B＆案A(確かめたうえで案A)」）。11：お客様が口にした端の反対側を「お客様指定の歯止め時間」で埋めると空になる幅（「23時以降なら」「朝6時まで」）は、通話の中で確かめる（見直し16b）。10：日を言わない約束の今日の回は、お客様が言った日（day_said。見直し16）
 AT, WINDOW, UNSPECIFIED, CONFIRM, UNREADABLE = "at", "window", "unspecified", "confirm", "unreadable"
 # 幅の中でお客様と話せなかったときの、次の回（お客様がその日を選んだ理由に合わせる。2026-10-19 ユーザー決定）：
 # DAY＝時間の言葉（「夕方」「3時以降」）・日の種類だけ（「平日なら」）・「すぐ」⇒ 次の日の同じ幅／WEEK＝曜日・週末・週中・
@@ -60,6 +60,7 @@ AT, WINDOW, UNSPECIFIED, CONFIRM, UNREADABLE = "at", "window", "unspecified", "c
 # 会話の報告の callback.cycle＝month）があるときだけ ⇒ 次の月の同じ日・頃（ユーザー：「たまたま希望日が月末・月の初め・上旬に
 # あたった場合が多い」）／None＝理由の分からない日（「13日」「明日」「3日後」「来週」）⇒ 時刻の決まっていない約束の方針
 DAY_REPEAT, WEEK = "day", "week"
+_WEEKEND_CYCLE = "week:end"   # 日の選び方のうち「週末」（土日を名指し＝お客様がその日を言った。話せなければ WEEK と同じ＝`_repeat`）
 DAY = 24 * 3600
 H = 3600
 # お客様の営業時間・お客様指定の歯止め時間・1回分の長さの初めの値は、設定の1か所（データベース）にだけある（ここに写しを持たない。
@@ -347,7 +348,7 @@ def _day_part(t: str, today: date) -> tuple[tuple[date, date] | None, str | None
         if m.group("week") is None and today.weekday() == 6:
             raise _Ambiguous("今日は日曜日なので、今日のことか来週末か決まりません")
         monday = _week_monday(today, m.group("week") or "今週")
-        return (monday + timedelta(days=5), monday + timedelta(days=6)), None, m.end(), WEEK   # 同上
+        return (monday + timedelta(days=5), monday + timedelta(days=6)), None, m.end(), _WEEKEND_CYCLE   # 同上
     if m := _WEEK.match(t):
         monday = _week_monday(today, m.group("week"))
         return (max(monday, today), monday + timedelta(days=6)), None, m.end(), None
@@ -597,8 +598,8 @@ def read(text: str | None, now: datetime, *, business_hours: tuple[int, int], li
             days = (last, last)
         else:
             raise ValueError(f"「〇日まで」の決め方が違います：{until!r}")
-    # お客様がその日（日・曜日・日の種類）を言った。日を言わなければ今日の回＝いま話している日なので、言った日（見直し16）
-    day_said = True
+    # お客様がその日を言ったか（依頼者の休みの日でもかける根拠。1か所＝`_named_day`）
+    day_said = _named_day(days, kinds, cycle)
     if days is None:
         if kind == "whole" and kinds is None:
             return _unreadable("日も時刻もありません")
@@ -653,10 +654,22 @@ def read(text: str | None, now: datetime, *, business_hours: tuple[int, int], li
                    said=said, day_said=day_said)
 
 
+def _named_day(days: tuple[date | None, date | None] | None, kinds: tuple[str, ...] | None, cycle: str | None) -> bool:
+    """お客様がその日を言ったか（Reading.day_said。依頼者の休みの曜日・祝日でもかける根拠。1か所）。2026-10-31 管理者：伺い4 の案1
+    「名指しの日（「13日」「週末」）だけ休みの日でもかけ、範囲（「月末」「来週」）は依頼者のかける日の中だけでかける」。
+    言った＝日を言わない今日の回（いま話している日。見直し16）・1日だけの日（「13日」「明日」「金曜」「週明け」「3日後」「〇日までに
+    確認」の その日）・週末（土日を名指し）・日の種類（「土日祝なら」「平日なら」）。言っていない＝範囲（「月末」「月の初め」「来週」
+    「今週中」「週中」「来月」「来年」「〇日以降」「〇日まで（今から）」「2、3日後」）。⛔ 前は範囲でも休みの日にかけた（試しでは
+    「月末」で土曜に5本・日曜に4本）。"""
+    if days is None or kinds is not None or cycle == _WEEKEND_CYCLE:
+        return True
+    return days[1] is not None and days[0] == days[1]
+
+
 def _repeat(cycle: str | None, daily: tuple[int, int] | None, monthly: bool) -> str | None:
     """話せなかったときの次の回の決め方（1か所。お客様がその日を選んだ理由に合わせる＝DAY_REPEAT の上の説明）。
     曜日・週末は時間の言葉より強い（「金曜の夕方」＝次の金曜の夕方）。"""
-    if cycle == WEEK:
+    if cycle in (WEEK, _WEEKEND_CYCLE):
         return WEEK
     if cycle is not None and cycle.startswith("month:") and monthly:
         return cycle

@@ -415,7 +415,10 @@ def after_call(tx: Tx, attempt_id: UUID, *, report: Any = None) -> None:
         # 崩さないよう、番号の欄を鍵なしで先に読む。鍵を取ったあとの番号の欄で決め直し、取った回線にだけ E20 を渡す。2026-10-30 夜 管理者）
         pre = tx.one("SELECT state FROM salescall.number_states WHERE contact_id = %s", (a["contact_id"],))
         wants += [(LINE, other) for other in sorted(_audio_lines(pre) - {line_id})]
-    if code in ("E3", "E5"):   # 契約者の欄へも渡す出来事（C-1・C-3）
+    # 契約者の欄へも渡す出来事（C-1・C-3）。こちらの不具合（E3）は、違う行の数に数える種類だけ（errors.counts_rows の1か所。
+    # データベースの一時的な止まりは数えない＝2026-10-31 管理者）
+    to_tenant = code == "E5" or (code == "E3" and errors.counts_rows(a["kind"]))
+    if to_tenant:
         wants.append((TENANT, run.tenant))
     if code == "E5":           # 復旧を待つ行へも渡す（R-6。同じ契約者のどの行でも）
         wants.append((TASK, Stages(("await_recovery",))))
@@ -437,7 +440,7 @@ def after_call(tx: Tx, attempt_id: UUID, *, report: Any = None) -> None:
         sends = [(line, ev), (task, ev), (num, ev), (att, ev)]
     elif code == "E3":
         ev = hr.Event("E3", at, attempt=me, kind=a["kind"], task=str(a["task_id"]), rang=a["rang"], answered=a["answered"])
-        sends = [(line, ev), (task, ev), (ten, ev), (att, ev)]
+        sends = [(line, ev), (task, ev), (att, ev)] + ([(ten, ev)] if to_tenant else [])
     elif code == "E4":   # 行への分は締めのあと（`after_settle`）
         # ほかの回線でも聞き取れなかったお客様＝お客様の回線のせい（表の L-3・L-34。2026-10-30 夜 管理者）：この回線へは、その回線を添えて
         # 渡し、その回線へは E20（声の続きから外し、お客様の回線のせいと見た続きに数える）

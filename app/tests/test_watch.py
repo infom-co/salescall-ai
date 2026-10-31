@@ -443,6 +443,14 @@ class TenantAiStopsAndChecks(unittest.TestCase):
             with self.subTest(code=code):
                 self.assertEqual(errors.classify(ErrorReport("judge", code, said)), "spend_limit")
         self.assertEqual(errors.classify(ErrorReport("judge", 400, "試験：中身の形が違う")), "judge_rejected")   # 文が無ければ今までどおり
+        # 残高不足（402＝支払いの件だけの番号。2026-10-31 の夜の実測：OpenRouter の「402 残高不足」）も、文を問わず管理者の支払いの件。
+        # ⛔ 前は意味の判定の 400 番台として「中身が断られた」に入り、1時間続くと CL-1 へ修正依頼になった
+        for source in ("judge", "ai", "ear"):
+            with self.subTest(source=source):
+                self.assertEqual(errors.classify(ErrorReport(source, 402, "試験：Insufficient credits")), "spend_limit")
+        self.assertEqual(errors.classify(ErrorReport("delivery", 402, None)), "delivery")   # 依頼者の側の支払いの件（管理者の AI ではない）
+        self.assertEqual(errors.classify(ErrorReport("judge", 402, None)), "spend_limit")
+        self.assertEqual(errors.classify(ErrorReport("judge", 403, None)), "judge_key")                  # ほかの番号は今までどおり
         self.assertEqual(errors.classify(ErrorReport("judge", 429, None)), "judge_outage")
         a = errors.ACTIONS["spend_limit"]
         self.assertEqual((a.fixer, a.lasting_fixer, a.stop_cause, a.notify), (None, None, None, False))

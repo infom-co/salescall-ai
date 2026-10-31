@@ -95,6 +95,7 @@ class Round:
     pause: str | None = None
     free: bool = False
     until: datetime | None = None
+    storage: bool = False   # かけた電話を、データベースが止まって終えた（storage_stuck）：次の電話の前に、書き込みが戻ったかを確かめる
 
 
 @dataclass
@@ -169,6 +170,7 @@ class _Call:
         self.end_at: float | None = None   # 終えると決めた時刻
         self.finishing = False             # 書き手が、試行を終わった状態（ended_at のある状態）へ移せた（書けたあとに立てる）
         self.troubled = False              # こちらのプログラムの不具合として終え、伝えた（同じ出来事を見守り役の誤りに重ねない）
+        self.end_reason: str | None = None  # 終えると決めた理由（`_end`。storage_stuck なら、回線は書き込みが戻るまで次の電話をかけない）
         self.over_at: float | None = None  # おわびして切り終えた時刻（終えると決めて、進行中でなかったときも）
         self._over = threading.Event()    # おわびして切り終えた
         self._closed = False               # 片付けた（このあとは終えない）
@@ -331,6 +333,7 @@ class _Call:
         if reason != "storage_stuck" and not drained and (not self._drain(self._finish_ticket) or self._stalled()):
             reason, what, why = "storage_stuck", f"データベースへの書き込みが進みません（{what}）", None
         recorded = False
+        self.end_reason = reason
         stuck = reason == "storage_stuck"
 
         def record(tx: Tx) -> tuple[bool, bool]:   # 終えた・こちらの不具合か（決まりはデータベースの trouble_ours の1か所。0141）
@@ -460,6 +463,18 @@ def call_limits(tx: Any) -> CallLimits:
     return CallLimits(frozen_after(tx))
 
 
+def storage_back(access: Access, tenant_id: UUID) -> bool:
+    """データベースが止まって電話を終えた回線が、次の電話をかけてよいか（1か所）：いちばん小さな書き込み（core/attempts.write_probe）が、
+    確定まで call.frozen_after のうちに終わったときだけ True（データベースへの書き込みが戻った＝復旧）。2026-10-31 管理者「数えないで
+    OK」（伺い5 の案1）：データベースの一時的な止まりは違う行の数に数えず（errors.counts_rows）、話していた電話はおわびして終え、復旧
+    次第おわびとともにかけ直す。戻らないあいだは、その回線は新しい電話をかけない（⛔ 前は、データベースが遅いだけで動いているときは、
+    門が通って次のお客様へかけ、また止まっておわびして終えうた）。書けなければ（誤り）、外の見張りが記録して待つ。"""
+    limit = access.in_tenant(ACTOR, tenant_id, frozen_after)
+    began = time.monotonic()
+    access.in_tenant(ACTOR, tenant_id, attempts.write_probe)
+    return time.monotonic() - began <= limit
+
+
 def _claim(tx: Any, task: dict[str, Any], line_id: UUID, holder: str, tenant_id: UUID, client_id: UUID) -> Any:
     got = gate.claim(tx, task_id=task["task_id"], line_id=line_id, lease_holder=holder)
     if isinstance(got, gate.Denied) and got.reason not in gate.PLAN_KEPT:   # 行の予定を書き直さない理由は gate の1か所
@@ -543,7 +558,8 @@ def _client_round(access: Access, actor: Actor, tenant_id: UUID, client_id: UUID
                     # 電話が終わった（かけられなかった＝「発信に失敗」も）：その電話の出来事を、状態の表を引く入口へ（この回線の電話の
                     # 順のまま。回線を休ませるか・行を待たせるかは表が決める＝次の回の頭で、回線の欄を聞く）
                     access.in_client(actor, tenant_id, client_id, lambda tx: health.after_call(tx, got.attempt_id))
-                    return Round(called=got.attempt_id if done is dial_exit.Outcome.DIALED else None, free=True)
+                    return Round(called=got.attempt_id if done is dial_exit.Outcome.DIALED else None, free=True,
+                                 storage=call.end_reason == "storage_stuck")
                 if done in (dial_exit.Outcome.LINE_IN_CALL, dial_exit.Outcome.WITHHELD):
                     # PC がかけようとしなかった（緊急停止・つながっていない・答えの期限を過ぎた）も休む（⛔ 2026-10-22 の見直し：
                     # 休まずに数秒ごとに次の行を予約し、どの行も「発信に失敗」にしていった）。まだ前の通話の途中：その回線を休ませる
@@ -574,14 +590,21 @@ def loop(access: Access, tenant_id: UUID, line: UUID, holder: str, driver: CallD
     """回線ごとの処理（中央の見守り役が、別の流れで動かす）。stop が立つまで繰り返す（いまの通話は最後まで進めてから止まる）。"""
     pause = int(access.in_tenant(ACTOR, tenant_id, lambda tx: settings.system_value(tx, "gate.denied_retry_wait")))
     stuck = Stuck()
+    storage = False   # 前の電話を、データベースが止まって終えた：書き込みが戻ったと確かめるまで、次の電話をかけない（`storage_back`）
     while not stop.is_set():
         try:
+            if storage:
+                if not storage_back(access, tenant_id):
+                    stop.wait(IDLE_SECONDS)
+                    continue
+                storage = False
             # プログラムとデータベースの版が合わなければ、新しい電話をかけない（中央の見守り役が立ち上げたあとでデータベースが
             # 新しくなった、でも、かける処理が自分の版で確かめる。supervisor.updates）
             if access.in_tenant(ACTOR, tenant_id, updates.current) != updates.SAME:
                 stop.wait(IDLE_SECONDS)
                 continue
             got = one_round(access, ACTOR, tenant_id, line, holder, driver, runner)
+            storage = got.storage
             wait = float(pause)
             if got.until is not None:   # 回線の欄の次に動く時刻より長く休まない（休みの次のテスト・確かめ中の15分 など）
                 left = access.in_tenant(ACTOR, tenant_id, lambda tx: (got.until - tx.one("SELECT now() AS t")["t"]).total_seconds())
@@ -596,4 +619,7 @@ def loop(access: Access, tenant_id: UUID, line: UUID, holder: str, driver: CallD
                 stop.wait(wait if got.pause else min(wait, IDLE_SECONDS))
         except Exception as e:  # noqa: BLE001 記録して、少し待ってから続ける（止めない）
             report(access, tenant_id, "回線ごとの処理", e, line_id=line)
+            # 落ちたのはデータベースの誤りかもしれない（通話の終わりの記録・状態の表）：次の電話の前に、書き込みが戻ったかを確かめる
+            # （`storage_back`。誤りでなければ、すぐ確かめが通る）
+            storage = True
             stop.wait(IDLE_SECONDS)

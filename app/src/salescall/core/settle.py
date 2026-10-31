@@ -140,6 +140,7 @@ def _settle_apology(tx: Tx, a: dict[str, Any], *, again: bool = False) -> dict[s
     irr = None if j is None else irreversible(inp, j)
     wait = approval.decision_wait(tx, a["task_id"], attempt_id, irr)
     approval.record_wait(tx, a, wait, None, call_report.load_with_source(tx, attempt_id)[1])   # 保留を書く1か所（待たなければ閉じる）
+    wait = wait if wait is not None and wait.holds else None   # 設定で決まったとみなした保留は待たない（approval.Wait.holds）
     if wait is not None:
         # 取り消せない決定（断り・番号違い）が、まだ決まらない（検証モードの承認待ち・2つ目の判定とそろわず録音の確かめ待ち。2026-10-30
         # 管理者のご決定 (6)）：ふつうの通話と同じく、発信禁止を登録せず、行は判定待ち。お詫びの電話は締めずにおく（答えが出たら締め直す
@@ -295,14 +296,17 @@ def _recheck_waits(tx: Tx) -> list[dict[str, Any]]:
     """答えを待っている保留を見直す（決まった間隔の仕事＝`rejudge_held`。1か所）：
     - 保留を決めたときの報告より新しい会話の報告（録音から作り直した報告）が届いた ⇒ 締め直す（`resettle`。締め直しが保留を決め直す：
       そろえば待たない＝決まりどおり・決定が報告から消えれば元に戻す・中身が変われば新しい版・判定できなければ判定できない知らせ）
-    - まだ契約者に求めていない録音の確かめ待ち ⇒ 録音の確かめで決められるか（core/approval.chase_recording の1か所）"""
+    - まだ契約者に求めていない録音の確かめ待ち ⇒ 録音の確かめで決められるか（core/approval.chase_recording の1か所）
+    - 録音の確かめ待ちで、設定 decision.undecided_as_decided で決まったとみなしてよくなった（あとから設定を「はい」にした。契約者に
+      求めている保留も）⇒ 締め直す（締め直しが、決まったとみなした版を書く＝approval.assumable の1か所）"""
     done = []
-    for w in tx.all("SELECT w.attempt_id, w.kind, w.report_source,"
+    for w in tx.all("SELECT w.attempt_id, w.task_id, w.kind, w.report_source,"
                     "       EXISTS (SELECT 1 FROM salescall.decision_asks k WHERE k.attempt_id = w.attempt_id AND k.seq = w.seq) AS asked"
                     " FROM salescall.decision_waits w"
                     " WHERE w.seq = salescall.decision_wait_seq(w.attempt_id) AND cardinality(salescall.decision_open(w.attempt_id)) > 0"
                     " ORDER BY w.waited_at, w.attempt_id"):
-        if call_report.load_with_source(tx, w["attempt_id"])[1] != w["report_source"]:
+        if call_report.load_with_source(tx, w["attempt_id"])[1] != w["report_source"] \
+                or (w["kind"] == "recording" and approval.assumable(tx, w["task_id"], w["attempt_id"]) is not None):
             done.append(resettle(tx, w["attempt_id"]))
         elif w["kind"] == "recording" and not w["asked"]:
             approval.chase_recording(tx, w["attempt_id"])
@@ -373,7 +377,9 @@ def _judge_input(tx: Tx, a: dict[str, Any], rules_version: Any) -> tuple[JudgeIn
                      callee=_callee(tx, a),   # お客様の時間の設定・言葉ごとの幅（読むのは gate.callee_settings の1か所）
                      anyone_target=business_settings.anyone_target(tx, rules_version),   # 「誰でも」の業務か（見直し18b の (3)）
                      # 切れ方の分からなかった通話のあとの確かめのかけ直しで、お客様の電話まで鳴ったか（next_action.check_outcome の1か所）
-                     check_rang=_check_rang(next_action.check_outcome(tx, attempt_id)) and "refusal" not in gone)
+                     check_rang=_check_rang(next_action.check_outcome(tx, attempt_id)) and "refusal" not in gone,
+                     # 言ってはいけないことを言った通話（切れ方が決められなければ、断ったかを保留で決める＝伺い3。断りを外すと答えたら見ない）
+                     forbidden=attempts.forbidden_speech(tx, attempt_id) and "refusal" not in gone)
     return inp, report_source, dialed
 
 
@@ -392,7 +398,9 @@ def _judge_and_write(tx: Tx, a: dict[str, Any], *, kind: str, rules_version: Any
     # 取り消せない決定（断り・番号違い・怒っていた）を、その場で決めるか、決まるまで保留にするか（判定の1か所 judge.irreversible と、
     # 承認の部分の1か所 approval.decision_wait。2026-10-30 管理者のご決定 (6)）
     irr = irreversible(inp, j)
-    wait = approval.decision_wait(tx, a["task_id"], attempt_id, irr)
+    found = approval.decision_wait(tx, a["task_id"], attempt_id, irr)
+    # 決まるまで待つ保留（設定で決まったとみなした保留は待たない＝その中身を決まりどおり書く。approval.Wait.holds の1か所）
+    wait = found if found is not None and found.holds else None
     alternate = None if not decided or report is None or report.callback is None \
         or report.callback.reason != "other_number" else \
         _number_material(tx, a, report.callback.number_e164, source_attempt_id=attempt_id)
@@ -410,15 +418,18 @@ def _judge_and_write(tx: Tx, a: dict[str, Any], *, kind: str, rules_version: Any
         "check_rang": inp.check_rang,
         "callee": inp.callee.to_json(),
         # 取り消せない決定と2つ目の判定（judge.irreversible）・その通話の報告から外した決定（approval.withdrawn）
-        "irreversible": None if irr is None else {"parts": sorted(irr.parts), "unsure": sorted(irr.unsure), "check": irr.check},
+        "irreversible": None if irr is None else {"parts": sorted(irr.parts), "unsure": sorted(irr.unsure), "check": irr.check,
+                                                  "undecided": sorted(irr.undecided)},
+        "forbidden": inp.forbidden,
         "withdrawn": sorted(approval.withdrawn(tx, attempt_id)),
     }
     version_no = results.append(tx, a["task_id"], kind=kind, business_state=j.state, attempt_id=attempt_id,
                                 judge_version=JUDGE_VERSION, complaint=j.complaint, snapshot=snapshot,
-                                detail={**j.detail, **({"decision_wait": wait.kind} if wait else {})},   # 保留の種類（画面・出力が読む）
+                                detail={**j.detail, **({"decision_wait": wait.kind} if wait else {}),   # 保留の種類（画面・出力が読む）
+                                        **({"decision_assumed": found.assumed} if found is not None and not found.holds else {})},
                                 decided_by="判定")
     # 保留を書く（承認の部分の1か所。報告や答えが変われば版を足し、待たなくなれば閉じる。承認待ちは契約者へ知らせる）
-    approval.record_wait(tx, a, wait, version_no, report_source)
+    approval.record_wait(tx, a, found, version_no, report_source)
     if not decided:   # 判定できない：こちらの誤り。行は判定待ちで残す（次の動き）
         _notice_unknown(tx, a, j, "判定できない通話がありました（判定待ちで残しています）。")   # 注意は短く（原因は refs と画面で）
     forbidden = _notice_forbidden(tx, a)   # 言ってはいけないことを言った：その行はひとまず終え、契約者へ知らせる

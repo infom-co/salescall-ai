@@ -54,7 +54,7 @@ from salescall.core.business_rules import Rules
 from salescall.core.call_report import CallReport
 
 # 判定の決まりの版（変えたら上げる）。かけ直しの時刻の読み方の版も入れる（読み方を直すと、判定待ちの行が判定し直される＝settle.rejudge）
-JUDGE_VERSION = f"judge-2026-10-30.1+time-{spoken_time.VERSION}"   # 2026-10-30.1（管理者の指摘・決定）：切れ方の「断った」は営業拒否の言葉のときだけ（AI が話していた・だれも話していなかっただけでは断ったにしない）・声が片方に届いていなかった証拠があれば「声が届かず切れた」（audio＝途中で切れた電話と同じ）・決められない切れ方は確かめのかけ直しで決める（鳴ったのに出なければ営業拒否）。2026-10-24.1（見直し18b）：「お客様と話したか」を人の証の表で読む（人の言葉の締め・お客様からの質問・受け答えなど）・「誰でも」の業務は話した＝繋がった（業務設定から判定の入力に）・判定できない結果に、断られたかは分かっているか（refusal_known）を残す。2026-10-22.8：判定できなかった通話にも、会話の報告のかけ直しの申し出（約束）を残す（promise_offer。途中で切れたとき、すぐにかけず約束を守る＝見直し15）・約束の幅に、お客様が言った端とその日を言ったか（said・day_said）を残す・理由の無い「わからない」の確かめ（(6)）は、お客様と話した通話だけ（前の通話の答えで、出なかった電話まで判定できないにしない）。.7：目的のお客様に繋がらなかった結果に again（同じ日にまたかけてよいと言われたか）・在籍していないは業務の応じ方で（終える／後任の方を追う＝successor の印）。.6：CL-1 の 4-28（長期の不在は不在の仲間・ほかの手段と在籍していないは電話でかけ直さず終える）。.5：取り次げなかった通話に、あとでまたかけてよいと言われたか（again）を残す。.4：不在で戻る時刻が取れなかった申し出は「不在」（約束にしない）。.3：CL-1 の 10-22 の報告を受ける（目的のお客様のある通話は繋いだ事実だけで繋がった・繋がらなかった理由／かけ直しの申し出があれば話した・繋がって要らなくなったかけ直しは読まない。読み方は call_report の1か所）（.2：確かめ直しで目的のお客様だと確かめられなかった通話は「取り次いでもらえなかった」。.1：繋いだ事実で話した・繋がったと読む）
+JUDGE_VERSION = f"judge-2026-10-31.1+time-{spoken_time.VERSION}"   # 2026-10-31.1（管理者のご判断 伺い3）：言ってはいけないことを言った通話で、切れ方が決められないときは、確かめのかけ直しでなく、断りの候補（unclear_forbidden）を出し、どの AI もそうだと読んでいない取り消せない決定（Irreversible.undecided）として保留で決める。2026-10-30.1（管理者の指摘・決定）：切れ方の「断った」は営業拒否の言葉のときだけ（AI が話していた・だれも話していなかっただけでは断ったにしない）・声が片方に届いていなかった証拠があれば「声が届かず切れた」（audio＝途中で切れた電話と同じ）・決められない切れ方は確かめのかけ直しで決める（鳴ったのに出なければ営業拒否）。2026-10-24.1（見直し18b）：「お客様と話したか」を人の証の表で読む（人の言葉の締め・お客様からの質問・受け答えなど）・「誰でも」の業務は話した＝繋がった（業務設定から判定の入力に）・判定できない結果に、断られたかは分かっているか（refusal_known）を残す。2026-10-22.8：判定できなかった通話にも、会話の報告のかけ直しの申し出（約束）を残す（promise_offer。途中で切れたとき、すぐにかけず約束を守る＝見直し15）・約束の幅に、お客様が言った端とその日を言ったか（said・day_said）を残す・理由の無い「わからない」の確かめ（(6)）は、お客様と話した通話だけ（前の通話の答えで、出なかった電話まで判定できないにしない）。.7：目的のお客様に繋がらなかった結果に again（同じ日にまたかけてよいと言われたか）・在籍していないは業務の応じ方で（終える／後任の方を追う＝successor の印）。.6：CL-1 の 4-28（長期の不在は不在の仲間・ほかの手段と在籍していないは電話でかけ直さず終える）。.5：取り次げなかった通話に、あとでまたかけてよいと言われたか（again）を残す。.4：不在で戻る時刻が取れなかった申し出は「不在」（約束にしない）。.3：CL-1 の 10-22 の報告を受ける（目的のお客様のある通話は繋いだ事実だけで繋がった・繋がらなかった理由／かけ直しの申し出があれば話した・繋がって要らなくなったかけ直しは読まない。読み方は call_report の1か所）（.2：確かめ直しで目的のお客様だと確かめられなかった通話は「取り次いでもらえなかった」。.1：繋いだ事実で話した・繋がったと読む）
 # 「判定できない」の原因の名前（同じ原因かを数える単位）と意味。プログラムの誤りか（直す担当へ修正依頼を出し、管理者にも
 # 知らせる＝確かめ・承認のため。2026-10-16・10-17 ユーザー）も、ここで決まる（1か所）。業務設定の抜けは契約者が直す（いまは無い：業務の決まりは、必須の質問ごとに、
 # 決まった理由のすべてに扱いが無いと保存できない＝business_rules。2026-10-16 見直し：前は「理由×扱いが決まらない」を業務設定の
@@ -131,6 +131,12 @@ class JudgeInput:
     # "rang" と答えた。確かめのかけ直しでない・鳴らなかった・こちらの不具合で終えた＝False。初めの値を持たない＝必ず渡す）。
     # 2026-10-30 管理者の決定：鳴ったのに出なかった・出ても話さなかった ⇒ 両方の回線は元気＝営業拒否（`refusal`）
     check_rang: bool = field(kw_only=True)
+    # 言ってはいけないことを言った通話か（通話後の検証で、2つの耳で確かめた＝core/attempts.forbidden_speech。断りを外すと答えた通話＝
+    # 差し戻し・取り消しは False。初めの値を持たない＝必ず渡す）。切れ方が決められない（unclear）ときは、確かめのかけ直しをせず（AI が
+    # 言ってはいけないことを言ったお客様へ、すぐまた AI がかけない）、断ったかを取り消せない決定として保留にする（`refusal`・
+    # `irreversible`。2026-10-31 管理者：伺い3 の案2「確かめるのは人でなくAI、どうしてもAIでは判断できない場合のみ、契約者に判断を
+    # ゆだねる」。⛔ 見直し26a の 2：前は行を終えるだけで、断ったかが分からないお客様を「断っていない」扱いにし、ほかの行からかけた）
+    forbidden: bool = field(kw_only=True)
 
     @property
     def reached_target(self) -> bool:
@@ -157,6 +163,9 @@ class Irreversible:
     parts: frozenset[str]        # 決定の中身のすべて（call_report.DECISION_PARTS のうち refusal・wrong_party・complaint）
     unsure: frozenset[str]       # そのうち、会話AIの読みから決まり、2つ目の判定がそろったかを見るもの
     check: str                   # unsure についての agreed＝そろった／disagreed＝食い違った／none＝判定が無い（unsure が空なら agreed）
+    # そのうち、どの AI もそうだと読んでいないもの（2つ目の判定がそろうことが無い＝いつも決まるまで保留）：言ってはいけないことを言った
+    # 通話で、切れ方が決められない断りの候補（`refusal` の unclear_forbidden。2026-10-31 管理者：伺い3）
+    undecided: frozenset[str] = frozenset()
 
 
 def irreversible(inp: JudgeInput, j: Judgement) -> Irreversible | None:
@@ -166,14 +175,18 @@ def irreversible(inp: JudgeInput, j: Judgement) -> Irreversible | None:
     ない）ので入れない。2つ目の判定を見ないもの（unsure に入れない）：
     - 通話の途中の申告が台帳にある断り（会話の側は、2つ目の判定とそろったときだけ申告を入れる＝計画書 9-5 の 7。CL-2 の連絡帳 4-168）
     - 切れ方の分からない通話の確かめのかけ直しが鳴ったのに出なかった断り（会話AIの読みではない＝2026-10-30 (3) の決まり）
-    ほかの中身は、会話の報告の irreversible_check（無い報告は「判定が無い」）で見る。"""
+    ほかの中身は、会話の報告の irreversible_check（無い報告は「判定が無い」）で見る。言ってはいけないことを言った通話で、切れ方が
+    決められない断りの候補は、どの AI もそうだと読んでいないので undecided（いつも決まるまで保留。2026-10-31 管理者：伺い3）。"""
     if j.state == "unknown":
         return None
     parts: set[str] = set()
     unsure: set[str] = set()
+    undecided: set[str] = set()
     if j.dnc_reason in ("refused_in_call", "refused_unclear_checked"):
         parts.add("refusal")
-        if not (inp.declared_in_call or j.detail.get("refusal") == "unclear_checked"):
+        if j.detail.get("refusal") == "unclear_forbidden":
+            undecided.add("refusal")
+        elif not (inp.declared_in_call or j.detail.get("refusal") == "unclear_checked"):
             unsure.add("refusal")
     if j.dnc_reason == "wrong_party":
         parts.add("wrong_party")
@@ -184,7 +197,7 @@ def irreversible(inp: JudgeInput, j: Judgement) -> Irreversible | None:
     if not parts:
         return None
     check = "agreed" if not unsure else inp.report.irreversible_check if inp.report is not None else "none"
-    return Irreversible(frozenset(parts), frozenset(unsure), check)
+    return Irreversible(frozenset(parts), frozenset(unsure), check, frozenset(undecided))
 
 
 def classify_cut(facts: Facts, report: CallReport | None) -> str | None:
@@ -296,6 +309,12 @@ def refusal(inp: JudgeInput) -> Judgement | None:
     # 同じこの1か所・広げ方も同じ＝dnc.CUSTOMER_WIDE。台帳には、はっきり断られた refused_in_call と別の理由 refused_unclear_checked で残す）。お客様が出て話を続けたら、その話の結果どおり（下へ進む）
     if inp.check_rang and not (inp.facts.reached_answer and r is not None and r.talked):
         return done("do_not_call", dnc="refused_unclear_checked", refusal="unclear_checked")
+    # 言ってはいけないことを言った通話で、切れ方が決められない：断ったかもしれない（確かめのかけ直しはしない）。断りの候補として出し、
+    # 取り消せない決定の保留で決める（`irreversible` が undecided に入れる＝通話後の録音の確かめ（AI）で決まらなければ、設定
+    # decision.undecided_as_decided の決め方＝core/approval.decision_wait。2026-10-31 管理者：伺い3）。確定すれば、確かめて断りと決めた
+    # 断り（refused_unclear_checked）として、ほかの営業拒否と同じく登録する
+    if raw_cut == "unclear" and inp.forbidden:
+        return done("do_not_call", dnc="refused_unclear_checked", refusal="unclear_forbidden")
     if raw_cut == "missing":
         return unknown("cut_missing", "お客様と話した通話なのに、切れ方の材料（切れた瞬間に話していた側など）が報告されていません")
     if cut == "refused":

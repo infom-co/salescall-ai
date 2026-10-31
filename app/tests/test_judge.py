@@ -32,9 +32,9 @@ def report(parties=("target",), *, dnc=False, oos=False, complaint=False, not_re
     return make_report(parties, dnc=dnc, oos=oos, complaint=complaint, not_reached=not_reached, callback=callback, cut=cut)
 
 
-def run(*, facts=TALKED, rep=report(), items=None, check_rang=False):
+def run(*, facts=TALKED, rep=report(), items=None, check_rang=False, forbidden=False):
     return judge(JudgeInput(facts, rep, TAKEN if items is None else items, RULES, callee=CALLEE, anyone_target=False,
-                            check_rang=check_rang))
+                            check_rang=check_rang, forbidden=forbidden))
 
 
 class Order(unittest.TestCase):
@@ -640,7 +640,7 @@ class Shapes(unittest.TestCase):
         # 決め方は設定から：それまでは出られない、を「今から」にした業務
         other = replace(CALLEE, until_rules=(("other_party", "now"), ("unavailable", "now"), ("preparing", "slot_after")))
         j = judge(JudgeInput(TALKED, report(callback=callback("absent", time=said)), {}, RULES, callee=other,
-                             anyone_target=False, check_rang=False))
+                             anyone_target=False, check_rang=False, forbidden=False))
         self.assertEqual(j.detail["callback"]["daily"], [0, 15 * 3600])
 
     def test_a_time_beyond_the_limit_is_kept_only_after_the_customer_agreed(self):
@@ -652,7 +652,7 @@ class Shapes(unittest.TestCase):
         self.assertEqual((j.state, j.detail["unknown_cause"]), ("unknown", "callback_time_unconfirmed"))
         agreed = replace(said, beyond_limit_ok=True)
         j = judge(JudgeInput(TALKED, report(callback=agreed), {}, RULES, callee=replace(CALLEE, exact_slot=1800),
-                             anyone_target=False, check_rang=False))
+                             anyone_target=False, check_rang=False, forbidden=False))
         cb = j.detail["callback"]
         self.assertEqual((j.state, cb["at"], cb["until"], cb["daily"], cb["said"]),
                          ("callback_scheduled", "2030-01-07T23:00:00+09:00", "2030-01-07T23:30:00+09:00",

@@ -84,7 +84,7 @@ SCENES = {"取り次げない": NOT_TRANSFERRED, "不在・途中で切れた": 
 def run(raw, *, items=None, facts=TALKED, cut=CLOSED):
     rep = replace(from_json(raw), cut=cut)
     return judge(JudgeInput(facts, rep, items or {}, RULES, callee=CALLEE, anyone_target=False,
-                            check_rang=False))
+                            check_rang=False, forbidden=False))
 
 
 class Accepted(unittest.TestCase):
@@ -513,7 +513,7 @@ ANYONE_SILENT = {   # 名乗りのあと、何も言わずに切られた（締�
 
 def judged(raw, *, anyone: bool, items=None, cut=CLOSED):
     return judge(JudgeInput(TALKED, replace(from_json(raw), cut=cut), items or {}, RULES, callee=CALLEE,
-                            anyone_target=anyone, check_rang=False))
+                            anyone_target=anyone, check_rang=False, forbidden=False))
 
 
 class Anyone18b(unittest.TestCase):

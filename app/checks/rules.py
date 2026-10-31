@@ -459,6 +459,9 @@ SETTING_READERS: dict[str, tuple[str, str, str]] = {
     "calling.hours": ("src/salescall/core/gate.py", "5-2-2", "時間帯の設定は gate.calling_hours_for から読みます（NG時間を引き忘れない）"),
     "calling.ng_hours": ("src/salescall/core/gate.py", "5-2-2", "時間帯の設定は gate.calling_hours_for から読みます（NG時間を引き忘れない）"),
     "approval.human": ("src/salescall/core/approval.py", "I-13", "契約者の承認のモードを読むのは、承認の部分（core/approval.py）だけです"),
+    # AI でも決められない取り消せない決定の決め方（0164。2026-10-31 管理者：伺い3）：決めるのは承認の部分の1か所（approval.assumable）
+    "decision.undecided_as_decided": ("src/salescall/core/approval.py", "10-2-2",
+                                      "AI でも決められない取り消せない決定の決め方は approval.assumable の1か所で読みます"),
     # Fly.io に残す日数（0157）：やり取りの文字を消す1か所（conversation_io.purge_utterances）。録音を Fly.io から消す処理を作るときも、
     # 同じ1か所から日数を読む（⛔ 見直し25b の 5：片方だけ変えると、録音とやり取りで消える日がずれる）
     "recording.keep_days_cloud": ("src/salescall/core/conversation_io.py", "11-4",

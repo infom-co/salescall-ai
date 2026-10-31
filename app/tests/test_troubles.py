@@ -8,18 +8,20 @@ DESIGN.md 5-4・7-2-1・9-1）。
 
 from __future__ import annotations
 
+import contextlib
 import json
 import time
 import uuid
 from dataclasses import replace
+from unittest import mock
 from datetime import timedelta
 
 from salescall.core import attempts, errors, fix_requests, gate, next_action, scheduler, settings, stops, troubles
 from salescall.core import health
-from salescall.core.access import Rejected
+from salescall.core.access import Rejected, RetryExhausted
 from salescall.core.health_rules import LineStage
 from salescall.core.phone import normalize
-from salescall.supervisor import jobs, line, updates
+from salescall.supervisor import jobs, line, plugins, updates
 from tests import support
 from tests.support import ADMIN, CLEAN, OPERATOR, SYSTEM, fictional_jp_fixed, owner_access
 from tests.test_gate import HOLDER, FakeDriver
@@ -41,6 +43,21 @@ class Troubled:
         if self.reason == "runner_error":
             raise RuntimeError("試験：通話を進める部品が落ちた")
         call.end_for_trouble(self.reason)
+
+
+class StorageStalled:
+    """通話を進める部品の代わり：お客様が出る前に、データベースの誤りで書けず、通話を終えないまま戻る（通話ごとの口が、データベースが
+    止まった＝storage_stuck としておわびして終える。supervisor/line._Call.after_runner の1か所）。"""
+
+    def run(self, access, actor, claim, *, tenant_id, client_id, call=None):
+        call.beat()
+        access.in_client(actor, tenant_id, client_id, lambda tx: attempts.move(tx, claim.attempt_id, "ringing"))
+
+        def fail(tx):
+            raise RetryExhausted("試験：データベースが一時的に止まった")
+        call.write(fail)
+        with contextlib.suppress(plugins.WriteFailed):
+            call.flush()
 
 
 class OurTroubles(SupervisorBase):
@@ -75,7 +92,8 @@ class OurTroubles(SupervisorBase):
         if task is not None and self.tx(s, lambda tx: support.task_stage(tx, task) == "voice_redial"):
             self.voice_due(s, task)   # 声が聞き取れずに終えた行：はさむ行もほかの回線も無いまま15分たった（R-13。同じ回線でかけ直す）
         d = FakeDriver()
-        got = line.one_round(self.w.a, SYSTEM, s["tenant"], s["line"], HOLDER, d, Troubled(reason, answered))
+        runner = StorageStalled() if reason == "storage_stuck" else Troubled(reason, answered)
+        got = line.one_round(self.w.a, SYSTEM, s["tenant"], s["line"], HOLDER, d, runner)
         self.assertIsNotNone(got.called, got)
         self.assertEqual(d.apologized, 1)                                     # お詫びして終えた
         called = self.tx(s, lambda tx: tx.one("SELECT task_id, trouble FROM salescall.attempts WHERE attempt_id = %s",
@@ -249,6 +267,83 @@ class OurTroubles(SupervisorBase):
         self.assertEqual(count(), 0)                                           # 直した時から数え直す
         self.assertEqual(self.tenant_stops(s), [])
         self.assertEqual(self.notices(s, "resumed"), (1, 1))                  # 契約者と管理者に（17-3-4 の C-5）
+
+    def test_a_database_stall_on_three_rows_does_not_stop_the_contractor(self):
+        """データベースの一時的な止まり（storage_stuck）は、違う行の数に数えない（errors.counts_rows の1か所。2026-10-31 管理者「数えないで
+        OK」＝伺い5 の案1。⛔ 見直し26c の 8：3本以上話している最中に一瞬止まると、契約者の新しい電話を止め、直した記録と版の入れ替えか
+        人が解くまで再開しなかった）。電話ごとに伝え（出どころ「保存」・CL-2 へ修正依頼）、その行は復旧を待つのは、ほかの種類と同じ。
+        回線は、書き込みが戻ったと確かめるまで次の電話をかけない（Round.storage。supervisor/line.loop）。"""
+        s = self.ready()
+        rows = [s["task"]] + [self.row(s)["task"] for _ in range(3)]
+        for task in rows:
+            got = self.trouble(s, "storage_stuck", task=task, again=False)
+            self.assertEqual(self.tx(s, lambda tx: [r["source"] for r in tx.all(
+                "SELECT source FROM salescall.error_events WHERE attempt_id = %s", (got,))]), ["storage"])   # 電話ごとに伝えた
+        self.assertEqual(self.tenant_stops(s), [])                             # 4行でも止めない
+        self.assertEqual(self.rows_counted(s, "call_storage_stuck"), 0)        # 違う行の数に入れていない
+        self.assertTrue(self.requests("CL-2", "call_storage_stuck"))           # 直す担当（保存）へ
+        self.assertTrue(self.tx(s, lambda tx: support.task_stage(tx, rows[0]) == "await_recovery"))   # 行は復旧を待つ
+        self.assertFalse(errors.counts_rows("call_storage_stuck"))
+        self.assertTrue(all(errors.counts_rows(k) for r, k in errors.TROUBLES.items() if r != "storage_stuck"))
+        b = self.row(s)                                                        # ほかの種類は、これまでどおり3行で止める
+        for task in (b["task"], self.row(s)["task"], self.row(s)["task"]):
+            self.trouble(s, "cannot_proceed", task=task, again=False)
+        self.assertEqual(self.tenant_stops(s), ["program_trouble"])
+
+    def test_a_line_whose_call_ended_on_a_database_stall_waits_until_writes_come_back(self):
+        """データベースが止まって電話を終えた回線は、いちばん小さな書き込み（attempts.write_probe）が call.frozen_after のうちに終わると
+        確かめてから、次の電話をかける（supervisor/line.storage_back の1か所。戻らないあいだは、かけない）。"""
+        s = self.ready()
+        d = FakeDriver()
+        got = line.one_round(self.w.a, SYSTEM, s["tenant"], s["line"], HOLDER, d, StorageStalled())
+        self.assertTrue(got.storage)                                           # データベースの止まりで終えた
+        self.assertFalse(line.one_round(self.w.a, SYSTEM, s["tenant"], s["line"], HOLDER, FakeDriver(), Runner()).storage)
+        with mock.patch.object(line, "frozen_after", lambda tx: 0.2):
+            slow = lambda tx: tx.execute("SELECT pg_sleep(0.4)")   # noqa: E731 データベースがまだ遅い
+            with mock.patch.object(line.attempts, "write_probe", slow):
+                self.assertFalse(line.storage_back(self.w.a, s["tenant"]))
+            self.assertTrue(line.storage_back(self.w.a, s["tenant"]))         # 戻った
+        rounds, probes = [], iter([False, False, True])
+
+        class Stop:
+            def __init__(self):
+                self.set_ = False
+
+            def is_set(self):
+                return self.set_
+
+            def wait(self, _):
+                return None
+        stop = Stop()
+
+        def one_round(*a, **k):
+            rounds.append(len(rounds))
+            if len(rounds) == 2:
+                stop.set_ = True
+            return line.Round(called=uuid.uuid4(), free=True, storage=len(rounds) == 1)
+        with mock.patch.object(line, "one_round", one_round), \
+                mock.patch.object(line, "storage_back", lambda access, tenant_id: next(probes)), \
+                mock.patch.object(line.updates, "current", lambda tx: line.updates.SAME):
+            line.loop(self.w.a, s["tenant"], s["line"], HOLDER, FakeDriver(), Runner(), stop)
+        self.assertEqual(rounds, [0, 1])                                       # 戻るまで（2回）次の回へ進まず、戻ってから1回
+        self.assertEqual(next(probes, "done"), "done")                         # 確かめは3回（戻らない2回・戻った1回）
+        # 回線の1回分が落ちた（データベースの誤りかもしれない）：次の回の前にも確かめる
+        stop, seen, probes = Stop(), [], iter([False, True])
+
+        def failing(*a, **k):
+            seen.append("round")
+            if len(seen) == 1:
+                raise RuntimeError("試験：データベースの誤りで落ちた")
+            stop.set_ = True
+            return line.Round(called=uuid.uuid4(), free=True)
+
+        def probe(access, tenant_id):
+            seen.append("probe")
+            return next(probes)
+        with mock.patch.object(line, "one_round", failing), mock.patch.object(line, "storage_back", probe), \
+                mock.patch.object(line, "report"), mock.patch.object(line.updates, "current", lambda tx: line.updates.SAME):
+            line.loop(self.w.a, s["tenant"], s["line"], HOLDER, FakeDriver(), Runner(), stop)
+        self.assertEqual(seen, ["round", "probe", "probe", "round"])
 
     def test_different_reasons_on_three_rows_do_not_stop(self):
         """違う理由なら、行が3つでも止めない（理由ごとに数える＝処置の表の per_call）。修正依頼は、理由ごとの担当へ（会話の部品は CL-1・

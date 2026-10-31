@@ -504,3 +504,28 @@ class DayTail(unittest.TestCase):
             with self.subTest(until=until):
                 r = read("来月の5日までに", NOW, until=until)
                 self.assertEqual((r.kind, r.start, r.end), (WINDOW, start, end))
+
+
+class NamedDay(unittest.TestCase):
+    """お客様がその日を言ったか（Reading.day_said＝依頼者の休みの曜日・祝日でもかける根拠。spoken_time._named_day の1か所）。
+    2026-10-31 管理者：伺い4 の案1「名指しの日（「13日」「週末」）だけ休みの日でもかけ、範囲（「月末」「来週」）は依頼者のかける日の
+    中だけでかける」（⛔ 前は範囲でも休みの日にかけ、試しでは「月末」で土曜に5本・日曜に4本かけた）。"""
+
+    def test_named_days_and_today_are_said_ranges_are_not(self):
+        said = ("13日なら", "明日なら", "3日後", "金曜なら", "毎週月曜", "週明け", "週末なら", "来週の土日", "土日祝なら",
+                "平日ならいつでも", "3時以降", "夕方なら", "すぐ", "30分後")
+        for text in said:
+            with self.subTest(text=text):
+                r = read(text, NOW)
+                self.assertIn(r.kind, (AT, WINDOW))
+                self.assertTrue(r.day_said)
+        ranges = ("月末なら", "来月の初め", "来週", "来週中", "週中", "来月", "11月なら", "来年", "2、3日後", "来月の5日以降")
+        for text in ranges:
+            with self.subTest(text=text):
+                r = read(text, NOW)
+                self.assertEqual(r.kind, WINDOW)
+                self.assertFalse(r.day_said)
+        self.assertTrue(read("来月の5日までに", NOW, until="slot_after").day_said)    # 確かめておく、その日（1日だけ）
+        self.assertFalse(read("来月の5日までに", NOW, until="now").day_said)          # 今からその日まで（範囲）
+        self.assertTrue(read("13日の3時", NOW).day_said)                              # 時刻ちょうど（その日）
+        self.assertEqual(read("週末なら", NOW).repeat, "week")                       # 週末の次の回は、これまでどおり次の週の同じ日

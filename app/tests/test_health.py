@@ -448,12 +448,14 @@ class Doing(HealthBase):
     def test_a_mistake_is_recorded_and_asks_cl2(self):
         """17章の決まり (1)：表に無い組み合わせが来たら、入口は決めずに誤りとして記録し、直す担当（CL-2）へ修正依頼を出す（状態は変えない）。"""
         s = self.ready()
+        self.report_fixed("CL-2", "state_table")   # 修正依頼は全体で1か所（ほかの試験が開いた、表を引けない修正依頼を先に閉じる）
         self.round(s, FakeDriver(), Talk())
         self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: health.tested(tx, s["line"], "rang"))   # 元気の回線にテスト番号の答え
         got = owner_access().in_tenant(SYSTEM, s["tenant"], lambda tx: tx.one(
             "SELECT mistake->>'gap' AS gap, to_stage FROM salescall.state_moves WHERE tenant_id = salescall.cur_tenant() AND event = 'E6'"))
         self.assertEqual((got["gap"], got["to_stage"]), ("G-L6", "healthy"))
-        self.assertEqual(len(self.requests("CL-2", "state_table")), 1)
+        self.assertEqual([r["summary"].split("。")[0] for r in self.requests("CL-2", "state_table")],
+                         ["表を引けない（表に無い）：回線・元気・E6"])
 
     def test_the_system_test_number_is_given_to_every_contractor_without_their_own(self):
         """17-3-6 の【当】(a)（2026-10-29 管理者「一時的なtestcallは環境設定に追加」）：管理者がシステムの初めの値のテスト番号を入れた・

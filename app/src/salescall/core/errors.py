@@ -36,7 +36,8 @@ SOURCES = ("ai", "ear", "line", "storage", "delivery", "recording", "supervisor"
 # 意味の判定の失敗の分け方（CL-1 の連絡帳 4-24）：キーが使えない（無効・権限が無い＝401・403、一覧のキーの行＝Google の
 # 「400 API key not valid」）は、会話AIと同じくキーの誤り（judge_key。⚠️ 試作 meaning_judge.outage は「止まっている」・Google の
 # 400 は「中身が断られた」に分けていた＝同じ判断が会話AIと食い違っていた。見直し6）。ほかの 400 番台（時間切れ 408・上限 429 を除く）
-# だけが「中身が断られた」。番号の無い失敗・つながらない・500 番台・408・429 は「止まっている」
+# だけが「中身が断られた」。番号の無い失敗・つながらない・500 番台・408・429 は「止まっている」。残高不足の 402 は、支払いの件の1か所
+# （`spend_limit`）が、出どころより先に見る
 _JUDGE_KEY_CODES = (401, 403)
 _JUDGE_OUTAGE_4XX = (408, 429)
 
@@ -44,8 +45,15 @@ _JUDGE_OUTAGE_4XX = (408, 429)
 # 修正依頼でなく、管理者への知らせ（種類 spend_limit。どの出どころでも同じ）。**番号（400・429）では見分けない**：同じ番号で、中身の
 # 断り（400）・1分の上限（429）など、ほかの誤りも返る。2026-10-28 の実測（Anthropic の意味の判定）：「You have reached your specified
 # API usage limits」（CL-2 の連絡帳 4-163。⛔ 見直し23：前は意味の判定の 400 として「中身が断られた」に入り、1時間続くと CL-1 へ修正依頼に
-# なった）。文を足すのは、実際に受けた文だけ（推し量って足さない）
+# なった）。文を足すのは、実際に受けた文だけ（推し量って足さない）。
+# 残高不足（前払いの口座に入れた額を使い切った）も、管理者の支払いの件（管理者が足すまで、毎回の問い合わせで断られる）。返事の番号 402
+# （Payment Required＝支払いの件だけに使う番号。400・429 と違い、ほかの誤りは返らない）で見分ける。2026-10-31 の夜の実測：OpenRouter の
+# 「402 残高不足」（d1-ultra・Jev の口座。main の CL-1 の記録）。⛔ それまで、意味の判定の 402 は 400 番台として「中身が断られた」に入り、
+# その発話だけ代わりへ回して止まっていないとみなし、1時間続くと CL-1 へ修正依頼になった（直せるのは残高を足す管理者だけ）
 SPEND_LIMIT_TEXTS = ("You have reached your specified API usage limits",)
+SPEND_LIMIT_CODES = (402,)
+SPEND_LIMIT_CODE_SOURCES = ("ai", "ear", "judge")   # 番号で見分けるのは、管理者が支払う AI の出どころだけ（連携の書き戻しの 402 は、
+                                                   # 依頼者の側の支払いの件で、管理者の支払いの件ではない）
 
 @dataclass(frozen=True)
 class CatalogEntry:
@@ -187,16 +195,19 @@ RECOVERY_WAIT = ("同じ契約者で、こちらの不具合なしにお客様�
                  "替わったら、すぐにかけ直します。お客様が出たあとに終えた電話は、お詫びとともに")
 
 
-def _trouble(what: str, fixer: str) -> str:
-    """こちらのプログラムの不具合の処置の説明（4つの種類で同じ決まり。2026-10-25 ユーザー：「同じ行で、こちらのプログラムの不具合が
+def _trouble(what: str, fixer: str, *, rows: bool = True) -> str:
+    """こちらのプログラムの不具合の処置の説明（どの種類も同じ決まり。rows＝違う行の数で、その契約者の新しい電話を止めるか（`counts_rows`。
+    データベースの一時的な止まりは数えない＝2026-10-31 管理者）。2026-10-25 ユーザー：「同じ行で、こちらのプログラムの不具合が
     続くとき：その行だけの問題なのか、すべての行にかかわる問題なのかを見極めないといけないでしょ？その行だけなら、契約者(管理者含む)と、
     開発AIの担当、記録にそれを伝え、2回続いたら、次の行へ。3行同じ問題なら、甚大な問題と判断。」）。"""
     return (f"{what}（こちらのプログラムの不具合。その電話はお詫びして終え、番号・回線・行の回数のどれにも数えない）：電話ごとに、"
             f"契約者と管理者に知らせ、{fixer} に修正依頼を出し、記録する。お客様へは復旧次第かけ直す（{RECOVERY_WAIT}）。同じ行で2回続いたら、"
-            "その行は休ませて次の行へ進む（その不具合を直したと記録され、そのあとプログラムが替わるか、管理者・契約者が戻すまで）。違う行で同じ理由が"
-            "決めた数（設定 stop.trouble.stop_after_rows。初め3行）続いたら（こちらの不具合なしにお客様と話し終えた電話があれば数え直す）、"
-            "すべての行にかかわる甚大な問題として、その契約者の新しい電話を止める（話している電話は切らない。その不具合を直したと記録され、"
-            "そのあと版が替わったら解く。管理者・契約者も解ける）")
+            "その行は休ませて次の行へ進む（その不具合を直したと記録され、そのあとプログラムが替わるか、管理者・契約者が戻すまで）。"
+            + ("違う行で同じ理由が決めた数（設定 stop.trouble.stop_after_rows。初め3行）続いたら（こちらの不具合なしにお客様と話し終えた"
+               "電話があれば数え直す）、すべての行にかかわる甚大な問題として、その契約者の新しい電話を止める（話している電話は切らない。"
+               "その不具合を直したと記録され、そのあと版が替わったら解く。管理者・契約者も解ける）" if rows else
+               "違う行で続いても、その契約者の新しい電話は止めない（データベースの一時的な止まり＝2026-10-31 管理者。止まりで終えた回線は、"
+               "データベースへの書き込みが call.frozen_after のうちに終わると確かめてから、次の電話をかける＝戻らないあいだは、かけない）"))
 
 
 # 知らせに出す短い名前（注意は短く。詳しい意味は Action.meaning＝画面の「止まった理由」・i マークで。2026-10-17 ユーザー）
@@ -210,7 +221,7 @@ LABELS: dict[str, str] = {
     "recording": "通話の録音が残っていません", "supervisor": "見守り役の処理の誤りです",
     "judge_outage": "意味の判定が止まっています", "judge_key": "意味の判定のキーが使えません",
     "judge_rejected": "意味の判定が問い合わせを断りました",
-    "spend_limit": "API の使用額の上限に当たりました",
+    "spend_limit": "API の使用額の上限か残高不足に当たりました",
     "unknown_ai": "原因の分からない会話AIの誤りです", "unknown_line": "原因の分からない回線の誤りです",
     "call_frozen": "通話の部品が固まりました（お詫びして終えた）",
     "call_ai_malfunction": "会話AIが意図しない状態になりました",
@@ -295,9 +306,11 @@ ACTIONS: dict[str, Action] = {
                              "（判定は止まっていない）。1時間以上続いたら（問い合わせの作り方の誤り）CL-1 に修正依頼を出す"
                              "（CL-1 の連絡帳 4-24）", lasting_fixer="CL-1"),
     "spend_limit": Action("keep", "none", None, None, None, False,
-                          "API の使用額の上限（管理者が決めた支払いの上限）に当たった：管理者の支払いの件なので、直す担当への修正依頼は"
-                          "出さず、管理者に知らせる（同じ範囲で1時間に1回）。発信は止めない。管理者が上限を上げるか、上限の期間が"
-                          "替われば、また使える（見分けるのは返事の文＝SPEND_LIMIT_TEXTS。番号では見分けない）"),
+                          "API の使用額の上限（管理者が決めた支払いの上限）か残高不足（前払いの口座に入れた額を使い切った）に当たった："
+                          "管理者の支払いの件なので、直す担当への修正依頼は出さず、管理者に知らせる（同じ範囲で1時間に1回）。発信は"
+                          "止めない（そのAIが止まったと会話の側が決めたら、止まったAIの入口で、回復の確かめまで新しい電話を止める）。"
+                          "管理者が上限を上げるか、上限の期間が替わるか、残高を足せば、また使える（見分けるのは返事の文＝"
+                          "SPEND_LIMIT_TEXTS か、支払いの件だけの番号 402＝SPEND_LIMIT_CODES。400・429 では見分けない）"),
     "delivery": Action("keep", "backoff", None, None, None, False,
                        "連携（書き戻し）の失敗：連携だけ再送する（通話の結果は失わない。4-5）。1時間以上続いたら CL-3 に修正依頼を出す",
                        lasting_fixer="CL-3"),
@@ -350,9 +363,13 @@ ACTIONS: dict[str, Action] = {
     "call_runner_error": Action("keep", "none", "program_trouble", "tenant", "stop.trouble.stop_after_rows", True,
                                 _trouble("通話を進める部品（会話）が例外で落ちた・通話を終えないまま戻った", "CL-1"),
                                 fixer="CL-1", per_call=True),
-    "call_storage_stuck": Action("keep", "none", "program_trouble", "tenant", "stop.trouble.stop_after_rows", True,
+    # データベースの一時的な止まりは、違う行の数に数えない（2026-10-31 管理者「数えないでOK」＝伺い5 の案1。⛔ 見直し26c の 8：同じ
+    # 契約者で3本以上話している最中にデータベースが一瞬止まると、「違う3行で同じ問題」として新しい電話を止め、直したと記録されて
+    # プログラムが替わるか、人が解くまで再開しなかった）。戻らないあいだに新しい電話をかけないのは、回線ごとの処理の1か所
+    # （supervisor/line.loop が、止まりで終えた回線の次の電話の前に、書き込みが戻ったかを確かめる）
+    "call_storage_stuck": Action("keep", "none", None, None, None, True,
                                  _trouble("データベースへの書き込みが進まなかった（書き込み1つが call.frozen_after より長く終わらない）",
-                                          "CL-2"), fixer="CL-2", per_call=True),
+                                          "CL-2", rows=False), fixer="CL-2", per_call=True),
     # 通話を進める部品が、こちらの不具合でおわびして終えたあとも戻らない（0141。見直し20a）：その電話は、もう call_frozen などとして伝えて
     # ある。ここで伝えるのは「その回線の処理が止まっていた」こと（回線ごとの処理を立て直したので、電話は止まらない）。戻らない長さは、
     # おわびを流し終えるまでの長さ（protocol.APOLOGY_WAIT）と call.frozen_after から決める（0143。仮の設定 call.stuck_after は外した）
@@ -411,6 +428,13 @@ EMERGENCY_CANNOT: dict[str, str] = {
 }
 
 
+def counts_rows(kind: str | None) -> bool:
+    """こちらのプログラムの不具合で終えた電話の種類を、違う行の数（契約者の欄の C-1。その契約者の新しい電話を止める）に数えるか（1か所。
+    状態の表の入口 core/health.after_call が読む）：止める原因が状態の表の原因（`TABLE_CAUSES`）の種類だけ。データベースの一時的な
+    止まり（call_storage_stuck）は数えない（2026-10-31 管理者）。同じ行で続けば休ませる（行の欄）・電話ごとに伝えるのは、どの種類も同じ。"""
+    return kind is not None and kind in ACTIONS and ACTIONS[kind].per_call and ACTIONS[kind].stop_cause in TABLE_CAUSES
+
+
 def counted_with(kind: str) -> tuple[str, ...]:
     """その種類で止めるか決めるとき、合わせて数える種類（同じ止める原因で、同じ証拠で数え直す種類。1か所）。こちらのプログラムの
     不具合（`Action.per_call`）は、理由ごとに数える（違う理由が3行あっても止めない＝2026-10-25 ユーザー「3行同じ問題なら」）。"""
@@ -432,8 +456,10 @@ def lookup(e: ErrorReport) -> CatalogEntry | None:
 
 
 def spend_limit(e: ErrorReport) -> bool:
-    """使用額の上限に当たったか（返事の文 `SPEND_LIMIT_TEXTS` で見分ける1か所。番号では見分けない）。"""
-    return e.message is not None and any(x in e.message for x in SPEND_LIMIT_TEXTS)
+    """管理者の支払いの件に当たったか（1か所）：使用額の上限（返事の文 `SPEND_LIMIT_TEXTS` で見分ける。番号 400・429 では見分けない）か、
+    残高不足（支払いの件だけの番号 `SPEND_LIMIT_CODES`＝402。管理者が支払う AI の出どころ `SPEND_LIMIT_CODE_SOURCES` だけ）。"""
+    return (e.code in SPEND_LIMIT_CODES and e.source in SPEND_LIMIT_CODE_SOURCES) \
+        or (e.message is not None and any(x in e.message for x in SPEND_LIMIT_TEXTS))
 
 
 def is_emergency_route(route: str) -> bool:
