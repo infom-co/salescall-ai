@@ -471,6 +471,17 @@ def off_talk(q: "Question", got: str | None, fits: bool | None = True, prior: st
     if got in (HOLD, HANDOVER):
         return False
     return fits is False or (prior in q.conditions and got in q.conditions and prior != got)
+
+
+# いまの言葉だけでは決められず、前の話の答えで念のため確かめる（確かめる理由の名前＝Flow._check_again。言い切っていない答えと同じ言い方）
+PRIOR_WHY = "前の話の答え"
+
+
+def prior_answer(q: "Question", got: str | None, prior: str | None) -> str | None:
+    """いまの言葉だけでは決められない（判定が「決められない」と読んだ）とき、前の話の答え（宣言した選択肢）があれば、それを念のため確かめる答え
+    （唯一の決まり。流れの制御 Flow._compare と、測りの数え g53_meaning.flow_act が使う）。✅ 2026-10-31 の昼 ユーザー：「(a) 検査OK」＝いまの
+    言葉は前の話を見せずに読む（meaning_judge.main_before）ので、前の話を指す返事（前に言ったとおりだ、など）は、ここで前の話の答えを確かめる"""
+    return prior if got == UNDECIDED and prior in q.conditions else None
 # 値を直されたとき、こちらの聞き違いか相手の言い間違いかは、プログラムが相手の言葉（会話AIの聞き取りの文字）から決める。
 # ✅ 2026-10-14 ユーザー決定（3つの案のうち「(a) プログラムが相手の言葉で見分ける」）。⛔ G-36 の2回目・3回目：AIに選ばせると、
 #    12本中12本「相手が言い直した」を選んだ（相手が「いや、16日って言ったんですけど。」と言っても）。
@@ -2731,6 +2742,9 @@ class Flow:
             # 意味の判定が、前の質問（と前の会話）への返事として会話になっていないと読んだ：その判定の読みに意味の答え（選択肢）があれば、
             # それを念のため確かめる答えに（前に言ったことと逆の返事＝✅ ユーザー「(イ)」）、無ければ None（聞き直す）
             return f"{TALK_WHY}（意味の判定が、質問への返事として会話になっていないと読んだ）", (off if off in q.conditions + (ANY,) else None)
+        if (back := next((a for k in JUDGMENTS if check.get(k) is not None
+                          and (a := prior_answer(q, str(check[k]), getattr(check[k], "prior", None))) is not None), None)) is not None:
+            return f"{PRIOR_WHY}（いまの言葉だけでは決められず、その前に相手が言ったことから決まる答えを確かめる）", back
         for kind in JUDGMENTS:
             back = Flow._meaning_disagrees(q, reported, check.get(kind), confirming)
             if back:
@@ -2877,7 +2891,7 @@ class Flow:
         # （⛔ 2026-10-18 に見つけた漏れ：AIが「わからない」と報告し、判定が「していない」と読んだ「たぶんしてないと思います」は、
         #    食い違いがきっかけなので、言い切っていない答えの言い方にならなかった）
         # 会話になっていない返事に意味の答えがあるときも、言い切っていない答えと同じ言い方（「念のため…でよろしかったでしょうか？」＝✅ ユーザー「(イ)」）
-        hedged = why.startswith(HEDGE_WHY) or why.startswith(TALK_WHY) or Flow._hedged(self.heard_said, self.heard_check)
+        hedged = why.startswith((HEDGE_WHY, TALK_WHY, PRIOR_WHY)) or Flow._hedged(self.heard_said, self.heard_check)
         return self._ask_confirm(qid, after="hedged" if hedged else "ambiguous")
 
     def _take_system(self, qid: str, cond: str, reason: str | None = None) -> dict:

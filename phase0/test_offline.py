@@ -3174,48 +3174,79 @@ class AmbiguousAnswerTest(unittest.TestCase):
         self.assertEqual(flow_act({"set": "C"}, q, "利用しない", True, False), "念のため確かめる：利用しない")
 
     def test_prior_answer_is_compared_by_the_program(self):
-        # ✅ 2026-10-31 の昼 ユーザー：「(a) 検査OK」＝その前に相手が言ったことだけから決まる答え（前の話の答え）を別に読ませ、いまの言葉の答えと
-        #    違えば、前の話と合わない返事とプログラムが決める（flowctl.off_talk の1か所）。問うのは、答えの段の選択肢の質問の最初の答えで、
-        #    前の話があるときだけ（前の話の無い問い合わせの文は変わらない）
+        # ✅ 2026-10-31 の昼 ユーザー：「(a) 検査OK」（2回）＝いまの言葉の答えは前の話を見せずに読み、前の話の答え（その前に相手が言ったこと
+        #    だけから決まる答え）は前の話だけで別に読む。2つが違えば、前の話と合わない返事とプログラムが決める（flowctl.off_talk）。いまの言葉
+        #    だけでは決められず、前の話の答えがあれば、それを念のため確かめる（flowctl.prior_answer）。問うのは、答えの段の選択肢の質問の
+        #    最初の答えで、前の話があるときだけ（前の話の無い問い合わせの文は変わらない）
+        #    ⛔ 同じ昼の G-70：同じ問い合わせで前の話も見せると、「去年買い取りました。」のあとの「そうです。」を前の話で補い、前の話と同じ答えに読んだ
         import json
-        from flowctl import BEFORE, HOLD, off_talk
+        from flowctl import BEFORE, HOLD, UNDECIDED, off_talk, prior_answer
         from g53_meaning import flow_act, g48_questions
-        from meaning_judge import (PRIOR, PRIOR_NONE, PRIOR_RULE, Reading, _schema, jev_request, other_text, prior_names, prompt, read)
+        from meaning_judge import (PRIOR, PRIOR_NONE, Reading, jev_prior_request, judge_other, main_before, other_text, prior_names,
+                                   prior_prompt, prior_schema, prompt, read_prior)
         q = {q.id: q for q in g48_questions()}["G6"]
         before = "車で伺うので、駐車場を使わせてください。"
-        self.assertIn(PRIOR_RULE, prompt(q, "差し控えさせていただきます", None, before))
-        self.assertNotIn(PRIOR_RULE, prompt(q, "差し控えさせていただきます", None, None))
-        self.assertNotIn(PRIOR_RULE, prompt(q, "はい", "念のため駐車場はご利用になるということでよろしいでしょうか？", before))   # 言い直しへの返事には問わない
-        self.assertIn(PRIOR, _schema(q, None, before)["required"])
-        self.assertNotIn(PRIOR, _schema(q, None)["required"])
+        self.assertIsNone(main_before(q, None, before))                                   # いまの言葉は前の話を見せずに読む
+        asked = "念のため駐車場はご利用になるということでよろしいでしょうか？"
+        self.assertEqual(main_before(q, asked, before), before)                            # 言い直しへの返事は前のまま
+        self.assertNotIn(before, prompt(q, "そうです。", None, main_before(q, None, before)))
+        pp = prior_prompt(q, before)
+        self.assertIn(before, pp)
+        self.assertIn(q.text, pp)
+        self.assertNotIn("お客様の言葉", pp)                                              # 前の話の問い合わせに、いまの言葉は見せない
         names = [n for n, _ in prior_names(q)]
-        self.assertEqual(names[-1], PRIOR_NONE)
-        jq = jev_request("m", q, "差し控えさせていただきます", None, before)["questions"]
-        self.assertEqual(list(jq[PRIOR]["criteria"]), names)
-        self.assertNotIn(PRIOR, jev_request("m", q, "差し控えさせていただきます")["questions"])
+        self.assertEqual((names[-1], prior_schema(q)["properties"][PRIOR]["enum"]), (PRIOR_NONE, names))
+        jr = jev_prior_request("m", q, before)
+        self.assertEqual((set(jr["state"]), set(jr["questions"])), ({"質問", BEFORE}, {PRIOR}))
         use, not_use = names[0], names[1]
-        got = json.loads(other_text("Jev 1.14", {"answers": {"choice": {"choice": not_use, "confidence": 0.9}, "firm": {"noul": 0.9},
-                                                             "fits": {"noul": 0.8}, PRIOR: {"choice": use, "confidence": 0.3}}}))
-        self.assertEqual(got["sure"], 0.9)          # 前の話の答えは、答えの確からしさに入れない
-        self.assertIsNone(got[PRIOR])               # 線より下の前の話の答えは使わない
-        got = json.loads(other_text("Jev 1.14", {"answers": {"choice": {"choice": not_use, "confidence": 0.9}, "firm": {"noul": 0.9},
-                                                             "fits": {"noul": 0.8}, PRIOR: {"choice": use, "confidence": 0.9}}}))
-        r = read(q, json.dumps(got))
-        self.assertEqual((str(r), r.prior, r.prior_p, r.fits), ("利用しない", "利用する", 0.9, True))
+        for conf, want in ((0.3, None), (0.9, "利用する")):   # 線（PRIOR_LINE）より下の前の話の答えは使わない
+            self.assertEqual(read_prior(q, other_text("Jev 1.14", {"answers": {PRIOR: {"choice": use, "confidence": conf}}})), (want, conf, "利用する"))
+
+        class Resp:
+            def __init__(self, data):
+                self.data = data
+
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return self.data
+
+        class Client:   # 判定の窓口の代わり（送った中身を残す）
+            def __init__(self):
+                self.sent = []
+
+            def post(self, path, json=None):
+                self.sent.append(json)
+                if PRIOR in json["questions"]:
+                    return Resp({"answers": {PRIOR: {"choice": use, "confidence": 0.95}}})
+                return Resp({"answers": {"choice": {"choice": not_use, "confidence": 0.9}, "firm": {"noul": 0.9}, "fits": {"noul": 0.9}}})
+        c = Client()
+        r = judge_other(c, "Jev 1.14", q, "差し控えさせていただきます", None, before)
+        self.assertEqual(len(c.sent), 2)
+        self.assertNotIn(BEFORE, c.sent[0]["state"])                                      # いまの言葉の問い合わせに前の話は無い
+        self.assertEqual((str(r), r.prior, r.prior_p, r.fits), ("利用しない", "利用する", 0.95, True))
+        c = Client()
+        judge_other(c, "Jev 1.14", q, "差し控えさせていただきます")                       # 前の話が無ければ1回だけ
+        self.assertEqual(len(c.sent), 1)
         self.assertTrue(off_talk(q, str(r), r.fits, r.prior))
         self.assertFalse(off_talk(q, "利用する", True, "利用する"))
         self.assertFalse(off_talk(q, "利用しない", True, None))
         self.assertFalse(off_talk(q, HOLD, True, "利用する"))
         self.assertEqual(flow_act({"set": "C"}, q, str(r), r.firm, r.fits, r.prior), "念のため確かめる：利用しない")
-        # 流れの制御：前の話と合わない答えは、受け取らずに念のため確かめる（(イ) と同じ1か所）
-        f = self.flow()   # 言い直しの言葉（意味の名前）のある質問（無ければ言い直せないので聞き直す＝前からの動き）
-        f.use_checks("judge")
-        off = Reading("いいえ")
-        off.prior = "はい"
-        f.on_callee(); f.on_heard("差し控えさせていただきます。"); f.on_check("judge", off)
-        res = f.apply("record_answer", {"question_id": "Q1", "condition_id": "いいえ", "value": "差し控えさせていただきます"})
-        self.assertEqual(res["result"], "confirm_required")
-        self.assertTrue(res["say"].startswith("念のため"), res["say"])
+        self.assertEqual(prior_answer(q, UNDECIDED, "利用する"), "利用する")
+        self.assertIsNone(prior_answer(q, "利用しない", "利用する"))
+        self.assertEqual(flow_act({"set": "C"}, q, UNDECIDED, True, True, "利用する"), "念のため確かめる：利用する")
+        # 流れの制御：前の話と合わない答えは念のため確かめ、決められない言葉は前の話の答えで念のため確かめる（(イ) と同じ1か所の言い方）
+        for got, prior, cond in (("いいえ", "はい", "いいえ"), (UNDECIDED, "はい", "はい")):
+            f = self.flow()   # 言い直しの言葉（意味の名前）のある質問（無ければ言い直せないので聞き直す＝前からの動き）
+            f.use_checks("judge")
+            off = Reading(got)
+            off.prior = prior
+            f.on_callee(); f.on_heard("先ほど申し上げたとおりです。"); f.on_check("judge", off)
+            res = f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい", "value": "先ほど申し上げたとおりです"})
+            self.assertEqual((res["result"], f.items["Q1"].condition), ("confirm_required", cond), got)
+            self.assertTrue(res["say"].startswith("念のため"), res["say"])
 
     def test_answer_text_reads_only_the_words_now(self):
         # ⛔ 2026-10-31 の昼（G-70）：答えを「お客様が言ったこと」と書き、いまの言葉か前に話したことかを決めていなかった＝前に話したことから答えを
@@ -6224,10 +6255,11 @@ class VoiceFeaturesTest(unittest.TestCase):
         self.assertEqual(sure_line("Jev 1.14", f.judge_context()[0]), 0.8)
         self.assertEqual(sure_line("Jev 1.14", b.questions[0]), 0.95)
         self.assertIsNone(sure_line("Claude Sonnet 5.5", f.judge_context()[0]))
-        # 尋ねているか（お呼びする段・確かめる一言の段の両方）も 0.8（G-59 の Jev の3回分で決めて数えた）・測っていない「待たせた方が戻ったか」は 0.95 のまま
+        # 尋ねているか（お呼びする段・確かめる一言の段の両方）も 0.8（G-59 の Jev の3回分で決めて数えた）・「待たせた方が戻ったか」は 0.6
+        # （2026-10-31 の昼に G-68 で測って決めた＝returned_sure_min。✅ ユーザー：「(b) 精度が100％ならOK」。それまでは測っていないので 0.95 だった）
         self.assertEqual({sure_line("Jev 1.14", q) for q in f.asks_questions.values()}, {0.8})
         self.assertGreater(len(f.asks_questions), 1)
-        self.assertEqual(sure_line("Jev 1.14", f.return_question), 0.95)
+        self.assertEqual(sure_line("Jev 1.14", f.return_question), 0.6)
         self.assertIsNone(sure_line("Claude Sonnet 5.5", next(iter(f.asks_questions.values()))))
 
     def test_judges_see_names_as_written(self):

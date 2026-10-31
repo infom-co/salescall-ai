@@ -82,7 +82,8 @@ def main() -> None:
                 row[n] = str(got)
                 row |= {f"{n}{k}": getattr(got, a, None) for k, a in (("確からしさ", "sure"), ("言い切り", "firm"), ("言い切りの確からしさ", "firm_p"),
                                                                      ("会話", "fits"), ("会話の確からしさ", "fits_p"),
-                                                                     ("前の話", "prior"), ("前の話の確からしさ", "prior_p"))}
+                                                                     ("前の話", "prior"), ("前の話の確からしさ", "prior_p"),
+                                                                     ("前の話の選び（線より下も）", "prior_raw"))}
                 act = flow_act({"set": "C"}, q, str(got), got.firm, got.fits, got.prior)
                 row[f"{n}動き"], row[f"{n}正しい"] = act, act in wants(q, accept, either, talk)
             rows.append(row)

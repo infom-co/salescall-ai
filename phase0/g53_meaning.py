@@ -24,7 +24,7 @@ from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 
 from common import HERE, KeyRing, base_parser, describe_error, require_python, save_partial, save_result, say
-from flowctl import ANY, CHOICE_TYPES, HANDOVER, HOLD, SYSTEM_CONDITIONS, Flow, Question, off_talk
+from flowctl import ANY, CHOICE_TYPES, HANDOVER, HOLD, SYSTEM_CONDITIONS, Flow, Question, off_talk, prior_answer
 from g48_meanings import QUESTIONS as G48
 from meaning_judge import GROUPS, JUDGE_MODELS, OTHER_JUDGES, UNDECIDED, judge, judge_other
 
@@ -342,6 +342,8 @@ def flow_act(it: dict, q: Question, got, firm, fits=True, prior=None) -> str | N
         if got not in q.conditions and got != ANY:
             return ASK_AGAIN
         return RECHECK if it["set"] == "D" else f"念のため確かめる：{got}"
+    if (pa := prior_answer(q, got, prior)) is not None:   # いまの言葉だけでは決められず、前の話の答えを確かめる（Flow._compare と同じ）
+        return f"念のため確かめる：{pa}"
     if it["set"] == "D":
         if got == "affirmed" or got == it.get("asked_choice"):
             return AFFIRMED_HEDGED if firm is False else AFFIRMED
