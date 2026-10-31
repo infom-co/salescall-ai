@@ -158,7 +158,7 @@ def register_declared(tx: Tx, attempt_id: UUID) -> dict[str, Any]:
         raise attempts.AttemptNotFound(str(attempt_id))
     if not a["reached"]:
         raise ValueError("お客様が出ていない通話には、申告はありません")
-    if not approval.decides_on_spot(tx, a["task_id"]):
+    if not approval.decides_on_spot(tx, attempt_id):
         return {"entry_id": None, "reason": "refused_in_call", "numbers": [], "client_refs": [], "released_claims": 0,
                 "held": True}
     return {**register(tx, a["phone_e164"], "refused_in_call", source_attempt_id=attempt_id, in_call=True), "held": False}
@@ -319,8 +319,6 @@ def revoke_source(tx: Tx, attempt_id: UUID, reason: str) -> dict[str, Any]:
 
 
 # 発信禁止の理由 → その通話の報告から外す決定の中身（call_report.DECISION_PARTS。取り消したときに締め直す＝`_revoke`）
-REVOKED_PARTS = {"refused_in_call": "refusal", "refused_unclear_checked": "refusal", "wrong_party": "wrong_party", "fax_line": "fax"}
-
 
 def _revoke(tx: Tx, entry_ids: list[UUID], reason: str) -> dict[str, Any]:
     """取り消しの1か所（2026-10-30 管理者のご決定 (7)「案A」：誤って入れた発信禁止を取り消したら、その発信禁止で終えた行を予定に戻し、
@@ -343,11 +341,9 @@ def _revoke(tx: Tx, entry_ids: list[UUID], reason: str) -> dict[str, Any]:
         rows.append(row)
     resettled = []
     for source in dict.fromkeys(r["source_attempt_id"] for r in rows if r["source_attempt_id"] is not None):
-        if tx.one("SELECT 1 FROM salescall.dnc_entries WHERE source_attempt_id = %s AND revoked_at IS NULL LIMIT 1", (source,)):
-            continue
-        reasons = {r["reason"] for r in tx.all("SELECT DISTINCT reason::text AS reason FROM salescall.dnc_entries"
-                                               " WHERE source_attempt_id = %s", (source,))}
-        parts = sorted({REVOKED_PARTS[x] for x in reasons if x in REVOKED_PARTS})
+        # 外す中身：その通話から入れた登録がすべて取り消されたときの、登録の理由から決まる中身（データベースの salescall.revoked_parts の
+        # 1か所。取り消しの答えの守りも同じものを確かめる＝0161。⛔ 前は、この表が Python だけにあり、守りは中身を見なかった）
+        parts = tx.one("SELECT salescall.revoked_parts(%s) AS p", (source,))["p"]
         if parts:
             approval.withdraw_revoked(tx, source, parts, reason)
             resettled.append(source)

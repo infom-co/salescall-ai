@@ -49,6 +49,15 @@ def recover(tx: Tx, holder: str | None = None, line_id: UUID | None = None, *,
     return tx.all("SELECT line_id, released, ended FROM salescall.recover_lines(%s, %s, %s)", (holder, line_id, except_holder))
 
 
+def recover_left(tx: Tx, holder: str, line_id: UUID) -> list[dict[str, Any]]:
+    """回線ごとの流れの毎回の頭で呼ぶ：この回線に、前の回の電話（予約・進行中の試行）が残っていれば後始末する（起動・流れが止まったときと
+    同じ `recover` の1か所。残っていなければ何もしない＝回線の行を毎回ロックしない）。回の頭では、この流れの電話は1本も進んでいないので、
+    残っているのは、終わりの記録が書けずに残った試行（⛔ 見直し26c の 1：その回線は門に「使用中」で断られ続け、二度とかけなかった）。"""
+    if tx.one("SELECT salescall.line_has_leftovers(%s) AS left", (line_id,))["left"]:
+        return recover(tx, holder, line_id)
+    return []
+
+
 def take_job(tx: Tx, key: str, holder: str, seconds: int) -> bool:
     """決まった間隔の仕事を借りる（システムの処理だけ）。ほかの見守り役が期限の中で借りていれば False。"""
     return bool(tx.one("SELECT salescall.take_job(%s, %s, %s) AS ok", (key, holder, seconds))["ok"])

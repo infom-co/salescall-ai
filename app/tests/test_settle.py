@@ -10,7 +10,7 @@ from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from salescall.core import (approval, attempts, backup, business_rules, calling_hours, call_report, dnc, fix_requests, gate,
+from salescall.core import (approval, attempts, backup, business_rules, calling_hours, call_report, dnc, exclusions, fix_requests, gate,
                             next_action, quality_stage, recordings, results, scheduler, settings, settle, stops, target_recheck, tasks,
                             watch)
 from salescall.core.errors import ErrorReport
@@ -2852,6 +2852,56 @@ class AfterDenial(Base):
                                                              business_id=s["business"]))
         self.assertIsNone(got)
         self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, s["task"])), before)
+
+
+
+class Review26a(SettleBase):
+    """見直し26a（電話の一生を動かして確かめた。0162）：行が宙に浮かない・まだ分からない電話は予定を書かない。"""
+
+    SILENT = ("dialing", "ringing", "answered", "in_conversation", "dropped")
+
+    def other_row(self, s):
+        run2 = self.w.run(s["tenant"], s["client"], s["business"], s["version"])
+        t = self.w.task(s["tenant"], s["client"], run2, s["contact"])
+        self.tx(s, lambda tx: next_action.schedule_now(tx, t, cause="試験"))
+        return t
+
+    def test_forcing_no_call_stops_waiting_for_the_unclear_cut_check(self):
+        """切れ方が分からない通話の行を「強制かけない」にしたら、確かめのかけ直しはもうかからないので、待たない（同じお客様のほかの行を
+        止め続けない。⛔ 見直し26a の 1：ほかの行が門でも候補でも永久に止まった）。確定の印の無い結果の版も確かめ直す。"""
+        s = self.ready()
+        other = self.other_row(s)
+        aid = self.call(s, self.SILENT, side="callee", report=rep(cut=Cut("ai", False, False)))
+        self.assertEqual(self.settle(s, aid)["decision"].check_of, aid)
+        pending = lambda: self.tx(s, lambda tx: tx.one("SELECT salescall.unclear_check_pending(%s) AS p", (aid,)))["p"]   # noqa: E731
+        self.assertTrue(pending())
+        self.assertEqual(self.tx(s, lambda tx: gate.pacing(tx, other)).binding, "related_decision_pending")
+        self.tx(s, lambda tx: exclusions.mark(tx, [s["task"]], "exclude", reason="試験：契約者の判断"), OPERATOR)
+        self.assertTrue(pending())                    # 「かけない」なら、確かめのかけ直し（かけ直しの例外）はかかる：待つ
+        self.tx(s, lambda tx: exclusions.mark(tx, [s["task"]], "force", reason="試験：契約者の判断"), OPERATOR)
+        self.assertFalse(pending())                   # 強制かけない：もうかからない
+        self.assertNotEqual(self.tx(s, lambda tx: gate.pacing(tx, other)).binding, "related_decision_pending")
+        released = self.tx(s, lambda tx: tx.one("SELECT count(*) AS n FROM salescall.result_releases WHERE task_id = %s",
+                                                (s["task"],)))["n"]
+        self.assertEqual(released, 1)                 # 結果の版を確かめ直して確定した（行が終わったときと同じ）
+
+    def test_an_unrung_call_settled_after_another_lines_claim_was_dropped_keeps_the_plan(self):
+        """鳴らなかった電話（番号のせいか回線のせいか、まだ分からない）を、ほかの回線の予約で待たずに締めても、その予約がかける前に取り消され
+        ていたら、行の予定は書き直さない（いまの予定のまま。⛔ 見直し26a の 3：あとの発信が無いので、出なかった電話として再発信の決まりで
+        予定を1時間後へ書き直した）。"""
+        s = self.ready()
+        line_b = self.w.line(s["tenant"])
+        self.lease(s, line=line_b)
+        c = self.claim(s)
+        dial_exit.dial(self.w.a, SYSTEM, s["tenant"], s["client"], c.attempt_id, FakeDriver(fail=dial_exit.CallNotPlaced("試験")))
+        self.tx(s, lambda tx: health.after_call(tx, c.attempt_id))
+        self.assertEqual(self.tx(s, lambda tx: health.blame_of(tx, c.attempt_id)), "pending")
+        b = self.claim(s, line=line_b)                # ほかの回線の門が通す（表の R-4：待たずに締めてよい）
+        self.assertIsInstance(b, gate.Claim, b)
+        before = self.tx(s, lambda tx: next_action.current(tx, s["task"]))
+        self.tx(s, lambda tx: attempts.release(tx, [b.attempt_id]))   # かける前に取り消された（PC が答えなかった など）
+        self.tx(s, lambda tx: settle.settle(tx, c.attempt_id))
+        self.assertEqual(self.tx(s, lambda tx: next_action.current(tx, s["task"]))["seq"], before["seq"])   # 予定は、いまのまま
 
 
 if __name__ == "__main__":

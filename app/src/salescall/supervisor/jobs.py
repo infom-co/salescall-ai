@@ -55,6 +55,7 @@ class Job:
     work: Callable[[Context], Any]
     wanted: Callable[[config.Config], bool] = lambda cfg: True   # する仕事か（ほかの担当の部品の設定があるか など）
     heavy: bool = False             # 長い仕事（控えの書き込み＝PC を待つ）。別の流れの組で回す（締め・後始末の順番を塞がない）
+    parts: bool = False             # ほかの担当の部品（通話後の確かめ・回復の確かめ）を待つ仕事。これも別の流れの組で回す（main._pool_for）
 
     def key(self, tenant_id: UUID | None) -> str:
         return self.name if self.scope == "system" else f"{self.name}:{tenant_id}"
@@ -255,16 +256,16 @@ def pc_watch(ctx: Context) -> None:
 JOBS: tuple[Job, ...] = (
     Job("recover", 60, "tenant", 300, recover_expired),
     Job("settle", 15, "tenant", 600, settle_ready),
-    Job("verify", 15, "tenant", 600, verify_pending, wanted=lambda cfg: cfg.verifier is not None),
+    Job("verify", 15, "tenant", 600, verify_pending, wanted=lambda cfg: cfg.verifier is not None, parts=True),
     Job("ai_stops", 60, "tenant", 300, ai_stops),   # 止まったAIで止めるかの決め直し（0159）
-    Job("stop_checks", 30, "tenant", 600, stop_checks, wanted=lambda cfg: cfg.prober is not None),
+    Job("stop_checks", 30, "tenant", 600, stop_checks, wanted=lambda cfg: cfg.prober is not None, parts=True),
     Job("rejudge", 600, "tenant", 1800, rejudge_held),
     Job("reopen_revoked", 300, "tenant", 600, reopen_revoked),
     Job("utterances", 86400, "tenant", 600, purge_utterances),   # やり取りの文字を、録音と同じ日数で消す（1日1回。0157）
     Job("samples", 3600, "tenant", 1800, draw_samples),
     Job("answer_rates", 1800, "tenant", 600, answer_rates),
     Job("budget", 60, "tenant", 600, budget),
-    Job("system_stop_checks", 30, "system", 600, system_stop_checks, wanted=lambda cfg: cfg.prober is not None),
+    Job("system_stop_checks", 30, "system", 600, system_stop_checks, wanted=lambda cfg: cfg.prober is not None, parts=True),
     Job("holidays", 86400, "system", 600, holidays),   # 1日1回（⛔ 2026-10-22 の見直し：1時間ごとで、翌年の分が載るまで毎時間取りに行った）
     Job("backups", 300, "tenant", 4 * 3600, backups, heavy=True),
     Job("whole_backup", 300, "system", 4 * 3600, whole_backup, wanted=lambda cfg: cfg.whole_backup, heavy=True),

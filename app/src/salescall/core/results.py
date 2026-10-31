@@ -30,6 +30,14 @@ def latest(tx: Tx, task_id: UUID) -> dict[str, Any] | None:
     )
 
 
+def latest_of_attempt(tx: Tx, attempt_id: UUID) -> dict[str, Any] | None:
+    """その通話の、いちばん新しいシステムの判定の版（judged・rejudged。無ければ None）。"""
+    return tx.one(
+        "SELECT task_id, version_no, kind::text AS kind, business_state::text AS business_state, attempt_id, complaint, detail"
+        " FROM salescall.task_results WHERE attempt_id = %s AND kind IN ('judged', 'rejudged') ORDER BY version_no DESC LIMIT 1",
+        (attempt_id,))
+
+
 def current_state(tx: Tx, task_id: UUID) -> str:
     """いまの業務の状態。結果の版が無ければ open（DESIGN.md 4-1）。"""
     if tx.one("SELECT 1 FROM salescall.tasks WHERE task_id = %s", (task_id,)) is None:

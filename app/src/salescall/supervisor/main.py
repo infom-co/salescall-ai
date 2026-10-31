@@ -55,6 +55,8 @@ STABLE_AFTER = 600.0                       # 回線ごとの流れが、これ�
 RENEW_FALLBACK = 10.0                      # 延ばす間隔をまだ一度も読めていないとき（データベースに届かない）の、次に試すまでの秒数
 JOB_THREADS = 8                            # 決まった間隔の仕事を同時に回す流れの数（多い分は順番を待つ）
 HEAVY_THREADS = 4                          # 長い仕事（控えの書き込み＝遅い PC を待つ）の流れの数。締め・後始末の順番を塞がないよう分ける
+PARTS_THREADS = 4                          # ほかの担当の部品を待つ仕事（通話後の確かめ・回復の確かめ）の流れの数。同じく分ける（⛔ 見直し26c
+#                                            の 3：確かめの部品が遅い・固まると、すべての契約者の締め・後始末・費用の見張りが止まった）
 __all__ = ["AlreadyRunning", "Supervisor", "serve", "holder_name"]
 
 
@@ -190,6 +192,7 @@ class Supervisor:
         self.access = Access(self.cfg.dsn)
         self.pool = ThreadPoolExecutor(max_workers=JOB_THREADS, thread_name_prefix="salescall-job")
         self.heavy_pool = ThreadPoolExecutor(max_workers=HEAVY_THREADS, thread_name_prefix="salescall-backup")
+        self.parts_pool = ThreadPoolExecutor(max_workers=PARTS_THREADS, thread_name_prefix="salescall-parts")
         self.context = jobs.Context(self.access, self.cfg, self.holder, self.links)
         # 動いているプログラムの版（読み込んだときに1回。こちらの不具合で休んだ行・止めた契約者を、直した版に替わったら戻すため）
         self.program = updates.program_version(self.cfg.call_runner, self.cfg.verifier, self.cfg.prober)
@@ -317,8 +320,11 @@ class Supervisor:
             report(self.access, tenant_id, "回線の後始末", e, line_id=line_id)
 
     def _finish(self, line_id: UUID) -> None:
-        """回線を返す（つながりが切れて、流れが止まったあと）：進行中の試行を後始末してから返す。"""
-        tenant_id = self.leased.pop(line_id, None)
+        """回線を返す（つながりが切れて、流れが止まったあと）：進行中の試行を後始末してから返す。返せてから手元の印を外す（返せなければ
+        借りたままの印を残し、次の借用の回にまた返しに行く。⛔ 見直し26c の 6：前は返せたかを見る前に印を外したので、データベースに
+        届かなかった回の試行が、自分の名前の借用のまま残った＝決まった間隔の後始末は自分の名前の回線を除くので、見守り役を立ち上げ直す
+        まで、その行はどの回線からもかけられなかった）。"""
+        tenant_id = self.leased.get(line_id)
         if tenant_id is None:
             return
         def back(tx: Any) -> None:
@@ -326,8 +332,10 @@ class Supervisor:
             leases.return_line(tx, line_id, self.holder)
         try:
             self.access.in_tenant(ACTOR, tenant_id, back)
-        except Exception as e:  # noqa: BLE001 返せなくても、期限で次が後始末する
+        except Exception as e:  # noqa: BLE001 返せなければ、印を残して次の回にまた返す
             report(self.access, tenant_id, "回線を返す", e, line_id=line_id)
+            return
+        self.leased.pop(line_id, None)
 
     def _stop_worker(self, line_id: UUID) -> None:
         w = self.workers.get(line_id)
@@ -350,7 +358,8 @@ class Supervisor:
                 continue
             if w.thread.is_alive():
                 stuck = stuck_call(line_id)
-                if stuck is not None and not w.stopping:   # 通話の部品が戻らない・書き手が進まない：流れを立て直す
+                if stuck is not None:   # 通話の部品が戻らない・書き手が進まない：流れを捨てて立て直す（止めている途中の流れも。⛔ 見直し26c
+                    # の 2：PC のつなぎが替わって止めている途中の流れで部品が戻らないと、立て直さず、記録も修正依頼も出なかった）
                     self._abandon(line_id, w, stuck, now)
                     continue
                 if w.fails and now - w.started_at >= STABLE_AFTER:   # しばらく続けて動いた：止まった回数を数え直す
@@ -429,8 +438,13 @@ class Supervisor:
                 self._stuck.discard(key)
                 self._started[key] = now
                 ctx = self.context if tenant_id is None else self.context.for_tenant(tenant_id)
-                self._running[key] = (self.heavy_pool if job.heavy else self.pool).submit(jobs.run_job, ctx, job)
+                self._running[key] = self._pool_for(job).submit(jobs.run_job, ctx, job)
                 self._next_job[key] = now + job.every
+
+    def _pool_for(self, job: jobs.Job) -> ThreadPoolExecutor:
+        """その仕事を回す流れの組（1か所）：長い仕事（控え）・ほかの担当の部品を待つ仕事・そのほか（締め・後始末・見張り）を分ける
+        （片方が遅い・固まっても、ほかの順番を塞がない）。"""
+        return self.heavy_pool if job.heavy else self.parts_pool if job.parts else self.pool
 
     # ── 1回分（本体の繰り返し） ──
     def tick(self, now: float | None = None) -> None:
@@ -476,6 +490,7 @@ class Supervisor:
             futures_wait(rest, timeout=max(1.0, deadline - time.monotonic()))
         self.pool.shutdown(wait=False, cancel_futures=True)
         self.heavy_pool.shutdown(wait=False, cancel_futures=True)   # 控えの書き込みは待たない（借用の期限で、次が引き継ぐ）
+        self.parts_pool.shutdown(wait=False, cancel_futures=True)   # ほかの担当の部品も待たない（同じく）
 
 
 def serve(cfg: config.Config, stop: threading.Event | None = None) -> None:

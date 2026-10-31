@@ -22,6 +22,7 @@ from salescall.core import (attempts, backup, business_rules, call_report, calli
 from salescall.core import health_rules as hr
 from salescall.core.health_rules import LineStage, Wait
 from salescall.core.phone import normalize
+from salescall.core import access as access_mod
 from salescall.core.access import Rejected
 from salescall import supervisor
 from salescall.supervisor import config, jobs, line, plugins, updates
@@ -2680,3 +2681,132 @@ class Watchdog(unittest.TestCase):
         loop = src[src.index("while not stop.is_set():", src.index("dog.start()")):]
         self.assertTrue(loop.split("\n")[1].strip() == "dog.beat()")
         self.assertLess(src.index("dog.stop()"), src.index("sup.shutdown()", src.index("dog.stop()")))
+
+
+class _NoEnd(Runner):
+    """呼び出しまで進めて、終えずに戻る（落ちた・終えずに戻った）。"""
+    def run(self, access, actor, claim, *, tenant_id, client_id, call=None):
+        call.beat()
+        access.in_client(actor, tenant_id, client_id, lambda tx: attempts.move(tx, claim.attempt_id, "ringing"))
+
+
+class _LastWriteFails:
+    """話し終えて、最後の書き込み（ended への移り）だけが書けずに戻る（書けなかったと受け取って戻る）。"""
+    def run(self, access, actor, claim, *, tenant_id, client_id, call=None):
+        call.beat()
+        access.in_client(actor, tenant_id, client_id, lambda tx: [attempts.move(tx, claim.attempt_id, st)
+                                                                   for st in ("ringing", "answered", "in_conversation")])
+        call.write(conversation_io.move_work(claim.attempt_id, "ending"))
+        call.write(conversation_io.move_work(claim.attempt_id, "ended"))
+        with contextlib.suppress(plugins.WriteFailed):
+            call.flush()
+
+
+class Review26c(SupervisorBase):
+    """見直し26c（見守り役と回線）：回線が黙って止まらない・書けなかった通話のせい・ほかの担当の部品を待つ仕事・知らせの重なり。"""
+
+    def another_row(self, s):
+        k = self.w.contact(s["tenant"], s["client"], normalize(fictional_jp_fixed()).e164)
+        t = self.w.task(s["tenant"], s["client"], s["run"], k)
+        self.tx(s, lambda tx: next_action.schedule_now(tx, t, cause="試験"))
+        return t
+
+    def test_a_call_whose_end_could_not_be_recorded_does_not_stop_the_line(self):
+        """終わりの記録が1回書けずに試行が進行中のまま残っても、次の回の頭で後始末して、その回線は次の行へかける（⛔ 見直し26c の 1：
+        門に「使用中」で断られ続け、二度とかけなかった）。"""
+        s = self.ready()
+        self.another_row(s)
+        real = attempts.end_for_trouble
+        n = {"k": 0}
+
+        def flaky(tx, *a, **k):
+            n["k"] += 1
+            if n["k"] == 1:
+                raise access_mod.RetryExhausted("試験：ぶつかりが続いた")
+            return real(tx, *a, **k)
+        with mock.patch.object(attempts, "end_for_trouble", flaky):
+            first = line.one_round(self.w.a, SYSTEM, s["tenant"], s["line"], HOLDER, FakeDriver(), _NoEnd())
+        self.assertEqual(self.state(s, first.called), "ringing")            # 進行中のまま残った
+        got = line.one_round(self.w.a, SYSTEM, s["tenant"], s["line"], HOLDER, FakeDriver(), Runner())
+        self.assertIsNotNone(got.called, got)                                # 次の行へかけた
+        self.assertEqual(self.state(s, first.called), "technical_error")     # 残った試行は後始末した
+
+    def test_a_call_that_could_not_be_written_is_the_storages_fault(self):
+        """話し終えた通話の最後の書き込みがデータベースの誤りで書けずに戻ったら、会話の部品の不具合でなく保存のせい（⛔ 見直し26c の 4：
+        CL-1 の不具合として数え、修正依頼も CL-1 へ出した）。"""
+        s = self.ready()
+        real = attempts.move
+
+        def move(tx, attempt_id, to_state, **kw):
+            if to_state == "ended":
+                raise access_mod.RetryExhausted("試験：ほかの取引とのぶつかりが続きました")
+            return real(tx, attempt_id, to_state, **kw)
+        with mock.patch.object(attempts, "move", move):
+            got = line.one_round(self.w.a, SYSTEM, s["tenant"], s["line"], HOLDER, FakeDriver(), _LastWriteFails())
+        trouble = self.tx(s, lambda tx: tx.one("SELECT trouble FROM salescall.attempts WHERE attempt_id = %s", (got.called,)))["trouble"]
+        self.assertEqual(trouble, "storage_stuck")
+
+    def test_jobs_that_wait_on_other_parts_run_in_their_own_pool(self):
+        """ほかの担当の部品（通話後の確かめ・回復の確かめ）を待つ仕事は、締め・後始末と別の流れの組で回す（⛔ 見直し26c の 3：確かめの
+        部品が遅い・固まると、すべての契約者の締め・後始末が止まった）。部品を呼ぶ仕事は、どれもその印を持つ。"""
+        for job in jobs.JOBS:
+            with self.subTest(job=job.name):
+                self.assertEqual(job.parts, "ctx.part(" in inspect.getsource(job.work) or job.work is jobs.stop_checks
+                                 or job.work is jobs.system_stop_checks, job.name)
+        sup = Supervisor(self.cfg(), NoLinks())
+        try:
+            verify = next(j for j in jobs.JOBS if j.name == "verify")
+            settle_job = next(j for j in jobs.JOBS if j.name == "settle")
+            self.assertIs(sup._pool_for(verify), sup.parts_pool)
+            self.assertIs(sup._pool_for(settle_job), sup.pool)
+        finally:
+            sup.shutdown(wait_seconds=0)
+
+    def test_a_line_stuck_in_a_call_is_told_once_per_episode(self):
+        """回線が「通話中」と答え続けても、かけられなくなった時刻は同じ続きのあいだ変えない（⛔ 見直し26c の 5：毎回わずかにずれ、
+        「かけられなくなった時刻ごとに1回」の知らせが回すたびに出た）。"""
+        s = self.ready()
+        first = self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: health.stuck(tx, s["line"], 1000.0))
+        time.sleep(0.01)
+        again = self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: health.stuck(tx, s["line"], 1000.0, first))
+        self.assertEqual(again, first)
+        self.assertEqual(len([k for k in self.line_of(s).told if k.startswith("かけられない:")]), 1)
+
+    def test_a_line_is_marked_returned_only_after_it_was_returned(self):
+        """回線を返せなかったら、借りたままの印を残して次の回にまた返す（⛔ 見直し26c の 6：返せたかを見る前に印を外したので、残った試行が
+        自分の名前の借用のまま、見守り役を立ち上げ直すまで残った）。"""
+        s = self.ready()
+        sup = Supervisor(self.cfg(), NoLinks(), holder=HOLDER)
+        try:
+            sup.leased[s["line"]] = s["tenant"]
+            with mock.patch.object(leases, "return_line", side_effect=access_mod.RetryExhausted("試験：届かない")):
+                sup._finish(s["line"])
+            self.assertIn(s["line"], sup.leased)
+            sup._finish(s["line"])
+            self.assertNotIn(s["line"], sup.leased)
+            holder = self.w.a.in_tenant(SYSTEM, s["tenant"], lambda tx: tx.one(
+                "SELECT lease_holder FROM salescall.lines WHERE line_id = %s", (s["line"],)))["lease_holder"]
+            self.assertIsNone(holder)
+        finally:
+            sup.shutdown(wait_seconds=0)
+
+    def test_a_stuck_call_in_a_flow_being_stopped_is_abandoned_too(self):
+        """止めている途中の流れ（PC のつなぎが替わった など）でも、通話の部品が戻らなければ、流れを捨てて立て直す（⛔ 見直し26c の 2：
+        止めている途中なので立て直さず、記録も修正依頼も出なかった）。"""
+        s = self.ready()
+        sup = Supervisor(self.cfg(), NoLinks())
+        hold = threading.Event()
+        thread = threading.Thread(target=hold.wait, daemon=True)
+        thread.start()
+        try:
+            at = Attached(s["tenant"], uuid.UUID(int=1))
+            sup.workers[s["line"]] = main_mod._Worker(s["line"], at, thread, threading.Event(), stopping=True)
+            stuck = object()
+            with mock.patch.object(main_mod, "stuck_call", return_value=stuck), \
+                    mock.patch.object(Supervisor, "_abandon") as abandon:
+                sup.watch_workers(time.monotonic())
+            abandon.assert_called_once()
+            self.assertIs(abandon.call_args.args[2], stuck)
+        finally:
+            hold.set()
+            sup.shutdown(wait_seconds=0)

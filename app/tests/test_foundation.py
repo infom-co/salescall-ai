@@ -657,12 +657,15 @@ class DeliveriesOnlyForReleasedVersions(unittest.TestCase):
         """検証の段階で確定した結果には、送り先への連携（依頼者へ渡す道）を作れない（2026-10-16 ユーザー：「依頼者に途中作業
         していることは絶対に知らせてはいけない」。データベースが守る）。"""
         w = World(); s = w.setup(); dest = uuid.uuid4()
+        aid = w.insert_claim(s)   # 検証モードでかけた通話（検証の印。確定の印の段は、かけたときのモードで決まる＝0161）
 
         def prepare(tx):
-            tx.execute("INSERT INTO salescall.task_results (tenant_id, client_id, task_id, version_no, kind, business_state,"
+            tx.execute("INSERT INTO salescall.recording_holds (tenant_id, client_id, attempt_id, reason)"
+                       " VALUES (%s, %s, %s, 'verification')", (s["tenant"], s["client"], aid))
+            tx.execute("INSERT INTO salescall.task_results (tenant_id, client_id, task_id, version_no, kind, business_state, attempt_id,"
                        " judge_version, complaint, detail, snapshot, decided_by)"
-                       " VALUES (%s, %s, %s, 1, 'judged', 'completed', 'judge-1', false, '{}', '{}', 'judge')",
-                       (s["tenant"], s["client"], s["task"]))
+                       " VALUES (%s, %s, %s, 1, 'judged', 'completed', %s, 'judge-1', false, '{}', '{}', 'judge')",
+                       (s["tenant"], s["client"], s["task"], aid))
             tx.execute("INSERT INTO salescall.destinations (tenant_id, client_id, destination_id, name, method, upsert_capable)"
                        " VALUES (%s, %s, %s, '架空の送り先', 'mock', true)", (s["tenant"], s["client"], dest))
             tx.execute("INSERT INTO salescall.result_releases (tenant_id, client_id, task_id, version_no, released_by, stage)"

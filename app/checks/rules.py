@@ -274,6 +274,7 @@ WRITE_FUNCTIONS: dict[str, frozenset[str]] = {
     "lease_line": frozenset({_CORE + "leases.py"}),              # 回線の借用（5-4）
     "return_line": frozenset({_CORE + "leases.py"}),
     "recover_lines": frozenset({_CORE + "leases.py"}),           # 落ちた試行の後始末
+    "settling": frozenset({_CORE + "approval.py"}),              # 保留を書く締めの入口の印（approval.record_wait だけ。0161）
     "take_job": frozenset({_CORE + "leases.py"}),                # 仕事の借用
     "return_job": frozenset({_CORE + "leases.py"}),
     "notify_admin": frozenset({_CORE + "notify.py"}),            # 管理者あての知らせ（Q23）

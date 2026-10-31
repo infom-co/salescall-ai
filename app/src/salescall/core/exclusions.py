@@ -26,7 +26,7 @@ import unicodedata
 from typing import Any
 from uuid import UUID
 
-from salescall.core import attempts
+from salescall.core import approval, attempts
 from salescall.core.access import Tx
 
 LEVELS = ("call", "exclude", "force")   # かける・かけない・強制かけない
@@ -78,6 +78,11 @@ def mark(tx: Tx, task_ids: list[UUID], level: str, *, reason: str, source: str =
         attempts.release(tx, [r["attempt_id"] for r in tx.all(
             "SELECT attempt_id FROM salescall.attempts WHERE task_id = ANY(%s) AND state = 'claimed'"
             "   AND (%s OR salescall.is_new_call(purpose, promised))", (changed, level == "force"))])
+    if level == "force":
+        # 強制かけない：その行へは、もうかけない（確かめのかけ直しもかからない＝データベースの salescall.unclear_check_pending も、もう待た
+        # ない）。行が終わったときと同じく、確定の印の無い結果の版を確かめ直す（承認の部分の1か所 approval.after_ended。0162）
+        for task_id in changed:
+            approval.after_ended(tx, task_id)
     return changed
 
 

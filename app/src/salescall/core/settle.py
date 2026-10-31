@@ -275,7 +275,20 @@ def resettle(tx: Tx, attempt_id: UUID) -> dict[str, Any]:
     if tx.one("SELECT 1 FROM salescall.task_results WHERE attempt_id = %s AND kind = 'judged'", (attempt_id,)) is None:
         return settle(tx, attempt_id)
     version = tx.one("SELECT salescall.run_current_version(%s) AS v", (a["run_id"],))["v"]
-    return _after(tx, a, _judge_and_write(tx, a, kind="rejudged", rules_version=version))
+    before = results.latest_of_attempt(tx, attempt_id)
+    out = _after(tx, a, _judge_and_write(tx, a, kind="rejudged", rules_version=version))
+    # この通話の決定（断り・怒っていた）で、あとに発信のある行を終えていたのに、締め直しで終えなくなった（差し戻し・発信禁止の取り消し）：
+    # 行の予定と依頼者へ渡す結果は、その行のいちばん新しい通話の締めが決め直す（0161。⛔ 見直し26b の 1：あとに発信があるので予定を
+    # 書き直さず、行は「営業拒否」で終わったまま・確定した結果も「営業拒否」のままだった＝2026-10-30 (7) に反した）
+    if before is not None and _later_dial(tx, a) \
+            and _ends(tx, a, before) \
+            and not _ends(tx, a, results.latest_of_attempt(tx, attempt_id)):
+        last = tx.one("SELECT attempt_id FROM salescall.attempts b WHERE b.task_id = %s AND b.claimed_at > %s AND "
+                      f"{attempts.dialed('b')} AND EXISTS (SELECT 1 FROM salescall.task_results r WHERE r.attempt_id = b.attempt_id)"
+                      " ORDER BY b.claimed_at DESC LIMIT 1", (a["task_id"], a["claimed_at"]))
+        if last is not None:
+            resettle(tx, last["attempt_id"])
+    return out
 
 
 def _recheck_waits(tx: Tx) -> list[dict[str, Any]]:
@@ -420,7 +433,11 @@ def _judge_and_write(tx: Tx, a: dict[str, Any], *, kind: str, rules_version: Any
     # 判定できなかった通話も決める（途中で切れていれば、お詫びのかけ直しをする＝next_action。2026-10-22 ユーザー）。取り消せない決定の
     # 保留のあいだは、まだ決めない（外すと答えれば、切れ方が変わる。締め直しで1回だけ残す）
     cut_off = False if wait is not None else _cut_off(tx, a, j.detail.get("cut"), report)
-    if _later_dial(tx, a) and not (wait is None and (j.state == "do_not_call" or j.complaint) and not _later_talk(tx, a)):
+    # まだ分からない電話（番号のせいか回線のせいか。試行のせいの欄が pending のまま）を、ほかの回線の予約で待たずに締めるとき（表の R-4）も、
+    # 行の予定は書かない（予約に使った、いまの予定のまま。⛔ 見直し26a の 3：ほかの回線の予約が、かける前に取り消されると「あとの発信」が
+    # 無いので、鳴っていない電話を出なかった電話として、再発信の決まりで予定を書き直していた）
+    if (_later_dial(tx, a) or health.blame_of(tx, attempt_id) == "pending") \
+            and not _ends_row(tx, a, j.state, j.complaint, wait is not None):
         # この通話のあとに、この行でもう発信している（判定し直した通話・ほかの回線がかけたあとに締めた、まだ分からなかった電話＝
         # 見直し22 の 5）：行の予定は、あとの発信の締めが決める（結果の版と発信禁止だけを足し、予定は書き直さない＝判断はここの1か所。
         # お詫びの電話も同じ＝`_settle_apology`）。⛔ 見直し16：前は、何日も前に途中で切れた通話を判定し直すと、終えた行が
@@ -438,6 +455,17 @@ def _judge_and_write(tx: Tx, a: dict[str, Any], *, kind: str, rules_version: Any
         waiting=None if wait is None else wait.kind)   # 取り消せない決定の保留の種類（2026-10-30 管理者のご決定 (6)）
     apology.schedule_if_ready(tx, a["task_id"])   # 締めの前に承認されていたお詫び：判定が決まったいま、予定を書く（apology の1か所）
     return {"version_no": version_no, "state": j.state, "decision": decision, "already": False}
+
+
+def _ends_row(tx: Tx, a: dict[str, Any], state: str, complaint: bool, waiting: bool) -> bool:
+    """この通話の決定で、あとに発信のある行を終えるか（1か所。締め・締め直しが読む）：断り・怒っていたが決まり（保留でない）、あとでお客様と
+    話していない（話していれば、その通話の結果が行の結果）。"""
+    return not waiting and (state == "do_not_call" or complaint) and not _later_talk(tx, a)
+
+
+def _ends(tx: Tx, a: dict[str, Any], version: dict[str, Any]) -> bool:
+    """その結果の版（締めの版）の決定で、あとに発信のある行を終えたか（`_ends_row` と同じ決まり。保留の種類は版の detail の decision_wait）。"""
+    return _ends_row(tx, a, version["business_state"], version["complaint"], bool(version["detail"].get("decision_wait")))
 
 
 def _later_talk(tx: Tx, a: dict[str, Any]) -> bool:

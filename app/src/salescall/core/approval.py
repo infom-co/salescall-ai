@@ -80,18 +80,24 @@ def approve_task(tx: Tx, task_id: UUID) -> None:
 
 def _release(tx: Tx, task_id: UUID, version_no: int) -> None:
     """「確定した」の印を付ける（1か所）。検証の段階か本番かも印に持たせる（検証の段階の結果は、依頼者へ何も渡さない＝2026-10-16
-    ユーザー。出力の型 CL-3 が、この印で分ける。2026-10-17 の計画書との突き合わせで足した）。"""
-    stage = "verification" if _human(tx, task_id) else "production"
+    ユーザー。出力の型 CL-3 が、この印で分ける。2026-10-17 の計画書との突き合わせで足した）。段は、その版の通話をかけたときのモード
+    （データベースの salescall.version_in_verification の1か所。守りも同じものを確かめる＝0161）。"""
+    stage = "verification" if _in_verification(tx, task_id, version_no) else "production"
     tx.execute("INSERT INTO salescall.result_releases (tenant_id, client_id, task_id, version_no, released_by, stage)"
                " SELECT tenant_id, client_id, task_id, version_no, salescall.cur_actor(), %s FROM salescall.task_results"
                " WHERE task_id = %s AND version_no = %s ON CONFLICT DO NOTHING", (stage, task_id, version_no))
 
 
+def _in_verification(tx: Tx, task_id: UUID, version_no: int) -> bool:
+    """その版が検証の段か（その版の通話を、検証モードでかけたか。データベースの salescall.version_in_verification の1か所）。"""
+    return tx.one("SELECT salescall.version_in_verification(%s, %s) AS v", (task_id, version_no))["v"]
+
+
 def after_judged(tx: Tx, task_id: UUID, version_no: int, version_id: UUID) -> list[tuple[UUID, int]]:
-    """締めの処理が呼ぶ（判定の版を足し、品質の段を評価したあと）。フルオートなら、その版に「確定した」の印を付ける。
+    """締めの処理が呼ぶ（判定の版を足し、品質の段を評価したあと）。フルオートでかけた通話の版なら、その版に「確定した」の印を付ける。
     付けた（行, 版の番号）を返す（付けなければ空）。"""
-    if _human(tx, task_id):
-        return []                                  # 検証モード：契約者が確かめる
+    if _in_verification(tx, task_id, version_no):
+        return []                                  # 検証モードでかけた通話：契約者が確かめる（かけたあとにモードを替えても同じ）
     if tx.one("SELECT business_state::text AS s FROM salescall.task_results WHERE task_id = %s AND version_no = %s",
               (task_id, version_no))["s"] == "unknown":
         return []                                  # 判定できなかった結果は確定しない（判定し直した版が確定する）
@@ -128,10 +134,11 @@ def correct_result(tx: Tx, task_id: UUID, *, checked_version: int, business_stat
                (task_id, checked_version))
     if v is None or v["kind"] not in measure.SYSTEM_KINDS:   # システムが判定した版（決まりは measure の1か所）
         raise LookupError(f"直すのは、システムが判定した結果の版です：{task_id} の版 {checked_version}")
-    if tx.one("SELECT salescall.decision_pending(attempt_id) AS p FROM salescall.task_results WHERE task_id = %s AND version_no = %s",
-              (task_id, checked_version))["p"]:
-        # 取り消せない決定がまだ決まっていない通話の版は、直して確定しない（保留を、結果を直す道で越えない。承認・差し戻しで答える）
-        raise ValueError(f"その版の通話の取り消せない決定が、まだ決まっていません（承認か差し戻しで答えてください）：{task_id} の版 {checked_version}")
+    if _blocked(tx, task_id, checked_version):
+        # 確定の印を付けられない版（取り消せない決定がまだ決まっていない・あとの通話の結果がある・その通話の新しい版がある）は、直して
+        # 確定しない（保留を、結果を直す道で越えない＝承認・差し戻しで答える。古い画面の版を直して、新しい結果を上書きしない＝0161）
+        raise ValueError(f"その版は直して確定できません（取り消せない決定がまだ決まっていない・あとの通話の結果がある・その通話の新しい版が"
+                         f"ある）：{task_id} の版 {checked_version}")
     version_no = results.append(tx, task_id, kind="human", business_state=business_state, attempt_id=None,
                                 judge_version=None, complaint=complaint, snapshot=snapshot, decided_by="契約者",
                                 detail=detail)
@@ -169,10 +176,17 @@ class Wait:
     check: str                   # 会話の報告の、2つ目の判定がそろったか（judge.Irreversible.check）
 
 
-def decides_on_spot(tx: Tx, task_id: UUID) -> bool:
-    """その行の取り消せない決定を、その場で決めてよい業務か（検証モードでないか）。通話の途中の「もうかけないで」の申告を、その場で
-    台帳へ入れてよいかを決める（core/dnc.register_declared が読む。検証モードは、契約者が承認を押した場合だけ営業拒否と確定）。"""
-    return not _human(tx, task_id)
+def in_verification(tx: Tx, attempt_id: UUID) -> bool:
+    """その通話を、検証モードでかけたか（データベースの salescall.attempt_in_verification の1か所＝門が、かけたときのモードで付けた検証の
+    印。かけたあとにモードを替えても、その通話は、かけたときのモードのまま。確定の印の段も同じ印で決まる＝0161）。"""
+    return tx.one("SELECT salescall.attempt_in_verification(%s) AS v", (attempt_id,))["v"]
+
+
+def decides_on_spot(tx: Tx, attempt_id: UUID) -> bool:
+    """その通話の取り消せない決定を、その場で決めてよいか（検証モードでかけた通話でないか＝`in_verification`）。通話の途中の「もうかけないで」
+    の申告を、その場で台帳へ入れてよいかを決める（core/dnc.register_declared が読む。検証モードは、契約者が承認を押した場合だけ営業拒否と
+    確定）。"""
+    return not in_verification(tx, attempt_id)
 
 
 def _answered(tx: Tx, attempt_id: UUID, outcome: str) -> frozenset[str]:
@@ -194,7 +208,7 @@ def decision_wait(tx: Tx, task_id: UUID, attempt_id: UUID, irr: Irreversible | N
     if irr is None:
         return None
     confirmed = _answered(tx, attempt_id, "confirmed")
-    if _human(tx, task_id):
+    if in_verification(tx, attempt_id):   # 検証モードでかけた通話（締めるときの業務のモードでなく、かけたときのモード＝0161）
         need, kind = irr.parts - confirmed, "approval"
     else:
         need, kind = (frozenset() if irr.check == "agreed" else irr.unsure - confirmed), "recording"
@@ -210,12 +224,12 @@ def record_wait(tx: Tx, a: dict[str, Any], wait: Wait | None, version_no: int | 
     parts = sorted(wait.parts) if wait is not None else []
     if cur is None and wait is None:
         return
-    if cur is not None and sorted(cur["parts"]) == parts and cur["report_source"] == report_source \
-            and (wait is None or cur["kind"] == wait.kind):
-        return
+    if cur is not None and sorted(cur["parts"]) == parts and cur["report_source"] == report_source:
+        return   # 種類（録音の確かめ待ち・承認待ち）は、その通話をかけたときのモードで決まり、変わらない（`in_verification`）
     if wait is None and cur is not None and not cur["parts"]:
         return
     seq = 1 if cur is None else cur["seq"] + 1
+    tx.execute("SELECT salescall.settling(%s)", (a["attempt_id"],))   # 締めの入口の印（データベースの守りが確かめる＝0161）
     tx.execute("INSERT INTO salescall.decision_waits (tenant_id, client_id, attempt_id, seq, task_id, kind, parts, checked, version_no,"
                " report_source) VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s, %s, %s, %s, %s)",
                (a["attempt_id"], seq, a["task_id"], cur["kind"] if wait is None else wait.kind, parts,

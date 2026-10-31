@@ -64,7 +64,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from salescall.core import (attempts, conversation_io, dial_exit, gate, health, next_action, ring_test, scheduler, settings,
+from salescall.core import (attempts, conversation_io, dial_exit, gate, health, leases, next_action, ring_test, scheduler, settings,
                             troubles, watch)
 from salescall.core.access import Access, Actor, Tx
 from salescall.core.health_rules import LineStage
@@ -100,9 +100,11 @@ class Round:
 @dataclass
 class Stuck:
     """回線が「通話中」のまま、かけられない状態の見張り（判断はこの1か所）。since＝続けて「通話中」と分かった始まり（数えるたびに
-    数え直す）。began＝かけられなくなった始まり（数えても数え直さない。状態の表の入口へ渡す E17 の時刻＝core/health.stuck）。"""
+    数え直す）。began＝かけられなくなった始まり（数えても数え直さない）。began_at＝その始まりを、状態の表の入口がデータベースの時計で
+    決めた時刻（E17 の時刻＝core/health.stuck が返す。同じ続きのあいだ、そのまま渡す）。"""
     since: float | None = None
     began: float | None = None
+    began_at: Any = None
 
     def seen(self, got: Round, now: float) -> bool:
         """1回分の結果を見る。「通話中」が STUCK_AFTER 続いたら True（数えたら、また初めから数える＝続けば、また数える）。
@@ -117,6 +119,7 @@ class Stuck:
         elif got.free:
             self.since = None
             self.began = None
+            self.began_at = None
         return False
 
 
@@ -181,6 +184,7 @@ class _Call:
         self._waiting = 0                        # 通話の部品が書き手を待っている（flush の途中）
         self._finish_ticket = 0                  # 終わりの移り（FINISHING）を頼んだ書き込みの番号（通し。0＝頼んでいない）
         self._failed: list[tuple[Callable[[Tx], Any], BaseException]] = []   # 書けなかった分（まだ通話の部品へ返していない）
+        self._store_error: BaseException | None = None   # データベースの誤りで書けなかった最初の分（受け口が断ったものは入れない）
 
     @property
     def live(self) -> bool:
@@ -284,6 +288,8 @@ class _Call:
                 except Exception as e:  # noqa: BLE001 書けなくても通話は止めない（持って、flush で返す）
                     with self._progress:
                         self._failed.append((work, e))
+                        if self._store_error is None and not isinstance(e, conversation_io.REFUSED):
+                            self._store_error = e
                     if not isinstance(e, conversation_io.REFUSED):   # データベースの誤り：見守り役の誤りとしても記録する
                         report(self.access, self.tenant_id, "通話の書き込み", e, line_id=self.line_id)
                 else:
@@ -384,8 +390,16 @@ class _Call:
         if ending:
             self._over.wait()   # 見張り・通話を進める部品が終えている途中：切り終えるまで待つ
         elif self._drain():
-            self._end("runner_error", "通話を終えないまま戻りました" if error is None else f"落ちました（{type(error).__name__}）",
-                      None if error is None else type(error).__name__, drained=True)
+            with self._progress:
+                store_error = self._store_error
+            if store_error is not None:
+                # データベースの誤りで書けなかった分があって、終わりまで書けずに戻った：会話の部品の不具合でなく、保存のせい（理由を決めるのは
+                # ここの1か所。⛔ 見直し26c の 4：前は会話の部品の不具合（CL-1）として数え、修正依頼も CL-1 へ出していた）
+                self._end("storage_stuck", f"データベースへの書き込みができませんでした（{type(store_error).__name__}）",
+                          type(store_error).__name__, drained=True)
+            else:
+                self._end("runner_error", "通話を終えないまま戻りました" if error is None else f"落ちました（{type(error).__name__}）",
+                          None if error is None else type(error).__name__, drained=True)
         else:   # 書き手が進まない：データベースが止まった
             self._end("storage_stuck", "データベースへの書き込みが進みません（通話の部品が戻ったあと）")
         self._writes.join()
@@ -457,7 +471,9 @@ def _claim(tx: Any, task: dict[str, Any], line_id: UUID, holder: str, tenant_id:
 def one_round(access: Access, actor: Actor, tenant_id: UUID, line_id: UUID, holder: str, driver: CallDriver,
               runner: plugins.CallRunner) -> Round:
     """回線ごとの処理の1回分（1か所）：回線の欄を聞き（core/health.tick。次に動く時刻が来ていれば表が引く）、その段のとおり、テスト番号を
-    鳴らす・お客様へかける・待つ、のどれかをするだけ（説明の 6）。"""
+    鳴らす・お客様へかける・待つ、のどれかをするだけ（説明の 6）。その前に、この回線に前の回の電話が残っていれば後始末する
+    （core/leases.recover_left。終わりの記録が書けずに残った試行で、回線が止まり続けない）。"""
+    access.in_tenant(actor, tenant_id, lambda tx: leases.recover_left(tx, holder, line_id))
     now = access.in_tenant(actor, tenant_id, lambda tx: health.tick(tx, line_id))
     if now.ring:   # 表が鳴らす頼みを置いた：鳴らして、答えを表へ（ring_test.run の1か所）。そのあと、もう一度回線の欄を聞く
         ring_test.run(access, actor, tenant_id, line_id, driver)
@@ -574,7 +590,8 @@ def loop(access: Access, tenant_id: UUID, line: UUID, holder: str, driver: CallD
             if stuck.seen(got, now):
                 # かけられない（E17）を状態の表の入口へ（表は、かけられないまま15分で1回知らせ、修正依頼＝【当(10)】）。時刻は、
                 # かけられなくなった始まり
-                access.in_tenant(ACTOR, tenant_id, lambda tx: health.stuck(tx, line, now - (stuck.began or now)))
+                stuck.began_at = access.in_tenant(ACTOR, tenant_id, lambda tx: health.stuck(tx, line, now - (stuck.began or now),
+                                                                                      stuck.began_at))
             if got.called is None or got.pause:
                 stop.wait(wait if got.pause else min(wait, IDLE_SECONDS))
         except Exception as e:  # noqa: BLE001 記録して、少し待ってから続ける（止めない）

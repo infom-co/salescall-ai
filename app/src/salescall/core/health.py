@@ -543,13 +543,17 @@ def tick(tx: Tx, line_id: UUID) -> Tick:
     return Tick(s, s.stage is hr.LineStage.CHECK_C or (s.stage in hr.RESTS and s.wait is hr.Wait.ANSWER))
 
 
-def stuck(tx: Tx, line_id: UUID, lasted: float) -> None:
-    """回線が「通話中」と答え続けて、かけられない（E17。lasted＝かけられなくなってからの秒。かけられなくなった時刻は、取引の時刻から
-    その秒だけ前＝データベースの時計にそろえる）。"""
+def stuck(tx: Tx, line_id: UUID, lasted: float, since: datetime | None = None) -> datetime:
+    """回線が「通話中」と答え続けて、かけられない（E17。lasted＝かけられなくなってからの秒）。かけられなくなった時刻は、その続きの最初の
+    回に、取引の時刻からその秒だけ前で決め（データベースの時計にそろえる）、返す。同じ続きの2回目からは、返した時刻（since）をそのまま
+    渡す（⛔ 見直し26c の 5：毎回、取引の時刻から数え直したので、時刻がわずかにずれ、表の「かけられなくなった時刻ごとに1回」の知らせが
+    回すたびに出た）。"""
     run = _Run(tx, "stuck")
     (line,) = run.take((LINE, line_id))
-    run.give(line, hr.Event("E17", run.now, since=run.now - timedelta(seconds=lasted)))
+    since = since or run.now - timedelta(seconds=lasted)
+    run.give(line, hr.Event("E17", run.now, since=since))
     run.save()
+    return since
 
 
 def fixed(tx: Tx) -> None:
