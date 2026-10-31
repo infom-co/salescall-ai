@@ -189,6 +189,9 @@ def check_handler(flow: Flow, *, ear=None, judge=None, judge2=None, pcm: bytes |
                 got = await asyncio.wait_for(runs[kind](kq, text, kasked, before=kbefore, **kw), LATE_CHECK_S)
             except Exception as exc:  # 判定が落ちても通話は止めない（届かなかった＝通話後の検証へ）
                 info[f"{kind}_error"] = repr(exc)[:200]
+                if getattr(exc, "prior", None) is not None:
+                    # 組が答えられなくても、前の話の答えは届いた：確かめとして渡す（流れの制御が会話AIの報告と比べる＝Flow._prior・_judged_off_talk）
+                    flow.on_check("prior", exc.prior, turn, said)
                 if getattr(exc, "tried", None):  # 受け持ちの判定・代わりの、答えが無かった理由（meaning_judge.NoJudgment）
                     info[f"{kind}_tried"] = list(exc.tried)
                     if any("unsure" in t for t in exc.tried):

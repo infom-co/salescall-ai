@@ -428,8 +428,10 @@ UNDECIDED = "決められない"
 HOLD = "取り次ぎを待つ"
 HANDOVER = "代わった人が話し始めた"
 # 確かめの名前（Flow.on_check）：別の耳の文字（聞き取り。6-10 の (5)）・意味の判定（6-10 の (6)。judge2＝後ろで走らせる2つ目の判定）
-CHECKS = ("ear", "judge", "judge2", "asks", "asks2", "returned", "returned2")  # asks・asks2＝呼んでいる段の、こちらに尋ねているかの問い合わせ
+CHECKS = ("ear", "judge", "judge2", "asks", "asks2", "returned", "returned2", "prior")  # asks・asks2＝呼んでいる段の、こちらに尋ねているかの問い合わせ
 # （Flow.asks_context）・returned・returned2＝取り次ぎで待ったあとに話した方が、待たせた方か（Flow.returned_context）
+# prior＝前の話の答え（判定の組が答えられなかったときに、単独で届く＝meaning_judge.JudgePanel.ask の NoJudgment.prior。読み口は Flow._prior の1か所）
+PRIOR_CHECK = "prior"
 # 意味の判定の受け持ち（会社を分けて同時に出す2つ。早く届いたほうで決め、遅れて届いたほうも同じ決まりで当てる。meaning_judge.JudgePanel）
 JUDGMENTS = ("judge", "judge2")
 # 尋ねているかの問い合わせの受け持ち（意味の判定の2つと同じ会社の2つ。どちらか1つでも「尋ねている」なら質問＝Flow._asking_now・calling_asks）。
@@ -2745,12 +2747,12 @@ class Flow:
             # 意味に寄っていれば、その答えに「曖昧」の印を付けて受け取る＝Flow._hedged。✅ 2026-10-18 ユーザー：「yes,but 曖昧」）。
             # 「わからない」「答えたくない」の報告には当てない（「たぶん分からないです」は、そのまま「わからない」）
             return HEDGE_WHY, reported
-        if (off := Flow._judged_off_talk(q, check)) is not False:
+        if (off := Flow._judged_off_talk(q, check, reported)) is not False:
             # 意味の判定が、前の質問（と前の会話）への返事として会話になっていないと読んだ：その判定の読みに意味の答え（選択肢）があれば、
             # それを念のため確かめる答えに（前に言ったことと逆の返事＝✅ ユーザー「(イ)」）、無ければ None（聞き直す）
             return f"{TALK_WHY}（意味の判定が、質問への返事として会話になっていないと読んだ）", (off if off in q.conditions + (ANY,) else None)
         if (back := next((a for k in JUDGMENTS if check.get(k) is not None
-                          and (a := prior_answer(q, str(check[k]), getattr(check[k], "prior", None))) is not None), None)) is not None:
+                          and (a := prior_answer(q, str(check[k]), Flow._prior(check))) is not None), None)) is not None:
             return f"{PRIOR_WHY}（いまの言葉だけでは決められず、その前に相手が言ったことから決まる答えを確かめる）", back
         for kind in JUDGMENTS:
             back = Flow._meaning_disagrees(q, reported, check.get(kind), confirming)
@@ -2761,14 +2763,26 @@ class Flow:
         return None, None
 
     @staticmethod
-    def _judged_off_talk(q: "Question", check: dict) -> str | None | bool:
+    def _prior(check: dict) -> str | None:
+        """前の話の答え（唯一の読み口）：判定の読みに添えて届いたもの（meaning_judge.JudgePanel.ask）か、判定の組が答えられなかったときに単独で
+        届いたもの（確かめの PRIOR_CHECK）。前の話の答えは、いまの言葉と関わりなく前の話と質問だけで決まる（どの判定の読みに添えても同じもの）。"""
+        return next((p for k in JUDGMENTS if (p := getattr(check.get(k), "prior", None)) is not None), None) or check.get(PRIOR_CHECK)
+
+    @staticmethod
+    def _judged_off_talk(q: "Question", check: dict, reported: str | None = None) -> str | None | bool:
         """意味の判定が、お客様の言葉は前の質問（と前の会話）への返事として会話になっていないと読んだ（meaning_judge.Reading.fits。答えの段の
         問い合わせだけが返す＝ほかの読みは、なっている）：そう読んだ判定の読み（中の名前）。どの判定もそう読まなければ False。
         待つように言った・代わった人が話し始めた、の読みは答えではないので当てない（待つ・名乗る、の道が受け持つ）。⛔ 2026-10-31 の昼（G-53）：
         「わかる者に代わりますので、少しお待ちいただけますか。」を、d1-ultra も Jev も「取り次ぎを待つ」と正しく読み、会話になっていないとも
-        読んだ＝待たずに聞き直す側へ回った"""
-        return next((str(check[k]) for k in JUDGMENTS if check.get(k) is not None
-                     and off_talk(q, str(check[k]), getattr(check[k], "fits", True), getattr(check[k], "prior", None))), False)
+        読んだ＝待たずに聞き直す側へ回った。
+        判定の組が答えられなかった（判定の読みが無い）ときは、会話AIの報告（reported）を前の話の答えと比べる（前の話と逆なら、その報告）。
+        prior＝前の話の答え（Flow._prior の1か所）。"""
+        prior = Flow._prior(check)
+        read = [k for k in JUDGMENTS if check.get(k) is not None]
+        hit = next((str(check[k]) for k in read if off_talk(q, str(check[k]), getattr(check[k], "fits", True), prior)), None)
+        if hit is not None:
+            return hit
+        return reported if not read and reported is not None and off_talk(q, reported, True, prior) else False
 
     @staticmethod
     def _judged_unsure(check: dict) -> bool:

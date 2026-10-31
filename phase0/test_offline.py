@@ -3276,6 +3276,46 @@ class AmbiguousAnswerTest(unittest.TestCase):
             self.assertEqual((res["result"], f.items["Q1"].condition), ("confirm_required", cond), got)
             self.assertTrue(res["say"].startswith(head), res["say"])
 
+    def test_prior_without_any_judge_reading_is_compared_with_the_ai_report(self):
+        # 組の判定がどれも答えられなかったときも、前の話の答えは確かめ（flowctl.PRIOR_CHECK）として届き、会話AIの報告と比べる（Flow._prior の
+        #    1か所。前の話と逆なら、その報告を「それでは…」で最終的に確かめる）。前の話の答えは同じ発話で1回だけ問い合わせる（JudgePanel.prior_jobs）
+        import asyncio
+        from flowctl import PRIOR_CHECK
+        from meaning_judge import JudgePanel, NoJudgment, Reading
+        f = self.flow()
+        f.use_checks("judge")
+        f.on_callee(); f.on_heard("差し控えさせていただきます。"); f.on_check(PRIOR_CHECK, "はい")
+        r = f.apply("record_answer", {"question_id": "Q1", "condition_id": "いいえ", "value": "差し控えさせていただきます"})
+        self.assertEqual((r["result"], f.items["Q1"].condition), ("confirm_required", "いいえ"))
+        self.assertTrue(r["say"].startswith("それでは"), r["say"])
+        f = self.flow()
+        f.use_checks("judge")
+        f.on_callee(); f.on_heard("はい、しています。"); f.on_check(PRIOR_CHECK, "はい")
+        self.assertNotEqual(f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい", "value": "しています"})["result"],
+                            "confirm_required")   # 前の話と合う報告は、そのまま
+        from g53_meaning import g48_questions
+        q = {q.id: q for q in g48_questions()}["G6"]
+        calls = []
+
+        async def prior(q_, before_):
+            calls.append(before_)
+            return ("利用する", 0.95, "利用する")
+
+        async def unsure(q_, text_, asked=None, before=None):
+            return Reading("利用しない", sure=0.1)   # 線より下＝答えにならない
+        panel = JudgePanel({"judge": (("Jev 1.14", unsure),), "judge2": (("d1 Ultra（Liquid）", unsure),)}, prior=prior)
+
+        async def both():
+            out = []
+            for kind in ("judge", "judge2"):
+                try:
+                    await panel.ask(kind, q, "差し控えさせていただきます", None, "駐車場を使わせてください。")
+                except NoJudgment as exc:
+                    out.append(exc.prior)
+            return out
+        self.assertEqual(asyncio.run(both()), ["利用する", "利用する"])
+        self.assertEqual(len(calls), 1)   # 2つの受け持ちが同じ発話を読んでも、前の話の答えは1回だけ
+
     def test_answer_text_reads_only_the_words_now(self):
         # ⛔ 2026-10-31 の昼（G-70）：答えを「お客様が言ったこと」と書き、いまの言葉か前に話したことかを決めていなかった＝前に話したことから答えを
         #    選んだ ⇒ 答えは、いまの言葉から（前に話したことは、いまの言葉がそれを指すときに補うだけ）。会話になっているかの分かれ目は、前に
@@ -3329,6 +3369,16 @@ class AmbiguousAnswerTest(unittest.TestCase):
         usage[0] = 1.0 + 0.8 / YEN_PER_USD
         ks.check("m")   # 0.8 円＋74回 × 見込み（2.22円）＝3.02円で止めていた
         self.assertAlmostEqual(ks.yen, 75 * ks.PRIOR_YEN, places=6)
+
+        # 見込みは「送った回の見込みの和」と「額の差」の大きいほうだけ（⛔ 同じ日の夜：比で直して1,878円と見込み、G-53 の Jev を271件送らなかった）
+        usage = [1.0]
+        ks = KeySpend(read=lambda: usage[0])
+        ks.EVERY_S = 0.0
+        ks.bind("dummy", 100.0)
+        for i in range(100):
+            ks.check("m", 0.5)
+            usage[0] = 1.0 + 0.4 * (i + 1) / YEN_PER_USD   # 額は見込みより少なく、遅れて増える
+        self.assertAlmostEqual(ks.yen, 50.0, places=6)
 
         def broken():
             raise OSError("no")

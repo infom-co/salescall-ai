@@ -939,11 +939,10 @@ class KeySpend:
     達したら、それより後は送らずに失敗にする（Spend.check と同じ扱い）。同じ鍵を同じ時に使った分も入る（多めに数える側）。読めなければ止める側。
     ⛔ 2026-10-31 の昼：--budget-yen 50 を付けて流したが、OpenRouter の分を数える所が無く、上限で止まらなかった（ご承認の約51円に対して、
     G-70 と G-53 で約53円＝2回続けて見込みを超えた）。鍵の使った額は遅れて増える（同じ日の G-53：途中で読んだ額が、あとから見ると約50秒分＝
-    約10円少なかった）⇒ 上限には、まだ額に出ていない最近 LAG_S 秒の回数ぶんを、それまでの1回あたりの額（額がまだ増えないうちは PRIOR_YEN）で
-    足した見込みを当てる"""
+    約10円少なかった）⇒ 上限には、送った回の見込みの和（送る文の長さ × 判定ごとの1文字あたり＝YEN_PER_CHAR。多めに見込む側）と、鍵の
+    使った額の差の、大きいほうを当てる（yen）"""
     name = "OpenRouter の鍵"
     EVERY_S = 5.0
-    LAG_S = 90.0
     PRIOR_YEN = 0.015  # 1回の見込みの円（額がまだ増えないうち。同じ日の実際の1回あたり＝G-53 約0.0095円・G-70 約0.0135円より少し上。⛔ はじめの
     #                  0.03円では、回数の多い小さな測りが、額に出る前の見込みだけで上限に当たった）
 
@@ -951,7 +950,7 @@ class KeySpend:
         import threading
         from collections import Counter
         self.calls, self.limit, self.start, self.now, self.read_at = Counter(), None, None, None, 0.0
-        self._read, self._lock, self.marks, self.est = read, threading.Lock(), [], 0.0   # marks＝(送った時刻, それまでの見込みの円の和)
+        self._read, self._lock, self.est = read, threading.Lock(), 0.0   # est＝送った回の見込みの円の和
 
     def bind(self, key: str, limit: float) -> None:
         """上限と、使った額を読む道具（鍵は持たずに、読む関数だけを持つ）。はじめの額は最初の1回だけ読む。"""
@@ -976,15 +975,12 @@ class KeySpend:
 
     @property
     def yen(self) -> float:
-        """見込みの円：鍵の使った額の差＋まだ額に出ていない最近 LAG_S 秒の回数 × 1回あたりの円。"""
-        import bisect
-        seen = bisect.bisect_right(self.marks, (self.read_at - self.LAG_S, float("inf")))
-        seen_est = self.marks[seen - 1][1] if seen else 0.0
-        if not seen_est or self.seen_yen <= 0:
-            # どの回が額に出たか分からないうち：額の差と、送った回の見込みの和の大きいほう（⛔ 2026-10-31 の昼：足していたので、額に出た回を
-            #    二重に数え、G-70 を実際の約0.8円で上限の3円に達したと止めた）
-            return max(self.seen_yen, self.est)
-        return self.seen_yen + (self.est - seen_est) * (self.seen_yen / seen_est)   # 額に出ていない回は、見込みを実際の額との比で直して足す
+        """見込みの円：送った回の見込みの和（送る文の長さ × 判定ごとの1文字あたり＝多めに見込む側）と、鍵の使った額の差の大きいほう。
+        ⛔ 2026-10-31 の昼：額の差と回数の見込みを足して、額に出た回を二重に数えた（G-70 を実際の約0.8円で止めた）。⛔ 同じ日の夜：額に出ていない
+        回の見込みを「額の差 ÷ 見込みの和」の比で直したら、額は約50秒遅れて増えるのに90秒遅れとみなしたので比が何倍にも膨らみ、G-53 を実際の約
+        62.6円のところ1,878円と見込んで、Jev の271件を送らなかった ⇒ 比で直さず、2つの大きいほうだけを取る（1文字あたりが少なすぎたときは、
+        額の差が遅れて追いつく＝その遅れのぶん（約50秒）だけ上限を越えうる）"""
+        return max(self.seen_yen, self.est)
 
     def refresh(self, force: bool = False) -> None:
         import time
@@ -1002,21 +998,19 @@ class KeySpend:
         if self.limit is None:
             return
         self.refresh()
-        import time
         cost = self.PRIOR_YEN if yen is None else yen
         with self._lock:
             if self.yen + cost > self.limit:
                 raise OtherJudgeError(None, f"この試しで使ってよい料金（{self.limit:.1f}円）に達するので送りません（--budget-yen・鍵の使った額の見込み）")
             self.calls[model] += 1
             self.est += cost
-            self.marks.append((time.monotonic(), self.est))
 
     def summary(self) -> dict:
         try:
             self.refresh(force=True)
         except OtherJudgeError:
             pass
-        return {"円": round(self.seen_yen, 1), "見込みの円（まだ額に出ていない分を含む）": round(self.yen, 1), "回数": dict(self.calls),
+        return {"円": round(self.seen_yen, 1), "見込みの円（送った回の見込みの和と額の差の大きいほう）": round(self.yen, 1), "回数": dict(self.calls),
                 "数え方": "鍵の使った額の差（同じ鍵を同じ時に使った分も入る・遅れて増えるので、あとで読み直す）",
                 **({"上限の円": self.limit} if self.limit is not None else {})}
 
@@ -1373,7 +1367,8 @@ def outage(exc: BaseException) -> bool:
 
 
 class NoJudgment(RuntimeError):
-    """受け持ちの判定も代わりも、答えを返さなかった（tried＝問い合わせた判定ごとの、答えが無かった理由）。"""
+    """受け持ちの判定も代わりも、答えを返さなかった（tried＝問い合わせた判定ごとの、答えが無かった理由・prior＝前の話の答え＝JudgePanel.ask）。"""
+    prior: str | None = None
 
     def __init__(self, tried: list[dict]):
         def why(t: dict) -> str:
@@ -1546,8 +1541,9 @@ class JudgePanel(RouteState):
         from collections import OrderedDict
 
         super().__init__(down, clock)
-        # 前の話の答えを読む道具（async (質問, 前の話) -> (中の名前, 確からしさ, 線より下も含めた選び)＝aread_prior_first。無ければ問わない）
-        self.prior = prior
+        # 前の話の答えを読む道具（async (質問, 前の話) -> (中の名前, 確からしさ, 線より下も含めた選び)＝aread_prior_first。無ければ問わない）。
+        # 同じ質問と前の話には1回だけ問い合わせる（2つの受け持ちが同じ発話を読んでも、前の話の答えは同じ＝prior_jobs）
+        self.prior, self.prior_jobs = prior, OrderedDict()
 
         # 受け持ち → ((判定の名前, async (質問, 言葉, こちらが言い直した言葉) -> Reading), …)。1つの (名前, 関数) も受ける
         self.judges = {k: (v,) if isinstance(v[0], str) else tuple(v) for k, v in judges.items()}
@@ -1673,16 +1669,25 @@ class JudgePanel(RouteState):
 
         if self.prior is None or not prior_asked(q, asked, before):
             return await self._ask(kind, q, text, asked, before, early)
-        job = asyncio.ensure_future(self.prior(q, before))
+        pkey = (getattr(q, "id", None), tuple(getattr(q, "conditions", ()) or ()), before)
+        job = self.prior_jobs.get(pkey)
+        if job is None:
+            job = self.prior_jobs[pkey] = asyncio.ensure_future(self.prior(q, before))
+            while len(self.prior_jobs) > 32:   # 古い発話の分は捨てる（同じ質問・同じ前の話は、その発話のあいだだけ使う）
+                self.prior_jobs.popitem(last=False)
+
+        async def prior_of():
+            try:
+                return await asyncio.shield(job)
+            except Exception:   # 読めなくても、いまの言葉の答えは使う（食い違いを比べないだけ）
+                return None, None, None
         try:
             got = await self._ask(kind, q, text, asked, before, early)
-        except BaseException:
-            job.cancel()
+        except NoJudgment as exc:
+            # 組が答えられなかった：前の話の答えは、会話の側が確かめ（flowctl.PRIOR_CHECK）として流れの制御へ渡す（会話AIの報告と比べる）
+            exc.prior = (await prior_of())[0]
             raise
-        try:
-            got.prior, got.prior_p, got.prior_raw = await job
-        except Exception:
-            pass
+        got.prior, got.prior_p, got.prior_raw = await prior_of()
         return got
 
     async def _ask(self, kind: str, q, text: str, asked: str | None = None, before: str | None = None, early=None) -> Reading:
