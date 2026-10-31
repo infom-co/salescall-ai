@@ -283,7 +283,9 @@ async def run(args) -> dict:
         # 尋ねているかは「尋ねている」だけが流れを変える（Flow._asking_now）＝ほかの読みは全部「尋ねていない」と数える
         want, ok, facts = row["asks_accept"], row["accept"], {k: set(v) for k, v in row["facts_accept"].items()}
         asked_now = [k for k in judges if judges[k] is not None and f"{k}_s" in row]   # この行で問い合わせた受け持ち
-        row["ok"] = all(row.get(k) in ok and (want is None or (row.get(f"{k}_asks") in ASKED) == want) for k in asked_now)
+        asks_now = [k for k in judges if judges[k] is not None and f"{k}_asks_s" in row]   # 尋ねているかを問い合わせた受け持ち（--asks-only でも数える）
+        row["ok"] = (all(row.get(k) in ok for k in asked_now)
+                     and all(want is None or (row.get(f"{k}_asks") in ASKED) == want for k in asks_now))
         row["facts_ok"] = all(facts_ok(row.get(f"{k}_facts"), facts) for k in asked_now)
         say(f"（前：{row['before']}）" if row["before"] else "", row["text"], {k: (row.get(k), row.get(f"{k}_asks")) for k in judges},
             "OK" if row["ok"] else "×")
@@ -301,6 +303,8 @@ async def run(args) -> dict:
             rows.append(row)
             # 目的の人の判定と、こちらに尋ねているかの問い合わせ（本番と同じに、同じ言葉・同じ前の言葉で同時に出す＝convo.check_handler）
             pairs = ((q, ""), (fl.for_judge(fl.asks_questions[q.id]), "_asks"))
+            if args.asks_only:   # ⛔ 2026-10-31：文が変わったのは尋ねているかだけなのに、目的のお客様の判定まで流して、お伝えした額を超えた
+                pairs = pairs[1:]
             if args.batch:
                 for question, tail in pairs:
                     where[f"r{len(items)}"] = (row, "judge2", "judge2" + tail)
@@ -392,13 +396,15 @@ def main() -> None:
     # ⛔ 2026-10-30：--only の言葉の数で料金を見積もり、同じ言葉がほかの場面にもあって行が倍になり、上限の円に届いて10行を測れなかった
     p.add_argument("--count", action="store_true", help="測らずに、測る行と問い合わせの数だけを出す（有料の測りの料金の見込みは、この数から出す）")
     p.add_argument("--fingerprint", action="store_true", help="測らずに、判定に送る文の長さと指紋だけを出す（測った文と同じかを確かめる）")
+    p.add_argument("--asks-only", action="store_true", help="尋ねているかだけを問い合わせる（文が変わったのが尋ねているかだけのとき＝指紋で確かめてから）")
     args = p.parse_args()
     if args.fingerprint:
         say("判定に送る文：" + "／".join("%s %d 字・指紋 %s" % (name, n, h) for name, (n, h) in prompts_fingerprint().items()))
         return
     if args.count:
         n = sum(1 for text, *_ in cases("x") if not args.only or text in args.only)
-        say(f"測る行：{n} 行 × {args.repeat} 回り（1つの判定につき、問い合わせは {n * args.repeat * 2} 回＝目的のお客様の判定と、尋ねているか）")
+        say(f"測る行：{n} 行 × {args.repeat} 回り（1つの判定につき、問い合わせは " + (f"{n * args.repeat} 回＝尋ねているかだけ）" if args.asks_only
+            else f"{n * args.repeat * 2} 回＝目的のお客様の判定と、尋ねているか）"))
         return
     save_result(f"G-59{args.tag}", asyncio.run(run(args)))
 

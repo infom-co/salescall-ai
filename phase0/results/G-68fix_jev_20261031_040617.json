@@ -1,0 +1,879 @@
+{
+  "item": "G-68fix_jev",
+  "saved_at": "2026-10-31T04:06:17",
+  "meanings": {
+    "待たせた方が戻った": "前の言葉で取り次ぎのためにこちらを待たせた方が、また電話に出ている（「お待たせいたしました」と戻って、お呼びした方のことを伝えた・自分が代わりにお話を聞くと言った など。別の方に代わったと分かる言葉が無い）",
+    "別の方が出た": "前の言葉を言った方とは別の方が、電話に出ている（「お電話代わりました」と出た・前の方と違うお名前を名乗った・お呼びした方ご本人が名乗った など）"
+  },
+  "summary": {
+    "別の方をそろって戻ったと読んだ（害）": "0/24",
+    "戻った方をそろって戻ったと読んだ（効き目）": "0/24",
+    "judge2・正しい（どちらとも言えない言葉を除く）": "0/48"
+  },
+  "rows": [
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせいたしました。申し訳ございません、岡田は取り込んでおりまして、ただいま電話に出られないとのことです。",
+      "want": "待たせた方が戻った",
+      "rep": 0,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "待たせた方が戻った",
+          "sure": 0.77,
+          "s": 0.477
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせいたしました。申し訳ございません、岡田は取り込んでおりまして、ただいま電話に出られないとのことです。",
+      "want": "待たせた方が戻った",
+      "rep": 1,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "待たせた方が戻った",
+          "sure": 0.81,
+          "s": 0.169
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせいたしました。申し訳ございません、岡田は取り込んでおりまして、ただいま電話に出られないとのことです。",
+      "want": "待たせた方が戻った",
+      "rep": 2,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "待たせた方が戻った",
+          "sure": 0.86,
+          "s": 0.205
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせいたしました。岡田はただいま席を外しておりまして。",
+      "want": "待たせた方が戻った",
+      "rep": 0,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "待たせた方が戻った",
+          "sure": 0.71,
+          "s": 0.171
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせいたしました。岡田はただいま席を外しておりまして。",
+      "want": "待たせた方が戻った",
+      "rep": 1,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "待たせた方が戻った",
+          "sure": 0.78,
+          "s": 0.219
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせいたしました。岡田はただいま席を外しておりまして。",
+      "want": "待たせた方が戻った",
+      "rep": 2,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "待たせた方が戻った",
+          "sure": 0.7,
+          "s": 0.166
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせしました。岡田、本日はお休みをいただいておりました。",
+      "want": "待たせた方が戻った",
+      "rep": 0,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "待たせた方が戻った",
+          "sure": 0.72,
+          "s": 0.211
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせしました。岡田、本日はお休みをいただいておりました。",
+      "want": "待たせた方が戻った",
+      "rep": 1,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "待たせた方が戻った",
+          "sure": 0.74,
+          "s": 0.19
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせしました。岡田、本日はお休みをいただいておりました。",
+      "want": "待たせた方が戻った",
+      "rep": 2,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "待たせた方が戻った",
+          "sure": 0.73,
+          "s": 0.373
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせいたしました。あいにく岡田は会議中でした。",
+      "want": "待たせた方が戻った",
+      "rep": 0,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "待たせた方が戻った",
+          "sure": 0.93,
+          "s": 0.169
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせいたしました。あいにく岡田は会議中でした。",
+      "want": "待たせた方が戻った",
+      "rep": 1,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "待たせた方が戻った",
+          "sure": 0.92,
+          "s": 0.211
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせいたしました。あいにく岡田は会議中でした。",
+      "want": "待たせた方が戻った",
+      "rep": 2,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "待たせた方が戻った",
+          "sure": 0.92,
+          "s": 0.167
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "すみません、お待たせしました。岡田に確認したんですが、今日はもう戻らないそうです。",
+      "want": "待たせた方が戻った",
+      "rep": 0,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "待たせた方が戻った",
+          "sure": 0.56,
+          "s": 0.16
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "すみません、お待たせしました。岡田に確認したんですが、今日はもう戻らないそうです。",
+      "want": "待たせた方が戻った",
+      "rep": 1,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "待たせた方が戻った",
+          "sure": 0.48,
+          "s": 0.19
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "すみません、お待たせしました。岡田に確認したんですが、今日はもう戻らないそうです。",
+      "want": "待たせた方が戻った",
+      "rep": 2,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "待たせた方が戻った",
+          "sure": 0.46,
+          "s": 0.146
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせいたしました。岡田は外出しておりまして、戻りは夕方になるとのことです。",
+      "want": "待たせた方が戻った",
+      "rep": 0,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "待たせた方が戻った",
+          "sure": 0.77,
+          "s": 0.192
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせいたしました。岡田は外出しておりまして、戻りは夕方になるとのことです。",
+      "want": "待たせた方が戻った",
+      "rep": 1,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "待たせた方が戻った",
+          "sure": 0.66,
+          "s": 0.16
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせいたしました。岡田は外出しておりまして、戻りは夕方になるとのことです。",
+      "want": "待たせた方が戻った",
+      "rep": 2,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "待たせた方が戻った",
+          "sure": 0.53,
+          "s": 0.165
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "担当の者に代わりますので、少々お待ちください。",
+      "text": "お待たせいたしました。担当の者があいにく席を外しておりまして。",
+      "want": "待たせた方が戻った",
+      "rep": 0,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "待たせた方が戻った",
+          "sure": 0.19,
+          "s": 0.201
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "担当の者に代わりますので、少々お待ちください。",
+      "text": "お待たせいたしました。担当の者があいにく席を外しておりまして。",
+      "want": "待たせた方が戻った",
+      "rep": 1,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "待たせた方が戻った",
+          "sure": 0.22,
+          "s": 0.172
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "担当の者に代わりますので、少々お待ちください。",
+      "text": "お待たせいたしました。担当の者があいにく席を外しておりまして。",
+      "want": "待たせた方が戻った",
+      "rep": 2,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "別の方が出た",
+          "sure": 0.19,
+          "s": 0.158
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせいたしました。岡田はおりませんので、私がご用件をお伺いしてもよろしいでしょうか。",
+      "want": "待たせた方が戻った",
+      "rep": 0,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "待たせた方が戻った",
+          "sure": 0.86,
+          "s": 0.2
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせいたしました。岡田はおりませんので、私がご用件をお伺いしてもよろしいでしょうか。",
+      "want": "待たせた方が戻った",
+      "rep": 1,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "待たせた方が戻った",
+          "sure": 0.88,
+          "s": 0.146
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせいたしました。岡田はおりませんので、私がご用件をお伺いしてもよろしいでしょうか。",
+      "want": "待たせた方が戻った",
+      "rep": 2,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "待たせた方が戻った",
+          "sure": 0.84,
+          "s": 0.201
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お電話代わりました。担当の山田です。あいにく岡田は本日不在にしております。",
+      "want": "別の方が出た",
+      "rep": 0,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "別の方が出た",
+          "sure": 0.78,
+          "s": 0.319
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お電話代わりました。担当の山田です。あいにく岡田は本日不在にしております。",
+      "want": "別の方が出た",
+      "rep": 1,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "別の方が出た",
+          "sure": 0.74,
+          "s": 0.186
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お電話代わりました。担当の山田です。あいにく岡田は本日不在にしております。",
+      "want": "別の方が出た",
+      "rep": 2,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "別の方が出た",
+          "sure": 0.77,
+          "s": 0.186
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お電話代わりました、山田です。岡田は外出しておりまして。",
+      "want": "別の方が出た",
+      "rep": 0,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "別の方が出た",
+          "sure": 0.73,
+          "s": 0.155
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お電話代わりました、山田です。岡田は外出しておりまして。",
+      "want": "別の方が出た",
+      "rep": 1,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "別の方が出た",
+          "sure": 0.74,
+          "s": 0.181
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お電話代わりました、山田です。岡田は外出しておりまして。",
+      "want": "別の方が出た",
+      "rep": 2,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "別の方が出た",
+          "sure": 0.76,
+          "s": 0.229
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "はい、お電話代わりました。",
+      "want": "別の方が出た",
+      "rep": 0,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "別の方が出た",
+          "sure": 0.49,
+          "s": 0.162
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "はい、お電話代わりました。",
+      "want": "別の方が出た",
+      "rep": 1,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.39,
+          "s": 0.177
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "はい、お電話代わりました。",
+      "want": "別の方が出た",
+      "rep": 2,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "別の方が出た",
+          "sure": 0.48,
+          "s": 0.218
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お電話代わりました。岡田です。",
+      "want": "別の方が出た",
+      "rep": 0,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "別の方が出た",
+          "sure": 0.77,
+          "s": 0.157
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お電話代わりました。岡田です。",
+      "want": "別の方が出た",
+      "rep": 1,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "別の方が出た",
+          "sure": 0.67,
+          "s": 0.176
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お電話代わりました。岡田です。",
+      "want": "別の方が出た",
+      "rep": 2,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "別の方が出た",
+          "sure": 0.72,
+          "s": 0.208
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせいたしました。お電話代わりました、営業部の田中です。",
+      "want": "別の方が出た",
+      "rep": 0,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "別の方が出た",
+          "sure": 0.63,
+          "s": 0.151
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせいたしました。お電話代わりました、営業部の田中です。",
+      "want": "別の方が出た",
+      "rep": 1,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "別の方が出た",
+          "sure": 0.63,
+          "s": 0.168
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせいたしました。お電話代わりました、営業部の田中です。",
+      "want": "別の方が出た",
+      "rep": 2,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "別の方が出た",
+          "sure": 0.63,
+          "s": 0.25
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "もしもし、代わりました。同じ部署の佐々木ですが、岡田は今日お休みです。",
+      "want": "別の方が出た",
+      "rep": 0,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "別の方が出た",
+          "sure": 0.65,
+          "s": 0.199
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "もしもし、代わりました。同じ部署の佐々木ですが、岡田は今日お休みです。",
+      "want": "別の方が出た",
+      "rep": 1,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "別の方が出た",
+          "sure": 0.74,
+          "s": 0.154
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "もしもし、代わりました。同じ部署の佐々木ですが、岡田は今日お休みです。",
+      "want": "別の方が出た",
+      "rep": 2,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "別の方が出た",
+          "sure": 0.67,
+          "s": 0.183
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせいたしました、岡田です。",
+      "want": "別の方が出た",
+      "rep": 0,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "待たせた方が戻った",
+          "sure": 0.43,
+          "s": 0.157
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせいたしました、岡田です。",
+      "want": "別の方が出た",
+      "rep": 1,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "別の方が出た",
+          "sure": 0.49,
+          "s": 0.195
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせいたしました、岡田です。",
+      "want": "別の方が出た",
+      "rep": 2,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "待たせた方が戻った",
+          "sure": 0.63,
+          "s": 0.148
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "担当の者に代わりますので、少々お待ちください。",
+      "text": "お電話代わりました。担当の者ですが。",
+      "want": "別の方が出た",
+      "rep": 0,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.45,
+          "s": 0.196
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "担当の者に代わりますので、少々お待ちください。",
+      "text": "お電話代わりました。担当の者ですが。",
+      "want": "別の方が出た",
+      "rep": 1,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.5,
+          "s": 0.162
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "担当の者に代わりますので、少々お待ちください。",
+      "text": "お電話代わりました。担当の者ですが。",
+      "want": "別の方が出た",
+      "rep": 2,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "代わった人が話し始めた",
+          "sure": 0.5,
+          "s": 0.174
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせいたしました。",
+      "want": null,
+      "rep": 0,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "待たせた方が戻った",
+          "sure": 0.57,
+          "s": 0.151
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせいたしました。",
+      "want": null,
+      "rep": 1,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "待たせた方が戻った",
+          "sure": 0.53,
+          "s": 0.169
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせいたしました。",
+      "want": null,
+      "rep": 2,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "待たせた方が戻った",
+          "sure": 0.54,
+          "s": 0.167
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせいたしました。岡田はおりませんので、代わりにお話をお聞きします。",
+      "want": null,
+      "rep": 0,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "待たせた方が戻った",
+          "sure": 0.76,
+          "s": 0.156
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせいたしました。岡田はおりませんので、代わりにお話をお聞きします。",
+      "want": null,
+      "rep": 1,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "待たせた方が戻った",
+          "sure": 0.72,
+          "s": 0.184
+        }
+      ],
+      "both_same": false
+    },
+    {
+      "before": "岡田ですね。少々お待ちください。",
+      "text": "お待たせいたしました。岡田はおりませんので、代わりにお話をお聞きします。",
+      "want": null,
+      "rep": 2,
+      "judge2": null,
+      "judge2_tried": [
+        {
+          "model": "Jev 1.14",
+          "unsure": "待たせた方が戻った",
+          "sure": 0.77,
+          "s": 0.182
+        }
+      ],
+      "both_same": false
+    }
+  ]
+}

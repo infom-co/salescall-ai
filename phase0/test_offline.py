@@ -4572,7 +4572,7 @@ class BatchJudgeTest(unittest.TestCase):
             return {cid: (Reading("尋ねていない") if "尋ねているか" in q.text or q.facets == () else Reading("ご本人"), None)
                     for cid, q, text, asked, before in items}
         args = N(batch=True, judge=None, judge2="Claude Sonnet 5.5", only=["はい、岡田です。"], repeat=1, pace_s=0.0, budget_yen=10.0, env=None,
-                 batch_poll_s=0.0)
+                 batch_poll_s=0.0, asks_only=False)
         with m.patch.object(g, "batch_judge", fake_batch), m.patch("common.load_secret", return_value="x"):
             out = asyncio.run(g.run(args))
         self.assertEqual(len(seen), 2 * len(out["rows"]))                 # 目的のお客様の判定と、尋ねているか
