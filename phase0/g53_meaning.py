@@ -104,15 +104,13 @@ def hedged(it: dict) -> bool:
 
 
 def reading(it: dict, key: str):
-    """記録した判定の答えを、流れの制御に渡す形（言い切っているか・会話になっているかを添える）に戻す。"""
+    """記録した判定の答えを、流れの制御に渡す形（言い切っているかを添える）に戻す。"""
     from meaning_judge import Reading
 
     got = it.get(key)
     if got is None:
         return None
-    r = Reading(got, it.get(f"{key}言い切り") is not False)
-    r.fits = it.get(f"{key}会話") is not False
-    return r
+    return Reading(got, it.get(f"{key}言い切り") is not False)
 
 
 def either(it: dict) -> bool:
@@ -332,15 +330,13 @@ ASK_AGAIN, AFFIRMED, AFFIRMED_HEDGED, DENIED = "聞き直す", "認めた（受�
 RECHECK = "会話になっていない（念のため確かめ直す）"
 
 
-def flow_act(it: dict, q: Question, got, firm, fits=True, prior=None) -> str | None:
-    """判定の読み got（firm＝言い切っているか・fits＝会話になっているか）から、流れの制御がすること（数えるのはここ）。会話になっていない
-    返事は、読みが選択肢なら念のため確かめ（言い直しへの返事なら確かめ直し）、そうでなければ聞き直す（flowctl.TALK_WHY・Flow._check_again。
-    ✅ 2026-10-31 ユーザー：前に言ったことと逆の返事は「(イ)」＝念のため言い直して確かめる）。"""
+def flow_act(it: dict, q: Question, got, firm, prior=None) -> str | None:
+    """判定の読み got（firm＝言い切っているか・prior＝前の話の答え）から、流れの制御がすること（数えるのはここ）。会話になっていない
+    返事（前の話の答えと食い違う選択肢の読み）は、その読みで念のため確かめる（言い直しへの返事なら確かめ直す。flowctl.TALK_WHY・
+    Flow._check_again。✅ 2026-10-31 ユーザー：前に言ったことと逆の返事は「(イ)」＝言い直して確かめる）。"""
     if got is None:
         return None
-    if off_talk(q, got, fits, prior):   # 会話になっていない返事（流れの制御 Flow._judged_off_talk と同じ1か所の決まり）
-        if got not in q.conditions and got != ANY:
-            return ASK_AGAIN
+    if off_talk(q, got, prior):   # 会話になっていない返事（流れの制御 Flow._judged_off_talk と同じ1か所の決まり。読みはいつも宣言した選択肢）
         return RECHECK if it["set"] == "D" else f"念のため確かめる：{got}"
     if (pa := prior_answer(q, got, prior)) is not None:   # いまの言葉だけでは決められず、前の話の答えを確かめる（Flow._compare と同じ）
         return f"念のため確かめる：{pa}"
@@ -376,7 +372,7 @@ def flow_wants(it: dict, q: Question) -> set[str]:
 
 def flow_miss(it: dict, q: Question, key: str) -> str | None:
     """判定 key の読みで、流れの制御の動きが正解と違えば、その違いの種類（正しければ None・読みが無ければ「読み無し」）。"""
-    act = flow_act(it, q, it.get(key), it.get(f"{key}言い切り"), it.get(f"{key}会話"), it.get(f"{key}前の話"))
+    act = flow_act(it, q, it.get(key), it.get(f"{key}言い切り"), it.get(f"{key}前の話"))
     if act is None:
         return "読み無し"
     want = flow_wants(it, q)
@@ -493,7 +489,6 @@ def run_judges(args, items: list[dict], qmap: dict, ids: dict) -> None:
                 got, _ = ring.call(ids[key], call, rotate=False)
                 it[key] = got
                 it[f"{key}言い切り"] = getattr(got, "firm", None)
-                it[f"{key}会話"] = getattr(got, "fits", None)
                 it[f"{key}秒"] = took.get("s")
             except KeyUnusable:
                 skip.add(key)
@@ -527,8 +522,6 @@ def run_judges(args, items: list[dict], qmap: dict, ids: dict) -> None:
                     it[f"{key}言い切り"] = getattr(it[key], "firm", None)
                     it[f"{key}確からしさ"] = getattr(it[key], "sure", None)  # Jev の線（OTHER_JUDGES の sure_min）で、同時に出した組の読みを見積もるため
                     it[f"{key}言い切りの確からしさ"] = getattr(it[key], "firm_p", None)   # 言い切りの線と、どちらとも言えない幅を決めるため
-                    it[f"{key}会話"] = getattr(it[key], "fits", None)   # 会話になっているか（答えの段だけ。FITS）
-                    it[f"{key}会話の確からしさ"] = getattr(it[key], "fits_p", None)
                     it[f"{key}秒"] = round(time.monotonic() - t, 3)
                     break
                 except OtherJudgeError as exc:  # 上限（429）・混雑（5xx）は待ってやり直す。ほかは記録して次へ
@@ -579,7 +572,6 @@ async def run_group(args, items: list[dict], qmap: dict, name: str, lanes: int =
             try:
                 got = await panel.ask("judge2", qmap[it["qid"]], it["text"], it.get("asked"))
                 it[name], it[f"{name}言い切り"], it[f"{name}by"] = str(got), got.firm, got.by
-                it[f"{name}会話"] = got.fits
             except NoJudgment as exc:
                 it[f"{name}誤り"] = str(exc)[:200]
             it[f"{name}秒"] = round(time.monotonic() - t, 3)

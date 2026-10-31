@@ -74,7 +74,7 @@ KIND_DESC = {HOLD: "この電話の間に、取り次ぐ・確かめてくるあ
 # ⛔ 2026-10-31 の昼（✅ ユーザー：「『差し控えさせていただきます』だけだと『利用しない』になるのは当然。この部分だけの判断ならAIがあっています。
 #    前の分との流れの回答として会話になっていないだけです。それを分かるようにしないと！」）：言葉の意味と、前の流れへの返事として会話になって
 #    いるかの2つの軸を、この「決められない」1つに混ぜていた（10-29 の「不在」と「別の方」と同じ形）＝判定は、正しく意味のほうを選んでいた
-#    ⇒「意味がつながらない・聞き違い」と「控えたのが答えか利用か」はここから外し、会話になっているかは別の項目で答えさせる（FITS・答えの段だけ）
+#    ⇒「意味がつながらない・聞き違い」と「控えたのが答えか利用か」はここから外し、会話になっているかは別の項目で答えさせる（FITS・答えの段だけ。⛔ 同じ日の夜に外した＝下の FITS の記録）
              UNDECIDED: "この言葉と、前の質問・前の会話からは決められない（受け入れにも断りにも取れる・どの答えも指していない・選ぶのを避けた・"
                         "話すことを終える言葉とも、質問への答えとも取れる・確かめる・調べる・人に聞く、と言っただけ（いま確かめてくるので待つように、"
                         "とは言っていない）。待つように言った・代わった人が話し始めた、に当たるときは、そちら）"}
@@ -108,7 +108,7 @@ FIRM = "firm"
 #       言い切りに、その4つの意味を足した
 #    ⛔ 2026-10-31 の昼（G-70：「複合機は去年買い取りました。」のあとの「そうです。」）：答えを「お客様が言ったこと」と書き、いまの言葉か前に
 #       話したことかを決めていなかった＝d1-ultra も Jev も、前に話したことから答え（リースではない）を選んだ ⇒ 答えは、いまの言葉から選び、
-#       前に話したことは、いまの言葉がそれを指しているときに中身を補うだけ（食い違いは会話になっているか＝FITS で答える）
+#       前に話したことは、いまの言葉がそれを指しているときに中身を補うだけ（食い違いは~~会話になっているか＝FITS で答える~~ ⇒ 前の話の答えとプログラムが比べる＝PRIOR・flowctl.off_talk）
 #    ⛔ 同じ昼（直した文の G-70）：「前に話したことを指している・省いて言ったときに補う」と書いた ⇒ 中身を省いた短い返事（「そうです。」）を、
 #       前に話したこと（「去年買い取りました」）で補い、Jev は「リースではない」を言い切りかつ会話になっていると読んだ（直す前より悪い・私の言い回し）
 #       ⇒ いまの言葉は前の質問への返事として読み、前に話したことに当てはめて読み替えない。前に話したことは、いまの言葉が前に話したことそのものを
@@ -132,14 +132,24 @@ FIRM_RULE = ("答えは、" + LEAN + "で選びます。確かめていない・
 #       駐車場を使わせてください。」のあとの「差し控えさせていただきます」）を、d1-ultra も Jev も6回とも会話になっていると読んだ (2) 答えを拒んだ・
 #       理由だけを言った・わからない・迷った・待つように言った返事を、前の会話の無い試し（G-53）で d1-ultra は124・Jev は120、会話になっていないと
 #       読んだ（本当に会話になっていないのは、記録の通話の聞き違いの言葉だけ）⇒ 両側を意味で書いた（言葉の形の例は書かない）
-FITS = "fits"
-FITS_NOT = ("いまの言葉が、前の質問への返事として筋が通らない（質問と関わりのないことを言った・聞き違いや言い違いでなければ出てこない言葉）か、"
-            + BEFORE + "と合わない（前に言ったことと逆のことを、考えを変えたとは言わずに言った）。聞き違い・言い違いを疑う")
-FITS_YES = ("前の質問への返事として筋が通り、" + BEFORE + "とも合う（答えを言わない返事＝わからない・答えたくない・理由だけを言った・迷った・"
-            "聞き返した・待つように言った・代わった人が話し始めた、も、質問への返事として筋が通っていれば、会話になっている。前に言ったことを変えると"
-            "言って答えたのも、会話になっている）")
-FITS_RULE = ("会話になっているか（" + FITS + "）は、" + FITS_NOT + "なら false、" + FITS_YES + "なら true です（答えは言葉の意味で選び、"
-             "会話になっているかは、ここだけで答えます）。")
+#    外した決まりの文（そのころの FITS_NOT・FITS_YES・FITS_RULE。判断のモデルには JEV_FITS＝同じ2つの定義と、問い「お客様のいまの言葉は、
+#    前の質問への返事として、またその前に相手が言ったことと並べて、会話になっていますか？」・線 FITS_LINE 0.5）：
+#    | FITS_NOT = ("いまの言葉が、前の質問への返事として筋が通らない（質問と関わりのないことを言った・聞き違いや言い違いでなければ出てこない言葉）か、"
+#    |             + BEFORE + "と合わない（前に言ったことと逆のことを、考えを変えたとは言わずに言った）。聞き違い・言い違いを疑う")
+#    | FITS_YES = ("前の質問への返事として筋が通り、" + BEFORE + "とも合う（答えを言わない返事＝わからない・答えたくない・理由だけを言った・迷った・"
+#    |             "聞き返した・待つように言った・代わった人が話し始めた、も、質問への返事として筋が通っていれば、会話になっている。前に言ったことを変えると"
+#    |             "言って答えたのも、会話になっている）")
+#    | FITS_RULE = ("会話になっているか（" + FITS + "）は、" + FITS_NOT + "なら false、" + FITS_YES + "なら true です（答えは言葉の意味で選び、"
+#    |              "会話になっているかは、ここだけで答えます）。")
+# 会話になっているか（FITS）は、いまの言葉の読みでは問わない（✅ 2026-10-31 の夜 ユーザー：「(a) OK」）。経緯：✅ 同じ日の昼 ユーザー：
+#    「『差し控えさせていただきます』だけだと『利用しない』になるのは当然。この部分だけの判断ならAIがあっています。前の分との流れの回答として
+#    会話になっていないだけです。それを分かるようにしないと！」（10-30：「本当にお客様が『差し控えさせていただきます』なら会話になっていない。文字起こしが間違っている可能性も考えるべき」）
+#    ⇒ 選んだ答えとは別に、会話になっているかを はい／いいえ で答えさせた（FITS）
+#    ⛔ 同じ昼（G-70・G-53）：前に言ったことと逆の返事を6回とも会話になっていると読み、答えを拒んだ・理由だけを言った・わからない・迷った・
+#       待つように言った返事を、d1-ultra は124・Jev は120、会話になっていないと読んだ ⇒ 両側を意味で書き直した
+#    ⛔ 同じ日の夜（G-53final・2817個）：書き直した形でも、FITS が正しく救った答えは0、壊した答えは d1-ultra 19・Jev 3（同じ言葉でも回ごとに
+#       0.5 前後で揺れた＝G-70 の A2・D2）。前の話と合わない返事は、前の話の答え（PRIOR）を別に読み、プログラムが比べる形で、G-70 の確かな読みが
+#       33/33 正しい ⇒ 判定に「会話になっているか」を答えさせる軸を外した（食い違いを見分けるのは flowctl.off_talk の1か所）
 # 前の話の答え（答えの段の最初の答えで、その前に相手が言ったことがあるときだけ＝prior_asked）。前に話したことだけから決まる答えを、いまの言葉の答え
 #    とは別に読ませ、2つが違えば、前の話と合わない返事（会話になっていない）とプログラムが決める（flowctl.off_talk の1か所）。✅ 2026-10-31 の昼
 #    ユーザー：「(a) 検査OK」（会話になっているかを1つの はい／いいえ で答えさせる形は、同じ言葉でも回ごとに 0.5 前後で揺れた＝G-70 の A2・D2。
@@ -167,12 +177,9 @@ class Reading(str):
     facts＝項目ごとの答え（記録・試験の数え方）。weak＝受け持ちの判定がどれも確かな読みを返さず、代わりが答えたときの、受け持ちの確かでない読み
     （流れの制御は、代わりの答えとあわせて数える＝convo.check_handler・Flow.on_unsure）。firm_p＝言い切っているかの確からしさ（0〜1。返す判定
     だけ＝判断のモデル。firm は、これを線 firm_min で分けたもの。線と、どちらとも言えない幅を決める測りが使う）。
-    fits＝お客様の言葉が、前の質問（と前の会話）への返事として会話になっているか（答えの段だけ。FITS）・fits_p＝その確からしさ（判断のモデル）。
     prior＝その前に相手が言ったことだけから決まる答え（中の名前。決まらない・問わなかったときは None。PRIOR）・prior_p＝その確からしさ。"""
     sure: float | None = None
     firm_p: float | None = None
-    fits: bool = True
-    fits_p: float | None = None
     prior: str | None = None
     prior_p: float | None = None
     prior_raw: str | None = None
@@ -203,7 +210,7 @@ MEANING_RULE = "- 言葉の意味で選びます。言葉の頭の「はい」�
 MAYBE_RULE = "- 迷ったら「" + UNDECIDED + "」を選びます。\n"
 RULES = (
     ASK_HEAD +
-    "あわせて、お客様がその答えを言い切っているか（" + FIRM + "）と、質問への返事として会話になっているか（" + FITS + "）も答えてください。\n"
+    "あわせて、お客様がその答えを言い切っているか（" + FIRM + "）も答えてください。\n"
     "決まり：\n" +
     MEANING_RULE + "（「いいえ、もう済ませてあります」は、済ませた側）。\n"
     "- 打ち消しを重ねた言い方は、意味で読みます（「していないわけではない」は、している側）。\n"
@@ -218,12 +225,11 @@ RULES = (
     # ⛔ 2026-10-25 に「『いえ』『いや』のあとの『結構です』『大丈夫です』は、その向き」の一文を足したが、取り消した：G-59 で、確かめたあとの
     #    「いえ、受付の者です。少々お待ちください。」を、考えない Sonnet 5.5 が3回とも「別の方」と読むようになった（前は「取り次ぎを待つ」）＝
     #    「いえ」の一文が、結構です・大丈夫です以外にも効いた
-    "- " + FIRM_RULE + "\n"
-    "- " + FITS_RULE + "\n" +
+    "- " + FIRM_RULE + "\n" +
     MAYBE_RULE
 )
 # 電話のやり取りを読む問い合わせ（TALK_KINDS＝尋ねているか・待たせた方が戻ったか）の決まり：お客様の答えの決まり（打ち消しの問い・言い直しへの
-#    返事・言い切り・会話になっているか）は入れない（✅ 2026-10-31 ユーザー：(4) の案「OK」。rules の1か所で選ぶ）
+#    返事・言い切り）は入れない（✅ 2026-10-31 ユーザー：(4) の案「OK」。rules の1か所で選ぶ）
 TALK_RULES = ASK_HEAD + "\n決まり：\n" + MEANING_RULE + "。\n" + MAYBE_RULE
 # 項目ごとに答える質問（Question.facets＝目的のお客様の判定）の決まり（RULES の代わり。✅ 2026-10-29 ユーザー：「『不在』と『別の方』というのは、
 #    そもそも別の評価軸でしょ。それをどちらかしか選べないというのは設計上の問題じゃないですか？」＝1つの言葉に同時に入る事実を、項目ごとに答えさせる）。
@@ -415,8 +421,6 @@ def read(q, text: str | None, asked: str | None = None) -> Reading | None:
         return None
     r = Reading(cond, firm is not False, sure)
     r.firm_p = got.get("firm_p") if isinstance(got.get("firm_p"), (int, float)) else None
-    r.fits = got.get(FITS) is not False   # 会話になっているかが無い・読めない返事は、なっている（印を付けない＝ほかの確かめのとおり）
-    r.fits_p = got.get("fits_p") if isinstance(got.get("fits_p"), (int, float)) else None
     return r
 
 
@@ -432,8 +436,9 @@ def _schema(q, asked: str | None) -> dict:
 
 def answer_marks(q) -> tuple[str, ...]:
     """選んだ答えとは別に答えさせる印（唯一の場所。返事の形 _config・_schema と判断のモデルの問い jev_request）：お客様の答えを読む問い合わせ
-    （答えの段）は、言い切っているか（FIRM）と会話になっているか（FITS）。電話のやり取りを読む問い合わせ（talk_question）には付けない。"""
-    return () if talk_question(q) else (FIRM, FITS)
+    （答えの段）は、言い切っているか（FIRM）。電話のやり取りを読む問い合わせ（talk_question）には付けない。会話になっているか（FITS）は
+    問わない（✅ 2026-10-31 の夜 ユーザー：「(a) OK」＝前の話と合わない返事は、前の話の答えとプログラムが比べる＝flowctl.off_talk）。"""
+    return () if talk_question(q) else (FIRM,)
 
 
 def prior_asked(q, asked: str | None, before: str | None) -> bool:
@@ -571,9 +576,12 @@ OTHER_JUDGES = {
     # 正解に当てた）で数えて、1回り目は外れ0・Jev が外れたのは3回の中で確からしさ 0.3 台の1回だけ ⇒ 目的のお客様の判定と同じ 0.8 と決め、2・3回り目で
     # 142回中108回を Jev だけで決めて外れ0（0.95 のときは 64回。尋ねている9行は3回とも 0.8 から上で合った）。⛔ 2026-10-30：この質問も、答えの判定で
     # 測った 0.95 を測らずに使っていた（2026-10-30 ユーザー：「考えない Sonnet の割合を下げながら、100％精度を出す組や仕組みを模索してください。」）
+    # 答えの段（other）は、d1-ultra が組に無い・止まっているときだけの代わり（stands_in＝takes_part の1か所。✅ 2026-10-31 の夜 ユーザー：(b)「OK」＝
+    #    答えの段の顔ぶれは d1-ultra → 考える Sonnet・Jev は d1-ultra の代わりだけ）。⛔ 同じ夜の G-53final：Jev は「利用は結構です」を確からしさ 1.0 で
+    #    「利用する」と読んだ（線では防げない）＝d1-ultra と同時に出すと、Jev が先に答えた発話ではこの読みを受け取る（d1-ultra は正しく読んだ）
     "Jev 1.14": {"maker": "typesafe", "api": "decision", "model": "typesafe/jev-1.14", "key": "OPENROUTER_JUDGE_KEY", "host": "openrouter.ai",
                  "sure_min": 0.95, "facets_sure_min": 0.8, "asks_sure_min": 0.8, "firm_min": 0.2, "ground_min": 0.8, "returned_sure_min": 0.6,
-                 "yen_per_char": 7.6e-6},
+                 "yen_per_char": 7.6e-6, "group_kinds": CALLING_KINDS + ("returned", "ground"), "stands_in": {"other": "d1 Ultra（Liquid）"}},
     # 前の話の答えの線（prior_min。2026-10-31 の夜・G-70 の前の話のある13組×3回）：d1-ultra が前の話と逆の返事を拾うのに要る前の話の答えは
     #    どれも 0.85 から上・「その日は空いています。」から説明会に参加するか（決まらないはず）の「参加する」は 0.45〜0.55 ⇒ 0.6（⏳ 組の数が少ない）
     # 待たせた方が戻ったかの線（returned_sure_min。2026-10-31 の昼・✅ ユーザー：「(b) 精度が100％ならOK」）：G-68 の18の言葉と、紛らわしい
@@ -592,10 +600,12 @@ OTHER_JUDGES = {
     #    （正解の付いた答えの半分で決め、残りの半分で数える）で、答えの確からしさ 0.77・言い切りの確からしさの、どちらとも言えない幅
     #    0.20〜0.92（sure_reading。幅に入る読みは確かでない＝次の判定）。言い切っているのは 0.92 から上（firm_min＝幅の上）。数える半分の 1,430件で
     #    946件を決め、外れは2（「社内にはいると思います」は表の誤りで直した・残る1つは駐車場の質問への「差し控えさせていただきます」＝PHASE0 G-59）。
-    #    ⏳ 答えの段の組に入れるのは、Jev も同時に出すか（(ア)）・d1-ultra だけを先に出すか（(a)）のご判断のあと
+    #    ~~⏳ 答えの段の組に入れるのは、Jev も同時に出すか（(ア)）・d1-ultra だけを先に出すか（(a)）のご判断のあと~~ ⇒
+    #    ✅ 2026-10-31 の夜 ユーザー：(b)「OK」＝答えの段の組に入れる（d1-ultra → 考える Sonnet。Jev は d1-ultra が止まったときの代わりだけ）。
+    #    ⏳ 線は、会話になっているか（FITS）を外した文で測り直してから決める（外した形で数え直した G-53final では 0.6・幅 0.14〜0.94 で2つの半分とも外れ0）
     "d1 Ultra（Liquid）": {"maker": "liquid", "api": "decision", "model": "liquid/d1-ultra-20261015", "key": "OPENROUTER_JUDGE_KEY",
                           "host": "openrouter.ai", "firm_min": 0.92, "facets_sure_min": 0.6, "asks_sure_min": 0.6,
-                          "sure_min": 0.77, "firm_band": (0.20, 0.92), "group_kinds": CALLING_KINDS, "returned_sure_min": 0.6,
+                          "sure_min": 0.77, "firm_band": (0.20, 0.92), "group_kinds": CALLING_KINDS + ("other",), "returned_sure_min": 0.6,
                           "yen_per_char": 3.1e-6, "prior_min": 0.6},
     "d1.1（Liquid）": {"maker": "liquid", "api": "decision", "model": "liquid/d1.1-20261027", "key": "OPENROUTER_JUDGE_KEY",
                       "host": "openrouter.ai", "firm_min": 0.2},
@@ -663,10 +673,16 @@ def sure_reading(name: str, q, got) -> bool:
     return not (band and got.firm_p is not None and firm_matters(q, got) and band[0] <= got.firm_p < band[1])
 
 
-def takes_part(name: str, kind: str) -> bool:
+def takes_part(name: str, kind: str, missing=None) -> bool:
     """組（2つ以上の判定の受け持ち）の中で、判定 name が kind（question_kind・ground）の質問に答えるか（唯一の場所。JudgePanel・
-    grounding.make_grounder が使う）。group_kinds を書いていない判定は、どの種類にも答える。1つだけの判定で測るときは使わない。"""
-    return kind in OTHER_JUDGES.get(name, {}).get("group_kinds", (kind,))
+    grounding.make_grounder が使う）。group_kinds を書いていない判定は、どの種類にも答える。1つだけの判定で測るときは使わない。
+    stands_in＝その種類の質問では、決めた判定が組に無い・止まっている（missing(その判定) が真）ときだけ、その代わりに答える（答えの段の Jev は
+    d1-ultra の代わりだけ。✅ 2026-10-31 の夜 ユーザー：(b)「OK」）。"""
+    j = OTHER_JUDGES.get(name, {})
+    if kind in j.get("group_kinds", (kind,)):
+        return True
+    stood = j.get("stands_in", {}).get(kind)
+    return stood is not None and missing is not None and bool(missing(stood))
 
 
 # 質問の種類ごとに、止める側だけに使う判定（唯一の場所。JudgePanel）：その質問には自分で答えず、ほかの受け持ち（組）が確かな読みを返さないと
@@ -703,6 +719,8 @@ def stop_only(name: str, kind: str) -> bool:
 #    ✅ 2026-10-30 ユーザー：「d1-ultra（線0.6）と Jev（線0.8）を同時に出し、どちらも確かでないときだけ考えない Sonnet を出す形。OK」＝組の前に
 #       d1-ultra を足した。どの判定がどの質問に答えるかは takes_part の1か所（お呼びする段の2つ＝d1-ultra・Jev → 考えない Sonnet／答えの意味・
 #       中身の判定＝Jev → 考える・考えない Sonnet で今のまま）。先に出すのは組の中の判断のモデル全部（first_of の leads）
+#    ✅ 2026-10-31 の夜 ユーザー：(b)「OK」＝答えの意味は d1-ultra → 考える Sonnet（Jev は d1-ultra が止まったときの代わりだけ＝stands_in）。
+#       待たせた方が戻ったか・中身の判定は今のまま（Jev → 考える Sonnet。d1-ultra は中身の判定を測っていない）
 RACE = ("d1 Ultra（Liquid）", "Jev 1.14", "Claude Sonnet 5.5（考える）", "Claude Sonnet 5.5")
 RACE_NAME = "d1 Ultra＋Jev 1.14＋Claude Sonnet 5.5（考える・考えない）"
 # 契約者が Jev を使わないと選んだとき（✅ 2026-10-18 ユーザー：「契約者設定で、Jev も使うか、Sonnetだけにするかも選択できるようにした方がいいね」。
@@ -787,13 +805,8 @@ JEV_ASK = "お客様の言葉は、質問へのどの答えに当たりますか
 JEV_ASK_REPLY = ("お客様の言葉は、こちらが言い直して確かめた言葉への返事として、どの答えに当たりますか？"
                  "（言い直した意味を認めたら、その意味。言い直しを打ち消したら、打ち消した側）")
 JEV_FIRM = {"true": FIRM_YES, "false": FIRM_NOT}
-JEV_FITS = {"true": FITS_YES, "false": FITS_NOT}
 # 判断のモデルの印の問い（答えの段だけ＝answer_marks。定義は上の1か所から）
-JEV_MARKS = {FIRM: ("お客様は、その答えを言い切っていますか？", JEV_FIRM),
-             FITS: ("お客様のいまの言葉は、前の質問への返事として、また" + BEFORE + "と並べて、会話になっていますか？", JEV_FITS)}
-# 会話になっているとする確からしさの線（判断のモデル）。⏳ 2026-10-31：まだ測っていない＝半分で切る仮の線（決まった決め方で決めて、判定ごとの
-#    fits_min に入れる）
-FITS_LINE = 0.5
+JEV_MARKS = {FIRM: ("お客様は、その答えを言い切っていますか？", JEV_FIRM)}
 
 
 def jev_criteria(q, asked: str | None = None) -> dict:
@@ -860,12 +873,9 @@ def other_text(name: str, data: dict) -> str | None:
             return None
         confs = [a.get("confidence") for a in picked.values()]
         firm = (answers.get(FIRM) or {}).get("noul")
-        fits = (answers.get(FITS) or {}).get("noul")
         return json.dumps({k: a["choice"] for k, a in picked.items()} | {FIRM: firm is None or firm >= OTHER_JUDGES[name]["firm_min"],
-                          FITS: fits is None or fits >= OTHER_JUDGES[name].get("fits_min", FITS_LINE),
                           "sure": min(confs) if all(isinstance(c, (int, float)) for c in confs) else None,
-                          "firm_p": firm if isinstance(firm, (int, float)) else None,
-                          "fits_p": fits if isinstance(fits, (int, float)) else None}, ensure_ascii=False)
+                          "firm_p": firm if isinstance(firm, (int, float)) else None}, ensure_ascii=False)
     return next((c.get("text") for o in data.get("output") or [] for c in o.get("content") or [] if c.get("type") == "output_text"), None)
 
 
@@ -1221,7 +1231,8 @@ async def ajudge_other(client, name: str, q, text: str, asked: str | None = None
 
 
 # 前の話の答えを読む判定の順（唯一の場所。✅ 2026-10-31 の夜 ユーザー：「(a) OK」＝前の話の答えは、いまの言葉と関わりなく前の話と質問だけで
-#    決まるので、どの判定がいまの言葉を読んでも、前の話の答えは d1-ultra 1つが読んだものを使う。答えられないときだけ Jev）。
+#    決まるので、どの判定がいまの言葉を読んでも、前の話の答えは d1-ultra 1つが読んだものを使う。答えられないときだけ Jev＝答えの段の組の
+#    顔ぶれと同じ向き＝takes_part の stands_in）。
 #    ⛔ 同じ夜の G-70：判定ごとに前の話の答えを読ませた形では、Jev は「その日は出張でおりません。」から説明会に参加するかを「決まらない」と読み、
 #    前の話と逆の「はい、参加します。」を受け取った（d1-ultra は前の話と逆の5組をすべて拾えた）
 PRIOR_READERS = ("d1 Ultra（Liquid）", "Jev 1.14")
@@ -1572,9 +1583,11 @@ class JudgePanel(RouteState):
         return run
 
     def _parts(self, kind: str, qkind: str) -> list:
-        """受け持ち kind の判定のうち、組の中の分け（takes_part）で qkind の質問に答えるもの（1つだけの受け持ちは、その判定）。"""
+        """受け持ち kind の判定のうち、組の中の分け（takes_part）で qkind の質問に答えるもの（1つだけの受け持ちは、その判定）。代わりだけの
+        判定（stands_in）は、代わる判定が組に無いか、止まっている（DOWN_S のあいだ）ときだけ入る。"""
         ms = self.judges[kind]
-        return [(n, f) for n, f in ms if len(ms) == 1 or takes_part(n, qkind)]
+        names = {n for n, _ in ms}
+        return [(n, f) for n, f in ms if len(ms) == 1 or takes_part(n, qkind, lambda s: s not in names or self._down(s))]
 
     def _own(self, kind: str, qkind: str) -> list:
         """受け持ち kind が qkind の質問に自分で出す判定：組の中の分けのうち、ほかの受け持ちに自分で答える判定があれば、止める側だけの判定

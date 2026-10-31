@@ -472,14 +472,15 @@ HEDGE_WHY = "言い切っていない答え"  # 確かめる理由の名前（�
 TALK_WHY = "会話になっていない返事"
 
 
-def off_talk(q: "Question", got: str | None, fits: bool | None = True, prior: str | None = None) -> bool:
-    """会話になっていない返事か（唯一の決まり。流れの制御 Flow._judged_off_talk と、測りの数え g53_meaning.flow_act が使う）：判定が会話に
-    なっていないと読んだ（fits）か、その前に相手が言ったことだけから決まる答え（prior＝meaning_judge.PRIOR）と、いまの言葉の答え（got）が、
-    どちらも宣言した選択肢で、違う（前の話と合わない＝プログラムが比べる。✅ 2026-10-31 の昼 ユーザー：「(a) 検査OK」）。待つように言った・
-    代わった人が話し始めた、の読みは答えではないので当てない（待つ・名乗る、の道が受け持つ）。"""
+def off_talk(q: "Question", got: str | None, prior: str | None = None) -> bool:
+    """会話になっていない返事か（唯一の決まり。流れの制御 Flow._judged_off_talk と、測りの数え g53_meaning.flow_act が使う）：その前に相手が
+    言ったことだけから決まる答え（prior＝meaning_judge.PRIOR）と、いまの言葉の答え（got）が、どちらも宣言した選択肢で、違う（前の話と合わない＝
+    プログラムが比べる。✅ 2026-10-31 の昼 ユーザー：「(a) 検査OK」）。待つように言った・代わった人が話し始めた、の読みは答えではないので当てない
+    （待つ・名乗る、の道が受け持つ）。判定に会話になっているかを答えさせる軸（meaning_judge の FITS）は外した（✅ 同じ日の夜 ユーザー：「(a) OK」。
+    G-53final で、正しく救った答えは0・壊した答えは d1-ultra 19・Jev 3）。"""
     if got in (HOLD, HANDOVER):
         return False
-    return fits is False or (prior in q.conditions and got in q.conditions and prior != got)
+    return prior in q.conditions and got in q.conditions and prior != got
 
 
 # いまの言葉だけでは決められず、前の話の答えで念のため確かめる（確かめる理由の名前＝Flow._check_again。言い切っていない答えと同じ言い方）
@@ -2118,7 +2119,8 @@ class Flow:
         """意味の判定に渡すもの（相手の発話の始めに決める）：いまの質問と、こちらが言い直して確かめた言葉（言い直しの返事を待っているとき）と、
         その前に相手が言ったこと。目的の人を呼んでいる段（calling）では、呼ぶ一言を質問にし（目的の人かを確かめたあとは、その言い方を添える）、
         その段の相手の言葉（直前の3つまで）を添える（取り次いだ方の言葉で、代わった方が誰かが決まる＝target_facets）。答えの段も、その段の
-        相手の言葉（直前の3つまで＝answer_words）を添える（前の流れとつながるか＝会話になっているかを、判定が読む。meaning_judge.FITS）。
+        相手の言葉（直前の3つまで＝answer_words）を添える（前の話だけから決まる答えを判定が別に読み、いまの言葉の答えとプログラムが比べる＝
+        meaning_judge.PRIOR・off_talk）。
         ⛔ 2026-10-31：答えの段では、その前の言葉を渡していなかった（「車で伺うので、駐車場を使わせてください」のあとの「差し控えさせて
            いただきます」を、質問とだけ並べて読む＝「利用しない」と読むのは当然で、会話になっていないことが分からない）
         ⛔ 2026-10-19 G-62：その前の言葉を渡しておらず、受付の方「岡田ですね。少々お待ちください。」のあとの「はい、お電話代わりました。」を、
@@ -2748,9 +2750,9 @@ class Flow:
             # 「わからない」「答えたくない」の報告には当てない（「たぶん分からないです」は、そのまま「わからない」）
             return HEDGE_WHY, reported
         if (off := Flow._judged_off_talk(q, check, reported)) is not False:
-            # 意味の判定が、前の質問（と前の会話）への返事として会話になっていないと読んだ：その判定の読みに意味の答え（選択肢）があれば、
-            # それを念のため確かめる答えに（前に言ったことと逆の返事＝✅ ユーザー「(イ)」）、無ければ None（聞き直す）
-            return f"{TALK_WHY}（意味の判定が、質問への返事として会話になっていないと読んだ）", (off if off in q.conditions + (ANY,) else None)
+            # 前の話と合わない返事：その読み（宣言した選択肢＝off_talk の決まり）を確かめる答えに（前に言ったことと逆の返事＝✅ ユーザー「(イ)」。
+            # お客様が考えを変えた場合も、聞き違いの場合も、確かめへの返事で分かる）
+            return f"{TALK_WHY}（意味の判定の読みが、その前に相手が言ったことから決まる答えと食い違う）", off
         if (back := next((a for k in JUDGMENTS if check.get(k) is not None
                           and (a := prior_answer(q, str(check[k]), Flow._prior(check))) is not None), None)) is not None:
             return f"{PRIOR_WHY}（いまの言葉だけでは決められず、その前に相手が言ったことから決まる答えを確かめる）", back
@@ -2770,19 +2772,19 @@ class Flow:
 
     @staticmethod
     def _judged_off_talk(q: "Question", check: dict, reported: str | None = None) -> str | None | bool:
-        """意味の判定が、お客様の言葉は前の質問（と前の会話）への返事として会話になっていないと読んだ（meaning_judge.Reading.fits。答えの段の
-        問い合わせだけが返す＝ほかの読みは、なっている）：そう読んだ判定の読み（中の名前）。どの判定もそう読まなければ False。
+        """お客様の言葉が、前の話と合わない（会話になっていない）返事：意味の判定の読み（中の名前）が、前の話の答えと食い違う（off_talk の
+        1か所）ときは、その読み。どの判定の読みも食い違わなければ False。
         待つように言った・代わった人が話し始めた、の読みは答えではないので当てない（待つ・名乗る、の道が受け持つ）。⛔ 2026-10-31 の昼（G-53）：
         「わかる者に代わりますので、少しお待ちいただけますか。」を、d1-ultra も Jev も「取り次ぎを待つ」と正しく読み、会話になっていないとも
-        読んだ＝待たずに聞き直す側へ回った。
+        読んだ（そのころの FITS）＝待たずに聞き直す側へ回った。
         判定の組が答えられなかった（判定の読みが無い）ときは、会話AIの報告（reported）を前の話の答えと比べる（前の話と逆なら、その報告）。
         prior＝前の話の答え（Flow._prior の1か所）。"""
         prior = Flow._prior(check)
         read = [k for k in JUDGMENTS if check.get(k) is not None]
-        hit = next((str(check[k]) for k in read if off_talk(q, str(check[k]), getattr(check[k], "fits", True), prior)), None)
+        hit = next((str(check[k]) for k in read if off_talk(q, str(check[k]), prior)), None)
         if hit is not None:
             return hit
-        return reported if not read and reported is not None and off_talk(q, reported, True, prior) else False
+        return reported if not read and reported is not None and off_talk(q, reported, prior) else False
 
     @staticmethod
     def _judged_unsure(check: dict) -> bool:
@@ -2900,10 +2902,9 @@ class Flow:
     def _check_again(self, qid: str, why: str, cond: str | None, back: str | None) -> dict:
         """確かめがそろわなかった答えを、そのまま受け取らずに言い直して確かめる（選択肢の型は back の意味で＝判定が選択肢を選んでいれば判定のほう）。"""
         it, q = self.items[qid], self.questions[qid]
-        if why.startswith(TALK_WHY) and back is None:
-            # 会話になっていない返事で、確かめる意味の答えが無い：質問から聞き直す（聞き違い・言い違いを疑う。聞き返しの回数の中で）
-            # ✅ 2026-10-30 ユーザー：「本当にお客様が『差し控えさせていただきます』なら会話になっていない。文字起こしが間違っている可能性も考えるべき」
-            return self._ask_again(qid, "unclear", f"{why}（「{(self.heard_said or '')[:20]}」）")
+        # 会話になっていない返事（TALK_WHY）は、いつも確かめる答え（前の話と食い違う選択肢）があり、聞き違い・言い違いも確かめへの返事で分かる
+        # （✅ 2026-10-30 ユーザー：「本当にお客様が『差し控えさせていただきます』なら会話になっていない。文字起こしが間違っている可能性も考えるべき」。判定に会話になっているかを答えさせていた
+        # ころ＝meaning_judge の FITS は、答えの無い読みを質問から聞き直していた。✅ 2026-10-31 の夜 ユーザー「(a) OK」で FITS を外し、その枝も無くなった）
         it.set("heard", f"{why}（「{(self.heard_said or '')[:20]}」）・AIは「{label(cond)}」と受け取った")
         if q.type in CHOICE_TYPES and back is not None:
             it.condition = back

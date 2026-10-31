@@ -1,4 +1,5 @@
-"""G-70：答えの段の判定が、前の流れとつながらない返事（会話になっていない）を見分けられるか（meaning_judge.FITS・flowctl.TALK_WHY）。
+"""G-70：前の流れとつながらない返事（会話になっていない）を見分けられるか（前の話の答え meaning_judge.PRIOR をプログラムが比べる＝
+flowctl.off_talk・TALK_WHY。判定に会話になっているかを答えさせる軸 FITS は、✅ 2026-10-31 の夜 ユーザー「(a) OK」で外した）。
 
 きっかけ（✅ 2026-10-31 ユーザー）：「『差し控えさせていただきます』だけだと『利用しない』になるのは当然。この部分だけの判断ならAIがあっています。
 前の分との流れの回答として会話になっていないだけです。それを分かるようにしないと！」・同じ返事を前の流れとつながる場合・つながらない場合に
@@ -113,16 +114,15 @@ def main() -> None:
                 got.prior, got.prior_p, got.prior_raw = shared
                 row[n] = str(got)
                 row |= {f"{n}{k}": getattr(got, a, None) for k, a in (("確からしさ", "sure"), ("言い切り", "firm"), ("言い切りの確からしさ", "firm_p"),
-                                                                     ("会話", "fits"), ("会話の確からしさ", "fits_p"),
                                                                      ("前の話", "prior"), ("前の話の確からしさ", "prior_p"),
                                                                      ("前の話の選び（線より下も）", "prior_raw"))}
-                act = flow_act({"set": "C"}, q, str(got), got.firm, got.fits, got.prior)
+                act = flow_act({"set": "C"}, q, str(got), got.firm, got.prior)
                 row[f"{n}動き"], row[f"{n}正しい"] = act, act in wants(q, accept, either, talk)
                 # 答えの確からしさが判定の線より下の読みは、本番では使わず次の判定へ回す（確かでない）＝外れとは分けて数える（✅ 同じ日の夜
                 # ユーザー（D2 について）：「そもそも、会話が成り立っていないですよね。そりゃ、判断できないんじゃないですか。」）
                 row[f"{n}確かでない"] = got.sure is not None and got.sure < sure_line(n, q)
             rows.append(row)
-            say(mark, text, {n: (row.get(n), row.get(f"{n}会話の確からしさ"), row.get(f"{n}前の話"), row.get(f"{n}正しい")) for n in names})
+            say(mark, text, {n: (row.get(n), row.get(f"{n}確からしさ"), row.get(f"{n}前の話"), row.get(f"{n}正しい")) for n in names})
     summary = {}
     for n in names:
         sure_rows = [r for r in rows if n in r and not r.get(f"{n}確かでない")]

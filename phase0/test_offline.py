@@ -2743,9 +2743,8 @@ class MeaningJudgeOptionsTest(unittest.TestCase):
         # 1つだけ選ぶ質問の Jev の返事の読み方は前のまま。言い切っているかのもとの確からしさ（firm_p）も添えて、読みに残す（線と、どちらとも
         # 言えない幅を決める測りが使う＝2026-10-31）
         one = json.loads(other_text("Jev 1.14", {"answers": {"choice": {"choice": "はい", "confidence": 0.9}, "firm": {"noul": 0.1}}}))
-        # 会話になっているかの答えが無い返事は、なっている（印を付けない＝2026-10-31 に足した FITS）
-        self.assertEqual(one, {"choice": "はい", "firm": 0.1 >= OTHER_JUDGES["Jev 1.14"]["firm_min"], "fits": True, "sure": 0.9, "firm_p": 0.1,
-                               "fits_p": None})
+        # 会話になっているか（10-31 に足した FITS）は、同じ日の夜に外した（✅ ユーザー「(a) OK」）＝返事に入れない
+        self.assertEqual(one, {"choice": "はい", "firm": 0.1 >= OTHER_JUDGES["Jev 1.14"]["firm_min"], "sure": 0.9, "firm_p": 0.1})
         from flowctl import Question
         yn = Question("q", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"))
         self.assertEqual((read(yn, json.dumps(one)).firm_p, read(yn, json.dumps({"choice": "はい", "firm": True})).firm_p), (0.1, None))
@@ -3059,15 +3058,15 @@ class AmbiguousAnswerTest(unittest.TestCase):
 
     def test_off_talk_answer_is_confirmed_or_asked_again(self):
         # ✅ 2026-10-31 ユーザー：「この部分だけの判断ならAIがあっています。前の分との流れの回答として会話になっていないだけです。それを分かる
-        #    ようにしないと！」・前に言ったことと逆の返事は「(イ)」⇒ 意味の判定が「会話になっていない」と読み、その読みに意味の答え（選択肢）が
-        #    あれば、その答えを「念のため…でよろしかったでしょうか？」で確かめる（お客様が考えを変えた場合もある）。答えが無ければ聞き直す
-        #    （最初の答えも、言い直しへの返事も、Flow._check_again の1か所）
+        #    ようにしないと！」・前に言ったことと逆の返事は「(イ)」⇒ いまの言葉の読み（選択肢）が、前の話の答えと食い違えば、その読みで確かめる
+        #    （お客様が考えを変えた場合もある。最初の答えも、言い直しへの返事も、Flow._check_again の1か所）。✅ 同じ日の夜 ユーザー「(a) OK」＝
+        #    判定に会話になっているかを答えさせる軸（FITS）は外した ⇒ 食い違いは、前の話の答えとプログラムが比べる（flowctl.off_talk）だけ
         from flowctl import TALK_WHY, UNDECIDED
         from meaning_judge import Reading
 
-        def off(meaning):
+        def off(meaning):   # 前の話の答えが、いまの言葉の読みと逆の選択肢（判定の組が読みに添える＝meaning_judge.JudgePanel.ask）
             r = Reading(meaning)
-            r.fits = False
+            r.prior = {"はい": "いいえ", "いいえ": "はい"}.get(meaning, "はい")
             return r
 
         def first(reading, reported="はい"):
@@ -3086,12 +3085,11 @@ class AmbiguousAnswerTest(unittest.TestCase):
         f, r = first(off("いいえ"))
         self.assertEqual((r["result"], f.items["Q1"].condition), ("confirm_required", "いいえ"))
         self.assertTrue(r["say"].startswith("それでは"), r["say"])
-        # 読みに意味の答えが無い（決められない・答えたくない）：聞き直す
-        for reading in (off(UNDECIDED), off("refused")):
-            f, r = first(reading)
-            self.assertEqual(r["result"], "ask_back", str(reading))
-        # 言い直しへの返事：会話になっていず、読みに選択肢があれば念のため確かめ直す・「合っている」だけなら聞き直す（「-」にしない）
-        for reading, want in ((off("はい"), "confirm_required"), (off("affirmed"), "ask_back")):
+        # 答えたくない（宣言した選択肢ではない）は、前の話と食い違う答えではない（答えを言わない返事＝会話になっていないとは決めない）
+        f, r = first(off("refused"))
+        self.assertFalse(any(TALK_WHY in why for _, _, why in f.items["Q1"].history))
+        # 言い直しへの返事：読み（選択肢）が前の話の答えと食い違えば、確かめ直す（「-」にしない）
+        for reading, want in ((off("はい"), "confirm_required"),):
             f = self.flow()
             f.use_checks("judge")
             f.on_callee(); f.on_heard("大丈夫です。"); f.on_check("judge", Reading("はい"))
@@ -3123,9 +3121,10 @@ class AmbiguousAnswerTest(unittest.TestCase):
 
     def test_talk_questions_carry_no_answer_text(self):
         # ✅ 2026-10-31 ユーザー：(4) の案「OK」＝電話のやり取りを読む問い合わせ（尋ねているか・待たせた方が戻ったか）には、お客様の答え用の文
-        #    （言い切り・会話になっているか・「わからない」「答えたくない」）を入れない。答えの段の問い合わせには、言い切りと会話になっているかを聞く
+        #    （言い切り・「わからない」「答えたくない」）を入れない。答えの段の問い合わせには、言い切りを聞く（会話になっているか＝FITS は、
+        #    ✅ 同じ日の夜 ユーザー「(a) OK」で外した）
         from flowctl import ASKS_MEANINGS, Question, RETURN_MEANINGS
-        from meaning_judge import (FIRM, FIRM_RULE, FITS, FITS_RULE, SYSTEM_DESC, _schema, answer_marks, jev_request, options, prompt,
+        from meaning_judge import (FIRM, FIRM_RULE, SYSTEM_DESC, _schema, answer_marks, jev_request, options, prompt,
                                    question_kind)
         asks = Question("A1", "岡田様はいらっしゃいますでしょうか？", "yes_no", required=False, conditions=tuple(ASKS_MEANINGS), meanings=dict(ASKS_MEANINGS))
         ret = Question("R1", "岡田様はいらっしゃいますでしょうか？", "yes_no", required=False, conditions=tuple(RETURN_MEANINGS),
@@ -3135,45 +3134,45 @@ class AmbiguousAnswerTest(unittest.TestCase):
         for q in (asks, ret):
             text = prompt(q, "お待たせいたしました。")
             self.assertNotIn(FIRM_RULE, text)
-            self.assertNotIn(FITS_RULE, text)
             self.assertFalse(any(d in text for d in (SYSTEM_DESC["unknown"], SYSTEM_DESC["refused"])))
             self.assertEqual((answer_marks(q), _schema(q, None)["required"]), ((), ["choice"]))
             self.assertEqual(set(jev_request("m", q, "お待たせいたしました。")["questions"]), {"choice"})
             self.assertFalse({"unknown", "refused"} & {c for _, _, c in options(q)})
         text = prompt(ans, "差し控えさせていただきます。")
         self.assertIn(FIRM_RULE, text)
-        self.assertIn(FITS_RULE, text)
-        self.assertEqual(_schema(ans, None)["required"], ["choice", FIRM, FITS])
-        self.assertEqual(set(jev_request("m", ans, "差し控えさせていただきます。")["questions"]), {"choice", FIRM, FITS})
+        self.assertNotIn("会話になっているか", text)
+        self.assertEqual(_schema(ans, None)["required"], ["choice", FIRM])
+        self.assertEqual(set(jev_request("m", ans, "差し控えさせていただきます。")["questions"]), {"choice", FIRM})
 
-    def test_off_talk_reading_from_each_judge(self):
-        # 会話になっているかは、どの判定の返事からも同じ1か所（read）で読む：判断のモデルは確からしさ（線より下はなっていない）・Claude と Gemini は
-        #    はい／いいえ。答えが無い返事は、なっている
+    def test_answer_reading_has_no_talk_axis(self):
+        # ✅ 2026-10-31 の夜 ユーザー「(a) OK」：会話になっているか（FITS）を判定に答えさせる軸を外した（G-53final で、正しく救った答えは0・壊した
+        #    答えは d1-ultra 19・Jev 3）⇒ どの判定の返事からも読まない（返事に残っていても、読みに出さない＝流れを動かさない）
         import json
         from flowctl import Question
-        from meaning_judge import FITS, other_text, read
+        from meaning_judge import JEV_MARKS, FIRM, Reading, other_text, read
         q = Question("Q1", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"))
+        self.assertEqual(set(JEV_MARKS), {FIRM})
         got = json.loads(other_text("Jev 1.14", {"answers": {"choice": {"choice": "はい", "confidence": 0.9}, "firm": {"noul": 0.9},
-                                                             FITS: {"noul": 0.1}}}))
-        self.assertEqual((got[FITS], got["fits_p"]), (False, 0.1))
-        r = read(q, json.dumps(got))
-        self.assertEqual((str(r), r.fits, r.fits_p), ("はい", False, 0.1))
-        self.assertTrue(read(q, json.dumps({"choice": "はい", "firm": True})).fits)
-        self.assertFalse(read(q, json.dumps({"choice": "はい", "firm": True, FITS: False})).fits)
+                                                             "fits": {"noul": 0.1}}}))
+        self.assertNotIn("fits", got)
+        r = read(q, json.dumps({"choice": "はい", "firm": True, "fits": False}))
+        self.assertEqual(str(r), "はい")
+        self.assertFalse(hasattr(Reading("はい"), "fits"))
 
     def test_off_talk_is_not_applied_to_hold_or_handover(self):
         # ⛔ 2026-10-31 の昼（G-53）：「わかる者に代わりますので、少しお待ちいただけますか。」を「取り次ぎを待つ」と正しく読み、会話になっていない
-        #    とも読んだ＝待たずに聞き直す側へ回った ⇒ 待つように言った・代わった人の読みには、会話になっているかを当てない（答えではない）
+        #    とも読んだ＝待たずに聞き直す側へ回った ⇒ 待つように言った・代わった人の読みには、会話になっているかを当てない（答えではない）。
+        #    いまは、前の話の答えと逆でも当てない（flowctl.off_talk）
         from flowctl import HANDOVER, HOLD, Flow
         from g53_meaning import ASK_AGAIN, flow_act, g48_questions
         from meaning_judge import Reading
         q = {q.id: q for q in g48_questions()}["G6"]
         for got in (HOLD, HANDOVER):
             r = Reading(got)
-            r.fits = False
+            r.prior = "利用する"
             self.assertIs(Flow._judged_off_talk(q, {"judge": r}), False, got)
-        self.assertNotEqual(flow_act({"set": "C"}, q, HOLD, True, False), ASK_AGAIN)
-        self.assertEqual(flow_act({"set": "C"}, q, "利用しない", True, False), "念のため確かめる：利用しない")
+        self.assertNotEqual(flow_act({"set": "C"}, q, HOLD, True, "利用する"), ASK_AGAIN)
+        self.assertEqual(flow_act({"set": "C"}, q, "利用しない", True, "利用する"), "念のため確かめる：利用しない")
 
     def test_prior_answer_is_compared_by_the_program(self):
         # ✅ 2026-10-31 の昼 ユーザー：「(a) 検査OK」（2回）＝いまの言葉の答えは前の話を見せずに読み、前の話の答え（その前に相手が言ったこと
@@ -3222,12 +3221,12 @@ class AmbiguousAnswerTest(unittest.TestCase):
                 self.sent.append(json)
                 if PRIOR in json["questions"]:
                     return Resp({"answers": {PRIOR: {"choice": use, "confidence": 0.95}}})
-                return Resp({"answers": {"choice": {"choice": not_use, "confidence": 0.9}, "firm": {"noul": 0.9}, "fits": {"noul": 0.9}}})
+                return Resp({"answers": {"choice": {"choice": not_use, "confidence": 0.9}, "firm": {"noul": 0.9}}})
         c = Client()
         r = judge_other(c, "Jev 1.14", q, "差し控えさせていただきます", None, before)
         self.assertEqual(len(c.sent), 1)                                                   # 判定ごとの入口は、いまの言葉の問い合わせだけ
         self.assertNotIn(BEFORE, c.sent[0]["state"])                                      # いまの言葉の問い合わせに前の話は無い
-        self.assertEqual((str(r), r.prior, r.fits), ("利用しない", None, True))
+        self.assertEqual((str(r), r.prior), ("利用しない", None))
         # 前の話の答えは、決めた順（d1-ultra ⇒ Jev）の1か所で読む（✅ 同じ夜 ユーザー：「(a) OK」）
         from meaning_judge import PRIOR_READERS, OtherJudgeError, read_prior_first
 
@@ -3256,14 +3255,14 @@ class AmbiguousAnswerTest(unittest.TestCase):
         panel = JudgePanel({"judge2": ((jev, judge2),)}, prior=prior)
         got = asyncio.run(panel.ask("judge2", q, "差し控えさせていただきます"))
         self.assertEqual((got.prior, len(asked_prior)), (None, 1))
-        self.assertTrue(off_talk(q, str(r), r.fits, r.prior))
-        self.assertFalse(off_talk(q, "利用する", True, "利用する"))
-        self.assertFalse(off_talk(q, "利用しない", True, None))
-        self.assertFalse(off_talk(q, HOLD, True, "利用する"))
-        self.assertEqual(flow_act({"set": "C"}, q, str(r), r.firm, r.fits, r.prior), "念のため確かめる：利用しない")
+        self.assertTrue(off_talk(q, str(r), r.prior))
+        self.assertFalse(off_talk(q, "利用する", "利用する"))
+        self.assertFalse(off_talk(q, "利用しない", None))
+        self.assertFalse(off_talk(q, HOLD, "利用する"))
+        self.assertEqual(flow_act({"set": "C"}, q, str(r), r.firm, r.prior), "念のため確かめる：利用しない")
         self.assertEqual(prior_answer(q, UNDECIDED, "利用する"), "利用する")
         self.assertIsNone(prior_answer(q, "利用しない", "利用する"))
-        self.assertEqual(flow_act({"set": "C"}, q, UNDECIDED, True, True, "利用する"), "念のため確かめる：利用する")
+        self.assertEqual(flow_act({"set": "C"}, q, UNDECIDED, True, "利用する"), "念のため確かめる：利用する")
         # 流れの制御：前の話と合わない答えも、決められない言葉を前の話の答えで補うときも、「それでは…ということでよろしいでしょうか？」で最終的に
         # 確かめる（✅ 2026-10-31 の夜 ユーザー：「『それでは…ということでよろしいでしょうか？』は矛盾や言い直しの答えを最終的に確認する場合です」）
         for got, prior, cond, head in (("いいえ", "はい", "いいえ", "それでは"), (UNDECIDED, "はい", "はい", "それでは")):
@@ -3318,16 +3317,14 @@ class AmbiguousAnswerTest(unittest.TestCase):
 
     def test_answer_text_reads_only_the_words_now(self):
         # ⛔ 2026-10-31 の昼（G-70）：答えを「お客様が言ったこと」と書き、いまの言葉か前に話したことかを決めていなかった＝前に話したことから答えを
-        #    選んだ ⇒ 答えは、いまの言葉から（前に話したことは、いまの言葉がそれを指すときに補うだけ）。会話になっているかの分かれ目は、前に
-        #    話したことと合うか・質問への返事として筋が通るか（答えを言わない返事も、筋が通れば会話になっている）
+        #    選んだ ⇒ 答えは、いまの言葉から（前に話したことは、いまの言葉がそれを指すときに補うだけ）。会話になっているかを判定に答えさせる
+        #    軸（FITS）は、同じ日の夜に外した（✅ ユーザー「(a) OK」）
         from flowctl import BEFORE
-        from meaning_judge import FIRM_RULE, FITS_NOT, FITS_YES, JEV_MARKS, LEAN, FITS
+        from meaning_judge import FIRM_RULE, LEAN, RULES
         self.assertIn("いまの言葉", LEAN)
         self.assertIn(BEFORE, LEAN)
         self.assertIn(LEAN, FIRM_RULE)
-        for text in (FITS_NOT, FITS_YES, JEV_MARKS[FITS][0]):
-            self.assertIn(BEFORE, text)
-        self.assertIn("答えたくない", FITS_YES)
+        self.assertNotIn("会話になっているか", RULES)
 
     def test_key_spend_stops_at_the_limit(self):
         # ⛔ 2026-10-31 の昼：--budget-yen を付けても、OpenRouter の分（d1-ultra・Jev）を数える所が無く、上限で止まらなかった ⇒ 鍵の使った額の差で
@@ -5025,7 +5022,8 @@ class JudgePanelTest(unittest.TestCase):
     def test_calling_questions_ask_both_decision_models_first_then_the_fast_sonnet(self):
         # ✅ 2026-10-30 ユーザー：「d1-ultra（線0.6）と Jev（線0.8）を同時に出し、どちらも確かでないときだけ考えない Sonnet を出す形。OK」
         # お呼びする段の2つの質問（目的のお客様の判定・尋ねているか）：d1-ultra と Jev を同時に先に出し、どちらかの確かな読みで決める。どちらも
-        # 確かでなければ考えない Sonnet だけ（考える形は出さない）。ほかの質問（答えの意味）は今のまま（d1-ultra は出さず、Jev → 2つの Sonnet）。
+        # 確かでなければ考えない Sonnet だけ（考える形は出さない）。答えの意味は d1-ultra → 考える Sonnet で、Jev は d1-ultra が止まったときの
+        # 代わりだけ（✅ 2026-10-31 の夜 ユーザー：(b)「OK」）。
         # 組の中でどれが答えるかは takes_part・線は sure_line の1か所
         import asyncio
         import dataclasses
@@ -5041,7 +5039,7 @@ class JudgePanelTest(unittest.TestCase):
         self.assertEqual([question_kind(q) for q in (target_q, asks_q, answer_q)], ["facets", "asks", "other"])
         self.assertEqual([sure_line(D1, q) for q in (target_q, asks_q)], [0.6, 0.6])
 
-        def run(q, sures):
+        def run(q, sures, down=(), asks=1):
             calls = []
 
             def judge(name):
@@ -5050,9 +5048,11 @@ class JudgePanelTest(unittest.TestCase):
                     await asyncio.sleep({D1: 0.02, JEV: 0.01, FAST: 0.03, THINK: 0.06}[name])
                     return Reading("はい", sure=sures.get(name))
                 return go
-            panel = JudgePanel({"judge2": tuple((n, judge(n)) for n in RACE)})
-            t0 = time.monotonic()
-            got = asyncio.run(panel.ask("judge2", q, "はい。"))
+            panel = JudgePanel({"judge2": tuple((n, judge(n)) for n in RACE)}, down=down)
+            for _ in range(asks):   # 同じ受け持ちで続けて読む（止まったと分かった判定は、次の発話から問い合わせない）
+                calls.clear()
+                t0 = time.monotonic()
+                got = asyncio.run(panel.ask("judge2", q, "はい。"))
             return got.by, calls
         for q in (target_q, asks_q):
             by, calls = run(q, {D1: 0.7, JEV: 0.3})
@@ -5062,8 +5062,16 @@ class JudgePanelTest(unittest.TestCase):
             self.assertEqual((by, sorted(n for n, _ in calls)), (JEV, sorted([D1, JEV])))      # Jev の確かな読み
             by, calls = run(q, {D1: 0.5, JEV: 0.3})
             self.assertEqual((by, sorted(n for n, _ in calls)), (FAST, sorted([D1, JEV, FAST])))   # どちらも確かでない：考えない Sonnet だけ
-        by, calls = run(answer_q, {D1: 0.99, JEV: 0.3})
-        self.assertEqual((by, sorted(n for n, _ in calls)), (THINK, sorted([JEV, THINK])))   # 答えの意味：d1-ultra は出さず、考える Sonnet だけ
+        by, calls = run(answer_q, {D1: 0.99, JEV: 0.99})
+        self.assertEqual((by, [n for n, _ in calls]), (D1, [D1]))                              # 答えの意味：d1-ultra の確かな読み（Jev は出さない）
+        by, calls = run(answer_q, {D1: 0.5, JEV: 0.99})
+        self.assertEqual((by, sorted(n for n, _ in calls)), (THINK, sorted([D1, THINK])))     # d1-ultra が確かでない：考える Sonnet（Jev は出さない）
+        by, calls = run(answer_q, {D1: 0.99, JEV: 0.99}, down=[D1])
+        self.assertEqual(by, THINK)                                                            # d1-ultra が止まったと分かった発話：考える Sonnet
+        by, calls = run(answer_q, {D1: 0.99, JEV: 0.99}, down=[D1], asks=2)
+        self.assertEqual((by, [n for n, _ in calls]), (JEV, [JEV]))                            # 止まっている間：Jev が d1-ultra の代わりに先に出る
+        by, calls = run(answer_q, {D1: 0.99, JEV: 0.5}, down=[D1], asks=2)
+        self.assertEqual((by, sorted(n for n, _ in calls)), (THINK, sorted([JEV, THINK])))
 
     def calling(self):
         """お呼びする段の2つの質問と、答えの意味の質問（営業部部長の岡田様をお呼びする試しの業務）。"""
