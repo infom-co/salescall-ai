@@ -1301,6 +1301,12 @@ class Question:
     # 「わからない」「答えたくない」の扱い（業務の決まり＝CL-2 の business_rules の「理由×扱い」。(状態, 理由) → HANDLINGS の1つ。必須の質問だけ）。
     # 状態は dont_know・refused、理由は DONT_KNOW_LABEL・REFUSED_LABEL の名前。「答えたくない」に使えるのは結論として終えるだけ（✕ は二度と聞かない）
     handlings: dict = field(default_factory=dict)
+    # お客様に事実を伺う質問か（もうしたこと・持っているもの・使っているもの・いまの状態・数など、お客様の希望や選びで変わらないこと）。取込で文字の
+    # モデル2つが質問の文から決める（facts.decide。そろわなければ事実を伺う質問）。真なら、選べるものに「どちらでも」を入れず（all_conditions の
+    # 1か所＝会話AIにも判定にも出さない。「お任せします」は答えになっていない＝聞き直す）、控える・断る返事は「答えたくない」（meaning_judge.system_desc）。
+    # ✅ 2026-11-01 ユーザー：(a)「OK」。⛔ 2026-10-31 の夜（G-53nofits）：判定の説明では「事実を聞く質問には無い」としながら、事実を伺う質問にも
+    # 「どちらでも」を出していた（説明と選べるものの食い違い＝facts.py）
+    asks_fact: bool = False
     # 選択肢が、こちらが決めた意味の名前（ご本人・不在・尋ねている など）か。真なら、意味の判定にはその名前のまま見せ、意味の定義は説明に書く
     # （meaning_judge.options）。偽（お客様の選択肢の言葉＝はい・いいえ・している など）は、意味の言葉を名前にして見せる（言葉の頭で選ばせない）。
     # ⛔ 2026-10-29：意味の定義（長い文）を名前にしていたので、返事の形の指定にも長い文が並び、「ご本人」と答えるたびに長い文を書き出していた
@@ -1334,7 +1340,7 @@ class Question:
 
     @property
     def all_conditions(self) -> tuple:
-        return tuple(self.conditions) + ((ANY,) if self.type == "choice" else ()) + SYSTEM_CONDITIONS
+        return tuple(self.conditions) + ((ANY,) if self.type == "choice" and not self.asks_fact else ()) + SYSTEM_CONDITIONS
 
     @property
     def labels(self) -> tuple:

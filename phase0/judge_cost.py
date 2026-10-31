@@ -70,9 +70,7 @@ def first(readings: dict, wait: float, sonnets: tuple, usable) -> tuple:
 
 def compare_meaning() -> list[dict]:
     import g53_meaning as g
-    from g14_listen import business
-
-    qmap = {q.id: q for q in g.g48_questions() + g.value_questions()} | {qid: business(qid).questions[0] for qid in ("Q1", "Q2", "Q3", "Q5")}
+    qmap = g.question_map()
     items = json.load(open(MEANING, encoding="utf-8"))["items"]
     line = OTHER_JUDGES[J]["sure_min"]
 

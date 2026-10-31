@@ -3326,6 +3326,58 @@ class AmbiguousAnswerTest(unittest.TestCase):
         self.assertIn(LEAN, FIRM_RULE)
         self.assertNotIn("会話になっているか", RULES)
 
+    def test_fact_questions_have_no_either_choice(self):
+        # ✅ 2026-11-01 ユーザー：(a)「OK」＝質問ごとに「事実を伺う質問か」を1か所に持ち（取込で文字のモデル2つが決める＝facts.decide。そろわなければ
+        #    事実を伺う質問）、事実を伺う質問では「どちらでも」を選べるものから外す（会話AIにも判定にも出さない＝「お任せします」は聞き直す）。
+        #    控える・断る返事は「答えたくない」（⛔ 2026-10-31 の夜：説明では「事実を聞く質問には無い」としながら選べるものに出していた・
+        #    「ご予約はされていますでしょうか？」への「差し控えさせていただきます」を「いいえ」と読んだ）
+        from facts import decide
+        from flowctl import ANY, Flow, Question
+        from meaning_judge import REFUSED_FACT, SYSTEM_DESC, options
+        self.assertEqual([decide([True, True]), decide([False, False]), decide([True, False]), decide([None, False]), decide([False])],
+                         [True, False, True, True, True])
+        line = Question("Q1", "お使いの回線は光回線とモバイル回線のどちらでしょうか？", "choice", conditions=("光回線", "モバイル回線"), asks_fact=True)
+        pay = Question("Q2", "お支払いはカードと振込のどちらがよろしいでしょうか？", "choice", conditions=("カード", "振込"))
+        self.assertNotIn(ANY, line.all_conditions)
+        self.assertNotIn("どちらでも", line.labels)
+        self.assertIn(ANY, pay.all_conditions)
+        self.assertNotIn(ANY, [c for _, _, c in options(line)])
+        f = Flow([line])
+        f.on_callee(); f.on_heard("どちらでも構いません")
+        self.assertEqual(f.apply("record_answer", {"question_id": "Q1", "condition_id": ANY, "value": "どちらでも構いません"})["result"], "rejected")
+        # 「答えたくない」の説明は、事実を伺う質問では控える・断る返事も入れる（申し出の質問は今のまま、断る側の答え）
+        rsv = Question("Q3", "ご予約はされていますでしょうか？", "yes_no", conditions=("はい", "いいえ"), asks_fact=True)
+        offer = Question("Q4", "パンフレットをお送りしてもよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"))
+        desc = {q.id: next(d for _, d, c in options(q) if c == "refused") for q in (rsv, offer)}
+        self.assertEqual(desc, {"Q3": REFUSED_FACT, "Q4": SYSTEM_DESC["refused"]})
+        self.assertIn("控える", REFUSED_FACT)
+        self.assertIn("申し出を断ったのは、断る側の答え", SYSTEM_DESC["refused"])
+        self.assertNotIn("事実を聞く質問", SYSTEM_DESC[ANY])   # 説明ではなく、選べるものから外す作り（1か所）
+        # 測りの質問は1か所（g53_meaning.question_map）から、取込と同じ決め方で付く（保存した2つのモデルの答え＝G-71）
+        from g53_meaning import question_map
+        qm = question_map()
+        self.assertEqual({k: qm[k].asks_fact for k in ("G22", "G23", "G16", "G1", "G8")},
+                         {"G22": True, "G23": True, "G16": False, "G1": True, "G8": False})
+        self.assertFalse(any(q.asks_fact for q in question_map(facts=False).values()))
+
+    def test_own_wish_and_question_to_us_are_told_apart(self):
+        # ✅ 2026-11-01 ユーザー：(b)「OK（ただし、望みを相手に同意を求める形と、こちらに訪ねている『〜のほうがいいですかね？』を混同しないように！）」
+        #    ⇒ 自分の考えとして言った望み（同意を求める言い方でも）は寄っている答え、こちらの考えを尋ねた言葉は「決められない」（意味で書く）
+        from flowctl import UNDECIDED
+        from meaning_judge import FIRM_NOT, FIRM_RULE, FIRM_YES, KIND_DESC, LEAN, jev_criteria
+        from flowctl import Question
+        self.assertIn("自分の考えとして言った（こちらに同意を求める言い方でも）", LEAN)
+        # 同意を求める形の望みは、寄っているが言い切っていない（決めるのをこちらの同意に預けた）。柔らかく言っただけの望みは今のまま言い切り
+        self.assertIn("決めるのをこちらの同意に預けた", FIRM_NOT)
+        self.assertIn("自分の望みや予定を柔らかく言った", FIRM_YES)
+        self.assertIn(FIRM_NOT, FIRM_RULE)
+        self.assertIn("こちらの考えとして尋ねた（自分の考えは言っていない）", KIND_DESC[UNDECIDED])
+        self.assertIn(LEAN, FIRM_RULE)
+        q = Question("Q1", "パンフレットをお送りしてもよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"))
+        crit = jev_criteria(q)
+        self.assertTrue(any(LEAN in d for d in crit.values()))
+        self.assertIn("こちらの考えとして尋ねた", crit["決められない"])
+
     def test_key_spend_stops_at_the_limit(self):
         # ⛔ 2026-10-31 の昼：--budget-yen を付けても、OpenRouter の分（d1-ultra・Jev）を数える所が無く、上限で止まらなかった ⇒ 鍵の使った額の差で
         #    上限を守る（送る前に読み直す・読めなければ送らない）

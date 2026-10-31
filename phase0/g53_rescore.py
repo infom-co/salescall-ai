@@ -3,11 +3,10 @@
 import json, sys, glob
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from g53_meaning import JUDGES, accept, dangerous, mark, g48_questions, value_questions, versus
-from g14_listen import business
+from g53_meaning import JUDGES, accept, dangerous, mark, question_map, versus
 from flowctl import UNDECIDED
 from collections import Counter
-qmap = {q.id: q for q in g48_questions() + value_questions()} | {qid: business(qid).questions[0] for qid in ("Q1", "Q2", "Q3", "Q5")}
+qmap = question_map()
 files = sys.argv[1:]
 items = {}
 for f in files:

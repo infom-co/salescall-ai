@@ -137,15 +137,33 @@ def mark(it: dict, key: str) -> str | None:
     return "要らない印（最初の答えなら要らない確かめ）" if unsure else None
 
 
-def g48_question(n: int, text: str, conditions: tuple, meanings: dict) -> Question:
-    """G-48 の質問を、流れの制御の質問の形に（選択肢から選ぶ質問＝「どちら」「どれ」を聞く文。ほかは、はい／いいえの型）。"""
+def asks_fact(text: str) -> bool:
+    """取込で決める「事実を伺う質問か」（facts.decide）を、保存した2つのモデルの答え（G-71）から、取込と同じ決め方で決める（手で書かない）。
+    結果が無ければ偽（決める前の形＝G-71 を流す前の測りと同じ）。"""
+    from facts import decide
+    global _FACTS
+    if _FACTS is None:
+        files = sorted((HERE / "results").glob("G-71_*.json"))
+        d = json.loads(files[-1].read_text(encoding="utf-8")) if files else {"questions": [], "rows": {}}
+        _FACTS = {q: decide([v[i] for v in d["rows"].values()]) for i, q in enumerate(d["questions"])}
+    return _FACTS.get(text, False)
+
+
+_FACTS = None
+
+
+def g48_question(n: int, text: str, conditions: tuple, meanings: dict, facts: bool = True) -> Question:
+    """G-48 の質問を、流れの制御の質問の形に（選択肢から選ぶ質問＝「どちら」「どれ」を聞く文。ほかは、はい／いいえの型）。facts＝事実を伺う質問かを
+    取込と同じ決め方で付ける（G-71 を流す道具だけ偽＝決める前の質問の文が要る）。"""
     kind = "choice" if ("どちら" in text or "どれ" in text) else "yes_no"
-    return Question(f"G{n}", text, kind, conditions=conditions, meanings={c: w for c, w in meanings.items() if c in conditions})
+    return Question(f"G{n}", text, kind, conditions=conditions, meanings={c: w for c, w in meanings.items() if c in conditions},
+                    asks_fact=facts and asks_fact(text))
 
 
-def g48_questions() -> list[Question]:
-    d = json.loads(open(sorted(glob.glob(str(HERE / "results" / "G-52_*.json")))[-1], encoding="utf-8").read())
-    return [g48_question(n, q, tuple(c), m) for n, ((q, c), m) in enumerate(zip(d["questions"], d["meanings"]), 1)]
+def g48_questions(facts: bool = True) -> list[Question]:
+    with open(sorted(glob.glob(str(HERE / "results" / "G-52_*.json")))[-1], encoding="utf-8") as fh:
+        d = json.loads(fh.read())
+    return [g48_question(n, q, tuple(c), m, facts) for n, ((q, c), m) in enumerate(zip(d["questions"], d["meanings"]), 1)]
 
 
 def set_b(qs: list[Question]) -> list[dict]:
@@ -181,8 +199,19 @@ def make_c(client, model: str, qs: list[Question]) -> list[dict]:
     return out
 
 
-def value_questions() -> list[Question]:
-    return [Question(n, text, kind, conditions=("答えた",)) for n, text, kind, _ in VALUE_QS]
+def question_map(facts: bool = True) -> dict:
+    """答えの段の測りが使う質問の表（唯一の場所。測りの道具はどれもここから取る＝同じ質問に、取込で決める事実を伺う質問か＝asks_fact も同じに付く）：
+    G-48 の質問・値を聞く質問・業務の試しの質問（Q1・Q2・Q3・Q5）。⛔ 2026-11-01：同じ表を5つの道具が別々に書いていた"""
+    import dataclasses
+
+    from g14_listen import business
+    biz = [business(qid).questions[0] for qid in ("Q1", "Q2", "Q3", "Q5")]
+    biz = [dataclasses.replace(q, asks_fact=facts and asks_fact(q.text)) for q in biz]
+    return {q.id: q for q in g48_questions(facts) + value_questions(facts) + biz}
+
+
+def value_questions(facts: bool = True) -> list[Question]:
+    return [Question(n, text, kind, conditions=("答えた",), asks_fact=facts and asks_fact(text)) for n, text, kind, _ in VALUE_QS]
 
 
 def asked_of(q: Question, cond: str | None, value: str | None = None) -> str | None:
@@ -673,10 +702,7 @@ def main() -> None:
     args.judge = args.judge or ["3.5 Flash Lite"]
     ring = KeyRing(args)
     ids = ring.model_ids()
-    from g14_listen import business
-    qs = g48_questions()
-    vqs = value_questions()
-    qmap = {q.id: q for q in qs + vqs} | {qid: business(qid).questions[0] for qid in ("Q1", "Q2", "Q3", "Q5")}
+    qmap = question_map()
     if args.reuse:
         items = json.loads(open(args.reuse, encoding="utf-8").read())["items"]
         if args.rejudge:  # 判定の文や選べるものを変えたとき：渡した判定（--judge）の前の読みを捨てて、同じ答えで測り直す（決め手の印は残す＝first）。

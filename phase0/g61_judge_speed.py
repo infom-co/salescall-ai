@@ -37,9 +37,8 @@ LATE_S = 2.0  # 報告を待たせる長さ（flowctl.Limits.hold_s）
 
 
 def questions() -> dict:
-    from g14_listen import business
-    qs = g48_questions() + value_questions()
-    return {q.id: q for q in qs} | {qid: business(qid).questions[0] for qid in ("Q1", "Q2", "Q3", "Q5")}
+    from g53_meaning import question_map
+    return question_map()
 
 
 async def timed(client, model: str, q, it: dict) -> tuple[float, object, str | None]:
