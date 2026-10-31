@@ -7,7 +7,7 @@
 「念のため…でよろしかったでしょうか？」で確かめる・答えが無ければ聞き直す。✅ 2026-10-31 ユーザー「(イ)」＝お客様が考えを変えた場合もある）に並べる。
 前の流れは、答えの段の判定に渡す「その前に相手が言ったこと」（flowctl.Flow.judge_context の answer_words）と同じ形で渡す。
 正解はここに書いた（作らせたモデルの正解ではない）。A の組は 2026-10-31 にご確認済み・B〜F も同じ日にご確認済み（「(a) OK」）。
-G の組は、分かれ目の向こう側（同じ日にご確認済み）。
+G の組は、分かれ目の向こう側（同じ日にご確認済み。受け取っても、1回確かめても正しい）。判定の線より下の読み（確かでない）は、外れと分けて数える。
 回帰と並べて流さない（判定の鍵を取り合う）。
 """
 from __future__ import annotations
@@ -18,7 +18,7 @@ import time
 from common import base_parser, load_secret, require_python, save_result, say
 from flowctl import Question
 from g53_meaning import ASK_AGAIN, flow_act, g48_questions
-from meaning_judge import OTHER_JUDGES, OtherJudgeError, judge_other, other_client
+from meaning_judge import OTHER_JUDGES, OtherJudgeError, judge_other, other_client, sure_line
 
 # (印, その前にお客様が言ったこと, 質問の番号, 返事, 受け取ってよい読み, 言い切りはどちらでもよいか, 会話になっているか, ご確認)
 CASES = [
@@ -35,9 +35,10 @@ CASES = [
     ("F1", "その日は空いています。", "G9", "参加します。", ("参加する",), False, True, True),
     ("F2", "その日は出張でおりません。", "G9", "はい、参加します。", ("参加する",), False, False, True),
     # 分かれ目の向こう側（2026-10-31 の昼に足した・同じ日にご確認済み「(a) OK」）：前に言ったことを変えると言って答えた（会話になっている）・いまの言葉が
-    #    前に話したことを指している（前に話したことで答えを補う）
-    ("G1", "車で伺うので、駐車場を使わせてください。", "G6", "やっぱり電車で行くことにしたので、利用しません", ("利用しない",), False, True, True),
-    ("G2", "駐車場を使わせてください。", "G6", "先ほど申し上げたとおりです", ("利用する",), False, True, True),
+    #    前に話したことを指している（前に話したことで答えを補う）。受け取っても、1回確かめても正しい（✅ 同じ日の夜 ユーザー：「『それでは、駐車場を
+    #    (利用される)(利用されない)ということでよろしいでしょうか？』のような確認を入れる形で良いのではないでしょうか」）
+    ("G1", "車で伺うので、駐車場を使わせてください。", "G6", "やっぱり電車で行くことにしたので、利用しません", ("利用しない",), True, True, True),
+    ("G2", "駐車場を使わせてください。", "G6", "先ほど申し上げたとおりです", ("利用する",), True, True, True),
 ]
 
 
@@ -49,6 +50,29 @@ def wants(q: Question, accept: tuple, either: bool, talk: bool) -> set[str]:
     return set().union(*({f"受け取る：{a}", f"念のため確かめる：{a}"} if either else {f"受け取る：{a}"} for a in accept))
 
 
+def prior_only(args, names, qmap, clients) -> None:
+    """前の話の答えだけを、前の話のある組で問い合わせる（線より下の選び＝prior_raw と確からしさも残す）。正解の前の話の答えは、会話になっていない
+    組では、いまの言葉の答えと違う選択肢（前の話と逆）・会話になっている組では、受け取る読みと同じか「決まらない」。"""
+    from meaning_judge import _send_other, other_text, prior_request, read_prior
+    rows = []
+    for mark, before, qid, text, accept, either, talk, checked in CASES:
+        if not before or (args.only and mark not in args.only):
+            continue
+        q = qmap[qid]
+        for rep in range(args.repeat):
+            row = {"mark": mark, "before": before, "qid": qid, "talk": talk, "accept": list(accept), "rep": rep}
+            for n in names:
+                try:
+                    got = read_prior(q, other_text(n, _send_other(clients[n], n, prior_request(n, q, before))))
+                except OtherJudgeError as exc:
+                    row[f"{n}誤り"] = str(exc)[:200]
+                    continue
+                row[f"{n}前の話"], row[f"{n}前の話の確からしさ"], row[f"{n}前の話の選び（線より下も）"] = got
+            rows.append(row)
+            say(mark, before, {n: (row.get(f"{n}前の話の選び（線より下も）"), row.get(f"{n}前の話の確からしさ")) for n in names})
+    save_result(f"G-70prior_only{args.tag}", {"rows": rows})
+
+
 def main() -> None:
     require_python()
     p = base_parser(__doc__)
@@ -57,10 +81,13 @@ def main() -> None:
     p.add_argument("--tag", default="")
     p.add_argument("--only", action="append", help="測る組の印だけ（いくつでも。例 G1）")
     p.add_argument("--reps", type=int, nargs="*", help="測る回り（0 から。--only と使う＝前の測りで抜けた回り）")
+    p.add_argument("--prior-only", action="store_true", help="前の話の答えの問い合わせだけを送る（線を決めるため。線より下の選びも残す）")
     args = p.parse_args()
     names = args.judge or ["d1 Ultra（Liquid）", "Jev 1.14"]
     qmap = {q.id: q for q in g48_questions()}
     clients = {n: other_client(n, load_secret(OTHER_JUDGES[n]["key"], args.env), budget=args.budget_yen) for n in names}
+    if args.prior_only:
+        return prior_only(args, names, qmap, clients)
     rows = []
     for mark, before, qid, text, accept, either, talk, checked in CASES:
         if args.only and mark not in args.only:
@@ -86,10 +113,16 @@ def main() -> None:
                                                                      ("前の話の選び（線より下も）", "prior_raw"))}
                 act = flow_act({"set": "C"}, q, str(got), got.firm, got.fits, got.prior)
                 row[f"{n}動き"], row[f"{n}正しい"] = act, act in wants(q, accept, either, talk)
+                # 答えの確からしさが判定の線より下の読みは、本番では使わず次の判定へ回す（確かでない）＝外れとは分けて数える（✅ 同じ日の夜
+                # ユーザー（D2 について）：「そもそも、会話が成り立っていないですよね。そりゃ、判断できないんじゃないですか。」）
+                row[f"{n}確かでない"] = got.sure is not None and got.sure < sure_line(n, q)
             rows.append(row)
             say(mark, text, {n: (row.get(n), row.get(f"{n}会話の確からしさ"), row.get(f"{n}前の話"), row.get(f"{n}正しい")) for n in names})
     summary = {}
     for n in names:
+        sure_rows = [r for r in rows if n in r and not r.get(f"{n}確かでない")]
+        summary[f"{n}・確かな読み（線から上）の正しい動き"] = f"{sum(1 for r in sure_rows if r[f'{n}正しい'])}/{len(sure_rows)}"
+        summary[f"{n}・確かでない（線より下＝次の判定へ）"] = sum(1 for r in rows if r.get(f"{n}確かでない"))
         for part, pick in (("会話になっていない組", lambda r: not r["talk"]), ("会話になっている組", lambda r: r["talk"]),
                            ("ご確認済み", lambda r: r["checked"]), ("案（ご確認待ち）", lambda r: not r["checked"])):
             got = [r for r in rows if pick(r) and n in r]

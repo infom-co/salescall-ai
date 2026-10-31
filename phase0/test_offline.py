@@ -3237,8 +3237,10 @@ class AmbiguousAnswerTest(unittest.TestCase):
         self.assertEqual(prior_answer(q, UNDECIDED, "利用する"), "利用する")
         self.assertIsNone(prior_answer(q, "利用しない", "利用する"))
         self.assertEqual(flow_act({"set": "C"}, q, UNDECIDED, True, True, "利用する"), "念のため確かめる：利用する")
-        # 流れの制御：前の話と合わない答えは念のため確かめ、決められない言葉は前の話の答えで念のため確かめる（(イ) と同じ1か所の言い方）
-        for got, prior, cond in (("いいえ", "はい", "いいえ"), (UNDECIDED, "はい", "はい")):
+        # 流れの制御：前の話と合わない答えは「念のため…よろしかったでしょうか？」（(イ)）、決められない言葉は前の話の答えを「それでは…よろしい
+        # でしょうか？」で確かめる（✅ 2026-10-31 の夜 ユーザー：「『それでは、駐車場を(利用される)(利用されない)ということでよろしいでしょうか？』の
+        # ような確認を入れる形で良いのではないでしょうか」）
+        for got, prior, cond, head in (("いいえ", "はい", "いいえ", "念のため"), (UNDECIDED, "はい", "はい", "それでは")):
             f = self.flow()   # 言い直しの言葉（意味の名前）のある質問（無ければ言い直せないので聞き直す＝前からの動き）
             f.use_checks("judge")
             off = Reading(got)
@@ -3246,7 +3248,7 @@ class AmbiguousAnswerTest(unittest.TestCase):
             f.on_callee(); f.on_heard("先ほど申し上げたとおりです。"); f.on_check("judge", off)
             res = f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい", "value": "先ほど申し上げたとおりです"})
             self.assertEqual((res["result"], f.items["Q1"].condition), ("confirm_required", cond), got)
-            self.assertTrue(res["say"].startswith("念のため"), res["say"])
+            self.assertTrue(res["say"].startswith(head), res["say"])
 
     def test_answer_text_reads_only_the_words_now(self):
         # ⛔ 2026-10-31 の昼（G-70）：答えを「お客様が言ったこと」と書き、いまの言葉か前に話したことかを決めていなかった＝前に話したことから答えを

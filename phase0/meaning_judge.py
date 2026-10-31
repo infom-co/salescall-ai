@@ -147,8 +147,13 @@ FITS_RULE = ("会話になっているか（" + FITS + "）は、" + FITS_NOT + 
 PRIOR = "prior"
 PRIOR_NONE = "前の話からは決まらない"
 PRIOR_LINE = 0.5
-PRIOR_RULE = ("前の話の答え（" + PRIOR + "）は、" + BEFORE + "だけから（いまの言葉は見ずに）、この質問の答えが決まれば、その答えを選び（言ったこと、"
-              "または、言ったことから必ずその答えになること）、決まらなければ「" + PRIOR_NONE + "」を選びます（前に話したことから推し量りません）。")
+#    ⛔ 同じ日の夜（G-70 の F2・線より下の選びも残して測った）：「言ったことから必ずその答えになる」「推し量りません」と書いた ⇒ Jev は「その日は
+#       出張でおりません。」から説明会に参加するかを、3回とも「前の話からは決まらない」と読んだ（d1-ultra は「参加しない」）＝前の話と逆の
+#       「はい、参加します。」を受け取る向き ⇒ 分かれ目を、ほかの答えになるには言っていない特別な事情が要るか、で書いた（言葉の形の例は書かない）
+PRIOR_YES = "その答えを言った、または、言ったことのとおりなら、ほかの答えになるには言っていない特別な事情が要る"
+PRIOR_NO = "言っていない、または、言ったことのとおりでも、ほかの答えにもなる"
+PRIOR_RULE = ("前の話の答え（" + PRIOR + "）は、" + BEFORE + "だけから（いまの言葉は見ずに）、この質問の答えが決まれば（" + PRIOR_YES + "）、"
+              "その答えを選び、決まらなければ（" + PRIOR_NO + "）「" + PRIOR_NONE + "」を選びます。")
 JEV_PRIOR_ASK = "その前に相手が言ったことだけから（お客様のいまの言葉は見ずに）、質問の答えは決まりますか？"
 PRIOR_HEAD = ("電話でお客様に質問をします。お客様がこの質問より前に話したこと（" + BEFORE + "）だけから、この質問の答えが決まるかを、1つだけ"
               "選んでください（質問へのお客様の返事は見ません）。\n決まり：\n- " + PRIOR_RULE + "\n")
@@ -842,8 +847,8 @@ def jev_prior_request(model: str, q, before: str) -> dict:
 
 def jev_prior_criteria(q) -> dict:
     """Jev に渡す前の話の答えの定義（名前は prior_names。中身は PRIOR_RULE と同じ）。"""
-    return {n: (f"{BEFORE}が「{n}」の意味を言った（または、言ったことから必ずその答えになる）" if c is not None
-                else f"{BEFORE}からは、この質問の答えが決まらない（言っていない・推し量るしかない）") for n, c in prior_names(q)}
+    return {n: (f"{BEFORE}から「{n}」の意味になる（{PRIOR_YES}）" if c is not None
+                else f"{BEFORE}からは、この質問の答えが決まらない（{PRIOR_NO}）") for n, c in prior_names(q)}
 
 
 def other_text(name: str, data: dict) -> str | None:

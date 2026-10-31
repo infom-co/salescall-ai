@@ -454,7 +454,11 @@ AFTER = {"misheard": ("聞き違いのあと", "お詫びのあとの言い直�
          "ambiguous": ("曖昧な答えのあと", "念のための言い直し", "hai"),
          # 言い切っていない最初の答え（「たぶん予約してます」）：「はい、」＋「念のためご予約はお済みということでよろしかったでしょうか？」
          # （✅ 2026-10-18 ユーザー：「この場合、こちらの方が自然」。その前の案「…というご回答で…」は採らなかった）
-         "hedged": ("言い切っていない答えのあと", "念のための言い直し", "hai")}
+         "hedged": ("言い切っていない答えのあと", "念のための言い直し", "hai"),
+         # いまの言葉だけでは決められず、前の話の答え（前に言ったとおりだ、など）を確かめる：「はい、」＋「それでは駐車場はご利用になるという
+         # ことでよろしいでしょうか？」（✅ 2026-10-31 の夜 ユーザー：「『それでは、駐車場を(利用される)(利用されない)ということでよろしい
+         # でしょうか？』のような確認を入れる形で良いのではないでしょうか」。Flow._check_again の PRIOR_WHY）
+         "prior": ("言い直しのあと", "言い直しを受けて", "hai")}
 HEDGE_WHY = "言い切っていない答え"  # 確かめる理由の名前（言い直しの言い方を、曖昧な言葉の確かめと分ける。Flow._check_again）
 # 会話になっていない返事（確かめる理由の名前＝Flow._check_again）。✅ 2026-10-31 ユーザー：「この部分だけの判断ならAIがあっています。前の分との
 #    流れの回答として会話になっていないだけです。それを分かるようにしないと！」・前に言ったことと逆の返事は「(イ)」（「念のため…でよろしかった
@@ -2891,7 +2895,9 @@ class Flow:
         # （⛔ 2026-10-18 に見つけた漏れ：AIが「わからない」と報告し、判定が「していない」と読んだ「たぶんしてないと思います」は、
         #    食い違いがきっかけなので、言い切っていない答えの言い方にならなかった）
         # 会話になっていない返事に意味の答えがあるときも、言い切っていない答えと同じ言い方（「念のため…でよろしかったでしょうか？」＝✅ ユーザー「(イ)」）
-        hedged = why.startswith((HEDGE_WHY, TALK_WHY, PRIOR_WHY)) or Flow._hedged(self.heard_said, self.heard_check)
+        if why.startswith(PRIOR_WHY):
+            return self._ask_confirm(qid, after="prior")
+        hedged = why.startswith((HEDGE_WHY, TALK_WHY)) or Flow._hedged(self.heard_said, self.heard_check)
         return self._ask_confirm(qid, after="hedged" if hedged else "ambiguous")
 
     def _take_system(self, qid: str, cond: str, reason: str | None = None) -> dict:
@@ -4661,7 +4667,7 @@ class Flow:
         if choice and words is None:
             # 選択肢の名前が返事の言葉だけ（「はい」「いいえ」）で、意味の言葉が取込で決まらなかった＝言い直せない（止めずに進める）。
             # 曖昧な答えは、言い直さずに聞き返す（聞き返しの回数と言い方は _ask_again の1か所）。それ以外は聞き取れた答えのまま受け付ける
-            if after in ("ambiguous", "hedged"):
+            if after in ("ambiguous", "hedged", "prior"):
                 return self._ask_again(qid, "unclear", "曖昧な答え（言い直す言葉が無い）")
             it.set("accepted", "選択肢の型で、言い直す言葉が無い（聞き取れた答えのまま受け付ける）")
             return self._advance("受け付けました。")
