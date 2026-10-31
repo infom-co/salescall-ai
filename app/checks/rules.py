@@ -458,6 +458,10 @@ SETTING_READERS: dict[str, tuple[str, str, str]] = {
     "calling.hours": ("src/salescall/core/gate.py", "5-2-2", "時間帯の設定は gate.calling_hours_for から読みます（NG時間を引き忘れない）"),
     "calling.ng_hours": ("src/salescall/core/gate.py", "5-2-2", "時間帯の設定は gate.calling_hours_for から読みます（NG時間を引き忘れない）"),
     "approval.human": ("src/salescall/core/approval.py", "I-13", "契約者の承認のモードを読むのは、承認の部分（core/approval.py）だけです"),
+    # Fly.io に残す日数（0157）：やり取りの文字を消す1か所（conversation_io.purge_utterances）。録音を Fly.io から消す処理を作るときも、
+    # 同じ1か所から日数を読む（⛔ 見直し25b の 5：片方だけ変えると、録音とやり取りで消える日がずれる）
+    "recording.keep_days_cloud": ("src/salescall/core/conversation_io.py", "11-4",
+                                  "Fly.io に残す日数は conversation_io.purge_utterances の1か所で読みます（録音とやり取りで日をずらさない）"),
     # 言葉ごとの幅（依頼者ごと。0088）：お客様の時間の設定を読む1か所（gate.callee_settings の CalleeSettings.periods）。時刻の読み・判定は
     # 渡されたものを使う（⛔ 見直し23 の (2)：時刻の読みと判定の入力に、初めの値の写しがあった）
     **{key: ("src/salescall/core/gate.py", "7-1d", "言葉ごとの幅の設定は gate.callee_settings から読みます（初めの値の写しを作らない）")
@@ -506,6 +510,9 @@ PY_ENTRY_CALLERS: dict[tuple[str, str], frozenset[str]] = {
     # 通話ごとの口と回線ごとの処理だけ。緊急の道での再開は、画面だけ（契約者・管理者）
     ("ai_troubles", "note"): frozenset({_CORE + "conversation_io.py"}),
     ("watch", "after_ai_troubles"): frozenset({_SUP + "line.py", _CORE + "conversation_io.py"}),   # 通話後の確かめの入口も（0158）
+    ("watch", "decide_ai_stops"): frozenset({_SUP + "jobs.py"}),            # 決め直し：見守り役の仕事 ai_stops だけ（0159）
+    # やり取りの文字を消す：見守り役の1日1回の仕事だけ（0157。⛔ 見直し25b の (4)：入口を足したのに、ここに無かった）
+    ("conversation_io", "purge_utterances"): frozenset({_SUP + "jobs.py"}),
     ("stops", "emergency_pass"): frozenset({WEB_PLACE}),
     # 回線・行・番号・契約者・試行のせいの表を引く入口（DESIGN.md 17章の決まり (1)：状態を変えるのは、表を引く入口1つだけ）。
     # 表を引くのは core/health.py の1か所（`_Run.give`。0145・0146）

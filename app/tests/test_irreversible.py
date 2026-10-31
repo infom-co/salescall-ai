@@ -561,6 +561,34 @@ class Utterances(Helpers):
         with self.assertRaises(Rejected):                                          # 契約者の取引のシステムの処理だけ
             app_access().in_tenant(OPERATOR, s["tenant"], conversation_io.purge_utterances)
 
+    def test_a_call_waiting_for_the_unclear_cut_check_and_an_unended_call_are_kept(self):
+        """消さない通話は1か所（salescall.attempt_kept。0159）：切れ方の確かめのかけ直しを待つ通話（保留の表には無い）も、録音の片付け・
+        やり取りの文字を消す入口・その守りの3つで同じに残す。⛔ 見直し25a の D：前は、その1件で、契約者のやり取りの文字を消す仕事が毎日
+        まるごと失敗し、録音の片付けはその通話の録音を消してよいとしていた。終わっていない通話の文字は、日数に数えない（E）。"""
+        s = self.ready()
+        waiting, open_call = self.answered_call(s), None
+        self.tx(s, lambda tx: conversation_io.write_utterance(tx, waiting, Utterance("callee", 1, "はい", 1.0)))
+        for st in TALK[3:]:
+            self.tx(s, lambda tx: attempts.move(tx, waiting, st))
+        self.tx(s, lambda tx: tx.execute("INSERT INTO salescall.unclear_checks (tenant_id, client_id, task_id, attempt_id)"
+                                         " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s)", (s["task"], waiting)))
+        s2 = self.ready()
+        open_call = self.answered_call(s2)                                      # 終わっていない（固まった）通話
+        self.tx(s2, lambda tx: conversation_io.write_utterance(tx, open_call, Utterance("callee", 1, "はい", 1.0)))
+        owner_access().in_system(SYSTEM, lambda tx: (
+            tx.execute("ALTER TABLE salescall.attempts DISABLE TRIGGER USER"),
+            tx.execute("UPDATE salescall.attempts SET ended_at = ended_at - interval '8 days',"
+                       " claimed_at = claimed_at - interval '8 days' WHERE attempt_id = ANY(%s)", ([waiting, open_call],)),
+            tx.execute("ALTER TABLE salescall.attempts ENABLE TRIGGER USER")))
+        purge = lambda w: app_access().in_tenant(SYSTEM, w["tenant"], conversation_io.purge_utterances)   # noqa: E731
+        self.assertEqual((purge(s), purge(s2)), (0, 0))                          # どちらも残る（仕事も落ちない）
+        folder = backup.client_folder(self.w.a, s["tenant"], s["client"])          # 録音の片付けも、同じく消さない
+        self.assertIn(str(waiting), backup.prune_rules(self.w.a, s["tenant"])[folder]["held"])
+        with self.assertRaises(Rejected):                                        # 守りも同じ1か所（消す印を立てても消せない）
+            owner_access().in_tenant(SYSTEM, s["tenant"], lambda tx: (
+                tx.execute("SET LOCAL salescall.purging_utterances = 'on'"),   # 消す処理の印（契約者・誰が、の印ではない）
+                tx.execute("DELETE FROM salescall.call_utterances WHERE attempt_id = %s", (waiting,))))
+
 
 class ReportShape(unittest.TestCase):
     """会話の報告の項目 irreversible_check（データの形 版 1.07）：無い・null は「判定が無い」、決まった値だけを受ける。"""

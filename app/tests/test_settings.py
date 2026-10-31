@@ -319,11 +319,14 @@ class Choice(unittest.TestCase):
         設定（call.end_write_wait・call.stuck_after）は外した（すでにある値で決める）。"""
         meaning = lambda key: owner_access().in_system(SYSTEM, lambda tx: tx.one(   # noqa: E731
             "SELECT meaning FROM salescall.setting_definitions WHERE key = %s", (key,)))
-        # 0156：10-30 夜〜10-31 未明のご決定の顔ぶれと送り先（CL-1 の連絡帳 4-61・4-62。Liquid（米国）にも送ることを画面に）
+        # 0156・0159：組の違いと送り先（CL-1 の連絡帳 4-61・4-62。Liquid（米国）にも送ることを画面に）。段ごとの顔ぶれは書かない（まだ
+        # 作りに入っていない顔ぶれを、全部の段の決まりとして書いていた＝見直し25c の B1。設計書 6-10 の (6) を見る）
         judge = meaning("judge.models")["meaning"]
-        for words in ("d1-ultra（Liquid）と Jev 1.14 を先に同時に出し", "Jev は d1-ultra が動かないときだけの代わり", "考える Sonnet だけ",
-                      "繋ぐのを止める側だけ", "sonnet＝2つの Sonnet 5.5", "緊急の道", "Liquid（米国"):
+        for words in ("d1-ultra（Liquid）・Jev 1.14", "確かでなければ Claude Sonnet 5.5", "sonnet＝Claude Sonnet 5.5 で判定する",
+                      "設計書 6-10 の (6)", "緊急の道", "Liquid（米国"):
             self.assertIn(words, judge)
+        for gone in ("Jev は d1-ultra が動かないときだけの代わり", "2つの Sonnet"):
+            self.assertNotIn(gone, judge)
         for gone in ("call.end_write_wait", "call.stuck_after", "stop.line.stop_after_failures", "stop.line.probe_interval",
                      "stop.line.resume_after_successes"):
             self.assertIsNone(meaning(gone))

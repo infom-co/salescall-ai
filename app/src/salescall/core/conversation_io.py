@@ -40,7 +40,8 @@
   "key": "名前#指紋8桁"}]。値は残さない（データベースが形を守る）。
 - **やり取りの文字**（`write_utterance`・通話ごとの書き手へ頼む形 `utterance_work`。読むのは `utterances`。2026-10-30 管理者のご決定 (6)
   「人が録音やその場のやり取りを確認できる状態にする必要があります」。計画書 11-1。表の作り 0152）：お客様と AI の発話の文字と時刻を、
-  通話ごとに起きた順に残す（書き換えない・消さない。依頼者ごとに分け、読める範囲は今の決まり＝11章）。形は `Utterance` の1か所：
+  通話ごとに起きた順に残す（書き換えない。消すのは、録音と同じ Fly.io に残す日数を過ぎた分だけ＝`purge_utterances`・0157。依頼者ごとに
+  分け、読める範囲は今の決まり＝11章）。形は `Utterance` の1か所：
   speaker＝"callee"（お客様。会話AIの聞き取り＝会話の側の Flow.callee_said）／"ai"（AI が言った文・流した録音の文）、turn＝相手の発話の
   番号（会話の側の Flow.callee_turns。通話の事実の根拠の発話の turn と同じ物差し。AI の発話は、そのときの番号）、said＝文字、at_s＝その
   通話の録音の上の位置（秒。会話の側の試作の通話の記録 turns の said_events・heard_events の at_s と同じ物差しにするかは CL-1 と決める）。
@@ -205,7 +206,7 @@ def verification_ai_trouble(access: Access, actor: Actor, tenant_id: UUID, clien
     from salescall.core import watch   # watch は、ここ（会話の書き込み口）を通らないので、使うときに読む
     trouble = call_report.ai_trouble(raw)
     access.in_client(actor, tenant_id, client_id, lambda tx: ai_troubles.note(tx, attempt_id, (trouble,), stage="verification"))
-    return watch.after_ai_troubles(access, actor, tenant_id, attempt_id)
+    return watch.after_ai_troubles(access, actor, tenant_id)
 
 
 def report_work(attempt_id: UUID, raw: Any) -> ReportWork:

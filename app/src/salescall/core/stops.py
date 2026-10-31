@@ -70,11 +70,12 @@ CAUSES: dict[str, CauseInfo] = {
                               "端末・アプリの状態。管理者か契約者が解くと、回線の欄へ手の再開（E12）として渡す"),
     "ai_connection": CauseInfo("AIの不具合",
                                "AIの不具合（2026-10-30 深夜 管理者：「アンソロピックが使えなくなったりその他に使う AI のどれかが止まったら、"
-                               "AI の不具合として回復するまで一時停止」）：通話の中で、使うAI（会話AI・判定・別の耳）のどれかが止まった、"
+                               "AI の不具合として回復するまで一時停止」）：通話の中か通話後の確かめで、使うAI（会話AI・判定・別の耳）のどれかが止まった、"
                                "または会話AIの異常が続いた（つながらない・Google の側の誤り・設定の誤り・不明のエラー）",
                                "回復の確かめ（通話に使うAIに短く問い合わせ、全部が答えた）が、決めた回数続けて成功したら解く（設定の誤りは、"
                                "直すまで確かめも失敗する）",
-                               "止まったAIの名前と時刻・数えたエラーの意味。管理者か契約者が解くと、続いたエラーは解いた時から数え直す。"
+                               "止まったAIの名前と時刻・数えたエラーの意味。管理者か契約者が解くと、続いたエラーは解いた時から数え直す（確かめで解けたら、"
+                               "その確かめを始めた時から）。"
                                "どうしても要るときは、解かずに、緊急の道（OpenRouter を通して Google が預かる Claude）で再開できる（止まった"
                                "のが判定か別の耳のときだけ。会話AIが止まっていると話せないので出せない）"),
     "project_denied": CauseInfo("会話AIの利用拒否", "会話AIのプロジェクトの利用拒否・枠の超過（いまは、この原因で止める処理は無い："
@@ -149,15 +150,18 @@ def open_same(tx: Tx, *, scope: Scope, cause: Cause, tenant_id: UUID | None = No
     return None if row is None else row["event_id"]
 
 
-def resume(tx: Tx, stop_event_id: int, *, reason: str, evidence: str | None = None, notify: bool = True) -> int:
-    """その停止を解く（範囲は停止と同じ）。解いた記録の番号を返す。notify=False＝知らせない（`stop` と同じ）。"""
+def resume(tx: Tx, stop_event_id: int, *, reason: str, evidence: str | None = None, notify: bool = True,
+           counted_from: Any = None) -> int:
+    """その停止を解く（範囲は停止と同じ）。解いた記録の番号を返す。notify=False＝知らせない（`stop` と同じ）。counted_from＝確かめで
+    解いたとき、その確かめを始めた時刻（core/watch.record_check だけが渡す。そこから数え直す＝データベースの salescall.errors_counted_since。
+    渡さなければ解いた時刻から）。"""
     row = tx.one(
         "INSERT INTO salescall.stop_events (scope, tenant_id, client_id, business_id, line_id, action, resolves_event_id,"
-        " actor, actor_kind, reason, evidence)"
+        " actor, actor_kind, reason, evidence, counted_from)"
         " SELECT scope, tenant_id, client_id, business_id, line_id, 'resume', event_id, salescall.cur_actor(),"
-        "        salescall.cur_actor_kind()::salescall.actor_kind, %s, %s"
+        "        salescall.cur_actor_kind()::salescall.actor_kind, %s, %s, %s"
         " FROM salescall.stop_events WHERE event_id = %s AND action = 'stop' RETURNING event_id, scope",
-        (reason, evidence, stop_event_id),
+        (reason, evidence, counted_from, stop_event_id),
     )
     if row is None:
         raise LookupError(f"その停止は無い（または、取引の範囲の外）：{stop_event_id}")
@@ -202,29 +206,25 @@ class EmergencyNotAllowed(Exception):
 
 def emergency_possible(tx: Tx, stop_event_id: int) -> str | None:
     """その停止で、緊急の道（OpenRouter を通して Google が預かる Claude）での再開を出せるか（1か所。画面がボタンを出すか・出す入口が
-    読む）。出せれば None、出せなければ理由の文。出せるのは、まだ解かれていない・システムが止めた・その契約者の AIの不具合の停止で、
-    まだ出していないもの、かつ、その契約者で同じ原因の前の解き以後に、緊急の道で補えない種類（errors.EMERGENCY_BLOCKERS＝会話AI・
-    緊急の道そのものが止まった・会話AIの異常）が1つも無いとき（2026-10-30 深夜 管理者のご決定。CL-1 の連絡帳 4-62 の (c)：会話AIが
-    止まっていると、再開しても話せない）。契約者の取引で読む。"""
+    読む）。出せれば None、出せなければ理由の文。出せるのは、緊急の道で再開できる停止（データベースの salescall.emergency_stop の1か所＝
+    まだ解かれていない・システムが止めた・その契約者の AIの不具合の停止。守り・判定の道も同じ関数を読む）で、まだ出していないもの、かつ、
+    緊急の道で補えない種類（errors.EMERGENCY_BLOCKERS＝会話AI・緊急の道そのもの）が止める数に届いていないとき（core/watch.ai_blocker の
+    1か所＝止め直すかと同じ数え方。2026-10-30 深夜 管理者のご決定。CL-1 の連絡帳 4-62 の (c)：会話AIが止まっていると、再開しても話せない）。
+    契約者の取引で読む。"""
+    from salescall.core import watch   # watch は、ここ（停止の記録）を使う側でもあるので、使うときに読む
     s = tx.one(
-        "SELECT s.event_id, s.scope::text AS scope, s.cause::text AS cause, s.actor_kind::text AS actor_kind, s.tenant_id,"
+        "SELECT salescall.emergency_stop(s.event_id) AS ok,"
         " EXISTS (SELECT 1 FROM salescall.stop_emergency_passes p WHERE p.stop_event_id = s.event_id) AS passed"
         " FROM salescall.open_stop_events s WHERE s.event_id = %s", (stop_event_id,))
     if s is None:
         return "まだ解かれていない、その停止はありません"
-    if (s["cause"], s["scope"], s["actor_kind"]) != ("ai_connection", "tenant", "system"):
+    if not s["ok"]:
         return "緊急の道で再開できるのは、システムが止めた、契約者の AIの不具合の停止だけです"
     if s["passed"]:
         return "もう緊急の道で再開しています"
-    blocked = tx.one(
-        "SELECT e.kind FROM salescall.error_events e WHERE e.tenant_id = %s AND e.kind = ANY(%s)"
-        " AND e.occurred_at > coalesce((SELECT max(r.at) FROM salescall.stop_events r JOIN salescall.stop_events x"
-        "                               ON x.event_id = r.resolves_event_id"
-        "                               WHERE x.cause = 'ai_connection' AND x.scope = 'tenant' AND x.tenant_id = %s),"
-        "                              '-infinity'::timestamptz)"
-        " ORDER BY e.error_id DESC LIMIT 1", (s["tenant_id"], list(errors.EMERGENCY_BLOCKERS), s["tenant_id"]))
+    blocked = watch.ai_blocker(tx)
     if blocked is not None:
-        return f"緊急の道では補えないAIが止まっています（{errors.LABELS[blocked['kind']]}）。回復を待ってください"
+        return f"緊急の道では補えないAIが止まっています（{errors.LABELS[blocked]}）。回復を待ってください"
     return None
 
 

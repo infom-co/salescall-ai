@@ -71,7 +71,7 @@ def judge_service(name: str, route: str = errors.DIRECT) -> str:
     知らない判定の名前は KeyError（勝手に名前を作らない＝足すときは、ここに足す）。"""
     if name not in JUDGE_SERVICES:
         raise KeyError(f"判定の名前 {name!r} の利用量の名前がありません（usage.JUDGE_SERVICES に足す）")
-    return JUDGE_SERVICES[name] if route == errors.DIRECT else JUDGE_EMERGENCY_SERVICE
+    return JUDGE_EMERGENCY_SERVICE if errors.is_emergency_route(route) else JUDGE_SERVICES[name]
 JUDGE_CACHE_READ = ":cache_read"     # まとめて送った前の部分の読み（service の後ろに付ける）
 JUDGE_CACHE_WRITE = ":cache_write"   # まとめて送った前の部分の書き（service の後ろに付ける）
 JUDGE_TIER = "paid"

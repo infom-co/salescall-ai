@@ -28,8 +28,9 @@ SOURCES = ("ai", "ear", "line", "storage", "delivery", "recording", "supervisor"
 #   回線／保存／連携／録音（通話の録音が残っていない・壊れている）／見守り役（決まった間隔の仕事・回線ごとの発信の繰り返しの処理の
 #   誤り。0063）／意味の判定（会話AIとは別の会社の、答えの意味の判定。DESIGN.md 6-10 の (6)。0098）／通話（こちらのプログラムの
 #   不具合で通話をお詫びして終えた。理由は ErrorReport.trouble。0139）／通話の部品（通話を進める部品が、おわびして終えたあとも
-#   戻らず、回線の処理を立て直した。0141）／止まったAI（通話の中で、使うAIのどれかが止まった＝会話の報告の ai_trouble・通話ごとの口の
-#   call.ai_trouble。AIの名前は ErrorReport.ai、道は ErrorReport.route。0155）
+#   戻らず、回線の処理を立て直した。0141）／止まったAI（通話の中か通話後の確かめで、使うAIのどれかが止まった＝会話の報告の ai_trouble・
+#   通話ごとの口の call.ai_trouble・通話後の確かめの入口 conversation_io.verification_ai_trouble。AIの名前は ErrorReport.ai、道は
+#   ErrorReport.route。0155・0158）
 
 # 意味の判定の失敗の分け方（CL-1 の連絡帳 4-24）：キーが使えない（無効・権限が無い＝401・403、一覧のキーの行＝Google の
 # 「400 API key not valid」）は、会話AIと同じくキーの誤り（judge_key。⚠️ 試作 meaning_judge.outage は「止まっている」・Google の
@@ -406,6 +407,11 @@ def spend_limit(e: ErrorReport) -> bool:
     return e.message is not None and any(x in e.message for x in SPEND_LIMIT_TEXTS)
 
 
+def is_emergency_route(route: str) -> bool:
+    """その道が緊急の道か（直接 `DIRECT` でなければ緊急の道。1か所：止まったAIの種類・判定の料金の名前が読む。⛔ 見直し25b の 7）。"""
+    return route != DIRECT
+
+
 def classify(e: ErrorReport) -> str:
     """エラーの種類（ACTIONS の鍵）。止まったAI（出どころ ai_trouble）は、AIの名前と道だけで決める。使用額の上限（管理者の支払いの件）は、
     ほかのどの出どころでも先に返事の文で見分ける（`spend_limit`）。
@@ -417,7 +423,7 @@ def classify(e: ErrorReport) -> str:
     if e.source == "ai_trouble":
         if not e.ai or not e.route:
             raise ValueError("止まったAIには、AIの名前（ai）と道（route）が要ります")
-        if e.route != DIRECT:
+        if is_emergency_route(e.route):
             return "emergency_stopped"
         return "convo_stopped" if e.ai == CONVO_AI else "ai_stopped"
     if spend_limit(e):

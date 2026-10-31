@@ -140,6 +140,7 @@ _T139 = "tests.test_troubles.OurTroubles."
 _M141 = "0141_review20a_hold_runs_and_calls.sql"
 _M145, _TH = "0145_health_states_shadow.sql", "tests.test_health."
 _M155, _TA = "0155_ai_trouble_pause.sql", "tests.test_ai_troubles."
+_M159 = "0159_review25_one_place_for_ai_stops_and_kept_calls.sql"
 _M146 = "0146_health_states_read.sql"
 _M147 = "0147_stage5_remove_old_reads.sql"
 _B141 = "tests.test_supervisor.Blame."
@@ -650,13 +651,13 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
       "tests.test_settle.Settle.test_a_verification_that_cannot_run_waits_and_never_ends_the_row")),
     # 見守り（Q9・9-1）
     ("何回続いたかを数えない（いつも0。会話AIの異常で契約者を止める数え方）",
-     "CREATE OR REPLACE FUNCTION salescall.consecutive_errors(p_kinds text[], p_cause text, p_evidence text)"
-     " RETURNS integer LANGUAGE sql STABLE SECURITY DEFINER"
+     "CREATE OR REPLACE FUNCTION salescall.consecutive_errors(p_kinds text[], p_cause text, p_evidence text,"
+     " p_from timestamptz DEFAULT NULL) RETURNS integer LANGUAGE sql STABLE SECURITY DEFINER"
      " SET search_path = salescall, pg_temp AS $$ SELECT 0 $$",
      ("tests.test_watch.TenantAiStopsAndChecks.test_one_contractors_ai_errors_stop_only_that_contractor",)),
     ("エラーの数を、範囲の外の取引にも見せる",
-     "CREATE OR REPLACE FUNCTION salescall.consecutive_errors(p_kinds text[], p_cause text, p_evidence text)"
-     " RETURNS integer LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$"
+     "CREATE OR REPLACE FUNCTION salescall.consecutive_errors(p_kinds text[], p_cause text, p_evidence text,"
+     " p_from timestamptz DEFAULT NULL) RETURNS integer LANGUAGE sql STABLE SECURITY DEFINER SET search_path = salescall, pg_temp AS $$"
      " SELECT count(*)::integer FROM salescall.error_events e WHERE e.kind = ANY(p_kinds) $$",
      ("tests.test_watch.TenantAiStopsAndChecks.test_counting_needs_the_transaction_of_that_scope",)),
     ("停止を解く確かめを、範囲の外の取引からも書ける",
@@ -1656,9 +1657,8 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      ("tests.test_irreversible.Utterances.test_the_words_are_kept_in_order_and_never_changed",
       "tests.test_irreversible.Utterances.test_the_words_go_with_the_recording_days_but_held_calls_are_kept")),
     ("決まっていない通話の録音を、古い録音を消す処理が消せる（確かめられなくなる）",
-     _edited("0152_irreversible_decisions_and_utterances.sql", "CREATE OR REPLACE FUNCTION salescall.recordings_held(",
-             "     WHERE w.tenant_id = salescall.cur_tenant() AND salescall.decision_pending(w.attempt_id)) x",
-             "     WHERE false) x"),
+     _edited(_M159, "CREATE OR REPLACE FUNCTION salescall.recordings_held(",
+             "    UNION SELECT w.attempt_id FROM salescall.decision_waits w WHERE w.tenant_id = salescall.cur_tenant()\n", ""),
      ("tests.test_irreversible.Irreversible.test_a_disagreed_refusal_waits_for_the_recording_check_which_confirms_it",)),
     # ── 録音の確かめで決められない保留は、契約者に確かめてもらう（0153）・保留と答えは中身ごと・報告が変われば決め直す・確定の印の守り（0154）
     ("録音で決められず契約者に求めた保留にも、契約者が答えられない（いつまでも保留のまま）",
@@ -1704,11 +1704,11 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("止まったAIを、書き換え・消せる", "DROP TRIGGER attempt_ai_troubles_frozen ON salescall.attempt_ai_troubles",
      (_TA + "Pause.test_only_the_system_writes_stopped_ais_and_never_rewrites_them",)),
     ("止まったAIで、ほかの通話が会話に入ると数え直す（同じ時刻にほかの通話が会話に入っただけで、止まらない）",
-     _edited(_M155, "CREATE OR REPLACE FUNCTION salescall.consecutive_errors(", "      CASE WHEN p_evidence = 'in_conversation' THEN",
+     _edited(_M159, "CREATE FUNCTION salescall.consecutive_errors(", "      CASE WHEN p_evidence = 'in_conversation' THEN",
              "      CASE WHEN p_evidence IN ('in_conversation', 'none') THEN", end="\n$$;"),
      (_TA + "Pause.test_another_call_reaching_the_customer_does_not_hide_the_stopped_ai",)),
     ("システムの処理（契約者・管理者でない）が、緊急の道で再開できる",
-     _edited(_M155, "CREATE FUNCTION salescall.stop_emergency_pass_guard(",
+     _edited(_M159, "CREATE OR REPLACE FUNCTION salescall.stop_emergency_pass_guard(",
              "IF salescall.cur_actor_kind() NOT IN ('operator', 'admin') OR", "IF false AND salescall.cur_actor_kind() NOT IN ('operator', 'admin') OR"),
      (_TA + "Pause.test_the_contractor_can_reopen_on_the_emergency_route_while_a_judge_is_down",)),
     ("緊急の道での再開を出しても、その停止で新しい電話を止めたまま",
@@ -1740,13 +1740,58 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
      (_TA + "Pause.test_the_contractor_can_reopen_on_the_emergency_route_while_a_judge_is_down",)),
     # ── やり取りの文字を、録音と同じ決まりで消す（計画書 11-4。0157）
     ("測り終わっていない通話のやり取りの文字も消える",
-     _edited("0157_utterances_kept_like_recordings.sql", "CREATE FUNCTION salescall.purge_utterances(",
-             "    AND u.attempt_id NOT IN (SELECT salescall.recordings_held());", ";"),
+     _edited(_M159, "CREATE OR REPLACE FUNCTION salescall.purge_utterances(",
+             "    AND NOT salescall.attempt_kept(u.attempt_id);", ";"),
      ("tests.test_irreversible.Utterances.test_the_words_go_with_the_recording_days_but_held_calls_are_kept",)),
     ("残す日数を待たずに、やり取りの文字が消える",
-     _edited("0157_utterances_kept_like_recordings.sql", "CREATE FUNCTION salescall.purge_utterances(",
-             "    AND coalesce(a.ended_at, a.claimed_at) < now() - make_interval(days => p_days)", ""),
+     _edited(_M159, "CREATE OR REPLACE FUNCTION salescall.purge_utterances(",
+             "    AND a.ended_at < now() - make_interval(days => p_days)", ""),
      ("tests.test_irreversible.Utterances.test_the_words_go_with_the_recording_days_but_held_calls_are_kept",)),
+    # ── 見直し25（0159）：止める・緊急の道・解くの数え方と、消さない通話を1か所に
+    ("確かめで解いても、解いた時刻から数え直す（解くのと同時に書いた止まったAIが、数えられずに消える）",
+     _edited(_M159, "CREATE FUNCTION salescall.errors_counted_since(", "max(coalesce(r.counted_from, r.at))", "max(r.at)",
+             end="\n$$;"),
+     (_TA + "Review25.test_a_stopped_ai_written_while_the_check_runs_is_not_lost",)),
+    ("数え始めの時刻を渡しても、その前から数える（確かめの間にまた止まっても解く）",
+     _edited(_M159, "CREATE FUNCTION salescall.consecutive_errors(", "      coalesce(p_from, '-infinity'::timestamptz)) AS t",
+             "      '-infinity'::timestamptz) AS t", end="\n$$;"),
+     (_TA + "Review25.test_a_stopped_ai_written_while_the_check_runs_is_not_lost",)),
+    ("AIの不具合でない停止（緊急停止など）にも、緊急の道で再開できる",
+     _edited(_M159, "CREATE FUNCTION salescall.emergency_stop(", "s.cause = 'ai_connection' AND ", "", end="\n$$;"),
+     (_TA + "Review25.test_the_emergency_route_is_only_for_ai_trouble_stops",)),
+    ("緊急の道の許可を、入口を通らずに、どの停止にも書ける",
+     _edited(_M159, "CREATE OR REPLACE FUNCTION salescall.stop_emergency_pass_guard(",
+             "IF NEW.tenant_id IS DISTINCT FROM salescall.cur_tenant() OR NOT salescall.emergency_stop(NEW.stop_event_id) THEN",
+             "IF false THEN"),
+     (_TA + "Review25.test_the_emergency_route_is_only_for_ai_trouble_stops",)),
+    ("緊急の道の許可があれば、AIの不具合でない停止でも、判定を緊急の道へ送る",
+     _edited(_M159, "CREATE OR REPLACE FUNCTION salescall.emergency_route(",
+             " AND salescall.emergency_stop(p.stop_event_id)", " AND EXISTS (SELECT 1 FROM salescall.open_stop_events s"
+             " WHERE s.event_id = p.stop_event_id)", end="\n$$;"),
+     (_TA + "Review25.test_the_emergency_route_is_only_for_ai_trouble_stops",)),
+    ("切れ方の確かめのかけ直しを待つ通話も、消さない通話に数えない",
+     _edited(_M159, "CREATE FUNCTION salescall.attempt_kept(", "      OR salescall.decision_pending(p_attempt)", "", end="\n$$;"),
+     ("tests.test_irreversible.Utterances.test_a_call_waiting_for_the_unclear_cut_check_and_an_unended_call_are_kept",)),
+    ("録音の片付けが、切れ方の確かめのかけ直しを待つ通話の録音を消してよいとする",
+     _edited(_M159, "CREATE OR REPLACE FUNCTION salescall.recordings_held(",
+             "    UNION SELECT u.attempt_id FROM salescall.unclear_checks u WHERE u.tenant_id = salescall.cur_tenant()) x",
+             ") x"),
+     ("tests.test_irreversible.Utterances.test_a_call_waiting_for_the_unclear_cut_check_and_an_unended_call_are_kept",)),
+    ("やり取りの文字の守りが、消さない通話を見ない（消す印を立てれば消せる）",
+     _edited(_M159, "CREATE OR REPLACE FUNCTION salescall.call_utterances_kept(",
+             "  IF salescall.attempt_kept(OLD.attempt_id) THEN", "  IF false THEN"),
+     ("tests.test_irreversible.Utterances.test_a_call_waiting_for_the_unclear_cut_check_and_an_unended_call_are_kept",)),
+    ("終わっていない通話のやり取りの文字も、予約の時刻で数えて消す",
+     _edited(_M159, "CREATE OR REPLACE FUNCTION salescall.purge_utterances(",
+             "    AND a.ended_at < now() - make_interval(days => p_days)",
+             "    AND coalesce(a.ended_at, a.claimed_at) < now() - make_interval(days => p_days)"),
+     ("tests.test_irreversible.Utterances.test_a_call_waiting_for_the_unclear_cut_check_and_an_unended_call_are_kept",)),
+    ("止まったAIを、表の持ち主なら、ほかの依頼者の通話に書ける",
+     _edited("0158_verification_ear_pause.sql", "CREATE OR REPLACE FUNCTION salescall.attempt_ai_trouble_guard(",
+             "  IF NOT EXISTS (SELECT 1 FROM salescall.attempts a WHERE a.attempt_id = NEW.attempt_id\n"
+             "                   AND a.tenant_id = NEW.tenant_id AND a.client_id = NEW.client_id) THEN",
+             "  IF false THEN"),
+     (_TA + "Pause.test_only_the_system_writes_stopped_ais_and_never_rewrites_them",)),
 )
 
 # Python の判断を、わざと1つずつ外す（データベースの守りの壊し試しと同じ考え。0136。⛔ 見直し19a：Python の判断を外しても落ちる試験の
@@ -2606,7 +2651,7 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
      ("tests.test_ai_troubles.Shape.test_three_kinds_by_ai_and_route",
       "tests.test_ai_troubles.Pause.test_no_emergency_route_when_the_conversation_ai_itself_is_down")),
     ("緊急の道そのものが止まっても、直接の道のAIが止まったのと同じにする", "src/salescall/core/errors.py",
-     '        if e.route != DIRECT:\n            return "emergency_stopped"\n', '',
+     '        if is_emergency_route(e.route):\n            return "emergency_stopped"\n', '',
      ("tests.test_ai_troubles.Shape.test_three_kinds_by_ai_and_route",
       "tests.test_ai_troubles.Pause.test_the_contractor_can_reopen_on_the_emergency_route_while_a_judge_is_down")),
     ("緊急の道で再開した停止があれば、補えない種類（緊急の道・会話AI）が止まっても止め直さない", "src/salescall/core/watch.py",
@@ -2633,6 +2678,40 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
     ("通話の途中の知らせで、通話の終わりまで止めない（そのあいだ、ほかの回線が止まったAIで新しい電話をかける）", _LINE,
      "                    if isinstance(work, conversation_io.TroubleWork):", "                    if False:",
      ("tests.test_ai_troubles.Pause.test_the_call_door_stops_right_away_without_waiting_for_the_end_of_the_call",)),
+    # ── 見直し25（0159）
+    ("緊急の道を出せるかを、止める基準でなく1回でも、で決める（一時的なエラー1回で、ずっと出せない）",
+     "src/salescall/core/watch.py",
+     "    return next((k for k in errors.EMERGENCY_BLOCKERS if _over(_count(tx, k))), None)",
+     "    return next((k for k in errors.EMERGENCY_BLOCKERS if _count(tx, k)[0] > 0), None)",
+     (_TA + "Review25.test_a_conversation_ai_error_below_the_stop_count_does_not_block_the_emergency_route",)),
+    ("合わせて数える種類のほかのエラーで、その種類（基準の違う種類）が届いたことにする（つながらない1回で「設定の誤り」が止める）",
+     "src/salescall/core/watch.py", '    return (row["n"] if row["own"] > 0 else 0), need', '    return row["n"], need',
+     (_TA + "Review25.test_a_conversation_ai_error_below_the_stop_count_does_not_block_the_emergency_route",)),
+    ("確かめの間にまた止まっても、確かめが通れば解く", "src/salescall/core/watch.py",
+     "        if late is not None:\n            ok, evidence = False,", "        if False:\n            ok, evidence = False,",
+     (_TA + "Review25.test_a_stopped_ai_written_while_the_check_runs_is_not_lost",)),
+    ("確かめで解いても、確かめを始めた時刻を残さない（解いた時刻から数え直す）", "src/salescall/core/watch.py",
+     "                               counted_from=begun_at)", "                               counted_from=None)",
+     (_TA + "Review25.test_a_stopped_ai_written_while_the_check_runs_is_not_lost",)),
+    ("緊急の道を出せる停止かを、入口で確かめない", "src/salescall/core/stops.py",
+     '    if not s["ok"]:\n        return "緊急の道で再開できるのは', '    if False:\n        return "緊急の道で再開できるのは',
+     (_TA + "Review25.test_the_emergency_route_is_only_for_ai_trouble_stops",)),
+    ("停止の説明に、その停止を解いたあとの止まったAIまで出す", "src/salescall/core/ai_troubles.py",
+     "        \"   AND t.noted_at <= coalesce(r.counted_from, r.at, 'infinity'::timestamptz)\"", "        \"   AND true\"",
+     (_TA + "Review25.test_old_events_of_the_same_call_do_not_stop_again_after_reopening",)),
+    ("見守り役が、止まったAIで止めるかを決め直さない", "src/salescall/supervisor/jobs.py",
+     "    ctx.access.in_tenant(ACTOR, ctx.tenant_id, watch.decide_ai_stops)", "    pass",
+     (_TA + "Review25.test_the_supervisor_decides_again_when_the_first_decision_was_missed",)),
+    ("通話後の確かめの入口が、止めるかを決めない", "src/salescall/core/conversation_io.py",
+     "    return watch.after_ai_troubles(access, actor, tenant_id)\n", "    return []\n",
+     (_TA + "VerificationEar.test_a_stopped_ear_after_the_call_stops_the_next_calls_but_not_the_talking_one",)),
+    ("やり取りの文字を、Fly.io でなくハードディスクの日数で消す", "src/salescall/core/conversation_io.py",
+     '"recording.keep_days_cloud"', '"recording.keep_days_drive"',
+     ("tests.test_irreversible.Utterances.test_the_words_go_with_the_recording_days_but_held_calls_are_kept",)),
+    ("判定の料金の名前を、緊急の道で答えた分も直接の道の名前にする", "src/salescall/core/usage.py",
+     "    return JUDGE_EMERGENCY_SERVICE if errors.is_emergency_route(route) else JUDGE_SERVICES[name]",
+     "    return JUDGE_SERVICES[name]",
+     (_TA + "SameNames.test_the_judge_price_name_follows_the_route",)),
 )
 
 

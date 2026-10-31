@@ -202,7 +202,9 @@ class TenantAiStopsAndChecks(unittest.TestCase):
         return rows[0]["event_id"]
 
     def check(self, sid, ok):
-        return self.a.in_tenant(SYSTEM, self.s["tenant"], lambda tx: watch.record_check(tx, sid, ok, evidence="試験：試しのセッション"))
+        begun = self.a.in_tenant(SYSTEM, self.s["tenant"], watch.check_begins)
+        return self.a.in_tenant(SYSTEM, self.s["tenant"], lambda tx: watch.record_check(tx, sid, ok, evidence="試験：試しのセッション",
+                                                                                          begun_at=begun))
 
     def wait_until_due(self, got):
         now = self.a.in_system(SYSTEM, lambda tx: tx.one("SELECT now() AS t")["t"])
@@ -258,7 +260,7 @@ class TenantAiStopsAndChecks(unittest.TestCase):
             self.a.in_system(OPERATOR, lambda tx: stops.stop(tx, scope="system", cause="manual", reason="試験"))
         sid = self.a.in_system(ADMIN, lambda tx: stops.stop(tx, scope="system", cause="manual", reason="試験"))["event_id"]
         with self.assertRaises(watch.NotProbeable):
-            self.a.in_system(SYSTEM, lambda tx: watch.record_check(tx, sid, True, evidence="試験"))
+            self.a.in_system(SYSTEM, lambda tx: watch.record_check(tx, sid, True, evidence="試験", begun_at=None))
         with self.assertRaises(Rejected):
             self.a.in_system(OPERATOR, lambda tx: stops.resume(tx, sid, reason="試験"))
         self.a.in_system(ADMIN, lambda tx: stops.resume(tx, sid, reason="試験"))
@@ -350,7 +352,7 @@ class TenantAiStopsAndChecks(unittest.TestCase):
         due = self.a.in_tenant(SYSTEM, other["tenant"], watch.due_checks)
         self.assertNotIn(sid, [r["event_id"] for r in due])          # ほかの契約者の取引からは、確かめない
         with self.assertRaises((LookupError, Rejected)):
-            self.a.in_tenant(SYSTEM, other["tenant"], lambda tx: watch.record_check(tx, sid, True, evidence="試験"))
+            self.a.in_tenant(SYSTEM, other["tenant"], lambda tx: watch.record_check(tx, sid, True, evidence="試験", begun_at=None))
         with self.assertRaises(Rejected):                            # データベースも守る（処理の確かめを通らない書き方でも）
             self.a.in_tenant(SYSTEM, other["tenant"], lambda tx: tx.execute(
                 "INSERT INTO salescall.stop_checks (stop_event_id, ok, streak, next_check_at, evidence)"

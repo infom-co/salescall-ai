@@ -295,7 +295,7 @@ class _Call:
                     # 決めるのは watch の1か所。決められなくても、通話は止めない＝見守り役の誤りとして伝え、通話のあとにもう一度決める）
                     if isinstance(work, conversation_io.TroubleWork):
                         try:
-                            watch.after_ai_troubles(self.access, self.actor, self.tenant_id, self.attempt_id)
+                            watch.after_ai_troubles(self.access, self.actor, self.tenant_id)
                         except Exception as e:  # noqa: BLE001
                             report(self.access, self.tenant_id, "止まったAIで止めるかの判断", e, line_id=self.line_id)
             finally:
@@ -520,7 +520,7 @@ def _client_round(access: Access, actor: Actor, tenant_id: UUID, client_id: UUID
                     call.stop()   # どの道でも「話している」から外す（残ると、止める・ログインを外す処理が待ち続ける）
                     # 通話で止まったAI（どの道で書いても）で、その契約者の新しい電話を止めるか（watch の1か所。もう決めていれば何もしない。0155）
                     try:
-                        watch.after_ai_troubles(access, actor, tenant_id, got.attempt_id)
+                        watch.after_ai_troubles(access, actor, tenant_id)
                     except Exception as e:  # noqa: BLE001 決められなくても、回線の処理は止めない（見守り役の誤りとして伝える）
                         report(access, tenant_id, "止まったAIで止めるかの判断", e, line_id=line_id)
                 if done in (dial_exit.Outcome.DIALED, dial_exit.Outcome.NOT_PLACED):

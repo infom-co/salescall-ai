@@ -150,10 +150,18 @@ def _probe(ctx: Context, run: Callable[[Callable[[Any], Any]], Any]) -> None:
     処理が鳴らす＝DESIGN.md 17章。⛔ 4段目まで：テスト番号で確かめる回線の停止を ring_test.checks_stop で除いていた）。"""
     prober = ctx.part(ctx.cfg.prober)
     def one(stop: dict[str, Any]) -> None:
+        begun = run(watch.check_begins)   # 確かめを始めた時刻（このあとに止まったAIがあれば解かない・解いたらここから数え直す。0159）
         ok, evidence = prober.probe(stop)
-        run(lambda tx: watch.record_check(tx, stop["event_id"], ok, evidence=evidence))
+        run(lambda tx: watch.record_check(tx, stop["event_id"], ok, evidence=evidence, begun_at=begun))
     _each(ctx, "停止を解く確かめ",
           run(watch.due_checks), one)
+
+
+def ai_stops(ctx: Context) -> None:
+    """止まったAI（AIの不具合）で、その契約者の新しい電話を止めるかを決め直す（watch.decide_ai_stops の1か所。もう止まっていれば何も
+    しない）。書いたすぐあとの判断（通話ごとの書き手・回線の処理・通話後の確かめの入口）が落ちても、止める判断が漏れない（0159。
+    見直し25b の (4)：通話後の確かめの道には、決め直す所が無かった）。"""
+    ctx.access.in_tenant(ACTOR, ctx.tenant_id, watch.decide_ai_stops)
 
 
 def stop_checks(ctx: Context) -> None:
@@ -248,6 +256,7 @@ JOBS: tuple[Job, ...] = (
     Job("recover", 60, "tenant", 300, recover_expired),
     Job("settle", 15, "tenant", 600, settle_ready),
     Job("verify", 15, "tenant", 600, verify_pending, wanted=lambda cfg: cfg.verifier is not None),
+    Job("ai_stops", 60, "tenant", 300, ai_stops),   # 止まったAIで止めるかの決め直し（0159）
     Job("stop_checks", 30, "tenant", 600, stop_checks, wanted=lambda cfg: cfg.prober is not None),
     Job("rejudge", 600, "tenant", 1800, rejudge_held),
     Job("reopen_revoked", 300, "tenant", 600, reopen_revoked),
