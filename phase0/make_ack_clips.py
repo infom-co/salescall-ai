@@ -114,8 +114,8 @@ CHAR_S = 0.141
 # 足す質問を契約者の単位の録音に入れたとき、読み方も長さの上限も無く、作ると止まった＝ClipTablesTest で、表の漏れを見る）
 HOW_OF = {f"callback_{k}": "question" for k in CALLBACK_ASK}
 HOW_OF.update({v: "question" for v in SUCCESSOR_IDS.values()})
-# 後任の方の電話で、理由を言わずに取り次げないと言われたときに伺う一言（phrases.SUCCESSOR の unavailable_confirm・47字）：読み方は問いかけと同じ。
-#    長さの上限は文の長さの見込みの1.15倍より短くしない（上の決まり＝47字×0.141秒×1.15＝約7.6秒）⇒ 9.0秒
+# 後任の方の電話で、理由を言わずに取り次げないと言われたときに伺う一言（phrases.SUCCESSOR の unavailable_confirm・38字。✅ 2026-11-01 6時48分のユーザーの言い方）：読み方は問いかけと同じ。
+#    長さの上限は文の長さの見込みの1.15倍より短くしない（上の決まり＝38字×0.141秒×1.15＝約6.16秒）⇒ 9.0秒
 HOW_OF["successor_unavailable"] = "question_long"
 HOW["question_long"] = HOW["question"]
 MAX_S["question_long"] = 9.0

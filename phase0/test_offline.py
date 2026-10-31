@@ -6754,7 +6754,7 @@ class TargetTest(unittest.TestCase):
         self.assertEqual((CALLBACK_PLAN["unavailable"], "unavailable" in AWAY_WHYS), (("transfer_time",), True))
         b = self.business()
         parts = b.replay_parts()
-        self.assertEqual(parts["unavailable_confirm"], "「おかだ」様は今はお電話に出ることができないといったご事情ということでよろしいでしょうか？")  # 呼び方は確かめる一言と同じ
+        self.assertEqual(parts["unavailable_confirm"], "「おかだ」様は今はお電話に出られない状況ということでよろしいでしょうか？")  # 呼び方は確かめる一言と同じ
         self.assertEqual(self.business(successor=True).replay_parts()["unavailable_confirm"], parts["unavailable_confirm"])  # 録音の組は業務×声で1つ
         # はい・ご事情：かけ直しの申し出で、お取り次ぎいただける日時を伺う
         f = Flow(b.questions, play_recordings=True, opening=parts, target=parts)
