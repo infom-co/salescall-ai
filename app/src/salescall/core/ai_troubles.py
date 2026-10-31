@@ -15,7 +15,8 @@
   (3) 通話後の確かめ（下の箇条）。
   止めるかは、どの通話で書いたかを見ずに、その契約者のエラーで決める（`watch.decide_ai_stops`。見直し25a の A）。回線ごとの処理は通話の
   あとにも、見守り役の仕事 ai_stops は定期にも決め直す（どの道で書いても・決める取引が落ちても、止める判断が漏れない）。
-- 「緊急の道で答えた」は書くだけ（エラーにしない。止めるのは、その前の「止まった」）。
+- 「緊急の道で答えた」は書くだけ（エラーにしない。止めるのは、その前の「止まった」）。「おかしな動き」（甚大でない＝電話は続けられた）は、
+  止めずに警告だけ（エラーの種類 ai_glitch＝契約者と管理者のダッシュボードに知らせる。2026-10-31 管理者のご決定。0160）。
 - **通話後の確かめ（別の耳）が止まったときも、同じ入口**（2026-10-31 管理者のご決定：「通話中は止めません。ただし、次の電話はかけず、
   確かめが通れば自動で再開します。…この変更は、AI の判断が、以前よりも影響が大きくなったからです。」。0158）：止まったかを決めるのは、
   会話の側の通話後の確かめの部品（通話中と同じ決め方）。入口は conversation_io.verification_ai_trouble（`note` に stage="verification"
@@ -31,7 +32,9 @@ from uuid import UUID
 from salescall.core import call_report, errors
 from salescall.core.access import Tx
 
-STOPPED = call_report.AI_TROUBLE_WHATS[0]   # 「止まった」（会話の報告の言葉の1か所から）
+STOPPED, ANSWERED_ON_EMERGENCY, GLITCH = call_report.AI_TROUBLE_WHATS   # 会話の報告の言葉の1か所から
+# 出来事ごとのエラーの出どころ（「止まった」＝止める材料・「おかしな動き」＝警告だけ。「緊急の道で答えた」は書くだけ＝エラーにしない）
+ERROR_SOURCE = {STOPPED: "ai_trouble", GLITCH: "ai_glitch"}
 STAGES = {"call": "通話の中", "verification": "通話後の確かめ"}   # どこで止まったか（データベースの守りと同じ名前）
 
 
@@ -49,10 +52,11 @@ def note(tx: Tx, attempt_id: UUID, troubles: Iterable[call_report.AiTrouble], *,
             " VALUES (salescall.cur_tenant(), salescall.cur_client(), %s, %s, %s, %s, %s, %s, %s)"
             " ON CONFLICT (attempt_id, ai, route, what) WHERE stage = 'call' DO NOTHING RETURNING attempt_id",
             (attempt_id, stage, t.ai, t.route, t.what, t.error, t.turn))
-        if row is None or t.what != STOPPED:
+        if row is None or t.what not in ERROR_SOURCE:
             continue
-        message = f"{STAGES[stage]}で {t.ai}（{t.route}）が止まった" + ("" if t.error is None else f"：{t.error}")
-        kinds.append(watch.record_error(tx, errors.ErrorReport("ai_trouble", None, message, ai=t.ai, route=t.route), attempt_id=attempt_id))
+        message = f"{STAGES[stage]}で {t.ai}（{t.route}）：{t.what}" + ("" if t.error is None else f"：{t.error}")
+        kinds.append(watch.record_error(tx, errors.ErrorReport(ERROR_SOURCE[t.what], None, message, ai=t.ai, route=t.route),
+                                        attempt_id=attempt_id))
     return kinds
 
 

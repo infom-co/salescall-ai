@@ -28,12 +28,12 @@ def trouble(ai=JEV, route=errors.DIRECT, what="止まった", error="時間切�
 
 
 class Shape(unittest.TestCase):
-    """止まったAIの形（データの形 版 1.08）と、種類の分け方（処置の表の1か所）。"""
+    """止まったAIの形（データの形 版 1.08・1.09＝おかしな動き）と、種類の分け方（処置の表の1か所）。"""
 
     def test_three_kinds_by_ai_and_route(self):
         c = lambda ai, route: errors.classify(ErrorReport("ai_trouble", None, "x", ai=ai, route=route))   # noqa: E731
         self.assertEqual(c(JEV, errors.DIRECT), "ai_stopped")
-        self.assertEqual(c("別の耳（soniox）", errors.DIRECT), "ai_stopped")
+        self.assertEqual(c("別の耳（soniox）", errors.DIRECT), "ear_stopped")   # 別の耳は、緊急の道で補えない（2026-10-31 管理者）
         self.assertEqual(c(errors.CONVO_AI, errors.DIRECT), "convo_stopped")
         self.assertEqual(c(SONNET, EMERGENCY), "emergency_stopped")
         # 使用額の上限の文でも、止まったAI（回復するまで一時停止。上限の知らせより先に分ける）
@@ -41,15 +41,21 @@ class Shape(unittest.TestCase):
                                                      ai=SONNET, route=errors.DIRECT)), "ai_stopped")
         with self.assertRaises(ValueError):
             errors.classify(ErrorReport("ai_trouble", None, "x"))
-        for kind in ("ai_stopped", "convo_stopped", "emergency_stopped"):
+        self.assertEqual(errors.classify(ErrorReport("ai_glitch", None, "x", ai=JEV, route=errors.DIRECT)), "ai_glitch")
+        for kind in ("ai_stopped", "ear_stopped", "convo_stopped", "emergency_stopped"):
             a = errors.ACTIONS[kind]
             with self.subTest(kind):
                 self.assertEqual((a.stop_cause, a.stop_scope, a.stop_after, a.lasting_fixer, errors.EVIDENCE[kind]),
                                  ("ai_connection", "tenant", None, "CL-1", "none"))
-        # 緊急の道で補えるのは、判定・別の耳が止まったときだけ（会話AI・緊急の道そのもの・会話AIの異常は補えない）
+        # 緊急の道で補えるのは、意味の判定が止まったときだけ（会話AI・別の耳・緊急の道そのもの・会話AIの異常は補えない。2026-10-31
+        # 管理者：別の耳は「『再開できない』でいい」）。補えない種類には、どれも画面に出す理由がある
         self.assertEqual({k for k, a in errors.ACTIONS.items() if a.emergency}, {"ai_stopped"})
         self.assertEqual(set(errors.EMERGENCY_BLOCKERS),
                          set(errors.COUNTED_FOR["ai_connection"]) - {"ai_stopped"})
+        self.assertEqual(set(errors.EMERGENCY_CANNOT), set(errors.EMERGENCY_BLOCKERS))
+        # おかしな動き（甚大でない）は止めない。契約者に知らせる（ダッシュボードの警告）
+        g = errors.ACTIONS["ai_glitch"]
+        self.assertEqual((g.stop_cause, g.notify, g.lasting_fixer), (None, True, "CL-1"))
 
     def test_report_round_trip_and_old_reports(self):
         r = make_report()
@@ -308,7 +314,12 @@ class VerificationEar(_Base):
         self.assertEqual(state, "in_conversation")                      # 話している電話は切らない
         got = self.a.in_tenant(SYSTEM, self.s["tenant"], lambda tx: stops.explain(tx, stopped[0]["event_id"]))
         self.assertEqual([(t["stage"], t["ai"]) for t in got["ai_troubles"]], [("verification", self.EAR)])
-        self.assertIsNone(got["emergency"]["impossible_because"])       # 別の耳だけなら、緊急の道で再開できる
+        # 別の耳は緊急の道で補えない：再開できず、画面に理由を出す（2026-10-31 管理者：「『再開できない』でいいが、ダッシュボードに
+        # なぜ再開できないのかの警告を出すようにして下さい」）
+        self.assertEqual(got["emergency"]["impossible_because"], errors.EMERGENCY_CANNOT["ear_stopped"])
+        self.assertIn("別の耳の代わりは無い", got["emergency"]["impossible_because"])
+        with self.assertRaises(stops.EmergencyNotAllowed):
+            self.a.in_tenant(OPERATOR, self.s["tenant"], lambda tx: stops.emergency_pass(tx, stopped[0]["event_id"], reason="試験"))
         self.assertEqual(self.verify_fail(done), [])                    # もう止まっている（重ねて止めない）
 
     def test_after_resuming_the_same_calls_check_stopping_again_stops_again(self):
@@ -319,6 +330,15 @@ class VerificationEar(_Base):
         self.assertEqual(self.blocking(), [])
         again = self.verify_fail(done)
         self.assertEqual(len(again), 1)
+        self.assertTrue(self.blocking())
+
+    def test_an_ear_stopping_after_reopening_on_the_emergency_route_stops_again(self):
+        # 判定の止まりで緊急の道で再開していても、別の耳が止まれば、また止める（別の耳は補えない）
+        self.note(self.attempt(), trouble(JEV))
+        sid = self.ai_stops()[0]
+        self.a.in_tenant(OPERATOR, self.s["tenant"], lambda tx: stops.emergency_pass(tx, sid, reason="試験：どうしても今日"))
+        self.assertEqual(self.blocking(), [])
+        self.assertEqual(len(self.verify_fail(self.ended(_with_task(self.w, self.s)))), 1)
         self.assertTrue(self.blocking())
 
     def test_only_ended_calls_take_a_check_trouble(self):
@@ -419,6 +439,20 @@ class Review25(_Base):
         self.assertTrue(job.wanted(SimpleNamespace(prober=None, verifier=None)))   # 確かめの部品が無くても動く
         jobs.ai_stops(SimpleNamespace(access=self.a, tenant_id=self.s["tenant"]))
         self.assertEqual(len(self.ai_stops()), 1)
+
+    def test_a_glitch_that_did_not_end_the_call_only_warns(self):
+        # 甚大でない（電話は続けられた）AIのおかしな動きは、止めずに、契約者と管理者のダッシュボードに警告（2026-10-31 管理者：「甚大な
+        # 問題は止める。甚大でない場合は、ダッシュボードに警告を出す。」。甚大な問題＝お詫びして終えた通話は「止まった」で止める）
+        aid = self.attempt()
+        kinds, stopped = self.note(aid, trouble(errors.CONVO_AI, what="おかしな動き", error="同じ質問を2回続けた"))
+        self.assertEqual((kinds, stopped), (["ai_glitch"], []))
+        self.assertEqual(self.ai_stops(), [])
+        self.assertEqual(self.blocking(), [])
+        got = owner_access().in_tenant(SYSTEM, self.s["tenant"], lambda tx: tx.one(
+            "SELECT count(*) AS n FROM salescall.notification_events WHERE kind = 'error_notice' AND tenant_id = %s"
+            " AND refs ->> 'kind' = 'ai_glitch'", (self.s["tenant"],)))["n"]
+        self.assertEqual(got, 1)                                               # 契約者に知らせる（ダッシュボードの警告）
+        self.assertEqual(watch.after_ai_troubles(self.a, SYSTEM, self.s["tenant"]), [])   # 決め直しても止めない
 
     def test_the_emergency_route_is_only_for_ai_trouble_stops(self):
         # 緊急の道で再開できる停止は1か所（salescall.emergency_stop。入口・守り・判定の道が同じ関数を読む。見直し25b の 4）

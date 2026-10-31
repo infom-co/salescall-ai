@@ -77,7 +77,7 @@ CAUSES: dict[str, CauseInfo] = {
                                "止まったAIの名前と時刻・数えたエラーの意味。管理者か契約者が解くと、続いたエラーは解いた時から数え直す（確かめで解けたら、"
                                "その確かめを始めた時から）。"
                                "どうしても要るときは、解かずに、緊急の道（OpenRouter を通して Google が預かる Claude）で再開できる（止まった"
-                               "のが判定か別の耳のときだけ。会話AIが止まっていると話せないので出せない）"),
+                               "のが意味の判定のときだけ。会話AI・別の耳・緊急の道そのものが止まっていれば、その理由を出す）"),
     "project_denied": CauseInfo("会話AIの利用拒否", "会話AIのプロジェクトの利用拒否・枠の超過（いまは、この原因で止める処理は無い："
                                 "そのプロジェクトをしばらく休ませ、次のキーで続ける。2026-10-17 ユーザー）",
                                 "自動では解かない（この原因で止める処理が無い）", "Google の管理画面の上限"),
@@ -224,7 +224,7 @@ def emergency_possible(tx: Tx, stop_event_id: int) -> str | None:
         return "もう緊急の道で再開しています"
     blocked = watch.ai_blocker(tx)
     if blocked is not None:
-        return f"緊急の道では補えないAIが止まっています（{errors.LABELS[blocked]}）。回復を待ってください"
+        return errors.EMERGENCY_CANNOT[blocked]
     return None
 
 

@@ -70,11 +70,13 @@
 | Q50 電話網のお知らせ（電源オフ・圏外・使われていない）が返った電話 | お知らせで終える1か所（`attempts.end_by_notice`） | CL-2（2026-10-30 ユーザー承認「8.案A」） |
 | Q51 同じお客様への最短の間隔 | `gate.same_contact_free_at` | CL-2（2026-10-30 ユーザー承認「8.案A」） |
 | Q52 AI の使用額の上限に当たったときの扱い | エラーの分類の1か所（`errors.spend_limit`） | CL-2（2026-10-30 ユーザー承認「8.案A」） |
-| Q53 どれが取り消せない決定（お客様の断り・番号違い・怒っていた）か・2つ目の判定とそろったか | `judge.irreversible` の1か所 | CL-2（⏳ 管理者に確かめる。2026-10-30 管理者のご決定 (6) の作り＝0152） |
-| Q54 取り消せない決定を、その場で決めるか・保留にするか | どの中身を待つかは `approval.decision_wait`、保留（版）を書くのは `approval.record_wait` の1か所（⛔ 0154 で `hold_decision` を外した。いまの保留の中身は `salescall.decision_open`、まだ決まっていないかは `salescall.decision_pending`） | CL-2（⏳ 管理者に確かめる。同上） |
-| Q55 保留にどう答え、どう締め直すか | 答えは `approval._answer`（承認 `approval.approve_decision`・差し戻し `approval.send_back_decision`。⛔ 0154 で `confirm_decision` から名前を替えた。録音の確かめの答えは外した）、締め直しは `settle.resettle`（報告が変わったときは `settle._recheck_waits` が呼ぶ）、報告から外すのは `settle._judge_input` の1か所 | CL-2（⏳ 管理者に確かめる。同上） |
-| Q56 保留に、契約者の答えを求めているか（録音の確かめで決められないとき） | `salescall.decision_asks_contractor` と `approval.chase_recording` の1か所（印を付けるのは `approval._ask_contractor`） | CL-2（⏳ 管理者に確かめる。2026-10-30 管理者のご決定 (6) の当てはめ＝0153） |
-| Q57 誤って入れた発信禁止を取り消したとき、結果と終えた行をどう戻すか | 取り消しの1か所 `dnc._revoke`（締め直しは `approval.withdraw_revoked`、止め直しは `dnc._restop`）と、どの行を戻すかの1か所 `next_action.reopen_revoked`（⛔ 0154 で `next_action.reopen` を外した） | CL-2（⏳ 管理者に確かめる。2026-10-30 管理者のご決定 (7) の作り＝0152・0153） |
+| Q53 どれが取り消せない決定（お客様の断り・番号違い・怒っていた）か・2つ目の判定とそろったか | `judge.irreversible` の1か所 | CL-2（✅ 2026-10-31 管理者「オッケー」。2026-10-30 管理者のご決定 (6) の作り＝0152） |
+| Q54 取り消せない決定を、その場で決めるか・保留にするか | どの中身を待つかは `approval.decision_wait`、保留（版）を書くのは `approval.record_wait` の1か所（⛔ 0154 で `hold_decision` を外した。いまの保留の中身は `salescall.decision_open`、まだ決まっていないかは `salescall.decision_pending`） | CL-2（✅ 2026-10-31 管理者「オッケー」。同上） |
+| Q55 保留にどう答え、どう締め直すか | 答えは `approval._answer`（承認 `approval.approve_decision`・差し戻し `approval.send_back_decision`。⛔ 0154 で `confirm_decision` から名前を替えた。録音の確かめの答えは外した）、締め直しは `settle.resettle`（報告が変わったときは `settle._recheck_waits` が呼ぶ）、報告から外すのは `settle._judge_input` の1か所 | CL-2（✅ 2026-10-31 管理者「オッケー」。同上） |
+| Q56 保留に、契約者の答えを求めているか（録音の確かめで決められないとき） | `salescall.decision_asks_contractor` と `approval.chase_recording` の1か所（印を付けるのは `approval._ask_contractor`） | CL-2（✅ 2026-10-31 管理者「オッケー」。2026-10-30 管理者のご決定 (6) の当てはめ＝0153） |
+| Q57 誤って入れた発信禁止を取り消したとき、結果と終えた行をどう戻すか | 取り消しの1か所 `dnc._revoke`（締め直しは `approval.withdraw_revoked`、止め直しは `dnc._restop`）と、どの行を戻すかの1か所 `next_action.reopen_revoked`（⛔ 0154 で `next_action.reopen` を外した） | CL-2（✅ 2026-10-31 管理者「オッケー」。2026-10-30 管理者のご決定 (7) の作り＝0152・0153） |
+| Q58 通話で使うAIのどれかが止まったときに、新しい電話を止めるか・いつ解くか・契約者以上が緊急の道で再開できるか | 受け取るのは `ai_troubles.note`、止めるのは `watch.decide_stop`（契約者で決める `watch.decide_ai_stops`）、数えるのは `watch._count`、緊急の道を出せるかは `stops.emergency_possible`（再開できない理由は `errors.EMERGENCY_CANNOT`）、判定の道は `salescall.emergency_route` の1か所（設計書 2章 Q58） | CL-2（✅ 2026-10-31 管理者「オッケー」。止まったかを決めるのは CL-1＝`Flow.on_ai_trouble`。0155・0158〜0160） |
+| Q59 やり取りの文字をいつ消すか | `salescall.purge_utterances`（消さない通話は録音と同じ `salescall.attempt_kept`）の1か所（設計書 2章 Q59） | CL-2（✅ 2026-10-31 管理者「オッケー」。0157・0159） |
 
 新しい問いが出てきたら、勝手に持ち主を決めず、ユーザーに伝える（表に1行足すのはユーザーの承認のあと）。
 

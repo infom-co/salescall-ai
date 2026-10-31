@@ -320,13 +320,16 @@ class TenantAiStopsAndChecks(unittest.TestCase):
         """別の耳（通話後の検証）のエラーは、どの種類でも発信を止めない（2026-10-17 の計画書との突き合わせ：前は別の耳の
         Google の側の誤り 503 が続く・設定の誤り 1007 が1回で、その契約者の発信を止めていた）。"""
         override(self, "stop.ai.stop_after_failures", 2)
-        for report in (ErrorReport("ear", 503, "UNAVAILABLE"), ErrorReport("ear", 1007, "thinking_level is not supported"),
-                       ErrorReport("ear", 1099, "x")):
+        reports = (ErrorReport("ear", 503, "UNAVAILABLE"), ErrorReport("ear", 1007, "thinking_level is not supported"),
+                   ErrorReport("ear", 1099, "x"), ErrorReport("ear", None, None, unreachable=True))
+        for report in reports:
             for _ in range(3):
                 self.ai_error(report)
         self.assertEqual(self.ai_stops(), [])
-        for k in [k for k in errors.ACTIONS if k.startswith("ear_")]:
-            self.assertIsNone(errors.ACTIONS[k].stop_cause)
+        # 生のエラーが分けられる種類は、どれも止めない（止めるのは、会話の側が「止まった」と決めた別の耳＝止まったAIの ear_stopped。
+        # 2026-10-31 管理者のご決定・0158）
+        for k in {errors.classify(r) for r in reports}:
+            self.assertIsNone(errors.ACTIONS[k].stop_cause, k)
 
     def test_counting_needs_the_transaction_of_that_scope(self):
         other = World().setup()
