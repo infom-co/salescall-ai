@@ -3083,6 +3083,20 @@ class AmbiguousAnswerTest(unittest.TestCase):
         f.on_callee(); f.on_heard("はい、しています。"); f.on_check("judge", Reading("はい"))
         self.assertNotEqual(f.apply("record_answer", {"question_id": "Q1", "condition_id": "はい", "value": "しています"})["result"], "ask_back")
 
+    def test_answer_judge_sees_the_words_before(self):
+        # ✅ 2026-10-31 ユーザー：「Aは会話になっていない」（「車で伺うので、駐車場を使わせてください」のあとの、駐車場の質問への「差し控えさせて
+        #    いただきます」）⇒ 答えの段の判定にも、その段の相手の言葉（直前の3つまで）を「その前に相手が言ったこと」として渡す（呼んでいる段と同じ形）
+        f = self.flow()
+        f.on_callee(); f.on_heard("車で伺うので、駐車場を使わせてください。")
+        f.on_callee(); f.on_heard("差し控えさせていただきます。")
+        q, _, before = f.judge_context()
+        self.assertIsNotNone(q)
+        self.assertEqual(before, "車で伺うので、駐車場を使わせてください。")
+        for said in ("1つ目です。", "2つ目です。", "3つ目です。"):
+            f.on_callee(); f.on_heard(said)
+        f.on_callee()
+        self.assertEqual(f.judge_context()[2], "1つ目です。／2つ目です。／3つ目です。")
+
     def test_talk_questions_carry_no_answer_text(self):
         # ✅ 2026-10-31 ユーザー：(4) の案「OK」＝電話のやり取りを読む問い合わせ（尋ねているか・待たせた方が戻ったか）には、お客様の答え用の文
         #    （言い切り・会話になっているか・「わからない」「答えたくない」）を入れない。答えの段の問い合わせには、言い切りと会話になっているかを聞く

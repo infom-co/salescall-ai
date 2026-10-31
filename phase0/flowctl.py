@@ -1669,6 +1669,12 @@ class Flow:
         # 届いた分も。出揃った言葉のものだけ。電話口の方の「ご本人」の読みを数える＝_target_readings）
         self.calling_words: dict[int, str] = {}
         self.calling_judged: dict[int, dict[str, str]] = {}
+        # 答えの段の、相手の発話ごとの言葉（判定に「その前に相手が言ったこと」として渡す＝judge_context）。✅ 2026-10-31 ユーザー：「前の分との
+        # 流れの回答として会話になっていないだけです。それを分かるようにしないと！」（「車で伺うので、駐車場を使わせてください」のあとの、駐車場の
+        # 質問への「差し控えさせていただきます」は会話になっていない）⇒ 判定が、前の流れとつながるかを読めるように渡す（呼んでいる段と同じ形）
+        self.answer_words: dict[int, str] = {}
+        # いまの相手の発話が始まったときの段（on_callee の1か所で決める。答えの段の前の言葉に、呼んでいる段で話された言葉＝繋いだ発話などを入れない）
+        self.turn_phase: str | None = None
         # 呼んでいる段の、こちらに尋ねているかの読み（発話の番号ごと＝on_check の asks）と、取り次ぎの判定が区切りを動かす前の区切り（尋ねて
         # いた発話なら戻す＝尋ねた方は、こちらの答えを待っている）
         self.calling_asks: dict[int, str] = {}
@@ -1874,8 +1880,11 @@ class Flow:
     def on_callee(self) -> None:
         if self.phase == "calling":
             self._keep_calling_turn()
+        elif self.turn_phase not in (None, "calling") and self.callee_said.strip():
+            self.answer_words[self.callee_turns] = self.callee_said.strip()
         self.doubt = {}
         self.callee_turns += 1
+        self.turn_phase = self.phase
         self.callee_said = ""
         self.callee_ended, self.callee_end_at, self.callee_voice_end = False, None, None
         self.check, self.check_said = {}, {}
@@ -2076,7 +2085,10 @@ class Flow:
     def judge_context(self) -> tuple["Question | None", str | None, str | None]:
         """意味の判定に渡すもの（相手の発話の始めに決める）：いまの質問と、こちらが言い直して確かめた言葉（言い直しの返事を待っているとき）と、
         その前に相手が言ったこと。目的の人を呼んでいる段（calling）では、呼ぶ一言を質問にし（目的の人かを確かめたあとは、その言い方を添える）、
-        その段の相手の言葉（直前の3つまで）を添える（取り次いだ方の言葉で、代わった方が誰かが決まる＝target_facets）。
+        その段の相手の言葉（直前の3つまで）を添える（取り次いだ方の言葉で、代わった方が誰かが決まる＝target_facets）。答えの段も、その段の
+        相手の言葉（直前の3つまで＝answer_words）を添える（前の流れとつながるか＝会話になっているかを、判定が読む。meaning_judge.FITS）。
+        ⛔ 2026-10-31：答えの段では、その前の言葉を渡していなかった（「車で伺うので、駐車場を使わせてください」のあとの「差し控えさせて
+           いただきます」を、質問とだけ並べて読む＝「利用しない」と読むのは当然で、会話になっていないことが分からない）
         ⛔ 2026-10-19 G-62：その前の言葉を渡しておらず、受付の方「岡田ですね。少々お待ちください。」のあとの「はい、お電話代わりました。」を、
            判定の片方が「代わった人」と読んだ（ユーザー：「『ご本人』になりますよね」）
         ⛔ 2026-10-18 の見直しで見つけた漏れ：いまの質問が無い段では判定が走らず、取り次ぎ（「少々お待ちください」）を見分ける独立した確かめも、
@@ -2091,7 +2103,8 @@ class Flow:
         if self.answering:
             return None, None, None   # 出た方の第一声（「はい、〇〇でございます」）は、まだ流していない最初の質問の答えではない
         q = self.questions.get(self.current) if self.current else None
-        return self.for_judge(q), (self._judge_text(self.awaiting_say) if self.awaiting_confirm is not None else None), None
+        before = "／".join(list(self.answer_words.values())[-3:]) or None   # 答えの段のその前の言葉（直前の3つまで＝呼んでいる段と同じ）
+        return self.for_judge(q), (self._judge_text(self.awaiting_say) if self.awaiting_confirm is not None else None), before
 
     def for_judge(self, q: "Question | None") -> "Question | None":
         """判定に見せる質問（判定へ質問を渡す唯一の場所＝judge_context・asks_context・returned_context）：質問の文の名前を、声で読ませる形から
