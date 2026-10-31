@@ -230,7 +230,7 @@ def _to_raw(sheets: dict[str, tuple[Sheet, dict[str, int]]], problems: list[str]
         required = _label("required", v.get("required"), f"{where}の必須", problems)
         questions.append({"id": v.get("id"), "text": v.get("text"), "ask_about": v.get("ask_about"), "type": qtype,
                           "required": required, "choices": _split(v.get("choices")) if qtype == "choice" else None,
-                          "next": None, "unit": None, "meanings": None, "replies": None})
+                          "next": None, "unit": None, "meanings": None, "replies": None, "asks_fact": None})
         if v.get("decline"):
             decline[v.get("id")] = _split(v.get("decline"))
     by_id = {q["id"]: q for q in questions}
@@ -408,6 +408,27 @@ ReplyDecider = Callable[[list[tuple[str, tuple[str, ...]]]], list[dict[str, str]
 CL-1 の連絡帳 4-17）。管理者も契約者も確かめない。"""
 
 
+FactDecider = Callable[[list[str]], dict[str, bool]]
+"""質問ごとに「お客様に事実を伺う質問か」を決める処理（質問の文の並び → 文ごとの真偽。決まらない文は入れない）。決め方は CL-1 の
+1か所（`facts.by_model` を2つのモデルで1回ずつ → `facts.decide`。G-71。CL-1 の連絡帳 2-1 の版 0.6）。管理者も契約者も確かめない。"""
+
+
+def _fact_questions(raw: dict[str, Any]) -> list[dict[str, Any]]:
+    """事実を伺う質問か（asks_fact）が、まだ入口から来ていない質問。"""
+    qs = raw.get("questions") if isinstance(raw.get("questions"), list) else []
+    return [q for q in qs if isinstance(q, dict) and q.get("asks_fact") is None and isinstance(q.get("text"), str)
+            and q["text"].strip()]
+
+
+def _decided_facts(texts: list[str], decide: FactDecider | None) -> dict[str, bool]:
+    """文ごとに「事実を伺う質問か」を決める処理に、1回だけ聞く。偽と答えた文だけが偽（形の違う答えは真＝決まらないときと同じ側。
+    答えの無い文は入れない＝`review` が真で入れる）。決め方の正本は CL-1（`facts.decide`）で、ここは答えの読み方の1か所。"""
+    if not texts or decide is None:
+        return {}
+    got = decide(texts)
+    return {t: v is not False for t, v in got.items() if t in texts} if isinstance(got, dict) else {}
+
+
 def _choice_questions(raw: dict[str, Any], key: str) -> list[tuple[dict[str, Any], tuple[str, ...]]]:
     """意味の言葉（key＝meanings）・曖昧な言葉の意味（replies）が、まだ入口から来ていない選択肢の質問と、その選択肢。"""
     qs = raw.get("questions") if isinstance(raw.get("questions"), list) else []
@@ -474,16 +495,18 @@ def _script(raw: dict[str, Any]) -> str:
 
 def ask_ai(raw: dict[str, Any], *, find_names: NameFinder | None = None, decide_units: UnitDecider | None = None,
            decide_topics: TopicDecider | None = None, decide_meanings: MeaningDecider | None = None,
-           decide_replies: ReplyDecider | None = None) -> dict[str, Any]:
-    """業務設定の形について、AI（名前と読み・単位・聞くこと・選択肢の意味の言葉・曖昧な言葉の意味を決める処理。どれも CL-1 の
-    決め方）に1回だけ聞く。答え＝{"names": 表記 → 読み（readings.to_json の形）, "units": 質問の文 → 単位, "topics": 質問の文 →
-    聞くこと, "meanings": 質問の文と選択肢 → {選択肢: 意味の言葉}, "replies": 質問の文と選択肢 → {言葉: 選択肢}}。
+           decide_replies: ReplyDecider | None = None, decide_facts: FactDecider | None = None) -> dict[str, Any]:
+    """業務設定の形について、AI（名前と読み・単位・聞くこと・選択肢の意味の言葉・曖昧な言葉の意味・事実を伺う質問かを決める処理。
+    どれも CL-1 の決め方）に1回だけ聞く。答え＝{"names": 表記 → 読み（readings.to_json の形）, "units": 質問の文 → 単位, "topics":
+    質問の文 → 聞くこと, "meanings": 質問の文と選択肢 → {選択肢: 意味の言葉}, "replies": 質問の文と選択肢 → {言葉: 選択肢},
+    "facts": 質問の文 → 事実を伺う質問か}。
     **プレビューで聞いた答えを、登録でもそのまま使う**（もう一度聞くと答えが変わりうる＝契約者が見たものと違う中身になる）。"""
     return {"names": readings.to_json(readings.find(_script(raw), find_names)),
             "units": _decided(sorted({q["text"] for q in _unit_questions(raw)}), decide_units),
             "topics": _decided(sorted({q["text"] for q in _topic_questions(raw)}), decide_topics),
             "meanings": _decided_pairs(raw, "meanings", decide_meanings),
-            "replies": _decided_pairs(raw, "replies", decide_replies)}
+            "replies": _decided_pairs(raw, "replies", decide_replies),
+            "facts": _decided_facts(sorted({q["text"] for q in _fact_questions(raw)}), decide_facts)}
 
 
 def review(tx: Tx, business_id: UUID, raw: dict[str, Any], *, confirmed_names: Any = (),
@@ -558,6 +581,8 @@ def review(tx: Tx, business_id: UUID, raw: dict[str, Any], *, confirmed_names: A
     for key in ("meanings", "replies"):                              # 選択肢の質問：入口が持ってこなければ、AI の答えを入れる
         for q, choices in _choice_questions(raw, key):
             q[key] = (ai.get(key) or {}).get(_pair_key(q["text"], choices)) or None
+    for q in _fact_questions(raw):                                  # 事実を伺う質問か：決まらなければ真（`FactDecider`・CL-1 の決め方と同じ側）
+        q["asks_fact"] = (ai.get("facts") or {}).get(q["text"], True)
     for key in ("company", "person"):
         c = caller.get(key)
         if isinstance(c, dict) and c.get("text"):
@@ -584,7 +609,8 @@ def _digest(business_id: UUID, raw: dict[str, Any] | None, problems: list[str]) 
 def preview(tx: Tx, business_id: UUID, file_name: str, data: bytes, *, mapping: dict[str, Any] | None = None,
             confirmed_names: Any = (), find_names: NameFinder | None = None,
             decide_units: UnitDecider | None = None, decide_topics: TopicDecider | None = None,
-            decide_meanings: MeaningDecider | None = None, decide_replies: ReplyDecider | None = None) -> Preview:
+            decide_meanings: MeaningDecider | None = None, decide_replies: ReplyDecider | None = None,
+            decide_facts: FactDecider | None = None) -> Preview:
     """ファイル（入口の1つ）を業務設定の形にして、AI に1回だけ聞き、確かめた結果を返す（何も書かない）。
     返す Preview の ai（AI の答え）を、登録（`register`）にそのまま渡す。"""
     sheets, problems, notes = _sheets(file_name, data, mapping or {})
@@ -592,7 +618,7 @@ def preview(tx: Tx, business_id: UUID, file_name: str, data: bytes, *, mapping: 
         return Preview(None, problems, [], notes=notes)
     raw, problems, where = _to_raw(sheets, problems, notes)
     ai = ask_ai(raw, find_names=find_names, decide_units=decide_units, decide_topics=decide_topics,
-                decide_meanings=decide_meanings, decide_replies=decide_replies)
+                decide_meanings=decide_meanings, decide_replies=decide_replies, decide_facts=decide_facts)
     p = review(tx, business_id, raw, confirmed_names=confirmed_names, ai=ai, problems=problems, where=where)
     p.notes = notes
     return p

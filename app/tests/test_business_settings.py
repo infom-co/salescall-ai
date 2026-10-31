@@ -35,9 +35,11 @@ def raw() -> dict:
         "voice": "S2",
         "questions": [
             {"id": "Q1", "text": "ご予約はなさいますか。", "ask_about": "ご予約", "type": "choice", "required": True,
-             "choices": ["する", "しない"], "next": {"しない": "END", "*": "Q2"}, "unit": None, "meanings": None, "replies": None},
+             "choices": ["する", "しない"], "next": {"しない": "END", "*": "Q2"}, "unit": None, "meanings": None, "replies": None,
+             "asks_fact": False},
             {"id": "Q2", "text": "ご希望の日時をお聞かせください。", "ask_about": "ご希望の日時", "type": "datetime",
-             "required": True, "choices": None, "next": None, "unit": None, "meanings": None, "replies": None},
+             "required": True, "choices": None, "next": None, "unit": None, "meanings": None, "replies": None,
+             "asks_fact": True},
         ],
         "names": [name("株式会社テスト物流", "かぶしきがいしゃてすとぶつりゅう", "caller"), name("山田", "やまだ", "caller"),
                   name("テスト物流", "てすとぶつりゅう", "script")],
@@ -149,6 +151,23 @@ class Check(unittest.TestCase):
         yes_no = bs.Question("Q9", "ご予約はお済みですか。", None, "yes_no", True, bs.YES_NO_CHOICES, {})
         self.assertNotIn("どちらでも", bs.possible_answers(yes_no))
 
+    def test_a_question_asking_a_fact_has_no_any_answer(self):
+        """お客様に事実を伺う質問（CL-1 の連絡帳 2-1 の版 0.6。✅ 2026-11-01 ユーザー：(a)「OK」）には、決まった選択肢の質問でも
+        「どちらでも」を足さない（「お任せします」は答えにならない＝聞き直す）。返りうる答えの1か所なので、分岐の行き先も求めず、
+        会話の入口も「どちらでも」を受け取らない。真偽でない値は通さない。"""
+        r = raw()
+        r["questions"][0]["asks_fact"] = True
+        r["questions"][0]["next"] = {"する": "Q2", "しない": "END", "わからない": "Q2", "答えたくない": "Q2"}   # 受け皿なし
+        s = bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True)
+        self.assertTrue(s.questions[0].asks_fact)
+        self.assertEqual(bs.possible_answers(s.questions[0]), ("する", "しない", "わからない", "答えたくない"))
+        self.assertFalse(bs.check(raw(), field_types=FIELD_TYPES, ai_reading_needs_person=True).questions[0].asks_fact)
+        for bad in (None, "はい", 1):
+            with self.subTest(bad=bad):
+                r = raw()
+                r["questions"][0]["asks_fact"] = bad
+                self.assertTrue(any("事実を伺う質問か" in p for p in problems_of(r)), problems_of(r))
+
     def test_many_optional_follow_ups_check_quickly_and_still_find_skips(self):
         """「はい ⇒ 詳しく聞く、いいえ ⇒ 次へ」が続く業務（40問）でも、確かめはすぐ終わる（前は質問の数に対して何倍にも
         増え、36問で15秒かかった＝2026-10-16 の見直し I2）。必須を飛ばす道は、これまでどおり見つける。"""
@@ -160,9 +179,11 @@ class Check(unittest.TestCase):
             ask, detail = f"A{i}", f"D{i}"
             nxt = f"A{i + 1}" if i + 1 < n else "Q2"
             qs.append({"id": ask, "text": "ご利用はございますか？", "ask_about": "ご利用", "type": "choice", "required": False,
-                       "choices": ["ある", "ない"], "next": {"ある": detail, "*": nxt}, "unit": None, "meanings": None, "replies": None})
+                       "choices": ["ある", "ない"], "next": {"ある": detail, "*": nxt}, "unit": None, "meanings": None, "replies": None,
+                       "asks_fact": True})
             qs.append({"id": detail, "text": "詳しくお聞かせください。", "ask_about": "詳しく", "type": "free_text",
-                       "required": False, "choices": None, "next": {"*": nxt}, "unit": None, "meanings": None, "replies": None})
+                       "required": False, "choices": None, "next": {"*": nxt}, "unit": None, "meanings": None, "replies": None,
+                       "asks_fact": True})
         qs[0] = dict(qs[0], next={"しない": "END", "*": "A0"})
         qs.append(r["questions"][1])
         r["questions"] = qs

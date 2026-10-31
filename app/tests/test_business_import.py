@@ -492,6 +492,29 @@ class Import(unittest.TestCase):
         p = self.preview(data, decide_meanings=lambda pairs: [], decide_replies=None)   # 形の違う答え・聞けない
         self.assertEqual((p.problems, p.raw["questions"][0]["meanings"], p.raw["questions"][0]["replies"]), ([], None, None))
 
+    def test_whether_a_question_asks_a_fact_is_decided_without_a_person(self):
+        """質問ごとに「お客様に事実を伺う質問か」は、取込のときに AI（CL-1 の決め方＝facts.decide）に1回だけ聞いて入れる（管理者も
+        契約者も確かめない。CL-1 の連絡帳 2-1 の版 0.6。✅ 2026-11-01 ユーザー：(a)「OK」）。決まらない・答えが無い・形が違うときは
+        「事実を伺う質問」（真）で登録する（CL-1 の決め方と同じ側）。登録では聞き直さない。"""
+        asked = []
+
+        def facts(texts):
+            asked.append(texts)
+            return {t: False for t in texts if "ご予約" in t}
+
+        data = book()
+        p = self.preview(data, decide_facts=facts)
+        self.assertEqual(p.problems, [])
+        self.assertEqual(asked, [sorted(q["text"] for q in p.raw["questions"])])
+        v = self.tx(lambda tx: bi.register(tx, self.s["business"], "業務設定.xlsx", data, expected_digest=p.digest, ai=p.ai))
+        got = {q.id: q.asks_fact for q in self.tx(lambda tx: bs.load(tx, v)).questions}
+        self.assertEqual(got, {"Q1": False, "Q2": True})                    # 決まらなかった Q2 は真
+        self.assertEqual(len(asked), 1)                                   # 登録では聞き直さない
+        for decide in (None, lambda texts: {t: "いいえ" for t in texts}, lambda texts: [False]):   # 聞けない・形が違う
+            with self.subTest(decide=decide):
+                p = self.preview(data, decide_facts=decide)
+                self.assertEqual((p.problems, [q["asks_fact"] for q in p.raw["questions"]]), ([], [True, True]))
+
     def test_other_entrances_go_the_same_way(self):
         """依頼者の画面から抜き出した中身（同じ形）も、同じ確かめと登録の道を通る。"""
         from tests.test_business_settings import raw

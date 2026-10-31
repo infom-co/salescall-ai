@@ -78,7 +78,7 @@ ANYONE = "anyone"                                  # 目的のお客様のいな
 NAME_SOURCES = ("caller", "script")               # 名乗り（自社名・担当者名）／トークスクリプトの文章（商品名・地名など）
 READING_BY = readings.BY                          # 読みを決めたもの（正本は core/readings.py）
 UNIT_TYPE = "number"                              # 単位を持てる型（金額には補わない。DESIGN.md 6-2 の ⚠️）
-QUESTION_KEYS = {"id", "text", "ask_about", "type", "required", "choices", "next", "unit", "meanings", "replies"}
+QUESTION_KEYS = {"id", "text", "ask_about", "type", "required", "choices", "next", "unit", "meanings", "replies", "asks_fact"}
 ANSWER_KEYS = {"name", "text"}                    # 想定問答の1つ：問いの名前・答えの文
 # 想定問答の問いの名前に使えない名前（1か所）：AI が流し直しで選ぶ録音の部分の、中の名前と AI に見せる名前の両方（正本は会話の側＝
 # CL-1 の flowctl.RESERVED_PART_NAMES＝PART_LABEL の鍵と値）。会話の側は、同じ名前の問いがあると通話を始めない（ValueError）ので、
@@ -130,6 +130,11 @@ class Question:
     # 返事の言葉だけの答え（REPLY_WORDS）が、この質問でどの選択肢の意味になるか（言葉 → 選択肢。例：「パンフレットをお送りしても
     # よろしいでしょうか？」の「結構」→「いいえ」）。決まらない言葉は入れない（会話の中で確かめる。CL-1 の 4-17）
     replies: dict[str, str] = field(default_factory=dict)
+    # お客様に事実を伺う質問か（もうしたこと・持っているもの・使っているもの・いまの状態・数など、お客様の希望や選びで変わらないこと。
+    # CL-1 の連絡帳 2-1 の版 0.6。✅ 2026-11-01 ユーザー：(a)「OK」）。事実を伺う質問では「どちらでも」は答えにならない（「お任せします」は
+    # 聞き直す）ので、返りうる答え（`possible_answers` の1か所）から外す。決めるのは取込のときの AI（CL-1 の `facts.decide`。人は確かめない）。
+    # 決まらなければ真（誤った値の重いほう＝事実を伺う質問を希望の質問と取り違えるのを避ける側。CL-1 の決め方と同じ）
+    asks_fact: bool = True
 
 
 @dataclass(frozen=True)
@@ -315,8 +320,9 @@ def _caller(v: Any, where: str, names: list[Name], problems: list[str], *, readi
 
 
 def possible_answers(q: Question) -> tuple[str, ...]:
-    """その質問で返りうる答え（依頼者の選択肢＋システムが足す答え。決まった選択肢の質問には「どちらでも」も）。"""
-    return q.choices + ((ANY_CHOICE,) if q.type == "choice" else ()) + SYSTEM_CHOICES
+    """その質問で返りうる答え（依頼者の選択肢＋システムが足す答え。決まった選択肢の質問には「どちらでも」も。ただし、お客様に事実を
+    伺う質問には足さない＝`Question.asks_fact`。会話の側の同じ1か所は CL-1 の `flowctl.Question.all_conditions`）。"""
+    return q.choices + ((ANY_CHOICE,) if q.type == "choice" and not q.asks_fact else ()) + SYSTEM_CHOICES
 
 
 def declared_choices(type_name: Any, raw: Any) -> tuple[str, ...] | None:
@@ -465,9 +471,12 @@ def check(raw: Any, *, field_types: frozenset[str], ai_reading_needs_person: boo
             replies = _answer_words(q["replies"], q["type"], choices, where, problems, replies=True)
             if unit is not None and q["type"] != UNIT_TYPE:
                 problems.append(f"{where}の単位は、数の型（{UNIT_TYPE}）の質問だけが持てます")
+            if not isinstance(q["asks_fact"], bool):
+                problems.append(f"{where}の事実を伺う質問か（asks_fact）は true / false です")
             questions.append(Question(qid, _text(q["text"], f"{where}の文", problems) or "",
                                       _text(q["ask_about"], f"{where}の聞くこと", problems, optional=True),
-                                      q["type"], bool(q["required"]), choices, dict(nxt), unit, meanings, replies))
+                                      q["type"], bool(q["required"]), choices, dict(nxt), unit, meanings, replies,
+                                      q["asks_fact"] is not False))
     if questions and not any(q.required for q in questions):
         problems.append("必須の質問が1つもありません（どんな通話でも「すべて取れた」になる。Intent.md 6-4）")
     s = Settings(purpose or "", target_class if target_class in TARGET_CLASSES else "", company or Name("", None, "caller", None), person or Name("", None, "caller", None), purpose_line,

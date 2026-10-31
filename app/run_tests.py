@@ -1863,6 +1863,7 @@ MUTATIONS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
 _LINE, _RING, _NEXT = "src/salescall/supervisor/line.py", "src/salescall/core/ring_test.py", "src/salescall/core/next_action.py"
 _RULES, _HR = "src/salescall/core/health_rules.py", "tests.test_health_rules."
 _FU, _OT = "tests.test_irreversible.ForbiddenUnclearCut.", "tests.test_troubles.OurTroubles."
+_BS, _BI = "src/salescall/core/business_settings.py", "src/salescall/core/business_import.py"
 _APPROVAL, _SETTLE = "src/salescall/core/approval.py", "src/salescall/core/settle.py"
 PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
     ("かけてから「話している」に載せる（かけている途中に、止める・ログインを外す処理が閉じうる）", _LINE,
@@ -2897,6 +2898,25 @@ PY_MUTATIONS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
     ("回線の1回分が落ちたあと、書き込みが戻ったかを確かめずに次の電話へ進む", _LINE,
      "            storage = True\n            stop.wait(IDLE_SECONDS)", "            stop.wait(IDLE_SECONDS)",
      (_OT + "test_a_line_whose_call_ended_on_a_database_stall_waits_until_writes_come_back",)),
+    # ── 事実を伺う質問か（CL-1 の連絡帳 2-1 の版 0.6。✅ 2026-11-01 ユーザー：(a)「OK」）
+    ("事実を伺う質問にも「どちらでも」を返りうる答えに足す（「お任せします」を取れた答えにする）", _BS,
+     '((ANY_CHOICE,) if q.type == "choice" and not q.asks_fact else ())', '((ANY_CHOICE,) if q.type == "choice" else ())',
+     ("tests.test_business_settings.Check.test_a_question_asking_a_fact_has_no_any_answer",)),
+    ("事実を伺う質問かが真偽でなくても通す", _BS,
+     '            if not isinstance(q["asks_fact"], bool):\n', '            if False:\n',
+     ("tests.test_business_settings.Check.test_a_question_asking_a_fact_has_no_any_answer",)),
+    ("書かれた「事実を伺う質問ではない」を読まない（どの質問も事実を伺う質問にする）", _BS,
+     '                                      q["asks_fact"] is not False))', '                                      True))',
+     ("tests.test_business_settings.Check.test_a_question_asking_a_fact_has_no_any_answer",)),
+    ("取込で、事実を伺う質問かが決まらなかった質問を「事実を伺う質問ではない」にする", _BI,
+     '        q["asks_fact"] = (ai.get("facts") or {}).get(q["text"], True)', '        q["asks_fact"] = (ai.get("facts") or {}).get(q["text"], False)',
+     ("tests.test_business_import.Import.test_whether_a_question_asks_a_fact_is_decided_without_a_person",)),
+    ("取込で、AI の形の違う答えを、そのまま事実を伺う質問かに入れる", _BI,
+     "    return {t: v is not False for t, v in got.items() if t in texts}", "    return {t: v for t, v in got.items() if t in texts}",
+     ("tests.test_business_import.Import.test_whether_a_question_asks_a_fact_is_decided_without_a_person",)),
+    ("取込で、事実を伺う質問かを AI に聞かない", _BI,
+     '            "facts": _decided_facts(sorted({q["text"] for q in _fact_questions(raw)}), decide_facts)}', '            "facts": {}}',
+     ("tests.test_business_import.Import.test_whether_a_question_asks_a_fact_is_decided_without_a_person",)),
 )
 
 
