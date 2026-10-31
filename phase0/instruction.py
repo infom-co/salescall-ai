@@ -16,7 +16,7 @@ from flowctl import (ANY_LABEL, ARG_LABEL, CALLBACK_IDS, CALLBACK_LABEL, CONFIRM
                      check_policies, choices_note, offers_rule, spoken_question)
 from names import hira, legal_form_reading_off, legal_form_split, quote  # noqa: F401（名前を「」でくくる唯一の場所。ここからも読める）
 
-from phrases import AI_ANSWER, APOLOGY, APOLOGY_FIRST, ASK_BACK, GREETING, NUMBER_AGAIN, PROMISE_AGAIN, SUCCESSOR, SUCCESSOR_OF, role_honorific, target_call, target_confirm, target_reconfirm, target_who  # noqa: F401（決まった言い方は phrases.py の1か所。試験からも、ここ経由で読める）
+from phrases import AI_ANSWER, APOLOGY, APOLOGY_FIRST, ASK_BACK, GREETING, NUMBER_AGAIN, PROMISE_AGAIN, SUCCESSOR, SUCCESSOR_OF, role_honorific, target_call, target_confirm, target_reconfirm, target_who, unavailable_confirm  # noqa: F401（決まった言い方は phrases.py の1か所。試験からも、ここ経由で読める）
 # プログラムから会話AIへ送る合図の文面（文字で送る。相手には聞こえない）。合図の文面はここだけに置く（DESIGN.md 6-7）
 CUES = {
     # AIが黙ったとき：1回だけ返事を促す
@@ -84,6 +84,10 @@ class Target:
     def promise_again(self) -> str:
         """約束の電話で取り次げないと言われたときに伺う一言（お名前は確かめる一言と同じ呼び方）。"""
         return PROMISE_AGAIN.format(who=f"{self._name()}様" if self.name else role_honorific(self.role))
+
+    def unavailable_confirm(self) -> str:
+        """理由を言わずに取り次げないと言われたときに、お呼びした方のご事情かを伺う一言（お名前は確かめる一言と同じ呼び方。flowctl.Flow._transfer_unclear）。"""
+        return SUCCESSOR["unavailable_confirm"] if self.successor else unavailable_confirm(self._name(), self.role)
 
 
 @dataclass
@@ -307,7 +311,7 @@ class Business:
         文は opening_parts と同じもの（録音も同じ）。目的の人のある業務では、呼ぶ一言（target）と、代わった方を確かめる一言（target_confirm）と、
         その返事がはっきりしないときの聞き返し（target_reconfirm）と、約束の電話で取り次げないと言われたときに伺う一言（promise_again）と、
         法人なら前任の方の後任のご担当者様をお呼びする一言（target_successor）も。
-        お名前の入る5つ（target・target_confirm・target_reconfirm・promise_again・target_successor）は、業務の録音の組ではなく、名前の録音の
+        お名前の入る6つ（target・target_confirm・target_reconfirm・promise_again・unavailable_confirm・target_successor）は、業務の録音の組ではなく、名前の録音の
         台帳（名前の部分＋続く言葉。DESIGN.md 4-3）から流す。どの行が約束の電話・後任の方の電話になるかは、取込（台帳の録音を作る時）には
         分からないので、この電話が何の電話か（予約証の promised・successor）に関わらず、どの電話にも同じ部分を返す（CL-2 の 4-152）。
         この電話で流す部分を選ぶのは flowctl.Flow（後任の方の電話は target の代わりに target_successor を流す＝Flow._part_play）。"""
@@ -317,7 +321,8 @@ class Business:
         if self.target is not None:
             t = dataclasses.replace(self.target, successor=False)
             parts.update(target=t.call(), target_confirm=t.confirm(), target_reconfirm=t.reconfirm(),
-                         promise_again=t.promise_again())  # 約束の電話で取り次げないと言われたとき（flowctl.Flow._not_transferred）
+                         promise_again=t.promise_again(),  # 約束の電話で取り次げないと言われたとき（flowctl.Flow._not_transferred）
+                         unavailable_confirm=t.unavailable_confirm())  # 理由を言わずに取り次げないと言われたとき（flowctl.Flow._transfer_unclear）
             if t.kind == "法人":
                 parts["target_successor"] = t.successor_call()
         if self.voicemail_message:
@@ -644,7 +649,9 @@ def target_rule(business: Business) -> str:
             f"{offers_rule()}"
             f"営業のお断りではない事情で取り次げないと言われたとき（「担当が分からないのでお繋ぎできません」「個人宛のお電話はお繋ぎして"
             f"おりません」など。戻る時刻やかけ直しの話が無い）は、request_end を「{END_LABEL['not_transferred']}」で呼びます。営業のお電話だから"
-            f"取り次がない（「営業のお電話はお繋ぎできない決まりです」も）は、「{END_LABEL['callee_refused_call']}」です。")
+            f"取り次がない（「営業のお電話はお繋ぎできない決まりです」も）は、「{END_LABEL['callee_refused_call']}」です。"
+            f"理由を言わずに取り次げないとだけ言われたとき（事情か営業のお断りか分からない）は、request_end を「{END_LABEL['transfer_unclear']}」で呼びます"
+            "（ご事情かを伺う一言は、プログラムが流します）。")
 
 
 def ai_rule(business: Business, recorded: bool = False) -> str:

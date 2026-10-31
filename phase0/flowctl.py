@@ -620,7 +620,7 @@ def choice_words(q: "Question", cond: str | None) -> str | None:
 # ⛔ 2026-10-18 の見直しで見つけた漏れ：前は「通話を断られた」で締めるだけで、発信禁止の申告をどこにも残していなかった（原則14 の
 #    「その場で発信禁止に登録」に届かない）。怒り・苦情を報告する手立ても無かった
 END_LABEL = {"done": "質問が終わった", "callee_hurry": "相手が急いでいる", "callee_refused_call": "通話を断られた",
-             "callee_complaint": "相手が怒っている", "not_transferred": "取り次いでいただけなかった"}
+             "callee_complaint": "相手が怒っている", "not_transferred": "取り次いでいただけなかった", "transfer_unclear": "理由を言わずに取り次げないと言われた"}
 # 目的の人に繋がらずに終わった理由（会話の報告の not_reached。Flow.not_reached の1か所で決める）。✅ 2026-10-22 ユーザー決定（CL-2 の 4-130）：
 # 「『営業拒否』：もうかけない。『事情があり、取り次げなかった』：日を改めて1回。『約束した時刻のかけ直し』：約束した時間と同じ」
 # ⇒ 営業のお断り＝通話を断られた（発信の拒否。ここには入れない）／お呼びした方が出られない（戻る時刻を聞いた＝かけ直しの申し出）＝absent／
@@ -718,10 +718,11 @@ _UNTIL = re.compile(r"\d{1,2}(?:時(?:半|\d{1,2}分)?|日)(?:まで|より前)"
 # ✅ 2026-10-25 日本時間の夕方 ユーザー：お休みは長期の不在から分ける（「本日は休み・出張 → 「いつごろお戻りのご予定かお分かりでしょうか？」
 # 出張ならいいが、お休みだとおかしい⇒ 「次のご出社はいつかお分かりになりますでしょうか？」」）。違うのは伺う一言だけ（CALLBACK_PLAN）
 CALLBACK_LABEL = {"absent": "不在", "day_off": "お休み", "long_absent": "長期の不在", "other_number": "別の番号へ", "later": "あとで",
-                  "departed": "在籍していない", "other_means": "ほかの手段"}
+                  "departed": "在籍していない", "other_means": "ほかの手段", "unavailable": "今はお電話に出られないご事情"}
 # お呼びした方の事情で、いまはお話しできない理由（電話口の方ご自身の申し出ではない＝別の方に代わっても、代わりの方とお話しできないときに伺う
 # のは、お呼びした方の戻り。唯一の場所＝Flow の呼んでいる段の3か所が読む。CL-2 の call_report.ABSENT_REASONS も同じ仲間）
-AWAY_WHYS = ("absent", "day_off", "long_absent")
+# 今はお電話に出られないご事情（unavailable）＝理由を言わずに取り次げないと言われ、ご事情かを伺った一言に、はい・ご事情を答えられた（Flow._transfer_unclear）
+AWAY_WHYS = ("absent", "day_off", "long_absent", "unavailable")
 # 相手の申し出（request_callback の、無くてもよい項目）：折り返し・伝言（お呼びした方が出られないときの申し出）／メール・ファクス・郵送（ほかの手段で
 # 送ってほしい）。✅ 2026-10-22 ユーザー：折り返し＝「お礼を言い、こちらからかけ直す形にして戻る時刻を聞く」・伝言＝「業務ごとに選べるようにし、
 # 選んでいなければ (a)」（お礼を言って断り、戻る時刻を聞く）
@@ -731,12 +732,13 @@ TALK_LABEL = {k: f"{w}（{tone}）" if tone else w for k, (w, tone, _) in TALK_F
 TALK_CHOICES = "、".join(f"{TALK_LABEL[k]}＝{scene}" for k, (_, _, scene) in TALK_FALLBACK.items())  # AIに見せる、選び方の説明（1か所）
 MEANS = ("email", "fax", "post")
 CALLBACK_PLAN = {"absent": ("back_time",), "day_off": ("next_workday",), "long_absent": ("back_date",),
-                 "other_number": ("number", "reachable_time"), "later": ("later_time",), "other_means": ()}
+                 "other_number": ("number", "reachable_time"), "later": ("later_time",), "other_means": (), "unavailable": ("transfer_time",)}
 MEANS_PLAN = {"email": ("email",), "fax": ("fax",), "post": ("address",)}  # ほかの手段で、聞くこと（手段の申し出が無ければ、聞かずに締める）
 # システムが足す質問の番号（どの業務でも同じ）と、通話の事実（callback）に残すときの名前
 CALLBACK_IDS = {"time": "C1", "number": "C2", "email": "C3", "fax": "C4", "address": "C5", "back_today": "C6", "again": "C7", "who": "C8",
                 "when": "C9", "message": "M1", "promise_again": "P1"}
-ROLE_KEY = {"back_time": "time", "later_time": "time", "back_date": "time", "next_workday": "time", "reachable_time": "time", "number": "number",
+ROLE_KEY = {"back_time": "time", "later_time": "time", "back_date": "time", "next_workday": "time", "reachable_time": "time", "transfer_time": "time",
+            "number": "number",
             "email": "email",
             "fax": "fax", "address": "address", "message": "message", "back_today": "back_today", "call_again": "again",
             "promise_again": "promise_again", "ask_who": "who", "ask_when": "when"}
@@ -1140,6 +1142,9 @@ def offers_rule(target: bool = True) -> str:
             f"別の電話番号にかけてほしい＝「{C['other_number']}」"]
     if target:
         whys.append(f"退職・異動などでもういらっしゃらない＝「{C['departed']}」")
+        # ✅ 2026-11-01 日本時間5時48分 ユーザー：「「はい」や事情を言われた → 理由のある取り次げない：かけ直しの申し出+取次ぎ可能な日時の確認の方がいいんじゃないですか？営業はお断りと言われた → 営業のお断り 戻る時刻を言われた → かけ直しの申し出」「確かめのあとの返事でもはっきりしないときは…：返事による」
+        whys.append(f"理由を言わずに取り次げないと言われて、プログラムがお呼びした方のご事情かを伺ったあと、はい・ご事情を答えられた"
+                    f"＝「{C['unavailable']}」（戻る時刻を言われたら「{C['absent']}」。伺ったあとだけ使います）")
     whys.append(f"メール・ファクス・郵送など、電話ではない手段で送ってほしい＝「{C['other_means']}」（メール・ファクス・郵送と言われたら、"
                 f"その手段を{A['offer']}に付けます。「営業のご案内はメールでお願いしております」のように、電話でのご案内はお断りでも、"
                 "ほかの手段を示されたらこちらです。通話を断られた、ではありません）")
@@ -1418,7 +1423,7 @@ def next_reading(heard: str | None, readings: tuple | list, tried: list[str]) ->
     return untried[0] if untried else None
 
 
-CALLBACK_TOPIC = {"back_time": "お戻りになるお時間", "later_time": "ご都合のよろしいお時間", "number": "お電話番号",
+CALLBACK_TOPIC = {"back_time": "お戻りになるお時間", "later_time": "ご都合のよろしいお時間", "transfer_time": "お取り次ぎいただけそうな時期", "number": "お電話番号",
                   "reachable_time": "お電話に出られるお時間", "back_date": "お戻りのご予定", "next_workday": "次のご出社のご予定",
                   "email": "メールアドレス", "fax": "ファクス番号",
                   "address": "ご住所", "authority": "ご判断いただけるお立場か", "message": "ご伝言", "back_today": "本日のお戻りのご予定",
@@ -1659,6 +1664,7 @@ class Flow:
         self.awaiting_confirm: str | None = None
         self.callee_turns = 0
         self.confirm_requested_at: int | None = None
+        self.unavailable_asked = False  # 理由を言わずに取り次げないと言われ、ご事情かを伺った（_transfer_unclear。1通話1回）
         # 通話の事実（種類 → 起きた順の記録。_note だけが書く）。業務の判定（DESIGN.md 7-1。CL-2 の judge_task）へ渡す、会話の側が決めるもの：
         # do_not_call＝発信禁止の申告（原則14）／complaint＝怒り・苦情（人へ知らせる印）／end＝通話を終えた理由。どれも根拠の発話つき
         self.facts: dict[str, list[dict]] = {}
@@ -4155,6 +4161,9 @@ class Flow:
         言い直しの返事待ちだった業務の質問は、確かめずに終わる（「-」）。念のための確認はしない（相手は話せる状態ではない）。
         offer＝相手の申し出（折り返し・伝言・メール・ファクス・郵送）。メール・ファクス・郵送の申し出は、理由「ほかの手段」として受け取る。"""
         why, offer = a["why"], a.get("offer")
+        if why == "unavailable" and not self.unavailable_asked:
+            return self._reject(f"「{CALLBACK_LABEL['unavailable']}」は、取り次げないご事情かをプログラムが伺ったあとの返事だけに使います。"
+                                "聞いた言葉に合う理由で呼んでください。")
         if offer in MEANS:
             why = "other_means"
         elif why == "other_means" and offer:
@@ -4504,6 +4513,8 @@ class Flow:
             return self._reject("まだ目的の人に繋がっていません（質問を始めていません）。")
         if reason == "not_transferred":
             return self._not_transferred()
+        if reason == "transfer_unclear":
+            return self._transfer_unclear()
         if reason in ("callee_hurry", "callee_refused_call") and (taken := self._ambiguous_only("通話を断られた")):
             # 相手の言葉が「結構です」のような言葉だけ：その言葉だけで、通話を断られたとは決めない（_ambiguous_only）
             return taken
@@ -4525,6 +4536,36 @@ class Flow:
             #    念のための確認の最中に「終わり」と報告されると、確認を飛ばして通話を終えていた
             return self._reject("まだ終えられません。")
         return self._advance("")
+
+    def _transfer_unclear(self) -> dict:
+        """受付の方が、理由を言わずに取り次げないと言った（取り次ぐことはできません、だけ＝ご事情か営業のお断りか分からない）：その場で1回だけ、
+        お呼びした方のご事情かを伺う一言（phrases.UNAVAILABLE_CONFIRM。お名前が入る録音＝名乗りの部分 unavailable_confirm）を流す（唯一の場所）。
+        返事で分けるのは会話AI：はい・ご事情＝かけ直しの申し出（今はお電話に出られないご事情＝お取り次ぎいただける日時を伺う）／営業のお断り＝
+        通話を断られた（もうかけない）／戻る時刻＝かけ直しの申し出（不在）／ほかは返事の中身に合う報告（決まった終え方は置かない）。
+        ✅ 2026-11-01 日本時間5時26分 ユーザー：「その場で、「○○様は、今はお電話に出ることができないといったご事情ということでよろしいでしょうか？」などで
+        確認すればいいんじゃないですか？それで、営業拒否なのかどちらかを確認できると思いますよ。」・✅ 2026-11-01 日本時間5時48分 ユーザー：「「はい」や事情を言われた → 理由のある取り次げない：かけ直しの申し出+取次ぎ可能な日時の確認の方がいいんじゃないですか？営業はお断りと言われた → 営業のお断り 戻る時刻を言われた → かけ直しの申し出」「確かめのあとの返事でもはっきりしないときは…：返事による」"""
+        if self.phase != "calling":
+            return self._reject("目的の人には、もう繋がっています（取り次ぎの話ではありません）。")
+        if self.judging and self.meaning_said is None and (self.midway or not self.words_complete):
+            return self._wait_for_words()
+        if self._hold_now():
+            return self._hold()
+        if self.unavailable_asked:
+            return self._reject("取り次げないご事情かは、もう伺いました。受付の方の返事の中身に合う報告を選んでください（はい・ご事情なら"
+                                f" request_callback を{ARG_LABEL['why']}「{CALLBACK_LABEL['unavailable']}」で、戻る時刻なら「{CALLBACK_LABEL['absent']}」で、"
+                                f"営業のお電話をお断りと言われたら request_end を「{END_LABEL['callee_refused_call']}」で）。")
+        self.unavailable_asked = True   # 通話の事実には足さない（終わり方＝かけ直し・通話を断られた などは、今までの事実で残る）
+        text = (self.target or {}).get("unavailable_confirm") or self.opening.get("unavailable_confirm")
+        if not text:
+            return self._reject("お呼びした方のいない業務では、取り次ぎのご事情は伺いません。聞いた言葉に合う報告を選んでください。")
+        then = (f"受付の方の返事を待ちます。はい・ご事情を言われたら request_callback を{ARG_LABEL['why']}「{CALLBACK_LABEL['unavailable']}」で、"
+                f"戻る時刻を言われたら「{CALLBACK_LABEL['absent']}」で、営業のお電話はお断りと言われたら request_end を「{END_LABEL['callee_refused_call']}」で"
+                "呼びます。ほかの返事は、中身に合う報告を選びます（伺うのは1回だけです）。")
+        head = {"result": "confirm_unavailable"}
+        if self.play_recordings and (self.opening.get("unavailable_confirm") or "unavailable_confirm" in self.system_parts):
+            return head | {"play": [self._part_play("unavailable_confirm")],
+                           "message": f"受付の方に「{text}」と伺う録音を、プログラムが流しました（相手にもう聞こえています）。何も言わずに、{then}"}
+        return head | {"say": text, "message": f"受付の方に「{text}」とだけ伺います（言葉を足しません）。そのあと、{then}"}
 
     def _not_transferred(self) -> dict:
         """受付の方が、営業のお断りではない事情で、目的の人に取り次げないと言った（「担当が分からないのでお繋ぎできません」「個人宛のお電話は

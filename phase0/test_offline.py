@@ -6742,6 +6742,47 @@ class TargetTest(unittest.TestCase):
         self.say(f, "はい、後任の山田ですが。", "report_party", party="target")
         self.assertEqual((f.phase, f.facts["connect"][-1]["who"]), ("asking", "successor"))
 
+    def test_transfer_refused_without_reason_is_asked_once(self):
+        # ✅ 2026-11-01 ユーザー：受付の方に理由なく「取り次ぐことはできません」とだけ言われたら、その場で「○○様は、今はお電話に出ることができない
+        #    といったご事情ということでよろしいでしょうか？」で確かめる（読点は外す＝10-15）。はい・ご事情＝かけ直しの申し出＋お取り次ぎいただける日時
+        #    （「恐れ入りますがいつごろでしたらお取り次ぎいただけそうでしょうか？」）・営業はお断り＝もうかけない・戻る時刻＝かけ直し・ほかは返事による
+        import dataclasses
+        from flowctl import AWAY_WHYS, CALLBACK_PLAN, Flow
+        from phrases import CALLBACK_ASK, SUCCESSOR, UNAVAILABLE_CONFIRM
+        self.assertNotIn("、", UNAVAILABLE_CONFIRM)
+        self.assertEqual(CALLBACK_ASK["transfer_time"], "恐れ入りますがいつごろでしたらお取り次ぎいただけそうでしょうか？")
+        self.assertEqual((CALLBACK_PLAN["unavailable"], "unavailable" in AWAY_WHYS), (("transfer_time",), True))
+        b = self.business()
+        parts = b.replay_parts()
+        self.assertEqual(parts["unavailable_confirm"], "「おかだ」様は今はお電話に出ることができないといったご事情ということでよろしいでしょうか？")  # 呼び方は確かめる一言と同じ
+        self.assertEqual(self.business(successor=True).replay_parts()["unavailable_confirm"], parts["unavailable_confirm"])  # 録音の組は業務×声で1つ
+        # はい・ご事情：かけ直しの申し出で、お取り次ぎいただける日時を伺う
+        f = Flow(b.questions, play_recordings=True, opening=parts, target=parts)
+        r = self.say(f, "申し訳ございません、取り次ぐことはできません。", "request_end", reason="transfer_unclear")
+        self.assertEqual((r["result"], r["play"]), ("confirm_unavailable", [{"kind": "opening", "part": "unavailable_confirm", "text": parts["unavailable_confirm"]}]))
+        self.assertEqual(f.phase, "calling")
+        again = self.say(f, "取り次ぐことはできません。", "request_end", reason="transfer_unclear")   # 伺うのは1回だけ
+        self.assertEqual(again["result"], "rejected")
+        r = self.say(f, "はい、そうです。会議が続いておりまして。", "request_callback", why="unavailable")
+        self.assertIn(CALLBACK_ASK["transfer_time"], r.get("say") or "".join(x["text"] for x in r.get("play", [])))
+        # 伺う前の「今はお電話に出られないご事情」は差し戻す（伺ったあとの返事だけ）
+        g = Flow(b.questions, play_recordings=True, opening=parts, target=parts)
+        self.assertEqual(self.say(g, "会議中です。", "request_callback", why="unavailable")["result"], "rejected")
+        # 営業はお断り：もうかけない
+        h = Flow(b.questions, play_recordings=True, opening=parts, target=parts)
+        self.say(h, "取り次ぐことはできません。", "request_end", reason="transfer_unclear")
+        r = self.say(h, "営業のお電話はお断りしております。", "request_end", reason="callee_refused_call")
+        self.assertEqual((r["result"], h.end_reason, bool(h.facts.get("do_not_call"))), ("end", "callee_refused_call", True))
+        # 後任の方の電話：お名前の代わりに「後任のご担当者様」（契約者の単位の録音）
+        bs = self.business(successor=True)
+        fs = Flow(bs.questions, play_recordings=True, opening=bs.replay_parts(), target=bs.replay_parts(), successor=True)
+        r = self.say(fs, "取り次ぐことはできません。", "request_end", reason="transfer_unclear")
+        self.assertEqual(r["play"][0]["text"], SUCCESSOR["unavailable_confirm"])
+        self.assertEqual(r["play"][0]["kind"], "recorded")
+        # 名乗りの録音が無い通話（AIが話す形）でも、言い方は同じ
+        k = Flow(b.questions, target=parts)
+        self.assertEqual(self.say(k, "取り次ぐことはできません。", "request_end", reason="transfer_unclear")["say"], parts["unavailable_confirm"])
+
     def test_promised_call_asks_again_before_closing(self):
         # ✅ 2026-10-22 ユーザーの言い方・2026-10-24「5つOK」（CL-2 の 4-135）：約束の電話で、受付の方に事情で取り次げないと言われたら、締めの前に伺い、
         # 答えを通話の事実 not_transferred の again に残す（「OKなら、当日の約束の時刻の幅の中かけ直してもいい」）
