@@ -296,7 +296,7 @@ SCENES = {
         "人へ知らせる印": bool(c.get("facts", {}).get("complaint")), "締め": closing_of(c) == CLOSE_DECLINED,
         "弁明しない": plain(said(turn_of(c, "complaint"))) in ("", plain(CLOSE_DECLINED)), "約束しない": no_promise(c),
         "取れた答えは残る": got(c, "Q1", "はい")}),
-    # ✅ 2026-11-01 日本時間11時56分 ユーザー (b)：急いでいる方には、締める前に「それではまた改めてお掛けしてもよろしいでしょうか？」を伺い、OK なら
+    # ✅ 2026-11-01 日本時間20時56分 ユーザー (b)：急いでいる方には、締める前に「それではまた改めてお掛けしてもよろしいでしょうか？」を伺い、OK なら
     # 「ご都合のいい日時はいつ頃でしょうか？」で日時を伺って締める・NO なら締めて、もうかけない（⏳ 相手役の新しい台詞 later_* は、まだ録っていない）
     "忙しい": Scene(BUSINESS, [W("busy"), W("later_ok"), W("later_when"), W("affirm")], lambda c: {
         "また改めて伺った": any(x["reply"].get("question_id") == "H1" for x in ops(c)),

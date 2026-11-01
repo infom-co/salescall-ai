@@ -51,6 +51,11 @@ class Target:
     name: str = ""       # 相手の名前の表記（役職のみなら空）
     reading: str = ""    # 名前の読み（ひらがな）。読みが決まらない名前は、まず言ってみる読み（確かめは業務の質問に reading_question を足す）
     role: str = ""       # 部署・役職（「営業部部長」「社長」）。名前のみなら空
+    # フルネームの表記と読み（発信対象データにあれば＝CL-2。「岡田太郎」「おかだたろう」）。ふだんは name（お名字）でお呼びし、受付の方にお名前だけでは
+    # どの方か分からないと言われたときだけ、部署・役職とフルネームでお呼びし直す（full_call・flowctl.Flow._who_unclear。✅ 2026-11-01 日本時間23時59分
+    # ユーザー：「名前以外に部署やフルネームを伝えて、取り次いでもらう努力をするべきじゃないでしょうか。」）
+    full_name: str = ""
+    full_reading: str = ""
     # この方の後任のご担当者様をお呼びする（前の電話で、この方が在籍していないと言われた＝門の予約証 Claim.successor）。呼ぶ一言は
     # 「（この方）様の後任のご担当者様はいらっしゃいますでしょうか？」、確かめる一言・聞き返しは後任の方の言い方（✅ 2026-10-24 ユーザー）
     successor: bool = False
@@ -60,6 +65,7 @@ class Target:
         assert not (self.successor and self.kind != "法人"), "後任の方をお呼びするのは法人だけです"
         assert self.name or self.role, "目的の人には、名前か役職が要ります（どちらも無ければ「誰でも」＝Target を持たない）"
         assert not self.name or self.reading, f"目的の人「{self.name}」の読みが要ります（決まらなければ、まず言ってみる読み）"
+        assert not self.full_name or self.full_reading, f"目的の人のフルネーム「{self.full_name}」の読みが要ります"
 
     def _name(self) -> str:
         return quote(hira(self.reading)) if self.name else ""
@@ -85,6 +91,19 @@ class Target:
         """約束の電話で取り次げないと言われたときに伺う一言（お名前は確かめる一言と同じ呼び方）。"""
         return PROMISE_AGAIN.format(who=f"{self._name()}様" if self.name else role_honorific(self.role))
 
+    def full_call(self) -> str:
+        """お名前だけではどの方か分からないと言われたときにお呼びし直す一言（部署・役職とフルネーム。呼ぶ一言と同じ言い方＝phrases.target_call）。
+        お伝えすることが増えない（フルネームが無い・お名字と同じ）なら空（flowctl.Flow._who_unclear は締める）。"""
+        if not self.full_name or self.full_name == self.name:
+            return ""
+        full = quote(hira(self.full_reading))
+        return SUCCESSOR_OF.format(who=target_who(self.kind, full, self.role)) if self.successor else target_call(self.kind, full, self.role)
+
+    def successor_full_call(self) -> str:
+        """後任の方をお呼びする電話で、お名前だけでは分からないと言われたときの一言（「（前任の方の部署・役職とフルネーム）様の後任のご担当者様は
+        いらっしゃいますでしょうか？」。業務の録音の部分 target_successor_full。法人だけ）。"""
+        return dataclasses.replace(self, successor=True).full_call() if self.kind == "法人" else ""
+
     def unavailable_confirm(self) -> str:
         """理由を言わずに取り次げないと言われたときに、お呼びした方のご事情かを伺う一言（お名前は確かめる一言と同じ呼び方。flowctl.Flow._transfer_unclear）。"""
         return SUCCESSOR["unavailable_confirm"] if self.successor else unavailable_confirm(self._name(), self.role)
@@ -102,6 +121,9 @@ class Business:
     # （2026-10-13 ユーザー：依頼主によっては粘ってほしい。トークスクリプト（業務情報）で選べるように。既定の文は phrases.BUSY_ASK）
     busy_ask: str | None = None
     goal_mode: str = "any"   # 最終目的の果たし方（flowctl.GOAL_MODES。最終目的は質問の final_goal・断る答えは declines＝業務設定＝CL-2）
+    # 依頼者がすること（登録・記録・手配など。空なら「記録」＝phrases.CLIENT_DOES。業務設定＝CL-2）。事実を伺う質問の、言い切っていない最初の答えの確かめ
+    # 「それでは（意味の言葉）ということで（依頼者がすること）させていただいて大丈夫でしょうか？」に入る（✅ 2026-11-01 日本時間6時05分・6時27分 ユーザー）
+    client_does: str = ""
     # 留守番電話に残す伝言（Intent.md 9-4「伝言を残すか残さないかを設定で選ぶ。残す場合の文面も設定で持つ」。⏳ 残すかは 18-2 の14 で
     # ユーザーが決める）。空なら残さずに切る（安全側）
     voicemail_message: str | None = None
@@ -239,7 +261,8 @@ class Business:
         DESIGN.md 6-13。流し直しにも使う）。目的の人のある業務は、繋がるまで最初の質問を渡さない（DESIGN.md 4-3）＝名乗り・用件の文は、
         AIが話す形でも流れの制御が持つ。kw＝試しの比べだけで変えるもの（lead_ins・confirm など）。"""
         from flowctl import Flow
-        return Flow(self.questions, busy_ask=self.busy_ask, goal_mode=self.goal_mode, play_recordings=play_recordings, voicemail_message=self.voicemail_message,
+        return Flow(self.questions, busy_ask=self.busy_ask, goal_mode=self.goal_mode, client_does=self.client_does,
+                    play_recordings=play_recordings, voicemail_message=self.voicemail_message,
                     answers=dict(self.answers), policies=self.policies(), knowledge=self.knowledge(), names=self.spoken_names(),
                     name_readings=self.name_readings(), judge_names=self.judge_names(),
                     # 門の予約証から（CL-2 の gate.Claim）：約束の電話か・まずお詫びすること・後任のご担当者様をお呼びする電話か
@@ -312,7 +335,7 @@ class Business:
         文は opening_parts と同じもの（録音も同じ）。目的の人のある業務では、呼ぶ一言（target）と、代わった方を確かめる一言（target_confirm）と、
         その返事がはっきりしないときの聞き返し（target_reconfirm）と、約束の電話で取り次げないと言われたときに伺う一言（promise_again）と、
         法人なら前任の方の後任のご担当者様をお呼びする一言（target_successor）も。
-        お名前の入る6つ（target・target_confirm・target_reconfirm・promise_again・unavailable_confirm・target_successor）は、業務の録音の組ではなく、名前の録音の
+        お名前の入る7つ（target・target_confirm・target_reconfirm・promise_again・unavailable_confirm・target_successor・target_full＝フルネームのあるときだけ）は、業務の録音の組ではなく、名前の録音の
         台帳（名前の部分＋続く言葉。DESIGN.md 4-3）から流す。どの行が約束の電話・後任の方の電話になるかは、取込（台帳の録音を作る時）には
         分からないので、この電話が何の電話か（予約証の promised・successor）に関わらず、どの電話にも同じ部分を返す（CL-2 の 4-152）。
         この電話で流す部分を選ぶのは flowctl.Flow（後任の方の電話は target の代わりに target_successor を流す＝Flow._part_play）。"""
@@ -324,6 +347,10 @@ class Business:
             parts.update(target=t.call(), target_confirm=t.confirm(), target_reconfirm=t.reconfirm(),
                          promise_again=t.promise_again(),  # 約束の電話で取り次げないと言われたとき（flowctl.Flow._not_transferred）
                          unavailable_confirm=t.unavailable_confirm())  # 理由を言わずに取り次げないと言われたとき（flowctl.Flow._transfer_unclear）
+            if t.full_call():
+                parts["target_full"] = t.full_call()   # お名前だけでは分からないと言われたとき（部署・フルネーム。flowctl.Flow._who_unclear）
+                if t.successor_full_call():
+                    parts["target_successor_full"] = t.successor_full_call()   # 後任の方の電話で、同じとき（flowctl.Flow の successor が差し替える）
             if t.kind == "法人":
                 parts["target_successor"] = t.successor_call()
         if self.voicemail_message:
