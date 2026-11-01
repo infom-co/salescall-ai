@@ -117,6 +117,21 @@ def _secret_value(name: str, env_path: str | os.PathLike | None) -> str | None:
     return next((v for n, v in pairs if n == name and v), None)
 
 
+DRY_RUN = False   # 組み立てだけの印（--dry-run）を受け取ったか（base_parser の _DryRun が立てる。load_secret・pick_key が見る1か所）
+
+
+class _DryRun(argparse.Action):
+    """--dry-run：引数を読んだ時点で、この処理の中の鍵を読む所（load_secret）に知らせる（道具ごとに見るのを忘れても送らない）。"""
+
+    def __init__(self, option_strings, dest, **kwargs):
+        super().__init__(option_strings, dest, nargs=0, default=False, **kwargs)
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        global DRY_RUN
+        DRY_RUN = True
+        setattr(namespace, self.dest, True)
+
+
 def has_secret(name: str, env_path: str | os.PathLike | None = None) -> bool:
     """キーが入っているか（値は伏せる一覧にも画面にも出さず、あるかだけ。足りないものの確かめ用）。"""
     return _secret_value(name, env_path) is not None
@@ -125,6 +140,10 @@ def has_secret(name: str, env_path: str | os.PathLike | None = None) -> bool:
 def load_secret(name: str, env_path: str | os.PathLike | None = None) -> str:
     """Gemini 以外のキー（別の耳など）を1つ読む唯一の場所。`.env` があればそこから、無ければ環境変数から。値は伏せる一覧に入れ、画面には名前だけ出す。
     無ければ、入れ方を書いて止める（⛔ キーの値をチャットで聞かない。クラウドの作業環境では「環境変数」の欄に入れていただく＝docs/EARS_SETUP.md）。"""
+    if DRY_RUN:
+        # 組み立てだけ（--dry-run）：判定AI・別の耳の鍵は渡さない＝どの道具でも送れない（⛔ 2026-11-02 日本時間7時29分：答えの段の道具が
+        # --dry-run を見ておらず、組み立てだけのつもりで判定を2,840回送った＝約22円。印が Gemini の鍵の所（pick_key）でしか効いていなかった）
+        raise SystemExit(f"組み立てだけ（--dry-run）なので、キー {name} は読みません（送りません）")
     value = _secret_value(name, env_path)
     if not value:
         raise SystemExit(f"キー {name} が見つかりません。作業環境の設定（セッションの上のクラウド環境のメニュー →「編集」）の「環境変数」の欄に、"
@@ -517,7 +536,7 @@ def base_parser(description: str) -> argparse.ArgumentParser:
     p.add_argument("--key-name", action="append", help="使うキーの変数名（複数指定可）。省略時は名前で探す")
     p.add_argument("--key-index", type=int, default=0, help="何番目のキーを使うか（0 から）")
     p.add_argument("--model", default=DEFAULT_MODEL, help="モデルID（G-1 で公式の値を確かめる）")
-    p.add_argument("--dry-run", action="store_true", help="接続せず、設定の組み立てだけ確かめる")
+    p.add_argument("--dry-run", action=_DryRun, help="接続せず、設定の組み立てだけ確かめる（判定AI・別の耳の鍵も読まない＝送らない）")
     p.add_argument("--budget-yen", type=float, default=DEV_BUDGET_YEN,
                    help="この試しで有料の判定（Anthropic）に使ってよい円。超えたら、それより後は送らない（判定は止まった扱い）")
     p.add_argument(

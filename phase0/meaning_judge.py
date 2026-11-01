@@ -734,8 +734,11 @@ def sure_line(name: str, q) -> float | None:
 
 def firm_matters(q, got) -> bool:
     """読み got で、お客様が言い切っているかが流れの制御の動きを変えるか（唯一の場所。確かな読みの決め方＝sure_reading・測りの道具が使う）：
-    選択肢を選んだ読み（最初の答えは、念のため確かめるか受け取るかが変わる・言い直しへの返事は、曖昧の印が付くか）と、値の言い直しを認めた読み。"""
-    return got in (getattr(q, "conditions", ()) or ()) or got == "affirmed"
+    選択肢を選んだ読み・「どちらでも」「どれも要らない」の読み（最初の答えは、念のため確かめるか受け取るかが変わる・言い直しへの返事は、曖昧の印が
+    付くか）と、値の言い直しを認めた読み。⛔ 2026-11-02 日本時間7時40分ごろ（G-53end）に見つけた：流れの制御（Flow._checks）と測りの道具（flow_act）は、
+    言い切っていない「どちらでも」「どれも要らない」も確かめるのに、ここは選択肢だけを数えていた（同じ決まりを2か所に書き、片方だけ直していた）＝
+    d1-ultra の「どちらでも」の読みは、言い切りが迷う値でも確かな読みとして採られ、言い切った「お任せします」を確かめていた（33件）。"""
+    return got in (getattr(q, "conditions", ()) or ()) or got in (ANY, NONE) or got == "affirmed"
 
 
 def sure_reading(name: str, q, got) -> bool:
