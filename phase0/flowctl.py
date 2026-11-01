@@ -2146,7 +2146,7 @@ class Flow:
             return False
         if name == "request_end" and (args or {}).get("reason") != "done":
             return True
-        return any(getattr(v, "end", None) in END_REASON for v in self._judged_now().values()) or bool(self._end_lean())
+        return any(getattr(v, "end", None) in (*END_REASON, UNDECIDED) for v in self._judged_now().values()) or bool(self._end_lean())
 
     # ── 確かめが届いた（唯一の入口）：別の耳（会話AIとは別の音声認識。DESIGN.md 6-10 の (5)。G-15）の文字、または意味の判定（会話AIとは
     #    別の文字のAI。meaning_judge。6-10 の (6)。G-53）の答え（中の名前・HOLD・HANDOVER・UNDECIDED）。turn＝どの相手の発話の確かめか
@@ -2713,9 +2713,11 @@ class Flow:
         if result == "next":
             self.ack_count += 1
             return ("shouchi", "arigatou")[(self.ack_count - 1) % 2]
-        if result == "end" and args.get("reason") == "callee_refused_call":
+        # 締めの相づちは、締めた理由（判定が決めた理由＝end_reason）で選ぶ。⛔ 2026-11-01 夜の見直しで見つけた穴：会話AIが報告した理由で選んでいたので、
+        # 判定が「怒っている」と決めても、会話AIの報告が「取り次いでいただけなかった」なら「はい、」を流していた
+        if result == "end" and self.end_reason == "callee_refused_call":
             return "shouchi"
-        if result == "end" and args.get("reason") == "callee_complaint":
+        if result == "end" and self.end_reason == "callee_complaint":
             # 怒り・苦情：締めの言い方そのもの（「お忙しいところ申し訳ございませんでした。…」）がお詫び。頭に「承知しました、」「はい、」を
             # 流すと、相手の怒りを軽く受け流したように聞こえ、「申し訳ございません、」を流すとお詫びが2回続く ⇒ 流さない
             return None
@@ -4716,9 +4718,11 @@ class Flow:
         if self.end_used_turn == self.callee_turns or self.midway or not self.words_complete:
             return None
         end = self._end_now()
-        # 決まらない：届いた読みが食い違った・確かな読みが無く、答えを待っている判定も無い（確かでない読みだけ）。⛔ 2026-11-01 夜の見直しで
-        # 見つけた穴：前は食い違ったときだけで、確かでない読みだけが電話を終える言葉に寄っても、会話AIが報告しなければ何もしなかった
-        unsure = (end == UNDECIDED or (end is None and not self._end_pending())) and bool(self._end_lean())
+        # 決まらない：届いた読みが食い違った・判定が「決められない」と読んだ（寄りが無くても）・確かな読みが無く、答えを待っている判定も無いのに
+        # 確かでない読みが電話を終える言葉に寄った。⛔ 2026-11-01 夜の見直しで見つけた穴：前は食い違ったときだけで、確かでない読みだけの寄りでは
+        # 何もしなかった。⛔ 同じ夜、正解の表を作りから出して見つけた穴：判定の「決められない」も、寄りが無いと何もせず、「もういいです。」の答えを
+        # 向きを確かめずに受け取って次の質問を流していた
+        unsure = end == UNDECIDED or (end is None and not self._end_pending() and bool(self._end_lean()))
         topic = unsure and self._topic_first()
         if topic:
             self.end_doubt = self.callee_turns   # いまの話への返事として受け取る（答えは向きを確かめる＝_checks）

@@ -7062,6 +7062,53 @@ class EndJudgedTest(unittest.TestCase):
         self.assertEqual(h.apply("request_end", {"reason": "callee_refused_call"})["result"], "confirm_unavailable")
 
 
+class EndWordsTest(unittest.TestCase):
+    """電話を終える言葉の試しの正解の表（end_words）の行ごとに、正解の読みを当てたときにお客様に聞こえる言葉と結果（表でお見せするもの）を確かめる。
+    ✅ 2026-11-01 のご判断（11時11分・11時56分・22時31分・23時04分）。表を直したら、ここも直す（食い違えば落ちる）。"""
+
+    H1 = "はい、それではまた改めてお掛けしてもよろしいでしょうか？"
+    NEXT = "承知しました。それではご連絡に都合のよい曜日はございますでしょうか？"
+    REFUSED = "承知しました。お忙しいところ申し訳ございませんでした。それでは失礼いたします。"
+    R1 = "失礼いたしました。今後このようなお電話はご遠慮したほうがよろしいでしょうか？"
+
+    def test_answer_rows(self):
+        from end_words import ANSWER, QUIET, answer_flow
+        want = [
+            (self.H1, "続ける"), (self.NEXT, "続ける"),
+            ("はい、お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。", "締め（goal_refused）・この業務はかけない"),
+            (self.NEXT, "続ける"), (self.REFUSED, "締め（callee_refused_call）・もうかけない"), (self.NEXT, "続ける"), (self.H1, "続ける"),
+            (self.NEXT, "続ける"), (self.REFUSED, "締め（callee_refused_call）・もうかけない"), (self.REFUSED, "締め（callee_refused_call）・もうかけない"),
+            (self.H1, "続ける"), (self.H1, "続ける"), ("", "続ける"),
+            ("承知しました。恐れ入りますが何時ごろでしたらご都合よろしいでしょうか？", "続ける"),
+            ("お忙しいところ申し訳ございませんでした。それでは失礼いたします。", "締め（callee_complaint）・人に引き継ぐ"),
+            ("はい、パンフレットはお送りしない方がいいということでしょうか？", "続ける"), (self.NEXT, "続ける"), ("", "続ける"),
+            ("はい、念のためパンフレットをお送りして大丈夫だということでよろしかったでしょうか？", "続ける"),
+            (self.R1, "続ける"), (self.R1, "続ける")]
+        self.assertEqual(len(want), len(ANSWER))
+        for row, w in zip(ANSWER, want):
+            _, heard, marks = answer_flow(row)
+            self.assertEqual((heard, marks), w, row[1])
+
+    def test_calling_rows(self):
+        from end_words import CALLING, calling_flow
+        unavailable = "はい、「おかだ」様は今お電話に出られないご状況ということでしょうか？"
+        want = [(self.REFUSED, "締め（callee_refused_call）・もうかけない"), (self.REFUSED, "締め（callee_refused_call）・もうかけない"),
+                ("はい、お忙しいところお時間をいただきましてありがとうございました。それでは失礼いたします。", "締め（not_transferred）"),
+                (unavailable, "続ける"), None, (unavailable, "続ける"), (self.H1, "続ける"), (self.H1, "続ける"),
+                ("お忙しいところ申し訳ございませんでした。それでは失礼いたします。", "締め（callee_complaint）・人に引き継ぐ")]
+        self.assertEqual(len(want), len(CALLING))
+        for row, w in zip(CALLING, want):
+            got = calling_flow(row)
+            self.assertEqual(None if got is None else got[1:], w, row[1])
+
+    def test_ack_follows_the_decided_reason(self):
+        # ⛔ 2026-11-01 夜（表を作りから出して見つけた穴）：締めの相づちを会話AIの理由で選んでいた＝判定が「怒っている」と決めても、
+        #    会話AIの報告が「取り次いでいただけなかった」なら「はい、」を流していた（怒っている方には相づちを流さない決まり）
+        from end_words import CALLING, calling_flow
+        f, heard, _ = calling_flow(CALLING[-1])
+        self.assertEqual((f.end_reason, f.log[-1]["reply"]["ack"]), ("callee_complaint", None))
+
+
 class TargetTest(unittest.TestCase):
     """目的の人に繋がってから必須の質問を始める（DESIGN.md 4-3。✅ 2026-10-13 ユーザー：「決裁権者と話したいのに、関係ない人と話しても意味が
     ない」）。名乗りの終わりは目的の人を呼ぶ一言。繋がったら、その方にまだ届いていない名乗り・用件を流してから最初の質問。"""
