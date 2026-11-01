@@ -34,16 +34,20 @@ HURRY_Q = "お急ぎではございませんか？"
 VISIT = "担当者がご訪問させていただいてもよろしいでしょうか？"
 CONTACT = "ご連絡はお電話とメールのどちらがよろしいでしょうか？"
 PAY = "お支払いはカードと振込のどちらがよろしいでしょうか？"
+# 表の質問と選択肢（取込に渡すもの）。答えの段の測りの質問の表（g53_meaning.question_map）に無い質問は、取込と同じ形で G-72 が意味の言葉・事実を
+# 伺う質問かを作る。どの質問も、意味の言葉・事実を伺う質問か・向きを伺う言葉・こちらがすることの言葉は、取込で作ったもの（question）＝手で書かない。
+# ⛔ 2026-11-02 まで、ここに手で書いていた（「大丈夫だということ」「ご予約はお済み」「お振込み」＝取込の言葉と違う言葉で表を作っていた）
 CHOICES = {OFFER: YES_NO, PAMPHLET: YES_NO, SEMINAR: ("参加する", "参加しない"), RESERVED: YES_NO, DOCS: YES_NO, HURRY_Q: YES_NO,
            VISIT: YES_NO, CONTACT: ("電話", "メール"), PAY: ("カード", "振込")}
-# 取込で作る言葉（意味の言葉・いまの話の向きを伺う言葉）。⏳ 本番は取込で文字のAI2つが作る（CL-2）＝ここは試しの仮の言葉
-MEANINGS = {PAMPHLET: {"はい": "パンフレットをお送りして大丈夫だということ", "いいえ": "パンフレットはお送りしなくて大丈夫だということ"},
-            RESERVED: {"はい": "ご予約はお済みということ", "いいえ": "ご予約はまだということ"}}
-DOUBT = {PAMPHLET: {"はい": "パンフレットをお送りした方がいい", "いいえ": "パンフレットはお送りしない方がいい"}}
-# こちらがすること（お客様がされること）の言葉（flowctl.Question.do_words）。⏳ 本番は取込で文字のAI2つが作る（CL-2）・CL-1 が全部を見る
-DO = {PAMPHLET: {"はい": "パンフレットをお送り", "いいえ": "パンフレットの送付は控え"},   # ✅ 11-02 1時22分「パンフレットの送付は控え」
-      PAY: {"カード": "お支払いはカードと", "振込": "お支払いはお振込みと"}}
-FACTS = (RESERVED, DOCS)   # お客様に事実を伺う質問（flowctl.Question.asks_fact。本番は取込で文字のモデル2つが決める＝facts.decide）
+
+
+def question(qtext: str, goal: bool = False, qid: str = "Q1"):
+    """表の質問を、取込で作った言葉のついた流れの制御の質問に（唯一の場所＝答えの段の測りの質問の表 g53_meaning.question_by_text）。goal＝業務の
+    最終目的の質問か（断る向き＝2つ目の選択肢）。"""
+    import dataclasses
+    from g53_meaning import question_by_text
+    q = question_by_text(qtext)
+    return dataclasses.replace(q, id=qid, final_goal=goal, declines=(q.conditions[1],) if goal else ())
 
 # 答えの段：(質問, お客様の言葉, 電話を終える言葉かの正解, 答えの正解, 業務の最終目的の質問か, 理由)。正解は受け取ってよい読みの組
 # （先頭が、表でお客様に聞こえる言葉を出す読み）。答えの「unknown」＝わからない・「refused」＝答えたくない
@@ -68,25 +72,45 @@ ANSWER = [
     (PAMPHLET, "うーん。", (END_NONE,), (UNDECIDED,), False, "22時31分＝悩んでいる最中（待って伺う）"),
     (PAMPHLET, "うーん、送ってもらおうかな…。", (END_NONE,), ("はい" + HEDGED,), False, "言い切っていないが向きは決まった答え（20時56分・23時59分）"),
     (PAMPHLET, "うーん、今回はいいかなあ…。", (END_NONE,), ("いいえ" + HEDGED,), False, "同じ（送らない向き）"),
-    (PAY, "たぶんカードかなと思います。", (END_NONE,), ("カード" + HEDGED,), False, "同じ形を、希望を伺う選ぶ質問にも当てた（⏳ 伺う）"),
+    (PAY, "たぶんカードかなと思います。", (END_NONE,), ("カード" + HEDGED,), False, "同じ形を、希望を伺う選ぶ質問にも（11-02 1時22分 (c)）"),
     (RESERVED, "たぶん予約してると思います。", (END_NONE,), ("はい" + HEDGED,), False, "事実を伺う質問（6時05分・依頼者がすること＝初めの値の記録）"),
     (RESERVED, "そういうお電話はちょっと……。", (UNDECIDED,), (UNDECIDED,), False, "電話を断っていそうだが言い切っていない・答えでもない"),
     (RESERVED, "結構です。", (UNDECIDED, END_NONE), (UNDECIDED,), False, "10-17「その言葉だけで通話の断りとして締めない」"),
 ]
 
-# お呼びする段：(電話口の方, お客様の言葉, 電話を終える言葉かの正解, 理由)
+# お呼びする段：(電話口の方, お客様の言葉, 電話を終える言葉かの正解, 理由, 項目ごとの正解の字)。項目ごとの正解の字は、お呼びする段の測り（g59_calling_judge
+# の F と同じ字＝前と同じ方か・誰か・電話のやり取り・お呼びした方の事情。並べた字のどれでもよい）。正解は、判定に見せる言葉（呼ぶ一言・その前に相手が
+# 言ったこと・お客様の言葉）だけから決める：受付の方の行は、呼ぶ一言への最初の言葉（その前の言葉は無い）・ご本人の行は、受付の方の
+# 「岡田ですね。少々お待ちください。」（BEFORE_TARGET）のあとに出た方の言葉
+BEFORE_TARGET = "岡田ですね。少々お待ちください。"
 CALLING = [
-    ("受付の方", "うちはそういうのは間に合ってますので。", (END_REFUSED,), "営業のお断り"),
-    ("受付の方", "営業のお電話でしたらお繋ぎできません。", (END_REFUSED,), "10-22＝営業のお断り（もうかけない）"),
-    ("受付の方", "お名前だけではどの者か分かりかねますので、お繋ぎできかねます。", (END_WHO,), "23時59分＝部署・フルネームを伝えてお呼びし直す"),
-    ("受付の方", "個人あてのお電話はお繋ぎしておりません。", (END_REASONED,), "10-22＝事情があって取り次げない（日を改めて1回）"),
-    ("受付の方", "あいにく取り次ぐことはいたしかねます。", (END_UNCLEAR,), "11-01 5時26分＝理由を言わずに取り次げない"),
-    ("受付の方", "岡田は本日終日外出しておりまして。", (END_NONE,), "お呼びした方の事情（電話を終える言葉ではない）"),
-    ("受付の方", "結構です。", (UNDECIDED,), "10-17＝その言葉だけで断りとしない"),
-    ("受付の方", "申し訳ございません、今ちょっとバタバタしておりまして。", (END_HURRY,), "急いでいる（受付の方でも同じ伺い）"),
-    ("ご本人", "すみません、いま手が離せないので失礼します。", (END_HURRY,), "10-13「忙しい」とだけ＝急いでいる"),
-    ("ご本人", "何度も同じ電話してきて、いい加減にしてください！", (END_ANGRY,), "怒っている・苦情"),
+    ("受付の方", "うちはそういうのは間に合ってますので。", (END_REFUSED,), "営業のお断り", ("同", "受不", "無", "無")),
+    ("受付の方", "営業のお電話でしたらお繋ぎできません。", (END_REFUSED,), "10-22＝営業のお断り（もうかけない）", ("同", "受", "無", "無")),
+    ("受付の方", "お名前だけではどの者か分かりかねますので、お繋ぎできかねます。", (END_WHO,), "23時59分＝部署・フルネームを伝えてお呼びし直す",
+     ("同", "受", "無", "無")),
+    ("受付の方", "個人あてのお電話はお繋ぎしておりません。", (END_REASONED,), "10-22＝事情があって取り次げない（日を改めて1回）", ("同", "受", "無", "無")),
+    ("受付の方", "あいにく取り次ぐことはいたしかねます。", (END_UNCLEAR,), "11-01 5時26分＝理由を言わずに取り次げない", ("同", "受", "無", "無")),
+    ("受付の方", "岡田は本日終日外出しておりまして。", (END_NONE,), "お呼びした方の事情（電話を終える言葉ではない）", ("同", "受", "無", "在")),
+    ("受付の方", "結構です。", (UNDECIDED,), "10-17＝その言葉だけで断りとしない", ("同", "受不", "無", "無")),
+    ("受付の方", "申し訳ございません、今ちょっとバタバタしておりまして。", (END_HURRY,), "急いでいる（受付の方でも同じ伺い）", ("同", "受不", "無", "無")),
+    ("ご本人", "すみません、いま手が離せないので失礼します。", (END_HURRY,), "10-13「忙しい」とだけ＝急いでいる", ("違", "本不", "無", "無")),
+    ("ご本人", "何度も同じ電話してきて、いい加減にしてください！", (END_ANGRY,), "怒っている・苦情", ("違", "本不", "無", "無")),
 ]
+
+
+def answer_truths() -> dict:
+    """答えの段の行の正解（唯一の場所。答えの段の測り G-53 の組 F が読む＝g53_meaning._label）：(質問の文, お客様の言葉) ⇒ {accept：受け取ってよい
+    答え・hedged：寄っているが言い切っていないか・end：電話を終える言葉かの正解・why}。「決められない」は「わからない」と同じに数える（g53_meaning.accept）。
+    同じ質問・同じ言葉の行（業務の最終目的かだけが違う）は、正解も同じでなければならない（違えば止める）。"""
+    out: dict = {}
+    for qtext, words, ends, answers, _, why in ANSWER:
+        acc = [a.removesuffix(HEDGED) for a in answers]
+        acc += ["unknown"] if UNDECIDED in acc and "unknown" not in acc else []
+        got = {"accept": acc, "hedged": any(a.endswith(HEDGED) for a in answers), "end": list(ends), "why": why}
+        old = out.setdefault((qtext, words), got)
+        if any(old[k] != got[k] for k in ("accept", "hedged", "end")):
+            raise ValueError(f"同じ質問・同じ言葉の行で正解が違う：{qtext}「{words}」")
+    return out
 
 
 def _reading(cond: str, end: str):
@@ -111,10 +135,8 @@ def answer_flow(row: tuple):
     会話AIの報告は、正解の答えの報告（電話を終える読みがあれば、判定が先に当てる＝Flow._apply_one）。"""
     from flowctl import Flow, Question
     qtext, words, ends, answers, goal, _ = row
-    choices = CHOICES[qtext]
-    q = Question("Q1", qtext, "choice" if "どちら" in qtext else "yes_no", conditions=choices, meanings=MEANINGS.get(qtext, {}),
-                 doubt_words=DOUBT.get(qtext, {}), do_words=DO.get(qtext, {}), asks_fact=qtext in FACTS,
-                 final_goal=goal, declines=(choices[1],) if goal else ())
+    q = question(qtext, goal)
+    choices = q.conditions
     nxt = Question("Q2", "ご連絡に都合のよい曜日はございますでしょうか？", "yes_no", conditions=YES_NO)
     f = Flow([q, nxt], play_recordings=True)
     f.use_checks("judge")
@@ -130,7 +152,7 @@ def answer_flow(row: tuple):
 def calling_flow(row: tuple):
     """お呼びする段の行の言葉を、正解の読みで流れの制御に当てる（会話AIの報告は「取り次いでいただけなかった」＝判定が理由を決める）。
     電話を終える言葉でない行は None（呼んでいる段の今の決まりで、ほかの項目の読みが決める）。"""
-    _, words, ends, _ = row
+    _, words, ends, _, _ = row
     if ends[0] == END_NONE:
         return None
     import dataclasses

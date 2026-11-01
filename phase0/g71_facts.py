@@ -20,7 +20,7 @@ WRONG: set[str] = set()
 def questions() -> list[str]:
     """測る質問の文（答えの段の測りと同じ1か所＝g53_meaning の質問。同じ文は1回）。"""
     from g53_meaning import question_map
-    return list(dict.fromkeys(q.text for q in question_map(facts=False).values()))
+    return list(dict.fromkeys(q.text for q in question_map(facts=False, words=False).values()))
 
 
 def tally(qs: list[str], rows: dict) -> dict:

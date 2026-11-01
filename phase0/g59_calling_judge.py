@@ -187,6 +187,13 @@ EXTRA = {("お電話代わりました。山田です。", AWAY_TO_OTHER): ["不
          ("お電話代わりました。", "岡田は外出しておりますので、別の者に代わります。"): ["不在"]}
 
 
+def lines_end() -> list[tuple[str, str | None, dict[str, set]]]:
+    """電話を終える言葉の試しの表（end_words.CALLING・唯一の場所）のお呼びする段の言葉：(相手の言葉, その前に相手が言ったこと, 正解)。正解は、表の
+    項目ごとの字（F）と、電話を終える言葉かの正解。ご本人の行は、受付の方の「岡田ですね。少々お待ちください。」のあとに出た方の言葉。"""
+    from end_words import BEFORE_TARGET, CALLING
+    return [(t, BEFORE_TARGET if who == "ご本人" else None, F(*codes) | {END: set(ends)}) for who, t, ends, _, codes in CALLING]
+
+
 def accept_of(facts: dict[str, set], seeks_successor: bool = False) -> list[str]:
     """正解 ⇒ 受け取ってよい読み（正解の組み合わせを、流れの制御の1か所＝flowctl.facts_reading で読みにしたもの）。"""
     from itertools import product
@@ -206,9 +213,10 @@ def cases(confirm: str) -> list[tuple[str, list[str], str | None, str | None, bo
     from phrases import SUCCESSOR
     rows = ([(t, None, False, False, f) for t, f in LINES] + [(t, b, False, False, f) for t, b, f in LINES_AFTER]
             + [(t, b, True, False, f) for t, b, f in LINES_CONFIRMED]
-            + [(t, b, c, False, f) for t, b, c, f in LINES_BOTH + LINES_DEPARTED] + [(t, b, c, True, f) for t, b, c, f in LINES_SUCCESSOR])
-    # 電話を終える言葉か（2026-11-01 に項目を足した）：71の言葉には、断り・取り次げない・急ぎ・怒りの言葉が無い＝どれも「言っていない」
-    #    （⏳ 電話を終える言葉の試しは別に作り、正解をご覧いただいてから使う）
+            + [(t, b, c, False, f) for t, b, c, f in LINES_BOTH + LINES_DEPARTED] + [(t, b, c, True, f) for t, b, c, f in LINES_SUCCESSOR]
+            + [(t, b, False, False, f) for t, b, f in lines_end()])
+    # 電話を終える言葉か（2026-11-01 に項目を足した）：71の言葉には、断り・取り次げない・急ぎ・怒りの言葉が無い＝どれも「言っていない」。
+    #    電話を終える言葉の試しの表の言葉（lines_end）は、表の正解（✅ 2026-11-02 日本時間1時59分 ユーザー：「OK、進めてください」）
     return [(t, sorted(set(accept_of(f, s)) | set(EXTRA.get((t, b), ()))), b, (SUCCESSOR["target_confirm"] if s else confirm) if c else None, s,
              f | {END: f.get(END, {END_NONE})})
             for t, b, c, s, f in rows]
@@ -345,7 +353,8 @@ async def run(args) -> dict:
     def fok(r, k):
         return facts_ok(r.get(f"{k}_facts"), {x: set(v) for x, v in r["facts_accept"].items()})
     summary |= {f"{k}（事実ごとに全部）": f"{sum(1 for r in rows if fok(r, k))}/{len(rows)}" for k in measured}
-    for key, name in ((SPEAKER, "前と同じ方か"), (WHO, "話している方は誰か"), (PHONE, "電話のやり取り"), (ABOUT, "いまお呼びしている方の事情")):
+    for key, name in ((SPEAKER, "前と同じ方か"), (WHO, "話している方は誰か"), (PHONE, "電話のやり取り"), (ABOUT, "いまお呼びしている方の事情"),
+                      (END, "電話を終える言葉か")):
         shown = [r for r in rows if key in r["facts_accept"]]
         summary |= {f"{k}（{name}）": f"{sum(1 for r in shown if (r.get(f'{k}_facts') or {}).get(key) in r['facts_accept'][key])}/{len(shown)}"
                     for k in measured}

@@ -11,6 +11,8 @@
      5つの返し方で2つずつ、判定の候補に入れないモデル2つ（MAKERS_DE）に作らせる
  (E) 答えでない言葉（2026-10-18。DESIGN.md 6-8）：取り次ぎを待つように言う言葉・代わった人の最初の言葉を、MAKERS_DE に作らせ、G-50 の
      取り次ぎの場面の台詞も足す。最初の答えの場面と、言い直しの返事の場面の両方で判定させる
+ (F) 電話を終える言葉の試しの表（end_words.ANSWER・2026-11-01 のご判断）の言葉＝正解は表のもの（答え・言い切っていないか・電話を終える言葉か）。
+     ほかの組の電話を終える言葉かの正解は「言っていない」（当たりうる言葉だけ、付け直した正解の帳面に end を付けた＝end_accept）
 判定は1つの答えに1回ずつ問い合わせる（本番と同じ形）。かかった時間も残す（通話の中で、会話のAIの報告を待つ間に間に合うか）。
 判定のモデルが自分で作った答え（C の 3.6 Flash・3.7 Flash）は、そのモデルの数えに入れない。
 """
@@ -24,7 +26,8 @@ from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 
 from common import HERE, KeyRing, base_parser, describe_error, require_python, save_partial, save_result, say
-from flowctl import ANY, CHOICE_TYPES, HANDOVER, HOLD, SYSTEM_CONDITIONS, Flow, Question, off_talk, prior_answer
+from flowctl import (ANY, CHOICE_TYPES, END_ANGRY, END_HURRY, END_NONE, END_REASON, END_REFUSED, HANDOVER, HOLD, SYSTEM_CONDITIONS, Flow, Question,
+                     off_talk, prior_answer)
 from g48_meanings import QUESTIONS as G48
 from meaning_judge import GROUPS, JUDGE_MODELS, OTHER_JUDGES, UNDECIDED, judge, judge_other
 
@@ -85,11 +88,58 @@ def accept(it: dict) -> list[str]:
 
 
 def _label(it: dict) -> dict | None:
+    """付け直した正解（組 F は電話を終える言葉の試しの表の正解＝end_words.answer_truths・ほかは帳面 g53_labels.json）。"""
+    if it["set"] == "F":
+        from end_words import answer_truths
+        return answer_truths().get((it["question"], it["text"]))
     global _LABELS
     if _LABELS is None:
         p = HERE / "g53_labels.json"
         _LABELS = json.loads(p.read_text(encoding="utf-8"))["labels"] if p.exists() else {}
     return _LABELS.get(f"{it['set']}|{it['qid']}|{it['text']}|{it.get('asked') or ''}")
+
+
+def end_accept(it: dict) -> list[str]:
+    """電話を終える言葉かの正解（受け取ってよい読み。数えるのはここ）：付け直した正解の end（組 F は表の正解）、無ければ「言っていない」。"""
+    got = _label(it)
+    return list(got["end"]) if got and got.get("end") else [END_NONE]
+
+
+# 電話を終える言葉かの読みから、流れの制御がすること（Flow._end_due_now・_end_unsure の向き）。急いでいる＝急いでいる方への伺い（_hurry_ask）
+END_ACTS = {END_REFUSED: "締める（もうかけない）", END_HURRY: "急いでいる方への伺い", END_ANGRY: "締める（人に引き継ぐ）"}
+END_GO, END_TOPIC, END_ASK = "続ける", "いまの話の向きを伺う", "ご遠慮を伺う"
+
+
+def end_act(q: Question, got, end) -> str | None:
+    """判定の読み（答え got・電話を終える言葉か end）から、流れの制御がすること（読みが無ければ None）：電話を終える言葉なら締める・急いでいる方への
+    伺い／言っていないなら続ける（答えは flow_act のとおり）／決められないなら、いまの質問の選択肢の答えとも読めれば、その向きを伺う（_topic_first）、
+    読めなければ、ご遠慮を伺う（_refusal_confirm）。答えの段の読みに、取り次げない3つは無い（end_choices）。"""
+    if end is None:
+        return None
+    if end in END_REASON:
+        return END_ACTS.get(end, f"締める（{end}）")
+    if end == END_NONE:
+        return END_GO
+    return END_TOPIC if q.type in CHOICE_TYPES and got in q.conditions else END_ASK
+
+
+def end_miss(it: dict, q: Question, key: str) -> str | None:
+    """判定 key の電話を終える言葉かの読みで、流れの制御の動きが正解と違えば、その違いの種類（正しければ None・読みが無ければ「読み無し」）。
+    正解の動き＝正解の電話を終える言葉かと、正解の答えのどれかの組み合わせ。"""
+    act = end_act(q, it.get(key), it.get(f"{key}終わり"))
+    if act is None:
+        return "読み無し"
+    want = {end_act(q, a, e) for e in end_accept(it) for a in accept(it)}
+    if act in want:
+        return None
+    closes = {w for w in want if w not in (END_GO, END_TOPIC, END_ASK)}
+    if act not in (END_GO, END_TOPIC, END_ASK):
+        return "⛔違う理由で締める・伺う" if closes else "⛔電話を終える言葉ではないのに締める・急ぎを伺う"
+    if closes:
+        return "⛔電話を終える言葉なのに締めない"
+    if act == END_GO:
+        return "⛔伺わずに続ける"
+    return "要らない伺い" if want == {END_GO} else "違う伺い"
 
 
 def hedged(it: dict) -> bool:
@@ -139,17 +189,64 @@ def mark(it: dict, key: str) -> str | None:
 
 def asks_fact(text: str) -> bool:
     """取込で決める「事実を伺う質問か」（facts.decide）を、保存した2つのモデルの答え（G-71）から、取込と同じ決め方で決める（手で書かない）。
-    結果が無ければ偽（決める前の形＝G-71 を流す前の測りと同じ）。"""
+    G-71 に無い質問（電話を終える言葉の試しの表にしか無い質問）は、G-72 が同じ決め方で決めたもの。結果が無ければ偽（決める前の形＝G-71 を
+    流す前の測りと同じ）。"""
     from facts import decide
     global _FACTS
     if _FACTS is None:
         files = sorted((HERE / "results").glob("G-71_*.json"))
         d = json.loads(files[-1].read_text(encoding="utf-8")) if files else {"questions": [], "rows": {}}
         _FACTS = {q: decide([v[i] for v in d["rows"].values()]) for i, q in enumerate(d["questions"])}
-    return _FACTS.get(text, False)
+    return _FACTS.get(text, imported().get("facts", {}).get(text, False))
 
 
 _FACTS = None
+_G72 = None
+
+
+def imported() -> dict:
+    """取込で選択肢ごとに作る言葉の、保存した結果（G-72 の最新。唯一の読み場所）：いまの話の向きを伺う言葉（words.doubt）・こちらがすることの言葉
+    （words.do）と、表にしか無い質問（new_questions）の意味の言葉（meanings）・事実を伺う質問か（facts）。どれも2つのモデルの言葉が確かめに通り、
+    向きがそろったときだけ決まったもの（meanings.decide）。結果が無ければ空（作る前の形）。"""
+    global _G72
+    if _G72 is None:
+        files = sorted((HERE / "results").glob("G-72_2*.json"))
+        _G72 = json.loads(files[-1].read_text(encoding="utf-8")) if files else {}
+    return _G72
+
+
+def with_words(q: Question) -> Question:
+    """質問に、取込で作った選択肢ごとの言葉（向きを伺う言葉・こちらがすることの言葉）を付ける（選択肢の型だけ。事実を伺う質問は作らない）。"""
+    import dataclasses
+    words = imported().get("words", {})
+    if q.type not in CHOICE_TYPES or q.asks_fact:
+        return q
+    return dataclasses.replace(q, doubt_words=dict(words.get("doubt", {}).get(q.text, {})), do_words=dict(words.get("do", {}).get(q.text, {})))
+
+
+def end_questions(facts: bool = True) -> list[Question]:
+    """電話を終える言葉の試しの表（end_words）にしか無い質問（E1・E2…）。文と選択肢・意味の言葉・事実を伺う質問かは、取込と同じ形で作った G-72 の
+    結果から（手で書かない）。"""
+    d = imported()
+    out = []
+    for n, (text, conditions) in enumerate(d.get("new_questions", []), 1):
+        kind = "choice" if ("どちら" in text or "どれ" in text) else "yes_no"
+        out.append(Question(f"E{n}", text, kind, conditions=tuple(conditions), meanings=dict(d.get("meanings", {}).get(text, {})),
+                            asks_fact=facts and asks_fact(text)))
+    return out
+
+
+def set_f() -> list[dict]:
+    """電話を終える言葉の試しの表（end_words.ANSWER）の答えの段の言葉（同じ質問・同じ言葉は1つ＝業務の最終目的かは判定の読みを変えない）。
+    質問は測りの質問の表から（question_by_text）。正解は表から読む（_label）。"""
+    from end_words import ANSWER, answer_truths
+    out, seen = [], set()
+    for qtext, words, *_ in ANSWER:
+        if (qtext, words) not in seen:
+            seen.add((qtext, words))
+            out.append({"set": "F", "maker": "表", "qid": question_by_text(qtext).id, "question": qtext, "text": words,
+                        "truth": answer_truths()[(qtext, words)]["accept"][0]})
+    return out
 
 
 def g48_question(n: int, text: str, conditions: tuple, meanings: dict, facts: bool = True) -> Question:
@@ -199,15 +296,30 @@ def make_c(client, model: str, qs: list[Question]) -> list[dict]:
     return out
 
 
-def question_map(facts: bool = True) -> dict:
+def question_map(facts: bool = True, words: bool = True) -> dict:
     """答えの段の測りが使う質問の表（唯一の場所。測りの道具はどれもここから取る＝同じ質問に、取込で決める事実を伺う質問か＝asks_fact も同じに付く）：
-    G-48 の質問・値を聞く質問・業務の試しの質問（Q1・Q2・Q3・Q5）。⛔ 2026-11-01：同じ表を5つの道具が別々に書いていた"""
+    G-48 の質問・値を聞く質問・業務の試しの質問（Q1・Q2・Q3・Q5）と、words のとき、電話を終える言葉の試しの表にしか無い質問（E1・E2）。words の
+    ときは、選択肢ごとの言葉（向きを伺う言葉・こちらがすることの言葉＝G-72）も付ける。電話を終える言葉の試しの表（end_words）も、質問はここから取る。
+    取込の言葉を作る道具（G-71・G-72）は words を偽にする（作る前の質問の表が要る）。⛔ 2026-11-01：同じ表を5つの道具が別々に書いていた・
+    ⛔ 2026-11-02：電話を終える言葉の表が、意味の言葉・事実を伺う質問か・こちらがすることの言葉を、取込とは別に手で書いていた（「大丈夫だということ」
+    ⇔ 取込は「よろしいということ」）"""
     import dataclasses
 
     from g14_listen import business
     biz = [business(qid).questions[0] for qid in ("Q1", "Q2", "Q3", "Q5")]
     biz = [dataclasses.replace(q, asks_fact=facts and asks_fact(q.text)) for q in biz]
-    return {q.id: q for q in g48_questions(facts) + value_questions(facts) + biz}
+    qs = g48_questions(facts) + value_questions(facts) + biz
+    if words:
+        qs = [with_words(q) for q in qs + end_questions(facts)]
+    return {q.id: q for q in qs}
+
+
+def question_by_text(text: str) -> Question:
+    """質問の文から、測りの質問の表（question_map）の質問（同じ文は最初のもの）。無ければ KeyError。"""
+    by: dict = {}
+    for q in question_map().values():
+        by.setdefault(q.text, q)
+    return by[text]
 
 
 def value_questions(facts: bool = True) -> list[Question]:
@@ -518,6 +630,7 @@ def run_judges(args, items: list[dict], qmap: dict, ids: dict) -> None:
                 got, _ = ring.call(ids[key], call, rotate=False)
                 it[key] = got
                 it[f"{key}言い切り"] = getattr(got, "firm", None)
+                it[f"{key}終わり"] = getattr(got, "end", None)   # 電話を終える言葉か（end_miss で数える）
                 it[f"{key}秒"] = took.get("s")
             except KeyUnusable:
                 skip.add(key)
@@ -549,6 +662,7 @@ def run_judges(args, items: list[dict], qmap: dict, ids: dict) -> None:
                     t = time.monotonic()
                     it[key] = judge_other(clients[key], key, q, it["text"], it.get("asked"))
                     it[f"{key}言い切り"] = getattr(it[key], "firm", None)
+                    it[f"{key}終わり"] = getattr(it[key], "end", None)
                     it[f"{key}確からしさ"] = getattr(it[key], "sure", None)  # Jev の線（OTHER_JUDGES の sure_min）で、同時に出した組の読みを見積もるため
                     it[f"{key}言い切りの確からしさ"] = getattr(it[key], "firm_p", None)   # 言い切りの線と、どちらとも言えない幅を決めるため
                     it[f"{key}秒"] = round(time.monotonic() - t, 3)
@@ -600,7 +714,7 @@ async def run_group(args, items: list[dict], qmap: dict, name: str, lanes: int =
             t = time.monotonic()
             try:
                 got = await panel.ask("judge2", qmap[it["qid"]], it["text"], it.get("asked"))
-                it[name], it[f"{name}言い切り"], it[f"{name}by"] = str(got), got.firm, got.by
+                it[name], it[f"{name}言い切り"], it[f"{name}by"], it[f"{name}終わり"] = str(got), got.firm, got.by, getattr(got, "end", None)
             except NoJudgment as exc:
                 it[f"{name}誤り"] = str(exc)[:200]
             it[f"{name}秒"] = round(time.monotonic() - t, 3)
@@ -628,6 +742,9 @@ def tally(items: list[dict], judges, qmap: dict | None = None) -> dict:
             t["全体"][res] += 1
             if qmap and it["qid"] in qmap:
                 t["流れの制御の動き"][flow_miss(it, qmap[it["qid"]], key) or "正しい動き"] += 1
+                if it.get(f"{key}終わり") is not None:   # 電話を終える言葉か（項目を足す前の記録は数えない）
+                    t["電話を終える言葉か"]["正しい" if it[f"{key}終わり"] in end_accept(it) else "⛔別の読み"] += 1
+                    t["電話を終える言葉かの動き"][end_miss(it, qmap[it["qid"]], key) or "正しい動き"] += 1
             if (m := mark(it, key)):
                 t["全体"][f"曖昧の印・{m}"] += 1
             if misread_as_affirmed(it, key):
@@ -636,7 +753,10 @@ def tally(items: list[dict], judges, qmap: dict | None = None) -> dict:
         out[key] = {"数え": {k: dict(v) for k, v in t.items()},
                     "かかった秒（中央・遅いほうから1割・最大）": [secs[len(secs) // 2], secs[int(len(secs) * 0.9)], secs[-1]] if secs else None,
                     "⛔別の答えの例": [f"{it['qid']}「{it['text']}」正解={accept(it)} 判定={it[key]}" for it in items
-                                   if key in it and it[key] not in accept(it) + [UNDECIDED, "unknown"]][:80]}
+                                   if key in it and it[key] not in accept(it) + [UNDECIDED, "unknown"]][:80],
+                    "⛔電話を終える言葉かの動きの外れ": [f"{it['set']}・{it['qid']}「{it['text']}」正解={end_accept(it)} 判定={it.get(f'{key}終わり')}・{it[key]}"
+                                             f"＝{end_miss(it, qmap[it['qid']], key)}" for it in items if qmap and key in it and it["qid"] in qmap
+                                             and it.get(f"{key}終わり") is not None and end_miss(it, qmap[it["qid"]], key)][:80]}
     return out
 
 
@@ -703,6 +823,7 @@ def main() -> None:
     ring = KeyRing(args)
     ids = ring.model_ids()
     qmap = question_map()
+    qs, vqs = g48_questions(), value_questions()   # ⛔ 2026-11-02 に見つけた：作らずに使っていた（--reuse でない流し方・--add-de で止まっていた）
     if args.reuse:
         items = json.loads(open(args.reuse, encoding="utf-8").read())["items"]
         if args.rejudge:  # 判定の文や選べるものを変えたとき：渡した判定（--judge）の前の読みを捨てて、同じ答えで測り直す（決め手の印は残す＝first）。
@@ -714,8 +835,10 @@ def main() -> None:
                 # だけにする。見本は、前の読みを捨てる前に決める（捨てたあとでは、どれが難しい答えか分からない）
                 for it in pick_sample(items, args.sample):
                     it["見本"] = True
-            items = [{k: v for k, v in it.items() if not any(k == j or (k.startswith(j) and k[len(j):] in ("秒", "誤り", "言い切り", "確からしさ", "言い切りの確からしさ", "会話", "会話の確からしさ", "by"))
+            items = [{k: v for k, v in it.items() if not any(k == j or (k.startswith(j) and k[len(j):] in ("秒", "誤り", "言い切り", "確からしさ", "言い切りの確からしさ", "会話", "会話の確からしさ", "by", "終わり"))
                                                              for j in args.judge)} for it in items]
+        have = {(it["qid"], it["text"]) for it in items if it["set"] == "F"}
+        items += [it for it in set_f() if (it["qid"], it["text"]) not in have]   # 電話を終える言葉の試しの表の言葉（表を直したら、足した行だけ判定する）
         if args.add_de and not any(it["set"] in ("D", "E") for it in items):
             names = {m.display_name: m.name.split("/")[-1] for m in ring.client().models.list() if getattr(m, "display_name", None)}
             for m in MAKERS_DE:
@@ -724,7 +847,7 @@ def main() -> None:
                     say(m, "が作った", make.__name__, len(got))
                     items += got
     else:
-        items = set_a() + set_b(qs)
+        items = set_a() + set_b(qs) + set_f()
         for m in MAKERS:
             got, _ = ring.call(ids[m], lambda c: make_c(c, ids[m], qs))
             say(m, "が作った答え", len(got))

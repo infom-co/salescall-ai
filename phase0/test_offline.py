@@ -7158,7 +7158,7 @@ class EndWordsTest(unittest.TestCase):
             ("はい、それではパンフレットをお送りさせていただきますね？", "続ける"),
             ("はい、それではパンフレットの送付は控えさせていただきますね？", "続ける"),
             ("はい、それではお支払いはカードとさせていただきますね？", "続ける"),
-            ("はい、それではご予約はお済みということで記録させていただいて大丈夫でしょうか？", "続ける"),
+            ("はい、それではご予約はされているということで記録させていただいて大丈夫でしょうか？", "続ける"),
             (self.R1, "続ける"), (self.R1, "続ける")]
         self.assertEqual(len(want), len(ANSWER))
         for row, w in zip(ANSWER, want):
@@ -7177,6 +7177,28 @@ class EndWordsTest(unittest.TestCase):
         for row, w in zip(CALLING, want):
             got = calling_flow(row)
             self.assertEqual(None if got is None else got[1:], w, row[1])
+
+    def test_questions_come_from_the_import(self):
+        # ⛔ 2026-11-02 まで、表が意味の言葉・事実を伺う質問か・こちらがすることの言葉を手で書いていた（「大丈夫だということ」「ご予約はお済み」
+        #    「お振込み」＝取込の言葉と違う言葉で表を作っていた）⇒ 質問はどれも、答えの段の測りの質問の表（取込で作った言葉つき）から取る
+        from end_words import CHOICES, DOCS, RESERVED, question
+        from flowctl import CHOICE_TYPES
+        for text, choices in CHOICES.items():
+            q = question(text)
+            self.assertEqual((q.text, tuple(q.conditions)), (text, choices))
+            self.assertEqual(set(q.meanings), set(choices), text)
+            self.assertEqual(q.asks_fact, text in (RESERVED, DOCS), text)
+            if q.type in CHOICE_TYPES and not q.asks_fact:   # 選択肢の質問で事実を伺う質問でないもの：選択肢ごとに、向きを伺う言葉・こちらがすること
+                self.assertEqual((set(q.doubt_words), set(q.do_words)), (set(choices), set(choices)), text)
+            else:
+                self.assertEqual((q.doubt_words, q.do_words), ({}, {}), text)
+
+    def test_answer_truths_are_one_per_words(self):
+        # 同じ質問・同じ言葉の行（業務の最終目的かだけが違う）は、正解も同じ（答えの段の測り G-53 の組 F は1つにまとめて判定する）
+        from end_words import ANSWER, answer_truths
+        got = answer_truths()
+        self.assertEqual(len(got), len({(r[0], r[1]) for r in ANSWER}))
+        self.assertEqual(got[(ANSWER[0][0], ANSWER[0][1])]["accept"], ["いいえ", "決められない", "unknown"])
 
     def test_ack_follows_the_decided_reason(self):
         # ⛔ 2026-11-01 夜（表を作りから出して見つけた穴）：締めの相づちを会話AIの理由で選んでいた＝判定が「怒っている」と決めても、
@@ -10014,6 +10036,72 @@ class G53LabelsTest(unittest.TestCase):
         # 付け直していない答え：「決められない」と「わからない」は同じに数える（どちらでも値は渡らない）
         plain = {"set": "D", "qid": "G1", "text": "（付け直していない答え）", "asked": "x", "truth": "unknown"}
         self.assertEqual(set(accept(plain)), {"決められない", "unknown"})
+
+
+class G53EndTest(unittest.TestCase):
+    """答えの段の測り（G-53）とお呼びする段の測り（G-59）の、電話を終える言葉か（2026-11-02）：組 F（電話を終える言葉の試しの表）の正解・ほかの組の
+    正解（「言っていない」）・読みから流れの制御がすること（g53_meaning.end_act）。end_act の向きは、流れの制御そのもの（表の行を流れの制御に当てて
+    お客様に聞こえる言葉）と同じでなければならない（食い違えば落ちる）。"""
+
+    def test_end_act_is_what_the_flow_does(self):
+        from end_words import ANSWER, HEDGED, answer_flow, question
+        from flowctl import END_ANGRY, END_HURRY, END_REFUSED
+        from g53_meaning import END_ACTS, END_ASK, END_GO, END_TOPIC, end_act
+        for row in ANSWER:
+            qtext, words, ends, answers, _, _ = row
+            _, heard, marks = answer_flow(row)
+            act = end_act(question(qtext), answers[0].removesuffix(HEDGED), ends[0])
+            if act == END_ASK:
+                self.assertEqual(heard, EndWordsTest.R1, words)
+            elif act == END_TOPIC:
+                self.assertTrue(heard.startswith("はい、") and heard.endswith("ということでしょうか？"), (words, heard))
+            elif act == END_ACTS[END_HURRY]:
+                self.assertEqual(heard, EndWordsTest.H1, words)
+            elif act == END_ACTS[END_REFUSED]:
+                self.assertIn("callee_refused_call", marks, words)
+            elif act == END_ACTS[END_ANGRY]:
+                self.assertIn("callee_complaint", marks, words)
+            else:
+                self.assertEqual(act, END_GO, words)
+                self.assertNotIn(heard, (EndWordsTest.R1, EndWordsTest.H1), words)
+                self.assertNotIn("callee_", marks, words)
+
+    def test_end_miss_kinds(self):
+        from flowctl import END_HURRY, END_NONE, END_REFUSED, UNDECIDED
+        from g53_meaning import end_miss, question_map, set_f
+        qm = question_map()
+        F = {it["text"]: it for it in set_f()}
+
+        def miss(it, ans, end):
+            it = dict(it, j=ans, j終わり=end, j言い切り=True)
+            return end_miss(it, qm[it["qid"]], "j")
+        it = F["いま時間がないので結構です。"]
+        self.assertIsNone(miss(it, "いいえ", END_HURRY))
+        self.assertEqual(miss(it, "いいえ", END_NONE), "⛔電話を終える言葉なのに締めない")
+        self.assertEqual(miss(it, "いいえ", END_REFUSED), "⛔違う理由で締める・伺う")
+        self.assertEqual(miss(F["もういいです。"], "いいえ", END_NONE), "⛔伺わずに続ける")
+        self.assertIsNone(miss(F["もういいです。"], "いいえ", UNDECIDED))
+        self.assertEqual(miss(F["そういうお電話はちょっと……。"], "はい", UNDECIDED), "違う伺い")
+        plain = {"set": "B", "maker": "3.8 Flash", "qid": "G8", "text": "（付け直していない答え）", "truth": "はい"}
+        self.assertIsNone(miss(plain, "はい", END_NONE))
+        self.assertEqual(miss(plain, "はい", END_HURRY), "⛔電話を終える言葉ではないのに締める・急ぎを伺う")
+        self.assertEqual(miss(plain, "はい", UNDECIDED), "要らない伺い")
+        self.assertEqual(miss(plain, "はい", None), "読み無し")
+
+    def test_other_sets_default_to_not_ending(self):
+        # ほかの組の正解は「言っていない」。当たりうる言葉だけ、付け直した正解の帳面に end を付けた（20時11分の「いま時間がないので結構です」＝急いでいる）
+        from flowctl import END_HURRY, END_NONE
+        from g53_meaning import end_accept
+        self.assertEqual(end_accept({"set": "B", "qid": "G8", "text": "（付け直していない答え）"}), [END_NONE])
+        self.assertEqual(end_accept({"set": "B", "qid": "G7", "text": "いま時間がないので結構です"}), [END_HURRY])
+
+    def test_g59_has_the_calling_rows(self):
+        from end_words import BEFORE_TARGET, CALLING
+        from flowctl import END
+        from g59_calling_judge import cases
+        rows = {(c[0], c[2]): c for c in cases("x")}
+        for who, text, ends, _, _ in CALLING:
+            self.assertEqual(rows[(text, BEFORE_TARGET if who == "ご本人" else None)][5][END], set(ends), text)
 
 
 

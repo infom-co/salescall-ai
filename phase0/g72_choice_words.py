@@ -38,10 +38,11 @@ BAD: set[tuple[str, str, str, str]] = {
 
 
 def known() -> dict[str, tuple[tuple, bool, dict]]:
-    """測りの質問の1か所（g53_meaning.question_map）の選択肢の質問：文 -> (選択肢, 事実を伺う質問か, 意味の言葉)。同じ文は最初のもの。"""
+    """測りの質問の1か所（g53_meaning.question_map の、取込の言葉を付ける前の表）の選択肢の質問：文 -> (選択肢, 事実を伺う質問か, 意味の言葉)。
+    同じ文は最初のもの。"""
     from g53_meaning import question_map
     out = {}
-    for q in question_map().values():
+    for q in question_map(words=False).values():
         if q.type in CHOICE_TYPES and q.text not in out:
             out[q.text] = (tuple(q.conditions), q.asks_fact, dict(q.meanings))
     return out
