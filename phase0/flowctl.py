@@ -1090,7 +1090,7 @@ def says_proxy(value) -> bool:
     報告とそろうかを見る。"""
     return (getattr(value, "facts", None) or {}).get(WHO) in PROXIES
 # hang_up＝話さずに切る（電話接続側が読む）・silent＝AIに話させない返事（取り次ぎを待つ間など。handle_call）
-INTERNAL_KEYS = {"ack", "ack_pause_s", "ask_n", "ask_reason", "ask_last", "after", "play", "speak", "hang_up", "silent", "sorry", "again", "away", "renamed",
+INTERNAL_KEYS = {"ack", "ack_pause_s", "ask_n", "ask_reason", "ask_last", "after", "play", "speak", "hang_up", "silent", "sorry", "again", "away", "renamed", "kept",
                  "led", "thanks", "talked", "fallback", "quiet", "bridged", "hold_wait_s"}  # 中で使うだけの項目（電話接続側・数え方が読む）。AIへの返事には入れない
 # こちらが使う名前（AIに見せる日本語の名前）。値の欄に入っていたら、相手の答えではない（form_problem）
 _LABELS = (set(SYSTEM_LABEL.values()) | set(CONFIRM_LABEL.values()) | set(END_LABEL.values()) | set(PARTY_LABEL.values())
@@ -1706,6 +1706,9 @@ class Flow:
         self.refusal_asked = False            # お呼びした方ご本人に、今後このようなお電話をご遠慮したほうがよいかを伺った（_refusal_confirm。1通話1回）
         self.refusal_q: str | None = None     # その質問の番号（答えが決まったら _refusal_decided）
         self.end_used_turn: int | None = None  # 電話を終える言葉かの判定の読みを、もう当てた発話（同じ発話の読みを2回当てない）
+        self.refusal_back: tuple | None = None  # ご遠慮の一言を伺う前の位置（いまの質問・言い直しの返事待ち）＝答えが決まったら、そこへ戻る
+        self.refusal_held: dict | None = None   # 伺う前のお客様の言葉に、いまの質問の答えの読みがあれば、その言葉（戻ったあと、会話AIが答えを報告する）
+        self.check_for: str | None = None       # いまの発話の判定が、どの質問について読んだか（発話の始めの質問＝judge_context。_heard_answer）
         # 通話の事実（種類 → 起きた順の記録。_note だけが書く）。業務の判定（DESIGN.md 7-1。CL-2 の judge_task）へ渡す、会話の側が決めるもの：
         # do_not_call＝発信禁止の申告（原則14）／complaint＝怒り・苦情（人へ知らせる印）／end＝通話を終えた理由。どれも根拠の発話つき
         self.facts: dict[str, list[dict]] = {}
@@ -1977,6 +1980,7 @@ class Flow:
         self.callee_said = ""
         self.callee_ended, self.callee_end_at, self.callee_voice_end = False, None, None
         self.check, self.check_said = {}, {}
+        self.check_for = self.current   # この発話の判定は、いまの質問について読む（judge_context と同じ時点）
         self.holding = False
 
     def _judged_now(self) -> dict[str, str]:
@@ -2515,7 +2519,7 @@ class Flow:
         if name != "replay_opening" and reply["result"] not in ("callee_asked", "rejected"):
             # 答えに添えられた質問に答えずに、AIが別の報告をした（次の質問の答えなど）：その報告で進む（先に作った返事は使わない）
             self.after_answer = None
-        if name != "replay_opening" and reply["result"] != "rejected":
+        if name != "replay_opening" and reply["result"] != "rejected" and not reply.get("kept"):
             # 覚えておいた言葉（answer_held）は、AIがその答えを報告した（受け取ったか、確かめに入った）か、別の報告で先へ進んだら、もう使わない
             self.answer_held = None
         if words is not None and reply["result"] != "rejected":
@@ -3341,6 +3345,8 @@ class Flow:
         """いまの相手の言葉を、使っている意味の判定のどれかが、いまの質問の答え（選択肢・どちらでも・わからない・答えたくない）と読んだ
         （_keep_answer_reading の1か所。届いた判定だけを見る＝待つ間は判定を全部待つ＝waits_every）。答えを受け取るかは、ここでは決めない
         （AIの報告と確かめをそろえる _op_record_answer）。判定を使わない通話では読みが無いので、覚えない（いまの質問を聞く）。"""
+        if self.check_for not in (None, q.id):
+            return False   # いまの発話の判定は、ほかの質問について読んだもの（ご遠慮の一言への「いいえ」を、元の質問の「いいえ」と取り違えない）
         return any(self.check.get(k) in q.all_conditions for k in JUDGMENTS if k in self.checks_used)
 
     def _held_words(self, name: str, args: dict) -> dict | None:
@@ -4673,22 +4679,30 @@ class Flow:
         if self.refusal_asked:
             return self._reject("今後のお電話をご遠慮したほうがよいかは、もう伺いました。判定でも電話を終える言葉とは決まりませんでした。会話を続けます。")
         self.refusal_asked = True
+        q0 = self.questions.get(self.current) if self.current else None
+        self.refusal_back = (self.current, self.awaiting_confirm, self.awaiting_say)
+        self.refusal_held = ({"turn": self.callee_turns, "qid": q0.id, "said": self.callee_said, "check": self.check}
+                             if q0 is not None and self._heard_answer(q0) else None)
+        self.awaiting_confirm = None   # 伺う間は、言い直しの返事待ちではない（判定に、言い直した言葉を見せない）
         q = callback_question("refusal")
         self.questions[q.id], self.items[q.id] = q, Item()
-        if self.current and self.current != q.id and self.items[self.current].state not in TAKEN:
-            self.items[self.current].state = "empty"   # いまの質問は、このあとにもう一度伺う
-        self.awaiting_confirm = None
         self.refusal_q, self.order = q.id, [q.id, *[x for x in self.order if x != q.id]]
         return self._advance("", handled=True)
 
     def _refusal_decided(self, prefix: str) -> dict:
         """ご本人への確かめの答えが決まった（唯一の入口＝_advance）：はい＝もうかけない（発信の拒否＝原則14）／それ以外（いいえ・はっきりしない）＝
-        断ったとは言われていないので、いまの質問へ戻る（「結構です」だけで通話の断りとして締めない＝10-17 と同じ向き）。"""
+        断ったとは言われていないので、伺う前の位置へ、話がそれたあとに戻る1か所（_continue）から戻る（「結構です」だけで通話の断りとして締めない
+        ＝10-17 と同じ向き）：伺う前のお客様の言葉に、いまの質問の答えの読みがあれば、質問は流し直さず、会話AIが聞いた答えを報告する（その言葉と
+        確かめに当てて、ふつうの答えと同じ1か所で決める＝_held_words）。答えの読みが無ければ「話を戻させていただきますね。」から質問へ（10-23）。
+        ✅ 2026-11-01 ユーザー：「全く同じ質問を2度したら、機械だと思われてしまいませんか？」＝⛔ はじめは、いまの質問の録音をそのまま流し直していた"""
         qid, self.refusal_q = self.refusal_q, None
         if self._yes_no(qid):
             self._note("do_not_call")
             return self._close("callee_refused_call", prefix=prefix)
-        return self._advance(prefix)
+        (self.current, self.awaiting_confirm, self.awaiting_say), self.refusal_back = self.refusal_back, None
+        self.answer_held, self.refusal_held, self.digressed = self.refusal_held, None, True
+        r = self._continue([], "")
+        return r | {"message": prefix + r["message"], "kept": True}   # 覚えておいた言葉は、会話AIの次の報告まで残す（_apply_one）
 
     def _transfer_unclear(self) -> dict:
         """受付の方が、理由を言わずに取り次げないと言った（取り次ぐことはできません、だけ＝ご事情か営業のお断りか分からない）：その場で1回だけ、

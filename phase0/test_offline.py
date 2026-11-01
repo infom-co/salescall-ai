@@ -6807,8 +6807,23 @@ class EndJudgedTest(unittest.TestCase):
             r = h.apply("record_answer", {"question_id": R1, "condition_id": cond})
             if end:   # はい＝もうかけない
                 self.assertEqual((r["result"], h.end_reason, bool(h.facts.get("do_not_call"))), ("end", end, True))
-            else:     # いいえ＝いまの質問へ戻る（もう一度伺う）
-                self.assertEqual((r["result"], r["question_id"], h.end_reason), ("next", "Q1", None))
+            else:
+                # いいえ＝伺う前の位置へ戻る。✅ 2026-11-01 ユーザー：「全く同じ質問を2度したら、機械だと思われてしまいませんか？」＝伺う前の言葉
+                # 「もういいです。」に答えの読み（いいえ＝送らない）があるので、質問の録音は流し直さず、会話AIが聞いた答えを報告する
+                self.assertEqual((r["result"], r.get("play") or []), ("replayed", []))
+                self.assertIn("record_answer", r["message"])
+                # その報告は、伺う前の言葉と、その言葉の判定に当てる（いまの「いいえ」＝ご遠慮の一言への返事と取り違えない）
+                r = h.apply("record_answer", {"question_id": "Q1", "condition_id": "いいえ"})
+                self.assertEqual((r["result"], r["question_id"], h.items["Q1"].condition, h.end_reason), ("next", "Q2", "いいえ", None))
+        # 伺う前の言葉に答えの読みが無ければ、「話を戻させていただきますね。」から質問へ（10-23）＝同じ質問をそのまま2度は流さない
+        from phrases import BACK_TO
+        m = self.flow()
+        self.heard(m, "うーん。", self.R(UNDECIDED, UNDECIDED, (END_REFUSED,)))
+        m.apply("request_end", {"reason": "callee_refused_call"})
+        m.on_callee(); m.on_heard("いえ、そういうわけでは。"); m.on_check("judge", self.R("いいえ", "言っていない"))
+        r = m.apply("record_answer", {"question_id": R1, "condition_id": "いいえ"})
+        self.assertEqual([p["text"] for p in r["play"]][0], BACK_TO)
+        self.assertEqual((m.current, m.items["Q1"].state), ("Q1", "empty"))
         # 伺うのは1回だけ：もう一度決まらなければ、受け付けず会話を続ける
         k = self.flow()
         self.heard(k, "もういいです。", self.R("いいえ", UNDECIDED, (END_REFUSED,)))
