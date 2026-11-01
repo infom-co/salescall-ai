@@ -10159,7 +10159,8 @@ class ApprovalTest(unittest.TestCase):
         return Flow([Question("Q1", "資料はお手元に届いていますでしょうか？", "yes_no", conditions=("はい", "いいえ"), asks_fact=True),
                      Question("Q2", "以上の内容でよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"), approval=True, intro=self.INTRO,
                               ask_if=("Q1", ("いいえ", "unknown")), final_goal=goal, declines=("いいえ",) if goal else ()),
-                     Question("Q3", "ご連絡に都合のよい曜日はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"))], play_recordings=play)
+                     Question("Q3", "ご連絡に都合のよい曜日はございますでしょうか？", "yes_no", conditions=("はい", "いいえ"))], play_recordings=play,
+                    answers={"料金": "料金は月額3,000円で、初月は無料となっております。", "期間": "ご契約の期間の縛りはございません。"})
 
     def test_asked_only_after_the_answer(self):
         f = self.flow()
@@ -10174,22 +10175,94 @@ class ApprovalTest(unittest.TestCase):
         r = AmbiguousAnswerTest.say(h, "確認する時間がないんです。", "record_answer", question_id="Q1", condition_id="unknown")
         self.assertEqual([p.get("text") for p in r["play"]][-1], self.INTRO + "以上の内容でよろしいでしょうか？")   # 録音で流す形（入る一言＋質問の1本）
 
-    def test_not_agreed_is_asked_and_kept(self):
+    @staticmethod
+    def explained(f, part):
+        """想定問答の答えでご説明し、お客様の返事を聞いてから質問に戻る。"""
+        f.apply("replay_opening", {"part": part})
+        f.on_callee(); f.on_heard("そうなんですね。")
+        return f.apply("replay_opening", {"part": "resume"})
+
+    def test_not_agreed_is_explained_and_agreed(self):
+        # ✅ 2026-11-02 日本時間5時37分・5時56分 ユーザー：ご納得いただけなかった点を、こちらの資料でご説明し（誤解なら正しい中身を）、「ほかにご納得
+        #    いただけない点はございますでしょうか？」→「だいたい分かりました」なら「ありがとうございます。それでは、～」で次のステップへ
         from flowctl import CALLBACK_IDS
-        n1 = CALLBACK_IDS["not_agreed"]
-        f = self.flow()
+        n1, n2 = CALLBACK_IDS["not_agreed"], CALLBACK_IDS["other_point"]
+        f = self.flow(goal=True)
         AmbiguousAnswerTest.say(f, "届いてないです。", "record_answer", question_id="Q1", condition_id="いいえ")
-        r = AmbiguousAnswerTest.say(f, "いや、それはちょっと。", "record_answer", question_id="Q2", condition_id="いいえ")
-        self.assertEqual((f.current, f.questions[n1].text), (n1, "ご納得いただけなかった点はどの部分になりますでしょうか？"))
+        AmbiguousAnswerTest.say(f, "いや、それはちょっと。", "record_answer", question_id="Q2", condition_id="いいえ")
+        self.assertEqual((f.current, f.questions[n1].text, f.end_reason), (n1, "ご納得いただけなかった点はどの部分になりますでしょうか？", None))
+        r = AmbiguousAnswerTest.say(f, "料金のところですね。", "record_answer", question_id=n1, condition_id="答えた", value="料金のところ")
+        self.assertEqual((r["result"], f.facts["not_agreed"][0]["said"]), ("explain_point", "料金のところ"))   # 次へ進む前に、AIがご説明する
+        self.assertIn("「料金のところ」", r["message"])
+        r = f.apply("replay_opening", {"part": "answer_料金"})   # 想定問答の答え（依頼者の資料）でご説明する
+        self.assertEqual((r["result"], r["say"]), ("replayed", "料金は月額3,000円で、初月は無料となっております。"))
+        f.on_callee(); f.on_heard("そうなんですね。")   # お客様の返事を聞いてから「はい、ほかに…」
+        r = f.apply("replay_opening", {"part": "resume"})
+        self.assertEqual((f.current, r["ack"], r["message"].count("ほかにご納得いただけない点はございますでしょうか？") or
+                          [p["text"] for p in r.get("play") or []]), (n2, "hai", 1))
+        r = AmbiguousAnswerTest.say(f, "だいたい分かりました。", "record_answer", question_id=n2, condition_id="いいえ")
+        self.assertEqual((f.current, f.export()["Q2"], f.end_reason, r["ack"], f.facts["not_agreed"][0]["outcome"]), ("Q3", "はい", None, "arigatou", "agreed"))
+
+    def test_neutral_reply_asks_whether_agreed(self):
+        # 「なるほど」のように、ほかにあるとも分かったとも言わないときは「ご説明した内容でご納得いただけましたでしょうか？」
+        from flowctl import CALLBACK_IDS
+        n1, n2, n3 = (CALLBACK_IDS[r] for r in ("not_agreed", "other_point", "agreed_now"))
+        f = self.flow(goal=True)
+        AmbiguousAnswerTest.say(f, "届いてないです。", "record_answer", question_id="Q1", condition_id="いいえ")
+        AmbiguousAnswerTest.say(f, "いや、それはちょっと。", "record_answer", question_id="Q2", condition_id="いいえ")
         AmbiguousAnswerTest.say(f, "料金のところですね。", "record_answer", question_id=n1, condition_id="答えた", value="料金のところ")
-        self.assertEqual((f.facts["not_agreed"][0]["question"], f.facts["not_agreed"][0]["said"], f.current), ("Q2", "料金のところ", "Q3"))
-        # ご承認が最終目的の業務：ご納得いただけなかった点を伺ってから締める（その業務はかけない）
+        self.explained(f, "answer_料金")
+        r = AmbiguousAnswerTest.say(f, "なるほど。", "record_answer", question_id=n2, condition_id="unknown")
+        self.assertEqual((f.current, f.questions[n3].text, r["ack"]), (n3, "ご説明した内容でご納得いただけましたでしょうか？", "hai"))
+        AmbiguousAnswerTest.say(f, "そうですね、大丈夫です。", "record_answer", question_id=n3, condition_id="はい")
+        self.assertEqual((f.current, f.export()["Q2"]), ("Q3", "はい"))
+        # それでもご納得いただけなければ、ご承認は「いいえ」のまま（最終目的なら締めて、その業務はかけない）
         g = self.flow(goal=True)
         AmbiguousAnswerTest.say(g, "届いてないです。", "record_answer", question_id="Q1", condition_id="いいえ")
         AmbiguousAnswerTest.say(g, "いや、それはちょっと。", "record_answer", question_id="Q2", condition_id="いいえ")
-        self.assertEqual((g.current, g.end_reason), (n1, None))
         AmbiguousAnswerTest.say(g, "料金のところですね。", "record_answer", question_id=n1, condition_id="答えた", value="料金のところ")
-        self.assertEqual((g.end_reason, g.facts["not_agreed"][0]["said"]), ("goal_refused", "料金のところ"))
+        self.explained(g, "answer_料金")
+        AmbiguousAnswerTest.say(g, "なるほど。", "record_answer", question_id=n2, condition_id="unknown")
+        AmbiguousAnswerTest.say(g, "いえ、やっぱり難しいです。", "record_answer", question_id=n3, condition_id="いいえ")
+        self.assertEqual((g.end_reason, g.facts["goal_refused"][0]["goals"]), ("goal_refused", ["Q2"]))
+
+    def test_another_point_is_explained_once_more(self):
+        # 「ほかに…」に「ある」：もう一度ご説明する（1通話2回まで）。3回目の「ある」は、ご納得いただけない（最終目的なら締める）
+        from flowctl import CALLBACK_IDS, POINT_ROUNDS
+        n1, n2 = CALLBACK_IDS["not_agreed"], CALLBACK_IDS["other_point"]
+        f = self.flow(goal=True)
+        AmbiguousAnswerTest.say(f, "届いてないです。", "record_answer", question_id="Q1", condition_id="いいえ")
+        AmbiguousAnswerTest.say(f, "いや、それはちょっと。", "record_answer", question_id="Q2", condition_id="いいえ")
+        AmbiguousAnswerTest.say(f, "料金のところですね。", "record_answer", question_id=n1, condition_id="答えた", value="料金のところ")
+        self.explained(f, "answer_料金")
+        r = AmbiguousAnswerTest.say(f, "あと、期間も気になります。", "record_answer", question_id=n2, condition_id="はい")
+        self.assertEqual((r["result"], f.facts["not_agreed"][-1]["round"], POINT_ROUNDS), ("explain_point", 2, 2))
+        self.explained(f, "answer_期間")
+        self.assertEqual((f.current, f.order.count(n2)), (n2, 1))   # 同じ質問を伺い直す（並びに2つ入れない）
+        AmbiguousAnswerTest.say(f, "まだあります。", "record_answer", question_id=n2, condition_id="はい")
+        self.assertEqual((f.end_reason, f.facts["not_agreed"][-1]["outcome"]), ("goal_refused", "declined"))
+
+    def test_point_not_in_the_materials(self):
+        # 資料でご説明できない：「恐れ入ります。その点は私では正確にご説明できませんので担当の者に申し伝えさせていただきますね。」。ご納得は伺わない。
+        # 最終目的ならお礼を言って締め（もうかけないの印は付けない＝改めてご案内するかは依頼者）・最終目的でなければ次へ（✅ 2026-11-02 5時56分「OK」）
+        from flowctl import CALLBACK_IDS
+        from phrases import CLOSING, OWN_FALLBACK_POINT
+        n1 = CALLBACK_IDS["not_agreed"]
+        for goal in (True, False):
+            f = self.flow(goal=goal, play=True)
+            AmbiguousAnswerTest.say(f, "届いてないです。", "record_answer", question_id="Q1", condition_id="いいえ")
+            AmbiguousAnswerTest.say(f, "いや、それはちょっと。", "record_answer", question_id="Q2", condition_id="いいえ")
+            AmbiguousAnswerTest.say(f, "他社さんとの違いがよく分からなくて。", "record_answer", question_id=n1, condition_id="答えた", value="他社との違い")
+            r = f.apply("replay_opening", {"part": "no_answer", "answer": "担当の者に申し伝えます。"})
+            self.assertEqual([p["text"] for p in r["play"]], [OWN_FALLBACK_POINT])
+            f.on_callee(); f.on_heard("そうですか。")
+            r = f.apply("replay_opening", {"part": "resume"})
+            self.assertEqual(f.facts["not_agreed"][0]["explained"], False)
+            if goal:
+                self.assertEqual((f.end_reason, "goal_refused" in f.facts, bool(f.facts.get("do_not_call")), [p["text"] for p in r["play"]][-1]),
+                                 ("not_agreed", False, False, CLOSING))
+            else:
+                self.assertEqual((f.current, f.end_reason), ("Q3", None))
 
 
 class OfferTest(unittest.TestCase):

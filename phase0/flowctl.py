@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 
 from names import hira, quote, unvoiced
 from phrases import AI_ANSWER, AI_ASKED_AGAIN, AMPM_ASK, CALLBACK_ASK, CLOSE_DECLINED, CLOSING, LEAD_IN, NAME_READING_ASK
-from phrases import APOLOGY_FIRST, APOLOGY_PURPOSE, BACK_TO, DEPARTED_ACK, HOLD_TIMEOUT, MOSHIMOSHI, NUMBER_AGAIN, OFFER_THANKS, OWN_FALLBACK, SILENCE_PROMPT, SILENCE_PROMPT_IDS, SUCCESSOR, SUCCESSOR_IDS, TALK_FALLBACK
+from phrases import APOLOGY_FIRST, APOLOGY_PURPOSE, BACK_TO, DEPARTED_ACK, HOLD_TIMEOUT, MOSHIMOSHI, NUMBER_AGAIN, OFFER_THANKS, OWN_FALLBACK, OWN_FALLBACK_POINT, SILENCE_PROMPT, SILENCE_PROMPT_IDS, SUCCESSOR, SUCCESSOR_IDS, TALK_FALLBACK
 from phrases import ack_pause_s, ask_again as ask_again_phrase
 from phrases import CLIENT_DOES, confirm as confirm_phrase, restate_words
 from phrases import lead_in as lead_in_phrase
@@ -644,7 +644,8 @@ def choice_words(q: "Question", cond: str | None) -> str | None:
 #    「その場で発信禁止に登録」に届かない）。怒り・苦情を報告する手立ても無かった
 END_LABEL = {"done": "質問が終わった", "callee_hurry": "相手が急いでいる", "callee_refused_call": "通話を断られた",
              "callee_complaint": "相手が怒っている", "not_transferred": "取り次いでいただけなかった", "transfer_unclear": "理由を言わずに取り次げないと言われた",
-             "who_unclear": "お名前だけではどの方か分からないと言われた"}
+             "who_unclear": "お名前だけではどの方か分からないと言われた",
+             "not_agreed": "ご納得いただけなかった点を、担当の者に申し伝えることにした"}
 # 目的の人に繋がらずに終わった理由（会話の報告の not_reached。Flow.not_reached の1か所で決める）。✅ 2026-10-22 ユーザー決定（CL-2 の 4-130）：
 # 「『営業拒否』：もうかけない。『事情があり、取り次げなかった』：日を改めて1回。『約束した時刻のかけ直し』：約束した時間と同じ」
 # ⇒ 営業のお断り＝通話を断られた（発信の拒否。ここには入れない）／お呼びした方が出られない（戻る時刻を聞いた＝かけ直しの申し出）＝absent／
@@ -770,13 +771,13 @@ MEANS_PLAN = {"email": ("email",), "fax": ("fax",), "post": ("address",)}  # ほ
 # システムが足す質問の番号（どの業務でも同じ）と、通話の事実（callback）に残すときの名前
 CALLBACK_IDS = {"time": "C1", "number": "C2", "email": "C3", "fax": "C4", "address": "C5", "back_today": "C6", "again": "C7", "who": "C8",
                 "when": "C9", "message": "M1", "promise_again": "P1",
-                "refusal": "R1", "hurry": "H1", "not_agreed": "N1"}
+                "refusal": "R1", "hurry": "H1", "not_agreed": "N1", "other_point": "N2", "agreed_now": "N3"}
 ROLE_KEY = {"back_time": "time", "later_time": "time", "back_date": "time", "next_workday": "time", "reachable_time": "time", "transfer_time": "time",
             "number": "number",
             "email": "email",
             "fax": "fax", "address": "address", "message": "message", "back_today": "back_today", "call_again": "again",
             "promise_again": "promise_again", "ask_who": "who", "ask_when": "when", "refusal": "refusal",
-            "hurry_again": "hurry", "hurry_when": "time", "not_agreed": "not_agreed"}
+            "hurry_again": "hurry", "hurry_when": "time", "not_agreed": "not_agreed", "other_point": "other_point", "agreed_now": "agreed_now"}
 # 必須の質問の「わからない」「答えたくない」の扱い（業務の決まり＝CL-2 の business_rules.HANDLINGS と同じ名前。Question.handlings の値）：
 # 分かるお客様を聞く・分かる時を聞く（聞き足しの質問を1通話1回）・日を改める（会話は次の質問へ進む）・結論として終える（丁寧に締める）
 HANDLINGS = ("ask_who", "ask_when", "retry", "conclude")
@@ -1427,6 +1428,9 @@ class Question:
     # 業務の最終目的の質問なら、伺ったあとで締める（その業務はかけない＝_goals_lost）。✅ 2026-11-02 日本時間4時36分 ユーザー：「(b) いいえ＝「ご納得いた
     # だけなかった点はどの部分になりますでしょうか？」のような確認が必要ではないですか？」
     approval: bool = False
+    # 言い切っていなくても確かめずに受け取る質問（ご説明のあとの「ほかに…」「ご納得いただけましたでしょうか？」＝システムの質問だけ）。✅ 2026-11-02
+    # 日本時間5時56分 ユーザー：「「だいたい分かりました」とかなら、「ありがとうございます。それでは、～」と次のステップでいい」（確かめると強引になる）
+    firm_not_needed: bool = False
 
     def __post_init__(self):
         assert self.type in TYPES, f"{self.id} の型「{self.type}」は、型の一覧にありません（I-16）"
@@ -1532,13 +1536,14 @@ CALLBACK_TOPIC = {"back_time": "お戻りになるお時間", "later_time": "ご
                   "email": "メールアドレス", "fax": "ファクス番号",
                   "address": "ご住所", "authority": "ご判断いただけるお立場か", "message": "ご伝言", "back_today": "本日のお戻りのご予定",
                   "call_again": "改めてのお電話", "promise_again": "改めてのお電話", "ask_who": "お分かりになる方", "ask_when": "お分かりになる時期",
-                  "refusal": "今後のお電話", "hurry_again": "改めてのお電話", "hurry_when": "ご都合のよろしい日時", "not_agreed": "ご納得いただけなかった点"}
+                  "refusal": "今後のお電話", "hurry_again": "改めてのお電話", "hurry_when": "ご都合のよろしい日時", "not_agreed": "ご納得いただけなかった点",
+                  "other_point": "ほかにご納得いただけない点", "agreed_now": "ご説明した内容へのご納得"}
 # 文が依頼主の単位の録音のもの（伝言の文＝業務設定 message・約束の電話の一言＝お名前が入る＝instruction.Business.replay_parts の promise_again）
 OPENING_ROLES = ("message", "promise_again")
 SYSTEM_ROLES = set(CALLBACK_ASK) | set(OPENING_ROLES)  # システムが足す質問の役目
 _ROLE_TYPE = {"number": "phone", "fax": "phone", "email": "email", "address": "address", "authority": "choice", "message": "yes_no", "ask_who": "name",
               "back_today": "yes_no", "call_again": "yes_no", "promise_again": "yes_no", "refusal": "yes_no", "hurry_again": "yes_no",
-              "not_agreed": "free_text"}
+              "not_agreed": "free_text", "other_point": "yes_no", "agreed_now": "yes_no"}
 # 代わりの方にお立場を伺った答えのうち、話を進めてよい答え（_substitute_decided の1か所）。✅ 2026-10-22 ユーザー（4回目）：問いは「ご判断いただける
 # お立場の方ということで問題ございませんでしょうか？それともお取次ぎのみいただけるということでしたでしょうか？」の2つから選んでいただく形
 AUTHORITY_YES = "判断できる"
@@ -1550,7 +1555,11 @@ _ROLE_MEANINGS = {
     "refusal": {"はい": "今後このようなお電話はご遠慮したほうがよいということ", "いいえ": "今後このようなお電話もご遠慮しなくてよいということ"},
     "hurry_again": {"はい": "また改めてお掛けしてよいということ", "いいえ": "改めてお掛けしないほうがよいということ"},
     "call_again": {"はい": "後ほど改めてお掛けしてよいということ", "いいえ": "本日は改めてお掛けしないほうがよいということ"},
-    "promise_again": {"はい": "後ほど改めてお掛けしてよいということ", "いいえ": "本日は改めてお掛けしないほうがよいということ"}}
+    "promise_again": {"はい": "後ほど改めてお掛けしてよいということ", "いいえ": "本日は改めてお掛けしないほうがよいということ"},
+    "other_point": {"はい": "ほかにもご納得いただけない点があるということ", "いいえ": "ほかにご納得いただけない点は無い（ご説明で分かった）ということ"},
+    "agreed_now": {"はい": "ご説明した内容でご納得いただけたということ", "いいえ": "ご説明した内容ではご納得いただけなかったということ"}}
+# ご納得いただけなかった点をご説明するのは、1通話に何回までか（Flow._point_step。2回目は「ほかに…」に「ある」と言われたとき）
+POINT_ROUNDS = 2
 
 
 def callback_question(role: str, text: str | None = None) -> "Question":
@@ -1563,7 +1572,8 @@ def callback_question(role: str, text: str | None = None) -> "Question":
     qid = SUBSTITUTE_ID if role == "authority" else CALLBACK_IDS[ROLE_KEY[role]]
     if qtype in CHOICE_TYPES:
         return Question(qid, text or CALLBACK_ASK[role], qtype, required=False, conditions=tuple(_ROLE_MEANINGS[role]),
-                        meanings=dict(_ROLE_MEANINGS[role]), topic=CALLBACK_TOPIC[role], callback=role)
+                        meanings=dict(_ROLE_MEANINGS[role]), topic=CALLBACK_TOPIC[role], callback=role,
+                        firm_not_needed=role in ("other_point", "agreed_now"))
     return Question(qid, CALLBACK_ASK[role], qtype, required=role not in ("reachable_time", "ask_who", "ask_when", "not_agreed"), conditions=("答えた",),
                     topic=CALLBACK_TOPIC[role], callback=role)
 
@@ -1714,6 +1724,10 @@ class Flow:
         self.awaiting_say: str | None = None       # いま返事を待っている言い直しの、言い方（差し戻しのときも同じ言い方を使う）
         # 「わからない」のあとに足した聞き足しの質問（分かるお客様・分かる時）→ 元の質問（_take_system）。答えはかけ直しの記録に残す（noted＝残した分）
         self.follow_ups: dict[str, str] = {}
+        # ご承認いただけなかったときの手順の状態（Flow._point_step の1か所だけが書く）：q＝ご承認の質問・stage＝ask（どの部分か伺っている）／explain
+        # （AIがご説明する）／explained（ご説明が終わった）／other（ほかに…を伺っている）／confirm（ご納得いただけたかを伺っている）・round＝ご説明の回・
+        # explained＝知っていることでご説明できたか・outcome＝agreed（ご納得）／declined（ご納得いただけない）／unresolved（ご説明できない・はっきりしない）
+        self.point: dict | None = None
         self.follow_noted: set[str] = set()
         self.follow_asked: set[str] = set()       # この通話で伺った聞き足しの役目（ask_who・ask_when。1通話1回＝_take_system）
         # lead_ins：プログラムの返事のあとに話す文の頭に、受けの言葉を置くか（DESIGN.md 6-11。✅ 2026-10-13 ユーザー承認＝既定で置く。
@@ -2627,7 +2641,9 @@ class Flow:
             # 約束の電話で取り次げなかったときの一言への答え（伺ったら、「はい」のときだけ true＝CL-2 の 4-135。⛔ 2026-10-24 の見直し：
             # 「わからない」・伺う途中で切れたときに書いていなかった＝CL-2 は「聞いていない」と読んだ）
             self.facts["not_transferred"][-1]["again"] = self._yes_no(p1)
-        if not (name == "replay_opening" and (args.get("part") in ("ai", "resume") + OWN_PARTS or reply["result"] == "own_answer")):
+        if not (name == "replay_opening" and (args.get("part") in ("ai", "resume") + OWN_PARTS or reply["result"] == "own_answer"
+                                              or (self._explaining() and str(args.get("part") or "").startswith(ANSWER_PREFIX)))):
+            # （ご納得いただけなかった点を想定問答の答えでご説明したときも、お客様の返事を待つ＝_answer）
             # 決まった言い方・自分の言葉の答えへの返事を待つのは、その次の報告まで（答え・ほかの報告が来たら、もう待っていない）。
             # この報告で応えた（own_answer＝名乗り・用件の録音を選び直さなかったので、受け皿の一言で応えた＝_asked_other も）は、いま待ち始めた
             self.ai_pending = self.own_pending = False
@@ -2709,7 +2725,14 @@ class Flow:
           （moushiwake_heavy）。✅ 2026-10-16 ユーザー：「02だと軽薄に聞こえる」場面（こちらの誤り・クレーム・かけ直し）は重いほう
         - 差し戻し ⇒ 流さない（AIはまだ受け付けられていない報告を出し直す）"""
         result = reply["result"]
-        if result in ("rejected", "hold", "wait", "confirm_target", "callee_asked", "end_trouble"):
+        if self.point is not None and self.point.get("thank") == self.callee_turns and result != "end":
+            # ご説明でご納得いただけた：「ありがとうございます。それでは、～」（✅ 2026-11-02 日本時間5時56分 ユーザー）
+            self.point["thank"] = None
+            return "arigatou"
+        if self.point is not None and self.point.get("hai") == self.callee_turns and result != "end":
+            self.point["hai"] = None
+            return "hai"
+        if result in ("rejected", "hold", "wait", "confirm_target", "callee_asked", "end_trouble", "explain_point"):
             # 差し戻し・取り次ぎを待つ（相手はいま聞いていない）・相手の言葉の途中・目的の人かを確かめる（どの報告から来ても同じ＝確かめる
             # 一言だけ。聞き返しにもお詫びは重ねない＝✅ 2026-10-22 ユーザーの言い方「おかだ様でお間違えなかったでしょうか？」）・
             # 答えに相手の質問が添えられていた（先に質問に答える。その答えの頭の相づちは、答える操作のほう）・こちらの不具合で終える（お詫びの
@@ -2953,7 +2976,7 @@ class Flow:
         text = (words or said or "").strip()
         if policy and AMBIGUOUS.fullmatch(text):
             return "曖昧な答え", reported
-        if reported not in SYSTEM_CONDITIONS and not confirming and UNCERTAIN.search(text):
+        if reported not in SYSTEM_CONDITIONS and not confirming and not q.firm_not_needed and UNCERTAIN.search(text):
             # 言い切っていない答えは、その言葉だけで決めない（✅ ユーザー確定）。最初の答えだけに当てる（言い直しへの返事は、言い直した
             # 意味に寄っていれば、その答えに「曖昧」の印を付けて受け取る＝Flow._hedged。✅ 2026-10-18 ユーザー：「yes,but 曖昧」）。
             # 「わからない」「答えたくない」の報告には当てない（「たぶん分からないです」は、そのまま「わからない」）
@@ -2969,7 +2992,7 @@ class Flow:
             back = Flow._meaning_disagrees(q, reported, check.get(kind), confirming)
             if back:
                 return f"意味の判定（「{label(check[kind])}」）と食い違う", back
-        if reported not in SYSTEM_CONDITIONS and not confirming and Flow._judged_unsure(check):
+        if reported not in SYSTEM_CONDITIONS and not confirming and not q.firm_not_needed and Flow._judged_unsure(check):
             return f"{HEDGE_WHY}（意味の判定が、言い切っていないと読んだ）", reported
         return None, None
 
@@ -3558,6 +3581,15 @@ class Flow:
         if self.answered[part] > 2:
             return self._reject("同じ答えを、もう2回流しました（同じ答えを何度も流しません）。何も言わずに、相手が話すのを待ちます。")
         self._note("answered", part=part)
+        self._point_said("answer")
+        if self._explaining():
+            # ご納得いただけなかった点のご説明（想定問答の答え＝依頼者の資料）：流したあと、お客様の返事（「そうなんですね」）を聞いてから「はい、」で
+            # 「ほかに…」を伺う（AIが自分の言葉でご説明したときと同じ＝_resume）。✅ 2026-11-02 日本時間5時56分 ユーザーの流れ
+            self.own_pending = "own"
+            if self.opening and self.opening.get(part):
+                return {"result": "replayed", "silent": True, "play": [{"kind": "opening", "part": part, "text": text}],
+                        "message": f"「{text}」は、プログラムが録音で流しました（相手にもう聞こえています）。何も言わずに、{self._own_then()}"}
+            return {"result": "replayed", "say": text, "speak": True, "message": f"「{text}」とだけ言います（言葉を足しません）。{self._own_then()}"}
         if (self.opening and self.opening.get(part)) or self.after_answer is not None:
             # 録音が無い通話で、答えに添えられた質問なら、AIがその文を先に言ってから次へ（_continue → _led）
             return self._continue([{"kind": "opening", "part": part, "text": text}], text)
@@ -3627,6 +3659,7 @@ class Flow:
         if problem:
             return self._own_fallback(kind, pick, problem, drafts, checked)
         self.own_pending = kind
+        self._point_said(kind)
         if kind == "talk":
             self._note("talk", answer=answer, **drafts, **checked)
         else:
@@ -3647,13 +3680,16 @@ class Flow:
         質問＝断らない一言の録音（phrases.OWN_FALLBACK）。どれも確かめなくてよい。そのあと相手の返事を待つ（own_pending）。
         problem＝答えの文が使えなかった理由（None＝AIが一言だけを選んだ）。"""
         self.own_pending = kind
+        self._point_said(kind)
         why = f"答えの文は使いません（{problem}）。かわりに" if problem else ""
         if kind == "talk":
             said = TALK_FALLBACK[pick][0]
             play = {"kind": "recorded", "id": pick, "text": said}
             self._note("talk", answer=said, fallback=pick, **drafts, **checked)
         else:
-            said, play = (pick, None) if kind == "own" else (OWN_FALLBACK, {"kind": "recorded", "id": "own_fallback", "text": OWN_FALLBACK})
+            # ご納得いただけなかった点をご説明できない（お客様の言葉は質問ではない）：「その点は私では正確にご説明できませんので…」
+            fb, fid = (OWN_FALLBACK_POINT, "own_fallback_point") if self.point is not None and self.point["stage"] == "explain" else (OWN_FALLBACK, "own_fallback")
+            said, play = (pick, None) if kind == "own" else (fb, {"kind": "recorded", "id": fid, "text": fb})
             self._question_note({"answered": kind == "own", "answer": said, **drafts, **checked})
         if play is not None and self.play_recordings:
             return {"result": "own_answer", "fallback": True, "play": [play],
@@ -3779,6 +3815,10 @@ class Flow:
             # 答えに添えられた相手の質問に答えた：先に作っておいた次へ進む返事（次の質問・念のための確認・締め）を、答えのあとに流す
             r, self.after_answer = self.after_answer[1], None
             return self._led(play, "", r)
+        if self._explaining() and self.point["explained"] is not None:
+            # ご納得いただけなかった点をご説明した：次は手順の1か所が決める（ほかに…・ご説明できなければ申し伝えて続ける／締める）
+            self.point["stage"] = "explained"
+            return self._led(play, "", self._advance("", handled=True))
         done = f"「{shown}」は、プログラムが録音で流しました（相手にもう聞こえています）。" if shown else ""
         back, self.digressed = self._back_play(), False  # もう伺ったことへ戻る前の一言（相手のお話・ご質問に応えたあとだけ）
         if self.phase == "calling":
@@ -3852,6 +3892,10 @@ class Flow:
             return {"result": "ai_question", "play": [play],
                     "message": f"「{text}」は、プログラムが録音で流しました（相手にもう聞こえています）。{then}"}
         return {"result": "ai_question", "say": text, "message": f"「{text}」とだけ言います（言葉を足しません）。そのあと、{then}"}
+
+    def _explaining(self) -> bool:
+        """ご納得いただけなかった点をご説明する段か（_point_step の stage）。"""
+        return self.point is not None and self.point["stage"] == "explain"
 
     def _resume(self) -> dict:
         """決まった言い方（「何か問題でもございましたでしょうか？」）に、相手が問題は無いと答えた（「いえ」「別に」「機械みたいだったので」）：
@@ -5265,16 +5309,7 @@ class Flow:
                 got = self.items.get(src)
                 if got is not None and got.state in TAKEN and got.condition in conds:
                     self._insert_after(src, q.id)
-            # ご承認いただけなかった（説明した内容の承認の質問の2つ目の選択肢）：ご納得いただけなかった点を1回伺う（すぐあと）。答えは通話の事実に残す
-            if q.approval and self.items[q.id].state in GOT and self.items[q.id].condition == q.conditions[1]:
-                nid = CALLBACK_IDS["not_agreed"]
-                if nid not in self.items:
-                    fq = callback_question("not_agreed")
-                    self.questions[fq.id], self.items[fq.id] = fq, Item()
-                    self.follow_ups[fq.id] = q.id
-                    self._insert_after(q.id, fq.id)
-                elif self.follow_ups.get(nid) == q.id and self.items[nid].state in TAKEN and "not_agreed" not in self.facts:
-                    self._note("not_agreed", question=q.id, said=self.items[nid].value if self.items[nid].state in GOT else None)
+        self._point_step()
         if self.callback_why != "absent":
             return
         time_q, today_q = CALLBACK_IDS["time"], CALLBACK_IDS["back_today"]
@@ -5285,10 +5320,99 @@ class Flow:
         if self.items[today_q].state != "empty" and self.items[today_q].condition != "いいえ" and CALLBACK_IDS["again"] not in self.items:
             self._add_callback_question("call_again")
 
+    def _point_step(self) -> None:
+        """説明した内容のご承認をいただけなかったときの手順（唯一の場所。_follow_ups から）：ご納得いただけなかった点を伺い（N1）、知っていることで
+        ご説明し（AIが相手の質問・お話に答える1か所＝_answer・_own_answer。誤解なら正しい中身を。知っていることに無ければ作らずに担当の者に申し伝える）、
+        「ほかにご納得いただけない点はございますでしょうか？」（N2）を伺う。無い・分かった＝ご納得（お礼の相づち「ありがとうございます。」で次へ）／ある＝
+        もう一度ご説明（POINT_ROUNDS 回まで）／どちらとも取れない（「なるほど」）＝「ご説明した内容で、ご納得いただけましたでしょうか？」（N3）。
+        ご納得いただければ、ご承認の答えを「はい」にして次のステップへ（面談のお約束・登録・クロージング＝依頼者の業務の質問の順）。ご納得いただけ
+        なければ、ご承認は「いいえ」のまま（最終目的なら _goals_lost で締め、その業務はかけない）。ご説明できなかった・はっきりしないときは、最終目的なら
+        お礼を言って締め（not_agreed）、もうかけないの印は付けない（改めてご案内するかは依頼者が決める）。伺った点は通話の事実 not_agreed（依頼者へ返す）。
+        ✅ 2026-11-02 日本時間5時37分・5時56分 ユーザー（お言葉は CL-1.md 0-2）"""
+        nid, oid, aid = (CALLBACK_IDS[r] for r in ("not_agreed", "other_point", "agreed_now"))
+        p = self.point
+        if p is None:
+            q = next((q for q in self.questions.values() if q.approval and self.items[q.id].state in GOT
+                      and self.items[q.id].condition == q.conditions[1]), None)
+            if q is not None and nid not in self.items:   # 1通話1回
+                self.point = {"q": q.id, "stage": "ask", "round": 1, "explained": None, "turn": None, "outcome": None}
+                self._ask_point("not_agreed", q.id)
+            return
+        if p["outcome"] is not None:
+            return
+        if p["stage"] == "ask" and self.items[nid].state in TAKEN + ("unresolved",):
+            self._point_heard(self.items[nid].value if self.items[nid].state in GOT else self.callee_said)
+        elif p["stage"] == "explained":
+            if p["explained"]:
+                p["stage"] = "other"
+                self._ask_point("other_point", self.current or p["q"])
+            else:
+                self._point_end("unresolved")
+        elif p["stage"] == "other" and self.items[oid].state in TAKEN + ("unresolved",):
+            cond = self.items[oid].condition if self.items[oid].state in GOT else None
+            if cond == "いいえ":
+                self._point_end("agreed")
+            elif cond == "はい" and p["round"] < POINT_ROUNDS:
+                p["round"] += 1
+                self._point_heard(self.callee_said)
+            elif cond == "はい":
+                self._point_end("declined")
+            else:
+                p["stage"], p["hai"] = "confirm", self.callee_turns   # 「なるほど」を「はい、」で受けて伺う（お礼・承りの相づちは合わない）
+                self._ask_point("agreed_now", oid)
+        elif p["stage"] == "confirm" and self.items[aid].state in TAKEN + ("unresolved",):
+            cond = self.items[aid].condition if self.items[aid].state in GOT else None
+            self._point_end("agreed" if cond == "はい" else "declined" if cond == "いいえ" else "unresolved")
+
+    def _ask_point(self, role: str, after: str) -> None:
+        """ご承認いただけなかったときの手順のシステムの質問を、前の質問のすぐあとに伺う（2回目の「ほかに…」は、答えを空にして伺い直す）。"""
+        q = callback_question(role)
+        self.questions[q.id], self.items[q.id] = q, Item()
+        self.follow_ups[q.id] = self.point["q"]
+        self._insert_after(after, q.id)
+
+    def _point_heard(self, said: str | None) -> None:
+        """ご納得いただけなかった点を伺った：AIがご説明する段へ（_advance が知らせる）。点は通話の事実に残す。"""
+        p = self.point
+        p.update(stage="explain", turn=self.callee_turns, explained=None)
+        self._note("not_agreed", question=p["q"], round=p["round"], said=said)
+
+    def _point_said(self, kind: str) -> None:
+        """ご説明する段で、AIが応えた（_answer・_own_answer・_own_fallback）：知っていることでご説明できたか（答えを持っていない質問＝ご説明できない）。"""
+        p = self.point
+        if p is not None and p["stage"] == "explain" and p["explained"] is None:
+            p["explained"] = kind != "no_answer"
+            for e in self.facts.get("not_agreed", []):
+                if e.get("question") == p["q"] and e.get("round") == p["round"]:
+                    e["explained"] = p["explained"]
+
+    def _point_end(self, outcome: str) -> None:
+        """ご承認いただけなかったときの手順の終わり（ご納得＝ご承認の答えを「はい」にする・次の返事はお礼の相づち）。"""
+        p = self.point
+        p["outcome"] = outcome
+        for e in self.facts.get("not_agreed", []):
+            if e.get("question") == p["q"]:
+                e["outcome"] = outcome
+        if outcome == "agreed":
+            q = self.questions[p["q"]]
+            self.items[p["q"]].condition = q.conditions[0]
+            p["thank"] = self.callee_turns
+
+    def _point_note(self) -> str:
+        """ご説明する段の、AIへの知らせ（_advance）。"""
+        said = next((e.get("said") for e in reversed(self.facts.get("not_agreed", []))), None) or ""
+        head = (f"お客様がご納得いただけなかった点を伺いました（「{said[:40]}」）。" if self.point["round"] == 1 else
+                "お客様が、ほかにもご納得いただけない点があると言いました。その点を言っていなければ、どの点かを自分の言葉で短く伺ってから、")
+        return (f"{head}次へ進む前に、その点をご説明します：想定問答に答えがあれば、その答えを流します。こちらが知っていること（業務の情報）に"
+                f"あれば、その範囲で、自分の言葉で短くご説明します（お客様の誤解なら、正しい中身をご説明します）。知っていることに無ければ、答えを作らずに"
+                f"「{PART_LABEL['no_answer']}」で応えます。どれも replay_opening で呼びます。")
+
     def _insert_after(self, after: str, qid: str) -> None:
-        """質問を、前の質問（after）のすぐあとの並びに入れる（_follow_ups）。前の質問が並びに無ければ、終わりに。"""
-        at = self.order.index(after) + 1 if after in self.order else len(self.order)
-        self.order = [*self.order[:at], qid, *[x for x in self.order[at:] if x != qid]]
+        """質問を、前の質問（after）のすぐあとの並びに入れる（_follow_ups）。前の質問が並びに無ければ、終わりに。同じ質問を伺い直すとき
+        （after＝その質問）は、同じ位置に（並びに2つ入れない）。"""
+        rest = [x for x in self.order if x != qid]
+        at = rest.index(after) + 1 if after in rest else (self.order.index(qid) if qid in self.order else len(rest))
+        self.order = [*rest[:at], qid, *rest[at:]]
 
     def _add_callback_question(self, role: str, text: str | None = None) -> None:
         """システムの質問を、いま聞いている並びの終わりに足す（_follow_ups・_not_transferred）。"""
@@ -5304,8 +5428,8 @@ class Flow:
         断る答えでない答え（わからない・答えたくない・聞き取れない）は、断られたとはしない（まだ果たせる）。"""
         goals = [q for q in self.questions.values() if q.final_goal]
         # 断る答え：その質問の断る答え（取込で決める）と、選ぶ質問の「どれも要らない」。ご承認の質問は、ご納得いただけなかった点を伺い終えてから
-        nid = CALLBACK_IDS["not_agreed"]
-        asking = {q for f, q in self.follow_ups.items() if f == nid and self.items[f].state not in TAKEN}
+        p = self.point
+        asking = {p["q"]} if p is not None and p["outcome"] in (None, "unresolved") else set()   # ご納得いただけなかった点を伺っている・申し伝える
         refused = [q.id for q in goals if self.items[q.id].state in GOT and self.items[q.id].condition in q.declines + (NONE,)
                    and q.id not in asking]
         if not refused or (self.goal_mode == "any" and len(refused) < len(goals)):
@@ -5333,6 +5457,12 @@ class Flow:
         # handled＝相手の言葉そのものを、いまの操作が受けた（かけ直しの申し出「あとでかけてもらえますか？」・目的の人の名乗り）＝答えに添えた
         # 質問ではないので、答えさせない。⛔ 2026-10-19 G-57 の2回目：かけ直しの申し出の「〜もらえますか？」を相手からの質問として扱い、
         #    AIに「まず答えて」と渡したので、AIが「私の方では折り返しのお電話はお約束できかねます」と言い、足す質問も録音でなくAIが言った（6本中2本）
+        # 答えによって足す質問を先に決める（ご承認いただけなかったら、締める前にご納得いただけなかった点を伺う＝_goals_lost はその答えを待つ）
+        self._follow_ups()
+        p = self.point
+        if p is not None and p["stage"] == "explain" and p["explained"] is None and p["turn"] == self.callee_turns and self.end_reason is None:
+            # ご納得いただけなかった点を伺った：次へ進む前に、AIが知っていることでご説明する（相手の質問・お話に答える1か所＝replay_opening）
+            return {"result": "explain_point", "message": f"{prefix}{self._point_note()}"}
         asked = None if handled or self.question_answered_turn == self.callee_turns else self._callee_question()
         if asked:
             # 答えに添えられた相手の質問：次へ進む返事は先に作っておき、AIが相手の質問に答えてから流す（_continue）。答え方は、ひとつで出てきた
@@ -5343,12 +5473,14 @@ class Flow:
                 self._note("callee_question", answered=None)  # 同じ発話に報告が2回届いても、1つの質問は1つの記録
             self.after_answer = (asked, self._advance("", handled=True))
             return {"result": "callee_asked", "message": f"{prefix}相手が質問をしています。次へ進む前に、まずその質問に答えます。{self._now()}"}
-        # 答えによって足す質問を先に決める（ご承認いただけなかったら、締める前にご納得いただけなかった点を伺う＝_goals_lost はその答えを待つ）
-        self._follow_ups()
         if self.end_reason is None and (lost := self._goals_lost()) is not None:
             # 最終目的の申し出を断られ、業務の目的が果たせなくなった：残りの質問は伺わずに、お礼の締め（その業務だけかけない＝CL-2 が通話の事実から決める）
             self._note("goal_refused", goals=lost, mode=self.goal_mode)
             return self._close("goal_refused", prefix=f"{prefix}業務の目的が果たせなくなったので、質問はここまでです。")
+        p = self.point
+        if self.end_reason is None and p is not None and p["outcome"] == "unresolved" and self.questions[p["q"]].final_goal:
+            # 最終目的のご承認で、ご納得いただけなかった点をご説明できなかった・はっきりしない：お礼を言って締める（もうかけないの印は付けない）
+            return self._close("not_agreed", prefix=f"{prefix}ご納得いただけなかった点は、担当の者に申し伝えます。質問はここまでです。")
         rest = self._remaining()
         # 念のための確認の段でも、あとから足した聞き足し（分かるお客様・分かる時）を先に伺う（その段で並びに残るのは聞き足しだけ。⛔ 2026-10-24 の
         # 見直し（調べ役）：念のための確認への「担当ではないので分からない」で分かる方を足しても、伺わずに締めていた）
@@ -5456,7 +5588,7 @@ class Flow:
         part：text の録音が依頼主の単位（名乗りの部分。留守番電話の伝言）。無ければ契約者の単位（締めの録音）。"""
         if self.end_reason is not None or self.trouble is not None:
             return self._ended()
-        polite = ("done", "callback", "not_transferred", "departed", "other_means", "goal_refused")  # お礼の締め（ほかは断られたときの締め）
+        polite = ("done", "callback", "not_transferred", "departed", "other_means", "goal_refused", "not_agreed")  # お礼の締め（ほかは断られたときの締め）
         text, rid = text or ((CLOSING, "closing") if reason in polite else (CLOSE_DECLINED, "closing_declined"))
         self._end(reason)
         if self.play_recordings and not spoken:
