@@ -10,7 +10,7 @@ import time
 
 from common import base_parser, require_python, save_result, say
 from convo import answers
-from flowctl import ABOUT, PHONE, SPEAKER, WHO
+from flowctl import ABOUT, END, END_NONE, PHONE, SPEAKER, WHO
 from meaning_judge import OTHER_JUDGES, NoJudgment, add_judge_args, batch_judge, make_judges
 
 # ── 正解の表（言葉ごとに、項目ごとの正解＝flowctl.target_facets の項目）。正解は、判定に見せた言葉（質問・はじめにお呼びした言葉・その前に相手が
@@ -198,7 +198,7 @@ def accept_of(facts: dict[str, set], seeks_successor: bool = False) -> list[str]
 
 def facts_ok(got: dict | None, facts: dict[str, set]) -> bool:
     """項目ごとの答え（判定の返事＝Reading.facts）が、項目ごとの正解にどれも当たるか。"""
-    return got is not None and all(got.get(k) in f for k, f in facts.items())
+    return got is not None and all(got.get(k) in f for k, f in facts.items() if not (k == END and got.get(k) is None))   # 項目を足す前の記録は、電話を終える言葉かを数えない
 
 
 def cases(confirm: str) -> list[tuple[str, list[str], str | None, str | None, bool, dict]]:
@@ -207,7 +207,10 @@ def cases(confirm: str) -> list[tuple[str, list[str], str | None, str | None, bo
     rows = ([(t, None, False, False, f) for t, f in LINES] + [(t, b, False, False, f) for t, b, f in LINES_AFTER]
             + [(t, b, True, False, f) for t, b, f in LINES_CONFIRMED]
             + [(t, b, c, False, f) for t, b, c, f in LINES_BOTH + LINES_DEPARTED] + [(t, b, c, True, f) for t, b, c, f in LINES_SUCCESSOR])
-    return [(t, sorted(set(accept_of(f, s)) | set(EXTRA.get((t, b), ()))), b, (SUCCESSOR["target_confirm"] if s else confirm) if c else None, s, f)
+    # 電話を終える言葉か（2026-11-01 に項目を足した）：71の言葉には、断り・取り次げない・急ぎ・怒りの言葉が無い＝どれも「言っていない」
+    #    （⏳ 電話を終える言葉の試しは別に作り、正解をご覧いただいてから使う）
+    return [(t, sorted(set(accept_of(f, s)) | set(EXTRA.get((t, b), ()))), b, (SUCCESSOR["target_confirm"] if s else confirm) if c else None, s,
+             f | {END: f.get(END, {END_NONE})})
             for t, b, c, s, f in rows]
 
 

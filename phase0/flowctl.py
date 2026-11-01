@@ -847,6 +847,38 @@ CHANGED, OTHER_PERSON, NAME_CHECK, RELAY_WORDS, FIRST_ANSWERER, OTHER_NAME = (
 BEFORE = "その前に相手が言ったこと"
 NO_BEFORE = "無し（こちらがはじめにお呼びしたあとに、お客様の言葉より前に相手が言った言葉は、ありません）"
 
+# 電話を終える言葉か（どちらの段の判定も、今の問い合わせの中の別の項目として読む＝お呼びする段は項目 END・答えの段は答えとは別の項目）。
+# ✅ 2026-11-01 日本時間17時04分 ユーザー：「(a) OK、(b) OK」（決めるのは判定AIだけ、会話AIの報告は判定を待つきっかけだけ）。
+#    16時56分 ユーザー：「会話AIは正しい判断ができるの？できないから、別のAIを使ったんじゃないのか？」＝⛔ それまで、終わりの理由（通話を断られた・
+#    急いでいる・怒っている・取り次げなかった）と、理由を言わずに取り次げないかは、会話AIの報告だけで決まっていた。
+#    答えと別の項目にするのは、10-29 ユーザー：「『不在』と『別の方』というのは、そもそも別の評価軸でしょ。…両方並立は相手の発言次第では当然あり得る
+#    じゃないですか！」（「結構です。もうかけてこないでください。」＝答えは送らない・電話を終える言葉は断った、の2つが1つの言葉に入る）。
+#    分け方の中身はご決定のまま：「忙しい」とだけ言われたら急いでいる（10-13。かけ直してと言われたときだけ、かけ直しの申し出）・営業のお断り
+#    （「営業のお電話はお繋ぎできない決まりです」も）／事情があって取り次げなかった（担当が分からない・個人宛は繋がない）を分ける（10-22）・
+#    「結構です」「大丈夫です」だけで通話の断りとしない（10-17）。流れの制御での決め方は Flow._end_judged の1か所。
+END = "end"
+END_NONE, END_REFUSED, END_HURRY, END_ANGRY = "言っていない", "通話・営業を断った", "急いでいる・いまは話せない", "怒っている・苦情"
+END_REASONED, END_UNCLEAR = "事情を言って取り次げない", "理由を言わずに取り次げない"
+END_REASON = {END_REFUSED: "callee_refused_call", END_HURRY: "callee_hurry", END_ANGRY: "callee_complaint",
+              END_REASONED: "not_transferred", END_UNCLEAR: "transfer_unclear"}   # 電話を終える読み ⇒ 終わりの理由（END_LABEL の中の名前）
+END_HEADING = "電話を終える言葉か"
+
+
+def end_choices(calling: bool) -> dict:
+    """電話を終える言葉かの選べるもの（{中の名前: 説明}。唯一の場所＝お呼びする段の項目 target_facets・答えの段の項目 meaning_judge.answer_items）。
+    取り次げない2つは、お呼びする段だけ（答えの段は、お呼びした方と話している）。説明は意味で書き、試しの言葉と同じ言い方の例は書かない。"""
+    none = ("いまの言葉は、この電話を続けられない・続けたくない、とは言っていない（答えた・尋ねた・あとでかけ直してほしいと頼んだ・"
+            + ("お呼びした方の居場所や様子を伝えた" if calling else "前の質問へ「結構です」「大丈夫です」とだけ返した") + "、だけのときも）")
+    out = {END_NONE: none,
+           END_REFUSED: "この電話そのもの、または営業の電話を断った（もうかけないでほしい・営業の電話は受けない・そういう電話はお繋ぎしない決まり、と言った）",
+           END_HURRY: "急いでいる・忙しいので、この電話をいまは続けられないと言った（何時ならよい・かけ直してほしい、とまでは言っていない）",
+           END_ANGRY: "怒っている・苦情を言っている（この電話やこちらの話し方を責めた・強い言葉で不満を言った）"}
+    if calling:
+        out |= {END_REASONED: "営業のお断りではない事情を言って、取り次げないと言った（担当が分からない・個人あての電話は繋がない など。"
+                              "お呼びした方がいない・手が離せない、だけなら、こちらではない）",
+                END_UNCLEAR: "お呼びした方へはお繋ぎできない、とだけ言い、営業のお断りなのか、ほかの事情なのかを言っていない"}
+    return out | {UNDECIDED: "この言葉からは、この電話を終えたいのかどうか決められない（断りとも、ほかの意味とも取れる など）"}
+
 
 @dataclass(frozen=True)
 class Facet:
@@ -988,7 +1020,8 @@ def target_facets(asked: bool = False, seeks_successor: bool = False) -> tuple[F
                          "こちらにしない）" if s else
                          "いまの言葉で、お呼びした方は、退職・異動などで、もうその会社・部署にいない（担当が替わったときも）・そういう方はいない、と伝えた")}, (
         f"その日だけほかの方が代わりに受け持つときは、{ABOUT_DEPARTED}ではなく{TARGET_IS_AWAY}",))
-    return speaker, who, phone, about
+    end = Facet(END, END_HEADING, end_choices(True))   # 電話を終える言葉か（境目は説明の中に1回ずつ）
+    return speaker, who, phone, about, end
 
 
 def facts_reading(facts: dict, seeks_successor: bool = False) -> tuple[str, bool, bool, bool]:

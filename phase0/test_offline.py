@@ -2692,7 +2692,7 @@ class MeaningJudgeOptionsTest(unittest.TestCase):
         self.assertEqual(target_reading(TARGET_IS_THERE, HANDOVER, A), (TARGET_IS_THERE, False, True))         # 代わったご本人
         self.assertEqual(target_reading(TARGET_IS_THERE, N, TARGET_IS_AWAY), (TARGET_IS_THERE, True, False))   # ご本人がいまは話せない
         self.assertEqual(target_reading(TARGET_IS_NOT, N, A), (TARGET_IS_NOT, False, False))
-        sp, _, ph, ab = target_facets()
+        sp, _, ph, ab, _ = target_facets()
         self.assertEqual(set(sp.choices), {SPEAKER_SAME, SPEAKER_NEW})   # 第1層はユーザーの形のとおり2つ（10-30）
         self.assertEqual(set(ph.choices), {N, HOLD})       # 電話を代わった方が話し始めたことは、前と同じ方かの物差し（10-30）
         self.assertEqual(set(ab.choices), {A, TARGET_IS_AWAY, ABOUT_DEPARTED})
@@ -2710,6 +2710,7 @@ class MeaningJudgeOptionsTest(unittest.TestCase):
         self.assertEqual(read(f.calling_question, json.dumps({SPEAKER: SPEAKER_NEW, WHO: UNDECIDED, PHONE: N, ABOUT: A})), UNDECIDED)
         self.assertIsNone(read(q, json.dumps(S | {WHO: WHO_RECEPTION, PHONE: N})))
         self.assertIsNone(read(q, json.dumps({WHO: WHO_RECEPTION, PHONE: N, ABOUT: A})))       # 前と同じ方かの答えが無い
+        self.assertIsNone(r.end)   # 電話を終える言葉かが無い返事（項目を足す前の記録）は、読んでいない＝None
         self.assertIsNone(read(q, json.dumps({SPEAKER: UNDECIDED, WHO: WHO_RECEPTION, PHONE: N, ABOUT: A})))
         self.assertIsNone(read(q, json.dumps(S | {WHO: "不在", PHONE: N, ABOUT: A})))
         self.assertIsNone(read(q, json.dumps(S | {WHO: TARGET_IS_NOT, PHONE: N, ABOUT: A})))  # 「別の方」は読みの名前で、選べるものではない
@@ -2727,11 +2728,11 @@ class MeaningJudgeOptionsTest(unittest.TestCase):
                 self.assertEqual(head.count(f"- {n}：{d}"), 1)
             for note in fc.notes:
                 self.assertEqual(head.count(f"・{note}\n"), 1)   # 見分け方も1回だけ
-        self.assertEqual(_schema(q, None)["required"], [SPEAKER, WHO, PHONE, ABOUT])
+        self.assertEqual(_schema(q, None)["required"], [SPEAKER, WHO, PHONE, ABOUT, "end"])   # 電話を終える言葉か（2026-11-01）
         self.assertEqual(_schema(q, None)["properties"][ABOUT]["enum"], list(ab.choices))
         # Jev：項目ごとに1つの問い（言い切っているかは問わない）。確かめの線は、項目のうち一番低い確からしさで当てる
         jq = jev_request("m", q, "いいえ、山田と申します。")["questions"]
-        self.assertEqual((list(jq), jq[ABOUT]["criteria"]), ([SPEAKER, WHO, PHONE, ABOUT], ab.choices))
+        self.assertEqual((list(jq), jq[ABOUT]["criteria"]), ([SPEAKER, WHO, PHONE, ABOUT, "end"], ab.choices))   # 電話を終える言葉か（2026-11-01）
         # Jev にも、見分け方と言葉の決まりを、判定の文と同じ1か所から渡す（言葉の決まりは、その言葉を説明に使う項目だけ）
         who_q = q.facets[1]
         self.assertTrue(all(n in jq[WHO]["instructions"] for n in who_q.notes) and all(t in jq[WHO]["instructions"] for t in q.terms))
@@ -3141,8 +3142,36 @@ class AmbiguousAnswerTest(unittest.TestCase):
         text = prompt(ans, "差し控えさせていただきます。")
         self.assertIn(FIRM_RULE, text)
         self.assertNotIn("会話になっているか", text)
-        self.assertEqual(_schema(ans, None)["required"], ["choice", FIRM])
-        self.assertEqual(set(jev_request("m", ans, "差し控えさせていただきます。")["questions"]), {"choice", FIRM})
+        self.assertEqual(_schema(ans, None)["required"], ["choice", FIRM, "end"])   # 電話を終える言葉か（答えとは別の項目。2026-11-01）
+        self.assertEqual(set(jev_request("m", ans, "差し控えさせていただきます。")["questions"]), {"choice", FIRM, "end"})
+
+    def test_end_item_is_asked_apart_from_the_answer(self):
+        # ✅ 2026-11-01 日本時間17時04分 ユーザー：「(a) OK、(b) OK」＝電話を終える言葉か（通話・営業を断った・急いでいる・怒っている・取り次げない）を、
+        #    判定の今の問い合わせで読む。答えとは別の項目（10-29「別の評価軸」）：「結構です。もうかけてこないでください。」は、答え（送らない）と
+        #    電話を終える言葉（断った）が1つの言葉に入る。取り次げない2つは、お呼びする段だけ。3社とも同じ1か所（_schema・jev_request）から作る
+        from flowctl import (END, END_ANGRY, END_HURRY, END_NONE, END_REASON, END_REASONED, END_REFUSED, END_UNCLEAR, Question, UNDECIDED,
+                             end_choices, target_facets)
+        from meaning_judge import _schema, answer_items, jev_request, other_text, prompt, read
+        q = Question("Q1", "パンフレットをお送りしてもよろしいでしょうか？", "yes_no", conditions=("はい", "いいえ"))
+        self.assertEqual(set(end_choices(False)), {END_NONE, END_REFUSED, END_HURRY, END_ANGRY, UNDECIDED})
+        self.assertEqual(set(end_choices(True)), set(end_choices(False)) | {END_REASONED, END_UNCLEAR})
+        self.assertEqual(set(END_REASON), {END_REFUSED, END_HURRY, END_ANGRY, END_REASONED, END_UNCLEAR})
+        self.assertEqual(target_facets()[-1].key, END)                       # お呼びする段は項目の1つ
+        self.assertEqual(set(target_facets()[-1].choices), set(end_choices(True)))
+        self.assertEqual(answer_items(q), {END: end_choices(False)})          # 答えの段は答えとは別の項目
+        text = prompt(q, "結構です。もうかけてこないでください。")
+        self.assertTrue(all(d in text for d in end_choices(False).values()))
+        self.assertEqual(_schema(q, None)["properties"][END]["enum"], list(end_choices(False)))
+        self.assertEqual(jev_request("m", q, "x")["questions"][END]["criteria"], end_choices(False))
+        r = read(q, json.dumps({"choice": "いいえ", "firm": True, END: END_REFUSED}))
+        self.assertEqual((str(r), r.end), ("いいえ", END_REFUSED))           # 答えも電話を終える言葉も、両方読む
+        self.assertIsNone(read(q, json.dumps({"choice": "いいえ", "firm": True, END: "もうかけない"})))   # 選べるものに無い名前は読めない返事
+        self.assertIsNone(read(q, json.dumps({"choice": "いいえ", "firm": True})).end)                   # 項目が無い（足す前の記録）＝読んでいない
+        # 判断のモデルの返事：電話を終える言葉かの確からしさも、読みの確からしさ（いちばん低いもの）に入る＝線より下なら次の判定へ
+        data = {"answers": {"choice": {"choice": "いいえ", "confidence": 0.95}, END: {"choice": END_REFUSED, "confidence": 0.41},
+                            "firm": {"noul": 0.99}}}
+        got = read(q, other_text("d1 Ultra（Liquid）", data))
+        self.assertEqual((str(got), got.end, got.sure), ("いいえ", END_REFUSED, 0.41))
 
     def test_answer_reading_has_no_talk_axis(self):
         # ✅ 2026-10-31 の夜 ユーザー「(a) OK」：会話になっているか（FITS）を判定に答えさせる軸を外した（G-53final で、正しく救った答えは0・壊した
