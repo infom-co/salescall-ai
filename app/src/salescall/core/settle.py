@@ -378,6 +378,8 @@ def _judge_input(tx: Tx, a: dict[str, Any], rules_version: Any) -> tuple[JudgeIn
                      target_recheck.unconfirmed(tx, attempt_id),
                      callee=_callee(tx, a),   # お客様の時間の設定・言葉ごとの幅（読むのは gate.callee_settings の1か所）
                      anyone_target=business_settings.anyone_target(tx, rules_version),   # 「誰でも」の業務か（見直し18b の (3)）
+                     # 前の答えで伺う質問（伺っていない＝対象外を決める材料。CL-1 の連絡帳 4-66 の (e)）
+                     ask_if=business_settings.ask_ifs(tx, rules_version),
                      # 切れ方の分からなかった通話のあとの確かめのかけ直しで、お客様の電話まで鳴ったか（next_action.check_outcome の1か所）
                      check_rang=_check_rang(next_action.check_outcome(tx, attempt_id)) and "refusal" not in gone,
                      # 言ってはいけないことを言った通話（切れ方が決められなければ、断ったかを保留で決める＝伺い3。断りを外すと答えたら見ない）

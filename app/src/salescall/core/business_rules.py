@@ -60,11 +60,27 @@ class Forbidden:
     correct: str | None          # 正しい案内（お詫びの電話で伝える。無ければ None）
 
 
+# 決まった選択肢の質問にシステムが足す答え「どれも要らない」（会話の中の名前 none。CL-1 の連絡帳 4-66 の (a)。システムが足す答えの名前の
+# 正本は business_settings＝`NONE_CHOICE` はこの値を読む。ここに置くのは、断る答えの決まり `decline_answers` が判定からも読まれるため
+# ＝判定は業務設定の部品を読み込めない）。
+NONE_CHOICE = "どれも要らない"
+
+
+def decline_answers(written: Any) -> frozenset[str]:
+    """用件を断られたとする答え（1か所＝業務の決まりの読み（判定）と、業務設定の分岐の確かめが読む）：その質問に書いた断る答えと、
+    「どれも要らない」。会話の側は、最終目的の質問の「どれも要らない」を断る答えにする（CL-1 の連絡帳 4-66。断る答えに書かなくても）。
+    CL-2 の断る答えのある質問は、会話の側の最終目的の質問と同じ中身（CL-2 の連絡帳 4-182 の (e)）。✅ 2026-11-02 日本時間4時16分
+    ユーザー：「連絡しないと最終目的を果たせないような流れだったのなら営業拒否になるし、登録など別の手段が目的の営業であれば電話や
+    メールは控えるという意味合いになるんじゃないですか。」。「どれも要らない」の返らない質問（はい／いいえ・事実を伺う質問）では、
+    足しても何も変わらない。"""
+    return frozenset(written) | {NONE_CHOICE}
+
+
 @dataclass(frozen=True)
 class Rules:
     version_id: UUID
     required: tuple[str, ...]                          # 必須の質問（並び順）。質問の表から
-    decline: dict[str, frozenset[str]]                 # 質問 → 「用件を断られた」とする答え（選択肢）
+    decline: dict[str, frozenset[str]]                 # 質問 → 「用件を断られた」とする答え（書いた選択肢＋「どれも要らない」＝decline_answers）
     handling: dict[tuple[str, str, str], Handling]     # (質問, dont_know / refused, 理由) → 扱い
     retry: dict[str, Policy]                           # 再発信の方針の鍵 → 方針
     forbidden: dict[str, "Forbidden"]                  # 言ってはいけないことの名前 → 中身
@@ -148,7 +164,7 @@ def check(version_id: UUID, required: tuple[str, ...], questions: tuple[str, ...
             raise RulesInvalid(f"断りの答えの質問 {q} がありません")
         if not isinstance(answers, list) or not answers or not all(isinstance(a, str) and a.strip() for a in answers):
             raise RulesInvalid(f"質問 {q} の断りの答えは、選択肢の名前の並びです")
-        decline[q] = frozenset(answers)
+        decline[q] = decline_answers(answers)
     handling: dict[tuple[str, str, str], Handling] = {}
     if set(raw["handling"]) != set(required):
         raise RulesInvalid(f"理由×扱いは、必須の質問ごとに1つずつ要ります（必須：{list(required)}）")

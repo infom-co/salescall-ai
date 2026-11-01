@@ -84,7 +84,7 @@ SCENES = {"取り次げない": NOT_TRANSFERRED, "不在・途中で切れた": 
 def run(raw, *, items=None, facts=TALKED, cut=CLOSED):
     rep = replace(from_json(raw), cut=cut)
     return judge(JudgeInput(facts, rep, items or {}, RULES, callee=CALLEE, anyone_target=False,
-                            check_rang=False, forbidden=False))
+                            check_rang=False, forbidden=False, ask_if={}))
 
 
 class Accepted(unittest.TestCase):
@@ -511,7 +511,7 @@ ANYONE_SILENT = {   # 名乗りのあと、何も言わずに切られた（締�
 
 def judged(raw, *, anyone: bool, items=None, cut=CLOSED):
     return judge(JudgeInput(TALKED, replace(from_json(raw), cut=cut), items or {}, RULES, callee=CALLEE,
-                            anyone_target=anyone, check_rang=False, forbidden=False))
+                            anyone_target=anyone, check_rang=False, forbidden=False, ask_if={}))
 
 
 class Anyone18b(unittest.TestCase):
@@ -633,7 +633,7 @@ class Hurry1101(unittest.TestCase):
         self.assertEqual((r.unjudged_refusal, r.do_not_call, r.refusals, r.talked, from_json(r.to_json())),
                          (True, True, (), True, r))
         inp = JudgeInput(TALKED, replace(r, cut=CLOSED), {}, RULES, callee=CALLEE, anyone_target=False, check_rang=False,
-                         forbidden=False)
+                         forbidden=False, ask_if={})
         j = judge(inp)
         self.assertEqual((j.state, j.dnc_reason, j.detail["refusal"]), ("do_not_call", "refused_in_call", "unjudged"))
         irr = irreversible(inp, j)
@@ -670,6 +670,31 @@ class Hurry1101(unittest.TestCase):
                 from_json({**raw, "facts": {"goal_refused": [{"turn": 4, "said": "x", **bad}]}})
 
 
+class Approval1102(unittest.TestCase):
+    """CL-1 の連絡帳 4-66 の (c)（2026-11-02 ✅ ユーザー）：説明した内容をご承認いただけず、ご納得いただけなかった点を伺った答え（事実
+    not_agreed）。会話の側の形のまま受け取る（said は根拠の発話ではなく答えの値＝お答えいただけなければ null・長さは決まっていない）。
+    依頼者へ「ご納得いただけなかった点」として返す（判定の中身 not_agreed）。人の言葉でしか起きない＝話した。"""
+
+    def raw(self, *rows):
+        return {"version": 3, "not_reached": None, "cut": None, "apology_delivered": None, "facts": {
+            "not_agreed": list(rows), "end": [{"turn": 6, "said": "はい。", "reason": "done"}]}}
+
+    def test_points_not_agreed_are_received_and_returned(self):
+        long = "料金のところと、" * 20   # 根拠の発話の上限（80字）より長い答えも受ける
+        raw = self.raw({"turn": 5, "question": "Q2", "said": long}, {"turn": 7, "question": "Q4", "said": None})
+        r = from_json(raw)
+        self.assertEqual((r.not_agreed[0].said, r.not_agreed[1].said, r.talked, from_json(r.to_json())), (long, None, True, r))
+        self.assertEqual(run(raw).detail["not_agreed"], [{"question": "Q2", "said": long}, {"question": "Q4", "said": None}])
+        self.assertTrue(from_json({**raw, "facts": {"not_agreed": raw["facts"]["not_agreed"]}}).talked)
+        for bad in ({"turn": -1, "question": "Q2", "said": "x"}, {"turn": 5, "question": "", "said": "x"},
+                    {"turn": 5, "question": "Q2", "said": 3}, {"turn": 5, "said": "x"}, {"turn": 5, "question": "Q2", "said": "x", "x": 1},
+                    {"turn": True, "question": "Q2", "said": "x"}):
+            with self.subTest(bad=bad), self.assertRaises(ReportInvalid):
+                from_json(self.raw(bad))
+        with self.assertRaises(ReportInvalid):
+            from_json({**raw, "facts": {"not_agreed": {"turn": 5}}})
+
+
 class Untimed1101(unittest.TestCase):
     def test_an_absence_with_words_but_no_time_may_be_called_again_today(self):
         """不在で戻る時刻が取れなかったかは判定の1か所（judge._untimed_absence＝時刻の言葉を読んで「時刻の決まっていない」）。「後ほど」の
@@ -680,6 +705,6 @@ class Untimed1101(unittest.TestCase):
             "callback": [{"turn": 1, "said": "あいにく岡田は席を外しております。", "why": "absent", "read": ["ai", "judge", "judge2"],
                           "time": "後ほど", "number": None, "again": True}]}}
         inp = JudgeInput(TALKED, replace(from_json(raw), cut=CLOSED), {}, RULES, callee=CALLEE, anyone_target=False,
-                         check_rang=False, forbidden=False)
+                         check_rang=False, forbidden=False, ask_if={})
         self.assertEqual(unreached_today(inp), ("absent", True))
         self.assertEqual(judge(inp).state, "not_reached")

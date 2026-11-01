@@ -55,8 +55,10 @@ END = "END"                                       # 分岐の行き先「終わ�
 # 2026-11-01 CL-1 の連絡帳 4-63 (b) で足した：R1（ご本人へのご遠慮の確かめ「今後このようなお電話はご遠慮したほうがよろしいでしょうか？」。
 # 依頼主へ渡す項目には入らない＝ほかのシステムの質問と同じ）。4-64 の (c) で足した：H1（急いでいる方への「それではまた改めてお掛けしても
 # よろしいでしょうか？」）。4-65 の (d) で足した：target_full・target_successor_full（お名前だけではどの方か分からないと言われたときに、
-# 部署とフルネームでお呼びし直す一言。流すのは名前の録音の台帳から＝target・target_successor と同じ）。
-RESERVED_IDS = frozenset({END, "C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9", "M1", "S1", "P1", "R1", "H1", "greeting", "intro",
+# 部署とフルネームでお呼びし直す一言。流すのは名前の録音の台帳から＝target・target_successor と同じ）。4-66 の (d) で足した：N1（説明した
+# 内容をご承認いただけなかったときの「ご納得いただけなかった点はどの部分になりますでしょうか？」。答えは通話の事実 not_agreed＝依頼者へ
+# 返すが、項目には入らない＝ほかのシステムの質問と同じ）。
+RESERVED_IDS = frozenset({END, "C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9", "M1", "S1", "P1", "R1", "H1", "N1", "greeting", "intro",
                           "purpose", "ai", "target", "target_confirm", "target_reconfirm", "promise_again", "target_successor",
                           "target_full", "target_successor_full", "unavailable_confirm",
                           "voicemail", "message"})
@@ -66,6 +68,12 @@ SYSTEM_CHOICES = ("わからない", "答えたくない")      # システム�
 ANY_CHOICE = "どちらでも"                          # 決まった選択肢（choice）の質問にだけシステムが足す答え：お客様がこちらに任せた
 #   （「どちらでも大丈夫です」）。答えとして受ける＝「取れた」（「わからない」「答えたくない」とは違う。断りにもしない。2026-10-17
 #   ユーザー：「いつでも」と同じ。CL-1 の連絡帳 4-17。会話の中の名前は any）。はい／いいえの質問には足さない
+NONE_CHOICE = business_rules.NONE_CHOICE           # 決まった選択肢（choice）の質問にだけシステムが足す答え「どれも要らない」：どの選択肢も要らない・どれもしないで
+#   ほしい（「連絡自体控えてほしいです」「どちらもお断りします」。CL-1 の連絡帳 4-66。会話の中の名前は none）。✅ 2026-11-02 日本時間4時16分
+#   ユーザー：「連絡しないと最終目的を果たせないような流れだったのなら営業拒否になるし、登録など別の手段が目的の営業であれば電話やメールは
+#   控えるという意味合いになるんじゃないですか。」⇒ 用件を断られたとする答えのある質問（業務の決まり decline。会話の側の最終目的の質問と
+#   同じ中身＝CL-2 の連絡帳 4-182 の (e)）では断る答え（`business_rules.decline_answers` の1か所）、ほかの質問では答えとして受ける（取れた）。
+#   「どちらでも」と同じく、事実を伺う質問（asks_fact）とはい／いいえの質問には足さない（はい／いいえは「いいえ」がこの役）
 CHOICE_TYPES = ("yes_no", "choice")               # 選択肢で答える型（意味の言葉・曖昧な言葉の意味を持てる）
 REPLY_WORDS = ("大丈夫", "結構", "いい", "平気")
 #   返事の言葉だけの答え（曖昧な言葉の意味の鍵）。正本は会話の側（CL-1 の flowctl.AMBIGUOUS_WORDS＝受け入れにも断りにも取れる言葉）。
@@ -84,7 +92,8 @@ NAME_SOURCES = ("caller", "script")               # 名乗り（自社名・担�
 READING_BY = readings.BY                          # 読みを決めたもの（正本は core/readings.py）
 UNIT_TYPE = "number"                              # 単位を持てる型（金額には補わない。DESIGN.md 6-2 の ⚠️）
 QUESTION_KEYS = {"id", "text", "ask_about", "type", "required", "choices", "next", "unit", "meanings", "replies", "asks_fact",
-                 "do_words", "intro"}
+                 "do_words", "intro", "ask_if", "approval"}
+ASK_IF_KEYS = {"after", "answers"}                # 前の答えで伺う質問の条件：前の質問の番号・伺う答えの並び（CL-1 の連絡帳 4-66 の (b)）
 ANSWER_KEYS = {"name", "text"}                    # 想定問答の1つ：問いの名前・答えの文
 # 想定問答の問いの名前に使えない名前（1か所）：AI が流し直しで選ぶ録音の部分の、中の名前と AI に見せる名前の両方（正本は会話の側＝
 # CL-1 の flowctl.RESERVED_PART_NAMES＝PART_LABEL の鍵と値）。会話の側は、同じ名前の問いがあると通話を始めない（ValueError）ので、
@@ -153,6 +162,26 @@ class Question:
     # 質問のあと、つなぎの言葉（それでは・続きまして）の代わりに、質問の録音の頭に1本で入る（文を作るのは会話の側の1か所
     # flowctl.spoken_question。録音を作る道具もそこから読む）。最初の質問（名乗りと一緒に流す）には付けない。空なら今のつなぎの言葉
     intro: str | None = None
+    # 前の質問のこの答えのときだけ伺う質問（依頼者のトークスクリプト。CL-1 の連絡帳 4-66 の (b)。会話の側の Question.ask_if）。None＝いつも
+    # 伺う。会話の側は、その答えを受け取ったら前の質問のすぐあとに伺い、答えが違えば伺わない。伺わなかった質問は、依頼者へは「伺っていない
+    # （対象外）」で返す（答えが取れなかった質問と分ける。決めるのは `judge.not_asked` の1か所）。✅ 2026-11-02 日本時間4時16分 ユーザー：
+    # 「相手が資料を見ていなくても業務の進展ができるのであれば、そのまま進めたらいいと思いますし、確認しないと進められないのであれば、
+    # こちらから重要な事項を説明して、それの承認をもらう形になるんじゃないでしょうか。」（形だけ作る＝4時36分「今回は形だけ作ります：OK」）
+    ask_if: AskIf | None = None
+    # 説明した内容のご承認を伺う質問か（はい／いいえの型だけ。説明の文は、この質問に入る一言＝intro）。「いいえ」（ご承認いただけない）の
+    # ときは、会話の側がシステムの質問 N1「ご納得いただけなかった点はどの部分になりますでしょうか？」を1回伺い、答えは通話の事実
+    # not_agreed（依頼者へ「ご納得いただけなかった点」として返す。CL-1 の連絡帳 4-66 の (b)(c)。4時36分 ユーザー：「(b) いいえ＝「ご納得
+    # いただけなかった点はどの部分になりますでしょうか？」のような確認が必要ではないですか？」）
+    approval: bool = False
+
+
+@dataclass(frozen=True)
+class AskIf:
+    """前の答えで伺う質問の条件（`Question.ask_if`）：前の質問の番号と、伺う答え（その質問の返りうる答え＝`possible_answers` の名前。
+    「わからない」「答えたくない」「どちらでも」「どれも要らない」も書ける。会話の側の中の名前 unknown・refused・any・none へは、会話へ
+    渡すところで置き換える）。"""
+    after: str
+    answers: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -345,7 +374,8 @@ def _caller(v: Any, where: str, names: list[Name], problems: list[str], *, readi
 def possible_answers(q: Question) -> tuple[str, ...]:
     """その質問で返りうる答え（依頼者の選択肢＋システムが足す答え。決まった選択肢の質問には「どちらでも」も。ただし、お客様に事実を
     伺う質問には足さない＝`Question.asks_fact`。会話の側の同じ1か所は CL-1 の `flowctl.Question.all_conditions`）。"""
-    return q.choices + ((ANY_CHOICE,) if q.type == "choice" and not q.asks_fact else ()) + SYSTEM_CHOICES
+    return q.choices + ((ANY_CHOICE, NONE_CHOICE) if q.type == "choice" and not q.asks_fact else ()) + SYSTEM_CHOICES
+
 
 
 def declared_choices(type_name: Any, raw: Any) -> tuple[str, ...] | None:
@@ -483,8 +513,8 @@ def check(raw: Any, *, field_types: frozenset[str], ai_reading_needs_person: boo
                 problems.append(f"{where}の必須か（required）は true / false です")
             choices = _choices(q["choices"], q["type"], where, problems)
             for c in choices:
-                if c in SYSTEM_CHOICES or c == ANY_CHOICE or c in OUTPUT_MARKS or c in (END, ANY):
-                    problems.append(f"{where}の選択肢「{c}」は、システムが足す答え（{list(SYSTEM_CHOICES)}・{ANY_CHOICE}）・"
+                if c in SYSTEM_CHOICES or c in (ANY_CHOICE, NONE_CHOICE) or c in OUTPUT_MARKS or c in (END, ANY):
+                    problems.append(f"{where}の選択肢「{c}」は、システムが足す答え（{list(SYSTEM_CHOICES)}・{ANY_CHOICE}・{NONE_CHOICE}）・"
                                     "出力の印・分岐の印と同じ名前です")
             nxt = q["next"] if q["next"] is not None else {}
             if not isinstance(nxt, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in nxt.items()):
@@ -503,12 +533,21 @@ def check(raw: Any, *, field_types: frozenset[str], ai_reading_needs_person: boo
             intro = _text(q["intro"], f"{where}に入る一言", problems, optional=True)
             if intro is not None and n == 1:
                 problems.append(f"{where}は最初の質問（名乗りと一緒に流す）なので、入る一言（intro）は付けません")
+            if not isinstance(q["approval"], bool):
+                problems.append(f"{where}のご承認を伺う質問か（approval）は true / false です")
+            elif q["approval"] and q["type"] != "yes_no":
+                problems.append(f"{where}は、はい／いいえの質問ではないので、ご承認を伺う質問（approval）にできません（ご承認いただけない＝"
+                                "「いいえ」のときに、ご納得いただけなかった点を伺うため）")
             questions.append(Question(qid, _text(q["text"], f"{where}の文", problems) or "",
                                       _text(q["ask_about"], f"{where}の聞くこと", problems, optional=True),
                                       q["type"], bool(q["required"]), choices, dict(nxt), unit, meanings, replies,
-                                      q["asks_fact"] is not False, do_words, intro))
+                                      q["asks_fact"] is not False, do_words, intro,
+                                      _ask_if(q["ask_if"], where, questions, problems), q["approval"] is True))
     if questions and not any(q.required for q in questions):
         problems.append("必須の質問が1つもありません（どんな通話でも「すべて取れた」になる。Intent.md 6-4）")
+    elif questions and not any(q.required and q.ask_if is None for q in questions):
+        problems.append("いつも伺う必須の質問が1つもありません（必須の質問がすべて前の答えで伺う質問（ask_if）だと、どれも伺わない通話が"
+                        "「すべて取れた」になる。Intent.md 6-4）")
     s = Settings(purpose or "", target_class if target_class in TARGET_CLASSES else "", company or Name("", None, "caller", None), person or Name("", None, "caller", None), purpose_line,
                  dict(tp), busy_line, voicemail_message, ai_answer, answers, voice or "", tuple(questions), tuple(names), None, raw,
                  **responses, client_does=client_does)
@@ -523,6 +562,31 @@ def check(raw: Any, *, field_types: frozenset[str], ai_reading_needs_person: boo
     if problems:
         raise SettingsInvalid(problems)
     return s
+
+
+def _ask_if(raw: Any, where: str, earlier: list[Question], problems: list[str]) -> AskIf | None:
+    """前の答えで伺う質問の条件を読む（無ければ None）。前の質問は、この質問より前に並ぶ質問（会話の側は、その答えを受け取ったら前の質問の
+    すぐあとに伺う。前に並ぶ質問だけにするので、条件が輪になることも、最初の質問が伺わない質問になることもない）。伺う答えは、前の質問の
+    返りうる答え（`possible_answers`）の1つ以上（同じ答えは1回）。"""
+    if raw is None:
+        return None
+    if not isinstance(raw, dict) or set(raw) != ASK_IF_KEYS:
+        problems.append(f"{where}の伺う条件（ask_if）は、前の質問の番号（after）と伺う答えの並び（answers）か null です")
+        return None
+    after, answers = raw["after"], raw["answers"]
+    src = next((q for q in earlier if isinstance(after, str) and q.id == after), None)
+    if src is None:
+        problems.append(f"{where}の伺う条件の前の質問 {after!r} は、この質問より前に並ぶ質問ではありません")
+        return None
+    if not isinstance(answers, list) or not answers or not all(isinstance(a, str) for a in answers) \
+            or len(set(answers)) != len(answers):
+        problems.append(f"{where}の伺う条件の答えは、前の質問 {after} の答えの名前の並び（1つ以上・同じ名前は1回）です")
+        return None
+    unknown = [a for a in answers if a not in possible_answers(src)]
+    if unknown:
+        problems.append(f"{where}の伺う条件の答え {unknown} は、前の質問 {after} の答えにありません（{list(possible_answers(src))}）")
+        return None
+    return AskIf(after, tuple(answers))
 
 
 def _flow_problems(s: Settings, rules_raw: Any) -> list[str]:
@@ -580,7 +644,7 @@ def _flow_problems(s: Settings, rules_raw: Any) -> list[str]:
     # 断り・システムの答えでない辺だけを通って、その必須の質問を通らずに終わりへ着く道。必須の質問ごとに、その質問を除いた
     # 図で終わりへ届くかを見る（質問の数 × 辺の数。前は通った質問の組ごとに覚えていたので、質問が増えると何秒もかかり、
     # 門・取込が版を読むたびに遅くなった＝2026-10-16 の見直し I2）
-    plain = {n: {t for a, t in out.items() if a not in SYSTEM_CHOICES and a not in decline.get(n, [])}
+    plain = {n: {t for a, t in out.items() if a not in SYSTEM_CHOICES and not (n in decline and a in business_rules.decline_answers(decline[n]))}
              for n, out in edges.items()}
     found: set[str] = set()
     for r in (q.id for q in s.questions if q.required):
@@ -686,13 +750,36 @@ def _current_shape(content: dict[str, Any]) -> dict[str, Any]:
       （取込で決まらないときと同じ側＝`business_import._decided_facts`。⛔ 見直し28：前は、足す前に置いた版が読めなくなり、その版の
       実施回はかけることも答えを書くこともできなかった）。
     - こちらがすることの言葉（do_words）・入る一言（intro）（2026-11-02 に足した＝CL-1 の連絡帳 4-65 の (a)(b)）が無い前の版の質問は、
-      どちらも無い（空の表・None＝今までの確かめの言い方・つなぎの言葉）として読む。"""
+      どちらも無い（空の表・None＝今までの確かめの言い方・つなぎの言葉）として読む。
+    - 伺う条件（ask_if）・ご承認を伺う質問か（approval）（2026-11-02 に足した＝CL-1 の連絡帳 4-66 の (b)）が無い前の版の質問は、いつも
+      伺う・ご承認の質問ではない（None・偽）として読む。同じとき「どれも要らない」が返りうる答えに増えた（4-66 の (a)）ので、その前の版で
+      分岐（next）を答えごとに書き、受け皿（*）の無い質問は、「どれも要らない」の行き先を並びの次の質問（最後の質問なら終わり）として
+      読む（会話の側は、最終目的の質問でなければ答えとして受け取って続ける＝並びの次。⛔ 足さないと、受け皿の無い分岐の版が読めなくなる）。"""
     questions = content.get("questions")
     if not isinstance(questions, list):
         return content
-    added = {"asks_fact": True, "do_words": {}, "intro": None}   # 足した項目と、足す前の版で読む値
-    return dict(content, questions=[{**{k: v for k, v in added.items() if k not in q}, **q} if isinstance(q, dict) else q
-                                    for q in questions])
+    added = {"asks_fact": True, "do_words": {}, "intro": None, "ask_if": None, "approval": False}   # 足した項目と、足す前の版で読む値
+    ids = [q.get("id") if isinstance(q, dict) else None for q in questions]
+
+    def shaped(i: int, q: Any) -> Any:
+        if not isinstance(q, dict):
+            return q
+        out = {**{k: v for k, v in added.items() if k not in q}, **q}
+        nxt = out.get("next")
+        if "ask_if" not in q and isinstance(nxt, dict) and nxt and ANY not in nxt and NONE_CHOICE not in nxt \
+                and out.get("type") == "choice" and out.get("asks_fact") is False:
+            out["next"] = {**nxt, NONE_CHOICE: ids[i + 1] if i + 1 < len(ids) else END}
+        return out
+    return dict(content, questions=[shaped(i, q) for i, q in enumerate(questions)])
+
+
+def ask_ifs(tx: Tx, version_id: UUID) -> dict[str, AskIf]:
+    """その版の、前の答えで伺う質問（質問の番号 → 条件）。判定の入力（judge.JudgeInput.ask_if）が読む1か所。中身は置いた時に確かめ済み。"""
+    row = tx.one("SELECT content FROM salescall.business_contents WHERE version_id = %s", (version_id,))
+    if row is None:
+        raise LookupError(f"その版の業務設定の中身がありません：{version_id}")
+    return {q["id"]: AskIf(q["ask_if"]["after"], tuple(q["ask_if"]["answers"]))
+            for q in _current_shape(row["content"])["questions"] if q["ask_if"] is not None}
 
 
 def _rules_raw(tx: Tx, version_id: UUID) -> dict[str, Any]:

@@ -45,7 +45,8 @@ from salescall.core.import_files import FileRejected, Sheet, read
 SHEETS: dict[str, tuple[str, dict[str, str], bool]] = {
     "basic": ("基本", {"item": "項目", "value": "値"}, True),
     "questions": ("質問", {"id": "質問ID", "text": "質問の文", "ask_about": "聞くこと", "type": "型", "required": "必須",
-                          "choices": "選択肢", "decline": "断りの答え", "intro": "入る一言"}, True),
+                          "choices": "選択肢", "decline": "断りの答え", "intro": "入る一言", "ask_after": "伺う条件の質問ID",
+                          "ask_answers": "伺う条件の答え", "approval": "ご承認を伺う"}, True),
     "branches": ("分岐", {"id": "質問ID", "answer": "回答条件", "next": "次の質問ID"}, False),
     "handling": ("わからない・答えたくない", {"id": "質問ID", "state": "答え", "reason": "理由", "kind": "扱い",
                                           "conclusion": "結論の名前"}, True),
@@ -55,8 +56,10 @@ SHEETS: dict[str, tuple[str, dict[str, str], bool]] = {
     "answers": ("想定問答", {"name": "問いの名前", "text": "答え"}, False),   # お客様に聞かれたら答えてよいこと（CL-1 の 4-26）
 }
 # 無くてもよい列（役目.列の役目）：見出しが無ければ空として読む（前のひな形にこの列が無いため）。対応付けで見出しを指定したのに無ければ問題。
-# 質問に入る一言（依頼者のトークスクリプト。CL-1 の連絡帳 4-65 の (b)。最初の質問には書かない＝業務設定の確かめ）
-OPTIONAL_COLUMNS = frozenset({"questions.intro"})
+# 質問に入る一言（依頼者のトークスクリプト。CL-1 の連絡帳 4-65 の (b)。最初の質問には書かない＝業務設定の確かめ）。
+# 前の質問のこの答えのときだけ伺う（伺う条件の質問ID・伺う条件の答え。答えは「／」か改行で区切る）と、説明した内容のご承認を伺う質問か
+# （はい／いいえの質問だけ）（どちらも依頼者のトークスクリプト。CL-1 の連絡帳 4-66 の (b)。空ならいつも伺う・ご承認の質問ではない）
+OPTIONAL_COLUMNS = frozenset({"questions.intro", "questions.ask_after", "questions.ask_answers", "questions.approval"})
 BASIC_ITEMS = {"業務の目的": "purpose", "お客様の区分": "target_class", "自社名": "company", "自社名の読み": "company_reading", "担当者名": "person",
                "担当者名の読み": "person_reading", "用件の一文": "purpose_line", "目的のお客様": "target_kind",
                "目的のお客様の役職": "target_role", "忙しいと言われたときの一言": "busy_line",
@@ -86,6 +89,7 @@ LABELS: dict[str, dict[str, str]] = {
     "message_policy": {"お礼を言って断り戻る時刻を聞く": "decline", "伝言を残す": "leave"},
     "departed_policy": {"後任の方をお呼びする": "successor", "お礼を言って終える": "end"},
     "follow_up": {"はい": True, "いいえ": False},
+    "approval": {"はい": True, "○": True, "いいえ": False, "": False},
     "required": {"はい": True, "○": True, "いいえ": False, "": False},
 }
 # かけ直しのシートで、システムが決める結果（業務では変えない＝business_rules.SYSTEM_POLICIES）。前のひな形にはこの行があったので、
@@ -235,10 +239,13 @@ def _to_raw(sheets: dict[str, tuple[Sheet, dict[str, int]]], problems: list[str]
         where_q.append(where)
         qtype = _label("type", v.get("type"), f"{where}の型", problems)
         required = _label("required", v.get("required"), f"{where}の必須", problems)
+        ask_if = None if not v.get("ask_after") and not v.get("ask_answers") else \
+            {"after": v.get("ask_after"), "answers": _split(v.get("ask_answers"))}   # 片方だけなら、業務設定の確かめが問題に出す
         questions.append({"id": v.get("id"), "text": v.get("text"), "ask_about": v.get("ask_about"), "type": qtype,
                           "required": required, "choices": _split(v.get("choices")) if qtype == "choice" else None,
                           "next": None, "unit": None, "meanings": None, "replies": None, "asks_fact": None,
-                          "do_words": None, "intro": v.get("intro")})
+                          "do_words": None, "intro": v.get("intro"), "ask_if": ask_if,
+                          "approval": _label("approval", v.get("approval"), f"{where}のご承認を伺う", problems)})
         if v.get("decline"):
             decline[v.get("id")] = _split(v.get("decline"))
     by_id = {q["id"]: q for q in questions}
@@ -417,10 +424,12 @@ ReplyDecider = Callable[[list[tuple[str, tuple[str, ...]]]], list[dict[str, str]
 CL-1 の連絡帳 4-17）。管理者も契約者も確かめない。"""
 
 
-DoWordsDecider = Callable[[list[tuple[str, tuple[str, ...]]]], list[dict[str, str]]]
+DoWordsDecider = Callable[[list[tuple[str, tuple[str, ...], dict[str, str]]]], list[dict[str, str]]]
 """事実を伺う質問ではない（希望・申し出の）選択肢の質問の「こちらがすること（お客様がされること）」の言葉を決める処理（(質問の文, 選択肢の
-並び) の並び → 同じ並びで {選択肢: 言葉}。決まらない選択肢は入れない）。決め方は CL-1 の1か所（意味の言葉と同じく文字の AI 2つ。CL-1 の
-連絡帳 4-65 の (a)。CL-1 が全部の言葉を見る）。管理者も契約者も確かめない。"""
+並び, その質問の意味の言葉 {選択肢: 意味の言葉}) の並び → 同じ並びで {選択肢: 言葉}。決まらない選択肢は入れない）。決め方は CL-1 の1か所
+（`meanings.by_model(…, kind="do")` を2つのモデルで1回ずつ → `meanings.decide(…, kind="do", meanings=意味の言葉)`。言葉の向きが意味の言葉の
+向きとそろうときだけ決まる＝G-72。CL-1 の連絡帳 4-65 の (a) と 11-02 2時台の追記。CL-1 が全部の言葉を見る）。意味の言葉は、入口が
+持ってきたものか、同じ取込で先に決めたもの（`ask_ai`）。管理者も契約者も確かめない。"""
 
 
 FactDecider = Callable[[list[str]], dict[str, bool]]
@@ -472,14 +481,23 @@ def _pair_key(text: str, choices: tuple[str, ...]) -> str:
 
 
 def _decided_pairs(raw: dict[str, Any], key: str, decide: MeaningDecider | ReplyDecider | DoWordsDecider | None,
-                   facts: dict[str, bool] | None = None) -> dict[str, dict[str, str]]:
+                   facts: dict[str, bool] | None = None, meanings: dict[str, dict[str, str]] | None = None
+                   ) -> dict[str, dict[str, str]]:
     """選択肢の質問ごとに決める処理に、1回だけ聞く（使える組だけ返す＝`business_settings.valid_answer_words`。答えが無い・形が
     違うときは空：会話は止まらない＝空なら選択肢の名前で言い直し、曖昧な言葉は通話の中で確かめる、こちらがすることの言葉が無ければ
-    今までの確かめの言い方）。"""
-    pairs = list(dict.fromkeys((q["text"], c) for q, c in _choice_questions(raw, key, facts)))
+    今までの確かめの言い方）。こちらがすることの言葉（key＝do_words）は、組ごとにその質問の意味の言葉も渡す（入口の意味の言葉か、
+    meanings＝同じ取込で決めた意味の言葉。`_meanings_of` の1か所）。"""
+    found = _choice_questions(raw, key, facts)
+    pairs = list(dict.fromkeys((q["text"], c) for q, c in found))
     if not pairs or decide is None:
         return {}
-    got = decide(pairs)
+    if key == "do_words":
+        first = {}
+        for q, c in found:   # 同じ文と選択肢の質問は1回だけ聞く（意味の言葉は、その最初の質問のもの）
+            first.setdefault((q["text"], c), _meanings_of(q, c, meanings or {}))
+        got = decide([(t, c, first[(t, c)]) for t, c in pairs])
+    else:
+        got = decide(pairs)
     if not isinstance(got, list) or len(got) != len(pairs):
         return {}
     out = {}
@@ -488,6 +506,13 @@ def _decided_pairs(raw: dict[str, Any], key: str, decide: MeaningDecider | Reply
         if good:
             out[_pair_key(text, choices)] = good
     return out
+
+
+def _meanings_of(q: dict[str, Any], choices: tuple[str, ...], decided: dict[str, dict[str, str]]) -> dict[str, str]:
+    """その質問の意味の言葉（入口が持ってきたもの。無ければ同じ取込で AI が決めたもの。使える組だけ＝`valid_answer_words`）。
+    `review` が入れる意味の言葉と同じ決め方（入口のもの＞AI の答え）。"""
+    return business_settings.valid_answer_words(q.get("meanings") or decided.get(_pair_key(q["text"], choices)),
+                                                choices, replies=False)
 
 
 def _decided(texts: list[str], decide: Callable[[list[str]], dict[str, str]] | None) -> dict[str, str]:
@@ -530,13 +555,14 @@ def ask_ai(raw: dict[str, Any], *, find_names: NameFinder | None = None, decide_
     だけ＝事実を伺う質問かが決まってから聞く）}。
     **プレビューで聞いた答えを、登録でもそのまま使う**（もう一度聞くと答えが変わりうる＝契約者が見たものと違う中身になる）。"""
     facts = _decided_facts(sorted({q["text"] for q in _fact_questions(raw)}), decide_facts)
+    meanings = _decided_pairs(raw, "meanings", decide_meanings)   # こちらがすることの言葉の向きを、意味の言葉の向きとそろえるので先に
     return {"names": readings.to_json(readings.find(_script(raw), find_names)),
             "units": _decided(sorted({q["text"] for q in _unit_questions(raw)}), decide_units),
             "topics": _decided(sorted({q["text"] for q in _topic_questions(raw)}), decide_topics),
-            "meanings": _decided_pairs(raw, "meanings", decide_meanings),
+            "meanings": meanings,
             "replies": _decided_pairs(raw, "replies", decide_replies),
             "facts": facts,
-            "do_words": _decided_pairs(raw, "do_words", decide_do_words, facts)}
+            "do_words": _decided_pairs(raw, "do_words", decide_do_words, facts, meanings)}
 
 
 def review(tx: Tx, business_id: UUID, raw: dict[str, Any], *, confirmed_names: Any = (),

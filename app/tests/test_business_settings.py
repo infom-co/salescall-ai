@@ -36,10 +36,10 @@ def raw() -> dict:
         "questions": [
             {"id": "Q1", "text": "ご予約はなさいますか。", "ask_about": "ご予約", "type": "choice", "required": True,
              "choices": ["する", "しない"], "next": {"しない": "END", "*": "Q2"}, "unit": None, "meanings": None, "replies": None,
-             "asks_fact": False, "do_words": None, "intro": None},
+             "asks_fact": False, "do_words": None, "intro": None, "ask_if": None, "approval": False},
             {"id": "Q2", "text": "ご希望の日時をお聞かせください。", "ask_about": "ご希望の日時", "type": "datetime",
              "required": True, "choices": None, "next": None, "unit": None, "meanings": None, "replies": None,
-             "asks_fact": True, "do_words": None, "intro": None},
+             "asks_fact": True, "do_words": None, "intro": None, "ask_if": None, "approval": False},
         ],
         "names": [name("株式会社テスト物流", "かぶしきがいしゃてすとぶつりゅう", "caller"), name("山田", "やまだ", "caller"),
                   name("テスト物流", "てすとぶつりゅう", "script")],
@@ -142,7 +142,7 @@ class Check(unittest.TestCase):
         """決まった選択肢の質問には、システムが「どちらでも」を足す（お客様がこちらに任せた＝取れた答え。2026-10-17 ユーザー。
         CL-1 の連絡帳 4-17）。同じ名前の選択肢は書けない。分岐を書くなら、その行き先も要る（受け皿でよい）。はい／いいえには足さない。"""
         s = bs.check(raw(), field_types=FIELD_TYPES, ai_reading_needs_person=True)
-        self.assertEqual(bs.possible_answers(s.questions[0]), ("する", "しない", "どちらでも", "わからない", "答えたくない"))
+        self.assertEqual(bs.possible_answers(s.questions[0]), ("する", "しない", "どちらでも", "どれも要らない", "わからない", "答えたくない"))
         self.assertEqual(s.next_of("Q1", "どちらでも"), "Q2")                       # 受け皿へ
         r = raw()
         r["questions"][0]["choices"] = ["する", "しない", "どちらでも"]
@@ -152,6 +152,66 @@ class Check(unittest.TestCase):
         self.assertTrue(any("受け皿がありません" in p and "どちらでも" in p for p in problems_of(r)), problems_of(r))
         yes_no = bs.Question("Q9", "ご予約はお済みですか。", None, "yes_no", True, bs.YES_NO_CHOICES, {})
         self.assertNotIn("どちらでも", bs.possible_answers(yes_no))
+
+    def test_none_is_a_system_answer_of_choice_questions(self):
+        """CL-1 の連絡帳 4-66 の (a)（✅ 2026-11-02 日本時間4時16分 ユーザー）：事実を伺わない決まった選択肢の質問には、システムが「どれも
+        要らない」を足す（はい／いいえ・事実を伺う質問には足さない）。同じ名前の選択肢は書けない。分岐を書くなら、その行き先も要る。
+        用件を断られたとする答えのある質問では断る答え（業務の決まりの decline に入る＝判定と分岐の確かめの1か所
+        `business_rules.decline_answers`）、ほかの質問では答え（その先の必須の質問を飛ばせない）。"""
+        from salescall.core import business_rules
+        s = bs.check(raw(), field_types=FIELD_TYPES, ai_reading_needs_person=True)
+        self.assertIn("どれも要らない", bs.possible_answers(s.questions[0]))
+        self.assertEqual(s.next_of("Q1", "どれも要らない"), "Q2")                     # 受け皿へ
+        yes_no = bs.Question("Q9", "ご予約はお済みですか。", None, "yes_no", True, bs.YES_NO_CHOICES, {})
+        fact = bs.Question("Q8", "ご予約の方法は。", None, "choice", True, ("電話", "窓口"), {}, asks_fact=True)
+        self.assertEqual([bs.NONE_CHOICE in bs.possible_answers(q) for q in (yes_no, fact)], [False, False])
+        r = raw()
+        r["questions"][0]["choices"] = ["する", "どれも要らない"]
+        self.assertTrue(any("選択肢「どれも要らない」は、システムが足す答え" in p for p in problems_of(r)), problems_of(r))
+        r = raw()
+        r["questions"][0]["next"] = {"する": "Q2", "しない": "END", "どちらでも": "Q2", "わからない": "Q2", "答えたくない": "Q2"}
+        self.assertTrue(any("受け皿がありません" in p and "どれも要らない" in p for p in problems_of(r)), problems_of(r))
+        # 断る答えのある質問：「どれも要らない」で終わりへ行っても、必須の Q2 を飛ばす道ではない（断られた）。断る答えの無い質問では飛ばす道
+        r = raw()
+        r["questions"][0]["next"] = {"する": "Q2", "しない": "END", "どれも要らない": "END", "*": "Q2"}
+        rules = business_rules.check(bs.UUID(int=0), ("Q1", "Q2"), ("Q1", "Q2"), r["rules"])
+        self.assertEqual(rules.decline["Q1"], frozenset({"しない", "どれも要らない"}))
+        bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True)
+        r["rules"]["decline"] = {}
+        self.assertTrue(any("必須の質問 Q2 を聞かずに終わる道" in p for p in problems_of(r)), problems_of(r))
+
+    def test_questions_asked_only_after_an_answer_and_approval_questions(self):
+        """CL-1 の連絡帳 4-66 の (b)（✅ 2026-11-02 日本時間4時16分・4時36分 ユーザー）：伺う条件（ask_if）は、前に並ぶ質問の番号と、その
+        質問の返りうる答えの並び（「わからない」なども書ける）。ご承認を伺う質問（approval）は、はい／いいえの質問だけ。必須の質問が
+        すべて伺う条件つきなら、どれも伺わない通話が「すべて取れた」になるので通さない。"""
+        r = raw()
+        r["questions"][0]["choices"] = ["する", "しない", "迷っている"]
+        r["questions"].append({"id": "Q3", "text": "以上の内容でよろしいでしょうか？", "ask_about": "ご承認", "type": "yes_no",
+                               "required": True, "choices": None, "next": None, "unit": None, "meanings": None, "replies": None,
+                               "asks_fact": False, "do_words": None, "intro": "それでは重要な点だけご説明させていただきます。",
+                               "ask_if": {"after": "Q1", "answers": ["迷っている", "わからない"]}, "approval": True})
+        r["rules"] = rules_raw(required=("Q1", "Q2", "Q3"), decline={"Q1": ["しない"]})
+        s = bs.check(r, field_types=FIELD_TYPES, ai_reading_needs_person=True)
+        self.assertEqual((s.questions[2].ask_if, s.questions[2].approval, s.questions[0].ask_if, s.questions[0].approval),
+                         (bs.AskIf("Q1", ("迷っている", "わからない")), True, None, False))
+        for name, change, words in (
+                ("前の質問が後ろ", lambda r: r["questions"][1].update(ask_if={"after": "Q3", "answers": ["はい"]}), "前に並ぶ質問ではありません"),
+                ("前の質問が自分", lambda r: r["questions"][2].update(ask_if={"after": "Q3", "answers": ["はい"]}), "前に並ぶ質問ではありません"),
+                ("前の質問が無い", lambda r: r["questions"][2].update(ask_if={"after": "Q7", "answers": ["する"]}), "前に並ぶ質問ではありません"),
+                ("答えが空", lambda r: r["questions"][2].update(ask_if={"after": "Q1", "answers": []}), "伺う条件の答え"),
+                ("答えが重なる", lambda r: r["questions"][2].update(ask_if={"after": "Q1", "answers": ["する", "する"]}), "伺う条件の答え"),
+                ("答えが前の質問に無い", lambda r: r["questions"][2].update(ask_if={"after": "Q1", "answers": ["はい"]}), "前の質問 Q1 の答えにありません"),
+                ("形が違う", lambda r: r["questions"][2].update(ask_if={"after": "Q1"}), "伺う条件（ask_if）"),
+                ("ご承認がはい／いいえでない", lambda r: r["questions"][0].update(approval=True), "ご承認を伺う質問（approval）にできません"),
+                ("ご承認が真偽でない", lambda r: r["questions"][2].update(approval="はい"), "ご承認を伺う質問か（approval）は true / false"),
+                ("いつも伺う必須が無い", lambda r: [r["questions"][0].update(required=False), r["questions"][1].update(required=False)],
+                 "いつも伺う必須の質問が1つもありません")):
+            with self.subTest(name):
+                bad = copy.deepcopy(r)
+                change(bad)
+                if name == "いつも伺う必須が無い":
+                    bad["rules"] = rules_raw(required=("Q3",))
+                self.assertTrue(any(words in p for p in problems_of(bad)), problems_of(bad))
 
     def test_a_question_asking_a_fact_has_no_any_answer(self):
         """お客様に事実を伺う質問（CL-1 の連絡帳 2-1 の版 0.6。✅ 2026-11-01 ユーザー：(a)「OK」）には、決まった選択肢の質問でも
@@ -206,10 +266,10 @@ class Check(unittest.TestCase):
             nxt = f"A{i + 1}" if i + 1 < n else "Q2"
             qs.append({"id": ask, "text": "ご利用はございますか？", "ask_about": "ご利用", "type": "choice", "required": False,
                        "choices": ["ある", "ない"], "next": {"ある": detail, "*": nxt}, "unit": None, "meanings": None, "replies": None,
-                       "asks_fact": True, "do_words": None, "intro": None})
+                       "asks_fact": True, "do_words": None, "intro": None, "ask_if": None, "approval": False})
             qs.append({"id": detail, "text": "詳しくお聞かせください。", "ask_about": "詳しく", "type": "free_text",
                        "required": False, "choices": None, "next": {"*": nxt}, "unit": None, "meanings": None, "replies": None,
-                       "asks_fact": True, "do_words": None, "intro": None})
+                       "asks_fact": True, "do_words": None, "intro": None, "ask_if": None, "approval": False})
         qs[0] = dict(qs[0], next={"しない": "END", "*": "A0"})
         qs.append(r["questions"][1])
         r["questions"] = qs
@@ -344,9 +404,9 @@ class Versions(unittest.TestCase):
         from unittest import mock
         old_content = bs._content
 
-        def before_asks_fact(s):   # 足す前の形（あとで足した do_words・intro＝4-65 も無い）
+        def before_asks_fact(s):   # 足す前の形（あとで足した do_words・intro＝4-65、ask_if・approval＝4-66 も無い）
             c = old_content(s)
-            return dict(c, questions=[{k: v for k, v in q.items() if k not in ("asks_fact", "do_words", "intro")}
+            return dict(c, questions=[{k: v for k, v in q.items() if k not in ("asks_fact", "do_words", "intro", "ask_if", "approval")}
                                       for q in c["questions"]])
 
         with mock.patch.object(bs, "_content", before_asks_fact):
@@ -354,10 +414,38 @@ class Versions(unittest.TestCase):
         stored = self.tx(lambda tx: tx.one("SELECT content FROM salescall.business_contents WHERE version_id = %s", (v,)))
         self.assertFalse(any("asks_fact" in q for q in stored["content"]["questions"]))   # 前の形のまま置いてある
         got = self.tx(lambda tx: bs.load(tx, v))
-        self.assertEqual([(q.asks_fact, q.do_words, q.intro) for q in got.questions], [(True, {}, None), (True, {}, None)])
+        self.assertEqual([(q.asks_fact, q.do_words, q.intro, q.ask_if, q.approval) for q in got.questions],
+                         [(True, {}, None, None, False), (True, {}, None, None, False)])
+        self.assertEqual(self.tx(lambda tx: bs.ask_ifs(tx, v)), {})
         back = self.tx(lambda tx: bs.load(tx, bs.restore(tx, v)))
         self.assertEqual([(q["asks_fact"], q["do_words"], q["intro"]) for q in back.raw["questions"]],
                          [(True, {}, None), (True, {}, None)])
+
+    def test_a_version_saved_before_none_reads_none_as_going_on(self):
+        """「どれも要らない」（4-66 の (a)）が返りうる答えに増える前に置いた版で、事実を伺わない選択肢の質問の分岐を答えごとに書き、受け皿の
+        無いもの：「どれも要らない」の行き先を並びの次の質問として読む（会話の側は、答えとして受け取って続ける）。読めなくならない。"""
+        from unittest import mock
+        old_content = bs._content
+        every = {"する": "Q2", "しない": "END", "どちらでも": "Q2", "わからない": "Q2", "答えたくない": "Q2"}
+
+        def before_none(s):   # 足す前の形（伺う条件・ご承認も無い）と、受け皿の無い分岐
+            c = old_content(s)
+            qs = [{k: v for k, v in q.items() if k not in ("ask_if", "approval")} for q in c["questions"]]
+            qs[0]["next"] = every
+            return dict(c, questions=qs)
+
+        with mock.patch.object(bs, "_content", before_none):
+            v = self.tx(lambda tx: bs.save_version(tx, self.s["business"], raw()))
+        got = self.tx(lambda tx: bs.load(tx, v))
+        self.assertEqual((got.next_of("Q1", "どれも要らない"), got.next_of("Q1", "しない")), ("Q2", "END"))
+
+    def test_questions_asked_after_an_answer_are_read_for_the_judge(self):
+        """判定へ渡す、前の答えで伺う質問（`ask_ifs` の1か所。置いた版から、業務設定の並び順で）。"""
+        r = raw()
+        r["questions"][1]["ask_if"] = {"after": "Q1", "answers": ["する", "どちらでも"]}
+        r["questions"][0]["required"] = True
+        v = self.tx(lambda tx: bs.save_version(tx, self.s["business"], r))
+        self.assertEqual(self.tx(lambda tx: bs.ask_ifs(tx, v)), {"Q2": bs.AskIf("Q1", ("する", "どちらでも"))})
 
     def test_responses_are_kept_in_the_version(self):
         """相手の申し出への応じ方・伝言の文・業務の情報は版に残り、読み直しても同じ（前の版へ戻しても同じ）。"""

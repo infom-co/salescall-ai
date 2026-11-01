@@ -32,9 +32,9 @@ def report(parties=("target",), *, dnc=False, oos=False, complaint=False, not_re
     return make_report(parties, dnc=dnc, oos=oos, complaint=complaint, not_reached=not_reached, callback=callback, cut=cut)
 
 
-def run(*, facts=TALKED, rep=report(), items=None, check_rang=False, forbidden=False):
+def run(*, facts=TALKED, rep=report(), items=None, check_rang=False, forbidden=False, ask_if=None):
     return judge(JudgeInput(facts, rep, TAKEN if items is None else items, RULES, callee=CALLEE, anyone_target=False,
-                            check_rang=check_rang, forbidden=forbidden))
+                            check_rang=check_rang, forbidden=forbidden, ask_if=ask_if or {}))
 
 
 class Order(unittest.TestCase):
@@ -126,6 +126,51 @@ class Order(unittest.TestCase):
     def test_same_input_same_result(self):
         kw = dict(items={"Q1": TAKEN["Q1"]})
         self.assertEqual(run(**kw), run(**kw))
+
+
+class NotAsked(unittest.TestCase):
+    """前の答えで伺う質問（業務設定の ask_if。CL-1 の連絡帳 4-66 の (e)）：伺わなかった質問は「伺っていない（対象外）」（`judge.not_asked` の
+    1か所）。取れていない必須の質問に数えず、依頼者へは判定の中身 not_asked で、答えが取れなかった質問と分けて返す。"""
+
+    def test_a_question_whose_condition_did_not_hold_is_not_missing(self):
+        from salescall.core.business_settings import AskIf
+        cond = {"Q2": AskIf("Q1", ("いいえ", "わからない"))}
+        q1 = lambda state, c: {"Q1": Item(state, c, "undecided" if state == "dont_know" else None)}   # noqa: E731
+        j = run(items=q1("confirmed", "はい"), ask_if=cond)                     # 答えが違う＝伺わない＝対象外
+        self.assertEqual((j.state, j.detail["not_asked"]), ("completed", ["Q2"]))
+        j = run(items=q1("accepted", "いいえ"), ask_if=cond)                    # 伺う答えなのに伺えていない＝取れていない
+        self.assertEqual((j.state, j.detail["missing"], "not_asked" in j.detail), ("incomplete", ["Q2"], False))
+        j = run(items={}, ask_if=cond)                                          # 前の質問の答えがまだ無い＝伺うか決まっていない
+        self.assertEqual((j.state, j.detail["missing"]), ("incomplete", ["Q1", "Q2"]))
+        j = run(items=q1("checking", "はい"), ask_if=cond)                      # 確かめの途中で切れた＝まだ受け取っていない
+        self.assertEqual(j.detail["missing"], ["Q1", "Q2"])
+        j = run(items={**q1("refused", None), "Q2": Item("unclear", None, None)}, ask_if=cond)   # 伺った（答えは取れなかった）
+        self.assertNotIn("not_asked", j.detail)
+        # 答えを受け取った「答えたくない」は、伺う答えに無ければ対象外（会話の側も、受け取った答えで伺うかを決める＝flowctl.TAKEN）
+        refused = {"Q1": Item("refused", None, "unwilling")}
+        self.assertEqual(run(items=refused, ask_if={"Q2": AskIf("Q1", ("いいえ",))}).detail["not_asked"], ["Q2"])
+
+    def test_a_question_after_a_question_that_was_not_asked_is_not_asked_either(self):
+        from salescall.core.business_settings import AskIf
+        cond = {"Q2": AskIf("Q1", ("いいえ",)), "Q3": AskIf("Q2", ("はい",))}
+        j = run(items={"Q1": Item("confirmed", "はい", None)}, ask_if=cond)
+        self.assertEqual((j.state, j.detail["not_asked"]), ("completed", ["Q2", "Q3"]))
+
+    def test_none_answer_of_a_question_with_decline_answers_is_declined(self):
+        """「どれも要らない」（4-66 の (a)）：用件を断られたとする答えのある質問では断る答え（`business_rules.decline_answers`）。ほかの
+        質問では取れた答え。"""
+        self.assertEqual(run(items={**TAKEN, "Q3": Item("accepted", "どれも要らない", None)}).state, "declined")
+        self.assertEqual(run(items={"Q1": TAKEN["Q1"], "Q2": Item("accepted", "どれも要らない", None)}).state, "completed")
+
+    def test_points_not_agreed_are_returned(self):
+        """ご納得いただけなかった点（事実 not_agreed。4-66 の (c)）：どの結果でも、判定の中身で依頼者へ返す（お答えいただけなかったら null）。"""
+        from salescall.core.call_report import NotAgreed
+        r = replace(report(), not_agreed=(NotAgreed(4, "Q2", "料金のところ"), NotAgreed(7, "Q4", None)))
+        for items in (None, {}):
+            with self.subTest(items=items):
+                self.assertEqual(run(rep=r, items=items).detail["not_agreed"],
+                                 [{"question": "Q2", "said": "料金のところ"}, {"question": "Q4", "said": None}])
+        self.assertNotIn("not_agreed", run().detail)
 
 
 class CutTable(unittest.TestCase):
@@ -640,7 +685,7 @@ class Shapes(unittest.TestCase):
         # 決め方は設定から：それまでは出られない、を「今から」にした業務
         other = replace(CALLEE, until_rules=(("other_party", "now"), ("unavailable", "now"), ("preparing", "slot_after")))
         j = judge(JudgeInput(TALKED, report(callback=callback("absent", time=said)), {}, RULES, callee=other,
-                             anyone_target=False, check_rang=False, forbidden=False))
+                             anyone_target=False, check_rang=False, forbidden=False, ask_if={}))
         self.assertEqual(j.detail["callback"]["daily"], [0, 15 * 3600])
 
     def test_a_time_beyond_the_limit_is_kept_only_after_the_customer_agreed(self):
@@ -652,7 +697,7 @@ class Shapes(unittest.TestCase):
         self.assertEqual((j.state, j.detail["unknown_cause"]), ("unknown", "callback_time_unconfirmed"))
         agreed = replace(said, beyond_limit_ok=True)
         j = judge(JudgeInput(TALKED, report(callback=agreed), {}, RULES, callee=replace(CALLEE, exact_slot=1800),
-                             anyone_target=False, check_rang=False, forbidden=False))
+                             anyone_target=False, check_rang=False, forbidden=False, ask_if={}))
         cb = j.detail["callback"]
         self.assertEqual((j.state, cb["at"], cb["until"], cb["daily"], cb["said"]),
                          ("callback_scheduled", "2030-01-07T23:00:00+09:00", "2030-01-07T23:30:00+09:00",

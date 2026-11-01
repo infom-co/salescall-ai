@@ -1678,6 +1678,14 @@ class NameLedger(Content):
         self.assertLessEqual({"callback_hurry_again", "callback_hurry_when", "dounasaimasu"}, set(recordings.CONTRACTOR_PARTS))
         self.assertIn("H1", business_settings.RESERVED_IDS)
 
+    def test_the_not_agreed_ask_cl1_added_on_11_02_is_received(self):
+        """CL-1 の連絡帳 4-66 の (d)（2026-11-02 ✅ ユーザー）：説明した内容をご承認いただけなかったときの「ご納得いただけなかった点は
+        どの部分になりますでしょうか？」（callback_not_agreed）は契約者の単位の録音（話してよい声が求める＝`CONTRACTOR_PARTS`）で、
+        その質問の番号 N1 は業務の質問の番号に使えない（使えると、業務の質問の答えとご納得いただけなかった点を取り違える）。"""
+        from salescall.core import business_settings
+        self.assertIn("callback_not_agreed", recordings.CONTRACTOR_PARTS)
+        self.assertIn("N1", business_settings.RESERVED_IDS)
+
     def test_what_a_row_needs(self):
         """その行で要るもの（name_needs の1か所）：法人の名前の行は、役職の部分（部署・役職があるとき）・名前の部分と、続く言葉の呼ぶ
         一言・確かめる一言・聞き返し・約束の一言・取り次げないの確かめの一言・後任の方の一言。役職のみは役職の呼び方が名前の部分（役職の部分は要らない）。個人は

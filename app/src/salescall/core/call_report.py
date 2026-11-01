@@ -63,7 +63,7 @@ from salescall.core.phone import normalize
 VERSION = 3
 FACT_KINDS = ("do_not_call", "complaint", "out_of_scope", "party", "callback", "ai_question", "voicemail_message", "end",
               "connect", "answered", "target_back", "callback_resume", "not_transferred", "substitute", "departed", "callee_question",
-              "talk", "hold_timeout", "end_unjudged", "goal_refused", "who_unclear")
+              "talk", "hold_timeout", "end_unjudged", "goal_refused", "who_unclear", "not_agreed")
 # substitute・departed・callee_question（CL-1 の連絡帳 4-28・2-2 の版 0.5。2026-10-22 ユーザー決定の相手の申し出。どれも無くてもよい）：
 #   substitute＝電話口の方が、お呼びした方の代わりにご用件を伺うと申し出た（policy＝業務設定の応じ方・read・answer＝判断いただける
 #   お立場かを伺った答え）。departed＝お呼びした方が在籍していない（policy・read・successor＝後任の方へ切り替えたあとか）。
@@ -95,6 +95,12 @@ FACT_KINDS = ("do_not_call", "complaint", "out_of_scope", "party", "callback", "
 #   無くて（一覧にフルネームも部署も無い＝recalled＝false）、取り次いでいただけなかった（CL-1 の連絡帳 4-65 の (e)。繋がらなかった理由
 #   not_reached の who_unclear と組で出る。締めは取り次げなかったときと同じお礼の締め＝締めた理由 not_transferred）。判定は not_reached で
 #   読む（日を改めてかけても同じになるので、かけ直さずに終え、依頼者に埋めていただく欄を返す＝business_settings.who_unclear_blanks）。
+# not_agreed：説明した内容のご承認を伺う質問（業務設定の approval）で、ご承認いただけず（「いいえ」）、ご納得いただけなかった点を伺った答え
+#   （CL-1 の連絡帳 4-66 の (b)(c)。システムの質問 N1。1通話1回）。question＝ご承認の質問の番号・said＝お客様の言葉（N1 の答えの値。
+#   お答えいただけなかった＝「わからない」「答えたくない」は null）。⚠️ この事実の said は根拠の発話ではなく答えの値（会話の側の _note が、
+#   根拠の発話の said を答えの値で上書きする形。長さは決まっていない＝自由な意見の答えと同じ。CL-2 の連絡帳 4-185 で伺い中）。
+#   依頼者へ「ご納得いただけなかった点」として返す（判定の中身 not_agreed＝judge._detail の1か所）。判定は今の1か所のまま（ご承認の
+#   質問の答えは項目で読む）。
 UNJUDGED_REASONS = ("callee_hurry", "callee_refused_call", "callee_complaint", "not_transferred", "transfer_unclear", "who_unclear")
 GOAL_MODES = ("any", "all")                              # どれか1つで目的が果たせる／全部が要る（CL-1 の instruction.Business.goal_mode）
 JUDGES = ("judge", "judge2")                             # 意味の判定の受け持ちの名前（CL-1 の flowctl.JUDGMENTS。代わりの Jev も、この名前で入る）
@@ -171,7 +177,7 @@ MACHINE_ENDS = frozenset({"voicemail", "ivr", "fax"})
 # （お客様からの質問・受け答え・録音で答えた質問）で見る
 HUMAN_FACTS = ("connects", "callbacks", "complaints", "out_of_scope_requests", "ai_questions", "answered", "target_backs",
                "callback_resumes", "not_transferred", "substitutes", "departures", "callee_questions", "talks", "hold_timeouts",
-               "unjudged_ends", "goal_refusals", "who_unclears")
+               "unjudged_ends", "goal_refusals", "who_unclears", "not_agreed")
 SPEAKERS = ("callee", "ai", "none")                      # 切れた瞬間に話していた側（7-1c）
 # 取り消せない決定について、会話AIの報告と2つ目の判定（意味の判定）がそろったか（報告ごとに1つ。データの形 版 1.07）：
 # agreed＝そろった（その場で決める）／disagreed＝食い違った／none＝判定が無い（無い・古い報告もこれ）。そろわなければ録音の確かめまで保留
@@ -377,6 +383,14 @@ class WhoUnclear:
 
 
 @dataclass(frozen=True)
+class NotAgreed:
+    """説明した内容をご承認いただけず、ご納得いただけなかった点を伺った答え（事実 not_agreed。CL-1 の 4-66 の (b)(c)）。"""
+    turn: int                    # 相手の発話の番号
+    question: str                # ご承認の質問の番号
+    said: str | None             # お客様の言葉（ご納得いただけなかった点。お答えいただけなかったときは None）
+
+
+@dataclass(frozen=True)
 class HoldTimeout:
     """保留を頼まれ、待ちきった（事実 hold_timeout。CL-1 の 4-42）。記録だけ。"""
     evidence: Said               # 保留を頼まれた発話
@@ -448,6 +462,7 @@ class CallReport:
     unjudged_ends: tuple[Unjudged, ...] = ()      # 事実 end_unjudged：判定が届かず、会話AIの読みで締めた
     goal_refusals: tuple[GoalRefused, ...] = ()   # 事実 goal_refused：最終目的を断られ、目的が果たせなくなった
     who_unclears: tuple[WhoUnclear, ...] = ()     # 事実 who_unclear：お名前だけではどの方か分からず、取り次いでいただけなかった
+    not_agreed: tuple[NotAgreed, ...] = ()        # 事実 not_agreed：ご承認いただけず、ご納得いただけなかった点を伺った答え
     irreversible_check: str = "none"     # 取り消せない決定の2つ目の判定がそろったか（IRREVERSIBLE_CHECKS。無い・古い報告は none）
     ai_troubles: tuple[AiTrouble, ...] = ()   # 止まったAI（データの形 版 1.08。無い・古い報告は空。判定には使わない）
 
@@ -619,7 +634,8 @@ class CallReport:
             "hold_timeout": [{**said(h.evidence), "waited_s": h.waited_s} for h in self.hold_timeouts],
             "end_unjudged": [{**said(u.evidence), "reason": u.reason} for u in self.unjudged_ends],
             "goal_refused": [{**said(g.evidence), "goals": list(g.goals), "mode": g.mode} for g in self.goal_refusals],
-            "who_unclear": [{**said(w.evidence), "recalled": w.recalled} for w in self.who_unclears]}
+            "who_unclear": [{**said(w.evidence), "recalled": w.recalled} for w in self.who_unclears],
+            "not_agreed": [{"turn": n.turn, "question": n.question, "said": n.said} for n in self.not_agreed]}
         return {"version": VERSION, "facts": {k: v for k, v in facts.items() if v}, "not_reached": self.not_reached,
                 "cut": None if self.cut is None else {"speaker": self.cut.speaker, "in_closing": self.cut.in_closing,
                                                       "callee_refused_last": self.cut.callee_refused_last,
@@ -722,6 +738,27 @@ def _records(facts: dict, kind: str, extra: set[str]) -> list[tuple[dict, Said]]
             raise ReportInvalid(f"{where}.said は根拠の発話の文字（{SAID_MAX} 字まで）です")
         out.append((r, Said(turn, said)))
     return out
+
+
+def _not_agreed(facts: dict) -> tuple[NotAgreed, ...]:
+    """事実 not_agreed の並び（said が根拠の発話ではなく答えの値＝null も長い文字もありうるので、`_records` とは別に読む。形は
+    CL-1 の Flow._follow_ups が書くもの）。"""
+    rows = facts.get("not_agreed", [])
+    if not isinstance(rows, list):
+        raise ReportInvalid("facts.not_agreed は記録の並びです")
+    out = []
+    for i, r in enumerate(rows):
+        where = f"facts.not_agreed[{i}]"
+        r = _keys(r, {"turn", "question", "said"}, where)
+        turn, question, said = r.get("turn"), r.get("question"), r.get("said")
+        if not isinstance(turn, int) or isinstance(turn, bool) or turn < 0:
+            raise ReportInvalid(f"{where}.turn は相手の発話の番号（0 以上の整数）です")
+        if not isinstance(question, str) or not question.strip():
+            raise ReportInvalid(f"{where}.question は、ご承認の質問の番号です")
+        if said is not None and not isinstance(said, str):
+            raise ReportInvalid(f"{where}.said は、ご納得いただけなかった点（お客様の言葉）か null です")
+        out.append(NotAgreed(turn, question, said))
+    return tuple(out)
 
 
 def from_json(raw: Any) -> CallReport:
@@ -836,6 +873,7 @@ def from_json(raw: Any) -> CallReport:
             raise ReportInvalid("facts.goal_refused.goals は、断られた最終目的の質問の番号の並び（1つ以上・重ならない）です")
         goals.append(GoalRefused(s, tuple(g), _choice(r.get("mode"), GOAL_MODES, "facts.goal_refused.mode")))
     who_unclears = tuple(WhoUnclear(s, _bool(r, "recalled")) for r, s in _records(facts, "who_unclear", {"recalled"}))
+    not_agreed = _not_agreed(facts)
     # 取り消せない決定の2つ目の判定（データの形 版 1.07）：無い・null（古い報告・まだ書かない会話の処理）は「判定が無い」
     check = "none" if d.get("irreversible_check") is None else \
         _choice(d["irreversible_check"], IRREVERSIBLE_CHECKS, "irreversible_check")
@@ -850,7 +888,7 @@ def from_json(raw: Any) -> CallReport:
     return CallReport(refusals, complaints, oos, parties, tuple(callbacks), ends, not_reached, cut, delivered, ai_questions,
                       voicemail, tuple(connects), tuple(answered), backs, resumes, not_transferred, substitutes, departures,
                       tuple(questions), talks, tuple(holds), unjudged_ends=unjudged, goal_refusals=tuple(goals),
-                      who_unclears=who_unclears,
+                      who_unclears=who_unclears, not_agreed=not_agreed,
                       irreversible_check=check, ai_troubles=troubles)
 
 

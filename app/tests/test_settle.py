@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import tempfile
 import time
 import unittest
@@ -22,7 +23,7 @@ from salescall.link import phone
 from tests import support
 from tests.support import (ADMIN, CLEAN, OPERATOR, SYSTEM, app_access, callback, fictional_jp_fixed, make_report, owner_access,
                            rules_raw)
-from tests.test_gate import HOLDER, KEYS, Base, FakeDriver, dial_exit
+from tests.test_gate import ALL_DAY, HOLDER, KEYS, Base, FakeDriver, dial_exit
 
 TALK = ["dialing", "answered", "in_conversation", "ending", "ended"]
 
@@ -1213,6 +1214,37 @@ class SameDayAndSuccessor(SettleBase):
                 r = self.tx(s, lambda tx: results.latest(tx, s["task"]))
                 self.assertEqual((r["detail"]["not_reached"], r["detail"]["who_unclear_blanks"]),
                                  ("who_unclear", ["full_name", "department"]))
+
+
+class NotAskedSettle(SettleBase):
+    def test_a_question_whose_condition_did_not_hold_is_returned_as_not_asked(self):
+        """前の答えで伺う質問（業務設定の ask_if。CL-1 の連絡帳 4-66 の (b)(e)）：締めは、置いた版の条件（business_settings.ask_ifs の
+        1か所）を判定に渡す。前の質問の答えが伺う答えでなければ、伺っていない（対象外）＝取れていない必須の質問に数えず（すべて取れた）、
+        結果の中身 not_asked で依頼者へ返す。伺う答えなのに伺えていなければ、取れていない（一部だけ取れた）。"""
+        from unittest import mock
+        two = support.content()
+        two["questions"].append({"id": "Q2", "text": "以上の内容でよろしいでしょうか？", "ask_about": "ご承認", "type": "yes_no",
+                                 "required": True, "choices": None, "next": None, "unit": None, "meanings": None, "replies": None,
+                                 "asks_fact": False, "do_words": None, "intro": "それでは重要な点だけご説明させていただきます。",
+                                 "ask_if": {"after": "Q1", "answers": ["わからない"]}, "approval": True})
+        for q1, state, more in ((("Q1", "confirmed", "答えた"), "completed", {"not_asked": ["Q2"]}),
+                                (("Q1", "accepted", "わからない"), "incomplete", {"missing": ["Q2"]})):
+            with self.subTest(q1=q1):
+                with mock.patch.object(support, "content", lambda target_person=None: copy.deepcopy(two)):
+                    s = self.w.setup(phone=normalize(fictional_jp_fixed()).e164)
+                self.tx(s, lambda tx: tx.execute(
+                    "INSERT INTO salescall.questions (tenant_id, client_id, version_id, question_id, position, type_name, required)"
+                    " VALUES (%s, %s, %s, 'Q2', 2, 'yes_no', true)", (s["tenant"], s["client"], s["version"])), OPERATOR)
+                self.put_client(s, "calling.hours", ALL_DAY)
+                self.tx(s, lambda tx: next_action.schedule_now(tx, s["task"], cause="試験"))
+                self.tx(s, lambda tx: quality_stage.open_stage(tx, s["version"], 1, None, evidence="試験"), OPERATOR)
+                self.tx(s, lambda tx: business_rules.save(tx, s["version"], support.rules_raw(required=("Q1", "Q2"))), OPERATOR)
+                self.lease(s)
+                got = self.settle(s, self.call(s, items=(q1,)))
+                self.assertEqual(got["state"], state)
+                r = self.tx(s, lambda tx: results.latest(tx, s["task"]))
+                for k, v in more.items():
+                    self.assertEqual(r["detail"][k], v)
 
 
 class StuckVerification(SettleBase):
