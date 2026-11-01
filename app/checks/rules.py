@@ -529,6 +529,7 @@ PY_ENTRY_CALLERS: dict[tuple[str, str], frozenset[str]] = {
     ("health", "tick"): frozenset({_SUP + "line.py"}),                               # E10・E18：回線ごとの処理の毎回の頭
     ("health", "stuck"): frozenset({_SUP + "line.py"}),                              # E17：回線が「通話中」のまま
     ("health", "fixed"): frozenset({_SUP + "jobs.py"}),                              # E11：直した版（決まった間隔の仕事）
+    ("health", "storage_back"): frozenset({_SUP + "jobs.py"}),                       # E21：データベースの書き込みが戻った（決まった間隔の仕事。見直し29a の 9）
     ("health", "by_hand_task"): frozenset({_CORE + "troubles.py"}),                  # E12：休んだ行・復旧待ちの行を手で戻す
     ("health", "by_hand_line"): frozenset({WEB_PLACE}),                              # E12：回線の休みを手で再開（画面だけ）
     ("health", "by_hand_stop"): frozenset({_CORE + "stops.py"}),                     # E12：止めた契約者・前の作りの回線の停止を手で解く

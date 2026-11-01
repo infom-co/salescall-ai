@@ -562,6 +562,12 @@ class Rounds(SupervisorBase):
             self.assertEqual(told, [("storage", "call_storage_stuck")])       # 出どころ「保存」
             self.assertTrue([r for r in self.w.a.in_system(SYSTEM, lambda tx: fix_requests.open_requests(tx, "CL-2"))
                              if r["kind"] == "call_storage_stuck"])
+        # 本当の止まり方（見張りの側がおわびして終え、記録はあとから）でも、復旧待ちの行へ「書き込みが戻った」（E21）が届く：渡すのは
+        # 決まった間隔の仕事 jobs.storage_recovery の1か所で、回線の流れの手元の印には頼らない（見直し29a の 1。流れが立て直されても届く）
+        stage = lambda: self.tx(u, lambda tx: support.task_stage(tx, u["task"]))   # noqa: E731
+        self.assertEqual(stage(), "await_recovery")
+        jobs.storage_recovery(self.ctx(u))
+        self.assertEqual(stage(), "on_plan")
 
     def test_a_flush_that_waits_on_a_slow_but_moving_writer_is_not_a_freeze(self):
         """通話の途中で、書いた結果を続けて読むために flush を呼ぶ（plugins.CallControl の約束）。データベースが遅くても（書き込み1つは

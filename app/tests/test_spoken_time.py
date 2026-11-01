@@ -513,7 +513,8 @@ class NamedDay(unittest.TestCase):
 
     def test_named_days_and_today_are_said_ranges_are_not(self):
         said = ("13日なら", "明日なら", "3日後", "金曜なら", "毎週月曜", "週明け", "週末なら", "来週の土日", "土日祝なら",
-                "休日なら", "来週の土日祝", "3時以降", "夕方なら", "すぐ", "30分後")
+                "休日なら", "来週の土日祝", "3時以降", "夕方なら", "すぐ", "30分後",
+                "明日の平日", "13日の平日")   # 1日だけの日は、日の種類が付いても名指し（見直し29a の 6）
         for text in said:
             with self.subTest(text=text):
                 r = read(text, NOW)

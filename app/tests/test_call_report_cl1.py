@@ -214,7 +214,6 @@ class Rejected(unittest.TestCase):
                                                   "facts": {"callback": [{**cb, "connected": True}]}}),
                 ("知らない確かめに戻った理由", facts(target_back=[{**rec, "why": "soon"}])),
                 ("続きへ戻った読みが無い", facts(callback_resume=[{**rec, "why": "absent"}])),
-                ("かけ直しが無いのに確かめに戻った", {**ABSENT_CUT, "facts": {"target_back": [{**rec, "why": "absent"}]}}),
                 ("答えた部分が空", facts(answered=[{**rec, "part": " "}])),
                 ("答えた部分が無い", facts(answered=[rec])),
                 ("取り次げないの記録に知らない項目", facts(not_transferred=[{**rec, "why": "absent"}])),
@@ -484,17 +483,16 @@ class Later1022(unittest.TestCase):
                 extra = {"number": "03-1234-5678"} if why == "other_number" else {}
                 from_json(self.raw({"callback": [{**rec, "why": why, "until_why": bad, **extra}]}, None))
 
-    def test_a_check_after_a_substitute_is_accepted_but_not_without_one(self):
+    def test_a_check_is_accepted_whatever_the_conversation_side_was_asking(self):
         """代わりの方と話している途中にご本人が出て確かめに戻った（target_back。かけ直しの理由はまだ無い＝why が null）は受け取る。
-        かけ直しの申し出も代わりの方の申し出も無い確かめ・かけ直しの申し出の無い「続きへ戻った」は、これまでどおり断る。"""
+        急いでいる方への伺いの途中に取り次がれて確かめに戻った（ほかの申し出の記録が無い）も受け取る（いつ戻るかは会話の側の決まり。
+        ⛔ 見直し29c の 3：前は、ほかの申し出の記録の無い確かめを断り、正しい報告が丸ごと断られた）。"""
         sub = {"turn": 2, "said": "お電話代わりました。山田です。", "policy": "decision_maker", "read": ["judge2"]}
         back = {"turn": 4, "said": "お電話代わりました。岡田です。", "why": None}
         r = from_json(self.raw({"substitute": [sub], "target_back": [back]}))
         self.assertEqual((r.target_backs[0].reason, from_json(r.to_json())), (None, r))
-        for facts in ({"target_back": [back]},
-                      {"substitute": [sub], "callback_resume": [{**back, "why": "absent", "read": []}]}):
-            with self.subTest(facts=list(facts)), self.assertRaises(ReportInvalid):
-                from_json(self.raw(facts))
+        alone = from_json(self.raw({"target_back": [back]}))
+        self.assertEqual((alone.target_backs[0].reason, from_json(alone.to_json())), (None, alone))
 
 
 # ── 「誰でも」の業務の報告（main の flowctl：目的のお客様のいない業務では電話口の種別を残さない。見直し18b）
@@ -606,3 +604,75 @@ class Hold1024(unittest.TestCase):
         r = from_json(raw)
         self.assertEqual((r.reached(False), from_json(r.to_json())), (True, r))
         self.assertEqual(run(raw).state, "incomplete")
+
+
+class Hurry1101(unittest.TestCase):
+    """CL-1 の連絡帳 4-64（2026-11-01 ✅ ユーザー）：判定が届かず会話AIの読みで締めた（事実 end_unjudged）・最終目的を断られて締めた
+    （締めた理由・事実 goal_refused）を受け取り、判定はいまの1か所で読む。"""
+    SAID = "いや、もうけっこうです。"
+
+    def unjudged(self, reason, *, check="agreed"):
+        return {"version": 3, "not_reached": None, "cut": None, "apology_delivered": None, "irreversible_check": check, "facts": {
+            "end_unjudged": [{"turn": 3, "said": self.SAID, "reason": reason}],
+            "end": [{"turn": 3, "said": self.SAID,
+                     "reason": reason if reason in ("callee_refused_call", "callee_complaint") else "callee_hurry"}]}}
+
+    def test_an_unjudged_refusal_waits_for_the_recording_check(self):
+        """判定が読んでいない「通話を断られた」は、取り消せない決定の候補（断り）で、報告の irreversible_check がそろっていても「判定が
+        無い」＝録音の確かめまで保留（もうかけない印は、通話のあとの確かめで判定が読んだときだけ＝11時56分のご判断 (エ)）。"""
+        from salescall.core.judge import irreversible
+        raw = self.unjudged("callee_refused_call")
+        r = from_json(raw)
+        self.assertEqual((r.unjudged_refusal, r.do_not_call, r.refusals, r.talked, from_json(r.to_json())),
+                         (True, True, (), True, r))
+        inp = JudgeInput(TALKED, replace(r, cut=CLOSED), {}, RULES, callee=CALLEE, anyone_target=False, check_rang=False,
+                         forbidden=False)
+        j = judge(inp)
+        self.assertEqual((j.state, j.dnc_reason, j.detail["refusal"]), ("do_not_call", "refused_in_call", "unjudged"))
+        irr = irreversible(inp, j)
+        self.assertEqual((irr.parts, irr.unsure, irr.check), (frozenset({"refusal"}), frozenset({"refusal"}), "none"))
+        # 怒っていたも同じ（苦情の候補・判定が無い）
+        k = run(self.unjudged("callee_complaint"))
+        self.assertTrue(k.complaint)
+        # 差し戻し・取り消しで断りを外すと、その報告は断りを持たない（締め直しで決まり直す＝CallReport.without の1か所）
+        self.assertFalse(r.without({"refusal"}).do_not_call)
+        self.assertFalse(from_json(self.unjudged("callee_complaint")).without({"complaint"}).complaint)
+        # 急いでいる・取り次げないだけは、取り消せない決定ではない
+        for reason in ("callee_hurry", "not_transferred", "transfer_unclear"):
+            with self.subTest(reason=reason):
+                x = from_json(self.unjudged(reason))
+                self.assertFalse(x.do_not_call or x.complaint)
+        for bad in ("done", "wrong_party", None, 3):
+            with self.subTest(reason=bad), self.assertRaises(ReportInvalid):
+                from_json(self.unjudged(bad))
+
+    def test_a_refused_final_goal_ends_the_row_without_a_do_not_call(self):
+        """最終目的の申し出を断られ、目的が果たせなくなって締めた：用件を断られた（declined）＝その行を終える。発信禁止にはしない
+        （「その業務だけかけない（依頼者全体ではない）」）。お客様の言葉で締めた＝話した。"""
+        raw = {"version": 3, "not_reached": None, "cut": None, "apology_delivered": None, "facts": {
+            "goal_refused": [{"turn": 4, "said": "パンフレットは結構です。", "goals": ["Q2"], "mode": "all"}],
+            "end": [{"turn": 4, "said": "パンフレットは結構です。", "reason": "goal_refused"}]}}
+        r = from_json(raw)
+        self.assertEqual((r.end_reason, r.goal_refusals[0].goals, r.talked, from_json(r.to_json())),
+                         ("goal_refused", ("Q2",), True, r))
+        j = run(raw)
+        self.assertEqual((j.state, j.dnc_reason, j.detail["declined_by"], j.detail["goals"]), ("declined", None, "goal", ["Q2"]))
+        for bad in ({"goals": [], "mode": "all"}, {"goals": ["Q2", "Q2"], "mode": "all"}, {"goals": ["Q2"], "mode": "some"},
+                    {"goals": "Q2", "mode": "any"}, {"goals": ["Q2"]}):
+            with self.subTest(bad=bad), self.assertRaises(ReportInvalid):
+                from_json({**raw, "facts": {"goal_refused": [{"turn": 4, "said": "x", **bad}]}})
+
+
+class Untimed1101(unittest.TestCase):
+    def test_an_absence_with_words_but_no_time_may_be_called_again_today(self):
+        """不在で戻る時刻が取れなかったかは判定の1か所（judge._untimed_absence＝時刻の言葉を読んで「時刻の決まっていない」）。「後ほど」の
+        ような言葉のある不在も、同じ日にまたかけてよいと言われていれば、その材料になる（⛔ 見直し29c の 7：前は同じ日の材料だけ「言葉が
+        無い」で決め、判定は不在・同じ日の材料には数えない、と食い違った）。"""
+        from salescall.core.judge import unreached_today
+        raw = {"version": 3, "not_reached": "absent", "cut": None, "apology_delivered": None, "facts": {
+            "callback": [{"turn": 1, "said": "あいにく岡田は席を外しております。", "why": "absent", "read": ["ai", "judge", "judge2"],
+                          "time": "後ほど", "number": None, "again": True}]}}
+        inp = JudgeInput(TALKED, replace(from_json(raw), cut=CLOSED), {}, RULES, callee=CALLEE, anyone_target=False,
+                         check_rang=False, forbidden=False)
+        self.assertEqual(unreached_today(inp), ("absent", True))
+        self.assertEqual(judge(inp).state, "not_reached")

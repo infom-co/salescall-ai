@@ -27,6 +27,7 @@ from salescall.core.access import Rejected
 from salescall.core.phone import normalize
 from salescall.supervisor import jobs, line
 from tests import test_troubles
+from tests import support
 from tests.support import ADMIN, OPERATOR, SYSTEM, fictional_jp_fixed, owner_access
 from tests.test_gate import HOLDER, FakeDriver
 from tests.test_life import Phone, Script, Talk
@@ -208,6 +209,21 @@ class Places(HealthBase):
         self.assertEqual(len(self.state(s, "tenant", s["tenant"]).r("call_ai_malfunction")), 1)
         self.tx(s, lambda tx: troubles.restore(tx, s["task"], reason="試験：直ったことを確かめた"), OPERATOR)
         self.assertIn(("task", "E12", "resting", "on_plan", ("R-10",), "by_hand_task"), self.moves(s, event="E12"))
+
+    def test_a_call_that_reached_only_a_voicemail_is_no_recovery(self):
+        """「こちらの不具合なしにお客様と話し終えた」（E5）は、お客様と話した電話だけ（会話の報告の人の証の表＝call_report.talked_in の
+        1か所）。留守番電話で終えた電話は、試行が ended まで進んでも復旧の証拠にしない（⛔ 見直し29c の 6：前は ended まで進めば E5 で、
+        お客様と話していない電話で休んだ行の復旧・違う3行の数え直しが起きえた）。"""
+        s = self.ready()
+        self.trouble(s, task=s["task"])
+        self.assertEqual(self.state(s, "task", s["task"]).stage, hr.TaskStage.AWAIT_RECOVERY)
+        self.w.talked(s, report=support.make_report(("voicemail",), end="voicemail"))
+        self.assertEqual(self.state(s, "task", s["task"]).stage, hr.TaskStage.AWAIT_RECOVERY)
+        # お客様と話したが、途中で切れた（話し終えていない）電話も、復旧の証拠にしない（ended まで進んだ電話だけ）
+        self.w.talked(s, last="dropped")
+        self.assertEqual(self.state(s, "task", s["task"]).stage, hr.TaskStage.AWAIT_RECOVERY)
+        self.w.talked(s)
+        self.assertEqual(self.state(s, "task", s["task"]).stage, hr.TaskStage.ON_PLAN)
 
     def test_our_trouble_is_given_at_the_call_before_the_settle(self):
         """E3 は通話ごとの口（core/troubles.after_trouble）で渡る：お客様が出たあとにこちらの不具合で終えた電話は、通話後の検証が済む

@@ -454,9 +454,14 @@ class CallLimits:
     frozen_after: float
 
 
+_frozen_seen: list[float] = []   # いちばん最近読めた call.frozen_after（`timed_write` が取引の時間切れに使う。読めるたびに書き換える）
+
+
 def frozen_after(tx: Any) -> float:
     """通話を進める部品が固まったとみなす長さ（秒。設定 call.frozen_after の1か所。2026-10-24 ユーザー：3秒）。"""
-    return float(settings.system_value(tx, "call.frozen_after"))
+    value = float(settings.system_value(tx, "call.frozen_after"))
+    _frozen_seen[:] = [value]
+    return value
 
 
 def call_limits(tx: Any) -> CallLimits:
@@ -464,25 +469,34 @@ def call_limits(tx: Any) -> CallLimits:
     return CallLimits(frozen_after(tx))
 
 
-def storage_back(access: Access, tenant_id: UUID, line_id: UUID, holder: str) -> bool:
-    """データベースが止まって電話を終えた回線が、次の電話をかけてよいか（1か所）：その回線の借用を延ばす実際の書き込み（core/leases.take_line。
-    表の行の鍵を取って書く＝鍵を待つ形の止まりも見える）が、確定まで call.frozen_after のうちに終わったときだけ True（データベースへの
-    書き込みが戻った＝復旧）。取引には同じ長さの時間切れ（statement_timeout）を付け、時間切れなら False（データベースが固まっていても、
-    回線の流れごと止まらない＝止める合図も効く）。2026-10-31 管理者「数えないでOK」（伺い5 の案1）：データベースの一時的な止まりは違う行の
-    数に数えず（errors.counts_rows）、話していた電話はおわびして終え、復旧次第おわびとともにかけ直す（戻ったら core/health.storage_back が
-    復旧待ちの行へ伝える＝`loop`）。戻らないあいだは、その回線は新しい電話をかけない。⛔ 見直し28：前の確かめ（取引の番号を取るだけ）は、
-    表の鍵を待つ形の止まりを見られず、時間切れも無かった。"""
-    limit = access.in_tenant(ACTOR, tenant_id, frozen_after)
+def timed_write(access: Access, tenant_id: UUID, write: Callable[[Tx], Any]) -> bool:
+    """データベースへの書き込みが戻ったか（1か所。回線の流れの `storage_back` と、決まった間隔の仕事 jobs.storage_recovery が使う）：
+    その契約者の取引で write（実際の書き込み）が、確定まで call.frozen_after のうちに終わったときだけ True（復旧）。取引には、始めるとき
+    から同じ長さの時間切れを付け（Access の取引を始める1か所）、時間切れなら False（データベースが固まっていても、呼んだ流れごと止まら
+    ない＝止める合図も効く）。長さは、いちばん最近読めた値（無ければ、時間切れの無い取引で1回だけ読む）を時間切れに使い、取引の中で
+    読み直した値と比べる。⛔ 見直し29a の 7：前は長さを時間切れの無い別の取引で毎回読み、時間切れも取引の途中から付けた。"""
+    bound = _frozen_seen[0] if _frozen_seen else access.in_tenant(ACTOR, tenant_id, frozen_after)
+    limit: list[float] = []
 
-    def probe(tx: Tx) -> None:
-        tx.time_limit(limit)
-        leases.take_line(tx, line_id, holder)
+    def work(tx: Tx) -> None:
+        limit.append(frozen_after(tx))
+        write(tx)
     began = time.monotonic()
     try:
-        access.in_tenant(ACTOR, tenant_id, probe)
+        access.in_tenant(ACTOR, tenant_id, work, time_limit=bound)
     except TimedOut:
         return False
-    return time.monotonic() - began <= limit
+    return time.monotonic() - began <= limit[0]
+
+
+def storage_back(access: Access, tenant_id: UUID, line_id: UUID, holder: str) -> bool:
+    """データベースが止まって電話を終えた回線が、次の電話をかけてよいか（1か所）：その回線の借用を延ばす実際の書き込み（core/leases.take_line。
+    表の行の鍵を取って書く＝鍵を待つ形の止まりも見える）が、`timed_write` で通ったときだけ True。2026-10-31 管理者「数えないでOK」（伺い5
+    の案1）：データベースの一時的な止まりは違う行の数に数えず（errors.counts_rows）、話していた電話はおわびして終え、復旧次第おわびと
+    ともにかけ直す（復旧待ちの行へ伝えるのは、決まった間隔の仕事 jobs.storage_recovery の1か所＝回線の流れが立て直されても届く）。
+    戻らないあいだは、その回線は新しい電話をかけない。⛔ 見直し28：前の確かめ（取引の番号を取るだけ）は、表の鍵を待つ形の止まりを
+    見られず、時間切れも無かった。"""
+    return timed_write(access, tenant_id, lambda tx: leases.take_line(tx, line_id, holder))
 
 
 def storage_not_back(access: Access, tenant_id: UUID, line_id: UUID) -> None:
@@ -613,7 +627,8 @@ def loop(access: Access, tenant_id: UUID, line: UUID, holder: str, driver: CallD
     """回線ごとの処理（中央の見守り役が、別の流れで動かす）。stop が立つまで繰り返す（いまの通話は最後まで進めてから止まる）。"""
     pause = int(access.in_tenant(ACTOR, tenant_id, lambda tx: settings.system_value(tx, "gate.denied_retry_wait")))
     stuck = Stuck()
-    storage = False   # 前の電話を、データベースが止まって終えた：書き込みが戻ったと確かめるまで、次の電話をかけない（`storage_back`）
+    storage = False   # 前の電話を、データベースが止まって終えた：書き込みが戻ったと確かめるまで、この回線の次の電話をかけない（`storage_back`。
+    #                   この印は自分の次の電話のためだけ。復旧待ちの行へ伝えるのは jobs.storage_recovery＝見直し29a の 1）
     told = False      # 書き込みが戻らない続きを、もう記録した（続きのあいだは2回目を出さない。戻ったら数え直す）
     while not stop.is_set():
         try:
@@ -624,8 +639,7 @@ def loop(access: Access, tenant_id: UUID, line: UUID, holder: str, driver: CallD
                         told = True
                     stop.wait(IDLE_SECONDS)
                     continue
-                storage = told = False
-                access.in_tenant(ACTOR, tenant_id, health.storage_back)   # 復旧待ちの行へ（E21。止まりで終えた行をかけ直す）
+                storage = told = False   # 戻った：次の止まりの続きでは、また1回知らせる（復旧待ちの行へは jobs.storage_recovery が伝える）
             # プログラムとデータベースの版が合わなければ、新しい電話をかけない（中央の見守り役が立ち上げたあとでデータベースが
             # 新しくなった、でも、かける処理が自分の版で確かめる。supervisor.updates）
             if access.in_tenant(ACTOR, tenant_id, updates.current) != updates.SAME:

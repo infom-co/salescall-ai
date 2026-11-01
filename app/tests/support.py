@@ -286,7 +286,7 @@ class World:
              version or s["version"], expires_in)))
         return aid
 
-    def talked(self, s: dict) -> UUID:
+    def talked(self, s: dict, report: "Any" = None, last: str = "ended") -> UUID:
         """同じ契約者（s の依頼者）で、こちらの不具合なしにお客様と話し終えた電話を1本足す（別の架空の行。こちらの不具合のあとの「復旧」の
         証拠＝表の E5。DESIGN.md 17章）。電話が終わった所と同じく、その電話の出来事を状態の表を引く入口へ渡す（core/health.after_call）。
         足した試行を返す。"""
@@ -296,9 +296,12 @@ class World:
         other["phone"] = self.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: tx.one(
             "SELECT phone_e164 FROM salescall.contacts WHERE contact_id = %s", (k,))["phone_e164"])
         aid = self.insert_claim(other)
-        for state in ("dialing", "ringing", "answered", "in_conversation", "ending", "ended"):
-            self.move(other, aid, state)
-        from salescall.core import health
+        for state in ("dialing", "ringing", "answered", "in_conversation") + (("ending", "ended") if last == "ended" else (last,)):
+            self.move(other, aid, state, None if state != "dropped" else "line")
+        from salescall.core import conversation_io, health
+        # 会話の報告を置いてから出来事を渡す（本番と同じ順。お客様と話したかは報告の人の証の表＝call_report.talked_in の1か所）
+        self.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: conversation_io.save_report(
+            tx, aid, (report or make_report(("target",), end="done")).to_json()))
         self.a.in_client(SYSTEM, s["tenant"], s["client"], lambda tx: health.after_call(tx, aid))
         return aid
 

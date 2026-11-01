@@ -201,7 +201,9 @@ _CURRENT = ("EXISTS (SELECT 1 FROM salescall.current_recording_sets s"
 # hold_timeout＝保留で待ちきったときの締め、4-45 の moshimoshi＝電話に出た方が黙っているときの「もしもし？」、4-49 の
 # apology_purpose_same_day・apology_purpose_later＝お詫びの電話で受付の方に用件を聞かれたときの一言、4-55 の
 # callback_next_workday＝お休みのお客様に「次のご出社はいつか」を伺う一言、4-63 (a) の callback_refusal＝ご本人へのご遠慮の確かめ
-# 「今後このようなお電話はご遠慮したほうがよろしいでしょうか？」。頭の「失礼いたしました。」は相づちの shitsurei）。CL-1 の試験 test_offline が
+# 「今後このようなお電話はご遠慮したほうがよろしいでしょうか？」。頭の「失礼いたしました。」は相づちの shitsurei）、4-64 の (a)(g) の
+# callback_hurry_again＝急いでいる方への「それではまた改めてお掛けしてもよろしいでしょうか？」・callback_hurry_when＝「ご都合のいい日時は
+# いつ頃でしょうか？」・dounasaimasu＝考えている方に黙られたときの「どうなさいますか？」）。CL-1 の試験 test_offline が
 # この一覧と同じかを確かめる（CL-2 の連絡帳で頼む）。CL-1 が部分を足したら、ここにも足す（足すと、足した部分の無い前の組の声では
 # 話さない＝足りない録音を契約者に知らせ、録音を入れた組の承認を待つ）。
 # ⛔ 2026-10-24（CL-1 の連絡帳 4-39）：前は、予約証の印ごとに一部の部分（お詫び・不在の伺い）だけを見て、約束の電話には業務の組の
@@ -214,8 +216,8 @@ _CURRENT = ("EXISTS (SELECT 1 FROM salescall.current_recording_sets s"
 CONTRACTOR_PARTS: tuple[str, ...] = (
     "ai_again", "apology_cut_off", "apology_missed_promise", "apology_purpose_later", "apology_purpose_same_day", "arigatou", "back", "callback_address", "callback_ask_when",
     "callback_ask_who", "callback_authority", "callback_back_date", "callback_back_time", "callback_back_today",
-    "callback_call_again", "callback_email", "callback_next_workday", "callback_fax", "callback_later_time", "callback_number",
-    "callback_reachable_time", "callback_refusal", "callback_transfer_time", "closing", "closing_declined", "departed", "dou", "greeting", "hai", "hold_timeout", "ikaga",
+    "callback_call_again", "callback_email", "callback_hurry_again", "callback_hurry_when", "callback_next_workday", "callback_fax", "callback_later_time", "callback_number",
+    "callback_reachable_time", "callback_refusal", "callback_transfer_time", "closing", "closing_declined", "departed", "dou", "dounasaimasu", "greeting", "hai", "hold_timeout", "ikaga",
     "line_trouble_ask", "line_trouble_bye", "moshimoshi", "moushiwake", "moushiwake_heavy", "number_again_unreachable",
     "number_again_wrong_party", "offer_thanks", "own_fallback", "shitsurei", "shouchi", "successor_call",
     "successor_confirm", "successor_reconfirm", "successor_unavailable", "talk_agree_deep", "talk_agree_high", "talk_agree_light", "talk_cared",

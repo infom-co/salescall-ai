@@ -788,6 +788,29 @@ class ForbiddenUnclearCut(Helpers):
         self.assertEqual(self.tx(t, lambda tx: results.latest(tx, t["task"]))["detail"].get("decision_assumed"),
                          "recording_undecided")
 
+    def test_an_assumed_part_stays_settled_after_newer_waits(self):
+        """決まったとみなした中身は、そのあとに別の中身の待ちの版が足されても、もう待たない（approval._settled が、決まったとみなした
+        全部の版を合わせる）：断りを決まったとみなした → 設定を「いいえ」に戻した → 録音から作り直した2つ目の報告で、怒っていたが
+        2つ目の判定とそろわず待ちになった → 契約者が怒っていたを承認した。断りを、もう一度契約者に求めない。⛔ 見直し29a の 2：前は、
+        いちばん新しい版だけを見たので、承認のあとに断りがまた待ちの版になり、もう発信禁止に入れたお客様について答えを求め直した。"""
+        s = self.ready()
+        self.put_client(s, "decision.undecided_as_decided", True)
+        aid = self.forbidden_call(s, rebuilt=rep(cut=self.UNCLEAR, check="none"))
+        self.assertEqual(self.last_wait(s, aid)["checked"], "assumed")
+        self.put_client(s, "decision.undecided_as_decided", False)
+        self.tx(s, lambda tx: call_report.save_rebuilt(tx, aid, rep(cut=self.UNCLEAR, complaint=True, check="disagreed"),
+                                                       evidence="試験：録音から（2回目）"))
+        self.tx(s, lambda tx: settle.resettle(tx, aid))
+        self.assertEqual(self.last_wait(s, aid)["parts"], ["complaint"])        # 待つのは怒っていただけ（断りは、もう決まった扱い）
+        asked = self.notices(s, "decision_approval")
+        self.approve(s, aid)
+        waits = self.tx(s, lambda tx: [(r["parts"], r["checked"]) for r in tx.all(
+            "SELECT parts, checked FROM salescall.decision_waits WHERE attempt_id = %s ORDER BY seq", (aid,))])
+        self.assertNotIn((["refusal"], "none"), waits)                          # 断りがまた待ちの版にならない
+        self.assertEqual((self.asks(s), self.notices(s, "decision_approval")), ([], asked))   # 契約者に求め直さない
+        self.assertFalse(self.pending(s, aid)["p"])
+        self.assertEqual(self.dnc_reasons(s), ["refused_unclear_checked"])
+
     def test_the_setting_also_covers_a_disagreed_refusal_the_recording_could_not_decide(self):
         """設定は、録音でも決められない取り消せない決定のすべてに同じく効く（1か所＝approval.assumable）：2つ目の判定とそろわず、録音から
         作り直してもそろわない断り。"""

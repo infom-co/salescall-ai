@@ -484,9 +484,8 @@ def _later_talk(tx: Tx, a: dict[str, Any]) -> bool:
     判定し直しで、あとから決まった）とき、行を終えるのはこの通話の決定（あとの発信が出なかった・鳴らなかっただけなら、行の予定を書き直して
     終える）。あとでお客様と話していれば、その通話の結果が行の結果のまま（発信禁止は入れる。見直し24a の (1)(9)：前は、あとの発信が
     あると、断り・怒っていたが決まっても行を終えなかった）。"""
-    return tx.one("SELECT EXISTS (SELECT 1 FROM salescall.attempts b WHERE b.task_id = %s AND b.claimed_at > %s"
-                  "  AND EXISTS (SELECT 1 FROM salescall.attempt_state_history h WHERE h.attempt_id = b.attempt_id"
-                  "              AND h.to_state = 'in_conversation')) AS t", (a["task_id"], a["claimed_at"]))["t"]
+    later = tx.all("SELECT attempt_id FROM salescall.attempts WHERE task_id = %s AND claimed_at > %s", (a["task_id"], a["claimed_at"]))
+    return any(call_report.talked_in(tx, b["attempt_id"]) for b in later)   # 話したかは会話の報告の1か所（見直し29c の 6）
 
 
 def _later_dial(tx: Tx, a: dict[str, Any]) -> bool:

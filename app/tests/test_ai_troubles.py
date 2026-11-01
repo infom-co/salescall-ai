@@ -107,6 +107,20 @@ class SameNames(unittest.TestCase):
         self.assertEqual(self.checks("attempt_ai_troubles", "stage"), set(ai_troubles.STAGES))
         self.assertEqual(self.checks("error_events", "source"), set(errors.SOURCES))
 
+    def test_other_python_lists_match_the_database(self):
+        """Python とデータベースの守りの両方にある一覧が、片方だけ増えていない（見直し29c の 9：前は比べる試験が無かった）。"""
+        import typing
+        from salescall.core import approval, dnc, number_recheck
+        self.assertEqual(self.checks("decision_waits", "checked"), set(call_report.IRREVERSIBLE_CHECKS) | {approval.ASSUMED})
+        self.assertEqual(self.checks("number_rechecks", "outcome"), set(number_recheck.OUTCOMES))
+        from salescall.core import recordings
+        self.assertEqual(self.checks("recording_holds", "reason"), set(recordings.HOLD_REASONS))
+        db = set(owner_access().in_system(SYSTEM, lambda tx: tx.one(
+            "SELECT enum_range(NULL::salescall.dnc_reason)::text[] AS r"))["r"])
+        # データベースだけにある refused_found_after は、外した理由（書く入口が無かった＝core/dnc の Reason の説明）。新しい台帳には書けない
+        self.assertEqual(db - set(typing.get_args(dnc.Reason)), {"refused_found_after"})
+        self.assertLessEqual(set(typing.get_args(dnc.Reason)), db)
+
     def test_the_judge_price_name_follows_the_route(self):
         from salescall.core import usage
         self.assertEqual(usage.judge_service(JEV), usage.JUDGE_SERVICES[JEV])

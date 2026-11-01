@@ -197,18 +197,6 @@ def _tenant_setting(tx: Tx, key: str, tenant_id: UUID | None) -> Any:
     return settings.resolve(tx, key, tenant_id=tenant_id, client_id=None, business_id=None)
 
 
-def _flapping_wait(tx: Tx, stop: dict[str, Any], interval: int) -> timedelta:
-    window = int(_tenant_setting(tx, "stop.flapping.window", stop["tenant_id"]))
-    times = tx.one(
-        "SELECT count(*) AS n FROM salescall.stop_events s WHERE s.action = 'stop' AND s.cause = %s AND s.scope = %s"
-        " AND s.line_id IS NOT DISTINCT FROM %s AND s.event_id <> %s AND s.at > %s - %s * interval '1 second'",
-        (stop["cause"], stop["scope"], stop["line_id"], stop["event_id"], stop["at"], window))["n"]
-    if times == 0:
-        return timedelta(seconds=interval)
-    wait = interval * int(_tenant_setting(tx, "stop.flapping.wait_multiplier", stop["tenant_id"])) ** times
-    return timedelta(seconds=min(wait, int(_tenant_setting(tx, "stop.flapping.max_wait", stop["tenant_id"]))))
-
-
 STOPPED_BY = "エラーの種類："   # エラーで止めた停止の根拠の頭（そのあとにエラーの種類。書くのは decide_stop、読むのは `stopped_kind`）
 
 
@@ -249,7 +237,9 @@ def record_check(tx: Tx, stop_event_id: int, ok: bool, *, evidence: str, begun_a
         if late is not None:
             ok, evidence = False, f"{evidence}（確かめの間に、また止まった：{errors.LABELS[late]}）"
     streak = ((prev["streak"] if prev is not None else 0) + 1) if ok else 0
-    next_at = now + _flapping_wait(tx, s, interval)
+    # 次に確かめてよい時刻は、確かめの間隔の1つだけ（2026-10-31 管理者：「確かめが通れば自動で再開します」。⛔ 見直し29b の 6：前は同じ
+    # 日に同じ原因で止まった回数に応じて、間隔を倍々に延ばした＝最長4時間。CL-2 が仮に足した「ばたつき」の待ちで、ご決定に無かった）
+    next_at = now + timedelta(seconds=interval)
     tx.execute("INSERT INTO salescall.stop_checks (stop_event_id, ok, streak, checked_at, next_check_at, evidence, begun_at)"
                " VALUES (%s, %s, %s, %s, %s, %s, %s)", (stop_event_id, ok, streak, now, next_at, evidence, begun_at))
     resumed = None

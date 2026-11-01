@@ -228,8 +228,6 @@ class TenantAiStopsAndChecks(unittest.TestCase):
             watch.after_error(self.a, SYSTEM, ErrorReport("ai", 503, "UNAVAILABLE"))
 
     def test_an_ai_stop_resumes_after_successful_checks(self):
-        override(self, "stop.flapping.window", 1)                  # 前の試験で止めた分を、ばたつきに数えない
-        time.sleep(1.1)
         sid = self.config_stop()
         self.assertIn(sid, [r["event_id"] for r in self.a.in_tenant(SYSTEM, self.s["tenant"], watch.due_checks)])
         got = self.check(sid, False)                              # 失敗：まだ解かない
@@ -245,15 +243,22 @@ class TenantAiStopsAndChecks(unittest.TestCase):
         self.assertIsNotNone(got["resumed"])
         self.assertEqual(self.ai_stops(), [])
 
-    def test_flapping_makes_the_wait_longer(self):
-        first = self.config_stop()
-        g1 = self.check(first, False)                               # 通らない確かめ（1回通れば解ける＝0165）
-        self.a.in_tenant(OPERATOR, self.s["tenant"], lambda tx: stops.resume(tx, first, reason="試験"))
-        second = self.config_stop()                                 # 短い間に、また止まった
-        g2 = self.check(second, False)
-        at = lambda sid: self.a.in_tenant(SYSTEM, self.s["tenant"], lambda tx: tx.one(
-            "SELECT checked_at FROM salescall.stop_checks WHERE stop_event_id = %s", (sid,)))["checked_at"]
-        self.assertGreater(g2["next_check_at"] - at(second), g1["next_check_at"] - at(first))
+    def test_a_stop_again_soon_does_not_lengthen_the_wait(self):
+        """同じ日に同じ原因でまた止まっても、次に確かめてよいまでの長さは、確かめの間隔 stop.ai.probe_interval の1つだけ（2026-10-31
+        管理者：「確かめが通れば自動で再開します」）。⛔ 見直し29b の 6：前は止まった回数に応じて倍々に延ばし（最長4時間）、AI がすぐ戻っても
+        新しい電話を長く止めた（CL-2 が仮に足した「ばたつき」の待ち）。"""
+        interval = self.a.in_tenant(SYSTEM, self.s["tenant"], lambda tx: settings.resolve(
+            tx, "stop.ai.probe_interval", tenant_id=self.s["tenant"], client_id=None, business_id=None))
+        waits = []
+        for _ in range(3):                                          # 止まる・解けるを短い間に3回くり返す
+            sid = self.config_stop()
+            got = self.check(sid, False)                            # 通らない確かめ
+            at = self.a.in_tenant(SYSTEM, self.s["tenant"], lambda tx: tx.one(
+                "SELECT checked_at FROM salescall.stop_checks WHERE stop_event_id = %s ORDER BY check_id DESC LIMIT 1",
+                (sid,)))["checked_at"]
+            waits.append((got["next_check_at"] - at).total_seconds())
+            self.a.in_tenant(OPERATOR, self.s["tenant"], lambda tx: stops.resume(tx, sid, reason="試験"))
+        self.assertEqual(waits, [float(interval)] * 3)
 
     def test_manual_stop_is_not_resumed_by_checks(self):
         with self.assertRaises(Rejected):                    # 全体の緊急停止は、管理者だけ（契約者は押せない）

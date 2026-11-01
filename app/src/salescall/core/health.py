@@ -70,7 +70,7 @@ from salescall.core.access import Tx
 
 __all__ = ["ORDER", "Tick", "after_call", "after_settle", "blame_of", "by_hand_line", "by_hand_stop", "by_hand_task", "claimed",
            "decode", "encode", "fixed", "line_of", "number_dead", "number_held", "number_of", "number_set", "number_set_everywhere",
-           "number_wait", "removed", "stage_name", "stuck", "task_of", "tested", "tick", "waiting_decision"]
+           "number_wait", "removed", "stage_name", "storage_back", "stuck", "task_of", "tested", "tick", "waiting_decision"]
 
 LINE, TENANT, TASK, NUMBER, ATTEMPT = "line", "tenant", "task", "number", "attempt"
 ORDER = (LINE, TENANT, TASK, NUMBER, ATTEMPT)   # 鍵を取る順（17章：回線→契約者。行・番号・試行のせいはそのあと）
@@ -346,7 +346,7 @@ _CALL = (
     "SELECT a.attempt_id, a.line_id, a.task_id, a.contact_id, a.claimed_at, a.ended_at, a.trouble, a.state::text AS state, a.hangup_side, a.notice,"
     "       salescall.rang(a.state, a.cut_off, a.attempt_id) AS rang, salescall.trouble_ours(a.trouble) AS ours,"
     "       salescall.trouble_counts_line(a.trouble) AS by_audio, salescall.trouble_kind(a.trouble) AS kind,"
-    "       salescall.reached_answer(a.attempt_id) AS answered, (a.state = 'ended' AND a.trouble IS NULL) AS talked,"
+    "       salescall.reached_answer(a.attempt_id) AS answered, (a.state = 'ended' AND a.trouble IS NULL) AS ended_clean,"
     "       salescall.resume_allowed(a.attempt_id) AS resume_allowed"
     " FROM salescall.attempts a"
     " WHERE a.attempt_id = %s AND salescall.is_dialed(a.state) AND NOT salescall.is_active(a.state) AND a.ended_at IS NOT NULL")
@@ -364,7 +364,7 @@ def _call_event(tx: Tx, a: dict[str, Any]) -> str:
         return "E2"
     if a["by_audio"] or _cut_by_audio(tx, a):
         return "E4"
-    if a["talked"]:
+    if a["ended_clean"] and call_report.talked_in(tx, a["attempt_id"]):   # お客様と話したかは会話の報告の1か所（見直し29c の 6）
         return "E5"
     return "E1"
 
@@ -560,8 +560,8 @@ def stuck(tx: Tx, line_id: UUID, lasted: float, since: datetime | None = None) -
 
 
 def storage_back(tx: Tx) -> None:
-    """データベースへの書き込みが戻った（E21。データベースの止まりで電話を終えた回線が、次の電話の前に、決めた長さのうちに書けると
-    確かめた＝supervisor/line.storage_back の1か所が呼ぶ）：その契約者の復旧待ちの行へ渡す。待っている種類がデータベースの止まり
+    """データベースへの書き込みが戻った（E21。この取引そのものが、決めた長さのうちに確定まで書けた＝決まった間隔の仕事
+    supervisor/jobs.storage_recovery の1か所が、書き込みの確かめ supervisor/line.timed_write の中で呼ぶ）：その契約者の復旧待ちの行へ渡す。待っている種類がデータベースの止まり
     （errors.TROUBLES の storage_stuck）の行は、R-6 のとおり、お詫びとともにすぐかけ直す（2026-10-31 管理者：伺い5「話していた電話は
     お詫びして終え、復旧次第お詫びとともにかけ直します」。⛔ 見直し28：前は、ほかの行の電話を不具合なく話し終えるか、直した版に替わる
     まで戻らず、一覧の最後の1行のように、ほかにかける行が無いと、お詫びの電話がかからなかった）。休みの行（同じ行で2回止まった）には

@@ -673,7 +673,7 @@ class PromiseNotTransferred(SettleBase):
         for again in (True, False, None):
             r = self.report(again)
             self.assertEqual(from_json(r.to_json()), r)
-            self.assertEqual(r.may_call_again, again is True)
+            self.assertEqual(r.may_call_again(lambda c: c.time_said is None), again is True)
             self.assertEqual("again" in r.to_json()["facts"]["not_transferred"][0], again is not None)
 
 
@@ -1156,9 +1156,10 @@ class SameDayAndSuccessor(SettleBase):
         """同じ日にかけてよいかは、その通話を締めた「不在」「取り次げない」の記録のうち、いちばん新しいものの答え（1か所）。"""
         from salescall.core.call_report import NotTransferred, Said
         r = self.absent(True)
-        self.assertTrue(r.may_call_again)
+        untimed = lambda c: c.time_said is None   # noqa: E731（判定は時刻の言葉を読んで決める＝judge._untimed_absence）
+        self.assertTrue(r.may_call_again(untimed))
         later = replace(r, not_transferred=(NotTransferred(Said(5, "やはりお繋ぎできかねます。"), None),))
-        self.assertFalse(later.may_call_again)                  # あとの「取り次げない」で聞いていない
+        self.assertFalse(later.may_call_again(untimed))         # あとの「取り次げない」で聞いていない
         self.assertEqual(call_report.from_json(r.to_json()), r)   # 置いて読み直しても同じ
 
     def test_departed_with_the_successor_policy_chases_the_successor(self):

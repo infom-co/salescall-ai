@@ -19,7 +19,7 @@ from uuid import UUID
 from salescall.core import (agents, answer_rate, attempts, backup, calendar, conversation_io, health, leases, measure, next_action,
                             settle, usage, watch)
 from salescall.core.access import Access
-from salescall.supervisor import ACTOR, config, plugins, report
+from salescall.supervisor import ACTOR, config, line, plugins, report
 from salescall.supervisor.links import Links
 
 
@@ -192,6 +192,16 @@ def fixed_stops(ctx: Context) -> None:
     ctx.access.in_tenant(ACTOR, ctx.tenant_id, health.fixed)
 
 
+def storage_recovery(ctx: Context) -> None:
+    """データベースへの書き込みが戻った（E21）を、その契約者の復旧待ちの行へ渡す（core/health.storage_back。1か所）。渡す取引そのものが
+    書き込みの確かめ（supervisor/line.timed_write＝確定まで call.frozen_after のうちに終わるか。回線の流れの `storage_back` と同じ1か所）
+    なので、時間切れなら何もせず、次の回にまた確かめる。待っている行が無ければ何も書かない。2026-10-31 管理者：伺い5「話していた電話は
+    お詫びして終え、復旧次第お詫びとともにかけ直します」。⛔ 見直し29a の 1：前は、止まりで電話を終えた回線の流れの手元の印から渡したので、
+    本当にデータベースが固まって回線の流れが立て直されると（line._Call.abandoned → main._abandon）、印ごと消えて E21 がどこからも出ず、
+    一覧の最後の1行のお詫びのかけ直しが来なかった。止まりで電話を終えた記録（E3）と E21 の順が入れ替わっても、次の回で拾う。"""
+    line.timed_write(ctx.access, ctx.tenant_id, health.storage_back)
+
+
 def budget(ctx: Context) -> None:
     """費用の見張り（その契約者の分）：今日の費用の注意・赤字の警告と、期限までに確認されなければもう一度の知らせ（赤字では止めない＝
     2026-10-22 深夜 ユーザー。12-1）。"""
@@ -249,6 +259,8 @@ def pc_watch(ctx: Context) -> None:
 # - pc_watch：PC の合図の途切れ（pc.down_after＝初め3分）に、1分の遅れで気づく
 # - verify_watch：通話後の検証が止まっている（録音を待つ時間＋1時間）ことに、10分の遅れで気づく（修正依頼は同じ不具合で1つ）
 # - whole_backup：数分ごとに見て、backup が1日1回にする（失敗したら1時間あけてやり直す）
+# - storage_recovery：データベースの止まりで終えた電話を、書き込みが戻ってから、お詫びとともにかけ直すまでの遅れ（15秒。回線の流れの
+#   次の電話の前の確かめ＝line.IDLE_SECONDS ごとと同じくらい）
 # - fixed_stops：直したと記録され、そのあとプログラムが替わってから、こちらの不具合の停止を解くまでの遅れ（1分。版を書くのは本体の毎回の段）
 # - lasting_stops・system_lasting_stops：止まったまま1時間続いた停止の修正依頼（確かめの部品が無くても動く。依頼は同じ不具合で1つ）
 # - backup_watch・whole_backup_watch：控えが1日以上取れていないことに気づく（取る仕事は設定が無いと動かないので、別の仕事にする）。
@@ -272,6 +284,7 @@ JOBS: tuple[Job, ...] = (
     Job("backup_watch", 3600, "tenant", 600, backup_watch),
     Job("lasting_stops", 300, "tenant", 600, lasting_stops),
     Job("fixed_stops", 60, "tenant", 300, fixed_stops),
+    Job("storage_recovery", 15, "tenant", 300, storage_recovery),   # データベースの止まりからの復旧（E21。見直し29a の 1）
     Job("system_lasting_stops", 300, "system", 600, system_lasting_stops),
     Job("whole_backup_watch", 3600, "system", 600, whole_backup_watch),
     Job("pc_watch", 60, "tenant", 300, pc_watch),

@@ -63,7 +63,7 @@ from salescall.core.phone import normalize
 VERSION = 3
 FACT_KINDS = ("do_not_call", "complaint", "out_of_scope", "party", "callback", "ai_question", "voicemail_message", "end",
               "connect", "answered", "target_back", "callback_resume", "not_transferred", "substitute", "departed", "callee_question",
-              "talk", "hold_timeout")
+              "talk", "hold_timeout", "end_unjudged", "goal_refused")
 # substitute・departed・callee_question（CL-1 の連絡帳 4-28・2-2 の版 0.5。2026-10-22 ユーザー決定の相手の申し出。どれも無くてもよい）：
 #   substitute＝電話口の方が、お呼びした方の代わりにご用件を伺うと申し出た（policy＝業務設定の応じ方・read・answer＝判断いただける
 #   お立場かを伺った答え）。departed＝お呼びした方が在籍していない（policy・read・successor＝後任の方へ切り替えたあとか）。
@@ -83,6 +83,16 @@ FACT_KINDS = ("do_not_call", "complaint", "out_of_scope", "party", "callback", "
 #   保留を頼まれた発話・waited_s＝待った秒（0より大きい数）。締めた理由 hold_timeout と組で出る。記録だけ（判定は、目的のお客様に繋がる
 #   前の保留なら繋がらなかった理由 not_transferred＝日を改めて1回、繋がったあと・目的のお客様のいない業務なら「取れていない」のまま
 #   ＝どちらも今の判定の1か所が読む。取り次げないと言われた発話＝事実 not_transferred とは別のもの＝通話後の検証が見分ける）
+# end_unjudged：会話AIが電話を終える言葉と報告したのに、判定の答えが待っても1つも届かず、会話AIの読みで丁寧に締めた（CL-1 の連絡帳
+#   4-64 の (b)。reason＝会話AIが報告した終わりの理由＝UNJUDGED_REASONS。会話の側は、もうかけない・苦情の印を付けない）。判定が読んで
+#   いない断り・怒っていたは、取り消せない決定の候補として、通話後の録音の確かめまで保留にする（`unjudged_refusal`・`unjudged_complaint`
+#   が `do_not_call`・`complaint` に入り、judge.irreversible が「判定が無い」として待つ。2026-11-01 ✅ ユーザー：「もうかけない」の印は、
+#   通話のあとの確かめで判定が「断った」と読んだときだけ）。
+# goal_refused：最終目的の申し出を断られ、業務の目的が果たせなくなって途中で締めた（CL-1 の連絡帳 4-64 の (f)。goals＝断られた最終目的の
+#   質問の番号・mode＝業務の最終目的の果たし方 GOAL_MODES。締めた理由 goal_refused と組で出る）。判定は「用件を断られた」（declined）
+#   と同じ1か所（judge の (4)）。
+UNJUDGED_REASONS = ("callee_hurry", "callee_refused_call", "callee_complaint", "not_transferred", "transfer_unclear")
+GOAL_MODES = ("any", "all")                              # どれか1つで目的が果たせる／全部が要る（CL-1 の instruction.Business.goal_mode）
 JUDGES = ("judge", "judge2")                             # 意味の判定の受け持ちの名前（CL-1 の flowctl.JUDGMENTS。代わりの Jev も、この名前で入る）
 CONNECT_READS = ("ai",) + JUDGES                         # 繋いだ読み：会話AIの報告と、判定の受け持ち
 TARGET_IS_THERE = "ご本人"                               # 判定の「目的のお客様ご本人」の読み（CL-1 の flowctl.TARGET_IS_THERE）
@@ -128,7 +138,7 @@ UNTIL_BY_REASON = {"other_number": "other_party", "ask_who": "other_party", "abs
                    "day_off": "unavailable", "ask_when": "preparing"}
 # 不在・別の番号・あとで（お客様に頼まれた。6-2）／分かるお客様・分かる時を聞いた（15-2-3 の a1・a2）／こちらが約束した
 END_REASONS = ("done", "callee_hurry", "callee_refused_call", "callee_complaint", "wrong_party", "voicemail", "ivr", "fax",
-               "callback", "not_transferred", "departed", "other_means", "hold_timeout")               # 締めた理由（CL-1 の END_LABEL の名前。「AIですか」では終えない＝2026-10-19 夜 ユーザー）
+               "callback", "not_transferred", "departed", "other_means", "hold_timeout", "goal_refused")   # 締めた理由（CL-1 の END_LABEL の名前。「AIですか」では終えない＝2026-10-19 夜 ユーザー）
 HURRIED_ENDS = frozenset({"callee_hurry", "callee_refused_call", "callee_complaint"})   # 急いでいる・断られた・怒っている（CL-1 の Flow.hurried と同じ）
 NOT_REACHED_REASONS = ("absent", "not_transferred", "departed", "other_means")   # 目的のお客様に繋がらなかった理由（7-1。CL-1 の
 #   NOT_REACHED_LABEL：在籍していない＝後任の方にも繋がらなかった・終える業務／ほかの手段を望まれた。2026-10-22 の版 0.5）
@@ -141,7 +151,7 @@ HUMAN_PARTIES = frozenset({"reception", "target", "substitute", "successor", "wr
 # 在籍していない・ほかの手段・保留で待ちきった＝保留を頼むのは人の言葉。CL-1 の 4-42）。入れないもの（MACHINE_ENDS）：留守番電話・
 # 自動音声・FAX。END_REASONS はこの2つにちょうど分かれる
 HUMAN_ENDS = frozenset({"done", "callee_hurry", "callee_refused_call", "callee_complaint", "wrong_party", "callback",
-                        "not_transferred", "departed", "other_means", "hold_timeout"})
+                        "not_transferred", "departed", "other_means", "hold_timeout", "goal_refused"})
 MACHINE_ENDS = frozenset({"voicemail", "ivr", "fax"})
 # 相手が人でないと起きない事実（CallReport の欄の名前）：繋いだ・かけ直しの申し出・苦情・範囲外の求め・「AIですか」・お客様の質問に
 # 録音で答えた・確かめに戻った・続きへ戻った・取り次げない・代わりの方・在籍していない・お客様からの質問・受け答え・保留を頼まれた。
@@ -150,7 +160,8 @@ MACHINE_ENDS = frozenset({"voicemail", "ivr", "fax"})
 # 取れた答え（項目の値）は会話の報告に入れ物が無い（行の項目は通話をまたいでたまる）ので、報告の中で人の答えと分かる事実
 # （お客様からの質問・受け答え・録音で答えた質問）で見る
 HUMAN_FACTS = ("connects", "callbacks", "complaints", "out_of_scope_requests", "ai_questions", "answered", "target_backs",
-               "callback_resumes", "not_transferred", "substitutes", "departures", "callee_questions", "talks", "hold_timeouts")
+               "callback_resumes", "not_transferred", "substitutes", "departures", "callee_questions", "talks", "hold_timeouts",
+               "unjudged_ends", "goal_refusals")
 SPEAKERS = ("callee", "ai", "none")                      # 切れた瞬間に話していた側（7-1c）
 # 取り消せない決定について、会話AIの報告と2つ目の判定（意味の判定）がそろったか（報告ごとに1つ。データの形 版 1.07）：
 # agreed＝そろった（その場で決める）／disagreed＝食い違った／none＝判定が無い（無い・古い報告もこれ）。そろわなければ録音の確かめまで保留
@@ -200,7 +211,7 @@ class Callback:
     means: tuple[tuple[str, str | None], ...] = ()   # 申し出で聞いた宛先・伝言の答え（CALLBACK_MEANS → 取れた値。依頼者へ渡す＝CL-3）
     message_left: bool = False   # 伝言を残す業務で、伝言をお願いした（記録だけ）
     again: bool | None = None    # 不在で戻る時刻が分からなかったとき：今日戻る見込みがあり、後でかけてよいと言われたか（None＝聞いて
-    #                              いない）。同じ日のうちにかけ直すかを決める（may_call_again の1か所。2026-10-22 ユーザー）
+    #                              いない）。同じ日のうちにかけ直すかを決める（may_call_again・judge._untimed_absence の1か所。2026-10-22 ユーザー）
     back_today: bool | None = None   # 「本日お戻りのご予定は」への答え（記録だけ）
     beyond_limit_ok: bool = False    # お客様指定の歯止め時間の外の時刻（「23時以降なら」）を通話の中で確かめ、「はい」と言われた（2026-10-23
     #                                  ユーザー：「案B＆案A(確かめたうえで案A)」。読むのは時刻の読み spoken_time.read の1か所＝judge._when）
@@ -334,6 +345,21 @@ def ai_trouble(raw: Any, where: str = "ai_trouble") -> AiTrouble:
 
 
 @dataclass(frozen=True)
+class Unjudged:
+    """判定が届かず、会話AIの読みで締めた（事実 end_unjudged。CL-1 の 4-64 の (b)）。"""
+    evidence: Said
+    reason: str                  # 会話AIが報告した終わりの理由（UNJUDGED_REASONS）
+
+
+@dataclass(frozen=True)
+class GoalRefused:
+    """最終目的の申し出を断られ、業務の目的が果たせなくなった（事実 goal_refused。CL-1 の 4-64 の (f)）。"""
+    evidence: Said
+    goals: tuple[str, ...]       # 断られた最終目的の質問の番号
+    mode: str                    # GOAL_MODES
+
+
+@dataclass(frozen=True)
 class HoldTimeout:
     """保留を頼まれ、待ちきった（事実 hold_timeout。CL-1 の 4-42）。記録だけ。"""
     evidence: Said               # 保留を頼まれた発話
@@ -402,17 +428,30 @@ class CallReport:
     callee_questions: tuple[CalleeQuestion, ...] = ()   # 事実 callee_question：お客様からの質問（記録だけ）
     talks: tuple[Talk, ...] = ()         # 事実 talk：受け答えの一言（記録だけ）
     hold_timeouts: tuple[HoldTimeout, ...] = ()   # 事実 hold_timeout：保留を頼まれ、待ちきった（記録だけ）
+    unjudged_ends: tuple[Unjudged, ...] = ()      # 事実 end_unjudged：判定が届かず、会話AIの読みで締めた
+    goal_refusals: tuple[GoalRefused, ...] = ()   # 事実 goal_refused：最終目的を断られ、目的が果たせなくなった
     irreversible_check: str = "none"     # 取り消せない決定の2つ目の判定がそろったか（IRREVERSIBLE_CHECKS。無い・古い報告は none）
     ai_troubles: tuple[AiTrouble, ...] = ()   # 止まったAI（データの形 版 1.08。無い・古い報告は空。判定には使わない）
 
     # ── 判定が読むもの（どれも事実から読む。ここの1か所）
     @property
     def do_not_call(self) -> bool:
-        return bool(self.refusals)
+        """発信の拒否の候補（申告か、判定が届かずに会話AIの読みで「通話を断られた」と締めた）。どちらも取り消せない決定で、2つ目の判定が
+        そろったか（judge.irreversible）で、その場で決めるか、録音の確かめまで保留にする。"""
+        return bool(self.refusals) or self.unjudged_refusal
 
     @property
     def complaint(self) -> bool:
-        return bool(self.complaints)
+        """怒っていた・苦情の候補（事実 complaint か、判定が届かずに会話AIの読みで「相手が怒っている」と締めた）。"""
+        return bool(self.complaints) or self.unjudged_complaint
+
+    @property
+    def unjudged_refusal(self) -> bool:
+        return any(u.reason == "callee_refused_call" for u in self.unjudged_ends)
+
+    @property
+    def unjudged_complaint(self) -> bool:
+        return any(u.reason == "callee_complaint" for u in self.unjudged_ends)
 
     @property
     def out_of_scope(self) -> bool:
@@ -452,16 +491,18 @@ class CallReport:
         判定の読み無しで繋いだ、または繋いだあとに届いた判定が「ご本人」でない繋ぎが1つでもある。"""
         return any(c.unverified for c in self.connects)
 
-    @property
-    def may_call_again(self) -> bool:
+    def may_call_again(self, untimed: Any) -> bool:
         """目的のお客様に繋がらなかった通話で、同じ日のうちにまたかけてよいと言われたか（1か所）：その通話を締めた「不在」（戻る時刻の
-        無いかけ直しの申し出。理由が不在の仲間）・「取り次げない」の記録のうち、いちばん新しいものの again が true のときだけ。
+        取れなかったかけ直しの申し出＝untimed(かけ直しの申し出) が真のもの。決めるのは判定の1か所 judge._untimed_absence＝時刻の言葉を
+        読んで「時刻の決まっていない」になるもの。⛔ 見直し29c の 7：前はここで「時刻の言葉が無い」で決め、判定は「読んで時刻が
+        決まらない」で決めていた＝「後ほど」のような言葉のある不在を、判定は不在、ここは数えない、と食い違った）・「取り次げない」の記録の
+        うち、いちばん新しいものの again が true のときだけ。
         断られた・はっきりしない・聞いていないときは False（同じ日にはかけ直さない側）。
         2026-10-22 ユーザー：「本日、本人が戻られる可能性があるのかと、戻られる可能性があるのであれば後ほどおかけしてもよろしい
         でしょうかというお尋ねが必要…同じ日に2回以上、その言葉がなくかけるのであれば煙たがられますよ。（営業拒否につながる。）」
         「OKなら、当日の約束の時刻の幅の中かけ直してもいいと思うけど、そうでなければ、当日の幅はやめたほうがいい」"""
         asked = [(n.evidence.turn, n.again) for n in self.not_transferred]
-        asked += [(c.evidence.turn, c.again) for c in self.callbacks if c.reason in ABSENT_REASONS and c.time_said is None]
+        asked += [(c.evidence.turn, c.again) for c in self.callbacks if untimed(c)]
         return bool(asked) and max(asked, key=lambda x: x[0])[1] is True
 
     @property
@@ -513,8 +554,11 @@ class CallReport:
         cut = self.cut
         if cut is not None and "refusal" in parts:
             cut = replace(cut, callee_refused_last=False)
+        unjudged = {"refusal": "callee_refused_call", "complaint": "callee_complaint"}
+        drop_unjudged = {unjudged[p] for p in parts if p in unjudged}
         return replace(self, refusals=() if "refusal" in parts else self.refusals,
                        complaints=() if "complaint" in parts else self.complaints,
+                       unjudged_ends=tuple(u for u in self.unjudged_ends if u.reason not in drop_unjudged),
                        party_reports=tuple(p for p in self.party_reports if p.party not in drop), cut=cut)
 
     def to_json(self) -> dict[str, Any]:
@@ -554,7 +598,9 @@ class CallReport:
             "callee_question": [{**said(x.evidence), "answered": x.answered, **x.own.to_json()} for x in self.callee_questions],
             "talk": [{**said(t.evidence), **t.own.to_json(), **({} if t.fallback is None else {"fallback": t.fallback})}
                      for t in self.talks],
-            "hold_timeout": [{**said(h.evidence), "waited_s": h.waited_s} for h in self.hold_timeouts]}
+            "hold_timeout": [{**said(h.evidence), "waited_s": h.waited_s} for h in self.hold_timeouts],
+            "end_unjudged": [{**said(u.evidence), "reason": u.reason} for u in self.unjudged_ends],
+            "goal_refused": [{**said(g.evidence), "goals": list(g.goals), "mode": g.mode} for g in self.goal_refusals]}
         return {"version": VERSION, "facts": {k: v for k, v in facts.items() if v}, "not_reached": self.not_reached,
                 "cut": None if self.cut is None else {"speaker": self.cut.speaker, "in_closing": self.cut.in_closing,
                                                       "callee_refused_last": self.cut.callee_refused_last,
@@ -743,13 +789,10 @@ def from_json(raw: Any) -> CallReport:
     departures = tuple(Departed(_choice(r.get("policy"), RESPONSE_POLICIES["departed"], "facts.departed.policy"),
                                 _reads(r.get("read"), "facts.departed.read"), _bool(r, "successor"), s)
                        for r, s in _records(facts, "departed", {"policy", "read", "successor"}))
-    # 確かめに戻った（target_back）のは、かけ直しの申し出の途中か、代わりの方と話している途中（2026-10-22 の CL-1 の直し：代わりの方の
-    # あとにご本人が出た）か、約束の電話で「取り次げない」と言われ、約束の一言（P1）を伺っている間に取り次がれたとき（受付の方が
-    # 考えを変えた。CL-1 の連絡帳 4-47＝Flow.asking_reception。そのあと繋げば connect が続く）。続きへ戻った（callback_resume）のは、
-    # かけ直しの申し出の途中だけ
-    if (backs and not (callbacks or substitutes or not_transferred)) or (resumes and not callbacks):
-        raise ReportInvalid("かけ直しの申し出・代わりの方の申し出・取り次げなかった記録が無いのに、確かめに戻った記録があります（または、"
-                            "かけ直しの申し出が無いのに、続きへ戻った記録があります）")
+    # 確かめに戻った（target_back）・続きへ戻った（callback_resume）は記録だけ。いつ戻るか（どの申し出・伺いの途中か）は会話の側の決まり
+    # （CL-1 の Flow.asking_reception）なので、ここで写して組み合わせを断らない（⛔ 見直し29c の 3：前はかけ直し・代わりの方・取り次げない
+    # の記録が無い確かめを断っていた。会話の側に「急いでいる方への伺いの途中に取り次がれた」道が増え、正しい報告が丸ごと断られ、その
+    # 通話が締まらなかった＝決まりを2か所に持つと、片方だけ増えて食い違う）
     questions = []
     for r, s in _records(facts, "callee_question", {"answered"} | OWN_WORDS_KEYS):
         if "answered" not in r or (r["answered"] is not None and not isinstance(r["answered"], bool)):
@@ -763,6 +806,14 @@ def from_json(raw: Any) -> CallReport:
         if isinstance(w, bool) or not isinstance(w, (int, float)) or not w > 0:
             raise ReportInvalid("facts.hold_timeout.waited_s は、待った秒（0より大きい数）です")
         holds.append(HoldTimeout(s, float(w)))
+    unjudged = tuple(Unjudged(s, _choice(r.get("reason"), UNJUDGED_REASONS, "facts.end_unjudged.reason"))
+                     for r, s in _records(facts, "end_unjudged", {"reason"}))
+    goals = []
+    for r, s in _records(facts, "goal_refused", {"goals", "mode"}):
+        g = r.get("goals")
+        if not isinstance(g, list) or not g or not all(isinstance(x, str) and x for x in g) or len(set(g)) != len(g):
+            raise ReportInvalid("facts.goal_refused.goals は、断られた最終目的の質問の番号の並び（1つ以上・重ならない）です")
+        goals.append(GoalRefused(s, tuple(g), _choice(r.get("mode"), GOAL_MODES, "facts.goal_refused.mode")))
     # 取り消せない決定の2つ目の判定（データの形 版 1.07）：無い・null（古い報告・まだ書かない会話の処理）は「判定が無い」
     check = "none" if d.get("irreversible_check") is None else \
         _choice(d["irreversible_check"], IRREVERSIBLE_CHECKS, "irreversible_check")
@@ -776,7 +827,8 @@ def from_json(raw: Any) -> CallReport:
         raise ReportInvalid("ai_trouble に、同じAI・同じ道・同じ出来事が2つあります（1つにまとめて回数を数えます）")
     return CallReport(refusals, complaints, oos, parties, tuple(callbacks), ends, not_reached, cut, delivered, ai_questions,
                       voicemail, tuple(connects), tuple(answered), backs, resumes, not_transferred, substitutes, departures,
-                      tuple(questions), talks, tuple(holds), check, troubles)
+                      tuple(questions), talks, tuple(holds), unjudged_ends=unjudged, goal_refusals=tuple(goals),
+                      irreversible_check=check, ai_troubles=troubles)
 
 
 OWN_WORDS_KEYS = {"answer", "drafts", "checked"}
@@ -826,6 +878,16 @@ def load_with_source(tx: Tx, attempt_id: UUID) -> tuple[CallReport | None, str |
 
 def load(tx: Tx, attempt_id: UUID) -> CallReport | None:
     return load_with_source(tx, attempt_id)[0]
+
+
+def talked_in(tx: Tx, attempt_id: UUID) -> bool:
+    """その通話でお客様と話したか（1か所。会話の報告の人の証の表＝`CallReport.talked` を読む。報告が無ければ、いいえ）。状態の表の入口
+    （core/health の「こちらの不具合なしにお客様と話し終えた」E5）と、締め（core/settle の、あとでお客様と話した通話があるか）が読む。
+    ⛔ 見直し29c の 6：前は、状態の表は試行の状態が ended まで進んだか、締めは状態の移りに会話中（in_conversation）があるかで、別々に
+    決めていた（留守番電話・FAX で ended まで進んだ電話も「話し終えた」と読み、休んだ行の復旧・違う3行の数え直しが、お客様と話して
+    いない電話で起きえた）。"""
+    report = load(tx, attempt_id)
+    return report is not None and report.talked
 
 
 def voicemail_left(tx: Tx, phone_e164: str) -> bool:

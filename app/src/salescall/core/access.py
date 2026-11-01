@@ -71,7 +71,8 @@ class RetryExhausted(Exception):
 
 
 class TimedOut(Exception):
-    """取引の中の読み書きが、`Tx.time_limit` で決めた長さのうちに終わらなかった（データベースが固まった・遅い）。"""
+    """取引の中の読み書きが、取引を始めるときに渡した時間切れ（`Access.in_tenant` などの time_limit）の長さのうちに終わらなかった
+    （データベースが固まった・遅い）。"""
 
 
 # データベースが「約束に反する」として拒んだもの。⇒ Rejected にする
@@ -86,11 +87,6 @@ class Tx:
 
     def __init__(self, conn: psycopg.Connection[dict[str, Any]]) -> None:
         self._conn = conn
-
-    def time_limit(self, seconds: float) -> None:
-        """この取引の、ここから先の読み書き1つずつの長さの上限（1か所。データベースの決まり statement_timeout をこの取引だけに付ける）。
-        超えたら `TimedOut`。データベースが固まっていても、待ち続けない所が使う（supervisor/line.storage_back。見直し28）。"""
-        self._conn.execute("SELECT set_config('statement_timeout', %s, true)", (f"{max(1, int(seconds * 1000))}ms",))
 
     def execute(self, sql: str, params: tuple[Any, ...] | dict[str, Any] | None = None) -> psycopg.Cursor[dict[str, Any]]:
         try:
@@ -251,11 +247,12 @@ class Access:
             raise ValueError("契約者IDと依頼者IDは必ず要ります")
         return self._run(actor, tenant_id, client_id, work, read_only=read_only)
 
-    def in_tenant(self, actor: Actor, tenant_id: UUID, work: Callable[[Tx], T]) -> T:
-        """契約者のデータ（依頼者の一覧・回線・停止）を扱う取引。依頼者のデータの表は、どの行も見えない。"""
+    def in_tenant(self, actor: Actor, tenant_id: UUID, work: Callable[[Tx], T], *, time_limit: float | None = None) -> T:
+        """契約者のデータ（依頼者の一覧・回線・停止）を扱う取引。依頼者のデータの表は、どの行も見えない。
+        time_limit＝この取引の読み書き1つずつの長さの上限（秒。`_run` の1か所が、取引のいちばん初めに付ける）。超えたら `TimedOut`。"""
         if tenant_id is None:
             raise ValueError("契約者IDは必ず要ります")
-        return self._run(actor, tenant_id, None, work)
+        return self._run(actor, tenant_id, None, work, time_limit=time_limit)
 
     def in_system(self, actor: Actor, work: Callable[[Tx], T]) -> T:
         """システム共通の表（全体の停止・祝日の暦・管理者あての知らせ）だけを扱う取引。契約者・依頼者の行は見えない。
@@ -281,13 +278,18 @@ class Access:
                 conn.autocommit = False
 
     def _run(self, actor: Actor, tenant_id: UUID | None, client_id: UUID | None, work: Callable[[Tx], T], *,
-             read_only: bool = False) -> T:
+             read_only: bool = False, time_limit: float | None = None) -> T:
+        """取引を始める1か所。time_limit があれば、取引のいちばん初めの文で、この取引だけの読み書き1つずつの上限（データベースの決まり
+        statement_timeout）を付ける（範囲を決める文・取引の中の読み書き・確定のどれも、その上限の中＝データベースが固まっていても待ち
+        続けない。超えたら `TimedOut`）。⛔ 見直し29a の 7：前は取引の中で付けたので、範囲を決める文と、付ける前の読みには効かなかった。"""
         for attempt in range(self._max_attempts):
             try:
                 with _connection(self._conninfo) as conn:
                     conn.isolation_level = IsolationLevel.REPEATABLE_READ if read_only else IsolationLevel.SERIALIZABLE
                     conn.read_only = read_only
                     with conn.transaction():
+                        if time_limit is not None:
+                            conn.execute(f"SET LOCAL statement_timeout = {max(1, int(time_limit * 1000))}")
                         conn.execute(
                             "SELECT set_config('salescall.tenant_id', %s, true), set_config('salescall.client_id', %s, true),"
                             " set_config('salescall.actor', %s, true), set_config('salescall.actor_kind', %s, true)",
@@ -295,6 +297,8 @@ class Access:
                              actor.name, actor.kind),
                         )
                         return work(Tx(conn))
+            except errors.QueryCanceled as e:
+                raise TimedOut(str(e)) from e
             except _CONFLICTS:
                 # ほかの取引とぶつかった ⇒ 少し待って最初からやり直す（待つ長さは少しずつ伸ばし、ばらつかせる）
                 time.sleep(min(0.2, 0.002 * (2 ** min(attempt, 7))) * (0.5 + random.random()))

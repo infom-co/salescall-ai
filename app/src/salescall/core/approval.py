@@ -214,13 +214,15 @@ def _answered(tx: Tx, attempt_id: UUID, outcome: str) -> frozenset[str]:
 
 
 def _settled(tx: Tx, attempt_id: UUID) -> frozenset[str]:
-    """その通話の取り消せない決定のうち、もう待たない中身（`decision_wait` の1か所が読む）：契約者が承認した中身と、いちばん新しい保留の
-    版で決まったとみなした中身（checked＝assumed。設定 decision.undecided_as_decided。決まったとみなすのは、答えを求めずに決めたこと
-    なので、承認と同じく決まった扱い）。⛔ 見直し28：前は決まったとみなした中身を待つ中身から外さず、あとの締め直し（ほかの中身の取り
-    消し・前の通話からの締め直し）で同じ中身を2回目に「決まったとみなす」知らせを出したり、設定を戻したあとに、もう発信禁止と行の終わりを
-    書いたお客様について契約者に答えを求め直したりしえた。"""
-    w = tx.one("SELECT parts, checked FROM salescall.decision_waits WHERE attempt_id = %s ORDER BY seq DESC LIMIT 1", (attempt_id,))
-    assumed = frozenset(w["parts"]) if w is not None and w["checked"] == ASSUMED else frozenset()
+    """その通話の取り消せない決定のうち、もう待たない中身（`decision_wait` の1か所が読む）：契約者が承認した中身と、保留のどの版でも
+    決まったとみなした中身（checked＝assumed。設定 decision.undecided_as_decided。決まったとみなすのは、答えを求めずに決めたこと
+    なので、承認と同じく決まった扱い。承認の `_answered` が全部の答えを合わせるのと同じく、全部の版を合わせる）。⛔ 見直し28：前は決まったと
+    みなした中身を待つ中身から外さず、あとの締め直しで同じ中身を2回目に「決まったとみなす」知らせを出したり、設定を戻したあとに、もう
+    発信禁止と行の終わりを書いたお客様について契約者に答えを求め直したりしえた。⛔ 見直し29a の 2：見直し28 の直しは、いちばん新しい版
+    だけを見たので、決まったとみなしたあとに別の中身の待ちの版が足されると（設定を戻した→怒っていたの待ち→承認）、断りがまた待ちになり、
+    契約者に答えを求め直した。"""
+    assumed = frozenset(p for r in tx.all("SELECT parts FROM salescall.decision_waits WHERE attempt_id = %s AND checked = %s",
+                                          (attempt_id, ASSUMED)) for p in r["parts"])
     return _answered(tx, attempt_id, "confirmed") | assumed
 
 

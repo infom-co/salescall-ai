@@ -331,6 +331,24 @@ class Choice(unittest.TestCase):
                      "stop.line.resume_after_successes"):
             self.assertIsNone(meaning(gone))
 
+    def test_meanings_follow_the_code_after_review29(self):
+        """0166：画面に出る設定の説明4つが、いまの動きとご決定どおり（見直し29b の 1〜4。コードを直したのに説明の文を書き換え忘れていた）。"""
+        meaning = lambda key: owner_access().in_system(SYSTEM, lambda tx: tx.one(   # noqa: E731
+            "SELECT meaning FROM salescall.setting_definitions WHERE key = %s", (key,)))["meaning"]
+        undecided = meaning("decision.undecided_as_decided")
+        self.assertIn("会話の担当が録音で確かめないまま済んだ、の3つで、どれも同じくこの設定に従います", undecided)
+        self.assertNotIn("いつも契約者に委ね", undecided)
+        retry = meaning("dial.failed_retry_days")
+        self.assertIn("違う番号が続けて鳴らなかっただけでは、回線のせいにしません", retry)
+        self.assertNotIn("違う番号も続けて鳴らなければ回線のせい", retry)
+        rows = meaning("stop.trouble.stop_after_rows")
+        for words in ("声が聞き取れずに終えた電話", "データベースの一時的な止まりで終えた電話", "数え直します"):
+            self.assertIn(words, rows)
+        self.assertNotIn("AI の異常・声が聞き取れない", rows)
+        frozen = meaning("call.frozen_after")
+        self.assertIn("見るのは声ではなく", frozen)
+        self.assertNotIn("「はい、」を流すので", frozen)
+
     def test_the_test_number_is_set_by_the_admin_first_and_by_the_contractor_after(self):
         """テスト番号（line.test_number）の使い方（2026-10-29 管理者。0144）：管理者がシステムの初めの値として仮の番号を入れ、契約者が自分の
         番号を入れたら、その契約者ではそちらを使う（設定の作り＝override のまま）。説明の文と、テスト番号が無いときの知らせの文が、その
@@ -356,8 +374,7 @@ class ScopesDecidedByUser(unittest.TestCase):
               "gate.exact_promise_guard", "gate.exact_promise_guard_samples",  # 時刻を指定した約束の前の空け（0090・0091）
               "callback.exact_slot", "callback.exact_retry_gaps", "callback.exact_days")   # 時刻ちょうどの約束の回（0093）
     TENANT = ("gate.cross_client_interval", "stop.ai.stop_after_failures", "stop.ai.probe_interval",
-              "stop.ai.resume_after_successes", "stop.flapping.window", "stop.flapping.wait_multiplier",
-              "stop.flapping.max_wait", "budget.tenant_daily_yen",   # 費用の見張りは契約者ごと（2026-10-18 ユーザー）
+              "stop.ai.resume_after_successes", "budget.tenant_daily_yen",   # 費用の見張りは契約者ごと（2026-10-18 ユーザー）
               "judge.models", "pc.auto_update")   # 判定に使うAI・プログラムの更新（2026-10-18 ユーザー）
 
     def setUp(self):
